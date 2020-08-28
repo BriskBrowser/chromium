@@ -24,6 +24,8 @@ Earcon = {
   BUTTON: 'button',
   CHECK_OFF: 'check_off',
   CHECK_ON: 'check_on',
+  CHROMEVOX_LOADING: 'chromevox_loading',
+  CHROMEVOX_LOADED: 'chromevox_loaded',
   EDITABLE_TEXT: 'editable_text',
   INVALID_KEYPRESS: 'invalid_keypress',
   LINK: 'link',
@@ -44,6 +46,7 @@ Earcon = {
   SELECTION_REVERSE: 'selection_reverse',
   SKIP: 'skip',
   SLIDER: 'slider',
+  NO_POINTER_ANCHOR: 'no_pointer_anchor',
   WRAP: 'wrap',
   WRAP_EDGE: 'wrap_edge',
 };
@@ -54,7 +57,7 @@ Earcon = {
  * used to generate tutorial content.
  * @type {Object<string, string>}
  */
-var EarconDescription = {
+const EarconDescription = {
   alert_modal: 'alert_modal_earcon_description',
   alert_nonmodal: 'alert_nonmodal_earcon_description',
   button: 'button_earcon_description',
@@ -71,10 +74,41 @@ var EarconDescription = {
 };
 
 
-/**
- * @constructor
- */
-AbstractEarcons = function() {};
+AbstractEarcons = class {
+  constructor() {}
+
+  /**
+   * Plays the specified earcon sound.
+   * @param {Earcon} earcon An earcon identifier.
+   * @param {Object=} opt_location A location associated with the earcon such as
+   *     a
+   * control's bounding rectangle.
+   */
+  playEarcon(earcon, opt_location) {}
+
+  /**
+   * Cancels the specified earcon sound.
+   * @param {Earcon} earcon An earcon identifier.
+   */
+  cancelEarcon(earcon) {}
+
+  /**
+   * Whether or not earcons are available.
+   * @return {boolean} True if earcons are available.
+   */
+  earconsAvailable() {
+    return true;
+  }
+
+  /**
+   * Toggles earcons on or off.
+   * @return {boolean} True if earcons are now enabled; false otherwise.
+   */
+  toggle() {
+    AbstractEarcons.enabled = !AbstractEarcons.enabled;
+    return AbstractEarcons.enabled;
+  }
+};
 
 
 /**
@@ -83,38 +117,3 @@ AbstractEarcons = function() {};
  * @type {boolean}
  */
 AbstractEarcons.enabled = true;
-
-
-/**
- * Plays the specified earcon sound.
- * @param {Earcon} earcon An earcon identifier.
- * @param {Object=} opt_location A location associated with the earcon such as a
- * control's bounding rectangle.
- */
-AbstractEarcons.prototype.playEarcon = function(earcon, opt_location) {};
-
-
-/**
- * Cancels the specified earcon sound.
- * @param {Earcon} earcon An earcon identifier.
- */
-AbstractEarcons.prototype.cancelEarcon = function(earcon) {};
-
-
-/**
- * Whether or not earcons are available.
- * @return {boolean} True if earcons are available.
- */
-AbstractEarcons.prototype.earconsAvailable = function() {
-  return true;
-};
-
-
-/**
- * Toggles earcons on or off.
- * @return {boolean} True if earcons are now enabled; false otherwise.
- */
-AbstractEarcons.prototype.toggle = function() {
-  AbstractEarcons.enabled = !AbstractEarcons.enabled;
-  return AbstractEarcons.enabled;
-};

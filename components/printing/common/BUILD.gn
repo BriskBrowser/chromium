@@ -11,16 +11,21 @@ static_library("common") {
     "cloud_print_cdd_conversion.h",
     "print_messages.cc",
     "print_messages.h",
+    "printing_param_traits.cc",
+    "printing_param_traits.h",
     "printing_param_traits_macros.h",
   ]
 
   deps = [
+    ":mojo_interfaces",
     "//base",
     "//components/cloud_devices/common:common",
     "//ipc",
     "//printing",
     "//printing/common:common",
+    "//printing/mojom",
     "//third_party/blink/public:blink_headers",
+    "//ui/accessibility",
     "//ui/gfx/geometry",
     "//ui/gfx/ipc",
     "//ui/gfx/ipc/geometry",
@@ -33,6 +38,7 @@ mojom("mojo_interfaces") {
 
   public_deps = [
     "//mojo/public/mojom/base",
+    "//printing/mojom",
     "//ui/gfx/geometry/mojom",
   ]
 

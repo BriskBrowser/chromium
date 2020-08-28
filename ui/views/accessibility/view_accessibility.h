@@ -97,7 +97,7 @@ class VIEWS_EXPORT ViewAccessibility {
   Widget* GetNextFocus();
   Widget* GetPreviousFocus();
 
-  virtual gfx::NativeViewAccessible GetNativeObject();
+  virtual gfx::NativeViewAccessible GetNativeObject() const;
   virtual void NotifyAccessibilityEvent(ax::mojom::Event event_type);
 
   // Causes the screen reader to announce |text|. If the current user is not
@@ -108,7 +108,7 @@ class VIEWS_EXPORT ViewAccessibility {
 
   View* view() const { return view_; }
   AXVirtualView* FocusedVirtualChild() const { return focused_virtual_child_; }
-  bool IsLeaf() const { return is_leaf_; }
+  virtual bool IsLeaf() const;
   bool IsIgnored() const { return is_ignored_; }
 
   //
@@ -143,6 +143,21 @@ class VIEWS_EXPORT ViewAccessibility {
   // present, or no virtual descendant has been marked as focused, returns the
   // native accessibility object associated with this view.
   gfx::NativeViewAccessible GetFocusedDescendant();
+
+  // Call when this is the active descendant of a popup view that temporarily
+  // takes over focus. It is only necessary to use this for menus like autofill,
+  // where the actual focus is in content.
+  // When the popup closes, call EndPopupFocusOverride().
+  virtual void SetPopupFocusOverride();
+
+  // Call when popup closes, if it used SetPopupFocusOverride().
+  virtual void EndPopupFocusOverride();
+
+  // Return true if this view is considered focused.
+  virtual bool IsFocusedForTesting();
+
+  // Call when a menu closes, to restore focus to where it was previously.
+  virtual void FireFocusAfterMenuClose();
 
   // Used for testing. Allows a test to watch accessibility events.
   const AccessibilityEventsCallback& accessibility_events_callback() const;

@@ -145,7 +145,7 @@ void DirectLayerTreeFrameSink::DisplayOutputSurfaceLost() {
 
 void DirectLayerTreeFrameSink::DisplayWillDrawAndSwap(
     bool will_draw_and_swap,
-    viz::RenderPassList* render_passes) {
+    viz::AggregatedRenderPassList* render_passes) {
   if (support_->GetHitTestAggregator()) {
     support_->GetHitTestAggregator()->Aggregate(display_->CurrentSurfaceId(),
                                                 render_passes);
@@ -154,8 +154,9 @@ void DirectLayerTreeFrameSink::DisplayWillDrawAndSwap(
 
 base::TimeDelta
 DirectLayerTreeFrameSink::GetPreferredFrameIntervalForFrameSinkId(
-    const viz::FrameSinkId& id) {
-  return frame_sink_manager_->GetPreferredFrameIntervalForFrameSinkId(id);
+    const viz::FrameSinkId& id,
+    viz::mojom::CompositorFrameSinkType* type) {
+  return frame_sink_manager_->GetPreferredFrameIntervalForFrameSinkId(id, type);
 }
 
 void DirectLayerTreeFrameSink::DidReceiveCompositorFrameAck(

@@ -127,7 +127,11 @@ class EncoderAdapter : public webrtc::VideoEncoderFactory {
     if (!supported_in_hardware || !hardware_encoder_factory_.get()) {
       return std::make_unique<webrtc::SimulcastEncoderAdapter>(
           &software_encoder_factory_, nullptr, format);
+    } else if (!supported_in_software) {
+      return std::make_unique<webrtc::SimulcastEncoderAdapter>(
+          hardware_encoder_factory_.get(), nullptr, format);
     }
+
     return std::make_unique<webrtc::SimulcastEncoderAdapter>(
         hardware_encoder_factory_.get(), &software_encoder_factory_, format);
   }
@@ -181,7 +185,7 @@ class DecoderAdapter : public webrtc::VideoDecoderFactory {
 
 }  // namespace
 
-std::unique_ptr<webrtc::VideoEncoderFactory> CreateWebrtcVideoEncoderFactory(
+std::unique_ptr<webrtc::VideoEncoderFactory> CreateHWVideoEncoderFactory(
     media::GpuVideoAcceleratorFactories* gpu_factories) {
   std::unique_ptr<webrtc::VideoEncoderFactory> encoder_factory;
 
@@ -195,7 +199,13 @@ std::unique_ptr<webrtc::VideoEncoderFactory> CreateWebrtcVideoEncoderFactory(
     encoder_factory.reset();
 #endif
 
-  return std::make_unique<EncoderAdapter>(std::move(encoder_factory));
+  return encoder_factory;
+}
+
+std::unique_ptr<webrtc::VideoEncoderFactory> CreateWebrtcVideoEncoderFactory(
+    media::GpuVideoAcceleratorFactories* gpu_factories) {
+  return std::make_unique<EncoderAdapter>(
+      CreateHWVideoEncoderFactory(gpu_factories));
 }
 
 std::unique_ptr<webrtc::VideoDecoderFactory> CreateWebrtcVideoDecoderFactory(

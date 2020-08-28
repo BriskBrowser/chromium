@@ -7,7 +7,6 @@
 #include "base/base_paths.h"
 #include "base/base_switches.h"
 #include "base/command_line.h"
-#include "base/logging.h"
 #include "base/macros.h"
 #include "build/build_config.h"
 #include "content/public/common/content_client.h"
@@ -24,7 +23,7 @@
 #include "ui/display/win/dpi.h"
 #endif
 
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
 #include "base/mac/scoped_nsautorelease_pool.h"
 #include "base/test/mock_chrome_application_mac.h"
 #endif
@@ -60,7 +59,7 @@ ContentTestSuite::ContentTestSuite(int argc, char** argv)
 ContentTestSuite::~ContentTestSuite() = default;
 
 void ContentTestSuite::Initialize() {
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
   base::mac::ScopedNSAutoreleasePool autorelease_pool;
   mock_cr_app::RegisterMockCrApp();
 #endif

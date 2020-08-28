@@ -5,8 +5,9 @@
 #include "components/autofill/core/browser/webdata/autofill_webdata_backend_impl.h"
 
 #include "base/bind.h"
+#include "base/check_op.h"
 #include "base/location.h"
-#include "base/logging.h"
+#include "base/notreached.h"
 #include "base/single_thread_task_runner.h"
 #include "components/autofill/core/browser/data_model/autofill_profile.h"
 #include "components/autofill/core/browser/data_model/credit_card.h"
@@ -535,6 +536,16 @@ WebDatabase::State AutofillWebDataBackendImpl::AddUpiId(
   if (!AutofillTable::FromWebDatabase(db)->InsertUpiId(upi_id))
     return WebDatabase::COMMIT_NOT_NEEDED;
   return WebDatabase::COMMIT_NEEDED;
+}
+
+std::unique_ptr<WDTypedResult> AutofillWebDataBackendImpl::GetAllUpiIds(
+    WebDatabase* db) {
+  DCHECK(owning_task_runner()->RunsTasksInCurrentSequence());
+
+  std::vector<std::string> upi_ids =
+      AutofillTable::FromWebDatabase(db)->GetAllUpiIds();
+  return std::make_unique<WDResult<std::vector<std::string>>>(
+      AUTOFILL_UPI_RESULT, std::move(upi_ids));
 }
 
 std::unique_ptr<WDTypedResult>

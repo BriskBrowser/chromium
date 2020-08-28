@@ -26,11 +26,12 @@ extern const char kTranslateUserActionDuration[];
 extern const char kTranslatePageScheme[];
 extern const char kTranslateSimilarLanguageMatch[];
 extern const char kTranslateLanguageDetectionConflict[];
+extern const char kTranslateLanguageDeterminedDuration[];
 
 }  // namespace metrics_internal
 
 // A page may provide a Content-Language HTTP header or a META tag.
-// TranslateHelper checks if a server provides a valid Content-Language.
+// TranslateAgent checks if a server provides a valid Content-Language.
 enum LanguageCheckType {
   LANGUAGE_NOT_PROVIDED,
   LANGUAGE_VALID,
@@ -38,7 +39,7 @@ enum LanguageCheckType {
   LANGUAGE_MAX,
 };
 
-// When a valid Content-Language is provided, TranslateHelper checks if a
+// When a valid Content-Language is provided, TranslateAgent checks if a
 // server provided Content-Language matches to a language CLD determined.
 enum LanguageVerificationType {
   LANGUAGE_VERIFICATION_CLD_DISABLED,  // obsolete
@@ -59,14 +60,14 @@ enum SchemeType {
   SCHEME_MAX,
 };
 
-// Called after TranslateHelper verifies a server providing Content-Language
+// Called after TranslateAgent verifies a server providing Content-Language
 // header. |provided_code| contains a Content-Language header value which a
 // server provides. It can be empty string when a server doesn't provide it.
 // |revised_code| is a value modified by format error corrector.
 void ReportContentLanguage(const std::string& provided_code,
                            const std::string& revised_code);
 
-// Called after TranslateHelper verifies a page providing html lang attribute.
+// Called after TranslateAgent verifies a page providing html lang attribute.
 // |provided_code| contains a html lang attribute which a page provides. It can
 // be empty string when a page doesn't provide it. |revised_code| is a value
 // modified by format error corrector.
@@ -95,10 +96,9 @@ void ReportPageScheme(const std::string& scheme);
 // language list.
 void ReportSimilarLanguageMatch(bool match);
 
-// Called when page language is "en*" and doesn't match the CLD language; i.e
-// when we suspect that the page language is incorrect.
-void ReportLanguageDetectionConflict(const std::string& page_lang,
-                                     const std::string& cld_lang);
+// Called when the page language is determined.
+void ReportLanguageDeterminedDuration(base::TimeTicks begin,
+                                      base::TimeTicks end);
 
 }  // namespace translate
 

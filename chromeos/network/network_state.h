@@ -60,6 +60,7 @@ class COMPONENT_EXPORT(CHROMEOS_NETWORK) NetworkState : public ManagedState {
                        const base::Value& value) override;
   bool InitialPropertiesReceived(const base::Value& properties) override;
   void GetStateProperties(base::Value* dictionary) const override;
+  bool IsActive() const override;
 
   // Called when the IPConfig properties may have changed. |properties| is
   // expected to be of type DICTIONARY.
@@ -169,9 +170,6 @@ class COMPONENT_EXPORT(CHROMEOS_NETWORK) NetworkState : public ManagedState {
   // roaming.
   bool IndicateRoaming() const;
 
-  // Returns true if the current connection is using mobile data.
-  bool IsUsingMobileData() const;
-
   // Returns true if the network securty is WEP_8021x (Dynamic WEP)
   bool IsDynamicWep() const;
 
@@ -179,9 +177,6 @@ class COMPONENT_EXPORT(CHROMEOS_NETWORK) NetworkState : public ManagedState {
   bool IsConnectedState() const;
   bool IsConnectingState() const;
   bool IsConnectingOrConnected() const;
-
-  // Similar to IsConnectingOrConnected but also checks activation state.
-  bool IsActive() const;
 
   // Returns true if |connection_state_| is online.
   bool IsOnline() const;
@@ -206,6 +201,9 @@ class COMPONENT_EXPORT(CHROMEOS_NETWORK) NetworkState : public ManagedState {
   // (NetworkState is already conservative in interpreting Shill's captive
   // portal state, see IsCaptivePortalState in the .cc file).
   bool IsCaptivePortal() const;
+
+  // Returns true if the security type is non-empty and not 'none'.
+  bool IsSecure() const;
 
   // Returns the |raw_ssid| as a hex-encoded string
   std::string GetHexSsid() const;
@@ -247,6 +245,9 @@ class COMPONENT_EXPORT(CHROMEOS_NETWORK) NetworkState : public ManagedState {
   static bool ErrorIsValid(const std::string& error);
   static std::unique_ptr<NetworkState> CreateDefaultCellular(
       const std::string& device_path);
+
+  // Ignore changes to signal strength less than this value.
+  constexpr static const int kSignalStrengthChangeThreshold = 5;
 
  private:
   friend class MobileActivatorTest;

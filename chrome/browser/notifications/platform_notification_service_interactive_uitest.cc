@@ -15,6 +15,8 @@
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/metrics/user_action_tester.h"
 #include "base/test/scoped_feature_list.h"
+#include "base/test/scoped_run_loop_timeout.h"
+#include "base/test/test_timeouts.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
 #include "chrome/browser/engagement/site_engagement_score.h"
@@ -27,9 +29,7 @@
 #include "chrome/browser/notifications/notification_test_util.h"
 #include "chrome/browser/notifications/platform_notification_service_factory.h"
 #include "chrome/browser/notifications/platform_notification_service_impl.h"
-#include "chrome/browser/permissions/permission_manager.h"
-#include "chrome/browser/permissions/permission_request_manager.h"
-#include "chrome/browser/permissions/permission_result.h"
+#include "chrome/browser/permissions/permission_manager_factory.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/exclusive_access/exclusive_access_context.h"
@@ -39,7 +39,11 @@
 #include "chrome/test/base/interactive_test_utils.h"
 #include "chrome/test/base/ui_test_utils.h"
 #include "components/content_settings/core/common/content_settings_types.h"
+#include "components/permissions/permission_manager.h"
+#include "components/permissions/permission_request_manager.h"
+#include "components/permissions/permission_result.h"
 #include "content/public/common/content_features.h"
+#include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
 #include "net/base/filename_util.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
@@ -128,8 +132,8 @@ class PlatformNotificationServiceBrowserTest : public InProcessBrowserTest {
   }
 
   bool RequestAndAcceptPermission() {
-    return "granted" ==
-           RequestAndRespondToPermission(PermissionRequestManager::ACCEPT_ALL);
+    return "granted" == RequestAndRespondToPermission(
+                            permissions::PermissionRequestManager::ACCEPT_ALL);
   }
 
   double GetEngagementScore(const GURL& origin) const {
@@ -161,10 +165,10 @@ class PlatformNotificationServiceBrowserTest : public InProcessBrowserTest {
   }
 
   std::string RequestAndRespondToPermission(
-      PermissionRequestManager::AutoResponseType bubble_response) {
+      permissions::PermissionRequestManager::AutoResponseType bubble_response) {
     std::string result;
     content::WebContents* web_contents = GetActiveWebContents(browser());
-    PermissionRequestManager::FromWebContents(web_contents)
+    permissions::PermissionRequestManager::FromWebContents(web_contents)
         ->set_auto_response_for_test(bubble_response);
     EXPECT_TRUE(RunScript("RequestPermission();", &result));
     return result;
@@ -308,7 +312,7 @@ IN_PROC_BROWSER_TEST_F(PlatformNotificationServiceBrowserTest,
   EXPECT_TRUE(notification.never_timeout());
   EXPECT_DOUBLE_EQ(621046800000., notification.timestamp().ToJsTime());
 
-#if !defined(OS_MACOSX)
+#if !defined(OS_MAC)
   EXPECT_FALSE(notification.image().IsEmpty());
   EXPECT_EQ(kIconWidth, notification.image().Width());
   EXPECT_EQ(kIconHeight, notification.image().Height());
@@ -409,7 +413,7 @@ IN_PROC_BROWSER_TEST_F(PlatformNotificationServiceBrowserTest,
   // The js-provided tag should be part of the id.
   EXPECT_FALSE(all_options_notification.id().find("replace-id") ==
                std::string::npos);
-#if !defined(OS_MACOSX)
+#if !defined(OS_MAC)
   EXPECT_FALSE(all_options_notification.image().IsEmpty());
   EXPECT_EQ(kIconWidth, all_options_notification.image().Width());
   EXPECT_EQ(kIconHeight, all_options_notification.image().Height());
@@ -461,6 +465,10 @@ IN_PROC_BROWSER_TEST_F(PlatformNotificationServiceBrowserTest,
   ASSERT_EQ(1u, notifications.size());
 
   web_contents = browser()->tab_strip_model()->GetActiveWebContents();
+  // We see some timeouts in dbg tests, so increase the wait timeout to the
+  // test launcher's timeout.
+  const base::test::ScopedRunLoopTimeout specific_timeout(
+          FROM_HERE, TestTimeouts::test_launcher_timeout());
   ASSERT_TRUE(content::WaitForLoadStop(web_contents));
 
   // No engagement should be granted for clicking on the settings link.
@@ -670,53 +678,6 @@ IN_PROC_BROWSER_TEST_F(PlatformNotificationServiceBrowserTest,
       PersistentNotificationMetadata::From(
           display_service_tester_->GetMetadataForNotification(notifications[0]))
           ->service_worker_scope);
-}
-
-IN_PROC_BROWSER_TEST_F(PlatformNotificationServiceBrowserTest,
-                       CheckFilePermissionNotGranted) {
-  // This case should succeed because a normal page URL is used.
-  std::string script_result;
-
-  PermissionManager* permission_manager =
-      PermissionManager::Get(browser()->profile());
-
-  EXPECT_EQ(CONTENT_SETTING_ASK,
-            permission_manager
-                ->GetPermissionStatus(ContentSettingsType::NOTIFICATIONS,
-                                      TestPageUrl(), TestPageUrl())
-                .content_setting);
-
-  RequestAndAcceptPermission();
-  EXPECT_EQ(CONTENT_SETTING_ALLOW,
-            permission_manager
-                ->GetPermissionStatus(ContentSettingsType::NOTIFICATIONS,
-                                      TestPageUrl(), TestPageUrl())
-                .content_setting);
-
-  // This case should fail because a file URL is used.
-  base::FilePath dir_source_root;
-  EXPECT_TRUE(base::PathService::Get(base::DIR_SOURCE_ROOT, &dir_source_root));
-  base::FilePath full_file_path =
-      dir_source_root.Append(server_root_).AppendASCII(kTestFileName);
-  GURL file_url(net::FilePathToFileURL(full_file_path));
-
-  ui_test_utils::NavigateToURL(browser(), file_url);
-
-  EXPECT_EQ(CONTENT_SETTING_ASK,
-            permission_manager
-                ->GetPermissionStatus(ContentSettingsType::NOTIFICATIONS,
-                                      file_url, file_url)
-                .content_setting);
-
-  RequestAndAcceptPermission();
-  EXPECT_EQ(CONTENT_SETTING_ASK,
-            permission_manager
-                ->GetPermissionStatus(ContentSettingsType::NOTIFICATIONS,
-                                      file_url, file_url)
-                .content_setting)
-      << "If this test fails, you may have fixed a bug preventing file origins "
-      << "from sending their origin from Blink; if so you need to update the "
-      << "display function for notification origins to show the file path.";
 }
 
 IN_PROC_BROWSER_TEST_F(PlatformNotificationServiceBrowserTest,
@@ -956,10 +917,16 @@ IN_PROC_BROWSER_TEST_F(
 
 // Mac OS X exclusively uses native notifications, so the decision on whether to
 // display notifications whilst fullscreen is deferred to the operating system.
-#if !defined(OS_MACOSX)
+#if !defined(OS_MAC)
 
+// TODO(https://crbug.com/1086169) Test is flaky on Linux TSan.
+#if defined(OS_LINUX) && !defined(OS_CHROMEOS) && defined(THREAD_SANITIZER)
+#define MAYBE_TestShouldDisplayFullscreen DISABLED_TestShouldDisplayFullscreen
+#else
+#define MAYBE_TestShouldDisplayFullscreen TestShouldDisplayFullscreen
+#endif
 IN_PROC_BROWSER_TEST_F(PlatformNotificationServiceBrowserTest,
-                       TestShouldDisplayFullscreen) {
+                       MAYBE_TestShouldDisplayFullscreen) {
   GrantNotificationPermissionForTest();
 
   // Set the page fullscreen
@@ -1033,7 +1000,7 @@ IN_PROC_BROWSER_TEST_F(PlatformNotificationServiceBrowserTest,
             notifications[0].fullscreen_visibility());
 }
 
-#endif  // defined(OS_MACOSX)
+#endif  // defined(OS_MAC)
 
 #if BUILDFLAG(ENABLE_BACKGROUND_MODE)
 IN_PROC_BROWSER_TEST_F(PlatformNotificationServiceBrowserTest,

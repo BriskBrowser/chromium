@@ -12,7 +12,6 @@
 #include "base/files/file_path.h"
 #include "base/macros.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/task/post_task.h"
 #include "chrome/browser/chromeos/file_manager/app_id.h"
 #include "chrome/browser/chromeos/file_manager/filesystem_api_util.h"
 #include "chrome/browser/profiles/profile.h"
@@ -32,6 +31,7 @@
 #include "third_party/blink/public/mojom/choosers/file_chooser.mojom.h"
 #include "ui/shell_dialogs/selected_file_info.h"
 #include "url/gurl.h"
+#include "url/origin.h"
 
 using content::BrowserThread;
 
@@ -147,9 +147,9 @@ void FileDefinitionListConverter::ConvertNextIterator(
   }
 
   storage::FileSystemURL url = file_system_context_->CreateCrackedFileSystemURL(
-      extensions::Extension::GetBaseURLFromExtensionId(extension_id_),
-      storage::kFileSystemTypeExternal,
-      iterator->virtual_path);
+      url::Origin::Create(
+          extensions::Extension::GetBaseURLFromExtensionId(extension_id_)),
+      storage::kFileSystemTypeExternal, iterator->virtual_path);
 
   if (!url.is_valid()) {
     OnIteratorConverted(
@@ -241,7 +241,7 @@ bool IsUnderNonNativeLocalPath(const storage::FileSystemContext& context,
     return false;
 
   const storage::FileSystemURL url = context.CreateCrackedFileSystemURL(
-      GURL(), storage::kFileSystemTypeExternal, virtual_path);
+      url::Origin(), storage::kFileSystemTypeExternal, virtual_path);
   if (!url.is_valid())
     return false;
 
@@ -322,8 +322,8 @@ class ConvertSelectedFileInfoListToFileChooserFileInfoListImpl {
     // If the list includes at least one non-native file (wihtout a snapshot
     // file), move to IO thread to obtian metadata for the non-native file.
     if (need_fill_metadata) {
-      base::PostTask(
-          FROM_HERE, {BrowserThread::IO},
+      content::GetIOThreadTaskRunner({})->PostTask(
+          FROM_HERE,
           base::BindOnce(
               &ConvertSelectedFileInfoListToFileChooserFileInfoListImpl::
                   FillMetadataOnIOThread,
@@ -352,8 +352,8 @@ class ConvertSelectedFileInfoListToFileChooserFileInfoListImpl {
     DCHECK_CURRENTLY_ON(BrowserThread::IO);
 
     if (it == chooser_info_list_.end()) {
-      base::PostTask(
-          FROM_HERE, {BrowserThread::UI},
+      content::GetUIThreadTaskRunner({})->PostTask(
+          FROM_HERE,
           base::BindOnce(
               &ConvertSelectedFileInfoListToFileChooserFileInfoListImpl::
                   NotifyComplete,
@@ -385,8 +385,8 @@ class ConvertSelectedFileInfoListToFileChooserFileInfoListImpl {
     DCHECK_CURRENTLY_ON(BrowserThread::IO);
 
     if (result != base::File::FILE_OK) {
-      base::PostTask(
-          FROM_HERE, {BrowserThread::UI},
+      content::GetUIThreadTaskRunner({})->PostTask(
+          FROM_HERE,
           base::BindOnce(
               &ConvertSelectedFileInfoListToFileChooserFileInfoListImpl::
                   NotifyError,
@@ -460,9 +460,7 @@ storage::FileSystemContext* GetFileSystemContextForExtensionId(
 storage::FileSystemContext* GetFileSystemContextForRenderFrameHost(
     Profile* profile,
     content::RenderFrameHost* render_frame_host) {
-  content::SiteInstance* site_instance = render_frame_host->GetSiteInstance();
-  return content::BrowserContext::GetStoragePartition(profile, site_instance)->
-      GetFileSystemContext();
+  return render_frame_host->GetStoragePartition()->GetFileSystemContext();
 }
 
 bool ConvertAbsoluteFilePathToFileSystemUrl(Profile* profile,
@@ -568,8 +566,8 @@ void CheckIfDirectoryExists(
   const storage::FileSystemURL internal_url =
       backend->CreateInternalURL(file_system_context.get(), directory_path);
 
-  base::PostTask(
-      FROM_HERE, {BrowserThread::IO},
+  content::GetIOThreadTaskRunner({})->PostTask(
+      FROM_HERE,
       base::BindOnce(&CheckIfDirectoryExistsOnIoThread, file_system_context,
                      internal_url,
                      google_apis::CreateRelayCallback(std::move(callback))));
@@ -588,8 +586,8 @@ void GetMetadataForPath(
   const storage::FileSystemURL internal_url =
       backend->CreateInternalURL(file_system_context.get(), entry_path);
 
-  base::PostTask(
-      FROM_HERE, {BrowserThread::IO},
+  content::GetIOThreadTaskRunner({})->PostTask(
+      FROM_HERE,
       base::BindOnce(&GetMetadataForPathOnIoThread, file_system_context,
                      internal_url, fields,
                      google_apis::CreateRelayCallback(std::move(callback))));
@@ -600,8 +598,9 @@ FileSystemURLAndHandle CreateIsolatedURLFromVirtualPath(
     const GURL& origin,
     const base::FilePath& virtual_path) {
   const storage::FileSystemURL original_url =
-      context.CreateCrackedFileSystemURL(
-          origin, storage::kFileSystemTypeExternal, virtual_path);
+      context.CreateCrackedFileSystemURL(url::Origin::Create(origin),
+                                         storage::kFileSystemTypeExternal,
+                                         virtual_path);
 
   std::string register_name;
   storage::IsolatedContext::ScopedFSHandle file_system =
@@ -609,7 +608,7 @@ FileSystemURLAndHandle CreateIsolatedURLFromVirtualPath(
           original_url.type(), original_url.filesystem_id(),
           original_url.path(), &register_name);
   storage::FileSystemURL isolated_url = context.CreateCrackedFileSystemURL(
-      origin, storage::kFileSystemTypeIsolated,
+      url::Origin::Create(origin), storage::kFileSystemTypeIsolated,
       base::FilePath(file_system.id()).Append(register_name));
   return {isolated_url, file_system};
 }

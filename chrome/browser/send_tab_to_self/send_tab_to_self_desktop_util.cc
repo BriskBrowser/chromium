@@ -11,6 +11,8 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/send_tab_to_self/desktop_notification_handler.h"
 #include "chrome/browser/sync/send_tab_to_self_sync_service_factory.h"
+#include "chrome/browser/ui/send_tab_to_self/send_tab_to_self_bubble_controller.h"
+#include "components/send_tab_to_self/features.h"
 #include "components/send_tab_to_self/send_tab_to_self_model.h"
 #include "components/send_tab_to_self/send_tab_to_self_sync_service.h"
 #include "components/send_tab_to_self/target_device_info.h"
@@ -28,7 +30,7 @@ void CreateNewEntry(content::WebContents* tab,
   DCHECK(tab);
 
   GURL shared_url = link_url;
-  std::string title = "";
+  std::string title;
   base::Time navigation_time = base::Time();
 
   content::NavigationEntry* navigation_entry =
@@ -51,8 +53,6 @@ void CreateNewEntry(content::WebContents* tab,
           ->GetSendTabToSelfModel();
   DCHECK(model);
 
-  UMA_HISTOGRAM_BOOLEAN("SendTabToSelf.Sync.ModelLoadedInTime",
-                        model->IsReady());
   if (!model->IsReady()) {
     DesktopNotificationHandler(profile).DisplayFailureMessage(shared_url);
     return;
@@ -61,8 +61,13 @@ void CreateNewEntry(content::WebContents* tab,
   const SendTabToSelfEntry* entry =
       model->AddEntry(shared_url, title, navigation_time, target_device_guid);
 
-  if (!show_notification)
+  if (!show_notification ||
+      base::FeatureList::IsEnabled(kSendTabToSelfOmniboxSendingAnimation)) {
+    SendTabToSelfBubbleController* controller = send_tab_to_self::
+        SendTabToSelfBubbleController::CreateOrGetFromWebContents(tab);
+    controller->ShowConfirmationMessage();
     return;
+  }
 
   if (entry) {
     DesktopNotificationHandler(profile).DisplaySendingConfirmation(
@@ -87,12 +92,6 @@ void RecordSendTabToSelfClickResult(const std::string& entry_point,
                                     SendTabToSelfClickResult state) {
   base::UmaHistogramEnumeration("SendTabToSelf." + entry_point + ".ClickResult",
                                 state);
-}
-
-void RecordSendTabToSelfDeviceCount(const std::string& entry_point,
-                                    const int& device_count) {
-  base::UmaHistogramCounts100("SendTabToSelf." + entry_point + ".DeviceCount",
-                              device_count);
 }
 
 size_t GetValidDeviceCount(Profile* profile) {

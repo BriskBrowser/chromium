@@ -34,15 +34,13 @@ namespace {
 // |display::Display::ROTATE_0|.
 gfx::Transform CreateRootWindowRotationTransform(
     const display::Display& display) {
-  display::ManagedDisplayInfo info =
-      Shell::Get()->display_manager()->GetDisplayInfo(display.id());
-  gfx::SizeF size(info.size_in_pixel());
+  gfx::SizeF size(display.GetSizeInPixel());
 
   // Use SizeF so that the origin of translated layer will be
   // aligned when scaled back at pixels.
   size.Scale(1.f / display.device_scale_factor());
   return CreateRotationTransform(display::Display::ROTATE_0,
-                                 info.GetLogicalActiveRotation(), size);
+                                 display.panel_rotation(), size);
 }
 
 gfx::Transform CreateInsetsTransform(const gfx::Insets& insets,
@@ -108,8 +106,7 @@ class AshRootWindowTransformer : public RootWindowTransformer {
         CreateRootWindowRotationTransform(display);
     transform_ = insets_and_rotation_transform;
     insets_and_scale_transform_ = CreateReverseRotatedInsetsTransform(
-        info.GetLogicalActiveRotation(), host_insets_,
-        display.device_scale_factor());
+        display.panel_rotation(), host_insets_, display.device_scale_factor());
     MagnificationController* magnifier =
         Shell::Get()->magnification_controller();
     if (magnifier) {
@@ -329,8 +326,8 @@ class PartialBoundsRootWindowTransformer : public RootWindowTransformer {
     const float scale = root_bounds_.height() / (dsf * row_logical_height);
 
     transform_.Scale(scale, scale);
-    transform_.Translate(-SkIntToMScalar(display.bounds().x()),
-                         -SkIntToMScalar(display.bounds().y()));
+    transform_.Translate(-SkIntToScalar(display.bounds().x()),
+                         -SkIntToScalar(display.bounds().y()));
   }
 
   // RootWindowTransformer:

@@ -17,7 +17,6 @@
 #include "base/synchronization/lock.h"
 #include "base/task_runner_util.h"
 #include "base/threading/thread_task_runner_handle.h"
-#include "net/base/url_util.h"
 #include "storage/browser/file_system/async_file_util_adapter.h"
 #include "storage/browser/file_system/file_stream_reader.h"
 #include "storage/browser/file_system/file_stream_writer.h"
@@ -79,14 +78,13 @@ const base::FilePath::CharType* kPluginPrivateDirectory =
 base::File::Error OpenFileSystemOnFileTaskRunner(
     ObfuscatedFileUtil* file_util,
     PluginPrivateFileSystemBackend::FileSystemIDToPluginMap* plugin_map,
-    const GURL& origin_url,
+    const url::Origin& origin,
     const std::string& filesystem_id,
     const std::string& plugin_id,
     OpenFileSystemMode mode) {
   base::File::Error error = base::File::FILE_ERROR_FAILED;
   const bool create = (mode == OPEN_FILE_SYSTEM_CREATE_IF_NONEXISTENT);
-  file_util->GetDirectoryForOriginAndType(url::Origin::Create(origin_url),
-                                          plugin_id, create, &error);
+  file_util->GetDirectoryForOriginAndType(origin, plugin_id, create, &error);
   if (error == base::File::FILE_OK)
     plugin_map->RegisterFileSystem(filesystem_id, plugin_id);
   return error;
@@ -97,7 +95,7 @@ base::File::Error OpenFileSystemOnFileTaskRunner(
 PluginPrivateFileSystemBackend::PluginPrivateFileSystemBackend(
     base::SequencedTaskRunner* file_task_runner,
     const base::FilePath& profile_path,
-    storage::SpecialStoragePolicy* special_storage_policy,
+    SpecialStoragePolicy* special_storage_policy,
     const FileSystemOptions& file_system_options,
     leveldb::Env* env_override)
     : file_task_runner_(file_task_runner),
@@ -121,7 +119,7 @@ PluginPrivateFileSystemBackend::~PluginPrivateFileSystemBackend() {
 }
 
 void PluginPrivateFileSystemBackend::OpenPrivateFileSystem(
-    const GURL& origin_url,
+    const url::Origin& origin,
     FileSystemType type,
     const std::string& filesystem_id,
     const std::string& plugin_id,
@@ -137,7 +135,7 @@ void PluginPrivateFileSystemBackend::OpenPrivateFileSystem(
   PostTaskAndReplyWithResult(
       file_task_runner_.get(), FROM_HERE,
       base::BindOnce(&OpenFileSystemOnFileTaskRunner, obfuscated_file_util(),
-                     plugin_map_, origin_url, filesystem_id, plugin_id, mode),
+                     plugin_map_, origin, filesystem_id, plugin_id, mode),
       std::move(callback));
 }
 
@@ -231,13 +229,13 @@ FileSystemQuotaUtil* PluginPrivateFileSystemBackend::GetQuotaUtil() {
 base::File::Error
 PluginPrivateFileSystemBackend::DeleteOriginDataOnFileTaskRunner(
     FileSystemContext* context,
-    storage::QuotaManagerProxy* proxy,
-    const GURL& origin_url,
+    QuotaManagerProxy* proxy,
+    const url::Origin& origin,
     FileSystemType type) {
   if (!CanHandleType(type))
     return base::File::FILE_ERROR_SECURITY;
   bool result = obfuscated_file_util()->DeleteDirectoryForOriginAndType(
-      url::Origin::Create(origin_url), std::string());
+      origin, std::string());
   if (result)
     return base::File::FILE_OK;
   return base::File::FILE_ERROR_FAILED;
@@ -245,43 +243,47 @@ PluginPrivateFileSystemBackend::DeleteOriginDataOnFileTaskRunner(
 
 void PluginPrivateFileSystemBackend::PerformStorageCleanupOnFileTaskRunner(
     FileSystemContext* context,
-    storage::QuotaManagerProxy* proxy,
+    QuotaManagerProxy* proxy,
     FileSystemType type) {
   if (!CanHandleType(type))
     return;
   obfuscated_file_util()->RewriteDatabases();
 }
 
-void PluginPrivateFileSystemBackend::GetOriginsForTypeOnFileTaskRunner(
-    FileSystemType type,
-    std::set<GURL>* origins) {
+std::vector<url::Origin>
+PluginPrivateFileSystemBackend::GetOriginsForTypeOnFileTaskRunner(
+    FileSystemType type) {
   if (!CanHandleType(type))
-    return;
+    return std::vector<url::Origin>();
   std::unique_ptr<ObfuscatedFileUtil::AbstractOriginEnumerator> enumerator(
       obfuscated_file_util()->CreateOriginEnumerator());
-  GURL origin;
-  while (!(origin = enumerator->Next()).is_empty())
-    origins->insert(origin);
+  std::vector<url::Origin> origins;
+  base::Optional<url::Origin> origin;
+  while ((origin = enumerator->Next()).has_value())
+    origins.push_back(std::move(origin).value());
+  return origins;
 }
 
-void PluginPrivateFileSystemBackend::GetOriginsForHostOnFileTaskRunner(
+std::vector<url::Origin>
+PluginPrivateFileSystemBackend::GetOriginsForHostOnFileTaskRunner(
     FileSystemType type,
-    const std::string& host,
-    std::set<GURL>* origins) {
+    const std::string& host) {
   if (!CanHandleType(type))
-    return;
+    return std::vector<url::Origin>();
   std::unique_ptr<ObfuscatedFileUtil::AbstractOriginEnumerator> enumerator(
       obfuscated_file_util()->CreateOriginEnumerator());
-  GURL origin;
-  while (!(origin = enumerator->Next()).is_empty()) {
-    if (host == net::GetHostOrSpecFromURL(origin))
-      origins->insert(origin);
+  std::vector<url::Origin> origins;
+  base::Optional<url::Origin> origin;
+  while ((origin = enumerator->Next()).has_value()) {
+    if (host == origin->host())
+      origins.push_back(std::move(origin).value());
   }
+  return origins;
 }
 
 int64_t PluginPrivateFileSystemBackend::GetOriginUsageOnFileTaskRunner(
     FileSystemContext* context,
-    const GURL& origin_url,
+    const url::Origin& origin,
     FileSystemType type) {
   DCHECK(file_task_runner_->RunsTasksInCurrentSequence());
 
@@ -290,14 +292,14 @@ int64_t PluginPrivateFileSystemBackend::GetOriginUsageOnFileTaskRunner(
 
   int64_t total_size;
   base::Time last_modified_time;
-  GetOriginDetailsOnFileTaskRunner(context, origin_url, &total_size,
+  GetOriginDetailsOnFileTaskRunner(context, origin, &total_size,
                                    &last_modified_time);
   return total_size;
 }
 
 void PluginPrivateFileSystemBackend::GetOriginDetailsOnFileTaskRunner(
     FileSystemContext* context,
-    const GURL& origin_url,
+    const url::Origin& origin,
     int64_t* total_size,
     base::Time* last_modified_time) {
   DCHECK(file_task_runner_->RunsTasksInCurrentSequence());
@@ -305,13 +307,12 @@ void PluginPrivateFileSystemBackend::GetOriginDetailsOnFileTaskRunner(
   *total_size = 0;
   *last_modified_time = base::Time::UnixEpoch();
   std::string fsid =
-      storage::IsolatedContext::GetInstance()->RegisterFileSystemForVirtualPath(
-          storage::kFileSystemTypePluginPrivate, "pluginprivate",
-          base::FilePath());
-  DCHECK(storage::ValidateIsolatedFileSystemId(fsid));
+      IsolatedContext::GetInstance()->RegisterFileSystemForVirtualPath(
+          kFileSystemTypePluginPrivate, "pluginprivate", base::FilePath());
+  DCHECK(ValidateIsolatedFileSystemId(fsid));
 
-  std::string root = storage::GetIsolatedFileSystemRootURIString(
-      origin_url, fsid, "pluginprivate");
+  std::string root = GetIsolatedFileSystemRootURIString(origin.GetURL(), fsid,
+                                                        "pluginprivate");
 
   std::unique_ptr<FileSystemOperationContext> operation_context(
       new FileSystemOperationContext(context));
@@ -324,9 +325,9 @@ void PluginPrivateFileSystemBackend::GetOriginDetailsOnFileTaskRunner(
   // directories so that data from any CDM used by this origin is counted.
   base::File::Error error;
   base::FilePath path = obfuscated_file_util()->GetDirectoryForOriginAndType(
-      url::Origin::Create(origin_url), "", false, &error);
+      origin, "", false, &error);
   if (error != base::File::FILE_OK) {
-    DLOG(ERROR) << "Unable to read directory for " << origin_url;
+    DLOG(ERROR) << "Unable to read directory for " << origin;
     return;
   }
 
@@ -336,9 +337,8 @@ void PluginPrivateFileSystemBackend::GetOriginDetailsOnFileTaskRunner(
   while (!(plugin_path = directory_enumerator.Next()).empty()) {
     std::string plugin_name = plugin_path.BaseName().MaybeAsASCII();
     if (OpenFileSystemOnFileTaskRunner(
-            obfuscated_file_util(), plugin_map_, origin_url, fsid, plugin_name,
-            storage::OPEN_FILE_SYSTEM_FAIL_IF_NONEXISTENT) !=
-        base::File::FILE_OK) {
+            obfuscated_file_util(), plugin_map_, origin, fsid, plugin_name,
+            OPEN_FILE_SYSTEM_FAIL_IF_NONEXISTENT) != base::File::FILE_OK) {
       continue;
     }
 

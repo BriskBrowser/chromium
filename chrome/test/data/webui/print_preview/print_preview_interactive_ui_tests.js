@@ -6,7 +6,8 @@
 
 // Polymer BrowserTest fixture.
 GEN_INCLUDE(['//chrome/test/data/webui/polymer_interactive_ui_test.js']);
-GEN('#include "services/network/public/cpp/features.h"');
+
+GEN('#include "content/public/test/browser_test.h"');
 
 const PrintPreviewInteractiveUITest = class extends PolymerInteractiveUITest {
   /** @override */
@@ -20,11 +21,6 @@ const PrintPreviewInteractiveUITest = class extends PolymerInteractiveUITest {
       '//third_party/mocha/mocha.js',
       '//chrome/test/data/webui/mocha_adapter.js',
     ];
-  }
-
-  /** @override */
-  get featureList() {
-    return {enabled: ['network::features::kOutOfBlinkCors']};
   }
 
   // The name of the mocha suite. Should be overridden by subclasses.
@@ -84,14 +80,6 @@ TEST_F(
     function() {
       this.runMochaTest(
           destination_dialog_interactive_test.TestNames.FocusSearchBox);
-    });
-
-
-TEST_F(
-    'PrintPreviewDestinationDialogInteractiveTest', 'FocusSearchBoxOnSignIn',
-    function() {
-      this.runMochaTest(
-          destination_dialog_interactive_test.TestNames.FocusSearchBoxOnSignIn);
     });
 
 TEST_F(
@@ -179,3 +167,23 @@ TEST_F(
       this.runMochaTest(
           scaling_settings_interactive_test.TestNames.AutoFocusInput);
     });
+
+GEN('#if defined(OS_CHROMEOS)');
+// eslint-disable-next-line no-var
+var PrintPreviewDestinationDropdownCrosTest =
+    class extends PrintPreviewInteractiveUITest {
+  /** @override */
+  get browsePreload() {
+    return 'chrome://print/test_loader.html?module=print_preview/destination_dropdown_cros_test.js';
+  }
+
+  /** @override */
+  get suiteName() {
+    return destination_dropdown_cros_test.suiteName;
+  }
+};
+
+TEST_F('PrintPreviewDestinationDropdownCrosTest', 'ClickCloses', function() {
+  this.runMochaTest(destination_dropdown_cros_test.TestNames.ClickCloses);
+});
+GEN('#endif');

@@ -4,6 +4,7 @@
 
 #import <AppKit/AppKit.h>
 #import <objc/runtime.h>
+#include <unistd.h>
 
 #include "base/bind.h"
 #include "base/i18n/number_formatting.h"
@@ -62,6 +63,7 @@ class NotificationPlatformBridgeMacTest : public BrowserWithTestWindowTest {
         setProfileId:base::SysUTF8ToNSString(
                          NotificationPlatformBridge::GetProfileId(profile()))];
     [builder setIncognito:profile()->IsOffTheRecord()];
+    [builder setCreatorPid:@(getpid())];
     [builder setNotificationType:
                  [NSNumber numberWithInteger:
                                static_cast<int>(
@@ -214,6 +216,10 @@ TEST_F(NotificationPlatformBridgeMacTest, TestNotificationVerifyOrigin) {
 
   // If however the origin is not present the response should be fine.
   [response removeObjectForKey:notification_constants::kNotificationOrigin];
+  EXPECT_TRUE(NotificationPlatformBridgeMac::VerifyNotificationData(response));
+
+  // Empty origin should be fine.
+  [response setValue:@"" forKey:notification_constants::kNotificationOrigin];
   EXPECT_TRUE(NotificationPlatformBridgeMac::VerifyNotificationData(response));
 }
 

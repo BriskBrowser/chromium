@@ -27,11 +27,11 @@ namespace extensions {
 bool IsComponentExtensionWhitelisted(const std::string& extension_id) {
   const char* const kAllowed[] = {
     extension_misc::kInAppPaymentsSupportAppId,
-    extension_misc::kMediaRouterStableExtensionId,
+    extension_misc::kCastExtensionIdRelease,
     extension_misc::kPdfExtensionId,
 #if defined(OS_CHROMEOS)
     extension_misc::kAssessmentAssistantExtensionId,
-    extension_misc::kAutoclickExtensionId,
+    extension_misc::kAccessibilityCommonExtensionId,
     extension_misc::kChromeVoxExtensionId,
     extension_misc::kEspeakSpeechSynthesisExtensionId,
     extension_misc::kGoogleSpeechSynthesisExtensionId,
@@ -81,7 +81,6 @@ bool IsComponentExtensionWhitelisted(int manifest_resource_id) {
     case IDR_CHROME_APP_MANIFEST:
     case IDR_CONNECTIVITY_DIAGNOSTICS_LAUNCHER_MANIFEST:
     case IDR_CONNECTIVITY_DIAGNOSTICS_MANIFEST:
-    case IDR_CROSH_BUILTIN_MANIFEST:
     case IDR_DEMO_APP_MANIFEST:
     case IDR_ECHO_MANIFEST:
     case IDR_FILEMANAGER_MANIFEST:
@@ -112,7 +111,7 @@ bool IsComponentExtensionWhitelisted(int manifest_resource_id) {
 bool IsComponentExtensionWhitelistedForSignInProfile(
     const std::string& extension_id) {
   const char* const kAllowed[] = {
-      extension_misc::kAutoclickExtensionId,
+      extension_misc::kAccessibilityCommonExtensionId,
       extension_misc::kChromeVoxExtensionId,
       extension_misc::kEspeakSpeechSynthesisExtensionId,
       extension_misc::kGoogleSpeechSynthesisExtensionId,

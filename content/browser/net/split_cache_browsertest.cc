@@ -9,6 +9,7 @@
 #include "content/browser/web_contents/web_contents_impl.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/common/content_paths.h"
+#include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/content_browser_test.h"
 #include "content/public/test/content_browser_test_utils.h"
@@ -334,6 +335,7 @@ class SplitCacheContentBrowserTest : public ContentBrowserTest {
     EXPECT_TRUE(ExecuteScript(host_to_load_resource, GetWorkerScript(worker)));
 
     observer.WaitForResourceCompletion(GenURL("3p.com", "/script"));
+    observer.WaitForResourceCompletion(worker);
 
     return (*observer.FindResource(worker))->was_cached;
   }
@@ -612,8 +614,8 @@ IN_PROC_BROWSER_TEST_F(SplitCacheContentBrowserTestDisabled, NonSplitCache) {
                                GenURL("c.com", "/title1.html")));
 }
 
-// TODO(http://crbug.com/997808): Flaky on Linux ASAN.
-#if defined(OS_LINUX) && (defined(ADDRESS_SANITIZER) || defined(LEAK_SANITIZER))
+// TODO(http://crbug.com/1104847): Flaky on Win10 and Linux ASAN.
+#if defined(OS_WIN) || (defined(ADDRESS_SANITIZER) || defined(LEAK_SANITIZER))
 #define MAYBE_SplitCacheDedicatedWorkers DISABLED_SplitCacheDedicatedWorkers
 #else
 #define MAYBE_SplitCacheDedicatedWorkers SplitCacheDedicatedWorkers
@@ -718,7 +720,7 @@ IN_PROC_BROWSER_TEST_F(SplitCacheWithFrameOriginContentBrowserTest,
 }
 
 IN_PROC_BROWSER_TEST_P(SplitCacheContentBrowserTestEnabled,
-                       MAYBE_SplitCacheDedicatedWorkers) {
+                       SplitCacheDedicatedWorkers) {
   // Load 3p.com/script from a.com's worker. The first time it's loaded from the
   // network and the second it's cached.
   EXPECT_FALSE(TestResourceLoadFromDedicatedWorker(
@@ -761,15 +763,16 @@ IN_PROC_BROWSER_TEST_P(SplitCacheContentBrowserTestEnabled,
       GenURL("e.com", "/worker.js")));
 }
 
-// TODO(http://crbug.com/997732): Flaky on Linux.
-#if defined(OS_LINUX)
-#define MAYBE_SplitCacheDedicatedWorkerScripts \
+#if defined(OS_WIN) || (defined(ADDRESS_SANITIZER) || defined(LEAK_SANITIZER))
+// Flaky on Windows and on Linux ASan LSan: https://crbug.com/1104847
+#define MAYBE_SplitCacheDedicatedWorkersScripts \
   DISABLED_SplitCacheDedicatedWorkersScripts
 #else
-#define MAYBE_SplitCacheDedicatedWorkerScripts SplitCacheDedicatedWorkersScripts
+#define MAYBE_SplitCacheDedicatedWorkersScripts \
+  SplitCacheDedicatedWorkersScripts
 #endif
 IN_PROC_BROWSER_TEST_P(SplitCacheContentBrowserTestEnabled,
-                       MAYBE_SplitCacheDedicatedWorkerScripts) {
+                       MAYBE_SplitCacheDedicatedWorkersScripts) {
   // Load a.com's worker. The first time the worker script is loaded from the
   // network and the second it's cached.
   EXPECT_FALSE(DedicatedWorkerScriptCached(
@@ -809,7 +812,7 @@ IN_PROC_BROWSER_TEST_P(SplitCacheContentBrowserTestEnabled,
 }
 
 IN_PROC_BROWSER_TEST_F(SplitCacheContentBrowserTestDisabled,
-                       MAYBE_SplitCacheDedicatedWorkers) {
+                       SplitCacheDedicatedWorkers) {
   // Load 3p.com/script from a.com's worker. The first time it's loaded from the
   // network and the second it's cached.
   EXPECT_FALSE(TestResourceLoadFromDedicatedWorker(

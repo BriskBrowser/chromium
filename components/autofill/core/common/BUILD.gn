@@ -1,9 +1,8 @@
 # Copyright 2014 The Chromium Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
-import("//build/config/jumbo.gni")
 
-jumbo_static_library("common") {
+static_library("common") {
   sources = [
     "autofill_clock.cc",
     "autofill_clock.h",
@@ -33,6 +32,8 @@ jumbo_static_library("common") {
     "autofill_tick_clock.h",
     "autofill_util.cc",
     "autofill_util.h",
+    "field_data_manager.cc",
+    "field_data_manager.h",
     "form_data.cc",
     "form_data.h",
     "form_data_predictions.cc",
@@ -41,6 +42,8 @@ jumbo_static_library("common") {
     "form_field_data.h",
     "form_field_data_predictions.cc",
     "form_field_data_predictions.h",
+    "gaia_id_hash.cc",
+    "gaia_id_hash.h",
     "logging/log_buffer.cc",
     "logging/log_buffer.h",
     "password_form.cc",
@@ -51,10 +54,11 @@ jumbo_static_library("common") {
     "password_form_generation_data.h",
     "password_generation_util.cc",
     "password_generation_util.h",
+    "renderer_id.h",
     "save_password_progress_logger.cc",
     "save_password_progress_logger.h",
-    "signatures_util.cc",
-    "signatures_util.h",
+    "signatures.cc",
+    "signatures.h",
   ]
 
   deps = [
@@ -85,10 +89,11 @@ source_set("unit_tests") {
     "autofill_prefs_unittest.cc",
     "autofill_regexes_unittest.cc",
     "autofill_util_unittest.cc",
+    "field_data_manager_unittest.cc",
     "form_data_unittest.cc",
     "form_field_data_unittest.cc",
+    "gaia_id_hash_unittest.cc",
     "logging/log_buffer_unittest.cc",
-    "password_form_fill_data_unittest.cc",
     "save_password_progress_logger_unittest.cc",
   ]
 
@@ -100,6 +105,7 @@ source_set("unit_tests") {
     "//components/pref_registry",
     "//components/prefs",
     "//components/prefs:test_support",
+    "//crypto:crypto",
     "//google_apis:google_apis",
     "//testing/gmock",
     "//testing/gtest",

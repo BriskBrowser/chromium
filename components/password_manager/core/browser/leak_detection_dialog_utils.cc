@@ -4,6 +4,8 @@
 
 #include "components/password_manager/core/browser/leak_detection_dialog_utils.h"
 
+#include "base/feature_list.h"
+#include "base/i18n/message_formatter.h"
 #include "base/metrics/field_trial_params.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
@@ -11,6 +13,7 @@
 #include "components/password_manager/core/common/password_manager_features.h"
 #include "components/strings/grit/components_strings.h"
 #include "components/url_formatter/elide_url.h"
+#include "net/base/url_util.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "url/gurl.h"
 #include "url/origin.h"
@@ -20,19 +23,7 @@ namespace password_manager {
 using metrics_util::LeakDialogType;
 
 constexpr char kPasswordCheckupURL[] =
-#if defined(OS_ANDROID)
-    "https://passwords.google.com/checkup/"
-    "start?utm_source=chrome&utm_medium=android&utm_campaign=leak_dialog&"
-    "hideExplanation=true";
-#elif defined(OS_IOS)
-    "https://passwords.google.com/checkup/"
-    "start?utm_source=chrome&utm_medium=ios&utm_campaign=leak_dialog&"
-    "hideExplanation=true";
-#else
-    "https://passwords.google.com/checkup/"
-    "start?utm_source=chrome&utm_medium=desktop&utm_campaign=leak_dialog&"
-    "hideExplanation=true";
-#endif
+    "https://passwords.google.com/checkup/start?hideExplanation=true";
 
 CredentialLeakType CreateLeakType(IsSaved is_saved,
                                   IsReused is_reused,
@@ -66,8 +57,17 @@ base::string16 GetFormattedUrl(const GURL& origin) {
 }
 
 base::string16 GetAcceptButtonLabel(CredentialLeakType leak_type) {
-  return l10n_util::GetStringUTF16(
-      ShouldCheckPasswords(leak_type) ? IDS_LEAK_CHECK_CREDENTIALS : IDS_OK);
+  // |ShouldShowChangePasswordButton()| and |ShouldCheckPasswords()| are not
+  // both true at the same time.
+  if (ShouldCheckPasswords(leak_type)) {
+    return l10n_util::GetStringUTF16(IDS_LEAK_CHECK_CREDENTIALS);
+  }
+
+  if (ShouldShowChangePasswordButton(leak_type)) {
+    return l10n_util::GetStringUTF16(IDS_PASSWORD_CHANGE);
+  }
+
+  return l10n_util::GetStringUTF16(IDS_OK);
 }
 
 base::string16 GetCancelButtonLabel() {
@@ -89,6 +89,21 @@ base::string16 GetDescription(CredentialLeakType leak_type,
   }
 }
 
+base::string16 GetDescriptionWithCount(CredentialLeakType leak_type,
+                                       const GURL& origin,
+                                       CompromisedSitesCount saved_sites) {
+  IsSaved is_saved(IsPasswordSaved(leak_type));
+  if (ShouldCheckPasswords(leak_type) || is_saved) {
+    DCHECK_GE(saved_sites.value(), 1);
+    // saved_sites must be reduced by 1 if the saved sites include the origin as
+    // the origin is mentioned explicitly in the message.
+    return base::i18n::MessageFormatter::FormatWithNumberedArgs(
+        l10n_util::GetStringUTF16(IDS_CREDENTIAL_LEAK_SAVED_PASSWORDS_MESSAGE),
+        GetFormattedUrl(origin), saved_sites.value() - (is_saved ? 1 : 0));
+  }
+  return GetDescription(leak_type, origin);
+}
+
 base::string16 GetTitle(CredentialLeakType leak_type) {
   return l10n_util::GetStringUTF16(ShouldCheckPasswords(leak_type)
                                        ? IDS_CREDENTIAL_LEAK_TITLE_CHECK
@@ -100,12 +115,35 @@ base::string16 GetLeakDetectionTooltip() {
 }
 
 bool ShouldCheckPasswords(CredentialLeakType leak_type) {
+  if (base::FeatureList::IsEnabled(
+          password_manager::features::kPasswordCheck)) {
+    return password_manager::IsPasswordUsedOnOtherSites(leak_type);
+  }
   return password_manager::IsPasswordUsedOnOtherSites(leak_type) &&
          password_manager::IsSyncingPasswordsNormally(leak_type);
 }
 
+bool ShouldShowChangePasswordButton(CredentialLeakType leak_type) {
+  if (!base::FeatureList::IsEnabled(
+          password_manager::features::kPasswordChange)) {
+    return false;
+  }
+
+  // Password change should be offered if all following conditions are
+  // fulfilled:
+  // - password is saved (The password change flows will automatically save the
+  // password. This should only happen as an update of an existing entry.)
+  // - sync is on (because the password change flow relies on password
+  // generation which is only available to sync users).
+  // - password is not used on the other sites (TODO(crbug/1086114): to be
+  // removed when we have proper UI).
+  return IsPasswordSaved(leak_type) && !IsPasswordUsedOnOtherSites(leak_type) &&
+         IsSyncingPasswordsNormally(leak_type);
+}
+
 bool ShouldShowCancelButton(CredentialLeakType leak_type) {
-  return ShouldCheckPasswords(leak_type);
+  return ShouldCheckPasswords(leak_type) ||
+         ShouldShowChangePasswordButton(leak_type);
 }
 
 LeakDialogType GetLeakDialogType(CredentialLeakType leak_type) {
@@ -117,12 +155,25 @@ LeakDialogType GetLeakDialogType(CredentialLeakType leak_type) {
              : LeakDialogType::kCheckupAndChange;
 }
 
-GURL GetPasswordCheckupURL() {
-  std::string value = base::GetFieldTrialParamValueByFeature(
-      password_manager::features::kLeakDetection, "leak-check-url");
-  if (value.empty())
-    return GURL(password_manager::kPasswordCheckupURL);
-  return GURL(value);
+GURL GetPasswordCheckupURL(PasswordCheckupReferrer referrer) {
+  GURL url(kPasswordCheckupURL);
+  url = net::AppendQueryParameter(url, "utm_source", "chrome");
+
+#if defined(OS_ANDROID)
+  const char* const medium = "android";
+#elif defined(OS_IOS)
+  const char* const medium = "ios";
+#else
+  const char* const medium = "desktop";
+#endif
+  url = net::AppendQueryParameter(url, "utm_medium", medium);
+
+  const char* const campaign =
+      referrer == PasswordCheckupReferrer::kLeakDetectionDialog
+          ? "leak_dialog"
+          : "password_settings";
+
+  return net::AppendQueryParameter(url, "utm_campaign", campaign);
 }
 
 }  // namespace password_manager

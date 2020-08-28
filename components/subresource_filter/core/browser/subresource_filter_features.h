@@ -110,7 +110,7 @@ struct Configuration {
   // Returns the mojom::ActivationState that page loads that match this
   // configuration should activate with. |effective_activation_level| can be
   // different from this config's activation level due to things like warning
-  // mode or client whitelisting.
+  // mode or client allowlisting.
   mojom::ActivationState GetActivationState(
       mojom::ActivationLevel effective_activation_level) const;
 
@@ -183,9 +183,6 @@ scoped_refptr<ConfigurationList> GetAndSetActivateConfigurations(
 // The master toggle to enable/disable the Safe Browsing Subresource Filter.
 extern const base::Feature kSafeBrowsingSubresourceFilter;
 
-// Safe Browsing Activation Throttle considers all checks in a redirect chain.
-extern const base::Feature kSafeBrowsingSubresourceFilterConsiderRedirects;
-
 // Enables the blocking of ads on sites that are abusive.
 extern const base::Feature kFilterAdsOnAbusiveSites;
 
@@ -212,7 +209,7 @@ extern const char kPerformanceMeasurementRateParameterName[];
 
 extern const char kSuppressNotificationsParameterName[];
 
-extern const char kWhitelistSiteOnReloadParameterName[];
+extern const char kAllowlistSiteOnReloadParameterName[];
 
 extern const char kRulesetFlavorParameterName[];
 

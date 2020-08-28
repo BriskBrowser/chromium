@@ -14,6 +14,7 @@
 #include <utility>
 #include <vector>
 
+#include "base/memory/scoped_refptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/stl_util.h"
 #include "base/time/time.h"
@@ -23,6 +24,7 @@
 #include "net/dns/dns_transaction.h"
 #include "net/dns/dns_util.h"
 #include "net/dns/public/dns_protocol.h"
+#include "net/socket/socket_test_util.h"
 
 namespace net {
 
@@ -162,7 +164,7 @@ static const int kT3TTL = 0x00000015;
 static const unsigned kT3RecordCount = base::size(kT3IpAddresses) + 3;
 
 //-----------------------------------------------------------------------------
-// Query/response set for www.gstatic.com, ID is fixed to 4.
+// Query/response set for www.gstatic.com, ID is fixed to 0.
 static const char kT4HostName[] = "www.gstatic.com";
 static const uint16_t kT4Qtype = dns_protocol::kTypeA;
 static const char kT4DnsName[] = {0x03, 'w', 'w', 'w', 0x07, 'g',
@@ -171,7 +173,7 @@ static const char kT4DnsName[] = {0x03, 'w', 'w', 'w', 0x07, 'g',
 static const size_t kT4QuerySize = 33;
 static const uint8_t kT4ResponseDatagram[] = {
     // response contains the following IP addresses: 172.217.6.195.
-    0x00, 0x04, 0x81, 0x80, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00,
+    0x00, 0x00, 0x81, 0x80, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00,
     0x00, 0x00, 0x03, 0x77, 0x77, 0x77, 0x07, 0x67, 0x73, 0x74,
     0x61, 0x74, 0x69, 0x63, 0x03, 0x63, 0x6f, 0x6d, 0x00, 0x00,
     0x01, 0x00, 0x01, 0xc0, 0x0c, 0x00, 0x01, 0x00, 0x01, 0x00,
@@ -181,25 +183,11 @@ static const char* const kT4IpAddresses[] = {"172.217.6.195"};
 static const int kT4TTL = 0x0000012b;
 static const unsigned kT4RecordCount = base::size(kT0IpAddresses);
 
-//--------------------------------------------------------------------
-// A well-formed ESNI (TLS 1.3 Encrypted Server Name Indication,
-// draft 4) keys object ("ESNIKeys" member of the ESNIRecord struct from
-// the spec).
-//
-// (This is cribbed from boringssl SSLTest.ESNIKeysDeserialize (CL 37704/13).)
-extern const char kWellFormedEsniKeys[];
-extern const size_t kWellFormedEsniKeysSize;
-
-// Returns a well-formed ESNI keys object identical to kWellFormedEsniKeys,
-// except that the first 0x22 bytes of |custom_data| are written over
-// fields of the keys object in a manner that leaves length prefixes
-// correct and enum members valid, and so that distinct values of
-// |custom_data| result in distinct returned keys.
-std::string GenerateWellFormedEsniKeys(base::StringPiece custom_data = "");
-
 class AddressSorter;
 class DnsClient;
+class DnsSession;
 class IPAddress;
+class ResolveContext;
 class URLRequestContext;
 
 // Builds an address record for the given name and IP.
@@ -236,10 +224,9 @@ std::unique_ptr<DnsResponse> BuildTestDnsServiceResponse(
     std::vector<TestServiceRecord> service_records,
     std::string answer_name = "");
 
-std::unique_ptr<DnsResponse> BuildTestDnsEsniResponse(
+std::unique_ptr<DnsResponse> BuildTestDnsIntegrityResponse(
     std::string hostname,
-    std::vector<EsniContent> esni_records,
-    std::string answer_name = "");
+    const std::vector<uint8_t>& serialized_rdata);
 
 struct MockDnsClientRule {
   enum ResultType {
@@ -300,10 +287,10 @@ class MockDnsTransactionFactory : public DnsTransactionFactory {
       const NetLogWithSource&,
       bool secure,
       DnsConfig::SecureDnsMode secure_dns_mode,
-      URLRequestContext* url_request_context) override;
+      ResolveContext* resolve_context) override;
 
   std::unique_ptr<DnsProbeRunner> CreateDohProbeRunner(
-      URLRequestContext* url_request_context) override;
+      ResolveContext* resolve_context) override;
 
   void AddEDNSOption(const OptRecordRdata::Opt& opt) override;
 
@@ -316,6 +303,11 @@ class MockDnsTransactionFactory : public DnsTransactionFactory {
       WARN_UNUSED_RESULT;
 
   bool doh_probes_running() { return !running_doh_probe_runners_.empty(); }
+  void CompleteDohProbeRuners() { running_doh_probe_runners_.clear(); }
+
+  void set_force_doh_server_available(bool available) {
+    force_doh_server_available_ = available;
+  }
 
  private:
   class MockTransaction;
@@ -325,6 +317,7 @@ class MockDnsTransactionFactory : public DnsTransactionFactory {
   MockDnsClientRuleList rules_;
   DelayedTransactionList delayed_transactions_;
 
+  bool force_doh_server_available_ = true;
   std::set<MockDohProbeRunner*> running_doh_probe_runners_;
 
   base::WeakPtrFactory<MockDnsTransactionFactory> weak_ptr_factory_{this};
@@ -340,10 +333,13 @@ class MockDnsClient : public DnsClient {
   bool CanUseSecureDnsTransactions() const override;
   bool CanUseInsecureDnsTransactions() const override;
   void SetInsecureEnabled(bool enabled) override;
-  bool FallbackFromSecureTransactionPreferred() const override;
+  bool FallbackFromSecureTransactionPreferred(
+      ResolveContext* resolve_context) const override;
   bool FallbackFromInsecureTransactionPreferred() const override;
   bool SetSystemConfig(base::Optional<DnsConfig> system_config) override;
   bool SetConfigOverrides(DnsConfigOverrides config_overrides) override;
+  void ReplaceCurrentSession() override;
+  DnsSession* GetCurrentSession() override;
   const DnsConfig* GetEffectiveConfig() const override;
   const DnsHosts* GetHosts() const override;
   DnsTransactionFactory* GetTransactionFactory() override;
@@ -352,7 +348,6 @@ class MockDnsClient : public DnsClient {
   void ClearInsecureFallbackFailures() override;
   base::Optional<DnsConfig> GetSystemConfigForTesting() const override;
   DnsConfigOverrides GetConfigOverridesForTesting() const override;
-  void SetProbeSuccessForTest(unsigned index, bool success) override;
   void SetTransactionFactoryForTesting(
       std::unique_ptr<DnsTransactionFactory> factory) override;
 
@@ -371,22 +366,28 @@ class MockDnsClient : public DnsClient {
     ignore_system_config_changes_ = ignore_system_config_changes;
   }
 
-  void set_doh_server_available(bool available) {
-    doh_server_available_ = available;
-  }
+  void SetForceDohServerAvailable(bool available);
 
   MockDnsTransactionFactory* factory() { return factory_.get(); }
 
  private:
   base::Optional<DnsConfig> BuildEffectiveConfig();
+  scoped_refptr<DnsSession> BuildSession();
 
   bool insecure_enabled_ = false;
   int fallback_failures_ = 0;
   int max_fallback_failures_ = DnsClient::kMaxInsecureFallbackFailures;
   bool ignore_system_config_changes_ = false;
-  bool doh_server_available_ = true;
 
+  // If |true|, MockDnsClient will always pretend DoH servers are available and
+  // allow secure transactions no matter what the state is in the transaction
+  // ResolveContext. If |false|, the ResolveContext must contain at least one
+  // available DoH server to allow secure transactions.
+  bool force_doh_server_available_ = true;
+
+  MockClientSocketFactory socket_factory_;
   base::Optional<DnsConfig> config_;
+  scoped_refptr<DnsSession> session_;
   DnsConfigOverrides overrides_;
   base::Optional<DnsConfig> effective_config_;
   std::unique_ptr<MockDnsTransactionFactory> factory_;

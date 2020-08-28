@@ -4,6 +4,7 @@
 
 package org.chromium.chrome.browser.webapps;
 
+import android.content.Intent;
 import android.graphics.Bitmap;
 
 import org.chromium.base.Callback;
@@ -13,6 +14,7 @@ import org.chromium.base.annotations.CalledByNative;
 import org.chromium.base.annotations.NativeMethods;
 import org.chromium.base.task.AsyncTask;
 import org.chromium.chrome.browser.AppHooks;
+import org.chromium.chrome.browser.browserservices.BrowserServicesIntentDataProvider;
 import org.chromium.chrome.browser.metrics.WebApkUma;
 
 /**
@@ -21,7 +23,6 @@ import org.chromium.chrome.browser.metrics.WebApkUma;
  * This Java object is created by and owned by the native WebApkInstaller.
  */
 public class WebApkInstaller {
-    private static final String TAG = "WebApkInstaller";
 
     /** Weak pointer to the native WebApkInstaller. */
     private long mNativePointer;
@@ -29,9 +30,12 @@ public class WebApkInstaller {
     /** Talks to Google Play to install WebAPKs. */
     private final GooglePlayWebApkInstallDelegate mInstallDelegate;
 
+    private final String mWebApkServerUrl;
+
     private WebApkInstaller(long nativePtr) {
         mNativePointer = nativePtr;
         mInstallDelegate = AppHooks.get().getGooglePlayWebApkInstallDelegate();
+        mWebApkServerUrl = AppHooks.get().getWebApkServerUrl();
     }
 
     @CalledByNative
@@ -80,16 +84,18 @@ public class WebApkInstaller {
 
                 // Stores the source info of WebAPK in WebappDataStorage.
                 WebappRegistry.getInstance().register(
-                        WebappRegistry.webApkIdForPackage(packageName),
+                        WebappIntentUtils.getIdForWebApkPackage(packageName),
                         new WebappRegistry.FetchWebappDataStorageCallback() {
                             @Override
                             public void onWebappDataStorageRetrieved(WebappDataStorage storage) {
-                                WebApkInfo webApkInfo = WebApkInfo.create(packageName, null, source,
-                                        false /* forceNavigation */,
-                                        false /* canUseSplashFromContentProvider */,
-                                        null /* shareData */,
-                                        null /* shareDataActivityClassName */);
-                                storage.updateFromWebappInfo(webApkInfo);
+                                BrowserServicesIntentDataProvider intentDataProvider =
+                                        WebApkIntentDataProviderFactory.create(new Intent(),
+                                                packageName, null, source,
+                                                false /* forceNavigation */,
+                                                false /* canUseSplashFromContentProvider */,
+                                                null /* shareData */,
+                                                null /* shareDataActivityClassName */);
+                                storage.updateFromWebappIntentDataProvider(intentDataProvider);
                                 storage.updateSource(source);
                                 storage.updateTimeOfLastCheckForUpdatedWebManifest();
                             }
@@ -153,6 +159,11 @@ public class WebApkInstaller {
             }
         }
                 .executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
+    }
+
+    @CalledByNative
+    private String getWebApkServerUrl() {
+        return mWebApkServerUrl;
     }
 
     private boolean isWebApkInstalled(String packageName) {

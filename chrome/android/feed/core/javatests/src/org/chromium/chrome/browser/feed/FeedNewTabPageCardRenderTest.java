@@ -4,14 +4,15 @@
 
 package org.chromium.chrome.browser.feed;
 
-import static android.support.test.espresso.Espresso.onView;
+import static androidx.test.espresso.Espresso.onView;
 
 import static org.hamcrest.Matchers.instanceOf;
 
-import android.support.test.espresso.contrib.RecyclerViewActions;
-import android.support.test.filters.MediumTest;
-import android.support.v7.widget.RecyclerView;
 import android.view.ViewGroup;
+
+import androidx.recyclerview.widget.RecyclerView;
+import androidx.test.espresso.contrib.RecyclerViewActions;
+import androidx.test.filters.MediumTest;
 
 import org.junit.Assert;
 import org.junit.Before;
@@ -24,36 +25,42 @@ import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.Feature;
 import org.chromium.base.test.util.IntegrationTest;
 import org.chromium.chrome.R;
-import org.chromium.chrome.browser.ChromeFeatureList;
-import org.chromium.chrome.browser.ChromeSwitches;
 import org.chromium.chrome.browser.ChromeTabbedActivity;
+import org.chromium.chrome.browser.flags.ChromeFeatureList;
+import org.chromium.chrome.browser.flags.ChromeSwitches;
+import org.chromium.chrome.browser.ntp.NewTabPage;
 import org.chromium.chrome.browser.ntp.snippets.SectionHeader;
 import org.chromium.chrome.browser.preferences.Pref;
-import org.chromium.chrome.browser.preferences.PrefServiceBridge;
+import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.suggestions.SiteSuggestion;
 import org.chromium.chrome.browser.tab.Tab;
-import org.chromium.chrome.browser.util.UrlConstants;
 import org.chromium.chrome.test.ChromeActivityTestRule;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.chrome.test.util.ChromeRenderTestRule;
 import org.chromium.chrome.test.util.NewTabPageTestUtils;
 import org.chromium.chrome.test.util.browser.Features;
-import org.chromium.chrome.test.util.browser.RecyclerViewTestUtils;
 import org.chromium.chrome.test.util.browser.suggestions.SuggestionsDependenciesRule;
 import org.chromium.chrome.test.util.browser.suggestions.mostvisited.FakeMostVisitedSites;
+import org.chromium.components.browser_ui.widget.RecyclerViewTestUtils;
+import org.chromium.components.embedder_support.util.UrlConstants;
+import org.chromium.components.user_prefs.UserPrefs;
 import org.chromium.net.test.EmbeddedTestServerRule;
 
 import java.util.List;
 
 /**
- * Tests for {@link FeedNewTabPage} specifically with card rendering. Other tests can be found in
+ * Tests for {@link NewTabPage} with card rendering. Other tests can be found in
  * {@link org.chromium.chrome.browser.feed.FeedNewTabPageTest}.
  */
+// clang-format off
 @RunWith(ChromeJUnit4ClassRunner.class)
-@CommandLineFlags
-        .Add(ChromeSwitches.DISABLE_FIRST_RUN_EXPERIENCE)
-        @Features.EnableFeatures(ChromeFeatureList.INTEREST_FEED_CONTENT_SUGGESTIONS)
-        public class FeedNewTabPageCardRenderTest {
+@CommandLineFlags.Add({ChromeSwitches.DISABLE_FIRST_RUN_EXPERIENCE,
+        "disable-features=IPH_FeedHeaderMenu"})
+@Features.EnableFeatures({ChromeFeatureList.INTEREST_FEED_CONTENT_SUGGESTIONS,
+    ChromeFeatureList.OMNIBOX_SEARCH_ENGINE_LOGO})
+@Features.DisableFeatures({ChromeFeatureList.REPORT_FEED_USER_ACTIONS, ChromeFeatureList.QUERY_TILES})
+public class FeedNewTabPageCardRenderTest {
+    // clang-format on
     private static final String TEST_FEED_DATA_BASE_PATH = "/chrome/test/data/android/feed/";
 
     @Rule
@@ -64,7 +71,8 @@ import java.util.List;
     public SuggestionsDependenciesRule mSuggestionsDeps = new SuggestionsDependenciesRule();
 
     @Rule
-    public ChromeRenderTestRule mRenderTestRule = new ChromeRenderTestRule();
+    public ChromeRenderTestRule mRenderTestRule =
+            ChromeRenderTestRule.Builder.withPublicCorpus().build();
 
     @Rule
     public FeedDataInjectRule mFeedDataInjector = new FeedDataInjectRule(true);
@@ -73,7 +81,7 @@ import java.util.List;
     public EmbeddedTestServerRule mTestServer = new EmbeddedTestServerRule();
 
     private Tab mTab;
-    private FeedNewTabPage mNtp;
+    private NewTabPage mNtp;
     private ViewGroup mTileGridLayout;
     private FakeMostVisitedSites mMostVisitedSites;
     private List<SiteSuggestion> mSiteSuggestions;
@@ -90,13 +98,10 @@ import java.util.List;
         mTab = mActivityTestRule.getActivity().getActivityTab();
         NewTabPageTestUtils.waitForNtpLoaded(mTab);
 
-        Assert.assertTrue(mTab.getNativePage() instanceof FeedNewTabPage);
-        mNtp = (FeedNewTabPage) mTab.getNativePage();
+        Assert.assertTrue(mTab.getNativePage() instanceof NewTabPage);
+        mNtp = (NewTabPage) mTab.getNativePage();
         mTileGridLayout = mNtp.getView().findViewById(R.id.tile_grid_layout);
         Assert.assertEquals(mSiteSuggestions.size(), mTileGridLayout.getChildCount());
-
-        // Set 10 diff threshold. It is a value in RGBA channel, not pixel count.
-        mRenderTestRule.setPixelDiffThreshold(10);
     }
 
     @Test
@@ -111,16 +116,19 @@ import java.util.List;
 
     private void renderFeedCards(String scenarioName) throws Exception {
         // Open a new tab.
-        SectionHeader firstHeader = mNtp.getMediatorForTesting().getSectionHeaderForTesting();
+        SectionHeader firstHeader = mNtp.getCoordinatorForTesting()
+                                            .getMediatorForTesting()
+                                            .getSectionHeaderForTesting();
         RecyclerView recycleView =
-                (RecyclerView) mNtp.getCoordinatorForTesting().getStream().getView();
+                (RecyclerView) mNtp.getCoordinatorForTesting().getStreamForTesting().getView();
 
         // Check header is expanded.
         Assert.assertTrue(firstHeader.isExpandable() && firstHeader.isExpanded());
         Assert.assertTrue(getPreferenceForArticleSectionHeader());
 
         // Trigger a refresh to get feed cards.
-        mFeedDataInjector.triggerFeedRefreshOnUiThreadBlocking(mNtp.getStreamForTesting());
+        mFeedDataInjector.triggerFeedRefreshOnUiThreadBlocking(
+                mNtp.getCoordinatorForTesting().getStreamForTesting());
 
         // Scroll to the first feed card.
         onView(instanceOf(RecyclerView.class))
@@ -148,6 +156,8 @@ import java.util.List;
 
     private boolean getPreferenceForArticleSectionHeader() throws Exception {
         return ThreadUtils.runOnUiThreadBlocking(
-                () -> PrefServiceBridge.getInstance().getBoolean(Pref.NTP_ARTICLES_LIST_VISIBLE));
+                ()
+                        -> UserPrefs.get(Profile.getLastUsedRegularProfile())
+                                   .getBoolean(Pref.ARTICLES_LIST_VISIBLE));
     }
 }

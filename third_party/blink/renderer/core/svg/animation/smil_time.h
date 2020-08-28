@@ -30,6 +30,7 @@
 #include <ostream>
 
 #include "base/time/time.h"
+#include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 #include "third_party/blink/renderer/platform/wtf/assertions.h"
 #include "third_party/blink/renderer/platform/wtf/hash_traits.h"
@@ -107,10 +108,15 @@ class SMILTime {
   SMILTime operator-() const { return -time_; }
   // Division and /modulo are used primarily for computing interval
   // progress/repeats.
-  int64_t operator/(SMILTime other) const {
+  double operator/(SMILTime other) const {
     DCHECK(IsFinite());
     DCHECK(other.IsFinite());
     return time_ / other.time_;
+  }
+  int64_t IntDiv(SMILTime other) const {
+    DCHECK(IsFinite());
+    DCHECK(other.IsFinite());
+    return time_.IntDiv(other.time_);
   }
   SMILTime operator%(SMILTime other) const {
     DCHECK(IsFinite());
@@ -136,7 +142,7 @@ class SMILTime {
   base::TimeDelta time_;
 };
 
-std::ostream& operator<<(std::ostream& os, SMILTime time);
+CORE_EXPORT std::ostream& operator<<(std::ostream& os, SMILTime time);
 
 // What generated a SMILTime.
 enum class SMILTimeOrigin {
@@ -207,5 +213,15 @@ inline bool operator!=(const SMILInterval& a, const SMILInterval& b) {
 }
 
 }  // namespace blink
+
+namespace WTF {
+template <>
+struct HashTraits<blink::SMILInterval>
+    : GenericHashTraits<blink::SMILInterval> {
+  static blink::SMILInterval EmptyValue() {
+    return blink::SMILInterval::Unresolved();
+  }
+};
+}  // namespace WTF
 
 #endif  // THIRD_PARTY_BLINK_RENDERER_CORE_SVG_ANIMATION_SMIL_TIME_H_

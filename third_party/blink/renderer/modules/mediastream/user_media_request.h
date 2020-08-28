@@ -31,10 +31,9 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_MODULES_MEDIASTREAM_USER_MEDIA_REQUEST_H_
 #define THIRD_PARTY_BLINK_RENDERER_MODULES_MEDIASTREAM_USER_MEDIA_REQUEST_H_
 
-#include "third_party/blink/public/web/web_user_media_request.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_navigator_user_media_error_callback.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_navigator_user_media_success_callback.h"
-#include "third_party/blink/renderer/core/execution_context/context_lifecycle_observer.h"
+#include "third_party/blink/renderer/core/execution_context/execution_context_lifecycle_observer.h"
 #include "third_party/blink/renderer/modules/modules_export.h"
 #include "third_party/blink/renderer/platform/mediastream/media_constraints.h"
 #include "third_party/blink/renderer/platform/mediastream/media_stream_source.h"
@@ -42,7 +41,7 @@
 
 namespace blink {
 
-class Document;
+class LocalDOMWindow;
 class MediaErrorState;
 class MediaStreamConstraints;
 class MediaStreamDescriptor;
@@ -50,10 +49,29 @@ class UserMediaController;
 
 class MODULES_EXPORT UserMediaRequest final
     : public GarbageCollected<UserMediaRequest>,
-      public ContextLifecycleObserver {
-  USING_GARBAGE_COLLECTED_MIXIN(UserMediaRequest);
-
+      public ExecutionContextLifecycleObserver {
  public:
+  enum class Error {
+    kNotSupported,
+    kSecurityError,
+    kPermissionDenied,
+    kPermissionDismissed,
+    kInvalidState,
+    kDevicesNotFound,
+    kTabCapture,
+    kScreenCapture,
+    kCapture,
+    kTrackStart,
+    kFailedDueToShutdown,
+    kKillSwitchOn,
+    kSystemPermissionDenied
+  };
+
+  enum class MediaType {
+    kUserMedia,
+    kDisplayMedia,
+  };
+
   class Callbacks : public GarbageCollected<Callbacks> {
    public:
     virtual ~Callbacks() = default;
@@ -63,7 +81,7 @@ class MODULES_EXPORT UserMediaRequest final
     virtual void OnError(ScriptWrappable* callback_this_value,
                          DOMExceptionOrOverconstrainedError) = 0;
 
-    virtual void Trace(blink::Visitor*) {}
+    virtual void Trace(Visitor*) const {}
 
    protected:
     Callbacks() = default;
@@ -73,7 +91,7 @@ class MODULES_EXPORT UserMediaRequest final
 
   static UserMediaRequest* Create(ExecutionContext*,
                                   UserMediaController*,
-                                  WebUserMediaRequest::MediaType media_type,
+                                  MediaType media_type,
                                   const MediaStreamConstraints* options,
                                   Callbacks*,
                                   MediaErrorState&);
@@ -88,21 +106,22 @@ class MODULES_EXPORT UserMediaRequest final
 
   UserMediaRequest(ExecutionContext*,
                    UserMediaController*,
-                   WebUserMediaRequest::MediaType media_type,
+                   MediaType media_type,
                    MediaConstraints audio,
                    MediaConstraints video,
                    Callbacks*);
   virtual ~UserMediaRequest();
 
-  Document* OwnerDocument();
+  LocalDOMWindow* GetWindow();
 
   void Start();
 
   void Succeed(MediaStreamDescriptor*);
+  void OnMediaStreamInitialized(MediaStream* stream);
   void FailConstraint(const String& constraint_name, const String& message);
-  void Fail(WebUserMediaRequest::Error name, const String& message);
+  void Fail(Error name, const String& message);
 
-  WebUserMediaRequest::MediaType MediaRequestType() const;
+  MediaType MediaRequestType() const;
   bool Audio() const;
   bool Video() const;
   MediaConstraints AudioConstraints() const;
@@ -116,16 +135,28 @@ class MODULES_EXPORT UserMediaRequest final
   // Caller is responsible for properly setting errors and canceling request.
   bool IsSecureContextUse(String& error_message);
 
-  // ContextLifecycleObserver
-  void ContextDestroyed(ExecutionContext*) override;
+  // ExecutionContextLifecycleObserver
+  void ContextDestroyed() override;
 
-  void Trace(blink::Visitor*) override;
+  void set_request_id(int id) { request_id_ = id; }
+  int request_id() { return request_id_; }
+
+  void set_has_transient_user_activation(bool value) {
+    has_transient_user_activation_ = value;
+  }
+  bool has_transient_user_activation() const {
+    return has_transient_user_activation_;
+  }
+
+  void Trace(Visitor*) const override;
 
  private:
-  WebUserMediaRequest::MediaType media_type_;
+  MediaType media_type_;
   MediaConstraints audio_;
   MediaConstraints video_;
   bool should_disable_hardware_noise_suppression_;
+  bool has_transient_user_activation_ = false;
+  int request_id_ = -1;
 
   Member<UserMediaController> controller_;
 

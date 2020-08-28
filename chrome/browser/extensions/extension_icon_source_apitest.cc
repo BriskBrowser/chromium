@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/logging.h"
 #include "build/build_config.h"
 #include "chrome/browser/extensions/extension_apitest.h"
 #include "chrome/browser/extensions/extension_service.h"
@@ -11,6 +10,7 @@
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/test/base/ui_test_utils.h"
 #include "content/public/browser/web_contents.h"
+#include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
 #include "extensions/common/switches.h"
 #include "net/dns/mock_host_resolver.h"
@@ -19,7 +19,7 @@
 using ExtensionIconSourceTest = extensions::ExtensionApiTest;
 
 // Times out on Mac and Win. http://crbug.com/238705
-#if defined(OS_WIN) || defined(OS_MACOSX)
+#if defined(OS_WIN) || defined(OS_MAC)
 #define MAYBE_IconsLoaded DISABLED_IconsLoaded
 #else
 #define MAYBE_IconsLoaded IconsLoaded
@@ -70,7 +70,7 @@ IN_PROC_BROWSER_TEST_F(ExtensionIconSourceTest, InvalidURL) {
 }
 
 // Times out on Mac and Win. http://crbug.com/238705
-#if defined(OS_WIN) || defined(OS_MACOSX)
+#if defined(OS_WIN) || defined(OS_MAC)
 #define MAYBE_IconsLoadedIncognito DISABLED_IconsLoadedIncognito
 #else
 #define MAYBE_IconsLoadedIncognito IconsLoadedIncognito

@@ -4,11 +4,9 @@
 
 #include "ash/assistant/ui/assistant_web_container_view.h"
 
-#include "ash/assistant/assistant_controller.h"
-#include "ash/assistant/assistant_ui_controller.h"
+#include "ash/assistant/assistant_controller_impl.h"
 #include "ash/assistant/assistant_web_ui_controller.h"
 #include "ash/assistant/test/assistant_ash_test_base.h"
-#include "ash/public/cpp/assistant/assistant_settings.h"
 #include "ash/shell.h"
 #include "base/macros.h"
 #include "base/run_loop.h"
@@ -30,6 +28,10 @@ class AssistantWebContainerViewTest : public AssistantAshTestBase {
         ->assistant_controller()
         ->web_ui_controller()
         ->GetViewForTest();
+  }
+
+  void OpenAssistantSettings() {
+    Shell::Get()->assistant_controller()->OpenAssistantSettings();
   }
 
  private:
@@ -86,18 +88,6 @@ TEST_F(AssistantWebContainerViewTest, CloseWindowByKeyEvent) {
   generator->PressKey(ui::VKEY_W, ui::EF_CONTROL_DOWN);
   base::RunLoop().RunUntilIdle();
   ASSERT_FALSE(view());
-}
-
-TEST_F(AssistantWebContainerViewTest, NoCaptionBarInAssistantWebView) {
-  // Show Assistant Settings UI.
-  OpenAssistantSettings();
-  AssistantWebContainerView* container_view = view();
-  ASSERT_TRUE(container_view);
-
-  // AssistantWebContainerView's widget should have its own caption buttons in
-  // the ash frame view. Therefore the AssistantWebView should not have the
-  // caption bar.
-  ASSERT_FALSE(container_view->GetCaptionBarForTesting());
 }
 
 }  // namespace ash

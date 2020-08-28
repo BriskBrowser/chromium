@@ -4,6 +4,8 @@
 
 #include "media/capture/video/chromeos/video_capture_jpeg_decoder_impl.h"
 
+#include <utility>
+
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/metrics/histogram_macros.h"
@@ -128,11 +130,8 @@ void VideoCaptureJpegDecoderImpl::DecodeCapturedData(
   out_frame->BackWithOwnedSharedMemory(std::move(out_region),
                                        std::move(out_mapping));
 
-  out_frame->metadata()->SetDouble(media::VideoFrameMetadata::FRAME_RATE,
-                                   frame_format.frame_rate);
-
-  out_frame->metadata()->SetTimeTicks(media::VideoFrameMetadata::REFERENCE_TIME,
-                                      reference_time);
+  out_frame->metadata()->frame_rate = frame_format.frame_rate;
+  out_frame->metadata()->reference_time = reference_time;
 
   media::mojom::VideoFrameInfoPtr out_frame_info =
       media::mojom::VideoFrameInfo::New();
@@ -140,15 +139,14 @@ void VideoCaptureJpegDecoderImpl::DecodeCapturedData(
   out_frame_info->pixel_format = media::PIXEL_FORMAT_I420;
   out_frame_info->coded_size = dimensions;
   out_frame_info->visible_rect = gfx::Rect(dimensions);
-  out_frame_info->metadata = out_frame->metadata()->GetInternalValues().Clone();
+  out_frame_info->metadata = *(out_frame->metadata());
   out_frame_info->color_space = out_frame->ColorSpace();
 
   {
     base::AutoLock lock(lock_);
     decode_done_closure_ = base::BindOnce(
         decode_done_cb_, out_buffer.id, out_buffer.frame_feedback_id,
-        base::Passed(&out_buffer.access_permission),
-        base::Passed(&out_frame_info));
+        std::move(out_buffer.access_permission), std::move(out_frame_info));
   }
 
   // base::Unretained is safe because |decoder_| is deleted on
@@ -214,9 +212,8 @@ void VideoCaptureJpegDecoderImpl::FinishInitialization() {
       decoder_task_runner_, std::move(remote_decoder));
 
   decoder_->InitializeAsync(
-      this,
-      base::BindRepeating(&VideoCaptureJpegDecoderImpl::OnInitializationDone,
-                          weak_ptr_factory_.GetWeakPtr()));
+      this, base::BindOnce(&VideoCaptureJpegDecoderImpl::OnInitializationDone,
+                           weak_ptr_factory_.GetWeakPtr()));
 }
 
 void VideoCaptureJpegDecoderImpl::OnInitializationDone(bool success) {

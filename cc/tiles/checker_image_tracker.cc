@@ -4,6 +4,8 @@
 
 #include "cc/tiles/checker_image_tracker.h"
 
+#include <sstream>
+
 #include "base/bind.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/stl_util.h"
@@ -227,8 +229,8 @@ void CheckerImageTracker::DidFinishImageDecode(
     ImageController::ImageDecodeResult result) {
   TRACE_EVENT0(TRACE_DISABLED_BY_DEFAULT("cc.debug"),
                "CheckerImageTracker::DidFinishImageDecode");
-  TRACE_EVENT_ASYNC_END0("cc", "CheckerImageTracker::DeferImageDecode",
-                         image_id);
+  TRACE_EVENT_NESTABLE_ASYNC_END0("cc", "CheckerImageTracker::DeferImageDecode",
+                                  TRACE_ID_LOCAL(image_id));
 
   DCHECK_NE(ImageController::ImageDecodeResult::DECODE_NOT_REQUIRED, result);
   DCHECK_EQ(outstanding_image_decode_.value().stable_id(), image_id);
@@ -302,8 +304,6 @@ bool CheckerImageTracker::ShouldCheckerImage(const DrawImage& draw_image,
       std::pair<PaintImage::Id, DecodeState>(image_id, DecodeState()));
   auto it = insert_result.first;
   if (insert_result.second) {
-    CheckerImagingDecision decision = CheckerImagingDecision::kCanChecker;
-
     // The following conditions must be true for an image to be checkerable:
     //
     // 1) Complete: The data for the image should have been completely loaded.
@@ -320,11 +320,9 @@ bool CheckerImageTracker::ShouldCheckerImage(const DrawImage& draw_image,
     //
     // Note that we only need to do this check if we didn't veto above in this
     // block.
-    if (decision == CheckerImagingDecision::kCanChecker) {
-      decision = GetCheckerImagingDecision(
-          image, draw_image.src_rect(), min_image_bytes_to_checker_,
-          image_controller_->image_cache_max_limit_bytes());
-    }
+    CheckerImagingDecision decision = GetCheckerImagingDecision(
+        image, draw_image.src_rect(), min_image_bytes_to_checker_,
+        image_controller_->image_cache_max_limit_bytes());
 
     if (decision == CheckerImagingDecision::kCanChecker && force_disabled_) {
       // Get the decision for all the veto reasons first, so we can UMA the
@@ -411,8 +409,7 @@ void CheckerImageTracker::ScheduleNextImageDecode() {
     draw_image = DrawImage(
         candidate, SkIRect::MakeWH(candidate.width(), candidate.height()),
         it->second.filter_quality,
-        SkMatrix::MakeScale(it->second.scale.width(),
-                            it->second.scale.height()),
+        SkMatrix::Scale(it->second.scale.width(), it->second.scale.height()),
         it->second.frame_index, it->second.color_space);
     outstanding_image_decode_.emplace(candidate);
     break;
@@ -427,8 +424,8 @@ void CheckerImageTracker::ScheduleNextImageDecode() {
 
   PaintImage::Id image_id = outstanding_image_decode_.value().stable_id();
   DCHECK_EQ(image_id_to_decode_.count(image_id), 0u);
-  TRACE_EVENT_ASYNC_BEGIN0("cc", "CheckerImageTracker::DeferImageDecode",
-                           image_id);
+  TRACE_EVENT_NESTABLE_ASYNC_BEGIN0(
+      "cc", "CheckerImageTracker::DeferImageDecode", TRACE_ID_LOCAL(image_id));
   ImageController::ImageDecodeRequestId request_id =
       image_controller_->QueueImageDecode(
           draw_image, base::BindOnce(&CheckerImageTracker::DidFinishImageDecode,

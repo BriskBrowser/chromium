@@ -9,7 +9,7 @@
 
 #include <vector>
 
-#include "base/logging.h"
+#include "base/check.h"
 #include "base/macros.h"
 #include "base/optional.h"
 #include "base/strings/string16.h"
@@ -42,7 +42,8 @@ class HoverListModel {
   // added. This is distinct from using an empty icon as the latter will still
   // take up as much space as any other icon.
   virtual const gfx::VectorIcon* GetPlaceholderIcon() const = 0;
-  virtual std::vector<int> GetItemTags() const = 0;
+  virtual std::vector<int> GetThrobberTags() const = 0;
+  virtual std::vector<int> GetButtonTags() const = 0;
   virtual base::string16 GetItemText(int item_tag) const = 0;
   virtual base::string16 GetDescriptionText(int item_tag) const = 0;
   // GetItemIcon may return nullptr to indicate that no icon should be added.

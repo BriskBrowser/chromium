@@ -2,11 +2,13 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+import contextlib
 import collections
 import itertools
 import logging
 import os
 import posixpath
+import subprocess
 import shutil
 import time
 
@@ -49,7 +51,6 @@ _EXTRA_TEST_LIST = (
     'org.chromium.native_test.NativeTestInstrumentationTestRunner'
         '.TestList')
 
-_MAX_SHARD_SIZE = 256
 _SECONDS_TO_NANOS = int(1e9)
 
 # The amount of time a test executable may run before it gets killed.
@@ -265,14 +266,7 @@ class _ApkDelegate(object):
               device, device_coverage_dir,
               os.path.join(self._coverage_dir, str(self._coverage_index)))
 
-      # TODO(jbudorick): Remove this after resolving crbug.com/726880
-      if device.PathExists(stdout_file.name):
-        logging.info('%s size on device: %s', stdout_file.name,
-                     device.StatPath(stdout_file.name).get('st_size', 0))
-        return device.ReadFile(stdout_file.name).splitlines()
-      else:
-        logging.info('%s does not exist?', stdout_file.name)
-        return []
+      return device.ReadFile(stdout_file.name).splitlines()
 
   def PullAppFiles(self, device, files, directory):
     device_dir = device.GetApplicationDataDirectory(self._package)
@@ -433,6 +427,21 @@ class LocalDeviceGtestRun(local_device_test_run.LocalDeviceTestRun):
         tool.CopyFiles(dev)
         tool.SetupEnvironment()
 
+        try:
+          # See https://crbug.com/1030827.
+          # This is a hack that may break in the future. We're relying on the
+          # fact that adb doesn't use ipv6 for it's server, and so doesn't
+          # listen on ipv6, but ssh remote forwarding does. 5037 is the port
+          # number adb uses for its server.
+          if "[::1]:5037" in subprocess.check_output(
+              "ss -o state listening 'sport = 5037'", shell=True):
+            logging.error(
+                'Test Server cannot be started with a remote-forwarded adb '
+                'server. Continuing anyways, but some tests may fail.')
+            return
+        except subprocess.CalledProcessError:
+          pass
+
         self._servers[str(dev)] = []
         if self.TestPackage() in _SUITE_REQUIRES_TEST_SERVER_SPAWNER:
           self._servers[str(dev)].append(
@@ -477,10 +486,14 @@ class LocalDeviceGtestRun(local_device_test_run.LocalDeviceTestRun):
     # Delete suspect testcase from tests.
     tests = [test for test in tests if not test in self._crashes]
 
+    batch_size = self._test_instance.test_launcher_batch_limit
+
     for i in xrange(0, device_count):
       unbounded_shard = tests[i::device_count]
-      shards += [unbounded_shard[j:j+_MAX_SHARD_SIZE]
-                 for j in xrange(0, len(unbounded_shard), _MAX_SHARD_SIZE)]
+      shards += [
+          unbounded_shard[j:j + batch_size]
+          for j in xrange(0, len(unbounded_shard), batch_size)
+      ]
     return shards
 
   #override
@@ -516,19 +529,17 @@ class LocalDeviceGtestRun(local_device_test_run.LocalDeviceTestRun):
         for f in flags:
           logging.info('  %s', f)
 
-        raw_test_list = crash_handler.RetryOnSystemCrash(
-            lambda d: self._delegate.Run(
-                None, d, flags=' '.join(flags), timeout=timeout),
-            device=dev)
+        with self._ArchiveLogcat(dev, 'list_tests'):
+          raw_test_list = crash_handler.RetryOnSystemCrash(
+              lambda d: self._delegate.Run(
+                  None, d, flags=' '.join(flags), timeout=timeout),
+              device=dev)
+
         tests = gtest_test_instance.ParseGTestListTests(raw_test_list)
         if not tests:
           logging.info('No tests found. Output:')
           for l in raw_test_list:
             logging.info('  %s', l)
-          logging.info('Logcat:')
-          for line in dev.adb.Logcat(dump=True):
-            logging.info(line)
-          dev.adb.Logcat(clear=True)
           if i < retries:
             logging.info('Retrying...')
         else:
@@ -570,6 +581,35 @@ class LocalDeviceGtestRun(local_device_test_run.LocalDeviceTestRun):
           return link
     return None
 
+  @contextlib.contextmanager
+  def _ArchiveLogcat(self, device, test):
+    if isinstance(test, str):
+      desc = test
+    else:
+      desc = hash(tuple(test))
+
+    stream_name = 'logcat_%s_%s_%s' % (
+        desc, time.strftime('%Y%m%dT%H%M%S-UTC', time.gmtime()), device.serial)
+
+    logcat_file = None
+    logmon = None
+    try:
+      with self._env.output_manager.ArchivedTempfile(stream_name,
+                                                     'logcat') as logcat_file:
+        with logcat_monitor.LogcatMonitor(
+            device.adb,
+            filter_specs=local_device_environment.LOGCAT_FILTERS,
+            output_file=logcat_file.name,
+            check_error=False) as logmon:
+          with contextlib_ext.Optional(trace_event.trace(str(test)),
+                                       self._env.trace_output):
+            yield logcat_file
+    finally:
+      if logmon:
+        logmon.Close()
+      if logcat_file and logcat_file.Link():
+        logging.info('Logcat saved to %s', logcat_file.Link())
+
   #override
   def _RunTest(self, device, test):
     # Run the test.
@@ -609,28 +649,12 @@ class LocalDeviceGtestRun(local_device_test_run.LocalDeviceTestRun):
           for f in flags:
             logging.info('  %s', f)
 
-          stream_name = 'logcat_%s_%s_%s' % (
-              hash(tuple(test)),
-              time.strftime('%Y%m%dT%H%M%S-UTC', time.gmtime()),
-              device.serial)
-
-          with self._env.output_manager.ArchivedTempfile(
-              stream_name, 'logcat') as logcat_file:
-            with logcat_monitor.LogcatMonitor(
-                device.adb,
-                filter_specs=local_device_environment.LOGCAT_FILTERS,
-                output_file=logcat_file.name,
-                check_error=False) as logmon:
-              with contextlib_ext.Optional(
-                  trace_event.trace(str(test)),
-                  self._env.trace_output):
-                output = self._delegate.Run(
-                    test, device, flags=' '.join(flags),
-                    timeout=timeout, retries=0)
-            logmon.Close()
-
-          if logcat_file.Link():
-            logging.info('Logcat saved to %s', logcat_file.Link())
+          with self._ArchiveLogcat(device, test) as logcat_file:
+            output = self._delegate.Run(test,
+                                        device,
+                                        flags=' '.join(flags),
+                                        timeout=timeout,
+                                        retries=0)
 
           if self._test_instance.enable_xml_result_parsing:
             try:

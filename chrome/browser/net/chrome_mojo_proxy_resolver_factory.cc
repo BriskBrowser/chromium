@@ -7,11 +7,12 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/logging.h"
+#include "base/check_op.h"
 #include "base/no_destructor.h"
 #include "base/single_thread_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
+#include "chrome/browser/service_sandbox_type.h"
 #include "content/public/common/child_process_host.h"
 #include "mojo/public/cpp/bindings/remote.h"
 #include "mojo/public/cpp/bindings/self_owned_receiver.h"
@@ -42,13 +43,6 @@ proxy_resolver::mojom::ProxyResolverFactory* GetProxyResolverFactory() {
     content::ServiceProcessHost::Launch(
         remote->BindNewPipeAndPassReceiver(),
         content::ServiceProcessHost::Options()
-#if defined(OS_MACOSX)
-            // The proxy_resolver service runs V8, so it needs to run in the
-            // helper application that has the com.apple.security.cs.allow-jit
-            // code signing entitlement, which is CHILD_RENDERER. The service
-            // still runs under the utility process sandbox.
-            .WithChildFlags(content::ChildProcessHost::CHILD_RENDERER)
-#endif
             .WithDisplayName(IDS_PROXY_RESOLVER_DISPLAY_NAME)
             .Pass());
 

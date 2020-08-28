@@ -26,31 +26,28 @@ TabGroup::TabGroup(TabGroupController* controller,
   visual_data_ = std::make_unique<tab_groups::TabGroupVisualData>(visual_data);
 }
 
-TabGroup::~TabGroup() {}
+TabGroup::~TabGroup() = default;
 
-void TabGroup::SetVisualData(
-    const tab_groups::TabGroupVisualData& visual_data) {
+void TabGroup::SetVisualData(const tab_groups::TabGroupVisualData& visual_data,
+                             bool is_customized) {
   visual_data_ = std::make_unique<tab_groups::TabGroupVisualData>(visual_data);
+
+  // Once the visual data is customized, it should stay customized.
+  is_customized_ |= is_customized;
   controller_->ChangeTabGroupVisuals(id_);
 }
 
-base::string16 TabGroup::GetDisplayedTitle() const {
-  base::string16 title = visual_data_->title();
-  if (title.empty()) {
-    // Generate a descriptive placeholder title for the group.
-    std::vector<int> tabs_in_group = ListTabs();
-    TabUIHelper* const tab_ui_helper = TabUIHelper::FromWebContents(
-        controller_->GetWebContentsAt(tabs_in_group.front()));
-    constexpr size_t kContextMenuTabTitleMaxLength = 30;
-    base::string16 format_string = l10n_util::GetPluralStringFUTF16(
-        IDS_TAB_CXMENU_PLACEHOLDER_GROUP_TITLE, tabs_in_group.size() - 1);
-    base::string16 short_title;
-    gfx::ElideString(tab_ui_helper->GetTitle(), kContextMenuTabTitleMaxLength,
-                     &short_title);
-    title =
-        base::ReplaceStringPlaceholders(format_string, {short_title}, nullptr);
-  }
-  return title;
+base::string16 TabGroup::GetContentString() const {
+  std::vector<int> tabs_in_group = ListTabs();
+  TabUIHelper* const tab_ui_helper = TabUIHelper::FromWebContents(
+      controller_->GetWebContentsAt(tabs_in_group.front()));
+  constexpr size_t kContextMenuTabTitleMaxLength = 30;
+  base::string16 format_string = l10n_util::GetPluralStringFUTF16(
+      IDS_TAB_CXMENU_PLACEHOLDER_GROUP_TITLE, tabs_in_group.size() - 1);
+  base::string16 short_title;
+  gfx::ElideString(tab_ui_helper->GetTitle(), kContextMenuTabTitleMaxLength,
+                   &short_title);
+  return base::ReplaceStringPlaceholders(format_string, {short_title}, nullptr);
 }
 
 void TabGroup::AddTab() {
@@ -73,6 +70,10 @@ void TabGroup::RemoveTab() {
 
 bool TabGroup::IsEmpty() const {
   return tab_count_ == 0;
+}
+
+bool TabGroup::IsCustomized() const {
+  return is_customized_;
 }
 
 std::vector<int> TabGroup::ListTabs() const {

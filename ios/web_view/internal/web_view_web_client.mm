@@ -6,12 +6,13 @@
 
 #include <dispatch/dispatch.h>
 
-#include "base/logging.h"
+#include "base/check.h"
 #include "base/mac/bundle_locations.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/task/post_task.h"
 #include "components/ssl_errors/error_info.h"
 #include "components/strings/grit/components_strings.h"
+#include "ios/components/webui/web_ui_url_constants.h"
 #include "ios/web/common/user_agent.h"
 #include "ios/web/public/security/ssl_status.h"
 #include "ios/web/public/thread/web_task_traits.h"
@@ -61,9 +62,17 @@ std::unique_ptr<web::WebMainParts> WebViewWebClient::CreateWebMainParts() {
   return std::make_unique<WebViewWebMainParts>();
 }
 
+void WebViewWebClient::AddAdditionalSchemes(Schemes* schemes) const {
+  schemes->standard_schemes.push_back(kChromeUIScheme);
+  schemes->secure_schemes.push_back(kChromeUIScheme);
+}
+
+bool WebViewWebClient::IsAppSpecificURL(const GURL& url) const {
+  return url.SchemeIs(kChromeUIScheme);
+}
+
 std::string WebViewWebClient::GetUserAgent(web::UserAgentType type) const {
-  return web::BuildUserAgentFromProduct(
-      web::UserAgentType::MOBILE,
+  return web::BuildMobileUserAgent(
       base::SysNSStringToUTF8([CWVWebView userAgentProduct]));
 }
 
@@ -152,6 +161,10 @@ void WebViewWebClient::AllowCertificateError(
   } else {
     callback_copy.Run(false);
   }
+}
+
+bool WebViewWebClient::EnableLongPressAndForceTouchHandling() const {
+  return CWVWebView.chromeLongPressAndForceTouchHandlingEnabled;
 }
 
 }  // namespace ios_web_view

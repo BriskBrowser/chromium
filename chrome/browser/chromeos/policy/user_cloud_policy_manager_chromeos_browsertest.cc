@@ -30,6 +30,7 @@
 #include "components/user_manager/known_user.h"
 #include "components/user_manager/user.h"
 #include "components/user_manager/user_manager.h"
+#include "content/public/test/browser_test.h"
 
 namespace policy {
 
@@ -66,7 +67,7 @@ class UserCloudPolicyManagerTest
   // Sets up fake GAIA for specified user login, and requests login for the user
   // (using LoggedInUserMixin).
   void StartUserLogIn(bool wait_for_active_session) {
-    logged_in_user_mixin_.LogInUser(false /*issue_any_scope_token*/,
+    logged_in_user_mixin_.LogInUser(true /*issue_any_scope_token*/,
                                     wait_for_active_session);
   }
 

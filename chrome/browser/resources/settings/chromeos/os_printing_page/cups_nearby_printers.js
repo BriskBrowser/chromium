@@ -60,6 +60,7 @@ Polymer({
 
   listeners: {
     'add-automatic-printer': 'onAddAutomaticPrinter_',
+    'add-print-server-printer': 'onAddPrintServerPrinter_',
     'query-discovered-printer': 'onQueryDiscoveredPrinter_',
   },
 
@@ -102,6 +103,23 @@ Polymer({
             this.onAddNearbyPrintersSucceeded_.bind(
                 this, item.printerInfo.printerName),
             this.onAddNearbyPrinterFailed_.bind(this));
+    settings.recordSettingChange();
+  },
+
+  /**
+   * @param {!CustomEvent<{item: !PrinterListEntry}>} e
+   * @private
+   */
+  onAddPrintServerPrinter_(e) {
+    const item = e.detail.item;
+    this.setActivePrinter_(item);
+
+    settings.CupsPrintersBrowserProxyImpl.getInstance()
+        .addCupsPrinter(item.printerInfo)
+        .then(
+            this.onAddNearbyPrintersSucceeded_.bind(
+                this, item.printerInfo.printerName),
+            this.onAddNearbyPrinterFailed_.bind(this));
   },
 
   /**
@@ -123,6 +141,7 @@ Polymer({
             this.onQueryDiscoveredPrinterSucceeded_.bind(
                 this, item.printerInfo.printerName),
             queryDiscoveredPrinterFailed);
+    settings.recordSettingChange();
   },
 
   /**

@@ -13,13 +13,14 @@
 #include "base/callback_forward.h"
 #include "base/single_thread_task_runner.h"
 #include "base/strings/string16.h"
+#include "base/supports_user_data.h"
 #include "content/common/content_export.h"
-#include "content/public/common/previews_state.h"
 #include "ipc/ipc_listener.h"
 #include "ipc/ipc_sender.h"
 #include "ppapi/buildflags/buildflags.h"
 #include "services/network/public/mojom/url_loader_factory.mojom.h"
 #include "services/service_manager/public/cpp/binder_registry.h"
+#include "third_party/blink/public/common/loader/previews_state.h"
 #include "third_party/blink/public/common/navigation/triggering_event_info.h"
 #include "third_party/blink/public/mojom/devtools/console_message.mojom.h"
 #include "third_party/blink/public/platform/task_type.h"
@@ -37,34 +38,35 @@ class WebLocalFrame;
 class WebPlugin;
 struct WebPluginParams;
 struct WebRect;
-}
+}  // namespace blink
 
 namespace gfx {
 class Range;
 class RectF;
 class Size;
-}
+}  // namespace gfx
 
 namespace network {
 class SharedURLLoaderFactory;
-}
+}  // namespace network
 
 namespace service_manager {
 class InterfaceProvider;
-}
+}  // namespace service_manager
 
 namespace url {
 class Origin;
-}
+}  // namespace url
 
 namespace content {
+
 class ContextMenuClient;
 class PluginInstanceThrottler;
 class RenderAccessibility;
 struct RenderFrameMediaPlaybackOptions;
 class RenderFrameVisitor;
 class RenderView;
-struct ContextMenuParams;
+struct UntrustworthyContextMenuParams;
 struct WebPluginInfo;
 struct WebPreferences;
 
@@ -87,7 +89,8 @@ class AXTreeSnapshotter {
 // navigation. It provides communication with a corresponding RenderFrameHost
 // in the browser process.
 class CONTENT_EXPORT RenderFrame : public IPC::Listener,
-                                   public IPC::Sender {
+                                   public IPC::Sender,
+                                   public base::SupportsUserData {
  public:
   // These numeric values are used in UMA logs; do not change them.
   enum PeripheralContentStatus {
@@ -98,7 +101,7 @@ class CONTENT_EXPORT RenderFrame : public IPC::Listener,
     // Content is essential even though it's cross-origin, because it's large.
     CONTENT_STATUS_ESSENTIAL_CROSS_ORIGIN_BIG = 2,
     // Content is essential because there's large content from the same origin.
-    CONTENT_STATUS_ESSENTIAL_CROSS_ORIGIN_WHITELISTED = 3,
+    CONTENT_STATUS_ESSENTIAL_CROSS_ORIGIN_ALLOWLISTED = 3,
     // Content is tiny in size. These are usually blocked.
     CONTENT_STATUS_TINY = 4,
     // Deprecated, as now entirely obscured content is treated as tiny.
@@ -156,7 +159,7 @@ class CONTENT_EXPORT RenderFrame : public IPC::Listener,
   // Note: if you end up having clients outliving the RenderFrame, we should add
   // a CancelContextMenuCallback function that takes a request id.
   virtual int ShowContextMenu(ContextMenuClient* client,
-                              const ContextMenuParams& params) = 0;
+                              const UntrustworthyContextMenuParams& params) = 0;
 
   // Cancels a context menu in the event that the client is destroyed before the
   // menu is closed.
@@ -187,6 +190,7 @@ class CONTENT_EXPORT RenderFrame : public IPC::Listener,
       const std::string& interface_name,
       mojo::ScopedMessagePipeHandle interface_pipe) = 0;
 
+  // DEPRECATED. Please use GetBrowserInterfaceBroker() instead.
   // Returns the InterfaceProvider that this process can use to bind
   // interfaces exposed to it by the application running in this frame.
   virtual service_manager::InterfaceProvider* GetRemoteInterfaces() = 0;
@@ -208,7 +212,7 @@ class CONTENT_EXPORT RenderFrame : public IPC::Listener,
 
 #if BUILDFLAG(ENABLE_PLUGINS)
   // Registers a plugin that has been marked peripheral. If the origin
-  // whitelist is later updated and includes |content_origin|, then
+  // allowlist is later updated and includes |content_origin|, then
   // |unthrottle_callback| will be called.
   virtual void RegisterPeripheralPlugin(
       const url::Origin& content_origin,
@@ -236,9 +240,9 @@ class CONTENT_EXPORT RenderFrame : public IPC::Listener,
       const gfx::Size& unobscured_size,
       RecordPeripheralDecision record_decision) = 0;
 
-  // Whitelists a |content_origin| so its content will never be throttled in
-  // this RenderFrame. Whitelist is cleared by top level navigation.
-  virtual void WhitelistContentOrigin(const url::Origin& content_origin) = 0;
+  // Allowlists a |content_origin| so its content will never be throttled in
+  // this RenderFrame. Allowlist is cleared by top level navigation.
+  virtual void AllowlistContentOrigin(const url::Origin& content_origin) = 0;
 
   // Used by plugins that load data in this RenderFrame to update the loading
   // notifications.
@@ -260,7 +264,7 @@ class CONTENT_EXPORT RenderFrame : public IPC::Listener,
 
   // Returns the PreviewsState of this frame, a bitmask of potentially several
   // Previews optimizations.
-  virtual PreviewsState GetPreviewsState() = 0;
+  virtual blink::PreviewsState GetPreviewsState() = 0;
 
   // Whether or not this frame is currently pasting.
   virtual bool IsPasting() = 0;
@@ -301,12 +305,6 @@ class CONTENT_EXPORT RenderFrame : public IPC::Listener,
   GetRenderFrameMediaPlaybackOptions() = 0;
   virtual void SetRenderFrameMediaPlaybackOptions(
       const RenderFrameMediaPlaybackOptions& opts) = 0;
-
-  // Synchronously performs the complete set of document lifecycle phases,
-  // including updates to the compositor state and rasterization, then sending
-  // a frame to the viz display compositor. Does nothing if RenderFrame is not
-  // a local root.
-  virtual void UpdateAllLifecyclePhasesAndCompositeForTesting() = 0;
 
   // Sets that cross browsing instance frame lookup is allowed.
   virtual void SetAllowsCrossBrowsingInstanceFrameLookup() = 0;

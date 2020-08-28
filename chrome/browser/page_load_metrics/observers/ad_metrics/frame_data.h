@@ -7,8 +7,9 @@
 
 #include "base/macros.h"
 #include "base/optional.h"
+#include "base/time/time.h"
 #include "components/page_load_metrics/browser/page_load_metrics_observer.h"
-#include "components/page_load_metrics/common/page_load_metrics.mojom.h"
+#include "components/page_load_metrics/common/page_load_metrics.mojom-forward.h"
 #include "services/metrics/public/cpp/ukm_source_id.h"
 #include "ui/gfx/geometry/size.h"
 #include "url/origin.h"
@@ -50,6 +51,22 @@ class FrameData {
     kMaxValue = kCross,
   };
 
+  // Origin status further broken down by whether the ad frame tree has a
+  // frame currently not render-throttled (i.e. is eligible to be painted).
+  // Note that since creative origin status is based on first contentful paint,
+  // only ad frame trees with unknown creative origin status can be without any
+  // frames that are eligible to be painted.
+  // Note: Logged to UMA, keep in sync with
+  // CrossOriginCreativeStatusWithThrottling in enums.xml.
+  // Add new entries to the end, and do not renumber.
+  enum class OriginStatusWithThrottling {
+    kUnknownAndUnthrottled = 0,
+    kUnknownAndThrottled = 1,
+    kSameAndUnthrottled = 2,
+    kCrossAndUnthrottled = 3,
+    kMaxValue = kCrossAndUnthrottled,
+  };
+
   // Whether or not the ad frame has a display: none styling.
   enum FrameVisibility {
     kNonVisible = 0,
@@ -66,6 +83,27 @@ class FrameData {
     kTotalCpu = 2,
     kPeakCpu = 3,
     kMaxValue = kPeakCpu,
+  };
+
+  // Controls what values of HeavyAdStatus will be cause an unload due to the
+  // intervention.
+  enum class HeavyAdUnloadPolicy {
+    kNetworkOnly = 0,
+    kCpuOnly = 1,
+    kAll = 2,
+  };
+
+  // Represents how a frame should be treated by the heavy ad intervention.
+  enum class HeavyAdAction {
+    // Nothing should be done, i.e. the ad is not heavy or the intervention is
+    // not enabled.
+    kNone = 0,
+    // The ad should be reported as heavy.
+    kReport = 1,
+    // The ad should be reported and unloaded.
+    kUnload = 2,
+    // The frame was ignored, i.e. the blocklist was full or page is a reload.
+    kIgnored = 3,
   };
 
   // These values are persisted to logs. Entries should not be renumbered and
@@ -118,7 +156,8 @@ class FrameData {
 
   // Update the metadata of this frame if it is being navigated.
   void UpdateForNavigation(content::RenderFrameHost* render_frame_host,
-                           bool frame_navigated);
+                           bool frame_navigated,
+                           bool record_frame_metrics);
 
   // Updates the number of bytes loaded in the frame given a resource load.
   void ProcessResourceLoadInFrame(
@@ -141,11 +180,11 @@ class FrameData {
   // |update_time|.
   void UpdateCpuUsage(base::TimeTicks update_time, base::TimeDelta update);
 
-  // Returns whether the heavy ad intervention was triggered on this frame.
+  // Returns how the frame should be treated by the heavy ad intervention.
   // This intervention is triggered when the frame is considered heavy, has not
   // received user gesture, and the intervention feature is enabled. This
-  // returns true the first time the criteria is met, and false afterwards.
-  bool MaybeTriggerHeavyAdIntervention();
+  // returns an action the first time the criteria is met, and false afterwards.
+  HeavyAdAction MaybeTriggerHeavyAdIntervention();
 
   // Get the cpu usage for the appropriate activation period.
   base::TimeDelta GetActivationCpuUsage(UserActivationStatus status) const;
@@ -154,12 +193,9 @@ class FrameData {
   base::TimeDelta GetTotalCpuUsage() const;
 
   // Records that the sticky user activation bit has been set on the frame.
-  // Cannot be unset.  Also records the page foreground duration at that time.
-  void SetReceivedUserActivation(base::TimeDelta foreground_duration);
-
-  // Get the unactivated duration for this frame.
-  base::TimeDelta pre_activation_foreground_duration() const {
-    return pre_activation_foreground_duration_;
+  // Cannot be unset.
+  void set_received_user_activation() {
+    user_activation_status_ = UserActivationStatus::kReceivedActivation;
   }
 
   // Updates the max frame depth of this frames tree given the newly seen child
@@ -175,6 +211,10 @@ class FrameData {
   // events for frames that have non-zero bytes.
   void RecordAdFrameLoadUkmEvent(ukm::SourceId source_id) const;
 
+  // Returns the corresponding enum value to split the creative origin status
+  // by whether any frame in the ad frame tree is throttled.
+  OriginStatusWithThrottling GetCreativeOriginStatusWithThrottling() const;
+
   int peak_windowed_cpu_percent() const { return peak_windowed_cpu_percent_; }
 
   base::Optional<base::TimeTicks> peak_window_start_time() const {
@@ -186,6 +226,18 @@ class FrameData {
   }
 
   OriginStatus origin_status() const { return origin_status_; }
+
+  OriginStatus creative_origin_status() const {
+    return creative_origin_status_;
+  }
+
+  base::Optional<base::TimeDelta> first_eligible_to_paint() const {
+    return first_eligible_to_paint_;
+  }
+
+  base::Optional<base::TimeDelta> earliest_first_contentful_paint() const {
+    return earliest_first_contentful_paint_;
+  }
 
   size_t bytes() const { return bytes_; }
 
@@ -209,20 +261,36 @@ class FrameData {
 
   gfx::Size frame_size() const { return frame_size_; }
 
+  bool is_display_none() const { return is_display_none_; }
+
   MediaStatus media_status() const { return media_status_; }
 
   void set_media_status(MediaStatus media_status) {
     media_status_ = media_status;
   }
 
-  void set_timing(page_load_metrics::mojom::PageLoadTimingPtr timing) {
-    timing_ = std::move(timing);
+  void set_creative_origin_status(OriginStatus creative_origin_status) {
+    creative_origin_status_ = creative_origin_status;
   }
+
+  void SetFirstEligibleToPaint(base::Optional<base::TimeDelta> time_stamp);
+
+  // Returns whether a new FCP is set.
+  bool SetEarliestFirstContentfulPaint(
+      base::Optional<base::TimeDelta> time_stamp);
 
   HeavyAdStatus heavy_ad_status() const { return heavy_ad_status_; }
 
   HeavyAdStatus heavy_ad_status_with_noise() const {
     return heavy_ad_status_with_noise_;
+  }
+
+  HeavyAdStatus heavy_ad_status_with_policy() const {
+    return heavy_ad_status_with_policy_;
+  }
+
+  void set_heavy_ad_action(HeavyAdAction heavy_ad_action) {
+    heavy_ad_action_ = heavy_ad_action;
   }
 
  private:
@@ -242,15 +310,14 @@ class FrameData {
   // the heavy ad intervention and returns the type of threshold hit if any.
   // If |use_network_threshold_noise| is set,
   // |heavy_ad_network_threshold_noise_| is added to the network threshold when
+  // computing the status. |policy| controls which thresholds are used when
   // computing the status.
-  HeavyAdStatus ComputeHeavyAdStatus(bool use_network_threshold_noise) const;
+  HeavyAdStatus ComputeHeavyAdStatus(bool use_network_threshold_noise,
+                                     HeavyAdUnloadPolicy policy) const;
 
   // The frame tree node id of root frame of the subtree that |this| is
   // tracking information for.
   const FrameTreeNodeId root_frame_tree_node_id_;
-
-  // The most recently updated timing received for this frame.
-  page_load_metrics::mojom::PageLoadTimingPtr timing_;
 
   // Number of resources loaded by the frame (both complete and incomplete).
   int num_resources_ = 0;
@@ -268,9 +335,6 @@ class FrameData {
   base::TimeDelta cpu_by_activation_period_
       [static_cast<size_t>(UserActivationStatus::kMaxValue) + 1] = {
           base::TimeDelta(), base::TimeDelta()};
-
-  // Duration of time the page spent in the foreground before activation.
-  base::TimeDelta pre_activation_foreground_duration_;
 
   // The cpu time spent in the current window.
   base::TimeDelta cpu_total_for_current_window_;
@@ -301,6 +365,7 @@ class FrameData {
   // The number of bytes that are same origin to the root ad frame.
   size_t same_origin_bytes_;
   OriginStatus origin_status_;
+  OriginStatus creative_origin_status_;
   bool frame_navigated_;
   UserActivationStatus user_activation_status_;
   bool is_display_none_;
@@ -308,6 +373,16 @@ class FrameData {
   gfx::Size frame_size_;
   url::Origin origin_;
   MediaStatus media_status_ = MediaStatus::kNotPlayed;
+
+  // Earliest time that any frame in the ad frame tree has reported
+  // as being eligible to paint, or null if all frames are currently
+  // render-throttled and there hasn't been a first paint. Note that this
+  // timestamp and the implied throttling status are best-effort.
+  base::Optional<base::TimeDelta> first_eligible_to_paint_;
+
+  // The smallest FCP seen for any any frame in this ad frame tree, if a
+  // frame has painted.
+  base::Optional<base::TimeDelta> earliest_first_contentful_paint_;
 
   // Indicates whether or not this frame met the criteria for the heavy ad
   // intervention.
@@ -320,8 +395,22 @@ class FrameData {
   // intervention.
   HeavyAdStatus heavy_ad_status_with_noise_;
 
+  // Same as |heavy_ad_status_with_noise_| but selectively uses thresholds based
+  // on a field trial param. This status is used to control when the
+  // intervention fires.
+  HeavyAdStatus heavy_ad_status_with_policy_ = HeavyAdStatus::kNone;
+
+  // The action taken on this frame by the heavy ad intervention if any.
+  HeavyAdAction heavy_ad_action_ = HeavyAdAction::kNone;
+
   // Number of bytes of noise that should be added to the network threshold.
   const int heavy_ad_network_threshold_noise_;
+
+  // |record_metrics| indicates whether metrics should be logged for this frame.
+  // This may be false in cases where we are tracking a frame, but do not want
+  // to log metrics until a subsequent navigation, e.g. if a frame is currently
+  // navigated to the heavy ads error page.
+  bool record_metrics_ = true;
 
   DISALLOW_COPY_AND_ASSIGN(FrameData);
 };

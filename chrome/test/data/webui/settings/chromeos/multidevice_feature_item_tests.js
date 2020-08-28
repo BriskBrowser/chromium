@@ -2,6 +2,14 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+// clang-format off
+// #import 'chrome://os-settings/chromeos/os_settings.js';
+
+// #import {MultiDeviceFeature, MultiDeviceFeatureState, routes, Router} from 'chrome://os-settings/chromeos/os_settings.js';
+// #import {assertEquals, assertFalse, assertTrue} from '../../chai_assert.js';
+// #import {flush} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+// clang-format on
+
 suite('Multidevice', function() {
   /** @type {?SettingsMultideviceFeatureItemElement} */
   let featureItem = null;
@@ -53,9 +61,11 @@ suite('Multidevice', function() {
   function checkWhetherClickRoutesAway(element, shouldRouteAway) {
     element.click();
     Polymer.dom.flush();
-    assertEquals(shouldRouteAway, initialRoute !== settings.getCurrentRoute());
-    settings.navigateTo(initialRoute);
-    assertEquals(initialRoute, settings.getCurrentRoute());
+    assertEquals(
+        shouldRouteAway,
+        initialRoute !== settings.Router.getInstance().getCurrentRoute());
+    settings.Router.getInstance().navigateTo(initialRoute);
+    assertEquals(initialRoute, settings.Router.getInstance().getCurrentRoute());
   }
 
   setup(function() {
@@ -79,7 +89,7 @@ suite('Multidevice', function() {
     featureItem.subpageRoute = settings.routes.FREE_CANDY;
 
     resetFeatureData();
-    settings.navigateTo(initialRoute);
+    settings.Router.getInstance().navigateTo(initialRoute);
     Polymer.dom.flush();
   });
 

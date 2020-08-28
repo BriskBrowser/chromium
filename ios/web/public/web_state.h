@@ -159,6 +159,19 @@ class WebState : public base::SupportsUserData {
 
   ~WebState() override {}
 
+  // A callback that returns a pointer to a WebState. The callback can always be
+  // used, but it may return nullptr if the info used to instantiate the
+  // callback can no longer be used to return a WebState.
+  using Getter = base::RepeatingCallback<WebState*(void)>;
+  // Use this variant for instances that will only run the callback a single
+  // time.
+  using OnceGetter = base::OnceCallback<WebState*(void)>;
+
+  // Creates default WebState getters that return this WebState, or nullptr if
+  // the WebState has been deallocated.
+  virtual Getter CreateDefaultGetter() = 0;
+  virtual OnceGetter CreateDefaultOnceGetter() = 0;
+
   // Gets/Sets the delegate.
   virtual WebStateDelegate* GetDelegate() = 0;
   virtual void SetDelegate(WebStateDelegate* delegate) = 0;
@@ -333,7 +346,6 @@ class WebState : public base::SupportsUserData {
   //      the security state (e.g. a non-secure form element is edited).
   virtual void DidChangeVisibleSecurityState() = 0;
 
- public:
   virtual InterfaceBinder* GetInterfaceBinderForMainFrame();
 
   // Whether this WebState was created with an opener.
@@ -356,11 +368,20 @@ class WebState : public base::SupportsUserData {
   virtual void TakeSnapshot(const gfx::RectF& rect,
                             SnapshotCallback callback) = 0;
 
+  // Creates PDF representation of the web page and invokes the |callback| with
+  // the NSData of the PDF or nil if a PDF couldn't be generated.
+  virtual void CreateFullPagePdf(
+      base::OnceCallback<void(NSData*)> callback) = 0;
+
   // Adds and removes observers for page navigation notifications. The order in
   // which notifications are sent to observers is undefined. Clients must be
   // sure to remove the observer before they go away.
   virtual void AddObserver(WebStateObserver* observer) = 0;
   virtual void RemoveObserver(WebStateObserver* observer) = 0;
+
+  // Instructs the delegate to close this web state. Called when the page calls
+  // wants to close self by calling window.close() JavaScript API.
+  virtual void CloseWebState() = 0;
 
  protected:
   friend class WebStatePolicyDecider;

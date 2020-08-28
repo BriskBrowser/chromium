@@ -33,7 +33,6 @@ let MostVisitedData;
  *            realboxEnabled: boolean,
  *            realboxMatchOmniboxTheme: boolean,
  *            richerPicker: boolean,
- *            suggestionTransparencyEnabled: boolean,
  *            translatedStrings: Object<string>}}
  */
 let configData;
@@ -330,13 +329,17 @@ window.chrome.embeddedSearch.newTabPage.setBackgroundInfo;
  *   searchBox: (!{
  *     bg: !Array<number>,
  *     icon: !Array<number>,
+ *     iconSelected: !Array<number>,
  *     placeholder: !Array<number>,
  *     resultsBg: !Array<number>,
  *     resultsBgHovered: !Array<number>,
  *     resultsBgSelected: !Array<number>,
  *     resultsDim: !Array<number>,
+ *     resultsDimSelected: !Array<number>,
  *     resultsText: !Array<number>,
+ *     resultsTextSelected: !Array<number>,
  *     resultsUrl: !Array<number>,
+ *     resultsUrlSelected: !Array<number>,
  *     text: !Array<number>,
  *   }|undefined),
  *   textColorLightRgba: !Array<number>,
@@ -409,7 +412,11 @@ window.chrome.embeddedSearch.newTabPage.openExtensionsPage;
 window.chrome.embeddedSearch.searchBox;
 /** @param {number} line */
 window.chrome.embeddedSearch.searchBox.deleteAutocompleteMatch;
+/** @param {number} suggestionGroupId */
+window.chrome.embeddedSearch.searchBox.toggleSuggestionGroupIdVisibility;
 window.chrome.embeddedSearch.searchBox.isKeyCaptureEnabled;
+/** @param {number} latencyMs */
+window.chrome.embeddedSearch.searchBox.logCharTypedToRepaintLatency;
 window.chrome.embeddedSearch.searchBox.paste;
 window.chrome.embeddedSearch.searchBox.rtl;
 window.chrome.embeddedSearch.searchBox.startCapturingKeyStrokes;
@@ -433,11 +440,13 @@ let ACMatchClassification;
  *   description: string,
  *   descriptionClass: !Array<!ACMatchClassification>,
  *   destinationUrl: string,
- *   inlineAutocompletion: string,
- *   isSearchType: boolean,
  *   fillIntoEdit: string,
+ *   suggestionGroupId: number,
+ *   iconUrl: string,
  *   imageDominantColor: string,
  *   imageUrl: string,
+ *   inlineAutocompletion: string,
+ *   isSearchType: boolean,
  *   supportsDeletion: boolean,
  *   swapContentsAndDescription: boolean,
  *   type: string,
@@ -447,7 +456,16 @@ let AutocompleteMatch;
 
 /**
  * @typedef {{
+ *   header: string,
+ *   hidden: boolean,
+ * }}
+ */
+let SuggestionGroup;
+
+/**
+ * @typedef {{
  *   input: string,
+ *   suggestionGroupsMap: !Object<!SuggestionGroup>,
  *   matches: !Array<!AutocompleteMatch>,
  * }}
  */

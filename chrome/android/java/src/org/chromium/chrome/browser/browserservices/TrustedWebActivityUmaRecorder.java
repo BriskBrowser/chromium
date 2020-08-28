@@ -14,6 +14,7 @@ import org.chromium.base.task.TaskTraits;
 import org.chromium.chrome.browser.init.ChromeBrowserInitializer;
 import org.chromium.chrome.browser.metrics.UkmRecorder;
 import org.chromium.chrome.browser.tab.Tab;
+import org.chromium.components.content_settings.ContentSettingsType;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
@@ -48,6 +49,17 @@ public class TrustedWebActivityUmaRecorder {
         int NUM_ENTRIES = 2;
     }
 
+    @IntDef({PermissionChanged.NULL_TO_TRUE, PermissionChanged.NULL_TO_TRUE,
+            PermissionChanged.TRUE_TO_FALSE, PermissionChanged.FALSE_TO_TRUE})
+    @Retention(RetentionPolicy.SOURCE)
+    public @interface PermissionChanged {
+        int NULL_TO_FALSE = 0;
+        int NULL_TO_TRUE = 1;
+        int TRUE_TO_FALSE = 2;
+        int FALSE_TO_TRUE = 3;
+        int NUM_ENTRIES = 4;
+    }
+
     private final ChromeBrowserInitializer mBrowserInitializer;
 
     @Inject
@@ -61,7 +73,8 @@ public class TrustedWebActivityUmaRecorder {
     public void recordTwaOpened(@Nullable Tab tab) {
         RecordUserAction.record("BrowserServices.TwaOpened");
         if (tab != null) {
-            new UkmRecorder.Bridge().recordEvent(tab.getWebContents(), "TrustedWebActivity.Open");
+            new UkmRecorder.Bridge().recordEventWithBooleanMetric(
+                    tab.getWebContents(), "TrustedWebActivity.Open", "HasOccurred");
         }
     }
 
@@ -159,6 +172,49 @@ public class TrustedWebActivityUmaRecorder {
     }
 
     private void doWhenNativeLoaded(Runnable runnable) {
-        mBrowserInitializer.runNowOrAfterNativeInitialization(runnable);
+        mBrowserInitializer.runNowOrAfterFullBrowserStarted(runnable);
+    }
+
+    public void recordLocationDelegationEnrolled(boolean enrolled) {
+        RecordHistogram.recordBooleanHistogram(
+                "TrustedWebActivity.LocationDelegationEnrolled", enrolled);
+    }
+
+    public void recordPermissionChangedUma(
+            @ContentSettingsType int type, Boolean last, boolean enabled) {
+        if (type == ContentSettingsType.GEOLOCATION) {
+            @PermissionChanged
+            int change = PermissionChanged.NUM_ENTRIES;
+            if (last == null) {
+                if (enabled) {
+                    change = PermissionChanged.NULL_TO_TRUE;
+                } else {
+                    change = PermissionChanged.NULL_TO_FALSE;
+                }
+            } else {
+                if (last && !enabled) change = PermissionChanged.TRUE_TO_FALSE;
+                if (!last && enabled) change = PermissionChanged.FALSE_TO_TRUE;
+            }
+            if (change != PermissionChanged.NUM_ENTRIES) {
+                RecordHistogram.recordEnumeratedHistogram(
+                        "TrustedWebActivity.LocationPermissionChanged", change,
+                        PermissionChanged.NUM_ENTRIES);
+            }
+        }
+    }
+
+    public void recordLocationPermissionRequestResult(boolean enabled) {
+        RecordHistogram.recordBooleanHistogram(
+                "TrustedWebActivity.LocationPermissionRequestIsGranted", enabled);
+    }
+
+    public void recordLocationUpdateError(@LocationUpdateError int error) {
+        RecordHistogram.recordEnumeratedHistogram("TrustedWebActivity.LocationUpdateErrorCode",
+                error, LocationUpdateError.MAX_VALUE + 1);
+    }
+
+    public void recordQualityEnforcementViolation(@QualityEnforcer.ViolationType int type) {
+        RecordHistogram.recordEnumeratedHistogram("TrustedWebActivity.QualityEnforcementViolation",
+                type, QualityEnforcer.ViolationType.NUM_ENTRIES);
     }
 }

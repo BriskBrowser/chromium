@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "base/macros.h"
+#include "chrome/app/vector_icons/vector_icons.h"
 #include "chrome/browser/profiles/profile_metrics.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/views/close_bubble_on_tab_activation_helper.h"
@@ -27,8 +28,11 @@ class Browser;
 
 namespace views {
 class Button;
-class Label;
 }  // namespace views
+
+namespace ui {
+class ImageModel;
+}  // namespace ui
 
 // This class provides the UI for different menus that are created by user
 // clicking the avatar button.
@@ -59,8 +63,39 @@ class ProfileMenuViewBase : public content::WebContentsDelegate,
     kAddNewProfileButton = 15,
     kSyncSettingsButton = 16,
     kEditProfileButton = 17,
-    kMaxValue = kEditProfileButton,
+    kCreateIncognitoShortcutButton = 18,
+    kMaxValue = kCreateIncognitoShortcutButton,
   };
+
+  enum class SyncInfoContainerBackgroundState {
+    kNoError,
+    kPaused,
+    kError,
+    kNoPrimaryAccount,
+  };
+
+  struct SyncInfo {
+    int description_string_id;
+    int button_string_id;
+    SyncInfoContainerBackgroundState background_state;
+  };
+
+  struct EditButtonParams {
+    EditButtonParams(const gfx::VectorIcon* edit_icon,
+                     const base::string16& edit_tooltip_text,
+                     base::RepeatingClosure edit_action);
+    EditButtonParams(const EditButtonParams&);
+    ~EditButtonParams();
+
+    const gfx::VectorIcon* edit_icon;
+    base::string16 edit_tooltip_text;
+    base::RepeatingClosure edit_action;
+  };
+
+  // Size of the large identity image in the menu.
+  static constexpr int kIdentityImageSize = 64;
+  // Size of the small identity images for other selectable profiles.
+  static constexpr int kSelectableProfileImageSize = 20;
 
   // Shows the bubble if one is not already showing.  This allows us to easily
   // make a button toggle the bubble on and off when clicked: we unconditionally
@@ -69,7 +104,6 @@ class ProfileMenuViewBase : public content::WebContentsDelegate,
   // the existing bubble will auto-close due to focus loss.
   static void ShowBubble(
       profiles::BubbleViewMode view_mode,
-      signin_metrics::AccessPoint access_point,
       views::Button* anchor_button,
       Browser* browser,
       bool is_source_keyboard);
@@ -86,53 +120,43 @@ class ProfileMenuViewBase : public content::WebContentsDelegate,
   // This method is called once to add all menu items.
   virtual void BuildMenu() = 0;
 
-  // API to build the profile menu.
-  void SetHeading(const base::string16& heading,
-                  const base::string16& tooltip_text,
-                  base::RepeatingClosure action);
-  void SetIdentityInfo(const gfx::ImageSkia& image,
-                       const gfx::ImageSkia& badge,
-                       const base::string16& title,
-                       const base::string16& subtitle = base::string16());
-  void SetSyncInfo(const gfx::ImageSkia& icon,
-                   const base::string16& description,
-                   const base::string16& clickable_text,
-                   base::RepeatingClosure action);
-  void SetSyncInfoBackgroundColor(SkColor bg_color);
-  void AddShortcutFeatureButton(const gfx::ImageSkia& icon,
+  // Override to supply a sync icon for the profile menu.
+  virtual gfx::ImageSkia GetSyncIcon() const;
+
+  // If |profile_name| is empty, no heading will be displayed.
+  void SetProfileIdentityInfo(
+      const base::string16& profile_name,
+      SkColor profile_background_color,
+      base::Optional<EditButtonParams> edit_button_params,
+      const ui::ImageModel& image_model,
+      const base::string16& title,
+      const base::string16& subtitle = base::string16());
+  void SetSyncInfo(const SyncInfo& sync_info,
+                   const base::RepeatingClosure& action,
+                   bool show_badge);
+  void AddShortcutFeatureButton(const gfx::VectorIcon& icon,
                                 const base::string16& text,
                                 base::RepeatingClosure action);
-  void AddFeatureButton(const gfx::ImageSkia& icon,
-                        const base::string16& text,
-                        base::RepeatingClosure action);
+  void AddFeatureButton(const base::string16& text,
+                        base::RepeatingClosure action,
+                        const gfx::VectorIcon& icon = gfx::kNoneIcon,
+                        float icon_to_image_ratio = 1.0f);
   void SetProfileManagementHeading(const base::string16& heading);
-  void AddSelectableProfile(const gfx::ImageSkia& image,
+  void AddSelectableProfile(const ui::ImageModel& image_model,
                             const base::string16& name,
                             bool is_guest,
                             base::RepeatingClosure action);
-  void AddProfileManagementShortcutFeatureButton(const gfx::ImageSkia& icon,
+  void AddProfileManagementShortcutFeatureButton(const gfx::VectorIcon& icon,
                                                  const base::string16& text,
                                                  base::RepeatingClosure action);
-  void AddProfileManagementFeatureButton(const gfx::ImageSkia& icon,
+  void AddProfileManagementFeatureButton(const gfx::VectorIcon& icon,
                                          const base::string16& text,
                                          base::RepeatingClosure action);
-  // 0 < |icon_to_image_ratio| <= 1 is the size ratio of |icon| in the returned
-  // image. E.g. a value of 0.8 means that |icon| only takes up 80% of the
-  // returned image, with the rest being padding around it.
-  gfx::ImageSkia ImageForMenu(const gfx::VectorIcon& icon,
-                              float icon_to_image_ratio = 1.0f);
+
   gfx::ImageSkia ColoredImageForMenu(const gfx::VectorIcon& icon,
-                                     SkColor color);
+                                     SkColor color) const;
   // Should be called inside each button/link action.
   void RecordClick(ActionableItem item);
-
-  views::Label* CreateAndAddLabel(
-      const base::string16& text,
-      int text_context = views::style::CONTEXT_LABEL);
-  views::StyledLabel* CreateAndAddLabelWithLink(const base::string16& text,
-                                                gfx::Range link_range,
-                                                base::RepeatingClosure action);
-  void AddViewItem(std::unique_ptr<views::View> view);
 
   Browser* browser() const { return browser_; }
 
@@ -141,6 +165,11 @@ class ProfileMenuViewBase : public content::WebContentsDelegate,
   int GetMaxHeight() const;
 
   views::Button* anchor_button() const { return anchor_button_; }
+
+  bool perform_menu_actions() const { return perform_menu_actions_; }
+  void set_perform_menu_actions_for_testing(bool perform_menu_actions) {
+    perform_menu_actions_ = perform_menu_actions;
+  }
 
  private:
   friend class ProfileMenuViewExtensionsTest;
@@ -174,6 +203,8 @@ class ProfileMenuViewBase : public content::WebContentsDelegate,
   void RegisterClickAction(views::View* clickable_view,
                            base::RepeatingClosure action);
 
+  void UpdateSyncInfoContainerBackground();
+
   Browser* const browser_;
 
   views::Button* const anchor_button_;
@@ -196,7 +227,14 @@ class ProfileMenuViewBase : public content::WebContentsDelegate,
   // using a key accelerator.
   views::Button* first_profile_button_ = nullptr;
 
+  // May be disabled by tests that only watch to histogram records and don't
+  // care about actual actions.
+  bool perform_menu_actions_ = true;
+
   CloseBubbleOnTabActivationHelper close_bubble_helper_;
+
+  SyncInfoContainerBackgroundState sync_background_state_ =
+      SyncInfoContainerBackgroundState::kNoError;
 
   DISALLOW_COPY_AND_ASSIGN(ProfileMenuViewBase);
 };

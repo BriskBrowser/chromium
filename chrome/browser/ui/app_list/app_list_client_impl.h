@@ -28,10 +28,10 @@
 
 namespace app_list {
 class SearchController;
-class SearchResourceManager;
 }  // namespace app_list
 
 class AppListClientWithProfileTest;
+class AppListNotifierImpl;
 class AppListModelUpdater;
 class AppSyncUIStateWatcher;
 class Profile;
@@ -72,25 +72,26 @@ class AppListClientImpl
                            GetContextMenuModelCallback callback) override;
   void OnAppListVisibilityWillChange(bool visible) override;
   void OnAppListVisibilityChanged(bool visible) override;
-  void OnFolderCreated(int profile_id,
-                       std::unique_ptr<ash::AppListItemMetadata> item) override;
-  void OnFolderDeleted(int profile_id,
-                       std::unique_ptr<ash::AppListItemMetadata> item) override;
+  void OnItemAdded(int profile_id,
+                   std::unique_ptr<ash::AppListItemMetadata> item) override;
   void OnItemUpdated(int profile_id,
                      std::unique_ptr<ash::AppListItemMetadata> item) override;
-  void OnPageBreakItemAdded(int profile_id,
-                            const std::string& id,
-                            const syncer::StringOrdinal& position) override;
+  void OnFolderDeleted(int profile_id,
+                       std::unique_ptr<ash::AppListItemMetadata> item) override;
   void OnPageBreakItemDeleted(int profile_id, const std::string& id) override;
   void GetNavigableContentsFactory(
       mojo::PendingReceiver<content::mojom::NavigableContentsFactory> receiver)
       override;
   void OnSearchResultVisibilityChanged(const std::string& id,
                                        bool visible) override;
+  void OnQuickSettingsChanged(
+      const std::string& setting_name,
+      const std::map<std::string, int>& values) override;
   void NotifySearchResultsForLogging(
       const base::string16& trimmed_query,
       const ash::SearchResultIdWithPositionIndices& results,
       int position_index) override;
+  ash::AppListNotifier* GetNotifier() override;
 
   // user_manager::UserManager::UserSessionStateObserver:
   void ActiveUserChanged(user_manager::User* active_user) override;
@@ -105,7 +106,7 @@ class AppListClientImpl
   void PinApp(const std::string& app_id) override;
   void UnpinApp(const std::string& app_id) override;
   Pinnable GetPinnable(const std::string& app_id) override;
-  void CreateNewWindow(Profile* profile, bool incognito) override;
+  void CreateNewWindow(bool incognito) override;
   void OpenURL(Profile* profile,
                const GURL& url,
                ui::PageTransition transition,
@@ -175,7 +176,6 @@ class AppListClientImpl
   // callbacks.
   std::map<int, AppListModelUpdater*> profile_model_mappings_;
 
-  std::unique_ptr<app_list::SearchResourceManager> search_resource_manager_;
   std::unique_ptr<app_list::SearchController> search_controller_;
   std::unique_ptr<AppSyncUIStateWatcher> app_sync_ui_state_watcher_;
 
@@ -183,6 +183,8 @@ class AppListClientImpl
       template_url_service_observer_{this};
 
   ash::AppListController* app_list_controller_ = nullptr;
+
+  std::unique_ptr<AppListNotifierImpl> app_list_notifier_;
 
   bool app_list_target_visibility_ = false;
   bool app_list_visible_ = false;

@@ -9,6 +9,7 @@
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
+#include "base/logging.h"
 #include "base/strings/string_util.h"
 #include "chrome/browser/chromeos/smb_client/discovery/host_locator.h"
 
@@ -59,12 +60,12 @@ void NetworkScanner::RegisterHostLocator(std::unique_ptr<HostLocator> locator) {
   locators_.push_back(std::move(locator));
 }
 
-std::string NetworkScanner::ResolveHost(const std::string& host) const {
+net::IPAddress NetworkScanner::ResolveHost(const std::string& host) const {
   DCHECK(find_hosts_returned_);
 
   const auto& host_iter = found_hosts_.find(base::ToLowerASCII(host));
   if (host_iter == found_hosts_.end()) {
-    return "";
+    return {};
   }
 
   return host_iter->second;
@@ -89,14 +90,15 @@ void NetworkScanner::AddHostsToResults(uint32_t request_id,
 
   HostMap& existing_hosts = request_iter->second.hosts_found;
   for (const auto& new_host : new_hosts) {
-    const Hostname& new_hostname = base::ToLowerASCII(new_host.first);
+    const Hostname new_hostname = base::ToLowerASCII(new_host.first);
     const Address& new_ip = new_host.second;
 
     if (!HostExists(existing_hosts, new_hostname)) {
       existing_hosts.insert(std::pair<Hostname, Address>(new_hostname, new_ip));
     } else if (existing_hosts[new_hostname] != new_ip) {
       LOG(WARNING) << "Different addresses found for host: " << new_hostname;
-      LOG(WARNING) << existing_hosts[new_hostname] << ":" << new_ip;
+      LOG(WARNING) << "Existing " << existing_hosts[new_hostname].ToString()
+                   << " new " << new_ip.ToString();
     }
   }
 }

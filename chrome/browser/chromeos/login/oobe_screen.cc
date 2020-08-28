@@ -43,18 +43,10 @@ OobeScreenId StaticOobeScreenId::AsId() const {
 
 // static
 constexpr StaticOobeScreenId OobeScreen::SCREEN_ACCOUNT_PICKER;
-constexpr StaticOobeScreenId OobeScreen::SCREEN_TPM_ERROR;
-constexpr StaticOobeScreenId OobeScreen::SCREEN_PASSWORD_CHANGED;
 constexpr StaticOobeScreenId
     OobeScreen::SCREEN_CREATE_SUPERVISED_USER_FLOW_DEPRECATED;
 constexpr StaticOobeScreenId OobeScreen::SCREEN_CONFIRM_PASSWORD;
 constexpr StaticOobeScreenId OobeScreen::SCREEN_FATAL_ERROR;
-constexpr StaticOobeScreenId
-    OobeScreen::SCREEN_ACTIVE_DIRECTORY_PASSWORD_CHANGE;
-constexpr StaticOobeScreenId OobeScreen::SCREEN_SPECIAL_LOGIN;
-constexpr StaticOobeScreenId OobeScreen::SCREEN_SPECIAL_OOBE;
-constexpr StaticOobeScreenId OobeScreen::SCREEN_ENABLE_ADB_SIDELOADING;
-constexpr StaticOobeScreenId OobeScreen::SCREEN_TEST_NO_WINDOW;
 constexpr StaticOobeScreenId OobeScreen::SCREEN_UNKNOWN;
 
 }  // namespace chromeos

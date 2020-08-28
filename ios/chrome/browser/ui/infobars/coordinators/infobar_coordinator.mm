@@ -6,30 +6,30 @@
 #import "ios/chrome/browser/ui/infobars/coordinators/infobar_coordinator+subclassing.h"
 
 #include "base/mac/foundation_util.h"
+#include "base/metrics/user_metrics.h"
+#include "base/metrics/user_metrics_action.h"
+#import "ios/chrome/browser/main/browser.h"
 #import "ios/chrome/browser/ui/fullscreen/animated_scoped_fullscreen_disabler.h"
-#import "ios/chrome/browser/ui/fullscreen/fullscreen_controller_factory.h"
+#import "ios/chrome/browser/ui/fullscreen/fullscreen_controller.h"
+#import "ios/chrome/browser/ui/fullscreen/fullscreen_features.h"
 #import "ios/chrome/browser/ui/infobars/banners/infobar_banner_accessibility_util.h"
 #import "ios/chrome/browser/ui/infobars/banners/infobar_banner_presentation_state.h"
 #import "ios/chrome/browser/ui/infobars/coordinators/infobar_coordinator_implementation.h"
 #import "ios/chrome/browser/ui/infobars/infobar_badge_ui_delegate.h"
 #import "ios/chrome/browser/ui/infobars/infobar_constants.h"
 #import "ios/chrome/browser/ui/infobars/infobar_container.h"
+#import "ios/chrome/browser/ui/infobars/modals/infobar_modal_constants.h"
 #import "ios/chrome/browser/ui/infobars/presentation/infobar_banner_positioner.h"
 #import "ios/chrome/browser/ui/infobars/presentation/infobar_banner_transition_driver.h"
 #import "ios/chrome/browser/ui/infobars/presentation/infobar_modal_positioner.h"
 #import "ios/chrome/browser/ui/infobars/presentation/infobar_modal_transition_driver.h"
+#import "ios/chrome/browser/ui/toolbar/public/features.h"
 #import "ios/chrome/browser/ui/util/named_guide.h"
 #import "ios/chrome/browser/ui/util/ui_util.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
 #endif
-
-namespace {
-// Banner View constants.
-const CGFloat kiPhoneBannerOverlapWithOmnibox = 5.0;
-const CGFloat kiPadBannerOverlapWithOmnibox = 10.0;
-}  // namespace
 
 @interface InfobarCoordinator () <InfobarCoordinatorImplementation,
                                   InfobarBannerPositioner,
@@ -41,8 +41,6 @@ const CGFloat kiPadBannerOverlapWithOmnibox = 10.0;
 
 // Delegate that holds the Infobar information and actions.
 @property(nonatomic, readonly) infobars::InfoBarDelegate* infobarDelegate;
-// NavigationController that contains the modalViewController.
-@property(nonatomic, weak) UINavigationController* modalNavigationController;
 // The transition delegate used by the Coordinator to present the InfobarBanner.
 // nil if no Banner is being presented.
 @property(nonatomic, strong)
@@ -53,6 +51,8 @@ const CGFloat kiPadBannerOverlapWithOmnibox = 10.0;
     InfobarModalTransitionDriver* modalTransitionDriver;
 // Readwrite redefinition.
 @property(nonatomic, assign, readwrite) BOOL bannerWasPresented;
+// YES if the banner is in the process of being dismissed.
+@property(nonatomic, assign) BOOL bannerIsBeingDismissed;
 // Completion block used to dismiss the banner after a set period of time. This
 // needs to be created by dispatch_block_create() since it may get cancelled.
 @property(nonatomic, copy) dispatch_block_t dismissBannerBlock;
@@ -63,7 +63,7 @@ const CGFloat kiPadBannerOverlapWithOmnibox = 10.0;
 // Synthesize since readonly property from superclass is changed to readwrite.
 @synthesize baseViewController = _baseViewController;
 // Synthesize since readonly property from superclass is changed to readwrite.
-@synthesize browserState = _browserState;
+@synthesize browser = _browser;
 // Property defined in InfobarUIDelegate.
 @synthesize delegate = _delegate;
 // Property defined in InfobarUIDelegate.
@@ -77,7 +77,7 @@ const CGFloat kiPadBannerOverlapWithOmnibox = 10.0;
                     (infobars::InfoBarDelegate*)infoBarDelegate
                            badgeSupport:(BOOL)badgeSupport
                                    type:(InfobarType)infobarType {
-  self = [super initWithBaseViewController:nil browserState:nil];
+  self = [super initWithBaseViewController:nil browser:nil];
   if (self) {
     _infobarDelegate = infoBarDelegate;
     _presented = YES;
@@ -91,12 +91,13 @@ const CGFloat kiPadBannerOverlapWithOmnibox = 10.0;
 
 - (void)stop {
   _animatedFullscreenDisabler = nullptr;
+  _badgeDelegate = nil;
   _infobarDelegate = nil;
 }
 
 - (void)presentInfobarBannerAnimated:(BOOL)animated
                           completion:(ProceduralBlock)completion {
-  DCHECK(self.browserState);
+  DCHECK(self.browser);
   DCHECK(self.baseViewController);
   DCHECK(self.bannerViewController);
   DCHECK(self.started);
@@ -108,10 +109,16 @@ const CGFloat kiPadBannerOverlapWithOmnibox = 10.0;
   }
 
   // Make sure to display the Toolbar/s before presenting the Banner.
-  _animatedFullscreenDisabler =
-      std::make_unique<AnimatedScopedFullscreenDisabler>(
-          FullscreenControllerFactory::GetInstance()->GetForBrowserState(
-              self.browserState));
+  if (fullscreen::features::ShouldScopeFullscreenControllerToBrowser()) {
+    _animatedFullscreenDisabler =
+        std::make_unique<AnimatedScopedFullscreenDisabler>(
+            FullscreenController::FromBrowser(self.browser));
+  } else {
+    _animatedFullscreenDisabler =
+        std::make_unique<AnimatedScopedFullscreenDisabler>(
+            FullscreenController::FromBrowserState(
+                self.browser->GetBrowserState()));
+  }
   _animatedFullscreenDisabler->StartAnimation();
 
   [self.bannerViewController
@@ -128,22 +135,27 @@ const CGFloat kiPadBannerOverlapWithOmnibox = 10.0;
   }
 
   self.infobarBannerState = InfobarBannerPresentationState::IsAnimating;
-  __weak __typeof(self) weakSelf = self;
   [self.baseViewController
       presentViewController:self.bannerViewController
                    animated:animated
                  completion:^{
-                   [weakSelf
-                       configureAccessibilityForBannerInViewController:
-                           weakSelf.baseViewController
-                                                            presenting:YES];
-                   weakSelf.bannerWasPresented = YES;
-                   weakSelf.infobarBannerState =
+                   // Capture self in order to make sure the animation dismisses
+                   // correctly in case the Coordinator gets stopped mid
+                   // presentation. This will also make sure some cleanup tasks
+                   // like configuring accessibility for the presenter VC are
+                   // performed successfully.
+                   [self configureAccessibilityForBannerInViewController:
+                             self.baseViewController
+                                                              presenting:YES];
+                   self.bannerWasPresented = YES;
+                   // Set to NO for each Banner this coordinator might present.
+                   self.bannerIsBeingDismissed = NO;
+                   self.infobarBannerState =
                        InfobarBannerPresentationState::Presented;
-                   [weakSelf.badgeDelegate
+                   [self.badgeDelegate
                        infobarBannerWasPresented:self.infobarType
                                      forWebState:self.webState];
-                   [weakSelf infobarBannerWasPresented];
+                   [self infobarBannerWasPresented];
                    if (completion)
                      completion();
                  }];
@@ -220,6 +232,9 @@ const CGFloat kiPadBannerOverlapWithOmnibox = 10.0;
 #pragma mark InfobarBannerDelegate
 
 - (void)bannerInfobarButtonWasPressed:(id)sender {
+  if (!self.infobarDelegate)
+    return;
+
   [self performInfobarAction];
   // The Infobar action might be async, and the badge should not change until
   // the Infobar has been accepted.
@@ -254,6 +269,8 @@ const CGFloat kiPadBannerOverlapWithOmnibox = 10.0;
 }
 
 - (void)infobarBannerWasDismissed {
+  DCHECK(self.infobarBannerState == InfobarBannerPresentationState::Presented);
+
   self.infobarBannerState = InfobarBannerPresentationState::NotPresented;
   [self configureAccessibilityForBannerInViewController:self.baseViewController
                                              presenting:NO];
@@ -277,23 +294,10 @@ const CGFloat kiPadBannerOverlapWithOmnibox = 10.0;
   NamedGuide* omniboxGuide =
       [NamedGuide guideWithName:kOmniboxGuide
                            view:self.baseViewController.view];
-  UIView* omniboxView = omniboxGuide.constrainedView;
-  CGRect omniboxFrame = omniboxView.frame;
-
-  // TODO(crbug.com/964136): The TabStrip on iPad is pushing down the Omnibox
-  // view. On iPad when the TabStrip is visible convert the Omnibox frame to the
-  // self.baseViewController.view coordinate system.
-  CGFloat bannerOverlap = kiPhoneBannerOverlapWithOmnibox;
-  NamedGuide* tabStripGuide =
-      [NamedGuide guideWithName:kTabStripTabSwitcherGuide
-                           view:self.baseViewController.view];
-  if (tabStripGuide.constrainedFrame.size.height) {
-    omniboxFrame = [omniboxView convertRect:omniboxView.frame
-                                     toView:self.baseViewController.view];
-    bannerOverlap = kiPadBannerOverlapWithOmnibox;
-  }
-
-  return omniboxFrame.origin.y + omniboxFrame.size.height - bannerOverlap;
+  UIView* omniboxView = omniboxGuide.owningView;
+  CGRect omniboxFrame = [omniboxView convertRect:omniboxGuide.layoutFrame
+                                          toView:omniboxView.window];
+  return CGRectGetMaxY(omniboxFrame) - kInfobarBannerOverlapWithOmnibox;
 }
 
 - (UIView*)bannerView {
@@ -312,6 +316,7 @@ const CGFloat kiPadBannerOverlapWithOmnibox = 10.0;
 }
 
 - (void)dismissInfobarModal:(id)infobarModal {
+  base::RecordAction(base::UserMetricsAction(kInfobarModalCancelButtonTapped));
   [self dismissInfobarModalAnimated:YES];
 }
 
@@ -399,6 +404,11 @@ const CGFloat kiPadBannerOverlapWithOmnibox = 10.0;
 - (void)presentInfobarModalFrom:(UIViewController*)presentingViewController
                          driver:(InfobarModalTransitionDriver*)driver
                      completion:(ProceduralBlock)completion {
+  // |self.modalViewController| only exists while one its being presented, if
+  // this is the case early return since there's one already being presented.
+  if (self.modalViewController)
+    return;
+
   BOOL infobarWasConfigured = [self configureModalViewController];
   if (!infobarWasConfigured) {
     if (driver.transitionMode == InfobarModalTransitionBanner) {
@@ -412,7 +422,6 @@ const CGFloat kiPadBannerOverlapWithOmnibox = 10.0;
       initWithRootViewController:self.modalViewController];
   navController.transitioningDelegate = driver;
   navController.modalPresentationStyle = UIModalPresentationCustom;
-  self.modalNavigationController = navController;
   [presentingViewController presentViewController:navController
                                          animated:YES
                                        completion:completion];
@@ -451,12 +460,17 @@ const CGFloat kiPadBannerOverlapWithOmnibox = 10.0;
   // Make sure the banner is completely presented before trying to dismiss it.
   [self.bannerTransitionDriver completePresentationTransitionIfRunning];
 
-  if (self.baseViewController.presentedViewController &&
-      self.baseViewController.presentedViewController ==
-          self.bannerViewController) {
+  // The banner dismiss can be triggered concurrently due to different events
+  // like swiping it up, entering the TabSwitcher, presenting another VC or the
+  // InfobarDelelgate being destroyed. Trying to dismiss it twice might cause a
+  // UIKit crash on iOS12.
+  if (!self.bannerIsBeingDismissed &&
+      self.bannerViewController.presentingViewController) {
+    self.bannerIsBeingDismissed = YES;
     [self infobarBannerWillBeDismissed:userInitiated];
-    [self.baseViewController dismissViewControllerAnimated:YES
-                                                completion:completion];
+    [self.bannerViewController.presentingViewController
+        dismissViewControllerAnimated:animated
+                           completion:completion];
   } else if (completion) {
     completion();
   }
@@ -493,7 +507,8 @@ const CGFloat kiPadBannerOverlapWithOmnibox = 10.0;
                                                          completion:completion];
                            }];
 
-  } else if (presentedViewController == self.modalNavigationController) {
+  } else if (presentedViewController ==
+             self.modalViewController.navigationController) {
     [self.baseViewController dismissViewControllerAnimated:animated
                                                 completion:^{
                                                   if (completion)

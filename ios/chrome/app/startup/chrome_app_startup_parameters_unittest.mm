@@ -10,6 +10,7 @@
 #import "ios/chrome/app/app_startup_parameters.h"
 #include "ios/chrome/browser/chrome_url_constants.h"
 #include "ios/chrome/common/app_group/app_group_constants.h"
+#include "ios/components/webui/web_ui_url_constants.h"
 #include "testing/gtest_mac.h"
 #include "testing/platform_test.h"
 #include "url/gurl.h"
@@ -83,6 +84,26 @@ TEST_F(AppStartupParametersTest, ParseURLWithHttpsParsedURL) {
                                                  fromSourceApplication:nil];
 
   EXPECT_EQ("https://www.google.com/", [params externalURL].spec());
+}
+
+// Tests that http url remains unchanged.
+TEST_F(AppStartupParametersTest, ParseURLWithHttpURL) {
+  NSURL* url = [NSURL URLWithString:@"http://www.google.com"];
+  ChromeAppStartupParameters* params =
+      [ChromeAppStartupParameters newChromeAppStartupParametersWithURL:url
+                                                 fromSourceApplication:nil];
+
+  EXPECT_EQ("http://www.google.com/", [params externalURL]);
+}
+
+// Tests that https url remains unchanged.
+TEST_F(AppStartupParametersTest, ParseURLWithHttpsURL) {
+  NSURL* url = [NSURL URLWithString:@"https://www.google.com"];
+  ChromeAppStartupParameters* params =
+      [ChromeAppStartupParameters newChromeAppStartupParametersWithURL:url
+                                                 fromSourceApplication:nil];
+
+  EXPECT_EQ("https://www.google.com/", [params externalURL]);
 }
 
 TEST_F(AppStartupParametersTest, ParseURLWithXCallbackURL) {

@@ -21,6 +21,7 @@
 <translation id="1398853756734560583">Maximise</translation>
 <translation id="1414271762428216854"><ph name="APP_NAME" />, installed app</translation>
 <translation id="1450753235335490080">Can't share <ph name="CONTENT_TYPE" /></translation>
+<translation id="1487931858675166540"><ph name="FIRST_ITEM_TITLE" /> swapped with <ph name="SECOND_ITEM_TITLE" /></translation>
 <translation id="1498028757988366001">You searched for this before. Deleting '<ph name="QUERY" />' from your history will permanently remove it from your account across all your devices.</translation>
 <translation id="1591184457164800433">{MINUTES,plural, =1{1 minute and }other{# minutes and }}</translation>
 <translation id="1643823602425662293">Notification</translation>
@@ -36,10 +37,11 @@
 <translation id="1842960171412779397">select</translation>
 <translation id="1859234291848436338">Writing Direction</translation>
 <translation id="1860796786778352021">Notification close</translation>
+<translation id="186476001994626254">Web smart paste content</translation>
 <translation id="1871244248791675517">Ins</translation>
 <translation id="1884435127456172652"><ph name="NUMBER" /> %</translation>
 <translation id="1901303067676059328">Select &amp;all</translation>
-<translation id="1938451708255335766">To adjust the window display density, restart the app.</translation>
+<translation id="19085484004813472">This is a new feature</translation>
 <translation id="2006524834898217237">Make sure that this device is connected to the Internet.</translation>
 <translation id="208586643495776849">Please try again</translation>
 <translation id="2090963878406559571">To send a number from <ph name="ORIGIN" /> to your Android phone, <ph name="TROUBLESHOOT_LINK" /> for both devices in settings.</translation>
@@ -64,14 +66,18 @@
 <translation id="2522350507219695259">Calibration is completed</translation>
 <translation id="252373100621549798">Unknown Display</translation>
 <translation id="2545651323591713692">Snooze</translation>
+<translation id="2570734079541893434">Manage settings</translation>
 <translation id="2573731672208488250">{HOURS,plural, =1{in 1 h}other{in # h}}</translation>
 <translation id="2583543531130364912">Calibrate your touchscreen</translation>
+<translation id="2586657967955657006">Clipboard</translation>
 <translation id="2666092431469916601">Top</translation>
 <translation id="2701330563083355633">Shared from <ph name="DEVICE_NAME" /></translation>
+<translation id="271033894570825754">New</translation>
 <translation id="2743387203779672305">Copy to clipboard</translation>
 <translation id="2749082172777216925"><ph name="APP_NAME_INFO" />, <ph name="PRICE" /></translation>
 <translation id="2803313416453193357">Open folder</translation>
 <translation id="2824719307700604149">{YEARS,plural, =1{1 year ago}other{# years ago}}</translation>
+<translation id="2878511608894704031">Delete all</translation>
 <translation id="2907671656515444832">{DAYS,plural, =1{in 1 d}other{in # d}}</translation>
 <translation id="2931838996092594335">click</translation>
 <translation id="2981684127883932071">Displaying suggestions</translation>
@@ -85,9 +91,9 @@
 <translation id="3234408098842461169">Down Arrow</translation>
 <translation id="3291688615589870984">{DAYS,plural, =1{1 day}other{# days}}</translation>
 <translation id="3295886253693811851">Make a call from</translation>
+<translation id="3306688585798492231">Built-in display</translation>
 <translation id="335581015389089642">Speech</translation>
 <translation id="3389286852084373014">Text is too large</translation>
-<translation id="3479552764303398839">Not now</translation>
 <translation id="348799646910989694">Shelf auto hidden</translation>
 <translation id="3554637740840164787"><ph name="ITEM_TITLE" /> was pinned</translation>
 <translation id="3600566671520689681">{DAYS,plural, =1{1 day left}other{# days left}}</translation>
@@ -102,7 +108,6 @@
 <translation id="3842239759367498783">Continue reading from your mobile device <ph name="TITLE" /></translation>
 <translation id="385051799172605136">Back</translation>
 <translation id="3889424535448813030">Right Arrow</translation>
-<translation id="3892641579809465218">Internal Display</translation>
 <translation id="3897092660631435901">Menu</translation>
 <translation id="3909791450649380159">Cu&amp;t</translation>
 <translation id="3990502903496589789">Right Edge</translation>
@@ -113,6 +118,7 @@
 <translation id="4289300219472526559">Start Speaking</translation>
 <translation id="430191667033048642"><ph name="MOVED_APP_NAME" /> moved to folder <ph name="FOLDER_NAME" />.</translation>
 <translation id="4316910396681052118">ALL APPS</translation>
+<translation id="4491109536499578614">Image</translation>
 <translation id="4588090240171750605">Scroll Right</translation>
 <translation id="4631891353005174729"><ph name="APP_NAME_TYPE" />, star rating <ph name="RATING_SCORE" /></translation>
 <translation id="4648249871170053485"><ph name="APP_NAME" />, app recommendation</translation>
@@ -136,6 +142,7 @@
 <translation id="5463830097259460683">Emoji &amp;&amp; Symbols</translation>
 <translation id="5476505524087279545">untick</translation>
 <translation id="547979256943495781">Shelf on right</translation>
+<translation id="5528053674512161860">Page load failed because the developer UI module (dev_ui) is not installed</translation>
 <translation id="5574202486608032840"><ph name="IDS_SHORT_PRODUCT_OS_NAME" /> system</translation>
 <translation id="5583640892426849032">Backspace</translation>
 <translation id="5613020302032141669">Left Arrow</translation>
@@ -143,8 +150,9 @@
 <translation id="5754277640426581776">{MINUTES,plural, =1{1 min}other{# mins}}</translation>
 <translation id="5763338081255973061">{DAYS,plural, =0{Active today}=1{Active 1 day ago}other{Active # days ago}}</translation>
 <translation id="5768079895599174203">{DAYS,plural, =1{1 day and }other{# days and }}</translation>
+<translation id="5789643057113097023">.</translation>
 <translation id="5866104238061687188">{YEARS,plural, =1{in 1 y}other{in # y}}</translation>
-<translation id="5895138241574237353">Restart</translation>
+<translation id="588258955323874662">Full screen</translation>
 <translation id="5906667377645263094">{SECONDS,plural, =1{1 second left}other{# seconds left}}</translation>
 <translation id="5941711191222866238">Minimise</translation>
 <translation id="5943826764092288734">{HOURS,plural, =1{1 hour}other{# hours}}</translation>
@@ -153,10 +161,12 @@
 <translation id="6040143037577758943">Close</translation>
 <translation id="6119846243427417423">activate</translation>
 <translation id="6129953537138746214">Space</translation>
+<translation id="6134259848159370930">Search your device, apps, settings and web.</translation>
 <translation id="6135826906199951471">Del</translation>
 <translation id="6142413573757616983"><ph name="QUANTITY" /> B/s</translation>
 <translation id="6156262341071374681">Expand to all apps</translation>
 <translation id="6165508094623778733">Learn more</translation>
+<translation id="6166852626429024716">Search your device, apps, settings, web…</translation>
 <translation id="6264365405983206840">Select &amp;All</translation>
 <translation id="6351032674660237738">APP SUGGESTIONS</translation>
 <translation id="6364916375976753737">Scroll Left</translation>
@@ -166,6 +176,7 @@
 <translation id="6417265370957905582">Google Assistant</translation>
 <translation id="6430678249303439055">Block all notifications from this app</translation>
 <translation id="6483402905448010557">{SECONDS,plural, =1{1 second ago}other{# seconds ago}}</translation>
+<translation id="6503257047630241175">RTF content</translation>
 <translation id="6539092367496845964">Something went wrong. Try again later.</translation>
 <translation id="654149438358937226">Block all notifications</translation>
 <translation id="6567071839949112727">click ancestor</translation>
@@ -189,10 +200,10 @@
 <translation id="6974053822202609517">Right to Left</translation>
 <translation id="7052633198403197513">F1</translation>
 <translation id="7130207228079676353">MOST LIKELY</translation>
+<translation id="7170202025028120564">Your application's display settings will take effect when it is next restarted.</translation>
 <translation id="7222373446505536781">F11</translation>
 <translation id="7238427729722629793">{MINUTES,plural, =1{1 min left}other{# mins left}}</translation>
 <translation id="7319740667687257810">Launcher, partial view</translation>
-<translation id="7352651011704765696">Something went wrong</translation>
 <translation id="7365057348334984696">{MINUTES,plural, =1{1 min ago}other{# mins ago}}</translation>
 <translation id="7389409599945284130"><ph name="MESSAGE" />..</translation>
 <translation id="7410957453383678442">{MINUTES,plural, =1{1 minute left}other{# minutes left}}</translation>
@@ -205,6 +216,7 @@
 <translation id="7848989271541991537">Moved to page <ph name="PAGE_NUMBER" />, row <ph name="ROW_NUMBER" />, column <ph name="COLUMN_NUMBER" />.</translation>
 <translation id="7879499977785298635">Don't block</translation>
 <translation id="7907591526440419938">Open File</translation>
+<translation id="7952747673138230804">Chrome OS shows suggestions for new content to explore. Sends statistics to improve quality only if you’ve chosen to share usage data. <ph name="MANAGE_SETTINGS" /></translation>
 <translation id="7969046989155602842">Command</translation>
 <translation id="8074552109918343525">{MAX_UNREAD_NOTIFICATIONS,plural, =1{More than 1 unread notification}other{More than # unread notifications}}</translation>
 <translation id="8086866675552927481">{MINUTES,plural, =1{in 1 m}other{in # m}}</translation>
@@ -231,6 +243,7 @@
 <translation id="8602707065186045623"><ph name="SAVEAS_EXTENSION_TYPE" /> File (.<ph name="SAVEAS_EXTENSION_NAME" />)</translation>
 <translation id="8649597172973390955">Shelf always shown</translation>
 <translation id="8677655579646609597"><ph name="QUANTITY" /> KB/s</translation>
+<translation id="8685326675965865247">Search your device, apps, settings and web. Use the arrow keys to navigate your apps.</translation>
 <translation id="8725488761726303204">+<ph name="NUMBER" /> more</translation>
 <translation id="8730621377337864115">Done</translation>
 <translation id="8772073294905169192">{HOURS,plural, =1{1h}other{#h}}</translation>

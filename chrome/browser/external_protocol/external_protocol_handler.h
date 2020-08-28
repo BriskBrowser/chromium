@@ -16,6 +16,10 @@ namespace content {
 class WebContents;
 }
 
+namespace url {
+class Origin;
+}
+
 class GURL;
 class PrefRegistrySimple;
 class Profile;
@@ -43,9 +47,7 @@ class ExternalProtocolHandler {
   class Delegate {
    public:
     virtual scoped_refptr<shell_integration::DefaultProtocolClientWorker>
-    CreateShellWorker(
-        const shell_integration::DefaultWebClientWorkerCallback& callback,
-        const std::string& protocol) = 0;
+    CreateShellWorker(const std::string& protocol) = 0;
     virtual BlockState GetBlockState(const std::string& scheme,
                                      Profile* profile) = 0;
     virtual void BlockRequest() = 0;
@@ -61,8 +63,9 @@ class ExternalProtocolHandler {
     virtual void FinishedProcessingCheck() = 0;
 
     virtual void OnSetBlockState(const std::string& scheme,
+                                 const url::Origin& initiating_origin,
                                  ExternalProtocolHandler::BlockState state) {}
-    virtual ~Delegate() {}
+    virtual ~Delegate() = default;
   };
 
   // UMA histogram metric names.
@@ -72,11 +75,24 @@ class ExternalProtocolHandler {
   // ExternalProtocolHandler::Delegate for testing code.
   static void SetDelegateForTesting(Delegate* delegate);
 
-  // Returns whether we should block a given scheme.
-  static BlockState GetBlockState(const std::string& scheme, Profile* profile);
+  // True if |initiating_origin| is not nullptr and is considered
+  // potentially trustworthy.
+  static bool MayRememberAllowDecisionsForThisOrigin(
+      const url::Origin* initiating_origin);
 
-  // Sets whether we should block a given scheme.
+  // Returns whether we should block a given scheme.
+  // |initiating_origin| can be nullptr if the user is performing a
+  // browser initiated top frame navigation, for example by typing in the
+  // address bar or right-clicking a link and selecting 'Open In New Tab'.
+  // Renderer-initiated navigations will set |initiating_origin| to the origin
+  // of the content requesting the navigation.
+  static BlockState GetBlockState(const std::string& scheme,
+                                  const url::Origin* initiating_origin,
+                                  Profile* profile);
+
+  // Sets whether we should block a given scheme + origin.
   static void SetBlockState(const std::string& scheme,
+                            const url::Origin& initiating_origin,
                             BlockState state,
                             Profile* profile);
 
@@ -97,10 +113,11 @@ class ExternalProtocolHandler {
   // Starts a url using the external protocol handler with the help
   // of shellexecute. Should only be called if the protocol is allowlisted
   // (checked in LaunchUrl) or if the user explicitly allows it. (By selecting
-  // "Open Application" in an ExternalProtocolDialog.) It is assumed that the
-  // url has already been escaped, which happens in LaunchUrl.
+  // "Open Application" in an ExternalProtocolDialog.) |url| might be escaped
+  // already when calling into this function but e.g. from LaunchUrl but it
+  // doesn't have to be because is also escaped in it.
   // NOTE: You should NOT call this function directly unless you are sure the
-  // url you have has been checked against the denylist, and has been escaped.
+  // url you have has been checked against the denylist.
   // All calls to this function should originate in some way from LaunchUrl.
   static void LaunchUrlWithoutSecurityCheck(const GURL& url,
                                             content::WebContents* web_contents);
@@ -131,6 +148,12 @@ class ExternalProtocolHandler {
   // This is implemented separately on each platform.
   // TODO(davidsac): Consider refactoring this to take a WebContents directly.
   // crbug.com/668289
+  //
+  // The dialog displays |initiating_origin| to the user so that they can
+  // attribute the external protocol request to a site that initiated it. If an
+  // opaque origin (for example, an origin inside a sandboxed iframe) initiated
+  // the request, then |initiating_origin| should be set to the precursor origin
+  // (that is, the origin that created the opaque origin).
   static void RunExternalProtocolDialog(
       const GURL& url,
       content::WebContents* web_contents,

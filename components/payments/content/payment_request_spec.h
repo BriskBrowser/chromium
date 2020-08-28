@@ -119,6 +119,8 @@ class PaymentRequestSpec : public PaymentOptionsProvider,
   bool request_payer_email() const override;
   PaymentShippingType shipping_type() const override;
 
+  const mojom::PaymentOptionsPtr& payment_options() const { return options_; }
+
   // Returns the query to be used for the quota on hasEnrolledInstrument()
   // calls. Generally this returns the payment method identifiers and their
   // corresponding data. However, in the case of basic-card with
@@ -143,10 +145,6 @@ class PaymentRequestSpec : public PaymentOptionsProvider,
   const std::map<std::string, std::set<std::string>>& stringified_method_data()
       const {
     return stringified_method_data_;
-  }
-  const std::set<autofill::CreditCard::CardType>& supported_card_types_set()
-      const {
-    return supported_card_types_set_;
   }
   const std::vector<GURL>& url_payment_method_identifiers() const {
     return url_payment_method_identifiers_;
@@ -204,6 +202,8 @@ class PaymentRequestSpec : public PaymentOptionsProvider,
     return method_data_;
   }
 
+  bool IsSecurePaymentConfirmationRequested() const;
+
  private:
   // Returns the first applicable modifier in the Payment Request for the
   // |selected_app|.
@@ -246,8 +246,6 @@ class PaymentRequestSpec : public PaymentOptionsProvider,
   // fast lookup of supported methods.
   std::vector<std::string> supported_card_networks_;
   std::set<std::string> supported_card_networks_set_;
-
-  std::set<autofill::CreditCard::CardType> supported_card_types_set_;
 
   // Only the set of basic-card specified networks. NOTE: callers should use
   // |supported_card_networks_set_| to check merchant support.

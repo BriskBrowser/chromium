@@ -37,7 +37,8 @@ class AvatarToolbarButtonDelegate : public BrowserListObserver,
   base::string16 GetProfileName() const;
   base::string16 GetShortProfileName() const;
   gfx::Image GetGaiaAccountImage() const;
-  gfx::Image GetProfileAvatarImage(gfx::Image gaia_account_image) const;
+  gfx::Image GetProfileAvatarImage(gfx::Image gaia_account_image,
+                                   int preferred_size) const;
 
   // Returns the count of incognito windows attached to the profile.
   int GetIncognitoWindowsCount() const;
@@ -92,7 +93,7 @@ class AvatarToolbarButtonDelegate : public BrowserListObserver,
   void OnAvatarErrorChanged() override;
 
   // Initiates showing the identity.
-  void OnUserIdentityChanged(const base::Feature& triggering_feature);
+  void OnUserIdentityChanged();
 
   // Called after the user interacted with the button or after some timeout.
   void OnIdentityAnimationTimeout();
@@ -108,15 +109,12 @@ class AvatarToolbarButtonDelegate : public BrowserListObserver,
   IdentityAnimationState identity_animation_state_ =
       IdentityAnimationState::kNotShowing;
   bool refresh_tokens_loaded_ = false;
+  std::unique_ptr<AvatarButtonErrorController> error_controller_;
 
   // Whether the avatar highlight animation is visible. The animation is shown
   // when an Autofill datatype is saved. When this is true the avatar button
   // sync paused/error state will be disabled.
   bool highlight_animation_visible_ = false;
-
-#if !defined(OS_CHROMEOS)
-  std::unique_ptr<AvatarButtonErrorController> error_controller_;
-#endif  // !defined(OS_CHROMEOS)
 
   base::WeakPtrFactory<AvatarToolbarButtonDelegate> weak_ptr_factory_{this};
 

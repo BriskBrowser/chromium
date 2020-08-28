@@ -41,6 +41,7 @@
 #include "chrome/browser/ui/page_info/page_info_dialog.h"
 #include "chrome/browser/ui/singleton_tabs.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
+#include "chrome/browser/ui/ui_features.h"
 #include "chrome/browser/ui/web_applications/app_browser_controller.h"
 #include "chrome/browser/ui/web_applications/web_app_dialog_utils.h"
 #include "chrome/browser/ui/web_applications/web_app_launch_utils.h"
@@ -50,7 +51,7 @@
 #include "chrome/common/url_constants.h"
 #include "components/bookmarks/common/bookmark_pref_names.h"
 #include "components/dom_distiller/core/dom_distiller_features.h"
-#include "components/feature_engagement/buildflags.h"
+#include "components/omnibox/common/omnibox_features.h"
 #include "components/prefs/pref_service.h"
 #include "components/sessions/core/tab_restore_service.h"
 #include "components/signin/public/base/signin_pref_names.h"
@@ -61,13 +62,12 @@
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_contents_observer.h"
 #include "content/public/common/profiling.h"
-#include "content/public/common/service_manager_connection.h"
 #include "content/public/common/url_constants.h"
 #include "extensions/browser/extension_system.h"
 #include "printing/buildflags/buildflags.h"
 #include "ui/events/keycodes/keyboard_codes.h"
 
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
 #include "chrome/browser/ui/browser_commands_mac.h"
 #endif
 
@@ -80,20 +80,15 @@
 #include "chrome/browser/platform_util.h"
 #include "chrome/browser/ui/ash/multi_user/multi_user_context_menu.h"
 #include "chrome/browser/ui/browser_commands_chromeos.h"
+#include "components/session_manager/core/session_manager.h"
 #endif
 
 #if defined(OS_LINUX) && !defined(OS_CHROMEOS)
-#include "ui/base/ime/linux/text_edit_key_bindings_delegate_auralinux.h"
-#endif
-
-#if BUILDFLAG(ENABLE_LEGACY_DESKTOP_IN_PRODUCT_HELP)
-#include "chrome/browser/feature_engagement/bookmark/bookmark_tracker.h"
-#include "chrome/browser/feature_engagement/bookmark/bookmark_tracker_factory.h"
-#include "chrome/browser/feature_engagement/new_tab/new_tab_tracker.h"
-#include "chrome/browser/feature_engagement/new_tab/new_tab_tracker_factory.h"
+#include "ui/base/ime/linux/text_edit_key_bindings_delegate_auralinux.h"  // nogncheck
 #endif
 
 #if defined(USE_OZONE)
+#include "ui/base/ui_base_features.h"
 #include "ui/ozone/public/ozone_platform.h"
 #endif
 
@@ -175,7 +170,7 @@ BrowserCommandController::BrowserCommandController(Browser* browser)
       prefs::kPrintingEnabled,
       base::Bind(&BrowserCommandController::UpdatePrintingState,
                  base::Unretained(this)));
-#if !defined(OS_MACOSX)
+#if !defined(OS_MAC)
   profile_pref_registrar_.Add(
       prefs::kFullscreenAllowed,
       base::Bind(&BrowserCommandController::UpdateCommandsForFullscreenMode,
@@ -213,7 +208,7 @@ bool BrowserCommandController::IsReservedCommandOrKey(
     int command_id,
     const content::NativeWebKeyboardEvent& event) {
   // In Apps mode, no keys are reserved.
-  if (browser_->deprecated_is_app())
+  if (browser_->is_type_app() || browser_->is_type_app_popup())
     return false;
 
 #if defined(OS_CHROMEOS)
@@ -236,7 +231,7 @@ bool BrowserCommandController::IsReservedCommandOrKey(
     // found in http://crbug.com/680809.
     const bool is_exit_fullscreen =
         (command_id == IDC_EXIT || command_id == IDC_FULLSCREEN);
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
     // This behavior is different on Mac OS, which has a unique user-initiated
     // full-screen mode. According to the discussion in http://crbug.com/702251,
     // the commands should be reserved for browser-side handling if the browser
@@ -385,6 +380,9 @@ bool BrowserCommandController::ExecuteCommandWithDisposition(
     case IDC_STOP:
       Stop(browser_);
       break;
+    case IDC_TAB_SEARCH:
+      ShowTabSearch(browser_);
+      break;
 
       // Window management commands
     case IDC_NEW_WINDOW:
@@ -399,16 +397,6 @@ bool BrowserCommandController::ExecuteCommandWithDisposition(
       break;
     case IDC_NEW_TAB: {
       NewTab(browser_);
-#if BUILDFLAG(ENABLE_LEGACY_DESKTOP_IN_PRODUCT_HELP)
-      // This is not in NewTab() to avoid tracking programmatic creation of new
-      // tabs by extensions.
-      auto* new_tab_tracker =
-          feature_engagement::NewTabTrackerFactory::GetInstance()
-              ->GetForProfile(profile());
-
-      new_tab_tracker->OnNewTabOpened();
-      new_tab_tracker->CloseBubble();
-#endif
       break;
     }
     case IDC_CLOSE_TAB:
@@ -463,7 +451,7 @@ bool BrowserCommandController::ExecuteCommandWithDisposition(
       break;
     case IDC_OPEN_IN_PWA_WINDOW:
       base::RecordAction(base::UserMetricsAction("OpenActiveTabInPwaWindow"));
-      web_app::ReparentWebAppForSecureActiveTab(browser_);
+      web_app::ReparentWebAppForActiveTab(browser_);
       break;
     case IDC_MOVE_TAB_TO_NEW_WINDOW:
       MoveActiveTabToNewWindow(browser_);
@@ -472,6 +460,8 @@ bool BrowserCommandController::ExecuteCommandWithDisposition(
 #if defined(OS_CHROMEOS)
     case IDC_VISIT_DESKTOP_OF_LRU_USER_2:
     case IDC_VISIT_DESKTOP_OF_LRU_USER_3:
+    case IDC_VISIT_DESKTOP_OF_LRU_USER_4:
+    case IDC_VISIT_DESKTOP_OF_LRU_USER_5:
       ExecuteVisitDesktopCommand(id, window()->GetNativeWindow());
       break;
 #endif
@@ -494,7 +484,7 @@ bool BrowserCommandController::ExecuteCommandWithDisposition(
     }
 #endif
 
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
     case IDC_TOGGLE_FULLSCREEN_TOOLBAR:
       chrome::ToggleFullscreenToolbar(browser_);
       break;
@@ -512,19 +502,9 @@ bool BrowserCommandController::ExecuteCommandWithDisposition(
       SavePage(browser_);
       break;
     case IDC_BOOKMARK_THIS_TAB:
-#if BUILDFLAG(ENABLE_LEGACY_DESKTOP_IN_PRODUCT_HELP)
-      feature_engagement::BookmarkTrackerFactory::GetInstance()
-          ->GetForProfile(profile())
-          ->OnBookmarkAdded();
-#endif
-      BookmarkCurrentTabAllowingExtensionOverrides(browser_);
+      BookmarkCurrentTab(browser_);
       break;
     case IDC_BOOKMARK_ALL_TABS:
-#if BUILDFLAG(ENABLE_LEGACY_DESKTOP_IN_PRODUCT_HELP)
-      feature_engagement::BookmarkTrackerFactory::GetInstance()
-          ->GetForProfile(profile())
-          ->OnBookmarkAdded();
-#endif
       BookmarkAllTabs(browser_);
       break;
     case IDC_VIEW_SOURCE:
@@ -532,9 +512,6 @@ bool BrowserCommandController::ExecuteCommandWithDisposition(
           ->GetActiveWebContents()
           ->GetMainFrame()
           ->ViewSource();
-      break;
-    case IDC_EMAIL_PAGE_LOCATION:
-      EmailPageLocation(browser_);
       break;
     case IDC_PRINT:
       Print(browser_);
@@ -567,6 +544,9 @@ bool BrowserCommandController::ExecuteCommandWithDisposition(
       break;
     case IDC_SEND_TAB_TO_SELF:
       SendTabToSelfFromPageAction(browser_);
+      break;
+    case IDC_QRCODE_GENERATOR:
+      GenerateQRCodeFromPageAction(browser_);
       break;
 
     // Clipboard commands
@@ -679,8 +659,14 @@ bool BrowserCommandController::ExecuteCommandWithDisposition(
     case IDC_SHOW_BOOKMARK_BAR:
       ToggleBookmarkBar(browser_);
       break;
+    case IDC_SHOW_FULL_URLS:
+      ToggleShowFullURLs(browser_);
+      break;
     case IDC_PROFILING_ENABLED:
       content::Profiling::Toggle();
+      break;
+    case IDC_CARET_BROWSING_TOGGLE:
+      ToggleCaretBrowsing(browser_);
       break;
 
     case IDC_SHOW_BOOKMARK_MANAGER:
@@ -753,6 +739,9 @@ bool BrowserCommandController::ExecuteCommandWithDisposition(
     case IDC_WINDOW_PIN_TAB:
       PinTab(browser_);
       break;
+    case IDC_WINDOW_GROUP_TAB:
+      GroupTab(browser_);
+      break;
     case IDC_WINDOW_CLOSE_TABS_TO_RIGHT:
       CloseTabsToRight(browser_);
       break;
@@ -768,6 +757,9 @@ bool BrowserCommandController::ExecuteCommandWithDisposition(
       break;
     case IDC_PIN_TARGET_TAB:
       PinKeyboardFocusedTab(browser_);
+      break;
+    case IDC_GROUP_TARGET_TAB:
+      GroupKeyboardFocusedTab(browser_);
       break;
     case IDC_DUPLICATE_TARGET_TAB:
       DuplicateKeyboardFocusedTab(browser_);
@@ -863,11 +855,6 @@ void BrowserCommandController::OnTabStripModelChanged(
     default:
       break;
   }
-
-  for (auto* contents : old_contents)
-    RemoveInterstitialObservers(contents);
-  for (auto* contents : new_contents)
-    AddInterstitialObservers(contents);
 }
 
 void BrowserCommandController::TabBlockedStateChanged(
@@ -900,27 +887,6 @@ void BrowserCommandController::TabRestoreServiceLoaded(
 ////////////////////////////////////////////////////////////////////////////////
 // BrowserCommandController, private:
 
-class BrowserCommandController::InterstitialObserver
-    : public content::WebContentsObserver {
- public:
-  InterstitialObserver(BrowserCommandController* controller,
-                       content::WebContents* web_contents)
-      : WebContentsObserver(web_contents), controller_(controller) {}
-
-  void DidAttachInterstitialPage() override {
-    controller_->UpdateCommandsForTabState();
-  }
-
-  void DidDetachInterstitialPage() override {
-    controller_->UpdateCommandsForTabState();
-  }
-
- private:
-  BrowserCommandController* controller_;
-
-  DISALLOW_COPY_AND_ASSIGN(InterstitialObserver);
-};
-
 bool BrowserCommandController::IsShowingMainUI() {
   return browser_->SupportsWindowFeature(Browser::FEATURE_TABSTRIP);
 }
@@ -952,8 +918,19 @@ void BrowserCommandController::InitCommandState() {
   command_updater_.UpdateCommandEnabled(IDC_DEBUG_FRAME_TOGGLE, true);
 #if defined(OS_CHROMEOS)
   command_updater_.UpdateCommandEnabled(IDC_MINIMIZE_WINDOW, true);
+  // The VisitDesktop command is only supported for up to 5 logged in users
+  // because that's the max number of user sessions. If that number is increased
+  // the IDC_VISIT_DESKTOP_OF_LRU_USER_ command ids should be updated as well.
+  // crbug.com/940461
+  static_assert(
+      session_manager::kMaximumNumberOfUserSessions <=
+          IDC_VISIT_DESKTOP_OF_LRU_USER_LAST -
+              IDC_VISIT_DESKTOP_OF_LRU_USER_NEXT + 2,
+      "The max number of user sessions exceeds the number of users supported.");
   command_updater_.UpdateCommandEnabled(IDC_VISIT_DESKTOP_OF_LRU_USER_2, true);
   command_updater_.UpdateCommandEnabled(IDC_VISIT_DESKTOP_OF_LRU_USER_3, true);
+  command_updater_.UpdateCommandEnabled(IDC_VISIT_DESKTOP_OF_LRU_USER_4, true);
+  command_updater_.UpdateCommandEnabled(IDC_VISIT_DESKTOP_OF_LRU_USER_5, true);
 #endif
 #if defined(OS_LINUX) && !defined(OS_CHROMEOS)
   command_updater_.UpdateCommandEnabled(IDC_MINIMIZE_WINDOW, true);
@@ -961,9 +938,11 @@ void BrowserCommandController::InitCommandState() {
   command_updater_.UpdateCommandEnabled(IDC_RESTORE_WINDOW, true);
   bool use_system_title_bar = true;
 #if defined(USE_OZONE)
-  use_system_title_bar = ui::OzonePlatform::GetInstance()
-                             ->GetPlatformProperties()
-                             .use_system_title_bar;
+  if (features::IsUsingOzonePlatform()) {
+    use_system_title_bar = ui::OzonePlatform::GetInstance()
+                               ->GetPlatformProperties()
+                               .use_system_title_bar;
+  }
 #endif
   command_updater_.UpdateCommandEnabled(IDC_USE_SYSTEM_TITLE_BAR,
                                         use_system_title_bar);
@@ -971,7 +950,6 @@ void BrowserCommandController::InitCommandState() {
   command_updater_.UpdateCommandEnabled(IDC_OPEN_IN_PWA_WINDOW, true);
 
   // Page-related commands
-  command_updater_.UpdateCommandEnabled(IDC_EMAIL_PAGE_LOCATION, true);
   command_updater_.UpdateCommandEnabled(IDC_MANAGE_PASSWORDS_FOR_PAGE, true);
 
   // Zoom
@@ -1014,6 +992,7 @@ void BrowserCommandController::InitCommandState() {
   command_updater_.UpdateCommandEnabled(
       IDC_SHOW_SAVE_LOCAL_CARD_SIGN_IN_PROMO_IF_APPLICABLE, true);
   command_updater_.UpdateCommandEnabled(IDC_CLOSE_SIGN_IN_PROMO, true);
+  command_updater_.UpdateCommandEnabled(IDC_CARET_BROWSING_TOGGLE, true);
 
   UpdateShowSyncState(true);
 
@@ -1021,28 +1000,36 @@ void BrowserCommandController::InitCommandState() {
   command_updater_.UpdateCommandEnabled(
       IDC_HOME, normal_window || browser_->deprecated_is_app());
 
-  const bool is_web_app =
+  const bool is_web_app_or_custom_tab =
+#if defined(OS_CHROMEOS)
+      browser_->is_type_custom_tab() ||
+#endif
       web_app::AppBrowserController::IsForWebAppBrowser(browser_);
   // Hosted app browser commands.
-  command_updater_.UpdateCommandEnabled(IDC_COPY_URL, is_web_app);
-  command_updater_.UpdateCommandEnabled(IDC_OPEN_IN_CHROME, is_web_app);
-  command_updater_.UpdateCommandEnabled(IDC_SITE_SETTINGS, is_web_app);
-  command_updater_.UpdateCommandEnabled(IDC_WEB_APP_MENU_APP_INFO, is_web_app);
+  command_updater_.UpdateCommandEnabled(IDC_COPY_URL, is_web_app_or_custom_tab);
+  command_updater_.UpdateCommandEnabled(IDC_OPEN_IN_CHROME,
+                                        is_web_app_or_custom_tab);
+  command_updater_.UpdateCommandEnabled(IDC_SITE_SETTINGS,
+                                        is_web_app_or_custom_tab);
+  command_updater_.UpdateCommandEnabled(IDC_WEB_APP_MENU_APP_INFO,
+                                        is_web_app_or_custom_tab);
 
-  // Window management commands
-  command_updater_.UpdateCommandEnabled(IDC_SELECT_NEXT_TAB, normal_window);
-  command_updater_.UpdateCommandEnabled(IDC_SELECT_PREVIOUS_TAB, normal_window);
-  command_updater_.UpdateCommandEnabled(IDC_MOVE_TAB_NEXT, normal_window);
-  command_updater_.UpdateCommandEnabled(IDC_MOVE_TAB_PREVIOUS, normal_window);
-  command_updater_.UpdateCommandEnabled(IDC_SELECT_TAB_0, normal_window);
-  command_updater_.UpdateCommandEnabled(IDC_SELECT_TAB_1, normal_window);
-  command_updater_.UpdateCommandEnabled(IDC_SELECT_TAB_2, normal_window);
-  command_updater_.UpdateCommandEnabled(IDC_SELECT_TAB_3, normal_window);
-  command_updater_.UpdateCommandEnabled(IDC_SELECT_TAB_4, normal_window);
-  command_updater_.UpdateCommandEnabled(IDC_SELECT_TAB_5, normal_window);
-  command_updater_.UpdateCommandEnabled(IDC_SELECT_TAB_6, normal_window);
-  command_updater_.UpdateCommandEnabled(IDC_SELECT_TAB_7, normal_window);
-  command_updater_.UpdateCommandEnabled(IDC_SELECT_LAST_TAB, normal_window);
+  // Tab management commands
+  const bool supports_tabs =
+      browser_->SupportsWindowFeature(Browser::FEATURE_TABSTRIP);
+  command_updater_.UpdateCommandEnabled(IDC_SELECT_NEXT_TAB, supports_tabs);
+  command_updater_.UpdateCommandEnabled(IDC_SELECT_PREVIOUS_TAB, supports_tabs);
+  command_updater_.UpdateCommandEnabled(IDC_MOVE_TAB_NEXT, supports_tabs);
+  command_updater_.UpdateCommandEnabled(IDC_MOVE_TAB_PREVIOUS, supports_tabs);
+  command_updater_.UpdateCommandEnabled(IDC_SELECT_TAB_0, supports_tabs);
+  command_updater_.UpdateCommandEnabled(IDC_SELECT_TAB_1, supports_tabs);
+  command_updater_.UpdateCommandEnabled(IDC_SELECT_TAB_2, supports_tabs);
+  command_updater_.UpdateCommandEnabled(IDC_SELECT_TAB_3, supports_tabs);
+  command_updater_.UpdateCommandEnabled(IDC_SELECT_TAB_4, supports_tabs);
+  command_updater_.UpdateCommandEnabled(IDC_SELECT_TAB_5, supports_tabs);
+  command_updater_.UpdateCommandEnabled(IDC_SELECT_TAB_6, supports_tabs);
+  command_updater_.UpdateCommandEnabled(IDC_SELECT_TAB_7, supports_tabs);
+  command_updater_.UpdateCommandEnabled(IDC_SELECT_LAST_TAB, supports_tabs);
 
   // These are always enabled; the menu determines their menu item visibility.
   command_updater_.UpdateCommandEnabled(IDC_UPGRADE_DIALOG, true);
@@ -1053,10 +1040,16 @@ void BrowserCommandController::InitCommandState() {
 
   command_updater_.UpdateCommandEnabled(IDC_WINDOW_MUTE_SITE, normal_window);
   command_updater_.UpdateCommandEnabled(IDC_WINDOW_PIN_TAB, normal_window);
+  command_updater_.UpdateCommandEnabled(IDC_WINDOW_GROUP_TAB, normal_window);
   command_updater_.UpdateCommandEnabled(IDC_WINDOW_CLOSE_TABS_TO_RIGHT,
                                         normal_window);
   command_updater_.UpdateCommandEnabled(IDC_WINDOW_CLOSE_OTHER_TABS,
                                         normal_window);
+
+  command_updater_.UpdateCommandEnabled(
+      IDC_TAB_SEARCH, base::FeatureList::IsEnabled(features::kTabSearch) &&
+                          browser_->is_type_normal() &&
+                          !browser_->profile()->IsIncognitoProfile());
 
   // Initialize other commands whose state changes based on various conditions.
   UpdateCommandsForFullscreenMode();
@@ -1090,6 +1083,10 @@ void BrowserCommandController::UpdateSharedCommandsForIncognitoAvailability(
       extensions::ExtensionSystem::Get(profile)->extension_service();
   const bool enable_extensions =
       extension_service && extension_service->extensions_enabled();
+
+  command_updater->UpdateCommandEnabled(
+      IDC_SHOW_FULL_URLS,
+      base::FeatureList::IsEnabled(omnibox::kOmniboxContextMenuShowFullUrls));
 
   // Bookmark manager and settings page/subpages are forced to open in normal
   // mode. For this reason we disable these commands when incognito is forced.
@@ -1140,6 +1137,8 @@ void BrowserCommandController::UpdateCommandsForTabState() {
                                         !browser_->deprecated_is_app());
   command_updater_.UpdateCommandEnabled(IDC_WINDOW_PIN_TAB,
                                         !browser_->deprecated_is_app());
+  command_updater_.UpdateCommandEnabled(IDC_WINDOW_GROUP_TAB,
+                                        !browser_->deprecated_is_app());
   command_updater_.UpdateCommandEnabled(IDC_WINDOW_CLOSE_TABS_TO_RIGHT,
                                         CanCloseTabsToRight(browser_));
   command_updater_.UpdateCommandEnabled(IDC_WINDOW_CLOSE_OTHER_TABS,
@@ -1153,8 +1152,6 @@ void BrowserCommandController::UpdateCommandsForTabState() {
   window()->ZoomChangedForActiveTab(false);
   command_updater_.UpdateCommandEnabled(IDC_VIEW_SOURCE,
                                         CanViewSource(browser_));
-  command_updater_.UpdateCommandEnabled(IDC_EMAIL_PAGE_LOCATION,
-                                        CanEmailPageLocation(browser_));
   if (browser_->is_type_devtools())
     command_updater_.UpdateCommandEnabled(IDC_OPEN_FILE, false);
 
@@ -1218,7 +1215,7 @@ void BrowserCommandController::UpdateCommandsForDevTools() {
                                         dev_tools_enabled);
   command_updater_.UpdateCommandEnabled(IDC_DEV_TOOLS_TOGGLE,
                                         dev_tools_enabled);
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
   command_updater_.UpdateCommandEnabled(IDC_TOGGLE_JAVASCRIPT_APPLE_EVENTS,
                                         dev_tools_enabled);
 #endif
@@ -1301,6 +1298,7 @@ void BrowserCommandController::UpdateCommandsForFullscreenMode() {
   command_updater_.UpdateCommandEnabled(IDC_EDIT_SEARCH_ENGINES, show_main_ui);
   command_updater_.UpdateCommandEnabled(IDC_VIEW_PASSWORDS, show_main_ui);
   command_updater_.UpdateCommandEnabled(IDC_ABOUT, show_main_ui);
+  command_updater_.UpdateCommandEnabled(IDC_QRCODE_GENERATOR, show_main_ui);
   command_updater_.UpdateCommandEnabled(IDC_SHOW_APP_MENU, show_main_ui);
   command_updater_.UpdateCommandEnabled(IDC_SEND_TAB_TO_SELF, show_main_ui);
   command_updater_.UpdateCommandEnabled(IDC_SEND_TAB_TO_SELF_SINGLE_TARGET,
@@ -1310,7 +1308,7 @@ void BrowserCommandController::UpdateCommandsForFullscreenMode() {
   if (base::debug::IsProfilingSupported())
     command_updater_.UpdateCommandEnabled(IDC_PROFILING_ENABLED, show_main_ui);
 
-#if !defined(OS_MACOSX)
+#if !defined(OS_MAC)
   // Disable toggling into fullscreen mode if disallowed by pref.
   const bool fullscreen_enabled =
       is_fullscreen ||
@@ -1344,14 +1342,14 @@ void BrowserCommandController::UpdateCommandsForHostedAppAvailability() {
 namespace {
 
 #if DCHECK_IS_ON()
-// Makes sure that all commands that are not whitelisted are disabled. DCHECKs
+// Makes sure that all commands that are not allowlisted are disabled. DCHECKs
 // otherwise. Compiled only in debug mode.
-void NonWhitelistedCommandsAreDisabled(CommandUpdaterImpl* command_updater) {
-  constexpr int kWhitelistedIds[] = {IDC_CUT, IDC_COPY, IDC_PASTE};
+void NonAllowlistedCommandsAreDisabled(CommandUpdaterImpl* command_updater) {
+  constexpr int kAllowlistedIds[] = {IDC_CUT, IDC_COPY, IDC_PASTE};
 
-  // Go through all the command ids, skip the whitelisted ones.
+  // Go through all the command ids, skip the allowlisted ones.
   for (int id : command_updater->GetAllIds()) {
-    if (base::Contains(kWhitelistedIds, id)) {
+    if (base::Contains(kAllowlistedIds, id)) {
       continue;
     }
     DCHECK(!command_updater->IsCommandEnabled(id));
@@ -1372,14 +1370,14 @@ void BrowserCommandController::UpdateCommandsForLockedFullscreenMode() {
 
   if (is_locked_fullscreen_) {
     command_updater_.DisableAllCommands();
-    // Update the state of whitelisted commands:
+    // Update the state of allowlisted commands:
     // IDC_CUT/IDC_COPY/IDC_PASTE,
     UpdateCommandsForContentRestrictionState();
     // TODO(crbug.com/904637): Re-enable Find and Zoom in locked fullscreen.
     // All other commands will be disabled (there is an early return in their
     // corresponding UpdateCommandsFor* functions).
 #if DCHECK_IS_ON()
-    NonWhitelistedCommandsAreDisabled(&command_updater_);
+    NonAllowlistedCommandsAreDisabled(&command_updater_);
 #endif
   } else {
     // Do an init call to re-initialize command state after the
@@ -1485,22 +1483,8 @@ void BrowserCommandController::UpdateCommandsForTabKeyboardFocus(
       IDC_MUTE_TARGET_SITE, normal_window && target_index.has_value());
   command_updater_.UpdateCommandEnabled(
       IDC_PIN_TARGET_TAB, normal_window && target_index.has_value());
-}
-
-void BrowserCommandController::AddInterstitialObservers(WebContents* contents) {
-  interstitial_observers_.push_back(new InterstitialObserver(this, contents));
-}
-
-void BrowserCommandController::RemoveInterstitialObservers(
-    WebContents* contents) {
-  for (size_t i = 0; i < interstitial_observers_.size(); i++) {
-    if (interstitial_observers_[i]->web_contents() != contents)
-      continue;
-
-    delete interstitial_observers_[i];
-    interstitial_observers_.erase(interstitial_observers_.begin() + i);
-    return;
-  }
+  command_updater_.UpdateCommandEnabled(
+      IDC_GROUP_TARGET_TAB, normal_window && target_index.has_value());
 }
 
 BrowserWindow* BrowserCommandController::window() {

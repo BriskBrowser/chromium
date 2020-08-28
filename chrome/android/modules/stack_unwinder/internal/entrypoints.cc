@@ -7,7 +7,8 @@
 #include "chrome/android/modules/stack_unwinder/internal/jni_registration.h"
 
 extern "C" {
-// This JNI registration method is found and called by module framework code.
+// This JNI registration method is found and called by module framework
+// code.
 JNI_GENERATOR_EXPORT bool JNI_OnLoad_stack_unwinder(JNIEnv* env) {
   if (!base::android::IsSelectiveJniRegistrationEnabled(env) &&
       !stack_unwinder::RegisterNonMainDexNatives(env)) {
@@ -18,5 +19,4 @@ JNI_GENERATOR_EXPORT bool JNI_OnLoad_stack_unwinder(JNIEnv* env) {
   }
   return true;
 }
-
 }  // extern "C"

@@ -6,8 +6,9 @@
 
 #import <NotificationCenter/NotificationCenter.h>
 
-#import "ios/chrome/common/favicon/favicon_view.h"
-#import "ios/chrome/common/ui_util/constraints_ui_util.h"
+#include "base/check.h"
+#import "ios/chrome/common/ui/favicon/favicon_view.h"
+#import "ios/chrome/common/ui/util/constraints_ui_util.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -35,12 +36,17 @@ const CGFloat kTileWidth = 73;
 - (instancetype)init {
   self = [super initWithFrame:CGRectZero];
   if (self) {
-    UIVibrancyEffect* labelEffect =
-        [UIVibrancyEffect widgetSecondaryVibrancyEffect];
+    UIVibrancyEffect* labelEffect = nil;
     if (@available(iOS 13, *)) {
       labelEffect = [UIVibrancyEffect
           widgetEffectForVibrancyStyle:UIVibrancyEffectStyleSecondaryLabel];
     }
+#if !defined(__IPHONE_13_0) || __IPHONE_OS_VERSION_MIN_REQUIRED < __IPHONE_13_0
+    else {
+      labelEffect = [UIVibrancyEffect widgetSecondaryVibrancyEffect];
+    }
+#endif
+    DCHECK(labelEffect);
 
     UIVisualEffectView* titleLabelEffectView =
         [[UIVisualEffectView alloc] initWithEffect:labelEffect];

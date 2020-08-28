@@ -15,28 +15,27 @@ import android.text.TextUtils;
 import androidx.annotation.VisibleForTesting;
 
 import org.chromium.base.BuildInfo;
+import org.chromium.base.IntentUtils;
 import org.chromium.base.Log;
 import org.chromium.base.ThreadUtils;
 import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.base.metrics.RecordUserAction;
 import org.chromium.chrome.R;
-import org.chromium.chrome.browser.ChromeActivity;
 import org.chromium.chrome.browser.ChromeTabbedActivity;
 import org.chromium.chrome.browser.IntentHandler;
+import org.chromium.chrome.browser.app.ChromeActivity;
 import org.chromium.chrome.browser.bookmarks.BookmarkBridge.BookmarkItem;
 import org.chromium.chrome.browser.document.ChromeLauncherActivity;
 import org.chromium.chrome.browser.preferences.ChromePreferenceKeys;
 import org.chromium.chrome.browser.preferences.SharedPreferencesManager;
 import org.chromium.chrome.browser.tab.Tab;
-import org.chromium.chrome.browser.tab.TabImpl;
 import org.chromium.chrome.browser.ui.messages.snackbar.Snackbar;
 import org.chromium.chrome.browser.ui.messages.snackbar.SnackbarManager;
 import org.chromium.chrome.browser.ui.messages.snackbar.SnackbarManager.SnackbarController;
-import org.chromium.chrome.browser.util.IntentUtils;
-import org.chromium.chrome.browser.util.UrlConstants;
 import org.chromium.components.bookmarks.BookmarkId;
 import org.chromium.components.bookmarks.BookmarkType;
 import org.chromium.components.browser_ui.widget.TintedDrawable;
+import org.chromium.components.embedder_support.util.UrlConstants;
 import org.chromium.ui.base.DeviceFormFactor;
 import org.chromium.ui.base.PageTransition;
 
@@ -70,8 +69,8 @@ public class BookmarkUtils {
             return bookmarkId;
         }
 
-        BookmarkId bookmarkId = addBookmarkInternal(
-                activity, bookmarkModel, tab.getTitle(), ((TabImpl) tab).getOriginalUrl());
+        BookmarkId bookmarkId =
+                addBookmarkInternal(activity, bookmarkModel, tab.getTitle(), tab.getOriginalUrl());
 
         Snackbar snackbar = null;
         if (bookmarkId == null) {
@@ -249,18 +248,15 @@ public class BookmarkUtils {
      * @param model Bookmarks model to manage the bookmark.
      * @param activity Activity requesting to open the bookmark.
      * @param bookmarkId ID of the bookmark to be opened.
-     * @param launchLocation Location from which the bookmark is being opened.
      * @return Whether the bookmark was successfully opened.
      */
-    public static boolean openBookmark(BookmarkModel model, Activity activity,
-            BookmarkId bookmarkId, int launchLocation) {
+    public static boolean openBookmark(
+            BookmarkModel model, Activity activity, BookmarkId bookmarkId) {
         if (model.getBookmarkById(bookmarkId) == null) return false;
 
         String url = model.getBookmarkById(bookmarkId).getUrl();
 
         RecordUserAction.record("MobileBookmarkManagerEntryOpened");
-        RecordHistogram.recordEnumeratedHistogram(
-                "Stars.LaunchLocation", launchLocation, BookmarkLaunchLocation.COUNT);
         RecordHistogram.recordEnumeratedHistogram(
                 "Bookmarks.OpenBookmarkType", bookmarkId.getType(), BookmarkType.LAST + 1);
 
@@ -292,7 +288,7 @@ public class BookmarkUtils {
      * @return The tint used on the bookmark folder icon.
      */
     public static int getFolderIconTint() {
-        return R.color.standard_mode_tint;
+        return R.color.default_icon_color_tint_list;
     }
 
     private static void openUrl(Activity activity, String url, ComponentName componentName) {

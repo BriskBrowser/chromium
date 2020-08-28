@@ -61,16 +61,11 @@ ASH_PUBLIC_EXPORT extern const base::Feature kEnableSuggestedFiles;
 // Enables the Assistant search redirection in the app list.
 ASH_PUBLIC_EXPORT extern const base::Feature kEnableAssistantSearch;
 
-// Enables the embedded Assistant UI in the app list.
-ASH_PUBLIC_EXPORT extern const base::Feature kEnableAssistantLauncherUI;
-
 // Enables ghosting in any AppsGridView (folder or root) when dragging an item.
 ASH_PUBLIC_EXPORT extern const base::Feature kEnableAppGridGhost;
 
 // Enables hashed recording of a app list launches.
 ASH_PUBLIC_EXPORT extern const base::Feature kEnableAppListLaunchRecording;
-
-ASH_PUBLIC_EXPORT extern const base::Feature kEnableSearchBoxSelection;
 
 // Enables using the aggregated Ml model to rank suggested apps.
 ASH_PUBLIC_EXPORT extern const base::Feature kEnableAggregatedMlAppRanking;
@@ -78,14 +73,20 @@ ASH_PUBLIC_EXPORT extern const base::Feature kEnableAggregatedMlAppRanking;
 // Enables using the fuzzy search algorithm for app search provider.
 ASH_PUBLIC_EXPORT extern const base::Feature kEnableFuzzyAppSearch;
 
-// If enabled, app list will support separate configurations (for app list items
-// sizing and spacing) for smaller screens (instead of a single configuration
-// that optionally gets scaled down).
-ASH_PUBLIC_EXPORT extern const base::Feature kScalableAppList;
+// Enables using exact string search for non latin locales.
+ASH_PUBLIC_EXPORT extern const base::Feature kEnableExactMatchForNonLatinLocale;
+
+// Enables launcher search results for OS settings.
+ASH_PUBLIC_EXPORT extern const base::Feature kLauncherSettingsSearch;
 
 // Enables using aggregated model in ranking non-app results for
 // non empty queries.
 ASH_PUBLIC_EXPORT extern const base::Feature kEnableAggregatedMlSearchRanking;
+
+// Enables the new app dragging in the launcher. When the users drags an app
+// within the launcher, this flag will enable the new cardified state, where
+// apps grid pages are scaled down and shown a background card.
+ASH_PUBLIC_EXPORT extern const base::Feature kNewDragSpecInLauncher;
 
 bool ASH_PUBLIC_EXPORT IsAnswerCardEnabled();
 bool ASH_PUBLIC_EXPORT IsPlayStoreAppSearchEnabled();
@@ -100,14 +101,14 @@ bool ASH_PUBLIC_EXPORT IsZeroStateMixedTypesRankerEnabled();
 bool ASH_PUBLIC_EXPORT IsAppReinstallZeroStateEnabled();
 bool ASH_PUBLIC_EXPORT IsSuggestedFilesEnabled();
 bool ASH_PUBLIC_EXPORT IsAssistantSearchEnabled();
-bool ASH_PUBLIC_EXPORT IsAssistantLauncherUIEnabled();
 bool ASH_PUBLIC_EXPORT IsAppGridGhostEnabled();
 bool ASH_PUBLIC_EXPORT IsAppListLaunchRecordingEnabled();
-bool ASH_PUBLIC_EXPORT IsSearchBoxSelectionEnabled();
 bool ASH_PUBLIC_EXPORT IsAggregatedMlAppRankingEnabled();
-bool ASH_PUBLIC_EXPORT IsScalableAppListEnabled();
 bool ASH_PUBLIC_EXPORT IsFuzzyAppSearchEnabled();
+bool ASH_PUBLIC_EXPORT IsExactMatchForNonLatinLocaleEnabled();
+bool ASH_PUBLIC_EXPORT IsLauncherSettingsSearchEnabled();
 bool ASH_PUBLIC_EXPORT IsAggregatedMlSearchRankingEnabled();
+bool ASH_PUBLIC_EXPORT IsNewDragSpecInLauncherEnabled();
 
 std::string ASH_PUBLIC_EXPORT AnswerServerUrl();
 std::string ASH_PUBLIC_EXPORT AnswerServerQuerySuffix();

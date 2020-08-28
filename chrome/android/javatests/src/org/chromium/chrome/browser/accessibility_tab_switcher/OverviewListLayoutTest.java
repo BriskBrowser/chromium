@@ -5,13 +5,16 @@
 package org.chromium.chrome.browser.accessibility_tab_switcher;
 
 import android.os.SystemClock;
-import android.support.design.widget.TabLayout;
 import android.support.test.InstrumentationRegistry;
-import android.support.test.filters.MediumTest;
 import android.view.View;
 import android.widget.ListView;
 import android.widget.TextView;
 
+import androidx.test.filters.MediumTest;
+
+import com.google.android.material.tabs.TabLayout;
+
+import org.hamcrest.Matchers;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Rule;
@@ -23,13 +26,12 @@ import org.chromium.base.test.util.CallbackHelper;
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.Feature;
 import org.chromium.base.test.util.Restriction;
-import org.chromium.base.test.util.RetryOnFailure;
 import org.chromium.chrome.R;
-import org.chromium.chrome.browser.ChromeSwitches;
 import org.chromium.chrome.browser.compositor.overlays.strip.StripLayoutTab;
+import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.tab.Tab;
-import org.chromium.chrome.browser.tabmodel.EmptyTabModelObserver;
 import org.chromium.chrome.browser.tabmodel.TabModel;
+import org.chromium.chrome.browser.tabmodel.TabModelObserver;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.chrome.test.ChromeTabbedActivityTestRule;
 import org.chromium.chrome.test.util.ChromeTabUtils;
@@ -43,7 +45,6 @@ import org.chromium.content_public.browser.test.util.TestTouchUtils;
 import org.chromium.content_public.browser.test.util.TouchCommon;
 import org.chromium.ui.test.util.UiRestriction;
 
-import java.util.concurrent.Callable;
 import java.util.concurrent.TimeoutException;
 
 /**
@@ -64,49 +65,19 @@ public class OverviewListLayoutTest {
     private static final int SWIPE_START_Y_OFFSET = 10;
     private static final int SWIPE_END_X = 20;
 
-    private class ChildCountCriteria extends Criteria {
-        private final int mChildCount;
-
-        public ChildCountCriteria(int count) {
-            mChildCount = count;
-        }
-
-        @Override
-        public boolean isSatisfied() {
-            return mChildCount
-                    == TestThreadUtils.runOnUiThreadBlockingNoException(new Callable<Integer>() {
-                           @Override
-                           public Integer call() {
-                               return getList().getChildCount();
-                           }
-                       });
-        }
+    private void verifyChildCount(int count) {
+        CriteriaHelper.pollUiThread(
+                () -> Criteria.checkThat(getList().getChildCount(), Matchers.is(count)));
     }
 
-    private class TabModelCountCountCriteria extends Criteria {
-        private final boolean mIncognito;
-        private final int mTabCount;
-
-        public TabModelCountCountCriteria(boolean incognito, int count) {
-            mIncognito = incognito;
-            mTabCount = count;
-        }
-
-        @Override
-        public boolean isSatisfied() {
-            int actualTabCount =
-                    TestThreadUtils.runOnUiThreadBlockingNoException(new Callable<Integer>() {
-                        @Override
-                        public Integer call() {
-                            return mActivityTestRule.getActivity()
-                                    .getTabModelSelector()
-                                    .getModel(mIncognito)
-                                    .getCount();
-                        }
-                    });
-            updateFailureReason("Expected tab count: " + mTabCount + ", Actual: " + actualTabCount);
-            return mTabCount == actualTabCount;
-        }
+    private void verifyTabModelCount(boolean incognito, int count) {
+        CriteriaHelper.pollUiThread(() -> {
+            int actualCount = mActivityTestRule.getActivity()
+                                      .getTabModelSelector()
+                                      .getModel(incognito)
+                                      .getCount();
+            Criteria.checkThat(actualCount, Matchers.is(count));
+        });
     }
 
     @Before
@@ -131,7 +102,7 @@ public class OverviewListLayoutTest {
         TestTouchUtils.performClickOnMainSync(InstrumentationRegistry.getInstrumentation(),
                 mActivityTestRule.getActivity().findViewById(R.id.tab_switcher_button));
 
-        CriteriaHelper.pollInstrumentationThread(new ChildCountCriteria(4));
+        verifyChildCount(4);
     }
 
     private AccessibilityTabModelListItem getListItemAndDisableAnimations(int index) {
@@ -156,11 +127,13 @@ public class OverviewListLayoutTest {
     private void toggleTabSwitcher(final boolean expectVisible) {
         TestTouchUtils.performClickOnMainSync(InstrumentationRegistry.getInstrumentation(),
                 mActivityTestRule.getActivity().findViewById(R.id.tab_switcher_button));
-        CriteriaHelper.pollUiThread(new Criteria() {
-            @Override
-            public boolean isSatisfied() {
-                boolean isVisible = (getContainer() != null && getContainer().getParent() != null);
-                return isVisible == expectVisible;
+        CriteriaHelper.pollUiThread(() -> {
+            if (expectVisible) {
+                Criteria.checkThat(getContainer(), Matchers.notNullValue());
+                Criteria.checkThat(getContainer().getParent(), Matchers.notNullValue());
+            } else {
+                if (getContainer() == null) return;
+                Criteria.checkThat(getContainer().getParent(), Matchers.nullValue());
             }
         });
     }
@@ -197,7 +170,6 @@ public class OverviewListLayoutTest {
     @Restriction(UiRestriction.RESTRICTION_TYPE_PHONE)
     @MediumTest
     @Feature({"Accessibility"})
-    @RetryOnFailure
     public void testCanCloseWithCloseButton() throws TimeoutException {
         setupTabs();
 
@@ -205,15 +177,15 @@ public class OverviewListLayoutTest {
 
         final CallbackHelper didReceiveClosureCommittedHelper = new CallbackHelper();
         final TabModel model = mActivityTestRule.getActivity().getCurrentTabModel();
-        model.addObserver(new EmptyTabModelObserver() {
+        model.addObserver(new TabModelObserver() {
             @Override
             public void tabClosureCommitted(Tab tab) {
                 didReceiveClosureCommittedHelper.notifyCalled();
             }
         });
 
-        TestTouchUtils.performClickOnMainSync(InstrumentationRegistry.getInstrumentation(),
-                item.findViewById(R.id.close_btn_modern));
+        TestTouchUtils.performClickOnMainSync(
+                InstrumentationRegistry.getInstrumentation(), item.getCloseButtonForTests());
 
         didReceiveClosureCommittedHelper.waitForCallback(0);
 
@@ -225,7 +197,6 @@ public class OverviewListLayoutTest {
     @Restriction(UiRestriction.RESTRICTION_TYPE_PHONE)
     @MediumTest
     @Feature({"Accessibility"})
-    @RetryOnFailure
     public void testCanSwipeClosed() throws TimeoutException {
         setupTabs();
 
@@ -236,7 +207,7 @@ public class OverviewListLayoutTest {
 
         final CallbackHelper didReceiveClosureCommittedHelper = new CallbackHelper();
         final TabModel model = mActivityTestRule.getActivity().getCurrentTabModel();
-        model.addObserver(new EmptyTabModelObserver() {
+        model.addObserver(new TabModelObserver() {
             @Override
             public void tabClosureCommitted(Tab tab) {
                 didReceiveClosureCommittedHelper.notifyCalled();
@@ -286,15 +257,15 @@ public class OverviewListLayoutTest {
 
         final CallbackHelper didReceivePendingClosureHelper = new CallbackHelper();
         final TabModel model = mActivityTestRule.getActivity().getCurrentTabModel();
-        model.addObserver(new EmptyTabModelObserver() {
+        model.addObserver(new TabModelObserver() {
             @Override
             public void tabPendingClosure(Tab tab) {
                 didReceivePendingClosureHelper.notifyCalled();
             }
         });
 
-        TestTouchUtils.performClickOnMainSync(InstrumentationRegistry.getInstrumentation(),
-                item.findViewById(R.id.close_btn_modern));
+        TestTouchUtils.performClickOnMainSync(
+                InstrumentationRegistry.getInstrumentation(), item.getCloseButtonForTests());
 
         didReceivePendingClosureHelper.waitForCallback(0);
 
@@ -318,8 +289,8 @@ public class OverviewListLayoutTest {
         MenuUtils.invokeCustomMenuActionSync(InstrumentationRegistry.getInstrumentation(),
                 mActivityTestRule.getActivity(), R.id.close_all_tabs_menu_id);
 
-        CriteriaHelper.pollInstrumentationThread(new ChildCountCriteria(0));
-        CriteriaHelper.pollInstrumentationThread(new TabModelCountCountCriteria(false, 0));
+        verifyChildCount(0);
+        verifyTabModelCount(false, 0);
         Assert.assertFalse(mActivityTestRule.getActivity()
                                    .findViewById(R.id.tab_switcher_mode_tab_switcher_button)
                                    .isEnabled());
@@ -331,19 +302,18 @@ public class OverviewListLayoutTest {
     @Restriction(UiRestriction.RESTRICTION_TYPE_PHONE)
     @MediumTest
     @Feature({"Accessibility"})
-    @RetryOnFailure
     public void testCloseAllIncognito() {
         setupTabs();
         mActivityTestRule.newIncognitoTabsFromMenu(2);
         TestTouchUtils.performClickOnMainSync(InstrumentationRegistry.getInstrumentation(),
                 mActivityTestRule.getActivity().findViewById(R.id.tab_switcher_button));
-        CriteriaHelper.pollInstrumentationThread(new ChildCountCriteria(2));
+        verifyChildCount(2);
 
         MenuUtils.invokeCustomMenuActionSync(InstrumentationRegistry.getInstrumentation(),
                 mActivityTestRule.getActivity(), R.id.close_all_incognito_tabs_menu_id);
-        CriteriaHelper.pollInstrumentationThread(new TabModelCountCountCriteria(true, 0));
+        verifyTabModelCount(true, 0);
 
-        CriteriaHelper.pollInstrumentationThread(new ChildCountCriteria(4));
+        verifyChildCount(4);
         Assert.assertTrue(mActivityTestRule.getActivity()
                                   .findViewById(R.id.tab_switcher_mode_tab_switcher_button)
                                   .isEnabled());
@@ -351,8 +321,8 @@ public class OverviewListLayoutTest {
         MenuUtils.invokeCustomMenuActionSync(InstrumentationRegistry.getInstrumentation(),
                 mActivityTestRule.getActivity(), R.id.close_all_tabs_menu_id);
 
-        CriteriaHelper.pollInstrumentationThread(new ChildCountCriteria(0));
-        CriteriaHelper.pollInstrumentationThread(new TabModelCountCountCriteria(false, 0));
+        verifyChildCount(0);
+        verifyTabModelCount(false, 0);
         Assert.assertFalse(mActivityTestRule.getActivity()
                                    .findViewById(R.id.tab_switcher_mode_tab_switcher_button)
                                    .isEnabled());
@@ -405,12 +375,12 @@ public class OverviewListLayoutTest {
 
         TestThreadUtils.runOnUiThreadBlocking(() -> incognitoButton.select());
 
-        CriteriaHelper.pollInstrumentationThread(new ChildCountCriteria(2));
+        verifyChildCount(2);
 
         TestThreadUtils.runOnUiThreadBlocking(
                 () -> getContainer().getStandardTabsButton().select());
 
-        CriteriaHelper.pollInstrumentationThread(new ChildCountCriteria(4));
+        verifyChildCount(4);
     }
 
     /**
@@ -422,7 +392,6 @@ public class OverviewListLayoutTest {
     @Test
     @MediumTest
     @Feature({"Accessibility"})
-    @RetryOnFailure
     public void testObservesTitleChanges() throws Exception {
         mActivityTestRule.loadUrl(PAGE_1_HTML);
 
@@ -452,7 +421,7 @@ public class OverviewListLayoutTest {
         getListItemAndDisableAnimations(0);
         final CallbackHelper didReceiveClosureCommittedHelper = new CallbackHelper();
         final TabModel model = mActivityTestRule.getActivity().getCurrentTabModel();
-        model.addObserver(new EmptyTabModelObserver() {
+        model.addObserver(new TabModelObserver() {
             @Override
             public void tabClosureCommitted(Tab tab) {
                 didReceiveClosureCommittedHelper.notifyCalled();

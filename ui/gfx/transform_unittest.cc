@@ -9,7 +9,6 @@
 #include <limits>
 #include <ostream>
 
-#include "base/logging.h"
 #include "base/stl_util.h"
 #include "build/build_config.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -142,9 +141,8 @@ void InitializeTestMatrix2(Transform* transform) {
   EXPECT_ROW4_EQ(33.0f, 37.0f, 41.0f, 45.0f, (*transform));
 }
 
-const SkMScalar kApproxZero =
-    SkFloatToMScalar(std::numeric_limits<float>::epsilon());
-const SkMScalar kApproxOne = 1 - kApproxZero;
+const SkScalar kApproxZero = std::numeric_limits<float>::epsilon();
+const SkScalar kApproxOne = 1 - kApproxZero;
 
 void InitializeApproxIdentityMatrix(Transform* transform) {
   SkMatrix44& matrix = transform->matrix();
@@ -169,11 +167,7 @@ void InitializeApproxIdentityMatrix(Transform* transform) {
   matrix.set(3, 3, kApproxOne);
 }
 
-#ifdef SK_MSCALAR_IS_DOUBLE
-#define ERROR_THRESHOLD 1e-14
-#else
 #define ERROR_THRESHOLD 1e-7
-#endif
 #define LOOSE_ERROR_THRESHOLD 1e-7
 
 TEST(XFormTest, Equality) {
@@ -820,7 +814,7 @@ TEST(XFormTest, BlendIdentity) {
 TEST(XFormTest, CannotBlendSingularMatrix) {
   Transform from;
   Transform to;
-  to.matrix().set(1, 1, SkDoubleToMScalar(0));
+  to.matrix().set(1, 1, 0);
   EXPECT_FALSE(to.Blend(from, 0.5));
 }
 
@@ -1217,21 +1211,17 @@ TEST(XFormTest, VerifyBlendForCompositeTransform) {
   Transform normalizedExpectedEndOfAnimation = expectedEndOfAnimation;
   Transform normalizationMatrix;
   normalizationMatrix.matrix().set(
-      0.0,
-      0.0,
-      SkDoubleToMScalar(1 / expectedEndOfAnimation.matrix().get(3.0, 3.0)));
+      0.0, 0.0,
+      SkDoubleToScalar(1 / expectedEndOfAnimation.matrix().get(3.0, 3.0)));
   normalizationMatrix.matrix().set(
-      1.0,
-      1.0,
-      SkDoubleToMScalar(1 / expectedEndOfAnimation.matrix().get(3.0, 3.0)));
+      1.0, 1.0,
+      SkDoubleToScalar(1 / expectedEndOfAnimation.matrix().get(3.0, 3.0)));
   normalizationMatrix.matrix().set(
-      2.0,
-      2.0,
-      SkDoubleToMScalar(1 / expectedEndOfAnimation.matrix().get(3.0, 3.0)));
+      2.0, 2.0,
+      SkDoubleToScalar(1 / expectedEndOfAnimation.matrix().get(3.0, 3.0)));
   normalizationMatrix.matrix().set(
-      3.0,
-      3.0,
-      SkDoubleToMScalar(1 / expectedEndOfAnimation.matrix().get(3.0, 3.0)));
+      3.0, 3.0,
+      SkDoubleToScalar(1 / expectedEndOfAnimation.matrix().get(3.0, 3.0)));
   normalizedExpectedEndOfAnimation.PreconcatTransform(normalizationMatrix);
 
   EXPECT_TRUE(MatricesAreNearlyEqual(normalizedExpectedEndOfAnimation, to));
@@ -1272,7 +1262,7 @@ TEST(XFormTest, FactorTRS) {
     EXPECT_FLOAT_EQ(decomp.translate[0], degrees * 2);
     EXPECT_FLOAT_EQ(decomp.translate[1], -degrees * 3);
     double rotation =
-        gfx::RadToDeg(std::acos(SkMScalarToDouble(decomp.quaternion.w())) * 2);
+        gfx::RadToDeg(std::acos(double{decomp.quaternion.w()}) * 2);
     while (rotation < 0.0)
       rotation += 360.0;
     while (rotation > 360.0)
@@ -2230,6 +2220,21 @@ TEST(XFormTest, verifyIsApproximatelyIdentityOrTranslation) {
   // Exact pure translation.
   A.MakeIdentity();
 
+  EXPECT_TRUE(A.IsApproximatelyIdentityOrTranslation(0));
+  EXPECT_TRUE(A.IsApproximatelyIdentityOrTranslation(kApproxZero));
+  EXPECT_TRUE(A.IsApproximatelyIdentityOrIntegerTranslation(0));
+  EXPECT_TRUE(A.IsApproximatelyIdentityOrIntegerTranslation(kApproxZero));
+
+  // Set translate values to integer values other than 0 or 1.
+  matrix.set(0, 3, 3);
+  matrix.set(1, 3, 4);
+  matrix.set(2, 3, 5);
+
+  EXPECT_TRUE(A.IsApproximatelyIdentityOrTranslation(0));
+  EXPECT_TRUE(A.IsApproximatelyIdentityOrTranslation(kApproxZero));
+  EXPECT_TRUE(A.IsApproximatelyIdentityOrIntegerTranslation(0));
+  EXPECT_TRUE(A.IsApproximatelyIdentityOrIntegerTranslation(kApproxZero));
+
   // Set translate values to values other than 0 or 1.
   matrix.set(0, 3, 3.4f);
   matrix.set(1, 3, 4.4f);
@@ -2237,15 +2242,37 @@ TEST(XFormTest, verifyIsApproximatelyIdentityOrTranslation) {
 
   EXPECT_TRUE(A.IsApproximatelyIdentityOrTranslation(0));
   EXPECT_TRUE(A.IsApproximatelyIdentityOrTranslation(kApproxZero));
+  EXPECT_FALSE(A.IsApproximatelyIdentityOrIntegerTranslation(0));
+  EXPECT_FALSE(A.IsApproximatelyIdentityOrIntegerTranslation(kApproxZero));
 
   // Approximately pure translation.
   InitializeApproxIdentityMatrix(&A);
+
+  EXPECT_FALSE(A.IsApproximatelyIdentityOrTranslation(0));
+  EXPECT_FALSE(A.IsApproximatelyIdentityOrTranslation(kApproxZero));
+  EXPECT_FALSE(A.IsApproximatelyIdentityOrIntegerTranslation(0));
+  EXPECT_FALSE(A.IsApproximatelyIdentityOrIntegerTranslation(kApproxZero));
 
   // Some values must be exact.
   matrix.set(3, 0, 0);
   matrix.set(3, 1, 0);
   matrix.set(3, 2, 0);
   matrix.set(3, 3, 1);
+
+  EXPECT_FALSE(A.IsApproximatelyIdentityOrTranslation(0));
+  EXPECT_TRUE(A.IsApproximatelyIdentityOrTranslation(kApproxZero));
+  EXPECT_FALSE(A.IsApproximatelyIdentityOrIntegerTranslation(0));
+  EXPECT_TRUE(A.IsApproximatelyIdentityOrIntegerTranslation(kApproxZero));
+
+  // Set translate values to values other than 0 or 1.
+  matrix.set(0, 3, matrix.get(0, 3) + 3);
+  matrix.set(1, 3, matrix.get(1, 3) + 4);
+  matrix.set(2, 3, matrix.get(2, 3) + 5);
+
+  EXPECT_FALSE(A.IsApproximatelyIdentityOrTranslation(0));
+  EXPECT_TRUE(A.IsApproximatelyIdentityOrTranslation(kApproxZero));
+  EXPECT_FALSE(A.IsApproximatelyIdentityOrIntegerTranslation(0));
+  EXPECT_TRUE(A.IsApproximatelyIdentityOrIntegerTranslation(kApproxZero));
 
   // Set translate values to values other than 0 or 1.
   matrix.set(0, 3, 3.4f);
@@ -2254,6 +2281,8 @@ TEST(XFormTest, verifyIsApproximatelyIdentityOrTranslation) {
 
   EXPECT_FALSE(A.IsApproximatelyIdentityOrTranslation(0));
   EXPECT_TRUE(A.IsApproximatelyIdentityOrTranslation(kApproxZero));
+  EXPECT_FALSE(A.IsApproximatelyIdentityOrIntegerTranslation(0));
+  EXPECT_FALSE(A.IsApproximatelyIdentityOrIntegerTranslation(kApproxZero));
 
   // Not approximately pure translation.
   InitializeApproxIdentityMatrix(&A);
@@ -2271,6 +2300,8 @@ TEST(XFormTest, verifyIsApproximatelyIdentityOrTranslation) {
 
   EXPECT_FALSE(A.IsApproximatelyIdentityOrTranslation(0));
   EXPECT_FALSE(A.IsApproximatelyIdentityOrTranslation(kApproxZero));
+  EXPECT_FALSE(A.IsApproximatelyIdentityOrIntegerTranslation(0));
+  EXPECT_FALSE(A.IsApproximatelyIdentityOrIntegerTranslation(kApproxZero));
 }
 
 TEST(XFormTest, verifyIsScaleOrTranslation) {
@@ -2420,10 +2451,10 @@ static bool EmpiricallyPreserves2dAxisAlignment(const Transform& transform) {
 
 TEST(XFormTest, Preserves2dAxisAlignment) {
   static const struct TestCase {
-    SkMScalar a; // row 1, column 1
-    SkMScalar b; // row 1, column 2
-    SkMScalar c; // row 2, column 1
-    SkMScalar d; // row 2, column 2
+    SkScalar a;  // row 1, column 1
+    SkScalar b;  // row 1, column 2
+    SkScalar c;  // row 2, column 1
+    SkScalar d;  // row 2, column 2
     bool expected;
   } test_cases[] = {
     { 3.f, 0.f,

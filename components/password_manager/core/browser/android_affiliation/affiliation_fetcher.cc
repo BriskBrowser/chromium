@@ -44,10 +44,8 @@ static TestAffiliationFetcherFactory* g_testing_factory = nullptr;
 
 AffiliationFetcher::AffiliationFetcher(
     scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
-    const std::vector<FacetURI>& facet_uris,
     AffiliationFetcherDelegate* delegate)
     : url_loader_factory_(std::move(url_loader_factory)),
-      requested_facet_uris_(facet_uris),
       delegate_(delegate) {
   for (const FacetURI& uri : requested_facet_uris_) {
     DCHECK(uri.is_valid());
@@ -57,16 +55,17 @@ AffiliationFetcher::AffiliationFetcher(
 AffiliationFetcher::~AffiliationFetcher() = default;
 
 // static
-AffiliationFetcher* AffiliationFetcher::Create(
+std::unique_ptr<AffiliationFetcherInterface> AffiliationFetcher::Create(
     scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
-    const std::vector<FacetURI>& facet_uris,
     AffiliationFetcherDelegate* delegate) {
   if (g_testing_factory) {
-    return g_testing_factory->CreateInstance(std::move(url_loader_factory),
-                                             facet_uris, delegate);
+    return base::WrapUnique(g_testing_factory->CreateInstance(
+        std::move(url_loader_factory), delegate));
   }
-  return new AffiliationFetcher(std::move(url_loader_factory), facet_uris,
-                                delegate);
+  // Using `new` to access a non-public constructor.
+  // (https://abseil.io/tips/134#recommendations)
+  return base::WrapUnique(
+      new AffiliationFetcher(std::move(url_loader_factory), delegate));
 }
 
 // static
@@ -75,8 +74,10 @@ void AffiliationFetcher::SetFactoryForTesting(
   g_testing_factory = factory;
 }
 
-void AffiliationFetcher::StartRequest() {
+void AffiliationFetcher::StartRequest(const std::vector<FacetURI>& facet_uris,
+                                      RequestInfo request_info) {
   DCHECK(!simple_url_loader_);
+  requested_facet_uris_ = facet_uris;
 
   net::NetworkTrafficAnnotationTag traffic_annotation =
       net::DefineNetworkTrafficAnnotation("affiliation_lookup", R"(
@@ -117,12 +118,20 @@ void AffiliationFetcher::StartRequest() {
   resource_request->method = "POST";
   simple_url_loader_ = network::SimpleURLLoader::Create(
       std::move(resource_request), traffic_annotation);
-  simple_url_loader_->AttachStringForUpload(PreparePayload(),
+  simple_url_loader_->AttachStringForUpload(PreparePayload(request_info),
                                             "application/x-protobuf");
   simple_url_loader_->DownloadToStringOfUnboundedSizeUntilCrashAndDie(
       url_loader_factory_.get(),
       base::BindOnce(&AffiliationFetcher::OnSimpleLoaderComplete,
                      base::Unretained(this)));
+}
+
+const std::vector<FacetURI>& AffiliationFetcher::GetRequestedFacetURIs() const {
+  return requested_facet_uris_;
+}
+
+AffiliationFetcherDelegate* AffiliationFetcher::delegate() const {
+  return delegate_;
 }
 
 // static
@@ -132,14 +141,18 @@ GURL AffiliationFetcher::BuildQueryURL() {
       "key", google_apis::GetAPIKey());
 }
 
-std::string AffiliationFetcher::PreparePayload() const {
+std::string AffiliationFetcher::PreparePayload(RequestInfo request_info) const {
   affiliation_pb::LookupAffiliationRequest lookup_request;
   for (const FacetURI& uri : requested_facet_uris_)
     lookup_request.add_facet(uri.canonical_spec());
 
-  // Enable request for branding information.
   auto mask = std::make_unique<affiliation_pb::LookupAffiliationMask>();
-  mask->set_branding_info(true);
+
+  mask->set_branding_info(request_info.branding_info);
+  // Change password info requires grouping info enabled.
+  mask->set_grouping_info(request_info.change_password_info);
+  mask->set_change_password_info(request_info.change_password_info);
+
   lookup_request.set_allocated_mask(mask.release());
 
   std::string serialized_request;

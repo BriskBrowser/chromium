@@ -21,12 +21,6 @@ int NetworkDelegateImpl::OnBeforeStartTransaction(
   return OK;
 }
 
-void NetworkDelegateImpl::OnBeforeSendHeaders(
-    URLRequest* request,
-    const ProxyInfo& proxy_info,
-    const ProxyRetryInfoMap& proxy_retry_info,
-    HttpRequestHeaders* headers) {}
-
 int NetworkDelegateImpl::OnHeadersReceived(
     URLRequest* request,
     CompletionOnceCallback callback,
@@ -55,7 +49,6 @@ void NetworkDelegateImpl::OnPACScriptError(int line_number,
 }
 
 bool NetworkDelegateImpl::OnCanGetCookies(const URLRequest& request,
-                                          const CookieList& cookie_list,
                                           bool allowed_from_caller) {
   return allowed_from_caller;
 }

@@ -9,6 +9,7 @@
 #include "components/strings/grit/components_strings.h"
 #import "ios/chrome/browser/autofill/form_suggestion_constants.h"
 #import "ios/chrome/browser/ui/authentication/cells/signin_promo_view_constants.h"
+#import "ios/chrome/browser/ui/authentication/signin/advanced_settings_signin/advanced_settings_signin_constants.h"
 #import "ios/chrome/browser/ui/autofill/manual_fill/address_view_controller.h"
 #import "ios/chrome/browser/ui/autofill/manual_fill/card_coordinator.h"
 #import "ios/chrome/browser/ui/autofill/manual_fill/card_view_controller.h"
@@ -25,6 +26,7 @@
 #import "ios/chrome/browser/ui/content_suggestions/ntp_home_constant.h"
 #import "ios/chrome/browser/ui/history/history_ui_constants.h"
 #import "ios/chrome/browser/ui/location_bar/location_bar_steady_view.h"
+#import "ios/chrome/browser/ui/omnibox/keyboard_assist/omnibox_assistive_keyboard_views_utils.h"
 #import "ios/chrome/browser/ui/omnibox/omnibox_text_field_ios.h"
 #import "ios/chrome/browser/ui/popup_menu/popup_menu_constants.h"
 #import "ios/chrome/browser/ui/recent_tabs/recent_tabs_constants.h"
@@ -38,19 +40,18 @@
 #import "ios/chrome/browser/ui/settings/clear_browsing_data/clear_browsing_data_ui_constants.h"
 #import "ios/chrome/browser/ui/settings/credit_card_scanner/credit_card_scanner_view_controller.h"
 #import "ios/chrome/browser/ui/settings/google_services/accounts_table_view_controller_constants.h"
-#import "ios/chrome/browser/ui/settings/google_services/advanced_signin_settings_constants.h"
 #import "ios/chrome/browser/ui/settings/google_services/google_services_settings_constants.h"
 #import "ios/chrome/browser/ui/settings/import_data_table_view_controller.h"
 #import "ios/chrome/browser/ui/settings/password/passwords_table_view_constants.h"
-#import "ios/chrome/browser/ui/settings/privacy_table_view_controller.h"
+#import "ios/chrome/browser/ui/settings/privacy/privacy_table_view_controller.h"
 #import "ios/chrome/browser/ui/settings/settings_navigation_controller.h"
 #import "ios/chrome/browser/ui/settings/settings_root_table_constants.h"
 #import "ios/chrome/browser/ui/settings/settings_table_view_controller_constants.h"
 #import "ios/chrome/browser/ui/tab_grid/grid/grid_constants.h"
 #import "ios/chrome/browser/ui/tab_grid/tab_grid_constants.h"
 #import "ios/chrome/browser/ui/table_view/cells/table_view_url_item.h"
-#import "ios/chrome/browser/ui/toolbar/keyboard_assist/toolbar_assistive_keyboard_views_utils.h"
 #import "ios/chrome/browser/ui/toolbar/primary_toolbar_view.h"
+#import "ios/chrome/browser/ui/toolbar/public/features.h"
 #import "ios/chrome/browser/ui/toolbar/public/toolbar_constants.h"
 #import "ios/chrome/browser/ui/util/ui_util.h"
 #import "ios/chrome/browser/ui/util/uikit_ui_util.h"
@@ -340,13 +341,9 @@ UIView* SubviewWithAccessibilityIdentifier(NSString* accessibility_id,
       grey_sufficientlyVisible(), nil);
 }
 
-+ (id<GREYMatcher>)tabletTabSwitcherOpenButton {
-  return [ChromeMatchersAppInterface
-      buttonWithAccessibilityLabelID:(IDS_IOS_TAB_STRIP_ENTER_TAB_SWITCHER)];
-}
-
 + (id<GREYMatcher>)showTabsButton {
-  if (IsIPadIdiom()) {
+  if (IsIPadIdiom() &&
+      !base::FeatureList::IsEnabled(kChangeTabSwitcherPosition)) {
     return grey_accessibilityID(@"Enter Tab Switcher");
   }
   return grey_allOf(grey_accessibilityID(kToolbarStackButtonIdentifier),
@@ -384,26 +381,30 @@ UIView* SubviewWithAccessibilityIdentifier(NSString* accessibility_id,
       buttonWithAccessibilityLabelID:(IDS_IOS_CONTENT_CONTEXT_OPENLINKNEWTAB)];
 }
 
++ (id<GREYMatcher>)openLinkInNewWindowButton {
+  return [ChromeMatchersAppInterface
+      buttonWithAccessibilityLabelID:(IDS_IOS_CONTENT_CONTEXT_OPENINNEWWINDOW)];
+}
+
 + (id<GREYMatcher>)navigationBarDoneButton {
   return grey_allOf(
       [ChromeMatchersAppInterface
           buttonWithAccessibilityLabelID:(IDS_IOS_NAVIGATION_BAR_DONE_BUTTON)],
-      grey_userInteractionEnabled(), nil);
+      grey_userInteractionEnabled(), grey_sufficientlyVisible(), nil);
 }
 
 + (id<GREYMatcher>)bookmarksNavigationBarDoneButton {
   return grey_accessibilityID(kBookmarkHomeNavigationBarDoneButtonIdentifier);
 }
 
-+ (id<GREYMatcher>)accountConsistencyConfirmationOKButton {
-  int labelID = IDS_IOS_ACCOUNT_UNIFIED_CONSENT_OK_BUTTON;
-  return [ChromeMatchersAppInterface buttonWithAccessibilityLabelID:labelID];
-}
-
-+ (id<GREYMatcher>)unifiedConsentAddAccountButton {
-  return [ChromeMatchersAppInterface
-      buttonWithAccessibilityLabelID:
-          (IDS_IOS_ACCOUNT_UNIFIED_CONSENT_ADD_ACCOUNT)];
++ (id<GREYMatcher>)bookmarksNavigationBarBackButton {
+  UINavigationBar* navBar = base::mac::ObjCCastStrict<UINavigationBar>(
+      SubviewWithAccessibilityIdentifier(
+          kBookmarkNavigationBarIdentifier,
+          [[UIApplication sharedApplication] keyWindow]));
+  return grey_allOf(grey_buttonTitle(navBar.backItem.title),
+                    grey_ancestor(grey_kindOfClass([UINavigationBar class])),
+                    nil);
 }
 
 + (id<GREYMatcher>)addAccountButton {
@@ -485,11 +486,13 @@ UIView* SubviewWithAccessibilityIdentifier(NSString* accessibility_id,
 }
 
 + (id<GREYMatcher>)primarySignInButton {
-  return grey_accessibilityID(kSigninPromoPrimaryButtonId);
+  return grey_allOf(grey_accessibilityID(kSigninPromoPrimaryButtonId),
+                    grey_sufficientlyVisible(), nil);
 }
 
 + (id<GREYMatcher>)secondarySignInButton {
-  return grey_accessibilityID(kSigninPromoSecondaryButtonId);
+  return grey_allOf(grey_accessibilityID(kSigninPromoSecondaryButtonId),
+                    grey_sufficientlyVisible(), nil);
 }
 
 + (id<GREYMatcher>)settingsAccountButton {
@@ -546,9 +549,8 @@ UIView* SubviewWithAccessibilityIdentifier(NSString* accessibility_id,
       SubviewWithAccessibilityIdentifier(
           @"SettingNavigationBar",
           [[UIApplication sharedApplication] keyWindow]));
-  return grey_allOf(grey_anyOf(grey_accessibilityLabel(navBar.backItem.title),
-                               grey_accessibilityLabel(@"Back"), nil),
-                    grey_kindOfClass([UIButton class]),
+  return grey_allOf(grey_anyOf(grey_buttonTitle(navBar.backItem.title),
+                               grey_buttonTitle(@"Back"), nil),
                     grey_ancestor(grey_kindOfClass([UINavigationBar class])),
                     nil);
 }
@@ -699,15 +701,6 @@ UIView* SubviewWithAccessibilityIdentifier(NSString* accessibility_id,
       buttonWithAccessibilityLabelID:IDS_IOS_OPEN_IN];
 }
 
-+ (id<GREYMatcher>)tabGridOpenButton {
-  if (IsRegularXRegularSizeClass()) {
-    return [self
-        buttonWithAccessibilityLabelID:IDS_IOS_TAB_STRIP_ENTER_TAB_SWITCHER];
-  } else {
-    return [self buttonWithAccessibilityLabelID:IDS_IOS_TOOLBAR_SHOW_TABS];
-  }
-}
-
 + (id<GREYMatcher>)tabGridCellAtIndex:(unsigned int)index {
   return grey_allOf(grey_accessibilityID(IdentifierForCellAtIndex(index)),
                     grey_sufficientlyVisible(), nil);
@@ -793,6 +786,10 @@ UIView* SubviewWithAccessibilityIdentifier(NSString* accessibility_id,
 
 + (id<GREYMatcher>)settingsBottomToolbarDeleteButton {
   return grey_accessibilityID(kSettingsToolbarDeleteButtonId);
+}
+
++ (id<GREYMatcher>)settingsSearchEngineButton {
+  return grey_accessibilityID(kSettingsSearchEngineCellId);
 }
 
 + (id<GREYMatcher>)contentViewSmallerThanScrollView {

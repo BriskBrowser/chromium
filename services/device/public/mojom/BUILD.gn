@@ -37,6 +37,7 @@ mojom("mojom") {
     "//mojo/public/mojom/base",
     "//services/network/public/mojom",
     "//services/network/public/mojom:mutable_network_traffic_annotation_interface",
+    "//url/mojom:url_mojom_gurl",
   ]
 
   if (is_chromeos) {
@@ -46,6 +47,20 @@ mojom("mojom") {
       "mtp_storage_info.mojom",
     ]
   }
+
+  cpp_typemaps = [
+    {
+      types = [
+        {
+          mojom = "device.mojom.BluetoothAddress"
+          cpp = "::std::array<::uint8_t, 6>"
+        },
+      ]
+      traits_headers = [ "//services/device/public/cpp/bluetooth/bluetooth_system_mojom_traits.h" ]
+      traits_sources = [ "//services/device/public/cpp/bluetooth/bluetooth_system_mojom_traits.cc" ]
+      traits_public_deps = [ "//base" ]
+    },
+  ]
 
   # The blink variant of the Device Service mojom are depended on by the
   # blink platform target. All blink variant mojoms use WTF types, which are
@@ -71,7 +86,7 @@ mojom("device_service") {
   disable_variants = true
 
   enabled_features = []
-  if (is_linux && use_udev) {
+  if ((is_linux || is_chromeos) && use_udev) {
     enabled_features += [ "enable_input_device_manager" ]
   }
 
@@ -107,6 +122,25 @@ mojom("generic_sensor") {
   # use prepackaged redistributable JS bindings. It is therefore not desirable
   # to scramble these messages.
   scramble_message_ids = false
+
+  cpp_typemaps = [
+    {
+      types = [
+        {
+          mojom = "device.mojom.SensorConfiguration"
+          cpp = "::device::PlatformSensorConfiguration"
+        },
+      ]
+      traits_headers = [
+        "//services/device/public/cpp/generic_sensor/sensor_mojom_traits.h",
+      ]
+      traits_sources = [
+        "//services/device/public/cpp/generic_sensor/sensor_mojom_traits.cc",
+      ]
+      traits_public_deps =
+          [ "//services/device/public/cpp/generic_sensor:sensor_configuration" ]
+    },
+  ]
 }
 
 mojom("usb") {

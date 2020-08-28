@@ -6,29 +6,49 @@
 #define THIRD_PARTY_BLINK_RENDERER_CORE_ANIMATION_ANIMATION_TIMELINE_H_
 
 #include "third_party/blink/renderer/core/animation/animation.h"
-#include "third_party/blink/renderer/core/animation/animation_effect.h"
 #include "third_party/blink/renderer/core/core_export.h"
+#include "third_party/blink/renderer/platform/animation/compositor_animation_timeline.h"
 #include "third_party/blink/renderer/platform/bindings/script_wrappable.h"
 
 namespace blink {
 
 class Document;
 
+enum class TimelinePhase { kInactive, kBefore, kActive, kAfter };
+
 class CORE_EXPORT AnimationTimeline : public ScriptWrappable {
   DEFINE_WRAPPERTYPEINFO();
 
  public:
+  struct PhaseAndTime {
+    TimelinePhase phase;
+    base::Optional<base::TimeDelta> time;
+    bool operator==(const PhaseAndTime& other) const {
+      return phase == other.phase && time == other.time;
+    }
+    bool operator!=(const PhaseAndTime& other) const {
+      return !(*this == other);
+    }
+  };
+
   AnimationTimeline(Document*);
   ~AnimationTimeline() override = default;
 
-  double currentTime(bool& is_null);
-  double currentTime();
-  base::Optional<double> CurrentTime();
+  base::Optional<double> currentTime();
   base::Optional<double> CurrentTimeSeconds();
+
+  String phase();
+  TimelinePhase Phase() { return CurrentPhaseAndTime().phase; }
 
   virtual bool IsDocumentTimeline() const { return false; }
   virtual bool IsScrollTimeline() const { return false; }
+  virtual bool IsCSSScrollTimeline() const { return false; }
   virtual bool IsActive() const = 0;
+  virtual double ZeroTimeInSeconds() = 0;
+  // https://drafts.csswg.org/web-animations/#monotonically-increasing-timeline
+  // A timeline is monotonically increasing if its reported current time is
+  // always greater than or equal than its previously reported current time.
+  bool IsMonotonicallyIncreasing() const { return IsDocumentTimeline(); }
   // Returns the initial start time for animations that are linked to this
   // timeline. This method gets invoked when initializing the start time of an
   // animation on this timeline for the first time. It exists because the
@@ -49,6 +69,8 @@ class CORE_EXPORT AnimationTimeline : public ScriptWrappable {
   // Schedules animation timing update on next frame.
   virtual void ScheduleServiceOnNextFrame();
 
+  Animation* Play(AnimationEffect*);
+
   virtual bool NeedsAnimationTimingUpdate();
   virtual bool HasAnimations() const { return !animations_.IsEmpty(); }
   virtual bool HasOutdatedAnimation() const {
@@ -64,10 +86,19 @@ class CORE_EXPORT AnimationTimeline : public ScriptWrappable {
     return animations_;
   }
 
-  void Trace(blink::Visitor*) override;
+  CompositorAnimationTimeline* CompositorTimeline() const {
+    return compositor_timeline_.get();
+  }
+  virtual CompositorAnimationTimeline* EnsureCompositorTimeline() = 0;
+  virtual void UpdateCompositorTimeline() {}
+
+  void MarkAnimationsCompositorPending(bool source_changed = false);
+
+  void Trace(Visitor*) const override;
 
  protected:
-  virtual base::Optional<base::TimeDelta> CurrentTimeInternal() = 0;
+  virtual PhaseAndTime CurrentPhaseAndTime() = 0;
+  void RemoveReplacedAnimations();
 
   Member<Document> document_;
   unsigned outdated_animation_count_;
@@ -77,7 +108,9 @@ class CORE_EXPORT AnimationTimeline : public ScriptWrappable {
   // All animations attached to this timeline.
   HeapHashSet<WeakMember<Animation>> animations_;
 
-  base::Optional<base::TimeDelta> last_current_time_internal_;
+  std::unique_ptr<CompositorAnimationTimeline> compositor_timeline_;
+
+  base::Optional<PhaseAndTime> last_current_phase_and_time_;
 };
 
 }  // namespace blink

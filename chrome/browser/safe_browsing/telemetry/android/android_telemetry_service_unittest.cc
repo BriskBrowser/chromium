@@ -22,7 +22,6 @@
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/download_item_utils.h"
 #include "content/public/test/browser_task_environment.h"
-#include "net/url_request/url_request_test_util.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -69,6 +68,9 @@ class AndroidTelemetryServiceTest : public testing::Test {
 
     telemetry_service_ =
         std::make_unique<AndroidTelemetryService>(sb_service_.get(), profile());
+
+    scoped_feature_list_.InitAndEnableFeature(
+        safe_browsing::kEnhancedProtection);
   }
 
   void TearDown() override {
@@ -76,6 +78,7 @@ class AndroidTelemetryServiceTest : public testing::Test {
     // before the NetworkService object..
     browser_process_->safe_browsing_service()->ShutDown();
     browser_process_->SetSafeBrowsingService(nullptr);
+    safe_browsing::SafeBrowsingServiceInterface::RegisterFactory(nullptr);
     base::RunLoop().RunUntilIdle();
   }
 
@@ -165,10 +168,12 @@ TEST_F(AndroidTelemetryServiceTest, CantSendPing_IncognitoMode) {
   ResetProfile();
 }
 
-TEST_F(AndroidTelemetryServiceTest, CantSendPing_SBERDisabled) {
+TEST_F(AndroidTelemetryServiceTest,
+       CantSendPing_SBEREnhancedProtectionDisabled) {
   // Disable Scout Reporting.
   profile()->GetPrefs()->SetBoolean(prefs::kSafeBrowsingScoutReportingEnabled,
                                     false);
+  profile()->GetPrefs()->SetBoolean(prefs::kSafeBrowsingEnhanced, false);
 
   // Enable Safe Browsing.
   profile()->GetPrefs()->SetBoolean(prefs::kSafeBrowsingEnabled, true);
@@ -182,7 +187,7 @@ TEST_F(AndroidTelemetryServiceTest, CantSendPing_SBERDisabled) {
   get_histograms()->ExpectTotalCount(kApkDownloadTelemetryOutcomeMetric, 1);
   get_histograms()->ExpectBucketCount(
       kApkDownloadTelemetryOutcomeMetric,
-      ApkDownloadTelemetryOutcome::NOT_SENT_EXTENDED_REPORTING_DISABLED, 1);
+      ApkDownloadTelemetryOutcome::NOT_SENT_UNCONSENTED, 1);
 }
 
 TEST_F(AndroidTelemetryServiceTest, CanSendPing_AllConditionsMet) {
@@ -241,10 +246,6 @@ TEST_F(AndroidTelemetryServiceTest, GetReport_ValidateAllFields) {
   EXPECT_EQ(kItemReceivedBytes, report->download_item_info().length());
   ASSERT_TRUE(report->download_item_info().has_file_basename());
   EXPECT_EQ(kItemTargetFilePath, report->download_item_info().file_basename());
-
-  ASSERT_TRUE(report->has_safety_net_id());
-  // Empty since the Safety Net ID couldn't have been fetched in a unittest.
-  EXPECT_EQ(0u, report->safety_net_id().length());
 }
 
 }  // namespace safe_browsing

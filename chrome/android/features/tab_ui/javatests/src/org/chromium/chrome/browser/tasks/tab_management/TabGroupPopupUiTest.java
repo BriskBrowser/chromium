@@ -4,10 +4,10 @@
 
 package org.chromium.chrome.browser.tasks.tab_management;
 
-import static android.support.test.espresso.Espresso.onView;
-import static android.support.test.espresso.action.ViewActions.click;
-import static android.support.test.espresso.matcher.RootMatchers.withDecorView;
-import static android.support.test.espresso.matcher.ViewMatchers.withId;
+import static androidx.test.espresso.Espresso.onView;
+import static androidx.test.espresso.action.ViewActions.click;
+import static androidx.test.espresso.matcher.RootMatchers.withDecorView;
+import static androidx.test.espresso.matcher.ViewMatchers.withId;
 
 import static org.hamcrest.Matchers.not;
 import static org.junit.Assert.assertEquals;
@@ -19,33 +19,34 @@ import static org.chromium.chrome.browser.tasks.tab_management.TabUiTestHelper.c
 import static org.chromium.chrome.browser.tasks.tab_management.TabUiTestHelper.closeFirstTabInDialog;
 import static org.chromium.chrome.browser.tasks.tab_management.TabUiTestHelper.createTabs;
 import static org.chromium.chrome.browser.tasks.tab_management.TabUiTestHelper.enterTabSwitcher;
-import static org.chromium.chrome.browser.tasks.tab_management.TabUiTestHelper.isShowingPopupTabList;
+import static org.chromium.chrome.browser.tasks.tab_management.TabUiTestHelper.isPopupTabListCompletelyHidden;
+import static org.chromium.chrome.browser.tasks.tab_management.TabUiTestHelper.isPopupTabListCompletelyShowing;
 import static org.chromium.chrome.browser.tasks.tab_management.TabUiTestHelper.mergeAllNormalTabsToAGroup;
 import static org.chromium.chrome.browser.tasks.tab_management.TabUiTestHelper.prepareTabsWithThumbnail;
 import static org.chromium.chrome.browser.tasks.tab_management.TabUiTestHelper.rotateDeviceToOrientation;
 import static org.chromium.chrome.browser.tasks.tab_management.TabUiTestHelper.verifyShowingPopupTabList;
 import static org.chromium.chrome.browser.tasks.tab_management.TabUiTestHelper.verifyTabSwitcherCardCount;
 
+import android.content.pm.ActivityInfo;
 import android.content.res.Configuration;
 import android.support.test.InstrumentationRegistry;
-import android.support.test.espresso.contrib.RecyclerViewActions;
-import android.support.test.filters.MediumTest;
 import android.view.View;
 import android.widget.FrameLayout;
 
-import org.junit.Before;
+import androidx.test.espresso.contrib.RecyclerViewActions;
+import androidx.test.filters.MediumTest;
+
+import org.junit.After;
 import org.junit.Rule;
 import org.junit.Test;
-import org.junit.rules.TestRule;
 import org.junit.runner.RunWith;
 
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.Restriction;
-import org.chromium.chrome.browser.ChromeFeatureList;
-import org.chromium.chrome.browser.ChromeSwitches;
 import org.chromium.chrome.browser.ChromeTabbedActivity;
 import org.chromium.chrome.browser.compositor.layouts.Layout;
-import org.chromium.chrome.browser.flags.FeatureUtilities;
+import org.chromium.chrome.browser.flags.ChromeFeatureList;
+import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.fullscreen.FullscreenManagerTestUtils;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.toolbar.bottom.BottomToolbarVariationManager;
@@ -58,35 +59,37 @@ import org.chromium.chrome.test.util.browser.Features;
 import org.chromium.content_public.browser.test.util.CriteriaHelper;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.net.test.EmbeddedTestServer;
+import org.chromium.ui.UiSwitches;
 import org.chromium.ui.test.util.UiRestriction;
 
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /** End-to-end tests for TabGroupPopupUi component. */
 @RunWith(ChromeJUnit4ClassRunner.class)
 // clang-format off
-@CommandLineFlags.Add({ChromeSwitches.DISABLE_FIRST_RUN_EXPERIENCE})
+// TODO(crbug.com/1058231): ENABLE_SCREENSHOT_UI_MODE is to disable IPHs for TabGroups.
+//  We should make this test more robust so that it's agnostic of IPHs.
+@CommandLineFlags.Add({ChromeSwitches.DISABLE_FIRST_RUN_EXPERIENCE,
+        UiSwitches.ENABLE_SCREENSHOT_UI_MODE})
 @Restriction(UiRestriction.RESTRICTION_TYPE_PHONE)
-@Features.EnableFeatures({ChromeFeatureList.TAB_GROUPS_UI_IMPROVEMENTS_ANDROID})
+@Features.EnableFeatures({ChromeFeatureList.TAB_GROUPS_ANDROID, ChromeFeatureList.CHROME_DUET,
+        ChromeFeatureList.DUET_TABSTRIP_INTEGRATION_ANDROID})
 public class TabGroupPopupUiTest {
     // clang-format on
 
     @Rule
     public ChromeTabbedActivityTestRule mActivityTestRule = new ChromeTabbedActivityTestRule();
 
-    @Rule
-    public TestRule mProcessor = new Features.InstrumentationProcessor();
-
-    @Before
-    public void setUp() {
-        FeatureUtilities.setTabGroupsAndroidEnabledForTesting(true);
-        FeatureUtilities.setIsBottomToolbarEnabledForTesting(true);
-        FeatureUtilities.setDuetTabStripIntegrationAndroidEnabledForTesting(true);
+    @After
+    public void tearDown() {
+        mActivityTestRule.getActivity().setRequestedOrientation(
+                ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
     }
 
     @Test
     @MediumTest
-    public void testOnAnchorViewChanged_HOME_SEARCH_TAB_SWITCHER() throws InterruptedException {
+    public void testOnAnchorViewChanged_HOME_SEARCH_TAB_SWITCHER() {
         launchActivity(Variations.HOME_SEARCH_TAB_SWITCHER);
         final ChromeTabbedActivity cta = mActivityTestRule.getActivity();
         // Tab strip should show automatically when entering tab group.
@@ -107,7 +110,7 @@ public class TabGroupPopupUiTest {
 
     @Test
     @MediumTest
-    public void testOnAnchorViewChanged_HOME_SEARCH_SHARE() throws InterruptedException {
+    public void testOnAnchorViewChanged_HOME_SEARCH_SHARE() {
         launchActivity(Variations.HOME_SEARCH_SHARE);
         final ChromeTabbedActivity cta = mActivityTestRule.getActivity();
         // Tab strip should show automatically when entering tab group.
@@ -128,7 +131,7 @@ public class TabGroupPopupUiTest {
 
     @Test
     @MediumTest
-    public void testOnAnchorViewChanged_NEW_TAB_SEARCH_SHARE() throws InterruptedException {
+    public void testOnAnchorViewChanged_NEW_TAB_SEARCH_SHARE() {
         launchActivity(Variations.NEW_TAB_SEARCH_SHARE);
         final ChromeTabbedActivity cta = mActivityTestRule.getActivity();
         // Tab strip should show automatically when entering tab group.
@@ -149,7 +152,7 @@ public class TabGroupPopupUiTest {
 
     @Test
     @MediumTest
-    public void testTabStripShowHide() throws InterruptedException {
+    public void testTabStripShowHide() {
         launchActivity();
         final ChromeTabbedActivity cta = mActivityTestRule.getActivity();
         // Try to trigger tab strip in a single tab page.
@@ -163,20 +166,20 @@ public class TabGroupPopupUiTest {
         onView(withId(R.id.toolbar_left_button))
                 .inRoot(withDecorView(not(cta.getWindow().getDecorView())))
                 .perform(click());
-        CriteriaHelper.pollInstrumentationThread(() -> !isTabStripShowing(cta));
+        CriteriaHelper.pollInstrumentationThread(() -> isTabStripHidden(cta));
 
         // Re-show the tab strip.
         triggerTabStripAndVerify(cta, 2);
 
         // Tab strip should not show when overview mode is visible.
         enterTabSwitcher(cta);
-        CriteriaHelper.pollInstrumentationThread(() -> !isTabStripShowing(cta));
+        CriteriaHelper.pollInstrumentationThread(() -> isTabStripHidden(cta));
 
         // Re-verify that tab strip never shows in single tab.
         clickFirstCardFromTabSwitcher(cta);
-        closeFirstTabInDialog(cta);
+        closeFirstTabInDialog();
         clickFirstTabInDialog(cta);
-        CriteriaHelper.pollInstrumentationThread(() -> !isTabStripShowing(cta));
+        CriteriaHelper.pollInstrumentationThread(() -> isTabStripHidden(cta));
         triggerTabStripAndVerify(cta, 0);
     }
 
@@ -206,20 +209,26 @@ public class TabGroupPopupUiTest {
         onView(withId(R.id.tab_list_view))
                 .inRoot(withDecorView(not(cta.getWindow().getDecorView())))
                 .perform(RecyclerViewActions.actionOnItemAtPosition(
-                        getCurrentTabIndexInGroup(cta), click()));
+                        getCurrentTabIndexInGroupOnUiThread(cta), click()));
         verifyShowingTabStrip(cta, 3);
-
         onView(withId(R.id.tab_list_view))
                 .inRoot(withDecorView(not(cta.getWindow().getDecorView())))
                 .perform(RecyclerViewActions.actionOnItemAtPosition(
-                        getCurrentTabIndexInGroup(cta), click()));
+                        getCurrentTabIndexInGroupOnUiThread(cta), click()));
         verifyShowingTabStrip(cta, 2);
+    }
+
+    private int getCurrentTabIndexInGroupOnUiThread(final ChromeTabbedActivity cta)
+            throws InterruptedException {
+        final AtomicInteger res = new AtomicInteger();
+        TestThreadUtils.runOnUiThreadBlocking(() -> { res.set(getCurrentTabIndexInGroup(cta)); });
+        return res.get();
     }
 
     @Test
     @MediumTest
     @CommandLineFlags.Add({ChromeSwitches.DISABLE_MINIMUM_SHOW_DURATION})
-    public void testTabStripChangeWithScrolling() throws InterruptedException {
+    public void testTabStripChangeWithScrolling() {
         launchActivity();
         final ChromeTabbedActivity cta = mActivityTestRule.getActivity();
         FullscreenManagerTestUtils.disableBrowserOverrides();
@@ -233,20 +242,20 @@ public class TabGroupPopupUiTest {
 
         FullscreenManagerTestUtils.scrollBrowserControls(mActivityTestRule, false);
 
-        onView(withId(R.id.main_content))
+        onView(withId(R.id.tab_group_ui_toolbar_view))
                 .inRoot(withDecorView(not(cta.getWindow().getDecorView())))
                 .check((v, e) -> {
-                    View stripContainerView = (View) v.getParent().getParent();
+                    View stripContainerView = (View) v.getParent();
                     assertTrue(stripContainerView instanceof FrameLayout);
                     assertEquals(0f, stripContainerView.getAlpha(), 0);
                 });
 
         FullscreenManagerTestUtils.scrollBrowserControls(mActivityTestRule, true);
 
-        onView(withId(R.id.main_content))
+        onView(withId(R.id.tab_group_ui_toolbar_view))
                 .inRoot(withDecorView(not(cta.getWindow().getDecorView())))
                 .check((v, e) -> {
-                    View stripContainerView = (View) v.getParent().getParent();
+                    View stripContainerView = (View) v.getParent();
                     assertTrue(stripContainerView instanceof FrameLayout);
                     assertEquals(1f, stripContainerView.getAlpha(), 0);
                 });
@@ -279,7 +288,7 @@ public class TabGroupPopupUiTest {
         TestThreadUtils.runOnUiThreadBlocking(
                 () -> { cta.findViewById(R.id.tab_switcher_button).performLongClick(); });
         if (count == 0) {
-            CriteriaHelper.pollInstrumentationThread(() -> !isTabStripShowing(cta));
+            CriteriaHelper.pollInstrumentationThread(() -> isTabStripHidden(cta));
             return;
         }
         CriteriaHelper.pollInstrumentationThread(() -> isTabStripShowing(cta));
@@ -313,7 +322,11 @@ public class TabGroupPopupUiTest {
     }
 
     private boolean isTabStripShowing(ChromeTabbedActivity cta) {
-        return isShowingPopupTabList(cta);
+        return isPopupTabListCompletelyShowing(cta);
+    }
+
+    private boolean isTabStripHidden(ChromeTabbedActivity cta) {
+        return isPopupTabListCompletelyHidden(cta);
     }
 
     private void verifyShowingTabStrip(ChromeTabbedActivity cta, int tabCount) {
@@ -338,9 +351,7 @@ public class TabGroupPopupUiTest {
         mActivityTestRule.startMainActivityFromLauncher();
         Layout layout = mActivityTestRule.getActivity().getLayoutManager().getOverviewLayout();
         assertTrue(layout instanceof StartSurfaceLayout);
-        CriteriaHelper.pollUiThread(mActivityTestRule.getActivity()
-                                            .getTabModelSelector()
-                                            .getTabModelFilterProvider()
-                                            .getCurrentTabModelFilter()::isTabModelRestored);
+        CriteriaHelper.pollUiThread(
+                mActivityTestRule.getActivity().getTabModelSelector()::isTabStateInitialized);
     }
 }

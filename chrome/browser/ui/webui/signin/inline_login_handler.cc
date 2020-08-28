@@ -6,6 +6,7 @@
 
 #include <limits.h>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "base/bind.h"
@@ -59,10 +60,6 @@ void InlineLoginHandler::RegisterMessages() {
       base::BindRepeating(&InlineLoginHandler::HandleSwitchToFullTabMessage,
                           base::Unretained(this)));
   web_ui()->RegisterMessageCallback(
-      "navigationButtonClicked",
-      base::BindRepeating(&InlineLoginHandler::HandleNavigationButtonClicked,
-                          base::Unretained(this)));
-  web_ui()->RegisterMessageCallback(
       "dialogClose", base::BindRepeating(&InlineLoginHandler::HandleDialogClose,
                                          base::Unretained(this)));
 }
@@ -85,12 +82,10 @@ void InlineLoginHandler::HandleInitializeMessage(const base::ListValue* args) {
         value == "0") {
       partition->ClearData(
           content::StoragePartition::REMOVE_DATA_MASK_ALL,
-          content::StoragePartition::QUOTA_MANAGED_STORAGE_MASK_ALL,
-          GURL(),
-          base::Time(),
-          base::Time::Max(),
-          base::Bind(&InlineLoginHandler::ContinueHandleInitializeMessage,
-                     weak_ptr_factory_.GetWeakPtr()));
+          content::StoragePartition::QUOTA_MANAGED_STORAGE_MASK_ALL, GURL(),
+          base::Time(), base::Time::Max(),
+          base::BindOnce(&InlineLoginHandler::ContinueHandleInitializeMessage,
+                         weak_ptr_factory_.GetWeakPtr()));
     } else {
       ContinueHandleInitializeMessage();
     }
@@ -149,7 +144,7 @@ void InlineLoginHandler::ContinueHandleInitializeMessage() {
   params.SetBoolean("readOnlyEmail", !read_only_email.empty());
 
   SetExtraInitParams(params);
-  CallJavascriptFunction("inline.login.loadAuthExtension", params);
+  FireWebUIListener("load-auth-extension", params);
 }
 
 void InlineLoginHandler::HandleCompleteLoginMessage(
@@ -171,31 +166,36 @@ void InlineLoginHandler::HandleCompleteLoginMessage(
 
 void InlineLoginHandler::HandleCompleteLoginMessageWithCookies(
     const base::ListValue& args,
-    const net::CookieStatusList& cookies,
-    const net::CookieStatusList& excluded_cookies) {
-  const base::DictionaryValue* dict = nullptr;
-  args.GetDictionary(0, &dict);
+    const net::CookieAccessResultList& cookies,
+    const net::CookieAccessResultList& excluded_cookies) {
+  const base::Value& dict = args.GetList()[0];
 
-  const std::string& email = dict->FindKey("email")->GetString();
-  const std::string& password = dict->FindKey("password")->GetString();
-  const std::string& gaia_id = dict->FindKey("gaiaId")->GetString();
+  const std::string& email = dict.FindKey("email")->GetString();
+  const std::string& password = dict.FindKey("password")->GetString();
+  const std::string& gaia_id = dict.FindKey("gaiaId")->GetString();
 
   std::string auth_code;
-  for (const auto& cookie_with_status : cookies) {
-    if (cookie_with_status.cookie.Name() == "oauth_code")
-      auth_code = cookie_with_status.cookie.Value();
+  for (const auto& cookie_with_access_result : cookies) {
+    if (cookie_with_access_result.cookie.Name() == "oauth_code")
+      auth_code = cookie_with_access_result.cookie.Value();
   }
 
-  bool skip_for_now = false;
-  dict->GetBoolean("skipForNow", &skip_for_now);
-  bool trusted = false;
-  bool trusted_found = dict->GetBoolean("trusted", &trusted);
+  bool skip_for_now = dict.FindBoolKey("skipForNow").value_or(false);
+  base::Optional<bool> trusted = dict.FindBoolKey("trusted");
+  bool trusted_value = trusted.value_or(false);
+  bool trusted_found = trusted.has_value();
 
-  bool choose_what_to_sync = false;
-  dict->GetBoolean("chooseWhatToSync", &choose_what_to_sync);
+  bool choose_what_to_sync =
+      dict.FindBoolKey("chooseWhatToSync").value_or(false);
 
-  CompleteLogin(email, password, gaia_id, auth_code, skip_for_now, trusted,
-                trusted_found, choose_what_to_sync);
+  base::Value edu_login_params;
+  if (args.GetList().size() > 1) {
+    edu_login_params = args.GetList()[1].Clone();
+  }
+
+  CompleteLogin(email, password, gaia_id, auth_code, skip_for_now,
+                trusted_value, trusted_found, choose_what_to_sync,
+                std::move(edu_login_params));
 }
 
 void InlineLoginHandler::HandleSwitchToFullTabMessage(
@@ -229,16 +229,6 @@ void InlineLoginHandler::HandleSwitchToFullTabMessage(
   CloseDialogFromJavascript();
 }
 
-void InlineLoginHandler::HandleNavigationButtonClicked(
-    const base::ListValue* args) {
-#if !defined(OS_CHROMEOS)
-  NOTREACHED() << "The inline login handler is no longer used in a browser "
-                  "or tab modal dialog.";
-#else
-  FireWebUIListener("navigateBackInWebview");
-#endif
-}
-
 void InlineLoginHandler::HandleDialogClose(const base::ListValue* args) {
 #if !defined(OS_CHROMEOS)
   // Does nothing if user manager is not showing.
@@ -248,5 +238,5 @@ void InlineLoginHandler::HandleDialogClose(const base::ListValue* args) {
 
 void InlineLoginHandler::CloseDialogFromJavascript() {
   if (IsJavascriptAllowed())
-    CallJavascriptFunction("inline.login.closeDialog");
+    FireWebUIListener("close-dialog");
 }

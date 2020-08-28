@@ -67,7 +67,6 @@ class PLATFORM_EXPORT ResourceLoader final
       protected WebURLLoaderClient,
       protected mojom::blink::ProgressClient,
       private ResponseBodyLoaderClient {
-  USING_GARBAGE_COLLECTED_MIXIN(ResourceLoader);
   USING_PRE_FINALIZER(ResourceLoader, Dispose);
 
  public:
@@ -75,9 +74,10 @@ class PLATFORM_EXPORT ResourceLoader final
   ResourceLoader(ResourceFetcher*,
                  ResourceLoadScheduler*,
                  Resource*,
+                 ResourceRequestBody request_body = ResourceRequestBody(),
                  uint32_t inflight_keepalive_bytes = 0);
   ~ResourceLoader() override;
-  void Trace(blink::Visitor*) override;
+  void Trace(Visitor*) const override;
 
   void Start();
 
@@ -90,7 +90,7 @@ class PLATFORM_EXPORT ResourceLoader final
 
   // Called before start() to activate cache-aware loading if enabled in
   // |m_resource->options()| and applicable.
-  void ActivateCacheAwareLoadingIfNeeded(const ResourceRequest&);
+  void ActivateCacheAwareLoadingIfNeeded(const ResourceRequestHead&);
 
   bool IsCacheAwareLoadingActivated() const {
     return is_cache_aware_loading_activated_;
@@ -119,7 +119,8 @@ class PLATFORM_EXPORT ResourceLoader final
                           network::mojom::ReferrerPolicy new_referrer_policy,
                           const WebString& new_method,
                           const WebURLResponse& passed_redirect_response,
-                          bool& report_raw_headers) override;
+                          bool& report_raw_headers,
+                          std::vector<std::string>* removed_headers) override;
   void DidSendData(uint64_t bytes_sent,
                    uint64_t total_bytes_to_be_sent) override;
   void DidReceiveResponse(const WebURLResponse&) override;
@@ -165,7 +166,7 @@ class PLATFORM_EXPORT ResourceLoader final
   void DidCancelLoadingBody() override;
 
   bool ShouldFetchCodeCache();
-  void StartWith(const ResourceRequest&);
+  void StartWith(const ResourceRequestHead&);
 
   void Release(ResourceLoadScheduler::ReleaseOption,
                const ResourceLoadScheduler::TrafficReportHints&);
@@ -173,7 +174,7 @@ class PLATFORM_EXPORT ResourceLoader final
   // This method is currently only used for service worker fallback request and
   // cache-aware loading, other users should be careful not to break
   // ResourceLoader state.
-  void Restart(const ResourceRequest&);
+  void Restart(const ResourceRequestHead&);
 
   FetchContext& Context() const;
 
@@ -183,8 +184,8 @@ class PLATFORM_EXPORT ResourceLoader final
 
   void CancelForRedirectAccessCheckError(const KURL&,
                                          ResourceRequestBlockedReason);
-  void RequestSynchronously(const ResourceRequest&);
-  void RequestAsynchronously(const ResourceRequest&);
+  void RequestSynchronously(const ResourceRequestHead&);
+  void RequestAsynchronously(const ResourceRequestHead&);
   void Dispose();
 
   void DidReceiveResponseInternal(const ResourceResponse&);
@@ -210,6 +211,7 @@ class PLATFORM_EXPORT ResourceLoader final
   Member<ResourceFetcher> fetcher_;
   Member<ResourceLoadScheduler> scheduler_;
   Member<Resource> resource_;
+  ResourceRequestBody request_body_;
   Member<ResponseBodyLoader> response_body_loader_;
   Member<DataPipeBytesConsumer::CompletionNotifier>
       data_pipe_completion_notifier_;

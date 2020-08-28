@@ -21,7 +21,9 @@
 #include "gpu/command_buffer/service/service_utils.h"
 #include "gpu/config/gpu_finch_features.h"
 #include "gpu/config/gpu_switches.h"
+#include "media/base/media_switches.h"
 #include "media/media_buildflags.h"
+#include "ui/gfx/switches.h"
 
 namespace {
 
@@ -37,6 +39,12 @@ void StopGpuProcessImpl(base::OnceClosure callback,
     host->gpu_service()->Stop(std::move(callback));
   else
     std::move(callback).Run();
+}
+
+void KillGpuProcessImpl(content::GpuProcessHost* host) {
+  if (host) {
+    host->ForceShutdown();
+  }
 }
 
 }  // namespace
@@ -90,13 +98,13 @@ const gpu::GpuPreferences GetGpuPreferencesFromCommandLine() {
       command_line->HasSwitch(switches::kDisableOopRasterization);
 
   gpu_preferences.enable_oop_rasterization_ddl =
-      command_line->HasSwitch(switches::kEnableOopRasterizationDDL);
+      base::FeatureList::IsEnabled(features::kOopRasterizationDDL);
   gpu_preferences.enforce_vulkan_protected_memory =
       command_line->HasSwitch(switches::kEnforceVulkanProtectedMemory);
   gpu_preferences.disable_vulkan_fallback_to_gl_for_testing =
       command_line->HasSwitch(switches::kDisableVulkanFallbackToGLForTesting);
 
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
   gpu_preferences.enable_metal = base::FeatureList::IsEnabled(features::kMetal);
 #endif
 
@@ -105,6 +113,20 @@ const gpu::GpuPreferences GetGpuPreferencesFromCommandLine() {
 
   gpu_preferences.enable_android_surface_control =
       ShouldEnableAndroidSurfaceControl(*command_line);
+
+  gpu_preferences.enable_native_gpu_memory_buffers =
+      command_line->HasSwitch(switches::kEnableNativeGpuMemoryBuffers);
+
+#if defined(OS_CHROMEOS)
+  gpu_preferences.platform_disallows_chromeos_direct_video_decoder =
+      command_line->HasSwitch(
+          switches::kPlatformDisallowsChromeOSDirectVideoDecoder);
+#endif
+
+#if defined(OS_ANDROID)
+  gpu_preferences.disable_oopr_debug_crash_dump =
+      command_line->HasSwitch(switches::kDisableOoprDebugCrashDump);
+#endif
 
   // Some of these preferences are set or adjusted in
   // GpuDataManagerImplPrivate::AppendGpuCommandLine.
@@ -120,8 +142,26 @@ void StopGpuProcess(base::OnceClosure callback) {
                                     std::move(callback))));
 }
 
+void KillGpuProcess() {
+  GpuProcessHost::CallOnIO(GPU_PROCESS_KIND_SANDBOXED, false /* force_create */,
+                           base::BindOnce(&KillGpuProcessImpl));
+}
+
 gpu::GpuChannelEstablishFactory* GetGpuChannelEstablishFactory() {
   return BrowserMainLoop::GetInstance()->gpu_channel_establish_factory();
 }
+
+#if BUILDFLAG(CLANG_PROFILING_INSIDE_SANDBOX)
+void DumpGpuProfilingData(base::OnceClosure callback) {
+  content::GpuProcessHost::CallOnIO(
+      content::GPU_PROCESS_KIND_SANDBOXED, false /* force_create */,
+      base::BindOnce(
+          [](base::OnceClosure callback, content::GpuProcessHost* host) {
+            host->gpu_service()->WriteClangProfilingProfile(
+                std::move(callback));
+          },
+          std::move(callback)));
+}
+#endif  // BUILDFLAG(CLANG_PROFILING_INSIDE_SANDBOX)
 
 }  // namespace content

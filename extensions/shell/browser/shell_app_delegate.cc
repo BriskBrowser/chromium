@@ -46,6 +46,7 @@ content::WebContents* ShellAppDelegate::OpenURLFromTab(
 void ShellAppDelegate::AddNewContents(
     content::BrowserContext* context,
     std::unique_ptr<content::WebContents> new_contents,
+    const GURL& target_url,
     WindowOpenDisposition disposition,
     const gfx::Rect& initial_rect,
     bool user_gesture) {
@@ -61,7 +62,7 @@ content::ColorChooser* ShellAppDelegate::ShowColorChooser(
 
 void ShellAppDelegate::RunFileChooser(
     content::RenderFrameHost* render_frame_host,
-    std::unique_ptr<content::FileSelectListener> listener,
+    scoped_refptr<content::FileSelectListener> listener,
     const blink::mojom::FileChooserParams& params) {
   NOTIMPLEMENTED();
   listener->FileSelectionCanceled();
@@ -100,7 +101,7 @@ bool ShellAppDelegate::IsWebContentsVisible(
   return true;
 }
 
-void ShellAppDelegate::SetTerminatingCallback(const base::Closure& callback) {
+void ShellAppDelegate::SetTerminatingCallback(base::OnceClosure callback) {
   // TODO(jamescook): Should app_shell continue to close the app window
   // manually or should it use a browser termination callback like Chrome?
 }

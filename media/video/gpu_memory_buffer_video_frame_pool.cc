@@ -20,6 +20,7 @@
 #include "base/containers/circular_deque.h"
 #include "base/containers/stack_container.h"
 #include "base/location.h"
+#include "base/logging.h"
 #include "base/macros.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/stringprintf.h"
@@ -38,7 +39,7 @@
 #include "ui/gfx/color_space.h"
 #include "ui/gl/trace_util.h"
 
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
 #include "base/mac/mac_util.h"
 #include "ui/gfx/mac/io_surface.h"
 #endif
@@ -246,7 +247,7 @@ gfx::BufferFormat GpuMemoryBufferFormat(
       return plane == 0 ? gfx::BufferFormat::R_8 : gfx::BufferFormat::RG_88;
     case GpuVideoAcceleratorFactories::OutputFormat::XR30:
       DCHECK_EQ(0u, plane);
-      return gfx::BufferFormat::BGRX_1010102;
+      return gfx::BufferFormat::BGRA_1010102;
     case GpuVideoAcceleratorFactories::OutputFormat::XB30:
       DCHECK_EQ(0u, plane);
       return gfx::BufferFormat::RGBA_1010102;
@@ -572,12 +573,12 @@ void GpuMemoryBufferVideoFramePool::PoolImpl::CreateHardwareFrame(
   }
 
   bool is_software_backed_video_frame = !video_frame->HasTextures();
-#if defined(OS_LINUX)
+#if defined(OS_LINUX) || defined(OS_CHROMEOS)
   is_software_backed_video_frame &= !video_frame->HasDmaBufs();
 #endif
 
   bool passthrough = false;
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
   if (!IOSurfaceCanSetColorSpace(video_frame->ColorSpace()))
     passthrough = true;
 #endif
@@ -597,6 +598,7 @@ void GpuMemoryBufferVideoFramePool::PoolImpl::CreateHardwareFrame(
     case PIXEL_FORMAT_I444:
     case PIXEL_FORMAT_NV12:
     case PIXEL_FORMAT_NV21:
+    case PIXEL_FORMAT_UYVY:
     case PIXEL_FORMAT_YUY2:
     case PIXEL_FORMAT_ARGB:
     case PIXEL_FORMAT_BGRA:
@@ -885,10 +887,10 @@ void GpuMemoryBufferVideoFramePool::PoolImpl::
       uint32_t usage =
           gpu::SHARED_IMAGE_USAGE_GLES2 | gpu::SHARED_IMAGE_USAGE_RASTER |
           gpu::SHARED_IMAGE_USAGE_DISPLAY | gpu::SHARED_IMAGE_USAGE_SCANOUT;
-      plane_resource.mailbox =
-          sii->CreateSharedImage(plane_resource.gpu_memory_buffer.get(),
-                                 gpu_factories_->GpuMemoryBufferManager(),
-                                 video_frame->ColorSpace(), usage);
+      plane_resource.mailbox = sii->CreateSharedImage(
+          plane_resource.gpu_memory_buffer.get(),
+          gpu_factories_->GpuMemoryBufferManager(), video_frame->ColorSpace(),
+          kTopLeft_GrSurfaceOrigin, kPremul_SkAlphaType, usage);
     } else if (!plane_resource.mailbox.IsZero()) {
       sii->UpdateSharedImage(frame_resources->sync_token,
                              plane_resource.mailbox);
@@ -932,8 +934,7 @@ void GpuMemoryBufferVideoFramePool::PoolImpl::
 #else
   switch (output_format_) {
     case GpuVideoAcceleratorFactories::OutputFormat::I420:
-      allow_overlay =
-          video_frame->metadata()->IsTrue(VideoFrameMetadata::ALLOW_OVERLAY);
+      allow_overlay = video_frame->metadata()->allow_overlay;
       break;
     case GpuVideoAcceleratorFactories::OutputFormat::NV12_SINGLE_GMB:
       allow_overlay = true;
@@ -945,7 +946,7 @@ void GpuMemoryBufferVideoFramePool::PoolImpl::
     case GpuVideoAcceleratorFactories::OutputFormat::XB30:
       // TODO(mcasas): Enable this for ChromeOS https://crbug.com/776093.
       allow_overlay = false;
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
       allow_overlay = IOSurfaceCanSetColorSpace(video_frame->ColorSpace());
 #endif
       // We've converted the YUV to RGB, fix the color space.
@@ -963,10 +964,8 @@ void GpuMemoryBufferVideoFramePool::PoolImpl::
   }
 #endif  // OS_WIN
   frame->metadata()->MergeMetadataFrom(video_frame->metadata());
-  frame->metadata()->SetBoolean(VideoFrameMetadata::ALLOW_OVERLAY,
-                                allow_overlay);
-  frame->metadata()->SetBoolean(VideoFrameMetadata::READ_LOCK_FENCES_ENABLED,
-                                true);
+  frame->metadata()->allow_overlay = allow_overlay;
+  frame->metadata()->read_lock_fences_enabled = true;
 
   CompleteCopyRequestAndMaybeStartNextCopy(std::move(frame));
 }

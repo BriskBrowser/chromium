@@ -7,6 +7,7 @@
 #include <limits>
 #include <set>
 
+#include "base/bind_helpers.h"
 #include "base/debug/leak_annotations.h"
 #include "base/hash/hash.h"
 #include "base/memory/ptr_util.h"
@@ -20,6 +21,7 @@
 #include "base/threading/sequence_local_storage_slot.h"
 #include "base/trace_event/trace_event.h"
 #include "build/build_config.h"
+#include "services/tracing/public/cpp/buildflags.h"
 #include "services/tracing/public/cpp/perfetto/perfetto_traced_process.h"
 #include "services/tracing/public/cpp/perfetto/producer_client.h"
 #include "third_party/perfetto/protos/perfetto/trace/interned_data/interned_data.pbzero.h"
@@ -41,12 +43,19 @@
 #include "services/tracing/public/cpp/stack_sampling/stack_sampler_android.h"
 #endif
 
+#if BUILDFLAG(ENABLE_LOADER_LOCK_SAMPLING)
+#include "services/tracing/public/cpp/stack_sampling/loader_lock_sampler_win.h"
+#endif
+
 using StreamingProfilePacketHandle =
     protozero::MessageHandle<perfetto::protos::pbzero::StreamingProfilePacket>;
 
 namespace tracing {
 
 namespace {
+
+// Pointer to the main thread instance, if any.
+TracingSamplerProfiler* g_main_thread_instance = nullptr;
 
 class TracingSamplerProfilerDataSource
     : public PerfettoTracedProcess::DataSourceBase {
@@ -83,18 +92,6 @@ class TracingSamplerProfilerDataSource
     }
 
     profiler->StopTracing();
-  }
-
-  void SetupStartupTracing() {
-    base::AutoLock lock(lock_);
-    if (is_started_) {
-      return;
-    }
-    is_startup_tracing_ = true;
-    for (auto* profiler : profilers_) {
-      // Enable filtering for startup tracing always to be safe.
-      profiler->StartTracing(nullptr, /*should_enable_filtering=*/true);
-    }
   }
 
   // PerfettoTracedProcess::DataSourceBase implementation, called by
@@ -136,6 +133,37 @@ class TracingSamplerProfilerDataSource
     flush_complete_callback.Run();
   }
 
+  void SetupStartupTracing(PerfettoProducer* producer,
+                           const base::trace_event::TraceConfig& trace_config,
+                           bool privacy_filtering_enabled) override {
+    bool enable_sampler_profiler = trace_config.IsCategoryGroupEnabled(
+        TRACE_DISABLED_BY_DEFAULT("cpu_profiler"));
+    if (!enable_sampler_profiler)
+      return;
+
+    base::AutoLock lock(lock_);
+    if (is_started_) {
+      return;
+    }
+    is_startup_tracing_ = true;
+    for (auto* profiler : profilers_) {
+      // Enable filtering for startup tracing always to be safe.
+      profiler->StartTracing(nullptr, /*should_enable_filtering=*/true);
+    }
+  }
+
+  void AbortStartupTracing() override {
+    base::AutoLock lock(lock_);
+    if (!is_startup_tracing_) {
+      return;
+    }
+    for (auto* profiler : profilers_) {
+      // Enable filtering for startup tracing always to be safe.
+      profiler->StartTracing(nullptr, /*should_enable_filtering=*/true);
+    }
+    is_startup_tracing_ = false;
+  }
+
   void ClearIncrementalState() override {
     incremental_state_reset_id_.fetch_add(1u, std::memory_order_relaxed);
   }
@@ -166,7 +194,16 @@ GetSequenceLocalStorageProfilerSlot() {
   return *storage;
 }
 
+#if BUILDFLAG(ENABLE_LOADER_LOCK_SAMPLING)
+TracingSamplerProfiler::LoaderLockSampler* g_test_loader_lock_sampler = nullptr;
+#endif
+
 }  // namespace
+
+#if BUILDFLAG(ENABLE_LOADER_LOCK_SAMPLING)
+const char TracingSamplerProfiler::kLoaderLockHeldEventName[] =
+    "LoaderLockHeld (sampled)";
+#endif
 
 TracingSamplerProfiler::TracingProfileBuilder::BufferedSample::BufferedSample(
     base::TimeTicks ts,
@@ -183,10 +220,12 @@ TracingSamplerProfiler::TracingProfileBuilder::BufferedSample::BufferedSample(
 TracingSamplerProfiler::TracingProfileBuilder::TracingProfileBuilder(
     base::PlatformThreadId sampled_thread_id,
     std::unique_ptr<perfetto::TraceWriter> trace_writer,
-    bool should_enable_filtering)
+    bool should_enable_filtering,
+    const base::RepeatingClosure& sample_callback_for_testing)
     : sampled_thread_id_(sampled_thread_id),
       trace_writer_(std::move(trace_writer)),
-      should_enable_filtering_(should_enable_filtering) {}
+      should_enable_filtering_(should_enable_filtering),
+      sample_callback_for_testing_(sample_callback_for_testing) {}
 
 TracingSamplerProfiler::TracingProfileBuilder::~TracingProfileBuilder() {
   // Deleting a TraceWriter can end up triggering a Mojo call which calls
@@ -212,6 +251,10 @@ TracingSamplerProfiler::TracingProfileBuilder::GetModuleCache() {
 void TracingSamplerProfiler::TracingProfileBuilder::OnSampleCompleted(
     std::vector<base::Frame> frames,
     base::TimeTicks sample_timestamp) {
+#if BUILDFLAG(ENABLE_LOADER_LOCK_SAMPLING)
+  SampleLoaderLock();
+#endif
+
   base::AutoLock l(trace_writer_lock_);
   if (!trace_writer_) {
     if (buffered_samples_.size() < kMaxBufferedSamples) {
@@ -227,6 +270,10 @@ void TracingSamplerProfiler::TracingProfileBuilder::OnSampleCompleted(
     buffered_samples_.clear();
   }
   WriteSampleToTrace(BufferedSample(sample_timestamp, std::move(frames)));
+
+  if (sample_callback_for_testing_) {
+    sample_callback_for_testing_.Run();
+  }
 }
 
 void TracingSamplerProfiler::TracingProfileBuilder::WriteSampleToTrace(
@@ -264,14 +311,6 @@ void TracingSamplerProfiler::TracingProfileBuilder::WriteSampleToTrace(
     reset_incremental_state_ = false;
   }
 
-  int32_t current_process_priority = base::Process::Current().GetPriority();
-  if (current_process_priority != last_emitted_process_priority_) {
-    last_emitted_process_priority_ = current_process_priority;
-    auto trace_packet = trace_writer_->NewTracePacket();
-    auto* process_descriptor = trace_packet->set_process_descriptor();
-    process_descriptor->set_pid(base::GetCurrentProcId());
-    process_descriptor->set_process_priority(current_process_priority);
-  }
 
   auto trace_packet = trace_writer_->NewTracePacket();
   // Delta encoded timestamps and interned data require incremental state.
@@ -280,6 +319,12 @@ void TracingSamplerProfiler::TracingProfileBuilder::WriteSampleToTrace(
   auto callstack_id = GetCallstackIDAndMaybeEmit(frames, &trace_packet);
   auto* streaming_profile_packet = trace_packet->set_streaming_profile_packet();
   streaming_profile_packet->add_callstack_iid(callstack_id);
+
+  int32_t current_process_priority = base::Process::Current().GetPriority();
+  if (current_process_priority != 0) {
+    streaming_profile_packet->set_process_priority(current_process_priority);
+  }
+
   streaming_profile_packet->add_timestamp_delta_us(
       (sample.timestamp - last_timestamp_).InMicroseconds());
   last_timestamp_ = sample.timestamp;
@@ -362,21 +407,7 @@ TracingSamplerProfiler::TracingProfileBuilder::GetCallstackIDAndMaybeEmit(
     }
 #endif
 
-#if defined(OS_ANDROID) || defined(OS_LINUX)
-    // Linux ELF module IDs are 160bit integers, which we need to mangle
-    // down to 128bit integers to match the id that Breakpad outputs.
-    // Example on version '66.0.3359.170' x64:
-    //   Build-ID: "7f0715c2 86f8 b16c 10e4ad349cda3b9b 56c7a773
-    //   Debug-ID  "C215077F F886 6CB1 10E4AD349CDA3B9B 0"
-    if (module_id.size() >= 32) {
-      module_id =
-          base::StrCat({module_id.substr(6, 2), module_id.substr(4, 2),
-                        module_id.substr(2, 2), module_id.substr(0, 2),
-                        module_id.substr(10, 2), module_id.substr(8, 2),
-                        module_id.substr(14, 2), module_id.substr(12, 2),
-                        module_id.substr(16, 16), "0"});
-    }
-#endif
+    MangleModuleIDIfNeeded(&module_id);
 
     // We never emit frame names in privacy filtered mode.
     bool should_emit_frame_names =
@@ -446,7 +477,7 @@ TracingSamplerProfiler::TracingProfileBuilder::GetCallstackIDAndMaybeEmit(
       } else {
         frame_entry->set_rel_pc(rel_pc);
       }
-      if (interned_module.id) {
+      if (frame.module) {
         frame_entry->set_mapping_id(interned_module.id);
       }
     }
@@ -462,11 +493,71 @@ TracingSamplerProfiler::TracingProfileBuilder::GetCallstackIDAndMaybeEmit(
   return interned_callstack.id;
 }
 
+#if BUILDFLAG(ENABLE_LOADER_LOCK_SAMPLING)
+void TracingSamplerProfiler::TracingProfileBuilder::SampleLoaderLock() {
+  if (!should_sample_loader_lock_)
+    return;
+
+  bool loader_lock_now_held =
+      g_test_loader_lock_sampler
+          ? g_test_loader_lock_sampler->IsLoaderLockHeld()
+          : IsLoaderLockHeld();
+
+  // TODO(crbug.com/1065077): It would be cleaner to save the loader lock state
+  // alongside buffered_samples_ and then add it to the ProcessDescriptor
+  // packet in
+  // TracingSamplerProfiler::TracingProfileBuilder::WriteSampleToTrace. But
+  // ProcessDescriptor is currently not being collected correctly. See the full
+  // discussion in the linked crbug.
+  if (loader_lock_now_held && !loader_lock_is_held_) {
+    TRACE_EVENT_NESTABLE_ASYNC_BEGIN0(
+        TRACE_DISABLED_BY_DEFAULT("cpu_profiler"),
+        TracingSamplerProfiler::kLoaderLockHeldEventName, TRACE_ID_LOCAL(this));
+  } else if (!loader_lock_now_held && loader_lock_is_held_) {
+    TRACE_EVENT_NESTABLE_ASYNC_END0(
+        TRACE_DISABLED_BY_DEFAULT("cpu_profiler"),
+        TracingSamplerProfiler::kLoaderLockHeldEventName, TRACE_ID_LOCAL(this));
+  }
+  loader_lock_is_held_ = loader_lock_now_held;
+}
+#endif
+
+// static
+void TracingSamplerProfiler::MangleModuleIDIfNeeded(std::string* module_id) {
+#if defined(OS_ANDROID) || defined(OS_LINUX) || defined(OS_CHROMEOS)
+  // Linux ELF module IDs are 160bit integers, which we need to mangle
+  // down to 128bit integers to match the id that Breakpad outputs.
+  // Example on version '66.0.3359.170' x64:
+  //   Build-ID: "7f0715c2 86f8 b16c 10e4ad349cda3b9b 56c7a773
+  //   Debug-ID  "C215077F F886 6CB1 10E4AD349CDA3B9B 0"
+  if (module_id->size() >= 32) {
+    *module_id =
+        base::StrCat({module_id->substr(6, 2), module_id->substr(4, 2),
+                      module_id->substr(2, 2), module_id->substr(0, 2),
+                      module_id->substr(10, 2), module_id->substr(8, 2),
+                      module_id->substr(14, 2), module_id->substr(12, 2),
+                      module_id->substr(16, 16), "0"});
+  }
+#endif
+}
+
 // static
 std::unique_ptr<TracingSamplerProfiler>
 TracingSamplerProfiler::CreateOnMainThread() {
-  return std::make_unique<TracingSamplerProfiler>(
+  auto profiler = std::make_unique<TracingSamplerProfiler>(
       base::GetSamplingProfilerCurrentThreadToken());
+#if BUILDFLAG(ENABLE_LOADER_LOCK_SAMPLING)
+  // The loader lock is process-wide so should only be sampled on a single
+  // thread. The main thread is convenient.
+  InitializeLoaderLockSampling();
+  profiler->EnableLoaderLockSampling();
+#endif
+  // If running in single process mode, there may be multiple "main thread"
+  // profilers created. In this case, we assume the first created one is the
+  // browser one.
+  if (!g_main_thread_instance)
+    g_main_thread_instance = profiler.get();
+  return profiler;
 }
 
 // static
@@ -490,6 +581,12 @@ void TracingSamplerProfiler::RegisterDataSource() {
       TracingSamplerProfilerDataSource::Get());
 }
 
+void TracingSamplerProfiler::SetAuxUnwinderFactoryOnMainThread(
+    const base::RepeatingCallback<std::unique_ptr<base::Unwinder>()>& factory) {
+  DCHECK(g_main_thread_instance);
+  g_main_thread_instance->SetAuxUnwinderFactory(factory);
+}
+
 // static
 void TracingSamplerProfiler::StartTracingForTesting(
     PerfettoProducer* producer) {
@@ -498,14 +595,26 @@ void TracingSamplerProfiler::StartTracingForTesting(
 }
 
 // static
-void TracingSamplerProfiler::SetupStartupTracing() {
-  TracingSamplerProfilerDataSource::Get()->SetupStartupTracing();
+void TracingSamplerProfiler::SetupStartupTracingForTesting() {
+  base::trace_event::TraceConfig config(
+      TRACE_DISABLED_BY_DEFAULT("cpu_profiler"),
+      base::trace_event::TraceRecordMode::RECORD_UNTIL_FULL);
+  TracingSamplerProfilerDataSource::Get()->SetupStartupTracing(
+      /*producer=*/nullptr, config, /*privacy_filtering_enabled=*/false);
 }
 
 // static
 void TracingSamplerProfiler::StopTracingForTesting() {
   TracingSamplerProfilerDataSource::Get()->StopTracing(base::DoNothing());
 }
+
+#if BUILDFLAG(ENABLE_LOADER_LOCK_SAMPLING)
+// static
+void TracingSamplerProfiler::SetLoaderLockSamplerForTesting(
+    LoaderLockSampler* sampler) {
+  g_test_loader_lock_sampler = sampler;
+}
+#endif
 
 TracingSamplerProfiler::TracingSamplerProfiler(
     base::SamplingProfilerThreadToken sampled_thread_token)
@@ -516,6 +625,22 @@ TracingSamplerProfiler::TracingSamplerProfiler(
 
 TracingSamplerProfiler::~TracingSamplerProfiler() {
   TracingSamplerProfilerDataSource::Get()->UnregisterProfiler(this);
+  if (g_main_thread_instance == this)
+    g_main_thread_instance = nullptr;
+}
+
+void TracingSamplerProfiler::SetAuxUnwinderFactory(
+    const base::RepeatingCallback<std::unique_ptr<base::Unwinder>()>& factory) {
+  base::AutoLock lock(lock_);
+  aux_unwinder_factory_ = factory;
+  if (profiler_)
+    profiler_->AddAuxUnwinder(aux_unwinder_factory_.Run());
+}
+
+void TracingSamplerProfiler::SetSampleCallbackForTesting(
+    const base::RepeatingClosure& sample_callback_for_testing) {
+  base::AutoLock lock(lock_);
+  sample_callback_for_testing_ = sample_callback_for_testing;
 }
 
 void TracingSamplerProfiler::StartTracing(
@@ -536,24 +661,28 @@ void TracingSamplerProfiler::StartTracing(
     return;
 #endif
 
+  if (!base::StackSamplingProfiler::IsSupported())
+    return;
+
   base::StackSamplingProfiler::SamplingParams params;
   params.samples_per_profile = std::numeric_limits<int>::max();
   params.sampling_interval = base::TimeDelta::FromMilliseconds(50);
-  // If the sampled thread is stopped for too long for sampling then it is ok to
-  // get next sample at a later point of time. We do not want very accurate
-  // metrics when looking at traces.
-  params.keep_consistent_sampling_interval = false;
 
   auto profile_builder = std::make_unique<TracingProfileBuilder>(
       sampled_thread_token_.id, std::move(trace_writer),
-      should_enable_filtering);
+      should_enable_filtering, sample_callback_for_testing_);
+#if BUILDFLAG(ENABLE_LOADER_LOCK_SAMPLING)
+  if (should_sample_loader_lock_)
+    profile_builder->EnableLoaderLockSampling();
+#endif
+
   profile_builder_ = profile_builder.get();
   // Create and start the stack sampling profiler.
 #if defined(OS_ANDROID)
 #if BUILDFLAG(CAN_UNWIND_WITH_CFI_TABLE) && defined(OFFICIAL_BUILD)
   auto* module_cache = profile_builder->GetModuleCache();
   profiler_ = std::make_unique<base::StackSamplingProfiler>(
-      sampled_thread_token_, params, std::move(profile_builder),
+      params, std::move(profile_builder),
       std::make_unique<StackSamplerAndroid>(sampled_thread_token_,
                                             module_cache));
   profiler_->Start();
@@ -561,6 +690,8 @@ void TracingSamplerProfiler::StartTracing(
 #else   // defined(OS_ANDROID)
   profiler_ = std::make_unique<base::StackSamplingProfiler>(
       sampled_thread_token_, params, std::move(profile_builder));
+  if (aux_unwinder_factory_)
+    profiler_->AddAuxUnwinder(aux_unwinder_factory_.Run());
   profiler_->Start();
 #endif  // defined(OS_ANDROID)
 }

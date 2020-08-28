@@ -11,6 +11,7 @@
 #include "base/lazy_instance.h"
 #include "base/location.h"
 #include "base/logging.h"
+#include "base/notreached.h"
 #include "base/values.h"
 #include "build/build_config.h"
 #include "crypto/openssl_util.h"
@@ -101,8 +102,6 @@ int MapOpenSSLErrorSSL(uint32_t error_code) {
       return ERR_SSL_DECRYPT_ERROR_ALERT;
     case SSL_R_TLSV1_UNRECOGNIZED_NAME:
       return ERR_SSL_UNRECOGNIZED_NAME_ALERT;
-    case SSL_R_BAD_DH_P_LENGTH:
-      return ERR_SSL_WEAK_SERVER_EPHEMERAL_DH_KEY;
     case SSL_R_SERVER_CERT_CHANGED:
       return ERR_SSL_SERVER_CERT_CHANGED;
     case SSL_R_WRONG_VERSION_ON_EARLY_DATA:

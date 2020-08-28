@@ -18,15 +18,24 @@ struct FormData;
 
 namespace weblayer {
 class Shell;
+class Tab;
 
 // Navigates |shell| to |url| and wait for completed navigation.
 void NavigateAndWaitForCompletion(const GURL& url, Shell* shell);
 
+void NavigateAndWaitForCompletion(const GURL& url, Tab* tab);
+
 // Navigates |shell| to |url| and wait for failed navigation.
 void NavigateAndWaitForFailure(const GURL& url, Shell* shell);
 
+// Initiates navigation to |url| in |tab| and waits for it to start.
+void NavigateAndWaitForStart(const GURL& url, Tab* tab);
+
 // Executes |script| in |shell| and returns the result.
 base::Value ExecuteScript(Shell* shell,
+                          const std::string& script,
+                          bool use_separate_isolate);
+base::Value ExecuteScript(Tab* tab,
                           const std::string& script,
                           bool use_separate_isolate);
 
@@ -40,6 +49,7 @@ base::Value ExecuteScript(Shell* shell,
 // - Does not allow running in a separate isolate as the  machinery for
 //   setting a user gesture works only in the main isolate.
 void ExecuteScriptWithUserGesture(Shell* shell, const std::string& script);
+void ExecuteScriptWithUserGesture(Tab* tab, const std::string& script);
 
 /// Gets the title of the current webpage in |shell|.
 const base::string16& GetTitle(Shell* shell);

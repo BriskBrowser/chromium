@@ -9,13 +9,11 @@
 
 #include "base/memory/weak_ptr.h"
 #include "base/threading/thread_checker.h"
+#include "base/timer/timer.h"
 #include "media/base/audio_renderer.h"
 #include "media/base/buffering_state.h"
 #include "media/base/demuxer_stream.h"
 #include "media/base/time_source.h"
-#include "media/fuchsia/mojom/fuchsia_audio_consumer_provider.mojom.h"
-#include "mojo/public/cpp/bindings/pending_remote.h"
-#include "mojo/public/cpp/bindings/remote.h"
 
 namespace media {
 
@@ -27,10 +25,9 @@ class MediaLog;
 // sends encoded stream directly to AudioConsumer provided by the platform.
 class FuchsiaAudioRenderer : public AudioRenderer, public TimeSource {
  public:
-  FuchsiaAudioRenderer(
-      MediaLog* media_log,
-      mojo::PendingRemote<media::mojom::FuchsiaAudioConsumerProvider>
-          audio_consumer_provider);
+  FuchsiaAudioRenderer(MediaLog* media_log,
+                       fidl::InterfaceHandle<fuchsia::media::AudioConsumer>
+                           audio_consumer_handle);
   ~FuchsiaAudioRenderer() final;
 
   // AudioRenderer implementation.
@@ -43,6 +40,7 @@ class FuchsiaAudioRenderer : public AudioRenderer, public TimeSource {
   void StartPlaying() final;
   void SetVolume(float volume) final;
   void SetLatencyHint(base::Optional<base::TimeDelta> latency_hint) final;
+  void SetPreservesPitch(bool preserves_pitch) final;
 
   // TimeSource implementation.
   void StartTicking() final;
@@ -63,7 +61,8 @@ class FuchsiaAudioRenderer : public AudioRenderer, public TimeSource {
 
     kPlaying,
 
-    // We've reached end of stream from the demuxer,
+    // Received end-of-stream packet from the |demuxer_stream_|. Waiting for
+    // EndOfStream event from |audio_consumer_|.
     kEndOfStream,
   };
 
@@ -74,8 +73,21 @@ class FuchsiaAudioRenderer : public AudioRenderer, public TimeSource {
     bool is_used = false;
   };
 
+  // Returns current PlaybackState. Should be used only on the main thread.
+  PlaybackState GetPlaybackState() NO_THREAD_SAFETY_ANALYSIS;
+
+  // Used to update |state_|. Can be called only in the main thread. This is
+  // necessary to ensure that GetPlaybackState() without locks is safe. Caller
+  // must acquire |timeline_lock_|.
+  void SetPlaybackState(PlaybackState state)
+      EXCLUSIVE_LOCKS_REQUIRED(timeline_lock_);
+
   // Resets AudioConsumer and reports error to the |client_|.
   void OnError(PipelineStatus Status);
+
+  // Initializes |stream_sink_|. Called during initialization and every time
+  // configuration changes.
+  void InitializeStreamSink(const AudioDecoderConfig& config);
 
   // Callback for DecryptingDemuxerStream::Initialize().
   void OnDecryptorInitialized(PipelineStatus status);
@@ -105,7 +117,7 @@ class FuchsiaAudioRenderer : public AudioRenderer, public TimeSource {
   // Calculates media position based on the TimelineFunction returned from
   // AudioConsumer.
   base::TimeDelta CurrentMediaTimeLocked()
-      EXCLUSIVE_LOCKS_REQUIRED(state_lock_);
+      EXCLUSIVE_LOCKS_REQUIRED(timeline_lock_);
 
   MediaLog* const media_log_;
 
@@ -118,6 +130,8 @@ class FuchsiaAudioRenderer : public AudioRenderer, public TimeSource {
   fuchsia::media::audio::VolumeControlPtr volume_control_;
 
   DemuxerStream* demuxer_stream_ = nullptr;
+  bool is_demuxer_read_pending_ = false;
+
   RendererClient* client_ = nullptr;
 
   // Initialize() completion callback.
@@ -143,15 +157,16 @@ class FuchsiaAudioRenderer : public AudioRenderer, public TimeSource {
   // fields are updated only on the main thread (which corresponds to the
   // |thread_checker_|), so on that thread it's safe to assume that the values
   // don't change even when not holding the lock.
-  base::Lock state_lock_;
+  base::Lock timeline_lock_;
 
-  PlaybackState state_ GUARDED_BY(state_lock_) = PlaybackState::kStopped;
+  // Should be changed by calling SetPlaybackState() on the main thread.
+  PlaybackState state_ GUARDED_BY(timeline_lock_) = PlaybackState::kStopped;
 
   // Values from TimelineFunction returned by AudioConsumer.
-  base::TimeTicks reference_time_ GUARDED_BY(state_lock_);
-  base::TimeDelta media_pos_ GUARDED_BY(state_lock_);
-  int32_t media_delta_ GUARDED_BY(state_lock_) = 1;
-  int32_t reference_delta_ GUARDED_BY(state_lock_) = 1;
+  base::TimeTicks reference_time_ GUARDED_BY(timeline_lock_);
+  base::TimeDelta media_pos_ GUARDED_BY(timeline_lock_);
+  int32_t media_delta_ GUARDED_BY(timeline_lock_) = 1;
+  int32_t reference_delta_ GUARDED_BY(timeline_lock_) = 1;
 
   THREAD_CHECKER(thread_checker_);
 

@@ -56,10 +56,12 @@ class NonClientFrameViewAshTestWidgetDelegate
   NonClientFrameViewAshTestWidgetDelegate() = default;
   ~NonClientFrameViewAshTestWidgetDelegate() override = default;
 
-  views::NonClientFrameView* CreateNonClientFrameView(
+  std::unique_ptr<views::NonClientFrameView> CreateNonClientFrameView(
       views::Widget* widget) override {
-    non_client_frame_view_ = new NonClientFrameViewAsh(widget);
-    return non_client_frame_view_;
+    auto non_client_frame_view =
+        std::make_unique<NonClientFrameViewAsh>(widget);
+    non_client_frame_view_ = non_client_frame_view.get();
+    return non_client_frame_view;
   }
 
   int GetNonClientFrameViewTopBorderHeight() {
@@ -84,7 +86,10 @@ class NonClientFrameViewAshTestWidgetDelegate
 class TestWidgetConstraintsDelegate
     : public NonClientFrameViewAshTestWidgetDelegate {
  public:
-  TestWidgetConstraintsDelegate() = default;
+  TestWidgetConstraintsDelegate() {
+    SetCanMaximize(true);
+    SetCanMinimize(true);
+  }
   ~TestWidgetConstraintsDelegate() override = default;
 
   // views::View:
@@ -99,10 +104,6 @@ class TestWidgetConstraintsDelegate
   }
 
   // views::WidgetDelegate:
-  bool CanMaximize() const override { return true; }
-
-  bool CanMinimize() const override { return true; }
-
   void set_minimum_size(const gfx::Size& min_size) { minimum_size_ = min_size; }
 
   void set_maximum_size(const gfx::Size& max_size) { maximum_size_ = max_size; }
@@ -777,7 +778,7 @@ class TestWidgetDelegate : public TestWidgetConstraintsDelegate {
   ~TestWidgetDelegate() override = default;
 
   // views::WidgetDelegate:
-  views::NonClientFrameView* CreateNonClientFrameView(
+  std::unique_ptr<views::NonClientFrameView> CreateNonClientFrameView(
       views::Widget* widget) override {
     if (custom_) {
       WindowState* window_state = WindowState::Get(widget->GetNativeWindow());

@@ -11,12 +11,14 @@
 #include "base/callback.h"
 #include "base/debug/dump_without_crashing.h"
 #include "base/location.h"
+#include "base/logging.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/power_monitor/power_monitor.h"
 #include "base/process/process.h"
 #include "base/single_thread_task_runner.h"
 #include "base/task/post_task.h"
 #include "base/task/task_traits.h"
+#include "base/task/thread_pool.h"
 #include "base/threading/thread_checker.h"
 #include "base/time/tick_clock.h"
 
@@ -47,7 +49,7 @@ AudioThreadHangMonitor::Ptr AudioThreadHangMonitor::Create(
     scoped_refptr<base::SingleThreadTaskRunner> audio_thread_task_runner,
     scoped_refptr<base::SequencedTaskRunner> monitor_task_runner) {
   if (!monitor_task_runner)
-    monitor_task_runner = base::CreateSequencedTaskRunner({base::ThreadPool()});
+    monitor_task_runner = base::ThreadPool::CreateSequencedTaskRunner({});
 
   auto monitor =
       Ptr(new AudioThreadHangMonitor(hang_action, hang_deadline, clock,

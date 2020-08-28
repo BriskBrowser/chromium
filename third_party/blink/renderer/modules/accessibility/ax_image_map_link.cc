@@ -110,8 +110,8 @@ void AXImageMapLink::GetRelativeBounds(AXObject** out_container,
     return;
 
   LayoutObject* layout_object;
-  if (parent_ && parent_->IsAXLayoutObject())
-    layout_object = ToAXLayoutObject(parent_)->GetLayoutObject();
+  if (auto* ax_object = DynamicTo<AXLayoutObject>(parent_.Get()))
+    layout_object = ax_object->GetLayoutObject();
   else
     layout_object = map->GetLayoutObject();
 
@@ -122,7 +122,11 @@ void AXImageMapLink::GetRelativeBounds(AXObject** out_container,
   *out_container = AXObjectCache().GetOrCreate(layout_object);
 }
 
-void AXImageMapLink::Trace(blink::Visitor* visitor) {
+bool AXImageMapLink::IsImageMapLink() const {
+  return true;
+}
+
+void AXImageMapLink::Trace(Visitor* visitor) const {
   AXNodeObject::Trace(visitor);
 }
 

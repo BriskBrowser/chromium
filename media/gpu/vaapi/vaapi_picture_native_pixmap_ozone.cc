@@ -22,6 +22,7 @@ VaapiPictureNativePixmapOzone::VaapiPictureNativePixmapOzone(
     const BindGLImageCallback& bind_image_cb,
     int32_t picture_buffer_id,
     const gfx::Size& size,
+    const gfx::Size& visible_size,
     uint32_t texture_id,
     uint32_t client_texture_id,
     uint32_t texture_target)
@@ -30,6 +31,7 @@ VaapiPictureNativePixmapOzone::VaapiPictureNativePixmapOzone(
                                bind_image_cb,
                                picture_buffer_id,
                                size,
+                               visible_size,
                                texture_id,
                                client_texture_id,
                                texture_target) {
@@ -47,7 +49,7 @@ VaapiPictureNativePixmapOzone::~VaapiPictureNativePixmapOzone() {
   }
 }
 
-bool VaapiPictureNativePixmapOzone::Initialize(
+Status VaapiPictureNativePixmapOzone::Initialize(
     scoped_refptr<gfx::NativePixmap> pixmap) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK(pixmap);
@@ -56,53 +58,54 @@ bool VaapiPictureNativePixmapOzone::Initialize(
   va_surface_ = vaapi_wrapper_->CreateVASurfaceForPixmap(pixmap);
   if (!va_surface_) {
     LOG(ERROR) << "Failed creating VASurface for NativePixmap";
-    return false;
+    return StatusCode::kVaapiNoSurface;
   }
 
   // ARC++ has no texture ids.
   if (texture_id_ == 0 && client_texture_id_ == 0)
-    return true;
+    return OkStatus();
 
   // Import dmabuf fds into the output gl texture through EGLImage.
   if (make_context_current_cb_ && !make_context_current_cb_.Run())
-    return false;
+    return StatusCode::kVaapiBadContext;
 
   gl::ScopedTextureBinder texture_binder(texture_target_, texture_id_);
 
   const gfx::BufferFormat format = pixmap->GetBufferFormat();
 
-  auto image = base::MakeRefCounted<gl::GLImageNativePixmap>(size_, format);
+  auto image =
+      base::MakeRefCounted<gl::GLImageNativePixmap>(visible_size_, format);
   if (!image->Initialize(std::move(pixmap))) {
     LOG(ERROR) << "Failed to create GLImage";
-    return false;
+    return StatusCode::kVaapiFailedToInitializeImage;
   }
+
   gl_image_ = image;
   if (!gl_image_->BindTexImage(texture_target_)) {
     LOG(ERROR) << "Failed to bind texture to GLImage";
-    return false;
+    return StatusCode::kVaapiFailedToBindTexture;
   }
 
   if (bind_image_cb_ &&
       !bind_image_cb_.Run(client_texture_id_, texture_target_, gl_image_,
                           true /* can_bind_to_sampler */)) {
     LOG(ERROR) << "Failed to bind client_texture_id";
-    return false;
+    return StatusCode::kVaapiFailedToBindImage;
   }
 
-  return true;
+  return OkStatus();
 }
 
-bool VaapiPictureNativePixmapOzone::Allocate(gfx::BufferFormat format) {
+Status VaapiPictureNativePixmapOzone::Allocate(gfx::BufferFormat format) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
   ui::OzonePlatform* platform = ui::OzonePlatform::GetInstance();
   ui::SurfaceFactoryOzone* factory = platform->GetSurfaceFactoryOzone();
   auto pixmap = factory->CreateNativePixmap(
       gfx::kNullAcceleratedWidget, VK_NULL_HANDLE, size_, format,
-      gfx::BufferUsage::SCANOUT_VDA_WRITE);
+      gfx::BufferUsage::SCANOUT_VDA_WRITE, /*framebuffer_size=*/visible_size_);
   if (!pixmap) {
-    LOG(ERROR) << "Failed allocating a pixmap";
-    return false;
+    return StatusCode::kVaapiNoPixmap;
   }
 
   return Initialize(std::move(pixmap));
@@ -112,6 +115,15 @@ bool VaapiPictureNativePixmapOzone::ImportGpuMemoryBufferHandle(
     gfx::BufferFormat format,
     gfx::GpuMemoryBufferHandle gpu_memory_buffer_handle) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
+  const auto& plane = gpu_memory_buffer_handle.native_pixmap_handle.planes[0];
+  if (size_.width() > static_cast<int>(plane.stride) ||
+      size_.GetArea() > static_cast<int>(plane.size)) {
+    DLOG(ERROR) << "GpuMemoryBufferHandle (stride=" << plane.stride
+                << ", size=" << plane.size
+                << "is smaller than size_=" << size_.ToString();
+    return false;
+  }
 
   ui::OzonePlatform* platform = ui::OzonePlatform::GetInstance();
   ui::SurfaceFactoryOzone* factory = platform->GetSurfaceFactoryOzone();
@@ -125,7 +137,7 @@ bool VaapiPictureNativePixmapOzone::ImportGpuMemoryBufferHandle(
     return false;
   }
 
-  return Initialize(std::move(pixmap));
+  return Initialize(std::move(pixmap)).is_ok();
 }
 
 }  // namespace media

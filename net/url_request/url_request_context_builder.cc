@@ -8,12 +8,14 @@
 #include <utility>
 #include <vector>
 
+#include "base/check_op.h"
 #include "base/compiler_specific.h"
-#include "base/logging.h"
 #include "base/macros.h"
+#include "base/notreached.h"
 #include "base/single_thread_task_runner.h"
 #include "base/strings/string_util.h"
 #include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "net/base/cache_type.h"
 #include "net/base/net_errors.h"
@@ -23,6 +25,7 @@
 #include "net/cert/ct_policy_enforcer.h"
 #include "net/cert/ct_verifier.h"
 #include "net/cert/multi_log_ct_verifier.h"
+#include "net/cert/sct_auditing_delegate.h"
 #include "net/cookies/cookie_monster.h"
 #include "net/dns/host_resolver.h"
 #include "net/dns/host_resolver_manager.h"
@@ -36,14 +39,13 @@
 #include "net/log/net_log.h"
 #include "net/net_buildflags.h"
 #include "net/nqe/network_quality_estimator.h"
+#include "net/proxy_resolution/configured_proxy_resolution_service.h"
 #include "net/quic/quic_context.h"
 #include "net/quic/quic_stream_factory.h"
 #include "net/ssl/ssl_config_service_defaults.h"
 #include "net/url_request/static_http_user_agent_settings.h"
 #include "net/url_request/url_request_context.h"
 #include "net/url_request/url_request_context_storage.h"
-#include "net/url_request/url_request_intercepting_job_factory.h"
-#include "net/url_request/url_request_interceptor.h"
 #include "net/url_request/url_request_job_factory_impl.h"
 #include "net/url_request/url_request_throttler_manager.h"
 #include "url/url_constants.h"
@@ -106,7 +108,6 @@ class BasicNetworkDelegate : public NetworkDelegateImpl {
   }
 
   bool OnCanGetCookies(const URLRequest& request,
-                       const CookieList& cookie_list,
                        bool allowed_from_caller) override {
     return allowed_from_caller;
   }
@@ -192,6 +193,8 @@ void URLRequestContextBuilder::SetHttpNetworkSessionComponents(
   session_context->cert_transparency_verifier =
       request_context->cert_transparency_verifier();
   session_context->ct_policy_enforcer = request_context->ct_policy_enforcer();
+  session_context->sct_auditing_delegate =
+      request_context->sct_auditing_delegate();
   session_context->proxy_resolution_service =
       request_context->proxy_resolution_service();
   session_context->proxy_delegate = request_context->proxy_delegate();
@@ -259,6 +262,11 @@ void URLRequestContextBuilder::set_ct_policy_enforcer(
   ct_policy_enforcer_ = std::move(ct_policy_enforcer);
 }
 
+void URLRequestContextBuilder::set_sct_auditing_delegate(
+    std::unique_ptr<SCTAuditingDelegate> sct_auditing_delegate) {
+  sct_auditing_delegate_ = std::move(sct_auditing_delegate);
+}
+
 void URLRequestContextBuilder::set_quic_context(
     std::unique_ptr<QuicContext> quic_context) {
   quic_context_ = std::move(quic_context);
@@ -266,14 +274,7 @@ void URLRequestContextBuilder::set_quic_context(
 
 void URLRequestContextBuilder::SetCertVerifier(
     std::unique_ptr<CertVerifier> cert_verifier) {
-  DCHECK(!shared_cert_verifier_);
   cert_verifier_ = std::move(cert_verifier);
-}
-
-void URLRequestContextBuilder::SetSharedCertVerifier(
-    CertVerifier* shared_cert_verifier) {
-  DCHECK(!cert_verifier_);
-  shared_cert_verifier_ = shared_cert_verifier;
 }
 
 #if BUILDFLAG(ENABLE_REPORTING)
@@ -289,18 +290,6 @@ void URLRequestContextBuilder::set_persistent_reporting_and_nel_store(
       std::move(persistent_reporting_and_nel_store);
 }
 #endif  // BUILDFLAG(ENABLE_REPORTING)
-
-void URLRequestContextBuilder::SetInterceptors(
-    std::vector<std::unique_ptr<URLRequestInterceptor>>
-        url_request_interceptors) {
-  url_request_interceptors_ = std::move(url_request_interceptors);
-}
-
-void URLRequestContextBuilder::set_create_intercepting_job_factory(
-    CreateInterceptingJobFactory create_intercepting_job_factory) {
-  DCHECK(!create_intercepting_job_factory_);
-  create_intercepting_job_factory_ = std::move(create_intercepting_job_factory);
-}
 
 void URLRequestContextBuilder::SetCookieStore(
     std::unique_ptr<CookieStore> cookie_store) {
@@ -454,9 +443,8 @@ std::unique_ptr<URLRequestContext> URLRequestContextBuilder::Build() {
     // user-visible. Block shutdown to ensure it does get persisted to disk,
     // since it contains security-relevant information.
     scoped_refptr<base::SequencedTaskRunner> task_runner(
-        base::CreateSequencedTaskRunner(
-            {base::ThreadPool(), base::MayBlock(),
-             base::TaskPriority::BEST_EFFORT,
+        base::ThreadPool::CreateSequencedTaskRunner(
+            {base::MayBlock(), base::TaskPriority::BEST_EFFORT,
              base::TaskShutdownBehavior::BLOCK_SHUTDOWN}));
 
     context->set_transport_security_persister(
@@ -474,8 +462,6 @@ std::unique_ptr<URLRequestContext> URLRequestContextBuilder::Build() {
 
   if (cert_verifier_) {
     storage->set_cert_verifier(std::move(cert_verifier_));
-  } else if (shared_cert_verifier_) {
-    context->set_cert_verifier(shared_cert_verifier_);
   } else {
     // TODO(mattm): Should URLRequestContextBuilder create a CertNetFetcher?
     storage->set_cert_verifier(
@@ -495,6 +481,10 @@ std::unique_ptr<URLRequestContext> URLRequestContextBuilder::Build() {
         std::make_unique<DefaultCTPolicyEnforcer>());
   }
 
+  if (sct_auditing_delegate_) {
+    storage->set_sct_auditing_delegate(std::move(sct_auditing_delegate_));
+  }
+
   if (quic_context_) {
     storage->set_quic_context(std::move(quic_context_));
   } else {
@@ -507,22 +497,20 @@ std::unique_ptr<URLRequestContext> URLRequestContextBuilder::Build() {
   }
 
   if (!proxy_resolution_service_) {
-#if !defined(OS_LINUX) && !defined(OS_ANDROID)
+#if !defined(OS_LINUX) && !defined(OS_CHROMEOS) && !defined(OS_ANDROID)
     // TODO(willchan): Switch to using this code when
-    // ProxyResolutionService::CreateSystemProxyConfigService()'s signature
-    // doesn't suck.
+    // ConfiguredProxyResolutionService::CreateSystemProxyConfigService()'s
+    // signature doesn't suck.
     if (!proxy_config_service_) {
       proxy_config_service_ =
-          ProxyResolutionService::CreateSystemProxyConfigService(
+          ConfiguredProxyResolutionService::CreateSystemProxyConfigService(
               base::ThreadTaskRunnerHandle::Get().get());
     }
-#endif  // !defined(OS_LINUX) && !defined(OS_ANDROID)
+#endif  // !defined(OS_LINUX) && !defined(OS_CHROMEOS) && !defined(OS_ANDROID)
     proxy_resolution_service_ = CreateProxyResolutionService(
         std::move(proxy_config_service_), context.get(),
         context->host_resolver(), context->network_delegate(),
-        context->net_log());
-    proxy_resolution_service_->set_quick_check_enabled(
-        pac_quick_check_enabled_);
+        context->net_log(), pac_quick_check_enabled_);
   }
   ProxyResolutionService* proxy_resolution_service =
       proxy_resolution_service_.get();
@@ -560,7 +548,6 @@ std::unique_ptr<URLRequestContext> URLRequestContextBuilder::Build() {
 #endif  // BUILDFLAG(ENABLE_REPORTING)
 
   if (proxy_delegate_) {
-    proxy_resolution_service->AssertNoProxyDelegate();
     proxy_resolution_service->SetProxyDelegate(proxy_delegate_.get());
     storage->set_proxy_delegate(std::move(proxy_delegate_));
   }
@@ -619,7 +606,8 @@ std::unique_ptr<URLRequestContext> URLRequestContextBuilder::Build() {
   }
   storage->set_http_transaction_factory(std::move(http_transaction_factory));
 
-  URLRequestJobFactoryImpl* job_factory = new URLRequestJobFactoryImpl;
+  std::unique_ptr<URLRequestJobFactoryImpl> job_factory =
+      std::make_unique<URLRequestJobFactoryImpl>();
   // Adds caller-provided protocol handlers first so that these handlers are
   // used over the ftp handler below.
   for (auto& scheme_handler : protocol_handlers_) {
@@ -637,22 +625,7 @@ std::unique_ptr<URLRequestContext> URLRequestContextBuilder::Build() {
   }
 #endif  // !BUILDFLAG(DISABLE_FTP_SUPPORT)
 
-  std::unique_ptr<URLRequestJobFactory> top_job_factory(job_factory);
-  if (!url_request_interceptors_.empty()) {
-    // Set up interceptors in the reverse order.
-
-    for (auto i = url_request_interceptors_.rbegin();
-         i != url_request_interceptors_.rend(); ++i) {
-      top_job_factory.reset(new URLRequestInterceptingJobFactory(
-          std::move(top_job_factory), std::move(*i)));
-    }
-    url_request_interceptors_.clear();
-  }
-  if (create_intercepting_job_factory_) {
-    top_job_factory = std::move(create_intercepting_job_factory_)
-                          .Run(std::move(top_job_factory));
-  }
-  storage->set_job_factory(std::move(top_job_factory));
+  storage->set_job_factory(std::move(job_factory));
 
   return std::move(context);
 }
@@ -663,9 +636,10 @@ URLRequestContextBuilder::CreateProxyResolutionService(
     URLRequestContext* url_request_context,
     HostResolver* host_resolver,
     NetworkDelegate* network_delegate,
-    NetLog* net_log) {
-  return ProxyResolutionService::CreateUsingSystemProxyResolver(
-      std::move(proxy_config_service), net_log);
+    NetLog* net_log,
+    bool pac_quick_check_enabled) {
+  return ConfiguredProxyResolutionService::CreateUsingSystemProxyResolver(
+      std::move(proxy_config_service), net_log, pac_quick_check_enabled);
 }
 
 }  // namespace net

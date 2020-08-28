@@ -14,10 +14,10 @@
 #include "base/metrics/histogram_macros.h"
 #include "base/no_destructor.h"
 #include "base/single_thread_task_runner.h"
-#include "base/task/post_task.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "base/values.h"
+#include "build/build_config.h"
 #include "components/tracing/common/trace_startup_config.h"
 #include "content/browser/tracing/background_memory_tracing_observer.h"
 #include "content/browser/tracing/background_startup_tracing_observer.h"
@@ -39,6 +39,10 @@
 #include "services/tracing/public/cpp/perfetto/trace_event_data_source.h"
 #include "services/tracing/public/cpp/trace_event_agent.h"
 #include "services/tracing/public/cpp/tracing_features.h"
+
+#if defined(OS_ANDROID)
+#include "content/browser/tracing/background_reached_code_tracing_observer_android.h"
+#endif
 
 namespace content {
 
@@ -70,14 +74,9 @@ void BackgroundTracingManagerImpl::ActivateForProcess(
   child_process->GetBackgroundTracingAgentProvider(
       pending_provider.InitWithNewPipeAndPassReceiver());
 
-  auto constructor =
-      base::BindOnce(&BackgroundTracingAgentClientImpl::Create,
-                     child_process_id, std::move(pending_provider));
-
-  base::PostTask(
-      FROM_HERE, {BrowserThread::UI},
-      base::BindOnce(&BackgroundTracingManagerImpl::AddPendingAgentConstructor,
-                     std::move(constructor)));
+  GetUIThreadTaskRunner({})->PostTask(
+      FROM_HERE, base::BindOnce(&BackgroundTracingManagerImpl::AddPendingAgent,
+                                child_process_id, std::move(pending_provider)));
 }
 
 BackgroundTracingManagerImpl::BackgroundTracingManagerImpl()
@@ -85,6 +84,9 @@ BackgroundTracingManagerImpl::BackgroundTracingManagerImpl()
       trigger_handle_ids_(0) {
   AddEnabledStateObserver(BackgroundMemoryTracingObserver::GetInstance());
   AddEnabledStateObserver(BackgroundStartupTracingObserver::GetInstance());
+#if defined(OS_ANDROID)
+  AddEnabledStateObserver(&BackgroundReachedCodeTracingObserver::GetInstance());
+#endif
 }
 
 BackgroundTracingManagerImpl::~BackgroundTracingManagerImpl() = default;
@@ -125,8 +127,18 @@ bool BackgroundTracingManagerImpl::SetActiveScenario(
       static_cast<BackgroundTracingConfigImpl*>(config.release()));
   config_impl = BackgroundStartupTracingObserver::GetInstance()
                     ->IncludeStartupConfigIfNeeded(std::move(config_impl));
-  if (BackgroundStartupTracingObserver::GetInstance()
-          ->enabled_in_current_session()) {
+#if defined(OS_ANDROID)
+  config_impl = BackgroundReachedCodeTracingObserver::GetInstance()
+                    .IncludeReachedCodeConfigIfNeeded(std::move(config_impl));
+
+  if (BackgroundReachedCodeTracingObserver::GetInstance()
+          .enabled_in_current_session()) {
+    data_filtering = DataFiltering::ANONYMIZE_DATA;
+    RecordMetric(Metrics::REACHED_CODE_SCENARIO_TRIGGERED);
+  } else
+#endif
+      if (BackgroundStartupTracingObserver::GetInstance()
+              ->enabled_in_current_session()) {
     // Anonymize data for startup tracing by default. We currently do not
     // support storing the config in preferences for next session.
     data_filtering = DataFiltering::ANONYMIZE_DATA;
@@ -327,8 +339,8 @@ void BackgroundTracingManagerImpl::TriggerNamedEvent(
     BackgroundTracingManagerImpl::TriggerHandle handle,
     StartedFinalizingCallback callback) {
   if (!BrowserThread::CurrentlyOn(BrowserThread::UI)) {
-    base::PostTask(
-        FROM_HERE, {BrowserThread::UI},
+    GetUIThreadTaskRunner({})->PostTask(
+        FROM_HERE,
         base::BindOnce(&BackgroundTracingManagerImpl::TriggerNamedEvent,
                        base::Unretained(this), handle, std::move(callback)));
     return;
@@ -456,15 +468,28 @@ void BackgroundTracingManagerImpl::OnScenarioAborted() {
 }
 
 // static
-void BackgroundTracingManagerImpl::AddPendingAgentConstructor(
-    base::OnceClosure constructor) {
+void BackgroundTracingManagerImpl::AddPendingAgent(
+    int child_process_id,
+    mojo::PendingRemote<tracing::mojom::BackgroundTracingAgentProvider>
+        pending_provider) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
-  // Stash away the parameters here, and delay agent initialization until we
-  // have an interested AgentObserver.
+  // Delay agent initialization until we have an interested AgentObserver.
+  // We set disconnect handler for cleanup when the tracing target is closed.
+  mojo::Remote<tracing::mojom::BackgroundTracingAgentProvider> provider(
+      std::move(pending_provider));
 
-  GetInstance()->pending_agent_constructors_.push_back(std::move(constructor));
+  provider.set_disconnect_handler(base::BindOnce(
+      &BackgroundTracingManagerImpl::ClearPendingAgent, child_process_id));
+
+  GetInstance()->pending_agents_[child_process_id] = std::move(provider);
   GetInstance()->MaybeConstructPendingAgents();
+}
+
+// static
+void BackgroundTracingManagerImpl::ClearPendingAgent(int child_process_id) {
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
+  GetInstance()->pending_agents_.erase(child_process_id);
 }
 
 void BackgroundTracingManagerImpl::MaybeConstructPendingAgents() {
@@ -473,9 +498,12 @@ void BackgroundTracingManagerImpl::MaybeConstructPendingAgents() {
   if (agent_observers_.empty())
     return;
 
-  for (auto& constructor : pending_agent_constructors_)
-    std::move(constructor).Run();
-  pending_agent_constructors_.clear();
+  for (auto& pending_agent : pending_agents_) {
+    pending_agent.second.set_disconnect_handler(base::OnceClosure());
+    BackgroundTracingAgentClientImpl::Create(pending_agent.first,
+                                             std::move(pending_agent.second));
+  }
+  pending_agents_.clear();
 }
 
 }  // namespace content

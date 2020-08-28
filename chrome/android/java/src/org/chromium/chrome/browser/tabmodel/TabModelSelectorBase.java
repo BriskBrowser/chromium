@@ -5,8 +5,8 @@
 package org.chromium.chrome.browser.tabmodel;
 
 import org.chromium.base.ObserverList;
-import org.chromium.chrome.browser.compositor.layouts.OverviewModeBehavior;
 import org.chromium.chrome.browser.tab.Tab;
+import org.chromium.chrome.browser.tab.TabCreationState;
 import org.chromium.chrome.browser.tab.TabLaunchType;
 import org.chromium.chrome.browser.tab.TabSelectionType;
 import org.chromium.content_public.browser.LoadUrlParams;
@@ -31,15 +31,19 @@ public abstract class TabModelSelectorBase implements TabModelSelector {
      */
     private TabModelFilterProvider mTabModelFilterProvider = new TabModelFilterProvider();
 
+    private final TabModelFilterFactory mTabModelFilterFactory;
     private int mActiveModelIndex;
     private final ObserverList<TabModelSelectorObserver> mObservers = new ObserverList<>();
     private boolean mTabStateInitialized;
     private boolean mStartIncognito;
+    private boolean mReparentingInProgress;
 
     private final TabCreatorManager mTabCreatorManager;
 
-    protected TabModelSelectorBase(TabCreatorManager tabCreatorManager, boolean startIncognito) {
+    protected TabModelSelectorBase(TabCreatorManager tabCreatorManager,
+            TabModelFilterFactory tabModelFilterFactory, boolean startIncognito) {
         mTabCreatorManager = tabCreatorManager;
+        mTabModelFilterFactory = tabModelFilterFactory;
         mStartIncognito = startIncognito;
     }
 
@@ -51,13 +55,15 @@ public abstract class TabModelSelectorBase implements TabModelSelector {
         Collections.addAll(mTabModels, models);
         mActiveModelIndex = getModelIndex(mStartIncognito);
         assert mActiveModelIndex != MODEL_NOT_FOUND;
-        mTabModelFilterProvider = new TabModelFilterProvider(mTabModels);
+        mTabModelFilterProvider = new TabModelFilterProvider(mTabModelFilterFactory, mTabModels);
+        addObserver(mTabModelFilterProvider);
 
-        TabModelObserver tabModelObserver = new EmptyTabModelObserver() {
+        TabModelObserver tabModelObserver = new TabModelObserver() {
             @Override
-            public void didAddTab(Tab tab, @TabLaunchType int type) {
+            public void didAddTab(
+                    Tab tab, @TabLaunchType int type, @TabCreationState int creationState) {
                 notifyChanged();
-                notifyNewTabCreated(tab);
+                notifyNewTabCreated(tab, creationState);
             }
 
             @Override
@@ -70,9 +76,8 @@ public abstract class TabModelSelectorBase implements TabModelSelector {
                 notifyChanged();
             }
         };
-        for (TabModel model : models) {
-            model.addObserver(tabModelObserver);
-        }
+
+        mTabModelFilterProvider.addTabModelFilterObserver(tabModelObserver);
 
         if (sObserver != null) {
             addObserver(sObserver);
@@ -250,13 +255,11 @@ public abstract class TabModelSelectorBase implements TabModelSelector {
     }
 
     @Override
-    public void setOverviewModeBehavior(OverviewModeBehavior overviewModeBehavior) {}
-
-    @Override
     public void mergeState() {}
 
     @Override
     public void destroy() {
+        removeObserver(mTabModelFilterProvider);
         mTabModelFilterProvider.destroy();
         for (int i = 0; i < getModels().size(); i++) mTabModels.get(i).destroy();
         mTabModels.clear();
@@ -275,14 +278,25 @@ public abstract class TabModelSelectorBase implements TabModelSelector {
     /**
      * Notifies all the listeners that a new tab has been created.
      * @param tab The tab that has been created.
+     * @param creationSTate How the tab was created.
      */
-    private void notifyNewTabCreated(Tab tab) {
+    private void notifyNewTabCreated(Tab tab, @TabCreationState int creationState) {
         for (TabModelSelectorObserver listener : mObservers) {
-            listener.onNewTabCreated(tab);
+            listener.onNewTabCreated(tab, creationState);
         }
     }
 
     protected TabCreatorManager getTabCreatorManager() {
         return mTabCreatorManager;
+    }
+
+    @Override
+    public void enterReparentingMode() {
+        mReparentingInProgress = true;
+    }
+
+    @Override
+    public boolean isReparentingInProgress() {
+        return mReparentingInProgress;
     }
 }

@@ -10,6 +10,7 @@
 #include "third_party/blink/public/mojom/autoplay/autoplay.mojom-blink.h"
 #include "third_party/blink/public/platform/web_media_player.h"
 #include "third_party/blink/public/platform/web_media_player_source.h"
+#include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/core/frame/settings.h"
 #include "third_party/blink/renderer/core/html/media/html_audio_element.h"
 #include "third_party/blink/renderer/core/html/media/html_video_element.h"
@@ -33,12 +34,17 @@ using ::testing::Return;
 
 namespace blink {
 
+namespace {
+
 class MockWebMediaPlayer : public EmptyWebMediaPlayer {
  public:
+  MOCK_METHOD0(OnTimeUpdate, void());
+  MOCK_CONST_METHOD0(Seekable, WebTimeRanges());
   MOCK_CONST_METHOD0(HasAudio, bool());
   MOCK_CONST_METHOD0(HasVideo, bool());
   MOCK_CONST_METHOD0(Duration, double());
   MOCK_CONST_METHOD0(CurrentTime, double());
+  MOCK_CONST_METHOD0(IsEnded, bool());
   MOCK_CONST_METHOD0(GetNetworkState, NetworkState());
   MOCK_CONST_METHOD0(WouldTaintOrigin, bool());
   MOCK_METHOD1(SetLatencyHint, void(double));
@@ -73,6 +79,8 @@ class WebMediaStubLocalFrameClient : public EmptyLocalFrameClient {
 
 enum class MediaTestParam { kAudio, kVideo };
 
+}  // namespace
+
 class HTMLMediaElementTest : public testing::TestWithParam<MediaTestParam> {
  protected:
   void SetUp() override {
@@ -82,6 +90,8 @@ class HTMLMediaElementTest : public testing::TestWithParam<MediaTestParam> {
 
     // Most tests do not care about this call, nor its return value. Those that
     // do will clear this expectation and set custom expectations/returns.
+    EXPECT_CALL(*mock_media_player, Seekable())
+        .WillRepeatedly(Return(WebTimeRanges()));
     EXPECT_CALL(*mock_media_player, HasAudio()).WillRepeatedly(Return(true));
     EXPECT_CALL(*mock_media_player, HasVideo()).WillRepeatedly(Return(true));
     EXPECT_CALL(*mock_media_player, Duration()).WillRepeatedly(Return(1.0));
@@ -122,6 +132,8 @@ class HTMLMediaElementTest : public testing::TestWithParam<MediaTestParam> {
 
   bool CouldPlayIfEnoughData() { return Media()->CouldPlayIfEnoughData(); }
 
+  bool PotentiallyPlaying() { return Media()->PotentiallyPlaying(); }
+
   bool ShouldDelayLoadEvent() { return Media()->should_delay_load_event_; }
 
   void SetReadyState(HTMLMediaElement::ReadyState state) {
@@ -146,7 +158,7 @@ class HTMLMediaElementTest : public testing::TestWithParam<MediaTestParam> {
   }
 
   ExecutionContext* GetExecutionContext() const {
-    return &dummy_page_holder_->GetDocument();
+    return dummy_page_holder_->GetFrame().DomWindow();
   }
 
  private:
@@ -271,7 +283,8 @@ TEST_P(HTMLMediaElementTest, CouldPlayIfEnoughDataRespondsToEnded) {
 
   MockWebMediaPlayer* mock_wmpi =
       reinterpret_cast<MockWebMediaPlayer*>(Media()->GetWebMediaPlayer());
-  EXPECT_NE(mock_wmpi, nullptr);
+  ASSERT_NE(mock_wmpi, nullptr);
+  EXPECT_CALL(*mock_wmpi, IsEnded()).WillRepeatedly(Return(false));
   EXPECT_TRUE(CouldPlayIfEnoughData());
 
   // Playback can only end once the ready state is above kHaveMetadata.
@@ -284,6 +297,7 @@ TEST_P(HTMLMediaElementTest, CouldPlayIfEnoughDataRespondsToEnded) {
   testing::Mock::VerifyAndClearExpectations(mock_wmpi);
   EXPECT_CALL(*mock_wmpi, CurrentTime())
       .WillRepeatedly(Return(Media()->duration()));
+  EXPECT_CALL(*mock_wmpi, IsEnded()).WillRepeatedly(Return(true));
   EXPECT_FALSE(CouldPlayIfEnoughData());
   EXPECT_TRUE(Media()->ended());
 }
@@ -355,7 +369,9 @@ TEST_P(HTMLMediaElementTest, AutoplayInitiated_DocumentActivation_Low_Gesture) {
   ScopedMediaEngagementBypassAutoplayPoliciesForTest scoped_feature(true);
   Media()->GetDocument().GetSettings()->SetAutoplayPolicy(
       AutoplayPolicy::Type::kDocumentUserActivationRequired);
-  LocalFrame::NotifyUserActivation(Media()->GetDocument().GetFrame());
+  LocalFrame::NotifyUserActivation(
+      Media()->GetDocument().GetFrame(),
+      mojom::UserActivationNotificationType::kTest);
 
   Media()->Play();
 
@@ -372,7 +388,9 @@ TEST_P(HTMLMediaElementTest,
   Media()->GetDocument().GetSettings()->SetAutoplayPolicy(
       AutoplayPolicy::Type::kDocumentUserActivationRequired);
   SimulateHighMediaEngagement();
-  LocalFrame::NotifyUserActivation(Media()->GetDocument().GetFrame());
+  LocalFrame::NotifyUserActivation(
+      Media()->GetDocument().GetFrame(),
+      mojom::UserActivationNotificationType::kTest);
 
   Media()->Play();
 
@@ -402,7 +420,9 @@ TEST_P(HTMLMediaElementTest, AutoplayInitiated_GestureRequired_Gesture) {
   // - MEI doesn't matter as it's not used by the policy.
   Media()->GetDocument().GetSettings()->SetAutoplayPolicy(
       AutoplayPolicy::Type::kUserGestureRequired);
-  LocalFrame::NotifyUserActivation(Media()->GetDocument().GetFrame());
+  LocalFrame::NotifyUserActivation(
+      Media()->GetDocument().GetFrame(),
+      mojom::UserActivationNotificationType::kTest);
 
   Media()->Play();
 
@@ -416,7 +436,9 @@ TEST_P(HTMLMediaElementTest, AutoplayInitiated_NoGestureRequired_Gesture) {
   // - MEI doesn't matter as it's not used by the policy.
   Media()->GetDocument().GetSettings()->SetAutoplayPolicy(
       AutoplayPolicy::Type::kNoUserGestureRequired);
-  LocalFrame::NotifyUserActivation(Media()->GetDocument().GetFrame());
+  LocalFrame::NotifyUserActivation(
+      Media()->GetDocument().GetFrame(),
+      mojom::UserActivationNotificationType::kTest);
 
   Media()->Play();
 
@@ -596,6 +618,179 @@ TEST_P(HTMLMediaElementTest, NoPendingActivityEvenIfBeforeMetadata) {
   SetNetworkState(WebMediaPlayer::kNetworkStateIdle);
   EXPECT_FALSE(Media()->HasPendingActivity());
   EXPECT_TRUE(MediaShouldBeOpaque());
+}
+
+TEST_P(HTMLMediaElementTest, OnTimeUpdate_DurationChange) {
+  // Prepare the player.
+  Media()->SetSrc(SrcSchemeToURL(TestURLScheme::kHttp));
+  test::RunPendingTasks();
+
+  // Change from no duration to 1s will trigger OnTimeUpdate().
+  EXPECT_CALL(*MockMediaPlayer(), OnTimeUpdate());
+  Media()->DurationChanged(1, false);
+  testing::Mock::VerifyAndClearExpectations(MockMediaPlayer());
+
+  // Change from 1s to 2s will trigger OnTimeUpdate().
+  EXPECT_CALL(*MockMediaPlayer(), OnTimeUpdate());
+  Media()->DurationChanged(2, false);
+  testing::Mock::VerifyAndClearExpectations(MockMediaPlayer());
+
+  // No duration change -> no OnTimeUpdate().
+  Media()->DurationChanged(2, false);
+}
+
+TEST_P(HTMLMediaElementTest, OnTimeUpdate_PlayPauseSetRate) {
+  // Prepare the player.
+  Media()->SetSrc(SrcSchemeToURL(TestURLScheme::kHttp));
+  test::RunPendingTasks();
+
+  EXPECT_CALL(*MockMediaPlayer(), OnTimeUpdate());
+  Media()->Play();
+  testing::Mock::VerifyAndClearExpectations(MockMediaPlayer());
+
+  EXPECT_CALL(*MockMediaPlayer(), OnTimeUpdate());
+  Media()->setPlaybackRate(0.5);
+  testing::Mock::VerifyAndClearExpectations(MockMediaPlayer());
+
+  EXPECT_CALL(*MockMediaPlayer(), OnTimeUpdate()).Times(testing::AtLeast(1));
+  Media()->pause();
+  testing::Mock::VerifyAndClearExpectations(MockMediaPlayer());
+
+  EXPECT_CALL(*MockMediaPlayer(), OnTimeUpdate());
+  Media()->setPlaybackRate(1.5);
+  testing::Mock::VerifyAndClearExpectations(MockMediaPlayer());
+
+  EXPECT_CALL(*MockMediaPlayer(), OnTimeUpdate());
+  Media()->Play();
+}
+
+TEST_P(HTMLMediaElementTest, OnTimeUpdate_ReadyState) {
+  // Prepare the player.
+  Media()->SetSrc(SrcSchemeToURL(TestURLScheme::kHttp));
+  test::RunPendingTasks();
+
+  // The ready state affects the progress of media time, so the player should
+  // be kept informed.
+  EXPECT_CALL(*MockMediaPlayer(), GetSrcAfterRedirects)
+      .WillRepeatedly(Return(GURL()));
+  EXPECT_CALL(*MockMediaPlayer(), OnTimeUpdate());
+  SetReadyState(HTMLMediaElement::kHaveCurrentData);
+  testing::Mock::VerifyAndClearExpectations(MockMediaPlayer());
+
+  EXPECT_CALL(*MockMediaPlayer(), OnTimeUpdate());
+  SetReadyState(HTMLMediaElement::kHaveFutureData);
+}
+
+TEST_P(HTMLMediaElementTest, OnTimeUpdate_Seeking) {
+  // Prepare the player and seekable ranges -- setCurrentTime()'s prerequisites.
+  WebTimeRanges seekable;
+  seekable.Add(0, 3);
+  EXPECT_CALL(*MockMediaPlayer(), Seekable).WillRepeatedly(Return(seekable));
+  EXPECT_CALL(*MockMediaPlayer(), GetSrcAfterRedirects)
+      .WillRepeatedly(Return(GURL()));
+  EXPECT_CALL(*MockMediaPlayer(), OnTimeUpdate());
+  Media()->SetSrc(SrcSchemeToURL(TestURLScheme::kHttp));
+  test::RunPendingTasks();
+  SetReadyState(HTMLMediaElement::kHaveCurrentData);
+
+  EXPECT_CALL(*MockMediaPlayer(), OnTimeUpdate());
+  Media()->setCurrentTime(1);
+  testing::Mock::VerifyAndClearExpectations(MockMediaPlayer());
+
+  EXPECT_CALL(*MockMediaPlayer(), Seekable).WillRepeatedly(Return(seekable));
+  EXPECT_CALL(*MockMediaPlayer(), OnTimeUpdate());
+  Media()->setCurrentTime(2);
+}
+
+TEST_P(HTMLMediaElementTest, ShowPosterFlag_InitiallyTrue) {
+  // ShowPosterFlag should be true upon initialization
+  EXPECT_TRUE(Media()->IsShowPosterFlagSet());
+
+  Media()->SetSrc(SrcSchemeToURL(TestURLScheme::kHttp));
+  test::RunPendingTasks();
+
+  EXPECT_TRUE(Media()->IsShowPosterFlagSet());
+
+  SetReadyState(HTMLMediaElement::kHaveEnoughData);
+  test::RunPendingTasks();
+
+  // ShowPosterFlag should still be true once video is ready to play
+  EXPECT_TRUE(Media()->IsShowPosterFlagSet());
+}
+
+TEST_P(HTMLMediaElementTest, ShowPosterFlag_FalseAfterPlay) {
+  Media()->SetSrc(SrcSchemeToURL(TestURLScheme::kHttp));
+  test::RunPendingTasks();
+
+  SetReadyState(HTMLMediaElement::kHaveEnoughData);
+  test::RunPendingTasks();
+
+  Media()->Play();
+  test::RunPendingTasks();
+
+  // ShowPosterFlag should be false once video is playing
+  ASSERT_FALSE(Media()->paused());
+  EXPECT_FALSE(Media()->IsShowPosterFlagSet());
+}
+
+TEST_P(HTMLMediaElementTest, ShowPosterFlag_FalseAfterSeek) {
+  Media()->SetSrc(SrcSchemeToURL(TestURLScheme::kHttp));
+  test::RunPendingTasks();
+
+  SetReadyState(HTMLMediaElement::kHaveEnoughData);
+  test::RunPendingTasks();
+
+  ASSERT_NE(Media()->duration(), 0.0);
+  Media()->setCurrentTime(Media()->duration() / 2);
+  test::RunPendingTasks();
+
+  EXPECT_FALSE(Media()->IsShowPosterFlagSet());
+}
+
+TEST_P(HTMLMediaElementTest, ShowPosterFlag_FalseAfterAutoPlay) {
+  Media()->SetSrc(SrcSchemeToURL(TestURLScheme::kHttp));
+  test::RunPendingTasks();
+
+  Media()->SetBooleanAttribute(html_names::kAutoplayAttr, true);
+  test::RunPendingTasks();
+
+  SetReadyState(HTMLMediaElement::kHaveEnoughData);
+  test::RunPendingTasks();
+
+  ASSERT_TRUE(WasAutoplayInitiated());
+  ASSERT_FALSE(Media()->paused());
+  EXPECT_FALSE(Media()->IsShowPosterFlagSet());
+}
+
+TEST_P(HTMLMediaElementTest, ShowPosterFlag_FalseAfterPlayBeforeReady) {
+  Media()->SetSrc(SrcSchemeToURL(TestURLScheme::kHttp));
+
+  // Initially we have nothing, we're not playing, trying to play, and the 'show
+  // poster' flag is set
+  EXPECT_EQ(Media()->getReadyState(), HTMLMediaElement::kHaveNothing);
+  EXPECT_TRUE(Media()->paused());
+  EXPECT_FALSE(PotentiallyPlaying());
+  EXPECT_TRUE(Media()->IsShowPosterFlagSet());
+
+  // Attempt to begin playback
+  Media()->Play();
+  test::RunPendingTasks();
+
+  // We still have no data, but we're not paused, and the 'show poster' flag is
+  // not set
+  EXPECT_EQ(Media()->getReadyState(), HTMLMediaElement::kHaveNothing);
+  EXPECT_FALSE(Media()->paused());
+  EXPECT_FALSE(PotentiallyPlaying());
+  EXPECT_FALSE(Media()->IsShowPosterFlagSet());
+
+  // Pretend we have data to begin playback
+  SetReadyState(HTMLMediaElement::kHaveFutureData);
+
+  // We should have data, be playing, and the show poster flag should be unset
+  EXPECT_EQ(Media()->getReadyState(), HTMLMediaElement::kHaveFutureData);
+  EXPECT_FALSE(Media()->paused());
+  EXPECT_TRUE(PotentiallyPlaying());
+  EXPECT_FALSE(Media()->IsShowPosterFlagSet());
 }
 
 }  // namespace blink

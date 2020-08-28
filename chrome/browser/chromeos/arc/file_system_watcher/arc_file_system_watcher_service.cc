@@ -20,8 +20,8 @@
 #include "base/sequence_checker.h"
 #include "base/stl_util.h"
 #include "base/strings/string_util.h"
-#include "base/task/post_task.h"
 #include "base/task/task_traits.h"
+#include "base/task/thread_pool.h"
 #include "base/threading/sequenced_task_runner_handle.h"
 #include "base/time/time.h"
 #include "chrome/browser/chromeos/arc/file_system_watcher/arc_file_system_watcher_util.h"
@@ -50,13 +50,15 @@ constexpr base::FilePath::CharType kAndroidDownloadDir[] =
     FILE_PATH_LITERAL("/storage/emulated/0/Download");
 
 // The MyFiles path inside ARC container. This will be the path that is used in
-// MediaScanner.scanFile request.
+// MediaScanner.scanFile request. MediaScanner scans MyFiles under
+// /storage/MyFiles-read instead of /storage/MyFiles because non-system apps has
+// no access to /storage/MyFiles.
 constexpr base::FilePath::CharType kAndroidMyFilesDir[] =
-    FILE_PATH_LITERAL("/storage/MyFiles");
+    FILE_PATH_LITERAL("/storage/MyFiles-read");
 
 // The path for Downloads under MyFiles inside ARC container.
 constexpr base::FilePath::CharType kAndroidMyFilesDownloadsDir[] =
-    FILE_PATH_LITERAL("/storage/MyFiles/Downloads/");
+    FILE_PATH_LITERAL("/storage/MyFiles-read/Downloads/");
 
 // The removable media path inside ARC container. This will be the path that
 // is used in MediaScanner.scanFile request.
@@ -265,11 +267,11 @@ void ArcFileSystemWatcherService::FileSystemWatcher::OnFilePathChanged(
 void ArcFileSystemWatcherService::FileSystemWatcher::DelayBuildTimestampMap() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK(outstanding_task_);
-  base::PostTaskAndReplyWithResult(
-      FROM_HERE, {base::ThreadPool(), base::MayBlock()},
-      base::Bind(&BuildTimestampMapCallback, cros_dir_, android_dir_),
-      base::Bind(&FileSystemWatcher::OnBuildTimestampMap,
-                 weak_ptr_factory_.GetWeakPtr()));
+  base::ThreadPool::PostTaskAndReplyWithResult(
+      FROM_HERE, {base::MayBlock()},
+      base::BindOnce(&BuildTimestampMapCallback, cros_dir_, android_dir_),
+      base::BindOnce(&FileSystemWatcher::OnBuildTimestampMap,
+                     weak_ptr_factory_.GetWeakPtr()));
 }
 
 void ArcFileSystemWatcherService::FileSystemWatcher::OnBuildTimestampMap(
@@ -287,8 +289,8 @@ void ArcFileSystemWatcherService::FileSystemWatcher::OnBuildTimestampMap(
   for (size_t i = 0; i < changed_paths.size(); ++i) {
     string_paths[i] = changed_paths[i].value();
   }
-  base::PostTask(FROM_HERE, {BrowserThread::UI},
-                 base::BindOnce(callback_, std::move(string_paths)));
+  content::GetUIThreadTaskRunner({})->PostTask(
+      FROM_HERE, base::BindOnce(callback_, std::move(string_paths)));
   if (last_notify_time_ > snapshot_time)
     DelayBuildTimestampMap();
   else
@@ -306,8 +308,8 @@ ArcFileSystemWatcherService::ArcFileSystemWatcherService(
     ArcBridgeService* bridge_service)
     : context_(context),
       arc_bridge_service_(bridge_service),
-      file_task_runner_(base::CreateSequencedTaskRunner(
-          {base::ThreadPool(), base::MayBlock()})) {
+      file_task_runner_(
+          base::ThreadPool::CreateSequencedTaskRunner({base::MayBlock()})) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   arc_bridge_service_->file_system()->AddObserver(this);
 }

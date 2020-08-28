@@ -13,6 +13,7 @@
 #include "base/containers/flat_set.h"
 #include "base/feature_list.h"
 #include "base/location.h"
+#include "base/memory/ptr_util.h"
 #include "base/single_thread_task_runner.h"
 #include "base/stl_util.h"
 #include "base/threading/thread_task_runner_handle.h"
@@ -22,7 +23,12 @@
 #include "components/policy/core/common/policy_map.h"
 #include "components/policy/core/common/policy_merger.h"
 #include "components/policy/core/common/policy_types.h"
+#include "components/policy/core/common/values_util.h"
 #include "components/policy/policy_constants.h"
+
+#if defined(OS_ANDROID)
+#include "components/policy/core/common/android/policy_service_android.h"
+#endif
 
 namespace policy {
 
@@ -45,20 +51,19 @@ void RemapProxyPolicies(PolicyMap* policies) {
   // first, and then only policies with those exact attributes are merged.
   PolicyMap::Entry current_priority;  // Defaults to the lowest priority.
   PolicySource inherited_source = POLICY_SOURCE_ENTERPRISE_DEFAULT;
-  std::unique_ptr<base::DictionaryValue> proxy_settings(
-      new base::DictionaryValue);
+  base::Value proxy_settings(base::Value::Type::DICTIONARY);
   for (size_t i = 0; i < base::size(kProxyPolicies); ++i) {
     const PolicyMap::Entry* entry = policies->Get(kProxyPolicies[i]);
     if (entry) {
       if (entry->has_higher_priority_than(current_priority)) {
-        proxy_settings->Clear();
+        proxy_settings = base::Value(base::Value::Type::DICTIONARY);
         current_priority = entry->DeepCopy();
         if (entry->source > inherited_source)  // Higher priority?
           inherited_source = entry->source;
       }
       if (!entry->has_higher_priority_than(current_priority) &&
           !current_priority.has_higher_priority_than(*entry)) {
-        proxy_settings->Set(kProxyPolicies[i], entry->value->CreateDeepCopy());
+        proxy_settings.SetKey(kProxyPolicies[i], entry->value()->Clone());
       }
       policies->Erase(kProxyPolicies[i]);
     }
@@ -66,7 +71,7 @@ void RemapProxyPolicies(PolicyMap* policies) {
   // Sets the new |proxy_settings| if kProxySettings isn't set yet, or if the
   // new priority is higher.
   const PolicyMap::Entry* existing = policies->Get(key::kProxySettings);
-  if (!proxy_settings->empty() &&
+  if (!proxy_settings.DictEmpty() &&
       (!existing || current_priority.has_higher_priority_than(*existing))) {
     policies->Set(key::kProxySettings, current_priority.level,
                   current_priority.scope, inherited_source,
@@ -80,40 +85,21 @@ base::flat_set<std::string> GetStringListPolicyItems(
     const PolicyBundle& bundle,
     const PolicyNamespace& space,
     const std::string& policy) {
-  const PolicyMap& chrome_policies = bundle.Get(space);
-  const base::Value* items_ptr = chrome_policies.GetValue(policy);
-
-  if (!items_ptr)
-    return base::flat_set<std::string>();
-
-  // Count the items to allocate the right-sized vector for them.
-  const auto& item_list = items_ptr->GetList();
-  const auto item_count =
-      std::count_if(item_list.begin(), item_list.end(),
-                    [](const auto& item) { return item.is_string(); });
-
-  // Allocate the storage.
-  std::vector<std::string> item_vector;
-  item_vector.reserve(item_count);
-
-  // Populate it.
-  for (const auto& item : item_list) {
-    if (item.is_string())
-      item_vector.emplace_back(item.GetString());
-  }
-
-  return base::flat_set<std::string>(std::move(item_vector));
+  return ValueToStringSet(bundle.Get(space).GetValue(policy));
 }
 
 }  // namespace
 
-PolicyServiceImpl::PolicyServiceImpl(Providers providers)
+PolicyServiceImpl::PolicyServiceImpl(Providers providers, Migrators migrators)
     : PolicyServiceImpl(std::move(providers),
+                        std::move(migrators),
                         /*initialization_throttled=*/false) {}
 
 PolicyServiceImpl::PolicyServiceImpl(Providers providers,
+                                     Migrators migrators,
                                      bool initialization_throttled)
     : providers_(std::move(providers)),
+      migrators_(std::move(migrators)),
       initialization_throttled_(initialization_throttled) {
   for (int domain = 0; domain < POLICY_DOMAIN_SIZE; ++domain)
     initialization_complete_[domain] = true;
@@ -131,9 +117,11 @@ PolicyServiceImpl::PolicyServiceImpl(Providers providers,
 
 // static
 std::unique_ptr<PolicyServiceImpl>
-PolicyServiceImpl::CreateWithThrottledInitialization(Providers providers) {
-  return base::WrapUnique(new PolicyServiceImpl(
-      std::move(providers), /*initialization_throttled=*/true));
+PolicyServiceImpl::CreateWithThrottledInitialization(Providers providers,
+                                                     Migrators migrators) {
+  return base::WrapUnique(
+      new PolicyServiceImpl(std::move(providers), std::move(migrators),
+                            /*initialization_throttled=*/true));
 }
 
 PolicyServiceImpl::~PolicyServiceImpl() {
@@ -218,6 +206,15 @@ void PolicyServiceImpl::RefreshPolicies(base::OnceClosure callback) {
   }
 }
 
+#if defined(OS_ANDROID)
+android::PolicyServiceAndroid* PolicyServiceImpl::GetPolicyServiceAndroid() {
+  if (!policy_service_android_)
+    policy_service_android_ =
+        std::make_unique<android::PolicyServiceAndroid>(this);
+  return policy_service_android_.get();
+}
+#endif
+
 void PolicyServiceImpl::UnthrottleInitialization() {
   DCHECK(thread_checker_.CalledOnValidThread());
   if (!initialization_throttled_)
@@ -299,19 +296,12 @@ void PolicyServiceImpl::MergeAndTriggerUpdates() {
   // This policy has to be ignored if it comes from a user signed-in profile.
   bool atomic_policy_group_enabled =
       atomic_policy_group_enabled_policy_value &&
-      atomic_policy_group_enabled_policy_value->value->GetBool() &&
+      atomic_policy_group_enabled_policy_value->value()->GetBool() &&
       !((atomic_policy_group_enabled_policy_value->source ==
              POLICY_SOURCE_CLOUD ||
          atomic_policy_group_enabled_policy_value->source ==
              POLICY_SOURCE_PRIORITY_CLOUD) &&
         atomic_policy_group_enabled_policy_value->scope == POLICY_SCOPE_USER);
-  auto* value =
-      chrome_policies.GetValue(key::kExtensionInstallListsMergeEnabled);
-  if (value && value->GetBool()) {
-    policy_lists_to_merge.insert(key::kExtensionInstallForcelist);
-    policy_lists_to_merge.insert(key::kExtensionInstallBlacklist);
-    policy_lists_to_merge.insert(key::kExtensionInstallWhitelist);
-  }
 
   PolicyListMerger policy_list_merger(std::move(policy_lists_to_merge));
   PolicyDictionaryMerger policy_dictionary_merger(
@@ -326,6 +316,9 @@ void PolicyServiceImpl::MergeAndTriggerUpdates() {
 
   for (auto it = bundle.begin(); it != bundle.end(); ++it)
     it->second->MergeValues(mergers);
+
+  for (auto& migrator : migrators_)
+    migrator->Migrate(&bundle);
 
   // Swap first, so that observers that call GetPolicies() see the current
   // values.

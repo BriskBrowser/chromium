@@ -5,8 +5,9 @@
 #ifndef SERVICES_VIZ_PUBLIC_CPP_COMPOSITING_QUADS_MOJOM_TRAITS_H_
 #define SERVICES_VIZ_PUBLIC_CPP_COMPOSITING_QUADS_MOJOM_TRAITS_H_
 
+#include "base/check.h"
 #include "base/containers/span.h"
-#include "base/logging.h"
+#include "base/notreached.h"
 #include "base/unguessable_token.h"
 #include "components/viz/common/quads/debug_border_draw_quad.h"
 #include "components/viz/common/quads/picture_draw_quad.h"
@@ -72,6 +73,8 @@ struct UnionTraits<viz::mojom::DrawQuadStateDataView, viz::DrawQuad> {
       const viz::DrawQuad& quad) {
     switch (quad.material) {
       case viz::DrawQuad::Material::kInvalid:
+        break;
+      case viz::DrawQuad::Material::kAggregatedRenderPass:
         break;
       case viz::DrawQuad::Material::kDebugBorder:
         return viz::mojom::DrawQuadStateDataView::Tag::DEBUG_BORDER_QUAD_STATE;
@@ -197,7 +200,7 @@ struct StructTraits<viz::mojom::DebugBorderQuadStateDataView, viz::DrawQuad> {
 
 template <>
 struct StructTraits<viz::mojom::RenderPassQuadStateDataView, viz::DrawQuad> {
-  static int32_t render_pass_id(const viz::DrawQuad& input) {
+  static viz::RenderPassId render_pass_id(const viz::DrawQuad& input) {
     const viz::RenderPassDrawQuad* quad =
         viz::RenderPassDrawQuad::MaterialCast(&input);
     DCHECK(quad->render_pass_id);
@@ -252,6 +255,12 @@ struct StructTraits<viz::mojom::RenderPassQuadStateDataView, viz::DrawQuad> {
     return quad->backdrop_filter_quality;
   }
 
+  static bool can_use_backdrop_filter_cache(const viz::DrawQuad& input) {
+    const viz::RenderPassDrawQuad* quad =
+        viz::RenderPassDrawQuad::MaterialCast(&input);
+    return quad->can_use_backdrop_filter_cache;
+  }
+
   static bool Read(viz::mojom::RenderPassQuadStateDataView data,
                    viz::DrawQuad* out);
 };
@@ -285,8 +294,7 @@ struct StructTraits<viz::mojom::StreamVideoQuadStateDataView, viz::DrawQuad> {
   static const gfx::Size& resource_size_in_pixels(const viz::DrawQuad& input) {
     const viz::StreamVideoDrawQuad* quad =
         viz::StreamVideoDrawQuad::MaterialCast(&input);
-    return quad->overlay_resources
-        .size_in_pixels[viz::StreamVideoDrawQuad::kResourceIdIndex];
+    return quad->overlay_resources.size_in_pixels;
   }
 
   static const gfx::PointF& uv_top_left(const viz::DrawQuad& input) {
@@ -401,6 +409,12 @@ struct StructTraits<viz::mojom::TextureQuadStateDataView, viz::DrawQuad> {
     const viz::TextureDrawQuad* quad =
         viz::TextureDrawQuad::MaterialCast(&input);
     return quad->secure_output_only;
+  }
+
+  static bool is_video_frame(const viz::DrawQuad& input) {
+    const viz::TextureDrawQuad* quad =
+        viz::TextureDrawQuad::MaterialCast(&input);
+    return quad->is_video_frame;
   }
 
   static gfx::ProtectedVideoType protected_video_type(

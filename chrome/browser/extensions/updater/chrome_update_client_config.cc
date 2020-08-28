@@ -19,6 +19,7 @@
 #include "components/services/patch/content/patch_service.h"
 #include "components/services/unzip/content/unzip_service.h"
 #include "components/update_client/activity_data_service.h"
+#include "components/update_client/crx_downloader_factory.h"
 #include "components/update_client/net/network_chromium.h"
 #include "components/update_client/patch/patch_impl.h"
 #include "components/update_client/patcher.h"
@@ -47,7 +48,7 @@ class ExtensionActivityDataService final
     : public update_client::ActivityDataService {
  public:
   explicit ExtensionActivityDataService(ExtensionPrefs* extension_prefs);
-  ~ExtensionActivityDataService() override {}
+  ~ExtensionActivityDataService() override = default;
 
   // update_client::ActivityDataService:
   bool GetActiveBit(const std::string& id) const override;
@@ -99,14 +100,16 @@ void ExtensionActivityDataService::ClearActiveBit(const std::string& id) {
 // For privacy reasons, requires encryption of the component updater
 // communication with the update backend.
 ChromeUpdateClientConfig::ChromeUpdateClientConfig(
-    content::BrowserContext* context)
+    content::BrowserContext* context,
+    base::Optional<GURL> url_override)
     : context_(context),
       impl_(ExtensionUpdateClientCommandLineConfigPolicy(
                 base::CommandLine::ForCurrentProcess()),
             /*require_encryption=*/true),
       pref_service_(ExtensionPrefs::Get(context)->pref_service()),
       activity_data_service_(std::make_unique<ExtensionActivityDataService>(
-          ExtensionPrefs::Get(context))) {
+          ExtensionPrefs::Get(context))),
+      url_override_(url_override) {
   DCHECK(pref_service_);
 }
 
@@ -127,10 +130,14 @@ int ChromeUpdateClientConfig::UpdateDelay() const {
 }
 
 std::vector<GURL> ChromeUpdateClientConfig::UpdateUrl() const {
+  if (url_override_.has_value())
+    return {*url_override_};
   return impl_.UpdateUrl();
 }
 
 std::vector<GURL> ChromeUpdateClientConfig::PingUrl() const {
+  if (url_override_.has_value())
+    return {*url_override_};
   return impl_.PingUrl();
 }
 
@@ -187,6 +194,15 @@ ChromeUpdateClientConfig::GetNetworkFetcherFactory() {
   return network_fetcher_factory_;
 }
 
+scoped_refptr<update_client::CrxDownloaderFactory>
+ChromeUpdateClientConfig::GetCrxDownloaderFactory() {
+  if (!crx_downloader_factory_) {
+    crx_downloader_factory_ =
+        update_client::MakeCrxDownloaderFactory(GetNetworkFetcherFactory());
+  }
+  return crx_downloader_factory_;
+}
+
 scoped_refptr<update_client::UnzipperFactory>
 ChromeUpdateClientConfig::GetUnzipperFactory() {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
@@ -220,6 +236,8 @@ bool ChromeUpdateClientConfig::EnabledBackgroundDownloader() const {
 }
 
 bool ChromeUpdateClientConfig::EnabledCupSigning() const {
+  if (url_override_.has_value())
+    return false;
   return impl_.EnabledCupSigning();
 }
 
@@ -241,14 +259,15 @@ ChromeUpdateClientConfig::GetProtocolHandlerFactory() const {
   return impl_.GetProtocolHandlerFactory();
 }
 
-ChromeUpdateClientConfig::~ChromeUpdateClientConfig() {}
+ChromeUpdateClientConfig::~ChromeUpdateClientConfig() = default;
 
 // static
 scoped_refptr<ChromeUpdateClientConfig> ChromeUpdateClientConfig::Create(
-    content::BrowserContext* context) {
+    content::BrowserContext* context,
+    base::Optional<GURL> update_url_override) {
   FactoryCallback& factory = GetFactoryCallback();
-  return factory.is_null() ? scoped_refptr<ChromeUpdateClientConfig>(
-                                 new ChromeUpdateClientConfig(context))
+  return factory.is_null() ? base::MakeRefCounted<ChromeUpdateClientConfig>(
+                                 context, update_url_override)
                            : factory.Run(context);
 }
 

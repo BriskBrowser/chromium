@@ -76,7 +76,12 @@ class HeadlessDevToolsClientNavigationTest
   void OnFrameResized(const page::FrameResizedParams& params) override {}
 };
 
+#if defined(OS_WIN)
+// TODO(crbug.com/1045980): Disabled due to flakiness.
+DISABLED_HEADLESS_ASYNC_DEVTOOLED_TEST_F(HeadlessDevToolsClientNavigationTest);
+#else
 HEADLESS_ASYNC_DEVTOOLED_TEST_F(HeadlessDevToolsClientNavigationTest);
+#endif
 
 class HeadlessDevToolsClientWindowManagementTest
     : public HeadlessAsyncDevTooledBrowserTest {
@@ -138,10 +143,10 @@ class HeadlessDevToolsClientWindowManagementTest
       std::unique_ptr<browser::GetWindowBoundsResult> result) {
     const browser::Bounds* actual_bounds = result->GetBounds();
 // Mac does not support repositioning, as we don't show any actual window.
-#if !defined(OS_MACOSX)
+#if !defined(OS_MAC)
     EXPECT_EQ(bounds.x(), actual_bounds->GetLeft());
     EXPECT_EQ(bounds.y(), actual_bounds->GetTop());
-#endif  // !defined(OS_MACOSX)
+#endif  // !defined(OS_MAC)
     EXPECT_EQ(bounds.width(), actual_bounds->GetWidth());
     EXPECT_EQ(bounds.height(), actual_bounds->GetHeight());
     EXPECT_EQ(state, actual_bounds->GetWindowState());
@@ -173,7 +178,50 @@ class HeadlessDevToolsClientChangeWindowBoundsTest
   }
 };
 
+#if defined(OS_WIN) || (defined(OS_MAC) && defined(ADDRESS_SANITIZER))
+// TODO(crbug.com/1045980): Disabled due to flakiness.
+// TODO(crbug.com/1086872): Disabled due to flakiness on Mac ASAN.
+DISABLED_HEADLESS_ASYNC_DEVTOOLED_TEST_F(
+    HeadlessDevToolsClientChangeWindowBoundsTest);
+#else
 HEADLESS_ASYNC_DEVTOOLED_TEST_F(HeadlessDevToolsClientChangeWindowBoundsTest);
+#endif
+
+class HeadlessDevToolsClientOuterSizeTest
+    : public HeadlessDevToolsClientWindowManagementTest {
+  void RunDevTooledTest() override {
+    SetWindowBounds(
+        gfx::Rect(100, 200, 800, 600),
+        base::BindOnce(&HeadlessDevToolsClientOuterSizeTest::OnSetWindowBounds,
+                       base::Unretained(this)));
+  }
+
+  void OnSetWindowBounds(
+      std::unique_ptr<browser::SetWindowBoundsResult> result) {
+    devtools_client_->GetRuntime()->Evaluate(
+        "window.outerWidth",
+        base::BindOnce(&HeadlessDevToolsClientOuterSizeTest::OnOuterWidthResult,
+                       base::Unretained(this)));
+    devtools_client_->GetRuntime()->Evaluate(
+        "window.outerHeight",
+        base::BindOnce(
+            &HeadlessDevToolsClientOuterSizeTest::OnOuterHeightResult,
+            base::Unretained(this)));
+  }
+
+  void OnOuterWidthResult(std::unique_ptr<runtime::EvaluateResult> result) {
+    EXPECT_TRUE(result->GetResult()->HasValue());
+    EXPECT_EQ(800, result->GetResult()->GetValue()->GetInt());
+  }
+
+  void OnOuterHeightResult(std::unique_ptr<runtime::EvaluateResult> result) {
+    EXPECT_TRUE(result->GetResult()->HasValue());
+    EXPECT_EQ(600, result->GetResult()->GetValue()->GetInt());
+    FinishAsynchronousTest();
+  }
+};
+
+HEADLESS_ASYNC_DEVTOOLED_TEST_F(HeadlessDevToolsClientOuterSizeTest);
 
 class HeadlessDevToolsClientChangeWindowStateTest
     : public HeadlessDevToolsClientWindowManagementTest {
@@ -218,7 +266,13 @@ class HeadlessDevToolsClientMinimizeWindowTest
             browser::WindowState::MINIMIZED) {}
 };
 
+#if defined(OS_WIN)
+// TODO(crbug.com/1045980): Disabled due to flakiness.
+DISABLED_HEADLESS_ASYNC_DEVTOOLED_TEST_F(
+    HeadlessDevToolsClientMinimizeWindowTest);
+#else
 HEADLESS_ASYNC_DEVTOOLED_TEST_F(HeadlessDevToolsClientMinimizeWindowTest);
+#endif
 
 class HeadlessDevToolsClientMaximizeWindowTest
     : public HeadlessDevToolsClientChangeWindowStateTest {
@@ -228,7 +282,13 @@ class HeadlessDevToolsClientMaximizeWindowTest
             browser::WindowState::MAXIMIZED) {}
 };
 
+#if defined(OS_WIN)
+// TODO(crbug.com/1045980): Disabled due to flakiness.
+DISABLED_HEADLESS_ASYNC_DEVTOOLED_TEST_F(
+    HeadlessDevToolsClientMaximizeWindowTest);
+#else
 HEADLESS_ASYNC_DEVTOOLED_TEST_F(HeadlessDevToolsClientMaximizeWindowTest);
+#endif
 
 class HeadlessDevToolsClientFullscreenWindowTest
     : public HeadlessDevToolsClientChangeWindowStateTest {
@@ -238,7 +298,13 @@ class HeadlessDevToolsClientFullscreenWindowTest
             browser::WindowState::FULLSCREEN) {}
 };
 
+#if defined(OS_WIN)
+// TODO(crbug.com/1045980): Disabled due to flakiness.
+DISABLED_HEADLESS_ASYNC_DEVTOOLED_TEST_F(
+    HeadlessDevToolsClientFullscreenWindowTest);
+#else
 HEADLESS_ASYNC_DEVTOOLED_TEST_F(HeadlessDevToolsClientFullscreenWindowTest);
+#endif
 
 class HeadlessDevToolsClientEvalTest
     : public HeadlessAsyncDevTooledBrowserTest {
@@ -270,7 +336,12 @@ class HeadlessDevToolsClientEvalTest
   }
 };
 
+#if defined(OS_WIN)
+// TODO(crbug.com/1045980): Disabled due to flakiness.
+DISABLED_HEADLESS_ASYNC_DEVTOOLED_TEST_F(HeadlessDevToolsClientEvalTest);
+#else
 HEADLESS_ASYNC_DEVTOOLED_TEST_F(HeadlessDevToolsClientEvalTest);
+#endif
 
 class HeadlessDevToolsClientCallbackTest
     : public HeadlessAsyncDevTooledBrowserTest {
@@ -307,7 +378,12 @@ class HeadlessDevToolsClientCallbackTest
   bool first_result_received_;
 };
 
+#if defined(OS_WIN)
+// TODO(crbug.com/1045980): Disabled due to flakiness.
+DISABLED_HEADLESS_ASYNC_DEVTOOLED_TEST_F(HeadlessDevToolsClientCallbackTest);
+#else
 HEADLESS_ASYNC_DEVTOOLED_TEST_F(HeadlessDevToolsClientCallbackTest);
+#endif
 
 class HeadlessDevToolsClientObserverTest
     : public HeadlessAsyncDevTooledBrowserTest,
@@ -346,7 +422,12 @@ class HeadlessDevToolsClientObserverTest
   }
 };
 
+#if defined(OS_WIN)
+// TODO(crbug.com/1045980): Disabled due to flakiness.
+DISABLED_HEADLESS_ASYNC_DEVTOOLED_TEST_F(HeadlessDevToolsClientObserverTest);
+#else
 HEADLESS_ASYNC_DEVTOOLED_TEST_F(HeadlessDevToolsClientObserverTest);
+#endif
 
 class HeadlessDevToolsClientExperimentalTest
     : public HeadlessAsyncDevTooledBrowserTest,
@@ -391,7 +472,13 @@ class HeadlessDevToolsClientExperimentalTest
   void OnReloadStarted() { FinishAsynchronousTest(); }
 };
 
+#if defined(OS_WIN)
+// TODO(crbug.com/1045980): Disabled due to flakiness.
+DISABLED_HEADLESS_ASYNC_DEVTOOLED_TEST_F(
+    HeadlessDevToolsClientExperimentalTest);
+#else
 HEADLESS_ASYNC_DEVTOOLED_TEST_F(HeadlessDevToolsClientExperimentalTest);
+#endif
 
 class HeadlessDevToolsNavigationControlTest
     : public HeadlessAsyncDevTooledBrowserTest,
@@ -442,7 +529,12 @@ class HeadlessDevToolsNavigationControlTest
   bool navigation_requested_ = false;
 };
 
+#if defined(OS_WIN)
+// TODO(crbug.com/1045980): Disabled due to flakiness.
+DISABLED_HEADLESS_ASYNC_DEVTOOLED_TEST_F(HeadlessDevToolsNavigationControlTest);
+#else
 HEADLESS_ASYNC_DEVTOOLED_TEST_F(HeadlessDevToolsNavigationControlTest);
+#endif
 
 class HeadlessCrashObserverTest : public HeadlessAsyncDevTooledBrowserTest,
                                   inspector::ExperimentalObserver {
@@ -468,7 +560,7 @@ class HeadlessCrashObserverTest : public HeadlessAsyncDevTooledBrowserTest,
     // ASan's normal error exit code is 1, which base categorizes as the process
     // being killed.
     EXPECT_EQ(base::TERMINATION_STATUS_PROCESS_WAS_KILLED, status);
-#elif defined(OS_WIN) || defined(OS_MACOSX)
+#elif defined(OS_WIN) || defined(OS_MAC)
     EXPECT_EQ(base::TERMINATION_STATUS_PROCESS_CRASHED, status);
 #else
     EXPECT_EQ(base::TERMINATION_STATUS_ABNORMAL_TERMINATION, status);
@@ -479,7 +571,12 @@ class HeadlessCrashObserverTest : public HeadlessAsyncDevTooledBrowserTest,
   content::ScopedAllowRendererCrashes scoped_allow_renderer_crashes_;
 };
 
+#if defined(OS_WIN)
+// TODO(crbug.com/1045980): Disabled due to flakiness.
+DISABLED_HEADLESS_ASYNC_DEVTOOLED_TEST_F(HeadlessCrashObserverTest);
+#else
 HEADLESS_ASYNC_DEVTOOLED_TEST_F(HeadlessCrashObserverTest);
+#endif
 
 class HeadlessDevToolsClientAttachTest
     : public HeadlessAsyncDevTooledBrowserTest {
@@ -535,7 +632,12 @@ class HeadlessDevToolsClientAttachTest
   std::unique_ptr<HeadlessDevToolsClient> other_devtools_client_;
 };
 
+#if defined(OS_WIN)
+// TODO(crbug.com/1045980): Disabled due to flakiness.
+DISABLED_HEADLESS_ASYNC_DEVTOOLED_TEST_F(HeadlessDevToolsClientAttachTest);
+#else
 HEADLESS_ASYNC_DEVTOOLED_TEST_F(HeadlessDevToolsClientAttachTest);
+#endif
 
 class HeadlessDevToolsMethodCallErrorTest
     : public HeadlessAsyncDevTooledBrowserTest,
@@ -574,7 +676,12 @@ class HeadlessDevToolsMethodCallErrorTest
   }
 };
 
+#if defined(OS_WIN)
+// TODO(crbug.com/1045980): Disabled due to flakiness.
+DISABLED_HEADLESS_ASYNC_DEVTOOLED_TEST_F(HeadlessDevToolsMethodCallErrorTest);
+#else
 HEADLESS_ASYNC_DEVTOOLED_TEST_F(HeadlessDevToolsMethodCallErrorTest);
+#endif
 
 class HeadlessDevToolsNetworkBlockedUrlTest
     : public HeadlessAsyncDevTooledBrowserTest,
@@ -636,7 +743,12 @@ class HeadlessDevToolsNetworkBlockedUrlTest
   std::vector<std::string> failures_;
 };
 
+#if defined(OS_WIN)
+// TODO(crbug.com/1045980): Disabled due to flakiness.
+DISABLED_HEADLESS_ASYNC_DEVTOOLED_TEST_F(HeadlessDevToolsNetworkBlockedUrlTest);
+#else
 HEADLESS_ASYNC_DEVTOOLED_TEST_F(HeadlessDevToolsNetworkBlockedUrlTest);
+#endif
 
 class DevToolsNetworkOfflineEmulationTest
     : public HeadlessAsyncDevTooledBrowserTest,
@@ -668,7 +780,12 @@ class DevToolsNetworkOfflineEmulationTest
   }
 };
 
+#if defined(OS_WIN)
+// TODO(crbug.com/1045980): Disabled due to flakiness.
+DISABLED_HEADLESS_ASYNC_DEVTOOLED_TEST_F(DevToolsNetworkOfflineEmulationTest);
+#else
 HEADLESS_ASYNC_DEVTOOLED_TEST_F(DevToolsNetworkOfflineEmulationTest);
+#endif
 
 class RawDevtoolsProtocolTest
     : public HeadlessAsyncDevTooledBrowserTest,
@@ -700,7 +817,12 @@ class RawDevtoolsProtocolTest
   }
 };
 
+#if defined(OS_WIN)
+// TODO(crbug.com/1045980): Disabled due to flakiness.
+DISABLED_HEADLESS_ASYNC_DEVTOOLED_TEST_F(RawDevtoolsProtocolTest);
+#else
 HEADLESS_ASYNC_DEVTOOLED_TEST_F(RawDevtoolsProtocolTest);
+#endif
 
 class DevToolsAttachAndDetachNotifications
     : public HeadlessAsyncDevTooledBrowserTest {
@@ -723,7 +845,12 @@ class DevToolsAttachAndDetachNotifications
   bool dev_tools_client_detached_ = false;
 };
 
+#if defined(OS_WIN)
+// TODO(crbug.com/1045980): Disabled due to flakiness.
+DISABLED_HEADLESS_ASYNC_DEVTOOLED_TEST_F(DevToolsAttachAndDetachNotifications);
+#else
 HEADLESS_ASYNC_DEVTOOLED_TEST_F(DevToolsAttachAndDetachNotifications);
+#endif
 
 class DomTreeExtractionBrowserTest : public HeadlessAsyncDevTooledBrowserTest,
                                      public page::Observer {
@@ -885,7 +1012,12 @@ class DomTreeExtractionBrowserTest : public HeadlessAsyncDevTooledBrowserTest,
   }
 };
 
+#if defined(OS_WIN)
+// TODO(crbug.com/1045980): Disabled due to flakiness.
+DISABLED_HEADLESS_ASYNC_DEVTOOLED_TEST_F(DomTreeExtractionBrowserTest);
+#else
 HEADLESS_ASYNC_DEVTOOLED_TEST_F(DomTreeExtractionBrowserTest);
+#endif
 
 // This feature uses network observation and works exactly and only for
 // network::ErrorReason::BLOCKED_BY_CLIENT modifications that are initiated
@@ -1010,7 +1142,12 @@ class DevToolsSetCookieTest : public HeadlessAsyncDevTooledBrowserTest,
   }
 };
 
+#if defined(OS_WIN)
+// TODO(crbug.com/1045980): Disabled due to flakiness.
+DISABLED_HEADLESS_ASYNC_DEVTOOLED_TEST_F(DevToolsSetCookieTest);
+#else
 HEADLESS_ASYNC_DEVTOOLED_TEST_F(DevToolsSetCookieTest);
+#endif
 
 class DevtoolsInterceptionWithAuthProxyTest
     : public HeadlessAsyncDevTooledBrowserTest,
@@ -1103,7 +1240,13 @@ class DevtoolsInterceptionWithAuthProxyTest
   std::set<std::string> files_loaded_;
 };
 
+#if defined(OS_WIN) || (defined(OS_MAC) && defined(ADDRESS_SANITIZER))
+// TODO(crbug.com/1045980): Disabled due to flakiness.
+// TODO(crbug.com/1086872): Disabled due to flakiness on Mac ASAN.
+DISABLED_HEADLESS_ASYNC_DEVTOOLED_TEST_F(DevtoolsInterceptionWithAuthProxyTest);
+#else
 HEADLESS_ASYNC_DEVTOOLED_TEST_F(DevtoolsInterceptionWithAuthProxyTest);
+#endif
 
 class NavigatorLanguages : public HeadlessAsyncDevTooledBrowserTest {
  public:
@@ -1126,6 +1269,11 @@ class NavigatorLanguages : public HeadlessAsyncDevTooledBrowserTest {
   }
 };
 
+#if defined(OS_WIN)
+// TODO(crbug.com/1045980): Disabled due to flakiness.
+DISABLED_HEADLESS_ASYNC_DEVTOOLED_TEST_F(NavigatorLanguages);
+#else
 HEADLESS_ASYNC_DEVTOOLED_TEST_F(NavigatorLanguages);
+#endif
 
 }  // namespace headless

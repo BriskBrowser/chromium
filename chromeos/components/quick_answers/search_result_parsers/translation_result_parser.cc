@@ -6,22 +6,20 @@
 
 #include <string>
 
+#include "base/logging.h"
 #include "base/strings/stringprintf.h"
 #include "base/values.h"
 
 namespace chromeos {
 namespace quick_answers {
 namespace {
-
 using base::Value;
 
 constexpr char kSourceTextPath[] = "translateResult.sourceText";
 constexpr char kSourceLanguageLocalizedNamePath[] =
     "translateResult.sourceTextLanguageLocalizedName";
 constexpr char kTranslatedTextPath[] = "translateResult.translatedText";
-// TODO(llin): The language localized name might contains bracket, for example
-// Chinese (Traditional). Update the template after UX is finalized.
-constexpr char kSourceTextTemplate[] = "%s (%s)";
+constexpr char kSourceTextTemplate[] = "%s · %s";
 
 }  // namespace
 
@@ -47,12 +45,16 @@ bool TranslationResultParser::Parse(const Value* result,
     LOG(ERROR) << "Can't find a translated text.";
     return false;
   }
-
-  quick_answer->result_type = ResultType::kTranslationResult;
-  quick_answer->primary_answer = *translated_text;
-  quick_answer->secondary_answer =
+  const std::string& secondary_answer =
       base::StringPrintf(kSourceTextTemplate, source_text->c_str(),
                          source_text_language_localized_name->c_str());
+  quick_answer->result_type = ResultType::kTranslationResult;
+  quick_answer->primary_answer = *translated_text;
+  quick_answer->secondary_answer = secondary_answer;
+  quick_answer->title.push_back(
+      std::make_unique<QuickAnswerText>(secondary_answer));
+  quick_answer->first_answer_row.push_back(
+      std::make_unique<QuickAnswerResultText>(*translated_text));
   return true;
 }
 

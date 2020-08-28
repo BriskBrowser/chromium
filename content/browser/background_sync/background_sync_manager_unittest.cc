@@ -11,9 +11,9 @@
 #include <vector>
 
 #include "base/bind.h"
+#include "base/check.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/location.h"
-#include "base/logging.h"
 #include "base/macros.h"
 #include "base/metrics/field_trial.h"
 #include "base/run_loop.h"
@@ -533,7 +533,7 @@ class BackgroundSyncManagerTest
   void UnregisterServiceWorker(uint64_t sw_registration_id) {
     bool called = false;
     helper_->context()->UnregisterServiceWorker(
-        ScopeForSWId(sw_registration_id),
+        ScopeForSWId(sw_registration_id), /*is_immediate=*/false,
         base::BindOnce(&UnregisterServiceWorkerCallback, &called));
     base::RunLoop().RunUntilIdle();
     EXPECT_TRUE(called);
@@ -885,16 +885,16 @@ TEST_F(BackgroundSyncManagerTest, RegistrationIntact) {
 }
 
 TEST_F(BackgroundSyncManagerTest, RegisterWithoutLiveSWRegistration) {
-  // Get a provider host which is used to install the service worker.
+  // Get a worker host which is used to install the service worker.
   ASSERT_TRUE(sw_registration_1_->active_version());
   ASSERT_FALSE(sw_registration_1_->waiting_version());
   ASSERT_FALSE(sw_registration_1_->installing_version());
-  ServiceWorkerProviderHost* provider_host =
-      sw_registration_1_->active_version()->provider_host();
-  ASSERT_TRUE(provider_host);
+  ServiceWorkerHost* worker_host =
+      sw_registration_1_->active_version()->worker_host();
+  ASSERT_TRUE(worker_host);
 
   // Remove the registration object host.
-  provider_host->container_host()->registration_object_hosts_.clear();
+  worker_host->container_host()->registration_object_hosts_.clear();
 
   // Ensure |sw_registration_1_| is the last reference to the registration.
   ASSERT_TRUE(sw_registration_1_->HasOneRef());

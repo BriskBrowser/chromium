@@ -11,9 +11,9 @@
 
 #include "base/callback.h"
 #include "base/component_export.h"
-#include "base/macros.h"
 #include "chromeos/dbus/dbus_client.h"
 #include "chromeos/dbus/dbus_method_call_status.h"
+#include "chromeos/dbus/lorgnette/lorgnette_service.pb.h"
 
 namespace chromeos {
 
@@ -22,27 +22,37 @@ namespace chromeos {
 class COMPONENT_EXPORT(CHROMEOS_DBUS) LorgnetteManagerClient
     : public DBusClient {
  public:
-  // The property information for each scanner retured by ListScanners.
-  using ScannerTableEntry = std::map<std::string, std::string>;
-  using ScannerTable = std::map<std::string, ScannerTableEntry>;
-
   // Attributes provided to a scan request.
   struct ScanProperties {
     std::string mode;  // Can be "Color", "Gray", or "Lineart".
     int resolution_dpi = 0;
   };
 
+  LorgnetteManagerClient(const LorgnetteManagerClient&) = delete;
+  LorgnetteManagerClient& operator=(const LorgnetteManagerClient&) = delete;
   ~LorgnetteManagerClient() override;
 
   // Gets a list of scanners from the lorgnette manager.
-  virtual void ListScanners(DBusMethodCallback<ScannerTable> callback) = 0;
+  virtual void ListScanners(
+      DBusMethodCallback<lorgnette::ListScannersResponse> callback) = 0;
 
-  // Request a scanned image and calls |callback| when completed with a string
-  // pointing at the scanned image data.  Image data will be stored in the .png
-  // format.
-  virtual void ScanImageToString(std::string device_name,
-                                 const ScanProperties& properties,
-                                 DBusMethodCallback<std::string> callback) = 0;
+  // Gets the capabilities of the scanner corresponding to |device_name| and
+  // returns them using the provided |callback|.
+  virtual void GetScannerCapabilities(
+      const std::string& device_name,
+      DBusMethodCallback<lorgnette::ScannerCapabilities> callback) = 0;
+
+  // Request a scanned image using lorgnette's StartScan API and calls
+  // |completion_callback| when completed with a string pointing at the scanned
+  // image data. Image data will be stored in the .png format.
+  //
+  // If |progress_callback| is provided, it will be called as scan progress
+  // increases.The progress will be passed as a value from 0-100.
+  virtual void StartScan(
+      std::string device_name,
+      const ScanProperties& properties,
+      DBusMethodCallback<std::string> completion_callback,
+      base::Optional<base::RepeatingCallback<void(int)>> progress_callback) = 0;
 
   // Factory function, creates a new instance and returns ownership.
   // For normal usage, access the singleton via DBusThreadManager::Get().
@@ -51,9 +61,6 @@ class COMPONENT_EXPORT(CHROMEOS_DBUS) LorgnetteManagerClient
  protected:
   // Create() should be used instead.
   LorgnetteManagerClient();
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(LorgnetteManagerClient);
 };
 
 }  // namespace chromeos

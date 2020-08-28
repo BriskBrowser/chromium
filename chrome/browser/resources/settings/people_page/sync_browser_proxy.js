@@ -2,6 +2,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+// clang-format off
+// #import {addSingletonGetter, sendWithPromise} from 'chrome://resources/js/cr.m.js';
+// clang-format on
+
 cr.define('settings', function() {
   /**
    * @typedef {{fullName: (string|undefined),
@@ -10,7 +14,7 @@ cr.define('settings', function() {
    *            avatarImage: (string|undefined)}}
    * @see chrome/browser/ui/webui/settings/people_handler.cc
    */
-  let StoredAccount;
+  /* #export */ let StoredAccount;
 
   /**
    * @typedef {{childUser: (boolean|undefined),
@@ -23,7 +27,6 @@ cr.define('settings', function() {
    *            firstSetupInProgress: (boolean|undefined),
    *            signedIn: (boolean|undefined),
    *            signedInUsername: (string|undefined),
-   *            signinAllowed: (boolean|undefined),
    *            statusAction: (!settings.StatusAction),
    *            statusActionText: (string|undefined),
    *            statusText: (string|undefined),
@@ -31,14 +34,14 @@ cr.define('settings', function() {
    *            syncSystemEnabled: (boolean|undefined)}}
    * @see chrome/browser/ui/webui/settings/people_handler.cc
    */
-  let SyncStatus;
+  /* #export */ let SyncStatus;
 
   /**
    * Must be kept in sync with the return values of getSyncErrorAction in
    * chrome/browser/ui/webui/settings/people_handler.cc
    * @enum {string}
    */
-  const StatusAction = {
+  /* #export */ const StatusAction = {
     NO_ACTION: 'noAction',             // No action to take.
     REAUTHENTICATE: 'reauthenticate',  // User needs to reauthenticate.
     SIGNOUT_AND_SIGNIN:
@@ -84,23 +87,19 @@ cr.define('settings', function() {
    *   trustedVaultKeysRequired: boolean,
    *   typedUrlsRegistered: boolean,
    *   typedUrlsSynced: boolean,
+   *   wifiConfigurationsRegistered: boolean,
+   *   wifiConfigurationsSynced: boolean,
    * }}
    */
-  let SyncPrefs;
+  /* #export */ let SyncPrefs;
 
   /** @enum {string} */
-  const PageStatus = {
+  /* #export */ const PageStatus = {
     SPINNER: 'spinner',      // Before the page has loaded.
     CONFIGURE: 'configure',  // Preferences ready to be configured.
-    TIMEOUT: 'timeout',      // Preferences loading has timed out.
     DONE: 'done',            // Sync subpage can be closed now.
     PASSPHRASE_FAILED: 'passphraseFailed',  // Error in the passphrase.
   };
-
-  /**
-   * @typedef {{requestSucceeded: boolean, historyRecordingEnabled: boolean}}
-   */
-  let HistoryRecordingEnabled;
 
   /**
    * Key to be used with localStorage.
@@ -109,7 +108,7 @@ cr.define('settings', function() {
   const PROMO_IMPRESSION_COUNT_KEY = 'signin-promo-count';
 
   /** @interface */
-  class SyncBrowserProxy {
+  /* #export */ class SyncBrowserProxy {
     // <if expr="not chromeos">
     /**
      * Starts the signin process for the user. Does nothing if the user is
@@ -145,6 +144,16 @@ cr.define('settings', function() {
      */
     attemptUserExit() {}
 
+    /**
+     * Turns on sync for the currently logged in user. Chrome OS users are
+     * always signed in to Chrome.
+     */
+    turnOnSync() {}
+
+    /**
+     * Turns off sync. Does not sign out of Chrome.
+     */
+    turnOffSync() {}
     // </if>
 
     /**
@@ -212,19 +221,12 @@ cr.define('settings', function() {
      * manager in passwords section on page load.
      */
     sendSyncPrefsChanged() {}
-
-    /**
-     * Fetches if history recording is enabled and can be used to provide
-     * personalized experience.
-     * @return {!Promise<!HistoryRecordingEnabled>}
-     */
-    queryIsHistoryRecordingEnabled() {}
   }
 
   /**
    * @implements {settings.SyncBrowserProxy}
    */
-  class SyncBrowserProxyImpl {
+  /* #export */ class SyncBrowserProxyImpl {
     // <if expr="not chromeos">
     /** @override */
     startSignIn() {
@@ -260,6 +262,16 @@ cr.define('settings', function() {
     /** @override */
     attemptUserExit() {
       return chrome.send('AttemptUserExit');
+    }
+
+    /** @override */
+    turnOnSync() {
+      return chrome.send('TurnOnSync');
+    }
+
+    /** @override */
+    turnOffSync() {
+      return chrome.send('TurnOffSync');
     }
     // </if>
 
@@ -316,15 +328,11 @@ cr.define('settings', function() {
     sendSyncPrefsChanged() {
       chrome.send('SyncPrefsDispatch');
     }
-
-    /** @override */
-    queryIsHistoryRecordingEnabled() {
-      return cr.sendWithPromise('GetIsHistoryRecordingEnabledAndCanBeUsed');
-    }
   }
 
   cr.addSingletonGetter(SyncBrowserProxyImpl);
 
+  // #cr_define_end
   return {
     PageStatus,
     StatusAction,

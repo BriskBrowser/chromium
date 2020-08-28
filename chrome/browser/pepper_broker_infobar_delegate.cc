@@ -6,15 +6,15 @@
 
 #include "base/memory/ptr_util.h"
 #include "base/metrics/user_metrics.h"
-#include "chrome/app/vector_icons/vector_icons.h"
-#include "chrome/browser/content_settings/tab_specific_content_settings.h"
 #include "chrome/browser/infobars/infobar_service.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/grit/generated_resources.h"
+#include "components/content_settings/browser/page_specific_content_settings.h"
 #include "components/content_settings/core/browser/host_content_settings_map.h"
 #include "components/infobars/core/infobar.h"
 #include "components/strings/grit/components_strings.h"
 #include "components/url_formatter/elide_url.h"
+#include "components/vector_icons/vector_icons.h"
 #include "content/public/browser/page_navigator.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/referrer.h"
@@ -26,11 +26,11 @@ void PepperBrokerInfoBarDelegate::Create(
     const GURL& url,
     const base::string16& plugin_name,
     HostContentSettingsMap* content_settings,
-    TabSpecificContentSettings* tab_content_settings,
+    content_settings::PageSpecificContentSettings* page_content_settings,
     base::OnceCallback<void(bool)> callback) {
   infobar_service->AddInfoBar(infobar_service->CreateConfirmInfoBar(
       base::WrapUnique(new PepperBrokerInfoBarDelegate(
-          url, plugin_name, content_settings, tab_content_settings,
+          url, plugin_name, content_settings, page_content_settings,
           std::move(callback)))));
 }
 
@@ -38,12 +38,13 @@ PepperBrokerInfoBarDelegate::PepperBrokerInfoBarDelegate(
     const GURL& url,
     const base::string16& plugin_name,
     HostContentSettingsMap* content_settings,
-    TabSpecificContentSettings* tab_content_settings,
+    content_settings::PageSpecificContentSettings* page_content_settings,
     base::OnceCallback<void(bool)> callback)
     : url_(url),
       plugin_name_(plugin_name),
       content_settings_(content_settings),
-      tab_content_settings_(tab_content_settings),
+      page_content_settings_(
+          page_content_settings ? page_content_settings->AsWeakPtr() : nullptr),
       callback_(std::move(callback)) {}
 
 PepperBrokerInfoBarDelegate::~PepperBrokerInfoBarDelegate() {
@@ -57,7 +58,7 @@ PepperBrokerInfoBarDelegate::GetIdentifier() const {
 }
 
 const gfx::VectorIcon& PepperBrokerInfoBarDelegate::GetVectorIcon() const {
-  return kExtensionIcon;
+  return vector_icons::kExtensionIcon;
 }
 
 base::string16 PepperBrokerInfoBarDelegate::GetLinkText() const {
@@ -76,8 +77,9 @@ base::string16 PepperBrokerInfoBarDelegate::GetMessageText() const {
 
 base::string16 PepperBrokerInfoBarDelegate::GetButtonLabel(
     InfoBarButton button) const {
-  return l10n_util::GetStringUTF16((button == BUTTON_OK) ?
-      IDS_PEPPER_BROKER_ALLOW_BUTTON : IDS_PEPPER_BROKER_DENY_BUTTON);
+  return l10n_util::GetStringUTF16((button == BUTTON_OK)
+                                       ? IDS_PEPPER_BROKER_ALLOW_BUTTON
+                                       : IDS_PEPPER_BROKER_DENY_BUTTON);
 }
 
 bool PepperBrokerInfoBarDelegate::Accept() {
@@ -98,5 +100,7 @@ void PepperBrokerInfoBarDelegate::DispatchCallback(bool result) {
   content_settings_->SetContentSettingDefaultScope(
       url_, GURL(), ContentSettingsType::PPAPI_BROKER, std::string(),
       result ? CONTENT_SETTING_ALLOW : CONTENT_SETTING_BLOCK);
-  tab_content_settings_->SetPepperBrokerAllowed(result);
+  if (page_content_settings_) {
+    page_content_settings_->SetPepperBrokerAllowed(result);
+  }
 }

@@ -116,6 +116,12 @@ public final class EventConstants {
             "contextual_search_triggered_by_longpress";
 
     /**
+     * Contextual Search attempted-trigger by Tap when user should Long-press.
+     */
+    public static final String CONTEXTUAL_SEARCH_TAPPED_BUT_SHOULD_LONGPRESS =
+            "contextual_search_tapped_but_should_longpress";
+
+    /**
      * The partner homepage was pressed.
      */
     public static final String PARTNER_HOME_PAGE_BUTTON_PRESSED =
@@ -156,6 +162,18 @@ public final class EventConstants {
 
     /** User has tapped on Identity Disc. */
     public static final String IDENTITY_DISC_USED = "identity_disc_used";
+
+    /** User has used Ephemeral Tab i.e. opened and browsed the content. */
+    public static final String EPHEMERAL_TAB_USED = "ephemeral_tab_used";
+
+    /** HomepagePromo has been accepted. */
+    public static final String HOMEPAGE_PROMO_ACCEPTED = "homepage_promo_accepted";
+    public static final String HOMEPAGE_PROMO_SEEN = "homepage_promo_seen";
+    public static final String NTP_SHOWN = "ntp_shown";
+    public static final String NTP_HOME_BUTTON_CLICKED = "ntp_homebutton_clicked";
+
+    /** Reengagement events. */
+    public static final String STARTED_FROM_MAIN_INTENT = "started_from_main_intent";
 
     /**
      * Do not instantiate.

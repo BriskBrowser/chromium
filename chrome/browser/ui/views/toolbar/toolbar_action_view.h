@@ -88,12 +88,9 @@ class ToolbarActionView : public views::MenuButton,
 
   bool IsMenuRunningForTesting() const;
 
-  bool wants_to_run_for_testing() const { return wants_to_run_; }
-
   ExtensionContextMenuController* context_menu_controller_for_testing() const {
     return context_menu_controller_.get();
   }
-
   static const char kClassName[];
 
  private:
@@ -104,8 +101,8 @@ class ToolbarActionView : public views::MenuButton,
   void OnMouseReleased(const ui::MouseEvent& event) override;
   void OnGestureEvent(ui::GestureEvent* event) override;
   void OnDragDone() override;
-  void ViewHierarchyChanged(
-      const views::ViewHierarchyChangedDetails& details) override;
+  void AddedToWidget() override;
+  void RemovedFromWidget() override;
 
   // ToolbarActionViewDelegateViews:
   views::View* GetAsView() override;
@@ -125,17 +122,11 @@ class ToolbarActionView : public views::MenuButton,
   // Delegate that usually represents a container for ToolbarActionView.
   Delegate* delegate_;
 
-  // Used to make sure we only register the command once.
-  bool called_register_command_ = false;
-
   // Set to true by a mouse press that will hide a popup due to deactivation.
   // In this case, the next click should not trigger an action, so the popup
   // doesn't hide on mouse press and immediately reshow on mouse release.
   bool suppress_next_release_ = false;
 
-  // The cached value of whether or not the action wants to run on the current
-  // tab.
-  bool wants_to_run_ = false;
 
   // This controller is responsible for showing the context menu for an
   // extension.

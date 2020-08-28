@@ -4,6 +4,9 @@
 
 package org.chromium.chrome.browser.payments;
 
+import org.chromium.components.payments.PaymentApp;
+import org.chromium.components.payments.PaymentAppFactoryParams;
+
 /**
  * Interface for providing information to a payment app factory and receiving the list of payment
  * apps.
@@ -21,15 +24,6 @@ public interface PaymentAppFactoryDelegate {
     default void onCanMakePaymentCalculated(boolean canMakePayment) {}
 
     /**
-     * Called when a payment app factory has a resource identifier for text to be displayed to the
-     * user. Only autofill has this.
-     *
-     * @param additionalTextResourceId The resource identifier for text to be displayed to the user.
-     * Never 0, which is invalid.
-     */
-    default void onAdditionalTextResourceId(int additionalTextResourceId) {}
-
-    /**
      * Called when the autofill payment app creator is available.
      *
      * @param creator The object that can create payment apps from Autofill cards.
@@ -41,7 +35,7 @@ public interface PaymentAppFactoryDelegate {
      *
      * @param paymentApp A payment app.
      */
-    void onPaymentAppCreated(PaymentInstrument paymentApp);
+    void onPaymentAppCreated(PaymentApp paymentApp);
 
     /**
      * Called when a payment app factory has failed to create a payment app.

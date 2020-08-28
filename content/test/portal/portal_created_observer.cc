@@ -44,14 +44,14 @@ void PortalCreatedObserver::CreatePortal(
   std::move(callback).Run(
       proxy_host->GetRoutingID(),
       proxy_host->frame_tree_node()->current_replication_state(),
-      portal_->portal_token(), portal_->GetDevToolsFrameToken());
+      portal_->portal_token(), proxy_host->GetFrameToken(),
+      portal_->GetDevToolsFrameToken());
 
   DidCreatePortal();
 }
 
-void PortalCreatedObserver::AdoptPortal(
-    const base::UnguessableToken& portal_token,
-    AdoptPortalCallback callback) {
+void PortalCreatedObserver::AdoptPortal(const blink::PortalToken& portal_token,
+                                        AdoptPortalCallback callback) {
   Portal* portal = render_frame_host_impl_->FindPortalByToken(portal_token);
   PortalInterceptorForTesting* portal_interceptor =
       PortalInterceptorForTesting::Create(render_frame_host_impl_, portal);
@@ -64,7 +64,7 @@ void PortalCreatedObserver::AdoptPortal(
                                                  ->GetRenderWidgetHostView())
           ->GetFrameSinkId(),
       proxy_host->frame_tree_node()->current_replication_state(),
-      portal->GetDevToolsFrameToken());
+      proxy_host->GetFrameToken(), portal->GetDevToolsFrameToken());
 
   DidCreatePortal();
 }

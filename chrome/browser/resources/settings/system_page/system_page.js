@@ -7,8 +7,25 @@
  * operating system (i.e. network, background processes, hardware).
  */
 
+import 'chrome://resources/cr_elements/cr_button/cr_button.m.js';
+import 'chrome://resources/cr_elements/cr_icon_button/cr_icon_button.m.js';
+import 'chrome://resources/cr_elements/policy/cr_policy_pref_indicator.m.js';
+import 'chrome://resources/polymer/v3_0/iron-flex-layout/iron-flex-layout-classes.js';
+import '../controls/extension_controlled_indicator.m.js';
+import '../controls/settings_toggle_button.m.js';
+import '../prefs/prefs.m.js';
+import '../settings_shared_css.m.js';
+
+import {html, Polymer} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+
+import {LifetimeBrowserProxyImpl} from '../lifetime_browser_proxy.m.js';
+
+import {SystemPageBrowserProxyImpl} from './system_page_browser_proxy.js';
+
 Polymer({
   is: 'settings-system-page',
+
+  _template: html`{__html_template__}`,
 
   properties: {
     prefs: {
@@ -35,11 +52,12 @@ Polymer({
    * @private
    */
   observeProxyPrefChanged_() {
-    const pref = this.get('prefs.proxy');
+    /** @type {!chrome.settingsPrivate.PrefObject} */
+    const pref = this.prefs.proxy;
     // TODO(dbeam): do types of policy other than USER apply on ChromeOS?
     this.isProxyEnforcedByPolicy_ =
-        pref.enforcement == chrome.settingsPrivate.Enforcement.ENFORCED &&
-        pref.controlledBy == chrome.settingsPrivate.ControlledBy.USER_POLICY;
+        pref.enforcement === chrome.settingsPrivate.Enforcement.ENFORCED &&
+        pref.controlledBy === chrome.settingsPrivate.ControlledBy.USER_POLICY;
     this.isProxyDefault_ = !this.isProxyEnforcedByPolicy_ && !pref.extensionId;
   },
 
@@ -56,7 +74,7 @@ Polymer({
   /** @private */
   onProxyTap_() {
     if (this.isProxyDefault_) {
-      settings.SystemPageBrowserProxyImpl.getInstance().showProxySettings();
+      SystemPageBrowserProxyImpl.getInstance().showProxySettings();
     }
   },
 
@@ -65,7 +83,7 @@ Polymer({
     // Prevent event from bubbling up to the toggle button.
     e.stopPropagation();
     // TODO(dbeam): we should prompt before restarting the browser.
-    settings.LifetimeBrowserProxyImpl.getInstance().restart();
+    LifetimeBrowserProxyImpl.getInstance().restart();
   },
 
   /**
@@ -74,7 +92,7 @@ Polymer({
    * @private
    */
   shouldShowRestart_(enabled) {
-    const proxy = settings.SystemPageBrowserProxyImpl.getInstance();
-    return enabled != proxy.wasHardwareAccelerationEnabledAtStartup();
+    const proxy = SystemPageBrowserProxyImpl.getInstance();
+    return enabled !== proxy.wasHardwareAccelerationEnabledAtStartup();
   },
 });

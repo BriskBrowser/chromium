@@ -8,7 +8,7 @@
 #include <memory>
 
 #include "ash/ash_export.h"
-#include "ash/wm/overview/overview_animation_type.h"
+#include "ash/wm/overview/overview_types.h"
 #include "ash/wm/splitview/split_view_drag_indicators.h"
 #include "ash/wm/window_transient_descendant_iterator.h"
 #include "base/optional.h"
@@ -102,8 +102,7 @@ gfx::Rect GetGridBoundsInScreen(
 // Gets the bounds of a window if it were to be snapped or about to be snapped
 // in splitview. Returns nothing if we are not in tablet mode, or if we aren't
 // in splitview, or if we aren't showing a splitview preview.
-base::Optional<gfx::RectF> GetSplitviewBoundsMaintainingAspectRatio(
-    aura::Window* window);
+base::Optional<gfx::RectF> GetSplitviewBoundsMaintainingAspectRatio();
 
 // Check if kNewOverviewLayout is enabled for tablet mode.
 bool ShouldUseTabletModeGridLayout();

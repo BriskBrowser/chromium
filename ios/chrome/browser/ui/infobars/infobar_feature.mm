@@ -5,6 +5,8 @@
 #import "ios/chrome/browser/ui/infobars/infobar_feature.h"
 
 #include "components/infobars/core/infobar_feature.h"
+#include "components/version_info/version_info.h"
+#include "ios/chrome/common/channel_info.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -25,6 +27,12 @@ const base::Feature kConfirmInfobarMessagesUI{"ConfirmInfobarMessagesUI",
 const base::Feature kCrashRestoreInfobarMessagesUI{
     "CrashRestoreInfobarMessagesUI", base::FEATURE_ENABLED_BY_DEFAULT};
 
+// Feature enabled by default since it will always be checked along
+// kIOSInfobarUIReboot, effectively working as a kill switch. Meaning that if
+// kIOSInfobarUIReboot is not enabled this feature won't work.
+const base::Feature kBlockPopupInfobarMessagesUI{
+    "BlockPopupInfobarMessagesUI", base::FEATURE_ENABLED_BY_DEFAULT};
+
 const base::Feature kDownloadInfobarMessagesUI{
     "DownloadInfobarMessagesUI", base::FEATURE_DISABLED_BY_DEFAULT};
 
@@ -37,9 +45,11 @@ const base::Feature kSaveCardInfobarMessagesUI{
 // Feature enabled by default since it will always be guarded with
 // |kIOSInfobarUIReboot|, meaning that if necessary,
 // |kTranslateInfobarMessagesUI| can be used as a kill switch.
-// TODO(crbug.com/1014959): Enabled flag once feature is ready.
 const base::Feature kTranslateInfobarMessagesUI{
     "TranslateInfobarMessagesUI", base::FEATURE_ENABLED_BY_DEFAULT};
+
+const base::Feature kInfobarUIRebootOnlyiOS13{"InfobarUIRebootOnlyiOS13",
+                                              base::FEATURE_ENABLED_BY_DEFAULT};
 
 bool IsInfobarUIRebootEnabled() {
   return base::FeatureList::IsEnabled(kIOSInfobarUIReboot);
@@ -57,6 +67,11 @@ bool IsConfirmInfobarMessagesUIEnabled() {
 
 bool IsCrashRestoreInfobarMessagesUIEnabled() {
   return base::FeatureList::IsEnabled(kCrashRestoreInfobarMessagesUI) &&
+         IsInfobarUIRebootEnabled();
+}
+
+bool IsBlockPopupInfobarMessagesUIEnabled() {
+  return base::FeatureList::IsEnabled(kBlockPopupInfobarMessagesUI) &&
          IsInfobarUIRebootEnabled();
 }
 

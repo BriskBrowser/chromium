@@ -70,7 +70,7 @@ void SplitOnChar(const base::StringPiece& src,
   size_t pos = src.find(c);
   if (pos == base::StringPiece::npos) {
     *left = src;
-    right->clear();
+    *right = base::StringPiece();
   } else {
     *left = src.substr(0, pos);
     *right = src.substr(pos);
@@ -513,7 +513,7 @@ bool X509Certificate::VerifyHostname(
   SplitOnChar(reference_name, '.', &reference_host, &reference_domain);
   bool allow_wildcards = false;
   if (!reference_domain.empty()) {
-    DCHECK(reference_domain.starts_with("."));
+    DCHECK(base::StartsWith(reference_domain, "."));
 
     // Do not allow wildcards for public/ICANN registry controlled domains -
     // that is, prevent *.com or *.co.uk as valid presented names, but do not

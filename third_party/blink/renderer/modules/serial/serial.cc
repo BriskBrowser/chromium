@@ -12,14 +12,15 @@
 #include "third_party/blink/public/mojom/feature_policy/feature_policy_feature.mojom-blink.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise_resolver.h"
+#include "third_party/blink/renderer/bindings/modules/v8/v8_serial_port_filter.h"
+#include "third_party/blink/renderer/bindings/modules/v8/v8_serial_port_request_options.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/dom/dom_exception.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/modules/event_target_modules_names.h"
+#include "third_party/blink/renderer/modules/serial/serial_connection_event.h"
 #include "third_party/blink/renderer/modules/serial/serial_port.h"
-#include "third_party/blink/renderer/modules/serial/serial_port_filter.h"
-#include "third_party/blink/renderer/modules/serial/serial_port_request_options.h"
 #include "third_party/blink/renderer/platform/heap/heap.h"
 
 namespace blink {
@@ -41,19 +42,31 @@ String TokenToString(const base::UnguessableToken& token) {
 }  // namespace
 
 Serial::Serial(ExecutionContext& execution_context)
-    : ContextLifecycleObserver(&execution_context) {}
+    : ExecutionContextLifecycleObserver(&execution_context),
+      service_(&execution_context),
+      receiver_(this, &execution_context) {}
 
 ExecutionContext* Serial::GetExecutionContext() const {
-  return ContextLifecycleObserver::GetExecutionContext();
+  return ExecutionContextLifecycleObserver::GetExecutionContext();
 }
 
 const AtomicString& Serial::InterfaceName() const {
   return event_target_names::kSerial;
 }
 
-void Serial::ContextDestroyed(ExecutionContext*) {
+void Serial::ContextDestroyed() {
   for (auto& entry : port_cache_)
     entry.value->ContextDestroyed();
+}
+
+void Serial::OnPortAdded(mojom::blink::SerialPortInfoPtr port_info) {
+  DispatchEvent(*SerialConnectionEvent::Create(
+      event_type_names::kConnect, GetOrCreatePort(std::move(port_info))));
+}
+
+void Serial::OnPortRemoved(mojom::blink::SerialPortInfoPtr port_info) {
+  DispatchEvent(*SerialConnectionEvent::Create(
+      event_type_names::kDisconnect, GetOrCreatePort(std::move(port_info))));
 }
 
 ScriptPromise Serial::getPorts(ScriptState* script_state,
@@ -65,7 +78,7 @@ ScriptPromise Serial::getPorts(ScriptState* script_state,
     return ScriptPromise();
   }
 
-  if (!context->IsFeatureEnabled(mojom::FeaturePolicyFeature::kSerial,
+  if (!context->IsFeatureEnabled(mojom::blink::FeaturePolicyFeature::kSerial,
                                  ReportOptions::kReportOnFailure)) {
     exception_state.ThrowSecurityError(kFeaturePolicyBlocked);
     return ScriptPromise();
@@ -91,8 +104,8 @@ ScriptPromise Serial::requestPort(ScriptState* script_state,
     return ScriptPromise();
   }
 
-  if (!frame->GetDocument()->IsFeatureEnabled(
-          mojom::FeaturePolicyFeature::kSerial,
+  if (!GetExecutionContext()->IsFeatureEnabled(
+          mojom::blink::FeaturePolicyFeature::kSerial,
           ReportOptions::kReportOnFailure)) {
     exception_state.ThrowSecurityError(kFeaturePolicyBlocked);
     return ScriptPromise();
@@ -151,18 +164,39 @@ void Serial::GetPort(
   service_->GetPort(token, std::move(receiver));
 }
 
-void Serial::Trace(Visitor* visitor) {
+void Serial::Trace(Visitor* visitor) const {
+  visitor->Trace(service_);
+  visitor->Trace(receiver_);
   visitor->Trace(get_ports_promises_);
   visitor->Trace(request_port_promises_);
   visitor->Trace(port_cache_);
   EventTargetWithInlineData::Trace(visitor);
-  ContextLifecycleObserver::Trace(visitor);
+  ExecutionContextLifecycleObserver::Trace(visitor);
+}
+
+void Serial::AddedEventListener(const AtomicString& event_type,
+                                RegisteredEventListener& listener) {
+  EventTargetWithInlineData::AddedEventListener(event_type, listener);
+
+  if (event_type != event_type_names::kConnect &&
+      event_type != event_type_names::kDisconnect) {
+    return;
+  }
+
+  ExecutionContext* context = GetExecutionContext();
+  if (!context ||
+      !context->IsFeatureEnabled(mojom::blink::FeaturePolicyFeature::kSerial,
+                                 ReportOptions::kDoNotReport)) {
+    return;
+  }
+
+  EnsureServiceConnection();
 }
 
 void Serial::EnsureServiceConnection() {
   DCHECK(GetExecutionContext());
 
-  if (service_)
+  if (service_.is_bound())
     return;
 
   auto task_runner =
@@ -171,10 +205,13 @@ void Serial::EnsureServiceConnection() {
       service_.BindNewPipeAndPassReceiver(task_runner));
   service_.set_disconnect_handler(
       WTF::Bind(&Serial::OnServiceConnectionError, WrapWeakPersistent(this)));
+
+  service_->SetClient(receiver_.BindNewPipeAndPassRemote(task_runner));
 }
 
 void Serial::OnServiceConnectionError() {
   service_.reset();
+  receiver_.reset();
 
   // Script may execute during a call to Resolve(). Swap these sets to prevent
   // concurrent modification.

@@ -10,6 +10,7 @@ import org.chromium.base.ObserverList;
 import org.chromium.base.ObserverList.RewindableIterator;
 import org.chromium.content_public.browser.WebContents;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
+import org.chromium.content_public.common.ResourceRequestBody;
 
 /**
  * Exposes helper functions to be used in tests to instrument tab interaction.
@@ -37,7 +38,7 @@ public class TabTestUtils {
      */
     public static void simulatePageLoadFinished(Tab tab) {
         RewindableIterator<TabObserver> observers = ((TabImpl) tab).getTabObservers();
-        while (observers.hasNext()) observers.next().onPageLoadFinished(tab, tab.getUrl());
+        while (observers.hasNext()) observers.next().onPageLoadFinished(tab, tab.getUrlString());
     }
 
     /**
@@ -131,7 +132,40 @@ public class TabTestUtils {
      * @param tab {@link Tab} object.
      * @return {@link TabWebContentsDelegateAndroid} object for a given tab.
      */
-    public static TabWebContentsDelegateAndroid getTabWebContentsDelegate(Tab tab) {
+    public static TabWebContentsDelegateAndroidImpl getTabWebContentsDelegate(Tab tab) {
         return ((TabImpl) tab).getTabWebContentsDelegateAndroid();
+    }
+
+    /**
+     * Open a new tab.
+     * @param tab {@link Tab} object.
+     * @param url URL to open.
+     * @param extraHeaders   Extra headers to apply when requesting the tab's URL.
+     * @param postData       Post-data to include in the tab URL's request body.
+     * @param disposition         The new tab disposition, defined in
+     *                            //ui/base/mojo/window_open_disposition.mojom.
+     * @param isRendererInitiated Whether or not the renderer initiated this action.
+     */
+    public static void openNewTab(Tab tab, String url, String extraHeaders,
+            ResourceRequestBody postData, int disposition, boolean isRendererInitiated) {
+        getTabWebContentsDelegate(tab).openNewTab(
+                url, extraHeaders, postData, disposition, isRendererInitiated);
+    }
+
+    /**
+     * Show {@link org.chromium.chrome.browser.infobar.FrameBustBlockInfoBar}.
+     */
+    public static void showFramebustBlockInfobarForTesting(Tab tab, String url) {
+        getTabWebContentsDelegate(tab).showFramebustBlockInfobarForTesting(url);
+    }
+
+    /**
+     * Sets whether the tab is showing an error page.  This is reset whenever the tab finishes a
+     * navigation.
+     * @param tab {@link Tab} object.
+     * @param isShowingErrorPage Whether the tab shows an error page.
+     */
+    public static void setIsShowingErrorPage(Tab tab, boolean isShowingErrorPage) {
+        ((TabImpl) tab).setIsShowingErrorPage(isShowingErrorPage);
     }
 }

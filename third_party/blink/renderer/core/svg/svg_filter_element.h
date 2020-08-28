@@ -39,10 +39,9 @@ class LocalSVGResource;
 class CORE_EXPORT SVGFilterElement final : public SVGElement,
                                            public SVGURIReference {
   DEFINE_WRAPPERTYPEINFO();
-  USING_GARBAGE_COLLECTED_MIXIN(SVGFilterElement);
 
  public:
-  void Trace(blink::Visitor*) override;
+  void Trace(Visitor*) const override;
 
   explicit SVGFilterElement(Document&);
   ~SVGFilterElement() override;

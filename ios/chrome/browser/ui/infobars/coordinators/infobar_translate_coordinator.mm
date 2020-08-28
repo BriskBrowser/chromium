@@ -4,6 +4,8 @@
 
 #import "ios/chrome/browser/ui/infobars/coordinators/infobar_translate_coordinator.h"
 
+#import <MaterialComponents/MaterialSnackbar.h>
+
 #include "base/metrics/histogram_macros.h"
 #include "base/metrics/sparse_histogram.h"
 #include "base/strings/sys_string_conversions.h"
@@ -23,12 +25,12 @@
 #import "ios/chrome/browser/ui/infobars/coordinators/infobar_translate_mediator.h"
 #import "ios/chrome/browser/ui/infobars/infobar_badge_ui_delegate.h"
 #import "ios/chrome/browser/ui/infobars/infobar_container.h"
+#import "ios/chrome/browser/ui/infobars/infobar_feature.h"
 #import "ios/chrome/browser/ui/infobars/modals/infobar_translate_language_selection_table_view_controller.h"
 #import "ios/chrome/browser/ui/infobars/modals/infobar_translate_modal_delegate.h"
 #import "ios/chrome/browser/ui/infobars/modals/infobar_translate_table_view_controller.h"
 #import "ios/chrome/browser/ui/util/uikit_ui_util.h"
 #include "ios/chrome/grit/ios_strings.h"
-#import "ios/third_party/material_components_ios/src/components/Snackbar/src/MaterialSnackbar.h"
 #include "ui/base/l10n/l10n_util.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
@@ -95,9 +97,11 @@ NSString* const kTranslateNotificationSnackbarCategory =
                                    type:InfobarType::kInfobarTypeTranslate];
   if (self) {
     _translateInfobarDelegate = infoBarDelegate;
-    _translateInfobarDelegateObserver =
-        std::make_unique<TranslateInfobarDelegateObserverBridge>(
-            infoBarDelegate, self);
+    if (!base::FeatureList::IsEnabled(kInfobarOverlayUI)) {
+      _translateInfobarDelegateObserver =
+          std::make_unique<TranslateInfobarDelegateObserverBridge>(
+              infoBarDelegate, self);
+    }
     _userAction = UserActionNone;
     _currentStep = translate::TranslateStep::TRANSLATE_STEP_BEFORE_TRANSLATE;
     // Legacy TranslateInfobarController logs this impression metric on init, so
@@ -128,6 +132,13 @@ NSString* const kTranslateNotificationSnackbarCategory =
       break;
     case translate::TranslateStep::TRANSLATE_STEP_AFTER_TRANSLATE: {
       self.displayShowOriginalBanner = YES;
+      // Once the user asks for the page to be translated once, always make the
+      // banner presentation high priority even if the user requests to show the
+      // original language, since there is a possibility the user will be
+      // toggling between languages. In addition, reverting an infobar does not
+      // show the "Translate?" banner, so every subsequent banner presentation
+      // will be a "Show Original" one.
+      self.highPriorityPresentation = YES;
       [self.badgeDelegate infobarWasAccepted:self.infobarType
                                  forWebState:self.webState];
 
@@ -188,7 +199,9 @@ NSString* const kTranslateNotificationSnackbarCategory =
     self.mediator = nil;
     // RemoveInfoBar() will delete the InfobarIOS that owns this Coordinator
     // from memory.
-    self.delegate->RemoveInfoBar();
+    if (self.delegate) {
+      self.delegate->RemoveInfoBar();
+    }
     if (self.userAction == UserActionNone) {
       [TranslateInfobarMetricsRecorder recordUnusedInfobar];
     }
@@ -572,7 +585,7 @@ NSString* const kTranslateNotificationSnackbarCategory =
   message.category = kTranslateNotificationSnackbarCategory;
   TriggerHapticFeedbackForNotification(UINotificationFeedbackTypeSuccess);
   id<SnackbarCommands> snackbarDispatcher =
-      static_cast<id<SnackbarCommands>>(self.dispatcher);
+      static_cast<id<SnackbarCommands>>(self.handler);
   [snackbarDispatcher showSnackbarMessage:message];
 }
 

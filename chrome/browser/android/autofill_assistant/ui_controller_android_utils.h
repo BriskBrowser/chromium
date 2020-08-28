@@ -12,9 +12,11 @@
 #include "base/android/jni_android.h"
 #include "base/optional.h"
 #include "components/autofill_assistant/browser/service.pb.h"
+#include "components/autofill_assistant/browser/user_model.h"
+#include "components/autofill_assistant/browser/view_layout.pb.h"
+#include "url/gurl.h"
 
 namespace autofill_assistant {
-
 namespace ui_controller_android_utils {
 
 // Returns a 32-bit Integer representing |color_string| in Java, or null if
@@ -46,16 +48,39 @@ int GetPixelSizeOrDefault(
     const ClientDimensionProto& proto,
     int default_value);
 
+// Returns an instance of an |AssistantDrawable| or nullptr if it could not
+// be created.
+base::android::ScopedJavaLocalRef<jobject> CreateJavaDrawable(
+    JNIEnv* env,
+    const base::android::ScopedJavaLocalRef<jobject>& jcontext,
+    const DrawableProto& proto,
+    const UserModel* user_model = nullptr);
+
 // Returns the java equivalent of |proto|.
 base::android::ScopedJavaLocalRef<jobject> ToJavaValue(JNIEnv* env,
                                                        const ValueProto& proto);
 
-// Returns the native equivalent of |jvalue|.
+// Returns the native equivalent of |jvalue|. Returns an empty ValueProto if
+// |jvalue| is null.
 ValueProto ToNativeValue(JNIEnv* env,
                          const base::android::JavaParamRef<jobject>& jvalue);
 
-}  // namespace ui_controller_android_utils
+// Returns an instance of |AssistantInfoPopup| for |proto|.
+base::android::ScopedJavaLocalRef<jobject> CreateJavaInfoPopup(
+    JNIEnv* env,
+    const InfoPopupProto& proto);
 
+// Shows an instance of |AssistantInfoPopup| on the screen.
+void ShowJavaInfoPopup(JNIEnv* env,
+                       base::android::ScopedJavaLocalRef<jobject> jinfo_popup,
+                       base::android::ScopedJavaLocalRef<jobject> jcontext);
+
+// Converts a java string to native. Returns an empty string if input is null.
+std::string SafeConvertJavaStringToNative(
+    JNIEnv* env,
+    const base::android::JavaParamRef<jstring>& jstring);
+
+}  // namespace ui_controller_android_utils
 }  //  namespace autofill_assistant
 
 #endif  //  CHROME_BROWSER_ANDROID_AUTOFILL_ASSISTANT_UI_CONTROLLER_ANDROID_UTILS_H_

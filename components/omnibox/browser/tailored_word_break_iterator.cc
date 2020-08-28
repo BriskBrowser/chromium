@@ -28,7 +28,7 @@ bool TailoredWordBreakIterator::Advance() {
     return false;
   prev_ = 0;
   pos_ = 0;
-  underscore_word_.clear();
+  underscore_word_ = base::StringPiece16();
   if (!IsWord())
     return true;
   base::StringPiece16 word = BreakIterator::GetStringPiece();
@@ -55,7 +55,7 @@ base::StringPiece16 TailoredWordBreakIterator::GetStringPiece() const {
 }
 
 base::string16 TailoredWordBreakIterator::GetString() const {
-  return GetStringPiece().as_string();
+  return base::string16(GetStringPiece());
 }
 
 size_t TailoredWordBreakIterator::prev() const {

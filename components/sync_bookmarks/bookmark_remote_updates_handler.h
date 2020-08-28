@@ -27,6 +27,14 @@ namespace sync_bookmarks {
 // server.
 class BookmarkRemoteUpdatesHandler {
  public:
+  enum class DuplicateBookmarkEntityOnRemoteUpdateCondition {
+    kServerIdTombstone = 0,
+    kTempSyncIdTombstone = 1,
+    kBothEntitiesNonTombstone = 2,
+
+    kMaxValue = kBothEntitiesNonTombstone,
+  };
+
   // |bookmark_model|, |favicon_service| and |bookmark_tracker| must not be null
   // and must outlive this object.
   BookmarkRemoteUpdatesHandler(bookmarks::BookmarkModel* bookmark_model,
@@ -43,6 +51,15 @@ class BookmarkRemoteUpdatesHandler {
   // Public for testing.
   static std::vector<const syncer::UpdateResponseData*> ReorderUpdatesForTest(
       const syncer::UpdateResponseDataList* updates);
+
+  size_t valid_updates_without_full_title_for_uma() const {
+    return valid_updates_without_full_title_;
+  }
+
+  static size_t ComputeChildNodeIndexForTest(
+      const bookmarks::BookmarkNode* parent,
+      const sync_pb::UniquePosition& unique_position,
+      const SyncedBookmarkTracker* bookmark_tracker);
 
  private:
   // Reorders incoming updates such that parent creation is before child
@@ -63,9 +80,10 @@ class BookmarkRemoteUpdatesHandler {
   //    ignored.
   // 3. Otherwise, a new node is created in the local bookmark model and
   //    registered in |bookmark_tracker_|.
-  // Returns true if a new bookmark has been registered in the
-  // |bookmark_tracker_|, false otherwise.
-  bool ProcessCreate(const syncer::UpdateResponseData& update);
+  //
+  // Returns the newly tracked entity or null if the creation failed.
+  const SyncedBookmarkTracker::Entity* ProcessCreate(
+      const syncer::UpdateResponseData& update);
 
   // Processes a remote update of a bookmark node. |update| must not be a
   // deletion, and the server_id must be already tracked, otherwise, it is a
@@ -97,9 +115,18 @@ class BookmarkRemoteUpdatesHandler {
   // from |bookmark_tracker_|.
   void RemoveEntityAndChildrenFromTracker(const bookmarks::BookmarkNode* node);
 
+  // Initiate reupload for the update with |entity_data|. |tracked_entity| must
+  // not be nullptr.
+  void ReuploadEntityIfNeeded(
+      const syncer::EntityData& entity_data,
+      const SyncedBookmarkTracker::Entity* tracked_entity);
+
   bookmarks::BookmarkModel* const bookmark_model_;
   favicon::FaviconService* const favicon_service_;
   SyncedBookmarkTracker* const bookmark_tracker_;
+
+  // Counts number of initiated reuploads.
+  size_t valid_updates_without_full_title_ = 0;
 
   DISALLOW_COPY_AND_ASSIGN(BookmarkRemoteUpdatesHandler);
 };

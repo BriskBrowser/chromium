@@ -16,8 +16,9 @@
 #include "base/memory/weak_ptr.h"
 #include "base/optional.h"
 #include "base/strings/string_piece.h"
-#include "base/time/time.h"
 #include "base/values.h"
+#include "extensions/browser/api/declarative_net_request/index_helper.h"
+#include "extensions/browser/api/declarative_net_request/ruleset_install_pref.h"
 #include "extensions/browser/crx_file_info.h"
 #include "extensions/browser/image_sanitizer.h"
 #include "extensions/browser/install/crx_install_error.h"
@@ -40,6 +41,7 @@ enum class VerifierFormat;
 namespace extensions {
 class Extension;
 enum class SandboxedUnpackerFailureReason;
+enum class InstallationStage;
 
 namespace declarative_net_request {
 struct IndexAndPersistJSONRulesetResult;
@@ -73,9 +75,8 @@ class SandboxedUnpackerClient
   //
   // install_icon - The icon we will display in the installation UI, if any.
   //
-  // dnr_ruleset_checksum - Checksum for the indexed ruleset corresponding to
-  // the Declarative Net Request API. Optional since it's only valid for
-  // extensions which provide a declarative ruleset.
+  // ruleset_install_prefs - Install prefs needed for the Declarative Net
+  // Request API.
   //
   // Note: OnUnpackSuccess/Failure may be called either synchronously or
   // asynchronously from SandboxedUnpacker::StartWithCrx/Directory.
@@ -85,8 +86,11 @@ class SandboxedUnpackerClient
       std::unique_ptr<base::DictionaryValue> original_manifest,
       const Extension* extension,
       const SkBitmap& install_icon,
-      const base::Optional<int>& dnr_ruleset_checksum) = 0;
+      declarative_net_request::RulesetInstallPrefs ruleset_install_prefs) = 0;
   virtual void OnUnpackFailure(const CrxInstallError& error) = 0;
+
+  // Called after stage of installation is changed.
+  virtual void OnStageChanged(InstallationStage stage) {}
 
  protected:
   friend class base::RefCountedDeleteOnSequence<SandboxedUnpackerClient>;
@@ -133,8 +137,6 @@ class SandboxedUnpacker : public base::RefCountedThreadSafe<SandboxedUnpacker> {
   // TaskShutdownBehavior::SKIP_ON_SHUTDOWN to ensure that either the task is
   // fully run (if initiated before shutdown) or not run at all (if shutdown is
   // initiated first). See crbug.com/235525.
-  // TODO(devlin): We should probably just have SandboxedUnpacker use the common
-  // ExtensionFileTaskRunner, and not pass in a separate one.
   // TODO(devlin): SKIP_ON_SHUTDOWN is also not quite sufficient for this. We
   // should probably instead be using base::ImportantFileWriter or similar.
   SandboxedUnpacker(
@@ -218,12 +220,12 @@ class SandboxedUnpacker : public base::RefCountedThreadSafe<SandboxedUnpacker> {
   void Cleanup();
 
   // If a Declarative Net Request JSON ruleset is present, parses the JSON
-  // ruleset for the Declarative Net Request API and persists the indexed
-  // ruleset.
-  void IndexAndPersistJSONRulesetIfNeeded();
+  // rulesets for the Declarative Net Request API and persists the indexed
+  // rulesets.
+  void IndexAndPersistJSONRulesetsIfNeeded();
 
-  void OnJSONRulesetIndexed(
-      declarative_net_request::IndexAndPersistJSONRulesetResult result);
+  void OnJSONRulesetsIndexed(
+      declarative_net_request::IndexHelper::Result result);
 
   // Computed hashes: if requested (via ShouldComputeHashes callback in
   // SandbloxedUnpackerClient), calculate hashes of all extensions' resources
@@ -263,9 +265,8 @@ class SandboxedUnpacker : public base::RefCountedThreadSafe<SandboxedUnpacker> {
   // is called.
   base::Optional<base::Value> manifest_;
 
-  // Checksum for the indexed ruleset, see more in
-  // SandboxedUnpackerClient::OnUnpackSuccess description.
-  base::Optional<int> dnr_ruleset_checksum_;
+  // Install prefs needed for the Declarative Net Request API.
+  declarative_net_request::RulesetInstallPrefs ruleset_install_prefs_;
 
   // Represents the extension we're unpacking.
   scoped_refptr<Extension> extension_;
@@ -276,10 +277,6 @@ class SandboxedUnpacker : public base::RefCountedThreadSafe<SandboxedUnpacker> {
   // The extension's ID. This will be calculated from the public key
   // in the CRX header.
   std::string extension_id_;
-
-  // If we unpacked a CRX file, the time at which unpacking started.
-  // Used to compute the time unpacking takes.
-  base::TimeTicks crx_unpack_start_time_;
 
   // Location to use for the unpacked extension.
   Manifest::Location location_;

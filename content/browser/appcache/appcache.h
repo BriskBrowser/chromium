@@ -23,7 +23,7 @@
 #include "content/browser/appcache/appcache_manifest_parser.h"
 #include "content/browser/appcache/appcache_namespace.h"
 #include "content/common/content_export.h"
-#include "third_party/blink/public/mojom/appcache/appcache.mojom.h"
+#include "third_party/blink/public/mojom/appcache/appcache.mojom-forward.h"
 #include "url/gurl.h"
 
 namespace content {
@@ -136,6 +136,9 @@ class CONTENT_EXPORT AppCache
     manifest_scope_ = manifest_scope;
   }
 
+  base::Time token_expires() const { return token_expires_; }
+  void set_token_expires(base::Time expires) { token_expires_ = expires; }
+
   // Initializes the cache with information in the manifest.
   // Do not use the manifest after this call.
   void InitializeWithManifest(AppCacheManifest* manifest);
@@ -146,7 +149,7 @@ class CONTENT_EXPORT AppCache
       const std::vector<AppCacheDatabase::EntryRecord>& entries,
       const std::vector<AppCacheDatabase::NamespaceRecord>& intercepts,
       const std::vector<AppCacheDatabase::NamespaceRecord>& fallbacks,
-      const std::vector<AppCacheDatabase::OnlineWhiteListRecord>& whitelists);
+      const std::vector<AppCacheDatabase::OnlineSafeListRecord>& safelists);
 
   // Returns the database records to be stored in the AppCacheDatabase
   // to represent this cache.
@@ -156,7 +159,7 @@ class CONTENT_EXPORT AppCache
       std::vector<AppCacheDatabase::EntryRecord>* entries,
       std::vector<AppCacheDatabase::NamespaceRecord>* intercepts,
       std::vector<AppCacheDatabase::NamespaceRecord>* fallbacks,
-      std::vector<AppCacheDatabase::OnlineWhiteListRecord>* whitelists);
+      std::vector<AppCacheDatabase::OnlineSafeListRecord>* safelists);
 
   bool FindResponseForRequest(const GURL& url,
       AppCacheEntry* found_entry, GURL* found_intercept_namespace,
@@ -192,7 +195,7 @@ class CONTENT_EXPORT AppCache
     return FindNamespace(fallback_namespaces_, url);
   }
   bool IsInNetworkNamespace(const GURL& url) {
-    return FindNamespace(online_whitelist_namespaces_, url) != nullptr;
+    return FindNamespace(online_safelist_namespaces_, url) != nullptr;
   }
 
   GURL GetNamespaceEntryUrl(const std::vector<AppCacheNamespace>& namespaces,
@@ -212,13 +215,17 @@ class CONTENT_EXPORT AppCache
 
   std::vector<AppCacheNamespace> intercept_namespaces_;
   std::vector<AppCacheNamespace> fallback_namespaces_;
-  std::vector<AppCacheNamespace> online_whitelist_namespaces_;
-  bool online_whitelist_all_;
+  std::vector<AppCacheNamespace> online_safelist_namespaces_;
+  bool online_safelist_all_;
 
   bool is_complete_;
 
   // when this cache was last updated
   base::Time update_time_;
+
+  // Origin Trial expiration time for the appcache's manifest.
+  // This is base::Time() if no Origin Trial token was presented.
+  base::Time token_expires_;
 
   int64_t cache_size_;
   int64_t padding_size_;

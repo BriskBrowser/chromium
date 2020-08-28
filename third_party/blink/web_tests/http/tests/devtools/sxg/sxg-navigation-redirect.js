@@ -6,13 +6,13 @@
   await TestRunner.loadModule('network_test_runner');
   await TestRunner.loadModule('console_test_runner');
   await TestRunner.showPanel('network');
-  SDK.networkLog.reset();
+  SDK.NetworkLog.instance().reset();
   const url =
       'http://localhost:8000/resources/redirect.php?url=' +
       encodeURIComponent(
         'http://127.0.0.1:8000/loading/sxg/resources/sxg-location.sxg');
   await TestRunner.addIframe(url);
-  ConsoleTestRunner.dumpConsoleMessages();
+  await ConsoleTestRunner.dumpConsoleMessages();
   NetworkTestRunner.dumpNetworkRequestsWithSignedExchangeInfo();
   TestRunner.completeTest();
 })();

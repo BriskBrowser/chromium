@@ -2,7 +2,6 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-import("//build/config/allocator.gni")
 import("//testing/test.gni")
 import("//tools/v8_context_snapshot/v8_context_snapshot.gni")
 import("//v8/gni/v8.gni")
@@ -71,9 +70,7 @@ component("gin") {
   ]
 
   if (v8_use_external_startup_data) {
-    data = [
-      "$root_out_dir/snapshot_blob.bin",
-    ]
+    data = [ "$root_out_dir/snapshot_blob.bin" ]
   }
 
   defines = [ "GIN_IMPLEMENTATION" ]
@@ -82,21 +79,17 @@ component("gin") {
     "//base",
     "//v8",
   ]
-  deps = [
-    "//base/third_party/dynamic_annotations",
-  ]
+  deps = [ "//base/third_party/dynamic_annotations" ]
 
   if (is_mac) {
-    libs = [ "CoreFoundation.framework" ]
+    frameworks = [ "CoreFoundation.framework" ]
   }
 
   configs += [ "//v8:external_startup_data" ]
 }
 
 executable("gin_shell") {
-  sources = [
-    "shell/gin_main.cc",
-  ]
+  sources = [ "shell/gin_main.cc" ]
 
   deps = [
     ":gin",
@@ -157,9 +150,7 @@ test("gin_unittests") {
     "//v8:external_startup_data",
   ]
 
-  data_deps = [
-    "//tools/v8_context_snapshot:v8_context_snapshot",
-  ]
+  data_deps = [ "//tools/v8_context_snapshot:v8_context_snapshot" ]
   data = []
 
   # gin_shell is not an Android app.

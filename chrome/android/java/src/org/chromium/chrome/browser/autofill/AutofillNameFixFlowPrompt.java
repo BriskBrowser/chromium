@@ -5,8 +5,6 @@
 package org.chromium.chrome.browser.autofill;
 
 import android.content.Context;
-import android.support.v4.text.TextUtilsCompat;
-import android.support.v4.view.ViewCompat;
 import android.text.Editable;
 import android.text.TextWatcher;
 import android.view.LayoutInflater;
@@ -18,8 +16,11 @@ import android.widget.PopupWindow;
 import android.widget.TextView;
 import android.widget.TextView.BufferType;
 
+import androidx.core.text.TextUtilsCompat;
+import androidx.core.view.ViewCompat;
+
 import org.chromium.chrome.R;
-import org.chromium.chrome.browser.ChromeActivity;
+import org.chromium.chrome.browser.app.ChromeActivity;
 import org.chromium.ui.modaldialog.DialogDismissalCause;
 import org.chromium.ui.modaldialog.ModalDialogManager;
 import org.chromium.ui.modaldialog.ModalDialogProperties;

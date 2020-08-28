@@ -12,6 +12,7 @@
 #include "base/location.h"
 #include "base/run_loop.h"
 #include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
 #include "base/threading/thread_restrictions.h"
 #include "build/build_config.h"
 #include "chrome/browser/chrome_notification_types.h"
@@ -20,25 +21,55 @@
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/notification_service.h"
+#include "printing/mojom/print.mojom.h"
 #include "printing/printed_document.h"
 
 #if defined(OS_WIN)
 #include "base/command_line.h"
 #include "chrome/browser/printing/pdf_to_emf_converter.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/common/chrome_features.h"
-#include "printing/common/printing_features.h"
+#include "chrome/common/pref_names.h"
+#include "components/prefs/pref_service.h"
+#include "content/public/browser/web_contents.h"
 #include "printing/pdf_render_settings.h"
 #include "printing/printed_page_win.h"
+#include "printing/printing_features.h"
 #endif
 
 using base::TimeDelta;
 
 namespace printing {
 
+namespace {
+
 // Helper function to ensure |job| is valid until at least |callback| returns.
 void HoldRefCallback(scoped_refptr<PrintJob> job, base::OnceClosure callback) {
   std::move(callback).Run();
 }
+
+#if defined(OS_WIN)
+// Those must be kept in sync with the values defined in policy_templates.json.
+enum class PrintRasterizationMode {
+  // Do full page rasterization if necessary. Default value when policy not set.
+  kFull = 0,
+  // Avoid rasterization if possible.
+  kFast = 1,
+  kMaxValue = kFast,
+};
+
+bool PrintWithReducedRasterization(PrefService* prefs) {
+  // Managed preference takes precedence over user preference and field trials.
+  if (prefs && prefs->IsManagedPreference(prefs::kPrintRasterizationMode)) {
+    int value = prefs->GetInteger(prefs::kPrintRasterizationMode);
+    return value == static_cast<int>(PrintRasterizationMode::kFast);
+  }
+
+  return base::FeatureList::IsEnabled(features::kPrintWithReducedRasterization);
+}
+#endif
+
+}  // namespace
 
 PrintJob::PrintJob() {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
@@ -93,15 +124,6 @@ std::vector<int> PrintJob::GetFullPageMapping(const std::vector<int>& pages,
       mapping[page_number] = page_number;
   }
   return mapping;
-}
-
-bool PrintJob::ShouldPrintUsingXps() const {
-  // Non-modifiable jobs are PDF, need to check a different flag for those when
-  // determining whether to print with XPS or GDI print API.
-  return document_->settings().is_modifiable()
-             ? base::FeatureList::IsEnabled(features::kUseXpsForPrinting)
-             : base::FeatureList::IsEnabled(
-                   features::kUseXpsForPrintingFromPdf);
 }
 
 void PrintJob::StartConversionToNativeFormat(
@@ -227,8 +249,8 @@ bool PrintJob::FlushJob(base::TimeDelta timeout) {
 
   base::RunLoop loop(base::RunLoop::Type::kNestableTasksAllowed);
   quit_closure_ = loop.QuitClosure();
-  base::PostDelayedTask(FROM_HERE, {content::BrowserThread::UI},
-                        loop.QuitClosure(), timeout);
+  content::GetUIThreadTaskRunner({})->PostDelayedTask(
+      FROM_HERE, loop.QuitClosure(), timeout);
 
   loop.Run();
 
@@ -328,11 +350,30 @@ void PrintJob::StartPdfToEmfConversion(
   bool print_text_with_gdi =
       settings.print_text_with_gdi() && !settings.printer_is_xps() &&
       base::FeatureList::IsEnabled(::features::kGdiTextPrinting);
+
+  // TODO(thestig): Figure out why crbug.com/1083911 occurred, which is likely
+  // because |web_contents| was null. As a result, this section has many more
+  // pointer checks to avoid crashing.
+  content::WebContents* web_contents = worker_->GetWebContents();
+  content::BrowserContext* context =
+      web_contents ? web_contents->GetBrowserContext() : nullptr;
+  PrefService* prefs =
+      context ? Profile::FromBrowserContext(context)->GetPrefs() : nullptr;
+  bool print_with_reduced_rasterization = PrintWithReducedRasterization(prefs);
+
+  using RenderMode = PdfRenderSettings::Mode;
+  RenderMode mode;
+  if (print_with_reduced_rasterization) {
+    mode = print_text_with_gdi
+               ? RenderMode::EMF_WITH_REDUCED_RASTERIZATION_AND_GDI_TEXT
+               : RenderMode::EMF_WITH_REDUCED_RASTERIZATION;
+  } else {
+    mode = print_text_with_gdi ? RenderMode::GDI_TEXT : RenderMode::NORMAL;
+  }
+
   PdfRenderSettings render_settings(
       content_area, gfx::Point(0, 0), settings.dpi_size(),
-      /*autorotate=*/true, settings.color() == COLOR,
-      print_text_with_gdi ? PdfRenderSettings::Mode::GDI_TEXT
-                          : PdfRenderSettings::Mode::NORMAL);
+      /*autorotate=*/true, settings.color() == mojom::ColorModel::kColor, mode);
   pdf_conversion_state_->Start(
       bytes, render_settings,
       base::BindOnce(&PrintJob::OnPdfConversionStarted, this));
@@ -410,7 +451,7 @@ void PrintJob::StartPdfToPostScriptConversion(
   const PrintSettings& settings = document()->settings();
   PdfRenderSettings render_settings(
       content_area, physical_offsets, settings.dpi_size(),
-      /*autorotate=*/true, settings.color() == COLOR,
+      /*autorotate=*/true, settings.color() == mojom::ColorModel::kColor,
       ps_level2 ? PdfRenderSettings::Mode::POSTSCRIPT_LEVEL2
                 : PdfRenderSettings::Mode::POSTSCRIPT_LEVEL3);
   pdf_conversion_state_->Start(
@@ -475,8 +516,8 @@ void PrintJob::OnNotifyPrintJobEvent(const JobEventDetails& event_details) {
     }
     case JobEventDetails::DOC_DONE: {
       // This will call Stop() and broadcast a JOB_DONE message.
-      base::PostTask(FROM_HERE, {content::BrowserThread::UI},
-                     base::BindOnce(&PrintJob::OnDocumentDone, this));
+      content::GetUIThreadTaskRunner({})->PostTask(
+          FROM_HERE, base::BindOnce(&PrintJob::OnDocumentDone, this));
       break;
     }
 #if defined(OS_WIN)
@@ -533,9 +574,8 @@ void PrintJob::ControlledWorkerShutdown() {
   // Delay shutdown until the worker terminates.  We want this code path
   // to wait on the thread to quit before continuing.
   if (worker_->IsRunning()) {
-    base::PostDelayedTask(
-        FROM_HERE, {content::BrowserThread::UI},
-        base::BindOnce(&PrintJob::ControlledWorkerShutdown, this),
+    content::GetUIThreadTaskRunner({})->PostDelayedTask(
+        FROM_HERE, base::BindOnce(&PrintJob::ControlledWorkerShutdown, this),
         base::TimeDelta::FromMilliseconds(100));
     return;
   }
@@ -543,9 +583,9 @@ void PrintJob::ControlledWorkerShutdown() {
 
   // Now make sure the thread object is cleaned up. Do this on a worker
   // thread because it may block.
-  base::PostTaskAndReply(
+  base::ThreadPool::PostTaskAndReply(
       FROM_HERE,
-      {base::ThreadPool(), base::MayBlock(), base::WithBaseSyncPrimitives(),
+      {base::MayBlock(), base::WithBaseSyncPrimitives(),
        base::TaskPriority::BEST_EFFORT,
        base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN},
       base::BindOnce(&PrintJobWorker::Stop, base::Unretained(worker_.get())),
@@ -590,4 +630,5 @@ PrintedDocument* JobEventDetails::document() const { return document_.get(); }
 #if defined(OS_WIN)
 PrintedPage* JobEventDetails::page() const { return page_.get(); }
 #endif
+
 }  // namespace printing

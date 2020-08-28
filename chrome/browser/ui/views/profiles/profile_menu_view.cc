@@ -16,8 +16,10 @@
 #include "build/build_config.h"
 #include "chrome/app/vector_icons/vector_icons.h"
 #include "chrome/browser/browser_process.h"
+#include "chrome/browser/lifetime/application_lifetime.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_avatar_icon_util.h"
+#include "chrome/browser/profiles/profile_metrics.h"
 #include "chrome/browser/profiles/profiles_state.h"
 #include "chrome/browser/signin/account_consistency_mode_manager.h"
 #include "chrome/browser/signin/chrome_signin_client_factory.h"
@@ -32,6 +34,7 @@
 #include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/browser_navigator_params.h"
 #include "chrome/browser/ui/passwords/manage_passwords_view_utils.h"
+#include "chrome/browser/ui/signin/profile_colors_util.h"
 #include "chrome/browser/ui/sync/sync_promo_ui.h"
 #include "chrome/browser/ui/ui_features.h"
 #include "chrome/browser/ui/views/accessibility/non_accessible_image_view.h"
@@ -47,7 +50,7 @@
 #include "chrome/grit/theme_resources.h"
 #include "components/signin/core/browser/signin_error_controller.h"
 #include "components/signin/public/base/signin_pref_names.h"
-#include "components/signin/public/identity_manager/accounts_mutator.h"
+#include "components/signin/public/identity_manager/consent_level.h"
 #include "components/signin/public/identity_manager/primary_account_mutator.h"
 #include "components/strings/grit/components_strings.h"
 #include "components/sync/driver/sync_service_utils.h"
@@ -64,7 +67,53 @@ namespace {
 
 // Helpers --------------------------------------------------------------------
 
-constexpr float kShortcutIconToImageRatio = 9.0 / 16.0;
+// Most error cases get displayed the same way, only the button string changes.
+ProfileMenuViewBase::SyncInfo GetStandardSyncErrorInfo(int button_string_id) {
+  return {IDS_SYNC_ERROR_USER_MENU_TITLE, button_string_id,
+          ProfileMenuViewBase::SyncInfoContainerBackgroundState::kError};
+}
+
+ProfileMenuViewBase::SyncInfo GetSyncInfoForAvatarErrorType(
+    sync_ui_util::AvatarSyncErrorType error) {
+  switch (error) {
+    case sync_ui_util::NO_SYNC_ERROR:
+      return {IDS_SETTINGS_EMPTY_STRING, IDS_PROFILES_OPEN_SYNC_SETTINGS_BUTTON,
+              ProfileMenuViewBase::SyncInfoContainerBackgroundState::kNoError};
+    case sync_ui_util::AUTH_ERROR:
+      // Sync paused. The user can reauth to resolve the signin error.
+      return {IDS_PROFILES_DICE_SYNC_PAUSED_TITLE,
+              IDS_SYNC_ERROR_USER_MENU_SIGNIN_BUTTON,
+              ProfileMenuViewBase::SyncInfoContainerBackgroundState::kPaused};
+    case sync_ui_util::MANAGED_USER_UNRECOVERABLE_ERROR:
+      // For a managed user, the user is directed to the signout confirmation
+      // dialogue in the settings page.
+      return GetStandardSyncErrorInfo(IDS_SYNC_ERROR_USER_MENU_SIGNOUT_BUTTON);
+    case sync_ui_util::UNRECOVERABLE_ERROR:
+      // For a non-managed user, we sign out on the user's behalf and prompt the
+      // user to sign in again.
+      return GetStandardSyncErrorInfo(
+          IDS_SYNC_ERROR_USER_MENU_SIGNIN_AGAIN_BUTTON);
+    case sync_ui_util::UPGRADE_CLIENT_ERROR:
+      return GetStandardSyncErrorInfo(IDS_SYNC_ERROR_USER_MENU_UPGRADE_BUTTON);
+    case sync_ui_util::PASSPHRASE_ERROR:
+      return GetStandardSyncErrorInfo(
+          IDS_SYNC_ERROR_USER_MENU_PASSPHRASE_BUTTON);
+    case sync_ui_util::TRUSTED_VAULT_KEY_MISSING_FOR_EVERYTHING_ERROR:
+      return GetStandardSyncErrorInfo(
+          IDS_SYNC_ERROR_USER_MENU_RETRIEVE_KEYS_BUTTON);
+    case sync_ui_util::TRUSTED_VAULT_KEY_MISSING_FOR_PASSWORDS_ERROR:
+      return {IDS_SYNC_ERROR_PASSWORDS_USER_MENU_TITLE,
+              IDS_SYNC_ERROR_USER_MENU_RETRIEVE_KEYS_BUTTON,
+              ProfileMenuViewBase::SyncInfoContainerBackgroundState::kError};
+    case sync_ui_util::SETTINGS_UNCONFIRMED_ERROR:
+      return GetStandardSyncErrorInfo(
+          IDS_SYNC_ERROR_USER_MENU_CONFIRM_SYNC_SETTINGS_BUTTON);
+  }
+
+  NOTREACHED();
+  return {IDS_SETTINGS_EMPTY_STRING, IDS_SETTINGS_EMPTY_STRING,
+          ProfileMenuViewBase::SyncInfoContainerBackgroundState::kNoError};
+}
 
 ProfileAttributesEntry* GetProfileAttributesEntry(Profile* profile) {
   ProfileAttributesEntry* entry;
@@ -94,25 +143,14 @@ void NavigateToGoogleAccountPage(Profile* profile, const std::string& email) {
 // Note: For regular profiles this includes incognito sessions.
 int CountBrowsersFor(Profile* profile) {
   int browser_count = chrome::GetBrowserCount(profile);
-  if (!profile->IsOffTheRecord() && profile->HasOffTheRecordProfile())
-    browser_count += chrome::GetBrowserCount(profile->GetOffTheRecordProfile());
+  if (!profile->IsOffTheRecord() && profile->HasPrimaryOTRProfile())
+    browser_count += chrome::GetBrowserCount(profile->GetPrimaryOTRProfile());
   return browser_count;
 }
 
-SkColor GetSyncErrorBackgroundColor(bool sync_paused) {
-  constexpr int kAlpha = 16;
-  ui::NativeTheme::ColorId base_color_id =
-      sync_paused ? ui::NativeTheme::kColorId_ProminentButtonColor
-                  : ui::NativeTheme::kColorId_AlertSeverityHigh;
-  SkColor base_color =
-      ui::NativeTheme::GetInstanceForNativeUi()->GetSystemColor(base_color_id);
-  return SkColorSetA(base_color, kAlpha);
-}
-
 bool IsSyncPaused(Profile* profile) {
-  int unused;
-  return sync_ui_util::GetMessagesForAvatarSyncError(
-             profile, &unused, &unused) == sync_ui_util::AUTH_ERROR;
+  return sync_ui_util::GetAvatarSyncErrorType(profile) ==
+         sync_ui_util::AUTH_ERROR;
 }
 
 }  // namespace
@@ -122,10 +160,8 @@ bool IsSyncPaused(Profile* profile) {
 // static
 bool ProfileMenuView::close_on_deactivate_for_testing_ = true;
 
-ProfileMenuView::ProfileMenuView(views::Button* anchor_button,
-                                 Browser* browser,
-                                 signin_metrics::AccessPoint access_point)
-    : ProfileMenuViewBase(anchor_button, browser), access_point_(access_point) {
+ProfileMenuView::ProfileMenuView(views::Button* anchor_button, Browser* browser)
+    : ProfileMenuViewBase(anchor_button, browser) {
   GetViewAccessibility().OverrideName(GetAccessibleWindowTitle());
   chrome::RecordDialogCreation(chrome::DialogIdentifier::PROFILE_CHOOSER);
   set_close_on_deactivate(close_on_deactivate_for_testing_);
@@ -146,252 +182,27 @@ void ProfileMenuView::BuildMenu() {
   }
 
   BuildFeatureButtons();
+
+//  ChromeOS doesn't support multi-profile.
+#if !defined(OS_CHROMEOS)
   BuildProfileManagementHeading();
   BuildSelectableProfiles();
   BuildProfileManagementFeatureButtons();
+#endif
 }
 
-base::string16 ProfileMenuView::GetAccessibleWindowTitle() const {
-  return l10n_util::GetStringUTF16(
-      IDS_PROFILES_PROFILE_BUBBLE_ACCESSIBLE_TITLE);
-}
-
-void ProfileMenuView::OnManageGoogleAccountButtonClicked() {
-  RecordClick(ActionableItem::kManageGoogleAccountButton);
-  // TODO(crbug.com/995757): Remove user action.
-  base::RecordAction(
-      base::UserMetricsAction("ProfileChooser_ManageGoogleAccountClicked"));
-
+gfx::ImageSkia ProfileMenuView::GetSyncIcon() const {
   Profile* profile = browser()->profile();
-  signin::IdentityManager* identity_manager =
-      IdentityManagerFactory::GetForProfile(profile);
-  DCHECK(identity_manager->HasUnconsentedPrimaryAccount());
-
-  NavigateToGoogleAccountPage(
-      profile, identity_manager->GetUnconsentedPrimaryAccountInfo().email);
-}
-
-void ProfileMenuView::OnPasswordsButtonClicked() {
-  RecordClick(ActionableItem::kPasswordsButton);
-  // TODO(crbug.com/995757): Remove user action.
-  base::RecordAction(
-      base::UserMetricsAction("ProfileChooser_PasswordsClicked"));
-  NavigateToManagePasswordsPage(
-      browser(), password_manager::ManagePasswordsReferrer::kProfileChooser);
-}
-
-void ProfileMenuView::OnCreditCardsButtonClicked() {
-  RecordClick(ActionableItem::kCreditCardsButton);
-  // TODO(crbug.com/995757): Remove user action.
-  base::RecordAction(base::UserMetricsAction("ProfileChooser_PaymentsClicked"));
-  chrome::ShowSettingsSubPage(browser(), chrome::kPaymentsSubPage);
-}
-
-void ProfileMenuView::OnAddressesButtonClicked() {
-  RecordClick(ActionableItem::kAddressesButton);
-  // TODO(crbug.com/995757): Remove user action.
-  base::RecordAction(
-      base::UserMetricsAction("ProfileChooser_AddressesClicked"));
-  chrome::ShowSettingsSubPage(browser(), chrome::kAddressesSubPage);
-}
-
-void ProfileMenuView::OnGuestProfileButtonClicked() {
-  RecordClick(ActionableItem::kGuestProfileButton);
-  // TODO(crbug.com/995757): Remove user action.
-  base::RecordAction(base::UserMetricsAction("ProfileChooser_GuestClicked"));
-  PrefService* service = g_browser_process->local_state();
-  DCHECK(service);
-  DCHECK(service->GetBoolean(prefs::kBrowserGuestModeEnabled));
-  profiles::SwitchToGuestProfile(ProfileManager::CreateCallback());
-}
-
-void ProfileMenuView::OnManageProfilesButtonClicked() {
-  RecordClick(ActionableItem::kManageProfilesButton);
-  // TODO(crbug.com/995757): Remove user action.
-  base::RecordAction(base::UserMetricsAction("ProfileChooser_ManageClicked"));
-  UserManager::Show(base::FilePath(),
-                    profiles::USER_MANAGER_SELECT_PROFILE_NO_ACTION);
-  PostActionPerformed(ProfileMetrics::PROFILE_DESKTOP_MENU_OPEN_USER_MANAGER);
-}
-
-void ProfileMenuView::OnExitProfileButtonClicked() {
-  RecordClick(ActionableItem::kExitProfileButton);
-  // TODO(crbug.com/995757): Remove user action.
-  base::RecordAction(base::UserMetricsAction("ProfileChooser_CloseAllClicked"));
-  profiles::CloseProfileWindows(browser()->profile());
-}
-
-void ProfileMenuView::OnSyncSettingsButtonClicked() {
-  RecordClick(ActionableItem::kSyncSettingsButton);
-  chrome::ShowSettingsSubPage(browser(), chrome::kSyncSetupSubPage);
-}
-
-void ProfileMenuView::OnSyncErrorButtonClicked(
-    sync_ui_util::AvatarSyncErrorType error) {
-  RecordClick(ActionableItem::kSyncErrorButton);
-  // TODO(crbug.com/995757): Remove user action.
-  base::RecordAction(
-      base::UserMetricsAction("ProfileChooser_SignInAgainClicked"));
-  switch (error) {
-    case sync_ui_util::MANAGED_USER_UNRECOVERABLE_ERROR:
-      chrome::ShowSettingsSubPage(browser(), chrome::kSignOutSubPage);
-      break;
-    case sync_ui_util::UNRECOVERABLE_ERROR:
-      if (ProfileSyncServiceFactory::GetForProfile(browser()->profile())) {
-        syncer::RecordSyncEvent(syncer::STOP_FROM_OPTIONS);
-      }
-
-      // GetPrimaryAccountMutator() might return nullptr on some platforms.
-      if (auto* account_mutator =
-              IdentityManagerFactory::GetForProfile(browser()->profile())
-                  ->GetPrimaryAccountMutator()) {
-        account_mutator->ClearPrimaryAccount(
-            signin::PrimaryAccountMutator::ClearAccountsAction::kDefault,
-            signin_metrics::USER_CLICKED_SIGNOUT_SETTINGS,
-            signin_metrics::SignoutDelete::IGNORE_METRIC);
-        Hide();
-        browser()->signin_view_controller()->ShowSignin(
-            profiles::BUBBLE_VIEW_MODE_GAIA_SIGNIN, browser(), access_point_);
-      }
-      break;
-    case sync_ui_util::AUTH_ERROR:
-      Hide();
-      browser()->signin_view_controller()->ShowSignin(
-          profiles::BUBBLE_VIEW_MODE_GAIA_REAUTH, browser(), access_point_);
-      break;
-    case sync_ui_util::UPGRADE_CLIENT_ERROR:
-      chrome::OpenUpdateChromeDialog(browser());
-      break;
-    case sync_ui_util::TRUSTED_VAULT_KEY_MISSING_FOR_EVERYTHING_ERROR:
-    case sync_ui_util::TRUSTED_VAULT_KEY_MISSING_FOR_PASSWORDS_ERROR:
-      sync_ui_util::OpenTabForSyncKeyRetrieval(browser());
-      break;
-    case sync_ui_util::PASSPHRASE_ERROR:
-    case sync_ui_util::SETTINGS_UNCONFIRMED_ERROR:
-      chrome::ShowSettingsSubPage(browser(), chrome::kSyncSetupSubPage);
-      break;
-    case sync_ui_util::NO_SYNC_ERROR:
-      NOTREACHED();
-      break;
-  }
-}
-
-void ProfileMenuView::OnSigninButtonClicked() {
-  RecordClick(ActionableItem::kSigninButton);
-  Hide();
-  browser()->signin_view_controller()->ShowSignin(
-      profiles::BUBBLE_VIEW_MODE_GAIA_SIGNIN, browser(), access_point_);
-}
-
-void ProfileMenuView::OnSigninAccountButtonClicked(AccountInfo account) {
-  RecordClick(ActionableItem::kSigninAccountButton);
-  Hide();
-  signin_ui_util::EnableSyncFromPromo(browser(), account, access_point_,
-                                      true /* is_default_promo_account */);
-}
-
-void ProfileMenuView::OnSignoutButtonClicked() {
-  RecordClick(ActionableItem::kSignoutButton);
-  // TODO(crbug.com/995757): Remove user action.
-  base::RecordAction(base::UserMetricsAction("Signin_Signout_FromUserMenu"));
-  Hide();
-  // Sign out from all accounts.
-  IdentityManagerFactory::GetForProfile(browser()->profile())
-      ->GetAccountsMutator()
-      ->RemoveAllAccounts(signin_metrics::SourceForRefreshTokenOperation::
-                              kUserMenu_SignOutAllAccounts);
-}
-
-void ProfileMenuView::OnOtherProfileSelected(
-    const base::FilePath& profile_path) {
-  RecordClick(ActionableItem::kOtherProfileButton);
-  // TODO(crbug.com/995757): Remove user action.
-  base::RecordAction(base::UserMetricsAction("ProfileChooser_ProfileClicked"));
-  Hide();
-  profiles::SwitchToProfile(profile_path, /*always_create=*/false,
-                            ProfileManager::CreateCallback(),
-                            ProfileMetrics::SWITCH_PROFILE_ICON);
-}
-
-void ProfileMenuView::OnCookiesClearedOnExitLinkClicked() {
-  RecordClick(ActionableItem::kCookiesClearedOnExitLink);
-  // TODO(crbug.com/995757): Remove user action.
-  base::RecordAction(
-      base::UserMetricsAction("ProfileChooser_CookieSettingsClicked"));
-  chrome::ShowSettingsSubPage(browser(), chrome::kContentSettingsSubPage +
-                                             std::string("/") +
-                                             chrome::kCookieSettingsSubPage);
-}
-
-void ProfileMenuView::OnAddNewProfileButtonClicked() {
-  RecordClick(ActionableItem::kAddNewProfileButton);
-  UserManager::Show(/*profile_path_to_focus=*/base::FilePath(),
-                    profiles::USER_MANAGER_OPEN_CREATE_USER_PAGE);
-}
-
-void ProfileMenuView::OnEditProfileButtonClicked() {
-  RecordClick(ActionableItem::kEditProfileButton);
-  chrome::ShowSettingsSubPage(browser(), chrome::kManageProfileSubPage);
-}
-
-void ProfileMenuView::BuildIdentity() {
-  Profile* profile = browser()->profile();
-  signin::IdentityManager* identity_manager =
-      IdentityManagerFactory::GetForProfile(profile);
-  CoreAccountInfo account =
-      identity_manager->GetUnconsentedPrimaryAccountInfo();
-  base::Optional<AccountInfo> account_info =
-      identity_manager->FindExtendedAccountInfoForAccountWithRefreshToken(
-          account);
-  ProfileAttributesEntry* profile_attributes =
-      GetProfileAttributesEntry(profile);
-  size_t num_of_profiles =
-      g_browser_process->profile_manager()->GetNumberOfProfiles();
-
-  if (num_of_profiles > 1 || !profile_attributes->IsUsingDefaultName()) {
-    SetHeading(profile_attributes->GetLocalProfileName(),
-               l10n_util::GetStringUTF16(IDS_SETTINGS_EDIT_PERSON),
-               base::BindRepeating(&ProfileMenuView::OnEditProfileButtonClicked,
-                                   base::Unretained(this)));
-  }
-
-  if (account_info.has_value()) {
-    SetIdentityInfo(
-        account_info.value().account_image.AsImageSkia(), GetSyncIcon(),
-        base::UTF8ToUTF16(account_info.value().full_name),
-        IsSyncPaused(profile)
-            ? l10n_util::GetStringUTF16(IDS_PROFILES_LOCAL_PROFILE_STATE)
-            : base::UTF8ToUTF16(account_info.value().email));
-  } else {
-    SetIdentityInfo(
-        profile_attributes->GetAvatarIcon().AsImageSkia(), GetSyncIcon(),
-        /*title=*/base::string16(),
-        l10n_util::GetStringUTF16(IDS_PROFILES_LOCAL_PROFILE_STATE));
-  }
-}
-
-void ProfileMenuView::BuildGuestIdentity() {
-  SetIdentityInfo(profiles::GetGuestAvatar(), GetSyncIcon(),
-                  l10n_util::GetStringUTF16(IDS_GUEST_PROFILE_NAME));
-}
-
-gfx::ImageSkia ProfileMenuView::GetSyncIcon() {
-  Profile* profile = browser()->profile();
-  signin::IdentityManager* identity_manager =
-      IdentityManagerFactory::GetForProfile(profile);
-  ui::NativeTheme* native_theme = ui::NativeTheme::GetInstanceForNativeUi();
 
   if (!profile->IsRegularProfile())
     return gfx::ImageSkia();
 
-  if (!identity_manager->HasPrimaryAccount())
+  if (!IdentityManagerFactory::GetForProfile(profile)->HasPrimaryAccount())
     return ColoredImageForMenu(kSyncPausedCircleIcon, gfx::kGoogleGrey500);
 
   const gfx::VectorIcon* icon = nullptr;
   ui::NativeTheme::ColorId color_id;
-  int unused;
-  switch (
-      sync_ui_util::GetMessagesForAvatarSyncError(profile, &unused, &unused)) {
+  switch (sync_ui_util::GetAvatarSyncErrorType(profile)) {
     case sync_ui_util::NO_SYNC_ERROR:
       icon = &kSyncCircleIcon;
       color_id = ui::NativeTheme::kColorId_AlertSeverityLow;
@@ -411,24 +222,283 @@ gfx::ImageSkia ProfileMenuView::GetSyncIcon() {
       color_id = ui::NativeTheme::kColorId_AlertSeverityHigh;
       break;
   }
-  return ColoredImageForMenu(*icon, native_theme->GetSystemColor(color_id));
+  const SkColor image_color = GetNativeTheme()->GetSystemColor(color_id);
+  return ColoredImageForMenu(*icon, image_color);
+}
+
+base::string16 ProfileMenuView::GetAccessibleWindowTitle() const {
+  return l10n_util::GetStringUTF16(
+      IDS_PROFILES_PROFILE_BUBBLE_ACCESSIBLE_TITLE);
+}
+
+void ProfileMenuView::OnManageGoogleAccountButtonClicked() {
+  RecordClick(ActionableItem::kManageGoogleAccountButton);
+  if (!perform_menu_actions())
+    return;
+
+  Profile* profile = browser()->profile();
+  signin::IdentityManager* identity_manager =
+      IdentityManagerFactory::GetForProfile(profile);
+  DCHECK(
+      identity_manager->HasPrimaryAccount(signin::ConsentLevel::kNotRequired));
+  NavigateToGoogleAccountPage(
+      profile, identity_manager
+                   ->GetPrimaryAccountInfo(signin::ConsentLevel::kNotRequired)
+                   .email);
+}
+
+void ProfileMenuView::OnPasswordsButtonClicked() {
+  RecordClick(ActionableItem::kPasswordsButton);
+  if (!perform_menu_actions())
+    return;
+  NavigateToManagePasswordsPage(
+      browser(), password_manager::ManagePasswordsReferrer::kProfileChooser);
+}
+
+void ProfileMenuView::OnCreditCardsButtonClicked() {
+  RecordClick(ActionableItem::kCreditCardsButton);
+  if (!perform_menu_actions())
+    return;
+  chrome::ShowSettingsSubPage(browser(), chrome::kPaymentsSubPage);
+}
+
+void ProfileMenuView::OnAddressesButtonClicked() {
+  RecordClick(ActionableItem::kAddressesButton);
+  if (!perform_menu_actions())
+    return;
+  chrome::ShowSettingsSubPage(browser(), chrome::kAddressesSubPage);
+}
+
+void ProfileMenuView::OnGuestProfileButtonClicked() {
+  RecordClick(ActionableItem::kGuestProfileButton);
+  if (!perform_menu_actions())
+    return;
+  PrefService* service = g_browser_process->local_state();
+  DCHECK(service);
+  DCHECK(service->GetBoolean(prefs::kBrowserGuestModeEnabled));
+  profiles::SwitchToGuestProfile(ProfileManager::CreateCallback());
+}
+
+void ProfileMenuView::OnExitProfileButtonClicked() {
+  RecordClick(ActionableItem::kExitProfileButton);
+  if (!perform_menu_actions())
+    return;
+  profiles::CloseProfileWindows(browser()->profile());
+}
+
+void ProfileMenuView::OnSyncSettingsButtonClicked() {
+  RecordClick(ActionableItem::kSyncSettingsButton);
+  if (!perform_menu_actions())
+    return;
+  chrome::ShowSettingsSubPage(browser(), chrome::kSyncSetupSubPage);
+}
+
+void ProfileMenuView::OnSyncErrorButtonClicked(
+    sync_ui_util::AvatarSyncErrorType error) {
+#if defined(OS_CHROMEOS)
+  // On ChromeOS, sync errors are fixed by re-signing into the OS.
+  chrome::AttemptUserExit();
+#else
+  RecordClick(ActionableItem::kSyncErrorButton);
+  if (!perform_menu_actions())
+    return;
+
+  // The logic below must be consistent with GetSyncInfoForAvatarErrorType().
+  switch (error) {
+    case sync_ui_util::MANAGED_USER_UNRECOVERABLE_ERROR:
+      chrome::ShowSettingsSubPage(browser(), chrome::kSignOutSubPage);
+      break;
+    case sync_ui_util::UNRECOVERABLE_ERROR:
+      if (ProfileSyncServiceFactory::GetForProfile(browser()->profile())) {
+        syncer::RecordSyncEvent(syncer::STOP_FROM_OPTIONS);
+      }
+
+      // GetPrimaryAccountMutator() might return nullptr on some platforms.
+      if (auto* account_mutator =
+              IdentityManagerFactory::GetForProfile(browser()->profile())
+                  ->GetPrimaryAccountMutator()) {
+        account_mutator->ClearPrimaryAccount(
+            signin::PrimaryAccountMutator::ClearAccountsAction::kDefault,
+            signin_metrics::USER_CLICKED_SIGNOUT_SETTINGS,
+            signin_metrics::SignoutDelete::IGNORE_METRIC);
+        Hide();
+        browser()->signin_view_controller()->ShowSignin(
+            profiles::BUBBLE_VIEW_MODE_GAIA_SIGNIN,
+            signin_metrics::AccessPoint::ACCESS_POINT_AVATAR_BUBBLE_SIGN_IN);
+      }
+      break;
+    case sync_ui_util::AUTH_ERROR:
+      Hide();
+      browser()->signin_view_controller()->ShowSignin(
+          profiles::BUBBLE_VIEW_MODE_GAIA_REAUTH,
+          signin_metrics::AccessPoint::ACCESS_POINT_AVATAR_BUBBLE_SIGN_IN);
+      break;
+    case sync_ui_util::UPGRADE_CLIENT_ERROR:
+      chrome::OpenUpdateChromeDialog(browser());
+      break;
+    case sync_ui_util::TRUSTED_VAULT_KEY_MISSING_FOR_EVERYTHING_ERROR:
+    case sync_ui_util::TRUSTED_VAULT_KEY_MISSING_FOR_PASSWORDS_ERROR:
+      sync_ui_util::OpenTabForSyncKeyRetrieval(
+          browser(), syncer::KeyRetrievalTriggerForUMA::kProfileMenu);
+      break;
+    case sync_ui_util::PASSPHRASE_ERROR:
+    case sync_ui_util::SETTINGS_UNCONFIRMED_ERROR:
+      chrome::ShowSettingsSubPage(browser(), chrome::kSyncSetupSubPage);
+      break;
+    case sync_ui_util::NO_SYNC_ERROR:
+      NOTREACHED();
+      break;
+  }
+#endif
+}
+
+void ProfileMenuView::OnSigninAccountButtonClicked(AccountInfo account) {
+  RecordClick(ActionableItem::kSigninAccountButton);
+  if (!perform_menu_actions())
+    return;
+  Hide();
+  signin_ui_util::EnableSyncFromPromo(
+      browser(), account,
+      signin_metrics::AccessPoint::ACCESS_POINT_AVATAR_BUBBLE_SIGN_IN,
+      true /* is_default_promo_account */);
+}
+
+#if !defined(OS_CHROMEOS)
+void ProfileMenuView::OnSignoutButtonClicked() {
+  RecordClick(ActionableItem::kSignoutButton);
+  if (!perform_menu_actions())
+    return;
+  Hide();
+  // Sign out from all accounts.
+  browser()->signin_view_controller()->ShowGaiaLogoutTab(
+      signin_metrics::SourceForRefreshTokenOperation::
+          kUserMenu_SignOutAllAccounts);
+}
+
+void ProfileMenuView::OnSigninButtonClicked() {
+  RecordClick(ActionableItem::kSigninButton);
+  if (!perform_menu_actions())
+    return;
+  Hide();
+  browser()->signin_view_controller()->ShowSignin(
+      profiles::BUBBLE_VIEW_MODE_GAIA_SIGNIN,
+      signin_metrics::AccessPoint::ACCESS_POINT_AVATAR_BUBBLE_SIGN_IN);
+}
+
+void ProfileMenuView::OnOtherProfileSelected(
+    const base::FilePath& profile_path) {
+  RecordClick(ActionableItem::kOtherProfileButton);
+  if (!perform_menu_actions())
+    return;
+  Hide();
+  profiles::SwitchToProfile(profile_path, /*always_create=*/false,
+                            ProfileManager::CreateCallback());
+}
+
+void ProfileMenuView::OnAddNewProfileButtonClicked() {
+  RecordClick(ActionableItem::kAddNewProfileButton);
+  if (!perform_menu_actions())
+    return;
+  UserManager::Show(/*profile_path_to_focus=*/base::FilePath(),
+                    profiles::USER_MANAGER_OPEN_CREATE_USER_PAGE);
+}
+
+void ProfileMenuView::OnManageProfilesButtonClicked() {
+  RecordClick(ActionableItem::kManageProfilesButton);
+  if (!perform_menu_actions())
+    return;
+  UserManager::Show(base::FilePath(),
+                    profiles::USER_MANAGER_SELECT_PROFILE_NO_ACTION);
+}
+
+void ProfileMenuView::OnEditProfileButtonClicked() {
+  RecordClick(ActionableItem::kEditProfileButton);
+  if (!perform_menu_actions())
+    return;
+  chrome::ShowSettingsSubPage(browser(), chrome::kManageProfileSubPage);
+}
+#endif  // defined(OS_CHROMEOS)
+
+void ProfileMenuView::OnCookiesClearedOnExitLinkClicked() {
+  RecordClick(ActionableItem::kCookiesClearedOnExitLink);
+  if (!perform_menu_actions())
+    return;
+  chrome::ShowSettingsSubPage(browser(), chrome::kContentSettingsSubPage +
+                                             std::string("/") +
+                                             chrome::kCookieSettingsSubPage);
+}
+
+void ProfileMenuView::BuildIdentity() {
+  Profile* profile = browser()->profile();
+  signin::IdentityManager* identity_manager =
+      IdentityManagerFactory::GetForProfile(profile);
+  CoreAccountInfo account = identity_manager->GetPrimaryAccountInfo(
+      signin::ConsentLevel::kNotRequired);
+  base::Optional<AccountInfo> account_info =
+      identity_manager->FindExtendedAccountInfoForAccountWithRefreshToken(
+          account);
+  ProfileAttributesEntry* profile_attributes =
+      GetProfileAttributesEntry(profile);
+
+  base::string16 profile_name;
+  base::Optional<EditButtonParams> edit_button_params;
+// Profile names are not supported on ChromeOS.
+#if !defined(OS_CHROMEOS)
+  size_t num_of_profiles =
+      g_browser_process->profile_manager()->GetNumberOfProfiles();
+  if (num_of_profiles > 1 || !profile_attributes->IsUsingDefaultName() ||
+      base::FeatureList::IsEnabled(features::kNewProfilePicker)) {
+    profile_name = profile_attributes->GetLocalProfileName();
+    edit_button_params = EditButtonParams(
+        &vector_icons::kEditIcon,
+        l10n_util::GetStringUTF16(IDS_SETTINGS_EDIT_PERSON),
+        base::BindRepeating(&ProfileMenuView::OnEditProfileButtonClicked,
+                            base::Unretained(this)));
+  }
+#endif
+
+  SkColor background_color =
+      GetThemeColorsForProfile(profile).profile_highlight_color;
+  if (account_info.has_value()) {
+    SetProfileIdentityInfo(
+        profile_name, background_color, edit_button_params,
+        ui::ImageModel::FromImage(account_info.value().account_image),
+        base::UTF8ToUTF16(account_info.value().full_name),
+        IsSyncPaused(profile)
+            ? l10n_util::GetStringUTF16(IDS_PROFILES_LOCAL_PROFILE_STATE)
+            : base::UTF8ToUTF16(account_info.value().email));
+  } else {
+    SetProfileIdentityInfo(
+        profile_name, background_color, edit_button_params,
+        ui::ImageModel::FromImage(
+            profile_attributes->GetAvatarIcon(kIdentityImageSize)),
+        /*title=*/base::string16(),
+        l10n_util::GetStringUTF16(IDS_PROFILES_LOCAL_PROFILE_STATE));
+  }
+}
+
+void ProfileMenuView::BuildGuestIdentity() {
+  SetProfileIdentityInfo(/*profile_name=*/base::string16(),
+                         /*background_color=*/SK_ColorTRANSPARENT,
+                         /*edit_button=*/base::nullopt,
+                         profiles::GetGuestAvatar(),
+                         l10n_util::GetStringUTF16(IDS_GUEST_PROFILE_NAME));
 }
 
 void ProfileMenuView::BuildAutofillButtons() {
   AddShortcutFeatureButton(
-      ImageForMenu(kKeyIcon, kShortcutIconToImageRatio),
-      l10n_util::GetStringUTF16(IDS_PROFILES_PASSWORDS_LINK),
+      kKeyIcon, l10n_util::GetStringUTF16(IDS_PROFILES_PASSWORDS_LINK),
       base::BindRepeating(&ProfileMenuView::OnPasswordsButtonClicked,
                           base::Unretained(this)));
 
   AddShortcutFeatureButton(
-      ImageForMenu(kCreditCardIcon, kShortcutIconToImageRatio),
+      kCreditCardIcon,
       l10n_util::GetStringUTF16(IDS_PROFILES_CREDIT_CARDS_LINK),
       base::BindRepeating(&ProfileMenuView::OnCreditCardsButtonClicked,
                           base::Unretained(this)));
 
   AddShortcutFeatureButton(
-      ImageForMenu(vector_icons::kLocationOnIcon, kShortcutIconToImageRatio),
+      vector_icons::kLocationOnIcon,
       l10n_util::GetStringUTF16(IDS_PROFILES_ADDRESSES_LINK),
       base::BindRepeating(&ProfileMenuView::OnAddressesButtonClicked,
                           base::Unretained(this)));
@@ -447,66 +517,47 @@ void ProfileMenuView::BuildSyncInfo() {
 
   if (identity_manager->HasPrimaryAccount()) {
     // Show sync state.
-    int description_string_id, button_string_id;
-    sync_ui_util::AvatarSyncErrorType error =
-        sync_ui_util::GetMessagesForAvatarSyncError(
-            browser()->profile(), &description_string_id, &button_string_id);
+    const sync_ui_util::AvatarSyncErrorType error =
+        sync_ui_util::GetAvatarSyncErrorType(browser()->profile());
 
-    if (error == sync_ui_util::NO_SYNC_ERROR) {
-      SetSyncInfo(
-          GetSyncIcon(),
-          /*description=*/base::string16(),
-          l10n_util::GetStringUTF16(IDS_PROFILES_OPEN_SYNC_SETTINGS_BUTTON),
-          base::BindRepeating(&ProfileMenuView::OnSyncSettingsButtonClicked,
-                              base::Unretained(this)));
-    } else {
-      const bool sync_paused = (error == sync_ui_util::AUTH_ERROR);
-      const bool passwords_only_error =
-          (error ==
-           sync_ui_util::TRUSTED_VAULT_KEY_MISSING_FOR_PASSWORDS_ERROR);
+    const base::RepeatingClosure action =
+        error == sync_ui_util::NO_SYNC_ERROR
+            ? base::BindRepeating(&ProfileMenuView::OnSyncSettingsButtonClicked,
+                                  base::Unretained(this))
+            : base::BindRepeating(&ProfileMenuView::OnSyncErrorButtonClicked,
+                                  base::Unretained(this), error);
+    SetSyncInfo(GetSyncInfoForAvatarErrorType(error), action,
+                /*show_badge=*/true);
 
-      // Overwrite error description with short version for the menu.
-      description_string_id =
-          sync_paused
-              ? IDS_PROFILES_DICE_SYNC_PAUSED_TITLE
-              : passwords_only_error ? IDS_SYNC_ERROR_PASSWORDS_USER_MENU_TITLE
-                                     : IDS_SYNC_ERROR_USER_MENU_TITLE;
-
-      SetSyncInfo(
-          GetSyncIcon(), l10n_util::GetStringUTF16(description_string_id),
-          l10n_util::GetStringUTF16(button_string_id),
-          base::BindRepeating(&ProfileMenuView::OnSyncErrorButtonClicked,
-                              base::Unretained(this), error));
-      SetSyncInfoBackgroundColor(GetSyncErrorBackgroundColor(sync_paused));
-    }
     return;
   }
 
   // Show sync promos.
-  CoreAccountInfo unconsented_account =
-      identity_manager->GetUnconsentedPrimaryAccountInfo();
+  CoreAccountInfo unconsented_account = identity_manager->GetPrimaryAccountInfo(
+      signin::ConsentLevel::kNotRequired);
   base::Optional<AccountInfo> account_info =
       identity_manager->FindExtendedAccountInfoForAccountWithRefreshToken(
           unconsented_account);
 
   if (account_info.has_value()) {
     SetSyncInfo(
-        GetSyncIcon(),
-        l10n_util::GetStringUTF16(IDS_PROFILES_DICE_NOT_SYNCING_TITLE),
-        l10n_util::GetStringUTF16(IDS_PROFILES_DICE_SIGNIN_BUTTON),
+        {IDS_PROFILES_DICE_NOT_SYNCING_TITLE, IDS_PROFILES_DICE_SIGNIN_BUTTON,
+         SyncInfoContainerBackgroundState::kNoPrimaryAccount},
         base::BindRepeating(&ProfileMenuView::OnSigninAccountButtonClicked,
-                            base::Unretained(this), account_info.value()));
+                            base::Unretained(this), account_info.value()),
+        /*show_badge=*/true);
   } else {
-    SetSyncInfo(/*icon=*/gfx::ImageSkia(),
-                l10n_util::GetStringUTF16(IDS_PROFILES_DICE_SYNC_PROMO),
-                l10n_util::GetStringUTF16(IDS_PROFILES_DICE_SIGNIN_BUTTON),
+#if defined(OS_CHROMEOS)
+    // There is always an account on ChromeOS.
+    NOTREACHED();
+#else
+    SetSyncInfo({IDS_PROFILES_DICE_SYNC_PROMO, IDS_PROFILES_DICE_SIGNIN_BUTTON,
+                 SyncInfoContainerBackgroundState::kNoPrimaryAccount},
                 base::BindRepeating(&ProfileMenuView::OnSigninButtonClicked,
-                                    base::Unretained(this)));
+                                    base::Unretained(this)),
+                /*show_badge=*/false);
+#endif
   }
-
-  SetSyncInfoBackgroundColor(
-      ui::NativeTheme::GetInstanceForNativeUi()->GetSystemColor(
-          ui::NativeTheme::kColorId_HighlightedMenuItemBackgroundColor));
 }
 
 void ProfileMenuView::BuildFeatureButtons() {
@@ -515,45 +566,54 @@ void ProfileMenuView::BuildFeatureButtons() {
       IdentityManagerFactory::GetForProfile(profile);
   const bool is_guest = profile->IsGuestSession();
   const bool has_unconsented_account =
-      !is_guest && identity_manager->HasUnconsentedPrimaryAccount();
-  const bool has_primary_account =
-      !is_guest && identity_manager->HasPrimaryAccount();
+      !is_guest &&
+      identity_manager->HasPrimaryAccount(signin::ConsentLevel::kNotRequired);
 
   if (has_unconsented_account && !IsSyncPaused(profile)) {
-    AddFeatureButton(
 #if BUILDFLAG(GOOGLE_CHROME_BRANDING)
-        // The Google G icon needs to be shrunk, so it won't look too big
-        // compared to the other icons.
-        ImageForMenu(kGoogleGLogoIcon, /*icon_to_image_ratio=*/0.75),
+    // The Google G icon needs to be shrunk, so it won't look too big compared
+    // to the other icons.
+    AddFeatureButton(
+        l10n_util::GetStringUTF16(IDS_SETTINGS_MANAGE_GOOGLE_ACCOUNT),
+        base::BindRepeating(
+            &ProfileMenuView::OnManageGoogleAccountButtonClicked,
+            base::Unretained(this)),
+        kGoogleGLogoIcon,
+        /*icon_to_image_ratio=*/0.75f);
 #else
-        gfx::ImageSkia(),
-#endif
+    AddFeatureButton(
         l10n_util::GetStringUTF16(IDS_SETTINGS_MANAGE_GOOGLE_ACCOUNT),
         base::BindRepeating(
             &ProfileMenuView::OnManageGoogleAccountButtonClicked,
             base::Unretained(this)));
+#endif
   }
 
   int window_count = CountBrowsersFor(profile);
   if (window_count > 1) {
     AddFeatureButton(
-        ImageForMenu(vector_icons::kCloseIcon),
         l10n_util::GetPluralStringFUTF16(IDS_PROFILES_CLOSE_X_WINDOWS_BUTTON,
                                          window_count),
         base::BindRepeating(&ProfileMenuView::OnExitProfileButtonClicked,
-                            base::Unretained(this)));
+                            base::Unretained(this)),
+        vector_icons::kCloseIcon);
   }
 
+#if !defined(OS_CHROMEOS)
+  const bool has_primary_account =
+      !is_guest && identity_manager->HasPrimaryAccount();
   // The sign-out button is always at the bottom.
   if (has_unconsented_account && !has_primary_account) {
     AddFeatureButton(
-        ImageForMenu(kSignOutIcon),
         l10n_util::GetStringUTF16(IDS_SCREEN_LOCK_SIGN_OUT),
         base::BindRepeating(&ProfileMenuView::OnSignoutButtonClicked,
-                            base::Unretained(this)));
+                            base::Unretained(this)),
+        kSignOutIcon);
   }
+#endif
 }
 
+#if !defined(OS_CHROMEOS)
 void ProfileMenuView::BuildProfileManagementHeading() {
   SetProfileManagementHeading(
       l10n_util::GetStringUTF16(IDS_PROFILES_OTHER_PROFILES_TITLE));
@@ -569,7 +629,9 @@ void ProfileMenuView::BuildSelectableProfiles() {
       continue;
 
     AddSelectableProfile(
-        profile_entry->GetAvatarIcon().AsImageSkia(), profile_entry->GetName(),
+        ui::ImageModel::FromImage(
+            profile_entry->GetAvatarIcon(kSelectableProfileImageSize)),
+        profile_entry->GetName(),
         /*is_guest=*/false,
         base::BindRepeating(&ProfileMenuView::OnOtherProfileSelected,
                             base::Unretained(this), profile_entry->GetPath()));
@@ -592,7 +654,7 @@ void ProfileMenuView::BuildSelectableProfiles() {
 
 void ProfileMenuView::BuildProfileManagementFeatureButtons() {
   AddProfileManagementShortcutFeatureButton(
-      ImageForMenu(vector_icons::kSettingsIcon, kShortcutIconToImageRatio),
+      vector_icons::kSettingsIcon,
       l10n_util::GetStringUTF16(IDS_PROFILES_MANAGE_USERS_BUTTON),
       base::BindRepeating(&ProfileMenuView::OnManageProfilesButtonClicked,
                           base::Unretained(this)));
@@ -601,14 +663,9 @@ void ProfileMenuView::BuildProfileManagementFeatureButtons() {
   DCHECK(service);
   if (service->GetBoolean(prefs::kBrowserAddPersonEnabled)) {
     AddProfileManagementFeatureButton(
-        ImageForMenu(kAddIcon, /*icon_to_image_ratio=*/0.75),
-        l10n_util::GetStringUTF16(IDS_ADD),
+        kAddIcon, l10n_util::GetStringUTF16(IDS_ADD),
         base::BindRepeating(&ProfileMenuView::OnAddNewProfileButtonClicked,
                             base::Unretained(this)));
   }
 }
-
-void ProfileMenuView::PostActionPerformed(
-    ProfileMetrics::ProfileDesktopMenu action_performed) {
-  ProfileMetrics::LogProfileDesktopMenu(action_performed);
-}
+#endif  // defined(OS_CHROMEOS)

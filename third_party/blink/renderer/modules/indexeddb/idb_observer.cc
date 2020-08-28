@@ -9,11 +9,12 @@
 #include "third_party/blink/renderer/bindings/modules/v8/to_v8_for_modules.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_binding_for_modules.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_idb_observer_callback.h"
+#include "third_party/blink/renderer/bindings/modules/v8/v8_idb_observer_init.h"
 #include "third_party/blink/renderer/modules/indexed_db_names.h"
 #include "third_party/blink/renderer/modules/indexeddb/idb_database.h"
 #include "third_party/blink/renderer/modules/indexeddb/idb_observer_changes.h"
-#include "third_party/blink/renderer/modules/indexeddb/idb_observer_init.h"
 #include "third_party/blink/renderer/modules/indexeddb/idb_transaction.h"
+#include "third_party/blink/renderer/platform/bindings/enumeration_base.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
 
 namespace blink {
@@ -68,7 +69,8 @@ void IDBObserver::observe(IDBDatabase* database,
       types[static_cast<size_t>(mojom::IDBOperationType::Clear)] = true;
     } else {
       exception_state.ThrowTypeError(
-          "Unknown operation type in observe options: " + operation_type);
+          "Unknown operation type in observe options: " +
+          IDLEnumAsString(operation_type));
       return;
     }
   }
@@ -98,7 +100,7 @@ void IDBObserver::unobserve(IDBDatabase* database,
     database->RemoveObservers(observer_ids_to_remove);
 }
 
-void IDBObserver::Trace(blink::Visitor* visitor) {
+void IDBObserver::Trace(Visitor* visitor) const {
   visitor->Trace(callback_);
   visitor->Trace(observer_ids_);
   ScriptWrappable::Trace(visitor);

@@ -16,13 +16,13 @@ import static org.chromium.chrome.test.util.browser.suggestions.mostvisited.Fake
 import android.app.Activity;
 import android.content.pm.ActivityInfo;
 import android.content.res.Configuration;
-import android.support.test.espresso.matcher.ViewMatchers;
-import android.support.test.filters.MediumTest;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.FrameLayout;
 
 import androidx.annotation.Nullable;
+import androidx.test.espresso.matcher.ViewMatchers;
+import androidx.test.filters.MediumTest;
 
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
@@ -37,12 +37,10 @@ import org.chromium.base.test.util.CallbackHelper;
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.DisabledTest;
 import org.chromium.base.test.util.Feature;
-import org.chromium.base.test.util.RetryOnFailure;
 import org.chromium.chrome.R;
-import org.chromium.chrome.browser.ChromeActivity;
-import org.chromium.chrome.browser.ChromeFeatureList;
-import org.chromium.chrome.browser.ChromeSwitches;
-import org.chromium.chrome.browser.GlobalDiscardableReferencePool;
+import org.chromium.chrome.browser.app.ChromeActivity;
+import org.chromium.chrome.browser.flags.ChromeFeatureList;
+import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.night_mode.ChromeNightModeTestUtils;
 import org.chromium.chrome.browser.ntp.NewTabPage;
 import org.chromium.chrome.browser.ntp.cards.NewTabPageViewHolder.PartialBindCallback;
@@ -52,22 +50,20 @@ import org.chromium.chrome.browser.suggestions.SiteSuggestion;
 import org.chromium.chrome.browser.suggestions.SuggestionsUiDelegate;
 import org.chromium.chrome.browser.suggestions.SuggestionsUiDelegateImpl;
 import org.chromium.chrome.browser.tab.Tab;
-import org.chromium.chrome.browser.util.UrlConstants;
-import org.chromium.chrome.browser.util.ViewUtils;
 import org.chromium.chrome.test.ChromeJUnit4RunnerDelegate;
 import org.chromium.chrome.test.ChromeTabbedActivityTestRule;
 import org.chromium.chrome.test.util.ChromeRenderTestRule;
 import org.chromium.chrome.test.util.NewTabPageTestUtils;
 import org.chromium.chrome.test.util.browser.Features.DisableFeatures;
 import org.chromium.chrome.test.util.browser.offlinepages.FakeOfflinePageBridge;
-import org.chromium.chrome.test.util.browser.suggestions.FakeSuggestionsSource;
 import org.chromium.chrome.test.util.browser.suggestions.SuggestionsDependenciesRule;
 import org.chromium.chrome.test.util.browser.suggestions.mostvisited.FakeMostVisitedSites;
 import org.chromium.components.browser_ui.widget.displaystyle.UiConfig;
-import org.chromium.content_public.browser.test.util.Criteria;
+import org.chromium.components.embedder_support.util.UrlConstants;
 import org.chromium.content_public.browser.test.util.CriteriaHelper;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.net.test.EmbeddedTestServerRule;
+import org.chromium.ui.base.ViewUtils;
 import org.chromium.ui.modelutil.ListObservable;
 import org.chromium.ui.test.util.NightModeTestUtils;
 
@@ -94,7 +90,8 @@ public class TileGridLayoutTest {
     public EmbeddedTestServerRule mTestServerRule = new EmbeddedTestServerRule();
 
     @Rule
-    public ChromeRenderTestRule mRenderTestRule = new ChromeRenderTestRule();
+    public ChromeRenderTestRule mRenderTestRule =
+            ChromeRenderTestRule.Builder.withPublicCorpus().build();
 
     private static final String[] FAKE_MOST_VISITED_URLS = new String[] {
             "/chrome/test/data/android/navigate/one.html",
@@ -169,7 +166,6 @@ public class TileGridLayoutTest {
     @Test
     //@MediumTest
     @DisabledTest(message = "crbug.com/771648")
-    @RetryOnFailure
     @Feature({"NewTabPage", "RenderTest"})
     public void testModernTileGridAppearance_Two()
             throws IOException, InterruptedException {
@@ -225,8 +221,6 @@ public class TileGridLayoutTest {
         mMostVisitedSites.setTileSuggestions(siteSuggestions);
         mSuggestionsDeps.getFactory().mostVisitedSites = mMostVisitedSites;
 
-        mSuggestionsDeps.getFactory().suggestionsSource = new FakeSuggestionsSource();
-
         mActivityTestRule.startMainActivityWithURL(UrlConstants.NTP_URL);
 
         Tab mTab = mActivityTestRule.getActivity().getActivityTab();
@@ -247,12 +241,8 @@ public class TileGridLayoutTest {
         TestThreadUtils.runOnUiThreadBlocking(
                 () -> activity.setRequestedOrientation(requestedOrientation));
 
-        CriteriaHelper.pollUiThread(new Criteria() {
-            @Override
-            public boolean isSatisfied() {
-                return orientationMatchesRequest(activity, requestedOrientation);
-            }
-        });
+        CriteriaHelper.pollUiThread(
+                () -> orientationMatchesRequest(activity, requestedOrientation));
     }
 
     /**
@@ -297,7 +287,6 @@ public class TileGridLayoutTest {
         FakeMostVisitedSites mostVisitedSites = new FakeMostVisitedSites();
         mostVisitedSites.setTileSuggestions(siteSuggestions);
         mSuggestionsDeps.getFactory().mostVisitedSites = mostVisitedSites;
-        mSuggestionsDeps.getFactory().suggestionsSource = new FakeSuggestionsSource();
 
         FrameLayout contentView = new FrameLayout(activity);
         UiConfig uiConfig = new UiConfig(contentView);
@@ -332,11 +321,11 @@ public class TileGridLayoutTest {
 
         ChromeActivity activity = mActivityTestRule.getActivity();
 
-        Profile profile = Profile.getLastUsedProfile();
-        SuggestionsUiDelegate uiDelegate = new SuggestionsUiDelegateImpl(
-                mSuggestionsDeps.getFactory().createSuggestionSource(null),
-                mSuggestionsDeps.getFactory().createEventReporter(), null, profile, null,
-                GlobalDiscardableReferencePool.getReferencePool(), activity.getSnackbarManager());
+        // TODO (https://crbug.com/1063807):  Add incognito mode tests.
+        Profile profile = Profile.getLastUsedRegularProfile();
+        SuggestionsUiDelegate uiDelegate =
+                new SuggestionsUiDelegateImpl(mSuggestionsDeps.getFactory().createEventReporter(),
+                        null, profile, null, activity.getSnackbarManager());
 
         FakeOfflinePageBridge offlinePageBridge = new FakeOfflinePageBridge();
         List<OfflinePageItem> offlinePageItems = new ArrayList<>();

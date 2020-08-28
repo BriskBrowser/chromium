@@ -6,7 +6,6 @@
 #define CHROME_BROWSER_UI_VIEWS_PASSWORDS_MANAGE_PASSWORDS_ICON_VIEWS_H_
 
 #include "base/macros.h"
-#include "chrome/browser/ui/passwords/manage_passwords_bubble_model.h"
 #include "chrome/browser/ui/passwords/manage_passwords_icon_view.h"
 #include "chrome/browser/ui/views/location_bar/location_bar_view.h"
 #include "chrome/browser/ui/views/page_action/page_action_icon_view.h"
@@ -30,7 +29,7 @@ class ManagePasswordsIconViews : public ManagePasswordsIconView,
   void SetState(password_manager::ui::State state) override;
 
   // PageActionIconView:
-  views::BubbleDialogDelegateView* GetBubble() const override;
+  views::BubbleDialogDelegate* GetBubble() const override;
   void UpdateImpl() override;
   void OnExecuting(PageActionIconView::ExecuteSource source) override;
   bool OnMousePressed(const ui::MouseEvent& event) override;

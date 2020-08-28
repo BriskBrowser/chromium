@@ -11,12 +11,11 @@
 #include "chrome/browser/notifications/notification_common.h"
 #include "chrome/browser/notifications/notification_permission_context.h"
 #include "chrome/browser/notifications/notification_ui_manager.h"
-#include "chrome/browser/permissions/permission_manager.h"
-#include "chrome/browser/permissions/permission_result.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/ui_test_utils.h"
+#include "components/permissions/permission_result.h"
 #include "content/public/test/browser_test_utils.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -31,6 +30,10 @@ const char kTestFileName[] = "notifications/platform_notification_service.html";
 class NotificationUIManagerInteractiveUITest : public InProcessBrowserTest {
  public:
   NotificationUIManagerInteractiveUITest() = default;
+  NotificationUIManagerInteractiveUITest(
+      const NotificationUIManagerInteractiveUITest&) = delete;
+  NotificationUIManagerInteractiveUITest& operator=(
+      const NotificationUIManagerInteractiveUITest&) = delete;
   ~NotificationUIManagerInteractiveUITest() override = default;
 
   // InProcessBrowserTest overrides.
@@ -80,8 +83,6 @@ class NotificationUIManagerInteractiveUITest : public InProcessBrowserTest {
   const base::FilePath server_root_{FILE_PATH_LITERAL("chrome/test/data")};
 
   std::unique_ptr<net::EmbeddedTestServer> https_server_;
-
-  DISALLOW_COPY_AND_ASSIGN(NotificationUIManagerInteractiveUITest);
 };
 
 // Make sure that clicks go through on web notifications. Regression test for

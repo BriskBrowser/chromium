@@ -5,6 +5,8 @@
 #ifndef UI_VIEWS_CONTROLS_SLIDER_H_
 #define UI_VIEWS_CONTROLS_SLIDER_H_
 
+#include <memory>
+
 #include "base/macros.h"
 #include "third_party/skia/include/core/SkColor.h"
 #include "ui/gfx/animation/animation_delegate.h"
@@ -20,9 +22,9 @@ class SliderTestApi;
 
 class Slider;
 
-enum SliderChangeReason {
-  VALUE_CHANGED_BY_USER,  // value was changed by the user (by clicking, e.g.)
-  VALUE_CHANGED_BY_API,   // value was changed by a call to SetValue.
+enum class SliderChangeReason {
+  kByUser,  // value was changed by the user (e.g. by clicking)
+  kByApi,   // value was changed by a call to SetValue.
 };
 
 class VIEWS_EXPORT SliderListener {
@@ -45,7 +47,7 @@ class VIEWS_EXPORT Slider : public View, public gfx::AnimationDelegate {
  public:
   METADATA_HEADER(Slider);
 
-  explicit Slider(SliderListener* listener);
+  explicit Slider(SliderListener* listener = nullptr);
   ~Slider() override;
 
   float GetValue() const;
@@ -59,7 +61,12 @@ class VIEWS_EXPORT Slider : public View, public gfx::AnimationDelegate {
     kDefaultStyle,
     kMinimalStyle,
   };
-  void SetRenderingStyle(RenderingStyle style) { style_ = style; }
+
+  // Set rendering style and schedule paint since the colors for the slider
+  // may change.
+  void SetRenderingStyle(RenderingStyle style);
+
+  RenderingStyle style() const { return style_; }
 
  protected:
   // Returns the current position of the thumb on the slider.
@@ -108,14 +115,12 @@ class VIEWS_EXPORT Slider : public View, public gfx::AnimationDelegate {
   // ui::EventHandler:
   void OnGestureEvent(ui::GestureEvent* event) override;
 
-  void set_listener(SliderListener* listener) {
-    listener_ = listener;
-  }
+  void set_listener(SliderListener* listener) { listener_ = listener; }
 
   void NotifyPendingAccessibilityValueChanged();
 
-  SkColor GetThumbColor() const;
-  SkColor GetTroughColor() const;
+  virtual SkColor GetThumbColor() const;
+  virtual SkColor GetTroughColor() const;
   int GetSliderExtraPadding() const;
 
   SliderListener* listener_;

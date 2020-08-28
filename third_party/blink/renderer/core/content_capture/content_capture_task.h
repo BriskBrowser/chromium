@@ -24,13 +24,13 @@ class LocalFrame;
 
 // This class is used to capture the on-screen content and send them out
 // through WebContentCaptureClient.
-class CORE_EXPORT ContentCaptureTask : public RefCounted<ContentCaptureTask> {
-  USING_FAST_MALLOC(ContentCaptureTask);
-
+class CORE_EXPORT ContentCaptureTask
+    : public GarbageCollected<ContentCaptureTask> {
  public:
   enum class ScheduleReason {
     kFirstContentChange,
-    kContentChange,
+    kUserActivatedContentChange,
+    kNonUserActivatedContentChange,
     kScrolling,
     kRetryTask,
   };
@@ -40,6 +40,32 @@ class CORE_EXPORT ContentCaptureTask : public RefCounted<ContentCaptureTask> {
     kCaptureContent,
     kProcessCurrentSession,
     kStop,
+  };
+
+  class CORE_EXPORT TaskDelay {
+   public:
+    TaskDelay(const base::TimeDelta& task_short_delay,
+              const base::TimeDelta& task_long_delay);
+    // Resets the |delay_exponent| and returns the initial delay.
+    base::TimeDelta ResetAndGetInitialDelay();
+
+    // Returns the delay time for the next task.
+    base::TimeDelta GetNextTaskDelay() const;
+
+    // Increases delay time of next task exponentially after the task started.
+    void IncreaseDelayExponent();
+
+    base::TimeDelta task_short_delay() const { return task_short_delay_; }
+    base::TimeDelta task_long_delay() const { return task_long_delay_; }
+
+   private:
+    // Schedules the task with short delay for kFirstContentChange, kScrolling
+    // and kRetryTask, with long delay for kContentChange.
+    const base::TimeDelta task_short_delay_;
+    const base::TimeDelta task_long_delay_;
+
+    // The exponent to calculate the next task delay time.
+    int delay_exponent_ = 0;
   };
 
   ContentCaptureTask(LocalFrame& local_frame_root, TaskSession& task_session);
@@ -52,6 +78,8 @@ class CORE_EXPORT ContentCaptureTask : public RefCounted<ContentCaptureTask> {
   // Make those const public for testing purpose.
   static constexpr size_t kBatchSize = 5;
 
+  // TODO(crbug.com/1115836): Replacing the ForTesting methods with friend
+  // TestHelper class.
   TaskState GetTaskStateForTesting() const { return task_state_; }
 
   void RunTaskForTestingUntil(TaskState stop_state) {
@@ -68,6 +96,9 @@ class CORE_EXPORT ContentCaptureTask : public RefCounted<ContentCaptureTask> {
 
   base::TimeDelta GetTaskNextFireIntervalForTesting() const;
   void CancelTaskForTesting();
+  const TaskDelay& GetTaskDelayForTesting() const { return *task_delay_; }
+
+  void Trace(Visitor*) const;
 
  protected:
   // All protected data and methods are for testing purpose.
@@ -97,21 +128,23 @@ class CORE_EXPORT ContentCaptureTask : public RefCounted<ContentCaptureTask> {
   // Sends the captured content in batch.
   void SendContent(TaskSession::DocumentSession& doc_session);
 
+  // Gets the delay time of the next task according to the |reason|, this method
+  // might adjusts the delay if applicable.
+  base::TimeDelta GetAndAdjustDelay(ScheduleReason reason);
+
   void ScheduleInternal(ScheduleReason reason);
   bool CaptureContent(Vector<cc::NodeId>& data);
 
   // Indicates if there is content change since last run.
   bool has_content_change_ = false;
 
-  UntracedMember<LocalFrame> local_frame_root_;
-  UntracedMember<TaskSession> task_session_;
+  Member<LocalFrame> local_frame_root_;
+  Member<TaskSession> task_session_;
   std::unique_ptr<TaskRunnerTimer<ContentCaptureTask>> delay_task_;
   TaskState task_state_ = TaskState::kStop;
 
-  // Schedules the task with short delay for kFirstContentChange, kScrolling and
-  // kRetryTask, with long delay for kContentChange.
-  base::TimeDelta task_short_delay_;
-  base::TimeDelta task_long_delay_;
+  std::unique_ptr<TaskDelay> task_delay_;
+
   scoped_refptr<ContentCaptureTaskHistogramReporter> histogram_reporter_;
   base::Optional<TaskState> task_stop_for_testing_;
   base::Optional<Vector<cc::NodeId>> captured_content_for_testing_;

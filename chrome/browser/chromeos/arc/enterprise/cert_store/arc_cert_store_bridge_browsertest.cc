@@ -15,12 +15,12 @@
 #include "chrome/browser/chromeos/arc/enterprise/cert_store/arc_cert_store_bridge.h"
 #include "chrome/browser/chromeos/arc/session/arc_service_launcher.h"
 #include "chrome/browser/chromeos/login/test/local_policy_test_server_mixin.h"
-#include "chrome/browser/chromeos/platform_keys/key_permissions.h"
+#include "chrome/browser/chromeos/platform_keys/key_permissions/key_permissions_manager.h"
+#include "chrome/browser/chromeos/platform_keys/key_permissions/key_permissions_manager_user_service.h"
 #include "chrome/browser/chromeos/platform_keys/platform_keys.h"
 #include "chrome/browser/chromeos/policy/user_policy_test_helper.h"
 #include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/net/nss_context.h"
-#include "chrome/browser/policy/profile_policy_connector.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/common/pref_names.h"
@@ -35,6 +35,7 @@
 #include "components/arc/test/connection_holder_util.h"
 #include "components/policy/policy_constants.h"
 #include "content/public/browser/browser_thread.h"
+#include "content/public/test/browser_test.h"
 #include "crypto/scoped_test_system_nss_key_slot.h"
 #include "extensions/browser/extension_system.h"
 #include "net/cert/nss_cert_database.h"
@@ -65,12 +66,15 @@ namespace arc {
 class FakeArcCertStoreInstance : public mojom::CertStoreInstance {
  public:
   // mojom::CertStoreInstance:
-  void InitDeprecated(mojom::CertStoreHostPtr host) override {
-    Init(std::move(host), base::DoNothing());
+  void InitDeprecated(
+      mojo::PendingRemote<mojom::CertStoreHost> host_remote) override {
+    Init(std::move(host_remote), base::DoNothing());
   }
 
-  void Init(mojom::CertStoreHostPtr host, InitCallback callback) override {
-    host_ = std::move(host);
+  void Init(mojo::PendingRemote<mojom::CertStoreHost> host_remote,
+            InitCallback callback) override {
+    host_remote_.reset();
+    host_remote_.Bind(std::move(host_remote));
     std::move(callback).Run();
   }
 
@@ -88,7 +92,7 @@ class FakeArcCertStoreInstance : public mojom::CertStoreInstance {
   void clear_on_certs_changed() { is_on_certs_changed_called_ = false; }
 
  private:
-  mojom::CertStoreHostPtr host_;
+  mojo::Remote<mojom::CertStoreHost> host_remote_;
   std::vector<std::string> permissions_;
   bool is_on_certs_changed_called_ = false;
 };
@@ -200,19 +204,16 @@ class ArcCertStoreBridgeTest : public MixinBasedInProcessBrowserTest {
   void RegisterCorporateKeys() {
     ASSERT_NO_FATAL_FAILURE(ImportCerts());
 
-    policy::ProfilePolicyConnector* const policy_connector =
-        browser()->profile()->GetProfilePolicyConnector();
+    chromeos::platform_keys::KeyPermissionsManager* const permissions =
+        chromeos::platform_keys::KeyPermissionsManagerUserServiceFactory::
+            GetForBrowserContext(browser()->profile())
+                ->key_permissions_manager();
 
-    extensions::StateStore* const state_store =
-        extensions::ExtensionSystem::Get(browser()->profile())->state_store();
-
-    chromeos::KeyPermissions permissions(
-        policy_connector->IsManaged(), browser()->profile()->GetPrefs(),
-        policy_connector->policy_service(), state_store);
+    ASSERT_TRUE(permissions);
 
     {
       base::RunLoop run_loop;
-      permissions.GetPermissionsForExtension(
+      permissions->GetPermissionsForExtension(
           kFakeExtensionId,
           base::Bind(&ArcCertStoreBridgeTest::GotPermissionsForExtension,
                      base::Unretained(this), run_loop.QuitClosure()));
@@ -258,13 +259,13 @@ class ArcCertStoreBridgeTest : public MixinBasedInProcessBrowserTest {
   // client_cert2_ is not allowed.
   void GotPermissionsForExtension(
       const base::Closure& done_callback,
-      std::unique_ptr<chromeos::KeyPermissions::PermissionsForExtension>
-          permissions_for_ext) {
+      std::unique_ptr<chromeos::platform_keys::KeyPermissionsManager::
+                          PermissionsForExtension> permissions_for_ext) {
     std::string client_cert1_spki(
         client_cert1_->derPublicKey.data,
         client_cert1_->derPublicKey.data + client_cert1_->derPublicKey.len);
     permissions_for_ext->RegisterKeyForCorporateUsage(
-        client_cert1_spki, {chromeos::KeyPermissions::KeyLocation::kUserSlot});
+        client_cert1_spki, {chromeos::platform_keys::TokenId::kUser});
     done_callback.Run();
   }
 

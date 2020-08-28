@@ -25,6 +25,7 @@
 #include "chrome/browser/component_updater/cros_component_installer_chromeos.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/chrome_features.h"
+#include "chrome/common/webui_url_constants.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "chromeos/dbus/debug_daemon/debug_daemon_client.h"
 #include "chromeos/printing/ppd_provider.h"
@@ -32,18 +33,6 @@
 #include "components/device_event_log/device_event_log.h"
 #include "content/public/browser/browser_thread.h"
 #include "third_party/cros_system_api/dbus/debugd/dbus-constants.h"
-
-const std::map<const std::string, const std::string>&
-GetComponentizedFilters() {
-  // A mapping from filter names to available components for downloads.
-  static const auto* const componentized_filters =
-      new std::map<const std::string, const std::string>{
-          {"epson-escpr-wrapper", "epson-inkjet-printer-escpr"},
-          {"epson-escpr", "epson-inkjet-printer-escpr"},
-          {"rastertostar", "star-cups-driver"},
-          {"rastertostarlm", "star-cups-driver"}};
-  return *componentized_filters;
-}
 
 namespace chromeos {
 
@@ -122,7 +111,7 @@ class PrinterConfigurerImpl : public PrinterConfigurer {
                     PrinterSetupCallback callback) override {
     DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
     DCHECK(!printer.id().empty());
-    DCHECK(!printer.uri().empty());
+    DCHECK(printer.HasUri());
     PRINTER_LOG(USER) << printer.make_and_model() << " Printer setup requested";
     // Record if autoconf and a PPD are set.  crbug.com/814374.
     RecordValidPpdReference(printer);
@@ -141,7 +130,7 @@ class PrinterConfigurerImpl : public PrinterConfigurer {
                        << " Attempting autoconf setup";
     auto* client = DBusThreadManager::Get()->GetDebugDaemonClient();
     client->CupsAddAutoConfiguredPrinter(
-        printer.id(), printer.uri(),
+        printer.id(), printer.uri().GetNormalized(),
         base::BindOnce(&PrinterConfigurerImpl::OnAddedPrinter,
                        weak_factory_.GetWeakPtr(), printer,
                        std::move(callback)));
@@ -171,72 +160,22 @@ class PrinterConfigurerImpl : public PrinterConfigurer {
 
     PRINTER_LOG(EVENT) << printer.make_and_model() << " Manual printer setup";
     client->CupsAddManuallyConfiguredPrinter(
-        printer.id(), printer.uri(), ppd_contents,
+        printer.id(), printer.uri().GetNormalized(), ppd_contents,
         base::BindOnce(&PrinterConfigurerImpl::OnAddedPrinter,
                        weak_factory_.GetWeakPtr(), printer, std::move(cb)));
-  }
-
-  // Executed on component load API finish.
-  // Check API return result to decide whether component is successfully loaded.
-  void OnComponentLoad(const Printer& printer,
-                       const std::string& ppd_contents,
-                       PrinterSetupCallback cb,
-                       component_updater::CrOSComponentManager::Error error,
-                       const base::FilePath& path) {
-    if (error != component_updater::CrOSComponentManager::Error::NONE) {
-      PRINTER_LOG(ERROR) << printer.make_and_model()
-                         << " Filter component installation fails.";
-      std::move(cb).Run(PrinterSetupResult::kComponentUnavailable);
-    } else {
-      AddPrinter(printer, ppd_contents, std::move(cb));
-    }
-  }
-
-  void ResolvePpdSuccess(const Printer& printer,
-                         PrinterSetupCallback cb,
-                         const std::string& ppd_contents,
-                         const std::vector<std::string>& ppd_filters) {
-    std::set<std::string> components_requested;
-    for (const auto& ppd_filter : ppd_filters) {
-      for (const auto& component : GetComponentizedFilters()) {
-        if (component.first == ppd_filter) {
-          components_requested.insert(component.second);
-        }
-      }
-    }
-    if (components_requested.size() == 1) {
-      // Only allow one filter request in ppd file.
-      auto& component_name = *components_requested.begin();
-      g_browser_process->platform_part()->cros_component_manager()->Load(
-          component_name,
-          component_updater::CrOSComponentManager::MountPolicy::kMount,
-          component_updater::CrOSComponentManager::UpdatePolicy::kDontForce,
-          base::BindOnce(&PrinterConfigurerImpl::OnComponentLoad,
-                         weak_factory_.GetWeakPtr(), printer, ppd_contents,
-                         std::move(cb)));
-      return;
-    }
-    if (components_requested.size() > 1) {
-      PRINTER_LOG(ERROR) << printer.make_and_model()
-                         << " More than one filter component is requested.";
-      std::move(cb).Run(PrinterSetupResult::kFatalError);
-      return;
-    }
-    AddPrinter(printer, ppd_contents, std::move(cb));
   }
 
   void ResolvePpdDone(const Printer& printer,
                       PrinterSetupCallback cb,
                       PpdProvider::CallbackResultCode result,
-                      const std::string& ppd_contents,
-                      const std::vector<std::string>& ppd_filters) {
+                      const std::string& ppd_contents) {
     DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
     PRINTER_LOG(EVENT) << printer.make_and_model()
                        << " PPD Resolution Result: " << result;
     switch (result) {
       case PpdProvider::SUCCESS:
         DCHECK(!ppd_contents.empty());
-        ResolvePpdSuccess(printer, std::move(cb), ppd_contents, ppd_filters);
+        AddPrinter(printer, ppd_contents, std::move(cb));
         break;
       case PpdProvider::CallbackResultCode::NOT_FOUND:
         std::move(cb).Run(PrinterSetupResult::kPpdNotFound);
@@ -266,7 +205,7 @@ std::string PrinterConfigurer::SetupFingerprint(const Printer& printer) {
   base::MD5Context ctx;
   base::MD5Init(&ctx);
   base::MD5Update(&ctx, printer.id());
-  base::MD5Update(&ctx, printer.uri());
+  base::MD5Update(&ctx, printer.uri().GetNormalized());
   base::MD5Update(&ctx, printer.ppd_reference().user_supplied_ppd_url);
   base::MD5Update(&ctx, printer.ppd_reference().effective_make_and_model);
   char autoconf = printer.ppd_reference().autoconf ? 1 : 0;
@@ -298,6 +237,15 @@ void PrinterConfigurer::SetPrinterConfigurerForTesting(
     std::unique_ptr<PrinterConfigurer> printer_configurer) {
   DCHECK(!g_printer_configurer_for_test);
   g_printer_configurer_for_test = printer_configurer.release();
+}
+
+// static
+GURL PrinterConfigurer::GeneratePrinterEulaUrl(const std::string& license) {
+  GURL eula_url(chrome::kChromeUIOSCreditsURL);
+  // Construct the URL with proper reference fragment.
+  GURL::Replacements replacements;
+  replacements.SetRefStr(license);
+  return eula_url.ReplaceComponents(replacements);
 }
 
 std::ostream& operator<<(std::ostream& out, const PrinterSetupResult& result) {

@@ -7,8 +7,8 @@
 #include "ash/public/cpp/login_screen.h"
 #include "ash/public/cpp/login_types.h"
 #include "base/bind.h"
+#include "base/check_op.h"
 #include "base/command_line.h"
-#include "base/logging.h"
 #include "base/time/time.h"
 #include "base/values.h"
 #include "chrome/browser/browser_process.h"
@@ -27,7 +27,6 @@
 #include "components/user_manager/user_manager.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_ui.h"
-#include "content/public/browser/web_ui_data_source.h"
 
 namespace chromeos {
 namespace settings {
@@ -59,7 +58,7 @@ bool IsTimezoneAutomaticDetectionUserEditable() {
 
   if (IsSystemTimezoneAutomaticDetectionManaged()) {
     return GetSystemTimezoneAutomaticDetectionPolicyValue() ==
-        enterprise_management::SystemTimezoneProto::USERS_DECIDE;
+           enterprise_management::SystemTimezoneProto::USERS_DECIDE;
   }
 
   return true;
@@ -70,20 +69,6 @@ bool IsTimezoneAutomaticDetectionUserEditable() {
 DateTimeHandler::DateTimeHandler() : scoped_observer_(this) {}
 
 DateTimeHandler::~DateTimeHandler() = default;
-
-DateTimeHandler* DateTimeHandler::Create(
-    content::WebUIDataSource* html_source) {
-  // Set the initial time zone to show.
-  html_source->AddString("timeZoneName", system::GetCurrentTimezoneName());
-  html_source->AddString(
-      "timeZoneID",
-      system::TimezoneSettings::GetInstance()->GetCurrentTimezoneID());
-  html_source->AddBoolean(
-      "timeActionsProtectedForChild",
-      base::FeatureList::IsEnabled(features::kParentAccessCodeForTimeChange));
-
-  return new DateTimeHandler;
-}
 
 void DateTimeHandler::RegisterMessages() {
   web_ui()->RegisterMessageCallback(
@@ -168,10 +153,10 @@ void DateTimeHandler::HandleShowParentAccessForTimeZone(
 
   ash::LoginScreen::Get()->ShowParentAccessWidget(
       user_manager::UserManager::Get()->GetActiveUser()->GetAccountId(),
-      base::BindRepeating(&DateTimeHandler::OnParentAccessValidation,
-                          weak_ptr_factory_.GetWeakPtr()),
+      base::BindOnce(&DateTimeHandler::OnParentAccessValidation,
+                     weak_ptr_factory_.GetWeakPtr()),
       ash::ParentAccessRequestReason::kChangeTimezone, false /* extra_dimmer */,
-      base::Time());
+      base::Time::Now());
 }
 
 void DateTimeHandler::OnParentAccessValidation(bool success) {
@@ -181,10 +166,9 @@ void DateTimeHandler::OnParentAccessValidation(bool success) {
 
 void DateTimeHandler::NotifyTimezoneAutomaticDetectionPolicy() {
   bool managed = !IsTimezoneAutomaticDetectionUserEditable();
-  bool force_enabled = managed &&
-                       g_browser_process->platform_part()
-                           ->GetTimezoneResolverManager()
-                           ->ShouldApplyResolvedTimezone();
+  bool force_enabled = managed && g_browser_process->platform_part()
+                                      ->GetTimezoneResolverManager()
+                                      ->ShouldApplyResolvedTimezone();
 
   FireWebUIListener("time-zone-auto-detect-policy", base::Value(managed),
                     base::Value(force_enabled));

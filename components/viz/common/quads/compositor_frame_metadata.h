@@ -7,16 +7,20 @@
 
 #include <stdint.h>
 
+#include <memory>
 #include <vector>
+
 #include "base/optional.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
+#include "components/viz/common/delegated_ink_metadata.h"
 #include "components/viz/common/frame_sinks/begin_frame_args.h"
 #include "components/viz/common/quads/frame_deadline.h"
 #include "components/viz/common/surfaces/surface_id.h"
 #include "components/viz/common/surfaces/surface_range.h"
 #include "components/viz/common/viz_common_export.h"
 #include "third_party/skia/include/core/SkColor.h"
+#include "ui/gfx/display_color_spaces.h"
 #include "ui/gfx/geometry/size_f.h"
 #include "ui/gfx/geometry/vector2d_f.h"
 #include "ui/gfx/overlay_transform.h"
@@ -71,6 +75,8 @@ class VIZ_COMMON_EXPORT CompositorFrameMetadata {
   float page_scale_factor = 0.f;
 
   gfx::SizeF scrollable_viewport_size;
+
+  gfx::ContentColorUsage content_color_usage = gfx::ContentColorUsage::kSRGB;
 
   bool may_contain_video = false;
 
@@ -148,6 +154,19 @@ class VIZ_COMMON_EXPORT CompositorFrameMetadata {
   // Display transform hint when the frame is generated. Note this is only
   // applicable to frames of the root surface.
   gfx::OverlayTransform display_transform_hint = gfx::OVERLAY_TRANSFORM_NONE;
+
+  // Contains the metadata required for drawing a delegated ink trail onto the
+  // end of a rendered ink stroke. This should only be present when two
+  // conditions are met:
+  //   1. The JS API |updateInkTrailStartPoint| is used - This gathers the
+  //     metadata and puts it onto a compositor frame to be sent to viz.
+  //   2. This frame will not be submitted to the root surface - The browser UI
+  //     does not use this, and the frame must be contained within a
+  //     SurfaceDrawQuad.
+  // The ink trail created with this metadata will only last for a single frame
+  // before it disappears, regardless of whether or not the next frame contains
+  // delegated ink metadata.
+  std::unique_ptr<DelegatedInkMetadata> delegated_ink_metadata;
 
  private:
   CompositorFrameMetadata(const CompositorFrameMetadata& other);

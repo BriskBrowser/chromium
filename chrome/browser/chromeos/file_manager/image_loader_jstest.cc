@@ -3,6 +3,7 @@
 // found in the LICENSE file.
 
 #include "chrome/browser/chromeos/file_manager/file_manager_jstest_base.h"
+#include "content/public/test/browser_test.h"
 
 class ImageLoaderJsTest : public FileManagerJsTestBase {
  protected:
@@ -20,4 +21,8 @@ IN_PROC_BROWSER_TEST_F(ImageLoaderJsTest, CacheTest) {
 
 IN_PROC_BROWSER_TEST_F(ImageLoaderJsTest, ImageLoaderTest) {
   RunTestURL("image_loader_unittest_gen.html");
+}
+
+IN_PROC_BROWSER_TEST_F(ImageLoaderJsTest, SchedulerTest) {
+  RunTestURL("scheduler_unittest_gen.html");
 }

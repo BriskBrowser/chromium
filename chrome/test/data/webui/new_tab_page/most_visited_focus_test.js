@@ -2,20 +2,18 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import 'chrome://new-tab-page/most_visited.js';
-import 'chrome://resources/mojo/mojo/public/js/mojo_bindings_lite.js';
-import 'chrome://resources/mojo/mojo/public/mojom/base/text_direction.mojom-lite.js';
-
-import {BrowserProxy} from 'chrome://new-tab-page/browser_proxy.js';
-import {getDeepActiveElement} from 'chrome://resources/js/util.m.js';
-import {assertFocus, keydown, TestProxy} from 'chrome://test/new_tab_page/test_support.js';
-import {eventToPromise, flushTasks} from 'chrome://test/test_util.m.js';
+import {BrowserProxy} from 'chrome://new-tab-page/new_tab_page.js';
+import {assertFocus, createTestProxy, keydown} from 'chrome://test/new_tab_page/test_support.js';
+import {eventToPromise} from 'chrome://test/test_util.m.js';
 
 suite('NewTabPageMostVisitedFocusTest', () => {
   /** @type {!MostVisitedElement} */
   let mostVisited;
 
-  /** @type {TestProxy} */
+  /**
+   * @implements {BrowserProxy}
+   * @extends {TestBrowserProxy}
+   */
   let testProxy;
 
   /**
@@ -47,6 +45,9 @@ suite('NewTabPageMostVisitedFocusTest', () => {
         title: char,
         titleDirection: mojoBase.mojom.TextDirection.LEFT_TO_RIGHT,
         url: {url: `https://${char}/`},
+        source: i,
+        titleSource: i,
+        dataGenerationTime: {internalValue: 0},
       };
     });
     const tilesRendered = eventToPromise('dom-change', mostVisited.$.tiles);
@@ -62,7 +63,11 @@ suite('NewTabPageMostVisitedFocusTest', () => {
   setup(() => {
     PolymerTest.clearBody();
 
-    testProxy = new TestProxy();
+    testProxy = createTestProxy();
+    testProxy.setResultMapperFor('matchMedia', () => ({
+                                                 addListener() {},
+                                                 removeListener() {},
+                                               }));
     BrowserProxy.instance_ = testProxy;
 
     mostVisited = document.createElement('ntp-most-visited');

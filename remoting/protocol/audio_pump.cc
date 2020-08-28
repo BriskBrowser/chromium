@@ -8,9 +8,10 @@
 #include <utility>
 
 #include "base/bind.h"
+#include "base/check_op.h"
 #include "base/location.h"
-#include "base/logging.h"
 #include "base/macros.h"
+#include "base/notreached.h"
 #include "base/single_thread_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "media/base/audio_bus.h"
@@ -147,7 +148,7 @@ void AudioPump::Core::Start() {
   DCHECK(thread_checker_.CalledOnValidThread());
 
   audio_source_->Start(
-      base::Bind(&Core::EncodeAudioPacket, base::Unretained(this)));
+      base::BindRepeating(&Core::EncodeAudioPacket, base::Unretained(this)));
 }
 
 void AudioPump::Core::Pause(bool pause) {
@@ -256,8 +257,8 @@ void AudioPump::SendAudioPacket(std::unique_ptr<AudioPacket> packet, int size) {
   DCHECK(packet);
 
   audio_stub_->ProcessAudioPacket(
-      std::move(packet),
-      base::Bind(&AudioPump::OnPacketSent, weak_factory_.GetWeakPtr(), size));
+      std::move(packet), base::BindOnce(&AudioPump::OnPacketSent,
+                                        weak_factory_.GetWeakPtr(), size));
 }
 
 void AudioPump::OnPacketSent(int size) {

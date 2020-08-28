@@ -10,9 +10,11 @@
 #include "base/barrier_closure.h"
 #include "base/bind.h"
 #include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/location.h"
+#include "base/memory/ptr_util.h"
 #include "base/single_thread_task_runner.h"
-#include "base/task/post_task.h"
+#include "base/strings/string_number_conversions.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/time/default_clock.h"
 #include "base/time/time.h"
@@ -721,8 +723,8 @@ void BackgroundSyncManager::InitImpl(base::OnceClosure callback) {
             service_worker_context_,
             std::make_unique<BackgroundSyncParameters>(*parameters_)));
   } else {
-    base::PostTaskAndReplyWithResult(
-        FROM_HERE, {BrowserThread::UI},
+    GetUIThreadTaskRunner({})->PostTaskAndReplyWithResult(
+        FROM_HERE,
         base::BindOnce(
             &GetControllerParameters, service_worker_context_,
             std::make_unique<BackgroundSyncParameters>(*parameters_)),
@@ -743,6 +745,8 @@ void BackgroundSyncManager::InitDidGetControllerParameters(
                                                   std::move(callback));
     return;
   }
+
+  network_observer_->Init();
 
   GetDataFromBackend(
       kBackgroundSyncUserDataKey,
@@ -911,8 +915,8 @@ void BackgroundSyncManager::RegisterImpl(
     RegisterDidAskForPermission(sw_registration_id, std::move(options),
                                 std::move(callback), permission);
   } else {
-    base::PostTaskAndReplyWithResult(
-        FROM_HERE, {BrowserThread::UI},
+    GetUIThreadTaskRunner({})->PostTaskAndReplyWithResult(
+        FROM_HERE,
         base::BindOnce(
             &GetBackgroundSyncPermissionOnUIThread, service_worker_context_,
             url::Origin::Create(sw_registration->scope().GetOrigin()),
@@ -1032,8 +1036,8 @@ void BackgroundSyncManager::RegisterDidAskForPermission(
       RegisterDidGetDelay(sw_registration_id, registration, std::move(callback),
                           delay);
     } else {
-      base::PostTaskAndReplyWithResult(
-          FROM_HERE, {BrowserThread::UI},
+      GetUIThreadTaskRunner({})->PostTaskAndReplyWithResult(
+          FROM_HERE,
           base::BindOnce(
               &GetNextEventDelay, service_worker_context_, registration,
               std::make_unique<BackgroundSyncParameters>(*parameters_),
@@ -1214,7 +1218,7 @@ BackgroundSyncRegistration* BackgroundSyncManager::LookupActiveRegistration(
 
 void BackgroundSyncManager::StoreRegistrations(
     int64_t sw_registration_id,
-    ServiceWorkerStorage::StatusCallback callback) {
+    ServiceWorkerRegistry::StatusCallback callback) {
   DCHECK_CURRENTLY_ON(ServiceWorkerContext::GetCoreThreadId());
 
   // Serialize the data.
@@ -1319,8 +1323,8 @@ void BackgroundSyncManager::DidResolveRegistrationImpl(
         id, CreateBackgroundSyncEventKeepAliveOnUIThread(
                 service_worker_context_, std::move(*registration_info)));
   } else {
-    base::PostTaskAndReplyWithResult(
-        FROM_HERE, {BrowserThread::UI},
+    GetUIThreadTaskRunner({})->PostTaskAndReplyWithResult(
+        FROM_HERE,
         base::BindOnce(&CreateBackgroundSyncEventKeepAliveOnUIThread,
                        service_worker_context_, std::move(*registration_info)),
         base::BindOnce(
@@ -1411,7 +1415,7 @@ void BackgroundSyncManager::StoreDataInBackend(
     const url::Origin& origin,
     const std::string& backend_key,
     const std::string& data,
-    ServiceWorkerStorage::StatusCallback callback) {
+    ServiceWorkerRegistry::StatusCallback callback) {
   DCHECK_CURRENTLY_ON(ServiceWorkerContext::GetCoreThreadId());
 
   service_worker_context_->StoreRegistrationUserData(
@@ -1421,7 +1425,7 @@ void BackgroundSyncManager::StoreDataInBackend(
 
 void BackgroundSyncManager::GetDataFromBackend(
     const std::string& backend_key,
-    ServiceWorkerStorage::GetUserDataForAllRegistrationsCallback callback) {
+    ServiceWorkerRegistry::GetUserDataForAllRegistrationsCallback callback) {
   DCHECK_CURRENTLY_ON(ServiceWorkerContext::GetCoreThreadId());
 
   service_worker_context_->GetUserDataForAllRegistrations(backend_key,
@@ -1861,8 +1865,8 @@ void BackgroundSyncManager::ReviveOriginImpl(url::Origin origin,
                                  *registration, received_new_delays_closure,
                                  delay);
     } else {
-      base::PostTaskAndReplyWithResult(
-          FROM_HERE, {BrowserThread::UI},
+      GetUIThreadTaskRunner({})->PostTaskAndReplyWithResult(
+          FROM_HERE,
           base::BindOnce(
               &GetNextEventDelay, service_worker_context_, *registration,
               std::make_unique<BackgroundSyncParameters>(*parameters_),
@@ -2259,8 +2263,8 @@ void BackgroundSyncManager::EventCompleteImpl(
                                origin, std::move(callback), delay);
 
     } else {
-      base::PostTaskAndReplyWithResult(
-          FROM_HERE, {BrowserThread::UI},
+      GetUIThreadTaskRunner({})->PostTaskAndReplyWithResult(
+          FROM_HERE,
           base::BindOnce(
               &GetNextEventDelay, service_worker_context_, *registration,
               std::make_unique<BackgroundSyncParameters>(*parameters_),

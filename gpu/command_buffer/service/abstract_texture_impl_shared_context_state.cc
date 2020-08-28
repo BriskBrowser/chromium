@@ -9,6 +9,7 @@
 #include "gpu/command_buffer/service/context_state.h"
 #include "gpu/command_buffer/service/texture_manager.h"
 #include "ui/gl/gl_context.h"
+#include "ui/gl/gl_surface.h"
 #include "ui/gl/scoped_binders.h"
 #include "ui/gl/scoped_make_current.h"
 
@@ -45,10 +46,10 @@ AbstractTextureImplOnSharedContext::AbstractTextureImplOnSharedContext(
   texture_ = new gpu::gles2::Texture(service_id);
   texture_->SetLightweightRef();
   texture_->SetTarget(target, 1);
-  texture_->sampler_state_.min_filter = GL_LINEAR;
-  texture_->sampler_state_.mag_filter = GL_LINEAR;
-  texture_->sampler_state_.wrap_t = GL_CLAMP_TO_EDGE;
-  texture_->sampler_state_.wrap_s = GL_CLAMP_TO_EDGE;
+  texture_->set_min_filter(GL_LINEAR);
+  texture_->set_mag_filter(GL_LINEAR);
+  texture_->set_wrap_t(GL_CLAMP_TO_EDGE);
+  texture_->set_wrap_s(GL_CLAMP_TO_EDGE);
   gfx::Rect cleared_rect;
   texture_->SetLevelInfo(target, 0, internal_format, width, height, depth,
                          border, format, type, cleared_rect);
@@ -85,7 +86,7 @@ void AbstractTextureImplOnSharedContext::SetParameteri(GLenum pname,
 }
 
 void AbstractTextureImplOnSharedContext::BindStreamTextureImage(
-    GLStreamTextureImage* image,
+    gl::GLImage* image,
     GLuint service_id) {
   const GLint level = 0;
   const GLuint target = texture_->target();
@@ -155,6 +156,30 @@ AbstractTextureImplOnSharedContextPassthrough::
     ~AbstractTextureImplOnSharedContextPassthrough() {
   if (cleanup_cb_)
     std::move(cleanup_cb_).Run(this);
+
+  // Save the current context and make it current again after deleting the
+  // |texture_|.
+  scoped_refptr<gl::GLContext> previous_context = gl::GLContext::GetCurrent();
+  scoped_refptr<gl::GLSurface> previous_surface = gl::GLSurface::GetCurrent();
+
+  // If the shared context is lost, |shared_context_state_| will be null and the
+  // |texture_| is already marked to have lost its context.
+  if (shared_context_state_) {
+    // Make the |shared_context_state_|'s context current before destroying the
+    // |texture_| since
+    // destructor is not guaranteed to be called on the context on which the
+    // |texture_| was created.
+    if (!shared_context_state_->IsCurrent(nullptr)) {
+      shared_context_state_->MakeCurrent(shared_context_state_->surface(),
+                                         true /* needs_gl */);
+    }
+    shared_context_state_->RemoveContextLostObserver(this);
+  }
+  texture_.reset();
+
+  // Make the previous context current again.
+  if (!previous_context->IsCurrent(previous_surface.get()))
+    previous_context->MakeCurrent(previous_surface.get());
 }
 
 TextureBase* AbstractTextureImplOnSharedContextPassthrough::GetTextureBase()
@@ -168,7 +193,7 @@ void AbstractTextureImplOnSharedContextPassthrough::SetParameteri(GLenum pname,
 }
 
 void AbstractTextureImplOnSharedContextPassthrough::BindStreamTextureImage(
-    GLStreamTextureImage* image,
+    gl::GLImage* image,
     GLuint service_id) {
   NOTIMPLEMENTED();
 }

@@ -8,12 +8,15 @@
 #include <map>
 #include <set>
 
+#include "base/containers/flat_map.h"
 #include "base/containers/flat_set.h"
 #include "base/memory/weak_ptr.h"
 #include "content/browser/devtools/protocol/devtools_domain_handler.h"
 #include "content/browser/devtools/protocol/target.h"
 #include "content/browser/devtools/protocol/target_auto_attacher.h"
 #include "content/public/browser/devtools_agent_host_observer.h"
+#include "net/proxy_resolution/proxy_config.h"
+#include "services/network/public/mojom/network_context.mojom.h"
 
 namespace content {
 
@@ -28,7 +31,8 @@ namespace protocol {
 
 class TargetHandler : public DevToolsDomainHandler,
                       public Target::Backend,
-                      public DevToolsAgentHostObserver {
+                      public DevToolsAgentHostObserver,
+                      public TargetAutoAttacher::Delegate {
  public:
   enum class AccessMode {
     // Only setAutoAttach is supported. Any non-related target are not
@@ -57,13 +61,13 @@ class TargetHandler : public DevToolsDomainHandler,
   std::unique_ptr<NavigationThrottle> CreateThrottleForNavigation(
       NavigationHandle* navigation_handle);
   void UpdatePortals();
+  bool ShouldThrottlePopups() const;
 
   // Domain implementation.
   Response SetDiscoverTargets(bool discover) override;
   void SetAutoAttach(bool auto_attach,
                      bool wait_for_debugger_on_start,
                      Maybe<bool> flatten,
-                     Maybe<bool> window_open,
                      std::unique_ptr<SetAutoAttachCallback> callback) override;
   Response SetRemoteLocations(
       std::unique_ptr<protocol::Array<Target::RemoteLocation>>) override;
@@ -84,7 +88,11 @@ class TargetHandler : public DevToolsDomainHandler,
                        bool* out_success) override;
   Response ExposeDevToolsProtocol(const std::string& target_id,
                                   Maybe<std::string> binding_name) override;
-  Response CreateBrowserContext(std::string* out_context_id) override;
+  void CreateBrowserContext(
+      Maybe<bool> in_disposeOnDetach,
+      Maybe<String> in_proxyServer,
+      Maybe<String> in_proxyBypassList,
+      std::unique_ptr<CreateBrowserContextCallback> callback) override;
   void DisposeBrowserContext(
       const std::string& context_id,
       std::unique_ptr<DisposeBrowserContextCallback> callback) override;
@@ -102,12 +110,20 @@ class TargetHandler : public DevToolsDomainHandler,
       std::unique_ptr<protocol::Array<Target::TargetInfo>>* target_infos)
       override;
 
+  void ApplyNetworkContextParamsOverrides(
+      BrowserContext* browser_context,
+      network::mojom::NetworkContextParams* network_context_params);
+
  private:
   class Session;
   class Throttle;
+  class RequestThrottle;
+  class ResponseThrottle;
 
-  void AutoAttach(DevToolsAgentHost* host, bool waiting_for_debugger);
-  void AutoDetach(DevToolsAgentHost* host);
+  // TargetAutoAttacher::Delegate implementation.
+  void AutoAttach(DevToolsAgentHost* host, bool waiting_for_debugger) override;
+  void AutoDetach(DevToolsAgentHost* host) override;
+
   Response FindSession(Maybe<std::string> session_id,
                        Maybe<std::string> target_id,
                        Session** session);
@@ -115,8 +131,8 @@ class TargetHandler : public DevToolsDomainHandler,
   void SetAutoAttachInternal(bool auto_attach,
                              bool wait_for_debugger_on_start,
                              bool flatten,
-                             bool window_open,
                              base::OnceClosure callback);
+  void UpdateAgentHostObserver();
 
   // DevToolsAgentHostObserver implementation.
   bool ShouldForceDevToolsAgentHostCreation() override;
@@ -131,15 +147,18 @@ class TargetHandler : public DevToolsDomainHandler,
   std::unique_ptr<Target::Frontend> frontend_;
   TargetAutoAttacher auto_attacher_;
   bool flatten_auto_attach_ = false;
-  bool attach_to_window_open_ = false;
   bool discover_;
+  bool observing_agent_hosts_ = false;
   std::map<std::string, std::unique_ptr<Session>> attached_sessions_;
   std::map<DevToolsAgentHost*, Session*> auto_attached_sessions_;
   std::set<DevToolsAgentHost*> reported_hosts_;
+  base::flat_set<std::string> dispose_on_detach_context_ids_;
+  base::flat_map<std::string, net::ProxyConfig> contexts_with_overridden_proxy_;
   AccessMode access_mode_;
   std::string owner_target_id_;
   DevToolsSession* root_session_;
   base::flat_set<Throttle*> throttles_;
+  base::Optional<net::ProxyConfig> pending_proxy_config_;
   base::WeakPtrFactory<TargetHandler> weak_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(TargetHandler);

@@ -4,103 +4,47 @@
 
 #include "components/autofill_assistant/browser/user_model.h"
 
+#include "base/logging.h"
+#include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
+#include "third_party/re2/src/re2/re2.h"
 
 namespace autofill_assistant {
 
-// Compares two 'repeated' fields and returns true if every element matches.
-template <typename T>
-bool RepeatedFieldEquals(const T& values_a, const T& values_b) {
-  if (values_a.size() != values_b.size()) {
-    return false;
+namespace {
+
+// Matches an ASCII identifier (w+) which ends in [<string>], e.g.,
+// test_identifier[sub_identifier[2]].
+static const char* const kExtractArraySubidentifierRegex = R"(^(\w+)\[(.+)\]$)";
+
+// Simple wrapper around value_util::GetNthValue to unwrap the base::optional
+// |value|.
+base::Optional<ValueProto> GetNthValue(const base::Optional<ValueProto>& value,
+                                       int index) {
+  if (!value.has_value()) {
+    return base::nullopt;
   }
-  for (int i = 0; i < values_a.size(); i++) {
-    if (values_a[i] != values_b[i]) {
-      return false;
-    }
+
+  return GetNthValue(*value, index);
+}
+
+// Same as above, but expects |index_value| to point to a single integer value
+// specifying the index to retrieve.
+base::Optional<ValueProto> GetNthValue(
+    const base::Optional<ValueProto>& value,
+    const base::Optional<ValueProto>& index_value) {
+  if (!value.has_value() || !index_value.has_value()) {
+    return base::nullopt;
   }
-  return true;
-}
-
-// '==' operator specialization for RepeatedPtrField.
-template <typename T>
-bool operator==(const google::protobuf::RepeatedPtrField<T>& values_a,
-                const google::protobuf::RepeatedPtrField<T>& values_b) {
-  return RepeatedFieldEquals(values_a, values_b);
-}
-
-// '==' operator specialization for RepeatedField.
-template <typename T>
-bool operator==(const google::protobuf::RepeatedField<T>& values_a,
-                const google::protobuf::RepeatedField<T>& values_b) {
-  return RepeatedFieldEquals(values_a, values_b);
-}
-
-// Compares two |ValueProto| instances and returns true if they exactly match.
-bool operator==(const ValueProto& value_a, const ValueProto& value_b) {
-  if (value_a.kind_case() != value_b.kind_case()) {
-    return false;
+  if (!AreAllValuesOfSize({*index_value}, 1) ||
+      !AreAllValuesOfType({*index_value}, ValueProto::kInts)) {
+    return base::nullopt;
   }
-  switch (value_a.kind_case()) {
-    case ValueProto::kStrings:
-      return value_a.strings().values() == value_b.strings().values();
-      break;
-    case ValueProto::kBooleans:
-      return value_a.booleans().values() == value_b.booleans().values();
-      break;
-    case ValueProto::kInts:
-      return value_a.ints().values() == value_b.ints().values();
-      break;
-    case ValueProto::KIND_NOT_SET:
-      return true;
-  }
-  return true;
+
+  return GetNthValue(*value, index_value->ints().values().at(0));
 }
 
-// Intended for debugging. Writes a string representation of |values| to |out|.
-template <typename T>
-std::ostream& WriteRepeatedField(std::ostream& out, const T& values) {
-  std::string separator = "";
-  out << "[";
-  for (const auto& value : values) {
-    out << separator << value;
-    separator = ", ";
-  }
-  out << "]";
-  return out;
-}
-
-// Intended for debugging. '<<' operator specialization for RepeatedPtrField.
-template <typename T>
-std::ostream& operator<<(std::ostream& out,
-                         const google::protobuf::RepeatedPtrField<T>& values) {
-  return WriteRepeatedField(out, values);
-}
-
-// Intended for debugging. '<<' operator specialization for RepeatedField.
-template <typename T>
-std::ostream& operator<<(std::ostream& out,
-                         const google::protobuf::RepeatedField<T>& values) {
-  return WriteRepeatedField(out, values);
-}
-
-// Intended for debugging.  Writes a string representation of |value| to |out|.
-std::ostream& operator<<(std::ostream& out, const ValueProto& value) {
-  switch (value.kind_case()) {
-    case ValueProto::kStrings:
-      out << value.strings().values();
-      break;
-    case ValueProto::kBooleans:
-      out << value.booleans().values();
-      break;
-    case ValueProto::kInts:
-      out << value.ints().values();
-      break;
-    case ValueProto::KIND_NOT_SET:
-      break;
-  }
-  return out;
-}
+}  // namespace
 
 UserModel::Observer::Observer() = default;
 UserModel::Observer::~Observer() = default;
@@ -116,7 +60,9 @@ void UserModel::SetValue(const std::string& identifier,
                          const ValueProto& value,
                          bool force_notification) {
   auto result = values_.emplace(identifier, value);
-  if (!force_notification && !result.second && result.first->second == value) {
+  if (!force_notification && !result.second && result.first->second == value &&
+      value.is_client_side_only() ==
+          result.first->second.is_client_side_only()) {
     return;
   } else if (!result.second) {
     result.first->second = value;
@@ -124,6 +70,42 @@ void UserModel::SetValue(const std::string& identifier,
 
   for (auto& observer : observers_) {
     observer.OnValueChanged(identifier, value);
+  }
+}
+
+base::Optional<ValueProto> UserModel::GetValue(
+    const std::string& identifier) const {
+  auto it = values_.find(identifier);
+  if (it != values_.end()) {
+    return it->second;
+  } else if (base::EndsWith(identifier, "]", base::CompareCase::SENSITIVE)) {
+    std::string identifier_without_suffix;
+    std::string subidentifier;
+    if (re2::RE2::FullMatch(identifier, kExtractArraySubidentifierRegex,
+                            &identifier_without_suffix, &subidentifier)) {
+      int index;
+      if (base::StringToInt(subidentifier, &index)) {
+        // The case 'identifier[n]'.
+        return GetNthValue(GetValue(identifier_without_suffix), index);
+      } else {
+        // The case 'identifier[subidentifier]'.
+        return GetNthValue(GetValue(identifier_without_suffix),
+                           GetValue(subidentifier));
+      }
+    }
+  }
+  return base::nullopt;
+}
+
+base::Optional<ValueProto> UserModel::GetValue(
+    const ValueReferenceProto& reference) const {
+  switch (reference.kind_case()) {
+    case ValueReferenceProto::kValue:
+      return reference.value();
+    case ValueReferenceProto::kModelIdentifier:
+      return GetValue(reference.model_identifier());
+    case ValueReferenceProto::KIND_NOT_SET:
+      return base::nullopt;
   }
 }
 
@@ -162,6 +144,50 @@ void UserModel::AddObserver(Observer* observer) {
 
 void UserModel::RemoveObserver(Observer* observer) {
   observers_.RemoveObserver(observer);
+}
+
+void UserModel::SetAutofillCreditCards(
+    std::unique_ptr<std::vector<std::unique_ptr<autofill::CreditCard>>>
+        credit_cards) {
+  credit_cards_.clear();
+  for (auto& credit_card : *credit_cards) {
+    credit_cards_[credit_card->guid()] = std::move(credit_card);
+  }
+}
+
+void UserModel::SetAutofillProfiles(
+    std::unique_ptr<std::vector<std::unique_ptr<autofill::AutofillProfile>>>
+        profiles) {
+  profiles_.clear();
+  for (auto& profile : *profiles) {
+    profiles_[profile->guid()] = std::move(profile);
+  }
+}
+
+void UserModel::SetCurrentURL(GURL current_url) {
+  current_url_ = current_url;
+}
+
+const autofill::CreditCard* UserModel::GetCreditCard(
+    const std::string& guid) const {
+  auto it = credit_cards_.find(guid);
+  if (it == credit_cards_.end()) {
+    return nullptr;
+  }
+  return it->second.get();
+}
+
+const autofill::AutofillProfile* UserModel::GetProfile(
+    const std::string& guid) const {
+  auto it = profiles_.find(guid);
+  if (it == profiles_.end()) {
+    return nullptr;
+  }
+  return it->second.get();
+}
+
+GURL UserModel::GetCurrentURL() const {
+  return current_url_;
 }
 
 }  // namespace autofill_assistant

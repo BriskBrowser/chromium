@@ -23,11 +23,13 @@
 #include "testing/gmock/include/gmock/gmock.h"
 
 using ::base::test::RunCallback;
+using ::base::test::RunOnceCallback;
 using ::testing::_;
 using ::testing::Invoke;
 using ::testing::Return;
 using ::testing::SaveArg;
 using ::testing::StrictMock;
+using ::testing::WithArg;
 
 namespace media {
 
@@ -77,7 +79,11 @@ class DecryptingVideoDecoderTest : public testing::Test {
   void InitializeAndExpectResult(const VideoDecoderConfig& config,
                                  bool success) {
     decoder_->Initialize(config, false, cdm_context_.get(),
-                         NewExpectedBoolCB(success),
+                         base::BindOnce(
+                             [](bool success, Status status) {
+                               EXPECT_EQ(status.is_ok(), success);
+                             },
+                             success),
                          base::Bind(&DecryptingVideoDecoderTest::FrameReady,
                                     base::Unretained(this)),
                          base::Bind(&DecryptingVideoDecoderTest::OnWaiting,
@@ -89,9 +95,11 @@ class DecryptingVideoDecoderTest : public testing::Test {
   void Initialize() {
     SetCdmType(CDM_WITH_DECRYPTOR);
     EXPECT_CALL(*decryptor_, InitializeVideoDecoder(_, _))
-        .WillOnce(RunCallback<1>(true));
-    EXPECT_CALL(*decryptor_, RegisterNewKeyCB(Decryptor::kVideo, _))
-        .WillOnce(SaveArg<1>(&key_added_cb_));
+        .WillOnce(RunOnceCallback<1>(true));
+    EXPECT_CALL(*cdm_context_, RegisterEventCB(_)).WillOnce([&](auto cb) {
+      event_cb_ = cb;
+      return std::make_unique<CallbackRegistration>();
+    });
 
     InitializeAndExpectResult(TestVideoConfig::NormalEncrypted(), true);
   }
@@ -100,9 +108,7 @@ class DecryptingVideoDecoderTest : public testing::Test {
   void Reinitialize(const VideoDecoderConfig& new_config) {
     EXPECT_CALL(*decryptor_, DeinitializeDecoder(Decryptor::kVideo));
     EXPECT_CALL(*decryptor_, InitializeVideoDecoder(_, _))
-        .WillOnce(RunCallback<1>(true));
-    EXPECT_CALL(*decryptor_, RegisterNewKeyCB(Decryptor::kVideo, _))
-        .WillOnce(SaveArg<1>(&key_added_cb_));
+        .WillOnce(RunOnceCallback<1>(true));
 
     InitializeAndExpectResult(new_config, true);
   }
@@ -111,8 +117,9 @@ class DecryptingVideoDecoderTest : public testing::Test {
   void DecodeAndExpect(scoped_refptr<DecoderBuffer> buffer,
                        DecodeStatus status) {
     EXPECT_CALL(*this, DecodeDone(status));
-    decoder_->Decode(buffer, base::Bind(&DecryptingVideoDecoderTest::DecodeDone,
-                                        base::Unretained(this)));
+    decoder_->Decode(buffer,
+                     base::BindOnce(&DecryptingVideoDecoderTest::DecodeDone,
+                                    base::Unretained(this)));
     base::RunLoop().RunUntilIdle();
   }
 
@@ -163,8 +170,8 @@ class DecryptingVideoDecoderTest : public testing::Test {
         .WillOnce(SaveArg<1>(&pending_video_decode_cb_));
 
     decoder_->Decode(encrypted_buffer_,
-                     base::Bind(&DecryptingVideoDecoderTest::DecodeDone,
-                                base::Unretained(this)));
+                     base::BindOnce(&DecryptingVideoDecoderTest::DecodeDone,
+                                    base::Unretained(this)));
     base::RunLoop().RunUntilIdle();
     // Make sure the Decode() on the decoder triggers a DecryptAndDecode() on
     // the decryptor.
@@ -176,8 +183,8 @@ class DecryptingVideoDecoderTest : public testing::Test {
         .WillRepeatedly(RunCallback<1>(Decryptor::kNoKey, null_video_frame_));
     EXPECT_CALL(*this, OnWaiting(WaitingReason::kNoDecryptionKey));
     decoder_->Decode(encrypted_buffer_,
-                     base::Bind(&DecryptingVideoDecoderTest::DecodeDone,
-                                base::Unretained(this)));
+                     base::BindOnce(&DecryptingVideoDecoderTest::DecodeDone,
+                                    base::Unretained(this)));
     base::RunLoop().RunUntilIdle();
   }
 
@@ -232,7 +239,7 @@ class DecryptingVideoDecoderTest : public testing::Test {
   int num_frames_in_decryptor_;
 
   Decryptor::DecoderInitCB pending_init_cb_;
-  Decryptor::NewKeyCB key_added_cb_;
+  CdmContext::EventCB event_cb_;
   Decryptor::VideoDecodeCB pending_video_decode_cb_;
 
   // Constant buffer/frames.
@@ -255,10 +262,12 @@ TEST_F(DecryptingVideoDecoderTest, Initialize_CdmWithoutDecryptor) {
 
 TEST_F(DecryptingVideoDecoderTest, Initialize_Failure) {
   SetCdmType(CDM_WITH_DECRYPTOR);
+  EXPECT_CALL(*cdm_context_, RegisterEventCB(_)).WillOnce([&](auto cb) {
+    event_cb_ = cb;
+    return std::make_unique<CallbackRegistration>();
+  });
   EXPECT_CALL(*decryptor_, InitializeVideoDecoder(_, _))
-      .WillRepeatedly(RunCallback<1>(false));
-  EXPECT_CALL(*decryptor_, RegisterNewKeyCB(Decryptor::kVideo, _))
-      .WillRepeatedly(SaveArg<1>(&key_added_cb_));
+      .WillRepeatedly(RunOnceCallback<1>(false));
 
   InitializeAndExpectResult(TestVideoConfig::NormalEncrypted(), false);
 }
@@ -282,7 +291,7 @@ TEST_F(DecryptingVideoDecoderTest, Reinitialize_Failure) {
 
   EXPECT_CALL(*decryptor_, DeinitializeDecoder(Decryptor::kVideo));
   EXPECT_CALL(*decryptor_, InitializeVideoDecoder(_, _))
-      .WillOnce(RunCallback<1>(false));
+      .WillOnce(RunOnceCallback<1>(false));
 
   // Reinitialize() expects the reinitialization to succeed. Call
   // InitializeAndExpectResult() directly to test the reinitialization failure.
@@ -328,7 +337,7 @@ TEST_F(DecryptingVideoDecoderTest, KeyAdded_DuringWaitingForKey) {
           RunCallback<1>(Decryptor::kSuccess, decoded_video_frame_));
   EXPECT_CALL(*this, FrameReady(decoded_video_frame_));
   EXPECT_CALL(*this, DecodeDone(DecodeStatus::OK));
-  key_added_cb_.Run();
+  event_cb_.Run(CdmContext::Event::kHasAdditionalUsableKey);
   base::RunLoop().RunUntilIdle();
 }
 
@@ -345,7 +354,7 @@ TEST_F(DecryptingVideoDecoderTest, KeyAdded_DuringPendingDecode) {
   EXPECT_CALL(*this, DecodeDone(DecodeStatus::OK));
   // The video decode callback is returned after the correct decryption key is
   // added.
-  key_added_cb_.Run();
+  event_cb_.Run(CdmContext::Event::kHasAdditionalUsableKey);
   std::move(pending_video_decode_cb_).Run(Decryptor::kNoKey, null_video_frame_);
   base::RunLoop().RunUntilIdle();
 }
@@ -405,8 +414,14 @@ TEST_F(DecryptingVideoDecoderTest, Reset_AfterReset) {
 // Test destruction when the decoder is in kPendingDecoderInit state.
 TEST_F(DecryptingVideoDecoderTest, Destroy_DuringPendingDecoderInit) {
   SetCdmType(CDM_WITH_DECRYPTOR);
+  EXPECT_CALL(*cdm_context_, RegisterEventCB(_)).WillOnce([&](auto cb) {
+    event_cb_ = cb;
+    return std::make_unique<CallbackRegistration>();
+  });
   EXPECT_CALL(*decryptor_, InitializeVideoDecoder(_, _))
-      .WillOnce(SaveArg<1>(&pending_init_cb_));
+      .WillOnce(WithArg<1>(Invoke([&](Decryptor::DecoderInitCB init_cb) {
+        pending_init_cb_ = std::move(init_cb);
+      })));
 
   InitializeAndExpectResult(TestVideoConfig::NormalEncrypted(), false);
   EXPECT_FALSE(!pending_init_cb_);

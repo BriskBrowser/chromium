@@ -17,20 +17,19 @@ XRSpace::XRSpace(XRSession* session) : session_(session) {}
 
 XRSpace::~XRSpace() = default;
 
-std::unique_ptr<TransformationMatrix> XRSpace::NativeFromViewer(
-    const TransformationMatrix* mojo_from_viewer) {
+base::Optional<TransformationMatrix> XRSpace::NativeFromViewer(
+    const base::Optional<TransformationMatrix>& mojo_from_viewer) {
   if (!mojo_from_viewer)
-    return nullptr;
+    return base::nullopt;
 
-  std::unique_ptr<TransformationMatrix> native_from_mojo = NativeFromMojo();
+  base::Optional<TransformationMatrix> native_from_mojo = NativeFromMojo();
   if (!native_from_mojo)
-    return nullptr;
+    return base::nullopt;
 
   native_from_mojo->Multiply(*mojo_from_viewer);
 
   // This is now native_from_viewer
   return native_from_mojo;
-  ;
 }
 
 TransformationMatrix XRSpace::NativeFromOffsetMatrix() {
@@ -43,13 +42,25 @@ TransformationMatrix XRSpace::OffsetFromNativeMatrix() {
   return identity;
 }
 
-std::unique_ptr<TransformationMatrix> XRSpace::TryInvert(
-    std::unique_ptr<TransformationMatrix> matrix) {
-  if (!matrix)
-    return nullptr;
+base::Optional<TransformationMatrix> XRSpace::MojoFromOffsetMatrix() {
+  auto maybe_mojo_from_native = MojoFromNative();
+  if (!maybe_mojo_from_native) {
+    return base::nullopt;
+  }
 
-  DCHECK(matrix->IsInvertible());
-  return std::make_unique<TransformationMatrix>(matrix->Inverse());
+  // Modifies maybe_mojo_from_native - it becomes mojo_from_offset_matrix.
+  // Saves a heap allocation since there is no need to create a new unique_ptr.
+  maybe_mojo_from_native->Multiply(NativeFromOffsetMatrix());
+  return maybe_mojo_from_native;
+}
+
+base::Optional<TransformationMatrix> XRSpace::NativeFromMojo() {
+  base::Optional<TransformationMatrix> mojo_from_native = MojoFromNative();
+  if (!mojo_from_native)
+    return base::nullopt;
+
+  DCHECK(mojo_from_native->IsInvertible());
+  return mojo_from_native->Inverse();
 }
 
 bool XRSpace::EmulatedPosition() const {
@@ -57,20 +68,25 @@ bool XRSpace::EmulatedPosition() const {
 }
 
 XRPose* XRSpace::getPose(XRSpace* other_space) {
+  DVLOG(2) << __func__;
+
   // Named mojo_from_offset because that is what we will leave it as, though it
   // starts mojo_from_native.
-  std::unique_ptr<TransformationMatrix> mojo_from_offset = MojoFromNative();
+  base::Optional<TransformationMatrix> mojo_from_offset = MojoFromNative();
   if (!mojo_from_offset) {
+    DVLOG(2) << __func__ << ": MojoFromNative() is not set";
     return nullptr;
   }
 
   // Add any origin offset now.
   mojo_from_offset->Multiply(NativeFromOffsetMatrix());
 
-  std::unique_ptr<TransformationMatrix> other_from_mojo =
+  base::Optional<TransformationMatrix> other_from_mojo =
       other_space->NativeFromMojo();
-  if (!other_from_mojo)
+  if (!other_from_mojo) {
+    DVLOG(2) << __func__ << ": other_space->NativeFromMojo() is not set";
     return nullptr;
+  }
 
   // Add any origin offset from the other space now.
   TransformationMatrix other_offset_from_mojo =
@@ -86,16 +102,16 @@ XRPose* XRSpace::getPose(XRSpace* other_space) {
       EmulatedPosition() || other_space->EmulatedPosition());
 }
 
-std::unique_ptr<TransformationMatrix> XRSpace::OffsetFromViewer() {
-  std::unique_ptr<TransformationMatrix> native_from_viewer =
-      NativeFromViewer(base::OptionalOrNullptr(session()->MojoFromViewer()));
+base::Optional<TransformationMatrix> XRSpace::OffsetFromViewer() {
+  base::Optional<TransformationMatrix> native_from_viewer =
+      NativeFromViewer(session()->GetMojoFrom(
+          device::mojom::blink::XRReferenceSpaceType::kViewer));
 
   if (!native_from_viewer) {
-    return nullptr;
+    return base::nullopt;
   }
 
-  return std::make_unique<TransformationMatrix>(
-      OffsetFromNativeMatrix().Multiply(*native_from_viewer));
+  return OffsetFromNativeMatrix().Multiply(*native_from_viewer);
 }
 
 ExecutionContext* XRSpace::GetExecutionContext() const {
@@ -106,11 +122,7 @@ const AtomicString& XRSpace::InterfaceName() const {
   return event_target_names::kXRSpace;
 }
 
-base::Optional<XRNativeOriginInformation> XRSpace::NativeOrigin() const {
-  return base::nullopt;
-}
-
-void XRSpace::Trace(blink::Visitor* visitor) {
+void XRSpace::Trace(Visitor* visitor) const {
   visitor->Trace(session_);
   ScriptWrappable::Trace(visitor);
   EventTargetWithInlineData::Trace(visitor);

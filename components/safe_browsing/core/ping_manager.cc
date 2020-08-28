@@ -7,8 +7,9 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/logging.h"
+#include "base/check.h"
 #include "base/memory/ptr_util.h"
+#include "base/notreached.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "components/safe_browsing/core/db/v4_protocol_manager_util.h"
@@ -51,9 +52,9 @@ const net::NetworkTrafficAnnotationTag kTrafficAnnotation =
           "details of possible security incidents to Google' setting under "
           "'Privacy'. The feature is disabled by default."
         chrome_policy {
-          SafeBrowsingExtendedReportingOptInAllowed {
+          SafeBrowsingExtendedReportingEnabled {
             policy_options {mode: MANDATORY}
-            SafeBrowsingExtendedReportingOptInAllowed: false
+            SafeBrowsingExtendedReportingEnabled: false
           }
         }
       })");
@@ -66,15 +67,11 @@ namespace safe_browsing {
 
 // static
 std::unique_ptr<PingManager> PingManager::Create(
-    scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
     const V4ProtocolConfig& config) {
-  return base::WrapUnique(new PingManager(url_loader_factory, config));
+  return base::WrapUnique(new PingManager(config));
 }
 
-PingManager::PingManager(
-    scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
-    const V4ProtocolConfig& config)
-    : config_(config), url_loader_factory_(url_loader_factory) {}
+PingManager::PingManager(const V4ProtocolConfig& config) : config_(config) {}
 
 PingManager::~PingManager() {}
 
@@ -89,6 +86,7 @@ void PingManager::OnURLLoaderComplete(
 
 // Sends a SafeBrowsing "hit" report.
 void PingManager::ReportSafeBrowsingHit(
+    scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
     const safe_browsing::HitReport& hit_report) {
   auto resource_request = std::make_unique<network::ResourceRequest>();
   GURL report_url = SafeBrowsingHitUrl(hit_report);
@@ -104,14 +102,16 @@ void PingManager::ReportSafeBrowsingHit(
     report_ptr->AttachStringForUpload(hit_report.post_data, "text/plain");
 
   report_ptr->DownloadToStringOfUnboundedSizeUntilCrashAndDie(
-      url_loader_factory_.get(),
+      url_loader_factory.get(),
       base::BindOnce(&PingManager::OnURLLoaderComplete, base::Unretained(this),
                      report_ptr.get()));
   safebrowsing_reports_.insert(std::move(report_ptr));
 }
 
 // Sends threat details for users who opt-in.
-void PingManager::ReportThreatDetails(const std::string& report) {
+void PingManager::ReportThreatDetails(
+    scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
+    const std::string& report) {
   GURL report_url = ThreatDetailsUrl();
 
   auto resource_request = std::make_unique<network::ResourceRequest>();
@@ -125,7 +125,7 @@ void PingManager::ReportThreatDetails(const std::string& report) {
   loader->AttachStringForUpload(report, "application/octet-stream");
 
   loader->DownloadToStringOfUnboundedSizeUntilCrashAndDie(
-      url_loader_factory_.get(),
+      url_loader_factory.get(),
       base::BindOnce(&PingManager::OnURLLoaderComplete, base::Unretained(this),
                      loader.get()));
   safebrowsing_reports_.insert(std::move(loader));
@@ -140,7 +140,8 @@ GURL PingManager::SafeBrowsingHitUrl(
          hit_report.threat_type == SB_THREAT_TYPE_URL_CLIENT_SIDE_PHISHING ||
          hit_report.threat_type == SB_THREAT_TYPE_URL_CLIENT_SIDE_MALWARE);
   std::string url =
-      GetReportUrl(config_, "report", &hit_report.extended_reporting_level);
+      GetReportUrl(config_, "report", &hit_report.extended_reporting_level,
+                   hit_report.is_enhanced_protection);
   std::string threat_list = "none";
   switch (hit_report.threat_type) {
     case SB_THREAT_TYPE_URL_MALWARE:

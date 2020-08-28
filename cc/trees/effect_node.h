@@ -96,6 +96,13 @@ struct CC_EXPORT EffectNode {
   bool double_sided : 1;
   bool trilinear_filtering : 1;
   bool is_drawn : 1;
+  // In most cases we only need to draw the visible part of any content
+  // contributing to the effect. For copy request case, we would need to copy
+  // the entire content, and could not only draw the visible part. In the rare
+  // case of a backdrop zoom filter we need to take into consideration the
+  // content offscreen to make sure the backdrop zoom filter is applied with the
+  // correct center.
+  bool only_draws_visible_content : 1;
   // TODO(jaydasika) : Delete this after implementation of
   // SetHideLayerAndSubtree is cleaned up. (crbug.com/595843)
   bool subtree_hidden : 1;
@@ -123,6 +130,8 @@ struct CC_EXPORT EffectNode {
   // If set, the effect node tries to not trigger a render surface due to it
   // having a rounded corner.
   bool is_fast_rounded_corner : 1;
+  // If the node or it's parent has the filters, it sets to true.
+  bool node_or_ancestor_has_filters : 1;
   // RenderSurfaceReason::kNone if this effect node should not create a render
   // surface, or the reason that this effect node should create one.
   RenderSurfaceReason render_surface_reason;

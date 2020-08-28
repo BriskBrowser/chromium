@@ -11,7 +11,6 @@
 #include "base/files/scoped_temp_dir.h"
 #include "base/mac/foundation_util.h"
 #include "base/mac/scoped_nsobject.h"
-#include "base/mac/sdk_forward_declarations.h"
 #include "base/macros.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/synchronization/waitable_event.h"
@@ -93,9 +92,7 @@ const char kTestFileContents[] = "test";
   // filename. Do that here to require a rename.
   saveAsFilename += ".jpg";
   base::FilePath toBeSaved = saveDir.Append(saveAsFilename);
-  ASSERT_EQ(static_cast<int>(strlen(kTestFileContents)),
-            base::WriteFile(toBeSaved, kTestFileContents,
-                            strlen(kTestFileContents)));
+  ASSERT_TRUE(base::WriteFile(toBeSaved, kTestFileContents));
 
   NSMutableDictionary* returnOptions =
       [NSMutableDictionary dictionaryWithDictionary:options];

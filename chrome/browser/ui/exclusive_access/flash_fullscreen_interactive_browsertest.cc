@@ -21,6 +21,7 @@
 #include "content/public/browser/render_widget_host.h"
 #include "content/public/browser/render_widget_host_view.h"
 #include "content/public/browser/web_contents.h"
+#include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/test_utils.h"
 #include "third_party/skia/include/core/SkBitmap.h"
@@ -28,7 +29,7 @@
 
 namespace {
 
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
 const bool kIsMacUI = true;
 #else
 const bool kIsMacUI = false;
@@ -407,9 +408,8 @@ IN_PROC_BROWSER_TEST_F(FlashFullscreenInteractiveBrowserTest,
       web_contents->GetFullscreenRenderWidgetHostView();
   content::RenderWidgetHost* fullscreen_widget =
       fullscreen_view->GetRenderWidgetHost();
-  content::RenderProcessHost* process = fullscreen_widget->GetProcess();
-  content::PwnMessageHelper::LockMouse(
-      process, fullscreen_widget->GetRoutingID(), true, true, false);
+  content::RequestMouseLock(fullscreen_widget, /*from_user_gesture=*/true,
+                            /*privileged=*/true, /*unadjusted_movement=*/false);
 
   // Make sure that the fullscreen widget got the mouse lock.
   EXPECT_TRUE(fullscreen_view->IsMouseLocked());

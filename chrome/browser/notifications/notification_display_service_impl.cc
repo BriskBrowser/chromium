@@ -8,19 +8,23 @@
 
 #include "base/bind.h"
 #include "base/callback.h"
+#include "base/feature_list.h"
 #include "base/logging.h"
 #include "base/metrics/histogram_macros.h"
 #include "build/build_config.h"
 #include "build/buildflag.h"
+#include "chrome/browser/browser_features.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/notifications/non_persistent_notification_handler.h"
 #include "chrome/browser/notifications/notification_display_service_factory.h"
 #include "chrome/browser/notifications/notification_platform_bridge.h"
 #include "chrome/browser/notifications/persistent_notification_handler.h"
-#include "chrome/browser/permissions/permission_request_notification_handler.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/sharing/sharing_notification_handler.h"
+#include "chrome/browser/updates/announcement_notification/announcement_notification_handler.h"
 #include "chrome/common/chrome_features.h"
+#include "chrome/common/pref_names.h"
+#include "components/pref_registry/pref_registry_syncable.h"
+#include "components/prefs/pref_service.h"
 #include "content/public/browser/browser_thread.h"
 #include "ui/base/ui_base_features.h"
 #include "ui/message_center/public/cpp/notification.h"
@@ -33,8 +37,11 @@
 #include "chrome/browser/notifications/notification_platform_bridge_message_center.h"
 #endif
 
-#if defined(OS_LINUX) || defined(OS_MACOSX) || defined(OS_WIN)
+#if defined(OS_LINUX) || defined(OS_CHROMEOS) || defined(OS_MAC) || \
+    defined(OS_WIN)
+#include "chrome/browser/nearby_sharing/nearby_notification_handler.h"
 #include "chrome/browser/send_tab_to_self/desktop_notification_handler.h"
+#include "chrome/browser/sharing/sharing_notification_handler.h"
 #endif
 
 #if defined(OS_WIN)
@@ -43,6 +50,20 @@
 #endif
 
 namespace {
+
+#if !defined(OS_CHROMEOS)
+bool NativeNotificationsEnabled(Profile* profile) {
+#if defined(OS_LINUX) || defined(OS_CHROMEOS)
+  if (profile) {
+    PrefService* prefs = profile->GetPrefs();
+    if (!prefs->GetBoolean(prefs::kAllowNativeNotifications))
+      return false;
+  }
+#endif
+
+  return base::FeatureList::IsEnabled(features::kNativeNotifications);
+}
+#endif
 
 // Returns the NotificationPlatformBridge to use for the current platform.
 // Will return a nullptr for platforms that don't support native notifications.
@@ -64,10 +85,11 @@ namespace {
 //
 // Please try to keep this comment up to date when changing behaviour on one of
 // the platforms supported by the browser.
-NotificationPlatformBridge* GetNativeNotificationPlatformBridge() {
+NotificationPlatformBridge* GetNativeNotificationPlatformBridge(
+    Profile* profile) {
 #if BUILDFLAG(ENABLE_NATIVE_NOTIFICATIONS)
 #if defined(OS_ANDROID)
-  DCHECK(base::FeatureList::IsEnabled(features::kNativeNotifications));
+  DCHECK(NativeNotificationsEnabled(profile));
   return g_browser_process->notification_platform_bridge();
 #elif defined(OS_WIN)
   if (NotificationPlatformBridgeWin::NativeNotificationEnabled())
@@ -75,7 +97,7 @@ NotificationPlatformBridge* GetNativeNotificationPlatformBridge() {
 #elif defined(OS_CHROMEOS)
   return g_browser_process->notification_platform_bridge();
 #else
-  if (base::FeatureList::IsEnabled(features::kNativeNotifications) &&
+  if (NativeNotificationsEnabled(profile) &&
       g_browser_process->notification_platform_bridge()) {
     return g_browser_process->notification_platform_bridge();
   }
@@ -110,10 +132,18 @@ NotificationDisplayServiceImpl* NotificationDisplayServiceImpl::GetForProfile(
       NotificationDisplayServiceFactory::GetForProfile(profile));
 }
 
+// static
+void NotificationDisplayServiceImpl::RegisterProfilePrefs(
+    user_prefs::PrefRegistrySyncable* registry) {
+#if defined(OS_LINUX) && !defined(OS_CHROMEOS)
+  registry->RegisterBooleanPref(prefs::kAllowNativeNotifications, true);
+#endif
+}
+
 NotificationDisplayServiceImpl::NotificationDisplayServiceImpl(Profile* profile)
     : profile_(profile),
-      message_center_bridge_(CreateMessageCenterBridge(profile)),
-      bridge_(GetNativeNotificationPlatformBridge()) {
+      message_center_bridge_(CreateMessageCenterBridge(profile_)),
+      bridge_(GetNativeNotificationPlatformBridge(profile_)) {
   // TODO(peter): Move these to the NotificationDisplayServiceFactory.
   if (profile_) {
     AddNotificationHandler(
@@ -122,7 +152,8 @@ NotificationDisplayServiceImpl::NotificationDisplayServiceImpl(Profile* profile)
     AddNotificationHandler(NotificationHandler::Type::WEB_PERSISTENT,
                            std::make_unique<PersistentNotificationHandler>());
 
-#if defined(OS_LINUX) || defined(OS_MACOSX) || defined(OS_WIN)
+#if defined(OS_LINUX) || defined(OS_CHROMEOS) || defined(OS_MAC) || \
+    defined(OS_WIN)
     AddNotificationHandler(
         NotificationHandler::Type::SEND_TAB_TO_SELF,
         std::make_unique<send_tab_to_self::DesktopNotificationHandler>(
@@ -135,14 +166,16 @@ NotificationDisplayServiceImpl::NotificationDisplayServiceImpl(Profile* profile)
         std::make_unique<extensions::ExtensionNotificationHandler>());
 #endif
 
-#if defined(OS_ANDROID)
-    AddNotificationHandler(
-        NotificationHandler::Type::PERMISSION_REQUEST,
-        std::make_unique<PermissionRequestNotificationHandler>());
-#endif
 #if !defined(OS_ANDROID)
     AddNotificationHandler(NotificationHandler::Type::SHARING,
                            std::make_unique<SharingNotificationHandler>());
+    AddNotificationHandler(NotificationHandler::Type::ANNOUNCEMENT,
+                           std::make_unique<AnnouncementNotificationHandler>());
+
+    if (base::FeatureList::IsEnabled(features::kNearbySharing)) {
+      AddNotificationHandler(NotificationHandler::Type::NEARBY_SHARE,
+                             std::make_unique<NearbyNotificationHandler>());
+    }
 #endif
   }
 
@@ -157,7 +190,10 @@ NotificationDisplayServiceImpl::NotificationDisplayServiceImpl(Profile* profile)
   }
 }
 
-NotificationDisplayServiceImpl::~NotificationDisplayServiceImpl() = default;
+NotificationDisplayServiceImpl::~NotificationDisplayServiceImpl() {
+  for (auto& obs : observers_)
+    obs.OnNotificationDisplayServiceDestroyed(this);
+}
 
 void NotificationDisplayServiceImpl::ProcessNotificationOperation(
     NotificationCommon::Operation operation,
@@ -188,6 +224,8 @@ void NotificationDisplayServiceImpl::ProcessNotificationOperation(
       DCHECK(by_user.has_value());
       handler->OnClose(profile_, origin, notification_id, by_user.value(),
                        std::move(completed_closure));
+      for (auto& observer : observers_)
+        observer.OnNotificationClosed(notification_id);
       break;
     case NotificationCommon::OPERATION_DISABLE_PERMISSION:
       handler->DisableNotifications(profile_, origin);
@@ -242,6 +280,9 @@ void NotificationDisplayServiceImpl::Display(
     return;
   }
 
+  for (auto& observer : observers_)
+    observer.OnNotificationDisplayed(notification, metadata.get());
+
 #if BUILDFLAG(ENABLE_NATIVE_NOTIFICATIONS)
   NotificationPlatformBridge* bridge =
       NotificationPlatformBridge::CanHandleType(notification_type)
@@ -293,6 +334,14 @@ void NotificationDisplayServiceImpl::GetDisplayed(
   bridge_->GetDisplayed(profile_, std::move(callback));
 }
 
+void NotificationDisplayServiceImpl::AddObserver(Observer* observer) {
+  observers_.AddObserver(observer);
+}
+
+void NotificationDisplayServiceImpl::RemoveObserver(Observer* observer) {
+  observers_.RemoveObserver(observer);
+}
+
 // Callback to run once the profile has been loaded in order to perform a
 // given |operation| in a notification.
 void NotificationDisplayServiceImpl::ProfileLoadedCallback(
@@ -322,7 +371,7 @@ void NotificationDisplayServiceImpl::OnNotificationPlatformBridgeReady(
     bool success) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 #if BUILDFLAG(ENABLE_NATIVE_NOTIFICATIONS) && !defined(OS_CHROMEOS)
-  if (base::FeatureList::IsEnabled(features::kNativeNotifications)) {
+  if (NativeNotificationsEnabled(profile_)) {
     UMA_HISTOGRAM_BOOLEAN("Notifications.UsingNativeNotificationCenter",
                           success);
   }

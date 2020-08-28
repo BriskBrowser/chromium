@@ -16,7 +16,7 @@
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
 #include "base/optional.h"
-#include "base/time/time.h"
+#include "build/build_config.h"
 #include "components/viz/common/surfaces/frame_sink_id.h"
 #include "ui/aura/aura_export.h"
 #include "ui/aura/scoped_enable_unadjusted_mouse_events.h"
@@ -233,13 +233,8 @@ class AURA_EXPORT WindowTreeHost : public ui::internal::InputMethodDelegate,
   // WindowEventDispatcher during event dispatch.
   virtual bool ShouldSendKeyEventToIme();
 
-  // Enables native window occlusion tracking for the native window this host
-  // represents.
-  virtual void EnableNativeWindowOcclusionTracking();
-
-  // Disables native window occlusion tracking for the native window this host
-  // represents.
-  virtual void DisableNativeWindowOcclusionTracking();
+  // Determines if native window occlusion should be enabled or not.
+  bool IsNativeWindowOcclusionEnabled();
 
   // Remembers the current occlusion state, and if it has changed, notifies
   // observers of the change.
@@ -252,7 +247,10 @@ class AURA_EXPORT WindowTreeHost : public ui::internal::InputMethodDelegate,
   // Requests using unadjusted movement mouse events, i.e. WM_INPUT on Windows.
   // Returns a ScopedEnableUnadjustedMouseEvents instance which stops using
   // unadjusted mouse events when destroyed, returns nullptr if unadjusted mouse
-  // event is not not implemented or failed.
+  // event is not not implemented or failed. On some platforms this function may
+  // temporarily affect the global state of mouse settings.  This function is
+  // currently only intended to be used with PointerLock as it is not set up for
+  // multiple calls.
   virtual std::unique_ptr<ScopedEnableUnadjustedMouseEvents>
   RequestUnadjustedMovement();
 
@@ -271,14 +269,11 @@ class AURA_EXPORT WindowTreeHost : public ui::internal::InputMethodDelegate,
   void DestroyCompositor();
   void DestroyDispatcher();
 
-  // If frame_sink_id is not passed in, one will be grabbed from
-  // ContextFactoryPrivate. See Compositor() for details on
-  // |trace_environment_name|.
+  // If frame_sink_id is not passed in, one will be grabbed from ContextFactory.
   void CreateCompositor(
       const viz::FrameSinkId& frame_sink_id = viz::FrameSinkId(),
       bool force_software_compositor = false,
-      bool use_external_begin_frame_control = false,
-      const char* trace_environment_name = nullptr);
+      bool use_external_begin_frame_control = false);
 
   void InitCompositor();
   void OnAcceleratedWidgetAvailable();
@@ -330,6 +325,9 @@ class AURA_EXPORT WindowTreeHost : public ui::internal::InputMethodDelegate,
       const {
     return observers_;
   }
+
+  // Called to enabled/disable native window occlusion calculation.
+  void SetNativeWindowOcclusionEnabled(bool enable);
 
  private:
   friend class test::WindowTreeHostTestApi;
@@ -384,11 +382,11 @@ class AURA_EXPORT WindowTreeHost : public ui::internal::InputMethodDelegate,
   // Whether the InputMethod instance is owned by this WindowTreeHost.
   bool owned_input_method_;
 
-  // Set to the time the synchronization event began.
-  base::TimeTicks synchronization_start_time_;
-
   // Set to true if this WindowTreeHost is currently holding pointer moves.
   bool holding_pointer_moves_ = false;
+
+  // Set to true if native window occlusion should be calculated.
+  bool native_window_occlusion_enabled_ = false;
 
   base::WeakPtrFactory<WindowTreeHost> weak_factory_{this};
 

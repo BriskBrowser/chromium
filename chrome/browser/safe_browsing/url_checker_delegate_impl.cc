@@ -6,13 +6,16 @@
 
 #include "base/bind.h"
 #include "base/feature_list.h"
-#include "base/task/post_task.h"
+#include "build/build_config.h"
+#include "chrome/browser/android/customtabs/client_data_header_web_contents_observer.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/prerender/prerender_contents.h"
-#include "chrome/browser/prerender/prerender_final_status.h"
+#include "chrome/browser/prerender/chrome_prerender_contents_delegate.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_io_data.h"
 #include "chrome/browser/safe_browsing/ui_manager.h"
+#include "chrome/browser/safe_browsing/user_interaction_observer.h"
+#include "components/prerender/browser/prerender_contents.h"
+#include "components/prerender/common/prerender_final_status.h"
 #include "components/safe_browsing/buildflags.h"
 #include "components/safe_browsing/content/triggers/suspicious_site_trigger.h"
 #include "components/safe_browsing/core/common/safe_browsing_prefs.h"
@@ -25,6 +28,10 @@
 #include "content/public/browser/web_contents.h"
 #include "services/network/public/cpp/features.h"
 
+#if defined(OS_ANDROID)
+#include "chrome/browser/android/tab_android.h"
+#endif
+
 namespace safe_browsing {
 namespace {
 
@@ -34,46 +41,37 @@ void DestroyPrerenderContents(
   content::WebContents* web_contents = std::move(web_contents_getter).Run();
   if (web_contents) {
     prerender::PrerenderContents* prerender_contents =
-        prerender::PrerenderContents::FromWebContents(web_contents);
+        prerender::ChromePrerenderContentsDelegate::FromWebContents(
+            web_contents);
     if (prerender_contents)
       prerender_contents->Destroy(prerender::FINAL_STATUS_SAFE_BROWSING);
   }
 }
 
-void StartDisplayingBlockingPage(
-    scoped_refptr<SafeBrowsingUIManager> ui_manager,
-    const security_interstitials::UnsafeResource& resource) {
-  content::WebContents* web_contents = resource.web_contents_getter.Run();
-  if (web_contents) {
-    prerender::PrerenderContents* prerender_contents =
-        prerender::PrerenderContents::FromWebContents(web_contents);
-    if (prerender_contents) {
-      prerender_contents->Destroy(prerender::FINAL_STATUS_SAFE_BROWSING);
-    } else {
-      // With committed interstitials, if this is a main frame load, we need to
-      // get the navigation URL and referrer URL from the navigation entry now,
-      // since they are required for threat reporting, and the entry will be
-      // destroyed once the request is failed.
-      if (base::FeatureList::IsEnabled(kCommittedSBInterstitials) &&
-          resource.IsMainPageLoadBlocked()) {
-        content::NavigationEntry* entry =
-            web_contents->GetController().GetPendingEntry();
-        if (entry) {
-          security_interstitials::UnsafeResource resource_copy(resource);
-          resource_copy.navigation_url = entry->GetURL();
-          resource_copy.referrer_url = entry->GetReferrer().url;
-          ui_manager->DisplayBlockingPage(resource_copy);
-          return;
-        }
-      }
-      ui_manager->DisplayBlockingPage(resource);
-      return;
-    }
+void CreateSafeBrowsingUserInteractionObserver(
+    const content::WebContents::Getter& web_contents_getter,
+    const security_interstitials::UnsafeResource& resource,
+    bool is_main_frame,
+    scoped_refptr<SafeBrowsingUIManager> ui_manager) {
+  content::WebContents* web_contents = web_contents_getter.Run();
+  // Don't delay the interstitial for prerender pages and portals.
+  if (!web_contents ||
+      prerender::ChromePrerenderContentsDelegate::FromWebContents(
+          web_contents) ||
+      web_contents->IsPortal()) {
+    SafeBrowsingUIManager::StartDisplayingBlockingPage(ui_manager, resource);
+    return;
   }
-
-  // Tab is gone or it's being prerendered.
-  base::PostTask(FROM_HERE, {content::BrowserThread::IO},
-                 base::BindOnce(resource.callback, false));
+#if defined(OS_ANDROID)
+  // Don't delay the interstitial for Chrome Custom Tabs.
+  auto* tab_android = TabAndroid::FromWebContents(web_contents);
+  if (tab_android && tab_android->IsCustomTab()) {
+    SafeBrowsingUIManager::StartDisplayingBlockingPage(ui_manager, resource);
+    return;
+  }
+#endif
+  SafeBrowsingUserInteractionObserver::CreateForWebContents(
+      web_contents, resource, is_main_frame, ui_manager);
 }
 
 }  // namespace
@@ -100,8 +98,8 @@ UrlCheckerDelegateImpl::~UrlCheckerDelegateImpl() = default;
 void UrlCheckerDelegateImpl::MaybeDestroyPrerenderContents(
     content::WebContents::OnceGetter web_contents_getter) {
   // Destroy the prefetch with FINAL_STATUS_SAFEBROSWING.
-  base::PostTask(FROM_HERE, {content::BrowserThread::UI},
-                 base::BindOnce(&DestroyPrerenderContents,
+  content::GetUIThreadTaskRunner({})->PostTask(
+      FROM_HERE, base::BindOnce(&DestroyPrerenderContents,
                                 std::move(web_contents_getter)));
 }
 
@@ -111,9 +109,21 @@ void UrlCheckerDelegateImpl::StartDisplayingBlockingPageHelper(
     const net::HttpRequestHeaders& headers,
     bool is_main_frame,
     bool has_user_gesture) {
-  base::PostTask(
-      FROM_HERE, {content::BrowserThread::UI},
-      base::BindOnce(&StartDisplayingBlockingPage, ui_manager_, resource));
+  content::GetUIThreadTaskRunner({})->PostTask(
+      FROM_HERE,
+      base::BindOnce(&SafeBrowsingUIManager::StartDisplayingBlockingPage,
+                     ui_manager_, resource));
+}
+
+// Starts displaying the SafeBrowsing interstitial page.
+void UrlCheckerDelegateImpl::
+    StartObservingInteractionsForDelayedBlockingPageHelper(
+        const security_interstitials::UnsafeResource& resource,
+        bool is_main_frame) {
+  content::GetUIThreadTaskRunner({})->PostTask(
+      FROM_HERE, base::BindOnce(&CreateSafeBrowsingUserInteractionObserver,
+                                resource.web_contents_getter, resource,
+                                is_main_frame, ui_manager_));
 }
 
 bool UrlCheckerDelegateImpl::IsUrlWhitelisted(const GURL& url) {
@@ -132,8 +142,8 @@ bool UrlCheckerDelegateImpl::ShouldSkipRequestCheck(
 void UrlCheckerDelegateImpl::NotifySuspiciousSiteDetected(
     const base::RepeatingCallback<content::WebContents*()>&
         web_contents_getter) {
-  base::PostTask(FROM_HERE, {content::BrowserThread::UI},
-                 base::BindOnce(&NotifySuspiciousSiteTriggerDetected,
+  content::GetUIThreadTaskRunner({})->PostTask(
+      FROM_HERE, base::BindOnce(&NotifySuspiciousSiteTriggerDetected,
                                 web_contents_getter));
 }
 

@@ -5,10 +5,10 @@
 #include <utility>
 
 #include "base/bind.h"
+#include "base/bind_helpers.h"
 #include "base/macros.h"
 #include "base/run_loop.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/task/post_task.h"
 #include "content/browser/renderer_host/render_process_host_impl.h"
 #include "content/browser/utility_process_host.h"
 #include "content/public/browser/browser_child_process_host.h"
@@ -20,6 +20,7 @@
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/process_type.h"
+#include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/content_browser_test.h"
 #include "content/public/test/content_browser_test_utils.h"
@@ -69,8 +70,8 @@ class MockPowerMonitorMessageBroadcaster : public device::mojom::PowerMonitor {
   ~MockPowerMonitorMessageBroadcaster() override = default;
 
   void Bind(mojo::PendingReceiver<device::mojom::PowerMonitor> receiver) {
-    base::PostTask(
-        FROM_HERE, {BrowserThread::UI},
+    GetUIThreadTaskRunner({})->PostTask(
+        FROM_HERE,
         base::BindOnce(&MockPowerMonitorMessageBroadcaster::BindOnMainThread,
                        base::Unretained(this), std::move(receiver)));
   }
@@ -176,8 +177,8 @@ class PowerMonitorTest : public ContentBrowserTest {
       mojo::Remote<mojom::PowerMonitorTest>* power_monitor_test,
       base::OnceClosure utility_bound_closure) {
     utility_bound_closure_ = std::move(utility_bound_closure);
-    base::PostTask(
-        FROM_HERE, {BrowserThread::IO},
+    GetIOThreadTaskRunner({})->PostTask(
+        FROM_HERE,
         base::BindOnce(&StartUtilityProcessOnIOThread,
                        power_monitor_test->BindNewPipeAndPassReceiver()));
   }
@@ -276,8 +277,8 @@ IN_PROC_BROWSER_TEST_F(PowerMonitorTest, TestGpuProcess) {
   EXPECT_EQ(1, request_count_from_gpu());
 
   mojo::Remote<mojom::PowerMonitorTest> power_monitor_gpu;
-  base::PostTask(
-      FROM_HERE, {BrowserThread::IO},
+  GetIOThreadTaskRunner({})->PostTask(
+      FROM_HERE,
       base::BindOnce(&BindInterfaceForGpuOnIOThread,
                      power_monitor_gpu.BindNewPipeAndPassReceiver()));
 

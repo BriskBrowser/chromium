@@ -19,11 +19,28 @@ import java.io.File;
  *
  * @since 81
  */
-public final class Download extends IClientDownload.Stub {
+public class Download extends IClientDownload.Stub {
     private final IDownload mDownloadImpl;
+
+    // Constructor for test mocking.
+    protected Download() {
+        mDownloadImpl = null;
+    }
 
     Download(IDownload impl) {
         mDownloadImpl = impl;
+    }
+
+    /**
+     * By default downloads will show a system notification. Call this to disable it.
+     */
+    public void disableNotification() {
+        ThreadCheck.ensureOnUiThread();
+        try {
+            mDownloadImpl.disableNotification();
+        } catch (RemoteException e) {
+            throw new APICallException(e);
+        }
     }
 
     @DownloadState
@@ -106,6 +123,37 @@ public final class Download extends IClientDownload.Stub {
         ThreadCheck.ensureOnUiThread();
         try {
             return new File(mDownloadImpl.getLocation());
+        } catch (RemoteException e) {
+            throw new APICallException(e);
+        }
+    }
+
+    /**
+     * Returns the file name for the download that should be displayed to the user.
+     *
+     * @since 86
+     */
+    @NonNull
+    public File getFileNameToReportToUser() {
+        ThreadCheck.ensureOnUiThread();
+        if (WebLayer.getSupportedMajorVersionInternal() < 86) {
+            throw new UnsupportedOperationException();
+        }
+        try {
+            return new File(mDownloadImpl.getFileNameToReportToUser());
+        } catch (RemoteException e) {
+            throw new APICallException(e);
+        }
+    }
+
+    /**
+     * Returns the effective MIME type of downloaded content.
+     */
+    @NonNull
+    public String getMimeType() {
+        ThreadCheck.ensureOnUiThread();
+        try {
+            return mDownloadImpl.getMimeType();
         } catch (RemoteException e) {
             throw new APICallException(e);
         }

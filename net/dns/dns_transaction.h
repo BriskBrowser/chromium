@@ -23,7 +23,7 @@ namespace net {
 class DnsResponse;
 class DnsSession;
 class NetLogWithSource;
-class URLRequestContext;
+class ResolveContext;
 
 // DnsTransaction implements a stub DNS resolver as defined in RFC 1034.
 // The DnsTransaction takes care of retransmissions, name server fallback (or
@@ -53,14 +53,13 @@ class DnsProbeRunner {
   // Destruction cancels the probes.
   virtual ~DnsProbeRunner() {}
 
-  // Starts the probes. Should only be called once and not after destruction of
-  // the DnsTransactionFactory.
-  virtual void Start() = 0;
-
-  // Restarts (or initially starts if not yet started) the probes for a network
-  // change. May be called multiple times, but should not be called after
-  // destruction of the DnsTransactionFactory.
-  virtual void RestartForNetworkChange() = 0;
+  // Starts all applicable probes that are not already running. May be called
+  // multiple times, but should not be called after destruction of the
+  // DnsTransactionFactory.
+  //
+  // Set |network_change| to indicate if this start or restart was triggered by
+  // a network connection change. Only used for logging and metrics.
+  virtual void Start(bool network_change) = 0;
 
   // Gets the delay until the next scheduled probe to the specified DoH server.
   // Returns base::TimeDelta() if no probe scheduled.
@@ -81,9 +80,14 @@ class NET_EXPORT_PRIVATE DnsTransactionFactory {
   // Called with the response or NULL if no matching response was received.
   // Note that the |GetDottedName()| of the response may be different than the
   // original |hostname| as a result of suffix search.
+  //
+  // The |doh_provider_id| contains the provider ID for histograms of the last
+  // DoH server attempted. If the name is unavailable, or this is not a DoH
+  // transaction, |doh_provider_id| is nullopt.
   typedef base::OnceCallback<void(DnsTransaction* transaction,
                                   int neterror,
-                                  const DnsResponse* response)>
+                                  const DnsResponse* response,
+                                  base::Optional<std::string> doh_provider_id)>
       CallbackType;
 
   DnsTransactionFactory();
@@ -106,12 +110,12 @@ class NET_EXPORT_PRIVATE DnsTransactionFactory {
       const NetLogWithSource& net_log,
       bool secure,
       DnsConfig::SecureDnsMode secure_dns_mode,
-      URLRequestContext* url_request_context) WARN_UNUSED_RESULT = 0;
+      ResolveContext* resolve_context) WARN_UNUSED_RESULT = 0;
 
   // Creates a runner to run the DoH probe sequence for all configured DoH
   // resolvers.
   virtual std::unique_ptr<DnsProbeRunner> CreateDohProbeRunner(
-      URLRequestContext* url_request_context) WARN_UNUSED_RESULT = 0;
+      ResolveContext* resolve_context) WARN_UNUSED_RESULT = 0;
 
   // The given EDNS0 option will be included in all DNS queries performed by
   // transactions from this factory.

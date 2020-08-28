@@ -54,8 +54,6 @@ source_set("gbm") {
     "gpu/drm_overlay_validator.h",
     "gpu/drm_thread.cc",
     "gpu/drm_thread.h",
-    "gpu/drm_thread_message_proxy.cc",
-    "gpu/drm_thread_message_proxy.h",
     "gpu/drm_thread_proxy.cc",
     "gpu/drm_thread_proxy.h",
     "gpu/drm_window.cc",
@@ -102,8 +100,6 @@ source_set("gbm") {
     "host/drm_display_host.h",
     "host/drm_display_host_manager.cc",
     "host/drm_display_host_manager.h",
-    "host/drm_gpu_platform_support_host.cc",
-    "host/drm_gpu_platform_support_host.h",
     "host/drm_native_display_delegate.cc",
     "host/drm_native_display_delegate.h",
     "host/drm_window_host.cc",
@@ -131,6 +127,8 @@ source_set("gbm") {
     "//third_party/libsync",
     "//third_party/minigbm",
     "//ui/base",
+    "//ui/base/cursor",
+    "//ui/base/cursor:cursor_base",
     "//ui/base/ime",
     "//ui/display",
     "//ui/display/types",
@@ -150,6 +148,11 @@ source_set("gbm") {
     "//ui/ozone/common",
     "//ui/ozone/public/mojom",
     "//ui/platform_window",
+  ]
+
+  data_deps = [
+    "//third_party/angle:libEGL",
+    "//third_party/angle:libGLESv2",
   ]
 
   if (is_chromeos) {
@@ -177,6 +180,7 @@ source_set("gbm_unittests") {
   testonly = true
   sources = [
     "common/drm_util_unittest.cc",
+    "gpu/drm_display_unittest.cc",
     "gpu/drm_overlay_manager_unittest.cc",
     "gpu/drm_overlay_validator_unittest.cc",
     "gpu/drm_thread_unittest.cc",
@@ -185,8 +189,6 @@ source_set("gbm_unittests") {
     "gpu/hardware_display_plane_manager_unittest.cc",
     "gpu/mock_drm_device.cc",
     "gpu/mock_drm_device.h",
-    "gpu/mock_gbm_device.cc",
-    "gpu/mock_gbm_device.h",
     "gpu/proxy_helpers_unittest.cc",
     "gpu/screen_manager_unittest.cc",
   ]
@@ -201,6 +203,7 @@ source_set("gbm_unittests") {
     "//ui/gfx",
     "//ui/gfx/linux:drm",
     "//ui/gfx/linux:gbm",
+    "//ui/gfx/linux:test_support",
     "//ui/ozone:platform",
     "//ui/ozone/common",
   ]

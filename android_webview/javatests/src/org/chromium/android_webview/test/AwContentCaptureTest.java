@@ -5,8 +5,10 @@
 package org.chromium.android_webview.test;
 
 import android.graphics.Rect;
-import android.support.test.filters.LargeTest;
-import android.support.test.filters.SmallTest;
+import android.net.Uri;
+
+import androidx.test.filters.LargeTest;
+import androidx.test.filters.SmallTest;
 
 import org.junit.After;
 import org.junit.Assert;
@@ -22,6 +24,7 @@ import org.chromium.base.test.util.Feature;
 import org.chromium.components.content_capture.ContentCaptureConsumer;
 import org.chromium.components.content_capture.ContentCaptureController;
 import org.chromium.components.content_capture.ContentCaptureData;
+import org.chromium.components.content_capture.ExperimentContentCaptureConsumer;
 import org.chromium.components.content_capture.FrameSession;
 import org.chromium.content_public.browser.WebContents;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
@@ -52,21 +55,29 @@ public class AwContentCaptureTest {
         }
 
         @Override
-        protected void pullWhitelist() {
-            String[] whitelist = null;
+        protected void pullAllowlist() {
+            String[] allowlist = null;
             boolean[] isRegEx = null;
-            if (mWhiteList != null && mIsRegEx != null) {
-                mWhiteList.toArray(whitelist);
-                isRegEx = new boolean[mWhiteList.size()];
+            if (mAllowlist != null && mIsRegEx != null) {
+                allowlist = new String[mAllowlist.size()];
+                mAllowlist.toArray(allowlist);
+                isRegEx = new boolean[mAllowlist.size()];
                 int i = 0;
                 for (boolean r : mIsRegEx) {
                     isRegEx[i++] = r;
                 }
             }
-            setWhitelist(whitelist, isRegEx);
+            setAllowlist(allowlist, isRegEx);
         }
 
-        private ArrayList<String> mWhiteList;
+        public void setAllowURL(String host) {
+            mAllowlist = new ArrayList<String>();
+            mAllowlist.add(host);
+            mIsRegEx = new ArrayList<Boolean>();
+            mIsRegEx.add(Boolean.FALSE);
+        }
+
+        private ArrayList<String> mAllowlist;
         private ArrayList<Boolean> mIsRegEx;
     }
 
@@ -81,6 +92,10 @@ public class AwContentCaptureTest {
         public TestAwContentCaptureConsumer(WebContents webContents) {
             super(webContents);
             mCapturedContentIds = new HashSet<Long>();
+        }
+
+        public void setContentCaptureController(ContentCaptureController controller) {
+            mController = controller;
         }
 
         @Override
@@ -121,6 +136,12 @@ public class AwContentCaptureTest {
             }
             mCallbacks.add(CONTENT_REMOVED);
             mCallbackHelper.notifyCalled();
+        }
+
+        @Override
+        public boolean shouldCapture(String[] urls) {
+            if (mController == null) return true;
+            return mController.shouldCapture(urls);
         }
 
         public FrameSession getParentFrame() {
@@ -186,6 +207,7 @@ public class AwContentCaptureTest {
 
         // Use our own call count to avoid unexpected callback issue.
         private int mCallCount;
+        // TODO: (crbug.com/1121827) Remove volatile if possible.
         private volatile Set<Long> mCapturedContentIds;
         private volatile FrameSession mParentFrame;
         private volatile ContentCaptureData mCapturedContent;
@@ -196,6 +218,7 @@ public class AwContentCaptureTest {
         private volatile ArrayList<Integer> mCallbacks = new ArrayList<Integer>();
 
         private CallbackHelper mCallbackHelper = new CallbackHelper();
+        private volatile ContentCaptureController mController;
     }
 
     private static final String MAIN_FRAME_FILE = "/main_frame.html";
@@ -211,6 +234,7 @@ public class AwContentCaptureTest {
     private AwTestContainerView mContainerView;
     private TestAwContentCaptureConsumer mConsumer;
     private TestAwContentCatpureController mController;
+    private TestAwContentCaptureConsumer mSecondConsumer;
 
     private void loadUrlSync(String url) {
         try {
@@ -580,5 +604,87 @@ public class AwContentCaptureTest {
                     + "frame.parentNode.removeChild(frame);");
         }, toIntArray(TestAwContentCaptureConsumer.SESSION_REMOVED));
         verifyFrameSession(removedSession, mConsumer.getRemovedSession());
+    }
+
+    @Test
+    @SmallTest
+    @Feature({"AndroidWebView"})
+    public void testMultipleConsumers() throws Throwable {
+        TestThreadUtils.runOnUiThreadBlocking(() -> {
+            mSecondConsumer = new TestAwContentCaptureConsumer(mAwContents.getWebContents());
+        });
+        final String response = "<html><head></head><body>"
+                + "<div id='place_holder'>"
+                + "<p style=\"height: 100vh\">Hello</p>"
+                + "<p>world</p>"
+                + "</body></html>";
+        final String url = mWebServer.setResponse(MAIN_FRAME_FILE, response, null);
+        runAndVerifyCallbacks(() -> {
+            loadUrlSync(url);
+        }, toIntArray(TestAwContentCaptureConsumer.CONTENT_CAPTURED));
+        // Verify the other one also get the content.
+        verifyCallbacks(toIntArray(TestAwContentCaptureConsumer.CONTENT_CAPTURED),
+                mSecondConsumer.getCallbacks());
+    }
+
+    @Test
+    @SmallTest
+    @Feature({"AndroidWebView"})
+    @CommandLineFlags.Add({"enable-features=ContentCaptureTriggeringForExperiment"})
+    public void testHostNotAllowed() throws Throwable {
+        TestThreadUtils.runOnUiThreadBlocking(() -> {
+            mSecondConsumer = new TestAwContentCaptureConsumer(mAwContents.getWebContents());
+        });
+        final String response = "<html><head></head><body>"
+                + "<div id='place_holder'>"
+                + "<p style=\"height: 100vh\">Hello</p>"
+                + "<p>world</p>"
+                + "</body></html>";
+        final String url = mWebServer.setResponse(MAIN_FRAME_FILE, response, null);
+        mController.setAllowURL("www.chromium.org");
+        mSecondConsumer.setContentCaptureController(mController);
+        runAndVerifyCallbacks(() -> {
+            loadUrlSync(url);
+        }, toIntArray(TestAwContentCaptureConsumer.CONTENT_CAPTURED));
+        // Verify the other one didn't get the content.
+        Assert.assertEquals(0, mSecondConsumer.getCallbacks().length);
+    }
+
+    private void runHostAllowedTest() throws Throwable {
+        final String response = "<html><head></head><body>"
+                + "<div id='place_holder'>"
+                + "<p style=\"height: 100vh\">Hello</p>"
+                + "<p>world</p>"
+                + "</body></html>";
+        final String url = mWebServer.setResponse(MAIN_FRAME_FILE, response, null);
+        mController.setAllowURL(Uri.parse(url).getHost());
+        mConsumer.setContentCaptureController(mController);
+        runAndVerifyCallbacks(() -> {
+            loadUrlSync(url);
+        }, toIntArray(TestAwContentCaptureConsumer.CONTENT_CAPTURED));
+    }
+
+    @Test
+    @SmallTest
+    @Feature({"AndroidWebView"})
+    @CommandLineFlags.Add({"disable-features=ContentCaptureTriggeringForExperiment"})
+    public void testHostAllowed() throws Throwable {
+        runHostAllowedTest();
+    }
+
+    @Test
+    @SmallTest
+    @Feature({"AndroidWebView"})
+    @CommandLineFlags.Add({"enable-features=ContentCaptureTriggeringForExperiment"})
+    public void testHostAllowedForExperiment() throws Throwable {
+        runHostAllowedTest();
+    }
+
+    @Test
+    @SmallTest
+    @Feature({"AndroidWebView"})
+    @CommandLineFlags.Add({"disable-features=ContentCaptureTriggeringForExperiment"})
+    public void testCantCreateExperimentConsumer() throws Throwable {
+        Assert.assertNull(ExperimentContentCaptureConsumer.create(mAwContents.getWebContents()));
     }
 }

@@ -8,7 +8,7 @@
 #include <string>
 #include <vector>
 
-#include "base/logging.h"
+#include "base/notreached.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
 
 namespace safe_browsing {
@@ -18,7 +18,7 @@ void TestSafeBrowsingDatabaseManager::CancelCheck(Client* client) {
 }
 
 bool TestSafeBrowsingDatabaseManager::CanCheckResourceType(
-    content::ResourceType resource_type) const {
+    blink::mojom::ResourceType resource_type) const {
   NOTIMPLEMENTED();
   return false;
 }

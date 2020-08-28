@@ -9,10 +9,9 @@
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
-#include "base/command_line.h"
+#include "base/check_op.h"
 #include "base/files/file_enumerator.h"
 #include "base/files/file_util.h"
-#include "base/logging.h"
 #include "base/optional.h"
 #include "base/path_service.h"
 #include "base/sequenced_task_runner.h"
@@ -20,6 +19,7 @@
 #include "base/strings/string_number_conversions.h"
 #include "base/task/post_task.h"
 #include "base/task/task_traits.h"
+#include "base/task/thread_pool.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "chrome/browser/chromeos/policy/affiliated_cloud_policy_invalidator.h"
 #include "chrome/browser/chromeos/policy/device_local_account.h"
@@ -39,7 +39,6 @@
 #include "components/policy/core/common/cloud/device_management_service.h"
 #include "components/policy/core/common/cloud/resource_cache.h"
 #include "components/policy/core/common/policy_namespace.h"
-#include "components/policy/core/common/policy_switches.h"
 #include "components/policy/core/common/policy_types.h"
 #include "components/policy/policy_constants.h"
 #include "components/policy/proto/device_management_backend.pb.h"
@@ -78,12 +77,7 @@ std::unique_ptr<CloudPolicyClient> CreateClient(
 
   std::unique_ptr<CloudPolicyClient> client =
       std::make_unique<CloudPolicyClient>(
-          std::string() /* machine_id */, std::string() /* machine_model */,
-          std::string() /* brand_code */,
-          std::string() /* ethernet_mac_address */,
-          std::string() /* dock_mac_address */,
-          std::string() /* manufacture_date */, device_management_service,
-          system_url_loader_factory, nullptr /* signing_service */,
+          device_management_service, system_url_loader_factory,
           base::BindRepeating(&GetDeviceDMToken, device_settings_service));
   std::vector<std::string> user_affiliation_ids(
       policy_data->user_affiliation_ids().begin(),
@@ -112,7 +106,7 @@ void DeleteOrphanedCaches(
        path = enumerator.Next()) {
     const std::string subdirectory(path.BaseName().MaybeAsASCII());
     if (!base::Contains(subdirectories_to_keep, subdirectory))
-      base::DeleteFileRecursively(path);
+      base::DeletePathRecursively(path);
   }
 }
 
@@ -120,13 +114,12 @@ void DeleteOrphanedCaches(
 // directory. No cache belonging to |account_id_to_delete| may be running while
 // the removal is in progress.
 void DeleteObsoleteExtensionCache(const std::string& account_id_to_delete) {
-  base::FilePath cache_root_dir;
-  CHECK(base::PathService::Get(chromeos::DIR_DEVICE_LOCAL_ACCOUNT_EXTENSIONS,
-                               &cache_root_dir));
-  const base::FilePath path = cache_root_dir.Append(
-      GetCacheSubdirectoryForAccountID(account_id_to_delete));
+  const base::FilePath path =
+      base::PathService::CheckedGet(
+          chromeos::DIR_DEVICE_LOCAL_ACCOUNT_EXTENSIONS)
+          .Append(GetCacheSubdirectoryForAccountID(account_id_to_delete));
   if (base::DirectoryExists(path))
-    base::DeleteFileRecursively(path);
+    base::DeletePathRecursively(path);
 }
 
 }  // namespace
@@ -158,13 +151,11 @@ DeviceLocalAccountPolicyBroker::DeviceLocalAccountPolicyBroker(
     extension_tracker_.reset(new DeviceLocalAccountExtensionTracker(
         account, store_.get(), &schema_registry_));
   }
-  base::FilePath cache_root_dir;
-  CHECK(base::PathService::Get(chromeos::DIR_DEVICE_LOCAL_ACCOUNT_EXTENSIONS,
-                               &cache_root_dir));
   extension_loader_ = new chromeos::DeviceLocalAccountExternalPolicyLoader(
       store_.get(),
-      cache_root_dir.Append(
-          GetCacheSubdirectoryForAccountID(account.account_id)));
+      base::PathService::CheckedGet(
+          chromeos::DIR_DEVICE_LOCAL_ACCOUNT_EXTENSIONS)
+          .Append(GetCacheSubdirectoryForAccountID(account.account_id)));
   store_->AddObserver(this);
 
   // Unblock the |schema_registry_| so that the |component_policy_service_|
@@ -211,8 +202,8 @@ void DeviceLocalAccountPolicyBroker::ConnectIfPossible(
   core_.StartRefreshScheduler();
   UpdateRefreshDelay();
   invalidator_.reset(new AffiliatedCloudPolicyInvalidator(
-      em::DeviceRegisterRequest::DEVICE, &core_,
-      invalidation_service_provider_));
+      PolicyInvalidationScope::kDeviceLocalAccount, &core_,
+      invalidation_service_provider_, account_id_));
 }
 
 void DeviceLocalAccountPolicyBroker::UpdateRefreshDelay() {
@@ -249,12 +240,6 @@ void DeviceLocalAccountPolicyBroker::OnComponentCloudPolicyUpdated() {
 
 void DeviceLocalAccountPolicyBroker::CreateComponentCloudPolicyService(
     CloudPolicyClient* client) {
-  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kDisableComponentCloudPolicy)) {
-    // Disabled via the command line.
-    return;
-  }
-
   std::unique_ptr<ResourceCache> resource_cache(new ResourceCache(
       component_policy_cache_path_, resource_cache_task_runner_,
       /* max_cache_size */ base::nullopt));
@@ -284,18 +269,16 @@ DeviceLocalAccountPolicyService::DeviceLocalAccountPolicyService(
       orphan_extension_cache_deletion_state_(NOT_STARTED),
       store_background_task_runner_(store_background_task_runner),
       extension_cache_task_runner_(extension_cache_task_runner),
-      resource_cache_task_runner_(
-          base::CreateSequencedTaskRunner({base::ThreadPool(), base::MayBlock(),
-                                           base::TaskPriority::BEST_EFFORT})),
+      resource_cache_task_runner_(base::ThreadPool::CreateSequencedTaskRunner(
+          {base::MayBlock(), base::TaskPriority::BEST_EFFORT})),
       url_loader_factory_(url_loader_factory),
       local_accounts_subscription_(cros_settings_->AddSettingsObserver(
           chromeos::kAccountsPrefDeviceLocalAccounts,
           base::Bind(
               &DeviceLocalAccountPolicyService::UpdateAccountListIfNonePending,
-              base::Unretained(this)))) {
-  CHECK(base::PathService::Get(
-      chromeos::DIR_DEVICE_LOCAL_ACCOUNT_COMPONENT_POLICY,
-      &component_policy_cache_root_));
+              base::Unretained(this)))),
+      component_policy_cache_root_(base::PathService::CheckedGet(
+          chromeos::DIR_DEVICE_LOCAL_ACCOUNT_COMPONENT_POLICY)) {
   external_data_service_ =
       std::make_unique<DeviceLocalAccountExternalDataService>(
           this, std::move(external_data_service_backend_task_runner));
@@ -436,8 +419,8 @@ void DeviceLocalAccountPolicyService::UpdateAccountListIfNonePending() {
 void DeviceLocalAccountPolicyService::UpdateAccountList() {
   chromeos::CrosSettingsProvider::TrustedStatus status =
       cros_settings_->PrepareTrustedValues(
-          base::Bind(&DeviceLocalAccountPolicyService::UpdateAccountList,
-                     weak_factory_.GetWeakPtr()));
+          base::BindOnce(&DeviceLocalAccountPolicyService::UpdateAccountList,
+                         weak_factory_.GetWeakPtr()));
   switch (status) {
     case chromeos::CrosSettingsProvider::TRUSTED:
       waiting_for_cros_settings_ = false;
@@ -517,9 +500,8 @@ void DeviceLocalAccountPolicyService::UpdateAccountList() {
     // cache directory.
     orphan_extension_cache_deletion_state_ = IN_PROGRESS;
 
-    base::FilePath cache_root_dir;
-    CHECK(base::PathService::Get(chromeos::DIR_DEVICE_LOCAL_ACCOUNT_EXTENSIONS,
-                                 &cache_root_dir));
+    const base::FilePath cache_root_dir = base::PathService::CheckedGet(
+        chromeos::DIR_DEVICE_LOCAL_ACCOUNT_EXTENSIONS);
     extension_cache_task_runner_->PostTaskAndReply(
         FROM_HERE,
         base::BindOnce(&DeleteOrphanedCaches, cache_root_dir,
@@ -564,10 +546,9 @@ void DeviceLocalAccountPolicyService::DeleteBrokers(PolicyBrokerMap* map) {
     if (extension_loader->IsCacheRunning()) {
       DCHECK(!IsExtensionCacheDirectoryBusy(it->second->account_id()));
       busy_extension_cache_directories_.insert(it->second->account_id());
-      extension_loader->StopCache(base::Bind(
+      extension_loader->StopCache(base::BindOnce(
           &DeviceLocalAccountPolicyService::OnObsoleteExtensionCacheShutdown,
-          weak_factory_.GetWeakPtr(),
-          it->second->account_id()));
+          weak_factory_.GetWeakPtr(), it->second->account_id()));
     }
 
     delete it->second;

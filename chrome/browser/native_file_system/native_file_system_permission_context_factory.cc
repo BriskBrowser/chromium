@@ -6,7 +6,7 @@
 
 #include "base/no_destructor.h"
 #include "chrome/browser/content_settings/host_content_settings_map_factory.h"
-#include "chrome/browser/native_file_system/chrome_native_file_system_permission_context.h"
+#include "chrome/browser/native_file_system/origin_scoped_native_file_system_permission_context.h"
 #include "chrome/browser/profiles/incognito_helpers.h"
 #include "components/keyed_service/content/browser_context_dependency_manager.h"
 
@@ -52,5 +52,5 @@ NativeFileSystemPermissionContextFactory::GetBrowserContextToUse(
 
 KeyedService* NativeFileSystemPermissionContextFactory::BuildServiceInstanceFor(
     content::BrowserContext* profile) const {
-  return new ChromeNativeFileSystemPermissionContext(profile);
+  return new OriginScopedNativeFileSystemPermissionContext(profile);
 }

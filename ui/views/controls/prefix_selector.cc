@@ -4,6 +4,8 @@
 
 #include "ui/views/controls/prefix_selector.h"
 
+#include <algorithm>
+
 #if defined(OS_WIN)
 #include <vector>
 #endif
@@ -38,13 +40,13 @@ bool PrefixSelector::ShouldContinueSelection() const {
 }
 
 void PrefixSelector::SetCompositionText(
-    const ui::CompositionText& composition) {
+    const ui::CompositionText& composition) {}
+
+uint32_t PrefixSelector::ConfirmCompositionText(bool keep_selection) {
+  return UINT32_MAX;
 }
 
-void PrefixSelector::ConfirmCompositionText(bool keep_selection) {}
-
-void PrefixSelector::ClearCompositionText() {
-}
+void PrefixSelector::ClearCompositionText() {}
 
 void PrefixSelector::InsertText(const base::string16& text) {
   OnTextInput(text);
@@ -124,7 +126,7 @@ bool PrefixSelector::DeleteRange(const gfx::Range& range) {
 }
 
 bool PrefixSelector::GetTextFromRange(const gfx::Range& range,
-                                        base::string16* text) const {
+                                      base::string16* text) const {
   return false;
 }
 
@@ -137,8 +139,7 @@ bool PrefixSelector::ChangeTextDirectionAndLayoutAlignment(
   return true;
 }
 
-void PrefixSelector::ExtendSelectionAndDelete(size_t before, size_t after) {
-}
+void PrefixSelector::ExtendSelectionAndDelete(size_t before, size_t after) {}
 
 void PrefixSelector::EnsureCaretNotInRect(const gfx::Rect& rect) {}
 
@@ -172,16 +173,38 @@ bool PrefixSelector::SetCompositionFromExistingText(
 }
 #endif
 
+#if defined(OS_CHROMEOS)
+gfx::Range PrefixSelector::GetAutocorrectRange() const {
+  NOTIMPLEMENTED_LOG_ONCE();
+  return gfx::Range();
+}
+
+gfx::Rect PrefixSelector::GetAutocorrectCharacterBounds() const {
+  NOTIMPLEMENTED_LOG_ONCE();
+  return gfx::Rect();
+}
+
+bool PrefixSelector::SetAutocorrectRange(const base::string16& autocorrect_text,
+                                         const gfx::Range& range) {
+  // TODO(crbug.com/1091088) Implement setAutocorrectRange.
+  NOTIMPLEMENTED_LOG_ONCE();
+  return false;
+}
+
+void PrefixSelector::ClearAutocorrectRange() {
+  // TODO(crbug.com/1091088) Implement ClearAutocorrectRange.
+}
+#endif
+
 #if defined(OS_WIN)
 void PrefixSelector::SetActiveCompositionForAccessibility(
     const gfx::Range& range,
     const base::string16& active_composition_text,
     bool is_composition_committed) {}
 
-bool PrefixSelector::GetEditContextLayoutBounds(gfx::Rect* control_bounds,
-                                                gfx::Rect* selection_bounds) {
-  return false;
-}
+void PrefixSelector::GetActiveTextInputControlLayoutBounds(
+    base::Optional<gfx::Rect>* control_bounds,
+    base::Optional<gfx::Rect>* selection_bounds) {}
 #endif
 
 void PrefixSelector::OnTextInput(const base::string16& text) {
@@ -226,7 +249,7 @@ bool PrefixSelector::TextAtRowMatchesText(int row,
   const base::string16 model_text(
       base::i18n::ToLower(prefix_delegate_->GetTextForRow(row)));
   return (model_text.size() >= lower_text.size()) &&
-      (model_text.compare(0, lower_text.size(), lower_text) == 0);
+         (model_text.compare(0, lower_text.size(), lower_text) == 0);
 }
 
 void PrefixSelector::ClearText() {

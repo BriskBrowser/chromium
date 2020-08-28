@@ -42,15 +42,13 @@ MediaControlsHeaderView::MediaControlsHeaderView(
     base::OnceClosure close_button_cb)
     : close_button_cb_(std::move(close_button_cb)) {
   const views::FlexSpecification kAppNameFlex =
-      views::FlexSpecification::ForSizeRule(
-          views::MinimumFlexSizeRule::kScaleToZero,
-          views::MaximumFlexSizeRule::kPreferred)
+      views::FlexSpecification(views::MinimumFlexSizeRule::kScaleToZero,
+                               views::MaximumFlexSizeRule::kPreferred)
           .WithOrder(1);
 
   const views::FlexSpecification kSpacerFlex =
-      views::FlexSpecification::ForSizeRule(
-          views::MinimumFlexSizeRule::kScaleToMinimum,
-          views::MaximumFlexSizeRule::kUnbounded)
+      views::FlexSpecification(views::MinimumFlexSizeRule::kScaleToMinimum,
+                               views::MaximumFlexSizeRule::kUnbounded)
           .WithOrder(2);
 
   SetLayoutManager(std::make_unique<views::FlexLayout>());
@@ -74,7 +72,7 @@ MediaControlsHeaderView::MediaControlsHeaderView(
   app_name_view->SetFontList(font_list);
   app_name_view->SetHorizontalAlignment(gfx::ALIGN_LEFT);
   app_name_view->SetEnabledColor(AshColorProvider::Get()->GetContentLayerColor(
-      AshColorProvider::ContentLayerType::kTextSecondary,
+      AshColorProvider::ContentLayerType::kTextColorSecondary,
       AshColorProvider::AshColorMode::kDark));
   app_name_view->SetAutoColorReadabilityEnabled(false);
   app_name_view->SetBorder(views::CreateEmptyBorder(kAppNamePadding));

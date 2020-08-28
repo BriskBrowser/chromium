@@ -8,12 +8,10 @@
 #include "content/browser/frame_host/ancestor_throttle.h"
 #include "content/browser/frame_host/blocked_scheme_navigation_throttle.h"
 #include "content/browser/frame_host/form_submission_throttle.h"
-#include "content/browser/frame_host/history_navigation_ablation_study_navigation_throttle.h"
 #include "content/browser/frame_host/mixed_content_navigation_throttle.h"
 #include "content/browser/frame_host/navigation_request.h"
 #include "content/browser/frame_host/navigator_delegate.h"
 #include "content/browser/frame_host/origin_policy_throttle.h"
-#include "content/browser/frame_host/webui_navigation_throttle.h"
 #include "content/browser/portal/portal_navigation_throttle.h"
 #include "content/public/browser/navigation_handle.h"
 
@@ -58,8 +56,9 @@ const char* GetEventName(NavigationThrottleRunner::Event event) {
 
 }  // namespace
 
-NavigationThrottleRunner::NavigationThrottleRunner(Delegate* delegate)
-    : delegate_(delegate) {}
+NavigationThrottleRunner::NavigationThrottleRunner(Delegate* delegate,
+                                                   int64_t navigation_id)
+    : delegate_(delegate), navigation_id_(navigation_id) {}
 
 NavigationThrottleRunner::~NavigationThrottleRunner() = default;
 
@@ -99,9 +98,6 @@ void NavigationThrottleRunner::RegisterNavigationThrottles() {
 
   throttles_ = request->GetDelegate()->CreateThrottlesForNavigation(request);
 
-  // Enforce rules for WebUI navigations.
-  AddThrottle(WebUINavigationThrottle::CreateThrottleForNavigation(request));
-
   // Check for renderer-inititated main frame navigations to blocked URL schemes
   // (data, filesystem). This is done early as it may block the main frame
   // navigation altogether.
@@ -129,10 +125,6 @@ void NavigationThrottleRunner::RegisterNavigationThrottles() {
     AddThrottle(std::move(throttle));
   }
 
-  // Delay navigation for an ablation study (if needed).
-  AddThrottle(HistoryNavigationAblationStudyNavigationThrottle::
-                  MaybeCreateForNavigation(request));
-
   // Insert all testing NavigationThrottles last.
   throttles_.insert(throttles_.end(),
                     std::make_move_iterator(testing_throttles.begin()),
@@ -154,21 +146,30 @@ void NavigationThrottleRunner::AddThrottle(
 void NavigationThrottleRunner::ProcessInternal() {
   DCHECK_NE(Event::NoEvent, current_event_);
   base::WeakPtr<NavigationThrottleRunner> weak_ref = weak_factory_.GetWeakPtr();
+
+  // Capture into a local variable the |navigation_id_| value, since this
+  // object can be freed by any of the throttles being invoked and the trace
+  // events need to be able to use the navigation id safely in such a case.
+  int64_t local_navigation_id = navigation_id_;
+
   for (size_t i = next_index_; i < throttles_.size(); ++i) {
-    TRACE_EVENT1("navigation", GetEventName(current_event_), "throttle",
-                 throttles_[i]->GetNameForLogging());
+    TRACE_EVENT_NESTABLE_ASYNC_BEGIN1(
+        "navigation", GetEventName(current_event_), local_navigation_id,
+        "throttle", throttles_[i]->GetNameForLogging());
+
     NavigationThrottle::ThrottleCheckResult result =
         ExecuteNavigationEvent(throttles_[i].get(), current_event_);
     if (!weak_ref) {
       // The NavigationThrottle execution has destroyed this
       // NavigationThrottleRunner. Return immediately.
+      TRACE_EVENT_NESTABLE_ASYNC_END1("navigation", "", local_navigation_id,
+                                      "result", "deleted");
       return;
     }
-    TRACE_EVENT_ASYNC_STEP_INTO0(
-        "navigation", "NavigationHandle", delegate_,
-        base::StringPrintf("%s: %s: %d", GetEventName(current_event_),
-                           throttles_[i]->GetNameForLogging(),
-                           result.action()));
+    TRACE_EVENT_NESTABLE_ASYNC_END1("navigation", GetEventName(current_event_),
+                                    local_navigation_id, "result",
+                                    result.action());
+
     switch (result.action()) {
       case NavigationThrottle::PROCEED:
         continue;

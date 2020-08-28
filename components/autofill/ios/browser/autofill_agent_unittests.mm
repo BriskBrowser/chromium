@@ -16,6 +16,7 @@
 #include "components/autofill/core/common/form_data.h"
 #include "components/autofill/ios/browser/autofill_driver_ios.h"
 #import "components/autofill/ios/browser/js_autofill_manager.h"
+#include "components/autofill/ios/form_util/unique_id_data_tab_helper.h"
 #include "components/prefs/pref_service.h"
 #import "ios/web/public/deprecated/crw_js_injection_receiver.h"
 #include "ios/web/public/test/fakes/fake_web_frame.h"
@@ -37,6 +38,8 @@
 
 using autofill::POPUP_ITEM_ID_CLEAR_FORM;
 using autofill::POPUP_ITEM_ID_SHOW_ACCOUNT_CARDS;
+using autofill::FormRendererId;
+using autofill::FieldRendererId;
 using base::test::ios::WaitUntilCondition;
 
 // Subclass of web::FakeWebFrame that allow to set a callback before any
@@ -100,6 +103,7 @@ class AutofillAgentTests : public PlatformTest {
     prefs_ = autofill::test::PrefServiceForTesting();
     autofill::prefs::SetAutofillProfileEnabled(prefs_.get(), true);
     autofill::prefs::SetAutofillCreditCardEnabled(prefs_.get(), true);
+    UniqueIDDataTabHelper::CreateForWebState(&test_web_state_);
     autofill_agent_ =
         [[AutofillAgent alloc] initWithPrefService:prefs_.get()
                                           webState:&test_web_state_];
@@ -239,12 +243,17 @@ TEST_F(AutofillAgentTests,
   enabled_features.push_back(
       autofill::features::kAutofillRestrictUnownedFieldsToFormlessCheckout);
   scoped_feature_list.InitWithFeatures(enabled_features, disabled_features);
-  [autofill_agent_ checkIfSuggestionsAvailableForForm:@"form"
-                                      fieldIdentifier:@"address"
-                                            fieldType:@"text"
-                                                 type:@"focus"
-                                           typedValue:@""
-                                              frameID:@"frameID"
+  FormSuggestionProviderQuery* form_query =
+      [[FormSuggestionProviderQuery alloc] initWithFormName:@"form"
+                                               uniqueFormID:FormRendererId(0)
+                                            fieldIdentifier:@"address"
+                                              uniqueFieldID:FieldRendererId(1)
+                                                  fieldType:@"text"
+                                                       type:@"focus"
+                                                 typedValue:@""
+                                                    frameID:@"frameID"];
+
+  [autofill_agent_ checkIfSuggestionsAvailableForForm:form_query
                                           isMainFrame:YES
                                        hasUserGesture:YES
                                              webState:&test_web_state_
@@ -262,12 +271,16 @@ TEST_F(AutofillAgentTests,
   __block BOOL completion_handler_success = NO;
   __block BOOL completion_handler_called = NO;
 
-  [autofill_agent_ checkIfSuggestionsAvailableForForm:@"form"
-                                      fieldIdentifier:@"address"
-                                            fieldType:@"text"
-                                                 type:@"focus"
-                                           typedValue:@""
-                                              frameID:@"frameID"
+  FormSuggestionProviderQuery* form_query =
+      [[FormSuggestionProviderQuery alloc] initWithFormName:@"form"
+                                               uniqueFormID:FormRendererId(0)
+                                            fieldIdentifier:@"address"
+                                              uniqueFieldID:FieldRendererId(1)
+                                                  fieldType:@"text"
+                                                       type:@"focus"
+                                                 typedValue:@""
+                                                    frameID:@"frameID"];
+  [autofill_agent_ checkIfSuggestionsAvailableForForm:form_query
                                           isMainFrame:YES
                                        hasUserGesture:NO
                                              webState:&test_web_state_
@@ -303,12 +316,16 @@ TEST_F(AutofillAgentTests, onSuggestionsReady_ShowAccountCards) {
     completion_handler_suggestions = [suggestions copy];
     completion_handler_called = YES;
   };
-  [autofill_agent_ retrieveSuggestionsForForm:@"form"
-                              fieldIdentifier:@"address"
-                                    fieldType:@"text"
-                                         type:@"focus"
-                                   typedValue:@""
-                                      frameID:@"frameID"
+  FormSuggestionProviderQuery* form_query =
+      [[FormSuggestionProviderQuery alloc] initWithFormName:@"form"
+                                               uniqueFormID:FormRendererId(0)
+                                            fieldIdentifier:@"address"
+                                              uniqueFieldID:FieldRendererId(1)
+                                                  fieldType:@"text"
+                                                       type:@"focus"
+                                                 typedValue:@""
+                                                    frameID:@"frameID"];
+  [autofill_agent_ retrieveSuggestionsForForm:form_query
                                      webState:&test_web_state_
                             completionHandler:completionHandler];
   test_web_state_.WasShown();
@@ -347,12 +364,16 @@ TEST_F(AutofillAgentTests, onSuggestionsReady_ClearForm) {
     completion_handler_suggestions = [suggestions copy];
     completion_handler_called = YES;
   };
-  [autofill_agent_ retrieveSuggestionsForForm:@"form"
-                              fieldIdentifier:@"address"
-                                    fieldType:@"text"
-                                         type:@"focus"
-                                   typedValue:@""
-                                      frameID:@"frameID"
+  FormSuggestionProviderQuery* form_query =
+      [[FormSuggestionProviderQuery alloc] initWithFormName:@"form"
+                                               uniqueFormID:FormRendererId(0)
+                                            fieldIdentifier:@"address"
+                                              uniqueFieldID:FieldRendererId(1)
+                                                  fieldType:@"text"
+                                                       type:@"focus"
+                                                 typedValue:@""
+                                                    frameID:@"frameID"];
+  [autofill_agent_ retrieveSuggestionsForForm:form_query
                                      webState:&test_web_state_
                             completionHandler:completionHandler];
   test_web_state_.WasShown();
@@ -393,12 +414,16 @@ TEST_F(AutofillAgentTests, onSuggestionsReady_ClearFormWithGPay) {
     completion_handler_suggestions = [suggestions copy];
     completion_handler_called = YES;
   };
-  [autofill_agent_ retrieveSuggestionsForForm:@"form"
-                              fieldIdentifier:@"address"
-                                    fieldType:@"text"
-                                         type:@"focus"
-                                   typedValue:@""
-                                      frameID:@"frameID"
+  FormSuggestionProviderQuery* form_query =
+      [[FormSuggestionProviderQuery alloc] initWithFormName:@"form"
+                                               uniqueFormID:FormRendererId(0)
+                                            fieldIdentifier:@"address"
+                                              uniqueFieldID:FieldRendererId(1)
+                                                  fieldType:@"text"
+                                                       type:@"focus"
+                                                 typedValue:@""
+                                                    frameID:@"frameID"];
+  [autofill_agent_ retrieveSuggestionsForForm:form_query
                                      webState:&test_web_state_
                             completionHandler:completionHandler];
   test_web_state_.WasShown();

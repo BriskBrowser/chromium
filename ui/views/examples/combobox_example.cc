@@ -27,7 +27,7 @@ class ComboboxModelExample : public ui::ComboboxModel {
  private:
   // ui::ComboboxModel:
   int GetItemCount() const override { return 10; }
-  base::string16 GetItemAt(int index) override {
+  base::string16 GetItemAt(int index) const override {
     return base::UTF8ToUTF16(base::StringPrintf("%c item", 'A' + index));
   }
 
@@ -36,26 +36,24 @@ class ComboboxModelExample : public ui::ComboboxModel {
 
 }  // namespace
 
-ComboboxExample::ComboboxExample() : ExampleBase("Combo Box") {
-}
+ComboboxExample::ComboboxExample() : ExampleBase("Combo Box") {}
 
 ComboboxExample::~ComboboxExample() = default;
 
 void ComboboxExample::CreateExampleView(View* container) {
-  combobox_ = new Combobox(std::make_unique<ComboboxModelExample>());
+  container->SetLayoutManager(std::make_unique<BoxLayout>(
+      BoxLayout::Orientation::kVertical, gfx::Insets(10, 0), 5));
+
+  combobox_ = container->AddChildView(
+      std::make_unique<Combobox>(std::make_unique<ComboboxModelExample>()));
   combobox_->set_listener(this);
   combobox_->SetSelectedIndex(3);
 
-  auto* disabled_combobox =
-      new Combobox(std::make_unique<ComboboxModelExample>());
+  auto* disabled_combobox = container->AddChildView(
+      std::make_unique<Combobox>(std::make_unique<ComboboxModelExample>()));
   disabled_combobox->set_listener(this);
   disabled_combobox->SetSelectedIndex(4);
   disabled_combobox->SetEnabled(false);
-
-  container->SetLayoutManager(std::make_unique<BoxLayout>(
-      BoxLayout::Orientation::kVertical, gfx::Insets(10, 0), 5));
-  container->AddChildView(combobox_);
-  container->AddChildView(disabled_combobox);
 }
 
 void ComboboxExample::OnPerformAction(Combobox* combobox) {

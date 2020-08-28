@@ -33,27 +33,24 @@
 
 namespace signin {
 
-IdentityManager::IdentityManager(
-    std::unique_ptr<AccountTrackerService> account_tracker_service,
-    std::unique_ptr<ProfileOAuth2TokenService> token_service,
-    std::unique_ptr<GaiaCookieManagerService> gaia_cookie_manager_service,
-    std::unique_ptr<PrimaryAccountManager> primary_account_manager,
-    std::unique_ptr<AccountFetcherService> account_fetcher_service,
-    std::unique_ptr<PrimaryAccountMutator> primary_account_mutator,
-    std::unique_ptr<AccountsMutator> accounts_mutator,
-    std::unique_ptr<AccountsCookieMutator> accounts_cookie_mutator,
-    std::unique_ptr<DiagnosticsProvider> diagnostics_provider,
-    std::unique_ptr<DeviceAccountsSynchronizer> device_accounts_synchronizer)
-    : account_tracker_service_(std::move(account_tracker_service)),
-      token_service_(std::move(token_service)),
-      gaia_cookie_manager_service_(std::move(gaia_cookie_manager_service)),
-      primary_account_manager_(std::move(primary_account_manager)),
-      account_fetcher_service_(std::move(account_fetcher_service)),
-      identity_mutator_(std::move(primary_account_mutator),
-                        std::move(accounts_mutator),
-                        std::move(accounts_cookie_mutator),
-                        std::move(device_accounts_synchronizer)),
-      diagnostics_provider_(std::move(diagnostics_provider)) {
+IdentityManager::InitParameters::InitParameters() = default;
+
+IdentityManager::InitParameters::InitParameters(InitParameters&&) = default;
+
+IdentityManager::InitParameters::~InitParameters() = default;
+
+IdentityManager::IdentityManager(IdentityManager::InitParameters&& parameters)
+    : account_tracker_service_(std::move(parameters.account_tracker_service)),
+      token_service_(std::move(parameters.token_service)),
+      gaia_cookie_manager_service_(
+          std::move(parameters.gaia_cookie_manager_service)),
+      primary_account_manager_(std::move(parameters.primary_account_manager)),
+      account_fetcher_service_(std::move(parameters.account_fetcher_service)),
+      identity_mutator_(std::move(parameters.primary_account_mutator),
+                        std::move(parameters.accounts_mutator),
+                        std::move(parameters.accounts_cookie_mutator),
+                        std::move(parameters.device_accounts_synchronizer)),
+      diagnostics_provider_(std::move(parameters.diagnostics_provider)) {
   DCHECK(account_fetcher_service_);
   DCHECK(diagnostics_provider_);
 
@@ -85,6 +82,10 @@ IdentityManager::IdentityManager(
       base::android::AttachCurrentThread(), reinterpret_cast<intptr_t>(this),
       token_service_->GetDelegate()->GetJavaObject());
 #endif
+
+#if defined(OS_CHROMEOS)
+  chromeos_account_manager_ = parameters.chromeos_account_manager;
+#endif
 }
 
 IdentityManager::~IdentityManager() {
@@ -111,35 +112,30 @@ void IdentityManager::RemoveObserver(Observer* observer) {
 }
 
 // TODO(862619) change return type to base::Optional<CoreAccountInfo>
-CoreAccountInfo IdentityManager::GetPrimaryAccountInfo() const {
+CoreAccountInfo IdentityManager::GetPrimaryAccountInfo(
+    ConsentLevel consent) const {
+  if (consent == ConsentLevel::kNotRequired) {
+    return primary_account_manager_->GetUnconsentedPrimaryAccountInfo();
+  }
   return primary_account_manager_->GetAuthenticatedAccountInfo();
 }
 
-CoreAccountId IdentityManager::GetPrimaryAccountId() const {
-  return GetPrimaryAccountInfo().account_id;
+CoreAccountId IdentityManager::GetPrimaryAccountId(ConsentLevel consent) const {
+  return GetPrimaryAccountInfo(consent).account_id;
 }
 
-bool IdentityManager::HasPrimaryAccount() const {
+bool IdentityManager::HasPrimaryAccount(ConsentLevel consent) const {
+  if (consent == ConsentLevel::kNotRequired) {
+    return primary_account_manager_->HasUnconsentedPrimaryAccount();
+  }
   return primary_account_manager_->IsAuthenticated();
-}
-
-CoreAccountId IdentityManager::GetUnconsentedPrimaryAccountId() const {
-  return GetUnconsentedPrimaryAccountInfo().account_id;
-}
-
-CoreAccountInfo IdentityManager::GetUnconsentedPrimaryAccountInfo() const {
-  return primary_account_manager_->GetUnconsentedPrimaryAccountInfo();
-}
-
-bool IdentityManager::HasUnconsentedPrimaryAccount() const {
-  return primary_account_manager_->HasUnconsentedPrimaryAccount();
 }
 
 std::unique_ptr<AccessTokenFetcher>
 IdentityManager::CreateAccessTokenFetcherForAccount(
     const CoreAccountId& account_id,
     const std::string& oauth_consumer_name,
-    const identity::ScopeSet& scopes,
+    const ScopeSet& scopes,
     AccessTokenFetcher::TokenCallback callback,
     AccessTokenFetcher::Mode mode) {
   return std::make_unique<AccessTokenFetcher>(account_id, oauth_consumer_name,
@@ -152,7 +148,7 @@ IdentityManager::CreateAccessTokenFetcherForAccount(
     const CoreAccountId& account_id,
     const std::string& oauth_consumer_name,
     scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
-    const identity::ScopeSet& scopes,
+    const ScopeSet& scopes,
     AccessTokenFetcher::TokenCallback callback,
     AccessTokenFetcher::Mode mode) {
   return std::make_unique<AccessTokenFetcher>(
@@ -166,7 +162,7 @@ IdentityManager::CreateAccessTokenFetcherForClient(
     const std::string& client_id,
     const std::string& client_secret,
     const std::string& oauth_consumer_name,
-    const identity::ScopeSet& scopes,
+    const ScopeSet& scopes,
     AccessTokenFetcher::TokenCallback callback,
     AccessTokenFetcher::Mode mode) {
   return std::make_unique<AccessTokenFetcher>(
@@ -176,7 +172,7 @@ IdentityManager::CreateAccessTokenFetcherForClient(
 
 void IdentityManager::RemoveAccessTokenFromCache(
     const CoreAccountId& account_id,
-    const identity::ScopeSet& scopes,
+    const ScopeSet& scopes,
     const std::string& access_token) {
   token_service_->InvalidateAccessToken(account_id, scopes, access_token);
 }
@@ -400,22 +396,13 @@ void IdentityManager::ForceRefreshOfExtendedAccountInfo(
   account_fetcher_service_->ForceRefreshOfAccountInfo(account_id);
 }
 
-bool IdentityManager::HasPrimaryAccount(JNIEnv* env) const {
-  return HasPrimaryAccount();
-}
-
 base::android::ScopedJavaLocalRef<jobject>
-IdentityManager::GetPrimaryAccountInfo(JNIEnv* env) const {
-  if (HasPrimaryAccount())
-    return ConvertToJavaCoreAccountInfo(env, GetPrimaryAccountInfo());
-  return nullptr;
-}
-
-base::android::ScopedJavaLocalRef<jobject> IdentityManager::GetPrimaryAccountId(
-    JNIEnv* env) const {
-  if (HasPrimaryAccount())
-    return ConvertToJavaCoreAccountId(env, GetPrimaryAccountId());
-  return nullptr;
+IdentityManager::GetPrimaryAccountInfo(JNIEnv* env, jint consent_level) const {
+  CoreAccountInfo account_info =
+      GetPrimaryAccountInfo(static_cast<ConsentLevel>(consent_level));
+  if (account_info.IsEmpty())
+    return nullptr;
+  return ConvertToJavaCoreAccountInfo(env, account_info);
 }
 
 base::android::ScopedJavaLocalRef<jobject> IdentityManager::
@@ -451,25 +438,31 @@ IdentityManager::GetAccountsWithRefreshTokens(JNIEnv* env) const {
 }
 #endif
 
-PrimaryAccountManager* IdentityManager::GetPrimaryAccountManager() {
+PrimaryAccountManager* IdentityManager::GetPrimaryAccountManager() const {
   return primary_account_manager_.get();
 }
 
-ProfileOAuth2TokenService* IdentityManager::GetTokenService() {
+ProfileOAuth2TokenService* IdentityManager::GetTokenService() const {
   return token_service_.get();
 }
 
-AccountTrackerService* IdentityManager::GetAccountTrackerService() {
+AccountTrackerService* IdentityManager::GetAccountTrackerService() const {
   return account_tracker_service_.get();
 }
 
-AccountFetcherService* IdentityManager::GetAccountFetcherService() {
+AccountFetcherService* IdentityManager::GetAccountFetcherService() const {
   return account_fetcher_service_.get();
 }
 
-GaiaCookieManagerService* IdentityManager::GetGaiaCookieManagerService() {
+GaiaCookieManagerService* IdentityManager::GetGaiaCookieManagerService() const {
   return gaia_cookie_manager_service_.get();
 }
+
+#if defined(OS_CHROMEOS)
+chromeos::AccountManager* IdentityManager::GetChromeOSAccountManager() const {
+  return chromeos_account_manager_;
+}
+#endif
 
 AccountInfo IdentityManager::GetAccountInfoForAccountWithRefreshToken(
     const CoreAccountId& account_id) const {
@@ -488,68 +481,8 @@ AccountInfo IdentityManager::GetAccountInfoForAccountWithRefreshToken(
   return account_info;
 }
 
-void IdentityManager::UpdateUnconsentedPrimaryAccount() {
-  base::Optional<CoreAccountInfo> account =
-      ComputeUnconsentedPrimaryAccountInfo();
-  if (account)
-    primary_account_manager_->SetUnconsentedPrimaryAccountInfo(*account);
-}
-
-base::Optional<CoreAccountInfo>
-IdentityManager::ComputeUnconsentedPrimaryAccountInfo() const {
-  if (HasPrimaryAccount())
-    return GetPrimaryAccountInfo();
-
-#if defined(OS_CHROMEOS) || defined(OS_IOS) || defined(OS_ANDROID)
-  // On ChromeOS and on mobile platforms, we support only the primary account as
-  // the unconsented primary account. By this early return, we avoid an extra
-  // request to GAIA that lists cookie accounts.
-  return CoreAccountInfo();
-#else
-  AccountsInCookieJarInfo cookie_info = GetAccountsInCookieJar();
-
-  if (AreRefreshTokensLoaded() && GetAccountsWithRefreshTokens().empty())
-    return CoreAccountInfo();
-
-  std::vector<gaia::ListedAccount> cookie_accounts =
-      cookie_info.signed_in_accounts;
-  if (cookie_info.accounts_are_fresh && cookie_accounts.empty())
-    return CoreAccountInfo();
-
-  if (!AreRefreshTokensLoaded() || !cookie_info.accounts_are_fresh) {
-    // If cookies or tokens are not loaded, it is not possible to fully compute
-    // the unconsented primary account. However, if the current unconsented
-    // primary account is no longer valid, it has to be removed.
-    CoreAccountId current_account = GetUnconsentedPrimaryAccountId();
-    if (!current_account.empty()) {
-      if (AreRefreshTokensLoaded() &&
-          !HasAccountWithRefreshToken(current_account)) {
-        return CoreAccountInfo();
-      }
-      if (!AreRefreshTokensLoaded() &&
-          unconsented_primary_account_revoked_during_load_) {
-        return CoreAccountInfo();
-      }
-      if (cookie_info.accounts_are_fresh &&
-          cookie_accounts[0].id != current_account) {
-        return CoreAccountInfo();
-      }
-    }
-    return base::nullopt;
-  }
-
-  // At this point, cookies and tokens are loaded and neither are empty.
-  const CoreAccountId first_account_id = cookie_accounts[0].id;
-  if (!HasAccountWithRefreshToken(first_account_id))
-    return CoreAccountInfo();
-
-  return GetAccountInfoForAccountWithRefreshToken(first_account_id);
-#endif
-}
-
 void IdentityManager::GoogleSigninSucceeded(
     const CoreAccountInfo& account_info) {
-  UpdateUnconsentedPrimaryAccount();
   for (auto& observer : observer_list_) {
     observer.OnPrimaryAccountSet(account_info);
   }
@@ -569,14 +502,17 @@ void IdentityManager::UnconsentedPrimaryAccountChanged(
     observer.OnUnconsentedPrimaryAccountChanged(account_info);
 }
 
-#if !defined(OS_CHROMEOS)
 void IdentityManager::GoogleSignedOut(const CoreAccountInfo& account_info) {
   DCHECK(!HasPrimaryAccount());
   DCHECK(!account_info.IsEmpty());
-  UpdateUnconsentedPrimaryAccount();
+  for (auto& observer : observer_list_) {
+    observer.BeforePrimaryAccountCleared(account_info);
+  }
+
   for (auto& observer : observer_list_) {
     observer.OnPrimaryAccountCleared(account_info);
   }
+
 #if defined(OS_ANDROID)
   if (java_identity_manager_) {
     JNIEnv* env = base::android::AttachCurrentThread();
@@ -586,10 +522,8 @@ void IdentityManager::GoogleSignedOut(const CoreAccountInfo& account_info) {
   }
 #endif
 }
-#endif  // !defined(OS_CHROMEOS)
 
 void IdentityManager::OnRefreshTokenAvailable(const CoreAccountId& account_id) {
-  UpdateUnconsentedPrimaryAccount();
   CoreAccountInfo account_info =
       GetAccountInfoForAccountWithRefreshToken(account_id);
 
@@ -599,19 +533,12 @@ void IdentityManager::OnRefreshTokenAvailable(const CoreAccountId& account_id) {
 }
 
 void IdentityManager::OnRefreshTokenRevoked(const CoreAccountId& account_id) {
-  if (!AreRefreshTokensLoaded() && HasUnconsentedPrimaryAccount() &&
-      account_id == GetUnconsentedPrimaryAccountId()) {
-    unconsented_primary_account_revoked_during_load_ = true;
-  }
-
-  UpdateUnconsentedPrimaryAccount();
   for (auto& observer : observer_list_) {
     observer.OnRefreshTokenRemovedForAccount(account_id);
   }
 }
 
 void IdentityManager::OnRefreshTokensLoaded() {
-  UpdateUnconsentedPrimaryAccount();
   for (auto& observer : observer_list_)
     observer.OnRefreshTokensLoaded();
 }
@@ -636,7 +563,6 @@ void IdentityManager::OnGaiaAccountsInCookieUpdated(
     const std::vector<gaia::ListedAccount>& signed_in_accounts,
     const std::vector<gaia::ListedAccount>& signed_out_accounts,
     const GoogleServiceAuthError& error) {
-  UpdateUnconsentedPrimaryAccount();
   AccountsInCookieJarInfo accounts_in_cookie_jar_info(
       error == GoogleServiceAuthError::AuthErrorNone(), signed_in_accounts,
       signed_out_accounts);
@@ -647,7 +573,6 @@ void IdentityManager::OnGaiaAccountsInCookieUpdated(
 }
 
 void IdentityManager::OnGaiaCookieDeletedByUserAction() {
-  UpdateUnconsentedPrimaryAccount();
   for (auto& observer : observer_list_) {
     observer.OnAccountsCookieDeletedByUserAction();
   }
@@ -655,7 +580,7 @@ void IdentityManager::OnGaiaCookieDeletedByUserAction() {
 
 void IdentityManager::OnAccessTokenRequested(const CoreAccountId& account_id,
                                              const std::string& consumer_id,
-                                             const identity::ScopeSet& scopes) {
+                                             const ScopeSet& scopes) {
   for (auto& observer : diagnostics_observer_list_) {
     observer.OnAccessTokenRequested(account_id, consumer_id, scopes);
   }
@@ -664,7 +589,7 @@ void IdentityManager::OnAccessTokenRequested(const CoreAccountId& account_id,
 void IdentityManager::OnFetchAccessTokenComplete(
     const CoreAccountId& account_id,
     const std::string& consumer_id,
-    const identity::ScopeSet& scopes,
+    const ScopeSet& scopes,
     GoogleServiceAuthError error,
     base::Time expiration_time) {
   for (auto& observer : diagnostics_observer_list_)
@@ -673,7 +598,7 @@ void IdentityManager::OnFetchAccessTokenComplete(
 }
 
 void IdentityManager::OnAccessTokenRemoved(const CoreAccountId& account_id,
-                                           const identity::ScopeSet& scopes) {
+                                           const ScopeSet& scopes) {
   for (auto& observer : diagnostics_observer_list_)
     observer.OnAccessTokenRemovedFromCache(account_id, scopes);
 }
@@ -699,7 +624,6 @@ void IdentityManager::OnAccountUpdated(const AccountInfo& info) {
     const CoreAccountId primary_account_id = GetPrimaryAccountId();
     if (primary_account_id == info.account_id) {
       primary_account_manager_->UpdateAuthenticatedAccountInfo();
-      UpdateUnconsentedPrimaryAccount();
     }
   }
 
@@ -709,7 +633,6 @@ void IdentityManager::OnAccountUpdated(const AccountInfo& info) {
 }
 
 void IdentityManager::OnAccountRemoved(const AccountInfo& info) {
-  UpdateUnconsentedPrimaryAccount();
   for (auto& observer : observer_list_)
     observer.OnExtendedAccountInfoRemoved(info);
 }

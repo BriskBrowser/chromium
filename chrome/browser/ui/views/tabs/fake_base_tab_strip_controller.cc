@@ -49,6 +49,17 @@ void FakeBaseTabStripController::MoveTab(int from_index, int to_index) {
   tab_groups_.insert(tab_groups_.begin() + to_index, prev_group);
   tab_strip_->MoveTab(from_index, to_index, TabRendererData());
 }
+void FakeBaseTabStripController::MoveGroup(const tab_groups::TabGroupId& group,
+                                           int to_index) {}
+
+bool FakeBaseTabStripController::ToggleTabGroupCollapsedState(
+    const tab_groups::TabGroupId group,
+    bool record_user_action) {
+  fake_group_data_ = tab_groups::TabGroupVisualData(
+      fake_group_data_.title(), fake_group_data_.color(),
+      !fake_group_data_.is_collapsed());
+  return true;
+}
 
 void FakeBaseTabStripController::RemoveTab(int index) {
   num_tabs_--;
@@ -63,6 +74,42 @@ void FakeBaseTabStripController::RemoveTab(int index) {
   tab_strip_->RemoveTabAt(nullptr, index, was_active);
   if (was_active && IsValidIndex(active_index_))
     tab_strip_->SetSelection(selection_model_);
+}
+
+base::string16 FakeBaseTabStripController::GetGroupTitle(
+    const tab_groups::TabGroupId& group_id) const {
+  return fake_group_data_.title();
+}
+
+base::string16 FakeBaseTabStripController::GetGroupContentString(
+    const tab_groups::TabGroupId& group_id) const {
+  return base::string16();
+}
+
+tab_groups::TabGroupColorId FakeBaseTabStripController::GetGroupColorId(
+    const tab_groups::TabGroupId& group_id) const {
+  return fake_group_data_.color();
+}
+
+bool FakeBaseTabStripController::IsGroupCollapsed(
+    const tab_groups::TabGroupId& group) const {
+  return fake_group_data_.is_collapsed();
+}
+
+void FakeBaseTabStripController::SetVisualDataForGroup(
+    const tab_groups::TabGroupId& group,
+    const tab_groups::TabGroupVisualData& visual_data) {
+  fake_group_data_ = visual_data;
+}
+
+void FakeBaseTabStripController::AddTabToGroup(
+    int model_index,
+    const tab_groups::TabGroupId& group) {
+  MoveTabIntoGroup(model_index, group);
+}
+
+void FakeBaseTabStripController::RemoveTabFromGroup(int model_index) {
+  MoveTabIntoGroup(model_index, base::nullopt);
 }
 
 void FakeBaseTabStripController::MoveTabIntoGroup(
@@ -91,27 +138,6 @@ void FakeBaseTabStripController::MoveTabIntoGroup(
     tab_strip_->OnGroupContentsChanged(new_group.value());
   }
 }
-base::string16 FakeBaseTabStripController::GetGroupTitle(
-    const tab_groups::TabGroupId& group_id) const {
-  return fake_group_data_.title();
-}
-
-tab_groups::TabGroupColorId FakeBaseTabStripController::GetGroupColorId(
-    const tab_groups::TabGroupId& group_id) const {
-  return fake_group_data_.color();
-}
-
-void FakeBaseTabStripController::SetVisualDataForGroup(
-    const tab_groups::TabGroupId& group,
-    const tab_groups::TabGroupVisualData& visual_data) {
-  fake_group_data_ = visual_data;
-}
-
-void FakeBaseTabStripController::UngroupAllTabsInGroup(
-    const tab_groups::TabGroupId& group) {}
-
-void FakeBaseTabStripController::AddNewTabInGroup(
-    const tab_groups::TabGroupId& group) {}
 
 std::vector<int> FakeBaseTabStripController::ListTabsInGroup(
     const tab_groups::TabGroupId& group) const {
@@ -175,7 +201,7 @@ bool FakeBaseTabStripController::BeforeCloseTab(int index,
   return true;
 }
 
-void FakeBaseTabStripController::CloseTab(int index, CloseTabSource source) {
+void FakeBaseTabStripController::CloseTab(int index) {
   RemoveTab(index);
 }
 
@@ -204,7 +230,7 @@ void FakeBaseTabStripController::CreateNewTabWithLocation(
 void FakeBaseTabStripController::StackedLayoutMaybeChanged() {
 }
 
-void FakeBaseTabStripController::OnStartedDragging() {}
+void FakeBaseTabStripController::OnStartedDragging(bool dragging_window) {}
 
 void FakeBaseTabStripController::OnStoppedDragging() {}
 

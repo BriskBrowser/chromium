@@ -8,7 +8,6 @@ import android.content.Context;
 import android.text.SpannableString;
 import android.text.method.LinkMovementMethod;
 import android.view.LayoutInflater;
-import android.view.View;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
@@ -22,27 +21,40 @@ import org.chromium.chrome.browser.autofill_assistant.metrics.OnBoarding;
 import org.chromium.chrome.browser.autofill_assistant.overlay.AssistantOverlayCoordinator;
 import org.chromium.chrome.browser.autofill_assistant.overlay.AssistantOverlayModel;
 import org.chromium.chrome.browser.autofill_assistant.overlay.AssistantOverlayState;
+import org.chromium.chrome.browser.browser_controls.BrowserControlsStateProvider;
+import org.chromium.chrome.browser.compositor.CompositorViewHolder;
 import org.chromium.chrome.browser.customtabs.CustomTabActivity;
-import org.chromium.chrome.browser.tab.Tab;
-import org.chromium.chrome.browser.tab.TabImpl;
-import org.chromium.chrome.browser.widget.bottomsheet.BottomSheetController;
+import org.chromium.components.browser_ui.bottomsheet.BottomSheetController;
+import org.chromium.components.browser_ui.widget.scrim.ScrimCoordinator;
 import org.chromium.ui.text.NoUnderlineClickableSpan;
 import org.chromium.ui.text.SpanApplier;
 
 import java.util.Arrays;
+import java.util.Map;
 
 /**
  * Coordinator responsible for showing the onboarding screen when the user is using the Autofill
  * Assistant for the first time.
  */
 class AssistantOnboardingCoordinator {
-    private static final String SMALL_ONBOARDING_EXPERIMENT_ID = "4257013";
+    private static final String INTENT_IDENTFIER = "INTENT";
+    private static final String BUY_MOVIE_TICKETS_INTENT = "BUY_MOVIE_TICKET";
+    private static final String RENT_CAR_INTENT = "RENT_CAR";
+    private static final String FLIGHTS_INTENT = "FLIGHTS_CHECKIN";
+    private static final String PASSWORD_CHANGE_INTENT = "PASSWORD_CHANGE";
+    private static final String FOOD_ORDERING_INTENT = "FOOD_ORDERING";
+    private static final String VOICE_SEARCH_INTENT = "TELEPORT";
+    private static final String SHOPPING_INTENT = "SHOPPING";
+    private static final String SHOPPING_ASSISTED_CHECKOUT_INTENT = "SHOPPING_ASSISTED_CHECKOUT";
+    private static final String BUY_MOVIE_TICKETS_EXPERIMENT_ID = "4363482";
 
     private final String mExperimentIds;
+    private final Map<String, String> mParameters;
     private final Context mContext;
     private final BottomSheetController mController;
-    @Nullable
-    private final Tab mTab;
+    private final BrowserControlsStateProvider mBrowserControls;
+    private final CompositorViewHolder mCompositorViewHolder;
+    private final ScrimCoordinator mScrimCoordinator;
 
     @Nullable
     private AssistantOverlayCoordinator mOverlayCoordinator;
@@ -53,12 +65,17 @@ class AssistantOnboardingCoordinator {
 
     private boolean mOnboardingShown;
 
-    AssistantOnboardingCoordinator(String experimentIds, Context context,
-            BottomSheetController controller, @Nullable Tab tab) {
+    AssistantOnboardingCoordinator(String experimentIds, Map<String, String> parameters,
+            Context context, BottomSheetController controller,
+            BrowserControlsStateProvider browserControls, CompositorViewHolder compositorViewHolder,
+            ScrimCoordinator scrim) {
         mExperimentIds = experimentIds;
+        mParameters = parameters;
         mContext = context;
         mController = controller;
-        mTab = tab;
+        mBrowserControls = browserControls;
+        mCompositorViewHolder = compositorViewHolder;
+        mScrimCoordinator = scrim;
     }
 
     /**
@@ -75,14 +92,18 @@ class AssistantOnboardingCoordinator {
         AutofillAssistantMetrics.recordOnBoarding(OnBoarding.OB_SHOWN);
         mOnboardingShown = true;
 
-        if (mTab != null) {
-            // If there's a tab, cover it with an overlay.
-            AssistantOverlayModel overlayModel = new AssistantOverlayModel();
-            mOverlayCoordinator =
-                    new AssistantOverlayCoordinator(((TabImpl) mTab).getActivity(), overlayModel);
-            overlayModel.set(AssistantOverlayModel.STATE, AssistantOverlayState.FULL);
-        }
-        mContent = new AssistantBottomSheetContent(mContext);
+        // If there's a tab, cover it with an overlay.
+        AssistantOverlayModel overlayModel = new AssistantOverlayModel();
+        mOverlayCoordinator = new AssistantOverlayCoordinator(
+                mContext, mBrowserControls, mCompositorViewHolder, mScrimCoordinator, overlayModel);
+        overlayModel.set(AssistantOverlayModel.STATE, AssistantOverlayState.FULL);
+
+        mContent = new AssistantBottomSheetContent(mContext, () -> {
+            onUserAction(
+                    /* accept= */ false, callback, OnBoarding.OB_NO_ANSWER,
+                    DropOutReason.ONBOARDING_BACK_BUTTON_CLICKED);
+            return true;
+        });
         initContent(callback);
         BottomSheetUtils.showContentAndExpand(mController, mContent, mAnimate);
     }
@@ -166,32 +187,75 @@ class AssistantOnboardingCoordinator {
         initView.setFocusable(true);
 
         initView.findViewById(R.id.button_init_ok)
-                .setOnClickListener(unusedView -> onClicked(true, callback));
+                .setOnClickListener(unusedView
+                        -> onUserAction(
+                                /* accept= */ true, callback, OnBoarding.OB_ACCEPTED,
+                                DropOutReason.DECLINED));
         initView.findViewById(R.id.button_init_not_ok)
-                .setOnClickListener(unusedView -> onClicked(false, callback));
+                .setOnClickListener(unusedView
+                        -> onUserAction(
+                                /* accept= */ false, callback, OnBoarding.OB_CANCELLED,
+                                DropOutReason.DECLINED));
 
-        // Hide views that should not be displayed when showing the small onboarding.
-        if (Arrays.asList(mExperimentIds.split(",")).contains(SMALL_ONBOARDING_EXPERIMENT_ID)) {
-            hide(initView, R.id.onboarding_subtitle);
-            hide(initView, R.id.onboarding_separator);
-        }
+        updateViewBasedOnIntent(initView);
 
         mContent.setContent(initView, initView);
     }
 
-    private static void hide(View root, int resId) {
-        root.findViewById(resId).setVisibility(View.GONE);
-    }
-
-    private void onClicked(boolean accept, Callback<Boolean> callback) {
+    private void onUserAction(boolean accept, Callback<Boolean> callback,
+            @OnBoarding int onboardingAnswer, @DropOutReason int dropoutReason) {
         AutofillAssistantPreferencesUtil.setInitialPreferences(accept);
-        AutofillAssistantMetrics.recordOnBoarding(
-                accept ? OnBoarding.OB_ACCEPTED : OnBoarding.OB_CANCELLED);
+        AutofillAssistantMetrics.recordOnBoarding(onboardingAnswer);
         if (!accept) {
-            AutofillAssistantMetrics.recordDropOut(DropOutReason.DECLINED);
+            AutofillAssistantMetrics.recordDropOut(dropoutReason);
         }
 
         callback.onResult(accept);
         hide();
+    }
+
+    private void updateViewBasedOnIntent(ScrollView initView) {
+        if (!mParameters.containsKey(INTENT_IDENTFIER)) {
+            return;
+        }
+
+        TextView titleTextView = initView.findViewById(R.id.onboarding_try_assistant);
+        TextView termsTextView = initView.findViewById(R.id.onboarding_subtitle);
+        switch (mParameters.get(INTENT_IDENTFIER)) {
+            case FLIGHTS_INTENT:
+                termsTextView.setText(R.string.autofill_assistant_init_message_short);
+                titleTextView.setText(R.string.autofill_assistant_init_message_flights_checkin);
+                break;
+            case FOOD_ORDERING_INTENT:
+                termsTextView.setText(R.string.autofill_assistant_init_message_short);
+                titleTextView.setText(R.string.autofill_assistant_init_message_food_ordering);
+                break;
+            case VOICE_SEARCH_INTENT:
+                termsTextView.setText(R.string.autofill_assistant_init_message_short);
+                titleTextView.setText(R.string.autofill_assistant_init_message_voice_search);
+                break;
+            case RENT_CAR_INTENT:
+                termsTextView.setText(R.string.autofill_assistant_init_message_short);
+                titleTextView.setText(R.string.autofill_assistant_init_message_rent_car);
+                break;
+            case PASSWORD_CHANGE_INTENT:
+                termsTextView.setText(R.string.autofill_assistant_init_message_short);
+                titleTextView.setText(R.string.autofill_assistant_init_message_password_change);
+                break;
+            case SHOPPING_INTENT:
+            case SHOPPING_ASSISTED_CHECKOUT_INTENT:
+                termsTextView.setText(R.string.autofill_assistant_init_message_short);
+                titleTextView.setText(R.string.autofill_assistant_init_message_shopping);
+                break;
+            case BUY_MOVIE_TICKETS_INTENT:
+                if (Arrays.asList(mExperimentIds.split(","))
+                                .contains(BUY_MOVIE_TICKETS_EXPERIMENT_ID)) {
+                    termsTextView.setText(R.string.autofill_assistant_init_message_short);
+                    titleTextView.setText(
+                            R.string.autofill_assistant_init_message_buy_movie_tickets);
+                }
+
+                break;
+        }
     }
 }

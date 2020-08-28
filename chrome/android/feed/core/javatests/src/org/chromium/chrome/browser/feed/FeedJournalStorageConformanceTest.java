@@ -6,7 +6,7 @@ package org.chromium.chrome.browser.feed;
 
 import static org.chromium.base.test.util.ScalableTimeout.scaleTimeout;
 
-import android.support.test.filters.SmallTest;
+import androidx.test.filters.SmallTest;
 
 import org.junit.After;
 import org.junit.Before;
@@ -85,7 +85,7 @@ public final class FeedJournalStorageConformanceTest extends JournalStorageConfo
     public void setUp() {
         TestThreadUtils.runOnUiThreadBlocking(() -> {
             // journalStorage is declared and tested in JournalStorageConformanceTest.
-            mJournalStorage = new JournalStorageWrapper(Profile.getLastUsedProfile());
+            mJournalStorage = new JournalStorageWrapper(Profile.getLastUsedRegularProfile());
         });
     }
 

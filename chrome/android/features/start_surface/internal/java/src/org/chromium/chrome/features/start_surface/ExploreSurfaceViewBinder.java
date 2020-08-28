@@ -9,7 +9,7 @@ import static org.chromium.chrome.features.start_surface.StartSurfaceProperties.
 import static org.chromium.chrome.features.start_surface.StartSurfaceProperties.IS_BOTTOM_BAR_VISIBLE;
 import static org.chromium.chrome.features.start_surface.StartSurfaceProperties.IS_EXPLORE_SURFACE_VISIBLE;
 import static org.chromium.chrome.features.start_surface.StartSurfaceProperties.IS_SHOWING_OVERVIEW;
-import static org.chromium.chrome.features.start_surface.StartSurfaceProperties.TOP_BAR_HEIGHT;
+import static org.chromium.chrome.features.start_surface.StartSurfaceProperties.TOP_MARGIN;
 
 import android.view.View;
 import android.view.ViewGroup;
@@ -28,6 +28,8 @@ class ExploreSurfaceViewBinder {
         } else if (propertyKey == IS_SHOWING_OVERVIEW) {
             setVisibility(parentView, model,
                     model.get(IS_EXPLORE_SURFACE_VISIBLE) && model.get(IS_SHOWING_OVERVIEW));
+        } else if (propertyKey == TOP_MARGIN) {
+            setTopMargin(model);
         }
     }
 
@@ -54,10 +56,24 @@ class ExploreSurfaceViewBinder {
                 FrameLayout.LayoutParams layoutParams =
                         (FrameLayout.LayoutParams) feedSurfaceView.getLayoutParams();
                 layoutParams.bottomMargin = model.get(BOTTOM_BAR_HEIGHT);
-                layoutParams.topMargin = model.get(TOP_BAR_HEIGHT);
+                layoutParams.topMargin = model.get(TOP_MARGIN);
             }
         } else {
             UiUtils.removeViewFromParent(feedSurfaceView);
         }
+    }
+
+    private static void setTopMargin(PropertyModel model) {
+        if (model.get(FEED_SURFACE_COORDINATOR) == null) return;
+        if (!model.get(IS_BOTTOM_BAR_VISIBLE)) return;
+
+        View feedSurfaceView = model.get(FEED_SURFACE_COORDINATOR).getView();
+        assert feedSurfaceView != null;
+        FrameLayout.LayoutParams layoutParams =
+                (FrameLayout.LayoutParams) feedSurfaceView.getLayoutParams();
+        if (layoutParams == null) return;
+
+        layoutParams.topMargin = model.get(TOP_MARGIN);
+        feedSurfaceView.setLayoutParams(layoutParams);
     }
 }

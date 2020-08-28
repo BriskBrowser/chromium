@@ -6,6 +6,7 @@
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
+#include "base/logging.h"
 #include "base/trace_event/trace_event.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/renderer/platform/webrtc/webrtc_video_frame_adapter.h"
@@ -63,16 +64,41 @@ gfx::Rect ScaleRectangle(const gfx::Rect& input_rect,
   result.Intersect(gfx::Rect(0, 0, scaled.width(), scaled.height()));
   return result;
 }
+
+webrtc::VideoRotation GetFrameRotation(const media::VideoFrame* frame) {
+  if (!frame->metadata()->rotation) {
+    return webrtc::kVideoRotation_0;
+  }
+  switch (*frame->metadata()->rotation) {
+    case media::VIDEO_ROTATION_0:
+      return webrtc::kVideoRotation_0;
+    case media::VIDEO_ROTATION_90:
+      return webrtc::kVideoRotation_90;
+    case media::VIDEO_ROTATION_180:
+      return webrtc::kVideoRotation_180;
+    case media::VIDEO_ROTATION_270:
+      return webrtc::kVideoRotation_270;
+    default:
+      return webrtc::kVideoRotation_0;
+  }
+}
+
 }  // anonymous namespace
 
 namespace blink {
+
+const base::Feature kWebRtcLogWebRtcVideoFrameAdapter{
+    "WebRtcLogWebRtcVideoFrameAdapter", base::FEATURE_DISABLED_BY_DEFAULT};
 
 WebRtcVideoTrackSource::WebRtcVideoTrackSource(
     bool is_screencast,
     absl::optional<bool> needs_denoising)
     : AdaptedVideoTrackSource(/*required_alignment=*/1),
       is_screencast_(is_screencast),
-      needs_denoising_(needs_denoising) {
+      needs_denoising_(needs_denoising),
+      log_to_webrtc_(is_screencast &&
+                     base::FeatureList::IsEnabled(
+                         blink::kWebRtcLogWebRtcVideoFrameAdapter)) {
   DETACH_FROM_THREAD(thread_checker_);
 }
 
@@ -123,24 +149,22 @@ void WebRtcVideoTrackSource::OnFrameCaptured(
   // rtc::AdaptedVideoTrackSource::OnFrame(). This region is going to be
   // relative to the coded frame data, i.e.
   // [0, 0, frame->coded_size().width(), frame->coded_size().height()].
-  gfx::Rect update_rect;
-  int capture_counter = 0;
-  bool has_capture_counter = frame->metadata()->GetInteger(
-      media::VideoFrameMetadata::CAPTURE_COUNTER, &capture_counter);
-  bool has_update_rect = frame->metadata()->GetRect(
-      media::VideoFrameMetadata::CAPTURE_UPDATE_RECT, &update_rect);
+  base::Optional<int> capture_counter = frame->metadata()->capture_counter;
+  base::Optional<gfx::Rect> update_rect =
+      frame->metadata()->capture_update_rect;
+
   const bool has_valid_update_rect =
-      has_update_rect && has_capture_counter &&
+      update_rect.has_value() && capture_counter.has_value() &&
       previous_capture_counter_.has_value() &&
-      (capture_counter == (previous_capture_counter_.value() + 1));
+      (*capture_counter == (*previous_capture_counter_ + 1));
   DVLOG(3) << "has_valid_update_rect = " << has_valid_update_rect;
-  if (has_capture_counter)
+  if (capture_counter)
     previous_capture_counter_ = capture_counter;
   if (has_valid_update_rect) {
     if (!accumulated_update_rect_) {
       accumulated_update_rect_ = update_rect;
     } else {
-      accumulated_update_rect_->Union(update_rect);
+      accumulated_update_rect_->Union(*update_rect);
     }
   } else {
     accumulated_update_rect_ = base::nullopt;
@@ -325,8 +349,12 @@ void WebRtcVideoTrackSource::DeliverFrame(
   webrtc::VideoFrame::Builder frame_builder =
       webrtc::VideoFrame::Builder()
           .set_video_frame_buffer(
-              new rtc::RefCountedObject<WebRtcVideoFrameAdapter>(frame))
-          .set_rotation(webrtc::kVideoRotation_0)
+              new rtc::RefCountedObject<WebRtcVideoFrameAdapter>(
+                  frame,
+                  (log_to_webrtc_
+                       ? WebRtcVideoFrameAdapter::LogStatus::kLogToWebRtc
+                       : WebRtcVideoFrameAdapter::LogStatus::kNoLogging)))
+          .set_rotation(GetFrameRotation(frame.get()))
           .set_timestamp_us(timestamp_us);
   if (update_rect) {
     frame_builder.set_update_rect(webrtc::VideoFrame::UpdateRect{

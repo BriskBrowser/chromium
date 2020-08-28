@@ -11,7 +11,8 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import android.app.Activity;
-import android.support.test.filters.SmallTest;
+
+import androidx.test.filters.SmallTest;
 
 import org.junit.After;
 import org.junit.Before;
@@ -28,25 +29,26 @@ import org.chromium.base.task.PostTask;
 import org.chromium.base.test.util.CallbackHelper;
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.Feature;
-import org.chromium.chrome.browser.ChromeFeatureList;
-import org.chromium.chrome.browser.ChromeSwitches;
 import org.chromium.chrome.browser.ChromeTabbedActivity;
 import org.chromium.chrome.browser.DeferredStartupHandler;
 import org.chromium.chrome.browser.feed.FeedAppLifecycle.AppLifecycleEvent;
 import org.chromium.chrome.browser.feed.library.api.client.lifecycle.AppLifecycleListener;
 import org.chromium.chrome.browser.feed.library.api.host.network.NetworkClient;
+import org.chromium.chrome.browser.feed.library.common.time.testing.FakeClock;
 import org.chromium.chrome.browser.feed.library.hostimpl.storage.testing.InMemoryContentStorage;
 import org.chromium.chrome.browser.feed.library.hostimpl.storage.testing.InMemoryJournalStorage;
+import org.chromium.chrome.browser.flags.ChromeFeatureList;
+import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.init.ChromeBrowserInitializer;
 import org.chromium.chrome.browser.multiwindow.MultiWindowTestHelper;
 import org.chromium.chrome.browser.multiwindow.MultiWindowUtils;
 import org.chromium.chrome.browser.preferences.Pref;
-import org.chromium.chrome.browser.preferences.PrefServiceBridge;
 import org.chromium.chrome.browser.profiles.Profile;
-import org.chromium.chrome.browser.util.UrlConstants;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.chrome.test.ChromeTabbedActivityTestRule;
 import org.chromium.chrome.test.util.browser.Features.EnableFeatures;
+import org.chromium.components.embedder_support.util.UrlConstants;
+import org.chromium.components.user_prefs.UserPrefs;
 import org.chromium.content_public.browser.LoadUrlParams;
 import org.chromium.content_public.browser.UiThreadTaskTraits;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
@@ -81,6 +83,7 @@ public class FeedAppLifecycleTest {
     private FeedLifecycleBridge mLifecycleBridge;
     private final String mHistogramAppLifecycleEvents =
             "ContentSuggestions.Feed.AppLifecycle.Events";
+    private Profile mProfile;
 
     private static class TestDeferredStartupHandler extends DeferredStartupHandler {
         private List<Runnable> mDeferredTaskQueue = new ArrayList<>();
@@ -105,13 +108,14 @@ public class FeedAppLifecycleTest {
 
         TestThreadUtils.runOnUiThreadBlocking(() -> {
             ChromeBrowserInitializer.getInstance().handleSynchronousStartup();
-            Profile profile = Profile.getLastUsedProfile().getOriginalProfile();
-            mLifecycleBridge = new FeedLifecycleBridge(profile);
+            mProfile = Profile.getLastUsedRegularProfile();
+            mLifecycleBridge = new FeedLifecycleBridge(mProfile);
             mAppLifecycle =
                     new FeedAppLifecycle(mAppLifecycleListener, mLifecycleBridge, mFeedScheduler);
             FeedProcessScopeFactory.createFeedProcessScopeForTesting(mFeedScheduler, mNetworkClient,
-                    mOfflineIndicator, mAppLifecycle, new FeedLoggingBridge(profile),
-                    new InMemoryContentStorage(), new InMemoryJournalStorage());
+                    mOfflineIndicator, mAppLifecycle,
+                    new FeedLoggingBridge(mProfile, new FakeClock()), new InMemoryContentStorage(),
+                    new InMemoryJournalStorage());
         });
 
         mActivityTestRule.startMainActivityOnBlankPage();
@@ -305,7 +309,7 @@ public class FeedAppLifecycleTest {
     public void testClearDataAfterDisablingDoesNotCrash() {
         TestThreadUtils.runOnUiThreadBlocking(() -> {
             FeedProcessScopeFactory.clearFeedProcessScopeForTesting();
-            PrefServiceBridge.getInstance().setBoolean(Pref.NTP_ARTICLES_SECTION_ENABLED, false);
+            UserPrefs.get(mProfile).setBoolean(Pref.ENABLE_SNIPPETS, false);
             FeedLifecycleBridge.onCachedDataCleared();
             FeedLifecycleBridge.onHistoryDeleted();
         });

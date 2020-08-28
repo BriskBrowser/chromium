@@ -8,7 +8,6 @@
 #include <memory>
 #include <vector>
 
-#include "base/macros.h"
 #include "base/optional.h"
 #include "components/tab_groups/tab_group_id.h"
 
@@ -21,6 +20,10 @@ class WebContents;
 
 namespace gfx {
 class Rect;
+}
+
+namespace tab_groups {
+class TabGroupId;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -63,15 +66,14 @@ class TabStripModelDelegate {
   // TabStripModelDelegate, or perhaps even move this code elsewhere.
   struct NewStripContents {
     NewStripContents();
+    NewStripContents(const NewStripContents&) = delete;
+    NewStripContents& operator=(const NewStripContents&) = delete;
     ~NewStripContents();
     NewStripContents(NewStripContents&&);
     // The WebContents to add.
     std::unique_ptr<content::WebContents> web_contents;
     // A bitmask of TabStripModel::AddTabTypes to apply to the added contents.
     int add_types = 0;
-
-   private:
-    DISALLOW_COPY_AND_ASSIGN(NewStripContents);
   };
   virtual Browser* CreateNewStripWithContents(
       std::vector<NewStripContents> contentses,
@@ -92,13 +94,25 @@ class TabStripModelDelegate {
   // Duplicates the contents at the provided index and places it into a new tab.
   virtual void DuplicateContentsAt(int index) = 0;
 
-  // Returns whether the contents at |index| can be moved from the current
-  // tabstrip to a different window.
-  virtual bool CanMoveTabToWindow(int index) = 0;
+  // Move the contents at the provided indices into the specified window.
+  virtual void MoveToExistingWindow(const std::vector<int>& indices,
+                                    int browser_index) = 0;
 
-  // Removes the contents at |index| from this tab strip and places it into a
+  // Get the list of existing windows that tabs can be moved to.
+  virtual std::vector<base::string16> GetExistingWindowsForMoveMenu() const = 0;
+
+  // Returns whether the contents at |indices| can be moved from the current
+  // tabstrip to a different window.
+  virtual bool CanMoveTabsToWindow(const std::vector<int>& indices) = 0;
+
+  // Removes the contents at |indices| from this tab strip and places it into a
   // new window.
-  virtual void MoveTabToNewWindow(int index) = 0;
+  virtual void MoveTabsToNewWindow(const std::vector<int>& indices) = 0;
+
+  // Moves all the tabs in the specified |group| to a new window, keeping them
+  // grouped. The group in the new window will have the same appearance as
+  // |group| but a different ID, since IDs can't be shared across windows.
+  virtual void MoveGroupToNewWindow(const tab_groups::TabGroupId& group) = 0;
 
   // Creates an entry in the historical tab database for the specified
   // WebContents.
@@ -116,6 +130,10 @@ class TabStripModelDelegate {
   // to close |contents|.
   virtual bool ShouldRunUnloadListenerBeforeClosing(
       content::WebContents* contents) = 0;
+
+  // Returns whether favicon should be shown.
+  virtual bool ShouldDisplayFavicon(
+      content::WebContents* web_contents) const = 0;
 };
 
 #endif  // CHROME_BROWSER_UI_TABS_TAB_STRIP_MODEL_DELEGATE_H_

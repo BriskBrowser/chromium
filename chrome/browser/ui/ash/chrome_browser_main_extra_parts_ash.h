@@ -20,24 +20,26 @@ class DisplaySettingsHandler;
 }
 
 class AccessibilityControllerClient;
+class AmbientClientImpl;
 class AppListClientImpl;
 class ArcChromeActionsClient;
 class AshShellInit;
 class CastConfigControllerMediaRouter;
 class ChromeNewWindowClient;
 class ImeControllerClient;
+class InSessionAuthDialogClient;
 class LoginScreenClient;
 class MediaClientImpl;
 class MobileDataNotifications;
 class NetworkConnectDelegateChromeOS;
 class NightLightClient;
-class PhotoControllerImpl;
 class ScreenOrientationDelegateChromeos;
 class SessionControllerClientImpl;
 class SystemTrayClient;
 class TabletModePageBehavior;
 class VpnListForwarder;
 class WallpaperControllerClient;
+class MediaNotificationProviderImpl;
 
 #if BUILDFLAG(ENABLE_WAYLAND_SERVER)
 class ExoParts;
@@ -69,6 +71,7 @@ class ChromeBrowserMainExtraPartsAsh : public ChromeBrowserMainExtraParts {
   std::unique_ptr<NetworkConnectDelegateChromeOS> network_connect_delegate_;
   std::unique_ptr<CastConfigControllerMediaRouter>
       cast_config_controller_media_router_;
+  std::unique_ptr<MediaNotificationProviderImpl> media_notification_provider_;
 
   // Initialized in PreProfileInit if ash config != MASH:
   std::unique_ptr<AshShellInit> ash_shell_init_;
@@ -80,6 +83,7 @@ class ChromeBrowserMainExtraPartsAsh : public ChromeBrowserMainExtraParts {
   std::unique_ptr<ArcChromeActionsClient> arc_chrome_actions_client_;
   std::unique_ptr<ChromeNewWindowClient> chrome_new_window_client_;
   std::unique_ptr<ImeControllerClient> ime_controller_client_;
+  std::unique_ptr<InSessionAuthDialogClient> in_session_auth_dialog_client_;
   std::unique_ptr<ScreenOrientationDelegateChromeos>
       screen_orientation_delegate_;
   std::unique_ptr<SessionControllerClientImpl> session_controller_client_;
@@ -107,7 +111,7 @@ class ChromeBrowserMainExtraPartsAsh : public ChromeBrowserMainExtraParts {
   // Initialized in PostBrowserStart in all configs:
   std::unique_ptr<MobileDataNotifications> mobile_data_notifications_;
   std::unique_ptr<NightLightClient> night_light_client_;
-  std::unique_ptr<PhotoControllerImpl> photo_controller_;
+  std::unique_ptr<AmbientClientImpl> ambient_client_;
 
   DISALLOW_COPY_AND_ASSIGN(ChromeBrowserMainExtraPartsAsh);
 };

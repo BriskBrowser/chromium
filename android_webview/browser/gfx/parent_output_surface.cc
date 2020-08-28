@@ -11,6 +11,7 @@
 #include "components/viz/service/display/output_surface_client.h"
 #include "components/viz/service/display/output_surface_frame.h"
 #include "gpu/command_buffer/client/gles2_interface.h"
+#include "gpu/command_buffer/common/capabilities.h"
 
 namespace android_webview {
 
@@ -33,10 +34,12 @@ ParentOutputSurface::ParentOutputSurface(
     scoped_refptr<AwGLSurface> gl_surface,
     scoped_refptr<AwRenderThreadContextProvider> context_provider)
     : viz::OutputSurface(std::move(context_provider)),
-      gl_surface_(std::move(gl_surface)) {}
-
-ParentOutputSurface::~ParentOutputSurface() {
+      gl_surface_(std::move(gl_surface)) {
+  const auto& context_capabilities = context_provider_->ContextCapabilities();
+  capabilities_.max_render_target_size = context_capabilities.max_texture_size;
 }
+
+ParentOutputSurface::~ParentOutputSurface() = default;
 
 void ParentOutputSurface::BindToClient(viz::OutputSurfaceClient* client) {
   DCHECK(client);
@@ -54,12 +57,10 @@ void ParentOutputSurface::BindFramebuffer() {
   context_provider()->ContextGL()->BindFramebuffer(GL_FRAMEBUFFER, 0);
 }
 
-void ParentOutputSurface::SetDrawRectangle(const gfx::Rect& rect) {}
-
 void ParentOutputSurface::Reshape(const gfx::Size& size,
                                   float scale_factor,
                                   const gfx::ColorSpace& color_space,
-                                  bool has_alpha,
+                                  gfx::BufferFormat format,
                                   bool use_stencil) {}
 
 void ParentOutputSurface::SwapBuffers(viz::OutputSurfaceFrame frame) {
@@ -121,10 +122,6 @@ unsigned ParentOutputSurface::GetOverlayTextureId() const {
   return 0;
 }
 
-gfx::BufferFormat ParentOutputSurface::GetOverlayBufferFormat() const {
-  return gfx::BufferFormat::RGBX_8888;
-}
-
 unsigned ParentOutputSurface::UpdateGpuFence() {
   return 0;
 }
@@ -138,6 +135,10 @@ gfx::OverlayTransform ParentOutputSurface::GetDisplayTransform() {
 
 scoped_refptr<gpu::GpuTaskSchedulerHelper>
 ParentOutputSurface::GetGpuTaskSchedulerHelper() {
+  return nullptr;
+}
+
+gpu::MemoryTracker* ParentOutputSurface::GetMemoryTracker() {
   return nullptr;
 }
 

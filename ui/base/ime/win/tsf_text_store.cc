@@ -11,6 +11,7 @@
 
 #include <algorithm>
 
+#include "base/logging.h"
 #include "base/numerics/ranges.h"
 #include "base/win/scoped_variant.h"
 #include "ui/base/ime/text_input_client.h"
@@ -46,21 +47,27 @@ bool GetWindowClientRect(HWND window_handle,
 
 }  // namespace
 
-TSFTextStore::TSFTextStore() {
-  if (FAILED(::CoCreateInstance(CLSID_TF_CategoryMgr, nullptr, CLSCTX_ALL,
-                                IID_PPV_ARGS(&category_manager_)))) {
-    LOG(FATAL) << "Failed to initialize CategoryMgr.";
-    return;
-  }
-  if (FAILED(::CoCreateInstance(CLSID_TF_DisplayAttributeMgr, nullptr,
-                                CLSCTX_ALL,
-                                IID_PPV_ARGS(&display_attribute_manager_)))) {
-    LOG(FATAL) << "Failed to initialize DisplayAttributeMgr.";
-    return;
-  }
-}
+TSFTextStore::TSFTextStore() {}
 
 TSFTextStore::~TSFTextStore() {}
+
+HRESULT TSFTextStore::Initialize() {
+  HRESULT hr = ::CoCreateInstance(CLSID_TF_CategoryMgr, nullptr, CLSCTX_ALL,
+                                  IID_PPV_ARGS(&category_manager_));
+  if (FAILED(hr)) {
+    DVLOG(1) << "Failed to initialize CategoryMgr.";
+    return hr;
+  }
+
+  hr = ::CoCreateInstance(CLSID_TF_DisplayAttributeMgr, nullptr, CLSCTX_ALL,
+                          IID_PPV_ARGS(&display_attribute_manager_));
+  if (FAILED(hr)) {
+    DVLOG(1) << "Failed to initialize DisplayAttributeMgr.";
+    return hr;
+  }
+
+  return S_OK;
+}
 
 ULONG STDMETHODCALLTYPE TSFTextStore::AddRef() {
   return InterlockedIncrement(&ref_count_);
@@ -75,11 +82,13 @@ ULONG STDMETHODCALLTYPE TSFTextStore::Release() {
   return static_cast<ULONG>(count);
 }
 
-STDMETHODIMP TSFTextStore::QueryInterface(REFIID iid, void** result) {
+HRESULT TSFTextStore::QueryInterface(REFIID iid, void** result) {
   if (iid == IID_IUnknown || iid == IID_ITextStoreACP) {
     *result = static_cast<ITextStoreACP*>(this);
   } else if (iid == IID_ITfContextOwnerCompositionSink) {
     *result = static_cast<ITfContextOwnerCompositionSink*>(this);
+  } else if (iid == IID_ITfLanguageProfileNotifySink) {
+    *result = static_cast<ITfLanguageProfileNotifySink*>(this);
   } else if (iid == IID_ITfTextEditSink) {
     *result = static_cast<ITfTextEditSink*>(this);
   } else if (iid == IID_ITfKeyTraceEventSink) {
@@ -92,9 +101,7 @@ STDMETHODIMP TSFTextStore::QueryInterface(REFIID iid, void** result) {
   return S_OK;
 }
 
-STDMETHODIMP TSFTextStore::AdviseSink(REFIID iid,
-                                      IUnknown* unknown,
-                                      DWORD mask) {
+HRESULT TSFTextStore::AdviseSink(REFIID iid, IUnknown* unknown, DWORD mask) {
   if (!IsEqualGUID(iid, IID_ITextStoreACPSink))
     return E_INVALIDARG;
   if (text_store_acp_sink_) {
@@ -112,15 +119,14 @@ STDMETHODIMP TSFTextStore::AdviseSink(REFIID iid,
   return S_OK;
 }
 
-STDMETHODIMP TSFTextStore::FindNextAttrTransition(
-    LONG acp_start,
-    LONG acp_halt,
-    ULONG num_filter_attributes,
-    const TS_ATTRID* filter_attributes,
-    DWORD flags,
-    LONG* acp_next,
-    BOOL* found,
-    LONG* found_offset) {
+HRESULT TSFTextStore::FindNextAttrTransition(LONG acp_start,
+                                             LONG acp_halt,
+                                             ULONG num_filter_attributes,
+                                             const TS_ATTRID* filter_attributes,
+                                             DWORD flags,
+                                             LONG* acp_next,
+                                             BOOL* found,
+                                             LONG* found_offset) {
   if (!acp_next || !found || !found_offset)
     return E_INVALIDARG;
   // We don't support any attributes.
@@ -131,17 +137,17 @@ STDMETHODIMP TSFTextStore::FindNextAttrTransition(
   return S_OK;
 }
 
-STDMETHODIMP TSFTextStore::GetACPFromPoint(TsViewCookie view_cookie,
-                                           const POINT* point,
-                                           DWORD flags,
-                                           LONG* acp) {
+HRESULT TSFTextStore::GetACPFromPoint(TsViewCookie view_cookie,
+                                      const POINT* point,
+                                      DWORD flags,
+                                      LONG* acp) {
   NOTIMPLEMENTED();
   if (view_cookie != kViewCookie)
     return E_INVALIDARG;
   return E_NOTIMPL;
 }
 
-STDMETHODIMP TSFTextStore::GetActiveView(TsViewCookie* view_cookie) {
+HRESULT TSFTextStore::GetActiveView(TsViewCookie* view_cookie) {
   if (!view_cookie)
     return E_INVALIDARG;
   // We support only one view.
@@ -149,10 +155,10 @@ STDMETHODIMP TSFTextStore::GetActiveView(TsViewCookie* view_cookie) {
   return S_OK;
 }
 
-STDMETHODIMP TSFTextStore::GetEmbedded(LONG acp_pos,
-                                       REFGUID service,
-                                       REFIID iid,
-                                       IUnknown** unknown) {
+HRESULT TSFTextStore::GetEmbedded(LONG acp_pos,
+                                  REFGUID service,
+                                  REFIID iid,
+                                  IUnknown** unknown) {
   // We don't support any embedded objects.
   NOTIMPLEMENTED();
   if (!unknown)
@@ -161,7 +167,7 @@ STDMETHODIMP TSFTextStore::GetEmbedded(LONG acp_pos,
   return E_NOTIMPL;
 }
 
-STDMETHODIMP TSFTextStore::GetEndACP(LONG* acp) {
+HRESULT TSFTextStore::GetEndACP(LONG* acp) {
   if (!acp)
     return E_INVALIDARG;
   if (!HasReadLock())
@@ -170,55 +176,53 @@ STDMETHODIMP TSFTextStore::GetEndACP(LONG* acp) {
   return S_OK;
 }
 
-STDMETHODIMP TSFTextStore::GetFormattedText(LONG acp_start,
-                                            LONG acp_end,
-                                            IDataObject** data_object) {
+HRESULT TSFTextStore::GetFormattedText(LONG acp_start,
+                                       LONG acp_end,
+                                       IDataObject** data_object) {
   NOTIMPLEMENTED();
   return E_NOTIMPL;
 }
 
-STDMETHODIMP TSFTextStore::GetScreenExt(TsViewCookie view_cookie, RECT* rect) {
+HRESULT TSFTextStore::GetScreenExt(TsViewCookie view_cookie, RECT* rect) {
   if (view_cookie != kViewCookie)
     return E_INVALIDARG;
   if (!rect)
     return E_INVALIDARG;
+  if (!text_input_client_)
+    return E_UNEXPECTED;
 
   // {0, 0, 0, 0} means that the document rect is not currently displayed.
   SetRect(rect, 0, 0, 0, 0);
-
-  // Currently ui::TextInputClient does not expose the document rect. So use
-  // the Win32 client rectangle instead.
-  // TODO(yukawa): Upgrade TextInputClient so that the client can retrieve the
-  // document rectangle.
-  POINT left_top;
-  POINT right_bottom;
-  if (!GetWindowClientRect(window_handle_, &left_top, &right_bottom))
-    return E_FAIL;
-
-  rect->left = left_top.x;
-  rect->top = left_top.y;
-  rect->right = right_bottom.x;
-  rect->bottom = right_bottom.y;
+  base::Optional<gfx::Rect> result_rect;
+  base::Optional<gfx::Rect> tmp_rect;
   // If the EditContext is active, then fetch the layout bounds from
-  // the active EditContext.
-  gfx::Rect result_rect;
-  gfx::Rect tmp_rect;
-  // TODO(snianu): Use this route to fetch the focused content editable
-  // element's layout bounds instead of reporting the client rectangle.
-  if (text_input_client_->GetEditContextLayoutBounds(&result_rect, &tmp_rect)) {
-    *rect =
-        display::win::ScreenWin::DIPToScreenRect(window_handle_, result_rect)
-            .ToRECT();
-    rect->left += left_top.x;
-    rect->top += left_top.y;
+  // the active EditContext, else get it from the focused element's
+  // bounding client rect.
+  text_input_client_->GetActiveTextInputControlLayoutBounds(&result_rect,
+                                                            &tmp_rect);
+  if (result_rect) {
+    // This conversion is required for high dpi monitors.
+    *rect = display::win::ScreenWin::DIPToScreenRect(window_handle_,
+                                                     result_rect.value())
+                .ToRECT();
+  } else {
+    // Default if the layout bounds are not present in text input client.
+    POINT left_top;
+    POINT right_bottom;
+    if (!GetWindowClientRect(window_handle_, &left_top, &right_bottom))
+      return E_FAIL;
+    rect->left = left_top.x;
+    rect->top = left_top.y;
+    rect->right = right_bottom.x;
+    rect->bottom = right_bottom.y;
   }
   return S_OK;
 }
 
-STDMETHODIMP TSFTextStore::GetSelection(ULONG selection_index,
-                                        ULONG selection_buffer_size,
-                                        TS_SELECTION_ACP* selection_buffer,
-                                        ULONG* fetched_count) {
+HRESULT TSFTextStore::GetSelection(ULONG selection_index,
+                                   ULONG selection_buffer_size,
+                                   TS_SELECTION_ACP* selection_buffer,
+                                   ULONG* fetched_count) {
   if (!selection_buffer)
     return E_INVALIDARG;
   if (!fetched_count)
@@ -237,7 +241,7 @@ STDMETHODIMP TSFTextStore::GetSelection(ULONG selection_index,
   return S_OK;
 }
 
-STDMETHODIMP TSFTextStore::GetStatus(TS_STATUS* status) {
+HRESULT TSFTextStore::GetStatus(TS_STATUS* status) {
   if (!status)
     return E_INVALIDARG;
   // TODO(snianu): Uncomment this once TSF fix for input pane policy is
@@ -248,21 +252,20 @@ STDMETHODIMP TSFTextStore::GetStatus(TS_STATUS* status) {
   //   status->dwDynamicFlags &= ~TS_SD_INPUTPANEMANUALDISPLAYENABLE;
   status->dwDynamicFlags |= TS_SD_INPUTPANEMANUALDISPLAYENABLE;
   // We don't support hidden text.
-  // TODO(IME): Remove TS_SS_TRANSITORY to support Korean reconversion
-  status->dwStaticFlags = TS_SS_TRANSITORY | TS_SS_NOHIDDENTEXT;
+  status->dwStaticFlags = TS_SS_NOHIDDENTEXT;
 
   return S_OK;
 }
 
-STDMETHODIMP TSFTextStore::GetText(LONG acp_start,
-                                   LONG acp_end,
-                                   wchar_t* text_buffer,
-                                   ULONG text_buffer_size,
-                                   ULONG* text_buffer_copied,
-                                   TS_RUNINFO* run_info_buffer,
-                                   ULONG run_info_buffer_size,
-                                   ULONG* run_info_buffer_copied,
-                                   LONG* next_acp) {
+HRESULT TSFTextStore::GetText(LONG acp_start,
+                              LONG acp_end,
+                              wchar_t* text_buffer,
+                              ULONG text_buffer_size,
+                              ULONG* text_buffer_copied,
+                              TS_RUNINFO* run_info_buffer,
+                              ULONG run_info_buffer_size,
+                              ULONG* run_info_buffer_copied,
+                              LONG* next_acp) {
   if (!text_buffer_copied || !run_info_buffer_copied)
     return E_INVALIDARG;
   if (!text_buffer && text_buffer_size != 0)
@@ -301,11 +304,11 @@ STDMETHODIMP TSFTextStore::GetText(LONG acp_start,
   return S_OK;
 }
 
-STDMETHODIMP TSFTextStore::GetTextExt(TsViewCookie view_cookie,
-                                      LONG acp_start,
-                                      LONG acp_end,
-                                      RECT* rect,
-                                      BOOL* clipped) {
+HRESULT TSFTextStore::GetTextExt(TsViewCookie view_cookie,
+                                 LONG acp_start,
+                                 LONG acp_end,
+                                 RECT* rect,
+                                 BOOL* clipped) {
   if (!rect || !clipped)
     return E_INVALIDARG;
   if (!text_input_client_)
@@ -325,26 +328,22 @@ STDMETHODIMP TSFTextStore::GetTextExt(TsViewCookie view_cookie,
   // indicates a last character's one.
   // TODO(IME): add tests for scenario that left position is bigger than right
   // position.
-  gfx::Rect result_rect;
-  gfx::Rect tmp_rect;
+  base::Optional<gfx::Rect> result_rect;
+  base::Optional<gfx::Rect> tmp_opt_rect;
   const uint32_t start_pos = acp_start - composition_start_;
   const uint32_t end_pos = acp_end - composition_start_;
-
   // If there is an active EditContext, then fetch the layout bounds from it.
-  if (text_input_client_->GetEditContextLayoutBounds(&tmp_rect, &result_rect)) {
-    POINT left_top;
-    POINT right_bottom;
-    if (!GetWindowClientRect(window_handle_, &left_top, &right_bottom))
-      return E_FAIL;
-    *rect =
-        display::win::ScreenWin::DIPToScreenRect(window_handle_, result_rect)
-            .ToRECT();
-    rect->left += left_top.x;
-    rect->top += left_top.y;
+  text_input_client_->GetActiveTextInputControlLayoutBounds(&tmp_opt_rect,
+                                                            &result_rect);
+  if (result_rect) {
+    *rect = display::win::ScreenWin::DIPToScreenRect(window_handle_,
+                                                     result_rect.value())
+                .ToRECT();
     *clipped = FALSE;
     return S_OK;
   }
 
+  gfx::Rect tmp_rect;
   if (start_pos == end_pos) {
     if (text_input_client_->HasCompositionText()) {
       // According to MSDN document, if |acp_start| and |acp_end| are equal it
@@ -381,10 +380,10 @@ STDMETHODIMP TSFTextStore::GetTextExt(TsViewCookie view_cookie,
         result_rect = gfx::Rect(tmp_rect);
         if (text_input_client_->GetCompositionCharacterBounds(end_pos - 1,
                                                               &tmp_rect)) {
-          result_rect.set_width(tmp_rect.x() - result_rect.x() +
-                                tmp_rect.width());
-          result_rect.set_height(tmp_rect.y() - result_rect.y() +
-                                 tmp_rect.height());
+          result_rect->set_width(tmp_rect.x() - result_rect->x() +
+                                 tmp_rect.width());
+          result_rect->set_height(tmp_rect.y() - result_rect->y() +
+                                  tmp_rect.height());
         } else {
           // We may not be able to get the last character bounds, so we use the
           // first character bounds instead of returning TS_E_NOLAYOUT.
@@ -406,14 +405,14 @@ STDMETHODIMP TSFTextStore::GetTextExt(TsViewCookie view_cookie,
       result_rect = gfx::Rect(text_input_client_->GetCaretBounds());
     }
   }
-  *rect = display::win::ScreenWin::DIPToScreenRect(window_handle_, result_rect)
+  *rect = display::win::ScreenWin::DIPToScreenRect(window_handle_,
+                                                   result_rect.value())
               .ToRECT();
   *clipped = FALSE;
   return S_OK;
 }
 
-STDMETHODIMP TSFTextStore::GetWnd(TsViewCookie view_cookie,
-                                  HWND* window_handle) {
+HRESULT TSFTextStore::GetWnd(TsViewCookie view_cookie, HWND* window_handle) {
   if (!window_handle)
     return E_INVALIDARG;
   if (view_cookie != kViewCookie)
@@ -422,32 +421,32 @@ STDMETHODIMP TSFTextStore::GetWnd(TsViewCookie view_cookie,
   return S_OK;
 }
 
-STDMETHODIMP TSFTextStore::InsertEmbedded(DWORD flags,
-                                          LONG acp_start,
-                                          LONG acp_end,
-                                          IDataObject* data_object,
-                                          TS_TEXTCHANGE* change) {
+HRESULT TSFTextStore::InsertEmbedded(DWORD flags,
+                                     LONG acp_start,
+                                     LONG acp_end,
+                                     IDataObject* data_object,
+                                     TS_TEXTCHANGE* change) {
   // We don't support any embedded objects.
   NOTIMPLEMENTED();
   return E_NOTIMPL;
 }
 
-STDMETHODIMP TSFTextStore::InsertEmbeddedAtSelection(DWORD flags,
-                                                     IDataObject* data_object,
-                                                     LONG* acp_start,
-                                                     LONG* acp_end,
-                                                     TS_TEXTCHANGE* change) {
+HRESULT TSFTextStore::InsertEmbeddedAtSelection(DWORD flags,
+                                                IDataObject* data_object,
+                                                LONG* acp_start,
+                                                LONG* acp_end,
+                                                TS_TEXTCHANGE* change) {
   // We don't support any embedded objects.
   NOTIMPLEMENTED();
   return E_NOTIMPL;
 }
 
-STDMETHODIMP TSFTextStore::InsertTextAtSelection(DWORD flags,
-                                                 const wchar_t* text_buffer,
-                                                 ULONG text_buffer_size,
-                                                 LONG* acp_start,
-                                                 LONG* acp_end,
-                                                 TS_TEXTCHANGE* text_change) {
+HRESULT TSFTextStore::InsertTextAtSelection(DWORD flags,
+                                            const wchar_t* text_buffer,
+                                            ULONG text_buffer_size,
+                                            LONG* acp_start,
+                                            LONG* acp_end,
+                                            TS_TEXTCHANGE* text_change) {
   const LONG start_pos = selection_.start();
   const LONG end_pos = selection_.end();
   const LONG new_end_pos = start_pos + text_buffer_size;
@@ -467,6 +466,29 @@ STDMETHODIMP TSFTextStore::InsertTextAtSelection(DWORD flags,
     return TS_E_NOLOCK;
   if (!text_buffer)
     return E_INVALIDARG;
+
+  if (text_buffer_size >= 0) {
+    if (!new_text_inserted_) {
+      new_text_inserted_ = true;
+      replace_text_range_.set_start(start_pos);
+      replace_text_range_.set_end(end_pos);
+      replace_text_size_ = text_buffer_size;
+    } else {
+      // aggregate new replace text with previous replace text into one range.
+      LONG old_delta = (LONG)replace_text_range_.start() -
+                       (LONG)replace_text_range_.end() + replace_text_size_;
+      LONG new_delta = start_pos - end_pos + text_buffer_size;
+      replace_text_range_.set_start(
+          std::min((uint32_t)start_pos, replace_text_range_.start()));
+      // New replacement text ends after previous replacement text. We need to
+      // use the new end after adjusting with previous delta.
+      if ((uint32_t)end_pos >=
+          replace_text_range_.start() + replace_text_size_) {
+        replace_text_range_.set_end(end_pos - old_delta);
+      }
+      replace_text_size_ = replace_text_range_.length() + old_delta + new_delta;
+    }
+  }
 
   DCHECK_LE(start_pos, end_pos);
   string_buffer_document_ =
@@ -492,11 +514,11 @@ STDMETHODIMP TSFTextStore::InsertTextAtSelection(DWORD flags,
   return S_OK;
 }
 
-STDMETHODIMP TSFTextStore::QueryInsert(LONG acp_test_start,
-                                       LONG acp_test_end,
-                                       ULONG text_size,
-                                       LONG* acp_result_start,
-                                       LONG* acp_result_end) {
+HRESULT TSFTextStore::QueryInsert(LONG acp_test_start,
+                                  LONG acp_test_end,
+                                  ULONG text_size,
+                                  LONG* acp_result_start,
+                                  LONG* acp_result_end) {
   if (!acp_result_start || !acp_result_end || acp_test_start > acp_test_end)
     return E_INVALIDARG;
   const LONG composition_start = static_cast<LONG>(composition_start_);
@@ -508,9 +530,9 @@ STDMETHODIMP TSFTextStore::QueryInsert(LONG acp_test_start,
   return S_OK;
 }
 
-STDMETHODIMP TSFTextStore::QueryInsertEmbedded(const GUID* service,
-                                               const FORMATETC* format,
-                                               BOOL* insertable) {
+HRESULT TSFTextStore::QueryInsertEmbedded(const GUID* service,
+                                          const FORMATETC* format,
+                                          BOOL* insertable) {
   if (!format)
     return E_INVALIDARG;
   // We don't support any embedded objects.
@@ -519,7 +541,17 @@ STDMETHODIMP TSFTextStore::QueryInsertEmbedded(const GUID* service,
   return S_OK;
 }
 
-STDMETHODIMP TSFTextStore::RequestAttrsAtPosition(
+HRESULT TSFTextStore::RequestAttrsAtPosition(LONG acp_pos,
+                                             ULONG attribute_buffer_size,
+                                             const TS_ATTRID* attribute_buffer,
+                                             DWORD flags) {
+  // We don't support any document attributes.
+  // This method just returns S_OK, and the subsequently called
+  // RetrieveRequestedAttrs() returns 0 as the number of supported attributes.
+  return S_OK;
+}
+
+HRESULT TSFTextStore::RequestAttrsTransitioningAtPosition(
     LONG acp_pos,
     ULONG attribute_buffer_size,
     const TS_ATTRID* attribute_buffer,
@@ -530,18 +562,7 @@ STDMETHODIMP TSFTextStore::RequestAttrsAtPosition(
   return S_OK;
 }
 
-STDMETHODIMP TSFTextStore::RequestAttrsTransitioningAtPosition(
-    LONG acp_pos,
-    ULONG attribute_buffer_size,
-    const TS_ATTRID* attribute_buffer,
-    DWORD flags) {
-  // We don't support any document attributes.
-  // This method just returns S_OK, and the subsequently called
-  // RetrieveRequestedAttrs() returns 0 as the number of supported attributes.
-  return S_OK;
-}
-
-STDMETHODIMP TSFTextStore::RequestLock(DWORD lock_flags, HRESULT* result) {
+HRESULT TSFTextStore::RequestLock(DWORD lock_flags, HRESULT* result) {
   if (!text_input_client_)
     return E_UNEXPECTED;
 
@@ -591,6 +612,7 @@ STDMETHODIMP TSFTextStore::RequestLock(DWORD lock_flags, HRESULT* result) {
   // if nothing has changed from input service, then only need to
   // compare our cache with latest textinputstate.
   if (!edit_flag_) {
+    ResetCacheAfterEditSession();
     CalculateTextandSelectionDiffAndNotifyIfNeeded();
     return S_OK;
   }
@@ -608,7 +630,13 @@ STDMETHODIMP TSFTextStore::RequestLock(DWORD lock_flags, HRESULT* result) {
   //    into blink to complete the existing composition(later in this method).
   if (string_pending_insertion_.empty()) {
     if (!text_input_client_->HasCompositionText()) {
-      if (has_composition_range_) {
+      if (has_composition_range_ && on_start_composition_called_) {
+        // Remove replacing text first before starting composition.
+        if (new_text_inserted_ && !replace_text_range_.is_empty() &&
+            !replace_text_size_) {
+          text_input_client_->SetEditableSelectionRange(replace_text_range_);
+          text_input_client_->ExtendSelectionAndDelete(0, 0);
+        }
         string_pending_insertion_ = string_buffer_document_.substr(
             composition_range_.GetMin(), composition_range_.length());
         StartCompositionOnExistingText();
@@ -616,6 +644,7 @@ STDMETHODIMP TSFTextStore::RequestLock(DWORD lock_flags, HRESULT* result) {
         composition_start_ = selection_.start();
         CalculateTextandSelectionDiffAndNotifyIfNeeded();
       }
+      ResetCacheAfterEditSession();
       return S_OK;
     } else {
       composition_start_ = last_composition_start;
@@ -631,12 +660,14 @@ STDMETHODIMP TSFTextStore::RequestLock(DWORD lock_flags, HRESULT* result) {
                      lparam_keydown_cached_);
   }
 
-  // reset |on_start_composition_called_| for next edit session.
-  on_start_composition_called_ = false;
-
   // If the text store is edited in OnLockGranted(), we may need to call
   // TextInputClient::InsertText() or TextInputClient::SetCompositionText().
-  const size_t new_composition_start = composition_start_;
+  // Calculate the end location. we use the replace text end pos if there is no
+  // more active composition.
+  size_t new_composition_start =
+      !has_composition_range_ && new_text_inserted_
+          ? replace_text_range_.start() + replace_text_size_
+          : composition_start_;
 
   // There are several scenarios that we want to commit composition text. For
   // those scenarios, we need to call TextInputClient::InsertText to complete
@@ -651,9 +682,7 @@ STDMETHODIMP TSFTextStore::RequestLock(DWORD lock_flags, HRESULT* result) {
   // 3. User commits current composition text.
   if (((new_composition_start > last_composition_start &&
         text_input_client_->HasCompositionText()) ||
-       (wparam_keydown_fired_ == 0 && !has_composition_range_ &&
-        !text_input_client_->HasCompositionText()) ||
-       (wparam_keydown_fired_ != 0 && !has_composition_range_)) &&
+       !has_composition_range_) &&
       text_input_client_) {
     CommitTextAndEndCompositionIfAny(last_composition_start,
                                      new_composition_start);
@@ -696,20 +725,13 @@ STDMETHODIMP TSFTextStore::RequestLock(DWORD lock_flags, HRESULT* result) {
     StartCompositionOnNewText(new_composition_start, composition_string);
   }
 
-  // reset the flag since we've already inserted/replaced the text.
-  new_text_inserted_ = false;
-
-  // reset string_buffer_ if composition is no longer active.
-  if (!text_input_client_->HasCompositionText()) {
-    string_pending_insertion_.clear();
-  }
-
+  ResetCacheAfterEditSession();
   CalculateTextandSelectionDiffAndNotifyIfNeeded();
 
   return S_OK;
 }
 
-STDMETHODIMP TSFTextStore::RequestSupportedAttrs(
+HRESULT TSFTextStore::RequestSupportedAttrs(
     DWORD /* flags */,  // Seems that we should ignore this.
     ULONG attribute_buffer_size,
     const TS_ATTRID* attribute_buffer) {
@@ -725,10 +747,9 @@ STDMETHODIMP TSFTextStore::RequestSupportedAttrs(
   return E_FAIL;
 }
 
-STDMETHODIMP TSFTextStore::RetrieveRequestedAttrs(
-    ULONG attribute_buffer_size,
-    TS_ATTRVAL* attribute_buffer,
-    ULONG* attribute_buffer_copied) {
+HRESULT TSFTextStore::RetrieveRequestedAttrs(ULONG attribute_buffer_size,
+                                             TS_ATTRVAL* attribute_buffer,
+                                             ULONG* attribute_buffer_copied) {
   if (!attribute_buffer_copied)
     return E_INVALIDARG;
   if (!attribute_buffer)
@@ -752,9 +773,8 @@ STDMETHODIMP TSFTextStore::RetrieveRequestedAttrs(
   return S_OK;
 }
 
-STDMETHODIMP TSFTextStore::SetSelection(
-    ULONG selection_buffer_size,
-    const TS_SELECTION_ACP* selection_buffer) {
+HRESULT TSFTextStore::SetSelection(ULONG selection_buffer_size,
+                                   const TS_SELECTION_ACP* selection_buffer) {
   if (!HasReadWriteLock())
     return TF_E_NOLOCK;
   if (selection_buffer_size > 0) {
@@ -766,16 +786,17 @@ STDMETHODIMP TSFTextStore::SetSelection(
     }
     selection_.set_start(start_pos);
     selection_.set_end(end_pos);
+    is_selection_interim_char_ = selection_buffer[0].style.fInterimChar;
   }
   return S_OK;
 }
 
-STDMETHODIMP TSFTextStore::SetText(DWORD flags,
-                                   LONG acp_start,
-                                   LONG acp_end,
-                                   const wchar_t* text_buffer,
-                                   ULONG text_buffer_size,
-                                   TS_TEXTCHANGE* text_change) {
+HRESULT TSFTextStore::SetText(DWORD flags,
+                              LONG acp_start,
+                              LONG acp_end,
+                              const wchar_t* text_buffer,
+                              ULONG text_buffer_size,
+                              TS_TEXTCHANGE* text_change) {
   if (!HasReadWriteLock())
     return TS_E_NOLOCK;
 
@@ -791,13 +812,6 @@ STDMETHODIMP TSFTextStore::SetText(DWORD flags,
     return ret;
 
   TS_TEXTCHANGE change;
-  if (text_buffer_size > 0) {
-    new_text_inserted_ = true;
-    replace_text_range_.set_start(acp_start);
-    replace_text_range_.set_end(acp_end);
-    replace_text_size_ = text_buffer_size;
-  }
-
   ret = InsertTextAtSelection(0, text_buffer, text_buffer_size, &acp_start,
                               &acp_end, &change);
   if (ret != S_OK)
@@ -809,7 +823,7 @@ STDMETHODIMP TSFTextStore::SetText(DWORD flags,
   return S_OK;
 }
 
-STDMETHODIMP TSFTextStore::UnadviseSink(IUnknown* unknown) {
+HRESULT TSFTextStore::UnadviseSink(IUnknown* unknown) {
   if (text_store_acp_sink_.Get() != unknown)
     return CONNECT_E_NOCONNECTION;
   text_store_acp_sink_.Reset();
@@ -817,9 +831,8 @@ STDMETHODIMP TSFTextStore::UnadviseSink(IUnknown* unknown) {
   return S_OK;
 }
 
-STDMETHODIMP TSFTextStore::OnStartComposition(
-    ITfCompositionView* composition_view,
-    BOOL* ok) {
+HRESULT TSFTextStore::OnStartComposition(ITfCompositionView* composition_view,
+                                         BOOL* ok) {
   if (ok)
     *ok = TRUE;
 
@@ -827,18 +840,25 @@ STDMETHODIMP TSFTextStore::OnStartComposition(
   return S_OK;
 }
 
-STDMETHODIMP TSFTextStore::OnUpdateComposition(
-    ITfCompositionView* composition_view,
-    ITfRange* range) {
+HRESULT TSFTextStore::OnUpdateComposition(ITfCompositionView* composition_view,
+                                          ITfRange* range) {
   return S_OK;
 }
 
-STDMETHODIMP TSFTextStore::OnEndComposition(
-    ITfCompositionView* composition_view) {
+HRESULT TSFTextStore::OnEndComposition(ITfCompositionView* composition_view) {
   return S_OK;
 }
 
-STDMETHODIMP TSFTextStore::OnKeyTraceDown(WPARAM wParam, LPARAM lParam) {
+HRESULT TSFTextStore::OnLanguageChange(LANGID langid, BOOL* pfAccept) {
+  return S_OK;
+}
+HRESULT TSFTextStore::OnLanguageChanged() {
+  if (text_input_client_)
+    text_input_client_->OnInputMethodChanged();
+  return S_OK;
+}
+
+HRESULT TSFTextStore::OnKeyTraceDown(WPARAM wParam, LPARAM lParam) {
   // fire the event right away if we're in composition
   if (has_composition_range_) {
     DispatchKeyEvent(ui::ET_KEY_PRESSED, wParam, lParam);
@@ -851,7 +871,7 @@ STDMETHODIMP TSFTextStore::OnKeyTraceDown(WPARAM wParam, LPARAM lParam) {
   return S_OK;
 }
 
-STDMETHODIMP TSFTextStore::OnKeyTraceUp(WPARAM wParam, LPARAM lParam) {
+HRESULT TSFTextStore::OnKeyTraceUp(WPARAM wParam, LPARAM lParam) {
   if (has_composition_range_ || wparam_keydown_fired_ == wParam) {
     DispatchKeyEvent(ui::ET_KEY_RELEASED, wParam, lParam);
   } else if (wparam_keydown_cached_ == wParam) {
@@ -892,9 +912,9 @@ void TSFTextStore::DispatchKeyEvent(ui::EventType type,
   }
 }
 
-STDMETHODIMP TSFTextStore::OnEndEdit(ITfContext* context,
-                                     TfEditCookie read_only_edit_cookie,
-                                     ITfEditRecord* edit_record) {
+HRESULT TSFTextStore::OnEndEdit(ITfContext* context,
+                                TfEditCookie read_only_edit_cookie,
+                                ITfEditRecord* edit_record) {
   if (!context || !edit_record)
     return E_INVALIDARG;
 
@@ -970,7 +990,7 @@ bool TSFTextStore::GetDisplayAttribute(TfGuidAtom guid_atom,
 
   Microsoft::WRL::ComPtr<ITfDisplayAttributeInfo> display_attribute_info;
   if (FAILED(display_attribute_manager_->GetDisplayAttributeInfo(
-          guid, display_attribute_info.GetAddressOf(), nullptr))) {
+          guid, &display_attribute_info, nullptr))) {
     return false;
   }
   // Display Attribute can be null so query for attributes only when its
@@ -990,8 +1010,8 @@ bool TSFTextStore::GetCompositionStatus(
   DCHECK(spans);
   const GUID* rgGuids[2] = {&GUID_PROP_COMPOSING, &GUID_PROP_ATTRIBUTE};
   Microsoft::WRL::ComPtr<ITfReadOnlyProperty> track_property;
-  if (FAILED(context->TrackProperties(rgGuids, 2, nullptr, 0,
-                                      track_property.GetAddressOf()))) {
+  if (FAILED(
+          context->TrackProperties(rgGuids, 2, nullptr, 0, &track_property))) {
     return false;
   }
 
@@ -999,11 +1019,10 @@ bool TSFTextStore::GetCompositionStatus(
   spans->clear();
   Microsoft::WRL::ComPtr<ITfRange> start_to_end_range;
   Microsoft::WRL::ComPtr<ITfRange> end_range;
-  if (FAILED(context->GetStart(read_only_edit_cookie,
-                               start_to_end_range.GetAddressOf()))) {
+  if (FAILED(context->GetStart(read_only_edit_cookie, &start_to_end_range))) {
     return false;
   }
-  if (FAILED(context->GetEnd(read_only_edit_cookie, end_range.GetAddressOf())))
+  if (FAILED(context->GetEnd(read_only_edit_cookie, &end_range)))
     return false;
   if (FAILED(start_to_end_range->ShiftEndToRange(
           read_only_edit_cookie, end_range.Get(), TF_ANCHOR_END))) {
@@ -1011,15 +1030,14 @@ bool TSFTextStore::GetCompositionStatus(
   }
 
   Microsoft::WRL::ComPtr<IEnumTfRanges> ranges;
-  if (FAILED(track_property->EnumRanges(read_only_edit_cookie,
-                                        ranges.GetAddressOf(),
+  if (FAILED(track_property->EnumRanges(read_only_edit_cookie, &ranges,
                                         start_to_end_range.Get()))) {
     return false;
   }
 
   while (true) {
     Microsoft::WRL::ComPtr<ITfRange> range;
-    if (ranges->Next(1, range.GetAddressOf(), nullptr) != S_OK)
+    if (ranges->Next(1, &range, nullptr) != S_OK)
       break;
     base::win::ScopedVariant value;
     Microsoft::WRL::ComPtr<IEnumTfPropertyValue> enum_prop_value;
@@ -1048,23 +1066,25 @@ bool TSFTextStore::GetCompositionStatus(
     }
 
     Microsoft::WRL::ComPtr<ITfRangeACP> range_acp;
-    range.CopyTo(range_acp.GetAddressOf());
+    range.As(&range_acp);
     LONG start_pos, length;
     range_acp->GetExtent(&start_pos, &length);
     if (!is_composition) {
       if (*committed_size < static_cast<size_t>(start_pos + length))
         *committed_size = start_pos + length;
     } else {
+      // Check for the formats of the actively composed text.
       ImeTextSpan span;
       span.start_offset = start_pos;
       span.end_offset = start_pos + length;
       span.underline_color = SK_ColorBLACK;
       span.background_color = SK_ColorTRANSPARENT;
-      if (has_display_attribute) {
-        span.thickness = display_attribute.fBoldLine
-                             ? ImeTextSpan::Thickness::kThick
-                             : ImeTextSpan::Thickness::kThin;
+      if (selection_.EqualsIgnoringDirection(
+              gfx::Range(span.start_offset, span.end_offset))) {
+        span.interim_char_selection = is_selection_interim_char_;
       }
+      if (has_display_attribute)
+        GetStyle(display_attribute, &span);
       spans->push_back(span);
     }
   }
@@ -1100,7 +1120,8 @@ void TSFTextStore::CalculateTextandSelectionDiffAndNotifyIfNeeded() {
                                            &latest_buffer_from_client) &&
       text_input_client_->GetEditableSelectionRange(
           &latest_selection_from_client) &&
-      latest_buffer_range_from_client.Contains(latest_selection_from_client)) {
+      latest_selection_from_client.IsBoundedBy(
+          latest_buffer_range_from_client)) {
     // if the text and selection from text input client is the same as the text
     // and buffer we got last time, either the state hasn't changed since last
     // time we synced or the change hasn't completed yet. Either case we don't
@@ -1300,8 +1321,9 @@ void TSFTextStore::StartCompositionOnExistingText() const {
 
 void TSFTextStore::CommitTextAndEndCompositionIfAny(size_t old_size,
                                                     size_t new_size) const {
-  if (new_text_inserted_ && !replace_text_range_.is_empty() &&
-      !text_input_client_->HasCompositionText()) {
+  size_t new_committed_string_offset;
+  size_t new_committed_string_size;
+  if (new_text_inserted_ && !text_input_client_->HasCompositionText()) {
     // This is a special case to handle text replacement scenarios during
     // English typing when we are trying to replace an existing text with some
     // new text. Some third-party IMEs also use SetText() API instead of
@@ -1319,14 +1341,13 @@ void TSFTextStore::CommitTextAndEndCompositionIfAny(size_t old_size,
     // current composition text so that |TextInputClient::InsertText| will
     // commit current composition text.
     // Also clamp the offsets if they are out of bounds of the buffer
-    const size_t new_committed_string_offset =
+    new_committed_string_offset =
         std::min(static_cast<ULONG>(replace_text_range_.start()),
                  static_cast<ULONG>(string_buffer_document_.size()));
-    const base::string16& new_committed_string = string_buffer_document_.substr(
-        new_committed_string_offset,
+    new_committed_string_size =
         (new_text_size == 0 && selection_.end() > new_committed_string_offset)
             ? selection_.end() - new_committed_string_offset
-            : new_text_size);
+            : new_text_size;
     // if the |replace_text_range_| start is greater than |old_size|, then we
     // don't need to delete anything because the replacement text hasn't been
     // inserted into blink yet.
@@ -1334,14 +1355,9 @@ void TSFTextStore::CommitTextAndEndCompositionIfAny(size_t old_size,
       text_input_client_->ExtendSelectionAndDelete(
           old_size - replace_text_range_.start(), 0);
     }
-    // TODO(crbug.com/978678): Unify the behavior of
-    //     |TextInputClient::InsertText(text)| for the empty text.
-    if (!new_committed_string.empty())
-      text_input_client_->InsertText(new_committed_string);
   } else {
-    // Construct string to be committed.
-    size_t new_committed_string_offset = old_size;
-    size_t new_committed_string_size = new_size - old_size;
+    new_committed_string_offset = old_size;
+    new_committed_string_size = new_size - old_size;
     // This is a special case. We should only replace existing text and commit
     // the new text if replacement text has already been inserted into Blink.
     if (new_text_inserted_ && (old_size > replace_text_range_.start()) &&
@@ -1357,21 +1373,43 @@ void TSFTextStore::CommitTextAndEndCompositionIfAny(size_t old_size,
     new_committed_string_offset =
         std::min(static_cast<ULONG>(new_committed_string_offset),
                  static_cast<ULONG>(string_buffer_document_.size()));
-    const base::string16& new_committed_string = string_buffer_document_.substr(
-        new_committed_string_offset,
+    new_committed_string_size =
         (new_committed_string_size == 0 &&
          selection_.end() > new_committed_string_offset)
             ? selection_.end() - new_committed_string_offset
-            : new_committed_string_size);
-    // TODO(crbug.com/978678): Unify the behavior of
-    //     |TextInputClient::InsertText(text)| for the empty text.
-    if (!new_committed_string.empty())
-      text_input_client_->InsertText(new_committed_string);
-    // Notify accessibility about this committed composition
-    text_input_client_->SetActiveCompositionForAccessibility(
-        replace_text_range_, new_committed_string,
-        /*is_composition_committed*/ true);
+            : new_committed_string_size;
   }
+
+  // Construct string to be committed.
+  const base::string16& new_committed_string = string_buffer_document_.substr(
+      new_committed_string_offset, new_committed_string_size);
+  // TODO(crbug.com/978678): Unify the behavior of
+  //     |TextInputClient::InsertText(text)| for the empty text.
+  if (!new_committed_string.empty()) {
+    // If composition was started and committed in one edit session, we still
+    // need to start the composition first and then commit it.
+    if (!text_input_client_->HasCompositionText() &&
+        on_start_composition_called_) {
+      ImeTextSpans spans;
+      ImeTextSpan span;
+      span.start_offset = 0;
+      span.end_offset = new_committed_string.size();
+      spans.push_back(span);
+      CompositionText composition_text;
+      composition_text.text = new_committed_string;
+      composition_text.ime_text_spans = spans;
+      composition_text.selection.set_start(new_committed_string.size());
+      composition_text.selection.set_end(new_committed_string.size());
+      text_input_client_->SetCompositionText(composition_text);
+    }
+    text_input_client_->InsertText(new_committed_string);
+  } else {
+    text_input_client_->ClearCompositionText();
+  }
+  // Notify accessibility about this committed composition
+  text_input_client_->SetActiveCompositionForAccessibility(
+      replace_text_range_, new_committed_string,
+      /*is_composition_committed*/ true);
 }
 
 void TSFTextStore::StartCompositionOnNewText(
@@ -1415,6 +1453,63 @@ void TSFTextStore::StartCompositionOnNewText(
           /*is_composition_committed*/ true);
     }
   }
+}
+
+void TSFTextStore::GetStyle(const TF_DISPLAYATTRIBUTE& attribute,
+                            ImeTextSpan* span) {
+  // Use the display attribute to pick the right formats for the underline and
+  // text.
+  // Set the default values first and then check if display attribute has
+  // any style or not.
+  span->thickness = attribute.fBoldLine ? ImeTextSpan::Thickness::kThick
+                                        : ImeTextSpan::Thickness::kThin;
+  switch (attribute.lsStyle) {
+    case TF_LS_SOLID: {
+      span->underline_style = ImeTextSpan::UnderlineStyle::kSolid;
+      break;
+    }
+    case TF_LS_DOT: {
+      span->underline_style = ImeTextSpan::UnderlineStyle::kDot;
+      break;
+    }
+    case TF_LS_DASH: {
+      span->underline_style = ImeTextSpan::UnderlineStyle::kDash;
+      break;
+    }
+    case TF_LS_SQUIGGLE: {
+      span->underline_style = ImeTextSpan::UnderlineStyle::kSquiggle;
+      break;
+    }
+    case TF_LS_NONE: {
+      span->underline_style = ImeTextSpan::UnderlineStyle::kNone;
+      break;
+    }
+    default: {
+      span->underline_style = ImeTextSpan::UnderlineStyle::kSolid;
+    }
+  }
+  if (attribute.crText.type != TF_CT_NONE) {
+    span->text_color = SkColorSetRGB(GetRValue(attribute.crText.cr),
+                                     GetGValue(attribute.crText.cr),
+                                     GetBValue(attribute.crText.cr));
+  }
+  if (attribute.crLine.type != TF_CT_NONE) {
+    span->underline_color = SkColorSetRGB(GetRValue(attribute.crLine.cr),
+                                          GetGValue(attribute.crLine.cr),
+                                          GetBValue(attribute.crLine.cr));
+  }
+}
+
+void TSFTextStore::ResetCacheAfterEditSession() {
+  // reset the flag since we've already inserted/replaced the text.
+  new_text_inserted_ = false;
+  is_selection_interim_char_ = false;
+  // reset |on_start_composition_called_| for next edit session.
+  on_start_composition_called_ = false;
+
+  // reset string_buffer_ if composition is no longer active.
+  if (text_input_client_ && !text_input_client_->HasCompositionText())
+    string_pending_insertion_.clear();
 }
 
 }  // namespace ui

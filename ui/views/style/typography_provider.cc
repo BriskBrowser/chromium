@@ -12,7 +12,7 @@
 #include "ui/views/style/typography.h"
 #include "ui/views/view.h"
 
-#if defined(OS_MACOSX)
+#if defined(OS_APPLE)
 #include "base/mac/mac_util.h"
 #endif
 
@@ -97,6 +97,12 @@ ui::NativeTheme::ColorId GetMenuColorId(int style) {
   }
 }
 
+ui::NativeTheme::ColorId GetHintColorId(int context) {
+  return (context == style::CONTEXT_TEXTFIELD)
+             ? ui::NativeTheme::kColorId_TextfieldPlaceholderColor
+             : ui::NativeTheme::kColorId_LabelSecondaryColor;
+}
+
 ui::NativeTheme::ColorId GetColorId(int context, int style) {
   if (style == style::STYLE_DIALOG_BUTTON_DEFAULT)
     return ui::NativeTheme::kColorId_TextOnProminentButtonColor;
@@ -104,6 +110,8 @@ ui::NativeTheme::ColorId GetColorId(int context, int style) {
     return GetDisabledColorId(context);
   if (style == style::STYLE_LINK)
     return ui::NativeTheme::kColorId_LinkEnabled;
+  if (style == style::STYLE_HINT)
+    return GetHintColorId(context);
   if (context == style::CONTEXT_BUTTON_MD)
     return ui::NativeTheme::kColorId_ButtonEnabledColor;
   if (context == style::CONTEXT_LABEL && style == style::STYLE_SECONDARY)
@@ -135,12 +143,12 @@ SkColor TypographyProvider::GetColor(const View& view,
 }
 
 int TypographyProvider::GetLineHeight(int context, int style) const {
-  return 0;
+  return GetFont(context, style).GetHeight();
 }
 
 // static
 gfx::Font::Weight TypographyProvider::MediumWeightForUI() {
-#if defined(OS_MACOSX)
+#if defined(OS_APPLE)
   // System fonts are not user-configurable on Mac, so there's a simpler check.
   // However, 10.11 do not ship with a MEDIUM weight system font. In that
   // case, trying to use MEDIUM there will give a bold font, which will look

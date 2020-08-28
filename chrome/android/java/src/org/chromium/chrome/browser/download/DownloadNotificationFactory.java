@@ -26,27 +26,27 @@ import android.content.Context;
 import android.content.Intent;
 import android.os.Build;
 import android.os.Bundle;
-import android.support.v4.app.NotificationCompat;
 import android.text.TextUtils;
 
-import com.google.ipc.invalidation.util.Preconditions;
+import androidx.core.app.NotificationCompat;
 
 import org.chromium.base.ContentUriUtils;
 import org.chromium.chrome.R;
-import org.chromium.chrome.browser.ChromeFeatureList;
+import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.media.MediaViewerUtils;
-import org.chromium.chrome.browser.notifications.ChromeNotificationBuilder;
-import org.chromium.chrome.browser.notifications.NotificationBuilderFactory;
 import org.chromium.chrome.browser.notifications.NotificationConstants;
-import org.chromium.chrome.browser.notifications.NotificationMetadata;
 import org.chromium.chrome.browser.notifications.NotificationUmaTracker;
-import org.chromium.chrome.browser.notifications.PendingIntentProvider;
-import org.chromium.chrome.browser.notifications.channels.ChannelDefinitions;
-import org.chromium.chrome.browser.util.UrlUtilities;
+import org.chromium.chrome.browser.notifications.NotificationWrapperBuilderFactory;
+import org.chromium.chrome.browser.notifications.channels.ChromeChannelDefinitions;
+import org.chromium.components.browser_ui.notifications.NotificationMetadata;
+import org.chromium.components.browser_ui.notifications.NotificationWrapperBuilder;
+import org.chromium.components.browser_ui.notifications.PendingIntentProvider;
+import org.chromium.components.embedder_support.util.UrlUtilities;
 import org.chromium.components.offline_items_collection.ContentId;
 import org.chromium.components.offline_items_collection.LegacyHelpers;
 import org.chromium.components.offline_items_collection.OfflineItem;
 import org.chromium.components.offline_items_collection.PendingState;
+import org.chromium.components.url_formatter.SchemeDisplay;
 import org.chromium.components.url_formatter.UrlFormatter;
 
 /**
@@ -59,6 +59,18 @@ public final class DownloadNotificationFactory {
     // Limit the origin length so that the eTLD+1 cannot be hidden. If the origin exceeds this
     // length the eTLD+1 is extracted and shown.
     public static final int MAX_ORIGIN_LENGTH = 40;
+
+    private static <T> void checkNotNull(T reference) {
+        if (reference == null) {
+            throw new NullPointerException();
+        }
+    }
+
+    private static void checkArgument(boolean expression) {
+        if (!expression) {
+            throw new IllegalArgumentException();
+        }
+    }
 
     /**
      * Builds a downloads notification based on the status of the download and its information. All
@@ -75,15 +87,15 @@ public final class DownloadNotificationFactory {
     public static Notification buildNotification(Context context,
             @DownloadNotificationService.DownloadStatus int downloadStatus,
             DownloadUpdate downloadUpdate, int notificationId) {
-        String channelId = ChannelDefinitions.ChannelId.DOWNLOADS;
+        String channelId = ChromeChannelDefinitions.ChannelId.DOWNLOADS;
         if (LegacyHelpers.isLegacyDownload(downloadUpdate.getContentId())
                 && downloadStatus == DownloadNotificationService.DownloadStatus.COMPLETED
                 && ChromeFeatureList.isEnabled(ChromeFeatureList.DOWNLOAD_NOTIFICATION_BADGE)) {
-            channelId = ChannelDefinitions.ChannelId.COMPLETED_DOWNLOADS;
+            channelId = ChromeChannelDefinitions.ChannelId.COMPLETED_DOWNLOADS;
         }
-        ChromeNotificationBuilder builder =
-                NotificationBuilderFactory
-                        .createChromeNotificationBuilder(true /* preferCompat */, channelId,
+        NotificationWrapperBuilder builder =
+                NotificationWrapperBuilderFactory
+                        .createNotificationWrapperBuilder(true /* preferCompat */, channelId,
                                 null /* remoteAppPackageName */,
                                 new NotificationMetadata(LegacyHelpers.isLegacyDownload(
                                                                  downloadUpdate.getContentId())
@@ -116,19 +128,19 @@ public final class DownloadNotificationFactory {
 
         switch (downloadStatus) {
             case DownloadNotificationService.DownloadStatus.IN_PROGRESS:
-                Preconditions.checkNotNull(downloadUpdate.getProgress());
-                Preconditions.checkNotNull(downloadUpdate.getContentId());
-                Preconditions.checkArgument(downloadUpdate.getNotificationId() != -1);
+                checkNotNull(downloadUpdate.getProgress());
+                checkNotNull(downloadUpdate.getContentId());
+                checkArgument(downloadUpdate.getNotificationId() != -1);
 
                 if (downloadUpdate.getIsDownloadPending()) {
                     contentText =
-                            DownloadUtils.getPendingStatusString(downloadUpdate.getPendingState());
+                            StringUtils.getPendingStatusForUi(downloadUpdate.getPendingState());
                 } else {
                     // Incognito mode should hide download progress details like file size.
                     OfflineItem.Progress progress = downloadUpdate.getIsOffTheRecord()
                             ? OfflineItem.Progress.createIndeterminateProgress()
                             : downloadUpdate.getProgress();
-                    contentText = DownloadUtils.getProgressTextForNotification(progress);
+                    contentText = StringUtils.getProgressTextForUi(progress);
                 }
 
                 iconId = downloadUpdate.getIsDownloadPending()
@@ -186,7 +198,7 @@ public final class DownloadNotificationFactory {
                         && !downloadUpdate.getIsOffTheRecord()
                         && downloadUpdate.getTimeRemainingInMillis() >= 0
                         && !LegacyHelpers.isLegacyOfflinePage(downloadUpdate.getContentId())) {
-                    String subText = DownloadUtils.formatRemainingTime(
+                    String subText = StringUtils.timeLeftForUi(
                             context, downloadUpdate.getTimeRemainingInMillis());
                     setSubText(builder, subText);
                 }
@@ -197,8 +209,8 @@ public final class DownloadNotificationFactory {
 
                 break;
             case DownloadNotificationService.DownloadStatus.PAUSED:
-                Preconditions.checkNotNull(downloadUpdate.getContentId());
-                Preconditions.checkArgument(downloadUpdate.getNotificationId() != -1);
+                checkNotNull(downloadUpdate.getContentId());
+                checkArgument(downloadUpdate.getNotificationId() != -1);
 
                 contentText =
                         context.getResources().getString(R.string.download_notification_paused);
@@ -236,13 +248,13 @@ public final class DownloadNotificationFactory {
 
                 break;
             case DownloadNotificationService.DownloadStatus.COMPLETED:
-                Preconditions.checkArgument(downloadUpdate.getNotificationId() != -1);
+                checkArgument(downloadUpdate.getNotificationId() != -1);
 
                 // Don't show file size in incognito mode.
                 if (downloadUpdate.getTotalBytes() > 0 && !downloadUpdate.getIsOffTheRecord()) {
                     contentText = context.getResources().getString(
                             R.string.download_notification_completed_with_size,
-                            DownloadUtils.getStringForBytes(
+                            org.chromium.components.browser_ui.util.DownloadUtils.getStringForBytes(
                                     context, downloadUpdate.getTotalBytes()));
                 } else {
                     contentText = context.getResources().getString(
@@ -256,8 +268,8 @@ public final class DownloadNotificationFactory {
                     if (LegacyHelpers.isLegacyDownload(downloadUpdate.getContentId())
                             && !ChromeFeatureList.isEnabled(
                                     ChromeFeatureList.DOWNLOAD_OFFLINE_CONTENT_PROVIDER)) {
-                        Preconditions.checkNotNull(downloadUpdate.getContentId());
-                        Preconditions.checkArgument(downloadUpdate.getSystemDownloadId() != -1
+                        checkNotNull(downloadUpdate.getContentId());
+                        checkArgument(downloadUpdate.getSystemDownloadId() != -1
                                 || ContentUriUtils.isContentUri(downloadUpdate.getFilePath()));
 
                         intent = new Intent(ACTION_NOTIFICATION_CLICKED);
@@ -298,7 +310,7 @@ public final class DownloadNotificationFactory {
                 break;
             case DownloadNotificationService.DownloadStatus.FAILED:
                 iconId = android.R.drawable.stat_sys_download_done;
-                contentText = DownloadUtils.getFailStatusString(downloadUpdate.getFailState());
+                contentText = StringUtils.getFailStatusForUi(downloadUpdate.getFailState());
                 break;
             default:
                 iconId = -1;
@@ -319,7 +331,7 @@ public final class DownloadNotificationFactory {
 
         // Don't show file name in incognito mode.
         if (downloadUpdate.getFileName() != null && !downloadUpdate.getIsOffTheRecord()) {
-            builder.setContentTitle(DownloadUtils.getAbbreviatedFileName(
+            builder.setContentTitle(StringUtils.getAbbreviatedFileName(
                     downloadUpdate.getFileName(), MAX_FILE_NAME_LENGTH));
         }
 
@@ -341,8 +353,8 @@ public final class DownloadNotificationFactory {
         } else if (downloadUpdate.getShouldPromoteOrigin()
                 && !TextUtils.isEmpty(downloadUpdate.getOriginalUrl())) {
             // Always show the origin URL if available (for normal profiles).
-            String formattedUrl = UrlFormatter.formatUrlForSecurityDisplayOmitScheme(
-                    downloadUpdate.getOriginalUrl());
+            String formattedUrl = UrlFormatter.formatUrlForSecurityDisplay(
+                    downloadUpdate.getOriginalUrl(), SchemeDisplay.OMIT_HTTP_AND_HTTPS);
 
             if (formattedUrl.length() > MAX_ORIGIN_LENGTH) {
                 // The origin is too long. Strip down to eTLD+1.
@@ -371,7 +383,7 @@ public final class DownloadNotificationFactory {
      * @param builder The builder to build notification.
      * @param subText A string shown as sub text on the notification.
      */
-    private static void setSubText(ChromeNotificationBuilder builder, String subText) {
+    private static void setSubText(NotificationWrapperBuilder builder, String subText) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             builder.setSubText(subText);
         } else {

@@ -7,7 +7,8 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/logging.h"
+#include "base/check_op.h"
+#include "base/notreached.h"
 #include "components/cbor/reader.h"
 #include "components/cbor/values.h"
 #include "components/cbor/writer.h"
@@ -77,7 +78,7 @@ void CredentialManagementHandler::OnTouch(FidoAuthenticator* authenticator) {
   }
 
   authenticator_ = authenticator;
-  authenticator_->GetRetries(
+  authenticator_->GetPinRetries(
       base::BindOnce(&CredentialManagementHandler::OnRetriesResponse,
                      weak_factory_.GetWeakPtr()));
 }
@@ -117,7 +118,8 @@ void CredentialManagementHandler::OnHavePIN(std::string pin) {
 
   state_ = State::kGettingPINToken;
   authenticator_->GetPINToken(
-      std::move(pin),
+      std::move(pin), {pin::Permissions::kCredentialManagement},
+      /*rp_id=*/base::nullopt,
       base::BindOnce(&CredentialManagementHandler::OnHavePINToken,
                      weak_factory_.GetWeakPtr()));
 }
@@ -130,7 +132,7 @@ void CredentialManagementHandler::OnHavePINToken(
 
   if (status == CtapDeviceResponseCode::kCtap2ErrPinInvalid) {
     state_ = State::kGettingRetries;
-    authenticator_->GetRetries(
+    authenticator_->GetPinRetries(
         base::BindOnce(&CredentialManagementHandler::OnRetriesResponse,
                        weak_factory_.GetWeakPtr()));
     return;

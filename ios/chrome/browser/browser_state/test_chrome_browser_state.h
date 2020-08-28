@@ -10,7 +10,6 @@
 #include <vector>
 
 #include "base/files/file_path.h"
-#include "base/files/scoped_temp_dir.h"
 #include "base/macros.h"
 #include "base/sequenced_task_runner.h"
 #include "components/keyed_service/ios/browser_state_keyed_service_factory.h"
@@ -24,7 +23,7 @@ class TestingPrefServiceSyncable;
 }
 
 // This class is the implementation of ChromeBrowserState used for testing.
-class TestChromeBrowserState : public ios::ChromeBrowserState {
+class TestChromeBrowserState : public ChromeBrowserState {
  public:
   typedef std::vector<
       std::pair<BrowserStateKeyedServiceFactory*,
@@ -44,10 +43,11 @@ class TestChromeBrowserState : public ios::ChromeBrowserState {
 
   // ChromeBrowserState:
   scoped_refptr<base::SequencedTaskRunner> GetIOTaskRunner() override;
-  ios::ChromeBrowserState* GetOriginalChromeBrowserState() override;
+  ChromeBrowserState* GetOriginalChromeBrowserState() override;
   bool HasOffTheRecordChromeBrowserState() const override;
-  ios::ChromeBrowserState* GetOffTheRecordChromeBrowserState() override;
+  ChromeBrowserState* GetOffTheRecordChromeBrowserState() override;
   PrefProxyConfigTracker* GetProxyConfigTracker() override;
+  BrowserStatePolicyConnector* GetPolicyConnector() override;
   PrefService* GetPrefs() override;
   PrefService* GetOffTheRecordPrefs() override;
   ChromeBrowserStateIOData* GetIOData() override;
@@ -73,11 +73,8 @@ class TestChromeBrowserState : public ios::ChromeBrowserState {
   void CreateBookmarkModel(bool delete_file);
 
   // !!!!!!!! WARNING: THIS IS GENERALLY NOT SAFE TO CALL! !!!!!!!!
-  // Creates the history service. If |delete_file| is true, the history file is
-  // deleted first, then the HistoryService is created. As
-  // TestChromeBrowserState deletes the directory containing the files used by
-  // HistoryService, this only matters if you're recreating the HistoryService.
-  bool CreateHistoryService(bool delete_file) WARN_UNUSED_RESULT;
+  // Creates the history service.
+  bool CreateHistoryService() WARN_UNUSED_RESULT;
 
   // Returns the preferences as a TestingPrefServiceSyncable if possible or
   // null. Returns null for off-the-record TestChromeBrowserState and also
@@ -145,11 +142,6 @@ class TestChromeBrowserState : public ios::ChromeBrowserState {
   // as it needs to be called after the bi-directional link between original
   // and off-the-record TestChromeBrowserState has been created.
   void Init();
-
-  // We use a temporary directory to store testing browser state data.
-  // This must be declared before anything that may make use of the
-  // directory so as to ensure files are closed before cleanup.
-  base::ScopedTempDir temp_dir_;
 
   // The path to this browser state.
   base::FilePath state_path_;

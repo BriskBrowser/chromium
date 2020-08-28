@@ -6,7 +6,7 @@
 
 #include "base/bind.h"
 #include "base/callback.h"
-#include "base/logging.h"
+#include "base/check_op.h"
 #include "base/run_loop.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
@@ -33,6 +33,7 @@
 #include "components/ukm/test_ukm_recorder.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/content_switches.h"
+#include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
 #include "net/test/embedded_test_server/http_request.h"
@@ -762,8 +763,10 @@ IN_PROC_BROWSER_TEST_F(BackgroundFetchBrowserTest, ClickEventIsDispatched) {
             BackgroundFetchDelegateImpl::JobDetails::State::kJobComplete);
 
   // Simulate notification click.
-  delegate_->OpenItem(offline_items_collection::LaunchLocation::NOTIFICATION,
-                      job_details.offline_item.id);
+  delegate_->OpenItem(
+      offline_items_collection::OpenParams(
+          offline_items_collection::LaunchLocation::NOTIFICATION),
+      job_details.offline_item.id);
 
   // Job Details should be deleted at this point.
   EXPECT_TRUE(delegate_->job_details_map_.empty());
@@ -776,7 +779,8 @@ IN_PROC_BROWSER_TEST_F(BackgroundFetchBrowserTest, ClickEventIsDispatched) {
   }
 }
 
-IN_PROC_BROWSER_TEST_F(BackgroundFetchBrowserTest, AbortFromUI) {
+// TODO(crbug.com/1056096): Re-enable this test.
+IN_PROC_BROWSER_TEST_F(BackgroundFetchBrowserTest, DISABLED_AbortFromUI) {
   std::vector<OfflineItem> items;
   // Creates a registration with more than one request.
   ASSERT_NO_FATAL_FAILURE(

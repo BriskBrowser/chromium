@@ -9,6 +9,7 @@
 
 #include "base/bind.h"
 #include "base/files/file_util.h"
+#include "base/logging.h"
 #include "base/memory/ptr_util.h"
 #include "base/strings/stringprintf.h"
 #include "build/build_config.h"
@@ -87,6 +88,13 @@ void VideoFrameFileWriter::ProcessVideoFrame(
   // Don't write more frames than the specified output limit.
   if (num_frames_writes_requested_ >= output_limit_)
     return;
+
+  if (video_frame->visible_rect().IsEmpty()) {
+    // This occurs in bitstream buffer in webrtc scenario.
+    DLOG(WARNING) << "Skipping writing, frame_index=" << frame_index
+                  << " because visible_rect is empty";
+    return;
+  }
 
   num_frames_writes_requested_++;
 

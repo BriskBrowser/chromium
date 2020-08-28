@@ -7,13 +7,13 @@
 
 #include <bitset>
 #include "mojo/public/cpp/bindings/pending_remote.h"
-#include "mojo/public/cpp/bindings/remote.h"
 #include "services/device/public/mojom/usb_device.mojom-blink.h"
 #include "third_party/blink/renderer/bindings/core/v8/array_buffer_or_array_buffer_view.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise.h"
-#include "third_party/blink/renderer/core/execution_context/context_lifecycle_observer.h"
+#include "third_party/blink/renderer/core/execution_context/execution_context_lifecycle_observer.h"
 #include "third_party/blink/renderer/platform/bindings/script_wrappable.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
+#include "third_party/blink/renderer/platform/mojo/heap_mojo_remote.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
 
 namespace blink {
@@ -23,8 +23,8 @@ class ScriptState;
 class USBConfiguration;
 class USBControlTransferParameters;
 
-class USBDevice : public ScriptWrappable, public ContextLifecycleObserver {
-  USING_GARBAGE_COLLECTED_MIXIN(USBDevice);
+class USBDevice : public ScriptWrappable,
+                  public ExecutionContextLifecycleObserver {
   DEFINE_WRAPPERTYPEINFO();
 
  public:
@@ -95,10 +95,10 @@ class USBDevice : public ScriptWrappable, public ContextLifecycleObserver {
                                        Vector<unsigned> packet_lengths);
   ScriptPromise reset(ScriptState*);
 
-  // ContextLifecycleObserver interface.
-  void ContextDestroyed(ExecutionContext*) override;
+  // ExecutionContextLifecycleObserver interface.
+  void ContextDestroyed() override;
 
-  void Trace(blink::Visitor*) override;
+  void Trace(Visitor*) const override;
 
  private:
   static const size_t kEndpointsBitsNumber = 16;
@@ -108,7 +108,6 @@ class USBDevice : public ScriptWrappable, public ContextLifecycleObserver {
   wtf_size_t FindAlternateIndex(wtf_size_t interface_index,
                                 uint8_t alternate_setting) const;
   bool IsProtectedInterfaceClass(wtf_size_t interface_index) const;
-  bool IsClassWhitelistedForExtension(uint8_t class_code) const;
   bool EnsureNoDeviceChangeInProgress(ScriptPromiseResolver*) const;
   bool EnsureNoDeviceOrInterfaceChangeInProgress(ScriptPromiseResolver*) const;
   bool EnsureDeviceConfigured(ScriptPromiseResolver*) const;
@@ -168,7 +167,7 @@ class USBDevice : public ScriptWrappable, public ContextLifecycleObserver {
   bool MarkRequestComplete(ScriptPromiseResolver*);
 
   device::mojom::blink::UsbDeviceInfoPtr device_info_;
-  mojo::Remote<device::mojom::blink::UsbDevice> device_;
+  HeapMojoRemote<device::mojom::blink::UsbDevice> device_;
   HeapHashSet<Member<ScriptPromiseResolver>> device_requests_;
   bool opened_;
   bool device_state_change_in_progress_;

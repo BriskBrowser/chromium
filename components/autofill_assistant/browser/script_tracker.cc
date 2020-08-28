@@ -91,8 +91,8 @@ void ScriptTracker::CheckScripts() {
   }
   if (batch_element_checker_->empty() && pending_runnable_scripts_.empty() &&
       !available_scripts_.empty()) {
-    DVLOG(1) << __func__ << ": No runnable scripts for " << url << " out of "
-             << available_scripts_.size() << " available.";
+    VLOG(1) << __func__ << ": No runnable scripts for " << url << " out of "
+            << available_scripts_.size() << " available.";
     // There are no runnable scripts, even though we haven't checked the DOM
     // yet. Report it all immediately.
     UpdateRunnableScriptsIfNecessary();
@@ -106,11 +106,17 @@ void ScriptTracker::CheckScripts() {
 }
 
 void ScriptTracker::ExecuteScript(const std::string& script_path,
+                                  const UserData* user_data,
                                   std::unique_ptr<TriggerContext> context,
                                   ScriptExecutor::RunScriptCallback callback) {
   if (running()) {
+#ifdef NDEBUG
+    VLOG(1) << "Unexpected call while another script is running.";
+#else
     DVLOG(1) << "Do not expect executing the script (" << script_path
              << " when there is a script running.";
+#endif
+
     ScriptExecutor::Result result;
     result.success = false;
     std::move(callback).Run(result);
@@ -125,7 +131,7 @@ void ScriptTracker::ExecuteScript(const std::string& script_path,
       &ScriptTracker::OnScriptRun, weak_ptr_factory_.GetWeakPtr(), script_path,
       std::move(callback));
   TerminatePendingChecks();
-  executor_->Run(std::move(run_script_callback));
+  executor_->Run(user_data, std::move(run_script_callback));
 }
 
 void ScriptTracker::StopScript() {

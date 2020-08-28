@@ -9,11 +9,14 @@ import android.graphics.Bitmap;
 import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.Drawable;
-import android.support.annotation.ColorInt;
-import android.support.annotation.ColorRes;
-import android.support.annotation.DrawableRes;
-import android.support.v4.util.ObjectsCompat;
-import android.support.v7.content.res.AppCompatResources;
+
+import androidx.annotation.ColorInt;
+import androidx.annotation.ColorRes;
+import androidx.annotation.DrawableRes;
+import androidx.appcompat.content.res.AppCompatResources;
+import androidx.core.util.ObjectsCompat;
+
+import org.chromium.base.ApiCompatibilityUtils;
 
 /** Represents graphical decoration for the suggestion components. */
 public class SuggestionDrawableState {
@@ -25,17 +28,23 @@ public class SuggestionDrawableState {
     public final boolean useRoundedCorners;
     /** Whether drawable should be displayed as large. */
     public final boolean isLarge;
+    /** The resource id for the icon to use. */
+    // TODO(1092147): Remove this once robolectric shadows available in
+    // chrome/android/native_java_unittests
+    public final @DrawableRes int resourceId;
 
+    /** Helper to construct SuggestionDrawableState objects.  */
     public static final class Builder {
         private Drawable mDrawable;
         private boolean mAllowTint;
         private boolean mUseRoundedCorners;
         private boolean mIsLarge;
+        private @DrawableRes int mResourceId;
 
         /**
          * Create new Builder object.
          *
-         * @param cxt Current context.
+         * @param drawable Drawable object to use.
          */
         private Builder(Drawable drawable) {
             assert drawable != null : "SuggestionDrawableState needs a Drawable object";
@@ -44,11 +53,11 @@ public class SuggestionDrawableState {
 
         /**
          * Associate Bitmap with built SuggestionDrawableState object.
-         *
+         * @param ctx Current context.
          * @param bitmap Bitmap to use.
          */
-        public static Builder forBitmap(Bitmap bitmap) {
-            return new Builder(new BitmapDrawable(bitmap));
+        public static Builder forBitmap(Context ctx, Bitmap bitmap) {
+            return new Builder(new BitmapDrawable(ctx.getResources(), bitmap));
         }
 
         /**
@@ -67,7 +76,8 @@ public class SuggestionDrawableState {
          * @param colorRes Color resource to use.
          */
         public static Builder forColorRes(Context ctx, @ColorRes int colorRes) {
-            return new Builder(new ColorDrawable(ctx.getResources().getColor(colorRes)));
+            return new Builder(new ColorDrawable(
+                    ApiCompatibilityUtils.getColor(ctx.getResources(), colorRes)));
         }
 
         /**
@@ -77,13 +87,13 @@ public class SuggestionDrawableState {
          * @param res Drawable resource to use.
          */
         public static Builder forDrawableRes(Context ctx, @DrawableRes int res) {
-            return new Builder(AppCompatResources.getDrawable(ctx, res));
+            return new Builder(AppCompatResources.getDrawable(ctx, res)).setDrawableRes(res);
         }
 
         /**
          * Create new SuggestionDrawableState representing a supplied Drawable object.
          *
-         * @param drawable Drawable object to use.
+         * @param d Drawable object to use.
          */
         public static Builder forDrawable(Drawable d) {
             return new Builder(d);
@@ -120,19 +130,31 @@ public class SuggestionDrawableState {
         }
 
         /**
+         * Specify Drawable resource.
+         *
+         * @param res Drawable resourc.
+         */
+        private Builder setDrawableRes(@DrawableRes int res) {
+            mResourceId = res;
+            return this;
+        }
+
+        /**
          * Build SuggestionDrawableState object.
          */
         public SuggestionDrawableState build() {
-            return new SuggestionDrawableState(mDrawable, mUseRoundedCorners, mIsLarge, mAllowTint);
+            return new SuggestionDrawableState(
+                    mDrawable, mUseRoundedCorners, mIsLarge, mAllowTint, mResourceId);
         }
-    };
+    }
 
-    private SuggestionDrawableState(
-            Drawable drawable, boolean useRoundedCorners, boolean isLarge, boolean allowTint) {
+    private SuggestionDrawableState(Drawable drawable, boolean useRoundedCorners, boolean isLarge,
+            boolean allowTint, @DrawableRes int resId) {
         this.drawable = drawable;
         this.useRoundedCorners = useRoundedCorners;
         this.isLarge = isLarge;
         this.allowTint = allowTint;
+        this.resourceId = resId;
     }
 
     @Override

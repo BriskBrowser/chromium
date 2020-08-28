@@ -30,6 +30,7 @@
 /* By default, we only display the MathML formulas without any formatting other than the one specified by the display attribute. */
 math {
     display: inline-math;
+    math-superscript-shift-style: display;
 }
 
 math[display="block"] {
@@ -46,7 +47,7 @@ math[display="block"] {
     outline: auto 1px -webkit-focus-ring-color;
 }
 
-maction, merror, mphantom, mrow, mstyle
+maction, merror, mfrac, mmultiscripts, mover, mpadded, mphantom, mprescripts, mroot, mrow, msqrt, mspace, mstyle, msub, msup, msubsup, munder, munderover, none
 {
     display: math;
 }
@@ -59,3 +60,61 @@ merror {
     color: red;
     background-color: lightYellow;
 }
+
+mspace {
+    overflow: hidden !important;
+}
+
+/* Token elements */
+mi {
+  text-transform: math-auto;
+}
+
+/* Fractions */
+mfrac {
+  padding-inline-start: 1px;
+  padding-inline-end: 1px;
+}
+
+mfrac > * {
+  font-size: scriptlevel(auto);
+  math-style: inline;
+}
+
+mfrac > :nth-child(2) {
+  math-superscript-shift-style: inline;
+}
+
+/* Other rules for scriptlevel, displaystyle and math-superscript-shift-style */
+mroot > :not(:first-child) {
+    font-size: scriptlevel(add(2));
+    math-style: inline;
+}
+mroot, msqrt {
+    math-superscript-shift-style: inline;
+}
+msub > :not(:first-child),
+msup > :not(:first-child),
+msubsup > :not(:first-child),
+mmultiscripts > :not(:first-child),
+munder > :not(:first-child),
+mover > :not(:first-child),
+munderover > :not(:first-child) {
+  font-size: scriptlevel(add(1));
+  math-style: inline;
+}
+
+munder[accentunder="true" i] > :nth-child(2),
+mover[accent="true" i] > :nth-child(2),
+munderover[accentunder="true" i] > :nth-child(2),
+munderover[accent="true" i] > :nth-child(3) {
+  font-size: inherit;
+}
+
+munder > :nth-child(2),
+munderover > :nth-child(2),
+mover[accent="true" i] > :first-child,
+munderover[accent="true" i] > :first-child {
+  math-superscript-shift-style: inline;
+}
+

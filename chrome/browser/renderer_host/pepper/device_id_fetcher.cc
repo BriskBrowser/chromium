@@ -8,7 +8,7 @@
 #include "base/files/file_util.h"
 #include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
-#include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
 #include "build/build_config.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/pref_names.h"
@@ -76,8 +76,8 @@ bool DeviceIDFetcher::Start(const IDCallback& callback) {
   in_progress_ = true;
   callback_ = callback;
 
-  base::PostTask(FROM_HERE, {BrowserThread::UI},
-                 base::BindOnce(&DeviceIDFetcher::CheckPrefsOnUIThread, this));
+  content::GetUIThreadTaskRunner({})->PostTask(
+      FROM_HERE, base::BindOnce(&DeviceIDFetcher::CheckPrefsOnUIThread, this));
   return true;
 }
 
@@ -124,9 +124,8 @@ void DeviceIDFetcher::CheckPrefsOnUIThread() {
 #if defined(OS_CHROMEOS)
   // Try the legacy path first for ChromeOS. We pass the new salt in as well
   // in case the legacy id doesn't exist.
-  base::PostTask(
-      FROM_HERE,
-      {base::ThreadPool(), base::MayBlock(), base::TaskPriority::BEST_EFFORT},
+  base::ThreadPool::PostTask(
+      FROM_HERE, {base::MayBlock(), base::TaskPriority::BEST_EFFORT},
       base::BindOnce(&DeviceIDFetcher::LegacyComputeAsync, this,
                      profile->GetPath(), salt));
 #else
@@ -191,8 +190,8 @@ void DeviceIDFetcher::LegacyComputeAsync(const base::FilePath& profile_path,
   }
   // If we didn't find an ID, get the machine ID and call the new code path to
   // generate an ID.
-  base::PostTask(FROM_HERE, {BrowserThread::UI},
-                 base::BindOnce(&GetMachineIDAsync,
+  content::GetUIThreadTaskRunner({})->PostTask(
+      FROM_HERE, base::BindOnce(&GetMachineIDAsync,
                                 base::Bind(&DeviceIDFetcher::ComputeOnUIThread,
                                            this, salt)));
 }
@@ -200,8 +199,8 @@ void DeviceIDFetcher::LegacyComputeAsync(const base::FilePath& profile_path,
 void DeviceIDFetcher::RunCallbackOnIOThread(const std::string& id,
                                             int32_t result) {
   if (!BrowserThread::CurrentlyOn(BrowserThread::IO)) {
-    base::PostTask(FROM_HERE, {BrowserThread::IO},
-                   base::BindOnce(&DeviceIDFetcher::RunCallbackOnIOThread, this,
+    content::GetIOThreadTaskRunner({})->PostTask(
+        FROM_HERE, base::BindOnce(&DeviceIDFetcher::RunCallbackOnIOThread, this,
                                   id, result));
     return;
   }

@@ -5,8 +5,10 @@
 #include "services/network/public/cpp/host_resolver_mojom_traits.h"
 
 #include "mojo/public/cpp/base/time_mojom_traits.h"
+#include "net/dns/public/dns_over_https_server_config.h"
 #include "services/network/public/cpp/ip_address_mojom_traits.h"
 #include "services/network/public/cpp/ip_endpoint_mojom_traits.h"
+#include "services/network/public/mojom/host_resolver.mojom.h"
 
 namespace mojo {
 
@@ -86,8 +88,7 @@ bool ReadHostData(mojo::ArrayDataView<DnsHostDataView> data,
 
 bool ReadDnsOverHttpsServerData(
     mojo::ArrayDataView<DnsOverHttpsServerDataView> data,
-    base::Optional<std::vector<net::DnsConfig::DnsOverHttpsServerConfig>>*
-        out) {
+    base::Optional<std::vector<net::DnsOverHttpsServerConfig>>* out) {
   if (data.is_null()) {
     out->reset();
     return true;
@@ -143,7 +144,7 @@ base::Optional<net::DnsConfig::SecureDnsMode> FromOptionalSecureDnsMode(
 base::Optional<std::vector<DnsHostPtr>>
 StructTraits<DnsConfigOverridesDataView, net::DnsConfigOverrides>::hosts(
     const net::DnsConfigOverrides& overrides) {
-  if (!overrides.dns_over_https_servers)
+  if (!overrides.hosts)
     return base::nullopt;
 
   std::vector<DnsHostPtr> out_hosts;
@@ -159,13 +160,6 @@ DnsConfigOverrides::Tristate
 StructTraits<DnsConfigOverridesDataView, net::DnsConfigOverrides>::
     append_to_multi_label_name(const net::DnsConfigOverrides& overrides) {
   return ToTristate(overrides.append_to_multi_label_name);
-}
-
-// static
-DnsConfigOverrides::Tristate
-StructTraits<DnsConfigOverridesDataView, net::DnsConfigOverrides>::
-    randomize_ports(const net::DnsConfigOverrides& overrides) {
-  return ToTristate(overrides.randomize_ports);
 }
 
 // static
@@ -190,7 +184,7 @@ StructTraits<DnsConfigOverridesDataView, net::DnsConfigOverrides>::
     return base::nullopt;
 
   std::vector<DnsOverHttpsServerPtr> out_servers;
-  for (net::DnsConfig::DnsOverHttpsServerConfig server :
+  for (net::DnsOverHttpsServerConfig server :
        overrides.dns_over_https_servers.value()) {
     out_servers.push_back(
         DnsOverHttpsServer::New(server.server_template, server.use_post));
@@ -229,7 +223,6 @@ bool StructTraits<DnsConfigOverridesDataView, net::DnsConfigOverrides>::Read(
 
   out->append_to_multi_label_name =
       FromTristate(data.append_to_multi_label_name());
-  out->randomize_ports = FromTristate(data.randomize_ports());
 
   if (data.ndots() < -1)
     return false;
@@ -282,7 +275,7 @@ DnsQueryType EnumTraits<DnsQueryType, net::DnsQueryType>::ToMojom(
       return DnsQueryType::PTR;
     case net::DnsQueryType::SRV:
       return DnsQueryType::SRV;
-    case net::DnsQueryType::ESNI:
+    case net::DnsQueryType::INTEGRITY:
       NOTIMPLEMENTED();
       return DnsQueryType::UNSPECIFIED;
   }

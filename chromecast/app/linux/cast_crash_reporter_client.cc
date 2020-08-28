@@ -7,9 +7,9 @@
 #include "base/time/time.h"
 #include "chromecast/base/error_codes.h"
 #include "chromecast/crash/linux/crash_util.h"
-#include "components/crash/content/app/breakpad_linux.h"
+#include "components/crash/core/app/breakpad_linux.h"
 #include "content/public/common/content_switches.h"
-#include "services/service_manager/sandbox/switches.h"
+#include "sandbox/policy/switches.h"
 
 namespace chromecast {
 

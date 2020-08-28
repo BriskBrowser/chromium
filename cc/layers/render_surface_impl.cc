@@ -8,7 +8,7 @@
 
 #include <algorithm>
 
-#include "base/logging.h"
+#include "base/check_op.h"
 #include "base/strings/stringprintf.h"
 #include "cc/base/math_util.h"
 #include "cc/debug/debug_colors.h"
@@ -85,8 +85,8 @@ gfx::RectF RenderSurfaceImpl::DrawableContentRect() const {
   gfx::Rect surface_content_rect = content_rect();
   const FilterOperations& filters = Filters();
   if (!filters.IsEmpty()) {
-    surface_content_rect =
-        filters.MapRect(surface_content_rect, SurfaceScale().matrix());
+    surface_content_rect = filters.MapRect(surface_content_rect,
+                                           SkMatrix(SurfaceScale().matrix()));
   }
   gfx::RectF drawable_content_rect = MathUtil::MapClippedRect(
       draw_transform(), gfx::RectF(surface_content_rect));
@@ -108,10 +108,6 @@ gfx::RectF RenderSurfaceImpl::DrawableContentRect() const {
 
 SkBlendMode RenderSurfaceImpl::BlendMode() const {
   return OwningEffectNode()->blend_mode;
-}
-
-bool RenderSurfaceImpl::UsesDefaultBlendMode() const {
-  return BlendMode() == SkBlendMode::kSrcOver;
 }
 
 SkColor RenderSurfaceImpl::GetDebugBorderColor() const {
@@ -136,10 +132,6 @@ bool RenderSurfaceImpl::HasMaskingContributingSurface() const {
 
 const FilterOperations& RenderSurfaceImpl::Filters() const {
   return OwningEffectNode()->filters;
-}
-
-gfx::PointF RenderSurfaceImpl::FiltersOrigin() const {
-  return OwningEffectNode()->filters_origin;
 }
 
 gfx::Transform RenderSurfaceImpl::SurfaceScale() const {
@@ -210,8 +202,8 @@ gfx::Rect RenderSurfaceImpl::CalculateExpandedClipForFilters(
     const gfx::Transform& target_to_surface) {
   gfx::Rect clip_in_surface_space =
       MathUtil::ProjectEnclosingClippedRect(target_to_surface, clip_rect());
-  gfx::Rect expanded_clip_in_surface_space =
-      Filters().MapRectReverse(clip_in_surface_space, SurfaceScale().matrix());
+  gfx::Rect expanded_clip_in_surface_space = Filters().MapRect(
+      clip_in_surface_space, SkMatrix(SurfaceScale().matrix()));
   gfx::Rect expanded_clip_in_target_space = MathUtil::MapEnclosingClippedRect(
       draw_transform(), expanded_clip_in_surface_space);
   return expanded_clip_in_target_space;
@@ -307,7 +299,7 @@ void RenderSurfaceImpl::AccumulateContentRectFromContributingLayer(
   if (render_target() == this)
     return;
 
-  accumulated_content_rect_.Union(layer->drawable_content_rect());
+  accumulated_content_rect_.Union(layer->visible_drawable_content_rect());
 }
 
 void RenderSurfaceImpl::AccumulateContentRectFromContributingRenderSurface(
@@ -378,7 +370,7 @@ std::unique_ptr<viz::RenderPass> RenderSurfaceImpl::CreateRenderPass() {
       viz::RenderPass::Create(num_contributors_);
   gfx::Rect damage_rect = GetDamageRect();
   damage_rect.Intersect(content_rect());
-  pass->SetNew(id(), content_rect(), damage_rect,
+  pass->SetNew(render_pass_id(), content_rect(), damage_rect,
                draw_properties_.screen_space_transform);
   pass->filters = Filters();
   pass->backdrop_filters = BackdropFilters();
@@ -458,11 +450,13 @@ void RenderSurfaceImpl::AppendQuads(DrawMode draw_mode,
 
   gfx::RectF tex_coord_rect(gfx::Rect(content_rect().size()));
   auto* quad = render_pass->CreateAndAppendDrawQuad<viz::RenderPassDrawQuad>();
-  quad->SetNew(shared_quad_state, content_rect(), unoccluded_content_rect, id(),
-               mask_resource_id, mask_uv_rect, mask_texture_size,
-               surface_contents_scale, FiltersOrigin(), tex_coord_rect,
+  quad->SetAll(shared_quad_state, content_rect(), unoccluded_content_rect,
+               /*needs_blending=*/true, render_pass_id(), mask_resource_id,
+               mask_uv_rect, mask_texture_size, surface_contents_scale,
+               gfx::PointF(), tex_coord_rect,
                !layer_tree_impl_->settings().enable_edge_anti_aliasing,
-               OwningEffectNode()->backdrop_filter_quality);
+               OwningEffectNode()->backdrop_filter_quality,
+               can_use_cached_backdrop_filtered_result_);
 }
 
 }  // namespace cc

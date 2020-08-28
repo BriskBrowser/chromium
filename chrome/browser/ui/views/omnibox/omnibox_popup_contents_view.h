@@ -11,6 +11,7 @@
 #include "base/memory/weak_ptr.h"
 #include "components/omnibox/browser/omnibox_popup_model.h"
 #include "components/omnibox/browser/omnibox_popup_view.h"
+#include "components/prefs/pref_change_registrar.h"
 #include "ui/base/window_open_disposition.h"
 #include "ui/gfx/font_list.h"
 #include "ui/gfx/image/image.h"
@@ -22,6 +23,7 @@ class LocationBarView;
 class OmniboxEditModel;
 class OmniboxResultView;
 class OmniboxViewViews;
+class WebUIOmniboxPopupView;
 
 // A view representing the contents of the autocomplete popup.
 class OmniboxPopupContentsView : public views::View,
@@ -48,22 +50,21 @@ class OmniboxPopupContentsView : public views::View,
   gfx::Image GetMatchIcon(const AutocompleteMatch& match,
                           SkColor vector_icon_color) const;
 
-  // Sets the line specified by |index| as selected.
-  virtual void SetSelectedLine(size_t index);
+  // Sets the line specified by |index| as selected and, if |index| is
+  // different than the previous index, sets the line state to NORMAL.
+  virtual void SetSelectedLineForMouseOrTouch(size_t index);
 
   // Returns true if the line specified by |index| is selected.
   virtual bool IsSelectedIndex(size_t index) const;
-
-  // If the selected index has a tab switch button, whether it's "focused" via
-  // the tab key. Invalid if the selected index does not have a tab switch
-  // button.
-  bool IsButtonSelected() const;
 
   // Called by the active result view to inform model (due to mouse event).
   void UnselectButton();
 
   // Gets the OmniboxResultView for match |i|.
   OmniboxResultView* result_view_at(size_t i);
+
+  // Currently selected OmniboxResultView, or nullptr if nothing is selected.
+  OmniboxResultView* GetSelectedResultView();
 
   // Returns whether we're in experimental keyword mode and the input gives
   // sufficient confidence that the user wants keyword mode.
@@ -72,7 +73,8 @@ class OmniboxPopupContentsView : public views::View,
   // OmniboxPopupView:
   bool IsOpen() const override;
   void InvalidateLine(size_t line) override;
-  void OnSelectionStateChanged(size_t line) override;
+  void OnSelectionChanged(OmniboxPopupModel::Selection old_selection,
+                          OmniboxPopupModel::Selection new_selection) override;
   void UpdatePopupAppearance() override;
   void ProvideButtonFocusHint(size_t line) override;
   void OnMatchIconUpdated(size_t match_index) override;
@@ -86,6 +88,8 @@ class OmniboxPopupContentsView : public views::View,
   // views::WidgetObserver:
   void OnWidgetBoundsChanged(views::Widget* widget,
                              const gfx::Rect& new_bounds) override;
+
+  void FireAXEventsForNewActiveDescendant(View* descendant_view);
 
  private:
   friend class OmniboxPopupContentsViewTest;
@@ -106,11 +110,16 @@ class OmniboxPopupContentsView : public views::View,
   // the specified point.
   size_t GetIndexForPoint(const gfx::Point& point);
 
-  LocationBarView* location_bar_view() { return location_bar_view_; }
+  // Update which result views are visible when the group visibility changes.
+  void OnSuggestionGroupVisibilityUpdate();
+
+  // Gets the pref service for this view. May return nullptr in tests.
+  PrefService* GetPrefService() const;
 
   // views::View:
   const char* GetClassName() const override;
 
+  // Our model that contains our business logic.
   std::unique_ptr<OmniboxPopupModel> model_;
 
   // The popup that contains this view.  We create this, but it deletes itself
@@ -122,7 +131,15 @@ class OmniboxPopupContentsView : public views::View,
   // The edit view that invokes us.
   OmniboxViewViews* omnibox_view_;
 
+  // The location bar view that owns |omnibox_view_|. May be nullptr in tests.
   LocationBarView* location_bar_view_;
+
+  // The child WebView for the suggestions. This only exists if the
+  // omnibox::kWebUIOmniboxPopup flag is on.
+  WebUIOmniboxPopupView* webui_view_ = nullptr;
+
+  // A pref change registrar for toggling result view visibility.
+  PrefChangeRegistrar pref_change_registrar_;
 
   DISALLOW_COPY_AND_ASSIGN(OmniboxPopupContentsView);
 };

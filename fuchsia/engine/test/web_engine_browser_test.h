@@ -10,7 +10,6 @@
 
 #include "base/files/file_path.h"
 #include "base/macros.h"
-#include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_base.h"
 #include "fuchsia/engine/browser/context_impl.h"
 
@@ -48,6 +47,7 @@ class WebEngineBrowserTest : public content::BrowserTestBase {
   }
 
   // content::BrowserTestBase implementation.
+  void SetUp() override;
   void PreRunTestOnMainThread() override;
   void PostRunTestOnMainThread() override;
   void TearDownOnMainThread() override;

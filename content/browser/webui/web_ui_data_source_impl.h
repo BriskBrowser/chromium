@@ -12,6 +12,7 @@
 
 #include "base/callback.h"
 #include "base/compiler_specific.h"
+#include "base/containers/flat_map.h"
 #include "base/gtest_prod_util.h"
 #include "base/macros.h"
 #include "base/values.h"
@@ -20,7 +21,6 @@
 #include "content/common/content_export.h"
 #include "content/public/browser/url_data_source.h"
 #include "content/public/browser/web_ui_data_source.h"
-#include "ui/base/template_expressions.h"
 
 namespace content {
 
@@ -46,21 +46,18 @@ class CONTENT_EXPORT WebUIDataSourceImpl : public URLDataSourceImpl,
                             handle_request_callback) override;
   void DisableReplaceExistingSource() override;
   void DisableContentSecurityPolicy() override;
-  void OverrideContentSecurityPolicyScriptSrc(const std::string& data) override;
-  void OverrideContentSecurityPolicyObjectSrc(const std::string& data) override;
-  void OverrideContentSecurityPolicyChildSrc(const std::string& data) override;
-  void OverrideContentSecurityPolicyWorkerSrc(const std::string& data) override;
+  void OverrideContentSecurityPolicy(network::mojom::CSPDirectiveName directive,
+                                     const std::string& value) override;
+  void DisableTrustedTypesCSP() override;
   void DisableDenyXFrameOptions() override;
   void EnableReplaceI18nInJS() override;
   std::string GetSource() override;
-
-  // URLDataSourceImpl:
-  const ui::TemplateReplacements* GetReplacements() const override;
 
   // Add the locale to the load time data defaults. May be called repeatedly.
   void EnsureLoadTimeDataDefaultsAdded();
 
   bool IsWebUIDataSourceImpl() const override;
+  void AddFrameAncestor(const GURL& frame_ancestor) override;
 
  protected:
   explicit WebUIDataSourceImpl(const std::string& source_name);
@@ -114,18 +111,13 @@ class CONTENT_EXPORT WebUIDataSourceImpl : public URLDataSourceImpl,
   WebUIDataSource::ShouldHandleRequestCallback should_handle_request_callback_;
 
   bool add_csp_ = true;
-  bool script_src_set_ = false;
-  std::string script_src_;
-  bool object_src_set_ = false;
-  std::string object_src_;
-  bool frame_src_set_ = false;
-  std::string frame_src_;
-  bool worker_src_set_ = false;
-  std::string worker_src_;
+
+  base::flat_map<network::mojom::CSPDirectiveName, std::string> csp_overrides_;
   bool deny_xframe_options_ = true;
   bool add_load_time_data_defaults_ = true;
   bool replace_existing_source_ = true;
   bool should_replace_i18n_in_js_ = false;
+  std::set<GURL> frame_ancestors_;
 
   DISALLOW_COPY_AND_ASSIGN(WebUIDataSourceImpl);
 };

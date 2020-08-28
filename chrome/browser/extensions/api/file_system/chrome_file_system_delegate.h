@@ -41,8 +41,8 @@ class ChromeFileSystemDelegate : public FileSystemDelegate {
   void ConfirmSensitiveDirectoryAccess(bool has_write_permission,
                                        const base::string16& app_name,
                                        content::WebContents* web_contents,
-                                       const base::Closure& on_accept,
-                                       const base::Closure& on_cancel) override;
+                                       base::OnceClosure on_accept,
+                                       base::OnceClosure on_cancel) override;
   int GetDescriptionIdForAcceptType(const std::string& accept_type) override;
 #if defined(OS_CHROMEOS)
   FileSystemDelegate::GrantVolumesMode GetGrantVolumesMode(
@@ -54,12 +54,12 @@ class ChromeFileSystemDelegate : public FileSystemDelegate {
                          const Extension& extension,
                          std::string volume_id,
                          bool writable,
-                         const FileSystemCallback& success_callback,
-                         const ErrorCallback& error_callback) override;
+                         FileSystemCallback success_callback,
+                         ErrorCallback error_callback) override;
   void GetVolumeList(content::BrowserContext* browser_context,
                      const Extension& extension,
-                     const VolumeListCallback& success_callback,
-                     const ErrorCallback& error_callback) override;
+                     VolumeListCallback success_callback,
+                     ErrorCallback error_callback) override;
 #endif  // defined(OS_CHROMEOS)
   SavedFilesServiceInterface* GetSavedFilesService(
       content::BrowserContext* browser_context) override;

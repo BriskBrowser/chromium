@@ -130,9 +130,6 @@ enum class EFillSizeType : unsigned {
 // CSS3 Background Position
 enum class BackgroundEdgeOrigin : unsigned { kTop, kRight, kBottom, kLeft };
 
-// CSS Mask Source Types
-enum class EMaskSourceType : unsigned { kAlpha, kLuminance };
-
 // CSS3 Image Values
 enum class QuoteType : unsigned { kOpen, kClose, kNoOpen, kNoClose };
 
@@ -152,14 +149,14 @@ enum InternalGridAutoFlowDirection {
 };
 
 enum GridAutoFlow {
-  kAutoFlowRow =
-      kInternalAutoFlowAlgorithmSparse | kInternalAutoFlowDirectionRow,
-  kAutoFlowColumn =
-      kInternalAutoFlowAlgorithmSparse | kInternalAutoFlowDirectionColumn,
+  kAutoFlowRow = int(kInternalAutoFlowAlgorithmSparse) |
+                 int(kInternalAutoFlowDirectionRow),
+  kAutoFlowColumn = int(kInternalAutoFlowAlgorithmSparse) |
+                    int(kInternalAutoFlowDirectionColumn),
   kAutoFlowRowDense =
-      kInternalAutoFlowAlgorithmDense | kInternalAutoFlowDirectionRow,
-  kAutoFlowColumnDense =
-      kInternalAutoFlowAlgorithmDense | kInternalAutoFlowDirectionColumn
+      int(kInternalAutoFlowAlgorithmDense) | int(kInternalAutoFlowDirectionRow),
+  kAutoFlowColumnDense = int(kInternalAutoFlowAlgorithmDense) |
+                         int(kInternalAutoFlowDirectionColumn)
 };
 
 static const size_t kContainmentBits = 4;
@@ -179,12 +176,13 @@ inline Containment& operator|=(Containment& a, Containment b) {
   return a = a | b;
 }
 
-static const size_t kTextUnderlinePositionBits = 3;
+static const size_t kTextUnderlinePositionBits = 4;
 enum TextUnderlinePosition {
   kTextUnderlinePositionAuto = 0x0,
-  kTextUnderlinePositionUnder = 0x1,
-  kTextUnderlinePositionLeft = 0x2,
-  kTextUnderlinePositionRight = 0x4
+  kTextUnderlinePositionFromFont = 0x1,
+  kTextUnderlinePositionUnder = 0x2,
+  kTextUnderlinePositionLeft = 0x4,
+  kTextUnderlinePositionRight = 0x8
 };
 inline TextUnderlinePosition operator|(TextUnderlinePosition a,
                                        TextUnderlinePosition b) {
@@ -261,6 +259,21 @@ enum class LineLogicalSide {
   kOver,
   kUnder,
 };
+
+constexpr size_t kScrollbarGutterBits = 4;
+enum ScrollbarGutter {
+  kScrollbarGutterAuto = 0x0,
+  kScrollbarGutterStable = 0x1,
+  kScrollbarGutterAlways = 0x2,
+  kScrollbarGutterBoth = 0x4,
+  kScrollbarGutterForce = 0x8
+};
+inline ScrollbarGutter operator|(ScrollbarGutter a, ScrollbarGutter b) {
+  return ScrollbarGutter(int(a) | int(b));
+}
+inline ScrollbarGutter& operator|=(ScrollbarGutter& a, ScrollbarGutter b) {
+  return a = a | b;
+}
 
 }  // namespace blink
 

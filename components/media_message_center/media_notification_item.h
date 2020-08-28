@@ -24,6 +24,10 @@ class COMPONENT_EXPORT(MEDIA_MESSAGE_CENTER) MediaNotificationItem {
   // The name of the histogram used when recording user actions.
   static const char kUserActionHistogramName[];
 
+  // The name of the histogram used when recording user actions for Cast
+  // notifications.
+  static const char kCastUserActionHistogramName[];
+
   // The name of the histogram used when recording the source.
   static const char kSourceHistogramName[];
 
@@ -34,7 +38,9 @@ class COMPONENT_EXPORT(MEDIA_MESSAGE_CENTER) MediaNotificationItem {
     kWeb,
     kAssistant,
     kArc,
-    kMaxValue = kArc,
+    kLocalCastSession,
+    kNonLocalCastSession,
+    kMaxValue = kNonLocalCastSession,
   };
 
   MediaNotificationItem() = default;
@@ -51,6 +57,9 @@ class COMPONENT_EXPORT(MEDIA_MESSAGE_CENTER) MediaNotificationItem {
 
   // Hides the media notification.
   virtual void Dismiss() = 0;
+
+  // Return true if this item belongs to a cast media session, false otherwise.
+  virtual bool SourceIsCast() = 0;
 };
 
 }  // namespace media_message_center

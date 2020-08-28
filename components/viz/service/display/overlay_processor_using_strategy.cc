@@ -35,6 +35,13 @@ OverlayProcessorUsingStrategy::OverlayProcessorUsingStrategy()
 
 OverlayProcessorUsingStrategy::~OverlayProcessorUsingStrategy() = default;
 
+gfx::Rect OverlayProcessorUsingStrategy::GetPreviousFrameOverlaysBoundingRect()
+    const {
+  gfx::Rect result = overlay_damage_rect_;
+  result.Union(previous_frame_underlay_rect_);
+  return result;
+}
+
 gfx::Rect OverlayProcessorUsingStrategy::GetAndResetOverlayDamage() {
   gfx::Rect result = overlay_damage_rect_;
   overlay_damage_rect_ = gfx::Rect();
@@ -42,13 +49,13 @@ gfx::Rect OverlayProcessorUsingStrategy::GetAndResetOverlayDamage() {
 }
 
 void OverlayProcessorUsingStrategy::NotifyOverlayPromotion(
-    DisplayResourceProvider* resource_provider,
+    DisplayResourceProvider* display_resource_provider,
     const CandidateList& candidates,
     const QuadList& quad_list) {}
 
 void OverlayProcessorUsingStrategy::ProcessForOverlays(
     DisplayResourceProvider* resource_provider,
-    RenderPassList* render_passes,
+    AggregatedRenderPassList* render_passes,
     const SkMatrix44& output_color_matrix,
     const OverlayProcessorInterface::FilterOperationsMap& render_pass_filters,
     const OverlayProcessorInterface::FilterOperationsMap&
@@ -60,7 +67,7 @@ void OverlayProcessorUsingStrategy::ProcessForOverlays(
   TRACE_EVENT0("viz", "OverlayProcessorUsingStrategy::ProcessForOverlays");
   DCHECK(candidates->empty());
 
-  RenderPass* render_pass = render_passes->back().get();
+  auto* render_pass = render_passes->back().get();
 
   // If we have any copy requests, we can't remove any quads for overlays or
   // CALayers because the framebuffer would be missing the removed quads'
@@ -188,7 +195,7 @@ bool OverlayProcessorUsingStrategy::AttemptWithStrategies(
     const OverlayProcessorInterface::FilterOperationsMap&
         render_pass_backdrop_filters,
     DisplayResourceProvider* resource_provider,
-    RenderPassList* render_pass_list,
+    AggregatedRenderPassList* render_pass_list,
     OverlayProcessorInterface::OutputSurfaceOverlayPlane* primary_plane,
     OverlayCandidateList* candidates,
     std::vector<gfx::Rect>* content_bounds) {

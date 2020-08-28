@@ -4,10 +4,13 @@
 
 #include "chrome/browser/ui/ash/system_tray_client.h"
 
+#include "ash/public/cpp/ash_features.h"
 #include "ash/public/cpp/ash_view_ids.h"
+#include "ash/public/cpp/login_screen_test_api.h"
 #include "ash/public/cpp/system_tray_test_api.h"
+#include "chrome/browser/chromeos/login/lock/screen_locker_tester.h"
 #include "chrome/browser/chromeos/login/login_manager_test.h"
-#include "chrome/browser/chromeos/login/startup_utils.h"
+#include "chrome/browser/chromeos/login/test/login_manager_mixin.h"
 #include "chrome/browser/chromeos/login/ui/user_adding_screen.h"
 #include "chrome/browser/chromeos/policy/device_policy_cros_browser_test.h"
 #include "chrome/browser/chromeos/profiles/profile_helper.h"
@@ -21,6 +24,7 @@
 #include "components/prefs/pref_service.h"
 #include "components/user_manager/user_manager.h"
 #include "content/public/browser/web_contents.h"
+#include "content/public/test/browser_test.h"
 #include "content/public/test/test_utils.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "url/gurl.h"
@@ -37,10 +41,17 @@ IN_PROC_BROWSER_TEST_F(SystemTrayClientEnterpriseTest, TrayEnterprise) {
   EXPECT_TRUE(test_api->IsBubbleViewVisible(ash::VIEW_ID_TRAY_ENTERPRISE,
                                             true /* open_tray */));
 
-  // The tooltip shows the domain.
-  EXPECT_EQ(l10n_util::GetStringFUTF16(IDS_ASH_ENTERPRISE_DEVICE_MANAGED_BY,
-                                       base::UTF8ToUTF16("example.com")),
-            test_api->GetBubbleViewTooltip(ash::VIEW_ID_TRAY_ENTERPRISE));
+  if (ash::features::IsManagedDeviceUIRedesignEnabled()) {
+    // The text shows the domain.
+    EXPECT_EQ(l10n_util::GetStringFUTF16(IDS_ASH_ENTERPRISE_DEVICE_MANAGED_BY,
+                                         base::UTF8ToUTF16("example.com")),
+              test_api->GetBubbleViewText(ash::VIEW_ID_TRAY_ENTERPRISE_LABEL));
+  } else {
+    // The tooltip shows the domain.
+    EXPECT_EQ(l10n_util::GetStringFUTF16(IDS_ASH_ENTERPRISE_DEVICE_MANAGED_BY,
+                                         base::UTF8ToUTF16("example.com")),
+              test_api->GetBubbleViewTooltip(ash::VIEW_ID_TRAY_ENTERPRISE));
+  }
 
   // Clicking the item opens the management page.
   test_api->ClickBubbleView(ash::VIEW_ID_TRAY_ENTERPRISE);
@@ -51,14 +62,12 @@ IN_PROC_BROWSER_TEST_F(SystemTrayClientEnterpriseTest, TrayEnterprise) {
 
 class SystemTrayClientClockTest : public chromeos::LoginManagerTest {
  public:
-  SystemTrayClientClockTest()
-      : LoginManagerTest(false /* should_launch_browser */,
-                         true /* should_initialize_webui */),
-        // Use consumer emails to avoid having to fake a policy fetch.
-        account_id1_(
-            AccountId::FromUserEmailGaiaId("user1@gmail.com", "1111111111")),
-        account_id2_(
-            AccountId::FromUserEmailGaiaId("user2@gmail.com", "2222222222")) {}
+  SystemTrayClientClockTest() : LoginManagerTest() {
+    // Use consumer emails to avoid having to fake a policy fetch.
+    login_mixin_.AppendRegularUsers(2);
+    account_id1_ = login_mixin_.users()[0].account_id;
+    account_id2_ = login_mixin_.users()[1].account_id;
+  }
 
   ~SystemTrayClientClockTest() override = default;
 
@@ -71,19 +80,13 @@ class SystemTrayClientClockTest : public chromeos::LoginManagerTest {
   }
 
  protected:
-  const AccountId account_id1_;
-  const AccountId account_id2_;
+  AccountId account_id1_;
+  AccountId account_id2_;
+  chromeos::LoginManagerMixin login_mixin_{&mixin_host_};
 
  private:
   DISALLOW_COPY_AND_ASSIGN(SystemTrayClientClockTest);
 };
-
-IN_PROC_BROWSER_TEST_F(SystemTrayClientClockTest,
-                       PRE_TestMultiProfile24HourClock) {
-  RegisterUser(account_id1_);
-  RegisterUser(account_id2_);
-  chromeos::StartupUtils::MarkOobeCompleted();
-}
 
 // Test that clock type is taken from user profile for current active user.
 IN_PROC_BROWSER_TEST_F(SystemTrayClientClockTest, TestMultiProfile24HourClock) {
@@ -106,4 +109,41 @@ IN_PROC_BROWSER_TEST_F(SystemTrayClientClockTest, TestMultiProfile24HourClock) {
   // Allow clock setting to be sent to ash over mojo.
   content::RunAllPendingInMessageLoop();
   EXPECT_TRUE(tray_test_api->Is24HourClock());
+}
+
+// Test that on the login and lock screen clock type is taken from user profile
+// of the focused pod.
+IN_PROC_BROWSER_TEST_F(SystemTrayClientClockTest, PRE_FocusedPod24HourClock) {
+  auto tray_test_api = ash::SystemTrayTestApi::Create();
+
+  // Login a user with a 24-hour clock.
+  LoginUser(account_id1_);
+  SetupUserProfile(account_id1_, true /* use_24_hour_clock */);
+  EXPECT_TRUE(tray_test_api->Is24HourClock());
+
+  // Add a user with a 12-hour clock.
+  chromeos::UserAddingScreen::Get()->Start();
+  AddUser(account_id2_);
+  SetupUserProfile(account_id2_, false /* use_24_hour_clock */);
+  EXPECT_FALSE(tray_test_api->Is24HourClock());
+
+  // Test lock screen.
+  chromeos::ScreenLockerTester locker;
+  locker.Lock();
+
+  EXPECT_TRUE(ash::LoginScreenTestApi::FocusUser(account_id1_));
+  EXPECT_TRUE(tray_test_api->Is24HourClock());
+
+  EXPECT_TRUE(ash::LoginScreenTestApi::FocusUser(account_id2_));
+  EXPECT_FALSE(tray_test_api->Is24HourClock());
+}
+
+IN_PROC_BROWSER_TEST_F(SystemTrayClientClockTest, FocusedPod24HourClock) {
+  auto tray_test_api = ash::SystemTrayTestApi::Create();
+  // Test login screen.
+  EXPECT_TRUE(ash::LoginScreenTestApi::FocusUser(account_id1_));
+  EXPECT_TRUE(tray_test_api->Is24HourClock());
+
+  EXPECT_TRUE(ash::LoginScreenTestApi::FocusUser(account_id2_));
+  EXPECT_FALSE(tray_test_api->Is24HourClock());
 }

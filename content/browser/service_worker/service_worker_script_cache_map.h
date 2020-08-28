@@ -13,8 +13,10 @@
 
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
+#include "components/services/storage/public/mojom/service_worker_storage_control.mojom.h"
 #include "content/browser/service_worker/service_worker_database.h"
 #include "content/common/content_export.h"
+#include "mojo/public/cpp/bindings/remote.h"
 #include "net/base/completion_once_callback.h"
 #include "net/base/net_errors.h"
 
@@ -24,7 +26,6 @@ namespace content {
 
 class ServiceWorkerContextCore;
 class ServiceWorkerVersion;
-class ServiceWorkerResponseMetadataWriter;
 
 // Class that maintains the mapping between urls and a resource id
 // for a particular version's implicit script resources.
@@ -42,11 +43,12 @@ class CONTENT_EXPORT ServiceWorkerScriptCacheMap {
 
   // Used to retrieve the results of the initial run of a new version.
   void GetResources(
-      std::vector<ServiceWorkerDatabase::ResourceRecord>* resources);
+      std::vector<storage::mojom::ServiceWorkerResourceRecordPtr>* resources);
 
   // Used when loading an existing version.
   void SetResources(
-     const std::vector<ServiceWorkerDatabase::ResourceRecord>& resources);
+      const std::vector<storage::mojom::ServiceWorkerResourceRecordPtr>&
+          resources);
 
   // Writes the metadata of the existing script.
   void WriteMetadata(const GURL& url,
@@ -65,12 +67,15 @@ class CONTENT_EXPORT ServiceWorkerScriptCacheMap {
   }
 
  private:
-  typedef std::map<GURL, ServiceWorkerDatabase::ResourceRecord> ResourceMap;
+  typedef std::map<GURL, storage::mojom::ServiceWorkerResourceRecordPtr>
+      ResourceMap;
 
   // The version objects owns its script cache and provides a rawptr to it.
   friend class ServiceWorkerVersion;
   friend class ServiceWorkerVersionBrowserTest;
   FRIEND_TEST_ALL_PREFIXES(ServiceWorkerReadFromCacheJobTest, ResourceNotFound);
+  FRIEND_TEST_ALL_PREFIXES(ServiceWorkerBrowserTest,
+                           DispatchFetchEventToBrokenWorker);
 
   ServiceWorkerScriptCacheMap(
       ServiceWorkerVersion* owner,
@@ -78,7 +83,7 @@ class CONTENT_EXPORT ServiceWorkerScriptCacheMap {
   ~ServiceWorkerScriptCacheMap();
 
   void OnMetadataWritten(
-      std::unique_ptr<ServiceWorkerResponseMetadataWriter> writer,
+      mojo::Remote<storage::mojom::ServiceWorkerResourceMetadataWriter>,
       net::CompletionOnceCallback callback,
       int result);
 

@@ -20,7 +20,7 @@ import android.view.View;
 import androidx.annotation.VisibleForTesting;
 
 import org.chromium.chrome.R;
-import org.chromium.chrome.browser.fullscreen.ChromeFullscreenManager;
+import org.chromium.chrome.browser.browser_controls.BrowserControlsStateProvider;
 import org.chromium.chrome.browser.password_manager.PasswordManagerDialogContents.BoldRange;
 import org.chromium.ui.modaldialog.DialogDismissalCause;
 import org.chromium.ui.modaldialog.ModalDialogManager;
@@ -36,11 +36,12 @@ public class PasswordManagerDialogCoordinator {
     private final PasswordManagerDialogMediator mMediator;
     private PropertyModel mModel;
 
-    PasswordManagerDialogCoordinator(ModalDialogManager modalDialogManager, View androidContentView,
-            ChromeFullscreenManager fullscreenManager, int containerHeightResource) {
+    public PasswordManagerDialogCoordinator(ModalDialogManager modalDialogManager,
+            View androidContentView, BrowserControlsStateProvider browserControlsStateProvider,
+            int containerHeightResource) {
         mMediator = new PasswordManagerDialogMediator(
                 new PropertyModel.Builder(ModalDialogProperties.ALL_KEYS), modalDialogManager,
-                androidContentView, fullscreenManager, containerHeightResource);
+                androidContentView, browserControlsStateProvider, containerHeightResource);
     }
 
     public void initialize(Context context, PasswordManagerDialogContents contents) {

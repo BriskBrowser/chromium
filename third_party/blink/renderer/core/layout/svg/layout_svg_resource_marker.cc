@@ -47,12 +47,9 @@ void LayoutSVGResourceMarker::UpdateLayout() {
   ClearInvalidationMask();
 }
 
-void LayoutSVGResourceMarker::RemoveAllClientsFromCache(
-    bool mark_for_invalidation) {
-  MarkAllClientsForInvalidation(
-      mark_for_invalidation ? SVGResourceClient::kLayoutInvalidation |
-                                  SVGResourceClient::kBoundariesInvalidation
-                            : SVGResourceClient::kParentOnlyInvalidation);
+void LayoutSVGResourceMarker::RemoveAllClientsFromCache() {
+  MarkAllClientsForInvalidation(SVGResourceClient::kLayoutInvalidation |
+                                SVGResourceClient::kBoundariesInvalidation);
 }
 
 FloatRect LayoutSVGResourceMarker::MarkerBoundaries(
@@ -83,17 +80,11 @@ float LayoutSVGResourceMarker::Angle() const {
 }
 
 SVGMarkerUnitsType LayoutSVGResourceMarker::MarkerUnits() const {
-  return To<SVGMarkerElement>(GetElement())
-      ->markerUnits()
-      ->CurrentValue()
-      ->EnumValue();
+  return To<SVGMarkerElement>(GetElement())->markerUnits()->CurrentEnumValue();
 }
 
 SVGMarkerOrientType LayoutSVGResourceMarker::OrientType() const {
-  return To<SVGMarkerElement>(GetElement())
-      ->orientType()
-      ->CurrentValue()
-      ->EnumValue();
+  return To<SVGMarkerElement>(GetElement())->orientType()->CurrentEnumValue();
 }
 
 AffineTransform LayoutSVGResourceMarker::MarkerTransformation(
@@ -141,7 +132,8 @@ void LayoutSVGResourceMarker::SetNeedsTransformUpdate() {
   needs_transform_update_ = true;
 }
 
-SVGTransformChange LayoutSVGResourceMarker::CalculateLocalTransform() {
+SVGTransformChange LayoutSVGResourceMarker::CalculateLocalTransform(
+    bool bounds_changed) {
   if (!needs_transform_update_)
     return SVGTransformChange::kNone;
 

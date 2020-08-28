@@ -20,7 +20,6 @@
 #include "base/time/time.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/renderer/request_peer.h"
-#include "content/renderer/loader/navigation_response_override_parameters.h"
 #include "content/renderer/loader/request_extra_data.h"
 #include "content/renderer/loader/resource_dispatcher.h"
 #include "content/renderer/loader/sync_load_response.h"
@@ -69,6 +68,7 @@ class TestResourceDispatcher : public ResourceDispatcher {
       std::unique_ptr<network::ResourceRequest> request,
       int routing_id,
       const net::NetworkTrafficAnnotationTag& traffic_annotation,
+      uint32_t loader_options,
       SyncLoadResponse* response,
       scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
       std::vector<std::unique_ptr<blink::URLLoaderThrottle>> throttles,
@@ -83,19 +83,16 @@ class TestResourceDispatcher : public ResourceDispatcher {
       int routing_id,
       scoped_refptr<base::SingleThreadTaskRunner> loading_task_runner,
       const net::NetworkTrafficAnnotationTag& traffic_annotation,
-      bool is_sync,
+      uint32_t loader_options,
       std::unique_ptr<RequestPeer> peer,
       scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
-      std::vector<std::unique_ptr<blink::URLLoaderThrottle>> throttles,
-      std::unique_ptr<NavigationResponseOverrideParameters>
-          navigation_response_override_params) override {
+      std::vector<std::unique_ptr<blink::URLLoaderThrottle>> throttles)
+      override {
     EXPECT_FALSE(peer_);
     if (sync_load_response_.head->encoded_body_length != -1)
-      EXPECT_TRUE(is_sync);
+      EXPECT_TRUE(loader_options & network::mojom::kURLLoadOptionSynchronous);
     peer_ = std::move(peer);
     url_ = request->url;
-    navigation_response_override_params_ =
-        std::move(navigation_response_override_params);
     return 1;
   }
 
@@ -122,11 +119,6 @@ class TestResourceDispatcher : public ResourceDispatcher {
     sync_load_response_ = std::move(sync_load_response);
   }
 
-  std::unique_ptr<NavigationResponseOverrideParameters>
-  TakeNavigationResponseOverrideParams() {
-    return std::move(navigation_response_override_params_);
-  }
-
  private:
   std::unique_ptr<RequestPeer> peer_;
   bool canceled_;
@@ -134,8 +126,6 @@ class TestResourceDispatcher : public ResourceDispatcher {
   GURL url_;
   GURL stream_url_;
   SyncLoadResponse sync_load_response_;
-  std::unique_ptr<NavigationResponseOverrideParameters>
-      navigation_response_override_params_;
 
   DISALLOW_COPY_AND_ASSIGN(TestResourceDispatcher);
 };
@@ -194,7 +184,8 @@ class TestWebURLLoaderClient : public blink::WebURLLoaderClient {
                           network::mojom::ReferrerPolicy new_referrer_policy,
                           const blink::WebString& new_method,
                           const blink::WebURLResponse& passed_redirect_response,
-                          bool& report_raw_headers) override {
+                          bool& report_raw_headers,
+                          std::vector<std::string>*) override {
     EXPECT_TRUE(loader_);
 
     // No test currently simulates mutiple redirects.
@@ -302,18 +293,18 @@ class WebURLLoaderImplTest : public testing::Test {
     client_.reset(new TestWebURLLoaderClient(&dispatcher_));
   }
 
-  ~WebURLLoaderImplTest() override {}
+  ~WebURLLoaderImplTest() override = default;
 
   void DoStartAsyncRequest() {
-    DoStartAsyncRequestWithPriority(blink::WebURLRequest::Priority::kVeryLow);
-  }
-
-  void DoStartAsyncRequestWithPriority(
-      blink::WebURLRequest::Priority priority) {
-    blink::WebURLRequest request{GURL(kTestURL)};
-    request.SetRequestContext(blink::mojom::RequestContextType::INTERNAL);
-    request.SetPriority(priority);
-    client()->loader()->LoadAsynchronously(request, client());
+    auto request = std::make_unique<network::ResourceRequest>();
+    request->url = GURL(kTestURL);
+    request->resource_type =
+        static_cast<int>(blink::mojom::ResourceType::kSubResource);
+    request->priority = net::IDLE;
+    client()->loader()->LoadAsynchronously(
+        std::move(request), /*extra_data=*/nullptr, /*requestor_id=*/0,
+        /*download_to_network_cache_only=*/false, /*no_mime_sniffing=*/false,
+        client());
     ASSERT_TRUE(peer());
   }
 
@@ -325,8 +316,10 @@ class WebURLLoaderImplTest : public testing::Test {
     redirect_info.new_url = GURL(kTestURL);
     redirect_info.new_site_for_cookies =
         net::SiteForCookies::FromUrl(GURL(kTestURL));
+    std::vector<std::string> removed_headers;
     peer()->OnReceivedRedirect(redirect_info,
-                               network::mojom::URLResponseHead::New());
+                               network::mojom::URLResponseHead::New(),
+                               &removed_headers);
     EXPECT_TRUE(client()->did_receive_redirect());
   }
 
@@ -339,7 +332,7 @@ class WebURLLoaderImplTest : public testing::Test {
     redirect_info.new_site_for_cookies =
         net::SiteForCookies::FromUrl(GURL(kTestHTTPSURL));
     peer()->OnReceivedRedirect(redirect_info,
-                               network::mojom::URLResponseHead::New());
+                               network::mojom::URLResponseHead::New(), nullptr);
     EXPECT_TRUE(client()->did_receive_redirect());
   }
 
@@ -462,43 +455,6 @@ TEST_F(WebURLLoaderImplTest, DefersLoadingBeforeStart) {
   EXPECT_TRUE(dispatcher()->defers_loading());
 }
 
-// Checks that the response override parameters are properly applied.
-TEST_F(WebURLLoaderImplTest, ResponseOverride) {
-  // Initialize the request and the stream override.
-  const GURL kRequestURL = GURL(kTestURL);
-  const std::string kMimeType = "application/javascript";
-  blink::WebURLRequest request(kRequestURL);
-  request.SetRequestContext(blink::mojom::RequestContextType::SCRIPT);
-  request.SetPriority(blink::WebURLRequest::Priority::kVeryLow);
-  std::unique_ptr<NavigationResponseOverrideParameters> response_override(
-      new NavigationResponseOverrideParameters());
-  response_override->response_head->mime_type = kMimeType;
-  auto extra_data = std::make_unique<RequestExtraData>();
-  extra_data->set_navigation_response_override(std::move(response_override));
-  request.SetExtraData(std::move(extra_data));
-
-  client()->loader()->LoadAsynchronously(request, client());
-
-  ASSERT_TRUE(peer());
-  EXPECT_EQ(kRequestURL, dispatcher()->url());
-  EXPECT_FALSE(client()->did_receive_response());
-
-  response_override = dispatcher()->TakeNavigationResponseOverrideParams();
-  ASSERT_TRUE(response_override);
-  peer()->OnReceivedResponse(std::move(response_override->response_head));
-
-  EXPECT_TRUE(client()->did_receive_response());
-
-  // The response info should have been overriden.
-  ASSERT_FALSE(client()->response().IsNull());
-  EXPECT_EQ(kMimeType, client()->response().MimeType().Latin1());
-
-  DoStartLoadingResponseBody();
-  DoCompleteRequest();
-  EXPECT_FALSE(dispatcher()->canceled());
-  EXPECT_TRUE(client()->did_receive_response_body());
-}
-
 TEST_F(WebURLLoaderImplTest, ResponseIPAddress) {
   GURL url("http://example.test/");
 
@@ -610,9 +566,12 @@ TEST_F(WebURLLoaderImplTest, SyncLengths) {
   const int kEncodedBodyLength = 30;
   const int kEncodedDataLength = 130;
   const GURL url(kTestURL);
-  blink::WebURLRequest request(url);
-  request.SetRequestContext(blink::mojom::RequestContextType::INTERNAL);
-  request.SetPriority(blink::WebURLRequest::Priority::kHighest);
+
+  auto request = std::make_unique<network::ResourceRequest>();
+  request->url = url;
+  request->resource_type =
+      static_cast<int>(blink::mojom::ResourceType::kSubResource);
+  request->priority = net::HIGHEST;
 
   // Prepare a mock response
   SyncLoadResponse sync_load_response;
@@ -630,9 +589,13 @@ TEST_F(WebURLLoaderImplTest, SyncLengths) {
   int64_t encoded_data_length = 0;
   int64_t encoded_body_length = 0;
   blink::WebBlobInfo downloaded_blob;
-  client()->loader()->LoadSynchronously(request, nullptr, response, error, data,
-                                        encoded_data_length,
-                                        encoded_body_length, downloaded_blob);
+
+  client()->loader()->LoadSynchronously(
+      std::move(request), /*extra_data=*/nullptr, /*requestor_id=*/0,
+      /*download_to_network_cache_only=*/false,
+      /*pass_response_pipe_to_client=*/false, /*no_mime_sniffing=*/false,
+      base::TimeDelta(), nullptr, response, error, data, encoded_data_length,
+      encoded_body_length, downloaded_blob);
 
   EXPECT_EQ(kEncodedBodyLength, encoded_body_length);
   EXPECT_EQ(kEncodedDataLength, encoded_data_length);

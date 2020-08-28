@@ -11,7 +11,6 @@
 #include "base/bind.h"
 #include "base/macros.h"
 #include "base/numerics/ranges.h"
-#include "base/task/post_task.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
 #include "content/browser/browser_main_loop.h"
@@ -223,21 +222,23 @@ void SpeechRecognizerImpl::StartRecognition(const std::string& device_id) {
   DCHECK(!device_id.empty());
   device_id_ = device_id;
 
-  base::PostTask(FROM_HERE, {BrowserThread::IO},
-                 base::BindOnce(&SpeechRecognizerImpl::DispatchEvent, this,
+  GetIOThreadTaskRunner({})->PostTask(
+      FROM_HERE, base::BindOnce(&SpeechRecognizerImpl::DispatchEvent,
+                                weak_ptr_factory_.GetWeakPtr(),
                                 FSMEventArgs(EVENT_PREPARE)));
 }
 
 void SpeechRecognizerImpl::AbortRecognition() {
-  base::PostTask(FROM_HERE, {BrowserThread::IO},
-                 base::BindOnce(&SpeechRecognizerImpl::DispatchEvent,
+  GetIOThreadTaskRunner({})->PostTask(
+      FROM_HERE, base::BindOnce(&SpeechRecognizerImpl::DispatchEvent,
                                 weak_ptr_factory_.GetWeakPtr(),
                                 FSMEventArgs(EVENT_ABORT)));
 }
 
 void SpeechRecognizerImpl::StopAudioCapture() {
-  base::PostTask(FROM_HERE, {BrowserThread::IO},
-                 base::BindOnce(&SpeechRecognizerImpl::DispatchEvent, this,
+  GetIOThreadTaskRunner({})->PostTask(
+      FROM_HERE, base::BindOnce(&SpeechRecognizerImpl::DispatchEvent,
+                                weak_ptr_factory_.GetWeakPtr(),
                                 FSMEventArgs(EVENT_STOP_CAPTURE)));
 }
 
@@ -276,16 +277,16 @@ void SpeechRecognizerImpl::Capture(const AudioBus* data,
   // Convert audio from native format to fixed format used by WebSpeech.
   FSMEventArgs event_args(EVENT_AUDIO_DATA);
   event_args.audio_data = audio_converter_->Convert(data);
-  base::PostTask(
-      FROM_HERE, {BrowserThread::IO},
-      base::BindOnce(&SpeechRecognizerImpl::DispatchEvent, this, event_args));
+  GetIOThreadTaskRunner({})->PostTask(
+      FROM_HERE, base::BindOnce(&SpeechRecognizerImpl::DispatchEvent,
+                                weak_ptr_factory_.GetWeakPtr(), event_args));
   // See http://crbug.com/506051 regarding why one extra convert call can
   // sometimes be required. It should be a rare case.
   if (!audio_converter_->data_was_converted()) {
     event_args.audio_data = audio_converter_->Convert(data);
-    base::PostTask(
-        FROM_HERE, {BrowserThread::IO},
-        base::BindOnce(&SpeechRecognizerImpl::DispatchEvent, this, event_args));
+    GetIOThreadTaskRunner({})->PostTask(
+        FROM_HERE, base::BindOnce(&SpeechRecognizerImpl::DispatchEvent,
+                                  weak_ptr_factory_.GetWeakPtr(), event_args));
   }
   // Something is seriously wrong here and we are most likely missing some
   // audio segments.
@@ -294,18 +295,18 @@ void SpeechRecognizerImpl::Capture(const AudioBus* data,
 
 void SpeechRecognizerImpl::OnCaptureError(const std::string& message) {
   FSMEventArgs event_args(EVENT_AUDIO_ERROR);
-  base::PostTask(
-      FROM_HERE, {BrowserThread::IO},
-      base::BindOnce(&SpeechRecognizerImpl::DispatchEvent, this, event_args));
+  GetIOThreadTaskRunner({})->PostTask(
+      FROM_HERE, base::BindOnce(&SpeechRecognizerImpl::DispatchEvent,
+                                weak_ptr_factory_.GetWeakPtr(), event_args));
 }
 
 void SpeechRecognizerImpl::OnSpeechRecognitionEngineResults(
     const std::vector<blink::mojom::SpeechRecognitionResultPtr>& results) {
   FSMEventArgs event_args(EVENT_ENGINE_RESULT);
   event_args.engine_results = mojo::Clone(results);
-  base::PostTask(
-      FROM_HERE, {BrowserThread::IO},
-      base::BindOnce(&SpeechRecognizerImpl::DispatchEvent, this, event_args));
+  GetIOThreadTaskRunner({})->PostTask(
+      FROM_HERE, base::BindOnce(&SpeechRecognizerImpl::DispatchEvent,
+                                weak_ptr_factory_.GetWeakPtr(), event_args));
 }
 
 void SpeechRecognizerImpl::OnSpeechRecognitionEngineEndOfUtterance() {
@@ -317,9 +318,9 @@ void SpeechRecognizerImpl::OnSpeechRecognitionEngineError(
     const blink::mojom::SpeechRecognitionError& error) {
   FSMEventArgs event_args(EVENT_ENGINE_ERROR);
   event_args.engine_error = error;
-  base::PostTask(
-      FROM_HERE, {BrowserThread::IO},
-      base::BindOnce(&SpeechRecognizerImpl::DispatchEvent, this, event_args));
+  GetIOThreadTaskRunner({})->PostTask(
+      FROM_HERE, base::BindOnce(&SpeechRecognizerImpl::DispatchEvent,
+                                weak_ptr_factory_.GetWeakPtr(), event_args));
 }
 
 // -----------------------  Core FSM implementation ---------------------------
@@ -878,6 +879,7 @@ void SpeechRecognizerImpl::CreateAudioCapturerSource() {
       stream_factory.InitWithNewPipeAndPassReceiver());
   audio_capturer_source_ = audio::CreateInputDevice(
       std::move(stream_factory), device_id_,
+      audio::DeadStreamDetection::kEnabled,
       MediaInternals::GetInstance()->CreateMojoAudioLog(
           media::AudioLogFactory::AUDIO_INPUT_CONTROLLER,
           0 /* component_id */));

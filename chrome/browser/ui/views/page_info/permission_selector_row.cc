@@ -8,12 +8,14 @@
 #include "base/i18n/rtl.h"
 #include "base/macros.h"
 #include "base/strings/utf_string_conversions.h"
-#include "chrome/browser/ui/page_info/page_info_ui.h"
+#include "chrome/browser/ui/page_info/chrome_page_info_ui_delegate.h"
 #include "chrome/browser/ui/page_info/permission_menu_model.h"
 #include "chrome/browser/ui/views/accessibility/non_accessible_image_view.h"
 #include "chrome/browser/ui/views/chrome_layout_provider.h"
 #include "chrome/browser/ui/views/chrome_typography.h"
 #include "chrome/browser/ui/views/page_info/page_info_bubble_view.h"
+#include "chrome/browser/ui/views/page_info/permission_icon.h"
+#include "components/page_info/page_info_ui.h"
 #include "components/strings/grit/components_strings.h"
 #include "ui/accessibility/ax_node_data.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -54,7 +56,7 @@ class ComboboxModelAdapter : public ui::ComboboxModel {
 
   // ui::ComboboxModel:
   int GetItemCount() const override;
-  base::string16 GetItemAt(int index) override;
+  base::string16 GetItemAt(int index) const override;
 
  private:
   PermissionMenuModel* model_;
@@ -86,7 +88,7 @@ int ComboboxModelAdapter::GetItemCount() const {
   return model_->GetItemCount();
 }
 
-base::string16 ComboboxModelAdapter::GetItemAt(int index) {
+base::string16 ComboboxModelAdapter::GetItemAt(int index) const {
   return model_->GetLabelAt(index);
 }
 
@@ -159,7 +161,7 @@ PermissionSelectorRow::PermissionSelectorRow(
     const GURL& url,
     const PageInfoUI::PermissionInfo& permission,
     views::GridLayout* layout)
-    : profile_(profile), icon_(nullptr), combobox_(nullptr) {
+    : profile_(profile) {
   const int list_item_padding = ChromeLayoutProvider::Get()->GetDistanceMetric(
                                     DISTANCE_CONTROL_LIST_VERTICAL) /
                                 2;
@@ -167,13 +169,11 @@ PermissionSelectorRow::PermissionSelectorRow(
                               views::GridLayout::kFixedSize, list_item_padding);
 
   // Create the permission icon and label.
-  icon_ = layout->AddView(std::make_unique<NonAccessibleImageView>());
+  icon_ = layout->AddView(std::make_unique<PermissionIcon>(permission));
   // Create the label that displays the permission type.
   auto label = std::make_unique<views::Label>(
       PageInfoUI::PermissionTypeToUIString(permission.type),
       CONTEXT_BODY_TEXT_LARGE);
-  icon_->SetImage(
-      PageInfoUI::GetPermissionIcon(permission, label->GetEnabledColor()));
   label_ = layout->AddView(std::move(label));
   // Create the menu model.
   menu_model_ = std::make_unique<PermissionMenuModel>(
@@ -185,8 +185,9 @@ PermissionSelectorRow::PermissionSelectorRow(
   InitializeComboboxView(layout, permission);
 
   // Show the permission decision reason, if it was not the user.
-  base::string16 reason =
-      PageInfoUI::PermissionDecisionReasonToUIString(profile, permission, url);
+  auto delegate = ChromePageInfoUiDelegate(profile);
+  base::string16 reason = PageInfoUI::PermissionDecisionReasonToUIString(
+      &delegate, permission, url);
   if (!reason.empty()) {
     layout->StartRow(1.0, PageInfoBubbleView::kPermissionColumnSetId);
     layout->SkipColumns(1);
@@ -283,8 +284,7 @@ void PermissionSelectorRow::InitializeComboboxView(
 void PermissionSelectorRow::PermissionChanged(
     const PageInfoUI::PermissionInfo& permission) {
   // Change the permission icon to reflect the selected setting.
-  icon_->SetImage(
-      PageInfoUI::GetPermissionIcon(permission, label_->GetEnabledColor()));
+  icon_->OnPermissionChanged(permission);
 
   bool use_default = permission.setting == CONTENT_SETTING_DEFAULT;
   auto* combobox = static_cast<internal::PermissionCombobox*>(combobox_);

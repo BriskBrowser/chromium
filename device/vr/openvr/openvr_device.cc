@@ -9,9 +9,9 @@
 #include <utility>
 
 #include "base/bind.h"
+#include "base/bind_helpers.h"
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
-#include "base/metrics/histogram_macros.h"
 #include "base/numerics/math_constants.h"
 #include "build/build_config.h"
 #include "device/vr/openvr/openvr_render_loop.h"
@@ -22,13 +22,6 @@
 #include "ui/gfx/geometry/angle_conversions.h"
 
 namespace device {
-
-void OpenVRDevice::RecordRuntimeAvailability() {
-  XrRuntimeAvailable runtime = XrRuntimeAvailable::NONE;
-  if (vr::VR_IsRuntimeInstalled())
-    runtime = XrRuntimeAvailable::OPENVR;
-  UMA_HISTOGRAM_ENUMERATION("XR.RuntimeAvailable", runtime);
-}
 
 namespace {
 
@@ -95,8 +88,11 @@ mojom::VRDisplayInfoPtr CreateVRDisplayInfo(vr::IVRSystem* vr_system,
   display_info->stage_parameters = mojom::VRStageParameters::New();
   vr::HmdMatrix34_t mat =
       vr_system->GetSeatedZeroPoseToStandingAbsoluteTrackingPose();
-  display_info->stage_parameters->standing_transform =
-      HmdMatrix34ToTransform(mat);
+  gfx::Transform floor_from_mojo = HmdMatrix34ToTransform(mat);
+  display_info->stage_parameters->mojo_from_floor = gfx::Transform();
+  bool succeeded = floor_from_mojo.GetInverse(
+      &display_info->stage_parameters->mojo_from_floor);
+  DCHECK(succeeded);
 
   vr::IVRChaperone* chaperone = vr::VRChaperone();
   if (chaperone) {

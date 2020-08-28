@@ -52,6 +52,12 @@ class TestOptions(object):
     self.enable_tracing = False
     self.use_proxy_hash = False
     self.always_mangle = False
+    self.feature_list_file = ''
+
+
+def _FeatureListFile():
+  dir_name = os.path.dirname(os.path.realpath(__file__))
+  return dir_name + '/TestSampleFeatureList.java'
 
 
 class BaseTest(unittest.TestCase):
@@ -812,7 +818,110 @@ scooby doo
           always_mangle=False)
       self.fail('Expected a ParseError')
     except jni_generator.ParseError as e:
-      self.assertEqual(('@CalledByNative', 'scooby doo'), e.context_lines)
+      self.assertEqual(('', '@CalledByNative', 'scooby doo'), e.context_lines)
+
+  def testCalledByNativeJavaTestImportErrors(self):
+    # Using banned imports
+    try:
+      jni_params = jni_generator.JniParams('')
+      jni_generator.ExtractCalledByNatives(
+          jni_params,
+          """
+import org.junit.Rule;
+
+class MyClass {
+    @Rule
+    public JniMocker mocker = new JniMocker();
+
+    @CalledByNativeJavaTest
+    public void testStuff() {}
+}
+""",
+          always_mangle=False,
+          feature_list_file=_FeatureListFile())
+      self.fail('Expected a ParseError')
+    except jni_generator.ParseError as e:
+      self.assertEqual(('', 'import org.junit.Rule'), e.context_lines)
+
+  def testCalledByNativeJavaTestFeatureParseErrors(self):
+    # Using banned Features.Enable/Disable
+    try:
+      jni_params = jni_generator.JniParams('')
+      jni_generator.ExtractCalledByNatives(
+          jni_params,
+          """
+class MyClass {
+    @Features.Disable({ChromeFeatureList.SOME_FEATURE})
+    @CalledByNativeJavaTest
+    public void testMoreFeatures() {}
+}
+""",
+          always_mangle=False,
+          feature_list_file=_FeatureListFile())
+      self.fail('Expected a ParseError')
+    except jni_generator.ParseError as e:
+      self.assertEqual(
+          ('', 'Features.Disable({ChromeFeatureList.SOME_FEATURE})\n    '),
+          e.context_lines)
+
+    # Using NativeJavaTestFeatures outside of a test.
+    try:
+      jni_params = jni_generator.JniParams('')
+      jni_generator.ExtractCalledByNatives(
+          jni_params,
+          """
+class MyClass {
+    @CalledByNative @NativeJavaTestFeatures.Enable(TestFeatureList.MY_FEATURE) \
+public void testNotActuallyATest() {}
+}
+""",
+          always_mangle=False,
+          feature_list_file=_FeatureListFile())
+      self.fail('Expected a ParseError')
+    except jni_generator.ParseError as e:
+      self.assertEqual((
+          '',
+          '@CalledByNative @NativeJavaTestFeatures.Enable('
+          'TestFeatureList.MY_FEATURE) ',
+      ), e.context_lines)
+
+    # Not specifying a feature_list_file.
+    try:
+      jni_params = jni_generator.JniParams('')
+      jni_generator.ExtractCalledByNatives(
+          jni_params,
+          """
+class MyClass {
+    @CalledByNativeJavaTest
+    @NativeJavaTestFeatures.Disable(TestFeatureList.MY_FEATURE)
+    public void testMoreFeatures() {}
+}
+""",
+          always_mangle=False,
+          feature_list_file=None)
+      self.fail('Expected a ParseError')
+    except jni_generator.ParseError as e:
+      self.assertEqual(
+          'Your generate_jni target must specify a feature_list_file in order '
+          'to support feature annotations.', e.description)
+
+    # Specifying a feature that doesn't exist.
+    try:
+      jni_params = jni_generator.JniParams('')
+      jni_generator.ExtractCalledByNatives(
+          jni_params,
+          """
+class MyClass {
+    @CalledByNativeJavaTest
+    @NativeJavaTestFeatures.Disable(TestFeatureList.NOT_A_FEATURE)
+    public void testMoreFeatures() {}
+}
+""",
+          always_mangle=False,
+          feature_list_file=_FeatureListFile())
+      self.fail('Expected a ParseError')
+    except jni_generator.ParseError as e:
+      self.assertEqual(('TestFeatureList.NOT_A_FEATURE', ), e.context_lines)
 
   def testCalledByNativeJavaTest(self):
     test_data = """
@@ -823,22 +932,40 @@ scooby doo
       @CalledByNativeJavaTest
       public int testFoo() {}
 
+      @NativeJavaTestFeatures.Enable({TestFeatureList.MY_FEATURE,
+          TestFeatureList.MY_FEATURE_WITH_A_REALLY_REALLY_ABSURDLY_LONG_NAME})
       @CalledByNativeJavaTest
-      public void testOtherFoo() {}
+      @NativeJavaTestFeatures.Disable(TestFeatureList.BAD_FEATURE)
+      public void testFeatures() {}
 
       @CalledByNativeJavaTest
-      public void testLongNameActionServiceModelProducerDelegateProxyObserverMediatorFactoryConsumerImplForTesting() {}
+      @NativeJavaTestFeatures.Enable({})
+      @NativeJavaTestFeatures.Disable({})
+      public void testOtherFeatures() {}
+
+      @DisabledCalledByNativeJavaTest
+      public void testDisabledFoo() {}
+
+      @CalledByNativeJavaTest
+      public void testLongNameActionServiceModelProducerDelegateProxyObserver\
+MediatorFactoryConsumerImplForTesting() {}
 
       class MyInnerClass {
         @CalledByNativeJavaTest("MyInnerClass")
         public void testInnerFoo() {}
       }
+
+      @CalledByNativeJavaTest @NativeJavaTestFeatures.Enable(\
+TestFeatureList.MY_FEATURE) public void testOneLine() {}
     }
     """
     jni_params = jni_generator.JniParams('org/chromium/Foo')
     jni_params.ExtractImportsAndInnerClasses(test_data)
     called_by_natives = jni_generator.ExtractCalledByNatives(
-        jni_params, test_data, always_mangle=False)
+        jni_params,
+        test_data,
+        always_mangle=False,
+        feature_list_file=_FeatureListFile())
     golden_called_by_natives = [
         CalledByNative(
             return_type='MyOuterClass',
@@ -869,13 +996,43 @@ scooby doo
             return_type='void',
             system_class=False,
             static=False,
-            name='testOtherFoo',
-            method_id_var_name='testOtherFoo',
+            name='testFeatures',
+            method_id_var_name='testFeatures',
             java_class_name='',
             params=[],
             env_call=('Void', ''),
             unchecked=False,
             gen_test_method=True,
+            enabled_features=
+            'MyFeature,MyFeatureWithAReallyReallyAbsurdlyLongName',
+            disabled_features='BadFeature',
+        ),
+        CalledByNative(
+            return_type='void',
+            system_class=False,
+            static=False,
+            name='testOtherFeatures',
+            method_id_var_name='testOtherFeatures',
+            java_class_name='',
+            params=[],
+            env_call=('Void', ''),
+            unchecked=False,
+            gen_test_method=True,
+            enabled_features=None,
+            disabled_features=None,
+        ),
+        CalledByNative(
+            return_type='void',
+            system_class=False,
+            static=False,
+            name='testDisabledFoo',
+            method_id_var_name='testDisabledFoo',
+            java_class_name='',
+            params=[],
+            env_call=('Void', ''),
+            unchecked=False,
+            gen_test_method=True,
+            test_disabled=True,
         ),
         CalledByNative(
             return_type='void',
@@ -902,7 +1059,21 @@ scooby doo
             env_call=('Void', ''),
             unchecked=False,
             gen_test_method=True,
-        )
+        ),
+        CalledByNative(
+            return_type='void',
+            system_class=False,
+            static=False,
+            name='testOneLine',
+            method_id_var_name='testOneLine',
+            java_class_name='',
+            params=[],
+            env_call=('Void', ''),
+            unchecked=False,
+            gen_test_method=True,
+            enabled_features='MyFeature',
+            disabled_features=None,
+        ),
     ]
     self.AssertListEquals(golden_called_by_natives, called_by_natives)
     h = jni_generator.InlHeaderFileGenerator('', 'org/chromium/TestJni', [],
@@ -1621,14 +1792,18 @@ class ProxyTestGenerator(BaseTest):
         golden_file='HashedSampleForAnnotationProcessor_jni.golden')
 
     reg_dict = jni_registration_generator._DictForPath(
-        self._JoinScriptDir(path))
+        self._JoinScriptDir(path), use_proxy_hash=True)
     reg_dict = self._MergeRegistrationForTests([reg_dict])
 
-    proxy_opts = jni_registration_generator.ProxyOptions()
+    proxy_opts = jni_registration_generator.ProxyOptions(use_hash=True)
     self.AssertGoldenTextEquals(
         jni_registration_generator.CreateProxyJavaFromDict(
             reg_dict, proxy_opts),
         golden_file='HashedSampleForAnnotationProcessorGenJni.golden')
+    self.AssertGoldenTextEquals(
+        jni_registration_generator.CreateProxyJavaFromDict(
+            reg_dict, proxy_opts, forwarding=True),
+        golden_file='HashedSampleForAnnotationProcessorGenJni.2.golden')
 
   def testProxyJniExample(self):
     generated_text = self._CreateJniHeaderFromFile(

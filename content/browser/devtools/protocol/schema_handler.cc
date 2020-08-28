@@ -13,8 +13,7 @@ SchemaHandler::SchemaHandler()
     : DevToolsDomainHandler(Schema::Metainfo::domainName) {
 }
 
-SchemaHandler::~SchemaHandler() {
-}
+SchemaHandler::~SchemaHandler() = default;
 
 void SchemaHandler::Wire(UberDispatcher* dispatcher) {
   Schema::Dispatcher::wire(dispatcher, this);
@@ -39,7 +38,7 @@ Response SchemaHandler::GetDomains(
     (*domains)->emplace_back(
         Schema::Domain::Create().SetName(domain).SetVersion(kVersion).Build());
   }
-  return Response::OK();
+  return Response::Success();
 }
 
 }  // namespace protocol

@@ -10,10 +10,12 @@
 #include <list>
 #include <unordered_map>
 
+#include "base/containers/flat_map.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/scoped_observer.h"
 #include "base/sequenced_task_runner.h"
+#include "base/strings/string16.h"
 #include "device/base/device_monitor_win.h"
 #include "services/device/usb/usb_device_win.h"
 
@@ -33,17 +35,22 @@ class UsbServiceWin final : public DeviceMonitorWin::Observer,
 
   // device::DeviceMonitorWin::Observer implementation
   void OnDeviceAdded(const GUID& class_guid,
-                     const std::string& device_path) override;
+                     const std::wstring& device_path) override;
   void OnDeviceRemoved(const GUID& class_guid,
-                       const std::string& device_path) override;
+                       const std::wstring& device_path) override;
 
   // Methods called by BlockingThreadHelper
   void HelperStarted();
-  void CreateDeviceObject(const std::string& device_path,
-                          const std::string& hub_path,
-                          uint32_t bus_number,
-                          uint32_t port_number,
-                          const std::string& driver_name);
+  void CreateDeviceObject(
+      const std::wstring& device_path,
+      const std::wstring& hub_path,
+      const base::flat_map<int, UsbDeviceWin::FunctionInfo>& functions,
+      uint32_t bus_number,
+      uint32_t port_number,
+      const std::wstring& driver_name);
+  void UpdateFunction(const std::wstring& device_path,
+                      int interface_number,
+                      const UsbDeviceWin::FunctionInfo& function_info);
 
   void DeviceReady(scoped_refptr<UsbDeviceWin> device, bool success);
 
@@ -58,7 +65,8 @@ class UsbServiceWin final : public DeviceMonitorWin::Observer,
 
   scoped_refptr<base::SequencedTaskRunner> blocking_task_runner_;
   std::unique_ptr<BlockingTaskRunnerHelper, base::OnTaskRunnerDeleter> helper_;
-  std::unordered_map<std::string, scoped_refptr<UsbDeviceWin>> devices_by_path_;
+  std::unordered_map<std::wstring, scoped_refptr<UsbDeviceWin>>
+      devices_by_path_;
 
   ScopedObserver<DeviceMonitorWin, DeviceMonitorWin::Observer> device_observer_;
 

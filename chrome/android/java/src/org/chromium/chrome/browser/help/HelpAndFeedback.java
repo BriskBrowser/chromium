@@ -18,17 +18,22 @@ import org.chromium.base.ThreadUtils;
 import org.chromium.base.metrics.RecordUserAction;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.AppHooks;
+import org.chromium.chrome.browser.feedback.ChromeFeedbackCollector;
+import org.chromium.chrome.browser.feedback.FeedFeedbackCollector;
 import org.chromium.chrome.browser.feedback.FeedbackCollector;
+import org.chromium.chrome.browser.feedback.HelpAndFeedbackLauncher;
 import org.chromium.chrome.browser.profiles.Profile;
-import org.chromium.chrome.browser.util.UrlConstants;
-import org.chromium.chrome.browser.util.UrlUtilitiesJni;
+import org.chromium.components.embedder_support.util.UrlConstants;
+import org.chromium.components.embedder_support.util.UrlUtilitiesJni;
+
+import java.util.Map;
 
 import javax.annotation.Nonnull;
 
 /**
  * Launches an activity that displays a relevant support page and has an option to provide feedback.
  */
-public class HelpAndFeedback {
+public class HelpAndFeedback implements HelpAndFeedbackLauncher {
     protected static final String FALLBACK_SUPPORT_URL =
             "https://support.google.com/chrome/topic/6069782";
     private static final String TAG = "HelpAndFeedback";
@@ -83,11 +88,13 @@ public class HelpAndFeedback {
      * @param profile the current profile.
      * @param url the current URL. May be null.
      */
+    @Override
     public void show(final Activity activity, final String helpContext, Profile profile,
             @Nullable String url) {
         RecordUserAction.record("MobileHelpAndFeedback");
-        new FeedbackCollector(activity, profile, url, null /* categoryTag */,
-                null /* description */, helpContext, true /* takeScreenshot */,
+        new ChromeFeedbackCollector(activity, null /* categoryTag */, null /* description */,
+                true /* takeScreenshot */,
+                new ChromeFeedbackCollector.InitParams(profile, url, helpContext),
                 collector -> show(activity, helpContext, collector));
     }
 
@@ -100,29 +107,34 @@ public class HelpAndFeedback {
      * @param url the current URL. May be null.
      * @param categoryTag The category that this feedback report falls under.
      */
+    @Override
     public void showFeedback(final Activity activity, Profile profile, @Nullable String url,
             @Nullable final String categoryTag) {
-        new FeedbackCollector(activity, profile, url, categoryTag, null /* description */, null,
-                true /* takeScreenshot */, collector -> showFeedback(activity, collector));
+        new ChromeFeedbackCollector(activity, categoryTag, null /* description */,
+                true /* takeScreenshot */,
+                new ChromeFeedbackCollector.InitParams(profile, url, null),
+                collector -> showFeedback(activity, collector));
     }
 
     /**
-     * Starts an activity prompting the user to enter feedback.
+     * Starts an activity prompting the user to enter feedback for the interest feed.
      *
      * @param activity The activity to use for starting the feedback activity and to take a
      *                 screenshot of.
      * @param profile the current profile.
-     * @param url the current URL. May be null.
      * @param categoryTag The category that this feedback report falls under.
+     * @param feedContext Feed specific parameters (url, title, etc) to include with feedback.
      * @param feedbackContext The context that describes the current feature being used.
      */
+    @Override
     public void showFeedback(final Activity activity, Profile profile, @Nullable String url,
-            @Nullable final String categoryTag, @Nullable final String feedbackContext) {
-        new FeedbackCollector(activity, profile, url, categoryTag, null /* description */,
-                feedbackContext, true /* takeScreenshot */,
+            @Nullable final String categoryTag, @Nullable final Map<String, String> feedContext,
+            @Nullable final String feedbackContext) {
+        new FeedFeedbackCollector(activity, categoryTag, null /* description */, feedbackContext,
+                true /* takeScreenshot */,
+                new FeedFeedbackCollector.InitParams(profile, url, feedContext),
                 collector -> showFeedback(activity, collector));
     }
-
     /**
      * Get help context ID from URL.
      *

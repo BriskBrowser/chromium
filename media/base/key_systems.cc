@@ -10,6 +10,8 @@
 #include <unordered_map>
 
 #include "base/logging.h"
+#include "base/no_destructor.h"
+#include "base/notreached.h"
 #include "base/stl_util.h"
 #include "base/strings/string_util.h"
 #include "base/threading/thread_checker.h"
@@ -232,8 +234,6 @@ class KeySystemsImpl : public KeySystems {
  public:
   static KeySystemsImpl* GetInstance();
 
-  void UpdateIfNeeded();
-
   // These two functions are for testing purpose only.
   void AddCodecMaskForTesting(EmeMediaType media_type,
                               const std::string& codec,
@@ -242,6 +242,8 @@ class KeySystemsImpl : public KeySystems {
                                       uint32_t mask);
 
   // Implementation of KeySystems interface.
+  void UpdateIfNeeded() override;
+
   bool IsSupportedKeySystem(const std::string& key_system) const override;
 
   bool CanUseAesDecryptor(const std::string& key_system) const override;
@@ -277,6 +279,8 @@ class KeySystemsImpl : public KeySystems {
       const std::string& key_system) const override;
 
  private:
+  friend class base::NoDestructor<KeySystemsImpl>;
+
   KeySystemsImpl();
   ~KeySystemsImpl() override;
 
@@ -328,9 +332,9 @@ class KeySystemsImpl : public KeySystems {
 };
 
 KeySystemsImpl* KeySystemsImpl::GetInstance() {
-  static KeySystemsImpl* key_systems = new KeySystemsImpl();
+  static base::NoDestructor<KeySystemsImpl> key_systems;
   key_systems->UpdateIfNeeded();
-  return key_systems;
+  return key_systems.get();
 }
 
 // Because we use a thread-safe static, the key systems info must be populated
@@ -363,6 +367,10 @@ EmeCodec KeySystemsImpl::GetEmeCodecForString(
     EmeMediaType media_type,
     const std::string& container_mime_type,
     const std::string& codec_string) const {
+  // Per spec, we should already reject empty mime types in
+  // GetSupportedCapabilities().
+  DCHECK(!container_mime_type.empty());
+
   // This is not checked because MimeUtil declares "vp9" and "vp9.0" as
   // ambiguous, but they have always been supported by EME.
   // TODO(xhwang): Find out whether we should fix MimeUtil about these cases.

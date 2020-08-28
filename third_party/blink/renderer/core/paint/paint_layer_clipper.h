@@ -47,8 +47,8 @@
 
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/paint/clip_rects_cache.h"
+#include "third_party/blink/renderer/platform/graphics/overlay_scrollbar_clip_behavior.h"
 #include "third_party/blink/renderer/platform/graphics/paint/cull_rect.h"
-#include "third_party/blink/renderer/platform/graphics/scroll_types.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 
 namespace blink {
@@ -71,7 +71,7 @@ class ClipRectsContext {
       const FragmentData* fragment,
       ClipRectsCacheSlot slot,
       OverlayScrollbarClipBehavior overlay_scrollbar_clip_behavior =
-          kIgnorePlatformOverlayScrollbarSize,
+          kIgnoreOverlayScrollbarSize,
       ShouldRespectOverflowClipType root_layer_clip_behavior =
           kRespectOverflowClip,
       const PhysicalOffset& sub_pixel_accumulation = PhysicalOffset())
@@ -87,6 +87,7 @@ class ClipRectsContext {
   ClipRectsCacheSlot CacheSlot() const { return cache_slot_; }
 
   bool ShouldRespectRootLayerClip() const;
+  bool ShouldIgnoreRootLayerClipAndScroll() const;
 
   const PaintLayer* root_layer;
   const FragmentData* root_fragment;

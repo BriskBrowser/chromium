@@ -17,6 +17,7 @@
 #include "components/prefs/pref_service.h"
 #include "components/sync/driver/profile_sync_service.h"
 #include "components/sync/protocol/sync_protocol_error.h"
+#include "content/public/test/browser_test.h"
 #include "google_apis/gaia/google_service_auth_error.h"
 
 using bookmarks::BookmarkNode;
@@ -121,6 +122,8 @@ IN_PROC_BROWSER_TEST_F(SyncErrorTest, ActionableErrorTest) {
   // Wait until an actionable error is encountered.
   ASSERT_TRUE(ActionableErrorChecker(GetSyncService(0)).Wait());
 
+  // UPGRADE_CLIENT gets mapped to an unrecoverable error, so Sync will *not*
+  // start up again in transport-only mode (which would clear the cached error).
   syncer::SyncStatus status;
   GetSyncService(0)->QueryDetailedSyncStatusForDebugging(&status);
   ASSERT_EQ(status.sync_protocol_error.error_type, syncer::TRANSIENT_ERROR);
@@ -181,14 +184,14 @@ IN_PROC_BROWSER_TEST_F(SyncErrorTest, BirthdayErrorUsingActionableErrorTest) {
   // Now make one more change so we will do another sync.
   const BookmarkNode* node2 = AddFolder(0, 0, "title2");
   SetTitle(0, node2, "new_title2");
-  EXPECT_TRUE(SyncDisabledChecker(GetSyncService(0)).Wait());
-  syncer::SyncStatus status;
-  GetSyncService(0)->QueryDetailedSyncStatusForDebugging(&status);
 
-  // Note: If SyncStandaloneTransport is enabled, then on receiving the error,
-  // the SyncService will immediately start up again in transport mode, which
-  // resets the status. So query the status that the checker recorded at the
-  // time Sync was off.
+  SyncDisabledChecker sync_disabled(GetSyncService(0));
+  sync_disabled.Wait();
+
+  // On receiving the error, the SyncService will immediately start up again
+  // in transport mode, which resets the status. So check the status that the
+  // checker recorded at the time Sync was off.
+  syncer::SyncStatus status = sync_disabled.status_on_sync_disabled();
   EXPECT_EQ(status.sync_protocol_error.error_type, syncer::NOT_MY_BIRTHDAY);
   EXPECT_EQ(status.sync_protocol_error.action, syncer::DISABLE_SYNC_ON_CLIENT);
 }
@@ -226,6 +229,32 @@ IN_PROC_BROWSER_TEST_F(SyncErrorTest, ClientDataObsoleteTest) {
   // Ensure cache_guid changed.
   GetSyncService(0)->QueryDetailedSyncStatusForDebugging(&status);
   ASSERT_NE(old_cache_guid, status.sync_id);
+}
+
+IN_PROC_BROWSER_TEST_F(SyncErrorTest, EncryptionObsoleteErrorTest) {
+  ASSERT_TRUE(SetupSync()) << "SetupSync() failed.";
+
+  const BookmarkNode* node1 = AddFolder(0, 0, "title1");
+  SetTitle(0, node1, "new_title1");
+  ASSERT_TRUE(UpdatedProgressMarkerChecker(GetSyncService(0)).Wait());
+
+  GetFakeServer()->TriggerActionableError(
+      sync_pb::SyncEnums::ENCRYPTION_OBSOLETE, "Not My Fault", "www.google.com",
+      sync_pb::SyncEnums::UNKNOWN_ACTION);
+
+  // Now make one more change so we will do another sync.
+  const BookmarkNode* node2 = AddFolder(0, 0, "title2");
+  SetTitle(0, node2, "new_title2");
+
+  SyncDisabledChecker sync_disabled(GetSyncService(0));
+  sync_disabled.Wait();
+
+  // On receiving the error, the SyncService will immediately start up again
+  // in transport mode, which resets the status. So check the status that the
+  // checker recorded at the time Sync was off.
+  syncer::SyncStatus status = sync_disabled.status_on_sync_disabled();
+  EXPECT_EQ(status.sync_protocol_error.error_type, syncer::ENCRYPTION_OBSOLETE);
+  EXPECT_EQ(status.sync_protocol_error.action, syncer::DISABLE_SYNC_ON_CLIENT);
 }
 
 IN_PROC_BROWSER_TEST_F(SyncErrorTest, DisableDatatypeWhileRunning) {

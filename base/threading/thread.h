@@ -27,6 +27,9 @@ namespace base {
 
 class MessagePump;
 class RunLoop;
+namespace sequence_manager {
+class TimeDomain;
+}
 
 // IMPORTANT: Instead of creating a base::Thread, consider using
 // base::Create(Sequenced|SingleThread)TaskRunner().
@@ -43,7 +46,7 @@ class RunLoop;
 //
 //  (1) Thread::CleanUp()
 //  (2) MessageLoop::~MessageLoop
-//  (3.b) MessageLoopCurrent::DestructionObserver::WillDestroyCurrentMessageLoop
+//  (3.b) CurrentThread::DestructionObserver::WillDestroyCurrentMessageLoop
 //
 // This API is not thread-safe: unless indicated otherwise its methods are only
 // valid from the owning sequence (which is the one from which Start() is
@@ -90,6 +93,10 @@ class BASE_EXPORT Thread : PlatformThread::Delegate {
 
     // Specifies timer slack for thread message loop.
     TimerSlack timer_slack = TIMER_SLACK_NONE;
+
+    // The time domain to be used by the task queue. This is not compatible with
+    // a non-null |delegate|.
+    sequence_manager::TimeDomain* task_queue_time_domain = nullptr;
 
     // Used to create the MessagePump for the MessageLoop. The callback is Run()
     // on the thread. If message_pump_factory.is_null(), then a MessagePump

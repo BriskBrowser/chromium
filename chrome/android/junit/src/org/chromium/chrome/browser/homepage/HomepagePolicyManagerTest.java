@@ -9,7 +9,6 @@ import android.support.test.filters.SmallTest;
 
 import androidx.annotation.Nullable;
 
-import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Rule;
@@ -22,18 +21,17 @@ import org.mockito.MockitoAnnotations;
 import org.robolectric.annotation.Config;
 
 import org.chromium.base.test.BaseRobolectricTestRunner;
-import org.chromium.chrome.browser.ChromeFeatureList;
-import org.chromium.chrome.browser.flags.FeatureUtilities;
+import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.homepage.HomepagePolicyManager.HomepagePolicyStateListener;
 import org.chromium.chrome.browser.init.ChromeBrowserInitializer;
 import org.chromium.chrome.browser.preferences.ChromePreferenceKeys;
 import org.chromium.chrome.browser.preferences.Pref;
 import org.chromium.chrome.browser.preferences.PrefChangeRegistrar;
-import org.chromium.chrome.browser.preferences.PrefServiceBridge;
 import org.chromium.chrome.browser.preferences.SharedPreferencesManager;
 import org.chromium.chrome.test.util.browser.Features;
 import org.chromium.chrome.test.util.browser.Features.DisableFeatures;
 import org.chromium.chrome.test.util.browser.Features.EnableFeatures;
+import org.chromium.components.prefs.PrefService;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
 
 /**
@@ -52,7 +50,7 @@ public class HomepagePolicyManagerTest {
     private HomepagePolicyManager mHomepagePolicyManager;
 
     @Mock
-    private PrefServiceBridge mMockServiceBridge;
+    private PrefService mMockPrefService;
     @Mock
     private PrefChangeRegistrar mMockRegistrar;
     @Mock
@@ -73,10 +71,8 @@ public class HomepagePolicyManagerTest {
 
         ChromeBrowserInitializer.setForTesting(mChromeBrowserInitializer);
 
-        FeatureUtilities.setHomepageLocationPolicyEnabledForTesting(true);
-
         // Disable the policy during setup
-        PrefServiceBridge.setInstanceForTesting(mMockServiceBridge);
+        HomepagePolicyManager.setPrefServiceForTesting(mMockPrefService);
         setupNewHomepagePolicyManagerForTests(false, "", null);
 
         // Verify setup
@@ -84,22 +80,16 @@ public class HomepagePolicyManagerTest {
                 mHomepagePolicyManager.isHomepageLocationPolicyEnabled());
     }
 
-    @After
-    public void tearDown() {
-        // Empty cache inside the FeatureUtilities
-        FeatureUtilities.setHomepageLocationPolicyEnabledForTesting(null);
-    }
-
     /**
-     * Set up the homepage location for Mock PrefServiceBridge, and create HomepagePolicyManager
+     * Set up the homepage location for Mock PrefService, and create HomepagePolicyManager
      * instance.
      * @param homepageLocation homepage preference that will be returned by mock pref service
      */
     private void setupNewHomepagePolicyManagerForTests(boolean isPolicyEnabled,
             String homepageLocation, @Nullable HomepagePolicyStateListener listener) {
-        Mockito.when(mMockServiceBridge.isManagedPreference(Pref.HOME_PAGE))
+        Mockito.when(mMockPrefService.isManagedPreference(Pref.HOME_PAGE))
                 .thenReturn(isPolicyEnabled);
-        Mockito.when(mMockServiceBridge.getString(Pref.HOME_PAGE)).thenReturn(homepageLocation);
+        Mockito.when(mMockPrefService.getString(Pref.HOME_PAGE)).thenReturn(homepageLocation);
 
         TestThreadUtils.runOnUiThreadBlocking(() -> {
             mHomepagePolicyManager = new HomepagePolicyManager(mMockRegistrar, listener);
@@ -204,8 +194,8 @@ public class HomepagePolicyManagerTest {
 
         // A new policy URL is set, which triggers the refresh of native manager.
         final String newUrl = "https://www.anothertesturl.com";
-        Mockito.when(mMockServiceBridge.isManagedPreference(Pref.HOME_PAGE)).thenReturn(true);
-        Mockito.when(mMockServiceBridge.getString(Pref.HOME_PAGE)).thenReturn(newUrl);
+        Mockito.when(mMockPrefService.isManagedPreference(Pref.HOME_PAGE)).thenReturn(true);
+        Mockito.when(mMockPrefService.getString(Pref.HOME_PAGE)).thenReturn(newUrl);
 
         // Update the preference, so that the policy will be enabled.
         TestThreadUtils.runOnUiThreadBlocking(() -> mHomepagePolicyManager.onPreferenceChange());
@@ -230,8 +220,8 @@ public class HomepagePolicyManagerTest {
                 mHomepagePolicyManager.isHomepageLocationPolicyEnabled());
 
         // Update the preference, so that the policy will be disabled.
-        Mockito.when(mMockServiceBridge.isManagedPreference(Pref.HOME_PAGE)).thenReturn(false);
-        Mockito.when(mMockServiceBridge.getString(Pref.HOME_PAGE)).thenReturn("");
+        Mockito.when(mMockPrefService.isManagedPreference(Pref.HOME_PAGE)).thenReturn(false);
+        Mockito.when(mMockPrefService.getString(Pref.HOME_PAGE)).thenReturn("");
         TestThreadUtils.runOnUiThreadBlocking(
                 () -> { mHomepagePolicyManager.onPreferenceChange(); });
 
@@ -271,13 +261,12 @@ public class HomepagePolicyManagerTest {
     @DisableFeatures(ChromeFeatureList.HOMEPAGE_LOCATION_POLICY)
     public void testFeatureFlagDisabled() {
         Mockito.reset(mMockRegistrar);
-        Mockito.reset(mMockServiceBridge);
-        FeatureUtilities.setHomepageLocationPolicyEnabledForTesting(false);
+        Mockito.reset(mMockPrefService);
 
         // 1. Test initialization early finishing
         setupNewHomepagePolicyManagerForTests(true, TEST_URL, null);
         Mockito.verify(mMockRegistrar, Mockito.never())
-                .addObserver(Mockito.anyInt(), Mockito.any());
+                .addObserver(Mockito.anyString(), Mockito.any());
 
         // 2. Test getters
         Assert.assertFalse("Policy should be disabled when feature flag disabled",
@@ -299,7 +288,6 @@ public class HomepagePolicyManagerTest {
     @SmallTest
     @DisableFeatures(ChromeFeatureList.HOMEPAGE_LOCATION_POLICY)
     public void testIllegal_Refresh() {
-        FeatureUtilities.setHomepageLocationPolicyEnabledForTesting(false);
         TestThreadUtils.runOnUiThreadBlocking(
                 () -> { mHomepagePolicyManager.onPreferenceChange(); });
     }

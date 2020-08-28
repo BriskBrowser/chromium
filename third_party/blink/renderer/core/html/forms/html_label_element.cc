@@ -24,8 +24,10 @@
 
 #include "third_party/blink/renderer/core/html/forms/html_label_element.h"
 
+#include "third_party/blink/public/mojom/input/focus_type.mojom-blink.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/dom/element_traversal.h"
+#include "third_party/blink/renderer/core/dom/focus_params.h"
 #include "third_party/blink/renderer/core/editing/editing_utilities.h"
 #include "third_party/blink/renderer/core/editing/frame_selection.h"
 #include "third_party/blink/renderer/core/editing/selection_controller.h"
@@ -169,7 +171,8 @@ void HTMLLabelElement::DefaultEventHandler(Event& evt) {
     // click event to control element.
     // Note: check if it is a MouseEvent because a click event may
     // not be an instance of a MouseEvent if created by document.createEvent().
-    if (evt.IsMouseEvent() && ToMouseEvent(evt).HasPosition()) {
+    auto* mouse_event = DynamicTo<MouseEvent>(evt);
+    if (mouse_event && mouse_event->HasPosition()) {
       if (LocalFrame* frame = GetDocument().GetFrame()) {
         // Check if there is a selection and click is not on the
         // selection.
@@ -188,14 +191,14 @@ void HTMLLabelElement::DefaultEventHandler(Event& evt) {
         // should pass click event to control element.
         // Only in case of drag, *neither* we pass the click event,
         // *nor* we focus the control element.
-        if (is_label_text_selected && ToMouseEvent(evt).ClickCount() == 1)
+        if (is_label_text_selected && mouse_event->ClickCount() == 1)
           return;
       }
     }
 
     processing_click_ = true;
 
-    GetDocument().UpdateStyleAndLayout();
+    GetDocument().UpdateStyleAndLayout(DocumentUpdateReason::kInput);
     if (element->IsMouseFocusable()) {
       // If the label is *not* selected, or if the click happened on
       // selection of label, only then focus the control element.
@@ -203,7 +206,7 @@ void HTMLLabelElement::DefaultEventHandler(Event& evt) {
       // so do not focus the control element.
       if (!is_label_text_selected) {
         element->focus(FocusParams(SelectionBehaviorOnFocus::kRestore,
-                                   kWebFocusTypeMouse, nullptr));
+                                   mojom::blink::FocusType::kMouse, nullptr));
       }
     }
 
@@ -236,7 +239,7 @@ void HTMLLabelElement::focus(const FocusParams& params) {
     return;
   }
 
-  if (params.type == blink::kWebFocusTypeAccessKey)
+  if (params.type == blink::mojom::blink::FocusType::kAccessKey)
     return;
 
   // To match other browsers, always restore previous selection.

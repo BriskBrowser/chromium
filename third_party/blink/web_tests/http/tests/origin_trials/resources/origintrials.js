@@ -66,6 +66,23 @@ expect_css_supports = (member_name, member_css_name, member_value, element, comp
   assert_equals(getComputedStyle(element)[member_name], computed_style);
 }
 
+make_css_media_feature_string = (feature_name, feature_value) => {
+  return "(" + feature_name + ")";
+}
+
+expect_css_media = (feature_name) => {
+  let media_feature_string = make_css_media_feature_string(feature_name);
+  assert_true(window.matchMedia(media_feature_string).matches);
+
+  assert_equals(getComputedStyle(document.documentElement).opacity, "0.8");
+
+  let media_list = document.styleSheets[0].media;
+  media_list.appendMedium(media_feature_string);
+  assert_true(media_list.mediaText.indexOf("not all") === -1);
+  media_list.mediaText = media_feature_string;
+  assert_true(media_list.mediaText.indexOf("not all") === -1);
+}
+
 // Verify that the given constant exists, and returns the expected value, and
 // is not modifiable.
 expect_constant = (constant_name, constant_value, get_value_func) => {
@@ -142,13 +159,26 @@ expect_css_supports_fails = (member_name, member_css_name, member_value, element
   assert_equals(getComputedStyle(element)[member_name], undefined);
 }
 
+expect_css_media_fails = (feature_name) => {
+  let media_feature_string = make_css_media_feature_string(feature_name);
+  assert_false(window.matchMedia(media_feature_string).matches);
+
+  assert_equals(getComputedStyle(document.documentElement).opacity, "1");
+
+  let media_list = document.styleSheets[0].media;
+  media_list.appendMedium(media_feature_string);
+  assert_true(media_list.mediaText.indexOf("not all") !== -1);
+  media_list.mediaText = media_feature_string;
+  assert_true(media_list.mediaText.indexOf("not all") !== -1);
+}
+
 // These tests verify that any gated parts of the API are not available.
 expect_failure = (skip_worker) => {
 
   test(() => {
       var testObject = internals.originTrialsTest();
       assert_idl_attribute(testObject, 'throwingAttribute');
-      assert_throws("NotSupportedError", () => { testObject.throwingAttribute; },
+      assert_throws_dom("NotSupportedError", () => { testObject.throwingAttribute; },
           'Accessing attribute should throw error');
     }, 'Accessing attribute should throw error');
 
@@ -176,6 +206,10 @@ expect_failure_css = (element) => {
       expect_css_supports_fails('originTrialTestProperty',
         'origin-trial-test-property', 'initial', element);
     }, 'CSS @supports should fail for property, with trial disabled');
+
+  test(() => {
+    expect_css_media_fails("origin-trial-test")
+  }, "CSS media feature should fail with trial disabled");
 };
 
 // These tests verify that any gated parts of the API are not available for a
@@ -217,6 +251,18 @@ expect_failure_invalid_os = (skip_worker) => {
   }
 }
 
+// These tests verify that any gated parts of the API are not available for a
+// third-party trial.
+expect_failure_third_party = (skip_worker) => {
+  test(() => {
+    expect_member_fails('thirdPartyAttribute');
+  }, 'Third-party attribute should not exist, with trial disabled');
+
+  if (!skip_worker) {
+    fetch_tests_from_worker(new Worker('resources/third-party-disabled-worker.js'));
+  }
+};
+
 // These tests verify that the API functions correctly with an enabled trial.
 expect_success = () => {
 
@@ -253,6 +299,9 @@ expect_success_css = (element, computed_style) => {
       expect_css_supports('originTrialTestProperty',
         'origin-trial-test-property', 'initial', element, computed_style);
     }, 'CSS @supports should pass for property and rules are correctly applied');
+  test(() => {
+    expect_css_media('origin-trial-test');
+  }, "CSS media feature must parse via style sheets and OM if origin trial enabled");
 };
 
 // These tests verify that the API functions correctly with a deprecation trial
@@ -285,6 +334,20 @@ expect_success_implied = (opt_description_suffix, skip_worker) => {
   if (!skip_worker) {
     fetch_tests_from_worker(new Worker('resources/implied-enabled-worker.js'));
   }
+};
+
+// These tests verify that the API functions correctly with a third-party trial
+// that is enabled.
+expect_success_third_party = () => {
+  test(() => {
+    expect_member('thirdPartyAttribute', (testObject) => {
+      return testObject.thirdPartyAttribute;
+    });
+  }, 'Third-party attribute should exist on object and return value');
+
+  // TODO(crbug.com/1083407): Implement when dedicated workers are supported for
+  // third-party trials.
+  // fetch_tests_from_worker(new Worker('resources/third-party-enabled-worker.js'));
 };
 
 // These tests should pass, regardless of the state of the trial. These are

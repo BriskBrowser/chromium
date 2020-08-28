@@ -16,9 +16,12 @@
 class MimeTypesHandler {
  public:
   // Returns list of extensions' ids that are allowed to use MIME type filters.
-  static std::vector<std::string> GetMIMETypeWhitelist();
+  static const std::vector<std::string>& GetMIMETypeAllowlist();
 
   static MimeTypesHandler* GetHandler(const extensions::Extension* extension);
+
+  // Sends a UMA stat about usage of the specific type handler.
+  static void ReportUsedHandler(const std::string& extension_id);
 
   MimeTypesHandler();
   ~MimeTypesHandler();

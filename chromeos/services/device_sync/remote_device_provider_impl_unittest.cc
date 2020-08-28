@@ -41,6 +41,7 @@ const char kTestRemoteDeviceNamePrefix[] = "name-";
 const char kTestRemoteDevicePiiFreeNamePrefix[] = "piiFreeName-";
 const char kTestRemoteDevicePublicKeyPrefix[] = "publicKey-";
 const char kTestRemoteDevicePskPrefix[] = "psk-";
+const char kTestRemoteDeviceBluetoothPublicAddressPrefix[] = "address-";
 
 multidevice::RemoteDevice CreateRemoteDeviceForTest(const std::string& suffix,
                                                     bool has_instance_id,
@@ -62,7 +63,8 @@ multidevice::RemoteDevice CreateRemoteDeviceForTest(const std::string& suffix,
       kTestRemoteDevicePskPrefix + suffix, 100L /* last_update_time_millis */,
       {} /* software_features */,
       {multidevice::BeaconSeed(beacon_seed_data, base::Time::FromJavaTime(200L),
-                               base::Time::FromJavaTime(300L))});
+                               base::Time::FromJavaTime(300L))},
+      kTestRemoteDeviceBluetoothPublicAddressPrefix + suffix);
 }
 
 // Provide four fake RemoteDevices associated with a v1 DeviceSync. These
@@ -170,7 +172,7 @@ class FakeDeviceLoader final : public RemoteDeviceLoader {
     TestRemoteDeviceLoaderFactory() = default;
     ~TestRemoteDeviceLoaderFactory() = default;
 
-    std::unique_ptr<RemoteDeviceLoader> BuildInstance(
+    std::unique_ptr<RemoteDeviceLoader> CreateInstance(
         const std::vector<cryptauth::ExternalDeviceInfo>& device_info_list,
         const std::string& user_email,
         const std::string& user_private_key,
@@ -190,22 +192,21 @@ class FakeDeviceLoader final : public RemoteDeviceLoader {
       // Fetch only the devices inserted by tests, since GetV1RemoteDevices()
       // contains all available devices.
       multidevice::RemoteDeviceList devices;
-      for (const auto remote_device : GetV1RemoteDevices()) {
+      for (const auto& remote_device : GetV1RemoteDevices()) {
         for (const auto& external_device_info : device_info_list) {
           if (remote_device.public_key == external_device_info.public_key())
             devices.push_back(remote_device);
         }
       }
-      callback_.Run(devices);
-      callback_.Reset();
+      std::move(callback_).Run(devices);
     }
 
     // Fetch is only started if the change result passed to OnSyncFinished() is
     // CHANGED and sync is SUCCESS.
     bool HasQueuedCallback() { return !callback_.is_null(); }
 
-    void QueueCallback(const RemoteDeviceCallback& callback) {
-      callback_ = callback;
+    void QueueCallback(RemoteDeviceCallback callback) {
+      callback_ = std::move(callback);
     }
 
    private:
@@ -222,8 +223,8 @@ class FakeDeviceLoader final : public RemoteDeviceLoader {
 
   TestRemoteDeviceLoaderFactory* remote_device_loader_factory_;
 
-  void Load(const RemoteDeviceCallback& callback) override {
-    remote_device_loader_factory_->QueueCallback(callback);
+  void Load(RemoteDeviceCallback callback) override {
+    remote_device_loader_factory_->QueueCallback(std::move(callback));
   }
 };
 
@@ -237,12 +238,12 @@ class DeviceSyncRemoteDeviceProviderImplTest : public ::testing::Test {
 
     fake_secure_message_delegate_factory_ =
         std::make_unique<multidevice::FakeSecureMessageDelegateFactory>();
-    multidevice::SecureMessageDelegateImpl::Factory::SetInstanceForTesting(
+    multidevice::SecureMessageDelegateImpl::Factory::SetFactoryForTesting(
         fake_secure_message_delegate_factory_.get());
 
     test_device_loader_factory_ =
         std::make_unique<FakeDeviceLoader::TestRemoteDeviceLoaderFactory>();
-    RemoteDeviceLoader::Factory::SetInstanceForTesting(
+    RemoteDeviceLoader::Factory::SetFactoryForTesting(
         test_device_loader_factory_.get());
     fake_remote_device_v2_loader_factory_ =
         std::make_unique<FakeRemoteDeviceV2LoaderFactory>();
@@ -253,9 +254,9 @@ class DeviceSyncRemoteDeviceProviderImplTest : public ::testing::Test {
   }
 
   void TearDown() override {
-    multidevice::SecureMessageDelegateImpl::Factory::SetInstanceForTesting(
+    multidevice::SecureMessageDelegateImpl::Factory::SetFactoryForTesting(
         nullptr);
-    RemoteDeviceLoader::Factory::SetInstanceForTesting(nullptr);
+    RemoteDeviceLoader::Factory::SetFactoryForTesting(nullptr);
     RemoteDeviceV2LoaderImpl::Factory::SetFactoryForTesting(nullptr);
   }
 

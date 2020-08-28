@@ -5,14 +5,15 @@
 package org.chromium.chrome.browser;
 
 import android.graphics.Bitmap;
-import android.support.test.filters.MediumTest;
-import android.support.test.filters.SmallTest;
-import android.view.KeyEvent;
 import android.view.View;
 import android.widget.ListPopupWindow;
 import android.widget.ListView;
 import android.widget.TextView;
 
+import androidx.test.filters.MediumTest;
+import androidx.test.filters.SmallTest;
+
+import org.hamcrest.Matchers;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Rule;
@@ -21,10 +22,9 @@ import org.junit.runner.RunWith;
 
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.Feature;
-import org.chromium.base.test.util.Restriction;
-import org.chromium.base.test.util.RetryOnFailure;
 import org.chromium.base.test.util.UrlUtils;
 import org.chromium.chrome.R;
+import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.chrome.test.ChromeTabbedActivityTestRule;
@@ -35,7 +35,6 @@ import org.chromium.content_public.browser.test.mock.MockNavigationController;
 import org.chromium.content_public.browser.test.util.Criteria;
 import org.chromium.content_public.browser.test.util.CriteriaHelper;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
-import org.chromium.ui.test.util.UiRestriction;
 
 import java.util.concurrent.ExecutionException;
 
@@ -43,7 +42,6 @@ import java.util.concurrent.ExecutionException;
  * Tests for the navigation popup.
  */
 @RunWith(ChromeJUnit4ClassRunner.class)
-@RetryOnFailure
 @CommandLineFlags.Add({ChromeSwitches.DISABLE_FIRST_RUN_EXPERIENCE})
 public class NavigationPopupTest {
     @Rule
@@ -56,8 +54,9 @@ public class NavigationPopupTest {
     @Before
     public void setUp() throws Exception {
         mActivityTestRule.startMainActivityOnBlankPage();
+        // TODO (https://crbug.com/1063807):  Add incognito mode tests.
         TestThreadUtils.runOnUiThreadBlocking(
-                (Runnable) () -> mProfile = Profile.getLastUsedProfile());
+                (Runnable) () -> mProfile = Profile.getLastUsedRegularProfile());
     }
 
     // Exists solely to expose protected methods to this test.
@@ -99,16 +98,11 @@ public class NavigationPopupTest {
         final TestNavigationController controller = new TestNavigationController();
         final ListPopupWindow popup = showPopup(controller);
 
-        CriteriaHelper.pollUiThread(new Criteria("All favicons did not get updated.") {
-            @Override
-            public boolean isSatisfied() {
-                NavigationHistory history = controller.mHistory;
-                for (int i = 0; i < history.getEntryCount(); i++) {
-                    if (history.getEntryAtIndex(i).getFavicon() == null) {
-                        return false;
-                    }
-                }
-                return true;
+        CriteriaHelper.pollUiThread(() -> {
+            NavigationHistory history = controller.mHistory;
+            for (int i = 0; i < history.getEntryCount(); i++) {
+                Criteria.checkThat("Favicon[" + i + "] not updated",
+                        history.getEntryAtIndex(i).getFavicon(), Matchers.notNullValue());
             }
         });
 
@@ -144,53 +138,6 @@ public class NavigationPopupTest {
             Assert.assertEquals(text.getResources().getString(R.string.show_full_history),
                     text.getText().toString());
         });
-    }
-
-    @Test
-    @MediumTest
-    @Restriction(UiRestriction.RESTRICTION_TYPE_PHONE)
-    @Feature({"Navigation"})
-    @CommandLineFlags.Add({"force-fieldtrials=GestureNavigation/Disabled",
-            "force-fieldtrial-params=GestureNavigation.Disabled:"
-                    + "overscroll_history_navigation_bottom_sheet/false"})
-    public void
-    testLongPressBackTriggering() {
-        KeyEvent event = new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BACK);
-        TestThreadUtils.runOnUiThreadBlocking(
-                () -> { mActivityTestRule.getActivity().onKeyDown(KeyEvent.KEYCODE_BACK, event); });
-        CriteriaHelper.pollUiThread(
-                () -> mActivityTestRule.getActivity().hasPendingNavigationRunnableForTesting());
-
-        // Wait for the long press timeout to trigger and show the navigation popup.
-        CriteriaHelper.pollUiThread(
-                () -> mActivityTestRule.getActivity().getNavigationPopupForTesting() != null);
-    }
-
-    @Test
-    @SmallTest
-    @Restriction(UiRestriction.RESTRICTION_TYPE_PHONE)
-    @Feature({"Navigation"})
-    @CommandLineFlags.Add({"force-fieldtrials=GestureNavigation/Disabled",
-            "force-fieldtrial-params=GestureNavigation.Disabled:"
-                    + "overscroll_history_navigation_bottom_sheet/false"})
-    public void
-    testLongPressBackTriggering_Cancellation() throws ExecutionException {
-        TestThreadUtils.runOnUiThreadBlocking(() -> {
-            KeyEvent event = new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BACK);
-            mActivityTestRule.getActivity().onKeyDown(KeyEvent.KEYCODE_BACK, event);
-        });
-        CriteriaHelper.pollUiThread(
-                () -> mActivityTestRule.getActivity().hasPendingNavigationRunnableForTesting());
-        TestThreadUtils.runOnUiThreadBlocking(() -> {
-            KeyEvent event = new KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_BACK);
-            mActivityTestRule.getActivity().onKeyUp(KeyEvent.KEYCODE_BACK, event);
-        });
-        CriteriaHelper.pollUiThread(
-                () -> !mActivityTestRule.getActivity().hasPendingNavigationRunnableForTesting());
-
-        // Ensure no navigation popup is showing.
-        Assert.assertNull(TestThreadUtils.runOnUiThreadBlocking(
-                () -> mActivityTestRule.getActivity().getNavigationPopupForTesting()));
     }
 
     private ListPopupWindow showPopup(NavigationController controller) throws ExecutionException {

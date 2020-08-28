@@ -14,11 +14,11 @@
 #include <string>
 #include <vector>
 
+#include "base/check_op.h"
 #include "base/component_export.h"
 #include "base/files/file.h"
 #include "base/files/file_path.h"
 #include "base/gtest_prod_util.h"
-#include "base/logging.h"
 #include "base/time/time.h"
 #include "mojo/public/cpp/bindings/enum_traits.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
@@ -169,6 +169,10 @@ class COMPONENT_EXPORT(NETWORK_CPP_BASE) DataElement {
   // server known to support chunked uploads.
   void SetToChunkedDataPipe(mojo::PendingRemote<mojom::ChunkedDataPipeGetter>
                                 chunked_data_pipe_getter);
+  // Almost same as above except |chunked_data_pipe_getter| is read only once
+  // and you must talk with a server supporting chunked upload.
+  void SetToReadOnceStream(mojo::PendingRemote<mojom::ChunkedDataPipeGetter>
+                               chunked_data_pipe_getter);
 
   // Takes ownership of the File, if this is of TYPE_RAW_FILE. The file is open
   // for reading (asynchronous reading on Windows).

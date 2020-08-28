@@ -11,10 +11,21 @@
    */
   export function getOrCreateDetailsProvider() {
     if (!discardsDetailsProvider) {
-      discardsDetailsProvider = discards.mojom.DetailsProvider.getRemote(
-          /*useBrowserInterfaceBroker=*/ true);
+      discardsDetailsProvider = discards.mojom.DetailsProvider.getRemote();
     }
     return discardsDetailsProvider;
+  }
+
+  let siteDataProvider;
+
+  /**
+   * @return {!discards.mojom.SiteDataProviderRemote} Provides site data info.
+   */
+  export function getOrCreateSiteDataProvider() {
+    if (!siteDataProvider) {
+      siteDataProvider = discards.mojom.SiteDataProvider.getRemote();
+    }
+    return siteDataProvider;
   }
 
   /**
@@ -22,10 +33,10 @@
    * 's' is sufficient to make a string plural.
    * @param {string} s The string to be made plural if necessary.
    * @param {number} n The count of the number of ojects.
-   * @return {string} The plural version of |s| if n != 1, otherwise |s|.
+   * @return {string} The plural version of |s| if n !== 1, otherwise |s|.
    */
   export function maybeMakePlural(s, n) {
-    return n == 1 ? s : s + 's';
+    return n === 1 ? s : s + 's';
   }
 
   /**

@@ -10,6 +10,7 @@
 #include "android_webview/common/aw_hit_test_data.h"
 #include "android_webview/common/render_view_messages.h"
 #include "base/no_destructor.h"
+#include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "components/autofill/content/renderer/autofill_agent.h"
 #include "components/autofill/content/renderer/password_autofill_agent.h"
@@ -79,7 +80,7 @@ bool RemovePrefixAndAssignIfMatches(const base::StringPiece& prefix,
                                     std::string* dest) {
   const base::StringPiece spec(url.possibly_invalid_spec());
 
-  if (spec.starts_with(prefix)) {
+  if (base::StartsWith(spec, prefix)) {
     url::RawCanonOutputW<1024> output;
     url::DecodeURLEscapeSequences(
         spec.data() + prefix.length(), spec.length() - prefix.length(),
@@ -157,7 +158,7 @@ AwRenderFrameExt::AwRenderFrameExt(content::RenderFrame* render_frame)
   autofill::PasswordAutofillAgent* password_autofill_agent =
       new autofill::PasswordAutofillAgent(render_frame, &registry_);
   new autofill::AutofillAgent(render_frame, password_autofill_agent, nullptr,
-                              &registry_);
+                              nullptr, &registry_);
   if (content_capture::features::IsContentCaptureEnabled())
     new content_capture::ContentCaptureSender(render_frame, &registry_);
 
@@ -200,7 +201,6 @@ bool AwRenderFrameExt::OnAssociatedInterfaceRequestForFrame(
 }
 
 void AwRenderFrameExt::DidCommitProvisionalLoad(
-    bool is_same_document_navigation,
     ui::PageTransition transition) {
   // Clear the cache when we cross site boundaries in the main frame.
   //
@@ -281,7 +281,7 @@ void AwRenderFrameExt::OnDoHitTest(const gfx::PointF& touch_center,
     return;
 
   const blink::WebHitTestResult result = webview->HitTestResultForTap(
-      blink::WebPoint(touch_center.x(), touch_center.y()),
+      gfx::Point(touch_center.x(), touch_center.y()),
       blink::WebSize(touch_area.width(), touch_area.height()));
   AwHitTestData data;
 
@@ -301,13 +301,18 @@ void AwRenderFrameExt::OnDoHitTest(const gfx::PointF& touch_center,
 }
 
 void AwRenderFrameExt::OnSetTextZoomFactor(float zoom_factor) {
+  // TODO(crbug.com/1085428): This will need to be set on every local root
+  // when site isolation is used in android webview.
+  DCHECK(render_frame()->IsMainFrame());
+
   blink::WebView* webview = GetWebView();
   if (!webview)
     return;
 
   // Hide selection and autofill popups.
   webview->CancelPagePopup();
-  webview->SetTextZoomFactor(zoom_factor);
+
+  render_frame()->GetWebFrame()->FrameWidget()->SetTextZoomFactor(zoom_factor);
 }
 
 void AwRenderFrameExt::OnResetScrollAndScaleState() {

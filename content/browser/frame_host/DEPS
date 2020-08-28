@@ -5,20 +5,15 @@ include_rules = [
   "-content/public/browser/web_contents.h",
   "-content/public/browser/web_contents_delegate.h",
   "-content/public/browser/web_contents_view.h",
+  "-content/public/browser/web_contents_observer.h",
 ]
 
 specific_include_rules = {
-  ".*_(unit|browser)test\.cc": [
+  ".*_(unit|browser)test\.(cc|mm)": [
     "+content/browser/web_contents",
     "+content/public/browser/web_contents.h",
     "+content/public/browser/web_contents_delegate.h",
-  ],
-  ".*interstitial_page_impl\.cc": [
-    # TODO(nasko): This should be removed once we remove
-    # WebContentsObserver as the method of telling interstitial pages to
-    # clean themselves up.
-    "+content/browser/web_contents",
-    "+content/public/browser/web_contents_delegate.h",
+    "+content/public/browser/web_contents_observer.h",
   ],
   "popup_menu_helper_mac.mm": [
     "+content/app_shim_remote_cocoa/render_widget_host_view_cocoa.h",

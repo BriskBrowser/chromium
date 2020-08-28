@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "base/callback_forward.h"
+#include "base/i18n/rtl.h"
 #include "base/macros.h"
 #include "base/observer_list.h"
 #include "base/optional.h"
@@ -22,29 +23,28 @@
 #include "components/viz/common/surfaces/scoped_surface_id_allocator.h"
 #include "components/viz/common/surfaces/surface_id.h"
 #include "components/viz/host/hit_test/hit_test_query.h"
+#include "content/browser/renderer_host/display_feature.h"
 #include "content/browser/renderer_host/event_with_latency_info.h"
 #include "content/common/content_export.h"
-#include "content/common/tab_switch_time_recorder.h"
+#include "content/common/content_to_visible_time_reporter.h"
 #include "content/public/browser/render_frame_metadata_provider.h"
 #include "content/public/browser/render_widget_host_view.h"
-#include "content/public/common/input_event_ack_state.h"
-#include "content/public/common/screen_info.h"
 #include "content/public/common/widget_type.h"
 #include "services/viz/public/mojom/hit_test/hit_test_region_list.mojom.h"
-#include "third_party/blink/public/common/screen_orientation/web_screen_orientation_type.h"
-#include "third_party/blink/public/platform/web_intrinsic_sizing_info.h"
-#include "third_party/blink/public/web/web_text_direction.h"
+#include "third_party/blink/public/mojom/frame/intrinsic_sizing_info.mojom-forward.h"
+#include "third_party/blink/public/mojom/input/input_event_result.mojom-shared.h"
+#include "third_party/blink/public/mojom/page/record_content_to_visible_time_request.mojom-forward.h"
 #include "third_party/skia/include/core/SkImageInfo.h"
 #include "ui/accessibility/ax_tree_id_registry.h"
+#include "ui/base/ime/mojom/text_input_state.mojom-forward.h"
 #include "ui/base/ime/text_input_mode.h"
 #include "ui/base/ime/text_input_type.h"
 #include "ui/display/display.h"
+#include "ui/events/event_constants.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/native_widget_types.h"
 #include "ui/gfx/range/range.h"
 #include "ui/surface/transport_dib.h"
-
-struct WidgetHostMsg_SelectionBounds_Params;
 
 namespace blink {
 class WebMouseEvent;
@@ -71,7 +71,7 @@ class TextInputManager;
 class TouchSelectionControllerClientManager;
 class WebCursor;
 class DelegatedFrameHost;
-struct TextInputState;
+struct DisplayFeature;
 
 // Basic implementation shared by concrete RenderWidgetHostView subclasses.
 class CONTENT_EXPORT RenderWidgetHostViewBase
@@ -111,7 +111,7 @@ class CONTENT_EXPORT RenderWidgetHostViewBase
       base::OnceCallback<void(const SkBitmap&)> callback) override;
   std::unique_ptr<viz::ClientFrameSinkVideoCapturer> CreateVideoCapturer()
       override;
-  void GetScreenInfo(ScreenInfo* screen_info) override;
+  void GetScreenInfo(blink::ScreenInfo* screen_info) override;
   void EnableAutoResize(const gfx::Size& min_size,
                         const gfx::Size& max_size) override;
   void DisableAutoResize(const gfx::Size& new_size) override;
@@ -119,9 +119,12 @@ class CONTENT_EXPORT RenderWidgetHostViewBase
   float GetDeviceScaleFactor() final;
   TouchSelectionControllerClientManager*
   GetTouchSelectionControllerClientManager() override;
-  void SetRecordTabSwitchTimeRequest(base::TimeTicks start_time,
-                                     bool destination_is_loaded,
-                                     bool destination_is_frozen) final;
+  void SetRecordContentToVisibleTimeRequest(
+      base::TimeTicks start_time,
+      bool destination_is_loaded,
+      bool show_reason_tab_switching,
+      bool show_reason_unoccluded,
+      bool show_reason_bfcache_restore) final;
 
   // This only needs to be overridden by RenderWidgetHostViewBase subclasses
   // that handle content embedded within other RenderWidgetHostViews.
@@ -139,7 +142,7 @@ class CONTENT_EXPORT RenderWidgetHostViewBase
       const cc::RenderFrameMetadata& metadata) override;
 
   virtual void UpdateIntrinsicSizingInfo(
-      const blink::WebIntrinsicSizingInfo& sizing_info);
+      blink::mojom::IntrinsicSizingInfoPtr sizing_info);
 
   static void CopyMainAndPopupFromSurface(
       base::WeakPtr<RenderWidgetHostImpl> main_host,
@@ -181,12 +184,13 @@ class CONTENT_EXPORT RenderWidgetHostViewBase
   virtual viz::ScopedSurfaceIdAllocator DidUpdateVisualProperties(
       const cc::RenderFrameMetadata& metadata);
 
-  // Returns the time set by SetLastRecordTabSwitchTimeRequest. If this was not
-  // preceded by a call to SetLastRecordTabSwitchTimeRequest the
-  // |tab_switch_start_time| field of the returned struct will have a null
-  // timestamp. Calling this will reset
-  // |last_tab_switch_start_state_.tab_switch_start_time| to null.
-  base::Optional<RecordTabSwitchTimeRequest> TakeRecordTabSwitchTimeRequest();
+  // Returns the time set by SetLastRecordContentToVisibleTimeRequest. If this
+  // was not preceded by a call to SetLastRecordContentToVisibleTimeRequest the
+  // |event_start_time| field of the returned struct will have a null
+  // timestamp. Calling this will reset |last_record_tab_switch_time_request_|
+  // to null.
+  blink::mojom::RecordContentToVisibleTimeRequestPtr
+  TakeRecordContentToVisibleTimeRequest();
 
   base::WeakPtr<RenderWidgetHostViewBase> GetWeakPtr();
 
@@ -221,25 +225,18 @@ class CONTENT_EXPORT RenderWidgetHostViewBase
   // the view a chance to perform in-process event filtering or processing.
   // Return values of |NOT_CONSUMED| or |UNKNOWN| will result in |input_event|
   // being forwarded.
-  virtual InputEventAckState FilterInputEvent(
+  virtual blink::mojom::InputEventResultState FilterInputEvent(
       const blink::WebInputEvent& input_event);
 
   virtual void WheelEventAck(const blink::WebMouseWheelEvent& event,
-                             InputEventAckState ack_result);
+                             blink::mojom::InputEventResultState ack_result);
 
   virtual void GestureEventAck(const blink::WebGestureEvent& event,
-                               InputEventAckState ack_result);
+                               blink::mojom::InputEventResultState ack_result);
 
-  // When key event is not uncosumed in render, browser may want to consume it.
-  virtual bool OnUnconsumedKeyboardEventAck(
-      const NativeWebKeyboardEventWithLatencyInfo& event);
-
-  // Call platform APIs for Fallback Cursor Mode.
-  virtual void FallbackCursorModeLockCursor(bool left,
-                                            bool right,
-                                            bool up,
-                                            bool down);
-  virtual void FallbackCursorModeSetCursorVisibility(bool visible);
+  virtual void ChildDidAckGestureEvent(
+      const blink::WebGestureEvent& event,
+      blink::mojom::InputEventResultState ack_result);
 
   // Create a platform specific SyntheticGestureTarget implementation that will
   // be used to inject synthetic input events.
@@ -254,7 +251,6 @@ class CONTENT_EXPORT RenderWidgetHostViewBase
       BrowserAccessibilityDelegate* delegate,
       bool for_root_frame);
 
-  virtual void AccessibilityShowMenu(const gfx::Point& point);
   virtual gfx::AcceleratedWidget AccessibilityGetAcceleratedWidget();
   virtual gfx::NativeViewAccessible AccessibilityGetNativeViewAccessible();
   virtual gfx::NativeViewAccessible
@@ -278,8 +274,9 @@ class CONTENT_EXPORT RenderWidgetHostViewBase
   // or ignored (when |ack_result| is CONSUMED).
   // |touch|'s coordinates are in the coordinate space of the view to which it
   // was targeted.
-  virtual void ProcessAckedTouchEvent(const TouchEventWithLatencyInfo& touch,
-                                      InputEventAckState ack_result);
+  virtual void ProcessAckedTouchEvent(
+      const TouchEventWithLatencyInfo& touch,
+      blink::mojom::InputEventResultState ack_result);
 
   virtual void DidOverscroll(const ui::DidOverscrollParams& params) {}
 
@@ -397,6 +394,8 @@ class CONTENT_EXPORT RenderWidgetHostViewBase
   virtual void TransferTouches(
       const std::vector<std::unique_ptr<ui::TouchEvent>>& touches) {}
 
+  virtual void SetLastPointerType(ui::EventPointerType last_pointer_type) {}
+
   //----------------------------------------------------------------------------
   // The following methods are related to IME.
   // TODO(ekaramad): Most of the IME methods should not stay virtual after IME
@@ -404,7 +403,8 @@ class CONTENT_EXPORT RenderWidgetHostViewBase
   // non-virtual (https://crbug.com/578168).
 
   // Updates the state of the input method attached to the view.
-  virtual void TextInputStateChanged(const TextInputState& text_input_state);
+  virtual void TextInputStateChanged(
+      const ui::mojom::TextInputState& text_input_state);
 
   // Cancel the ongoing composition of the input method attached to the view.
   virtual void ImeCancelComposition();
@@ -415,8 +415,11 @@ class CONTENT_EXPORT RenderWidgetHostViewBase
   // starting position of the selection. The coordinates are with respect to
   // RenderWidget's window's origin. Focus and anchor bound are represented as
   // gfx::Rect.
-  virtual void SelectionBoundsChanged(
-      const WidgetHostMsg_SelectionBounds_Params& params);
+  virtual void SelectionBoundsChanged(const gfx::Rect& anchor_rect,
+                                      base::i18n::TextDirection anchor_dir,
+                                      const gfx::Rect& focus_rect,
+                                      base::i18n::TextDirection focus_dir,
+                                      bool is_anchor_first);
 
   // Updates the range of the marked text in an IME composition.
   virtual void ImeCompositionRangeChanged(
@@ -483,6 +486,13 @@ class CONTENT_EXPORT RenderWidgetHostViewBase
 
   virtual void OnAutoscrollStart();
 
+  // Gets the DisplayFeature whose offset and mask_length are expressed in DIPs
+  // relative to the view. See display_feature.h for more details.
+  virtual const DisplayFeature* GetDisplayFeature();
+
+  void SetDisplayFeatureForTesting(
+      base::Optional<DisplayFeature> display_feature);
+
   // Returns the associated RenderWidgetHostImpl.
   RenderWidgetHostImpl* host() const { return host_; }
 
@@ -529,6 +539,10 @@ class CONTENT_EXPORT RenderWidgetHostViewBase
   void reset_is_evicted() { is_evicted_ = false; }
   bool is_evicted() { return is_evicted_; }
 
+  bool is_drawing_delegated_ink_trails() const {
+    return is_drawing_delegated_ink_trails_;
+  }
+
  protected:
   explicit RenderWidgetHostViewBase(RenderWidgetHost* host);
 
@@ -547,15 +561,16 @@ class CONTENT_EXPORT RenderWidgetHostViewBase
 
   // Stops flinging if a GSU event with momentum phase is sent to the renderer
   // but not consumed.
-  virtual void StopFlingingIfNecessary(const blink::WebGestureEvent& event,
-                                       InputEventAckState ack_result);
+  virtual void StopFlingingIfNecessary(
+      const blink::WebGestureEvent& event,
+      blink::mojom::InputEventResultState ack_result);
 
   // If |event| is a touchpad pinch or double tap event for which we've sent a
   // synthetic wheel event, forward the |event| to the renderer, subject to
   // |ack_result| which is the ACK result of the synthetic wheel.
   virtual void ForwardTouchpadZoomEventIfNecessary(
       const blink::WebGestureEvent& event,
-      InputEventAckState ack_result);
+      blink::mojom::InputEventResultState ack_result);
 
   virtual bool HasFallbackSurface() const;
 
@@ -580,7 +595,7 @@ class CONTENT_EXPORT RenderWidgetHostViewBase
   float current_device_scale_factor_ = 0;
 
   // The color space of the display the renderer is currently on.
-  gfx::ColorSpace current_display_color_space_;
+  gfx::DisplayColorSpaces current_display_color_spaces_;
 
   // The orientation of the display the renderer is currently on.
   display::Display::Rotation current_display_rotation_ =
@@ -601,6 +616,11 @@ class CONTENT_EXPORT RenderWidgetHostViewBase
 
   bool is_currently_scrolling_viewport_ = false;
 
+  // TODO(crbug.com/1039050) Remove this member that is set for testing once
+  // support for returning the actual DisplayFeature is added to the platform
+  // specific RenderWidgetHostView.
+  base::Optional<DisplayFeature> display_feature_;
+
  private:
   FRIEND_TEST_ALL_PREFIXES(
       BrowserSideFlingBrowserTest,
@@ -608,6 +628,13 @@ class CONTENT_EXPORT RenderWidgetHostViewBase
   FRIEND_TEST_ALL_PREFIXES(
       BrowserSideFlingBrowserTest,
       EarlyTouchpadFlingCancelationOnInertialGSUAckNotConsumed);
+  FRIEND_TEST_ALL_PREFIXES(RenderWidgetHostDelegatedInkMetadataTest,
+                           FlagGetsSetFromRenderFrameMetadata);
+  FRIEND_TEST_ALL_PREFIXES(RenderWidgetHostInputEventRouterTest,
+                           QueryResultAfterChildViewDead);
+  FRIEND_TEST_ALL_PREFIXES(DelegatedInkPointTest, EventForwardedToCompositor);
+  FRIEND_TEST_ALL_PREFIXES(DelegatedInkPointTest,
+                           MojoInterfaceReboundOnDisconnect);
 
   void SynchronizeVisualProperties();
 
@@ -629,6 +656,10 @@ class CONTENT_EXPORT RenderWidgetHostViewBase
     return view_stopped_flinging_for_test_;
   }
 
+  void SetIsDrawingDelegatedInkTrailsForTest(bool b) {
+    is_drawing_delegated_ink_trails_ = b;
+  }
+
   gfx::Rect current_display_area_;
 
   uint32_t renderer_frame_number_ = 0;
@@ -638,15 +669,21 @@ class CONTENT_EXPORT RenderWidgetHostViewBase
   base::Optional<blink::WebGestureEvent> pending_touchpad_pinch_begin_;
 
   // The last tab switch processing start request. This should only be set and
-  // retrieved using SetRecordTabSwitchTimeRequest and
-  // TakeRecordTabSwitchTimeRequest.
-  base::Optional<RecordTabSwitchTimeRequest>
+  // retrieved using SetRecordContentToVisibleTimeRequest and
+  // TakeRecordContentToVisibleTimeRequest.
+  blink::mojom::RecordContentToVisibleTimeRequestPtr
       last_record_tab_switch_time_request_;
 
   // True when StopFlingingIfNecessary() calls StopFling().
   bool view_stopped_flinging_for_test_ = false;
 
   bool is_evicted_ = false;
+
+  // True when points should be forwarded from the
+  // RenderWidgetHostViewEventHandler directly to viz for use in a delegated
+  // ink trail.
+  // TODO(1052145): Use this to begin forwarding the points to viz.
+  bool is_drawing_delegated_ink_trails_ = false;
 
   base::WeakPtrFactory<RenderWidgetHostViewBase> weak_factory_{this};
 

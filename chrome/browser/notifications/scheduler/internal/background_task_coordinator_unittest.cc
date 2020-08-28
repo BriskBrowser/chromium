@@ -34,21 +34,36 @@ const char kDeliverTimeWindowEnd[] = "04/25/1984 08:50:00 AM";
 const char kTommorow[] = "04/26/1984 00:00:00 AM";
 
 const char kGuid[] = "1234";
-const std::vector<test::ImpressionTestData> kSingleClientImpressionTestData = {
-    {SchedulerClientType::kTest1,
-     1 /* current_max_daily_show */,
-     {},
-     base::nullopt /* suppression_info */}};
+const std::vector<test::ImpressionTestData> kSingleClientImpressionTestData = {{
+    SchedulerClientType::kTest1,
+    1 /* current_max_daily_show */,
+    {} /* impressions */,
+    base::nullopt /* suppression_info */,
+    0 /* negative_events_count */,
+    base::nullopt /* negative_event_ts */,
+    base::nullopt /* last_shown_ts */
+}
+
+};
 
 const std::vector<test::ImpressionTestData> kClientsImpressionTestData = {
     {SchedulerClientType::kTest1,
      1 /* current_max_daily_show */,
-     {},
-     base::nullopt /* suppression_info */},
-    {SchedulerClientType::kTest2,
-     2 /* current_max_daily_show */,
-     {},
-     base::nullopt /* suppression_info */}};
+     {} /* impressions */,
+     base::nullopt /* suppression_info */,
+     0 /* negative_events_count */,
+     base::nullopt /* negative_event_ts */,
+     base::nullopt /* last_shown_ts */},
+    {
+        SchedulerClientType::kTest2,
+        2 /* current_max_daily_show */,
+        {} /* impressions */,
+        base::nullopt /* suppression_info */,
+        0 /* negative_events_count */,
+        base::nullopt /* negative_event_ts */,
+        base::nullopt /* last_shown_ts */,
+
+    }};
 
 struct TestData {
   // Impression data as the input.
@@ -61,6 +76,9 @@ struct TestData {
 class BackgroundTaskCoordinatorTest : public testing::Test {
  public:
   BackgroundTaskCoordinatorTest() = default;
+  BackgroundTaskCoordinatorTest(const BackgroundTaskCoordinatorTest&) = delete;
+  BackgroundTaskCoordinatorTest& operator=(
+      const BackgroundTaskCoordinatorTest&) = delete;
   ~BackgroundTaskCoordinatorTest() override = default;
 
  protected:
@@ -123,8 +141,6 @@ class BackgroundTaskCoordinatorTest : public testing::Test {
   test::MockNotificationBackgroundTaskScheduler* background_task_;
   TestData test_data_;
   std::map<SchedulerClientType, std::unique_ptr<ClientState>> client_states_;
-
-  DISALLOW_COPY_AND_ASSIGN(BackgroundTaskCoordinatorTest);
 };
 
 // No notification persisted, then no background task needs to be scheduled.

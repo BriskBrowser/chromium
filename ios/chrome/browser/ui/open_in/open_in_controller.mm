@@ -4,22 +4,27 @@
 
 #import "ios/chrome/browser/ui/open_in/open_in_controller.h"
 
+#import <QuickLook/QuickLook.h>
+
 #include "base/bind.h"
 #include "base/files/file_path.h"
 #include "base/location.h"
 #include "base/logging.h"
 #include "base/mac/scoped_cftyperef.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/metrics/user_metrics.h"
+#include "base/metrics/user_metrics_action.h"
 #include "base/sequenced_task_runner.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
 #include "base/threading/scoped_blocking_call.h"
 #include "components/strings/grit/components_strings.h"
 #import "ios/chrome/browser/ui/alert_coordinator/alert_coordinator.h"
 #import "ios/chrome/browser/ui/open_in/open_in_controller_testing.h"
 #include "ios/chrome/browser/ui/util/ui_util.h"
 #import "ios/chrome/browser/ui/util/uikit_ui_util.h"
-#import "ios/chrome/common/ui_util/constraints_ui_util.h"
+#import "ios/chrome/common/ui/util/constraints_ui_util.h"
 #include "ios/chrome/grit/ios_strings.h"
 #include "ios/web/public/thread/web_thread.h"
 #import "ios/web/public/ui/crw_web_view_proxy.h"
@@ -68,13 +73,19 @@ void LogOpenInDownloadResult(const OpenInDownloadResult result) {
   UMA_HISTOGRAM_ENUMERATION("IOS.OpenIn.DownloadResult", result);
 }
 
-// Returns true if the file located at |url| is a valid PDF file.
-bool HasValidPdfAtUrl(NSURL* _Nullable url) {
+// Returns true if the file located at |url| is file.
+bool HasValidFileAtUrl(NSURL* _Nullable url) {
   if (!url)
     return false;
-  base::ScopedCFTypeRef<CGPDFDocumentRef> document(
-      CGPDFDocumentCreateWithURL((__bridge CFURLRef)url));
-  return document;
+
+  NSString* extension = [[url path] pathExtension];
+  if ([extension isEqualToString:@"pdf"]) {
+    base::ScopedCFTypeRef<CGPDFDocumentRef> document(
+        CGPDFDocumentCreateWithURL((__bridge CFURLRef)url));
+    return document;
+  }
+
+  return [QLPreviewController canPreviewItem:url];
 }
 
 }  // anonymous namespace
@@ -221,6 +232,7 @@ class OpenInControllerBridge
 }
 
 @synthesize baseView = _baseView;
+@synthesize browser = _browser;
 @synthesize previousScrollViewOffset = _previousScrollViewOffset;
 
 - (id)initWithURLLoaderFactory:
@@ -234,9 +246,8 @@ class OpenInControllerBridge
         initWithTarget:self
                 action:@selector(handleTapFrom:)];
     [_tapRecognizer setDelegate:self];
-    _sequencedTaskRunner =
-        base::CreateSequencedTaskRunner({base::ThreadPool(), base::MayBlock(),
-                                         base::TaskPriority::BEST_EFFORT});
+    _sequencedTaskRunner = base::ThreadPool::CreateSequencedTaskRunner(
+        {base::MayBlock(), base::TaskPriority::BEST_EFFORT});
     _isOpenInMenuDisplayed = NO;
     _previousScrollViewOffset = 0;
   }
@@ -338,6 +349,9 @@ class OpenInControllerBridge
 - (void)exportFileWithOpenInMenuAnchoredAt:(UIView*)view {
   DCHECK([view isKindOfClass:[UIView class]]);
   DCHECK_CURRENTLY_ON(web::WebThread::UI);
+
+  base::RecordAction(base::UserMetricsAction("IOS.OpenIn"));
+
   if (!_webState)
     return;
 
@@ -351,13 +365,13 @@ class OpenInControllerBridge
   // first task needs to be done on the worker pool and returns a BOOL which is
   // then used in the second function, |OnDestinationDirectoryCreated|, which
   // runs on the UI thread.
-  base::Callback<BOOL(void)> task = base::Bind(
+  base::OnceCallback<BOOL(void)> task = base::BindOnce(
       &OpenInControllerBridge::CreateDestinationDirectoryAndRemoveObsoleteFiles,
       _bridge);
-  base::Callback<void(BOOL)> reply = base::Bind(
+  base::OnceCallback<void(BOOL)> reply = base::BindOnce(
       &OpenInControllerBridge::OnDestinationDirectoryCreated, _bridge);
-  base::PostTaskAndReplyWithResult(_sequencedTaskRunner.get(), FROM_HERE, task,
-                                   reply);
+  base::PostTaskAndReplyWithResult(_sequencedTaskRunner.get(), FROM_HERE,
+                                   std::move(task), std::move(reply));
 }
 
 - (void)startDownload {
@@ -424,6 +438,7 @@ class OpenInControllerBridge
 
   _alertCoordinator =
       [[AlertCoordinator alloc] initWithBaseViewController:topViewController
+                                                   browser:_browser
                                                      title:nil
                                                    message:message];
 
@@ -438,12 +453,8 @@ class OpenInControllerBridge
   if (!_webState)
     return;
 
-  if (!_documentController) {
-    // If this is called from a unit test, |documentController_| was set
-    // already.
-    _documentController =
-        [UIDocumentInteractionController interactionControllerWithURL:fileURL];
-  }
+  _documentController =
+      [UIDocumentInteractionController interactionControllerWithURL:fileURL];
 
   // TODO(cgrigoruta): The UTI is hardcoded for now, change this when we add
   // support for other file types as well.
@@ -605,7 +616,7 @@ class OpenInControllerBridge
   NSURL* fileURL = nil;
   if (!filePath.empty())
     fileURL = [NSURL fileURLWithPath:base::SysUTF8ToNSString(filePath.value())];
-  if (!_downloadCanceled && HasValidPdfAtUrl(fileURL)) {
+  if (!_downloadCanceled && HasValidFileAtUrl(fileURL)) {
     LogOpenInDownloadResult(OpenInDownloadResult::kSucceeded);
     [self presentOpenInMenuForFileAtURL:fileURL];
     return;
@@ -698,11 +709,6 @@ class OpenInControllerBridge
 }
 
 #pragma mark - TestingAditions
-
-- (void)setDocumentInteractionController:
-    (UIDocumentInteractionController*)controller {
-  _documentController = controller;
-}
 
 - (NSString*)suggestedFilename {
   return _suggestedFilename;

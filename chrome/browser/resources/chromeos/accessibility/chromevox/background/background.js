@@ -12,152 +12,196 @@ goog.provide('Background');
 goog.require('AutomationPredicate');
 goog.require('AutomationUtil');
 goog.require('BackgroundKeyboardHandler');
-goog.require('BackgroundMouseHandler');
 goog.require('BrailleCommandData');
 goog.require('BrailleCommandHandler');
+goog.require('BrailleKeyCommand');
+goog.require('ChromeVoxBackground');
+goog.require('ChromeVoxEditableTextBase');
 goog.require('ChromeVoxState');
 goog.require('CommandHandler');
 goog.require('DesktopAutomationHandler');
 goog.require('DownloadHandler');
+goog.require('ExtensionBridge');
 goog.require('FindHandler');
+goog.require('FocusAutomationHandler');
 goog.require('GestureCommandHandler');
-goog.require('LanguageSwitching');
 goog.require('LiveRegions');
+goog.require('LocaleOutputHelper');
 goog.require('MathHandler');
 goog.require('MediaAutomationHandler');
+goog.require('NavBraille');
 goog.require('NextEarcons');
+goog.require('NodeIdentifier');
 goog.require('Notifications');
 goog.require('Output');
 goog.require('Output.EventType');
 goog.require('PanelCommand');
 goog.require('PhoneticData');
-goog.require('FocusAutomationHandler');
 goog.require('RangeAutomationHandler');
+goog.require('UserAnnotationHandler');
 goog.require('constants');
 goog.require('cursors.Cursor');
-goog.require('BrailleKeyCommand');
-goog.require('ChromeVoxBackground');
-goog.require('ChromeVoxEditableTextBase');
-goog.require('ExtensionBridge');
-goog.require('NavBraille');
+
 
 goog.scope(function() {
-var AutomationNode = chrome.automation.AutomationNode;
-var Dir = constants.Dir;
-var EventType = chrome.automation.EventType;
-var RoleType = chrome.automation.RoleType;
-var StateType = chrome.automation.StateType;
+const AutomationNode = chrome.automation.AutomationNode;
+const Dir = constants.Dir;
+const EventType = chrome.automation.EventType;
+const RoleType = chrome.automation.RoleType;
+const StateType = chrome.automation.StateType;
 
 /**
  * ChromeVox2 background page.
- * @constructor
- * @extends {ChromeVoxState}
  */
-Background = function() {
-  ChromeVoxState.call(this);
+Background = class extends ChromeVoxState {
+  constructor() {
+    super();
 
-  /**
-   * A list of site substring patterns to use with ChromeVox next. Keep these
-   * strings relatively specific.
-   * @type {!Array<string>}
-   * @private
-   */
-  this.whitelist_ = ['chromevox_next_test'];
+    // Initialize legacy background page first.
+    ChromeVoxBackground.init();
+    LocaleOutputHelper.init();
 
-  /**
-   * @type {cursors.Range}
-   * @private
-   */
-  this.currentRange_ = null;
+    /**
+     * @type {cursors.Range}
+     * @private
+     */
+    this.currentRange_ = null;
 
-  // Manually bind all functions to |this|.
-  for (var func in this) {
-    if (typeof (this[func]) == 'function') {
-      this[func] = this[func].bind(this);
-    }
+    /** @type {!AbstractEarcons} @private */
+    this.nextEarcons_ = new NextEarcons();
+
+    // Read-only earcons.
+    Object.defineProperty(ChromeVox, 'earcons', {
+      get: (function() {
+             return this.nextEarcons_;
+           }).bind(this)
+    });
+
+    Object.defineProperty(ChromeVox, 'modKeyStr', {
+      get() {
+        return 'Search';
+      }
+    });
+
+    Object.defineProperty(ChromeVox, 'typingEcho', {
+      get() {
+        return parseInt(localStorage['typingEcho'], 10);
+      },
+      set(v) {
+        localStorage['typingEcho'] = v;
+      }
+    });
+
+    Object.defineProperty(ChromeVox, 'typingEcho', {
+      get() {
+        const typingEcho = parseInt(localStorage['typingEcho'], 10) || 0;
+        return typingEcho;
+      },
+      set(value) {
+        localStorage['typingEcho'] = value;
+      }
+    });
+
+    ExtensionBridge.addMessageListener(this.onMessage_);
+
+    /** @type {!BackgroundKeyboardHandler} @private */
+    this.keyboardHandler_ = new BackgroundKeyboardHandler();
+
+    /** @type {!LiveRegions} @private */
+    this.liveRegions_ = new LiveRegions(this);
+
+    document.addEventListener('copy', this.onClipboardEvent_);
+    document.addEventListener('cut', this.onClipboardEvent_);
+    document.addEventListener('paste', this.onClipboardEvent_);
+
+    /** @private {boolean} */
+    this.preventPasteOutput_ = false;
+
+    /**
+     * Maps a non-desktop root automation node to a range position suitable for
+     *     restoration.
+     * @type {WeakMap<AutomationNode, cursors.Range>}
+     * @private
+     */
+    this.focusRecoveryMap_ = new WeakMap();
+
+    /** @private {cursors.Range} */
+    this.pageSel_;
+
+    /** @type {boolean} */
+    this.talkBackEnabled = false;
+
+    // Initialize various handlers for automation.
+    DesktopAutomationHandler.init();
+    /** @private {!RangeAutomationHandler} */
+    this.rangeAutomationHandler_ = new RangeAutomationHandler();
+    /** @private {!FocusAutomationHandler} */
+    this.focusAutomationHandler_ = new FocusAutomationHandler();
+    /** @private {!MediaAutomationHandler} */
+    this.mediaAutomationHandler_ = new MediaAutomationHandler();
+
+    CommandHandler.init();
+    FindHandler.init();
+    DownloadHandler.init();
+    PhoneticData.init();
+    UserAnnotationHandler.init();
+
+    Notifications.onStartup();
+
+    chrome.accessibilityPrivate.onAnnounceForAccessibility.addListener(
+        (announceText) => {
+          ChromeVox.tts.speak(announceText.join(' '), QueueMode.FLUSH);
+        });
+    chrome.accessibilityPrivate.onCustomSpokenFeedbackToggled.addListener(
+        (enabled) => {
+          this.talkBackEnabled = enabled;
+        });
+
+    // Set the darkScreen state to false, since the display will be on whenever
+    // ChromeVox starts.
+    sessionStorage.setItem('darkScreen', 'false');
+
+    // A self-contained class to start and stop progress sounds before any
+    // speech has been generated on startup. This is important in cases where
+    // speech is severely delayed.
+    /** @implements {TtsCapturingEventListener} */
+    const ProgressPlayer = class {
+      constructor() {
+        ChromeVox.tts.addCapturingEventListener(this);
+        ChromeVox.earcons.playEarcon(Earcon.CHROMEVOX_LOADING);
+      }
+
+      /** @override */
+      onTtsStart() {
+        ChromeVox.earcons.playEarcon(Earcon.CHROMEVOX_LOADED);
+        ChromeVox.tts.removeCapturingEventListener(this);
+      }
+
+      /** @override */
+      onTtsEnd() {}
+      /** @override */
+      onTtsInterrupted() {}
+    };
+    new ProgressPlayer();
+
+    chrome.commandLinePrivate.hasSwitch(
+        'enable-experimental-accessibility-chromevox-tutorial', (enabled) => {
+          if (!enabled) {
+            return;
+          }
+
+          chrome.loginState.getSessionState((sessionState) => {
+            // If starting ChromeVox from OOBE, start the ChromeVox tutorial.
+            // Use a timeout to allow ChromeVox to initialize first.
+            if (sessionState ===
+                chrome.loginState.SessionState.IN_OOBE_SCREEN) {
+              setTimeout(() => {
+                (new PanelCommand(PanelCommandType.TUTORIAL)).send();
+              }, 1000);
+            }
+          });
+        });
   }
-
-  /** @type {!AbstractEarcons} @private */
-  this.nextEarcons_ = new NextEarcons();
-
-  // Read-only earcons.
-  Object.defineProperty(ChromeVox, 'earcons', {
-    get: (function() {
-           return this.nextEarcons_;
-         }).bind(this)
-  });
-
-  Object.defineProperty(ChromeVox, 'modKeyStr', {
-    get() {
-      return 'Search';
-    }
-  });
-
-  Object.defineProperty(ChromeVox, 'typingEcho', {
-    get() {
-      return parseInt(localStorage['typingEcho'], 10);
-    },
-    set(v) {
-      localStorage['typingEcho'] = v;
-    }
-  });
-
-  Object.defineProperty(ChromeVox, 'typingEcho', {
-    get() {
-      var typingEcho = parseInt(localStorage['typingEcho'], 10) || 0;
-      return typingEcho;
-    },
-    set(value) {
-      localStorage['typingEcho'] = value;
-    }
-  });
-
-  ExtensionBridge.addMessageListener(this.onMessage_);
-
-  /** @type {!BackgroundKeyboardHandler} @private */
-  this.keyboardHandler_ = new BackgroundKeyboardHandler();
-
-  /** @type {!BackgroundMouseHandler} @private */
-  this.mouseHandler_ = new BackgroundMouseHandler();
-
-  if (localStorage['speakTextUnderMouse'] == String(true)) {
-    chrome.accessibilityPrivate.enableChromeVoxMouseEvents(true);
-  }
-
-  /** @type {!LiveRegions} @private */
-  this.liveRegions_ = new LiveRegions(this);
-
-  document.addEventListener('copy', this.onClipboardEvent_);
-  document.addEventListener('cut', this.onClipboardEvent_);
-  document.addEventListener('paste', this.onClipboardEvent_);
-
-  /** @private {boolean} */
-  this.preventPasteOutput_ = false;
-
-  /**
-   * Maps a non-desktop root automation node to a range position suitable for
-   *     restoration.
-   * @type {WeakMap<AutomationNode, cursors.Range>}
-   * @private
-   */
-  this.focusRecoveryMap_ = new WeakMap();
-
-  CommandHandler.init();
-  FindHandler.init();
-  DownloadHandler.init();
-  LanguageSwitching.init();
-  PhoneticData.init();
-
-  Notifications.onStartup();
-
-  chrome.accessibilityPrivate.onAnnounceForAccessibility.addListener(
-      (announceText) => {
-        ChromeVox.tts.speak(announceText.join(' '), QueueMode.FLUSH);
-      });
-};
-
-Background.prototype = {
-  __proto__: ChromeVoxState.prototype,
 
   /**
    * Maps the last node with range in a given root.
@@ -165,7 +209,7 @@ Background.prototype = {
    */
   get focusRecoveryMap() {
     return this.focusRecoveryMap_;
-  },
+  }
 
   /**
    * @override
@@ -175,14 +219,14 @@ Background.prototype = {
       return this.currentRange_;
     }
     return null;
-  },
+  }
 
   /**
    * @override
    */
   getCurrentRangeWithoutRecovery() {
     return this.currentRange_;
-  },
+  }
 
   /**
    * @override
@@ -207,34 +251,34 @@ Background.prototype = {
       return;
     }
 
-    var start = this.currentRange_.start.node;
+    const start = this.currentRange_.start.node;
     start.makeVisible();
+    start.setAccessibilityFocus();
 
-    var root = AutomationUtil.getTopLevelRoot(start);
+    const root = AutomationUtil.getTopLevelRoot(start);
     if (!root || root.role == RoleType.DESKTOP || root == start) {
       return;
     }
 
-    var position = {};
-    var loc = start.unclippedLocation;
+    const position = {};
+    const loc = start.unclippedLocation;
     position.x = loc.left + loc.width / 2;
     position.y = loc.top + loc.height / 2;
-    var url = root.docUrl;
+    let url = root.docUrl;
     url = url.substring(0, url.indexOf('#')) || url;
     ChromeVox.position[url] = position;
-  },
+  }
 
   /**
    * @override
    */
-  navigateToRange(range, opt_focus, opt_speechProps, opt_skipSettingSelection) {
+  navigateToRange(range, opt_focus, opt_speechProps, opt_shouldSetSelection) {
     opt_focus = opt_focus === undefined ? true : opt_focus;
     opt_speechProps = opt_speechProps || {};
-    opt_skipSettingSelection = opt_skipSettingSelection || false;
-    var prevRange = this.currentRange_;
+    const prevRange = this.currentRange_;
 
     // Specialization for math output.
-    var skipOutput = false;
+    let skipOutput = false;
     if (MathHandler.init(range)) {
       skipOutput = MathHandler.instance.speak();
       opt_focus = false;
@@ -246,22 +290,21 @@ Background.prototype = {
 
     this.setCurrentRange(range);
 
-    var o = new Output();
-    var selectedRange;
-    var msg;
+    const o = new Output();
+    let selectedRange;
+    let msg;
 
-    if (this.pageSel_ && this.pageSel_.isValid() && range.isValid() &&
-        !opt_skipSettingSelection) {
+    if (this.pageSel_ && this.pageSel_.isValid() && range.isValid()) {
       // Suppress hints.
       o.withoutHints();
 
       // Selection across roots isn't supported.
-      var pageRootStart = this.pageSel_.start.node.root;
-      var pageRootEnd = this.pageSel_.end.node.root;
-      var curRootStart = range.start.node.root;
-      var curRootEnd = range.end.node.root;
+      const pageRootStart = this.pageSel_.start.node.root;
+      const pageRootEnd = this.pageSel_.end.node.root;
+      const curRootStart = range.start.node.root;
+      const curRootEnd = range.end.node.root;
 
-      // Disallow crossing over the start of the page selection and roots.
+      // Deny crossing over the start of the page selection and roots.
       if (pageRootStart != pageRootEnd || pageRootStart != curRootStart ||
           pageRootEnd != curRootEnd) {
         o.format('@end_selection');
@@ -275,7 +318,7 @@ Background.prototype = {
         // selections. It is important to keep track of the directedness in
         // places, but when comparing to other ranges, take the undirected
         // range.
-        var dir = this.pageSel_.normalize().compare(range);
+        const dir = this.pageSel_.normalize().compare(range);
 
         if (dir) {
           // Directed expansion.
@@ -285,7 +328,7 @@ Background.prototype = {
           msg = '@unselected';
           selectedRange = prevRange;
         }
-        var wasBackwardSel =
+        const wasBackwardSel =
             this.pageSel_.start.compare(this.pageSel_.end) == Dir.BACKWARD ||
             dir == Dir.BACKWARD;
         this.pageSel_ = new cursors.Range(
@@ -294,9 +337,9 @@ Background.prototype = {
           this.pageSel_.select();
         }
       }
-    } else if (!opt_skipSettingSelection) {
+    } else if (opt_shouldSetSelection) {
       // Ensure we don't select the editable when we first encounter it.
-      var lca = null;
+      let lca = null;
       if (range.start.node && prevRange.start.node) {
         lca = AutomationUtil.getLeastCommonAncestor(
             prevRange.start.node, range.start.node);
@@ -319,22 +362,22 @@ Background.prototype = {
     if (!skipOutput) {
       o.go();
     }
-  },
+  }
 
   /**
    * Open the options page in a new tab.
    */
   showOptionsPage() {
-    var optionsPage = {url: 'background/options/options.html'};
+    const optionsPage = {url: '/chromevox/options/options.html'};
     chrome.tabs.create(optionsPage);
-  },
+  }
 
   /**
    * @override
    */
   onBrailleKeyEvent(evt, content) {
     return BrailleCommandHandler.onBrailleKeyEvent(evt, content);
-  },
+  }
 
   /**
    * @param {Object} msg A message sent from a content script.
@@ -342,16 +385,15 @@ Background.prototype = {
    * @private
    */
   onMessage_(msg, port) {
-    var target = msg['target'];
-    var action = msg['action'];
+    const target = msg['target'];
+    const action = msg['action'];
 
     switch (target) {
       case 'next':
         if (action == 'getIsClassicEnabled') {
-          var url = msg['url'];
-          var isClassicEnabled = false;
-          port.postMessage(
-              {target: 'next', isClassicEnabled: isClassicEnabled});
+          const url = msg['url'];
+          const isClassicEnabled = false;
+          port.postMessage({target: 'next', isClassicEnabled});
         } else if (action == 'onCommand') {
           CommandHandler.onCommand(msg['command']);
         } else if (action == 'flushNextUtterance') {
@@ -359,7 +401,7 @@ Background.prototype = {
         }
         break;
     }
-  },
+  }
 
   /**
    * @override
@@ -369,24 +411,24 @@ Background.prototype = {
       return;
     }
 
-    var root = AutomationUtil.getTopLevelRoot(this.currentRange.start.node);
+    const root = AutomationUtil.getTopLevelRoot(this.currentRange.start.node);
     if (root) {
       this.focusRecoveryMap_.set(root, this.currentRange);
     }
-  },
+  }
 
   /**
    * Detects various clipboard events and provides spoken output.
    *
    * Note that paste is explicitly skipped sometimes because during a copy or
    * cut, the copied or cut text is retrieved by pasting into a fake text
-   * area. To prevent this from triggering paste output, this staste is tracked
-   * via a field.
+   * area. To prevent this from triggering paste output, this staste is
+   * tracked via a field.
    * @param {!Event} evt
    * @private
    */
   onClipboardEvent_(evt) {
-    var text = '';
+    let text = '';
     if (evt.type == 'paste') {
       if (this.preventPasteOutput_) {
         this.preventPasteOutput_ = false;
@@ -396,17 +438,17 @@ Background.prototype = {
       ChromeVox.tts.speak(Msgs.getMsg(evt.type, [text]), QueueMode.QUEUE);
     } else if (evt.type == 'copy' || evt.type == 'cut') {
       this.preventPasteOutput_ = true;
-      var textarea = document.createElement('textarea');
+      const textarea = document.createElement('textarea');
       document.body.appendChild(textarea);
       textarea.focus();
       document.execCommand('paste');
-      var clipboardContent = textarea.value;
+      const clipboardContent = textarea.value;
       textarea.remove();
       ChromeVox.tts.speak(
           Msgs.getMsg(evt.type, [clipboardContent]), QueueMode.FLUSH);
       ChromeVoxState.instance.pageSel_ = null;
     }
-  },
+  }
 
   /** @private */
   setCurrentRangeToFocus_() {
@@ -417,7 +459,7 @@ Background.prototype = {
         this.setCurrentRange(null);
       }
     }.bind(this));
-  },
+  }
 
   /**
    * @param {!cursors.Range} range
@@ -425,18 +467,18 @@ Background.prototype = {
    * @private
    */
   setFocusToRange_(range, prevRange) {
-    var start = range.start.node;
-    var end = range.end.node;
+    const start = range.start.node;
+    const end = range.end.node;
 
     // First, see if we've crossed a root. Remove once webview handles focus
     // correctly.
     if (prevRange && prevRange.start.node && start) {
-      var entered =
+      const entered =
           AutomationUtil.getUniqueAncestors(prevRange.start.node, start);
 
       entered
           .filter((f) => {
-            return f.role == RoleType.EMBEDDED_OBJECT ||
+            return f.role == RoleType.PLUGIN_OBJECT ||
                 f.role == RoleType.IFRAME;
           })
           .forEach((container) => {
@@ -450,7 +492,7 @@ Background.prototype = {
       return;
     }
 
-    var isFocusableLinkOrControl = function(node) {
+    const isFocusableLinkOrControl = function(node) {
       return node.state[StateType.FOCUSABLE] &&
           AutomationPredicate.linkOrControl(node);
     };
@@ -472,7 +514,7 @@ Background.prototype = {
     }
 
     // If a common ancestor of |start| and |end| is a link, focus that.
-    var ancestor = AutomationUtil.getLeastCommonAncestor(start, end);
+    let ancestor = AutomationUtil.getLeastCommonAncestor(start, end);
     while (ancestor && ancestor.root == start.root) {
       if (isFocusableLinkOrControl(ancestor)) {
         if (!ancestor.state[StateType.FOCUSED]) {
@@ -489,28 +531,41 @@ Background.prototype = {
     if (!start.state[StateType.OFFSCREEN]) {
       start.setSequentialFocusNavigationStartingPoint();
     }
-  },
+  }
+
+  /**
+   * Converts a list of globs, as used in the extension manifest, to a regular
+   * expression that matches if and only if any of the globs in the list
+   * matches.
+   * @param {!Array<string>} globs
+   * @return {!RegExp}
+   * @private
+   */
+  static globsToRegExp_(globs) {
+    return new RegExp(
+        '^(' +
+        globs
+            .map(function(glob) {
+              return glob.replace(/[.+^$(){}|[\]\\]/g, '\\$&')
+                  .replace(/\*/g, '.*')
+                  .replace(/\?/g, '.');
+            })
+            .join('|') +
+        ')$');
+  }
 };
 
-/**
- * Converts a list of globs, as used in the extension manifest, to a regular
- * expression that matches if and only if any of the globs in the list matches.
- * @param {!Array<string>} globs
- * @return {!RegExp}
- * @private
- */
-Background.globsToRegExp_ = function(globs) {
-  return new RegExp(
-      '^(' +
-      globs
-          .map(function(glob) {
-            return glob.replace(/[.+^$(){}|[\]\\]/g, '\\$&')
-                .replace(/\*/g, '.*')
-                .replace(/\?/g, '.');
-          })
-          .join('|') +
-      ')$');
-};
 
+// In 'split' manifest mode, the extension system runs two copies of the
+// extension. One in an incognito context; the other not. In guest mode, the
+// extension system runs only the extension in an incognito context. To prevent
+// doubling of this extension, only continue for one context.
+const manifest =
+    /** @type {{incognito: (string|undefined)}} */ (
+        chrome.runtime.getManifest());
+if (manifest.incognito == 'split' && !chrome.extension.inIncognitoContext) {
+  window.close();
+}
 new Background();
+
 });  // goog.scope

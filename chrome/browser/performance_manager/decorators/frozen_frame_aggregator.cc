@@ -9,6 +9,7 @@
 #include "components/performance_manager/graph/node_attached_data_impl.h"
 #include "components/performance_manager/graph/page_node_impl.h"
 #include "components/performance_manager/graph/process_node_impl.h"
+#include "components/performance_manager/public/graph/node_data_describer_registry.h"
 
 namespace performance_manager {
 
@@ -39,6 +40,8 @@ class FrozenFrameAggregatorAccess {
 };
 
 namespace {
+
+const char kDescriberName[] = "FrozenFrameAggregator";
 
 // Private implementation of the node attached data. This keeps the complexity
 // out of the header file.
@@ -140,9 +143,12 @@ void FrozenFrameAggregator::OnFrameLifecycleStateChanged(
 
 void FrozenFrameAggregator::OnPassedToGraph(Graph* graph) {
   RegisterObservers(graph);
+  graph->GetNodeDataDescriberRegistry()->RegisterDescriber(this,
+                                                           kDescriberName);
 }
 
 void FrozenFrameAggregator::OnTakenFromGraph(Graph* graph) {
+  graph->GetNodeDataDescriberRegistry()->UnregisterDescriber(this);
   UnregisterObservers(graph);
 }
 
@@ -152,9 +158,28 @@ void FrozenFrameAggregator::OnPageNodeAdded(const PageNode* page_node) {
   FrozenDataImpl::GetOrCreate(page_impl);
 }
 
-void FrozenFrameAggregator::OnProcessNodeAdded(
-    const ProcessNode* process_node) {
-  FrozenDataImpl::GetOrCreate(ProcessNodeImpl::FromNode(process_node));
+base::Value FrozenFrameAggregator::DescribePageNodeData(
+    const PageNode* node) const {
+  FrozenDataImpl* data = FrozenDataImpl::Get(PageNodeImpl::FromNode(node));
+  if (data == nullptr)
+    return base::Value();
+
+  base::Value ret(base::Value::Type::DICTIONARY);
+  ret.SetIntKey("current_frame_count", data->current_frame_count);
+  ret.SetIntKey("frozen_frame_count", data->frozen_frame_count);
+  return ret;
+}
+
+base::Value FrozenFrameAggregator::DescribeProcessNodeData(
+    const ProcessNode* node) const {
+  FrozenDataImpl* data = FrozenDataImpl::Get(ProcessNodeImpl::FromNode(node));
+  if (data == nullptr)
+    return base::Value();
+
+  base::Value ret(base::Value::Type::DICTIONARY);
+  ret.SetIntKey("current_frame_count", data->current_frame_count);
+  ret.SetIntKey("frozen_frame_count", data->frozen_frame_count);
+  return ret;
 }
 
 void FrozenFrameAggregator::RegisterObservers(Graph* graph) {
@@ -197,7 +222,10 @@ void FrozenFrameAggregator::UpdateFrameCounts(FrameNodeImpl* frame_node,
   auto* page_node = frame_node->page_node();
   auto* process_node = frame_node->process_node();
   auto* page_data = FrozenDataImpl::Get(page_node);
-  auto* process_data = FrozenDataImpl::Get(process_node);
+  auto* process_data = FrozenDataImpl::GetOrCreate(process_node);
+
+  // We should only have frames attached to renderer processes.
+  DCHECK_EQ(content::PROCESS_TYPE_RENDERER, process_node->process_type());
 
   // Set the page lifecycle state based on the state of the frame tree.
   if (page_data->ChangeFrameCounts(current_frame_delta, frozen_frame_delta)) {

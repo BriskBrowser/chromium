@@ -2,6 +2,10 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+declare_args() {
+  invert_fieldtrials = false
+}
+
 action("field_trial_testing_config_action") {
   visibility = [ ":field_trial_config" ]
   script = "//tools/variations/fieldtrial_to_struct.py"
@@ -35,11 +39,19 @@ action("field_trial_testing_config_action") {
     "--output=$out_name",
   ]
 
-  # At build-time, Android Chrome and WebView both use platform "android", but
-  # at run-time, variations has separate platforms "android" and
-  # "android_webview". So if building "android", also include WebView.
+  if (invert_fieldtrials) {
+    args += [ "--invert_fieldtrials" ]
+  }
+
+  # At build-time, Android Chrome and WebView/WebLayer use the platform
+  # "android", but at run-time, variations has separate platforms "android",
+  # "android_webview" and "android_weblayer". So if building "android", also
+  # include WebView/WebLayer.
   if (platform == "android") {
-    args += [ "--platform=android_webview" ]
+    args += [
+      "--platform=android_weblayer",
+      "--platform=android_webview",
+    ]
   }
 }
 

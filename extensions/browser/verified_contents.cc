@@ -10,6 +10,7 @@
 #include "base/base64url.h"
 #include "base/files/file_util.h"
 #include "base/json/json_reader.h"
+#include "base/logging.h"
 #include "base/memory/ptr_util.h"
 #include "base/strings/string_util.h"
 #include "base/timer/elapsed_timer.h"
@@ -171,11 +172,11 @@ std::unique_ptr<VerifiedContents> VerifiedContents::Create(
         return nullptr;
       }
 
-      base::FilePath::StringType canonicalized_path =
-          content_verifier_utils::CanonicalizeFilePath(
+      content_verifier_utils::CanonicalRelativePath canonical_path =
+          content_verifier_utils::CanonicalizeRelativePath(
               base::FilePath::FromUTF8Unsafe(*file_path_string));
       auto i = verified_contents->root_hashes_.insert(
-          std::make_pair(canonicalized_path, std::string()));
+          std::make_pair(canonical_path, std::string()));
       i->second.swap(root_hash);
     }
 
@@ -189,13 +190,14 @@ bool VerifiedContents::HasTreeHashRoot(
     const base::FilePath& relative_path) const {
   return base::Contains(
       root_hashes_,
-      content_verifier_utils::CanonicalizeFilePath(relative_path));
+      content_verifier_utils::CanonicalizeRelativePath(relative_path));
 }
 
 bool VerifiedContents::TreeHashRootEquals(const base::FilePath& relative_path,
                                           const std::string& expected) const {
-  return TreeHashRootEqualsImpl(
-      content_verifier_utils::CanonicalizeFilePath(relative_path), expected);
+  return TreeHashRootEqualsForCanonicalPath(
+      content_verifier_utils::CanonicalizeRelativePath(relative_path),
+      expected);
 }
 
 // We're loosely following the "JSON Web Signature" draft spec for signing
@@ -332,11 +334,12 @@ bool VerifiedContents::VerifySignature(const std::string& protected_value,
   return true;
 }
 
-bool VerifiedContents::TreeHashRootEqualsImpl(
-    const base::FilePath::StringType& normalized_relative_path,
+bool VerifiedContents::TreeHashRootEqualsForCanonicalPath(
+    const content_verifier_utils::CanonicalRelativePath&
+        canonical_relative_path,
     const std::string& expected) const {
   std::pair<RootHashes::const_iterator, RootHashes::const_iterator> hashes =
-      root_hashes_.equal_range(normalized_relative_path);
+      root_hashes_.equal_range(canonical_relative_path);
   for (auto iter = hashes.first; iter != hashes.second; ++iter) {
     if (expected == iter->second)
       return true;

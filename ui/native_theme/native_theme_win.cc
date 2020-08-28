@@ -11,8 +11,10 @@
 #include <vssym32.h>
 
 #include "base/bind.h"
+#include "base/check.h"
 #include "base/command_line.h"
-#include "base/logging.h"
+#include "base/notreached.h"
+#include "base/optional.h"
 #include "base/stl_util.h"
 #include "base/threading/sequenced_task_runner_handle.h"
 #include "base/win/scoped_gdi_object.h"
@@ -136,6 +138,15 @@ class ScopedCreateDCWithBitmap {
   DISALLOW_COPY_AND_ASSIGN(ScopedCreateDCWithBitmap);
 };
 
+base::win::RegKey OpenThemeRegKey(REGSAM access) {
+  base::win::RegKey hkcu_themes_regkey;
+  hkcu_themes_regkey.Open(HKEY_CURRENT_USER,
+                          L"Software\\Microsoft\\Windows\\CurrentVersion\\"
+                          L"Themes\\Personalize",
+                          access);
+  return hkcu_themes_regkey;
+}
+
 }  // namespace
 
 namespace ui {
@@ -168,18 +179,26 @@ NativeTheme::SystemThemeColor SysColorToSystemThemeColor(int system_color) {
 }
 
 NativeTheme* NativeTheme::GetInstanceForNativeUi() {
-  return NativeThemeWin::instance();
+  static base::NoDestructor<NativeThemeWin> s_native_theme(true, false);
+  return s_native_theme.get();
+}
+
+NativeTheme* NativeTheme::GetInstanceForDarkUI() {
+  static base::NoDestructor<NativeThemeWin> s_dark_native_theme(false, true);
+  return s_dark_native_theme.get();
+}
+
+// static
+bool NativeTheme::SystemDarkModeSupported() {
+  static bool system_supports_dark_mode =
+      ([]() { return OpenThemeRegKey(KEY_READ).Valid(); })();
+  return system_supports_dark_mode;
 }
 
 // static
 void NativeThemeWin::CloseHandles() {
-  instance()->CloseHandlesInternal();
-}
-
-// static
-NativeThemeWin* NativeThemeWin::instance() {
-  static base::NoDestructor<NativeThemeWin> s_native_theme;
-  return s_native_theme.get();
+  static_cast<NativeThemeWin*>(NativeTheme::GetInstanceForNativeUi())
+      ->CloseHandlesInternal();
 }
 
 gfx::Size NativeThemeWin::GetPartSize(Part part,
@@ -251,10 +270,37 @@ void NativeThemeWin::Paint(cc::PaintCanvas* canvas,
   }
 }
 
-NativeThemeWin::NativeThemeWin() : color_change_listener_(this) {
+NativeThemeWin::NativeThemeWin(bool configure_web_instance,
+                               bool should_only_use_dark_colors)
+    : NativeTheme(should_only_use_dark_colors), color_change_listener_(this) {
   // If there's no sequenced task runner handle, we can't be called back for
   // dark mode changes. This generally happens in tests. As a result, ignore
   // dark mode in this case.
+  if (!should_only_use_dark_colors && !IsForcedDarkMode() &&
+      !IsForcedHighContrast() && base::SequencedTaskRunnerHandle::IsSet()) {
+    // Dark Mode currently targets UWP apps, which means Win32 apps need to use
+    // alternate, less reliable means of detecting the state. The following
+    // can break in future Windows versions.
+    hkcu_themes_regkey_ = OpenThemeRegKey(KEY_READ | KEY_NOTIFY);
+    if (hkcu_themes_regkey_.Valid()) {
+      UpdateDarkModeStatus();
+      RegisterThemeRegkeyObserver();
+    }
+  }
+  if (!IsForcedHighContrast()) {
+    set_high_contrast(IsUsingHighContrastThemeInternal());
+  }
+  // Initialize the cached system colors.
+  UpdateSystemColors();
+  set_preferred_color_scheme(CalculatePreferredColorScheme());
+
+  memset(theme_handles_, 0, sizeof(theme_handles_));
+
+  if (configure_web_instance)
+    ConfigureWebInstance();
+}
+
+void NativeThemeWin::ConfigureWebInstance() {
   if (!IsForcedDarkMode() && !IsForcedHighContrast() &&
       base::SequencedTaskRunnerHandle::IsSet()) {
     // Add the web native theme as an observer to stay in sync with dark mode,
@@ -263,30 +309,7 @@ NativeThemeWin::NativeThemeWin() : color_change_listener_(this) {
         std::make_unique<NativeTheme::ColorSchemeNativeThemeObserver>(
             NativeTheme::GetInstanceForWeb());
     AddObserver(color_scheme_observer_.get());
-
-    // Dark Mode currently targets UWP apps, which means Win32 apps need to use
-    // alternate, less reliable means of detecting the state. The following
-    // can break in future Windows versions.
-    bool key_open_succeeded =
-        hkcu_themes_regkey_.Open(
-            HKEY_CURRENT_USER,
-            L"Software\\Microsoft\\Windows\\CurrentVersion\\"
-            L"Themes\\Personalize",
-            KEY_READ | KEY_NOTIFY) == ERROR_SUCCESS;
-    if (key_open_succeeded) {
-      UpdateDarkModeStatus();
-      RegisterThemeRegkeyObserver();
-    }
   }
-  if (!IsForcedHighContrast()) {
-    set_high_contrast(IsUsingHighContrastThemeInternal());
-  }
-  set_preferred_color_scheme(CalculatePreferredColorScheme());
-
-  memset(theme_handles_, 0, sizeof(theme_handles_));
-
-  // Initialize the cached system colors.
-  UpdateSystemColors();
 
   // Initialize the native theme web instance with the system color info.
   NativeTheme* web_instance = NativeTheme::GetInstanceForWeb();
@@ -568,12 +591,14 @@ SkColor NativeThemeWin::GetSystemColor(ColorId color_id,
   if (color_scheme == ColorScheme::kDefault)
     color_scheme = GetDefaultSystemColorScheme();
 
-  return (color_scheme == ColorScheme::kPlatformHighContrast)
-             ? GetPlatformHighContrastColor(color_id)
-             : GetAuraColor(color_id, this, color_scheme);
+  base::Optional<SkColor> color;
+  if (color_scheme == ColorScheme::kPlatformHighContrast)
+    color = GetPlatformHighContrastColor(color_id);
+  return color.value_or(NativeTheme::GetSystemColor(color_id, color_scheme));
 }
 
-SkColor NativeThemeWin::GetPlatformHighContrastColor(ColorId color_id) const {
+base::Optional<SkColor> NativeThemeWin::GetPlatformHighContrastColor(
+    ColorId color_id) const {
   switch (color_id) {
     // Window Background
     case kColorId_WindowBackground:
@@ -583,12 +608,13 @@ SkColor NativeThemeWin::GetPlatformHighContrastColor(ColorId color_id) const {
     case kColorId_TreeBackground:
     case kColorId_TableHeaderBackground:
     case kColorId_TableBackground:
+    case kColorId_TableBackgroundAlternate:
     case kColorId_TooltipBackground:
     case kColorId_ProminentButtonDisabledColor:
       return system_colors_[SystemThemeColor::kWindow];
 
     // Window Text
-    case kColorId_DefaultIconColor:
+    case kColorId_MenuIconColor:
     case kColorId_DialogForeground:
     case kColorId_LabelEnabledColor:
     case kColorId_LabelSecondaryColor:
@@ -603,6 +629,7 @@ SkColor NativeThemeWin::GetPlatformHighContrastColor(ColorId color_id) const {
     case kColorId_AlertSeverityLow:
     case kColorId_AlertSeverityMedium:
     case kColorId_AlertSeverityHigh:
+    case kColorId_DefaultIconColor:
       return system_colors_[SystemThemeColor::kWindowText];
 
     // Hyperlinks
@@ -620,11 +647,11 @@ SkColor NativeThemeWin::GetPlatformHighContrastColor(ColorId color_id) const {
       return system_colors_[SystemThemeColor::kGrayText];
 
     // Button Background
+    case kColorId_ButtonColor:
     case kColorId_MenuBackgroundColor:
     case kColorId_HighlightedMenuItemBackgroundColor:
     case kColorId_TextfieldDefaultBackground:
     case kColorId_TextfieldReadOnlyBackground:
-    case kColorId_ButtonPressedShade:
       return system_colors_[SystemThemeColor::kButtonFace];
 
     // Button Text Foreground
@@ -636,6 +663,7 @@ SkColor NativeThemeWin::GetPlatformHighContrastColor(ColorId color_id) const {
     case kColorId_TextfieldDefaultColor:
     case kColorId_ButtonEnabledColor:
     case kColorId_UnfocusedBorderColor:
+    case kColorId_TextfieldPlaceholderColor:
     case kColorId_TextfieldReadOnlyColor:
     case kColorId_FocusedBorderColor:
     case kColorId_TabTitleColorActive:
@@ -668,7 +696,7 @@ SkColor NativeThemeWin::GetPlatformHighContrastColor(ColorId color_id) const {
       return system_colors_[SystemThemeColor::kHighlightText];
 
     default:
-      return gfx::kPlaceholderColor;
+      return base::nullopt;
   }
 }
 
@@ -697,26 +725,21 @@ bool NativeThemeWin::ShouldUseDarkColors() const {
   return NativeTheme::ShouldUseDarkColors();
 }
 
-bool NativeThemeWin::SystemDarkModeSupported() const {
-  return hkcu_themes_regkey_.Valid();
-}
-
 NativeTheme::PreferredColorScheme
 NativeThemeWin::CalculatePreferredColorScheme() const {
   if (!UsesHighContrastColors())
     return NativeTheme::CalculatePreferredColorScheme();
 
-  // The Windows SystemParametersInfo API will return the high contrast theme
-  // as a string. However, this string is language dependent. Instead, to
-  // account for non-English systems, sniff out the system colors to
-  // determine the high contrast color scheme.
-  SkColor fg_color = system_colors_[SystemThemeColor::kWindowText];
+  // According to the spec, the preferred color scheme for web content is 'dark'
+  // if 'Canvas' has L<33% and 'light' if L>67%. On Windows, the 'Canvas'
+  // keyword is mapped to the 'Window' system color. As such, we use the
+  // luminance of 'Window' to calculate the corresponding luminance of 'Canvas'.
+  // https://www.w3.org/TR/css-color-adjust-1/#forced
   SkColor bg_color = system_colors_[SystemThemeColor::kWindow];
-  if (bg_color == SK_ColorWHITE && fg_color == SK_ColorBLACK)
-    return NativeTheme::PreferredColorScheme::kLight;
-  if (bg_color == SK_ColorBLACK && fg_color == SK_ColorWHITE)
+  float luminance = color_utils::GetRelativeLuminance(bg_color);
+  if (luminance < 0.33)
     return NativeTheme::PreferredColorScheme::kDark;
-  return NativeTheme::PreferredColorScheme::kNoPreference;
+  return NativeTheme::PreferredColorScheme::kLight;
 }
 
 NativeTheme::ColorScheme NativeThemeWin::GetDefaultSystemColorScheme() const {

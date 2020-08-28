@@ -10,8 +10,8 @@
 #include "base/macros.h"
 #include "base/run_loop.h"
 #include "base/strings/stringprintf.h"
-#include "base/task/post_task.h"
 #include "base/test/scoped_feature_list.h"
+#include "base/threading/thread_task_runner_handle.h"
 #include "chrome/browser/ui/app_list/test/chrome_app_list_test_support.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
@@ -19,6 +19,7 @@
 #include "chrome/test/base/perf/performance_test.h"
 #include "chromeos/constants/chromeos_features.h"
 #include "chromeos/constants/chromeos_switches.h"
+#include "content/public/test/browser_test.h"
 #include "ui/base/test/ui_controls.h"
 #include "ui/display/display.h"
 #include "ui/display/screen.h"
@@ -37,8 +38,9 @@ class LauncherDragClamshellModeTest : public UIPerformanceTest {
     // Ash may not be ready to receive events right away.
     int warmup_seconds = base::SysInfo::IsRunningOnChromeOS() ? 5 : 1;
     base::RunLoop run_loop;
-    base::PostDelayedTask(FROM_HERE, run_loop.QuitClosure(),
-                          base::TimeDelta::FromSeconds(warmup_seconds));
+    base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+        FROM_HERE, run_loop.QuitClosure(),
+        base::TimeDelta::FromSeconds(warmup_seconds));
     run_loop.Run();
   }
 
@@ -88,11 +90,10 @@ class LauncherDragTest : public LauncherDragClamshellModeTest,
     tablet_mode_ = GetParam();
 
     // Drag from top to close app list in tablet mode is disabled if
-    // kDragFromShelfToHomeOrOverview feature is enabled.
+    // shelf hotseat feature is enabled.
     if (tablet_mode_) {
-      scoped_features_.InitWithFeatures(
-          {}, {ash::features::kDragFromShelfToHomeOrOverview,
-               chromeos::features::kShelfHotseat});
+      scoped_features_.InitWithFeatures({},
+                                        {chromeos::features::kShelfHotseat});
     }
   }
   ~LauncherDragTest() override = default;

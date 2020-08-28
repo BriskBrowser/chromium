@@ -13,6 +13,7 @@
 #include "chrome/test/base/testing_profile.h"
 #include "components/policy/core/browser/browser_policy_connector.h"
 #include "components/policy/core/common/mock_configuration_policy_provider.h"
+#include "content/public/test/browser_test.h"
 #include "testing/gmock/include/gmock/gmock.h"
 
 class ManagedUiTest : public InProcessBrowserTest {
@@ -42,7 +43,7 @@ IN_PROC_BROWSER_TEST_F(ManagedUiTest, ShouldDisplayManagedUiOnDesktop) {
   policy::PolicyMap policy_map;
   policy_map.Set("test-policy", policy::POLICY_LEVEL_MANDATORY,
                  policy::POLICY_SCOPE_MACHINE, policy::POLICY_SOURCE_PLATFORM,
-                 std::make_unique<base::Value>("hello world"), nullptr);
+                 base::Value("hello world"), nullptr);
   provider()->UpdateChromePolicy(policy_map);
 
 #if defined(OS_CHROMEOS)

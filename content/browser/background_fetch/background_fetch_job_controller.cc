@@ -235,8 +235,8 @@ BackgroundFetchJobController::NewRegistrationData() const {
 
 uint64_t BackgroundFetchJobController::GetInProgressDownloadedBytes() {
   uint64_t bytes = 0u;
-  for (const std::pair<std::string, InProgressRequestBytes>& in_progress_bytes :
-       active_bytes_map_) {
+  for (const std::pair<const std::string, InProgressRequestBytes>&
+           in_progress_bytes : active_bytes_map_) {
     bytes += in_progress_bytes.second.downloaded;
   }
   return bytes;
@@ -244,8 +244,8 @@ uint64_t BackgroundFetchJobController::GetInProgressDownloadedBytes() {
 
 uint64_t BackgroundFetchJobController::GetInProgressUploadedBytes() {
   uint64_t bytes = 0u;
-  for (const std::pair<std::string, InProgressRequestBytes>& in_progress_bytes :
-       active_bytes_map_) {
+  for (const std::pair<const std::string, InProgressRequestBytes>&
+           in_progress_bytes : active_bytes_map_) {
     bytes += in_progress_bytes.second.uploaded;
   }
   return bytes;
@@ -377,6 +377,7 @@ void BackgroundFetchJobController::DidGetUploadData(
     Abort(BackgroundFetchFailureReason::SERVICE_WORKER_UNAVAILABLE,
           base::DoNothing());
     std::move(callback).Run(nullptr);
+    return;
   }
 
   DCHECK(blob);

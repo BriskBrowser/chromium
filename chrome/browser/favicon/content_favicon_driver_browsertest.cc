@@ -32,6 +32,7 @@
 #include "components/network_session_configurator/common/network_switches.h"
 #include "content/public/browser/navigation_handle.h"
 #include "content/public/browser/web_contents_observer.h"
+#include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/url_loader_interceptor.h"
 #include "net/base/load_flags.h"
@@ -40,6 +41,7 @@
 #include "net/url_request/url_request.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "third_party/blink/public/common/features.h"
+#include "third_party/blink/public/mojom/favicon/favicon_url.mojom.h"
 #include "ui/gfx/image/image_unittest_util.h"
 #include "url/url_constants.h"
 
@@ -68,10 +70,15 @@ class TestURLLoaderInterceptor {
     bypass_cache_urls_.clear();
   }
 
+  network::mojom::RequestDestination destination(const GURL& url) {
+    return destinations_[url];
+  }
+
  private:
   bool InterceptURLRequest(
       content::URLLoaderInterceptor::RequestParams* params) {
     intercepted_urls_.insert(params->url_request.url);
+    destinations_[params->url_request.url] = params->url_request.destination;
     if (params->url_request.load_flags & net::LOAD_BYPASS_CACHE)
       bypass_cache_urls_.insert(params->url_request.url);
     return false;
@@ -80,6 +87,7 @@ class TestURLLoaderInterceptor {
   std::set<GURL> intercepted_urls_;
   std::set<GURL> bypass_cache_urls_;
   content::URLLoaderInterceptor interceptor_;
+  std::map<GURL, network::mojom::RequestDestination> destinations_;
 
   DISALLOW_COPY_AND_ASSIGN(TestURLLoaderInterceptor);
 };
@@ -110,7 +118,11 @@ class PendingTaskWaiter : public content::WebContentsObserver {
 
  private:
   // content::WebContentsObserver:
-  void DidStopLoading() override { TestUrlAndTitle(); }
+  void DidUpdateFaviconURL(
+      content::RenderFrameHost* rfh,
+      const std::vector<blink::mojom::FaviconURLPtr>& candidates) override {
+    TestUrlAndTitle();
+  }
 
   void TitleWasSet(content::NavigationEntry* entry) override {
     TestUrlAndTitle();
@@ -152,7 +164,7 @@ class PendingTaskWaiter : public content::WebContentsObserver {
     }
   }
 
-  base::Closure quit_closure_;
+  base::RepeatingClosure quit_closure_;
   GURL required_url_;
   base::Optional<base::string16> required_title_;
   base::WeakPtrFactory<PendingTaskWaiter> weak_factory_{this};
@@ -183,10 +195,11 @@ class PageLoadStopper : public content::WebContentsObserver {
   }
 
   void DidUpdateFaviconURL(
-      const std::vector<content::FaviconURL>& candidates) override {
+      content::RenderFrameHost* rfh,
+      const std::vector<blink::mojom::FaviconURLPtr>& candidates) override {
     last_favicon_candidates_.clear();
-    for (const content::FaviconURL& candidate : candidates)
-      last_favicon_candidates_.push_back(candidate.icon_url);
+    for (const auto& candidate : candidates)
+      last_favicon_candidates_.push_back(candidate->icon_url);
   }
 
   bool stop_on_finish_;
@@ -228,7 +241,7 @@ class ContentFaviconDriverTest : public InProcessBrowserTest {
     base::RunLoop loop;
     favicon_service()->GetFaviconForPageURL(
         url, {icon_type}, desired_size_in_dip,
-        base::Bind(
+        base::BindOnce(
             [](std::vector<favicon_base::FaviconRawBitmapResult>* save_results,
                base::RunLoop* loop,
                const std::vector<favicon_base::FaviconRawBitmapResult>&
@@ -274,6 +287,8 @@ IN_PROC_BROWSER_TEST_F(ContentFaviconDriverTest, ReloadBypassingCache) {
     waiter.Wait();
   }
   ASSERT_TRUE(url_loader_interceptor.was_loaded(icon_url));
+  ASSERT_EQ(network::mojom::RequestDestination::kImage,
+            url_loader_interceptor.destination(icon_url));
   EXPECT_FALSE(url_loader_interceptor.did_bypass_cache(icon_url));
   url_loader_interceptor.Reset();
 
@@ -289,6 +304,8 @@ IN_PROC_BROWSER_TEST_F(ContentFaviconDriverTest, ReloadBypassingCache) {
     waiter.Wait();
   }
   EXPECT_FALSE(url_loader_interceptor.did_bypass_cache(icon_url));
+  ASSERT_EQ(network::mojom::RequestDestination::kImage,
+            url_loader_interceptor.destination(icon_url));
   url_loader_interceptor.Reset();
 
   // A reload ignoring the cache should refetch the favicon from the website.
@@ -298,6 +315,8 @@ IN_PROC_BROWSER_TEST_F(ContentFaviconDriverTest, ReloadBypassingCache) {
     waiter.Wait();
   }
   ASSERT_TRUE(url_loader_interceptor.was_loaded(icon_url));
+  ASSERT_EQ(network::mojom::RequestDestination::kImage,
+            url_loader_interceptor.destination(icon_url));
   EXPECT_TRUE(url_loader_interceptor.did_bypass_cache(icon_url));
 }
 
@@ -422,6 +441,8 @@ IN_PROC_BROWSER_TEST_F(ContentFaviconDriverTest, LoadIconFromWebManifest) {
 
 #if defined(OS_ANDROID)
   EXPECT_TRUE(url_loader_interceptor.was_loaded(icon_url));
+  ASSERT_EQ(network::mojom::RequestDestination::kImage,
+            url_loader_interceptor.destination(icon_url));
   EXPECT_NE(nullptr,
             GetFaviconForPageURL(url, favicon_base::IconType::kWebManifestIcon)
                 .bitmap_data);
@@ -732,9 +753,8 @@ IN_PROC_BROWSER_TEST_F(ContentFaviconDriverTestWithAutoupgradesDisabled,
       "/favicon/page_with_favicon_by_url.html?url=" + favicon_url.spec());
 
   // Observe the message for a blocked favicon.
-  content::ConsoleObserverDelegate console_observer(web_contents(),
-                                                    "*icon.png*");
-  web_contents()->SetDelegate(&console_observer);
+  content::WebContentsConsoleObserver console_observer(web_contents());
+  console_observer.SetPattern("*icon.png*");
 
   // Observe if the favicon URL is requested.
   TestURLLoaderInterceptor url_interceptor;
@@ -744,9 +764,9 @@ IN_PROC_BROWSER_TEST_F(ContentFaviconDriverTestWithAutoupgradesDisabled,
   console_observer.Wait();
   waiter.Wait();
 
-  EXPECT_TRUE(
-      base::MatchPattern(console_observer.message(), "*insecure favicon*"));
-  EXPECT_TRUE(base::MatchPattern(console_observer.message(),
+  EXPECT_TRUE(base::MatchPattern(console_observer.GetMessageAt(0u),
+                                 "*insecure favicon*"));
+  EXPECT_TRUE(base::MatchPattern(console_observer.GetMessageAt(0u),
                                  "*request has been blocked*"));
   EXPECT_FALSE(url_interceptor.was_loaded(favicon_url));
 }
@@ -772,6 +792,8 @@ IN_PROC_BROWSER_TEST_F(ContentFaviconDriverTestWithAutoupgradesDisabled,
   waiter.Wait();
 
   EXPECT_TRUE(url_interceptor.was_loaded(favicon_url));
+  ASSERT_EQ(network::mojom::RequestDestination::kImage,
+            url_interceptor.destination(favicon_url));
 }
 
 IN_PROC_BROWSER_TEST_F(ContentFaviconDriverTest, SVGFavicon) {

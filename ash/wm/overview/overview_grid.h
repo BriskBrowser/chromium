@@ -31,7 +31,6 @@ class Widget;
 namespace ash {
 
 class DesksBarView;
-class FpsCounter;
 class OverviewGridEventHandler;
 class OverviewItem;
 class PresentationTimeRecorder;
@@ -58,6 +57,12 @@ class ASH_EXPORT OverviewGrid : public SplitViewObserver,
                                 public ScreenRotationAnimatorObserver,
                                 public WallpaperControllerObserver {
  public:
+  class MetricsTracker {
+   public:
+    MetricsTracker() = default;
+    virtual ~MetricsTracker() = default;
+  };
+
   OverviewGrid(aura::Window* root_window,
                const std::vector<aura::Window*>& window_list,
                OverviewSession* overview_session);
@@ -75,10 +80,10 @@ class ASH_EXPORT OverviewGrid : public SplitViewObserver,
   // |animate| is true. Items in |ignored_items| are not positioned. This is for
   // dragging. |transition| specifies the overview state when this function is
   // called.
-  void PositionWindows(bool animate,
-                       const base::flat_set<OverviewItem*>& ignored_items = {},
-                       OverviewSession::OverviewTransition transition =
-                           OverviewSession::OverviewTransition::kInOverview);
+  void PositionWindows(
+      bool animate,
+      const base::flat_set<OverviewItem*>& ignored_items = {},
+      OverviewTransition transition = OverviewTransition::kInOverview);
 
   // Returns the OverviewItem if a window is contained in any of the
   // OverviewItems this grid owns. Returns nullptr if no such a OverviewItem
@@ -93,23 +98,30 @@ class ASH_EXPORT OverviewGrid : public SplitViewObserver,
   // overview is already active, it will use a special spawn animation on its
   // first position in the grid. |use_spawn_animation| has no effect if either
   // |animate| or |reposition| are false.
+  // If |reposition|, |animate|, and |restack| are all true, the stacking order
+  // will be adjusted after the animation. If |restack| is true but at least one
+  // of |reposition| and |animate| is false, the stacking order will be adjusted
+  // immediately.
   void AddItem(aura::Window* window,
                bool reposition,
                bool animate,
                const base::flat_set<OverviewItem*>& ignored_items,
                size_t index,
-               bool use_spawn_animation = false);
+               bool use_spawn_animation,
+               bool restack);
 
   // Similar to the above function, but adds the window to the end of the grid.
   void AppendItem(aura::Window* window,
                   bool reposition,
                   bool animate,
-                  bool use_spawn_animation = false);
+                  bool use_spawn_animation);
 
-  // Adds |window| at the correct position according to MRU order. |window|
-  // cannot already be on the grid. Repositions all items. If |animate| is true,
-  // animates the repositioning.
-  void AddItemInMruOrder(aura::Window* window, bool animate);
+  // Like |AddItem|, but adds |window| at the correct position according to MRU
+  // order.
+  void AddItemInMruOrder(aura::Window* window,
+                         bool reposition,
+                         bool animate,
+                         bool restack);
 
   // Removes |overview_item| from the grid. |overview_item| cannot already be
   // absent from the grid. If |item_destroying| is true, we may want to notify
@@ -117,8 +129,8 @@ class ASH_EXPORT OverviewGrid : public SplitViewObserver,
   // and |reposition| are both true, all items are repositioned with animation.
   // |reposition| has no effect if |item_destroying| is false.
   void RemoveItem(OverviewItem* overview_item,
-                  bool item_destroying = false,
-                  bool reposition = false);
+                  bool item_destroying,
+                  bool reposition);
 
   // Adds a drop target for |dragged_item|, at the index immediately following
   // |dragged_item|. Repositions all items except |dragged_item|, so that the
@@ -224,7 +236,7 @@ class ASH_EXPORT OverviewGrid : public SplitViewObserver,
   // and the overview bounds should be queried from |window_list_|.
   void CalculateWindowListAnimationStates(
       OverviewItem* selected_item,
-      OverviewSession::OverviewTransition transition,
+      OverviewTransition transition,
       const std::vector<gfx::RectF>& target_bounds);
 
   // Do not animate the entire window list during exiting the overview. It's
@@ -315,6 +327,13 @@ class ASH_EXPORT OverviewGrid : public SplitViewObserver,
   // widget as it may need to switch between default and compact layouts.
   void OnDesksChanged();
 
+  // Returns true if any desk name is being modified in its mini view on this
+  // grid.
+  bool IsDeskNameBeingModified() const;
+
+  // Commits any on-going desk name changes if any.
+  void CommitDeskNameChanges();
+
   // Returns true if the grid has no more windows.
   bool empty() const { return window_list_.empty(); }
 
@@ -333,6 +352,8 @@ class ASH_EXPORT OverviewGrid : public SplitViewObserver,
   SplitViewDragIndicators* split_view_drag_indicators() {
     return split_view_drag_indicators_.get();
   }
+
+  const views::Widget* desks_widget() const { return desks_widget_.get(); }
 
   const DesksBarView* desks_bar_view() const { return desks_bar_view_; }
 
@@ -418,10 +439,13 @@ class ASH_EXPORT OverviewGrid : public SplitViewObserver,
   // the window's bounds if it has been resized.
   void AddDraggedWindowIntoOverviewOnDragEnd(aura::Window* dragged_window);
 
-  // Returns the the bounds of the desks widget in root window.
+  // Returns the the bounds of the desks widget in screen coordinates.
   gfx::Rect GetDesksWidgetBounds() const;
 
   void UpdateCannotSnapWarningVisibility();
+
+  // Updates frame throttling on overview item windows.
+  void UpdateFrameThrottling();
 
   // Root window the grid is in.
   aura::Window* root_window_;
@@ -472,7 +496,7 @@ class ASH_EXPORT OverviewGrid : public SplitViewObserver,
   std::vector<NudgeData> nudge_data_;
 
   // Measures the animation smoothness of overview animation.
-  std::unique_ptr<FpsCounter> fps_counter_;
+  std::unique_ptr<MetricsTracker> metrics_tracker_;
 
   // True to skip |PositionWindows()|. Used to avoid O(n^2) layout when
   // reposition windows in tablet overview mode.

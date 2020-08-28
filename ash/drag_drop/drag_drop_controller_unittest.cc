@@ -4,6 +4,8 @@
 
 #include "ash/drag_drop/drag_drop_controller.h"
 
+#include <memory>
+
 #include "ash/drag_drop/drag_drop_tracker.h"
 #include "ash/drag_drop/drag_image_view.h"
 #include "ash/shell.h"
@@ -23,6 +25,7 @@
 #include "ui/base/clipboard/clipboard.h"
 #include "ui/base/clipboard/scoped_clipboard_writer.h"
 #include "ui/base/dragdrop/drag_drop_types.h"
+#include "ui/base/dragdrop/mojom/drag_drop_types.mojom-shared.h"
 #include "ui/base/dragdrop/os_exchange_data.h"
 #include "ui/base/ui_base_switches.h"
 #include "ui/events/event.h"
@@ -150,7 +153,7 @@ class TestDragDropController : public DragDropController {
                        aura::Window* source_window,
                        const gfx::Point& location,
                        int operation,
-                       ui::DragDropTypes::DragEventSource source) override {
+                       ui::mojom::DragEventSource source) override {
     drag_start_received_ = true;
     data->GetString(&drag_string_);
     return DragDropController::StartDragAndDrop(std::move(data), root_window,
@@ -264,10 +267,8 @@ class EventTargetTestDelegate : public aura::client::DragDropDelegate {
 };
 
 void AddViewToWidgetAndResize(views::Widget* widget, views::View* view) {
-  if (!widget->GetContentsView()) {
-    views::View* contents_view = new views::View;
-    widget->SetContentsView(contents_view);
-  }
+  if (!widget->GetContentsView())
+    widget->SetContentsView(std::make_unique<views::View>());
 
   views::View* contents_view = widget->GetContentsView();
   contents_view->AddChildView(view);
@@ -299,7 +300,7 @@ class DragDropControllerTest : public AshTestBase {
 
   void SetUp() override {
     AshTestBase::SetUp();
-    drag_drop_controller_.reset(new TestDragDropController);
+    drag_drop_controller_ = std::make_unique<TestDragDropController>();
     drag_drop_controller_->set_should_block_during_drag_drop(false);
     drag_drop_controller_->set_enabled(true);
     aura::client::SetDragDropClient(Shell::GetPrimaryRootWindow(),
@@ -330,14 +331,15 @@ class DragDropControllerTest : public AshTestBase {
   }
 
   const gfx::ImageSkia& GetDragImage() {
-    return drag_drop_controller_->drag_image_.get()->GetImage();
+    return static_cast<DragImageView*>(
+               drag_drop_controller_->drag_image_widget_->GetContentsView())
+        ->GetImage();
   }
 
   aura::Window* GetDragImageWindow() {
-    return drag_drop_controller_->drag_image_.get()
-               ? drag_drop_controller_->drag_image_->GetWidget()
-                     ->GetNativeWindow()
-               : NULL;
+    return drag_drop_controller_->drag_image_widget_
+               ? drag_drop_controller_->drag_image_widget_->GetNativeWindow()
+               : nullptr;
   }
 
   DragDropTracker* drag_drop_tracker() {
@@ -357,7 +359,7 @@ class DragDropControllerTest : public AshTestBase {
     views::Widget::InitParams params;
     params.type = views::Widget::InitParams::TYPE_WINDOW_FRAMELESS;
     params.ownership = views::Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
-    params.context = CurrentContext();
+    params.context = GetContext();
     widget->Init(std::move(params));
     widget->Show();
     return widget;
@@ -613,7 +615,8 @@ TEST_F(DragDropControllerTest, DragLeavesClipboardAloneTest) {
     scw.WriteText(base::ASCIIToUTF16(clip_str));
   }
   EXPECT_TRUE(cb->IsFormatAvailable(ui::ClipboardFormatType::GetPlainTextType(),
-                                    ui::ClipboardBuffer::kCopyPaste));
+                                    ui::ClipboardBuffer::kCopyPaste,
+                                    /* data_dst = */ nullptr));
 
   std::unique_ptr<views::Widget> widget = CreateFramelessWidget();
   DragTestView* drag_view = new DragTestView;
@@ -630,8 +633,10 @@ TEST_F(DragDropControllerTest, DragLeavesClipboardAloneTest) {
   // Verify the clipboard contents haven't changed
   std::string result;
   EXPECT_TRUE(cb->IsFormatAvailable(ui::ClipboardFormatType::GetPlainTextType(),
-                                    ui::ClipboardBuffer::kCopyPaste));
-  cb->ReadAsciiText(ui::ClipboardBuffer::kCopyPaste, &result);
+                                    ui::ClipboardBuffer::kCopyPaste,
+                                    /* data_dst = */ nullptr));
+  cb->ReadAsciiText(ui::ClipboardBuffer::kCopyPaste, /* data_dst = */ nullptr,
+                    &result);
   EXPECT_EQ(clip_str, result);
   // Destroy the clipboard here because ash doesn't delete it.
   // crbug.com/158150.
@@ -1029,8 +1034,7 @@ TEST_F(DragDropControllerTest, DragCancelAcrossDisplays) {
     aura::Window* window = widget->GetNativeWindow();
     drag_drop_controller_->StartDragAndDrop(
         std::move(data), window->GetRootWindow(), window, gfx::Point(5, 5),
-        ui::DragDropTypes::DRAG_MOVE,
-        ui::DragDropTypes::DRAG_EVENT_SOURCE_MOUSE);
+        ui::DragDropTypes::DRAG_MOVE, ui::mojom::DragEventSource::kMouse);
 
     DragImageWindowObserver observer;
     ASSERT_TRUE(GetDragImageWindow());
@@ -1051,6 +1055,8 @@ TEST_F(DragDropControllerTest, DragCancelAcrossDisplays) {
 
     drag_drop_controller_->DragCancel();
     CompleteCancelAnimation();
+    // Make sure all pending tasks complete to finish cancellation.
+    base::RunLoop().RunUntilIdle();
 
     EXPECT_EQ("5,5", observer.window_location_on_destroying().ToString());
   }
@@ -1062,8 +1068,7 @@ TEST_F(DragDropControllerTest, DragCancelAcrossDisplays) {
     aura::Window* window = widget->GetNativeWindow();
     drag_drop_controller_->StartDragAndDrop(
         std::move(data), window->GetRootWindow(), window, gfx::Point(405, 405),
-        ui::DragDropTypes::DRAG_MOVE,
-        ui::DragDropTypes::DRAG_EVENT_SOURCE_MOUSE);
+        ui::DragDropTypes::DRAG_MOVE, ui::mojom::DragEventSource::kMouse);
     DragImageWindowObserver observer;
     ASSERT_TRUE(GetDragImageWindow());
     GetDragImageWindow()->AddObserver(&observer);
@@ -1083,6 +1088,8 @@ TEST_F(DragDropControllerTest, DragCancelAcrossDisplays) {
 
     drag_drop_controller_->DragCancel();
     CompleteCancelAnimation();
+    // Make sure all pending tasks complete to finish cancellation.
+    base::RunLoop().RunUntilIdle();
 
     EXPECT_EQ("405,405", observer.window_location_on_destroying().ToString());
   }
@@ -1105,7 +1112,7 @@ TEST_F(DragDropControllerTest, DragCancelOnDisplayDisconnect) {
   aura::Window* window = widget->GetNativeWindow();
   drag_drop_controller_->StartDragAndDrop(
       std::move(data), window->GetRootWindow(), window, gfx::Point(5, 5),
-      ui::DragDropTypes::DRAG_MOVE, ui::DragDropTypes::DRAG_EVENT_SOURCE_MOUSE);
+      ui::DragDropTypes::DRAG_MOVE, ui::mojom::DragEventSource::kMouse);
 
   // Start dragging.
   ui::MouseEvent e1(ui::ET_MOUSE_DRAGGED, gfx::Point(200, 0),
@@ -1146,28 +1153,24 @@ TEST_F(DragDropControllerTest, TouchDragDropCompletesOnFling) {
   gfx::Point end = start + gfx::Vector2d(drag_view->bounds().width() / 3, 0);
 
   base::TimeTicks timestamp = ui::EventTimeForNow();
-  ui::TouchEvent press(
-      ui::ET_TOUCH_PRESSED, start, timestamp,
-      ui::PointerDetails(ui::EventPointerType::POINTER_TYPE_TOUCH, 0));
+  ui::TouchEvent press(ui::ET_TOUCH_PRESSED, start, timestamp,
+                       ui::PointerDetails(ui::EventPointerType::kTouch, 0));
   generator.Dispatch(&press);
 
   DispatchGesture(ui::ET_GESTURE_LONG_PRESS, start);
   UpdateDragData();
   timestamp += base::TimeDelta::FromMilliseconds(10);
-  ui::TouchEvent move1(
-      ui::ET_TOUCH_MOVED, mid, timestamp,
-      ui::PointerDetails(ui::EventPointerType::POINTER_TYPE_TOUCH, 0));
+  ui::TouchEvent move1(ui::ET_TOUCH_MOVED, mid, timestamp,
+                       ui::PointerDetails(ui::EventPointerType::kTouch, 0));
   generator.Dispatch(&move1);
   // Doing two moves instead of one will guarantee to generate a fling at the
   // end.
   timestamp += base::TimeDelta::FromMilliseconds(10);
-  ui::TouchEvent move2(
-      ui::ET_TOUCH_MOVED, end, timestamp,
-      ui::PointerDetails(ui::EventPointerType::POINTER_TYPE_TOUCH, 0));
+  ui::TouchEvent move2(ui::ET_TOUCH_MOVED, end, timestamp,
+                       ui::PointerDetails(ui::EventPointerType::kTouch, 0));
   generator.Dispatch(&move2);
-  ui::TouchEvent release(
-      ui::ET_TOUCH_RELEASED, end, timestamp,
-      ui::PointerDetails(ui::EventPointerType::POINTER_TYPE_TOUCH, 0));
+  ui::TouchEvent release(ui::ET_TOUCH_RELEASED, end, timestamp,
+                         ui::PointerDetails(ui::EventPointerType::kTouch, 0));
   generator.Dispatch(&release);
 
   EXPECT_TRUE(drag_drop_controller_->drag_start_received_);
@@ -1194,8 +1197,7 @@ TEST_F(DragDropControllerTest, DragStartedAndEndedEvents) {
     aura::Window* window = widget->GetNativeWindow();
     drag_drop_controller_->StartDragAndDrop(
         std::move(data), window->GetRootWindow(), window, gfx::Point(5, 5),
-        ui::DragDropTypes::DRAG_MOVE,
-        ui::DragDropTypes::DRAG_EVENT_SOURCE_MOUSE);
+        ui::DragDropTypes::DRAG_MOVE, ui::mojom::DragEventSource::kMouse);
 
     EXPECT_EQ(TestObserver::State::kDragStartedInvoked, observer.state());
 
@@ -1224,7 +1226,7 @@ TEST_F(DragDropControllerTest, SetEnabled) {
   drag_drop_controller_->set_enabled(false);
   drag_drop_controller_->StartDragAndDrop(
       std::move(data), window->GetRootWindow(), window, gfx::Point(5, 5),
-      ui::DragDropTypes::DRAG_MOVE, ui::DragDropTypes::DRAG_EVENT_SOURCE_MOUSE);
+      ui::DragDropTypes::DRAG_MOVE, ui::mojom::DragEventSource::kMouse);
   EXPECT_EQ(TestObserver::State::kNotInvoked, observer.state());
 
   drag_drop_controller_->RemoveObserver(&observer);
@@ -1258,7 +1260,7 @@ TEST_F(DragDropControllerTest, EventTarget) {
   data->SetString(base::UTF8ToUTF16("I am being dragged"));
   drag_drop_controller_->StartDragAndDrop(
       std::move(data), window->GetRootWindow(), window.get(), gfx::Point(5, 5),
-      ui::DragDropTypes::DRAG_MOVE, ui::DragDropTypes::DRAG_EVENT_SOURCE_MOUSE);
+      ui::DragDropTypes::DRAG_MOVE, ui::mojom::DragEventSource::kMouse);
 
   EXPECT_EQ(EventTargetTestDelegate::State::kPerformDropInvoked,
             delegate.state());

@@ -18,7 +18,6 @@
 #include "base/scoped_observer.h"
 #include "base/time/time.h"
 #include "chrome/browser/chromeos/accessibility/chromevox_panel.h"
-#include "chrome/browser/chromeos/accessibility/switch_access_panel.h"
 #include "chrome/browser/extensions/api/braille_display_private/braille_controller.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_observer.h"
@@ -37,7 +36,6 @@
 #include "ui/base/ime/chromeos/input_method_manager.h"
 
 class Browser;
-class SwitchAccessEventHandlerDelegate;
 
 namespace ash {
 struct AccessibilityFocusRingInfo;
@@ -81,14 +79,12 @@ struct AccessibilityStatusEventDetails {
   bool enabled;
 };
 
-typedef base::Callback<void(const AccessibilityStatusEventDetails&)>
-    AccessibilityStatusCallback;
-
-typedef base::CallbackList<void(const AccessibilityStatusEventDetails&)>
-    AccessibilityStatusCallbackList;
-
-typedef AccessibilityStatusCallbackList::Subscription
-    AccessibilityStatusSubscription;
+using AccessibilityStatusCallbackList =
+    base::RepeatingCallbackList<void(const AccessibilityStatusEventDetails&)>;
+using AccessibilityStatusCallback =
+    AccessibilityStatusCallbackList::CallbackType;
+using AccessibilityStatusSubscription =
+    AccessibilityStatusCallbackList::Subscription;
 
 class AccessibilityPanelWidgetObserver;
 
@@ -233,7 +229,7 @@ class AccessibilityManager
   // Register a callback to be notified when the status of an accessibility
   // option changes.
   std::unique_ptr<AccessibilityStatusSubscription> RegisterCallback(
-      const AccessibilityStatusCallback& cb);
+      const AccessibilityStatusCallback& cb) WARN_UNUSED_RESULT;
 
   // Notify registered callbacks of a status change in an accessibility setting.
   void NotifyAccessibilityStatusChanged(
@@ -267,7 +263,8 @@ class AccessibilityManager
 
   // Forward an accessibility gesture from the touch exploration controller
   // to ChromeVox.
-  void HandleAccessibilityGesture(ax::mojom::Gesture gesture);
+  void HandleAccessibilityGesture(ax::mojom::Gesture gesture,
+                                  gfx::PointF location);
 
   // Update the touch exploration controller so that synthesized
   // touch events are anchored at this point.
@@ -275,7 +272,6 @@ class AccessibilityManager
 
   // Called by our widget observer when the respective panel is closing.
   void OnChromeVoxPanelDestroying();
-  void OnSwitchAccessPanelDestroying();
 
   // Profile having the a11y context.
   Profile* profile() { return profile_; }
@@ -287,17 +283,8 @@ class AccessibilityManager
     return keyboard_listener_extension_id_;
   }
 
-  // Set the keys to be captured by Switch Access.
-  void SetSwitchAccessKeys(const std::set<int>& key_codes);
-
-  // Hides the Switch Access menu.
-  void HideSwitchAccessMenu();
-
-  // Shows the Switch Access menu.
-  void ShowSwitchAccessMenu(const gfx::Rect& element_bounds,
-                            int menu_width,
-                            int menu_height,
-                            bool back_button_only = false);
+  // Unloads Switch Access.
+  void OnSwitchAccessDisabled();
 
   // Starts or stops dictation (type what you speak).
   bool ToggleDictation();
@@ -357,6 +344,10 @@ class AccessibilityManager
       base::RepeatingCallback<void(const gfx::Rect&)> observer);
   void SetSwitchAccessKeysForTest(const std::vector<int>& keys);
 
+  const std::set<std::string>& GetAccessibilityCommonEnabledFeaturesForTest() {
+    return accessibility_common_enabled_features_;
+  }
+
  protected:
   AccessibilityManager();
   ~AccessibilityManager() override;
@@ -372,8 +363,8 @@ class AccessibilityManager
   void PostLoadSwitchAccess();
   void PostUnloadSwitchAccess();
 
-  void PostLoadAutoclick();
-  void PostUnloadAutoclick();
+  void PostLoadAccessibilityCommon();
+  void PostUnloadAccessibilityCommon();
 
   void UpdateAlwaysShowMenuFromPref();
   void OnLargeCursorChanged();
@@ -387,7 +378,7 @@ class AccessibilityManager
   void OnFocusHighlightChanged();
   void OnTapDraggingChanged();
   void OnSelectToSpeakChanged();
-  void OnAutoclickChanged();
+  void OnAccessibilityCommonChanged(const std::string& pref_name);
   void OnSwitchAccessChanged();
 
   void CheckBrailleState();
@@ -445,7 +436,10 @@ class AccessibilityManager
   bool spoken_feedback_enabled_ = false;
   bool select_to_speak_enabled_ = false;
   bool switch_access_enabled_ = false;
-  bool autoclick_enabled_ = false;
+
+  // A set of pref names of enabled accessibility features using the
+  // accessibility common extension.
+  std::set<std::string> accessibility_common_enabled_features_;
 
   AccessibilityStatusCallbackList callback_list_;
 
@@ -460,10 +454,6 @@ class AccessibilityManager
   std::unique_ptr<AccessibilityPanelWidgetObserver>
       chromevox_panel_widget_observer_;
 
-  SwitchAccessPanel* switch_access_panel_ = nullptr;
-  std::unique_ptr<AccessibilityPanelWidgetObserver>
-      switch_access_panel_widget_observer_;
-
   std::string keyboard_listener_extension_id_;
   bool keyboard_listener_capture_ = false;
 
@@ -472,7 +462,8 @@ class AccessibilityManager
                  extensions::ExtensionRegistryObserver>
       extension_registry_observer_{this};
 
-  std::unique_ptr<AccessibilityExtensionLoader> autoclick_extension_loader_;
+  std::unique_ptr<AccessibilityExtensionLoader>
+      accessibility_common_extension_loader_;
 
   std::unique_ptr<AccessibilityExtensionLoader> chromevox_loader_;
 
@@ -482,9 +473,6 @@ class AccessibilityManager
       select_to_speak_event_handler_delegate_;
 
   std::unique_ptr<AccessibilityExtensionLoader> switch_access_loader_;
-
-  std::unique_ptr<SwitchAccessEventHandlerDelegate>
-      switch_access_event_handler_delegate_;
 
   std::map<std::string, std::set<std::string>>
       focus_ring_names_for_extension_id_;

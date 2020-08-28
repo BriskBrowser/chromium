@@ -24,6 +24,7 @@
 #include "third_party/blink/renderer/core/svg/svg_animate_element.h"
 #include "third_party/blink/renderer/core/svg/svg_parser_utilities.h"
 #include "third_party/blink/renderer/platform/heap/heap.h"
+#include "third_party/blink/renderer/platform/wtf/text/character_visitor.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_builder.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
 
@@ -68,14 +69,9 @@ SVGParsingError SVGRect::SetValueAsString(const String& string) {
   if (string.IsEmpty())
     return SVGParsingError(SVGParseStatus::kExpectedNumber, 0);
 
-  if (string.Is8Bit()) {
-    const LChar* ptr = string.Characters8();
-    const LChar* end = ptr + string.length();
-    return Parse(ptr, end);
-  }
-  const UChar* ptr = string.Characters16();
-  const UChar* end = ptr + string.length();
-  return Parse(ptr, end);
+  return WTF::VisitCharacters(string, [&](const auto* chars, unsigned length) {
+    return Parse(chars, chars + length);
+  });
 }
 
 String SVGRect::ValueAsString() const {
@@ -91,7 +87,7 @@ String SVGRect::ValueAsString() const {
 }
 
 void SVGRect::Add(SVGPropertyBase* other, SVGElement*) {
-  value_ += ToSVGRect(other)->Value();
+  value_ += To<SVGRect>(other)->Value();
 }
 
 void SVGRect::CalculateAnimatedValue(
@@ -102,9 +98,9 @@ void SVGRect::CalculateAnimatedValue(
     SVGPropertyBase* to_value,
     SVGPropertyBase* to_at_end_of_duration_value,
     SVGElement*) {
-  SVGRect* from_rect = ToSVGRect(from_value);
-  SVGRect* to_rect = ToSVGRect(to_value);
-  SVGRect* to_at_end_of_duration_rect = ToSVGRect(to_at_end_of_duration_value);
+  auto* from_rect = To<SVGRect>(from_value);
+  auto* to_rect = To<SVGRect>(to_value);
+  auto* to_at_end_of_duration_rect = To<SVGRect>(to_at_end_of_duration_value);
 
   float animated_x = X();
   float animated_y = Y();

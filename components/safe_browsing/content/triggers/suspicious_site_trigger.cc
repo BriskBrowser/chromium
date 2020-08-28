@@ -5,14 +5,15 @@
 #include "components/safe_browsing/content/triggers/suspicious_site_trigger.h"
 
 #include "base/bind.h"
+#include "base/memory/ptr_util.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/single_thread_task_runner.h"
-#include "base/task/post_task.h"
 #include "components/history/core/browser/history_service.h"
 #include "components/prefs/pref_service.h"
 #include "components/safe_browsing/core/triggers/trigger_manager.h"
 #include "components/safe_browsing/core/triggers/trigger_throttler.h"
-#include "components/security_interstitials/content/unsafe_resource.h"
+#include "components/security_interstitials/content/unsafe_resource_util.h"
+#include "components/security_interstitials/core/unsafe_resource.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
@@ -66,8 +67,7 @@ SuspiciousSiteTrigger::SuspiciousSiteTrigger(
       prefs_(prefs),
       url_loader_factory_(url_loader_factory),
       history_service_(history_service),
-      task_runner_(
-          base::CreateSingleThreadTaskRunner({content::BrowserThread::UI})) {}
+      task_runner_(content::GetUIThreadTaskRunner({})) {}
 
 SuspiciousSiteTrigger::~SuspiciousSiteTrigger() {}
 
@@ -94,7 +94,7 @@ bool SuspiciousSiteTrigger::MaybeStartReport() {
   security_interstitials::UnsafeResource resource;
   resource.threat_type = SB_THREAT_TYPE_SUSPICIOUS_SITE;
   resource.url = web_contents()->GetLastCommittedURL();
-  resource.web_contents_getter = resource.GetWebContentsGetter(
+  resource.web_contents_getter = security_interstitials::GetWebContentsGetter(
       web_contents()->GetMainFrame()->GetProcess()->GetID(),
       web_contents()->GetMainFrame()->GetRoutingID());
 

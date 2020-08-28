@@ -42,12 +42,10 @@ namespace ml {
 
 namespace {
 // Count number of key, mouse and touch events in the past hour.
-constexpr base::TimeDelta kUserInputEventsDuration =
-    base::TimeDelta::FromMinutes(60);
+constexpr auto kUserInputEventsDuration = base::TimeDelta::FromHours(1);
 
 // Granularity of input events is per minute.
-constexpr int kNumUserInputEventsBuckets =
-    kUserInputEventsDuration / base::TimeDelta::FromMinutes(1);
+constexpr int kNumUserInputEventsBuckets = kUserInputEventsDuration.InMinutes();
 
 // Returns the focused visible browser unless no visible browser is focused,
 // then returns the topmost visible browser.
@@ -174,7 +172,7 @@ AdaptiveScreenBrightnessManager::CreateInstance() {
               .InitWithNewPipeAndPassReceiver(),
           std::make_unique<base::RepeatingTimer>());
   aura::Env::GetInstance()
-      ->context_factory_private()
+      ->context_factory()
       ->GetHostFrameSinkManager()
       ->AddVideoDetectorObserver(
           std::move(video_observer_screen_brightness_logger));
@@ -208,7 +206,7 @@ void AdaptiveScreenBrightnessManager::OnUserActivity(
     key_counter_->Log(time_since_boot);
   } else if (event->IsTouchEvent()) {
     if (event->AsTouchEvent()->pointer_details().pointer_type ==
-        ui::EventPointerType::POINTER_TYPE_PEN) {
+        ui::EventPointerType::kPen) {
       stylus_counter_->Log(time_since_boot);
     } else {
       touch_counter_->Log(time_since_boot);

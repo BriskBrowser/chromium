@@ -4,20 +4,26 @@
 
 #import "ios/chrome/browser/ui/ntp/incognito_view.h"
 
+#include "base/feature_list.h"
+#include "components/content_settings/core/common/features.h"
 #include "components/google/core/common/google_util.h"
 #include "components/strings/grit/components_strings.h"
 #include "ios/chrome/browser/application_context.h"
+#include "ios/chrome/browser/drag_and_drop/drag_and_drop_flag.h"
+#import "ios/chrome/browser/drag_and_drop/url_drag_drop_handler.h"
+#import "ios/chrome/browser/ui/page_info/features.h"
 #import "ios/chrome/browser/ui/toolbar/public/toolbar_constants.h"
 #import "ios/chrome/browser/ui/toolbar/public/toolbar_utils.h"
+#include "ios/chrome/browser/ui/ui_feature_flags.h"
 #include "ios/chrome/browser/ui/util/rtl_geometry.h"
 #include "ios/chrome/browser/ui/util/ui_util.h"
 #import "ios/chrome/browser/ui/util/uikit_ui_util.h"
+#import "ios/chrome/browser/url_loading/url_loading_browser_agent.h"
 #import "ios/chrome/browser/url_loading/url_loading_params.h"
-#import "ios/chrome/browser/url_loading/url_loading_service.h"
-#import "ios/chrome/common/colors/dynamic_color_util.h"
-#import "ios/chrome/common/colors/semantic_color_names.h"
 #import "ios/chrome/common/string_util.h"
-#import "ios/chrome/common/ui_util/constraints_ui_util.h"
+#import "ios/chrome/common/ui/colors/dynamic_color_util.h"
+#import "ios/chrome/common/ui/colors/semantic_color_names.h"
+#import "ios/chrome/common/ui/util/constraints_ui_util.h"
 #import "ios/web/public/navigation/navigation_manager.h"
 #include "ios/web/public/navigation/referrer.h"
 #import "net/base/mac/url_conversions.h"
@@ -40,7 +46,7 @@ const CGFloat kLayoutGuideMinHeight = 12.0;
 // The URL for the the Learn More page shown on incognito new tab.
 // Taken from ntp_resource_cache.cc.
 const char kLearnMoreIncognitoUrl[] =
-    "https://www.google.com/support/chrome/bin/answer.py?answer=95464";
+    "https://support.google.com/chrome/?p=incognito";
 
 GURL GetUrlWithLang(const GURL& url) {
   std::string locale = GetApplicationContext()->GetApplicationLocale();
@@ -116,6 +122,10 @@ NSAttributedString* FormatHTMLListForUILabel(NSString* listString) {
 
 }  // namespace
 
+@interface IncognitoView () <URLDropDelegate>
+
+@end
+
 @implementation IncognitoView {
   UIView* _containerView;
   UIStackView* _stackView;
@@ -138,14 +148,23 @@ NSAttributedString* FormatHTMLListForUILabel(NSString* listString) {
   NSArray<NSLayoutConstraint*>* _superViewConstraints;
 
   // The UrlLoadingService associated with this view.
-  UrlLoadingService* _urlLoadingService;  // weak
-}
+  UrlLoadingBrowserAgent* _URLLoader;  // weak
 
+  // Handles drop interactions for this view.
+  URLDragDropHandler* _dragDropHandler;
+}
 - (instancetype)initWithFrame:(CGRect)frame
-            urlLoadingService:(UrlLoadingService*)urlLoadingService {
+                    URLLoader:(UrlLoadingBrowserAgent*)URLLoader {
   self = [super initWithFrame:frame];
   if (self) {
-    _urlLoadingService = urlLoadingService;
+    _URLLoader = URLLoader;
+
+    if (DragAndDropIsEnabled()) {
+      _dragDropHandler = [[URLDragDropHandler alloc] init];
+      _dragDropHandler.dropDelegate = self;
+      [self addInteraction:[[UIDropInteraction alloc]
+                               initWithDelegate:_dragDropHandler]];
+    }
 
     self.alwaysBounceVertical = YES;
     // The bottom safe area is taken care of with the bottomUnsafeArea guides.
@@ -331,6 +350,16 @@ NSAttributedString* FormatHTMLListForUILabel(NSString* listString) {
   _visibleDataLabel.textColor = bodyTextColor;
 }
 
+#pragma mark - URLDropDelegate
+
+- (BOOL)canHandleURLDropInView:(UIView*)view {
+  return YES;
+}
+
+- (void)view:(UIView*)view didDropURL:(const GURL&)URL atPoint:(CGPoint)point {
+  _URLLoader->Load(UrlLoadParams::InCurrentTab(URL));
+}
+
 #pragma mark - Private
 
 // Updates the height of the margins for the top and bottom toolbars.
@@ -345,7 +374,7 @@ NSAttributedString* FormatHTMLListForUILabel(NSString* listString) {
   }
 
   if (IsSplitToolbarMode(self)) {
-    _bottomToolbarMarginHeight.constant = kAdaptiveToolbarHeight;
+    _bottomToolbarMarginHeight.constant = kSecondaryToolbarHeight;
   } else {
     _bottomToolbarMarginHeight.constant = 0;
   }
@@ -353,7 +382,7 @@ NSAttributedString* FormatHTMLListForUILabel(NSString* listString) {
 
 // Triggers a navigation to the help page.
 - (void)learnMoreButtonPressed {
-  _urlLoadingService->Load(UrlLoadParams::InCurrentTab(
+  _URLLoader->Load(UrlLoadParams::InCurrentTab(
       GetUrlWithLang(GURL(kLearnMoreIncognitoUrl))));
 }
 
@@ -397,6 +426,14 @@ NSAttributedString* FormatHTMLListForUILabel(NSString* listString) {
   [learnMoreButton addTarget:self
                       action:@selector(learnMoreButtonPressed)
             forControlEvents:UIControlEventTouchUpInside];
+#if defined(__IPHONE_13_4)
+  if (@available(iOS 13.4, *)) {
+    if (base::FeatureList::IsEnabled(kPointerSupport)) {
+      // TODO(crbug.com/1075616): Style as a link rather than a button.
+      learnMoreButton.pointerInteractionEnabled = YES;
+    }
+  }
+#endif  // defined(__IPHONE_13_4)
 
   UIStackView* subtitleStackView = [[UIStackView alloc]
       initWithArrangedSubviews:@[ subtitleLabel, learnMoreButton ]];

@@ -68,6 +68,7 @@
     <output filename="values-sl/android_chrome_start_surface_strings.xml" lang="sl" type="android" />
     <output filename="values-sq/android_chrome_start_surface_strings.xml" lang="sq" type="android" />
     <output filename="values-sr/android_chrome_start_surface_strings.xml" lang="sr" type="android" />
+    <output filename="values-b+sr+Latn/android_chrome_start_surface_strings.xml" lang="sr-Latn" type="android" />
     <output filename="values-sv/android_chrome_start_surface_strings.xml" lang="sv" type="android" />
     <output filename="values-sw/android_chrome_start_surface_strings.xml" lang="sw" type="android" />
     <output filename="values-ta/android_chrome_start_surface_strings.xml" lang="ta" type="android" />
@@ -79,6 +80,7 @@
     <output filename="values-uz/android_chrome_start_surface_strings.xml" lang="uz" type="android" />
     <output filename="values-vi/android_chrome_start_surface_strings.xml" lang="vi" type="android" />
     <output filename="values-zh-rCN/android_chrome_start_surface_strings.xml" lang="zh-CN" type="android" />
+    <output filename="values-zh-rHK/android_chrome_start_surface_strings.xml" lang="zh-HK" type="android" />
     <output filename="values-zh-rTW/android_chrome_start_surface_strings.xml" lang="zh-TW" type="android" />
     <output filename="values-zu/android_chrome_start_surface_strings.xml" lang="zu" type="android" />
   </outputs>
@@ -148,6 +150,7 @@
     <file lang="sl" path="translations/android_chrome_start_surface_strings_sl.xtb" />
     <file lang="sq" path="translations/android_chrome_start_surface_strings_sq.xtb" />
     <file lang="sr" path="translations/android_chrome_start_surface_strings_sr.xtb" />
+    <file lang="sr-Latn" path="translations/android_chrome_start_surface_strings_sr-Latn.xtb" />
     <file lang="sv" path="translations/android_chrome_start_surface_strings_sv.xtb" />
     <file lang="sw" path="translations/android_chrome_start_surface_strings_sw.xtb" />
     <file lang="ta" path="translations/android_chrome_start_surface_strings_ta.xtb" />

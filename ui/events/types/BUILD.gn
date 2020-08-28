@@ -3,5 +3,9 @@
 # found in the LICENSE file.
 
 source_set("headers") {
-  sources = [ "scroll_types.h" ]
+  sources = [
+    "event_type.h",
+    "scroll_input_type.h",
+    "scroll_types.h",
+  ]
 }

@@ -21,7 +21,6 @@
 #include "mojo/public/cpp/system/invitation.h"
 #include "services/network/public/cpp/network_connection_tracker.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
-#include "services/service_manager/public/cpp/connector.h"
 
 namespace drivefs {
 
@@ -59,7 +58,9 @@ class DriveFsHost::MountState : public DriveFsSession,
 
   ~MountState() override {
     DCHECK_CALLED_ON_VALID_SEQUENCE(host_->sequence_checker_);
-    host_->delegate_->GetDriveNotificationManager().RemoveObserver(this);
+    if (team_drives_fetched_) {
+      host_->delegate_->GetDriveNotificationManager().RemoveObserver(this);
+    }
     if (is_mounted()) {
       for (auto& observer : host_->observers_) {
         observer.OnUnmounted();
@@ -77,7 +78,8 @@ class DriveFsHost::MountState : public DriveFsSession,
         std::move(access_token),
         auth_delegate->IsMetricsCollectionEnabled(),
         delegate->GetLostAndFoundDirectoryName(),
-        base::FeatureList::IsEnabled(chromeos::features::kDriveFsMirroring)};
+        base::FeatureList::IsEnabled(chromeos::features::kDriveFsMirroring),
+        delegate->IsVerboseLoggingEnabled()};
     return DriveFsConnection::Create(delegate->CreateMojoListener(),
                                      std::move(config));
   }
@@ -132,10 +134,14 @@ class DriveFsHost::MountState : public DriveFsSession,
     host_->delegate_->GetDriveNotificationManager().UpdateTeamDriveIds(
         std::set<std::string>(team_drive_ids.begin(), team_drive_ids.end()),
         {});
+    team_drives_fetched_ = true;
   }
 
   void OnTeamDriveChanged(const std::string& team_drive_id,
                           CreateOrDelete change_type) override {
+    if (!team_drives_fetched_) {
+      return;
+    }
     std::set<std::string> additions;
     std::set<std::string> removals;
     if (change_type == mojom::DriveFsDelegate::CreateOrDelete::kCreated) {
@@ -145,6 +151,15 @@ class DriveFsHost::MountState : public DriveFsSession,
     }
     host_->delegate_->GetDriveNotificationManager().UpdateTeamDriveIds(
         additions, removals);
+  }
+
+  void ConnectToExtension(
+      mojom::ExtensionConnectionParamsPtr params,
+      mojo::PendingReceiver<mojom::NativeMessagingPort> port,
+      mojo::PendingRemote<mojom::NativeMessagingHost> host,
+      ConnectToExtensionCallback callback) override {
+    std::move(callback).Run(host_->delegate_->ConnectToExtension(
+        std::move(params), std::move(port), std::move(host)));
   }
 
   // DriveNotificationObserver overrides:
@@ -169,6 +184,7 @@ class DriveFsHost::MountState : public DriveFsSession,
   std::unique_ptr<DriveFsSearch> search_;
 
   bool token_fetch_attempted_ = false;
+  bool team_drives_fetched_ = false;
 
   DISALLOW_COPY_AND_ASSIGN(MountState);
 };

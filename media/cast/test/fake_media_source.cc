@@ -87,7 +87,7 @@ FakeMediaSource::FakeMediaSource(
       clock_(clock),
       audio_frame_count_(0),
       video_frame_count_(0),
-      av_format_context_(NULL),
+      av_format_context_(nullptr),
       audio_stream_index_(-1),
       playback_rate_(1.0),
       video_stream_index_(-1),
@@ -419,7 +419,7 @@ base::TimeDelta FakeMediaSource::VideoFrameTime(int frame_number) {
 }
 
 base::TimeDelta FakeMediaSource::ScaleTimestamp(base::TimeDelta timestamp) {
-  return base::TimeDelta::FromSecondsD(timestamp.InSecondsF() / playback_rate_);
+  return timestamp / playback_rate_;
 }
 
 base::TimeDelta FakeMediaSource::AudioFrameTime(int frame_number) {
@@ -461,7 +461,7 @@ void FakeMediaSource::DecodeAudio(ScopedAVPacket packet) {
 
   const int frames_needed_to_scale =
       playback_rate_ * av_audio_context_->sample_rate / kAudioPacketsPerSecond;
-  while (frames_needed_to_scale <= audio_algo_.frames_buffered()) {
+  while (frames_needed_to_scale <= audio_algo_.BufferedFrames()) {
     if (!audio_algo_.FillBuffer(audio_fifo_input_bus_.get(), 0,
                                 audio_fifo_input_bus_->frames(),
                                 playback_rate_)) {
@@ -557,7 +557,7 @@ bool FakeMediaSource::OnNewVideoFrame(AVFrame* frame) {
     return false;
   video_frame_queue_.push(video_frame);
   video_frame_queue_.back()->AddDestructionObserver(
-      base::Bind(&AVFreeFrame, shallow_copy));
+      base::BindOnce(&AVFreeFrame, shallow_copy));
   last_video_frame_timestamp_ = timestamp;
   return true;
 }

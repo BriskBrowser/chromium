@@ -9,6 +9,7 @@
 #include <stdint.h>
 #include <string.h>
 
+#include "base/feature_list.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/format_macros.h"
@@ -27,6 +28,7 @@
 #include "base/synchronization/lock.h"
 #include "base/threading/scoped_blocking_call.h"
 #include "base/trace_event/memory_dump_manager.h"
+#include "base/trace_event/trace_event.h"
 #include "build/build_config.h"
 #include "sql/database_memory_dump_provider.h"
 #include "sql/initialization.h"
@@ -37,6 +39,8 @@
 #include "third_party/sqlite/sqlite3.h"
 
 namespace {
+
+bool enable_mmap_by_default_ = true;
 
 // Spin for up to a second waiting for the lock to clear when setting
 // up the database.
@@ -146,7 +150,7 @@ int GetSqlite3FileAndSize(sqlite3* db,
 
 std::string AsUTF8ForSQL(const base::FilePath& path) {
 #if defined(OS_WIN)
-  return base::UTF16ToUTF8(path.value());
+  return base::WideToUTF8(path.value());
 #elif defined(OS_POSIX) || defined(OS_FUCHSIA)
   return path.value();
 #endif
@@ -217,7 +221,7 @@ void Database::StatementRef::Close(bool forced) {
     // TODO(paivanof@gmail.com): This should move to the beginning
     // of the function. http://crbug.com/136655.
     base::Optional<base::ScopedBlockingCall> scoped_blocking_call;
-    InitScopedBlockingCall(&scoped_blocking_call);
+    InitScopedBlockingCall(FROM_HERE, &scoped_blocking_call);
     sqlite3_finalize(stmt_);
     stmt_ = nullptr;
   }
@@ -240,18 +244,24 @@ Database::Database()
       page_size_(kDefaultPageSize),
       cache_size_(0),
       exclusive_locking_(false),
+      want_wal_mode_(
+          base::FeatureList::IsEnabled(features::kEnableWALModeByDefault)),
       transaction_nesting_(0),
       needs_rollback_(false),
       in_memory_(false),
       poisoned_(false),
       mmap_alt_status_(false),
-      mmap_disabled_(false),
+      mmap_disabled_(!enable_mmap_by_default_),
       mmap_enabled_(false),
       total_changes_at_last_release_(0),
       stats_histogram_(nullptr) {}
 
 Database::~Database() {
   Close();
+}
+
+void Database::DisableMmapByDefault() {
+  enable_mmap_by_default_ = false;
 }
 
 void Database::RecordEvent(Events event, size_t count) {
@@ -267,19 +277,23 @@ void Database::RecordEvent(Events event, size_t count) {
 }
 
 bool Database::Open(const base::FilePath& path) {
+  TRACE_EVENT1("sql", "Database::Open", "path", path.MaybeAsASCII());
   return OpenInternal(AsUTF8ForSQL(path), RETRY_ON_POISON);
 }
 
 bool Database::OpenInMemory() {
+  TRACE_EVENT0("sql", "Database::OpenInMemory");
   in_memory_ = true;
   return OpenInternal(":memory:", NO_RETRY);
 }
 
 bool Database::OpenTemporary() {
+  TRACE_EVENT0("sql", "Database::OpenTemporary");
   return OpenInternal("", NO_RETRY);
 }
 
 void Database::CloseInternal(bool forced) {
+  TRACE_EVENT0("sql", "Database::CloseInternal");
   // TODO(shess): Calling "PRAGMA journal_mode = DELETE" at this point
   // will delete the -journal file.  For ChromiumOS or other more
   // embedded systems, this is probably not appropriate, whereas on
@@ -309,9 +323,9 @@ void Database::CloseInternal(bool forced) {
     // TODO(paivanof@gmail.com): This should move to the beginning
     // of the function. http://crbug.com/136655.
     base::Optional<base::ScopedBlockingCall> scoped_blocking_call;
-    InitScopedBlockingCall(&scoped_blocking_call);
+    InitScopedBlockingCall(FROM_HERE, &scoped_blocking_call);
 
-    // Reseting acquires a lock to ensure no dump is happening on the database
+    // Resetting acquires a lock to ensure no dump is happening on the database
     // at the same time. Unregister takes ownership of provider and it is safe
     // since the db is reset. memory_dump_provider_ could be null if db_ was
     // poisoned.
@@ -332,6 +346,7 @@ void Database::CloseInternal(bool forced) {
 }
 
 void Database::Close() {
+  TRACE_EVENT0("sql", "Database::Close");
   // If the database was already closed by RazeAndClose(), then no
   // need to close again.  Clear the |poisoned_| bit so that incorrect
   // API calls are caught.
@@ -344,6 +359,7 @@ void Database::Close() {
 }
 
 void Database::Preload() {
+  TRACE_EVENT0("sql", "Database::Preload");
   if (base::FeatureList::IsEnabled(features::kSqlSkipPreload))
     return;
 
@@ -353,7 +369,7 @@ void Database::Preload() {
   }
 
   base::Optional<base::ScopedBlockingCall> scoped_blocking_call;
-  InitScopedBlockingCall(&scoped_blocking_call);
+  InitScopedBlockingCall(FROM_HERE, &scoped_blocking_call);
 
   // Maximum number of bytes that will be prefetched from the database.
   //
@@ -410,6 +426,7 @@ void Database::Preload() {
 // false.  The downside then is that it allows open-ended use of memory for
 // large transactions.
 void Database::ReleaseCacheMemoryIfNeeded(bool implicit_change_performed) {
+  TRACE_EVENT0("sql", "Database::ReleaseCacheMemoryIfNeeded");
   // The database could have been closed during a transaction as part of error
   // recovery.
   if (!db_) {
@@ -448,7 +465,7 @@ base::FilePath Database::DbPath() const {
   const char* path = sqlite3_db_filename(db_, "main");
   const base::StringPiece db_path(path);
 #if defined(OS_WIN)
-  return base::FilePath(base::UTF8ToUTF16(db_path));
+  return base::FilePath(base::UTF8ToWide(db_path));
 #elif defined(OS_POSIX) || defined(OS_FUCHSIA)
   return base::FilePath(db_path);
 #else
@@ -458,6 +475,7 @@ base::FilePath Database::DbPath() const {
 }
 
 std::string Database::CollectErrorInfo(int error, Statement* stmt) const {
+  TRACE_EVENT0("sql", "Database::CollectErrorInfo");
   // Buffer for accumulating debugging info about the error.  Place
   // more-relevant information earlier, in case things overflow the
   // fixed-size reporting buffer.
@@ -552,6 +570,7 @@ std::string Database::CollectErrorInfo(int error, Statement* stmt) const {
 // TODO(shess): Since this is only called in an error situation, it might be
 // prudent to rewrite in terms of SQLite API calls, and mark the function const.
 std::string Database::CollectCorruptionInfo() {
+  TRACE_EVENT0("sql", "Database::CollectCorruptionInfo");
   // If the file cannot be accessed it is unlikely that an integrity check will
   // turn up actionable information.
   const base::FilePath db_path = DbPath();
@@ -593,6 +612,8 @@ std::string Database::CollectCorruptionInfo() {
 }
 
 bool Database::GetMmapAltStatus(int64_t* status) {
+  TRACE_EVENT0("sql", "Database::GetMmapAltStatus");
+
   // The [meta] version uses a missing table as a signal for a fresh database.
   // That will not work for the view, which would not exist in either a new or
   // an existing database.  A new database _should_ be only one page long, so
@@ -635,8 +656,10 @@ bool Database::SetMmapAltStatus(int64_t status) {
 }
 
 size_t Database::GetAppropriateMmapSize() {
+  TRACE_EVENT0("sql", "Database::GetAppropriateMmapSize");
+
   base::Optional<base::ScopedBlockingCall> scoped_blocking_call;
-  InitScopedBlockingCall(&scoped_blocking_call);
+  InitScopedBlockingCall(FROM_HERE, &scoped_blocking_call);
 
   // How much to map if no errors are found.  50MB encompasses the 99th
   // percentile of Chrome databases in the wild, so this should be good.
@@ -759,6 +782,8 @@ size_t Database::GetAppropriateMmapSize() {
 }
 
 void Database::TrimMemory() {
+  TRACE_EVENT0("sql", "Database::TrimMemory");
+
   if (!db_)
     return;
 
@@ -776,8 +801,10 @@ void Database::TrimMemory() {
 // Create an in-memory database with the existing database's page
 // size, then backup that database over the existing database.
 bool Database::Raze() {
+  TRACE_EVENT0("sql", "Database::Raze");
+
   base::Optional<base::ScopedBlockingCall> scoped_blocking_call;
-  InitScopedBlockingCall(&scoped_blocking_call);
+  InitScopedBlockingCall(FROM_HERE, &scoped_blocking_call);
 
   if (!db_) {
     DCHECK(poisoned_) << "Cannot raze null db";
@@ -795,8 +822,9 @@ bool Database::Raze() {
     return false;
   }
 
-  const std::string sql = base::StringPrintf("PRAGMA page_size=%d", page_size_);
-  if (!null_db.Execute(sql.c_str()))
+  const std::string page_size_sql =
+      base::StringPrintf("PRAGMA page_size=%d", page_size_);
+  if (!null_db.Execute(page_size_sql.c_str()))
     return false;
 
 #if defined(OS_ANDROID)
@@ -876,14 +904,46 @@ bool Database::Raze() {
     DCHECK_EQ(rc, SQLITE_DONE) << "Failed retrying Raze().";
   }
 
+  // Page size of |db_| and |null_db| differ.
+  if (rc == SQLITE_READONLY) {
+    // Enter TRUNCATE mode to change page size.
+    // TODO(shuagga@microsoft.com): Need a guarantee here that there is no other
+    // database connection open.
+    ignore_result(Execute("PRAGMA journal_mode=TRUNCATE;"));
+    if (!Execute(page_size_sql.c_str())) {
+      return false;
+    }
+    // Page size isn't changed until the database is vacuumed.
+    ignore_result(Execute("VACUUM"));
+    // Re-enter WAL mode.
+    if (UseWALMode()) {
+      ignore_result(Execute("PRAGMA journal_mode=WAL;"));
+    }
+
+    rc = BackupDatabase(null_db.db_, db_, kMain);
+    base::UmaHistogramSparse("Sqlite.RazeDatabase2", rc);
+
+    DCHECK_EQ(rc, SQLITE_DONE) << "Failed retrying Raze().";
+  }
+
   // TODO(shess): Figure out which other cases can happen.
   DCHECK_EQ(rc, SQLITE_DONE) << "Unable to copy entire null database.";
+
+  // Checkpoint to propagate transactions to the database file and empty the WAL
+  // file.
+  // The database can still contain old data if the Checkpoint fails so fail the
+  // Raze.
+  if (!CheckpointDatabase()) {
+    return false;
+  }
 
   // The entire database should have been backed up.
   return rc == SQLITE_DONE;
 }
 
 bool Database::RazeAndClose() {
+  TRACE_EVENT0("sql", "Database::RazeAndClose");
+
   if (!db_) {
     DCHECK(poisoned_) << "Cannot raze null db";
     return false;
@@ -905,6 +965,8 @@ bool Database::RazeAndClose() {
 }
 
 void Database::Poison() {
+  TRACE_EVENT0("sql", "Database::Poison");
+
   if (!db_) {
     DCHECK(poisoned_) << "Cannot poison null db";
     return;
@@ -931,6 +993,8 @@ void Database::Poison() {
 //
 // static
 bool Database::Delete(const base::FilePath& path) {
+  TRACE_EVENT1("sql", "Database::Delete", "path", path.MaybeAsASCII());
+
   base::ScopedBlockingCall scoped_blocking_call(FROM_HERE,
                                                 base::BlockingType::MAY_BLOCK);
 
@@ -948,11 +1012,11 @@ bool Database::Delete(const base::FilePath& path) {
   CHECK(vfs->xDelete);
   CHECK(vfs->xAccess);
 
-  // We only work with unix, win32 and mojo filesystems. If you're trying to
+  // We only work with the VFS implementations listed below. If you're trying to
   // use this code with any other VFS, you're not in a good place.
   CHECK(strncmp(vfs->zName, "unix", 4) == 0 ||
         strncmp(vfs->zName, "win32", 5) == 0 ||
-        strcmp(vfs->zName, "mojo") == 0);
+        strcmp(vfs->zName, "storage_service") == 0);
 
   vfs->xDelete(vfs, journal_str.c_str(), 0);
   vfs->xDelete(vfs, wal_str.c_str(), 0);
@@ -971,6 +1035,8 @@ bool Database::Delete(const base::FilePath& path) {
 }
 
 bool Database::BeginTransaction() {
+  TRACE_EVENT0("sql", "Database::BeginTransaction");
+
   if (needs_rollback_) {
     DCHECK_GT(transaction_nesting_, 0);
 
@@ -992,6 +1058,8 @@ bool Database::BeginTransaction() {
 }
 
 void Database::RollbackTransaction() {
+  TRACE_EVENT0("sql", "Database::RollbackTransaction");
+
   if (!transaction_nesting_) {
     DCHECK(poisoned_) << "Rolling back a nonexistent transaction";
     return;
@@ -1009,6 +1077,8 @@ void Database::RollbackTransaction() {
 }
 
 bool Database::CommitTransaction() {
+  TRACE_EVENT0("sql", "Database::CommitTransaction");
+
   if (!transaction_nesting_) {
     DCHECK(poisoned_) << "Committing a nonexistent transaction";
     return false;
@@ -1036,6 +1106,8 @@ bool Database::CommitTransaction() {
 }
 
 void Database::RollbackAllTransactions() {
+  TRACE_EVENT0("sql", "Database::RollbackAllTransactions");
+
   if (transaction_nesting_ > 0) {
     transaction_nesting_ = 0;
     DoRollback();
@@ -1045,11 +1117,13 @@ void Database::RollbackAllTransactions() {
 bool Database::AttachDatabase(const base::FilePath& other_db_path,
                               const char* attachment_point,
                               InternalApiToken) {
+  TRACE_EVENT0("sql", "Database::AttachDatabase");
+
   DCHECK(ValidAttachmentPoint(attachment_point));
 
   Statement s(GetUniqueStatement("ATTACH DATABASE ? AS ?"));
 #if OS_WIN
-  s.BindString16(0, other_db_path.value());
+  s.BindString16(0, base::AsStringPiece16(other_db_path.value()));
 #elif defined(OS_POSIX) || defined(OS_FUCHSIA)
   s.BindString(0, other_db_path.value());
 #else
@@ -1060,6 +1134,8 @@ bool Database::AttachDatabase(const base::FilePath& other_db_path,
 }
 
 bool Database::DetachDatabase(const char* attachment_point, InternalApiToken) {
+  TRACE_EVENT0("sql", "Database::DetachDatabase");
+
   DCHECK(ValidAttachmentPoint(attachment_point));
 
   Statement s(GetUniqueStatement("DETACH DATABASE ?"));
@@ -1071,6 +1147,8 @@ bool Database::DetachDatabase(const char* attachment_point, InternalApiToken) {
 // caller wishes to execute multiple statements, that should be explicit, and
 // perhaps tucked into an explicit transaction with rollback in case of error.
 int Database::ExecuteAndReturnErrorCode(const char* sql) {
+  TRACE_EVENT0("sql", "Database::ExecuteAndReturnErrorCode");
+
   DCHECK(sql);
 
   if (!db_) {
@@ -1079,7 +1157,7 @@ int Database::ExecuteAndReturnErrorCode(const char* sql) {
   }
 
   base::Optional<base::ScopedBlockingCall> scoped_blocking_call;
-  InitScopedBlockingCall(&scoped_blocking_call);
+  InitScopedBlockingCall(FROM_HERE, &scoped_blocking_call);
 
   int rc = SQLITE_OK;
   while ((rc == SQLITE_OK) && *sql) {
@@ -1127,6 +1205,8 @@ int Database::ExecuteAndReturnErrorCode(const char* sql) {
 }
 
 bool Database::Execute(const char* sql) {
+  TRACE_EVENT1("sql", "Database::Execute", "query", TRACE_STR_COPY(sql));
+
   if (!db_) {
     DCHECK(poisoned_) << "Illegal use of Database without a db";
     return false;
@@ -1146,6 +1226,8 @@ bool Database::Execute(const char* sql) {
 }
 
 bool Database::ExecuteWithTimeout(const char* sql, base::TimeDelta timeout) {
+  TRACE_EVENT0("sql", "Database::ExecuteWithTimeout");
+
   if (!db_) {
     DCHECK(poisoned_) << "Illegal use of Database without a db";
     return false;
@@ -1198,7 +1280,7 @@ scoped_refptr<Database::StatementRef> Database::GetStatementImpl(
     return base::MakeRefCounted<StatementRef>(nullptr, nullptr, poisoned_);
 
   base::Optional<base::ScopedBlockingCall> scoped_blocking_call;
-  InitScopedBlockingCall(&scoped_blocking_call);
+  InitScopedBlockingCall(FROM_HERE, &scoped_blocking_call);
 
   // TODO(pwnall): Cached statements (but not unique statements) should be
   //               prepared with prepFlags set to SQLITE_PREPARE_PERSISTENT.
@@ -1247,7 +1329,7 @@ std::string Database::GetSchema() const {
 
 bool Database::IsSQLValid(const char* sql) {
   base::Optional<base::ScopedBlockingCall> scoped_blocking_call;
-  InitScopedBlockingCall(&scoped_blocking_call);
+  InitScopedBlockingCall(FROM_HERE, &scoped_blocking_call);
   if (!db_) {
     DCHECK(poisoned_) << "Illegal use of Database without a db";
     return false;
@@ -1346,13 +1428,15 @@ const char* Database::GetErrorMessage() const {
 
 bool Database::OpenInternal(const std::string& file_name,
                             Database::Retry retry_flag) {
+  TRACE_EVENT1("sql", "Database::OpenInternal", "path", file_name);
+
   if (db_) {
     DLOG(DCHECK) << "sql::Database is already open.";
     return false;
   }
 
   base::Optional<base::ScopedBlockingCall> scoped_blocking_call;
-  InitScopedBlockingCall(&scoped_blocking_call);
+  InitScopedBlockingCall(FROM_HERE, &scoped_blocking_call);
 
   EnsureSqliteInitialized();
 
@@ -1405,6 +1489,24 @@ bool Database::OpenInternal(const std::string& file_name,
     return false;
   }
 
+  // If indicated, lock up the database before doing anything else, so
+  // that the following code doesn't have to deal with locking.
+  //
+  // Needs to happen before any other operation is performed in WAL mode so that
+  // no operation relies on shared memory if exclusive locking is turned on.
+  //
+  // TODO(shess): This code is brittle.  Find the cases where code
+  // doesn't request |exclusive_locking_| and audit that it does the
+  // right thing with SQLITE_BUSY, and that it doesn't make
+  // assumptions about who might change things in the database.
+  // http://crbug.com/56559
+  if (exclusive_locking_) {
+    // TODO(shess): This should probably be a failure.  Code which
+    // requests exclusive locking but doesn't get it is almost certain
+    // to be ill-tested.
+    ignore_result(Execute("PRAGMA locking_mode=EXCLUSIVE"));
+  }
+
   // Enable extended result codes to provide more color on I/O errors.
   // Not having extended result codes is not a fatal problem, as
   // Chromium code does not attempt to handle I/O errors anyhow.  The
@@ -1436,35 +1538,43 @@ bool Database::OpenInternal(const std::string& file_name,
     }
   }
 
-  // If indicated, lock up the database before doing anything else, so
-  // that the following code doesn't have to deal with locking.
-  // TODO(shess): This code is brittle.  Find the cases where code
-  // doesn't request |exclusive_locking_| and audit that it does the
-  // right thing with SQLITE_BUSY, and that it doesn't make
-  // assumptions about who might change things in the database.
-  // http://crbug.com/56559
-  if (exclusive_locking_) {
-    // TODO(shess): This should probably be a failure.  Code which
-    // requests exclusive locking but doesn't get it is almost certain
-    // to be ill-tested.
-    ignore_result(Execute("PRAGMA locking_mode=EXCLUSIVE"));
-  }
+  const base::TimeDelta kBusyTimeout =
+      base::TimeDelta::FromSeconds(kBusyTimeoutSeconds);
+
+  // Needs to happen before entering WAL mode. Will only work if this the first
+  // time the database is being opened in WAL mode.
+  const std::string page_size_sql =
+      base::StringPrintf("PRAGMA page_size=%d", page_size_);
+  ignore_result(ExecuteWithTimeout(page_size_sql.c_str(), kBusyTimeout));
 
   // http://www.sqlite.org/pragma.html#pragma_journal_mode
+  // WAL - Use a write-ahead log instead of a journal file.
   // DELETE (default) - delete -journal file to commit.
   // TRUNCATE - truncate -journal file to commit.
   // PERSIST - zero out header of -journal file to commit.
   // TRUNCATE should be faster than DELETE because it won't need directory
   // changes for each transaction.  PERSIST may break the spirit of using
   // secure_delete.
-  ignore_result(Execute("PRAGMA journal_mode=TRUNCATE"));
+  //
+  // Needs to be performed after setting exclusive locking mode. Otherwise can
+  // fail if underlying VFS doesn't support shared memory.
+  if (UseWALMode()) {
+    // Set the synchronous flag to NORMAL. This means that writers don't flush
+    // the WAL file after every write. The WAL file is only flushed on a
+    // checkpoint. In this case, transcations might lose durability on a power
+    // loss (but still durable after an application crash).
+    // TODO(shuagga@microsoft.com): Evaluate if this loss of durability is a
+    // concern.
+    ignore_result(Execute("PRAGMA synchronous=NORMAL"));
 
-  const base::TimeDelta kBusyTimeout =
-      base::TimeDelta::FromSeconds(kBusyTimeoutSeconds);
-
-  const std::string page_size_sql =
-      base::StringPrintf("PRAGMA page_size=%d", page_size_);
-  ignore_result(ExecuteWithTimeout(page_size_sql.c_str(), kBusyTimeout));
+    // Opening the db in WAL mode can fail (eg if the underlying VFS doesn't
+    // support shared memory and we are not in exclusive locking mode).
+    //
+    // TODO(shuagga@microsoft.com): We should probably catch a failure here.
+    ignore_result(Execute("PRAGMA journal_mode=WAL"));
+  } else {
+    ignore_result(Execute("PRAGMA journal_mode=TRUNCATE"));
+  }
 
   if (cache_size_ != 0) {
     const std::string cache_size_sql =
@@ -1521,6 +1631,8 @@ bool Database::OpenInternal(const std::string& file_name,
 }
 
 void Database::DoRollback() {
+  TRACE_EVENT0("sql", "Database::DoRollback");
+
   Statement rollback(GetCachedStatement(SQL_FROM_HERE, "ROLLBACK"));
 
   rollback.Run();
@@ -1569,6 +1681,8 @@ void Database::AddTaggedHistogram(const std::string& name, int sample) const {
 int Database::OnSqliteError(int err,
                             sql::Statement* stmt,
                             const char* sql) const {
+  TRACE_EVENT0("sql", "Database::OnSqliteError");
+
   base::UmaHistogramSparse("Sqlite.Error", err);
   AddTaggedHistogram("Sqlite.Error", err);
 
@@ -1682,6 +1796,30 @@ bool Database::ReportMemoryUsage(base::trace_event::ProcessMemoryDump* pmd,
                                  const std::string& dump_name) {
   return memory_dump_provider_ &&
          memory_dump_provider_->ReportMemoryUsage(pmd, dump_name);
+}
+
+bool Database::UseWALMode() const {
+#if defined(OS_FUCHSIA)
+  // WAL mode is only enabled on Fuchsia for databases with exclusive
+  // locking, because this case does not require shared memory support.
+  // At the time this was implemented (May 2020), Fuchsia's shared
+  // memory support was insufficient for SQLite's needs.
+  return want_wal_mode_ && exclusive_locking_;
+#else
+  return want_wal_mode_;
+#endif  // defined(OS_FUCHSIA)
+}
+
+bool Database::CheckpointDatabase() {
+  base::Optional<base::ScopedBlockingCall> scoped_blocking_call;
+  InitScopedBlockingCall(FROM_HERE, &scoped_blocking_call);
+
+  static const char* kMainDb = "main";
+  int rc = sqlite3_wal_checkpoint_v2(db_, kMainDb, SQLITE_CHECKPOINT_PASSIVE,
+                                     /*pnLog=*/nullptr,
+                                     /*pnCkpt=*/nullptr);
+
+  return rc == SQLITE_OK;
 }
 
 }  // namespace sql

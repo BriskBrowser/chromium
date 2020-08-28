@@ -4,22 +4,27 @@
 
 #import "ios/chrome/browser/ui/tab_grid/grid/grid_view_controller.h"
 
+#include "base/check_op.h"
+#include "base/feature_list.h"
 #include "base/ios/block_types.h"
-#include "base/logging.h"
 #import "base/mac/foundation_util.h"
 #include "base/metrics/user_metrics.h"
 #include "base/metrics/user_metrics_action.h"
+#include "base/notreached.h"
 #import "base/numerics/safe_conversions.h"
+#include "ios/chrome/browser/drag_and_drop/drag_and_drop_flag.h"
 #include "ios/chrome/browser/procedural_block_types.h"
 #import "ios/chrome/browser/ui/tab_grid/grid/grid_cell.h"
 #import "ios/chrome/browser/ui/tab_grid/grid/grid_constants.h"
+#import "ios/chrome/browser/ui/tab_grid/grid/grid_drag_drop_handler.h"
 #import "ios/chrome/browser/ui/tab_grid/grid/grid_empty_view.h"
 #import "ios/chrome/browser/ui/tab_grid/grid/grid_image_data_source.h"
 #import "ios/chrome/browser/ui/tab_grid/grid/grid_item.h"
 #import "ios/chrome/browser/ui/tab_grid/grid/grid_layout.h"
 #import "ios/chrome/browser/ui/tab_grid/transitions/grid_transition_layout.h"
+#include "ios/chrome/browser/ui/ui_feature_flags.h"
 #import "ios/chrome/browser/ui/util/uikit_ui_util.h"
-#import "ios/chrome/common/ui_util/constraints_ui_util.h"
+#import "ios/chrome/common/ui/util/constraints_ui_util.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -33,9 +38,16 @@ NSIndexPath* CreateIndexPath(NSInteger index) {
 }
 }  // namespace
 
-@interface GridViewController ()<GridCellDelegate,
-                                 UICollectionViewDataSource,
-                                 UICollectionViewDelegate>
+#if defined(__IPHONE_13_4)
+@interface GridViewController (Pointer) <UIPointerInteractionDelegate>
+@end
+#endif  // defined(__IPHONE_13_4)
+
+@interface GridViewController () <GridCellDelegate,
+                                  UICollectionViewDataSource,
+                                  UICollectionViewDelegate,
+                                  UICollectionViewDragDelegate,
+                                  UICollectionViewDropDelegate>
 // There is no need to update the collection view when other view controllers
 // are obscuring the collection view. Bookkeeping is based on |-viewWillAppear:|
 // and |-viewWillDisappear methods. Note that the |Did| methods are not reliably
@@ -70,6 +82,14 @@ NSIndexPath* CreateIndexPath(NSInteger index) {
 @property(nonatomic, strong) UICollectionViewLayout* reorderingLayout;
 // YES if, when reordering is enabled, the order of the cells has changed.
 @property(nonatomic, assign) BOOL hasChangedOrder;
+#if defined(__IPHONE_13_4)
+// Cells for which pointer interactions have been added. Pointer interactions
+// should only be added to displayed cells (not transition cells). This is only
+// expected to get as large as the number of reusable cells in memory.
+@property(nonatomic, strong)
+    NSHashTable<UICollectionViewCell*>* pointerInteractionCells API_AVAILABLE(
+        ios(13.4));
+#endif  // defined(__IPHONE_13_4)
 @end
 
 @implementation GridViewController
@@ -86,7 +106,6 @@ NSIndexPath* CreateIndexPath(NSInteger index) {
 
 - (void)loadView {
   self.defaultLayout = [[GridLayout alloc] init];
-  self.reorderingLayout = [[GridReorderingLayout alloc] init];
   UICollectionView* collectionView =
       [[UICollectionView alloc] initWithFrame:CGRectZero
                          collectionViewLayout:self.defaultLayout];
@@ -102,17 +121,6 @@ NSIndexPath* CreateIndexPath(NSInteger index) {
   // collectionView contentInset manually to fit in the safe area instead.
   collectionView.contentInsetAdjustmentBehavior =
       UIScrollViewContentInsetAdjustmentNever;
-
-  self.itemReorderRecognizer = [[UILongPressGestureRecognizer alloc]
-      initWithTarget:self
-              action:@selector(handleItemReorderingWithGesture:)];
-  // The collection view cells will by default get touch events in parallel with
-  // the reorder recognizer. When this happens, long-pressing on a non-selected
-  // cell will cause the selected cell to briefly become unselected and then
-  // selected again. To avoid this, the recognizer delays touchesBegan: calls
-  // until it fails to recognize a long-press.
-  self.itemReorderRecognizer.delaysTouchesBegan = YES;
-  [collectionView addGestureRecognizer:self.itemReorderRecognizer];
   self.collectionView = collectionView;
   self.view = collectionView;
 
@@ -123,6 +131,33 @@ NSIndexPath* CreateIndexPath(NSInteger index) {
   // behavior. Multiple selection will not actually be possible since
   // |-collectionView:shouldSelectItemAtIndexPath:| returns NO.
   collectionView.allowsMultipleSelection = YES;
+
+  if (DragAndDropIsEnabled()) {
+    collectionView.dragDelegate = self;
+    collectionView.dropDelegate = self;
+    collectionView.dragInteractionEnabled = YES;
+  } else {
+    self.reorderingLayout = [[GridReorderingLayout alloc] init];
+    self.itemReorderRecognizer = [[UILongPressGestureRecognizer alloc]
+        initWithTarget:self
+                action:@selector(handleItemReorderingWithGesture:)];
+    // The collection view cells will by default get touch events in parallel
+    // with the reorder recognizer. When this happens, long-pressing on a
+    // non-selected cell will cause the selected cell to briefly become
+    // unselected and then selected again. To avoid this, the recognizer delays
+    // touchesBegan: calls until it fails to recognize a long-press.
+    self.itemReorderRecognizer.delaysTouchesBegan = YES;
+    [collectionView addGestureRecognizer:self.itemReorderRecognizer];
+  }
+
+#if defined(__IPHONE_13_4)
+  if (@available(iOS 13.4, *)) {
+    if (base::FeatureList::IsEnabled(kPointerSupport)) {
+      self.pointerInteractionCells =
+          [NSHashTable<UICollectionViewCell*> weakObjectsHashTable];
+    }
+  }
+#endif  // defined(__IPHONE_13_4)
 }
 
 - (void)viewWillAppear:(BOOL)animated {
@@ -243,7 +278,7 @@ NSIndexPath* CreateIndexPath(NSInteger index) {
     return;
   }
   [self.collectionView selectItemAtIndexPath:CreateIndexPath(self.selectedIndex)
-                                    animated:animated
+                                    animated:NO
                               scrollPosition:UICollectionViewScrollPositionTop];
   // Update the delegate, in case it wasn't set when |items| was populated.
   [self.delegate gridViewController:self didChangeItemCount:self.items.count];
@@ -270,8 +305,36 @@ NSIndexPath* CreateIndexPath(NSInteger index) {
   cell.accessibilityIdentifier =
       [NSString stringWithFormat:@"%@%ld", kGridCellIdentifierPrefix,
                                  base::checked_cast<long>(indexPath.item)];
-  GridItem* item = self.items[indexPath.item];
+
+  // In some cases this is called with an indexPath.item that's beyond (by 1)
+  // the bounds of self.items -- see crbug.com/1068136. Presumably this is a
+  // race condition where an item has been deleted at the same time as the
+  // collection is doing layout (potentially during rotation?). DCHECK to
+  // catch this in debug, and then in production fudge by duplicating the last
+  // cell. The assumption is that there will be another, correct layout shortly
+  // after the incorrect one.
+  NSUInteger itemIndex = indexPath.item;
+  DCHECK(itemIndex < self.items.count);
+  // Outside of debug builds, keep array bounds valid.
+  if (itemIndex >= self.items.count)
+    itemIndex = self.items.count - 1;
+
+  GridItem* item = self.items[itemIndex];
   [self configureCell:cell withItem:item];
+
+#if defined(__IPHONE_13_4)
+  if (@available(iOS 13.4, *)) {
+    if (base::FeatureList::IsEnabled(kPointerSupport)) {
+      if (![self.pointerInteractionCells containsObject:cell]) {
+        [cell addInteraction:[[UIPointerInteraction alloc]
+                                 initWithDelegate:self]];
+        // |self.pointerInteractionCells| is only expected to get as large as
+        // the number of reusable cells in memory.
+        [self.pointerInteractionCells addObject:cell];
+      }
+    }
+  }
+#endif  // defined(__IPHONE_13_4)
   return cell;
 }
 
@@ -317,6 +380,96 @@ NSIndexPath* CreateIndexPath(NSInteger index) {
   return NO;
 }
 
+#if defined(__IPHONE_13_4)
+#pragma mark - UIPointerInteractionDelegate
+
+- (UIPointerRegion*)pointerInteraction:(UIPointerInteraction*)interaction
+                      regionForRequest:(UIPointerRegionRequest*)request
+                         defaultRegion:(UIPointerRegion*)defaultRegion
+    API_AVAILABLE(ios(13.4)) {
+  return defaultRegion;
+}
+
+- (UIPointerStyle*)pointerInteraction:(UIPointerInteraction*)interaction
+                       styleForRegion:(UIPointerRegion*)region
+    API_AVAILABLE(ios(13.4)) {
+  UIPointerLiftEffect* effect = [UIPointerLiftEffect
+      effectWithPreview:[[UITargetedPreview alloc]
+                            initWithView:interaction.view]];
+  return [UIPointerStyle styleWithEffect:effect shape:nil];
+}
+#endif  // defined(__IPHONE_13_4)
+
+#pragma mark - UICollectionViewDragDelegate
+
+- (NSArray<UIDragItem*>*)collectionView:(UICollectionView*)collectionView
+           itemsForBeginningDragSession:(id<UIDragSession>)session
+                            atIndexPath:(NSIndexPath*)indexPath {
+  GridItem* item = self.items[indexPath.item];
+  return @[ [self.dragDropHandler dragItemForItemWithID:item.identifier] ];
+}
+
+- (NSArray<UIDragItem*>*)collectionView:(UICollectionView*)collectionView
+            itemsForAddingToDragSession:(id<UIDragSession>)session
+                            atIndexPath:(NSIndexPath*)indexPath
+                                  point:(CGPoint)point {
+  // TODO(crbug.com/1087848): Allow multi-select.
+  // Prevent more items from getting added to the drag session.
+  return @[];
+}
+
+- (UIDragPreviewParameters*)collectionView:(UICollectionView*)collectionView
+    dragPreviewParametersForItemAtIndexPath:(NSIndexPath*)indexPath {
+  UIDragPreviewParameters* params = [[UIDragPreviewParameters alloc] init];
+  GridCell* cell = base::mac::ObjCCastStrict<GridCell>(
+      [self.collectionView cellForItemAtIndexPath:indexPath]);
+  params.visiblePath = cell.visiblePath;
+  return params;
+}
+
+#pragma mark - UICollectionViewDropDelegate
+
+- (BOOL)collectionView:(UICollectionView*)collectionView
+    canHandleDropSession:(id<UIDropSession>)session {
+  return session.items.count == 1U;
+}
+
+- (UICollectionViewDropProposal*)
+              collectionView:(UICollectionView*)collectionView
+        dropSessionDidUpdate:(id<UIDropSession>)session
+    withDestinationIndexPath:(NSIndexPath*)destinationIndexPath {
+  // This is how the explicit forbidden icon or (+) copy icon is shown. Move has
+  // no explicit icon.
+  UIDropOperation dropOperation =
+      [self.dragDropHandler dropOperationForDropSession:session];
+  return [[UICollectionViewDropProposal alloc]
+      initWithDropOperation:dropOperation
+                     intent:
+                         UICollectionViewDropIntentInsertAtDestinationIndexPath];
+}
+
+- (void)collectionView:(UICollectionView*)collectionView
+    performDropWithCoordinator:
+        (id<UICollectionViewDropCoordinator>)coordinator {
+  id<UICollectionViewDropItem> item = coordinator.items.firstObject;
+
+  NSIndexPath* dropIndexPath = coordinator.destinationIndexPath;
+  if (!dropIndexPath) {
+    dropIndexPath = [NSIndexPath indexPathForItem:(self.items.count - 1)
+                                        inSection:0];
+  }
+
+  NSUInteger destinationIndex =
+      base::checked_cast<NSUInteger>(dropIndexPath.item);
+  [coordinator dropItem:item.dragItem toItemAtIndexPath:dropIndexPath];
+
+  // TODO(crbug.com/1095200): Handle the edge case that two windows are
+  // simultaneously dragging and dropping.
+  [self.dragDropHandler dropItem:item.dragItem
+                         toIndex:destinationIndex
+              fromSameCollection:collectionView.hasActiveDrag];
+}
+
 #pragma mark - UIScrollViewDelegate
 
 - (void)scrollViewDidChangeAdjustedContentInset:(UIScrollView*)scrollView {
@@ -326,12 +479,14 @@ NSIndexPath* CreateIndexPath(NSInteger index) {
 #pragma mark - GridCellDelegate
 
 - (void)closeButtonTappedForCell:(GridCell*)cell {
-  // Disable the reordering recognizer to cancel any in-flight reordering.  The
-  // DCHECK below ensures that the gesture is re-enabled after being cancelled
-  // in |-handleItemReorderingWithGesture:|.
-  if (self.itemReorderRecognizer.state != UIGestureRecognizerStatePossible) {
-    self.itemReorderRecognizer.enabled = NO;
-    DCHECK(self.itemReorderRecognizer.enabled);
+  if (!DragAndDropIsEnabled()) {
+    // Disable the reordering recognizer to cancel any in-flight reordering. The
+    // DCHECK below ensures that the gesture is re-enabled after being cancelled
+    // in |-handleItemReorderingWithGesture:|.
+    if (self.itemReorderRecognizer.state != UIGestureRecognizerStatePossible) {
+      self.itemReorderRecognizer.enabled = NO;
+      DCHECK(self.itemReorderRecognizer.enabled);
+    }
   }
 
   [self.delegate gridViewController:self
@@ -362,6 +517,11 @@ NSIndexPath* CreateIndexPath(NSInteger index) {
         selectItemAtIndexPath:CreateIndexPath(self.selectedIndex)
                      animated:YES
                scrollPosition:UICollectionViewScrollPositionTop];
+    if (self.items.count > 0) {
+      [self removeEmptyStateAnimated:YES];
+    } else {
+      [self animateEmptyStateIn];
+    }
   }
   // Whether the view is visible or not, the delegate must be updated.
   [self.delegate gridViewController:self didChangeItemCount:self.items.count];
@@ -383,7 +543,12 @@ NSIndexPath* CreateIndexPath(NSInteger index) {
     [self removeEmptyStateAnimated:YES];
     [self.collectionView insertItemsAtIndexPaths:@[ CreateIndexPath(index) ]];
   };
+  NSString* previouslySelectedItemID = self.selectedItemID;
   auto completion = ^(BOOL finished) {
+    [self.collectionView
+        deselectItemAtIndexPath:CreateIndexPath([self
+                                    indexOfItemWithID:previouslySelectedItemID])
+                       animated:YES];
     [self.collectionView
         selectItemAtIndexPath:CreateIndexPath(self.selectedIndex)
                      animated:YES
@@ -397,13 +562,15 @@ NSIndexPath* CreateIndexPath(NSInteger index) {
 
 - (void)removeItemWithID:(NSString*)removedItemID
           selectedItemID:(NSString*)selectedItemID {
-  // Disable the reordering recognizer to cancel any in-flight reordering.  The
-  // DCHECK below ensures that the gesture is re-enabled after being cancelled
-  // in |-handleItemReorderingWithGesture:|.
-  if (self.itemReorderRecognizer.state != UIGestureRecognizerStatePossible &&
-      self.itemReorderRecognizer.state != UIGestureRecognizerStateCancelled) {
-    self.itemReorderRecognizer.enabled = NO;
-    DCHECK(self.itemReorderRecognizer.enabled);
+  if (!DragAndDropIsEnabled()) {
+    // Disable the reordering recognizer to cancel any in-flight reordering. The
+    // DCHECK below ensures that the gesture is re-enabled after being cancelled
+    // in |-handleItemReorderingWithGesture:|.
+    if (self.itemReorderRecognizer.state != UIGestureRecognizerStatePossible &&
+        self.itemReorderRecognizer.state != UIGestureRecognizerStateCancelled) {
+      self.itemReorderRecognizer.enabled = NO;
+      DCHECK(self.itemReorderRecognizer.enabled);
+    }
   }
 
   NSUInteger index = [self indexOfItemWithID:removedItemID];
@@ -595,6 +762,8 @@ NSIndexPath* CreateIndexPath(NSInteger index) {
     removeEmptyState();
   }
 }
+
+#pragma mark - Custom Gesture-based Reordering
 
 // Handle the long-press gesture used to reorder cells in the collection view.
 - (void)handleItemReorderingWithGesture:(UIGestureRecognizer*)gesture {

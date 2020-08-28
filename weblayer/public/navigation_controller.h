@@ -15,13 +15,21 @@ class NavigationObserver;
 
 class NavigationController {
  public:
-  virtual ~NavigationController() {}
+  // The members of this struct and their defaults should be kept in sync with
+  // |NavigationController::LoadURLParams|.
+  struct NavigateParams {
+    bool should_replace_current_entry = false;
+  };
+
+  virtual ~NavigationController() = default;
 
   virtual void AddObserver(NavigationObserver* observer) = 0;
 
   virtual void RemoveObserver(NavigationObserver* observer) = 0;
 
   virtual void Navigate(const GURL& url) = 0;
+
+  virtual void Navigate(const GURL& url, const NavigateParams& params) = 0;
 
   virtual void GoBack() = 0;
 
@@ -52,6 +60,11 @@ class NavigationController {
   // Gets the page title of the given entry in the back/forward list, or an
   // empty string if there is no navigation entry at that index.
   virtual std::string GetNavigationEntryTitle(int index) = 0;
+
+  // Returns whether this entry will be skipped on a call to GoBack() or
+  // GoForward(). This will be true for navigations that were done without a
+  // user gesture, including both client side redirects and history.pushState.
+  virtual bool IsNavigationEntrySkippable(int index) = 0;
 };
 
 }  // namespace weblayer

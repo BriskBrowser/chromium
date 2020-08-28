@@ -10,19 +10,19 @@
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
+#include "base/check_op.h"
 #include "base/command_line.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/location.h"
-#include "base/logging.h"
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
 #include "base/memory/ref_counted.h"
 #include "base/path_service.h"
 #include "base/run_loop.h"
 #include "base/sequenced_task_runner.h"
-#include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
 #include "base/values.h"
 #include "build/build_config.h"
 #include "chrome/browser/chrome_notification_types.h"
@@ -94,8 +94,8 @@ void RequestProxyResolvingSocketFactory(
     base::WeakPtr<gcm::GCMProfileService> service,
     mojo::PendingReceiver<network::mojom::ProxyResolvingSocketFactory>
         receiver) {
-  base::PostTask(FROM_HERE, {content::BrowserThread::UI},
-                 base::BindOnce(&RequestProxyResolvingSocketFactoryOnUIThread,
+  content::GetUIThreadTaskRunner({})->PostTask(
+      FROM_HERE, base::BindOnce(&RequestProxyResolvingSocketFactoryOnUIThread,
                                 profile, service, std::move(receiver)));
 }
 
@@ -124,8 +124,8 @@ class Waiter {
 
   // Runs until IO loop becomes idle.
   void PumpIOLoop() {
-    base::PostTask(
-        FROM_HERE, {content::BrowserThread::IO},
+    content::GetIOThreadTaskRunner({})->PostTask(
+        FROM_HERE,
         base::BindOnce(&Waiter::OnIOLoopPump, base::Unretained(this)));
 
     WaitUntilCompleted();
@@ -141,16 +141,16 @@ class Waiter {
   void OnIOLoopPump() {
     DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
 
-    base::PostTask(
-        FROM_HERE, {content::BrowserThread::IO},
+    content::GetIOThreadTaskRunner({})->PostTask(
+        FROM_HERE,
         base::BindOnce(&Waiter::OnIOLoopPumpCompleted, base::Unretained(this)));
   }
 
   void OnIOLoopPumpCompleted() {
     DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
 
-    base::PostTask(
-        FROM_HERE, {content::BrowserThread::UI},
+    content::GetUIThreadTaskRunner({})->PostTask(
+        FROM_HERE,
         base::BindOnce(&Waiter::PumpIOLoopCompleted, base::Unretained(this)));
   }
 
@@ -224,13 +224,12 @@ class ExtensionGCMAppHandlerTest : public testing::Test {
       content::BrowserContext* context) {
     Profile* profile = Profile::FromBrowserContext(context);
     scoped_refptr<base::SequencedTaskRunner> ui_thread =
-        base::CreateSingleThreadTaskRunner({content::BrowserThread::UI});
+        content::GetUIThreadTaskRunner({});
     scoped_refptr<base::SequencedTaskRunner> io_thread =
-        base::CreateSingleThreadTaskRunner({content::BrowserThread::IO});
+        content::GetIOThreadTaskRunner({});
     scoped_refptr<base::SequencedTaskRunner> blocking_task_runner(
-        base::CreateSequencedTaskRunner(
-            {base::ThreadPool(), base::MayBlock(),
-             base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN}));
+        base::ThreadPool::CreateSequencedTaskRunner(
+            {base::MayBlock(), base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN}));
     return std::make_unique<gcm::GCMProfileService>(
         profile->GetPrefs(), profile->GetPath(),
         base::BindRepeating(&RequestProxyResolvingSocketFactory, profile),
@@ -246,7 +245,7 @@ class ExtensionGCMAppHandlerTest : public testing::Test {
 
   ExtensionGCMAppHandlerTest()
       : task_environment_(content::BrowserTaskEnvironment::REAL_IO_THREAD),
-        extension_service_(NULL),
+        extension_service_(nullptr),
         registration_result_(gcm::GCMClient::UNKNOWN_ERROR),
         unregistration_result_(gcm::GCMClient::UNKNOWN_ERROR) {}
 
@@ -347,10 +346,9 @@ class ExtensionGCMAppHandlerTest : public testing::Test {
     content::WindowedNotificationObserver observer(
         extensions::NOTIFICATION_CRX_INSTALLER_DONE,
         base::Bind(&IsCrxInstallerDone, &installer));
-    extension_service_->UpdateExtension(
-        extensions::CRXFileInfo(extension->id(),
-                                extensions::GetTestVerifierFormat(), path),
-        true, &installer);
+    extensions::CRXFileInfo crx_info(path, extensions::GetTestVerifierFormat());
+    crx_info.extension_id = extension->id();
+    extension_service_->UpdateExtension(crx_info, true, &installer);
 
     if (installer)
       observer.Wait();
@@ -375,10 +373,9 @@ class ExtensionGCMAppHandlerTest : public testing::Test {
   void Register(const std::string& app_id,
                 const std::vector<std::string>& sender_ids) {
     GetGCMDriver()->Register(
-        app_id,
-        sender_ids,
-        base::Bind(&ExtensionGCMAppHandlerTest::RegisterCompleted,
-                   base::Unretained(this)));
+        app_id, sender_ids,
+        base::BindOnce(&ExtensionGCMAppHandlerTest::RegisterCompleted,
+                       base::Unretained(this)));
   }
 
   void RegisterCompleted(const std::string& registration_id,

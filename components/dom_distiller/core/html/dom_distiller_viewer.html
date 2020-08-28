@@ -20,60 +20,46 @@ found in the LICENSE file.
     <div id="main-content">
       <div id="settings-container" class="desktop-only">
         <button id="settings-toggle" type="button"
-            aria-label="Adjust appearance settings" tabindex=0>
-          <i class="material-icons">text_format</i>
+            aria-label="Customize appearance" tabindex=0>
+          <i class="material-icons">&#xE165</i>
         </button>
+        <div id="dialog-backdrop"></div>
         <dialog id="settings-dialog">
           <div id="settings-header">
-            <h2>Reader Mode Styling</h2>
-            <button id="close-settings-button" type="button" aria-label="Close settings"
-                tabindex=0>
-              <i class="material-icons">close</i>
-            </button>
+            <h1>Customize appearance</h1>
           </div>
           <div id="settings-fields">
-            <div class="setting">
+            <div class="setting font-family-container">
               <label id="font-family-label" class="screen-reader-only">
-                Font Style
+                Font style
               </label>
               <select id="font-family-selection" aria-labelledby="font-family-label" name="font-family">
-                <option value="sans-serif" selected>Sans-serif font</option>
-                <option value="serif">Serif font</option>
-                <option value="monospace">Monospace font</option>
+                <option value="sans-serif" selected>sans-serif font</option>
+                <option value="serif">serif font</option>
+                <option value="monospace">monospace font</option>
               </select>
+              <i class="material-icons" id="arrow-drop-down">&#xe5c5</i>
             </div>
             <div class="setting">
               <fieldset id="theme-selection">
                 <legend class="screen-reader-only">
-                  Page Theme
+                  Page Color
                 </legend>
                 <ul>
                   <li class="theme-option">
-                    <label id="theme-option-light-label" class="screen-reader-only">
-                      Light
-                    </label>
                     <input type="radio" name="theme" value="light"
-                       aria-labelledby="theme-option-light-label"
-                       id="theme-option-light" class="light" checked>
-                    <div class="checkmark"><i class="material-icons">check_circle</i></div>
+                       aria-label="light" id="theme-option-light" class="light" checked>
+                    <div class="checkmark"><i class="material-icons" aria-hidden="true">&#xE86c</i></div>
                   </li>
                   <li class="theme-option">
-                    <label id="theme-option-sepia-label" class="screen-reader-only">
-                      Sepia
-                    </label>
                     <input type="radio" name="theme" value="sepia"
-                       aria-labelledby="theme-option-sepia-label"
-                       id="theme-option-sepia" class="sepia">
-                    <div class="checkmark"><i class="material-icons">check_circle</i></div>
+                       aria-label="sepia" id="theme-option-sepia" class="sepia">
+                    <div class="checkmark"><i class="material-icons" aria-hidden="true">&#xE86c</i></div>
                   </li>
                   <li class="theme-option">
-                    <label id="theme-option-dark-label" class="screen-reader-only">
-                      Dark
-                    </label>
                     <input type="radio" name="theme" value="dark"
-                       aria-labelledby="theme-option-dark-label"
-                       id="theme-option-dark" class="dark">
-                    <div class="checkmark"><i class="material-icons">check_circle</i></div>
+                       aria-label="dark" id="theme-option-dark" class="dark">
+                    <div class="checkmark"><i class="material-icons" aria-hidden="true">&#xE86c</i></div>
                   </li>
                 </ul>
               </fieldset>
@@ -96,6 +82,10 @@ found in the LICENSE file.
               </div>
             </div>
           </div>
+            <button id="close-settings-button" type="button" aria-label="Close"
+                tabindex=0>
+              <i class="material-icons">close</i>
+            </button>
         </dialog>
       </div>
       <article>

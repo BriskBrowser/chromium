@@ -28,20 +28,21 @@ export const TabNetworkState = {
 
 /**
  * Must be kept in sync with TabAlertState from
- * //chrome/browser ui/tabs/tab_utils.h
- * @enum {number}
+ * //chrome/browser/ui/tabs/tab_utils.h
+ * @enum {string}
  */
 export const TabAlertState = {
-  MEDIA_RECORDING: 0,
-  TAB_CAPTURING: 1,
-  AUDIO_PLAYING: 2,
-  AUDIO_MUTING: 3,
-  BLUETOOTH_CONNECTED: 4,
-  USB_CONNECTED: 5,
-  SERIAL_CONNECTED: 6,
-  PIP_PLAYING: 7,
-  DESKTOP_CAPTURING: 8,
-  VR_PRESENTING_IN_HEADSET: 9,
+  AUDIO_MUTING: 'audio-muting',
+  AUDIO_PLAYING: 'audio-playing',
+  BLUETOOTH_CONNECTED: 'bluetooth-connected',
+  DESKTOP_CAPTURING: 'desktop-capturing',
+  HID_CONNECTED: 'hid-connected',
+  MEDIA_RECORDING: 'media-recording',
+  PIP_PLAYING: 'pip-playing',
+  SERIAL_CONNECTED: 'serial-connected',
+  TAB_CAPTURING: 'tab-capturing',
+  USB_CONNECTED: 'usb-connected',
+  VR_PRESENTING_IN_HEADSET: 'vr-presenting',
 };
 
 /**
@@ -66,64 +67,129 @@ export const TabAlertState = {
 export let TabData;
 
 /** @typedef {!Tab} */
-let ExtensionsApiTab;
+export let ExtensionsApiTab;
 
+/**
+ * @typedef {{
+ *   color: string,
+ *   textColor: string,
+ *   title: string,
+ * }}
+ */
+export let TabGroupVisualData;
+
+/** @interface */
 export class TabsApiProxy {
   /**
    * @param {number} tabId
    * @return {!Promise<!ExtensionsApiTab>}
    */
+  activateTab(tabId) {}
+
+  createNewTab() {}
+
+  /**
+   * @return {!Promise<!Object<!TabGroupVisualData>>} Object of group IDs as
+   *     strings mapped to their visual data.
+   */
+  getGroupVisualData() {}
+
+  /**
+   * @return {!Promise<!Array<!TabData>>}
+   */
+  getTabs() {}
+
+  /**
+   * @param {number} tabId
+   * @param {!CloseTabAction} closeTabAction
+   */
+  closeTab(tabId, closeTabAction) {}
+
+  /**
+   * @param {number} tabId
+   * @param {string} groupId
+   */
+  groupTab(tabId, groupId) {}
+
+  /**
+   * @param {string} groupId
+   * @param {number} newIndex
+   */
+  moveGroup(groupId, newIndex) {}
+
+  /**
+   * @param {number} tabId
+   * @param {number} newIndex
+   */
+  moveTab(tabId, newIndex) {}
+
+  /**
+   * @param {number} tabId
+   * @param {boolean} thumbnailTracked
+   */
+  setThumbnailTracked(tabId, thumbnailTracked) {}
+
+  /** @param {number} tabId */
+  ungroupTab(tabId) {}
+}
+
+/** @implements {TabsApiProxy} */
+export class TabsApiProxyImpl {
+  /** @override */
   activateTab(tabId) {
     return new Promise(resolve => {
       chrome.tabs.update(tabId, {active: true}, resolve);
     });
   }
 
+  /** @override */
   createNewTab() {
     chrome.send('createNewTab');
   }
 
-  /**
-   * @return {!Promise<!Array<!TabData>>}
-   */
+  /** @override */
+  getGroupVisualData() {
+    return sendWithPromise('getGroupVisualData');
+  }
+
+  /** @override */
   getTabs() {
     return sendWithPromise('getTabs');
   }
 
-  /**
-   * @param {number} tabId
-   * @param {!CloseTabAction} closeTabAction
-   * @return {!Promise}
-   */
+  /** @override */
   closeTab(tabId, closeTabAction) {
-    return new Promise(resolve => {
-      chrome.tabs.remove(tabId, resolve);
-      chrome.metricsPrivate.recordEnumerationValue(
-          'WebUITabStrip.CloseTabAction', closeTabAction,
-          Object.keys(CloseTabAction).length);
-    });
+    chrome.send(
+        'closeTab', [tabId, closeTabAction === CloseTabAction.SWIPED_TO_CLOSE]);
+    chrome.metricsPrivate.recordEnumerationValue(
+        'WebUITabStrip.CloseTabAction', closeTabAction,
+        Object.keys(CloseTabAction).length);
   }
 
-  /**
-   * @param {number} tabId
-   * @param {number} newIndex
-   * @return {!Promise<!ExtensionsApiTab>}
-   */
+  /** @override */
+  groupTab(tabId, groupId) {
+    chrome.send('groupTab', [tabId, groupId]);
+  }
+
+  /** @override */
+  moveGroup(groupId, newIndex) {
+    chrome.send('moveGroup', [groupId, newIndex]);
+  }
+
+  /** @override */
   moveTab(tabId, newIndex) {
-    return new Promise(resolve => {
-      chrome.tabs.move(tabId, {index: newIndex}, tab => {
-        resolve(tab);
-      });
-    });
+    chrome.send('moveTab', [tabId, newIndex]);
   }
 
-  /**
-   * @param {number} tabId
-   * @param {boolean} thumbnailTracked
-   */
+  /** @override */
   setThumbnailTracked(tabId, thumbnailTracked) {
     chrome.send('setThumbnailTracked', [tabId, thumbnailTracked]);
   }
+
+  /** @override */
+  ungroupTab(tabId) {
+    chrome.send('ungroupTab', [tabId]);
+  }
 }
 
-addSingletonGetter(TabsApiProxy);
+addSingletonGetter(TabsApiProxyImpl);

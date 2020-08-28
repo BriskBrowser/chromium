@@ -18,45 +18,64 @@ namespace weblayer {
 
 namespace {
 
-// Navigates to |url| in |shell| and waits for |event| to occur.
+// Navigates to |url| in |tab| and waits for |event| to occur.
 void NavigateAndWaitForEvent(const GURL& url,
-                             Shell* shell,
+                             Tab* tab,
                              TestNavigationObserver::NavigationEvent event) {
-  TestNavigationObserver test_observer(url, event, shell);
-  shell->tab()->GetNavigationController()->Navigate(url);
+  TestNavigationObserver test_observer(url, event, tab);
+  tab->GetNavigationController()->Navigate(url);
   test_observer.Wait();
 }
 
 }  // namespace
 
 void NavigateAndWaitForCompletion(const GURL& url, Shell* shell) {
-  NavigateAndWaitForEvent(url, shell,
-                          TestNavigationObserver::NavigationEvent::Completion);
+  NavigateAndWaitForEvent(url, shell->tab(),
+                          TestNavigationObserver::NavigationEvent::kCompletion);
+}
+
+void NavigateAndWaitForCompletion(const GURL& url, Tab* tab) {
+  NavigateAndWaitForEvent(url, tab,
+                          TestNavigationObserver::NavigationEvent::kCompletion);
 }
 
 void NavigateAndWaitForFailure(const GURL& url, Shell* shell) {
-  NavigateAndWaitForEvent(url, shell,
-                          TestNavigationObserver::NavigationEvent::Failure);
+  NavigateAndWaitForEvent(url, shell->tab(),
+                          TestNavigationObserver::NavigationEvent::kFailure);
+}
+
+void NavigateAndWaitForStart(const GURL& url, Tab* tab) {
+  NavigateAndWaitForEvent(url, tab,
+                          TestNavigationObserver::NavigationEvent::kStart);
 }
 
 base::Value ExecuteScript(Shell* shell,
                           const std::string& script,
                           bool use_separate_isolate) {
+  return ExecuteScript(shell->tab(), script, use_separate_isolate);
+}
+
+base::Value ExecuteScript(Tab* tab,
+                          const std::string& script,
+                          bool use_separate_isolate) {
   base::Value final_result;
   base::RunLoop run_loop;
-  shell->tab()->ExecuteScript(
-      base::ASCIIToUTF16(script), use_separate_isolate,
-      base::BindLambdaForTesting(
-          [&run_loop, &final_result](base::Value result) {
-            final_result = std::move(result);
-            run_loop.Quit();
-          }));
+  tab->ExecuteScript(base::ASCIIToUTF16(script), use_separate_isolate,
+                     base::BindLambdaForTesting(
+                         [&run_loop, &final_result](base::Value result) {
+                           final_result = std::move(result);
+                           run_loop.Quit();
+                         }));
   run_loop.Run();
   return final_result;
 }
 
 void ExecuteScriptWithUserGesture(Shell* shell, const std::string& script) {
-  TabImpl* tab_impl = static_cast<TabImpl*>(shell->tab());
+  ExecuteScriptWithUserGesture(shell->tab(), script);
+}
+
+void ExecuteScriptWithUserGesture(Tab* tab, const std::string& script) {
+  TabImpl* tab_impl = static_cast<TabImpl*>(tab);
   tab_impl->ExecuteScriptWithUserGestureForTests(base::ASCIIToUTF16(script));
 }
 

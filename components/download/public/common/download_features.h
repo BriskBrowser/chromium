@@ -12,6 +12,10 @@
 namespace download {
 namespace features {
 
+// The Finch parameter for download later feature to function only on cellular
+// network.
+constexpr char kDownloadLaterRequireCellular[] = "require_cellular";
+
 // Whether offline content provider should be used for the downloads UI..
 COMPONENTS_DOWNLOAD_EXPORT extern const base::Feature
     kUseDownloadOfflineContentProvider;
@@ -23,9 +27,16 @@ COMPONENTS_DOWNLOAD_EXPORT extern const base::Feature
 // Whether a download can be handled by parallel jobs.
 COMPONENTS_DOWNLOAD_EXPORT extern const base::Feature kParallelDownloading;
 
+// Whether to enable download later feature.
+COMPONENTS_DOWNLOAD_EXPORT extern const base::Feature kDownloadLater;
+
 #if defined(OS_ANDROID)
 // Whether download expiration date will be refreshed on resumption.
 COMPONENTS_DOWNLOAD_EXPORT extern const base::Feature kRefreshExpirationDate;
+
+// Whether to enable smart suggestion for large downloads
+COMPONENTS_DOWNLOAD_EXPORT extern const base::Feature
+    kSmartSuggestionForLargeDownloads;
 #endif
 
 // Whether in-progress download manager will be used to initialize download
@@ -54,6 +65,14 @@ COMPONENTS_DOWNLOAD_EXPORT extern const base::Feature
 COMPONENTS_DOWNLOAD_EXPORT extern const base::Feature kDeleteExpiredDownloads;
 
 }  // namespace features
+
+namespace switches {
+
+// If set, show the download later dialog without the requirement of being on
+// cellular network.
+COMPONENTS_DOWNLOAD_EXPORT extern const char kDownloadLaterDebugOnWifi[];
+
+}  // namespace switches
 
 }  // namespace download
 

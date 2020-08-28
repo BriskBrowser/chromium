@@ -7,15 +7,17 @@
 #include <utility>
 
 #include "base/bind.h"
+#include "base/containers/flat_set.h"
 #include "base/files/file_util.h"
 #include "base/location.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/task/lazy_task_runner.h"
+#include "base/task/lazy_thread_pool_task_runner.h"
 #include "base/task/post_task.h"
 #include "base/task_runner_util.h"
 #include "build/build_config.h"
 #include "components/autofill/core/common/password_form.h"
 #include "components/password_manager/core/browser/export/password_csv_writer.h"
+#include "components/password_manager/core/browser/password_list_sorter.h"
 #include "components/password_manager/core/browser/password_manager_metrics_util.h"
 #include "components/password_manager/core/browser/ui/credential_provider_interface.h"
 
@@ -26,28 +28,48 @@ namespace {
 // destination and one of them was cancelled and will delete the file. We use
 // TaskPriority::USER_VISIBLE, because a busy UI is displayed while the
 // passwords are being exported.
-base::LazySingleThreadTaskRunner g_task_runner =
-    LAZY_SINGLE_THREAD_TASK_RUNNER_INITIALIZER(
-        base::TaskTraits(base::ThreadPool(),
-                         base::MayBlock(),
-                         base::TaskPriority::USER_VISIBLE),
+base::LazyThreadPoolSingleThreadTaskRunner g_task_runner =
+    LAZY_THREAD_POOL_SINGLE_THREAD_TASK_RUNNER_INITIALIZER(
+        base::TaskTraits(base::MayBlock(), base::TaskPriority::USER_VISIBLE),
         base::SingleThreadTaskRunnerThreadMode::SHARED);
 
 // A wrapper for |write_function|, which can be bound and keep a copy of its
 // data on the closure.
-bool Write(
+bool DoWriteOnTaskRunner(
     password_manager::PasswordManagerExporter::WriteCallback write_function,
     password_manager::PasswordManagerExporter::SetPosixFilePermissionsCallback
         set_permissions_function,
     const base::FilePath& destination,
     const std::string& serialised) {
-  if (write_function.Run(destination, serialised.c_str(), serialised.size()) !=
-      static_cast<int>(serialised.size())) {
+  if (!write_function.Run(destination, serialised))
     return false;
-  }
+
   // Set file permissions. This is a no-op outside of Posix.
   set_permissions_function.Run(destination, 0600 /* -rw------- */);
   return true;
+}
+
+bool DefaultWriteFunction(const base::FilePath& file, base::StringPiece data) {
+  return base::WriteFile(file, data);
+}
+
+bool DefaultDeleteFunction(const base::FilePath& file) {
+  return base::DeleteFile(file);
+}
+
+std::vector<std::unique_ptr<autofill::PasswordForm>>
+DeduplicatePasswordsAcrossStores(
+    std::vector<std::unique_ptr<autofill::PasswordForm>> passwords) {
+  auto get_sort_key = [](const auto& password) {
+    return password_manager::CreateSortKey(*password,
+                                           password_manager::IgnoreStore(true));
+  };
+  auto cmp = [&](const auto& lhs, const auto& rhs) {
+    return get_sort_key(lhs) < get_sort_key(rhs);
+  };
+  base::flat_set<std::unique_ptr<autofill::PasswordForm>, decltype(cmp)>
+      unique_passwords(std::move(passwords), cmp);
+  return std::move(unique_passwords).extract();
 }
 
 }  // namespace
@@ -61,8 +83,8 @@ PasswordManagerExporter::PasswordManagerExporter(
     : credential_provider_interface_(credential_provider_interface),
       on_progress_(std::move(on_progress)),
       last_progress_status_(ExportProgressStatus::NOT_STARTED),
-      write_function_(base::BindRepeating(&base::WriteFile)),
-      delete_function_(base::BindRepeating(&base::DeleteFile)),
+      write_function_(base::BindRepeating(&DefaultWriteFunction)),
+      delete_function_(base::BindRepeating(&DefaultDeleteFunction)),
 #if defined(OS_POSIX)
       set_permissions_function_(
           base::BindRepeating(base::SetPosixFilePermissions)),
@@ -73,21 +95,28 @@ PasswordManagerExporter::PasswordManagerExporter(
       task_runner_(g_task_runner.Get()) {
 }
 
-PasswordManagerExporter::~PasswordManagerExporter() {}
+PasswordManagerExporter::~PasswordManagerExporter() = default;
 
 void PasswordManagerExporter::PreparePasswordsForExport() {
   DCHECK_EQ(GetProgressStatus(), ExportProgressStatus::NOT_STARTED);
 
   std::vector<std::unique_ptr<autofill::PasswordForm>> password_list =
       credential_provider_interface_->GetAllPasswords();
-  size_t password_list_size = password_list.size();
 
+  // Deduplicate passwords that are present in multiple stores, so the output
+  // file doesn't contain repeated data.
+  std::vector<std::unique_ptr<autofill::PasswordForm>>
+      deduplicated_password_list =
+          DeduplicatePasswordsAcrossStores(std::move(password_list));
+
+  size_t deduplicated_password_list_size = deduplicated_password_list.size();
   base::PostTaskAndReplyWithResult(
       task_runner_.get(), FROM_HERE,
       base::BindOnce(&password_manager::PasswordCSVWriter::SerializePasswords,
-                     std::move(password_list)),
+                     std::move(deduplicated_password_list)),
       base::BindOnce(&PasswordManagerExporter::SetSerialisedPasswordList,
-                     weak_factory_.GetWeakPtr(), password_list_size));
+                     weak_factory_.GetWeakPtr(),
+                     deduplicated_password_list_size));
 }
 
 void PasswordManagerExporter::SetDestination(
@@ -157,8 +186,9 @@ void PasswordManagerExporter::Export() {
 
   base::PostTaskAndReplyWithResult(
       task_runner_.get(), FROM_HERE,
-      base::BindOnce(::Write, write_function_, set_permissions_function_,
-                     destination_, std::move(serialised_password_list_)),
+      base::BindOnce(DoWriteOnTaskRunner, write_function_,
+                     set_permissions_function_, destination_,
+                     std::move(serialised_password_list_)),
       base::BindOnce(&PasswordManagerExporter::OnPasswordsExported,
                      weak_factory_.GetWeakPtr()));
 }
@@ -189,9 +219,9 @@ void PasswordManagerExporter::Cleanup() {
   // TODO(crbug.com/811779) When Chrome is overwriting an existing file, cancel
   // should restore the file rather than delete it.
   if (!destination_.empty()) {
-    task_runner_->PostTask(FROM_HERE,
-                           base::BindOnce(base::IgnoreResult(delete_function_),
-                                          destination_, false));
+    task_runner_->PostTask(
+        FROM_HERE,
+        base::BindOnce(base::IgnoreResult(delete_function_), destination_));
   }
 }
 

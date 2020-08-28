@@ -22,7 +22,8 @@
 
 #include "base/macros.h"
 #include "base/strings/string_piece.h"
-#include "chrome/common/safe_browsing/client_model.pb.h"
+#include "components/safe_browsing/core/proto/client_model.pb.h"
+#include "third_party/skia/include/core/SkBitmap.h"
 
 namespace safe_browsing {
 class FeatureMap;
@@ -40,6 +41,12 @@ class Scorer {
   // of phishing.  It returns a score value that falls in the range [0.0,1.0]
   // (range is inclusive on both ends).
   virtual double ComputeScore(const FeatureMap& features) const;
+
+  // This method matches the given |bitmap| against the visual model. It
+  // modifies |request| appropriately, and returns the new request.
+  virtual std::unique_ptr<ClientPhishingRequest> GetMatchingVisualTargets(
+      const SkBitmap& bitmap,
+      std::unique_ptr<ClientPhishingRequest> request) const;
 
   // Returns the version number of the loaded client model.
   int model_version() const;
@@ -65,6 +72,9 @@ class Scorer {
 
   // Return the number of words in a shingle.
   size_t shingle_size() const;
+
+  // Returns the threshold probability above which we send a CSD ping.
+  float threshold_probability() const;
 
  protected:
   // Most clients should use the factory method.  This constructor is public

@@ -26,8 +26,6 @@ class RemoteFrame;
 
 class RemoteFrameView final : public GarbageCollected<RemoteFrameView>,
                               public FrameView {
-  USING_GARBAGE_COLLECTED_MIXIN(RemoteFrameView);
-
  public:
   explicit RemoteFrameView(RemoteFrame*);
   ~RemoteFrameView() override;
@@ -70,12 +68,15 @@ class RemoteFrameView final : public GarbageCollected<RemoteFrameView>,
 
   // Compute the interest rect of this frame in its unscrolled space. This may
   // be used by the OOPIF's compositor to limit the amount of rastered tiles,
-  // and reduce the number of paint-ops generated.
-  IntRect GetCompositingRect();
+  // and reduce the number of paint-ops generated. UpdateCompositingRect must be
+  // called before the parent frame commits a compositor frame.
+  void UpdateCompositingRect();
+  IntRect GetCompositingRect() const { return compositing_rect_; }
 
   uint32_t Print(const IntRect&, cc::PaintCanvas*) const;
+  uint32_t CapturePaintPreview(const IntRect&, cc::PaintCanvas*) const;
 
-  void Trace(blink::Visitor*) override;
+  void Trace(Visitor*) const override;
 
  protected:
   bool NeedsViewportOffset() const override { return true; }
@@ -97,6 +98,7 @@ class RemoteFrameView final : public GarbageCollected<RemoteFrameView>,
   // details.
   Member<RemoteFrame> remote_frame_;
   ViewportIntersectionState last_intersection_state_;
+  IntRect compositing_rect_;
 
   IntrinsicSizingInfo intrinsic_sizing_info_;
   bool has_intrinsic_sizing_info_ = false;

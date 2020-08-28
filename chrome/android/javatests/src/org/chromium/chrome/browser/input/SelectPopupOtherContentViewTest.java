@@ -5,7 +5,8 @@
 package org.chromium.chrome.browser.input;
 
 import android.support.test.InstrumentationRegistry;
-import android.support.test.filters.LargeTest;
+
+import androidx.test.filters.LargeTest;
 
 import org.junit.Assert;
 import org.junit.Rule;
@@ -14,21 +15,18 @@ import org.junit.runner.RunWith;
 
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.Feature;
-import org.chromium.base.test.util.RetryOnFailure;
 import org.chromium.base.test.util.UrlUtils;
-import org.chromium.chrome.browser.ChromeActivity;
-import org.chromium.chrome.browser.ChromeSwitches;
 import org.chromium.chrome.browser.WebContentsFactory;
+import org.chromium.chrome.browser.app.ChromeActivity;
+import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.test.ChromeActivityTestRule;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.components.embedder_support.view.ContentView;
 import org.chromium.content_public.browser.WebContents;
-import org.chromium.content_public.browser.test.util.Criteria;
 import org.chromium.content_public.browser.test.util.CriteriaHelper;
 import org.chromium.content_public.browser.test.util.DOMUtils;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.content_public.browser.test.util.WebContentsUtils;
-import org.chromium.ui.base.ActivityWindowAndroid;
 import org.chromium.ui.base.ViewAndroidDelegate;
 
 import java.util.concurrent.ExecutionException;
@@ -57,17 +55,6 @@ public class SelectPopupOtherContentViewTest {
             + "</select>"
             + "</body></html>");
 
-    private class PopupShowingCriteria extends Criteria {
-        public PopupShowingCriteria() {
-            super("The select popup did not show up on click.");
-        }
-
-        @Override
-        public boolean isSatisfied() {
-            return isSelectPopupVisibleOnUiThread();
-        }
-    }
-
     private boolean isSelectPopupVisibleOnUiThread() {
         try {
             // clang-format off
@@ -87,24 +74,24 @@ public class SelectPopupOtherContentViewTest {
     @Test
     @LargeTest
     @Feature({"Browser"})
-    @RetryOnFailure
     public void testPopupNotClosedByOtherContentView() throws Exception, Throwable {
         // Load the test page.
         mActivityTestRule.startMainActivityWithURL(SELECT_URL);
 
         // Once clicked, the popup should show up.
         DOMUtils.clickNode(mActivityTestRule.getWebContents(), "select");
-        CriteriaHelper.pollInstrumentationThread(new PopupShowingCriteria());
+        CriteriaHelper.pollInstrumentationThread(
+                this::isSelectPopupVisibleOnUiThread, "The select popup did not show up on click.");
 
         // Now create and destroy a different WebContents.
         TestThreadUtils.runOnUiThreadBlocking(() -> {
             WebContents webContents = WebContentsFactory.createWebContents(false, false);
             ChromeActivity activity = mActivityTestRule.getActivity();
 
-            ContentView cv = ContentView.createContentView(activity, webContents);
+            ContentView cv = ContentView.createContentView(
+                    activity, null /* eventOffsetHandler */, webContents);
             webContents.initialize("", ViewAndroidDelegate.createBasicDelegate(cv), cv,
-                    new ActivityWindowAndroid(activity),
-                    WebContents.createDefaultInternalsHolder());
+                    activity.getWindowAndroid(), WebContents.createDefaultInternalsHolder());
             webContents.destroy();
         });
 

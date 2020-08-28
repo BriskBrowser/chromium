@@ -26,7 +26,10 @@ class FuzzerSoftwareOutputSurfaceProvider : public OutputSurfaceProvider {
       gpu::SurfaceHandle surface_handle,
       bool gpu_compositing,
       mojom::DisplayClient* display_client,
-      const RendererSettings& renderer_settings) override;
+      const RendererSettings& renderer_settings,
+      const DebugRendererSettings* debug_settings) override;
+
+  gpu::SharedImageManager* GetSharedImageManager() override;
 
  private:
   base::Optional<base::FilePath> png_dir_path_;

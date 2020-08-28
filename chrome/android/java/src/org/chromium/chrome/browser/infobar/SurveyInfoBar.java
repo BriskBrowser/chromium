@@ -18,8 +18,10 @@ import org.chromium.chrome.browser.survey.SurveyController;
 import org.chromium.chrome.browser.tab.EmptyTabObserver;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tab.TabHidingType;
-import org.chromium.chrome.browser.tab.TabImpl;
-import org.chromium.chrome.browser.util.AccessibilityUtil;
+import org.chromium.chrome.browser.tab.TabUtils;
+import org.chromium.chrome.browser.util.ChromeAccessibilityUtil;
+import org.chromium.components.infobars.InfoBar;
+import org.chromium.components.infobars.InfoBarCompactLayout;
 import org.chromium.content_public.browser.WebContents;
 import org.chromium.ui.text.NoUnderlineClickableSpan;
 import org.chromium.ui.text.SpanApplier;
@@ -121,7 +123,7 @@ public class SurveyInfoBar extends InfoBar {
         prompt.setText(infoBarText);
         prompt.setMovementMethod(LinkMovementMethod.getInstance());
         prompt.setGravity(Gravity.CENTER_VERTICAL);
-        ApiCompatibilityUtils.setTextAppearance(prompt, R.style.TextAppearance_BlackTitle1);
+        ApiCompatibilityUtils.setTextAppearance(prompt, R.style.TextAppearance_TextLarge_Primary);
         addAccessibilityClickListener(prompt, tab);
         layout.addContent(prompt, 1f);
     }
@@ -149,7 +151,7 @@ public class SurveyInfoBar extends InfoBar {
         view.setOnClickListener(new OnClickListener() {
             @Override
             public void onClick(View v) {
-                if (mClicked || !AccessibilityUtil.isAccessibilityEnabled()) return;
+                if (mClicked || !ChromeAccessibilityUtil.get().isAccessibilityEnabled()) return;
                 showSurvey(tab);
                 mClosedByInteraction = true;
             }
@@ -176,7 +178,7 @@ public class SurveyInfoBar extends InfoBar {
         mDelegate.onSurveyTriggered();
 
         SurveyController.getInstance().showSurveyIfAvailable(
-                ((TabImpl) tab).getActivity(), mSiteId, mShowAsBottomSheet, mDisplayLogoResId);
+                TabUtils.getActivity(tab), mSiteId, mShowAsBottomSheet, mDisplayLogoResId);
         super.onCloseButtonClicked();
     }
 

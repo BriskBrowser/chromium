@@ -277,6 +277,27 @@ void MediaController::ScrubTo(base::TimeDelta seek_time) {
     session_->ipc()->ScrubTo(seek_time);
 }
 
+void MediaController::EnterPictureInPicture() {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
+  if (session_)
+    session_->ipc()->EnterPictureInPicture();
+}
+
+void MediaController::ExitPictureInPicture() {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
+  if (session_)
+    session_->ipc()->ExitPictureInPicture();
+}
+
+void MediaController::SetAudioSinkId(const base::Optional<std::string>& id) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
+  if (session_)
+    session_->ipc()->SetAudioSinkId(id);
+}
+
 void MediaController::SetMediaSession(AudioFocusRequest* session) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 

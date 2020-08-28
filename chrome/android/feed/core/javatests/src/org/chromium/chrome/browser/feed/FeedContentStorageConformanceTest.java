@@ -6,7 +6,7 @@ package org.chromium.chrome.browser.feed;
 
 import static org.chromium.base.test.util.ScalableTimeout.scaleTimeout;
 
-import android.support.test.filters.SmallTest;
+import androidx.test.filters.SmallTest;
 
 import org.junit.After;
 import org.junit.Before;
@@ -75,7 +75,7 @@ public final class FeedContentStorageConformanceTest extends ContentStorageConfo
     public void setUp() {
         TestThreadUtils.runOnUiThreadBlocking(() -> {
             // storage is declared and tested in ContentStorageConformanceTest.
-            mStorage = new ContentStorageWrapper(Profile.getLastUsedProfile());
+            mStorage = new ContentStorageWrapper(Profile.getLastUsedRegularProfile());
         });
     }
 

@@ -14,6 +14,7 @@
 #include "chrome/browser/profiles/profile_avatar_icon_util.h"
 #include "net/base/load_flags.h"
 #include "net/traffic_annotation/network_traffic_annotation.h"
+#include "net/url_request/referrer_policy.h"
 #include "ui/gfx/image/image.h"
 
 namespace {
@@ -21,11 +22,9 @@ const char kHighResAvatarDownloadUrlPrefix[] =
     "https://www.gstatic.com/chrome/profile_avatars/";
 }
 
-ProfileAvatarDownloader::ProfileAvatarDownloader(
-    size_t icon_index,
-    const FetchCompleteCallback& callback)
-    : icon_index_(icon_index),
-      callback_(callback) {
+ProfileAvatarDownloader::ProfileAvatarDownloader(size_t icon_index,
+                                                 FetchCompleteCallback callback)
+    : icon_index_(icon_index), callback_(std::move(callback)) {
   DCHECK(!callback_.is_null());
   GURL url(std::string(kHighResAvatarDownloadUrlPrefix) +
            profiles::GetDefaultAvatarIconFileNameAtIndex(icon_index));
@@ -68,7 +67,7 @@ void ProfileAvatarDownloader::Start() {
   if (loader_factory) {
     fetcher_->Init(
         std::string(),
-        net::URLRequest::REDUCE_REFERRER_GRANULARITY_ON_TRANSITION_CROSS_ORIGIN,
+        net::ReferrerPolicy::REDUCE_GRANULARITY_ON_TRANSITION_CROSS_ORIGIN,
         network::mojom::CredentialsMode::kInclude);
     fetcher_->Start(loader_factory);
   }
@@ -81,7 +80,8 @@ void ProfileAvatarDownloader::OnFetchComplete(const GURL& url,
     return;
 
   // Decode the downloaded bitmap. Ownership of the image is taken by |cache_|.
-  callback_.Run(gfx::Image::CreateFrom1xBitmap(*bitmap),
-                profiles::GetDefaultAvatarIconFileNameAtIndex(icon_index_),
-                profiles::GetPathOfHighResAvatarAtIndex(icon_index_));
+  std::move(callback_).Run(
+      gfx::Image::CreateFrom1xBitmap(*bitmap),
+      profiles::GetDefaultAvatarIconFileNameAtIndex(icon_index_),
+      profiles::GetPathOfHighResAvatarAtIndex(icon_index_));
 }

@@ -38,6 +38,7 @@ class CC_EXPORT PaintedScrollbarLayerImpl : public ScrollbarLayerImplBase {
                    AppendQuadsData* append_quads_data) override;
   gfx::Rect GetEnclosingRectInTargetSpace() const override;
 
+  void SetJumpOnTrackClick(bool jump_on_track_click);
   void SetSupportsDragSnapBack(bool supports_drag_snap_back);
   void SetBackButtonRect(gfx::Rect back_button_rect);
   void SetForwardButtonRect(gfx::Rect forward_button_rect);
@@ -52,7 +53,10 @@ class CC_EXPORT PaintedScrollbarLayerImpl : public ScrollbarLayerImplBase {
     thumb_ui_resource_id_ = uid;
   }
 
-  void set_thumb_opacity(float opacity) { thumb_opacity_ = opacity; }
+  void set_scrollbar_painted_opacity(float opacity) {
+    painted_opacity_ = opacity;
+  }
+  float OverlayScrollbarOpacity() const override;
 
   void set_internal_contents_scale_and_bounds(float content_scale,
                                               const gfx::Size& content_bounds) {
@@ -60,6 +64,7 @@ class CC_EXPORT PaintedScrollbarLayerImpl : public ScrollbarLayerImplBase {
     internal_content_bounds_ = content_bounds;
   }
 
+  bool JumpOnTrackClick() const override;
   bool SupportsDragSnapBack() const override;
   gfx::Rect BackButtonRect() const override;
   gfx::Rect ForwardButtonRect() const override;
@@ -88,11 +93,14 @@ class CC_EXPORT PaintedScrollbarLayerImpl : public ScrollbarLayerImplBase {
   UIResourceId track_ui_resource_id_;
   UIResourceId thumb_ui_resource_id_;
 
-  float thumb_opacity_;
+  // This is relevant in case of Mac overlay scrollbars because they fade out by
+  // animating the opacity via Blink paint.
+  float painted_opacity_;
 
   float internal_contents_scale_;
   gfx::Size internal_content_bounds_;
 
+  bool jump_on_track_click_;
   bool supports_drag_snap_back_;
   int thumb_thickness_;
   int thumb_length_;

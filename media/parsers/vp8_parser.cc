@@ -7,6 +7,9 @@
 
 #include "media/parsers/vp8_parser.h"
 
+#include <cstring>
+
+#include "base/check_op.h"
 #include "base/logging.h"
 
 namespace media {
@@ -139,6 +142,9 @@ bool Vp8Parser::ParseFrameHeader(Vp8FrameHeader* fhdr) {
     unsigned int data;
     BD_READ_UNSIGNED_OR_RETURN(1, &data);  // color_space
     BD_READ_UNSIGNED_OR_RETURN(1, &data);  // clamping_type
+    fhdr->is_full_range = data == 1;
+  } else {
+    fhdr->is_full_range = false;
   }
 
   if (!ParseSegmentationHeader(keyframe))

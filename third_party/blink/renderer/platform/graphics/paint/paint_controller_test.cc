@@ -40,10 +40,10 @@ INSTANTIATE_TEST_SUITE_P(
 
 TEST_P(PaintControllerTest, NestedRecorders) {
   GraphicsContext context(GetPaintController());
-  FakeDisplayItemClient client("client", IntRect(100, 100, 200, 200));
+  FakeDisplayItemClient client("client");
   InitRootChunk();
 
-  DrawRect(context, client, kBackgroundType, FloatRect(100, 100, 200, 200));
+  DrawRect(context, client, kBackgroundType, IntRect(100, 100, 200, 200));
   CommitAndFinishCycle();
 
   EXPECT_THAT(GetPaintController().GetDisplayItemList(),
@@ -52,14 +52,14 @@ TEST_P(PaintControllerTest, NestedRecorders) {
 }
 
 TEST_P(PaintControllerTest, UpdateBasic) {
-  FakeDisplayItemClient first("first", IntRect(100, 100, 300, 300));
-  FakeDisplayItemClient second("second", IntRect(100, 100, 200, 200));
+  FakeDisplayItemClient first("first");
+  FakeDisplayItemClient second("second");
   GraphicsContext context(GetPaintController());
   InitRootChunk();
 
-  DrawRect(context, first, kBackgroundType, FloatRect(100, 100, 300, 300));
-  DrawRect(context, second, kBackgroundType, FloatRect(100, 100, 200, 200));
-  DrawRect(context, first, kForegroundType, FloatRect(100, 100, 300, 300));
+  DrawRect(context, first, kBackgroundType, IntRect(100, 100, 300, 300));
+  DrawRect(context, second, kBackgroundType, IntRect(100, 100, 200, 200));
+  DrawRect(context, first, kForegroundType, IntRect(100, 100, 300, 300));
 
   EXPECT_EQ(0u, NumCachedNewItems());
   EXPECT_EQ(0u, NumCachedNewSubsequences());
@@ -73,8 +73,8 @@ TEST_P(PaintControllerTest, UpdateBasic) {
   EXPECT_DEFAULT_ROOT_CHUNK(3);
 
   InitRootChunk();
-  DrawRect(context, first, kBackgroundType, FloatRect(100, 100, 300, 300));
-  DrawRect(context, first, kForegroundType, FloatRect(100, 100, 300, 300));
+  DrawRect(context, first, kBackgroundType, IntRect(100, 100, 300, 300));
+  DrawRect(context, first, kForegroundType, IntRect(100, 100, 300, 300));
 
   EXPECT_EQ(2u, NumCachedNewItems());
   EXPECT_EQ(0u, NumCachedNewSubsequences());
@@ -93,18 +93,18 @@ TEST_P(PaintControllerTest, UpdateBasic) {
 }
 
 TEST_P(PaintControllerTest, UpdateSwapOrder) {
-  FakeDisplayItemClient first("first", IntRect(100, 100, 100, 100));
-  FakeDisplayItemClient second("second", IntRect(100, 100, 50, 200));
-  FakeDisplayItemClient unaffected("unaffected", IntRect(300, 300, 10, 10));
+  FakeDisplayItemClient first("first");
+  FakeDisplayItemClient second("second");
+  FakeDisplayItemClient unaffected("unaffected");
   GraphicsContext context(GetPaintController());
   InitRootChunk();
 
-  DrawRect(context, first, kBackgroundType, FloatRect(100, 100, 100, 100));
-  DrawRect(context, first, kForegroundType, FloatRect(100, 100, 100, 100));
-  DrawRect(context, second, kBackgroundType, FloatRect(100, 100, 50, 200));
-  DrawRect(context, second, kForegroundType, FloatRect(100, 100, 50, 200));
-  DrawRect(context, unaffected, kBackgroundType, FloatRect(300, 300, 10, 10));
-  DrawRect(context, unaffected, kForegroundType, FloatRect(300, 300, 10, 10));
+  DrawRect(context, first, kBackgroundType, IntRect(100, 100, 100, 100));
+  DrawRect(context, first, kForegroundType, IntRect(100, 100, 100, 100));
+  DrawRect(context, second, kBackgroundType, IntRect(100, 100, 50, 200));
+  DrawRect(context, second, kForegroundType, IntRect(100, 100, 50, 200));
+  DrawRect(context, unaffected, kBackgroundType, IntRect(300, 300, 10, 10));
+  DrawRect(context, unaffected, kForegroundType, IntRect(300, 300, 10, 10));
   CommitAndFinishCycle();
 
   EXPECT_THAT(GetPaintController().GetDisplayItemList(),
@@ -116,12 +116,12 @@ TEST_P(PaintControllerTest, UpdateSwapOrder) {
                           IsSameId(&unaffected, kForegroundType)));
 
   InitRootChunk();
-  DrawRect(context, second, kBackgroundType, FloatRect(100, 100, 50, 200));
-  DrawRect(context, second, kForegroundType, FloatRect(100, 100, 50, 200));
-  DrawRect(context, first, kBackgroundType, FloatRect(100, 100, 100, 100));
-  DrawRect(context, first, kForegroundType, FloatRect(100, 100, 100, 100));
-  DrawRect(context, unaffected, kBackgroundType, FloatRect(300, 300, 10, 10));
-  DrawRect(context, unaffected, kForegroundType, FloatRect(300, 300, 10, 10));
+  DrawRect(context, second, kBackgroundType, IntRect(100, 100, 50, 200));
+  DrawRect(context, second, kForegroundType, IntRect(100, 100, 50, 200));
+  DrawRect(context, first, kBackgroundType, IntRect(100, 100, 100, 100));
+  DrawRect(context, first, kForegroundType, IntRect(100, 100, 100, 100));
+  DrawRect(context, unaffected, kBackgroundType, IntRect(300, 300, 10, 10));
+  DrawRect(context, unaffected, kForegroundType, IntRect(300, 300, 10, 10));
 
   EXPECT_EQ(6u, NumCachedNewItems());
   EXPECT_EQ(0u, NumCachedNewSubsequences());
@@ -145,18 +145,18 @@ TEST_P(PaintControllerTest, UpdateSwapOrder) {
 }
 
 TEST_P(PaintControllerTest, UpdateSwapOrderWithInvalidation) {
-  FakeDisplayItemClient first("first", IntRect(100, 100, 100, 100));
-  FakeDisplayItemClient second("second", IntRect(100, 100, 50, 200));
-  FakeDisplayItemClient unaffected("unaffected", IntRect(300, 300, 10, 10));
+  FakeDisplayItemClient first("first");
+  FakeDisplayItemClient second("second");
+  FakeDisplayItemClient unaffected("unaffected");
   GraphicsContext context(GetPaintController());
   InitRootChunk();
 
-  DrawRect(context, first, kBackgroundType, FloatRect(100, 100, 100, 100));
-  DrawRect(context, first, kForegroundType, FloatRect(100, 100, 100, 100));
-  DrawRect(context, second, kBackgroundType, FloatRect(100, 100, 50, 200));
-  DrawRect(context, second, kForegroundType, FloatRect(100, 100, 50, 200));
-  DrawRect(context, unaffected, kBackgroundType, FloatRect(300, 300, 10, 10));
-  DrawRect(context, unaffected, kForegroundType, FloatRect(300, 300, 10, 10));
+  DrawRect(context, first, kBackgroundType, IntRect(100, 100, 100, 100));
+  DrawRect(context, first, kForegroundType, IntRect(100, 100, 100, 100));
+  DrawRect(context, second, kBackgroundType, IntRect(100, 100, 50, 200));
+  DrawRect(context, second, kForegroundType, IntRect(100, 100, 50, 200));
+  DrawRect(context, unaffected, kBackgroundType, IntRect(300, 300, 10, 10));
+  DrawRect(context, unaffected, kForegroundType, IntRect(300, 300, 10, 10));
   CommitAndFinishCycle();
 
   EXPECT_THAT(GetPaintController().GetDisplayItemList(),
@@ -169,12 +169,12 @@ TEST_P(PaintControllerTest, UpdateSwapOrderWithInvalidation) {
 
   InitRootChunk();
   first.Invalidate();
-  DrawRect(context, second, kBackgroundType, FloatRect(100, 100, 50, 200));
-  DrawRect(context, second, kForegroundType, FloatRect(100, 100, 50, 200));
-  DrawRect(context, first, kBackgroundType, FloatRect(100, 100, 100, 100));
-  DrawRect(context, first, kForegroundType, FloatRect(100, 100, 100, 100));
-  DrawRect(context, unaffected, kBackgroundType, FloatRect(300, 300, 10, 10));
-  DrawRect(context, unaffected, kForegroundType, FloatRect(300, 300, 10, 10));
+  DrawRect(context, second, kBackgroundType, IntRect(100, 100, 50, 200));
+  DrawRect(context, second, kForegroundType, IntRect(100, 100, 50, 200));
+  DrawRect(context, first, kBackgroundType, IntRect(100, 100, 100, 100));
+  DrawRect(context, first, kForegroundType, IntRect(100, 100, 100, 100));
+  DrawRect(context, unaffected, kBackgroundType, IntRect(300, 300, 10, 10));
+  DrawRect(context, unaffected, kForegroundType, IntRect(300, 300, 10, 10));
 
   EXPECT_EQ(4u, NumCachedNewItems());
   EXPECT_EQ(0u, NumCachedNewSubsequences());
@@ -197,14 +197,14 @@ TEST_P(PaintControllerTest, UpdateSwapOrderWithInvalidation) {
 }
 
 TEST_P(PaintControllerTest, UpdateNewItemInMiddle) {
-  FakeDisplayItemClient first("first", IntRect(100, 100, 100, 100));
-  FakeDisplayItemClient second("second", IntRect(100, 100, 50, 200));
-  FakeDisplayItemClient third("third", IntRect(125, 100, 200, 50));
+  FakeDisplayItemClient first("first");
+  FakeDisplayItemClient second("second");
+  FakeDisplayItemClient third("third");
   GraphicsContext context(GetPaintController());
   InitRootChunk();
 
-  DrawRect(context, first, kBackgroundType, FloatRect(100, 100, 100, 100));
-  DrawRect(context, second, kBackgroundType, FloatRect(100, 100, 50, 200));
+  DrawRect(context, first, kBackgroundType, IntRect(100, 100, 100, 100));
+  DrawRect(context, second, kBackgroundType, IntRect(100, 100, 50, 200));
   CommitAndFinishCycle();
 
   EXPECT_THAT(GetPaintController().GetDisplayItemList(),
@@ -213,9 +213,9 @@ TEST_P(PaintControllerTest, UpdateNewItemInMiddle) {
 
   InitRootChunk();
 
-  DrawRect(context, first, kBackgroundType, FloatRect(100, 100, 100, 100));
-  DrawRect(context, third, kBackgroundType, FloatRect(125, 100, 200, 50));
-  DrawRect(context, second, kBackgroundType, FloatRect(100, 100, 50, 200));
+  DrawRect(context, first, kBackgroundType, IntRect(100, 100, 100, 100));
+  DrawRect(context, third, kBackgroundType, IntRect(125, 100, 200, 50));
+  DrawRect(context, second, kBackgroundType, IntRect(100, 100, 50, 200));
 
   EXPECT_EQ(2u, NumCachedNewItems());
   EXPECT_EQ(0u, NumCachedNewSubsequences());
@@ -235,18 +235,18 @@ TEST_P(PaintControllerTest, UpdateNewItemInMiddle) {
 }
 
 TEST_P(PaintControllerTest, UpdateInvalidationWithPhases) {
-  FakeDisplayItemClient first("first", IntRect(100, 100, 100, 100));
-  FakeDisplayItemClient second("second", IntRect(100, 100, 50, 200));
-  FakeDisplayItemClient third("third", IntRect(300, 100, 50, 50));
+  FakeDisplayItemClient first("first");
+  FakeDisplayItemClient second("second");
+  FakeDisplayItemClient third("third");
   GraphicsContext context(GetPaintController());
   InitRootChunk();
 
-  DrawRect(context, first, kBackgroundType, FloatRect(100, 100, 100, 100));
-  DrawRect(context, second, kBackgroundType, FloatRect(100, 100, 50, 200));
-  DrawRect(context, third, kBackgroundType, FloatRect(300, 100, 50, 50));
-  DrawRect(context, first, kForegroundType, FloatRect(100, 100, 100, 100));
-  DrawRect(context, second, kForegroundType, FloatRect(100, 100, 50, 200));
-  DrawRect(context, third, kForegroundType, FloatRect(300, 100, 50, 50));
+  DrawRect(context, first, kBackgroundType, IntRect(100, 100, 100, 100));
+  DrawRect(context, second, kBackgroundType, IntRect(100, 100, 50, 200));
+  DrawRect(context, third, kBackgroundType, IntRect(300, 100, 50, 50));
+  DrawRect(context, first, kForegroundType, IntRect(100, 100, 100, 100));
+  DrawRect(context, second, kForegroundType, IntRect(100, 100, 50, 200));
+  DrawRect(context, third, kForegroundType, IntRect(300, 100, 50, 50));
   CommitAndFinishCycle();
 
   EXPECT_THAT(GetPaintController().GetDisplayItemList(),
@@ -260,12 +260,12 @@ TEST_P(PaintControllerTest, UpdateInvalidationWithPhases) {
   InitRootChunk();
 
   second.Invalidate();
-  DrawRect(context, first, kBackgroundType, FloatRect(100, 100, 100, 100));
-  DrawRect(context, second, kBackgroundType, FloatRect(100, 100, 50, 200));
-  DrawRect(context, third, kBackgroundType, FloatRect(300, 100, 50, 50));
-  DrawRect(context, first, kForegroundType, FloatRect(100, 100, 100, 100));
-  DrawRect(context, second, kForegroundType, FloatRect(100, 100, 50, 200));
-  DrawRect(context, third, kForegroundType, FloatRect(300, 100, 50, 50));
+  DrawRect(context, first, kBackgroundType, IntRect(100, 100, 100, 100));
+  DrawRect(context, second, kBackgroundType, IntRect(100, 100, 50, 200));
+  DrawRect(context, third, kBackgroundType, IntRect(300, 100, 50, 50));
+  DrawRect(context, first, kForegroundType, IntRect(100, 100, 100, 100));
+  DrawRect(context, second, kForegroundType, IntRect(100, 100, 50, 200));
+  DrawRect(context, third, kForegroundType, IntRect(300, 100, 50, 50));
 
   EXPECT_EQ(4u, NumCachedNewItems());
   EXPECT_EQ(0u, NumCachedNewSubsequences());
@@ -288,13 +288,13 @@ TEST_P(PaintControllerTest, UpdateInvalidationWithPhases) {
 }
 
 TEST_P(PaintControllerTest, UpdateAddFirstOverlap) {
-  FakeDisplayItemClient first("first", IntRect(100, 100, 150, 150));
-  FakeDisplayItemClient second("second", IntRect(200, 200, 50, 50));
+  FakeDisplayItemClient first("first");
+  FakeDisplayItemClient second("second");
   GraphicsContext context(GetPaintController());
   InitRootChunk();
 
-  DrawRect(context, second, kBackgroundType, FloatRect(200, 200, 50, 50));
-  DrawRect(context, second, kForegroundType, FloatRect(200, 200, 50, 50));
+  DrawRect(context, second, kBackgroundType, IntRect(200, 200, 50, 50));
+  DrawRect(context, second, kForegroundType, IntRect(200, 200, 50, 50));
   CommitAndFinishCycle();
 
   EXPECT_THAT(GetPaintController().GetDisplayItemList(),
@@ -305,11 +305,10 @@ TEST_P(PaintControllerTest, UpdateAddFirstOverlap) {
 
   first.Invalidate();
   second.Invalidate();
-  second.SetVisualRect(IntRect(150, 250, 100, 100));
-  DrawRect(context, first, kBackgroundType, FloatRect(100, 100, 150, 150));
-  DrawRect(context, first, kForegroundType, FloatRect(100, 100, 150, 150));
-  DrawRect(context, second, kBackgroundType, FloatRect(150, 250, 100, 100));
-  DrawRect(context, second, kForegroundType, FloatRect(150, 250, 100, 100));
+  DrawRect(context, first, kBackgroundType, IntRect(100, 100, 150, 150));
+  DrawRect(context, first, kForegroundType, IntRect(100, 100, 150, 150));
+  DrawRect(context, second, kBackgroundType, IntRect(150, 250, 100, 100));
+  DrawRect(context, second, kForegroundType, IntRect(150, 250, 100, 100));
   EXPECT_EQ(0u, NumCachedNewItems());
   EXPECT_EQ(0u, NumCachedNewSubsequences());
   CommitAndFinishCycle();
@@ -322,8 +321,8 @@ TEST_P(PaintControllerTest, UpdateAddFirstOverlap) {
   EXPECT_DEFAULT_ROOT_CHUNK(4);
 
   InitRootChunk();
-  DrawRect(context, second, kBackgroundType, FloatRect(150, 250, 100, 100));
-  DrawRect(context, second, kForegroundType, FloatRect(150, 250, 100, 100));
+  DrawRect(context, second, kBackgroundType, IntRect(150, 250, 100, 100));
+  DrawRect(context, second, kForegroundType, IntRect(150, 250, 100, 100));
 
   EXPECT_EQ(2u, NumCachedNewItems());
   EXPECT_EQ(0u, NumCachedNewSubsequences());
@@ -342,13 +341,13 @@ TEST_P(PaintControllerTest, UpdateAddFirstOverlap) {
 }
 
 TEST_P(PaintControllerTest, UpdateAddLastOverlap) {
-  FakeDisplayItemClient first("first", IntRect(100, 100, 150, 150));
-  FakeDisplayItemClient second("second", IntRect(200, 200, 50, 50));
+  FakeDisplayItemClient first("first");
+  FakeDisplayItemClient second("second");
   GraphicsContext context(GetPaintController());
   InitRootChunk();
 
-  DrawRect(context, first, kBackgroundType, FloatRect(100, 100, 150, 150));
-  DrawRect(context, first, kForegroundType, FloatRect(100, 100, 150, 150));
+  DrawRect(context, first, kBackgroundType, IntRect(100, 100, 150, 150));
+  DrawRect(context, first, kForegroundType, IntRect(100, 100, 150, 150));
   CommitAndFinishCycle();
 
   EXPECT_THAT(GetPaintController().GetDisplayItemList(),
@@ -358,12 +357,11 @@ TEST_P(PaintControllerTest, UpdateAddLastOverlap) {
   InitRootChunk();
 
   first.Invalidate();
-  first.SetVisualRect(IntRect(150, 150, 100, 100));
   second.Invalidate();
-  DrawRect(context, first, kBackgroundType, FloatRect(150, 150, 100, 100));
-  DrawRect(context, first, kForegroundType, FloatRect(150, 150, 100, 100));
-  DrawRect(context, second, kBackgroundType, FloatRect(200, 200, 50, 50));
-  DrawRect(context, second, kForegroundType, FloatRect(200, 200, 50, 50));
+  DrawRect(context, first, kBackgroundType, IntRect(150, 150, 100, 100));
+  DrawRect(context, first, kForegroundType, IntRect(150, 150, 100, 100));
+  DrawRect(context, second, kBackgroundType, IntRect(200, 200, 50, 50));
+  DrawRect(context, second, kForegroundType, IntRect(200, 200, 50, 50));
   EXPECT_EQ(0u, NumCachedNewItems());
   EXPECT_EQ(0u, NumCachedNewSubsequences());
   CommitAndFinishCycle();
@@ -377,10 +375,9 @@ TEST_P(PaintControllerTest, UpdateAddLastOverlap) {
 
   InitRootChunk();
   first.Invalidate();
-  first.SetVisualRect(IntRect(100, 100, 150, 150));
   second.Invalidate();
-  DrawRect(context, first, kBackgroundType, FloatRect(100, 100, 150, 150));
-  DrawRect(context, first, kForegroundType, FloatRect(100, 100, 150, 150));
+  DrawRect(context, first, kBackgroundType, IntRect(100, 100, 150, 150));
+  DrawRect(context, first, kForegroundType, IntRect(100, 100, 150, 150));
   EXPECT_EQ(0u, NumCachedNewItems());
   EXPECT_EQ(0u, NumCachedNewSubsequences());
   CommitAndFinishCycle();
@@ -397,8 +394,8 @@ TEST_P(PaintControllerTest, CachedDisplayItems) {
   GraphicsContext context(GetPaintController());
   InitRootChunk();
 
-  DrawRect(context, first, kBackgroundType, FloatRect(100, 100, 150, 150));
-  DrawRect(context, second, kBackgroundType, FloatRect(100, 100, 150, 150));
+  DrawRect(context, first, kBackgroundType, IntRect(100, 100, 150, 150));
+  DrawRect(context, second, kBackgroundType, IntRect(100, 100, 150, 150));
   CommitAndFinishCycle();
 
   EXPECT_THAT(GetPaintController().GetDisplayItemList(),
@@ -420,8 +417,8 @@ TEST_P(PaintControllerTest, CachedDisplayItems) {
   EXPECT_TRUE(ClientCacheIsValid(second));
 
   InitRootChunk();
-  DrawRect(context, first, kBackgroundType, FloatRect(100, 100, 150, 150));
-  DrawRect(context, second, kBackgroundType, FloatRect(100, 100, 150, 150));
+  DrawRect(context, first, kBackgroundType, IntRect(100, 100, 150, 150));
+  DrawRect(context, second, kBackgroundType, IntRect(100, 100, 150, 150));
   CommitAndFinishCycle();
 
   EXPECT_THAT(GetPaintController().GetDisplayItemList(),
@@ -448,21 +445,21 @@ TEST_P(PaintControllerTest, CachedDisplayItems) {
 }
 
 TEST_P(PaintControllerTest, UpdateSwapOrderWithChildren) {
-  FakeDisplayItemClient container1("container1", IntRect(100, 100, 100, 100));
-  FakeDisplayItemClient content1("content1", IntRect(100, 100, 50, 200));
-  FakeDisplayItemClient container2("container2", IntRect(100, 200, 100, 100));
-  FakeDisplayItemClient content2("content2", IntRect(100, 200, 50, 200));
+  FakeDisplayItemClient container1("container1");
+  FakeDisplayItemClient content1("content1");
+  FakeDisplayItemClient container2("container2");
+  FakeDisplayItemClient content2("content2");
   GraphicsContext context(GetPaintController());
   InitRootChunk();
 
-  DrawRect(context, container1, kBackgroundType, FloatRect(100, 100, 100, 100));
-  DrawRect(context, content1, kBackgroundType, FloatRect(100, 100, 50, 200));
-  DrawRect(context, content1, kForegroundType, FloatRect(100, 100, 50, 200));
-  DrawRect(context, container1, kForegroundType, FloatRect(100, 100, 100, 100));
-  DrawRect(context, container2, kBackgroundType, FloatRect(100, 200, 100, 100));
-  DrawRect(context, content2, kBackgroundType, FloatRect(100, 200, 50, 200));
-  DrawRect(context, content2, kForegroundType, FloatRect(100, 200, 50, 200));
-  DrawRect(context, container2, kForegroundType, FloatRect(100, 200, 100, 100));
+  DrawRect(context, container1, kBackgroundType, IntRect(100, 100, 100, 100));
+  DrawRect(context, content1, kBackgroundType, IntRect(100, 100, 50, 200));
+  DrawRect(context, content1, kForegroundType, IntRect(100, 100, 50, 200));
+  DrawRect(context, container1, kForegroundType, IntRect(100, 100, 100, 100));
+  DrawRect(context, container2, kBackgroundType, IntRect(100, 200, 100, 100));
+  DrawRect(context, content2, kBackgroundType, IntRect(100, 200, 50, 200));
+  DrawRect(context, content2, kForegroundType, IntRect(100, 200, 50, 200));
+  DrawRect(context, container2, kForegroundType, IntRect(100, 200, 100, 100));
   CommitAndFinishCycle();
 
   EXPECT_THAT(GetPaintController().GetDisplayItemList(),
@@ -479,14 +476,14 @@ TEST_P(PaintControllerTest, UpdateSwapOrderWithChildren) {
 
   // Simulate the situation when |container1| gets a z-index that is greater
   // than that of |container2|.
-  DrawRect(context, container2, kBackgroundType, FloatRect(100, 200, 100, 100));
-  DrawRect(context, content2, kBackgroundType, FloatRect(100, 200, 50, 200));
-  DrawRect(context, content2, kForegroundType, FloatRect(100, 200, 50, 200));
-  DrawRect(context, container2, kForegroundType, FloatRect(100, 200, 100, 100));
-  DrawRect(context, container1, kBackgroundType, FloatRect(100, 100, 100, 100));
-  DrawRect(context, content1, kBackgroundType, FloatRect(100, 100, 50, 200));
-  DrawRect(context, content1, kForegroundType, FloatRect(100, 100, 50, 200));
-  DrawRect(context, container1, kForegroundType, FloatRect(100, 100, 100, 100));
+  DrawRect(context, container2, kBackgroundType, IntRect(100, 200, 100, 100));
+  DrawRect(context, content2, kBackgroundType, IntRect(100, 200, 50, 200));
+  DrawRect(context, content2, kForegroundType, IntRect(100, 200, 50, 200));
+  DrawRect(context, container2, kForegroundType, IntRect(100, 200, 100, 100));
+  DrawRect(context, container1, kBackgroundType, IntRect(100, 100, 100, 100));
+  DrawRect(context, content1, kBackgroundType, IntRect(100, 100, 50, 200));
+  DrawRect(context, content1, kForegroundType, IntRect(100, 100, 50, 200));
+  DrawRect(context, container1, kForegroundType, IntRect(100, 100, 100, 100));
   CommitAndFinishCycle();
 
   EXPECT_THAT(GetPaintController().GetDisplayItemList(),
@@ -502,21 +499,21 @@ TEST_P(PaintControllerTest, UpdateSwapOrderWithChildren) {
 }
 
 TEST_P(PaintControllerTest, UpdateSwapOrderWithChildrenAndInvalidation) {
-  FakeDisplayItemClient container1("container1", IntRect(100, 100, 100, 100));
-  FakeDisplayItemClient content1("content1", IntRect(100, 100, 50, 200));
-  FakeDisplayItemClient container2("container2", IntRect(100, 200, 100, 100));
-  FakeDisplayItemClient content2("content2", IntRect(100, 200, 50, 200));
+  FakeDisplayItemClient container1("container1");
+  FakeDisplayItemClient content1("content1");
+  FakeDisplayItemClient container2("container2");
+  FakeDisplayItemClient content2("content2");
   GraphicsContext context(GetPaintController());
   InitRootChunk();
 
-  DrawRect(context, container1, kBackgroundType, FloatRect(100, 100, 100, 100));
-  DrawRect(context, content1, kBackgroundType, FloatRect(100, 100, 50, 200));
-  DrawRect(context, content1, kForegroundType, FloatRect(100, 100, 50, 200));
-  DrawRect(context, container1, kForegroundType, FloatRect(100, 100, 100, 100));
-  DrawRect(context, container2, kBackgroundType, FloatRect(100, 200, 100, 100));
-  DrawRect(context, content2, kBackgroundType, FloatRect(100, 200, 50, 200));
-  DrawRect(context, content2, kForegroundType, FloatRect(100, 200, 50, 200));
-  DrawRect(context, container2, kForegroundType, FloatRect(100, 200, 100, 100));
+  DrawRect(context, container1, kBackgroundType, IntRect(100, 100, 100, 100));
+  DrawRect(context, content1, kBackgroundType, IntRect(100, 100, 50, 200));
+  DrawRect(context, content1, kForegroundType, IntRect(100, 100, 50, 200));
+  DrawRect(context, container1, kForegroundType, IntRect(100, 100, 100, 100));
+  DrawRect(context, container2, kBackgroundType, IntRect(100, 200, 100, 100));
+  DrawRect(context, content2, kBackgroundType, IntRect(100, 200, 50, 200));
+  DrawRect(context, content2, kForegroundType, IntRect(100, 200, 50, 200));
+  DrawRect(context, container2, kForegroundType, IntRect(100, 200, 100, 100));
   CommitAndFinishCycle();
 
   EXPECT_THAT(GetPaintController().GetDisplayItemList(),
@@ -534,14 +531,14 @@ TEST_P(PaintControllerTest, UpdateSwapOrderWithChildrenAndInvalidation) {
   // Simulate the situation when |container1| gets a z-index that is greater
   // than that of |container2|, and |container1| is invalidated.
   container1.Invalidate();
-  DrawRect(context, container2, kBackgroundType, FloatRect(100, 200, 100, 100));
-  DrawRect(context, content2, kBackgroundType, FloatRect(100, 200, 50, 200));
-  DrawRect(context, content2, kForegroundType, FloatRect(100, 200, 50, 200));
-  DrawRect(context, container2, kForegroundType, FloatRect(100, 200, 100, 100));
-  DrawRect(context, container1, kBackgroundType, FloatRect(100, 100, 100, 100));
-  DrawRect(context, content1, kBackgroundType, FloatRect(100, 100, 50, 200));
-  DrawRect(context, content1, kForegroundType, FloatRect(100, 100, 50, 200));
-  DrawRect(context, container1, kForegroundType, FloatRect(100, 100, 100, 100));
+  DrawRect(context, container2, kBackgroundType, IntRect(100, 200, 100, 100));
+  DrawRect(context, content2, kBackgroundType, IntRect(100, 200, 50, 200));
+  DrawRect(context, content2, kForegroundType, IntRect(100, 200, 50, 200));
+  DrawRect(context, container2, kForegroundType, IntRect(100, 200, 100, 100));
+  DrawRect(context, container1, kBackgroundType, IntRect(100, 100, 100, 100));
+  DrawRect(context, content1, kBackgroundType, IntRect(100, 100, 50, 200));
+  DrawRect(context, content1, kForegroundType, IntRect(100, 100, 50, 200));
+  DrawRect(context, container1, kForegroundType, IntRect(100, 100, 100, 100));
   CommitAndFinishCycle();
 
   EXPECT_THAT(GetPaintController().GetDisplayItemList(),
@@ -565,9 +562,9 @@ TEST_P(PaintControllerTest, CachedSubsequenceForcePaintChunk) {
   FakeDisplayItemClient root("root");
   auto root_properties = DefaultPaintChunkProperties();
   PaintChunk::Id root_id(root, DisplayItem::kCaret);
-  GetPaintController().UpdateCurrentPaintChunkProperties(root_id,
+  GetPaintController().UpdateCurrentPaintChunkProperties(&root_id,
                                                          root_properties);
-  DrawRect(context, root, kBackgroundType, FloatRect(100, 100, 100, 100));
+  DrawRect(context, root, kBackgroundType, IntRect(100, 100, 100, 100));
 
   FakeDisplayItemClient container("container");
   auto container_properties = DefaultPaintChunkProperties();
@@ -575,14 +572,12 @@ TEST_P(PaintControllerTest, CachedSubsequenceForcePaintChunk) {
   {
     SubsequenceRecorder r(context, container);
     GetPaintController().UpdateCurrentPaintChunkProperties(
-        container_id, container_properties);
-    DrawRect(context, container, kBackgroundType,
-             FloatRect(100, 100, 100, 100));
-    DrawRect(context, container, kForegroundType,
-             FloatRect(100, 100, 100, 100));
+        &container_id, container_properties);
+    DrawRect(context, container, kBackgroundType, IntRect(100, 100, 100, 100));
+    DrawRect(context, container, kForegroundType, IntRect(100, 100, 100, 100));
   }
 
-  DrawRect(context, root, kForegroundType, FloatRect(100, 100, 100, 100));
+  DrawRect(context, root, kForegroundType, IntRect(100, 100, 100, 100));
 
   CommitAndFinishCycle();
 
@@ -595,11 +590,11 @@ TEST_P(PaintControllerTest, CachedSubsequenceForcePaintChunk) {
                   IsPaintChunk(3, 4, PaintChunk::Id(root, kForegroundType),
                                root_properties)));
 
-  GetPaintController().UpdateCurrentPaintChunkProperties(root_id,
+  GetPaintController().UpdateCurrentPaintChunkProperties(&root_id,
                                                          root_properties);
-  DrawRect(context, root, kBackgroundType, FloatRect(100, 100, 100, 100));
+  DrawRect(context, root, kBackgroundType, IntRect(100, 100, 100, 100));
   EXPECT_TRUE(GetPaintController().UseCachedSubsequenceIfPossible(container));
-  DrawRect(context, root, kForegroundType, FloatRect(100, 100, 100, 100));
+  DrawRect(context, root, kForegroundType, IntRect(100, 100, 100, 100));
   CommitAndFinishCycle();
 
   // |container| should still receive its own PaintChunk because it is a cached
@@ -613,10 +608,10 @@ TEST_P(PaintControllerTest, CachedSubsequenceForcePaintChunk) {
 }
 
 TEST_P(PaintControllerTest, CachedSubsequenceSwapOrder) {
-  FakeDisplayItemClient container1("container1", IntRect(100, 100, 100, 100));
-  FakeDisplayItemClient content1("content1", IntRect(100, 100, 50, 200));
-  FakeDisplayItemClient container2("container2", IntRect(100, 200, 100, 100));
-  FakeDisplayItemClient content2("content2", IntRect(100, 200, 50, 200));
+  FakeDisplayItemClient container1("container1");
+  FakeDisplayItemClient content1("content1");
+  FakeDisplayItemClient container2("container2");
+  FakeDisplayItemClient content2("content2");
   GraphicsContext context(GetPaintController());
 
   PaintChunk::Id container1_id(container1, kBackgroundType);
@@ -631,27 +626,23 @@ TEST_P(PaintControllerTest, CachedSubsequenceSwapOrder) {
 
   {
     GetPaintController().UpdateCurrentPaintChunkProperties(
-        container1_id, container1_properties);
+        &container1_id, container1_properties);
 
     SubsequenceRecorder r(context, container1);
-    DrawRect(context, container1, kBackgroundType,
-             FloatRect(100, 100, 100, 100));
-    DrawRect(context, content1, kBackgroundType, FloatRect(100, 100, 50, 200));
-    DrawRect(context, content1, kForegroundType, FloatRect(100, 100, 50, 200));
-    DrawRect(context, container1, kForegroundType,
-             FloatRect(100, 100, 100, 100));
+    DrawRect(context, container1, kBackgroundType, IntRect(100, 100, 100, 100));
+    DrawRect(context, content1, kBackgroundType, IntRect(100, 100, 50, 200));
+    DrawRect(context, content1, kForegroundType, IntRect(100, 100, 50, 200));
+    DrawRect(context, container1, kForegroundType, IntRect(100, 100, 100, 100));
   }
   {
     GetPaintController().UpdateCurrentPaintChunkProperties(
-        container2_id, container2_properties);
+        &container2_id, container2_properties);
 
     SubsequenceRecorder r(context, container2);
-    DrawRect(context, container2, kBackgroundType,
-             FloatRect(100, 200, 100, 100));
-    DrawRect(context, content2, kBackgroundType, FloatRect(100, 200, 50, 200));
-    DrawRect(context, content2, kForegroundType, FloatRect(100, 200, 50, 200));
-    DrawRect(context, container2, kForegroundType,
-             FloatRect(100, 200, 100, 100));
+    DrawRect(context, container2, kBackgroundType, IntRect(100, 200, 100, 100));
+    DrawRect(context, content2, kBackgroundType, IntRect(100, 200, 50, 200));
+    DrawRect(context, content2, kForegroundType, IntRect(100, 200, 50, 200));
+    DrawRect(context, container2, kForegroundType, IntRect(100, 200, 100, 100));
   }
   CommitAndFinishCycle();
 
@@ -666,15 +657,10 @@ TEST_P(PaintControllerTest, CachedSubsequenceSwapOrder) {
                           IsSameId(&content2, kForegroundType),
                           IsSameId(&container2, kForegroundType)));
 
-  auto* markers = GetSubsequenceMarkers(container1);
-  CHECK(markers);
-  EXPECT_EQ(0u, markers->start);
-  EXPECT_EQ(4u, markers->end);
-
-  markers = GetSubsequenceMarkers(container2);
-  CHECK(markers);
-  EXPECT_EQ(4u, markers->start);
-  EXPECT_EQ(8u, markers->end);
+  EXPECT_SUBSEQUENCE(container1, 0, 1);
+  EXPECT_NO_SUBSEQUENCE(content1);
+  EXPECT_SUBSEQUENCE(container2, 1, 2);
+  EXPECT_NO_SUBSEQUENCE(content2);
 
   EXPECT_THAT(
       GetPaintController().PaintChunks(),
@@ -685,39 +671,35 @@ TEST_P(PaintControllerTest, CachedSubsequenceSwapOrder) {
   // than that of |container2|.
   if (RuntimeEnabledFeatures::PaintUnderInvalidationCheckingEnabled()) {
     // When under-invalidation-checking is enabled,
-    // useCachedSubsequenceIfPossible is forced off, and the client is expected
+    // UseCachedSubsequenceIfPossible is forced off, and the client is expected
     // to create the same painting as in the previous paint.
     EXPECT_FALSE(SubsequenceRecorder::UseCachedSubsequenceIfPossible(
         context, container2));
     {
       GetPaintController().UpdateCurrentPaintChunkProperties(
-          container2_id, container2_properties);
+          &container2_id, container2_properties);
 
       SubsequenceRecorder r(context, container2);
       DrawRect(context, container2, kBackgroundType,
-               FloatRect(100, 200, 100, 100));
-      DrawRect(context, content2, kBackgroundType,
-               FloatRect(100, 200, 50, 200));
-      DrawRect(context, content2, kForegroundType,
-               FloatRect(100, 200, 50, 200));
+               IntRect(100, 200, 100, 100));
+      DrawRect(context, content2, kBackgroundType, IntRect(100, 200, 50, 200));
+      DrawRect(context, content2, kForegroundType, IntRect(100, 200, 50, 200));
       DrawRect(context, container2, kForegroundType,
-               FloatRect(100, 200, 100, 100));
+               IntRect(100, 200, 100, 100));
     }
     EXPECT_FALSE(SubsequenceRecorder::UseCachedSubsequenceIfPossible(
         context, container1));
     {
       GetPaintController().UpdateCurrentPaintChunkProperties(
-          container1_id, container1_properties);
+          &container1_id, container1_properties);
 
       SubsequenceRecorder r(context, container1);
       DrawRect(context, container1, kBackgroundType,
-               FloatRect(100, 100, 100, 100));
-      DrawRect(context, content1, kBackgroundType,
-               FloatRect(100, 100, 50, 200));
-      DrawRect(context, content1, kForegroundType,
-               FloatRect(100, 100, 50, 200));
+               IntRect(100, 100, 100, 100));
+      DrawRect(context, content1, kBackgroundType, IntRect(100, 100, 50, 200));
+      DrawRect(context, content1, kForegroundType, IntRect(100, 100, 50, 200));
       DrawRect(context, container1, kForegroundType,
-               FloatRect(100, 100, 100, 100));
+               IntRect(100, 100, 100, 100));
     }
   } else {
     EXPECT_TRUE(SubsequenceRecorder::UseCachedSubsequenceIfPossible(
@@ -746,15 +728,10 @@ TEST_P(PaintControllerTest, CachedSubsequenceSwapOrder) {
                           IsSameId(&content1, kForegroundType),
                           IsSameId(&container1, kForegroundType)));
 
-  markers = GetSubsequenceMarkers(container2);
-  CHECK(markers);
-  EXPECT_EQ(0u, markers->start);
-  EXPECT_EQ(4u, markers->end);
-
-  markers = GetSubsequenceMarkers(container1);
-  CHECK(markers);
-  EXPECT_EQ(4u, markers->start);
-  EXPECT_EQ(8u, markers->end);
+  EXPECT_SUBSEQUENCE(container1, 1, 2);
+  EXPECT_NO_SUBSEQUENCE(content1);
+  EXPECT_SUBSEQUENCE(container2, 0, 1);
+  EXPECT_NO_SUBSEQUENCE(content2);
 
   EXPECT_THAT(
       GetPaintController().PaintChunks(),
@@ -763,25 +740,26 @@ TEST_P(PaintControllerTest, CachedSubsequenceSwapOrder) {
 }
 
 TEST_P(PaintControllerTest, CachedSubsequenceAndDisplayItemsSwapOrder) {
-  FakeDisplayItemClient root("root", IntRect(0, 0, 300, 300));
-  FakeDisplayItemClient content1("content1", IntRect(100, 100, 50, 200));
-  FakeDisplayItemClient container2("container2", IntRect(100, 200, 100, 100));
-  FakeDisplayItemClient content2("content2", IntRect(100, 200, 50, 200));
+  FakeDisplayItemClient content1("content1");
+  FakeDisplayItemClient container2("container2");
+  FakeDisplayItemClient content2("content2");
   GraphicsContext context(GetPaintController());
+
+  PaintChunk::Id content1_id(content1, kBackgroundType);
+  PaintChunk::Id container2_id(container2, kBackgroundType);
+  PaintChunk::Id content2_id(content2, kBackgroundType);
 
   InitRootChunk();
 
-  DrawRect(context, content1, kBackgroundType, FloatRect(100, 100, 50, 200));
+  DrawRect(context, content1, kBackgroundType, IntRect(100, 100, 50, 200));
   {
     SubsequenceRecorder r(context, container2);
-    DrawRect(context, container2, kBackgroundType,
-             FloatRect(100, 200, 100, 100));
-    DrawRect(context, content2, kBackgroundType, FloatRect(100, 200, 50, 200));
-    DrawRect(context, content2, kForegroundType, FloatRect(100, 200, 50, 200));
-    DrawRect(context, container2, kForegroundType,
-             FloatRect(100, 200, 100, 100));
+    DrawRect(context, container2, kBackgroundType, IntRect(100, 200, 100, 100));
+    DrawRect(context, content2, kBackgroundType, IntRect(100, 200, 50, 200));
+    DrawRect(context, content2, kForegroundType, IntRect(100, 200, 50, 200));
+    DrawRect(context, container2, kForegroundType, IntRect(100, 200, 100, 100));
   }
-  DrawRect(context, content1, kForegroundType, FloatRect(100, 100, 50, 200));
+  DrawRect(context, content1, kForegroundType, IntRect(100, 100, 50, 200));
   CommitAndFinishCycle();
 
   EXPECT_THAT(GetPaintController().GetDisplayItemList(),
@@ -792,33 +770,40 @@ TEST_P(PaintControllerTest, CachedSubsequenceAndDisplayItemsSwapOrder) {
                           IsSameId(&container2, kForegroundType),
                           IsSameId(&content1, kForegroundType)));
 
-  auto* markers = GetSubsequenceMarkers(container2);
-  CHECK(markers);
-  EXPECT_EQ(1u, markers->start);
-  EXPECT_EQ(5u, markers->end);
+  EXPECT_NO_SUBSEQUENCE(content1);
+  EXPECT_SUBSEQUENCE(container2, 1, 2);
+  EXPECT_NO_SUBSEQUENCE(content2);
+
+  EXPECT_THAT(
+      GetPaintController().PaintChunks(),
+      ElementsAre(
+          IsPaintChunk(0, 1, DefaultRootChunkId(),
+                       DefaultPaintChunkProperties()),
+          IsPaintChunk(1, 5, PaintChunk::Id(container2, kBackgroundType),
+                       DefaultPaintChunkProperties()),
+          IsPaintChunk(5, 6, PaintChunk::Id(content1, kForegroundType),
+                       DefaultPaintChunkProperties())));
 
   // Simulate the situation when |container2| gets a z-index that is smaller
   // than that of |content1|.
   InitRootChunk();
   if (RuntimeEnabledFeatures::PaintUnderInvalidationCheckingEnabled()) {
     // When under-invalidation-checking is enabled,
-    // useCachedSubsequenceIfPossible is forced off, and the client is expected
+    // UseCachedSubsequenceIfPossible is forced off, and the client is expected
     // to create the same painting as in the previous paint.
     EXPECT_FALSE(SubsequenceRecorder::UseCachedSubsequenceIfPossible(
         context, container2));
     {
       SubsequenceRecorder r(context, container2);
       DrawRect(context, container2, kBackgroundType,
-               FloatRect(100, 200, 100, 100));
-      DrawRect(context, content2, kBackgroundType,
-               FloatRect(100, 200, 50, 200));
-      DrawRect(context, content2, kForegroundType,
-               FloatRect(100, 200, 50, 200));
+               IntRect(100, 200, 100, 100));
+      DrawRect(context, content2, kBackgroundType, IntRect(100, 200, 50, 200));
+      DrawRect(context, content2, kForegroundType, IntRect(100, 200, 50, 200));
       DrawRect(context, container2, kForegroundType,
-               FloatRect(100, 200, 100, 100));
+               IntRect(100, 200, 100, 100));
     }
-    DrawRect(context, content1, kBackgroundType, FloatRect(100, 100, 50, 200));
-    DrawRect(context, content1, kForegroundType, FloatRect(100, 100, 50, 200));
+    DrawRect(context, content1, kBackgroundType, IntRect(100, 100, 50, 200));
+    DrawRect(context, content1, kForegroundType, IntRect(100, 100, 50, 200));
   } else {
     EXPECT_TRUE(SubsequenceRecorder::UseCachedSubsequenceIfPossible(
         context, container2));
@@ -846,37 +831,44 @@ TEST_P(PaintControllerTest, CachedSubsequenceAndDisplayItemsSwapOrder) {
                           IsSameId(&content1, kBackgroundType),
                           IsSameId(&content1, kForegroundType)));
 
-  markers = GetSubsequenceMarkers(container2);
-  CHECK(markers);
-  EXPECT_EQ(0u, markers->start);
-  EXPECT_EQ(4u, markers->end);
+  EXPECT_NO_SUBSEQUENCE(content1);
+  EXPECT_SUBSEQUENCE(container2, 0, 1);
+  EXPECT_NO_SUBSEQUENCE(content2);
+
+  EXPECT_THAT(
+      GetPaintController().PaintChunks(),
+      ElementsAre(
+          IsPaintChunk(0, 4, PaintChunk::Id(container2, kBackgroundType),
+                       DefaultPaintChunkProperties()),
+          IsPaintChunk(4, 6, PaintChunk::Id(content1, kBackgroundType),
+                       DefaultPaintChunkProperties())));
 }
 
 TEST_P(PaintControllerTest, CachedSubsequenceContainingFragments) {
   GraphicsContext context(GetPaintController());
   FakeDisplayItemClient root("root");
-  constexpr size_t kFragmentCount = 3;
+  constexpr wtf_size_t kFragmentCount = 3;
   FakeDisplayItemClient container("container");
 
   // The first paint.
   auto paint_container = [this, &context, &container]() {
     SubsequenceRecorder r(context, container);
-    for (size_t i = 0; i < kFragmentCount; ++i) {
+    for (wtf_size_t i = 0; i < kFragmentCount; ++i) {
       ScopedDisplayItemFragment scoped_fragment(context, i);
       ScopedPaintChunkProperties content_chunk_properties(
           GetPaintController(), DefaultPaintChunkProperties(), container,
           kBackgroundType);
       DrawRect(context, container, kBackgroundType,
-               FloatRect(100, 100, 100, 100));
+               IntRect(100, 100, 100, 100));
     }
   };
   {
     ScopedPaintChunkProperties root_chunk_properties(
         GetPaintController(), DefaultPaintChunkProperties(), root,
         kBackgroundType);
-    DrawRect(context, root, kBackgroundType, FloatRect(100, 100, 100, 100));
+    DrawRect(context, root, kBackgroundType, IntRect(100, 100, 100, 100));
     paint_container();
-    DrawRect(context, root, kForegroundType, FloatRect(100, 100, 100, 100));
+    DrawRect(context, root, kForegroundType, IntRect(100, 100, 100, 100));
   }
   CommitAndFinishCycle();
 
@@ -901,7 +893,7 @@ TEST_P(PaintControllerTest, CachedSubsequenceContainingFragments) {
     ScopedPaintChunkProperties root_chunk_properties(
         GetPaintController(), DefaultPaintChunkProperties(), root,
         kBackgroundType);
-    DrawRect(context, root, kBackgroundType, FloatRect(100, 100, 100, 100));
+    DrawRect(context, root, kBackgroundType, IntRect(100, 100, 100, 100));
 
     if (RuntimeEnabledFeatures::PaintUnderInvalidationCheckingEnabled()) {
       EXPECT_FALSE(
@@ -911,7 +903,7 @@ TEST_P(PaintControllerTest, CachedSubsequenceContainingFragments) {
       EXPECT_TRUE(
           GetPaintController().UseCachedSubsequenceIfPossible(container));
     }
-    DrawRect(context, root, kForegroundType, FloatRect(100, 100, 100, 100));
+    DrawRect(context, root, kForegroundType, IntRect(100, 100, 100, 100));
   }
   CommitAndFinishCycle();
 
@@ -920,10 +912,10 @@ TEST_P(PaintControllerTest, CachedSubsequenceContainingFragments) {
 }
 
 TEST_P(PaintControllerTest, UpdateSwapOrderCrossingChunks) {
-  FakeDisplayItemClient container1("container1", IntRect(100, 100, 100, 100));
-  FakeDisplayItemClient content1("content1", IntRect(100, 100, 50, 200));
-  FakeDisplayItemClient container2("container2", IntRect(100, 200, 100, 100));
-  FakeDisplayItemClient content2("content2", IntRect(100, 200, 50, 200));
+  FakeDisplayItemClient container1("container1");
+  FakeDisplayItemClient content1("content1");
+  FakeDisplayItemClient container2("container2");
+  FakeDisplayItemClient content2("content2");
   GraphicsContext context(GetPaintController());
 
   PaintChunk::Id container1_id(container1, kBackgroundType);
@@ -936,14 +928,14 @@ TEST_P(PaintControllerTest, UpdateSwapOrderCrossingChunks) {
   auto container2_properties = DefaultPaintChunkProperties();
   container2_properties.SetEffect(*container2_effect);
 
-  GetPaintController().UpdateCurrentPaintChunkProperties(container1_id,
+  GetPaintController().UpdateCurrentPaintChunkProperties(&container1_id,
                                                          container1_properties);
-  DrawRect(context, container1, kBackgroundType, FloatRect(100, 100, 100, 100));
-  DrawRect(context, content1, kBackgroundType, FloatRect(100, 100, 50, 200));
-  GetPaintController().UpdateCurrentPaintChunkProperties(container2_id,
+  DrawRect(context, container1, kBackgroundType, IntRect(100, 100, 100, 100));
+  DrawRect(context, content1, kBackgroundType, IntRect(100, 100, 50, 200));
+  GetPaintController().UpdateCurrentPaintChunkProperties(&container2_id,
                                                          container2_properties);
-  DrawRect(context, container2, kBackgroundType, FloatRect(100, 200, 100, 100));
-  DrawRect(context, content2, kBackgroundType, FloatRect(100, 200, 50, 200));
+  DrawRect(context, container2, kBackgroundType, IntRect(100, 200, 100, 100));
+  DrawRect(context, content2, kBackgroundType, IntRect(100, 200, 50, 200));
   CommitAndFinishCycle();
 
   EXPECT_THAT(GetPaintController().GetDisplayItemList(),
@@ -958,14 +950,14 @@ TEST_P(PaintControllerTest, UpdateSwapOrderCrossingChunks) {
                   IsPaintChunk(2, 4, container2_id, container2_properties)));
 
   // Move content2 into container1, without invalidation.
-  GetPaintController().UpdateCurrentPaintChunkProperties(container1_id,
+  GetPaintController().UpdateCurrentPaintChunkProperties(&container1_id,
                                                          container1_properties);
-  DrawRect(context, container1, kBackgroundType, FloatRect(100, 100, 100, 100));
-  DrawRect(context, content1, kBackgroundType, FloatRect(100, 100, 50, 200));
-  DrawRect(context, content2, kBackgroundType, FloatRect(100, 200, 50, 200));
-  GetPaintController().UpdateCurrentPaintChunkProperties(container2_id,
+  DrawRect(context, container1, kBackgroundType, IntRect(100, 100, 100, 100));
+  DrawRect(context, content1, kBackgroundType, IntRect(100, 100, 50, 200));
+  DrawRect(context, content2, kBackgroundType, IntRect(100, 200, 50, 200));
+  GetPaintController().UpdateCurrentPaintChunkProperties(&container2_id,
                                                          container2_properties);
-  DrawRect(context, container2, kBackgroundType, FloatRect(100, 200, 100, 100));
+  DrawRect(context, container2, kBackgroundType, IntRect(100, 200, 100, 100));
 
   EXPECT_EQ(4u, NumCachedNewItems());
   EXPECT_EQ(0u, NumCachedNewSubsequences());
@@ -1002,27 +994,27 @@ TEST_P(PaintControllerTest, OutOfOrderNoCrash) {
       static_cast<DisplayItem::Type>(DisplayItem::kDrawingFirst + 3);
 
   InitRootChunk();
-  DrawRect(context, client, kType1, FloatRect(100, 100, 100, 100));
-  DrawRect(context, client, kType2, FloatRect(100, 100, 50, 200));
-  DrawRect(context, client, kType3, FloatRect(100, 100, 50, 200));
-  DrawRect(context, client, kType4, FloatRect(100, 100, 100, 100));
+  DrawRect(context, client, kType1, IntRect(100, 100, 100, 100));
+  DrawRect(context, client, kType2, IntRect(100, 100, 50, 200));
+  DrawRect(context, client, kType3, IntRect(100, 100, 50, 200));
+  DrawRect(context, client, kType4, IntRect(100, 100, 100, 100));
 
   CommitAndFinishCycle();
 
   InitRootChunk();
-  DrawRect(context, client, kType2, FloatRect(100, 100, 50, 200));
-  DrawRect(context, client, kType3, FloatRect(100, 100, 50, 200));
-  DrawRect(context, client, kType1, FloatRect(100, 100, 100, 100));
-  DrawRect(context, client, kType4, FloatRect(100, 100, 100, 100));
+  DrawRect(context, client, kType2, IntRect(100, 100, 50, 200));
+  DrawRect(context, client, kType3, IntRect(100, 100, 50, 200));
+  DrawRect(context, client, kType1, IntRect(100, 100, 100, 100));
+  DrawRect(context, client, kType4, IntRect(100, 100, 100, 100));
 
   CommitAndFinishCycle();
 }
 
 TEST_P(PaintControllerTest, CachedNestedSubsequenceUpdate) {
-  FakeDisplayItemClient container1("container1", IntRect(100, 100, 100, 100));
-  FakeDisplayItemClient content1("content1", IntRect(100, 100, 50, 200));
-  FakeDisplayItemClient container2("container2", IntRect(100, 200, 100, 100));
-  FakeDisplayItemClient content2("content2", IntRect(100, 200, 50, 200));
+  FakeDisplayItemClient container1("container1");
+  FakeDisplayItemClient content1("content1");
+  FakeDisplayItemClient container2("container2");
+  FakeDisplayItemClient content2("content2");
   GraphicsContext context(GetPaintController());
 
   PaintChunk::Id container1_background_id(container1, kBackgroundType);
@@ -1051,36 +1043,30 @@ TEST_P(PaintControllerTest, CachedNestedSubsequenceUpdate) {
   {
     SubsequenceRecorder r(context, container1);
     GetPaintController().UpdateCurrentPaintChunkProperties(
-        container1_background_id, container1_background_properties);
-    DrawRect(context, container1, kBackgroundType,
-             FloatRect(100, 100, 100, 100));
+        &container1_background_id, container1_background_properties);
+    DrawRect(context, container1, kBackgroundType, IntRect(100, 100, 100, 100));
 
     {
       SubsequenceRecorder r(context, content1);
       GetPaintController().UpdateCurrentPaintChunkProperties(
-          content1_id, content1_properties);
-      DrawRect(context, content1, kBackgroundType,
-               FloatRect(100, 100, 50, 200));
-      DrawRect(context, content1, kForegroundType,
-               FloatRect(100, 100, 50, 200));
+          &content1_id, content1_properties);
+      DrawRect(context, content1, kBackgroundType, IntRect(100, 100, 50, 200));
+      DrawRect(context, content1, kForegroundType, IntRect(100, 100, 50, 200));
     }
     GetPaintController().UpdateCurrentPaintChunkProperties(
-        container1_foreground_id, container1_foreground_properties);
-    DrawRect(context, container1, kForegroundType,
-             FloatRect(100, 100, 100, 100));
+        &container1_foreground_id, container1_foreground_properties);
+    DrawRect(context, container1, kForegroundType, IntRect(100, 100, 100, 100));
   }
   {
     SubsequenceRecorder r(context, container2);
     GetPaintController().UpdateCurrentPaintChunkProperties(
-        container2_background_id, container2_background_properties);
-    DrawRect(context, container2, kBackgroundType,
-             FloatRect(100, 200, 100, 100));
+        &container2_background_id, container2_background_properties);
+    DrawRect(context, container2, kBackgroundType, IntRect(100, 200, 100, 100));
     {
       SubsequenceRecorder r(context, content2);
       GetPaintController().UpdateCurrentPaintChunkProperties(
-          content2_id, content2_properties);
-      DrawRect(context, content2, kBackgroundType,
-               FloatRect(100, 200, 50, 200));
+          &content2_id, content2_properties);
+      DrawRect(context, content2, kBackgroundType, IntRect(100, 200, 50, 200));
     }
   }
   CommitAndFinishCycle();
@@ -1093,25 +1079,10 @@ TEST_P(PaintControllerTest, CachedNestedSubsequenceUpdate) {
                           IsSameId(&container2, kBackgroundType),
                           IsSameId(&content2, kBackgroundType)));
 
-  auto* markers = GetSubsequenceMarkers(container1);
-  CHECK(markers);
-  EXPECT_EQ(0u, markers->start);
-  EXPECT_EQ(4u, markers->end);
-
-  markers = GetSubsequenceMarkers(content1);
-  CHECK(markers);
-  EXPECT_EQ(1u, markers->start);
-  EXPECT_EQ(3u, markers->end);
-
-  markers = GetSubsequenceMarkers(container2);
-  CHECK(markers);
-  EXPECT_EQ(4u, markers->start);
-  EXPECT_EQ(6u, markers->end);
-
-  markers = GetSubsequenceMarkers(content2);
-  CHECK(markers);
-  EXPECT_EQ(5u, markers->start);
-  EXPECT_EQ(6u, markers->end);
+  EXPECT_SUBSEQUENCE(container1, 0, 3);
+  EXPECT_SUBSEQUENCE(content1, 1, 2);
+  EXPECT_SUBSEQUENCE(container2, 3, 5);
+  EXPECT_SUBSEQUENCE(content2, 4, 5);
 
   EXPECT_THAT(
       GetPaintController().PaintChunks(),
@@ -1139,9 +1110,9 @@ TEST_P(PaintControllerTest, CachedNestedSubsequenceUpdate) {
   // Content2 now outputs foreground only.
   {
     SubsequenceRecorder r(context, content2);
-    GetPaintController().UpdateCurrentPaintChunkProperties(content2_id,
+    GetPaintController().UpdateCurrentPaintChunkProperties(&content2_id,
                                                            content2_properties);
-    DrawRect(context, content2, kForegroundType, FloatRect(100, 200, 50, 200));
+    DrawRect(context, content2, kForegroundType, IntRect(100, 200, 50, 200));
   }
   // Repaint container1 with foreground only.
   {
@@ -1151,25 +1122,22 @@ TEST_P(PaintControllerTest, CachedNestedSubsequenceUpdate) {
     // Use cached subsequence of content1.
     if (RuntimeEnabledFeatures::PaintUnderInvalidationCheckingEnabled()) {
       // When under-invalidation-checking is enabled,
-      // useCachedSubsequenceIfPossible is forced off, and the client is
+      // UseCachedSubsequenceIfPossible is forced off, and the client is
       // expected to create the same painting as in the previous paint.
       EXPECT_FALSE(SubsequenceRecorder::UseCachedSubsequenceIfPossible(
           context, content1));
       SubsequenceRecorder r(context, content1);
       GetPaintController().UpdateCurrentPaintChunkProperties(
-          content1_id, content1_properties);
-      DrawRect(context, content1, kBackgroundType,
-               FloatRect(100, 100, 50, 200));
-      DrawRect(context, content1, kForegroundType,
-               FloatRect(100, 100, 50, 200));
+          &content1_id, content1_properties);
+      DrawRect(context, content1, kBackgroundType, IntRect(100, 100, 50, 200));
+      DrawRect(context, content1, kForegroundType, IntRect(100, 100, 50, 200));
     } else {
       EXPECT_TRUE(SubsequenceRecorder::UseCachedSubsequenceIfPossible(
           context, content1));
     }
     GetPaintController().UpdateCurrentPaintChunkProperties(
-        container1_foreground_id, container1_foreground_properties);
-    DrawRect(context, container1, kForegroundType,
-             FloatRect(100, 100, 100, 100));
+        &container1_foreground_id, container1_foreground_properties);
+    DrawRect(context, container1, kForegroundType, IntRect(100, 100, 100, 100));
   }
 
   EXPECT_EQ(2u, NumCachedNewItems());
@@ -1188,20 +1156,10 @@ TEST_P(PaintControllerTest, CachedNestedSubsequenceUpdate) {
                           IsSameId(&content1, kForegroundType),
                           IsSameId(&container1, kForegroundType)));
 
-  markers = GetSubsequenceMarkers(content2);
-  CHECK(markers);
-  EXPECT_EQ(0u, markers->start);
-  EXPECT_EQ(1u, markers->end);
-
-  markers = GetSubsequenceMarkers(container1);
-  CHECK(markers);
-  EXPECT_EQ(1u, markers->start);
-  EXPECT_EQ(4u, markers->end);
-
-  markers = GetSubsequenceMarkers(content1);
-  CHECK(markers);
-  EXPECT_EQ(1u, markers->start);
-  EXPECT_EQ(3u, markers->end);
+  EXPECT_NO_SUBSEQUENCE(container2);
+  EXPECT_SUBSEQUENCE(content2, 0, 1);
+  EXPECT_SUBSEQUENCE(container1, 1, 3);
+  EXPECT_SUBSEQUENCE(content1, 1, 2);
 
   EXPECT_THAT(GetPaintController().PaintChunks(),
               ElementsAre(IsPaintChunk(0, 1, content2_id, content2_properties),
@@ -1211,16 +1169,16 @@ TEST_P(PaintControllerTest, CachedNestedSubsequenceUpdate) {
 }
 
 TEST_P(PaintControllerTest, SkipCache) {
-  FakeDisplayItemClient multicol("multicol", IntRect(100, 100, 200, 200));
-  FakeDisplayItemClient content("content", IntRect(100, 100, 100, 100));
+  FakeDisplayItemClient multicol("multicol");
+  FakeDisplayItemClient content("content");
   GraphicsContext context(GetPaintController());
   InitRootChunk();
 
-  FloatRect rect1(100, 100, 50, 50);
-  FloatRect rect2(150, 100, 50, 50);
-  FloatRect rect3(200, 100, 50, 50);
+  IntRect rect1(100, 100, 50, 50);
+  IntRect rect2(150, 100, 50, 50);
+  IntRect rect3(200, 100, 50, 50);
 
-  DrawRect(context, multicol, kBackgroundType, FloatRect(100, 200, 100, 100));
+  DrawRect(context, multicol, kBackgroundType, IntRect(100, 200, 100, 100));
 
   GetPaintController().BeginSkippingCache();
   DrawRect(context, content, kForegroundType, rect1);
@@ -1247,7 +1205,7 @@ TEST_P(PaintControllerTest, SkipCache) {
   InitRootChunk();
   // Draw again with nothing invalidated.
   EXPECT_TRUE(ClientCacheIsValid(multicol));
-  DrawRect(context, multicol, kBackgroundType, FloatRect(100, 200, 100, 100));
+  DrawRect(context, multicol, kBackgroundType, IntRect(100, 200, 100, 100));
 
   GetPaintController().BeginSkippingCache();
   DrawRect(context, content, kForegroundType, rect1);
@@ -1279,7 +1237,7 @@ TEST_P(PaintControllerTest, SkipCache) {
   InitRootChunk();
   // Now the multicol becomes 3 columns and repaints.
   multicol.Invalidate();
-  DrawRect(context, multicol, kBackgroundType, FloatRect(100, 100, 100, 100));
+  DrawRect(context, multicol, kBackgroundType, IntRect(100, 100, 100, 100));
 
   GetPaintController().BeginSkippingCache();
   DrawRect(context, content, kForegroundType, rect1);
@@ -1308,9 +1266,9 @@ TEST_P(PaintControllerTest, PartialSkipCache) {
   FakeDisplayItemClient content("content");
   GraphicsContext context(GetPaintController());
 
-  FloatRect rect1(100, 100, 50, 50);
-  FloatRect rect2(150, 100, 50, 50);
-  FloatRect rect3(200, 100, 50, 50);
+  IntRect rect1(100, 100, 50, 50);
+  IntRect rect2(150, 100, 50, 50);
+  IntRect rect3(200, 100, 50, 50);
 
   InitRootChunk();
   DrawRect(context, content, kBackgroundType, rect1);
@@ -1383,7 +1341,7 @@ TEST_P(PaintControllerTest, SmallPaintControllerHasOnePaintChunk) {
 
   InitRootChunk();
   GraphicsContext context(GetPaintController());
-  DrawRect(context, client, kBackgroundType, FloatRect(0, 0, 100, 100));
+  DrawRect(context, client, kBackgroundType, IntRect(0, 0, 100, 100));
 
   CommitAndFinishCycle();
   const auto& paint_chunks = GetPaintController().PaintChunks();
@@ -1399,14 +1357,15 @@ void DrawPath(GraphicsContext& context,
   if (DrawingRecorder::UseCachedDrawingIfPossible(context, client, type))
     return;
 
-  DrawingRecorder recorder(context, client, type);
-  SkPath path;
-  path.moveTo(0, 0);
-  path.lineTo(0, 100);
-  path.lineTo(50, 50);
-  path.lineTo(100, 100);
-  path.lineTo(100, 0);
-  path.close();
+  DrawingRecorder recorder(context, client, type, IntRect(0, 0, 100, 100));
+  SkPathBuilder builder;
+  builder.moveTo(0, 0);
+  builder.lineTo(0, 100);
+  builder.lineTo(50, 50);
+  builder.lineTo(100, 100);
+  builder.lineTo(100, 0);
+  builder.close();
+  SkPath path = builder.detach();
   PaintFlags flags;
   flags.setAntiAlias(true);
   for (unsigned i = 0; i < count; i++)
@@ -1471,11 +1430,11 @@ TEST_P(PaintControllerTest, InvalidateAll) {
   EXPECT_TRUE(GetPaintController().GetPaintArtifact().IsEmpty());
   EXPECT_FALSE(GetPaintController().CacheIsAllInvalid());
 
-  FakeDisplayItemClient client("client", IntRect(1, 2, 3, 4));
+  FakeDisplayItemClient client("client");
   GraphicsContext context(GetPaintController());
 
   InitRootChunk();
-  DrawRect(context, client, kBackgroundType, FloatRect(1, 2, 3, 4));
+  DrawRect(context, client, kBackgroundType, IntRect(1, 2, 3, 4));
   CommitAndFinishCycle();
   EXPECT_FALSE(GetPaintController().GetPaintArtifact().IsEmpty());
   EXPECT_FALSE(GetPaintController().CacheIsAllInvalid());
@@ -1486,17 +1445,17 @@ TEST_P(PaintControllerTest, InvalidateAll) {
 }
 
 TEST_P(PaintControllerTest, InsertValidItemInFront) {
-  FakeDisplayItemClient first("first", IntRect(100, 100, 300, 300));
-  FakeDisplayItemClient second("second", IntRect(100, 100, 200, 200));
-  FakeDisplayItemClient third("third", IntRect(100, 100, 100, 100));
-  FakeDisplayItemClient fourth("fourth", IntRect(100, 100, 50, 50));
+  FakeDisplayItemClient first("first");
+  FakeDisplayItemClient second("second");
+  FakeDisplayItemClient third("third");
+  FakeDisplayItemClient fourth("fourth");
   GraphicsContext context(GetPaintController());
 
   InitRootChunk();
-  DrawRect(context, first, kBackgroundType, FloatRect(100, 100, 300, 300));
-  DrawRect(context, second, kBackgroundType, FloatRect(100, 100, 200, 200));
-  DrawRect(context, third, kBackgroundType, FloatRect(100, 100, 100, 100));
-  DrawRect(context, fourth, kBackgroundType, FloatRect(100, 100, 50, 50));
+  DrawRect(context, first, kBackgroundType, IntRect(100, 100, 300, 300));
+  DrawRect(context, second, kBackgroundType, IntRect(100, 100, 200, 200));
+  DrawRect(context, third, kBackgroundType, IntRect(100, 100, 100, 100));
+  DrawRect(context, fourth, kBackgroundType, IntRect(100, 100, 50, 50));
 
   EXPECT_EQ(0u, NumCachedNewItems());
   EXPECT_EQ(0u, NumCachedNewSubsequences());
@@ -1514,8 +1473,8 @@ TEST_P(PaintControllerTest, InsertValidItemInFront) {
   // Simulate that a composited scrolling element is scrolled down, and "first"
   // and "second" are scrolled out of the interest rect.
   InitRootChunk();
-  DrawRect(context, third, kBackgroundType, FloatRect(100, 100, 100, 100));
-  DrawRect(context, fourth, kBackgroundType, FloatRect(100, 100, 50, 50));
+  DrawRect(context, third, kBackgroundType, IntRect(100, 100, 100, 100));
+  DrawRect(context, fourth, kBackgroundType, IntRect(100, 100, 50, 50));
 
   EXPECT_EQ(2u, NumCachedNewItems());
   EXPECT_EQ(0u, NumCachedNewSubsequences());
@@ -1537,10 +1496,10 @@ TEST_P(PaintControllerTest, InsertValidItemInFront) {
 
   // Simulate "first" and "second" are scrolled back into the interest rect.
   InitRootChunk();
-  DrawRect(context, first, kBackgroundType, FloatRect(100, 100, 300, 300));
-  DrawRect(context, second, kBackgroundType, FloatRect(100, 100, 200, 200));
-  DrawRect(context, third, kBackgroundType, FloatRect(100, 100, 100, 100));
-  DrawRect(context, fourth, kBackgroundType, FloatRect(100, 100, 50, 50));
+  DrawRect(context, first, kBackgroundType, IntRect(100, 100, 300, 300));
+  DrawRect(context, second, kBackgroundType, IntRect(100, 100, 200, 200));
+  DrawRect(context, third, kBackgroundType, IntRect(100, 100, 100, 100));
+  DrawRect(context, fourth, kBackgroundType, IntRect(100, 100, 50, 50));
 
   EXPECT_EQ(2u, NumCachedNewItems());
   EXPECT_EQ(0u, NumCachedNewSubsequences());
@@ -1567,9 +1526,9 @@ TEST_P(PaintControllerTest, TransientPaintControllerIncompleteCycle) {
   auto paint_controller =
       std::make_unique<PaintController>(PaintController::kTransient);
   GraphicsContext context(*paint_controller);
-  FakeDisplayItemClient client("client", IntRect(100, 100, 50, 50));
+  FakeDisplayItemClient client("client");
   InitRootChunk(*paint_controller);
-  DrawRect(context, client, kBackgroundType, FloatRect(100, 100, 50, 50));
+  DrawRect(context, client, kBackgroundType, IntRect(100, 100, 50, 50));
   // The client of a transient paint controller can abort without
   // CommintNewDisplayItems() and FinishCycle(). This should not crash.
   paint_controller = nullptr;
@@ -1580,8 +1539,8 @@ TEST_P(PaintControllerTest, AllowDuplicatedIdForUncacheableItem) {
     return;
 
   IntRect r(100, 100, 300, 300);
-  FakeDisplayItemClient cacheable("cacheable", r);
-  FakeDisplayItemClient uncacheable("uncacheable", r);
+  FakeDisplayItemClient cacheable("cacheable");
+  FakeDisplayItemClient uncacheable("uncacheable");
   GraphicsContext context(GetPaintController());
 
   uncacheable.Invalidate(PaintInvalidationReason::kUncacheable);
@@ -1591,10 +1550,10 @@ TEST_P(PaintControllerTest, AllowDuplicatedIdForUncacheableItem) {
   InitRootChunk();
   {
     SubsequenceRecorder recorder(context, cacheable);
-    DrawRect(context, cacheable, kBackgroundType, FloatRect(r));
-    DrawRect(context, uncacheable, kBackgroundType, FloatRect(r));
+    DrawRect(context, cacheable, kBackgroundType, IntRect(r));
+    DrawRect(context, uncacheable, kBackgroundType, IntRect(r));
     // This should not trigger the duplicated id assert.
-    DrawRect(context, uncacheable, kBackgroundType, FloatRect(r));
+    DrawRect(context, uncacheable, kBackgroundType, IntRect(r));
   }
 
   CommitAndFinishCycle();
@@ -1618,18 +1577,18 @@ TEST_P(PaintControllerTest, AllowDuplicatedIdForUncacheableItem) {
 #if defined(GTEST_HAS_DEATH_TEST) && !defined(OS_ANDROID)
 
 TEST_P(PaintControllerTest, DuplicatedSubsequences) {
-  FakeDisplayItemClient client("test", IntRect(100, 100, 100, 100));
+  FakeDisplayItemClient client("test");
   GraphicsContext context(GetPaintController());
 
   auto paint_duplicated_subsequences = [&]() {
     InitRootChunk();
     {
       SubsequenceRecorder r(context, client);
-      DrawRect(context, client, kBackgroundType, FloatRect(100, 100, 100, 100));
+      DrawRect(context, client, kBackgroundType, IntRect(100, 100, 100, 100));
     }
     {
       SubsequenceRecorder r(context, client);
-      DrawRect(context, client, kForegroundType, FloatRect(100, 100, 100, 100));
+      DrawRect(context, client, kForegroundType, IntRect(100, 100, 100, 100));
     }
     CommitAndFinishCycle();
   };
@@ -1637,9 +1596,7 @@ TEST_P(PaintControllerTest, DuplicatedSubsequences) {
 #if DCHECK_IS_ON()
   EXPECT_DEATH(paint_duplicated_subsequences(),
                "Multiple subsequences for client: \"test\"");
-  return;
-#endif
-
+#else
   // The following is for non-DCHECK path. No security CHECK should trigger.
   paint_duplicated_subsequences();
   // Paint again.
@@ -1647,7 +1604,7 @@ TEST_P(PaintControllerTest, DuplicatedSubsequences) {
   if (RuntimeEnabledFeatures::PaintUnderInvalidationCheckingEnabled()) {
     EXPECT_FALSE(GetPaintController().UseCachedSubsequenceIfPossible(client));
     SubsequenceRecorder r(context, client);
-    DrawRect(context, client, kBackgroundType, FloatRect(100, 100, 100, 100));
+    DrawRect(context, client, kBackgroundType, IntRect(100, 100, 100, 100));
   } else {
     EXPECT_TRUE(GetPaintController().UseCachedSubsequenceIfPossible(client));
   }
@@ -1655,9 +1612,40 @@ TEST_P(PaintControllerTest, DuplicatedSubsequences) {
     // Should not use the cached duplicated subsequence.
     EXPECT_FALSE(GetPaintController().UseCachedSubsequenceIfPossible(client));
     SubsequenceRecorder r(context, client);
-    DrawRect(context, client, kForegroundType, FloatRect(100, 100, 100, 100));
+    DrawRect(context, client, kForegroundType, IntRect(100, 100, 100, 100));
   }
   CommitAndFinishCycle();
+#endif
+}
+
+TEST_P(PaintControllerTest, DeletedClientInUnderInvaldiatedSubsequence) {
+  if (RuntimeEnabledFeatures::PaintUnderInvalidationCheckingEnabled())
+    return;
+
+  FakeDisplayItemClient container("container");
+  auto content = std::make_unique<FakeDisplayItemClient>("content");
+  GraphicsContext context(GetPaintController());
+
+  InitRootChunk();
+  {
+    SubsequenceRecorder r(context, container);
+    DrawRect(context, *content, kBackgroundType, IntRect(100, 100, 300, 300));
+  }
+  CommitAndFinishCycle();
+
+  content = nullptr;
+  InitRootChunk();
+  // Leave container not invalidated.
+#if DCHECK_IS_ON()
+  ASSERT_DEATH(
+      SubsequenceRecorder::UseCachedSubsequenceIfPossible(context, container),
+      "");
+#else
+  // This should not crash.
+  EXPECT_TRUE(
+      SubsequenceRecorder::UseCachedSubsequenceIfPossible(context, container));
+  CommitAndFinishCycle();
+#endif
 }
 
 class PaintControllerUnderInvalidationTest
@@ -1678,15 +1666,13 @@ class PaintControllerUnderInvalidationTest
     GraphicsContext context(GetPaintController());
 
     InitRootChunk();
-    first.SetVisualRect(IntRect(100, 100, 300, 300));
-    DrawRect(context, first, kBackgroundType, FloatRect(100, 100, 300, 300));
-    DrawRect(context, first, kForegroundType, FloatRect(100, 100, 300, 300));
+    DrawRect(context, first, kBackgroundType, IntRect(100, 100, 300, 300));
+    DrawRect(context, first, kForegroundType, IntRect(100, 100, 300, 300));
     CommitAndFinishCycle();
 
     InitRootChunk();
-    first.SetVisualRect(IntRect(200, 200, 300, 300));
-    DrawRect(context, first, kBackgroundType, FloatRect(200, 200, 300, 300));
-    DrawRect(context, first, kForegroundType, FloatRect(100, 100, 300, 300));
+    DrawRect(context, first, kBackgroundType, IntRect(200, 200, 300, 300));
+    DrawRect(context, first, kForegroundType, IntRect(100, 100, 300, 300));
     CommitAndFinishCycle();
   }
 
@@ -1695,12 +1681,12 @@ class PaintControllerUnderInvalidationTest
     GraphicsContext context(GetPaintController());
 
     InitRootChunk();
-    DrawRect(context, first, kBackgroundType, FloatRect(100, 100, 300, 300));
+    DrawRect(context, first, kBackgroundType, IntRect(100, 100, 300, 300));
     CommitAndFinishCycle();
 
     InitRootChunk();
-    DrawRect(context, first, kBackgroundType, FloatRect(100, 100, 300, 300));
-    DrawRect(context, first, kForegroundType, FloatRect(100, 100, 300, 300));
+    DrawRect(context, first, kBackgroundType, IntRect(100, 100, 300, 300));
+    DrawRect(context, first, kForegroundType, IntRect(100, 100, 300, 300));
     CommitAndFinishCycle();
   }
 
@@ -1709,12 +1695,12 @@ class PaintControllerUnderInvalidationTest
     GraphicsContext context(GetPaintController());
 
     InitRootChunk();
-    DrawRect(context, first, kBackgroundType, FloatRect(100, 100, 300, 300));
-    DrawRect(context, first, kForegroundType, FloatRect(100, 100, 300, 300));
+    DrawRect(context, first, kBackgroundType, IntRect(100, 100, 300, 300));
+    DrawRect(context, first, kForegroundType, IntRect(100, 100, 300, 300));
     CommitAndFinishCycle();
 
     InitRootChunk();
-    DrawRect(context, first, kBackgroundType, FloatRect(100, 100, 300, 300));
+    DrawRect(context, first, kBackgroundType, IntRect(100, 100, 300, 300));
     CommitAndFinishCycle();
   }
 
@@ -1724,9 +1710,8 @@ class PaintControllerUnderInvalidationTest
     InitRootChunk();
     {
       SubsequenceRecorder r(context, first);
-      first.SetVisualRect(IntRect(100, 100, 300, 300));
-      DrawRect(context, first, kBackgroundType, FloatRect(100, 100, 300, 300));
-      DrawRect(context, first, kForegroundType, FloatRect(100, 100, 300, 300));
+      DrawRect(context, first, kBackgroundType, IntRect(100, 100, 300, 300));
+      DrawRect(context, first, kForegroundType, IntRect(100, 100, 300, 300));
     }
     CommitAndFinishCycle();
 
@@ -1735,9 +1720,8 @@ class PaintControllerUnderInvalidationTest
       EXPECT_FALSE(
           SubsequenceRecorder::UseCachedSubsequenceIfPossible(context, first));
       SubsequenceRecorder r(context, first);
-      first.SetVisualRect(IntRect(200, 200, 300, 300));
-      DrawRect(context, first, kBackgroundType, FloatRect(200, 200, 300, 300));
-      DrawRect(context, first, kForegroundType, FloatRect(100, 100, 300, 300));
+      DrawRect(context, first, kBackgroundType, IntRect(200, 200, 300, 300));
+      DrawRect(context, first, kForegroundType, IntRect(100, 100, 300, 300));
     }
     CommitAndFinishCycle();
   }
@@ -1749,7 +1733,7 @@ class PaintControllerUnderInvalidationTest
     InitRootChunk();
     {
       SubsequenceRecorder r(context, first);
-      DrawRect(context, first, kBackgroundType, FloatRect(100, 100, 300, 300));
+      DrawRect(context, first, kBackgroundType, IntRect(100, 100, 300, 300));
     }
     CommitAndFinishCycle();
 
@@ -1758,8 +1742,8 @@ class PaintControllerUnderInvalidationTest
       EXPECT_FALSE(
           SubsequenceRecorder::UseCachedSubsequenceIfPossible(context, first));
       SubsequenceRecorder r(context, first);
-      DrawRect(context, first, kBackgroundType, FloatRect(100, 100, 300, 300));
-      DrawRect(context, first, kForegroundType, FloatRect(100, 100, 300, 300));
+      DrawRect(context, first, kBackgroundType, IntRect(100, 100, 300, 300));
+      DrawRect(context, first, kForegroundType, IntRect(100, 100, 300, 300));
     }
     CommitAndFinishCycle();
   }
@@ -1771,8 +1755,8 @@ class PaintControllerUnderInvalidationTest
     InitRootChunk();
     {
       SubsequenceRecorder r(context, first);
-      DrawRect(context, first, kBackgroundType, FloatRect(100, 100, 300, 300));
-      DrawRect(context, first, kForegroundType, FloatRect(100, 100, 300, 300));
+      DrawRect(context, first, kBackgroundType, IntRect(100, 100, 300, 300));
+      DrawRect(context, first, kForegroundType, IntRect(100, 100, 300, 300));
     }
     CommitAndFinishCycle();
 
@@ -1781,7 +1765,7 @@ class PaintControllerUnderInvalidationTest
       EXPECT_FALSE(
           SubsequenceRecorder::UseCachedSubsequenceIfPossible(context, first));
       SubsequenceRecorder r(context, first);
-      DrawRect(context, first, kBackgroundType, FloatRect(100, 100, 300, 300));
+      DrawRect(context, first, kBackgroundType, IntRect(100, 100, 300, 300));
     }
     CommitAndFinishCycle();
   }
@@ -1794,8 +1778,7 @@ class PaintControllerUnderInvalidationTest
     InitRootChunk();
     {
       SubsequenceRecorder r(context, container);
-      DrawRect(context, content, kBackgroundType,
-               FloatRect(100, 100, 300, 300));
+      DrawRect(context, content, kBackgroundType, IntRect(100, 100, 300, 300));
     }
     CommitAndFinishCycle();
 
@@ -1806,8 +1789,7 @@ class PaintControllerUnderInvalidationTest
       EXPECT_FALSE(SubsequenceRecorder::UseCachedSubsequenceIfPossible(
           context, container));
       SubsequenceRecorder r(context, container);
-      DrawRect(context, content, kBackgroundType,
-               FloatRect(100, 100, 300, 300));
+      DrawRect(context, content, kBackgroundType, IntRect(100, 100, 300, 300));
     }
     CommitAndFinishCycle();
   }
@@ -1819,7 +1801,7 @@ class PaintControllerUnderInvalidationTest
     InitRootChunk();
     {
       SubsequenceRecorder r(context, target);
-      DrawRect(context, target, kBackgroundType, FloatRect(100, 100, 300, 300));
+      DrawRect(context, target, kBackgroundType, IntRect(100, 100, 300, 300));
     }
     CommitAndFinishCycle();
 
@@ -1863,7 +1845,7 @@ TEST_F(PaintControllerUnderInvalidationTest, MoreDrawingInSubsequence) {
 TEST_F(PaintControllerUnderInvalidationTest, LessDrawingInSubsequence) {
   EXPECT_DEATH(TestLessDrawingInSubsequence(),
                "In cached subsequence for first.*"
-               "under-invalidation: new subsequence wrong length");
+               "under-invalidation: chunk changed");
 }
 
 TEST_F(PaintControllerUnderInvalidationTest, InvalidationInSubsequence) {
@@ -1889,10 +1871,9 @@ TEST_F(PaintControllerUnderInvalidationTest, SkipCacheInSubsequence) {
     SubsequenceRecorder r(context, container);
     {
       DisplayItemCacheSkipper cache_skipper(context);
-      DrawRect(context, content, kBackgroundType,
-               FloatRect(100, 100, 300, 300));
+      DrawRect(context, content, kBackgroundType, IntRect(100, 100, 300, 300));
     }
-    DrawRect(context, content, kForegroundType, FloatRect(200, 200, 400, 400));
+    DrawRect(context, content, kForegroundType, IntRect(200, 200, 400, 400));
   }
   CommitAndFinishCycle();
 
@@ -1903,10 +1884,9 @@ TEST_F(PaintControllerUnderInvalidationTest, SkipCacheInSubsequence) {
     SubsequenceRecorder r(context, container);
     {
       DisplayItemCacheSkipper cache_skipper(context);
-      DrawRect(context, content, kBackgroundType,
-               FloatRect(200, 200, 400, 400));
+      DrawRect(context, content, kBackgroundType, IntRect(200, 200, 400, 400));
     }
-    DrawRect(context, content, kForegroundType, FloatRect(200, 200, 400, 400));
+    DrawRect(context, content, kForegroundType, IntRect(200, 200, 400, 400));
   }
   CommitAndFinishCycle();
 }
@@ -1920,11 +1900,9 @@ TEST_F(PaintControllerUnderInvalidationTest,
   InitRootChunk();
   {
     SubsequenceRecorder r(context, container);
-    DrawRect(context, container, kBackgroundType,
-             FloatRect(100, 100, 300, 300));
+    DrawRect(context, container, kBackgroundType, IntRect(100, 100, 300, 300));
     { SubsequenceRecorder r1(context, content); }
-    DrawRect(context, container, kForegroundType,
-             FloatRect(100, 100, 300, 300));
+    DrawRect(context, container, kForegroundType, IntRect(100, 100, 300, 300));
   }
   CommitAndFinishCycle();
 
@@ -1933,13 +1911,11 @@ TEST_F(PaintControllerUnderInvalidationTest,
     EXPECT_FALSE(SubsequenceRecorder::UseCachedSubsequenceIfPossible(
         context, container));
     SubsequenceRecorder r(context, container);
-    DrawRect(context, container, kBackgroundType,
-             FloatRect(100, 100, 300, 300));
+    DrawRect(context, container, kBackgroundType, IntRect(100, 100, 300, 300));
     EXPECT_FALSE(
         SubsequenceRecorder::UseCachedSubsequenceIfPossible(context, content));
     { SubsequenceRecorder r1(context, content); }
-    DrawRect(context, container, kForegroundType,
-             FloatRect(100, 100, 300, 300));
+    DrawRect(context, container, kForegroundType, IntRect(100, 100, 300, 300));
   }
   CommitAndFinishCycle();
 }

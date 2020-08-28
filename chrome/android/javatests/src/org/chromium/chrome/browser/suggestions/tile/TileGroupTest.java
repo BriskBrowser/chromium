@@ -5,12 +5,14 @@
 package org.chromium.chrome.browser.suggestions.tile;
 
 import android.support.test.InstrumentationRegistry;
-import android.support.test.espresso.matcher.ViewMatchers;
-import android.support.test.filters.MediumTest;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.TextView;
 
+import androidx.test.espresso.matcher.ViewMatchers;
+import androidx.test.filters.MediumTest;
+
+import org.hamcrest.Matchers;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -21,25 +23,23 @@ import org.junit.runner.RunWith;
 import org.chromium.base.test.util.CallbackHelper;
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.Feature;
-import org.chromium.base.test.util.RetryOnFailure;
 import org.chromium.chrome.R;
-import org.chromium.chrome.browser.ChromeActivity;
-import org.chromium.chrome.browser.ChromeSwitches;
+import org.chromium.chrome.browser.app.ChromeActivity;
 import org.chromium.chrome.browser.explore_sites.ExploreSitesBridge;
 import org.chromium.chrome.browser.explore_sites.ExploreSitesCategory;
+import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.native_page.ContextMenuManager;
 import org.chromium.chrome.browser.ntp.NewTabPage;
 import org.chromium.chrome.browser.suggestions.SiteSuggestion;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.ui.messages.snackbar.SnackbarManager;
-import org.chromium.chrome.browser.util.UrlConstants;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.chrome.test.ChromeTabbedActivityTestRule;
 import org.chromium.chrome.test.util.NewTabPageTestUtils;
 import org.chromium.chrome.test.util.ViewUtils;
-import org.chromium.chrome.test.util.browser.suggestions.FakeSuggestionsSource;
 import org.chromium.chrome.test.util.browser.suggestions.SuggestionsDependenciesRule;
 import org.chromium.chrome.test.util.browser.suggestions.mostvisited.FakeMostVisitedSites;
+import org.chromium.components.embedder_support.util.UrlConstants;
 import org.chromium.content_public.browser.test.util.Criteria;
 import org.chromium.content_public.browser.test.util.CriteriaHelper;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
@@ -57,7 +57,6 @@ import java.util.concurrent.TimeoutException;
  */
 @RunWith(ChromeJUnit4ClassRunner.class)
 @CommandLineFlags.Add({ChromeSwitches.DISABLE_FIRST_RUN_EXPERIENCE})
-@RetryOnFailure
 public class TileGroupTest {
     @Rule
     public ChromeTabbedActivityTestRule mActivityTestRule = new ChromeTabbedActivityTestRule();
@@ -85,7 +84,6 @@ public class TileGroupTest {
         mSuggestionsDeps.getFactory().mostVisitedSites = mMostVisitedSites;
         mMostVisitedSites.setTileSuggestions(mSiteSuggestionUrls);
 
-        mSuggestionsDeps.getFactory().suggestionsSource = new FakeSuggestionsSource();
         initializeTab();
     }
 
@@ -115,7 +113,7 @@ public class TileGroupTest {
 
         // Dismiss the tile using the context menu.
         invokeContextMenu(tileView, ContextMenuManager.ContextMenuItemId.REMOVE);
-        Assert.assertTrue(mMostVisitedSites.isUrlBlacklisted(mSiteSuggestionUrls[0]));
+        Assert.assertTrue(mMostVisitedSites.isUrlBlocklisted(mSiteSuggestionUrls[0]));
 
         // Ensure that the removal is reflected in the ui.
         Assert.assertEquals(3, getTileGridLayout().getChildCount());
@@ -164,10 +162,10 @@ public class TileGroupTest {
         Assert.assertEquals(2, tileContainer.getChildCount());
         final View snackbarButton = waitForSnackbar(mActivityTestRule.getActivity());
 
-        Assert.assertTrue(mMostVisitedSites.isUrlBlacklisted(mSiteSuggestionUrls[0]));
+        Assert.assertTrue(mMostVisitedSites.isUrlBlocklisted(mSiteSuggestionUrls[0]));
         TestThreadUtils.runOnUiThreadBlocking(() -> { snackbarButton.callOnClick(); });
 
-        Assert.assertFalse(mMostVisitedSites.isUrlBlacklisted(mSiteSuggestionUrls[0]));
+        Assert.assertFalse(mMostVisitedSites.isUrlBlocklisted(mSiteSuggestionUrls[0]));
 
         // Ensure that the removal of the update goes through.
         TestThreadUtils.runOnUiThreadBlocking(
@@ -203,17 +201,13 @@ public class TileGroupTest {
     private static View waitForSnackbar(final ChromeActivity activity) {
         final String expectedSnackbarMessage =
                 activity.getResources().getString(R.string.most_visited_item_removed);
-        CriteriaHelper.pollUiThread(new Criteria("The snackbar was not shown.") {
-            @Override
-            public boolean isSatisfied() {
-                SnackbarManager snackbarManager = activity.getSnackbarManager();
-                if (!snackbarManager.isShowing()) return false;
-
-                TextView snackbarMessage = (TextView) activity.findViewById(R.id.snackbar_message);
-                if (snackbarMessage == null) return false;
-
-                return snackbarMessage.getText().toString().equals(expectedSnackbarMessage);
-            }
+        CriteriaHelper.pollUiThread(() -> {
+            SnackbarManager snackbarManager = activity.getSnackbarManager();
+            Criteria.checkThat(snackbarManager.isShowing(), Matchers.is(true));
+            TextView snackbarMessage = (TextView) activity.findViewById(R.id.snackbar_message);
+            Criteria.checkThat(snackbarMessage, Matchers.notNullValue());
+            Criteria.checkThat(
+                    snackbarMessage.getText().toString(), Matchers.is(expectedSnackbarMessage));
         });
 
         return activity.findViewById(R.id.snackbar_button);

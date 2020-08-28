@@ -29,11 +29,15 @@ class RenderWidgetMouseLockDispatcher : public MouseLockDispatcher {
   // MouseLockDispatcher implementation.
   void SendLockMouseRequest(blink::WebLocalFrame* requester_frame,
                             bool request_unadjusted_movement) override;
-  void SendUnlockMouseRequest() override;
 
-  void OnLockMouseACK(bool succeeded);
+  void OnMouseLocked(
+      blink::mojom::PointerLockResult result,
+      blink::CrossVariantMojoRemote<
+          blink::mojom::PointerLockContextInterfaceBase> context);
 
   RenderWidget* render_widget_;
+
+  base::WeakPtrFactory<RenderWidgetMouseLockDispatcher> weak_ptr_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(RenderWidgetMouseLockDispatcher);
 };

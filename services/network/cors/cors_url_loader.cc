@@ -11,13 +11,15 @@
 #include "base/stl_util.h"
 #include "base/strings/string_split.h"
 #include "net/base/load_flags.h"
+#include "net/http/http_status_code.h"
+#include "services/network/cors/cors_url_loader_factory.h"
 #include "services/network/cors/preflight_controller.h"
-#include "services/network/loader_util.h"
 #include "services/network/public/cpp/cors/cors.h"
 #include "services/network/public/cpp/cors/origin_access_list.h"
 #include "services/network/public/cpp/features.h"
 #include "services/network/public/cpp/header_util.h"
 #include "services/network/public/cpp/request_mode.h"
+#include "services/network/url_loader.h"
 #include "url/url_util.h"
 
 namespace network {
@@ -26,21 +28,7 @@ namespace cors {
 
 namespace {
 
-// These values are persisted to logs. Entries should not be renumbered and
-// numeric values should never be reused.
-enum class CompletionStatusMetric {
-  kPassedWhenCorsFlagUnset = 0,
-  kFailedWhenCorsFlagUnset = 1,
-  kPassedWhenCorsFlagSet = 2,
-  kFailedWhenCorsFlagSet = 3,
-  kBlockedByCors = 4,
-
-  kMaxValue = kBlockedByCors,
-};
-
-bool NeedsPreflight(
-    const ResourceRequest& request,
-    const base::flat_set<std::string>& extra_safelisted_header_names) {
+bool NeedsPreflight(const ResourceRequest& request) {
   if (!IsCorsEnabledRequestMode(request.mode))
     return false;
 
@@ -60,24 +48,8 @@ bool NeedsPreflight(
     return true;
 
   return !CorsUnsafeNotForbiddenRequestHeaderNames(
-              request.headers.GetHeaderVector(), request.is_revalidating,
-              extra_safelisted_header_names)
+              request.headers.GetHeaderVector(), request.is_revalidating)
               .empty();
-}
-
-void ReportCompletionStatusMetric(bool fetch_cors_flag,
-                                  const URLLoaderCompletionStatus& status) {
-  CompletionStatusMetric metric;
-  if (status.error_code == net::OK) {
-    metric = fetch_cors_flag ? CompletionStatusMetric::kPassedWhenCorsFlagSet
-                             : CompletionStatusMetric::kPassedWhenCorsFlagUnset;
-  } else if (status.cors_error_status) {
-    metric = CompletionStatusMetric::kBlockedByCors;
-  } else {
-    metric = fetch_cors_flag ? CompletionStatusMetric::kFailedWhenCorsFlagSet
-                             : CompletionStatusMetric::kFailedWhenCorsFlagUnset;
-  }
-  UMA_HISTOGRAM_ENUMERATION("Net.Cors.CompletionStatus", metric);
 }
 
 constexpr const char kTimingAllowOrigin[] = "Timing-Allow-Origin";
@@ -86,18 +58,25 @@ constexpr const char kTimingAllowOrigin[] = "Timing-Allow-Origin";
 
 CorsURLLoader::CorsURLLoader(
     mojo::PendingReceiver<mojom::URLLoader> loader_receiver,
+    int32_t process_id,
     int32_t routing_id,
     int32_t request_id,
     uint32_t options,
     DeleteCallback delete_callback,
     const ResourceRequest& resource_request,
+    bool ignore_isolated_world_origin,
+    bool skip_cors_enabled_scheme_check,
     mojo::PendingRemote<mojom::URLLoaderClient> client,
     const net::MutableNetworkTrafficAnnotationTag& traffic_annotation,
     mojom::URLLoaderFactory* network_loader_factory,
     const OriginAccessList* origin_access_list,
     const OriginAccessList* factory_bound_origin_access_list,
-    PreflightController* preflight_controller)
+    PreflightController* preflight_controller,
+    const base::flat_set<std::string>* allowed_exempt_headers,
+    bool allow_any_cors_exempt_header,
+    const net::IsolationInfo& isolation_info)
     : receiver_(this, std::move(loader_receiver)),
+      process_id_(process_id),
       routing_id_(routing_id),
       request_id_(request_id),
       options_(options),
@@ -108,12 +87,20 @@ CorsURLLoader::CorsURLLoader(
       traffic_annotation_(traffic_annotation),
       origin_access_list_(origin_access_list),
       factory_bound_origin_access_list_(factory_bound_origin_access_list),
-      preflight_controller_(preflight_controller) {
+      preflight_controller_(preflight_controller),
+      allowed_exempt_headers_(allowed_exempt_headers),
+      skip_cors_enabled_scheme_check_(skip_cors_enabled_scheme_check),
+      allow_any_cors_exempt_header_(allow_any_cors_exempt_header),
+      isolation_info_(isolation_info) {
+  if (ignore_isolated_world_origin)
+    request_.isolated_world_origin = base::nullopt;
+
   receiver_.set_disconnect_handler(
       base::BindOnce(&CorsURLLoader::OnMojoDisconnect, base::Unretained(this)));
   DCHECK(network_loader_factory_);
   DCHECK(origin_access_list_);
   DCHECK(preflight_controller_);
+  DCHECK(allowed_exempt_headers_);
   SetCorsFlagIfNeeded();
 }
 
@@ -139,6 +126,7 @@ void CorsURLLoader::Start() {
 void CorsURLLoader::FollowRedirect(
     const std::vector<std::string>& removed_headers,
     const net::HttpRequestHeaders& modified_headers,
+    const net::HttpRequestHeaders& modified_cors_exempt_headers,
     const base::Optional<GURL>& new_url) {
   if (!network_loader_ || !deferred_redirect_url_) {
     HandleComplete(URLLoaderCompletionStatus(net::ERR_FAILED));
@@ -171,14 +159,24 @@ void CorsURLLoader::FollowRedirect(
     }
   }
 
-  LogConcerningRequestHeaders(modified_headers,
-                              true /* added_during_redirect */);
+  network::URLLoader::LogConcerningRequestHeaders(
+      modified_headers, true /* added_during_redirect */);
+  network::URLLoader::LogConcerningRequestHeaders(
+      modified_cors_exempt_headers, true /* added_during_redirect */);
 
   for (const auto& name : removed_headers) {
     request_.headers.RemoveHeader(name);
     request_.cors_exempt_headers.RemoveHeader(name);
   }
   request_.headers.MergeFrom(modified_headers);
+
+  if (!allow_any_cors_exempt_header_ &&
+      !CorsURLLoaderFactory::IsValidCorsExemptHeaders(
+          *allowed_exempt_headers_, modified_cors_exempt_headers)) {
+    HandleComplete(URLLoaderCompletionStatus(net::ERR_INVALID_ARGUMENT));
+    return;
+  }
+  request_.cors_exempt_headers.MergeFrom(modified_cors_exempt_headers);
 
   if (!AreRequestHeadersSafe(request_.headers)) {
     HandleComplete(URLLoaderCompletionStatus(net::ERR_INVALID_ARGUMENT));
@@ -190,6 +188,13 @@ void CorsURLLoader::FollowRedirect(
   request_.method = redirect_info_.new_method;
   request_.referrer = GURL(redirect_info_.new_referrer);
   request_.referrer_policy = redirect_info_.new_referrer_policy;
+  request_.site_for_cookies = redirect_info_.new_site_for_cookies;
+
+  if (request_.trusted_params) {
+    request_.trusted_params->isolation_info =
+        request_.trusted_params->isolation_info.CreateForRedirect(
+            url::Origin::Create(request_.url));
+  }
 
   // The request method can be changed to "GET". In this case we need to
   // reset the request body manually.
@@ -215,9 +220,7 @@ void CorsURLLoader::FollowRedirect(
   //
   // After both OOR-CORS and network service are fully shipped, we may be able
   // to remove the logic in net/.
-  if ((fetch_cors_flag_ &&
-       NeedsPreflight(
-           request_, preflight_controller_->extra_safelisted_header_names())) ||
+  if ((fetch_cors_flag_ && NeedsPreflight(request_)) ||
       (!original_fetch_cors_flag && fetch_cors_flag_) ||
       (fetch_cors_flag_ && original_method != request_.method)) {
     DCHECK_NE(request_.mode, mojom::RequestMode::kNoCors);
@@ -230,7 +233,8 @@ void CorsURLLoader::FollowRedirect(
       request_.url, request_.mode, request_.request_initiator,
       request_.isolated_world_origin, fetch_cors_flag_, tainted_,
       origin_access_list_);
-  network_loader_->FollowRedirect(removed_headers, modified_headers, new_url);
+  network_loader_->FollowRedirect(removed_headers, modified_headers,
+                                  modified_cors_exempt_headers, new_url);
 }
 
 void CorsURLLoader::SetPriority(net::RequestPriority priority,
@@ -332,10 +336,13 @@ void CorsURLLoader::OnReceiveRedirect(const net::RedirectInfo& redirect_info,
     return;
   }
 
-  // TODO(yhirano): Implement the following (Note: this is needed when upload
-  // streaming is implemented):
   // If |actualResponse|’s status is not 303, |request|’s body is non-null, and
   // |request|’s body’s source is null, then return a network error.
+  if (redirect_info.status_code != net::HTTP_SEE_OTHER &&
+      network::URLLoader::HasFetchStreamingUploadBody(&request_)) {
+    HandleComplete(URLLoaderCompletionStatus(net::ERR_INVALID_ARGUMENT));
+    return;
+  }
 
   // If |actualResponse|’s location URL’s origin is not same origin with
   // |request|’s current url’s origin and |request|’s origin is not same origin
@@ -349,14 +356,20 @@ void CorsURLLoader::OnReceiveRedirect(const net::RedirectInfo& redirect_info,
     tainted_ = true;
   }
 
-  // TODO(yhirano): Implement the following:
+  // TODO(crbug.com/1073353): Implement the following:
   // If either |actualResponse|’s status is 301 or 302 and |request|’s method is
   // `POST`, or |actualResponse|’s status is 303, set |request|’s method to
-  // `GET` and request’s body to null.
+  // `GET` and request’s body to null, and remove request-body-header name from
+  // request's headers. Some of them are implemented in //net, but when we
+  // create another request on exceptional redirect cases, such newly created
+  // request doesn't reflect the spec comformant request modifications. See the
+  // linked crbug for details. See also 4.4. HTTP-redirect fetch
+  // (https://fetch.spec.whatwg.org/#http-redirect-fetch), step 11.
 
-  // TODO(yhirano): Implement the following:
+  // TODO(crbug.com/1073353): Implement the following:
   // Invoke |set request’s referrer policy on redirect| on |request| and
-  // |actualResponse|.
+  // |actualResponse|. See 4.4. HTTP-redirect fetch
+  // (https://fetch.spec.whatwg.org/#http-redirect-fetch), step 14.
 
   redirect_info_ = redirect_info;
 
@@ -416,7 +429,7 @@ void CorsURLLoader::OnComplete(const URLLoaderCompletionStatus& status) {
 }
 
 void CorsURLLoader::StartRequest() {
-  if (fetch_cors_flag_ &&
+  if (fetch_cors_flag_ && !skip_cors_enabled_scheme_check_ &&
       !base::Contains(url::GetCorsEnabledSchemes(), request_.url.scheme())) {
     HandleComplete(URLLoaderCompletionStatus(
         CorsErrorStatus(mojom::CorsError::kCorsDisabledScheme)));
@@ -471,12 +484,14 @@ void CorsURLLoader::StartRequest() {
   // Note that even when |NeedsPreflight(request_)| holds we don't make a
   // preflight request when |fetch_cors_flag_| is false (e.g., when the origin
   // of the url is equal to the origin of the request.
-  if (!fetch_cors_flag_ ||
-      !NeedsPreflight(request_,
-                      preflight_controller_->extra_safelisted_header_names())) {
+  if (!fetch_cors_flag_ || !NeedsPreflight(request_)) {
     StartNetworkRequest(net::OK, base::nullopt);
     return;
   }
+
+  // Since we're doing a preflight, we won't reuse the original request. Cancel
+  // it now to free up the socket.
+  network_loader_.reset();
 
   preflight_controller_->PerformPreflightCheck(
       base::BindOnce(&CorsURLLoader::StartNetworkRequest,
@@ -485,7 +500,7 @@ void CorsURLLoader::StartRequest() {
       PreflightController::WithTrustedHeaderClient(
           options_ & mojom::kURLLoadOptionUseHeaderClient),
       tainted_, net::NetworkTrafficAnnotationTag(traffic_annotation_),
-      network_loader_factory_);
+      network_loader_factory_, process_id_, isolation_info_);
 }
 
 void CorsURLLoader::StartNetworkRequest(
@@ -502,10 +517,12 @@ void CorsURLLoader::StartNetworkRequest(
   // network::URLLoader doesn't understand |kSameOrigin|.
   // TODO(crbug.com/943939): Fix this.
   auto original_credentials_mode = request_.credentials_mode;
-  request_.credentials_mode =
-      CalculateCredentialsFlag(original_credentials_mode, response_tainting_)
-          ? mojom::CredentialsMode::kInclude
-          : mojom::CredentialsMode::kOmit;
+  if (original_credentials_mode == mojom::CredentialsMode::kSameOrigin) {
+    request_.credentials_mode =
+        CalculateCredentialsFlag(original_credentials_mode, response_tainting_)
+            ? mojom::CredentialsMode::kInclude
+            : mojom::CredentialsMode::kOmit;
+  }
 
   // Binding |this| as an unretained pointer is safe because
   // |network_client_receiver_| shares this object's lifetime.
@@ -521,7 +538,6 @@ void CorsURLLoader::StartNetworkRequest(
 }
 
 void CorsURLLoader::HandleComplete(const URLLoaderCompletionStatus& status) {
-  ReportCompletionStatusMetric(fetch_cors_flag_, status);
   forwarding_client_->OnComplete(status);
   std::move(delete_callback_).Run(this);
   // |this| is deleted here.
@@ -544,22 +560,6 @@ void CorsURLLoader::SetCorsFlagIfNeeded() {
   }
 
   if (HasSpecialAccessToDestination()) {
-    return;
-  }
-
-  // When a request is initiated in a unique opaque origin (e.g., in a sandboxed
-  // iframe) and the blob is also created in the context, |request_initiator|
-  // is a unique opaque origin and url::Origin::Create(request_.url) is another
-  // unique opaque origin. url::Origin::IsSameOriginWith(p, q) returns false
-  // when both |p| and |q| are opaque, but in this case we want to say that the
-  // request is a same-origin request. Hence we don't set |fetch_cors_flag_|,
-  // assuming the request comes from a renderer and the origin is checked there
-  // (in BaseFetchContext::CanRequest).
-  // In the future blob URLs will not come here because there will be a
-  // separate URLLoaderFactory for blobs.
-  // TODO(yhirano): Remove this logic at the time.
-  if (request_.url.SchemeIsBlob() && request_.request_initiator->opaque() &&
-      url::Origin::Create(request_.url).opaque()) {
     return;
   }
 

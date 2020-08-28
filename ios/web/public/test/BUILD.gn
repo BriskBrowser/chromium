@@ -9,6 +9,7 @@ source_set("test") {
   public_deps = [
     ":util",
     "//ios/web/public/test/fakes",
+    "//testing/gtest",
   ]
 
   deps = [
@@ -21,7 +22,6 @@ source_set("test") {
     "//ios/web/navigation:wk_navigation_util",
     "//ios/web/public/deprecated",
     "//ios/web/test:test_support",
-    "//testing/gtest",
     "//ui/base",
   ]
 
@@ -63,12 +63,15 @@ source_set("util") {
     ":element_selector",
     "//base",
     "//base/test:test_support",
+    "//ios/net",
     "//ios/web/js_messaging",
     "//ios/web/public:public",
     "//ios/web/public/deprecated",
+    "//ios/web/public/js_messaging",
     "//ios/web/web_state:web_state_impl_header",
     "//ios/web/web_state/ui:ui",
     "//ios/web/web_view:util",
+    "//net",
     "//testing/gtest",
   ]
 
@@ -79,6 +82,8 @@ source_set("util") {
   sources = [
     "error_test_util.h",
     "error_test_util.mm",
+    "js_test_storage_util.h",
+    "js_test_storage_util.mm",
     "js_test_util.h",
     "js_test_util.mm",
     "navigation_test_util.h",

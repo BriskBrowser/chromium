@@ -8,6 +8,7 @@
 <translation id="1046068652463704410">Внесување на јапонски (за тастатура на САД)</translation>
 <translation id="1047956942837015229"><ph name="COUNT" /> ставки се бришат...</translation>
 <translation id="1049926623896334335">Документ во Word</translation>
+<translation id="1060368002126861100">За да отворате датотеки со <ph name="APP_NAME" />, прво преместете ги во папката со датотеки на Windows.</translation>
 <translation id="1062407476771304334">Замени</translation>
 <translation id="1065449928621190041">канадско француска тастатура</translation>
 <translation id="1119069657431255176">tar-архива компримирана со bzip2</translation>
@@ -20,6 +21,7 @@
 <translation id="1150565364351027703">Очила за сонце</translation>
 <translation id="115443833402798225">хангул, ахматае</translation>
 <translation id="1155759005174418845">каталонска</translation>
+<translation id="1172970565351728681">Преостануваат околу <ph name="REMAINING_TIME" /></translation>
 <translation id="1173894706177603556">Преименувај</translation>
 <translation id="117624967391683467">Се копира <ph name="FILE_NAME" />...</translation>
 <translation id="1178581264944972037">Пауза</translation>
@@ -29,6 +31,7 @@
 <translation id="1243314992276662751">Постави</translation>
 <translation id="1249250836236328755">Жанр</translation>
 <translation id="1278813325885878377">Унгарска QWERTY тастатура</translation>
+<translation id="1293556467332435079">Датотеки</translation>
 <translation id="1297922636971898492">Google Диск не е достапен во моментов. Поставувањето автоматски ќе се рестартира штом ќе се активира Google Диск.</translation>
 <translation id="1307931752636661898">Не може да се прикажат датотеките на Linux</translation>
 <translation id="1310751437842832374">Транслитерација (mausam → ନମସ୍ତେ)</translation>
@@ -44,6 +47,8 @@
 <translation id="1395262318152388157">Барај лизгач</translation>
 <translation id="1399648040768741453">телугу тастатура (фонетска)</translation>
 <translation id="1430915738399379752">Печати</translation>
+<translation id="1433600251059882049">Папкава е споделена со Linux и Windows</translation>
+<translation id="1435838927755162558">Споделете папка со Parallels Desktop</translation>
 <translation id="1439494416798956626">Преместена во <ph name="FOLDER_NAME" />.</translation>
 <translation id="1441841714100794440">виетнамска тастатура (Telex)</translation>
 <translation id="1455548678241328678">норвешка тастатура</translation>
@@ -78,6 +83,7 @@
 <translation id="1844692022597038441">Датотеката не е достапна локално.</translation>
 <translation id="184633654410729720">тајландска тастатура (Kedmanee)</translation>
 <translation id="1847880352285315359">Зачувано</translation>
+<translation id="1853795129690976061">Папкава е споделена со Linux</translation>
 <translation id="1864756863218646478">Не може да се најде датотеката.</translation>
 <translation id="1921986354447415460">Турска-F тастатура</translation>
 <translation id="1924372192547904021"><ph name="DRIVE_NAME" /> е форматиран</translation>
@@ -89,6 +95,7 @@
 <translation id="1947424002851288782">германска тастатура</translation>
 <translation id="1972984168337863910">Проширете ги таблите со повратни информации за датотеките</translation>
 <translation id="1984603991036629094">ерменска фонетска тастатура</translation>
+<translation id="1995337122023280937">Оди на локацијата на датотеката</translation>
 <translation id="2001796770603320721">Управување во Drive</translation>
 <translation id="2009067268969781306">Форматирањето на USB-дискот ќе ги избрише сите податоци складирани во него. Дејството не може да се врати.</translation>
 <translation id="2028997212275086731">РАР-архива</translation>
@@ -100,7 +107,6 @@
 <translation id="2085470240340828803">Датотека со име „<ph name="FILENAME" />“ веќе постои. Што сакате да направите?</translation>
 <translation id="2121825465123208577">Промени големина</translation>
 <translation id="2136953289241069843">Транслитерација (namaste → नमस्कार)</translation>
-<translation id="2138867954865495510">Не може да се отвори „<ph name="PATH" />“: <ph name="ERROR_MESSAGE" /></translation>
 <translation id="2163152940313951844">Неважечки знак: <ph name="CHARACTER_NAME" /></translation>
 <translation id="2164862903024139959">виетнамска тастатура (TCVN)</translation>
 <translation id="2168214441502403371">персиска тастатура</translation>
@@ -122,6 +128,7 @@
 <translation id="2384596874640104496">синхала тастатура</translation>
 <translation id="240770291734945588">Достапни се <ph name="SPACE_AVAILABLE" /></translation>
 <translation id="2425665904502185219">Вкупната големина на датотеки</translation>
+<translation id="2428749644083375155">Се копираат <ph name="NUMBER_OF_ITEMS" /> ставки во <ph name="FOLDER_NAME" /></translation>
 <translation id="2448312741937722512">Тип</translation>
 <translation id="2453576648990281505">Датотеката веќе постои</translation>
 <translation id="2464079411014186876">Сладолед</translation>
@@ -140,6 +147,7 @@
 <translation id="2638942478653899953">Не можеше да се добие Google Диск. <ph name="BEGIN_LINK" />Одјавете се<ph name="END_LINK" /> и повторно најавете се.</translation>
 <translation id="2649120831653069427">Риба виножито</translation>
 <translation id="2661146741306740526">16 x 9</translation>
+<translation id="2664412712123763093">Локација на датотеката</translation>
 <translation id="2672394958563893062">Настана грешка. Кликнете за да се рестартира отпочеток.</translation>
 <translation id="2676946222714718093">Се репродуцира на</translation>
 <translation id="2735698359135166290">Романска стандардна тастатура</translation>
@@ -175,6 +183,7 @@
 <translation id="303198083543495566">Географија</translation>
 <translation id="3057861065630527966">Бекап на фотографиите и видеата</translation>
 <translation id="3064388234319122767">Транслитерација (zdravo → здраво)</translation>
+<translation id="3067790092342515856">Датотеки на Windows</translation>
 <translation id="3078461028045006476">Споделете со <ph name="EXTENSION_NAME" /></translation>
 <translation id="3088034400796962477">Транслитерација (salam ← سلام)</translation>
 <translation id="3116361045094675131">САД тастатура</translation>
@@ -189,6 +198,7 @@
 <translation id="3236289833370040187">Сопственоста ќе се пренесе на <ph name="DESTINATION_DOMAIN" />.</translation>
 <translation id="3241720467332021590">ирски</translation>
 <translation id="3245321423178950146">Непознат уметник</translation>
+<translation id="3248185426436836442">Чека на ред</translation>
 <translation id="3252266817569339921">француски</translation>
 <translation id="3254434849914415189">Одберете ја стандардната апликација за датотеките <ph name="FILE_TYPE" />:</translation>
 <translation id="3264582393905923483">Контекст</translation>
@@ -199,6 +209,7 @@
 <translation id="3335337277364016868">Година на снимање</translation>
 <translation id="3338239663705455570">словенечка тастатура</translation>
 <translation id="3353984535370177728">Избери папка за поставување</translation>
+<translation id="3356580349448036450">Завршено</translation>
 <translation id="3399597614303179694">Македонска тастатура</translation>
 <translation id="3414856743105198592">Со форматирање на преносливиот медиум ќе се избришат сите податоци. Дали сакате да продолжите?</translation>
 <translation id="3437801641691368414">Време на создавање</translation>
@@ -210,8 +221,10 @@
 <translation id="3495304270784461826"><ph name="COUNT" /> грешки.</translation>
 <translation id="3519867315646775981">Транслитерација (shalom ← שלום)</translation>
 <translation id="3522708245912499433">португалски</translation>
+<translation id="3524311639100184459">Внимание: датотекиве се привремени и може да се бришат автоматски за да се ослободи простор на дискот.  <ph name="BEGIN_LINK" />Дознајте повеќе<ph name="END_LINK" /></translation>
 <translation id="3527085408025491307">Папка</translation>
 <translation id="3549797760399244642">Одете на drive.google.com...</translation>
+<translation id="3553048479571901246">За да отворате датотеки со <ph name="APP_NAME" />, прво копирајте ги во папката со датотеки на Windows.</translation>
 <translation id="357479282490346887">литвански</translation>
 <translation id="3583509704582854624">Алфанумеричко внесување (за јапонска тастатура)</translation>
 <translation id="3603385196401704894">канадско француска</translation>
@@ -232,9 +245,11 @@
 <translation id="3780536599611287598">Немате дозвола за преместување датотеки во „<ph name="FOLDER_NAME" />“.</translation>
 <translation id="3786301125658655746">Исклучени сте</translation>
 <translation id="3789841737615482174">Инсталирај</translation>
+<translation id="3793469551756281394">Преостануваат околу <ph name="REMAINING_TIME_HOUR" /> <ph name="REMAINING_TIME_MINUTE" /></translation>
 <translation id="3798449238516105146">Верзија</translation>
 <translation id="3801082500826908679">Фарски</translation>
 <translation id="3809272675881623365">Зајак</translation>
+<translation id="3810973564298564668">Управувај</translation>
 <translation id="3811494700605067549">Избрана е 1 датотека</translation>
 <translation id="3815016854028376614">Метод на внесување за џујин</translation>
 <translation id="3825863595139017598">монголска тастатура</translation>
@@ -255,6 +270,7 @@
 <translation id="3943857333388298514">Залепи</translation>
 <translation id="3958548648197196644">Киви</translation>
 <translation id="3966388904776714213">Аудиоплеер</translation>
+<translation id="3984317463833596033">Дајте ѝ дозвола на Parallels Desktop да ги менува датотеките во папката „<ph name="FOLDER_NAME" />“</translation>
 <translation id="4002066346123236978">Наслов</translation>
 <translation id="4070370845051020638">Кантонски метод за внесување</translation>
 <translation id="4072248638558688893">тамилска тастатура (фонетска)</translation>
@@ -283,8 +299,10 @@
 <translation id="4470564870223067757">хангул, 2-делна</translation>
 <translation id="4477219268485577442">бугарска фонетска</translation>
 <translation id="4479812471636796472">САД тастатура Dvorak</translation>
+<translation id="4481711095103932593">Папкава е споделена со Windows</translation>
 <translation id="4487088045714738411">белгиска тастатура</translation>
 <translation id="4522570452068850558">Детали</translation>
+<translation id="4542387084127299777">Не може да се отвори „<ph name="PATH" />“</translation>
 <translation id="4552678318981539154">Купете поголем простор за складирање</translation>
 <translation id="4559767610552730302">Боке</translation>
 <translation id="4572815280350369984"><ph name="FILE_TYPE" /> датотека</translation>
@@ -292,6 +310,7 @@
 <translation id="4579744207439506346">Го додадовте <ph name="ENTRY_NAME" /> во изборот.</translation>
 <translation id="4582497162516204941">Инсталирајте со Linux (Бета)</translation>
 <translation id="4594543368593301662">Се прикажуваат резултати за <ph name="SEARCH_TERM" />.</translation>
+<translation id="4603392156942865207">Се копира <ph name="FILE_NAME" /> во <ph name="FOLDER_NAME" /></translation>
 <translation id="4631887759990505102">Уметник</translation>
 <translation id="4656293982926141856">Овој компјутер</translation>
 <translation id="4669606053856530811">Членовите на „<ph name="SOURCE_NAME" />“ ќе изгубат пристап освен ако ставкиве се споделени со нив.</translation>
@@ -325,10 +344,12 @@
 <translation id="4880520557730313061">Автоматска поправка</translation>
 <translation id="4881695831933465202">Отвори</translation>
 <translation id="4886021172213954916">тамилска тастатура (машина за пишување)</translation>
+<translation id="4900532980794411603">Сподели со Parallels Desktop</translation>
 <translation id="4905417359854579806">Направете бекап на <ph name="FILE_COUNT" /></translation>
 <translation id="4924638091161556692">Поправено</translation>
 <translation id="4935975195727477204">Цвет од газанија</translation>
 <translation id="4943368462779413526">Фудбал</translation>
+<translation id="4961158930123534723">1 папка е споделена со Parallels Desktop</translation>
 <translation id="4969785127455456148">Албум</translation>
 <translation id="497244430928947428">малајамска тастатура (фонетска)</translation>
 <translation id="4973523518332075481">Користете име што содржи <ph name="MAX_LENGTH" /> знаци или помалку</translation>
@@ -340,10 +361,12 @@
 <translation id="5010406651457630570">Компјутери</translation>
 <translation id="5011233892417813670">Chromebook</translation>
 <translation id="5024856940085636730">Операцијата трае подолго од очекуваното. Дали сакате да ја прекинете?</translation>
+<translation id="5036159836254554629">Управувајте со споделувањето со Parallels Desktop</translation>
 <translation id="5038625366300922036">Види повеќе...</translation>
 <translation id="5061708541166515394">Контраст</translation>
 <translation id="5068919226082848014">Пица</translation>
 <translation id="5081517858322016911"><ph name="TOTAL_FILE_SIZE" /> датотеки ќе се избришат</translation>
+<translation id="508423945471810158">Се преместуваат <ph name="NUMBER_OF_ITEMS" /> ставки во <ph name="FOLDER_NAME" /></translation>
 <translation id="509429900233858213">Настана грешка.</translation>
 <translation id="5098629044894065541">хебрејски</translation>
 <translation id="5123433949759960244">Баскет</translation>
@@ -388,6 +411,7 @@
 <translation id="5418923334382419584">мјанмарска тастатура</translation>
 <translation id="5428105026674456456">шпански</translation>
 <translation id="5438282218546237410">Нема резултати за <ph name="SEARCH_TERM" />.</translation>
+<translation id="5449551289610225147">Погрешна лозинка</translation>
 <translation id="5464696796438641524">полска тастатура</translation>
 <translation id="5465122519792752163">непалска тастатура (InScript)</translation>
 <translation id="5469868506864199649">италијански</translation>
@@ -446,6 +470,7 @@
 <translation id="6054173164583630569">француска тастатура</translation>
 <translation id="6074825444536523002">Google формулар</translation>
 <translation id="6096979789310008754">Текстот за пребарување е избришан, се прикажуваат сите датотеки и папки.</translation>
+<translation id="610101264611565198">Се преместува <ph name="FILE_NAME" /> во <ph name="FOLDER_NAME" /></translation>
 <translation id="6111770213269631447">Транслитерација (namaskar → নমস্কার)</translation>
 <translation id="6129953537138746214">Празно место</translation>
 <translation id="6133173853026656527">Се поместува <ph name="FILE_NAME" />...</translation>
@@ -486,9 +511,11 @@
 <translation id="656398493051028875">Се брише „<ph name="FILENAME" />“...</translation>
 <translation id="6581162200855843583">Врска на Google Диск</translation>
 <translation id="6607272825297743757">Информации за датотека</translation>
+<translation id="6609332149380188670"><ph name="NUMBER_OF_ITEMS" /> папки се споделени со Parallels Desktop</translation>
 <translation id="6629841649550503054">Сѐ е ископирано на <ph name="BEGIN_LINK" />Google Drive!<ph name="END_LINK" /></translation>
 <translation id="6643016212128521049">Исчисти</translation>
 <translation id="6650726141019353908">Розова пеперутка</translation>
+<translation id="6657585470893396449">Лозинка</translation>
 <translation id="6710213216561001401">Претходно</translation>
 <translation id="6718273304615422081">Се пакува...</translation>
 <translation id="6751256176799620176">Избрана е 1 папка</translation>
@@ -498,6 +525,7 @@
 <translation id="6806699711453372963">Управувајте со споделувањето на Linux</translation>
 <translation id="6808193438228982088">Лисица</translation>
 <translation id="6820687829547641339">tar архива компримирана со gzip</translation>
+<translation id="6823166707458800069">Автоматски се прави резервна копија онлајн од сите датотеки зачувани во папкава.</translation>
 <translation id="6825883775269213504">руски</translation>
 <translation id="6827236167376090743">Видеото ќе се прикажува постојано.</translation>
 <translation id="6847101934483209767">Го отстранивте <ph name="ENTRY_NAME" /> од изборот.</translation>
@@ -507,6 +535,7 @@
 <translation id="6878261347041253038">деванагари тастатура (фонетска)</translation>
 <translation id="6885780034956018177">Полжав</translation>
 <translation id="6896758677409633944">Копирај</translation>
+<translation id="6898028766943174120">Повеќе подредени папки…</translation>
 <translation id="691516599546977041">Не може да се зачувува во „<ph name="FOLDER_NAME" />“. Изменетите слики ќе се зачуваат во папката „Преземања“.</translation>
 <translation id="6915678159055240887">Chromebox</translation>
 <translation id="6918340160281024199">САД, Workman</translation>
@@ -519,6 +548,7 @@
 <translation id="696203921837389374">Овозможи синхронизација преку мобилни податоци</translation>
 <translation id="6965382102122355670">Во ред</translation>
 <translation id="6970230597523682626">бугарски</translation>
+<translation id="6973630695168034713">Папки</translation>
 <translation id="6978611942794658017">Оваа датотека е дизајнирана за компјутер кој користи софтвер на Windows. Таа не е компатибилна со вашиот уред кој работи на Chrome ОС. Пребарајте ја веб-продавницата на Chrome за да најдете соодветна апликација за замена.</translation>
 <translation id="6979158407327259162">Google Диск</translation>
 <translation id="6990081529015358884">Немате веќе простор</translation>
@@ -552,6 +582,7 @@
 <translation id="7417705661718309329">Карта на Google</translation>
 <translation id="7419631653042041064">каталонска тастатура</translation>
 <translation id="7434823369735508263">ОК тастатура Dvorak</translation>
+<translation id="7447678886297481665">Датотеките во папкава се само за читање. Некои активности не се поддржани.</translation>
 <translation id="7460898608667578234">украинска</translation>
 <translation id="7474889694310679759">тастатура на канадски англиски</translation>
 <translation id="7489215562877293245">Најдени се <ph name="FILE_COUNT" />
@@ -661,6 +692,7 @@
 <translation id="8475647382427415476">Google Drive не можеше да ја синхронизира „<ph name="FILENAME" />" во моментов. Ќе се обиде повторно подоцна.</translation>
 <translation id="8477649328507734757">Концентрични кругови</translation>
 <translation id="8487700953926739672">Достапно е исклучено од линија</translation>
+<translation id="8490342535582768689">Дајте ѝ дозвола на Parallels Desktop да ги менува датотеките во вашиот Google Drive. Промените ќе се синхронизираат со другите ваши уреди.</translation>
 <translation id="8521441079177373948">UK</translation>
 <translation id="8525306231823319788">Цел екран</translation>
 <translation id="8551494947769799688">летонски</translation>
@@ -696,6 +728,7 @@
 <translation id="9065203028668620118">Измени</translation>
 <translation id="9099674669267916096">Број на страници</translation>
 <translation id="9110990317705400362">Ние постојано бараме начини да го направиме вашето прелистување побезбедно. Порано, која било веб-локација можеше да побара од вас да додадете наставка на прелистувачот. Во најновите верзии на Google Chrome, мора јасно да му кажете на Chrome дека сакате да ги инсталирате овие наставки со нивно додавање преку страницата Наставки. <ph name="BEGIN_LINK" />Дознајте повеќе<ph name="END_LINK" /></translation>
+<translation id="9111102763498581341">Отклучи</translation>
 <translation id="912419004897138677">Кодек</translation>
 <translation id="9129931661813833980">Прикачи папка</translation>
 <translation id="9130775360844693113">Членовите на „<ph name="DESTINATION_NAME" />“ ќе добијат пристап до ставкиве.</translation>
@@ -713,7 +746,7 @@
 <translation id="939736085109172342">Нова папка</translation>
 <translation id="942954117721265519">Нема слики во директориумот.</translation>
 <translation id="943972244133411984">Изменето од</translation>
-<translation id="945522503751344254">Испрати повратни информации</translation>
+<translation id="945522503751344254">Испратете повратни информации</translation>
 <translation id="947144732524271678">Избравте опсег од <ph name="ENTRY_COUNT" /> записи од <ph name="FROM_ENTRY_NAME" /> до <ph name="TO_ENTRY_NAME" />.</translation>
 <translation id="981121421437150478">Без мрежа</translation>
 <translation id="988685240266037636">Веќе постои датотека со име „<ph name="FILE_NAME" />“. Дали сакате да ја замените?</translation>

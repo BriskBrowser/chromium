@@ -5,9 +5,21 @@
 #include "components/performance_manager/embedder/performance_manager_lifetime.h"
 
 #include "base/bind.h"
-#include "components/performance_manager/decorators/page_almost_idle_decorator.h"
+#include "build/build_config.h"
+#include "components/performance_manager/decorators/page_load_tracker_decorator.h"
+#include "components/performance_manager/execution_context/execution_context_registry_impl.h"
+#include "components/performance_manager/graph/frame_node_impl_describer.h"
+#include "components/performance_manager/graph/page_node_impl_describer.h"
+#include "components/performance_manager/graph/process_node_impl_describer.h"
+#include "components/performance_manager/graph/worker_node_impl_describer.h"
 #include "components/performance_manager/performance_manager_impl.h"
+#include "components/performance_manager/public/decorators/page_live_state_decorator.h"
+#include "components/performance_manager/public/decorators/tab_properties_decorator.h"
 #include "components/performance_manager/public/graph/graph.h"
+
+#if !defined(OS_ANDROID)
+#include "components/performance_manager/public/decorators/site_data_recorder.h"
+#endif
 
 namespace performance_manager {
 
@@ -16,7 +28,18 @@ namespace {
 void DefaultGraphCreatedCallback(
     GraphCreatedCallback external_graph_created_callback,
     GraphImpl* graph) {
-  graph->PassToGraph(std::make_unique<PageAlmostIdleDecorator>());
+  graph->PassToGraph(
+      std::make_unique<execution_context::ExecutionContextRegistryImpl>());
+  graph->PassToGraph(std::make_unique<FrameNodeImplDescriber>());
+  graph->PassToGraph(std::make_unique<PageLiveStateDecorator>());
+  graph->PassToGraph(std::make_unique<PageLoadTrackerDecorator>());
+  graph->PassToGraph(std::make_unique<PageNodeImplDescriber>());
+  graph->PassToGraph(std::make_unique<ProcessNodeImplDescriber>());
+  graph->PassToGraph(std::make_unique<TabPropertiesDecorator>());
+  graph->PassToGraph(std::make_unique<WorkerNodeImplDescriber>());
+#if !defined(OS_ANDROID)
+  graph->PassToGraph(std::make_unique<SiteDataRecorder>());
+#endif
   std::move(external_graph_created_callback).Run(graph);
 }
 

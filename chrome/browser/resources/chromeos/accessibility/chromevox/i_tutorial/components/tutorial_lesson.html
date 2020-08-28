@@ -1,0 +1,44 @@
+<!-- Copyright 2020 The Chromium Authors. All rights reserved.
+     Use of this source code is governed by a BSD-style license that can be
+     found in the LICENSE file. -->
+<style>
+
+#content {
+  display: block;
+  font-family: Google Sans;
+  font-size: 18px;
+  font-style: normal;
+  font-weight: 500;
+  line-height: 24px;
+  text-align: center;
+}
+
+#startPractice {
+  margin-bottom: 10px;
+  margin-inline-end: 10px;
+  margin-inline-start: 10px;
+  margin-top: 10px;
+}
+
+</style>
+
+<div id="container" hidden>
+  <template is="dom-if" if="[[ title ]]">
+    <h1 id="title" tabindex="0">[[ title ]]</h1>
+  </template>
+  <div id="content">
+    <template is="dom-repeat" items="[[ content ]]" as="text">
+      <p tabindex="0">[[ text ]]</p>
+    </template>
+  </div>
+  <cr-dialog id="practice" close-text="Exit practice area"
+      on-close="endPractice" show-close-button>
+    <div class="title" slot="title" tabindex="0">[[ practiceTitle ]]</div>
+    <div class="body" slot="body" tabindex="0">
+      <p>[[ practiceInstructions ]]</p>
+      <div id="practiceContent"></div>
+    </div>
+  </cr-dialog>
+  <cr-button id="startPractice" on-click="startPractice"
+    hidden$="[[ shouldHidePracticeButton() ]]">Practice Area</cr-button>
+</div>

@@ -10,12 +10,14 @@ Loaded modules:
     emulation
     extensions
     host
+    i18n
     inspector_main
     main
     mobile_throttling
     persistence
     platform
-    protocol
+    protocol_client
+    root
     sdk
     services
     text_utils

@@ -9,6 +9,7 @@
 
 #include "base/memory/ptr_util.h"
 #include "base/memory/scoped_refptr.h"
+#include "third_party/blink/public/mojom/indexeddb/indexeddb.mojom-blink.h"
 #include "third_party/blink/public/platform/web_blob_info.h"
 #include "third_party/blink/renderer/bindings/core/v8/serialization/serialized_script_value.h"
 #include "third_party/blink/renderer/platform/blob/blob_data.h"
@@ -17,9 +18,14 @@
 
 namespace blink {
 
-IDBValue::IDBValue(scoped_refptr<SharedBuffer> data,
-                   Vector<WebBlobInfo> blob_info)
-    : data_(std::move(data)), blob_info_(std::move(blob_info)) {}
+IDBValue::IDBValue(
+    scoped_refptr<SharedBuffer> data,
+    Vector<WebBlobInfo> blob_info,
+    Vector<mojo::PendingRemote<mojom::blink::NativeFileSystemTransferToken>>
+        native_file_system_tokens)
+    : data_(std::move(data)),
+      blob_info_(std::move(blob_info)),
+      native_file_system_tokens_(std::move(native_file_system_tokens)) {}
 
 IDBValue::~IDBValue() {
   if (isolate_ && external_allocated_size_)
@@ -66,6 +72,19 @@ scoped_refptr<BlobDataHandle> IDBValue::TakeLastBlob() {
   blob_info_.pop_back();
 
   return return_value;
+}
+
+// static
+std::unique_ptr<IDBValue> IDBValue::ConvertReturnValue(
+    const mojom::blink::IDBReturnValuePtr& input) {
+  if (!input) {
+    return std::make_unique<IDBValue>(scoped_refptr<SharedBuffer>(),
+                                      Vector<WebBlobInfo>());
+  }
+
+  std::unique_ptr<IDBValue> output = std::move(input->value);
+  output->SetInjectedPrimaryKey(std::move(input->primary_key), input->key_path);
+  return output;
 }
 
 }  // namespace blink

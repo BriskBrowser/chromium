@@ -11,20 +11,19 @@ source_set("sessions") {
     "ios_chrome_tab_restore_service_client.mm",
     "ios_chrome_tab_restore_service_factory.cc",
     "ios_chrome_tab_restore_service_factory.h",
-    "tab_restore_service_delegate_impl_ios.h",
-    "tab_restore_service_delegate_impl_ios.mm",
-    "tab_restore_service_delegate_impl_ios_factory.h",
-    "tab_restore_service_delegate_impl_ios_factory.mm",
+    "live_tab_context_browser_agent.h",
+    "live_tab_context_browser_agent.mm",
   ]
+  public_deps = [ "//components/sessions" ]
   deps = [
     ":serialisation",
     "//base",
     "//components/keyed_service/core",
     "//components/keyed_service/ios",
-    "//components/sessions",
     "//components/tab_groups",
     "//ios/chrome/browser",
     "//ios/chrome/browser/browser_state",
+    "//ios/chrome/browser/main:public",
     "//ios/chrome/browser/tabs",
     "//ios/chrome/browser/web_state_list",
     "//ios/public/provider/chrome/browser",
@@ -34,16 +33,12 @@ source_set("sessions") {
     "//net",
     "//url",
   ]
-  libs = [ "UIKit.framework" ]
+  frameworks = [ "UIKit.framework" ]
 }
 
 source_set("restoration_observer") {
-  sources = [
-    "session_restoration_observer.h",
-  ]
-  deps = [
-    "//base",
-  ]
+  sources = [ "session_restoration_observer.h" ]
+  deps = [ "//base" ]
   configs += [ "//build/config/compiler:enable_arc" ]
 }
 
@@ -60,6 +55,8 @@ source_set("restoration_agent") {
     "//ios/chrome/browser:chrome_url_constants",
     "//ios/chrome/browser/browser_state",
     "//ios/chrome/browser/main:public",
+    "//ios/chrome/browser/metrics",
+    "//ios/chrome/browser/ui/util:multiwindow_util",
     "//ios/chrome/browser/web:page_placeholder",
     "//ios/chrome/browser/web_state_list",
     "//ios/chrome/browser/web_state_list/web_usage_enabler",
@@ -95,7 +92,6 @@ source_set("serialisation") {
     "session_util.mm",
     "session_window_ios.h",
     "session_window_ios.mm",
-    "session_window_restoring.h",
   ]
   deps = [
     "//base",
@@ -143,6 +139,7 @@ source_set("unit_tests") {
     "//ios/chrome/browser/browser_state:test_support",
     "//ios/chrome/browser/main",
     "//ios/chrome/browser/main:test_support",
+    "//ios/chrome/browser/ntp",
     "//ios/chrome/browser/web:web_internal",
     "//ios/chrome/browser/web_state_list",
     "//ios/chrome/browser/web_state_list:test_support",
@@ -155,7 +152,7 @@ source_set("unit_tests") {
     "//testing/gtest",
     "//third_party/ocmock",
   ]
-  libs = [ "Foundation.framework" ]
+  frameworks = [ "Foundation.framework" ]
 }
 
 bundle_data("resources_unit_tests") {
@@ -166,7 +163,5 @@ bundle_data("resources_unit_tests") {
     "//ios/chrome/test/data/sessions/session_m57.plist",
     "//ios/chrome/test/data/sessions/session_m58.plist",
   ]
-  outputs = [
-    "{{bundle_resources_dir}}/ios/chrome/test/data/sessions/{{source_file_part}}",
-  ]
+  outputs = [ "{{bundle_resources_dir}}/ios/chrome/test/data/sessions/{{source_file_part}}" ]
 }

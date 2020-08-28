@@ -37,7 +37,7 @@ LayoutBox* FindSnapContainer(const LayoutBox& origin_box) {
   // containing block chain) scroll container".
   Element* document_element = origin_box.GetDocument().documentElement();
   LayoutBox* box = origin_box.ContainingBlock();
-  while (box && !box->HasOverflowClip() && !box->IsLayoutView() &&
+  while (box && !box->HasNonVisibleOverflow() && !IsA<LayoutView>(box) &&
          box->GetNode() != document_element) {
     box = box->ContainingBlock();
   }
@@ -224,6 +224,7 @@ void SnapCoordinator::UpdateAllSnapContainerDataIfNeeded() {
     if (container->GetScrollableArea()->SnapContainerDataNeedsUpdate())
       UpdateSnapContainerData(*container);
   }
+  SetAnySnapContainerDataNeedsUpdate(false);
 }
 
 void SnapCoordinator::UpdateSnapContainerData(LayoutBox& snap_container) {

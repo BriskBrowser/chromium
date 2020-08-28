@@ -20,7 +20,7 @@
 #include "chrome/browser/ui/ui_features.h"
 #include "chrome/browser/ui/views/chrome_layout_provider.h"
 #include "chrome/browser/ui/views/extensions/browser_action_drag_data.h"
-#include "chrome/browser/ui/views/feature_promos/feature_promo_colors.h"
+#include "chrome/browser/ui/views/in_product_help/feature_promo_colors.h"
 #include "chrome/browser/ui/views/toolbar/app_menu.h"
 #include "chrome/browser/ui/views/toolbar/toolbar_button.h"
 #include "chrome/browser/ui/views/toolbar/toolbar_ink_drop_util.h"
@@ -143,8 +143,6 @@ BrowserAppMenuButton::BrowserAppMenuButton(ToolbarView* toolbar_view)
   SetHorizontalAlignment(gfx::ALIGN_RIGHT);
 
   set_ink_drop_visible_opacity(kToolbarInkDropVisibleOpacity);
-
-  md_observer_.Add(ui::MaterialDesignController::GetInstance());
 }
 
 BrowserAppMenuButton::~BrowserAppMenuButton() {}
@@ -153,48 +151,8 @@ void BrowserAppMenuButton::SetTypeAndSeverity(
     AppMenuIconController::TypeAndSeverity type_and_severity) {
   type_and_severity_ = type_and_severity;
 
-  int message_id;
-  base::string16 text;
-  if (type_and_severity.severity == AppMenuIconController::Severity::NONE) {
-    message_id = IDS_APPMENU_TOOLTIP;
-  } else if (type_and_severity.type ==
-             AppMenuIconController::IconType::UPGRADE_NOTIFICATION) {
-    message_id = IDS_APPMENU_TOOLTIP_UPDATE_AVAILABLE;
-    text = l10n_util::GetStringUTF16(IDS_APP_MENU_BUTTON_UPDATE);
-  } else {
-    message_id = IDS_APPMENU_TOOLTIP_ALERT;
-    text = l10n_util::GetStringUTF16(IDS_APP_MENU_BUTTON_ERROR);
-  }
-
-  base::Optional<SkColor> color;
-  switch (type_and_severity.severity) {
-    case AppMenuIconController::Severity::NONE:
-      break;
-    case AppMenuIconController::Severity::LOW:
-      color = AdjustHighlightColorForContrast(
-          GetThemeProvider(), gfx::kGoogleGreen300, gfx::kGoogleGreen600,
-          gfx::kGoogleGreen050, gfx::kGoogleGreen900);
-
-      break;
-    case AppMenuIconController::Severity::MEDIUM:
-      color = AdjustHighlightColorForContrast(
-          GetThemeProvider(), gfx::kGoogleYellow300, gfx::kGoogleYellow600,
-          gfx::kGoogleYellow050, gfx::kGoogleYellow900);
-
-      break;
-    case AppMenuIconController::Severity::HIGH:
-      color = AdjustHighlightColorForContrast(
-          GetThemeProvider(), gfx::kGoogleRed300, gfx::kGoogleRed600,
-          gfx::kGoogleRed050, gfx::kGoogleRed900);
-
-      break;
-  }
-
-  if (base::FeatureList::IsEnabled(features::kUseTextForUpdateButton))
-    SetHighlight(text, color);
-
-  SetTooltipText(l10n_util::GetStringUTF16(message_id));
   UpdateIcon();
+  UpdateTextAndHighlightColor();
 }
 
 void BrowserAppMenuButton::SetPromoFeature(
@@ -254,42 +212,82 @@ void BrowserAppMenuButton::ShowMenu(int run_types) {
 }
 
 void BrowserAppMenuButton::OnThemeChanged() {
+  UpdateTextAndHighlightColor();
   AppMenuButton::OnThemeChanged();
-  UpdateIcon();
 }
 
 void BrowserAppMenuButton::UpdateIcon() {
+  bool touch_ui = ui::TouchUiController::Get()->touch_ui();
   if (base::FeatureList::IsEnabled(features::kUseTextForUpdateButton)) {
-    SetImage(
-        views::Button::STATE_NORMAL,
-        gfx::CreateVectorIcon(
-            ui::MaterialDesignController::touch_ui() ? kBrowserToolsTouchIcon
-                                                     : kBrowserToolsIcon,
-            toolbar_view_->app_menu_icon_controller()->GetIconColor(
-                GetPromoHighlightColor())));
+    const gfx::VectorIcon& icon =
+        touch_ui ? kBrowserToolsTouchIcon : kBrowserToolsIcon;
+    for (auto state : kButtonStates) {
+      SkColor icon_color =
+          toolbar_view_->app_menu_icon_controller()->GetIconColor(
+              GetForegroundColor(state));
+      SetImageModel(state, ui::ImageModel::FromVectorIcon(icon, icon_color));
+    }
     return;
   }
-  SetImage(
-      views::Button::STATE_NORMAL,
-      toolbar_view_->app_menu_icon_controller()->GetIconImage(
-          ui::MaterialDesignController::touch_ui(), GetPromoHighlightColor()));
+  for (auto state : kButtonStates) {
+    SetImageModel(state,
+                  toolbar_view_->app_menu_icon_controller()->GetIconImage(
+                      touch_ui, GetForegroundColor(state)));
+  }
 }
 
-void BrowserAppMenuButton::OnTouchUiChanged() {
-  UpdateIcon();
-  UpdateColorsAndInsets();
-  PreferredSizeChanged();
+void BrowserAppMenuButton::UpdateTextAndHighlightColor() {
+  int tooltip_message_id;
+  base::string16 text;
+  if (type_and_severity_.severity == AppMenuIconController::Severity::NONE) {
+    tooltip_message_id = IDS_APPMENU_TOOLTIP;
+  } else if (type_and_severity_.type ==
+             AppMenuIconController::IconType::UPGRADE_NOTIFICATION) {
+    tooltip_message_id = IDS_APPMENU_TOOLTIP_UPDATE_AVAILABLE;
+    text = l10n_util::GetStringUTF16(IDS_APP_MENU_BUTTON_UPDATE);
+  } else {
+    tooltip_message_id = IDS_APPMENU_TOOLTIP_ALERT;
+    text = l10n_util::GetStringUTF16(IDS_APP_MENU_BUTTON_ERROR);
+  }
+
+  base::Optional<SkColor> color;
+  switch (type_and_severity_.severity) {
+    case AppMenuIconController::Severity::NONE:
+      break;
+    case AppMenuIconController::Severity::LOW:
+      color = AdjustHighlightColorForContrast(
+          GetThemeProvider(), gfx::kGoogleGreen300, gfx::kGoogleGreen600,
+          gfx::kGoogleGreen050, gfx::kGoogleGreen900);
+
+      break;
+    case AppMenuIconController::Severity::MEDIUM:
+      color = AdjustHighlightColorForContrast(
+          GetThemeProvider(), gfx::kGoogleYellow300, gfx::kGoogleYellow600,
+          gfx::kGoogleYellow050, gfx::kGoogleYellow900);
+
+      break;
+    case AppMenuIconController::Severity::HIGH:
+      color = AdjustHighlightColorForContrast(
+          GetThemeProvider(), gfx::kGoogleRed300, gfx::kGoogleRed600,
+          gfx::kGoogleRed050, gfx::kGoogleRed900);
+
+      break;
+  }
+
+  SetTooltipText(l10n_util::GetStringUTF16(tooltip_message_id));
+
+  if (base::FeatureList::IsEnabled(features::kUseTextForUpdateButton))
+    SetHighlight(text, color);
 }
 
 const char* BrowserAppMenuButton::GetClassName() const {
   return "BrowserAppMenuButton";
 }
 
-base::Optional<SkColor> BrowserAppMenuButton::GetPromoHighlightColor() const {
-  if (promo_feature_)
-    return GetFeaturePromoHighlightColorForToolbar(GetThemeProvider());
-
-  return base::nullopt;
+SkColor BrowserAppMenuButton::GetForegroundColor(ButtonState state) const {
+  return promo_feature_
+             ? GetFeaturePromoHighlightColorForToolbar(GetThemeProvider())
+             : ToolbarButton::GetForegroundColor(state);
 }
 
 bool BrowserAppMenuButton::GetDropFormats(
@@ -361,9 +359,9 @@ std::unique_ptr<views::InkDropMask> BrowserAppMenuButton::CreateInkDropMask()
 }
 
 SkColor BrowserAppMenuButton::GetInkDropBaseColor() const {
-  auto promo_highlight_color = GetPromoHighlightColor();
-  return promo_highlight_color ? promo_highlight_color.value()
-                               : AppMenuButton::GetInkDropBaseColor();
+  return promo_feature_
+             ? GetFeaturePromoHighlightColorForToolbar(GetThemeProvider())
+             : AppMenuButton::GetInkDropBaseColor();
 }
 
 base::string16 BrowserAppMenuButton::GetTooltipText(const gfx::Point& p) const {
@@ -372,4 +370,9 @@ base::string16 BrowserAppMenuButton::GetTooltipText(const gfx::Point& p) const {
     return base::string16();
 
   return AppMenuButton::GetTooltipText(p);
+}
+
+void BrowserAppMenuButton::OnTouchUiChanged() {
+  UpdateColorsAndInsets();
+  PreferredSizeChanged();
 }

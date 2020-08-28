@@ -17,21 +17,19 @@ import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 import static org.mockito.MockitoAnnotations.initMocks;
 
-import static org.chromium.chrome.browser.feed.library.api.client.stream.Stream.POSITION_NOT_KNOWN;
-import static org.chromium.chrome.browser.feed.library.basicstream.BasicStream.KEY_STREAM_STATE;
 import static org.chromium.chrome.browser.feed.library.common.testing.RunnableSubject.assertThatRunnable;
+import static org.chromium.chrome.browser.feed.shared.stream.Stream.POSITION_NOT_KNOWN;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 
 import android.app.Activity;
 import android.content.Context;
-import android.os.Build.VERSION_CODES;
-import android.os.Bundle;
-import android.support.v7.widget.LinearLayoutManager;
-import android.support.v7.widget.RecyclerView;
 import android.util.Base64;
 import android.view.View;
 import android.widget.FrameLayout;
+
+import androidx.recyclerview.widget.LinearLayoutManager;
+import androidx.recyclerview.widget.RecyclerView;
 
 import com.google.protobuf.InvalidProtocolBufferException;
 
@@ -46,9 +44,6 @@ import org.robolectric.shadow.api.Shadow;
 import org.chromium.base.Consumer;
 import org.chromium.chrome.browser.feed.library.api.client.knowncontent.ContentMetadata;
 import org.chromium.chrome.browser.feed.library.api.client.knowncontent.KnownContent;
-import org.chromium.chrome.browser.feed.library.api.client.stream.Header;
-import org.chromium.chrome.browser.feed.library.api.client.stream.Stream.ContentChangedListener;
-import org.chromium.chrome.browser.feed.library.api.client.stream.Stream.ScrollListener;
 import org.chromium.chrome.browser.feed.library.api.host.action.ActionApi;
 import org.chromium.chrome.browser.feed.library.api.host.config.Configuration;
 import org.chromium.chrome.browser.feed.library.api.host.config.Configuration.ConfigKey;
@@ -96,6 +91,10 @@ import org.chromium.chrome.browser.feed.library.sharedstream.publicapi.menumeasu
 import org.chromium.chrome.browser.feed.library.sharedstream.publicapi.scroll.ScrollObservable;
 import org.chromium.chrome.browser.feed.library.sharedstream.scroll.ScrollListenerNotifier;
 import org.chromium.chrome.browser.feed.library.testing.shadows.ShadowRecycledViewPool;
+import org.chromium.chrome.browser.feed.shared.stream.Header;
+import org.chromium.chrome.browser.feed.shared.stream.Stream.ContentChangedListener;
+import org.chromium.chrome.browser.feed.shared.stream.Stream.ScrollListener;
+import org.chromium.chrome.R;
 import org.chromium.components.feed.core.proto.libraries.api.internal.StreamDataProto.UiContext;
 import org.chromium.components.feed.core.proto.libraries.basicstream.internal.StreamSavedInstanceStateProto.StreamSavedInstanceState;
 import org.chromium.components.feed.core.proto.libraries.sharedstream.ScrollStateProto.ScrollState;
@@ -172,6 +171,8 @@ public class BasicStreamTest {
     private ViewLoggingUpdater mViewLoggingUpdater;
     @Mock
     private TooltipApi mTooltipApi;
+    @Mock
+    private ActionManager mActionManager;
 
     private FakeFeedKnownContent mFakeFeedKnownContent;
     private LinearLayoutManagerWithFakePositioning mLayoutManager;
@@ -217,7 +218,7 @@ public class BasicStreamTest {
         mLayoutManager = new LinearLayoutManagerWithFakePositioning(mContext);
 
         mBasicStream = createBasicStream(mLayoutManager);
-        mBasicStream.onCreate((Bundle) null);
+        mBasicStream.onCreate(null);
     }
 
     @Test
@@ -477,13 +478,6 @@ public class BasicStreamTest {
     }
 
     @Test
-    public void testLifecycle_onCreateWithBundleCalledOnlyOnce() {
-        // onCreate is called once in setup
-        assertThatRunnable(() -> mBasicStream.onCreate(new Bundle()))
-                .throwsAnExceptionOfType(IllegalStateException.class);
-    }
-
-    @Test
     public void testLifecycle_onCreateWithStringCalledOnlyOnce() {
         // onCreate is called once in setup
         assertThatRunnable(() -> mBasicStream.onCreate(""))
@@ -543,6 +537,15 @@ public class BasicStreamTest {
     }
 
     @Test
+    public void testOnLayoutChange_signalsViewActionManager() {
+        getStreamRecyclerView().layout(0, 0, 100, 300);
+        verify(mActionManager, times(1)).onLayoutChange(); // Initial layout.
+
+        getStreamRecyclerView().layout(0, 0, 300, 100); // New layout.
+        verify(mActionManager, times(2)).onLayoutChange();
+    }
+
+    @Test
     public void testOnDestroy_deregistersSessionListener() {
         mBasicStream.onShow();
 
@@ -550,16 +553,6 @@ public class BasicStreamTest {
 
         // Once for BasicStream, once for the session listener.
         verify(mInitialModelProvider, times(2)).unregisterObserver(any());
-    }
-
-    @Test
-    public void testGetSavedInstanceState() {
-        mBasicStream.onShow();
-
-        Bundle bundle = mBasicStream.getSavedInstanceState();
-        assertThat(bundle.getString(KEY_STREAM_STATE))
-                .isEqualTo(
-                        Base64.encodeToString(SAVED_INSTANCE_STATE.toByteArray(), Base64.DEFAULT));
     }
 
     @Test
@@ -609,7 +602,7 @@ public class BasicStreamTest {
     public void testRestore() {
         mBasicStream.onShow();
 
-        Bundle bundle = mBasicStream.getSavedInstanceState();
+        String savedInstanceState = mBasicStream.getSavedInstanceStateString();
 
         mBasicStream.onHide();
         mBasicStream.onDestroy();
@@ -618,7 +611,7 @@ public class BasicStreamTest {
                 .thenReturn(mRestoredModelProvider);
 
         mBasicStream = createBasicStream(new LinearLayoutManagerWithFakePositioning(mContext));
-        mBasicStream.onCreate(bundle);
+        mBasicStream.onCreate(savedInstanceState);
 
         mBasicStream.onShow();
 
@@ -649,7 +642,7 @@ public class BasicStreamTest {
     public void testRestore_doesNotShowZeroState() {
         mBasicStream.onShow();
 
-        Bundle bundle = mBasicStream.getSavedInstanceState();
+        String savedInstanceState = mBasicStream.getSavedInstanceStateString();
 
         mBasicStream.onHide();
         mBasicStream.onDestroy();
@@ -659,7 +652,7 @@ public class BasicStreamTest {
 
         reset(mStreamDriver);
         mBasicStream = createBasicStream(new LinearLayoutManagerWithFakePositioning(mContext));
-        mBasicStream.onCreate(bundle);
+        mBasicStream.onCreate(savedInstanceState);
 
         mBasicStream.onShow();
 
@@ -670,7 +663,7 @@ public class BasicStreamTest {
     @Test
     public void testRestore_showsZeroStateIfNoSessionToRestore() {
         mBasicStream = createBasicStream(new LinearLayoutManagerWithFakePositioning(mContext));
-        mBasicStream.onCreate(Bundle.EMPTY);
+        mBasicStream.onCreate("");
 
         mBasicStream.onShow();
 
@@ -685,13 +678,13 @@ public class BasicStreamTest {
     public void testRestore_invalidSession() {
         mBasicStream.onShow();
 
-        Bundle bundle = mBasicStream.getSavedInstanceState();
+        String savedInstanceState = mBasicStream.getSavedInstanceStateString();
 
         mBasicStream.onHide();
         mBasicStream.onDestroy();
 
         mBasicStream = createBasicStream(new LinearLayoutManagerWithFakePositioning(mContext));
-        mBasicStream.onCreate(bundle);
+        mBasicStream.onCreate(savedInstanceState);
         mBasicStream.onShow();
 
         verify(mModelProvider).registerObserver(mBasicStream);
@@ -701,14 +694,11 @@ public class BasicStreamTest {
     public void testRestore_invalidBase64Encoding() {
         mBasicStream.onShow();
 
-        Bundle bundle = new Bundle();
-        bundle.putString(KEY_STREAM_STATE, "=invalid");
-
         mBasicStream.onHide();
         mBasicStream.onDestroy();
 
         mBasicStream = createBasicStream(new LinearLayoutManagerWithFakePositioning(mContext));
-        assertThatRunnable(() -> mBasicStream.onCreate(bundle))
+        assertThatRunnable(() -> mBasicStream.onCreate("=invalid"))
                 .throwsAnExceptionOfType(RuntimeException.class);
     }
 
@@ -716,15 +706,13 @@ public class BasicStreamTest {
     public void testRestore_invalidProtocolBuffer() {
         mBasicStream.onShow();
 
-        Bundle bundle = new Bundle();
-        bundle.putString(
-                KEY_STREAM_STATE, Base64.encodeToString("invalid".getBytes(UTF_8), Base64.DEFAULT));
-
         mBasicStream.onHide();
         mBasicStream.onDestroy();
 
         mBasicStream = createBasicStream(new LinearLayoutManagerWithFakePositioning(mContext));
-        assertThatRunnable(() -> mBasicStream.onCreate(bundle))
+        assertThatRunnable(()
+                                   -> mBasicStream.onCreate(Base64.encodeToString(
+                                           "invalid".getBytes(UTF_8), Base64.DEFAULT)))
                 .throwsAnExceptionOfType(RuntimeException.class);
     }
 
@@ -732,7 +720,7 @@ public class BasicStreamTest {
     public void testRestore_createsStreamDriver() {
         mBasicStream.onShow();
 
-        Bundle bundle = mBasicStream.getSavedInstanceState();
+        String savedInstanceState = mBasicStream.getSavedInstanceStateString();
 
         mBasicStream.onHide();
         mBasicStream.onDestroy();
@@ -741,7 +729,7 @@ public class BasicStreamTest {
                 .thenReturn(mRestoredModelProvider);
 
         mBasicStream = createBasicStream(new LinearLayoutManagerWithFakePositioning(mContext));
-        mBasicStream.onCreate(bundle);
+        mBasicStream.onCreate(savedInstanceState);
 
         mBasicStream.onShow();
 
@@ -752,7 +740,7 @@ public class BasicStreamTest {
     public void testRestore_createsStreamDriver_afterFailure() {
         mBasicStream.onShow();
 
-        Bundle bundle = mBasicStream.getSavedInstanceState();
+        String savedInstanceState = mBasicStream.getSavedInstanceStateString();
 
         mBasicStream.onHide();
         mBasicStream.onDestroy();
@@ -761,7 +749,7 @@ public class BasicStreamTest {
                 .thenReturn(mRestoredModelProvider);
 
         mBasicStream = createBasicStream(new LinearLayoutManagerWithFakePositioning(mContext));
-        mBasicStream.onCreate(bundle);
+        mBasicStream.onCreate(savedInstanceState);
 
         // onSessionFinish indicates the restore has failed.
         mBasicStream.onSessionFinished(UiContext.getDefaultInstance());
@@ -769,18 +757,6 @@ public class BasicStreamTest {
         mBasicStream.onShow();
 
         assertThat(mBasicStream.mStreamDriverRestoring).isFalse();
-    }
-
-    @Test
-    @Config(sdk = VERSION_CODES.KITKAT)
-    public void testPadding_kitKat() {
-        // Padding is setup in constructor.
-        View view = mBasicStream.getView();
-
-        assertThat(view.getPaddingStart()).isEqualTo(START_PADDING);
-        assertThat(view.getPaddingEnd()).isEqualTo(END_PADDING);
-        assertThat(view.getPaddingTop()).isEqualTo(TOP_PADDING);
-        assertThat(view.getPaddingBottom()).isEqualTo(BOTTOM_PADDING);
     }
 
     @Test
@@ -1130,6 +1106,18 @@ public class BasicStreamTest {
     }
 
     @Test
+    public void testOnShow_signalsViewActionManager() {
+        mBasicStream.onShow();
+        verify(mActionManager).onShow();
+    }
+
+    @Test
+    public void testOnHide_signalsViewActionManager() {
+        mBasicStream.onHide();
+        verify(mActionManager).onHide();
+    }
+
+    @Test
     public void testOnHide_dismissesPopup() {
         mBasicStream.onHide();
         verify(mContextMenuManager).dismissPopup();
@@ -1260,9 +1248,8 @@ public class BasicStreamTest {
         return new BasicStreamForTest(mContext, mStreamConfiguration, mock(CardConfiguration.class),
                 mock(ImageLoaderApi.class), mock(ActionParserFactory.class), mock(ActionApi.class),
                 mock(CustomElementProvider.class), DebugBehavior.VERBOSE, new ThreadUtils(),
-                mHeaders, mClock, mModelProviderFactory, new HostBindingProvider(),
-                mock(ActionManager.class), CONFIGURATION, layoutManager,
-                mock(OfflineIndicatorApi.class), mStreamDriver);
+                mHeaders, mClock, mModelProviderFactory, new HostBindingProvider(), mActionManager,
+                CONFIGURATION, layoutManager, mock(OfflineIndicatorApi.class), mStreamDriver);
     }
 
     private class BasicStreamForTest extends BasicStream {
@@ -1290,7 +1277,7 @@ public class BasicStreamTest {
                     offlineIndicatorApi,
 
                     mMainThreadRunner, mFakeFeedKnownContent, mTooltipApi,
-                    /* isBackgroundDark= */ false);
+                    /* isBackgroundDark= */ false, /* isPlaceholderShown= */ false);
             this.mLayoutManager = layoutManager;
             this.mStreamDriver = streamDriver;
         }

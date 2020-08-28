@@ -8,6 +8,7 @@
 
 #include "base/bind.h"
 #include "base/callback.h"
+#include "base/files/file_path.h"
 #include "base/stl_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/profiles/profile.h"
@@ -19,7 +20,7 @@
 #include "chrome/browser/web_applications/web_app_registrar.h"
 #include "chrome/common/pref_names.h"
 #include "components/prefs/pref_service.h"
-#include "components/services/app_service/public/cpp/file_handler_info.h"
+#include "components/services/app_service/public/cpp/file_handler.h"
 #include "ui/gfx/image/image_skia.h"
 #include "ui/gfx/image/image_skia_rep_default.h"
 
@@ -35,6 +36,13 @@ WebAppShortcutManager::WebAppShortcutManager(
 
 WebAppShortcutManager::~WebAppShortcutManager() = default;
 
+std::unique_ptr<ShortcutInfo> WebAppShortcutManager::BuildShortcutInfo(
+    const AppId& app_id) {
+  const WebApp* app = GetWebAppRegistrar().GetAppById(app_id);
+  DCHECK(app);
+  return BuildShortcutInfoForWebApp(app);
+}
+
 void WebAppShortcutManager::GetShortcutInfoForApp(
     const AppId& app_id,
     GetShortcutInfoCallback callback) {
@@ -43,10 +51,14 @@ void WebAppShortcutManager::GetShortcutInfoForApp(
 
   // Build a common intersection between desired and downloaded icons.
   auto icon_sizes_in_px = base::STLSetIntersection<std::vector<SquareSizePx>>(
-      app->downloaded_icon_sizes(), GetDesiredIconSizesForShortcut());
+      app->downloaded_icon_sizes(IconPurpose::ANY),
+      GetDesiredIconSizesForShortcut());
 
+  // Optimistic check to help debug low-frequency crash.
+  // TODO(crbug.com/1113276): Make this a DCHECK before hitting stable.
+  CHECK(icon_manager_);
   if (!icon_sizes_in_px.empty()) {
-    icon_manager_->ReadIcons(app_id, icon_sizes_in_px,
+    icon_manager_->ReadIcons(app_id, IconPurpose::ANY, icon_sizes_in_px,
                              base::BindOnce(&WebAppShortcutManager::OnIconsRead,
                                             weak_ptr_factory_.GetWeakPtr(),
                                             app_id, std::move(callback)));
@@ -57,25 +69,18 @@ void WebAppShortcutManager::GetShortcutInfoForApp(
   // get.
   SquareSizePx desired_icon_size = GetDesiredIconSizesForShortcut().back();
 
-  if (icon_manager_->HasIconToResize(app_id, desired_icon_size)) {
-    icon_manager_->ReadIconAndResize(
-        app_id, desired_icon_size,
-        base::BindOnce(&WebAppShortcutManager::OnIconsRead,
-                       weak_ptr_factory_.GetWeakPtr(), app_id,
-                       std::move(callback)));
-  } else {
-    // No icon found. Create shortcut info with the standard application icon
-    // anyway.
-    OnIconsRead(app_id, std::move(callback),
-                std::map<SquareSizePx, SkBitmap>());
-  }
+  icon_manager_->ReadIconAndResize(
+      app_id, IconPurpose::ANY, desired_icon_size,
+      base::BindOnce(&WebAppShortcutManager::OnIconsRead,
+                     weak_ptr_factory_.GetWeakPtr(), app_id,
+                     std::move(callback)));
 }
 
 void WebAppShortcutManager::OnIconsRead(
     const AppId& app_id,
     GetShortcutInfoCallback callback,
     std::map<SquareSizePx, SkBitmap> icon_bitmaps) {
-  // |icon_bitmaps| can be empty here.
+  // |icon_bitmaps| can be empty here if no icon found.
   const WebApp* app = GetWebAppRegistrar().GetAppById(app_id);
   if (!app) {
     std::move(callback).Run(nullptr);
@@ -112,13 +117,14 @@ std::unique_ptr<ShortcutInfo> WebAppShortcutManager::BuildShortcutInfoForWebApp(
   shortcut_info->profile_path = profile()->GetPath();
   shortcut_info->profile_name =
       profile()->GetPrefs()->GetString(prefs::kProfileName);
+  shortcut_info->is_multi_profile = true;
 
-  if (const std::vector<apps::FileHandlerInfo>* file_handler_infos =
+  if (const apps::FileHandlers* file_handlers =
           file_handler_manager_->GetEnabledFileHandlers(app->app_id())) {
     shortcut_info->file_handler_extensions =
-        GetFileExtensionsFromFileHandlers(*file_handler_infos);
+        GetFileExtensionsFromFileHandlers(*file_handlers);
     shortcut_info->file_handler_mime_types =
-        GetMimeTypesFromFileHandlers(*file_handler_infos);
+        GetMimeTypesFromFileHandlers(*file_handlers);
   }
 
   return shortcut_info;

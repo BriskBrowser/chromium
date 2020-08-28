@@ -5,11 +5,11 @@
 #import "ios/chrome/browser/ui/find_bar/find_bar_coordinator.h"
 
 #include "ios/chrome/browser/browser_state/chrome_browser_state.h"
-#import "ios/chrome/browser/find_in_page/find_in_page_response_delegate.h"
 #import "ios/chrome/browser/find_in_page/find_tab_helper.h"
 #import "ios/chrome/browser/main/browser.h"
 #import "ios/chrome/browser/ui/commands/browser_commands.h"
 #import "ios/chrome/browser/ui/commands/command_dispatcher.h"
+#import "ios/chrome/browser/ui/commands/find_in_page_commands.h"
 #import "ios/chrome/browser/ui/find_bar/find_bar_controller_ios.h"
 #import "ios/chrome/browser/ui/find_bar/find_bar_mediator.h"
 #import "ios/chrome/browser/ui/find_bar/find_bar_view_controller.h"
@@ -22,13 +22,12 @@
 #error "This file requires ARC support."
 #endif
 
-@interface FindBarCoordinator () <FindInPageResponseDelegate,
-                                  ContainedPresenterDelegate>
-
-// Command handler for |BrowserCommand|s.
-@property(nonatomic, readonly) id<BrowserCommands> browserCommandHandler;
+@interface FindBarCoordinator () <ContainedPresenterDelegate>
 
 @property(nonatomic, strong) FindBarMediator* mediator;
+
+// Allows simplified access to the FindInPageCommands handler.
+@property(nonatomic, readonly) id<FindInPageCommands> findInPageCommandHandler;
 
 @end
 
@@ -37,41 +36,47 @@
 - (void)start {
   if (!self.findBarController) {
     self.findBarController = [[FindBarControllerIOS alloc]
-        initWithIncognito:self.browserState->IsOffTheRecord()];
+        initWithIncognito:self.browser->GetBrowserState()->IsOffTheRecord()];
 
-    self.findBarController.commandHandler = self.browserCommandHandler;
+    self.findBarController.commandHandler = self.findInPageCommandHandler;
   }
   self.presenter.delegate = self;
 
-  self.mediator = [[FindBarMediator alloc]
-      initWithWebStateList:self.browser->GetWebStateList()
-            commandHandler:HandlerForProtocol(
-                               self.browser->GetCommandDispatcher(),
-                               BrowserCommands)];
+  self.mediator =
+      [[FindBarMediator alloc] initWithWebState:self.currentWebState
+                                 commandHandler:self.findInPageCommandHandler];
+  self.mediator.consumer = self.findBarController;
 
   DCHECK(self.currentWebState);
   FindTabHelper* helper = FindTabHelper::FromWebState(self.currentWebState);
+  helper->SetResponseDelegate(self.mediator);
   // If the FindUI is already active, just reshow it.
   if (helper->IsFindUIActive()) {
     [self showAnimated:NO shouldFocus:[self.findBarController isFocused]];
   } else {
-    DCHECK(!helper->IsFindUIActive());
-    helper->SetResponseDelegate(self);
     helper->SetFindUIActive(true);
     [self showAnimated:YES shouldFocus:YES];
   }
 }
 
 - (void)stop {
-  if (!self.presenter.isPresenting) {
+  if (![self.presenter isPresentingViewController:self.findBarController
+                                                      .findBarViewController]) {
     return;
   }
-  FindTabHelper* helper = FindTabHelper::FromWebState(self.currentWebState);
+
   // If the FindUI is still active, the dismiss should be unanimated, because
   // the UI will be brought back later.
-  BOOL animated = helper && !helper->IsFindUIActive();
+  BOOL animated;
+  if (self.currentWebState) {
+    FindTabHelper* helper = FindTabHelper::FromWebState(self.currentWebState);
+    animated = helper && !helper->IsFindUIActive();
+  } else {
+    animated = true;
+  }
   [self.findBarController findBarViewWillHide];
   [self.presenter dismissAnimated:animated];
+  self.mediator = nil;
 }
 
 - (void)showAnimated:(BOOL)animated shouldFocus:(BOOL)shouldFocus {
@@ -89,10 +94,10 @@
   }
   FindTabHelper* helper = FindTabHelper::FromWebState(self.currentWebState);
   DCHECK(helper && helper->IsFindUIActive());
-  if (!self.browserState->IsOffTheRecord()) {
+  if (!self.browser->GetBrowserState()->IsOffTheRecord()) {
     helper->RestoreSearchTerm();
   }
-  [self.delegate setHeadersForToolbarAccessoryCoordinator:self];
+  [self.presentationDelegate setHeadersForFindBarCoordinator:self];
   [self.findBarController updateView:helper->GetFindResult()
                        initialUpdate:YES
                       focusTextfield:shouldFocus];
@@ -105,16 +110,6 @@
                          initialUpdate:NO
                         focusTextfield:NO];
   }
-}
-
-#pragma mark - FindInPageResponseDelegate
-
-- (void)findDidFinishWithUpdatedModel:(FindInPageModel*)model {
-  [self.findBarController updateResultsCount:model];
-}
-
-- (void)findDidStop {
-  [self.browserCommandHandler closeFindInPage];
 }
 
 #pragma mark - ContainedPresenterDelegate
@@ -136,9 +131,9 @@
              : nullptr;
 }
 
-- (id<BrowserCommands>)browserCommandHandler {
+- (id<FindInPageCommands>)findInPageCommandHandler {
   return HandlerForProtocol(self.browser->GetCommandDispatcher(),
-                            BrowserCommands);
+                            FindInPageCommands);
 }
 
 @end

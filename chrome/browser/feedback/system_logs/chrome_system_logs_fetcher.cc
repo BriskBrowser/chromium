@@ -4,7 +4,10 @@
 
 #include "chrome/browser/feedback/system_logs/chrome_system_logs_fetcher.h"
 
+#include <memory>
+
 #include "build/build_config.h"
+#include "build/lacros_buildflags.h"
 #include "chrome/browser/feedback/system_logs/log_sources/chrome_internal_log_source.h"
 #include "chrome/browser/feedback/system_logs/log_sources/crash_ids_source.h"
 #include "chrome/browser/feedback/system_logs/log_sources/memory_details_log_source.h"
@@ -17,13 +20,19 @@
 #include "chrome/browser/chromeos/system_logs/debug_daemon_log_source.h"
 #include "chrome/browser/chromeos/system_logs/device_event_log_source.h"
 #include "chrome/browser/chromeos/system_logs/iwlwifi_dump_log_source.h"
+#include "chrome/browser/chromeos/system_logs/network_health_source.h"
+#include "chrome/browser/chromeos/system_logs/shill_log_source.h"
 #include "chrome/browser/chromeos/system_logs/touch_log_source.h"
+#include "chrome/browser/chromeos/system_logs/ui_hierarchy_log_source.h"
+#endif
+
+#if BUILDFLAG(IS_LACROS)
+#include "chrome/browser/lacros/system_logs/user_log_files_log_source.h"
 #endif
 
 namespace system_logs {
 
-SystemLogsFetcher* BuildChromeSystemLogsFetcher() {
-  const bool scrub_data = true;
+SystemLogsFetcher* BuildChromeSystemLogsFetcher(bool scrub_data) {
   SystemLogsFetcher* fetcher = new SystemLogsFetcher(
       scrub_data, extension_misc::kBuiltInFirstPartyExtensionIds);
 
@@ -32,16 +41,22 @@ SystemLogsFetcher* BuildChromeSystemLogsFetcher() {
   fetcher->AddSource(std::make_unique<MemoryDetailsLogSource>());
 
 #if defined(OS_CHROMEOS)
+  // These sources rely on scrubbing in SystemLogsFetcher.
   fetcher->AddSource(std::make_unique<CommandLineLogSource>());
   fetcher->AddSource(std::make_unique<DBusLogSource>());
   fetcher->AddSource(std::make_unique<DeviceEventLogSource>());
   fetcher->AddSource(std::make_unique<IwlwifiDumpChecker>());
   fetcher->AddSource(std::make_unique<TouchLogSource>());
 
-  // Debug Daemon data source - currently only this data source supports
-  // the scrub_data parameter, but the others still get scrubbed by
-  // SystemLogsFetcher.
+  // Data sources that directly scrub itentifiable information.
   fetcher->AddSource(std::make_unique<DebugDaemonLogSource>(scrub_data));
+  fetcher->AddSource(std::make_unique<NetworkHealthSource>(scrub_data));
+  fetcher->AddSource(std::make_unique<ShillLogSource>(scrub_data));
+  fetcher->AddSource(std::make_unique<UiHierarchyLogSource>(scrub_data));
+#endif
+
+#if BUILDFLAG(IS_LACROS)
+  fetcher->AddSource(std::make_unique<UserLogFilesLogSource>());
 #endif
 
   return fetcher;

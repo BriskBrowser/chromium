@@ -7,6 +7,7 @@
 
 #include "third_party/blink/renderer/bindings/core/v8/file_or_usv_string_or_form_data.h"
 #include "third_party/blink/renderer/core/dom/qualified_name.h"
+#include "third_party/blink/renderer/core/html/forms/labels_node_list.h"
 #include "third_party/blink/renderer/core/html/forms/listed_element.h"
 #include "third_party/blink/renderer/platform/bindings/script_wrappable.h"
 #include "third_party/blink/renderer/platform/wtf/casting.h"
@@ -15,17 +16,15 @@ namespace blink {
 
 class DOMTokenList;
 class HTMLElement;
-class LabelsNodeList;
 class ValidityStateFlags;
 
 class CORE_EXPORT ElementInternals : public ScriptWrappable,
                                      public ListedElement {
   DEFINE_WRAPPERTYPEINFO();
-  USING_GARBAGE_COLLECTED_MIXIN(ElementInternals);
 
  public:
   ElementInternals(HTMLElement& target);
-  void Trace(Visitor* visitor) override;
+  void Trace(Visitor* visitor) const override;
 
   HTMLElement& Target() const { return *target_; }
   void DidUpgrade();
@@ -55,6 +54,8 @@ class CORE_EXPORT ElementInternals : public ScriptWrappable,
 
   bool HasState(const AtomicString& state) const;
 
+  ShadowRoot* shadowRoot() const;
+
   // We need these functions because we are reflecting ARIA attributes.
   // See dom/aria_attributes.idl.
   const AtomicString& FastGetAttribute(const QualifiedName&) const;
@@ -62,12 +63,11 @@ class CORE_EXPORT ElementInternals : public ScriptWrappable,
 
   void SetElementAttribute(const QualifiedName& name, Element* element);
   Element* GetElementAttribute(const QualifiedName& name);
-  HeapVector<Member<Element>> GetElementArrayAttribute(
+  base::Optional<HeapVector<Member<Element>>> GetElementArrayAttribute(
+      const QualifiedName& name) const;
+  void SetElementArrayAttribute(
       const QualifiedName& name,
-      bool is_null);
-  void SetElementArrayAttribute(const QualifiedName&,
-                                HeapVector<Member<Element>>,
-                                bool is_null);
+      const base::Optional<HeapVector<Member<Element>>>& elements);
   bool HasAttribute(const QualifiedName& attribute) const;
   const HashMap<QualifiedName, AtomicString>& GetAttributes() const;
 

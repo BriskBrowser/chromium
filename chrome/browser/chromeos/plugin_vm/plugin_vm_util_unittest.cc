@@ -10,22 +10,29 @@
 #include "chrome/browser/chromeos/settings/cros_settings.h"
 #include "chrome/browser/chromeos/settings/scoped_cros_settings_test_helper.h"
 #include "chrome/test/base/testing_profile.h"
+#include "chromeos/dbus/dbus_thread_manager.h"
 #include "chromeos/tpm/stub_install_attributes.h"
 #include "components/prefs/pref_service.h"
+#include "components/prefs/scoped_user_pref_update.h"
 #include "content/public/test/browser_task_environment.h"
+#include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace plugin_vm {
 
-const char kBaseDriveUrl[] = "https://drive.google.com/open?id=";
-const char kDriveFileId[] = "Yxhi5BDTxsEl9onT8AunH4o_tkKviFGjY";
-const char kDriveExtraParam[] = "&foobar=barfoo";
 
 class PluginVmUtilTest : public testing::Test {
  public:
   PluginVmUtilTest() = default;
 
+  MOCK_METHOD(void, OnPolicyChanged, (bool));
+
  protected:
+  struct ScopedDBusThreadManager {
+    ScopedDBusThreadManager() { chromeos::DBusThreadManager::Initialize(); }
+    ~ScopedDBusThreadManager() { chromeos::DBusThreadManager::Shutdown(); }
+  } dbus_thread_manager_;
+
   content::BrowserTaskEnvironment task_environment_;
   std::unique_ptr<TestingProfile> testing_profile_;
   std::unique_ptr<PluginVmTestHelper> test_helper_;
@@ -80,37 +87,87 @@ TEST_F(PluginVmUtilTest, GetPluginVmLicenseKey) {
   EXPECT_EQ(kLicenseKey, GetPluginVmLicenseKey());
 }
 
-TEST_F(PluginVmUtilTest, PluginVmShouldBeAllowedForManualTesting) {
+TEST_F(PluginVmUtilTest, AddPluginVmPolicyObserver) {
+  const std::unique_ptr<PluginVmPolicySubscription> subscription =
+      std::make_unique<plugin_vm::PluginVmPolicySubscription>(
+          testing_profile_.get(),
+          base::BindRepeating(&PluginVmUtilTest::OnPolicyChanged,
+                              base::Unretained(this)));
+
   EXPECT_FALSE(IsPluginVmAllowedForProfile(testing_profile_.get()));
 
-  test_helper_->AllowPluginVmForManualTesting();
-  EXPECT_TRUE(IsPluginVmAllowedForProfile(testing_profile_.get()));
+  EXPECT_CALL(*this, OnPolicyChanged(true));
+  test_helper_->AllowPluginVm();
+  testing::Mock::VerifyAndClearExpectations(this);
+
+  EXPECT_CALL(*this, OnPolicyChanged(false));
+  testing_profile_->ScopedCrosSettingsTestHelper()->SetString(
+      chromeos::kPluginVmLicenseKey, "");
+  testing::Mock::VerifyAndClearExpectations(this);
+
+  EXPECT_CALL(*this, OnPolicyChanged(true));
+  const std::string kLicenseKey = "LICENSE_KEY";
+  testing_profile_->ScopedCrosSettingsTestHelper()->SetString(
+      chromeos::kPluginVmLicenseKey, kLicenseKey);
+  testing::Mock::VerifyAndClearExpectations(this);
+
+  EXPECT_CALL(*this, OnPolicyChanged(false));
+  testing_profile_->ScopedCrosSettingsTestHelper()->SetBoolean(
+      chromeos::kPluginVmAllowed, false);
+  testing::Mock::VerifyAndClearExpectations(this);
+
+  EXPECT_CALL(*this, OnPolicyChanged(true));
+  testing_profile_->ScopedCrosSettingsTestHelper()->SetBoolean(
+      chromeos::kPluginVmAllowed, true);
+  testing::Mock::VerifyAndClearExpectations(this);
+
+  EXPECT_CALL(*this, OnPolicyChanged(false));
+  testing_profile_->GetPrefs()->SetBoolean(plugin_vm::prefs::kPluginVmAllowed,
+                                           false);
 }
 
-TEST_F(PluginVmUtilTest, DriveLinkDetection) {
-  std::string base_url(kBaseDriveUrl);
-  std::string file_id(kDriveFileId);
-
-  EXPECT_TRUE(IsDriveUrl(GURL(base_url + file_id)));
-  EXPECT_TRUE(IsDriveUrl(
-      GURL(base_url + file_id + kDriveExtraParam + kDriveExtraParam)));
-
-  EXPECT_FALSE(IsDriveUrl(GURL("https://othersite.com?id=" + file_id)));
-  EXPECT_FALSE(
-      IsDriveUrl(GURL("https://drive.google.com.othersite.com?id=" + file_id)));
-  EXPECT_FALSE(IsDriveUrl(GURL(base_url)));
+TEST_F(PluginVmUtilTest, DriveUrlNonMatches) {
+  EXPECT_EQ(base::nullopt,
+            GetIdFromDriveUrl(GURL(
+                "http://192.168.0.2?id=Yxhi5BDTxsEl9onT8AunH4o_tkKviFGjY")));
+  EXPECT_EQ(base::nullopt,
+            GetIdFromDriveUrl(
+                GURL("https://drive.notgoogle.com/open?id=someSortOfId123")));
+  EXPECT_EQ(base::nullopt,
+            GetIdFromDriveUrl(GURL(
+                "https://site.com/a/site.com/file/d/definitelyNotDrive/view")));
+  EXPECT_EQ(
+      base::nullopt,
+      GetIdFromDriveUrl(GURL("file:///home/chronos/user/Downloads/file.zip")));
+  EXPECT_EQ(base::nullopt,
+            GetIdFromDriveUrl(GURL("http://drive.google.com/open?id=fancyId")));
 }
 
-TEST_F(PluginVmUtilTest, DriveLinkIdExtraction) {
-  std::string base_url(kBaseDriveUrl);
-  std::string file_id(kDriveFileId);
+TEST_F(PluginVmUtilTest, DriveUrlPatternWithOpen) {
+  EXPECT_EQ("fancyId", GetIdFromDriveUrl(
+                           GURL("https://drive.google.com/open?id=fancyId")));
+  EXPECT_EQ("fancyId2",
+            GetIdFromDriveUrl(
+                GURL("https://drive.google.com/open?id=fancyId2&foo=bar")));
+  EXPECT_EQ(
+      "SomeCoolId000",
+      GetIdFromDriveUrl(GURL(
+          "https://drive.google.com/open?bar=foo&id=SomeCoolId000&foo=bar")));
+}
 
-  EXPECT_EQ(GetIdFromDriveUrl(GURL(base_url + file_id)), file_id);
-  EXPECT_EQ(GetIdFromDriveUrl(GURL(base_url + file_id + kDriveExtraParam)),
-            file_id);
-  EXPECT_EQ(GetIdFromDriveUrl(
-                GURL(base_url + file_id + kDriveExtraParam + kDriveExtraParam)),
-            file_id);
+TEST_F(PluginVmUtilTest, DriveUrlPatternWithView) {
+  EXPECT_EQ("Id123",
+            GetIdFromDriveUrl(GURL("https://drive.google.com/a/google.com/file/"
+                                   "d/Id123/view?usp=sharing")));
+  EXPECT_EQ("PluginVmIsCool",
+            GetIdFromDriveUrl(GURL("https://drive.google.com/a/fancydomain.org/"
+                                   "file/d/PluginVmIsCool/view")));
+
+  EXPECT_EQ("hello",
+            GetIdFromDriveUrl(GURL(
+                "https://drive.google.com/file/d/hello/view?usp=sharing")));
+  EXPECT_EQ("w-r-d", GetIdFromDriveUrl(
+                         GURL("https://drive.google.com/file/d/w-r-d/view")));
 }
 
 }  // namespace plugin_vm

@@ -4,12 +4,16 @@
 
 package org.chromium.chrome.browser.dom_distiller;
 
+import androidx.annotation.VisibleForTesting;
+
 import org.chromium.base.annotations.JNINamespace;
 import org.chromium.base.annotations.NativeMethods;
-import org.chromium.chrome.browser.ChromeFeatureList;
+import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.preferences.Pref;
-import org.chromium.chrome.browser.preferences.PrefServiceBridge;
+import org.chromium.chrome.browser.profiles.Profile;
+import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.components.navigation_interception.InterceptNavigationDelegate;
+import org.chromium.components.user_prefs.UserPrefs;
 import org.chromium.content_public.browser.WebContents;
 
 /**
@@ -17,8 +21,11 @@ import org.chromium.content_public.browser.WebContents;
  */
 @JNINamespace("android")
 public class DomDistillerTabUtils {
-    // Triggering heuristics encoded in native enum DistillerHeuristicsType.
+    /** Triggering heuristics encoded in native enum DistillerHeuristicsType. */
     private static Integer sHeuristics;
+
+    /** Used to specify whether mobile friendly is enabled for testing purposes. */
+    private static Boolean sExcludeMobileFriendlyForTesting;
 
     private DomDistillerTabUtils() {
     }
@@ -92,9 +99,18 @@ public class DomDistillerTabUtils {
      * @return True if heuristic is ADABOOST_MODEL, and "Simplified view for accessibility"
      * is disabled.
      */
-    public static boolean shouldExcludeMobileFriendly() {
-        return !PrefServiceBridge.getInstance().getBoolean(Pref.READER_FOR_ACCESSIBILITY_ENABLED)
+    public static boolean shouldExcludeMobileFriendly(Tab tab) {
+        if (sExcludeMobileFriendlyForTesting != null) return sExcludeMobileFriendlyForTesting;
+        WebContents webContents = tab.getWebContents();
+        assert webContents != null;
+        return !UserPrefs.get(Profile.fromWebContents(webContents))
+                        .getBoolean(Pref.READER_FOR_ACCESSIBILITY)
                 && getDistillerHeuristics() == DistillerHeuristicsType.ADABOOST_MODEL;
+    }
+
+    @VisibleForTesting
+    public static void setExcludeMobileFriendlyForTesting(boolean excludeForTesting) {
+        sExcludeMobileFriendlyForTesting = excludeForTesting;
     }
 
     /**

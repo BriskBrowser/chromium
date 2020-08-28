@@ -12,10 +12,12 @@
 #include <utility>
 #include <vector>
 
+#include "base/check.h"
 #include "base/json/json_string_value_serializer.h"
-#include "base/logging.h"
 #include "base/numerics/safe_conversions.h"
+#include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
+#include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
 #include "sandbox/win/src/ipc_tags.h"
 #include "sandbox/win/src/policy_engine_opcodes.h"
@@ -31,7 +33,7 @@ namespace {
 base::Value ProcessIdList(std::vector<uint32_t> process_ids) {
   base::Value results(base::Value::Type::LIST);
   for (const auto pid : process_ids) {
-    results.GetList().push_back(base::Value(base::strict_cast<double>(pid)));
+    results.Append(base::strict_cast<double>(pid));
   }
   return results;
 }
@@ -98,8 +100,8 @@ std::string GetIntegrityLevelInEnglish(IntegrityLevel integrity) {
   }
 }
 
-base::string16 GetSidAsString(const Sid* sid) {
-  base::string16 result;
+std::wstring GetSidAsString(const Sid* sid) {
+  std::wstring result;
   if (!sid->ToSddlString(&result))
     DCHECK(false) << "Failed to make sddl string";
   return result;
@@ -339,7 +341,7 @@ base::Value GetPolicyOpcodes(const PolicyGlobal* policy_rules, IpcTag service) {
     } else {
       cur_rule += " -> ";
       cur_rule += GetPolicyOpcode(opcode, false);
-      entry.GetList().push_back(base::Value(cur_rule));
+      entry.Append(cur_rule);
       cur_rule.clear();
     }
   }
@@ -432,11 +434,14 @@ const char* PolicyDiagnostic::JsonString() {
                base::Value(GetPlatformMitigationsAsHex(desired_mitigations_)));
 
   if (app_container_sid_)
-    value.SetKey(kAppContainerSid,
-                 base::Value(GetSidAsString(app_container_sid_.get())));
+    value.SetStringKey(
+        kAppContainerSid,
+        base::AsStringPiece16(GetSidAsString(app_container_sid_.get())));
 
-  if (lowbox_sid_)
-    value.SetKey(kLowboxSid, base::Value(GetSidAsString(lowbox_sid_.get())));
+  if (lowbox_sid_) {
+    value.SetStringKey(
+        kLowboxSid, base::AsStringPiece16(GetSidAsString(lowbox_sid_.get())));
+  }
 
   if (policy_rules_)
     value.SetKey(kPolicyRules, GetPolicyRules(policy_rules_.get()));

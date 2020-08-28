@@ -9,6 +9,7 @@
 
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_binding_for_core.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_element_definition_options.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/core/html/custom/custom_element_definition.h"
@@ -159,7 +160,7 @@ TEST(CustomElementTest, StateByParser) {
       "<font-face id=v0></font-face>";
   auto page_holder = std::make_unique<DummyPageHolder>();
   Document& document = page_holder->GetDocument();
-  document.body()->SetInnerHTMLFromString(String::FromUTF8(body_content));
+  document.body()->setInnerHTML(String::FromUTF8(body_content));
 
   struct {
     const char* id;

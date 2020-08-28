@@ -10,6 +10,7 @@
 
 #include <string.h>
 
+#include "base/notreached.h"
 #include "ui/gl/egl_mock.h"
 
 namespace {
@@ -298,6 +299,15 @@ MockEGLInterface::Mock_eglGetFrameTimestampsANDROID(EGLDisplay dpy,
       dpy, surface, frameId, numTimestamps, timestamps, values);
 }
 
+EGLBoolean GL_BINDING_CALL
+MockEGLInterface::Mock_eglGetMscRateANGLE(EGLDisplay dpy,
+                                          EGLSurface surface,
+                                          EGLint* numerator,
+                                          EGLint* denominator) {
+  MakeEglMockFunctionUnique("eglGetMscRateANGLE");
+  return interface_->GetMscRateANGLE(dpy, surface, numerator, denominator);
+}
+
 EGLClientBuffer GL_BINDING_CALL
 MockEGLInterface::Mock_eglGetNativeClientBufferANDROID(
     const struct AHardwareBuffer* ahardwarebuffer) {
@@ -344,6 +354,12 @@ MockEGLInterface::Mock_eglGetSyncValuesCHROMIUM(EGLDisplay dpy,
                                                 EGLuint64CHROMIUM* sbc) {
   MakeEglMockFunctionUnique("eglGetSyncValuesCHROMIUM");
   return interface_->GetSyncValuesCHROMIUM(dpy, surface, ust, msc, sbc);
+}
+
+void GL_BINDING_CALL
+MockEGLInterface::Mock_eglHandleGPUSwitchANGLE(EGLDisplay dpy) {
+  MakeEglMockFunctionUnique("eglHandleGPUSwitchANGLE");
+  interface_->HandleGPUSwitchANGLE(dpy);
 }
 
 EGLBoolean GL_BINDING_CALL
@@ -410,6 +426,21 @@ MockEGLInterface::Mock_eglQueryDebugKHR(EGLint attribute, EGLAttrib* value) {
   return interface_->QueryDebugKHR(attribute, value);
 }
 
+const char* GL_BINDING_CALL
+MockEGLInterface::Mock_eglQueryDeviceStringEXT(EGLDeviceEXT device,
+                                               EGLint name) {
+  MakeEglMockFunctionUnique("eglQueryDeviceStringEXT");
+  return interface_->QueryDeviceStringEXT(device, name);
+}
+
+EGLBoolean GL_BINDING_CALL
+MockEGLInterface::Mock_eglQueryDevicesEXT(EGLint max_devices,
+                                          EGLDeviceEXT* devices,
+                                          EGLint* num_devices) {
+  MakeEglMockFunctionUnique("eglQueryDevicesEXT");
+  return interface_->QueryDevicesEXT(max_devices, devices, num_devices);
+}
+
 EGLBoolean GL_BINDING_CALL
 MockEGLInterface::Mock_eglQueryDisplayAttribANGLE(EGLDisplay dpy,
                                                   EGLint attribute,
@@ -466,6 +497,20 @@ MockEGLInterface::Mock_eglQuerySurfacePointerANGLE(EGLDisplay dpy,
                                                    void** value) {
   MakeEglMockFunctionUnique("eglQuerySurfacePointerANGLE");
   return interface_->QuerySurfacePointerANGLE(dpy, surface, attribute, value);
+}
+
+void GL_BINDING_CALL
+MockEGLInterface::Mock_eglReacquireHighPowerGPUANGLE(EGLDisplay dpy,
+                                                     EGLContext ctx) {
+  MakeEglMockFunctionUnique("eglReacquireHighPowerGPUANGLE");
+  interface_->ReacquireHighPowerGPUANGLE(dpy, ctx);
+}
+
+void GL_BINDING_CALL
+MockEGLInterface::Mock_eglReleaseHighPowerGPUANGLE(EGLDisplay dpy,
+                                                   EGLContext ctx) {
+  MakeEglMockFunctionUnique("eglReleaseHighPowerGPUANGLE");
+  interface_->ReleaseHighPowerGPUANGLE(dpy, ctx);
 }
 
 EGLBoolean GL_BINDING_CALL
@@ -682,6 +727,8 @@ MockEGLInterface::GetGLProcAddress(const char* name) {
   if (strcmp(name, "eglGetFrameTimestampsANDROID") == 0)
     return reinterpret_cast<GLFunctionPointerType>(
         Mock_eglGetFrameTimestampsANDROID);
+  if (strcmp(name, "eglGetMscRateANGLE") == 0)
+    return reinterpret_cast<GLFunctionPointerType>(Mock_eglGetMscRateANGLE);
   if (strcmp(name, "eglGetNativeClientBufferANDROID") == 0)
     return reinterpret_cast<GLFunctionPointerType>(
         Mock_eglGetNativeClientBufferANDROID);
@@ -697,6 +744,9 @@ MockEGLInterface::GetGLProcAddress(const char* name) {
   if (strcmp(name, "eglGetSyncValuesCHROMIUM") == 0)
     return reinterpret_cast<GLFunctionPointerType>(
         Mock_eglGetSyncValuesCHROMIUM);
+  if (strcmp(name, "eglHandleGPUSwitchANGLE") == 0)
+    return reinterpret_cast<GLFunctionPointerType>(
+        Mock_eglHandleGPUSwitchANGLE);
   if (strcmp(name, "eglImageFlushExternalEXT") == 0)
     return reinterpret_cast<GLFunctionPointerType>(
         Mock_eglImageFlushExternalEXT);
@@ -714,6 +764,11 @@ MockEGLInterface::GetGLProcAddress(const char* name) {
     return reinterpret_cast<GLFunctionPointerType>(Mock_eglQueryContext);
   if (strcmp(name, "eglQueryDebugKHR") == 0)
     return reinterpret_cast<GLFunctionPointerType>(Mock_eglQueryDebugKHR);
+  if (strcmp(name, "eglQueryDeviceStringEXT") == 0)
+    return reinterpret_cast<GLFunctionPointerType>(
+        Mock_eglQueryDeviceStringEXT);
+  if (strcmp(name, "eglQueryDevicesEXT") == 0)
+    return reinterpret_cast<GLFunctionPointerType>(Mock_eglQueryDevicesEXT);
   if (strcmp(name, "eglQueryDisplayAttribANGLE") == 0)
     return reinterpret_cast<GLFunctionPointerType>(
         Mock_eglQueryDisplayAttribANGLE);
@@ -730,6 +785,12 @@ MockEGLInterface::GetGLProcAddress(const char* name) {
   if (strcmp(name, "eglQuerySurfacePointerANGLE") == 0)
     return reinterpret_cast<GLFunctionPointerType>(
         Mock_eglQuerySurfacePointerANGLE);
+  if (strcmp(name, "eglReacquireHighPowerGPUANGLE") == 0)
+    return reinterpret_cast<GLFunctionPointerType>(
+        Mock_eglReacquireHighPowerGPUANGLE);
+  if (strcmp(name, "eglReleaseHighPowerGPUANGLE") == 0)
+    return reinterpret_cast<GLFunctionPointerType>(
+        Mock_eglReleaseHighPowerGPUANGLE);
   if (strcmp(name, "eglReleaseTexImage") == 0)
     return reinterpret_cast<GLFunctionPointerType>(Mock_eglReleaseTexImage);
   if (strcmp(name, "eglReleaseThread") == 0)

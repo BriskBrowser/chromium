@@ -15,18 +15,18 @@
 #include "base/values.h"
 #include "chrome/common/buildflags.h"
 #include "chrome/common/chrome_features.h"
-#include "chrome/common/prerender_messages.h"
 #include "chrome/common/render_messages.h"
 #include "chrome/grit/generated_resources.h"
 #include "chrome/grit/renderer_resources.h"
 #include "chrome/renderer/chrome_content_renderer_client.h"
-#include "chrome/renderer/content_settings_agent_impl.h"
 #include "chrome/renderer/custom_menu_commands.h"
 #include "chrome/renderer/plugins/plugin_preroller.h"
 #include "chrome/renderer/plugins/plugin_uma.h"
+#include "components/content_settings/renderer/content_settings_agent_impl.h"
+#include "components/prerender/renderer/prerender_observer_list.h"
 #include "components/strings/grit/components_strings.h"
 #include "content/public/common/content_switches.h"
-#include "content/public/common/context_menu_params.h"
+#include "content/public/common/untrustworthy_context_menu_params.h"
 #include "content/public/renderer/render_frame.h"
 #include "content/public/renderer/render_thread.h"
 #include "gin/object_template_builder.h"
@@ -71,10 +71,17 @@ ChromePluginPlaceholder::ChromePluginPlaceholder(
       title_(title),
       context_menu_request_id_(0) {
   RenderThread::Get()->AddObserver(this);
+  prerender::PrerenderObserverList::AddObserverForFrame(render_frame, this);
 }
 
 ChromePluginPlaceholder::~ChromePluginPlaceholder() {
   RenderThread::Get()->RemoveObserver(this);
+
+  if (render_frame()) {
+    prerender::PrerenderObserverList::RemoveObserverForFrame(render_frame(),
+                                                             this);
+  }
+
   if (context_menu_request_id_ && render_frame())
     render_frame()->CancelContextMenu(context_menu_request_id_);
 }
@@ -89,9 +96,9 @@ ChromePluginPlaceholder::BindPluginRenderer() {
 ChromePluginPlaceholder* ChromePluginPlaceholder::CreateLoadableMissingPlugin(
     content::RenderFrame* render_frame,
     const blink::WebPluginParams& params) {
-  const base::StringPiece template_html(
-      ui::ResourceBundle::GetSharedInstance().GetRawDataResource(
-          IDR_BLOCKED_PLUGIN_HTML));
+  std::string template_html =
+      ui::ResourceBundle::GetSharedInstance().LoadDataResourceString(
+          IDR_BLOCKED_PLUGIN_HTML);
 
   base::DictionaryValue values;
   values.SetString("name", "");
@@ -148,8 +155,9 @@ ChromePluginPlaceholder* ChromePluginPlaceholder::CreateBlockedPlugin(
     }
   }
 
-  const base::StringPiece template_html(
-      ui::ResourceBundle::GetSharedInstance().GetRawDataResource(template_id));
+  std::string template_html =
+      ui::ResourceBundle::GetSharedInstance().LoadDataResourceString(
+          template_id);
 
   DCHECK(!template_html.empty()) << "unable to load template. ID: "
                                  << template_id;
@@ -179,7 +187,6 @@ bool ChromePluginPlaceholder::OnMessageReceived(const IPC::Message& message) {
   // We don't swallow these messages because multiple blocked plugins and other
   // objects have an interest in them.
   IPC_BEGIN_MESSAGE_MAP(ChromePluginPlaceholder, message)
-    IPC_MESSAGE_HANDLER(PrerenderMsg_SetIsPrerendering, OnSetPrerenderMode)
     IPC_MESSAGE_HANDLER(ChromeViewMsg_LoadBlockedPlugins, OnLoadBlockedPlugins)
   IPC_END_MESSAGE_MAP()
 
@@ -210,10 +217,8 @@ void ChromePluginPlaceholder::UpdateFailure() {
                                         plugin_name_));
 }
 
-void ChromePluginPlaceholder::OnSetPrerenderMode(
-    prerender::PrerenderMode mode,
-    const std::string& histogram_prefix) {
-  OnSetIsPrerendering(mode != prerender::NO_PRERENDER);
+void ChromePluginPlaceholder::SetIsPrerendering(bool is_prerendering) {
+  OnSetIsPrerendering(is_prerendering);
 }
 
 void ChromePluginPlaceholder::PluginListChanged() {
@@ -281,7 +286,7 @@ void ChromePluginPlaceholder::ShowContextMenu(
   if (!render_frame())
     return;
 
-  content::ContextMenuParams params;
+  content::UntrustworthyContextMenuParams params;
 
   if (!title_.empty()) {
     content::MenuItem name_item;
@@ -322,13 +327,13 @@ void ChromePluginPlaceholder::ShowContextMenu(
   hide_item.label = l10n_util::GetStringUTF16(IDS_CONTENT_CONTEXT_PLUGIN_HIDE);
   params.custom_items.push_back(hide_item);
 
-  blink::WebPoint point(event.PositionInWidget().x(),
-                        event.PositionInWidget().y());
+  gfx::Point point =
+      gfx::Point(event.PositionInWidget().x(), event.PositionInWidget().y());
   if (plugin() && plugin()->Container())
     point = plugin()->Container()->LocalToRootFramePoint(point);
 
-  params.x = point.x;
-  params.y = point.y;
+  params.x = point.x();
+  params.y = point.y();
 
   context_menu_request_id_ = render_frame()->ShowContextMenu(this, params);
   g_last_active_menu = this;
@@ -359,7 +364,7 @@ void ChromePluginPlaceholder::OnBlockedContent(
 
   if (status ==
       content::RenderFrame::PeripheralContentStatus::CONTENT_STATUS_TINY) {
-    ContentSettingsAgentImpl::Get(render_frame())
+    content_settings::ContentSettingsAgentImpl::Get(render_frame())
         ->DidBlockContentType(ContentSettingsType::PLUGINS);
   }
 

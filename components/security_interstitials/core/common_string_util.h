@@ -32,9 +32,10 @@ void PopulateSSLDebuggingStrings(const net::SSLInfo ssl_info,
 // For determining whether to use the old or new icon sets.
 void PopulateNewIconStrings(base::DictionaryValue* load_time_data);
 
-// Populate a 'darkModeAvailable' boolean in |load_time_data| that specifies
-// whether dark mode styling is available.
-void PopulateDarkModeDisplaySetting(base::DictionaryValue* load_time_data);
+// Fills in the details for a legacy TLS error. Abstracts the strings for
+// access from ios/.
+void PopulateLegacyTLSStrings(base::DictionaryValue* load_time_data,
+                              const base::string16& hostname);
 
 }  // common_string_util
 

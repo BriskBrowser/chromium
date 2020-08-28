@@ -6,7 +6,7 @@
 #define BASE_SYNCHRONIZATION_LOCK_IMPL_H_
 
 #include "base/base_export.h"
-#include "base/logging.h"
+#include "base/check_op.h"
 #include "base/macros.h"
 #include "base/thread_annotations.h"
 #include "build/build_config.h"
@@ -16,6 +16,8 @@
 #elif defined(OS_POSIX) || defined(OS_FUCHSIA)
 #include <errno.h>
 #include <pthread.h>
+#include <string.h>
+#include <ostream>
 #endif
 
 namespace base {

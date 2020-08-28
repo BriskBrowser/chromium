@@ -16,11 +16,13 @@
 #include "base/memory/ref_counted.h"
 #include "base/optional.h"
 #include "base/values.h"
+#include "content/public/browser/global_routing_id.h"
 #include "extensions/browser/api/declarative_net_request/request_action.h"
 #include "extensions/browser/api/web_request/web_request_resource_type.h"
 #include "extensions/browser/extension_api_frame_id_map.h"
 #include "ipc/ipc_message.h"
 #include "net/http/http_request_headers.h"
+#include "net/http/http_response_headers.h"
 #include "services/network/public/cpp/resource_request.h"
 #include "services/network/public/mojom/url_response_head.mojom-forward.h"
 #include "url/gurl.h"
@@ -54,14 +56,14 @@ struct WebRequestInfoInitParams {
 
   uint64_t id = 0;
   GURL url;
-  GURL site_for_cookies;
+  net::SiteForCookies site_for_cookies;
   int render_process_id = -1;
   int routing_id = MSG_ROUTING_NONE;
   int frame_id = -1;
   std::string method;
   bool is_navigation_request = false;
   base::Optional<url::Origin> initiator;
-  content::ResourceType type = content::ResourceType::kSubResource;
+  blink::mojom::ResourceType type = blink::mojom::ResourceType::kSubResource;
   WebRequestResourceType web_request_type = WebRequestResourceType::OTHER;
   bool is_async = false;
   net::HttpRequestHeaders extra_request_headers;
@@ -73,6 +75,7 @@ struct WebRequestInfoInitParams {
   ExtensionApiFrameIdMap::FrameData frame_data;
   bool is_service_worker_script = false;
   base::Optional<int64_t> navigation_id;
+  content::GlobalFrameRoutingId parent_routing_id;
 
  private:
   void InitializeWebViewAndFrameData(
@@ -97,7 +100,7 @@ struct WebRequestInfo {
 
   // The URL of the request.
   const GURL url;
-  const GURL site_for_cookies;
+  const net::SiteForCookies site_for_cookies;
 
   // The ID of the render process which initiated the request, or -1 of not
   // applicable (i.e. if initiated by the browser).
@@ -125,7 +128,7 @@ struct WebRequestInfo {
   ExtensionApiFrameIdMap::FrameData frame_data;
 
   // The type of the request (e.g. main frame, subresource, XHR, etc).
-  const content::ResourceType type;
+  const blink::mojom::ResourceType type;
 
   // A partially mirrored copy of |type| which is slightly less granular and
   // which also identifies WebSocket requests separately from other types.
@@ -176,6 +179,10 @@ struct WebRequestInfo {
 
   // Valid if this request corresponds to a navigation.
   const base::Optional<int64_t> navigation_id;
+
+  // ID of the RenderFrameHost corresponding to the parent frame. Only valid for
+  // document subresource and sub-frame requests.
+  const content::GlobalFrameRoutingId parent_routing_id;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(WebRequestInfo);

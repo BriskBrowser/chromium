@@ -21,6 +21,7 @@
 <translation id="1398853756734560583">הגדל</translation>
 <translation id="1414271762428216854"><ph name="APP_NAME" />, אפליקציה מותקנת</translation>
 <translation id="1450753235335490080">לא ניתן לשתף את ה<ph name="CONTENT_TYPE" /></translation>
+<translation id="1487931858675166540">הפריט <ph name="SECOND_ITEM_TITLE" /> החליף את <ph name="FIRST_ITEM_TITLE" /></translation>
 <translation id="1498028757988366001">חיפשת את השאילתה הזו בעבר. מחיקת "<ph name="QUERY" />" מההיסטוריה תסיר אותה באופן סופי מהחשבון בכל המכשירים שברשותך.</translation>
 <translation id="1591184457164800433">{MINUTES,plural, =1{דקה אחת ו }two{# דקות ו }many{# דקות ו }other{# דקות ו }}</translation>
 <translation id="1643823602425662293">הודעה</translation>
@@ -36,10 +37,11 @@
 <translation id="1842960171412779397">בחירה</translation>
 <translation id="1859234291848436338">כיוון כתיבה</translation>
 <translation id="1860796786778352021">סגירת הודעה</translation>
+<translation id="186476001994626254">‏תוכן מ-Web Smart Paste</translation>
 <translation id="1871244248791675517">Ins</translation>
 <translation id="1884435127456172652">%<ph name="NUMBER" /></translation>
 <translation id="1901303067676059328">בחר &amp;הכל</translation>
-<translation id="1938451708255335766">כדי להתאים את דחיסות התצוגה של החלון, צריך להפעיל מחדש את האפליקציה.</translation>
+<translation id="19085484004813472">זוהי תכונה חדשה</translation>
 <translation id="2006524834898217237">יש לוודא שהמכשיר הזה מחובר לאינטרנט.</translation>
 <translation id="208586643495776849">יש לנסות שוב</translation>
 <translation id="2090963878406559571">‏כדי לשלוח מספר מ-<ph name="ORIGIN" /> לטלפון ה-Android שלך, צריך <ph name="TROUBLESHOOT_LINK" /> בהגדרות של שני המכשירים.</translation>
@@ -64,14 +66,18 @@
 <translation id="2522350507219695259">הכיול הושלם</translation>
 <translation id="252373100621549798">תצוגה לא ידועה</translation>
 <translation id="2545651323591713692">הפעלת נודניק</translation>
+<translation id="2570734079541893434">ניהול ההגדרות</translation>
 <translation id="2573731672208488250">{HOURS,plural, =1{עוד שעה}two{עוד 2 שעות}many{עוד # שעות}other{עוד # שעות}}</translation>
 <translation id="2583543531130364912">כיול מסך המגע</translation>
+<translation id="2586657967955657006">לוח</translation>
 <translation id="2666092431469916601">למעלה</translation>
 <translation id="2701330563083355633">שותפה מהמכשיר <ph name="DEVICE_NAME" /></translation>
+<translation id="271033894570825754">חדש</translation>
 <translation id="2743387203779672305">העתקה ללוח</translation>
 <translation id="2749082172777216925"><ph name="APP_NAME_INFO" />,‏ <ph name="PRICE" /></translation>
 <translation id="2803313416453193357">פתח את התיקייה</translation>
 <translation id="2824719307700604149">{YEARS,plural, =1{לפני שנה אחת}two{לפני שנתיים}many{לפני # שנים}other{לפני # שנים}}</translation>
+<translation id="2878511608894704031">מחיקת הכול</translation>
 <translation id="2907671656515444832">{DAYS,plural, =1{עוד יום אחד}two{עוד 2 ימים}many{עוד # ימים}other{עוד # ימים}}</translation>
 <translation id="2931838996092594335">לחץ</translation>
 <translation id="2981684127883932071">מוצגות הצעות</translation>
@@ -85,9 +91,9 @@
 <translation id="3234408098842461169">חץ למטה</translation>
 <translation id="3291688615589870984">{DAYS,plural, =1{יום אחד}two{יומיים}many{# ימים}other{# ימים}}</translation>
 <translation id="3295886253693811851">התקשרות באמצעות</translation>
+<translation id="3306688585798492231">מסך מובנה</translation>
 <translation id="335581015389089642">דיבור</translation>
 <translation id="3389286852084373014">הטקסט ארוך מדי</translation>
-<translation id="3479552764303398839">לא עכשיו</translation>
 <translation id="348799646910989694">המדף יוסתר באופן אוטומטי</translation>
 <translation id="3554637740840164787">הפריט <ph name="ITEM_TITLE" /> הוצמד</translation>
 <translation id="3600566671520689681">{DAYS,plural, =1{נותר יום אחד}two{נותרו יומיים}many{נותרו # ימים}other{נותרו # ימים}}</translation>
@@ -102,7 +108,6 @@
 <translation id="3842239759367498783">אפשר להמשיך לקרוא מהמכשיר הנייד <ph name="TITLE" /></translation>
 <translation id="385051799172605136">חזרה</translation>
 <translation id="3889424535448813030">חץ לימין</translation>
-<translation id="3892641579809465218">תצוגה פנימית</translation>
 <translation id="3897092660631435901">תפריט</translation>
 <translation id="3909791450649380159">גז&amp;ור</translation>
 <translation id="3990502903496589789">קצה ימני</translation>
@@ -113,6 +118,7 @@
 <translation id="4289300219472526559">התחל לדבר</translation>
 <translation id="430191667033048642">האפליקציה <ph name="MOVED_APP_NAME" /> הועברה אל התיקייה <ph name="FOLDER_NAME" />.</translation>
 <translation id="4316910396681052118">כל האפליקציות</translation>
+<translation id="4491109536499578614">תמונה</translation>
 <translation id="4588090240171750605">גלול ימינה</translation>
 <translation id="4631891353005174729"><ph name="APP_NAME_TYPE" />, דירוג כוכבים: <ph name="RATING_SCORE" /></translation>
 <translation id="4648249871170053485"><ph name="APP_NAME" />, המלצה על אפליקציה</translation>
@@ -136,6 +142,7 @@
 <translation id="5463830097259460683">אמוג'י וסמלים</translation>
 <translation id="5476505524087279545">ביטול הסימון</translation>
 <translation id="547979256943495781">המדף בצד ימין</translation>
+<translation id="5528053674512161860">‏טעינת הדף נכשלה מאחר שמודול ממשק המפתחים (dev_ui) אינו מותקן</translation>
 <translation id="5574202486608032840">מערכת <ph name="IDS_SHORT_PRODUCT_OS_NAME" /></translation>
 <translation id="5583640892426849032">Backspace</translation>
 <translation id="5613020302032141669">חץ לשמאל</translation>
@@ -143,20 +150,23 @@
 <translation id="5754277640426581776">{MINUTES,plural, =1{דק‘ אחת}two{# דק‘}many{# דק‘}other{# דק‘}}</translation>
 <translation id="5763338081255973061">{DAYS,plural, =0{פעילות אחרונה: היום}=1{פעילות אחרונה: אתמול}two{פעילות אחרונה: לפני יומיים}many{פעילות אחרונה: לפני # ימים}other{פעילות אחרונה: לפני # ימים}}</translation>
 <translation id="5768079895599174203">{DAYS,plural, =1{יום אחד ו }two{יומיים ו }many{# ימים ו }other{# ימים ו }}</translation>
+<translation id="5789643057113097023">.</translation>
 <translation id="5866104238061687188">{YEARS,plural, =1{עוד שנה אחת}two{עוד 2 שנים}many{עוד # שנים}other{עוד # שנים}}</translation>
-<translation id="5895138241574237353">הפעל מחדש</translation>
+<translation id="588258955323874662">מסך מלא</translation>
 <translation id="5906667377645263094">{SECONDS,plural, =1{נותרה שנייה אחת}two{נותרו # שניות}many{נותרו # שניות}other{נותרו # שניות}}</translation>
-<translation id="5941711191222866238">מזער</translation>
+<translation id="5941711191222866238">מזעור</translation>
 <translation id="5943826764092288734">{HOURS,plural, =1{שעה אחת}two{שעתיים}many{# שעות}other{# שעות}}</translation>
 <translation id="6012623610530968780">דף <ph name="SELECTED_PAGE" /> מתוך <ph name="TOTAL_PAGE_NUM" /></translation>
 <translation id="6022924867608035986">ניקוי הטקסט בתיבת החיפוש</translation>
 <translation id="6040143037577758943">סגור</translation>
 <translation id="6119846243427417423">הפעל</translation>
 <translation id="6129953537138746214">רווח</translation>
+<translation id="6134259848159370930">אפשר לחפש במכשיר, באפליקציות ובאינטרנט.</translation>
 <translation id="6135826906199951471">Del</translation>
 <translation id="6142413573757616983"><ph name="QUANTITY" /> B/s</translation>
 <translation id="6156262341071374681">הרחב לכל האפליקציות</translation>
 <translation id="6165508094623778733">למידע נוסף</translation>
+<translation id="6166852626429024716">חיפוש במכשיר, באפליקציות, בהגדרות, באינטרנט...</translation>
 <translation id="6264365405983206840">בחר &amp;הכל</translation>
 <translation id="6351032674660237738">הצעות לאפליקציות</translation>
 <translation id="6364916375976753737">גלול שמאלה</translation>
@@ -166,6 +176,7 @@
 <translation id="6417265370957905582">Google Assistant</translation>
 <translation id="6430678249303439055">חסימת כל ההודעות מהאפליקציה הזו</translation>
 <translation id="6483402905448010557">{SECONDS,plural, =1{לפני שנייה אחת}two{לפני # שניות}many{לפני # שניות}other{לפני # שניות}}</translation>
+<translation id="6503257047630241175">‏תוכן בפורמט RTF</translation>
 <translation id="6539092367496845964">משהו השתבש. יש לנסות שוב מאוחר יותר.</translation>
 <translation id="654149438358937226">חסימת כל ההודעות</translation>
 <translation id="6567071839949112727">לחיצה על אב</translation>
@@ -189,10 +200,10 @@
 <translation id="6974053822202609517">מימין לשמאל</translation>
 <translation id="7052633198403197513">F1</translation>
 <translation id="7130207228079676353">סבירות גבוהה</translation>
+<translation id="7170202025028120564">הגדרות התצוגה של האפליקציה ייכנסו לתוקף בפעם הבאה שהיא תופעל מחדש.</translation>
 <translation id="7222373446505536781">F11</translation>
 <translation id="7238427729722629793">{MINUTES,plural, =1{נותרה דק‘ אחת}two{נותרו # דק‘}many{נותרו # דק‘}other{נותרו # דק‘}}</translation>
 <translation id="7319740667687257810">מרכז האפליקציות, תצוגה חלקית</translation>
-<translation id="7352651011704765696">משהו השתבש</translation>
 <translation id="7365057348334984696">{MINUTES,plural, =1{לפני דק‘ אחת}two{לפני # דק‘}many{לפני # דק‘}other{לפני # דק‘}}</translation>
 <translation id="7389409599945284130">- <ph name="MESSAGE" /></translation>
 <translation id="7410957453383678442">{MINUTES,plural, =1{נותרה דקה אחת}two{נותרו # דקות}many{נותרו # דקות}other{נותרו # דקות}}</translation>
@@ -205,6 +216,7 @@
 <translation id="7848989271541991537">עברה לדף <ph name="PAGE_NUMBER" />, שורה <ph name="ROW_NUMBER" />, עמודה <ph name="COLUMN_NUMBER" />.</translation>
 <translation id="7879499977785298635">ללא חסימה</translation>
 <translation id="7907591526440419938">פתח קובץ</translation>
+<translation id="7952747673138230804">‏Chrome OS מציג הצעות לתוכן חדש שעשוי לעניין אותך. נתונים סטטיסטיים יישלחו כדי לשפר את האיכות רק אם בחרת לשתף נתוני שימוש במכשיר. <ph name="MANAGE_SETTINGS" /></translation>
 <translation id="7969046989155602842">פקודה</translation>
 <translation id="8074552109918343525">{MAX_UNREAD_NOTIFICATIONS,plural, =1{יותר מהודעה אחת שלא נקראה}two{יותר מ-2 הודעות שלא נקראו}many{יותר מ-# הודעות שלא נקראו}other{יותר מ-# הודעות שלא נקראו}}</translation>
 <translation id="8086866675552927481">{MINUTES,plural, =1{עוד דקה}two{עוד 2 דקות}many{עוד # דקות}other{עוד # דקות}}</translation>
@@ -231,6 +243,7 @@
 <translation id="8602707065186045623">קובץ <ph name="SAVEAS_EXTENSION_TYPE" />  (<ph name="SAVEAS_EXTENSION_NAME" />.)</translation>
 <translation id="8649597172973390955">המדף תמיד מוצג</translation>
 <translation id="8677655579646609597"><ph name="QUANTITY" /> KB/s‎</translation>
+<translation id="8685326675965865247">אפשר לחפש במכשיר, באפליקציות, בהגדרות ובאינטרנט. בעזרת מקשי החיצים ניתן לעבור בין האפליקציות.</translation>
 <translation id="8725488761726303204">ועוד <ph name="NUMBER" /></translation>
 <translation id="8730621377337864115">בוצע</translation>
 <translation id="8772073294905169192">{HOURS,plural, =1{שעה}two{# שע}many{# שע}other{# שע}}</translation>

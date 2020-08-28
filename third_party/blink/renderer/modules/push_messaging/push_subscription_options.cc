@@ -4,8 +4,9 @@
 
 #include "third_party/blink/renderer/modules/push_messaging/push_subscription_options.h"
 
+#include "third_party/blink/renderer/bindings/modules/v8/array_buffer_or_array_buffer_view_or_string.h"
+#include "third_party/blink/renderer/bindings/modules/v8/v8_push_subscription_options_init.h"
 #include "third_party/blink/renderer/core/typed_arrays/dom_array_buffer.h"
-#include "third_party/blink/renderer/modules/push_messaging/push_subscription_options_init.h"
 #include "third_party/blink/renderer/platform/bindings/exception_code.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
 #include "third_party/blink/renderer/platform/wtf/assertions.h"
@@ -81,7 +82,11 @@ PushSubscriptionOptions* PushSubscriptionOptions::FromOptionsInit(
     const PushSubscriptionOptionsInit* options_init,
     ExceptionState& exception_state) {
   Vector<uint8_t> application_server_key;
-  if (options_init->hasApplicationServerKey()) {
+  // TODO(crbug.com/1070871): PushSubscriptionOptionsInit.applicationServerKey
+  // has a default value, but we check |hasApplicationServerKey()| here for
+  // backward compatibility.
+  if (options_init->hasApplicationServerKey() &&
+      !options_init->applicationServerKey().IsNull()) {
     application_server_key.AppendVector(BufferSourceToVector(
         options_init->applicationServerKey(), exception_state));
   }
@@ -98,7 +103,7 @@ PushSubscriptionOptions::PushSubscriptionOptions(
           application_server_key.data(),
           SafeCast<unsigned>(application_server_key.size()))) {}
 
-void PushSubscriptionOptions::Trace(blink::Visitor* visitor) {
+void PushSubscriptionOptions::Trace(Visitor* visitor) const {
   visitor->Trace(application_server_key_);
   ScriptWrappable::Trace(visitor);
 }

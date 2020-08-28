@@ -28,7 +28,7 @@ import org.chromium.chrome.browser.compositor.layouts.LayoutRenderHost;
 import org.chromium.chrome.browser.compositor.layouts.content.TabContentManager;
 import org.chromium.chrome.browser.compositor.resources.StaticResourcePreloads;
 import org.chromium.chrome.browser.compositor.scene_layer.SceneLayer;
-import org.chromium.chrome.browser.externalnav.IntentWithGesturesHandler;
+import org.chromium.chrome.browser.externalnav.IntentWithRequestMetadataHandler;
 import org.chromium.chrome.browser.multiwindow.MultiWindowUtils;
 import org.chromium.chrome.browser.tabmodel.TabModelImpl;
 import org.chromium.components.browser_ui.styles.ChromeColors;
@@ -134,7 +134,7 @@ public class CompositorView
             return;
         }
 
-        mCompositorSurfaceManager = new CompositorSurfaceManagerImpl(this, this, false);
+        mCompositorSurfaceManager = new CompositorSurfaceManagerImpl(this, this);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             mScreenStateReceiver = new ScreenStateReceiverWorkaround();
         }
@@ -343,20 +343,17 @@ public class CompositorView
      * @param enabled Whether to enter or leave overlay immersive ar mode.
      */
     public void setOverlayImmersiveArMode(boolean enabled) {
-        if (mIsSurfaceControlEnabled) {
-            // SurfaceControl doesn't mark the translucent SurfaceView as a media overlay by
-            // default, but we need that to allow the DOM content drawn by the compositor to show
-            // above the WebXR content. Replace the surface manager with a customized one
-            // for the duration of the immersive-ar session.
-            if (enabled) {
-                mCompositorSurfaceManager.shutDown();
-                createCompositorSurfaceManager(true);
-            } else {
-                mCompositorSurfaceManager.shutDown();
-                createCompositorSurfaceManager();
-            }
+        // In SurfaceControl mode, we don't need to switch surfaces for the compositor, we can
+        // continue using its already-translucent surface. (The ArImmersiveOverlay has its own
+        // separate opaque surface which is used for displaying the camera image and WebGL drawn
+        // content. The compositor surface appears on top of that as an overlay.)
+        // TODO(https://crbug.com/1122103): revisit once the stale-ChromeChildSurface issue is
+        // fixed.
+        if (!canUseSurfaceControl()) {
+            // If SurfaceControl is off, switch the compositor to a translucent surface, same as
+            // overlay video mode.
+            setOverlayVideoMode(enabled);
         }
-        setOverlayVideoMode(enabled);
         CompositorViewJni.get().setOverlayImmersiveArMode(
                 mNativeCompositorView, CompositorView.this, enabled);
     }
@@ -438,12 +435,17 @@ public class CompositorView
         } else if (visibility == View.VISIBLE) {
             mWindowAndroid.onVisibilityChanged(true);
         }
-        IntentWithGesturesHandler.getInstance().clear();
+        IntentWithRequestMetadataHandler.getInstance().clear();
     }
 
     void onPhysicalBackingSizeChanged(WebContents webContents, int width, int height) {
         CompositorViewJni.get().onPhysicalBackingSizeChanged(
                 mNativeCompositorView, CompositorView.this, webContents, width, height);
+    }
+
+    void onControlsResizeViewChanged(WebContents webContents, boolean controlsResizeView) {
+        CompositorViewJni.get().onControlsResizeViewChanged(
+                mNativeCompositorView, CompositorView.this, webContents, controlsResizeView);
     }
 
     @CalledByNative
@@ -495,12 +497,13 @@ public class CompositorView
         if (swappedCurrentSize) {
             runDrawFinishedCallbacks();
         }
+
+        mRenderHost.didSwapBuffers(swappedCurrentSize);
     }
 
     @CalledByNative
     private void notifyWillUseSurfaceControl() {
         mIsSurfaceControlEnabled = true;
-        mCompositorSurfaceManager.recreateTranslucentSurfaceForSurfaceControl();
     }
 
     /**
@@ -531,9 +534,8 @@ public class CompositorView
 
         CompositorViewJni.get().setLayoutBounds(mNativeCompositorView, CompositorView.this);
 
-        SceneLayer sceneLayer =
-                provider.getUpdatedActiveSceneLayer(mLayerTitleCache, mTabContentManager,
-                mResourceManager, provider.getFullscreenManager());
+        SceneLayer sceneLayer = provider.getUpdatedActiveSceneLayer(mLayerTitleCache,
+                mTabContentManager, mResourceManager, provider.getBrowserControlsManager());
 
         CompositorViewJni.get().setSceneLayer(
                 mNativeCompositorView, CompositorView.this, sceneLayer);
@@ -615,19 +617,19 @@ public class CompositorView
         createCompositorSurfaceManager();
     }
 
-    private void createCompositorSurfaceManager(boolean supportMediaOverlay) {
-        mCompositorSurfaceManager =
-                new CompositorSurfaceManagerImpl(this, this, supportMediaOverlay);
+    private void createCompositorSurfaceManager() {
+        mCompositorSurfaceManager = new CompositorSurfaceManagerImpl(this, this);
         mCompositorSurfaceManager.requestSurface(getSurfacePixelFormat());
         CompositorViewJni.get().setNeedsComposite(mNativeCompositorView, CompositorView.this);
         mCompositorSurfaceManager.setVisibility(getVisibility());
     }
 
-    private void createCompositorSurfaceManager() {
-        // If surface control is available, video overlays don't need a translucent media
-        // overlay view, so disable support for that. This lets other components such
-        // as ThinWebView use ZOrderMediaOverlay.
-        createCompositorSurfaceManager(!mIsSurfaceControlEnabled);
+    /**
+     * Notifies the native compositor that a tab change has occurred. This
+     * should be called when changing to a valid tab.
+     */
+    public void onTabChanged() {
+        CompositorViewJni.get().onTabChanged(mNativeCompositorView, CompositorView.this);
     }
 
     @NativeMethods
@@ -642,6 +644,8 @@ public class CompositorView
                 int height, boolean backedBySurfaceTexture, Surface surface);
         void onPhysicalBackingSizeChanged(long nativeCompositorView, CompositorView caller,
                 WebContents webContents, int width, int height);
+        void onControlsResizeViewChanged(long nativeCompositorView, CompositorView caller,
+                WebContents webContents, boolean controlsResizeView);
         void finalizeLayers(long nativeCompositorView, CompositorView caller);
         void setNeedsComposite(long nativeCompositorView, CompositorView caller);
         void setLayoutBounds(long nativeCompositorView, CompositorView caller);
@@ -653,5 +657,6 @@ public class CompositorView
                 long nativeCompositorView, CompositorView caller, WindowAndroid window);
         void cacheBackBufferForCurrentSurface(long nativeCompositorView, CompositorView caller);
         void evictCachedBackBuffer(long nativeCompositorView, CompositorView caller);
+        void onTabChanged(long nativeCompositorView, CompositorView caller);
     }
 }

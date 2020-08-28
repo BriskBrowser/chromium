@@ -19,7 +19,7 @@ cr.define('cr_slider', function() {
    *   ariaValue: (number|undefined),
    * }}
    */
-  let SliderTick;
+  /* #export */ let SliderTick;
 
   /**
    * @param {number} min
@@ -469,6 +469,7 @@ cr.define('cr_slider', function() {
     },
   });
 
+  // #cr_define_end
   return {
     SliderTick: SliderTick,
   };

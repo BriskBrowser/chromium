@@ -36,7 +36,7 @@ namespace component_updater {
 
 namespace {
 
-constexpr char kErrorHistogramName[] = "SoftwareReporter.ExperimentErrors";
+constexpr char kErrorHistogramName[] = "SoftwareReporter.ConfigurationErrors";
 constexpr char kExperimentTag[] = "experiment_tag";
 constexpr char kMissingTag[] = "missing_tag";
 
@@ -53,9 +53,9 @@ using Events = update_client::UpdateClient::Observer::Events;
 class SwReporterInstallerTest : public ::testing::Test {
  public:
   SwReporterInstallerTest()
-      : on_component_ready_callback_(
-            base::Bind(&SwReporterInstallerTest::SwReporterComponentReady,
-                       base::Unretained(this))),
+      : on_component_ready_callback_(base::BindRepeating(
+            &SwReporterInstallerTest::SwReporterComponentReady,
+            base::Unretained(this))),
         default_version_("1.2.3"),
         default_path_(L"C:\\full\\path\\to\\download") {}
 
@@ -192,8 +192,7 @@ class SwReporterInstallerTest : public ::testing::Test {
   void ExpectLaunchError() {
     // The SwReporter should not be launched, and an error should be logged.
     EXPECT_TRUE(extracted_invocations_.container().empty());
-    histograms_.ExpectUniqueSample(kErrorHistogramName,
-                                   SW_REPORTER_EXPERIMENT_ERROR_BAD_PARAMS, 1);
+    histograms_.ExpectUniqueSample(kErrorHistogramName, kBadParams, 1);
   }
 
   base::test::ScopedFeatureList scoped_feature_list_;
@@ -229,16 +228,14 @@ TEST_F(SwReporterInstallerTest, MissingTag) {
   SwReporterInstallerPolicy policy(on_component_ready_callback_);
   CreateFeatureWithoutTag();
   ExpectAttributesWithTag(policy, kMissingTag);
-  histograms_.ExpectUniqueSample(kErrorHistogramName,
-                                 SW_REPORTER_EXPERIMENT_ERROR_BAD_TAG, 1);
+  histograms_.ExpectUniqueSample(kErrorHistogramName, kBadTag, 1);
 }
 
 TEST_F(SwReporterInstallerTest, InvalidTag) {
   SwReporterInstallerPolicy policy(on_component_ready_callback_);
   CreateFeatureWithTag("tag with invalid whitespace chars");
   ExpectAttributesWithTag(policy, kMissingTag);
-  histograms_.ExpectUniqueSample(kErrorHistogramName,
-                                 SW_REPORTER_EXPERIMENT_ERROR_BAD_TAG, 1);
+  histograms_.ExpectUniqueSample(kErrorHistogramName, kBadTag, 1);
 }
 
 TEST_F(SwReporterInstallerTest, TagTooLong) {
@@ -246,16 +243,14 @@ TEST_F(SwReporterInstallerTest, TagTooLong) {
   std::string tag_too_long(500, 'x');
   CreateFeatureWithTag(tag_too_long);
   ExpectAttributesWithTag(policy, kMissingTag);
-  histograms_.ExpectUniqueSample(kErrorHistogramName,
-                                 SW_REPORTER_EXPERIMENT_ERROR_BAD_TAG, 1);
+  histograms_.ExpectUniqueSample(kErrorHistogramName, kBadTag, 1);
 }
 
 TEST_F(SwReporterInstallerTest, EmptyTag) {
   SwReporterInstallerPolicy policy(on_component_ready_callback_);
   CreateFeatureWithTag("");
   ExpectAttributesWithTag(policy, kMissingTag);
-  histograms_.ExpectUniqueSample(kErrorHistogramName,
-                                 SW_REPORTER_EXPERIMENT_ERROR_BAD_TAG, 1);
+  histograms_.ExpectUniqueSample(kErrorHistogramName, kBadTag, 1);
 }
 
 TEST_F(SwReporterInstallerTest, ValidTag) {
@@ -530,8 +525,7 @@ TEST_F(SwReporterInstallerTest, BadSuffix) {
 
   // The SwReporter should not be launched, and an error should be logged.
   EXPECT_TRUE(extracted_invocations_.container().empty());
-  histograms_.ExpectUniqueSample(kErrorHistogramName,
-                                 SW_REPORTER_EXPERIMENT_ERROR_BAD_PARAMS, 1);
+  histograms_.ExpectUniqueSample(kErrorHistogramName, kBadParams, 1);
 }
 
 TEST_F(SwReporterInstallerTest, SuffixTooLong) {
@@ -553,8 +547,7 @@ TEST_F(SwReporterInstallerTest, SuffixTooLong) {
 
   // The SwReporter should not be launched, and an error should be logged.
   EXPECT_TRUE(extracted_invocations_.container().empty());
-  histograms_.ExpectUniqueSample(kErrorHistogramName,
-                                 SW_REPORTER_EXPERIMENT_ERROR_BAD_PARAMS, 1);
+  histograms_.ExpectUniqueSample(kErrorHistogramName, kBadParams, 1);
 }
 
 TEST_F(SwReporterInstallerTest, BadTypesInManifest_ArgumentsIsNotAList) {
@@ -574,8 +567,7 @@ TEST_F(SwReporterInstallerTest, BadTypesInManifest_ArgumentsIsNotAList) {
 
   // The SwReporter should not be launched, and an error should be logged.
   EXPECT_TRUE(extracted_invocations_.container().empty());
-  histograms_.ExpectUniqueSample(kErrorHistogramName,
-                                 SW_REPORTER_EXPERIMENT_ERROR_BAD_PARAMS, 1);
+  histograms_.ExpectUniqueSample(kErrorHistogramName, kBadParams, 1);
 }
 
 TEST_F(SwReporterInstallerTest, BadTypesInManifest_InvocationParamsIsNotAList) {
@@ -596,8 +588,7 @@ TEST_F(SwReporterInstallerTest, BadTypesInManifest_InvocationParamsIsNotAList) {
 
   // The SwReporter should not be launched, and an error should be logged.
   EXPECT_TRUE(extracted_invocations_.container().empty());
-  histograms_.ExpectUniqueSample(kErrorHistogramName,
-                                 SW_REPORTER_EXPERIMENT_ERROR_BAD_PARAMS, 1);
+  histograms_.ExpectUniqueSample(kErrorHistogramName, kBadParams, 1);
 }
 
 TEST_F(SwReporterInstallerTest, BadTypesInManifest_SuffixIsAList) {
@@ -617,8 +608,7 @@ TEST_F(SwReporterInstallerTest, BadTypesInManifest_SuffixIsAList) {
 
   // The SwReporter should not be launched, and an error should be logged.
   EXPECT_TRUE(extracted_invocations_.container().empty());
-  histograms_.ExpectUniqueSample(kErrorHistogramName,
-                                 SW_REPORTER_EXPERIMENT_ERROR_BAD_PARAMS, 1);
+  histograms_.ExpectUniqueSample(kErrorHistogramName, kBadParams, 1);
 }
 
 TEST_F(SwReporterInstallerTest, BadTypesInManifest_PromptIsNotABoolean) {
@@ -639,8 +629,7 @@ TEST_F(SwReporterInstallerTest, BadTypesInManifest_PromptIsNotABoolean) {
 
   // The SwReporter should not be launched, and an error should be logged.
   EXPECT_TRUE(extracted_invocations_.container().empty());
-  histograms_.ExpectUniqueSample(kErrorHistogramName,
-                                 SW_REPORTER_EXPERIMENT_ERROR_BAD_PARAMS, 1);
+  histograms_.ExpectUniqueSample(kErrorHistogramName, kBadParams, 1);
 }
 
 TEST_F(SwReporterInstallerTest, BadTypesInManifest_LaunchParamsIsScalar) {
@@ -653,8 +642,7 @@ TEST_F(SwReporterInstallerTest, BadTypesInManifest_LaunchParamsIsScalar) {
 
   // The SwReporter should not be launched, and an error should be logged.
   EXPECT_TRUE(extracted_invocations_.container().empty());
-  histograms_.ExpectUniqueSample(kErrorHistogramName,
-                                 SW_REPORTER_EXPERIMENT_ERROR_BAD_PARAMS, 1);
+  histograms_.ExpectUniqueSample(kErrorHistogramName, kBadParams, 1);
 }
 
 TEST_F(SwReporterInstallerTest, BadTypesInManifest_LaunchParamsIsDict) {
@@ -667,8 +655,7 @@ TEST_F(SwReporterInstallerTest, BadTypesInManifest_LaunchParamsIsDict) {
 
   // The SwReporter should not be launched, and an error should be logged.
   EXPECT_TRUE(extracted_invocations_.container().empty());
-  histograms_.ExpectUniqueSample(kErrorHistogramName,
-                                 SW_REPORTER_EXPERIMENT_ERROR_BAD_PARAMS, 1);
+  histograms_.ExpectUniqueSample(kErrorHistogramName, kBadParams, 1);
 }
 
 class SwReporterOnDemandFetcherTest : public ::testing::Test,
@@ -757,67 +744,6 @@ TEST_F(SwReporterOnDemandFetcherTest, TestUpdateFailure) {
   CreateOnDemandFetcherAndVerifyExpectations(false);
 
   EXPECT_TRUE(on_demand_update_called_);
-}
-
-class SwReporterInstallerHistogramTest : public ::testing::Test {
- protected:
-  void SetUp() override {
-    ASSERT_NO_FATAL_FAILURE(
-        registry_override_manager_.OverrideRegistry(HKEY_CURRENT_USER));
-
-    const base::string16 cleaner_key_name =
-        base::StrCat({chrome_cleaner::kSoftwareRemovalToolRegistryKey, L"\\",
-                      chrome_cleaner::kCleanerSubKey});
-    cleaner_key_ = std::make_unique<base::win::RegKey>(
-        HKEY_CURRENT_USER, cleaner_key_name.c_str(),
-        KEY_QUERY_VALUE | KEY_SET_VALUE);
-    ASSERT_TRUE(cleaner_key_->Valid());
-  }
-
-  base::HistogramTester& histograms() { return histograms_; }
-
-  base::win::RegKey& cleaner_key() { return *cleaner_key_; }
-
-  // TODO(crbug.com/872824): use chrome_cleaner::RegistryLogger::WriteStartTime
-  //                         once it moves to components/chrome_cleaner
-  void WriteStartTime(base::Time start_time) {
-    const int64_t serialized =
-        start_time.ToDeltaSinceWindowsEpoch().InMicroseconds();
-    ASSERT_EQ(ERROR_SUCCESS, cleaner_key().WriteValue(
-                                 chrome_cleaner::kStartTimeValueName,
-                                 &serialized, sizeof(serialized), REG_QWORD));
-  }
-
-  // TODO(crbug.com/872824): use chrome_cleaner::RegistryLogger::WriteEndTime
-  //                         once it moves to components/chrome_cleaner
-  void WriteEndTime(base::Time end_time) {
-    const int64_t serialized =
-        end_time.ToDeltaSinceWindowsEpoch().InMicroseconds();
-    ASSERT_EQ(ERROR_SUCCESS, cleaner_key().WriteValue(
-                                 chrome_cleaner::kEndTimeValueName, &serialized,
-                                 sizeof(serialized), REG_QWORD));
-  }
-
- private:
-  base::HistogramTester histograms_;
-  registry_util::RegistryOverrideManager registry_override_manager_;
-  std::unique_ptr<base::win::RegKey> cleaner_key_;
-};
-
-TEST_F(SwReporterInstallerHistogramTest, WithStartAndEndTimes) {
-  const base::Time start_time =
-      base::Time::Now() - base::TimeDelta::FromHours(1);
-  const base::Time end_time = start_time + base::TimeDelta::FromSeconds(10);
-
-  WriteStartTime(start_time);
-  WriteEndTime(end_time);
-
-  ReportUMAForLastCleanerRun();
-
-  histograms().ExpectUniqueSample("SoftwareReporter.Cleaner.HasCompleted",
-                                  1 /* SRT_COMPLETED_YES */, 1);
-  histograms().ExpectUniqueSample("SoftwareReporter.Cleaner.RunningTime",
-                                  (end_time - start_time).InMilliseconds(), 1);
 }
 
 }  // namespace component_updater

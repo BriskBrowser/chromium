@@ -5,7 +5,9 @@
 #ifndef NET_HTTP2_PLATFORM_IMPL_HTTP2_LOGGING_IMPL_H_
 #define NET_HTTP2_PLATFORM_IMPL_HTTP2_LOGGING_IMPL_H_
 
+#include "base/check_op.h"
 #include "base/logging.h"
+#include "base/notreached.h"
 #include "build/build_config.h"
 #include "net/base/net_export.h"
 
@@ -17,6 +19,7 @@
 #define HTTP2_DVLOG_IMPL(verbose_level) DVLOG(verbose_level)
 #define HTTP2_DVLOG_IF_IMPL(verbose_level, condition) \
   DVLOG_IF(verbose_level, condition)
+#define HTTP2_LOG_FIRST_N_IMPL(severity, n) HTTP2_LOG_IMPL(severity)
 
 #define HTTP2_CHROMIUM_LOG_INFO VLOG(1)
 #define HTTP2_CHROMIUM_LOG_WARNING DLOG(WARNING)

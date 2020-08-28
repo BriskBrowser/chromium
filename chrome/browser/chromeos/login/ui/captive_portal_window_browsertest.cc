@@ -15,16 +15,20 @@
 #include "chrome/browser/chromeos/login/login_manager_test.h"
 #include "chrome/browser/chromeos/login/screens/error_screen.h"
 #include "chrome/browser/chromeos/login/startup_utils.h"
+#include "chrome/browser/chromeos/login/test/device_state_mixin.h"
 #include "chrome/browser/chromeos/login/test/oobe_screen_waiter.h"
 #include "chrome/browser/chromeos/login/ui/captive_portal_window_proxy.h"
 #include "chrome/browser/chromeos/login/ui/login_display_host.h"
 #include "chrome/browser/chromeos/login/ui/webui_login_view.h"
+#include "chrome/browser/chromeos/login/wizard_controller.h"
 #include "chrome/browser/chromeos/net/network_portal_detector_test_impl.h"
 #include "chrome/browser/ui/webui/chromeos/login/error_screen_handler.h"
+#include "chrome/browser/ui/webui/chromeos/login/gaia_screen_handler.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chromeos/constants/chromeos_switches.h"
 #include "chromeos/dbus/shill/fake_shill_manager_client.h"
 #include "chromeos/network/portal_detector/network_portal_detector.h"
+#include "content/public/test/browser_test.h"
 
 namespace chromeos {
 
@@ -177,8 +181,7 @@ IN_PROC_BROWSER_TEST_F(CaptivePortalWindowTest, MultipleCalls) {
 
 class CaptivePortalWindowCtorDtorTest : public LoginManagerTest {
  public:
-  CaptivePortalWindowCtorDtorTest()
-      : LoginManagerTest(false, true /* should_initialize_webui */) {}
+  CaptivePortalWindowCtorDtorTest() = default;
   ~CaptivePortalWindowCtorDtorTest() override {}
 
   void SetUpInProcessBrowserTestFixture() override {
@@ -207,22 +210,21 @@ class CaptivePortalWindowCtorDtorTest : public LoginManagerTest {
  private:
   NetworkPortalDetectorTestImpl* network_portal_detector_;
 
+  DeviceStateMixin device_state_{
+      &mixin_host_, DeviceStateMixin::State::OOBE_COMPLETED_UNOWNED};
+
   DISALLOW_COPY_AND_ASSIGN(CaptivePortalWindowCtorDtorTest);
 };
 
-// Flaky. https://crbug.com/1005456.
-IN_PROC_BROWSER_TEST_F(CaptivePortalWindowCtorDtorTest,
-                       DISABLED_PRE_OpenPortalDialog) {
-  StartupUtils::MarkOobeCompleted();
-}
-
-// Flaky. https://crbug.com/1005456.
-IN_PROC_BROWSER_TEST_F(CaptivePortalWindowCtorDtorTest,
-                       DISABLED_OpenPortalDialog) {
+IN_PROC_BROWSER_TEST_F(CaptivePortalWindowCtorDtorTest, OpenPortalDialog) {
   LoginDisplayHost* host = LoginDisplayHost::default_host();
   ASSERT_TRUE(host);
   OobeUI* oobe = host->GetOobeUI();
   ASSERT_TRUE(oobe);
+
+  // Skip to gaia screen.
+  host->GetWizardController()->SkipToLoginForTesting();
+  OobeScreenWaiter(GaiaView::kScreenId).Wait();
 
   // Error screen asks portal detector to change detection strategy.
   ErrorScreen* error_screen = oobe->GetErrorScreen();

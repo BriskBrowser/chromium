@@ -30,12 +30,14 @@
 #include <algorithm>
 
 #include "third_party/blink/renderer/platform/weborigin/known_ports.h"
+#include "third_party/blink/renderer/platform/weborigin/scheme_registry.h"
 #include "third_party/blink/renderer/platform/wtf/math_extras.h"
 #include "third_party/blink/renderer/platform/wtf/std_lib_extras.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_hash.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_statics.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_utf8_adaptor.h"
 #include "third_party/blink/renderer/platform/wtf/text/text_encoding.h"
+#include "third_party/blink/renderer/platform/wtf/thread_specific.h"
 #include "url/gurl.h"
 #include "url/url_util.h"
 #ifndef NDEBUG
@@ -125,25 +127,21 @@ bool IsValidProtocol(const String& protocol) {
   return true;
 }
 
-void KURL::Initialize() {
-  // This must be called before we create other threads to
-  // avoid racy static local initialization.
-  BlankURL();
+KURL KURL::UrlStrippedForUseAsReferrer() const {
+  if (!SchemeRegistry::ShouldTreatURLSchemeAsAllowedForReferrer(Protocol()))
+    return KURL();
+
+  KURL referrer(*this);
+
+  referrer.SetUser(String());
+  referrer.SetPass(String());
+  referrer.RemoveFragmentIdentifier();
+
+  return referrer;
 }
 
 String KURL::StrippedForUseAsReferrer() const {
-  if (!ProtocolIsInHTTPFamily())
-    return String();
-
-  if (parsed_.username.is_nonempty() || parsed_.password.is_nonempty() ||
-      parsed_.ref.is_valid()) {
-    KURL referrer(*this);
-    referrer.SetUser(String());
-    referrer.SetPass(String());
-    referrer.RemoveFragmentIdentifier();
-    return referrer.GetString();
-  }
-  return GetString();
+  return UrlStrippedForUseAsReferrer().GetString();
 }
 
 String KURL::StrippedForUseAsHref() const {
@@ -169,8 +167,11 @@ bool ProtocolIsJavaScript(const String& url) {
 }
 
 const KURL& BlankURL() {
-  DEFINE_STATIC_LOCAL(KURL, static_blank_url, ("about:blank"));
-  return static_blank_url;
+  DEFINE_THREAD_SAFE_STATIC_LOCAL(ThreadSpecific<KURL>, static_blank_url, ());
+  KURL& blank_url = *static_blank_url;
+  if (blank_url.IsNull())
+    blank_url = KURL(AtomicString("about:blank"));
+  return blank_url;
 }
 
 bool KURL::IsAboutBlankURL() const {
@@ -178,8 +179,11 @@ bool KURL::IsAboutBlankURL() const {
 }
 
 const KURL& SrcdocURL() {
-  DEFINE_STATIC_LOCAL(KURL, static_srcdoc_url, ("about:srcdoc"));
-  return static_srcdoc_url;
+  DEFINE_THREAD_SAFE_STATIC_LOCAL(ThreadSpecific<KURL>, static_srcdoc_url, ());
+  KURL& srcdoc_url = *static_srcdoc_url;
+  if (srcdoc_url.IsNull())
+    srcdoc_url = KURL(AtomicString("about:srcdoc"));
+  return srcdoc_url;
 }
 
 bool KURL::IsAboutSrcdocURL() const {
@@ -187,8 +191,8 @@ bool KURL::IsAboutSrcdocURL() const {
 }
 
 const KURL& NullURL() {
-  DEFINE_THREAD_SAFE_STATIC_LOCAL(KURL, static_null_url, ());
-  return static_null_url;
+  DEFINE_THREAD_SAFE_STATIC_LOCAL(ThreadSpecific<KURL>, static_null_url, ());
+  return *static_null_url;
 }
 
 String KURL::ElidedString() const {
@@ -467,11 +471,6 @@ static String ParsePortFromStringPosition(const String& value,
   while (value[port_start] == '0' && port_start < port_end - 1)
     ++port_start;
 
-  // Required for backwards compat.
-  // https://www.w3.org/Bugs/Public/show_bug.cgi?id=23463
-  if (port_start == port_end)
-    return "0";
-
   return value.Substring(port_start, port_end - port_start);
 }
 
@@ -514,8 +513,9 @@ void KURL::SetHostAndPort(const String& host_and_port) {
   url::Replacements<char> replacements;
   replacements.SetHost(CharactersOrEmpty(host_utf8),
                        url::Component(0, host_utf8.size()));
-  replacements.SetPort(CharactersOrEmpty(port_utf8),
-                       url::Component(0, port_utf8.size()));
+  if (port_utf8.size())
+    replacements.SetPort(CharactersOrEmpty(port_utf8),
+                         url::Component(0, port_utf8.size()));
   ReplaceComponents(replacements);
 }
 
@@ -529,7 +529,8 @@ void KURL::RemovePort() {
 
 void KURL::SetPort(const String& port) {
   String parsed_port = ParsePortFromStringPosition(port, 0);
-  SetPort(parsed_port.ToUInt());
+  if (!parsed_port.IsEmpty())
+    SetPort(parsed_port.ToUInt());
 }
 
 void KURL::SetPort(uint16_t port) {

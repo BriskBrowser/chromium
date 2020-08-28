@@ -9,15 +9,12 @@
 
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
+#include "base/optional.h"
 #include "base/time/time.h"
-#include "chromeos/dbus/dbus_method_call_status.h"
+#include "base/values.h"
 #include "chromeos/dbus/shill/shill_property_changed_observer.h"
 #include "chromeos/network/network_handler.h"
 #include "chromeos/network/network_util.h"
-
-namespace base {
-class DictionaryValue;
-}
 
 namespace chromeos {
 
@@ -69,8 +66,7 @@ class COMPONENT_EXPORT(CHROMEOS_NETWORK) GeolocationHandler
   void Init();
 
   // ShillManagerClient callback
-  void ManagerPropertiesCallback(DBusMethodCallStatus call_status,
-                                 const base::DictionaryValue& properties);
+  void ManagerPropertiesCallback(base::Optional<base::Value> properties);
 
   // Called from OnPropertyChanged or ManagerPropertiesCallback.
   void HandlePropertyChanged(const std::string& key, const base::Value& value);
@@ -80,14 +76,13 @@ class COMPONENT_EXPORT(CHROMEOS_NETWORK) GeolocationHandler
   void RequestGeolocationObjects();
 
   // Callback for receiving Geolocation data.
-  void GeolocationCallback(DBusMethodCallStatus call_status,
-                           const base::DictionaryValue& properties);
+  void GeolocationCallback(base::Optional<base::Value> properties);
 
   bool cellular_enabled_;
   bool wifi_enabled_;
 
-  void AddCellTowerFromDict(const base::DictionaryValue* entry);
-  void AddAccessPointFromDict(const base::DictionaryValue* entry);
+  void AddCellTowerFromDict(const base::Value& entry);
+  void AddAccessPointFromDict(const base::Value& entry);
 
   // Cached netork information and update time
   WifiAccessPointVector wifi_access_points_;

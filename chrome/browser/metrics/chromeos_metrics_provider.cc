@@ -21,6 +21,7 @@
 #include "base/sys_byteorder.h"
 #include "base/task/post_task.h"
 #include "base/task/task_traits.h"
+#include "base/task/thread_pool.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_process_platform_part.h"
 #include "chrome/browser/chromeos/accessibility/accessibility_manager.h"
@@ -32,6 +33,8 @@
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/common/chrome_features.h"
 #include "chrome/common/pref_names.h"
+#include "chromeos/constants/chromeos_features.h"
+#include "chromeos/constants/chromeos_pref_names.h"
 #include "chromeos/services/multidevice_setup/public/cpp/multidevice_setup_client.h"
 #include "chromeos/system/statistics_provider.h"
 #include "components/arc/arc_features_parser.h"
@@ -43,10 +46,6 @@
 #include "components/user_manager/user_manager.h"
 #include "components/user_manager/user_type.h"
 #include "components/variations/hashing.h"
-#include "components/variations/service/variations_field_trial_creator.h"
-#include "device/bluetooth/bluetooth_adapter.h"
-#include "device/bluetooth/bluetooth_adapter_factory.h"
-#include "device/bluetooth/bluetooth_device.h"
 #include "third_party/metrics_proto/chrome_user_metrics_extension.pb.h"
 #include "ui/display/display.h"
 #include "ui/events/event_utils.h"
@@ -54,46 +53,8 @@
 using metrics::ChromeUserMetricsExtension;
 using metrics::SampledProfile;
 using metrics::SystemProfileProto;
-typedef SystemProfileProto::Hardware::Bluetooth::PairedDevice PairedDevice;
 
 namespace {
-
-PairedDevice::Type AsBluetoothDeviceType(
-    device::BluetoothDeviceType device_type) {
-  switch (device_type) {
-    case device::BluetoothDeviceType::UNKNOWN:
-      return PairedDevice::DEVICE_UNKNOWN;
-    case device::BluetoothDeviceType::COMPUTER:
-      return PairedDevice::DEVICE_COMPUTER;
-    case device::BluetoothDeviceType::PHONE:
-      return PairedDevice::DEVICE_PHONE;
-    case device::BluetoothDeviceType::MODEM:
-      return PairedDevice::DEVICE_MODEM;
-    case device::BluetoothDeviceType::AUDIO:
-      return PairedDevice::DEVICE_AUDIO;
-    case device::BluetoothDeviceType::CAR_AUDIO:
-      return PairedDevice::DEVICE_CAR_AUDIO;
-    case device::BluetoothDeviceType::VIDEO:
-      return PairedDevice::DEVICE_VIDEO;
-    case device::BluetoothDeviceType::PERIPHERAL:
-      return PairedDevice::DEVICE_PERIPHERAL;
-    case device::BluetoothDeviceType::JOYSTICK:
-      return PairedDevice::DEVICE_JOYSTICK;
-    case device::BluetoothDeviceType::GAMEPAD:
-      return PairedDevice::DEVICE_GAMEPAD;
-    case device::BluetoothDeviceType::KEYBOARD:
-      return PairedDevice::DEVICE_KEYBOARD;
-    case device::BluetoothDeviceType::MOUSE:
-      return PairedDevice::DEVICE_MOUSE;
-    case device::BluetoothDeviceType::TABLET:
-      return PairedDevice::DEVICE_TABLET;
-    case device::BluetoothDeviceType::KEYBOARD_MOUSE_COMBO:
-      return PairedDevice::DEVICE_KEYBOARD_MOUSE_COMBO;
-  }
-
-  NOTREACHED();
-  return PairedDevice::DEVICE_UNKNOWN;
-}
 
 void IncrementPrefValue(const char* path) {
   PrefService* pref = g_browser_process->local_state();
@@ -119,16 +80,6 @@ bool IsFeatureEnabled(
 }
 
 }  // namespace
-
-namespace features {
-
-// Populates hardware class field in system_profile proto with the
-// short hardware class if enabled. If disabled, hardware class will have same
-// value as full hardware class.
-const base::Feature kUmaShortHWClass{"UmaShortHWClass",
-                                     base::FEATURE_ENABLED_BY_DEFAULT};
-
-}  // namespace features
 
 ChromeOSMetricsProvider::ChromeOSMetricsProvider(
     metrics::MetricsLogUploader::MetricServiceType service_type)
@@ -176,19 +127,14 @@ ChromeOSMetricsProvider::GetEnrollmentStatus() {
 }
 
 void ChromeOSMetricsProvider::Init() {
-  if (base::FeatureList::IsEnabled(features::kUmaShortHWClass)) {
-    hardware_class_ =
-        variations::VariationsFieldTrialCreator::GetShortHardwareClass();
-  }
   if (profile_provider_ != nullptr)
     profile_provider_->Init();
 }
 
 void ChromeOSMetricsProvider::AsyncInit(base::OnceClosure done_callback) {
   base::RepeatingClosure barrier =
-      base::BarrierClosure(3, std::move(done_callback));
+      base::BarrierClosure(2, std::move(done_callback));
   InitTaskGetFullHardwareClass(barrier);
-  InitTaskGetBluetoothAdapter(barrier);
   InitTaskGetArcFeatures(barrier);
 }
 
@@ -205,20 +151,13 @@ void ChromeOSMetricsProvider::InitTaskGetFullHardwareClass(
     base::OnceClosure callback) {
   // Run the (potentially expensive) task in the background to avoid blocking
   // the UI thread.
-  base::PostTaskAndReplyWithResult(
+  base::ThreadPool::PostTaskAndReplyWithResult(
       FROM_HERE,
-      {base::ThreadPool(), base::MayBlock(), base::WithBaseSyncPrimitives(),
+      {base::MayBlock(), base::WithBaseSyncPrimitives(),
        base::TaskPriority::BEST_EFFORT,
        base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN},
       base::BindOnce(&GetFullHardwareClassOnBackgroundThread),
       base::BindOnce(&ChromeOSMetricsProvider::SetFullHardwareClass,
-                     weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
-}
-
-void ChromeOSMetricsProvider::InitTaskGetBluetoothAdapter(
-    base::OnceClosure callback) {
-  device::BluetoothAdapterFactory::GetAdapter(
-      base::BindOnce(&ChromeOSMetricsProvider::SetBluetoothAdapter,
                      weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
 }
 
@@ -231,13 +170,11 @@ void ChromeOSMetricsProvider::InitTaskGetArcFeatures(
 
 void ChromeOSMetricsProvider::ProvideSystemProfileMetrics(
     metrics::SystemProfileProto* system_profile_proto) {
-  WriteBluetoothProto(system_profile_proto);
   WriteLinkedAndroidPhoneProto(system_profile_proto);
   UpdateMultiProfileUserCount(system_profile_proto);
 
   metrics::SystemProfileProto::Hardware* hardware =
       system_profile_proto->mutable_hardware();
-  hardware->set_hardware_class(hardware_class_);
   hardware->set_full_hardware_class(full_hardware_class_);
   display::Display::TouchSupport has_touch =
       ui::GetInternalDisplayTouchSupport();
@@ -258,6 +195,16 @@ void ChromeOSMetricsProvider::ProvideAccessibilityMetrics() {
       chromeos::AccessibilityManager::Get()->IsSpokenFeedbackEnabled();
   UMA_HISTOGRAM_BOOLEAN("Accessibility.CrosSpokenFeedback.EveryReport",
                         is_spoken_feedback_enabled);
+}
+
+void ChromeOSMetricsProvider::ProvideSuggestedContentMetrics() {
+  if (base::FeatureList::IsEnabled(
+          chromeos::features::kSuggestedContentToggle)) {
+    UMA_HISTOGRAM_BOOLEAN(
+        "Apps.AppList.SuggestedContent.Enabled",
+        ProfileManager::GetActiveUserProfile()->GetPrefs()->GetBoolean(
+            chromeos::prefs::kSuggestedContentEnabled));
+  }
 }
 
 void ChromeOSMetricsProvider::ProvideStabilityMetrics(
@@ -296,6 +243,7 @@ void ChromeOSMetricsProvider::ProvideStabilityMetrics(
 void ChromeOSMetricsProvider::ProvideCurrentSessionData(
     metrics::ChromeUserMetricsExtension* uma_proto) {
   ProvideAccessibilityMetrics();
+  ProvideSuggestedContentMetrics();
   ProvideStabilityMetrics(uma_proto->mutable_system_profile());
   std::vector<SampledProfile> sampled_profiles;
   if (profile_provider_->GetSampledProfiles(&sampled_profiles)) {
@@ -305,67 +253,6 @@ void ChromeOSMetricsProvider::ProvideCurrentSessionData(
   }
   arc::UpdateEnabledStateByUserTypeUMA();
   UpdateUserTypeUMA();
-}
-
-void ChromeOSMetricsProvider::WriteBluetoothProto(
-    metrics::SystemProfileProto* system_profile_proto) {
-  // This may be called before the async init task to set |adapter_| is set,
-  // such as when the persistent system profile gets filled in initially.
-  if (!adapter_)
-    return;
-
-  metrics::SystemProfileProto::Hardware* hardware =
-      system_profile_proto->mutable_hardware();
-
-  SystemProfileProto::Hardware::Bluetooth* bluetooth =
-      hardware->mutable_bluetooth();
-
-  bluetooth->set_is_present(adapter_->IsPresent());
-  bluetooth->set_is_enabled(adapter_->IsPowered());
-
-  device::BluetoothAdapter::DeviceList devices = adapter_->GetDevices();
-  for (device::BluetoothAdapter::DeviceList::iterator iter = devices.begin();
-       iter != devices.end();
-       ++iter) {
-    device::BluetoothDevice* device = *iter;
-    // Don't collect information about LE devices yet.
-    if (!device->IsPaired())
-      continue;
-
-    PairedDevice* paired_device = bluetooth->add_paired_device();
-    paired_device->set_bluetooth_class(device->GetBluetoothClass());
-    paired_device->set_type(AsBluetoothDeviceType(device->GetDeviceType()));
-
-    // |address| is xx:xx:xx:xx:xx:xx, extract the first three components and
-    // pack into a uint32_t.
-    std::string address = device->GetAddress();
-    if (address.size() > 9 && address[2] == ':' && address[5] == ':' &&
-        address[8] == ':') {
-      std::string vendor_prefix_str;
-      uint64_t vendor_prefix;
-
-      base::RemoveChars(address.substr(0, 9), ":", &vendor_prefix_str);
-      DCHECK_EQ(6U, vendor_prefix_str.size());
-      base::HexStringToUInt64(vendor_prefix_str, &vendor_prefix);
-
-      paired_device->set_vendor_prefix(vendor_prefix);
-    }
-
-    switch (device->GetVendorIDSource()) {
-      case device::BluetoothDevice::VENDOR_ID_BLUETOOTH:
-        paired_device->set_vendor_id_source(PairedDevice::VENDOR_ID_BLUETOOTH);
-        break;
-      case device::BluetoothDevice::VENDOR_ID_USB:
-        paired_device->set_vendor_id_source(PairedDevice::VENDOR_ID_USB);
-        break;
-      default:
-        paired_device->set_vendor_id_source(PairedDevice::VENDOR_ID_UNKNOWN);
-    }
-
-    paired_device->set_vendor_id(device->GetVendorID());
-    paired_device->set_product_id(device->GetProductID());
-    paired_device->set_device_id(device->GetDeviceID());
-  }
 }
 
 void ChromeOSMetricsProvider::WriteLinkedAndroidPhoneProto(
@@ -419,20 +306,9 @@ void ChromeOSMetricsProvider::UpdateMultiProfileUserCount(
   }
 }
 
-void ChromeOSMetricsProvider::SetBluetoothAdapter(
-    base::OnceClosure callback,
-    scoped_refptr<device::BluetoothAdapter> adapter) {
-  adapter_ = adapter;
-  std::move(callback).Run();
-}
-
 void ChromeOSMetricsProvider::SetFullHardwareClass(
     base::OnceClosure callback,
     std::string full_hardware_class) {
-  if (!base::FeatureList::IsEnabled(features::kUmaShortHWClass)) {
-    DCHECK(hardware_class_.empty());
-    hardware_class_ = full_hardware_class;
-  }
   full_hardware_class_ = full_hardware_class;
   std::move(callback).Run();
 }

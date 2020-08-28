@@ -18,11 +18,13 @@
 #include "chrome/browser/installable/installable_manager.h"
 #include "chrome/browser/installable/installable_metrics.h"
 #include "chrome/common/chrome_render_frame.mojom-test-utils.h"
+#include "chrome/common/web_application_info.h"
 #include "chrome/test/base/chrome_render_view_host_test_harness.h"
 #include "chrome/test/base/testing_profile.h"
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/site_instance.h"
 #include "content/public/test/browser_task_environment.h"
+#include "content/public/test/test_utils.h"
 #include "content/public/test/web_contents_tester.h"
 #include "mojo/public/cpp/bindings/associated_receiver.h"
 #include "mojo/public/cpp/bindings/pending_associated_receiver.h"
@@ -34,10 +36,19 @@ namespace web_app {
 
 namespace {
 
-const GURL kFooUrl("https://foo.example");
-const GURL kFooUrl2("https://foo.example/bar");
 const char kFooTitle[] = "Foo Title";
-const GURL kBarUrl("https://bar.example");
+
+// TODO(https://crbug.com/1042727): Fix test GURL scoping and remove this getter
+// function.
+GURL FooUrl() {
+  return GURL("https://foo.example");
+}
+GURL FooUrl2() {
+  return GURL("https://foo.example/bar");
+}
+GURL BarUrl() {
+  return GURL("https://bar.example");
+}
 
 }  // namespace
 
@@ -86,6 +97,17 @@ class WebAppDataRetrieverTest : public ChromeRenderViewHostTestHarness {
             chrome::mojom::ChromeRenderFrame::Name_,
             base::BindRepeating(&FakeChromeRenderFrame::Bind,
                                 base::Unretained(&fake_chrome_render_frame_)));
+
+    // When ProactivelySwapBrowsingInstance or RenderDocument is enabled on
+    // same-site main-frame navigations, a same-site navigation might result in
+    // a change of RenderFrames, which WebAppDataRetriever does not track (it
+    // tracks the old RenderFrame where the navigation started in). So we
+    // should disable same-site proactive BrowsingInstance for the main frame.
+    // Note: this will not disable RenderDocument.
+    // TODO(crbug.com/936696): Make WebAppDataRetriever support a change of
+    // RenderFrames.
+    content::DisableProactiveBrowsingInstanceSwapFor(
+        web_contents()->GetMainFrame());
   }
 
   void SetRendererWebApplicationInfo(const WebApplicationInfo& web_app_info) {
@@ -162,7 +184,7 @@ TEST_F(WebAppDataRetrieverTest, GetWebApplicationInfo_NoEntry) {
 TEST_F(WebAppDataRetrieverTest, GetWebApplicationInfo_AppUrlAbsent) {
   SetFakeChromeRenderFrame();
 
-  web_contents_tester()->NavigateAndCommit(kFooUrl);
+  web_contents_tester()->NavigateAndCommit(FooUrl());
 
   WebApplicationInfo original_web_app_info;
   original_web_app_info.app_url = GURL();
@@ -179,16 +201,16 @@ TEST_F(WebAppDataRetrieverTest, GetWebApplicationInfo_AppUrlAbsent) {
 
   // If the WebApplicationInfo has no URL, we fallback to the last committed
   // URL.
-  EXPECT_EQ(kFooUrl, web_app_info()->app_url);
+  EXPECT_EQ(FooUrl(), web_app_info()->app_url);
 }
 
 TEST_F(WebAppDataRetrieverTest, GetWebApplicationInfo_AppUrlPresent) {
   SetFakeChromeRenderFrame();
 
-  web_contents_tester()->NavigateAndCommit(kFooUrl);
+  web_contents_tester()->NavigateAndCommit(FooUrl());
 
   WebApplicationInfo original_web_app_info;
-  original_web_app_info.app_url = kBarUrl;
+  original_web_app_info.app_url = BarUrl();
 
   SetRendererWebApplicationInfo(original_web_app_info);
 
@@ -206,7 +228,7 @@ TEST_F(WebAppDataRetrieverTest, GetWebApplicationInfo_AppUrlPresent) {
 TEST_F(WebAppDataRetrieverTest, GetWebApplicationInfo_TitleAbsentFromRenderer) {
   SetFakeChromeRenderFrame();
 
-  web_contents_tester()->NavigateAndCommit(kFooUrl);
+  web_contents_tester()->NavigateAndCommit(FooUrl());
 
   const auto web_contents_title = base::UTF8ToUTF16(kFooTitle);
   web_contents_tester()->SetTitle(web_contents_title);
@@ -233,7 +255,7 @@ TEST_F(WebAppDataRetrieverTest,
        GetWebApplicationInfo_TitleAbsentFromWebContents) {
   SetFakeChromeRenderFrame();
 
-  web_contents_tester()->NavigateAndCommit(kFooUrl);
+  web_contents_tester()->NavigateAndCommit(FooUrl());
 
   web_contents_tester()->SetTitle(base::UTF8ToUTF16(""));
 
@@ -259,7 +281,7 @@ TEST_F(WebAppDataRetrieverTest,
 TEST_F(WebAppDataRetrieverTest, GetWebApplicationInfo_ConnectionError) {
   // Do not set fake ChromeRenderFrame to simulate connection error.
 
-  web_contents_tester()->NavigateAndCommit(kFooUrl);
+  web_contents_tester()->NavigateAndCommit(FooUrl());
 
   base::RunLoop run_loop;
   WebAppDataRetriever retriever;
@@ -275,7 +297,7 @@ TEST_F(WebAppDataRetrieverTest, GetWebApplicationInfo_ConnectionError) {
 TEST_F(WebAppDataRetrieverTest, GetWebApplicationInfo_WebContentsDestroyed) {
   SetFakeChromeRenderFrame();
 
-  web_contents_tester()->NavigateAndCommit(kFooUrl);
+  web_contents_tester()->NavigateAndCommit(FooUrl());
 
   base::RunLoop run_loop;
   WebAppDataRetriever retriever;
@@ -293,7 +315,7 @@ TEST_F(WebAppDataRetrieverTest,
        CheckInstallabilityAndRetrieveManifest_WebContentsDestroyed) {
   SetFakeChromeRenderFrame();
 
-  web_contents_tester()->NavigateAndCommit(kFooUrl);
+  web_contents_tester()->NavigateAndCommit(FooUrl());
 
   {
     auto manifest = std::make_unique<blink::Manifest>();
@@ -320,7 +342,7 @@ TEST_F(WebAppDataRetrieverTest,
 TEST_F(WebAppDataRetrieverTest, GetIcons_WebContentsDestroyed) {
   SetFakeChromeRenderFrame();
 
-  web_contents_tester()->NavigateAndCommit(kFooUrl);
+  web_contents_tester()->NavigateAndCommit(FooUrl());
 
   const std::vector<GURL> icon_urls;
   bool skip_page_favicons = true;
@@ -340,7 +362,10 @@ TEST_F(WebAppDataRetrieverTest, GetIcons_WebContentsDestroyed) {
 TEST_F(WebAppDataRetrieverTest, GetWebApplicationInfo_FrameNavigated) {
   SetFakeChromeRenderFrame();
 
-  web_contents_tester()->NavigateAndCommit(kFooUrl);
+  const auto web_contents_title = base::UTF8ToUTF16(kFooTitle);
+  web_contents_tester()->SetTitle(web_contents_title);
+
+  web_contents_tester()->NavigateAndCommit(FooUrl());
 
   base::RunLoop run_loop;
   WebAppDataRetriever retriever;
@@ -348,10 +373,11 @@ TEST_F(WebAppDataRetrieverTest, GetWebApplicationInfo_FrameNavigated) {
       web_contents(),
       base::BindOnce(&WebAppDataRetrieverTest::GetWebApplicationInfoCallback,
                      base::Unretained(this), run_loop.QuitClosure()));
-  web_contents_tester()->NavigateAndCommit(kFooUrl2);
+  web_contents_tester()->NavigateAndCommit(FooUrl2());
   run_loop.Run();
 
-  EXPECT_EQ(nullptr, web_app_info());
+  EXPECT_EQ(FooUrl(), web_app_info()->app_url);
+  EXPECT_EQ(web_contents_title, web_app_info()->title);
 }
 
 TEST_F(WebAppDataRetrieverTest, CheckInstallabilityAndRetrieveManifest) {

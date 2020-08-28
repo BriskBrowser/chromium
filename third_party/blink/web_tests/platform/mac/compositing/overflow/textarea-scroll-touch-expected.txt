@@ -10,54 +10,52 @@
     {
       "name": "LayoutTextControl TEXTAREA",
       "bounds": [206, 126],
-      "backgroundColor": "#CCCCCC",
+      "transform": 1
+    },
+    {
+      "name": "ContentsLayer for Vertical Scrollbar Layer",
+      "position": [190, 1],
+      "bounds": [15, 109],
+      "transform": 1
+    },
+    {
+      "name": "Scroll Corner Layer",
+      "position": [190, 110],
+      "bounds": [15, 15],
       "transform": 1
     },
     {
       "name": "Scrolling Contents Layer",
       "position": [1, 1],
-      "bounds": [189, 270],
+      "bounds": [189, 337],
       "contentsOpaque": true,
       "backgroundColor": "#CCCCCC",
       "transform": 2
     },
     {
+      "name": "LayoutTextControl TEXTAREA",
+      "bounds": [206, 126],
+      "transform": 3
+    },
+    {
       "name": "ContentsLayer for Vertical Scrollbar Layer",
       "position": [190, 1],
       "bounds": [15, 109],
-      "transform": 1
+      "transform": 3
     },
     {
       "name": "Scroll Corner Layer",
       "position": [190, 110],
       "bounds": [15, 15],
-      "transform": 1
-    },
-    {
-      "name": "LayoutTextControl TEXTAREA",
-      "bounds": [206, 126],
-      "backgroundColor": "#CCCCCC",
       "transform": 3
     },
     {
       "name": "Scrolling Contents Layer",
       "position": [1, 1],
-      "bounds": [189, 270],
+      "bounds": [189, 337],
       "contentsOpaque": true,
       "backgroundColor": "#CCCCCC",
       "transform": 4
-    },
-    {
-      "name": "ContentsLayer for Vertical Scrollbar Layer",
-      "position": [190, 1],
-      "bounds": [15, 109],
-      "transform": 3
-    },
-    {
-      "name": "Scroll Corner Layer",
-      "position": [190, 110],
-      "bounds": [15, 15],
-      "transform": 3
     }
   ],
   "transforms": [

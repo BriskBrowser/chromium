@@ -19,20 +19,18 @@ namespace media {
 // static
 void MojoVideoEncodeAcceleratorService::Create(
     mojo::PendingReceiver<mojom::VideoEncodeAccelerator> receiver,
-    const CreateAndInitializeVideoEncodeAcceleratorCallback&
-        create_vea_callback,
+    CreateAndInitializeVideoEncodeAcceleratorCallback create_vea_callback,
     const gpu::GpuPreferences& gpu_preferences) {
   mojo::MakeSelfOwnedReceiver(
-      std::make_unique<MojoVideoEncodeAcceleratorService>(create_vea_callback,
-                                                          gpu_preferences),
+      std::make_unique<MojoVideoEncodeAcceleratorService>(
+          std::move(create_vea_callback), gpu_preferences),
       std::move(receiver));
 }
 
 MojoVideoEncodeAcceleratorService::MojoVideoEncodeAcceleratorService(
-    const CreateAndInitializeVideoEncodeAcceleratorCallback&
-        create_vea_callback,
+    CreateAndInitializeVideoEncodeAcceleratorCallback create_vea_callback,
     const gpu::GpuPreferences& gpu_preferences)
-    : create_vea_callback_(create_vea_callback),
+    : create_vea_callback_(std::move(create_vea_callback)),
       gpu_preferences_(gpu_preferences),
       output_buffer_size_(0) {
   DVLOG(1) << __func__;
@@ -50,10 +48,15 @@ void MojoVideoEncodeAcceleratorService::Initialize(
     InitializeCallback success_callback) {
   DVLOG(1) << __func__ << " " << config.AsHumanReadableString();
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  DCHECK(!encoder_);
   DCHECK(config.input_format == PIXEL_FORMAT_I420 ||
          config.input_format == PIXEL_FORMAT_NV12)
       << "Only I420 or NV12 format supported";
+
+  if (encoder_) {
+    DLOG(ERROR) << __func__ << " VEA is already initialized";
+    std::move(success_callback).Run(false);
+    return;
+  }
 
   if (!client) {
     DLOG(ERROR) << __func__ << "null |client|";
@@ -71,7 +74,8 @@ void MojoVideoEncodeAcceleratorService::Initialize(
     return;
   }
 
-  encoder_ = create_vea_callback_.Run(config, this, gpu_preferences_);
+  encoder_ =
+      std::move(create_vea_callback_).Run(config, this, gpu_preferences_);
   if (!encoder_) {
     DLOG(ERROR) << __func__ << " Error creating or initializing VEA";
     std::move(success_callback).Run(false);

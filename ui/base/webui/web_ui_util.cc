@@ -34,6 +34,10 @@
 #include "base/win/windows_version.h"
 #endif
 
+#if defined(OS_LINUX) && !defined(OS_CHROMEOS)
+#include "ui/base/ui_base_features.h"
+#endif
+
 namespace webui {
 namespace {
 std::string GetWebUiCssTextDefaults(const std::string& css_template) {
@@ -101,8 +105,7 @@ bool ParseScaleFactor(const base::StringPiece& identifier,
   }
 
   double scale = 0;
-  std::string stripped;
-  identifier.substr(0, identifier.length() - 1).CopyToString(&stripped);
+  std::string stripped(identifier.substr(0, identifier.length() - 1));
   if (!base::StringToDouble(stripped, &scale)) {
     LOG(WARNING) << "Invalid scale factor format: " << identifier;
     return false;
@@ -154,7 +157,7 @@ void ParsePathAndImageSpec(const GURL& url,
             pos + 1, stripped_path.length() - pos - 1), &factor)) {
       // Strip scale factor specification from path.
       stripped_path.remove_suffix(stripped_path.length() - pos);
-      stripped_path.CopyToString(path);
+      path->assign(stripped_path.data(), stripped_path.size());
     }
     if (scale_factor)
       *scale_factor = factor;
@@ -171,7 +174,7 @@ void ParsePathAndImageSpec(const GURL& url,
             &index)) {
       // Strip frame index specification from path.
       stripped_path.remove_suffix(stripped_path.length() - pos);
-      stripped_path.CopyToString(path);
+      path->assign(stripped_path.data(), stripped_path.size());
     }
     if (frame_index)
       *frame_index = index;
@@ -190,7 +193,6 @@ void ParsePathAndFrame(const GURL& url, std::string* path, int* frame_index) {
 
 void SetLoadTimeDataDefaults(const std::string& app_locale,
                              base::DictionaryValue* localized_strings) {
-  localized_strings->SetString("a11yenhanced", GetA11yEnhanced());
   localized_strings->SetString("fontfamily", GetFontFamily());
   localized_strings->SetString("fontsize", GetFontSize());
   localized_strings->SetString("language", l10n_util::GetLanguage(app_locale));
@@ -199,7 +201,6 @@ void SetLoadTimeDataDefaults(const std::string& app_locale,
 
 void SetLoadTimeDataDefaults(const std::string& app_locale,
                              ui::TemplateReplacements* replacements) {
-  (*replacements)["a11yenhanced"] = GetA11yEnhanced();
   (*replacements)["fontfamily"] = GetFontFamily();
   (*replacements)["fontsize"] = GetFontSize();
   (*replacements)["language"] = l10n_util::GetLanguage(app_locale);
@@ -226,20 +227,18 @@ void AppendWebUiCssTextDefaults(std::string* html) {
   html->append("</style>");
 }
 
-std::string GetA11yEnhanced() {
-  return base::FeatureList::IsEnabled(features::kWebUIA11yEnhancements)
-             ? "a11y-enhanced"
-             : "";
-}
-
 std::string GetFontFamily() {
   std::string font_family = l10n_util::GetStringUTF8(IDS_WEB_FONT_FAMILY);
 
 // TODO(dnicoara) Remove Ozone check when PlatformFont support is introduced
 // into Ozone: crbug.com/320050
-#if defined(OS_LINUX) && !defined(OS_CHROMEOS) && !defined(USE_OZONE)
-  font_family = ui::ResourceBundle::GetSharedInstance().GetFont(
-      ui::ResourceBundle::BaseFont).GetFontName() + ", " + font_family;
+#if defined(OS_LINUX) && !defined(OS_CHROMEOS)
+  if (!features::IsUsingOzonePlatform()) {
+    font_family = ui::ResourceBundle::GetSharedInstance()
+                      .GetFont(ui::ResourceBundle::BaseFont)
+                      .GetFontName() +
+                  ", " + font_family;
+  }
 #endif
 
   return font_family;

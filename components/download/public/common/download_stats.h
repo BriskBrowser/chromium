@@ -14,15 +14,14 @@
 #include <vector>
 
 #include "base/callback.h"
-#include "base/optional.h"
 #include "build/build_config.h"
 #include "components/download/public/common/download_content.h"
 #include "components/download/public/common/download_danger_type.h"
 #include "components/download/public/common/download_export.h"
 #include "components/download/public/common/download_interrupt_reasons.h"
 #include "components/download/public/common/download_source.h"
+#include "net/base/network_change_notifier.h"
 #include "net/http/http_response_info.h"
-#include "ui/base/page_transition_types.h"
 #include "url/gurl.h"
 
 namespace base {
@@ -144,14 +143,6 @@ enum DownloadCountTypes {
   DOWNLOAD_COUNT_TYPES_LAST_ENTRY
 };
 
-enum DownloadDiscardReason {
-  // The download is being discarded due to a user action.
-  DOWNLOAD_DISCARD_DUE_TO_USER_ACTION,
-
-  // The download is being discarded due to the browser being shut down.
-  DOWNLOAD_DISCARD_DUE_TO_SHUTDOWN
-};
-
 // Enum for in-progress download DB, used in histogram
 // "Download.InProgressDB.Counts".
 enum InProgressDBCountTypes {
@@ -220,6 +211,9 @@ enum class ParallelDownloadCreationEvent {
   // Range support is unknown from the response.
   FALLBACK_REASON_UNKNOWN_RANGE_SUPPORT,
 
+  // Resumed download doesn't have any slices.
+  FALLBACK_REASON_RESUMPTION_WITHOUT_SLICES,
+
   // Last entry of the enum.
   COUNT,
 };
@@ -239,6 +233,18 @@ enum class ResumptionRestartCountTypes {
   kMaxValue = kMissingStrongValidatorsCount
 };
 
+// Events for user scheduled downloads. Used in histograms, don't reuse or
+// remove items. Keep in sync with DownloadLaterEvent in enums.xml.
+enum class DownloadLaterEvent {
+  // Schedule is added during download target determination process.
+  kScheduleAdded = 0,
+  // Scheduled is changed from the UI after download is scheduled.
+  kScheduleChanged = 1,
+  // Scheduled is removed during resumption.
+  kScheduleRemoved = 2,
+  kMaxValue = kScheduleRemoved
+};
+
 // Increment one of the above counts.
 COMPONENTS_DOWNLOAD_EXPORT void RecordDownloadCount(DownloadCountTypes type);
 
@@ -247,18 +253,17 @@ COMPONENTS_DOWNLOAD_EXPORT void RecordDownloadCountWithSource(
     DownloadCountTypes type,
     DownloadSource download_source);
 
+// Record metrics when a new download is started.
+COMPONENTS_DOWNLOAD_EXPORT void RecordNewDownloadStarted(
+    net::NetworkChangeNotifier::ConnectionType connection_type,
+    DownloadSource download_source);
+
 // Record COMPLETED_COUNT and how long the download took.
 COMPONENTS_DOWNLOAD_EXPORT void RecordDownloadCompleted(
     int64_t download_len,
     bool is_parallelizable,
-    DownloadSource download_source,
-    bool has_resumed,
-    bool has_strong_validators);
-
-// Record download deletion event.
-COMPONENTS_DOWNLOAD_EXPORT void RecordDownloadDeletion(
-    base::Time completion_time,
-    const std::string& mime_type);
+    net::NetworkChangeNotifier::ConnectionType connection_type,
+    DownloadSource download_source);
 
 // Record INTERRUPTED_COUNT, |reason|, |received| and |total| bytes.
 COMPONENTS_DOWNLOAD_EXPORT void RecordDownloadInterrupted(
@@ -274,6 +279,15 @@ COMPONENTS_DOWNLOAD_EXPORT void RecordDangerousDownloadAccept(
     DownloadDangerType danger_type,
     const base::FilePath& file_path);
 
+// Records various metrics at the start of a download resumption.
+COMPONENTS_DOWNLOAD_EXPORT void RecordDownloadResumption(
+    DownloadInterruptReason reason,
+    bool user_resume);
+
+// Records whenever a download hits max auto-resumption limit.
+COMPONENTS_DOWNLOAD_EXPORT void RecordAutoResumeCountLimitReached(
+    DownloadInterruptReason reason);
+
 // Returns the type of download.
 COMPONENTS_DOWNLOAD_EXPORT DownloadContent
 DownloadContentFromMimeType(const std::string& mime_type_string,
@@ -287,13 +301,6 @@ COMPONENTS_DOWNLOAD_EXPORT void RecordDownloadMimeType(
 COMPONENTS_DOWNLOAD_EXPORT void RecordDownloadMimeTypeForNormalProfile(
     const std::string& mime_type);
 
-// Records usage of Content-Disposition header.
-COMPONENTS_DOWNLOAD_EXPORT void RecordDownloadContentDisposition(
-    const std::string& content_disposition);
-
-// Record the time of all opens since the download completed.
-COMPONENTS_DOWNLOAD_EXPORT void RecordOpen(const base::Time& end);
-
 // Record the number of completed unopened downloads when a download is opened.
 COMPONENTS_DOWNLOAD_EXPORT void RecordOpensOutstanding(int size);
 
@@ -302,10 +309,6 @@ COMPONENTS_DOWNLOAD_EXPORT void RecordOpensOutstanding(int size);
 COMPONENTS_DOWNLOAD_EXPORT void RecordFileBandwidth(
     size_t length,
     base::TimeDelta elapsed_time);
-
-// Records the size of the download from content-length header.
-COMPONENTS_DOWNLOAD_EXPORT void RecordParallelizableContentLength(
-    int64_t content_length);
 
 // Increment one of the count for parallelizable download.
 COMPONENTS_DOWNLOAD_EXPORT void RecordParallelizableDownloadCount(
@@ -424,16 +427,6 @@ COMPONENTS_DOWNLOAD_EXPORT void RecordDownloadConnectionSecurity(
     const GURL& download_url,
     const std::vector<GURL>& url_chain);
 
-COMPONENTS_DOWNLOAD_EXPORT void RecordDownloadContentTypeSecurity(
-    const GURL& download_url,
-    const std::vector<GURL>& url_chain,
-    const std::string& mime_type,
-    const base::RepeatingCallback<bool(const GURL&)>&
-        is_origin_secure_callback);
-
-COMPONENTS_DOWNLOAD_EXPORT void RecordDownloadSourcePageTransitionType(
-    const base::Optional<ui::PageTransition>& transition);
-
 COMPONENTS_DOWNLOAD_EXPORT void RecordDownloadHttpResponseCode(
     int response_code,
     bool is_background_mode);
@@ -455,14 +448,6 @@ COMPONENTS_DOWNLOAD_EXPORT void RecordResumptionStrongValidators(
 COMPONENTS_DOWNLOAD_EXPORT void RecordResumptionRestartCount(
     ResumptionRestartCountTypes type);
 
-// Records that download was resumed.
-COMPONENTS_DOWNLOAD_EXPORT void RecordDownloadResumed(
-    bool has_strong_validators);
-
-// Records connection info of the download.
-COMPONENTS_DOWNLOAD_EXPORT void RecordDownloadConnectionInfo(
-    net::HttpResponseInfo::ConnectionInfo connection_info);
-
 COMPONENTS_DOWNLOAD_EXPORT void RecordDownloadManagerCreationTimeSinceStartup(
     base::TimeDelta elapsed_time);
 
@@ -472,14 +457,11 @@ COMPONENTS_DOWNLOAD_EXPORT void RecordDownloadManagerMemoryUsage(
 COMPONENTS_DOWNLOAD_EXPORT void RecordParallelRequestCreationFailure(
     DownloadInterruptReason reason);
 
-#if defined(OS_ANDROID)
-// Records the download interrupt reason for the first background download.
-// If |download_started| is true, this records the last interrupt reason
-// before download is started manually or by the task scheduler.
-COMPONENTS_DOWNLOAD_EXPORT void RecordFirstBackgroundDownloadInterruptReason(
-    DownloadInterruptReason reason,
-    bool download_started);
+// Record download later events.
+COMPONENTS_DOWNLOAD_EXPORT void RecordDownloadLaterEvent(
+    DownloadLaterEvent event);
 
+#if defined(OS_ANDROID)
 enum class BackgroudTargetDeterminationResultTypes {
   // Target determination succeeded.
   kSuccess = 0,

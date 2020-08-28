@@ -5,6 +5,7 @@
 #import "ios/web/navigation/crw_js_navigation_handler.h"
 
 #include "base/json/string_escape.h"
+#include "base/logging.h"
 #include "base/strings/sys_string_conversions.h"
 #include "ios/web/history_state_util.h"
 #import "ios/web/js_messaging/crw_js_injector.h"
@@ -177,6 +178,15 @@ GURL URLEscapedForHistory(const GURL& url) {
   }
   NSString* stateObject = base::SysUTF8ToNSString(*stateObjectJSON);
 
+  int currentIndex = self.navigationManagerImpl->GetIndexOfItem(navItem);
+  if (currentIndex > 0) {
+    web::NavigationItem* previousItem =
+        self.navigationManagerImpl->GetItemAtIndex(currentIndex - 1);
+    web::UserAgentType userAgent = previousItem->GetUserAgentType();
+    if (userAgent != web::UserAgentType::NONE) {
+      navItem->SetUserAgentType(userAgent);
+    }
+  }
   // If the user interacted with the page, categorize it as a link navigation.
   // If not, categorize it is a client redirect as it occurred without user
   // input and should not be added to the history stack.

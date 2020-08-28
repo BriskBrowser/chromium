@@ -36,7 +36,7 @@ class It2MeConfirmationDialogLinux : public It2MeConfirmationDialog {
 
   // It2MeConfirmationDialog implementation.
   void Show(const std::string& remote_user_email,
-            const ResultCallback& callback) override;
+            ResultCallback callback) override;
 
  private:
   // Creates a dialog window and makes it visible.
@@ -65,19 +65,19 @@ It2MeConfirmationDialogLinux::~It2MeConfirmationDialogLinux() {
 }
 
 void It2MeConfirmationDialogLinux::Show(const std::string& remote_user_email,
-                                        const ResultCallback& callback) {
+                                        ResultCallback callback) {
   DCHECK(!remote_user_email.empty());
   DCHECK(callback);
   DCHECK(!result_callback_);
 
-  result_callback_ = callback;
+  result_callback_ = std::move(callback);
 
   CreateWindow(remote_user_email);
 
   dialog_timer_.Start(FROM_HERE, kDialogTimeout,
-                      base::Bind(&It2MeConfirmationDialogLinux::OnResponse,
-                                 base::Unretained(this),
-                                 /*dialog=*/nullptr, GTK_RESPONSE_NONE));
+                      base::BindOnce(&It2MeConfirmationDialogLinux::OnResponse,
+                                     base::Unretained(this),
+                                     /*dialog=*/nullptr, GTK_RESPONSE_NONE));
 }
 
 void It2MeConfirmationDialogLinux::Hide() {

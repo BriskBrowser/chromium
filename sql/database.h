@@ -60,6 +60,12 @@ class COMPONENT_EXPORT(SQL) Database {
   Database();
   ~Database();
 
+  // Allows mmapping to be disabled globally by default in the calling process.
+  // Must be called before any threads attempt to create a Database.
+  //
+  // TODO(crbug.com/1117049): Remove this global configuration.
+  static void DisableMmapByDefault();
+
   // Pre-init configuration ----------------------------------------------------
 
   // Sets the page size that will be used when creating a new database. This
@@ -87,6 +93,23 @@ class COMPONENT_EXPORT(SQL) Database {
 
     cache_size_ = cache_size;
   }
+
+  // Returns whether a database will be opened in WAL mode.
+  bool UseWALMode() const;
+
+  // Enables/disables WAL mode (https://www.sqlite.org/wal.html) when
+  // opening a new database.
+  //
+  // WAL mode is currently not fully supported on FuchsiaOS. It will only be
+  // turned on if the database is also using exclusive locking mode.
+  // (https://crbug.com/1082059)
+  //
+  // Note: Changing page size is not supported when in WAL mode. So running
+  // 'PRAGMA page_size = <new-size>' or using set_page_size will result in
+  // no-ops.
+  //
+  // This must be called before Open() to have an effect.
+  void want_wal_mode(bool enabled) { want_wal_mode_ = enabled; }
 
   // Call to put the database in exclusive locking mode. There is no "back to
   // normal" flag because of some additional requirements sqlite puts on this
@@ -129,7 +152,7 @@ class COMPONENT_EXPORT(SQL) Database {
   // histogram is recorded.
   void AddTaggedHistogram(const std::string& name, int sample) const;
 
-  // Track various API calls and results.  Values corrospond to UMA
+  // Track various API calls and results.  Values correspond to UMA
   // histograms, do not modify, or add or delete other than directly
   // before EVENT_MAX_VALUE.
   enum Events {
@@ -396,6 +419,14 @@ class COMPONENT_EXPORT(SQL) Database {
   // See GetCachedStatement above for examples and error information.
   scoped_refptr<StatementRef> GetUniqueStatement(const char* sql);
 
+  // Performs a passive checkpoint on the main attached database if it is in
+  // WAL mode. Returns true if the checkpoint was successful and false in case
+  // of an error. It is a no-op if the database is not in WAL mode.
+  //
+  // Note: Checkpointing is a very slow operation and will block any writes
+  // until it is finished. Please use with care.
+  bool CheckpointDatabase();
+
   // Info querying -------------------------------------------------------------
 
   // Returns true if the given structure exists.  Instead of test-then-create,
@@ -520,11 +551,13 @@ class COMPONENT_EXPORT(SQL) Database {
   void CloseInternal(bool forced);
 
   // Construct a ScopedBlockingCall to annotate IO calls, but only if
-  // database wasn't open in memory.
+  // database wasn't open in memory. ScopedBlockingCall uses |from_here| to
+  // declare its blocking execution scope (see https://www.crbug/934302).
   void InitScopedBlockingCall(
+      const base::Location& from_here,
       base::Optional<base::ScopedBlockingCall>* scoped_blocking_call) const {
     if (!in_memory_)
-      scoped_blocking_call->emplace(FROM_HERE, base::BlockingType::MAY_BLOCK);
+      scoped_blocking_call->emplace(from_here, base::BlockingType::MAY_BLOCK);
   }
 
   // Internal helper for Does*Exist() functions.
@@ -588,11 +621,13 @@ class COMPONENT_EXPORT(SQL) Database {
     void Close(bool forced);
 
     // Construct a ScopedBlockingCall to annotate IO calls, but only if
-    // database wasn't open in memory.
+    // database wasn't open in memory. ScopedBlockingCall uses |from_here| to
+    // declare its blocking execution scope (see https://www.crbug/934302).
     void InitScopedBlockingCall(
+        const base::Location& from_here,
         base::Optional<base::ScopedBlockingCall>* scoped_blocking_call) const {
       if (database_)
-        database_->InitScopedBlockingCall(scoped_blocking_call);
+        database_->InitScopedBlockingCall(from_here, scoped_blocking_call);
     }
 
    private:
@@ -689,7 +724,9 @@ class COMPONENT_EXPORT(SQL) Database {
   // use the default value.
   int page_size_;
   int cache_size_;
+
   bool exclusive_locking_;
+  bool want_wal_mode_;
 
   // Holds references to all cached statements so they remain active.
   //

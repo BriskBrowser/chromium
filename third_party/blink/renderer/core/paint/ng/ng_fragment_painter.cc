@@ -36,8 +36,11 @@ void NGFragmentPainter::PaintOutline(const PaintInfo& paint_info,
           paint_info.context, display_item_client, paint_info.phase))
     return;
 
+  IntRect visual_rect =
+      PixelSnappedIntRect(UnionRectEvenIfEmpty(outline_rects));
+  visual_rect.Inflate(fragment.Style().OutlineOutsetExtent());
   DrawingRecorder recorder(paint_info.context, display_item_client,
-                           paint_info.phase);
+                           paint_info.phase, visual_rect);
   PaintOutlineRects(paint_info, outline_rects, fragment.Style());
 }
 
@@ -59,11 +62,13 @@ void NGFragmentPainter::AddURLRectIfNeeded(const PaintInfo& paint_info,
   if (!url.IsValid())
     return;
 
-  const DisplayItemClient& display_item_client = GetDisplayItemClient();
-  IntRect rect = display_item_client.VisualRect();
+  auto outline_rects = fragment.GetLayoutObject()->OutlineRects(
+      paint_offset, NGOutlineType::kIncludeBlockVisualOverflow);
+  IntRect rect = PixelSnappedIntRect(UnionRect(outline_rects));
   if (rect.IsEmpty())
     return;
 
+  const DisplayItemClient& display_item_client = GetDisplayItemClient();
   if (DrawingRecorder::UseCachedDrawingIfPossible(
           paint_info.context, display_item_client,
           DisplayItem::kPrintedContentPDFURLRect))
@@ -81,25 +86,6 @@ void NGFragmentPainter::AddURLRectIfNeeded(const PaintInfo& paint_info,
     return;
   }
   paint_info.context.SetURLForRect(url, rect);
-}
-
-bool NGFragmentPainter::ShouldRecordHitTestData(
-    const PaintInfo& paint_info,
-    const NGPhysicalBoxFragment& fragment) {
-  // Hit test display items are only needed for compositing. This flag is used
-  // for for printing and drag images which do not need hit testing.
-  if (paint_info.GetGlobalPaintFlags() & kGlobalPaintFlattenCompositingLayers)
-    return false;
-
-  // If an object is not visible, it does not participate in hit testing.
-  if (fragment.Style().Visibility() != EVisibility::kVisible)
-    return false;
-
-  auto touch_action = fragment.EffectiveAllowedTouchAction();
-  if (touch_action == TouchAction::kAuto)
-    return false;
-
-  return true;
 }
 
 }  // namespace blink

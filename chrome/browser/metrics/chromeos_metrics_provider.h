@@ -18,14 +18,6 @@ namespace arc {
 struct ArcFeatures;
 }
 
-namespace device {
-class BluetoothAdapter;
-}
-
-namespace features {
-extern const base::Feature kUmaShortHWClass;
-}
-
 namespace metrics {
 class CachedMetricsProfile;
 class ChromeUserMetricsExtension;
@@ -62,10 +54,6 @@ class ChromeOSMetricsProvider : public metrics::MetricsProvider {
   // is run.
   void InitTaskGetFullHardwareClass(base::OnceClosure callback);
 
-  // Creates the Bluetooth adapter. When this task is complete, |callback| is
-  // run.
-  void InitTaskGetBluetoothAdapter(base::OnceClosure callback);
-
   // Retrieves ARC features using ArcFeaturesParser. When this task is complete,
   // |callback| is run.
   void InitTaskGetArcFeatures(base::OnceClosure callback);
@@ -83,17 +71,13 @@ class ChromeOSMetricsProvider : public metrics::MetricsProvider {
 
  private:
   void ProvideAccessibilityMetrics();
+  void ProvideSuggestedContentMetrics();
 
   // Update the number of users logged into a multi-profile session.
   // If the number of users change while the log is open, the call invalidates
   // the user count value.
   void UpdateMultiProfileUserCount(
       metrics::SystemProfileProto* system_profile_proto);
-
-  // Sets the Bluetooth Adapter instance used for the WriteBluetoothProto()
-  // call and calls callback.
-  void SetBluetoothAdapter(base::OnceClosure callback,
-                           scoped_refptr<device::BluetoothAdapter> adapter);
 
   // Sets the full hardware class, then calls the callback.
   void SetFullHardwareClass(base::OnceClosure callback,
@@ -102,9 +86,6 @@ class ChromeOSMetricsProvider : public metrics::MetricsProvider {
   // Updates ARC-related system profile fields, then calls the callback.
   void OnArcFeaturesParsed(base::OnceClosure callback,
                            base::Optional<arc::ArcFeatures> features);
-
-  // Writes info about paired Bluetooth devices on this system.
-  void WriteBluetoothProto(metrics::SystemProfileProto* system_profile_proto);
 
   // Called from the ProvideCurrentSessionData(...) to record UserType.
   void UpdateUserTypeUMA();
@@ -119,9 +100,6 @@ class ChromeOSMetricsProvider : public metrics::MetricsProvider {
   // Use the first signed-in profile for profile-dependent metrics.
   std::unique_ptr<metrics::CachedMetricsProfile> cached_profile_;
 
-  // Bluetooth Adapter instance for collecting information about paired devices.
-  scoped_refptr<device::BluetoothAdapter> adapter_;
-
   // Whether the user count was registered at the last log initialization.
   bool registered_user_count_at_log_initialization_;
 
@@ -129,9 +107,6 @@ class ChromeOSMetricsProvider : public metrics::MetricsProvider {
   // valid value only if |registered_user_count_at_log_initialization_| is
   // true.
   uint64_t user_count_at_log_initialization_;
-
-  // Short Hardware class. This value identifies the board of the hardware.
-  std::string hardware_class_;
 
   // Hardware class (e.g., hardware qualification ID). This value identifies
   // the configured system components such as CPU, WiFi adapter, etc.

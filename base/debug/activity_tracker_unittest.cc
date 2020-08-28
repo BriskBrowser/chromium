@@ -5,6 +5,7 @@
 #include "base/debug/activity_tracker.h"
 
 #include <memory>
+#include <utility>
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
@@ -82,6 +83,7 @@ class ActivityTrackerTest : public testing::Test {
   }
 
   size_t GetGlobalUserDataMemoryCacheUsed() {
+    AutoLock autolock(GlobalActivityTracker::Get()->user_data_allocator_lock_);
     return GlobalActivityTracker::Get()->user_data_allocator_.cache_used();
   }
 
@@ -219,6 +221,7 @@ TEST_F(ActivityTrackerTest, ScopedTaskTest) {
     ScopedTaskRunActivity activity1(task1);
     ActivityUserData& user_data1 = activity1.user_data();
     (void)user_data1;  // Tell compiler it's been used.
+    EXPECT_TRUE(activity1.IsRecorded());
 
     ASSERT_TRUE(tracker->CreateSnapshot(&snapshot));
     ASSERT_EQ(1U, snapshot.activity_stack_depth);
@@ -301,6 +304,7 @@ TEST_F(ActivityTrackerTest, LockTest) {
   // Check no activity when only "trying" a lock.
   EXPECT_TRUE(lock.Try());
   EXPECT_EQ(pre_version, tracker->GetDataVersionForTesting());
+  lock.AssertAcquired();
   lock.Release();
   EXPECT_EQ(pre_version, tracker->GetDataVersionForTesting());
 

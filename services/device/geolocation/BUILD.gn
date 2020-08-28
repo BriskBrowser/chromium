@@ -70,8 +70,8 @@ source_set("geolocation") {
 
   deps = [
     "//base",
-    "//mojo/core/embedder",
     "//mojo/public/cpp/bindings",
+    "//mojo/public/cpp/system",
     "//net",
     "//ui/gfx",
   ]
@@ -98,7 +98,7 @@ source_set("geolocation") {
   if (is_chromeos || (is_linux && !use_dbus)) {
     sources -= [ "wifi_data_provider_linux.cc" ]
   }
-  if (is_linux && use_dbus) {
+  if ((is_linux || is_chromeos) && use_dbus) {
     sources -= [ "empty_wifi_data_provider.cc" ]
     deps += [ "//dbus" ]
   }
@@ -116,10 +116,17 @@ source_set("geolocation") {
   }
 
   if (is_mac) {
-    libs = [
+    frameworks = [
       "CoreWLAN.framework",
       "Foundation.framework",
+      "CoreLocation.framework",
     ]
+    sources += [
+      "core_location_provider.h",
+      "core_location_provider.mm",
+    ]
+
+    deps += [ "//services/device/public/cpp:device_features" ]
   }
 
   if (is_win) {
@@ -157,6 +164,7 @@ if (is_android) {
       "//base:jni_java",
       "//components/location/android:location_java",
       "//services/device/public/java:geolocation_java",
+      "//third_party/android_deps:androidx_annotation_annotation_java",
     ]
     annotation_processor_deps = [ "//base/android/jni_generator:jni_processor" ]
   }

@@ -15,14 +15,13 @@
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
-#include "chrome/browser/android/chrome_feature_list.h"
 #include "chrome/browser/android/contextualsearch/contextual_search_field_trial.h"
 #include "chrome/browser/android/contextualsearch/resolved_search_term.h"
 #include "chrome/browser/android/proto/client_discourse_context.pb.h"
+#include "chrome/browser/flags/android/chrome_feature_list.h"
 #include "chrome/browser/language/language_model_manager_factory.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
-#include "chrome/browser/sync/profile_sync_service_factory.h"
 #include "chrome/browser/translate/translate_service.h"
 #include "components/contextual_search/core/browser/public.h"
 #include "components/language/core/browser/language_model.h"
@@ -73,7 +72,10 @@ const char kActionCategoryWebsite[] = "WEBSITE";
 
 const char kContextualSearchServerEndpoint[] = "_/contextualsearch?";
 const int kContextualSearchRequestVersion = 2;
-const int kContextualSearchMaxSelection = 100;
+// Deprecated: kContextualSearchSingleRequest = 3;
+const int kRelatedSearchesVersion = 4;
+
+const int kContextualSearchMaxSelection = 1000;
 const char kXssiEscape[] = ")]}'\n";
 const char kDiscourseContextHeaderPrefix[] = "X-Additional-Discourse-Context: ";
 const char kDoPreventPreloadValue[] = "1";
@@ -86,14 +88,12 @@ const int kResponseCodeUninitialized = -1;
 ContextualSearchDelegate::ContextualSearchDelegate(
     scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
     TemplateURLService* template_url_service,
-    const ContextualSearchDelegate::SearchTermResolutionCallback&
-        search_term_callback,
-    const ContextualSearchDelegate::SurroundingTextCallback&
-        surrounding_text_callback)
+    ContextualSearchDelegate::SearchTermResolutionCallback search_term_callback,
+    ContextualSearchDelegate::SurroundingTextCallback surrounding_text_callback)
     : url_loader_factory_(std::move(url_loader_factory)),
       template_url_service_(template_url_service),
-      search_term_callback_(search_term_callback),
-      surrounding_text_callback_(surrounding_text_callback) {
+      search_term_callback_(std::move(search_term_callback)),
+      surrounding_text_callback_(std::move(surrounding_text_callback)) {
   field_trial_.reset(new ContextualSearchFieldTrial());
 }
 
@@ -145,12 +145,10 @@ void ContextualSearchDelegate::StartSearchTermResolutionRequest(
   url_loader_.reset();
 
   // Decide if the URL should be sent with the context.
-  GURL page_url(web_contents->GetURL());
-  if (context_->CanSendBasePageUrl() &&
-      CanSendPageURL(page_url, ProfileManager::GetActiveUserProfile(),
-                     template_url_service_)) {
-    context_->SetBasePageUrl(page_url);
-  }
+  if (context_->CanSendBasePageUrl())
+    context_->SetBasePageUrl(web_contents->GetURL());
+
+  // Issue the resolve request.
   ResolveSearchTermFromContext();
 }
 
@@ -219,13 +217,13 @@ ContextualSearchDelegate::GetResolvedSearchTermFromJson(
   int start_adjust = 0;
   int end_adjust = 0;
   std::string context_language;
-  std::string thumbnail_url = "";
-  std::string caption = "";
-  std::string quick_action_uri = "";
+  std::string thumbnail_url;
+  std::string caption;
+  std::string quick_action_uri;
   QuickActionCategory quick_action_category = QUICK_ACTION_CATEGORY_NONE;
   int64_t logged_event_id = 0;
-  std::string search_url_full = "";
-  std::string search_url_preload = "";
+  std::string search_url_full;
+  std::string search_url_preload;
   int coca_card_tag = 0;
 
   DecodeSearchTermFromJsonResponse(
@@ -280,15 +278,32 @@ std::string ContextualSearchDelegate::BuildRequestUrl(
     contextual_cards_version =
         contextual_search::kContextualCardsDefinitionsIntegration;
   }
+  if (base::FeatureList::IsEnabled(
+          chrome::android::kContextualSearchTranslations)) {
+    contextual_cards_version =
+        contextual_search::kContextualCardsTranslationsIntegration;
+  }
+  // Mixin the debug setting.
+  if (base::FeatureList::IsEnabled(chrome::android::kContextualSearchDebug)) {
+    contextual_cards_version +=
+        contextual_search::kContextualCardsServerDebugMixin;
+  }
   // Let the field-trial override.
   if (field_trial_->GetContextualCardsVersion() != 0) {
     contextual_cards_version = field_trial_->GetContextualCardsVersion();
   }
 
+  int mainFunctionVersion = kContextualSearchRequestVersion;
+  if (context_->GetRelatedSearches())
+    mainFunctionVersion = kRelatedSearchesVersion;
+
   TemplateURLRef::SearchTermsArgs::ContextualSearchParams params(
-      kContextualSearchRequestVersion, contextual_cards_version,
-      context->GetHomeCountry(), context->GetPreviousEventId(),
-      context->GetPreviousEventResults());
+      mainFunctionVersion, contextual_cards_version, context->GetHomeCountry(),
+      context->GetPreviousEventId(), context->GetPreviousEventResults(),
+      context->GetExactResolve(),
+      context->GetTranslationLanguages().detected_language,
+      context->GetTranslationLanguages().target_language,
+      context->GetTranslationLanguages().fluent_languages);
 
   search_terms_args.contextual_search_params = params;
 
@@ -375,47 +390,6 @@ std::string ContextualSearchDelegate::GetDiscourseContext(
   std::replace(encoded_context.begin(), encoded_context.end(), '+', '-');
   std::replace(encoded_context.begin(), encoded_context.end(), '/', '_');
   return kDiscourseContextHeaderPrefix + encoded_context;
-}
-
-bool ContextualSearchDelegate::CanSendPageURL(
-    const GURL& current_page_url,
-    Profile* profile,
-    TemplateURLService* template_url_service) {
-  // Check whether there is a Finch parameter preventing us from sending the
-  // page URL.
-  if (field_trial_->IsSendBasePageURLDisabled())
-    return false;
-
-  // Ensure that the default search provider is Google.
-  const TemplateURL* default_search_provider =
-      template_url_service->GetDefaultSearchProvider();
-  bool is_default_search_provider_google =
-      default_search_provider &&
-      default_search_provider->url_ref().HasGoogleBaseURLs(
-          template_url_service->search_terms_data());
-  if (!is_default_search_provider_google)
-    return false;
-
-  // Only allow HTTP URLs or HTTPS URLs.
-  if (current_page_url.scheme() != url::kHttpScheme &&
-      (current_page_url.scheme() != url::kHttpsScheme))
-    return false;
-
-  syncer::SyncService* sync_service =
-      ProfileSyncServiceFactory::GetForProfile(profile);
-  if (!sync_service)
-    return false;
-
-  // Check whether the user has enabled anonymous URL-keyed data collection
-  // from the unified consent service.
-  std::unique_ptr<UrlKeyedDataCollectionConsentHelper>
-      anonymized_unified_consent_url_helper =
-          UrlKeyedDataCollectionConsentHelper::
-              NewAnonymizedDataCollectionConsentHelper(
-                  ProfileManager::GetActiveUserProfile()->GetPrefs(),
-                  sync_service);
-  // If they have, then allow sending of the URL.
-  return anonymized_unified_consent_url_helper->IsEnabled();
 }
 
 // Decodes the given response from the search term resolution request and sets

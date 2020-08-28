@@ -5,18 +5,17 @@
 #include "ui/gl/android/android_surface_control_compat.h"
 
 #include <dlfcn.h>
-#include <android/ndk-version.h>
-#if __NDK_MAJOR__ >= 18
 #include <android/data_space.h>
-#endif
 
 #include "base/android/build_info.h"
 #include "base/atomic_sequence_num.h"
 #include "base/bind.h"
 #include "base/debug/crash_logging.h"
+#include "base/logging.h"
 #include "base/memory/ptr_util.h"
 #include "base/no_destructor.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/system/sys_info.h"
 #include "base/trace_event/trace_event.h"
 #include "ui/gfx/color_space.h"
 
@@ -39,21 +38,11 @@ enum {
   ASURFACE_TRANSACTION_TRANSPARENCY_OPAQUE = 2,
 };
 
-#if __NDK_MAJOR__ < 18
+// ANativeWindow_FrameRateCompatibility enums
 enum {
-  ADATASPACE_UNKNOWN = 0,
-  ADATASPACE_SCRGB_LINEAR = 406913024,
-  ADATASPACE_SRGB = 142671872,
-  ADATASPACE_DISPLAY_P3 = 143261696,
-  ADATASPACE_BT2020_PQ = 163971072,
+  ANATIVEWINDOW_FRAME_RATE_COMPATIBILITY_DEFAULT = 0,
+  ANATIVEWINDOW_FRAME_RATE_COMPATIBILITY_FIXED_SOURCE = 1
 };
-#endif
-
-#if __NDK_MAJOR__ < 20
-enum {
-  AHARDWAREBUFFER_USAGE_COMPOSER_OVERLAY = 1ULL << 11,
-};
-#endif
 
 // ASurfaceTransaction
 using pASurfaceTransaction_create = ASurfaceTransaction* (*)(void);
@@ -90,6 +79,11 @@ using pASurfaceTransaction_setBufferDataSpace =
     void (*)(ASurfaceTransaction* transaction,
              ASurfaceControl* surface,
              uint64_t data_space);
+using pASurfaceTransaction_setFrameRate =
+    void (*)(ASurfaceTransaction* transaction,
+             ASurfaceControl* surface_control,
+             float frameRate,
+             int8_t compatibility);
 
 // ASurfaceTransactionStats
 using pASurfaceTransactionStats_getPresentFenceFd =
@@ -122,6 +116,11 @@ uint64_t g_agb_required_usage_bits = AHARDWAREBUFFER_USAGE_COMPOSER_OVERLAY;
     }                                                        \
   } while (0)
 
+#define LOAD_FUNCTION_MAYBE(lib, func)                       \
+  do {                                                       \
+    func##Fn = reinterpret_cast<p##func>(dlsym(lib, #func)); \
+  } while (0)
+
 struct SurfaceControlMethods {
  public:
   static const SurfaceControlMethods& Get() {
@@ -152,6 +151,7 @@ struct SurfaceControlMethods {
     LOAD_FUNCTION(main_dl_handle, ASurfaceTransaction_setBufferTransparency);
     LOAD_FUNCTION(main_dl_handle, ASurfaceTransaction_setDamageRegion);
     LOAD_FUNCTION(main_dl_handle, ASurfaceTransaction_setBufferDataSpace);
+    LOAD_FUNCTION_MAYBE(main_dl_handle, ASurfaceTransaction_setFrameRate);
 
     LOAD_FUNCTION(main_dl_handle, ASurfaceTransactionStats_getPresentFenceFd);
     LOAD_FUNCTION(main_dl_handle, ASurfaceTransactionStats_getLatchTime);
@@ -184,6 +184,7 @@ struct SurfaceControlMethods {
   pASurfaceTransaction_setDamageRegion ASurfaceTransaction_setDamageRegionFn;
   pASurfaceTransaction_setBufferDataSpace
       ASurfaceTransaction_setBufferDataSpaceFn;
+  pASurfaceTransaction_setFrameRate ASurfaceTransaction_setFrameRateFn;
 
   // TransactionStats methods.
   pASurfaceTransactionStats_getPresentFenceFd
@@ -306,6 +307,7 @@ void OnTransactionCompletedOnAnyThread(void* context,
 bool SurfaceControl::IsSupported() {
   if (!base::android::BuildInfo::GetInstance()->is_at_least_q())
     return false;
+
   CHECK(SurfaceControlMethods::Get().supported);
   return true;
 }
@@ -322,6 +324,13 @@ uint64_t SurfaceControl::RequiredUsage() {
 
 void SurfaceControl::EnableQualcommUBWC() {
   g_agb_required_usage_bits |= AHARDWAREBUFFER_USAGE_VENDOR_0;
+}
+
+bool SurfaceControl::SupportsSetFrameRate() {
+  // TODO(khushalsagar): Assert that this function is always available on R.
+  return IsSupported() &&
+         SurfaceControlMethods::Get().ASurfaceTransaction_setFrameRateFn !=
+             nullptr;
 }
 
 SurfaceControl::Surface::Surface() = default;
@@ -447,6 +456,17 @@ void SurfaceControl::Transaction::SetColorSpace(
 
   SurfaceControlMethods::Get().ASurfaceTransaction_setBufferDataSpaceFn(
       transaction_, surface.surface(), data_space);
+}
+
+void SurfaceControl::Transaction::SetFrameRate(const Surface& surface,
+                                               float frame_rate) {
+  DCHECK(SupportsSetFrameRate());
+
+  // We always used fixed source here since a non-default value is only used for
+  // videos which have a fixed playback rate.
+  SurfaceControlMethods::Get().ASurfaceTransaction_setFrameRateFn(
+      transaction_, surface.surface(), frame_rate,
+      ANATIVEWINDOW_FRAME_RATE_COMPATIBILITY_FIXED_SOURCE);
 }
 
 void SurfaceControl::Transaction::SetOnCompleteCb(

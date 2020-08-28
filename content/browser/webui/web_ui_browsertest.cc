@@ -12,10 +12,13 @@
 #include "base/memory/ref_counted_memory.h"
 #include "base/memory/weak_ptr.h"
 #include "base/run_loop.h"
+#include "base/strings/strcat.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/test/bind_test_util.h"
 #include "base/test/simple_test_tick_clock.h"
 #include "base/time/time.h"
 #include "content/browser/webui/content_web_ui_controller_factory.h"
+#include "content/browser/webui/web_ui_impl.h"
 #include "content/public/browser/child_process_security_policy.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_process_host.h"
@@ -24,6 +27,7 @@
 #include "content/public/browser/web_ui_message_handler.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/common/url_constants.h"
+#include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/content_browser_test.h"
 #include "content/public/test/test_utils.h"
@@ -50,6 +54,10 @@ class TestWebUIMessageHandler : public WebUIMessageHandler {
         "notifyFinish",
         base::BindRepeating(&TestWebUIMessageHandler::OnNotifyFinish,
                             base::Unretained(this)));
+    web_ui()->RegisterMessageCallback(
+        "sendMessage",
+        base::BindRepeating(&TestWebUIMessageHandler::OnSendMessase,
+                            base::Unretained(this)));
   }
 
   void set_finish_closure(base::RepeatingClosure closure) {
@@ -58,6 +66,10 @@ class TestWebUIMessageHandler : public WebUIMessageHandler {
 
   int message_requiring_gesture_count() const {
     return message_requiring_gesture_count_;
+  }
+
+  void set_send_message_closure(base::OnceClosure closure) {
+    send_message_closure_ = std::move(closure);
   }
 
  private:
@@ -70,8 +82,27 @@ class TestWebUIMessageHandler : public WebUIMessageHandler {
       finish_closure_.Run();
   }
 
+  void OnSendMessase(const base::ListValue* args) {
+    // This message will be invoked when WebContents changes the main RFH
+    // and the old main RFH is still alive during navigating from WebUI page
+    // to cross-site. WebUI message should be handled with old main RFH.
+
+    if (send_message_closure_)
+      std::move(send_message_closure_).Run();
+
+    // AllowJavascript should not have a CHECK crash.
+    AllowJavascript();
+
+    // WebUI::CallJavascriptFunctionUnsafe should be run with old main RFH.
+    web_ui()->CallJavascriptFunctionUnsafe("test");
+
+    if (finish_closure_)
+      std::move(finish_closure_).Run();
+  }
+
   int message_requiring_gesture_count_ = 0;
   base::RepeatingClosure finish_closure_;
+  base::OnceClosure send_message_closure_;
 };
 
 class WebUIRequiringGestureBrowserTest : public ContentBrowserTest {
@@ -153,6 +184,26 @@ IN_PROC_BROWSER_TEST_F(WebUIImplBrowserTest, ForceSwapOnDifferenteWebUITypes) {
       web_contents->GetMainFrame()->GetProcess()->GetID()));
 }
 
+// Tests that a WebUI page will use a separate SiteInstance when we navigated to
+// it from the initial blank page.
+IN_PROC_BROWSER_TEST_F(WebUIImplBrowserTest,
+                       ForceBrowsingInstanceSwapOnFirstNavigation) {
+  WebContents* web_contents = shell()->web_contents();
+  scoped_refptr<SiteInstance> orig_site_instance(
+      web_contents->GetSiteInstance());
+  // Navigate from the initial blank page to the WebUI URL.
+  const GURL web_ui_url(GetWebUIURL(kChromeUIHistogramHost));
+  EXPECT_TRUE(ContentWebUIControllerFactory::GetInstance()->UseWebUIForURL(
+      web_contents->GetBrowserContext(), web_ui_url));
+  ASSERT_TRUE(NavigateToURL(web_contents, web_ui_url));
+
+  EXPECT_TRUE(ChildProcessSecurityPolicy::GetInstance()->HasWebUIBindings(
+      web_contents->GetMainFrame()->GetProcess()->GetID()));
+  auto* new_site_instance = web_contents->GetSiteInstance();
+  EXPECT_NE(orig_site_instance, new_site_instance);
+  EXPECT_FALSE(orig_site_instance->IsRelatedSiteInstance(new_site_instance));
+}
+
 // Tests that navigating from chrome:// to chrome-untrusted:// results in
 // SiteInstance swap.
 IN_PROC_BROWSER_TEST_F(WebUIImplBrowserTest, ForceSwapOnFromChromeToUntrusted) {
@@ -229,13 +280,13 @@ IN_PROC_BROWSER_TEST_F(WebUIImplBrowserTest, SameDocumentNavigationsAndReload) {
   ASSERT_TRUE(ExecuteScript(web_contents,
                             "window.history.pushState({}, '', 'foo.html')"));
   shell()->GoBackOrForward(-1);
-  WaitForLoadStop(web_contents);
+  EXPECT_TRUE(WaitForLoadStop(web_contents));
 
   // Test handler should still have JavaScript allowed after in-page navigation.
   EXPECT_TRUE(test_handler->IsJavascriptAllowed());
 
   shell()->Reload();
-  WaitForLoadStop(web_contents);
+  EXPECT_TRUE(WaitForLoadStop(web_contents));
 
   // Verify that after a reload, the test handler has been disallowed.
   EXPECT_FALSE(test_handler->IsJavascriptAllowed());
@@ -267,11 +318,14 @@ IN_PROC_BROWSER_TEST_F(WebUIRequiringGestureBrowserTest,
                        MessageRequiringGestureIgnoresNonInteractiveEvents) {
   // Mouse enter / mouse move / mouse leave should not be considered input
   // events that interact with the page.
-  content::SimulateMouseEvent(web_contents(), blink::WebInputEvent::kMouseEnter,
+  content::SimulateMouseEvent(web_contents(),
+                              blink::WebInputEvent::Type::kMouseEnter,
                               gfx::Point(50, 50));
-  content::SimulateMouseEvent(web_contents(), blink::WebInputEvent::kMouseMove,
+  content::SimulateMouseEvent(web_contents(),
+                              blink::WebInputEvent::Type::kMouseMove,
                               gfx::Point(50, 50));
-  content::SimulateMouseEvent(web_contents(), blink::WebInputEvent::kMouseLeave,
+  content::SimulateMouseEvent(web_contents(),
+                              blink::WebInputEvent::Type::kMouseLeave,
                               gfx::Point(50, 50));
   // Nor should mouse wheel.
   content::SimulateMouseWheelEvent(web_contents(), gfx::Point(50, 50),
@@ -311,6 +365,158 @@ IN_PROC_BROWSER_TEST_F(WebUIImplBrowserTest, UntrustedSchemeLoads) {
   EXPECT_TRUE(NavigateToURL(web_contents, untrusted_url));
   EXPECT_EQ(base::ASCIIToUTF16("Title Of Awesomeness"),
             web_contents->GetTitle());
+}
+
+// Verify that we can successfully navigate to a chrome-untrusted:// URL
+// without a crash while WebUI::Send is being performed.
+IN_PROC_BROWSER_TEST_F(WebUIImplBrowserTest, NavigateWhileWebUISend) {
+  ASSERT_TRUE(embedded_test_server()->Start());
+
+  auto* web_contents = shell()->web_contents();
+  ASSERT_TRUE(NavigateToURL(web_contents, GetWebUIURL(kChromeUIGpuHost)));
+
+  auto* test_handler = new TestWebUIMessageHandler;
+  web_contents->GetWebUI()->AddMessageHandler(base::WrapUnique(test_handler));
+
+  auto* webui = static_cast<WebUIImpl*>(web_contents->GetWebUI());
+  EXPECT_EQ(web_contents->GetMainFrame(), webui->frame_host_for_test());
+
+  test_handler->set_finish_closure(base::BindLambdaForTesting([&]() {
+    EXPECT_NE(web_contents->GetMainFrame(), webui->frame_host_for_test());
+  }));
+
+  bool received_send_message = false;
+  test_handler->set_send_message_closure(
+      base::BindLambdaForTesting([&]() { received_send_message = true; }));
+
+  base::RunLoop run_loop;
+  web_contents->GetMainFrame()->ExecuteJavaScriptForTests(
+      base::ASCIIToUTF16("onunload=function() { chrome.send('sendMessage')}"),
+      base::BindOnce([](base::OnceClosure callback,
+                        base::Value) { std::move(callback).Run(); },
+                     run_loop.QuitClosure()));
+  run_loop.Run();
+
+  RenderFrameDeletedObserver delete_observer(web_contents->GetMainFrame());
+  EXPECT_TRUE(NavigateToURL(
+      web_contents, embedded_test_server()->GetURL("/simple_page.html")));
+  delete_observer.WaitUntilDeleted();
+
+  EXPECT_TRUE(received_send_message);
+}
+
+class WebUIRequestSchemesTest : public ContentBrowserTest {
+ public:
+  WebUIRequestSchemesTest() {
+    WebUIControllerFactory::RegisterFactory(&factory_);
+  }
+
+  ~WebUIRequestSchemesTest() override {
+    WebUIControllerFactory::UnregisterFactoryForTesting(&factory_);
+  }
+
+  WebUIRequestSchemesTest(const WebUIRequestSchemesTest&) = delete;
+
+  WebUIRequestSchemesTest& operator=(const WebUIRequestSchemesTest&) = delete;
+
+  TestWebUIControllerFactory* factory() { return &factory_; }
+
+ private:
+  TestWebUIControllerFactory factory_;
+};
+
+// Verify that by default WebUI's child process security policy can request
+// default schemes such as chrome.
+//
+// ChildProcessSecurityPolicy::CanRequestURL() always returns true for the
+// following schemes, but in practice there are other checks that stop WebUIs
+// from accessing these schemes.
+IN_PROC_BROWSER_TEST_F(WebUIRequestSchemesTest, DefaultSchemesCanBeRequested) {
+  auto* web_contents = shell()->web_contents();
+
+  std::string host_and_path = "test-host/title2.html";
+  const GURL chrome_url(GetWebUIURL(host_and_path));
+  GURL url;
+
+  std::vector<std::string> requestable_schemes = {
+      // WebSafe Schemes:
+      "feed", url::kHttpScheme, url::kHttpsScheme, url::kFtpScheme,
+      url::kDataScheme, url::kWsScheme, url::kWssScheme,
+      // Default added as requestable schemes:
+      url::kFileScheme, kChromeUIScheme};
+
+  std::vector<std::string> unrequestable_schemes = {
+      kChromeDevToolsScheme, url::kBlobScheme, kChromeUIUntrustedScheme,
+      base::StrCat({url::kFileSystemScheme, ":", kChromeUIUntrustedScheme})};
+
+  ASSERT_TRUE(NavigateToURL(web_contents, chrome_url));
+
+  for (const auto& requestable_scheme : requestable_schemes) {
+    url = GURL(base::StrCat(
+        {requestable_scheme, url::kStandardSchemeSeparator, host_and_path}));
+    EXPECT_TRUE(ChildProcessSecurityPolicy::GetInstance()->CanRequestURL(
+        web_contents->GetMainFrame()->GetProcess()->GetID(), url));
+  }
+
+  for (const auto& unrequestable_scheme : unrequestable_schemes) {
+    url = GURL(base::StrCat(
+        {unrequestable_scheme, url::kStandardSchemeSeparator, host_and_path}));
+    EXPECT_FALSE(ChildProcessSecurityPolicy::GetInstance()->CanRequestURL(
+        web_contents->GetMainFrame()->GetProcess()->GetID(), url));
+  }
+}
+
+// Verify that we can successfully allow non-default URL schemes to
+// be requested by the WebUI's child process security policy.
+IN_PROC_BROWSER_TEST_F(WebUIRequestSchemesTest,
+                       AllowAdditionalSchemesToBeRequested) {
+  auto* web_contents = shell()->web_contents();
+
+  std::string host_and_path = "test-host/title2.html";
+  GURL url;
+
+  // All URLs with a web safe scheme, or with a scheme not
+  // handled by ContentBrowserClient are requestable. All other schemes are
+  // not requestable.
+  std::vector<std::string> requestable_schemes = {
+      // WebSafe schemes:
+      "feed",
+      url::kHttpScheme,
+      url::kHttpsScheme,
+      url::kFtpScheme,
+      url::kDataScheme,
+      url::kWsScheme,
+      url::kWssScheme,
+      // Default added as requestable schemes:
+      "file",
+      kChromeUIScheme,
+      // Schemes given requestable access:
+      kChromeUIUntrustedScheme,
+      base::StrCat({url::kFileSystemScheme, ":", kChromeUIUntrustedScheme}),
+  };
+  std::vector<std::string> unrequestable_schemes = {
+      kChromeDevToolsScheme, url::kBlobScheme,
+      base::StrCat({url::kFileSystemScheme, ":", kChromeDevToolsScheme})};
+
+  const GURL chrome_ui_url = GetWebUIURL(base::StrCat(
+      {host_and_path, "?requestableschemes=", kChromeUIUntrustedScheme, ",",
+       url::kWsScheme}));
+
+  ASSERT_TRUE(NavigateToURL(web_contents, chrome_ui_url));
+
+  for (const auto& requestable_scheme : requestable_schemes) {
+    url = GURL(base::StrCat(
+        {requestable_scheme, url::kStandardSchemeSeparator, host_and_path}));
+    EXPECT_TRUE(ChildProcessSecurityPolicy::GetInstance()->CanRequestURL(
+        web_contents->GetMainFrame()->GetProcess()->GetID(), url));
+  }
+
+  for (const auto& unrequestable_scheme : unrequestable_schemes) {
+    url = GURL(base::StrCat(
+        {unrequestable_scheme, url::kStandardSchemeSeparator, host_and_path}));
+    EXPECT_FALSE(ChildProcessSecurityPolicy::GetInstance()->CanRequestURL(
+        web_contents->GetMainFrame()->GetProcess()->GetID(), url));
+  }
 }
 
 }  // namespace content

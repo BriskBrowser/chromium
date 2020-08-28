@@ -6,7 +6,6 @@
 
 #include "third_party/blink/renderer/core/layout/layout_multi_column_set.h"
 #include "third_party/blink/renderer/core/paint/block_painter.h"
-#include "third_party/blink/renderer/core/paint/box_painter.h"
 #include "third_party/blink/renderer/core/paint/object_painter.h"
 #include "third_party/blink/renderer/core/paint/paint_info.h"
 #include "third_party/blink/renderer/platform/geometry/layout_point.h"
@@ -29,7 +28,7 @@ void MultiColumnSetPainter::PaintObject(const PaintInfo& paint_info,
   // It's also really unlikely that the columns would overlap another block.
   if (!layout_multi_column_set_.FlowThread() ||
       (paint_info.phase != PaintPhase::kForeground &&
-       paint_info.phase != PaintPhase::kSelection))
+       paint_info.phase != PaintPhase::kSelectionDragImage))
     return;
 
   PaintColumnRules(paint_info, paint_offset);
@@ -49,7 +48,8 @@ void MultiColumnSetPainter::PaintColumnRules(
     return;
 
   DrawingRecorder recorder(paint_info.context, layout_multi_column_set_,
-                           DisplayItem::kColumnRules);
+                           DisplayItem::kColumnRules,
+                           PixelSnappedIntRect(UnionRect(column_rule_bounds)));
 
   const ComputedStyle& block_style =
       layout_multi_column_set_.MultiColumnBlockFlow()->StyleRef();

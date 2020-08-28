@@ -26,10 +26,10 @@
 #include "content/browser/renderer_host/render_widget_host_view_base.h"
 #include "content/common/content_export.h"
 #include "content/public/browser/touch_selection_controller_client_manager.h"
-#include "content/public/common/input_event_ack_state.h"
 #include "services/viz/public/mojom/compositing/compositor_frame_sink.mojom.h"
+#include "third_party/blink/public/mojom/frame/intrinsic_sizing_info.mojom-forward.h"
+#include "third_party/blink/public/mojom/input/input_event_result.mojom-shared.h"
 #include "third_party/blink/public/platform/viewport_intersection_state.h"
-#include "third_party/blink/public/platform/web_intrinsic_sizing_info.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/native_widget_types.h"
 
@@ -52,7 +52,9 @@ class CONTENT_EXPORT RenderWidgetHostViewChildFrame
       public TouchSelectionControllerClientManager::Observer,
       public viz::HostFrameSinkClient {
  public:
-  static RenderWidgetHostViewChildFrame* Create(RenderWidgetHost* widget);
+  static RenderWidgetHostViewChildFrame* Create(
+      RenderWidgetHost* widget,
+      const blink::ScreenInfo& screen_info);
   ~RenderWidgetHostViewChildFrame() override;
 
   void SetFrameConnectorDelegate(FrameConnectorDelegate* frame_connector);
@@ -99,7 +101,7 @@ class CONTENT_EXPORT RenderWidgetHostViewChildFrame
   void Destroy() override;
   void SetTooltipText(const base::string16& tooltip_text) override;
   void GestureEventAck(const blink::WebGestureEvent& event,
-                       InputEventAckState ack_result) override;
+                       blink::mojom::InputEventResultState ack_result) override;
   // Since the URL of content rendered by this class is not displayed in
   // the URL bar, this method does not need an implementation.
   void ResetFallbackToFirstNavigationSurface() override {}
@@ -107,7 +109,10 @@ class CONTENT_EXPORT RenderWidgetHostViewChildFrame
   void TransformPointToRootSurface(gfx::PointF* point) override;
   gfx::Rect GetBoundsInRootWindow() override;
   void DidStopFlinging() override;
-  bool LockMouse(bool request_unadjusted_movement) override;
+  blink::mojom::PointerLockResult LockMouse(
+      bool request_unadjusted_movement) override;
+  blink::mojom::PointerLockResult ChangeMouseLock(
+      bool request_unadjusted_movement) override;
   void UnlockMouse() override;
   const viz::FrameSinkId& GetFrameSinkId() const override;
   const viz::LocalSurfaceIdAllocation& GetLocalSurfaceIdAllocation()
@@ -131,7 +136,7 @@ class CONTENT_EXPORT RenderWidgetHostViewChildFrame
   GetTouchSelectionControllerClientManager() override;
   void OnRenderFrameMetadataChangedAfterActivation() override;
   void UpdateIntrinsicSizingInfo(
-      const blink::WebIntrinsicSizingInfo& sizing_info) override;
+      blink::mojom::IntrinsicSizingInfoPtr sizing_info) override;
   std::unique_ptr<SyntheticGestureTarget> CreateSyntheticGestureTarget()
       override;
 
@@ -139,19 +144,20 @@ class CONTENT_EXPORT RenderWidgetHostViewChildFrame
 
   void WillSendScreenRects() override;
 
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
   // RenderWidgetHostView implementation.
   void SetActive(bool active) override;
   void ShowDefinitionForSelection() override;
   void SpeakSelection() override;
-#endif  // defined(OS_MACOSX)
+  void SetWindowFrameInScreen(const gfx::Rect& rect) override;
+#endif  // defined(OS_MAC)
 
-  InputEventAckState FilterInputEvent(
+  blink::mojom::InputEventResultState FilterInputEvent(
       const blink::WebInputEvent& input_event) override;
   BrowserAccessibilityManager* CreateBrowserAccessibilityManager(
       BrowserAccessibilityDelegate* delegate,
       bool for_root_frame) override;
-  void GetScreenInfo(ScreenInfo* screen_info) override;
+  void GetScreenInfo(blink::ScreenInfo* screen_info) override;
   void EnableAutoResize(const gfx::Size& min_size,
                         const gfx::Size& max_size) override;
   void DisableAutoResize(const gfx::Size& new_size) override;
@@ -193,7 +199,8 @@ class CONTENT_EXPORT RenderWidgetHostViewChildFrame
   FRIEND_TEST_ALL_PREFIXES(RenderWidgetHostViewChildFrameTest,
                            ForwardsBeginFrameAcks);
 
-  explicit RenderWidgetHostViewChildFrame(RenderWidgetHost* widget);
+  explicit RenderWidgetHostViewChildFrame(RenderWidgetHost* widget,
+                                          const blink::ScreenInfo& screen_info);
   void Init();
 
   // Sets |parent_frame_sink_id_| and registers frame sink hierarchy. If the
@@ -208,8 +215,9 @@ class CONTENT_EXPORT RenderWidgetHostViewChildFrame
   // RenderWidgetHostViewBase:
   void UpdateBackgroundColor() override;
 
-  void StopFlingingIfNecessary(const blink::WebGestureEvent& event,
-                               InputEventAckState ack_result) override;
+  void StopFlingingIfNecessary(
+      const blink::WebGestureEvent& event,
+      blink::mojom::InputEventResultState ack_result) override;
 
   // The ID for FrameSink associated with this view.
   viz::FrameSinkId frame_sink_id_;
@@ -247,11 +255,12 @@ class CONTENT_EXPORT RenderWidgetHostViewChildFrame
   void OnDidUpdateVisualPropertiesComplete(
       const cc::RenderFrameMetadata& metadata);
 
-  void ProcessTouchpadZoomEventAckInRoot(const blink::WebGestureEvent& event,
-                                         InputEventAckState ack_result);
+  void ProcessTouchpadZoomEventAckInRoot(
+      const blink::WebGestureEvent& event,
+      blink::mojom::InputEventResultState ack_result);
   void ForwardTouchpadZoomEventIfNecessary(
       const blink::WebGestureEvent& event,
-      InputEventAckState ack_result) override;
+      blink::mojom::InputEventResultState ack_result) override;
 
   std::vector<base::OnceClosure> frame_swapped_callbacks_;
 
@@ -268,6 +277,12 @@ class CONTENT_EXPORT RenderWidgetHostViewChildFrame
 
   // True if there is currently a scroll sequence being bubbled to our parent.
   bool is_scroll_sequence_bubbling_ = false;
+
+  // The ScreenInfo information from the parent at the time this class is
+  // created, to be used before this view is connected to its FrameDelegate.
+  // This is kept up to date anytime GetScreenInfo() is called and we have
+  // a FrameDelegate.
+  blink::ScreenInfo screen_info_;
 
   base::WeakPtrFactory<RenderWidgetHostViewChildFrame> weak_factory_{this};
   DISALLOW_COPY_AND_ASSIGN(RenderWidgetHostViewChildFrame);

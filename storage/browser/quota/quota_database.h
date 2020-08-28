@@ -22,10 +22,6 @@
 #include "third_party/blink/public/mojom/quota/quota_types.mojom-forward.h"
 #include "url/origin.h"
 
-namespace content {
-class QuotaDatabaseTest;
-}
-
 namespace sql {
 class Database;
 class MetaTable;
@@ -128,10 +124,12 @@ class COMPONENT_EXPORT(STORAGE_BROWSER) QuotaDatabase {
                     base::Optional<url::Origin>* origin);
 
   // Populates |origins| with the ones that have been modified since
-  // the |modified_since|. Returns whether the operation succeeded.
-  bool GetOriginsModifiedSince(blink::mojom::StorageType type,
-                               std::set<url::Origin>* origins,
-                               base::Time modified_since);
+  // the |begin| and until the |end|. Returns whether the
+  // operation succeeded.
+  bool GetOriginsModifiedBetween(blink::mojom::StorageType type,
+                                 std::set<url::Origin>* origins,
+                                 base::Time begin,
+                                 base::Time end);
 
   // Returns false if SetOriginDatabaseBootstrapped has never
   // been called before, which means existing origins may not have been
@@ -218,7 +216,7 @@ class COMPONENT_EXPORT(STORAGE_BROWSER) QuotaDatabase {
 
   base::OneShotTimer timer_;
 
-  friend class content::QuotaDatabaseTest;
+  friend class QuotaDatabaseTest;
   friend class QuotaManager;
 
   static const TableSchema kTables[];

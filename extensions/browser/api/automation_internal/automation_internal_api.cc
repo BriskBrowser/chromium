@@ -36,7 +36,7 @@
 #include "extensions/common/manifest_handlers/automation.h"
 #include "extensions/common/permissions/permissions_data.h"
 #include "ui/accessibility/ax_action_data.h"
-#include "ui/accessibility/ax_action_handler.h"
+#include "ui/accessibility/ax_action_handler_base.h"
 #include "ui/accessibility/ax_enum_util.h"
 #include "ui/accessibility/ax_tree_id_registry.h"
 
@@ -69,11 +69,10 @@ class QuerySelectorHandler : public content::WebContentsObserver {
       int request_id,
       int acc_obj_id,
       const base::string16& query,
-      const extensions::AutomationInternalQuerySelectorFunction::Callback&
-          callback)
+      extensions::AutomationInternalQuerySelectorFunction::Callback callback)
       : content::WebContentsObserver(web_contents),
         request_id_(request_id),
-        callback_(callback) {
+        callback_(std::move(callback)) {
     content::RenderFrameHost* rfh = web_contents->GetMainFrame();
 
     rfh->Send(new ExtensionMsg_AutomationQuerySelector(
@@ -104,7 +103,7 @@ class QuerySelectorHandler : public content::WebContentsObserver {
   }
 
   void WebContentsDestroyed() override {
-    callback_.Run(kRendererDestroyed, 0);
+    std::move(callback_).Run(kRendererDestroyed, 0);
     delete this;
   }
 
@@ -123,12 +122,12 @@ class QuerySelectorHandler : public content::WebContentsObserver {
         error_string = kNodeDestroyed;
         break;
     }
-    callback_.Run(error_string, result_acc_obj_id);
+    std::move(callback_).Run(error_string, result_acc_obj_id);
     delete this;
   }
 
   int request_id_;
-  const extensions::AutomationInternalQuerySelectorFunction::Callback callback_;
+  extensions::AutomationInternalQuerySelectorFunction::Callback callback_;
 };
 
 }  // namespace
@@ -292,16 +291,16 @@ ExtensionFunction::ResponseAction AutomationInternalEnableTabFunction::Run() {
           ax_tree_id.ToString(), tab_id)));
 }
 
-ExtensionFunction::ResponseAction AutomationInternalEnableFrameFunction::Run() {
-  // TODO(dtseng): Limited to desktop tree for now pending out of proc iframes.
-  using api::automation_internal::EnableFrame::Params;
+ExtensionFunction::ResponseAction AutomationInternalEnableTreeFunction::Run() {
+  using api::automation_internal::EnableTree::Params;
 
   std::unique_ptr<Params> params(Params::Create(*args_));
   EXTENSION_FUNCTION_VALIDATE(params.get());
 
   ui::AXTreeID ax_tree_id = ui::AXTreeID::FromString(params->tree_id);
   ui::AXTreeIDRegistry* registry = ui::AXTreeIDRegistry::GetInstance();
-  ui::AXActionHandler* action_handler = registry->GetActionHandler(ax_tree_id);
+  ui::AXActionHandlerBase* action_handler =
+      registry->GetActionHandler(ax_tree_id);
   if (action_handler) {
     // Explicitly invalidate the pre-existing source tree first. This ensures
     // the source tree sends a complete tree when the next event occurs. This
@@ -312,6 +311,11 @@ ExtensionFunction::ResponseAction AutomationInternalEnableFrameFunction::Run() {
     action.action = ax::mojom::Action::kInternalInvalidateTree;
     action_handler->PerformAction(action);
   }
+
+  AutomationInternalApiDelegate* automation_api_delegate =
+      ExtensionsAPIClient::Get()->GetAutomationInternalApiDelegate();
+  if (automation_api_delegate->EnableTree(ax_tree_id))
+    return RespondNow(NoArguments());
 
   content::RenderFrameHost* rfh =
       content::RenderFrameHost::FromAXTreeID(ax_tree_id);
@@ -469,14 +473,27 @@ AutomationInternalPerformActionFunction::ConvertToAXActionData(
       action->value = set_value_params.value;
       break;
     }
-    // These actions are currently unused by any existing clients of
-    // automation. They also require additional arguments to be plumbed
-    // through (e.g. setValue takes a string value to be set). Future clients
-    // may wish to extend the api to support these actions.
-    case api::automation::ACTION_TYPE_SCROLLTOPOINT:
-    case api::automation::ACTION_TYPE_SETSCROLLOFFSET:
-      return RespondNow(
-          Error("Unsupported action: " + params->args.action_type));
+    case api::automation::ACTION_TYPE_SCROLLTOPOINT: {
+      api::automation_internal::ScrollToPointParams scroll_to_point_params;
+      EXTENSION_FUNCTION_VALIDATE(
+          api::automation_internal::ScrollToPointParams::Populate(
+              params->opt_args.additional_properties, &scroll_to_point_params));
+      action->action = ax::mojom::Action::kScrollToPoint;
+      action->target_point =
+          gfx::Point(scroll_to_point_params.x, scroll_to_point_params.y);
+      break;
+    }
+    case api::automation::ACTION_TYPE_SETSCROLLOFFSET: {
+      api::automation_internal::SetScrollOffsetParams set_scroll_offset_params;
+      EXTENSION_FUNCTION_VALIDATE(
+          api::automation_internal::SetScrollOffsetParams::Populate(
+              params->opt_args.additional_properties,
+              &set_scroll_offset_params));
+      action->action = ax::mojom::Action::kSetScrollOffset;
+      action->target_point =
+          gfx::Point(set_scroll_offset_params.x, set_scroll_offset_params.y);
+      break;
+    }
     case api::automation::ACTION_TYPE_GETTEXTLOCATION: {
       api::automation_internal::GetTextLocationDataParams
           get_text_location_params;
@@ -494,6 +511,12 @@ AutomationInternalPerformActionFunction::ConvertToAXActionData(
       break;
     case api::automation::ACTION_TYPE_HIDETOOLTIP:
       action->action = ax::mojom::Action::kHideTooltip;
+      break;
+    case api::automation::ACTION_TYPE_COLLAPSE:
+      action->action = ax::mojom::Action::kCollapse;
+      break;
+    case api::automation::ACTION_TYPE_EXPAND:
+      action->action = ax::mojom::Action::kExpand;
       break;
     case api::automation::ACTION_TYPE_ANNOTATEPAGEIMAGES:
     case api::automation::ACTION_TYPE_SIGNALENDOFTEST:
@@ -513,7 +536,7 @@ AutomationInternalPerformActionFunction::Run() {
   std::unique_ptr<Params> params(Params::Create(*args_));
   EXTENSION_FUNCTION_VALIDATE(params.get());
   ui::AXTreeIDRegistry* registry = ui::AXTreeIDRegistry::GetInstance();
-  ui::AXActionHandler* action_handler = registry->GetActionHandler(
+  ui::AXActionHandlerBase* action_handler = registry->GetActionHandler(
       ui::AXTreeID::FromString(params->args.tree_id));
   if (action_handler) {
     // Handle an AXActionHandler with a rfh first. Some actions require a rfh ->
@@ -614,7 +637,8 @@ AutomationInternalQuerySelectorFunction::Run() {
   // QuerySelectorHandler handles IPCs and deletes itself on completion.
   new QuerySelectorHandler(
       contents, request_id, params->args.automation_node_id, selector,
-      base::Bind(&AutomationInternalQuerySelectorFunction::OnResponse, this));
+      base::BindOnce(&AutomationInternalQuerySelectorFunction::OnResponse,
+                     this));
 
   return RespondLater();
 }

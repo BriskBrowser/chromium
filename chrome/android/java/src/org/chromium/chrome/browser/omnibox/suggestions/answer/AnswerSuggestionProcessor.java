@@ -6,10 +6,10 @@ package org.chromium.chrome.browser.omnibox.suggestions.answer;
 
 import android.content.Context;
 import android.graphics.Bitmap;
-import android.support.annotation.DrawableRes;
+
+import androidx.annotation.DrawableRes;
 
 import org.chromium.base.ThreadUtils;
-import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.base.supplier.Supplier;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.image_fetcher.ImageFetcher;
@@ -29,10 +29,11 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-/** A class that handles model and view creation for the most commonly used omnibox suggestion. */
+/**
+ * A class that handles model and view creation for the most commonly used omnibox suggestion.
+ */
 public class AnswerSuggestionProcessor extends BaseSuggestionViewProcessor {
     private final Map<String, List<PropertyModel>> mPendingAnswerRequestUrls;
-    private final Context mContext;
     private final SuggestionHost mSuggestionHost;
     private final UrlBarEditingTextStateProvider mUrlBarEditingTextProvider;
     private final Supplier<ImageFetcher> mImageFetcherSupplier;
@@ -45,7 +46,6 @@ public class AnswerSuggestionProcessor extends BaseSuggestionViewProcessor {
             UrlBarEditingTextStateProvider editingTextProvider,
             Supplier<ImageFetcher> imageFetcherSupplier) {
         super(context, suggestionHost);
-        mContext = context;
         mSuggestionHost = suggestionHost;
         mPendingAnswerRequestUrls = new HashMap<>();
         mUrlBarEditingTextProvider = editingTextProvider;
@@ -53,14 +53,11 @@ public class AnswerSuggestionProcessor extends BaseSuggestionViewProcessor {
     }
 
     @Override
-    public boolean doesProcessSuggestion(OmniboxSuggestion suggestion) {
+    public boolean doesProcessSuggestion(OmniboxSuggestion suggestion, int position) {
         // Calculation answers are specific in a way that these are basic suggestions, but processed
         // as answers, when new answer layout is enabled.
         return suggestion.hasAnswer() || suggestion.getType() == OmniboxSuggestionType.CALCULATOR;
     }
-
-    @Override
-    public void onNativeInitialized() {}
 
     @Override
     public int getViewTypeId() {
@@ -68,35 +65,14 @@ public class AnswerSuggestionProcessor extends BaseSuggestionViewProcessor {
     }
 
     @Override
-    public PropertyModel createModelForSuggestion(OmniboxSuggestion suggestion) {
+    public PropertyModel createModel() {
         return new PropertyModel(AnswerSuggestionViewProperties.ALL_KEYS);
     }
 
     @Override
     public void populateModel(OmniboxSuggestion suggestion, PropertyModel model, int position) {
         super.populateModel(suggestion, model, position);
-        setStateForSuggestion(model, suggestion);
-    }
-
-    @Override
-    public void onUrlFocusChange(boolean hasFocus) {
-    }
-
-    @Override
-    public void recordSuggestionPresented(OmniboxSuggestion suggestion, PropertyModel model) {
-        // Note: At the time of writing this functionality, AiS was offering at most one answer to
-        // any query. If this changes before the metric is expired, the code below may need either
-        // revisiting or a secondary metric telling us how many answer suggestions have been shown.
-        if (suggestion.hasAnswer()) {
-            RecordHistogram.recordEnumeratedHistogram("Omnibox.AnswerInSuggestShown",
-                    suggestion.getAnswer().getType(), AnswerType.TOTAL_COUNT);
-        }
-    }
-
-    @Override
-    public void recordSuggestionUsed(OmniboxSuggestion suggestion, PropertyModel model) {
-        // Bookkeeping handled in C++:
-        // https://cs.chromium.org/Omnibox.SuggestionUsed.AnswerInSuggest
+        setStateForSuggestion(model, suggestion, position);
     }
 
     private void maybeFetchAnswerIcon(PropertyModel model, OmniboxSuggestion suggestion) {
@@ -121,9 +97,10 @@ public class AnswerSuggestionProcessor extends BaseSuggestionViewProcessor {
         List<PropertyModel> models = new ArrayList<>();
         models.add(model);
         mPendingAnswerRequestUrls.put(url, models);
-
+        ImageFetcher.Params params =
+                ImageFetcher.Params.create(url, ImageFetcher.ANSWER_SUGGESTIONS_UMA_CLIENT_NAME);
         imageFetcher.fetchImage(
-                url, ImageFetcher.ANSWER_SUGGESTIONS_UMA_CLIENT_NAME, (Bitmap bitmap) -> {
+                params, (Bitmap bitmap) -> {
                     ThreadUtils.assertOnUiThread();
                     // Remove models for the URL ahead of all the checks to ensure we
                     // do not keep them around waiting in case image fetch failed.
@@ -133,7 +110,7 @@ public class AnswerSuggestionProcessor extends BaseSuggestionViewProcessor {
                     for (int i = 0; i < currentModels.size(); i++) {
                         PropertyModel currentModel = currentModels.get(i);
                         setSuggestionDrawableState(currentModel,
-                                SuggestionDrawableState.Builder.forBitmap(bitmap)
+                                SuggestionDrawableState.Builder.forBitmap(getContext(), bitmap)
                                         .setLarge(true)
                                         .build());
                     }
@@ -143,9 +120,10 @@ public class AnswerSuggestionProcessor extends BaseSuggestionViewProcessor {
     /**
      * Sets both lines of the Omnibox suggestion based on an Answers in Suggest result.
      */
-    private void setStateForSuggestion(PropertyModel model, OmniboxSuggestion suggestion) {
+    private void setStateForSuggestion(
+            PropertyModel model, OmniboxSuggestion suggestion, int position) {
         AnswerText[] details = AnswerTextNewLayout.from(
-                mContext, suggestion, mUrlBarEditingTextProvider.getTextWithoutAutocomplete());
+                getContext(), suggestion, mUrlBarEditingTextProvider.getTextWithoutAutocomplete());
 
         model.set(AnswerSuggestionViewProperties.TEXT_LINE_1_TEXT, details[0].mText);
         model.set(AnswerSuggestionViewProperties.TEXT_LINE_2_TEXT, details[1].mText);
@@ -160,10 +138,11 @@ public class AnswerSuggestionProcessor extends BaseSuggestionViewProcessor {
 
         setSuggestionDrawableState(model,
                 SuggestionDrawableState.Builder
-                        .forDrawableRes(mContext, getSuggestionIcon(suggestion))
+                        .forDrawableRes(getContext(), getSuggestionIcon(suggestion))
                         .setLarge(true)
                         .build());
 
+        setTabSwitchOrRefineAction(model, suggestion, position);
         maybeFetchAnswerIcon(model, suggestion);
     }
 

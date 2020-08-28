@@ -37,6 +37,9 @@ class ScreenLayoutObserverTest : public AshTestBase {
   ScreenLayoutObserverTest();
   ~ScreenLayoutObserverTest() override;
 
+  // AshTestBase:
+  void SetUp() override;
+
  protected:
   ScreenLayoutObserver* GetScreenLayoutObserver();
   void CheckUpdate();
@@ -71,6 +74,11 @@ ScreenLayoutObserverTest::ScreenLayoutObserverTest() {
 
 ScreenLayoutObserverTest::~ScreenLayoutObserverTest() = default;
 
+void ScreenLayoutObserverTest::SetUp() {
+  AshTestBase::SetUp();
+  GetScreenLayoutObserver()->set_show_notifications_for_testing(true);
+}
+
 ScreenLayoutObserver* ScreenLayoutObserverTest::GetScreenLayoutObserver() {
   return Shell::Get()->screen_layout_observer();
 }
@@ -104,7 +112,9 @@ base::string16 ScreenLayoutObserverTest::GetFirstDisplayName() {
 
 base::string16 ScreenLayoutObserverTest::GetSecondDisplayName() {
   return base::UTF8ToUTF16(display_manager()->GetDisplayNameForId(
-      display_manager()->GetSecondaryDisplay().id()));
+      display::test::DisplayManagerTestApi(display_manager())
+          .GetSecondaryDisplay()
+          .id()));
 }
 
 base::string16 ScreenLayoutObserverTest::GetMirroringDisplayNames() {
@@ -142,9 +152,6 @@ ScreenLayoutObserverTest::GetDisplayNotification() const {
 }
 
 TEST_F(ScreenLayoutObserverTest, DisplayNotifications) {
-  Shell::Get()->screen_layout_observer()->set_show_notifications_for_testing(
-      true);
-
   UpdateDisplay("400x400");
   display::Display::SetInternalDisplayId(display_manager()->first_display_id());
   EXPECT_TRUE(GetDisplayNotificationText().empty());
@@ -182,7 +189,8 @@ TEST_F(ScreenLayoutObserverTest, DisplayNotifications) {
 
   const int64_t first_display_id =
       display::Screen::GetScreen()->GetPrimaryDisplay().id();
-  const int64_t second_display_id = first_display_id + 1;
+  const int64_t second_display_id =
+      display::GetNextSynthesizedDisplayId(first_display_id);
   display::ManagedDisplayInfo first_display_info =
       display::CreateDisplayInfo(first_display_id, gfx::Rect(1, 1, 500, 500));
   display::ManagedDisplayInfo second_display_info =
@@ -280,7 +288,9 @@ TEST_F(ScreenLayoutObserverTest, DisplayNotifications) {
   // Enters closed lid mode.
   UpdateDisplay("400x400@1.5,200x200");
   display::Display::SetInternalDisplayId(
-      display_manager()->GetSecondaryDisplay().id());
+      display::test::DisplayManagerTestApi(display_manager())
+          .GetSecondaryDisplay()
+          .id());
   UpdateDisplay("400x400@1.5");
   EXPECT_TRUE(GetDisplayNotificationText().empty());
 }
@@ -289,8 +299,6 @@ TEST_F(ScreenLayoutObserverTest, DisplayNotificationsDisabled) {
   scoped_feature_list_.Reset();
   scoped_feature_list_.InitAndEnableFeature(
       features::kReduceDisplayNotifications);
-  Shell::Get()->screen_layout_observer()->set_show_notifications_for_testing(
-      true);
 
   UpdateDisplay("400x400");
   display::Display::SetInternalDisplayId(display_manager()->first_display_id());
@@ -300,13 +308,14 @@ TEST_F(ScreenLayoutObserverTest, DisplayNotificationsDisabled) {
   UpdateDisplay("400x400/r");
   EXPECT_FALSE(IsNotificationShown());
 
-  // Extended.
+  // Adding a display.
   UpdateDisplay("400x400,200x200");
   EXPECT_FALSE(IsNotificationShown());
 
   const int64_t first_display_id =
       display::Screen::GetScreen()->GetPrimaryDisplay().id();
-  const int64_t second_display_id = first_display_id + 1;
+  const int64_t second_display_id =
+      display::GetNextSynthesizedDisplayId(first_display_id);
   display::ManagedDisplayInfo first_display_info =
       display::CreateDisplayInfo(first_display_id, gfx::Rect(1, 1, 500, 500));
   display::ManagedDisplayInfo second_display_info =
@@ -357,8 +366,6 @@ TEST_F(ScreenLayoutObserverTest, DisplayNotificationsDisabled) {
 // in the UI scales, in which case, we still want to show a notification when
 // the source of change is not the settings ui.
 TEST_F(ScreenLayoutObserverTest, ZoomingInUnifiedModeNotification) {
-  Shell::Get()->screen_layout_observer()->set_show_notifications_for_testing(
-      true);
   UpdateDisplay("400x400,200x200");
 
   // Enter unified mode.
@@ -401,8 +408,6 @@ TEST_F(ScreenLayoutObserverTest, ZoomingInUnifiedModeNotification) {
 // Verify that notification shows up when display is switched from dock mode to
 // extend mode.
 TEST_F(ScreenLayoutObserverTest, DisplayConfigurationChangedTwice) {
-  Shell::Get()->screen_layout_observer()->set_show_notifications_for_testing(
-      true);
   UpdateDisplay("400x400,200x200");
   EXPECT_EQ(l10n_util::GetStringUTF16(
                 IDS_ASH_STATUS_TRAY_DISPLAY_EXTENDED_NO_INTERNAL),
@@ -430,9 +435,6 @@ TEST_F(ScreenLayoutObserverTest, DisplayConfigurationChangedTwice) {
 TEST_F(ScreenLayoutObserverTest, UpdateAfterSuppressDisplayNotification) {
   UpdateDisplay("400x400,200x200");
 
-  Shell::Get()->screen_layout_observer()->set_show_notifications_for_testing(
-      true);
-
   // Rotate the second.
   UpdateDisplay("400x400,200x200/r");
   EXPECT_EQ(l10n_util::GetStringFUTF16(
@@ -445,8 +447,8 @@ TEST_F(ScreenLayoutObserverTest, UpdateAfterSuppressDisplayNotification) {
 // Verify that no notification is shown when overscan of a screen is changed.
 TEST_F(ScreenLayoutObserverTest, OverscanDisplay) {
   UpdateDisplay("400x400, 300x300");
-  Shell::Get()->screen_layout_observer()->set_show_notifications_for_testing(
-      true);
+  // Close the notification that is shown from initially adding a monitor.
+  CloseNotification();
   display::Display::SetInternalDisplayId(display_manager()->first_display_id());
 
   // /o creates the default overscan.
@@ -455,18 +457,21 @@ TEST_F(ScreenLayoutObserverTest, OverscanDisplay) {
 
   // Reset the overscan.
   Shell::Get()->display_manager()->SetOverscanInsets(
-      display_manager()->GetSecondaryDisplay().id(), gfx::Insets());
+      display::test::DisplayManagerTestApi(display_manager())
+          .GetSecondaryDisplay()
+          .id(),
+      gfx::Insets());
   EXPECT_FALSE(IsNotificationShown());
 }
 
 // Tests that exiting mirror mode by closing the lid shows the correct "exiting
 // mirror mode" message.
 TEST_F(ScreenLayoutObserverTest, ExitMirrorModeBecauseOfDockedModeMessage) {
-  Shell::Get()->screen_layout_observer()->set_show_notifications_for_testing(
-      true);
   UpdateDisplay("400x400,200x200");
   display::Display::SetInternalDisplayId(
-      display_manager()->GetSecondaryDisplay().id());
+      display::test::DisplayManagerTestApi(display_manager())
+          .GetSecondaryDisplay()
+          .id());
 
   // Mirroring.
   UpdateDisplay("400x400,200x200");
@@ -487,11 +492,11 @@ TEST_F(ScreenLayoutObserverTest, ExitMirrorModeBecauseOfDockedModeMessage) {
 // correct message.
 TEST_F(ScreenLayoutObserverTest,
        ExitMirrorModeNoInternalDisplayBecauseOfDisplayRemovedMessage) {
-  Shell::Get()->screen_layout_observer()->set_show_notifications_for_testing(
-      true);
   UpdateDisplay("400x400,200x200");
   display::Display::SetInternalDisplayId(
-      display_manager()->GetSecondaryDisplay().id());
+      display::test::DisplayManagerTestApi(display_manager())
+          .GetSecondaryDisplay()
+          .id());
 
   // Mirroring.
   UpdateDisplay("400x400,200x200");
@@ -510,8 +515,6 @@ TEST_F(ScreenLayoutObserverTest,
 // Tests notification messages shown when adding and removing displays in
 // extended mode.
 TEST_F(ScreenLayoutObserverTest, AddingRemovingDisplayExtendedModeMessage) {
-  Shell::Get()->screen_layout_observer()->set_show_notifications_for_testing(
-      true);
   UpdateDisplay("400x400");
   EXPECT_TRUE(GetDisplayNotificationText().empty());
 
@@ -534,8 +537,6 @@ TEST_F(ScreenLayoutObserverTest, AddingRemovingDisplayExtendedModeMessage) {
 // Tests notification messages shown when entering and exiting unified desktop
 // mode.
 TEST_F(ScreenLayoutObserverTest, EnteringExitingUnifiedModeMessage) {
-  Shell::Get()->screen_layout_observer()->set_show_notifications_for_testing(
-      true);
   UpdateDisplay("400x400");
   EXPECT_TRUE(GetDisplayNotificationText().empty());
 
@@ -574,8 +575,6 @@ TEST_F(ScreenLayoutObserverTest, EnteringExitingUnifiedModeMessage) {
 // Special case: Tests notification messages shown when entering docked mode
 // by closing the lid and the internal display is the secondary display.
 TEST_F(ScreenLayoutObserverTest, DockedModeWithExternalPrimaryDisplayMessage) {
-  Shell::Get()->screen_layout_observer()->set_show_notifications_for_testing(
-      true);
   UpdateDisplay("400x400,200x200");
   EXPECT_EQ(l10n_util::GetStringUTF16(
                 IDS_ASH_STATUS_TRAY_DISPLAY_EXTENDED_NO_INTERNAL),
@@ -599,8 +598,6 @@ TEST_F(ScreenLayoutObserverTest, DockedModeWithExternalPrimaryDisplayMessage) {
 // Tests that rotation notifications are only shown when the rotation source is
 // a user action. The accelerometer source nevber produces any notifications.
 TEST_F(ScreenLayoutObserverTest, RotationNotification) {
-  Shell::Get()->screen_layout_observer()->set_show_notifications_for_testing(
-      true);
   UpdateDisplay("400x400");
   const int64_t primary_id =
       display_manager()->GetPrimaryDisplayCandidate().id();
@@ -658,9 +655,6 @@ TEST_F(ScreenLayoutObserverTest, RotationNotification) {
 }
 
 TEST_F(ScreenLayoutObserverTest, MirrorModeAddOrRemoveDisplayMessage) {
-  Shell::Get()->screen_layout_observer()->set_show_notifications_for_testing(
-      true);
-
   const int64_t internal_display_id =
       display::test::DisplayManagerTestApi(display_manager())
           .SetFirstDisplayAsInternalDisplay();
@@ -727,9 +721,6 @@ TEST_F(ScreenLayoutObserverTest, MirrorModeAddOrRemoveDisplayMessage) {
 }
 
 TEST_F(ScreenLayoutObserverTest, ClickNotification) {
-  Shell::Get()->screen_layout_observer()->set_show_notifications_for_testing(
-      true);
-
   // Create notification.
   UpdateDisplay("400x400/r");
   EXPECT_FALSE(GetDisplayNotificationAdditionalText().empty());

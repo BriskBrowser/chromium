@@ -58,9 +58,6 @@ void InputMethodWinTSF::OnBlur() {
     return;
   }
   tsf_event_router_->SetManager(nullptr);
-  // Set the policy back to manual as window has lost focus
-  ui::TSFBridge::GetInstance()->SetInputPanelPolicy(
-      /*inputPanelPolicyManual*/ true);
   ui::TSFBridge::GetInstance()->RemoveInputMethodDelegate();
 }
 
@@ -103,7 +100,6 @@ void InputMethodWinTSF::OnTextInputTypeChanged(const TextInputClient* client) {
   }
   ui::TSFBridge::GetInstance()->CancelComposition();
   ui::TSFBridge::GetInstance()->OnTextInputTypeChanged(client);
-  InputMethodWinBase::UpdateEngineFocusAndInputContext();
 }
 
 void InputMethodWinTSF::OnCaretBoundsChanged(const TextInputClient* client) {
@@ -113,14 +109,12 @@ void InputMethodWinTSF::OnCaretBoundsChanged(const TextInputClient* client) {
   }
   NotifyTextInputCaretBoundsChanged(client);
   ui::TSFBridge::GetInstance()->OnTextLayoutChanged();
-  InputMethodWinBase::UpdateCompositionBoundsForEngine(client);
 }
 
 void InputMethodWinTSF::CancelComposition(const TextInputClient* client) {
   if (ui::TSFBridge::GetInstance() && IsTextInputClientFocused(client) &&
       IsWindowFocused(client)) {
     ui::TSFBridge::GetInstance()->CancelComposition();
-    InputMethodWinBase::CancelCompositionForEngine();
   }
 }
 
@@ -130,9 +124,6 @@ void InputMethodWinTSF::DetachTextInputClient(TextInputClient* client) {
     return;
   }
   InputMethodWinBase::DetachTextInputClient(client);
-  // Set the policy back to manual as the TextInputClient is no longer valid.
-  ui::TSFBridge::GetInstance()->SetInputPanelPolicy(
-      /*inputPanelPolicyManual*/ true);
   ui::TSFBridge::GetInstance()->RemoveFocusedClient(client);
 }
 
@@ -152,13 +143,7 @@ void InputMethodWinTSF::OnWillChangeFocusedClient(
     TextInputClient* focused_before,
     TextInputClient* focused) {
   if (IsWindowFocused(focused_before)) {
-    ConfirmCompositionText(/* reset_engine */ true,
-                           /* keep_selection */ false);
-    // set input policy back to manual from automatic
-    // We will set the policy to automatic when user taps on the edit control so
-    // software input panel can come up
-    ui::TSFBridge::GetInstance()->SetInputPanelPolicy(
-          /*inputPanelPolicyManual*/ true);
+    ConfirmCompositionText();
     ui::TSFBridge::GetInstance()->RemoveFocusedClient(focused_before);
   }
 }
@@ -182,18 +167,10 @@ void InputMethodWinTSF::OnDidChangeFocusedClient(
   InputMethodWinBase::OnDidChangeFocusedClient(focused_before, focused);
 }
 
-void InputMethodWinTSF::ConfirmCompositionText(bool reset_engine,
-                                               bool keep_selection) {
-  // TODO(b/134473433) Modify this function so that when keep_selection is
-  // true, the selection is not changed when text committed
-  if (keep_selection) {
-    NOTIMPLEMENTED_LOG_ONCE();
-  }
+void InputMethodWinTSF::ConfirmCompositionText() {
   if (IsTextInputTypeNone())
     return;
 
-  if (reset_engine && GetTextInputClient()->HasCompositionText())
-    InputMethodWinBase::ResetEngine();
   if (ui::TSFBridge::GetInstance())
     ui::TSFBridge::GetInstance()->ConfirmComposition();
 }

@@ -21,12 +21,12 @@ test("services_unittests") {
   # If your service does not run on iOS, its tests should go in the !iOS
   # section below. If you are unsure, contact blundell@chromium.org.
   deps = [
+    "//services/cert_verifier:tests",
+    "//services/cert_verifier/cert_net_url_loader:tests",
     "//services/content:tests",
-    "//services/identity:tests",
     "//services/metrics/public/cpp:tests",
     "//services/network:tests",
     "//services/network/public/cpp:tests",
-    "//services/network/public/cpp/cert_verifier:tests",
     "//services/test:run_all_unittests",
   ]
 
@@ -55,7 +55,6 @@ test("services_unittests") {
       "//components/signin/public/android:java",
       "//services/data_decoder/public/cpp/android:safe_json_java",
       "//services/device:java",
-      "//services/identity:java",
       "//services/media_session/public/cpp/android:media_session_java",
       "//services/tracing:tracing_test_helper_java",
 
@@ -95,21 +94,24 @@ if (!is_ios) {
 }
 
 if (is_android) {
-  junit_binary("service_junit_tests") {
+  junit_binary("services_junit_tests") {
     sources = [
       "device/generic_sensor/android/junit/src/org/chromium/device/sensors/PlatformSensorAndProviderTest.java",
       "device/geolocation/android/junit/src/org/chromium/device/geolocation/LocationProviderTest.java",
       "device/nfc/android/junit/src/org/chromium/device/nfc/NFCTest.java",
+      "device/nfc/android/junit/src/org/chromium/device/nfc/NfcBlocklistTest.java",
       "shape_detection/android/junit/src/org/chromium/shape_detection/BitmapUtilsTest.java",
     ]
     deps = [
       "$google_play_services_package:google_play_services_base_java",
       "$google_play_services_package:google_play_services_basement_java",
+      "$google_play_services_package:google_play_services_location_java",
       "$google_play_services_package:google_play_services_vision_common_java",
       "$google_play_services_package:google_play_services_vision_java",
       "//base:base_java",
       "//base:base_java_test_support",
       "//base:base_junit_test_support",
+      "//mojo/public/java:base_java",
       "//mojo/public/java:bindings_java",
       "//mojo/public/java:system_java",
       "//services/device/generic_sensor:java",
@@ -125,7 +127,7 @@ if (is_android) {
     ]
   }
 
-  android_library("service_javatests") {
+  android_library("services_javatests") {
     testonly = true
     sources = [
       "shape_detection/android/javatests/src/org/chromium/shape_detection/BarcodeDetectionImplTest.java",
@@ -152,8 +154,6 @@ if (is_android) {
       "//third_party/junit",
       "//ui/gfx/geometry/mojom:mojom_java",
     ]
-    data = [
-      "test/data/",
-    ]
+    data = [ "test/data/" ]
   }
 }

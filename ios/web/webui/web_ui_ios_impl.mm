@@ -7,6 +7,7 @@
 #include <stddef.h>
 
 #include "base/json/json_writer.h"
+#include "base/logging.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
@@ -95,6 +96,17 @@ void WebUIIOSImpl::RejectJavascriptCallback(const base::Value& callback_id,
   std::vector<const base::Value*> args{&callback_id, &request_successful,
                                        &response};
   ExecuteJavascript(GetJavascriptCall("cr.webUIResponse", args));
+}
+
+void WebUIIOSImpl::FireWebUIListener(
+    const std::string& event_name,
+    const std::vector<const base::Value*>& args) {
+  base::Value callback_arg(event_name);
+  std::vector<const base::Value*> modified_args;
+  modified_args.push_back(&callback_arg);
+  modified_args.insert(modified_args.end(), args.begin(), args.end());
+  ExecuteJavascript(
+      GetJavascriptCall("cr.webUIListenerCallback", modified_args));
 }
 
 void WebUIIOSImpl::RegisterMessageCallback(const std::string& message,

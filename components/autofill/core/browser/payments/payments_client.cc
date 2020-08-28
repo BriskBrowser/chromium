@@ -34,6 +34,7 @@
 #include "components/autofill/core/common/autofill_payments_features.h"
 #include "components/signin/public/identity_manager/identity_manager.h"
 #include "components/signin/public/identity_manager/primary_account_access_token_fetcher.h"
+#include "components/signin/public/identity_manager/scope_set.h"
 #include "components/variations/net/variations_http_headers.h"
 #include "net/base/escape.h"
 #include "net/base/load_flags.h"
@@ -216,6 +217,12 @@ base::Value BuildCreditCardDictionary(const CreditCard& credit_card,
     card.SetKey("expiration_year", base::Value(value));
   SetStringIfNotEmpty(credit_card, CREDIT_CARD_NAME_FULL, app_locale,
                       "cardholder_name", card);
+
+  if (base::FeatureList::IsEnabled(
+          features::kAutofillEnableCardNicknameUpstream) &&
+      credit_card.HasNonEmptyValidNickname()) {
+    card.SetKey("nickname", base::Value(credit_card.nickname()));
+  }
 
   card.SetKey("encrypted_pan", base::Value("__param:" + pan_field_name));
   return card;
@@ -818,6 +825,13 @@ class UploadCardRequest : public PaymentsRequest {
     if (base::StringToInt(exp_year, &value))
       request_dict.SetKey("expiration_year", base::Value(value));
 
+    if (base::FeatureList::IsEnabled(
+            features::kAutofillEnableCardNicknameUpstream) &&
+        request_details_.card.HasNonEmptyValidNickname()) {
+      request_dict.SetKey("nickname",
+                          base::Value(request_details_.card.nickname()));
+    }
+
     SetActiveExperiments(request_details_.active_experiments, request_dict);
 
     const base::string16 pan = request_details_.card.GetInfo(
@@ -1342,7 +1356,7 @@ void PaymentsClient::StartTokenFetch(bool invalidate_old) {
 
   DCHECK(account_info_getter_);
 
-  identity::ScopeSet payments_scopes;
+  signin::ScopeSet payments_scopes;
   payments_scopes.insert(kPaymentsOAuth2Scope);
   CoreAccountId account_id =
       account_info_getter_->GetAccountInfoForPaymentsServer().account_id;

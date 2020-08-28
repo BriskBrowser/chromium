@@ -30,11 +30,12 @@
 namespace ui {
 
 GbmPixmapWayland::GbmPixmapWayland(WaylandBufferManagerGpu* buffer_manager)
-    : buffer_manager_(buffer_manager) {}
+    : buffer_manager_(buffer_manager),
+      buffer_id_(buffer_manager->AllocateBufferID()) {}
 
 GbmPixmapWayland::~GbmPixmapWayland() {
   if (gbm_bo_)
-    buffer_manager_->DestroyBuffer(widget_, GetUniqueId());
+    buffer_manager_->DestroyBuffer(widget_, buffer_id_);
 }
 
 bool GbmPixmapWayland::InitializeBuffer(gfx::Size size,
@@ -46,9 +47,13 @@ bool GbmPixmapWayland::InitializeBuffer(gfx::Size size,
     return false;
 
   const uint32_t fourcc_format = GetFourCCFormatFromBufferFormat(format);
-  auto modifiers = buffer_manager_->GetModifiersForBufferFormat(format);
+  auto gbm_usage = ui::BufferUsageToGbmFlags(usage);
+  std::vector<uint64_t> modifiers;
+  if (!(gbm_usage & GBM_BO_USE_LINEAR))
+    modifiers = buffer_manager_->GetModifiersForBufferFormat(format);
+
   gbm_bo_ = buffer_manager_->gbm_device()->CreateBufferWithModifiers(
-      fourcc_format, size, ui::BufferUsageToGbmFlags(usage), modifiers);
+      fourcc_format, size, gbm_usage, modifiers);
   if (!gbm_bo_) {
     LOG(ERROR) << "Cannot create bo with format= "
                << gfx::BufferFormatToString(format) << " and usage "
@@ -129,7 +134,8 @@ bool GbmPixmapWayland::ScheduleOverlayPlane(
 
   surfaceless->QueueOverlayPlane(
       OverlayPlane(this, std::move(gpu_fence), plane_z_order, plane_transform,
-                   display_bounds, crop_rect, enable_blend));
+                   display_bounds, crop_rect, enable_blend),
+      buffer_id_);
   return true;
 }
 
@@ -180,7 +186,7 @@ void GbmPixmapWayland::CreateDmabufBasedBuffer() {
   // Asks Wayland to create a wl_buffer based on the |file| fd.
   buffer_manager_->CreateDmabufBasedBuffer(
       std::move(fd), GetBufferSize(), strides, offsets, modifiers,
-      gbm_bo_->GetFormat(), plane_count, GetUniqueId());
+      gbm_bo_->GetFormat(), plane_count, buffer_id_);
 }
 
 }  // namespace ui

@@ -7,7 +7,7 @@
 #include <string>
 #include <utility>
 
-#include "base/logging.h"
+#include "base/check.h"
 #include "base/no_destructor.h"
 #include "base/timer/timer.h"
 #include "chrome/common/chrome_features.h"
@@ -57,6 +57,10 @@ bool ParentAccessService::IsApprovalRequired(SupervisedAction action) {
       }
       if (user_manager::UserManager::Get()->IsUserLoggedIn())
         return user_manager::UserManager::Get()->GetActiveUser()->IsChild();
+      return IsDeviceOwnedByChild();
+    case SupervisedAction::kOnlineLogin:
+      if (!features::IsParentAccessCodeForOnlineLoginEnabled())
+        return false;
       return IsDeviceOwnedByChild();
   }
 }

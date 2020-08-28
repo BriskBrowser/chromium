@@ -16,11 +16,11 @@
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/metrics/histogram_tester.h"
+#include "base/test/scoped_feature_list.h"
 #include "build/build_config.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/extensions/extension_browsertest.h"
 #include "chrome/browser/extensions/extension_service.h"
-#include "chrome/browser/permissions/permission_request_manager.h"
 #include "chrome/browser/ui/browser_commands.h"
 #include "chrome/browser/ui/extensions/extension_action_test_helper.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
@@ -28,15 +28,18 @@
 #include "chrome/common/pref_names.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/ui_test_utils.h"
-#include "components/app_modal/javascript_dialog_manager.h"
 #include "components/guest_view/browser/test_guest_view_manager.h"
+#include "components/javascript_dialogs/app_modal_dialog_manager.h"
+#include "components/permissions/permission_request_manager.h"
 #include "content/public/browser/child_process_security_policy.h"
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/web_contents.h"
+#include "content/public/common/content_features.h"
 #include "content/public/common/navigation_policy.h"
+#include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/download_test_observer.h"
 #include "content/public/test/test_navigation_observer.h"
@@ -53,7 +56,7 @@
 #include "net/dns/mock_host_resolver.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
 
-#if defined(CHROMEOS)
+#if defined(OS_CHROMEOS)
 #include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chromeos/constants/chromeos_switches.h"
 #endif
@@ -196,6 +199,9 @@ class ProcessManagerBrowserTest : public ExtensionBrowserTest {
  public:
   ProcessManagerBrowserTest() {
     guest_view::GuestViewManager::set_factory_for_testing(&factory_);
+    // TODO(https://crbug.com/1110891): Remove this once Extensions are
+    // supported with BackForwardCache.
+    disabled_feature_list_.InitWithFeatures({}, {features::kBackForwardCache});
   }
 
   void SetUpOnMainThread() override {
@@ -297,6 +303,7 @@ class ProcessManagerBrowserTest : public ExtensionBrowserTest {
  private:
   guest_view::TestGuestViewManagerFactory factory_;
   std::vector<std::unique_ptr<TestExtensionDir>> temp_dirs_;
+  base::test::ScopedFeatureList disabled_feature_list_;
 };
 
 class DefaultProfileExtensionBrowserTest : public ExtensionBrowserTest {
@@ -330,7 +337,7 @@ IN_PROC_BROWSER_TEST_F(DefaultProfileExtensionBrowserTest, NoExtensionHosts) {
   // Explicitly get the original and off-the-record-profiles, since on CrOS,
   // the signin profile (profile()) is the off-the-record version.
   Profile* original = profile()->GetOriginalProfile();
-  Profile* otr = original->GetOffTheRecordProfile();
+  Profile* otr = original->GetPrimaryOTRProfile();
 #if defined(OS_CHROMEOS)
   EXPECT_EQ(profile(), otr);
   EXPECT_TRUE(chromeos::ProfileHelper::IsSigninProfile(original));
@@ -465,7 +472,7 @@ IN_PROC_BROWSER_TEST_F(ProcessManagerBrowserTest, HttpHostMatchingExtensionId) {
   // Load a page from the test host in a new tab.
   ui_test_utils::NavigateToURLWithDisposition(
       browser(), url, WindowOpenDisposition::NEW_FOREGROUND_TAB,
-      ui_test_utils::BROWSER_TEST_WAIT_FOR_NAVIGATION);
+      ui_test_utils::BROWSER_TEST_WAIT_FOR_LOAD_STOP);
 
   // Sanity check that there's no bleeding between the extension and the tab.
   content::WebContents* tab_web_contents =
@@ -510,7 +517,7 @@ IN_PROC_BROWSER_TEST_F(ProcessManagerBrowserTest, NoBackgroundPage) {
 
   ui_test_utils::NavigateToURLWithDisposition(
       browser(), extension_url, WindowOpenDisposition::NEW_FOREGROUND_TAB,
-      ui_test_utils::BROWSER_TEST_WAIT_FOR_NAVIGATION);
+      ui_test_utils::BROWSER_TEST_WAIT_FOR_LOAD_STOP);
   EXPECT_EQ(1u, pm->GetRenderFrameHostsForExtension(extension->id()).size());
 }
 
@@ -654,7 +661,7 @@ IN_PROC_BROWSER_TEST_F(ProcessManagerBrowserTest,
   // Now load an extension page and a non-extension page...
   ui_test_utils::NavigateToURLWithDisposition(
       browser(), kExt1EmptyUrl, WindowOpenDisposition::NEW_BACKGROUND_TAB,
-      ui_test_utils::BROWSER_TEST_WAIT_FOR_NAVIGATION);
+      ui_test_utils::BROWSER_TEST_WAIT_FOR_LOAD_STOP);
   NavigateToURL(embedded_test_server()->GetURL("/two_iframes.html"));
   EXPECT_EQ(1u, pm->GetAllFrames().size());
 
@@ -672,7 +679,7 @@ IN_PROC_BROWSER_TEST_F(ProcessManagerBrowserTest,
 // Verify correct keepalive count behavior on network request events.
 // Regression test for http://crbug.com/535716.
 // Disabled on Linux for flakiness: http://crbug.com/1030435.
-#if defined(OS_LINUX)
+#if defined(OS_LINUX) || defined(OS_CHROMEOS)
 #define MAYBE_KeepaliveOnNetworkRequest DISABLED_KeepaliveOnNetworkRequest
 #else
 #define MAYBE_KeepaliveOnNetworkRequest KeepaliveOnNetworkRequest
@@ -962,10 +969,10 @@ IN_PROC_BROWSER_TEST_F(ProcessManagerBrowserTest,
   // Check that extension blob URLs still can be downloaded via an HTML anchor
   // tag with the download attribute (i.e., <a download>) (which starts out as
   // a top-level navigation).
-  PermissionRequestManager* permission_request_manager =
-      PermissionRequestManager::FromWebContents(tab);
+  permissions::PermissionRequestManager* permission_request_manager =
+      permissions::PermissionRequestManager::FromWebContents(tab);
   permission_request_manager->set_auto_response_for_test(
-      PermissionRequestManager::ACCEPT_ALL);
+      permissions::PermissionRequestManager::ACCEPT_ALL);
 
   content::DownloadTestObserverTerminal observer(
       content::BrowserContext::GetDownloadManager(profile()), 1,
@@ -1129,9 +1136,8 @@ IN_PROC_BROWSER_TEST_F(ProcessManagerBrowserTest,
         OpenPopup(main_frame, GURL(url::kAboutBlankURL));
     EXPECT_NE(popup, tab);
 
-    content::ConsoleObserverDelegate console_observer(
-        popup, "Not allowed to navigate top frame to*");
-    popup->SetDelegate(&console_observer);
+    content::WebContentsConsoleObserver console_observer(popup);
+    console_observer.SetPattern("Not allowed to navigate top frame to*");
     EXPECT_TRUE(ExecuteScript(
         popup, "location.href = '" + nested_urls[1].spec() + "';"));
     console_observer.Wait();
@@ -1283,7 +1289,7 @@ IN_PROC_BROWSER_TEST_F(ProcessManagerBrowserTest,
     // FilterURL.
     EXPECT_TRUE(ExecuteScript(
         tab, "window.popup.location.href = '" + nested_url.spec() + "';"));
-    WaitForLoadStop(popup);
+    EXPECT_TRUE(WaitForLoadStop(popup));
 
     // Because the navigation was blocked, the URL doesn't change.
     EXPECT_NE(nested_url, popup->GetLastCommittedURL());
@@ -1495,7 +1501,7 @@ IN_PROC_BROWSER_TEST_F(ProcessManagerBrowserTest,
         tab,
         base::StringPrintf("frames[1].location.href = '%s';",
                            extension2_accessible_redirect.spec().c_str())));
-    WaitForLoadStop(tab);
+    EXPECT_TRUE(WaitForLoadStop(tab));
     frame_deleted_observer.WaitUntilDeleted();
     EXPECT_EQ(extension2_empty,
               ChildFrameAt(main_frame, 1)->GetLastCommittedURL())
@@ -1751,8 +1757,8 @@ IN_PROC_BROWSER_TEST_F(ProcessManagerBrowserTest, HostedAppAlerts) {
   EXPECT_EQ(hosted_app_url, tab->GetLastCommittedURL());
   ProcessManager* pm = ProcessManager::Get(profile());
   EXPECT_EQ(extension, pm->GetExtensionForWebContents(tab));
-  app_modal::JavaScriptDialogManager* js_dialog_manager =
-      app_modal::JavaScriptDialogManager::GetInstance();
+  javascript_dialogs::AppModalDialogManager* js_dialog_manager =
+      javascript_dialogs::AppModalDialogManager::GetInstance();
   base::string16 hosted_app_title = base::ASCIIToUTF16("hosted_app");
   EXPECT_EQ(hosted_app_title, js_dialog_manager->GetTitle(
                                   tab, tab->GetLastCommittedURL().GetOrigin()));

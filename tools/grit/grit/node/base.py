@@ -31,6 +31,9 @@ class Node(object):
   _CONTENT_TYPE_CDATA = 1  # Only CDATA, no children.
   _CONTENT_TYPE_MIXED = 2  # CDATA and children, possibly intermingled
 
+  # Types of files to be compressed by default.
+  _COMPRESS_BY_DEFAULT_EXTENSIONS = ('.js', '.html', '.css', '.svg')
+
   # Default nodes to not whitelist skipped
   _whitelist_marked_as_skip = False
 
@@ -280,7 +283,8 @@ class Node(object):
     # Finally build the XML for our node and return it
     if len(inside_content) > 0:
       if one_line:
-        return u'<%s%s>%s</%s>' % (self.name, attribs, inside_content, self.name)
+        return u'<%s%s>%s</%s>' % (self.name, attribs, inside_content,
+                                   self.name)
       elif content_one_line:
         return u'%s<%s%s>\n%s  %s\n%s</%s>' % (
           indent, self.name, attribs,
@@ -423,6 +427,15 @@ class Node(object):
       return True
     else:
       return self.attrs['translateable'] == 'true'
+
+  def IsAccessibilityWithNoUI(self):
+    '''Returns true if the node is marked as an accessibility label and the
+    message isn't shown in the UI. Otherwise returns false. This label is
+    used to determine if the text requires screenshots.'''
+    if not 'is_accessibility_with_no_ui' in self.attrs:
+      return False
+    else:
+      return self.attrs['is_accessibility_with_no_ui'] == 'true'
 
   def GetNodeById(self, id):
     '''Returns the node in the subtree parented by this node that has a 'name'
@@ -614,7 +627,16 @@ class Node(object):
       The data in gzipped or brotli compressed format. If the format is
       unspecified then this returns the data uncompressed.
     '''
-    if self.attrs.get('compress') == 'gzip':
+
+    compress = self.attrs.get('compress')
+
+    # Compress JS, HTML, CSS and SVG files by default (gzip), unless |compress|
+    # is explicitly specified.
+    compress_by_default = (compress == 'default'
+                           and self.attrs.get('file').endswith(
+                               self._COMPRESS_BY_DEFAULT_EXTENSIONS))
+
+    if compress == 'gzip' or compress_by_default:
       # We only use rsyncable compression on Linux.
       # We exclude ChromeOS since ChromeOS bots are Linux based but do not have
       # the --rsyncable option built in for gzip. See crbug.com/617950.
@@ -622,7 +644,7 @@ class Node(object):
         return grit.format.gzip_string.GzipStringRsyncable(data)
       return grit.format.gzip_string.GzipString(data)
 
-    elif self.attrs.get('compress') == 'brotli':
+    if compress == 'brotli':
       # The length of the uncompressed data as 8 bytes little-endian.
       size_bytes = struct.pack("<q", len(data))
       data = brotli_util.BrotliCompress(data)
@@ -636,11 +658,10 @@ class Node(object):
              b''.join(struct.unpack(formatter, size_bytes)) +
              data)
 
-    elif self.attrs.get('compress') == 'false':
+    if compress == 'false' or compress == 'default':
       return data
 
-    else:
-      raise Exception('Invalid value for compression')
+    raise Exception('Invalid value for compression')
 
 
 class ContentNode(Node):

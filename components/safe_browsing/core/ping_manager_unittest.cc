@@ -5,7 +5,6 @@
 
 #include "components/safe_browsing/core/ping_manager.h"
 #include "base/base64.h"
-#include "base/logging.h"
 #include "base/run_loop.h"
 #include "base/strings/stringprintf.h"
 #include "base/time/time.h"
@@ -35,7 +34,7 @@ class PingManagerTest : public testing::Test {
     }
 
     ping_manager_.reset(
-        new PingManager(nullptr, safe_browsing::GetTestV4ProtocolConfig()));
+        new PingManager(safe_browsing::GetTestV4ProtocolConfig()));
   }
 
   PingManager* ping_manager() { return ping_manager_.get(); }
@@ -57,12 +56,13 @@ TEST_F(PingManagerTest, TestSafeBrowsingHitUrl) {
     hp.is_subresource = true;
     hp.extended_reporting_level = SBER_LEVEL_LEGACY;
     hp.is_metrics_reporting_active = true;
+    hp.is_enhanced_protection = true;
 
     EXPECT_EQ(
         "https://safebrowsing.google.com/safebrowsing/report?client=unittest&"
         "appver=1.0&pver=4.0" +
             key_param_ +
-            "&ext=1&evts=malblhit&evtd=http%3A%2F%2Fmalicious.url.com%2F&"
+            "&ext=1&enh=1&evts=malblhit&evtd=http%3A%2F%2Fmalicious.url.com%2F&"
             "evtr=http%3A%2F%2Fpage.url.com%2F&evhr=http%3A%2F%2Freferrer."
             "url.com%2F&evtb=1&src=l3&m=1",
         ping_manager()->SafeBrowsingHitUrl(hp).spec());
@@ -75,6 +75,7 @@ TEST_F(PingManagerTest, TestSafeBrowsingHitUrl) {
     hp.is_subresource = false;
     hp.extended_reporting_level = SBER_LEVEL_LEGACY;
     hp.is_metrics_reporting_active = true;
+    hp.is_enhanced_protection = false;
     EXPECT_EQ(
         "https://safebrowsing.google.com/safebrowsing/report?client=unittest&"
         "appver=1.0&pver=4.0" +
@@ -93,11 +94,12 @@ TEST_F(PingManagerTest, TestSafeBrowsingHitUrl) {
     hp.is_subresource = false;
     hp.extended_reporting_level = SBER_LEVEL_SCOUT;
     hp.is_metrics_reporting_active = true;
+    hp.is_enhanced_protection = true;
     EXPECT_EQ(
         "https://safebrowsing.google.com/safebrowsing/report?client=unittest&"
         "appver=1.0&pver=4.0" +
             key_param_ +
-            "&ext=2&evts=phishblhit&"
+            "&ext=2&enh=1&evts=phishblhit&"
             "evtd=http%3A%2F%2Fmalicious.url.com%2F&"
             "evtr=http%3A%2F%2Fpage.url.com%2F&evhr=http%3A%2F%2Freferrer."
             "url.com%2F&evtb=0&src=ds&m=1",
@@ -111,11 +113,12 @@ TEST_F(PingManagerTest, TestSafeBrowsingHitUrl) {
     hp.extended_reporting_level = SBER_LEVEL_OFF;
     hp.is_metrics_reporting_active = true;
     hp.is_subresource = false;
+    hp.is_enhanced_protection = true;
     EXPECT_EQ(
         "https://safebrowsing.google.com/safebrowsing/report?client=unittest&"
         "appver=1.0&pver=4.0" +
             key_param_ +
-            "&ext=0&evts=binurlhit&"
+            "&ext=0&enh=1&evts=binurlhit&"
             "evtd=http%3A%2F%2Fmalicious.url.com%2F&"
             "evtr=http%3A%2F%2Fpage.url.com%2F&evhr=http%3A%2F%2Freferrer."
             "url.com%2F&evtb=0&src=rem&m=1",
@@ -129,11 +132,12 @@ TEST_F(PingManagerTest, TestSafeBrowsingHitUrl) {
     hp.extended_reporting_level = SBER_LEVEL_OFF;
     hp.is_metrics_reporting_active = false;
     hp.is_subresource = false;
+    hp.is_enhanced_protection = true;
     EXPECT_EQ(
         "https://safebrowsing.google.com/safebrowsing/report?client=unittest&"
         "appver=1.0&pver=4.0" +
             key_param_ +
-            "&ext=0&evts=phishcsdhit&"
+            "&ext=0&enh=1&evts=phishcsdhit&"
             "evtd=http%3A%2F%2Fmalicious.url.com%2F&"
             "evtr=http%3A%2F%2Fpage.url.com%2F&evhr=http%3A%2F%2Freferrer."
             "url.com%2F&evtb=0&src=l4&m=0",
@@ -147,11 +151,12 @@ TEST_F(PingManagerTest, TestSafeBrowsingHitUrl) {
     hp.extended_reporting_level = SBER_LEVEL_OFF;
     hp.is_metrics_reporting_active = false;
     hp.is_subresource = true;
+    hp.is_enhanced_protection = true;
     EXPECT_EQ(
         "https://safebrowsing.google.com/safebrowsing/report?client=unittest&"
         "appver=1.0&pver=4.0" +
             key_param_ +
-            "&ext=0&evts=malcsdhit&"
+            "&ext=0&enh=1&evts=malcsdhit&"
             "evtd=http%3A%2F%2Fmalicious.url.com%2F&"
             "evtr=http%3A%2F%2Fpage.url.com%2F&evhr=http%3A%2F%2Freferrer."
             "url.com%2F&evtb=1&src=l4&m=0",
@@ -167,11 +172,12 @@ TEST_F(PingManagerTest, TestSafeBrowsingHitUrl) {
     hp.is_metrics_reporting_active = false;
     hp.is_subresource = true;
     hp.population_id = "foo bar";
+    hp.is_enhanced_protection = true;
     EXPECT_EQ(
         "https://safebrowsing.google.com/safebrowsing/report?client=unittest&"
         "appver=1.0&pver=4.0" +
             key_param_ +
-            "&ext=0&evts=malcsdhit&"
+            "&ext=0&enh=1&evts=malcsdhit&"
             "evtd=http%3A%2F%2Fmalicious.url.com%2F&"
             "evtr=http%3A%2F%2Fpage.url.com%2F&evhr=http%3A%2F%2Freferrer."
             "url.com%2F&evtb=1&src=l4&m=0&up=foo+bar",

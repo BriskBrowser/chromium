@@ -21,7 +21,6 @@
 #define THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_SVG_SVG_RESOURCES_CACHE_H_
 
 #include <memory>
-#include "base/macros.h"
 #include "third_party/blink/renderer/core/style/style_difference.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 #include "third_party/blink/renderer/platform/wtf/hash_map.h"
@@ -37,13 +36,14 @@ class SVGResourcesCache {
 
  public:
   SVGResourcesCache();
+  SVGResourcesCache(const SVGResourcesCache&) = delete;
+  SVGResourcesCache& operator=(const SVGResourcesCache&) = delete;
   ~SVGResourcesCache();
 
   static SVGResources* CachedResourcesForLayoutObject(const LayoutObject&);
 
   // Called from all SVG layoutObjects addChild() methods.
-  static void ClientWasAddedToTree(LayoutObject&,
-                                   const ComputedStyle& new_style);
+  static void ClientWasAddedToTree(LayoutObject&);
 
   // Called from all SVG layoutObjects removeChild() methods.
   static void ClientWillBeRemovedFromTree(LayoutObject&);
@@ -71,6 +71,8 @@ class SVGResourcesCache {
     TemporaryStyleScope(LayoutObject&,
                         const ComputedStyle& original_style,
                         const ComputedStyle& temporary_style);
+    TemporaryStyleScope(const TemporaryStyleScope&) = delete;
+    TemporaryStyleScope& operator=(const TemporaryStyleScope) = delete;
     ~TemporaryStyleScope();
 
    private:
@@ -80,17 +82,23 @@ class SVGResourcesCache {
     const ComputedStyle& original_style_;
     const ComputedStyle& temporary_style_;
     const bool styles_are_equal_;
-    DISALLOW_COPY_AND_ASSIGN(TemporaryStyleScope);
   };
 
  private:
-  bool AddResourcesFromLayoutObject(LayoutObject&, const ComputedStyle&);
+  struct ResourceUpdateInfo {
+    bool changed;
+    bool needs_layout;
+
+    explicit operator bool() const { return changed; }
+  };
+  SVGResources* AddResourcesFromLayoutObject(LayoutObject&,
+                                             const ComputedStyle&);
   bool RemoveResourcesFromLayoutObject(LayoutObject&);
-  bool UpdateResourcesFromLayoutObject(LayoutObject&, const ComputedStyle&);
+  ResourceUpdateInfo UpdateResourcesFromLayoutObject(LayoutObject&,
+                                                     const ComputedStyle&);
 
   typedef HashMap<const LayoutObject*, std::unique_ptr<SVGResources>> CacheMap;
   CacheMap cache_;
-  DISALLOW_COPY_AND_ASSIGN(SVGResourcesCache);
 };
 
 }  // namespace blink

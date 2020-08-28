@@ -9,13 +9,13 @@
 #include <string>
 #include <vector>
 
+#include "base/callback.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
 #include "base/time/time.h"
 #include "components/offline_pages/core/archive_validator.h"
 #include "components/offline_pages/core/offline_page_item.h"
 #include "components/offline_pages/core/request_header/offline_page_header.h"
-#include "content/public/common/resource_type.h"
 
 namespace base {
 class FilePath;
@@ -253,7 +253,7 @@ class OfflinePageRequestHandler {
   void Redirect(const GURL& redirected_url);
 
   void OpenFile(const base::FilePath& file_path,
-                const base::Callback<void(int)>& callback);
+                const base::RepeatingCallback<void(int)>& callback);
   void UpdateDigestOnBackground(
       scoped_refptr<net::IOBuffer> buffer,
       size_t len,

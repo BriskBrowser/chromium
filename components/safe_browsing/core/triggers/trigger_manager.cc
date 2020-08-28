@@ -5,15 +5,16 @@
 #include "components/safe_browsing/core/triggers/trigger_manager.h"
 
 #include "base/bind.h"
+#include "base/memory/ptr_util.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "components/prefs/pref_service.h"
 #include "components/safe_browsing/content/base_ui_manager.h"
 #include "components/safe_browsing/content/browser/threat_details.h"
 #include "components/safe_browsing/core/common/safe_browsing_prefs.h"
+#include "components/safe_browsing/core/common/thread_utils.h"
 #include "components/safe_browsing/core/features.h"
-#include "components/security_interstitials/content/unsafe_resource.h"
+#include "components/security_interstitials/core/unsafe_resource.h"
 #include "content/public/browser/browser_context.h"
-#include "content/public/browser/browser_thread.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
 
 namespace safe_browsing {
@@ -86,6 +87,7 @@ SBErrorOptions TriggerManager::GetSBErrorDisplayOptions(
                         web_contents->GetBrowserContext()->IsOffTheRecord(),
                         IsExtendedReportingEnabled(pref_service),
                         IsExtendedReportingPolicyManaged(pref_service),
+                        IsEnhancedProtectionEnabled(pref_service),
                         /*is_proceed_anyway_disabled=*/false,
                         /*should_open_links_in_new_tab=*/false,
                         /*show_back_to_safety_button=*/true,
@@ -150,7 +152,7 @@ bool TriggerManager::StartCollectingThreatDetailsWithReason(
     history::HistoryService* history_service,
     const SBErrorOptions& error_display_options,
     TriggerManagerReason* reason) {
-  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+  DCHECK(CurrentlyOnThread(ThreadID::UI));
   if (!CanStartDataCollectionWithReason(error_display_options, trigger_type,
                                         reason))
     return false;
@@ -179,7 +181,7 @@ bool TriggerManager::FinishCollectingThreatDetails(
     bool did_proceed,
     int num_visits,
     const SBErrorOptions& error_display_options) {
-  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+  DCHECK(CurrentlyOnThread(ThreadID::UI));
   // Make sure there's a ThreatDetails collector running on this tab.
   if (!base::Contains(data_collectors_map_, web_contents))
     return false;
@@ -213,7 +215,7 @@ bool TriggerManager::FinishCollectingThreatDetails(
 }
 
 void TriggerManager::ThreatDetailsDone(content::WebContents* web_contents) {
-  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+  DCHECK(CurrentlyOnThread(ThreadID::UI));
   // Clean up the ThreatDetailsdata collector on the specified tab.
   if (!base::Contains(data_collectors_map_, web_contents))
     return;
@@ -223,7 +225,7 @@ void TriggerManager::ThreatDetailsDone(content::WebContents* web_contents) {
 }
 
 void TriggerManager::WebContentsDestroyed(content::WebContents* web_contents) {
-  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+  DCHECK(CurrentlyOnThread(ThreadID::UI));
   if (!base::Contains(data_collectors_map_, web_contents))
     return;
   data_collectors_map_.erase(web_contents);

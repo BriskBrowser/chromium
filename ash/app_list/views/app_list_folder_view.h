@@ -15,6 +15,7 @@
 #include "ash/app_list/views/folder_header_view_delegate.h"
 #include "base/macros.h"
 #include "base/optional.h"
+#include "ui/compositor/throughput_tracker.h"
 #include "ui/views/controls/button/button.h"
 #include "ui/views/view.h"
 #include "ui/views/view_model.h"
@@ -56,6 +57,10 @@ class APP_LIST_EXPORT AppListFolderView : public views::View,
 
   // Hides the view immediately without animation.
   void HideViewImmediately();
+
+  // Prepares folder item grid for closing the folder - it ends any in-progress
+  // drag, and clears any selected view.
+  void ResetItemsGridForClose();
 
   // Closes the folder page and goes back the top level page.
   void CloseFolderPage();
@@ -190,8 +195,8 @@ class APP_LIST_EXPORT AppListFolderView : public views::View,
   std::unique_ptr<Animation> top_icon_animation_;
   std::unique_ptr<Animation> contents_container_animation_;
 
-  // The compositor frame number when animation starts.
-  base::Optional<int> animation_start_frame_number_;
+  // Records smoothness of the folder show/hide animation.
+  base::Optional<ui::ThroughputTracker> show_hide_metrics_tracker_;
 
   DISALLOW_COPY_AND_ASSIGN(AppListFolderView);
 };

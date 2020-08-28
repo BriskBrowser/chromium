@@ -10,6 +10,7 @@
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/location.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "components/device_event_log/device_event_log.h"
@@ -130,19 +131,16 @@ void OnDictionaryValueMethod(
     ShillClientHelper::DictionaryValueCallback callback,
     dbus::Response* response) {
   if (!response) {
-    base::DictionaryValue result;
-    std::move(callback).Run(DBUS_METHOD_CALL_FAILURE, result);
+    std::move(callback).Run(base::nullopt);
     return;
   }
   dbus::MessageReader reader(response);
   std::unique_ptr<base::Value> value(dbus::PopDataAsValue(&reader));
-  base::DictionaryValue* result = NULL;
-  if (!value.get() || !value->GetAsDictionary(&result)) {
-    base::DictionaryValue result;
-    std::move(callback).Run(DBUS_METHOD_CALL_FAILURE, result);
+  if (!value.get() || !value->is_dict()) {
+    std::move(callback).Run(base::nullopt);
     return;
   }
-  std::move(callback).Run(DBUS_METHOD_CALL_SUCCESS, *result);
+  std::move(callback).Run(std::move(*value));
 }
 
 // Handles responses for methods without results.
@@ -161,13 +159,12 @@ void OnDictionaryValueMethodWithErrorCallback(
     dbus::Response* response) {
   dbus::MessageReader reader(response);
   std::unique_ptr<base::Value> value(dbus::PopDataAsValue(&reader));
-  base::DictionaryValue* result = NULL;
-  if (!value.get() || !value->GetAsDictionary(&result)) {
+  if (!value.get() || !value->is_dict()) {
     std::move(error_callback)
         .Run(kInvalidResponseErrorName, kInvalidResponseErrorMessage);
     return;
   }
-  std::move(callback).Run(*result);
+  std::move(callback).Run(std::move(*value));
 }
 
 // Handles responses for methods with ListValue results.

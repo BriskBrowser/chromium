@@ -68,8 +68,6 @@ class FetchDataLoaderTest : public testing::Test {
  protected:
   struct PipingClient : public GarbageCollected<PipingClient>,
                         public FetchDataLoader::Client {
-    USING_GARBAGE_COLLECTED_MIXIN(PipingClient);
-
    public:
     explicit PipingClient(
         scoped_refptr<base::SingleThreadTaskRunner> task_runner)
@@ -94,7 +92,7 @@ class FetchDataLoaderTest : public testing::Test {
 
     BytesConsumer* GetDestination() { return destination_; }
 
-    void Trace(Visitor* visitor) override {
+    void Trace(Visitor* visitor) const override {
       visitor->Trace(destination_);
       visitor->Trace(completion_notifier_);
       FetchDataLoader::Client::Trace(visitor);

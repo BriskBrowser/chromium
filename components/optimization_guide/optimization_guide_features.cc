@@ -9,9 +9,11 @@
 #include "base/logging.h"
 #include "base/metrics/field_trial.h"
 #include "base/metrics/field_trial_params.h"
+#include "base/strings/string_split.h"
 #include "build/build_config.h"
 #include "components/optimization_guide/optimization_guide_constants.h"
 #include "components/optimization_guide/optimization_guide_switches.h"
+#include "components/variations/hashing.h"
 #include "google_apis/google_api_keys.h"
 #include "net/base/url_util.h"
 
@@ -41,6 +43,11 @@ const base::Feature kOptimizationHints {
 const base::Feature kOptimizationHintsExperiments{
     "OptimizationHintsExperiments", base::FEATURE_DISABLED_BY_DEFAULT};
 
+// Feature flag that contains a feature param that specifies the field trials
+// that are allowed to be sent up to the Optimization Guide Server.
+const base::Feature kOptimizationHintsFieldTrials{
+    "OptimizationHintsFieldTrials", base::FEATURE_DISABLED_BY_DEFAULT};
+
 // Enables fetching from a remote Optimization Guide Service.
 const base::Feature kRemoteOptimizationGuideFetching {
   "OptimizationHintsFetching",
@@ -57,7 +64,12 @@ const base::Feature kRemoteOptimizationGuideFetchingAnonymousDataConsent{
 
 // Enables the prediction of optimization targets.
 const base::Feature kOptimizationTargetPrediction{
-    "OptimizationTargetPrediction", base::FEATURE_DISABLED_BY_DEFAULT};
+    "OptimizationTargetPrediction", base::FEATURE_ENABLED_BY_DEFAULT};
+
+// Enables out-of-service evaluation of prediction models via the ML Service.
+const base::Feature kOptimizationTargetPredictionUsingMLService{
+    "OptimizationGuidePredictionUsingMLService",
+    base::FEATURE_DISABLED_BY_DEFAULT};
 
 size_t MaxHintsFetcherTopHostBlacklistSize() {
   // The blacklist will be limited to the most engaged hosts and will hold twice
@@ -71,10 +83,25 @@ size_t MaxHintsFetcherTopHostBlacklistSize() {
          MaxHostsForOptimizationGuideServiceHintsFetch();
 }
 
+bool ShouldBatchUpdateHintsForTopHosts() {
+  if (base::FeatureList::IsEnabled(kRemoteOptimizationGuideFetching)) {
+    return GetFieldTrialParamByFeatureAsBool(kRemoteOptimizationGuideFetching,
+                                             "batch_update_hints_for_top_hosts",
+                                             true);
+  }
+  return false;
+}
+
 size_t MaxHostsForOptimizationGuideServiceHintsFetch() {
   return GetFieldTrialParamByFeatureAsInt(
       kRemoteOptimizationGuideFetching,
       "max_hosts_for_optimization_guide_service_hints_fetch", 30);
+}
+
+size_t MaxUrlsForOptimizationGuideServiceHintsFetch() {
+  return GetFieldTrialParamByFeatureAsInt(
+      kRemoteOptimizationGuideFetching,
+      "max_urls_for_optimization_guide_service_hints_fetch", 30);
 }
 
 size_t MaxHostsForRecordingSuccessfullyCovered() {
@@ -178,13 +205,24 @@ GetMaxEffectiveConnectionTypeForNavigationHintsFetch() {
 
   // Use a default value.
   if (param_value.empty())
-    return net::EFFECTIVE_CONNECTION_TYPE_3G;
+    return net::EFFECTIVE_CONNECTION_TYPE_4G;
 
   return net::GetEffectiveConnectionTypeForName(param_value);
 }
 
 base::TimeDelta GetHintsFetchRefreshDuration() {
-  return base::TimeDelta::FromHours(72);
+  return base::TimeDelta::FromHours(GetFieldTrialParamByFeatureAsInt(
+      kRemoteOptimizationGuideFetching, "hints_fetch_refresh_duration_in_hours",
+      72));
+}
+
+size_t MaxConcurrentPageNavigationFetches() {
+  // If overridden, this needs to be large enough where we do not thrash the
+  // inflight page navigations since if we approach the limit here, we will
+  // abort the oldest page navigation fetch that is in flight.
+  return GetFieldTrialParamByFeatureAsInt(
+      kRemoteOptimizationGuideFetching,
+      "max_concurrent_page_navigation_fetches", 20);
 }
 
 base::TimeDelta StoredHostModelFeaturesFreshnessDuration() {
@@ -210,13 +248,23 @@ size_t MaxHostModelFeaturesCacheSize() {
       kOptimizationTargetPrediction, "max_host_model_features_cache_size", 100);
 }
 
-size_t MaxURLKeyedHintCacheSize() {
-  return GetFieldTrialParamByFeatureAsInt(kOptimizationHints,
-                                          "max_url_keyed_hint_cache_size", 20);
+size_t MaxHostKeyedHintCacheSize() {
+  size_t max_host_keyed_hint_cache_size = GetFieldTrialParamByFeatureAsInt(
+      kOptimizationHints, "max_host_keyed_hint_cache_size", 30);
+  return max_host_keyed_hint_cache_size;
 }
 
-bool IsOptimizationTargetPredictionEnabled() {
-  return base::FeatureList::IsEnabled(kOptimizationTargetPrediction);
+size_t MaxURLKeyedHintCacheSize() {
+  size_t max_url_keyed_hint_cache_size = GetFieldTrialParamByFeatureAsInt(
+      kOptimizationHints, "max_url_keyed_hint_cache_size", 30);
+  DCHECK_GE(max_url_keyed_hint_cache_size,
+            MaxUrlsForOptimizationGuideServiceHintsFetch());
+  return max_url_keyed_hint_cache_size;
+}
+
+bool ShouldPersistHintsToDisk() {
+  return GetFieldTrialParamByFeatureAsBool(kOptimizationHints,
+                                           "persist_hints_to_disk", true);
 }
 
 bool ShouldOverrideOptimizationTargetDecisionForMetricsPurposes(
@@ -235,7 +283,40 @@ int PredictionModelFetchRandomMinDelaySecs() {
 
 int PredictionModelFetchRandomMaxDelaySecs() {
   return GetFieldTrialParamByFeatureAsInt(kOptimizationTargetPrediction,
-                                          "fetch_random_max_delay_secs", 180);
+                                          "fetch_random_max_delay_secs", 60);
+}
+
+base::flat_set<std::string> ExternalAppPackageNamesApprovedForFetch() {
+  std::string value = base::GetFieldTrialParamValueByFeature(
+      kRemoteOptimizationGuideFetching, "approved_external_app_packages");
+  if (value.empty())
+    return {};
+
+  std::vector<std::string> app_packages_list = base::SplitString(
+      value, ",", base::TRIM_WHITESPACE, base::SPLIT_WANT_NONEMPTY);
+  return base::flat_set<std::string>(app_packages_list.begin(),
+                                     app_packages_list.end());
+}
+
+base::flat_set<uint32_t> FieldTrialNameHashesAllowedForFetch() {
+  std::string value = base::GetFieldTrialParamValueByFeature(
+      kOptimizationHintsFieldTrials, "allowed_field_trial_names");
+  if (value.empty())
+    return {};
+
+  std::vector<std::string> allowed_field_trial_names = base::SplitString(
+      value, ",", base::TRIM_WHITESPACE, base::SPLIT_WANT_NONEMPTY);
+  base::flat_set<uint32_t> allowed_field_trial_name_hashes;
+  for (const auto& allowed_field_trial_name : allowed_field_trial_names) {
+    allowed_field_trial_name_hashes.insert(
+        variations::HashName(allowed_field_trial_name));
+  }
+  return allowed_field_trial_name_hashes;
+}
+
+bool ShouldUseMLServiceForPrediction() {
+  return base::FeatureList::IsEnabled(
+      kOptimizationTargetPredictionUsingMLService);
 }
 
 }  // namespace features

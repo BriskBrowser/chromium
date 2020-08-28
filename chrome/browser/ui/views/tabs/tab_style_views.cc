@@ -8,6 +8,7 @@
 #include <utility>
 
 #include "base/numerics/ranges.h"
+#include "base/numerics/safe_conversions.h"
 #include "cc/paint/paint_record.h"
 #include "chrome/browser/themes/theme_properties.h"
 #include "chrome/browser/ui/layout_constants.h"
@@ -45,6 +46,8 @@ constexpr ShapeModifier kNoLowerRightArc = 0x02;
 class GM2TabStyle : public TabStyleViews {
  public:
   explicit GM2TabStyle(Tab* tab);
+  GM2TabStyle(const GM2TabStyle&) = delete;
+  GM2TabStyle& operator=(const GM2TabStyle&) = delete;
 
  protected:
   // TabStyle:
@@ -152,8 +155,6 @@ class GM2TabStyle : public TabStyleViews {
   std::unique_ptr<GlowHoverController> hover_controller_;
   gfx::FontList normal_font_;
   gfx::FontList heavy_font_;
-
-  DISALLOW_COPY_AND_ASSIGN(GM2TabStyle);
 };
 
 void DrawHighlight(gfx::Canvas* canvas,
@@ -266,7 +267,7 @@ SkPath GM2TabStyle::GetPath(PathType path_type,
     bottom_radius -= stroke_adjustment;
     if (ShouldExtendHitTest()) {
       extend_to_top = true;
-      if (tab_->controller()->IsFirstVisibleTab(tab_)) {
+      if (tab_->controller()->IsTabFirst(tab_)) {
         // The path is not mirrored in RTL and thus we must manually choose the
         // correct "leading" edge.
         if (base::i18n::IsRTL())
@@ -393,7 +394,7 @@ SkPath GM2TabStyle::GetPath(PathType path_type,
 
   // Possibly convert back to DIPs.
   if (render_units == RenderUnits::kDips && scale != 1.0f)
-    path.transform(SkMatrix::MakeScale(1.f / scale));
+    path.transform(SkMatrix::Scale(1.0f / scale, 1.0f / scale));
 
   return path;
 }
@@ -490,7 +491,7 @@ void GM2TabStyle::PaintTab(gfx::Canvas* canvas) const {
 
     const float throb_value = GetThrobValue();
     if (throb_value > 0) {
-      canvas->SaveLayerAlpha(gfx::ToRoundedInt(throb_value * 0xff),
+      canvas->SaveLayerAlpha(base::ClampRound<uint8_t>(throb_value * 0xff),
                              tab_->GetLocalBounds());
       PaintTabBackground(canvas, TabActive::kActive, active_tab_fill_id,
                          active_tab_y_inset);
@@ -607,10 +608,14 @@ float GM2TabStyle::GetSeparatorOpacity(bool for_layout, bool leading) const {
   // animation. Only hide the separator if it's in the first slot, or in
   // certain cases if the tab has a visible background (see below).
 
-  // If the adjacent view is actually a group header, show the separator since
-  // the group header takes up a slot.
-  if (adjacent_to_header)
+  // Do not show the separator if it is to the right of a group header.
+  // Otherwise, show the separator since the following group header takes up a
+  // slot.
+  if (adjacent_to_header) {
+    if (leading)
+      return 0.0f;
     return GetHoverInterpolatedSeparatorOpacity(for_layout, nullptr);
+  }
 
   // If the tab has a visible background even when not selected or active, there
   // are additional cases where the separators can be hidden.
@@ -951,11 +956,15 @@ std::unique_ptr<TabStyleViews> TabStyleViews::CreateForTab(Tab* tab) {
 
 // static
 int TabStyleViews::GetMinimumActiveWidth() {
-  return TabCloseButton::GetWidth() + GetContentsHorizontalInsetSize() * 2;
+  if (base::FeatureList::IsEnabled(features::kScrollableTabStrip))
+    return 72;
+  return TabCloseButton::GetGlyphSize() + GetContentsHorizontalInsetSize() * 2;
 }
 
 // static
 int TabStyleViews::GetMinimumInactiveWidth() {
+  if (base::FeatureList::IsEnabled(features::kScrollableTabStrip))
+    return 72;
   // Allow tabs to shrink until they appear to be 16 DIP wide excluding
   // outer corners.
   constexpr int kInteriorWidth = 16;

@@ -7,16 +7,18 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/logging.h"
+#include "base/check.h"
+#include "base/notreached.h"
 #include "base/run_loop.h"
-#include "services/service_manager/public/cpp/connector.h"
+#include "sandbox/policy/sandbox.h"
 
 namespace content {
 
 const char kTestServiceUrl[] = "system:content_test_service";
 
-TestService::TestService(service_manager::mojom::ServiceRequest request)
-    : service_binding_(this, std::move(request)) {
+TestService::TestService(
+    mojo::PendingReceiver<service_manager::mojom::Service> receiver)
+    : service_receiver_(this, std::move(receiver)) {
   registry_.AddInterface<mojom::TestService>(
       base::BindRepeating(&TestService::Create, base::Unretained(this)));
 }
@@ -57,9 +59,26 @@ void TestService::GetRequestorName(GetRequestorNameCallback callback) {
   std::move(callback).Run(requestor_name_);
 }
 
-void TestService::CreateSharedBuffer(const std::string& message,
-                                     CreateSharedBufferCallback callback) {
+void TestService::CreateReadOnlySharedMemoryRegion(
+    const std::string& message,
+    CreateReadOnlySharedMemoryRegionCallback callback) {
   NOTREACHED();
+}
+
+void TestService::CreateWritableSharedMemoryRegion(
+    const std::string& message,
+    CreateWritableSharedMemoryRegionCallback callback) {
+  NOTREACHED();
+}
+
+void TestService::CreateUnsafeSharedMemoryRegion(
+    const std::string& message,
+    CreateUnsafeSharedMemoryRegionCallback callback) {
+  NOTREACHED();
+}
+
+void TestService::IsProcessSandboxed(IsProcessSandboxedCallback callback) {
+  std::move(callback).Run(sandbox::policy::Sandbox::IsProcessSandboxed());
 }
 
 }  // namespace content

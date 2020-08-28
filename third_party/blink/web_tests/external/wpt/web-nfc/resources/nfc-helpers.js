@@ -18,6 +18,8 @@ let loadChromiumResources = Promise.resolve().then(() => {
   [
     '/gen/layout_test_data/mojo/public/js/mojo_bindings.js',
     '/gen/services/device/public/mojom/nfc.mojom.js',
+    '/resources/testdriver.js',
+    '/resources/testdriver-vendor.js',
     '/resources/chromium/nfc-mock.js',
   ].forEach(path => {
     let script = document.createElement('script');
@@ -73,6 +75,33 @@ NFCHWStatus.ENABLED = 1;
 NFCHWStatus.NOT_SUPPORTED = NFCHWStatus.ENABLED + 1;
 // OS-level NFC setting OFF
 NFCHWStatus.DISABLED = NFCHWStatus.NOT_SUPPORTED + 1;
+
+function encodeTextToArrayBuffer(string, encoding) {
+  // Only support 'utf-8', 'utf-16', 'utf-16be', and 'utf-16le'.
+  assert_true(
+      encoding === 'utf-8' || encoding === 'utf-16' ||
+      encoding === 'utf-16be' || encoding === 'utf-16le');
+
+  if (encoding === 'utf-8') {
+    return new TextEncoder().encode(string).buffer;
+  }
+
+  if (encoding === 'utf-16') {
+    let uint16array = new Uint16Array(string.length);
+    for (let i = 0; i < string.length; i++) {
+      uint16array[i] = string.codePointAt(i);
+    }
+    return uint16array.buffer;
+  }
+
+  const littleEndian = encoding === 'utf-16le';
+  const buffer = new ArrayBuffer(string.length * 2);
+  const view = new DataView(buffer);
+  for (let i = 0; i < string.length; i++) {
+    view.setUint16(i * 2, string.codePointAt(i), littleEndian);
+  }
+  return buffer;
+}
 
 function createMessage(records) {
   if (records !== undefined) {
@@ -165,7 +194,8 @@ function assertWebNDEFMessagesEqual(message, expectedMessage) {
     assert_equals(record.recordType, expectedRecord.recordType);
     assert_equals(record.mediaType, expectedRecord.mediaType);
     assert_equals(record.id, expectedRecord.id);
-
+    assert_equals(record.encoding, expectedRecord.encoding);
+    assert_equals(record.lang, expectedRecord.lang);
     // Compares record data
     assert_array_equals(new Uint8Array(record.data),
           new Uint8Array(expectedRecord.data));

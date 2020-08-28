@@ -7,13 +7,13 @@
 #import <Cocoa/Cocoa.h>
 
 #include "base/bind.h"
-#include "base/mac/availability.h"
 #import "base/mac/scoped_objc_class_swizzler.h"
-#include "base/mac/sdk_forward_declarations.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/threading/thread_task_runner_handle.h"
 #import "components/remote_cocoa/app_shim/native_widget_ns_window_bridge.h"
 #import "ui/base/clipboard/clipboard_util_mac.h"
+#import "ui/base/dragdrop/drag_drop_types.h"
+#import "ui/base/dragdrop/mojom/drag_drop_types.mojom-shared.h"
 #include "ui/gfx/image/image_unittest_util.h"
 #import "ui/views/cocoa/native_widget_mac_ns_window_host.h"
 #include "ui/views/test/widget_test.h"
@@ -264,8 +264,8 @@ TEST_F(DragDropClientMacTest, ReleaseCapture) {
                                 base::Unretained(drag_drop_client())));
 
   // It will call ReleaseCapture().
-  drag_drop_client()->StartDragAndDrop(
-      target_, std::move(data), 0, ui::DragDropTypes::DRAG_EVENT_SOURCE_MOUSE);
+  drag_drop_client()->StartDragAndDrop(target_, std::move(data), 0,
+                                       ui::mojom::DragEventSource::kMouse);
 
   // The capture should be released.
   EXPECT_FALSE(ns_window_host_->IsMouseCaptureActive());

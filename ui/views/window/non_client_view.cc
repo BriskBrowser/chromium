@@ -5,6 +5,7 @@
 #include "ui/views/window/non_client_view.h"
 
 #include <memory>
+#include <utility>
 
 #include "ui/accessibility/ax_enums.mojom.h"
 #include "ui/accessibility/ax_node_data.h"
@@ -105,13 +106,12 @@ gfx::Point NonClientFrameView::GetSystemMenuScreenPixelLocation() const {
 }
 #endif
 
-void NonClientFrameView::PaintAsActiveChanged(bool active) {}
-
 void NonClientFrameView::GetAccessibleNodeData(ui::AXNodeData* node_data) {
   node_data->role = ax::mojom::Role::kClient;
 }
 
 void NonClientFrameView::OnThemeChanged() {
+  View::OnThemeChanged();
   SchedulePaint();
 }
 
@@ -135,11 +135,11 @@ int NonClientFrameView::GetSystemMenuY() const {
 }
 #endif
 
-BEGIN_METADATA(NonClientFrameView)
-METADATA_PARENT_CLASS(View)
+BEGIN_METADATA(NonClientFrameView, View)
 END_METADATA()
 
-NonClientView::NonClientView() {
+NonClientView::NonClientView(views::ClientView* client_view)
+    : client_view_(client_view) {
   SetEventTargeter(std::make_unique<views::ViewTargeter>(this));
 }
 
@@ -149,12 +149,13 @@ NonClientView::~NonClientView() {
   RemoveChildView(frame_view_.get());
 }
 
-void NonClientView::SetFrameView(NonClientFrameView* frame_view) {
+void NonClientView::SetFrameView(
+    std::unique_ptr<NonClientFrameView> frame_view) {
   // See comment in header about ownership.
   frame_view->set_owned_by_client();
   if (frame_view_.get())
     RemoveChildView(frame_view_.get());
-  frame_view_.reset(frame_view);
+  frame_view_ = std::move(frame_view);
   if (parent())
     AddChildViewAt(frame_view_.get(), kFrameViewIndex);
 }
@@ -171,8 +172,8 @@ void NonClientView::SetOverlayView(View* view) {
     AddChildView(overlay_view_);
 }
 
-bool NonClientView::CanClose() {
-  return client_view_->CanClose();
+CloseRequestResult NonClientView::OnWindowCloseRequested() {
+  return client_view_->OnWindowCloseRequested();
 }
 
 void NonClientView::WindowClosing() {
@@ -251,7 +252,7 @@ void NonClientView::Layout() {
 
   SkPath client_clip;
   if (frame_view_->GetClientMask(client_view_->size(), &client_clip))
-    client_view_->set_clip_path(client_clip);
+    client_view_->SetClipPath(client_clip);
 
   if (overlay_view_)
     overlay_view_->SetBoundsRect(GetLocalBounds());
@@ -313,8 +314,8 @@ View* NonClientView::TargetForRect(View* root, const gfx::Rect& rect) {
     // removed from the NonClientView.
     gfx::RectF rect_in_child_coords_f(rect);
     View::ConvertRectToTarget(this, frame_view_.get(), &rect_in_child_coords_f);
-    gfx::Rect rect_in_child_coords = gfx::ToEnclosingRect(
-        rect_in_child_coords_f);
+    gfx::Rect rect_in_child_coords =
+        gfx::ToEnclosingRect(rect_in_child_coords_f);
     if (frame_view_->HitTestRect(rect_in_child_coords))
       return frame_view_->GetEventHandlerForRect(rect_in_child_coords);
   }
@@ -322,8 +323,7 @@ View* NonClientView::TargetForRect(View* root, const gfx::Rect& rect) {
   return ViewTargeterDelegate::TargetForRect(root, rect);
 }
 
-BEGIN_METADATA(NonClientView)
-METADATA_PARENT_CLASS(View)
+BEGIN_METADATA(NonClientView, View)
 END_METADATA()
 
 }  // namespace views

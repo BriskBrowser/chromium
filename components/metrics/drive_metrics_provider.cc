@@ -7,13 +7,13 @@
 #include "base/base_paths.h"
 #include "base/bind.h"
 #include "base/callback.h"
+#include "base/check_op.h"
 #include "base/files/file_path.h"
 #include "base/location.h"
-#include "base/logging.h"
-#include "base/metrics/histogram_macros.h"
 #include "base/path_service.h"
 #include "base/task/post_task.h"
 #include "base/task/task_traits.h"
+#include "base/task/thread_pool.h"
 #include "base/threading/scoped_blocking_call.h"
 #include "base/time/time.h"
 
@@ -33,9 +33,9 @@ void DriveMetricsProvider::ProvideSystemProfileMetrics(
 }
 
 void DriveMetricsProvider::AsyncInit(base::OnceClosure done_callback) {
-  base::PostTaskAndReplyWithResult(
+  base::ThreadPool::PostTaskAndReplyWithResult(
       FROM_HERE,
-      {base::ThreadPool(), base::MayBlock(), base::TaskPriority::BEST_EFFORT,
+      {base::MayBlock(), base::TaskPriority::BEST_EFFORT,
        base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN},
       base::BindOnce(&DriveMetricsProvider::GetDriveMetricsOnBackgroundThread,
                      local_state_path_key_),
@@ -69,18 +69,7 @@ void DriveMetricsProvider::QuerySeekPenalty(
   if (!base::PathService::Get(path_service_key, &path))
     return;
 
-  base::TimeTicks start = base::TimeTicks::Now();
-
   response->success = HasSeekPenalty(path, &response->has_seek_penalty);
-
-  UMA_HISTOGRAM_TIMES("Hardware.Drive.HasSeekPenalty_Time",
-                      base::TimeTicks::Now() - start);
-  UMA_HISTOGRAM_BOOLEAN("Hardware.Drive.HasSeekPenalty_Success",
-                        response->success);
-  if (response->success) {
-    UMA_HISTOGRAM_BOOLEAN("Hardware.Drive.HasSeekPenalty",
-                          response->has_seek_penalty);
-  }
 }
 
 void DriveMetricsProvider::GotDriveMetrics(

@@ -144,9 +144,10 @@ void BackgroundApplicationListModel::Application::RequestIcon(
   extensions::ExtensionResource resource =
       extensions::IconsInfo::GetIconResource(
           extension_, size, ExtensionIconSet::MATCH_BIGGER);
-  extensions::ImageLoader::Get(model_->profile_)->LoadImageAsync(
-      extension_, resource, gfx::Size(size, size),
-      base::Bind(&Application::OnImageLoaded, AsWeakPtr()));
+  extensions::ImageLoader::Get(model_->profile_)
+      ->LoadImageAsync(
+          extension_, resource, gfx::Size(size, size),
+          base::BindOnce(&Application::OnImageLoaded, AsWeakPtr()));
 }
 
 BackgroundApplicationListModel::~BackgroundApplicationListModel() = default;
@@ -400,14 +401,14 @@ void BackgroundApplicationListModel::RemoveObserver(Observer* observer) {
 // differs from the old list, it generates OnApplicationListChanged events for
 // each observer.
 void BackgroundApplicationListModel::Update() {
-  extensions::ExtensionService* service =
-      extensions::ExtensionSystem::Get(profile_)->extension_service();
-  DCHECK(service->is_ready());
+  extensions::ExtensionSystem* extension_system =
+      extensions::ExtensionSystem::Get(profile_);
+  DCHECK(extension_system->is_ready());
 
   // Discover current background applications, compare with previous list, which
   // is consistently sorted, and notify observers if they differ.
   ExtensionList extensions;
-  GetServiceApplications(service, &extensions);
+  GetServiceApplications(extension_system->extension_service(), &extensions);
   ExtensionList::const_iterator old_cursor = extensions_.begin();
   ExtensionList::const_iterator new_cursor = extensions.begin();
   while (old_cursor != extensions_.end() &&

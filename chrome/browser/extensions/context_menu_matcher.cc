@@ -11,9 +11,10 @@
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/common/extensions/api/context_menus.h"
 #include "content/public/browser/browser_context.h"
-#include "content/public/common/context_menu_params.h"
+#include "content/public/browser/context_menu_params.h"
 #include "extensions/browser/extension_registry.h"
 #include "extensions/browser/extension_util.h"
+#include "ui/base/models/image_model.h"
 #include "ui/gfx/favicon_size.h"
 #include "ui/gfx/image/image.h"
 
@@ -125,7 +126,7 @@ void ContextMenuMatcher::AppendExtensionItems(
       MenuItem* item = items[0];
       extension_item_map_[menu_id] = item->id();
       title = item->TitleWithReplacement(selection_text,
-                                       kMaxExtensionItemTitleLength);
+                                         kMaxExtensionItemTitleLength);
       submenu_items = GetRelevantExtensionItems(item->children(),
                                                 can_cross_incognito);
     }
@@ -144,6 +145,23 @@ void ContextMenuMatcher::AppendExtensionItems(
     if (!is_action_menu)
       SetExtensionIcon(extension_key.extension_id);
   }
+}
+
+bool ContextMenuMatcher::HasVisibleItems(ui::MenuModel* menu_model) const {
+  for (int index = 0; index < menu_model->GetItemCount(); index++) {
+    if (!menu_model->IsVisibleAt(index))
+      continue;
+
+    ui::MenuModel* submenu_model = menu_model->GetSubmenuModelAt(index);
+    if (submenu_model) {
+      // If the item is a menu, we recursively check if it has any visible
+      // children.
+      return HasVisibleItems(submenu_model);
+    }
+    // Otherwise, this is itself a visible child.
+    return true;
+  }
+  return false;
 }
 
 void ContextMenuMatcher::Clear() {
@@ -187,9 +205,20 @@ bool ContextMenuMatcher::IsCommandIdVisible(int command_id) const {
   // extension's name, that is a container of an extension's menu items. This
   // top-level menu item is not added to the context menu, so checking its
   // visibility is a special case handled below. This top-level menu item should
-  // always be displayed.
+  // be displayed only if it has an invisible submenu item.
   if (!item && ContextMenuMatcher::IsExtensionsCustomCommandId(command_id)) {
-    return true;
+    ui::MenuModel* model = menu_model_;
+    int index = 0;
+    if (ui::MenuModel::GetModelAndIndexForCommandId(command_id, &model,
+                                                    &index)) {
+      ui::MenuModel* submenu_model = model->GetSubmenuModelAt(index);
+      // TODO(ghazale): Find out why submenu_model might be null. In other
+      // words, in which circumstance it can be an extensions custom command ID
+      // which does not have an associated item, but it's submenu_model is null.
+      if (submenu_model)
+        return HasVisibleItems(submenu_model);
+    }
+    return false;
   } else if (item) {
     return item->visible();
   } else {
@@ -355,7 +384,7 @@ void ContextMenuMatcher::SetExtensionIcon(const std::string& extension_id) {
   gfx::Image icon = menu_manager->GetIconForExtension(extension_id);
   DCHECK_EQ(gfx::kFaviconSize, icon.Width());
   DCHECK_EQ(gfx::kFaviconSize, icon.Height());
-  menu_model_->SetIcon(index, icon);
+  menu_model_->SetIcon(index, ui::ImageModel::FromImage(icon));
 }
 
 }  // namespace extensions

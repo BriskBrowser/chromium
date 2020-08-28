@@ -8,7 +8,6 @@
 #include "base/bind_helpers.h"
 #include "base/lazy_instance.h"
 #include "base/posix/eintr_wrapper.h"
-#include "base/task/post_task.h"
 #include "base/threading/thread.h"
 #include "base/threading/thread_restrictions.h"
 #include "content/browser/renderer_host/render_view_host_impl.h"
@@ -47,8 +46,8 @@ RenderWidgetHelper::~RenderWidgetHelper() {
 void RenderWidgetHelper::Init(int render_process_id) {
   render_process_id_ = render_process_id;
 
-  base::PostTask(FROM_HERE, {BrowserThread::IO},
-                 base::BindOnce(&AddWidgetHelper, render_process_id_,
+  GetIOThreadTaskRunner({})->PostTask(
+      FROM_HERE, base::BindOnce(&AddWidgetHelper, render_process_id_,
                                 base::WrapRefCounted(this)));
 }
 
@@ -63,48 +62,6 @@ RenderWidgetHelper* RenderWidgetHelper::FromProcessHostID(
   WidgetHelperMap::const_iterator ci = g_widget_helpers.Get().find(
       render_process_host_id);
   return (ci == g_widget_helpers.Get().end())? NULL : ci->second;
-}
-
-void RenderWidgetHelper::CreateNewWidget(
-    int opener_id,
-    mojo::PendingRemote<mojom::Widget> widget,
-    int* route_id) {
-  *route_id = GetNextRoutingID();
-
-  base::PostTask(FROM_HERE, {BrowserThread::UI},
-                 base::BindOnce(&RenderWidgetHelper::OnCreateWidgetOnUI, this,
-                                opener_id, *route_id, std::move(widget)));
-}
-
-void RenderWidgetHelper::CreateNewFullscreenWidget(
-    int opener_id,
-    mojo::PendingRemote<mojom::Widget> widget,
-    int* route_id) {
-  *route_id = GetNextRoutingID();
-  base::PostTask(
-      FROM_HERE, {BrowserThread::UI},
-      base::BindOnce(&RenderWidgetHelper::OnCreateFullscreenWidgetOnUI, this,
-                     opener_id, *route_id, std::move(widget)));
-}
-
-void RenderWidgetHelper::OnCreateWidgetOnUI(
-    int32_t opener_id,
-    int32_t route_id,
-    mojo::PendingRemote<mojom::Widget> widget) {
-  RenderViewHostImpl* host = RenderViewHostImpl::FromID(
-      render_process_id_, opener_id);
-  if (host)
-    host->CreateNewWidget(route_id, std::move(widget));
-}
-
-void RenderWidgetHelper::OnCreateFullscreenWidgetOnUI(
-    int32_t opener_id,
-    int32_t route_id,
-    mojo::PendingRemote<mojom::Widget> widget) {
-  RenderViewHostImpl* host = RenderViewHostImpl::FromID(
-      render_process_id_, opener_id);
-  if (host)
-    host->CreateNewFullscreenWidget(route_id, std::move(widget));
 }
 
 }  // namespace content

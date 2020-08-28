@@ -6,7 +6,7 @@
 
 #include <utility>
 
-#include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
 #include "base/time/time.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
@@ -61,8 +61,8 @@ TracingServiceController::RegisterClient(base::ProcessId pid,
 
   if (!BrowserThread::CurrentlyOn(BrowserThread::UI)) {
     // Force registration to happen on the UI thread.
-    base::PostTask(
-        FROM_HERE, {BrowserThread::UI},
+    GetUIThreadTaskRunner({})->PostTask(
+        FROM_HERE,
         base::BindOnce(&TracingServiceController::RegisterClientOnUIThread,
                        base::Unretained(this), pid, std::move(callback)));
   } else {
@@ -78,9 +78,8 @@ tracing::mojom::TracingService& TracingServiceController::GetService() {
   if (!service_) {
     auto receiver = service_.BindNewPipeAndPassReceiver();
     if (base::FeatureList::IsEnabled(features::kTracingServiceInProcess)) {
-      base::CreateSequencedTaskRunner(
-          {base::ThreadPool(), base::MayBlock(),
-           base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN,
+      base::ThreadPool::CreateSequencedTaskRunner(
+          {base::MayBlock(), base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN,
            base::WithBaseSyncPrimitives(), base::TaskPriority::USER_BLOCKING})
           ->PostTask(FROM_HERE, base::BindOnce(&BindNewInProcessInstance,
                                                std::move(receiver)));
@@ -88,7 +87,6 @@ tracing::mojom::TracingService& TracingServiceController::GetService() {
       ServiceProcessHost::Launch(
           std::move(receiver),
           ServiceProcessHost::Options()
-              .WithSandboxType(service_manager::SandboxType::kUtility)
               .WithDisplayName("Tracing Service")
               .Pass());
     }
@@ -103,7 +101,7 @@ tracing::mojom::TracingService& TracingServiceController::GetService() {
         browser_remote.InitWithNewPipeAndPassReceiver());
     initial_clients.push_back(tracing::mojom::ClientInfo::New(
         base::GetCurrentProcId(), std::move(browser_remote)));
-    for (const std::pair<base::ProcessId, EnableTracingCallback>& entry :
+    for (const std::pair<const base::ProcessId, EnableTracingCallback>& entry :
          clients_) {
       mojo::PendingRemote<tracing::mojom::TracedProcess> remote_process;
       entry.second.Run(remote_process.InitWithNewPipeAndPassReceiver());
@@ -134,8 +132,8 @@ void TracingServiceController::RegisterClientOnUIThread(
 
 void TracingServiceController::RemoveClient(base::ProcessId pid) {
   if (!BrowserThread::CurrentlyOn(BrowserThread::UI)) {
-    base::PostTask(FROM_HERE, {BrowserThread::UI},
-                   base::BindOnce(&TracingServiceController::RemoveClient,
+    GetUIThreadTaskRunner({})->PostTask(
+        FROM_HERE, base::BindOnce(&TracingServiceController::RemoveClient,
                                   base::Unretained(this), pid));
     return;
   }

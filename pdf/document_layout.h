@@ -8,11 +8,15 @@
 #include <cstddef>
 #include <vector>
 
-#include "base/logging.h"
+#include "base/check_op.h"
 #include "pdf/draw_utils/coordinates.h"
 #include "pdf/page_orientation.h"
-#include "ppapi/cpp/rect.h"
-#include "ppapi/cpp/size.h"
+#include "ui/gfx/geometry/rect.h"
+#include "ui/gfx/geometry/size.h"
+
+namespace base {
+class Value;
+}
 
 namespace pp {
 class Var;
@@ -39,8 +43,17 @@ class DocumentLayout final {
 
     ~Options();
 
-    // Serializes layout options to a pp::Var.
-    pp::Var ToVar() const;
+    friend bool operator==(const Options& lhs, const Options& rhs) {
+      return lhs.two_up_view_enabled() == rhs.two_up_view_enabled() &&
+             lhs.default_page_orientation() == rhs.default_page_orientation();
+    }
+
+    friend bool operator!=(const Options& lhs, const Options& rhs) {
+      return !(lhs == rhs);
+    }
+
+    // Serializes layout options to a base::Value.
+    base::Value ToValue() const;
 
     // Deserializes layout options from a pp::Var.
     void FromVar(const pp::Var& var);
@@ -55,8 +68,14 @@ class DocumentLayout final {
     // Rotates default page orientation 90 degrees counterclockwise.
     void RotatePagesCounterclockwise();
 
+    bool two_up_view_enabled() const { return two_up_view_enabled_; }
+
+    // Changes two-up view status.
+    void set_two_up_view_enabled(bool enable) { two_up_view_enabled_ = enable; }
+
    private:
     PageOrientation default_page_orientation_ = PageOrientation::kOriginal;
+    bool two_up_view_enabled_ = false;
   };
 
   static const draw_utils::PageInsetSizes kSingleViewInsets;
@@ -89,19 +108,19 @@ class DocumentLayout final {
   void clear_dirty() { dirty_ = false; }
 
   // Returns the layout's total size.
-  const pp::Size& size() const { return size_; }
+  const gfx::Size& size() const { return size_; }
 
   size_t page_count() const { return page_layouts_.size(); }
 
   // Gets the layout rectangle for a page. Only valid after computing a layout.
-  const pp::Rect& page_rect(size_t page_index) const {
+  const gfx::Rect& page_rect(size_t page_index) const {
     DCHECK_LT(page_index, page_count());
     return page_layouts_[page_index].outer_rect;
   }
 
   // Gets the layout rectangle for a page's bounds (which excludes additional
   // regions like page shadows). Only valid after computing a layout.
-  const pp::Rect& page_bounds_rect(size_t page_index) const {
+  const gfx::Rect& page_bounds_rect(size_t page_index) const {
     DCHECK_LT(page_index, page_count());
     return page_layouts_[page_index].inner_rect;
   }
@@ -109,27 +128,27 @@ class DocumentLayout final {
   // Computes layout that represent |page_sizes| formatted for single view.
   //
   // TODO(kmoon): Control layout type using an option.
-  void ComputeSingleViewLayout(const std::vector<pp::Size>& page_sizes);
+  void ComputeSingleViewLayout(const std::vector<gfx::Size>& page_sizes);
 
   // Computes layout that represent |page_sizes| formatted for two-up view.
   //
   // TODO(kmoon): Control layout type using an option.
-  void ComputeTwoUpViewLayout(const std::vector<pp::Size>& page_sizes);
+  void ComputeTwoUpViewLayout(const std::vector<gfx::Size>& page_sizes);
 
  private:
   // Layout of a single page.
   struct PageLayout {
     // Bounding rectangle for the page with decorations.
-    pp::Rect outer_rect;
+    gfx::Rect outer_rect;
 
     // Bounding rectangle for the page without decorations.
-    pp::Rect inner_rect;
+    gfx::Rect inner_rect;
   };
 
   // Copies |source_rect| to |destination_rect|, setting |dirty_| to true if
   // |destination_rect| is modified as a result.
-  void CopyRectIfModified(const pp::Rect& source_rect,
-                          pp::Rect* destination_rect);
+  void CopyRectIfModified(const gfx::Rect& source_rect,
+                          gfx::Rect& destination_rect);
 
   Options options_;
 
@@ -143,7 +162,7 @@ class DocumentLayout final {
   bool dirty_ = false;
 
   // Layout's total size.
-  pp::Size size_;
+  gfx::Size size_;
 
   std::vector<PageLayout> page_layouts_;
 };

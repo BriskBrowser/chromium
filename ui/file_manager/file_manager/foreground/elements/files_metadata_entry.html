@@ -19,6 +19,11 @@
         width: 320px;
       }
 
+      :host([files-ng]) #box {
+        line-height: 40px;
+        margin: 0;
+      }
+
       #box[hidden] {
         display: none;
       }
@@ -52,6 +57,16 @@
         width: 0;
       }
 
+      :host([is-path]) #value {
+        line-height: 20px;
+        margin: 10px 0;
+      }
+
+      #value span {
+        display: inline-block;
+        overflow-wrap: anywhere;
+      }
+
       @keyframes ellipsis {
         to {
           width: 0.93em;
@@ -75,7 +90,7 @@
     <div id="box" hidden="[[!value]]">
       <div id="key">[[key]]</div>
       <div id="value" loading$="{{loading}}">
-        <div hidden="[[loading]]">[[value]]</div>
+        <div id="valueContainer" hidden="[[loading]]"></div>
       </div>
     </div>
   </template>

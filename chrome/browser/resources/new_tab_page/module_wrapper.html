@@ -1,0 +1,35 @@
+<style>
+  :host {
+    background-color: var(--ntp-background-override-color);
+    border: solid var(--ntp-border-color) 1px;
+    border-radius: 5px;
+  }
+
+  #header {
+    align-items: center;
+    display: flex;
+    height: 22px;
+    margin: 16px;
+  }
+
+  #title {
+    color: var(--cr-primary-text-color);
+  }
+
+  #name {
+    color: var(--cr-secondary-text-color);
+    white-space: pre;
+  }
+
+  #moduleElement {
+    align-items: center;
+    display: flex;
+    justify-content: center;
+    overflow: hidden;
+  }
+</style>
+<div id="header">
+  <span id="title">[[descriptor.title]]</span>
+  <span id="name"> • [[descriptor.name]]</span>
+</div>
+<div id="moduleElement"></div>

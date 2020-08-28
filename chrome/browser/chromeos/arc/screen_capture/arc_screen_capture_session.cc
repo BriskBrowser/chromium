@@ -23,7 +23,6 @@
 #include "gpu/command_buffer/client/gles2_interface.h"
 #include "gpu/ipc/common/gpu_memory_buffer_impl.h"
 #include "gpu/ipc/common/gpu_memory_buffer_impl_native_pixmap.h"
-#include "mojo/public/cpp/bindings/interface_request.h"
 #include "mojo/public/cpp/system/platform_handle.h"
 #include "third_party/blink/public/common/mediastream/media_stream_request.h"
 #include "ui/aura/env.h"
@@ -85,11 +84,12 @@ struct ArcScreenCaptureSession::DesktopTexture {
 
 // static
 mojo::PendingRemote<mojom::ScreenCaptureSession>
-ArcScreenCaptureSession::Create(mojom::ScreenCaptureSessionNotifierPtr notifier,
-                                const std::string& display_name,
-                                content::DesktopMediaID desktop_id,
-                                const gfx::Size& size,
-                                bool enable_notification) {
+ArcScreenCaptureSession::Create(
+    mojo::PendingRemote<mojom::ScreenCaptureSessionNotifier> notifier,
+    const std::string& display_name,
+    content::DesktopMediaID desktop_id,
+    const gfx::Size& size,
+    bool enable_notification) {
   // This will get cleaned up when the connection error handler is called.
   ArcScreenCaptureSession* session =
       new ArcScreenCaptureSession(std::move(notifier), size);
@@ -101,7 +101,7 @@ ArcScreenCaptureSession::Create(mojom::ScreenCaptureSessionNotifierPtr notifier,
 }
 
 ArcScreenCaptureSession::ArcScreenCaptureSession(
-    mojom::ScreenCaptureSessionNotifierPtr notifier,
+    mojo::PendingRemote<mojom::ScreenCaptureSessionNotifier> notifier,
     const gfx::Size& size)
     : notifier_(std::move(notifier)),
       size_(size),
@@ -121,7 +121,7 @@ ArcScreenCaptureSession::Initialize(content::DesktopMediaID desktop_id,
   }
 
   auto context_provider = GetContextProvider();
-  gl_helper_ = std::make_unique<viz::GLHelper>(
+  gl_helper_ = std::make_unique<gpu::GLHelper>(
       context_provider->ContextGL(), context_provider->ContextSupport());
 
   display::Display display =
@@ -131,7 +131,7 @@ ArcScreenCaptureSession::Initialize(content::DesktopMediaID desktop_id,
   gfx::Size desktop_size = display.GetSizeInPixel();
 
   scaler_ = gl_helper_->CreateScaler(
-      viz::GLHelper::ScalerQuality::SCALER_QUALITY_GOOD,
+      gpu::GLHelper::ScalerQuality::SCALER_QUALITY_GOOD,
       gfx::Vector2d(desktop_size.width(), desktop_size.height()),
       gfx::Vector2d(size_.width(), size_.height()), false, true, false);
 

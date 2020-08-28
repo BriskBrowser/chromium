@@ -24,6 +24,9 @@ class BreadcrumbManagerKeyedService : public KeyedService {
   explicit BreadcrumbManagerKeyedService(web::BrowserState* browser_state);
   ~BreadcrumbManagerKeyedService() override;
 
+  // Sets previous events by inserting them before all existing events.
+  void SetPreviousEvents(const std::vector<std::string>& events);
+
   // Logs a breadcrumb |event| associated with the BrowserState passed in at
   // initialization of this instance. Prepends the |browsing_mode_| identifier
   // to the event before passing it to the |breadcrumb_manager_|.
@@ -33,6 +36,10 @@ class BreadcrumbManagerKeyedService : public KeyedService {
   void AddObserver(BreadcrumbManagerObserver* observer);
   void RemoveObserver(BreadcrumbManagerObserver* observer);
 
+  // Returns the number of collected breadcrumb events which are still relevant.
+  // See |BreadcrumbManager::GetEventCount| for details.
+  size_t GetEventCount();
+
   // Returns up to |event_count_limit| events from the underlying
   // |breadcrumb_manager|. See |BreadcrumbManager::GetEvents| for returned event
   // details.
@@ -40,9 +47,11 @@ class BreadcrumbManagerKeyedService : public KeyedService {
 
  private:
   // A short string identifying the browser state used to initialize the
-  // receiver. For example, "N" for "N"ormal browsing mode. This value is
+  // receiver. For example, "I" for "I"ncognito browsing mode. This value is
   // prepended to events sent to |AddEvent| in order to differentiate the
   // BrowserState associated with each event.
+  // Note: Normal browsing mode uses an empty string in order to prevent
+  // prepending most events with the same static value.
   std::string browsing_mode_;
 
   // The associated BreadcrumbManager to store events added with |AddEvent|.

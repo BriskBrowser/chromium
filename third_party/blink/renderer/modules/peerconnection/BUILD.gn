@@ -76,6 +76,22 @@ blink_modules_sources("peerconnection") {
     "rtc_dtmf_sender.h",
     "rtc_dtmf_tone_change_event.cc",
     "rtc_dtmf_tone_change_event.h",
+    "rtc_encoded_audio_frame.cc",
+    "rtc_encoded_audio_frame.h",
+    "rtc_encoded_audio_frame_delegate.cc",
+    "rtc_encoded_audio_frame_delegate.h",
+    "rtc_encoded_audio_underlying_sink.cc",
+    "rtc_encoded_audio_underlying_sink.h",
+    "rtc_encoded_audio_underlying_source.cc",
+    "rtc_encoded_audio_underlying_source.h",
+    "rtc_encoded_video_frame.cc",
+    "rtc_encoded_video_frame.h",
+    "rtc_encoded_video_frame_delegate.cc",
+    "rtc_encoded_video_frame_delegate.h",
+    "rtc_encoded_video_underlying_sink.cc",
+    "rtc_encoded_video_underlying_sink.h",
+    "rtc_encoded_video_underlying_source.cc",
+    "rtc_encoded_video_underlying_source.h",
     "rtc_error.cc",
     "rtc_error.h",
     "rtc_error_event.cc",
@@ -139,6 +155,10 @@ blink_modules_sources("peerconnection") {
     "rtc_void_request_promise_impl.h",
     "rtc_void_request_script_promise_resolver_impl.cc",
     "rtc_void_request_script_promise_resolver_impl.h",
+    "thermal_resource.cc",
+    "thermal_resource.h",
+    "thermal_uma_listener.cc",
+    "thermal_uma_listener.h",
     "transceiver_state_surfacer.cc",
     "transceiver_state_surfacer.h",
     "web_rtc_stats_report_callback_resolver.cc",
@@ -151,15 +171,11 @@ blink_modules_sources("peerconnection") {
     "webrtc_set_description_observer.h",
   ]
 
-  public_deps = [
-    "//third_party/webrtc_overrides:webrtc_component",
-  ]
-  deps = [
-    "//third_party/abseil-cpp/absl/types:optional",
-  ]
+  public_deps = [ "//third_party/webrtc_overrides:webrtc_component" ]
+  deps = [ "//third_party/abseil-cpp:absl" ]
 }
 
-jumbo_source_set("test_support") {
+source_set("test_support") {
   testonly = true
 
   sources = [
@@ -187,4 +203,6 @@ jumbo_source_set("test_support") {
     "//third_party/blink/renderer/platform",
     "//third_party/webrtc_overrides:webrtc_component",
   ]
+
+  configs += [ "//third_party/blink/renderer:inside_blink" ]
 }

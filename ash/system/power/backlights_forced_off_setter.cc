@@ -9,8 +9,8 @@
 #include "ash/system/power/scoped_backlights_forced_off.h"
 #include "ash/touch/touch_devices_controller.h"
 #include "base/bind.h"
+#include "base/check_op.h"
 #include "base/command_line.h"
-#include "base/logging.h"
 #include "chromeos/dbus/power_manager/backlight.pb.h"
 #include "ui/display/manager/touch_device_manager.h"
 
@@ -30,12 +30,17 @@ BacklightsForcedOffSetter::~BacklightsForcedOffSetter() {
   }
 }
 
-void BacklightsForcedOffSetter::AddObserver(Observer* observer) {
+void BacklightsForcedOffSetter::AddObserver(ScreenBacklightObserver* observer) {
   observers_.AddObserver(observer);
 }
 
-void BacklightsForcedOffSetter::RemoveObserver(Observer* observer) {
+void BacklightsForcedOffSetter::RemoveObserver(
+    ScreenBacklightObserver* observer) {
   observers_.RemoveObserver(observer);
+}
+
+ScreenState BacklightsForcedOffSetter::GetScreenState() const {
+  return screen_state_;
 }
 
 std::unique_ptr<ScopedBacklightsForcedOff>

@@ -15,8 +15,8 @@
 #include "base/containers/span.h"
 #include "base/files/file_path.h"
 #include "base/memory/ref_counted.h"
+#include "components/services/storage/public/mojom/blob_storage_context.mojom.h"
 #include "net/base/io_buffer.h"
-#include "storage/browser/blob/mojom/blob_storage_context.mojom.h"
 #include "storage/browser/blob/shareable_file_reference.h"
 #include "url/gurl.h"
 
@@ -70,10 +70,6 @@ class COMPONENT_EXPORT(STORAGE_BROWSER) BlobDataItem
 
     // Print a description of the readable DataHandle for debugging.
     virtual void PrintTo(::std::ostream* os) const = 0;
-
-    // Return the histogram label to use when calling RecordBytesRead().  If
-    // nullptr is returned then nothing will be recorded.
-    virtual const char* BytesReadHistogramLabel() const = 0;
 
    protected:
     virtual ~DataHandle();

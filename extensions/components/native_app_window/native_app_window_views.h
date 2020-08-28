@@ -114,8 +114,6 @@ class NativeAppWindowViews : public extensions::NativeAppWindow,
                              content::RenderViewHost* new_host) override;
 
   // views::View:
-  void ViewHierarchyChanged(
-      const views::ViewHierarchyChangedDetails& details) override;
   gfx::Size GetMinimumSize() const override;
   gfx::Size GetMaximumSize() const override;
   void OnBoundsChanged(const gfx::Rect& previous_bounds) override;
@@ -155,9 +153,6 @@ class NativeAppWindowViews : public extensions::NativeAppWindow,
  private:
   // Informs modal dialogs that they need to update their positions.
   void OnViewWasResized();
-
-  // WidgetDelegate:
-  const views::Widget* GetWidgetImpl() const override;
 
   extensions::AppWindow* app_window_ = nullptr;  // Not owned.
   views::WebView* web_view_ = nullptr;

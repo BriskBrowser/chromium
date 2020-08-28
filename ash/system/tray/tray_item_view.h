@@ -34,6 +34,10 @@ class IconizedLabel : public views::Label {
     custom_accessible_name_ = name;
   }
 
+  base::string16 GetAccessibleNameString() const {
+    return custom_accessible_name_;
+  }
+
   // views::Label:
   void GetAccessibleNodeData(ui::AXNodeData* node_data) override;
 
@@ -54,6 +58,10 @@ class ASH_EXPORT TrayItemView : public views::View,
   // Only one of the two should be called.
   void CreateLabel();
   void CreateImageView();
+
+  // Called when locale change is detected (which should not happen after the
+  // user session starts). It should reload any strings the view is using.
+  virtual void HandleLocaleChange() = 0;
 
   IconizedLabel* label() const { return label_; }
   views::ImageView* image_view() const { return image_view_; }

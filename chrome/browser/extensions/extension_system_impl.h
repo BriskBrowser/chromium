@@ -31,6 +31,7 @@ class UninstallPingSender;
 class InstallGate;
 class ValueStoreFactory;
 class ValueStoreFactoryImpl;
+class ExtensionsPermissionsTracker;
 
 // The ExtensionSystem for ProfileImpl and OffTheRecordProfileImpl.
 // Implementation details: non-shared services are owned by
@@ -53,7 +54,7 @@ class ExtensionSystemImpl : public ExtensionSystem {
   RuntimeData* runtime_data() override;            // shared
   ManagementPolicy* management_policy() override;  // shared
   ServiceWorkerManager* service_worker_manager() override;  // shared
-  SharedUserScriptMaster* shared_user_script_master() override;  // shared
+  SharedUserScriptManager* shared_user_script_manager() override;  // shared
   StateStore* state_store() override;                              // shared
   StateStore* rules_store() override;                              // shared
   scoped_refptr<ValueStoreFactory> store_factory() override;       // shared
@@ -70,6 +71,7 @@ class ExtensionSystemImpl : public ExtensionSystem {
       const UnloadedExtensionReason reason) override;
 
   const base::OneShotEvent& ready() const override;
+  bool is_ready() const override;
   ContentVerifier* content_verifier() override;  // shared
   std::unique_ptr<ExtensionSet> GetDependentExtensions(
       const Extension* extension) override;
@@ -78,6 +80,9 @@ class ExtensionSystemImpl : public ExtensionSystem {
                      const base::FilePath& unpacked_dir,
                      bool install_immediately,
                      InstallUpdateCallback install_update_callback) override;
+  void PerformActionBasedOnOmahaAttributes(
+      const std::string& extension_id,
+      const base::Value& attributes) override;
   bool FinishDelayedInstallationIfReady(const std::string& extension_id,
                                         bool install_immediately) override;
 
@@ -108,11 +113,12 @@ class ExtensionSystemImpl : public ExtensionSystem {
     RuntimeData* runtime_data();
     ManagementPolicy* management_policy();
     ServiceWorkerManager* service_worker_manager();
-    SharedUserScriptMaster* shared_user_script_master();
+    SharedUserScriptManager* shared_user_script_manager();
     InfoMap* info_map();
     QuotaService* quota_service();
     AppSorting* app_sorting();
     const base::OneShotEvent& ready() const { return ready_; }
+    bool is_ready() const { return ready_.is_signaled(); }
     ContentVerifier* content_verifier();
 
    private:
@@ -129,9 +135,9 @@ class ExtensionSystemImpl : public ExtensionSystem {
     std::unique_ptr<ServiceWorkerManager> service_worker_manager_;
     // Shared memory region manager for scripts statically declared in extension
     // manifests. This region is shared between all extensions.
-    std::unique_ptr<SharedUserScriptMaster> shared_user_script_master_;
+    std::unique_ptr<SharedUserScriptManager> shared_user_script_manager_;
     std::unique_ptr<RuntimeData> runtime_data_;
-    // ExtensionService depends on StateStore, Blacklist and RuntimeData.
+    // ExtensionService depends on StateStore, Blocklist and RuntimeData.
     std::unique_ptr<ExtensionService> extension_service_;
     std::unique_ptr<ManagementPolicy> management_policy_;
     // extension_info_map_ needs to outlive process_manager_.
@@ -151,6 +157,8 @@ class ExtensionSystemImpl : public ExtensionSystem {
     std::unique_ptr<chromeos::SigninScreenPolicyProvider>
         signin_screen_policy_provider_;
     std::unique_ptr<InstallGate> kiosk_app_update_install_gate_;
+    std::unique_ptr<ExtensionsPermissionsTracker>
+        extensions_permissions_tracker_;
 #endif
 
     base::OneShotEvent ready_;

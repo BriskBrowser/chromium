@@ -37,6 +37,7 @@
 #include "services/network/public/mojom/referrer_policy.mojom-blink.h"
 #include "third_party/blink/public/mojom/browser_interface_broker.mojom-blink.h"
 #include "third_party/blink/public/mojom/cache_storage/cache_storage.mojom-blink.h"
+#include "third_party/blink/public/mojom/security_context/insecure_request_policy.mojom-blink.h"
 #include "third_party/blink/public/mojom/service_worker/service_worker_installed_scripts_manager.mojom-blink.h"
 #include "third_party/blink/public/platform/modules/service_worker/web_service_worker_network_provider.h"
 #include "third_party/blink/public/platform/modules/service_worker/web_service_worker_provider.h"
@@ -75,8 +76,12 @@ namespace blink {
 WebServiceWorkerInstalledScriptsManagerParams::
     WebServiceWorkerInstalledScriptsManagerParams(
         WebVector<WebURL> installed_scripts_urls,
-        mojo::ScopedMessagePipeHandle manager_receiver,
-        mojo::ScopedMessagePipeHandle manager_host_remote)
+        CrossVariantMojoReceiver<
+            mojom::blink::ServiceWorkerInstalledScriptsManagerInterfaceBase>
+            manager_receiver,
+        CrossVariantMojoRemote<
+            mojom::blink::ServiceWorkerInstalledScriptsManagerHostInterfaceBase>
+            manager_host_remote)
     : installed_scripts_urls(std::move(installed_scripts_urls)),
       manager_receiver(std::move(manager_receiver)),
       manager_host_remote(std::move(manager_host_remote)) {
@@ -104,9 +109,12 @@ void WebEmbeddedWorkerImpl::StartWorkerContext(
     std::unique_ptr<WebEmbeddedWorkerStartData> worker_start_data,
     std::unique_ptr<WebServiceWorkerInstalledScriptsManagerParams>
         installed_scripts_manager_params,
-    mojo::ScopedMessagePipeHandle content_settings_handle,
-    mojo::ScopedMessagePipeHandle cache_storage,
-    mojo::ScopedMessagePipeHandle browser_interface_broker,
+    CrossVariantMojoRemote<
+        mojom::blink::WorkerContentSettingsProxyInterfaceBase> content_settings,
+    CrossVariantMojoRemote<mojom::blink::CacheStorageInterfaceBase>
+        cache_storage,
+    CrossVariantMojoRemote<mojom::blink::BrowserInterfaceBrokerInterfaceBase>
+        browser_interface_broker,
     scoped_refptr<base::SingleThreadTaskRunner> initiator_thread_task_runner) {
   DCHECK(!asked_to_terminate_);
 
@@ -137,15 +145,8 @@ void WebEmbeddedWorkerImpl::StartWorkerContext(
   StartWorkerThread(
       std::move(worker_start_data), std::move(installed_scripts_manager),
       std::make_unique<ServiceWorkerContentSettingsProxy>(
-          // Chrome doesn't use interface versioning.
-          // TODO(falken): Is that comment about versioning correct?
-          mojo::PendingRemote<mojom::blink::WorkerContentSettingsProxy>(
-              std::move(content_settings_handle), 0u)),
-      mojo::PendingRemote<mojom::blink::CacheStorage>(
-          std::move(cache_storage), mojom::blink::CacheStorage::Version_),
-      mojo::PendingRemote<mojom::blink::BrowserInterfaceBroker>(
-          std::move(browser_interface_broker),
-          mojom::blink::BrowserInterfaceBroker::Version_),
+          std::move(content_settings)),
+      std::move(cache_storage), std::move(browser_interface_broker),
       std::move(initiator_thread_task_runner));
 }
 
@@ -156,11 +157,6 @@ void WebEmbeddedWorkerImpl::TerminateWorkerContext() {
   // StartWorkerThread() must be called before.
   DCHECK(worker_thread_);
   worker_thread_->Terminate();
-}
-
-void WebEmbeddedWorkerImpl::ResumeAfterDownload() {
-  // TODO(bashi): Remove this method. This does nothing anymore.
-  DCHECK(!asked_to_terminate_);
 }
 
 void WebEmbeddedWorkerImpl::StartWorkerThread(
@@ -216,8 +212,8 @@ void WebEmbeddedWorkerImpl::StartWorkerThread(
   // worker thread.
   global_scope_creation_params = std::make_unique<GlobalScopeCreationParams>(
       worker_start_data->script_url, worker_start_data->script_type,
-      OffMainThreadWorkerScriptFetchOption::kEnabled, global_scope_name,
-      worker_start_data->user_agent, std::move(web_worker_fetch_context),
+      global_scope_name, worker_start_data->user_agent,
+      worker_start_data->ua_metadata, std::move(web_worker_fetch_context),
       Vector<CSPHeaderAndType>(), network::mojom::ReferrerPolicy::kDefault,
       starter_origin.get(), starter_secure_context, starter_https_state,
       nullptr /* worker_clients */, std::move(content_settings_proxy),
@@ -235,7 +231,8 @@ void WebEmbeddedWorkerImpl::StartWorkerThread(
       std::make_unique<ServiceWorkerGlobalScopeProxy>(
           *this, *worker_context_client_, initiator_thread_task_runner),
       std::move(installed_scripts_manager), std::move(cache_storage_remote),
-      initiator_thread_task_runner);
+      initiator_thread_task_runner, worker_start_data->service_worker_token,
+      worker_start_data->ukm_source_id);
 
   auto devtools_params = std::make_unique<WorkerDevToolsParams>();
   devtools_params->devtools_worker_token =
@@ -270,6 +267,7 @@ void WebEmbeddedWorkerImpl::StartWorkerThread(
     case mojom::ScriptType::kClassic:
       worker_thread_->FetchAndRunClassicScript(
           worker_start_data->script_url,
+          nullptr /* worker_main_script_load_params */,
           std::move(fetch_client_setting_object_data),
           nullptr /* outside_resource_timing_notifier */,
           v8_inspector::V8StackTraceId());
@@ -281,6 +279,7 @@ void WebEmbeddedWorkerImpl::StartWorkerThread(
     case mojom::ScriptType::kModule:
       worker_thread_->FetchAndRunModuleScript(
           worker_start_data->script_url,
+          nullptr /* worker_main_script_load_params */,
           std::move(fetch_client_setting_object_data),
           nullptr /* outside_resource_timing_notifier */,
           network::mojom::CredentialsMode::kOmit);
@@ -289,8 +288,8 @@ void WebEmbeddedWorkerImpl::StartWorkerThread(
 
   // We are now ready to inspect worker thread.
   worker_context_client_->WorkerReadyForInspectionOnInitiatorThread(
-      devtools_agent_remote.PassPipe(),
-      devtools_agent_host_receiver.PassPipe());
+      std::move(devtools_agent_remote),
+      std::move(devtools_agent_host_receiver));
 }
 
 std::unique_ptr<CrossThreadFetchClientSettingsObjectData>
@@ -308,11 +307,11 @@ WebEmbeddedWorkerImpl::CreateFetchClientSettingsObjectData(
   // case, it should be the Document that called update(). For soft update case,
   // it seems to be 'null' document.
 
-  WebInsecureRequestPolicy insecure_requests_policy =
+  mojom::blink::InsecureRequestPolicy insecure_requests_policy =
       passed_settings_object.insecure_requests_policy ==
               mojom::InsecureRequestsPolicy::kUpgrade
-          ? kUpgradeInsecureRequests
-          : kBlockAllMixedContent;
+          ? mojom::blink::InsecureRequestPolicy::kUpgradeInsecureRequests
+          : mojom::blink::InsecureRequestPolicy::kBlockAllMixedContent;
 
   return std::make_unique<CrossThreadFetchClientSettingsObjectData>(
       script_url.Copy() /* global_object_url */,

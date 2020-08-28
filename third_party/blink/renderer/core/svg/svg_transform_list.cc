@@ -32,10 +32,8 @@
 #include "third_party/blink/renderer/core/svg/svg_animate_element.h"
 #include "third_party/blink/renderer/core/svg/svg_parser_utilities.h"
 #include "third_party/blink/renderer/core/svg/svg_transform_distance.h"
-#include "third_party/blink/renderer/core/svg_names.h"
 #include "third_party/blink/renderer/platform/heap/heap.h"
 #include "third_party/blink/renderer/platform/wtf/text/parsing_utilities.h"
-#include "third_party/blink/renderer/platform/wtf/text/string_builder.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
 
 namespace blink {
@@ -181,24 +179,11 @@ SVGTransformList::SVGTransformList(SVGTransformType transform_type,
 
 SVGTransformList::~SVGTransformList() = default;
 
-SVGTransform* SVGTransformList::Consolidate() {
-  AffineTransform matrix;
-  if (!Concatenate(matrix))
-    return nullptr;
-
-  return Initialize(MakeGarbageCollected<SVGTransform>(matrix));
-}
-
-bool SVGTransformList::Concatenate(AffineTransform& result) const {
-  if (IsEmpty())
-    return false;
-
-  ConstIterator it = begin();
-  ConstIterator it_end = end();
-  for (; it != it_end; ++it)
-    result *= it->Matrix();
-
-  return true;
+AffineTransform SVGTransformList::Concatenate() const {
+  AffineTransform result;
+  for (const auto* item : *this)
+    result *= item->Matrix();
+  return result;
 }
 
 namespace {
@@ -294,10 +279,8 @@ const CSSValue* SVGTransformList::CssValue() const {
     list->Append(*CreateTransformCSSValue(*at(0)));
     return list;
   }
-  ConstIterator it = begin();
-  ConstIterator it_end = end();
-  for (; it != it_end; ++it)
-    list->Append(*CreateTransformCSSValue(**it));
+  for (const auto* item : *this)
+    list->Append(*CreateTransformCSSValue(*item));
   return list;
 }
 
@@ -397,10 +380,6 @@ SVGTransformType ParseTransformType(const String& string) {
   return ParseAndSkipTransformType(ptr, end);
 }
 
-String SVGTransformList::ValueAsString() const {
-  return SVGListPropertyHelper<SVGTransformList, SVGTransform>::SerializeList();
-}
-
 SVGParsingError SVGTransformList::SetValueAsString(const String& value) {
   if (value.IsEmpty()) {
     Clear();
@@ -435,7 +414,7 @@ void SVGTransformList::Add(SVGPropertyBase* other,
   if (IsEmpty())
     return;
 
-  SVGTransformList* other_list = ToSVGTransformList(other);
+  auto* other_list = To<SVGTransformList>(other);
   if (length() != other_list->length())
     return;
 
@@ -444,8 +423,8 @@ void SVGTransformList::Add(SVGPropertyBase* other,
   SVGTransform* to_transform = other_list->at(0);
 
   DCHECK_EQ(from_transform->TransformType(), to_transform->TransformType());
-  Initialize(
-      SVGTransformDistance::AddSVGTransforms(from_transform, to_transform));
+  Clear();
+  Append(SVGTransformDistance::AddSVGTransforms(from_transform, to_transform));
 }
 
 void SVGTransformList::CalculateAnimatedValue(
@@ -462,10 +441,10 @@ void SVGTransformList::CalculateAnimatedValue(
   // post-multiplied. As a consequence, in SVG 1.1 the behavior of to animations
   // for 'animateTransform' is undefined.
   // FIXME: This is not taken into account yet.
-  SVGTransformList* from_list = ToSVGTransformList(from_value);
-  SVGTransformList* to_list = ToSVGTransformList(to_value);
-  SVGTransformList* to_at_end_of_duration_list =
-      ToSVGTransformList(to_at_end_of_duration_value);
+  auto* from_list = To<SVGTransformList>(from_value);
+  auto* to_list = To<SVGTransformList>(to_value);
+  auto* to_at_end_of_duration_list =
+      To<SVGTransformList>(to_at_end_of_duration_value);
 
   size_t to_list_size = to_list->length();
   if (!to_list_size)
@@ -489,7 +468,8 @@ void SVGTransformList::CalculateAnimatedValue(
           .ScaledDistance(percentage)
           .AddToSVGTransform(effective_from);
   if (animation_element.GetAnimationMode() == kToAnimation) {
-    Initialize(current_transform);
+    Clear();
+    Append(current_transform);
     return;
   }
   // Never resize the animatedTransformList to the toList size, instead either
@@ -517,7 +497,7 @@ float SVGTransformList::CalculateDistance(SVGPropertyBase* to_value,
   // component (translate x and y for example) is paced separately. To implement
   // this we need to treat each component as individual animation everywhere.
 
-  SVGTransformList* to_list = ToSVGTransformList(to_value);
+  auto* to_list = To<SVGTransformList>(to_value);
   if (IsEmpty() || length() != to_list->length())
     return -1;
 

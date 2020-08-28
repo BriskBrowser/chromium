@@ -14,14 +14,19 @@
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "chrome/browser/safe_browsing/browser_feature_extractor.h"
+#include "chrome/browser/safe_browsing/client_side_model_loader.h"
 #include "chrome/browser/safe_browsing/ui_manager.h"
-#include "components/safe_browsing/core/common/safe_browsing.mojom-shared.h"
-#include "components/safe_browsing/core/common/safe_browsing.mojom.h"
+#include "components/safe_browsing/content/common/safe_browsing.mojom-shared.h"
 #include "components/safe_browsing/core/db/database_manager.h"
+#include "content/public/browser/render_process_host.h"
 #include "content/public/browser/web_contents_observer.h"
 #include "mojo/public/cpp/bindings/remote.h"
 #include "services/service_manager/public/cpp/binder_registry.h"
 #include "url/gurl.h"
+
+namespace base {
+class TickClock;
+}
 
 namespace safe_browsing {
 class ClientPhishingRequest;
@@ -47,12 +52,13 @@ class ClientSideDetectionHost : public content::WebContentsObserver,
   void DidFinishNavigation(
       content::NavigationHandle* navigation_handle) override;
 
+  // Send the model to all the render frame hosts in this WebContents.
+  void SendModelToRenderFrame();
+
   // Called when the SafeBrowsingService found a hit with one of the
   // SafeBrowsing lists.  This method is called on the UI thread.
   void OnSafeBrowsingHit(
       const security_interstitials::UnsafeResource& resource) override;
-
-  virtual scoped_refptr<SafeBrowsingDatabaseManager> database_manager();
 
   BrowseInfo* GetBrowseInfo() const { return browse_info_.get(); }
 
@@ -61,16 +67,18 @@ class ClientSideDetectionHost : public content::WebContentsObserver,
 
   // From content::WebContentsObserver.
   void WebContentsDestroyed() override;
+  void RenderFrameCreated(content::RenderFrameHost* render_frame_host) override;
 
   // Used for testing.
-  void set_safe_browsing_managers(
-      SafeBrowsingUIManager* ui_manager,
-      SafeBrowsingDatabaseManager* database_manager);
+  void set_ui_manager(SafeBrowsingUIManager* ui_manager);
+  void set_database_manager(SafeBrowsingDatabaseManager* database_manager);
 
  private:
   friend class ClientSideDetectionHostTestBase;
   class ShouldClassifyUrlRequest;
   friend class ShouldClassifyUrlRequest;
+  FRIEND_TEST_ALL_PREFIXES(ClientSideDetectionHostBrowserTest,
+                           VerifyVisualFeatureCollection);
 
   // Called when pre-classification checks are done for the phishing
   // classifiers.
@@ -102,9 +110,16 @@ class ClientSideDetectionHost : public content::WebContentsObserver,
   // class.
   void set_client_side_detection_service(ClientSideDetectionService* service);
 
-  // This pointer may be NULL if client-side phishing detection is disabled.
+  // Sets a test tick clock only for testing.
+  void set_tick_clock_for_testing(const base::TickClock* tick_clock) {
+    tick_clock_ = tick_clock;
+  }
+
+  // This pointer may be nullptr if client-side phishing detection is disabled.
   ClientSideDetectionService* csd_service_;
-  // These pointers may be NULL if SafeBrowsing is disabled.
+  // The WebContents that the class is observing.
+  content::WebContents* tab_;
+  // These pointers may be nullptr if SafeBrowsing is disabled.
   scoped_refptr<SafeBrowsingDatabaseManager> database_manager_;
   scoped_refptr<SafeBrowsingUIManager> ui_manager_;
   // Keep a handle to the latest classification request so that we can cancel
@@ -134,6 +149,9 @@ class ClientSideDetectionHost : public content::WebContentsObserver,
   int unsafe_unique_page_id_;
   std::unique_ptr<security_interstitials::UnsafeResource> unsafe_resource_;
 
+  // Records the start time of when phishing detection started.
+  base::TimeTicks phishing_detection_start_time_;
+  const base::TickClock* tick_clock_;
   base::WeakPtrFactory<ClientSideDetectionHost> weak_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(ClientSideDetectionHost);

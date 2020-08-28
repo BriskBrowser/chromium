@@ -16,12 +16,12 @@
 #include "base/unguessable_token.h"
 #include "content/browser/devtools/protocol/devtools_domain_handler.h"
 #include "content/browser/devtools/protocol/network.h"
-#include "content/public/common/resource_type.h"
 #include "mojo/public/cpp/system/data_pipe.h"
 #include "net/base/net_errors.h"
 #include "net/cookies/canonical_cookie.h"
 #include "services/network/public/mojom/network_service.mojom.h"
 #include "services/network/public/mojom/url_response_head.mojom.h"
+#include "third_party/blink/public/mojom/loader/resource_load_info.mojom-shared.h"
 
 namespace net {
 class HttpRequestHeaders;
@@ -32,6 +32,9 @@ class X509Certificate;
 namespace network {
 struct ResourceRequest;
 struct URLLoaderCompletionStatus;
+namespace mojom {
+class URLLoaderFactoryOverride;
+}
 }  // namespace network
 
 namespace content {
@@ -65,10 +68,11 @@ class NetworkHandler : public DevToolsDomainHandler,
   // in network domain.
   static net::Error NetErrorFromString(const std::string& error, bool* ok);
   static std::string NetErrorToString(int net_error);
-  static const char* ResourceTypeToString(ResourceType resource_type);
+  static const char* ResourceTypeToString(
+      blink::mojom::ResourceType resource_type);
   static bool AddInterceptedResourceType(
       const std::string& resource_type,
-      base::flat_set<ResourceType>* intercepted_resource_types);
+      base::flat_set<blink::mojom::ResourceType>* intercepted_resource_types);
   static std::unique_ptr<Array<Network::Cookie>> BuildCookieArray(
       const std::vector<net::CanonicalCookie>& cookie_list);
   static void SetCookies(
@@ -159,8 +163,7 @@ class NetworkHandler : public DevToolsDomainHandler,
       const base::UnguessableToken& frame_token,
       bool is_navigation,
       bool is_download,
-      mojo::PendingReceiver<network::mojom::URLLoaderFactory>*
-          target_factory_receiver);
+      network::mojom::URLLoaderFactoryOverride* intercepting_factory);
 
   void ApplyOverrides(net::HttpRequestHeaders* headers,
                       bool* skip_service_worker,
@@ -193,13 +196,18 @@ class NetworkHandler : public DevToolsDomainHandler,
       const base::Optional<net::SSLInfo>& ssl_info,
       const std::vector<SignedExchangeError>& errors);
 
+  DispatchResponse GetSecurityIsolationStatus(
+      Maybe<String> in_frameId,
+      std::unique_ptr<protocol::Network::SecurityIsolationStatus>* out_info)
+      override;
+
   void OnRequestWillBeSentExtraInfo(
       const std::string& devtools_request_id,
-      const net::CookieStatusList& request_cookie_list,
+      const net::CookieAccessResultList& request_cookie_list,
       const std::vector<network::mojom::HttpRawHeaderPairPtr>& request_headers);
   void OnResponseReceivedExtraInfo(
       const std::string& devtools_request_id,
-      const net::CookieAndLineStatusList& response_cookie_list,
+      const net::CookieAndLineAccessResultList& response_cookie_list,
       const std::vector<network::mojom::HttpRawHeaderPairPtr>& response_headers,
       const base::Optional<std::string>& response_headers_text);
 

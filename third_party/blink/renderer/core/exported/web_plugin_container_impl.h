@@ -33,12 +33,12 @@
 #define THIRD_PARTY_BLINK_RENDERER_CORE_EXPORTED_WEB_PLUGIN_CONTAINER_IMPL_H_
 
 #include "base/memory/scoped_refptr.h"
+#include "third_party/blink/public/common/input/web_coalesced_input_event.h"
 #include "third_party/blink/public/common/input/web_touch_event.h"
-#include "third_party/blink/public/platform/web_coalesced_input_event.h"
-#include "third_party/blink/public/platform/web_focus_type.h"
+#include "third_party/blink/public/mojom/input/focus_type.mojom-blink-forward.h"
 #include "third_party/blink/public/web/web_plugin_container.h"
 #include "third_party/blink/renderer/core/core_export.h"
-#include "third_party/blink/renderer/core/execution_context/context_lifecycle_observer.h"
+#include "third_party/blink/renderer/core/execution_context/execution_context_lifecycle_observer.h"
 #include "third_party/blink/renderer/core/frame/embedded_content_view.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
 #include "third_party/blink/renderer/platform/wtf/casting.h"
@@ -71,8 +71,7 @@ class CORE_EXPORT WebPluginContainerImpl final
     : public GarbageCollected<WebPluginContainerImpl>,
       public EmbeddedContentView,
       public WebPluginContainer,
-      public ContextClient {
-  USING_GARBAGE_COLLECTED_MIXIN(WebPluginContainerImpl);
+      public ExecutionContextClient {
   USING_PRE_FINALIZER(WebPluginContainerImpl, PreFinalize);
 
  public:
@@ -107,7 +106,7 @@ class CORE_EXPORT WebPluginContainerImpl final
   bool WantsWheelEvents() const;
   void UpdateAllLifecyclePhases();
   void InvalidateRect(const IntRect&);
-  void SetFocused(bool, WebFocusType);
+  void SetFocused(bool, mojom::blink::FocusType);
   void HandleEvent(Event&);
   bool IsErrorplaceholder();
   void EventListenersRemoved();
@@ -124,7 +123,6 @@ class CORE_EXPORT WebPluginContainerImpl final
   void EnqueueMessageEvent(const WebDOMMessageEvent&) override;
   void Invalidate() override;
   void InvalidateRect(const WebRect&) override;
-  void ScrollRect(const WebRect&) override;
   void ScheduleAnimation() override;
   void ReportGeometry() override;
   v8::Local<v8::Object> V8ObjectForElement() override;
@@ -133,8 +131,8 @@ class CORE_EXPORT WebPluginContainerImpl final
   bool IsRectTopmost(const WebRect&) override;
   void RequestTouchEventType(TouchEventRequestType) override;
   void SetWantsWheelEvents(bool) override;
-  WebPoint RootFrameToLocalPoint(const WebPoint&) override;
-  WebPoint LocalToRootFramePoint(const WebPoint&) override;
+  gfx::Point RootFrameToLocalPoint(const gfx::Point&) override;
+  gfx::Point LocalToRootFramePoint(const gfx::Point&) override;
 
   // Non-Oilpan, this cannot be null. With Oilpan, it will be
   // null when in a disposed state, pending finalization during the next GC.
@@ -187,7 +185,7 @@ class CORE_EXPORT WebPluginContainerImpl final
   void DidFinishLoading();
   void DidFailLoading(const ResourceError&);
 
-  void Trace(blink::Visitor*) override;
+  void Trace(Visitor*) const override;
   // USING_PRE_FINALIZER does not allow for virtual dispatch from the finalizer
   // method. Here we call Dispose() which does the correct virtual dispatch.
   void PreFinalize() { Dispose(); }

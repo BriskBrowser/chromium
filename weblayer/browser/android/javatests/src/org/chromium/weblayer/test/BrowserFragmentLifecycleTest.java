@@ -5,15 +5,18 @@
 package org.chromium.weblayer.test;
 
 import android.net.Uri;
-import android.support.test.filters.SmallTest;
-import android.support.v4.app.FragmentManager;
+import android.os.Bundle;
 
 import androidx.annotation.NonNull;
+import androidx.fragment.app.FragmentManager;
+import androidx.test.filters.SmallTest;
 
+import org.junit.Assert;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
+import org.chromium.base.test.util.CallbackHelper;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.weblayer.Navigation;
 import org.chromium.weblayer.NavigationCallback;
@@ -21,7 +24,10 @@ import org.chromium.weblayer.NavigationController;
 import org.chromium.weblayer.Tab;
 import org.chromium.weblayer.shell.InstrumentationActivity;
 
-import java.util.concurrent.CountDownLatch;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * Tests that fragment lifecycle works as expected.
@@ -32,43 +38,250 @@ public class BrowserFragmentLifecycleTest {
     public InstrumentationActivityTestRule mActivityTestRule =
             new InstrumentationActivityTestRule();
 
+    private Tab getTab() {
+        return TestThreadUtils.runOnUiThreadBlockingNoException(
+                () -> mActivityTestRule.getActivity().getTab());
+    }
+
     @Test
     @SmallTest
     public void successfullyLoadsUrlAfterRecreation() {
-        InstrumentationActivity activity = mActivityTestRule.launchShellWithUrl("about:blank");
-        Tab tab = TestThreadUtils.runOnUiThreadBlockingNoException(() -> activity.getTab());
-
+        mActivityTestRule.launchShellWithUrl("about:blank");
         String url = "data:text,foo";
-        mActivityTestRule.navigateAndWait(tab, url, false);
+        mActivityTestRule.navigateAndWait(getTab(), url, false);
 
         mActivityTestRule.recreateActivity();
 
-        InstrumentationActivity newActivity = mActivityTestRule.getActivity();
-        tab = TestThreadUtils.runOnUiThreadBlockingNoException(() -> newActivity.getTab());
         url = "data:text,bar";
-        mActivityTestRule.navigateAndWait(tab, url, false);
+        mActivityTestRule.navigateAndWait(getTab(), url, false);
+    }
+
+    @Test
+    @SmallTest
+    public void restoreAfterRecreate() throws Throwable {
+        mActivityTestRule.launchShellWithUrl("about:blank");
+        String url = "data:text,foo";
+        mActivityTestRule.navigateAndWait(getTab(), url, false);
+
+        mActivityTestRule.recreateActivity();
+
+        waitForTabToFinishRestore(getTab(), url);
+    }
+
+    private void destroyFragment(CallbackHelper helper) {
+        FragmentManager fm = mActivityTestRule.getActivity().getSupportFragmentManager();
+        fm.beginTransaction()
+                .remove(fm.getFragments().get(0))
+                .runOnCommit(helper::notifyCalled)
+                .commit();
     }
 
     // https://crbug.com/1021041
     @Test
     @SmallTest
-    public void handlesFragmentDestroyWhileNavigating() throws InterruptedException {
-        CountDownLatch latch = new CountDownLatch(1);
+    public void handlesFragmentDestroyWhileNavigating() throws Throwable {
         InstrumentationActivity activity = mActivityTestRule.launchShellWithUrl("about:blank");
+        CallbackHelper helper = new CallbackHelper();
         TestThreadUtils.runOnUiThreadBlocking(() -> {
             NavigationController navigationController = activity.getTab().getNavigationController();
             navigationController.registerNavigationCallback(new NavigationCallback() {
                 @Override
                 public void onReadyToCommitNavigation(@NonNull Navigation navigation) {
-                    FragmentManager fm = activity.getSupportFragmentManager();
-                    fm.beginTransaction()
-                            .remove(fm.getFragments().get(0))
-                            .runOnCommit(latch::countDown)
-                            .commit();
+                    destroyFragment(helper);
                 }
             });
             navigationController.navigate(Uri.parse("data:text,foo"));
         });
-        latch.await();
+        helper.waitForFirst();
+    }
+
+    // Waits for |tab| to finish loadding |url. This is intended to be called after restore.
+    private void waitForTabToFinishRestore(Tab tab, String url) {
+        BoundedCountDownLatch latch = new BoundedCountDownLatch(1);
+        TestThreadUtils.runOnUiThreadBlocking(() -> {
+            // It's possible the NavigationController hasn't loaded yet, handle either scenario.
+            NavigationController navigationController = tab.getNavigationController();
+            for (int i = 0; i < navigationController.getNavigationListSize(); ++i) {
+                if (navigationController.getNavigationEntryDisplayUri(i).equals(Uri.parse(url))) {
+                    latch.countDown();
+                    return;
+                }
+            }
+            navigationController.registerNavigationCallback(new NavigationCallback() {
+                @Override
+                public void onNavigationCompleted(@NonNull Navigation navigation) {
+                    if (navigation.getUri().equals(Uri.parse(url))) {
+                        latch.countDown();
+                    }
+                }
+            });
+        });
+        latch.timedAwait();
+    }
+
+    // Recreates the activity and waits for the first tab to be restored. |extras| is the Bundle
+    // used to launch the shell.
+    private void restoresPreviousSession(Bundle extras) {
+        extras.putString(InstrumentationActivity.EXTRA_PERSISTENCE_ID, "x");
+        final String url = mActivityTestRule.getTestDataURL("simple_page.html");
+        mActivityTestRule.launchShellWithUrl(url, extras);
+
+        mActivityTestRule.recreateActivity();
+
+        Tab tab = getTab();
+        Assert.assertNotNull(tab);
+        waitForTabToFinishRestore(tab, url);
+    }
+
+    @Test
+    @SmallTest
+    public void restoresPreviousSession() throws Throwable {
+        restoresPreviousSession(new Bundle());
+    }
+
+    @Test
+    @SmallTest
+    public void restoresPreviousSessionIncognito() throws Throwable {
+        Bundle extras = new Bundle();
+        // This forces incognito.
+        extras.putString(InstrumentationActivity.EXTRA_PROFILE_NAME, null);
+        restoresPreviousSession(extras);
+    }
+
+    @Test
+    @SmallTest
+    public void restoresTabGuid() throws Throwable {
+        Bundle extras = new Bundle();
+        extras.putString(InstrumentationActivity.EXTRA_PERSISTENCE_ID, "x");
+        final String url = mActivityTestRule.getTestDataURL("simple_page.html");
+        mActivityTestRule.launchShellWithUrl(url, extras);
+        final String initialTabId = TestThreadUtils.runOnUiThreadBlocking(
+                () -> { return mActivityTestRule.getActivity().getTab().getGuid(); });
+        Assert.assertNotNull(initialTabId);
+        Assert.assertFalse(initialTabId.isEmpty());
+
+        mActivityTestRule.recreateActivity();
+
+        Tab tab = getTab();
+        Assert.assertNotNull(tab);
+        waitForTabToFinishRestore(tab, url);
+        final String restoredTabId =
+                TestThreadUtils.runOnUiThreadBlockingNoException(() -> { return tab.getGuid(); });
+        Assert.assertEquals(initialTabId, restoredTabId);
+    }
+
+    @Test
+    @SmallTest
+    public void restoreTabGuidAfterRecreate() throws Throwable {
+        InstrumentationActivity activity = mActivityTestRule.launchShellWithUrl("about:blank");
+        final Tab tab = getTab();
+        final String initialTabId =
+                TestThreadUtils.runOnUiThreadBlocking(() -> { return tab.getGuid(); });
+        String url = "data:text,foo";
+        mActivityTestRule.navigateAndWait(tab, url, false);
+
+        mActivityTestRule.recreateActivity();
+
+        final Tab restoredTab = getTab();
+        Assert.assertNotEquals(tab, restoredTab);
+        waitForTabToFinishRestore(restoredTab, url);
+        final String restoredTabId = TestThreadUtils.runOnUiThreadBlockingNoException(
+                () -> { return restoredTab.getGuid(); });
+        Assert.assertEquals(initialTabId, restoredTabId);
+    }
+
+    @Test
+    @SmallTest
+    @MinWebLayerVersion(85)
+    public void restoresTabData() throws Throwable {
+        Bundle extras = new Bundle();
+        extras.putString(InstrumentationActivity.EXTRA_PERSISTENCE_ID, "x");
+
+        Map<String, String> initialData = new HashMap<>();
+        initialData.put("foo", "bar");
+        restoresTabData(extras, initialData);
+    }
+
+    @Test
+    @SmallTest
+    @MinWebLayerVersion(85)
+    public void restoreTabDataAfterRecreate() throws Throwable {
+        Map<String, String> initialData = new HashMap<>();
+        initialData.put("foo", "bar");
+        restoresTabData(new Bundle(), initialData);
+    }
+
+    private void restoresTabData(Bundle extras, Map<String, String> initialData) {
+        String url = mActivityTestRule.getTestDataURL("simple_page.html");
+        mActivityTestRule.launchShellWithUrl(url, extras);
+
+        TestThreadUtils.runOnUiThreadBlocking(() -> {
+            Tab tab = mActivityTestRule.getActivity().getTab();
+            Assert.assertTrue(tab.getData().isEmpty());
+            tab.setData(initialData);
+        });
+
+        mActivityTestRule.recreateActivity();
+
+        Tab tab = getTab();
+        Assert.assertNotNull(tab);
+        waitForTabToFinishRestore(tab, url);
+        TestThreadUtils.runOnUiThreadBlocking(
+                () -> Assert.assertEquals(initialData, tab.getData()));
+    }
+
+    @Test
+    @SmallTest
+    @MinWebLayerVersion(85)
+    public void getAndRemoveBrowserPersistenceIds() throws Throwable {
+        // Creates a browser with the persistence id 'x'.
+        final String persistenceId = "x";
+        Bundle extras = new Bundle();
+        extras.putString(InstrumentationActivity.EXTRA_PERSISTENCE_ID, persistenceId);
+        final String url = mActivityTestRule.getTestDataURL("simple_page.html");
+        mActivityTestRule.launchShellWithUrl(url, extras);
+
+        // Destroy the frament, which ensures the persistence file was written to.
+        CallbackHelper helper = new CallbackHelper();
+        TestThreadUtils.runOnUiThreadBlocking(() -> destroyFragment(helper));
+        helper.waitForCallback(0, 1);
+        int callCount = helper.getCallCount();
+
+        // Verify the id can be fetched.
+        TestThreadUtils.runOnUiThreadBlocking(() -> {
+            mActivityTestRule.getActivity().getBrowser().getProfile().getBrowserPersistenceIds(
+                    (Set<String> ids) -> {
+                        Assert.assertEquals(1, ids.size());
+                        Assert.assertTrue(ids.contains(persistenceId));
+                        helper.notifyCalled();
+                    });
+        });
+        helper.waitForCallback(callCount, 1);
+        callCount = helper.getCallCount();
+
+        // Remove the storage.
+        HashSet<String> ids = new HashSet<String>();
+        ids.add("x");
+        TestThreadUtils.runOnUiThreadBlocking(() -> {
+            mActivityTestRule.getActivity()
+                    .getBrowser()
+                    .getProfile()
+                    .removeBrowserPersistenceStorage(ids, (Boolean result) -> {
+                        Assert.assertTrue(result);
+                        helper.notifyCalled();
+                    });
+        });
+        helper.waitForCallback(callCount, 1);
+        callCount = helper.getCallCount();
+
+        // Verify it was actually removed.
+        TestThreadUtils.runOnUiThreadBlocking(() -> {
+            mActivityTestRule.getActivity().getBrowser().getProfile().getBrowserPersistenceIds(
+                    (Set<String> actualIds) -> {
+                        Assert.assertTrue(actualIds.isEmpty());
+                        helper.notifyCalled();
+                    });
+        });
+        helper.waitForCallback(callCount, 1);
     }
 }

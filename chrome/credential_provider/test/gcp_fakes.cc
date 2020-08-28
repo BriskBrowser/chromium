@@ -16,11 +16,14 @@
 #include "base/command_line.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
+#include "base/strings/string16.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/synchronization/waitable_event.h"
+#include "base/threading/thread.h"
 #include "base/win/scoped_handle.h"
 #include "base/win/scoped_process_information.h"
 #include "chrome/credential_provider/common/gcp_strings.h"
+#include "chrome/credential_provider/extension/extension_strings.h"
 #include "chrome/credential_provider/gaiacp/gcp_utils.h"
 #include "chrome/credential_provider/gaiacp/logging.h"
 #include "chrome/credential_provider/gaiacp/mdm_utils.h"
@@ -54,7 +57,12 @@ void InitializeRegistryOverrideForTesting(
   ASSERT_EQ(ERROR_SUCCESS, key.WriteValue(kRegMdmUrl, L""));
   ASSERT_EQ(ERROR_SUCCESS,
             SetMachineGuidForTesting(L"f418a124-4d92-469b-afa5-0f8af537b965"));
-  ASSERT_EQ(ERROR_SUCCESS, key.WriteValue(kRegEscrowServiceServerUrl, L""));
+  ASSERT_EQ(ERROR_SUCCESS, key.WriteValue(kRegDisablePasswordSync, 1));
+  DWORD disable_cloud_association = 0;
+  ASSERT_EQ(ERROR_SUCCESS, key.WriteValue(L"enable_cloud_association",
+                                          disable_cloud_association));
+  ASSERT_EQ(ERROR_SUCCESS,
+            key.WriteValue(L"domains_allowed_to_login", L"test.com"));
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -159,8 +167,10 @@ HRESULT FakeOSUserManager::AddUser(const wchar_t* username,
   if (error)
     *error = 0;
 
-  if (should_fail_user_creation_)
-    return fail_user_creation_hr_;
+  if (failure_reasons_.find(FAILEDOPERATIONS::ADD_USER) !=
+      failure_reasons_.end()) {
+    return failure_reasons_[FAILEDOPERATIONS::ADD_USER];
+  }
 
   // Username or password cannot be empty.
   if (username == nullptr || !username[0] || password == nullptr ||
@@ -204,8 +214,9 @@ HRESULT FakeOSUserManager::ChangeUserPassword(const wchar_t* domain,
   DCHECK(old_password);
   DCHECK(new_password);
 
-  if (fail_change_password_) {
-    return failed_change_password_hr_;
+  if (failure_reasons_.find(FAILEDOPERATIONS::CHANGE_PASSWORD) !=
+      failure_reasons_.end()) {
+    return failure_reasons_[FAILEDOPERATIONS::CHANGE_PASSWORD];
   }
 
   if (username_to_info_.count(username) > 0) {
@@ -240,6 +251,11 @@ HRESULT FakeOSUserManager::SetUserFullname(const wchar_t* domain,
   DCHECK(domain);
   DCHECK(username);
   DCHECK(full_name);
+
+  if (failure_reasons_.find(FAILEDOPERATIONS::SET_USER_FULLNAME) !=
+      failure_reasons_.end()) {
+    return failure_reasons_[FAILEDOPERATIONS::SET_USER_FULLNAME];
+  }
 
   if (username_to_info_.count(username) > 0) {
     username_to_info_[username].fullname = full_name;
@@ -351,6 +367,12 @@ HRESULT FakeOSUserManager::GetUserFullname(const wchar_t* domain,
   DCHECK(domain);
   DCHECK(username);
   DCHECK(fullname);
+
+  if (failure_reasons_.find(FAILEDOPERATIONS::GET_USER_FULLNAME) !=
+      failure_reasons_.end()) {
+    return failure_reasons_[FAILEDOPERATIONS::GET_USER_FULLNAME];
+  }
+
   if (username_to_info_.count(username) > 0) {
     const UserInfo& info = username_to_info_[username];
     if (info.domain == domain) {
@@ -366,6 +388,12 @@ HRESULT FakeOSUserManager::ModifyUserAccessWithLogonHours(
     const wchar_t* domain,
     const wchar_t* username,
     bool allow) {
+  return S_OK;
+}
+
+HRESULT FakeOSUserManager::SetDefaultPasswordChangePolicies(
+    const wchar_t* domain,
+    const wchar_t* username) {
   return S_OK;
 }
 
@@ -515,7 +543,15 @@ bool FakeScopedLsaPolicy::PrivateDataExists(const wchar_t* key) {
   return private_data().count(key) != 0;
 }
 
-HRESULT FakeScopedLsaPolicy::AddAccountRights(PSID sid, const wchar_t* right) {
+HRESULT FakeScopedLsaPolicy::AddAccountRights(
+    PSID sid,
+    const std::vector<base::string16>& rights) {
+  return S_OK;
+}
+
+HRESULT FakeScopedLsaPolicy::RemoveAccountRights(
+    PSID sid,
+    const std::vector<base::string16>& rights) {
   return S_OK;
 }
 
@@ -564,9 +600,8 @@ HRESULT FakeScopedUserProfile::SaveAccountInfo(const base::Value& properties) {
   base::string16 token_handle;
   base::string16 last_successful_online_login_millis;
 
-  HRESULT hr = ExtractAssociationInformation(
-      properties, &sid, &id, &email, &token_handle,
-      &last_successful_online_login_millis);
+  HRESULT hr = ExtractAssociationInformation(properties, &sid, &id, &email,
+                                             &token_handle);
   if (FAILED(hr))
     return hr;
 
@@ -580,6 +615,16 @@ HRESULT FakeScopedUserProfile::SaveAccountInfo(const base::Value& properties) {
 }
 
 ///////////////////////////////////////////////////////////////////////////////
+
+FakeWinHttpUrlFetcherFactory::RequestData::RequestData()
+    : timeout_in_millis(-1) {}  // Set default timeout to an invalid value.
+
+FakeWinHttpUrlFetcherFactory::RequestData::RequestData(const RequestData& rhs)
+    : headers(rhs.headers),
+      body(rhs.body),
+      timeout_in_millis(rhs.timeout_in_millis) {}
+
+FakeWinHttpUrlFetcherFactory::RequestData::~RequestData() = default;
 
 FakeWinHttpUrlFetcherFactory::Response::Response() {}
 
@@ -613,8 +658,26 @@ void FakeWinHttpUrlFetcherFactory::SetFakeResponse(
     const WinHttpUrlFetcher::Headers& headers,
     const std::string& response,
     HANDLE send_response_event_handle /*=INVALID_HANDLE_VALUE*/) {
-  fake_responses_[url] =
-      Response(headers, response, send_response_event_handle);
+  fake_responses_[url].clear();
+  fake_responses_[url].push_back(
+      Response(headers, response, send_response_event_handle));
+  remove_fake_response_when_created_ = false;
+}
+
+void FakeWinHttpUrlFetcherFactory::SetFakeResponseForSpecifiedNumRequests(
+    const GURL& url,
+    const WinHttpUrlFetcher::Headers& headers,
+    const std::string& response,
+    unsigned int num_requests,
+    HANDLE send_response_event_handle /* =INVALID_HANDLE_VALUE */) {
+  if (fake_responses_.find(url) == fake_responses_.end()) {
+    fake_responses_[url] = std::deque<Response>();
+  }
+  for (unsigned int i = 0; i < num_requests; ++i) {
+    fake_responses_[url].push_back(
+        Response(headers, response, send_response_event_handle));
+  }
+  remove_fake_response_when_created_ = true;
 }
 
 void FakeWinHttpUrlFetcherFactory::SetFakeFailedResponse(const GURL& url,
@@ -622,6 +685,13 @@ void FakeWinHttpUrlFetcherFactory::SetFakeFailedResponse(const GURL& url,
   // Make sure that the HRESULT set is a failed attempt.
   DCHECK(FAILED(failed_hr));
   failed_http_fetch_hr_[url] = failed_hr;
+}
+
+FakeWinHttpUrlFetcherFactory::RequestData
+FakeWinHttpUrlFetcherFactory::GetRequestData(size_t request_index) const {
+  if (request_index < requests_data_.size())
+    return requests_data_[request_index];
+  return RequestData();
 }
 
 std::unique_ptr<WinHttpUrlFetcher> FakeWinHttpUrlFetcherFactory::Create(
@@ -632,15 +702,27 @@ std::unique_ptr<WinHttpUrlFetcher> FakeWinHttpUrlFetcherFactory::Create(
   FakeWinHttpUrlFetcher* fetcher = new FakeWinHttpUrlFetcher(std::move(url));
 
   if (fake_responses_.count(url) != 0) {
-    const Response& response = fake_responses_[url];
+    const Response& response = fake_responses_[url].front();
 
     fetcher->response_headers_ = response.headers;
     fetcher->response_ = response.response;
     fetcher->send_response_event_handle_ = response.send_response_event_handle;
+
+    if (remove_fake_response_when_created_) {
+      fake_responses_[url].pop_front();
+      if (fake_responses_[url].empty())
+        fake_responses_.erase(url);
+    }
   } else {
     DCHECK(failed_http_fetch_hr_.count(url) > 0);
     fetcher->response_hr_ = failed_http_fetch_hr_[url];
   }
+
+  if (collect_request_data_) {
+    requests_data_.push_back(RequestData());
+    fetcher->request_data_ = &requests_data_.back();
+  }
+
   ++requests_created_;
 
   return std::unique_ptr<WinHttpUrlFetcher>(fetcher);
@@ -668,6 +750,26 @@ HRESULT FakeWinHttpUrlFetcher::Fetch(std::vector<char>* response) {
 }
 
 HRESULT FakeWinHttpUrlFetcher::Close() {
+  return S_OK;
+}
+
+HRESULT FakeWinHttpUrlFetcher::SetRequestHeader(const char* name,
+                                                const char* value) {
+  if (request_data_)
+    request_data_->headers[name] = value;
+  return S_OK;
+}
+
+HRESULT FakeWinHttpUrlFetcher::SetRequestBody(const char* body) {
+  if (request_data_)
+    request_data_->body = body;
+  return S_OK;
+}
+
+HRESULT FakeWinHttpUrlFetcher::SetHttpRequestTimeout(
+    const int timeout_in_millis) {
+  if (request_data_)
+    request_data_->timeout_in_millis = timeout_in_millis;
   return S_OK;
 }
 
@@ -705,6 +807,9 @@ FakeChromeAvailabilityChecker::~FakeChromeAvailabilityChecker() {
 }
 
 bool FakeChromeAvailabilityChecker::HasSupportedChromeVersion() {
+  if (has_supported_chrome_ == kChromeDontForce) {
+    return original_checker_->HasSupportedChromeVersion();
+  }
   return has_supported_chrome_ == kChromeForceYes;
 }
 
@@ -772,6 +877,486 @@ FakeGemDeviceDetailsManager::FakeGemDeviceDetailsManager(
 
 FakeGemDeviceDetailsManager::~FakeGemDeviceDetailsManager() {
   *GetInstanceStorage() = original_manager_;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+
+EVT_HANDLE FakeEventLoggingApiManager::EvtQuery(EVT_HANDLE session,
+                                                LPCWSTR path,
+                                                LPCWSTR query,
+                                                DWORD flags) {
+  EXPECT_EQ(session, nullptr);  // local session only.
+  EXPECT_EQ(path, nullptr);
+  DCHECK(query);
+  EXPECT_TRUE((flags & EvtQueryChannelPath) > 0);
+
+  query_handle_ = reinterpret_cast<EVT_HANDLE>(&query_handle_);
+  last_error_ = ERROR_SUCCESS;
+  return query_handle_;
+}
+
+EVT_HANDLE FakeEventLoggingApiManager::EvtOpenPublisherMetadata(
+    EVT_HANDLE session,
+    LPCWSTR publisher_id,
+    LPCWSTR log_file_path,
+    LCID locale,
+    DWORD flags) {
+  EXPECT_EQ(session, nullptr);
+  EXPECT_EQ(base::string16(publisher_id), base::string16(L"GCPW"));
+  EXPECT_EQ(log_file_path, nullptr);
+  EXPECT_EQ(locale, DWORD(0));  // local locale.
+  EXPECT_EQ(flags, DWORD(0));
+
+  publisher_metadata_ = reinterpret_cast<EVT_HANDLE>(&publisher_metadata_);
+  last_error_ = ERROR_SUCCESS;
+  return publisher_metadata_;
+}
+
+EVT_HANDLE FakeEventLoggingApiManager::EvtCreateRenderContext(
+    DWORD value_paths_count,
+    LPCWSTR* value_paths,
+    DWORD flags) {
+  EXPECT_TRUE(value_paths_count >= 2);
+  DCHECK(value_paths);
+  EXPECT_TRUE(base::string16(value_paths[0]).find(L"EventRecordID") !=
+              base::string16::npos);
+  EXPECT_TRUE(base::string16(value_paths[1]).find(L"TimeCreated") !=
+              base::string16::npos);
+  EXPECT_EQ(flags, EvtRenderContextValues);
+
+  render_context_ = reinterpret_cast<EVT_HANDLE>(&render_context_);
+  last_error_ = ERROR_SUCCESS;
+  return render_context_;
+}
+
+BOOL FakeEventLoggingApiManager::EvtNext(EVT_HANDLE result_set,
+                                         DWORD events_size,
+                                         PEVT_HANDLE events,
+                                         DWORD timeout,
+                                         DWORD flags,
+                                         PDWORD num_returned) {
+  EXPECT_EQ(result_set, query_handle_);
+  EXPECT_TRUE(events_size > 0);
+  DCHECK(events);
+
+  if (next_event_idx_ >= logs_.size()) {
+    last_error_ = ERROR_NO_MORE_ITEMS;
+    return FALSE;
+  }
+
+  *num_returned = 0;
+  for (; (next_event_idx_ < logs_.size()) && (*num_returned < events_size);
+       ++next_event_idx_) {
+    event_handles_.push_back(EVT_HANDLE());
+    size_t last_idx = event_handles_.size() - 1;
+    event_handles_[last_idx] = &event_handles_[last_idx];
+
+    events[*num_returned] = event_handles_[last_idx];
+    handle_to_index_map_[event_handles_[last_idx]] = next_event_idx_;
+
+    (*num_returned)++;
+  }
+
+  last_error_ = ERROR_SUCCESS;
+  return TRUE;
+}
+
+BOOL FakeEventLoggingApiManager::EvtGetQueryInfo(
+    EVT_HANDLE query,
+    EVT_QUERY_PROPERTY_ID property_id,
+    DWORD value_buffer_size,
+    PEVT_VARIANT value_buffer,
+    PDWORD value_buffer_used) {
+  EXPECT_EQ(query, query_handle_);
+  EXPECT_TRUE((property_id == EvtQueryStatuses) ||
+              (property_id == EvtQueryNames));
+
+  const wchar_t channel_name[] = L"Application";
+  const DWORD mem_size = sizeof(channel_name) + sizeof(EVT_VARIANT);
+  *value_buffer_used = mem_size;
+
+  if (value_buffer_size == 0) {
+    last_error_ = ERROR_INSUFFICIENT_BUFFER;
+    return FALSE;
+  }
+
+  EXPECT_TRUE(value_buffer_size >= mem_size);
+  value_buffer->Count = 1;
+  char* addr = reinterpret_cast<char*>(value_buffer) + sizeof(EVT_VARIANT);
+
+  if (property_id == EvtQueryStatuses) {
+    value_buffer->UInt32Arr = reinterpret_cast<UINT32*>(addr);
+    value_buffer->UInt32Arr[0] = ERROR_SUCCESS;
+  } else if (property_id == EvtQueryNames) {
+    value_buffer->StringArr = reinterpret_cast<LPWSTR*>(addr);
+    memcpy(value_buffer->StringArr, channel_name, sizeof(channel_name));
+  }
+  last_error_ = ERROR_SUCCESS;
+  return TRUE;
+}
+
+BOOL FakeEventLoggingApiManager::EvtRender(EVT_HANDLE context,
+                                           EVT_HANDLE evt_handle,
+                                           DWORD flags,
+                                           DWORD buffer_size,
+                                           PVOID buffer,
+                                           PDWORD buffer_used,
+                                           PDWORD property_count) {
+  EXPECT_EQ(context, render_context_);
+  EXPECT_TRUE(handle_to_index_map_.find(evt_handle) !=
+              handle_to_index_map_.end());
+  EXPECT_EQ(flags, EvtRenderEventValues);
+
+  size_t idx = handle_to_index_map_.find(evt_handle)->second;
+  const size_t num_properties = 2;
+  const size_t mem_needed = num_properties * sizeof(EVT_VARIANT);
+  *buffer_used = mem_needed;
+
+  if (buffer_size < mem_needed) {
+    last_error_ = ERROR_INSUFFICIENT_BUFFER;
+    return FALSE;
+  }
+
+  EVT_VARIANT* data = reinterpret_cast<EVT_VARIANT*>(buffer);
+  data[0].UInt64Val = logs_[idx].event_id;
+
+  // Convert to Windows ticks.
+  ULONGLONG timestamp_ticks =
+      (logs_[idx].created_ts.seconds + 11644473600LL) * 10000000;
+  timestamp_ticks += (logs_[idx].created_ts.nanos / 100);
+
+  data[1].FileTimeVal = timestamp_ticks;
+  *property_count = num_properties;
+  last_error_ = ERROR_SUCCESS;
+  return TRUE;
+}
+
+BOOL FakeEventLoggingApiManager::EvtFormatMessage(EVT_HANDLE publisher_metadata,
+                                                  EVT_HANDLE event,
+                                                  DWORD message_id,
+                                                  DWORD value_count,
+                                                  PEVT_VARIANT values,
+                                                  DWORD flags,
+                                                  DWORD buffer_size,
+                                                  LPWSTR buffer,
+                                                  PDWORD buffer_used) {
+  EXPECT_EQ(publisher_metadata, publisher_metadata_);
+  EXPECT_TRUE(handle_to_index_map_.find(event) != handle_to_index_map_.end());
+  EXPECT_EQ(value_count, DWORD(0));
+  EXPECT_EQ(values, nullptr);
+  EXPECT_TRUE((flags == EvtFormatMessageEvent) ||
+              (flags == EvtFormatMessageLevel));
+  DCHECK(buffer_used);
+
+  size_t idx = handle_to_index_map_.find(event)->second;
+
+  base::string16 data;
+  if (flags == EvtFormatMessageEvent) {
+    data = logs_[idx].data;
+  } else if (flags == EvtFormatMessageLevel) {
+    switch (logs_[idx].severity_level) {
+      case 1:
+        data = L"Critical";
+        break;
+      case 2:
+        data = L"Error";
+        break;
+      case 3:
+        data = L"Warning";
+        break;
+      case 4:
+        data = L"Information";
+        break;
+      case 5:
+        data = L"Verbose";
+        break;
+      default:
+        data = L"Unknown";
+        break;
+    }
+  }
+
+  const size_t mem_needed =
+      sizeof(base::string16::value_type) * (data.size() + 1);
+
+  *buffer_used = mem_needed;
+  if (buffer_size < mem_needed) {
+    last_error_ = ERROR_INSUFFICIENT_BUFFER;
+    return FALSE;
+  }
+
+  DCHECK(buffer);
+  ::memcpy(buffer, data.c_str(),
+           data.size() * sizeof(base::string16::value_type));
+  last_error_ = ERROR_SUCCESS;
+
+  return TRUE;
+}
+
+BOOL FakeEventLoggingApiManager::EvtClose(EVT_HANDLE handle) {
+  DCHECK(handle);
+  last_error_ = ERROR_SUCCESS;
+  if (handle == &query_handle_) {
+    query_handle_ = nullptr;
+    return TRUE;
+  } else if (handle == &publisher_metadata_) {
+    publisher_metadata_ = nullptr;
+    return TRUE;
+  } else if (handle == &render_context_) {
+    render_context_ = nullptr;
+    return TRUE;
+  }
+
+  if (handle_to_index_map_.find(handle) != handle_to_index_map_.end()) {
+    size_t idx = handle_to_index_map_.find(handle)->second;
+    event_handles_[idx] = nullptr;
+    return TRUE;
+  }
+
+  last_error_ = ERROR_INVALID_HANDLE;
+  return FALSE;
+}
+
+DWORD FakeEventLoggingApiManager::GetLastError() {
+  return last_error_;
+}
+
+FakeEventLoggingApiManager::FakeEventLoggingApiManager(
+    const std::vector<EventLogEntry>& logs)
+    : original_manager_(*GetInstanceStorage()),
+      logs_(logs),
+      query_handle_(nullptr),
+      publisher_metadata_(nullptr),
+      render_context_(nullptr),
+      last_error_(ERROR_SUCCESS),
+      next_event_idx_(0) {
+  *GetInstanceStorage() = this;
+}
+
+FakeEventLoggingApiManager::~FakeEventLoggingApiManager() {
+  *GetInstanceStorage() = original_manager_;
+  EXPECT_EQ(query_handle_, nullptr);
+  EXPECT_EQ(publisher_metadata_, nullptr);
+  EXPECT_EQ(render_context_, nullptr);
+
+  for (size_t i = 0; i < event_handles_.size(); ++i) {
+    EXPECT_EQ(event_handles_[i], nullptr);
+  }
+}
+
+FakeEventLogsUploadManager::FakeEventLogsUploadManager(
+    const std::vector<EventLogEntry>& logs)
+    : original_manager_(*GetInstanceStorage()), api_manager_(logs) {
+  *GetInstanceStorage() = this;
+}
+
+FakeEventLogsUploadManager::~FakeEventLogsUploadManager() {
+  *GetInstanceStorage() = original_manager_;
+}
+
+HRESULT FakeEventLogsUploadManager::GetUploadStatus() {
+  return upload_status_;
+}
+
+uint64_t FakeEventLogsUploadManager::GetNumLogsUploaded() {
+  return num_event_logs_uploaded_;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+
+FakeUserPoliciesManager::FakeUserPoliciesManager(bool cloud_policies_enabled)
+    : original_manager_(*GetInstanceStorage()) {
+  *GetInstanceStorage() = this;
+  SetCloudPoliciesEnabledForTesting(cloud_policies_enabled);
+}
+
+FakeUserPoliciesManager::~FakeUserPoliciesManager() {
+  *GetInstanceStorage() = original_manager_;
+}
+
+HRESULT FakeUserPoliciesManager::FetchAndStoreCloudUserPolicies(
+    const base::string16& sid,
+    const std::string& access_token) {
+  ++num_times_fetch_called_;
+  fetch_status_ =
+      original_manager_->FetchAndStoreCloudUserPolicies(sid, access_token);
+  return fetch_status_;
+}
+
+void FakeUserPoliciesManager::SetUserPolicies(const base::string16& sid,
+                                              const UserPolicies& policies) {
+  user_policies_[sid] = policies;
+}
+
+bool FakeUserPoliciesManager::GetUserPolicies(const base::string16& sid,
+                                              UserPolicies* policies) {
+  if (user_policies_.find(sid) != user_policies_.end()) {
+    *policies = user_policies_[sid];
+    return true;
+  }
+
+  return false;
+}
+
+int FakeUserPoliciesManager::GetNumTimesFetchAndStoreCalled() const {
+  return num_times_fetch_called_;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+
+FakeDevicePoliciesManager::FakeDevicePoliciesManager(
+    bool cloud_policies_enabled)
+    : original_manager_(*GetInstanceStorage()) {
+  *GetInstanceStorage() = this;
+  UserPoliciesManager::Get()->SetCloudPoliciesEnabledForTesting(
+      cloud_policies_enabled);
+}
+
+FakeDevicePoliciesManager::~FakeDevicePoliciesManager() {
+  *GetInstanceStorage() = original_manager_;
+}
+
+void FakeDevicePoliciesManager::SetDevicePolicies(
+    const DevicePolicies& policies) {
+  device_policies_ = policies;
+}
+
+void FakeDevicePoliciesManager::GetDevicePolicies(
+    DevicePolicies* device_policies) {
+  *device_policies = device_policies_;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+
+FakeGCPWFiles::FakeGCPWFiles() : original_files(*GetInstanceStorage()) {
+  *GetInstanceStorage() = this;
+}
+
+FakeGCPWFiles::~FakeGCPWFiles() {
+  *GetInstanceStorage() = original_files;
+}
+
+// Installable files are sanitized for testing due to
+// differences between build artifacts file location and the way they are being
+// packaged. When tests are running, they are checking the build artifacts which
+// doesn't reflect foldering structure within 7zip archive.
+std::vector<base::FilePath::StringType>
+FakeGCPWFiles::GetEffectiveInstallFiles() {
+  auto effective_files = original_files->GetEffectiveInstallFiles();
+
+  std::vector<base::FilePath::StringType> sanitized_files;
+  for (auto& install_file : effective_files) {
+    size_t found = install_file.find_last_of('\\');
+    if (found != base::string16::npos) {
+      sanitized_files.push_back(install_file.substr(found + 1));
+    } else {
+      sanitized_files.push_back(install_file);
+    }
+  }
+
+  return sanitized_files;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+
+FakeOSServiceManager::FakeOSServiceManager()
+    : os_service_manager_(*GetInstanceStorage()) {
+  *GetInstanceStorage() = this;
+}
+
+FakeOSServiceManager::~FakeOSServiceManager() {
+  *GetInstanceStorage() = os_service_manager_;
+}
+
+DWORD FakeOSServiceManager::StartServiceCtrlDispatcher(
+    LPSERVICE_MAIN_FUNCTION service_main) {
+  if (service_lookup_from_name_.find(extension::kGCPWExtensionServiceName) ==
+      service_lookup_from_name_.end()) {
+    return ERROR_INVALID_DATA;
+  }
+  LOGFN(INFO);
+  // Windows calls the service main by creating a new thread. This is simulated
+  // in the test by creating a new thread.
+  base::Thread t("ServiceMain Thread");
+  t.Start();
+  t.task_runner()->PostTask(FROM_HERE,
+                            base::BindOnce(service_main, 0, nullptr));
+
+  while (true) {
+    // Service looks for control requests so that it calls the service's control
+    // handler.
+    DWORD control_request = GetControlRequestForTesting();
+    LOGFN(INFO) << "Received control: " << control_request;
+
+    // This is a custom control to end the service process main when service is
+    // supposed to stop.
+    if (control_request == 100)
+      break;
+
+    service_lookup_from_name_[extension::kGCPWExtensionServiceName]
+        .control_handler_cb_(control_request);
+  }
+
+  return ERROR_SUCCESS;
+}
+
+DWORD FakeOSServiceManager::RegisterCtrlHandler(
+    LPHANDLER_FUNCTION handler_proc,
+    SERVICE_STATUS_HANDLE* service_status_handle) {
+  if (service_lookup_from_name_.find(extension::kGCPWExtensionServiceName) ==
+      service_lookup_from_name_.end()) {
+    return ERROR_SERVICE_DOES_NOT_EXIST;
+  }
+
+  service_lookup_from_name_[extension::kGCPWExtensionServiceName]
+      .control_handler_cb_ = handler_proc;
+  // Set some random integer here. Not needed in the tests.
+  *service_status_handle = (SERVICE_STATUS_HANDLE)1;
+
+  return ERROR_SUCCESS;
+}
+
+DWORD FakeOSServiceManager::SetServiceStatus(
+    SERVICE_STATUS_HANDLE service_status_handle,
+    SERVICE_STATUS service) {
+  LOGFN(INFO) << "Service state: " << service.dwCurrentState;
+  if (service_lookup_from_name_.find(extension::kGCPWExtensionServiceName) ==
+      service_lookup_from_name_.end()) {
+    return ERROR_SERVICE_DOES_NOT_EXIST;
+  }
+  service_lookup_from_name_[extension::kGCPWExtensionServiceName]
+      .service_status_ = service;
+
+  if (service.dwCurrentState == SERVICE_STOPPED)
+    SendControlRequestForTesting(100);
+  return ERROR_SUCCESS;
+}
+
+DWORD FakeOSServiceManager::InstallService(
+    const base::FilePath& service_binary_path,
+    extension::ScopedScHandle* sc_handle) {
+  LOGFN(INFO);
+
+  service_lookup_from_name_[extension::kGCPWExtensionServiceName]
+      .service_status_.dwCurrentState = SERVICE_STOPPED;
+  return ERROR_SUCCESS;
+}
+
+DWORD FakeOSServiceManager::GetServiceStatus(SERVICE_STATUS* service_status) {
+  LOGFN(INFO);
+  if (service_lookup_from_name_.find(extension::kGCPWExtensionServiceName) ==
+      service_lookup_from_name_.end()) {
+    return ERROR_SERVICE_DOES_NOT_EXIST;
+  }
+  *service_status =
+      service_lookup_from_name_[extension::kGCPWExtensionServiceName]
+          .service_status_;
+  return ERROR_SUCCESS;
+}
+
+DWORD FakeOSServiceManager::DeleteService() {
+  service_lookup_from_name_.erase(extension::kGCPWExtensionServiceName);
+  return ERROR_SUCCESS;
 }
 
 }  // namespace credential_provider

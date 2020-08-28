@@ -22,9 +22,11 @@
 #include "components/history/core/browser/history_service.h"
 #include "components/safe_browsing/content/browser/threat_details.h"
 #include "components/safe_browsing/content/browser/threat_details_history.h"
+#include "components/safe_browsing/content/common/safe_browsing.mojom.h"
 #include "components/safe_browsing/core/browser/referrer_chain_provider.h"
-#include "components/safe_browsing/core/common/safe_browsing.mojom.h"
 #include "components/safe_browsing/core/proto/csd.pb.h"
+#include "components/security_interstitials/content/unsafe_resource_util.h"
+#include "components/security_interstitials/core/unsafe_resource.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_process_host.h"
@@ -103,8 +105,8 @@ class ThreatDetailsWrap : public ThreatDetails {
                       history_service,
                       referrer_chain_provider,
                       /*trim_to_ad_tags=*/false,
-                      base::Bind(&ThreatDetailsWrap::ThreatDetailsDone,
-                                 base::Unretained(this))),
+                      base::BindOnce(&ThreatDetailsWrap::ThreatDetailsDone,
+                                     base::Unretained(this))),
         run_loop_(nullptr),
         done_callback_count_(0) {}
 
@@ -123,8 +125,8 @@ class ThreatDetailsWrap : public ThreatDetails {
                       history_service,
                       referrer_chain_provider,
                       trim_to_ad_tags,
-                      base::Bind(&ThreatDetailsWrap::ThreatDetailsDone,
-                                 base::Unretained(this))),
+                      base::BindOnce(&ThreatDetailsWrap::ThreatDetailsDone,
+                                     base::Unretained(this))),
         run_loop_(nullptr),
         done_callback_count_(0) {}
 
@@ -161,7 +163,8 @@ class MockSafeBrowsingUIManager : public SafeBrowsingUIManager {
       : SafeBrowsingUIManager(nullptr), report_sent_(false) {}
 
   // When the serialized report is sent, this is called.
-  void SendSerializedThreatDetails(const std::string& serialized) override {
+  void SendSerializedThreatDetails(content::BrowserContext* browser_context,
+                                   const std::string& serialized) override {
     report_sent_ = true;
     serialized_ = serialized;
   }
@@ -203,8 +206,7 @@ class ThreatDetailsTest : public ChromeRenderViewHostTestHarness {
 
   void SetUp() override {
     ChromeRenderViewHostTestHarness::SetUp();
-    ASSERT_TRUE(profile()->CreateHistoryService(true /* delete_file */,
-                                                false /* no_db */));
+    ASSERT_TRUE(profile()->CreateHistoryService());
     test_shared_loader_factory_ =
         base::MakeRefCounted<network::WeakWrapperSharedURLLoaderFactory>(
             &test_url_loader_factory_);
@@ -241,7 +243,7 @@ class ThreatDetailsTest : public ChromeRenderViewHostTestHarness {
     resource->threat_type = threat_type;
     resource->threat_source = threat_source;
     resource->web_contents_getter =
-        SafeBrowsingUIManager::UnsafeResource::GetWebContentsGetter(
+        security_interstitials::GetWebContentsGetter(
             web_contents()->GetMainFrame()->GetProcess()->GetID(),
             web_contents()->GetMainFrame()->GetRoutingID());
   }
@@ -369,7 +371,7 @@ class ThreatDetailsTest : public ChromeRenderViewHostTestHarness {
     history_service()->AddPage(url, base::Time::Now(),
                                reinterpret_cast<history::ContextID>(1), 0,
                                GURL(), *redirects, ui::PAGE_TRANSITION_TYPED,
-                               history::SOURCE_BROWSED, false);
+                               history::SOURCE_BROWSED, false, false);
   }
 
   void WriteCacheEntry(const std::string& url,

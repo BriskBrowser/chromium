@@ -11,7 +11,6 @@
 #include "ui/aura/env.h"
 #include "ui/aura/layout_manager.h"
 #include "ui/aura/test/test_focus_client.h"
-#include "ui/aura/test/test_screen.h"
 #include "ui/aura/test/test_window_parenting_client.h"
 #include "ui/aura/window.h"
 #include "ui/aura/window_event_dispatcher.h"
@@ -28,6 +27,7 @@
 
 #if defined(USE_OZONE)
 #include "ui/aura/screen_ozone.h"
+#include "ui/base/ui_base_features.h"
 #endif
 
 namespace content {
@@ -77,17 +77,13 @@ class FillLayout : public aura::LayoutManager {
 
 }
 
-ShellPlatformDataAura* Shell::platform_ = nullptr;
-
 ShellPlatformDataAura::ShellPlatformDataAura(const gfx::Size& initial_size) {
   CHECK(aura::Env::GetInstance());
 
 #if defined(USE_OZONE)
   // Setup global display::Screen singleton.
-  if (!display::Screen::GetScreen()) {
+  if (features::IsUsingOzonePlatform() && !display::Screen::GetScreen())
     screen_ = std::make_unique<aura::ScreenOzone>();
-    display::Screen::SetScreenInstance(screen_.get());
-  }
 #endif  // defined(USE_OZONE)
 
   ui::PlatformWindowInitProperties properties;
@@ -108,20 +104,17 @@ ShellPlatformDataAura::ShellPlatformDataAura(const gfx::Size& initial_size) {
   host_->window()->Show();
   host_->window()->SetLayoutManager(new FillLayout(host_->window()));
 
-  focus_client_.reset(new aura::test::TestFocusClient());
-  aura::client::SetFocusClient(host_->window(), focus_client_.get());
+  focus_client_ =
+      std::make_unique<aura::test::TestFocusClient>(host_->window());
 
   new wm::DefaultActivationClient(host_->window());
-  capture_client_.reset(
-      new aura::client::DefaultCaptureClient(host_->window()));
-  window_parenting_client_.reset(
-      new aura::test::TestWindowParentingClient(host_->window()));
+  capture_client_ =
+      std::make_unique<aura::client::DefaultCaptureClient>(host_->window());
+  window_parenting_client_ =
+      std::make_unique<aura::test::TestWindowParentingClient>(host_->window());
 }
 
-ShellPlatformDataAura::~ShellPlatformDataAura() {
-  if (screen_)
-    display::Screen::SetScreenInstance(nullptr);
-}
+ShellPlatformDataAura::~ShellPlatformDataAura() = default;
 
 void ShellPlatformDataAura::ShowWindow() {
   host_->Show();

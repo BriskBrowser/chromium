@@ -6,7 +6,7 @@ cr.define('accessibility', function() {
   'use strict';
 
   // Note: keep these values in sync with the values in
-  // content/common/accessibility_mode_enums.h
+  // ui/accessibility/ax_mode.h
   const AXMode = {
     kNativeAPIs: 1 << 0,
     kWebContents: 1 << 1,
@@ -14,6 +14,7 @@ cr.define('accessibility', function() {
     kScreenReader: 1 << 3,
     kHTML: 1 << 4,
     kLabelImages: 1 << 5,
+    kPDF: 1 << 6,
 
     get kAXModeWebContentsOnly() {
       return AXMode.kWebContents | AXMode.kInlineTextBoxes |
@@ -79,7 +80,7 @@ cr.define('accessibility', function() {
     // function with the result.
     const requestType = element.id.split(':')[1];
     if (data.type == 'browser') {
-      const delay = $('native_ui_delay').value;
+      const delay = $('native-ui-delay').value;
       setTimeout(() => {
         chrome.send(
             'requestNativeUITree', [{
@@ -229,6 +230,7 @@ cr.define('accessibility', function() {
       row.appendChild(createModeElement(AXMode.kHTML, data, 'web'));
       row.appendChild(
           createModeElement(AXMode.kLabelImages, data, 'labelImages'));
+      row.appendChild(createModeElement(AXMode.kPDF, data, 'pdf'));
     } else {
       const siteInfo = document.createElement('span');
       siteInfo.appendChild(formatValue(data, 'name'));
@@ -263,11 +265,11 @@ cr.define('accessibility', function() {
   }
 
   function insertHeadingInline(parentElement, headingText, id) {
-    const h4 = document.createElement('h4');
-    h4.textContent = headingText;
-    h4.style.display = 'inline';
-    h4.id = id + ':title';
-    parentElement.appendChild(h4);
+    const h3 = document.createElement('h3');
+    h3.textContent = headingText;
+    h3.style.display = 'inline';
+    h3.id = id + ':title';
+    parentElement.appendChild(h3);
   }
 
   function formatValue(data, property) {
@@ -313,6 +315,8 @@ cr.define('accessibility', function() {
         return 'HTML';
       case AXMode.kLabelImages:
         return 'Label images';
+      case AXMode.kPDF:
+        return 'PDF';
     }
     return 'unknown';
   }
@@ -391,7 +395,8 @@ cr.define('accessibility', function() {
   function createErrorMessageElement(data) {
     const errorMessageElement = document.createElement('div');
     const errorMessage = data.error;
-    errorMessageElement.innerHTML = errorMessage + '&nbsp;';
+    const nbsp = '\u00a0';
+    errorMessageElement.textContent = errorMessage + nbsp;
     const closeLink = document.createElement('a');
     closeLink.href = '#';
     closeLink.textContent = '[close]';
@@ -480,7 +485,12 @@ cr.define('accessibility', function() {
       treeElement = document.createElement('pre');
       treeElement.id = id + ':' + type;
     }
-    treeElement.textContent = data[type];
+    const dataSplitByLine = data[type].split(/\n/);
+    for (let i = 0; i < dataSplitByLine.length; i++) {
+      const lineElement = document.createElement('div');
+      lineElement.textContent = dataSplitByLine[i];
+      treeElement.appendChild(lineElement);
+    }
     return treeElement;
   }
 

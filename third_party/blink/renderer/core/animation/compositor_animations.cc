@@ -46,11 +46,8 @@
 #include "third_party/blink/renderer/core/frame/settings.h"
 #include "third_party/blink/renderer/core/layout/layout_box_model_object.h"
 #include "third_party/blink/renderer/core/layout/layout_object.h"
-#include "third_party/blink/renderer/core/paint/compositing/composited_layer_mapping.h"
-#include "third_party/blink/renderer/core/paint/compositing/compositing_reason_finder.h"
 #include "third_party/blink/renderer/core/paint/filter_effect_builder.h"
 #include "third_party/blink/renderer/core/paint/object_paint_properties.h"
-#include "third_party/blink/renderer/core/paint/paint_layer.h"
 #include "third_party/blink/renderer/platform/animation/animation_translation_util.h"
 #include "third_party/blink/renderer/platform/animation/compositor_animation.h"
 #include "third_party/blink/renderer/platform/animation/compositor_color_animation_curve.h"
@@ -61,7 +58,6 @@
 #include "third_party/blink/renderer/platform/animation/compositor_keyframe_model.h"
 #include "third_party/blink/renderer/platform/animation/compositor_transform_animation_curve.h"
 #include "third_party/blink/renderer/platform/animation/compositor_transform_keyframe.h"
-#include "third_party/blink/renderer/platform/geometry/float_box.h"
 #include "third_party/blink/renderer/platform/graphics/compositing/paint_artifact_compositor.h"
 
 namespace blink {
@@ -74,7 +70,7 @@ bool ConsiderAnimationAsIncompatible(const Animation& animation,
   if (&animation == &animation_to_add)
     return false;
 
-  if (animation.pending())
+  if (animation.PendingInternal())
     return true;
 
   switch (animation.CalculateAnimationPlayState()) {
@@ -84,7 +80,9 @@ bool ConsiderAnimationAsIncompatible(const Animation& animation,
       return true;
     case Animation::kPaused:
     case Animation::kFinished:
-      if (Animation::HasLowerPriority(&animation, &animation_to_add)) {
+      if (Animation::HasLowerCompositeOrdering(
+              &animation, &animation_to_add,
+              Animation::CompareAnimationsOrdering::kPointerOrder)) {
         return effect_to_add.AffectedByUnderlyingAnimations();
       }
       return true;
@@ -186,7 +184,8 @@ CompositorAnimations::CheckCanStartEffectOnCompositor(
     const Animation* animation_to_add,
     const EffectModel& effect,
     const PaintArtifactCompositor* paint_artifact_compositor,
-    double animation_playback_rate) {
+    double animation_playback_rate,
+    PropertyHandleSet* unsupported_properties) {
   FailureReasons reasons = kNoFailure;
   const auto& keyframe_effect = To<KeyframeEffectModelBase>(effect);
 
@@ -271,16 +270,25 @@ CompositorAnimations::CheckCanStartEffectOnCompositor(
             if (layout_object && layout_object->Style() &&
                 !layout_object->Style()->HasCSSPaintImagesUsingCustomProperty(
                     property.CustomPropertyName(),
-                    layout_object->GetDocument()))
+                    layout_object->GetDocument())) {
+              if (unsupported_properties) {
+                unsupported_properties->insert(property);
+              }
               reasons |= kUnsupportedCSSProperty;
+            }
             // TODO: Add support for keyframes containing different types
-            if (keyframes.front()->GetCompositorKeyframeValue()->GetType() !=
-                keyframe_value->GetType()) {
+            if (!keyframes.front() ||
+                !keyframes.front()->GetCompositorKeyframeValue() ||
+                keyframes.front()->GetCompositorKeyframeValue()->GetType() !=
+                    keyframe_value->GetType()) {
               reasons |= kMixedKeyframeValueTypes;
             }
           } else {
             // We skip the rest of the loop in this case for the same reason as
             // unsupported CSS properties - see below.
+            if (unsupported_properties) {
+              unsupported_properties->insert(property);
+            }
             reasons |= kUnsupportedCSSProperty;
             continue;
           }
@@ -292,6 +300,9 @@ CompositorAnimations::CheckCanStartEffectOnCompositor(
           //       an unsupported property.
           //   ii. GetCompositorKeyframeValue() will be false so we will
           //       accidentally count this as kInvalidAnimationOrEffect as well.
+          if (unsupported_properties) {
+            unsupported_properties->insert(property);
+          }
           reasons |= kUnsupportedCSSProperty;
           continue;
       }
@@ -391,10 +402,12 @@ CompositorAnimations::CheckCanStartAnimationOnCompositor(
     const Animation* animation_to_add,
     const EffectModel& effect,
     const PaintArtifactCompositor* paint_artifact_compositor,
-    double animation_playback_rate) {
+    double animation_playback_rate,
+    PropertyHandleSet* unsupported_properties) {
   FailureReasons reasons = CheckCanStartEffectOnCompositor(
       timing, target_element, animation_to_add, effect,
-      paint_artifact_compositor, animation_playback_rate);
+      paint_artifact_compositor, animation_playback_rate,
+      unsupported_properties);
   return reasons | CheckCanStartElementOnCompositor(target_element);
 }
 
@@ -505,25 +518,6 @@ void CompositorAnimations::AttachCompositedLayers(
   if (!compositor_animation)
     return;
 
-  if (!element.GetLayoutObject() ||
-      !element.GetLayoutObject()->IsBoxModelObject() ||
-      !element.GetLayoutObject()->HasLayer())
-    return;
-
-  PaintLayer* layer =
-      ToLayoutBoxModelObject(element.GetLayoutObject())->Layer();
-
-  // Composited animations do not depend on a composited layer mapping for CAP.
-  if (!RuntimeEnabledFeatures::CompositeAfterPaintEnabled()) {
-    if (!layer->IsAllowedToQueryCompositingState() ||
-        !layer->GetCompositedLayerMapping() ||
-        !layer->GetCompositedLayerMapping()->MainGraphicsLayer())
-      return;
-
-    if (!layer->GetCompositedLayerMapping()->MainGraphicsLayer()->CcLayer())
-      return;
-  }
-
   CompositorElementIdNamespace element_id_namespace =
       CompositorElementIdNamespace::kPrimary;
   // We create an animation namespace element id when an element has created all
@@ -551,18 +545,26 @@ bool CompositorAnimations::ConvertTimingForCompositor(
     return false;
 
   if (!timing.iteration_duration || !timing.iteration_count ||
-      timing.iteration_duration->is_zero())
+      timing.iteration_duration->is_zero() ||
+      timing.iteration_duration->is_max())
     return false;
 
-  out.adjusted_iteration_count =
-      std::isfinite(timing.iteration_count) ? timing.iteration_count : -1;
-  out.scaled_duration = timing.iteration_duration.value();
-  out.direction = timing.direction;
   // Compositor's time offset is positive for seeking into the animation.
   DCHECK(animation_playback_rate);
-  out.scaled_time_offset = -base::TimeDelta::FromSecondsD(
-                               timing.start_delay / animation_playback_rate) +
-                           time_offset;
+  double delay = animation_playback_rate > 0 ? timing.start_delay : 0;
+  out.scaled_time_offset =
+      -base::TimeDelta::FromSecondsD(delay / animation_playback_rate) +
+      time_offset;
+  // Delay is effectively +/- infinity.
+  if (out.scaled_time_offset.is_max() || out.scaled_time_offset.is_min())
+    return false;
+
+  out.adjusted_iteration_count = std::isfinite(timing.iteration_count)
+                                     ? timing.iteration_count
+                                     : std::numeric_limits<double>::infinity();
+  out.scaled_duration = timing.iteration_duration.value();
+  out.direction = timing.direction;
+
   out.playback_rate = animation_playback_rate;
   out.fill_mode = timing.fill_mode == Timing::FillMode::AUTO
                       ? Timing::FillMode::NONE
@@ -570,9 +572,9 @@ bool CompositorAnimations::ConvertTimingForCompositor(
   out.iteration_start = timing.iteration_start;
 
   DCHECK_GT(out.scaled_duration, AnimationTimeDelta());
-  DCHECK(!out.scaled_time_offset.is_max() && !out.scaled_time_offset.is_min());
   DCHECK(out.adjusted_iteration_count > 0 ||
-         out.adjusted_iteration_count == -1);
+         out.adjusted_iteration_count ==
+             std::numeric_limits<double>::infinity());
   DCHECK(std::isfinite(out.playback_rate) && out.playback_rate);
   DCHECK_GE(out.iteration_start, 0);
 
@@ -762,6 +764,17 @@ void CompositorAnimations::GetAnimationOnCompositor(
     keyframe_models.push_back(std::move(keyframe_model));
   }
   DCHECK(!keyframe_models.IsEmpty());
+}
+
+bool CompositorAnimations::CheckUsesCompositedScrolling(Node* target) {
+  if (!target)
+    return false;
+  DCHECK(target->GetDocument().Lifecycle().GetState() >=
+         DocumentLifecycle::kCompositingAssignmentsClean);
+  auto* layout_box_model_object = target->GetLayoutBoxModelObject();
+  if (!layout_box_model_object)
+    return false;
+  return layout_box_model_object->UsesCompositedScrolling();
 }
 
 }  // namespace blink

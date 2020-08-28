@@ -12,9 +12,12 @@
 #include "base/scoped_observer.h"
 #include "components/page_load_metrics/common/page_load_timing.h"
 #include "components/page_load_metrics/renderer/page_resource_data_use.h"
+#include "components/page_load_metrics/renderer/page_timing_metadata_recorder.h"
 #include "components/subresource_filter/content/renderer/ad_resource_tracker.h"
 #include "content/public/renderer/render_frame_observer.h"
 #include "third_party/blink/public/common/loader/loading_behavior_flag.h"
+#include "third_party/blink/public/mojom/loader/resource_load_info.mojom-shared.h"
+#include "third_party/blink/public/platform/web_rect.h"
 #include "third_party/blink/public/web/web_local_frame_client.h"
 
 class GURL;
@@ -42,19 +45,24 @@ class MetricsRenderFrameObserver
 
   // RenderFrameObserver implementation
   void DidChangePerformanceTiming() override;
+  void DidObserveInputDelay(base::TimeDelta input_delay) override;
   void DidChangeCpuTiming(base::TimeDelta time) override;
   void DidObserveLoadingBehavior(blink::LoadingBehaviorFlag behavior) override;
   void DidObserveNewFeatureUsage(blink::mojom::WebFeature feature) override;
   void DidObserveNewCssPropertyUsage(blink::mojom::CSSSampleId css_property,
                                      bool is_animated) override;
   void DidObserveLayoutShift(double score, bool after_input_or_scroll) override;
+  void DidObserveLayoutNg(uint32_t all_block_count,
+                          uint32_t ng_block_count,
+                          uint32_t all_call_count,
+                          uint32_t ng_call_count) override;
   void DidObserveLazyLoadBehavior(
       blink::WebLocalFrameClient::LazyLoadBehavior lazy_load_behavior) override;
-  void DidStartResponse(const url::Origin& origin_of_final_response_url,
+  void DidStartResponse(const GURL& response_url,
                         int request_id,
                         const network::mojom::URLResponseHead& response_head,
-                        content::ResourceType resource_type,
-                        content::PreviewsState previews_state) override;
+                        network::mojom::RequestDestination request_destination,
+                        blink::PreviewsState previews_state) override;
   void DidReceiveTransferSizeUpdate(int request_id,
                                     int received_data_length) override;
   void DidCompleteResponse(
@@ -69,13 +77,13 @@ class MetricsRenderFrameObserver
   void ReadyToCommitNavigation(
       blink::WebDocumentLoader* document_loader) override;
   void DidFailProvisionalLoad() override;
-  void DidCommitProvisionalLoad(bool is_same_document_navigation,
-                                ui::PageTransition transition) override;
+  void DidCommitProvisionalLoad(ui::PageTransition transition) override;
+  void DidCreateDocumentElement() override;
   void OnDestruct() override;
 
   // Invoked when a frame is going away. This is our last chance to send IPCs
   // before being destroyed.
-  void FrameDetached() override;
+  void WillDetach() override;
 
   // Set the ad resource tracker that |this| observes.
   void SetAdResourceTracker(
@@ -84,6 +92,30 @@ class MetricsRenderFrameObserver
   // AdResourceTracker implementation
   void OnAdResourceTrackerGoingAway() override;
   void OnAdResourceObserved(int request_id) override;
+
+  void OnMainFrameIntersectionChanged(
+      const blink::WebRect& main_frame_intersection) override;
+
+  void OnThroughputDataAvailable(ukm::SourceId source_id,
+                                 int aggregated_percent,
+                                 int impl_percent,
+                                 base::Optional<int> main_percent) override;
+
+ protected:
+  // The relative and monotonic page load timings.
+  struct Timing {
+    Timing(mojom::PageLoadTimingPtr relative_timing,
+           const PageTimingMetadataRecorder::MonotonicTiming& monotonic_timing);
+    ~Timing();
+
+    Timing(const Timing&) = delete;
+    Timing& operator=(const Timing&) = delete;
+    Timing(Timing&&);
+    Timing& operator=(Timing&&);
+
+    mojom::PageLoadTimingPtr relative_timing;
+    PageTimingMetadataRecorder::MonotonicTiming monotonic_timing;
+  };
 
  private:
   // Updates the metadata for the page resource associated with the given
@@ -96,10 +128,15 @@ class MetricsRenderFrameObserver
   void MaybeSetCompletedBeforeFCP(int request_id);
 
   void SendMetrics();
-  virtual mojom::PageLoadTimingPtr GetTiming() const;
+  virtual Timing GetTiming() const;
   virtual std::unique_ptr<base::OneShotTimer> CreateTimer();
-  virtual std::unique_ptr<PageTimingSender> CreatePageTimingSender();
+  virtual std::unique_ptr<PageTimingSender> CreatePageTimingSender(
+      bool limited_sending_mode);
   virtual bool HasNoRenderFrame() const;
+
+  // Whether the initial about:blank document loaded into every frame was
+  // observed.
+  bool first_document_observed_ = false;
 
   // Collects the data use of the frame request for a provisional load until the
   // load is committed. We want to collect data use for completed navigations in

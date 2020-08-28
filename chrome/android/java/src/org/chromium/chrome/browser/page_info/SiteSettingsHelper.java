@@ -6,14 +6,19 @@ package org.chromium.chrome.browser.page_info;
 
 import android.content.Context;
 import android.content.Intent;
+import android.os.Bundle;
 
 import org.chromium.base.StrictModeContext;
 import org.chromium.chrome.browser.offlinepages.OfflinePageUtils;
 import org.chromium.chrome.browser.previews.PreviewsAndroidBridge;
 import org.chromium.chrome.browser.settings.SettingsLauncher;
-import org.chromium.chrome.browser.settings.website.SingleWebsiteSettings;
-import org.chromium.chrome.browser.util.UrlConstants;
+import org.chromium.chrome.browser.settings.SettingsLauncherImpl;
+import org.chromium.components.browser_ui.site_settings.ContentSettingsResources;
+import org.chromium.components.browser_ui.site_settings.SingleCategorySettings;
+import org.chromium.components.browser_ui.site_settings.SingleWebsiteSettings;
+import org.chromium.components.browser_ui.site_settings.SiteSettingsCategory;
 import org.chromium.components.dom_distiller.core.DomDistillerUrlUtils;
+import org.chromium.components.embedder_support.util.UrlConstants;
 import org.chromium.content_public.browser.WebContents;
 import org.chromium.net.GURLUtils;
 
@@ -32,8 +37,8 @@ public class SiteSettingsHelper {
                 PreviewsAndroidBridge.getInstance().shouldShowPreviewUI(webContents);
         // TODO(crbug.com/1033178): dedupe the DomDistillerUrlUtils#getOriginalUrlFromDistillerUrl()
         // calls.
-        String url =
-                DomDistillerUrlUtils.getOriginalUrlFromDistillerUrl(webContents.getVisibleUrl());
+        String url = DomDistillerUrlUtils.getOriginalUrlFromDistillerUrl(
+                webContents.getVisibleUrlString());
         String scheme = GURLUtils.getScheme(url);
         return !isOfflinePage && !isPreviewPage
                 && (UrlConstants.HTTP_SCHEME.equals(scheme)
@@ -44,12 +49,34 @@ public class SiteSettingsHelper {
      * Shows the site settings activity for a given url.
      */
     public static void showSiteSettings(Context context, String fullUrl) {
-        Intent preferencesIntent = SettingsLauncher.createIntentForSettingsPage(context,
+        SettingsLauncher settingsLauncher = new SettingsLauncherImpl();
+        Intent preferencesIntent = settingsLauncher.createSettingsActivityIntent(context,
                 SingleWebsiteSettings.class.getName(),
                 SingleWebsiteSettings.createFragmentArgsForSite(fullUrl));
+        launchIntent(context, preferencesIntent);
+    }
+
+    /**
+     * Show the single category settings page for given category and type.
+     */
+    public static void showCategorySettings(
+            Context context, @SiteSettingsCategory.Type int category) {
+        SettingsLauncher settingsLauncher = new SettingsLauncherImpl();
+        Bundle extras = new Bundle();
+        extras.putString(SingleCategorySettings.EXTRA_CATEGORY,
+                SiteSettingsCategory.preferenceKey(category));
+        extras.putString(SingleCategorySettings.EXTRA_TITLE,
+                context.getResources().getString(ContentSettingsResources.getTitle(
+                        SiteSettingsCategory.contentSettingsType(category))));
+        Intent preferencesIntent = settingsLauncher.createSettingsActivityIntent(
+                context, SingleCategorySettings.class.getName(), extras);
+        launchIntent(context, preferencesIntent);
+    }
+
+    private static void launchIntent(Context context, Intent intent) {
         // Disabling StrictMode to avoid violations (https://crbug.com/819410).
         try (StrictModeContext ignored = StrictModeContext.allowDiskReads()) {
-            context.startActivity(preferencesIntent);
+            context.startActivity(intent);
         }
     }
 }

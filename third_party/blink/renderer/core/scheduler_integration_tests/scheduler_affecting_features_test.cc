@@ -20,7 +20,7 @@ namespace blink {
 
 class SchedulingAffectingFeaturesTest : public SimTest {
  public:
-  PageScheduler* PageScheduler() {
+  PageScheduler* GetPageScheduler() {
     return MainFrameScheduler()->GetPageScheduler();
   }
 
@@ -35,8 +35,14 @@ class SchedulingAffectingFeaturesTest : public SimTest {
              ->GetActiveFeaturesTrackedForBackForwardCacheMetrics()) {
       if (feature == SchedulingPolicy::Feature::kDocumentLoaded)
         continue;
-      if (feature == SchedulingPolicy::Feature::kOutstandingNetworkRequest)
+      if (feature == SchedulingPolicy::Feature::kOutstandingNetworkRequestFetch)
         continue;
+      if (feature == SchedulingPolicy::Feature::kOutstandingNetworkRequestXHR)
+        continue;
+      if (feature ==
+          SchedulingPolicy::Feature::kOutstandingNetworkRequestOthers) {
+        continue;
+      }
       result.push_back(feature);
     }
     return result;
@@ -48,7 +54,7 @@ TEST_F(SchedulingAffectingFeaturesTest, WebSocketStopsThrottling) {
 
   LoadURL("https://example.com/");
 
-  EXPECT_FALSE(PageScheduler()->OptedOutFromAggressiveThrottlingForTest());
+  EXPECT_FALSE(GetPageScheduler()->OptedOutFromAggressiveThrottlingForTest());
   EXPECT_THAT(GetNonTrivialMainFrameFeatures(),
               testing::UnorderedElementsAre());
 
@@ -57,14 +63,14 @@ TEST_F(SchedulingAffectingFeaturesTest, WebSocketStopsThrottling) {
       "  var socket = new WebSocket(\"ws://www.example.com/websocket\");"
       "</script>");
 
-  EXPECT_TRUE(PageScheduler()->OptedOutFromAggressiveThrottlingForTest());
+  EXPECT_TRUE(GetPageScheduler()->OptedOutFromAggressiveThrottlingForTest());
   EXPECT_THAT(
       GetNonTrivialMainFrameFeatures(),
       testing::UnorderedElementsAre(SchedulingPolicy::Feature::kWebSocket));
 
   MainFrame().ExecuteScript(WebString("socket.close();"));
 
-  EXPECT_FALSE(PageScheduler()->OptedOutFromAggressiveThrottlingForTest());
+  EXPECT_FALSE(GetPageScheduler()->OptedOutFromAggressiveThrottlingForTest());
   EXPECT_THAT(GetNonTrivialMainFrameFeatures(),
               testing::UnorderedElementsAre());
 }

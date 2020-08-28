@@ -15,6 +15,7 @@
 #include "base/run_loop.h"
 #include "base/sequenced_task_runner.h"
 #include "base/strings/string_tokenizer.h"
+#include "base/test/metrics/histogram_tester.h"
 #include "base/test/scoped_feature_list.h"
 #include "base/test/test_simple_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
@@ -820,6 +821,7 @@ TEST_F(V4LocalDatabaseManagerTest, TestCheckUrlForHCAllowlistUnavailable) {
 }
 
 TEST_F(V4LocalDatabaseManagerTest, TestGetSeverestThreatTypeAndMetadata) {
+  base::HistogramTester histograms;
   WaitForTasksOnTaskRunner();
 
   FullHash fh_malware("Malware");
@@ -864,6 +866,10 @@ TEST_F(V4LocalDatabaseManagerTest, TestGetSeverestThreatTypeAndMetadata) {
   EXPECT_EQ(SB_THREAT_TYPE_URL_MALWARE, result_threat_type);
   EXPECT_EQ("malware_popid", metadata.population_id);
   EXPECT_EQ(fh_malware, matching_full_hash);
+
+  histograms.ExpectUniqueSample(
+      "SafeBrowsing.V4LocalDatabaseManager.ThreatInfoSize",
+      /* sample */ 2, /* expected_count */ 2);
 }
 
 TEST_F(V4LocalDatabaseManagerTest, TestChecksAreQueued) {
@@ -1303,47 +1309,6 @@ TEST_F(V4LocalDatabaseManagerTest, TestCheckDownloadUrlWithOneBlacklisted) {
   EXPECT_FALSE(client.on_check_download_urls_result_called());
   WaitForTasksOnTaskRunner();
   EXPECT_TRUE(client.on_check_download_urls_result_called());
-}
-
-TEST_F(V4LocalDatabaseManagerTest, DeleteUnusedStoreFileDoesNotExist) {
-  auto store_file_path = base_dir_.GetPath().AppendASCII("AnyIpMalware.store");
-  ASSERT_FALSE(base::PathExists(store_file_path));
-
-  // Reset the database manager so that DeleteUnusedStoreFiles is called.
-  ResetLocalDatabaseManager();
-  WaitForTasksOnTaskRunner();
-  ASSERT_FALSE(base::PathExists(store_file_path));
-}
-
-TEST_F(V4LocalDatabaseManagerTest, DeleteUnusedStoreFileSuccess) {
-  auto store_file_path = base_dir_.GetPath().AppendASCII("AnyIpMalware.store");
-  ASSERT_FALSE(base::PathExists(store_file_path));
-
-  // Now write an empty file.
-  base::WriteFile(store_file_path, "", 0);
-  ASSERT_TRUE(base::PathExists(store_file_path));
-
-  // Reset the database manager so that DeleteUnusedStoreFiles is called.
-  ResetLocalDatabaseManager();
-  WaitForTasksOnTaskRunner();
-  ASSERT_FALSE(base::PathExists(store_file_path));
-}
-
-TEST_F(V4LocalDatabaseManagerTest, DeleteUnusedStoreFileRandomFileNotDeleted) {
-  auto random_store_file_path = base_dir_.GetPath().AppendASCII("random.store");
-  ASSERT_FALSE(base::PathExists(random_store_file_path));
-
-  // Now write an empty file.
-  base::WriteFile(random_store_file_path, "", 0);
-  ASSERT_TRUE(base::PathExists(random_store_file_path));
-
-  // Reset the database manager so that DeleteUnusedStoreFiles is called.
-  ResetLocalDatabaseManager();
-  WaitForTasksOnTaskRunner();
-  ASSERT_TRUE(base::PathExists(random_store_file_path));
-
-  // Cleanup
-  base::DeleteFile(random_store_file_path, false /* recursive */);
 }
 
 TEST_F(V4LocalDatabaseManagerTest, NotificationOnUpdate) {

@@ -7,8 +7,8 @@ import("//testing/test.gni")
 
 assert(use_v4l2_codec || use_vaapi)
 
-# V4L2 or Vaapi imply the OS is Linux.
-assert(is_linux)
+# V4L2 or Vaapi imply the OS is Linux or ChromeOS
+assert(is_linux || is_chromeos)
 
 # This target can depend on targets in //media/gpu/{v4l2,vaapi}.
 source_set("chromeos") {
@@ -62,6 +62,10 @@ source_set("common") {
     "platform_video_frame_pool.h",
     "platform_video_frame_utils.cc",
     "platform_video_frame_utils.h",
+    "vd_video_decode_accelerator.cc",
+    "vd_video_decode_accelerator.h",
+    "vda_video_frame_pool.cc",
+    "vda_video_frame_pool.h",
     "video_decoder_pipeline.cc",
     "video_decoder_pipeline.h",
     "video_frame_converter.cc",
@@ -129,7 +133,9 @@ source_set("unit_tests") {
     ":common",
     "//base",
     "//base/test:test_support",
+    "//gpu/ipc/service:service",
     "//media",
+    "//media:test_support",
     "//media/gpu:buildflags",
     "//skia",
     "//testing/gmock",
@@ -143,6 +149,7 @@ source_set("unit_tests") {
     "mailbox_video_frame_converter_unittest.cc",
     "platform_video_frame_pool_unittest.cc",
     "platform_video_frame_utils_unittest.cc",
+    "video_decoder_pipeline_unittest.cc",
   ]
 }
 
@@ -157,6 +164,7 @@ test("image_processor_test") {
     "//media/gpu/test:frame_validator",
     "//media/gpu/test:helpers",
     "//media/gpu/test:image_processor",
+    "//media/gpu/test:video_test_environment",
     "//mojo/core/embedder",
     "//testing/gtest",
   ]

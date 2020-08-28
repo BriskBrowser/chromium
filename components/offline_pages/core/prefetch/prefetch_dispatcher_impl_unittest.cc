@@ -9,12 +9,12 @@
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
+#include "base/check.h"
 #include "base/files/file_util.h"
-#include "base/logging.h"
 #include "base/memory/ptr_util.h"
-#include "base/message_loop/message_loop_current.h"
 #include "base/run_loop.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/task/current_thread.h"
 #include "base/test/bind_test_util.h"
 #include "base/test/scoped_feature_list.h"
 #include "base/threading/thread_task_runner_handle.h"
@@ -46,7 +46,6 @@
 #include "components/offline_pages/core/stub_offline_page_model.h"
 #include "components/version_info/channel.h"
 #include "net/http/http_status_code.h"
-#include "net/url_request/url_request_test_util.h"
 #include "testing/gmock/include/gmock/gmock-matchers.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -61,8 +60,6 @@ namespace {
 using testing::_;
 
 const char kTestID[] = "id";
-const GURL kTestURL("https://www.chromium.org");
-const GURL kTestURL2("https://www.chromium.org/2");
 const int64_t kTestOfflineID = 1111;
 const char kClientID[] = "client-id-1";
 const char kOperationName[] = "operation-1";
@@ -74,9 +71,18 @@ const char kThumbnailData[] = "thumbnail_data";
 const char kFaviconData[] = "favicon_data";
 const base::Time kRenderTime = base::Time::Now();
 
+// TODO(https://crbug.com/1042727): Fix test GURL scoping and remove this getter
+// function.
+GURL TestURL1() {
+  return GURL("https://www.chromium.org");
+}
+GURL TestURL2() {
+  return GURL("https://www.chromium.org/2");
+}
+
 PrefetchSuggestion TestSuggestion1() {
   PrefetchSuggestion suggestion;
-  suggestion.article_url = kTestURL;
+  suggestion.article_url = TestURL1();
   suggestion.article_title = "Article Title";
   suggestion.article_attribution = "From news.com";
   suggestion.article_snippet = "This is an article";
@@ -87,7 +93,7 @@ PrefetchSuggestion TestSuggestion1() {
 
 PrefetchSuggestion TestSuggestion2() {
   PrefetchSuggestion suggestion;
-  suggestion.article_url = kTestURL2;
+  suggestion.article_url = TestURL2();
   suggestion.article_title = "Second Title";
   suggestion.article_attribution = "From fun.com";
   suggestion.article_snippet = "More fun stuff";
@@ -638,7 +644,7 @@ TEST_F(PrefetchDispatcherTest,
 TEST_F(PrefetchDispatcherTest, DispatcherReleasesBackgroundTask) {
   Configure(PrefetchServiceTestTaco::kContentSuggestions);
 
-  PrefetchURL prefetch_url(kTestID, kTestURL, base::string16());
+  PrefetchURL prefetch_url(kTestID, TestURL1(), base::string16());
   prefetch_dispatcher()->AddCandidatePrefetchURLs(
       kSuggestedArticlesNamespace, std::vector<PrefetchURL>(1, prefetch_url));
   RunUntilIdle();
@@ -687,7 +693,7 @@ TEST_F(PrefetchDispatcherTest, DispatcherReleasesBackgroundTask) {
 TEST_F(PrefetchDispatcherTest, RetryWithBackoffAfterFailedNetworkRequest) {
   Configure(PrefetchServiceTestTaco::kContentSuggestions);
 
-  PrefetchURL prefetch_url(kTestID, kTestURL, base::string16());
+  PrefetchURL prefetch_url(kTestID, TestURL1(), base::string16());
   prefetch_dispatcher()->AddCandidatePrefetchURLs(
       kSuggestedArticlesNamespace, std::vector<PrefetchURL>(1, prefetch_url));
   RunUntilIdle();
@@ -696,7 +702,7 @@ TEST_F(PrefetchDispatcherTest, RetryWithBackoffAfterFailedNetworkRequest) {
   RunUntilIdle();
 
   // Trigger another request to make sure we have more work to do.
-  PrefetchURL prefetch_url2(kTestID, kTestURL2, base::string16());
+  PrefetchURL prefetch_url2(kTestID, TestURL2(), base::string16());
   prefetch_dispatcher()->AddCandidatePrefetchURLs(
       kSuggestedArticlesNamespace, std::vector<PrefetchURL>(1, prefetch_url2));
   RunUntilIdle();
@@ -721,7 +727,7 @@ TEST_F(PrefetchDispatcherTest, RetryWithBackoffAfterFailedNetworkRequest) {
 TEST_F(PrefetchDispatcherTest, RetryWithoutBackoffAfterFailedNetworkRequest) {
   Configure(PrefetchServiceTestTaco::kContentSuggestions);
 
-  PrefetchURL prefetch_url(kTestID, kTestURL, base::string16());
+  PrefetchURL prefetch_url(kTestID, TestURL1(), base::string16());
   prefetch_dispatcher()->AddCandidatePrefetchURLs(
       kSuggestedArticlesNamespace, std::vector<PrefetchURL>(1, prefetch_url));
   RunUntilIdle();
@@ -730,7 +736,7 @@ TEST_F(PrefetchDispatcherTest, RetryWithoutBackoffAfterFailedNetworkRequest) {
   RunUntilIdle();
 
   // Trigger another request to make sure we have more work to do.
-  PrefetchURL prefetch_url2(kTestID, kTestURL2, base::string16());
+  PrefetchURL prefetch_url2(kTestID, TestURL2(), base::string16());
   prefetch_dispatcher()->AddCandidatePrefetchURLs(
       kSuggestedArticlesNamespace, std::vector<PrefetchURL>(1, prefetch_url2));
 
@@ -753,7 +759,7 @@ TEST_F(PrefetchDispatcherTest, RetryWithoutBackoffAfterFailedNetworkRequest) {
 
 TEST_F(PrefetchDispatcherTest, SuspendAfterFailedNetworkRequest) {
   Configure(PrefetchServiceTestTaco::kContentSuggestions);
-  PrefetchURL prefetch_url(kTestID, kTestURL, base::string16());
+  PrefetchURL prefetch_url(kTestID, TestURL1(), base::string16());
   prefetch_dispatcher()->AddCandidatePrefetchURLs(
       kSuggestedArticlesNamespace, std::vector<PrefetchURL>(1, prefetch_url));
   RunUntilIdle();
@@ -762,7 +768,7 @@ TEST_F(PrefetchDispatcherTest, SuspendAfterFailedNetworkRequest) {
   RunUntilIdle();
 
   // Trigger another request to make sure we have more work to do.
-  PrefetchURL prefetch_url2(kTestID, kTestURL2, base::string16());
+  PrefetchURL prefetch_url2(kTestID, TestURL2(), base::string16());
   prefetch_dispatcher()->AddCandidatePrefetchURLs(
       kSuggestedArticlesNamespace, std::vector<PrefetchURL>(1, prefetch_url2));
 
@@ -801,7 +807,7 @@ TEST_F(PrefetchDispatcherTest, SuspendAfterFailedNetworkRequest) {
 TEST_F(PrefetchDispatcherTest, SuspendRemovedAfterNewBackgroundTask) {
   Configure(PrefetchServiceTestTaco::kContentSuggestions);
 
-  PrefetchURL prefetch_url(kTestID, kTestURL, base::string16());
+  PrefetchURL prefetch_url(kTestID, TestURL1(), base::string16());
   prefetch_dispatcher()->AddCandidatePrefetchURLs(
       kSuggestedArticlesNamespace, std::vector<PrefetchURL>(1, prefetch_url));
   RunUntilIdle();
@@ -827,7 +833,7 @@ TEST_F(PrefetchDispatcherTest, SuspendRemovedAfterNewBackgroundTask) {
   EXPECT_EQ(nullptr, GetBackgroundTask());
 
   // Trigger another request to make sure we have more work to do.
-  PrefetchURL prefetch_url2(kTestID, kTestURL2, base::string16());
+  PrefetchURL prefetch_url2(kTestID, TestURL2(), base::string16());
   prefetch_dispatcher()->AddCandidatePrefetchURLs(
       kSuggestedArticlesNamespace, std::vector<PrefetchURL>(1, prefetch_url2));
 
@@ -843,7 +849,7 @@ TEST_F(PrefetchDispatcherTest, SuspendRemovedAfterNewBackgroundTask) {
 TEST_F(PrefetchDispatcherTest, ZineNoNetworkRequestsAfterNewURLs) {
   Configure(PrefetchServiceTestTaco::kContentSuggestions);
 
-  PrefetchURL prefetch_url(kTestID, kTestURL, base::string16());
+  PrefetchURL prefetch_url(kTestID, TestURL1(), base::string16());
   prefetch_dispatcher()->AddCandidatePrefetchURLs(
       kSuggestedArticlesNamespace, std::vector<PrefetchURL>(1, prefetch_url));
   RunUntilIdle();
@@ -925,7 +931,7 @@ TEST_F(PrefetchDispatcherTest, FeedNoNetworkRequestsAfterNewURLs) {
   Configure(PrefetchServiceTestTaco::kFeed);
   suggestions_provider_->SetSuggestions({TestSuggestion1()});
 
-  PrefetchURL prefetch_url(kTestID, kTestURL, base::string16());
+  PrefetchURL prefetch_url(kTestID, TestURL1(), base::string16());
   prefetch_service()->NewSuggestionsAvailable();
   RunUntilIdle();
 

@@ -5,13 +5,13 @@
 #ifndef CHROME_BROWSER_UPGRADE_DETECTOR_UPGRADE_DETECTOR_CHROMEOS_H_
 #define CHROME_BROWSER_UPGRADE_DETECTOR_UPGRADE_DETECTOR_CHROMEOS_H_
 
-#include <string>
-
 #include "base/compiler_specific.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/time/time.h"
 #include "base/timer/timer.h"
+#include "chrome/browser/upgrade_detector/build_state_observer.h"
+#include "chrome/browser/upgrade_detector/installed_version_updater_chromeos.h"
 #include "chrome/browser/upgrade_detector/upgrade_detector.h"
 #include "chromeos/dbus/update_engine_client.h"
 
@@ -24,6 +24,7 @@ class TickClock;
 }  // namespace base
 
 class UpgradeDetectorChromeos : public UpgradeDetector,
+                                public BuildStateObserver,
                                 public chromeos::UpdateEngineClient::Observer {
  public:
   ~UpgradeDetectorChromeos() override;
@@ -33,17 +34,16 @@ class UpgradeDetectorChromeos : public UpgradeDetector,
 
   static UpgradeDetectorChromeos* GetInstance();
 
-  // Initializes the object. Starts observing changes from the update
-  // engine.
-  void Init();
-
-  // Shuts down the object. Stops observing observe changes from the
-  // update engine.
-  void Shutdown();
-
   // UpgradeDetector:
+  void Init() override;
+  void Shutdown() override;
   base::TimeDelta GetHighAnnoyanceLevelDelta() override;
   base::Time GetHighAnnoyanceDeadline() override;
+  void OverrideHighAnnoyanceDeadline(base::Time deadline) override;
+  void ResetOverriddenDeadline() override;
+
+  // BuildStateObserver:
+  void OnUpdate(const BuildState* build_state) override;
 
  protected:
   UpgradeDetectorChromeos(const base::Clock* clock,
@@ -65,7 +65,10 @@ class UpgradeDetectorChromeos : public UpgradeDetector,
   // zero delta if unset or out of range.
   static base::TimeDelta GetRelaunchHeadsUpPeriod();
 
-  // Calculates |elevated_deadline_| and |high_deadline_|.
+  // Calculates |elevated_deadline_| and |high_deadline_| using either
+  // |high_deadline_override_| if it is not null or the threshold values
+  // computed based on the RelaunchNotificationPeriod and RelaunchHeadsUpPeriod
+  // policy settings.
   void CalculateDeadlines();
 
   // Handles a change to the browser.relaunch_heads_up_period or
@@ -88,14 +91,17 @@ class UpgradeDetectorChromeos : public UpgradeDetector,
   // user that a new version is available.
   void NotifyOnUpgrade();
 
-  void OnChannelsReceived(std::string current_channel,
-                          std::string target_channel);
+  base::Optional<InstalledVersionUpdater> installed_version_updater_;
 
   // The time when elevated annoyance deadline is reached.
   base::Time elevated_deadline_;
 
   // The time when high annoyance deadline is reached.
   base::Time high_deadline_;
+
+  // The overridden high annoyance deadline which takes priority over
+  // |high_deadline_| for showing relaunch notifications.
+  base::Time high_deadline_override_;
 
   // Observes changes to the browser.relaunch_heads_up_period Local State
   // preference.

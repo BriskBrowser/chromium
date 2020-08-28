@@ -8,14 +8,15 @@
 #include "base/bind_helpers.h"
 #include "base/no_destructor.h"
 #include "chrome/browser/content_settings/host_content_settings_map_factory.h"
-#include "chrome/browser/content_settings/tab_specific_content_settings.h"
-#include "chrome/browser/permissions/permission_manager.h"
+#include "chrome/browser/permissions/permission_manager_factory.h"
 #include "chrome/browser/plugins/plugin_utils.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/chrome_features.h"
+#include "components/content_settings/browser/page_specific_content_settings.h"
 #include "components/content_settings/core/common/content_settings_types.h"
 #include "components/navigation_interception/intercept_navigation_throttle.h"
 #include "components/navigation_interception/navigation_params.h"
+#include "components/permissions/permission_manager.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/navigation_handle.h"
 #include "content/public/browser/web_contents.h"
@@ -79,12 +80,18 @@ void FlashDownloadInterception::InterceptFlashDownloadNavigation(
       nullptr);
 
   if (flash_setting == CONTENT_SETTING_DETECT_IMPORTANT_CONTENT) {
-    PermissionManager* manager = PermissionManager::Get(profile);
+    permissions::PermissionManager* manager =
+        PermissionManagerFactory::GetForProfile(profile);
+    // TODO(https://crbug.com/1103176): Plumb the actual frame reference here
+    // (FlashDownloadInterception is created only for renderer-initiated
+    // navigations, so we always should have a reference to the originating
+    // RenderFrameHost)
     manager->RequestPermission(
         ContentSettingsType::PLUGINS, web_contents->GetMainFrame(),
         web_contents->GetLastCommittedURL(), true, base::DoNothing());
   } else if (flash_setting == CONTENT_SETTING_BLOCK) {
-    auto* settings = TabSpecificContentSettings::FromWebContents(web_contents);
+    auto* settings = content_settings::PageSpecificContentSettings::GetForFrame(
+        web_contents->GetMainFrame());
     if (settings)
       settings->FlashDownloadBlocked();
   }

@@ -14,9 +14,9 @@
 #include <vector>
 
 #include "base/callback.h"
+#include "base/check.h"
 #include "base/component_export.h"
 #include "base/containers/flat_set.h"
-#include "base/logging.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/optional.h"
@@ -39,8 +39,6 @@ class FidoDiscoveryFactory;
 class COMPONENT_EXPORT(DEVICE_FIDO) FidoRequestHandlerBase
     : public FidoDiscoveryBase::Observer {
  public:
-  using AuthenticatorMap =
-      std::map<std::string, FidoAuthenticator*, std::less<>>;
   using RequestCallback = base::RepeatingCallback<void(const std::string&)>;
   using BlePairingCallback =
       base::RepeatingCallback<void(std::string authenticator_id,
@@ -49,6 +47,9 @@ class COMPONENT_EXPORT(DEVICE_FIDO) FidoRequestHandlerBase
                                    base::OnceClosure error_callback)>;
 
   enum class RequestType { kMakeCredential, kGetAssertion };
+
+  using AuthenticatorMap =
+      std::map<std::string, FidoAuthenticator*, std::less<>>;
 
   // Encapsulates data required to initiate WebAuthN UX dialog. Once all
   // components of TransportAvailabilityInfo is set,
@@ -121,13 +122,6 @@ class COMPONENT_EXPORT(DEVICE_FIDO) FidoRequestHandlerBase
     virtual void FidoAuthenticatorAdded(
         const FidoAuthenticator& authenticator) = 0;
     virtual void FidoAuthenticatorRemoved(base::StringPiece device_id) = 0;
-    virtual void FidoAuthenticatorIdChanged(
-        base::StringPiece old_authenticator_id,
-        std::string new_authenticator_id) = 0;
-    virtual void FidoAuthenticatorPairingModeChanged(
-        base::StringPiece authenticator_id,
-        bool is_in_pairing_mode,
-        base::string16 display_name) = 0;
 
     // SupportsPIN returns true if this observer supports collecting a PIN from
     // the user. If this function returns false, |CollectPIN| and
@@ -135,7 +129,7 @@ class COMPONENT_EXPORT(DEVICE_FIDO) FidoRequestHandlerBase
     virtual bool SupportsPIN() const = 0;
 
     // CollectPIN is called when a PIN is needed to complete a request. The
-    // |retries| parameter is either |nullopt| to indicate that the user needs
+    // |attempts| parameter is either |nullopt| to indicate that the user needs
     // to set a PIN, or contains the number of PIN attempts remaining before a
     // hard lock.
     virtual void CollectPIN(
@@ -143,6 +137,28 @@ class COMPONENT_EXPORT(DEVICE_FIDO) FidoRequestHandlerBase
         base::OnceCallback<void(std::string)> provide_pin_cb) = 0;
 
     virtual void FinishCollectToken() = 0;
+
+    // Called when a biometric enrollment may be completed as part of the
+    // request and the user should be notified to collect samples.
+    // |next_callback| must be executed asynchronously at any time to move on to
+    // the next step of the request.
+    virtual void StartBioEnrollment(base::OnceClosure next_callback) = 0;
+
+    // Called when a biometric enrollment sample has been collected.
+    // |bio_samples_remaining| is the number of samples needed to finish the
+    // enrollment.
+    virtual void OnSampleCollected(int bio_samples_remaining) = 0;
+
+    // Called when an authenticator reports internal user verification has
+    // failed (e.g. not recognising the user's fingerprints) and the user should
+    // try again. Receives the number of |attempts| before the device locks
+    // internal user verification.
+    virtual void OnRetryUserVerification(int attempts) = 0;
+
+    // Called when an authenticator reports internal user verification has been
+    // locked (e.g. by repeated failed attempts to recognise the user's
+    // fingerprints).
+    virtual void OnInternalUserVerificationLocked() = 0;
 
     // SetMightCreateResidentCredential indicates whether the activation of an
     // authenticator may cause a resident credential to be created. A resident
@@ -172,16 +188,13 @@ class COMPONENT_EXPORT(DEVICE_FIDO) FidoRequestHandlerBase
   // received from the any one of the connected authenticators, in which case
   // all other authenticators are cancelled.
   // https://w3c.github.io/webauthn/#iface-pkcredential
-  void CancelActiveAuthenticators(base::StringPiece exclude_id = nullptr);
-  void OnBluetoothAdapterEnumerated(bool is_present,
-                                    bool is_powered_on,
-                                    bool can_power_on);
+  void CancelActiveAuthenticators(base::StringPiece exclude_id = "");
+  virtual void OnBluetoothAdapterEnumerated(bool is_present,
+                                            bool is_powered_on,
+                                            bool can_power_on,
+                                            bool is_peripheral_role_supported);
   void OnBluetoothAdapterPowerChanged(bool is_powered_on);
   void PowerOnBluetoothAdapter();
-  void InitiatePairingWithDevice(std::string authenticator_id,
-                                 base::Optional<std::string> pin_code,
-                                 base::OnceClosure success_callback,
-                                 base::OnceClosure error_callback);
 
   base::WeakPtr<FidoRequestHandlerBase> GetWeakPtr();
 
@@ -212,7 +225,14 @@ class COMPONENT_EXPORT(DEVICE_FIDO) FidoRequestHandlerBase
     return bluetooth_adapter_manager_;
   }
 
+  void StopDiscoveries();
+
  protected:
+  // Authenticators that return a response in less than this time are likely to
+  // have done so without interaction from the user.
+  static constexpr base::TimeDelta kMinExpectedAuthenticatorResponseTime =
+      base::TimeDelta::FromMilliseconds(300);
+
   // Subclasses implement this method to dispatch their request onto the given
   // FidoAuthenticator. The FidoAuthenticator is owned by this
   // FidoRequestHandler and stored in active_authenticators().
@@ -235,12 +255,6 @@ class COMPONENT_EXPORT(DEVICE_FIDO) FidoRequestHandlerBase
                           FidoAuthenticator* authenticator) override;
   void AuthenticatorRemoved(FidoDiscoveryBase* discovery,
                             FidoAuthenticator* authenticator) override;
-  void AuthenticatorIdChanged(FidoDiscoveryBase* discovery,
-                              const std::string& previous_id,
-                              std::string new_id) override;
-  void AuthenticatorPairingModeChanged(FidoDiscoveryBase* discovery,
-                                       const std::string& device_id,
-                                       bool is_in_pairing_mode) override;
 
  private:
   friend class FidoRequestHandlerTest;
@@ -260,7 +274,8 @@ class COMPONENT_EXPORT(DEVICE_FIDO) FidoRequestHandlerBase
   // DispatchRequest(). InitializeAuthenticator() sends a GetInfo command
   // to FidoDeviceAuthenticator instances in order to determine their protocol
   // versions before a request can be dispatched.
-  void InitializeAuthenticatorAndDispatchRequest(FidoAuthenticator*);
+  void InitializeAuthenticatorAndDispatchRequest(
+      const std::string& authenticator_id);
   void ConstructBleAdapterPowerManager();
 
   AuthenticatorMap active_authenticators_;

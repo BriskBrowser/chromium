@@ -6,18 +6,22 @@
 
 #include "build/build_config.h"
 #include "chrome/browser/content_settings/host_content_settings_map_factory.h"
-#include "chrome/browser/content_settings/tab_specific_content_settings.h"
-#include "chrome/browser/permissions/permission_manager.h"
-#include "chrome/browser/permissions/permission_request_id.h"
-#include "chrome/browser/permissions/permission_request_manager.h"
-#include "chrome/browser/ui/permission_bubble/mock_permission_prompt_factory.h"
+#include "chrome/browser/content_settings/page_specific_content_settings_delegate.h"
+#include "chrome/browser/permissions/permission_manager_factory.h"
 #include "chrome/test/base/chrome_render_view_host_test_harness.h"
+#include "components/content_settings/browser/page_specific_content_settings.h"
+#include "components/permissions/permission_manager.h"
+#include "components/permissions/permission_request_id.h"
+#include "components/permissions/permission_request_manager.h"
+#include "components/permissions/test/mock_permission_prompt_factory.h"
 #include "content/public/test/mock_render_process_host.h"
 #include "content/public/test/test_utils.h"
 
 #if defined(OS_ANDROID)
-#include "chrome/browser/android/mock_nfc_system_level_setting.h"
 #include "chrome/browser/nfc/nfc_permission_context_android.h"
+#include "components/permissions/android/nfc/mock_nfc_system_level_setting.h"
+
+using permissions::MockNfcSystemLevelSetting;
 #endif
 
 using content::MockRenderProcessHost;
@@ -30,14 +34,14 @@ class NfcPermissionContextTests : public ChromeRenderViewHostTestHarness {
   void SetUp() override;
   void TearDown() override;
 
-  PermissionRequestID RequestID(int request_id);
+  permissions::PermissionRequestID RequestID(int request_id);
 
   void RequestNfcPermission(content::WebContents* web_contents,
-                            const PermissionRequestID& id,
+                            const permissions::PermissionRequestID& id,
                             const GURL& requesting_frame,
                             bool user_gesture);
 
-  void PermissionResponse(const PermissionRequestID& id,
+  void PermissionResponse(const permissions::PermissionRequestID& id,
                           ContentSetting content_setting);
   void CheckPermissionMessageSent(int request_id, bool allowed);
   void CheckPermissionMessageSentInternal(MockRenderProcessHost* process,
@@ -59,7 +63,7 @@ class NfcPermissionContextTests : public ChromeRenderViewHostTestHarness {
 
   // owned by the browser context
   NfcPermissionContext* nfc_permission_context_;
-  std::vector<std::unique_ptr<MockPermissionPromptFactory>>
+  std::vector<std::unique_ptr<permissions::MockPermissionPromptFactory>>
       mock_permission_prompt_factories_;
 
   // A map between renderer child id and a pair represending the bridge id and
@@ -67,26 +71,27 @@ class NfcPermissionContextTests : public ChromeRenderViewHostTestHarness {
   std::map<int, std::pair<int, bool>> responses_;
 };
 
-PermissionRequestID NfcPermissionContextTests::RequestID(int request_id) {
-  return PermissionRequestID(
+permissions::PermissionRequestID NfcPermissionContextTests::RequestID(
+    int request_id) {
+  return permissions::PermissionRequestID(
       web_contents()->GetMainFrame()->GetProcess()->GetID(),
       web_contents()->GetMainFrame()->GetRoutingID(), request_id);
 }
 
 void NfcPermissionContextTests::RequestNfcPermission(
     content::WebContents* web_contents,
-    const PermissionRequestID& id,
+    const permissions::PermissionRequestID& id,
     const GURL& requesting_frame,
     bool user_gesture) {
   nfc_permission_context_->RequestPermission(
       web_contents, id, requesting_frame, user_gesture,
-      base::Bind(&NfcPermissionContextTests::PermissionResponse,
-                 base::Unretained(this), id));
+      base::BindOnce(&NfcPermissionContextTests::PermissionResponse,
+                     base::Unretained(this), id));
   content::RunAllTasksUntilIdle();
 }
 
 void NfcPermissionContextTests::PermissionResponse(
-    const PermissionRequestID& id,
+    const permissions::PermissionRequestID& id,
     ContentSetting content_setting) {
   responses_[id.render_process_id()] =
       std::make_pair(id.request_id(), content_setting == CONTENT_SETTING_ALLOW);
@@ -110,16 +115,19 @@ void NfcPermissionContextTests::CheckPermissionMessageSentInternal(
 void NfcPermissionContextTests::SetUp() {
   ChromeRenderViewHostTestHarness::SetUp();
 
-  TabSpecificContentSettings::CreateForWebContents(web_contents());
+  content_settings::PageSpecificContentSettings::CreateForWebContents(
+      web_contents(),
+      std::make_unique<chrome::PageSpecificContentSettingsDelegate>(
+          web_contents()));
   nfc_permission_context_ = static_cast<NfcPermissionContext*>(
-      PermissionManager::Get(profile())->GetPermissionContext(
-          ContentSettingsType::NFC));
+      PermissionManagerFactory::GetForProfile(profile())
+          ->GetPermissionContextForTesting(ContentSettingsType::NFC));
   SetupRequestManager(web_contents());
 
 #if defined(OS_ANDROID)
   static_cast<NfcPermissionContextAndroid*>(nfc_permission_context_)
       ->set_nfc_system_level_setting_for_testing(
-          std::unique_ptr<NfcSystemLevelSetting>(
+          std::unique_ptr<permissions::NfcSystemLevelSetting>(
               new MockNfcSystemLevelSetting()));
   MockNfcSystemLevelSetting::SetNfcSystemLevelSettingEnabled(true);
   MockNfcSystemLevelSetting::SetNfcAccessIsPossible(true);
@@ -135,13 +143,13 @@ void NfcPermissionContextTests::TearDown() {
 void NfcPermissionContextTests::SetupRequestManager(
     content::WebContents* web_contents) {
   // Create PermissionRequestManager.
-  PermissionRequestManager::CreateForWebContents(web_contents);
-  PermissionRequestManager* permission_request_manager =
-      PermissionRequestManager::FromWebContents(web_contents);
+  permissions::PermissionRequestManager::CreateForWebContents(web_contents);
+  permissions::PermissionRequestManager* permission_request_manager =
+      permissions::PermissionRequestManager::FromWebContents(web_contents);
 
   // Create a MockPermissionPromptFactory for the PermissionRequestManager.
   mock_permission_prompt_factories_.push_back(
-      std::make_unique<MockPermissionPromptFactory>(
+      std::make_unique<permissions::MockPermissionPromptFactory>(
           permission_request_manager));
 }
 
@@ -152,7 +160,7 @@ void NfcPermissionContextTests::RequestManagerDocumentLoadCompleted() {
 
 void NfcPermissionContextTests::RequestManagerDocumentLoadCompleted(
     content::WebContents* web_contents) {
-  PermissionRequestManager::FromWebContents(web_contents)
+  permissions::PermissionRequestManager::FromWebContents(web_contents)
       ->DocumentOnLoadCompletedInMainFrame();
 }
 
@@ -179,34 +187,33 @@ bool NfcPermissionContextTests::HasActivePrompt() {
 
 bool NfcPermissionContextTests::HasActivePrompt(
     content::WebContents* web_contents) {
-  PermissionRequestManager* manager =
-      PermissionRequestManager::FromWebContents(web_contents);
+  permissions::PermissionRequestManager* manager =
+      permissions::PermissionRequestManager::FromWebContents(web_contents);
   return manager->IsRequestInProgress();
 }
 
 void NfcPermissionContextTests::AcceptPrompt() {
   return AcceptPrompt(web_contents());
-  base::RunLoop().RunUntilIdle();
 }
 
 void NfcPermissionContextTests::AcceptPrompt(
     content::WebContents* web_contents) {
-  PermissionRequestManager* manager =
-      PermissionRequestManager::FromWebContents(web_contents);
+  permissions::PermissionRequestManager* manager =
+      permissions::PermissionRequestManager::FromWebContents(web_contents);
   manager->Accept();
   base::RunLoop().RunUntilIdle();
 }
 
 void NfcPermissionContextTests::DenyPrompt() {
-  PermissionRequestManager* manager =
-      PermissionRequestManager::FromWebContents(web_contents());
+  permissions::PermissionRequestManager* manager =
+      permissions::PermissionRequestManager::FromWebContents(web_contents());
   manager->Deny();
   base::RunLoop().RunUntilIdle();
 }
 
 void NfcPermissionContextTests::ClosePrompt() {
-  PermissionRequestManager* manager =
-      PermissionRequestManager::FromWebContents(web_contents());
+  permissions::PermissionRequestManager* manager =
+      permissions::PermissionRequestManager::FromWebContents(web_contents());
   manager->Closing();
   base::RunLoop().RunUntilIdle();
 }

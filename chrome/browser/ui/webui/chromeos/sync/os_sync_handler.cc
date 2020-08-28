@@ -6,10 +6,11 @@
 
 #include "base/auto_reset.h"
 #include "base/bind.h"
-#include "base/logging.h"
+#include "base/check_op.h"
 #include "base/values.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/sync/profile_sync_service_factory.h"
+#include "chrome/browser/ui/webui/settings/chromeos/pref_names.h"
 #include "components/prefs/pref_service.h"
 #include "components/sync/base/pref_names.h"
 #include "components/sync/base/user_selectable_type.h"
@@ -45,6 +46,10 @@ void OSSyncHandler::RegisterMessages() {
       base::BindRepeating(&OSSyncHandler::HandleDidNavigateAwayFromOsSyncPage,
                           base::Unretained(this)));
   web_ui()->RegisterMessageCallback(
+      "OsSyncPrefsDispatch",
+      base::BindRepeating(&OSSyncHandler::HandleOsSyncPrefsDispatch,
+                          base::Unretained(this)));
+  web_ui()->RegisterMessageCallback(
       "SetOsSyncFeatureEnabled",
       base::BindRepeating(&OSSyncHandler::HandleSetOsSyncFeatureEnabled,
                           base::Unretained(this)));
@@ -68,13 +73,16 @@ void OSSyncHandler::OnStateChanged(syncer::SyncService* service) {
 }
 
 void OSSyncHandler::HandleDidNavigateToOsSyncPage(const base::ListValue* args) {
+  HandleOsSyncPrefsDispatch(args);
+}
+
+void OSSyncHandler::HandleOsSyncPrefsDispatch(const base::ListValue* args) {
   AllowJavascript();
 
   // Cache the feature enabled pref.
   SyncService* service = GetSyncService();
   if (service)
     feature_enabled_ = service->GetUserSettings()->IsOsSyncFeatureEnabled();
-
   PushSyncPrefs();
 }
 
@@ -99,7 +107,7 @@ void OSSyncHandler::HandleSetOsSyncDatatypes(const base::ListValue* args) {
   // Wallpaper sync status is stored directly to the profile's prefs.
   bool wallpaper_synced;
   CHECK(result->GetBoolean(kWallpaperEnabledKey, &wallpaper_synced));
-  profile_->GetPrefs()->SetBoolean(syncer::prefs::kSyncOsWallpaper,
+  profile_->GetPrefs()->SetBoolean(chromeos::settings::prefs::kSyncOsWallpaper,
                                    wallpaper_synced);
 
   // Start configuring the SyncService using the configuration passed to us from
@@ -171,10 +179,10 @@ void OSSyncHandler::PushSyncPrefs() {
 
   // Wallpaper sync status is fetched from prefs and is considered enabled if
   // all OS types are enabled; this mimics behavior of GetSelectedOsTypes().
-  args.SetBoolean(
-      kWallpaperEnabledKey,
-      user_settings->IsSyncAllOsTypesEnabled() ||
-          profile_->GetPrefs()->GetBoolean(syncer::prefs::kSyncOsWallpaper));
+  args.SetBoolean(kWallpaperEnabledKey,
+                  user_settings->IsSyncAllOsTypesEnabled() ||
+                      profile_->GetPrefs()->GetBoolean(
+                          chromeos::settings::prefs::kSyncOsWallpaper));
 
   FireWebUIListener("os-sync-prefs-changed", base::Value(feature_enabled_),
                     args);

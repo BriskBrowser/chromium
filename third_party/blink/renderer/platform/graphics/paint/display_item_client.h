@@ -14,6 +14,12 @@
 
 namespace blink {
 
+enum class RasterEffectOutset : uint8_t {
+  kNone,
+  kHalfPixel,
+  kWholePixel,
+};
+
 // The class for objects that can be associated with display items. A
 // DisplayItemClient object should live at least longer than the document cycle
 // in which its display items are created during painting. After the document
@@ -22,12 +28,14 @@ namespace blink {
 class PLATFORM_EXPORT DisplayItemClient {
  public:
   DisplayItemClient()
-      : paint_invalidation_reason_(PaintInvalidationReason::kJustCreated) {
+      : paint_invalidation_reason_(PaintInvalidationReason::kJustCreated),
+        is_in_paint_controller_before_finish_cycle_(false) {
 #if DCHECK_IS_ON()
     OnCreate();
 #endif
   }
   virtual ~DisplayItemClient() {
+    CHECK(!is_in_paint_controller_before_finish_cycle_);
 #if DCHECK_IS_ON()
     OnDestroy();
 #endif
@@ -48,16 +56,12 @@ class PLATFORM_EXPORT DisplayItemClient {
   // chunk client.
   virtual DOMNodeId OwnerNodeId() const { return kInvalidDOMNodeId; }
 
-  // The visual rect of this DisplayItemClient. For SPv1, it's in the object
-  // space of the object that owns the GraphicsLayer, i.e. offset by
-  // GraphicsLayer::OffsetFromLayoutObjectWithSubpixelAccumulation().
-  // It's in the space of the parent transform node.
-  virtual IntRect VisualRect() const = 0;
-
   // The outset will be used to inflate visual rect after the visual rect is
   // mapped into the space of the composited layer, for any special raster
   // effects that might expand the rastered pixel area.
-  virtual float VisualRectOutsetForRasterEffects() const { return 0; }
+  virtual RasterEffectOutset VisualRectOutsetForRasterEffects() const {
+    return RasterEffectOutset::kNone;
+  }
 
   // The rect that needs to be invalidated partially for rasterization in this
   // client. It's in the same coordinate space as VisualRect().
@@ -65,20 +69,6 @@ class PLATFORM_EXPORT DisplayItemClient {
 
   // Called by PaintController::FinishCycle() for all clients after painting.
   virtual void ClearPartialInvalidationVisualRect() const {}
-
-  // This is declared here instead of in LayoutObject for verifying the
-  // condition in DrawingRecorder.
-  // Returns true if the object itself will not generate any effective painted
-  // output no matter what size the object is. For example, this function can
-  // return false for an object whose size is currently 0x0 but would have
-  // effective painted output if it was set a non-empty size. It's used to skip
-  // unforced paint invalidation of LayoutObjects (which is when
-  // shouldDoFullPaintInvalidation is false, but mayNeedPaintInvalidation or
-  // childShouldCheckForPaintInvalidation is true) to avoid unnecessary paint
-  // invalidations of empty areas covered by such objects.
-  virtual bool PaintedOutputOfObjectHasNoEffectRegardlessOfSize() const {
-    return false;
-  }
 
   // Indicates that the client will paint display items different from the ones
   // cached by PaintController. However, PaintController allows a client to
@@ -119,6 +109,12 @@ class PLATFORM_EXPORT DisplayItemClient {
     return paint_invalidation_reason_ == PaintInvalidationReason::kNone;
   }
 
+  // This is used to track early deletion of DisplayItemClient after paint
+  // before PaintController::FinishCycle().
+  void SetIsInPaintControllerBeforeFinishCycle(bool b) const {
+    is_in_paint_controller_before_finish_cycle_ = b;
+  }
+
   String ToString() const;
 
  private:
@@ -135,7 +131,8 @@ class PLATFORM_EXPORT DisplayItemClient {
   void OnDestroy();
 #endif
 
-  mutable PaintInvalidationReason paint_invalidation_reason_;
+  mutable PaintInvalidationReason paint_invalidation_reason_ : 7;
+  mutable bool is_in_paint_controller_before_finish_cycle_ : 1;
 
   DISALLOW_COPY_AND_ASSIGN(DisplayItemClient);
 };

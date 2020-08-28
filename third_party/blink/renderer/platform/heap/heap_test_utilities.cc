@@ -11,10 +11,12 @@
 
 namespace blink {
 
+std::atomic_int IntegerObject::destructor_calls{0};
+
 // static
 void TestSupportingGC::PreciselyCollectGarbage(
     BlinkGC::SweepingType sweeping_type) {
-  ThreadState::Current()->CollectGarbage(
+  ThreadState::Current()->CollectGarbageForTesting(
       BlinkGC::CollectionType::kMajor, BlinkGC::kNoHeapPointersOnStack,
       BlinkGC::kAtomicMarking, sweeping_type,
       BlinkGC::GCReason::kForcedGCForTesting);
@@ -23,10 +25,15 @@ void TestSupportingGC::PreciselyCollectGarbage(
 // static
 void TestSupportingGC::ConservativelyCollectGarbage(
     BlinkGC::SweepingType sweeping_type) {
-  ThreadState::Current()->CollectGarbage(
+  ThreadState::Current()->CollectGarbageForTesting(
       BlinkGC::CollectionType::kMajor, BlinkGC::kHeapPointersOnStack,
       BlinkGC::kAtomicMarking, sweeping_type,
       BlinkGC::GCReason::kForcedGCForTesting);
+}
+
+TestSupportingGC::~TestSupportingGC() {
+  // Complete sweeping before |task_environment_| is destroyed.
+  CompleteSweepingIfNeeded();
 }
 
 void TestSupportingGC::ClearOutOldGarbage() {
@@ -76,7 +83,8 @@ bool IncrementalMarkingTestDriver::SingleConcurrentStep(
   CHECK(thread_state_->IsIncrementalMarking());
   if (thread_state_->GetGCState() ==
       ThreadState::kIncrementalMarkingStepScheduled) {
-    thread_state_->IncrementalMarkingStep(stack_state, base::TimeDelta());
+    thread_state_->SkipIncrementalMarkingForTesting();
+    thread_state_->IncrementalMarkingStep(stack_state);
     return true;
   }
   return false;

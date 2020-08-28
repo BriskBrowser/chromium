@@ -40,7 +40,6 @@ class ExceptionState;
 class CORE_EXPORT HTMLScriptElement final : public HTMLElement,
                                             public ScriptElementBase {
   DEFINE_WRAPPERTYPEINFO();
-  USING_GARBAGE_COLLECTED_MIXIN(HTMLScriptElement);
 
  public:
   HTMLScriptElement(Document&, const CreateElementFlags);
@@ -49,9 +48,11 @@ class CORE_EXPORT HTMLScriptElement final : public HTMLElement,
   const AttrNameToTrustedType& GetCheckedAttributeTypes() const override;
 
   void text(StringOrTrustedScript& result);
-  void setText(const StringOrTrustedScript&, ExceptionState&);
+  String text() { return TextFromChildren(); }
+  void setText(const String&);
   void setInnerText(const StringOrTrustedScript&, ExceptionState&) override;
   void setTextContent(const StringOrTrustedScript&, ExceptionState&) override;
+  void setTextContent(const String&) override;
 
   void setAsync(bool);
   bool async() const;
@@ -60,8 +61,9 @@ class CORE_EXPORT HTMLScriptElement final : public HTMLElement,
 
   bool IsScriptElement() const override { return true; }
   Document& GetDocument() const override;
+  ExecutionContext* GetExecutionContext() const override;
 
-  void Trace(Visitor*) override;
+  void Trace(Visitor*) const override;
 
   void FinishParsingChildren() override;
 
@@ -107,10 +109,13 @@ class CORE_EXPORT HTMLScriptElement final : public HTMLElement,
   void SetScriptElementForBinding(
       HTMLScriptElementOrSVGScriptElement&) override;
 
+  Type GetScriptElementType() override;
+
   Element& CloneWithoutAttributesAndChildren(Document&) const override;
 
   // https://w3c.github.io/webappsec-trusted-types/dist/spec/#script-scripttext
   ParkableString script_text_internal_slot_;
+  bool children_changed_by_api_;
 
   Member<ScriptLoader> loader_;
 };

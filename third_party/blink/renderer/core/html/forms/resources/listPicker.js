@@ -21,6 +21,9 @@ function initialize(args) {
   global.params = args;
   var main = $('main');
   main.innerHTML = '';
+  if (global.params.isFormControlsRefreshEnabled) {
+    document.body.classList.add('controls-refresh');
+  }
   global.picker = new ListPicker(main, args);
 }
 
@@ -37,7 +40,6 @@ function handleArgumentsTimeout() {
  */
 function ListPicker(element, config) {
   Picker.call(this, element, config);
-  window.pagePopupController.selectFontsFromOwnerDocument(document);
   this._selectElement = createElement('select');
   this._selectElement.size = 20;
   this._element.appendChild(this._selectElement);
@@ -97,12 +99,8 @@ ListPicker.prototype._handleWindowMessage = function(event) {
             window.updateData.anchorRectInScreen.width ||
         this._config.anchorRectInScreen.height !==
             window.updateData.anchorRectInScreen.height) {
-      // TODO(tkent): Don't fix window size here due to a bug of Aura or
-      // compositor. crbug.com/863770
-      if (!navigator.platform.startsWith('Win')) {
         this._config.anchorRectInScreen = window.updateData.anchorRectInScreen;
         this._fixWindowSize();
-      }
     }
   }
   delete window.updateData;
@@ -446,7 +444,8 @@ ListPicker.prototype._applyItemStyle = function(element, styleConfig) {
   style.color = styleConfig.color ? styleConfig.color : '';
   style.backgroundColor =
       styleConfig.backgroundColor ? styleConfig.backgroundColor : '';
-  style.fontSize = styleConfig.fontSize ? styleConfig.fontSize + 'px' : '';
+  style.fontSize =
+      styleConfig.fontSize !== undefined ? styleConfig.fontSize + 'px' : '';
   style.fontWeight = styleConfig.fontWeight ? styleConfig.fontWeight : '';
   style.fontFamily = styleConfig.fontFamily ?
       styleConfig.fontFamily.map(s => '"' + s + '"').join(',') :

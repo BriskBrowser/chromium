@@ -18,7 +18,7 @@ void RecordDownloadSource(ChromeDownloadSource source) {
 
 void RecordDangerousDownloadWarningShown(
     download::DownloadDangerType danger_type) {
-  UMA_HISTOGRAM_ENUMERATION("Download.DownloadWarningShown", danger_type,
+  UMA_HISTOGRAM_ENUMERATION("Download.ShowedDownloadWarning", danger_type,
                             download::DOWNLOAD_DANGER_TYPE_MAX);
 }
 
@@ -60,24 +60,24 @@ void RecordDownloadPathValidation(download::PathValidationResult result,
   }
 }
 
+void RecordDownloadCancelReason(DownloadCancelReason reason) {
+  UMA_HISTOGRAM_ENUMERATION("Download.CancelReason", reason);
+}
+
 void RecordDownloadShelfDragEvent(DownloadShelfDragEvent drag_event) {
   UMA_HISTOGRAM_ENUMERATION("Download.Shelf.DragEvent", drag_event,
                             DownloadShelfDragEvent::COUNT);
 }
 
-#if defined(OS_ANDROID)
-void RecordMediaParserEvent(MediaParserEvent event) {
-  UMA_HISTOGRAM_ENUMERATION("Download.MediaParser.Event", event,
-                            MediaParserEvent::kCount);
+#ifdef OS_ANDROID
+// Records whether the download dialog is shown to the user.
+void RecordDownloadPromptStatus(DownloadPromptStatus status) {
+  UMA_HISTOGRAM_ENUMERATION("MobileDownload.DownloadPromptStatus", status,
+                            DownloadPromptStatus::MAX_VALUE);
 }
 
-void RecordMediaMetadataEvent(MediaMetadataEvent event) {
-  UMA_HISTOGRAM_ENUMERATION("Download.MediaMetadata.Event", event,
-                            MediaMetadataEvent::kCount);
+void RecordDownloadLaterPromptStatus(DownloadLaterPromptStatus status) {
+  UMA_HISTOGRAM_ENUMERATION("MobileDownload.DownloadLaterPromptStatus", status);
 }
 
-void RecordVideoThumbnailEvent(VideoThumbnailEvent event) {
-  UMA_HISTOGRAM_ENUMERATION("Download.VideoThumbnail.Event", event,
-                            VideoThumbnailEvent::kCount);
-}
-#endif
+#endif  // OS_ANDROID

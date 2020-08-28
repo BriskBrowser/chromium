@@ -7,6 +7,7 @@
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/json/json_file_value_serializer.h"
+#include "base/logging.h"
 #include "base/path_service.h"
 #include "base/version.h"
 #include "build/build_config.h"
@@ -22,7 +23,7 @@ namespace component_updater {
 namespace {
 // File name of the Pepper Flash plugin on different platforms.
 const base::FilePath::CharType kDataPath[] =
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
 #if defined(ARCH_CPU_X86)
     FILE_PATH_LITERAL("components/flapper/mac");
 #elif defined(ARCH_CPU_X86_64)

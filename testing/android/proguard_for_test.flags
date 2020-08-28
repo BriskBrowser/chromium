@@ -33,7 +33,15 @@
 -if class * {
   @org.mockito.Mock ** *;
 }
--keep interface <2> {
+-keep class <2> {
+  <methods>;
+}
+
+# This is a workaround for b/147584922 - otherwise, R8 would generate a synthetic
+# abstract method for the subsclass FeedOfflineIndicator, which Mockito would not
+# mock.
+-keep,allowobfuscation @interface org.chromium.base.annotations.MockedInTests
+-keep @org.chromium.base.annotations.MockedInTests class * {
   <methods>;
 }
 

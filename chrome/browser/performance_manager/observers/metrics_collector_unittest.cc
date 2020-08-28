@@ -4,6 +4,7 @@
 
 #include "chrome/browser/performance_manager/observers/metrics_collector.h"
 
+#include "base/memory/ptr_util.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "build/build_config.h"
 #include "components/performance_manager/graph/frame_node_impl.h"
@@ -15,12 +16,15 @@
 
 namespace performance_manager {
 
-const char kResponsivenessMeasurement[] = "ResponsivenessMeasurement";
-const char kExpectedQueueingTime[] = "ExpectedTaskQueueingDuration";
 const base::TimeDelta kTestMetricsReportDelayTimeout =
     kMetricsReportDelayTimeout + base::TimeDelta::FromSeconds(1);
-const GURL kDummyUrl("http://www.example.org");
-const std::string kHtmlMimeType = "text/html";
+const char kHtmlMimeType[] = "text/html";
+
+// TODO(https://crbug.com/1042727): Fix test GURL scoping and remove this getter
+// function.
+GURL DummyUrl() {
+  return GURL("http://www.example.org");
+}
 
 // TODO(crbug.com/759905) Enable on Windows once this bug is fixed.
 #if defined(OS_WIN)
@@ -58,8 +62,8 @@ class MAYBE_MetricsCollectorTest : public GraphTestHarness {
 TEST_F(MAYBE_MetricsCollectorTest, FromBackgroundedToFirstTitleUpdatedUMA) {
   auto page_node = CreateNode<PageNodeImpl>();
 
-  page_node->OnMainFrameNavigationCommitted(false, base::TimeTicks::Now(),
-                                            kDummyID, kDummyUrl, kHtmlMimeType);
+  page_node->OnMainFrameNavigationCommitted(
+      false, base::TimeTicks::Now(), kDummyID, DummyUrl(), kHtmlMimeType);
   AdvanceClock(kTestMetricsReportDelayTimeout);
 
   page_node->SetIsVisible(true);
@@ -91,8 +95,8 @@ TEST_F(MAYBE_MetricsCollectorTest,
        FromBackgroundedToFirstTitleUpdatedUMA5MinutesTimeout) {
   auto page_node = CreateNode<PageNodeImpl>();
 
-  page_node->OnMainFrameNavigationCommitted(false, base::TimeTicks::Now(),
-                                            kDummyID, kDummyUrl, kHtmlMimeType);
+  page_node->OnMainFrameNavigationCommitted(
+      false, base::TimeTicks::Now(), kDummyID, DummyUrl(), kHtmlMimeType);
   page_node->SetIsVisible(false);
   page_node->OnTitleUpdated();
   // The page is within 5 minutes after main frame navigation was committed,
@@ -111,8 +115,8 @@ TEST_F(MAYBE_MetricsCollectorTest,
   auto page_node = CreateNode<PageNodeImpl>();
   auto frame_node = CreateFrameNodeAutoId(process_node.get(), page_node.get());
 
-  page_node->OnMainFrameNavigationCommitted(false, base::TimeTicks::Now(),
-                                            kDummyID, kDummyUrl, kHtmlMimeType);
+  page_node->OnMainFrameNavigationCommitted(
+      false, base::TimeTicks::Now(), kDummyID, DummyUrl(), kHtmlMimeType);
   AdvanceClock(kTestMetricsReportDelayTimeout);
 
   page_node->SetIsVisible(true);
@@ -147,8 +151,8 @@ TEST_F(
   auto page_node = CreateNode<PageNodeImpl>();
   auto frame_node = CreateFrameNodeAutoId(process_node.get(), page_node.get());
 
-  page_node->OnMainFrameNavigationCommitted(false, base::TimeTicks::Now(),
-                                            kDummyID, kDummyUrl, kHtmlMimeType);
+  page_node->OnMainFrameNavigationCommitted(
+      false, base::TimeTicks::Now(), kDummyID, DummyUrl(), kHtmlMimeType);
   page_node->SetIsVisible(false);
   frame_node->OnNonPersistentNotificationCreated();
   // The page is within 5 minutes after main frame navigation was committed,
@@ -164,8 +168,8 @@ TEST_F(
 TEST_F(MAYBE_MetricsCollectorTest, FromBackgroundedToFirstFaviconUpdatedUMA) {
   auto page_node = CreateNode<PageNodeImpl>();
 
-  page_node->OnMainFrameNavigationCommitted(false, base::TimeTicks::Now(),
-                                            kDummyID, kDummyUrl, kHtmlMimeType);
+  page_node->OnMainFrameNavigationCommitted(
+      false, base::TimeTicks::Now(), kDummyID, DummyUrl(), kHtmlMimeType);
   AdvanceClock(kTestMetricsReportDelayTimeout);
 
   page_node->SetIsVisible(true);
@@ -197,8 +201,8 @@ TEST_F(MAYBE_MetricsCollectorTest,
        FromBackgroundedToFirstFaviconUpdatedUMA5MinutesTimeout) {
   auto page_node = CreateNode<PageNodeImpl>();
 
-  page_node->OnMainFrameNavigationCommitted(false, base::TimeTicks::Now(),
-                                            kDummyID, kDummyUrl, kHtmlMimeType);
+  page_node->OnMainFrameNavigationCommitted(
+      false, base::TimeTicks::Now(), kDummyID, DummyUrl(), kHtmlMimeType);
   page_node->SetIsVisible(false);
   page_node->OnFaviconUpdated();
   // The page is within 5 minutes after main frame navigation was committed,
@@ -209,52 +213,6 @@ TEST_F(MAYBE_MetricsCollectorTest,
   page_node->OnFaviconUpdated();
   histogram_tester_.ExpectTotalCount(
       kTabFromBackgroundedToFirstFaviconUpdatedUMA, 1);
-}
-
-// Flaky test: https://crbug.com/833028
-TEST_F(MAYBE_MetricsCollectorTest, ResponsivenessMetric) {
-  auto process_node = CreateNode<ProcessNodeImpl>();
-  auto page_node = CreateNode<PageNodeImpl>();
-  auto frame_node = CreateFrameNodeAutoId(process_node.get(), page_node.get());
-
-  ukm::TestUkmRecorder ukm_recorder;
-  graph()->set_ukm_recorder(&ukm_recorder);
-
-  ukm::SourceId id = ukm_recorder.GetNewSourceID();
-  GURL url = GURL("https://google.com/foobar");
-  ukm_recorder.UpdateSourceURL(id, url);
-  page_node->SetUkmSourceId(id);
-  page_node->OnMainFrameNavigationCommitted(false, base::TimeTicks::Now(),
-                                            kDummyID, kDummyUrl, kHtmlMimeType);
-
-  for (int count = 1; count < kDefaultFrequencyUkmEQTReported; ++count) {
-    process_node->SetExpectedTaskQueueingDuration(
-        base::TimeDelta::FromMilliseconds(3));
-    EXPECT_EQ(0U, ukm_recorder.entries_count());
-    EXPECT_EQ(1U, ukm_recorder.sources_count());
-  }
-  process_node->SetExpectedTaskQueueingDuration(
-      base::TimeDelta::FromMilliseconds(4));
-  EXPECT_EQ(1U, ukm_recorder.sources_count());
-  EXPECT_EQ(1U, ukm_recorder.entries_count());
-  for (int count = 1; count < kDefaultFrequencyUkmEQTReported; ++count) {
-    process_node->SetExpectedTaskQueueingDuration(
-        base::TimeDelta::FromMilliseconds(3));
-    EXPECT_EQ(1U, ukm_recorder.entries_count());
-    EXPECT_EQ(1U, ukm_recorder.sources_count());
-  }
-  process_node->SetExpectedTaskQueueingDuration(
-      base::TimeDelta::FromMilliseconds(4));
-  EXPECT_EQ(1U, ukm_recorder.sources_count());
-  EXPECT_EQ(2U, ukm_recorder.entries_count());
-
-  const auto& entries =
-      ukm_recorder.GetEntriesByName(kResponsivenessMeasurement);
-  EXPECT_EQ(2U, entries.size());
-  for (const auto* entry : entries) {
-    ukm_recorder.ExpectEntrySourceHasUrl(entry, url);
-    ukm_recorder.ExpectEntryMetric(entry, kExpectedQueueingTime, 4);
-  }
 }
 
 }  // namespace performance_manager

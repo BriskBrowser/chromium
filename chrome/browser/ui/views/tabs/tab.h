@@ -10,7 +10,6 @@
 #include <string>
 
 #include "base/gtest_prod_util.h"
-#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/optional.h"
 #include "chrome/browser/ui/tabs/tab_renderer_data.h"
@@ -63,7 +62,13 @@ class Tab : public gfx::AnimationDelegate,
   static constexpr int kMinimumContentsWidthForCloseButtons = 68;
   static constexpr int kTouchMinimumContentsWidthForCloseButtons = 100;
 
+  // Sets whether hover cards should appear on mouse hover. Used in browser
+  // tests to prevent them from interfering with unrelated tests.
+  static void SetShowHoverCardOnMouseHoverForTesting(bool value);
+
   explicit Tab(TabController* controller);
+  Tab(const Tab&) = delete;
+  Tab& operator=(const Tab&) = delete;
   ~Tab() override;
 
   // gfx::AnimationDelegate:
@@ -80,6 +85,7 @@ class Tab : public gfx::AnimationDelegate,
   void Layout() override;
   const char* GetClassName() const override;
   bool OnKeyPressed(const ui::KeyEvent& event) override;
+  bool OnKeyReleased(const ui::KeyEvent& event) override;
   bool OnMousePressed(const ui::MouseEvent& event) override;
   bool OnMouseDragged(const ui::MouseEvent& event) override;
   void OnMouseReleased(const ui::MouseEvent& event) override;
@@ -165,6 +171,10 @@ class Tab : public gfx::AnimationDelegate,
   static base::string16 GetTooltipText(
       const base::string16& title,
       base::Optional<TabAlertState> alert_state);
+
+  // Returns an alert state to be shown among given alert states.
+  static base::Optional<TabAlertState> GetAlertStateToShow(
+      const std::vector<TabAlertState>& alert_states);
 
  private:
   class TabCloseButtonObserver;
@@ -267,9 +277,7 @@ class Tab : public gfx::AnimationDelegate,
   std::unique_ptr<TabCloseButtonObserver> tab_close_button_observer_;
 
   // Focus ring for accessibility.
-  std::unique_ptr<views::FocusRing> focus_ring_;
-
-  DISALLOW_COPY_AND_ASSIGN(Tab);
+  views::FocusRing* focus_ring_;
 };
 
 #endif  // CHROME_BROWSER_UI_VIEWS_TABS_TAB_H_

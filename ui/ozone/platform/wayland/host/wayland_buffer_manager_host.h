@@ -29,7 +29,9 @@
 namespace ui {
 
 class WaylandConnection;
+class WaylandSubsurface;
 class WaylandWindow;
+class WaylandSurface;
 
 // This is an internal helper representation of a wayland buffer object, which
 // the GPU process creates when CreateBuffer is called. It's used for
@@ -65,14 +67,6 @@ struct WaylandBuffer {
   // surface can tell the gpu about successful swap.
   bool released = true;
 
-  // In some cases, a presentation feedback can come earlier than we fire a
-  // submission callback. Thus, instead of sending it immediately to the GPU
-  // process, we store it and fire as soon as the submission callback is
-  // fired.
-  bool needs_send_feedback = false;
-
-  gfx::PresentationFeedback feedback;
-
   DISALLOW_COPY_AND_ASSIGN(WaylandBuffer);
 };
 
@@ -89,11 +83,18 @@ class WaylandBufferManagerHost : public ozone::mojom::WaylandBufferManagerHost,
   // WaylandWindowObserver implements:
   void OnWindowAdded(WaylandWindow* window) override;
   void OnWindowRemoved(WaylandWindow* window) override;
+  void OnWindowConfigured(WaylandWindow* window) override;
+  void OnSubsurfaceAdded(WaylandWindow* window,
+                         WaylandSubsurface* subsurface) override;
+  void OnSubsurfaceRemoved(WaylandWindow* window,
+                           WaylandSubsurface* subsurface) override;
 
   void SetTerminateGpuCallback(
       base::OnceCallback<void(std::string)> terminate_gpu_cb);
 
-  // Returns bound pointer to own mojo interface.
+  // Returns bound pointer to own mojo interface. If there were previous
+  // interface bindings, it will be unbound and the state of the
+  // |buffer_manager_| will be cleared.
   mojo::PendingRemote<ozone::mojom::WaylandBufferManagerHost> BindInterface();
 
   // Unbinds the interface and clears the state of the |buffer_manager_|. Used
@@ -117,7 +118,7 @@ class WaylandBufferManagerHost : public ozone::mojom::WaylandBufferManagerHost,
   // Called by the GPU and asks to import a wl_buffer based on a gbm file
   // descriptor using zwp_linux_dmabuf protocol. Check comments in the
   // ui/ozone/public/mojom/wayland/wayland_connection.mojom.
-  void CreateDmabufBasedBuffer(mojo::ScopedHandle dmabuf_fd,
+  void CreateDmabufBasedBuffer(mojo::PlatformHandle dmabuf_fd,
                                const gfx::Size& size,
                                const std::vector<uint32_t>& strides,
                                const std::vector<uint32_t>& offsets,
@@ -128,7 +129,7 @@ class WaylandBufferManagerHost : public ozone::mojom::WaylandBufferManagerHost,
   // Called by the GPU and asks to import a wl_buffer based on a shared memory
   // file descriptor using wl_shm protocol. Check comments in the
   // ui/ozone/public/mojom/wayland/wayland_connection.mojom.
-  void CreateShmBasedBuffer(mojo::ScopedHandle shm_fd,
+  void CreateShmBasedBuffer(mojo::PlatformHandle shm_fd,
                             uint64_t length,
                             const gfx::Size& size,
                             uint32_t buffer_id) override;
@@ -142,25 +143,39 @@ class WaylandBufferManagerHost : public ozone::mojom::WaylandBufferManagerHost,
   void CommitBuffer(gfx::AcceleratedWidget widget,
                     uint32_t buffer_id,
                     const gfx::Rect& damage_region) override;
+  // Called by the GPU and asks to configure the surface/subsurfaces and attach
+  // wl_buffers to WaylandWindow with the specified |widget|. Calls OnSubmission
+  // and OnPresentation on successful swap and pixels presented.
+  void CommitOverlays(
+      gfx::AcceleratedWidget widget,
+      std::vector<ui::ozone::mojom::WaylandOverlayConfigPtr> overlays) override;
+
+  // Called by the WaylandWindow and asks to attach a wl_buffer with a
+  // |buffer_id| to a WaylandSurface.
+  // Calls OnSubmission and OnPresentation on successful swap and pixels
+  // presented.
+  bool CommitBufferInternal(WaylandSurface* wayland_surface,
+                            uint32_t buffer_id,
+                            const gfx::Rect& damage_region);
 
   // When a surface is hidden, the client may want to detach the buffer attached
-  // to the surface backed by |widget| to ensure Wayland does not present those
-  // contents and do not composite in a wrong way. Otherwise, users may see the
-  // contents of a hidden surface on their screens.
-  void ResetSurfaceContents(gfx::AcceleratedWidget widget);
+  // to the surface to ensure Wayland does not present those contents and do not
+  // composite in a wrong way. Otherwise, users may see the contents of a hidden
+  // surface on their screens.
+  void ResetSurfaceContents(WaylandSurface* wayland_surface);
 
   // Returns the anonymously created WaylandBuffer.
   std::unique_ptr<WaylandBuffer> PassAnonymousWlBuffer(uint32_t buffer_id);
 
  private:
   // This is an internal representation of a real surface, which holds a pointer
-  // to WaylandWindow. Also, this object holds buffers, frame callbacks and
-  // presentation callbacks for that window's surface.
+  // to WaylandSurface. Also, this object holds buffers, frame callbacks and
+  // presentation callbacks for that surface.
   class Surface;
 
   bool CreateBuffer(const gfx::Size& size, uint32_t buffer_id);
 
-  Surface* GetSurface(gfx::AcceleratedWidget widget) const;
+  Surface* GetSurface(WaylandSurface* wayland_surface) const;
 
   // Validates data sent from GPU. If invalid, returns false and sets an error
   // message to |error_message_|.
@@ -197,7 +212,14 @@ class WaylandBufferManagerHost : public ozone::mojom::WaylandBufferManagerHost,
 
   bool DestroyAnonymousBuffer(uint32_t buffer_id);
 
-  base::flat_map<gfx::AcceleratedWidget, std::unique_ptr<Surface>> surfaces_;
+  base::flat_map<WaylandSurface*, std::unique_ptr<Surface>> surfaces_;
+
+  // When a WaylandWindow/WaylandSubsurface is removed, its corresponding
+  // Surface may still have an un-released buffer and un-acked presentation.
+  // Thus, we keep removed surfaces in the graveyard. It's safe to delete them
+  // when all of the Surface's buffers are destroyed because buffer destruction
+  // is deferred till after buffers are released and presentations are acked.
+  std::list<std::unique_ptr<Surface>> surface_graveyard_;
 
   // Set when invalid data is received from the GPU process.
   std::string error_message_;

@@ -9,6 +9,7 @@
 
 #include "base/component_export.h"
 #include "base/files/file_path.h"
+#include "base/memory/ptr_util.h"
 #include "base/sequenced_task_runner.h"
 #include "components/keyed_service/core/keyed_service.h"
 #include "components/leveldb_proto/internal/proto_database_impl.h"
@@ -44,7 +45,8 @@ class COMPONENT_EXPORT(LEVELDB_PROTO) ProtoDatabaseProvider {
 
   // Do not create this directly, instead retrieve from StoragePartition (or
   // BrowserState in iOS) to ensure there's only one per context.
-  ProtoDatabaseProvider(const base::FilePath& profile_dir);
+  explicit ProtoDatabaseProvider(const base::FilePath& profile_dir,
+                                 bool is_in_memory = false);
 
   // |db_type|: Each database should have a type specified in ProtoDbType enum.
   // This type is used to index data in the shared database. |unique_db_dir|:
@@ -72,6 +74,7 @@ class COMPONENT_EXPORT(LEVELDB_PROTO) ProtoDatabaseProvider {
       scoped_refptr<base::SequencedTaskRunner> callback_task_runner);
 
   base::FilePath profile_dir_;
+  const bool is_in_memory_;
   scoped_refptr<SharedProtoDatabase> db_;
   base::Lock get_db_lock_;
 
@@ -90,6 +93,10 @@ std::unique_ptr<ProtoDatabase<P, T>> ProtoDatabaseProvider::GetDB(
     ProtoDbType db_type,
     const base::FilePath& unique_db_dir,
     const scoped_refptr<base::SequencedTaskRunner>& task_runner) {
+  if (is_in_memory_) {
+    DLOG(ERROR) << "In memory database cannot use the given database directory";
+    return GetUniqueDB<P, T>(db_type, base::FilePath(), task_runner);
+  }
   return std::make_unique<ProtoDatabaseImpl<P, T>>(
       db_type, unique_db_dir, task_runner,
       base::WrapUnique(new SharedProtoDatabaseProvider(

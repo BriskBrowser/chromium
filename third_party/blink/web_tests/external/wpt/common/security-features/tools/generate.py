@@ -3,6 +3,7 @@
 from __future__ import print_function
 
 import argparse
+import collections
 import copy
 import json
 import os
@@ -53,11 +54,7 @@ def permute_expansion(expansion,
 
 
 # Dumps the test config `selection` into a serialized JSON string.
-# We omit `name` parameter because it is not used by tests.
 def dump_test_parameters(selection):
-    selection = dict(selection)
-    del selection['name']
-
     return json.dumps(
         selection,
         indent=2,
@@ -130,9 +127,11 @@ def handle_deliveries(policy_deliveries):
     return {"meta": meta, "headers": headers}
 
 
-def generate_selection(spec_directory, spec_json, selection, spec,
-                       test_html_template_basename):
-    test_filename = get_test_filename(spec_directory, spec_json, selection)
+def generate_selection(spec_json, selection):
+    '''
+    Returns a scenario object (with a top-level source_context_list entry,
+    which will be removed in generate_test_file() later).
+    '''
 
     target_policy_delivery = util.PolicyDelivery(selection['delivery_type'],
                                                  selection['delivery_key'],
@@ -167,30 +166,56 @@ def generate_selection(spec_directory, spec_json, selection, spec,
             target_policy_delivery, spec_json['subresource_schema']
             ['supported_delivery_type'][selection['subresource']])
 
+    # Generate per-scenario test description.
+    selection['test_description'] = spec_json[
+        'test_description_template'] % selection
+
+    return selection
+
+
+def generate_test_file(spec_directory, test_helper_filenames,
+                       test_html_template_basename, test_filename, scenarios):
+    '''
+    Generates a test HTML file (and possibly its associated .headers file)
+    from `scenarios`.
+    '''
+
+    # Scenarios for the same file should have the same `source_context_list`,
+    # including the top-level one.
+    # Note: currently, non-top-level source contexts aren't necessarily required
+    # to be the same, but we set this requirement as it will be useful e.g. when
+    # we e.g. reuse a worker among multiple scenarios.
+    for scenario in scenarios:
+        assert (scenario['source_context_list'] == scenarios[0]
+                ['source_context_list'])
+
     # We process the top source context below, and do not include it in
-    # `scenario` field in JavaScript.
-    top_source_context = selection['source_context_list'].pop(0)
+    # the JSON objects (i.e. `scenarios`) in generated HTML files.
+    top_source_context = scenarios[0]['source_context_list'].pop(0)
     assert (top_source_context.source_context_type == 'top')
+    for scenario in scenarios[1:]:
+        assert (scenario['source_context_list'].pop(0) == top_source_context)
 
-    # Adjust the template for the test invoking JS. Indent it to look nice.
-    indent = "\n" + " " * 8
-    selection['scenario'] = dump_test_parameters(selection).replace(
-        "\n", indent)
+    parameters = {}
 
-    selection['spec_name'] = spec['name']
-    selection['test_page_title'] = spec_json['test_page_title_template'] % spec
-    selection['spec_description'] = spec['description']
-    selection['spec_specification_url'] = spec['specification_url']
+    # Sort scenarios, to avoid unnecessary diffs due to different orders in
+    # `scenarios`.
+    serialized_scenarios = sorted(
+        [dump_test_parameters(scenario) for scenario in scenarios])
+
+    parameters['scenarios'] = ",\n".join(serialized_scenarios).replace(
+        "\n", "\n" + " " * 10)
 
     test_directory = os.path.dirname(test_filename)
 
-    selection['helper_js'] = os.path.relpath(
-        os.path.join(spec_directory, 'generic', 'test-case.sub.js'),
-        test_directory)
-    selection['sanity_checker_js'] = os.path.relpath(
+    parameters['helper_js'] = ""
+    for test_helper_filename in test_helper_filenames:
+        parameters['helper_js'] += '    <script src="%s"></script>\n' % (
+            os.path.relpath(test_helper_filename, test_directory))
+    parameters['sanity_checker_js'] = os.path.relpath(
         os.path.join(spec_directory, 'generic', 'sanity-checker.js'),
         test_directory)
-    selection['spec_json_js'] = os.path.relpath(
+    parameters['spec_json_js'] = os.path.relpath(
         os.path.join(spec_directory, 'generic', 'spec_json.js'),
         test_directory)
 
@@ -208,11 +233,7 @@ def generate_selection(spec_directory, spec_json, selection, spec,
                                              util.test_root_directory)}
 
     # Adjust the template for the test invoking JS. Indent it to look nice.
-    selection['generated_disclaimer'] = generated_disclaimer.rstrip()
-    selection['test_description'] = spec_json[
-        'test_description_template'] % selection
-    selection['test_description'] = \
-        selection['test_description'].rstrip().replace("\n", "\n" + " " * 33)
+    parameters['generated_disclaimer'] = generated_disclaimer.rstrip()
 
     # Directory for the test files.
     try:
@@ -227,42 +248,54 @@ def generate_selection(spec_directory, spec_json, selection, spec,
             for header in delivery['headers']:
                 f.write('%s: %s\n' % (header, delivery['headers'][header]))
 
-    selection['meta_delivery_method'] = delivery['meta']
+    parameters['meta_delivery_method'] = delivery['meta']
     # Obey the lint and pretty format.
-    if len(selection['meta_delivery_method']) > 0:
-        selection['meta_delivery_method'] = "\n    " + \
-                                            selection['meta_delivery_method']
+    if len(parameters['meta_delivery_method']) > 0:
+        parameters['meta_delivery_method'] = "\n    " + \
+                                            parameters['meta_delivery_method']
 
     # Write out the generated HTML file.
-    util.write_file(test_filename, test_html_template % selection)
+    util.write_file(test_filename, test_html_template % parameters)
 
 
-def generate_test_source_files(spec_directory, spec_json, target):
+def generate_test_source_files(spec_directory, test_helper_filenames,
+                               spec_json, target):
     test_expansion_schema = spec_json['test_expansion_schema']
     specification = spec_json['specification']
 
-    spec_json_js_template = util.get_template('spec_json.js.template')
-    generated_spec_json_filename = os.path.join(spec_directory, "generic",
-                                                "spec_json.js")
-    util.write_file(
-        generated_spec_json_filename,
-        spec_json_js_template % {'spec_json': json.dumps(spec_json)})
+    if target == "debug":
+        spec_json_js_template = util.get_template('spec_json.js.template')
+        util.write_file(
+            os.path.join(spec_directory, "generic", "spec_json.js"),
+            spec_json_js_template % {'spec_json': json.dumps(spec_json)})
+        util.write_file(
+            os.path.join(spec_directory, "generic",
+                         "debug-output.spec.src.json"),
+            json.dumps(spec_json, indent=2, separators=(',', ': ')))
 
     # Choose a debug/release template depending on the target.
     html_template = "test.%s.html.template" % target
 
-    artifact_order = test_expansion_schema.keys() + ['name']
+    artifact_order = test_expansion_schema.keys()
     artifact_order.remove('expansion')
 
+    excluded_selection_pattern = ''
+    for key in artifact_order:
+        excluded_selection_pattern += '%(' + key + ')s/'
+
     # Create list of excluded tests.
-    exclusion_dict = {}
+    exclusion_dict = set()
     for excluded_pattern in spec_json['excluded_tests']:
         excluded_expansion = \
             expand_pattern(excluded_pattern, test_expansion_schema)
         for excluded_selection in permute_expansion(excluded_expansion,
                                                     artifact_order):
             excluded_selection['delivery_key'] = spec_json['delivery_key']
-            exclusion_dict[dump_test_parameters(excluded_selection)] = True
+            exclusion_dict.add(excluded_selection_pattern % excluded_selection)
+
+    # `scenarios[filename]` represents the list of scenario objects to be
+    # generated into `filename`.
+    scenarios = {}
 
     for spec in specification:
         # Used to make entries with expansion="override" override preceding
@@ -277,23 +310,45 @@ def generate_test_source_files(spec_directory, spec_json, target):
                 selection_path = spec_json['selection_pattern'] % selection
                 if selection_path in output_dict:
                     if expansion_pattern['expansion'] != 'override':
-                        print(
-                            "Error: %s's expansion is default but overrides %s"
-                            % (selection['name'],
-                               output_dict[selection_path]['name']))
+                        print("Error: expansion is default in:")
+                        print(dump_test_parameters(selection))
+                        print("but overrides:")
+                        print(dump_test_parameters(
+                            output_dict[selection_path]))
                         sys.exit(1)
                 output_dict[selection_path] = copy.deepcopy(selection)
 
         for selection_path in output_dict:
             selection = output_dict[selection_path]
-            if dump_test_parameters(selection) in exclusion_dict:
+            if (excluded_selection_pattern % selection) in exclusion_dict:
                 print('Excluding selection:', selection_path)
                 continue
             try:
-                generate_selection(spec_directory, spec_json, selection, spec,
-                                   html_template)
+                test_filename = get_test_filename(spec_directory, spec_json,
+                                                  selection)
+                scenario = generate_selection(spec_json, selection)
+                scenarios[test_filename] = scenarios.get(test_filename,
+                                                         []) + [scenario]
             except util.ShouldSkip:
                 continue
+
+    for filename in scenarios:
+        generate_test_file(spec_directory, test_helper_filenames,
+                           html_template, filename, scenarios[filename])
+
+
+def merge_json(base, child):
+    for key in child:
+        if key not in base:
+            base[key] = child[key]
+            continue
+        # `base[key]` and `child[key]` both exists.
+        if isinstance(base[key], list) and isinstance(child[key], list):
+            base[key].extend(child[key])
+        elif isinstance(base[key], dict) and isinstance(child[key], dict):
+            merge_json(base[key], child[key])
+        else:
+            base[key] = child[key]
 
 
 def main():
@@ -317,11 +372,45 @@ def main():
 
     spec_directory = os.path.abspath(args.spec)
 
-    spec_filename = os.path.join(spec_directory, "spec.src.json")
-    spec_json = util.load_spec_json(spec_filename)
-    spec_validator.assert_valid_spec_json(spec_json)
+    # Read `spec.src.json` files, starting from `spec_directory`, and
+    # continuing to parent directories as long as `spec.src.json` exists.
+    spec_filenames = []
+    test_helper_filenames = []
+    spec_src_directory = spec_directory
+    while len(spec_src_directory) >= len(util.test_root_directory):
+        spec_filename = os.path.join(spec_src_directory, "spec.src.json")
+        if not os.path.exists(spec_filename):
+            break
+        spec_filenames.append(spec_filename)
+        test_filename = os.path.join(spec_src_directory, 'generic',
+                                     'test-case.sub.js')
+        assert (os.path.exists(test_filename))
+        test_helper_filenames.append(test_filename)
+        spec_src_directory = os.path.abspath(
+            os.path.join(spec_src_directory, ".."))
 
-    generate_test_source_files(spec_directory, spec_json, args.target)
+    spec_filenames = list(reversed(spec_filenames))
+    test_helper_filenames = list(reversed(test_helper_filenames))
+
+    if len(spec_filenames) == 0:
+        print('Error: No spec.src.json is found at %s.' % spec_directory)
+        return
+
+    # Load the default spec JSON file, ...
+    default_spec_filename = os.path.join(util.script_directory,
+                                         'spec.src.json')
+    spec_json = collections.OrderedDict()
+    if os.path.exists(default_spec_filename):
+        spec_json = util.load_spec_json(default_spec_filename)
+
+    # ... and then make spec JSON files in subdirectories override the default.
+    for spec_filename in spec_filenames:
+        child_spec_json = util.load_spec_json(spec_filename)
+        merge_json(spec_json, child_spec_json)
+
+    spec_validator.assert_valid_spec_json(spec_json)
+    generate_test_source_files(spec_directory, test_helper_filenames,
+                               spec_json, args.target)
 
 
 if __name__ == '__main__':

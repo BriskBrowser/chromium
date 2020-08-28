@@ -5,6 +5,7 @@
 #include "chrome/browser/ui/ash/launcher/chrome_launcher_controller.h"
 
 #include <stddef.h>
+#include <memory>
 
 #include "ash/public/cpp/app_list/app_list_features.h"
 #include "ash/public/cpp/app_list/app_list_switches.h"
@@ -16,18 +17,20 @@
 #include "ash/public/cpp/tablet_mode.h"
 #include "ash/public/cpp/window_properties.h"
 #include "ash/root_window_controller.h"
-#include "ash/shelf/overflow_button.h"
 #include "ash/shelf/shelf.h"
 #include "ash/shelf/shelf_app_button.h"
 #include "ash/shelf/shelf_layout_manager.h"
+#include "ash/shelf/shelf_menu_model_adapter.h"
 #include "ash/shelf/shelf_view.h"
 #include "ash/shelf/shelf_view_test_api.h"
 #include "ash/shelf/shelf_widget.h"
+#include "ash/shelf/test/widget_animation_waiter.h"
 #include "ash/shell.h"
 #include "ash/wm/desks/desk.h"
 #include "ash/wm/desks/desks_controller.h"
 #include "ash/wm/desks/desks_test_util.h"
 #include "ash/wm/tablet_mode/tablet_mode_controller.h"
+#include "base/bind.h"
 #include "base/macros.h"
 #include "base/run_loop.h"
 #include "base/strings/stringprintf.h"
@@ -36,20 +39,26 @@
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/scoped_feature_list.h"
 #include "chrome/app/chrome_command_ids.h"
+#include "chrome/browser/apps/app_service/app_launch_params.h"
 #include "chrome/browser/apps/app_service/app_service_proxy.h"
 #include "chrome/browser/apps/app_service/app_service_proxy_factory.h"
-#include "chrome/browser/apps/launch_service/launch_service.h"
+#include "chrome/browser/apps/app_service/app_service_test.h"
+#include "chrome/browser/apps/app_service/browser_app_launcher.h"
+#include "chrome/browser/apps/app_service/launch_utils.h"
 #include "chrome/browser/apps/platform_apps/app_browsertest_util.h"
 #include "chrome/browser/chromeos/accessibility/accessibility_manager.h"
 #include "chrome/browser/chromeos/accessibility/speech_monitor.h"
+#include "chrome/browser/chromeos/file_manager/file_manager_test_util.h"
 #include "chrome/browser/chromeos/login/demo_mode/demo_session.h"
 #include "chrome/browser/extensions/extension_apitest.h"
 #include "chrome/browser/extensions/extension_browsertest.h"
 #include "chrome/browser/extensions/extension_function_test_utils.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/launch_util.h"
+#include "chrome/browser/extensions/menu_manager.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/app_list/app_list_controller_delegate.h"
+#include "chrome/browser/ui/ash/chrome_launcher_prefs.h"
 #include "chrome/browser/ui/ash/launcher/browser_shortcut_launcher_item_controller.h"
 #include "chrome/browser/ui/ash/launcher/chrome_launcher_controller_test_util.h"
 #include "chrome/browser/ui/ash/launcher/chrome_launcher_controller_util.h"
@@ -67,43 +76,61 @@
 #include "chrome/browser/ui/test/test_app_window_icon_observer.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
 #include "chrome/browser/ui/web_applications/app_browser_controller.h"
+#include "chrome/browser/ui/web_applications/test/web_app_browsertest_util.h"
+#include "chrome/browser/web_applications/components/app_registry_controller.h"
+#include "chrome/browser/web_applications/components/app_shortcut_manager.h"
+#include "chrome/browser/web_applications/components/externally_installed_web_app_prefs.h"
+#include "chrome/browser/web_applications/components/web_app_constants.h"
 #include "chrome/browser/web_applications/components/web_app_helpers.h"
+#include "chrome/browser/web_applications/components/web_app_id.h"
+#include "chrome/browser/web_applications/components/web_app_provider_base.h"
+#include "chrome/browser/web_applications/os_integration_manager.h"
 #include "chrome/browser/web_applications/system_web_app_manager.h"
 #include "chrome/browser/web_applications/test/web_app_install_observer.h"
+#include "chrome/browser/web_applications/test/web_app_test.h"
 #include "chrome/browser/web_applications/web_app_provider.h"
 #include "chrome/common/chrome_features.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/extensions/manifest_handlers/app_launch_info.h"
+#include "chrome/common/pref_names.h"
+#include "chrome/common/web_application_info.h"
 #include "chrome/test/base/ui_test_utils.h"
 #include "chromeos/constants/chromeos_features.h"
 #include "components/crx_file/id_util.h"
 #include "content/public/browser/web_contents.h"
+#include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
+#include "content/public/test/content_mock_cert_verifier.h"
 #include "extensions/browser/app_window/app_window.h"
 #include "extensions/browser/app_window/app_window_registry.h"
 #include "extensions/browser/app_window/native_app_window.h"
 #include "extensions/browser/extension_prefs.h"
+#include "extensions/browser/extension_registry_factory.h"
 #include "extensions/browser/extension_system.h"
 #include "extensions/common/constants.h"
 #include "extensions/common/switches.h"
 #include "extensions/test/extension_test_message_listener.h"
+#include "net/dns/mock_host_resolver.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/aura/client/aura_constants.h"
 #include "ui/aura/window.h"
 #include "ui/base/base_window.h"
 #include "ui/base/window_open_disposition.h"
+#include "ui/compositor/layer_animation_observer.h"
 #include "ui/display/display.h"
 #include "ui/display/manager/display_manager.h"
 #include "ui/display/screen.h"
 #include "ui/display/test/display_manager_test_api.h"
 #include "ui/events/event.h"
-#include "ui/events/event_constants.h"
 #include "ui/events/test/event_generator.h"
+#include "ui/events/types/event_type.h"
+#include "ui/views/controls/menu/menu_item_view.h"
 
 using ash::Shelf;
+using content::WebContents;
 using extensions::AppWindow;
 using extensions::Extension;
-using content::WebContents;
+using web_app::WebAppProviderBase;
 
 namespace {
 
@@ -168,9 +195,19 @@ void ExtendHotseat(Browser* browser) {
   // Swipe up for a small distance to bring up the hotseat.
   gfx::Point end_point(start_point.x(), start_point.y() - 80);
 
+  ash::ShelfView* shelf_view = controller->shelf()->GetShelfViewForTesting();
+
+  // Observe hotseat animation before animation starts. Because
+  // ash::WidgetAnimationWaiter only reacts to completion of the animation whose
+  // animation scheduling is recorded in ash::WidgetAnimationWaiter.
+  ash::WidgetAnimationWaiter waiter(shelf_view->GetWidget());
+
   ui::test::EventGenerator event_generator(controller->GetRootWindow());
   event_generator.GestureScrollSequence(
       start_point, end_point, base::TimeDelta::FromMilliseconds(500), 4);
+
+  // Wait until hotseat bounds animation completes.
+  waiter.WaitForAnimation();
 
   EXPECT_EQ(ash::HotseatState::kExtended,
             controller->shelf()->shelf_layout_manager()->hotseat_state());
@@ -189,6 +226,7 @@ class LauncherPlatformAppBrowserTest
     controller_ = ChromeLauncherController::instance();
     ASSERT_TRUE(controller_);
     extensions::PlatformAppBrowserTest::SetUpOnMainThread();
+    app_service_test_.SetUp(browser()->profile());
   }
 
   ash::ShelfModel* shelf_model() { return controller_->shelf_model(); }
@@ -207,9 +245,13 @@ class LauncherPlatformAppBrowserTest
     return shelf_model()->GetShelfItemDelegate(id);
   }
 
+  apps::AppServiceTest& app_service_test() { return app_service_test_; }
+
   ChromeLauncherController* controller_;
 
  private:
+  apps::AppServiceTest app_service_test_;
+
   DISALLOW_COPY_AND_ASSIGN(LauncherPlatformAppBrowserTest);
 };
 
@@ -219,7 +261,7 @@ class ShelfAppBrowserTest : public extensions::ExtensionBrowserTest {
 
   ~ShelfAppBrowserTest() override {}
 
-  ash::ShelfModel* shelf_model() { return controller_->shelf_model(); }
+  ash::ShelfModel* shelf_model() const { return controller_->shelf_model(); }
 
   void SetUpOnMainThread() override {
     controller_ = ChromeLauncherController::instance();
@@ -231,22 +273,26 @@ class ShelfAppBrowserTest : public extensions::ExtensionBrowserTest {
     ash::ShelfItemDelegate* item_controller =
         controller_->GetBrowserShortcutLauncherItemController();
     return item_controller
-        ->GetAppMenuItems(show_all_tabs ? ui::EF_SHIFT_DOWN : 0)
+        ->GetAppMenuItems(show_all_tabs ? ui::EF_SHIFT_DOWN : 0,
+                          base::NullCallback())
         .size();
   }
 
   const Extension* LoadAndLaunchExtension(const char* name,
-                                          extensions::LaunchContainer container,
-                                          WindowOpenDisposition disposition) {
+                                          int32_t event_flags) {
     EXPECT_TRUE(LoadExtension(test_data_dir_.AppendASCII(name)));
 
     const Extension* extension = extension_registry()->GetExtensionById(
         last_loaded_extension_id(), extensions::ExtensionRegistry::ENABLED);
     EXPECT_TRUE(extension);
 
-    apps::LaunchService::Get(profile())->OpenApplication(
-        apps::AppLaunchParams(extension->id(), container, disposition,
-                              apps::mojom::AppLaunchSource::kSourceTest));
+    apps::AppServiceProxy* proxy =
+        apps::AppServiceProxyFactory::GetForProfile(profile());
+    proxy->FlushMojoCallsForTesting();
+    proxy->Launch(extension->id(), event_flags,
+                  apps::mojom::LaunchSource::kFromTest,
+                  display::Screen::GetScreen()->GetPrimaryDisplay().id());
+    proxy->FlushMojoCallsForTesting();
     return extension;
   }
 
@@ -271,7 +317,7 @@ class ShelfAppBrowserTest : public extensions::ExtensionBrowserTest {
 
 
   // Get the index of an item which has the given type.
-  int GetIndexOfShelfItemType(ash::ShelfItemType type) {
+  int GetIndexOfShelfItemType(ash::ShelfItemType type) const {
     return shelf_model()->GetItemIndexForType(type);
   }
 
@@ -302,9 +348,6 @@ class ShelfAppBrowserTest : public extensions::ExtensionBrowserTest {
 
   // Flush mojo calls to allow async callbacks to run.
   void FlushMojoCallsForAppService() {
-    if (!base::FeatureList::IsEnabled(features::kAppServiceShelf)) {
-      return;
-    }
     apps::AppServiceProxy* proxy =
         apps::AppServiceProxyFactory::GetForProfile(profile());
     if (proxy) {
@@ -364,6 +407,74 @@ class ShelfAppBrowserTestNoDefaultBrowser : public ShelfAppBrowserTest {
 
  private:
   DISALLOW_COPY_AND_ASSIGN(ShelfAppBrowserTestNoDefaultBrowser);
+};
+
+class ShelfWebAppBrowserTest
+    : public ShelfAppBrowserTest,
+      public ::testing::WithParamInterface<web_app::ProviderType> {
+ protected:
+  ShelfWebAppBrowserTest()
+      : https_server_(net::EmbeddedTestServer::TYPE_HTTPS) {
+    if (GetParam() == web_app::ProviderType::kWebApps) {
+      scoped_feature_list_.InitAndEnableFeature(
+          features::kDesktopPWAsWithoutExtensions);
+    } else if (GetParam() == web_app::ProviderType::kBookmarkApps) {
+      scoped_feature_list_.InitAndDisableFeature(
+          features::kDesktopPWAsWithoutExtensions);
+    }
+  }
+
+  ~ShelfWebAppBrowserTest() override = default;
+
+  web_app::ProviderType provider_type() const { return GetParam(); }
+
+  net::EmbeddedTestServer* https_server() { return &https_server_; }
+
+  GURL GetSecureAppURL() {
+    return https_server()->GetURL("app.com", "/ssl/google.html");
+  }
+
+  web_app::AppId InstallWebApp(const GURL& app_url) {
+    auto web_app_info = std::make_unique<WebApplicationInfo>();
+    web_app_info->app_url = app_url;
+    web_app_info->scope = app_url.GetWithoutFilename();
+    return web_app::InstallWebApp(browser()->profile(),
+                                  std::move(web_app_info));
+  }
+
+  // ShelfAppBrowserTest:
+  void SetUp() override {
+    https_server_.AddDefaultHandlers(GetChromeTestDataDir());
+    ShelfAppBrowserTest::SetUp();
+  }
+  void SetUpInProcessBrowserTestFixture() override {
+    ShelfAppBrowserTest::SetUpInProcessBrowserTestFixture();
+    cert_verifier_.SetUpInProcessBrowserTestFixture();
+  }
+  void TearDownInProcessBrowserTestFixture() override {
+    ShelfAppBrowserTest::TearDownInProcessBrowserTestFixture();
+    cert_verifier_.TearDownInProcessBrowserTestFixture();
+  }
+  void SetUpCommandLine(base::CommandLine* command_line) override {
+    ShelfAppBrowserTest::SetUpCommandLine(command_line);
+    cert_verifier_.SetUpCommandLine(command_line);
+  }
+  void SetUpOnMainThread() override {
+    ShelfAppBrowserTest::SetUpOnMainThread();
+    host_resolver()->AddRule("*", "127.0.0.1");
+    ASSERT_TRUE(https_server()->Start());
+    cert_verifier_.mock_cert_verifier()->set_default_result(net::OK);
+
+    WebAppProviderBase* provider =
+        WebAppProviderBase::GetProviderBase(browser()->profile());
+    DCHECK(provider);
+    provider->os_integration_manager().SuppressOsHooksForTesting();
+  }
+
+ private:
+  base::test::ScopedFeatureList scoped_feature_list_;
+  net::EmbeddedTestServer https_server_;
+  content::ContentMockCertVerifier cert_verifier_;
 };
 
 // Test that we can launch a platform app and get a running item.
@@ -771,21 +882,48 @@ IN_PROC_BROWSER_TEST_F(LauncherPlatformAppBrowserTest, SetIcon) {
 
   int base_shelf_item_count = shelf_model()->item_count();
   ExtensionTestMessageListener ready_listener("ready", true);
-  LoadAndLaunchPlatformApp("app_icon", "Launched");
+  const Extension* extension = LoadAndLaunchPlatformApp("app_icon", "Launched");
+  ASSERT_TRUE(extension);
+
+  gfx::ImageSkia image_skia;
+  if (base::FeatureList::IsEnabled(features::kAppServiceAdaptiveIcon)) {
+    // Only when the kAppServiceAdaptiveIcon feature is enabled, AppService is
+    // called to load icons for windows. So the image checking is available when
+    // the kAppServiceAdaptiveIcon feature is enabled.
+    int32_t size_hint_in_dip = 48;
+    image_skia = app_service_test().LoadAppIconBlocking(
+        apps::mojom::AppType::kExtension, extension->id(), size_hint_in_dip);
+  }
 
   // Create non-shelf window.
   EXPECT_TRUE(ready_listener.WaitUntilSatisfied());
   ready_listener.Reply("createNonShelfWindow");
   ready_listener.Reset();
-  // Default app icon + extension icon updates.
-  test_observer.WaitForIconUpdates(2);
+  if (base::FeatureList::IsEnabled(features::kAppServiceAdaptiveIcon)) {
+    // Default app icon + extension icon updates + AppServiceProxy load icon
+    // updates.
+    test_observer.WaitForIconUpdates(3);
+    EXPECT_TRUE(app_service_test().AreIconImageEqual(
+        image_skia, test_observer.last_app_icon()));
+  } else {
+    // Default app icon + extension icon updates.
+    test_observer.WaitForIconUpdates(2);
+  }
 
   // Create shelf window.
   EXPECT_TRUE(ready_listener.WaitUntilSatisfied());
   ready_listener.Reply("createShelfWindow");
   ready_listener.Reset();
-  // Default app icon + extension icon updates.
-  test_observer.WaitForIconUpdates(2);
+  if (base::FeatureList::IsEnabled(features::kAppServiceAdaptiveIcon)) {
+    // Default app icon + extension icon updates + AppServiceProxy load icon
+    // updates.
+    test_observer.WaitForIconUpdates(3);
+    EXPECT_TRUE(app_service_test().AreIconImageEqual(
+        image_skia, test_observer.last_app_icon()));
+  } else {
+    // Default app icon + extension icon updates.
+    test_observer.WaitForIconUpdates(2);
+  }
 
   // Set shelf window icon.
   EXPECT_TRUE(ready_listener.WaitUntilSatisfied());
@@ -793,13 +931,30 @@ IN_PROC_BROWSER_TEST_F(LauncherPlatformAppBrowserTest, SetIcon) {
   ready_listener.Reset();
   // Custom icon update.
   test_observer.WaitForIconUpdate();
+  if (base::FeatureList::IsEnabled(features::kAppServiceAdaptiveIcon)) {
+    EXPECT_FALSE(app_service_test().AreIconImageEqual(
+        image_skia, test_observer.last_app_icon()));
+  }
+  gfx::ImageSkia custome_icon = test_observer.last_app_icon();
 
   // Create shelf window with custom icon on init.
   EXPECT_TRUE(ready_listener.WaitUntilSatisfied());
   ready_listener.Reply("createShelfWindowWithCustomIcon");
   ready_listener.Reset();
-  // Default app icon + extension icon + custom icon updates.
-  test_observer.WaitForIconUpdates(3);
+  int update_number;
+  if (base::FeatureList::IsEnabled(features::kAppServiceAdaptiveIcon)) {
+    // Default app icon + extension icon + AppServiceProxy load icon + custom
+    // icon updates. Ensure the custom icon is set as the window's icon.
+    test_observer.WaitForIconUpdates(custome_icon);
+    EXPECT_TRUE(app_service_test().AreIconImageEqual(
+        custome_icon, test_observer.last_app_icon()));
+    update_number = test_observer.icon_updates();
+  } else {
+    // Default app icon + extension icon + custom icon updates.
+    test_observer.WaitForIconUpdates(3);
+    update_number = test_observer.icon_updates();
+  }
+
   const gfx::ImageSkia app_item_custom_image = test_observer.last_app_icon();
 
   const int shelf_item_count = shelf_model()->item_count();
@@ -830,7 +985,9 @@ IN_PROC_BROWSER_TEST_F(LauncherPlatformAppBrowserTest, SetIcon) {
 
   // No more icon updates.
   base::RunLoop().RunUntilIdle();
-  EXPECT_EQ(8, test_observer.icon_updates());
+  EXPECT_TRUE(app_service_test().AreIconImageEqual(
+      custome_icon, test_observer.last_app_icon()));
+  EXPECT_EQ(update_number, test_observer.icon_updates());
 
   // Exit.
   EXPECT_TRUE(ready_listener.WaitUntilSatisfied());
@@ -967,9 +1124,11 @@ IN_PROC_BROWSER_TEST_F(ShelfAppBrowserTest, LaunchAppFromDisplayWithoutFocus1) {
 IN_PROC_BROWSER_TEST_F(ShelfAppBrowserTest, LaunchUnpinned) {
   TabStripModel* tab_strip = browser()->tab_strip_model();
   int tab_count = tab_strip->count();
-  LoadAndLaunchExtension("app1",
-                         extensions::LaunchContainer::kLaunchContainerTab,
-                         WindowOpenDisposition::NEW_FOREGROUND_TAB);
+  LoadAndLaunchExtension(
+      "app1",
+      apps::GetEventFlags(apps::mojom::LaunchContainer::kLaunchContainerTab,
+                          WindowOpenDisposition::NEW_FOREGROUND_TAB,
+                          true /* prefer_containner */));
   EXPECT_EQ(++tab_count, tab_strip->count());
   ash::ShelfID shortcut_id = CreateShortcut("app1");
   EXPECT_EQ(ash::STATUS_RUNNING, shelf_model()->ItemByID(shortcut_id)->status);
@@ -985,8 +1144,10 @@ IN_PROC_BROWSER_TEST_F(ShelfAppBrowserTest, LaunchUnpinned) {
 // an unpinned hosted app web contents.
 IN_PROC_BROWSER_TEST_F(ShelfAppBrowserTest, AppIDForUnpinnedHostedApp) {
   const extensions::Extension* extension = LoadAndLaunchExtension(
-      "app1", extensions::LaunchContainer::kLaunchContainerTab,
-      WindowOpenDisposition::NEW_FOREGROUND_TAB);
+      "app1",
+      apps::GetEventFlags(apps::mojom::LaunchContainer::kLaunchContainerTab,
+                          WindowOpenDisposition::NEW_FOREGROUND_TAB,
+                          true /* prefer_containner */));
 
   int browser_index = GetIndexOfShelfItemType(ash::TYPE_BROWSER_SHORTCUT);
   ash::ShelfID browser_id = shelf_model()->items()[browser_index].id;
@@ -1030,15 +1191,13 @@ IN_PROC_BROWSER_TEST_F(ShelfAppBrowserTest, AppIDForPinnedHostedApp) {
 }
 
 // Verifies that native browser window properties are properly set when showing
-// an unpinned bookmark app.
-IN_PROC_BROWSER_TEST_F(ShelfAppBrowserTest, AppIDForUnpinnedBookmarkApp) {
-  // Load and navigate to a bookmark app.
-  const Extension* extension = InstallExtensionWithSourceAndFlags(
-      test_data_dir_.AppendASCII("app2/"), 1, extensions::Manifest::INTERNAL,
-      extensions::Extension::FROM_BOOKMARK);
-  ASSERT_TRUE(extension);
-  ui_test_utils::NavigateToURL(
-      browser(), extensions::AppLaunchInfo::GetLaunchWebURL(extension));
+// an unpinned web app.
+IN_PROC_BROWSER_TEST_P(ShelfWebAppBrowserTest, AppIDForUnpinnedWebApp) {
+  // Load and navigate to a web app.
+  const GURL app_url = GetSecureAppURL();
+  const web_app::AppId web_app_id = InstallWebApp(app_url);
+
+  ui_test_utils::NavigateToURL(browser(), app_url);
 
   int browser_index = GetIndexOfShelfItemType(ash::TYPE_BROWSER_SHORTCUT);
   ash::ShelfID browser_id = shelf_model()->items()[browser_index].id;
@@ -1050,25 +1209,23 @@ IN_PROC_BROWSER_TEST_F(ShelfAppBrowserTest, AppIDForUnpinnedBookmarkApp) {
   ash::ShelfID shelf_id =
       ash::ShelfID::Deserialize(native_window->GetProperty(ash::kShelfIDKey));
   EXPECT_EQ(browser_id, shelf_id);
-  // The app ID should have the actual extension ID.
+  // The app ID should have the actual web app ID.
   std::string* app_id = native_window->GetProperty(ash::kAppIDKey);
   ASSERT_TRUE(app_id);
-  EXPECT_EQ(extension->id(), *app_id);
+  EXPECT_EQ(web_app_id, *app_id);
 }
 
 // Verifies that native browser window properties are properly set when showing
-// a pinned bookmark app.
-IN_PROC_BROWSER_TEST_F(ShelfAppBrowserTest, AppIDForPinnedBookmarkApp) {
-  // Load and pin a bookmark app.
-  const Extension* extension = InstallExtensionWithSourceAndFlags(
-      test_data_dir_.AppendASCII("app2/"), 1, extensions::Manifest::INTERNAL,
-      extensions::Extension::FROM_BOOKMARK);
-  ASSERT_TRUE(extension);
-  controller_->PinAppWithID(extension->id());
+// a pinned web app.
+IN_PROC_BROWSER_TEST_P(ShelfWebAppBrowserTest, AppIDForPinnedWebApp) {
+  // Load and navigate to a web app.
+  const GURL app_url = GetSecureAppURL();
+  const web_app::AppId web_app_id = InstallWebApp(app_url);
+
+  controller_->PinAppWithID(web_app_id);
 
   // Navigate to the app's launch URL.
-  ui_test_utils::NavigateToURL(
-      browser(), extensions::AppLaunchInfo::GetLaunchWebURL(extension));
+  ui_test_utils::NavigateToURL(browser(), app_url);
 
   // When an app shportcut exists, the window shelf ID should point to the app
   // shortcut.
@@ -1076,15 +1233,15 @@ IN_PROC_BROWSER_TEST_F(ShelfAppBrowserTest, AppIDForPinnedBookmarkApp) {
       browser()->window()->GetNativeWindow();
   ash::ShelfID shelf_id =
       ash::ShelfID::Deserialize(native_window->GetProperty(ash::kShelfIDKey));
-  EXPECT_EQ(extension->id(), shelf_id.app_id);
+  EXPECT_EQ(web_app_id, shelf_id.app_id);
   std::string* app_id = native_window->GetProperty(ash::kAppIDKey);
   ASSERT_TRUE(app_id);
-  EXPECT_EQ(extension->id(), *app_id);
+  EXPECT_EQ(web_app_id, *app_id);
 }
 
 // Verifies that native browser window properties are properly set when showing
 // a PWA tab.
-IN_PROC_BROWSER_TEST_F(ShelfAppBrowserTest, AppIDForPWA) {
+IN_PROC_BROWSER_TEST_P(ShelfWebAppBrowserTest, AppIDForPWA) {
   // Start server and open test page.
   ASSERT_TRUE(embedded_test_server()->Start());
   ui_test_utils::NavigateToURL(
@@ -1095,7 +1252,7 @@ IN_PROC_BROWSER_TEST_F(ShelfAppBrowserTest, AppIDForPWA) {
   chrome::SetAutoAcceptPWAInstallConfirmationForTesting(true);
   web_app::WebAppInstallObserver observer(profile());
   chrome::ExecuteCommand(browser(), IDC_INSTALL_PWA);
-  web_app::AppId app_id = observer.AwaitNextInstall();
+  const web_app::AppId app_id = observer.AwaitNextInstall();
   chrome::SetAutoAcceptPWAInstallConfirmationForTesting(false);
 
   // Find the native window for the app.
@@ -1123,9 +1280,11 @@ IN_PROC_BROWSER_TEST_F(ShelfAppBrowserTest, AppIDForPWA) {
 IN_PROC_BROWSER_TEST_F(ShelfAppBrowserTest, LaunchInBackground) {
   TabStripModel* tab_strip = browser()->tab_strip_model();
   int tab_count = tab_strip->count();
-  LoadAndLaunchExtension("app1",
-                         extensions::LaunchContainer::kLaunchContainerTab,
-                         WindowOpenDisposition::NEW_BACKGROUND_TAB);
+  LoadAndLaunchExtension(
+      "app1",
+      apps::GetEventFlags(apps::mojom::LaunchContainer::kLaunchContainerTab,
+                          WindowOpenDisposition::NEW_BACKGROUND_TAB,
+                          true /* prefer_containner */));
   EXPECT_EQ(++tab_count, tab_strip->count());
   controller_->LaunchApp(ash::ShelfID(last_loaded_extension_id()),
                          ash::LAUNCH_FROM_UNKNOWN, 0,
@@ -1182,6 +1341,68 @@ IN_PROC_BROWSER_TEST_F(ShelfAppBrowserTest, LaunchApp) {
   LaunchAppAndFlushMojoCallsForAppService(id, ash::LAUNCH_FROM_UNKNOWN, 0,
                                           display::kInvalidDisplayId);
   EXPECT_EQ(++tab_count, tab_strip->count());
+}
+
+// The Browsertest verifying FilesManager's features.
+class FilesManagerExtensionTest : public LauncherPlatformAppBrowserTest {
+ public:
+  void SetUpOnMainThread() override {
+    LauncherPlatformAppBrowserTest::SetUpOnMainThread();
+    CHECK(profile());
+
+    file_manager::test::AddDefaultComponentExtensionsOnMainThread(profile());
+  }
+};
+
+// Verifies that FilesManager's first shelf context menu item is "New window"
+// (see https://crbug.com/1102781).
+IN_PROC_BROWSER_TEST_F(FilesManagerExtensionTest, VerifyFirstItem) {
+  const auto* extension =
+      extensions::ExtensionRegistryFactory::GetForBrowserContext(profile())
+          ->GetExtensionById(extension_misc::kFilesManagerAppId,
+                             extensions::ExtensionRegistry::ENABLED);
+  EXPECT_TRUE(extension);
+
+  // Hacky way to configure FileManager's "New window" menu option.
+  const std::string top_level_item_label("New window");
+  {
+    extensions::MenuItem::Type type = extensions::MenuItem::NORMAL;
+
+    // |contexts| must contain MenuItem::LAUNCHER. Otherwise the menu item will
+    // be ignored by AppServiceShelfContextMenu.
+    extensions::MenuItem::ContextList contexts(extensions::MenuItem::LAUNCHER);
+
+    extensions::MenuItem::Id id(
+        /*incognite=*/false,
+        extensions::MenuItem::ExtensionKey(extension->id()));
+    std::unique_ptr<extensions::MenuItem> top_item =
+        std::make_unique<extensions::MenuItem>(
+            id, top_level_item_label, /*checked=*/false, /*visible=*/true,
+            /*enabled=*/true, type, contexts);
+    extensions::MenuManager::Get(profile())->AddContextItem(
+        extension, std::move(top_item));
+    apps::AppServiceProxyFactory::GetForProfile(profile())
+        ->FlushMojoCallsForTesting();
+  }
+
+  CreateAppShortcutLauncherItem(ash::ShelfID(extension->id()));
+
+  const int item_count = shelf_model()->item_count();
+  ash::ShelfItem item = shelf_model()->items()[item_count - 1];
+  int64_t display_id = display::Screen::GetScreen()->GetPrimaryDisplay().id();
+  auto menu = ShelfContextMenu::Create(controller_, &item, display_id);
+
+  // Fetch |extension|'s shelf context menu model and verify that the top level
+  // menu item should be the first one.
+  base::RunLoop run_loop;
+  menu->GetMenuModel(base::BindLambdaForTesting(
+      [&](std::unique_ptr<ui::SimpleMenuModel> menu_model) {
+        EXPECT_EQ(base::ASCIIToUTF16(top_level_item_label),
+                  menu_model->GetLabelAt(0));
+        run_loop.Quit();
+      }));
+
+  run_loop.Run();
 }
 
 // Launching an app from the shelf when not in Demo Mode should not record app
@@ -1298,7 +1519,7 @@ IN_PROC_BROWSER_TEST_F(ShelfAppBrowserTest, RefocusFilterLaunch) {
   ui_test_utils::NavigateToURLWithDisposition(
       browser(), GURL("http://www.example2.com/path2/bar.html"),
       WindowOpenDisposition::NEW_FOREGROUND_TAB,
-      ui_test_utils::BROWSER_TEST_WAIT_FOR_NAVIGATION);
+      ui_test_utils::BROWSER_TEST_WAIT_FOR_LOAD_STOP);
   EXPECT_EQ(++tab_count, tab_strip->count());
   WebContents* first_tab = tab_strip->GetActiveWebContents();
   // Confirm app is not active.
@@ -1330,7 +1551,7 @@ IN_PROC_BROWSER_TEST_F(ShelfAppBrowserTest, AsyncActivationStateCheck) {
   ui_test_utils::NavigateToURLWithDisposition(
       browser(), GURL("http://www.example.com/path1/bar.html"),
       WindowOpenDisposition::NEW_FOREGROUND_TAB,
-      ui_test_utils::BROWSER_TEST_WAIT_FOR_NAVIGATION);
+      ui_test_utils::BROWSER_TEST_WAIT_FOR_LOAD_STOP);
 
   EXPECT_EQ(ash::STATUS_RUNNING, shelf_model()->ItemByID(shortcut_id)->status);
   // To address the issue of crbug.com/174050, the tab we are about to close
@@ -1349,8 +1570,10 @@ IN_PROC_BROWSER_TEST_F(ShelfAppBrowserTest, AsyncActivationStateCheck) {
 IN_PROC_BROWSER_TEST_F(ShelfAppBrowserTest, AppWindowRestoreBehaviorTest) {
   // Open an App, maximized its window, and close it.
   const Extension* extension = LoadAndLaunchExtension(
-      "app1", extensions::LaunchContainer::kLaunchContainerWindow,
-      WindowOpenDisposition::NEW_WINDOW);
+      "app1",
+      apps::GetEventFlags(apps::mojom::LaunchContainer::kLaunchContainerWindow,
+                          WindowOpenDisposition::NEW_WINDOW,
+                          false /* prefer_containner */));
   Browser* app_browser = FindBrowserForApp(extension->id());
   ASSERT_TRUE(app_browser);
   BrowserWindow* window = app_browser->window();
@@ -1361,8 +1584,10 @@ IN_PROC_BROWSER_TEST_F(ShelfAppBrowserTest, AppWindowRestoreBehaviorTest) {
 
   // Reopen the App. It should start maximized. Un-maximize it and close it.
   extension = LoadAndLaunchExtension(
-      "app1", extensions::LaunchContainer::kLaunchContainerWindow,
-      WindowOpenDisposition::NEW_WINDOW);
+      "app1",
+      apps::GetEventFlags(apps::mojom::LaunchContainer::kLaunchContainerWindow,
+                          WindowOpenDisposition::NEW_WINDOW,
+                          false /* prefer_containner */));
   app_browser = FindBrowserForApp(extension->id());
   ASSERT_TRUE(app_browser);
   window = app_browser->window();
@@ -1375,8 +1600,10 @@ IN_PROC_BROWSER_TEST_F(ShelfAppBrowserTest, AppWindowRestoreBehaviorTest) {
 
   // Reopen the App. It should start un-maximized.
   extension = LoadAndLaunchExtension(
-      "app1", extensions::LaunchContainer::kLaunchContainerWindow,
-      WindowOpenDisposition::NEW_WINDOW);
+      "app1",
+      apps::GetEventFlags(apps::mojom::LaunchContainer::kLaunchContainerWindow,
+                          WindowOpenDisposition::NEW_WINDOW,
+                          false /* prefer_containner */));
   app_browser = FindBrowserForApp(extension->id());
   ASSERT_TRUE(app_browser);
   window = app_browser->window();
@@ -1393,18 +1620,26 @@ IN_PROC_BROWSER_TEST_F(ShelfAppBrowserTestNoDefaultBrowser,
   EXPECT_EQ(0u, running_browser);
 
   const Extension* extension = LoadAndLaunchExtension(
-      "app1", extensions::LaunchContainer::kLaunchContainerWindow,
-      WindowOpenDisposition::NEW_WINDOW);
+      "app1",
+      apps::GetEventFlags(apps::mojom::LaunchContainer::kLaunchContainerWindow,
+                          WindowOpenDisposition::NEW_WINDOW,
+                          false /* prefer_containner */));
   ASSERT_TRUE(extension);
 
   // No new browser should get detected, even though one more is running.
   EXPECT_EQ(0u, NumberOfDetectedLauncherBrowsers(false));
   EXPECT_EQ(++running_browser, chrome::GetTotalBrowserCount());
 
-  apps::LaunchService::Get(profile())->OpenApplication(apps::AppLaunchParams(
-      extension->id(), apps::mojom::LaunchContainer::kLaunchContainerTab,
-      WindowOpenDisposition::NEW_WINDOW,
-      apps::mojom::AppLaunchSource::kSourceTest));
+  apps::AppServiceProxy* proxy =
+      apps::AppServiceProxyFactory::GetForProfile(profile());
+  proxy->Launch(
+      extension->id(),
+      apps::GetEventFlags(apps::mojom::LaunchContainer::kLaunchContainerTab,
+                          WindowOpenDisposition::NEW_FOREGROUND_TAB,
+                          true /* prefer_containner */),
+      apps::mojom::LaunchSource::kFromTest,
+      display::Screen::GetScreen()->GetPrimaryDisplay().id());
+  proxy->FlushMojoCallsForTesting();
 
   // A new browser should get detected and one more should be running.
   EXPECT_EQ(NumberOfDetectedLauncherBrowsers(false), 1u);
@@ -1415,24 +1650,37 @@ IN_PROC_BROWSER_TEST_F(ShelfAppBrowserTestNoDefaultBrowser,
 IN_PROC_BROWSER_TEST_F(ShelfAppBrowserTestNoDefaultBrowser,
                        EnumerateAllBrowsersAndTabs) {
   // Create at least one browser.
-  LoadAndLaunchExtension("app1",
-                         extensions::LaunchContainer::kLaunchContainerTab,
-                         WindowOpenDisposition::NEW_WINDOW);
+  LoadAndLaunchExtension(
+      "app1",
+      apps::GetEventFlags(apps::mojom::LaunchContainer::kLaunchContainerTab,
+                          WindowOpenDisposition::NEW_FOREGROUND_TAB,
+                          true /* prefer_containner */));
   size_t browsers = NumberOfDetectedLauncherBrowsers(false);
   size_t tabs = NumberOfDetectedLauncherBrowsers(true);
 
   // Create a second browser.
-  LoadAndLaunchExtension("app1",
-                         extensions::LaunchContainer::kLaunchContainerTab,
-                         WindowOpenDisposition::NEW_WINDOW);
+  //
+  // TODO(crbug.com/1061843): Replace OpenApplication with AppService's launch
+  // interfaces.
+  const Extension* extension = extension_registry()->GetExtensionById(
+      last_loaded_extension_id(), extensions::ExtensionRegistry::ENABLED);
+  EXPECT_TRUE(extension);
+  apps::AppServiceProxyFactory::GetForProfile(profile())
+      ->BrowserAppLauncher()
+      ->LaunchAppWithParams(apps::AppLaunchParams(
+          extension->id(), extensions::LaunchContainer::kLaunchContainerTab,
+          WindowOpenDisposition::NEW_WINDOW,
+          apps::mojom::AppLaunchSource::kSourceTest));
 
   EXPECT_EQ(++browsers, NumberOfDetectedLauncherBrowsers(false));
   EXPECT_EQ(++tabs, NumberOfDetectedLauncherBrowsers(true));
 
   // Create only a tab.
-  LoadAndLaunchExtension("app1",
-                         extensions::LaunchContainer::kLaunchContainerTab,
-                         WindowOpenDisposition::NEW_FOREGROUND_TAB);
+  LoadAndLaunchExtension(
+      "app1",
+      apps::GetEventFlags(apps::mojom::LaunchContainer::kLaunchContainerTab,
+                          WindowOpenDisposition::NEW_FOREGROUND_TAB,
+                          true /* prefer_containner */));
 
   EXPECT_EQ(browsers, NumberOfDetectedLauncherBrowsers(false));
   EXPECT_EQ(++tabs, NumberOfDetectedLauncherBrowsers(true));
@@ -1451,7 +1699,7 @@ IN_PROC_BROWSER_TEST_F(ShelfAppBrowserTest, AltNumberTabsTabbing) {
   // Create an application handled browser tab.
   ui_test_utils::NavigateToURLWithDisposition(
       browser(), GURL(url), WindowOpenDisposition::NEW_FOREGROUND_TAB,
-      ui_test_utils::BROWSER_TEST_WAIT_FOR_NAVIGATION);
+      ui_test_utils::BROWSER_TEST_WAIT_FOR_LOAD_STOP);
 
   content::WebContents* content1 = tab_strip->GetActiveWebContents();
 
@@ -1459,7 +1707,7 @@ IN_PROC_BROWSER_TEST_F(ShelfAppBrowserTest, AltNumberTabsTabbing) {
   ui_test_utils::NavigateToURLWithDisposition(
       browser(), GURL("http://www.test.com"),
       WindowOpenDisposition::NEW_FOREGROUND_TAB,
-      ui_test_utils::BROWSER_TEST_WAIT_FOR_NAVIGATION);
+      ui_test_utils::BROWSER_TEST_WAIT_FOR_LOAD_STOP);
   content::WebContents* content1a = tab_strip->GetActiveWebContents();
 
   // Make sure that the active tab is now our handled tab.
@@ -1475,7 +1723,7 @@ IN_PROC_BROWSER_TEST_F(ShelfAppBrowserTest, AltNumberTabsTabbing) {
 
   ui_test_utils::NavigateToURLWithDisposition(
       browser(), GURL(url), WindowOpenDisposition::NEW_FOREGROUND_TAB,
-      ui_test_utils::BROWSER_TEST_WAIT_FOR_NAVIGATION);
+      ui_test_utils::BROWSER_TEST_WAIT_FOR_LOAD_STOP);
   content::WebContents* content2 = tab_strip->GetActiveWebContents();
 
   EXPECT_EQ(content2, browser()->tab_strip_model()->GetActiveWebContents());
@@ -1519,6 +1767,46 @@ IN_PROC_BROWSER_TEST_F(LauncherPlatformAppBrowserTest, AltNumberAppsTabbing) {
   EXPECT_TRUE(window1->IsActive());
   SelectItem(item.id, ui::ET_KEY_RELEASED);
   EXPECT_TRUE(window1a->IsActive());
+}
+
+// Check that the keyboard activation of a launcher item tabs even if the app is
+// not currently activated.
+IN_PROC_BROWSER_TEST_F(LauncherPlatformAppBrowserTest,
+                       AltNumberAppsTabbingFromOtherApp) {
+  // Create one app with two windows.
+  const Extension* app1_extension1 =
+      LoadAndLaunchPlatformApp("launch", "Launched");
+  ui::BaseWindow* app1_window1 =
+      CreateAppWindow(browser()->profile(), app1_extension1)->GetBaseWindow();
+  ui::BaseWindow* app1_window2 =
+      CreateAppWindow(browser()->profile(), app1_extension1)->GetBaseWindow();
+  const ash::ShelfItem item1 = GetLastLauncherItem();
+  EXPECT_EQ(ash::TYPE_APP, item1.type);
+  EXPECT_EQ(ash::STATUS_RUNNING, item1.status);
+
+  // Create another app with two windows.
+  const Extension* app2_extension1 =
+      LoadAndLaunchPlatformApp("launch_2", "Launched");
+  ui::BaseWindow* app2_window1 =
+      CreateAppWindow(browser()->profile(), app2_extension1)->GetBaseWindow();
+  ui::BaseWindow* app2_window2 =
+      CreateAppWindow(browser()->profile(), app2_extension1)->GetBaseWindow();
+  const ash::ShelfItem item2 = GetLastLauncherItem();
+  EXPECT_EQ(ash::TYPE_APP, item2.type);
+  EXPECT_EQ(ash::STATUS_RUNNING, item2.status);
+
+  // Last created window should be active. Hitting the app shortcut should go to
+  // the first window of the app.
+  ASSERT_TRUE(app2_window2->IsActive());
+  SelectItem(item2.id, ui::ET_KEY_RELEASED);
+  EXPECT_TRUE(app2_window1->IsActive());
+
+  // Hitting the other app's shortcut should jump and focus the other app's
+  // windows.
+  SelectItem(item1.id, ui::ET_KEY_RELEASED);
+  EXPECT_TRUE(app1_window2->IsActive());
+  SelectItem(item1.id, ui::ET_KEY_RELEASED);
+  EXPECT_TRUE(app1_window1->IsActive());
 }
 
 // Test that we get correct shelf presence with hidden app windows.
@@ -1743,9 +2031,11 @@ IN_PROC_BROWSER_TEST_F(ShelfAppBrowserTestNoDefaultBrowser,
   EXPECT_TRUE(browser1->window()->IsActive());
 
   // Create another app and make sure that none of our browsers is active.
-  LoadAndLaunchExtension("app1",
-                         extensions::LaunchContainer::kLaunchContainerTab,
-                         WindowOpenDisposition::NEW_WINDOW);
+  LoadAndLaunchExtension(
+      "app1",
+      apps::GetEventFlags(apps::mojom::LaunchContainer::kLaunchContainerWindow,
+                          WindowOpenDisposition::NEW_WINDOW,
+                          false /* prefer_containner */));
   EXPECT_FALSE(browser1->window()->IsActive());
   EXPECT_FALSE(browser2->window()->IsActive());
 
@@ -1771,7 +2061,7 @@ IN_PROC_BROWSER_TEST_F(ShelfAppBrowserTest, ActivateAfterSessionRestore) {
   std::string url = "http://www.example.com/path/bla";
   ui_test_utils::NavigateToURLWithDisposition(
       browser2, GURL(url), WindowOpenDisposition::NEW_FOREGROUND_TAB,
-      ui_test_utils::BROWSER_TEST_WAIT_FOR_NAVIGATION);
+      ui_test_utils::BROWSER_TEST_WAIT_FOR_LOAD_STOP);
 
   // Remember the number of tabs for each browser.
   TabStripModel* tab_strip = browser()->tab_strip_model();
@@ -1933,16 +2223,19 @@ IN_PROC_BROWSER_TEST_F(ShelfAppBrowserTest, DISABLED_V1AppNavigation) {
   EXPECT_EQ(ash::STATUS_CLOSED, shelf_model()->ItemByID(id)->status);
 
   // Create a windowed application.
-  apps::AppLaunchParams params = CreateAppLaunchParamsUserContainer(
-      profile(), GetExtensionForAppID(extensions::kWebStoreAppId, profile()),
-      WindowOpenDisposition::NEW_FOREGROUND_TAB,
-      apps::mojom::AppLaunchSource::kSourceTest);
-  params.container = apps::mojom::LaunchContainer::kLaunchContainerWindow;
-  apps::LaunchService::Get(profile())->OpenApplication(params);
+  apps::AppServiceProxy* proxy =
+      apps::AppServiceProxyFactory::GetForProfile(profile());
+  proxy->Launch(
+      extensions::kWebStoreAppId,
+      apps::GetEventFlags(apps::mojom::LaunchContainer::kLaunchContainerTab,
+                          WindowOpenDisposition::NEW_FOREGROUND_TAB,
+                          true /* prefer_containner */),
+      apps::mojom::LaunchSource::kFromTest,
+      display::Screen::GetScreen()->GetPrimaryDisplay().id());
   EXPECT_EQ(ash::STATUS_RUNNING, shelf_model()->ItemByID(id)->status);
 
   // Find the browser which holds our app.
-  Browser* app_browser = NULL;
+  Browser* app_browser = nullptr;
   const BrowserList* browser_list = BrowserList::GetInstance();
   for (BrowserList::const_reverse_iterator it =
            browser_list->begin_last_active();
@@ -1968,7 +2261,7 @@ IN_PROC_BROWSER_TEST_F(ShelfAppBrowserTest, DISABLED_V1AppNavigation) {
 }
 
 // Ensure opening settings and task manager windows create new shelf items.
-IN_PROC_BROWSER_TEST_F(ShelfAppBrowserTest, SettingsAndTaskManagerWindows) {
+IN_PROC_BROWSER_TEST_P(ShelfWebAppBrowserTest, SettingsAndTaskManagerWindows) {
   // Install the Settings App.
   web_app::WebAppProvider::Get(browser()->profile())
       ->system_web_app_manager()
@@ -2011,8 +2304,8 @@ IN_PROC_BROWSER_TEST_F(ShelfAppBrowserTest, SettingsAndTaskManagerWindows) {
   // crbug.com/230464.
 }
 
-// Check that tabbed hosted and bookmark apps have correct shelf presence.
-IN_PROC_BROWSER_TEST_F(ShelfAppBrowserTest, TabbedHostedAndBookmarkApps) {
+// Check that tabbed hosted and web apps have correct shelf presence.
+IN_PROC_BROWSER_TEST_P(ShelfWebAppBrowserTest, TabbedHostedAndWebApps) {
   // Load and pin a hosted app.
   const Extension* hosted_app =
       LoadExtension(test_data_dir_.AppendASCII("app1/"));
@@ -2020,37 +2313,34 @@ IN_PROC_BROWSER_TEST_F(ShelfAppBrowserTest, TabbedHostedAndBookmarkApps) {
   controller_->PinAppWithID(hosted_app->id());
   const ash::ShelfID hosted_app_shelf_id(hosted_app->id());
 
-  // Load and pin a bookmark app.
-  const Extension* bookmark_app = InstallExtensionWithSourceAndFlags(
-      test_data_dir_.AppendASCII("app2/"), 1, extensions::Manifest::INTERNAL,
-      extensions::Extension::FROM_BOOKMARK);
-  ASSERT_TRUE(bookmark_app);
-  controller_->PinAppWithID(bookmark_app->id());
-  const ash::ShelfID bookmark_app_shelf_id(bookmark_app->id());
+  // Load and pin a web app.
+  const GURL web_app_url = GetSecureAppURL();
+  const web_app::AppId web_app_id = InstallWebApp(web_app_url);
+  controller_->PinAppWithID(web_app_id);
+  const ash::ShelfID web_app_shelf_id(web_app_id);
 
   // The apps should be closed.
   EXPECT_EQ(ash::STATUS_CLOSED,
             shelf_model()->ItemByID(hosted_app_shelf_id)->status);
   EXPECT_EQ(ash::STATUS_CLOSED,
-            shelf_model()->ItemByID(bookmark_app_shelf_id)->status);
+            shelf_model()->ItemByID(web_app_shelf_id)->status);
 
   // Navigate to the app's launch URLs in two tabs.
   ui_test_utils::NavigateToURL(
       browser(), extensions::AppLaunchInfo::GetLaunchWebURL(hosted_app));
   ui_test_utils::NavigateToURLWithDisposition(
-      browser(), extensions::AppLaunchInfo::GetLaunchWebURL(bookmark_app),
-      WindowOpenDisposition::NEW_FOREGROUND_TAB, 0);
+      browser(), web_app_url, WindowOpenDisposition::NEW_FOREGROUND_TAB, 0);
 
   // The apps should now be running.
   EXPECT_EQ(ash::STATUS_RUNNING,
             shelf_model()->ItemByID(hosted_app_shelf_id)->status);
   EXPECT_EQ(ash::STATUS_RUNNING,
-            shelf_model()->ItemByID(bookmark_app_shelf_id)->status);
+            shelf_model()->ItemByID(web_app_shelf_id)->status);
 
   // Now use the launcher controller to activate the apps.
   controller_->ActivateApp(hosted_app->id(), ash::LAUNCH_FROM_APP_LIST, 0,
                            display::kInvalidDisplayId);
-  controller_->ActivateApp(bookmark_app->id(), ash::LAUNCH_FROM_APP_LIST, 0,
+  controller_->ActivateApp(web_app_id, ash::LAUNCH_FROM_APP_LIST, 0,
                            display::kInvalidDisplayId);
 
   // There should be no new browsers or tabs as both apps were already open.
@@ -2058,8 +2348,8 @@ IN_PROC_BROWSER_TEST_F(ShelfAppBrowserTest, TabbedHostedAndBookmarkApps) {
   EXPECT_EQ(2, browser()->tab_strip_model()->count());
 }
 
-// Check that windowed hosted and bookmark apps have correct shelf presence.
-IN_PROC_BROWSER_TEST_F(ShelfAppBrowserTest, WindowedHostedAndBookmarkApps) {
+// Check that windowed hosted and web apps have correct shelf presence.
+IN_PROC_BROWSER_TEST_P(ShelfWebAppBrowserTest, WindowedHostedAndWebApps) {
   // Load and pin a hosted app.
   const Extension* hosted_app =
       LoadExtension(test_data_dir_.AppendASCII("app1/"));
@@ -2067,46 +2357,45 @@ IN_PROC_BROWSER_TEST_F(ShelfAppBrowserTest, WindowedHostedAndBookmarkApps) {
   controller_->PinAppWithID(hosted_app->id());
   const ash::ShelfID hosted_app_shelf_id(hosted_app->id());
 
-  // Load and pin a bookmark app.
-  const Extension* bookmark_app = InstallExtensionWithSourceAndFlags(
-      test_data_dir_.AppendASCII("app2/"), 1, extensions::Manifest::INTERNAL,
-      extensions::Extension::FROM_BOOKMARK);
-  ASSERT_TRUE(bookmark_app);
-  controller_->PinAppWithID(bookmark_app->id());
-  const ash::ShelfID bookmark_app_shelf_id(bookmark_app->id());
+  // Load and pin a web app.
+  const GURL web_app_url = GetSecureAppURL();
+  const web_app::AppId web_app_id = InstallWebApp(web_app_url);
+  controller_->PinAppWithID(web_app_id);
+  const ash::ShelfID web_app_shelf_id(web_app_id);
 
   // Set both apps to open in windows.
   extensions::SetLaunchType(browser()->profile(), hosted_app->id(),
                             extensions::LAUNCH_TYPE_WINDOW);
-  extensions::SetLaunchType(browser()->profile(), bookmark_app->id(),
-                            extensions::LAUNCH_TYPE_WINDOW);
+  WebAppProviderBase* provider =
+      WebAppProviderBase::GetProviderBase(browser()->profile());
+  DCHECK(provider);
+  provider->registry_controller().SetAppUserDisplayMode(
+      web_app_id, web_app::DisplayMode::kStandalone);
 
   // The apps should be closed.
   EXPECT_EQ(ash::STATUS_CLOSED,
             shelf_model()->ItemByID(hosted_app_shelf_id)->status);
   EXPECT_EQ(ash::STATUS_CLOSED,
-            shelf_model()->ItemByID(bookmark_app_shelf_id)->status);
+            shelf_model()->ItemByID(web_app_shelf_id)->status);
 
   // Navigate to the app's launch URLs in two tabs.
   ui_test_utils::NavigateToURL(
       browser(), extensions::AppLaunchInfo::GetLaunchWebURL(hosted_app));
   ui_test_utils::NavigateToURLWithDisposition(
-      browser(), extensions::AppLaunchInfo::GetLaunchWebURL(bookmark_app),
-      WindowOpenDisposition::NEW_FOREGROUND_TAB, 0);
+      browser(), web_app_url, WindowOpenDisposition::NEW_FOREGROUND_TAB, 0);
 
   // The apps should still be closed.
   EXPECT_EQ(ash::STATUS_CLOSED,
             shelf_model()->ItemByID(hosted_app_shelf_id)->status);
   EXPECT_EQ(ash::STATUS_CLOSED,
-            shelf_model()->ItemByID(bookmark_app_shelf_id)->status);
+            shelf_model()->ItemByID(web_app_shelf_id)->status);
 
   // Now use the launcher controller to activate the apps.
   ActivateAppAndFlushMojoCallsForAppService(hosted_app->id(),
                                             ash::LAUNCH_FROM_APP_LIST, 0,
                                             display::kInvalidDisplayId);
-  ActivateAppAndFlushMojoCallsForAppService(bookmark_app->id(),
-                                            ash::LAUNCH_FROM_APP_LIST, 0,
-                                            display::kInvalidDisplayId);
+  ActivateAppAndFlushMojoCallsForAppService(
+      web_app_id, ash::LAUNCH_FROM_APP_LIST, 0, display::kInvalidDisplayId);
 
   // There should be two new browsers.
   EXPECT_EQ(3u, chrome::GetBrowserCount(browser()->profile()));
@@ -2115,12 +2404,12 @@ IN_PROC_BROWSER_TEST_F(ShelfAppBrowserTest, WindowedHostedAndBookmarkApps) {
   EXPECT_EQ(ash::STATUS_RUNNING,
             shelf_model()->ItemByID(hosted_app_shelf_id)->status);
   EXPECT_EQ(ash::STATUS_RUNNING,
-            shelf_model()->ItemByID(bookmark_app_shelf_id)->status);
+            shelf_model()->ItemByID(web_app_shelf_id)->status);
 }
 
 // Windowed progressive web apps should have shelf activity indicator showing
 // after install.
-IN_PROC_BROWSER_TEST_F(ShelfAppBrowserTest,
+IN_PROC_BROWSER_TEST_P(ShelfWebAppBrowserTest,
                        WindowedPwasHaveActivityIndicatorSet) {
   // Start server and open test page.
   ASSERT_TRUE(embedded_test_server()->Start());
@@ -2144,7 +2433,7 @@ IN_PROC_BROWSER_TEST_F(ShelfAppBrowserTest,
 
 // Windowed shortcut apps should have shelf activity indicator showing after
 // install.
-IN_PROC_BROWSER_TEST_F(ShelfAppBrowserTest,
+IN_PROC_BROWSER_TEST_P(ShelfWebAppBrowserTest,
                        WindowedShortcutAppsHaveActivityIndicatorSet) {
   // Start server and open test page.
   ASSERT_TRUE(embedded_test_server()->Start());
@@ -2153,17 +2442,63 @@ IN_PROC_BROWSER_TEST_F(ShelfAppBrowserTest,
       GURL(embedded_test_server()->GetURL("/banners/manifest_test_page.html")),
       ui::PAGE_TRANSITION_LINK);
   // Install shortcut app.
-  chrome::SetAutoAcceptBookmarkAppDialogForTesting(true, true);
+  chrome::SetAutoAcceptWebAppDialogForTesting(true, true);
   web_app::WebAppInstallObserver observer(profile());
   chrome::ExecuteCommand(browser(), IDC_CREATE_SHORTCUT);
   web_app::AppId app_id = observer.AwaitNextInstall();
-  chrome::SetAutoAcceptBookmarkAppDialogForTesting(false, false);
+  chrome::SetAutoAcceptWebAppDialogForTesting(false, false);
 
   ash::ShelfID shelf_id(app_id);
   EXPECT_FALSE(ChromeLauncherController::instance()->IsPinned(shelf_id));
   EXPECT_EQ(
       shelf_id,
       ChromeLauncherController::instance()->shelf_model()->active_shelf_id());
+}
+
+IN_PROC_BROWSER_TEST_P(ShelfWebAppBrowserTest, WebAppPolicy) {
+  // Install web app.
+  GURL app_url = GURL("https://example.org/");
+  web_app::AppId app_id = InstallWebApp(app_url);
+  web_app::ExternallyInstalledWebAppPrefs web_app_prefs(
+      browser()->profile()->GetPrefs());
+  web_app_prefs.Insert(app_url, app_id,
+                       web_app::ExternalInstallSource::kExternalPolicy);
+  apps::AppServiceProxyFactory::GetForProfile(profile())
+      ->FlushMojoCallsForTesting();
+
+  // Set policy to pin the web app.
+  base::DictionaryValue entry;
+  entry.SetKey(kPinnedAppsPrefAppIDKey, base::Value(app_url.spec()));
+  base::ListValue policy_value;
+  policy_value.Append(std::move(entry));
+  profile()->GetPrefs()->Set(prefs::kPolicyPinnedLauncherApps, policy_value);
+
+  // Check web app is pinned and fixed.
+  EXPECT_EQ(shelf_model()->item_count(), 2);
+  EXPECT_EQ(shelf_model()->items()[0].type, ash::TYPE_BROWSER_SHORTCUT);
+  EXPECT_EQ(shelf_model()->items()[1].type, ash::TYPE_PINNED_APP);
+  EXPECT_EQ(shelf_model()->items()[1].id.app_id, app_id);
+  EXPECT_EQ(AppListControllerDelegate::PIN_FIXED,
+            GetPinnableForAppID(app_id, profile()));
+}
+
+IN_PROC_BROWSER_TEST_P(ShelfWebAppBrowserTest, WebAppPolicyNonExistentApp) {
+  // Don't install the web app.
+  GURL app_url = GURL("https://example.org/");
+  web_app::AppId app_id = web_app::GenerateAppIdFromURL(app_url);
+
+  // Set policy to pin the non existent web app.
+  base::DictionaryValue entry;
+  entry.SetKey(kPinnedAppsPrefAppIDKey, base::Value(app_url.spec()));
+  base::ListValue policy_value;
+  policy_value.Append(std::move(entry));
+  profile()->GetPrefs()->Set(prefs::kPolicyPinnedLauncherApps, policy_value);
+
+  // Check web app policy is ignored.
+  EXPECT_EQ(shelf_model()->item_count(), 1);
+  EXPECT_EQ(shelf_model()->items()[0].type, ash::TYPE_BROWSER_SHORTCUT);
+  EXPECT_EQ(AppListControllerDelegate::PIN_EDITABLE,
+            GetPinnableForAppID(app_id, profile()));
 }
 
 // Test that "Close" is shown in the context menu when there are opened browsers
@@ -2199,8 +2534,10 @@ class HotseatShelfAppBrowserTest : public ShelfAppBrowserTest {
 
   // ShelfAppBrowserTest:
   void SetUp() override {
-    scoped_feature_list_.InitAndEnableFeature(
-        chromeos::features::kShelfHotseat);
+    // Disable contextual nudges to prevent in-app to home nudge from being
+    // announced in the ChromeVox test.
+    scoped_feature_list_.InitWithFeatures({chromeos::features::kShelfHotseat},
+                                          {ash::features::kContextualNudges});
     ShelfAppBrowserTest::SetUp();
   }
 
@@ -2210,17 +2547,55 @@ class HotseatShelfAppBrowserTest : public ShelfAppBrowserTest {
   DISALLOW_COPY_AND_ASSIGN(HotseatShelfAppBrowserTest);
 };
 
-// crbug.com/1021011: Disable on ChromeOS
-#if defined(OS_CHROMEOS)
-#define MAYBE_TappingAppIconsHidesHotseat DISABLED_TappingAppIconsHidesHotseat
-#else
-#define MAYBE_TappingAppIconsHidesHotseat TappingAppIconsHidesHotseat
-#endif
+// Verifies that hotseat should be hidden after launching the browser from
+// a context menu (https://crbug.com/1072043).
+IN_PROC_BROWSER_TEST_F(HotseatShelfAppBrowserTest, LaunchAppFromContextMenu) {
+  ash::Shell::Get()->tablet_mode_controller()->SetEnabledForTest(true);
+
+  ash::RootWindowController* controller =
+      ash::Shell::GetRootWindowControllerWithDisplayId(
+          display::Screen::GetScreen()->GetPrimaryDisplay().id());
+  ash::ShelfView* shelf_view = controller->shelf()->GetShelfViewForTesting();
+
+  ash::ShelfModel* model = shelf_view->model();
+  EXPECT_EQ(1, model->item_count());
+
+  ExtendHotseat(browser());
+
+  const ash::ShelfID browser_icon_id = model->items()[0].id;
+  views::View* browser_icon = shelf_view->GetShelfAppButton(browser_icon_id);
+
+  ash::ShelfViewTestAPI test_api(shelf_view);
+  base::RunLoop run_loop;
+  test_api.SetShelfContextMenuCallback(run_loop.QuitClosure());
+
+  ui::test::EventGenerator event_generator(controller->GetRootWindow());
+  event_generator.MoveMouseTo(browser_icon->GetBoundsInScreen().CenterPoint());
+  event_generator.PressRightButton();
+
+  // Wait until the context menu shows.
+  run_loop.Run();
+
+  ash::ShelfMenuModelAdapter* shelf_menu_model_adapter =
+      shelf_view->shelf_menu_model_adapter_for_testing();
+  ASSERT_TRUE(shelf_menu_model_adapter->IsShowingMenu());
+
+  // Click at the menu item whose command is ash::MENU_NEW_WINDOW.
+  event_generator.MoveMouseTo(shelf_menu_model_adapter->root_for_testing()
+                                  ->GetMenuItemByID(ash::MENU_NEW_WINDOW)
+                                  ->GetBoundsInScreen()
+                                  .CenterPoint());
+  event_generator.ClickLeftButton();
+
+  // Verify that hotseat is hidden.
+  EXPECT_EQ(ash::HotseatState::kHidden,
+            controller->shelf()->shelf_layout_manager()->hotseat_state());
+}
 
 // Tests that launching and switching apps by tapping shelf buttons hides the
 // hotseat.
 IN_PROC_BROWSER_TEST_F(HotseatShelfAppBrowserTest,
-                       MAYBE_TappingAppIconsHidesHotseat) {
+                       TappingAppIconsHidesHotseat) {
   ash::Shell::Get()->tablet_mode_controller()->SetEnabledForTest(true);
 
   // Create two apps, then extend the hotseat.
@@ -2258,85 +2633,80 @@ IN_PROC_BROWSER_TEST_F(HotseatShelfAppBrowserTest,
 
 // Verify that the in-app shelf should be shown when the app icon receives
 // the accessibility focus.
-// https://crbug.com/1020806 flaky.
-IN_PROC_BROWSER_TEST_F(HotseatShelfAppBrowserTest, DISABLED_EnableChromeVox) {
+IN_PROC_BROWSER_TEST_F(HotseatShelfAppBrowserTest, EnableChromeVox) {
   ash::Shell::Get()->tablet_mode_controller()->SetEnabledForTest(true);
   chromeos::SpeechMonitor speech_monitor;
 
   // Enable ChromeVox.
-  {
-    ASSERT_FALSE(
-        chromeos::AccessibilityManager::Get()->IsSpokenFeedbackEnabled());
-    chromeos::AccessibilityManager::Get()->EnableSpokenFeedback(true);
-    EXPECT_TRUE(speech_monitor.SkipChromeVoxEnabledMessage());
+  ASSERT_FALSE(
+      chromeos::AccessibilityManager::Get()->IsSpokenFeedbackEnabled());
+  chromeos::AccessibilityManager::Get()->EnableSpokenFeedback(true);
 
+  // Wait for ChromeVox to start reading anything.
+  speech_monitor.ExpectSpeechPattern("*");
+  speech_monitor.Call([this]() {
     // Disable earcons (https://crbug.com/396507).
-    const std::string script(
-        "cvox.ChromeVox.earcons.playEarcon = function() {};");
+    const std::string script("ChromeVox.earcons.playEarcon = function() {};");
     extensions::ExtensionHost* host =
         extensions::ProcessManager::Get(browser()->profile())
             ->GetBackgroundHostForExtension(
                 extension_misc::kChromeVoxExtensionId);
-    CHECK(content::ExecuteScript(host->host_contents(), script));
-  }
+    content::ExecuteScriptAsync(host->host_contents(), script);
+  });
+
+  views::View* home_button = ash::ShelfTestApi().GetHomeButton();
+  speech_monitor.Call([home_button]() {
+    // Send hover accessibility event - ChromeVox needs this event to properly
+    // recognize the home button as the node with accessibility focus during
+    // touch exploration. The event is generally sent on tap, but with a delay,
+    // so relying on tap event only may introduce test flakiness.
+    home_button->NotifyAccessibilityEvent(ax::mojom::Event::kHover, true);
+  });
+
+  speech_monitor.ExpectSpeech("Launcher");
+  speech_monitor.ExpectSpeech("Button");
+  speech_monitor.ExpectSpeech("Shelf");
+  speech_monitor.ExpectSpeech("Tool bar");
+  speech_monitor.ExpectSpeech(", window");
 
   ash::RootWindowController* controller =
       ash::Shell::GetRootWindowControllerWithDisplayId(
           display::Screen::GetScreen()->GetPrimaryDisplay().id());
+  speech_monitor.Call([controller]() {
+    // Hotseat is expected to be extended if spoken feedback is enabled.
+    ASSERT_EQ(ash::HotseatState::kExtended,
+              controller->shelf()->shelf_layout_manager()->hotseat_state());
+  });
 
-  // Gesture tap at the home button.
-  views::View* home_button = ash::ShelfTestApi::Create()->GetHomeButton();
   ui::test::EventGenerator event_generator(controller->GetRootWindow());
-  event_generator.GestureTapAt(home_button->GetBoundsInScreen().CenterPoint());
+  auto* generator_ptr = &event_generator;
 
-  ASSERT_EQ("Launcher", speech_monitor.GetNextUtterance());
-  ASSERT_EQ("Button", speech_monitor.GetNextUtterance());
-  ASSERT_EQ("Shelf", speech_monitor.GetNextUtterance());
-  ASSERT_EQ("Tool bar", speech_monitor.GetNextUtterance());
-  ASSERT_EQ(", window", speech_monitor.GetNextUtterance());
+  speech_monitor.Call([generator_ptr]() {
+    // Press the search + right. Expects that the browser icon receives the
+    // accessibility focus and the hotseat remains in kExtended state.
+    generator_ptr->PressKey(ui::VKEY_RIGHT, ui::EF_COMMAND_DOWN);
+  });
 
-  // Verifies that before moving the focus to the app icon, hotseat is hidden.
-  ASSERT_EQ(ash::HotseatState::kHidden,
-            controller->shelf()->shelf_layout_manager()->hotseat_state());
-
-  // Press the search + right. Expects that the browser icon receives the
-  // accessibility focus and the hotseat is shown in kExtended state.
-  event_generator.PressKey(ui::VKEY_RIGHT, ui::EF_COMMAND_DOWN);
   const int browser_index =
       ash::ShelfModel::Get()->GetItemIndexForType(ash::TYPE_BROWSER_SHORTCUT);
-  EXPECT_EQ(
-      base::UTF16ToASCII(ash::ShelfModel::Get()->items()[browser_index].title),
-      speech_monitor.GetNextUtterance());
+  speech_monitor.ExpectSpeech(
+      base::UTF16ToASCII(ash::ShelfModel::Get()->items()[browser_index].title));
+  speech_monitor.Replay();
+
   EXPECT_EQ(ash::HotseatState::kExtended,
             controller->shelf()->shelf_layout_manager()->hotseat_state());
 
-  // Click on the home button. Expects that the hotseat is shown in kShown state
+  // Click on the home button. Expects that the hotseat is shown in
+  // kShownHomeLauncher state. Note that the home button should be shown in
+  // tablet mode with spoken feedback enabled.
   event_generator.MoveMouseTo(home_button->GetBoundsInScreen().CenterPoint());
   event_generator.ClickLeftButton();
-  EXPECT_EQ(ash::HotseatState::kShown,
+
+  EXPECT_EQ(ash::HotseatState::kShownHomeLauncher,
             controller->shelf()->shelf_layout_manager()->hotseat_state());
 }
 
-namespace {
-
-class ShelfAppBrowserTestWithDesks : public ShelfAppBrowserTest {
- public:
-  ShelfAppBrowserTestWithDesks() = default;
-  ~ShelfAppBrowserTestWithDesks() override = default;
-
-  // ShelfAppBrowserTest:
-  void SetUp() override {
-    scoped_feature_list_.InitAndEnableFeature(ash::features::kVirtualDesks);
-    ShelfAppBrowserTest::SetUp();
-  }
-
- private:
-  base::test::ScopedFeatureList scoped_feature_list_;
-
-  DISALLOW_COPY_AND_ASSIGN(ShelfAppBrowserTestWithDesks);
-};
-
-}  // namespace
+using ShelfAppBrowserTestWithDesks = ShelfAppBrowserTest;
 
 IN_PROC_BROWSER_TEST_F(ShelfAppBrowserTestWithDesks, MultipleDesks) {
   auto* desks_controller = ash::DesksController::Get();
@@ -2371,3 +2741,128 @@ IN_PROC_BROWSER_TEST_F(ShelfAppBrowserTestWithDesks, MultipleDesks) {
               ->GetAppMenuItemsForTesting(shelf_model()->items()[browser_index])
               .size());
 }
+
+class PerDeskShelfAppBrowserTest : public ShelfAppBrowserTest,
+                                   public ::testing::WithParamInterface<bool> {
+ public:
+  PerDeskShelfAppBrowserTest() = default;
+  PerDeskShelfAppBrowserTest(const PerDeskShelfAppBrowserTest&) = delete;
+  PerDeskShelfAppBrowserTest& operator=(const PerDeskShelfAppBrowserTest&) =
+      delete;
+  ~PerDeskShelfAppBrowserTest() override = default;
+
+  ash::ShelfView* shelf_view() const { return shelf_view_; }
+
+  // ShelfAppBrowserTest:
+  void SetUp() override {
+    if (GetParam()) {
+      scoped_feature_list_.InitAndEnableFeature(ash::features::kPerDeskShelf);
+    } else {
+      scoped_feature_list_.InitAndDisableFeature(ash::features::kPerDeskShelf);
+    }
+
+    ShelfAppBrowserTest::SetUp();
+  }
+
+  void SetUpOnMainThread() override {
+    ShelfAppBrowserTest::SetUpOnMainThread();
+    shelf_view_ = ash::Shell::GetPrimaryRootWindowController()
+                      ->shelf()
+                      ->GetShelfViewForTesting();
+    // Start tests with 2 desks.
+    ash::DesksController::Get()->NewDesk(
+        ash::DesksCreationRemovalSource::kButton);
+    ash::ShelfViewTestAPI test_api(shelf_view());
+    test_api.SetShelfContextMenuCallback(base::BindRepeating(
+        &PerDeskShelfAppBrowserTest::OnAppMenuShown, base::Unretained(this)));
+  }
+
+  void CreateTestBrowser() {
+    Browser* new_browser = CreateBrowser(browser()->profile());
+    new_browser->window()->Show();
+    new_browser->window()->Activate();
+  }
+
+  ash::ShelfID GetBrowserId() const {
+    const int browser_index =
+        GetIndexOfShelfItemType(ash::TYPE_BROWSER_SHORTCUT);
+    return shelf_model()->items()[browser_index].id;
+  }
+
+  ash::ShelfMenuModelAdapter* ClickBrowserShelfButtonAndGetMenu() {
+    views::View* browser_icon = shelf_view()->GetShelfAppButton(GetBrowserId());
+    run_loop_ = std::make_unique<base::RunLoop>();
+    ui::test::EventGenerator event_generator(
+        ash::Shell::GetPrimaryRootWindow());
+    event_generator.MoveMouseTo(
+        browser_icon->GetBoundsInScreen().CenterPoint());
+    event_generator.ClickLeftButton();
+    run_loop_->Run();
+    ash::ShelfMenuModelAdapter* shelf_menu_model_adapter =
+        shelf_view()->shelf_menu_model_adapter_for_testing();
+    EXPECT_TRUE(shelf_menu_model_adapter);
+    EXPECT_TRUE(shelf_menu_model_adapter->IsShowingMenu());
+    return shelf_menu_model_adapter;
+  }
+
+ private:
+  void OnAppMenuShown() {
+    if (run_loop_)
+      std::move(run_loop_)->Quit();
+  }
+
+  ash::ShelfView* shelf_view_ = nullptr;
+  std::unique_ptr<base::RunLoop> run_loop_;
+  base::test::ScopedFeatureList scoped_feature_list_;
+};
+
+IN_PROC_BROWSER_TEST_P(PerDeskShelfAppBrowserTest, AppMenus) {
+  // On desk_1, create 3 browsers. Note that the test starts with a default
+  // browser.
+  CreateTestBrowser();
+  CreateTestBrowser();
+  EXPECT_EQ(3u, chrome::GetTotalBrowserCount());
+
+  // Switch to desk_2, and create 2 more browsers.
+  auto* desks_controller = ash::DesksController::Get();
+  auto* desk_2 = desks_controller->desks()[1].get();
+  ash::ActivateDesk(desk_2);
+  CreateTestBrowser();
+  CreateTestBrowser();
+  EXPECT_EQ(5u, chrome::GetTotalBrowserCount());
+
+  // Click on the Browser icon on the shelf and expect the app items menu will
+  // show, and the number of items in the menu will depend on whether the
+  // per-desk shelf feature is enabled or not.
+  auto* model_adapter = ClickBrowserShelfButtonAndGetMenu();
+  const bool is_per_desk_shelf_enabled = GetParam();
+  constexpr int kTitleAndSeparatorCount = 2;
+  if (is_per_desk_shelf_enabled) {
+    EXPECT_EQ(2 + kTitleAndSeparatorCount,
+              model_adapter->model()->GetItemCount());
+  } else {
+    EXPECT_EQ(5 + kTitleAndSeparatorCount,
+              model_adapter->model()->GetItemCount());
+  }
+
+  // Switch to desk_1, and verify the app items count again.
+  auto* desk_1 = desks_controller->desks()[0].get();
+  ash::ActivateDesk(desk_1);
+  model_adapter = ClickBrowserShelfButtonAndGetMenu();
+  if (is_per_desk_shelf_enabled) {
+    EXPECT_EQ(3 + kTitleAndSeparatorCount,
+              model_adapter->model()->GetItemCount());
+  } else {
+    EXPECT_EQ(5 + kTitleAndSeparatorCount,
+              model_adapter->model()->GetItemCount());
+  }
+}
+
+// TODO(crbug.com/1054116): Also test with kWebApps.
+INSTANTIATE_TEST_SUITE_P(
+    All,
+    ShelfWebAppBrowserTest,
+    ::testing::Values(web_app::ProviderType::kBookmarkApps),
+    web_app::ProviderTypeParamToString);
+
+INSTANTIATE_TEST_SUITE_P(All, PerDeskShelfAppBrowserTest, ::testing::Bool());

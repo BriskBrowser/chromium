@@ -6,6 +6,7 @@
 
 #include "third_party/blink/public/common/features.h"
 #include "third_party/blink/renderer/core/dom/document.h"
+#include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/frame/settings.h"
 #include "third_party/blink/renderer/core/loader/document_loader.h"
@@ -28,8 +29,35 @@ KURL PreloadRequest::CompleteURL(Document* document) {
   return document->CompleteURL(resource_url_);
 }
 
+// static
+std::unique_ptr<PreloadRequest> PreloadRequest::CreateIfNeeded(
+    const String& initiator_name,
+    const TextPosition& initiator_position,
+    const String& resource_url,
+    const KURL& base_url,
+    ResourceType resource_type,
+    const network::mojom::ReferrerPolicy referrer_policy,
+    ReferrerSource referrer_source,
+    ResourceFetcher::IsImageSet is_image_set,
+    const FetchParameters::ResourceWidth& resource_width,
+    const ClientHintsPreferences& client_hints_preferences,
+    RequestType request_type) {
+  // Never preload data URLs. We also disallow relative ref URLs which become
+  // data URLs if the document's URL is a data URL. We don't want to create
+  // extra resource requests with data URLs to avoid copy / initialization
+  // overhead, which can be significant for large URLs.
+  if (resource_url.IsEmpty() || resource_url.StartsWith("#") ||
+      ProtocolIs(resource_url, "data")) {
+    return nullptr;
+  }
+  return base::WrapUnique(new PreloadRequest(
+      initiator_name, initiator_position, resource_url, base_url, resource_type,
+      resource_width, client_hints_preferences, request_type, referrer_policy,
+      referrer_source, is_image_set));
+}
+
 Resource* PreloadRequest::Start(Document* document) {
-  DCHECK(IsMainThread());
+  DCHECK(document->domWindow());
 
   FetchInitiatorInfo initiator_info;
   initiator_info.name = AtomicString(initiator_name_);
@@ -56,28 +84,24 @@ Resource* PreloadRequest::Start(Document* document) {
       base::FeatureList::IsEnabled(blink::features::kSubresourceRedirect) &&
       blink::GetNetworkStateNotifier().SaveDataEnabled()) {
     resource_request.SetPreviewsState(resource_request.GetPreviewsState() |
-                                      WebURLRequest::kSubresourceRedirectOn);
+                                      PreviewsTypes::kSubresourceRedirectOn);
   }
 
-  ResourceLoaderOptions options;
+  ResourceLoaderOptions options(document->domWindow()->GetCurrentWorld());
   options.initiator_info = initiator_info;
-  FetchParameters params(resource_request, options);
+  FetchParameters params(std::move(resource_request), options);
 
+  auto* origin = document->domWindow()->GetSecurityOrigin();
   if (resource_type_ == ResourceType::kImportResource) {
-    const SecurityOrigin* security_origin =
-        document->ContextDocument()->GetSecurityOrigin();
-    params.SetCrossOriginAccessControl(security_origin,
-                                       kCrossOriginAttributeAnonymous);
+    params.SetCrossOriginAccessControl(origin, kCrossOriginAttributeAnonymous);
   }
 
   if (script_type_ == mojom::ScriptType::kModule) {
     DCHECK_EQ(resource_type_, ResourceType::kScript);
     params.SetCrossOriginAccessControl(
-        document->GetSecurityOrigin(),
-        ScriptLoader::ModuleScriptCredentialsMode(cross_origin_));
+        origin, ScriptLoader::ModuleScriptCredentialsMode(cross_origin_));
   } else if (cross_origin_ != kCrossOriginAttributeNotSet) {
-    params.SetCrossOriginAccessControl(document->GetSecurityOrigin(),
-                                       cross_origin_);
+    params.SetCrossOriginAccessControl(origin, cross_origin_);
   }
 
   params.SetDefer(defer_);
@@ -113,13 +137,7 @@ Resource* PreloadRequest::Start(Document* document) {
     // the async request to the blocked script here.
   }
 
-  if (resource_type_ == ResourceType::kImage &&
-      params.Url().ProtocolIsInHTTPFamily() && is_lazy_load_image_enabled_) {
-    params.SetLazyImagePlaceholder();
-  }
-
-  return PreloadHelper::StartPreload(resource_type_, params,
-                                     document->Fetcher());
+  return PreloadHelper::StartPreload(resource_type_, params, *document);
 }
 
 }  // namespace blink

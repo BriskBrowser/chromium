@@ -4,7 +4,13 @@
 
 #include "chrome/browser/ui/tab_contents/chrome_web_contents_view_handle_drop.h"
 
+#include "base/files/file_enumerator.h"
+#include "base/files/file_util.h"
+#include "base/optional.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
+#include "base/task_runner_util.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/safe_browsing/cloud_content_scanning/deep_scanning_dialog_delegate.h"
 #include "chrome/browser/safe_browsing/cloud_content_scanning/deep_scanning_utils.h"
@@ -31,6 +37,42 @@ void DeepScanCompletionCallback(
           : content::WebContentsViewDelegate::DropCompletionResult::kAbort);
 }
 
+safe_browsing::DeepScanningDialogDelegate::Data GetPathsToScan(
+    content::WebContents* web_contents,
+    const content::DropData& drop_data,
+    safe_browsing::DeepScanningDialogDelegate::Data data) {
+  for (const auto& file : drop_data.filenames) {
+    base::File::Info info;
+
+    // Ignore the path if it's a symbolic link.
+    if (!base::GetFileInfo(file.path, &info) || info.is_symbolic_link)
+      continue;
+
+    // If the file is a directory, recursively add the files it holds to |data|.
+    if (info.is_directory) {
+      base::FileEnumerator file_enumerator(file.path, /*recursive=*/true,
+                                           base::FileEnumerator::FILES);
+      for (base::FilePath sub_path = file_enumerator.Next(); !sub_path.empty();
+           sub_path = file_enumerator.Next()) {
+        data.paths.push_back(sub_path);
+      }
+    } else {
+      data.paths.push_back(file.path);
+    }
+  }
+
+  return data;
+}
+
+void ScanData(content::WebContents* web_contents,
+              content::WebContentsViewDelegate::DropCompletionCallback callback,
+              safe_browsing::DeepScanningDialogDelegate::Data data) {
+  safe_browsing::DeepScanningDialogDelegate::ShowForWebContents(
+      web_contents, std::move(data),
+      base::BindOnce(&DeepScanCompletionCallback, std::move(callback)),
+      safe_browsing::DeepScanAccessPoint::DRAG_AND_DROP);
+}
+
 }  // namespace
 
 void HandleOnPerformDrop(
@@ -40,8 +82,12 @@ void HandleOnPerformDrop(
   safe_browsing::DeepScanningDialogDelegate::Data data;
   Profile* profile =
       Profile::FromBrowserContext(web_contents->GetBrowserContext());
+  auto connector =
+      drop_data.filenames.empty()
+          ? enterprise_connectors::AnalysisConnector::BULK_DATA_ENTRY
+          : enterprise_connectors::AnalysisConnector::FILE_ATTACHED;
   if (!safe_browsing::DeepScanningDialogDelegate::IsEnabled(
-          profile, web_contents->GetLastCommittedURL(), &data)) {
+          profile, web_contents->GetLastCommittedURL(), &data, connector)) {
     std::move(callback).Run(
         content::WebContentsViewDelegate::DropCompletionResult::kContinue);
     return;
@@ -50,22 +96,20 @@ void HandleOnPerformDrop(
   // Collect the data that needs to be scanned.
   if (!drop_data.url_title.empty())
     data.text.push_back(drop_data.url_title);
-  if (!drop_data.text.is_null())
-    data.text.push_back(drop_data.text.string());
-  if (!drop_data.html.is_null())
-    data.text.push_back(drop_data.html.string());
+  if (drop_data.text)
+    data.text.push_back(*drop_data.text);
+  if (drop_data.html)
+    data.text.push_back(*drop_data.html);
   if (!drop_data.file_contents.empty())
     data.text.push_back(base::UTF8ToUTF16(drop_data.file_contents));
 
-  for (const auto& file : drop_data.filenames)
-    data.paths.push_back(file.path);
-
-  // TODO(crbug.com/1008040): how to handle drop_data.file_system_files?
-  // These are URLs that use the filesystem: schema.  Support for this API
-  // is unclear.
-
-  safe_browsing::DeepScanningDialogDelegate::ShowForWebContents(
-      web_contents, std::move(data),
-      base::BindOnce(&DeepScanCompletionCallback, std::move(callback)),
-      safe_browsing::DeepScanAccessPoint::DRAG_AND_DROP);
+  if (drop_data.filenames.empty()) {
+    ScanData(web_contents, std::move(callback), std::move(data));
+  } else {
+    base::ThreadPool::PostTaskAndReplyWithResult(
+        FROM_HERE, {base::TaskPriority::USER_VISIBLE, base::MayBlock()},
+        base::BindOnce(&GetPathsToScan, web_contents, std::move(drop_data),
+                       std::move(data)),
+        base::BindOnce(&ScanData, web_contents, std::move(callback)));
+  }
 }

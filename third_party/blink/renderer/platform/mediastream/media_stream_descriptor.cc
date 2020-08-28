@@ -31,7 +31,8 @@
 
 #include "third_party/blink/renderer/platform/mediastream/media_stream_descriptor.h"
 
-#include "third_party/blink/public/platform/web_media_stream.h"
+#include "third_party/blink/public/platform/modules/mediastream/web_media_stream.h"
+#include "third_party/blink/public/platform/web_string.h"
 #include "third_party/blink/renderer/platform/heap/heap.h"
 #include "third_party/blink/renderer/platform/wtf/uuid.h"
 
@@ -63,7 +64,7 @@ void MediaStreamDescriptor::AddComponent(MediaStreamComponent* component) {
   // Iterate over a copy of |observers_| to avoid re-entrancy issues.
   Vector<WebMediaStreamObserver*> observers = observers_;
   for (auto*& observer : observers)
-    observer->TrackAdded(component);
+    observer->TrackAdded(WebString(component->Id()));
 }
 
 void MediaStreamDescriptor::RemoveComponent(MediaStreamComponent* component) {
@@ -84,7 +85,7 @@ void MediaStreamDescriptor::RemoveComponent(MediaStreamComponent* component) {
   // Iterate over a copy of |observers_| to avoid re-entrancy issues.
   Vector<WebMediaStreamObserver*> observers = observers_;
   for (auto*& observer : observers)
-    observer->TrackRemoved(component);
+    observer->TrackRemoved(WebString(component->Id()));
 }
 
 void MediaStreamDescriptor::AddRemoteTrack(MediaStreamComponent* component) {
@@ -170,7 +171,7 @@ MediaStreamDescriptor::MediaStreamDescriptor(
     video_components_.push_back((*iter));
 }
 
-void MediaStreamDescriptor::Trace(blink::Visitor* visitor) {
+void MediaStreamDescriptor::Trace(Visitor* visitor) const {
   visitor->Trace(audio_components_);
   visitor->Trace(video_components_);
   visitor->Trace(client_);

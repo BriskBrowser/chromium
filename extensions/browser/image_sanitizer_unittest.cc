@@ -14,9 +14,10 @@
 #include "base/memory/ref_counted.h"
 #include "base/run_loop.h"
 #include "base/strings/string_number_conversions.h"
-#include "base/task/post_task.h"
+#include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
 #include "content/public/test/browser_task_environment.h"
+#include "extensions/browser/extension_file_task_runner.h"
 #include "services/data_decoder/public/cpp/data_decoder.h"
 #include "services/data_decoder/public/cpp/test_support/in_process_data_decoder.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -143,7 +144,8 @@ class ImageSanitizerTest : public testing::Test {
       ImageSanitizer::SanitizationDoneCallback done_callback) {
     sanitizer_ = ImageSanitizer::CreateAndStart(
         &data_decoder_, temp_dir_.GetPath(), image_relative_paths,
-        std::move(image_decoded_callback), std::move(done_callback));
+        std::move(image_decoded_callback), std::move(done_callback),
+        GetExtensionFileTaskRunner());
   }
 
   bool WriteBase64DataToFile(const std::string& base64_data,
@@ -297,8 +299,9 @@ TEST_F(ImageSanitizerTest, NoCallbackAfterDelete) {
   ClearSanitizer();
   // Wait a bit and ensure no callback has been called.
   base::RunLoop run_loop;
-  base::PostDelayedTask(FROM_HERE, run_loop.QuitClosure(),
-                        base::TimeDelta::FromMilliseconds(200));
+  base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+      FROM_HERE, run_loop.QuitClosure(),
+      base::TimeDelta::FromMilliseconds(200));
   run_loop.Run();
   EXPECT_FALSE(done_callback_called());
   EXPECT_FALSE(decoded_image_callback_called());

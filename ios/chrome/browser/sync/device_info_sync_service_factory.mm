@@ -59,7 +59,7 @@ class DeviceInfoSyncClient : public syncer::DeviceInfoSyncClient {
 
 // static
 syncer::DeviceInfoSyncService* DeviceInfoSyncServiceFactory::GetForBrowserState(
-    ios::ChromeBrowserState* browser_state) {
+    ChromeBrowserState* browser_state) {
   return static_cast<syncer::DeviceInfoSyncService*>(
       GetInstance()->GetServiceForBrowserState(browser_state, true));
 }
@@ -73,11 +73,11 @@ DeviceInfoSyncServiceFactory* DeviceInfoSyncServiceFactory::GetInstance() {
 void DeviceInfoSyncServiceFactory::GetAllDeviceInfoTrackers(
     std::vector<const syncer::DeviceInfoTracker*>* trackers) {
   DCHECK(trackers);
-  std::vector<ios::ChromeBrowserState*> browser_state_list =
+  std::vector<ChromeBrowserState*> browser_state_list =
       GetApplicationContext()
           ->GetChromeBrowserStateManager()
           ->GetLoadedBrowserStates();
-  for (ios::ChromeBrowserState* browser_state : browser_state_list) {
+  for (ChromeBrowserState* browser_state : browser_state_list) {
     syncer::DeviceInfoSyncService* service =
         DeviceInfoSyncServiceFactory::GetForBrowserState(browser_state);
     if (service != nullptr) {
@@ -102,14 +102,15 @@ DeviceInfoSyncServiceFactory::~DeviceInfoSyncServiceFactory() {}
 std::unique_ptr<KeyedService>
 DeviceInfoSyncServiceFactory::BuildServiceInstanceFor(
     web::BrowserState* context) const {
-  ios::ChromeBrowserState* browser_state =
-      ios::ChromeBrowserState::FromBrowserState(context);
+  ChromeBrowserState* browser_state =
+      ChromeBrowserState::FromBrowserState(context);
 
   auto device_info_sync_client =
       std::make_unique<DeviceInfoSyncClient>(browser_state->GetPrefs());
   auto local_device_info_provider =
       std::make_unique<syncer::LocalDeviceInfoProviderImpl>(
-          ::GetChannel(), ::GetVersionString(), device_info_sync_client.get());
+          ::GetChannel(), ::GetVersionString(), device_info_sync_client.get(),
+          /*sync_invalidations_service=*/nullptr);
   auto device_prefs = std::make_unique<syncer::DeviceInfoPrefs>(
       browser_state->GetPrefs(), base::DefaultClock::GetInstance());
 

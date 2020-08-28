@@ -20,17 +20,19 @@
 #include "gpu/command_buffer/service/shared_image_backing.h"
 #include "gpu/command_buffer/service/shared_image_manager.h"
 #include "gpu/command_buffer/service/shared_image_representation.h"
+#include "gpu/ipc/common/surface_handle.h"
 #include "ui/gfx/color_space.h"
 #include "ui/gfx/geometry/size.h"
 #include "ui/gfx/gpu_fence.h"
 #include "ui/gfx/native_pixmap.h"
 
 namespace gpu {
+class VaapiDependencies;
 
 // Implementation of SharedImageBacking that uses a NativePixmap created via
 // an Ozone surface factory. The memory associated with the pixmap can be
 // aliased by both GL and Vulkan for use in rendering or compositing.
-class SharedImageBackingOzone final : public SharedImageBacking {
+class SharedImageBackingOzone final : public ClearTrackingSharedImageBacking {
  public:
   static std::unique_ptr<SharedImageBackingOzone> Create(
       scoped_refptr<base::RefCountedData<DawnProcTable>> dawn_procs,
@@ -39,12 +41,13 @@ class SharedImageBackingOzone final : public SharedImageBacking {
       viz::ResourceFormat format,
       const gfx::Size& size,
       const gfx::ColorSpace& color_space,
-      uint32_t usage);
+      GrSurfaceOrigin surface_origin,
+      SkAlphaType alpha_type,
+      uint32_t usage,
+      SurfaceHandle surface_handle);
   ~SharedImageBackingOzone() override;
 
   // gpu::SharedImageBacking:
-  gfx::Rect ClearedRect() const override;
-  void SetClearedRect(const gfx::Rect& cleared_rect) override;
   void Update(std::unique_ptr<gfx::GpuFence> in_fence) override;
   bool ProduceLegacyMailbox(MailboxManager* mailbox_manager) override;
 
@@ -66,18 +69,33 @@ class SharedImageBackingOzone final : public SharedImageBacking {
   std::unique_ptr<SharedImageRepresentationOverlay> ProduceOverlay(
       SharedImageManager* manager,
       MemoryTypeTracker* tracker) override;
+  std::unique_ptr<SharedImageRepresentationVaapi> ProduceVASurface(
+      SharedImageManager* manager,
+      MemoryTypeTracker* tracker,
+      VaapiDependenciesFactory* dep_factory) override;
 
  private:
+  friend class SharedImageRepresentationGLOzone;
+  friend class SharedImageRepresentationDawnOzone;
+  class SharedImageRepresentationVaapiOzone;
+
   SharedImageBackingOzone(
       const Mailbox& mailbox,
       viz::ResourceFormat format,
       const gfx::Size& size,
       const gfx::ColorSpace& color_space,
+      GrSurfaceOrigin surface_origin,
+      SkAlphaType alpha_type,
       uint32_t usage,
       SharedContextState* context_state,
       scoped_refptr<gfx::NativePixmap> pixmap,
       scoped_refptr<base::RefCountedData<DawnProcTable>> dawn_procs);
 
+  bool VaSync();
+
+  // Indicates if this backing produced a VASurface that may have pending work.
+  bool has_pending_va_writes_ = false;
+  std::unique_ptr<VaapiDependencies> vaapi_deps_;
   scoped_refptr<gfx::NativePixmap> pixmap_;
   scoped_refptr<base::RefCountedData<DawnProcTable>> dawn_procs_;
 

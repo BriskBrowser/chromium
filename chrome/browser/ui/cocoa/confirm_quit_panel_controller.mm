@@ -7,9 +7,8 @@
 
 #import "chrome/browser/ui/cocoa/confirm_quit_panel_controller.h"
 
-#include "base/logging.h"
+#include "base/check_op.h"
 #include "base/mac/scoped_nsobject.h"
-#import "base/mac/sdk_forward_declarations.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/sys_string_conversions.h"
 #include "chrome/browser/browser_process.h"

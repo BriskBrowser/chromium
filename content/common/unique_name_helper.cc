@@ -7,7 +7,8 @@
 #include <algorithm>
 #include <utility>
 
-#include "base/logging.h"
+#include "base/check_op.h"
+#include "base/notreached.h"
 #include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_piece.h"
@@ -42,7 +43,7 @@ class PendingChildFrameAdapter : public UniqueNameHelper::FrameAdapter {
     NOTREACHED();
     return 0;
   }
-  std::vector<base::StringPiece> CollectAncestorNames(
+  std::vector<std::string> CollectAncestorNames(
       BeginPoint begin_point,
       bool (*should_stop)(base::StringPiece)) const override {
     DCHECK_EQ(BeginPoint::kParentFrame, begin_point);
@@ -68,13 +69,14 @@ constexpr char kDynamicFrameMarker[] = "<!--dynamicFrame";
 constexpr size_t kMaxRequestedNameSize = 80;
 
 bool IsNameWithFramePath(base::StringPiece name) {
-  return name.starts_with(kFramePathPrefix) && name.ends_with("-->") &&
+  return base::StartsWith(name, kFramePathPrefix) &&
+         base::EndsWith(name, "-->") &&
          (kFramePathPrefixLength + kFramePathSuffixLength) < name.size();
 }
 
 std::string GenerateCandidate(const FrameAdapter* frame) {
   std::string new_name(kFramePathPrefix);
-  std::vector<base::StringPiece> ancestor_names = frame->CollectAncestorNames(
+  std::vector<std::string> ancestor_names = frame->CollectAncestorNames(
       FrameAdapter::BeginPoint::kParentFrame, &IsNameWithFramePath);
   std::reverse(ancestor_names.begin(), ancestor_names.end());
   // Note: This checks ancestor_names[0] twice, but it's nicer to do the name
@@ -311,11 +313,11 @@ void UniqueNameHelper::PreserveStableUniqueNameForTesting() {
 }
 
 std::string UniqueNameHelper::ExtractStableNameForTesting(
-    const std::string& unique_name) {
+    base::StringPiece unique_name) {
   size_t i = unique_name.rfind(kDynamicFrameMarker);
   if (i == std::string::npos)
-    return unique_name;
-  return unique_name.substr(0, i);
+    return unique_name.as_string();
+  return unique_name.substr(0, i).as_string();
 }
 
 }  // namespace content

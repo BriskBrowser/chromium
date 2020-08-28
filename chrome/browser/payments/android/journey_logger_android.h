@@ -78,8 +78,15 @@ class JourneyLoggerAndroid {
       const base::android::JavaParamRef<jstring>& jcurrency,
       const base::android::JavaParamRef<jstring>& jvalue,
       jboolean jcompleted);
+  void RecordCheckoutStep(JNIEnv* env,
+                          const base::android::JavaParamRef<jobject>& jcaller,
+                          jint jstep);
   void SetTriggerTime(JNIEnv* env,
                       const base::android::JavaParamRef<jobject>& jcaller);
+  void SetPaymentAppUkmSourceId(
+      JNIEnv* env,
+      const base::android::JavaParamRef<jobject>& jcaller,
+      ukm::SourceId source_id);
 
  private:
   JourneyLogger journey_logger_;

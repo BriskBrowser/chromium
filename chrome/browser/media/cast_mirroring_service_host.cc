@@ -8,11 +8,12 @@
 #include <utility>
 
 #include "base/bind.h"
+#include "base/bind_helpers.h"
 #include "base/logging.h"
 #include "base/memory/ref_counted.h"
 #include "base/optional.h"
 #include "base/single_thread_task_runner.h"
-#include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/media/cast_remoting_connector.h"
@@ -37,6 +38,7 @@
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "mojo/public/cpp/bindings/self_owned_receiver.h"
+#include "services/network/public/mojom/network_context.mojom.h"
 #include "services/network/public/mojom/network_service.mojom.h"
 #include "services/viz/public/mojom/gpu.mojom.h"
 #include "ui/display/display.h"
@@ -58,8 +60,8 @@ void CreateVideoCaptureHostOnIO(
     mojo::PendingReceiver<media::mojom::VideoCaptureHost> receiver) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
   scoped_refptr<base::SingleThreadTaskRunner> device_task_runner =
-      base::CreateSingleThreadTaskRunner(
-          {base::ThreadPool(), base::TaskPriority::USER_BLOCKING,
+      base::ThreadPool::CreateSingleThreadTaskRunner(
+          {base::TaskPriority::USER_BLOCKING,
            base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN},
           base::SingleThreadTaskRunnerThreadMode::DEDICATED);
   mojo::MakeSelfOwnedReceiver(
@@ -207,7 +209,6 @@ void CastMirroringServiceHost::Start(
       mirroring_service_.BindNewPipeAndPassReceiver(),
       content::ServiceProcessHost::Options()
           .WithDisplayName("Mirroring Service")
-          .WithSandboxType(service_manager::SandboxType::kUtility)
           .Pass());
   mojo::PendingRemote<mojom::ResourceProvider> provider;
   resource_provider_receiver.Bind(provider.InitWithNewPipeAndPassReceiver());
@@ -260,15 +261,14 @@ gfx::Size CastMirroringServiceHost::GetClampedResolution(
 
 void CastMirroringServiceHost::BindGpu(
     mojo::PendingReceiver<viz::mojom::Gpu> receiver) {
-  gpu_client_ = content::CreateGpuClient(
-      std::move(receiver), base::DoNothing(),
-      base::CreateSingleThreadTaskRunner({BrowserThread::IO}));
+  gpu_client_ = content::CreateGpuClient(std::move(receiver), base::DoNothing(),
+                                         content::GetIOThreadTaskRunner({}));
 }
 
 void CastMirroringServiceHost::GetVideoCaptureHost(
     mojo::PendingReceiver<media::mojom::VideoCaptureHost> receiver) {
-  base::PostTask(
-      FROM_HERE, {BrowserThread::IO},
+  content::GetIOThreadTaskRunner({})->PostTask(
+      FROM_HERE,
       base::BindOnce(&CreateVideoCaptureHostOnIO, source_media_id_.ToString(),
                      ConvertVideoStreamType(source_media_id_.type),
                      std::move(receiver)));
@@ -309,13 +309,11 @@ void CastMirroringServiceHost::CreateAudioStream(
              mojo::PendingReceiver<media::mojom::AudioInputStreamClient>
                  client_receiver,
              media::mojom::ReadOnlyAudioDataPipePtr data_pipe) {
-            // TODO(crbug.com/1015488): Remove |initially_muted| argument from
-            // mojom::AudioStreamCreatorClient::StreamCreated().
             mojo::Remote<mojom::AudioStreamCreatorClient> audio_client(
                 std::move(client));
-            audio_client->StreamCreated(
-                std::move(stream), std::move(client_receiver),
-                std::move(data_pipe), false /* initially_muted */);
+            audio_client->StreamCreated(std::move(stream),
+                                        std::move(client_receiver),
+                                        std::move(data_pipe));
           },
           base::Passed(&client)));
 }

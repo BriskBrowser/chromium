@@ -9,16 +9,19 @@
 #include "mojo/public/cpp/bindings/callback_helpers.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise.h"
 #include "third_party/blink/renderer/bindings/modules/v8/string_or_array_buffer_or_array_buffer_view_or_ndef_message_init.h"
+#include "third_party/blink/renderer/bindings/modules/v8/v8_ndef_write_options.h"
 #include "third_party/blink/renderer/core/dom/abort_signal.h"
 #include "third_party/blink/renderer/core/dom/dom_exception.h"
+#include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/modules/nfc/ndef_message.h"
-#include "third_party/blink/renderer/modules/nfc/ndef_write_options.h"
 #include "third_party/blink/renderer/modules/nfc/nfc_type_converters.h"
 #include "third_party/blink/renderer/modules/nfc/nfc_utils.h"
 #include "third_party/blink/renderer/modules/permissions/permission_utils.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
 #include "third_party/blink/renderer/platform/instrumentation/use_counter.h"
+#include "third_party/blink/renderer/platform/scheduler/public/frame_scheduler.h"
+#include "third_party/blink/renderer/platform/scheduler/public/scheduling_policy.h"
 #include "third_party/blink/renderer/platform/weborigin/security_origin.h"
 
 namespace blink {
@@ -29,16 +32,21 @@ using mojom::blink::PermissionStatus;
 
 // static
 NDEFWriter* NDEFWriter::Create(ExecutionContext* context) {
+  context->GetScheduler()->RegisterStickyFeature(
+      blink::SchedulingPolicy::Feature::kWebNfc,
+      {blink::SchedulingPolicy::RecordMetricsForBackForwardCache()});
   return MakeGarbageCollected<NDEFWriter>(context);
 }
 
-NDEFWriter::NDEFWriter(ExecutionContext* context) : ContextClient(context) {}
+NDEFWriter::NDEFWriter(ExecutionContext* context)
+    : ExecutionContextClient(context), permission_service_(context) {}
 
-void NDEFWriter::Trace(blink::Visitor* visitor) {
-  visitor->Trace(nfc_proxy_);
+void NDEFWriter::Trace(Visitor* visitor) const {
+  visitor->Trace(permission_service_);
   visitor->Trace(requests_);
+  visitor->Trace(nfc_proxy_);
   ScriptWrappable::Trace(visitor);
-  ContextClient::Trace(visitor);
+  ExecutionContextClient::Trace(visitor);
 }
 
 // https://w3c.github.io/web-nfc/#writing-content
@@ -47,11 +55,12 @@ ScriptPromise NDEFWriter::write(ScriptState* script_state,
                                 const NDEFMessageSource& write_message,
                                 const NDEFWriteOptions* options,
                                 ExceptionState& exception_state) {
-  ExecutionContext* execution_context = GetExecutionContext();
-  Document* document = To<Document>(execution_context);
+  LocalDOMWindow* window = script_state->ContextIsValid()
+                               ? LocalDOMWindow::From(script_state)
+                               : nullptr;
   // https://w3c.github.io/web-nfc/#security-policies
   // WebNFC API must be only accessible from top level browsing context.
-  if (!execution_context || !document->IsInMainFrame()) {
+  if (!window || !window->GetFrame()->IsMainFrame()) {
     exception_state.ThrowDOMException(DOMExceptionCode::kNotAllowedError,
                                       "NFC interfaces are only avaliable "
                                       "in a top-level browsing context");
@@ -69,7 +78,7 @@ ScriptPromise NDEFWriter::write(ScriptState* script_state,
   // Step 11.2: Run "create NDEF message", if this throws an exception,
   // reject p with that exception and abort these steps.
   NDEFMessage* ndef_message =
-      NDEFMessage::Create(execution_context, write_message, exception_state);
+      NDEFMessage::Create(window, write_message, exception_state);
   if (exception_state.HadException()) {
     return ScriptPromise();
   }
@@ -77,20 +86,12 @@ ScriptPromise NDEFWriter::write(ScriptState* script_state,
   auto message = device::mojom::blink::NDEFMessage::From(ndef_message);
   DCHECK(message);
 
-  if (GetNDEFMessageSize(*message) >
-      device::mojom::blink::NDEFMessage::kMaxSize) {
-    exception_state.ThrowDOMException(
-        DOMExceptionCode::kNotSupportedError,
-        "NDEFMessage exceeds maximum supported size.");
-    return ScriptPromise();
-  }
-
   auto* resolver = MakeGarbageCollected<ScriptPromiseResolver>(script_state);
   requests_.insert(resolver);
   InitNfcProxyIfNeeded();
   GetPermissionService()->RequestPermission(
       CreatePermissionDescriptor(PermissionName::NFC),
-      LocalFrame::HasTransientUserActivation(document->GetFrame()),
+      LocalFrame::HasTransientUserActivation(window->GetFrame()),
       WTF::Bind(&NDEFWriter::OnRequestPermission, WrapPersistent(this),
                 WrapPersistent(resolver), WrapPersistent(options),
                 std::move(message)));
@@ -99,10 +100,11 @@ ScriptPromise NDEFWriter::write(ScriptState* script_state,
 }
 
 PermissionService* NDEFWriter::GetPermissionService() {
-  if (!permission_service_) {
+  if (!permission_service_.is_bound()) {
     ConnectToPermissionService(
         GetExecutionContext(),
-        permission_service_.BindNewPipeAndPassReceiver());
+        permission_service_.BindNewPipeAndPassReceiver(
+            GetExecutionContext()->GetTaskRunner(TaskType::kMiscPlatformAPI)));
   }
   return permission_service_.get();
 }
@@ -149,7 +151,7 @@ void NDEFWriter::OnMojoConnectionError() {
   for (ScriptPromiseResolver* resolver : requests_) {
     resolver->Reject(NDEFErrorTypeToDOMException(
         device::mojom::blink::NDEFErrorType::NOT_SUPPORTED,
-        "WebNFC feature is unavailable."));
+        "WebNFC feature is unavailable or permission denied."));
   }
   requests_.clear();
 }
@@ -159,7 +161,7 @@ void NDEFWriter::InitNfcProxyIfNeeded() {
   if (nfc_proxy_)
     return;
 
-  nfc_proxy_ = NFCProxy::From(*To<Document>(GetExecutionContext()));
+  nfc_proxy_ = NFCProxy::From(*To<LocalDOMWindow>(GetExecutionContext()));
   DCHECK(nfc_proxy_);
 
   // Add the writer to proxy's writer list for mojo connection error

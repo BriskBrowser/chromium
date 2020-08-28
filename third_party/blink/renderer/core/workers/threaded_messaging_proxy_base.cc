@@ -16,6 +16,7 @@
 #include "third_party/blink/renderer/core/loader/document_loader.h"
 #include "third_party/blink/renderer/core/workers/global_scope_creation_params.h"
 #include "third_party/blink/renderer/core/workers/worker_global_scope.h"
+#include "third_party/blink/renderer/platform/heap/heap.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_fetcher.h"
 
 namespace blink {
@@ -52,7 +53,7 @@ int ThreadedMessagingProxyBase::ProxyCount() {
   return g_live_messaging_proxy_count;
 }
 
-void ThreadedMessagingProxyBase::Trace(blink::Visitor* visitor) {
+void ThreadedMessagingProxyBase::Trace(Visitor* visitor) const {
   visitor->Trace(execution_context_);
 }
 
@@ -87,11 +88,6 @@ void ThreadedMessagingProxyBase::CountFeature(WebFeature feature) {
   UseCounter::Count(execution_context_, feature);
 }
 
-void ThreadedMessagingProxyBase::CountDeprecation(WebFeature feature) {
-  DCHECK(IsParentContextThread());
-  Deprecation::CountDeprecation(execution_context_, feature);
-}
-
 void ThreadedMessagingProxyBase::ReportConsoleMessage(
     mojom::ConsoleMessageSource source,
     mojom::ConsoleMessageLevel level,
@@ -100,7 +96,7 @@ void ThreadedMessagingProxyBase::ReportConsoleMessage(
   DCHECK(IsParentContextThread());
   if (asked_to_terminate_)
     return;
-  execution_context_->AddConsoleMessage(ConsoleMessage::CreateFromWorker(
+  execution_context_->AddConsoleMessage(MakeGarbageCollected<ConsoleMessage>(
       level, message, std::move(location), worker_thread_.get()));
 }
 

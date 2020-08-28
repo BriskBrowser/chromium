@@ -16,6 +16,8 @@
 #include "chrome/browser/ui/browser_tabstrip.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/tab_helpers.h"
+#include "chrome/browser/ui/tabs/tab_group.h"
+#include "chrome/browser/ui/tabs/tab_group_model.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/unload_controller.h"
 #include "chrome/common/chrome_switches.h"
@@ -106,13 +108,37 @@ void BrowserTabStripModelDelegate::DuplicateContentsAt(int index) {
   DuplicateTabAt(browser_, index);
 }
 
-bool BrowserTabStripModelDelegate::CanMoveTabToWindow(int index) {
-  return CanMoveTabToNewWindow(browser_, index);
+void BrowserTabStripModelDelegate::MoveToExistingWindow(
+    const std::vector<int>& indices,
+    int browser_index) {
+  browser_->MoveTabsToExistingWindow(indices, browser_index);
 }
 
-void BrowserTabStripModelDelegate::MoveTabToNewWindow(int index) {
+std::vector<base::string16>
+BrowserTabStripModelDelegate::GetExistingWindowsForMoveMenu() const {
+  return browser_->GetExistingWindowsForMoveMenu();
+}
+
+bool BrowserTabStripModelDelegate::CanMoveTabsToWindow(
+    const std::vector<int>& indices) {
+  return CanMoveTabsToNewWindow(browser_, indices);
+}
+
+void BrowserTabStripModelDelegate::MoveTabsToNewWindow(
+    const std::vector<int>& indices) {
   // chrome:: to disambiguate the free function from this method.
-  return chrome::MoveTabToNewWindow(browser_, index);
+  chrome::MoveTabsToNewWindow(browser_, indices);
+}
+
+void BrowserTabStripModelDelegate::MoveGroupToNewWindow(
+    const tab_groups::TabGroupId& group) {
+  std::vector<int> indices = browser_->tab_strip_model()
+                                 ->group_model()
+                                 ->GetTabGroup(group)
+                                 ->ListTabs();
+  // chrome:: to disambiguate the free function from
+  // BrowserTabStripModelDelegate::MoveTabsToNewWindow().
+  chrome::MoveTabsToNewWindow(browser_, indices, group);
 }
 
 void BrowserTabStripModelDelegate::CreateHistoricalTab(
@@ -141,6 +167,11 @@ bool BrowserTabStripModelDelegate::RunUnloadListenerBeforeClosing(
 bool BrowserTabStripModelDelegate::ShouldRunUnloadListenerBeforeClosing(
     content::WebContents* contents) {
   return browser_->ShouldRunUnloadListenerBeforeClosing(contents);
+}
+
+bool BrowserTabStripModelDelegate::ShouldDisplayFavicon(
+    content::WebContents* contents) const {
+  return browser_->ShouldDisplayFavicon(contents);
 }
 
 ////////////////////////////////////////////////////////////////////////////////

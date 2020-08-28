@@ -62,11 +62,16 @@ class Commit {
                                      StatusController* status,
                                      ExtensionsActivity* extensions_activity);
 
+  ModelTypeSet GetContributingDataTypes() const;
+
   // Cleans up state associated with this commit.  Must be called before the
   // destructor.
   void CleanUp();
 
  private:
+  // Report commit failure to each contribution.
+  void ReportFullCommitFailure(SyncerError syncer_error);
+
   ContributionMap contributions_;
 
   sync_pb::ClientToServerMessage message_;

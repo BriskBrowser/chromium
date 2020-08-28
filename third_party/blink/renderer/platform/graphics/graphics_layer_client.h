@@ -56,8 +56,6 @@ class PLATFORM_EXPORT GraphicsLayerClient {
  public:
   virtual ~GraphicsLayerClient() = default;
 
-  virtual void InvalidateTargetElementForTesting() {}
-
   virtual IntRect ComputeInterestRect(
       const GraphicsLayer*,
       const IntRect& previous_interest_rect) const = 0;
@@ -77,6 +75,8 @@ class PLATFORM_EXPORT GraphicsLayerClient {
   // Content under a LayoutSVGHiddenContainer is an auxiliary resource for
   // painting and hit testing.
   virtual bool IsUnderSVGHiddenContainer() const { return false; }
+
+  virtual bool IsSVGRoot() const { return false; }
 
   virtual bool IsTrackingRasterInvalidations() const { return false; }
 

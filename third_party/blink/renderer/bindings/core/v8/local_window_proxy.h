@@ -50,7 +50,7 @@ class SecurityOrigin;
 class LocalWindowProxy final : public WindowProxy {
  public:
   LocalWindowProxy(v8::Isolate*, LocalFrame&, scoped_refptr<DOMWrapperWorld>);
-  void Trace(blink::Visitor*) override;
+  void Trace(Visitor*) const override;
 
   v8::Local<v8::Context> ContextIfInitialized() const {
     return script_state_ ? script_state_->GetContext()
@@ -106,6 +106,7 @@ class LocalWindowProxy final : public WindowProxy {
   }
 
   Member<ScriptState> script_state_;
+  bool context_was_created_from_snapshot_ = false;
 };
 
 template <>

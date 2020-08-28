@@ -19,6 +19,7 @@
 #include "base/sequenced_task_runner.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
 #include "base/task_runner_util.h"
 #include "base/time/time.h"
 #include "base/win/registry.h"
@@ -162,7 +163,7 @@ bool ShouldInsertInBlacklistCache(ModuleBlockingDecision blocking_decision) {
     case ModuleBlockingDecision::kAllowedSameCertificate:
     case ModuleBlockingDecision::kAllowedSameDirectory:
     case ModuleBlockingDecision::kAllowedMicrosoft:
-    case ModuleBlockingDecision::kAllowedWhitelisted:
+    case ModuleBlockingDecision::kAllowedAllowlisted:
     case ModuleBlockingDecision::kTolerated:
     case ModuleBlockingDecision::kNotAnalyzed:
       return false;
@@ -192,9 +193,8 @@ ModuleBlacklistCacheUpdater::ModuleBlacklistCacheUpdater(
       module_list_filter_(std::move(module_list_filter)),
       initial_blacklisted_modules_(initial_blacklisted_modules),
       on_cache_updated_callback_(std::move(on_cache_updated_callback)),
-      background_sequence_(base::CreateSequencedTaskRunner(
-          {base::ThreadPool(), base::MayBlock(),
-           base::TaskPriority::BEST_EFFORT,
+      background_sequence_(base::ThreadPool::CreateSequencedTaskRunner(
+          {base::MayBlock(), base::TaskPriority::BEST_EFFORT,
            base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN})),
       module_analysis_disabled_(module_analysis_disabled),
       weak_ptr_factory_(this) {
@@ -224,8 +224,7 @@ base::FilePath ModuleBlacklistCacheUpdater::GetModuleBlacklistCachePath() {
 
 // static
 void ModuleBlacklistCacheUpdater::DeleteModuleBlacklistCache() {
-  bool delete_result =
-      base::DeleteFile(GetModuleBlacklistCachePath(), false /* recursive */);
+  bool delete_result = base::DeleteFile(GetModuleBlacklistCachePath());
   UMA_HISTOGRAM_BOOLEAN("ModuleBlacklistCache.DeleteResult", delete_result);
 }
 
@@ -378,7 +377,7 @@ ModuleBlacklistCacheUpdater::DetermineModuleBlockingDecision(
     case ModuleListState::kUnlisted:
       break;
     case ModuleListState::kWhitelisted:
-      return ModuleBlockingDecision::kAllowedWhitelisted;
+      return ModuleBlockingDecision::kAllowedAllowlisted;
     case ModuleListState::kTolerated:
       return ModuleBlockingDecision::kTolerated;
     case ModuleListState::kBlacklisted:

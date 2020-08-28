@@ -12,6 +12,7 @@
 #include "ash/app_list/views/search_box_view.h"
 #include "ash/public/cpp/app_list/app_list_config.h"
 #include "ash/public/cpp/app_list/app_list_features.h"
+#include "ash/public/cpp/app_list/app_list_notifier.h"
 #include "ash/public/cpp/app_list/app_list_types.h"
 #include "ash/public/cpp/app_list/internal_app_id_constants.h"
 #include "base/bind.h"
@@ -34,8 +35,7 @@ constexpr int kChipSpacing = 8;
 constexpr int kMinimumSuggestionChipNumber = 3;
 
 bool IsPolicySuggestionChip(const SearchResult& result) {
-  return result.display_location() ==
-             SearchResultDisplayLocation::kSuggestionChipContainer &&
+  return result.display_type() == SearchResultDisplayType::kChip &&
          result.display_index() != SearchResultDisplayIndex::kUndefined;
 }
 
@@ -125,7 +125,8 @@ int SuggestionChipContainerView::DoUpdate() {
   // if shortcuts are displayed as suggestion chips. Also filter out any
   // duplicate policy chip results.
   auto filter_reinstall_and_shortcut = [](const SearchResult& r) -> bool {
-    return r.display_type() == SearchResultDisplayType::kRecommendation &&
+    return (r.display_type() == SearchResultDisplayType::kChip ||
+            r.display_type() == SearchResultDisplayType::kTile) &&
            r.result_type() != AppListSearchResultType::kPlayStoreReinstallApp &&
            r.result_type() != AppListSearchResultType::kArcAppShortcut &&
            !IsPolicySuggestionChip(r);
@@ -154,6 +155,15 @@ int SuggestionChipContainerView::DoUpdate() {
        ++i) {
     suggestion_chip_views_[i]->SetResult(
         i < display_results.size() ? display_results[i] : nullptr);
+  }
+
+  auto* notifier = view_delegate()->GetNotifier();
+  if (notifier) {
+    std::vector<AppListNotifier::Result> notifier_results;
+    for (const auto* result : display_results)
+      notifier_results.emplace_back(result->id(), result->metrics_type());
+    notifier->NotifyResultsUpdated(SearchResultDisplayType::kChip,
+                                   notifier_results);
   }
 
   Layout();

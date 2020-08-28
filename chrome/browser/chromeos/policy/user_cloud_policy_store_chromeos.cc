@@ -11,6 +11,7 @@
 #include "base/debug/dump_without_crashing.h"
 #include "base/logging.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/sequence_checker.h"
 #include "base/sequenced_task_runner.h"
 #include "chrome/browser/chromeos/policy/cached_policy_key_loader_chromeos.h"
 #include "chrome/browser/chromeos/policy/value_validation/onc_user_policy_value_validator.h"
@@ -58,6 +59,7 @@ UserCloudPolicyStoreChromeOS::~UserCloudPolicyStoreChromeOS() {}
 
 void UserCloudPolicyStoreChromeOS::Store(
     const em::PolicyFetchResponse& policy) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK(!is_active_directory_);
 
   // Cancel all pending requests.
@@ -66,11 +68,13 @@ void UserCloudPolicyStoreChromeOS::Store(
   std::unique_ptr<em::PolicyFetchResponse> response(
       new em::PolicyFetchResponse(policy));
   cached_policy_key_loader_->EnsurePolicyKeyLoaded(
-      base::Bind(&UserCloudPolicyStoreChromeOS::ValidatePolicyForStore,
-                 weak_factory_.GetWeakPtr(), base::Passed(&response)));
+      base::BindOnce(&UserCloudPolicyStoreChromeOS::ValidatePolicyForStore,
+                     weak_factory_.GetWeakPtr(), base::Passed(&response)));
 }
 
 void UserCloudPolicyStoreChromeOS::Load() {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
   // Cancel all pending requests.
   weak_factory_.InvalidateWeakPtrs();
 
@@ -91,6 +95,8 @@ UserCloudPolicyStoreChromeOS::CreateValidator(
 }
 
 void UserCloudPolicyStoreChromeOS::LoadImmediately() {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
   // This blocking D-Bus call is in the startup path and will block the UI
   // thread. This only happens when the Profile is created synchronously, which
   // on Chrome OS happens whenever the browser is restarted into the same
@@ -188,8 +194,8 @@ void UserCloudPolicyStoreChromeOS::OnPolicyToStoreValidated(
   session_manager_client_->StorePolicyForUser(
       cryptohome::CreateAccountIdentifierFromAccountId(account_id_),
       policy_blob,
-      base::Bind(&UserCloudPolicyStoreChromeOS::OnPolicyStored,
-                 weak_factory_.GetWeakPtr()));
+      base::BindOnce(&UserCloudPolicyStoreChromeOS::OnPolicyStored,
+                     weak_factory_.GetWeakPtr()));
 }
 
 void UserCloudPolicyStoreChromeOS::OnPolicyStored(bool success) {
@@ -202,7 +208,7 @@ void UserCloudPolicyStoreChromeOS::OnPolicyStored(bool success) {
     // Load the policy right after storing it, to make sure it was accepted by
     // the session manager. An additional validation is performed after the
     // load; reload the key for that validation too, in case it was rotated.
-    cached_policy_key_loader_->ReloadPolicyKey(base::Bind(
+    cached_policy_key_loader_->ReloadPolicyKey(base::BindOnce(
         &UserCloudPolicyStoreChromeOS::Load, weak_factory_.GetWeakPtr()));
   }
 }
@@ -245,8 +251,8 @@ void UserCloudPolicyStoreChromeOS::OnPolicyRetrieved(
     ValidateRetrievedPolicy(std::move(policy));
   } else {
     cached_policy_key_loader_->EnsurePolicyKeyLoaded(
-        base::Bind(&UserCloudPolicyStoreChromeOS::ValidateRetrievedPolicy,
-                   weak_factory_.GetWeakPtr(), base::Passed(&policy)));
+        base::BindOnce(&UserCloudPolicyStoreChromeOS::ValidateRetrievedPolicy,
+                       weak_factory_.GetWeakPtr(), base::Passed(&policy)));
   }
 }
 

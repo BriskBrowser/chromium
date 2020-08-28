@@ -12,6 +12,45 @@ Polymer({
 
   behaviors: [OobeI18nBehavior, OobeDialogHostBehavior],
 
+  properties: {
+    /**
+     * Flag that determines whether current account type is supervised or not.
+     */
+    isChildAccount_: Boolean,
+
+    /** @private */
+    splitSettingsSyncEnabled_: {
+      type: Boolean,
+      value: function() {
+        return loadTimeData.getBoolean('splitSettingsSyncEnabled');
+      },
+      readOnly: true,
+    },
+
+    /**
+     * The device type (e.g. "Chromebook" or "Chromebox").
+     * TODO(jamescook): Delete this after M85 once we're sure UX doesn't want
+     * the device type in the dialog.
+     * @private
+     */
+    deviceType_: String,
+  },
+
+  /**
+   * Set flag isChildAccount_ value.
+   * @param is_child_account Boolean
+   */
+  setIsChildAccount(is_child_account) {
+    this.isChildAccount_ = is_child_account;
+  },
+
+  /**
+   * @param deviceType {string} The device type (e.g. "Chromebook").
+   */
+  setDeviceType(deviceType) {
+    this.deviceType_ = deviceType;
+  },
+
   /** @override */
   ready() {
     this.updateLocalizedContent();
@@ -65,9 +104,9 @@ Polymer({
    * Reacts to changes in loadTimeData.
    */
   updateLocalizedContent() {
-    if (loadTimeData.getBoolean('splitSettingsSync')) {
+    if (loadTimeData.getBoolean('splitSettingsSyncEnabled')) {
       // SplitSettingsSync version.
-      this.showScreen_('osSyncConsentDialog');
+      this.showScreen_('splitSettingsSyncConsentDialog');
     } else {
       // Regular version.
       this.showScreen_('syncConsentOverviewDialog');
@@ -76,10 +115,12 @@ Polymer({
   },
 
   /**
-   * This is 'on-tap' event handler for 'AcceptAndContinue' button.
+   * Continue button click handler for pre-SplitSettingsSync.
    * @private
    */
   onSettingsSaveAndContinue_(e) {
+    assert(e.path);
+    assert(!loadTimeData.getBoolean('splitSettingsSyncEnabled'));
     if (this.$.reviewSettingsBox.checked) {
       chrome.send('login.SyncConsentScreen.continueAndReview', [
         this.getConsentDescription_(), this.getConsentConfirmation_(e.path)
@@ -92,16 +133,28 @@ Polymer({
   },
 
   /**
+   * Accept button handler for SplitSettingsSync.
    * @param {!Event} event
    * @private
    */
-  onOsSyncAcceptAndContinue_(event) {
-    assert(loadTimeData.getBoolean('splitSettingsSync'));
+  onAcceptTap_(event) {
+    assert(loadTimeData.getBoolean('splitSettingsSyncEnabled'));
     assert(event.path);
-    let enableOsSync = !!this.$.enableOsSyncToggle.checked;
-    chrome.send('login.SyncConsentScreen.osSyncAcceptAndContinue', [
-      this.getConsentDescription_(), this.getConsentConfirmation_(event.path),
-      enableOsSync
+    chrome.send('login.SyncConsentScreen.acceptAndContinue', [
+      this.getConsentDescription_(), this.getConsentConfirmation_(event.path)
+    ]);
+  },
+
+  /**
+   * Decline button handler for SplitSettingsSync.
+   * @param {!Event} event
+   * @private
+   */
+  onDeclineTap_(event) {
+    assert(loadTimeData.getBoolean('splitSettingsSyncEnabled'));
+    assert(event.path);
+    chrome.send('login.SyncConsentScreen.declineAndContinue', [
+      this.getConsentDescription_(), this.getConsentConfirmation_(event.path)
     ]);
   },
 
@@ -138,9 +191,9 @@ Polymer({
   /** @return {!Array<string>} Text of the consent description elements. */
   getConsentDescription_() {
     let consentDescription =
-        Array.from(this.shadowRoot.querySelectorAll('[consent-description]'))
-            .filter(element => element.clientWidth * element.clientHeight > 0)
-            .map(element => element.innerHTML.trim());
+      Array.from(this.shadowRoot.querySelectorAll('[consent-description]'))
+        .filter(element => element.clientWidth * element.clientHeight > 0)
+        .map(element => element.innerHTML.trim());
     assert(consentDescription);
     return consentDescription;
   },

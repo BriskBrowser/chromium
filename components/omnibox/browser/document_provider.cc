@@ -39,11 +39,12 @@
 #include "components/omnibox/browser/in_memory_url_index_types.h"
 #include "components/omnibox/browser/keyword_provider.h"
 #include "components/omnibox/browser/omnibox_field_trial.h"
-#include "components/omnibox/browser/omnibox_pref_names.h"
+#include "components/omnibox/browser/omnibox_prefs.h"
 #include "components/omnibox/browser/search_provider.h"
 #include "components/omnibox/common/omnibox_features.h"
 #include "components/pref_registry/pref_registry_syncable.h"
 #include "components/prefs/pref_service.h"
+#include "components/search_engines/omnibox_focus_type.h"
 #include "components/search_engines/search_engine_type.h"
 #include "components/search_engines/template_url_service.h"
 #include "components/strings/grit/components_strings.h"
@@ -90,6 +91,8 @@ AutocompleteMatch::DocumentType GetIconForMIMEType(
           {"image/gif", AutocompleteMatch::DocumentType::DRIVE_IMAGE},
           {"application/pdf", AutocompleteMatch::DocumentType::DRIVE_PDF},
           {"video/mp4", AutocompleteMatch::DocumentType::DRIVE_VIDEO},
+          {"application/vnd.google-apps.folder",
+           AutocompleteMatch::DocumentType::DRIVE_FOLDER},
       };
 
   const auto& iterator = kIconMap.find(mimetype);
@@ -448,7 +451,7 @@ bool DocumentProvider::IsInputLikelyURL(const AutocompleteInput& input) {
 void DocumentProvider::Start(const AutocompleteInput& input,
                              bool minimal_changes) {
   TRACE_EVENT0("omnibox", "DocumentProvider::Start");
-  matches_.clear();
+  Stop(true, false);
   field_trial_triggered_ = false;
 
   // Perform various checks - feature is enabled, user is allowed to use the
@@ -457,7 +460,10 @@ void DocumentProvider::Start(const AutocompleteInput& input,
     return;
   }
 
-  if (input.type() == metrics::OmniboxInputType::EMPTY) {
+  // There should be no document suggestions fetched for on-focus suggestion
+  // requests, or if the input is empty.
+  if (input.focus_type() != OmniboxFocusType::DEFAULT ||
+      input.type() == metrics::OmniboxInputType::EMPTY) {
     return;
   }
 
@@ -470,8 +476,6 @@ void DocumentProvider::Start(const AutocompleteInput& input,
   if (IsInputLikelyURL(input)) {
     return;
   }
-
-  Stop(false, false);
 
   input_ = input;
 
@@ -681,7 +685,8 @@ base::string16 DocumentProvider::GenerateLastModifiedString(
 }
 
 // static
-base::string16 GetProductDescriptionString(const std::string& mimetype) {
+base::string16 DocumentProvider::GetProductDescriptionString(
+    const std::string& mimetype) {
   if (mimetype == kDocumentMimetype)
     return l10n_util::GetStringUTF16(IDS_DRIVE_SUGGESTION_DOCUMENT);
   if (mimetype == kFormMimetype)
@@ -692,6 +697,30 @@ base::string16 GetProductDescriptionString(const std::string& mimetype) {
     return l10n_util::GetStringUTF16(IDS_DRIVE_SUGGESTION_PRESENTATION);
   // Fallback to "Drive" for other filetypes.
   return l10n_util::GetStringUTF16(IDS_DRIVE_SUGGESTION_GENERAL);
+}
+
+// static
+base::string16 DocumentProvider::GetMatchDescription(
+    const std::string& update_time,
+    const std::string& mimetype,
+    const std::string& owner) {
+  base::string16 mime_desc = GetProductDescriptionString(mimetype);
+  if (!update_time.empty()) {
+    base::string16 date_desc =
+        GenerateLastModifiedString(update_time, base::Time::Now());
+    return owner.empty()
+               ? l10n_util::GetStringFUTF16(
+                     IDS_DRIVE_SUGGESTION_DESCRIPTION_TEMPLATE_WITHOUT_OWNER,
+                     date_desc, mime_desc)
+               : l10n_util::GetStringFUTF16(
+                     IDS_DRIVE_SUGGESTION_DESCRIPTION_TEMPLATE, date_desc,
+                     base::UTF8ToUTF16(owner), mime_desc);
+  }
+  return owner.empty()
+             ? mime_desc
+             : l10n_util::GetStringFUTF16(
+                   IDS_DRIVE_SUGGESTION_DESCRIPTION_TEMPLATE_WITHOUT_DATE,
+                   base::UTF8ToUTF16(owner), mime_desc);
 }
 
 ACMatches DocumentProvider::ParseDocumentSearchResults(
@@ -830,7 +859,6 @@ ACMatches DocumentProvider::ParseDocumentSearchResults(
     match.fill_into_edit = url;
     match.destination_url = GURL(url);
     base::string16 original_url;
-    std::string mimetype;
     if (result->GetString("originalUrl", &original_url)) {
       GURL stripped_url = GetURLForDeduping(GURL(original_url));
       if (stripped_url.is_valid())
@@ -840,6 +868,7 @@ ACMatches DocumentProvider::ParseDocumentSearchResults(
     match.contents_class = Classify(match.contents, input_.text());
     const base::DictionaryValue* metadata = nullptr;
     if (result->GetDictionary("metadata", &metadata)) {
+      std::string mimetype;
       if (metadata->GetString("mimeType", &mimetype)) {
         match.document_type = GetIconForMIMEType(mimetype);
         match.RecordAdditionalInfo(
@@ -848,18 +877,34 @@ ACMatches DocumentProvider::ParseDocumentSearchResults(
       }
       std::string update_time;
       metadata->GetString("updateTime", &update_time);
-      if (!update_time.empty()) {
-        match.description = l10n_util::GetStringFUTF16(
-            IDS_DRIVE_SUGGESTION_DESCRIPTION_TEMPLATE,
-            GenerateLastModifiedString(update_time, base::Time::Now()),
-            GetProductDescriptionString(mimetype));
-      } else {
-        match.description = GetProductDescriptionString(mimetype);
-      }
+      bool display_owner = base::GetFieldTrialParamByFeatureAsBool(
+          omnibox::kDocumentProvider, "DisplayOwner", false);
+      auto owners = ExtractResultList(result, "metadata.owner.personNames",
+                                      "displayName");
+      if (!owners.empty())
+        match.RecordAdditionalInfo("document owner", *owners[0]);
+      match.description = GetMatchDescription(
+          update_time, mimetype,
+          display_owner && !owners.empty() ? *owners[0] : "");
       AutocompleteMatch::AddLastClassificationIfNecessary(
           &match.description_class, 0, ACMatchClassification::DIM);
+      // Exclude date from description_for_shortcut to avoid showing stale dates
+      // from the shortcuts provider.
+      match.description_for_shortcuts = GetMatchDescription(
+          "", mimetype, display_owner && !owners.empty() ? *owners[0] : "");
+      AutocompleteMatch::AddLastClassificationIfNecessary(
+          &match.description_class_for_shortcuts, 0,
+          ACMatchClassification::DIM);
+      match.RecordAdditionalInfo(
+          "description_for_shortcuts",
+          base::UTF16ToUTF8(match.description_for_shortcuts));
     }
-    match.TryAutocompleteWithTitle(TitleForAutocompletion(match), input_);
+
+    if (!match.TryRichAutocompletion(
+            base::UTF8ToUTF16(match.destination_url.spec()), match.contents,
+            input_)) {
+      match.TryAutocompleteWithTitle(TitleForAutocompletion(match), input_);
+    }
     match.transition = ui::PAGE_TRANSITION_GENERATED;
     match.RecordAdditionalInfo("client score", client_score);
     match.RecordAdditionalInfo("server score", server_score);
@@ -885,8 +930,12 @@ void DocumentProvider::CopyCachedMatchesToMatches(
                   auto match = cache_key_match_pair.second;
                   match.relevance = 0;
                   match.allowed_to_be_default_match = false;
-                  match.TryAutocompleteWithTitle(TitleForAutocompletion(match),
-                                                 input_);
+                  if (!match.TryRichAutocompletion(
+                          base::UTF8ToUTF16(match.destination_url.spec()),
+                          match.contents, input_)) {
+                    match.TryAutocompleteWithTitle(
+                        TitleForAutocompletion(match), input_);
+                  }
                   match.contents_class =
                       DocumentProvider::Classify(match.contents, input_.text());
                   match.RecordAdditionalInfo("from cache", "true");

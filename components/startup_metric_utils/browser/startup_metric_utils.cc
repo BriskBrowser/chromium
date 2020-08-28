@@ -10,15 +10,16 @@
 #include <string>
 #include <vector>
 
+#include "base/check_op.h"
 #include "base/lazy_instance.h"
-#include "base/logging.h"
+#include "base/memory/memory_pressure_listener.h"
 #include "base/metrics/histogram.h"
 #include "base/metrics/histogram_functions.h"
-#include "base/metrics/histogram_macros.h"
+#include "base/notreached.h"
 #include "base/process/process.h"
 #include "base/strings/string_number_conversions.h"
-#include "base/system/sys_info.h"
 #include "base/threading/platform_thread.h"
+#include "base/time/time.h"
 #include "base/trace_event/trace_event.h"
 #include "build/build_config.h"
 #include "components/version_info/version_info.h"
@@ -42,15 +43,17 @@ volatile bool g_main_window_startup_interrupted = false;
 
 base::TimeTicks g_process_creation_ticks;
 
-base::TimeTicks g_browser_main_entry_point_ticks;
+base::TimeTicks g_application_start_ticks;
 
-base::TimeTicks g_browser_exe_main_entry_point_ticks;
+base::TimeTicks g_chrome_main_entry_ticks;
 
 base::TimeTicks g_message_loop_start_ticks;
 
 base::TimeTicks g_browser_window_display_ticks;
 
-base::TimeDelta g_browser_open_tabs_duration = base::TimeDelta::Max();
+base::MemoryPressureListener::MemoryPressureLevel
+    g_max_pressure_level_before_first_non_empty_paint = base::
+        MemoryPressureListener::MemoryPressureLevel::MEMORY_PRESSURE_LEVEL_NONE;
 
 // An enumeration of startup temperatures. This must be kept in sync with the
 // UMA StartupType enumeration defined in histograms.xml.
@@ -179,82 +182,92 @@ bool GetHardFaultCountForCurrentProcess(uint32_t* hard_fault_count) {
 }
 #endif  // defined(OS_WIN)
 
-#define UMA_HISTOGRAM_TIME_IN_MINUTES_MONTH_RANGE(name, sample) \
-  UMA_HISTOGRAM_CUSTOM_COUNTS(name, sample, 1,                  \
-                              base::TimeDelta::FromDays(30).InMinutes(), 50)
-
-// Helper macro for splitting out an UMA histogram based on startup temperature.
-// |type| is the histogram type, and corresponds to an UMA macro like
-// UMA_HISTOGRAM_LONG_TIMES. It must itself be a macro that only takes two
-// parameters.
+// Helper function for splitting out an UMA histogram based on startup
+// temperature. |histogram_function| is the histogram type, and corresponds to
+// an UMA function like base::UmaHistogramLongTimes. It must itself be a
+// function that only takes two parameters.
 // |basename| is the basename of the histogram. A histogram of this name will
 // always be recorded to. If the startup temperature is known then a value will
 // also be recorded to the histogram with name |basename| and suffix
-// ".ColdStart", ".WarmStart" or ".LukewarmStartup" as appropriate.
+// ".ColdStart", ".WarmStart" as appropriate.
 // |value_expr| is an expression evaluating to the value to be recorded. This
 // will be evaluated exactly once and cached, so side effects are not an issue.
-// A metric logged using this macro must have an affected-histogram entry in the
-// definition of the StartupTemperature suffix in histograms.xml.
-// This macro must only be used in code that runs after |g_startup_temperature|
-// has been initialized.
-#define UMA_HISTOGRAM_WITH_TEMPERATURE(type, basename, value_expr)            \
-  do {                                                                        \
-    const auto value = value_expr;                                            \
-    /* Always record to the base histogram. */                                \
-    type(basename, value);                                                    \
-    /* Record to the cold/warm/lukewarm suffixed histogram as appropriate. */ \
-    switch (g_startup_temperature) {                                          \
-      case COLD_STARTUP_TEMPERATURE:                                          \
-        type(basename ".ColdStartup", value);                                 \
-        break;                                                                \
-      case WARM_STARTUP_TEMPERATURE:                                          \
-        type(basename ".WarmStartup", value);                                 \
-        break;                                                                \
-      case LUKEWARM_STARTUP_TEMPERATURE:                                      \
-        /* No suffix emitted for lukewarm startups. */                        \
-        break;                                                                \
-      case UNDETERMINED_STARTUP_TEMPERATURE:                                  \
-        break;                                                                \
-      case STARTUP_TEMPERATURE_COUNT:                                         \
-        NOTREACHED();                                                         \
-        break;                                                                \
-    }                                                                         \
-  } while (0)
-
-#define UMA_HISTOGRAM_AND_TRACE_WITH_TEMPERATURE(type, basename, begin_ticks, \
-                                                 end_ticks)                   \
-  do {                                                                        \
-    UMA_HISTOGRAM_WITH_TEMPERATURE(type, basename, end_ticks - begin_ticks);  \
-    TRACE_EVENT_ASYNC_BEGIN_WITH_TIMESTAMP1(                                  \
-        "startup", basename, 0, begin_ticks, "Temperature",                   \
-        g_startup_temperature);                                               \
-    TRACE_EVENT_ASYNC_END_WITH_TIMESTAMP1(                                    \
-        "startup", basename, 0, end_ticks, "Temperature",                     \
-        g_startup_temperature);                                               \
-  } while (0)
-
-// Returns the system uptime on process launch.
-base::TimeDelta GetSystemUptimeOnProcessLaunch() {
-  // Process launch time is not available on Android.
-  if (g_process_creation_ticks.is_null())
-    return base::TimeDelta();
-
-  // base::SysInfo::Uptime returns the time elapsed between system boot and now.
-  // Substract the time elapsed between process launch and now to get the time
-  // elapsed between system boot and process launch.
-  return base::SysInfo::Uptime() -
-         (base::TimeTicks::Now() - g_process_creation_ticks);
+// A metric logged using this function must have an affected-histogram entry in
+// the definition of the StartupTemperature suffix in histograms.xml.
+// This function must only be used in code that runs after
+// |g_startup_temperature| has been initialized.
+template <typename T>
+void UmaHistogramWithTemperature(
+    void (*histogram_function)(const std::string& name, T),
+    const std::string& histogram_basename,
+    T value) {
+  // Always record to the base histogram.
+  (*histogram_function)(histogram_basename, value);
+  // Record to the cold/warm suffixed histogram as appropriate.
+  switch (g_startup_temperature) {
+    case COLD_STARTUP_TEMPERATURE:
+      (*histogram_function)(histogram_basename + ".ColdStartup", value);
+      break;
+    case WARM_STARTUP_TEMPERATURE:
+      (*histogram_function)(histogram_basename + ".WarmStartup", value);
+      break;
+    case LUKEWARM_STARTUP_TEMPERATURE:
+      // No suffix emitted for lukewarm startups.
+      break;
+    case UNDETERMINED_STARTUP_TEMPERATURE:
+      break;
+    case STARTUP_TEMPERATURE_COUNT:
+      NOTREACHED();
+      break;
+  }
 }
 
-void RecordSystemUptimeHistogram() {
-  const base::TimeDelta system_uptime_on_process_launch =
-      GetSystemUptimeOnProcessLaunch();
-  if (system_uptime_on_process_launch.is_zero())
-    return;
+void UmaHistogramWithTraceAndTemperature(
+    void (*histogram_function)(const std::string& name, base::TimeDelta),
+    const std::string& histogram_basename,
+    base::TimeTicks begin_ticks,
+    base::TimeTicks end_ticks) {
+  UmaHistogramWithTemperature(histogram_function, histogram_basename,
+                              end_ticks - begin_ticks);
+  TRACE_EVENT_ASYNC_BEGIN_WITH_TIMESTAMP1("startup", histogram_basename.c_str(),
+                                          0, begin_ticks, "Temperature",
+                                          g_startup_temperature);
+  TRACE_EVENT_ASYNC_END_WITH_TIMESTAMP1("startup", histogram_basename.c_str(),
+                                        0, end_ticks, "Temperature",
+                                        g_startup_temperature);
+}
 
-  UMA_HISTOGRAM_WITH_TEMPERATURE(UMA_HISTOGRAM_LONG_TIMES_100,
-                                 "Startup.SystemUptime",
-                                 GetSystemUptimeOnProcessLaunch());
+// Extension to the UmaHistogramWithTraceAndTemperature that records a
+// suffixed version of the histogram indicating the maximum pressure encountered
+// until now. Note that this is based on the
+// |g_max_pressure_level_before_first_non_empty_paint| value.
+void UmaHistogramAndTraceWithTemperatureAndMaxPressure(
+    void (*histogram_function)(const std::string& name, base::TimeDelta),
+    const std::string& histogram_basename,
+    base::TimeTicks begin_ticks,
+    base::TimeTicks end_ticks) {
+  UmaHistogramWithTraceAndTemperature(histogram_function, histogram_basename,
+                                      begin_ticks, end_ticks);
+  const auto value = end_ticks - begin_ticks;
+  switch (g_max_pressure_level_before_first_non_empty_paint) {
+    case base::MemoryPressureListener::MemoryPressureLevel::
+        MEMORY_PRESSURE_LEVEL_NONE:
+      (*histogram_function)(histogram_basename + ".NoMemoryPressure", value);
+      break;
+    case base::MemoryPressureListener::MemoryPressureLevel::
+        MEMORY_PRESSURE_LEVEL_MODERATE:
+      (*histogram_function)(histogram_basename + ".ModerateMemoryPressure",
+                            value);
+      break;
+    case base::MemoryPressureListener::MemoryPressureLevel::
+        MEMORY_PRESSURE_LEVEL_CRITICAL:
+      (*histogram_function)(histogram_basename + ".CriticalMemoryPressure",
+                            value);
+      break;
+    default:
+      NOTREACHED();
+      break;
+  }
 }
 
 // On Windows, records the number of hard-faults that have occurred in the
@@ -272,8 +285,9 @@ void RecordHardFaultHistogram() {
   // corresponding to faulting in ~10s of MBs of code ~10s of KBs at a time.
   // (Observed to vary from 1000 to 10000 on various test machines and
   // platforms.)
-  UMA_HISTOGRAM_CUSTOM_COUNTS("Startup.BrowserMessageLoopStartHardFaultCount",
-                              hard_fault_count, 1, 40000, 50);
+  base::UmaHistogramCustomCounts(
+      "Startup.BrowserMessageLoopStartHardFaultCount", hard_fault_count, 1,
+      40000, 50);
 
   // Determine the startup type based on the number of observed hard faults.
   DCHECK_EQ(UNDETERMINED_STARTUP_TEMPERATURE, g_startup_temperature);
@@ -286,8 +300,8 @@ void RecordHardFaultHistogram() {
   }
 
   // Record the startup 'temperature'.
-  UMA_HISTOGRAM_ENUMERATION("Startup.Temperature", g_startup_temperature,
-                            STARTUP_TEMPERATURE_COUNT);
+  base::UmaHistogramEnumeration("Startup.Temperature", g_startup_temperature,
+                                STARTUP_TEMPERATURE_COUNT);
 #endif  // defined(OS_WIN)
 }
 
@@ -306,7 +320,7 @@ base::TimeTicks StartupTimeToTimeTicks(base::Time time) {
 
 // Enabling this logic on OS X causes a significant performance regression.
 // https://crbug.com/601270
-#if !defined(OS_MACOSX)
+#if !defined(OS_APPLE)
   static bool statics_initialized = false;
 
   base::ThreadPriority previous_priority = base::ThreadPriority::NORMAL;
@@ -320,7 +334,7 @@ base::TimeTicks StartupTimeToTimeTicks(base::Time time) {
   static const base::Time time_base = base::Time::Now();
   static const base::TimeTicks trace_ticks_base = base::TimeTicks::Now();
 
-#if !defined(OS_MACOSX)
+#if !defined(OS_APPLE)
   if (!statics_initialized) {
     base::PlatformThread::SetCurrentThreadPriority(previous_priority);
   }
@@ -333,18 +347,18 @@ base::TimeTicks StartupTimeToTimeTicks(base::Time time) {
   return trace_ticks_base - delta_since_base;
 }
 
-void AddStartupEventsForTelemetry()
-{
-  DCHECK(!g_browser_main_entry_point_ticks.is_null());
+void AddStartupEventsForTelemetry() {
+  // Record the event only if RecordChromeMainEntryTime() was called, which is
+  // not the case for some tests.
+  if (g_chrome_main_entry_ticks.is_null())
+    return;
 
-  TRACE_EVENT_INSTANT_WITH_TIMESTAMP0("startup",
-                                      "Startup.BrowserMainEntryPoint", 0,
-                                      g_browser_main_entry_point_ticks);
+  TRACE_EVENT_INSTANT_WITH_TIMESTAMP0(
+      "startup", "Startup.BrowserMainEntryPoint", 0, g_chrome_main_entry_ticks);
 }
 
 bool ShouldLogStartupHistogram() {
-  return !WasMainWindowStartupInterrupted() &&
-         !g_process_creation_ticks.is_null();
+  return !WasMainWindowStartupInterrupted();
 }
 
 }  // namespace
@@ -367,16 +381,16 @@ void RecordStartupProcessCreationTime(base::Time time) {
   DCHECK(!g_process_creation_ticks.is_null());
 }
 
-void RecordMainEntryPointTime(base::TimeTicks ticks) {
-  DCHECK(g_browser_main_entry_point_ticks.is_null());
-  g_browser_main_entry_point_ticks = ticks;
-  DCHECK(!g_browser_main_entry_point_ticks.is_null());
+void RecordApplicationStartTime(base::TimeTicks ticks) {
+  DCHECK(g_application_start_ticks.is_null());
+  g_application_start_ticks = ticks;
+  DCHECK(!g_application_start_ticks.is_null());
 }
 
-void RecordExeMainEntryPointTicks(base::TimeTicks ticks) {
-  DCHECK(g_browser_exe_main_entry_point_ticks.is_null());
-  g_browser_exe_main_entry_point_ticks = ticks;
-  DCHECK(!g_browser_exe_main_entry_point_ticks.is_null());
+void RecordChromeMainEntryTime(base::TimeTicks ticks) {
+  DCHECK(g_chrome_main_entry_ticks.is_null());
+  g_chrome_main_entry_ticks = ticks;
+  DCHECK(!g_chrome_main_entry_ticks.is_null());
 }
 
 void RecordMessageLoopStartTicks(base::TimeTicks ticks) {
@@ -387,6 +401,8 @@ void RecordMessageLoopStartTicks(base::TimeTicks ticks) {
 
 void RecordBrowserMainMessageLoopStart(base::TimeTicks ticks,
                                        bool is_first_run) {
+  DCHECK(!g_application_start_ticks.is_null());
+
   RecordMessageLoopStartTicks(ticks);
 
   // Keep RecordHardFaultHistogram() near the top of this method (as much as
@@ -395,63 +411,41 @@ void RecordBrowserMainMessageLoopStart(base::TimeTicks ticks,
   RecordHardFaultHistogram();
 
   // Record timing of the browser message-loop start time.
-  if (!is_first_run && !g_process_creation_ticks.is_null()) {
-    UMA_HISTOGRAM_AND_TRACE_WITH_TEMPERATURE(
-        UMA_HISTOGRAM_LONG_TIMES_100, "Startup.BrowserMessageLoopStartTime",
-        g_process_creation_ticks, ticks);
-  }
-
-  // Record timing between the shared library's main() entry and the browser
-  // main message loop start.
   if (is_first_run) {
-    UMA_HISTOGRAM_AND_TRACE_WITH_TEMPERATURE(
-        UMA_HISTOGRAM_LONG_TIMES,
-        "Startup.BrowserMessageLoopStartTimeFromMainEntry.FirstRun2",
-        g_browser_main_entry_point_ticks, ticks);
+    UmaHistogramWithTraceAndTemperature(
+        &base::UmaHistogramLongTimes100,
+        "Startup.BrowserMessageLoopStartTime.FirstRun",
+        g_application_start_ticks, ticks);
   } else {
-    UMA_HISTOGRAM_AND_TRACE_WITH_TEMPERATURE(
-        UMA_HISTOGRAM_LONG_TIMES,
-        "Startup.BrowserMessageLoopStartTimeFromMainEntry3",
-        g_browser_main_entry_point_ticks, ticks);
+    UmaHistogramWithTraceAndTemperature(&base::UmaHistogramLongTimes100,
+                                        "Startup.BrowserMessageLoopStartTime",
+                                        g_application_start_ticks, ticks);
   }
 
   AddStartupEventsForTelemetry();
-  RecordSystemUptimeHistogram();
 
   // Record values stored prior to startup temperature evaluation.
-  if (ShouldLogStartupHistogram()) {
-    if (!g_browser_open_tabs_duration.is_max()) {
-      UMA_HISTOGRAM_WITH_TEMPERATURE(UMA_HISTOGRAM_LONG_TIMES_100,
-                                     "Startup.BrowserOpenTabs",
-                                     g_browser_open_tabs_duration);
-    }
-
-    if (!g_browser_window_display_ticks.is_null()) {
-      UMA_HISTOGRAM_AND_TRACE_WITH_TEMPERATURE(
-          UMA_HISTOGRAM_LONG_TIMES, "Startup.BrowserWindowDisplay",
-          g_process_creation_ticks, g_browser_window_display_ticks);
-    }
+  if (ShouldLogStartupHistogram() &&
+      !g_browser_window_display_ticks.is_null()) {
+    UmaHistogramWithTraceAndTemperature(
+        &base::UmaHistogramLongTimes, "Startup.BrowserWindowDisplay",
+        g_application_start_ticks, g_browser_window_display_ticks);
   }
 
-  // Record timings between process creation, the main() in the executable being
-  // reached and the main() in the shared library being reached.
-  if (!g_process_creation_ticks.is_null() &&
-      !g_browser_exe_main_entry_point_ticks.is_null()) {
-    // Process create to chrome.exe:main().
-    UMA_HISTOGRAM_AND_TRACE_WITH_TEMPERATURE(
-        UMA_HISTOGRAM_LONG_TIMES, "Startup.LoadTime.ProcessCreateToExeMain2",
-        g_process_creation_ticks, g_browser_exe_main_entry_point_ticks);
+  // Process creation to application start. See comment above
+  // RecordApplicationStart().
+  if (!g_process_creation_ticks.is_null()) {
+    UmaHistogramWithTraceAndTemperature(
+        &base::UmaHistogramLongTimes,
+        "Startup.LoadTime.ProcessCreateToApplicationStart",
+        g_process_creation_ticks, g_application_start_ticks);
 
-    // chrome.exe:main() to chrome.dll:main().
-    UMA_HISTOGRAM_AND_TRACE_WITH_TEMPERATURE(
-        UMA_HISTOGRAM_LONG_TIMES, "Startup.LoadTime.ExeMainToDllMain2",
-        g_browser_exe_main_entry_point_ticks, g_browser_main_entry_point_ticks);
-
-    // Process create to chrome.dll:main(). Reported as a histogram only as
-    // the other two events above are sufficient for tracing purposes.
-    UMA_HISTOGRAM_WITH_TEMPERATURE(
-        UMA_HISTOGRAM_LONG_TIMES, "Startup.LoadTime.ProcessCreateToDllMain2",
-        g_browser_main_entry_point_ticks - g_process_creation_ticks);
+    // Application start to ChromeMain().
+    DCHECK(!g_chrome_main_entry_ticks.is_null());
+    UmaHistogramWithTraceAndTemperature(
+        &base::UmaHistogramLongTimes,
+        "Startup.LoadTime.ApplicationStartToChromeMain",
+        g_application_start_ticks, g_chrome_main_entry_ticks);
   }
 }
 
@@ -471,68 +465,74 @@ void RecordBrowserWindowDisplay(base::TimeTicks ticks) {
   g_browser_window_display_ticks = ticks;
 }
 
-void RecordBrowserOpenTabsDelta(base::TimeDelta delta) {
-  DCHECK(g_browser_open_tabs_duration.is_max());
-  DCHECK_EQ(g_startup_temperature, UNDETERMINED_STARTUP_TEMPERATURE);
-  // The value will be recorded in appropriate histograms after the startup
-  // temperature is evaluated.
-  g_browser_open_tabs_duration = delta;
-}
-
 void RecordFirstWebContentsNonEmptyPaint(
     base::TimeTicks now,
     base::TimeTicks render_process_host_init_time) {
+  DCHECK(!g_application_start_ticks.is_null());
+
+#if DCHECK_IS_ON()
   static bool is_first_call = true;
-  if (!is_first_call || now.is_null())
-    return;
+  DCHECK(is_first_call);
   is_first_call = false;
+#endif  // DCHECK_IS_ON()
 
   if (!ShouldLogStartupHistogram())
     return;
 
-  UMA_HISTOGRAM_AND_TRACE_WITH_TEMPERATURE(
-      UMA_HISTOGRAM_LONG_TIMES_100, "Startup.FirstWebContents.NonEmptyPaint2",
-      g_process_creation_ticks, now);
-  UMA_HISTOGRAM_WITH_TEMPERATURE(
-      UMA_HISTOGRAM_LONG_TIMES_100,
+  UmaHistogramAndTraceWithTemperatureAndMaxPressure(
+      &base::UmaHistogramLongTimes100,
+      "Startup.FirstWebContents.NonEmptyPaint3", g_application_start_ticks,
+      now);
+  UmaHistogramWithTemperature(
+      &base::UmaHistogramLongTimes100,
       "Startup.BrowserMessageLoopStart.To.NonEmptyPaint2",
       now - g_message_loop_start_ticks);
 
-  UMA_HISTOGRAM_WITH_TEMPERATURE(
-      UMA_HISTOGRAM_LONG_TIMES_100,
+  UmaHistogramWithTemperature(
+      &base::UmaHistogramLongTimes100,
       "Startup.FirstWebContents.RenderProcessHostInit.ToNonEmptyPaint",
       now - render_process_host_init_time);
 }
 
 void RecordFirstWebContentsMainNavigationStart(base::TimeTicks ticks) {
+  DCHECK(!g_application_start_ticks.is_null());
+
+#if DCHECK_IS_ON()
   static bool is_first_call = true;
-  if (!is_first_call || ticks.is_null())
-    return;
+  DCHECK(is_first_call);
   is_first_call = false;
+#endif  // DCHECK_IS_ON()
+
   if (!ShouldLogStartupHistogram())
     return;
 
-  UMA_HISTOGRAM_AND_TRACE_WITH_TEMPERATURE(
-      UMA_HISTOGRAM_LONG_TIMES_100,
-      "Startup.FirstWebContents.MainNavigationStart", g_process_creation_ticks,
+  UmaHistogramWithTraceAndTemperature(
+      &base::UmaHistogramLongTimes100,
+      "Startup.FirstWebContents.MainNavigationStart", g_application_start_ticks,
       ticks);
 }
 
 void RecordFirstWebContentsMainNavigationFinished(base::TimeTicks ticks) {
+  DCHECK(!g_application_start_ticks.is_null());
+
+#if DCHECK_IS_ON()
   static bool is_first_call = true;
-  if (!is_first_call || ticks.is_null())
-    return;
+  DCHECK(is_first_call);
   is_first_call = false;
+#endif  // DCHECK_IS_ON()
+
   if (!ShouldLogStartupHistogram())
     return;
 
-  UMA_HISTOGRAM_AND_TRACE_WITH_TEMPERATURE(
-      UMA_HISTOGRAM_LONG_TIMES_100,
+  UmaHistogramWithTraceAndTemperature(
+      &base::UmaHistogramLongTimes100,
       "Startup.FirstWebContents.MainNavigationFinished",
-      g_process_creation_ticks, ticks);
+      g_application_start_ticks, ticks);
 }
 
 void RecordBrowserWindowFirstPaint(base::TimeTicks ticks) {
+  DCHECK(!g_application_start_ticks.is_null());
+
   static bool is_first_call = true;
   if (!is_first_call || ticks.is_null())
     return;
@@ -540,13 +540,15 @@ void RecordBrowserWindowFirstPaint(base::TimeTicks ticks) {
   if (!ShouldLogStartupHistogram())
     return;
 
-  UMA_HISTOGRAM_AND_TRACE_WITH_TEMPERATURE(UMA_HISTOGRAM_LONG_TIMES_100,
-                                           "Startup.BrowserWindow.FirstPaint",
-                                           g_process_creation_ticks, ticks);
+  UmaHistogramWithTraceAndTemperature(&base::UmaHistogramLongTimes100,
+                                      "Startup.BrowserWindow.FirstPaint",
+                                      g_application_start_ticks, ticks);
 }
 
 void RecordBrowserWindowFirstPaintCompositingEnded(
     const base::TimeTicks ticks) {
+  DCHECK(!g_application_start_ticks.is_null());
+
   static bool is_first_call = true;
   if (!is_first_call || ticks.is_null())
     return;
@@ -554,17 +556,19 @@ void RecordBrowserWindowFirstPaintCompositingEnded(
   if (!ShouldLogStartupHistogram())
     return;
 
-  UMA_HISTOGRAM_AND_TRACE_WITH_TEMPERATURE(
-      UMA_HISTOGRAM_LONG_TIMES_100,
+  UmaHistogramWithTraceAndTemperature(
+      &base::UmaHistogramLongTimes100,
       "Startup.BrowserWindow.FirstPaint.CompositingEnded",
-      g_process_creation_ticks, ticks);
+      g_application_start_ticks, ticks);
 }
 
 base::TimeTicks MainEntryPointTicks() {
-  return g_browser_main_entry_point_ticks;
+  return g_chrome_main_entry_ticks;
 }
 
 void RecordWebFooterDidFirstVisuallyNonEmptyPaint(base::TimeTicks ticks) {
+  DCHECK(!g_application_start_ticks.is_null());
+
   static bool is_first_call = true;
   if (!is_first_call || ticks.is_null())
     return;
@@ -572,13 +576,15 @@ void RecordWebFooterDidFirstVisuallyNonEmptyPaint(base::TimeTicks ticks) {
   if (!ShouldLogStartupHistogram())
     return;
 
-  UMA_HISTOGRAM_AND_TRACE_WITH_TEMPERATURE(
-      UMA_HISTOGRAM_MEDIUM_TIMES,
+  UmaHistogramWithTraceAndTemperature(
+      &base::UmaHistogramMediumTimes,
       "Startup.WebFooterExperiment.DidFirstVisuallyNonEmptyPaint",
-      g_process_creation_ticks, ticks);
+      g_application_start_ticks, ticks);
 }
 
 void RecordWebFooterCreation(base::TimeTicks ticks) {
+  DCHECK(!g_application_start_ticks.is_null());
+
   static bool is_first_call = true;
   if (!is_first_call || ticks.is_null())
     return;
@@ -586,10 +592,16 @@ void RecordWebFooterCreation(base::TimeTicks ticks) {
   if (!ShouldLogStartupHistogram())
     return;
 
-  UMA_HISTOGRAM_AND_TRACE_WITH_TEMPERATURE(
-      UMA_HISTOGRAM_MEDIUM_TIMES,
-      "Startup.WebFooterExperiment.WebFooterCreation", g_process_creation_ticks,
-      ticks);
+  UmaHistogramWithTraceAndTemperature(
+      &base::UmaHistogramMediumTimes,
+      "Startup.WebFooterExperiment.WebFooterCreation",
+      g_application_start_ticks, ticks);
+}
+
+void OnMemoryPressureBeforeFirstNonEmptyPaint(
+    base::MemoryPressureListener::MemoryPressureLevel level) {
+  if (level > g_max_pressure_level_before_first_non_empty_paint)
+    g_max_pressure_level_before_first_non_empty_paint = level;
 }
 
 }  // namespace startup_metric_utils

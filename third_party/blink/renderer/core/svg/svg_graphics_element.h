@@ -36,7 +36,6 @@ class SVGRectTearOff;
 
 class CORE_EXPORT SVGGraphicsElement : public SVGElement, public SVGTests {
   DEFINE_WRAPPERTYPEINFO();
-  USING_GARBAGE_COLLECTED_MIXIN(SVGGraphicsElement);
 
  public:
   ~SVGGraphicsElement() override;
@@ -64,7 +63,7 @@ class CORE_EXPORT SVGGraphicsElement : public SVGElement, public SVGTests {
       CTMScope mode,
       const SVGGraphicsElement* ancestor = nullptr) const;
 
-  void Trace(blink::Visitor*) override;
+  void Trace(Visitor*) const override;
 
  protected:
   SVGGraphicsElement(const QualifiedName&,

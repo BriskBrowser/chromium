@@ -10,7 +10,7 @@
 #include <utility>
 #include <vector>
 
-#include "base/logging.h"
+#include "base/check_op.h"
 #include "base/macros.h"
 #include "base/no_destructor.h"
 #include "base/numerics/safe_conversions.h"
@@ -416,10 +416,10 @@ TermMatches ScoredHistoryMatch::FilterTermMatchesByWordStarts(
     // the term '-' contains no words), or, (5) if allow_midword_continuations
     // is true, continues where the previous match left off (e.g. inputs such
     // as 'stack overflow' will match text such as 'stackoverflow').
-    if ((term_match.offset < start_pos) ||
-        ((end_pos != std::string::npos) && (term_match.offset >= end_pos)) ||
-        ((next_word_starts != end_word_starts) &&
-         (*next_word_starts == term_match.offset + term_offset)) ||
+    if (term_match.offset < start_pos ||
+        (end_pos != std::string::npos && term_match.offset >= end_pos) ||
+        (next_word_starts != end_word_starts &&
+         *next_word_starts == term_match.offset + term_offset) ||
         term_offset == term_match.length ||
         (allow_midword_continuations && term_match.offset == last_end)) {
       last_end = term_match.offset + term_match.length;

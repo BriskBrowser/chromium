@@ -14,25 +14,24 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.os.StrictMode;
 import android.os.SystemClock;
-import android.support.v4.app.ActivityOptionsCompat;
 import android.text.TextUtils;
 
 import androidx.annotation.IntDef;
 import androidx.annotation.Nullable;
+import androidx.core.app.ActivityOptionsCompat;
 
 import org.chromium.base.metrics.RecordUserAction;
 import org.chromium.base.task.PostTask;
 import org.chromium.chrome.R;
-import org.chromium.chrome.browser.ChromeActivity;
 import org.chromium.chrome.browser.IntentHandler;
-import org.chromium.chrome.browser.browserservices.BrowserServicesActivityTabController;
+import org.chromium.chrome.browser.app.ChromeActivity;
 import org.chromium.chrome.browser.browserservices.BrowserServicesIntentDataProvider;
 import org.chromium.chrome.browser.customtabs.CloseButtonNavigator;
 import org.chromium.chrome.browser.customtabs.CustomTabObserver;
 import org.chromium.chrome.browser.customtabs.CustomTabsConnection;
 import org.chromium.chrome.browser.dependency_injection.ActivityScope;
 import org.chromium.chrome.browser.externalnav.ExternalNavigationDelegateImpl;
-import org.chromium.chrome.browser.fullscreen.ChromeFullscreenManager;
+import org.chromium.chrome.browser.fullscreen.FullscreenManager;
 import org.chromium.chrome.browser.init.ChromeBrowserInitializer;
 import org.chromium.chrome.browser.lifecycle.ActivityLifecycleDispatcher;
 import org.chromium.chrome.browser.lifecycle.StartStopWithNativeObserver;
@@ -82,7 +81,7 @@ public class CustomTabActivityNavigationController implements StartStopWithNativ
         void onFinish(@FinishReason int reason);
     }
 
-    private final BrowserServicesActivityTabController mTabController;
+    private final CustomTabActivityTabController mTabController;
     private final CustomTabActivityTabProvider mTabProvider;
     private final BrowserServicesIntentDataProvider mIntentDataProvider;
     private final CustomTabsConnection mConnection;
@@ -90,13 +89,10 @@ public class CustomTabActivityNavigationController implements StartStopWithNativ
     private final CloseButtonNavigator mCloseButtonNavigator;
     private final ChromeBrowserInitializer mChromeBrowserInitializer;
     private final Activity mActivity;
-    private final Lazy<ChromeFullscreenManager> mFullscreenManager;
+    private final Lazy<FullscreenManager> mFullscreenManager;
 
     @Nullable
     private ToolbarManager mToolbarManager;
-
-    @Nullable
-    private BackHandler mBackHandler;
 
     @Nullable
     private FinishHandler mFinishHandler;
@@ -115,17 +111,13 @@ public class CustomTabActivityNavigationController implements StartStopWithNativ
     };
 
     @Inject
-    public CustomTabActivityNavigationController(
-            BrowserServicesActivityTabController tabController,
+    public CustomTabActivityNavigationController(CustomTabActivityTabController tabController,
             CustomTabActivityTabProvider tabProvider,
-            BrowserServicesIntentDataProvider intentDataProvider,
-            CustomTabsConnection connection,
-            Lazy<CustomTabObserver> customTabObserver,
-            CloseButtonNavigator closeButtonNavigator,
-            ChromeBrowserInitializer chromeBrowserInitializer,
-            ChromeActivity activity,
+            BrowserServicesIntentDataProvider intentDataProvider, CustomTabsConnection connection,
+            Lazy<CustomTabObserver> customTabObserver, CloseButtonNavigator closeButtonNavigator,
+            ChromeBrowserInitializer chromeBrowserInitializer, ChromeActivity<?> activity,
             ActivityLifecycleDispatcher lifecycleDispatcher,
-            Lazy<ChromeFullscreenManager> fullscreenManager) {
+            Lazy<FullscreenManager> fullscreenManager) {
         mTabController = tabController;
         mTabProvider = tabProvider;
         mIntentDataProvider = intentDataProvider;
@@ -163,32 +155,28 @@ public class CustomTabActivityNavigationController implements StartStopWithNativ
      * (see {@link CustomTabObserver}).
      */
     public void navigate(final LoadUrlParams params, long timeStamp) {
-        assert mIntentDataProvider.getWebappExtras() == null;
-
         Tab tab = mTabProvider.getTab();
         if (tab == null) {
             assert false;
             return;
         }
 
-        mCustomTabObserver.get().trackNextPageLoadFromTimestamp(tab, timeStamp);
-
-        IntentHandler.addReferrerAndHeaders(params, mIntentDataProvider.getIntent());
-        if (params.getReferrer() == null) {
-            params.setReferrer(mConnection.getReferrerForSession(mIntentDataProvider.getSession()));
+        // TODO(pkotwicz): Figure out whether we want to record these metrics for WebAPKs.
+        if (mIntentDataProvider.getWebappExtras() == null) {
+            mCustomTabObserver.get().trackNextPageLoadFromTimestamp(tab, timeStamp);
         }
 
-        // Launching a TWA would count as a TOPLEVEL transition since it opens up an app-like
-        // experience, and should count towards site engagement scores. This matches WebAPK
-        // behaviour. CCTs on the other hand still count as LINK transitions.
+        IntentHandler.addReferrerAndHeaders(params, mIntentDataProvider.getIntent());
+
+        // Launching a TWA, WebAPK or a standalone-mode homescreen shortcut counts as a TOPLEVEL
+        // transition since it opens up an app-like experience, and should count towards site
+        // engagement scores. CCTs on the other hand still count as LINK transitions.
         int transition;
-        if (mIntentDataProvider.isTrustedWebActivity()) {
-          transition = PageTransition.AUTO_TOPLEVEL | PageTransition.FROM_API;
-        } else if (mIntentDataProvider.isOpenedByWebApk()) {
-          transition = PageTransition.LINK;
-          params.setHasUserGesture(true);
+        if (mIntentDataProvider.isTrustedWebActivity()
+                || mIntentDataProvider.isWebappOrWebApkActivity()) {
+            transition = PageTransition.AUTO_TOPLEVEL | PageTransition.FROM_API;
         } else {
-          transition = PageTransition.LINK | PageTransition.FROM_API;
+            transition = PageTransition.LINK | PageTransition.FROM_API;
         }
 
         params.setTransitionType(IntentHandler.getTransitionTypeFromIntent(
@@ -200,7 +188,7 @@ public class CustomTabActivityNavigationController implements StartStopWithNativ
      * Handles back button navigation.
      */
     public boolean navigateOnBack() {
-        if (!mChromeBrowserInitializer.hasNativeInitializationCompleted()) return false;
+        if (!mChromeBrowserInitializer.isFullBrowserInitialized()) return false;
 
         RecordUserAction.record("CustomTabs.SystemBack");
         if (mTabProvider.getTab() == null) return false;
@@ -210,26 +198,19 @@ public class CustomTabActivityNavigationController implements StartStopWithNativ
             return true;
         }
 
-        if (mBackHandler != null
-                && mBackHandler.handleBackPressed(this::executeDefaultBackHandling)) {
-            return true;
+        if (mToolbarManager != null && mToolbarManager.back()) return true;
+
+        if (mTabController.onlyOneTabRemaining()) {
+            // If we're closing the last tab, just finish the Activity manually. If we had called
+            // mTabController.closeTab() and waited for the Activity to close as a result we would
+            // have a visual glitch: https://crbug.com/1087108.
+            finish(USER_NAVIGATION);
+        } else {
+            mTabController.closeTab();
         }
 
-        executeDefaultBackHandling();
         return true;
     }
-
-    private void executeDefaultBackHandling() {
-        if (mToolbarManager != null && mToolbarManager.back()) return;
-
-        // mTabController.closeTab may result in either closing the only tab (through the back
-        // button or the close button), or swapping to the previous tab. In the first case we need
-        // finish to be called with USER_NAVIGATION reason.
-        mIsHandlingUserNavigation = true;
-        mTabController.closeTab();
-        mIsHandlingUserNavigation = false;
-    }
-
     /**
      * Handles close button navigation.
      */
@@ -246,12 +227,10 @@ public class CustomTabActivityNavigationController implements StartStopWithNativ
      * @return Whether or not the tab was sent over successfully.
      */
     public boolean openCurrentUrlInBrowser(boolean forceReparenting) {
-        assert mIntentDataProvider.getWebappExtras() == null;
-
         Tab tab = mTabProvider.getTab();
         if (tab == null) return false;
 
-        String url = tab.getUrl();
+        String url = tab.getUrlString();
         if (DomDistillerUrlUtils.isDistilledPage(url)) {
             url = DomDistillerUrlUtils.getOriginalUrlFromDistillerUrl(url);
         }
@@ -264,8 +243,8 @@ public class CustomTabActivityNavigationController implements StartStopWithNativ
 
         StrictMode.ThreadPolicy oldPolicy = StrictMode.allowThreadDiskWrites();
         try {
-            willChromeHandleIntent |= ExternalNavigationDelegateImpl
-                    .willChromeHandleIntent(intent, true);
+            willChromeHandleIntent |=
+                    ExternalNavigationDelegateImpl.willChromeHandleIntent(intent, true);
         } finally {
             StrictMode.setThreadPolicy(oldPolicy);
         }
@@ -316,14 +295,6 @@ public class CustomTabActivityNavigationController implements StartStopWithNativ
         if (mFinishHandler != null) {
             mFinishHandler.onFinish(reason);
         }
-    }
-
-    /**
-     * See {@link BackHandler}. Only one BackHandler at a time should be set.
-     */
-    public void setBackHandler(BackHandler handler) {
-        assert mBackHandler == null : "Multiple BackHandlers not supported";
-        mBackHandler = handler;
     }
 
     /**

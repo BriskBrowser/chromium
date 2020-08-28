@@ -3,8 +3,9 @@
 // found in the LICENSE file.
 
 import {html, Polymer} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+
 import {PDFMetrics} from '../metrics.js';
-import {Viewport} from '../viewport.js';
+import {PAGE_SHADOW, Viewport} from '../viewport.js';
 
 /** @enum {string} */
 const State = {
@@ -62,7 +63,6 @@ Polymer({
   /**
    * Whether we should suppress pointer events due to a gesture,
    * eg. pinch-zoom.
-   *
    * @private {boolean}
    */
   pointerGesture_: false,
@@ -84,31 +84,22 @@ Polymer({
   /** @param {AnnotationTool} tool */
   setAnnotationTool(tool) {
     this.tool_ = tool;
-    if (this.state_ == State.ACTIVE) {
+    if (this.state_ === State.ACTIVE) {
       this.ink_.setAnnotationTool(tool);
     }
   },
 
   /** @param {PointerEvent} e */
   isActivePointer_(e) {
-    return this.activePointer_ && this.activePointer_.pointerId == e.pointerId;
+    return this.activePointer_ && this.activePointer_.pointerId === e.pointerId;
   },
 
   /**
    * Dispatches a pointer event to Ink.
-   *
    * @param {PointerEvent} e
    */
   dispatchPointerEvent_(e) {
-    // TODO(dstockwell) come up with a solution to propagate e.timeStamp.
-    this.ink_.dispatchPointerEvent(e.type, {
-      pointerId: e.pointerId,
-      pointerType: e.pointerType,
-      clientX: e.clientX,
-      clientY: e.clientY,
-      pressure: e.pressure,
-      buttons: e.buttons,
-    });
+    this.ink_.dispatchPointerEvent(e);
   },
 
   /** @param {TouchEvent} e */
@@ -121,36 +112,36 @@ Polymer({
 
   /** @param {PointerEvent} e */
   onPointerDown_(e) {
-    if (e.pointerType == 'mouse' && e.buttons != 1 || this.pointerGesture_) {
+    if (e.pointerType === 'mouse' && e.buttons !== 1 || this.pointerGesture_) {
       return;
     }
 
-    if (e.pointerType == 'pen') {
+    if (e.pointerType === 'pen') {
       this.penMode_ = true;
     }
 
     if (this.activePointer_) {
-      if (this.activePointer_.pointerType == 'touch' &&
-          e.pointerType == 'touch') {
+      if (this.activePointer_.pointerType === 'touch' &&
+          e.pointerType === 'touch') {
         // A multi-touch gesture has started with the active pointer. Cancel
         // the active pointer and suppress further events until it is released.
         this.pointerGesture_ = true;
-        this.ink_.dispatchPointerEvent('pointercancel', {
+        this.ink_.dispatchPointerEvent(new PointerEvent('pointercancel', {
           pointerId: this.activePointer_.pointerId,
           pointerType: this.activePointer_.pointerType,
-        });
+        }));
       }
       return;
     }
 
     if (!this.viewport.isPointInsidePage({x: e.clientX, y: e.clientY}) &&
-        (e.pointerType == 'touch' || e.pointerType == 'pen')) {
+        (e.pointerType === 'touch' || e.pointerType === 'pen')) {
       // If a touch or pen is outside the page, we allow pan gestures to start.
       this.allowTouchStartTimeStamp_ = e.timeStamp;
       return;
     }
 
-    if (e.pointerType == 'touch' && this.penMode_) {
+    if (e.pointerType === 'touch' && this.penMode_) {
       // If we see a touch after having seen a pen, we allow touches to start
       // pan gestures anywhere and suppress all touches from drawing.
       this.allowTouchStartTimeStamp_ = e.timeStamp;
@@ -163,7 +154,7 @@ Polymer({
 
   /** @param {PointerEvent} e */
   onPointerLeave_(e) {
-    if (e.pointerType != 'mouse' || !this.isActivePointer_(e)) {
+    if (e.pointerType !== 'mouse' || !this.isActivePointer_(e)) {
       return;
     }
     this.onPointerUpOrCancel_(new PointerEvent('pointerup', e));
@@ -177,22 +168,22 @@ Polymer({
     this.activePointer_ = null;
     if (!this.pointerGesture_) {
       this.dispatchPointerEvent_(e);
-      // If the stroke was not cancelled (type == pointercanel),
+      // If the stroke was not cancelled (type === pointercanel),
       // notify about mutation and record metrics.
-      if (e.type == 'pointerup') {
+      if (e.type === 'pointerup') {
         this.dispatchEvent(new CustomEvent('stroke-added'));
-        if (e.pointerType == 'mouse') {
+        if (e.pointerType === 'mouse') {
           PDFMetrics.record(PDFMetrics.UserAction.ANNOTATE_STROKE_DEVICE_MOUSE);
-        } else if (e.pointerType == 'pen') {
+        } else if (e.pointerType === 'pen') {
           PDFMetrics.record(PDFMetrics.UserAction.ANNOTATE_STROKE_DEVICE_PEN);
-        } else if (e.pointerType == 'touch') {
+        } else if (e.pointerType === 'touch') {
           PDFMetrics.record(PDFMetrics.UserAction.ANNOTATE_STROKE_DEVICE_TOUCH);
         }
-        if (this.tool_.tool == 'eraser') {
+        if (this.tool_.tool === 'eraser') {
           PDFMetrics.record(PDFMetrics.UserAction.ANNOTATE_STROKE_TOOL_ERASER);
-        } else if (this.tool_.tool == 'pen') {
+        } else if (this.tool_.tool === 'pen') {
           PDFMetrics.record(PDFMetrics.UserAction.ANNOTATE_STROKE_TOOL_PEN);
-        } else if (this.tool_.tool == 'highlighter') {
+        } else if (this.tool_.tool === 'highlighter') {
           PDFMetrics.record(
               PDFMetrics.UserAction.ANNOTATE_STROKE_TOOL_HIGHLIGHTER);
         }
@@ -208,7 +199,7 @@ Polymer({
     }
 
     let events = e.getCoalescedEvents();
-    if (events.length == 0) {
+    if (events.length === 0) {
       events = [e];
     }
     for (const event of events) {
@@ -241,13 +232,13 @@ Polymer({
     // color.
     await new Promise(resolve => setTimeout(resolve));
     this.ink_.setOutOfBoundsColor(BACKGROUND_COLOR);
-    const spacing = Viewport.PAGE_SHADOW.top + Viewport.PAGE_SHADOW.bottom;
+    const spacing = PAGE_SHADOW.top + PAGE_SHADOW.bottom;
     this.ink_.setPageSpacing(spacing);
     this.style.visibility = 'visible';
   },
 
   viewportChanged() {
-    if (this.state_ != State.ACTIVE) {
+    if (this.state_ !== State.ACTIVE) {
       return;
     }
     const viewport = this.viewport;
@@ -256,8 +247,8 @@ Polymer({
     const zoom = viewport.getZoom();
     const documentWidth = viewport.getDocumentDimensions().width * zoom;
     // Adjust for page shadows.
-    const y = pos.y - Viewport.PAGE_SHADOW.top * zoom;
-    let x = pos.x - Viewport.PAGE_SHADOW.left * zoom;
+    const y = pos.y - PAGE_SHADOW.top * zoom;
+    let x = pos.x - PAGE_SHADOW.left * zoom;
     // Center the document if the width is smaller than the viewport.
     if (documentWidth < size.width) {
       x += (documentWidth - size.width) / 2;
@@ -295,7 +286,7 @@ Polymer({
    *     The serialized PDF document including any annotations that were made.
    */
   saveDocument: async function() {
-    if (this.state_ == State.ACTIVE) {
+    if (this.state_ === State.ACTIVE) {
       this.buffer_ = await this.ink_.getPDFDestructive().buffer;
       this.state_ = State.IDLE;
     }

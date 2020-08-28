@@ -28,13 +28,17 @@
 
 #include <algorithm>
 
+#include "third_party/blink/public/mojom/input/focus_type.mojom-blink.h"
 #include "third_party/blink/renderer/bindings/core/v8/node_or_string_or_trusted_script.h"
 #include "third_party/blink/renderer/bindings/core/v8/string_or_trusted_script.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_get_root_node_options.h"
 #include "third_party/blink/renderer/core/accessibility/ax_object_cache.h"
+#include "third_party/blink/renderer/core/animation/scroll_timeline.h"
 #include "third_party/blink/renderer/core/css/css_selector.h"
 #include "third_party/blink/renderer/core/css/resolver/style_resolver.h"
 #include "third_party/blink/renderer/core/css/style_change_reason.h"
 #include "third_party/blink/renderer/core/css/style_engine.h"
+#include "third_party/blink/renderer/core/display_lock/display_lock_document_state.h"
 #include "third_party/blink/renderer/core/display_lock/display_lock_utilities.h"
 #include "third_party/blink/renderer/core/dom/attr.h"
 #include "third_party/blink/renderer/core/dom/attribute.h"
@@ -47,6 +51,7 @@
 #include "third_party/blink/renderer/core/dom/element.h"
 #include "third_party/blink/renderer/core/dom/element_rare_data.h"
 #include "third_party/blink/renderer/core/dom/element_traversal.h"
+#include "third_party/blink/renderer/core/dom/events/add_event_listener_options_resolved.h"
 #include "third_party/blink/renderer/core/dom/events/event.h"
 #include "third_party/blink/renderer/core/dom/events/event_dispatch_forbidden_scope.h"
 #include "third_party/blink/renderer/core/dom/events/event_dispatcher.h"
@@ -54,7 +59,6 @@
 #include "third_party/blink/renderer/core/dom/events/event_path.h"
 #include "third_party/blink/renderer/core/dom/flat_tree_node_data.h"
 #include "third_party/blink/renderer/core/dom/flat_tree_traversal.h"
-#include "third_party/blink/renderer/core/dom/get_root_node_options.h"
 #include "third_party/blink/renderer/core/dom/layout_tree_builder_traversal.h"
 #include "third_party/blink/renderer/core/dom/mutation_observer_registration.h"
 #include "third_party/blink/renderer/core/dom/node_computed_style.h"
@@ -129,6 +133,8 @@
 #include "third_party/blink/renderer/platform/runtime_enabled_features.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/partitions.h"
 #include "third_party/blink/renderer/platform/wtf/hash_set.h"
+#include "third_party/blink/renderer/platform/wtf/size_assertions.h"
+#include "third_party/blink/renderer/platform/wtf/text/character_visitor.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_builder.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
 
@@ -158,23 +164,27 @@ ScrollCustomizationCallbacks& GetScrollCustomizationCallbacks() {
 void AppendUnsafe(StringBuilder& builder, const String& off_thread_string) {
   StringImpl* impl = off_thread_string.Impl();
   if (impl) {
-    builder.Append(impl->Is8Bit()
-                       ? StringView(impl->Characters8(), impl->length())
-                       : StringView(impl->Characters16(), impl->length()));
+    WTF::VisitCharacters(*impl, [&](const auto* chars, unsigned length) {
+      builder.Append(chars, length);
+    });
   }
 }
 
 }  // namespace
 
-using ReattachHook = LayoutShiftTracker::ReattachHook;
+using ReattachHookScope = LayoutShiftTracker::ReattachHookScope;
 
 struct SameSizeAsNode : EventTarget {
   uint32_t node_flags_;
   Member<void*> willbe_member_[4];
-  void* pointer_;
+  Member<NodeData> member_;
+#if !DCHECK_IS_ON()
+  // Increasing size of Member increases size of Node.
+  ASSERT_SIZE(Member<NodeData>, void*);
+#endif  // !DCHECK_IS_ON()
 };
 
-static_assert(sizeof(Node) <= sizeof(SameSizeAsNode), "Node should stay small");
+ASSERT_SIZE(Node, SameSizeAsNode);
 
 #if DUMP_NODE_STATISTICS
 using WeakNodeSet = HeapHashSet<WeakMember<Node>>;
@@ -324,7 +334,8 @@ Node::Node(TreeScope* tree_scope, ConstructionType type)
       parent_or_shadow_host_node_(nullptr),
       tree_scope_(tree_scope),
       previous_(nullptr),
-      next_(nullptr) {
+      next_(nullptr),
+      data_(&NodeRenderingData::SharedEmptyData()) {
   DCHECK(tree_scope_ || type == kCreateDocument || type == kCreateShadowRoot);
 #if !defined(NDEBUG) || (defined(DUMP_NODE_STATISTICS) && DUMP_NODE_STATISTICS)
   TrackForDebugging();
@@ -341,16 +352,13 @@ Node::~Node() {
 
 NodeRareData& Node::CreateRareData() {
   if (IsElementNode()) {
-    data_.rare_data_ =
-        MakeGarbageCollected<ElementRareData>(data_.node_layout_data_);
+    data_ = MakeGarbageCollected<ElementRareData>(DataAsNodeRenderingData());
   } else {
-    data_.rare_data_ =
-        MakeGarbageCollected<NodeRareData>(data_.node_layout_data_);
+    data_ = MakeGarbageCollected<NodeRareData>(DataAsNodeRenderingData());
   }
 
-  DCHECK(data_.rare_data_);
+  DCHECK(data_);
   SetFlag(kHasRareDataFlag);
-  MarkingVisitor::WriteBarrier(&data_.rare_data_);
   return *RareData();
 }
 
@@ -371,7 +379,6 @@ ContainerNode* Node::parentNode() const {
 }
 
 NodeList* Node::childNodes() {
-  ThreadState::MainThreadGCForbiddenScope gc_forbidden;
   auto* this_node = DynamicTo<ContainerNode>(this);
   if (this_node)
     return EnsureRareData().EnsureNodeLists().EnsureChildNodeList(*this_node);
@@ -539,14 +546,12 @@ void Node::NativeApplyScroll(ScrollState& scroll_state) {
   if (delta.IsZero())
     return;
 
-  // TODO(esprehn): This should use
-  // updateStyleAndLayoutForNode.
-  GetDocument().UpdateStyleAndLayout();
-
-  LayoutBox* box_to_scroll = ToLayoutBox(GetLayoutObject());
+  // TODO: This should use updateStyleAndLayoutForNode.
+  GetDocument().UpdateStyleAndLayout(DocumentUpdateReason::kScroll);
 
   ScrollableArea* scrollable_area =
-      box_to_scroll->EnclosingBox()->GetScrollableArea();
+      ScrollableArea::GetForScrolling(ToLayoutBox(GetLayoutObject()));
+  LayoutBox* box_to_scroll = scrollable_area->GetLayoutBox();
 
   // TODO(bokan): This is a hack to fix https://crbug.com/977954. If we have a
   // non-default root scroller, scrolling from one of its siblings or a fixed
@@ -559,7 +564,7 @@ void Node::NativeApplyScroll(ScrollState& scroll_state) {
   // behavior in CC.
   bool also_scroll_visual_viewport = GetDocument().GetFrame() &&
                                      GetDocument().GetFrame()->IsMainFrame() &&
-                                     box_to_scroll->IsLayoutView();
+                                     IsA<LayoutView>(box_to_scroll);
   DCHECK(!also_scroll_visual_viewport ||
          !box_to_scroll->IsGlobalRootScroller());
 
@@ -569,16 +574,16 @@ void Node::NativeApplyScroll(ScrollState& scroll_state) {
     return;
   }
 
-  ScrollResult result = scrollable_area->UserScroll(
-      ScrollGranularity(static_cast<int>(scroll_state.deltaGranularity())),
-      delta, ScrollableArea::ScrollCallback());
+  ScrollResult result =
+      scrollable_area->UserScroll(scroll_state.delta_granularity(), delta,
+                                  ScrollableArea::ScrollCallback());
 
   // Also try scrolling the visual viewport if we're at the end of the scroll
   // chain.
   if (!result.DidScroll() && also_scroll_visual_viewport) {
     result = GetDocument().GetPage()->GetVisualViewport().UserScroll(
-        ScrollGranularity(static_cast<int>(scroll_state.deltaGranularity())),
-        delta, ScrollableArea::ScrollCallback());
+        scroll_state.delta_granularity(), delta,
+        ScrollableArea::ScrollCallback());
   }
 
   if (!result.DidScroll())
@@ -824,8 +829,8 @@ static Node* NodeOrStringToNode(
                             ? node_or_string.GetAsString()
                             : node_or_string.GetAsNode()->textContent();
 
-  string_value =
-      GetStringFromTrustedScript(string_value, &document, exception_state);
+  string_value = TrustedTypesCheckForScript(
+      string_value, document.GetExecutionContext(), exception_state);
   if (exception_state.HadException())
     return nullptr;
   return Text::Create(document, string_value);
@@ -837,8 +842,9 @@ static Node* ConvertNodesIntoNode(
     const HeapVector<NodeOrStringOrTrustedScript>& nodes,
     Document& document,
     ExceptionState& exception_state) {
-  bool needs_check =
-      IsA<HTMLScriptElement>(parent) && document.IsTrustedTypesEnabledForDoc();
+  bool needs_check = IsA<HTMLScriptElement>(parent) &&
+                     document.GetExecutionContext() &&
+                     document.GetExecutionContext()->RequireTrustedTypes();
 
   if (nodes.size() == 1)
     return NodeOrStringToNode(nodes[0], document, needs_check, exception_state);
@@ -951,6 +957,40 @@ void Node::ReplaceWith(const HeapVector<NodeOrStringOrTrustedScript>& nodes,
     parent_node->InsertBefore(node, viable_next_sibling, exception_state);
 }
 
+// https://dom.spec.whatwg.org/#dom-parentnode-replacechildren
+void Node::ReplaceChildren(const HeapVector<NodeOrStringOrTrustedScript>& nodes,
+                           ExceptionState& exception_state) {
+  auto* this_node = DynamicTo<ContainerNode>(this);
+  if (!this_node) {
+    exception_state.ThrowDOMException(
+        DOMExceptionCode::kHierarchyRequestError,
+        "This node type does not support this method.");
+    return;
+  }
+
+  // 1. Let node be the result of converting nodes into a node given nodes and
+  // this’s node document.
+  Node* node =
+      ConvertNodesIntoNode(this, nodes, GetDocument(), exception_state);
+  if (exception_state.HadException())
+    return;
+
+  // 2. Ensure pre-insertion validity of node into this before null.
+  if (!this_node->EnsurePreInsertionValidity(*node, nullptr, nullptr,
+                                             exception_state))
+    return;
+
+  // 3. Replace all with node within this.
+  ChildListMutationScope mutation(*this);
+  while (Node* first_child = firstChild()) {
+    removeChild(first_child, exception_state);
+    if (exception_state.HadException())
+      return;
+  }
+
+  appendChild(node, exception_state);
+}
+
 void Node::remove(ExceptionState& exception_state) {
   if (ContainerNode* parent = parentNode())
     parent->RemoveChild(this, exception_state);
@@ -963,18 +1003,24 @@ void Node::remove() {
 Node* Node::cloneNode(bool deep, ExceptionState& exception_state) const {
   // https://dom.spec.whatwg.org/#dom-node-clonenode
 
-  // 1. If context object is a shadow root, then throw a
-  // "NotSupportedError" DOMException.
+  // 1. If this is a shadow root, then throw a "NotSupportedError" DOMException.
   if (IsShadowRoot()) {
     exception_state.ThrowDOMException(DOMExceptionCode::kNotSupportedError,
                                       "ShadowRoot nodes are not clonable.");
     return nullptr;
   }
 
-  // 2. Return a clone of the context object, with the clone children
-  // flag set if deep is true.
+  // 2. Return a clone of this, with the clone children flag set if deep is
+  // true, and the clone shadows flag set if this is a DocumentFragment whose
+  // host is an HTML template element.
+  auto* fragment = DynamicTo<DocumentFragment>(this);
+  bool clone_shadows_flag = fragment && fragment->IsTemplateContent() &&
+                            RuntimeEnabledFeatures::DeclarativeShadowDOMEnabled(
+                                GetExecutionContext());
   return Clone(GetDocument(),
-               deep ? CloneChildrenFlag::kClone : CloneChildrenFlag::kSkip);
+               deep ? (clone_shadows_flag ? CloneChildrenFlag::kCloneWithShadows
+                                          : CloneChildrenFlag::kClone)
+                    : CloneChildrenFlag::kSkip);
 }
 
 Node* Node::cloneNode(bool deep) const {
@@ -1010,8 +1056,8 @@ LayoutBox* Node::GetLayoutBox() const {
 
 void Node::SetLayoutObject(LayoutObject* layout_object) {
   NodeRenderingData* node_layout_data =
-      HasRareData() ? data_.rare_data_->GetNodeRenderingData()
-                    : data_.node_layout_data_;
+      HasRareData() ? DataAsNodeRareData()->GetNodeRenderingData()
+                    : DataAsNodeRenderingData();
 
   // Already pointing to a non empty NodeRenderingData so just set the pointer
   // to the new LayoutObject.
@@ -1029,11 +1075,9 @@ void Node::SetLayoutObject(LayoutObject* layout_object) {
   node_layout_data =
       MakeGarbageCollected<NodeRenderingData>(layout_object, nullptr);
   if (HasRareData()) {
-    data_.rare_data_->SetNodeRenderingData(node_layout_data);
+    DataAsNodeRareData()->SetNodeRenderingData(node_layout_data);
   } else {
-    data_.node_layout_data_ = node_layout_data;
-    // We need the following line since data_.node_layout_data_ is not a Member.
-    MarkingVisitor::WriteBarrier(&data_.node_layout_data_);
+    data_ = node_layout_data;
   }
 }
 
@@ -1042,8 +1086,8 @@ void Node::SetComputedStyle(scoped_refptr<const ComputedStyle> computed_style) {
   DCHECK(IsElementNode());
 
   NodeRenderingData* node_layout_data =
-      HasRareData() ? data_.rare_data_->GetNodeRenderingData()
-                    : data_.node_layout_data_;
+      HasRareData() ? DataAsNodeRareData()->GetNodeRenderingData()
+                    : DataAsNodeRenderingData();
 
   // Already pointing to a non empty NodeRenderingData so just set the pointer
   // to the new LayoutObject.
@@ -1066,11 +1110,9 @@ void Node::SetComputedStyle(scoped_refptr<const ComputedStyle> computed_style) {
   node_layout_data =
       MakeGarbageCollected<NodeRenderingData>(nullptr, computed_style);
   if (HasRareData()) {
-    data_.rare_data_->SetNodeRenderingData(node_layout_data);
+    DataAsNodeRareData()->SetNodeRenderingData(node_layout_data);
   } else {
-    data_.node_layout_data_ = node_layout_data;
-    // We need the following line since data_.node_layout_data_ is not a Member.
-    MarkingVisitor::WriteBarrier(&data_.node_layout_data_);
+    data_ = node_layout_data;
   }
 }
 
@@ -1228,6 +1270,35 @@ void Node::MarkAncestorsWithChildNeedsDistributionRecalc() {
   GetDocument().ScheduleLayoutTreeUpdateIfNeeded();
 }
 
+void Node::MarkSubtreeNeedsStyleRecalcForFontUpdates() {
+  if (GetStyleChangeType() == kSubtreeStyleChange)
+    return;
+
+  if (IsElementNode()) {
+    const ComputedStyle* style = GetComputedStyle();
+    if (!style)
+      return;
+
+    // We require font-specific metrics to resolve length units 'ex' and 'ch',
+    // and to compute the adjusted font size when 'font-size-adjust' is set. All
+    // other style computations are unaffected by font loading.
+    if (!NeedsStyleRecalc()) {
+      if (style->DependsOnFontMetrics() ||
+          To<Element>(this)->PseudoElementStylesDependOnFontMetrics()) {
+        SetNeedsStyleRecalc(
+            kLocalStyleChange,
+            StyleChangeReasonForTracing::Create(style_change_reason::kFonts));
+      }
+    }
+
+    if (Node* shadow_root = GetShadowRoot())
+      shadow_root->MarkSubtreeNeedsStyleRecalcForFontUpdates();
+  }
+
+  for (Node* child = firstChild(); child; child = child->nextSibling())
+    child->MarkSubtreeNeedsStyleRecalcForFontUpdates();
+}
+
 #if DCHECK_IS_ON()
 namespace {
 class AllowDirtyShadowV0TraversalScope {
@@ -1244,7 +1315,7 @@ class AllowDirtyShadowV0TraversalScope {
   }
 
  private:
-  Member<Document> document_;
+  Document* document_;
   bool old_value_;
 };
 }  // namespace
@@ -1267,8 +1338,6 @@ bool Node::ShouldSkipMarkingStyleDirty() const {
       parent = parent->GetStyleRecalcParent();
     return !parent || !parent->GetComputedStyle();
   }
-  if (!RuntimeEnabledFeatures::FlatTreeStyleRecalcEnabled())
-    return false;
   // If this is the root element, and it does not have a computed style, we
   // still need to mark it for style recalc since it may change from
   // display:none. Otherwise, the node is not in the flat tree, and we can
@@ -1291,7 +1360,7 @@ void Node::MarkAncestorsWithChildNeedsStyleRecalc() {
       break;
     // If we reach a locked ancestor, we should abort since the ancestor marking
     // will be done when the lock is committed.
-    if (RuntimeEnabledFeatures::DisplayLockingEnabled(GetExecutionContext())) {
+    if (RuntimeEnabledFeatures::CSSContentVisibilityEnabled()) {
       auto* ancestor_element = DynamicTo<Element>(ancestor);
       if (ancestor_element && ancestor_element->StyleRecalcBlockedByDisplayLock(
                                   DisplayLockLifecycleTarget::kChildren)) {
@@ -1305,21 +1374,18 @@ void Node::MarkAncestorsWithChildNeedsStyleRecalc() {
   // early return here is a performance optimization.
   if (parent_dirty)
     return;
-  // If we are outside the flat tree and FlatTreeStyleRecalc is enabled, we
-  // should not update the recalc root because we should not traverse those
-  // nodes from StyleEngine::RecalcStyle().
-  if (RuntimeEnabledFeatures::FlatTreeStyleRecalcEnabled()) {
-    if (const ComputedStyle* current_style = GetComputedStyle()) {
-      if (current_style->IsEnsuredOutsideFlatTree())
-        return;
-    } else {
-      while (style_parent && !style_parent->CanParticipateInFlatTree())
-        style_parent = style_parent->GetStyleRecalcParent();
-      if (style_parent) {
-        if (const auto* parent_style = style_parent->GetComputedStyle()) {
-          if (parent_style->IsEnsuredOutsideFlatTree())
-            return;
-        }
+  // If we are outside the flat tree we should not update the recalc root
+  // because we should not traverse those nodes from StyleEngine::RecalcStyle().
+  if (const ComputedStyle* current_style = GetComputedStyle()) {
+    if (current_style->IsEnsuredOutsideFlatTree())
+      return;
+  } else {
+    while (style_parent && !style_parent->CanParticipateInFlatTree())
+      style_parent = style_parent->GetStyleRecalcParent();
+    if (style_parent) {
+      if (const auto* parent_style = style_parent->GetComputedStyle()) {
+        if (parent_style->IsEnsuredOutsideFlatTree())
+          return;
       }
     }
   }
@@ -1327,8 +1393,9 @@ void Node::MarkAncestorsWithChildNeedsStyleRecalc() {
   // roots. These would be updated when we commit the lock. If we have locked
   // display locks somewhere in the document, we iterate up the ancestor chain
   // to check if we're in one such subtree.
-  if (RuntimeEnabledFeatures::DisplayLockingEnabled(GetExecutionContext()) &&
-      GetDocument().LockedDisplayLockCount() > 0) {
+  if (RuntimeEnabledFeatures::CSSContentVisibilityEnabled() &&
+      GetDocument().GetDisplayLockDocumentState().LockedDisplayLockCount() >
+          0) {
     for (auto* ancestor_copy = ancestor; ancestor_copy;
          ancestor_copy = ancestor_copy->GetStyleRecalcParent()) {
       auto* ancestor_copy_element = DynamicTo<Element>(ancestor_copy);
@@ -1364,12 +1431,6 @@ Element* Node::FlatTreeParentForChildDirty() const {
   return ParentOrShadowHostElement();
 }
 
-ContainerNode* Node::GetStyleRecalcParent() const {
-  if (RuntimeEnabledFeatures::FlatTreeStyleRecalcEnabled())
-    return FlatTreeParentForChildDirty();
-  return ParentOrShadowHostNode();
-}
-
 void Node::MarkAncestorsWithChildNeedsReattachLayoutTree() {
   DCHECK(isConnected());
   Element* ancestor = GetReattachParent();
@@ -1400,13 +1461,7 @@ void Node::SetNeedsStyleRecalc(StyleChangeType change_type,
                                const StyleChangeReasonForTracing& reason) {
   DCHECK(!GetDocument().GetStyleEngine().InRebuildLayoutTree());
   DCHECK(change_type != kNoStyleChange);
-  // TODO(crbug.com/972752): ShadowRoot can be marked kSubtreeStyleChange from
-  // RescheduleSiblingInvalidationsAsDescendants() for WholeSubtreeInvalid(). We
-  // should instead mark the shadow host for subtree recalc when we traverse the
-  // flat tree (and skip non-slotted host children).
-  DCHECK(IsElementNode() || IsTextNode() ||
-         (IsShadowRoot() &&
-          !RuntimeEnabledFeatures::FlatTreeStyleRecalcEnabled()));
+  DCHECK(IsElementNode() || IsTextNode());
 
   if (!InActiveDocument())
     return;
@@ -1416,7 +1471,8 @@ void Node::SetNeedsStyleRecalc(StyleChangeType change_type,
   TRACE_EVENT_INSTANT1(
       TRACE_DISABLED_BY_DEFAULT("devtools.timeline.invalidationTracking"),
       "StyleRecalcInvalidationTracking", TRACE_EVENT_SCOPE_THREAD, "data",
-      inspector_style_recalc_invalidation_tracking_event::Data(this, reason));
+      inspector_style_recalc_invalidation_tracking_event::Data(
+          this, change_type, reason));
 
   StyleChangeType existing_change_type = GetStyleChangeType();
   if (change_type > existing_change_type)
@@ -1446,10 +1502,6 @@ void Node::ClearNeedsStyleRecalc() {
 
 bool Node::InActiveDocument() const {
   return isConnected() && GetDocument().IsActive();
-}
-
-const Node* Node::FocusDelegate() const {
-  return this;
 }
 
 bool Node::ShouldHaveFocusAppearance() const {
@@ -1528,6 +1580,8 @@ void Node::ClearFlatTreeNodeDataIfHostChanged(const ContainerNode& parent) {
 }
 
 bool Node::IsDescendantOf(const Node* other) const {
+  DCHECK(this);  // Necessary for clusterfuzz tooling to get a useful backtrace
+
   // Return true if other is an ancestor of this, otherwise false
   if (!other || isConnected() != other->isConnected())
     return false;
@@ -1631,7 +1685,7 @@ Node* Node::CommonAncestor(const Node& other,
 
 void Node::ReattachLayoutTree(AttachContext& context) {
   context.performing_reattach = true;
-  ReattachHook::Scope reattach_scope(*this);
+  ReattachHookScope reattach_scope(*this);
 
   DetachLayoutTree(context.performing_reattach);
   AttachLayoutTree(context);
@@ -1647,7 +1701,7 @@ void Node::AttachLayoutTree(AttachContext& context) {
   LayoutObject* layout_object = GetLayoutObject();
   DCHECK(!layout_object ||
          (layout_object->Style() &&
-          (layout_object->Parent() || layout_object->IsLayoutView())));
+          (layout_object->Parent() || IsA<LayoutView>(layout_object))));
 
   ClearNeedsReattachLayoutTree();
 
@@ -1655,7 +1709,7 @@ void Node::AttachLayoutTree(AttachContext& context) {
     cache->UpdateCacheAfterNodeIsAttached(this);
 
   if (context.performing_reattach)
-    ReattachHook::NotifyAttach(*this);
+    ReattachHookScope::NotifyAttach(*this);
 }
 
 void Node::DetachLayoutTree(bool performing_reattach) {
@@ -1665,7 +1719,7 @@ void Node::DetachLayoutTree(bool performing_reattach) {
   DocumentLifecycle::DetachScope will_detach(GetDocument().Lifecycle());
 
   if (performing_reattach)
-    ReattachHook::NotifyDetach(*this);
+    ReattachHookScope::NotifyDetach(*this);
 
   if (GetLayoutObject())
     GetLayoutObject()->DestroyAndCleanupAnonymousWrappers();
@@ -1735,6 +1789,16 @@ bool Node::CanStartSelection() const {
   }
   ContainerNode* parent = FlatTreeTraversal::Parent(*this);
   return parent ? parent->CanStartSelection() : true;
+}
+
+void Node::NotifyPriorityScrollAnchorStatusChanged() {
+  auto* node = this;
+  while (node && !node->GetLayoutObject())
+    node = FlatTreeTraversal::Parent(*node);
+  if (node) {
+    DCHECK(node->GetLayoutObject());
+    node->GetLayoutObject()->NotifyPriorityScrollAnchorStatusChanged();
+  }
 }
 
 // StyledElements allow inline style (style="border: 1px"), presentational
@@ -1850,6 +1914,16 @@ ContainerNode* Node::ParentOrShadowHostOrTemplateHostNode() const {
   if (this_fragment && this_fragment->IsTemplateContent())
     return static_cast<const TemplateContentDocumentFragment*>(this)->Host();
   return ParentOrShadowHostNode();
+}
+
+TreeScope& Node::OriginatingTreeScope() const {
+  if (const SVGElement* svg_element = DynamicTo<SVGElement>(this)) {
+    if (const SVGElement* corr_element = svg_element->CorrespondingElement()) {
+      DCHECK(!corr_element->CorrespondingElement());
+      return corr_element->GetTreeScope();
+    }
+  }
+  return GetTreeScope();
 }
 
 Document* Node::ownerDocument() const {
@@ -2572,7 +2646,7 @@ const AtomicString& Node::InterfaceName() const {
 }
 
 ExecutionContext* Node::GetExecutionContext() const {
-  return GetDocument().ContextDocument();
+  return GetDocument().GetExecutionContext();
 }
 
 void Node::WillMoveToNewDocument(Document& old_document,
@@ -2632,6 +2706,11 @@ void Node::AddedEventListener(const AtomicString& event_type,
   if (auto* frame = GetDocument().GetFrame()) {
     frame->GetEventHandlerRegistry().DidAddEventHandler(
         *this, event_type, registered_listener.Options());
+    // We need to track the existence of the visibilitychange event listeners to
+    // enable/disable sudden terminations.
+    if (IsDocumentNode() && event_type == event_type_names::kVisibilitychange) {
+      frame->AddedSuddenTerminationDisablerListener(*this, event_type);
+    }
   }
 }
 
@@ -2645,6 +2724,11 @@ void Node::RemovedEventListener(
   if (auto* frame = GetDocument().GetFrame()) {
     frame->GetEventHandlerRegistry().DidRemoveEventHandler(
         *this, event_type, registered_listener.Options());
+    // We need to track the existence of the visibilitychange event listeners to
+    // enable/disable sudden terminations.
+    if (IsDocumentNode() && event_type == event_type_names::kVisibilitychange) {
+      frame->RemovedSuddenTerminationDisablerListener(*this, event_type);
+    }
   }
 }
 
@@ -2835,7 +2919,7 @@ void Node::HandleLocalEvents(Event& event) {
   if (!HasEventTargetData())
     return;
 
-  if (IsDisabledFormControl(this) && event.IsMouseEvent() &&
+  if (IsDisabledFormControl(this) && IsA<MouseEvent>(event) &&
       !RuntimeEnabledFeatures::SendMouseEventsDisabledFormControlsEnabled()) {
     if (HasEventListeners(event.type())) {
       UseCounter::Count(GetDocument(),
@@ -2896,7 +2980,7 @@ DispatchEventResult Node::DispatchDOMActivateEvent(int detail,
   return EventTarget::GetDispatchEventResult(event);
 }
 
-void Node::DispatchSimulatedClick(Event* underlying_event,
+void Node::DispatchSimulatedClick(const Event* underlying_event,
                                   SimulatedClickMouseEventOptions event_options,
                                   SimulatedClickCreationScope scope) {
   if (auto* element = IsElementNode() ? To<Element>(this) : parentElement()) {
@@ -2914,22 +2998,22 @@ void Node::DefaultEventHandler(Event& event) {
   if (event_type == event_type_names::kKeydown ||
       event_type == event_type_names::kKeypress ||
       event_type == event_type_names::kKeyup) {
-    if (event.IsKeyboardEvent()) {
+    if (auto* keyboard_event = DynamicTo<KeyboardEvent>(&event)) {
       if (LocalFrame* frame = GetDocument().GetFrame()) {
-        frame->GetEventHandler().DefaultKeyboardEventHandler(
-            ToKeyboardEvent(&event));
+        frame->GetEventHandler().DefaultKeyboardEventHandler(keyboard_event);
       }
     }
   } else if (event_type == event_type_names::kClick) {
-    int detail = event.IsUIEvent() ? ToUIEvent(event).detail() : 0;
+    auto* ui_event = DynamicTo<UIEvent>(event);
+    int detail = ui_event ? ui_event->detail() : 0;
     if (DispatchDOMActivateEvent(detail, event) !=
         DispatchEventResult::kNotCanceled)
       event.SetDefaultHandled();
   } else if (event_type == event_type_names::kContextmenu &&
-             event.IsMouseEvent()) {
+             IsA<MouseEvent>(event)) {
     if (Page* page = GetDocument().GetPage()) {
       page->GetContextMenuController().HandleContextMenuEvent(
-          ToMouseEvent(&event));
+          To<MouseEvent>(&event));
     }
   } else if (event_type == event_type_names::kTextInput) {
     if (event.HasInterface(event_interface_names::kTextEvent)) {
@@ -2940,8 +3024,8 @@ void Node::DefaultEventHandler(Event& event) {
     }
   } else if (RuntimeEnabledFeatures::MiddleClickAutoscrollEnabled() &&
              event_type == event_type_names::kMousedown &&
-             event.IsMouseEvent()) {
-    auto& mouse_event = ToMouseEvent(event);
+             IsA<MouseEvent>(event)) {
+    auto& mouse_event = To<MouseEvent>(event);
     if (mouse_event.button() ==
         static_cast<int16_t>(WebPointerProperties::Button::kMiddle)) {
       if (EnclosingLinkEventParentOrSelf())
@@ -2952,7 +3036,7 @@ void Node::DefaultEventHandler(Event& event) {
       // FIXME: We should avoid synchronous layout if possible. We can
       // remove this synchronous layout if we avoid synchronous layout in
       // LayoutTextControlSingleLine::scrollHeight
-      GetDocument().UpdateStyleAndLayout();
+      GetDocument().UpdateStyleAndLayout(DocumentUpdateReason::kInput);
       LayoutObject* layout_object = GetLayoutObject();
       while (
           layout_object &&
@@ -3087,8 +3171,8 @@ HTMLSlotElement* Node::assignedSlotForBinding() {
   return nullptr;
 }
 
-void Node::SetFocused(bool flag, WebFocusType focus_type) {
-  if (focus_type == kWebFocusTypeMouse)
+void Node::SetFocused(bool flag, mojom::blink::FocusType focus_type) {
+  if (focus_type == mojom::blink::FocusType::kMouse)
     GetDocument().SetHadKeyboardEvent(false);
   GetDocument().UserActionElements().SetFocused(this, flag);
 }
@@ -3165,13 +3249,14 @@ void Node::SetCustomElementState(CustomElementState new_state) {
 
   if (element->IsDefined() != was_defined) {
     element->PseudoStateChanged(CSSSelector::kPseudoDefined);
-    if (RuntimeEnabledFeatures::CustomElementsV0Enabled(&GetDocument()))
+    if (RuntimeEnabledFeatures::CustomElementsV0Enabled(GetExecutionContext()))
       element->PseudoStateChanged(CSSSelector::kPseudoUnresolved);
   }
 }
 
 void Node::SetV0CustomElementState(V0CustomElementState new_state) {
-  DCHECK(RuntimeEnabledFeatures::CustomElementsV0Enabled(&GetDocument()));
+  DCHECK(
+      RuntimeEnabledFeatures::CustomElementsV0Enabled(GetExecutionContext()));
   V0CustomElementState old_state = GetV0CustomElementState();
 
   switch (new_state) {
@@ -3296,12 +3381,11 @@ void Node::FlatTreeParentChanged() {
   // The node changed the flat tree position by being slotted to a new slot or
   // slotted for the first time. We need to recalc style since the inheritance
   // parent may have changed.
-  if (NeedsStyleRecalc() &&
-      RuntimeEnabledFeatures::FlatTreeStyleRecalcEnabled()) {
-    // For flat tree style recalc, the ancestor chain may have changed. We need
-    // make sure that the child-dirty flags are updated, but the
-    // SetNeedsStyleRecalc() call below will skip
-    // MarkAncestorsWithChildNeedsStyleRecalc() if the node was already dirty.
+  if (NeedsStyleRecalc()) {
+    // The ancestor chain may have changed. We need to make sure that the
+    // child-dirty flags are updated, but the SetNeedsStyleRecalc() call below
+    // will skip MarkAncestorsWithChildNeedsStyleRecalc() if the node was
+    // already dirty.
     MarkAncestorsWithChildNeedsStyleRecalc();
   }
   SetNeedsStyleRecalc(kLocalStyleChange,
@@ -3320,14 +3404,18 @@ void Node::RemovedFromFlatTree() {
   GetDocument().GetStyleEngine().RemovedFromFlatTree(*this);
 }
 
-void Node::Trace(Visitor* visitor) {
+void Node::RegisterScrollTimeline(ScrollTimeline* timeline) {
+  EnsureRareData().RegisterScrollTimeline(timeline);
+}
+void Node::UnregisterScrollTimeline(ScrollTimeline* timeline) {
+  EnsureRareData().UnregisterScrollTimeline(timeline);
+}
+
+void Node::Trace(Visitor* visitor) const {
   visitor->Trace(parent_or_shadow_host_node_);
   visitor->Trace(previous_);
   visitor->Trace(next_);
-  if (HasRareData())
-    visitor->Trace(RareData());
-  else
-    visitor->Trace(data_.node_layout_data_);
+  visitor->Trace(data_);
   visitor->Trace(tree_scope_);
   EventTarget::Trace(visitor);
 }

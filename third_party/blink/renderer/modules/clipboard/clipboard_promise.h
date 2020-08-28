@@ -9,31 +9,39 @@
 
 #include "base/macros.h"
 #include "base/sequence_checker.h"
-#include "mojo/public/cpp/bindings/remote.h"
 #include "third_party/blink/public/mojom/permissions/permission.mojom-blink.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise.h"
-#include "third_party/blink/renderer/core/execution_context/context_lifecycle_observer.h"
+#include "third_party/blink/renderer/core/execution_context/execution_context_lifecycle_observer.h"
 #include "third_party/blink/renderer/core/fileapi/blob.h"
 #include "third_party/blink/renderer/modules/clipboard/clipboard_item.h"
+#include "third_party/blink/renderer/modules/clipboard/clipboard_reader.h"
 #include "third_party/blink/renderer/modules/clipboard/clipboard_writer.h"
+#include "third_party/blink/renderer/platform/mojo/heap_mojo_remote.h"
+#include "third_party/blink/renderer/platform/mojo/heap_mojo_wrapper_mode.h"
 
 namespace blink {
 
 class ScriptPromiseResolver;
+class LocalFrame;
+class ExecutionContext;
+class ClipboardItemOptions;
 
 class ClipboardPromise final : public GarbageCollected<ClipboardPromise>,
-                               public ContextLifecycleObserver {
-  USING_GARBAGE_COLLECTED_MIXIN(ClipboardPromise);
-
+                               public ExecutionContextClient {
  public:
   // Creates promise to execute Clipboard API functions off the main thread.
-  static ScriptPromise CreateForRead(ScriptState*);
-  static ScriptPromise CreateForReadText(ScriptState*);
-  static ScriptPromise CreateForWrite(ScriptState*,
+  static ScriptPromise CreateForRead(ExecutionContext*,
+                                     ScriptState*,
+                                     ClipboardItemOptions*);
+  static ScriptPromise CreateForReadText(ExecutionContext*, ScriptState*);
+  static ScriptPromise CreateForWrite(ExecutionContext*,
+                                      ScriptState*,
                                       const HeapVector<Member<ClipboardItem>>&);
-  static ScriptPromise CreateForWriteText(ScriptState*, const String&);
+  static ScriptPromise CreateForWriteText(ExecutionContext*,
+                                          ScriptState*,
+                                          const String&);
 
-  explicit ClipboardPromise(ScriptState*);
+  ClipboardPromise(ExecutionContext*, ScriptState*);
   virtual ~ClipboardPromise();
 
   // Completes current write and starts next write.
@@ -41,14 +49,19 @@ class ClipboardPromise final : public GarbageCollected<ClipboardPromise>,
   // For rejections originating from ClipboardWriter.
   void RejectFromReadOrDecodeFailure();
 
-  void Trace(blink::Visitor*) override;
+  // Adds the blob to the clipboard items.
+  void OnRead(Blob* blob);
+
+  LocalFrame* GetLocalFrame() const;
+
+  void Trace(Visitor*) const override;
 
  private:
   // Called to begin writing a type.
-  void StartWriteRepresentation();
+  void WriteNextRepresentation();
 
   // Checks Read/Write permission (interacting with PermissionService).
-  void HandleRead();
+  void HandleRead(ClipboardItemOptions*);
   void HandleReadText();
   void HandleWrite(HeapVector<Member<ClipboardItem>>*);
   void HandleWriteText(const String&);
@@ -58,6 +71,11 @@ class ClipboardPromise final : public GarbageCollected<ClipboardPromise>,
   void HandleReadTextWithPermission(mojom::blink::PermissionStatus);
   void HandleWriteWithPermission(mojom::blink::PermissionStatus);
   void HandleWriteTextWithPermission(mojom::blink::PermissionStatus);
+
+  void OnReadAvailableFormatNames(const Vector<String>& format_names);
+  void ReadNextRepresentation();
+  void OnRawRead(mojo_base::BigBuffer data);
+  void ResolveRead();
 
   // Checks for permissions (interacting with PermissionService).
   mojom::blink::PermissionService* GetPermissionService();
@@ -71,9 +89,12 @@ class ClipboardPromise final : public GarbageCollected<ClipboardPromise>,
   Member<ScriptState> script_state_;
   Member<ScriptPromiseResolver> script_promise_resolver_;
 
-  std::unique_ptr<ClipboardWriter> clipboard_writer_;
+  Member<ClipboardWriter> clipboard_writer_;
+
   // Checks for Read and Write permission.
-  mojo::Remote<mojom::blink::PermissionService> permission_service_;
+  HeapMojoRemote<mojom::blink::PermissionService,
+                 HeapMojoWrapperMode::kWithoutContextObserver>
+      permission_service_;
 
   // Only for use in writeText().
   String plain_text_;

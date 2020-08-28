@@ -21,14 +21,16 @@
 #include "components/sync/base/cancelation_signal.h"
 #include "components/sync/base/extensions_activity.h"
 #include "components/sync/base/model_type_test_util.h"
+#include "components/sync/engine/data_type_activation_response.h"
+#include "components/sync/engine/fake_model_type_processor.h"
 #include "components/sync/engine/sync_engine_switches.h"
 #include "components/sync/engine_impl/backoff_delay_provider.h"
 #include "components/sync/engine_impl/cycle/test_util.h"
-#include "components/sync/syncable/test_user_share.h"
 #include "components/sync/test/callback_counter.h"
 #include "components/sync/test/engine/fake_model_worker.h"
 #include "components/sync/test/engine/mock_connection_manager.h"
 #include "components/sync/test/engine/mock_nudge_handler.h"
+#include "components/sync/test/fake_sync_encryption_handler.h"
 #include "components/sync/test/mock_invalidation.h"
 #include "net/http/http_status_code.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -63,6 +65,15 @@ class MockSyncer : public Syncer {
                     SyncCycle*));
   MOCK_METHOD2(PollSyncShare, bool(ModelTypeSet, SyncCycle*));
 };
+
+std::unique_ptr<DataTypeActivationResponse> MakeFakeActivationResponse(
+    ModelType model_type) {
+  auto response = std::make_unique<DataTypeActivationResponse>();
+  response->type_processor = std::make_unique<FakeModelTypeProcessor>();
+  response->model_type_state.mutable_progress_marker()->set_data_type_id(
+      GetSpecificsFieldNumberFromModelType(model_type));
+  return response;
+}
 
 MockSyncer::MockSyncer() : Syncer(nullptr) {}
 
@@ -114,40 +125,43 @@ class SyncSchedulerImplTest : public testing::Test {
   };
 
   void SetUp() override {
-    test_user_share_.SetUp();
     delay_ = nullptr;
     extensions_activity_ = new ExtensionsActivity();
 
     workers_.clear();
-    workers_.push_back(base::MakeRefCounted<FakeModelWorker>(GROUP_UI));
+    workers_.push_back(
+        base::MakeRefCounted<FakeModelWorker>(GROUP_NON_BLOCKING));
     workers_.push_back(base::MakeRefCounted<FakeModelWorker>(GROUP_PASSIVE));
 
-    connection_ = std::make_unique<MockConnectionManager>(directory());
+    connection_ = std::make_unique<MockConnectionManager>();
     connection_->SetServerReachable();
 
     model_type_registry_ = std::make_unique<ModelTypeRegistry>(
-        workers_, test_user_share_.user_share(), &mock_nudge_handler_,
-        UssMigrator(), &cancelation_signal_,
-        test_user_share_.keystore_keys_handler());
-    model_type_registry_->RegisterDirectoryType(HISTORY_DELETE_DIRECTIVES,
-                                                GROUP_UI);
-    model_type_registry_->RegisterDirectoryType(NIGORI, GROUP_PASSIVE);
-    model_type_registry_->RegisterDirectoryType(THEMES, GROUP_UI);
-    model_type_registry_->RegisterDirectoryType(TYPED_URLS, GROUP_UI);
+        workers_, &mock_nudge_handler_, &cancelation_signal_,
+        &encryption_handler_);
+    model_type_registry_->ConnectNonBlockingType(
+        HISTORY_DELETE_DIRECTIVES,
+        MakeFakeActivationResponse(HISTORY_DELETE_DIRECTIVES));
+    model_type_registry_->ConnectNonBlockingType(
+        NIGORI, MakeFakeActivationResponse(NIGORI));
+    model_type_registry_->ConnectNonBlockingType(
+        THEMES, MakeFakeActivationResponse(THEMES));
+    model_type_registry_->ConnectNonBlockingType(
+        TYPED_URLS, MakeFakeActivationResponse(TYPED_URLS));
 
     context_ = std::make_unique<SyncCycleContext>(
-        connection_.get(), directory(), extensions_activity_.get(),
+        connection_.get(), extensions_activity_.get(),
         std::vector<SyncEngineEventListener*>(), nullptr,
         model_type_registry_.get(), "fake_invalidator_client_id",
-        "fake_birthday", "fake_bag_of_chips",
+        "fake_cache_guid", "fake_birthday", "fake_bag_of_chips",
         /*poll_interval=*/base::TimeDelta::FromMinutes(30));
     context_->set_notifications_enabled(true);
     context_->set_account_name("Test");
     RebuildScheduler();
   }
 
-  void UnregisterDataType(ModelType type) {
-    model_type_registry_->UnregisterDirectoryType(type);
+  void DisconnectDataType(ModelType type) {
+    model_type_registry_->DisconnectNonBlockingType(type);
   }
 
   void RebuildScheduler() {
@@ -171,7 +185,6 @@ class SyncSchedulerImplTest : public testing::Test {
     PumpLoop();
     scheduler_.reset();
     PumpLoop();
-    test_user_share_.TearDown();
   }
 
   void AnalyzePollRun(const SyncShareTimes& times,
@@ -313,11 +326,7 @@ class SyncSchedulerImplTest : public testing::Test {
     return tick_clock_->NowTicks();
   }
 
-  syncable::Directory* directory() {
-    return test_user_share_.user_share()->directory.get();
-  }
-
-  TestUserShare test_user_share_;
+  FakeSyncEncryptionHandler encryption_handler_;
   CancelationSignal cancelation_signal_;
   std::unique_ptr<MockConnectionManager> connection_;
   std::unique_ptr<ModelTypeRegistry> model_type_registry_;
@@ -405,7 +414,7 @@ TEST_F(SyncSchedulerImplTest, NudgeForDisabledType) {
 
   // The user enables a custom passphrase at this point, so
   // HISTORY_DELETE_DIRECTIVES gets disabled.
-  UnregisterDataType(HISTORY_DELETE_DIRECTIVES);
+  DisconnectDataType(HISTORY_DELETE_DIRECTIVES);
   ASSERT_FALSE(context()->GetEnabledTypes().Has(HISTORY_DELETE_DIRECTIVES));
 
   // The resulting sync cycle should ask only for the remaining types.
@@ -1985,9 +1994,10 @@ TEST_F(SyncSchedulerImplTest, PollOnStartUpWithinBoundsAfterLongPause) {
   bool found_delay_greater_than_5_permille = false;
   bool found_delay_less_or_equal_5_permille = false;
   for (int i = 0; i < 10000; ++i) {
-    base::Time result = ComputeLastPollOnStart(last_poll, poll_interval, now);
-    base::TimeDelta delay = result + poll_interval - now;
-    double fraction = delay.InSeconds() * 1.0 / poll_interval.InSeconds();
+    const base::Time result =
+        ComputeLastPollOnStart(last_poll, poll_interval, now);
+    const base::TimeDelta delay = result + poll_interval - now;
+    const double fraction = delay / poll_interval;
     if (fraction > 0.005) {
       found_delay_greater_than_5_permille = true;
     } else {

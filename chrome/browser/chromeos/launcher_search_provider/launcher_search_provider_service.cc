@@ -13,14 +13,16 @@
 #include "chrome/browser/chromeos/launcher_search_provider/launcher_search_provider_service_factory.h"
 #include "chrome/browser/ui/app_list/search/launcher_search/launcher_search_provider.h"
 #include "chrome/browser/ui/app_list/search/launcher_search/launcher_search_result.h"
-#include "chrome/common/string_matching/tokenized_string.h"
-#include "chrome/common/string_matching/tokenized_string_match.h"
+#include "chromeos/components/string_matching/tokenized_string.h"
+#include "chromeos/components/string_matching/tokenized_string_match.h"
 #include "extensions/browser/extension_registry.h"
 #include "extensions/common/extension_set.h"
 #include "extensions/common/permissions/permissions_data.h"
 
 namespace api_launcher_search_provider =
     extensions::api::launcher_search_provider;
+using chromeos::string_matching::TokenizedString;
+using chromeos::string_matching::TokenizedStringMatch;
 using extensions::ExtensionId;
 using extensions::ExtensionSet;
 
@@ -56,7 +58,8 @@ void Service::OnQueryStarted(app_list::LauncherSearchProvider* provider,
       extensions::EventRouter::Get(profile_);
 
   CacheListenerExtensionIds();
-  for (const ExtensionId extension_id : *cached_listener_extension_ids_.get()) {
+  for (const ExtensionId& extension_id :
+       *cached_listener_extension_ids_.get()) {
     // Convert query_id_ to string here since queryId is defined as string in
     // javascript side API while we use uint32_t internally to generate it.
     event_router->DispatchEventToExtension(
@@ -77,7 +80,8 @@ void Service::OnQueryEnded() {
       extensions::EventRouter::Get(profile_);
 
   CacheListenerExtensionIds();
-  for (const ExtensionId extension_id : *cached_listener_extension_ids_.get()) {
+  for (const ExtensionId& extension_id :
+       *cached_listener_extension_ids_.get()) {
     event_router->DispatchEventToExtension(
         extension_id,
         std::make_unique<extensions::Event>(
@@ -127,8 +131,9 @@ void Service::SetSearchResults(
   for (const auto& result : results) {
     const int relevance =
         base::ClampToRange(result.relevance, 0, kMaxSearchResultScore);
-    const GURL icon_url =
-        result.icon_url ? GURL(*result.icon_url.get()) : GURL();
+
+    const std::string icon_type =
+        result.icon_type ? *result.icon_type.get() : std::string();
 
     // Calculate the relevance score by matching the query with the title.
     // Results with a match score of 0 are discarded. This will also be used to
@@ -142,7 +147,7 @@ void Service::SetSearchResults(
       continue;
 
     auto search_result = std::make_unique<app_list::LauncherSearchResult>(
-        result.item_id, icon_url, relevance, profile_, extension,
+        result.item_id, icon_type, relevance, profile_, extension,
         error_reporter->Duplicate());
     search_result->UpdateFromMatch(tokenized_title, match);
     search_results.push_back(std::move(search_result));

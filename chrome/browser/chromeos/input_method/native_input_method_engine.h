@@ -5,8 +5,8 @@
 #ifndef CHROME_BROWSER_CHROMEOS_INPUT_METHOD_NATIVE_INPUT_METHOD_ENGINE_H_
 #define CHROME_BROWSER_CHROMEOS_INPUT_METHOD_NATIVE_INPUT_METHOD_ENGINE_H_
 
+#include "chrome/browser/chromeos/input_method/assistive_suggester.h"
 #include "chrome/browser/chromeos/input_method/input_method_engine.h"
-
 #include "chromeos/services/ime/public/mojom/input_engine.mojom-forward.h"
 #include "mojo/public/cpp/bindings/remote.h"
 
@@ -42,14 +42,18 @@ class NativeInputMethodEngine : public InputMethodEngine {
   // Returns whether this is connected to the input engine.
   bool IsConnectedForTesting() const;
 
+  AssistiveSuggester* get_assistive_suggester_for_testing() {
+    return assistive_suggester_;
+  }
+
  private:
   class ImeObserver : public InputMethodEngineBase::Observer,
                       public ime::mojom::InputChannel {
    public:
     // |base_observer| is to forward events to extension during this migration.
     // It will be removed when the official extension is completely migrated.
-    explicit ImeObserver(
-        std::unique_ptr<InputMethodEngineBase::Observer> base_observer);
+    ImeObserver(std::unique_ptr<InputMethodEngineBase::Observer> base_observer,
+                std::unique_ptr<AssistiveSuggester> assistive_suggester);
     ~ImeObserver() override;
 
     // InputMethodEngineBase::Observer:
@@ -66,7 +70,7 @@ class NativeInputMethodEngine : public InputMethodEngine {
     void OnCompositionBoundsChanged(
         const std::vector<gfx::Rect>& bounds) override;
     void OnSurroundingTextChanged(const std::string& engine_id,
-                                  const std::string& text,
+                                  const base::string16& text,
                                   int cursor_pos,
                                   int anchor_pos,
                                   int offset_pos) override;
@@ -76,9 +80,14 @@ class NativeInputMethodEngine : public InputMethodEngine {
         const std::string& component_id,
         int candidate_id,
         InputMethodEngineBase::MouseButtonEvent button) override;
+    void OnAssistiveWindowButtonClicked(
+        const ui::ime::AssistiveWindowButton& button) override;
     void OnMenuItemActivated(const std::string& component_id,
                              const std::string& menu_id) override;
     void OnScreenProjectionChanged(bool is_projected) override;
+    void OnSuggestionsChanged(
+        const std::vector<std::string>& suggestions) override;
+    void OnInputMethodOptionsChanged(const std::string& engine_id) override;
 
     // mojom::InputChannel:
     void ProcessMessage(const std::vector<uint8_t>& message,
@@ -115,9 +124,12 @@ class NativeInputMethodEngine : public InputMethodEngine {
     mojo::Receiver<ime::mojom::InputChannel> receiver_from_engine_;
     mojo::Remote<ime::mojom::InputChannel> remote_to_engine_;
     bool connected_to_engine_ = false;
+
+    std::unique_ptr<AssistiveSuggester> assistive_suggester_;
   };
 
   ImeObserver* GetNativeObserver() const;
+  AssistiveSuggester* assistive_suggester_;
 };
 
 }  // namespace chromeos

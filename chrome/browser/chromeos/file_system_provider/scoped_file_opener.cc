@@ -26,7 +26,7 @@ class ScopedFileOpener::Runner
         base::WrapRefCounted(new Runner(file_system, std::move(callback)));
     runner->abort_callback_ = file_system->OpenFile(
         file_path, mode,
-        base::Bind(&ScopedFileOpener::Runner::OnOpenFileCompleted, runner));
+        base::BindOnce(&ScopedFileOpener::Runner::OnOpenFileCompleted, runner));
     return runner;
   }
 
@@ -35,7 +35,7 @@ class ScopedFileOpener::Runner
   void AbortOrClose() {
     if (!open_completed_) {
       aborting_requested_ = true;
-      abort_callback_.Run();
+      std::move(abort_callback_).Run();
       return;
     }
 
@@ -43,7 +43,7 @@ class ScopedFileOpener::Runner
       if (file_system_.get()) {
         file_system_->CloseFile(
             file_handle_,
-            base::Bind(
+            base::BindOnce(
                 &ScopedFileOpener::Runner::OnCloseFileAfterAbortCompleted, this,
                 file_handle_));
       }
@@ -83,8 +83,9 @@ class ScopedFileOpener::Runner
       // not handled by the extension. In either case, close the file now.
       file_system_->CloseFile(
           file_handle,
-          base::Bind(&ScopedFileOpener::Runner::OnCloseFileAfterAbortCompleted,
-                     this, file_handle_));
+          base::BindOnce(
+              &ScopedFileOpener::Runner::OnCloseFileAfterAbortCompleted, this,
+              file_handle_));
       return;
     }
 

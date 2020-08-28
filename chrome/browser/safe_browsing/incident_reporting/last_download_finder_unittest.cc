@@ -59,8 +59,7 @@ std::unique_ptr<KeyedService> BuildHistoryService(
   // Delete the file before creating the service.
   base::FilePath history_path(
       profile->GetPath().Append(history::kHistoryFilename));
-  if (!base::DeleteFile(history_path, false) ||
-      base::PathExists(history_path)) {
+  if (!base::DeleteFile(history_path) || base::PathExists(history_path)) {
     ADD_FAILURE() << "failed to delete history db file "
                   << history_path.value();
     return nullptr;
@@ -85,7 +84,7 @@ static const base::FilePath::CharType kBinaryFileName[] =
     FILE_PATH_LITERAL("spam.exe");
 static const base::FilePath::CharType kBinaryFileNameForOtherOS[] =
     FILE_PATH_LITERAL("spam.dmg");
-#elif defined(OS_MACOSX)
+#elif defined(OS_MAC)
 static const base::FilePath::CharType kBinaryFileName[] =
     FILE_PATH_LITERAL("spam.dmg");
 static const base::FilePath::CharType kBinaryFileNameForOtherOS[] =
@@ -126,8 +125,8 @@ class LastDownloadFinderTest : public testing::Test {
             profile, ServiceAccessType::EXPLICIT_ACCESS);
     history_service->CreateDownload(
         CreateTestDownloadRow(kBinaryFileName),
-        base::Bind(&LastDownloadFinderTest::OnDownloadCreated,
-                   base::Unretained(this)));
+        base::BindOnce(&LastDownloadFinderTest::OnDownloadCreated,
+                       base::Unretained(this)));
   }
 
   // LastDownloadFinder::LastDownloadCallback implementation that
@@ -185,7 +184,7 @@ class LastDownloadFinderTest : public testing::Test {
         prefs::kSafeBrowsingEnabled,
         safe_browsing_opt_in == SAFE_BROWSING_ONLY ||
             safe_browsing_opt_in == SAFE_BROWSING_AND_EXTENDED_REPORTING);
-    safe_browsing::SetExtendedReportingPref(
+    safe_browsing::SetExtendedReportingPrefForTests(
         prefs.get(),
         safe_browsing_opt_in == EXTENDED_REPORTING_ONLY ||
             safe_browsing_opt_in == SAFE_BROWSING_AND_EXTENDED_REPORTING);
@@ -213,9 +212,8 @@ class LastDownloadFinderTest : public testing::Test {
             profile, ServiceAccessType::EXPLICIT_ACCESS);
     history_service->CreateDownload(
         download,
-        base::Bind(&LastDownloadFinderTest::ContinueOnDownloadCreated,
-                   base::Unretained(this),
-                   run_loop.QuitClosure()));
+        base::BindOnce(&LastDownloadFinderTest::ContinueOnDownloadCreated,
+                       base::Unretained(this), run_loop.QuitClosure()));
     run_loop.Run();
   }
 
@@ -371,7 +369,7 @@ TEST_F(LastDownloadFinderTest, NonBinaryOnly) {
   EXPECT_TRUE(last_non_binary_download);
 }
 
-#if defined(OS_WIN) || defined(OS_MACOSX) || defined(OS_ANDROID)
+#if defined(OS_WIN) || defined(OS_MAC) || defined(OS_ANDROID)
 // Tests that nothing happens if the binary is an executable for a different OS.
 TEST_F(LastDownloadFinderTest, DownloadForDifferentOs) {
   // Create a profile with a history service that is opted-in.

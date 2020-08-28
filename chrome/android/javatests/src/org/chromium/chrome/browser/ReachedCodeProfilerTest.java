@@ -4,7 +4,7 @@
 
 package org.chromium.chrome.browser;
 
-import android.support.test.filters.SmallTest;
+import androidx.test.filters.SmallTest;
 
 import org.junit.Assert;
 import org.junit.Rule;
@@ -15,6 +15,9 @@ import org.chromium.base.BaseSwitches;
 import org.chromium.base.library_loader.LibraryLoader;
 import org.chromium.base.test.ReachedCodeProfiler;
 import org.chromium.base.test.util.CommandLineFlags;
+import org.chromium.chrome.browser.app.ChromeActivity;
+import org.chromium.chrome.browser.flags.ChromeFeatureList;
+import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.preferences.ChromePreferenceKeys;
 import org.chromium.chrome.browser.preferences.SharedPreferencesManager;
 import org.chromium.chrome.test.ChromeActivityTestRule;
@@ -52,11 +55,17 @@ public final class ReachedCodeProfilerTest {
      */
     @Test
     @SmallTest
-    @EnableFeatures(ChromeFeatureList.REACHED_CODE_PROFILER)
-    public void testEnabledViaCachedSharedPreference() {
-        LibraryLoader.setReachedCodeProfilerEnabledOnNextRuns(true);
+    @CommandLineFlags.Add({"enable-features=" + ChromeFeatureList.REACHED_CODE_PROFILER + "<"
+                    + ChromeFeatureList.REACHED_CODE_PROFILER,
+            "force-fieldtrials=" + ChromeFeatureList.REACHED_CODE_PROFILER + "/" + FAKE_GROUP_NAME,
+            "force-fieldtrial-params=" + ChromeFeatureList.REACHED_CODE_PROFILER + "."
+                    + FAKE_GROUP_NAME + ":sampling_interval_us/42"})
+    public void
+    testEnabledViaCachedSharedPreference() {
+        LibraryLoader.setReachedCodeProfilerEnabledOnNextRuns(true, 42);
         mActivityTestRule.startMainActivityFromLauncher();
         assertReachedCodeProfilerIsEnabled();
+        Assert.assertEquals(42, LibraryLoader.getReachedCodeSamplingIntervalUs());
     }
 
     /**
@@ -69,7 +78,7 @@ public final class ReachedCodeProfilerTest {
     public void testSharedPreferenceIsCached_Enable() {
         mActivityTestRule.startMainActivityFromLauncher();
 
-        Assert.assertTrue(LibraryLoader.isReachedCodeProfilerEnabled());
+        Assert.assertEquals(10000, LibraryLoader.getReachedCodeSamplingIntervalUs());
         // Enabling takes effect only on the second startup.
         Assert.assertFalse(ReachedCodeProfiler.isEnabled());
     }
@@ -83,10 +92,9 @@ public final class ReachedCodeProfilerTest {
     @SmallTest
     @DisableFeatures(ChromeFeatureList.REACHED_CODE_PROFILER)
     public void testSharedPreferenceIsCached_Disable() {
-        LibraryLoader.setReachedCodeProfilerEnabledOnNextRuns(true);
+        LibraryLoader.setReachedCodeProfilerEnabledOnNextRuns(true, 0);
         mActivityTestRule.startMainActivityFromLauncher();
-
-        Assert.assertFalse(LibraryLoader.isReachedCodeProfilerEnabled());
+        Assert.assertEquals(0, LibraryLoader.getReachedCodeSamplingIntervalUs());
         // Disabling takes effect only on the second startup.
         assertReachedCodeProfilerIsEnabled();
     }

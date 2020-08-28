@@ -29,7 +29,7 @@
 #include "third_party/blink/renderer/modules/webaudio/audio_buffer.h"
 
 #include <memory>
-#include "third_party/blink/renderer/modules/webaudio/audio_buffer_options.h"
+#include "third_party/blink/renderer/bindings/modules/v8/v8_audio_buffer_options.h"
 #include "third_party/blink/renderer/modules/webaudio/base_audio_context.h"
 #include "third_party/blink/renderer/platform/audio/audio_bus.h"
 #include "third_party/blink/renderer/platform/audio/audio_file_reader.h"
@@ -164,7 +164,6 @@ AudioBuffer::AudioBuffer(unsigned number_of_channels,
     if (!channel_data_array)
       return;
 
-    channel_data_array->SetDetachable(false);
     channels_.push_back(channel_data_array);
   }
 }
@@ -182,7 +181,6 @@ AudioBuffer::AudioBuffer(AudioBus* bus)
     if (!channel_data_array)
       return;
 
-    channel_data_array->SetDetachable(false);
     const float* src = bus->Channel(i)->Data();
     float* dst = channel_data_array->Data();
     memmove(dst, src, length_ * sizeof(*dst));
@@ -256,7 +254,7 @@ void AudioBuffer::copyFromChannel(NotShared<DOMFloat32Array> destination,
   DCHECK_LE(count, data_length);
   DCHECK_LE(buffer_offset + count, data_length);
 
-  memcpy(dst, src + buffer_offset, count * sizeof(*src));
+  memmove(dst, src + buffer_offset, count * sizeof(*src));
 }
 
 void AudioBuffer::copyToChannel(NotShared<DOMFloat32Array> source,
@@ -299,7 +297,7 @@ void AudioBuffer::copyToChannel(NotShared<DOMFloat32Array> source,
   DCHECK_LE(buffer_offset + count, channel_data->lengthAsSizeT());
   DCHECK_LE(count, source.View()->lengthAsSizeT());
 
-  memcpy(dst + buffer_offset, src, count * sizeof(*dst));
+  memmove(dst + buffer_offset, src, count * sizeof(*dst));
 }
 
 void AudioBuffer::Zero() {

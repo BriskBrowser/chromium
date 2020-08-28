@@ -319,6 +319,21 @@ TEST_F(VectorMathTest, Vadd) {
   }
 }
 
+TEST_F(VectorMathTest, Vsub) {
+  for (const auto& source1 : GetPrimaryVectors(GetSource(0u))) {
+    for (const auto& source2 : GetSecondaryVectors(GetSource(1u), source1)) {
+      TestVector<float> expected_dest(GetDestination(0u), source1);
+      for (size_t i = 0u; i < source1.size(); ++i)
+        expected_dest[i] = source1[i] - source2[i];
+      for (auto& dest : GetSecondaryVectors(GetDestination(1u), source1)) {
+        Vsub(source1.p(), source1.stride(), source2.p(), source2.stride(),
+             dest.p(), dest.stride(), source1.size());
+        EXPECT_EQ(expected_dest, dest);
+      }
+    }
+  }
+}
+
 TEST_F(VectorMathTest, Vclip) {
   // Vclip does not accept NaNs thus let's use only sources without NaNs.
   for (const auto& source : GetPrimaryVectors(GetSource(kFullyNonNanSource))) {
@@ -384,7 +399,7 @@ TEST_F(VectorMathTest, Vsma) {
       // expect only mostly equal floats.
       for (size_t i = 0u; i < source.size(); ++i) {
         if (std::isfinite(expected_dest[i])) {
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
           // On Mac, OS provided vectorized functions are used which may result
           // in bigger rounding errors than functions used on other OSes.
           EXPECT_NEAR(expected_dest[i], dest[i],
@@ -408,6 +423,20 @@ TEST_F(VectorMathTest, Vsmul) {
       expected_dest[i] = scale * source[i];
     for (auto& dest : GetSecondaryVectors(GetDestination(1u), source)) {
       Vsmul(source.p(), source.stride(), &scale, dest.p(), dest.stride(),
+            source.size());
+      EXPECT_EQ(expected_dest, dest);
+    }
+  }
+}
+
+TEST_F(VectorMathTest, Vsadd) {
+  for (const auto& source : GetPrimaryVectors(GetSource(0u))) {
+    const float addend = *GetSource(1u);
+    TestVector<float> expected_dest(GetDestination(0u), source);
+    for (size_t i = 0u; i < source.size(); ++i)
+      expected_dest[i] = addend + source[i];
+    for (auto& dest : GetSecondaryVectors(GetDestination(1u), source)) {
+      Vsadd(source.p(), source.stride(), &addend, dest.p(), dest.stride(),
             source.size());
       EXPECT_EQ(expected_dest, dest);
     }
@@ -477,7 +506,7 @@ TEST_F(VectorMathTest, Zvmul) {
       // expect only mostly equal floats.
       for (size_t i = 0u; i < real1.size(); ++i) {
         if (std::isfinite(expected_dest_real[i])) {
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
           // On Mac, OS provided vectorized functions are used which may result
           // in bigger rounding errors than functions used on other OSes.
           EXPECT_NEAR(expected_dest_real[i], dest_real[i],
@@ -486,7 +515,7 @@ TEST_F(VectorMathTest, Zvmul) {
           EXPECT_FLOAT_EQ(expected_dest_real[i], dest_real[i]);
 #endif
         } else {
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
           // On Mac, OS provided vectorized functions are used which may result
           // in different NaN handling than functions used on other OSes.
           EXPECT_TRUE(!std::isfinite(dest_real[i]));
@@ -495,7 +524,7 @@ TEST_F(VectorMathTest, Zvmul) {
 #endif
         }
         if (std::isfinite(expected_dest_imag[i])) {
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
           // On Mac, OS provided vectorized functions are used which may result
           // in bigger rounding errors than functions used on other OSes.
           EXPECT_NEAR(expected_dest_imag[i], dest_imag[i],
@@ -504,7 +533,7 @@ TEST_F(VectorMathTest, Zvmul) {
           EXPECT_FLOAT_EQ(expected_dest_imag[i], dest_imag[i]);
 #endif
         } else {
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
           // On Mac, OS provided vectorized functions are used which may result
           // in different NaN handling than functions used on other OSes.
           EXPECT_TRUE(!std::isfinite(dest_imag[i]));

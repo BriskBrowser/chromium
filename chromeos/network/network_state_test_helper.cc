@@ -39,6 +39,7 @@ NetworkStateTestHelper::NetworkStateTestHelper(
   profile_test_ = ShillProfileClient::Get()->GetTestInterface();
   device_test_ = ShillDeviceClient::Get()->GetTestInterface();
   service_test_ = ShillServiceClient::Get()->GetTestInterface();
+  ip_config_test_ = ShillIPConfigClient::Get()->GetTestInterface();
 
   profile_test_->AddProfile(NetworkProfileHandler::GetSharedProfilePath(),
                             std::string() /* shared profile */);
@@ -123,9 +124,9 @@ std::string NetworkStateTestHelper::ConfigureService(
   // returned from this function.
   ShillManagerClient::Get()->ConfigureService(
       *shill_json_dict,
-      base::Bind(&NetworkStateTestHelper::ConfigureCallback,
-                 weak_ptr_factory_.GetWeakPtr()),
-      base::Bind(&FailErrorCallback));
+      base::BindOnce(&NetworkStateTestHelper::ConfigureCallback,
+                     weak_ptr_factory_.GetWeakPtr()),
+      base::BindOnce(&FailErrorCallback));
   base::RunLoop().RunUntilIdle();
 
   return last_created_service_path_;

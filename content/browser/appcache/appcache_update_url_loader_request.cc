@@ -10,7 +10,6 @@
 #include "content/browser/storage_partition_impl.h"
 #include "net/base/ip_endpoint.h"
 #include "net/http/http_response_info.h"
-#include "net/url_request/url_request_context.h"
 
 namespace content {
 
@@ -49,7 +48,7 @@ constexpr net::NetworkTrafficAnnotationTag kAppCacheTrafficAnnotation =
 const char kAppCacheAllowed[] = "X-AppCache-Allowed";
 }
 
-AppCacheUpdateJob::UpdateURLLoaderRequest::~UpdateURLLoaderRequest() {}
+AppCacheUpdateJob::UpdateURLLoaderRequest::~UpdateURLLoaderRequest() = default;
 
 void AppCacheUpdateJob::UpdateURLLoaderRequest::Start() {
   // If we are in tests mode, we don't need to issue network requests.
@@ -100,6 +99,8 @@ void AppCacheUpdateJob::UpdateURLLoaderRequest::SetInitiator(
 
 net::HttpResponseHeaders*
 AppCacheUpdateJob::UpdateURLLoaderRequest::GetResponseHeaders() const {
+  if (!response_)
+    return nullptr;
   return response_->headers.get();
 }
 

@@ -8,17 +8,13 @@ GEN_INCLUDE(['mock_tts.js']);
 /**
  * Browser tests for select-to-speak's feature to speak text
  * at the press of a keystroke.
- * @constructor
- * @extends {SelectToSpeakE2ETest}
  */
-function SelectToSpeakKeystrokeSelectionTest() {
-  SelectToSpeakE2ETest.call(this);
-  this.mockTts = new MockTts();
-  chrome.tts = this.mockTts;
-}
-
-SelectToSpeakKeystrokeSelectionTest.prototype = {
-  __proto__: SelectToSpeakE2ETest.prototype,
+SelectToSpeakKeystrokeSelectionTest = class extends SelectToSpeakE2ETest {
+  constructor() {
+    super();
+    this.mockTts = new MockTts();
+    chrome.tts = this.mockTts;
+  }
 
   /**
    * Function to trigger select-to-speak to read selected text at a
@@ -35,7 +31,7 @@ SelectToSpeakKeystrokeSelectionTest.prototype = {
     selectToSpeak.fireMockKeyUpEvent(
         {keyCode: SelectToSpeak.READ_SELECTION_KEY_CODE});
     selectToSpeak.fireMockKeyUpEvent({keyCode: SelectToSpeak.SEARCH_KEY_CODE});
-  },
+  }
 
   /**
    * Function to load a simple webpage, select some of the single text
@@ -55,23 +51,22 @@ SelectToSpeakKeystrokeSelectionTest.prototype = {
       // Set the document selection. This will fire the changed event
       // above, allowing us to do the keystroke and test that speech
       // occurred properly.
-      let textNode = this.findTextNode(desktop, 'This is some text');
+      const textNode = this.findTextNode(desktop, 'This is some text');
       chrome.automation.setDocumentSelection({
         anchorObject: textNode,
-        anchorOffset: anchorOffset,
+        anchorOffset,
         focusObject: textNode,
-        focusOffset: focusOffset
+        focusOffset
       });
     }, expected);
-  },
+  }
 
   /**
    * Function to load given html using a data url, have the caller set a
    * selection on that page, and then trigger select-to-speak to read
    * the selected text. Tests that the tts output matches the expected
    * output.
-   * @param {string} contents The web contents to load as part of a
-   *     data:text/html link.
+   * @param {string} contents The web contents to load
    * @param {function(AutomationNode)} setSelectionCallback Callback
    *     to take the root node and set the selection appropriately. Once
    *     selection is set, the test will listen for the focus set event and
@@ -84,7 +79,7 @@ SelectToSpeakKeystrokeSelectionTest.prototype = {
   testReadTextAtKeystroke(contents, setFocusCallback, expected) {
     setFocusCallback = this.newCallback(setFocusCallback);
     this.runWithLoadedTree(
-        'data:text/html;charset=utf-8,' + contents, function(desktop) {
+        contents, function(desktop) {
           // Add an event listener that will start the user interaction
           // of the test once the selection is completed.
           desktop.addEventListener(
@@ -98,11 +93,10 @@ SelectToSpeakKeystrokeSelectionTest.prototype = {
               false);
           setFocusCallback(desktop);
         });
-  },
+  }
 
   generateHtmlWithSelection(selectionCode, bodyHtml) {
-    return 'data:text/html;charset=utf-8,' +
-        '<script type="text/javascript">' +
+    return '<script type="text/javascript">' +
         'function doSelection() {' +
         'let selection = window.getSelection();' +
         'let range = document.createRange();' +
@@ -145,8 +139,8 @@ TEST_F(
       this.testReadTextAtKeystroke(
           '<p>This is some <b>bold</b> text</p><p>Second paragraph</p>',
           function(desktop) {
-            let firstNode = this.findTextNode(desktop, 'This is some ');
-            let lastNode = this.findTextNode(desktop, ' text');
+            const firstNode = this.findTextNode(desktop, 'This is some ');
+            const lastNode = this.findTextNode(desktop, ' text');
             chrome.automation.setDocumentSelection({
               anchorObject: firstNode,
               anchorOffset: 0,
@@ -164,8 +158,8 @@ TEST_F(
           '<p>This is some <b>bold</b> text</p><p>Second paragraph</p>',
           function(desktop) {
             // Set the document selection backwards in page order.
-            let lastNode = this.findTextNode(desktop, 'This is some ');
-            let firstNode = this.findTextNode(desktop, ' text');
+            const lastNode = this.findTextNode(desktop, 'This is some ');
+            const firstNode = this.findTextNode(desktop, ' text');
             chrome.automation.setDocumentSelection({
               anchorObject: firstNode,
               anchorOffset: 5,
@@ -183,8 +177,8 @@ TEST_F(
       // document selection that occurs -- into the second <br/> element.
 
       let setFocusCallback = function(desktop) {
-        let firstNode = this.findTextNode(desktop, 'Selected text');
-        let lastNode = desktop.findAll({role: 'lineBreak'})[1];
+        const firstNode = this.findTextNode(desktop, 'Selected text');
+        const lastNode = desktop.findAll({role: 'lineBreak'})[1];
         chrome.automation.setDocumentSelection({
           anchorObject: firstNode,
           anchorOffset: 0,
@@ -194,9 +188,7 @@ TEST_F(
       };
       setFocusCallback = this.newCallback(setFocusCallback);
       this.runWithLoadedTree(
-          'data:text/html;charset=utf-8,' +
-              '<br/><p>Selected text</p><br/>',
-          function(desktop) {
+          '<br/><p>Selected text</p><br/>', function(desktop) {
             // Add an event listener that will start the user interaction
             // of the test once the selection is completed.
             desktop.addEventListener(
@@ -221,9 +213,9 @@ TEST_F(
       this.testReadTextAtKeystroke(
           '<div id="empty"></div><div><p>This is some <b>bold</b> text</p></div>',
           function(desktop) {
-            let firstNode =
+            const firstNode =
                 this.findTextNode(desktop, 'This is some ').root.children[0];
-            let lastNode = this.findTextNode(desktop, ' text');
+            const lastNode = this.findTextNode(desktop, ' text');
             chrome.automation.setDocumentSelection({
               anchorObject: firstNode,
               anchorOffset: 0,
@@ -239,7 +231,7 @@ TEST_F(
     'HandlesSingleImageCorrectlyWithAutomation', function() {
       this.testReadTextAtKeystroke(
           '<img src="pipe.jpg" alt="one"/>', function(desktop) {
-            let container = desktop.findAll({role: 'genericContainer'})[0];
+            const container = desktop.findAll({role: 'genericContainer'})[0];
             chrome.automation.setDocumentSelection({
               anchorObject: container,
               anchorOffset: 0,
@@ -256,7 +248,7 @@ TEST_F(
           '<img src="pipe.jpg" alt="one"/>' +
               '<img src="pipe.jpg" alt="two"/><img src="pipe.jpg" alt="three"/>',
           function(desktop) {
-            let container = desktop.findAll({role: 'genericContainer'})[0];
+            const container = desktop.findAll({role: 'genericContainer'})[0];
             chrome.automation.setDocumentSelection({
               anchorObject: container,
               anchorOffset: 1,
@@ -272,7 +264,7 @@ TEST_F(
     'HandlesMultipleImagesCorrectlyWithJS1', function() {
       // Using JS to do the selection instead of Automation, so that we can
       // ensure this is stable against changes in chrome.automation.
-      let selectionCode =
+      const selectionCode =
           'let body = document.getElementsByTagName("body")[0];' +
           'range.setStart(body, 1);' +
           'range.setEnd(body, 2);';
@@ -294,7 +286,7 @@ TEST_F(
 TEST_F(
     'SelectToSpeakKeystrokeSelectionTest',
     'HandlesMultipleImagesCorrectlyWithJS2', function() {
-      let selectionCode =
+      const selectionCode =
           'let body = document.getElementsByTagName("body")[0];' +
           'range.setStart(body, 1);' +
           'range.setEnd(body, 3);';
@@ -316,7 +308,7 @@ TEST_F(
 TEST_F(
     'SelectToSpeakKeystrokeSelectionTest', 'TextFieldFullySelected',
     function() {
-      let selectionCode = 'let p = document.getElementsByTagName("p")[0];' +
+      const selectionCode = 'let p = document.getElementsByTagName("p")[0];' +
           'let body = document.getElementsByTagName("body")[0];' +
           'range.setStart(p, 0);' +
           'range.setEnd(body, 2);';
@@ -339,7 +331,7 @@ TEST_F(
 TEST_F(
     'SelectToSpeakKeystrokeSelectionTest', 'TwoTextFieldsFullySelected',
     function() {
-      let selectionCode =
+      const selectionCode =
           'let body = document.getElementsByTagName("body")[0];' +
           'range.setStart(body, 0);' +
           'range.setEnd(body, 2);';
@@ -361,8 +353,7 @@ TEST_F(
 TEST_F(
     'SelectToSpeakKeystrokeSelectionTest', 'TextInputPartiallySelected',
     function() {
-      let html = 'data:text/html;charset=utf-8,' +
-          '<script type="text/javascript">' +
+      const html = '<script type="text/javascript">' +
           'function doSelection() {' +
           'let input = document.getElementById("input");' +
           'input.focus();' +
@@ -384,8 +375,7 @@ TEST_F(
 TEST_F(
     'SelectToSpeakKeystrokeSelectionTest', 'TextAreaPartiallySelected',
     function() {
-      let html = 'data:text/html;charset=utf-8,' +
-          '<script type="text/javascript">' +
+      const html = '<script type="text/javascript">' +
           'function doSelection() {' +
           'let input = document.getElementById("input");' +
           'input.focus();' +
@@ -405,7 +395,7 @@ TEST_F(
     });
 
 TEST_F('SelectToSpeakKeystrokeSelectionTest', 'HandlesTextWithBr', function() {
-  let selectionCode = 'let body = document.getElementsByTagName("body")[0];' +
+  const selectionCode = 'let body = document.getElementsByTagName("body")[0];' +
       'range.setStart(body, 0);' +
       'range.setEnd(body, 3);';
   this.runWithLoadedTree(
@@ -422,7 +412,7 @@ TEST_F('SelectToSpeakKeystrokeSelectionTest', 'HandlesTextWithBr', function() {
 TEST_F(
     'SelectToSpeakKeystrokeSelectionTest', 'HandlesTextWithBrComplex',
     function() {
-      let selectionCode = 'let p = document.getElementsByTagName("p")[0];' +
+      const selectionCode = 'let p = document.getElementsByTagName("p")[0];' +
           'let body = document.getElementsByTagName("body")[0];' +
           'range.setStart(p, 0);' +
           'range.setEnd(body, 2);';
@@ -444,7 +434,7 @@ TEST_F(
       // A bug was that if the selection was on the rootWebArea, paragraphs were
       // not counted correctly. The more divs and paragraphs before the
       // selection, the further off it got.
-      let selectionCode = 'let p = document.getElementsByTagName("p")[0];' +
+      const selectionCode = 'let p = document.getElementsByTagName("p")[0];' +
           'let body = document.getElementsByTagName("body")[0];' +
           'range.setStart(p, 1);' +
           'range.setEnd(body, 2);';
@@ -466,7 +456,7 @@ TEST_F(
       // A bug was that if the selection was on the rootWebArea, paragraphs were
       // not counted correctly. The more divs and paragraphs before the
       // selection, the further off it got.
-      let selectionCode = 'let p = document.getElementsByTagName("p")[0];' +
+      const selectionCode = 'let p = document.getElementsByTagName("p")[0];' +
           'let body = document.getElementsByTagName("body")[0];' +
           'range.setStart(p, 1);' +
           'range.setEnd(body, 3);';
@@ -488,7 +478,7 @@ TEST_F(
 
 TEST_F(
     'SelectToSpeakKeystrokeSelectionTest', 'HandlesTextAreaAndBrs', function() {
-      let selectionCode =
+      const selectionCode =
           'let body = document.getElementsByTagName("body")[0];' +
           'range.setStart(body, 1);' +
           'range.setEnd(body, 4);';
@@ -508,7 +498,7 @@ TEST_F(
 TEST_F(
     'SelectToSpeakKeystrokeSelectionTest', 'textFieldWithComboBoxSimple',
     function() {
-      let selectionCode =
+      const selectionCode =
           'let body = document.getElementsByTagName("body")[0];' +
           'range.setStart(body, 0);' +
           'range.setEnd(body, 1);';
@@ -531,8 +521,7 @@ TEST_F(
 TEST_F(
     'SelectToSpeakKeystrokeSelectionTest', 'contentEditableInternallySelected',
     function() {
-      let html = 'data:text/html;charset=utf-8,' +
-          '<script type="text/javascript">' +
+      const html = '<script type="text/javascript">' +
           'function doSelection() {' +
           'let input = document.getElementById("input");' +
           'input.focus();' +
@@ -563,7 +552,7 @@ TEST_F(
 TEST_F(
     'SelectToSpeakKeystrokeSelectionTest', 'contentEditableExternallySelected',
     function() {
-      let selectionCode =
+      const selectionCode =
           'let body = document.getElementsByTagName("body")[0];' +
           'range.setStart(body, 1);' +
           'range.setEnd(body, 2);';

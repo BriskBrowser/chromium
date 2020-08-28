@@ -20,9 +20,9 @@
 #include "base/test/task_environment.h"
 #include "content/common/appcache_interfaces.h"
 #include "content/public/common/content_features.h"
+#include "content/public/common/referrer.h"
 #include "content/public/renderer/request_peer.h"
 #include "content/public/renderer/resource_dispatcher_delegate.h"
-#include "content/renderer/loader/navigation_response_override_parameters.h"
 #include "content/renderer/loader/request_extra_data.h"
 #include "content/renderer/loader/test_request_peer.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
@@ -38,6 +38,7 @@
 #include "services/network/public/mojom/url_response_head.mojom.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/public/common/features.h"
+#include "third_party/blink/public/common/loader/referrer_utils.h"
 #include "third_party/blink/public/platform/scheduler/test/renderer_scheduler_test_support.h"
 #include "url/gurl.h"
 
@@ -120,13 +121,15 @@ class ResourceDispatcherTest : public testing::Test,
     request->url = GURL(kTestPageUrl);
     request->site_for_cookies =
         net::SiteForCookies::FromUrl(GURL(kTestPageUrl));
-    request->referrer_policy = Referrer::GetDefaultReferrerPolicy();
-    request->resource_type = static_cast<int>(ResourceType::kSubResource);
+    request->referrer_policy =
+        blink::ReferrerUtils::GetDefaultNetReferrerPolicy();
+    request->resource_type =
+        static_cast<int>(blink::mojom::ResourceType::kSubResource);
     request->priority = net::LOW;
     request->mode = network::mojom::RequestMode::kNoCors;
 
-    const RequestExtraData extra_data;
-    extra_data.CopyToResourceRequest(request.get());
+    auto extra_data = base::MakeRefCounted<RequestExtraData>();
+    extra_data->CopyToResourceRequest(request.get());
 
     return request;
   }
@@ -143,8 +146,7 @@ class ResourceDispatcherTest : public testing::Test,
         blink::scheduler::GetSingleThreadTaskRunnerForTesting(),
         TRAFFIC_ANNOTATION_FOR_TESTS, false, std::move(peer),
         base::MakeRefCounted<network::WeakWrapperSharedURLLoaderFactory>(this),
-        std::vector<std::unique_ptr<blink::URLLoaderThrottle>>(),
-        nullptr /* navigation_response_override_params */);
+        std::vector<std::unique_ptr<blink::URLLoaderThrottle>>());
     peer_context->request_id = request_id;
     return request_id;
   }
@@ -198,7 +200,8 @@ class TestResourceDispatcherDelegate : public ResourceDispatcherDelegate {
     void OnUploadProgress(uint64_t position, uint64_t size) override {}
 
     bool OnReceivedRedirect(const net::RedirectInfo& redirect_info,
-                            network::mojom::URLResponseHeadPtr head) override {
+                            network::mojom::URLResponseHeadPtr head,
+                            std::vector<std::string>*) override {
       return false;
     }
 

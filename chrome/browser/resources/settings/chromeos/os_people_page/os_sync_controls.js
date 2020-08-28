@@ -12,7 +12,7 @@
 const SyncPrefsIndividualDataTypes = [
   'osAppsSynced',
   'osPreferencesSynced',
-  'wifiConfigurationsSynced',
+  'osWifiConfigurationsSynced',
 
   // Note: Wallpaper uses a different naming scheme because it's stored as its
   // own separate pref instead of through the sync service.
@@ -27,6 +27,8 @@ Polymer({
   is: 'os-sync-controls',
 
   behaviors: [
+    DeepLinkingBehavior,
+    I18nBehavior,
     settings.RouteObserverBehavior,
     WebUIListenerBehavior,
   ],
@@ -38,6 +40,31 @@ Polymer({
       computed: 'syncControlsHidden_(osSyncPrefs)',
       reflectToAttribute: true,
     },
+
+    /**
+     * Injected sync system status. Undefined until the parent component injects
+     * the value.
+     * @type {settings.SyncStatus|undefined}
+     */
+    syncStatus: Object,
+
+    /**
+     * Injected profile icon URL, usually a data:image/png URL.
+     * @private
+     */
+    profileIconUrl: String,
+
+    /**
+     * Injected profile name, e.g. "John Cena".
+     * @private
+     */
+    profileName: String,
+
+    /**
+     * Injected profile email address, e.g. "john.cena@gmail.com".
+     * @private
+     */
+    profileEmail: String,
 
     /**
      * Whether the OS sync feature is enabled. This object does not directly
@@ -60,6 +87,15 @@ Polymer({
       value: true,
       computed: `computeDataTypeTogglesDisabled_(osSyncFeatureEnabled,
           osSyncPrefs.syncAllOsTypes)`,
+    },
+
+    /**
+     * Used by DeepLinkingBehavior to focus this page's deep links.
+     * @type {!Set<!chromeos.settings.mojom.Setting>}
+     */
+    supportedSettingIds: {
+      type: Object,
+      value: () => new Set([chromeos.settings.mojom.Setting.kSplitSyncOnOff]),
     },
   },
 
@@ -93,9 +129,88 @@ Polymer({
   currentRouteChanged(newRoute, oldRoute) {
     if (newRoute == settings.routes.OS_SYNC) {
       this.browserProxy_.didNavigateToOsSyncPage();
+      this.attemptDeepLink();
     }
     if (oldRoute == settings.routes.OS_SYNC) {
       this.browserProxy_.didNavigateAwayFromOsSyncPage();
+    }
+  },
+
+  /**
+   * @return {string} The top label for the account row.
+   * @private
+   */
+  getAccountTitle_() {
+    if (!this.syncStatus) {
+      return '';
+    }
+    return this.syncStatus.hasError ? this.i18n('syncNotWorking') :
+                                      this.profileName;
+  },
+
+  /**
+   * @return {string} The bottom label for the account row.
+   * @private
+   */
+  getAccountSubtitle_() {
+    if (!this.syncStatus) {
+      return '';
+    }
+    return this.osSyncFeatureEnabled && !this.syncStatus.hasError ?
+        this.i18n('syncingTo', this.profileEmail) :
+        this.profileEmail;
+  },
+
+  /**
+   * @return {string}
+   * @private
+   */
+  getSyncOnOffButtonLabel_() {
+    if (!this.osSyncFeatureEnabled) {
+      return this.i18n('osSyncTurnOn');
+    }
+    return this.i18n('osSyncTurnOff');
+  },
+
+  /**
+   * Returns the CSS class for the sync status icon.
+   * @return {string}
+   * @private
+   */
+  getSyncIconStyle_() {
+    if (!this.syncStatus) {
+      return 'sync';
+    }
+    if (this.syncStatus.disabled) {
+      return 'sync-disabled';
+    }
+    if (!this.syncStatus.hasError) {
+      return 'sync';
+    }
+    // Specific error cases below.
+    if (this.syncStatus.hasUnrecoverableError) {
+      return 'sync-problem';
+    }
+    if (this.syncStatus.statusAction == settings.StatusAction.REAUTHENTICATE) {
+      return 'sync-paused';
+    }
+    return 'sync-problem';
+  },
+
+  /**
+   * Returns the image to use for the sync status icon. The value must match
+   * one of iron-icon's settings:(*) icon names.
+   * @return {string}
+   * @private
+   */
+  getSyncIcon_() {
+    switch (this.getSyncIconStyle_()) {
+      case 'sync-problem':
+        return 'settings:sync-problem';
+      case 'sync-paused':
+        return 'settings:sync-disabled';
+      default:
+        return 'cr:sync';
     }
   },
 
@@ -123,13 +238,9 @@ Polymer({
   },
 
   /** @private */
-  onTurnOnSyncButtonClick_() {
-    this.browserProxy_.setOsSyncFeatureEnabled(true);
-  },
-
-  /** @private */
-  onTurnOffSyncButtonClick_() {
-    this.browserProxy_.setOsSyncFeatureEnabled(false);
+  onSyncOnOffButtonClick_() {
+    this.browserProxy_.setOsSyncFeatureEnabled(!this.osSyncFeatureEnabled);
+    settings.recordSettingChange();
   },
 
   /**

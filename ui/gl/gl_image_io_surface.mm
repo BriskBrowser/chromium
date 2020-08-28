@@ -50,6 +50,7 @@ bool ValidInternalFormat(unsigned internalformat) {
     case GL_RGB10_A2_EXT:
     case GL_RGB_YCBCR_420V_CHROMIUM:
     case GL_RGB_YCBCR_422_CHROMIUM:
+    case GL_RGB_YCBCR_P010_CHROMIUM:
     case GL_RGBA:
       return true;
     default:
@@ -69,20 +70,17 @@ GLenum TextureFormat(gfx::BufferFormat format) {
     case gfx::BufferFormat::BGRX_8888:  // See https://crbug.com/595948.
     case gfx::BufferFormat::RGBA_8888:
     case gfx::BufferFormat::RGBA_F16:
+    case gfx::BufferFormat::BGRA_1010102:
       return GL_RGBA;
     case gfx::BufferFormat::YUV_420_BIPLANAR:
       return GL_RGB_YCBCR_420V_CHROMIUM;
-    case gfx::BufferFormat::BGRX_1010102:
-      // Technically we should use GL_RGB but CGLTexImageIOSurface2D() (and
-      // OpenGL ES 3.0, for the case) support only GL_RGBA (the hardware ignores
-      // the alpha channel anyway), see https://crbug.com/797347.
-      return GL_RGBA;
+    case gfx::BufferFormat::P010:
+      return GL_RGB_YCBCR_P010_CHROMIUM;
     case gfx::BufferFormat::BGR_565:
     case gfx::BufferFormat::RGBA_4444:
     case gfx::BufferFormat::RGBX_8888:
     case gfx::BufferFormat::RGBA_1010102:
     case gfx::BufferFormat::YVU_420:
-    case gfx::BufferFormat::P010:
       NOTREACHED() << gfx::BufferFormatToString(format);
       return 0;
   }
@@ -102,7 +100,7 @@ GLenum DataFormat(gfx::BufferFormat format) {
     case gfx::BufferFormat::BGRA_8888:
     case gfx::BufferFormat::BGRX_8888:
     case gfx::BufferFormat::RGBA_8888:  // See https://crbug.com/533677#c6.
-    case gfx::BufferFormat::BGRX_1010102:
+    case gfx::BufferFormat::BGRA_1010102:
       return GL_BGRA;
     case gfx::BufferFormat::RGBA_F16:
       return GL_RGBA;
@@ -132,7 +130,7 @@ GLenum DataType(gfx::BufferFormat format) {
     case gfx::BufferFormat::BGRX_8888:
     case gfx::BufferFormat::RGBA_8888:
       return GL_UNSIGNED_INT_8_8_8_8_REV;
-    case gfx::BufferFormat::BGRX_1010102:
+    case gfx::BufferFormat::BGRA_1010102:
       return GL_UNSIGNED_INT_2_10_10_10_REV;
     case gfx::BufferFormat::RGBA_F16:
       return GL_HALF_APPLE;
@@ -250,10 +248,13 @@ unsigned GLImageIOSurface::GetDataType() {
 }
 
 GLImageIOSurface::BindOrCopy GLImageIOSurface::ShouldBindOrCopy() {
-  // YUV_420_BIPLANAR is not supported by BindTexImage.
-  // CopyTexImage is supported by this format as that performs conversion to RGB
-  // as part of the copy operation.
-  return format_ == gfx::BufferFormat::YUV_420_BIPLANAR ? COPY : BIND;
+  // YUV_420_BIPLANAR and P010 are not supported by BindTexImage. CopyTexImage
+  // is supported by these formats as that performs conversion to RGB as part of
+  // the copy operation.
+  return (format_ == gfx::BufferFormat::YUV_420_BIPLANAR ||
+          format_ == gfx::BufferFormat::P010)
+             ? COPY
+             : BIND;
 }
 
 bool GLImageIOSurface::BindTexImage(unsigned target) {
@@ -267,16 +268,9 @@ bool GLImageIOSurface::BindTexImageWithInternalformat(unsigned target,
   TRACE_EVENT0("gpu", "GLImageIOSurface::BindTexImage");
   base::TimeTicks start_time = base::TimeTicks::Now();
 
-  if (target != GL_TEXTURE_RECTANGLE_ARB) {
-    // This might be supported in the future. For now, perform strict
-    // validation so we know what's going on.
-    LOG(ERROR) << "IOSurface requires TEXTURE_RECTANGLE_ARB target";
-    return false;
-  }
-
   DCHECK(io_surface_);
 
-  if (!BindTexImageImpl(internalformat)) {
+  if (!BindTexImageImpl(target, internalformat)) {
     return false;
   }
 
@@ -285,7 +279,15 @@ bool GLImageIOSurface::BindTexImageWithInternalformat(unsigned target,
   return true;
 }
 
-bool GLImageIOSurface::BindTexImageImpl(unsigned internalformat) {
+bool GLImageIOSurface::BindTexImageImpl(unsigned target,
+                                        unsigned internalformat) {
+  if (target != GL_TEXTURE_RECTANGLE_ARB) {
+    // This might be supported in the future. For now, perform strict
+    // validation so we know what's going on.
+    LOG(ERROR) << "IOSurface requires TEXTURE_RECTANGLE_ARB target";
+    return false;
+  }
+
   CGLContextObj cgl_context =
       static_cast<CGLContextObj>(GLContext::GetCurrent()->GetHandle());
 
@@ -342,12 +344,15 @@ bool GLImageIOSurface::CopyTexImage(unsigned target) {
         glBindTexture(target, rgb_texture);
       })));
 
+  const auto src_type =
+      format_ == gfx::BufferFormat::P010 ? GL_UNSIGNED_SHORT : GL_UNSIGNED_BYTE;
+
   CGLContextObj cgl_context = CGLGetCurrentContext();
   {
     glBindTexture(GL_TEXTURE_RECTANGLE_ARB, yuv_to_rgb_converter->y_texture());
     CGLError cgl_error = CGLTexImageIOSurface2D(
         cgl_context, GL_TEXTURE_RECTANGLE_ARB, GL_RED, size_.width(),
-        size_.height(), GL_RED, GL_UNSIGNED_BYTE, io_surface_, 0);
+        size_.height(), GL_RED, src_type, io_surface_, 0);
     if (cgl_error != kCGLNoError) {
       LOG(ERROR) << "Error in CGLTexImageIOSurface2D for the Y plane. "
                  << cgl_error;
@@ -358,7 +363,7 @@ bool GLImageIOSurface::CopyTexImage(unsigned target) {
     glBindTexture(GL_TEXTURE_RECTANGLE_ARB, yuv_to_rgb_converter->uv_texture());
     CGLError cgl_error = CGLTexImageIOSurface2D(
         cgl_context, GL_TEXTURE_RECTANGLE_ARB, GL_RG, size_.width() / 2,
-        size_.height() / 2, GL_RG, GL_UNSIGNED_BYTE, io_surface_, 1);
+        size_.height() / 2, GL_RG, src_type, io_surface_, 1);
     if (cgl_error != kCGLNoError) {
       LOG(ERROR) << "Error in CGLTexImageIOSurface2D for the UV plane. "
                  << cgl_error;
@@ -366,7 +371,7 @@ bool GLImageIOSurface::CopyTexImage(unsigned target) {
     }
   }
 
-  yuv_to_rgb_converter->CopyYUV420ToRGB(target, size_, rgb_texture);
+  yuv_to_rgb_converter->CopyYUV420ToRGB(target, size_, rgb_texture, src_type);
   return true;
 }
 
@@ -432,8 +437,17 @@ bool GLImageIOSurface::EmulatingRGB() const {
   return client_internalformat_ == GL_RGB;
 }
 
-bool GLImageIOSurface::CanCheckIOSurfaceIsInUse() const {
-  return !cv_pixel_buffer_;
+bool GLImageIOSurface::IsInUseByWindowServer() const {
+  // IOSurfaceIsInUse() will always return true if the IOSurface is wrapped in
+  // a CVPixelBuffer. Ignore the signal for such IOSurfaces (which are the ones
+  // output by hardware video decode).
+  if (disable_in_use_by_window_server_)
+    return false;
+  return IOSurfaceIsInUse(io_surface_.get());
+}
+
+void GLImageIOSurface::DisableInUseByWindowServer() {
+  disable_in_use_by_window_server_ = true;
 }
 
 void GLImageIOSurface::SetColorSpaceForYUVToRGBConversion(
@@ -498,8 +512,9 @@ bool GLImageIOSurface::ValidFormat(gfx::BufferFormat format) {
     case gfx::BufferFormat::BGRX_8888:
     case gfx::BufferFormat::RGBA_8888:
     case gfx::BufferFormat::RGBA_F16:
-    case gfx::BufferFormat::BGRX_1010102:
+    case gfx::BufferFormat::BGRA_1010102:
     case gfx::BufferFormat::YUV_420_BIPLANAR:
+    case gfx::BufferFormat::P010:
       return true;
     case gfx::BufferFormat::R_16:
     case gfx::BufferFormat::RG_88:
@@ -508,7 +523,6 @@ bool GLImageIOSurface::ValidFormat(gfx::BufferFormat format) {
     case gfx::BufferFormat::RGBX_8888:
     case gfx::BufferFormat::RGBA_1010102:
     case gfx::BufferFormat::YVU_420:
-    case gfx::BufferFormat::P010:
       return false;
   }
 

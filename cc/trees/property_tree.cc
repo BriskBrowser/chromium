@@ -4,18 +4,22 @@
 
 #include <stddef.h>
 
+#include <algorithm>
 #include <set>
+#include <string>
+#include <utility>
 #include <vector>
 
-#include "base/logging.h"
+#include "base/check_op.h"
 #include "base/memory/ptr_util.h"
 #include "base/numerics/checked_math.h"
+#include "base/numerics/safe_conversions.h"
 #include "base/trace_event/traced_value.h"
 #include "cc/trees/clip_node.h"
+#include "cc/trees/compositor_commit_data.h"
 #include "cc/trees/effect_node.h"
 #include "cc/trees/layer_tree_impl.h"
 #include "cc/trees/property_tree.h"
-#include "cc/trees/scroll_and_scale_set.h"
 #include "cc/trees/scroll_node.h"
 #include "cc/trees/transform_node.h"
 #include "components/viz/common/frame_sinks/copy_output_request.h"
@@ -173,9 +177,9 @@ void TransformTree::UpdateTransforms(int id) {
   UpdateScreenSpaceTransform(node, parent_node);
   UpdateAnimationProperties(node, parent_node);
   UpdateSnapping(node);
-  UpdateNodeAndAncestorsHaveIntegerTranslations(node, parent_node);
   UpdateTransformChanged(node, parent_node);
   UpdateNodeAndAncestorsAreAnimatedOrInvertible(node, parent_node);
+  UpdateNodeOrAncestorsWillChangeTransform(node, parent_node);
 
   DCHECK(!node->needs_local_transform_update);
 }
@@ -251,7 +255,7 @@ void TransformTree::CombineTransformsBetween(int source_id,
     DCHECK(IsDescendant(dest_id, current->id));
     CombineInversesBetween(current->id, dest_id, &combined_transform);
     DCHECK(combined_transform.IsApproximatelyIdentityOrTranslation(
-        SkDoubleToMScalar(1e-4)));
+        SkDoubleToScalar(1e-4)));
   }
 
   size_t source_to_destination_size = source_to_destination.size();
@@ -493,24 +497,27 @@ void TransformTree::UpdateSnapping(TransformNode* node) {
   // rounded, then what we're after is the scroll delta X, where ST * X = ST'.
   // I.e., we want a transform that will realize our snap. It follows that
   // X = ST^-1 * ST'. We cache ST and ST^-1 to make this more efficient.
-  gfx::Transform rounded = ToScreen(node->id);
-  rounded.RoundTranslationComponents();
-  gfx::Transform delta = FromScreen(node->id);
-  delta *= rounded;
+  DCHECK_LT(node->id, static_cast<int>(cached_data_.size()));
+  gfx::Transform& to_screen = cached_data_[node->id].to_screen;
+  to_screen.RoundTranslationComponents();
+  gfx::Transform& from_screen = cached_data_[node->id].from_screen;
+  gfx::Transform delta = from_screen;
+  delta *= to_screen;
 
-  DCHECK(delta.IsApproximatelyIdentityOrTranslation(SkDoubleToMScalar(1e-4)))
+  constexpr float kTolerance = 1e-4f;
+  DCHECK(delta.IsApproximatelyIdentityOrTranslation(kTolerance))
       << delta.ToString();
 
   gfx::Vector2dF translation = delta.To2dTranslation();
-
-  // Now that we have our delta, we must apply it to each of our combined,
-  // to/from matrices.
-  SetToScreen(node->id, rounded);
-  node->to_parent.Translate(translation.x(), translation.y());
-  gfx::Transform from_screen = FromScreen(node->id);
-  from_screen.matrix().postTranslate(-translation.x(), -translation.y(), 0);
-  SetFromScreen(node->id, from_screen);
   node->snap_amount = translation;
+  if (translation.IsZero())
+    return;
+
+  from_screen.matrix().postTranslate(-translation.x(), -translation.y(), 0);
+  node->to_parent.Translate(translation.x(), translation.y());
+  // Avoid accumulation of errors in to_parent.
+  if (node->to_parent.IsApproximatelyIdentityOrIntegerTranslation(kTolerance))
+    node->to_parent.RoundTranslationComponents();
 }
 
 void TransformTree::UpdateTransformChanged(TransformNode* node,
@@ -536,6 +543,16 @@ void TransformTree::UpdateNodeAndAncestorsAreAnimatedOrInvertible(
     is_invertible = false;
   node->node_and_ancestors_are_animated_or_invertible =
       node->has_potential_animation || is_invertible;
+}
+
+void TransformTree::UpdateNodeOrAncestorsWillChangeTransform(
+    TransformNode* node,
+    TransformNode* parent_node) {
+  node->node_or_ancestors_will_change_transform = node->will_change_transform;
+  if (parent_node) {
+    node->node_or_ancestors_will_change_transform |=
+        parent_node->node_or_ancestors_will_change_transform;
+  }
 }
 
 void TransformTree::SetRootScaleAndTransform(
@@ -719,6 +736,14 @@ void EffectTree::UpdateEffectChanged(EffectNode* node,
   }
 }
 
+void EffectTree::UpdateHasFilters(EffectNode* node, EffectNode* parent_node) {
+  node->node_or_ancestor_has_filters = !node->filters.IsEmpty();
+  if (parent_node) {
+    node->node_or_ancestor_has_filters |=
+        parent_node->node_or_ancestor_has_filters;
+  }
+}
+
 void EffectTree::UpdateBackfaceVisibility(EffectNode* node,
                                           EffectNode* parent_node) {
   if (parent_node && parent_node->hidden_by_backface_visibility) {
@@ -742,6 +767,17 @@ void EffectTree::UpdateHasMaskingChild(EffectNode* node,
   node->has_masking_child = false;
   if (node->blend_mode == SkBlendMode::kDstIn) {
     parent_node->has_masking_child = true;
+  }
+}
+
+void EffectTree::UpdateOnlyDrawsVisibleContent(EffectNode* node,
+                                               EffectNode* parent_node) {
+  node->only_draws_visible_content = !node->has_copy_request;
+  if (parent_node)
+    node->only_draws_visible_content &= parent_node->only_draws_visible_content;
+  if (!node->backdrop_filters.IsEmpty()) {
+    node->only_draws_visible_content &=
+        !node->backdrop_filters.HasFilterOfType(FilterOperation::ZOOM);
   }
 }
 
@@ -827,8 +863,10 @@ void EffectTree::UpdateEffects(int id) {
   UpdateSubtreeHidden(node, parent_node);
   UpdateIsDrawn(node, parent_node);
   UpdateEffectChanged(node, parent_node);
+  UpdateHasFilters(node, parent_node);
   UpdateBackfaceVisibility(node, parent_node);
   UpdateHasMaskingChild(node, parent_node);
+  UpdateOnlyDrawsVisibleContent(node, parent_node);
   UpdateSurfaceContentsScale(node);
 }
 
@@ -905,8 +943,11 @@ void EffectTree::TakeCopyRequestsAndTransformToSurface(
     for (auto it = range.first; it != range.second; ++it) {
       viz::CopyOutputRequest* const request = it->second.get();
       if (request->has_area()) {
-        request->set_area(
-            MathUtil::MapEnclosingClippedRect(transform, request->area()));
+        // Avoid creating bigger copy area which may contain unnecessary
+        // area if the error margin is tiny.
+        constexpr float kEpsilon = 0.001f;
+        request->set_area(MathUtil::MapEnclosingClippedRectIgnoringError(
+            transform, request->area(), kEpsilon));
       }
 
       // Only adjust the scale ratio if the request specifies one, or if it
@@ -931,8 +972,8 @@ void EffectTree::TakeCopyRequestsAndTransformToSurface(
                  .AssignIfValid(&scale_to_y)) {
           continue;
         }
-        int scale_from_x = gfx::ToRoundedInt(scale_from_x_f);
-        int scale_from_y = gfx::ToRoundedInt(scale_from_y_f);
+        int scale_from_x = base::ClampRound(scale_from_x_f);
+        int scale_from_y = base::ClampRound(scale_from_y_f);
         if (scale_from_x <= 0 || scale_from_y <= 0 || scale_to_x <= 0 ||
             scale_to_y <= 0) {
           // Transformed scaling ratio became illegal. Drop the request to
@@ -1096,15 +1137,6 @@ bool EffectTree::HitTestMayBeAffectedByMask(int effect_id) const {
   return false;
 }
 
-void TransformTree::UpdateNodeAndAncestorsHaveIntegerTranslations(
-    TransformNode* node,
-    TransformNode* parent_node) {
-  DCHECK(parent_node);
-  node->node_and_ancestors_have_only_integer_translation =
-      node->to_parent.IsIdentityOrIntegerTranslation() &&
-      parent_node->node_and_ancestors_have_only_integer_translation;
-}
-
 void ClipTree::SetViewportClip(gfx::RectF viewport_rect) {
   if (size() < 2)
     return;
@@ -1116,7 +1148,7 @@ void ClipTree::SetViewportClip(gfx::RectF viewport_rect) {
 }
 
 gfx::RectF ClipTree::ViewportClip() const {
-  const unsigned long min_size = 1;
+  const size_t min_size = 1;
   DCHECK_GT(size(), min_size);
   return Node(kViewportNodeId)->clip;
 }
@@ -1180,6 +1212,8 @@ void ScrollTree::CopyCompleteTreeState(const ScrollTree& other) {
 #endif
 
 ScrollNode* ScrollTree::FindNodeFromElementId(ElementId id) {
+  if (!id)
+    return nullptr;
   auto iterator = property_trees()->element_id_to_scroll_node_index.find(id);
   if (iterator == property_trees()->element_id_to_scroll_node_index.end())
     return nullptr;
@@ -1188,11 +1222,17 @@ ScrollNode* ScrollTree::FindNodeFromElementId(ElementId id) {
 }
 
 const ScrollNode* ScrollTree::FindNodeFromElementId(ElementId id) const {
+  if (!id)
+    return nullptr;
   auto iterator = property_trees()->element_id_to_scroll_node_index.find(id);
   if (iterator == property_trees()->element_id_to_scroll_node_index.end())
     return nullptr;
 
   return Node(iterator->second);
+}
+
+bool ScrollTree::IsComposited(const ScrollNode& node) const {
+  return node.is_composited;
 }
 
 void ScrollTree::clear() {
@@ -1262,6 +1302,8 @@ void ScrollTree::OnScrollOffsetAnimated(ElementId id,
   if (!property_trees()->is_active)
     return;
 
+  TRACE_EVENT2("cc", "ScrollTree::OnScrollOffsetAnimated", "x",
+               scroll_offset.x(), "y", scroll_offset.y());
   ScrollNode* scroll_node = Node(scroll_tree_index);
   if (SetScrollOffset(id,
                       ClampScrollOffsetToLimits(scroll_offset, *scroll_node)))
@@ -1339,11 +1381,11 @@ const SyncedScrollOffset* ScrollTree::GetSyncedScrollOffset(
 }
 
 gfx::Vector2dF ScrollTree::ClampScrollToMaxScrollOffset(
-    ScrollNode* node,
+    const ScrollNode& node,
     LayerTreeImpl* layer_tree_impl) {
-  gfx::ScrollOffset old_offset = current_scroll_offset(node->element_id);
+  gfx::ScrollOffset old_offset = current_scroll_offset(node.element_id);
   gfx::ScrollOffset clamped_offset =
-      ClampScrollOffsetToLimits(old_offset, *node);
+      ClampScrollOffsetToLimits(old_offset, node);
   gfx::Vector2dF delta = clamped_offset.DeltaFrom(old_offset);
   if (!delta.IsZero())
     ScrollBy(node, delta, layer_tree_impl);
@@ -1380,8 +1422,14 @@ const gfx::ScrollOffset ScrollTree::GetPixelSnappedScrollOffset(
     if (transform_node->needs_local_transform_update)
       property_trees()->transform_tree.UpdateTransforms(transform_node->id);
 
-    offset.set_x(offset.x() - transform_node->snap_amount.x());
-    offset.set_y(offset.y() - transform_node->snap_amount.y());
+    // The calculated pixel snap amount can be slightly larger than the actual
+    // snapping needed, due to floating point precision errors. In general this
+    // is fine, but we never want to report a negative scroll offset so avoid
+    // that case here.
+    // TODO(crbug.com/1076878): Remove the clamping when scroll timeline effects
+    // always match the snapping.
+    offset = ClampScrollOffsetToLimits(
+        offset - gfx::ScrollOffset(transform_node->snap_amount), *scroll_node);
   }
 
   return offset;
@@ -1419,7 +1467,7 @@ gfx::ScrollOffset ScrollTree::PullDeltaForMainThread(
 }
 
 void ScrollTree::CollectScrollDeltas(
-    ScrollAndScaleSet* scroll_info,
+    CompositorCommitData* commit_data,
     ElementId inner_viewport_scroll_element_id,
     bool use_fractional_deltas,
     const base::flat_set<ElementId>& snapped_elements) {
@@ -1449,13 +1497,13 @@ void ScrollTree::CollectScrollDeltas(
       TRACE_EVENT_INSTANT2("cc", "CollectScrollDeltas",
                            TRACE_EVENT_SCOPE_THREAD, "x", scroll_delta.x(), "y",
                            scroll_delta.y());
-      ScrollAndScaleSet::ScrollUpdateInfo update(id, scroll_delta,
-                                                 snap_target_ids);
+      CompositorCommitData::ScrollUpdateInfo update(id, scroll_delta,
+                                                    snap_target_ids);
       if (id == inner_viewport_scroll_element_id) {
         // Inner (visual) viewport is stored separately.
-        scroll_info->inner_viewport_scroll = std::move(update);
+        commit_data->inner_viewport_scroll = std::move(update);
       } else {
-        scroll_info->scrolls.push_back(std::move(update));
+        commit_data->scrolls.push_back(std::move(update));
       }
     }
   }
@@ -1553,6 +1601,9 @@ void ScrollTree::SetBaseScrollOffset(ElementId id,
 
 bool ScrollTree::SetScrollOffset(ElementId id,
                                  const gfx::ScrollOffset& scroll_offset) {
+  // TODO(crbug.com/1087088): Remove TRACE_EVENT call when the bug is fixed
+  TRACE_EVENT2("cc", "ScrollTree::SetScrollOffset", "x", scroll_offset.x(), "y",
+               scroll_offset.y());
   if (property_trees()->is_main_thread) {
     if (scroll_offset_map_[id] == scroll_offset)
       return false;
@@ -1607,20 +1658,20 @@ const gfx::ScrollOffset ScrollTree::GetScrollOffsetDeltaForTesting(
     return gfx::ScrollOffset();
 }
 
-gfx::Vector2dF ScrollTree::ScrollBy(ScrollNode* scroll_node,
+gfx::Vector2dF ScrollTree::ScrollBy(const ScrollNode& scroll_node,
                                     const gfx::Vector2dF& scroll,
                                     LayerTreeImpl* layer_tree_impl) {
   gfx::ScrollOffset adjusted_scroll(scroll);
-  if (!scroll_node->user_scrollable_horizontal)
+  if (!scroll_node.user_scrollable_horizontal)
     adjusted_scroll.set_x(0);
-  if (!scroll_node->user_scrollable_vertical)
+  if (!scroll_node.user_scrollable_vertical)
     adjusted_scroll.set_y(0);
-  DCHECK(scroll_node->scrollable);
-  gfx::ScrollOffset old_offset = current_scroll_offset(scroll_node->element_id);
+  DCHECK(scroll_node.scrollable);
+  gfx::ScrollOffset old_offset = current_scroll_offset(scroll_node.element_id);
   gfx::ScrollOffset new_offset =
-      ClampScrollOffsetToLimits(old_offset + adjusted_scroll, *scroll_node);
-  if (SetScrollOffset(scroll_node->element_id, new_offset))
-    layer_tree_impl->DidUpdateScrollOffset(scroll_node->element_id);
+      ClampScrollOffsetToLimits(old_offset + adjusted_scroll, scroll_node);
+  if (SetScrollOffset(scroll_node.element_id, new_offset))
+    layer_tree_impl->DidUpdateScrollOffset(scroll_node.element_id);
 
   gfx::ScrollOffset unscrolled =
       old_offset + gfx::ScrollOffset(scroll) - new_offset;
@@ -2144,6 +2195,8 @@ ClipRectData* PropertyTrees::FetchClipRectFromCache(int clip_id,
 }
 
 bool PropertyTrees::HasElement(ElementId element_id) const {
+  if (!element_id)
+    return false;
   return element_id_to_effect_node_index.contains(element_id) ||
          element_id_to_scroll_node_index.contains(element_id) ||
          element_id_to_transform_node_index.contains(element_id);

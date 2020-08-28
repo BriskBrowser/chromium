@@ -35,6 +35,11 @@ class POLICY_EXPORT RealtimeReportingJobConfiguration
   static const char kMachineUserKey[];
   static const char kOsPlatformKey[];
   static const char kOsVersionKey[];
+  static const char kUploadedEventsKey[];
+  static const char kFailedUploadsKey[];
+  static const char kPermanentFailedUploadsKey[];
+  static const char kEventIdKey[];
+  static const char kDeviceNameKey[];
 
   typedef base::OnceCallback<void(DeviceManagementService::Job* job,
                                   DeviceManagementStatus code,
@@ -48,8 +53,14 @@ class POLICY_EXPORT RealtimeReportingJobConfiguration
   // google3/google/internal/chrome/reporting/v1/chromereporting.proto.
   static base::Value BuildReport(base::Value events, base::Value context);
 
+  // Configures a request to send real-time reports to the |server_url|
+  // endpoint.  If |add_connector_url_params| is true then URL parameters
+  // specific to enterprise connectors are added to the request uploading
+  // the report.  |callback| is invoked once the report is uploaded.
   RealtimeReportingJobConfiguration(CloudPolicyClient* client,
                                     std::unique_ptr<DMAuth> auth_data,
+                                    const std::string& server_url,
+                                    bool add_connector_url_params,
                                     Callback callback);
 
   ~RealtimeReportingJobConfiguration() override;
@@ -65,15 +76,14 @@ class POLICY_EXPORT RealtimeReportingJobConfiguration
   // Returns true if the report was added successfully.
   bool AddReport(base::Value report);
 
- private:
-  // Does one time initialization of the payload when the configuration is
-  // created.
-  void InitializePayload(CloudPolicyClient* client);
-
   // DeviceManagementService::JobConfiguration.
   std::string GetPayload() override;
   std::string GetUmaName() override;
-  void OnBeforeRetry() override {}
+  DeviceManagementService::Job::RetryMethod ShouldRetry(
+      int response_code,
+      const std::string& response_body) override;
+  void OnBeforeRetry(int response_code,
+                     const std::string& response_body) override;
   void OnURLLoadComplete(DeviceManagementService::Job* job,
                          int net_error,
                          int response_code,
@@ -81,6 +91,14 @@ class POLICY_EXPORT RealtimeReportingJobConfiguration
 
   // JobConfigurationBase overrides.
   GURL GetURL(int last_error) override;
+
+ private:
+  // Does one time initialization of the payload when the configuration is
+  // created.
+  void InitializePayload(CloudPolicyClient* client);
+
+  // Gathers the ids of the uploads that failed
+  std::set<std::string> GetFailedUploadIds(const std::string& response_body);
 
   std::string server_url_;
   base::Value payload_;

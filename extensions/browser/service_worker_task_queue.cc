@@ -9,7 +9,6 @@
 #include <vector>
 
 #include "base/bind.h"
-#include "base/task/post_task.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
@@ -101,8 +100,8 @@ void ServiceWorkerTaskQueue::DidStartWorkerForScopeOnCoreThread(
                                          thread_id);
     }
   } else {
-    base::PostTask(
-        FROM_HERE, {content::BrowserThread::UI},
+    content::GetUIThreadTaskRunner({})->PostTask(
+        FROM_HERE,
         base::BindOnce(&ServiceWorkerTaskQueue::DidStartWorkerForScope,
                        task_queue, context_id, version_id, process_id,
                        thread_id));
@@ -118,8 +117,8 @@ void ServiceWorkerTaskQueue::DidStartWorkerFailOnCoreThread(
     if (task_queue)
       task_queue->DidStartWorkerFail(context_id);
   } else {
-    base::PostTask(FROM_HERE, {content::BrowserThread::UI},
-                   base::BindOnce(&ServiceWorkerTaskQueue::DidStartWorkerFail,
+    content::GetUIThreadTaskRunner({})->PostTask(
+        FROM_HERE, base::BindOnce(&ServiceWorkerTaskQueue::DidStartWorkerFail,
                                   task_queue, context_id));
   }
 }
@@ -225,8 +224,17 @@ void ServiceWorkerTaskQueue::DidStartWorkerFail(
     return;
   }
 
-  // TODO(lazyboy): Handle failure cases.
-  DCHECK(false) << "DidStartWorkerFail: " << context_id.first.extension_id();
+  WorkerState* worker_state = GetWorkerState(context_id);
+  DCHECK(worker_state);
+  if (g_test_observer) {
+    g_test_observer->DidStartWorkerFail(context_id.first.extension_id(),
+                                        worker_state->pending_tasks_.size());
+  }
+  worker_state->pending_tasks_.clear();
+  // TODO(https://crbug/1062936): Needs more thought: extension would be in
+  // perma-broken state after this as the registration wouldn't be stored if
+  // this happens.
+  LOG(ERROR) << "DidStartWorkerFail " << context_id.first.extension_id();
 }
 
 void ServiceWorkerTaskQueue::DidInitializeServiceWorkerContext(
@@ -419,7 +427,7 @@ void ServiceWorkerTaskQueue::DeactivateExtension(const Extension* extension) {
       ->UnregisterServiceWorker(
           extension->url(),
           base::BindOnce(&ServiceWorkerTaskQueue::DidUnregisterServiceWorker,
-                         weak_factory_.GetWeakPtr(), extension_id));
+                         weak_factory_.GetWeakPtr(), extension_id, *sequence));
 }
 
 void ServiceWorkerTaskQueue::RunTasksAfterStartWorker(
@@ -445,8 +453,7 @@ void ServiceWorkerTaskQueue::RunTasksAfterStartWorker(
         weak_factory_.GetWeakPtr(), context_id, service_worker_context);
   } else {
     content::ServiceWorkerContext::RunTask(
-        base::CreateSingleThreadTaskRunner({content::BrowserThread::IO}),
-        FROM_HERE, service_worker_context,
+        content::GetIOThreadTaskRunner({}), FROM_HERE, service_worker_context,
         base::BindOnce(
             &ServiceWorkerTaskQueue::StartServiceWorkerOnCoreThreadToRunTasks,
             weak_factory_.GetWeakPtr(), context_id, service_worker_context));
@@ -489,7 +496,12 @@ void ServiceWorkerTaskQueue::DidRegisterServiceWorker(
 
 void ServiceWorkerTaskQueue::DidUnregisterServiceWorker(
     const ExtensionId& extension_id,
+    ActivationSequence sequence,
     bool success) {
+  // Extension run with |sequence| was already deactivated.
+  if (!IsCurrentSequence(extension_id, sequence))
+    return;
+
   // TODO(lazyboy): Handle success = false case.
   if (!success)
     LOG(ERROR) << "Failed to unregister service worker!";
@@ -583,6 +595,16 @@ base::Optional<ActivationSequence> ServiceWorkerTaskQueue::GetCurrentSequence(
   if (iter == activation_sequences_.end())
     return base::nullopt;
   return iter->second;
+}
+
+size_t ServiceWorkerTaskQueue::GetNumPendingTasksForTest(
+    const LazyContextId& lazy_context_id) {
+  auto current_sequence = GetCurrentSequence(lazy_context_id.extension_id());
+  if (!current_sequence)
+    return 0u;
+  const SequencedContextId context_id(lazy_context_id, *current_sequence);
+  WorkerState* worker_state = GetWorkerState(context_id);
+  return worker_state ? worker_state->pending_tasks_.size() : 0u;
 }
 
 ServiceWorkerTaskQueue::WorkerState* ServiceWorkerTaskQueue::GetWorkerState(

@@ -4,7 +4,7 @@
 
 #include "chrome/browser/chromeos/policy/affiliated_cloud_policy_invalidator.h"
 
-#include "base/logging.h"
+#include "base/check.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/time/clock.h"
 #include "base/time/default_clock.h"
@@ -13,10 +13,21 @@
 namespace policy {
 
 AffiliatedCloudPolicyInvalidator::AffiliatedCloudPolicyInvalidator(
-    enterprise_management::DeviceRegisterRequest::Type type,
+    PolicyInvalidationScope scope,
     CloudPolicyCore* core,
     AffiliatedInvalidationServiceProvider* invalidation_service_provider)
-    : type_(type),
+    : AffiliatedCloudPolicyInvalidator(scope,
+                                       core,
+                                       invalidation_service_provider,
+                                       /*device_local_account_id=*/"") {}
+
+AffiliatedCloudPolicyInvalidator::AffiliatedCloudPolicyInvalidator(
+    PolicyInvalidationScope scope,
+    CloudPolicyCore* core,
+    AffiliatedInvalidationServiceProvider* invalidation_service_provider,
+    const std::string& device_local_account_id)
+    : scope_(scope),
+      device_local_account_id_(device_local_account_id),
       core_(core),
       invalidation_service_provider_(invalidation_service_provider),
       highest_handled_invalidation_version_(0) {
@@ -44,9 +55,9 @@ void AffiliatedCloudPolicyInvalidator::CreateInvalidator(
     invalidation::InvalidationService* invalidation_service) {
   DCHECK(!invalidator_);
   invalidator_.reset(new CloudPolicyInvalidator(
-      type_, core_, base::ThreadTaskRunnerHandle::Get(),
-      base::DefaultClock::GetInstance(),
-      highest_handled_invalidation_version_));
+      scope_, core_, base::ThreadTaskRunnerHandle::Get(),
+      base::DefaultClock::GetInstance(), highest_handled_invalidation_version_,
+      device_local_account_id_));
   invalidator_->Initialize(invalidation_service);
 }
 

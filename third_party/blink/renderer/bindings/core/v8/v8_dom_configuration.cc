@@ -165,11 +165,12 @@ template <class FunctionOrTemplate>
 v8::Local<FunctionOrTemplate> CreateAccessorFunctionOrTemplate(
     v8::Isolate*,
     v8::FunctionCallback,
-    V8PrivateProperty::CachedAccessorSymbol,
+    V8PrivateProperty::CachedAccessor,
     v8::Local<v8::Value> data,
     v8::Local<v8::Signature>,
     const char* name,
     AccessorType,
+    V8DOMConfiguration::AccessCheckConfiguration access_check_configuration,
     v8::SideEffectType side_effect_type = v8::SideEffectType::kHasSideEffect);
 
 template <>
@@ -177,11 +178,12 @@ v8::Local<v8::FunctionTemplate>
 CreateAccessorFunctionOrTemplate<v8::FunctionTemplate>(
     v8::Isolate* isolate,
     v8::FunctionCallback callback,
-    V8PrivateProperty::CachedAccessorSymbol cached_property_key,
+    V8PrivateProperty::CachedAccessor cached_property_key,
     v8::Local<v8::Value> data,
     v8::Local<v8::Signature> signature,
     const char* name,
     AccessorType type,
+    V8DOMConfiguration::AccessCheckConfiguration access_check_configuration,
     v8::SideEffectType side_effect_type) {
   v8::Local<v8::FunctionTemplate> function_template;
   if (callback) {
@@ -194,7 +196,7 @@ CreateAccessorFunctionOrTemplate<v8::FunctionTemplate>(
     //  7. Perform ! SetFunctionLength(|F|, 1).
     int length = type == AccessorType::Getter ? 0 : 1;
 
-    if (cached_property_key != V8PrivateProperty::kNoCachedAccessor) {
+    if (cached_property_key != V8PrivateProperty::CachedAccessor::kNone) {
       function_template = v8::FunctionTemplate::NewWithCache(
           isolate, callback,
           V8PrivateProperty::GetCachedAccessor(isolate, cached_property_key)
@@ -208,7 +210,8 @@ CreateAccessorFunctionOrTemplate<v8::FunctionTemplate>(
 
     if (!function_template.IsEmpty()) {
       function_template->RemovePrototype();
-      function_template->SetAcceptAnyReceiver(false);
+      function_template->SetAcceptAnyReceiver(
+          access_check_configuration == V8DOMConfiguration::kDoNotCheckAccess);
 
       // https://heycam.github.io/webidl/#dfn-attribute-getter has:
       //
@@ -240,19 +243,20 @@ template <>
 v8::Local<v8::Function> CreateAccessorFunctionOrTemplate<v8::Function>(
     v8::Isolate* isolate,
     v8::FunctionCallback callback,
-    V8PrivateProperty::CachedAccessorSymbol,
+    V8PrivateProperty::CachedAccessor,
     v8::Local<v8::Value> data,
     v8::Local<v8::Signature> signature,
     const char* name,
     AccessorType type,
+    V8DOMConfiguration::AccessCheckConfiguration access_check_configuration,
     v8::SideEffectType side_effect_type) {
   if (!callback)
     return v8::Local<v8::Function>();
 
   v8::Local<v8::FunctionTemplate> function_template =
       CreateAccessorFunctionOrTemplate<v8::FunctionTemplate>(
-          isolate, callback, V8PrivateProperty::kNoCachedAccessor, data,
-          signature, name, type, side_effect_type);
+          isolate, callback, V8PrivateProperty::CachedAccessor::kNone, data,
+          signature, name, type, access_check_configuration, side_effect_type);
   if (function_template.IsEmpty())
     return v8::Local<v8::Function>();
 
@@ -293,16 +297,18 @@ void InstallAccessorInternal(
   DCHECK(!IsObjectAndEmpty(instance_or_template) ||
          !IsObjectAndEmpty(prototype_or_template) ||
          !IsObjectAndEmpty(interface_or_template));
-  DCHECK_EQ(config.getter_behavior, V8DOMConfiguration::kAlwaysCallGetter);
   if (!WorldConfigurationApplies(config, world))
     return;
 
   v8::Local<v8::String> name = V8AtomicString(isolate, config.name);
   v8::FunctionCallback getter_callback = config.getter;
   v8::FunctionCallback setter_callback = config.setter;
-  auto cached_property_key = V8PrivateProperty::kNoCachedAccessor;
-  if (world.IsMainWorld()) {
-    cached_property_key = static_cast<V8PrivateProperty::CachedAccessorSymbol>(
+  auto cached_property_key = V8PrivateProperty::CachedAccessor::kNone;
+  bool is_window_document = static_cast<V8PrivateProperty::CachedAccessor>(
+                                config.cached_property_key) ==
+                            V8PrivateProperty::CachedAccessor::kWindowDocument;
+  if (!is_window_document || world.IsMainWorld()) {
+    cached_property_key = static_cast<V8PrivateProperty::CachedAccessor>(
         config.cached_property_key);
   }
 
@@ -313,6 +319,13 @@ void InstallAccessorInternal(
   if (config.holder_check_configuration ==
       V8DOMConfiguration::kDoNotCheckHolder)
     signature = v8::Local<v8::Signature>();
+
+  V8DOMConfiguration::AccessCheckConfiguration getter_access_check =
+      static_cast<V8DOMConfiguration::AccessCheckConfiguration>(
+          config.getter_access_check_configuration);
+  V8DOMConfiguration::AccessCheckConfiguration setter_access_check =
+      static_cast<V8DOMConfiguration::AccessCheckConfiguration>(
+          config.setter_access_check_configuration);
 
   const unsigned location = config.property_location_configuration;
   v8::SideEffectType getter_side_effect_type =
@@ -326,12 +339,12 @@ void InstallAccessorInternal(
         CreateAccessorFunctionOrTemplate<FunctionOrTemplate>(
             isolate, getter_callback, cached_property_key,
             v8::Local<v8::Value>(), signature, config.name,
-            AccessorType::Getter, getter_side_effect_type);
+            AccessorType::Getter, getter_access_check, getter_side_effect_type);
     v8::Local<FunctionOrTemplate> setter =
         CreateAccessorFunctionOrTemplate<FunctionOrTemplate>(
-            isolate, setter_callback, V8PrivateProperty::kNoCachedAccessor,
+            isolate, setter_callback, V8PrivateProperty::CachedAccessor::kNone,
             v8::Local<v8::Value>(), signature, config.name,
-            AccessorType::Setter);
+            AccessorType::Setter, setter_access_check);
     if (location & V8DOMConfiguration::kOnInstance &&
         !IsObjectAndEmpty(instance_or_template)) {
       instance_or_template->SetAccessorProperty(
@@ -352,14 +365,14 @@ void InstallAccessorInternal(
     // type check against a holder.
     v8::Local<FunctionOrTemplate> getter =
         CreateAccessorFunctionOrTemplate<FunctionOrTemplate>(
-            isolate, getter_callback, V8PrivateProperty::kNoCachedAccessor,
+            isolate, getter_callback, V8PrivateProperty::CachedAccessor::kNone,
             v8::Local<v8::Value>(), v8::Local<v8::Signature>(), config.name,
-            AccessorType::Getter, getter_side_effect_type);
+            AccessorType::Getter, getter_access_check, getter_side_effect_type);
     v8::Local<FunctionOrTemplate> setter =
         CreateAccessorFunctionOrTemplate<FunctionOrTemplate>(
-            isolate, setter_callback, V8PrivateProperty::kNoCachedAccessor,
+            isolate, setter_callback, V8PrivateProperty::CachedAccessor::kNone,
             v8::Local<v8::Value>(), v8::Local<v8::Signature>(), config.name,
-            AccessorType::Setter);
+            AccessorType::Setter, setter_access_check);
     interface_or_template->SetAccessorProperty(
         name, getter, setter,
         static_cast<v8::PropertyAttribute>(config.attribute));
@@ -450,7 +463,8 @@ void InstallMethodInternal(v8::Isolate* isolate,
                            v8::Local<v8::FunctionTemplate> interface_template,
                            v8::Local<v8::Signature> signature,
                            const Configuration& method,
-                           const DOMWrapperWorld& world) {
+                           const DOMWrapperWorld& world,
+                           const v8::CFunction* v8_c_function = nullptr) {
   if (!WorldConfigurationApplies(method, world))
     return;
 
@@ -475,10 +489,11 @@ void InstallMethodInternal(v8::Isolate* isolate,
     v8::Local<v8::FunctionTemplate> function_template =
         v8::FunctionTemplate::New(
             isolate, callback, v8::Local<v8::Value>(), signature, method.length,
-            v8::ConstructorBehavior::kAllow, side_effect_type);
+            v8::ConstructorBehavior::kAllow, side_effect_type, v8_c_function);
     function_template->RemovePrototype();
-    if (method.access_check_configuration == V8DOMConfiguration::kCheckAccess)
-      function_template->SetAcceptAnyReceiver(false);
+    function_template->SetAcceptAnyReceiver(
+        method.access_check_configuration ==
+        V8DOMConfiguration::kDoNotCheckAccess);
     if (method.property_location_configuration &
         V8DOMConfiguration::kOnInstance) {
       AddMethodToTemplate(isolate, instance_template, function_template,
@@ -520,7 +535,7 @@ void InstallMethodInternal(
   if (!WorldConfigurationApplies(config, world))
     return;
 
-  v8::Local<v8::Name> name = config.MethodName(isolate);
+  v8::Local<v8::String> name = config.MethodName(isolate);
   v8::FunctionCallback callback = config.callback;
   // Promise-returning functions need to return a reject promise when
   // an exception occurs.  This includes a case that the receiver object is not
@@ -545,12 +560,13 @@ void InstallMethodInternal(
             isolate, callback, v8::Local<v8::Value>(), signature, config.length,
             v8::ConstructorBehavior::kAllow, side_effect_type);
     function_template->RemovePrototype();
-    if (config.access_check_configuration == V8DOMConfiguration::kCheckAccess) {
-      function_template->SetAcceptAnyReceiver(false);
-    }
+    function_template->SetAcceptAnyReceiver(
+        config.access_check_configuration ==
+        V8DOMConfiguration::kDoNotCheckAccess);
     v8::Local<v8::Function> function =
         function_template->GetFunction(isolate->GetCurrentContext())
             .ToLocalChecked();
+    function->SetName(name);
     if (location & V8DOMConfiguration::kOnInstance && !instance.IsEmpty()) {
       instance
           ->DefineOwnProperty(
@@ -580,6 +596,7 @@ void InstallMethodInternal(
     v8::Local<v8::Function> function =
         function_template->GetFunction(isolate->GetCurrentContext())
             .ToLocalChecked();
+    function->SetName(name);
     interface->DefineOwnProperty(isolate->GetCurrentContext(), name, function, static_cast<v8::PropertyAttribute>(config.attribute)).ToChecked();
   }
 }
@@ -689,9 +706,10 @@ void V8DOMConfiguration::InstallConstants(
     v8::Local<v8::ObjectTemplate> prototype_template,
     const ConstantConfiguration* constants,
     size_t constant_count) {
-  for (size_t i = 0; i < constant_count; ++i)
+  for (size_t i = 0; i < constant_count; ++i) {
     InstallConstantInternal(isolate, interface_template, prototype_template,
                             constants[i]);
+  }
 }
 
 void V8DOMConfiguration::InstallConstant(
@@ -709,6 +727,41 @@ void V8DOMConfiguration::InstallConstant(
     v8::Local<v8::Object> prototype,
     const ConstantConfiguration& constant) {
   InstallConstantInternal(isolate, interface, prototype, constant);
+}
+
+void V8DOMConfiguration::InstallConstants(
+    v8::Isolate* isolate,
+    v8::Local<v8::FunctionTemplate> interface_template,
+    v8::Local<v8::ObjectTemplate> prototype_template,
+    const ConstantCallbackConfiguration* constants,
+    size_t constant_count) {
+  for (size_t i = 0; i < constant_count; ++i) {
+    v8::Local<v8::String> name = V8AtomicString(isolate, constants[i].name);
+    interface_template->SetNativeDataProperty(
+        name, constants[i].getter, nullptr, v8::Local<v8::Value>(),
+        static_cast<v8::PropertyAttribute>(v8::ReadOnly | v8::DontDelete),
+        v8::Local<v8::AccessorSignature>(), v8::DEFAULT,
+        v8::SideEffectType::kHasNoSideEffect,
+        v8::SideEffectType::kHasSideEffect);
+    prototype_template->SetNativeDataProperty(
+        name, constants[i].getter, nullptr, v8::Local<v8::Value>(),
+        static_cast<v8::PropertyAttribute>(v8::ReadOnly | v8::DontDelete),
+        v8::Local<v8::AccessorSignature>(), v8::DEFAULT,
+        v8::SideEffectType::kHasNoSideEffect,
+        v8::SideEffectType::kHasSideEffect);
+  }
+}
+
+void V8DOMConfiguration::InstallConstants(
+    v8::Isolate* isolate,
+    v8::Local<v8::Function> interface_object,
+    v8::Local<v8::Object> prototype_object,
+    const V8DOMConfiguration::ConstantConfiguration* constants,
+    size_t constant_count) {
+  for (size_t i = 0; i < constant_count; ++i) {
+    InstallConstantInternal(isolate, interface_object, prototype_object,
+                            constants[i]);
+  }
 }
 
 void V8DOMConfiguration::InstallConstantWithGetter(
@@ -740,6 +793,22 @@ void V8DOMConfiguration::InstallMethods(
                           interface_template, signature, methods[i], world);
 }
 
+void V8DOMConfiguration::InstallMethods(
+    v8::Isolate* isolate,
+    const DOMWrapperWorld& world,
+    v8::Local<v8::ObjectTemplate> instance_template,
+    v8::Local<v8::ObjectTemplate> prototype_template,
+    v8::Local<v8::FunctionTemplate> interface_template,
+    v8::Local<v8::Signature> signature,
+    const NoAllocDirectCallMethodConfiguration* methods,
+    size_t method_count) {
+  for (size_t i = 0; i < method_count; ++i) {
+    InstallMethodInternal(
+        isolate, instance_template, prototype_template, interface_template,
+        signature, methods[i].method_config, world, &methods[i].v8_c_function);
+  }
+}
+
 void V8DOMConfiguration::InstallMethod(
     v8::Isolate* isolate,
     const DOMWrapperWorld& world,
@@ -750,6 +819,20 @@ void V8DOMConfiguration::InstallMethod(
     const MethodConfiguration& method) {
   InstallMethodInternal(isolate, instance_template, prototype_template,
                         interface_template, signature, method, world);
+}
+
+void V8DOMConfiguration::InstallMethods(v8::Isolate* isolate,
+                                        const DOMWrapperWorld& world,
+                                        v8::Local<v8::Object> instance,
+                                        v8::Local<v8::Object> prototype,
+                                        v8::Local<v8::Function> interface,
+                                        v8::Local<v8::Signature> signature,
+                                        const MethodConfiguration* methods,
+                                        size_t method_count) {
+  for (size_t i = 0; i < method_count; ++i) {
+    InstallMethodInternal(isolate, instance, prototype, interface, signature,
+                          methods[i], world);
+  }
 }
 
 void V8DOMConfiguration::InstallMethod(v8::Isolate* isolate,

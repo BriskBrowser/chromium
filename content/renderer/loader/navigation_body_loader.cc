@@ -6,11 +6,12 @@
 
 #include "base/bind.h"
 #include "base/macros.h"
-#include "content/renderer/loader/code_cache_loader_impl.h"
 #include "content/renderer/loader/resource_load_stats.h"
 #include "content/renderer/loader/web_url_loader_impl.h"
 #include "services/network/public/cpp/url_loader_completion_status.h"
 #include "services/network/public/mojom/url_response_head.mojom.h"
+#include "third_party/blink/public/common/loader/referrer_utils.h"
+#include "third_party/blink/public/platform/web_code_cache_loader.h"
 #include "third_party/blink/public/web/web_navigation_params.h"
 
 namespace content {
@@ -40,7 +41,13 @@ void NavigationBodyLoader::FillNavigationParamsResponseAndBodyLoader(
       !commit_params->original_method.empty() ? commit_params->original_method
                                               : common_params->method,
       common_params->referrer->url,
-      is_main_frame ? ResourceType::kMainFrame : ResourceType::kSubFrame,
+      // TODO(kinuko): This should use the same value as in the request that
+      // was used in browser process, i.e. what CreateResourceRequest in
+      // content/browser/loader/navigation_url_loader_impl.cc gives.
+      // (Currently we don't propagate the value from the browser on navigation
+      // commit.)
+      is_main_frame ? network::mojom::RequestDestination::kDocument
+                    : network::mojom::RequestDestination::kIframe,
       is_main_frame ? net::HIGHEST : net::LOWEST);
   size_t redirect_count = commit_params->redirect_response.size();
   navigation_params->redirects.reserve(redirect_count);
@@ -61,7 +68,7 @@ void NavigationBodyLoader::FillNavigationParamsResponseAndBodyLoader(
     redirect.new_referrer =
         blink::WebString::FromUTF8(redirect_info.new_referrer);
     redirect.new_referrer_policy =
-        Referrer::NetReferrerPolicyToBlinkReferrerPolicy(
+        blink::ReferrerUtils::NetToMojoReferrerPolicy(
             redirect_info.new_referrer_policy);
     redirect.new_http_method =
         blink::WebString::FromLatin1(redirect_info.new_method);
@@ -88,7 +95,7 @@ NavigationBodyLoader::NavigationBodyLoader(
     network::mojom::URLLoaderClientEndpointsPtr endpoints,
     scoped_refptr<base::SingleThreadTaskRunner> task_runner,
     int render_frame_id,
-    mojom::ResourceLoadInfoPtr resource_load_info)
+    blink::mojom::ResourceLoadInfoPtr resource_load_info)
     : render_frame_id_(render_frame_id),
       response_head_(std::move(response_head)),
       response_body_(std::move(response_body)),
@@ -184,10 +191,10 @@ void NavigationBodyLoader::StartLoadingBody(
   base::Time response_head_response_time = response_head_->response_time;
   NotifyResourceResponseReceived(render_frame_id_, resource_load_info_.get(),
                                  std::move(response_head_),
-                                 content::PREVIEWS_OFF);
+                                 blink::PreviewsTypes::PREVIEWS_OFF);
 
   if (use_isolated_code_cache) {
-    code_cache_loader_ = std::make_unique<CodeCacheLoaderImpl>();
+    code_cache_loader_ = blink::WebCodeCacheLoader::Create();
     code_cache_loader_->FetchFromCodeCache(
         blink::mojom::CodeCacheType::kJavascript,
         resource_load_info_->original_url,
@@ -204,6 +211,8 @@ void NavigationBodyLoader::CodeCacheReceived(
     base::Time response_head_response_time,
     base::Time response_time,
     mojo_base::BigBuffer data) {
+  // Check that the times match to ensure that the code cache data is for this
+  // response. See https://crbug.com/1099587.
   if (response_head_response_time == response_time && client_) {
     base::WeakPtr<NavigationBodyLoader> weak_self = weak_factory_.GetWeakPtr();
     client_->BodyCodeCacheReceived(std::move(data));

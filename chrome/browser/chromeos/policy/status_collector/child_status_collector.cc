@@ -17,24 +17,24 @@
 #include "base/base64.h"
 #include "base/bind.h"
 #include "base/bind_helpers.h"
+#include "base/check.h"
 #include "base/feature_list.h"
 #include "base/format_macros.h"
-#include "base/logging.h"
 #include "base/optional.h"
 #include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
 #include "base/threading/sequenced_task_runner_handle.h"
 #include "base/values.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/chromeos/login/users/chrome_user_manager.h"
 #include "chrome/browser/chromeos/policy/status_collector/child_activity_storage.h"
+#include "chrome/browser/chromeos/policy/status_collector/interval_map.h"
 #include "chrome/browser/chromeos/policy/status_collector/status_collector_state.h"
-#include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/chromeos/settings/cros_settings.h"
-#include "chrome/browser/profiles/profile_manager.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/common/chrome_features.h"
 #include "chrome/common/pref_names.h"
 #include "chromeos/dbus/util/version_loader.h"
@@ -50,9 +50,6 @@
 #include "components/policy/proto/device_management_backend.pb.h"
 #include "components/prefs/pref_service.h"
 #include "components/prefs/scoped_user_pref_update.h"
-#include "components/user_manager/user.h"
-#include "components/user_manager/user_manager.h"
-#include "components/user_manager/user_type.h"
 #include "content/public/browser/browser_thread.h"
 #include "third_party/cros_system_api/dbus/service_constants.h"
 
@@ -121,12 +118,15 @@ class ChildStatusCollectorState : public StatusCollectorState {
 
 ChildStatusCollector::ChildStatusCollector(
     PrefService* pref_service,
+    Profile* profile,
     chromeos::system::StatisticsProvider* provider,
     const AndroidStatusFetcher& android_status_fetcher,
     TimeDelta activity_day_start)
     : StatusCollector(provider, chromeos::CrosSettings::Get()),
       pref_service_(pref_service),
+      profile_(profile),
       android_status_fetcher_(android_status_fetcher) {
+  DCHECK(profile_);
   // protected fields of `StatusCollector`.
   max_stored_past_activity_interval_ = kMaxStoredPastActivityInterval;
   max_stored_future_activity_interval_ = kMaxStoredFutureActivityInterval;
@@ -158,13 +158,12 @@ ChildStatusCollector::ChildStatusCollector(
   UpdateReportingSettings();
 
   // Get the OS version.
-  base::PostTaskAndReplyWithResult(
-      FROM_HERE,
-      {base::ThreadPool(), base::MayBlock(), base::TaskPriority::BEST_EFFORT},
-      base::BindRepeating(&chromeos::version_loader::GetVersion,
-                          chromeos::version_loader::VERSION_FULL),
-      base::BindRepeating(&ChildStatusCollector::OnOSVersion,
-                          weak_factory_.GetWeakPtr()));
+  base::ThreadPool::PostTaskAndReplyWithResult(
+      FROM_HERE, {base::MayBlock(), base::TaskPriority::BEST_EFFORT},
+      base::BindOnce(&chromeos::version_loader::GetVersion,
+                     chromeos::version_loader::VERSION_FULL),
+      base::BindOnce(&ChildStatusCollector::OnOSVersion,
+                     weak_factory_.GetWeakPtr()));
 
   DCHECK(pref_service_->GetInitializationStatus() !=
          PrefService::INITIALIZATION_STATUS_WAITING);
@@ -188,8 +187,8 @@ void ChildStatusCollector::UpdateReportingSettings() {
   // back when they are available.
   if (chromeos::CrosSettingsProvider::TRUSTED !=
       cros_settings_->PrepareTrustedValues(
-          base::BindRepeating(&ChildStatusCollector::UpdateReportingSettings,
-                              weak_factory_.GetWeakPtr()))) {
+          base::BindOnce(&ChildStatusCollector::UpdateReportingSettings,
+                         weak_factory_.GetWeakPtr()))) {
     return;
   }
 
@@ -203,6 +202,24 @@ void ChildStatusCollector::UpdateReportingSettings() {
                              &report_boot_mode_);
 }
 
+void ChildStatusCollector::OnAppActivityReportSubmitted() {
+  if (!chromeos::app_time::AppActivityReportInterface::
+          ShouldReportAppActivity()) {
+    return;
+  }
+
+  DCHECK(last_report_params_);
+  if (last_report_params_->anything_reported) {
+    chromeos::app_time::AppActivityReportInterface* app_activity_reporting =
+        chromeos::app_time::AppActivityReportInterface::Get(profile_);
+    DCHECK(app_activity_reporting);
+    app_activity_reporting->AppActivityReportSubmitted(
+        last_report_params_->generation_time);
+  }
+
+  last_report_params_.reset();
+}
+
 void ChildStatusCollector::OnUsageTimeStateChange(
     chromeos::UsageTimeStateNotifier::UsageTimeState state) {
   UpdateChildUsageTime();
@@ -211,7 +228,7 @@ void ChildStatusCollector::OnUsageTimeStateChange(
 }
 
 void ChildStatusCollector::UpdateChildUsageTime() {
-  Time now = GetCurrentTime();
+  Time now = clock_->Now();
   Time reset_time = activity_storage_->GetBeginningOfDay(now);
   if (reset_time > now)
     reset_time -= TimeDelta::FromDays(1);
@@ -247,29 +264,43 @@ bool ChildStatusCollector::GetActivityTimes(
   UpdateChildUsageTime();
 
   // Signed-in user is reported in child reporting.
-  std::vector<ActivityStorage::ActivityPeriod> activity_times =
-      activity_storage_->GetStoredActivityPeriods();
+  auto activity_times = activity_storage_->GetStoredActivityPeriods();
 
   bool anything_reported = false;
   for (const auto& activity_period : activity_times) {
     // This is correct even when there are leap seconds, because when a leap
     // second occurs, two consecutive seconds have the same timestamp.
     int64_t end_timestamp =
-        activity_period.start_timestamp + Time::kMillisecondsPerDay;
+        activity_period.start_timestamp() + Time::kMillisecondsPerDay;
 
     em::ScreenTimeSpan* screen_time_span = status->add_screen_time_span();
     em::TimePeriod* period = screen_time_span->mutable_time_period();
-    period->set_start_timestamp(activity_period.start_timestamp);
+    period->set_start_timestamp(activity_period.start_timestamp());
     period->set_end_timestamp(end_timestamp);
-    screen_time_span->set_active_duration_ms(
-        activity_period.activity_milliseconds);
-    if (activity_period.start_timestamp >= last_reported_day_) {
-      last_reported_day_ = activity_period.start_timestamp;
-      duration_for_last_reported_day_ = activity_period.activity_milliseconds;
+    screen_time_span->set_active_duration_ms(activity_period.end_timestamp() -
+                                             activity_period.start_timestamp());
+    if (last_reported_end_timestamp_ < end_timestamp) {
+      last_reported_end_timestamp_ = end_timestamp;
     }
     anything_reported = true;
   }
   return anything_reported;
+}
+
+bool ChildStatusCollector::GetAppActivity(
+    em::ChildStatusReportRequest* status) {
+  if (!chromeos::app_time::AppActivityReportInterface::
+          ShouldReportAppActivity()) {
+    return false;
+  }
+
+  chromeos::app_time::AppActivityReportInterface* app_activity_reporting =
+      chromeos::app_time::AppActivityReportInterface::Get(profile_);
+  DCHECK(app_activity_reporting);
+
+  last_report_params_ =
+      app_activity_reporting->GenerateAppActivityReport(status);
+  return last_report_params_->anything_reported;
 }
 
 bool ChildStatusCollector::GetVersionInfo(
@@ -300,13 +331,7 @@ void ChildStatusCollector::GetStatusAsync(
 
 bool ChildStatusCollector::FillUserSpecificFields(
     scoped_refptr<ChildStatusCollectorState> state,
-    em::ChildStatusReportRequest* status,
-    const user_manager::User* user) {
-  Profile* const profile =
-      chromeos::ProfileHelper::Get()->GetProfileByUser(user);
-  if (!profile)
-    return false;
-
+    em::ChildStatusReportRequest* status) {
   // Time zone.
   const std::string current_timezone =
       base::UTF16ToUTF8(chromeos::system::TimezoneSettings::GetInstance()
@@ -315,12 +340,11 @@ bool ChildStatusCollector::FillUserSpecificFields(
 
   // Android status.
   const bool report_android_status =
-      profile->GetPrefs()->GetBoolean(prefs::kReportArcStatusEnabled);
+      profile_->GetPrefs()->GetBoolean(prefs::kReportArcStatusEnabled);
   if (report_android_status)
     GetAndroidStatus(state);
 
-  if (!user->IsDeviceLocalAccount())
-    status->set_user_dm_token(GetDMTokenForProfile(profile));
+  status->set_user_dm_token(GetDMTokenForProfile(profile_));
 
   // At least time zone is always reported.
   return true;
@@ -337,16 +361,13 @@ void ChildStatusCollector::FillChildStatusReportRequest(
       state->response_params().child_status.get();
   bool anything_reported = false;
 
-  user_manager::UserManager* user_manager = user_manager::UserManager::Get();
-  const user_manager::User* const primary_user = user_manager->GetPrimaryUser();
-  DCHECK(primary_user != nullptr);
-
-  anything_reported |= FillUserSpecificFields(state, status, primary_user);
+  anything_reported |= FillUserSpecificFields(state, status);
 
   if (report_version_info_)
     anything_reported |= GetVersionInfo(status);
 
   anything_reported |= GetActivityTimes(status);
+  anything_reported |= GetAppActivity(status);
 
   if (report_boot_mode_) {
     base::Optional<std::string> boot_mode =
@@ -363,9 +384,9 @@ void ChildStatusCollector::FillChildStatusReportRequest(
 }
 
 void ChildStatusCollector::OnSubmittedSuccessfully() {
-  activity_storage_->TrimActivityPeriods(last_reported_day_,
-                                         duration_for_last_reported_day_,
+  activity_storage_->TrimActivityPeriods(last_reported_end_timestamp_,
                                          std::numeric_limits<int64_t>::max());
+  OnAppActivityReportSubmitted();
 }
 
 bool ChildStatusCollector::ShouldReportActivityTimes() const {
@@ -381,6 +402,13 @@ bool ChildStatusCollector::ShouldReportUsers() const {
 }
 
 bool ChildStatusCollector::ShouldReportHardwareStatus() const {
+  return false;
+}
+
+bool ChildStatusCollector::ShouldReportCrashReportInfo() const {
+  return false;
+}
+bool ChildStatusCollector::ShouldReportAppInfoAndActivity() const {
   return false;
 }
 

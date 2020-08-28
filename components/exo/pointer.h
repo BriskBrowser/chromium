@@ -18,8 +18,9 @@
 #include "ui/aura/client/cursor_client_observer.h"
 #include "ui/aura/client/focus_change_observer.h"
 #include "ui/base/cursor/cursor.h"
-#include "ui/events/event_constants.h"
+#include "ui/base/cursor/mojom/cursor_type.mojom-forward.h"
 #include "ui/events/event_handler.h"
+#include "ui/events/types/event_type.h"
 #include "ui/gfx/geometry/point.h"
 #include "ui/gfx/geometry/point_f.h"
 #include "ui/gfx/native_widget_types.h"
@@ -63,8 +64,8 @@ class Pointer : public SurfaceTreeHost,
   void SetCursor(Surface* surface, const gfx::Point& hotspot);
 
   // Set the pointer cursor type. This is similar to SetCursor, but this method
-  // accepts ui::CursorType instead of the surface for the pointer image.
-  void SetCursorType(ui::CursorType cursor_type);
+  // accepts ui::mojom::CursorType instead of the surface for the pointer image.
+  void SetCursorType(ui::mojom::CursorType cursor_type);
 
   // Set delegate for pinch events.
   void SetGesturePinchDelegate(PointerGesturePinchDelegate* delegate);
@@ -92,17 +93,6 @@ class Pointer : public SurfaceTreeHost,
   void RegisterRelativePointerDelegate(RelativePointerDelegate* delegate);
   void UnregisterRelativePointerDelegate(RelativePointerDelegate* delegate);
 
-  // Capture the pointer for the top-most surface. Returns true iff the capture
-  // succeeded.
-  //
-  // TODO(b/124059008): Historically, exo needed to guess what the correct
-  // capture window was, as it did not implement wayland's pointer capture
-  // protocol.
-  bool EnablePointerCapture();
-
-  // Remove the currently active pointer capture (if there is one).
-  void DisablePointerCapture();
-
   // Enable the pointer constraint on the given surface. Returns true if the
   // lock was granted, false otherwise.
   //
@@ -121,8 +111,11 @@ class Pointer : public SurfaceTreeHost,
   // succeeded.
   bool EnablePointerCapture(Surface* capture_surface);
 
+  // Remove the currently active pointer capture (if there is one).
+  void DisablePointerCapture();
+
   // Returns the effective target for |event|.
-  Surface* GetEffectiveTargetForEvent(ui::LocatedEvent* event) const;
+  Surface* GetEffectiveTargetForEvent(const ui::LocatedEvent* event) const;
 
   // Change pointer focus to |surface|.
   void SetFocus(Surface* surface,

@@ -5,11 +5,11 @@
 #include "chrome/browser/vr/speech_recognizer.h"
 
 #include "base/bind.h"
-#include "base/logging.h"
+#include "base/check.h"
 #include "base/memory/ref_counted.h"
+#include "base/notreached.h"
 #include "base/run_loop.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/task/post_task.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/timer/mock_timer.h"
 #include "chrome/browser/vr/browser_ui_interface.h"
@@ -149,8 +149,8 @@ class FakeSpeechRecognitionManager : public content::SpeechRecognitionManager {
 
   void FakeSpeechRecognitionEvent(FakeRecognitionEvent event) {
     if (!content::BrowserThread::CurrentlyOn(content::BrowserThread::IO)) {
-      base::PostTask(
-          FROM_HERE, {content::BrowserThread::IO},
+      content::GetIOThreadTaskRunner({})->PostTask(
+          FROM_HERE,
           base::BindOnce(
               &FakeSpeechRecognitionManager::FakeSpeechRecognitionEvent,
               base::Unretained(this), event));

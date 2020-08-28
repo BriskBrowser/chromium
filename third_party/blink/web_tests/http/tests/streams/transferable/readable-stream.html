@@ -147,13 +147,21 @@ promise_test(async () => {
 }, 'cancel should be propagated to the original');
 
 promise_test(async () => {
-  const rs = await recordingTransferredReadableStream();
+  let resolveCancelCalled;
+  const cancelCalled = new Promise(resolve => {
+    resolveCancelCalled = resolve;
+  });
+  const rs = await recordingTransferredReadableStream({
+    cancel() {
+      resolveCancelCalled();
+    }
+  });
   const reader = rs.getReader();
   const readPromise = reader.read();
   reader.cancel('done');
   const { done } = await readPromise;
   assert_true(done, 'should be done');
-  await delay(0);
+  await cancelCalled;
   assert_array_equals(rs.events, ['pull', 'cancel', 'done'],
                       'events should match');
 }, 'cancel should abort a pending read()');
@@ -195,10 +203,10 @@ promise_test(async t => {
   const rs = await recordingTransferredReadableStream();
   const reader = rs.getReader();
   rs.controller.enqueue(new ReadableStream());
-  await promise_rejects(t, 'DataCloneError', reader.read(),
-                        'closed promise should reject');
-  assert_throws(new TypeError(), () => rs.controller.enqueue(),
-                'original stream should be errored');
+  await promise_rejects_dom(t, 'DataCloneError', reader.read(),
+                            'closed promise should reject');
+  assert_throws_js(TypeError, () => rs.controller.enqueue(),
+                   'original stream should be errored');
 }, 'transferring a non-serializable chunk should error both sides');
 
 promise_test(async () => {
@@ -226,8 +234,8 @@ promise_test(async () => {
   rs.controller.error();
   const {done} = await reader.read();
   assert_true(done, 'should be done');
-  assert_throws(new TypeError(), () => rs.controller.enqueue(),
-                'enqueue should throw');
+  assert_throws_js(TypeError, () => rs.controller.enqueue(),
+                   'enqueue should throw');
 }, 'race between cancel() and error() should leave sides in different states');
 
 promise_test(async () => {

@@ -157,31 +157,49 @@ class VariableExpander:
         previous_version_mini_installer_path)
     windows_major_ver, windows_minor_ver, _, _, _ = win32api.GetVersionEx()
     self._variable_mapping = {
-        'CHROMEDRIVER_PATH': chromedriver_path,
-        'QUIET': '-q' if quiet else '',
-        'OUTPUT_DIR': '"--output-dir=%s"' % output_dir if output_dir else '',
-        'LOCAL_APPDATA': shell.SHGetFolderPath(0, shellcon.CSIDL_LOCAL_APPDATA,
-                                               None, 0),
-        'LOG_FILE': '',
-        'MINI_INSTALLER': mini_installer_abspath,
-        'MINI_INSTALLER_FILE_VERSION': _GetFileVersion(mini_installer_abspath),
-        'MINI_INSTALLER_BITNESS': _GetFileBitness(mini_installer_abspath),
+        'CHROMEDRIVER_PATH':
+        chromedriver_path,
+        'QUIET':
+        '-q' if quiet else '',
+        'OUTPUT_DIR':
+        '"--output-dir=%s"' % output_dir if output_dir else '',
+        'LOCAL_APPDATA':
+        shell.SHGetFolderPath(0, shellcon.CSIDL_LOCAL_APPDATA, None, 0),
+        'LOG_FILE':
+        '',
+        'MINI_INSTALLER':
+        mini_installer_abspath,
+        'MINI_INSTALLER_FILE_VERSION':
+        _GetFileVersion(mini_installer_abspath),
+        'MINI_INSTALLER_BITNESS':
+        _GetFileBitness(mini_installer_abspath),
         'PREVIOUS_VERSION_MINI_INSTALLER':
-            previous_version_mini_installer_abspath,
-        'PREVIOUS_VERSION_MINI_INSTALLER_FILE_VERSION': _GetFileVersion(
-            previous_version_mini_installer_abspath),
-        'PROGRAM_FILES': shell.SHGetFolderPath(0,
-                                               shellcon.CSIDL_PROGRAM_FILESX86,
-                                               None, 0),
-        'USER_SPECIFIC_REGISTRY_SUFFIX': _GetUserSpecificRegistrySuffix(),
-        'VERSION_SERVER_2003': '(5, 2)',
-        'VERSION_VISTA': '(6, 0)',
-        'VERSION_WIN10': '(10, 0)',
-        'VERSION_WIN7': '(6, 1)',
-        'VERSION_WIN8': '(6, 2)',
-        'VERSION_WIN8_1': '(6, 3)',
-        'VERSION_XP': '(5, 1)',
-        'WINDOWS_VERSION': '(%s, %s)' % (windows_major_ver, windows_minor_ver)
+        previous_version_mini_installer_abspath,
+        'PREVIOUS_VERSION_MINI_INSTALLER_FILE_VERSION':
+        _GetFileVersion(previous_version_mini_installer_abspath),
+        'PROGRAM_FILES':
+        shell.SHGetFolderPath(
+            0, shellcon.CSIDL_PROGRAM_FILES
+            if _GetFileBitness(mini_installer_abspath) == '64' else
+            shellcon.CSIDL_PROGRAM_FILESX86, None, 0),
+        'USER_SPECIFIC_REGISTRY_SUFFIX':
+        _GetUserSpecificRegistrySuffix(),
+        'VERSION_SERVER_2003':
+        '(5, 2)',
+        'VERSION_VISTA':
+        '(6, 0)',
+        'VERSION_WIN10':
+        '(10, 0)',
+        'VERSION_WIN7':
+        '(6, 1)',
+        'VERSION_WIN8':
+        '(6, 2)',
+        'VERSION_WIN8_1':
+        '(6, 3)',
+        'VERSION_XP':
+        '(5, 1)',
+        'WINDOWS_VERSION':
+        '(%s, %s)' % (windows_major_ver, windows_minor_ver)
     }
 
     mini_installer_product_name = _GetProductName(mini_installer_abspath)
@@ -256,13 +274,16 @@ class VariableExpander:
           'CHROME_ELEVATION_SERVICE_NAME_SXS': (
             'GoogleChromeCanaryElevationService'),
           'CHROME_ELEVATION_SERVICE_DISPLAY_NAME': (
-            'Google Chrome Elevation Service'),
+            'Google Chrome Elevation Service (GoogleChromeElevationService)'),
           'CHROME_ELEVATION_SERVICE_DISPLAY_NAME_BETA': (
-            'Google Chrome Beta Elevation Service'),
+            'Google Chrome Beta Elevation Service'
+            ' (GoogleChromeBetaElevationService)'),
           'CHROME_ELEVATION_SERVICE_DISPLAY_NAME_DEV': (
-            'Google Chrome Dev Elevation Service'),
+            'Google Chrome Dev Elevation Service'
+            ' (GoogleChromeDevElevationService)'),
           'CHROME_ELEVATION_SERVICE_DISPLAY_NAME_SXS': (
-            'Google Chrome Canary Elevation Service'),
+            'Google Chrome Canary Elevation Service'
+            ' (GoogleChromeCanaryElevationService)'),
       })
     elif mini_installer_product_name == 'Chromium Installer':
       self._variable_mapping.update({
@@ -280,7 +301,7 @@ class VariableExpander:
           'CHROME_ELEVATOR_IID': ('{B88C45B9-8825-4629-B83E-77CC67D9CEED}'),
           'CHROME_ELEVATION_SERVICE_NAME': 'ChromiumElevationService',
           'CHROME_ELEVATION_SERVICE_DISPLAY_NAME': (
-            'Chromium Elevation Service'),
+            'Chromium Elevation Service (ChromiumElevationService)'),
       })
     else:
       raise KeyError("Unknown mini_installer product name '%s'" %

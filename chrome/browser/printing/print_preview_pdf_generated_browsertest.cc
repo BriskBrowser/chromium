@@ -23,7 +23,6 @@
 #include "base/files/scoped_temp_dir.h"
 #include "base/hash/md5.h"
 #include "base/location.h"
-#include "base/logging.h"
 #include "base/macros.h"
 #include "base/path_service.h"
 #include "base/run_loop.h"
@@ -40,13 +39,16 @@
 #include "chrome/common/chrome_paths.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/ui_test_utils.h"
+#include "components/printing/common/print.mojom.h"
 #include "components/printing/common/print_messages.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_ui_message_handler.h"
+#include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
 #include "ipc/ipc_message_macros.h"
 #include "net/base/filename_util.h"
 #include "pdf/pdf.h"
+#include "printing/mojom/print.mojom.h"
 #include "printing/pdf_render_settings.h"
 #include "printing/units.h"
 #include "ui/gfx/codec/png_codec.h"
@@ -96,7 +98,7 @@ struct PrintPreviewSettings {
                        const std::string& page_numbers,
                        bool headers_and_footers,
                        bool background_colors_and_images,
-                       MarginType margins,
+                       mojom::MarginType margins,
                        bool source_is_pdf)
       : is_portrait(is_portrait),
         page_numbers(page_numbers),
@@ -109,7 +111,7 @@ struct PrintPreviewSettings {
   std::string page_numbers;
   bool headers_and_footers;
   bool background_colors_and_images;
-  MarginType margins;
+  mojom::MarginType margins;
   bool source_is_pdf;
 };
 
@@ -194,7 +196,8 @@ class PrintPreviewObserver : public WebContentsObserver {
       state_ = kWaitingToSendMargins;
       failed_setting_ = "Background Colors and Images";
     } else if (state_ == kWaitingToSendMargins) {
-      script_argument.SetInteger("margins", settings_->margins);
+      script_argument.SetInteger("margins",
+                                 static_cast<int>(settings_->margins));
       state_ = kWaitingForFinalMessage;
       failed_setting_ = "Margins";
     } else if (state_ == kWaitingForFinalMessage) {
@@ -269,7 +272,7 @@ class PrintPreviewObserver : public WebContentsObserver {
 
   // Called when the observer gets the IPC message with the preview document's
   // properties.
-  void OnDidStartPreview(const PrintHostMsg_DidStartPreview_Params& params,
+  void OnDidStartPreview(const mojom::DidStartPreviewParams& params,
                          const PrintHostMsg_PreviewIds& ids) {
     WebContents* web_contents = GetDialog();
     ASSERT_TRUE(web_contents);
@@ -388,7 +391,8 @@ class PrintPreviewPdfGeneratedBrowserTest : public InProcessBrowserTest {
       ASSERT_TRUE(chrome_pdf::RenderPDFPageToBitmap(
           pdf_span, i, page_bitmap_data.data(), settings.area.size().width(),
           settings.area.size().height(), settings.dpi.width(),
-          settings.dpi.height(), settings.autorotate, settings.use_color));
+          settings.dpi.height(), false, true, settings.autorotate,
+          settings.use_color));
       FillPng(&page_bitmap_data, width_in_pixels, max_width_in_pixels,
               settings.area.size().height());
       bitmap_data.insert(bitmap_data.end(),
@@ -606,11 +610,7 @@ IN_PROC_BROWSER_TEST_F(PrintPreviewPdfGeneratedBrowserTest,
 
     DuplicateTab();
     PrintPreviewSettings settings(
-        true,
-        "",
-        false,
-        false,
-        DEFAULT_MARGINS,
+        true, "", false, false, mojom::MarginType::kDefaultMargins,
         cmd.find(file_extension) != base::FilePath::StringType::npos);
 
     // Splits the command sent by the layout test framework. The first command

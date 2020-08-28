@@ -7,6 +7,7 @@ package org.chromium.chrome.browser;
 import android.app.Application;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.ApplicationInfo;
 import android.content.res.Configuration;
 import android.os.Bundle;
 
@@ -14,7 +15,6 @@ import androidx.annotation.Nullable;
 
 import org.chromium.base.ApplicationState;
 import org.chromium.base.ApplicationStatus;
-import org.chromium.base.BuildConfig;
 import org.chromium.base.BuildInfo;
 import org.chromium.base.BundleUtils;
 import org.chromium.base.CommandLineInitUtil;
@@ -26,11 +26,7 @@ import org.chromium.base.annotations.MainDex;
 import org.chromium.base.library_loader.LibraryLoader;
 import org.chromium.base.library_loader.LibraryProcessType;
 import org.chromium.base.memory.MemoryPressureMonitor;
-import org.chromium.base.multidex.ChromiumMultiDexInstaller;
 import org.chromium.base.task.AsyncTask;
-import org.chromium.build.BuildHooks;
-import org.chromium.build.BuildHooksAndroid;
-import org.chromium.build.BuildHooksConfig;
 import org.chromium.chrome.browser.background_task_scheduler.ChromeBackgroundTaskFactory;
 import org.chromium.chrome.browser.crash.ApplicationStatusTracker;
 import org.chromium.chrome.browser.crash.FirebaseConfig;
@@ -41,14 +37,19 @@ import org.chromium.chrome.browser.dependency_injection.ChromeAppComponent;
 import org.chromium.chrome.browser.dependency_injection.ChromeAppModule;
 import org.chromium.chrome.browser.dependency_injection.DaggerChromeAppComponent;
 import org.chromium.chrome.browser.dependency_injection.ModuleFactoryOverrides;
-import org.chromium.chrome.browser.flags.FeatureUtilities;
+import org.chromium.chrome.browser.flags.CachedFeatureFlags;
+import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.metrics.UmaUtils;
 import org.chromium.chrome.browser.night_mode.SystemNightModeMonitor;
 import org.chromium.chrome.browser.vr.OnExitVrRequestListener;
 import org.chromium.chrome.browser.vr.VrModuleProvider;
+import org.chromium.components.browser_ui.util.GlobalDiscardableReferencePool;
 import org.chromium.components.embedder_support.application.FontPreloadingWorkaround;
 import org.chromium.components.module_installer.util.ModuleUtil;
+import org.chromium.components.version_info.Channel;
+import org.chromium.components.version_info.VersionConstants;
 import org.chromium.ui.base.ResourceBundle;
+import org.chromium.url.GURL;
 
 /**
  * Basic application functionality that should be shared among all browser applications that use
@@ -84,9 +85,6 @@ public class ChromeApplication extends Application {
         maybeInitProcessType(isBrowserProcess);
         BundleUtils.setIsBundle(ProductConfig.IS_BUNDLE);
         if (isBrowserProcess) {
-            if (BuildConfig.IS_MULTIDEX_ENABLED) {
-                ChromiumMultiDexInstaller.install(this);
-            }
             checkAppBeingReplaced();
 
             PathUtils.setPrivateDataDirectorySuffix(PRIVATE_DATA_DIRECTORY_SUFFIX);
@@ -95,8 +93,14 @@ public class ChromeApplication extends Application {
             CommandLineInitUtil.initCommandLine(
                     COMMAND_LINE_FILE, ChromeApplication::shouldUseDebugFlags);
 
+            // Enable ATrace on debug OS or app builds.
+            int applicationFlags = context.getApplicationInfo().flags;
+            boolean isAppDebuggable = (applicationFlags & ApplicationInfo.FLAG_DEBUGGABLE) != 0;
+            boolean isOsDebuggable = BuildInfo.isDebugAndroid();
             // Requires command-line flags.
-            TraceEvent.maybeEnableEarlyTracing();
+            TraceEvent.maybeEnableEarlyTracing(
+                    (isAppDebuggable || isOsDebuggable) ? TraceEvent.ATRACE_TAG_APP : 0,
+                    /*readCommandLine=*/true);
             TraceEvent.begin("ChromeApplication.attachBaseContext");
 
             // Register for activity lifecycle callbacks. Must be done before any activities are
@@ -110,19 +114,20 @@ public class ChromeApplication extends Application {
             tracker.onApplicationStateChange(ApplicationStatus.getStateForApplication());
             ApplicationStatus.registerApplicationStateListener(tracker);
 
-            // Only browser process requires custom resources.
-            BuildHooksAndroid.initCustomResources(this);
-
             // Disable MemoryPressureMonitor polling when Chrome goes to the background.
             ApplicationStatus.registerApplicationStateListener(
                     ChromeApplication::updateMemoryPressurePolling);
 
-            // Record via UMA all modules that have been requested and are currently installed. This
-            // will tell us the install penetration of each module over time.
-            ModuleUtil.recordModuleAvailability();
+            // Initializes the support for dynamic feature modules (browser only).
+            ModuleUtil.initApplication();
 
             // Set Chrome factory for mapping BackgroundTask classes to TaskIds.
             ChromeBackgroundTaskFactory.setAsDefault();
+
+            if (VersionConstants.CHANNEL == Channel.CANARY) {
+                GURL.setReportDebugThrowableCallback(
+                        PureJavaExceptionReporter::reportJavaException);
+            }
         }
 
         // Write installed modules to crash keys. This needs to be done as early as possible so that
@@ -135,17 +140,15 @@ public class ChromeApplication extends Application {
             // Incremental install disables process isolation, so things in this block will actually
             // be run for incremental apks, but not normal apks.
             PureJavaExceptionHandler.installHandler();
-            if (BuildHooksConfig.REPORT_JAVA_ASSERT) {
-                BuildHooks.setReportAssertionCallback(
-                        PureJavaExceptionReporter::reportJavaException);
-            }
         }
+
         AsyncTask.takeOverAndroidThreadPool();
         JNIUtils.setClassLoader(getClassLoader());
         ResourceBundle.setAvailablePakLocales(
                 ProductConfig.COMPRESSED_LOCALES, ProductConfig.UNCOMPRESSED_LOCALES);
         LibraryLoader.getInstance().setLinkerImplementation(
                 ProductConfig.USE_CHROMIUM_LINKER, ProductConfig.USE_MODERN_LINKER);
+        LibraryLoader.getInstance().enableJniChecks();
 
         if (isBrowserProcess) {
             TraceEvent.end("ChromeApplication.attachBaseContext");
@@ -176,10 +179,10 @@ public class ChromeApplication extends Application {
     }
 
     private static Boolean shouldUseDebugFlags() {
-        return FeatureUtilities.isCommandLineOnNonRootedEnabled();
+        return CachedFeatureFlags.isEnabled(ChromeFeatureList.COMMAND_LINE_ON_NON_ROOTED);
     }
 
-    private static boolean isBrowserProcess() {
+    protected static boolean isBrowserProcess() {
         return !ContextUtils.getProcessName().contains(":");
     }
 

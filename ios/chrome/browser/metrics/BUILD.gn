@@ -23,6 +23,8 @@ source_set("metrics") {
   sources = [
     "incognito_web_state_observer.h",
     "incognito_web_state_observer.mm",
+    "ios_chrome_default_browser_metrics_provider.h",
+    "ios_chrome_default_browser_metrics_provider.mm",
     "ios_chrome_metrics_service_accessor.cc",
     "ios_chrome_metrics_service_accessor.h",
     "ios_chrome_metrics_service_client.h",
@@ -37,6 +39,8 @@ source_set("metrics") {
     "ios_profile_session_durations_service_factory.mm",
     "mobile_session_shutdown_metrics_provider.h",
     "mobile_session_shutdown_metrics_provider.mm",
+    "pageload_foreground_duration_tab_helper.h",
+    "pageload_foreground_duration_tab_helper.mm",
     "previous_session_info.h",
     "previous_session_info.mm",
     "previous_session_info_private.h",
@@ -70,15 +74,19 @@ source_set("metrics") {
     "//ios/chrome/browser/browser_state",
     "//ios/chrome/browser/crash_report",
     "//ios/chrome/browser/google",
-    "//ios/chrome/browser/history:history",
+    "//ios/chrome/browser/history",
+    "//ios/chrome/browser/main:public",
     "//ios/chrome/browser/signin",
     "//ios/chrome/browser/sync",
     "//ios/chrome/browser/tabs",
     "//ios/chrome/browser/translate",
+    "//ios/chrome/browser/ui/util:multiwindow_util",
+    "//ios/chrome/browser/ui/whats_new:utils",
     "//ios/chrome/browser/variations",
     "//ios/chrome/browser/variations:ios_chrome_ui_string_overrider_factory",
     "//ios/chrome/browser/web_state_list",
     "//ios/chrome/common",
+    "//ios/components/webui:url_constants",
     "//ios/public/provider/chrome/browser",
     "//ios/web/common",
     "//ios/web/public/deprecated",
@@ -91,10 +99,12 @@ source_set("unit_tests") {
   testonly = true
   sources = [
     "chrome_browser_state_client_unittest.mm",
+    "ios_chrome_default_browser_metrics_provider_unittest.mm",
     "ios_chrome_metrics_service_accessor_unittest.cc",
     "ios_chrome_metrics_service_client_unittest.mm",
     "ios_chrome_stability_metrics_provider_unittest.mm",
     "mobile_session_shutdown_metrics_provider_unittest.mm",
+    "pageload_foreground_duration_tab_helper_unittest.mm",
     "previous_session_info_unittest.mm",
   ]
   deps = [
@@ -109,9 +119,11 @@ source_set("unit_tests") {
     "//components/prefs",
     "//components/prefs:test_support",
     "//components/ukm",
+    "//components/ukm:test_support",
     "//components/version_info",
     "//ios/chrome/browser",
     "//ios/chrome/browser/browser_state:test_support",
+    "//ios/chrome/browser/ui/whats_new:utils",
     "//ios/chrome/browser/web:test_support",
     "//ios/chrome/test:test_support",
     "//ios/web/common",
@@ -121,6 +133,36 @@ source_set("unit_tests") {
     "//net:test_support",
     "//testing/gtest",
   ]
+}
+
+source_set("metrics_browser_agent") {
+  configs += [ "//build/config/compiler:enable_arc" ]
+  sources = [
+    "tab_usage_recorder_browser_agent.h",
+    "tab_usage_recorder_browser_agent.mm",
+  ]
+  deps = [
+    ":metrics",
+    ":metrics_internal",
+    ":tab_usage_recorder_metrics",
+    "//base",
+    "//components/google/core/common",
+    "//components/ukm/ios:ukm_url_recorder",
+    "//ios/chrome/browser:chrome_url_constants",
+    "//ios/chrome/browser/browser_state",
+    "//ios/chrome/browser/main:public",
+    "//ios/chrome/browser/prerender",
+    "//ios/chrome/browser/sessions:restoration_agent",
+    "//ios/chrome/browser/sessions:restoration_observer",
+    "//ios/chrome/browser/web_state_list",
+    "//ios/components/webui:url_constants",
+    "//ios/web",
+    "//ios/web/common:user_agent",
+    "//services/metrics/public/cpp:ukm_builders",
+    "//ui/base",
+    "//url",
+  ]
+  frameworks = [ "UIKit.framework" ]
 }
 
 source_set("metrics_internal") {
@@ -135,8 +177,6 @@ source_set("metrics_internal") {
     "size_class_recorder.h",
     "size_class_recorder.mm",
     "size_class_recorder_private.h",
-    "tab_usage_recorder.h",
-    "tab_usage_recorder.mm",
     "user_interface_style_recorder.h",
     "user_interface_style_recorder.mm",
   ]
@@ -147,9 +187,6 @@ source_set("metrics_internal") {
     "//components/google/core/common",
     "//ios/chrome/browser",
     "//ios/chrome/browser/browser_state",
-    "//ios/chrome/browser/prerender",
-    "//ios/chrome/browser/sessions:restoration_observer",
-    "//ios/chrome/browser/tabs",
     "//ios/chrome/browser/ui/util",
     "//ios/chrome/browser/web_state_list",
     "//ios/web",
@@ -157,7 +194,7 @@ source_set("metrics_internal") {
     "//ui/base",
     "//url",
   ]
-  libs = [ "UIKit.framework" ]
+  frameworks = [ "UIKit.framework" ]
 }
 
 source_set("tab_usage_recorder_metrics") {
@@ -175,74 +212,23 @@ source_set("unit_tests_internal") {
   sources = [
     "first_user_action_recorder_unittest.cc",
     "size_class_recorder_unittest.mm",
-    "tab_usage_recorder_unittest.mm",
+    "tab_usage_recorder_browser_agent_unittest.mm",
   ]
   deps = [
     ":metrics",
+    ":metrics_browser_agent",
     ":metrics_internal",
     "//base",
     "//base/test:test_support",
+    "//ios/chrome/browser/main:test_support",
     "//ios/chrome/browser/ui/util",
     "//ios/chrome/browser/web_state_list",
-    "//ios/chrome/browser/web_state_list:test_support",
     "//ios/testing:ocmock_support",
     "//ios/web",
     "//ios/web/public/test",
     "//ios/web/public/test/fakes",
     "//testing/gtest",
   ]
-}
-
-source_set("eg_tests") {
-  defines = [ "CHROME_EARL_GREY_1" ]
-  configs += [ "//build/config/compiler:enable_arc" ]
-  testonly = true
-  sources = [
-    "tab_usage_recorder_egtest.mm",
-    "ukm_egtest.mm",
-  ]
-  deps = [
-    ":metrics_internal",
-    ":tab_usage_recorder_metrics",
-    ":test_support",
-    "//base",
-    "//base/test:test_support",
-    "//components/browser_sync",
-    "//components/metrics",
-    "//components/metrics_services_manager",
-    "//components/strings",
-    "//components/ukm",
-    "//components/ukm:test_support",
-    "//components/unified_consent:unified_consent",
-    "//ios/chrome/app/strings:ios_strings_grit",
-    "//ios/chrome/browser",
-    "//ios/chrome/browser/metrics",
-    "//ios/chrome/browser/signin",
-    "//ios/chrome/browser/sync",
-    "//ios/chrome/browser/ui/authentication",
-    "//ios/chrome/browser/ui/authentication:eg_test_support",
-    "//ios/chrome/browser/ui/authentication/cells",
-    "//ios/chrome/browser/ui/popup_menu:constants",
-    "//ios/chrome/browser/ui/settings",
-    "//ios/chrome/browser/ui/settings/google_services",
-    "//ios/chrome/browser/ui/toolbar/buttons",
-    "//ios/chrome/browser/ui/toolbar/public",
-    "//ios/chrome/browser/ui/util",
-    "//ios/chrome/test:eg_test_support",
-    "//ios/chrome/test/app:test_support",
-    "//ios/chrome/test/earl_grey:test_support",
-    "//ios/public/provider/chrome/browser/signin:fake_chrome_identity",
-    "//ios/public/provider/chrome/browser/signin:test_support",
-    "//ios/testing/earl_grey:earl_grey_support",
-    "//ios/web:earl_grey_test_support",
-    "//ios/web/public/test",
-    "//ios/web/public/test:element_selector",
-    "//ios/web/public/test/http_server",
-    "//net:test_support",
-    "//ui/base",
-    "//url",
-  ]
-  libs = [ "XCTest.framework" ]
 }
 
 source_set("eg2_tests") {
@@ -253,6 +239,7 @@ source_set("eg2_tests") {
   ]
   testonly = true
   sources = [
+    "demographics_egtest.mm",
     "tab_usage_recorder_egtest.mm",
     "ukm_egtest.mm",
   ]
@@ -260,7 +247,9 @@ source_set("eg2_tests") {
     ":eg_test_support+eg2",
     ":tab_usage_recorder_metrics",
     "//base/test:test_support",
+    "//components/metrics:demographic_metrics_provider",
     "//components/strings:components_strings_grit",
+    "//components/ukm",
     "//ios/chrome/app/strings:ios_strings_grit",
     "//ios/chrome/browser/ui/authentication:eg_test_support+eg2",
     "//ios/chrome/test:eg_test_support+eg2",
@@ -272,40 +261,7 @@ source_set("eg2_tests") {
     "//ios/web/public/test/http_server",
     "//ui/base:base",
   ]
-  libs = [ "UIKit.framework" ]
-}
-
-source_set("test_support") {
-  defines = [ "CHROME_EARL_GREY_1" ]
-  testonly = true
-  sources = [
-    "metrics_app_interface.h",
-    "metrics_app_interface.mm",
-  ]
-  deps = [
-    ":metrics",
-    "//base",
-    "//base/test:test_support",
-    "//components/metrics_services_manager",
-    "//components/ukm",
-    "//ios/chrome/app:app_internal",
-    "//ios/chrome/app/strings",
-    "//ios/chrome/browser",
-    "//ios/chrome/browser/metrics:metrics_internal",
-    "//ios/chrome/browser/tabs",
-    "//ios/chrome/browser/ui/main",
-    "//ios/chrome/browser/ui/popup_menu:constants",
-    "//ios/chrome/browser/ui/util",
-    "//ios/chrome/browser/web_state_list",
-    "//ios/chrome/test:eg_test_support",
-    "//ios/chrome/test/app:test_support",
-    "//ios/chrome/test/earl_grey:test_support",
-    "//ios/testing/earl_grey:earl_grey_support",
-    "//net:test_support",
-    "//services/metrics/public/cpp:metrics_cpp",
-    "//ui/base",
-  ]
-  configs += [ "//build/config/compiler:enable_arc" ]
+  frameworks = [ "UIKit.framework" ]
 }
 
 import("//components/metrics/generate_expired_histograms_array.gni")
@@ -335,15 +291,20 @@ source_set("eg_app_support+eg2") {
   deps = [
     "//base",
     "//base/test:test_support",
+    "//components/metrics",
+    "//components/metrics:demographics_test_support",
     "//components/metrics_services_manager",
-    "//components/metrics_services_manager:metrics_services_manager",
+    "//components/network_time",
+    "//components/prefs",
     "//components/ukm",
+    "//components/ukm:ukm_test_helper",
     "//ios/chrome/browser",
+    "//ios/chrome/browser/browser_state",
     "//ios/chrome/browser/metrics",
     "//ios/chrome/browser/metrics:metrics_internal",
     "//ios/chrome/test/app:test_support",
     "//ios/testing:nserror_support",
-    "//services/metrics/public/cpp:metrics_cpp",
+    "//third_party/metrics_proto",
   ]
 }
 
@@ -365,5 +326,6 @@ source_set("eg_test_support+eg2") {
     "//ios/chrome/test/earl_grey:eg_test_support+eg2",
     "//ios/testing/earl_grey:eg_test_support+eg2",
     "//ios/third_party/earl_grey2:test_lib",
+    "//third_party/metrics_proto",
   ]
 }

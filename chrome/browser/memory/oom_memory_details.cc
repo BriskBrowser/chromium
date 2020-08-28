@@ -8,6 +8,7 @@
 #include "base/process/process_metrics.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
+#include "build/lacros_buildflags.h"
 #include "chrome/browser/memory/oom_memory_details.h"
 #include "ui/base/text/bytes_formatting.h"
 
@@ -33,8 +34,8 @@ void OomMemoryDetails::OnDetailsAvailable() {
   base::TimeDelta delta = base::TimeTicks::Now() - start_time_;
   // These logs are collected by user feedback reports.  We want them to help
   // diagnose user-reported problems with frequently discarded tabs.
-  std::string log_string = ToLogString();
-#if defined(OS_CHROMEOS)
+  std::string log_string = ToLogString(/*include_tab_title=*/false);
+#if defined(OS_CHROMEOS) || BUILDFLAG(IS_LACROS)
   base::SystemMemoryInfoKB memory;
   if (base::GetSystemMemoryInfo(&memory) && memory.gem_size != -1) {
     log_string += "Graphics ";

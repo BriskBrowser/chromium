@@ -6,16 +6,18 @@
 #define CHROME_BROWSER_EXTENSIONS_API_IDENTITY_IDENTITY_GET_AUTH_TOKEN_FUNCTION_H_
 
 #include <memory>
+#include <set>
 #include <string>
 
 #include "base/callback_list.h"
 #include "base/memory/weak_ptr.h"
 #include "base/optional.h"
 #include "base/scoped_observer.h"
+#include "chrome/browser/extensions/api/identity/gaia_remote_consent_flow.h"
 #include "chrome/browser/extensions/api/identity/gaia_web_auth_flow.h"
 #include "chrome/browser/extensions/api/identity/identity_mint_queue.h"
-#include "chrome/browser/extensions/chrome_extension_function.h"
 #include "components/signin/public/identity_manager/identity_manager.h"
+#include "extensions/browser/extension_function.h"
 #include "extensions/browser/extension_function_histogram_value.h"
 #include "google_apis/gaia/google_service_auth_error.h"
 #include "google_apis/gaia/oauth2_access_token_manager.h"
@@ -27,6 +29,7 @@ struct AccessTokenInfo;
 }  // namespace signin
 
 namespace extensions {
+class IdentityGetAuthTokenError;
 
 // identity.getAuthToken fetches an OAuth 2 function for the
 // caller. The request has three sub-flows: non-interactive,
@@ -45,8 +48,9 @@ namespace extensions {
 // profile will be signed in already, but if it turns out we need a
 // new login token, there is a sign-in flow. If that flow completes
 // successfully, getAuthToken proceeds to the non-interactive flow.
-class IdentityGetAuthTokenFunction : public ChromeAsyncExtensionFunction,
+class IdentityGetAuthTokenFunction : public ExtensionFunction,
                                      public GaiaWebAuthFlow::Delegate,
+                                     public GaiaRemoteConsentFlow::Delegate,
                                      public IdentityMintRequestQueue::Request,
                                      public signin::IdentityManager::Observer,
 #if defined(OS_CHROMEOS)
@@ -74,6 +78,12 @@ class IdentityGetAuthTokenFunction : public ChromeAsyncExtensionFunction,
                          const std::string& oauth_error) override;
   void OnGaiaFlowCompleted(const std::string& access_token,
                            const std::string& expiration) override;
+
+  // GaiaRemoteConsentFlow::Delegate implementation:
+  void OnGaiaRemoteConsentFlowFailed(
+      GaiaRemoteConsentFlow::Failure failure) override;
+  void OnGaiaRemoteConsentFlowApproved(const std::string& consent_result,
+                                       const std::string& gaia_id) override;
 
   // Starts a login access token request.
   virtual void StartTokenKeyAccountAccessTokenRequest();
@@ -106,6 +116,14 @@ class IdentityGetAuthTokenFunction : public ChromeAsyncExtensionFunction,
   // Exposed for testing.
   virtual std::unique_ptr<OAuth2MintTokenFlow> CreateMintTokenFlow();
 
+  Profile* GetProfile() const;
+
+  // Returns the gaia id of the account requested by or previously selected for
+  // this extension if the account is available on the device. Otherwise,
+  // returns an empty string.
+  // Exposed for testing.
+  std::string GetSelectedUserId() const;
+
   // Pending request for an access token from the device account (via
   // DeviceOAuth2TokenService).
   std::unique_ptr<OAuth2AccessTokenManager::Request>
@@ -115,6 +133,10 @@ class IdentityGetAuthTokenFunction : public ChromeAsyncExtensionFunction,
   // IdentityManager).
   std::unique_ptr<signin::AccessTokenFetcher>
       token_key_account_access_token_fetcher_;
+
+  // Returns whether granular permissions will be requested.
+  // Exposed for testing.
+  bool enable_granular_permissions() const;
 
  private:
   FRIEND_TEST_ALL_PREFIXES(GetAuthTokenFunctionTest,
@@ -145,14 +167,20 @@ class IdentityGetAuthTokenFunction : public ChromeAsyncExtensionFunction,
   void OnPrimaryAccountSet(
       const CoreAccountInfo& primary_account_info) override;
 
+  // Attempts to show the signin UI after the service auth error if this error
+  // isn't transient.
+  // Returns true iff the signin flow was triggered.
+  bool TryRecoverFromServiceAuthError(const GoogleServiceAuthError& error);
+
   // ExtensionFunction:
-  bool RunAsync() override;
+  ResponseAction Run() override;
 
   // Helpers to report async function results to the caller.
   void StartAsyncRun();
-  void CompleteAsyncRun(bool success);
-  void CompleteFunctionWithResult(const std::string& access_token);
-  void CompleteFunctionWithError(const std::string& error);
+  void CompleteAsyncRun(ResponseValue response);
+  void CompleteFunctionWithResult(const std::string& access_token,
+                                  const std::set<std::string>& granted_scopes);
+  void CompleteFunctionWithError(const IdentityGetAuthTokenError& error);
 
   // Whether a signin flow should be initiated in the user's current state.
   bool ShouldStartSigninFlow();
@@ -167,6 +195,7 @@ class IdentityGetAuthTokenFunction : public ChromeAsyncExtensionFunction,
 
   // OAuth2MintTokenFlow::Delegate implementation:
   void OnMintTokenSuccess(const std::string& access_token,
+                          const std::set<std::string>& granted_scopes,
                           int time_to_live) override;
   void OnMintTokenFailure(const GoogleServiceAuthError& error) override;
   void OnIssueAdviceSuccess(const IssueAdviceInfo& issue_advice) override;
@@ -192,26 +221,29 @@ class IdentityGetAuthTokenFunction : public ChromeAsyncExtensionFunction,
   // Checks if there is a master login token to mint tokens for the extension.
   bool HasRefreshTokenForTokenKeyAccount() const;
 
-  // Maps OAuth2 protocol errors to an error message returned to the
-  // developer in chrome.runtime.lastError.
-  std::string MapOAuth2ErrorToDescription(const std::string& error);
-
   std::string GetOAuth2ClientId() const;
 
   // Returns true if extensions are restricted to the primary account.
   bool IsPrimaryAccountOnly() const;
 
-  bool interactive_;
-  bool should_prompt_for_scopes_;
+  bool interactive_ = false;
+  bool should_prompt_for_scopes_ = false;
   IdentityMintRequestQueue::MintType mint_token_flow_type_;
   std::unique_ptr<OAuth2MintTokenFlow> mint_token_flow_;
   OAuth2MintTokenFlow::Mode gaia_mint_token_mode_;
-  bool should_prompt_for_signin_;
+  bool should_prompt_for_signin_ = false;
+  bool enable_granular_permissions_ = false;
+
+  // The gaia id of the account requested by or previously selected for this
+  // extension.
+  std::string selected_gaia_id_;
 
   // Shown in the extension login prompt.
   std::string email_for_default_web_account_;
 
-  ExtensionTokenKey token_key_;
+  ExtensionTokenKey token_key_{/*extension_id=*/"",
+                               /*account_info=*/CoreAccountInfo(),
+                               /*scopes=*/{}};
   std::string oauth2_client_id_;
   // When launched in interactive mode, and if there is no existing grant,
   // a permissions prompt will be popped up to the user.
@@ -219,13 +251,17 @@ class IdentityGetAuthTokenFunction : public ChromeAsyncExtensionFunction,
   std::unique_ptr<GaiaWebAuthFlow> gaia_web_auth_flow_;
   // The browser resolution consent flow.
   RemoteConsentResolutionData resolution_data_;
+  std::unique_ptr<GaiaRemoteConsentFlow> gaia_remote_consent_flow_;
+  std::string consent_result_;
+  // Added for debugging https://crbug.com/1091423.
+  bool remote_consent_approved_ = false;
 
   // Invoked when IdentityAPI is shut down.
-  std::unique_ptr<base::CallbackList<void()>::Subscription>
+  std::unique_ptr<base::OnceCallbackList<void()>::Subscription>
       identity_api_shutdown_subscription_;
 
   ScopedObserver<signin::IdentityManager, signin::IdentityManager::Observer>
-      scoped_identity_manager_observer_;
+      scoped_identity_manager_observer_{this};
 
   // This class can be listening to account changes, but only for one type of
   // events at a time.

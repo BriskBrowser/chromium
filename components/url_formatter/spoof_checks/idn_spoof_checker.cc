@@ -4,6 +4,8 @@
 
 #include "components/url_formatter/spoof_checks/idn_spoof_checker.h"
 
+#include "base/check_op.h"
+#include "base/logging.h"
 #include "base/no_destructor.h"
 #include "base/numerics/safe_conversions.h"
 #include "base/strings/string_piece.h"
@@ -23,6 +25,15 @@ namespace url_formatter {
 
 namespace {
 
+uint8_t BitLength(uint32_t input) {
+  uint8_t number_of_bits = 0;
+  while (input != 0) {
+    number_of_bits++;
+    input >>= 1;
+  }
+  return number_of_bits;
+}
+
 class TopDomainPreloadDecoder : public net::extras::PreloadDecoder {
  public:
   using net::extras::PreloadDecoder::PreloadDecoder;
@@ -32,14 +43,24 @@ class TopDomainPreloadDecoder : public net::extras::PreloadDecoder {
                  const std::string& search,
                  size_t current_search_offset,
                  bool* out_found) override {
+    // Make sure the assigned bit length is enough to encode all SkeletonType
+    // values.
+    DCHECK_EQ(kSkeletonTypeBitLength,
+              BitLength(url_formatter::SkeletonType::kMaxValue));
+
     bool is_same_skeleton;
+
     if (!reader->Next(&is_same_skeleton))
       return false;
 
     TopDomainEntry top_domain;
     if (!reader->Next(&top_domain.is_top_500))
       return false;
-
+    uint32_t skeletontype_value;
+    if (!reader->Read(kSkeletonTypeBitLength, &skeletontype_value))
+      return false;
+    top_domain.skeleton_type =
+        static_cast<url_formatter::SkeletonType>(skeletontype_value);
     if (is_same_skeleton) {
       top_domain.domain = search;
     } else {
@@ -55,7 +76,6 @@ class TopDomainPreloadDecoder : public net::extras::PreloadDecoder {
       if (has_com_suffix)
         top_domain.domain += ".com";
     }
-
     if (current_search_offset == 0) {
       *out_found = true;
       DCHECK(!top_domain.domain.empty());
@@ -115,6 +135,15 @@ bool HasUnsafeMiddleDot(const icu::UnicodeString& label_string,
     last_index = index + 1;
   }
   return false;
+}
+
+bool IsSubdomainOf(base::StringPiece16 hostname,
+                   const base::string16& top_domain) {
+  DCHECK_NE(hostname, top_domain);
+  DCHECK(!hostname.empty());
+  DCHECK(!top_domain.empty());
+  return base::EndsWith(hostname, base::ASCIIToUTF16(".") + top_domain,
+                        base::CompareCase::INSENSITIVE_ASCII);
 }
 
 #include "components/url_formatter/spoof_checks/top_domains/domains-trie-inc.cc"
@@ -193,33 +222,37 @@ IDNSpoofChecker::IDNSpoofChecker() {
   combining_diacritics_exceptions_.freeze();
 
   const WholeScriptConfusableData kWholeScriptConfusables[] = {
+      {// Armenian
+       "[[:Armn:]]",
+       "[ագզէլհյոսւօՙ]",
+       {"am"}},
       {// Cyrillic
        "[[:Cyrl:]]",
        "[аысԁеԍһіюјӏорԗԛѕԝхуъЬҽпгѵѡ]",
        // TLDs containing most of the Cyrillic domains.
        {"bg", "by", "kz", "pyc", "ru", "su", "ua", "uz"}},
-      {// Hebrew
-       "[[:Hebr:]]",
-       "[דוחיןסװײ׳ﬦ]",
-       // TLDs containing most of the Hebrew domains.
-       {"il"}},
       {// Ethiopic (Ge'ez). Variants of these characters such as ሁ and ሡ could
        // arguably be added to this list. However, we are only restricting
        // the more obvious characters to keep the list short and to reduce the
        // probability of false positives.
-       // (Potential set: [ሀሁሃሠሡሰሱሲስበቡቢተቱቲታነከኩኪካኬክዐዑዕዖዘዙዚዛዝዞጠጡጢጣጦፐፒꬁꬂꬅ])
+       // Potential set: [ሀሁሃሠሡሰሱሲስበቡቢተቱቲታነከኩኪካኬክዐዑዕዖዘዙዚዛዝዞጠጡጢጣጦፐፒꬁꬂꬅ]
        "[[:Ethi:]]",
        "[ሀሠሰስበነተከዐዕዘጠፐꬅ]",
        {"er", "et"}},
+      {// Georgian
+       "[[:Geor:]]",
+       "[იოყძხჽჿ]",
+       {"ge"}},
       {// Greek
        "[[:Grek:]]",
        // This ignores variants such as ά, έ, ή, ί.
        "[αικνρυωηοτ]",
        {"gr"}},
-      {// Armenian
-       "[[:Armn:]]",
-       "[ագզէլհյոսւօՙ]",
-       {"am"}},
+      {// Hebrew
+       "[[:Hebr:]]",
+       "[דוחיןסװײ׳ﬦ]",
+       // TLDs containing most of the Hebrew domains.
+       {"il"}},
       // Indic scripts in the recommended set. No ccTLDs are allowlisted.
       {// Bengali
        "[[:Beng:]]", "[০৭]"},
@@ -239,6 +272,31 @@ IDNSpoofChecker::IDNSpoofChecker() {
        "[[:Taml:]]", "[டப௦]"},
       {// Telugu
        "[[:Telu:]]", "[౦౧]"},
+      {// Myanmar. Shan digits (႐႑႕႖႗) are already blocked from mixing with
+       // other Myanmar characters. However, they can still be used to form
+       // WSC spoofs, so they are included here (they are encoded because macOS
+       // doesn't display them properly).
+       // U+104A (၊) and U+U+104A(။) are excluded as they are signs and are
+       // blocked.
+       "[[:Mymr:]]",
+       "[ခဂငထပဝ၀၂ၔၜ\u1090\u1091\u1095\u1096\u1097]",
+       {"mm"}},
+      {// Thai
+       "[[:Thai:]]",
+  // Some of the Thai characters are only confusable on Linux, so the Linux
+  // set is larger than other platforms. Ideally we don't want to have any
+  // differences between platforms, but doing so is unavoidable here as
+  // these characters look significantly different between Linux and other
+  // platforms.
+  // The ideal fix would be to change the omnibox font used for Thai. In
+  // that case, the Linux-only list should be revisited and potentially
+  // removed.
+#if defined(OS_LINUX) || defined(OS_CHROMEOS)
+       "[ทนบพรหเแ๐ดลปฟม]",
+#else
+       "[บพเแ๐]",
+#endif
+       {"th"}},
   };
   for (const WholeScriptConfusableData& data : kWholeScriptConfusables) {
     auto all_letters = std::make_unique<icu::UnicodeSet>(
@@ -257,7 +315,7 @@ IDNSpoofChecker::IDNSpoofChecker() {
   digits_ = icu::UnicodeSet(UNICODE_STRING_SIMPLE("[0-9]"), status);
   digits_.freeze();
   digit_lookalikes_ = icu::UnicodeSet(
-      icu::UnicodeString::fromUTF8("[θ२২੨੨૨೩೭շзҙӡउওਤ੩૩౩ဒვპ੫丩ㄐճ৪੪୫૭୨౨]"),
+      icu::UnicodeString::fromUTF8("[θ२২੨੨૨೩೭շзҙӡउওਤ੩૩౩ဒვპੜ੫丩ㄐճ৪੪୫૭୨౨]"),
       status);
   digit_lookalikes_.freeze();
 
@@ -296,7 +354,7 @@ IDNSpoofChecker::~IDNSpoofChecker() {
   uspoof_close(checker_);
 }
 
-bool IDNSpoofChecker::SafeToDisplayAsUnicode(
+IDNSpoofChecker::Result IDNSpoofChecker::SafeToDisplayAsUnicode(
     base::StringPiece16 label,
     base::StringPiece top_level_domain,
     base::StringPiece16 top_level_domain_unicode) {
@@ -306,8 +364,9 @@ bool IDNSpoofChecker::SafeToDisplayAsUnicode(
                    base::checked_cast<int32_t>(label.size()), nullptr, &status);
   // If uspoof_check fails (due to library failure), or if any of the checks
   // fail, treat the IDN as unsafe.
-  if (U_FAILURE(status) || (result & USPOOF_ALL_CHECKS))
-    return false;
+  if (U_FAILURE(status) || (result & USPOOF_ALL_CHECKS)) {
+    return Result::kICUSpoofChecks;
+  }
 
   icu::UnicodeString label_string(FALSE /* isTerminated */, label.data(),
                                   base::checked_cast<int32_t>(label.size()));
@@ -324,21 +383,21 @@ bool IDNSpoofChecker::SafeToDisplayAsUnicode(
   // as Unicode would be canonicalized to 'fuss' by GURL and is displayed as
   // such. See http://crbug.com/595263 .
   if (deviation_characters_.containsSome(label_string))
-    return false;
+    return Result::kDeviationCharacters;
 
   // Disallow Icelandic confusables for domains outside Iceland's ccTLD (.is).
   if (label_string.length() > 1 && top_level_domain != "is" &&
       icelandic_characters_.containsSome(label_string))
-    return false;
+    return Result::kTLDSpecificCharacters;
 
   // Disallow Latin Schwa (U+0259) for domains outside Azerbaijan's ccTLD (.az).
   if (label_string.length() > 1 && top_level_domain != "az" &&
       label_string.indexOf("ə") != -1)
-    return false;
+    return Result::kTLDSpecificCharacters;
 
   // Disallow middle dot (U+00B7) when unsafe.
   if (HasUnsafeMiddleDot(label_string, top_level_domain)) {
-    return false;
+    return Result::kUnsafeMiddleDot;
   }
 
   // If there's no script mixing, the input is regarded as safe without any
@@ -354,23 +413,28 @@ bool IDNSpoofChecker::SafeToDisplayAsUnicode(
   //  - Korean: Hangul, Han, Common
   result &= USPOOF_RESTRICTION_LEVEL_MASK;
   if (result == USPOOF_ASCII)
-    return true;
+    return Result::kSafe;
+
   if (result == USPOOF_SINGLE_SCRIPT_RESTRICTIVE &&
       kana_letters_exceptions_.containsNone(label_string) &&
       combining_diacritics_exceptions_.containsNone(label_string)) {
     for (auto const& script : wholescriptconfusables_) {
-      if (IsLabelWholeScriptConfusableForScript(*script.get(), label_string) &&
-          !IsWholeScriptConfusableAllowedForTLD(*script.get(), top_level_domain,
+      if (IsLabelWholeScriptConfusableForScript(*script, label_string) &&
+          !IsWholeScriptConfusableAllowedForTLD(*script, top_level_domain,
                                                 top_level_domain_unicode)) {
-        return false;
+        return Result::kWholeScriptConfusable;
       }
     }
-    return true;
+    // Disallow domains that contain only numbers and number-spoofs.
+    if (IsDigitLookalike(label_string))
+      return Result::kDigitLookalikes;
+
+    return Result::kSafe;
   }
 
   // Disallow domains that contain only numbers and number-spoofs.
   if (IsDigitLookalike(label_string))
-    return false;
+    return Result::kDigitLookalikes;
 
   // Additional checks for |label| with multiple scripts, one of which is Latin.
   // Disallow non-ASCII Latin letters to mix with a non-Latin script.
@@ -379,7 +443,7 @@ bool IDNSpoofChecker::SafeToDisplayAsUnicode(
   // because script mixing of LGC is already rejected.
   if (non_ascii_latin_letters_.containsSome(label_string) &&
       !lgc_letters_n_ascii_.containsAll(label_string))
-    return false;
+    return Result::kNonAsciiLatinCharMixedWithNonLatin;
 
   icu::RegexMatcher* dangerous_pattern =
       reinterpret_cast<icu::RegexMatcher*>(DangerousPatternTLS().Get());
@@ -469,7 +533,10 @@ bool IDNSpoofChecker::SafeToDisplayAsUnicode(
     DangerousPatternTLS().Set(dangerous_pattern);
   }
   dangerous_pattern->reset(label_string);
-  return !dangerous_pattern->find();
+  if (dangerous_pattern->find()) {
+    return Result::kDangerousPattern;
+  }
+  return Result::kSafe;
 }
 
 TopDomainEntry IDNSpoofChecker::GetSimilarTopDomain(
@@ -479,18 +546,28 @@ TopDomainEntry IDNSpoofChecker::GetSimilarTopDomain(
     DCHECK(!skeleton.empty());
     TopDomainEntry matching_top_domain = LookupSkeletonInTopDomains(skeleton);
     if (!matching_top_domain.domain.empty()) {
+      const base::string16 top_domain =
+          base::UTF8ToUTF16(matching_top_domain.domain);
+      // Return an empty result if hostname is a top domain itself, or a
+      // subdomain of top domain. This prevents subdomains of top domains from
+      // being marked as spoofs. Without this check, éxample.blogspot.com
+      // would return blogspot.com and treated as a top domain lookalike.
+      if (hostname == top_domain || IsSubdomainOf(hostname, top_domain)) {
+        return TopDomainEntry();
+      }
       return matching_top_domain;
     }
   }
   return TopDomainEntry();
 }
 
-Skeletons IDNSpoofChecker::GetSkeletons(base::StringPiece16 hostname) {
+Skeletons IDNSpoofChecker::GetSkeletons(base::StringPiece16 hostname) const {
   return skeleton_generator_->GetSkeletons(hostname);
 }
 
 TopDomainEntry IDNSpoofChecker::LookupSkeletonInTopDomains(
-    const std::string& skeleton) {
+    const std::string& skeleton,
+    SkeletonType skeleton_type) {
   DCHECK(!skeleton.empty());
   // There are no other guarantees about a skeleton string such as not including
   // a dot. Skeleton of certain characters are dots (e.g. "۰" (U+06F0)).
@@ -506,7 +583,11 @@ TopDomainEntry IDNSpoofChecker::LookupSkeletonInTopDomains(
                  labels.begin() + labels.size() - kNumberOfLabelsToCheck);
   }
 
-  while (labels.size() > 1) {
+  while (labels.size() > 0) {
+    // A full skeleton needs at least two labels to match.
+    if (labels.size() == 1 && skeleton_type == SkeletonType::kFull) {
+      break;
+    }
     std::string partial_skeleton = base::JoinString(labels, ".");
     bool match = false;
     bool decoded = preload_decoder.Decode(partial_skeleton, &match);
@@ -580,7 +661,7 @@ void IDNSpoofChecker::SetAllowedUnicodeSet(UErrorCode* status) {
   // No need to block U+144A (Canadian Syllabics West-Cree P) separately
   // because it's blocked from mixing with other scripts including Latin.
 
-#if defined(OS_MACOSX)
+#if defined(OS_APPLE)
   // The following characters are reported as present in the default macOS
   // system UI font, but they render as blank. Remove them from the allowed
   // set to prevent spoofing until the font issue is resolved.

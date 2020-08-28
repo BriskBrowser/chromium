@@ -8,10 +8,17 @@
 #include <utility>
 
 #include "base/bind.h"
+#include "base/check_op.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/task/post_task.h"
+#include "base/task/task_traits.h"
+#include "base/task/thread_pool.h"
+#include "base/timer/timer.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/resource_coordinator/tab_load_tracker.h"
 #include "chrome/browser/ui/tabs/tab_style.h"
+#include "chrome/browser/ui/thumbnails/thumbnail_capture_driver.h"
+#include "chrome/browser/ui/thumbnails/thumbnail_readiness_tracker.h"
 #include "components/history/core/common/thumbnail_score.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/navigation_handle.h"
@@ -47,13 +54,17 @@ gfx::Size GetMinimumThumbnailSize() {
   return min_target_size;
 }
 
-}  // anonymous namespace
-
-class ThumbnailTabHelper::ScopedCapture {
+// Manages increment/decrement of video capture state on a WebContents.
+// Acquires (if possible) on construction, releases (if acquired) on
+// destruction.
+class ScopedThumbnailCapture {
  public:
-  explicit ScopedCapture(ThumbnailTabHelper* helper) : helper_(helper) {
-    if (helper->web_contents()) {
-      helper->web_contents()->IncrementCapturerCount(
+  explicit ScopedThumbnailCapture(
+      content::WebContentsObserver* web_contents_observer)
+      : web_contents_observer_(web_contents_observer) {
+    auto* const contents = web_contents_observer->web_contents();
+    if (contents) {
+      contents->IncrementCapturerCount(
           gfx::ScaleToFlooredSize(GetMinimumThumbnailSize(),
                                   kMinThumbnailScaleFactor),
           /* stay_hidden */ true);
@@ -61,24 +72,22 @@ class ThumbnailTabHelper::ScopedCapture {
     }
   }
 
-  ~ScopedCapture() {
-    if (captured_ && helper_->web_contents())
-      helper_->web_contents()->DecrementCapturerCount(
-          /* stay_hidden */ true);
+  ~ScopedThumbnailCapture() {
+    auto* const contents = web_contents_observer_->web_contents();
+    if (captured_ && contents)
+      contents->DecrementCapturerCount(/* stay_hidden */ true);
   }
 
  private:
-  ThumbnailTabHelper* const helper_;
+  // We track a web contents observer because it's an easy way to see if the
+  // web contents has disappeared without having to add another observer.
+  content::WebContentsObserver* const web_contents_observer_;
   bool captured_ = false;
 };
 
-ThumbnailTabHelper::ThumbnailTabHelper(content::WebContents* contents)
-    : content::WebContentsObserver(contents),
-      last_visibility_(web_contents()->GetVisibility()) {}
+}  // anonymous namespace
 
-ThumbnailTabHelper::~ThumbnailTabHelper() {
-  StopVideoCapture();
-}
+// ThumbnailTabHelper::CaptureType ---------------------------------------
 
 enum class ThumbnailTabHelper::CaptureType {
   // The image was copied directly from a visible RenderWidgetHostView.
@@ -89,6 +98,119 @@ enum class ThumbnailTabHelper::CaptureType {
   kMaxValue = kVideoFrame,
 };
 
+// ThumbnailTabHelper::TabStateTracker ---------------------------
+
+// Stores information about the state of the current WebContents and renderer.
+class ThumbnailTabHelper::TabStateTracker
+    : public content::WebContentsObserver,
+      public ThumbnailCaptureDriver::Client,
+      public ThumbnailImage::Delegate {
+ public:
+  TabStateTracker(ThumbnailTabHelper* thumbnail_tab_helper,
+                  content::WebContents* contents)
+      : content::WebContentsObserver(contents),
+        readiness_tracker_(contents,
+                           base::Bind(&TabStateTracker::PageReadinessChanged,
+                                      base::Unretained(this))),
+        thumbnail_tab_helper_(thumbnail_tab_helper) {
+    visible_ =
+        (web_contents()->GetVisibility() == content::Visibility::VISIBLE);
+  }
+  ~TabStateTracker() override = default;
+
+  // Returns the host view associated with the current web contents, or null if
+  // none.
+  content::RenderWidgetHostView* GetView() {
+    auto* const contents = web_contents();
+    return contents ? contents->GetRenderViewHost()->GetWidget()->GetView()
+                    : nullptr;
+  }
+
+  // Returns true if we are capturing thumbnails from a tab and should continue
+  // to do so, false if we should stop.
+  bool ShouldContinueVideoCapture() const { return scoped_capture_ != nullptr; }
+
+  // Tells our scheduling logic that a frame was received.
+  void OnFrameCaptured(CaptureType capture_type) {
+    if (capture_type == CaptureType::kVideoFrame)
+      capture_driver_.GotFrame();
+  }
+
+ private:
+  using PageReadiness = ThumbnailReadinessTracker::Readiness;
+
+  // ThumbnailCaptureDriver::Client:
+  void RequestCapture() override {
+    if (!scoped_capture_)
+      scoped_capture_ = std::make_unique<ScopedThumbnailCapture>(this);
+  }
+
+  void StartCapture() override {
+    DCHECK(scoped_capture_);
+    thumbnail_tab_helper_->StartVideoCapture();
+  }
+
+  void StopCapture() override {
+    thumbnail_tab_helper_->StopVideoCapture();
+    scoped_capture_.reset();
+  }
+
+  // content::WebContentsObserver:
+  void OnVisibilityChanged(content::Visibility visibility) override {
+    const bool new_visible = (visibility == content::Visibility::VISIBLE);
+    if (new_visible == visible_)
+      return;
+
+    visible_ = new_visible;
+    capture_driver_.UpdatePageVisibility(visible_);
+    if (!visible_ && page_readiness_ == PageReadiness::kReadyForFinalCapture)
+      thumbnail_tab_helper_->CaptureThumbnailOnTabHidden();
+  }
+
+  void RenderViewReady() override { capture_driver_.SetCanCapture(true); }
+
+  void RenderProcessGone(base::TerminationStatus status) override {
+    // TODO(crbug.com/1073141): determine if there are other ways to
+    // lose the view.
+    capture_driver_.SetCanCapture(false);
+  }
+
+  // ThumbnailImage::Delegate:
+  void ThumbnailImageBeingObservedChanged(bool is_being_observed) override {
+    capture_driver_.UpdateThumbnailVisibility(is_being_observed);
+  }
+
+  void PageReadinessChanged(PageReadiness readiness) {
+    page_readiness_ = readiness;
+    capture_driver_.UpdatePageReadiness(readiness);
+  }
+
+  ThumbnailCaptureDriver capture_driver_{this};
+  ThumbnailReadinessTracker readiness_tracker_;
+
+  // The last known visibility WebContents visibility.
+  bool visible_ = false;
+
+  // Where we are in the page lifecycle.
+  PageReadiness page_readiness_ = PageReadiness::kNotReady;
+
+  // Scoped request for video capture. Ensures we always decrement the counter
+  // once per increment.
+  std::unique_ptr<ScopedThumbnailCapture> scoped_capture_;
+
+  ThumbnailTabHelper* const thumbnail_tab_helper_;
+};
+
+// ThumbnailTabHelper ----------------------------------------------------
+
+ThumbnailTabHelper::ThumbnailTabHelper(content::WebContents* contents)
+    : state_(std::make_unique<TabStateTracker>(this, contents)),
+      thumbnail_(base::MakeRefCounted<ThumbnailImage>(state_.get())) {}
+
+ThumbnailTabHelper::~ThumbnailTabHelper() {
+  StopVideoCapture();
+}
+
 // Called when a thumbnail is published to observers. Records what
 // method was used to capture the thumbnail.
 //
@@ -97,35 +219,7 @@ void ThumbnailTabHelper::RecordCaptureType(CaptureType type) {
   UMA_HISTOGRAM_ENUMERATION("Tab.Preview.CaptureType", type);
 }
 
-void ThumbnailTabHelper::ThumbnailImageBeingObservedChanged(
-    bool is_being_observed) {
-  if (is_being_observed_ != is_being_observed) {
-    is_being_observed_ = is_being_observed;
-    if (is_being_observed && !captured_loaded_thumbnail_since_tab_hidden_) {
-      scoped_capture_ = std::make_unique<ScopedCapture>(this);
-      if (GetView())
-        StartVideoCapture();
-    } else if (!is_being_observed) {
-      scoped_capture_.reset();
-    }
-  }
-}
-
-bool ThumbnailTabHelper::ShouldKeepUpdatingThumbnail() const {
-  if (!is_being_observed_)
-    return false;
-
-  auto* tab_load_tracker = resource_coordinator::TabLoadTracker::Get();
-  if (tab_load_tracker &&
-      tab_load_tracker->GetLoadingState(web_contents()) !=
-          resource_coordinator::TabLoadTracker::LoadingState::LOADED) {
-    return true;
-  }
-
-  return false;
-}
-
-void ThumbnailTabHelper::CaptureThumbnailOnTabSwitch() {
+void ThumbnailTabHelper::CaptureThumbnailOnTabHidden() {
   const base::TimeTicks time_of_call = base::TimeTicks::Now();
 
   // Ignore previous requests to capture a thumbnail on tab switch.
@@ -133,7 +227,7 @@ void ThumbnailTabHelper::CaptureThumbnailOnTabSwitch() {
 
   // Get the WebContents' main view. Note that during shutdown there may not be
   // a view to capture.
-  content::RenderWidgetHostView* const source_view = GetView();
+  content::RenderWidgetHostView* const source_view = state_->GetView();
   if (!source_view)
     return;
 
@@ -170,29 +264,19 @@ void ThumbnailTabHelper::StoreThumbnail(CaptureType type,
     return;
 
   RecordCaptureType(type);
+  state_->OnFrameCaptured(type);
   thumbnail_->AssignSkBitmap(bitmap);
-
-  // Remember that a thumbnail was captured while the tab was loaded.
-  auto* tab_load_tracker = resource_coordinator::TabLoadTracker::Get();
-  if (tab_load_tracker &&
-      tab_load_tracker->GetLoadingState(web_contents()) ==
-          resource_coordinator::TabLoadTracker::LoadingState::LOADED) {
-    captured_loaded_thumbnail_since_tab_hidden_ = true;
-    scoped_capture_.reset();
-  }
 }
 
 void ThumbnailTabHelper::StartVideoCapture() {
   if (video_capturer_)
     return;
 
-  // This can be triggered by someone starting to observe a web contents by
-  // incrementing its capture count, or it can happen opportunistically when a
-  // renderer is available, because we want to capture thumbnails while we can
-  // before a page is frozen or swapped out.
-
-  content::RenderWidgetHostView* const source_view = GetView();
-  DCHECK(source_view);
+  // This pointer can become null before this method is called - see
+  // RenderWidgetHost::GetView() for details.
+  content::RenderWidgetHostView* const source_view = state_->GetView();
+  if (!source_view)
+    return;
 
   // Get the source size and scale.
   const float scale_factor = source_view->GetDeviceScaleFactor();
@@ -208,7 +292,7 @@ void ThumbnailTabHelper::StartVideoCapture() {
                             /* include_scrollbars_in_capture */ true);
 
   const gfx::Size& target_size = last_frame_capture_info_.target_size;
-  constexpr int kMaxFrameRate = 5;
+  constexpr int kMaxFrameRate = 3;
   video_capturer_ = source_view->CreateVideoCapturer();
   video_capturer_->SetResolutionConstraints(target_size, target_size, false);
   video_capturer_->SetAutoThrottlingEnabled(false);
@@ -229,37 +313,6 @@ void ThumbnailTabHelper::StopVideoCapture() {
   start_video_capture_time_ = base::TimeTicks();
 }
 
-content::RenderWidgetHostView* ThumbnailTabHelper::GetView() {
-  return web_contents()
-             ? web_contents()->GetRenderViewHost()->GetWidget()->GetView()
-             : nullptr;
-}
-
-void ThumbnailTabHelper::OnVisibilityChanged(content::Visibility visibility) {
-  if (last_visibility_ == content::Visibility::VISIBLE &&
-      visibility != content::Visibility::VISIBLE) {
-    captured_loaded_thumbnail_since_tab_hidden_ = false;
-    CaptureThumbnailOnTabSwitch();
-  }
-  last_visibility_ = visibility;
-}
-
-void ThumbnailTabHelper::DidFinishNavigation(
-    content::NavigationHandle* navigation_handle) {
-  if (navigation_handle->IsInMainFrame() && navigation_handle->HasCommitted())
-    captured_loaded_thumbnail_since_tab_hidden_ = false;
-}
-
-void ThumbnailTabHelper::RenderViewReady() {
-  if (!captured_loaded_thumbnail_since_tab_hidden_)
-    StartVideoCapture();
-}
-
-void ThumbnailTabHelper::RenderViewDeleted(
-    content::RenderViewHost* render_view_host) {
-  StopVideoCapture();
-}
-
 void ThumbnailTabHelper::OnFrameCaptured(
     base::ReadOnlySharedMemoryRegion data,
     ::media::mojom::VideoFrameInfoPtr info,
@@ -268,9 +321,6 @@ void ThumbnailTabHelper::OnFrameCaptured(
         callbacks) {
   CHECK(video_capturer_);
   const base::TimeTicks time_of_call = base::TimeTicks::Now();
-
-  if (!ShouldKeepUpdatingThumbnail())
-    StopVideoCapture();
 
   mojo::Remote<::viz::mojom::FrameSinkVideoConsumerFrameCallbacks>
       callbacks_remote(std::move(callbacks));

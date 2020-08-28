@@ -151,7 +151,7 @@ void SignalHandler(int signal, siginfo_t* info, void*) {
 }  // namespace
 
 // On Mac, sometimes we get SIGBUS instead of SIGSEGV, so handle that too.
-#if defined(OS_MACOSX)
+#if defined(OS_APPLE)
 #define EXTRA_FAULT_BEGIN_ACTION() \
   struct sigaction old_bus_action; \
   sigaction(SIGBUS, &action, &old_bus_action);
@@ -250,6 +250,49 @@ TEST(PageAllocatorTest, PageTagging) {
   EXPECT_TRUE(found);
 }
 #endif  // defined(OS_ANDROID)
+
+TEST(PageAllocatorTest, DecommitErasesMemory) {
+  if (!kDecommittedPagesAreAlwaysZeroed)
+    return;
+
+  size_t size = kPageAllocationGranularity;
+  void* buffer = AllocPages(nullptr, size, kPageAllocationGranularity,
+                            PageReadWrite, PageTag::kChromium, true);
+  ASSERT_TRUE(buffer);
+
+  memset(buffer, 42, size);
+
+  DecommitSystemPages(buffer, size);
+  EXPECT_TRUE(RecommitSystemPages(buffer, size, PageReadWrite));
+
+  uint8_t* recommitted_buffer = reinterpret_cast<uint8_t*>(buffer);
+  uint32_t sum = 0;
+  for (size_t i = 0; i < size; i++) {
+    sum += recommitted_buffer[i];
+  }
+  EXPECT_EQ(0u, sum) << "Data was not erased";
+
+  FreePages(buffer, size);
+}
+
+TEST(PageAllocatorTest, MappedPagesAccounting) {
+  size_t size = kPageAllocationGranularity;
+  size_t mapped_size_before = GetTotalMappedSize();
+
+  // Ask for a large alignment to make sure that trimming doesn't change the
+  // accounting.
+  void* data = AllocPages(nullptr, size, 128 * kPageAllocationGranularity,
+                          PageInaccessible, PageTag::kChromium, true);
+  ASSERT_TRUE(data);
+
+  EXPECT_EQ(mapped_size_before + size, GetTotalMappedSize());
+
+  DecommitSystemPages(data, size);
+  EXPECT_EQ(mapped_size_before + size, GetTotalMappedSize());
+
+  FreePages(data, size);
+  EXPECT_EQ(mapped_size_before, GetTotalMappedSize());
+}
 
 }  // namespace base
 

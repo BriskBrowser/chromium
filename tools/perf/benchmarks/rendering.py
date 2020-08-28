@@ -3,6 +3,7 @@
 # found in the LICENSE file.
 import sys
 from core import perf_benchmark
+from core import platforms as core_platforms
 
 import page_sets
 from page_sets.system_health import platforms
@@ -14,6 +15,7 @@ from telemetry.web_perf import timeline_based_measurement
 
 RENDERING_BENCHMARK_UMA = [
     'Compositing.Display.DrawToSwapUs',
+    'CompositorLatency.TotalLatency',
     'Event.Latency.ScrollBegin.Touch.TimeToScrollUpdateSwapBegin4',
     'Event.Latency.ScrollUpdate.Touch.TimeToScrollUpdateSwapBegin4',
     'Event.Latency.ScrollBegin.Wheel.TimeToScrollUpdateSwapBegin4',
@@ -25,18 +27,23 @@ RENDERING_BENCHMARK_UMA = [
     'Graphics.Smoothness.Checkerboarding.TouchScroll',
     'Graphics.Smoothness.Checkerboarding.Video',
     'Graphics.Smoothness.Checkerboarding.WheelScroll',
-    'Graphics.Smoothness.Throughput.AllAnimations',
-    'Graphics.Smoothness.Throughput.AllInteractions',
-    'Graphics.Smoothness.Throughput.AllSequences',
-    'Graphics.Smoothness.Throughput.MainThread.MainThreadAnimation',
-    'Graphics.Smoothness.Throughput.MainThread.PinchZoom',
-    'Graphics.Smoothness.Throughput.MainThread.RAF',
-    'Graphics.Smoothness.Throughput.MainThread.TouchScroll',
-    'Graphics.Smoothness.Throughput.MainThread.WheelScroll',
-    'Graphics.Smoothness.Throughput.CompositorThread.CompositorAnimation',
-    'Graphics.Smoothness.Throughput.CompositorThread.PinchZoom',
-    'Graphics.Smoothness.Throughput.CompositorThread.TouchScroll',
-    'Graphics.Smoothness.Throughput.CompositorThread.WheelScroll',
+    'Graphics.Smoothness.PercentDroppedFrames.AllAnimations',
+    'Graphics.Smoothness.PercentDroppedFrames.AllInteractions',
+    'Graphics.Smoothness.PercentDroppedFrames.AllSequences',
+    'Graphics.Smoothness.PercentDroppedFrames.MainThread.MainThreadAnimation',
+    'Graphics.Smoothness.PercentDroppedFrames.MainThread.RAF',
+    'Graphics.Smoothness.PercentDroppedFrames.MainThread.TouchScroll',
+    'Graphics.Smoothness.PercentDroppedFrames.MainThread.WheelScroll',
+    ('Graphics.Smoothness.PercentDroppedFrames'
+     '.CompositorThread.CompositorAnimation'),
+    'Graphics.Smoothness.PercentDroppedFrames.CompositorThread.PinchZoom',
+    'Graphics.Smoothness.PercentDroppedFrames.CompositorThread.TouchScroll',
+    'Graphics.Smoothness.PercentDroppedFrames.CompositorThread.WheelScroll',
+    'Graphics.Smoothness.PercentDroppedFrames.MainThread.Universal',
+    'Graphics.Smoothness.PercentDroppedFrames.CompositorThread.Universal',
+    'Graphics.Smoothness.PercentDroppedFrames.SlowerThread.Universal',
+    'Graphics.Smoothness.PercentDroppedFrames.ScrollingThread.TouchScroll',
+    'Graphics.Smoothness.PercentDroppedFrames.ScrollingThread.WheelScroll',
     'Memory.GPU.PeakMemoryUsage.Scroll',
     'Memory.GPU.PeakMemoryUsage.PageLoad',
 ]
@@ -60,18 +67,26 @@ class _RenderingBenchmark(perf_benchmark.PerfBenchmark):
 
   def CreateCoreTimelineBasedMeasurementOptions(self):
     category_filter = chrome_trace_category_filter.CreateLowOverheadFilter()
+    # Supplement the base trace categories with "gpu.memory" which records
+    # timings associated with memory ablation experiments.
+    category_filter.AddFilterString('gpu.memory')
     options = timeline_based_measurement.Options(category_filter)
     options.config.chrome_trace_config.EnableUMAHistograms(
         *RENDERING_BENCHMARK_UMA)
-    options.SetTimelineBasedMetrics(['renderingMetric', 'umaMetric'])
+    options.SetTimelineBasedMetrics(['renderingMetric', 'umaMetric', 'memoryAblationMetric'])
     return options
 
 
-@benchmark.Info(emails=['sadrul@chromium.org', 'vmiura@chromium.org'],
+@benchmark.Info(emails=['behdadb@chromium.org', 'jonross@chromium.org',
+                        'sadrul@chromium.org'],
                 documentation_url='https://bit.ly/rendering-benchmarks',
                 component='Internals>GPU>Metrics')
 class RenderingDesktop(_RenderingBenchmark):
+  # TODO(rmhasan): Remove the SUPPORTED_PLATFORMS lists.
+  # SUPPORTED_PLATFORMS is deprecated, please put system specifier tags
+  # from expectations.config in SUPPORTED_PLATFORM_TAGS.
   SUPPORTED_PLATFORMS = [story_module.expectations.ALL_DESKTOP]
+  SUPPORTED_PLATFORM_TAGS = [core_platforms.DESKTOP]
   PLATFORM_NAME = platforms.DESKTOP
 
   @classmethod
@@ -90,11 +105,16 @@ class RenderingDesktop(_RenderingBenchmark):
           '--use-gpu-high-thread-priority-for-perf-tests')
 
 
-@benchmark.Info(emails=['sadrul@chromium.org', 'vmiura@chromium.org'],
+@benchmark.Info(emails=['behdadb@chromium.org', 'jonross@chromium.org',
+                        'sadrul@chromium.org'],
                 documentation_url='https://bit.ly/rendering-benchmarks',
                 component='Internals>GPU>Metrics')
 class RenderingMobile(_RenderingBenchmark):
+  # TODO(rmhasan): Remove the SUPPORTED_PLATFORMS lists.
+  # SUPPORTED_PLATFORMS is deprecated, please put system specifier tags
+  # from expectations.config in SUPPORTED_PLATFORM_TAGS.
   SUPPORTED_PLATFORMS = [story_module.expectations.ALL_MOBILE]
+  SUPPORTED_PLATFORM_TAGS = [core_platforms.MOBILE]
   PLATFORM_NAME = platforms.MOBILE
 
   @classmethod
@@ -107,6 +127,10 @@ class RenderingMobile(_RenderingBenchmark):
     # allows controls to unlock after page load, rather than in the middle of a
     # story.
     options.AppendExtraBrowserArgs('--disable-minimum-show-duration')
+    # Force online state for the offline indicator so it doesn't show and affect
+    # the benchmarks on bots, which are offline by default.
+    options.AppendExtraBrowserArgs(
+        '--force-online-connection-state-for-indicator')
 
   def CreateCoreTimelineBasedMeasurementOptions(self):
     options = super(

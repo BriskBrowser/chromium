@@ -33,25 +33,26 @@ class FakeSerialPort : public mojom::SerialPort {
 
   // mojom::SerialPort
   void Open(mojom::SerialConnectionOptionsPtr options,
-            mojo::ScopedDataPipeConsumerHandle in_stream,
-            mojo::ScopedDataPipeProducerHandle out_stream,
             mojo::PendingRemote<mojom::SerialPortClient> client,
             OpenCallback callback) override {
-    in_stream_ = std::move(in_stream);
-    out_stream_ = std::move(out_stream);
     client_.Bind(std::move(client));
     std::move(callback).Run(true);
   }
 
-  void ClearSendError(mojo::ScopedDataPipeConsumerHandle consumer) override {
+  void StartWriting(mojo::ScopedDataPipeConsumerHandle consumer) override {
+    in_stream_ = std::move(consumer);
+  }
+
+  void StartReading(mojo::ScopedDataPipeProducerHandle producer) override {
+    out_stream_ = std::move(producer);
+  }
+
+  void Flush(device::mojom::SerialPortFlushMode mode,
+             FlushCallback callback) override {
     NOTREACHED();
   }
 
-  void ClearReadError(mojo::ScopedDataPipeProducerHandle producer) override {
-    NOTREACHED();
-  }
-
-  void Flush(FlushCallback callback) override { NOTREACHED(); }
+  void Drain(DrainCallback callback) override { NOTREACHED(); }
 
   void GetControlSignals(GetControlSignalsCallback callback) override {
     NOTREACHED();
@@ -97,6 +98,24 @@ void FakeSerialPortManager::AddReceiver(
 void FakeSerialPortManager::AddPort(mojom::SerialPortInfoPtr port) {
   base::UnguessableToken token = port->token;
   ports_[token] = std::move(port);
+
+  for (auto& client : clients_)
+    client->OnPortAdded(ports_[token]->Clone());
+}
+
+void FakeSerialPortManager::RemovePort(base::UnguessableToken token) {
+  auto it = ports_.find(token);
+  DCHECK(it != ports_.end());
+  mojom::SerialPortInfoPtr info = std::move(it->second);
+  ports_.erase(it);
+
+  for (auto& client : clients_)
+    client->OnPortRemoved(info.Clone());
+}
+
+void FakeSerialPortManager::SetClient(
+    mojo::PendingRemote<mojom::SerialPortManagerClient> client) {
+  clients_.Add(std::move(client));
 }
 
 void FakeSerialPortManager::GetDevices(GetDevicesCallback callback) {
@@ -108,6 +127,7 @@ void FakeSerialPortManager::GetDevices(GetDevicesCallback callback) {
 
 void FakeSerialPortManager::GetPort(
     const base::UnguessableToken& token,
+    bool use_alternate_path,
     mojo::PendingReceiver<mojom::SerialPort> receiver,
     mojo::PendingRemote<mojom::SerialPortConnectionWatcher> watcher) {
   // The new FakeSerialPort instance is owned by the |receiver| and |watcher|

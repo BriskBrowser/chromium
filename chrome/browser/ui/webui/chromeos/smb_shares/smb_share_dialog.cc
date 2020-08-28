@@ -21,7 +21,7 @@ namespace chromeos {
 namespace smb_dialog {
 namespace {
 
-constexpr int kSmbShareDialogHeight = 564;
+constexpr int kSmbShareDialogHeight = 515;
 
 void AddSmbSharesStrings(content::WebUIDataSource* html_source) {
   // Add strings specific to smb_dialog.
@@ -64,6 +64,8 @@ SmbShareDialogUI::SmbShareDialogUI(content::WebUI* web_ui)
   content::WebUIDataSource* source =
       content::WebUIDataSource::Create(chrome::kChromeUISmbShareHost);
 
+  source->DisableTrustedTypesCSP();
+
   AddSmbSharesStrings(source);
 
   Profile* const profile = Profile::FromWebUI(web_ui);
@@ -88,13 +90,17 @@ SmbShareDialogUI::SmbShareDialogUI(content::WebUI* web_ui)
   source->SetDefaultResource(IDR_SMB_SHARES_DIALOG_CONTAINER_HTML);
   source->AddResourcePath("smb_share_dialog.js", IDR_SMB_SHARES_DIALOG_JS);
 
-  web_ui->AddMessageHandler(
-      std::make_unique<SmbHandler>(Profile::FromWebUI(web_ui)));
+  web_ui->AddMessageHandler(std::make_unique<SmbHandler>(
+      Profile::FromWebUI(web_ui), base::DoNothing()));
 
   content::WebUIDataSource::Add(Profile::FromWebUI(web_ui), source);
 }
 
 SmbShareDialogUI::~SmbShareDialogUI() = default;
+
+bool SmbShareDialog::ShouldShowCloseButton() const {
+  return false;
+}
 
 }  // namespace smb_dialog
 }  // namespace chromeos

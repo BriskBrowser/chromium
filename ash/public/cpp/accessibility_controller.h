@@ -22,7 +22,6 @@ enum class AccessibilityPanelState;
 enum class DictationToggleSource;
 class SelectToSpeakEventHandlerDelegate;
 enum class SelectToSpeakState;
-class SwitchAccessEventHandlerDelegate;
 
 // Interface for ash client (e.g. Chrome) to control and query accessibility
 // features.
@@ -66,9 +65,19 @@ class ASH_PUBLIC_EXPORT AccessibilityController {
   virtual void SetSelectToSpeakEventHandlerDelegate(
       SelectToSpeakEventHandlerDelegate* delegate) = 0;
 
-  // Set the delegate used by the Switch Access event handler.
-  virtual void SetSwitchAccessEventHandlerDelegate(
-      SwitchAccessEventHandlerDelegate* delegate) = 0;
+  // Hides the Switch Access back button.
+  virtual void HideSwitchAccessBackButton() = 0;
+
+  // Hides the Switch Access menu.
+  virtual void HideSwitchAccessMenu() = 0;
+
+  // Show the Switch Access back button next to the specified rectangle.
+  virtual void ShowSwitchAccessBackButton(const gfx::Rect& bounds) = 0;
+
+  // Show the Switch Access menu with the specified actions.
+  virtual void ShowSwitchAccessMenu(
+      const gfx::Rect& bounds,
+      std::vector<std::string> actions_to_show) = 0;
 
   // Set whether dictation is active.
   virtual void SetDictationActive(bool is_active) = 0;
@@ -79,10 +88,6 @@ class ASH_PUBLIC_EXPORT AccessibilityController {
   // Called when the Automatic Clicks extension finds scrollable bounds.
   virtual void OnAutoclickScrollableBoundsFound(
       gfx::Rect& bounds_in_screen) = 0;
-
-  // Tells the Switch Access Event Handler whether to forward all key events to
-  // the Switch Access extension.
-  virtual void ForwardKeyEventsToSwitchAccess(bool should_forward) = 0;
 
   // Retrieves a string description of the current battery status.
   virtual base::string16 GetBatteryDescription() const = 0;
@@ -101,12 +106,15 @@ class ASH_PUBLIC_EXPORT AccessibilityController {
   virtual bool IsAccessibilityFeatureVisibleInTrayMenu(
       const std::string& path) = 0;
 
-  // Sets whether Switch Access ignores virtual key events.
-  virtual void SetSwitchAccessIgnoreVirtualKeyEventForTesting(
-      bool should_ignore) = 0;
-
   // Disables restoring of recommended policy values.
   virtual void DisablePolicyRecommendationRestorerForTesting() {}
+
+  // Set to true to disable the dialog.
+  // Used in tests.
+  virtual void DisableSwitchAccessDisableConfirmationDialogTesting() = 0;
+
+  // Shows floating accessibility menu if it was enabled by policy.
+  virtual void ShowFloatingMenuIfEnabled() {}
 
  protected:
   AccessibilityController();

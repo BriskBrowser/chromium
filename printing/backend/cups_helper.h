@@ -23,10 +23,9 @@ struct PrinterSemanticCapsAndDefaults;
 class PRINTING_EXPORT HttpConnectionCUPS {
  public:
   HttpConnectionCUPS(const GURL& print_server_url,
-                     http_encryption_t encryption);
+                     http_encryption_t encryption,
+                     bool blocking);
   ~HttpConnectionCUPS();
-
-  void SetBlocking(bool blocking);
 
   http_t* http();
 
@@ -37,7 +36,7 @@ class PRINTING_EXPORT HttpConnectionCUPS {
 // Helper function to parse and convert PPD capabilitites to
 // semantic options.
 PRINTING_EXPORT bool ParsePpdCapabilities(
-    base::StringPiece printer_name,
+    cups_dest_t* dest,
     base::StringPiece locale,
     base::StringPiece printer_capabilities,
     PrinterSemanticCapsAndDefaults* printer_info);

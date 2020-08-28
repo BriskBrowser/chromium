@@ -8,6 +8,7 @@
 
 #include "base/bind.h"
 #include "base/feature_list.h"
+#include "base/threading/sequenced_task_runner_handle.h"
 #include "components/exo/input_trace.h"
 #include "components/exo/pointer_constraint_delegate.h"
 #include "components/exo/pointer_delegate.h"
@@ -23,7 +24,10 @@
 #include "ui/aura/client/cursor_client.h"
 #include "ui/aura/env.h"
 #include "ui/aura/window.h"
+#include "ui/base/cursor/cursor_factory.h"
+#include "ui/base/cursor/cursor_size.h"
 #include "ui/base/cursor/cursor_util.h"
+#include "ui/base/cursor/mojom/cursor_type.mojom-shared.h"
 #include "ui/display/manager/display_manager.h"
 #include "ui/display/manager/managed_display_info.h"
 #include "ui/display/screen.h"
@@ -34,15 +38,8 @@
 
 #if defined(OS_CHROMEOS)
 #include "ash/public/cpp/shell_window_ids.h"
+#include "ash/wm/window_util.h"
 #include "chromeos/constants/chromeos_features.h"
-#endif
-
-#if defined(USE_OZONE)
-#include "ui/ozone/public/cursor_factory_ozone.h"
-#endif
-
-#if defined(USE_X11)
-#include "ui/base/cursor/cursor_loader_x11.h"
 #endif
 
 namespace exo {
@@ -102,7 +99,7 @@ Pointer::Pointer(PointerDelegate* delegate, Seat* seat)
     : SurfaceTreeHost("ExoPointer"),
       delegate_(delegate),
       seat_(seat),
-      cursor_(ui::CursorType::kNull),
+      cursor_(ui::mojom::CursorType::kNull),
       capture_scale_(GetCaptureDisplayInfo().device_scale_factor()),
       capture_ratio_(GetCaptureDisplayInfo().GetDensityRatio()),
       cursor_capture_source_id_(base::UnguessableToken::Create()) {
@@ -128,6 +125,7 @@ Pointer::~Pointer() {
   if (pointer_constraint_delegate_) {
     pointer_constraint_delegate_->GetConstrainedSurface()
         ->RemoveSurfaceObserver(this);
+    VLOG(1) << "Pointer constraint broken by pointer destruction";
     pointer_constraint_delegate_->OnConstraintBroken();
   }
   WMHelper* helper = WMHelper::GetInstance();
@@ -159,7 +157,7 @@ void Pointer::SetCursor(Surface* surface, const gfx::Point& hotspot) {
     }
     UpdatePointerSurface(surface);
     cursor_changed = true;
-  } else if (!surface && cursor_ != ui::CursorType::kNone) {
+  } else if (!surface && cursor_ != ui::mojom::CursorType::kNone) {
     cursor_changed = true;
   }
 
@@ -176,17 +174,17 @@ void Pointer::SetCursor(Surface* surface, const gfx::Point& hotspot) {
   // snapshot of cursor, otherwise cancel pending capture and immediately set
   // the cursor to "none".
   if (root_surface()) {
-    cursor_ = ui::CursorType::kCustom;
+    cursor_ = ui::mojom::CursorType::kCustom;
     CaptureCursor(hotspot);
   } else {
-    cursor_ = ui::CursorType::kNone;
+    cursor_ = ui::mojom::CursorType::kNone;
     cursor_bitmap_.reset();
     cursor_capture_weak_ptr_factory_.InvalidateWeakPtrs();
     UpdateCursor();
   }
 }
 
-void Pointer::SetCursorType(ui::CursorType cursor_type) {
+void Pointer::SetCursorType(ui::mojom::CursorType cursor_type) {
   // Early out if the pointer doesn't have a surface in focus.
   if (!focus_surface_)
     return;
@@ -224,70 +222,20 @@ void Pointer::UnregisterRelativePointerDelegate(
   relative_pointer_delegate_ = nullptr;
 }
 
-bool Pointer::EnablePointerCapture() {
-  if (!base::FeatureList::IsEnabled(kPointerCapture))
-    return false;
-
-  // You are not allowed to have more than one capture active.
-  if (capture_window_)
-    return false;
-
-  aura::Window* active_window = WMHelper::GetInstance()->GetActiveWindow();
-  if (!active_window) {
-    LOG(ERROR) << "Failed to enable pointer capture: "
-                  "active window not found";
-    return false;
-  }
-  auto* top_level_widget =
-      views::Widget::GetTopLevelWidgetForNativeView(active_window);
-
-  if (!top_level_widget) {
-    LOG(ERROR) << "Failed to enable pointer capture: "
-                  "active window does not have associated widget";
-    return false;
-  }
-  Surface* root_surface =
-      GetShellMainSurface(top_level_widget->GetNativeWindow());
-  if (!root_surface ||
-      !delegate_->CanAcceptPointerEventsForSurface(root_surface)) {
-    LOG(ERROR) << "Failed to enable pointer capture: "
-                  "cannot find window for capture";
-    return false;
-  }
-  return EnablePointerCapture(root_surface);
-}
-
-void Pointer::DisablePointerCapture() {
-  // Early out if pointer capture is not enabled.
-  if (!capture_window_)
-    return;
-
-  // Remove the pre-target handler that consumes all mouse events.
-  aura::Env::GetInstance()->RemovePreTargetHandler(this);
-
-  auto* cursor_client = WMHelper::GetInstance()->GetCursorClient();
-  cursor_client->UnlockCursor();
-  cursor_client->ShowCursor();
-
-  aura::Window* root = capture_window_->GetRootWindow();
-  gfx::Point p = location_when_pointer_capture_enabled_
-                     ? *location_when_pointer_capture_enabled_
-                     : root->bounds().CenterPoint();
-  root->MoveCursorTo(p);
-
-  capture_window_ = nullptr;
-  location_when_pointer_capture_enabled_.reset();
-  UpdateCursor();
-}
-
 bool Pointer::ConstrainPointer(PointerConstraintDelegate* delegate) {
   // Pointer lock is a chromeos-only feature (i.e. the chromeos::features
   // namespace only exists in chromeos builds). So we do not compile pointer
   // lock support unless we are on chromeos.
 #if defined(OS_CHROMEOS)
-  if (!base::FeatureList::IsEnabled(chromeos::features::kExoPointerLock))
+  Surface* constrained_surface = delegate->GetConstrainedSurface();
+  // Pointer lock should be enabled for ARC by default. The kExoPointerLock
+  // should only apply to Crostini windows.
+  bool is_arc_window = ash::window_util::IsArcWindow(
+      constrained_surface->window()->GetToplevelWindow());
+  if (!is_arc_window &&
+      !base::FeatureList::IsEnabled(chromeos::features::kExoPointerLock))
     return false;
-  bool success = EnablePointerCapture(delegate->GetConstrainedSurface());
+  bool success = EnablePointerCapture(constrained_surface);
   if (success)
     pointer_constraint_delegate_ = delegate;
   return success;
@@ -305,8 +253,10 @@ void Pointer::UnconstrainPointer() {
 }
 
 bool Pointer::EnablePointerCapture(Surface* capture_surface) {
-  if (!base::FeatureList::IsEnabled(kPointerCapture))
+  if (!base::FeatureList::IsEnabled(kPointerCapture)) {
+    LOG(WARNING) << "Unable to capture the pointer, feature is disabled.";
     return false;
+  }
 
   if (capture_surface->window() !=
       WMHelper::GetInstance()->GetFocusedWindow()) {
@@ -325,17 +275,31 @@ bool Pointer::EnablePointerCapture(Surface* capture_surface) {
   aura::Env::GetInstance()->AddPreTargetHandler(
       this, ui::EventTarget::Priority::kSystem);
 
-  // TODO(b/146082565): Do not hide cursor when enabling pointer capture.
-  auto* cursor_client = WMHelper::GetInstance()->GetCursorClient();
-  cursor_client->HideCursor();
-  cursor_client->LockCursor();
-
   location_when_pointer_capture_enabled_ = gfx::ToRoundedPoint(location_);
 
   if (ShouldMoveToCenter())
     MoveCursorToCenterOfActiveDisplay();
 
   return true;
+}
+
+void Pointer::DisablePointerCapture() {
+  // Early out if pointer capture is not enabled.
+  if (!capture_window_)
+    return;
+
+  // Remove the pre-target handler that consumes all mouse events.
+  aura::Env::GetInstance()->RemovePreTargetHandler(this);
+
+  aura::Window* root = capture_window_->GetRootWindow();
+  gfx::Point p = location_when_pointer_capture_enabled_
+                     ? *location_when_pointer_capture_enabled_
+                     : root->bounds().CenterPoint();
+  root->MoveCursorTo(p);
+
+  capture_window_ = nullptr;
+  location_when_pointer_capture_enabled_.reset();
+  UpdateCursor();
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -356,6 +320,7 @@ void Pointer::OnSurfaceDestroying(Surface* surface) {
   if (surface && pointer_constraint_delegate_ &&
       surface == pointer_constraint_delegate_->GetConstrainedSurface()) {
     surface->RemoveSurfaceObserver(this);
+    VLOG(1) << "Pointer constraint broken by surface destruction";
     pointer_constraint_delegate_->OnConstraintBroken();
     UnconstrainPointer();
   }
@@ -376,6 +341,13 @@ void Pointer::OnSurfaceDestroying(Surface* surface) {
 // ui::EventHandler overrides:
 
 void Pointer::OnMouseEvent(ui::MouseEvent* event) {
+  // Nothing to report to a client nor have to update the pointer when capture
+  // changes.
+  if (event->type() == ui::ET_MOUSE_CAPTURE_CHANGED)
+    return;
+
+  seat_->SetLastLocation(event->root_location());
+
   Surface* target = GetEffectiveTargetForEvent(event);
   gfx::PointF location_in_target = event->location_f();
   if (target) {
@@ -395,7 +367,7 @@ void Pointer::OnMouseEvent(ui::MouseEvent* event) {
 
   TRACE_EXO_INPUT_EVENT(event);
 
-  if (event->IsMouseEvent() && event->type() != ui::ET_MOUSE_CAPTURE_CHANGED) {
+  if (event->IsMouseEvent()) {
     // Generate motion event if location changed. We need to check location
     // here as mouse movement can generate both "moved" and "entered" events
     // but OnPointerMotion should only be called if location changed since
@@ -481,7 +453,6 @@ void Pointer::OnMouseEvent(ui::MouseEvent* event) {
     case ui::ET_MOUSE_DRAGGED:
     case ui::ET_MOUSE_ENTERED:
     case ui::ET_MOUSE_EXITED:
-    case ui::ET_MOUSE_CAPTURE_CHANGED:
       break;
     default:
       NOTREACHED();
@@ -546,7 +517,7 @@ void Pointer::OnCursorSizeChanged(ui::CursorSize cursor_size) {
   if (!focus_surface_)
     return;
 
-  if (cursor_ != ui::CursorType::kNull)
+  if (cursor_ != ui::mojom::CursorType::kNull)
     UpdateCursor();
 }
 
@@ -560,8 +531,8 @@ void Pointer::OnCursorDisplayChanged(const display::Display& display) {
   // TODO(crbug.com/631103): CursorClient does not exist in mash yet.
   if (!cursor_client)
     return;
-  if (cursor_ == ui::CursorType::kCustom &&
-      cursor_client->GetCursor() == cursor_client->GetCursor()) {
+  if (cursor_ == ui::mojom::CursorType::kCustom &&
+      cursor_ == cursor_client->GetCursor()) {
     // If the current cursor is still the one created by us,
     // it's our responsibility to update the cursor for the new display.
     // Don't check |focus_surface_| because it can be null while
@@ -577,6 +548,7 @@ void Pointer::OnWindowFocused(aura::Window* gained_focus,
                               aura::Window* lost_focus) {
   if (capture_window_ && capture_window_ != gained_focus) {
     if (pointer_constraint_delegate_) {
+      VLOG(1) << "Pointer constraint broken by focus change";
       pointer_constraint_delegate_->OnConstraintBroken();
       UnconstrainPointer();
     } else {
@@ -588,7 +560,8 @@ void Pointer::OnWindowFocused(aura::Window* gained_focus,
 ////////////////////////////////////////////////////////////////////////////////
 // Pointer, private:
 
-Surface* Pointer::GetEffectiveTargetForEvent(ui::LocatedEvent* event) const {
+Surface* Pointer::GetEffectiveTargetForEvent(
+    const ui::LocatedEvent* event) const {
   if (capture_window_)
     return Surface::AsSurface(capture_window_);
 
@@ -670,6 +643,7 @@ void Pointer::CaptureCursor(const gfx::Point& hotspot) {
           base::BindOnce(&Pointer::OnCursorCaptured,
                          cursor_capture_weak_ptr_factory_.GetWeakPtr(),
                          hotspot));
+  request->set_result_task_runner(base::SequencedTaskRunnerHandle::Get());
 
   request->set_source(cursor_capture_source_id_);
   host_window()->layer()->RequestCopyOfOutput(std::move(request));
@@ -697,7 +671,7 @@ void Pointer::UpdateCursor() {
   if (!cursor_client)
     return;
 
-  if (cursor_ == ui::CursorType::kCustom) {
+  if (cursor_ == ui::mojom::CursorType::kCustom) {
     SkBitmap bitmap = cursor_bitmap_;
     gfx::Point hotspot =
         gfx::ScaleToFlooredPoint(cursor_hotspot_, capture_ratio_);
@@ -711,28 +685,21 @@ void Pointer::UpdateCursor() {
     if (cursor_client->GetCursorSize() == ui::CursorSize::kLarge)
       scale *= kLargeCursorScale;
 
-    ui::ScaleAndRotateCursorBitmapAndHotpoint(scale, display.rotation(),
+    // Use panel_rotation() rather than "natural" rotation, as it actually
+    // relates to the hardware you're about to draw the cursor bitmap on.
+    ui::ScaleAndRotateCursorBitmapAndHotpoint(scale, display.panel_rotation(),
                                               &bitmap, &hotspot);
 
     ui::PlatformCursor platform_cursor;
-#if defined(USE_OZONE)
     // TODO(reveman): Add interface for creating cursors from GpuMemoryBuffers
     // and use that here instead of the current bitmap API.
     // https://crbug.com/686600
-    platform_cursor = ui::CursorFactoryOzone::GetInstance()->CreateImageCursor(
-        bitmap, hotspot, 0);
-#elif defined(USE_X11)
-    XcursorImage* image = ui::SkBitmapToXcursorImage(&bitmap, hotspot);
-    platform_cursor = ui::CreateReffedCustomXCursor(image);
-#endif
+    platform_cursor =
+        ui::CursorFactory::GetInstance()->CreateImageCursor(bitmap, hotspot);
     cursor_.SetPlatformCursor(platform_cursor);
     cursor_.set_custom_bitmap(bitmap);
     cursor_.set_custom_hotspot(hotspot);
-#if defined(USE_OZONE)
-    ui::CursorFactoryOzone::GetInstance()->UnrefImageCursor(platform_cursor);
-#elif defined(USE_X11)
-    ui::UnrefCustomXCursor(platform_cursor);
-#endif
+    ui::CursorFactory::GetInstance()->UnrefImageCursor(platform_cursor);
   }
 
   // If there is a focused surface, update its widget as the views framework

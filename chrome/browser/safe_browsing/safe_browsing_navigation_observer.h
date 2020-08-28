@@ -126,7 +126,7 @@ class SafeBrowsingNavigationObserver : public base::SupportsUserData::Data,
       content::NavigationHandle* navigation_handle) override;
   void DidFinishNavigation(
       content::NavigationHandle* navigation_handle) override;
-  void DidGetUserInteraction(const blink::WebInputEvent::Type type) override;
+  void DidGetUserInteraction(const blink::WebInputEvent& event) override;
   void WebContentsDestroyed() override;
   void DidOpenRequestedURL(content::WebContents* new_contents,
                            content::RenderFrameHost* source_render_frame_host,
@@ -136,6 +136,8 @@ class SafeBrowsingNavigationObserver : public base::SupportsUserData::Data,
                            ui::PageTransition transition,
                            bool started_from_context_menu,
                            bool renderer_initiated) override;
+  void DidActivatePortal(content::WebContents* predecessor_web_contents,
+                         base::TimeTicks activation_time) override;
 
   // content_settings::Observer overrides.
   void OnContentSettingChanged(const ContentSettingsPattern& primary_pattern,
@@ -153,10 +155,6 @@ class SafeBrowsingNavigationObserver : public base::SupportsUserData::Data,
 
   scoped_refptr<SafeBrowsingNavigationObserverManager> manager_;
 
-  // If the observed WebContents just got an user gesture.
-  bool has_user_gesture_;
-
-  base::Time last_user_gesture_timestamp_;
   ScopedObserver<HostContentSettingsMap, content_settings::Observer>
       content_settings_observer_{this};
 

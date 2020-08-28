@@ -47,7 +47,7 @@ class PasswordStoreChange {
   bool operator==(const PasswordStoreChange& other) const {
     return type() == other.type() &&
            form().signon_realm == other.form().signon_realm &&
-           form().origin == other.form().origin &&
+           form().url == other.form().url &&
            form().action == other.form().action &&
            form().submit_element == other.form().submit_element &&
            form().username_element == other.form().username_element &&
@@ -58,7 +58,7 @@ class PasswordStoreChange {
            form().new_password_value == other.form().new_password_value &&
            form().date_last_used == other.form().date_last_used &&
            form().date_created == other.form().date_created &&
-           form().blacklisted_by_user == other.form().blacklisted_by_user;
+           form().blocked_by_user == other.form().blocked_by_user;
   }
 
  private:

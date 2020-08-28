@@ -23,17 +23,17 @@
 #include "components/safe_browsing/core/db/v4_protocol_manager_util.h"
 #include "url/gurl.h"
 
-namespace content {
+namespace blink {
+namespace mojom {
 enum class ResourceType;
-}
+}  // namespace mojom
+}  // namespace blink
 
 namespace network {
 class SharedURLLoaderFactory;
 }  // namespace network
 
 namespace safe_browsing {
-
-class RealTimeUrlLookupService;
 
 // Value returned by some functions that check an allowlist and may or may not
 // have an immediate answer.
@@ -115,6 +115,7 @@ class SafeBrowsingDatabaseManager
   // Called on the IO thread to cancel a pending check if the result is no
   // longer needed.  Also called after the result has been handled. Api checks
   // are handled separately. To cancel an API check use CancelApiCheck.
+  // If |client| doesn't exist anymore, ignore this call.
   virtual void CancelCheck(Client* client) = 0;
 
   //
@@ -123,7 +124,7 @@ class SafeBrowsingDatabaseManager
 
   // Returns true if this resource type should be checked.
   virtual bool CanCheckResourceType(
-      content::ResourceType resource_type) const = 0;
+      blink::mojom::ResourceType resource_type) const = 0;
 
   // Returns true if the url's scheme can be checked.
   virtual bool CanCheckUrl(const GURL& url) const = 0;
@@ -227,9 +228,6 @@ class SafeBrowsingDatabaseManager
   // syncs.
   virtual std::unique_ptr<StoreStateMap> GetStoreStateMap();
 
-  // Returns the Safety Net ID of the device.
-  virtual std::string GetSafetyNetId() const;
-
   // Returns the ThreatSource for this implementation.
   virtual ThreatSource GetThreatSource() const = 0;
 
@@ -262,7 +260,7 @@ class SafeBrowsingDatabaseManager
   // when it's loaded from disk at startup, and then periodically. These
   // callbacks will be on the UI thread.
   using OnDatabaseUpdated = base::RepeatingClosure;
-  std::unique_ptr<base::CallbackList<void()>::Subscription>
+  std::unique_ptr<base::RepeatingClosureList::Subscription>
   RegisterDatabaseUpdatedCallback(const OnDatabaseUpdated& cb);
 
   // Called to stop or shutdown operations on the io_thread. All subclasses
@@ -270,14 +268,12 @@ class SafeBrowsingDatabaseManager
   // method at the bottom of it.
   virtual void StopOnIOThread(bool shutdown);
 
-  virtual RealTimeUrlLookupService* GetRealTimeUrlLookupService();
-
  protected:
   // Bundled client info for an API abuse hash prefix check.
   class SafeBrowsingApiCheck {
    public:
     SafeBrowsingApiCheck(const GURL& url, Client* client);
-    ~SafeBrowsingApiCheck();
+    ~SafeBrowsingApiCheck() = default;
 
     const GURL& url() const { return url_; }
     Client* client() const { return client_; }
@@ -342,11 +338,12 @@ class SafeBrowsingDatabaseManager
   std::unique_ptr<V4GetHashProtocolManager> v4_get_hash_protocol_manager_;
 
   // A list of parties to be notified about database updates.
-  base::CallbackList<void()> update_complete_callback_list_;
+  base::RepeatingClosureList update_complete_callback_list_;
 
  private:
   // Returns an iterator to the pending API check with the given |client|.
   ApiCheckSet::iterator FindClientApiCheck(Client* client);
+
 };  // class SafeBrowsingDatabaseManager
 
 }  // namespace safe_browsing

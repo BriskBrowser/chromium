@@ -7,10 +7,30 @@
  * 'settings-manage-profile' is the settings subpage containing controls to
  * edit a profile's name, icon, and desktop shortcut.
  */
+import 'chrome://resources/cr_elements/cr_input/cr_input.m.js';
+import 'chrome://resources/cr_elements/cr_toggle/cr_toggle.m.js';
+import 'chrome://resources/cr_elements/shared_style_css.m.js';
+import 'chrome://resources/polymer/v3_0/iron-flex-layout/iron-flex-layout-classes.js';
+import 'chrome://resources/polymer/v3_0/paper-styles/shadow.js';
+import '../settings_shared_css.m.js';
+
+import {AvatarIcon} from 'chrome://resources/cr_elements/cr_profile_avatar_selector/cr_profile_avatar_selector.m.js';
+import {WebUIListenerBehavior} from 'chrome://resources/js/web_ui_listener_behavior.m.js';
+import {html, Polymer} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+
+import {loadTimeData} from '../i18n_setup.js';
+import {routes} from '../route.js';
+import {RouteObserverBehavior, Router} from '../router.m.js';
+
+import {ManageProfileBrowserProxy, ManageProfileBrowserProxyImpl, ProfileShortcutStatus} from './manage_profile_browser_proxy.js';
+import {SyncStatus} from './sync_browser_proxy.m.js';
+
 Polymer({
   is: 'settings-manage-profile',
 
-  behaviors: [WebUIListenerBehavior, settings.RouteObserverBehavior],
+  _template: html`{__html_template__}`,
+
+  behaviors: [WebUIListenerBehavior, RouteObserverBehavior],
 
   properties: {
     /**
@@ -47,7 +67,7 @@ Polymer({
 
     /**
      * The current sync status.
-     * @type {?settings.SyncStatus}
+     * @type {?SyncStatus}
      */
     syncStatus: Object,
 
@@ -55,14 +75,26 @@ Polymer({
      * True if the profile shortcuts feature is enabled.
      */
     isProfileShortcutSettingVisible_: Boolean,
+
+    /**
+     * TODO(dpapad): Move this back to the HTML file when the Polymer2 version
+     * of the code is deleted. Because of "\" being a special character in a JS
+     * string, can't satisfy both Polymer2 and Polymer3 at the same time from
+     * the HTML file.
+     * @private
+     */
+    pattern_: {
+      type: String,
+      value: '.*\\S.*',
+    },
   },
 
-  /** @private {?settings.ManageProfileBrowserProxy} */
+  /** @private {?ManageProfileBrowserProxy} */
   browserProxy_: null,
 
   /** @override */
   created() {
-    this.browserProxy_ = settings.ManageProfileBrowserProxyImpl.getInstance();
+    this.browserProxy_ = ManageProfileBrowserProxyImpl.getInstance();
   },
 
   /** @override */
@@ -77,20 +109,21 @@ Polymer({
 
   /** @protected */
   currentRouteChanged() {
-    if (settings.getCurrentRoute() == settings.routes.MANAGE_PROFILE) {
+    if (Router.getInstance().getCurrentRoute() === routes.MANAGE_PROFILE) {
       if (this.profileName) {
         this.$.name.value = this.profileName;
       }
       if (loadTimeData.getBoolean('profileShortcutsEnabled')) {
         this.browserProxy_.getProfileShortcutStatus().then(status => {
-          if (status == ProfileShortcutStatus.PROFILE_SHORTCUT_SETTING_HIDDEN) {
+          if (status ===
+              ProfileShortcutStatus.PROFILE_SHORTCUT_SETTING_HIDDEN) {
             this.isProfileShortcutSettingVisible_ = false;
             return;
           }
 
           this.isProfileShortcutSettingVisible_ = true;
           this.hasProfileShortcut_ =
-              status == ProfileShortcutStatus.PROFILE_SHORTCUT_FOUND;
+              status === ProfileShortcutStatus.PROFILE_SHORTCUT_FOUND;
         });
       }
     }
@@ -115,7 +148,7 @@ Polymer({
    * @private
    */
   onProfileNameKeydown_(event) {
-    if (event.key == 'Escape') {
+    if (event.key === 'Escape') {
       event.target.value = this.profileName;
       event.target.blur();
     }
@@ -134,7 +167,7 @@ Polymer({
   },
 
   /**
-   * @param {?settings.SyncStatus} syncStatus
+   * @param {?SyncStatus} syncStatus
    * @return {boolean} Whether the profile name field is disabled.
    * @private
    */

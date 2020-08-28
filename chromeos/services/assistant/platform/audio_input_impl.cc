@@ -14,7 +14,9 @@
 #include "base/timer/timer.h"
 #include "chromeos/audio/cras_audio_handler.h"
 #include "chromeos/dbus/power/power_manager_client.h"
-#include "chromeos/services/assistant/public/features.h"
+#include "chromeos/services/assistant/buildflags.h"
+#include "chromeos/services/assistant/public/cpp/assistant_client.h"
+#include "chromeos/services/assistant/public/cpp/features.h"
 #include "chromeos/services/assistant/utils.h"
 #include "libassistant/shared/public/platform_audio_buffer.h"
 #include "media/audio/audio_device_description.h"
@@ -23,6 +25,10 @@
 #include "media/base/channel_layout.h"
 #include "services/audio/public/cpp/device_factory.h"
 #include "services/audio/public/mojom/stream_factory.mojom.h"
+
+#if BUILDFLAG(ENABLE_FAKE_ASSISTANT_MICROPHONE)
+#include "chromeos/services/assistant/platform/fake_input_device.h"
+#endif  // BUILDFLAG(ENABLE_FAKE_ASSISTANT_MICROPHONE)
 
 namespace chromeos {
 namespace assistant {
@@ -190,12 +196,10 @@ void AudioInputImpl::HotwordStateManager::RecreateAudioInputStream() {
   input_->RecreateAudioInputStream(/*use_dsp=*/false);
 }
 
-AudioInputImpl::AudioInputImpl(mojom::Client* client,
-                               PowerManagerClient* power_manager_client,
+AudioInputImpl::AudioInputImpl(PowerManagerClient* power_manager_client,
                                CrasAudioHandler* cras_audio_handler,
                                const std::string& device_id)
-    : client_(client),
-      power_manager_client_(power_manager_client),
+    : power_manager_client_(power_manager_client),
       power_manager_client_observer_(this),
       cras_audio_handler_(cras_audio_handler),
       task_runner_(base::SequencedTaskRunnerHandle::Get()),
@@ -421,20 +425,27 @@ void AudioInputImpl::SetDspHotwordLocale(std::string pref_locale) {
   cras_audio_handler_->SetHotwordModel(
       dsp_node_id, /* hotword_model */ base::ToLowerASCII(pref_locale),
       base::BindOnce(&AudioInputImpl::SetDspHotwordLocaleCallback,
-                     weak_factory_.GetWeakPtr()));
+                     weak_factory_.GetWeakPtr(), pref_locale));
 }
 
-void AudioInputImpl::SetDspHotwordLocaleCallback(bool success) {
+void AudioInputImpl::SetDspHotwordLocaleCallback(std::string pref_locale,
+                                                 bool success) {
   base::UmaHistogramBoolean("Assistant.SetDspHotwordLocale", success);
   if (success)
     return;
 
+  LOG(ERROR) << "Set " << pref_locale
+             << " hotword model failed, fallback to default locale.";
   // Reset the locale to the default value "en_us" if we failed to sync it to
   // the locale stored in user's pref.
   uint64_t dsp_node_id;
   base::StringToUint64(hotword_device_id_, &dsp_node_id);
-  cras_audio_handler_->SetHotwordModel(dsp_node_id, "en_us",
-                                       base::BindOnce([](bool success) {}));
+  cras_audio_handler_->SetHotwordModel(
+      dsp_node_id, /* hotword_model */ "en_us",
+      base::BindOnce([](bool success) {
+        if (!success)
+          LOG(ERROR) << "Reset to default hotword model failed.";
+      }));
 }
 
 void AudioInputImpl::RecreateAudioInputStream(bool use_dsp) {
@@ -456,13 +467,23 @@ void AudioInputImpl::RecreateAudioInputStream(bool use_dsp) {
   // the HOTWORD is conducted by a hotword device or other devices like internal
   // mic will be determined by the device_id_ passed to CRAS.
   param.set_effects(media::AudioParameters::PlatformEffectsMask::HOTWORD);
-  if (use_dsp && !hotword_device_id_.empty())
+  auto detect_dead_stream = audio::DeadStreamDetection::kEnabled;
+  if (use_dsp && !hotword_device_id_.empty()) {
     device_id_ = hotword_device_id_;
+    // The DSP device won't provide data until it detects a hotword, so
+    // we disable its the dead stream detection.
+    detect_dead_stream = audio::DeadStreamDetection::kDisabled;
+  }
 
+#if BUILDFLAG(ENABLE_FAKE_ASSISTANT_MICROPHONE)
+  source_ = CreateFakeInputDevice();
+#else
   mojo::PendingRemote<audio::mojom::StreamFactory> stream_factory;
-  client_->RequestAudioStreamFactory(
+  AssistantClient::Get()->RequestAudioStreamFactory(
       stream_factory.InitWithNewPipeAndPassReceiver());
-  source_ = audio::CreateInputDevice(std::move(stream_factory), device_id_);
+  source_ = audio::CreateInputDevice(std::move(stream_factory), device_id_,
+                                     detect_dead_stream);
+#endif  // BUILDFLAG(ENABLE_FAKE_ASSISTANT_MICROPHONE)
 
   source_->Initialize(param, this);
   source_->Start();

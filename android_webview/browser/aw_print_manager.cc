@@ -13,7 +13,9 @@
 #include "base/numerics/safe_conversions.h"
 #include "base/task/post_task.h"
 #include "base/task/task_traits.h"
+#include "base/task/thread_pool.h"
 #include "components/printing/browser/print_manager_utils.h"
+#include "components/printing/common/print.mojom.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/render_frame_host.h"
 
@@ -81,7 +83,7 @@ void AwPrintManager::OnGetDefaultPrintSettings(
     IPC::Message* reply_msg) {
   // Unlike the printing_message_filter, we do process this in UI thread.
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
-  PrintMsg_Print_Params params;
+  printing::mojom::PrintParams params;
   printing::RenderParamsFromPrintSettings(*settings_, &params);
   params.document_cookie = cookie_;
   PrintHostMsg_GetDefaultPrintSettings::WriteReplyParams(reply_msg, params);
@@ -90,7 +92,7 @@ void AwPrintManager::OnGetDefaultPrintSettings(
 
 void AwPrintManager::OnScriptedPrint(
     content::RenderFrameHost* render_frame_host,
-    const PrintHostMsg_ScriptedPrint_Params& scripted_params,
+    const printing::mojom::ScriptedPrintParams& scripted_params,
     IPC::Message* reply_msg) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   PrintMsg_PrintPages_Params params;
@@ -103,12 +105,12 @@ void AwPrintManager::OnScriptedPrint(
 
 void AwPrintManager::OnDidPrintDocument(
     content::RenderFrameHost* render_frame_host,
-    const PrintHostMsg_DidPrintDocument_Params& params,
+    const printing::mojom::DidPrintDocumentParams& params,
     std::unique_ptr<DelayedFrameDispatchHelper> helper) {
   if (params.document_cookie != cookie_)
     return;
 
-  const PrintHostMsg_DidPrintContent_Params& content = params.content;
+  const printing::mojom::DidPrintContentParams& content = *params.content;
   if (!content.metafile_data_region.IsValid()) {
     NOTREACHED() << "invalid memory handle";
     web_contents()->Stop();
@@ -127,9 +129,9 @@ void AwPrintManager::OnDidPrintDocument(
 
   DCHECK(pdf_writing_done_callback_);
   base::PostTaskAndReplyWithResult(
-      base::CreateTaskRunner({base::ThreadPool(), base::MayBlock(),
-                              base::TaskPriority::BEST_EFFORT,
-                              base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN})
+      base::ThreadPool::CreateTaskRunner(
+          {base::MayBlock(), base::TaskPriority::BEST_EFFORT,
+           base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN})
           .get(),
       FROM_HERE, base::BindOnce(&SaveDataToFd, fd_, number_pages_, data),
       base::BindOnce(&AwPrintManager::OnDidPrintDocumentWritingDone,

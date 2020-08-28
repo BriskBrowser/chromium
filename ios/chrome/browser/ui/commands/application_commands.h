@@ -11,6 +11,9 @@
 @class ShowSigninCommand;
 @class StartVoiceSearchCommand;
 @class UIViewController;
+namespace syncer {
+enum class KeyRetrievalTriggerForUMA;
+}  // namespace syncer
 
 // This protocol groups commands that are part of ApplicationCommands, but
 // may also be forwarded directly to a settings navigation controller.
@@ -36,6 +39,11 @@
 
 // Shows the list of saved passwords in the settings.
 - (void)showSavedPasswordsSettingsFromViewController:
+    (UIViewController*)baseViewController;
+
+// Shows the list of saved passwords in the settings. Automatically starts
+// password check.
+- (void)showSavedPasswordsSettingsAndStartPasswordCheckFromViewController:
     (UIViewController*)baseViewController;
 
 // Shows the list of profiles (addresess) in the settings.
@@ -65,18 +73,20 @@
 - (void)showSettingsFromViewController:(UIViewController*)baseViewController;
 
 // TODO(crbug.com/779791) : Do not pass baseViewController through dispatcher.
-//
-// Shows the advanced sign-in settings. Only used when unified consent feature
-// is enabled.
-//
-// TODO(crbug.com/965992): This is a temporary command that was added as the
-// First Run and the Sign-in promo are not managed by the
-// |SigninInteractionCoordinator| and they need to present the advanced sign-in
-// settings via a dispatched command. |SigninInteractionCoordinator| should be
-// changed to present the|FirstRunChromeSigninViewController| and
-//|SigninPromoViewController| and this command should be removed.
+// Shows the advanced sign-in settings.
 - (void)showAdvancedSigninSettingsFromViewController:
     (UIViewController*)baseViewController;
+
+// Presents the Trusted Vault reauth dialog.
+// |baseViewController| presents the sign-in.
+// |retrievalTrigger| UI elements where the trusted vault reauth has been
+// triggered.
+- (void)
+    showTrustedVaultReauthenticationFromViewController:
+        (UIViewController*)baseViewController
+                                      retrievalTrigger:
+                                          (syncer::KeyRetrievalTriggerForUMA)
+                                              retrievalTrigger;
 
 // Starts a voice search on the current BVC.
 - (void)startVoiceSearch;
@@ -105,6 +115,13 @@
 - (void)showReportAnIssueFromViewController:
     (UIViewController*)baseViewController;
 
+// Shows the Report an Issue UI, presenting from |baseViewController|, using
+// |specificProductData| for additional product data to be sent in the report.
+- (void)
+    showReportAnIssueFromViewController:(UIViewController*)baseViewController
+                    specificProductData:(NSDictionary<NSString*, NSString*>*)
+                                            specificProductData;
+
 // Opens the |command| URL in a new tab.
 // TODO(crbug.com/907527): Check if it is possible to merge it with the
 // URLLoader methods.
@@ -121,6 +138,9 @@
 
 // Sets whether the UI is displaying incognito content.
 - (void)setIncognitoContentVisible:(BOOL)incognitoContentVisible;
+
+// Open a new window with |userActivity|
+- (void)openNewWindowWithActivity:(NSUserActivity*)userActivity;
 
 @end
 

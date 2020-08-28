@@ -26,12 +26,12 @@
 
 #include "third_party/blink/renderer/core/editing/selection_modifier.h"
 
+#include "third_party/blink/renderer/core/editing/bidi_adjustment.h"
 #include "third_party/blink/renderer/core/editing/editing_behavior.h"
 #include "third_party/blink/renderer/core/editing/editing_utilities.h"
 #include "third_party/blink/renderer/core/editing/editor.h"
 #include "third_party/blink/renderer/core/editing/ephemeral_range.h"
 #include "third_party/blink/renderer/core/editing/inline_box_position.h"
-#include "third_party/blink/renderer/core/editing/inline_box_traversal.h"
 #include "third_party/blink/renderer/core/editing/local_caret_rect.h"
 #include "third_party/blink/renderer/core/editing/selection_template.h"
 #include "third_party/blink/renderer/core/editing/visible_position.h"
@@ -161,7 +161,7 @@ base::Optional<TextDirection> DirectionAt(const VisiblePosition& position) {
   if (NGInlineFormattingContextOf(adjusted.GetPosition())) {
     const NGInlineCursor& cursor = ComputeNGCaretPosition(adjusted).cursor;
     if (cursor)
-      return cursor.CurrentResolvedDirection();
+      return cursor.Current().ResolvedDirection();
     return base::nullopt;
   }
 
@@ -185,7 +185,7 @@ base::Optional<TextDirection> LineDirectionAt(const VisiblePosition& position) {
     if (!line)
       return base::nullopt;
     line.MoveToContainingLine();
-    return line.CurrentBaseDirection();
+    return line.Current().BaseDirection();
   }
 
   if (const InlineBox* box =
@@ -396,7 +396,6 @@ VisiblePosition SelectionModifier::ModifyExtendingForwardInternal(
       return LogicalEndOfLine(EndForPlatform());
     case TextGranularity::kParagraphBoundary:
       return EndOfParagraph(EndForPlatform());
-      break;
     case TextGranularity::kDocumentBoundary: {
       const VisiblePosition& pos = EndForPlatform();
       if (IsEditablePosition(pos.DeepEquivalent()))

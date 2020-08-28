@@ -9,10 +9,9 @@
 #include <memory>
 
 #include "base/bind.h"
-#include "base/containers/circular_deque.h"
 #include "base/location.h"
+#include "chromecast/media/api/cast_audio_decoder.h"
 #include "chromecast/media/audio/mixer_service/output_stream_connection.h"
-#include "chromecast/media/cma/decoder/cast_audio_decoder.h"
 #include "chromecast/public/media/decoder_config.h"
 #include "chromecast/public/media/media_pipeline_backend.h"
 #include "chromecast/public/media/media_pipeline_device_params.h"
@@ -82,7 +81,6 @@ class AudioDecoderForMixer
   void ResetMixerInputForNewConfig(const AudioConfig& config);
   void CreateDecoder();
 
-  void OnDecoderInitialized(bool success);
   void OnBufferDecoded(uint64_t input_bytes,
                        bool has_config,
                        CastAudioDecoder::Status status,
@@ -103,10 +101,12 @@ class AudioDecoderForMixer
   bool pending_buffer_complete_ = false;
   bool mixer_error_ = false;
   bool paused_ = false;
+  float playback_rate_ = 1.0f;
   bool reported_ready_for_playback_ = false;
   RenderingDelay mixer_delay_;
 
-  AudioConfig config_;
+  AudioConfig input_config_;
+  AudioConfig decoded_config_;
   std::unique_ptr<CastAudioDecoder> decoder_;
 
   double av_sync_clock_rate_ = 1.0;

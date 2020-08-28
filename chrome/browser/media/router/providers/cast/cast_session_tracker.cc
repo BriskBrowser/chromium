@@ -105,6 +105,7 @@ void CastSessionTracker::HandleReceiverStatusMessage(
 
 void CastSessionTracker::HandleMediaStatusMessage(const MediaSinkInternal& sink,
                                                   const base::Value& message) {
+  DVLOG(2) << "Initial MEDIA_STATUS: " << message;
   auto session_it = sessions_by_sink_id_.find(sink.sink().id());
   if (session_it == sessions_by_sink_id_.end()) {
     DVLOG(2) << "Got media status message, but no session for: "
@@ -131,34 +132,24 @@ void CastSessionTracker::HandleMediaStatusMessage(const MediaSinkInternal& sink,
     return;
   }
 
-  // First filter out any idle media objects.
-  updated_status->EraseListValueIf([](const base::Value& media) {
-    const std::string* player_state = media.FindStringKey("playerState");
-    return player_state && *player_state == "IDLE";
-  });
-
   base::Value::ListView media_list = updated_status->GetList();
-  if (media_list.size() > 1) {
-    DVLOG(2) << "Media list unexpectedly contains more than one live media: "
-             << media_list.size() << ", session: " << session_id;
-  }
 
   // Backfill messages from receivers to make them compatible with Cast SDK.
   for (auto& media : media_list) {
     media.SetKey("sessionId", base::Value(session_id));
-    const base::Value* supported_media_requests = media.FindKeyOfType(
-        "supportedMediaRequests", base::Value::Type::INTEGER);
-    if (!supported_media_requests)
+    const base::Value* supported_media_commands = media.FindKeyOfType(
+        "supportedMediaCommands", base::Value::Type::INTEGER);
+    if (!supported_media_commands)
       continue;
 
     media.SetKey(
-        "supportedMediaRequests",
-        SupportedMediaRequestsToListValue(supported_media_requests->GetInt()));
+        "supportedMediaCommands",
+        SupportedMediaCommandsToListValue(supported_media_commands->GetInt()));
   }
 
   CopySavedMediaFieldsToMediaList(session, media_list);
 
-  DVLOG(2) << "Final updated status: " << updated_status;
+  DVLOG(2) << "Final updated MEDIA_STATUS: " << *updated_status;
   session->UpdateMedia(*updated_status);
 
   base::Optional<int> request_id =

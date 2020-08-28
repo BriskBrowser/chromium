@@ -5,6 +5,7 @@
 #include "media/base/pipeline_impl.h"
 
 #include <algorithm>
+#include <utility>
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
@@ -19,6 +20,7 @@
 #include "base/synchronization/waitable_event.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "media/base/bind_to_current_loop.h"
+#include "media/base/cdm_context.h"
 #include "media/base/demuxer.h"
 #include "media/base/media_log.h"
 #include "media/base/media_switches.h"
@@ -68,6 +70,7 @@ class PipelineImpl::RendererWrapper : public DemuxerHost,
   void SetPlaybackRate(double playback_rate);
   void SetVolume(float volume);
   void SetLatencyHint(base::Optional<base::TimeDelta> latency_hint);
+  void SetPreservesPitch(bool preserves_pitch);
   base::TimeDelta GetMediaTime() const;
   Ranges<base::TimeDelta> GetBufferedTimeRanges() const;
   bool DidLoadingProgress();
@@ -191,6 +194,9 @@ class PipelineImpl::RendererWrapper : public DemuxerHost,
   base::Optional<base::TimeDelta> latency_hint_;
   CdmContext* cdm_context_;
 
+  // By default, apply pitch adjustments.
+  bool preserves_pitch_ = true;
+
   // Lock used to serialize |shared_state_|.
   // TODO(crbug.com/893739): Add GUARDED_BY annotations.
   mutable base::Lock shared_state_lock_;
@@ -298,8 +304,8 @@ void PipelineImpl::RendererWrapper::Start(
   // Run tasks.
   pending_callbacks_ = SerialRunner::Run(
       std::move(fns),
-      base::BindRepeating(&RendererWrapper::CompleteSeek,
-                          weak_factory_.GetWeakPtr(), base::TimeDelta()));
+      base::BindOnce(&RendererWrapper::CompleteSeek, weak_factory_.GetWeakPtr(),
+                     base::TimeDelta()));
 }
 
 void PipelineImpl::RendererWrapper::Stop() {
@@ -324,7 +330,7 @@ void PipelineImpl::RendererWrapper::Stop() {
 
   if (demuxer_) {
     demuxer_->Stop();
-    demuxer_ = NULL;
+    demuxer_ = nullptr;
   }
 
   SetState(kStopped);
@@ -371,8 +377,8 @@ void PipelineImpl::RendererWrapper::Seek(base::TimeDelta time) {
   // Run tasks.
   pending_callbacks_ = SerialRunner::Run(
       std::move(bound_fns),
-      base::BindRepeating(&RendererWrapper::CompleteSeek,
-                          weak_factory_.GetWeakPtr(), seek_timestamp));
+      base::BindOnce(&RendererWrapper::CompleteSeek, weak_factory_.GetWeakPtr(),
+                     seek_timestamp));
 }
 
 void PipelineImpl::RendererWrapper::Suspend() {
@@ -403,8 +409,8 @@ void PipelineImpl::RendererWrapper::Suspend() {
 
   // No need to flush the renderer since it's going to be destroyed.
   pending_callbacks_ = SerialRunner::Run(
-      std::move(fns), base::BindRepeating(&RendererWrapper::CompleteSuspend,
-                                          weak_factory_.GetWeakPtr()));
+      std::move(fns), base::BindOnce(&RendererWrapper::CompleteSuspend,
+                                     weak_factory_.GetWeakPtr()));
 }
 
 void PipelineImpl::RendererWrapper::Resume(
@@ -437,8 +443,8 @@ void PipelineImpl::RendererWrapper::Resume(
   // Queue the asynchronous actions required to start playback.
   SerialRunner::Queue fns;
 
-  fns.Push(base::BindRepeating(&Demuxer::Seek, base::Unretained(demuxer_),
-                               start_timestamp));
+  fns.Push(base::BindOnce(&Demuxer::Seek, base::Unretained(demuxer_),
+                          start_timestamp));
 
   fns.Push(base::BindOnce(&RendererWrapper::CreateRenderer,
                           weak_factory_.GetWeakPtr()));
@@ -448,8 +454,8 @@ void PipelineImpl::RendererWrapper::Resume(
 
   pending_callbacks_ = SerialRunner::Run(
       std::move(fns),
-      base::BindRepeating(&RendererWrapper::CompleteSeek,
-                          weak_factory_.GetWeakPtr(), start_timestamp));
+      base::BindOnce(&RendererWrapper::CompleteSeek, weak_factory_.GetWeakPtr(),
+                     start_timestamp));
 }
 
 void PipelineImpl::RendererWrapper::SetPlaybackRate(double playback_rate) {
@@ -478,6 +484,17 @@ void PipelineImpl::RendererWrapper::SetLatencyHint(
   latency_hint_ = latency_hint;
   if (shared_state_.renderer)
     shared_state_.renderer->SetLatencyHint(latency_hint_);
+}
+
+void PipelineImpl::RendererWrapper::SetPreservesPitch(bool preserves_pitch) {
+  DCHECK(media_task_runner_->BelongsToCurrentThread());
+
+  if (preserves_pitch_ == preserves_pitch)
+    return;
+
+  preserves_pitch_ = preserves_pitch;
+  if (shared_state_.renderer)
+    shared_state_.renderer->SetPreservesPitch(preserves_pitch_);
 }
 
 base::TimeDelta PipelineImpl::RendererWrapper::GetMediaTime() const {
@@ -581,8 +598,7 @@ void PipelineImpl::RendererWrapper::OnBufferedTimeRangesChanged(
 void PipelineImpl::RendererWrapper::SetDuration(base::TimeDelta duration) {
   // TODO(alokp): Add thread DCHECK after ensuring that all Demuxer
   // implementations call DemuxerHost on the media thread.
-  media_log_->AddLogRecord(media_log_->CreateTimeEvent(
-      MediaLogRecord::DURATION_SET, "duration", duration));
+  media_log_->AddEvent<MediaLogEvent::kDurationChanged>(duration);
   main_task_runner_->PostTask(
       FROM_HERE, base::BindOnce(&PipelineImpl::OnDurationChange, weak_pipeline_,
                                 duration));
@@ -603,7 +619,7 @@ void PipelineImpl::RendererWrapper::OnError(PipelineStatus error) {
 
 void PipelineImpl::RendererWrapper::OnEnded() {
   DCHECK(media_task_runner_->BelongsToCurrentThread());
-  media_log_->AddLogRecord(media_log_->CreateRecord(MediaLogRecord::ENDED));
+  media_log_->AddEvent<MediaLogEvent::kEnded>();
 
   if (state_ != kPlaying)
     return;
@@ -661,7 +677,7 @@ void PipelineImpl::RendererWrapper::OnEnabledAudioTracksChanged(
       enabled_track_ids, GetCurrentTimestamp(),
       base::BindOnce(&RendererWrapper::OnDemuxerCompletedTrackChange,
                      weak_factory_.GetWeakPtr(),
-                     base::Passed(&change_completed_cb)));
+                     std::move(change_completed_cb)));
 }
 
 void PipelineImpl::OnSelectedVideoTrackChanged(
@@ -701,7 +717,7 @@ void PipelineImpl::RendererWrapper::OnSelectedVideoTrackChanged(
       tracks, GetCurrentTimestamp(),
       base::BindOnce(&RendererWrapper::OnDemuxerCompletedTrackChange,
                      weak_factory_.GetWeakPtr(),
-                     base::Passed(&change_completed_cb)));
+                     std::move(change_completed_cb)));
 }
 
 void PipelineImpl::RendererWrapper::OnDemuxerCompletedTrackChange(
@@ -900,8 +916,11 @@ void PipelineImpl::RendererWrapper::SetState(State next_state) {
            << PipelineImpl::GetStateString(next_state);
 
   state_ = next_state;
-  media_log_->AddLogRecord(
-      media_log_->CreatePipelineStateChangedEvent(next_state));
+
+  // TODO(tmathmeyer) Make State serializable so GetStateString won't need
+  // to be called here.
+  media_log_->AddEvent<MediaLogEvent::kPipelineStateChange>(
+      std::string(PipelineImpl::GetStateString(next_state)));
 }
 
 void PipelineImpl::RendererWrapper::CompleteSeek(base::TimeDelta seek_time,
@@ -930,7 +949,6 @@ void PipelineImpl::RendererWrapper::CompleteSeek(base::TimeDelta seek_time,
   }
 
   shared_state_.renderer->SetPlaybackRate(playback_rate_);
-  shared_state_.renderer->SetVolume(volume_);
 
   SetState(kPlaying);
   main_task_runner_->PostTask(
@@ -1031,14 +1049,17 @@ void PipelineImpl::RendererWrapper::InitializeRenderer(
       break;
   }
 
-  if (cdm_context_) {
-    shared_state_.renderer->SetCdm(cdm_context_,
-                                   base::BindOnce(&IgnoreCdmAttached));
-  }
+  if (cdm_context_)
+    shared_state_.renderer->SetCdm(cdm_context_, base::DoNothing());
 
-  if (latency_hint_) {
+  if (latency_hint_)
     shared_state_.renderer->SetLatencyHint(latency_hint_);
-  }
+
+  shared_state_.renderer->SetPreservesPitch(preserves_pitch_);
+
+  // Calling SetVolume() before Initialize() allows renderers to optimize for
+  // power by avoiding initialization of audio output until necessary.
+  shared_state_.renderer->SetVolume(volume_);
 
   shared_state_.renderer->Initialize(demuxer_, this, std::move(done_cb));
 }
@@ -1113,6 +1134,10 @@ void PipelineImpl::RendererWrapper::ReportMetadata(StartType start_type) {
 }
 
 bool PipelineImpl::RendererWrapper::HasEncryptedStream() {
+  // Encrypted streams are only handled explicitly for STREAM type.
+  if (demuxer_->GetType() != MediaResource::Type::STREAM)
+    return false;
+
   auto streams = demuxer_->GetAllStreams();
 
   for (auto* stream : streams) {
@@ -1350,6 +1375,15 @@ void PipelineImpl::SetLatencyHint(
       FROM_HERE,
       base::BindOnce(&RendererWrapper::SetLatencyHint,
                      base::Unretained(renderer_wrapper_.get()), latency_hint));
+}
+
+void PipelineImpl::SetPreservesPitch(bool preserves_pitch) {
+  DCHECK(thread_checker_.CalledOnValidThread());
+
+  media_task_runner_->PostTask(
+      FROM_HERE, base::BindOnce(&RendererWrapper::SetPreservesPitch,
+                                base::Unretained(renderer_wrapper_.get()),
+                                preserves_pitch));
 }
 
 base::TimeDelta PipelineImpl::GetMediaTime() const {

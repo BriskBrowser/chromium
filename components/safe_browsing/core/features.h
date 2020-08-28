@@ -18,7 +18,8 @@ class ListValue;
 }  // namespace base
 
 namespace safe_browsing {
-// Features list
+// Features list, in alphabetical order.
+
 // Controls whether we send RIND reports when a popup originating from a Google
 // Ad is blocked.
 extern const base::Feature kAdPopupTriggerFeature;
@@ -33,28 +34,25 @@ extern const base::Feature kAdSamplerTriggerFeature;
 // reports.
 extern const base::Feature kCaptureInlineJavascriptForGoogleAds;
 
-// Controls whether we try to get the SafetyNet ID of the device for use when
-// a SBER user downloads an APK file.
-extern const base::Feature kCaptureSafetyNetId;
-
-// Controls if safe browsing interstitials are implemented as committed
-// navigations instead of overlays.
-extern const base::Feature kCommittedSBInterstitials;
+// Enables client side detection on Android.
+extern const base::Feature kClientSideDetectionForAndroid;
 
 // Controls whether to do deep scanning for DLP. If both this feature and
 // the enterprise policies are enabled, the downloaded and uploaded files are
 // sent for scanning.
 extern const base::Feature kContentComplianceEnabled;
 
+// Enable the addition of access tokens to download pings for enhanced
+// protection users.
+extern const base::Feature kDownloadRequestWithToken;
+
+// Enable Chrome Safe Browsing enhanced protection.
+extern const base::Feature kEnhancedProtection;
+
 // Controls whether to do deep scanning for malware. If both this feature and
 // the enterprise policies are enabled, the downloaded and uploaded files are
 // sent for scanning.
 extern const base::Feature kMalwareScanEnabled;
-
-// Controls whether the user has forcibly enabled AP download protection. This
-// flag will enable AP downloads protections even for users not enrolled in
-// APP.
-extern const base::Feature kForceUseAPDownloadProtection;
 
 // Enable password protection for non-Google accounts.
 extern const base::Feature kPasswordProtectionForSavedPasswords;
@@ -67,11 +65,24 @@ extern const base::Feature kPasswordProtectionShowDomainsForSavedPasswords;
 // Enable GAIA password protection for signed-in users.
 extern const base::Feature kPasswordProtectionForSignedInUsers;
 
-// Controls whether Chrome sends on focus ping.
-extern const base::Feature kSendOnFocusPing;
+// Controls whether Chrome prompts Advanced Protection users for deep scanning.
+extern const base::Feature kPromptAppForDeepScanning;
 
-// Controls whether Chrome sends password reuse ping.
-extern const base::Feature kSendPasswordReusePing;
+// Controls whether native (instead of WKWebView-provided) Safe Browsing
+// is available on iOS. When this flag is enabled, Safe Browsing is still
+// subject to an opt-out controlled by prefs::kSafeBrowsingEnabled.
+extern const base::Feature kSafeBrowsingAvailableOnIOS;
+
+// Controls whether Safe Browsing uses separate NetworkContexts for each
+// profile.
+extern const base::Feature kSafeBrowsingSeparateNetworkContexts;
+
+// Controls whether the security section is shown on the settings UI on Android.
+extern const base::Feature kSafeBrowsingSecuritySectionUIAndroid;
+
+// Controls whether cookies are removed from certain communications with Safe
+// Browsing.
+extern const base::Feature kSafeBrowsingRemoveCookies;
 
 // Controls the daily quota for the suspicious site trigger.
 extern const base::Feature kSuspiciousSiteTriggerQuotaFeature;
@@ -79,9 +90,30 @@ extern const base::Feature kSuspiciousSiteTriggerQuotaFeature;
 // Controls whether the real time URL lookup is enabled.
 extern const base::Feature kRealTimeUrlLookupEnabled;
 
-// Controls whether to send sample pings of allowlist domains on
-// the allowlist to Safe Browsing.
-extern const base::Feature kSendSampledPingsForAllowlistDomains;
+// Controls whether the real time URL lookup is enabled for all Android devices.
+// This flag is in effect only if |kRealTimeUrlLookupEnabled| is true.
+extern const base::Feature kRealTimeUrlLookupEnabledForAllAndroidDevices;
+
+// Controls whether to do real time URL lookup for enterprise users. If both
+// this feature and the enterprise policies are enabled, the enterprise real
+// time URL lookup will be enabled and the consumer real time URL lookup will be
+// disabled.
+extern const base::Feature kRealTimeUrlLookupEnabledForEnterprise;
+
+// Controls whether the real time URL lookup is enabled for Enhanced Protection
+// users.
+extern const base::Feature kRealTimeUrlLookupEnabledForEP;
+
+// Controls whether the GAIA-keyed real time URL lookup is enabled for Enhanced
+// Protection users.
+extern const base::Feature kRealTimeUrlLookupEnabledForEPWithToken;
+
+// Controls whether the GAIA-keyed real time URL lookup is enabled.
+extern const base::Feature kRealTimeUrlLookupEnabledWithToken;
+
+// Controls whether the real time URL lookup is enabled for non mainframe URLs
+// for Enhanced Protection users.
+extern const base::Feature kRealTimeUrlLookupNonMainframeEnabledForEP;
 
 // Specifies which non-resource HTML Elements to collect based on their tag and
 // attributes. It's a single param containing a comma-separated list of pairs.
@@ -101,11 +133,14 @@ extern const base::Feature kThreatDomDetailsTagAndAttributeFeature;
 // trials simultaneously.
 extern const base::Feature kTriggerThrottlerDailyQuotaFeature;
 
-// Controls whether Chrome on Android uses locally cached blacklists.
-extern const base::Feature kUseLocalBlacklistsV2;
-
 // Controls whether Chrome uses new download warning UX.
 extern const base::Feature kUseNewDownloadWarnings;
+
+// Controls whether the delayed warning experiment is enabled.
+extern const base::Feature kDelayedWarnings;
+// True if mouse clicks should undelay the warnings immediately when delayed
+// warnings feature is enabled.
+extern const base::FeatureParam<bool> kDelayedWarningsEnableMouseClicks;
 
 base::ListValue GetFeatureStatusList();
 

@@ -11,6 +11,8 @@
 #include "base/callback.h"
 #include "base/optional.h"
 #include "base/threading/thread_checker.h"
+#include "base/time/clock.h"
+#include "base/time/default_clock.h"
 #include "base/time/time.h"
 #include "chrome/browser/chromeos/settings/cros_settings.h"
 #include "components/policy/proto/device_management_backend.pb.h"
@@ -84,7 +86,8 @@ class StatusCollector {
       chromeos::system::StatisticsProvider* statistics_provider);
 
   StatusCollector(chromeos::system::StatisticsProvider* provider,
-                  chromeos::CrosSettings* cros_settings);
+                  chromeos::CrosSettings* cros_settings,
+                  base::Clock* clock = base::DefaultClock::GetInstance());
   virtual ~StatusCollector();
 
   // Gathers status information and calls the passed response callback.
@@ -101,6 +104,8 @@ class StatusCollector {
   virtual bool ShouldReportNetworkInterfaces() const = 0;
   virtual bool ShouldReportUsers() const = 0;
   virtual bool ShouldReportHardwareStatus() const = 0;
+  virtual bool ShouldReportCrashReportInfo() const = 0;
+  virtual bool ShouldReportAppInfoAndActivity() const = 0;
 
   // Returns the DeviceLocalAccount associated with the currently active kiosk
   // session, if the session was auto-launched with zero delay (this enables
@@ -112,11 +117,6 @@ class StatusCollector {
   // Gets the DMToken associated with a profile. Returns an empty string if no
   // DMToken could be retrieved. Virtual to allow mocking.
   virtual std::string GetDMTokenForProfile(Profile* profile) const;
-
-  // Used instead of base::Time::Now(), to make testing possible.
-  // TODO(crbug.com/827386): pass a Clock object and use SimpleTestClock to test
-  // it.
-  virtual base::Time GetCurrentTime();
 
   // The timeout in the past to store activity.
   // This is kept in case status uploads fail for a number of days.
@@ -140,6 +140,8 @@ class StatusCollector {
       version_info_subscription_;
   std::unique_ptr<chromeos::CrosSettings::ObserverSubscription>
       boot_mode_subscription_;
+
+  base::Clock* clock_;
 
   // Task runner in the creation thread where responses are sent to.
   scoped_refptr<base::SequencedTaskRunner> task_runner_ = nullptr;

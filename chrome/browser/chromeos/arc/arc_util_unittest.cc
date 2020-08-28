@@ -228,7 +228,7 @@ TEST_F(ChromeArcUtilTest, IsArcAllowedForProfile) {
 
   // false for incognito mode profile.
   EXPECT_FALSE(
-      IsArcAllowedForProfileOnFirstCall(profile()->GetOffTheRecordProfile()));
+      IsArcAllowedForProfileOnFirstCall(profile()->GetPrimaryOTRProfile()));
 
   // false for Legacy supervised user.
   profile()->SetSupervisedUserId("foo");
@@ -247,7 +247,7 @@ TEST_F(ChromeArcUtilTest, IsArcAllowedForProfileLegacy) {
 
   // false for incognito mode profile.
   EXPECT_FALSE(
-      IsArcAllowedForProfileOnFirstCall(profile()->GetOffTheRecordProfile()));
+      IsArcAllowedForProfileOnFirstCall(profile()->GetPrimaryOTRProfile()));
 
   // false for Legacy supervised user.
   profile()->SetSupervisedUserId("foo");
@@ -700,13 +700,25 @@ TEST_F(ChromeArcUtilTest, ArcStartModeDefaultDemoMode) {
   ScopedLogIn login(GetFakeUserManager(),
                     AccountId::FromUserEmail("public_user@gmail.com"),
                     user_manager::USER_TYPE_PUBLIC_ACCOUNT);
+  EXPECT_TRUE(IsPlayStoreAvailable());
+}
+
+// TODO(b/154290639): We disable Play Store if device is offline enrolled.
+TEST_F(ChromeArcUtilTest, ArcStartModeDefaultOfflineDemoMode) {
+  auto* command_line = base::CommandLine::ForCurrentProcess();
+  command_line->InitFromArgv({"", "--arc-availability=installed"});
+  chromeos::DemoSession::SetDemoConfigForTesting(
+      chromeos::DemoSession::DemoModeConfig::kOffline);
+  ScopedLogIn login(GetFakeUserManager(),
+                    AccountId::FromUserEmail("public_user@gmail.com"),
+                    user_manager::USER_TYPE_PUBLIC_ACCOUNT);
   EXPECT_FALSE(IsPlayStoreAvailable());
 }
 
-TEST_F(ChromeArcUtilTest, ArcStartModeDefaultDemoModeWithPlayStore) {
+TEST_F(ChromeArcUtilTest, ArcStartModeDefaultDemoModeWithoutPlayStore) {
   base::test::ScopedFeatureList feature_list;
   feature_list.InitWithFeatureState(chromeos::features::kShowPlayInDemoMode,
-                                    true /* enabled */);
+                                    false /* disabled */);
   auto* command_line = base::CommandLine::ForCurrentProcess();
   command_line->InitFromArgv({"", "--arc-availability=installed"});
   chromeos::DemoSession::SetDemoConfigForTesting(
@@ -714,7 +726,7 @@ TEST_F(ChromeArcUtilTest, ArcStartModeDefaultDemoModeWithPlayStore) {
   ScopedLogIn login(GetFakeUserManager(),
                     AccountId::FromUserEmail("public_user@gmail.com"),
                     user_manager::USER_TYPE_PUBLIC_ACCOUNT);
-  EXPECT_TRUE(IsPlayStoreAvailable());
+  EXPECT_FALSE(IsPlayStoreAvailable());
 }
 
 TEST_F(ChromeArcUtilTest, ArcStartModeWithoutPlayStore) {

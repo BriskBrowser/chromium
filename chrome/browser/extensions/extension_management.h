@@ -88,16 +88,16 @@ class ExtensionManagement : public KeyedService {
   const std::vector<std::unique_ptr<ManagementPolicy::Provider>>& GetProviders()
       const;
 
-  // Checks if extensions are blacklisted by default, by policy. When true,
-  // this means that even extensions without an ID should be blacklisted (e.g.
+  // Checks if extensions are blocklisted by default, by policy. When true,
+  // this means that even extensions without an ID should be blocklisted (e.g.
   // from the command line, or when loaded as an unpacked extension).
-  bool BlacklistedByDefault() const;
+  bool BlocklistedByDefault() const;
 
   // Returns installation mode for an extension.
   InstallationMode GetInstallationMode(const Extension* extension) const;
 
-  // Returns installation mode for an extension with id |id| and updated with
-  // |update_url|.
+  // Returns installation mode for an extension with id |extension_id| and
+  // updated with |update_url|.
   InstallationMode GetInstallationMode(const ExtensionId& extension_id,
                                        const std::string& update_url) const;
 
@@ -132,6 +132,12 @@ class ExtensionManagement : public KeyedService {
 
   // Returns the list of blocked API permissions for |extension|.
   APIPermissionSet GetBlockedAPIPermissions(const Extension* extension) const;
+
+  // Returns the list of blocked API permissions for an extension with id
+  // |extension_id| and updated with |update_url|.
+  APIPermissionSet GetBlockedAPIPermissions(
+      const ExtensionId& extension_id,
+      const std::string& update_url) const;
 
   // Returns the list of hosts blocked by policy for |extension|.
   const URLPatternSet& GetPolicyBlockedHosts(const Extension* extension) const;
@@ -174,12 +180,21 @@ class ExtensionManagement : public KeyedService {
   bool IsPermissionSetAllowed(const Extension* extension,
                               const PermissionSet& perms) const;
 
+  // Returns true if every permission in |perms| is allowed for an extension
+  // with id |extension_id| and updated with |update_url|.
+  bool IsPermissionSetAllowed(const ExtensionId& extension_id,
+                              const std::string& update_url,
+                              const PermissionSet& perms) const;
+
   // Returns true if |extension| meets the minimum required version set for it.
   // If there is no such requirement set for it, returns true as well.
   // If false is returned and |required_version| is not null, the minimum
   // required version is returned.
   bool CheckMinimumVersion(const Extension* extension,
                            std::string* required_version) const;
+
+  // Returns whether the profile associated with this instance is supervised.
+  bool is_child() const { return is_child_; }
 
  private:
   using SettingsIdMap =
@@ -212,12 +227,6 @@ class ExtensionManagement : public KeyedService {
 
   // Helper to update |extension_dict| for forced installs.
   void UpdateForcedExtensions(const base::DictionaryValue* extension_dict);
-
-  // Helper to update |settings_by_id_| for forced cloud reporting extension.
-  void UpdateForcedCloudReportingExtension();
-
-  // Returns true if cloud reporting policy is enabled.
-  bool IsCloudReportingPolicyEnabled() const;
 
   // Helper function to access |settings_by_id_| with |id| as key.
   // Adds a new IndividualSettings entry to |settings_by_id_| if none exists for
@@ -252,6 +261,7 @@ class ExtensionManagement : public KeyedService {
   Profile* const profile_ = nullptr;
   PrefService* pref_service_ = nullptr;
   bool is_signin_profile_ = false;
+  bool is_child_ = false;
 
   base::ObserverList<Observer, true>::Unchecked observer_list_;
   PrefChangeRegistrar pref_change_registrar_;

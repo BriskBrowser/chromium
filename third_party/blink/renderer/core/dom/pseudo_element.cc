@@ -35,7 +35,7 @@
 #include "third_party/blink/renderer/core/layout/generated_children.h"
 #include "third_party/blink/renderer/core/layout/layout_object.h"
 #include "third_party/blink/renderer/core/layout/layout_quote.h"
-#include "third_party/blink/renderer/core/layout/ng/list/layout_ng_list_item.h"
+#include "third_party/blink/renderer/core/layout/list_marker.h"
 #include "third_party/blink/renderer/core/probe/core_probes.h"
 #include "third_party/blink/renderer/core/style/computed_style.h"
 #include "third_party/blink/renderer/core/style/content_data.h"
@@ -92,6 +92,17 @@ const AtomicString& PseudoElement::PseudoElementNameForEvents(
     return g_null_atom;
   else
     return PseudoElementTagName(pseudo_id).LocalName();
+}
+
+bool PseudoElement::IsWebExposed(PseudoId pseudo_id, const Node* parent) {
+  switch (pseudo_id) {
+    case kPseudoIdMarker:
+      if (parent && parent->IsPseudoElement())
+        return RuntimeEnabledFeatures::CSSMarkerNestedPseudoElementEnabled();
+      return RuntimeEnabledFeatures::CSSMarkerPseudoElementEnabled();
+    default:
+      return true;
+  }
 }
 
 PseudoElement::PseudoElement(Element* parent, PseudoId pseudo_id)
@@ -161,6 +172,17 @@ PseudoElement::AttachLayoutTreeScope::~AttachLayoutTreeScope() {
 
 void PseudoElement::AttachLayoutTree(AttachContext& context) {
   DCHECK(!GetLayoutObject());
+
+  // Some elements may have 'display: list-item' but not be list items.
+  // Do not create a layout object for the ::marker in that case.
+  if (pseudo_id_ == kPseudoIdMarker) {
+    LayoutObject* originating_layout = parentNode()->GetLayoutObject();
+    if (!originating_layout || !originating_layout->IsListItemIncludingNG()) {
+      Node::AttachLayoutTree(context);
+      return;
+    }
+  }
+
   {
     AttachLayoutTreeScope scope(this);
     Element::AttachLayoutTree(context);
@@ -177,14 +199,11 @@ void PseudoElement::AttachLayoutTree(AttachContext& context) {
   DCHECK(CanHaveGeneratedChildren(*layout_object->Parent()));
 
   const ComputedStyle& style = layout_object->StyleRef();
-  switch (style.StyleType()) {
+  switch (pseudo_id_) {
     case kPseudoIdMarker: {
-      LayoutObject* parent = layout_object->Parent();
-      if (parent && parent->IsLayoutNGListItem()) {
-        ToLayoutNGListItem(layout_object->Parent())
-            ->UpdateMarkerContentIfNeeded();
-      }
-      if (!style.GetContentData())
+      if (ListMarker* marker = ListMarker::Get(layout_object))
+        marker->UpdateMarkerContentIfNeeded(*layout_object);
+      if (style.ContentBehavesAsNormal())
         return;
       break;
     }
@@ -195,7 +214,8 @@ void PseudoElement::AttachLayoutTree(AttachContext& context) {
       return;
   }
 
-  DCHECK(style.GetContentData());
+  DCHECK(!style.ContentBehavesAsNormal());
+  DCHECK(!style.ContentPreventsBoxGeneration());
   for (const ContentData* content = style.GetContentData(); content;
        content = content->Next()) {
     LegacyLayout legacy = context.force_legacy_layout ? LegacyLayout::kForce
@@ -231,7 +251,10 @@ bool PseudoElement::CanGeneratePseudoElement(PseudoId pseudo_id) const {
 }
 
 Node* PseudoElement::InnerNodeForHitTesting() const {
-  return ParentOrShadowHostNode();
+  Node* parent = ParentOrShadowHostNode();
+  if (parent && parent->IsPseudoElement())
+    return To<PseudoElement>(parent)->InnerNodeForHitTesting();
+  return parent;
 }
 
 bool PseudoElementLayoutObjectIsNeeded(const ComputedStyle* pseudo_style,
@@ -246,10 +269,10 @@ bool PseudoElementLayoutObjectIsNeeded(const ComputedStyle* pseudo_style,
       return true;
     case kPseudoIdBefore:
     case kPseudoIdAfter:
-      return pseudo_style->GetContentData();
+      return !pseudo_style->ContentPreventsBoxGeneration();
     case kPseudoIdMarker: {
-      if (pseudo_style->GetContentData())
-        return true;
+      if (!pseudo_style->ContentBehavesAsNormal())
+        return !pseudo_style->ContentPreventsBoxGeneration();
       const ComputedStyle* parent_style =
           originating_element->GetComputedStyle();
       return parent_style &&

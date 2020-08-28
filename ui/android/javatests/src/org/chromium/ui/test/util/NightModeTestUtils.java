@@ -4,7 +4,8 @@
 
 package org.chromium.ui.test.util;
 
-import android.support.v7.app.AppCompatDelegate;
+import androidx.annotation.UiThread;
+import androidx.appcompat.app.AppCompatDelegate;
 
 import org.chromium.base.test.params.ParameterProvider;
 import org.chromium.base.test.params.ParameterSet;
@@ -34,6 +35,7 @@ public class NightModeTestUtils {
      * Sets up the night mode state for {@link DummyUiActivity}.
      * @param nightModeEnabled Whether night mode should be enabled.
      */
+    @UiThread
     public static void setUpNightModeForDummyUiActivity(boolean nightModeEnabled) {
         AppCompatDelegate.setDefaultNightMode(nightModeEnabled ? AppCompatDelegate.MODE_NIGHT_YES
                                                                : AppCompatDelegate.MODE_NIGHT_NO);
@@ -42,6 +44,7 @@ public class NightModeTestUtils {
     /**
      * Resets the night mode state for {@link DummyUiActivity}.
      */
+    @UiThread
     public static void tearDownNightModeForDummyUiActivity() {
         AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM);
     }

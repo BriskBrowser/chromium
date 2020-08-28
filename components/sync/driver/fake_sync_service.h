@@ -34,6 +34,7 @@ class FakeSyncService : public SyncService {
   bool IsLocalSyncEnabled() const override;
   void TriggerRefresh(const ModelTypeSet& types) override;
   ModelTypeSet GetActiveDataTypes() const override;
+  ModelTypeSet GetBackedOffDataTypes() const override;
   void AddObserver(SyncServiceObserver* observer) override;
   void RemoveObserver(SyncServiceObserver* observer) override;
   bool HasObserver(const SyncServiceObserver* observer) const override;
@@ -47,9 +48,6 @@ class FakeSyncService : public SyncService {
   GoogleServiceAuthError GetAuthError() const override;
   base::Time GetAuthErrorTime() const override;
   bool RequiresClientUpgrade() const override;
-  std::unique_ptr<crypto::ECPrivateKey> GetExperimentalAuthenticationKey()
-      const override;
-  UserShare* GetUserShare() const override;
   void DataTypePreconditionChanged(syncer::ModelType type) override;
   SyncTokenStatus GetSyncTokenStatusForDebugging() const override;
   bool QueryDetailedSyncStatusForDebugging(SyncStatus* result) const override;
@@ -80,7 +78,6 @@ class FakeSyncService : public SyncService {
 
  private:
   GURL sync_service_url_;
-  std::unique_ptr<UserShare> user_share_;
 };
 
 }  // namespace syncer

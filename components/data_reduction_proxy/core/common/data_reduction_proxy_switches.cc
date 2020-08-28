@@ -74,20 +74,16 @@ const char kEnableDataReductionProxyForcePingback[] =
 const char kEnableDataReductionProxySavingsPromo[] =
     "enable-data-reduction-proxy-savings-promo";
 
-// Disables fetching of the warmup URL.
-const char kDisableDataReductionProxyWarmupURLFetch[] =
-    "disable-data-reduction-proxy-warmup-url-fetch";
-
-// Disables the warmup URL fetcher to callback into DRP to report the result of
-// the warmup fetch.
-const char kDisableDataReductionProxyWarmupURLFetchCallback[] =
-    "disable-data-reduction-proxy-warmup-url-fetch-callback";
-
 // Uses the encoded ClientConfig instead of fetching one from the config server.
 // This value is always used, regardless of error or expiration. The value
 // should be a base64 encoded binary protobuf.
 const char kDataReductionProxyServerClientConfig[] =
     "data-reduction-proxy-client-config";
+
+// Override the one-time InfoBar to not needed to be shown before triggering
+// https image compression for the page load.
+const char kOverrideHttpsImageCompressionInfobar[] =
+    "override-https-image-compression-infobar";
 
 }  // namespace switches
 }  // namespace data_reduction_proxy

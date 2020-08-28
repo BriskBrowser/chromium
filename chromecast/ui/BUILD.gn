@@ -8,23 +8,47 @@ import("//chromecast/chromecast.gni")
 import("//components/vector_icons/vector_icons.gni")
 
 cast_source_set("public") {
+  sources = [ "media_overlay.h" ]
+
+  deps = [ "//base" ]
+}
+
+cast_source_set("display_settings_public") {
   sources = [
-    "media_overlay.h",
+    "display_settings_manager.cc",
+    "display_settings_manager.h",
   ]
 
   deps = [
     "//base",
+    "//chromecast/ui/mojom",
+    "//mojo/public/cpp/bindings",
+    "//ui/display/types",
+  ]
+}
+
+cast_source_set("display_settings_manager") {
+  sources = [
+    "display_settings_manager_impl.cc",
+    "display_settings_manager_impl.h",
+  ]
+
+  deps = [
+    ":display_settings_public",
+    "//base",
+    "//chromecast/browser",
+    "//chromecast/graphics",
+    "//chromecast/ui/display_settings",
+    "//chromecast/ui/mojom",
+    "//mojo/public/cpp/bindings",
+    "//ui/display/types",
   ]
 }
 
 cast_source_set("aura_components") {
-  sources = [
-    "aura_components.h",
-  ]
+  sources = [ "aura_components.h" ]
 
-  deps = [
-    ":public",
-  ]
+  deps = [ ":public" ]
 
   if (use_aura) {
     sources += [ "aura_components.cc" ]
@@ -32,6 +56,10 @@ cast_source_set("aura_components") {
     deps += [ ":media_overlay" ]
   } else {
     sources += [ "aura_components_dummy.cc" ]
+  }
+
+  if (enable_media_overlay) {
+    defines = [ "ENABLE_MEDIA_OVERLAY" ]
   }
 }
 
@@ -99,4 +127,8 @@ static_library("vector_icons") {
     "//skia",
     "//ui/gfx",
   ]
+}
+
+cast_source_set("back_gesture_router") {
+  sources = [ "back_gesture_router.h" ]
 }

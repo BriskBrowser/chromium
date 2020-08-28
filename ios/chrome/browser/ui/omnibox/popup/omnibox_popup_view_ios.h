@@ -10,14 +10,13 @@
 #include <memory>
 
 #include "base/strings/string16.h"
+#include "components/omnibox/browser/omnibox_popup_model.h"
 #include "components/omnibox/browser/omnibox_popup_view.h"
-#import "ios/chrome/browser/ui/omnibox/popup/omnibox_popup_legacy_view_controller.h"
 #import "ios/chrome/browser/ui/omnibox/popup/omnibox_popup_mediator.h"
 #include "ios/chrome/browser/ui/omnibox/popup/omnibox_popup_provider.h"
 
 class OmniboxEditModel;
 @class OmniboxPopupMediator;
-class OmniboxPopupModel;
 class OmniboxPopupViewSuggestionsDelegate;
 struct AutocompleteMatch;
 
@@ -36,7 +35,6 @@ class OmniboxPopupViewIOS : public OmniboxPopupView,
   // OmniboxPopupView implementation.
   bool IsOpen() const override;
   void InvalidateLine(size_t line) override {}
-  void OnSelectionStateChanged(size_t line) override {}
   void UpdatePopupAppearance() override;
   void ProvideButtonFocusHint(size_t line) override {}
   void OnMatchIconUpdated(size_t match_index) override {}

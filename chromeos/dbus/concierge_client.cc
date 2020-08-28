@@ -9,6 +9,7 @@
 
 #include "base/bind.h"
 #include "base/location.h"
+#include "base/logging.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "dbus/bus.h"
 #include "dbus/message.h"
@@ -88,6 +89,15 @@ class ConciergeClientImpl : public ConciergeClient {
     CallMethod(concierge::kCreateDiskImageMethod, request, std::move(callback));
   }
 
+  void CreateDiskImageWithFd(
+      base::ScopedFD fd,
+      const concierge::CreateDiskImageRequest& request,
+      DBusMethodCallback<concierge::CreateDiskImageResponse> callback)
+      override {
+    CallMethodWithFd(concierge::kCreateDiskImageMethod, request, std::move(fd),
+                     std::move(callback));
+  }
+
   void DestroyDiskImage(const concierge::DestroyDiskImageRequest& request,
                         DBusMethodCallback<concierge::DestroyDiskImageResponse>
                             callback) override {
@@ -99,24 +109,8 @@ class ConciergeClientImpl : public ConciergeClient {
                        const concierge::ImportDiskImageRequest& request,
                        DBusMethodCallback<concierge::ImportDiskImageResponse>
                            callback) override {
-    dbus::MethodCall method_call(concierge::kVmConciergeInterface,
-                                 concierge::kImportDiskImageMethod);
-    dbus::MessageWriter writer(&method_call);
-
-    if (!writer.AppendProtoAsArrayOfBytes(request)) {
-      LOG(ERROR) << "Failed to encode ImportDiskImageRequest protobuf";
-      base::ThreadTaskRunnerHandle::Get()->PostTask(
-          FROM_HERE, base::BindOnce(std::move(callback), base::nullopt));
-      return;
-    }
-
-    writer.AppendFileDescriptor(fd.get());
-
-    concierge_proxy_->CallMethod(
-        &method_call, kConciergeDBusTimeoutMs,
-        base::BindOnce(&ConciergeClientImpl::OnDBusProtoResponse<
-                           concierge::ImportDiskImageResponse>,
-                       weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
+    CallMethodWithFd(concierge::kImportDiskImageMethod, request, std::move(fd),
+                     std::move(callback));
   }
 
   void CancelDiskImageOperation(
@@ -147,6 +141,18 @@ class ConciergeClientImpl : public ConciergeClient {
   void StopVm(const concierge::StopVmRequest& request,
               DBusMethodCallback<concierge::StopVmResponse> callback) override {
     CallMethod(concierge::kStopVmMethod, request, std::move(callback));
+  }
+
+  void SuspendVm(
+      const concierge::SuspendVmRequest& request,
+      DBusMethodCallback<concierge::SuspendVmResponse> callback) override {
+    CallMethod(concierge::kSuspendVmMethod, request, std::move(callback));
+  }
+
+  void ResumeVm(
+      const concierge::ResumeVmRequest& request,
+      DBusMethodCallback<concierge::ResumeVmResponse> callback) override {
+    CallMethod(concierge::kResumeVmMethod, request, std::move(callback));
   }
 
   void GetVmInfo(
@@ -221,6 +227,12 @@ class ConciergeClientImpl : public ConciergeClient {
     CallMethod(concierge::kStartArcVmMethod, request, std::move(callback));
   }
 
+  void ResizeDiskImage(const concierge::ResizeDiskImageRequest& request,
+                       DBusMethodCallback<concierge::ResizeDiskImageResponse>
+                           callback) override {
+    CallMethod(concierge::kResizeDiskImageMethod, request, std::move(callback));
+  }
+
  protected:
   void Init(dbus::Bus* bus) override {
     concierge_proxy_ = bus->GetObjectProxy(
@@ -263,9 +275,10 @@ class ConciergeClientImpl : public ConciergeClient {
 
  private:
   template <typename RequestProto, typename ResponseProto>
-  void CallMethod(const std::string& method_name,
-                  const RequestProto& request,
-                  DBusMethodCallback<ResponseProto> callback) {
+  void CallMethodWithFd(const std::string& method_name,
+                        const RequestProto& request,
+                        base::ScopedFD fd,
+                        DBusMethodCallback<ResponseProto> callback) {
     dbus::MethodCall method_call(concierge::kVmConciergeInterface, method_name);
     dbus::MessageWriter writer(&method_call);
 
@@ -276,10 +289,21 @@ class ConciergeClientImpl : public ConciergeClient {
       return;
     }
 
+    if (fd.is_valid())
+      writer.AppendFileDescriptor(fd.get());
+
     concierge_proxy_->CallMethod(
         &method_call, kConciergeDBusTimeoutMs,
         base::BindOnce(&ConciergeClientImpl::OnDBusProtoResponse<ResponseProto>,
                        weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
+  }
+
+  template <typename RequestProto, typename ResponseProto>
+  void CallMethod(const std::string& method_name,
+                  const RequestProto& request,
+                  DBusMethodCallback<ResponseProto> callback) {
+    CallMethodWithFd(method_name, request, base::ScopedFD(),
+                     std::move(callback));
   }
 
   template <typename ResponseProto>
@@ -301,12 +325,15 @@ class ConciergeClientImpl : public ConciergeClient {
 
   void NameOwnerChangedReceived(const std::string& old_owner,
                                 const std::string& new_owner) {
-    const bool restarted = !new_owner.empty();
-    for (auto& observer : observer_list_) {
-      if (restarted)
-        observer.ConciergeServiceRestarted();
-      else
+    if (!old_owner.empty()) {
+      for (auto& observer : observer_list_) {
         observer.ConciergeServiceStopped();
+      }
+    }
+    if (!new_owner.empty()) {
+      for (auto& observer : observer_list_) {
+        observer.ConciergeServiceStarted();
+      }
     }
   }
 

@@ -8,6 +8,8 @@
 
 #include "base/auto_reset.h"
 #include "base/bind.h"
+#include "base/metrics/user_metrics.h"
+#include "base/metrics/user_metrics_action.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/themes/theme_properties.h"
 #include "chrome/browser/ui/layout_constants.h"
@@ -55,9 +57,7 @@ const char ToolbarActionView::kClassName[] = "ToolbarActionView";
 ToolbarActionView::ToolbarActionView(
     ToolbarActionViewController* view_controller,
     ToolbarActionView::Delegate* delegate)
-    : MenuButton(base::string16(), this),
-      view_controller_(view_controller),
-      delegate_(delegate) {
+    : MenuButton(this), view_controller_(view_controller), delegate_(delegate) {
   SetInkDropMode(InkDropMode::ON);
   set_has_ink_drop_action_on_click(true);
   set_hide_ink_drop_when_showing_context_menu(false);
@@ -160,18 +160,17 @@ void ToolbarActionView::UpdateState() {
   if (!view_controller_->IsEnabled(web_contents) &&
       !view_controller_->DisabledClickOpensMenu()) {
     SetState(views::Button::STATE_DISABLED);
-  } else if (state() == views::Button::STATE_DISABLED) {
+  } else if (GetState() == views::Button::STATE_DISABLED) {
     SetState(views::Button::STATE_NORMAL);
   }
-
-  wants_to_run_ = view_controller_->WantsToRun(web_contents);
 
   gfx::ImageSkia icon(
       view_controller_->GetIcon(web_contents, GetPreferredSize())
           .AsImageSkia());
 
   if (!icon.isNull())
-    SetImage(views::Button::STATE_NORMAL, icon);
+    SetImageModel(views::Button::STATE_NORMAL,
+                  ui::ImageModel::FromImageSkia(icon));
 
   SetTooltipText(view_controller_->GetTooltip(web_contents));
 
@@ -188,7 +187,14 @@ void ToolbarActionView::ButtonPressed(views::Button* sender,
     context_menu_controller()->ShowContextMenuForView(this, GetMenuPosition(),
                                                       ui::MENU_SOURCE_NONE);
   } else {
-    view_controller_->ExecuteAction(true);
+    base::RecordAction(base::UserMetricsAction(
+        "Extensions.Toolbar.ExtensionActivatedFromToolbar"));
+    auto source =
+        delegate_->ShownInsideMenu()
+            ? ToolbarActionViewController::InvocationSource::
+                  kLegacyOverflowedEntry
+            : ToolbarActionViewController::InvocationSource::kToolbarButton;
+    view_controller_->ExecuteAction(true, source);
   }
 }
 
@@ -258,14 +264,20 @@ void ToolbarActionView::OnDragDone() {
   delegate_->OnToolbarActionViewDragDone();
 }
 
-void ToolbarActionView::ViewHierarchyChanged(
-    const views::ViewHierarchyChangedDetails& details) {
-  if (details.is_add && !called_register_command_ && GetFocusManager()) {
-    view_controller_->RegisterCommand();
-    called_register_command_ = true;
-  }
+void ToolbarActionView::AddedToWidget() {
+  MenuButton::AddedToWidget();
 
-  MenuButton::ViewHierarchyChanged(details);
+  // This cannot happen until there's a focus controller, which lives on the
+  // widget.
+  view_controller_->RegisterCommand();
+}
+
+void ToolbarActionView::RemovedFromWidget() {
+  // This must happen before the focus controller, which lives on the widget,
+  // becomes unreachable.
+  view_controller_->UnregisterCommand();
+
+  MenuButton::RemovedFromWidget();
 }
 
 views::View* ToolbarActionView::GetAsView() {

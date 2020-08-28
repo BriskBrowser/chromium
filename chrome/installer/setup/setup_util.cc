@@ -49,10 +49,10 @@
 #include "chrome/installer/setup/user_hive_visitor.h"
 #include "chrome/installer/util/google_update_constants.h"
 #include "chrome/installer/util/google_update_settings.h"
+#include "chrome/installer/util/initial_preferences.h"
+#include "chrome/installer/util/initial_preferences_constants.h"
 #include "chrome/installer/util/install_util.h"
 #include "chrome/installer/util/installation_state.h"
-#include "chrome/installer/util/master_preferences.h"
-#include "chrome/installer/util/master_preferences_constants.h"
 #include "chrome/installer/util/util_constants.h"
 #include "chrome/installer/util/work_item.h"
 #include "chrome/installer/util/work_item_list.h"
@@ -139,7 +139,13 @@ void RemoveProfileStatistics(const InstallerState& installer_state) {
 // for this mode of install was dropped from ToT in December 2016. Remove any
 // stray bits in the registry leftover from such installs.
 void RemoveBinariesVersionKey(const InstallerState& installer_state) {
-  base::string16 path(install_static::GetBinariesClientsKeyPath());
+#if BUILDFLAG(GOOGLE_CHROME_BRANDING)
+  base::string16 path(install_static::GetClientsKeyPath(
+      L"{4DC8B4CA-1BDA-483e-B5FA-D3C12E15B62D}"));
+#else
+  // Assume that non-Google is Chromium branding.
+  base::string16 path(L"Software\\Chromium Binaries");
+#endif
   if (base::win::RegKey(installer_state.root_key(), path.c_str(),
                         KEY_QUERY_VALUE | KEY_WOW64_32KEY)
           .Valid()) {
@@ -147,90 +153,6 @@ void RemoveBinariesVersionKey(const InstallerState& installer_state) {
         installer_state.root_key(), path, KEY_WOW64_32KEY);
     UMA_HISTOGRAM_BOOLEAN("Setup.Install.DeleteBinariesClientsKey", success);
   }
-}
-
-// Remove leftover traces of multi-install Chrome Frame, if present. Once upon a
-// time, Google Chrome Frame could be co-installed with Chrome such that they
-// shared the same binaries on disk. Support for new installs of GCF was dropped
-// from ToT in December 2013. Remove any stray bits in the registry leftover
-// from an old multi-install GCF.
-void RemoveMultiChromeFrame(const InstallerState& installer_state) {
-// There never was a "Chromium Frame".
-#if BUILDFLAG(GOOGLE_CHROME_BRANDING)
-  // To maximize cleanup, unconditionally delete GCF's Clients and ClientState
-  // keys unless single-install GCF is present. This condition is satisfied if
-  // both keys exist, Clients\pv contains a value, and
-  // ClientState\UninstallString contains a path including "\Chrome Frame\".
-  // Multi-install GCF would have had "\Chrome\", and anything else is garbage.
-
-  static constexpr wchar_t kGcfGuid[] =
-      L"{8BA986DA-5100-405E-AA35-86F34A02ACBF}";
-  base::string16 clients_key_path = install_static::GetClientsKeyPath(kGcfGuid);
-  base::win::RegKey clients_key;
-  base::string16 client_state_key_path =
-      install_static::GetClientStateKeyPath(kGcfGuid);
-  base::win::RegKey client_state_key;
-
-  const bool has_clients_key =
-      clients_key.Open(installer_state.root_key(), clients_key_path.c_str(),
-                       KEY_QUERY_VALUE | KEY_WOW64_32KEY) == ERROR_SUCCESS;
-  const bool has_client_state_key =
-      client_state_key.Open(installer_state.root_key(),
-                            client_state_key_path.c_str(),
-                            KEY_QUERY_VALUE | KEY_WOW64_32KEY) == ERROR_SUCCESS;
-  if (!has_clients_key && !has_client_state_key)
-    return;  // Nothing to check or to clean.
-
-  base::string16 value;
-  if (has_clients_key && has_client_state_key &&
-      clients_key.ReadValue(google_update::kRegVersionField, &value) ==
-          ERROR_SUCCESS &&
-      !value.empty() &&
-      client_state_key.ReadValue(kUninstallStringField, &value) ==
-          ERROR_SUCCESS &&
-      value.find(L"\\Chrome Frame\\") != base::string16::npos) {
-    return;  // Single-install Chrome Frame found.
-  }
-  client_state_key.Close();
-  clients_key.Close();
-
-  // Remnants of multi-install GCF or of a malformed GCF are present. Remove the
-  // Clients and ClientState keys so that Google Update ceases to check for
-  // updates, and the Programs and Features control panel entry to reduce user
-  // confusion.
-  constexpr int kOperations = 3;
-  int success_count = 0;
-
-  if (InstallUtil::DeleteRegistryKey(installer_state.root_key(),
-                                     clients_key_path, KEY_WOW64_32KEY)) {
-    ++success_count;
-  }
-  if (InstallUtil::DeleteRegistryKey(installer_state.root_key(),
-                                     client_state_key_path, KEY_WOW64_32KEY)) {
-    ++success_count;
-  }
-  if (InstallUtil::DeleteRegistryKey(
-          installer_state.root_key(),
-          L"Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\"
-          L"Google Chrome Frame",
-          KEY_WOW64_32KEY)) {
-    ++success_count;
-  }
-  DCHECK_LE(success_count, kOperations);
-
-  // Used for a histogram; do not reorder.
-  enum MultiChromeFrameRemovalResult {
-    ALL_FAILED = 0,
-    PARTIAL_SUCCESS = 1,
-    SUCCESS = 2,
-    NUM_RESULTS
-  };
-  MultiChromeFrameRemovalResult result =
-      (success_count == kOperations ? SUCCESS : (success_count ? PARTIAL_SUCCESS
-                                                               : ALL_FAILED));
-  UMA_HISTOGRAM_ENUMERATION("Setup.Install.MultiChromeFrameRemoved", result,
-                            NUM_RESULTS);
-#endif  // BUILDFLAG(GOOGLE_CHROME_BRANDING)
 }
 
 void RemoveAppLauncherVersionKey(const InstallerState& installer_state) {
@@ -247,19 +169,6 @@ void RemoveAppLauncherVersionKey(const InstallerState& installer_state) {
         installer_state.root_key(), path, KEY_WOW64_32KEY);
     UMA_HISTOGRAM_BOOLEAN("Setup.Install.DeleteAppLauncherClientsKey",
                           succeeded);
-  }
-#endif  // BUILDFLAG(GOOGLE_CHROME_BRANDING)
-}
-
-void RemoveAppHostExe(const InstallerState& installer_state) {
-// The app host was only installed for Google Chrome.
-#if BUILDFLAG(GOOGLE_CHROME_BRANDING)
-  base::FilePath app_host(
-      installer_state.target_path().Append(FILE_PATH_LITERAL("app_host.exe")));
-
-  if (base::PathExists(app_host)) {
-    const bool succeeded = base::DeleteFile(app_host, false);
-    UMA_HISTOGRAM_BOOLEAN("Setup.Install.DeleteAppHost", succeeded);
   }
 #endif  // BUILDFLAG(GOOGLE_CHROME_BRANDING)
 }
@@ -282,31 +191,28 @@ void RemoveLegacyChromeAppCommands(const InstallerState& installer_state) {
 
 }  // namespace
 
-const char kUnPackNTSTATUSMetricsName[] = "Setup.Install.LzmaUnPackNTSTATUS";
-const char kUnPackResultMetricsName[] = "Setup.Install.LzmaUnPackResult";
 const char kUnPackStatusMetricsName[] = "Setup.Install.LzmaUnPackStatus";
 
 int CourgettePatchFiles(const base::FilePath& src,
                         const base::FilePath& patch,
                         const base::FilePath& dest) {
-  VLOG(1) << "Applying Courgette patch " << patch.value()
-          << " to file " << src.value()
-          << " and generating file " << dest.value();
+  VLOG(1) << "Applying Courgette patch " << patch.value() << " to file "
+          << src.value() << " and generating file " << dest.value();
 
   if (src.empty() || patch.empty() || dest.empty())
     return installer::PATCH_INVALID_ARGUMENTS;
 
-  const courgette::Status patch_status =
-      courgette::ApplyEnsemblePatch(src.value().c_str(),
-                                    patch.value().c_str(),
-                                    dest.value().c_str());
-  const int exit_code = (patch_status != courgette::C_OK) ?
-      static_cast<int>(patch_status) + kCourgetteErrorOffset : 0;
+  const courgette::Status patch_status = courgette::ApplyEnsemblePatch(
+      src.value().c_str(), patch.value().c_str(), dest.value().c_str());
+  const int exit_code =
+      (patch_status != courgette::C_OK)
+          ? static_cast<int>(patch_status) + kCourgetteErrorOffset
+          : 0;
 
-  LOG_IF(ERROR, exit_code)
-      << "Failed to apply Courgette patch " << patch.value()
-      << " to file " << src.value() << " and generating file " << dest.value()
-      << ". err=" << exit_code;
+  LOG_IF(ERROR, exit_code) << "Failed to apply Courgette patch "
+                           << patch.value() << " to file " << src.value()
+                           << " and generating file " << dest.value()
+                           << ". err=" << exit_code;
 
   return exit_code;
 }
@@ -314,21 +220,20 @@ int CourgettePatchFiles(const base::FilePath& src,
 int BsdiffPatchFiles(const base::FilePath& src,
                      const base::FilePath& patch,
                      const base::FilePath& dest) {
-  VLOG(1) << "Applying bsdiff patch " << patch.value()
-          << " to file " << src.value()
-          << " and generating file " << dest.value();
+  VLOG(1) << "Applying bsdiff patch " << patch.value() << " to file "
+          << src.value() << " and generating file " << dest.value();
 
   if (src.empty() || patch.empty() || dest.empty())
     return installer::PATCH_INVALID_ARGUMENTS;
 
   const int patch_status = bsdiff::ApplyBinaryPatch(src, patch, dest);
-  const int exit_code = patch_status != bsdiff::OK ?
-                        patch_status + kBsdiffErrorOffset : 0;
+  const int exit_code =
+      patch_status != bsdiff::OK ? patch_status + kBsdiffErrorOffset : 0;
 
-  LOG_IF(ERROR, exit_code)
-      << "Failed to apply bsdiff patch " << patch.value()
-      << " to file " << src.value() << " and generating file " << dest.value()
-      << ". err=" << exit_code;
+  LOG_IF(ERROR, exit_code) << "Failed to apply bsdiff patch " << patch.value()
+                           << " to file " << src.value()
+                           << " and generating file " << dest.value()
+                           << ". err=" << exit_code;
 
   return exit_code;
 }
@@ -359,7 +264,7 @@ int ZucchiniPatchFiles(const base::FilePath& src,
 base::Version* GetMaxVersionFromArchiveDir(const base::FilePath& chrome_path) {
   VLOG(1) << "Looking for Chrome version folder under " << chrome_path.value();
   base::FileEnumerator version_enum(chrome_path, false,
-      base::FileEnumerator::DIRECTORIES);
+                                    base::FileEnumerator::DIRECTORIES);
   // TODO(tommi): The version directory really should match the version of
   // setup.exe.  To begin with, we should at least DCHECK that that's true.
 
@@ -379,15 +284,16 @@ base::Version* GetMaxVersionFromArchiveDir(const base::FilePath& chrome_path) {
     }
   }
 
-  return (version_found ? max_version.release() : NULL);
+  return (version_found ? max_version.release() : nullptr);
 }
 
 base::FilePath FindArchiveToPatch(const InstallationState& original_state,
                                   const InstallerState& installer_state,
                                   const base::Version& desired_version) {
   if (desired_version.IsValid()) {
-    base::FilePath archive(installer_state.GetInstallerDirectory(
-        desired_version).Append(kChromeArchive));
+    base::FilePath archive(
+        installer_state.GetInstallerDirectory(desired_version)
+            .Append(kChromeArchive));
     return base::PathExists(archive) ? archive : base::FilePath();
   }
 
@@ -399,15 +305,15 @@ base::FilePath FindArchiveToPatch(const InstallationState& original_state,
       original_state.GetProductState(installer_state.system_install());
   if (product) {
     patch_source = installer_state.GetInstallerDirectory(product->version())
-        .Append(installer::kChromeArchive);
+                       .Append(installer::kChromeArchive);
     if (base::PathExists(patch_source))
       return patch_source;
   }
   std::unique_ptr<base::Version> version(
       installer::GetMaxVersionFromArchiveDir(installer_state.target_path()));
   if (version) {
-    patch_source = installer_state.GetInstallerDirectory(*version)
-        .Append(installer::kChromeArchive);
+    patch_source = installer_state.GetInstallerDirectory(*version).Append(
+        installer::kChromeArchive);
     if (base::PathExists(patch_source))
       return patch_source;
   }
@@ -424,10 +330,10 @@ bool DeleteFileFromTempProcess(const base::FilePath& path,
   if (!size || size >= MAX_PATH)
     return false;
 
-  STARTUPINFO startup = { sizeof(STARTUPINFO) };
+  STARTUPINFO startup = {sizeof(STARTUPINFO)};
   PROCESS_INFORMATION pi = {0};
-  BOOL ok = ::CreateProcess(NULL, rundll32, NULL, NULL, FALSE, CREATE_SUSPENDED,
-                            NULL, NULL, &startup, &pi);
+  BOOL ok = ::CreateProcess(nullptr, rundll32, nullptr, nullptr, FALSE,
+                            CREATE_SUSPENDED, nullptr, nullptr, &startup, &pi);
   if (ok) {
     // We use the main thread of the new process to run:
     //   Sleep(delay_before_delete_ms);
@@ -436,22 +342,22 @@ bool DeleteFileFromTempProcess(const base::FilePath& path,
     // This runs before the main routine of the process runs, so it doesn't
     // matter much which executable we choose except that we don't want to
     // use e.g. a console app that causes a window to be created.
-    size = static_cast<DWORD>(
-        (path.value().length() + 1) * sizeof(path.value()[0]));
-    void* mem = ::VirtualAllocEx(pi.hProcess, NULL, size, MEM_COMMIT,
+    size = static_cast<DWORD>((path.value().length() + 1) *
+                              sizeof(path.value()[0]));
+    void* mem = ::VirtualAllocEx(pi.hProcess, nullptr, size, MEM_COMMIT,
                                  PAGE_READWRITE);
     if (mem) {
       SIZE_T written = 0;
-      ::WriteProcessMemory(
-          pi.hProcess, mem, path.value().c_str(),
-          (path.value().size() + 1) * sizeof(path.value()[0]), &written);
+      ::WriteProcessMemory(pi.hProcess, mem, path.value().c_str(),
+                           (path.value().size() + 1) * sizeof(path.value()[0]),
+                           &written);
       HMODULE kernel32 = ::GetModuleHandle(L"kernel32.dll");
-      PAPCFUNC sleep = reinterpret_cast<PAPCFUNC>(
-          ::GetProcAddress(kernel32, "Sleep"));
-      PAPCFUNC delete_file = reinterpret_cast<PAPCFUNC>(
-          ::GetProcAddress(kernel32, "DeleteFileW"));
-      PAPCFUNC exit_process = reinterpret_cast<PAPCFUNC>(
-          ::GetProcAddress(kernel32, "ExitProcess"));
+      PAPCFUNC sleep =
+          reinterpret_cast<PAPCFUNC>(::GetProcAddress(kernel32, "Sleep"));
+      PAPCFUNC delete_file =
+          reinterpret_cast<PAPCFUNC>(::GetProcAddress(kernel32, "DeleteFileW"));
+      PAPCFUNC exit_process =
+          reinterpret_cast<PAPCFUNC>(::GetProcAddress(kernel32, "ExitProcess"));
       if (!sleep || !delete_file || !exit_process) {
         NOTREACHED();
         ok = FALSE;
@@ -500,19 +406,19 @@ bool IsUninstallSuccess(InstallStatus install_status) {
 
 bool ContainsUnsupportedSwitch(const base::CommandLine& cmd_line) {
   static const char* const kLegacySwitches[] = {
-    // Chrome Frame ready-mode.
-    "ready-mode",
-    "ready-mode-opt-in",
-    "ready-mode-temp-opt-out",
-    "ready-mode-end-temp-opt-out",
-    // Chrome Frame quick-enable.
-    "quick-enable-cf",
-    // Installation of Chrome Frame.
-    "chrome-frame",
-    "migrate-chrome-frame",
-    // Stand-alone App Launcher.
-    "app-host",
-    "app-launcher",
+      // Chrome Frame ready-mode.
+      "ready-mode",
+      "ready-mode-opt-in",
+      "ready-mode-temp-opt-out",
+      "ready-mode-end-temp-opt-out",
+      // Chrome Frame quick-enable.
+      "quick-enable-cf",
+      // Installation of Chrome Frame.
+      "chrome-frame",
+      "migrate-chrome-frame",
+      // Stand-alone App Launcher.
+      "app-host",
+      "app-launcher",
   };
   for (size_t i = 0; i < base::size(kLegacySwitches); ++i) {
     if (cmd_line.HasSwitch(kLegacySwitches[i]))
@@ -555,11 +461,12 @@ void DeleteRegistryKeyPartial(
         return base::ToLowerASCII(str);
       });
   base::win::RegKey key;
-  LONG result = key.Open(root, path.c_str(), (KEY_ENUMERATE_SUB_KEYS |
-                                              KEY_QUERY_VALUE | KEY_SET_VALUE));
+  LONG result =
+      key.Open(root, path.c_str(),
+               (KEY_ENUMERATE_SUB_KEYS | KEY_QUERY_VALUE | KEY_SET_VALUE));
   if (result != ERROR_SUCCESS) {
-    LOG_IF(ERROR, result != ERROR_FILE_NOT_FOUND) << "Failed to open " << path
-                                                  << "; result = " << result;
+    LOG_IF(ERROR, result != ERROR_FILE_NOT_FOUND)
+        << "Failed to open " << path << "; result = " << result;
     return;
   }
 
@@ -702,11 +609,8 @@ int GetInstallAge(const InstallerState& installer_state) {
   return age >= base::TimeDelta() ? age.InDays() : -1;
 }
 
-void RecordUnPackMetrics(UnPackStatus unpack_status,
-                         base::Optional<int32_t> ntstatus,
-                         base::Optional<DWORD> error_code,
-                         UnPackConsumer consumer) {
-  std::string consumer_name = "";
+void RecordUnPackMetrics(UnPackStatus unpack_status, UnPackConsumer consumer) {
+  std::string consumer_name;
 
   switch (consumer) {
     case UnPackConsumer::CHROME_ARCHIVE_PATCH:
@@ -726,17 +630,6 @@ void RecordUnPackMetrics(UnPackStatus unpack_status,
   base::UmaHistogramExactLinear(
       std::string(std::string(kUnPackStatusMetricsName) + "_" + consumer_name),
       unpack_status, UNPACK_STATUS_COUNT);
-
-  if (error_code.has_value()) {
-    base::UmaHistogramSparse(
-        std::string(kUnPackResultMetricsName) + "_" + consumer_name,
-        *error_code);
-  }
-  if (ntstatus.has_value()) {
-    base::UmaHistogramSparse(
-        std::string(kUnPackNTSTATUSMetricsName) + "_" + consumer_name,
-        *ntstatus);
-  }
 }
 
 void RegisterEventLogProvider(const base::FilePath& install_directory,
@@ -766,7 +659,9 @@ void RegisterEventLogProvider(const base::FilePath& install_directory,
           .Append(FILE_PATH_LITERAL("eventlog_provider.dll")));
 
   static constexpr const wchar_t* kFileKeys[] = {
-      L"CategoryMessageFile", L"EventMessageFile", L"ParameterMessageFile",
+      L"CategoryMessageFile",
+      L"EventMessageFile",
+      L"ParameterMessageFile",
   };
   for (const wchar_t* file_key : kFileKeys) {
     work_item_list->AddSetRegValueWorkItem(HKEY_LOCAL_MACHINE, reg_path,
@@ -791,21 +686,6 @@ void DeRegisterEventLogProvider() {
                                  WorkItem::kWow64Default);
 }
 
-bool AreBinariesInstalled(const InstallerState& installer_state) {
-  if (!install_static::InstallDetails::Get().supported_multi_install())
-    return false;
-
-  base::win::RegKey key;
-  base::string16 pv;
-
-  // True if the "pv" value exists and isn't empty.
-  return key.Open(installer_state.root_key(),
-                  install_static::GetBinariesClientsKeyPath().c_str(),
-                  KEY_QUERY_VALUE | KEY_WOW64_32KEY) == ERROR_SUCCESS &&
-         key.ReadValue(google_update::kRegVersionField, &pv) == ERROR_SUCCESS &&
-         !pv.empty();
-}
-
 void DoLegacyCleanups(const InstallerState& installer_state,
                       InstallStatus install_status) {
   // Do no harm if the install didn't succeed.
@@ -821,9 +701,7 @@ void DoLegacyCleanups(const InstallerState& installer_state,
     return;
 
   RemoveBinariesVersionKey(installer_state);
-  RemoveMultiChromeFrame(installer_state);
   RemoveAppLauncherVersionKey(installer_state);
-  RemoveAppHostExe(installer_state);
   RemoveLegacyChromeAppCommands(installer_state);
 }
 
@@ -923,34 +801,6 @@ base::FilePath GetElevationServicePath(const base::FilePath& target_path,
                                        const base::Version& version) {
   return target_path.AppendASCII(version.GetString())
       .Append(kElevationServiceExe);
-}
-
-base::string16 GetElevationServiceGuid(base::StringPiece16 prefix) {
-  auto result = base::win::String16FromGUID(install_static::GetElevatorClsid());
-  result.insert(0, prefix.data(), prefix.size());
-  return result;
-}
-
-base::string16 GetElevationServiceClsidRegistryPath() {
-  return GetElevationServiceGuid(L"Software\\Classes\\CLSID\\");
-}
-
-base::string16 GetElevationServiceAppidRegistryPath() {
-  return GetElevationServiceGuid(L"Software\\Classes\\AppID\\");
-}
-
-base::string16 GetElevationServiceIid(base::StringPiece16 prefix) {
-  auto result = base::win::String16FromGUID(install_static::GetElevatorIid());
-  result.insert(0, prefix.data(), prefix.size());
-  return result;
-}
-
-base::string16 GetElevationServiceIidRegistryPath() {
-  return GetElevationServiceIid(L"Software\\Classes\\Interface\\");
-}
-
-base::string16 GetElevationServiceTypeLibRegistryPath() {
-  return GetElevationServiceIid(L"Software\\Classes\\TypeLib\\");
 }
 
 }  // namespace installer

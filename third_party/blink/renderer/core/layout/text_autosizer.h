@@ -33,8 +33,7 @@
 
 #include <unicode/uchar.h>
 #include <memory>
-#include "base/macros.h"
-#include "third_party/blink/public/platform/web_text_autosizer_page_info.h"
+#include "third_party/blink/public/mojom/frame/frame.mojom-blink.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/platform/geometry/layout_unit.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
@@ -47,13 +46,25 @@ class Document;
 class Frame;
 class IntSize;
 class LayoutBlock;
+class LayoutBox;
 class LayoutNGTableInterface;
 class LayoutObject;
 class LayoutText;
 class LocalFrame;
-class NGBlockNode;
 class Page;
 class SubtreeLayoutScope;
+
+inline bool operator==(const mojom::blink::TextAutosizerPageInfo& lhs,
+                       const mojom::blink::TextAutosizerPageInfo& rhs) {
+  return lhs.main_frame_width == rhs.main_frame_width &&
+         lhs.main_frame_layout_width == rhs.main_frame_layout_width &&
+         lhs.device_scale_adjustment == rhs.device_scale_adjustment;
+}
+
+inline bool operator!=(const mojom::blink::TextAutosizerPageInfo& lhs,
+                       const mojom::blink::TextAutosizerPageInfo& rhs) {
+  return !(lhs == rhs);
+}
 
 // Single-pass text autosizer. Documentation at:
 // http://tinyurl.com/TextAutosizer
@@ -61,6 +72,8 @@ class SubtreeLayoutScope;
 class CORE_EXPORT TextAutosizer final : public GarbageCollected<TextAutosizer> {
  public:
   explicit TextAutosizer(const Document*);
+  TextAutosizer(const TextAutosizer&) = delete;
+  TextAutosizer& operator=(const TextAutosizer&) = delete;
   ~TextAutosizer();
 
   // computed_size should include zoom.
@@ -80,7 +93,7 @@ class CORE_EXPORT TextAutosizer final : public GarbageCollected<TextAutosizer> {
 
   bool PageNeedsAutosizing() const;
 
-  void Trace(blink::Visitor*);
+  void Trace(Visitor*) const;
 
   class LayoutScope {
     STACK_ALLOCATED();
@@ -90,7 +103,7 @@ class CORE_EXPORT TextAutosizer final : public GarbageCollected<TextAutosizer> {
     ~LayoutScope();
 
    protected:
-    Member<TextAutosizer> text_autosizer_;
+    TextAutosizer* text_autosizer_;
     LayoutBlock* block_;
   };
 
@@ -105,12 +118,12 @@ class CORE_EXPORT TextAutosizer final : public GarbageCollected<TextAutosizer> {
     STACK_ALLOCATED();
 
    public:
-    explicit NGLayoutScope(const NGBlockNode& node, LayoutUnit inline_size);
+    explicit NGLayoutScope(LayoutBox*, LayoutUnit inline_size);
     ~NGLayoutScope();
 
    protected:
-    Member<TextAutosizer> text_autosizer_;
-    LayoutBlock* block_;
+    TextAutosizer* text_autosizer_;
+    LayoutBox* box_;
   };
 
   class CORE_EXPORT DeferUpdatePageInfo {
@@ -121,7 +134,7 @@ class CORE_EXPORT TextAutosizer final : public GarbageCollected<TextAutosizer> {
     ~DeferUpdatePageInfo();
 
    private:
-    Member<LocalFrame> main_frame_;
+    LocalFrame* main_frame_;
   };
 
  private:
@@ -282,7 +295,7 @@ class CORE_EXPORT TextAutosizer final : public GarbageCollected<TextAutosizer> {
     DISALLOW_NEW();
     PageInfo() = default;
 
-    WebTextAutosizerPageInfo shared_info_;
+    mojom::blink::TextAutosizerPageInfo shared_info_;
     float accessibility_font_scale_factor_;
     bool page_needs_autosizing_;
     bool has_autosized_;
@@ -371,8 +384,6 @@ class CORE_EXPORT TextAutosizer final : public GarbageCollected<TextAutosizer> {
   // Inflate reports a use counter if we're autosizing a cross site iframe.
   // This flag makes sure we only check it once per layout pass.
   bool did_check_cross_site_use_count_;
-
-  DISALLOW_COPY_AND_ASSIGN(TextAutosizer);
 };
 
 }  // namespace blink

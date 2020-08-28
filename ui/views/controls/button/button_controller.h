@@ -5,6 +5,8 @@
 #ifndef UI_VIEWS_CONTROLS_BUTTON_BUTTON_CONTROLLER_H_
 #define UI_VIEWS_CONTROLS_BUTTON_BUTTON_CONTROLLER_H_
 
+#include <memory>
+
 #include "base/macros.h"
 #include "ui/events/event.h"
 #include "ui/views/controls/button/button.h"
@@ -48,7 +50,6 @@ class VIEWS_EXPORT ButtonController {
   virtual void UpdateAccessibleNodeData(ui::AXNodeData* node_data);
 
   // Methods that parallel respective methods in Button:
-  virtual void OnStateChanged(Button::ButtonState old_state);
   virtual bool IsTriggerableEvent(const ui::Event& event);
 
  protected:

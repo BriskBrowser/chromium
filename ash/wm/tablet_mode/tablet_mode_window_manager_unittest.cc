@@ -20,6 +20,8 @@
 #include "ash/session/session_controller_impl.h"
 #include "ash/session/test_session_controller_client.h"
 #include "ash/shelf/shelf.h"
+#include "ash/shelf/shelf_metrics.h"
+#include "ash/shelf/test/overview_animation_waiter.h"
 #include "ash/shell.h"
 #include "ash/test/ash_test_base.h"
 #include "ash/wm/mru_window_tracker.h"
@@ -42,6 +44,7 @@
 #include "base/run_loop.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/test/metrics/histogram_tester.h"
 #include "base/test/scoped_feature_list.h"
 #include "base/values.h"
 #include "chromeos/constants/chromeos_switches.h"
@@ -52,6 +55,7 @@
 #include "ui/base/hit_test.h"
 #include "ui/events/test/event_generator.h"
 #include "ui/views/widget/widget.h"
+#include "ui/wm/core/ime_util_chromeos.h"
 #include "ui/wm/core/transient_window_manager.h"
 #include "ui/wm/core/window_util.h"
 
@@ -122,17 +126,11 @@ class TabletModeWindowManagerTest
 
   // Creates a window which also has a widget.
   aura::Window* CreateWindowWithWidget(const gfx::Rect& bounds) {
-    // Note: The widget will get deleted with the window.
-    views::Widget* widget = new views::Widget();
-    views::Widget::InitParams params;
-    params.context = CurrentContext();
-    widget->Init(std::move(params));
+    views::Widget* widget =
+        views::Widget::CreateWindowWithContext(nullptr, GetContext(), bounds);
     widget->Show();
-    aura::Window* window = widget->GetNativeWindow();
-    window->SetBounds(bounds);
-    window->SetProperty(aura::client::kShowStateKey, ui::SHOW_STATE_NORMAL);
-
-    return window;
+    // Note: The widget will get deleted with the window.
+    return widget->GetNativeWindow();
   }
 
   // Create the tablet mode window manager.
@@ -534,20 +532,17 @@ TEST_P(TabletModeWindowManagerTest, CreateNonMaximizableButResizableWindows) {
 // Create a string which consists of the bounds and the state for comparison.
 std::string GetPlacementString(const gfx::Rect& bounds,
                                ui::WindowShowState state) {
-  return bounds.ToString() + base::StringPrintf(" %d", state);
+  return bounds.ToString() + ' ' + base::NumberToString(state);
 }
 
 // Retrieves the window's restore state override - if any - and returns it as a
 // string.
 std::string GetPlacementOverride(aura::Window* window) {
   gfx::Rect* bounds = window->GetProperty(kRestoreBoundsOverrideKey);
-  if (bounds) {
-    gfx::Rect restore_bounds = *bounds;
-    ui::WindowShowState restore_state = ToWindowShowState(
-        window->GetProperty(kRestoreWindowStateTypeOverrideKey));
-    return GetPlacementString(restore_bounds, restore_state);
-  }
-  return std::string();
+  if (!bounds)
+    return std::string();
+  const auto type = window->GetProperty(kRestoreWindowStateTypeOverrideKey);
+  return GetPlacementString(*bounds, ToWindowShowState(type));
 }
 
 // Test that the restore state will be kept at its original value for
@@ -555,6 +550,7 @@ std::string GetPlacementOverride(aura::Window* window) {
 TEST_P(TabletModeWindowManagerTest, TestRestoreIntegrety) {
   gfx::Rect bounds(10, 10, 200, 50);
   std::unique_ptr<aura::Window> normal_window(CreateWindowWithWidget(bounds));
+
   std::unique_ptr<aura::Window> maximized_window(
       CreateWindowWithWidget(bounds));
   WindowState::Get(maximized_window.get())->Maximize();
@@ -567,7 +563,7 @@ TEST_P(TabletModeWindowManagerTest, TestRestoreIntegrety) {
 
   // With the maximization the override states should be returned in its
   // pre-maximized state.
-  EXPECT_EQ(GetPlacementString(bounds, ui::SHOW_STATE_NORMAL),
+  EXPECT_EQ(GetPlacementString(bounds, ui::SHOW_STATE_DEFAULT),
             GetPlacementOverride(normal_window.get()));
   EXPECT_EQ(GetPlacementString(bounds, ui::SHOW_STATE_MAXIMIZED),
             GetPlacementOverride(maximized_window.get()));
@@ -1326,215 +1322,6 @@ TEST_P(TabletModeWindowManagerTest, TryToDesktopSizeDragUnmaximizable) {
   EXPECT_EQ(first_dragged_origin.y() + 5, window->bounds().y());
 }
 
-// Test that an edge swipe from the top will end full screen mode.
-TEST_P(TabletModeWindowManagerTest, ExitFullScreenWithEdgeSwipeFromTop) {
-  gfx::Rect rect(10, 10, 200, 50);
-  std::unique_ptr<aura::Window> background_window(
-      CreateWindow(aura::client::WINDOW_TYPE_NORMAL, rect));
-  std::unique_ptr<aura::Window> foreground_window(
-      CreateWindow(aura::client::WINDOW_TYPE_NORMAL, rect));
-  WindowState* background_window_state =
-      WindowState::Get(background_window.get());
-  WindowState* foreground_window_state =
-      WindowState::Get(foreground_window.get());
-  wm::ActivateWindow(foreground_window.get());
-  CreateTabletModeWindowManager();
-
-  // Fullscreen both windows.
-  WMEvent event(WM_EVENT_TOGGLE_FULLSCREEN);
-  background_window_state->OnWMEvent(&event);
-  foreground_window_state->OnWMEvent(&event);
-  EXPECT_TRUE(background_window_state->IsFullscreen());
-  EXPECT_TRUE(foreground_window_state->IsFullscreen());
-  EXPECT_EQ(foreground_window.get(), window_util::GetActiveWindow());
-
-  // Do an edge swipe top into screen.
-  ui::test::EventGenerator generator(Shell::GetPrimaryRootWindow());
-  generator.GestureScrollSequence(gfx::Point(50, 0), gfx::Point(50, 100),
-                                  base::TimeDelta::FromMilliseconds(20), 10);
-
-  EXPECT_FALSE(foreground_window_state->IsFullscreen());
-  EXPECT_TRUE(background_window_state->IsFullscreen());
-
-  // Do a second edge swipe top into screen.
-  generator.GestureScrollSequence(gfx::Point(50, 0), gfx::Point(50, 100),
-                                  base::TimeDelta::FromMilliseconds(20), 10);
-
-  EXPECT_FALSE(foreground_window_state->IsFullscreen());
-  EXPECT_TRUE(background_window_state->IsFullscreen());
-
-  DestroyTabletModeWindowManager();
-}
-
-// Test that an edge swipe from the bottom will end full screen mode.
-TEST_P(TabletModeWindowManagerTest, ExitFullScreenWithEdgeSwipeFromBottom) {
-  gfx::Rect rect(10, 10, 200, 50);
-  std::unique_ptr<aura::Window> background_window(
-      CreateWindow(aura::client::WINDOW_TYPE_NORMAL, rect));
-  std::unique_ptr<aura::Window> foreground_window(
-      CreateWindow(aura::client::WINDOW_TYPE_NORMAL, rect));
-  WindowState* background_window_state =
-      WindowState::Get(background_window.get());
-  WindowState* foreground_window_state =
-      WindowState::Get(foreground_window.get());
-  wm::ActivateWindow(foreground_window.get());
-  CreateTabletModeWindowManager();
-
-  // Fullscreen both windows.
-  WMEvent event(WM_EVENT_TOGGLE_FULLSCREEN);
-  background_window_state->OnWMEvent(&event);
-  foreground_window_state->OnWMEvent(&event);
-  EXPECT_TRUE(background_window_state->IsFullscreen());
-  EXPECT_TRUE(foreground_window_state->IsFullscreen());
-  EXPECT_EQ(foreground_window.get(), window_util::GetActiveWindow());
-
-  // Do an edge swipe bottom into screen.
-  ui::test::EventGenerator generator(Shell::GetPrimaryRootWindow());
-  int y = Shell::GetPrimaryRootWindow()->bounds().bottom();
-  generator.GestureScrollSequence(gfx::Point(50, y), gfx::Point(50, y - 100),
-                                  base::TimeDelta::FromMilliseconds(20), 10);
-
-  EXPECT_FALSE(foreground_window_state->IsFullscreen());
-  EXPECT_TRUE(background_window_state->IsFullscreen());
-
-  DestroyTabletModeWindowManager();
-}
-
-// Test that an edge touch press at the top will end full screen mode.
-TEST_P(TabletModeWindowManagerTest, ExitFullScreenWithEdgeTouchAtTop) {
-  gfx::Rect rect(10, 10, 200, 50);
-  std::unique_ptr<aura::Window> background_window(
-      CreateWindow(aura::client::WINDOW_TYPE_NORMAL, rect));
-  std::unique_ptr<aura::Window> foreground_window(
-      CreateWindow(aura::client::WINDOW_TYPE_NORMAL, rect));
-  WindowState* background_window_state =
-      WindowState::Get(background_window.get());
-  WindowState* foreground_window_state =
-      WindowState::Get(foreground_window.get());
-  wm::ActivateWindow(foreground_window.get());
-  CreateTabletModeWindowManager();
-
-  // Fullscreen both windows.
-  WMEvent event(WM_EVENT_TOGGLE_FULLSCREEN);
-  background_window_state->OnWMEvent(&event);
-  foreground_window_state->OnWMEvent(&event);
-  EXPECT_TRUE(background_window_state->IsFullscreen());
-  EXPECT_TRUE(foreground_window_state->IsFullscreen());
-  EXPECT_EQ(foreground_window.get(), window_util::GetActiveWindow());
-
-  // Touch tap on the top edge.
-  ui::test::EventGenerator generator(Shell::GetPrimaryRootWindow());
-  generator.GestureTapAt(gfx::Point(100, 0));
-  EXPECT_FALSE(foreground_window_state->IsFullscreen());
-  EXPECT_TRUE(background_window_state->IsFullscreen());
-
-  // Try the same again and see that nothing changes.
-  generator.GestureTapAt(gfx::Point(100, 0));
-  EXPECT_FALSE(foreground_window_state->IsFullscreen());
-  EXPECT_TRUE(background_window_state->IsFullscreen());
-
-  DestroyTabletModeWindowManager();
-}
-
-// Test that an edge touch press at the bottom will end full screen mode.
-TEST_P(TabletModeWindowManagerTest, ExitFullScreenWithEdgeTouchAtBottom) {
-  gfx::Rect rect(10, 10, 200, 50);
-  std::unique_ptr<aura::Window> background_window(
-      CreateWindow(aura::client::WINDOW_TYPE_NORMAL, rect));
-  std::unique_ptr<aura::Window> foreground_window(
-      CreateWindow(aura::client::WINDOW_TYPE_NORMAL, rect));
-  WindowState* background_window_state =
-      WindowState::Get(background_window.get());
-  WindowState* foreground_window_state =
-      WindowState::Get(foreground_window.get());
-  wm::ActivateWindow(foreground_window.get());
-  CreateTabletModeWindowManager();
-
-  // Fullscreen both windows.
-  WMEvent event(WM_EVENT_TOGGLE_FULLSCREEN);
-  background_window_state->OnWMEvent(&event);
-  foreground_window_state->OnWMEvent(&event);
-  EXPECT_TRUE(background_window_state->IsFullscreen());
-  EXPECT_TRUE(foreground_window_state->IsFullscreen());
-  EXPECT_EQ(foreground_window.get(), window_util::GetActiveWindow());
-
-  // Touch tap on the bottom edge.
-  ui::test::EventGenerator generator(Shell::GetPrimaryRootWindow());
-  generator.GestureTapAt(
-      gfx::Point(100, Shell::GetPrimaryRootWindow()->bounds().bottom() - 1));
-  EXPECT_FALSE(foreground_window_state->IsFullscreen());
-  EXPECT_TRUE(background_window_state->IsFullscreen());
-
-  // Try the same again and see that nothing changes.
-  generator.GestureTapAt(
-      gfx::Point(100, Shell::GetPrimaryRootWindow()->bounds().bottom() - 1));
-  EXPECT_FALSE(foreground_window_state->IsFullscreen());
-  EXPECT_TRUE(background_window_state->IsFullscreen());
-
-  DestroyTabletModeWindowManager();
-}
-
-// Test that an edge swipe from the top on an immersive mode window will not end
-// full screen mode.
-TEST_P(TabletModeWindowManagerTest, NoExitImmersiveModeWithEdgeSwipeFromTop) {
-  std::unique_ptr<aura::Window> window(CreateWindow(
-      aura::client::WINDOW_TYPE_NORMAL, gfx::Rect(10, 10, 200, 50)));
-  WindowState* window_state = WindowState::Get(window.get());
-  wm::ActivateWindow(window.get());
-  CreateTabletModeWindowManager();
-
-  // Fullscreen the window.
-  WMEvent event(WM_EVENT_TOGGLE_FULLSCREEN);
-  window_state->OnWMEvent(&event);
-  EXPECT_TRUE(window_state->IsFullscreen());
-  EXPECT_FALSE(window_state->IsInImmersiveFullscreen());
-  EXPECT_EQ(window.get(), window_util::GetActiveWindow());
-
-  window->SetProperty(kImmersiveIsActive, true);
-
-  // Do an edge swipe top into screen.
-  ui::test::EventGenerator generator(Shell::GetPrimaryRootWindow());
-  generator.GestureScrollSequence(gfx::Point(50, 0), gfx::Point(50, 100),
-                                  base::TimeDelta::FromMilliseconds(20), 10);
-
-  // It should have not exited full screen or immersive mode.
-  EXPECT_TRUE(window_state->IsFullscreen());
-  EXPECT_TRUE(window_state->IsInImmersiveFullscreen());
-
-  DestroyTabletModeWindowManager();
-}
-
-// Test that an edge swipe from the bottom will not end immersive mode.
-TEST_P(TabletModeWindowManagerTest,
-       NoExitImmersiveModeWithEdgeSwipeFromBottom) {
-  std::unique_ptr<aura::Window> window(CreateWindow(
-      aura::client::WINDOW_TYPE_NORMAL, gfx::Rect(10, 10, 200, 50)));
-  WindowState* window_state = WindowState::Get(window.get());
-  wm::ActivateWindow(window.get());
-  CreateTabletModeWindowManager();
-
-  // Fullscreen the window.
-  WMEvent event(WM_EVENT_TOGGLE_FULLSCREEN);
-  window_state->OnWMEvent(&event);
-  EXPECT_TRUE(window_state->IsFullscreen());
-  EXPECT_FALSE(window_state->IsInImmersiveFullscreen());
-  EXPECT_EQ(window.get(), window_util::GetActiveWindow());
-  window->SetProperty(kImmersiveIsActive, true);
-  EXPECT_TRUE(window_state->IsInImmersiveFullscreen());
-
-  // Do an edge swipe bottom into screen.
-  ui::test::EventGenerator generator(Shell::GetPrimaryRootWindow());
-  int y = Shell::GetPrimaryRootWindow()->bounds().bottom();
-  generator.GestureScrollSequence(gfx::Point(50, y), gfx::Point(50, y - 100),
-                                  base::TimeDelta::FromMilliseconds(20), 10);
-
-  // The window should still be full screen and immersive.
-  EXPECT_TRUE(window_state->IsFullscreen());
-  EXPECT_TRUE(window_state->IsInImmersiveFullscreen());
-
-  DestroyTabletModeWindowManager();
-}
-
 // Tests that windows with the always-on-top property are not managed by
 // the TabletModeWindowManager while tablet mode is engaged (i.e.,
 // they remain free-floating).
@@ -1812,9 +1599,52 @@ TEST_P(TabletModeWindowManagerTest, DontMaximizeTransientChild) {
   EXPECT_EQ(rect.size(), child->bounds().size());
 }
 
+TEST_P(TabletModeWindowManagerTest, AllowNormalWindowBoundsChangeByVK) {
+  UpdateDisplay("1200x800");
+  gfx::Rect rect(0, 0, 1200, 600);
+  std::unique_ptr<aura::Window> window(CreateFixedSizeNonMaximizableWindow(
+      aura::client::WINDOW_TYPE_NORMAL, rect));
+  ASSERT_TRUE(CreateTabletModeWindowManager());
+
+  WindowState* window_state = WindowState::Get(window.get());
+  EXPECT_FALSE(window_state->IsMaximized());
+  EXPECT_EQ(WindowStateType::kNormal, window_state->GetStateType());
+  gfx::Rect window_bounds = window->bounds();
+
+  // Simulate VK up.
+  wm::EnsureWindowNotInRect(window.get(), gfx::Rect(0, 600, 1200, 200));
+  EXPECT_NE(window->bounds(), window_bounds);
+
+  // Simulate VK dismissal.
+  wm::RestoreWindowBoundsOnClientFocusLost(window.get());
+  EXPECT_EQ(window->bounds(), window_bounds);
+}
+
+class TabletModeWindowManagerWithoutClamshellSplitViewTest
+    : public TabletModeWindowManagerTest {
+ public:
+  TabletModeWindowManagerWithoutClamshellSplitViewTest() = default;
+  TabletModeWindowManagerWithoutClamshellSplitViewTest(
+      const TabletModeWindowManagerWithoutClamshellSplitViewTest&) = delete;
+  TabletModeWindowManagerWithoutClamshellSplitViewTest& operator=(
+      const TabletModeWindowManagerWithoutClamshellSplitViewTest&) = delete;
+  ~TabletModeWindowManagerWithoutClamshellSplitViewTest() override = default;
+
+  // AshTestBase:
+  void SetUp() override {
+    scoped_feature_list_.InitAndDisableFeature(
+        features::kDragToSnapInClamshellMode);
+    TabletModeWindowManagerTest::SetUp();
+  }
+
+ private:
+  base::test::ScopedFeatureList scoped_feature_list_;
+};
+
 // Test clamshell mode <-> tablet mode transition if clamshell splitscreen is
 // not enabled.
-TEST_P(TabletModeWindowManagerTest, ClamshellTabletTransitionTest) {
+TEST_P(TabletModeWindowManagerWithoutClamshellSplitViewTest,
+       ClamshellTabletTransitionTest) {
   gfx::Rect rect(10, 10, 200, 50);
   std::unique_ptr<aura::Window> window(
       CreateWindow(aura::client::WINDOW_TYPE_NORMAL, rect));
@@ -1828,8 +1658,8 @@ TEST_P(TabletModeWindowManagerTest, ClamshellTabletTransitionTest) {
   EXPECT_TRUE(manager);
   EXPECT_FALSE(overview_controller->InOverviewSession());
 
-  // 2. Tablet -> Clamshell. If overview is active, it should be ended after
-  // transition.
+  // 2. Tablet -> Clamshell. If overview is inactive, it should still be kept
+  // inactive after transition.
   DestroyTabletModeWindowManager();
   EXPECT_FALSE(overview_controller->InOverviewSession());
 
@@ -2089,23 +1919,39 @@ TEST_P(TabletModeWindowManagerWithClamshellSplitViewTest,
   // Clamshell -> Tablet mode transition. If overview is active, it will remain
   // in overview.
   OverviewController* overview_controller = Shell::Get()->overview_controller();
+  OverviewAnimationWaiter start_overview_waiter;
   EXPECT_TRUE(overview_controller->StartOverview());
   EXPECT_TRUE(overview_controller->InOverviewSession());
   TabletModeWindowManager* manager = CreateTabletModeWindowManager();
   EXPECT_TRUE(manager);
   EXPECT_TRUE(overview_controller->InOverviewSession());
+  start_overview_waiter.Wait();
 
   aura::Window* home_screen_window =
       Shell::Get()->app_list_controller()->GetHomeScreenWindow();
   EXPECT_FALSE(home_screen_window->TargetVisibility());
 
-  // Simulate tapping on the home button to go to home launcher.
-  Shell::Get()->home_screen_controller()->GoHome(GetPrimaryDisplay().id());
+  base::HistogramTester tester;
+  tester.ExpectBucketCount(
+      kHotseatGestureHistogramName,
+      InAppShelfGestures::kHotseatHiddenDueToInteractionOutsideOfShelf, 0);
+
+  // Tap at window to leave the overview mode.
+  OverviewAnimationWaiter end_overview_waiter;
+  GetEventGenerator()->GestureTapAt(window->GetBoundsInScreen().CenterPoint());
+  end_overview_waiter.Wait();
+  tester.ExpectBucketCount(
+      kHotseatGestureHistogramName,
+      InAppShelfGestures::kHotseatHiddenDueToInteractionOutsideOfShelf, 1);
+
   EXPECT_FALSE(overview_controller->InOverviewSession());
   EXPECT_TRUE(home_screen_window->TargetVisibility());
 }
 
 INSTANTIATE_TEST_SUITE_P(All, TabletModeWindowManagerTest, testing::Bool());
+INSTANTIATE_TEST_SUITE_P(All,
+                         TabletModeWindowManagerWithoutClamshellSplitViewTest,
+                         testing::Bool());
 INSTANTIATE_TEST_SUITE_P(All,
                          TabletModeWindowManagerWithClamshellSplitViewTest,
                          testing::Bool());

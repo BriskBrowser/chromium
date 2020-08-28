@@ -15,9 +15,6 @@
 
 namespace ui {
 
-// Intentionally keep sync with blink::WebImeTextSpan defined in:
-// third_party/WebKit/public/web/WebImeTextSpan.h
-
 struct COMPONENT_EXPORT(UI_BASE_IME_TYPES) ImeTextSpan {
   enum class Type {
     // Creates a composition marker.
@@ -29,6 +26,8 @@ struct COMPONENT_EXPORT(UI_BASE_IME_TYPES) ImeTextSpan {
     // replacement, and will be ignored if added to an element with spell
     // checking disabled.
     kMisspellingSuggestion,
+    // Creates an autocorrect marker that isn't cleared by itself.
+    kAutocorrect,
   };
 
   enum class Thickness {
@@ -37,11 +36,20 @@ struct COMPONENT_EXPORT(UI_BASE_IME_TYPES) ImeTextSpan {
     kThick,
   };
 
-  ImeTextSpan(
+  enum class UnderlineStyle {
+    kNone,
+    kSolid,
+    kDot,
+    kDash,
+    kSquiggle,
+  };
+
+  explicit ImeTextSpan(
       Type type = Type::kComposition,
       uint32_t start_offset = 0,
       uint32_t end_offset = 0,
       Thickness thickness = Thickness::kThin,
+      UnderlineStyle underline_style = UnderlineStyle::kSolid,
       SkColor background_color = SK_ColorTRANSPARENT,
       SkColor suggestion_highlight_color = SK_ColorTRANSPARENT,
       const std::vector<std::string>& suggestions = std::vector<std::string>());
@@ -56,11 +64,14 @@ struct COMPONENT_EXPORT(UI_BASE_IME_TYPES) ImeTextSpan {
            (this->end_offset == rhs.end_offset) &&
            (this->underline_color == rhs.underline_color) &&
            (this->thickness == rhs.thickness) &&
+           (this->underline_style == rhs.underline_style) &&
+           (this->text_color == rhs.text_color) &&
            (this->background_color == rhs.background_color) &&
            (this->suggestion_highlight_color ==
             rhs.suggestion_highlight_color) &&
            (this->remove_on_finish_composing ==
             rhs.remove_on_finish_composing) &&
+           (this->interim_char_selection == rhs.interim_char_selection) &&
            (this->suggestions == rhs.suggestions);
   }
 
@@ -71,9 +82,12 @@ struct COMPONENT_EXPORT(UI_BASE_IME_TYPES) ImeTextSpan {
   uint32_t end_offset;
   SkColor underline_color = SK_ColorTRANSPARENT;
   Thickness thickness;
+  UnderlineStyle underline_style;
+  SkColor text_color = SK_ColorTRANSPARENT;
   SkColor background_color;
   SkColor suggestion_highlight_color;
   bool remove_on_finish_composing = false;
+  bool interim_char_selection = false;
   std::vector<std::string> suggestions;
 };
 

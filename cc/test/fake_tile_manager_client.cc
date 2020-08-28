@@ -23,8 +23,13 @@ FakeTileManagerClient::BuildEvictionQueue(TreePriority tree_priority) {
   return nullptr;
 }
 
-const gfx::ColorSpace& FakeTileManagerClient::GetRasterColorSpace() const {
+gfx::ColorSpace FakeTileManagerClient::GetRasterColorSpace(
+    gfx::ContentColorUsage /*content_color_usage*/) const {
   return color_space_;
+}
+
+float FakeTileManagerClient::GetSDRWhiteLevel() const {
+  return gfx::ColorSpace::kDefaultSDRWhiteLevel;
 }
 
 size_t FakeTileManagerClient::GetFrameIndexForImage(

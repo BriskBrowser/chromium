@@ -13,7 +13,6 @@
 #include "base/macros.h"
 #include "base/strings/string16.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/test/scoped_feature_list.h"
 #include "chrome/browser/chromeos/crostini/crostini_manager.h"
 #include "chrome/browser/chromeos/crostini/crostini_pref_names.h"
 #include "chrome/browser/chromeos/crostini/crostini_test_helper.h"
@@ -134,8 +133,6 @@ class CrosUsbDetectorTest : public BrowserWithTestWindowTest {
   void SetUp() override {
     BrowserWithTestWindowTest::SetUp();
     crostini_test_helper_.reset(new crostini::CrostiniTestHelper(profile()));
-    scoped_feature_list_.InitWithFeatures(
-        {chromeos::features::kCrostiniUsbAllowUnsupported}, {});
 
     TestingBrowserProcess::GetGlobal()->SetSystemNotificationHelper(
         std::make_unique<SystemNotificationHelper>());
@@ -154,7 +151,6 @@ class CrosUsbDetectorTest : public BrowserWithTestWindowTest {
   }
 
   void TearDown() override {
-    scoped_feature_list_.Reset();
     crostini_test_helper_.reset();
     BrowserWithTestWindowTest::TearDown();
   }
@@ -165,13 +161,15 @@ class CrosUsbDetectorTest : public BrowserWithTestWindowTest {
 
   void AttachDeviceToVm(const std::string& vm_name, const std::string& guid) {
     cros_usb_detector_->AttachUsbDeviceToVm(
-        vm_name, guid, base::Bind([](bool result) { EXPECT_TRUE(result); }));
+        vm_name, guid,
+        base::BindOnce([](bool result) { EXPECT_TRUE(result); }));
     base::RunLoop().RunUntilIdle();
   }
 
   void DetachDeviceFromVm(const std::string& vm_name, const std::string& guid) {
     cros_usb_detector_->DetachUsbDeviceFromVm(
-        vm_name, guid, base::Bind([](bool result) { EXPECT_TRUE(result); }));
+        vm_name, guid,
+        base::BindOnce([](bool result) { EXPECT_TRUE(result); }));
     base::RunLoop().RunUntilIdle();
   }
 
@@ -218,8 +216,6 @@ class CrosUsbDetectorTest : public BrowserWithTestWindowTest {
 
   TestCrosUsbDeviceObserver usb_device_observer_;
   std::unique_ptr<chromeos::CrosUsbDetector> cros_usb_detector_;
-
-  base::test::ScopedFeatureList scoped_feature_list_;
 
   std::unique_ptr<crostini::CrostiniTestHelper> crostini_test_helper_;
 
@@ -333,7 +329,7 @@ TEST_F(CrosUsbDetectorTest, UsbDeviceClassWithoutNotificationAdded) {
 }
 
 TEST_F(CrosUsbDetectorTest, UsbDeviceWithoutProductNameAddedAndRemoved) {
-  std::string product_name = "";
+  std::string product_name;
   ConnectToDeviceManager();
   base::RunLoop().RunUntilIdle();
 
@@ -362,8 +358,8 @@ TEST_F(CrosUsbDetectorTest, UsbDeviceWithoutProductNameAddedAndRemoved) {
 
 TEST_F(CrosUsbDetectorTest,
        UsbDeviceWithoutProductNameOrManufacturerNameAddedAndRemoved) {
-  std::string product_name = "";
-  std::string manufacturer_name = "";
+  std::string product_name;
+  std::string manufacturer_name;
   ConnectToDeviceManager();
   base::RunLoop().RunUntilIdle();
 
@@ -724,7 +720,6 @@ TEST_F(CrosUsbDetectorTest, AttachingAlreadyAttachedDeviceIsANoOp) {
 }
 
 TEST_F(CrosUsbDetectorTest, DeviceCanBeAttachedToArcVmWhenCrostiniIsDisabled) {
-  scoped_feature_list_.Reset();  // Clears Crostini flags.
   ConnectToDeviceManager();
   base::RunLoop().RunUntilIdle();
 
@@ -763,7 +758,35 @@ TEST_F(CrosUsbDetectorTest, SharedDevicesGetAttachedOnStartup) {
   cros_usb_detector_->ConnectSharedDevicesOnVmStartup(
       crostini::kCrostiniDefaultVmName);
   base::RunLoop().RunUntilIdle();
-  // Attaching an already attached device is a no-op currently.
-  EXPECT_EQ(0, usb_device_observer_.notify_count());
+  // On VM startup, we have to re-attach devices.
+  EXPECT_EQ(1, usb_device_observer_.notify_count());
   EXPECT_TRUE(IsSharedWithCrostini(GetSingleDeviceInfo()));
+}
+
+TEST_F(CrosUsbDetectorTest, DeviceAllowedInterfacesMaskSetCorrectly) {
+  ConnectToDeviceManager();
+  base::RunLoop().RunUntilIdle();
+
+  const int kAdbClass = 0xff;
+  const int kAdbSubclass = 0x42;
+  const int kAdbProtocol = 0x1;
+
+  // Adb interface as well as a forbidden interface and allowed interface.
+  scoped_refptr<device::FakeUsbDeviceInfo> device = CreateTestDeviceFromCodes(
+      /* USB_CLASS_HID */ 0x03,
+      {InterfaceCodes(0x03, 0xff, 0xff),
+       InterfaceCodes(kAdbClass, kAdbSubclass, kAdbProtocol),
+       InterfaceCodes(/*USB_CLASS_AUDIO*/ 0x01, 0xff, 0xff)});
+
+  device_manager_.AddDevice(device);
+  base::RunLoop().RunUntilIdle();
+
+  // The device should notify because it has an allowed, notifiable interface.
+  std::string notification_id =
+      chromeos::CrosUsbDetector::MakeNotificationId(device->guid());
+  EXPECT_TRUE(display_service_->GetNotification(notification_id));
+
+  auto device_info = GetSingleDeviceInfo();
+
+  EXPECT_EQ(0x00000006U, device_info.allowed_interfaces_mask);
 }

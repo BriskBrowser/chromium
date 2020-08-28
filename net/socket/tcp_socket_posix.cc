@@ -70,7 +70,7 @@ bool SetTCPKeepAlive(int fd, bool enable, int delay) {
   if (!enable)
     return true;
 
-#if defined(OS_LINUX) || defined(OS_ANDROID)
+#if defined(OS_LINUX) || defined(OS_CHROMEOS) || defined(OS_ANDROID)
   // Setting the keepalive interval varies by platform.
 
   // Set seconds until first TCP keep alive.
@@ -83,7 +83,7 @@ bool SetTCPKeepAlive(int fd, bool enable, int delay) {
     PLOG(ERROR) << "Failed to set TCP_KEEPINTVL on fd: " << fd;
     return false;
   }
-#elif defined(OS_MACOSX) || defined(OS_IOS)
+#elif defined(OS_APPLE)
   if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPALIVE, &delay, sizeof(delay))) {
     PLOG(ERROR) << "Failed to set TCP_KEEPALIVE on fd: " << fd;
     return false;
@@ -406,13 +406,15 @@ int TCPSocketPosix::SetSendBufferSize(int32_t size) {
 }
 
 bool TCPSocketPosix::SetKeepAlive(bool enable, int delay) {
-  DCHECK(socket_);
+  if (!socket_)
+    return false;
 
   return SetTCPKeepAlive(socket_->socket_fd(), enable, delay);
 }
 
 bool TCPSocketPosix::SetNoDelay(bool no_delay) {
-  DCHECK(socket_);
+  if (!socket_)
+    return false;
 
   return SetTCPNoDelay(socket_->socket_fd(), no_delay) == OK;
 }
@@ -652,8 +654,9 @@ bool TCPSocketPosix::GetEstimatedRoundTripTime(base::TimeDelta* out_rtt) const {
     return false;
   *out_rtt = rtt;
   return true;
-#endif  // defined(TCP_INFO)
+#else
   return false;
+#endif  // defined(TCP_INFO)
 }
 
 }  // namespace net

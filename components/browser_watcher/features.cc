@@ -6,13 +6,9 @@
 
 namespace browser_watcher {
 
-const base::Feature kStabilityDebuggingFeature{
-    "StabilityDebugging", base::FEATURE_DISABLED_BY_DEFAULT};
+const base::Feature kExtendedCrashReportingFeature{
+    "ExtendedCrashReporting", base::FEATURE_DISABLED_BY_DEFAULT};
 
 const char kInMemoryOnlyParam[] = "in_memory_only";
-
-const char kInitFlushParam[] = "init_flush";
-
-const char kCollectPostmortemParam[] = "collect_postmortem";
 
 }  // namespace browser_watcher

@@ -40,6 +40,7 @@ ColorSpace::TransferID simple_transfers[] = {
     ColorSpace::TransferID::GAMMA28,
     ColorSpace::TransferID::SMPTE170M,
     ColorSpace::TransferID::SMPTE240M,
+    ColorSpace::TransferID::SMPTEST428_1,
     ColorSpace::TransferID::LINEAR,
     ColorSpace::TransferID::LOG,
     ColorSpace::TransferID::LOG_SQRT,
@@ -53,29 +54,16 @@ ColorSpace::TransferID simple_transfers[] = {
     ColorSpace::TransferID::IEC61966_2_1_HDR,
 };
 
-// This one is weird as the non-linear numbers are not between 0 and 1.
-ColorSpace::TransferID noninvertible_transfers[] = {
-    ColorSpace::TransferID::SMPTEST428_1,
-};
-
 ColorSpace::TransferID extended_transfers[] = {
     ColorSpace::TransferID::LINEAR_HDR,
     ColorSpace::TransferID::IEC61966_2_1_HDR,
 };
 
 ColorSpace::MatrixID all_matrices[] = {
-    ColorSpace::MatrixID::RGB,
-    ColorSpace::MatrixID::BT709,
-    ColorSpace::MatrixID::FCC,
-    ColorSpace::MatrixID::BT470BG,
-    ColorSpace::MatrixID::SMPTE170M,
-    ColorSpace::MatrixID::SMPTE240M,
-
-    // YCOCG produces lots of negative values which isn't compatible with many
-    // transfer functions.
-    // TODO(hubbe): Test this separately.
-    // ColorSpace::MatrixID::YCOCG,
-    ColorSpace::MatrixID::BT2020_NCL,
+    ColorSpace::MatrixID::RGB,       ColorSpace::MatrixID::BT709,
+    ColorSpace::MatrixID::FCC,       ColorSpace::MatrixID::BT470BG,
+    ColorSpace::MatrixID::SMPTE170M, ColorSpace::MatrixID::SMPTE240M,
+    ColorSpace::MatrixID::YCOCG,     ColorSpace::MatrixID::BT2020_NCL,
     ColorSpace::MatrixID::YDZDX,
 };
 
@@ -388,6 +376,12 @@ TEST(SimpleColorSpace, ToUndefined) {
       ColorTransform::NewColorTransform(
           video, null, ColorTransform::Intent::INTENT_PERCEPTUAL));
   EXPECT_EQ(video_to_null->NumberOfStepsForTesting(), 1u);
+  // Without optimization, video should have 2 steps: limited range to full
+  // range, and YUV to RGB.
+  std::unique_ptr<ColorTransform> video_to_null_no_opt(
+      ColorTransform::NewColorTransform(video, null,
+                                        ColorTransform::Intent::TEST_NO_OPT));
+  EXPECT_EQ(video_to_null_no_opt->NumberOfStepsForTesting(), 2u);
 
   // Test with an ICC profile that can't be represented as matrix+transfer.
   ColorSpace luttrcicc = ICCProfileForTestingNoAnalyticTrFn().GetColorSpace();
@@ -412,15 +406,15 @@ TEST(SimpleColorSpace, ToUndefined) {
   EXPECT_GT(adobeicc_to_nonnull->NumberOfStepsForTesting(), 0u);
 
   // And with something analytic.
-  ColorSpace srgb = gfx::ColorSpace::CreateXYZD50();
-  std::unique_ptr<ColorTransform> srgb_to_null(
+  ColorSpace xyzd50 = gfx::ColorSpace::CreateXYZD50();
+  std::unique_ptr<ColorTransform> xyzd50_to_null(
       ColorTransform::NewColorTransform(
-          srgb, null, ColorTransform::Intent::INTENT_PERCEPTUAL));
-  EXPECT_EQ(srgb_to_null->NumberOfStepsForTesting(), 0u);
-  std::unique_ptr<ColorTransform> srgb_to_nonnull(
+          xyzd50, null, ColorTransform::Intent::INTENT_PERCEPTUAL));
+  EXPECT_EQ(xyzd50_to_null->NumberOfStepsForTesting(), 0u);
+  std::unique_ptr<ColorTransform> xyzd50_to_nonnull(
       ColorTransform::NewColorTransform(
-          srgb, nonnull, ColorTransform::Intent::INTENT_PERCEPTUAL));
-  EXPECT_GT(srgb_to_nonnull->NumberOfStepsForTesting(), 0u);
+          xyzd50, nonnull, ColorTransform::Intent::INTENT_PERCEPTUAL));
+  EXPECT_GT(xyzd50_to_nonnull->NumberOfStepsForTesting(), 0u);
 }
 
 TEST(SimpleColorSpace, DefaultToSRGB) {
@@ -525,8 +519,11 @@ TEST(SimpleColorSpace, CanParseSkShaderSource) {
     for (const auto& dst : common_color_spaces) {
       auto transform = ColorTransform::NewColorTransform(
           src, dst, ColorTransform::Intent::INTENT_PERCEPTUAL);
-      std::string source = "void main(inout half4 color) {" +
-                           transform->GetSkShaderSource() + "}";
+      std::string source =
+          "in shader child;\n"
+          "half4 main() {\n"
+          "  half4 color = sample(child);\n" +
+          transform->GetSkShaderSource() + " return color; }";
       auto result =
           SkRuntimeEffect::Make(SkString(source.c_str(), source.length()));
       EXPECT_NE(std::get<0>(result), nullptr);
@@ -572,35 +569,6 @@ INSTANTIATE_TEST_SUITE_P(ColorSpace,
                          TransferTest,
                          testing::ValuesIn(simple_transfers));
 
-class NonInvertibleTransferTest
-    : public testing::TestWithParam<ColorSpace::TransferID> {};
-
-TEST_P(NonInvertibleTransferTest, basicTest) {
-  gfx::ColorSpace space_with_transfer(ColorSpace::PrimaryID::BT709, GetParam(),
-                                      ColorSpace::MatrixID::RGB,
-                                      ColorSpace::RangeID::FULL);
-  gfx::ColorSpace space_linear(
-      ColorSpace::PrimaryID::BT709, ColorSpace::TransferID::LINEAR,
-      ColorSpace::MatrixID::RGB, ColorSpace::RangeID::FULL);
-
-  std::unique_ptr<ColorTransform> to_linear(ColorTransform::NewColorTransform(
-      space_with_transfer, space_linear,
-      ColorTransform::Intent::INTENT_ABSOLUTE));
-
-  std::unique_ptr<ColorTransform> from_linear(ColorTransform::NewColorTransform(
-      space_linear, space_with_transfer,
-      ColorTransform::Intent::INTENT_ABSOLUTE));
-
-  // These transforms should not crash when created or applied.
-  float x = 0.5;
-  ColorTransform::TriStim tristim(x, x, x);
-  to_linear->Transform(&tristim, 1);
-  from_linear->Transform(&tristim, 1);
-}
-
-INSTANTIATE_TEST_SUITE_P(ColorSpace,
-                         NonInvertibleTransferTest,
-                         testing::ValuesIn(noninvertible_transfers));
 
 class ExtendedTransferTest
     : public testing::TestWithParam<ColorSpace::TransferID> {};
@@ -785,9 +753,8 @@ TEST(ColorSpaceTest, PQSDRWhiteLevel) {
         EXPECT_NEAR(val.z(), 1.f, kMathEpsilon);
         break;
       case 3:
-        // Check that the default white level is 80 nits. This will change to
-        // 100 nits in the future.
-        EXPECT_NEAR(val.x(), 1.f, kMathEpsilon);
+        // Check that the default white level is 100 nits.
+        EXPECT_NEAR(val.y(), 1.f, kMathEpsilon);
         break;
     }
 
@@ -802,6 +769,89 @@ TEST(ColorSpaceTest, PQSDRWhiteLevel) {
     EXPECT_NEAR(val.x(), pq_encoded_nits[0], kMathEpsilon);
     EXPECT_NEAR(val.y(), pq_encoded_nits[1], kMathEpsilon);
     EXPECT_NEAR(val.z(), pq_encoded_nits[2], kMathEpsilon);
+  }
+}
+
+TEST(ColorSpaceTest, PiecewiseHDR) {
+  // The sRGB function evaluated at a couple of test points.
+  const float srgb_x0 = 0.01;
+  const float srgb_y0 = 0.00077399380805;
+  const float srgb_x1 = 0.5;
+  const float srgb_y1 = 0.2140411174732872;
+
+  // Parameters for CreatePiecewiseHDR to test.
+  const std::vector<float> test_sdr_joints = {
+      0.25f,
+      0.5f,
+      0.75f,
+  };
+  const std::vector<float> test_hdr_levels = {
+      1.5f,
+      2.0f,
+      5.0f,
+  };
+
+  // Go through all combinations.
+  for (float sdr_joint : test_sdr_joints) {
+    for (float hdr_level : test_hdr_levels) {
+      ColorSpace hdr = ColorSpace::CreatePiecewiseHDR(
+          ColorSpace::PrimaryID::BT709, sdr_joint, hdr_level);
+      ColorSpace linear(ColorSpace::PrimaryID::BT709,
+                        ColorSpace::TransferID::LINEAR_HDR);
+      std::unique_ptr<ColorTransform> xform_to(
+          ColorTransform::NewColorTransform(
+              hdr, linear, ColorTransform::Intent::INTENT_ABSOLUTE));
+      std::unique_ptr<ColorTransform> xform_from(
+          ColorTransform::NewColorTransform(
+              linear, hdr, ColorTransform::Intent::INTENT_ABSOLUTE));
+
+      // We're going to to test both sides of the joint points. Use this
+      // epsilon, which is much smaller than kMathEpsilon, to make that
+      // adjustment.
+      const float kSideEpsilon = kMathEpsilon / 100;
+
+      const size_t kTestPointCount = 8;
+      const float test_x[kTestPointCount] = {
+          // Test the linear segment of the sRGB function.
+          srgb_x0 * sdr_joint,
+          // Test the exponential segment of the sRGB function.
+          srgb_x1 * sdr_joint,
+          // Test epsilon before the HDR joint
+          sdr_joint - kSideEpsilon,
+          // Test the HDR joint
+          sdr_joint,
+          // Test epsilon after the HDR joint
+          sdr_joint + kSideEpsilon,
+          // Test the middle of the linear HDR segment
+          sdr_joint + 0.5 * (1.f - sdr_joint),
+          // Test just before the end of the linear HDR segment.
+          1.f - kSideEpsilon,
+          // Test the endpoint of the linear HDR segment.
+          1.f,
+      };
+      const float test_y[kTestPointCount] = {
+          srgb_y0,
+          srgb_y1,
+          1.f - kSideEpsilon,
+          1.f,
+          1.f + kSideEpsilon,
+          0.5 * (1.f + hdr_level),
+          hdr_level - kSideEpsilon,
+          hdr_level,
+      };
+      for (size_t i = 0; i < kTestPointCount; ++i) {
+        ColorTransform::TriStim val;
+        val.set_x(test_x[i]);
+        xform_to->Transform(&val, 1);
+        EXPECT_NEAR(val.x(), test_y[i], kMathEpsilon)
+            << " test_x[i] is " << test_x[i];
+
+        val.set_x(test_y[i]);
+        xform_from->Transform(&val, 1);
+        EXPECT_NEAR(val.x(), test_x[i], kMathEpsilon)
+            << " test_y[i] is " << test_y[i];
+      }
+    }
   }
 }
 

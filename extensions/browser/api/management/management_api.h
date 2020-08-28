@@ -20,6 +20,7 @@
 #include "extensions/browser/extension_function.h"
 #include "extensions/browser/extension_registry_observer.h"
 #include "extensions/browser/preload_check.h"
+#include "extensions/browser/supervised_user_extensions_delegate.h"
 #include "services/data_decoder/public/cpp/data_decoder.h"
 
 namespace extensions {
@@ -114,7 +115,17 @@ class ManagementSetEnabledFunction : public ExtensionFunction {
  private:
   void OnInstallPromptDone(bool did_accept);
 
+  bool HasUnsupportedRequirements(const std::string& extension_id);
+
   void OnRequirementsChecked(const PreloadCheck::Errors& errors);
+
+  // Called when the user dismisses the Parent Permission Dialog.
+  void OnParentPermissionDialogDone(
+      SupervisedUserExtensionsDelegate::ParentPermissionDialogResult result);
+
+  // Called when the user dismisses the Extension Install Blocked By Parent
+  // Dialog.
+  void OnBlockedByParentDialogDone();
 
   std::string extension_id_;
 
@@ -315,6 +326,21 @@ class ManagementAPI : public BrowserContextKeyedAPI,
   // Returns the ManagementAPI delegate.
   const ManagementAPIDelegate* GetDelegate() const { return delegate_.get(); }
 
+  // Returns the SupervisedUserService delegate, which might be null depending
+  // on the extensions embedder.
+  SupervisedUserExtensionsDelegate* GetSupervisedUserExtensionsDelegate()
+      const {
+    return supervised_user_extensions_delegate_.get();
+  }
+
+  void set_delegate_for_test(std::unique_ptr<ManagementAPIDelegate> delegate) {
+    delegate_ = std::move(delegate);
+  }
+  void set_supervised_user_extensions_delegate_for_test(
+      std::unique_ptr<SupervisedUserExtensionsDelegate> delegate) {
+    supervised_user_extensions_delegate_ = std::move(delegate);
+  }
+
  private:
   friend class BrowserContextKeyedAPIFactory<ManagementAPI>;
 
@@ -329,6 +355,8 @@ class ManagementAPI : public BrowserContextKeyedAPI,
   std::unique_ptr<ManagementEventRouter> management_event_router_;
 
   std::unique_ptr<ManagementAPIDelegate> delegate_;
+  std::unique_ptr<SupervisedUserExtensionsDelegate>
+      supervised_user_extensions_delegate_;
 
   DISALLOW_COPY_AND_ASSIGN(ManagementAPI);
 };

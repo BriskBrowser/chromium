@@ -4,7 +4,11 @@
 
 #include "components/omnibox/browser/location_bar_model_delegate.h"
 
-bool LocationBarModelDelegate::ShouldPreventElision() const {
+bool LocationBarModelDelegate::ShouldPreventElision() {
+  return false;
+}
+
+bool LocationBarModelDelegate::ShouldTrimDisplayUrlAfterHostName() const {
   return false;
 }
 
@@ -35,11 +39,11 @@ bool LocationBarModelDelegate::IsOfflinePage() const {
   return false;
 }
 
-bool LocationBarModelDelegate::IsInstantNTP() const {
+bool LocationBarModelDelegate::IsNewTabPage() const {
   return false;
 }
 
-bool LocationBarModelDelegate::IsNewTabPage(const GURL& url) const {
+bool LocationBarModelDelegate::IsNewTabPageURL(const GURL& url) const {
   return false;
 }
 

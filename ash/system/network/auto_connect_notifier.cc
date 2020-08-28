@@ -146,7 +146,7 @@ void AutoConnectNotifier::OnAutoConnectedInitiated(int auto_connect_reasons) {
 
 void AutoConnectNotifier::DisplayNotification(
     const chromeos::NetworkState* network) {
-  NET_LOG(EVENT) << "Show AutoConnect Notification for: " << network->name();
+  NET_LOG(EVENT) << "Show AutoConnect Notification for: " << NetworkId(network);
   auto notification = CreateSystemNotification(
       message_center::NotificationType::NOTIFICATION_TYPE_SIMPLE,
       kAutoConnectNotificationId,
@@ -162,7 +162,8 @@ void AutoConnectNotifier::DisplayNotification(
       message_center::SystemNotificationWarningLevel::NORMAL);
 
   notification->set_small_image(gfx::Image(network_icon::GetImageForWifiNetwork(
-      notification->accent_color(),
+      notification->accent_color().value_or(
+          ash::kSystemNotificationColorNormal),
       gfx::Size(message_center::kSmallImageSizeMD,
                 message_center::kSmallImageSizeMD))));
 

@@ -26,7 +26,6 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_LAYOUT_TABLE_SECTION_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_LAYOUT_TABLE_SECTION_H_
 
-#include "base/macros.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/layout/layout_table.h"
 #include "third_party/blink/renderer/core/layout/layout_table_box_component.h"
@@ -140,12 +139,12 @@ class CORE_EXPORT LayoutTableSection final
         : total_rows_height(0),
           spanning_cell_height_ignoring_border_spacing(0),
           is_any_row_with_only_spanning_cells(false) {}
-
+    SpanningRowsHeight(const SpanningRowsHeight&) = delete;
+    SpanningRowsHeight& operator=(const SpanningRowsHeight&) = delete;
     Vector<int> row_height;
     int total_rows_height;
     int spanning_cell_height_ignoring_border_spacing;
     bool is_any_row_with_only_spanning_cells;
-    DISALLOW_COPY_AND_ASSIGN(SpanningRowsHeight);
   };
 
   TableGridCell& GridCellAt(unsigned row, unsigned effective_column) {
@@ -232,11 +231,8 @@ class CORE_EXPORT LayoutTableSection final
   // information.
   int DistributeExtraLogicalHeightToRows(int extra_logical_height);
 
-  static LayoutTableSection* CreateAnonymousWithParent(const LayoutObject*);
   LayoutBox* CreateAnonymousBoxWithSameTypeAs(
-      const LayoutObject* parent) const override {
-    return CreateAnonymousWithParent(parent);
-  }
+      const LayoutObject* parent) const override;
 
   void Paint(const PaintInfo&) const override;
 
@@ -336,6 +332,11 @@ class CORE_EXPORT LayoutTableSection final
                    HitTestAction) override;
 
  private:
+  MinMaxSizes ComputeIntrinsicLogicalWidths() const final {
+    NOTREACHED();
+    return MinMaxSizes();
+  }
+
   void ComputeVisualOverflowFromDescendants();
 
   bool IsOfType(LayoutObjectType type) const override {
@@ -420,8 +421,6 @@ class CORE_EXPORT LayoutTableSection final
   // The offset at which the first row in the section will get positioned to
   // avoid any repeating headers in its table or ancestor tables.
   int OffsetForRepeatedHeader() const;
-
-  bool PaintedOutputOfObjectHasNoEffectRegardlessOfSize() const override;
 
   bool HeaderGroupShouldRepeat() const {
     return Table()->Header() == this && GroupShouldRepeat();

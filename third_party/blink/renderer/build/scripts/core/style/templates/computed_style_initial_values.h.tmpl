@@ -45,7 +45,6 @@ class ComputedStyleInitialValues{
   }
   static StyleImage* InitialBorderImageSource() { return nullptr; }
   static float InitialBorderWidth() { return 3; }
-  static StyleColor InitialBorderColor() { return StyleColor(); }
   static uint16_t InitialColumnRuleWidth() {
     return 3;
   }
@@ -61,9 +60,6 @@ class ComputedStyleInitialValues{
   static float InitialWordSpacing() { return 0.0f; }
   static float InitialLetterSpacing() { return 0.0f; }
 
-  static uint16_t InitialOutlineWidth() {
-    return 3;
-  }
   static EVerticalAlign InitialVerticalAlign() {
     return EVerticalAlign::kBaseline;
   }

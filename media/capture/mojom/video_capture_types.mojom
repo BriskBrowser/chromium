@@ -5,9 +5,9 @@
 module media.mojom;
 
 import "gpu/ipc/common/mailbox_holder.mojom";
+import "media/mojo/mojom/media_types.mojom";
 import "mojo/public/mojom/base/shared_memory.mojom";
 import "mojo/public/mojom/base/time.mojom";
-import "mojo/public/mojom/base/values.mojom";
 import "ui/gfx/geometry/mojom/geometry.mojom";
 import "ui/gfx/mojom/buffer_types.mojom";
 import "ui/gfx/mojom/color_space.mojom";
@@ -21,6 +21,7 @@ enum VideoCapturePixelFormat {
   I444,
   NV12,
   NV21,
+  UYVY,
   YUY2,
   ARGB,
   XRGB,
@@ -73,6 +74,7 @@ enum VideoCaptureApi {
   ANDROID_API2_LEGACY,
   ANDROID_API2_FULL,
   ANDROID_API2_LIMITED,
+  FUCHSIA_CAMERA3,
   VIRTUAL_DEVICE,
   UNKNOWN
 };
@@ -212,7 +214,14 @@ enum VideoCaptureError {
   kMacDeckLinkUnsupportedPixelFormat,
   kMacAvFoundationReceivedAVCaptureSessionRuntimeErrorNotification,
   kAndroidApi2ErrorConfiguringCamera,
-  kCrosHalV3DeviceDelegateFailedToFlush
+  kCrosHalV3DeviceDelegateFailedToFlush,
+  kFuchsiaCameraDeviceDisconnected,
+  kFuchsiaCameraStreamDisconnected,
+  kFuchsiaSysmemDidNotSetImageFormat,
+  kFuchsiaSysmemInvalidBufferIndex,
+  kFuchsiaSysmemInvalidBufferSize,
+  kFuchsiaUnsupportedPixelFormat,
+  kFuchsiaFailedToMapSysmemBuffer,
 };
 
 enum VideoCaptureFrameDropReason {
@@ -258,6 +267,27 @@ struct VideoCaptureParams {
   bool enable_face_detection;
 };
 
+// |resource_utilization| reports that the frame incurred some fractional
+// utilization of the downstream pipeline's per-frame processing capacity.
+// See code comments in media::base::VideoFrameMetadata for a discussion of
+// how utilization is interpreted. The capturer uses this information to
+// auto-adjust the capture resolution based on performance variances in the
+// live system environment.
+//
+// |max_framerate_fps| reports requested maximum frame-rate
+// flat::inifinty used to signal no limit.
+//
+// |max_pixels| reports requested maximum resolution (in sense of image area).
+struct VideoFrameFeedback {
+  bool has_resource_utilization;
+  double resource_utilization;
+
+  float max_framerate_fps;
+
+  bool has_max_pixels;
+  int32 max_pixels;
+};
+
 // Contains one stride value per image plane. Stride means the number of bytes
 // per row. If the image format uses fewer than kMaxPlanes planes, the values
 // for higher plane indices are ignored. For example, for a YUV format, plane
@@ -270,7 +300,7 @@ struct PlaneStrides {
 
 struct VideoFrameInfo{
   mojo_base.mojom.TimeDelta timestamp;
-  mojo_base.mojom.DictionaryValue metadata;
+  VideoFrameMetadata metadata;
   VideoCapturePixelFormat pixel_format;
   gfx.mojom.Size coded_size;
   gfx.mojom.Rect visible_rect;
@@ -284,15 +314,22 @@ struct VideoFrameInfo{
   PlaneStrides? strides;
 };
 
+// Represents information about a capture device.
+// |device_id| represents a unique id of a physical device. Since the same
+// physical device may be accessible through different APIs |capture_api|
+// disambiguates the API.
 struct VideoCaptureDeviceDescriptor {
   string display_name;
   string device_id;
   string model_id;
   VideoFacingMode facing_mode;
   VideoCaptureApi capture_api;
+  bool pan_tilt_zoom_supported;
   VideoCaptureTransportType transport_type;
 };
 
+// Bundles a VideoCaptureDeviceDescriptor with corresponding supported
+// video formats.
 struct VideoCaptureDeviceInfo {
   VideoCaptureDeviceDescriptor descriptor;
   array<VideoCaptureFormat> supported_formats;
@@ -304,7 +341,7 @@ struct MailboxBufferHandleSet {
 };
 
 struct SharedMemoryViaRawFileDescriptor {
-  handle file_descriptor_handle;
+  handle<platform> file_descriptor_handle;
   uint32 shared_memory_size_in_bytes;
 };
 

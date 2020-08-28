@@ -36,10 +36,14 @@
 #include "content/public/browser/browser_main_parts.h"
 #include "content/public/browser/notification_observer.h"
 #include "content/public/browser/notification_service.h"
+#include "content/public/test/browser_test.h"
 #include "content/public/test/test_utils.h"
 #include "extensions/browser/api/test/test_api.h"
+#include "extensions/browser/test_extension_registry_observer.h"
 #include "extensions/common/extension.h"
 #include "extensions/common/manifest.h"
+#include "extensions/test/extension_test_message_listener.h"
+#include "extensions/test/result_catcher.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -143,6 +147,16 @@ class LoginApitest : public LoginScreenApitestBase {
     run_loop.Run();
   }
 
+  std::unique_ptr<extensions::TestExtensionRegistryObserver>
+  GetTestExtensionRegistryObserver(const std::string& extension_id) {
+    const user_manager::User* active_user =
+        user_manager::UserManager::Get()->GetActiveUser();
+    Profile* profile =
+        chromeos::ProfileHelper::Get()->GetProfileByUser(active_user);
+    return std::make_unique<extensions::TestExtensionRegistryObserver>(
+        extensions::ExtensionRegistry::Get(profile), extension_id);
+  }
+
   virtual void SetUpInSessionExtension() {
     std::unique_ptr<policy::UserPolicyBuilder> user_policy_builder =
         MakeInSessionExtensionUserPolicyBuilder();
@@ -154,12 +168,17 @@ class LoginApitest : public LoginScreenApitestBase {
     policy_data.set_settings_entity_id(kAccountId);
     user_policy_builder->Build();
 
+    auto registry_observer =
+        GetTestExtensionRegistryObserver(kInSessionExtensionId);
+
     ASSERT_TRUE(local_policy_mixin_.server()->UpdatePolicy(
         policy::dm_protocol::kChromePublicAccountPolicyType, kAccountId,
         user_policy_builder->payload().SerializeAsString()));
     session_manager_client()->set_device_local_account_policy(
         kAccountId, user_policy_builder->GetBlob());
     RefreshPolicies();
+
+    registry_observer->WaitForExtensionReady();
   }
 
   void SetTestCustomArg(const std::string custom_arg) {
@@ -290,15 +309,28 @@ IN_PROC_BROWSER_TEST_F(LoginApitest, UnlockManagedGuestSessionLockedWithApi) {
   SetUpDeviceLocalAccountPolicy();
   LogInWithPassword();
 
-  SetUpTestListeners();
+  // |RunTest()| has to be handled by the test as it requires multiple
+  // listeners. Using one listener at a time would result in race conditions.
+  ClearTestListeners();
+  extensions::ResultCatcher catcher;
+  ExtensionTestMessageListener login_screen_listener(listener_message(),
+                                                     /*will_reply=*/true);
+  login_screen_listener.set_extension_id(extension_id());
+  ExtensionTestMessageListener in_session_listener(listener_message(),
+                                                   /*will_reply=*/true);
+  in_session_listener.set_extension_id(kInSessionExtensionId);
+
   SetUpInSessionExtension();
   SessionStateWaiter locked_waiter(session_manager::SessionState::LOCKED);
-  RunTest(kInSessionLoginLockManagedGuestSession);
+  ASSERT_TRUE(in_session_listener.WaitUntilSatisfied());
+  in_session_listener.Reply(kInSessionLoginLockManagedGuestSession);
+  ASSERT_TRUE(catcher.GetNextResult());
   locked_waiter.Wait();
 
-  SetUpTestListeners();
   SessionStateWaiter active_waiter(session_manager::SessionState::ACTIVE);
-  RunTest(kUnlockManagedGuestSession);
+  ASSERT_TRUE(login_screen_listener.WaitUntilSatisfied());
+  login_screen_listener.Reply(kUnlockManagedGuestSession);
+  ASSERT_TRUE(catcher.GetNextResult());
   active_waiter.Wait();
 }
 
@@ -386,6 +418,9 @@ class LoginApitestWithEnterpriseUser : public LoginApitest {
     policy_data.set_gaia_id(account_id.GetGaiaId());
     user_policy_builder->Build();
 
+    auto registry_observer =
+        GetTestExtensionRegistryObserver(kInSessionExtensionId);
+
     ASSERT_TRUE(
         logged_in_user_mixin_.GetLocalPolicyTestServerMixin()->UpdateUserPolicy(
             user_policy_builder->payload(), account_id.GetUserEmail()));
@@ -393,6 +428,8 @@ class LoginApitestWithEnterpriseUser : public LoginApitest {
         cryptohome::CreateAccountIdentifierFromAccountId(account_id),
         user_policy_builder->GetBlob());
     RefreshPolicies();
+
+    registry_observer->WaitForExtensionReady();
   }
 
  private:
@@ -425,8 +462,9 @@ IN_PROC_BROWSER_TEST_F(LoginApitestWithEnterpriseUser,
       kUnlockManagedGuestSessionNotManagedGuestSession);
 }
 
+// TODO(https://crbug.com/1075511) Flaky test.
 IN_PROC_BROWSER_TEST_F(LoginApitestWithEnterpriseUser,
-                       LockManagedGuestSessionNotManagedGuestSession) {
+                       DISABLED_LockManagedGuestSessionNotManagedGuestSession) {
   LoginUser();
   SetUpTestListeners();
   SetUpInSessionExtension();

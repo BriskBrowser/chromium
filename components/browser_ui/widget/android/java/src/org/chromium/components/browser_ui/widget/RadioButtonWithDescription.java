@@ -11,9 +11,11 @@ import android.os.Parcelable;
 import android.text.TextUtils;
 import android.util.AttributeSet;
 import android.util.SparseArray;
+import android.util.TypedValue;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.View.OnClickListener;
+import android.view.ViewStub;
 import android.widget.RadioButton;
 import android.widget.RelativeLayout;
 import android.widget.TextView;
@@ -26,6 +28,11 @@ import java.util.List;
  * The radio button is designed to be contained in a group, with {@link
  * RadioButtonWithDescriptionLayout} as the parent view. By default, the object will be inflated
  * from {@link R.layout.radio_button_with_description).
+ * </p>
+ *
+ * <p>
+ * A child widget can replace the end_view_stub ViewStub with a customized view at the end of the
+ * widget, by overriding {@link RadioButtonWithDescription#getEndStubLayoutResourceId()}.
  * </p>
  *
  * <p>
@@ -64,6 +71,8 @@ public class RadioButtonWithDescription extends RelativeLayout implements OnClic
 
     private static final String SUPER_STATE_KEY = "superState";
     private static final String CHECKED_KEY = "isChecked";
+    // An id that indicates the layout doesn't exist.
+    private static final int NO_LAYOUT_ID = -1;
 
     /**
      * Constructor for inflating via XML.
@@ -88,6 +97,26 @@ public class RadioButtonWithDescription extends RelativeLayout implements OnClic
                 getPaddingEnd() == 0 ? lateralPadding : getPaddingEnd(),
                 getPaddingBottom() == 0 ? verticalPadding : getPaddingBottom());
 
+        // Set the background if not specified in xml
+        if (getBackground() == null) {
+            TypedValue background = new TypedValue();
+            getContext().getTheme().resolveAttribute(
+                    android.R.attr.selectableItemBackground, background, true);
+            if (getEndStubLayoutResourceId() != NO_LAYOUT_ID) {
+                // If the end view stub is replaced with a custom view, only set background in the
+                // button container, so the end view is not highlighted when the button is clicked.
+                View radioContainer = findViewById(R.id.radio_container);
+                radioContainer.setBackgroundResource(background.resourceId);
+                // Move the start padding into radio container, so it can be highlighted.
+                int paddingStart = getPaddingStart();
+                radioContainer.setPaddingRelative(paddingStart, radioContainer.getPaddingTop(),
+                        radioContainer.getPaddingEnd(), radioContainer.getPaddingBottom());
+                setPaddingRelative(0, getPaddingTop(), getPaddingEnd(), getPaddingBottom());
+            } else {
+                setBackgroundResource(background.resourceId);
+            }
+        }
+
         // We want RadioButtonWithDescription to handle the clicks itself.
         setOnClickListener(this);
         // Make it focusable for navigation via key events (tab/up/down keys)
@@ -102,6 +131,13 @@ public class RadioButtonWithDescription extends RelativeLayout implements OnClic
         mRadioButton = getRadioButtonView();
         mPrimary = getPrimaryTextView();
         mDescription = getDescriptionTextView();
+
+        int endStubLayoutResourceId = getEndStubLayoutResourceId();
+        if (endStubLayoutResourceId != NO_LAYOUT_ID) {
+            ViewStub endStub = findViewById(R.id.end_view_stub);
+            endStub.setLayoutResource(endStubLayoutResourceId);
+            endStub.inflate();
+        }
     }
 
     /**
@@ -133,6 +169,14 @@ public class RadioButtonWithDescription extends RelativeLayout implements OnClic
     }
 
     /**
+     * @return Resource id that is used to replace the end_view_stub inside this {@link
+     *         RadioButtonWithDescription}.
+     */
+    protected int getEndStubLayoutResourceId() {
+        return NO_LAYOUT_ID;
+    }
+
+    /**
      * Apply the customized AttributeSet to current view.
      * @param attrs AttributeSet that will be applied to current view.
      */
@@ -157,12 +201,6 @@ public class RadioButtonWithDescription extends RelativeLayout implements OnClic
 
     @Override
     public void onClick(View v) {
-        if (mGroup != null) {
-            for (RadioButtonWithDescription button : mGroup) {
-                button.setChecked(false);
-            }
-        }
-
         setChecked(true);
 
         if (mButtonCheckedStateChangedListener != null) {
@@ -214,14 +252,38 @@ public class RadioButtonWithDescription extends RelativeLayout implements OnClic
     }
 
     /**
-     * Sets the checked status.
+     * Sets the checked status, and retain focus on RadioButtonWithDescription after radio button if
+     * it is checked.
+     *
+     * If the radio button is inside a radio button group and going to be checked, the rest of the
+     * radio buttons in the group will be set to unchecked.
+     *
+     * @param checked Whether this radio button will be checked.
      */
     public void setChecked(boolean checked) {
-        mRadioButton.setChecked(checked);
+        setCheckedWithNoFocusChange(checked);
         // Retain focus on RadioButtonWithDescription after radio button is checked.
         // Otherwise focus is lost. This is required for Bluetooth keyboard navigation.
         // See: crbug.com/936143
         if (checked) requestFocus();
+    }
+
+    /**
+     * Set the checked status for this radio button without updating the focus.
+     *
+     * If the radio button is inside a radio button group and going to be checked, the rest of the
+     * radio buttons in the group will be set to unchecked by #setChecked(false).
+     *
+     * In most cases, caller should use {@link #setChecked(boolean)} to handle the focus as well.
+     * @param checked Whether this radio button will be checked.
+     */
+    protected void setCheckedWithNoFocusChange(boolean checked) {
+        if (mGroup != null && checked) {
+            for (RadioButtonWithDescription button : mGroup) {
+                if (button != this) button.setChecked(false);
+            }
+        }
+        mRadioButton.setChecked(checked);
     }
 
     public void setOnCheckedChangeListener(ButtonCheckedStateChangedListener listener) {
@@ -235,6 +297,15 @@ public class RadioButtonWithDescription extends RelativeLayout implements OnClic
      */
     public void setRadioButtonGroup(List<RadioButtonWithDescription> group) {
         mGroup = group;
+    }
+
+    @Override
+    public void setEnabled(boolean enabled) {
+        super.setEnabled(enabled);
+
+        mDescription.setEnabled(enabled);
+        mPrimary.setEnabled(enabled);
+        mRadioButton.setEnabled(enabled);
     }
 
     @Override

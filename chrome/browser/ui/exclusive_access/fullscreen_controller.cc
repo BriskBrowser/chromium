@@ -14,30 +14,30 @@
 #include "build/build_config.h"
 #include "chrome/browser/app_mode/app_mode_utils.h"
 #include "chrome/browser/content_settings/host_content_settings_map_factory.h"
+#include "chrome/browser/permissions/permission_manager_factory.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/exclusive_access/exclusive_access_context.h"
 #include "chrome/browser/ui/exclusive_access/exclusive_access_manager.h"
 #include "chrome/browser/ui/exclusive_access/fullscreen_within_tab_helper.h"
 #include "chrome/browser/ui/status_bubble.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
-#include "chrome/browser/ui/web_contents_sizer.h"
 #include "chrome/common/chrome_switches.h"
 #include "components/content_settings/core/browser/host_content_settings_map.h"
+#include "components/permissions/permission_manager.h"
+#include "components/permissions/permission_result.h"
 #include "content/public/browser/navigation_details.h"
 #include "content/public/browser/navigation_entry.h"
-#include "content/public/browser/render_view_host.h"
+#include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_widget_host_view.h"
 #include "content/public/browser/web_contents.h"
 #include "extensions/common/extension.h"
 #include "ui/display/types/display_constants.h"
 
-#if !defined(OS_MACOSX)
+#if !defined(OS_MAC)
 #include "chrome/common/pref_names.h"
 #include "components/prefs/pref_service.h"
 #endif
 
-using base::UserMetricsAction;
-using content::RenderViewHost;
 using content::WebContents;
 
 namespace {
@@ -67,7 +67,7 @@ bool FullscreenController::IsFullscreenForBrowser() const {
 
 void FullscreenController::ToggleBrowserFullscreenMode() {
   extension_caused_fullscreen_ = GURL();
-  ToggleFullscreenModeInternal(BROWSER, display::kInvalidDisplayId);
+  ToggleFullscreenModeInternal(BROWSER, nullptr, display::kInvalidDisplayId);
 }
 
 void FullscreenController::ToggleBrowserFullscreenModeWithExtension(
@@ -75,11 +75,11 @@ void FullscreenController::ToggleBrowserFullscreenModeWithExtension(
   // |extension_caused_fullscreen_| will be reset if this causes fullscreen to
   // exit.
   extension_caused_fullscreen_ = extension_url;
-  ToggleFullscreenModeInternal(BROWSER, display::kInvalidDisplayId);
+  ToggleFullscreenModeInternal(BROWSER, nullptr, display::kInvalidDisplayId);
 }
 
 bool FullscreenController::IsWindowFullscreenForTabOrPending() const {
-  return exclusive_access_tab() != nullptr || is_tab_fullscreen_for_testing_;
+  return exclusive_access_tab() || is_tab_fullscreen_for_testing_;
 }
 
 bool FullscreenController::IsExtensionFullscreenOrPending() const {
@@ -116,9 +116,11 @@ bool FullscreenController::IsFullscreenCausedByTab() const {
   return state_prior_to_tab_fullscreen_ == STATE_NORMAL;
 }
 
-void FullscreenController::EnterFullscreenModeForTab(WebContents* web_contents,
-                                                     const GURL& origin,
-                                                     const int64_t display_id) {
+void FullscreenController::EnterFullscreenModeForTab(
+    content::RenderFrameHost* requesting_frame,
+    const int64_t display_id) {
+  DCHECK(requesting_frame);
+  auto* web_contents = WebContents::FromRenderFrameHost(requesting_frame);
   DCHECK(web_contents);
 
   if (MaybeToggleFullscreenWithinTab(web_contents, true)) {
@@ -134,19 +136,18 @@ void FullscreenController::EnterFullscreenModeForTab(WebContents* web_contents,
   }
 
   SetTabWithExclusiveAccess(web_contents);
-  fullscreened_origin_ = origin;
+  requesting_origin_ = requesting_frame->GetLastCommittedURL().GetOrigin();
 
   ExclusiveAccessContext* exclusive_access_context =
       exclusive_access_manager()->context();
   // This is needed on Mac as entering into Tab Fullscreen might change the top
   // UI style.
-  exclusive_access_context->UpdateUIForTabFullscreen(
-      ExclusiveAccessContext::STATE_ENTER_TAB_FULLSCREEN);
+  exclusive_access_context->UpdateUIForTabFullscreen();
 
   if (!exclusive_access_context->IsFullscreen()) {
     // Normal -> Tab Fullscreen.
     state_prior_to_tab_fullscreen_ = STATE_NORMAL;
-    ToggleFullscreenModeInternal(TAB, display_id);
+    ToggleFullscreenModeInternal(TAB, requesting_frame, display_id);
     return;
   }
 
@@ -185,26 +186,21 @@ void FullscreenController::ExitFullscreenModeForTab(WebContents* web_contents) {
 
   if (IsFullscreenCausedByTab()) {
     // Tab Fullscreen -> Normal.
-    ToggleFullscreenModeInternal(TAB, display::kInvalidDisplayId);
+    ToggleFullscreenModeInternal(TAB, nullptr, display::kInvalidDisplayId);
     return;
   }
 
   // Tab Fullscreen -> Browser Fullscreen.
-  // Exiting tab fullscreen mode requires updating top UI.
+  // Exiting tab fullscreen mode may require updating top UI.
   // All exiting tab fullscreen to non-fullscreen mode cases are handled in
   // BrowserNonClientFrameView::OnFullscreenStateChanged(); but exiting tab
   // fullscreen to browser fullscreen should be handled here.
-  if (state_prior_to_tab_fullscreen_ == STATE_BROWSER_FULLSCREEN) {
-    exclusive_access_context->UpdateUIForTabFullscreen(
-        ExclusiveAccessContext::STATE_EXIT_TAB_FULLSCREEN);
-  }
+  bool should_update_ui =
+      state_prior_to_tab_fullscreen_ == STATE_BROWSER_FULLSCREEN;
 
-  // If currently there is a tab in "tab fullscreen" mode and fullscreen
-  // was not caused by it (i.e., previously it was in "browser fullscreen"
-  // mode), we need to switch back to "browser fullscreen" mode. In this
-  // case, all we have to do is notifying the tab that it has exited "tab
-  // fullscreen" mode.
   NotifyTabExclusiveAccessLost();
+  if (should_update_ui)
+    exclusive_access_context->UpdateUIForTabFullscreen();
 
   // This is only a change between Browser and Tab fullscreen. We generate
   // a fullscreen notification now because there is no window change.
@@ -247,7 +243,7 @@ void FullscreenController::OnTabDetachedFromView(WebContents* old_contents) {
       old_contents->GetFullscreenRenderWidgetHostView();
   if (current_fs_view)
     current_fs_view->SetSize(old_contents->GetPreferredSize());
-  ResizeWebContents(old_contents, gfx::Rect(old_contents->GetPreferredSize()));
+  old_contents->Resize(gfx::Rect(old_contents->GetPreferredSize()));
 }
 
 void FullscreenController::OnTabClosing(WebContents* web_contents) {
@@ -256,16 +252,6 @@ void FullscreenController::OnTabClosing(WebContents* web_contents) {
         /* will_cause_resize */ IsFullscreenCausedByTab());
   else
     ExclusiveAccessControllerBase::OnTabClosing(web_contents);
-}
-
-void FullscreenController::WindowFullscreenStateWillChange() {
-  ExclusiveAccessContext* exclusive_access_context =
-      exclusive_access_manager()->context();
-  if (exclusive_access_context->IsFullscreen()) {
-    exclusive_access_context->HideDownloadShelf();
-  } else {
-    exclusive_access_context->UnhideDownloadShelf();
-  }
 }
 
 void FullscreenController::WindowFullscreenStateChanged() {
@@ -332,7 +318,7 @@ void FullscreenController::NotifyTabExclusiveAccessLost() {
   if (exclusive_access_tab()) {
     WebContents* web_contents = exclusive_access_tab();
     SetTabWithExclusiveAccess(nullptr);
-    fullscreened_origin_ = GURL();
+    requesting_origin_ = GURL();
     bool will_cause_resize = IsFullscreenCausedByTab();
     state_prior_to_tab_fullscreen_ = STATE_INVALID;
     tab_fullscreen_ = false;
@@ -350,6 +336,7 @@ void FullscreenController::RecordBubbleReshowsHistogram(
 
 void FullscreenController::ToggleFullscreenModeInternal(
     FullscreenInternalOption option,
+    content::RenderFrameHost* requesting_frame,
     const int64_t display_id) {
   ExclusiveAccessContext* const exclusive_access_context =
       exclusive_access_manager()->context();
@@ -360,7 +347,7 @@ void FullscreenController::ToggleFullscreenModeInternal(
   if (chrome::IsRunningInAppMode() && exclusive_access_context->IsFullscreen())
     return;
 
-#if !defined(OS_MACOSX)
+#if !defined(OS_MAC)
   // Do not enter fullscreen mode if disallowed by pref. This prevents the user
   // from manually entering fullscreen mode and also disables kiosk mode on
   // desktop platforms.
@@ -372,14 +359,15 @@ void FullscreenController::ToggleFullscreenModeInternal(
 #endif
 
   if (enter_fullscreen)
-    EnterFullscreenModeInternal(option, display_id);
+    EnterFullscreenModeInternal(option, requesting_frame, display_id);
   else
     ExitFullscreenModeInternal();
 }
 
 void FullscreenController::EnterFullscreenModeInternal(
     FullscreenInternalOption option,
-    const int64_t display_id) {
+    content::RenderFrameHost* requesting_frame,
+    int64_t display_id) {
   toggled_into_fullscreen_ = true;
   GURL url;
   if (option == TAB) {
@@ -390,8 +378,22 @@ void FullscreenController::EnterFullscreenModeInternal(
       url = extension_caused_fullscreen_;
   }
 
+  if (display_id != display::kInvalidDisplayId) {
+    // Check, but do not prompt, for permission to request a specific screen.
+    // Sites generally need permission to get the display id in the first place.
+    auto* manager = PermissionManagerFactory::GetForProfile(
+        exclusive_access_manager()->context()->GetProfile());
+    if (!manager || !requesting_frame ||
+        manager->GetPermissionStatusForFrame(
+                   ContentSettingsType::WINDOW_PLACEMENT, requesting_frame,
+                   GetRequestingOrigin())
+                .content_setting != ContentSetting::CONTENT_SETTING_ALLOW) {
+      display_id = display::kInvalidDisplayId;
+    }
+  }
+
   if (option == BROWSER)
-    base::RecordAction(UserMetricsAction("ToggleFullscreen"));
+    base::RecordAction(base::UserMetricsAction("ToggleFullscreen"));
   // TODO(scheib): Record metrics for WITH_TOOLBAR, without counting transitions
   // from tab fullscreen out to browser with toolbar.
 
@@ -411,7 +413,7 @@ void FullscreenController::EnterFullscreenModeInternal(
 void FullscreenController::ExitFullscreenModeInternal() {
   RecordExitingUMA();
   toggled_into_fullscreen_ = false;
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
   // Mac windows report a state change instantly, and so we must also clear
   // state_prior_to_tab_fullscreen_ to match them else other logic using
   // state_prior_to_tab_fullscreen_ will be incorrect.
@@ -440,7 +442,7 @@ bool FullscreenController::MaybeToggleFullscreenWithinTab(
     WebContents* web_contents,
     bool enter_fullscreen) {
   if (enter_fullscreen) {
-    if (web_contents->IsBeingCaptured()) {
+    if (web_contents->IsBeingVisiblyCaptured()) {
       FullscreenWithinTabHelper::CreateForWebContents(web_contents);
       FullscreenWithinTabHelper::FromWebContents(web_contents)
           ->SetIsFullscreenWithinTab(true);
@@ -477,8 +479,8 @@ bool FullscreenController::IsFullscreenWithinTab(
 GURL FullscreenController::GetRequestingOrigin() const {
   DCHECK(exclusive_access_tab());
 
-  if (!fullscreened_origin_.is_empty())
-    return fullscreened_origin_;
+  if (!requesting_origin_.is_empty())
+    return requesting_origin_;
 
   return exclusive_access_tab()->GetLastCommittedURL();
 }

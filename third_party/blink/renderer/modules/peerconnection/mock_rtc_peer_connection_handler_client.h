@@ -11,7 +11,6 @@
 
 #include "base/macros.h"
 #include "testing/gmock/include/gmock/gmock.h"
-#include "third_party/blink/public/platform/web_media_stream.h"
 #include "third_party/blink/renderer/platform/peerconnection/rtc_ice_candidate_platform.h"
 #include "third_party/blink/renderer/platform/peerconnection/rtc_peer_connection_handler_client.h"
 #include "third_party/blink/renderer/platform/peerconnection/rtc_rtp_receiver_platform.h"
@@ -29,11 +28,18 @@ class MockRTCPeerConnectionHandlerClient
   MOCK_METHOD0(NegotiationNeeded, void());
   MOCK_METHOD1(DidGenerateICECandidate,
                void(RTCIceCandidatePlatform* candidate));
-  MOCK_METHOD4(DidFailICECandidate,
-               void(const String& host_candidate,
+  MOCK_METHOD6(DidFailICECandidate,
+               void(const String& address,
+                    base::Optional<uint16_t> port,
+                    const String& host_candidate,
                     const String& url,
                     int error_code,
                     const String& error_text));
+  MOCK_METHOD4(DidChangeSessionDescriptions,
+               void(RTCSessionDescriptionPlatform*,
+                    RTCSessionDescriptionPlatform*,
+                    RTCSessionDescriptionPlatform*,
+                    RTCSessionDescriptionPlatform*));
   MOCK_METHOD1(DidChangeSignalingState,
                void(webrtc::PeerConnectionInterface::SignalingState state));
   MOCK_METHOD1(DidChangeIceGatheringState,
@@ -62,7 +68,7 @@ class MockRTCPeerConnectionHandlerClient
   MOCK_METHOD1(DidAddRemoteDataChannel,
                void(scoped_refptr<webrtc::DataChannelInterface>));
   MOCK_METHOD1(DidNoteInterestingUsage, void(int));
-  MOCK_METHOD0(ReleasePeerConnectionHandler, void());
+  MOCK_METHOD0(UnregisterPeerConnectionHandler, void());
 
   // Move-only arguments do not play nicely with MOCK, the workaround is to
   // EXPECT_CALL with these instead.

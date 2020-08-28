@@ -13,13 +13,14 @@
 #include "base/macros.h"
 #include "base/stl_util.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/test/task_environment.h"
+#include "base/values.h"
 #include "components/autofill/core/common/password_form.h"
+#include "components/password_manager/core/browser/mock_password_feature_manager.h"
 #include "components/password_manager/core/browser/password_manager_test_utils.h"
+#include "components/password_manager/core/browser/stub_password_manager_client.h"
 #include "components/password_manager/core/browser/test_password_store.h"
-#include "components/password_manager/core/common/password_manager_pref_names.h"
-#include "components/prefs/pref_registry_simple.h"
-#include "components/prefs/testing_pref_service.h"
+#include "components/password_manager/core/common/password_manager_features.h"
+#include "components/signin/public/base/signin_metrics.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -37,10 +38,25 @@ constexpr char kTestUsername[] = "Username";
 constexpr char kTestUsername2[] = "Username2";
 constexpr char kTestPassword[] = "12345";
 
+class MockPasswordManagerClient
+    : public password_manager::StubPasswordManagerClient {
+ public:
+  MockPasswordManagerClient() = default;
+  ~MockPasswordManagerClient() override = default;
+
+  MOCK_METHOD(void,
+              TriggerReauthForPrimaryAccount,
+              (signin_metrics::ReauthAccessPoint,
+               base::OnceCallback<void(
+                   password_manager::PasswordManagerClient::ReauthSucceeded)>),
+              (override));
+  MOCK_METHOD(void, GeneratePassword, (), (override));
+};
+
 autofill::PasswordForm GetTestAndroidCredential() {
   autofill::PasswordForm form;
   form.scheme = autofill::PasswordForm::Scheme::kHtml;
-  form.origin = GURL(kTestAndroidRealm);
+  form.url = GURL(kTestAndroidRealm);
   form.signon_realm = kTestAndroidRealm;
   form.username_value = base::ASCIIToUTF16(kTestUsername);
   form.password_value = base::ASCIIToUTF16(kTestPassword);
@@ -50,8 +66,8 @@ autofill::PasswordForm GetTestAndroidCredential() {
 autofill::PasswordForm GetTestCredential() {
   autofill::PasswordForm form;
   form.scheme = autofill::PasswordForm::Scheme::kHtml;
-  form.origin = GURL(kTestURL);
-  form.signon_realm = form.origin.GetOrigin().spec();
+  form.url = GURL(kTestURL);
+  form.signon_realm = form.url.GetOrigin().spec();
   form.username_value = base::ASCIIToUTF16(kTestUsername);
   form.password_value = base::ASCIIToUTF16(kTestPassword);
   return form;
@@ -60,7 +76,7 @@ autofill::PasswordForm GetTestCredential() {
 autofill::PasswordForm GetTestProxyCredential() {
   autofill::PasswordForm form;
   form.scheme = autofill::PasswordForm::Scheme::kBasic;
-  form.origin = GURL(kTestProxyOrigin);
+  form.url = GURL(kTestProxyOrigin);
   form.signon_realm = kTestProxySignonRealm;
   form.username_value = base::ASCIIToUTF16(kTestUsername);
   form.password_value = base::ASCIIToUTF16(kTestPassword);
@@ -103,17 +119,17 @@ TEST(PasswordManagerUtil, TrimUsernameOnlyCredentials) {
 
 TEST(PasswordManagerUtil, GetSignonRealmWithProtocolExcluded) {
   autofill::PasswordForm http_form;
-  http_form.origin = GURL("http://www.google.com/page-1/");
+  http_form.url = GURL("http://www.google.com/page-1/");
   http_form.signon_realm = "http://www.google.com/";
   EXPECT_EQ(GetSignonRealmWithProtocolExcluded(http_form), "www.google.com/");
 
   autofill::PasswordForm https_form;
-  https_form.origin = GURL("https://www.google.com/page-1/");
+  https_form.url = GURL("https://www.google.com/page-1/");
   https_form.signon_realm = "https://www.google.com/";
   EXPECT_EQ(GetSignonRealmWithProtocolExcluded(https_form), "www.google.com/");
 
   autofill::PasswordForm federated_form;
-  federated_form.origin = GURL("http://localhost:8000/");
+  federated_form.url = GURL("http://localhost:8000/");
   federated_form.signon_realm =
       "federation://localhost/accounts.federation.com";
   EXPECT_EQ(GetSignonRealmWithProtocolExcluded(federated_form),
@@ -223,6 +239,59 @@ TEST(PasswordManagerUtil, FindBestMatches) {
       }
     }
   }
+}
+
+TEST(PasswordManagerUtil, FindBestMatchesInProfileAndAccountStores) {
+  const base::string16 kUsername1 = base::ASCIIToUTF16("Username1");
+  const base::string16 kPassword1 = base::ASCIIToUTF16("Password1");
+  const base::string16 kUsername2 = base::ASCIIToUTF16("Username2");
+  const base::string16 kPassword2 = base::ASCIIToUTF16("Password2");
+
+  PasswordForm form;
+  form.is_public_suffix_match = false;
+  form.date_last_used = base::Time::Now();
+
+  // Add the same credentials in account and profile stores.
+  PasswordForm account_form1(form);
+  account_form1.username_value = kUsername1;
+  account_form1.password_value = kPassword1;
+  account_form1.in_store = PasswordForm::Store::kAccountStore;
+
+  PasswordForm profile_form1(account_form1);
+  profile_form1.in_store = PasswordForm::Store::kProfileStore;
+
+  // Add the credentials for the same username in account and profile stores but
+  // with different passwords.
+  PasswordForm account_form2(form);
+  account_form2.username_value = kUsername2;
+  account_form2.password_value = kPassword1;
+  account_form2.in_store = PasswordForm::Store::kAccountStore;
+
+  PasswordForm profile_form2(account_form2);
+  profile_form2.password_value = kPassword2;
+  profile_form2.in_store = PasswordForm::Store::kProfileStore;
+
+  std::vector<const PasswordForm*> matches;
+  matches.push_back(&account_form1);
+  matches.push_back(&profile_form1);
+  matches.push_back(&account_form2);
+  matches.push_back(&profile_form2);
+
+  std::vector<const PasswordForm*> best_matches;
+  const PasswordForm* preferred_match = nullptr;
+  std::vector<const PasswordForm*> same_scheme_matches;
+  FindBestMatches(matches, PasswordForm::Scheme::kHtml, &same_scheme_matches,
+                  &best_matches, &preferred_match);
+  // All 4 matches should be returned in best matches.
+  EXPECT_EQ(best_matches.size(), 4U);
+  EXPECT_NE(std::find(best_matches.begin(), best_matches.end(), &account_form1),
+            best_matches.end());
+  EXPECT_NE(std::find(best_matches.begin(), best_matches.end(), &account_form2),
+            best_matches.end());
+  EXPECT_NE(std::find(best_matches.begin(), best_matches.end(), &profile_form1),
+            best_matches.end());
+  EXPECT_NE(std::find(best_matches.begin(), best_matches.end(), &profile_form2),
+            best_matches.end());
 }
 
 TEST(PasswordManagerUtil, GetMatchForUpdating_MatchUsername) {
@@ -339,29 +408,90 @@ TEST(PasswordManagerUtil, GetMatchForUpdating_EmptyUsernamePickFirst) {
 TEST(PasswordManagerUtil, MakeNormalizedBlacklistedForm_Android) {
   autofill::PasswordForm blacklisted_credential = MakeNormalizedBlacklistedForm(
       password_manager::PasswordStore::FormDigest(GetTestAndroidCredential()));
-  EXPECT_TRUE(blacklisted_credential.blacklisted_by_user);
+  EXPECT_TRUE(blacklisted_credential.blocked_by_user);
   EXPECT_EQ(PasswordForm::Scheme::kHtml, blacklisted_credential.scheme);
   EXPECT_EQ(kTestAndroidRealm, blacklisted_credential.signon_realm);
-  EXPECT_EQ(GURL(kTestAndroidRealm), blacklisted_credential.origin);
+  EXPECT_EQ(GURL(kTestAndroidRealm), blacklisted_credential.url);
 }
 
 TEST(PasswordManagerUtil, MakeNormalizedBlacklistedForm_Html) {
   autofill::PasswordForm blacklisted_credential = MakeNormalizedBlacklistedForm(
       password_manager::PasswordStore::FormDigest(GetTestCredential()));
-  EXPECT_TRUE(blacklisted_credential.blacklisted_by_user);
+  EXPECT_TRUE(blacklisted_credential.blocked_by_user);
   EXPECT_EQ(PasswordForm::Scheme::kHtml, blacklisted_credential.scheme);
   EXPECT_EQ(GURL(kTestURL).GetOrigin().spec(),
             blacklisted_credential.signon_realm);
-  EXPECT_EQ(GURL(kTestURL).GetOrigin(), blacklisted_credential.origin);
+  EXPECT_EQ(GURL(kTestURL).GetOrigin(), blacklisted_credential.url);
 }
 
 TEST(PasswordManagerUtil, MakeNormalizedBlacklistedForm_Proxy) {
   autofill::PasswordForm blacklisted_credential = MakeNormalizedBlacklistedForm(
       password_manager::PasswordStore::FormDigest(GetTestProxyCredential()));
-  EXPECT_TRUE(blacklisted_credential.blacklisted_by_user);
+  EXPECT_TRUE(blacklisted_credential.blocked_by_user);
   EXPECT_EQ(PasswordForm::Scheme::kBasic, blacklisted_credential.scheme);
   EXPECT_EQ(kTestProxySignonRealm, blacklisted_credential.signon_realm);
-  EXPECT_EQ(GURL(kTestProxyOrigin), blacklisted_credential.origin);
+  EXPECT_EQ(GURL(kTestProxyOrigin), blacklisted_credential.url);
+}
+
+TEST(PasswordManagerUtil, ManualGenerationShouldNotReauthIfNotNeeded) {
+  MockPasswordManagerClient mock_client;
+  ON_CALL(*(mock_client.GetPasswordFeatureManager()),
+          ShouldShowAccountStorageOptIn)
+      .WillByDefault(Return(false));
+
+  EXPECT_CALL(mock_client, TriggerReauthForPrimaryAccount).Times(0);
+  EXPECT_CALL(mock_client, GeneratePassword);
+
+  UserTriggeredManualGenerationFromContextMenu(&mock_client);
+}
+
+TEST(PasswordManagerUtil,
+     ManualGenerationShouldGeneratePasswordIfReauthSucessful) {
+  MockPasswordManagerClient mock_client;
+  ON_CALL(*(mock_client.GetPasswordFeatureManager()),
+          ShouldShowAccountStorageOptIn)
+      .WillByDefault(Return(true));
+
+  EXPECT_CALL(
+      mock_client,
+      TriggerReauthForPrimaryAccount(
+          signin_metrics::ReauthAccessPoint::kGeneratePasswordContextMenu, _))
+      .WillOnce(
+          [](signin_metrics::ReauthAccessPoint,
+             base::OnceCallback<void(
+                 password_manager::PasswordManagerClient::ReauthSucceeded)>
+                 callback) {
+            std::move(callback).Run(
+                password_manager::PasswordManagerClient::ReauthSucceeded(true));
+          });
+  EXPECT_CALL(mock_client, GeneratePassword);
+
+  UserTriggeredManualGenerationFromContextMenu(&mock_client);
+}
+
+TEST(PasswordManagerUtil,
+     ManualGenerationShouldNotGeneratePasswordIfReauthFailed) {
+  MockPasswordManagerClient mock_client;
+  ON_CALL(*(mock_client.GetPasswordFeatureManager()),
+          ShouldShowAccountStorageOptIn)
+      .WillByDefault(Return(true));
+
+  EXPECT_CALL(
+      mock_client,
+      TriggerReauthForPrimaryAccount(
+          signin_metrics::ReauthAccessPoint::kGeneratePasswordContextMenu, _))
+      .WillOnce(
+          [](signin_metrics::ReauthAccessPoint,
+             base::OnceCallback<void(
+                 password_manager::PasswordManagerClient::ReauthSucceeded)>
+                 callback) {
+            std::move(callback).Run(
+                password_manager::PasswordManagerClient::ReauthSucceeded(
+                    false));
+          });
+  EXPECT_CALL(mock_client, GeneratePassword).Times(0);
+
+  UserTriggeredManualGenerationFromContextMenu(&mock_client);
 }
 
 }  // namespace password_manager_util

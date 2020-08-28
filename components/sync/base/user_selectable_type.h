@@ -7,6 +7,7 @@
 
 #include <string>
 
+#include "base/optional.h"
 #include "components/sync/base/enum_set.h"
 #include "components/sync/base/model_type.h"
 
@@ -25,7 +26,8 @@ enum class UserSelectableType {
   kApps,
   kReadingList,
   kTabs,
-  kLastType = kTabs
+  kWifiConfigurations,
+  kLastType = kWifiConfigurations
 };
 
 using UserSelectableTypeSet = EnumSet<UserSelectableType,
@@ -33,7 +35,9 @@ using UserSelectableTypeSet = EnumSet<UserSelectableType,
                                       UserSelectableType::kLastType>;
 
 const char* GetUserSelectableTypeName(UserSelectableType type);
-UserSelectableType GetUserSelectableTypeFromString(const std::string& type);
+// Returns the type if the string matches a known type.
+base::Optional<UserSelectableType> GetUserSelectableTypeFromString(
+    const std::string& type);
 std::string UserSelectableTypeSetToString(UserSelectableTypeSet types);
 ModelTypeSet UserSelectableTypeToAllModelTypes(UserSelectableType type);
 
@@ -54,8 +58,8 @@ enum class UserSelectableOsType {
   kFirstType = kOsApps,
 
   kOsPreferences,
-  kWifiConfigurations,
-  kLastType = kWifiConfigurations
+  kOsWifiConfigurations,
+  kLastType = kOsWifiConfigurations
 };
 
 using UserSelectableOsTypeSet = EnumSet<UserSelectableOsType,
@@ -65,6 +69,10 @@ using UserSelectableOsTypeSet = EnumSet<UserSelectableOsType,
 const char* GetUserSelectableOsTypeName(UserSelectableOsType type);
 ModelTypeSet UserSelectableOsTypeToAllModelTypes(UserSelectableOsType type);
 ModelType UserSelectableOsTypeToCanonicalModelType(UserSelectableOsType type);
+
+// Returns the type if the string matches a known OS type.
+base::Optional<UserSelectableOsType> GetUserSelectableOsTypeFromString(
+    const std::string& type);
 #endif  // defined(OS_CHROMEOS)
 
 }  // namespace syncer

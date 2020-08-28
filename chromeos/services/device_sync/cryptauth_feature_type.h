@@ -35,33 +35,54 @@ namespace device_sync {
 //       bool enabled = false;
 //     }
 //   ]
+//
+// These values are persisted to logs. Entries should not be renumbered and
+// numeric values should never be reused. If entries are added, kMaxValue should
+// be updated.
 enum class CryptAuthFeatureType {
   // Support for multi-device features in general.
-  kBetterTogetherHostSupported,
-  kBetterTogetherHostEnabled,
-  kBetterTogetherClientSupported,
-  kBetterTogetherClientEnabled,
+  kBetterTogetherHostSupported = 0,
+  kBetterTogetherHostEnabled = 1,
+  kBetterTogetherClientSupported = 2,
+  kBetterTogetherClientEnabled = 3,
 
   // Smart Lock, which gives the user the ability to unlock and/or sign into a
   // Chromebook using an Android phone.
-  kEasyUnlockHostSupported,
-  kEasyUnlockHostEnabled,
-  kEasyUnlockClientSupported,
-  kEasyUnlockClientEnabled,
+  kEasyUnlockHostSupported = 4,
+  kEasyUnlockHostEnabled = 5,
+  kEasyUnlockClientSupported = 6,
+  kEasyUnlockClientEnabled = 7,
 
   // Instant Tethering, which gives the user the ability to use an Android
   // phone's Internet connection on a Chromebook.
-  kMagicTetherHostSupported,
-  kMagicTetherHostEnabled,
-  kMagicTetherClientSupported,
-  kMagicTetherClientEnabled,
+  kMagicTetherHostSupported = 8,
+  kMagicTetherHostEnabled = 9,
+  kMagicTetherClientSupported = 10,
+  kMagicTetherClientEnabled = 11,
 
   // Messages for Web, which gives the user the ability to sync messages (e.g.,
   // SMS) between an Android phone and a Chromebook.
-  kSmsConnectHostSupported,
-  kSmsConnectHostEnabled,
-  kSmsConnectClientSupported,
-  kSmsConnectClientEnabled,
+  kSmsConnectHostSupported = 12,
+  kSmsConnectHostEnabled = 13,
+  kSmsConnectClientSupported = 14,
+  kSmsConnectClientEnabled = 15,
+
+  // Phone Hub, which allows users to view phone metadata and send commands to
+  // their phone directly from the Chrome OS UI.
+  kPhoneHubHostSupported = 16,
+  kPhoneHubHostEnabled = 17,
+  kPhoneHubClientSupported = 18,
+  kPhoneHubClientEnabled = 19,
+
+  // Wifi Sync with Android, which allows users to sync wifi network
+  // configurations between Chrome OS devices and a connected  Android phone
+  kWifiSyncHostSupported = 20,
+  kWifiSyncHostEnabled = 21,
+  kWifiSyncClientSupported = 22,
+  kWifiSyncClientEnabled = 23,
+
+  // Used for UMA logs.
+  kMaxValue = kWifiSyncClientEnabled
 };
 
 const base::flat_set<CryptAuthFeatureType>& GetAllCryptAuthFeatureTypes();

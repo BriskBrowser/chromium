@@ -12,7 +12,6 @@
 #include "base/files/file_util.h"
 #include "base/logging.h"
 #include "base/path_service.h"
-#include "base/task/post_task.h"
 #include "base/threading/thread.h"
 #include "build/build_config.h"
 #include "components/keyed_service/content/browser_context_dependency_manager.h"
@@ -24,17 +23,17 @@
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/storage_partition.h"
 #include "content/public/common/content_switches.h"
+#include "content/shell/browser/shell_content_index_provider.h"
 #include "content/shell/browser/shell_download_manager_delegate.h"
 #include "content/shell/browser/shell_permission_manager.h"
-#include "content/shell/browser/web_test/web_test_content_index_provider.h"
 #include "content/shell/common/shell_switches.h"
 #include "content/test/mock_background_sync_controller.h"
 
 #if defined(OS_WIN)
 #include "base/base_paths_win.h"
-#elif defined(OS_LINUX)
+#elif defined(OS_LINUX) || defined(OS_CHROMEOS)
 #include "base/nix/xdg_util.h"
-#elif defined(OS_MACOSX)
+#elif defined(OS_MAC)
 #include "base/base_paths_mac.h"
 #elif defined(OS_FUCHSIA)
 #include "base/base_paths_fuchsia.h"
@@ -78,8 +77,8 @@ ShellBrowserContext::~ShellBrowserContext() {
   // outstanding request while URLRequestContext's destructor ensures that there
   // are no more outstanding requests.
   if (resource_context_) {
-    base::DeleteSoon(FROM_HERE, {BrowserThread::IO},
-                     resource_context_.release());
+    GetIOThreadTaskRunner({})->DeleteSoon(FROM_HERE,
+                                          resource_context_.release());
   }
   ShutdownStoragePartitions();
 }
@@ -107,14 +106,14 @@ void ShellBrowserContext::InitWhileIOAllowed() {
 #if defined(OS_WIN)
   CHECK(base::PathService::Get(base::DIR_LOCAL_APP_DATA, &path_));
   path_ = path_.Append(std::wstring(L"content_shell"));
-#elif defined(OS_LINUX)
+#elif defined(OS_LINUX) || defined(OS_CHROMEOS)
   std::unique_ptr<base::Environment> env(base::Environment::Create());
   base::FilePath config_dir(
       base::nix::GetXDGDirectory(env.get(),
                                  base::nix::kXdgConfigHomeEnvVar,
                                  base::nix::kDotConfigDir));
   path_ = config_dir.Append("content_shell");
-#elif defined(OS_MACOSX)
+#elif defined(OS_MAC)
   CHECK(base::PathService::Get(base::DIR_APP_DATA, &path_));
   path_ = path_.Append("Chromium Content Shell");
 #elif defined(OS_ANDROID)
@@ -134,7 +133,6 @@ void ShellBrowserContext::InitWhileIOAllowed() {
 }
 
 void ShellBrowserContext::FinishInitWhileIOAllowed() {
-  BrowserContext::Initialize(this, path_);
   key_ = std::make_unique<SimpleFactoryKey>(path_, off_the_record_);
   SimpleKeyMap::GetInstance()->Associate(this, key_.get());
 }
@@ -198,7 +196,7 @@ ShellBrowserContext::GetPermissionControllerDelegate() {
 
 ClientHintsControllerDelegate*
 ShellBrowserContext::GetClientHintsControllerDelegate() {
-  return nullptr;
+  return client_hints_controller_delegate_;
 }
 
 BackgroundFetchDelegate* ShellBrowserContext::GetBackgroundFetchDelegate() {
@@ -218,7 +216,7 @@ ShellBrowserContext::GetBrowsingDataRemoverDelegate() {
 
 ContentIndexProvider* ShellBrowserContext::GetContentIndexProvider() {
   if (!content_index_provider_)
-    content_index_provider_ = std::make_unique<WebTestContentIndexProvider>();
+    content_index_provider_ = std::make_unique<ShellContentIndexProvider>();
   return content_index_provider_.get();
 }
 

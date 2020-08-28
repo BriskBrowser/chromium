@@ -22,8 +22,13 @@ bool HighlightOverviewWindow(const aura::Window* window);
 // highlighted.
 const aura::Window* GetOverviewHighlightedWindow();
 
-void ToggleOverview(OverviewSession::EnterExitOverviewType type =
-                        OverviewSession::EnterExitOverviewType::kNormal);
+void ToggleOverview(
+    OverviewEnterExitType type = OverviewEnterExitType::kNormal);
+
+// Waits for the overview enter/exit anmations to finish. No-op and immediately
+// return if animations are disabled.
+void WaitForOverviewEnterAnimation();
+void WaitForOverviewExitAnimation();
 
 OverviewSession* GetOverviewSession();
 

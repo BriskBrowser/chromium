@@ -37,13 +37,14 @@
 #include "content/public/common/content_switches.h"
 #include "content/public/renderer/content_renderer_client.h"
 #include "services/service_manager/embedder/switches.h"
+#include "third_party/blink/public/common/features.h"
 #include "third_party/blink/public/web/web_frame.h"
 #include "v8/include/v8.h"
 
 #if defined(OS_WIN)
 #include "base/win/win_util.h"
 #endif
-#if defined(OS_LINUX) && defined(ARCH_CPU_X86_64)
+#if (defined(OS_LINUX) || defined(OS_CHROMEOS)) && defined(ARCH_CPU_X86_64)
 #include "v8/include/v8-wasm-trap-handler-posix.h"
 #endif
 namespace {
@@ -87,8 +88,7 @@ void V8DcheckCallbackHandler(const char* file, int line, const char* message) {
 namespace content {
 
 RenderProcessImpl::RenderProcessImpl()
-    : RenderProcess("Renderer", GetThreadPoolInitParams()),
-      enabled_bindings_(0) {
+    : RenderProcess("Renderer", GetThreadPoolInitParams()) {
 #if defined(DCHECK_IS_CONFIGURABLE)
   // Some official builds ship with DCHECKs compiled in. Failing DCHECKs then
   // are either fatal or simply log the error, based on a feature flag.
@@ -131,23 +131,25 @@ RenderProcessImpl::RenderProcessImpl()
   SetV8FlagIfFeature(features::kWebAssemblyBaseline, "--liftoff");
   SetV8FlagIfNotFeature(features::kWebAssemblyBaseline, "--no-liftoff");
 
-  SetV8FlagIfFeature(features::kWebAssemblyCodeGC, "--wasm-code-gc");
-  SetV8FlagIfNotFeature(features::kWebAssemblyCodeGC, "--no-wasm-code-gc");
+  SetV8FlagIfFeature(features::kWebAssemblyLazyCompilation,
+                     "--wasm-lazy-compilation");
+  SetV8FlagIfNotFeature(features::kWebAssemblyLazyCompilation,
+                        "--no-wasm-lazy-compilation");
 
   SetV8FlagIfFeature(features::kWebAssemblySimd, "--experimental-wasm-simd");
   SetV8FlagIfNotFeature(features::kWebAssemblySimd,
                         "--no-experimental-wasm-simd");
 
+  SetV8FlagIfFeature(blink::features::kTopLevelAwait,
+                     "--harmony-top-level-await");
+
   if (base::FeatureList::IsEnabled(features::kWebAssemblyThreads)) {
     constexpr char kFlags[] =
         "--harmony-sharedarraybuffer "
-        "--no-wasm-disable-structured-cloning "
         "--experimental-wasm-threads";
 
     v8::V8::SetFlagsFromString(kFlags, sizeof(kFlags));
   } else {
-    SetV8FlagIfNotFeature(features::kWebAssembly,
-                          "--wasm-disable-structured-cloning");
     SetV8FlagIfFeature(features::kSharedArrayBuffer,
                        "--harmony-sharedarraybuffer");
     SetV8FlagIfNotFeature(features::kSharedArrayBuffer,
@@ -159,7 +161,7 @@ RenderProcessImpl::RenderProcessImpl()
 
   SetV8FlagIfNotFeature(features::kWebAssemblyTrapHandler,
                         "--no-wasm-trap-handler");
-#if defined(OS_LINUX) && defined(ARCH_CPU_X86_64)
+#if (defined(OS_LINUX) || defined(OS_CHROMEOS)) && defined(ARCH_CPU_X86_64)
   if (base::FeatureList::IsEnabled(features::kWebAssemblyTrapHandler)) {
     base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
     if (!command_line->HasSwitch(
@@ -190,7 +192,7 @@ RenderProcessImpl::RenderProcessImpl()
     v8::V8::EnableWebAssemblyTrapHandler(use_v8_trap_handler);
   }
 #endif
-#if defined(OS_MACOSX) && defined(ARCH_CPU_X86_64)
+#if defined(OS_MAC) && defined(ARCH_CPU_X86_64)
   if (base::FeatureList::IsEnabled(features::kWebAssemblyTrapHandler)) {
     // On macOS, Crashpad uses exception ports to handle signals in a different
     // process. As we cannot just pass a callback to this other process, we ask
@@ -198,7 +200,7 @@ RenderProcessImpl::RenderProcessImpl()
     bool use_v8_signal_handler = true;
     v8::V8::EnableWebAssemblyTrapHandler(use_v8_signal_handler);
   }
-#endif  // defined(OS_MACOSX) && defined(ARCH_CPU_X86_64)
+#endif  // defined(OS_MAC) && defined(ARCH_CPU_X86_64)
 
   const base::CommandLine& command_line =
       *base::CommandLine::ForCurrentProcess();
@@ -218,11 +220,6 @@ RenderProcessImpl::RenderProcessImpl()
       v8::V8::SetFlagsFromString(flag.as_string().c_str(), flag.size());
     }
   }
-
-  if (command_line.HasSwitch(switches::kDomAutomationController))
-    enabled_bindings_ |= BINDINGS_POLICY_DOM_AUTOMATION;
-  if (command_line.HasSwitch(switches::kStatsCollectionController))
-    enabled_bindings_ |= BINDINGS_POLICY_STATS_COLLECTION;
 }
 
 RenderProcessImpl::~RenderProcessImpl() {
@@ -237,14 +234,6 @@ RenderProcessImpl::~RenderProcessImpl() {
 
 std::unique_ptr<RenderProcess> RenderProcessImpl::Create() {
   return base::WrapUnique(new RenderProcessImpl());
-}
-
-void RenderProcessImpl::AddBindings(int bindings) {
-  enabled_bindings_ |= bindings;
-}
-
-int RenderProcessImpl::GetEnabledBindings() const {
-  return enabled_bindings_;
 }
 
 void RenderProcessImpl::AddRefProcess() {

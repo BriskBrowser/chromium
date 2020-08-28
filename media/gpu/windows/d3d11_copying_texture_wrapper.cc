@@ -7,68 +7,108 @@
 #include <memory>
 
 #include "gpu/command_buffer/service/mailbox_manager.h"
+#include "media/base/status_codes.h"
+#include "media/base/win/hresult_status_helper.h"
 #include "media/gpu/windows/d3d11_com_defs.h"
+#include "media/gpu/windows/display_helper.h"
 
 namespace media {
 
 // TODO(tmathmeyer) What D3D11 Resources do we need to do the copying?
 CopyingTexture2DWrapper::CopyingTexture2DWrapper(
+    const gfx::Size& size,
     std::unique_ptr<Texture2DWrapper> output_wrapper,
     std::unique_ptr<VideoProcessorProxy> processor,
-    ComD3D11Texture2D input_texture)
-    : Texture2DWrapper(input_texture),
+    ComD3D11Texture2D output_texture,
+    base::Optional<gfx::ColorSpace> output_color_space)
+    : size_(size),
       video_processor_(std::move(processor)),
-      output_texture_wrapper_(std::move(output_wrapper)) {}
+      output_texture_wrapper_(std::move(output_wrapper)),
+      output_texture_(std::move(output_texture)),
+      output_color_space_(std::move(output_color_space)) {}
 
 CopyingTexture2DWrapper::~CopyingTexture2DWrapper() = default;
 
-#define RETURN_ON_FAILURE(expr) \
-  do {                          \
-    if (!SUCCEEDED((expr))) {   \
-      return false;             \
-    }                           \
-  } while (0)
-
-bool CopyingTexture2DWrapper::ProcessTexture(const D3D11PictureBuffer* owner_pb,
-                                             MailboxHolderArray* mailbox_dest) {
+Status CopyingTexture2DWrapper::ProcessTexture(
+    ComD3D11Texture2D texture,
+    size_t array_slice,
+    const gfx::ColorSpace& input_color_space,
+    MailboxHolderArray* mailbox_dest,
+    gfx::ColorSpace* output_color_space) {
   D3D11_VIDEO_PROCESSOR_OUTPUT_VIEW_DESC output_view_desc = {
       D3D11_VPOV_DIMENSION_TEXTURE2D};
   output_view_desc.Texture2D.MipSlice = 0;
   ComD3D11VideoProcessorOutputView output_view;
-  RETURN_ON_FAILURE(video_processor_->CreateVideoProcessorOutputView(
-      output_texture_wrapper_->Texture().Get(), &output_view_desc,
-      &output_view));
+  HRESULT hr = video_processor_->CreateVideoProcessorOutputView(
+      output_texture_.Get(), &output_view_desc, &output_view);
+  if (!SUCCEEDED(hr)) {
+    return Status(StatusCode::kCreateVideoProcessorOutputViewFailed)
+        .AddCause(HresultToStatus(hr));
+  }
 
   D3D11_VIDEO_PROCESSOR_INPUT_VIEW_DESC input_view_desc = {0};
   input_view_desc.ViewDimension = D3D11_VPIV_DIMENSION_TEXTURE2D;
-  input_view_desc.Texture2D.ArraySlice = owner_pb->level();
+  input_view_desc.Texture2D.ArraySlice = array_slice;
   input_view_desc.Texture2D.MipSlice = 0;
   ComD3D11VideoProcessorInputView input_view;
-  RETURN_ON_FAILURE(video_processor_->CreateVideoProcessorInputView(
-      Texture().Get(), &input_view_desc, &input_view));
+  hr = video_processor_->CreateVideoProcessorInputView(
+      texture.Get(), &input_view_desc, &input_view);
+  if (!SUCCEEDED(hr)) {
+    return Status(StatusCode::kCreateVideoProcessorInputViewFailed)
+        .AddCause(HresultToStatus(hr));
+  }
 
   D3D11_VIDEO_PROCESSOR_STREAM streams = {0};
   streams.Enable = TRUE;
   streams.pInputSurface = input_view.Get();
 
-  RETURN_ON_FAILURE(video_processor_->VideoProcessorBlt(output_view.Get(),
-                                                        0,  // output_frameno
-                                                        1,  // stream_count
-                                                        &streams));
+  // If we were given an output color space, then that's what we'll use.
+  // Otherwise, we'll use whatever the input space is.
+  gfx::ColorSpace copy_color_space =
+      output_color_space_ ? *output_color_space_ : input_color_space;
 
-  return output_texture_wrapper_->ProcessTexture(owner_pb, mailbox_dest);
+  // If the input color space has changed, or if this is the first call, then
+  // notify the video processor about it.
+  if (!previous_input_color_space_ ||
+      *previous_input_color_space_ != input_color_space) {
+    previous_input_color_space_ = input_color_space;
+    video_processor_->SetStreamColorSpace(input_color_space);
+    video_processor_->SetOutputColorSpace(copy_color_space);
+  }
+
+  hr = video_processor_->VideoProcessorBlt(output_view.Get(),
+                                           0,  // output_frameno
+                                           1,  // stream_count
+                                           &streams);
+  if (!SUCCEEDED(hr)) {
+    return Status(StatusCode::kVideoProcessorBltFailed)
+        .AddCause(HresultToStatus(hr));
+  }
+
+  return output_texture_wrapper_->ProcessTexture(
+      output_texture_, 0, copy_color_space, mailbox_dest, output_color_space);
 }
 
-bool CopyingTexture2DWrapper::Init(GetCommandBufferHelperCB get_helper_cb,
-                                   size_t array_slice,
-                                   gfx::Size size) {
-  if (!video_processor_->Init(size.width(), size.height()))
-    return false;
+Status CopyingTexture2DWrapper::Init(
+    scoped_refptr<base::SingleThreadTaskRunner> gpu_task_runner,
+    GetCommandBufferHelperCB get_helper_cb) {
+  auto result = video_processor_->Init(size_.width(), size_.height());
+  if (!result.is_ok())
+    return std::move(result).AddHere();
 
-  return output_texture_wrapper_->Init(
-      get_helper_cb,
-      0,  // The output texture only has an array size of 1.
-      size);
+  return output_texture_wrapper_->Init(std::move(gpu_task_runner),
+                                       std::move(get_helper_cb));
+}
+
+void CopyingTexture2DWrapper::SetStreamHDRMetadata(
+    const HDRMetadata& stream_metadata) {
+  auto dxgi_stream_metadata = DisplayHelper::HdrMetadataToDXGI(stream_metadata);
+  video_processor_->SetStreamHDRMetadata(dxgi_stream_metadata);
+}
+
+void CopyingTexture2DWrapper::SetDisplayHDRMetadata(
+    const DXGI_HDR_METADATA_HDR10& dxgi_display_metadata) {
+  video_processor_->SetDisplayHDRMetadata(dxgi_display_metadata);
 }
 
 }  // namespace media

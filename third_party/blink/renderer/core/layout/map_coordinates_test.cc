@@ -61,7 +61,7 @@ PhysicalOffset MapCoordinatesTest::AdjustForFrameScroll(
     const PhysicalOffset& point) const {
   PhysicalOffset result(point);
   LayoutView* layout_view = GetDocument().GetLayoutView();
-  if (layout_view->HasOverflowClip())
+  if (layout_view->HasNonVisibleOverflow())
     result -= PhysicalOffset(layout_view->ScrolledContentOffset());
   return result;
 }
@@ -154,6 +154,7 @@ TEST_F(MapCoordinatesTest, OverflowClip) {
   LayoutObject* target = GetLayoutObjectByElementId("target");
   LayoutObject* overflow = GetLayoutObjectByElementId("overflow");
   To<Element>(overflow->GetNode())
+      ->GetLayoutBoxForScrolling()
       ->GetScrollableArea()
       ->ScrollToAbsolutePosition(FloatPoint(32, 54));
 
@@ -176,7 +177,10 @@ TEST_F(MapCoordinatesTest, TextInRelPosInline) {
   ASSERT_TRUE(text->IsText());
   PhysicalOffset mapped_point =
       MapLocalToAncestor(text, text->ContainingBlock(), PhysicalOffset(10, 30));
-  EXPECT_EQ(PhysicalOffset(17, 34), mapped_point);
+  if (RuntimeEnabledFeatures::LayoutNGEnabled())
+    EXPECT_EQ(PhysicalOffset(10, 30), mapped_point);
+  else
+    EXPECT_EQ(PhysicalOffset(17, 34), mapped_point);
   mapped_point =
       MapAncestorToLocal(text, text->ContainingBlock(), mapped_point);
   EXPECT_EQ(PhysicalOffset(10, 30), mapped_point);
@@ -190,7 +194,10 @@ TEST_F(MapCoordinatesTest, RelposInline) {
   LayoutObject* target = GetLayoutObjectByElementId("target");
   PhysicalOffset mapped_point = MapLocalToAncestor(
       target, ToLayoutBoxModelObject(target->Parent()), PhysicalOffset(10, 10));
-  EXPECT_EQ(PhysicalOffset(60, 110), mapped_point);
+  if (RuntimeEnabledFeatures::LayoutNGEnabled())
+    EXPECT_EQ(PhysicalOffset(10, 10), mapped_point);
+  else
+    EXPECT_EQ(PhysicalOffset(60, 110), mapped_point);
   mapped_point = MapAncestorToLocal(
       target, ToLayoutBoxModelObject(target->Parent()), mapped_point);
   EXPECT_EQ(PhysicalOffset(10, 10), mapped_point);
@@ -212,22 +219,37 @@ TEST_F(MapCoordinatesTest, RelposInlineInRelposInline) {
 
   PhysicalOffset mapped_point =
       MapLocalToAncestor(target, containing_block, PhysicalOffset(20, 10));
-  EXPECT_EQ(PhysicalOffset(75, 116), mapped_point);
+  if (RuntimeEnabledFeatures::LayoutNGEnabled())
+    EXPECT_EQ(PhysicalOffset(20, 10), mapped_point);
+  else
+    EXPECT_EQ(PhysicalOffset(75, 116), mapped_point);
   mapped_point = MapAncestorToLocal(target, containing_block, mapped_point);
   EXPECT_EQ(PhysicalOffset(20, 10), mapped_point);
 
   // Walk each ancestor in the chain separately, to verify each step on the way.
   mapped_point = MapLocalToAncestor(target, parent, PhysicalOffset(20, 10));
-  EXPECT_EQ(PhysicalOffset(70, 110), mapped_point);
+  if (RuntimeEnabledFeatures::LayoutNGEnabled())
+    EXPECT_EQ(PhysicalOffset(20, 10), mapped_point);
+  else
+    EXPECT_EQ(PhysicalOffset(70, 110), mapped_point);
 
   mapped_point = MapLocalToAncestor(parent, containing_block, mapped_point);
-  EXPECT_EQ(PhysicalOffset(75, 116), mapped_point);
+  if (RuntimeEnabledFeatures::LayoutNGEnabled())
+    EXPECT_EQ(PhysicalOffset(20, 10), mapped_point);
+  else
+    EXPECT_EQ(PhysicalOffset(75, 116), mapped_point);
 
   mapped_point = MapAncestorToLocal(parent, containing_block, mapped_point);
-  EXPECT_EQ(PhysicalOffset(70, 110), mapped_point);
+  if (RuntimeEnabledFeatures::LayoutNGEnabled())
+    EXPECT_EQ(PhysicalOffset(20, 10), mapped_point);
+  else
+    EXPECT_EQ(PhysicalOffset(70, 110), mapped_point);
 
   mapped_point = MapAncestorToLocal(target, parent, mapped_point);
-  EXPECT_EQ(PhysicalOffset(20, 10), mapped_point);
+  if (RuntimeEnabledFeatures::LayoutNGEnabled())
+    EXPECT_EQ(PhysicalOffset(20, 10), mapped_point);
+  else
+    EXPECT_EQ(PhysicalOffset(20, 10), mapped_point);
 }
 
 TEST_F(MapCoordinatesTest, RelPosBlock) {
@@ -363,7 +385,7 @@ TEST_F(MapCoordinatesTest, FixedPos) {
   LayoutBox* body = container->ParentBox();
   LayoutBox* html = body->ParentBox();
   LayoutBox* view = html->ParentBox();
-  ASSERT_TRUE(view->IsLayoutView());
+  ASSERT_TRUE(IsA<LayoutView>(view));
 
   PhysicalOffset mapped_point =
       MapLocalToAncestor(target, view, PhysicalOffset());
@@ -423,7 +445,7 @@ TEST_F(MapCoordinatesTest, FixedPosAuto) {
   LayoutBox* body = container->ParentBox();
   LayoutBox* html = body->ParentBox();
   LayoutBox* view = html->ParentBox();
-  ASSERT_TRUE(view->IsLayoutView());
+  ASSERT_TRUE(IsA<LayoutView>(view));
 
   PhysicalOffset mapped_point =
       MapLocalToAncestor(target, target->ContainingBlock(), PhysicalOffset());
@@ -489,7 +511,7 @@ TEST_F(MapCoordinatesTest, FixedPosInFixedPos) {
   LayoutBox* body = container->ParentBox();
   LayoutBox* html = body->ParentBox();
   LayoutBox* view = html->ParentBox();
-  ASSERT_TRUE(view->IsLayoutView());
+  ASSERT_TRUE(IsA<LayoutView>(view));
 
   PhysicalOffset mapped_point =
       MapLocalToAncestor(target, view, PhysicalOffset());
@@ -549,10 +571,10 @@ TEST_F(MapCoordinatesTest, FixedPosInFixedPosScrollView) {
   LayoutBox* body = container->ParentBox();
   LayoutBox* html = body->ParentBox();
   LayoutBox* view = html->ParentBox();
-  ASSERT_TRUE(view->IsLayoutView());
+  ASSERT_TRUE(IsA<LayoutView>(view));
 
-  GetDocument().View()->LayoutViewport()->SetScrollOffset(ScrollOffset(0.0, 50),
-                                                          kProgrammaticScroll);
+  GetDocument().View()->LayoutViewport()->SetScrollOffset(
+      ScrollOffset(0.0, 50), mojom::blink::ScrollType::kProgrammatic);
   UpdateAllLifecyclePhasesForTest();
   EXPECT_EQ(50,
             GetDocument().View()->LayoutViewport()->ScrollOffsetInt().Height());
@@ -584,10 +606,10 @@ TEST_F(MapCoordinatesTest, FixedPosInAbsolutePosScrollView) {
   LayoutBox* body = container->ParentBox();
   LayoutBox* html = body->ParentBox();
   LayoutBox* view = html->ParentBox();
-  ASSERT_TRUE(view->IsLayoutView());
+  ASSERT_TRUE(IsA<LayoutView>(view));
 
-  GetDocument().View()->LayoutViewport()->SetScrollOffset(ScrollOffset(0.0, 50),
-                                                          kProgrammaticScroll);
+  GetDocument().View()->LayoutViewport()->SetScrollOffset(
+      ScrollOffset(0.0, 50), mojom::blink::ScrollType::kProgrammatic);
   UpdateAllLifecyclePhasesForTest();
   EXPECT_EQ(50,
             GetDocument().View()->LayoutViewport()->ScrollOffsetInt().Height());
@@ -615,8 +637,8 @@ TEST_F(MapCoordinatesTest, FixedPosInTransform) {
     <div class='spacer'></div>
   )HTML");
 
-  GetDocument().View()->LayoutViewport()->SetScrollOffset(ScrollOffset(0.0, 50),
-                                                          kProgrammaticScroll);
+  GetDocument().View()->LayoutViewport()->SetScrollOffset(
+      ScrollOffset(0.0, 50), mojom::blink::ScrollType::kProgrammatic);
   UpdateAllLifecyclePhasesForTest();
   EXPECT_EQ(50,
             GetDocument().View()->LayoutViewport()->ScrollOffsetInt().Height());
@@ -626,7 +648,7 @@ TEST_F(MapCoordinatesTest, FixedPosInTransform) {
   LayoutBox* body = container->ParentBox();
   LayoutBox* html = body->ParentBox();
   LayoutBox* view = html->ParentBox();
-  ASSERT_TRUE(view->IsLayoutView());
+  ASSERT_TRUE(IsA<LayoutView>(view));
 
   PhysicalOffset mapped_point =
       MapLocalToAncestor(target, view, PhysicalOffset());
@@ -655,8 +677,8 @@ TEST_F(MapCoordinatesTest, FixedPosInContainPaint) {
     <div class='spacer'></div>
   )HTML");
 
-  GetDocument().View()->LayoutViewport()->SetScrollOffset(ScrollOffset(0.0, 50),
-                                                          kProgrammaticScroll);
+  GetDocument().View()->LayoutViewport()->SetScrollOffset(
+      ScrollOffset(0.0, 50), mojom::blink::ScrollType::kProgrammatic);
   UpdateAllLifecyclePhasesForTest();
   EXPECT_EQ(50,
             GetDocument().View()->LayoutViewport()->ScrollOffsetInt().Height());
@@ -666,7 +688,7 @@ TEST_F(MapCoordinatesTest, FixedPosInContainPaint) {
   LayoutBox* body = container->ParentBox();
   LayoutBox* html = body->ParentBox();
   LayoutBox* view = html->ParentBox();
-  ASSERT_TRUE(view->IsLayoutView());
+  ASSERT_TRUE(IsA<LayoutView>(view));
 
   PhysicalOffset mapped_point =
       MapLocalToAncestor(target, view, PhysicalOffset());
@@ -700,7 +722,7 @@ TEST_F(MapCoordinatesTest, FixedPosInIFrameWhenMainFrameScrolled) {
       "position:fixed}</style><div id=target></div>");
 
   GetDocument().View()->LayoutViewport()->SetScrollOffset(
-      ScrollOffset(0.0, 1000), kProgrammaticScroll);
+      ScrollOffset(0.0, 1000), mojom::blink::ScrollType::kProgrammatic);
   UpdateAllLifecyclePhasesForTest();
 
   Element* target = ChildDocument().getElementById("target");
@@ -731,9 +753,8 @@ TEST_F(MapCoordinatesTest, IFrameTransformed) {
   UpdateAllLifecyclePhasesForTest();
 
   ChildDocument().View()->LayoutViewport()->SetScrollOffset(
-      ScrollOffset(0.0, 1000), kProgrammaticScroll);
-  ChildDocument().View()->UpdateAllLifecyclePhases(
-      DocumentLifecycle::LifecycleUpdateReason::kTest);
+      ScrollOffset(0.0, 1000), mojom::blink::ScrollType::kProgrammatic);
+  ChildDocument().View()->UpdateAllLifecyclePhases(DocumentUpdateReason::kTest);
 
   Element* target = ChildDocument().getElementById("target");
   ASSERT_TRUE(target);
@@ -768,7 +789,7 @@ TEST_F(MapCoordinatesTest, FixedPosInScrolledIFrameWithTransform) {
 
   UpdateAllLifecyclePhasesForTest();
   ChildDocument().View()->LayoutViewport()->SetScrollOffset(
-      ScrollOffset(0.0, 1000), kProgrammaticScroll);
+      ScrollOffset(0.0, 1000), mojom::blink::ScrollType::kProgrammatic);
   UpdateAllLifecyclePhasesForTest();
 
   Element* target = ChildDocument().getElementById("target");
@@ -1723,6 +1744,7 @@ TEST_F(MapCoordinatesTest, IgnoreScrollOffset) {
       MapLocalToAncestor(box, scroller, PhysicalOffset(), kIgnoreScrollOffset));
 
   To<Element>(scroller->GetNode())
+      ->GetLayoutBoxForScrolling()
       ->GetScrollableArea()
       ->ScrollToAbsolutePosition(FloatPoint(0, 50));
 
@@ -1761,6 +1783,7 @@ TEST_F(MapCoordinatesTest, IgnoreScrollOffsetForInline) {
       MapLocalToAncestor(box, scroller, PhysicalOffset(), kIgnoreScrollOffset));
 
   To<Element>(scroller->GetNode())
+      ->GetLayoutBoxForScrolling()
       ->GetScrollableArea()
       ->ScrollToAbsolutePosition(FloatPoint(0, 50));
 
@@ -1797,8 +1820,9 @@ TEST_F(MapCoordinatesTest, IgnoreScrollOffsetWithWritingModes) {
       PhysicalOffset(1990, 10),
       MapLocalToAncestor(box, scroller, PhysicalOffset(), kIgnoreScrollOffset));
 
-  scroll_element->GetScrollableArea()->ScrollToAbsolutePosition(
-      FloatPoint(0, 50));
+  scroll_element->GetLayoutBoxForScrolling()
+      ->GetScrollableArea()
+      ->ScrollToAbsolutePosition(FloatPoint(0, 50));
 
   EXPECT_EQ(PhysicalOffset(1990, -40),
             MapLocalToAncestor(box, scroller, PhysicalOffset()));
@@ -1806,8 +1830,9 @@ TEST_F(MapCoordinatesTest, IgnoreScrollOffsetWithWritingModes) {
       PhysicalOffset(1990, 10),
       MapLocalToAncestor(box, scroller, PhysicalOffset(), kIgnoreScrollOffset));
 
-  scroll_element->GetScrollableArea()->ScrollToAbsolutePosition(
-      FloatPoint(1900, 50));
+  scroll_element->GetLayoutBoxForScrolling()
+      ->GetScrollableArea()
+      ->ScrollToAbsolutePosition(FloatPoint(1900, 50));
 
   EXPECT_EQ(PhysicalOffset(90, -40),
             MapLocalToAncestor(box, scroller, PhysicalOffset()));
@@ -1848,6 +1873,7 @@ TEST_F(MapCoordinatesTest,
       MapLocalToAncestor(box, scroller, PhysicalOffset(), kIgnoreScrollOffset));
 
   To<Element>(scroller->GetNode())
+      ->GetLayoutBoxForScrolling()
       ->GetScrollableArea()
       ->ScrollToAbsolutePosition(FloatPoint(0, 0));
 

@@ -6,6 +6,7 @@
 
 #include <utility>
 
+#include "base/optional.h"
 #include "content/browser/bad_message.h"
 #include "content/browser/blob_storage/chrome_blob_storage_context.h"
 #include "content/browser/child_process_security_policy_impl.h"
@@ -22,19 +23,14 @@ namespace content {
 
 namespace {
 
-bool VerifyBlobToken(int process_id,
-                     mojo::MessagePipeHandle received_token,
-                     const GURL& received_url,
-                     mojo::PendingRemote<blink::mojom::BlobURLToken>*
-                         out_blob_url_token_remote) {
+// Validates that |received_token| is non-null iff associated with a blob: URL.
+bool VerifyBlobToken(
+    int process_id,
+    const mojo::PendingRemote<blink::mojom::BlobURLToken>& received_token,
+    const GURL& received_url) {
   DCHECK_NE(ChildProcessHost::kInvalidUniqueID, process_id);
-  DCHECK(out_blob_url_token_remote);
 
-  mojo::ScopedMessagePipeHandle blob_url_token_handle(
-      std::move(received_token));
-  mojo::PendingRemote<blink::mojom::BlobURLToken> blob_url_token_remote(
-      std::move(blob_url_token_handle), blink::mojom::BlobURLToken::Version_);
-  if (blob_url_token_remote) {
+  if (received_token) {
     if (!received_url.SchemeIsBlob()) {
       bad_message::ReceivedBadMessage(
           process_id, bad_message::BLOB_URL_TOKEN_FOR_NON_BLOB_URL);
@@ -42,13 +38,21 @@ bool VerifyBlobToken(int process_id,
     }
   }
 
-  *out_blob_url_token_remote = std::move(blob_url_token_remote);
   return true;
 }
 
 bool VerifyInitiatorOrigin(int process_id,
                            const url::Origin& initiator_origin) {
-  // TODO(lukasza, nasko): Verify precursor origin via CanAccessDataForOrigin.
+  // TODO(acolwell, nasko): https://crbug.com/1029092: Ensure the precursor of
+  // opaque origins matches the origin lock.  One known problematic case are
+  // reloads initiated from error pages - see the following
+  // RenderFrameHostManagerTest tests:
+  // 1. ErrorPageNavigationReload:
+  //    - renderer origin lock = chrome-error://chromewebdata/
+  //    - precursor of initiator origin = http://127.0.0.1:.../
+  // 2. ErrorPageNavigationReload_InSubframe_BlockedByClient
+  //    - renderer origin lock = http://b.com:.../
+  //    - precursor of initiator origin = http://c.com:.../
   if (initiator_origin.opaque())
     return true;
 
@@ -65,36 +69,32 @@ bool VerifyInitiatorOrigin(int process_id,
 }  // namespace
 
 bool VerifyDownloadUrlParams(SiteInstance* site_instance,
-                             const FrameHostMsg_DownloadUrl_Params& params,
-                             mojo::PendingRemote<blink::mojom::BlobURLToken>*
-                                 out_blob_url_token_remote) {
+                             const blink::mojom::DownloadURLParams& params) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   DCHECK(site_instance);
-  DCHECK(out_blob_url_token_remote);
   RenderProcessHost* process = site_instance->GetProcess();
   int process_id = process->GetID();
 
-  // Verify |params.blob_url_token| and populate |out_blob_url_token_remote|.
-  if (!VerifyBlobToken(process_id, params.blob_url_token, params.url,
-                       out_blob_url_token_remote)) {
+  // Verifies |params.blob_url_token| is appropriately set.
+  if (!VerifyBlobToken(process_id, params.blob_url_token, params.url))
     return false;
-  }
 
   // Verify |params.initiator_origin|.
-  if (!VerifyInitiatorOrigin(process_id, params.initiator_origin))
+  if (params.initiator_origin &&
+      !VerifyInitiatorOrigin(process_id, *params.initiator_origin))
     return false;
 
-  // For large data URLs, they are passed through |params.data_url_blob| and
-  // |params.url| should be empty.
-  if (!params.url.is_valid())
-    return params.data_url_blob.is_valid();
+  // If |params.url| is not set, this must be a large data URL being passed
+  // through |params.data_url_blob|.
+  if (!params.url.is_valid() && !params.data_url_blob.is_valid())
+    return false;
 
   // Verification succeeded.
   return true;
 }
 
 bool VerifyOpenURLParams(SiteInstance* site_instance,
-                         const FrameHostMsg_OpenURL_Params& params,
+                         const mojom::OpenURLParamsPtr& params,
                          GURL* out_validated_url,
                          scoped_refptr<network::SharedURLLoaderFactory>*
                              out_blob_url_loader_factory) {
@@ -106,31 +106,32 @@ bool VerifyOpenURLParams(SiteInstance* site_instance,
   int process_id = process->GetID();
 
   // Verify |params.url| and populate |out_validated_url|.
-  *out_validated_url = params.url;
+  *out_validated_url = params->url;
   process->FilterURL(false, out_validated_url);
 
   // Verify |params.blob_url_token| and populate |out_blob_url_loader_factory|.
-  mojo::PendingRemote<blink::mojom::BlobURLToken> blob_url_token_remote;
-  if (!VerifyBlobToken(process_id, params.blob_url_token, params.url,
-                       &blob_url_token_remote)) {
+  mojo::PendingRemote<blink::mojom::BlobURLToken> blob_url_token(
+      mojo::ScopedMessagePipeHandle(std::move(params->blob_url_token)),
+      blink::mojom::BlobURLToken::Version_);
+  if (!VerifyBlobToken(process_id, blob_url_token, params->url))
     return false;
-  }
-  if (blob_url_token_remote) {
+
+  if (blob_url_token.is_valid()) {
     *out_blob_url_loader_factory =
         ChromeBlobStorageContext::URLLoaderFactoryForToken(
-            process->GetBrowserContext(), std::move(blob_url_token_remote));
+            process->GetBrowserContext(), std::move(blob_url_token));
   }
 
   // Verify |params.post_body|.
   auto* policy = ChildProcessSecurityPolicyImpl::GetInstance();
-  if (!policy->CanReadRequestBody(site_instance, params.post_body)) {
+  if (!policy->CanReadRequestBody(site_instance, params->post_body)) {
     bad_message::ReceivedBadMessage(process,
                                     bad_message::ILLEGAL_UPLOAD_PARAMS);
     return false;
   }
 
   // Verify |params.initiator_origin|.
-  if (!VerifyInitiatorOrigin(process_id, params.initiator_origin))
+  if (!VerifyInitiatorOrigin(process_id, params->initiator_origin))
     return false;
 
   // Verification succeeded.

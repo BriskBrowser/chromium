@@ -33,6 +33,7 @@ const char kConfigModeSystem[] = "SYSTEM_TRACING_MODE";
 
 const char kConfigScenarioName[] = "scenario_name";
 const char kConfigTraceBrowserProcessOnly[] = "trace_browser_process_only";
+const char kEnabledDataSourcesKey[] = "enabled_data_sources";
 
 const char kConfigCategoryKey[] = "category";
 const char kConfigCustomCategoriesKey[] = "custom_categories";
@@ -202,6 +203,9 @@ void BackgroundTracingConfigImpl::IntoDict(base::DictionaryValue* dict) {
       dict->SetKey(kConfigTraceConfigKey, std::move(*trace_config));
     }
   }
+  if (!enabled_data_sources_.empty()) {
+    dict->SetString(kEnabledDataSourcesKey, enabled_data_sources_);
+  }
 
   switch (tracing_mode()) {
     case BackgroundTracingConfigImpl::PREEMPTIVE:
@@ -361,6 +365,10 @@ BackgroundTracingConfigImpl::PreemptiveFromDict(
       return nullptr;
     }
   }
+  if (const std::string* enabled_data_sources =
+          dict->FindStringKey(kEnabledDataSourcesKey)) {
+    config->enabled_data_sources_ = *enabled_data_sources;
+  }
 
   const base::ListValue* configs_list = nullptr;
   if (!dict->GetList(kConfigsKey, &configs_list))
@@ -406,6 +414,11 @@ BackgroundTracingConfigImpl::ReactiveFromDict(
       return nullptr;
     }
     has_global_categories = true;
+  }
+
+  if (const std::string* enabled_data_sources =
+          dict->FindStringKey(kEnabledDataSourcesKey)) {
+    config->enabled_data_sources_ = *enabled_data_sources;
   }
 
   const base::ListValue* configs_list = nullptr;
@@ -498,7 +511,8 @@ TraceConfig BackgroundTracingConfigImpl::GetConfigForCategoryPreset(
           "benchmark,toplevel,ipc,base,browser,navigation,omnibox,ui,shutdown,"
           "safe_browsing,Java,EarlyJava,loading,startup,mojom,renderer_host,"
           "disabled-by-default-system_stats,disabled-by-default-cpu_profiler,"
-          "dwrite,fonts,ServiceWorker,passwords,disabled-by-default-file",
+          "dwrite,fonts,ServiceWorker,passwords,disabled-by-default-file,sql,"
+          "disabled-by-default-user_action_samples",
           record_mode);
       // Filter only browser process events.
       base::trace_event::TraceConfig::ProcessFilterConfig process_config(
@@ -514,7 +528,7 @@ TraceConfig BackgroundTracingConfigImpl::GetConfigForCategoryPreset(
           "disabled-by-default-blink_gc,disabled-by-default-lifecycles,"
           "disabled-by-default-renderer.scheduler,"
           "disabled-by-default-system_stats,disabled-by-default-cpu_profiler,"
-          "passwords",
+          "passwords,sql,disabled-by-default-user_action_samples",
           record_mode);
     case BackgroundTracingConfigImpl::CategoryPreset::BENCHMARK_SERVICEWORKER:
       return TraceConfig(
@@ -527,7 +541,8 @@ TraceConfig BackgroundTracingConfigImpl::GetConfigForCategoryPreset(
       return TraceConfig(
           "benchmark,toplevel,ipc,base,audio,compositor,gpu,media,memory,midi,"
           "native,omnibox,renderer,skia,task_scheduler,ui,v8,views,webaudio,"
-          "disabled-by-default-cpu_profiler",
+          "disabled-by-default-cpu_profiler,disabled-by-default-user_action_"
+          "samples",
           record_mode);
     case BackgroundTracingConfigImpl::CategoryPreset::BLINK_STYLE:
       return TraceConfig("blink_style", record_mode);

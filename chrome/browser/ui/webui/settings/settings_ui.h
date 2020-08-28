@@ -38,6 +38,9 @@ class SettingsUI : public content::WebUIController {
   void AddSettingsPageUIHandler(
       std::unique_ptr<content::WebUIMessageHandler> handler);
 
+  // Makes a request to show a HaTS survey.
+  void TryShowHatsSurveyWithTimeout();
+
   WebuiLoadTimer webui_load_timer_;
 
   DISALLOW_COPY_AND_ASSIGN(SettingsUI);

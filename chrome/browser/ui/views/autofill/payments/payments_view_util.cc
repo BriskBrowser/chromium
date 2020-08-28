@@ -49,15 +49,16 @@ TitleWithIconAndSeparatorView::TitleWithIconAndSeparatorView(
       SetLayoutManager(std::make_unique<views::GridLayout>());
   views::ColumnSet* columns = layout->AddColumnSet(0);
 
+  using ColumnSize = views::GridLayout::ColumnSize;
   // Add columns for the Google Pay icon, the separator, and the title label.
   columns->AddColumn(views::GridLayout::LEADING, views::GridLayout::LEADING,
-                     views::GridLayout::kFixedSize, views::GridLayout::USE_PREF,
+                     views::GridLayout::kFixedSize, ColumnSize::kUsePreferred,
                      0, 0);
   columns->AddColumn(views::GridLayout::LEADING, views::GridLayout::LEADING,
-                     views::GridLayout::kFixedSize, views::GridLayout::USE_PREF,
+                     views::GridLayout::kFixedSize, ColumnSize::kUsePreferred,
                      0, 0);
   columns->AddColumn(views::GridLayout::FILL, views::GridLayout::LEADING, 1.f,
-                     views::GridLayout::USE_PREF, 0, 0);
+                     ColumnSize::kUsePreferred, 0, 0);
 
   layout->StartRow(views::GridLayout::kFixedSize, 0);
 
@@ -144,8 +145,8 @@ std::unique_ptr<views::StyledLabel>
 LegalMessageView::CreateLegalMessageLineLabel(
     const LegalMessageLine& line,
     views::StyledLabelListener* listener) {
-  std::unique_ptr<views::StyledLabel> label =
-      std::make_unique<views::StyledLabel>(line.text(), listener);
+  auto label = std::make_unique<views::StyledLabel>(listener);
+  label->SetText(line.text());
   label->SetTextContext(CONTEXT_BODY_TEXT_LARGE);
   label->SetDefaultTextStyle(views::style::STYLE_SECONDARY);
   for (const LegalMessageLine::Link& link : line.links()) {
@@ -172,6 +173,23 @@ const GURL LegalMessageView::GetUrlForLink(views::StyledLabel* label,
   // |range| was not found.
   NOTREACHED();
   return GURL();
+}
+
+PaymentsBubbleClosedReason GetPaymentsBubbleClosedReasonFromWidgetClosedReason(
+    views::Widget::ClosedReason reason) {
+  switch (reason) {
+    case views::Widget::ClosedReason::kUnspecified:
+      return PaymentsBubbleClosedReason::kNotInteracted;
+    case views::Widget::ClosedReason::kEscKeyPressed:
+    case views::Widget::ClosedReason::kCloseButtonClicked:
+      return PaymentsBubbleClosedReason::kClosed;
+    case views::Widget::ClosedReason::kLostFocus:
+      return PaymentsBubbleClosedReason::kLostFocus;
+    case views::Widget::ClosedReason::kAcceptButtonClicked:
+      return PaymentsBubbleClosedReason::kAccepted;
+    case views::Widget::ClosedReason::kCancelButtonClicked:
+      return PaymentsBubbleClosedReason::kCancelled;
+  }
 }
 
 }  // namespace autofill

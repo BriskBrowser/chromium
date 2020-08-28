@@ -133,7 +133,6 @@
     PDF documents.
  */
 #define SK_PDF_USE_HARFBUZZ_SUBSET
-#define SK_PDF_USE_SFNTLY
 
 // Chromium does not use these fonts.  This define causes type1 fonts to be
 // converted to type3 when producing PDFs, and reduces build size.
@@ -145,15 +144,19 @@
 #define SK_REF_CNT_MIXIN_INCLUDE "skia/config/sk_ref_cnt_ext_release.h"
 #endif
 
-#define SK_MSCALAR_IS_FLOAT
-#undef SK_MSCALAR_IS_DOUBLE
-
 // Log the file and line number for assertions.
 #define SkDebugf(...) SkDebugf_FileLine(__FILE__, __LINE__, __VA_ARGS__)
 SK_API void SkDebugf_FileLine(const char* file,
                               int line,
                               const char* format,
                               ...);
+
+#define SK_ABORT(format, ...) SkAbort_FileLine(__FILE__, __LINE__, \
+                                               format,##__VA_ARGS__)
+[[noreturn]] SK_API void SkAbort_FileLine(const char* file,
+                                          int line,
+                                          const char* format,
+                                          ...);
 
 #if !defined(ANDROID)   // On Android, we use the skia default settings.
 #define SK_A32_SHIFT    24
@@ -199,10 +202,8 @@ SK_API void SkDebugf_FileLine(const char* file,
 #   define SK_SUPPORT_LEGACY_ANISOTROPIC_MIPMAP_SCALE
 #endif
 
-// Remove this after we fixed all the issues related to the new SDF algorithm
-// (https://codereview.chromium.org/1643143002)
-#ifndef SK_USE_LEGACY_DISTANCE_FIELDS
-#define SK_USE_LEGACY_DISTANCE_FIELDS
+#ifndef SK_DISABLE_LEGACY_CONTEXT_FACTORIES
+#define SK_DISABLE_LEGACY_CONTEXT_FACTORIES
 #endif
 
 // For now, Chrome should only attempt to reduce opList splitting when recording
@@ -211,8 +212,10 @@ SK_API void SkDebugf_FileLine(const char* file,
 #define SK_DISABLE_REDUCE_OPLIST_SPLITTING
 #endif
 
-#ifndef SK_IGNORE_LINEONLY_AA_CONVEX_PATH_OPTS
-#define SK_IGNORE_LINEONLY_AA_CONVEX_PATH_OPTS
+// Many layout tests and unit tests need to updated/rebased to move to less
+// buggy GPU blur.
+#ifndef SK_USE_LEGACY_GPU_BLUR
+#define SK_USE_LEGACY_GPU_BLUR
 #endif
 
 // Max. verb count for paths rendered by the edge-AA tessellating path renderer.
@@ -222,15 +225,11 @@ SK_API void SkDebugf_FileLine(const char* file,
 #define SK_SUPPORT_LEGACY_AAA_CHOICE
 #endif
 
-// We're turning this off indefinitely,
-// until we can figure out some fundamental problems with its approach.
-//
-// See chromium:913223, skia:6886.
-#define SK_DISABLE_DAA
-
 // Staging for lowp::bilerp_clamp_8888, and for planned misc. others.
 #define SK_DISABLE_LOWP_BILERP_CLAMP_CLAMP_STAGE
-#define SK_DISABLE_NEXT_BATCH_OF_LOWP_STAGES
+
+// Staging for Skia requiring GrDirectContext in SkImage::readPixels.
+#define SK_IMAGE_READ_PIXELS_LEGACY_API
 
 ///////////////////////// Imported from BUILD.gn and skia_common.gypi
 

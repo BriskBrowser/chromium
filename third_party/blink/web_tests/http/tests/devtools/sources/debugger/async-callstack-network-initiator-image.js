@@ -19,14 +19,16 @@
   TestRunner.evaluateInPage('testFunction()');
   TestRunner.networkManager.addEventListener(SDK.NetworkManager.Events.RequestFinished, requestFinished);
 
-  function requestFinished(event) {
+  async function requestFinished(event) {
     if (!event.data.url().endsWith('resources/image.png'))
       return;
 
-    var initiatorInfo = SDK.networkLog.initiatorInfoForRequest(event.data);
+    var initiatorInfo = SDK.NetworkLog.instance().initiatorInfoForRequest(event.data);
     var element = new Components.Linkifier().linkifyScriptLocation(
         TestRunner.mainTarget, initiatorInfo.scriptId, initiatorInfo.url, initiatorInfo.lineNumber,
         initiatorInfo.columnNumber - 1);
+    // Linkified script locations may contain an unresolved live locations.
+    await TestRunner.waitForPendingLiveLocationUpdates();
     TestRunner.addResult(element.textContent);
     TestRunner.completeTest();
   }

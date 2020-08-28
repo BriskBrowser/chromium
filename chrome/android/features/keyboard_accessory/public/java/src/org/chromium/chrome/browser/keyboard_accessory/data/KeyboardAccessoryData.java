@@ -27,12 +27,13 @@ public class KeyboardAccessoryData {
      */
     public static final class Tab {
         private final String mTitle;
-        private final Drawable mIcon;
+        private Drawable mIcon;
         private final @Nullable String mOpeningAnnouncement;
         private final String mContentDescription;
         private final int mTabLayout;
         private final @AccessoryTabType int mRecordingType;
         private final @Nullable Listener mListener;
+        private final PropertyProvider<Drawable> mIconProvider = new PropertyProvider<>();
 
         /**
          * A Tab's Listener get's notified when e.g. the Tab was assigned a view.
@@ -40,6 +41,7 @@ public class KeyboardAccessoryData {
         public interface Listener {
             /**
              * Triggered when the tab was successfully created.
+             *
              * @param view The newly created accessory sheet of the tab.
              */
             void onTabCreated(ViewGroup view);
@@ -65,6 +67,20 @@ public class KeyboardAccessoryData {
             mTabLayout = tabLayout;
             mListener = listener;
             mRecordingType = recordingType;
+        }
+
+        public void setIcon(Drawable icon) {
+            mIcon = icon;
+            mIconProvider.notifyObservers(mIcon);
+        }
+
+        /**
+         * Adds an observer to be notified of icon changes.
+         *
+         * @param observer The observer that will be notified of the icon change.
+         */
+        public void addIconObserver(Provider.Observer<Drawable> observer) {
+            mIconProvider.addObserver(observer);
         }
 
         /**
@@ -170,6 +186,40 @@ public class KeyboardAccessoryData {
     }
 
     /**
+     * Represents a toggle displayed above suggestions in the accessory sheet, through which the
+     * user can set an option. Displayed for example when password saving is disabled for the
+     * current site, to allow the user to easily re-enable saving if desired.
+     */
+    public static final class OptionToggle {
+        private final String mDisplayText;
+        private final boolean mEnabled;
+        private final Callback<Boolean> mCallback;
+        private final @AccessoryAction int mType;
+
+        public OptionToggle(String displayText, boolean enabled, @AccessoryAction int type,
+                Callback<Boolean> callback) {
+            mDisplayText = displayText;
+            mEnabled = enabled;
+            mCallback = callback;
+            mType = type;
+        }
+
+        public String getDisplayText() {
+            return mDisplayText;
+        }
+
+        public boolean isEnabled() {
+            return mEnabled;
+        }
+        public Callback<Boolean> getCallback() {
+            return mCallback;
+        }
+        public @AccessoryAction int getActionType() {
+            return mType;
+        }
+    }
+
+    /**
      * Represents a Profile, or a Credit Card, or the credentials for a website
      * (username + password), to be shown on the manual fallback UI.
      */
@@ -239,8 +289,7 @@ public class KeyboardAccessoryData {
         }
 
         /**
-         * Returns the translated text to be shown on the UI for this footer command. This text is
-         * used for accessibility.
+         * Invokes the stored callback. To be called when the user taps on the footer command.
          */
         public void execute() {
             mCallback.onResult(this);
@@ -255,6 +304,7 @@ public class KeyboardAccessoryData {
         private final String mTitle;
         private final String mWarning;
         private final @AccessoryTabType int mSheetType;
+        private OptionToggle mToggle;
         private final List<UserInfo> mUserInfoList = new ArrayList<>();
         private final List<FooterCommand> mFooterCommands = new ArrayList<>();
 
@@ -267,10 +317,20 @@ public class KeyboardAccessoryData {
             mSheetType = sheetType;
             mTitle = title;
             mWarning = warning;
+            mToggle = null;
         }
 
         public @AccessoryTabType int getSheetType() {
             return mSheetType;
+        }
+
+        public void setOptionToggle(OptionToggle toggle) {
+            mToggle = toggle;
+        }
+
+        @Nullable
+        public OptionToggle getOptionToggle() {
+            return mToggle;
         }
 
         /**

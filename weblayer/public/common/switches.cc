@@ -4,13 +4,11 @@
 
 #include "weblayer/public/common/switches.h"
 
+namespace weblayer {
 namespace switches {
 
 // Makes WebLayer Shell use the given path for its data directory.
 const char kWebLayerUserDataDir[] = "weblayer-user-data-dir";
 
-// Makes WebLayer use a fake permission controller delegate which grants all
-// permissions.
-const char kWebLayerFakePermissions[] = "weblayer-fake-permissions";
-
 }  // namespace switches
+}  //  namespace weblayer

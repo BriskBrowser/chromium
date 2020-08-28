@@ -4,6 +4,8 @@
 
 syntax = "proto2";
 option optimize_for = LITE_RUNTIME;
+option java_package = "org.chromium.components.optimization_guide.proto";
+option java_outer_classname = "ModelsProto";
 
 package optimization_guide.proto;
 
@@ -157,6 +159,8 @@ message GetModelsRequest {
   // CONTEXT_PAGE_NAVIGATION), then no model updates will be returned for the
   // requested models.
   optional RequestContext request_context = 3;
+  // The field trials that are currently active when this request is made.
+  repeated FieldTrial active_field_trials = 4;
 }
 
 // Response to the GetModels request.

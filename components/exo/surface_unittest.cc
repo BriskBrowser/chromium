@@ -24,6 +24,7 @@
 #include "ui/display/display.h"
 #include "ui/display/display_switches.h"
 #include "ui/gfx/geometry/dip_util.h"
+#include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/gpu_fence.h"
 #include "ui/gfx/gpu_fence_handle.h"
 #include "ui/gfx/gpu_memory_buffer.h"
@@ -83,6 +84,11 @@ class SurfaceTest : public test::ExoTestBase,
 
   gfx::Rect ToPixel(const gfx::Rect rect) {
     return gfx::ConvertRectToPixel(device_scale_factor(), rect);
+  }
+
+  gfx::Rect ToTargetSpaceDamage(const gfx::Rect damage_rect) {
+    // Map a frame's damage back to the coordinate space of its buffer.
+    return gfx::ScaleToEnclosingRect(damage_rect, 1 / device_scale_factor());
   }
 
   const viz::CompositorFrame& GetFrameFromSurface(ShellSurface* shell_surface) {
@@ -184,9 +190,71 @@ TEST_P(SurfaceTest, Damage) {
   {
     const viz::CompositorFrame& frame =
         GetFrameFromSurface(shell_surface.get());
-    EXPECT_TRUE(
-        gfx::RectF(frame.render_pass_list.back()->damage_rect)
-            .Contains(gfx::ScaleRect(buffer_damage, device_scale_factor())));
+    EXPECT_TRUE(ToTargetSpaceDamage(frame.render_pass_list.back()->damage_rect)
+                    .Contains(gfx::ToNearestRect(buffer_damage)));
+  }
+}
+
+TEST_P(SurfaceTest, SubsurfaceDamageAggregation) {
+  gfx::Size buffer_size(256, 512);
+  auto buffer = std::make_unique<Buffer>(
+      exo_test_helper()->CreateGpuMemoryBuffer(buffer_size));
+  auto surface = std::make_unique<Surface>();
+  auto shell_surface = std::make_unique<ShellSurface>(surface.get());
+  surface->Attach(buffer.get());
+
+  gfx::Size child_buffer_size(64, 128);
+  auto child_buffer = std::make_unique<Buffer>(
+      exo_test_helper()->CreateGpuMemoryBuffer(child_buffer_size));
+  auto child_surface = std::make_unique<Surface>();
+  auto sub_surface =
+      std::make_unique<SubSurface>(child_surface.get(), surface.get());
+  child_surface->Attach(child_buffer.get());
+  child_surface->Commit();
+  surface->Commit();
+  base::RunLoop().RunUntilIdle();
+
+  {
+    // Initial frame has full damage.
+    const viz::CompositorFrame& frame =
+        GetFrameFromSurface(shell_surface.get());
+    const gfx::Rect scaled_damage = gfx::ToNearestRect(gfx::ScaleRect(
+        gfx::RectF(gfx::Rect(buffer_size)), device_scale_factor()));
+    EXPECT_EQ(scaled_damage, frame.render_pass_list.back()->damage_rect);
+  }
+
+  const gfx::RectF surface_damage(16, 16);
+  const gfx::RectF subsurface_damage(32, 32, 16, 16);
+  int margin = ceil(device_scale_factor());
+
+  child_surface->Damage(gfx::ToNearestRect(subsurface_damage));
+  child_surface->Commit();
+  surface->Commit();
+  base::RunLoop().RunUntilIdle();
+
+  {
+    // Subsurface damage should be propagated.
+    const viz::CompositorFrame& frame =
+        GetFrameFromSurface(shell_surface.get());
+    const gfx::Rect scaled_damage = gfx::ToNearestRect(
+        gfx::ScaleRect(subsurface_damage, device_scale_factor()));
+    EXPECT_TRUE(scaled_damage.ApproximatelyEqual(
+        frame.render_pass_list.back()->damage_rect, margin));
+  }
+
+  surface->Damage(gfx::ToNearestRect(surface_damage));
+  surface->Commit();
+  base::RunLoop().RunUntilIdle();
+
+  {
+    // When commit is called on the root with no call on the child, the damage
+    // from the previous frame shouldn't persist.
+    const viz::CompositorFrame& frame =
+        GetFrameFromSurface(shell_surface.get());
+    const gfx::Rect scaled_damage = gfx::ToNearestRect(
+        gfx::ScaleRect(surface_damage, device_scale_factor()));
+    EXPECT_TRUE(scaled_damage.ApproximatelyEqual(
+        frame.render_pass_list.back()->damage_rect, margin));
   }
 }
 
@@ -241,8 +309,8 @@ TEST_P(SurfaceTest, MAYBE_SetOpaqueRegion) {
 
     EXPECT_FALSE(texture_draw_quad->ShouldDrawWithBlending());
     EXPECT_EQ(SK_ColorBLACK, texture_draw_quad->background_color);
-    EXPECT_EQ(ToPixel(gfx::Rect(0, 0, 1, 1)),
-              frame.render_pass_list.back()->damage_rect);
+    EXPECT_EQ(gfx::Rect(buffer_size),
+              ToTargetSpaceDamage(frame.render_pass_list.back()->damage_rect));
   }
 
   // Setting an empty opaque region requires draw with blending.
@@ -259,8 +327,8 @@ TEST_P(SurfaceTest, MAYBE_SetOpaqueRegion) {
         frame.render_pass_list.back()->quad_list.back());
     EXPECT_TRUE(texture_draw_quad->ShouldDrawWithBlending());
     EXPECT_EQ(SK_ColorTRANSPARENT, texture_draw_quad->background_color);
-    EXPECT_EQ(ToPixel(gfx::Rect(0, 0, 1, 1)),
-              frame.render_pass_list.back()->damage_rect);
+    EXPECT_EQ(gfx::Rect(buffer_size),
+              ToTargetSpaceDamage(frame.render_pass_list.back()->damage_rect));
   }
 
   std::unique_ptr<Buffer> buffer_without_alpha(
@@ -826,8 +894,8 @@ TEST_P(SurfaceTest, SetAlpha) {
     ASSERT_EQ(1u, frame.render_pass_list.back()->quad_list.size());
     ASSERT_EQ(1u, frame.resource_list.size());
     ASSERT_EQ(1u, frame.resource_list.back().id);
-    EXPECT_EQ(ToPixel(gfx::Rect(0, 0, 1, 1)),
-              frame.render_pass_list.back()->damage_rect);
+    EXPECT_EQ(gfx::Rect(buffer_size),
+              ToTargetSpaceDamage(frame.render_pass_list.back()->damage_rect));
   }
 
   {
@@ -841,8 +909,8 @@ TEST_P(SurfaceTest, SetAlpha) {
     // No quad if alpha is 0.
     ASSERT_EQ(0u, frame.render_pass_list.back()->quad_list.size());
     ASSERT_EQ(0u, frame.resource_list.size());
-    EXPECT_EQ(ToPixel(gfx::Rect(0, 0, 1, 1)),
-              frame.render_pass_list.back()->damage_rect);
+    EXPECT_EQ(gfx::Rect(buffer_size),
+              ToTargetSpaceDamage(frame.render_pass_list.back()->damage_rect));
   }
 
   {
@@ -857,8 +925,8 @@ TEST_P(SurfaceTest, SetAlpha) {
     ASSERT_EQ(1u, frame.resource_list.size());
     // The resource should be updated again, the id should be changed.
     ASSERT_EQ(2u, frame.resource_list.back().id);
-    EXPECT_EQ(ToPixel(gfx::Rect(0, 0, 1, 1)),
-              frame.render_pass_list.back()->damage_rect);
+    EXPECT_EQ(gfx::Rect(buffer_size),
+              ToTargetSpaceDamage(frame.render_pass_list.back()->damage_rect));
   }
 }
 
@@ -872,6 +940,7 @@ TEST_P(SurfaceTest, SurfaceQuad) {
   surface->Attach(buffer.get());
   surface->SetAlpha(1.0f);
 
+  surface->SetEmbeddedSurfaceSize(gfx::Size(1, 1));
   surface->SetEmbeddedSurfaceId(base::BindRepeating([]() -> viz::SurfaceId {
     return viz::SurfaceId(
         viz::FrameSinkId(1, 1),
@@ -891,6 +960,38 @@ TEST_P(SurfaceTest, SurfaceQuad) {
     EXPECT_EQ(1u, frame.resource_list.back().id);
     EXPECT_EQ(viz::DrawQuad::Material::kSurfaceContent,
               frame.render_pass_list.back()->quad_list.back()->material);
+  }
+}
+
+TEST_P(SurfaceTest, EmptySurfaceQuad) {
+  gfx::Size buffer_size(1, 1);
+  auto buffer = std::make_unique<Buffer>(
+      exo_test_helper()->CreateGpuMemoryBuffer(buffer_size), GL_TEXTURE_2D, 0,
+      true, true, false);
+  auto surface = std::make_unique<Surface>();
+  auto shell_surface = std::make_unique<ShellSurface>(surface.get());
+  surface->Attach(buffer.get());
+  surface->SetAlpha(1.0f);
+
+  // Explicitly zero the size, no quad should be produced.
+  surface->SetEmbeddedSurfaceSize(gfx::Size(0, 0));
+  surface->SetEmbeddedSurfaceId(base::BindRepeating([]() -> viz::SurfaceId {
+    return viz::SurfaceId(
+        viz::FrameSinkId(1, 1),
+        viz::LocalSurfaceId(1, 1, base::UnguessableToken::Create()));
+  }));
+
+  {
+    surface->Commit();
+    base::RunLoop().RunUntilIdle();
+
+    const viz::CompositorFrame& frame =
+        GetFrameFromSurface(shell_surface.get());
+    EXPECT_EQ(1u, frame.render_pass_list.size());
+    EXPECT_EQ(0u, frame.render_pass_list.back()->quad_list.size());
+    // No quad but still has a resource though.
+    EXPECT_EQ(1u, frame.resource_list.size());
+    EXPECT_EQ(1u, frame.resource_list.back().id);
   }
 }
 
@@ -1069,11 +1170,11 @@ TEST_P(SurfaceTest, UpdatesOcclusionOnDestroyingSubsurface) {
   auto sub_surface =
       std::make_unique<SubSurface>(child_surface.get(), surface.get());
   child_surface->Attach(child_buffer.get());
+  // Turn on occlusion tracking.
+  child_surface->SetOcclusionTracking(true);
   child_surface->Commit();
   surface->Commit();
 
-  // Turn on occlusion tracking.
-  child_surface->SetOcclusionTracking(true);
   SurfaceObserverForTest observer;
   ScopedSurface scoped_child_surface(child_surface.get(), &observer);
 

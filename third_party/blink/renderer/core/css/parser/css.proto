@@ -1441,7 +1441,9 @@ message Property {
     OVERSCROLL_BEHAVIOR_BLOCK = 552;
     OVERSCROLL_BEHAVIOR_X = 553;
     OVERSCROLL_BEHAVIOR_Y = 554;
-    INVALID_PROPERTY = 555;
+    ANIMATION_TIMELINE = 555;
+    COUNTER_SET = 556;
+    INVALID_PROPERTY = 557;
   }
   required NameId name_id = 1;
 }
@@ -2378,7 +2380,9 @@ message PropertyAndValue {
     SMOOTH = 757;
     JUMP_START = 758;
     NO_DRAG = 759;
-    INVALID_VALUE = 760;
+    JIS_B5 = 760;
+    JIS_B4 = 761;
+    INVALID_VALUE = 762;
   };
 
   optional ValueId value_id = 4;

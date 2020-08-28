@@ -28,9 +28,13 @@ class CORE_EXPORT NGTextPainter : public TextPainterBase {
                 const NGTextFragmentPaintInfo& fragment_paint_info,
                 const IntRect& visual_rect,
                 const PhysicalOffset& text_origin,
-                const PhysicalRect& text_bounds,
+                const PhysicalRect& text_frame_rect,
                 bool horizontal)
-      : TextPainterBase(context, font, text_origin, text_bounds, horizontal),
+      : TextPainterBase(context,
+                        font,
+                        text_origin,
+                        text_frame_rect,
+                        horizontal),
         fragment_paint_info_(fragment_paint_info),
         visual_rect_(visual_rect) {}
   ~NGTextPainter() = default;
@@ -43,6 +47,14 @@ class CORE_EXPORT NGTextPainter : public TextPainterBase {
              unsigned length,
              const TextPaintStyle&,
              DOMNodeId);
+
+  void PaintSelectedText(unsigned start_offset,
+                         unsigned end_offset,
+                         unsigned length,
+                         const TextPaintStyle& text_style,
+                         const TextPaintStyle& selection_style,
+                         const PhysicalRect& selection_rect,
+                         DOMNodeId node_id);
 
  private:
   template <PaintInternalStep step>

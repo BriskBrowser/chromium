@@ -109,8 +109,8 @@ class AccessibilityPrivateOnSelectToSpeakStateChangedFunction
                              ACCESSIBILITY_PRIVATE_ONSELECTTOSPEAKSTATECHANGED)
 };
 
-// API function that is called when the Autoclick extension finds scrollable
-// bounds.
+// API function that is called when the Accessibility Common extension finds
+// scrollable bounds.
 class AccessibilityPrivateOnScrollableBoundsForPointFoundFunction
     : public ExtensionFunction {
   ~AccessibilityPrivateOnScrollableBoundsForPointFoundFunction() override {}
@@ -129,15 +129,6 @@ class AccessibilityPrivateToggleDictationFunction : public ExtensionFunction {
                              ACCESSIBILITY_PRIVATE_TOGGLEDICTATION)
 };
 
-// API function that is called to show or hide the Switch Access menu.
-class AccessibilityPrivateSetSwitchAccessMenuStateFunction
-    : public ExtensionFunction {
-  ~AccessibilityPrivateSetSwitchAccessMenuStateFunction() override {}
-  ResponseAction Run() override;
-  DECLARE_EXTENSION_FUNCTION("accessibilityPrivate.setSwitchAccessMenuState",
-                             ACCESSIBILITY_PRIVATE_SETSWITCHACCESSMENUSTATE)
-};
-
 // API function that requests that key events be forwarded to the Switch
 // Access extension.
 class AccessibilityPrivateForwardKeyEventsToSwitchAccessFunction
@@ -147,6 +138,15 @@ class AccessibilityPrivateForwardKeyEventsToSwitchAccessFunction
   DECLARE_EXTENSION_FUNCTION(
       "accessibilityPrivate.forwardKeyEventsToSwitchAccess",
       ACCESSIBILITY_PRIVATE_FORWARDKEYEVENTSTOSWITCHACCESS)
+};
+
+// API function that is called to show or hide one of the Switch Access bubbles.
+class AccessibilityPrivateUpdateSwitchAccessBubbleFunction
+    : public ExtensionFunction {
+  ~AccessibilityPrivateUpdateSwitchAccessBubbleFunction() override {}
+  ResponseAction Run() override;
+  DECLARE_EXTENSION_FUNCTION("accessibilityPrivate.updateSwitchAccessBubble",
+                             ACCESSIBILITY_PRIVATE_UPDATESWITCHACCESSBUBBLE)
 };
 
 // API function that is called to get the device's battery status as a string.

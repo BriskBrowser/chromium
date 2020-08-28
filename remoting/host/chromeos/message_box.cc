@@ -37,20 +37,17 @@ class MessageBox::Core : public views::DialogDelegateView {
   void Hide();
 
   // views::DialogDelegateView:
-  bool Accept() override;
-  bool Cancel() override;
   ui::ModalType GetModalType() const override;
   base::string16 GetWindowTitle() const override;
   views::View* GetContentsView() override;
+  views::Widget* GetWidget() override;
+  const views::Widget* GetWidget() const override;
   void DeleteDelegate() override;
 
   // Called by MessageBox::Core when it is destroyed.
   void OnMessageBoxDestroyed();
 
  private:
-  // views::DialogDelegateView:
-  const views::Widget* GetWidgetImpl() const override;
-
   const base::string16 title_label_;
   ResultCallback result_callback_;
   MessageBox* message_box_;
@@ -68,13 +65,23 @@ MessageBox::Core::Core(const base::string16& title_label,
                        ResultCallback result_callback,
                        MessageBox* message_box)
     : title_label_(title_label),
-      result_callback_(result_callback),
+      result_callback_(std::move(result_callback)),
       message_box_(message_box),
-      message_box_view_(new views::MessageBoxView(
-          views::MessageBoxView::InitParams(message_label))) {
+      message_box_view_(new views::MessageBoxView(message_label)) {
   DCHECK(message_box_);
-  DialogDelegate::set_button_label(ui::DIALOG_BUTTON_OK, ok_label);
-  DialogDelegate::set_button_label(ui::DIALOG_BUTTON_CANCEL, cancel_label);
+  DialogDelegate::SetButtonLabel(ui::DIALOG_BUTTON_OK, ok_label);
+  DialogDelegate::SetButtonLabel(ui::DIALOG_BUTTON_CANCEL, cancel_label);
+
+  auto run_callback = [](MessageBox::Core* core, Result result) {
+    if (core->result_callback_)
+      std::move(core->result_callback_).Run(result);
+  };
+  DialogDelegate::SetAcceptCallback(
+      base::BindOnce(run_callback, base::Unretained(this), OK));
+  DialogDelegate::SetCancelCallback(
+      base::BindOnce(run_callback, base::Unretained(this), CANCEL));
+  DialogDelegate::SetCloseCallback(
+      base::BindOnce(run_callback, base::Unretained(this), CANCEL));
 }
 
 void MessageBox::Core::Show() {
@@ -95,20 +102,6 @@ void MessageBox::Core::Hide() {
   }
 }
 
-bool MessageBox::Core::Accept() {
-  if (!result_callback_.is_null()) {
-    std::move(result_callback_).Run(OK);
-  }
-  return true /* close the window*/;
-}
-
-bool MessageBox::Core::Cancel() {
-  if (!result_callback_.is_null()) {
-    std::move(result_callback_).Run(CANCEL);
-  }
-  return true /* close the window*/;
-}
-
 ui::ModalType MessageBox::Core::GetModalType() const {
   return ui::MODAL_TYPE_SYSTEM;
 }
@@ -119,6 +112,14 @@ base::string16 MessageBox::Core::GetWindowTitle() const {
 
 views::View* MessageBox::Core::GetContentsView() {
   return message_box_view_;
+}
+
+views::Widget* MessageBox::Core::GetWidget() {
+  return message_box_view_->GetWidget();
+}
+
+const views::Widget* MessageBox::Core::GetWidget() const {
+  return message_box_view_->GetWidget();
 }
 
 void MessageBox::Core::DeleteDelegate() {
@@ -135,10 +136,6 @@ void MessageBox::Core::OnMessageBoxDestroyed() {
   result_callback_.Reset();
 }
 
-const views::Widget* MessageBox::Core::GetWidgetImpl() const {
-  return message_box_view_->GetWidget();
-}
-
 MessageBox::MessageBox(const base::string16& title_label,
                        const base::string16& message_label,
                        const base::string16& ok_label,
@@ -148,7 +145,7 @@ MessageBox::MessageBox(const base::string16& title_label,
                      message_label,
                      ok_label,
                      cancel_label,
-                     result_callback,
+                     std::move(result_callback),
                      this)) {
   core_->Show();
 }

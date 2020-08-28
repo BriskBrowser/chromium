@@ -9,8 +9,9 @@
 #include <memory>
 #include <set>
 #include <string>
+#include <tuple>
 
-#include "ash/system/message_center/arc/arc_notification_surface_manager.h"
+#include "ash/public/cpp/external_arc/message_center/arc_notification_surface_manager.h"
 #include "chrome/browser/chromeos/accessibility/accessibility_manager.h"
 #include "chrome/browser/chromeos/arc/accessibility/ax_tree_source_arc.h"
 #include "chrome/browser/chromeos/arc/input_method_manager/arc_input_method_manager_service.h"
@@ -19,6 +20,7 @@
 #include "components/arc/session/connection_observer.h"
 #include "components/keyed_service/core/keyed_service.h"
 #include "ui/accessibility/ax_action_handler.h"
+#include "ui/aura/window_observer.h"
 #include "ui/aura/window_tracker.h"
 #include "ui/wm/public/activation_change_observer.h"
 
@@ -41,8 +43,8 @@ class ArcBridgeService;
 arc::mojom::CaptionStylePtr GetCaptionStyleFromPrefs(PrefService* prefs);
 
 // ArcAccessibilityHelperBridge is an instance to receive converted Android
-// accessibility events and info via mojo interface and dispatch them to chrome
-// os components.
+// accessibility events and info via mojo interface and dispatch them to Chrome
+// OS components.
 class ArcAccessibilityHelperBridge
     : public KeyedService,
       public mojom::AccessibilityHelperHost,
@@ -51,7 +53,8 @@ class ArcAccessibilityHelperBridge
       public AXTreeSourceArc::Delegate,
       public ArcAppListPrefs::Observer,
       public arc::ArcInputMethodManagerService::Observer,
-      public ash::ArcNotificationSurfaceManager::Observer {
+      public ash::ArcNotificationSurfaceManager::Observer,
+      public aura::WindowObserver {
  public:
   // Builds the ArcAccessibilityHelperBridgeFactory.
   static void CreateFactory();
@@ -74,6 +77,10 @@ class ArcAccessibilityHelperBridge
       bool enabled,
       bool processed);
 
+  // Request Android to send the entire tree with the tree id. Returns true if
+  // the specified tree exists in ARC and a request was sent.
+  bool RefreshTreeIfInActiveWindow(const ui::AXTreeID& tree_id);
+
   // KeyedService overrides.
   void Shutdown() override;
 
@@ -87,9 +94,11 @@ class ArcAccessibilityHelperBridge
   void OnNotificationStateChanged(
       const std::string& notification_key,
       mojom::AccessibilityNotificationStateType state) override;
+  void OnToggleNativeChromeVoxArcSupport(bool enabled) override;
 
   // AXTreeSourceArc::Delegate overrides.
   void OnAction(const ui::AXActionData& data) const override;
+  bool IsScreenReaderEnabled() const override;
 
   // ArcAppListPrefs::Observer overrides.
   void OnTaskDestroyed(int32_t task_id) override;
@@ -102,6 +111,18 @@ class ArcAccessibilityHelperBridge
       ash::ArcNotificationSurface* surface) override;
   void OnNotificationSurfaceRemoved(
       ash::ArcNotificationSurface* surface) override {}
+
+  // wm::ActivationChangeObserver overrides.
+  void OnWindowActivated(ActivationReason reason,
+                         aura::Window* gained_active,
+                         aura::Window* lost_active) override;
+
+  // aura::WindowObserver overrides.
+  void OnWindowPropertyChanged(aura::Window* window,
+                               const void* key,
+                               intptr_t old) override;
+
+  void InvokeUpdateEnabledFeatureForTesting();
 
   enum class TreeKeyType {
     kTaskId,
@@ -116,20 +137,15 @@ class ArcAccessibilityHelperBridge
 
   const TreeMap& trees_for_test() const { return trees_; }
 
-  void set_filter_type_all_for_test() { use_filter_type_all_for_test_ = true; }
-
  private:
   // virtual for testing.
   virtual aura::Window* GetActiveWindow();
   virtual extensions::EventRouter* GetEventRouter() const;
+  virtual arc::mojom::AccessibilityFilterType GetFilterTypeForProfile(
+      Profile* profile);
 
   std::unique_ptr<PrefChangeRegistrar> pref_change_registrar_;
   void UpdateCaptionSettings() const;
-
-  // wm::ActivationChangeObserver overrides.
-  void OnWindowActivated(ActivationReason reason,
-                         aura::Window* gained_active,
-                         aura::Window* lost_active) override;
 
   void OnActionResult(const ui::AXActionData& data, bool result) const;
   void OnGetTextLocationDataResult(
@@ -141,7 +157,6 @@ class ArcAccessibilityHelperBridge
 
   void OnAccessibilityStatusChanged(
       const chromeos::AccessibilityStatusEventDetails& event_details);
-  arc::mojom::AccessibilityFilterType GetFilterTypeForProfile(Profile* profile);
   void UpdateEnabledFeature();
   void UpdateWindowProperties(aura::Window* window);
   void SetExploreByTouchEnabled(bool enabled);
@@ -150,19 +165,37 @@ class ArcAccessibilityHelperBridge
   void HandleFilterTypeFocusEvent(mojom::AccessibilityEventDataPtr event_data);
   void HandleFilterTypeAllEvent(mojom::AccessibilityEventDataPtr event_data);
 
-  AXTreeSourceArc* CreateFromKey(TreeKey);
+  // Update |window_id_to_task_id_| with a given window if necessary.
+  void UpdateWindowIdMapping(aura::Window* window);
+
+  void DispatchEventTextAnnouncement(
+      mojom::AccessibilityEventData* event_data) const;
+  void DispatchCustomSpokenFeedbackToggled(bool enabled) const;
+
+  AXTreeSourceArc* CreateFromKey(TreeKey, aura::Window* window);
   AXTreeSourceArc* GetFromKey(const TreeKey&);
   AXTreeSourceArc* GetFromTreeId(ui::AXTreeID tree_id) const;
 
   bool activation_observer_added_ = false;
   bool is_focus_highlight_enabled_ = false;
+  bool is_screen_reader_enabled_ = false;
   Profile* const profile_;
   ArcBridgeService* const arc_bridge_service_;
   TreeMap trees_;
 
+  std::map<int32_t, int32_t> window_id_to_task_id_;
+
   std::unique_ptr<chromeos::AccessibilityStatusSubscription>
       accessibility_status_subscription_;
-  bool use_filter_type_all_for_test_ = false;
+
+  arc::mojom::AccessibilityFilterType filter_type_ =
+      arc::mojom::AccessibilityFilterType::OFF;
+
+  // Set of task id where TalkBack is enabled. ChromeOS native accessibility
+  // support should be disabled for these tasks.
+  std::set<int32_t> talkback_enabled_task_ids_;
+  // True if native ChromeVox support is enabled.
+  bool native_chromevox_enabled_ = true;
 
   DISALLOW_COPY_AND_ASSIGN(ArcAccessibilityHelperBridge);
 };

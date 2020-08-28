@@ -13,15 +13,18 @@
 #include "content/common/service_worker/service_worker_utils.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
+#include "services/network/public/cpp/cross_origin_embedder_policy.h"
 
 namespace content {
 
 ServiceWorkerMainResourceHandle::ServiceWorkerMainResourceHandle(
-    ServiceWorkerContextWrapper* context_wrapper)
+    ServiceWorkerContextWrapper* context_wrapper,
+    ServiceWorkerAccessedCallback on_service_worker_accessed)
     : context_wrapper_(context_wrapper) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
-  core_ = new ServiceWorkerMainResourceHandleCore(weak_factory_.GetWeakPtr(),
-                                                  context_wrapper);
+  core_ = new ServiceWorkerMainResourceHandleCore(
+      weak_factory_.GetWeakPtr(), context_wrapper,
+      std::move(on_service_worker_accessed));
 }
 
 ServiceWorkerMainResourceHandle::~ServiceWorkerMainResourceHandle() {
@@ -31,35 +34,46 @@ ServiceWorkerMainResourceHandle::~ServiceWorkerMainResourceHandle() {
                             core_);
 }
 
-void ServiceWorkerMainResourceHandle::OnCreatedProviderHost(
-    blink::mojom::ServiceWorkerProviderInfoForClientPtr provider_info) {
+void ServiceWorkerMainResourceHandle::OnCreatedContainerHost(
+    blink::mojom::ServiceWorkerContainerInfoForClientPtr container_info) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
-  DCHECK(provider_info->host_remote.is_valid() &&
-         provider_info->client_receiver.is_valid());
+  DCHECK(container_info->host_remote.is_valid() &&
+         container_info->client_receiver.is_valid());
 
-  provider_info_ = std::move(provider_info);
+  container_info_ = std::move(container_info);
 }
 
 void ServiceWorkerMainResourceHandle::OnBeginNavigationCommit(
     int render_process_id,
     int render_frame_id,
-    network::mojom::CrossOriginEmbedderPolicy cross_origin_embedder_policy,
-    blink::mojom::ServiceWorkerProviderInfoForClientPtr* out_provider_info) {
+    const network::CrossOriginEmbedderPolicy& cross_origin_embedder_policy,
+    mojo::PendingRemote<network::mojom::CrossOriginEmbedderPolicyReporter>
+        coep_reporter,
+    blink::mojom::ServiceWorkerContainerInfoForClientPtr* out_container_info) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
-  // We may have failed to pre-create the provider host.
-  if (!provider_info_)
+  // We may have failed to pre-create the container host.
+  if (!container_info_)
     return;
   ServiceWorkerContextWrapper::RunOrPostTaskOnCoreThread(
       FROM_HERE,
       base::BindOnce(
           &ServiceWorkerMainResourceHandleCore::OnBeginNavigationCommit,
           base::Unretained(core_), render_process_id, render_frame_id,
-          cross_origin_embedder_policy));
-  *out_provider_info = std::move(provider_info_);
+          cross_origin_embedder_policy, std::move(coep_reporter)));
+  *out_container_info = std::move(container_info_);
+}
+
+void ServiceWorkerMainResourceHandle::OnEndNavigationCommit() {
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
+  ServiceWorkerContextWrapper::RunOrPostTaskOnCoreThread(
+      FROM_HERE,
+      base::BindOnce(
+          &ServiceWorkerMainResourceHandleCore::OnEndNavigationCommit,
+          base::Unretained(core_)));
 }
 
 void ServiceWorkerMainResourceHandle::OnBeginWorkerCommit(
-    network::mojom::CrossOriginEmbedderPolicy cross_origin_embedder_policy) {
+    const network::CrossOriginEmbedderPolicy& cross_origin_embedder_policy) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   ServiceWorkerContextWrapper::RunOrPostTaskOnCoreThread(
       FROM_HERE,

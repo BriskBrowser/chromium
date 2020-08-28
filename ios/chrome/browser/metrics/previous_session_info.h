@@ -7,11 +7,16 @@
 
 #import <Foundation/Foundation.h>
 
+#include "base/callback_helpers.h"
+
 namespace previous_session_info_constants {
 // Key in the UserDefaults for a boolean value keeping track of memory warnings.
 extern NSString* const kDidSeeMemoryWarningShortlyBeforeTerminating;
 // Key in the UserDefaults for a double value which stores OS start time.
 extern NSString* const kOSStartTime;
+// Key in the UserDefaults for a boolean describing whether or not the session
+// restoration is in progress.
+extern NSString* const kPreviousSessionInfoRestoringSession;
 
 // The values of this enum are persisted (both to NSUserDefaults and logs) and
 // represent the state of the last session (which may have been running a
@@ -71,10 +76,6 @@ enum class DeviceBatteryState {
 @property(nonatomic, assign, readonly)
     BOOL didSeeMemoryWarningShortlyBeforeTerminating;
 
-// Whether or not the system OS was updated between the previous and the
-// current session.
-@property(nonatomic, assign, readonly) BOOL isFirstSessionAfterOSUpgrade;
-
 // Whether the app was updated between the previous and the current session.
 @property(nonatomic, assign, readonly) BOOL isFirstSessionAfterUpgrade;
 
@@ -86,17 +87,23 @@ enum class DeviceBatteryState {
 // session.
 @property(nonatomic, assign, readonly) BOOL OSRestartedAfterPreviousSession;
 
+// Whether the previous session was on Multi Window enabled version of the
+// application.
+// TODO(crbug.com/1109280): Remove after the migration to Multi-Window sessions
+// is done.
+@property(nonatomic, assign, readonly) BOOL isMultiWindowEnabledSession;
+
 // The OS version during the previous session or nil if no previous session data
 // is available.
 @property(nonatomic, strong, readonly) NSString* OSVersion;
 
-// The version of the previous session or nil if no previous session data is
-// available.
-@property(nonatomic, strong, readonly) NSString* previousSessionVersion;
-
 // The time at which the previous sesion ended. Note that this is only an
 // estimate and is updated whenever another value of the receiver is updated.
 @property(nonatomic, strong, readonly) NSDate* sessionEndTime;
+
+// YES if the previous session was terminated during session restoration.
+// Reset to NO after resetSessionRestorationFlag call.
+@property(nonatomic, readonly) BOOL terminatedDuringSessionRestoration;
 
 // Singleton PreviousSessionInfo. During the lifetime of the app, the returned
 // object is the same, and describes the previous session, even after a new
@@ -131,6 +138,16 @@ enum class DeviceBatteryState {
 // When a session has begun, records that any memory warning flagged can be
 // ignored.
 - (void)resetMemoryWarningFlag;
+
+// Must be called when Chrome starts session restoration. The returned closure
+// runner will clear up the flag when destroyed. Can be used on different
+// threads.
+- (base::ScopedClosureRunner)startSessionRestoration;
+
+// Must be called after reporting UTE metrics when app is started after UTE.
+// Automatically called when ScopedClosureRunner returned from -startRestoration
+// gets destructed.
+- (void)resetSessionRestorationFlag;
 
 @end
 

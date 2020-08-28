@@ -58,36 +58,27 @@ BluetoothLowEnergyWeaveClientConnection::Factory*
 
 // static
 std::unique_ptr<Connection>
-BluetoothLowEnergyWeaveClientConnection::Factory::NewInstance(
+BluetoothLowEnergyWeaveClientConnection::Factory::Create(
     multidevice::RemoteDeviceRef remote_device,
     scoped_refptr<device::BluetoothAdapter> adapter,
     const device::BluetoothUUID remote_service_uuid,
     const std::string& device_address,
     bool should_set_low_connection_latency) {
-  if (!factory_instance_) {
-    factory_instance_ = new Factory();
+  if (factory_instance_) {
+    return factory_instance_->CreateInstance(
+        remote_device, adapter, remote_service_uuid, device_address,
+        should_set_low_connection_latency);
   }
-  return factory_instance_->BuildInstance(remote_device, adapter,
-                                          remote_service_uuid, device_address,
-                                          should_set_low_connection_latency);
-}
 
-// static
-void BluetoothLowEnergyWeaveClientConnection::Factory::SetInstanceForTesting(
-    Factory* factory) {
-  factory_instance_ = factory;
-}
-
-std::unique_ptr<Connection>
-BluetoothLowEnergyWeaveClientConnection::Factory::BuildInstance(
-    multidevice::RemoteDeviceRef remote_device,
-    scoped_refptr<device::BluetoothAdapter> adapter,
-    const device::BluetoothUUID remote_service_uuid,
-    const std::string& device_address,
-    bool should_set_low_connection_latency) {
   return std::make_unique<BluetoothLowEnergyWeaveClientConnection>(
       remote_device, adapter, remote_service_uuid, device_address,
       should_set_low_connection_latency);
+}
+
+// static
+void BluetoothLowEnergyWeaveClientConnection::Factory::SetFactoryForTesting(
+    Factory* factory) {
+  factory_instance_ = factory;
 }
 
 // static
@@ -238,10 +229,10 @@ void BluetoothLowEnergyWeaveClientConnection::CreateGattConnection() {
   PA_LOG(INFO) << "Creating GATT connection with " << GetDeviceInfoLogString()
                << ".";
   bluetooth_device->CreateGattConnection(
-      base::Bind(
+      base::BindOnce(
           &BluetoothLowEnergyWeaveClientConnection::OnGattConnectionCreated,
           weak_ptr_factory_.GetWeakPtr()),
-      base::Bind(
+      base::BindOnce(
           &BluetoothLowEnergyWeaveClientConnection::OnCreateGattConnectionError,
           weak_ptr_factory_.GetWeakPtr()));
 }
@@ -545,23 +536,22 @@ void BluetoothLowEnergyWeaveClientConnection::OnGattConnectionCreated(
   PA_LOG(INFO) << "Finding GATT characteristics for "
                << GetDeviceInfoLogString() << ".";
   characteristic_finder_.reset(CreateCharacteristicsFinder(
-      base::Bind(
+      base::BindOnce(
           &BluetoothLowEnergyWeaveClientConnection::OnCharacteristicsFound,
           weak_ptr_factory_.GetWeakPtr()),
-      base::Bind(&BluetoothLowEnergyWeaveClientConnection::
-                     OnCharacteristicsFinderError,
-                 weak_ptr_factory_.GetWeakPtr())));
+      base::BindOnce(&BluetoothLowEnergyWeaveClientConnection::
+                         OnCharacteristicsFinderError,
+                     weak_ptr_factory_.GetWeakPtr())));
 }
 
 BluetoothLowEnergyCharacteristicsFinder*
 BluetoothLowEnergyWeaveClientConnection::CreateCharacteristicsFinder(
-    const BluetoothLowEnergyCharacteristicsFinder::SuccessCallback&
-        success_callback,
-    const BluetoothLowEnergyCharacteristicsFinder::ErrorCallback&
-        error_callback) {
+    BluetoothLowEnergyCharacteristicsFinder::SuccessCallback success_callback,
+    base::OnceClosure error_callback) {
   return new BluetoothLowEnergyCharacteristicsFinder(
       adapter_, GetBluetoothDevice(), remote_service_, tx_characteristic_,
-      rx_characteristic_, success_callback, error_callback, remote_device(),
+      rx_characteristic_, std::move(success_callback),
+      std::move(error_callback), remote_device(),
       std::make_unique<BackgroundEidGenerator>());
 }
 
@@ -621,11 +611,12 @@ void BluetoothLowEnergyWeaveClientConnection::StartNotifySession() {
   PA_LOG(INFO) << "Starting notification session for "
                << GetDeviceInfoLogString() << ".";
   characteristic->StartNotifySession(
-      base::Bind(
+      base::BindOnce(
           &BluetoothLowEnergyWeaveClientConnection::OnNotifySessionStarted,
           weak_ptr_factory_.GetWeakPtr()),
-      base::Bind(&BluetoothLowEnergyWeaveClientConnection::OnNotifySessionError,
-                 weak_ptr_factory_.GetWeakPtr()));
+      base::BindOnce(
+          &BluetoothLowEnergyWeaveClientConnection::OnNotifySessionError,
+          weak_ptr_factory_.GetWeakPtr()));
 }
 
 void BluetoothLowEnergyWeaveClientConnection::OnNotifySessionStarted(
@@ -700,14 +691,17 @@ void BluetoothLowEnergyWeaveClientConnection::SendPendingWriteRequest() {
   if (sub_status() == SubStatus::CONNECTED_AND_IDLE)
     SetSubStatus(SubStatus::CONNECTED_AND_SENDING_MESSAGE);
 
+  // Note: the Android implementation of this GATT characteristic does not
+  // support kWithoutResponse; we must specify kWithResponse.
   characteristic->WriteRemoteCharacteristic(
       pending_write_request_->value,
-      base::Bind(&BluetoothLowEnergyWeaveClientConnection::
-                     OnRemoteCharacteristicWritten,
-                 weak_ptr_factory_.GetWeakPtr()),
-      base::Bind(&BluetoothLowEnergyWeaveClientConnection::
-                     OnWriteRemoteCharacteristicError,
-                 weak_ptr_factory_.GetWeakPtr()));
+      device::BluetoothRemoteGattCharacteristic::WriteType::kWithResponse,
+      base::BindOnce(&BluetoothLowEnergyWeaveClientConnection::
+                         OnRemoteCharacteristicWritten,
+                     weak_ptr_factory_.GetWeakPtr()),
+      base::BindOnce(&BluetoothLowEnergyWeaveClientConnection::
+                         OnWriteRemoteCharacteristicError,
+                     weak_ptr_factory_.GetWeakPtr()));
 }
 
 void BluetoothLowEnergyWeaveClientConnection::OnRemoteCharacteristicWritten() {
@@ -883,8 +877,8 @@ void BluetoothLowEnergyWeaveClientConnection::GetConnectionRssi(
   // instead of a base::Callback, so use a wrapper for now.
   auto callback_holder = base::AdaptCallbackForRepeating(std::move(callback));
   bluetooth_device->GetConnectionInfo(
-      base::Bind(&BluetoothLowEnergyWeaveClientConnection::OnConnectionInfo,
-                 weak_ptr_factory_.GetWeakPtr(), callback_holder));
+      base::BindOnce(&BluetoothLowEnergyWeaveClientConnection::OnConnectionInfo,
+                     weak_ptr_factory_.GetWeakPtr(), callback_holder));
 }
 
 void BluetoothLowEnergyWeaveClientConnection::OnConnectionInfo(

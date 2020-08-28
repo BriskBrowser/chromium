@@ -4,8 +4,8 @@
 
 #import "ios/chrome/browser/ui/toolbar/primary_toolbar_view.h"
 
+#include "base/check.h"
 #import "base/ios/ios_util.h"
-#include "base/logging.h"
 #import "ios/chrome/browser/ui/toolbar/buttons/toolbar_button.h"
 #import "ios/chrome/browser/ui/toolbar/buttons/toolbar_button_factory.h"
 #import "ios/chrome/browser/ui/toolbar/buttons/toolbar_configuration.h"
@@ -15,10 +15,11 @@
 #import "ios/chrome/browser/ui/toolbar/public/toolbar_constants.h"
 #import "ios/chrome/browser/ui/toolbar/public/toolbar_utils.h"
 #import "ios/chrome/browser/ui/toolbar/toolbar_progress_bar.h"
+#include "ios/chrome/browser/ui/ui_feature_flags.h"
 #import "ios/chrome/browser/ui/util/dynamic_type_util.h"
 #import "ios/chrome/browser/ui/util/uikit_ui_util.h"
-#import "ios/chrome/common/colors/semantic_color_names.h"
-#import "ios/chrome/common/ui_util/constraints_ui_util.h"
+#import "ios/chrome/common/ui/colors/semantic_color_names.h"
+#import "ios/chrome/common/ui/util/constraints_ui_util.h"
 #include "ui/gfx/ios/uikit_util.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
@@ -36,10 +37,6 @@
 @property(nonatomic, strong, readwrite) UIView* locationBarContainer;
 // The height of the container for the location bar, redefined as readwrite.
 @property(nonatomic, strong, readwrite) NSLayoutConstraint* locationBarHeight;
-// The layout guide used to give extra padding at the bottom for the location
-// bar. This padding is considered as "extra" as it is added to the one defined
-// in |locationBarBottomConstraint|.
-@property(nonatomic, strong) UILayoutGuide* extraPaddingGuide;
 
 // StackView containing the leading buttons (relative to the location bar). It
 // should only contain ToolbarButtons. Redefined as readwrite.
@@ -57,6 +54,9 @@
 
 // Separator below the toolbar, redefined as readwrite.
 @property(nonatomic, strong, readwrite) UIView* separator;
+
+// HandleBar attached to the bottom of the toolbar, redefined as readwrite.
+@property(nonatomic, strong, readwrite) UIView* handleBar;
 
 #pragma mark** Buttons in the leading stack view. **
 // Button to navigate back, redefined as readwrite.
@@ -99,9 +99,7 @@
 @synthesize locationBarView = _locationBarView;
 @synthesize fakeOmniboxTarget = _fakeOmniboxTarget;
 @synthesize locationBarBottomConstraint = _locationBarBottomConstraint;
-@synthesize locationBarExtraBottomPadding = _locationBarExtraBottomPadding;
 @synthesize locationBarHeight = _locationBarHeight;
-@synthesize extraPaddingGuide = _extraPaddingGuide;
 @synthesize buttonFactory = _buttonFactory;
 @synthesize allButtons = _allButtons;
 @synthesize progressBar = _progressBar;
@@ -152,6 +150,9 @@
   [self setUpProgressBar];
   [self setUpCollapsedToolbarButton];
   [self setUpSeparator];
+  if (IsIPadIdiom() && base::FeatureList::IsEnabled(kExpandedTabStrip)) {
+    [self setUpHandleBar];
+  }
 
   [self setUpConstraints];
 }
@@ -166,6 +167,11 @@
 - (void)removeFakeOmniboxTarget {
   [self.fakeOmniboxTarget removeFromSuperview];
   self.fakeOmniboxTarget = nil;
+}
+
+- (void)setTopCornersRounded:(BOOL)rounded {
+  _topCornersRounded = rounded;
+  self.layer.cornerRadius = rounded ? kTopCornerRadius : 0;
 }
 
 #pragma mark - UIView
@@ -194,6 +200,9 @@
 - (void)setUpToolbarBackground {
   self.backgroundColor =
       self.buttonFactory.toolbarConfiguration.backgroundColor;
+  if (base::FeatureList::IsEnabled(kExpandedTabStrip)) {
+    self.layer.maskedCorners = kCALayerMinXMinYCorner | kCALayerMaxXMinYCorner;
+  }
 
   self.contentView = self;
 }
@@ -218,14 +227,6 @@
 
   // The location bar shouldn't have vibrancy.
   [self addSubview:self.locationBarContainer];
-
-  // Add layout guide to add extra padding for the location bar if needed.
-  self.extraPaddingGuide = [[UILayoutGuide alloc] init];
-  [self addLayoutGuide:self.extraPaddingGuide];
-
-  if (self.locationBarView) {
-    [self.locationBarContainer addSubview:self.locationBarView];
-  }
 }
 
 // Sets the leading stack view.
@@ -257,10 +258,16 @@
   self.tabGridButton = [self.buttonFactory tabGridButton];
   self.toolsMenuButton = [self.buttonFactory toolsMenuButton];
 
-  self.trailingStackViewButtons = @[
-    self.bookmarkButton, self.shareButton, self.tabGridButton,
-    self.toolsMenuButton
-  ];
+  if (base::FeatureList::IsEnabled(kChangeTabSwitcherPosition)) {
+    self.trailingStackViewButtons =
+        @[ self.shareButton, self.tabGridButton, self.toolsMenuButton ];
+  } else {
+    self.trailingStackViewButtons = @[
+      self.bookmarkButton, self.shareButton, self.tabGridButton,
+      self.toolsMenuButton
+    ];
+  }
+
   self.trailingStackView = [[UIStackView alloc]
       initWithArrangedSubviews:self.trailingStackViewButtons];
   self.trailingStackView.translatesAutoresizingMaskIntoConstraints = NO;
@@ -296,6 +303,15 @@
   [self addSubview:self.separator];
 }
 
+// Sets the handleBar up.
+- (void)setUpHandleBar {
+  self.handleBar = [[UIView alloc] init];
+  self.handleBar.backgroundColor = [UIColor colorNamed:kToolbarShadowColor];
+  self.handleBar.layer.cornerRadius = kHandleBarHeight / 2.0;
+  self.handleBar.translatesAutoresizingMaskIntoConstraints = NO;
+  [self addSubview:self.handleBar];
+}
+
 // Sets the constraints up.
 - (void)setUpConstraints {
   id<LayoutGuideProvider> safeArea = self.safeAreaLayoutGuide;
@@ -313,7 +329,7 @@
                                       kToolbarSeparatorHeight)],
   ]];
 
-  // Leading StackView constraints
+  // Leading StackView constraints.
   [NSLayoutConstraint activateConstraints:@[
     [self.leadingStackView.leadingAnchor
         constraintEqualToAnchor:safeArea.leadingAnchor
@@ -328,16 +344,11 @@
   self.locationBarHeight =
       [self.locationBarContainer.heightAnchor constraintEqualToConstant:0];
   self.locationBarBottomConstraint = [self.locationBarContainer.bottomAnchor
-      constraintEqualToAnchor:self.extraPaddingGuide.topAnchor];
-  self.locationBarExtraBottomPadding =
-      [self.extraPaddingGuide.heightAnchor constraintEqualToConstant:0];
+      constraintEqualToAnchor:self.bottomAnchor];
 
   [NSLayoutConstraint activateConstraints:@[
     self.locationBarBottomConstraint,
     self.locationBarHeight,
-    self.locationBarExtraBottomPadding,
-    [self.extraPaddingGuide.bottomAnchor
-        constraintEqualToAnchor:self.bottomAnchor],
   ]];
   [self.contractedConstraints addObjectsFromArray:@[
     [self.locationBarContainer.trailingAnchor
@@ -410,6 +421,18 @@
 
   // CollapsedToolbarButton constraints.
   AddSameConstraints(self, self.collapsedToolbarButton);
+
+  // HandleBar Constraints.
+  if (self.handleBar) {
+    [NSLayoutConstraint activateConstraints:@[
+      [self.handleBar.bottomAnchor
+          constraintEqualToAnchor:self.bottomAnchor
+                         constant:-kHandleBarBottomAnchorConstant],
+      [self.handleBar.centerXAnchor constraintEqualToAnchor:self.centerXAnchor],
+      [self.handleBar.heightAnchor constraintEqualToConstant:kHandleBarHeight],
+      [self.handleBar.widthAnchor constraintEqualToConstant:kHandleBarWidth],
+    ]];
+  }
 }
 
 #pragma mark - Property accessors
@@ -445,7 +468,8 @@
 
 #pragma mark - AdaptiveToolbarView
 
-- (ToolbarButton*)searchButton {
+- (ToolbarButton*)openNewTabButton {
   return nil;
 }
+
 @end

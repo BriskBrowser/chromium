@@ -9,8 +9,8 @@
 
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
+#include "chromecast/media/api/cma_backend.h"
 #include "chromecast/media/cma/backend/audio_decoder_software_wrapper.h"
-#include "chromecast/media/cma/backend/cma_backend.h"
 #include "chromecast/media/cma/backend/media_pipeline_backend_manager.h"
 #include "chromecast/public/media/media_pipeline_backend.h"
 
@@ -47,6 +47,7 @@ class ActiveAudioDecoderWrapper : public DestructableAudioDecoder {
   RenderingDelay GetRenderingDelay() override;
   void GetStatistics(Statistics* statistics) override;
   bool RequiresDecryption() override;
+  void SetObserver(CmaBackend::AudioDecoder::Observer* observer) override {}
 
   AudioDecoderSoftwareWrapper decoder_;
   const AudioContentType content_type_;
@@ -85,6 +86,7 @@ class AudioDecoderWrapper : public CmaBackend::AudioDecoder {
   RenderingDelay GetRenderingDelay() override;
   void GetStatistics(Statistics* statistics) override;
   bool RequiresDecryption() override;
+  void SetObserver(CmaBackend::AudioDecoder::Observer* observer) override {}
 
   bool decoder_revoked_;
 

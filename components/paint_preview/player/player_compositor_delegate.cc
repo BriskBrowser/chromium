@@ -8,46 +8,57 @@
 #include <utility>
 #include <vector>
 
-#include "base/callback.h"
 #include "base/containers/flat_map.h"
 #include "base/files/file_path.h"
 #include "base/memory/read_only_shared_memory_region.h"
 #include "base/memory/weak_ptr.h"
+#include "base/notreached.h"
 #include "base/optional.h"
 #include "base/strings/string_piece.h"
+#include "base/strings/utf_string_conversions.h"
+#include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
+#include "base/trace_event/common/trace_event_common.h"
+#include "base/trace_event/trace_event.h"
+#include "base/unguessable_token.h"
 #include "components/paint_preview/browser/compositor_utils.h"
 #include "components/paint_preview/browser/paint_preview_base_service.h"
 #include "components/paint_preview/common/proto/paint_preview.pb.h"
+#include "components/paint_preview/common/recording_map.h"
+#include "components/paint_preview/common/serialized_recording.h"
+#include "components/paint_preview/common/version.h"
 #include "components/paint_preview/public/paint_preview_compositor_client.h"
 #include "components/paint_preview/public/paint_preview_compositor_service.h"
 #include "components/services/paint_preview_compositor/public/mojom/paint_preview_compositor.mojom.h"
 #include "mojo/public/cpp/bindings/remote.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "ui/gfx/geometry/rect.h"
-#include "url/gurl.h"
 
 namespace paint_preview {
+
 namespace {
 
-base::flat_map<uint64_t, base::File> CreateFileMapFromProto(
-    const paint_preview::PaintPreviewProto& proto) {
-  std::vector<std::pair<uint64_t, base::File>> entries;
-  entries.reserve(1 + proto.subframes_size());
-  uint64_t root_frame_id = proto.root_frame().id();
-  base::BasicStringPiece<std::string> root_frame_file_path =
-      proto.root_frame().file_path();
-  entries.emplace_back(
-      root_frame_id, base::File(base::FilePath(root_frame_file_path),
-                                base::File::FLAG_OPEN | base::File::FLAG_READ));
-  for (int i = 0; i < proto.subframes_size(); ++i) {
-    uint64_t frame_id = proto.subframes(i).id();
-    base::BasicStringPiece<std::string> frame_file_path =
-        proto.subframes(i).file_path();
-    entries.emplace_back(
-        frame_id, base::File(base::FilePath(frame_file_path),
-                             base::File::FLAG_OPEN | base::File::FLAG_READ));
-  }
-  return base::flat_map<uint64_t, base::File>(std::move(entries));
+std::pair<base::UnguessableToken, std::unique_ptr<HitTester>> BuildHitTester(
+    const PaintPreviewFrameProto& proto) {
+  std::pair<base::UnguessableToken, std::unique_ptr<HitTester>> out(
+      base::UnguessableToken::Deserialize(proto.embedding_token_high(),
+                                          proto.embedding_token_low()),
+      std::make_unique<HitTester>());
+  out.second->Build(proto);
+  return out;
+}
+
+base::flat_map<base::UnguessableToken, std::unique_ptr<HitTester>>
+BuildHitTesters(const PaintPreviewProto& proto) {
+  std::vector<std::pair<base::UnguessableToken, std::unique_ptr<HitTester>>>
+      hit_testers;
+  hit_testers.reserve(proto.subframes_size() + 1);
+  hit_testers.push_back(BuildHitTester(proto.root_frame()));
+  for (const auto& frame_proto : proto.subframes())
+    hit_testers.push_back(BuildHitTester(frame_proto));
+
+  return base::flat_map<base::UnguessableToken, std::unique_ptr<HitTester>>(
+      std::move(hit_testers));
 }
 
 base::Optional<base::ReadOnlySharedMemoryRegion> ToReadOnlySharedMemory(
@@ -63,81 +74,209 @@ base::Optional<base::ReadOnlySharedMemoryRegion> ToReadOnlySharedMemory(
   proto.SerializeToArray(mapping.memory(), mapping.size());
   return base::WritableSharedMemoryRegion::ConvertToReadOnly(std::move(region));
 }
+
+paint_preview::mojom::PaintPreviewBeginCompositeRequestPtr
+PrepareCompositeRequest(const paint_preview::PaintPreviewProto& proto) {
+  paint_preview::mojom::PaintPreviewBeginCompositeRequestPtr
+      begin_composite_request =
+          paint_preview::mojom::PaintPreviewBeginCompositeRequest::New();
+  begin_composite_request->recording_map =
+      RecordingMapFromPaintPreviewProto(proto);
+  if (begin_composite_request->recording_map.empty())
+    return nullptr;
+
+  auto read_only_proto = ToReadOnlySharedMemory(proto);
+  if (!read_only_proto) {
+    DVLOG(1) << "Failed to read proto to read-only shared memory.";
+    return nullptr;
+  }
+  begin_composite_request->proto = std::move(read_only_proto.value());
+  return begin_composite_request;
+}
+
 }  // namespace
 
 PlayerCompositorDelegate::PlayerCompositorDelegate(
     PaintPreviewBaseService* paint_preview_service,
-    const GURL& url)
-    : paint_preview_service_(paint_preview_service) {
-  paint_preview_compositor_service_ =
-      paint_preview_service_->StartCompositorService(base::BindOnce(
-          &PlayerCompositorDelegate::OnCompositorServiceDisconnected,
-          weak_factory_.GetWeakPtr()));
+    const GURL& expected_url,
+    const DirectoryKey& key,
+    base::OnceCallback<void(int)> compositor_error,
+    bool skip_service_launch)
+    : compositor_error_(std::move(compositor_error)),
+      paint_preview_service_(paint_preview_service),
+      key_(key),
+      compress_on_close_(true),
+      paint_preview_compositor_service_(nullptr,
+                                        base::OnTaskRunnerDeleter(nullptr)),
+      paint_preview_compositor_client_(nullptr,
+                                       base::OnTaskRunnerDeleter(nullptr)) {
+  if (skip_service_launch) {
+    paint_preview_service_->GetCapturedPaintPreviewProto(
+        key, base::BindOnce(&PlayerCompositorDelegate::OnProtoAvailable,
+                            weak_factory_.GetWeakPtr(), expected_url));
+    return;
+  }
+  TRACE_EVENT_NESTABLE_ASYNC_BEGIN0("paint_preview",
+                                    "PlayerCompositorDelegate CreateCompositor",
+                                    TRACE_ID_LOCAL(this));
+  paint_preview_compositor_service_ = StartCompositorService(
+      base::BindOnce(&PlayerCompositorDelegate::OnCompositorServiceDisconnected,
+                     weak_factory_.GetWeakPtr()));
+
   paint_preview_compositor_client_ =
       paint_preview_compositor_service_->CreateCompositor(
           base::BindOnce(&PlayerCompositorDelegate::OnCompositorClientCreated,
-                         weak_factory_.GetWeakPtr(), url));
+                         weak_factory_.GetWeakPtr(), expected_url, key));
   paint_preview_compositor_client_->SetDisconnectHandler(
       base::BindOnce(&PlayerCompositorDelegate::OnCompositorClientDisconnected,
                      weak_factory_.GetWeakPtr()));
 }
 
-void PlayerCompositorDelegate::OnCompositorServiceDisconnected() {
-  // TODO(crbug.com/1039699): Handle compositor service disconnect event.
+PlayerCompositorDelegate::~PlayerCompositorDelegate() {
+  if (compress_on_close_) {
+    paint_preview_service_->GetTaskRunner()->PostTask(
+        FROM_HERE,
+        base::BindOnce(base::IgnoreResult(&FileManager::CompressDirectory),
+                       paint_preview_service_->GetFileManager(), key_));
+  }
 }
 
-void PlayerCompositorDelegate::OnCompositorClientCreated(const GURL& url) {
-  paint_preview_compositor_client_->SetRootFrameUrl(url);
+void PlayerCompositorDelegate::OnCompositorReadyStatusAdapter(
+    mojom::PaintPreviewCompositor::BeginCompositeStatus status,
+    mojom::PaintPreviewBeginCompositeResponsePtr composite_response) {
+  CompositorStatus new_status;
+  switch (status) {
+    // falltrhough
+    case mojom::PaintPreviewCompositor::BeginCompositeStatus::kSuccess:
+    case mojom::PaintPreviewCompositor::BeginCompositeStatus::kPartialSuccess:
+      new_status = CompositorStatus::OK;
+      break;
+    case mojom::PaintPreviewCompositor::BeginCompositeStatus::
+        kDeserializingFailure:
+      new_status = CompositorStatus::COMPOSITOR_DESERIALIZATION_ERROR;
+      break;
+    case mojom::PaintPreviewCompositor::BeginCompositeStatus::
+        kCompositingFailure:
+      new_status = CompositorStatus::INVALID_ROOT_FRAME_SKP;
+      break;
+    default:
+      NOTREACHED();
+  }
+  OnCompositorReady(new_status, std::move(composite_response));
+}
 
-  base::Optional<PaintPreviewProto> proto =
-      paint_preview_service_->GetCapturedPaintPreviewProto(url);
-  if (!proto || !proto.value().IsInitialized()) {
+void PlayerCompositorDelegate::OnCompositorServiceDisconnected() {
+  LOG(ERROR) << "Compositor service disconnected.";
+  if (compositor_error_)
+    std::move(compositor_error_)
+        .Run(static_cast<int>(CompositorStatus::COMPOSITOR_SERVICE_DISCONNECT));
+}
+
+void PlayerCompositorDelegate::OnCompositorClientCreated(
+    const GURL& expected_url,
+    const DirectoryKey& key) {
+  TRACE_EVENT_NESTABLE_ASYNC_END0("paint_preview",
+                                  "PlayerCompositorDelegate CreateCompositor",
+                                  TRACE_ID_LOCAL(this));
+  paint_preview_service_->GetCapturedPaintPreviewProto(
+      key, base::BindOnce(&PlayerCompositorDelegate::OnProtoAvailable,
+                          weak_factory_.GetWeakPtr(), expected_url));
+}
+
+void PlayerCompositorDelegate::OnProtoAvailable(
+    const GURL& expected_url,
+    std::unique_ptr<PaintPreviewProto> proto) {
+  if (!proto || !proto->IsInitialized()) {
     // TODO(crbug.com/1021590): Handle initialization errors.
+    OnCompositorReady(CompositorStatus::PROTOBUF_DESERIALIZATION_ERROR,
+                      nullptr);
     return;
   }
 
-  // TODO(crbug.com/1034111): Investigate executing this in the background.
-  mojom::PaintPreviewBeginCompositeRequestPtr begin_composite_request =
-      mojom::PaintPreviewBeginCompositeRequest::New();
-  begin_composite_request->file_map = CreateFileMapFromProto(proto.value());
-  // TODO(crbug.com/1034111): Don't perform this on UI thread.
-  auto read_only_proto = ToReadOnlySharedMemory(proto.value());
-  if (!read_only_proto) {
-    // TODO(crbug.com/1021590): Handle initialization errors.
+  const uint32_t version = proto->metadata().version();
+  if (version < kPaintPreviewVersion) {
+    // If the version is old there was a breaking change to either;
+    // - The SkPicture encoding format
+    // - The storage structure
+    // In either case, the new code is likely unable to deserialize the result
+    // so we should early abort.
+    OnCompositorReady(CompositorStatus::OLD_VERSION, nullptr);
+    return;
+  } else if (version > kPaintPreviewVersion) {
+    // This shouldn't happen hence NOTREACHED(). However, in release we should
+    // treat this as a new failure type to catch any possible regressions.
+    OnCompositorReady(CompositorStatus::UNEXPECTED_VERSION, nullptr);
+    NOTREACHED();
     return;
   }
-  begin_composite_request->proto = std::move(read_only_proto.value());
-  paint_preview_compositor_client_->BeginComposite(
-      std::move(begin_composite_request),
-      base::BindOnce(&PlayerCompositorDelegate::OnCompositorReady,
+
+  auto proto_url = GURL(proto->metadata().url());
+  if (expected_url != proto_url) {
+    OnCompositorReady(CompositorStatus::URL_MISMATCH, nullptr);
+    return;
+  }
+
+  hit_testers_ = BuildHitTesters(*proto);
+
+  if (!paint_preview_compositor_client_) {
+    OnCompositorReady(CompositorStatus::COMPOSITOR_CLIENT_DISCONNECT, nullptr);
+    return;
+  }
+
+  paint_preview_compositor_client_->SetRootFrameUrl(proto_url);
+
+  base::ThreadPool::PostTaskAndReplyWithResult(
+      FROM_HERE, {base::MayBlock(), base::TaskPriority::USER_VISIBLE},
+      base::BindOnce(&PrepareCompositeRequest, *proto),
+      base::BindOnce(&PlayerCompositorDelegate::SendCompositeRequest,
                      weak_factory_.GetWeakPtr()));
-  // TODO(crbug.com/1019883): Initialize the HitTester class.
+}
+
+void PlayerCompositorDelegate::SendCompositeRequest(
+    mojom::PaintPreviewBeginCompositeRequestPtr begin_composite_request) {
+  // TODO(crbug.com/1021590): Handle initialization errors.
+  if (!begin_composite_request) {
+    OnCompositorReady(CompositorStatus::INVALID_REQUEST, nullptr);
+    return;
+  }
+
+  paint_preview_compositor_client_->BeginSeparatedFrameComposite(
+      std::move(begin_composite_request),
+      base::BindOnce(&PlayerCompositorDelegate::OnCompositorReadyStatusAdapter,
+                     weak_factory_.GetWeakPtr()));
 }
 
 void PlayerCompositorDelegate::OnCompositorClientDisconnected() {
-  // TODO(crbug.com/1039699): Handle compositor client disconnect event.
+  LOG(ERROR) << "Compositor client disconnected.";
+  if (compositor_error_)
+    std::move(compositor_error_)
+        .Run(static_cast<int>(CompositorStatus::COMPOSITOR_CLIENT_DISCONNECT));
 }
 
 void PlayerCompositorDelegate::RequestBitmap(
-    uint64_t frame_guid,
+    const base::UnguessableToken& frame_guid,
     const gfx::Rect& clip_rect,
     float scale_factor,
-    base::OnceCallback<void(mojom::PaintPreviewCompositor::Status,
+    base::OnceCallback<void(mojom::PaintPreviewCompositor::BitmapStatus,
                             const SkBitmap&)> callback) {
   if (!paint_preview_compositor_client_) {
     std::move(callback).Run(
-        mojom::PaintPreviewCompositor::Status::kCompositingFailure, SkBitmap());
+        mojom::PaintPreviewCompositor::BitmapStatus::kMissingFrame, SkBitmap());
     return;
   }
 
-  paint_preview_compositor_client_->BitmapForFrame(
+  paint_preview_compositor_client_->BitmapForSeparatedFrame(
       frame_guid, clip_rect, scale_factor, std::move(callback));
 }
 
-void PlayerCompositorDelegate::OnClick(uint64_t frame_guid, int x, int y) {
-  // TODO(crbug.com/1019883): Handle url clicks with the HitTester class.
+std::vector<const GURL*> PlayerCompositorDelegate::OnClick(
+    const base::UnguessableToken& frame_guid,
+    const gfx::Rect& rect) {
+  std::vector<const GURL*> urls;
+  auto it = hit_testers_.find(frame_guid);
+  if (it != hit_testers_.end())
+    it->second->HitTest(rect, &urls);
+  return urls;
 }
-
-PlayerCompositorDelegate::~PlayerCompositorDelegate() = default;
 
 }  // namespace paint_preview

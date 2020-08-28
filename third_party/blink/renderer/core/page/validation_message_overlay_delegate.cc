@@ -34,7 +34,7 @@ class ValidationMessageChromeClient : public EmptyChromeClient {
                                          LocalFrameView* anchor_view)
       : main_chrome_client_(main_chrome_client), anchor_view_(anchor_view) {}
 
-  void Trace(blink::Visitor* visitor) override {
+  void Trace(Visitor* visitor) const override {
     visitor->Trace(main_chrome_client_);
     visitor->Trace(anchor_view_);
     EmptyChromeClient::Trace(visitor);
@@ -99,7 +99,8 @@ void ValidationMessageOverlayDelegate::PaintFrameOverlay(
   if (DrawingRecorder::UseCachedDrawingIfPossible(context, overlay,
                                                   DisplayItem::kFrameOverlay))
     return;
-  DrawingRecorder recorder(context, overlay, DisplayItem::kFrameOverlay);
+  DrawingRecorder recorder(context, overlay, DisplayItem::kFrameOverlay,
+                           IntRect(IntPoint(), view_size));
 
   const_cast<ValidationMessageOverlayDelegate*>(this)->UpdateFrameViewState(
       overlay, view_size);
@@ -137,8 +138,7 @@ void ValidationMessageOverlayDelegate::UpdateFrameViewState(
   // FindVisualRectNeedingUpdateScopeBase::CheckVisualRect().
   FrameView().GetLayoutView()->SetSubtreeShouldCheckForPaintInvalidation();
 
-  FrameView().UpdateAllLifecyclePhases(
-      DocumentLifecycle::LifecycleUpdateReason::kOther);
+  FrameView().UpdateAllLifecyclePhases(DocumentUpdateReason::kOverlay);
 }
 
 void ValidationMessageOverlayDelegate::CreatePage(const FrameOverlay& overlay) {
@@ -160,9 +160,10 @@ void ValidationMessageOverlayDelegate::CreatePage(const FrameOverlay& overlay) {
 
   auto* frame = MakeGarbageCollected<LocalFrame>(
       MakeGarbageCollected<EmptyLocalFrameClient>(), *page_, nullptr, nullptr,
-      nullptr);
+      nullptr, FrameInsertType::kInsertInConstructor,
+      base::UnguessableToken::Create(), nullptr, nullptr);
   frame->SetView(MakeGarbageCollected<LocalFrameView>(*frame, view_size));
-  frame->Init();
+  frame->Init(nullptr);
   frame->View()->SetCanHaveScrollbars(false);
   frame->View()->SetBaseBackgroundColor(Color::kTransparent);
   page_->GetVisualViewport().SetSize(view_size);
@@ -191,8 +192,7 @@ void ValidationMessageOverlayDelegate::CreatePage(const FrameOverlay& overlay) {
   }
   // Get the size to decide position later.
   // TODO(schenney): This says get size, so we only need to update to layout.
-  FrameView().UpdateAllLifecyclePhases(
-      DocumentLifecycle::LifecycleUpdateReason::kOther);
+  FrameView().UpdateAllLifecyclePhases(DocumentUpdateReason::kOverlay);
   bubble_size_ = container.VisibleBoundsInVisualViewport().Size();
   // Add one because the content sometimes exceeds the exact width due to
   // rounding errors.
@@ -201,8 +201,7 @@ void ValidationMessageOverlayDelegate::CreatePage(const FrameOverlay& overlay) {
                                    bubble_size_.Width() / zoom_factor,
                                    CSSPrimitiveValue::UnitType::kPixels);
   container.setAttribute(html_names::kClassAttr, "shown-initially");
-  FrameView().UpdateAllLifecyclePhases(
-      DocumentLifecycle::LifecycleUpdateReason::kOther);
+  FrameView().UpdateAllLifecyclePhases(DocumentUpdateReason::kOverlay);
 }
 
 void ValidationMessageOverlayDelegate::WriteDocument(SharedBuffer* data) {

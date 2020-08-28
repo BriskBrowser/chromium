@@ -31,6 +31,11 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_CLIPBOARD_DATA_OBJECT_ITEM_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_CLIPBOARD_DATA_OBJECT_ITEM_H_
 
+#include "base/optional.h"
+#include "mojo/public/cpp/bindings/remote.h"
+#include "third_party/blink/public/mojom/native_file_system/native_file_system_drag_drop_token.mojom-blink.h"
+#include "third_party/blink/public/mojom/native_file_system/native_file_system_transfer_token.mojom-blink.h"
+#include "third_party/blink/public/platform/web_drag_data.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/fileapi/file.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
@@ -39,6 +44,8 @@
 #include "third_party/blink/renderer/platform/wtf/shared_buffer.h"
 
 namespace blink {
+
+class SystemClipboard;
 
 class CORE_EXPORT DataObjectItem final
     : public GarbageCollected<DataObjectItem> {
@@ -52,7 +59,8 @@ class CORE_EXPORT DataObjectItem final
   // webkitGetAsEntry.
   static DataObjectItem* CreateFromFileWithFileSystemId(
       File*,
-      const String& file_system_id);
+      const String& file_system_id,
+      scoped_refptr<NativeFileSystemDropData> native_file_entry = nullptr);
   static DataObjectItem* CreateFromURL(const String& url, const String& title);
   static DataObjectItem* CreateFromHTML(const String& html,
                                         const KURL& base_url);
@@ -61,13 +69,15 @@ class CORE_EXPORT DataObjectItem final
       const KURL&,
       const String& file_extension,
       const AtomicString& content_disposition);
-  static DataObjectItem* CreateFromClipboard(const String& type,
+  static DataObjectItem* CreateFromClipboard(SystemClipboard* system_clipboard,
+                                             const String& type,
                                              uint64_t sequence_number);
 
-  explicit DataObjectItem(ItemKind, const String& type);
-  explicit DataObjectItem(ItemKind,
-                          const String& type,
-                          uint64_t sequence_number);
+  DataObjectItem(ItemKind kind, const String& type);
+  DataObjectItem(ItemKind,
+                 const String& type,
+                 uint64_t sequence_number,
+                 SystemClipboard* system_clipboard);
 
   ItemKind Kind() const { return kind_; }
   String GetType() const { return type_; }
@@ -85,14 +95,19 @@ class CORE_EXPORT DataObjectItem final
   bool HasFileSystemId() const;
   String FileSystemId() const;
 
-  void Trace(blink::Visitor*);
+  bool HasNativeFileSystemEntry() const;
+  mojo::PendingRemote<mojom::blink::NativeFileSystemDragDropToken>
+  CloneNativeFileSystemEntryToken() const;
+
+  void Trace(Visitor*) const;
 
  private:
-  enum DataSource {
+  enum class DataSource {
     kClipboardSource,
     kInternalSource,
   };
 
+  scoped_refptr<NativeFileSystemDropData> native_file_system_entry_;
   DataSource source_;
   ItemKind kind_;
   String type_;
@@ -105,8 +120,12 @@ class CORE_EXPORT DataObjectItem final
   String title_;
   KURL base_url_;
 
-  uint64_t sequence_number_;  // Only valid when |source_| == PasteboardSource.
+  uint64_t sequence_number_;  // Only valid when |source_| ==
+                              // DataSource::kClipboardSource.
   String file_system_id_;     // Only valid when |file_| is backed by FileEntry.
+
+  // Access to the global system clipboard.
+  Member<SystemClipboard> system_clipboard_;
 };
 
 }  // namespace blink

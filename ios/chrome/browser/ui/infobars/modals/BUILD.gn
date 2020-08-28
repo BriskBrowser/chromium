@@ -12,6 +12,7 @@ source_set("modals") {
     "infobar_password_modal_delegate.h",
     "infobar_password_table_view_controller.h",
     "infobar_password_table_view_controller.mm",
+    "infobar_save_card_modal_consumer.h",
     "infobar_save_card_modal_delegate.h",
     "infobar_save_card_table_view_controller.h",
     "infobar_save_card_table_view_controller.mm",
@@ -30,6 +31,7 @@ source_set("modals") {
     "//ios/chrome/browser/infobars:public",
     "//ios/chrome/browser/passwords:public",
     "//ios/chrome/browser/ui/autofill:autofill_message",
+    "//ios/chrome/browser/ui/autofill:autofill_metrics",
     "//ios/chrome/browser/ui/infobars/coordinators:translate_public",
     "//ios/chrome/browser/ui/table_view",
     "//ios/chrome/browser/ui/table_view:styler",
@@ -45,5 +47,7 @@ source_set("public") {
   sources = [
     "infobar_modal_constants.h",
     "infobar_modal_constants.mm",
+    "infobar_translate_modal_constants.h",
+    "infobar_translate_modal_constants.mm",
   ]
 }

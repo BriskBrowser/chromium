@@ -36,12 +36,12 @@ import org.chromium.base.metrics.test.ShadowRecordHistogram;
 import org.chromium.base.test.BaseRobolectricTestRunner;
 import org.chromium.chrome.browser.DeviceConditions;
 import org.chromium.chrome.browser.ShadowDeviceConditions;
-import org.chromium.chrome.browser.background_task_scheduler.NativeBackgroundTask;
 import org.chromium.chrome.browser.init.BrowserParts;
 import org.chromium.chrome.browser.init.ChromeBrowserInitializer;
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.components.background_task_scheduler.BackgroundTaskScheduler;
 import org.chromium.components.background_task_scheduler.BackgroundTaskSchedulerFactory;
+import org.chromium.components.background_task_scheduler.NativeBackgroundTask;
 import org.chromium.components.background_task_scheduler.TaskIds;
 import org.chromium.components.background_task_scheduler.TaskInfo;
 import org.chromium.components.background_task_scheduler.TaskParameters;
@@ -199,8 +199,7 @@ public class ExploreSitesBackgroundTaskUnitTest {
     public void testRemovesDeprecatedJobId() {
         TaskInfo.Builder deprecatedTaskInfoBuilder =
                 TaskInfo.createPeriodicTask(TaskIds.DEPRECATED_EXPLORE_SITES_REFRESH_JOB_ID,
-                                ExploreSitesBackgroundTask.class, TimeUnit.HOURS.toMillis(4),
-                                TimeUnit.HOURS.toMillis(1))
+                                TimeUnit.HOURS.toMillis(4), TimeUnit.HOURS.toMillis(1))
                         .setRequiredNetworkType(TaskInfo.NetworkType.ANY)
                         .setIsPersisted(true)
                         .setUpdateCurrent(false);
@@ -226,8 +225,7 @@ public class ExploreSitesBackgroundTaskUnitTest {
 
         TaskInfo.Builder taskInfoBuilder =
                 TaskInfo.createPeriodicTask(TaskIds.EXPLORE_SITES_REFRESH_JOB_ID,
-                                ExploreSitesBackgroundTask.class, TimeUnit.HOURS.toMillis(4),
-                                TimeUnit.HOURS.toMillis(1))
+                                TimeUnit.HOURS.toMillis(4), TimeUnit.HOURS.toMillis(1))
                         .setRequiredNetworkType(TaskInfo.NetworkType.ANY)
                         .setIsPersisted(true)
                         .setUpdateCurrent(false);
@@ -250,8 +248,7 @@ public class ExploreSitesBackgroundTaskUnitTest {
     public void testDoesNotRemoveTaskIfFeatureIsEnabled() {
         TaskInfo.Builder taskInfoBuilder =
                 TaskInfo.createPeriodicTask(TaskIds.EXPLORE_SITES_REFRESH_JOB_ID,
-                                ExploreSitesBackgroundTask.class, TimeUnit.HOURS.toMillis(4),
-                                TimeUnit.HOURS.toMillis(1))
+                                TimeUnit.HOURS.toMillis(4), TimeUnit.HOURS.toMillis(1))
                         .setRequiredNetworkType(TaskInfo.NetworkType.ANY)
                         .setIsPersisted(true)
                         .setUpdateCurrent(false);

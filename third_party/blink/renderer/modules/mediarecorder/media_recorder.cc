@@ -6,9 +6,11 @@
 
 #include <algorithm>
 #include <limits>
+#include "third_party/blink/public/common/privacy_budget/identifiability_metric_builder.h"
+#include "third_party/blink/public/common/privacy_budget/identifiability_study_participation.h"
+#include "third_party/blink/public/common/privacy_budget/identifiable_surface.h"
 #include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/public/platform/task_type.h"
-#include "third_party/blink/public/platform/web_media_stream.h"
 #include "third_party/blink/renderer/bindings/core/v8/dictionary.h"
 #include "third_party/blink/renderer/core/dom/events/event.h"
 #include "third_party/blink/renderer/core/fileapi/blob.h"
@@ -17,7 +19,9 @@
 #include "third_party/blink/renderer/modules/mediarecorder/blob_event.h"
 #include "third_party/blink/renderer/platform/blob/blob_data.h"
 #include "third_party/blink/renderer/platform/heap/heap.h"
+#include "third_party/blink/renderer/platform/mediastream/media_stream_descriptor.h"
 #include "third_party/blink/renderer/platform/network/mime/content_type.h"
+#include "third_party/blink/renderer/platform/privacy_budget/identifiability_digest_helpers.h"
 #include "third_party/blink/renderer/platform/wtf/functional.h"
 
 namespace blink {
@@ -87,7 +91,7 @@ void AllocateVideoAndAudioBitrates(ExceptionState& exception_state,
     // Limit audio bitrate values if set explicitly or calculated.
     if (options->hasAudioBitsPerSecond() || options->hasBitsPerSecond()) {
       if (audio_bps > kLargestAutoAllocatedOpusBitRate) {
-        context->AddConsoleMessage(ConsoleMessage::Create(
+        context->AddConsoleMessage(MakeGarbageCollected<ConsoleMessage>(
             mojom::ConsoleMessageSource::kJavaScript,
             mojom::ConsoleMessageLevel::kWarning,
             "Clamping calculated audio bitrate (" + String::Number(audio_bps) +
@@ -97,7 +101,7 @@ void AllocateVideoAndAudioBitrates(ExceptionState& exception_state,
       }
 
       if (audio_bps < kSmallestPossibleOpusBitRate) {
-        context->AddConsoleMessage(ConsoleMessage::Create(
+        context->AddConsoleMessage(MakeGarbageCollected<ConsoleMessage>(
             mojom::ConsoleMessageSource::kJavaScript,
             mojom::ConsoleMessageLevel::kWarning,
             "Clamping calculated audio bitrate (" + String::Number(audio_bps) +
@@ -118,7 +122,7 @@ void AllocateVideoAndAudioBitrates(ExceptionState& exception_state,
     // explicitly.
     if (options->hasVideoBitsPerSecond() || options->hasBitsPerSecond()) {
       if (video_bps < kSmallestPossibleVpxBitRate) {
-        context->AddConsoleMessage(ConsoleMessage::Create(
+        context->AddConsoleMessage(MakeGarbageCollected<ConsoleMessage>(
             mojom::ConsoleMessageSource::kJavaScript,
             mojom::ConsoleMessageLevel::kWarning,
             "Clamping calculated video bitrate (" + String::Number(video_bps) +
@@ -157,7 +161,7 @@ MediaRecorder::MediaRecorder(ExecutionContext* context,
                              MediaStream* stream,
                              const MediaRecorderOptions* options,
                              ExceptionState& exception_state)
-    : ContextLifecycleObserver(context),
+    : ExecutionContextLifecycleObserver(context),
       stream_(stream),
       mime_type_(options->mimeType()),
       stopped_(true),
@@ -192,12 +196,6 @@ MediaRecorder::MediaRecorder(ExecutionContext* context,
         "Failed to initialize native MediaRecorder the type provided (" +
             mime_type_ + ") is not supported.");
     return;
-  }
-  // If the user requested no mimeType, query |recorder_handler_|.
-  if (options->mimeType().IsEmpty()) {
-    const String actual_mime_type = recorder_handler_->ActualMimeType();
-    if (!actual_mime_type.IsEmpty())
-      mime_type_ = actual_mime_type;
   }
   stopped_ = false;
 }
@@ -241,7 +239,6 @@ void MediaRecorder::start(int time_slice, ExceptionState& exception_state) {
         "There was an error starting the MediaRecorder.");
     return;
   }
-  ScheduleDispatchEvent(Event::Create(event_type_names::kStart));
 }
 
 void MediaRecorder::stop(ExceptionState& exception_state) {
@@ -332,8 +329,19 @@ bool MediaRecorder::isTypeSupported(ExecutionContext* context,
   // not available to support the concrete media encoding.
   // https://w3c.github.io/mediacapture-record/#dom-mediarecorder-istypesupported
   ContentType content_type(type);
-  return handler->CanSupportMimeType(content_type.GetType(),
-                                     content_type.Parameter("codecs"));
+  bool result = handler->CanSupportMimeType(content_type.GetType(),
+                                            content_type.Parameter("codecs"));
+  if (IsUserInIdentifiabilityStudy()) {
+    blink::IdentifiabilityMetricBuilder(context->UkmSourceID())
+        .Set(blink::IdentifiableSurface::FromTypeAndToken(
+                 blink::IdentifiableSurface::Type::
+                     kMediaRecorder_IsTypeSupported,
+                 IdentifiabilityBenignStringToken(type)),
+             result)
+        .Record(context->UkmRecorder());
+  }
+
+  return result;
 }
 
 const AtomicString& MediaRecorder::InterfaceName() const {
@@ -341,10 +349,10 @@ const AtomicString& MediaRecorder::InterfaceName() const {
 }
 
 ExecutionContext* MediaRecorder::GetExecutionContext() const {
-  return ContextLifecycleObserver::GetExecutionContext();
+  return ExecutionContextLifecycleObserver::GetExecutionContext();
 }
 
-void MediaRecorder::ContextDestroyed(ExecutionContext*) {
+void MediaRecorder::ContextDestroyed() {
   if (stopped_)
     return;
 
@@ -361,9 +369,20 @@ void MediaRecorder::WriteData(const char* data,
                               size_t length,
                               bool last_in_slice,
                               double timecode) {
+  // Update mime_type_ when "onstart" is sent by the MediaRecorder. This method
+  // is used also from StopRecording, with a zero length. If we never wrote
+  // anything we don't want to send start or associated actions (update the mime
+  // type in that case).
+  if (!first_write_received_ && length) {
+    mime_type_ = recorder_handler_->ActualMimeType();
+  }
   if (stopped_ && !last_in_slice) {
     stopped_ = false;
     ScheduleDispatchEvent(Event::Create(event_type_names::kStart));
+    first_write_received_ = true;
+  } else if (!first_write_received_ && length) {
+    ScheduleDispatchEvent(Event::Create(event_type_names::kStart));
+    first_write_received_ = true;
   }
 
   if (!blob_data_) {
@@ -410,6 +429,8 @@ void MediaRecorder::StopRecording() {
     // have ended leading to a call to OnAllTracksEnded.
     return;
   }
+  // Make sure that starting the recorder again yields an onstart event.
+  first_write_received_ = false;
   state_ = State::kInactive;
 
   recorder_handler_->Stop();
@@ -442,12 +463,12 @@ void MediaRecorder::DispatchScheduledEvent() {
     DispatchEvent(*event);
 }
 
-void MediaRecorder::Trace(blink::Visitor* visitor) {
+void MediaRecorder::Trace(Visitor* visitor) const {
   visitor->Trace(stream_);
   visitor->Trace(recorder_handler_);
   visitor->Trace(scheduled_events_);
   EventTargetWithInlineData::Trace(visitor);
-  ContextLifecycleObserver::Trace(visitor);
+  ExecutionContextLifecycleObserver::Trace(visitor);
 }
 
 }  // namespace blink

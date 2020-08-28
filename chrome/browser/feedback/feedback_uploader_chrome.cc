@@ -6,12 +6,13 @@
 
 #include "base/bind.h"
 #include "base/strings/stringprintf.h"
-#include "base/task/post_task.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/signin/identity_manager_factory.h"
 #include "components/feedback/feedback_report.h"
+#include "components/signin/public/identity_manager/consent_level.h"
 #include "components/signin/public/identity_manager/identity_manager.h"
 #include "components/signin/public/identity_manager/primary_account_access_token_fetcher.h"
+#include "components/signin/public/identity_manager/scope_set.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 
@@ -24,8 +25,8 @@ constexpr char kAuthenticationErrorLogMessage[] =
 
 void QueueSingleReport(base::WeakPtr<feedback::FeedbackUploader> uploader,
                        scoped_refptr<FeedbackReport> report) {
-  base::PostTask(FROM_HERE, {content::BrowserThread::UI},
-                 base::BindOnce(&FeedbackUploaderChrome::RequeueReport,
+  content::GetUIThreadTaskRunner({})->PostTask(
+      FROM_HERE, base::BindOnce(&FeedbackUploaderChrome::RequeueReport,
                                 std::move(uploader), std::move(report)));
 }
 
@@ -75,14 +76,18 @@ void FeedbackUploaderChrome::StartDispatchingReport() {
   signin::IdentityManager* identity_manager =
       IdentityManagerFactory::GetForProfile(profile);
 
-  if (identity_manager && identity_manager->HasPrimaryAccount()) {
-    identity::ScopeSet scopes;
+  // Sync consent is not required to send feedback because the feedback dialog
+  // has its own privacy notice.
+  if (identity_manager &&
+      identity_manager->HasPrimaryAccount(signin::ConsentLevel::kNotRequired)) {
+    signin::ScopeSet scopes;
     scopes.insert("https://www.googleapis.com/auth/supportcontent");
     token_fetcher_ = std::make_unique<signin::PrimaryAccountAccessTokenFetcher>(
         "feedback_uploader_chrome", identity_manager, scopes,
         base::BindOnce(&FeedbackUploaderChrome::AccessTokenAvailable,
                        base::Unretained(this)),
-        signin::PrimaryAccountAccessTokenFetcher::Mode::kImmediate);
+        signin::PrimaryAccountAccessTokenFetcher::Mode::kImmediate,
+        signin::ConsentLevel::kNotRequired);
     return;
   }
 

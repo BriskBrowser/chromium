@@ -52,10 +52,14 @@ void UnifiedHeapController::TracePrologue(
       thread_state_->current_gc_data_.reason);
 
   thread_state_->SetGCState(ThreadState::kNoGCScheduled);
-  BlinkGC::GCReason gc_reason =
-      (v8_flags & v8::EmbedderHeapTracer::TraceFlags::kReduceMemory)
-          ? BlinkGC::GCReason::kUnifiedHeapForMemoryReductionGC
-          : BlinkGC::GCReason::kUnifiedHeapGC;
+  BlinkGC::GCReason gc_reason;
+  if (v8_flags & v8::EmbedderHeapTracer::TraceFlags::kForced) {
+    gc_reason = BlinkGC::GCReason::kUnifiedHeapForcedForTestingGC;
+  } else if (v8_flags & v8::EmbedderHeapTracer::TraceFlags::kReduceMemory) {
+    gc_reason = BlinkGC::GCReason::kUnifiedHeapForMemoryReductionGC;
+  } else {
+    gc_reason = BlinkGC::GCReason::kUnifiedHeapGC;
+  }
   thread_state_->StartIncrementalMarking(gc_reason);
 
   is_tracing_done_ = false;
@@ -82,9 +86,12 @@ void UnifiedHeapController::TraceEpilogue(
         thread_state_->Heap().stats_collector());
     thread_state_->AtomicPauseMarkEpilogue(
         BlinkGC::kIncrementalAndConcurrentMarking);
+    const BlinkGC::SweepingType sweeping_type =
+        thread_state_->IsForcedGC() ? BlinkGC::kEagerSweeping
+                                    : BlinkGC::kConcurrentAndLazySweeping;
     thread_state_->AtomicPauseSweepAndCompact(
-        BlinkGC::kIncrementalAndConcurrentMarking,
-        BlinkGC::kConcurrentAndLazySweeping);
+        BlinkGC::CollectionType::kMajor,
+        BlinkGC::kIncrementalAndConcurrentMarking, sweeping_type);
 
     ThreadHeapStatsCollector* const stats_collector =
         thread_state_->Heap().stats_collector();
@@ -105,9 +112,9 @@ void UnifiedHeapController::RegisterV8References(
   const bool was_in_atomic_pause = thread_state()->in_atomic_pause();
   if (!was_in_atomic_pause)
     ThreadState::Current()->EnterAtomicPause();
-  for (auto& internal_fields : internal_fields_of_potential_wrappers) {
-    WrapperTypeInfo* wrapper_type_info =
-        reinterpret_cast<WrapperTypeInfo*>(internal_fields.first);
+  for (const auto& internal_fields : internal_fields_of_potential_wrappers) {
+    const WrapperTypeInfo* wrapper_type_info =
+        reinterpret_cast<const WrapperTypeInfo*>(internal_fields.first);
     if (wrapper_type_info->gin_embedder != gin::GinEmbedder::kEmbedderBlink) {
       continue;
     }
@@ -131,9 +138,16 @@ bool UnifiedHeapController::AdvanceTracing(double deadline_in_ms) {
     // progress. Oilpan will additionally schedule marking steps.
     ThreadState::AtomicPauseScope atomic_pause_scope(thread_state_);
     ScriptForbiddenScope script_forbidden_scope;
-    base::TimeTicks deadline =
-        base::TimeTicks() + base::TimeDelta::FromMillisecondsD(deadline_in_ms);
-    is_tracing_done_ = thread_state_->MarkPhaseAdvanceMarking(deadline);
+    is_tracing_done_ = thread_state_->MarkPhaseAdvanceMarkingBasedOnSchedule(
+        base::TimeDelta::FromMillisecondsD(deadline_in_ms),
+        ThreadState::EphemeronProcessing::kPartialProcessing);
+    if (!is_tracing_done_) {
+      if (base::FeatureList::IsEnabled(
+              blink::features::kBlinkHeapConcurrentMarking)) {
+        thread_state_->ConcurrentMarkingStep();
+      }
+      thread_state_->RestartIncrementalMarkingIfPaused();
+    }
     return is_tracing_done_;
   }
   thread_state_->AtomicPauseMarkTransitiveClosure();

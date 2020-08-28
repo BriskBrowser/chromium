@@ -7,7 +7,9 @@
 #include <utility>
 
 #include "base/bind.h"
+#include "base/feature_list.h"
 #include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
 #include "build/build_config.h"
 #include "gpu/command_buffer/client/gpu_memory_buffer_manager.h"
 #include "media/capture/video/create_video_capture_device_factory.h"
@@ -25,7 +27,7 @@
 #include "services/video_capture/virtual_device_enabled_device_factory.h"
 #include "services/viz/public/cpp/gpu/gpu.h"
 
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
 #include "media/capture/video/mac/video_capture_device_factory_mac.h"
 #endif
 
@@ -39,9 +41,8 @@ namespace video_capture {
 class VideoCaptureServiceImpl::GpuDependenciesContext {
  public:
   GpuDependenciesContext() {
-    gpu_io_task_runner_ = base::CreateSequencedTaskRunner(
-        {base::ThreadPool(), base::TaskPriority::BEST_EFFORT,
-         base::MayBlock()});
+    gpu_io_task_runner_ = base::ThreadPool::CreateSequencedTaskRunner(
+        {base::TaskPriority::USER_BLOCKING, base::MayBlock()});
   }
 
   ~GpuDependenciesContext() {
@@ -141,8 +142,8 @@ void VideoCaptureServiceImpl::ConnectToVideoSourceProvider(
 }
 
 void VideoCaptureServiceImpl::SetRetryCount(int32_t count) {
-#if defined(OS_MACOSX)
-  media::VideoCaptureDeviceFactoryMac::SetGetDeviceDescriptorsRetryCount(count);
+#if defined(OS_MAC)
+  media::VideoCaptureDeviceFactoryMac::SetGetDevicesInfoRetryCount(count);
 #endif
 }
 

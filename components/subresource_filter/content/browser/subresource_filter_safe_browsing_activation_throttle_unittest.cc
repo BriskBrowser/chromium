@@ -76,10 +76,10 @@ class MockSubresourceFilterClient : public SubresourceFilterClient {
       mojom::ActivationLevel effective_level,
       ActivationDecision* decision) override {
     DCHECK(handle->IsInMainFrame());
-    if (whitelisted_hosts_.count(handle->GetURL().host())) {
+    if (allowlisted_hosts_.count(handle->GetURL().host())) {
       if (effective_level ==
           subresource_filter::mojom::ActivationLevel::kEnabled)
-        *decision = subresource_filter::ActivationDecision::URL_WHITELISTED;
+        *decision = subresource_filter::ActivationDecision::URL_ALLOWLISTED;
       return mojom::ActivationLevel::kDisabled;
     }
     return effective_level;
@@ -88,15 +88,15 @@ class MockSubresourceFilterClient : public SubresourceFilterClient {
   MOCK_METHOD0(ShowNotification, void());
   MOCK_METHOD0(ForceActivationInCurrentWebContents, bool());
 
-  void WhitelistInCurrentWebContents(const GURL& url) {
+  void AllowlistInCurrentWebContents(const GURL& url) {
     ASSERT_TRUE(url.SchemeIsHTTPOrHTTPS());
-    whitelisted_hosts_.insert(url.host());
+    allowlisted_hosts_.insert(url.host());
   }
 
-  void ClearWhitelist() { whitelisted_hosts_.clear(); }
+  void ClearAllowlist() { allowlisted_hosts_.clear(); }
 
  private:
-  std::set<std::string> whitelisted_hosts_;
+  std::set<std::string> allowlisted_hosts_;
 
   DISALLOW_COPY_AND_ASSIGN(MockSubresourceFilterClient);
 };
@@ -243,8 +243,14 @@ class SubresourceFilterSafeBrowsingActivationThrottleTest
   content::NavigationThrottle::ThrottleCheckResult SimulateStart(
       const GURL& first_url,
       content::RenderFrameHost* rfh) {
+    CHECK(!rfh->GetParent());
+    // Use browser-initiated navigations, since some navigations are to WebUI
+    // URLs, which are not allowed from regular web renderers. Tests in this
+    // class are only verifying subresource behavior, so which type of
+    // navigation is used does not influence the test expectations.
     navigation_simulator_ =
-        content::NavigationSimulator::CreateRendererInitiated(first_url, rfh);
+        content::NavigationSimulator::CreateBrowserInitiated(
+            first_url, content::WebContents::FromRenderFrameHost(rfh));
     navigation_simulator_->Start();
     auto result = navigation_simulator_->GetLastThrottleCheckResult();
     if (result.action() == content::NavigationThrottle::CANCEL)
@@ -295,7 +301,7 @@ class SubresourceFilterSafeBrowsingActivationThrottleTest
                              safe_browsing::SB_THREAT_TYPE_SUBRESOURCE_FILTER,
                          const safe_browsing::ThreatMetadata& metadata =
                              safe_browsing::ThreatMetadata()) {
-    fake_safe_browsing_database_->AddBlacklistedUrl(url, pattern_type,
+    fake_safe_browsing_database_->AddBlocklistedUrl(url, pattern_type,
                                                     metadata);
   }
 
@@ -303,8 +309,8 @@ class SubresourceFilterSafeBrowsingActivationThrottleTest
     return fake_safe_browsing_database_.get();
   }
 
-  void ClearAllBlacklistedUrls() {
-    fake_safe_browsing_database_->RemoveAllBlacklistedUrls();
+  void ClearAllBlocklistedUrls() {
+    fake_safe_browsing_database_->RemoveAllBlocklistedUrls();
   }
 
   void RunUntilIdle() {
@@ -501,8 +507,8 @@ TEST_F(SubresourceFilterSafeBrowsingActivationThrottleTest,
   EXPECT_EQ(mojom::ActivationLevel::kDisabled,
             *observer()->GetPageActivationForLastCommittedLoad());
 
-  // Whitelisting occurs last, so the decision should still be DISABLED.
-  client()->WhitelistInCurrentWebContents(url);
+  // Allowlisting occurs last, so the decision should still be DISABLED.
+  client()->AllowlistInCurrentWebContents(url);
   SimulateNavigateAndCommit({url}, main_rfh());
   EXPECT_EQ(mojom::ActivationLevel::kDisabled,
             *observer()->GetPageActivationForLastCommittedLoad());
@@ -620,7 +626,7 @@ TEST_F(SubresourceFilterSafeBrowsingActivationThrottleTest, ActivationList) {
     scoped_configuration()->ResetConfiguration(Configuration(
         mojom::ActivationLevel::kEnabled, ActivationScope::ACTIVATION_LIST,
         test_case.activation_list));
-    ClearAllBlacklistedUrls();
+    ClearAllBlocklistedUrls();
     safe_browsing::ThreatMetadata metadata;
     metadata.threat_pattern_type = test_case.threat_type_metadata;
     ConfigureForMatch(test_url, test_case.threat_type, metadata);
@@ -718,7 +724,7 @@ TEST_P(SubresourceFilterSafeBrowsingActivationThrottleScopeTest,
   EXPECT_EQ(test_data.expected_activation_level,
             *observer()->GetPageActivationForLastCommittedLoad());
   if (test_data.url_matches_activation_list) {
-    client()->WhitelistInCurrentWebContents(test_url);
+    client()->AllowlistInCurrentWebContents(test_url);
     SimulateNavigateAndCommit({test_url}, main_rfh());
     EXPECT_EQ(mojom::ActivationLevel::kDisabled,
               *observer()->GetPageActivationForLastCommittedLoad());
@@ -892,11 +898,7 @@ struct RedirectSamplesAndResults {
 };
 
 TEST_F(SubresourceFilterSafeBrowsingActivationThrottleTest,
-       ActivationTriggeredOnRedirect) {
-  // Turn on the feature to perform safebrowsing on redirects.
-  base::test::ScopedFeatureList scoped_feature_list;
-  scoped_feature_list.InitAndEnableFeature(
-      kSafeBrowsingSubresourceFilterConsiderRedirects);
+       RedirectPositionLogged) {
   std::string histogram_string =
       "SubresourceFilter.PageLoad.Activation.RedirectPosition2.Enforcement";
 
@@ -920,9 +922,10 @@ TEST_F(SubresourceFilterSafeBrowsingActivationThrottleTest,
   ConfigureForMatch(bad_url, safe_browsing::SB_THREAT_TYPE_SUBRESOURCE_FILTER);
   ConfigureForMatch(worse_url, safe_browsing::SB_THREAT_TYPE_URL_PHISHING);
 
-  // Check cases where there are multiple redirection.
+  // Check cases where there are multiple redirects. Activation only triggers
+  // on the final url, but redirect position is evaluated based on the worst.
   const RedirectSamplesAndResults kTestCases[] = {
-      {{worse_url, normal_url, normal_url}, true, RedirectPosition::kFirst},
+      {{worse_url, normal_url, normal_url}, false, RedirectPosition::kFirst},
       {{bad_url, normal_url, worse_url}, true, RedirectPosition::kLast},
       {{worse_url, normal_url, bad_url}, true, RedirectPosition::kLast},
       {{normal_url, worse_url, bad_url}, true, RedirectPosition::kLast},

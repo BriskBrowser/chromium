@@ -12,7 +12,7 @@ import("//testing/test.gni")
 import("//tools/grit/grit_rule.gni")
 import("//tools/v8_context_snapshot/v8_context_snapshot.gni")
 
-if (is_linux) {
+if (is_linux || is_chromeos) {
   import("//build/linux/extract_symbols.gni")
 }
 
@@ -72,14 +72,15 @@ source_set("app_shell_lib") {
 
   # TODO(michaelpg): remove Mac support and always use aura.
   if (use_aura) {
-    deps += [
-      "//ui/aura",
-      "//ui/views",
-    ]
+    deps += [ "//ui/aura" ]
 
     if (use_x11) {
       deps += [ "//ui/events/devices/x11" ]
     }
+  }
+
+  if (toolkit_views) {
+    deps += [ "//ui/views" ]
   }
 
   sources = [
@@ -183,6 +184,8 @@ source_set("app_shell_lib") {
       "browser/shell_native_app_window_aura.h",
     ]
     deps += [
+      "//ui/base/cursor",
+      "//ui/base/cursor/mojom:cursor_type",
       "//ui/platform_window",
       "//ui/wm",
       "//ui/wm/public",
@@ -201,7 +204,7 @@ source_set("app_shell_lib") {
     ]
     deps += [
       "//build:branding_buildflags",
-      "//components/crash/content/app",
+      "//components/crash/core/app",
       "//components/crash/core/common",
       "//components/upload_list",
       "//components/version_info:generate_version_info",
@@ -243,7 +246,7 @@ source_set("app_shell_lib") {
       "//ppapi/shared_impl:shared_impl",
     ]
 
-    if (is_linux) {
+    if (is_linux || is_chromeos) {
       deps += [ "//components/nacl/loader:nacl_helper" ]
 
       if (enable_nacl_nonsfi) {
@@ -256,14 +259,12 @@ source_set("app_shell_lib") {
 executable("app_shell") {
   # testonly because :app_shell_lib is testonly. See :app_shell_lib comment.
   testonly = true
-  sources = [
-    "app/shell_main.cc",
-  ]
+  sources = [ "app/shell_main.cc" ]
 
   deps = [
     ":app_shell_lib",
     "//build/win:default_exe_manifest",
-    "//content/public/app:both",
+    "//content/public/app",
     "//extensions:shell_and_test_pak",
   ]
 
@@ -275,6 +276,10 @@ executable("app_shell") {
 }
 
 test("app_shell_unittests") {
+  if ((is_linux && !is_chromeos) || chromeos_is_browser_only) {
+    use_xvfb = true
+  }
+
   sources = [
     "../test/extensions_unittests_main.cc",
     "browser/api/identity/identity_api_unittest.cc",
@@ -430,8 +435,6 @@ if (is_desktop_linux && is_official_build) {
 
     binary = "$root_out_dir/app_shell"
     symbol_file = "$root_out_dir/app_shell.breakpad.$current_cpu"
-    deps = [
-      ":app_shell",
-    ]
+    deps = [ ":app_shell" ]
   }
 }

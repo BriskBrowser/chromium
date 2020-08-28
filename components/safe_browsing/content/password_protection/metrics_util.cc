@@ -4,8 +4,10 @@
 
 #include "components/safe_browsing/content/password_protection/metrics_util.h"
 
+#include "base/logging.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/notreached.h"
 #include "base/time/time.h"
 #include "net/http/http_status_code.h"
 
@@ -94,8 +96,6 @@ const char kSyncPasswordEntryVerdictHistogram[] =
     "PasswordProtection.Verdict.SyncPasswordEntry";
 const char kNonSyncPasswordEntryVerdictHistogram[] =
     "PasswordProtection.Verdict.NonSyncPasswordEntry";
-const char kSyncPasswordChromeSettingsHistogram[] =
-    "PasswordProtection.ChromeSettingsAction.SyncPasswordEntry";
 const char kSyncPasswordInterstitialHistogram[] =
     "PasswordProtection.InterstitialAction.SyncPasswordEntry";
 const char kSyncPasswordPageInfoHistogram[] =
@@ -350,10 +350,6 @@ void LogWarningAction(WarningUIType ui_type,
         }
       }
       break;
-    case WarningUIType::CHROME_SETTINGS:
-      DCHECK(is_primary_account_password);
-      UMA_HISTOGRAM_ENUMERATION(kSyncPasswordChromeSettingsHistogram, action);
-      break;
     case WarningUIType::INTERSTITIAL:
       if (is_primary_account_password) {
         UMA_HISTOGRAM_ENUMERATION(kSyncPasswordInterstitialHistogram, action);
@@ -387,6 +383,13 @@ void LogNumberOfReuseBeforeSyncPasswordChange(size_t reuse_count) {
   UMA_HISTOGRAM_COUNTS_100(
       "PasswordProtection.GaiaPasswordReusesBeforeGaiaPasswordChanged",
       reuse_count);
+}
+
+void LogModalWarningDialogLifetime(
+    base::TimeTicks modal_construction_start_time) {
+  UMA_HISTOGRAM_MEDIUM_TIMES(
+      "PasswordProtection.ModalWarningDialogLifetime",
+      base::TimeTicks::Now() - modal_construction_start_time);
 }
 
 }  // namespace safe_browsing

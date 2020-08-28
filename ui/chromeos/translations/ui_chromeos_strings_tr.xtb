@@ -8,6 +8,7 @@
 <translation id="1046068652463704410">Japonca giriş (ABD klavye için)</translation>
 <translation id="1047956942837015229"><ph name="COUNT" /> öğe siliniyor...</translation>
 <translation id="1049926623896334335">Word belgesi</translation>
+<translation id="1060368002126861100">Dosyaları <ph name="APP_NAME" /> ile açmak için önce dosyaları Windows dosyaları klasörüne taşıyın.</translation>
 <translation id="1062407476771304334">Değiştir</translation>
 <translation id="1065449928621190041">Fransızca (Kanada) klavye</translation>
 <translation id="1119069657431255176">Bzip2 sıkıştırılmış tar arşivi</translation>
@@ -20,6 +21,7 @@
 <translation id="1150565364351027703">Güneş Gözlüğü</translation>
 <translation id="115443833402798225">Hangul Ahnmatae</translation>
 <translation id="1155759005174418845">Katalanca</translation>
+<translation id="1172970565351728681">Yaklaşık <ph name="REMAINING_TIME" /> kaldı</translation>
 <translation id="1173894706177603556">Yeniden adlandır</translation>
 <translation id="117624967391683467"><ph name="FILE_NAME" /> kopyalanıyor...</translation>
 <translation id="1178581264944972037">Duraklat</translation>
@@ -29,6 +31,7 @@
 <translation id="1243314992276662751">Yükle</translation>
 <translation id="1249250836236328755">Tür</translation>
 <translation id="1278813325885878377">Macarca QWERTY klavye</translation>
+<translation id="1293556467332435079">Dosyalar</translation>
 <translation id="1297922636971898492">Google Drive şu anda kullanılamıyor. Google Drive tekrar kullanılabilir olduğunda yükleme işlemi otomatik olarak yeniden başlayacak.</translation>
 <translation id="1307931752636661898">Linux dosyaları görüntülenemiyor</translation>
 <translation id="1310751437842832374">Harf çevirisi (mausam → ନମସ୍ତେ)</translation>
@@ -44,6 +47,8 @@
 <translation id="1395262318152388157">Arama kaydırma çubuğu</translation>
 <translation id="1399648040768741453">Telugu dili klavye (Fonetik)</translation>
 <translation id="1430915738399379752">Yazdır</translation>
+<translation id="1433600251059882049">Bu klasör Windows ve Linux ile paylaşılıyor</translation>
+<translation id="1435838927755162558">Parallels Desktop ile klasör paylaşın</translation>
 <translation id="1439494416798956626"><ph name="FOLDER_NAME" /> klasörüne taşındı.</translation>
 <translation id="1441841714100794440">Vietnamca klavye (Teleks)</translation>
 <translation id="1455548678241328678">Norveççe klavye</translation>
@@ -78,6 +83,7 @@
 <translation id="1844692022597038441">Bu dosya çevrimdışı kullanılamıyor.</translation>
 <translation id="184633654410729720">Tayca klavye (Kedmanee)</translation>
 <translation id="1847880352285315359">Kaydedildi</translation>
+<translation id="1853795129690976061">Bu klasör Linux ile paylaşılıyor.</translation>
 <translation id="1864756863218646478">Dosya bulunamadı.</translation>
 <translation id="1921986354447415460">Türkçe F klavye</translation>
 <translation id="1924372192547904021"><ph name="DRIVE_NAME" /> biçimlendirildi</translation>
@@ -89,6 +95,7 @@
 <translation id="1947424002851288782">Almanca klavye</translation>
 <translation id="1972984168337863910">Dosyalar geri bildirim panellerini genişlet</translation>
 <translation id="1984603991036629094">Ermenice Fonetik klavye</translation>
+<translation id="1995337122023280937">Dosya konumuna git</translation>
 <translation id="2001796770603320721">Drive'da Yönet</translation>
 <translation id="2009067268969781306">Bir sürücünün biçimlendirilmesi, üzerinde depolanan tüm verileri siler. Bu işlem geri alınamaz.</translation>
 <translation id="2028997212275086731">RAR arşivi</translation>
@@ -100,7 +107,6 @@
 <translation id="2085470240340828803">"<ph name="FILENAME" />" adını taşıyan bir dosya zaten var. Ne yapmak istiyorsunuz?</translation>
 <translation id="2121825465123208577">Yeniden Boyutlandır</translation>
 <translation id="2136953289241069843">Harf çevirisi (namaste → नमस्कार)</translation>
-<translation id="2138867954865495510">"<ph name="PATH" />" açılamıyor: <ph name="ERROR_MESSAGE" /></translation>
 <translation id="2163152940313951844">Geçersiz karakter: <ph name="CHARACTER_NAME" /></translation>
 <translation id="2164862903024139959">Vietnamca klavye (TCVN)</translation>
 <translation id="2168214441502403371">Farsça klavye</translation>
@@ -122,6 +128,7 @@
 <translation id="2384596874640104496">Sinhala klavye</translation>
 <translation id="240770291734945588"><ph name="SPACE_AVAILABLE" /> kullanılabilir</translation>
 <translation id="2425665904502185219">Toplam dosya boyutu</translation>
+<translation id="2428749644083375155"><ph name="NUMBER_OF_ITEMS" /> öğe <ph name="FOLDER_NAME" /> klasörüne kopyalanıyor</translation>
 <translation id="2448312741937722512">Tür</translation>
 <translation id="2453576648990281505">Dosya zaten var</translation>
 <translation id="2464079411014186876">Dondurma</translation>
@@ -140,6 +147,7 @@
 <translation id="2638942478653899953">Google Drive'a erişilemedi. Lütfen <ph name="BEGIN_LINK" />çıkıp<ph name="END_LINK" /> tekrar giriş yapın.</translation>
 <translation id="2649120831653069427">Gökkuşağı Balığı</translation>
 <translation id="2661146741306740526">16x9</translation>
+<translation id="2664412712123763093">Dosya konumu</translation>
 <translation id="2672394958563893062">Bir hata oluştu. Baştan başlamak için tıklayın.</translation>
 <translation id="2676946222714718093">Şurada oynatılıyor:</translation>
 <translation id="2735698359135166290">Rumence standart klavye</translation>
@@ -175,6 +183,7 @@
 <translation id="303198083543495566">Coğrafya</translation>
 <translation id="3057861065630527966">Fotoğraflarınızı ve videolarınızı yedekleyin</translation>
 <translation id="3064388234319122767">Harf çevirisi (zdravo → здраво)</translation>
+<translation id="3067790092342515856">Windows dosyaları</translation>
 <translation id="3078461028045006476"><ph name="EXTENSION_NAME" /> ile paylaş</translation>
 <translation id="3088034400796962477">Harf çevirisi (salam ← سلام)</translation>
 <translation id="3116361045094675131">İngilizce klavye</translation>
@@ -189,6 +198,7 @@
 <translation id="3236289833370040187">Sahiplik <ph name="DESTINATION_DOMAIN" /> alanına aktarılacak.</translation>
 <translation id="3241720467332021590">İrlanda dili</translation>
 <translation id="3245321423178950146">Bilinmeyen Sanatçı</translation>
+<translation id="3248185426436836442">Beklemede</translation>
 <translation id="3252266817569339921">Fransızca</translation>
 <translation id="3254434849914415189"><ph name="FILE_TYPE" /> dosyaları için varsayılan uygulamayı seç:</translation>
 <translation id="3264582393905923483">Bağlam</translation>
@@ -199,6 +209,7 @@
 <translation id="3335337277364016868">Kaydedildiği yıl</translation>
 <translation id="3338239663705455570">Slovence klavye</translation>
 <translation id="3353984535370177728">Yüklemek için bir klasör seçin</translation>
+<translation id="3356580349448036450">Tamamlandı</translation>
 <translation id="3399597614303179694">Makedonca klavye</translation>
 <translation id="3414856743105198592">Çıkarılabilir medyanın biçimlendirilmesi tüm verileri silecektir. Devam etmek istiyor musunuz?</translation>
 <translation id="3437801641691368414">Oluşturma zamanı</translation>
@@ -210,8 +221,10 @@
 <translation id="3495304270784461826"><ph name="COUNT" /> hata.</translation>
 <translation id="3519867315646775981">Harf çevirisi (shalom ← שלום)</translation>
 <translation id="3522708245912499433">Portekizce</translation>
+<translation id="3524311639100184459">Dikkat: Bu dosyalar geçicidir ve disk alanından kazanmak için otomatik olarak silinebilir.  <ph name="BEGIN_LINK" />Daha Fazla Bilgi<ph name="END_LINK" /></translation>
 <translation id="3527085408025491307">Klasör</translation>
 <translation id="3549797760399244642">drive.google.com'a git...</translation>
+<translation id="3553048479571901246">Dosyaları <ph name="APP_NAME" /> ile açmak için önce dosyaları Windows dosyaları klasörüne kopyalayın.</translation>
 <translation id="357479282490346887">Litvanca</translation>
 <translation id="3583509704582854624">Alfasayısal giriş (Japonca klavye için)</translation>
 <translation id="3603385196401704894">Kanada Fransızcası</translation>
@@ -232,9 +245,11 @@
 <translation id="3780536599611287598">Dosyaları "<ph name="FOLDER_NAME" />" klasörüne taşıma izniniz yok.</translation>
 <translation id="3786301125658655746">Çevrimdışısınız</translation>
 <translation id="3789841737615482174">Yükle</translation>
+<translation id="3793469551756281394">Yaklaşık <ph name="REMAINING_TIME_HOUR" /> <ph name="REMAINING_TIME_MINUTE" /> kaldı</translation>
 <translation id="3798449238516105146">Sürüm</translation>
 <translation id="3801082500826908679">Faroece</translation>
 <translation id="3809272675881623365">Tavşan</translation>
+<translation id="3810973564298564668">Yönet</translation>
 <translation id="3811494700605067549">1 dosya seçildi</translation>
 <translation id="3815016854028376614">Zhuyin giriş yöntemi</translation>
 <translation id="3825863595139017598">Moğolca klavye</translation>
@@ -255,6 +270,7 @@
 <translation id="3943857333388298514">Yapıştır</translation>
 <translation id="3958548648197196644">Kivi</translation>
 <translation id="3966388904776714213">Ses Çalar</translation>
+<translation id="3984317463833596033">Parallels Desktop'a <ph name="FOLDER_NAME" /> klasöründeki dosyaları değiştirmesi için izin verin</translation>
 <translation id="4002066346123236978">Başlık</translation>
 <translation id="4070370845051020638">Kantonca giriş yöntemi</translation>
 <translation id="4072248638558688893">Tamilce klavye (Fonetik)</translation>
@@ -283,8 +299,10 @@
 <translation id="4470564870223067757">Hangul 2 Grubu</translation>
 <translation id="4477219268485577442">Bulgarca fonetik</translation>
 <translation id="4479812471636796472">ABD Dvorak klavye</translation>
+<translation id="4481711095103932593">Bu klasör Windows ile paylaşılıyor</translation>
 <translation id="4487088045714738411">Belçika dilinde klavye</translation>
 <translation id="4522570452068850558">Ayrıntılar</translation>
+<translation id="4542387084127299777">"<ph name="PATH" />" açılamıyor</translation>
 <translation id="4552678318981539154">Daha fazla depolama alanı satın alın</translation>
 <translation id="4559767610552730302">Bokeh</translation>
 <translation id="4572815280350369984"><ph name="FILE_TYPE" /> dosyası</translation>
@@ -292,6 +310,7 @@
 <translation id="4579744207439506346"><ph name="ENTRY_NAME" /> seçime eklendi.</translation>
 <translation id="4582497162516204941">Linux (Beta) ile yükle</translation>
 <translation id="4594543368593301662"><ph name="SEARCH_TERM" /> için sonuçlar gösteriliyor.</translation>
+<translation id="4603392156942865207"><ph name="FILE_NAME" /> adlı dosya <ph name="FOLDER_NAME" /> klasörüne kopyalanıyor</translation>
 <translation id="4631887759990505102">Sanatçı</translation>
 <translation id="4656293982926141856">Bu bilgisayar</translation>
 <translation id="4669606053856530811">"<ph name="SOURCE_NAME" />" kaynağının üyeleri, bu öğeler kendileriyle paylaşılmadığı sürece erişimi kaybedecektir.</translation>
@@ -325,10 +344,12 @@
 <translation id="4880520557730313061">Otomatik düzelt</translation>
 <translation id="4881695831933465202">Aç</translation>
 <translation id="4886021172213954916">Tamilce klavye (Daktilo)</translation>
+<translation id="4900532980794411603">Parallels Desktop ile paylaş</translation>
 <translation id="4905417359854579806"><ph name="FILE_COUNT" /> yedeklenmeye hazır</translation>
 <translation id="4924638091161556692">Sabit</translation>
 <translation id="4935975195727477204">Gazania Çiçeği</translation>
 <translation id="4943368462779413526">Futbol</translation>
+<translation id="4961158930123534723">1 klasör Parallels Desktop ile paylaşıldı</translation>
 <translation id="4969785127455456148">Albüm</translation>
 <translation id="497244430928947428">Malayalam dili klavye (Fonetik)</translation>
 <translation id="4973523518332075481">En fazla <ph name="MAX_LENGTH" /> karakterden oluşan bir ad kullanın</translation>
@@ -340,10 +361,12 @@
 <translation id="5010406651457630570">Bilgisayarlar</translation>
 <translation id="5011233892417813670">Chromebook</translation>
 <translation id="5024856940085636730">Bir işlem, beklenenden daha uzun sürüyor. İşlemi iptal etmek istiyor musunuz?</translation>
+<translation id="5036159836254554629">Parallels Desktop paylaşımını yönet</translation>
 <translation id="5038625366300922036">Daha fazlasını görüntüle...</translation>
 <translation id="5061708541166515394">Kontrast</translation>
 <translation id="5068919226082848014">Pizza</translation>
 <translation id="5081517858322016911"><ph name="TOTAL_FILE_SIZE" /> dosya silinecek</translation>
+<translation id="508423945471810158"><ph name="NUMBER_OF_ITEMS" /> öğe <ph name="FOLDER_NAME" /> klasörüne taşınıyor</translation>
 <translation id="509429900233858213">Bir hata oluştu.</translation>
 <translation id="5098629044894065541">İbranice</translation>
 <translation id="5123433949759960244">Basketbol</translation>
@@ -389,6 +412,7 @@
 <translation id="5418923334382419584">Myanmar klavye</translation>
 <translation id="5428105026674456456">İspanyolca</translation>
 <translation id="5438282218546237410"><ph name="SEARCH_TERM" /> için sonuç yok.</translation>
+<translation id="5449551289610225147">Geçersiz şifre</translation>
 <translation id="5464696796438641524">Lehçe klavye</translation>
 <translation id="5465122519792752163">Nepalce klavye (InScript)</translation>
 <translation id="5469868506864199649">İtalyanca</translation>
@@ -447,6 +471,7 @@
 <translation id="6054173164583630569">Fransızca klavye</translation>
 <translation id="6074825444536523002">Google formu</translation>
 <translation id="6096979789310008754">Arama metni temizlendi, tüm dosya ve klasörler gösteriliyor.</translation>
+<translation id="610101264611565198"><ph name="FILE_NAME" /> adlı dosya <ph name="FOLDER_NAME" /> klasörüne taşınıyor</translation>
 <translation id="6111770213269631447">Harf çevirisi (namaskar → নমস্কার)</translation>
 <translation id="6129953537138746214">Boşluk</translation>
 <translation id="6133173853026656527"><ph name="FILE_NAME" /> taşınıyor...</translation>
@@ -487,9 +512,11 @@
 <translation id="656398493051028875">"<ph name="FILENAME" />" siliniyor...</translation>
 <translation id="6581162200855843583">Google Drive bağlantısı</translation>
 <translation id="6607272825297743757">Dosya bilgileri</translation>
+<translation id="6609332149380188670"><ph name="NUMBER_OF_ITEMS" /> klasör Parallels Desktop ile paylaşıldı</translation>
 <translation id="6629841649550503054">Tümü <ph name="BEGIN_LINK" />Google Drive<ph name="END_LINK" />'a yedeklendi!</translation>
 <translation id="6643016212128521049">Temizle</translation>
 <translation id="6650726141019353908">Pembe kelebek</translation>
+<translation id="6657585470893396449">Şifre</translation>
 <translation id="6710213216561001401">Önceki</translation>
 <translation id="6718273304615422081">Sıkıştırılıyor...</translation>
 <translation id="6751256176799620176">1 klasör seçildi</translation>
@@ -499,6 +526,7 @@
 <translation id="6806699711453372963">Linux paylaşımını yönet</translation>
 <translation id="6808193438228982088">Tilki</translation>
 <translation id="6820687829547641339">Gzip sıkıştırılmış tar arşivi</translation>
+<translation id="6823166707458800069">Bu klasöre kaydedilen tüm dosyalar otomatik olarak web üzerinde yedeklenir.</translation>
 <translation id="6825883775269213504">Rusça</translation>
 <translation id="6827236167376090743">Bu video sürekli olarak oynatılacaktır.</translation>
 <translation id="6847101934483209767"><ph name="ENTRY_NAME" /> seçimden kaldırıldı.</translation>
@@ -508,6 +536,7 @@
 <translation id="6878261347041253038">Devanagarca klavye (Fonetik)</translation>
 <translation id="6885780034956018177">Salyangoz</translation>
 <translation id="6896758677409633944">Kopyala</translation>
+<translation id="6898028766943174120">Diğer alt klasörler...</translation>
 <translation id="691516599546977041"><ph name="FOLDER_NAME" /> konumuna kaydedilemiyor. Düzenlenen resimler İndirilenler klasörüne kaydedilecek.</translation>
 <translation id="6915678159055240887">Chromebox</translation>
 <translation id="6918340160281024199">ABD Workman</translation>
@@ -520,6 +549,7 @@
 <translation id="696203921837389374">Mobil veriler üzerinden senkronizasyonu etkinleştir</translation>
 <translation id="6965382102122355670">Tamam</translation>
 <translation id="6970230597523682626">Bulgarca</translation>
+<translation id="6973630695168034713">Klasörler</translation>
 <translation id="6978611942794658017">Bu dosya Windows yazılımı kullanan PC'ler için tasarlanmıştır ve Chrome OS çalıştıran cihazınızla uyumlu değildir. Lütfen Chrome Web Mağazası'nda uygun başka bir uygulama arayın.</translation>
 <translation id="6979158407327259162">Google Drive</translation>
 <translation id="6990081529015358884">Boş yeriniz kalmadı</translation>
@@ -553,6 +583,7 @@
 <translation id="7417705661718309329">Google harita</translation>
 <translation id="7419631653042041064">Katalanca klavye</translation>
 <translation id="7434823369735508263">İngiltere Dvorak klavye</translation>
+<translation id="7447678886297481665">Bu klasördeki dosyalar salt okunurdur. Bazı işlemler desteklenmez.</translation>
 <translation id="7460898608667578234">Ukraynaca</translation>
 <translation id="7474889694310679759">İngilizce (Kanada) klavye</translation>
 <translation id="7489215562877293245"><ph name="FILE_COUNT" /> bulundu
@@ -662,6 +693,7 @@
 <translation id="8475647382427415476">Google Drive, "<ph name="FILENAME" />" dosyasını şu anda senkronize edemedi. Google Drive senkronize etme işlemini daha sonra tekrar deneyecek.</translation>
 <translation id="8477649328507734757">Dönme</translation>
 <translation id="8487700953926739672">Çevrimdışı kullanılabilir</translation>
+<translation id="8490342535582768689">Parallels Desktop'a Google Drive'ınızdaki dosyaları değiştirmesi için izin verin. Değişiklikler, diğer cihazlarınızla senkronize edilecektir.</translation>
 <translation id="8521441079177373948">İngiltere</translation>
 <translation id="8525306231823319788">Tam ekran</translation>
 <translation id="8551494947769799688">Letonca</translation>
@@ -697,6 +729,7 @@
 <translation id="9065203028668620118">Düzenle</translation>
 <translation id="9099674669267916096">Sayfa sayısı</translation>
 <translation id="9110990317705400362">Sürekli olarak, web'e daha güvenli göz atabilmenizi sağlamanın yollarını aramaktayız. Önceden, herhangi bir web sitesi, tarayıcınıza uzantı eklemeniz için istekte bulunabiliyordu. Google Chrome'un son sürümlerinde bu uzantıları yüklemek istediğinizi Chrome'a açıkça söylemelisiniz. Bunu yapmak için uzantıları Uzantılar sayfası üzerinden eklemeniz gerekiyor. <ph name="BEGIN_LINK" />Daha fazla bilgi edinin<ph name="END_LINK" /></translation>
+<translation id="9111102763498581341">Kilidi Aç</translation>
 <translation id="912419004897138677">Codec</translation>
 <translation id="9129931661813833980">Klasörü sabitle</translation>
 <translation id="9130775360844693113">"<ph name="DESTINATION_NAME" />" hedefinin üyeleri, bu öğelere erişim hakkı kazanacaktır.</translation>

@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/ui/blocked_content/popup_opener_tab_helper.h"
+#include "components/blocked_content/popup_opener_tab_helper.h"
 
 #include <memory>
 #include <string>
@@ -17,15 +17,17 @@
 #include "base/test/simple_test_tick_clock.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
-#include "chrome/browser/content_settings/tab_specific_content_settings.h"
+#include "chrome/browser/content_settings/host_content_settings_map_factory.h"
+#include "chrome/browser/content_settings/page_specific_content_settings_delegate.h"
 #include "chrome/browser/infobars/infobar_service.h"
-#include "chrome/browser/ui/blocked_content/list_item_position.h"
-#include "chrome/browser/ui/blocked_content/popup_tracker.h"
 #include "chrome/browser/ui/blocked_content/tab_under_navigation_throttle.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/test/base/chrome_render_view_host_test_harness.h"
 #include "chrome/test/base/testing_browser_process.h"
 #include "chrome/test/base/testing_profile.h"
+#include "components/blocked_content/list_item_position.h"
+#include "components/blocked_content/popup_tracker.h"
+#include "components/content_settings/browser/page_specific_content_settings.h"
 #include "components/ukm/content/source_url_recorder.h"
 #include "components/ukm/test_ukm_recorder.h"
 #include "content/public/browser/web_contents.h"
@@ -34,16 +36,20 @@
 #include "services/metrics/public/cpp/ukm_builders.h"
 #include "services/metrics/public/cpp/ukm_source.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/blink/public/common/input/web_mouse_event.h"
+#include "ui/base/window_open_disposition.h"
 #include "url/gurl.h"
 
 #if defined(OS_ANDROID)
 #include "base/android/scoped_java_ref.h"
-#include "chrome/browser/ui/android/infobars/infobar_android.h"
+#include "components/infobars/android/infobar_android.h"
 #else
 #include "chrome/browser/ui/blocked_content/framebust_block_tab_helper.h"
 #endif
 
+namespace infobars {
 class InfoBarAndroid;
+}
 
 constexpr char kTabUnderVisibleTime[] = "Tab.TabUnder.VisibleTime";
 constexpr char kTabUnderVisibleTimeBefore[] = "Tab.TabUnder.VisibleTimeBefore";
@@ -57,9 +63,14 @@ class PopupOpenerTabHelperTest : public ChromeRenderViewHostTestHarness {
 
   void SetUp() override {
     ChromeRenderViewHostTestHarness::SetUp();
-    PopupOpenerTabHelper::CreateForWebContents(web_contents(), &raw_clock_);
+    blocked_content::PopupOpenerTabHelper::CreateForWebContents(
+        web_contents(), &raw_clock_,
+        HostContentSettingsMapFactory::GetForProfile(profile()));
     InfoBarService::CreateForWebContents(web_contents());
-    TabSpecificContentSettings::CreateForWebContents(web_contents());
+    content_settings::PageSpecificContentSettings::CreateForWebContents(
+        web_contents(),
+        std::make_unique<chrome::PageSpecificContentSettingsDelegate>(
+            web_contents()));
 #if !defined(OS_ANDROID)
     FramebustBlockTabHelper::CreateForWebContents(web_contents());
 #endif
@@ -95,7 +106,9 @@ class PopupOpenerTabHelperTest : public ChromeRenderViewHostTestHarness {
     content::WebContents* raw_popup = popup.get();
     popups_.push_back(std::move(popup));
 
-    PopupTracker::CreateForWebContents(raw_popup, web_contents() /* opener */);
+    blocked_content::PopupTracker::CreateForWebContents(
+        raw_popup, web_contents() /* opener */,
+        WindowOpenDisposition::NEW_POPUP);
     web_contents()->WasHidden();
     raw_popup->WasShown();
     return raw_popup;
@@ -320,6 +333,73 @@ TEST_F(PopupOpenerTabHelperTest, SimulateTabUnderNavBeforePopup_LogsMetrics) {
   histogram_tester()->ExpectTotalCount(kPopupToTabUnder, 0);
 }
 
+// Navigate to a site without pop-ups, verify the user popup settings are not
+// logged to ukm.
+TEST_F(PopupOpenerTabHelperTest,
+       PageWithNoPopups_NoProfileSettingsLoggedInUkm) {
+  ukm::InitializeSourceUrlRecorderForWebContents(web_contents());
+  ukm::TestAutoSetUkmRecorder test_ukm_recorder;
+
+  const GURL url("https://first.test/");
+  NavigateAndCommitWithoutGesture(url);
+  DeleteContents();
+
+  auto entries =
+      test_ukm_recorder.GetEntriesByName(ukm::builders::Popup_Page::kEntryName);
+  EXPECT_EQ(0u, entries.size());
+}
+
+// Navigate to a site, verify histogram for user site pop up settings
+// when there is at least one popup.
+TEST_F(PopupOpenerTabHelperTest,
+       PageWithDefaultPopupBlocker_ProfileSettingsLoggedInUkm) {
+  ukm::InitializeSourceUrlRecorderForWebContents(web_contents());
+  ukm::TestAutoSetUkmRecorder test_ukm_recorder;
+
+  const GURL url("https://first.test/");
+  NavigateAndCommitWithoutGesture(url);
+  SimulatePopup();
+  DeleteContents();
+
+  auto entries =
+      test_ukm_recorder.GetEntriesByName(ukm::builders::Popup_Page::kEntryName);
+  EXPECT_EQ(1u, entries.size());
+
+  test_ukm_recorder.ExpectEntrySourceHasUrl(entries[0], url);
+  test_ukm_recorder.ExpectEntryMetric(
+      entries[0], ukm::builders::Popup_Page::kAllowedName, false);
+}
+
+// Same as the test with the default pop up blocker, however, with the user
+// explicitly allowing popups on the site.
+TEST_F(PopupOpenerTabHelperTest,
+       PageWithPopupsAllowed_ProfileSettingsLoggedInUkm) {
+  ukm::InitializeSourceUrlRecorderForWebContents(web_contents());
+  ukm::TestAutoSetUkmRecorder test_ukm_recorder;
+
+  const GURL url("https://first.test/");
+
+  // Allow popups on url for the test profile.
+  TestingProfile* test_profile = profile();
+  HostContentSettingsMap* host_content_settings_map =
+      HostContentSettingsMapFactory::GetForProfile(test_profile);
+  host_content_settings_map->SetContentSettingDefaultScope(
+      url, url, ContentSettingsType::POPUPS, std::string(),
+      CONTENT_SETTING_ALLOW);
+
+  NavigateAndCommitWithoutGesture(url);
+  SimulatePopup();
+  DeleteContents();
+
+  auto entries =
+      test_ukm_recorder.GetEntriesByName(ukm::builders::Popup_Page::kEntryName);
+  EXPECT_EQ(1u, entries.size());
+
+  test_ukm_recorder.ExpectEntrySourceHasUrl(entries[0], url);
+  test_ukm_recorder.ExpectEntryMetric(
+      entries[0], ukm::builders::Popup_Page::kAllowedName, true);
+}
+
 class BlockTabUnderTest : public PopupOpenerTabHelperTest {
  public:
   BlockTabUnderTest() {}
@@ -332,14 +412,14 @@ class BlockTabUnderTest : public PopupOpenerTabHelperTest {
         TabUnderNavigationThrottle::kBlockTabUnders);
   }
 
-  InfoBarAndroid* GetInfoBar() {
+  infobars::InfoBarAndroid* GetInfoBar() {
 #if defined(OS_ANDROID)
     auto* service = InfoBarService::FromWebContents(web_contents());
     if (!service->infobar_count())
       return nullptr;
     EXPECT_EQ(1u, service->infobar_count());
-    InfoBarAndroid* infobar =
-        static_cast<InfoBarAndroid*>(service->infobar_at(0));
+    infobars::InfoBarAndroid* infobar =
+        static_cast<infobars::InfoBarAndroid*>(service->infobar_at(0));
     EXPECT_TRUE(infobar);
     return infobar;
 #endif  // defined(OS_ANDROID)
@@ -471,8 +551,8 @@ TEST_F(BlockTabUnderTest, TabUnderWithSubsequentGesture_IsNotBlocked) {
   // Now, let the opener get a user gesture. Cast to avoid reaching into private
   // members.
   static_cast<content::WebContentsObserver*>(
-      PopupOpenerTabHelper::FromWebContents(web_contents()))
-      ->DidGetUserInteraction(blink::WebInputEvent::kMouseDown);
+      blocked_content::PopupOpenerTabHelper::FromWebContents(web_contents()))
+      ->DidGetUserInteraction(blink::WebMouseEvent());
 
   // A subsequent navigation should be allowed, even if it is classified as a
   // suspicious redirect.
@@ -530,7 +610,7 @@ TEST_F(BlockTabUnderTest, ClickThroughAction) {
   EXPECT_FALSE(NavigateAndCommitWithoutGesture(blocked_url));
   EXPECT_FALSE(NavigateAndCommitWithoutGesture(blocked_url));
 #if defined(OS_ANDROID)
-  InfoBarAndroid* infobar = GetInfoBar();
+  infobars::InfoBarAndroid* infobar = GetInfoBar();
   base::android::JavaParamRef<jobject> jobj(nullptr);
   infobar->OnLinkClicked(nullptr /* env */, jobj);
 #else
@@ -539,7 +619,7 @@ TEST_F(BlockTabUnderTest, ClickThroughAction) {
   framebust->OnBlockedUrlClicked(1);
   histogram_tester()->ExpectUniqueSample(
       "Tab.TabUnder.ClickThroughPosition",
-      static_cast<int>(ListItemPosition::kLastItem), 1);
+      static_cast<int>(blocked_content::ListItemPosition::kLastItem), 1);
 #endif
   histogram_tester()->ExpectBucketCount(
       kTabUnderAction,

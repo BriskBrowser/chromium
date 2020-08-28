@@ -41,6 +41,7 @@ suite('GoogleAssistantHandler', function() {
     loadTimeData.overrideValues({
       isAssistantAllowed: true,
       hotwordDspAvailable: true,
+      quickAnswersAvailable: true,
     });
   });
 
@@ -93,6 +94,38 @@ suite('GoogleAssistantHandler', function() {
     assertTrue(button.checked);
     assertTrue(
         page.getPref('settings.voice_interaction.context.enabled.value'));
+  });
+
+  test('toggleAssistantQuickAnswers', function() {
+    let button = page.$$('#google-assistant-quick-answers-enable');
+    assertFalse(!!button);
+    page.setPrefValue('settings.voice_interaction.enabled', true);
+    page.setPrefValue('settings.voice_interaction.context.enabled', true);
+    page.setPrefValue(
+        'settings.voice_interaction.quick_answers.enabled', false);
+    Polymer.dom.flush();
+    button = page.$$('#google-assistant-quick-answers-enable');
+    assertTrue(!!button);
+    assertFalse(button.disabled);
+    assertFalse(button.checked);
+
+    button.click();
+    Polymer.dom.flush();
+    assertTrue(button.checked);
+    assertTrue(
+        page.getPref('settings.voice_interaction.quick_answers.enabled.value'));
+  });
+
+  test('quickAnswersSettingVisibility', function() {
+    let dropdown = page.$$('#quick-answers-container');
+    assertFalse(!!dropdown);
+
+    page.setPrefValue('settings.voice_interaction.enabled', true);
+    page.setPrefValue('settings.voice_interaction.context.enabled', true);
+    Polymer.dom.flush();
+
+    dropdown = page.$$('#quick-answers-container');
+    assertTrue(!!dropdown);
   });
 
   test('toggleAssistantHotword', function() {
@@ -193,38 +226,42 @@ suite('GoogleAssistantHandler', function() {
     button = page.$$('#retrain-voice-model');
     assertFalse(!!button);
 
-    // Hotword enabled.
-    // Activity control consent not granted.
-    // Button should not be shown.
-    page.setPrefValue('settings.voice_interaction.hotword.enabled', true);
-    page.setPrefValue(
-        'settings.voice_interaction.activity_control.consent_status',
-        ConsentStatus.kUnauthorized);
-    Polymer.dom.flush();
-    button = page.$$('#retrain-voice-model');
-    assertFalse(!!button);
-
     // Hotword disabled.
-    // Activity control consent granted.
     // Button should not be shown.
     page.setPrefValue('settings.voice_interaction.hotword.enabled', false);
-    page.setPrefValue(
-        'settings.voice_interaction.activity_control.consent_status',
-        ConsentStatus.kActivityControlAccepted);
     Polymer.dom.flush();
     button = page.$$('#retrain-voice-model');
     assertFalse(!!button);
 
     // Hotword enabled.
-    // Activity control consent granted.
     // Button should be shown.
     page.setPrefValue('settings.voice_interaction.hotword.enabled', true);
-    page.setPrefValue(
-        'settings.voice_interaction.activity_control.consent_status',
-        ConsentStatus.kActivityControlAccepted);
     Polymer.dom.flush();
     button = page.$$('#retrain-voice-model');
     assertTrue(!!button);
+  });
+
+  test('Deep link to retrain voice model', async () => {
+    loadTimeData.overrideValues({isDeepLinkingEnabled: true});
+    assertTrue(loadTimeData.getBoolean('isDeepLinkingEnabled'));
+
+    page.setPrefValue('settings.voice_interaction.enabled', true);
+    page.setPrefValue('settings.voice_interaction.hotword.enabled', true);
+    page.setPrefValue(
+        'settings.voice_interaction.activity_control.consent_status',
+        ConsentStatus.kActivityControlAccepted);
+    Polymer.dom.flush();
+
+    const params = new URLSearchParams;
+    params.append('settingId', '607');
+    settings.Router.getInstance().navigateTo(
+        settings.routes.GOOGLE_ASSISTANT, params);
+
+    const deepLinkElement = page.$$('#retrain-voice-model').$$('cr-button');
+    await test_util.waitAfterNextRender(deepLinkElement);
+    assertEquals(
+        deepLinkElement, getDeepActiveElement(),
+        'Retrain model button should be focused for settingId=607.');
   });
 
   test('toggleAssistantNotification', function() {

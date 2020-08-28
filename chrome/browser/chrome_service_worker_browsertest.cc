@@ -13,13 +13,11 @@
 #include "base/run_loop.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/task/post_task.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/scoped_feature_list.h"
 #include "base/threading/thread_restrictions.h"
 #include "build/build_config.h"
 #include "chrome/browser/content_settings/host_content_settings_map_factory.h"
-#include "chrome/browser/content_settings/tab_specific_content_settings.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_window.h"
@@ -29,6 +27,8 @@
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/test_chrome_web_ui_controller_factory.h"
 #include "chrome/test/base/ui_test_utils.h"
+#include "components/content_settings/browser/page_specific_content_settings.h"
+#include "components/content_settings/core/browser/cookie_settings.h"
 #include "components/content_settings/core/browser/host_content_settings_map.h"
 #include "components/content_settings/core/common/pref_names.h"
 #include "components/favicon/content/content_favicon_driver.h"
@@ -36,12 +36,14 @@
 #include "components/nacl/common/buildflags.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/browser_task_traits.h"
+#include "content/public/browser/browser_thread.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/service_worker_context.h"
 #include "content/public/browser/storage_partition.h"
 #include "content/public/browser/url_data_source.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_ui_controller.h"
+#include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
 #include "net/dns/mock_host_resolver.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
@@ -114,10 +116,10 @@ class ChromeServiceWorkerTest : public InProcessBrowserTest {
 
 template <typename T>
 static void ExpectResultAndRun(T expected,
-                               const base::Closure& continuation,
+                               base::OnceClosure continuation,
                                T actual) {
   EXPECT_EQ(expected, actual);
-  continuation.Run();
+  std::move(continuation).Run();
 }
 
 // http://crbug.com/368570
@@ -135,7 +137,7 @@ IN_PROC_BROWSER_TEST_F(ChromeServiceWorkerTest,
       blink::mojom::ServiceWorkerUpdateViaCache::kImports);
   GetServiceWorkerContext()->RegisterServiceWorker(
       embedded_test_server()->GetURL("/service_worker.js"), options,
-      base::Bind(&ExpectResultAndRun<bool>, true, run_loop.QuitClosure()));
+      base::BindOnce(&ExpectResultAndRun<bool>, true, run_loop.QuitClosure()));
   run_loop.Run();
 
   // Leave the Service Worker registered, and make sure that the browser can
@@ -161,7 +163,7 @@ IN_PROC_BROWSER_TEST_F(ChromeServiceWorkerTest,
       blink::mojom::ServiceWorkerUpdateViaCache::kImports);
   GetServiceWorkerContext()->RegisterServiceWorker(
       embedded_test_server()->GetURL("/service_worker.js"), options,
-      base::Bind(&ExpectResultAndRun<bool>, true, run_loop.QuitClosure()));
+      base::BindOnce(&ExpectResultAndRun<bool>, true, run_loop.QuitClosure()));
   run_loop.Run();
 
   ui_test_utils::NavigateToURL(incognito,
@@ -187,7 +189,7 @@ IN_PROC_BROWSER_TEST_F(ChromeServiceWorkerTest,
       blink::mojom::ServiceWorkerUpdateViaCache::kImports);
   GetServiceWorkerContext()->RegisterServiceWorker(
       embedded_test_server()->GetURL("/service_worker.js"), options,
-      base::Bind(&ExpectResultAndRun<bool>, false, run_loop.QuitClosure()));
+      base::BindOnce(&ExpectResultAndRun<bool>, false, run_loop.QuitClosure()));
   run_loop.Run();
 }
 
@@ -218,10 +220,11 @@ IN_PROC_BROWSER_TEST_F(ChromeServiceWorkerTest,
       embedded_test_server()->GetURL("/scope/done.html"));
   EXPECT_EQ(expected_title2, title_watcher2.WaitAndGetTitle());
 
-  content::WebContents* web_contents =
-      browser()->tab_strip_model()->GetActiveWebContents();
-  EXPECT_TRUE(TabSpecificContentSettings::FromWebContents(web_contents)
-                  ->IsContentBlocked(ContentSettingsType::JAVASCRIPT));
+  content::RenderFrameHost* main_frame =
+      browser()->tab_strip_model()->GetActiveWebContents()->GetMainFrame();
+  EXPECT_TRUE(
+      content_settings::PageSpecificContentSettings::GetForFrame(main_frame)
+          ->IsContentBlocked(ContentSettingsType::JAVASCRIPT));
 }
 
 IN_PROC_BROWSER_TEST_F(ChromeServiceWorkerTest,
@@ -237,8 +240,8 @@ IN_PROC_BROWSER_TEST_F(ChromeServiceWorkerTest,
   msg.owned_encoded_message = blink::EncodeStringMessage(message_data);
   msg.encoded_message = msg.owned_encoded_message;
 
-  base::PostTask(
-      FROM_HERE, {content::BrowserThread::IO},
+  content::GetIOThreadTaskRunner({})->PostTask(
+      FROM_HERE,
       base::BindOnce(
           &content::ServiceWorkerContext::StartServiceWorkerAndDispatchMessage,
           base::Unretained(GetServiceWorkerContext()),
@@ -448,26 +451,28 @@ class ChromeServiceWorkerLinkFetchTest : public ChromeServiceWorkerFetchTest {
         ->GetMainFrame()
         ->ExecuteJavaScriptForTests(
             base::ASCIIToUTF16(js),
-            base::BindOnce([](const base::Closure& quit_callback,
-                              base::Value result) { quit_callback.Run(); },
-                           run_loop.QuitClosure()));
+            base::BindOnce(
+                [](base::OnceClosure quit_callback, base::Value result) {
+                  std::move(quit_callback).Run();
+                },
+                run_loop.QuitClosure()));
     run_loop.Run();
   }
 
   std::string GetManifestAndIssuedRequests() {
     base::RunLoop run_loop;
     browser()->tab_strip_model()->GetActiveWebContents()->GetManifest(
-        base::Bind(&ManifestCallbackAndRun, run_loop.QuitClosure()));
+        base::BindOnce(&ManifestCallbackAndRun, run_loop.QuitClosure()));
     run_loop.Run();
     return ExecuteScriptAndExtractString(
         "if (issuedRequests.length != 0) reportRequests();"
         "else reportOnFetch = true;");
   }
 
-  static void ManifestCallbackAndRun(const base::Closure& continuation,
+  static void ManifestCallbackAndRun(base::OnceClosure continuation,
                                      const GURL&,
                                      const blink::Manifest&) {
-    continuation.Run();
+    std::move(continuation).Run();
   }
 
   DISALLOW_COPY_AND_ASSIGN(ChromeServiceWorkerLinkFetchTest);
@@ -572,8 +577,9 @@ class ChromeServiceWorkerFetchPPAPITest : public ChromeServiceWorkerFetchTest {
   DISALLOW_COPY_AND_ASSIGN(ChromeServiceWorkerFetchPPAPITest);
 };
 
+// Flaky on Windows and Linux ASan. https://crbug.com/1113802
 IN_PROC_BROWSER_TEST_F(ChromeServiceWorkerFetchPPAPITest,
-                       NotInterceptedByServiceWorker) {
+                       DISABLED_NotInterceptedByServiceWorker) {
   // Only the navigation to the iframe should be intercepted by the service
   // worker. The request for the PNaCl manifest ("/pnacl_url_loader.nmf"),
   // the request for the compiled code ("/pnacl_url_loader_newlib_pnacl.pexe"),
@@ -667,7 +673,7 @@ IN_PROC_BROWSER_TEST_F(ChromeServiceWorkerNavigationHintTest,
       blink::mojom::ServiceWorkerUpdateViaCache::kImports);
   GetServiceWorkerContext()->RegisterServiceWorker(
       embedded_test_server()->GetURL("/sw.js"), options,
-      base::Bind(&ExpectResultAndRun<bool>, true, run_loop.QuitClosure()));
+      base::BindOnce(&ExpectResultAndRun<bool>, true, run_loop.QuitClosure()));
   run_loop.Run();
   RunNavigationHintTest("/scope/",
                         content::StartServiceWorkerForNavigationHintResult::
@@ -870,8 +876,9 @@ class ChromeServiceWorkerNavigationPreloadTest : public InProcessBrowserTest {
 IN_PROC_BROWSER_TEST_F(ChromeServiceWorkerNavigationPreloadTest,
                        TopFrameWithThirdPartyBlocking) {
   // Enable third-party cookie blocking.
-  browser()->profile()->GetPrefs()->SetBoolean(prefs::kBlockThirdPartyCookies,
-                                               true);
+  browser()->profile()->GetPrefs()->SetInteger(
+      prefs::kCookieControlsMode,
+      static_cast<int>(content_settings::CookieControlsMode::kBlockThirdParty));
 
   // Load a page that registers a service worker.
   ui_test_utils::NavigateToURL(
@@ -903,8 +910,9 @@ IN_PROC_BROWSER_TEST_F(ChromeServiceWorkerNavigationPreloadTest,
 IN_PROC_BROWSER_TEST_F(ChromeServiceWorkerNavigationPreloadTest,
                        SubFrameWithThirdPartyBlocking) {
   // Enable third-party cookie blocking.
-  browser()->profile()->GetPrefs()->SetBoolean(prefs::kBlockThirdPartyCookies,
-                                               true);
+  browser()->profile()->GetPrefs()->SetInteger(
+      prefs::kCookieControlsMode,
+      static_cast<int>(content_settings::CookieControlsMode::kBlockThirdParty));
 
   // Load a page that registers a service worker.
   ui_test_utils::NavigateToURL(

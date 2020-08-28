@@ -5,7 +5,7 @@
 #include "content/test/portal/portal_interceptor_for_testing.h"
 
 #include <utility>
-#include "base/logging.h"
+#include "base/check_op.h"
 #include "base/memory/ptr_util.h"
 #include "base/run_loop.h"
 #include "content/browser/frame_host/render_frame_host_impl.h"
@@ -61,13 +61,14 @@ blink::mojom::Portal* PortalInterceptorForTesting::GetForwardingInterface() {
 }
 
 void PortalInterceptorForTesting::Activate(blink::TransferableMessage data,
+                                           base::TimeTicks activation_time,
                                            ActivateCallback callback) {
   for (Observer& observer : observers_->data)
     observer.OnPortalActivate();
 
   // |this| can be destroyed after Activate() is called.
   portal_->Activate(
-      std::move(data),
+      std::move(data), activation_time,
       base::BindOnce(
           [](const scoped_refptr<
                  base::RefCountedData<base::ObserverList<Observer>>>& observers,

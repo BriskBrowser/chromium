@@ -209,7 +209,7 @@ ChromeRenderThreadObserver::GetDynamicParams() {
 
 void ChromeRenderThreadObserver::RegisterMojoInterfaces(
     blink::AssociatedInterfaceRegistry* associated_interfaces) {
-  associated_interfaces->AddInterface(base::Bind(
+  associated_interfaces->AddInterface(base::BindRepeating(
       &ChromeRenderThreadObserver::OnRendererConfigurationAssociatedRequest,
       base::Unretained(this)));
 }
@@ -241,12 +241,6 @@ void ChromeRenderThreadObserver::SetConfiguration(
 void ChromeRenderThreadObserver::SetContentSettingRules(
     const RendererContentSettingRules& rules) {
   content_setting_rules_ = rules;
-}
-
-void ChromeRenderThreadObserver::SetFieldTrialGroup(
-    const std::string& trial_name,
-    const std::string& group_name) {
-  RenderThread::Get()->SetFieldTrialGroup(trial_name, group_name);
 }
 
 void ChromeRenderThreadObserver::OnRendererConfigurationAssociatedRequest(

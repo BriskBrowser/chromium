@@ -9,7 +9,8 @@ import static org.chromium.base.test.util.ScalableTimeout.scaleTimeout;
 import android.content.Context;
 import android.net.Uri;
 import android.support.test.InstrumentationRegistry;
-import android.support.test.filters.SmallTest;
+
+import androidx.test.filters.SmallTest;
 
 import org.junit.After;
 import org.junit.Before;
@@ -100,7 +101,7 @@ public final class FeedNetworkBridgeConformanceTest extends NetworkClientConform
 
     private void createNetworkClient() {
         // The networkClient is declared and tested in NetworkClientConformanceTest
-        mNetworkClient = new FeedTestNetworkBridge(Profile.getLastUsedProfile());
+        mNetworkClient = new FeedTestNetworkBridge(Profile.getLastUsedRegularProfile());
     }
 
     private void destroyNetworkClient() {

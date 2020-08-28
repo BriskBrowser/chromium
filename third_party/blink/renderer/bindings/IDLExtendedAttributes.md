@@ -92,7 +92,7 @@ attribute DOMString item;
 [ImplementedAs=setItem] setter DOMString (unsigned long index);
 ```
 
-There is one interface extended attribute that only affects special operations: `[OverrideBuiltins]`.
+There is one interface extended attribute that only affects special operations: `[LegacyOverrideBuiltins]`.
 
 The following extended attributes are used on special operations, as on methods generally: `[RaisesException]`.
 
@@ -109,7 +109,9 @@ Extended attributes on partial interface members work as normal. However, only t
 * If a flag obviously applies to only one member of a single-member interface (i.e., it is named after that member), the extended attribute should be on the member.
 
 The remaining extended attribute, `[ImplementedAs]`, is mandatory. A partial
-interface must have `[ImplementedAs]` extended attribute to specify a static-only C++ class.
+interface must have `[ImplementedAs]` extended attribute to specify the C++ class that includes the required static methods.
+This may be a static-only class, or for cases where a single static method is a simple getter for an object, that object's
+class may implement the required static method.
 This is stored internally via `[PartialInterfaceImplementedAs]` (see below).
 
 ### interface mixins
@@ -129,12 +131,6 @@ Extended attributes are generally not inherited: only extended attributes on the
 ## Standard Web IDL Extended Attributes
 
 These are defined in the [ECMAScript-specific extended attributes](http://heycam.github.io/webidl/#es-extended-attributes) section of the [Web IDL spec](http://heycam.github.io/webidl/), and alter the binding behavior.
-
-*** note
-Unsupported: `[LenientThis]`
-
-Undocumented: `[TreatNonObjectAsNull]`
-***
 
 ### [CEReactions] _(m, a)_
 
@@ -333,6 +329,18 @@ In the example above, named properties in `HTMLCollection` instances (such as th
 
 The `[LegacyUnenumerableNamedProperties]` extended attribute must be used **only** in interfaces that support named properties.
 
+### [LegacyWindowAlias] _(i)_
+
+Standard: [LegacyWindowAlias](https://heycam.github.io/webidl/#LegacyWindowAlias)
+
+### [LegacyWindowAlias_Measure] _(i)_
+
+Summary: The same as `[Measure]` and `[MeasureAs]` but applied to the property exposed as `[LegacyWindowAlias]`.  Unlike `[Measure]`, you can optionally provide the feature name like `[LegacyWindowAlias_Measure=FeatureName]`.
+
+### [LegacyWindowAlias_RuntimeEnabled] _(i)_
+
+Summary: The same as `[RuntimeEnabled]` but applied to the property exposed as `[LegacyWindowAlias]`.
+
 ### [NamedConstructor] _(i)_
 
 Standard: [NamedConstructor](https://heycam.github.io/webidl/#NamedConstructor)
@@ -352,6 +360,14 @@ Usage: The possible usage is `[NamedConstructor=YYY(...)]`. Just as with constru
 The semantics are the same as `[Constructor]`, except that the name changes: JavaScript can make a DOM object by `new Audio()` instead of by `new HTMLAudioElement()`.
 
 Whether you should allow an interface to have a named constructor or not depends on the spec of each interface.
+
+### [NamedConstructor_CallWith] _(i)_
+
+Summary: The same as `[CallWith]` but applied to the named constructors.
+
+### [NamedConstructor_RaisesException] _(i)_
+
+Summary: The same as `[RaisesException]` but applied to the named constructors.
 
 ### [NewObject] _(m)_
 
@@ -392,9 +408,9 @@ Note that `[NoInterfaceObject]` **MUST** be specified on testing interfaces, as 
 };
 ```
 
-### [OverrideBuiltins] _(i)_
+### [LegacyOverrideBuiltins] _(i)_
 
-Standard: [OverrideBuiltins](http://heycam.github.io/webidl/#OverrideBuiltins)
+Standard: [LegacyOverrideBuiltins](https://heycam.github.io/webidl/#OverrideBuiltins)
 
 Summary: Affects named property operations, making named properties shadow built-in properties of the object.
 
@@ -521,22 +537,36 @@ void func([TreatNullAs=Emptytring] DOMString str);
 
 Implementation: Given `[TreatNullAs=EmptyString]`, a JavaScript null is converted to a Blink empty string, for which `String::IsEmpty()` returns true, but `String::IsNull()` return false.
 
-### [Unforgeable] _(m,a)_
+### [StringContext=TrustedHTML|TrustedScript|TrustedScriptURL] _(t)_
 
-Standard: [Unforgeable](http://heycam.github.io/webidl/#Unforgeable)
+Standard: [TrustedType](https://w3c.github.io/webappsec-trusted-types/dist/spec/#!trustedtypes-extended-attribute)
+
+Summary: Indicate that a DOMString for HTMLs and scripts or USVString for script URLs is to be supplemented with additional Trusted Types enforcement logic.
+
+Usage: Must be specified on a DOMString or a USVString type.
+
+```webidl
+typedef [StringContext=TrustedHTML] DOMString TrustedString;
+attribute TrustedString str;
+void func(TrustedString str);
+```
+
+### [LegacyUnforgeable] _(m,a)_
+
+Standard: [LegacyUnforgeable](https://heycam.github.io/webidl/#Unforgeable)
 
 Summary: Makes interface members unconfigurable and also controls where the member is defined.
 
 Usage: Can be specified on interface methods or non-static interface attributes:
 
 ```webidl
-[Unforgeable] void func();
-[Unforgeable] attribute DOMString str;
+[LegacyUnforgeable] void func();
+[LegacyUnforgeable] attribute DOMString str;
 ```
 
-By default, interface members are configurable (i.e. you can modify a property descriptor corresponding to the member and also you can delete the property). `[Unforgeable]` makes the member unconfiguable so that you cannot modify or delete the property corresponding to the member.
+By default, interface members are configurable (i.e. you can modify a property descriptor corresponding to the member and also you can delete the property). `[LegacyUnforgeable]` makes the member unconfiguable so that you cannot modify or delete the property corresponding to the member.
 
-`[Unforgeable]` changes where the member is defined, too. By default, attribute getters/setters and methods are defined on a prototype chain. `[Unforgeable]` defines the member on the instance object instead of the prototype object.
+`[LegacyUnforgeable]` changes where the member is defined, too. By default, attribute getters/setters and methods are defined on a prototype chain. `[LegacyUnforgeable]` defines the member on the instance object instead of the prototype object.
 
 ### [Unscopable] _(o, a)_
 
@@ -606,13 +636,35 @@ Usage:
 
 For methods all calls are logged, and by default for attributes all access (calls to getter or setter) are logged, but this can be restricted to just read (getter) or just write (setter).
 
-### [CallWith] _(m, a)_, [SetterCallWith] _(a)_, [ConstructorCallWith] _(i)_
+### [CallWith] _(m, a)_, [GetterCallWith] _(a)_, [SetterCallWith] _(a)_, [ConstructorCallWith] _(i)_
 
 Summary: `[CallWith]` indicates that the bindings code calls the Blink implementation with additional information.
 
 Each value changes the signature of the Blink methods by adding an additional parameter to the head of the parameter list, such as `ScriptState*` for `[CallWith=ScriptState]`.
 
-`[SetterCallWith]` applies to attributes, and only affects the signature of the setter.
+`[GetterCallWith]` and `[SetterCallWith]` apply to attributes, and only affects the signature of the getter and setter, respectively.
+
+NOTE: The `ExecutionContext` that you can get with [CallWith=ExecutionContext] or that you can extract from [CallWith=ScriptState] is the ExecutionContext associated with the V8 wrapper of the receiver object, which might be different from the ExecutionContext of the document tree to which the receiver object belongs.  See the following example.
+
+```js
+// V8 wrapper of |span| is associated with |windowA|.
+span = windowA.document.createElement("span");
+// |span| belongs to the document tree of |windowB|.
+windowB.document.body.appendChild(span);
+```
+
+```c++
+// Suppose [CallWith=ExecutionContext] void foo();
+void HTMLSpanElement::foo(ExecutionContext* execution_context) {
+  // The ExecutionContext associated with the creation context of the V8 wrapper
+  // of the receiver object.
+  execution_context;  // the ExecutionContext of |windowA|
+
+  // Node::GetExecutionContext() returns the ExecutionContext of the document
+  // tree to which |this| (the receiver object) belongs.
+  GetExecutionContext();  // the ExecutionContext of |windowB|
+}
+```
 
 #### [CallWith=ScriptState] _(m, a*)_
 
@@ -743,7 +795,7 @@ Summary: They allow you to write bindings code manually as you like: full bindin
 
 Custom bindings are _strongly discouraged_. They are likely to be buggy, a source of security holes, and represent a significant maintenance burden. Before using `[Custom]`, you should doubly consider if you really need custom bindings. You are recommended to modify code generators and add specialized extended attributes or special cases if necessary to avoid using `[Custom]`.
 
-Usage: `[Custom]` can be specified on methods or attributes. `[Custom=CallEpilogue]` can be specified on methods. `[Custom=Getter]` and `[Custom=Setter]` can be specified on attributes. `[Custom=A|B]` can be specified on interfaces, with various values (see below).
+Usage: `[Custom]` can be specified on methods or attributes. `[Custom=Getter]` and `[Custom=Setter]` can be specified on attributes. `[Custom=A|B]` can be specified on interfaces, with various values (see below).
 
 On read only attributes (that are not `[Replaceable]`), `[Custom]` is equivalent to `[Custom=Getter]` (since there is no setter) and `[Custom=Getter]` is preferred.
 
@@ -761,7 +813,6 @@ The bindings generator largely _ignores_ the specified type information of `[Cus
 Before explaining the details, let us clarify the relationship of these IDL attributes.
 
 * `[Custom]` on a method indicates that you can write V8 custom bindings for the method.
-* `[Custom=CallEpilogue]` on a method indicates that the normal code is generated for the method, but with an extra call to an auxiliary custom bindings callback at the end.
 * `[Custom=Getter]` or `[Custom=Setter]` on an attribute means custom bindings for the attribute getter or setter.
 * `[Custom]` on an attribute means custom bindings for both the getter and the setter
 
@@ -770,7 +821,6 @@ Methods:
 ```webidl
 interface XXX {
     [Custom] void func();
-    [Custom=CallEpilogue] void func2();
 };
 ```
 
@@ -778,10 +828,6 @@ You can write custom bindings in third_party/blink/renderer/bindings/{core,modul
 
 ```c++
 void V8XXX::FuncMethodCustom(const v8::FunctionCallbackInfo<v8::Value>& info) {
-  ...;
-}
-
-void V8XXX::Func2MethodEpilogueCustom(const v8::FunctionCallbackInfo<v8::Value>& info, V8XXX* impl) {
   ...;
 }
 ```
@@ -936,6 +982,13 @@ This attribute must be accompanied by either `[Measure]` or `[MeasureAs]`.
 [HighEntropy, MeasureAs=InterestingNamedAttribute] attribute Node interestingNamedAttribute;
 [HighEntropy, Measure] Node getInterestingNode();
 [HighEntropy, Measure] const INTERESTING_CONSTANT = 1;
+```
+
+Attributes and methods labeled with `[HighEntropy=Direct]` are simple surfaces which can be expressed as a sequence of bytes without any need for additional parsing logic.
+For now, this label is only supported for attribute getters, although the `[HighEntropy]` label is supported more broadly.
+
+```webidl
+[HighEntropy=Direct, MeasureAs=SimpleNamedAttribute] attribute unsigned long simpleNamedAttribute;
 ```
 
 ### [DeprecateAs] _(m, a, c)_
@@ -1534,7 +1587,7 @@ Marked functions are allowed to be nondeterministic, throw exceptions, force lay
 
 All DOM constructors are assumed to have side effects. However, an exception can be explicitly indicated when calling constructors using the V8 API method Function::NewInstanceWithSideEffectType().
 
-There is not yet support for marking SymbolKeyedMethodConfigurations as side-effect free. This requires additional support in V8 to whitelist Intrinsics.
+There is not yet support for marking SymbolKeyedMethodConfigurations as side-effect free. This requires additional support in V8 to allow Intrinsics.
 
 Usage for attributes and operations: `[Affects=Nothing]` can be specified on an operation, or on an attribute to indicate that its getter callback is side effect free:
 

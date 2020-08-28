@@ -25,8 +25,6 @@ class SensorProviderProxy;
 class MODULES_EXPORT SensorProxy : public GarbageCollected<SensorProxy>,
                                    public PageVisibilityObserver,
                                    public FocusChangedObserver {
-  USING_GARBAGE_COLLECTED_MIXIN(SensorProxy);
-
  public:
   class Observer : public GarbageCollectedMixin {
    public:
@@ -71,7 +69,7 @@ class MODULES_EXPORT SensorProxy : public GarbageCollected<SensorProxy>,
   // Detach from the local frame's SensorProviderProxy.
   void Detach();
 
-  void Trace(blink::Visitor*) override;
+  void Trace(Visitor*) const override;
 
   static const char kDefaultErrorDescription[];
 

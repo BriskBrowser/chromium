@@ -9,7 +9,6 @@
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/public/platform/web_blob_info.h"
-#include "third_party/blink/renderer/bindings/core/v8/script_controller.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_source_code.h"
 #include "third_party/blink/renderer/bindings/core/v8/serialization/unpacked_serialized_script_value.h"
 #include "third_party/blink/renderer/bindings/core/v8/serialization/v8_script_value_deserializer.h"
@@ -17,6 +16,7 @@
 #include "third_party/blink/renderer/bindings/core/v8/v8_blob.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_dom_exception.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_dom_matrix.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_dom_matrix_init.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_dom_matrix_read_only.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_dom_point.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_dom_point_init.h"
@@ -48,7 +48,9 @@
 #include "third_party/blink/renderer/core/messaging/message_port.h"
 #include "third_party/blink/renderer/core/mojo/mojo_handle.h"
 #include "third_party/blink/renderer/core/offscreencanvas/offscreen_canvas.h"
+#include "third_party/blink/renderer/core/script/classic_script.h"
 #include "third_party/blink/renderer/core/streams/readable_stream.h"
+#include "third_party/blink/renderer/core/streams/transform_stream.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
 #include "third_party/blink/renderer/platform/file_metadata.h"
 #include "third_party/blink/renderer/platform/graphics/unaccelerated_static_bitmap_image.h"
@@ -107,10 +109,8 @@ v8::Local<v8::Value> RoundTrip(
 }
 
 v8::Local<v8::Value> Eval(const String& source, V8TestingScope& scope) {
-  return scope.GetFrame()
-      .GetScriptController()
-      .ExecuteScriptInMainWorldAndReturnValue(source, KURL(),
-                                              SanitizeScriptErrors::kSanitize);
+  return ClassicScript::CreateUnspecifiedScript(ScriptSourceCode(source))
+      ->RunScriptAndReturnValue(&scope.GetFrame());
 }
 
 String ToJSON(v8::Local<v8::Object> object, const V8TestingScope& scope) {
@@ -872,9 +872,9 @@ TEST(V8ScriptValueSerializerTest, InvalidImageDataDecodeV18) {
 MessagePort* MakeMessagePort(ExecutionContext* execution_context,
                              ::MojoHandle* unowned_handle_out = nullptr) {
   auto* port = MakeGarbageCollected<MessagePort>(*execution_context);
-  mojo::MessagePipe pipe;
-  ::MojoHandle unowned_handle = pipe.handle0.get().value();
-  port->Entangle(std::move(pipe.handle0));
+  blink::MessagePortDescriptorPair pipe;
+  ::MojoHandle unowned_handle = pipe.port0().handle().get().value();
+  port->Entangle(pipe.TakePort0());
   EXPECT_TRUE(port->IsEntangled());
   EXPECT_EQ(unowned_handle, port->EntangledHandleForTesting());
   if (unowned_handle_out)
@@ -1030,21 +1030,20 @@ TEST(V8ScriptValueSerializerTest, RoundTripImageBitmap) {
 
   // Check that the pixel at (3, 3) is red.
   uint8_t pixel[4] = {};
-  ASSERT_TRUE(new_image_bitmap->BitmapImage()
-                  ->PaintImageForCurrentFrame()
-                  .GetSkImage()
-                  ->readPixels(SkImageInfo::Make(1, 1, kRGBA_8888_SkColorType,
-                                                 kPremul_SkAlphaType),
-                               &pixel, 4, 3, 3));
+  ASSERT_TRUE(
+      new_image_bitmap->BitmapImage()->PaintImageForCurrentFrame().readPixels(
+          SkImageInfo::Make(1, 1, kRGBA_8888_SkColorType, kPremul_SkAlphaType),
+          &pixel, 4, 3, 3));
   ASSERT_THAT(pixel, testing::ElementsAre(255, 0, 0, 255));
 }
 
 TEST(V8ScriptValueSerializerTest, RoundTripImageBitmapWithColorSpaceInfo) {
   V8TestingScope scope;
   // Make a 10x7 red ImageBitmap in P3 color space.
-  SkImageInfo info = SkImageInfo::Make(
-      10, 7, kRGBA_F16_SkColorType, kPremul_SkAlphaType,
-      SkColorSpace::MakeRGB(SkNamedTransferFn::kLinear, SkNamedGamut::kDCIP3));
+  SkImageInfo info =
+      SkImageInfo::Make(10, 7, kRGBA_F16_SkColorType, kPremul_SkAlphaType,
+                        SkColorSpace::MakeRGB(SkNamedTransferFn::kSRGB,
+                                              SkNamedGamut::kDisplayP3));
   sk_sp<SkSurface> surface = SkSurface::MakeRaster(info);
   surface->getCanvas()->clear(SK_ColorRED);
   auto* image_bitmap = MakeGarbageCollected<ImageBitmap>(
@@ -1066,16 +1065,15 @@ TEST(V8ScriptValueSerializerTest, RoundTripImageBitmapWithColorSpaceInfo) {
   EXPECT_EQ(CanvasPixelFormat::kF16, color_params.PixelFormat());
 
   // Check that the pixel at (3, 3) is red. We expect red in P3 to be
-  // {0x94, 0x3A, 0x3F, 0x28, 0x5F, 0x24, 0x00, 0x3C} when each color
+  // {0x57, 0x3B, 0x68, 0x32, 0x6E, 0x30, 0x00, 0x3C} when each color
   // component is presented as a half float in Skia. However, difference in
   // GPU hardware may result in small differences in lower significant byte in
   // Skia color conversion pipeline. Hence, we use a tolerance of 2 here.
   uint8_t pixel[8] = {};
-  ASSERT_TRUE(new_image_bitmap->BitmapImage()
-                  ->PaintImageForCurrentFrame()
-                  .GetSkImage()
-                  ->readPixels(info.makeWH(1, 1), &pixel, 8, 3, 3));
-  uint8_t p3_red[8] = {0x94, 0x3A, 0x3F, 0x28, 0x5F, 0x24, 0x00, 0x3C};
+  ASSERT_TRUE(
+      new_image_bitmap->BitmapImage()->PaintImageForCurrentFrame().readPixels(
+          info.makeWH(1, 1), &pixel, 8, 3, 3));
+  uint8_t p3_red[8] = {0x57, 0x3B, 0x68, 0x32, 0x6E, 0x30, 0x00, 0x3C};
   bool approximate_match = true;
   uint8_t tolerance = 2;
   for (int i = 0; i < 8; i++) {
@@ -1117,12 +1115,10 @@ TEST(V8ScriptValueSerializerTest, DecodeImageBitmap) {
 
   // Check that the pixels are opaque red and green, respectively.
   uint8_t pixels[8] = {};
-  ASSERT_TRUE(new_image_bitmap->BitmapImage()
-                  ->PaintImageForCurrentFrame()
-                  .GetSkImage()
-                  ->readPixels(SkImageInfo::Make(2, 1, kRGBA_8888_SkColorType,
-                                                 kPremul_SkAlphaType),
-                               &pixels, 8, 0, 0));
+  ASSERT_TRUE(
+      new_image_bitmap->BitmapImage()->PaintImageForCurrentFrame().readPixels(
+          SkImageInfo::Make(2, 1, kRGBA_8888_SkColorType, kPremul_SkAlphaType),
+          &pixels, 8, 0, 0));
   ASSERT_THAT(pixels, testing::ElementsAre(255, 0, 0, 255, 0, 255, 0, 255));
 }
 
@@ -1148,13 +1144,13 @@ TEST(V8ScriptValueSerializerTest, DecodeImageBitmapV18) {
 
   // Check that the pixel at (1, 0) is red.
   uint8_t pixel[8] = {};
-  SkImageInfo info = SkImageInfo::Make(
-      1, 1, kRGBA_F16_SkColorType, kPremul_SkAlphaType,
-      SkColorSpace::MakeRGB(SkNamedTransferFn::kLinear, SkNamedGamut::kDCIP3));
-  ASSERT_TRUE(new_image_bitmap->BitmapImage()
-                  ->PaintImageForCurrentFrame()
-                  .GetSkImage()
-                  ->readPixels(info, &pixel, 8, 1, 0));
+  SkImageInfo info =
+      SkImageInfo::Make(1, 1, kRGBA_F16_SkColorType, kPremul_SkAlphaType,
+                        SkColorSpace::MakeRGB(SkNamedTransferFn::kSRGB,
+                                              SkNamedGamut::kDisplayP3));
+  ASSERT_TRUE(
+      new_image_bitmap->BitmapImage()->PaintImageForCurrentFrame().readPixels(
+          info, &pixel, 8, 1, 0));
   // The reference values are the hex representation of red in P3 (as stored
   // in half floats by Skia).
   ASSERT_THAT(pixel, testing::ElementsAre(0x94, 0x3A, 0x3F, 0x28, 0x5F, 0x24,
@@ -1300,8 +1296,9 @@ TEST(V8ScriptValueSerializerTest, TransferImageBitmap) {
 
   // Check that the pixel at (3, 3) is red.
   uint8_t pixel[4] = {};
-  sk_sp<SkImage> new_image =
-      new_image_bitmap->BitmapImage()->PaintImageForCurrentFrame().GetSkImage();
+  sk_sp<SkImage> new_image = new_image_bitmap->BitmapImage()
+                                 ->PaintImageForCurrentFrame()
+                                 .GetSwSkImage();
   ASSERT_TRUE(new_image->readPixels(
       SkImageInfo::Make(1, 1, kRGBA_8888_SkColorType, kPremul_SkAlphaType),
       &pixel, 4, 3, 3));
@@ -1652,10 +1649,13 @@ TEST(V8ScriptValueSerializerTest, RoundTripFileIndex) {
       RoundTrip(wrapper, scope, nullptr, nullptr, &blob_info_array);
 
   // As above, the resulting blob should be correct.
+  // The only users of the 'blob_info_array' version of serialization is
+  // IndexedDB, and the full path is not needed for that system - thus it is not
+  // sent in the round trip.
   ASSERT_TRUE(V8File::HasInstance(result, scope.GetIsolate()));
   File* new_file = V8File::ToImpl(result.As<v8::Object>());
-  EXPECT_TRUE(new_file->HasBackingFile());
-  EXPECT_EQ("/native/path", new_file->GetPath());
+  EXPECT_FALSE(new_file->HasBackingFile());
+  EXPECT_EQ("path", new_file->name());
   EXPECT_TRUE(new_file->FileSystemURL().IsEmpty());
 
   // The blob info array should also contain the details since it was serialized
@@ -1663,7 +1663,7 @@ TEST(V8ScriptValueSerializerTest, RoundTripFileIndex) {
   ASSERT_EQ(1u, blob_info_array.size());
   const WebBlobInfo& info = blob_info_array[0];
   EXPECT_TRUE(info.IsFile());
-  EXPECT_EQ("/native/path", info.FilePath());
+  EXPECT_EQ("path", info.FileName());
   EXPECT_EQ(file->Uuid(), String(info.Uuid()));
 }
 
@@ -1672,9 +1672,8 @@ TEST(V8ScriptValueSerializerTest, DecodeFileIndex) {
   scoped_refptr<SerializedScriptValue> input =
       SerializedValue({0xff, 0x09, 0x3f, 0x00, 0x65, 0x00});
   WebBlobInfoArray blob_info_array;
-  blob_info_array.emplace_back(
-      WebBlobInfo::FileForTesting("d875dfc2-4505-461b-98fe-0cf6cc5eaf44",
-                                  "/native/path", "path", "text/plain"));
+  blob_info_array.emplace_back(WebBlobInfo::FileForTesting(
+      "d875dfc2-4505-461b-98fe-0cf6cc5eaf44", "path", "text/plain"));
   V8ScriptValueDeserializer::Options options;
   options.blob_info = &blob_info_array;
   V8ScriptValueDeserializer deserializer(scope.GetScriptState(), input,
@@ -1684,7 +1683,7 @@ TEST(V8ScriptValueSerializerTest, DecodeFileIndex) {
   File* new_file = V8File::ToImpl(result.As<v8::Object>());
   EXPECT_EQ("d875dfc2-4505-461b-98fe-0cf6cc5eaf44", new_file->Uuid());
   EXPECT_EQ("text/plain", new_file->type());
-  EXPECT_EQ("/native/path", new_file->GetPath());
+  EXPECT_TRUE(new_file->GetPath().IsEmpty());
   EXPECT_EQ("path", new_file->name());
 }
 
@@ -1698,9 +1697,8 @@ TEST(V8ScriptValueSerializerTest, DecodeFileIndexOutOfRange) {
   }
   {
     WebBlobInfoArray blob_info_array;
-    blob_info_array.emplace_back(
-        WebBlobInfo::FileForTesting("d875dfc2-4505-461b-98fe-0cf6cc5eaf44",
-                                    "/native/path", "path", "text/plain"));
+    blob_info_array.emplace_back(WebBlobInfo::FileForTesting(
+        "d875dfc2-4505-461b-98fe-0cf6cc5eaf44", "path", "text/plain"));
     V8ScriptValueDeserializer::Options options;
     options.blob_info = &blob_info_array;
     V8ScriptValueDeserializer deserializer(scope.GetScriptState(), input,
@@ -1784,18 +1782,21 @@ TEST(V8ScriptValueSerializerTest, RoundTripFileListIndex) {
       RoundTrip(wrapper, scope, nullptr, nullptr, &blob_info_array);
 
   // FileList should be produced correctly.
+  // The only users of the 'blob_info_array' version of serialization is
+  // IndexedDB, and the full path is not needed for that system - thus it is not
+  // sent in the round trip.
   ASSERT_TRUE(V8FileList::HasInstance(result, scope.GetIsolate()));
   FileList* new_file_list = V8FileList::ToImpl(result.As<v8::Object>());
   ASSERT_EQ(2u, new_file_list->length());
-  EXPECT_EQ("/native/path", new_file_list->item(0)->GetPath());
-  EXPECT_EQ("/native/path2", new_file_list->item(1)->GetPath());
+  EXPECT_EQ("path", new_file_list->item(0)->name());
+  EXPECT_EQ("path2", new_file_list->item(1)->name());
 
   // And the blob info array should be populated.
   ASSERT_EQ(2u, blob_info_array.size());
   EXPECT_TRUE(blob_info_array[0].IsFile());
-  EXPECT_EQ("/native/path", blob_info_array[0].FilePath());
+  EXPECT_EQ("path", blob_info_array[0].FileName());
   EXPECT_TRUE(blob_info_array[1].IsFile());
-  EXPECT_EQ("/native/path2", blob_info_array[1].FilePath());
+  EXPECT_EQ("path2", blob_info_array[1].FileName());
 }
 
 TEST(V8ScriptValueSerializerTest, DecodeEmptyFileListIndex) {
@@ -1831,9 +1832,8 @@ TEST(V8ScriptValueSerializerTest, DecodeFileListIndex) {
   scoped_refptr<SerializedScriptValue> input =
       SerializedValue({0xff, 0x09, 0x3f, 0x00, 0x4c, 0x01, 0x00, 0x00});
   WebBlobInfoArray blob_info_array;
-  blob_info_array.emplace_back(
-      WebBlobInfo::FileForTesting("d875dfc2-4505-461b-98fe-0cf6cc5eaf44",
-                                  "/native/path", "name", "text/plain"));
+  blob_info_array.emplace_back(WebBlobInfo::FileForTesting(
+      "d875dfc2-4505-461b-98fe-0cf6cc5eaf44", "name", "text/plain"));
   V8ScriptValueDeserializer::Options options;
   options.blob_info = &blob_info_array;
   V8ScriptValueDeserializer deserializer(scope.GetScriptState(), input,
@@ -1842,7 +1842,7 @@ TEST(V8ScriptValueSerializerTest, DecodeFileListIndex) {
   FileList* new_file_list = V8FileList::ToImpl(result.As<v8::Object>());
   EXPECT_EQ(1u, new_file_list->length());
   File* new_file = new_file_list->item(0);
-  EXPECT_EQ("/native/path", new_file->GetPath());
+  EXPECT_TRUE(new_file->GetPath().IsEmpty());
   EXPECT_EQ("name", new_file->name());
   EXPECT_EQ("d875dfc2-4505-461b-98fe-0cf6cc5eaf44", new_file->Uuid());
   EXPECT_EQ("text/plain", new_file->type());
@@ -1896,8 +1896,89 @@ TEST(V8ScriptValueSerializerTest, RoundTripReadableStream) {
   ReadableStream* transferred =
       V8ReadableStream::ToImpl(result.As<v8::Object>());
   EXPECT_NE(rs, transferred);
-  EXPECT_TRUE(rs->locked(script_state, ASSERT_NO_EXCEPTION));
-  EXPECT_FALSE(transferred->locked(script_state, ASSERT_NO_EXCEPTION));
+  EXPECT_TRUE(rs->locked());
+  EXPECT_FALSE(transferred->locked());
+}
+
+TEST(V8ScriptValueSerializerTest, TransformStreamIntegerOverflow) {
+  ScopedTransferableStreamsForTest enable_transferable_streams(true);
+
+  V8TestingScope scope;
+  auto* isolate = scope.GetIsolate();
+  auto* script_state = scope.GetScriptState();
+
+  // Create a real SerializedScriptValue so that the MessagePorts are set up
+  // properly.
+  auto* ts = TransformStream::Create(script_state, ASSERT_NO_EXCEPTION);
+  v8::Local<v8::Value> wrapper = ToV8(ts, script_state);
+  HeapVector<ScriptValue> transferable_array = {ScriptValue(isolate, wrapper)};
+  Transferables transferables;
+  ASSERT_TRUE(SerializedScriptValue::ExtractTransferables(
+      isolate, transferable_array, transferables, ASSERT_NO_EXCEPTION));
+
+  // Extract message ports and disentangle them.
+  Vector<MessagePortChannel> channels = MessagePort::DisentanglePorts(
+      scope.GetExecutionContext(), transferables.message_ports,
+      ASSERT_NO_EXCEPTION);
+
+  V8ScriptValueSerializer::Options serialize_options;
+  serialize_options.transferables = &transferables;
+  V8ScriptValueSerializer serializer(script_state, serialize_options);
+  scoped_refptr<SerializedScriptValue> serialized_script_value =
+      serializer.Serialize(wrapper, ASSERT_NO_EXCEPTION);
+  ASSERT_TRUE(serialized_script_value);
+
+  // Now create a corrupted SerializedScriptValue using the same message ports.
+  // The final 5 bytes is the offset of the two message ports inside the
+  // transferred message port array. In order to trigger integer overflow this
+  // is set to 0xffffffff, encoded as a varint.
+  char serialized_value[] = {0xff, 0x14, 0xff, 0x0d, 0x5c, 0x6d,
+                             0xff, 0xff, 0xff, 0xff, 0x0f};
+
+  auto corrupted_serialized_script_value =
+      SerializedScriptValue::Create(serialized_value, sizeof(serialized_value));
+  corrupted_serialized_script_value->GetStreamChannels() =
+      serialized_script_value->GetStreamChannels();
+
+  // Entangle the message ports.
+  MessagePortArray* transferred_message_ports = MessagePort::EntanglePorts(
+      *scope.GetExecutionContext(), std::move(channels));
+
+  UnpackedSerializedScriptValue* unpacked = SerializedScriptValue::Unpack(
+      std::move(corrupted_serialized_script_value));
+  V8ScriptValueDeserializer::Options deserialize_options;
+  deserialize_options.message_ports = transferred_message_ports;
+  V8ScriptValueDeserializer deserializer(script_state, unpacked,
+                                         deserialize_options);
+  // If this doesn't crash then the test succeeded.
+  v8::Local<v8::Value> result = deserializer.Deserialize();
+
+  // Deserialization should have failed.
+  EXPECT_TRUE(result->IsNull());
+}
+
+TEST(V8ScriptValueSerializerTest, RoundTripDOMException) {
+  V8TestingScope scope;
+  DOMException* exception =
+      DOMException::Create("message", "InvalidStateError");
+  v8::Local<v8::Value> wrapper =
+      ToV8(exception, scope.GetContext()->Global(), scope.GetIsolate());
+  v8::Local<v8::Value> result = RoundTrip(wrapper, scope);
+  ASSERT_TRUE(V8DOMException::HasInstance(result, scope.GetIsolate()));
+  DOMException* new_exception = V8DOMException::ToImpl(result.As<v8::Object>());
+  EXPECT_NE(exception, new_exception);
+  EXPECT_EQ(exception->code(), new_exception->code());
+  EXPECT_EQ(exception->name(), new_exception->name());
+  EXPECT_EQ(exception->message(), new_exception->message());
+}
+
+TEST(V8ScriptValueSerializerTest, DecodeDOMExceptionWithInvalidNameString) {
+  V8TestingScope scope;
+  scoped_refptr<SerializedScriptValue> input = SerializedValue(
+      {0xff, 0x13, 0xff, 0x0d, 0x5c, 0x78, 0x01, 0xff, 0x00, 0x00});
+  v8::Local<v8::Value> result =
+      V8ScriptValueDeserializer(scope.GetScriptState(), input).Deserialize();
+  EXPECT_TRUE(result->IsNull());
 }
 
 }  // namespace blink

@@ -11,11 +11,17 @@
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/callback.h"
+#include "base/containers/flat_map.h"
 #include "base/files/scoped_file.h"
 #include "base/location.h"
+#include "base/logging.h"
 #include "base/macros.h"
 #include "base/optional.h"
 #include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
+#include "base/threading/thread_task_runner_handle.h"
+#include "base/time/time.h"
+#include "chromeos/dbus/lorgnette/lorgnette_service.pb.h"
 #include "chromeos/dbus/pipe_reader.h"
 #include "dbus/bus.h"
 #include "dbus/message.h"
@@ -29,9 +35,13 @@ namespace chromeos {
 class LorgnetteManagerClientImpl : public LorgnetteManagerClient {
  public:
   LorgnetteManagerClientImpl() = default;
+  LorgnetteManagerClientImpl(const LorgnetteManagerClientImpl&) = delete;
+  LorgnetteManagerClientImpl& operator=(const LorgnetteManagerClientImpl&) =
+      delete;
   ~LorgnetteManagerClientImpl() override = default;
 
-  void ListScanners(DBusMethodCallback<ScannerTable> callback) override {
+  void ListScanners(
+      DBusMethodCallback<lorgnette::ListScannersResponse> callback) override {
     dbus::MethodCall method_call(lorgnette::kManagerServiceInterface,
                                  lorgnette::kListScannersMethod);
     lorgnette_daemon_proxy_->CallMethod(
@@ -40,42 +50,65 @@ class LorgnetteManagerClientImpl : public LorgnetteManagerClient {
                        weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
   }
 
-  // LorgnetteManagerClient override.
-  void ScanImageToString(std::string device_name,
-                         const ScanProperties& properties,
-                         DBusMethodCallback<std::string> callback) override {
-    auto scan_data_reader = std::make_unique<ScanDataReader>();
-    base::ScopedFD fd = scan_data_reader->Start();
-
-    // Issue the dbus request to scan an image.
+  void GetScannerCapabilities(
+      const std::string& device_name,
+      DBusMethodCallback<lorgnette::ScannerCapabilities> callback) override {
     dbus::MethodCall method_call(lorgnette::kManagerServiceInterface,
-                                 lorgnette::kScanImageMethod);
+                                 lorgnette::kGetScannerCapabilitiesMethod);
     dbus::MessageWriter writer(&method_call);
     writer.AppendString(device_name);
+    lorgnette_daemon_proxy_->CallMethod(
+        &method_call, dbus::ObjectProxy::TIMEOUT_USE_DEFAULT,
+        base::BindOnce(
+            &LorgnetteManagerClientImpl::OnScannerCapabilitiesResponse,
+            weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
+  }
+
+  // LorgnetteManagerClient override.
+  void StartScan(std::string device_name,
+                 const ScanProperties& properties,
+                 DBusMethodCallback<std::string> completion_callback,
+                 base::Optional<base::RepeatingCallback<void(int)>>
+                     progress_callback) override {
+    lorgnette::StartScanRequest request;
+    request.set_device_name(device_name);
+    request.mutable_settings()->set_resolution(properties.resolution_dpi);
+
+    lorgnette::ColorMode mode = lorgnette::MODE_UNSPECIFIED;
+    // Defined in system_api/dbus/lorgnette/dbus-constants.h
+    if (properties.mode == lorgnette::kScanPropertyModeColor) {
+      mode = lorgnette::MODE_COLOR;
+    } else if (properties.mode == lorgnette::kScanPropertyModeGray) {
+      mode = lorgnette::MODE_GRAYSCALE;
+    } else if (properties.mode == lorgnette::kScanPropertyModeLineart) {
+      mode = lorgnette::MODE_LINEART;
+    }
+    request.mutable_settings()->set_color_mode(mode);
+
+    dbus::MethodCall method_call(lorgnette::kManagerServiceInterface,
+                                 lorgnette::kStartScanMethod);
+    dbus::MessageWriter writer(&method_call);
+    if (!writer.AppendProtoAsArrayOfBytes(request)) {
+      LOG(ERROR) << "Failed to encode StartScanRequest protobuf";
+      base::ThreadTaskRunnerHandle::Get()->PostTask(
+          FROM_HERE,
+          base::BindOnce(std::move(completion_callback), base::nullopt));
+      return;
+    }
+
+    auto scan_data_reader = std::make_unique<ScanDataReader>();
+    base::ScopedFD fd = scan_data_reader->Start();
     writer.AppendFileDescriptor(fd.get());
 
-    dbus::MessageWriter option_writer(nullptr);
-    dbus::MessageWriter element_writer(nullptr);
-    writer.OpenArray("{sv}", &option_writer);
-    if (!properties.mode.empty()) {
-      option_writer.OpenDictEntry(&element_writer);
-      element_writer.AppendString(lorgnette::kScanPropertyMode);
-      element_writer.AppendVariantOfString(properties.mode);
-      option_writer.CloseContainer(&element_writer);
-    }
-    if (properties.resolution_dpi) {
-      option_writer.OpenDictEntry(&element_writer);
-      element_writer.AppendString(lorgnette::kScanPropertyResolution);
-      element_writer.AppendVariantOfUint32(properties.resolution_dpi);
-      option_writer.CloseContainer(&element_writer);
-    }
-    writer.CloseContainer(&option_writer);
+    ScanJobState state;
+    state.completion_callback = std::move(completion_callback);
+    state.progress_callback = progress_callback;
+    state.scan_data_reader = std::move(scan_data_reader);
 
     lorgnette_daemon_proxy_->CallMethod(
         &method_call, dbus::ObjectProxy::TIMEOUT_USE_DEFAULT,
-        base::BindOnce(&LorgnetteManagerClientImpl::OnScanImageComplete,
-                       weak_ptr_factory_.GetWeakPtr(), std::move(callback),
-                       std::move(scan_data_reader)));
+        base::BindOnce(&LorgnetteManagerClientImpl::OnStartScanResponse,
+                       weak_ptr_factory_.GetWeakPtr(), std::move(state)));
   }
 
  protected:
@@ -83,6 +116,14 @@ class LorgnetteManagerClientImpl : public LorgnetteManagerClient {
     lorgnette_daemon_proxy_ =
         bus->GetObjectProxy(lorgnette::kManagerServiceName,
                             dbus::ObjectPath(lorgnette::kManagerServicePath));
+    lorgnette_daemon_proxy_->ConnectToSignal(
+        lorgnette::kManagerServiceInterface,
+        lorgnette::kScanStatusChangedSignal,
+        base::BindRepeating(
+            &LorgnetteManagerClientImpl::ScanStatusChangedReceived,
+            weak_ptr_factory_.GetWeakPtr()),
+        base::BindOnce(&LorgnetteManagerClientImpl::ScanStatusChangedConnected,
+                       weak_ptr_factory_.GetWeakPtr()));
   }
 
  private:
@@ -101,9 +142,9 @@ class LorgnetteManagerClientImpl : public LorgnetteManagerClient {
     base::ScopedFD Start() {
       DCHECK(!pipe_reader_.get());
       DCHECK(!data_.has_value());
-      pipe_reader_ =
-          std::make_unique<chromeos::PipeReader>(base::CreateTaskRunner(
-              {base::ThreadPool(), base::MayBlock(),
+      pipe_reader_ = std::make_unique<chromeos::PipeReader>(
+          base::ThreadPool::CreateTaskRunner(
+              {base::MayBlock(),
                base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN}));
 
       return pipe_reader_->StartIO(base::BindOnce(
@@ -151,65 +192,56 @@ class LorgnetteManagerClientImpl : public LorgnetteManagerClient {
     DISALLOW_COPY_AND_ASSIGN(ScanDataReader);
   };
 
+  // The state tracked for an in-progress scan job.
+  // Contains callbacks used to report progress and job completion or failure,
+  // as well as a ScanDataReader which is responsible for reading from the pipe
+  // of data into a string.
+  struct ScanJobState {
+    DBusMethodCallback<std::string> completion_callback;
+    base::Optional<base::RepeatingCallback<void(int)>> progress_callback;
+    std::unique_ptr<ScanDataReader> scan_data_reader;
+  };
+
   // Called when ListScanners completes.
-  void OnListScanners(DBusMethodCallback<ScannerTable> callback,
-                      dbus::Response* response) {
-    dbus::MessageReader table_reader(nullptr);
-    if (!response || !dbus::MessageReader(response).PopArray(&table_reader)) {
+  void OnListScanners(
+      DBusMethodCallback<lorgnette::ListScannersResponse> callback,
+      dbus::Response* response) {
+    if (!response) {
+      LOG(ERROR) << "Failed to obtain ListScannersResponse";
       std::move(callback).Run(base::nullopt);
       return;
     }
 
-    ScannerTable scanners;
-    while (table_reader.HasMoreData()) {
-      std::string device_name;
-      dbus::MessageReader device_entry_reader(nullptr);
-      dbus::MessageReader device_element_reader(nullptr);
-      if (!table_reader.PopDictEntry(&device_entry_reader) ||
-          !device_entry_reader.PopString(&device_name) ||
-          !device_entry_reader.PopArray(&device_element_reader)) {
-        LOG(ERROR) << "Failed to decode response from ListScanners";
-        std::move(callback).Run(base::nullopt);
-        return;
-      }
-
-      ScannerTableEntry scanner_entry;
-      while (device_element_reader.HasMoreData()) {
-        std::string attribute;
-        std::string value;
-        dbus::MessageReader device_attribute_reader(nullptr);
-        if (!device_element_reader.PopDictEntry(&device_attribute_reader) ||
-            !device_attribute_reader.PopString(&attribute) ||
-            !device_attribute_reader.PopString(&value)) {
-          LOG(ERROR) << "Failed to decode response from ListScanners";
-          std::move(callback).Run(base::nullopt);
-          return;
-        }
-        scanner_entry.emplace(std::move(attribute), std::move(value));
-      }
-
-      scanners.emplace(std::move(device_name), std::move(scanner_entry));
+    lorgnette::ListScannersResponse response_proto;
+    dbus::MessageReader reader(response);
+    if (!reader.PopArrayOfBytesAsProto(&response_proto)) {
+      LOG(ERROR) << "Failed to read ListScannersResponse";
+      std::move(callback).Run(base::nullopt);
+      return;
     }
 
-    std::move(callback).Run(std::move(scanners));
+    std::move(callback).Run(std::move(response_proto));
   }
 
-  // Called when a response for ScanImage() is received.
-  void OnScanImageComplete(DBusMethodCallback<std::string> callback,
-                           std::unique_ptr<ScanDataReader> scan_data_reader,
-                           dbus::Response* response) {
+  // Handles the response received after calling GetScannerCapabilities().
+  void OnScannerCapabilitiesResponse(
+      DBusMethodCallback<lorgnette::ScannerCapabilities> callback,
+      dbus::Response* response) {
     if (!response) {
-      LOG(ERROR) << "Failed to scan image";
-      // Do not touch |scan_data_reader|, so that RAII deletes it and
-      // cancels the inflight operation.
+      LOG(ERROR) << "Failed to obtain ScannerCapabilities";
       std::move(callback).Run(base::nullopt);
       return;
     }
-    auto* reader = scan_data_reader.get();
-    reader->Wait(
-        base::BindOnce(&LorgnetteManagerClientImpl::OnScanDataCompleted,
-                       weak_ptr_factory_.GetWeakPtr(), std::move(callback),
-                       std::move(scan_data_reader)));
+
+    lorgnette::ScannerCapabilities response_proto;
+    dbus::MessageReader reader(response);
+    if (!reader.PopArrayOfBytesAsProto(&response_proto)) {
+      LOG(ERROR) << "Failed to read ScannerCapabilities";
+      std::move(callback).Run(base::nullopt);
+      return;
+    }
+
+    std::move(callback).Run(std::move(response_proto));
   }
 
   // Called when scan data read is completed.
@@ -220,10 +252,78 @@ class LorgnetteManagerClientImpl : public LorgnetteManagerClient {
     std::move(callback).Run(std::move(data));
   }
 
-  dbus::ObjectProxy* lorgnette_daemon_proxy_ = nullptr;
-  base::WeakPtrFactory<LorgnetteManagerClientImpl> weak_ptr_factory_{this};
+  void OnStartScanResponse(ScanJobState state, dbus::Response* response) {
+    if (!response) {
+      LOG(ERROR) << "Failed to obtain StartScanResponse";
+      std::move(state.completion_callback).Run(base::nullopt);
+      return;
+    }
 
-  DISALLOW_COPY_AND_ASSIGN(LorgnetteManagerClientImpl);
+    lorgnette::StartScanResponse response_proto;
+    dbus::MessageReader reader(response);
+    if (!reader.PopArrayOfBytesAsProto(&response_proto)) {
+      LOG(ERROR) << "Failed to decode StartScanResponse proto";
+      std::move(state.completion_callback).Run(base::nullopt);
+      return;
+    }
+
+    if (response_proto.state() == lorgnette::SCAN_STATE_FAILED) {
+      LOG(ERROR) << "Starting Scan failed: " << response_proto.failure_reason();
+      std::move(state.completion_callback).Run(base::nullopt);
+      return;
+    }
+
+    scan_job_state_[response_proto.scan_uuid()] = std::move(state);
+  }
+
+  void ScanStatusChangedReceived(dbus::Signal* signal) {
+    dbus::MessageReader reader(signal);
+    lorgnette::ScanStatusChangedSignal signal_proto;
+    if (!reader.PopArrayOfBytesAsProto(&signal_proto)) {
+      LOG(ERROR) << "Failed to decode ScanStatusChangedSignal proto";
+      return;
+    }
+
+    if (!base::Contains(scan_job_state_, signal_proto.scan_uuid())) {
+      LOG(ERROR) << "Received signal for unrecognized scan job: "
+                 << signal_proto.scan_uuid();
+      return;
+    }
+    ScanJobState& state = scan_job_state_[signal_proto.scan_uuid()];
+
+    if (signal_proto.state() == lorgnette::SCAN_STATE_FAILED) {
+      LOG(ERROR) << "Scan job " << signal_proto.scan_uuid()
+                 << " failed: " << signal_proto.failure_reason();
+      std::move(state.completion_callback).Run(base::nullopt);
+      scan_job_state_.erase(signal_proto.scan_uuid());
+    } else if (signal_proto.state() == lorgnette::SCAN_STATE_COMPLETED) {
+      VLOG(1) << "Scan job " << signal_proto.scan_uuid()
+              << " completed successfully";
+      ScanDataReader* reader = state.scan_data_reader.get();
+      reader->Wait(base::BindOnce(
+          &LorgnetteManagerClientImpl::OnScanDataCompleted,
+          weak_ptr_factory_.GetWeakPtr(), std::move(state.completion_callback),
+          std::move(state.scan_data_reader)));
+      scan_job_state_.erase(signal_proto.scan_uuid());
+    } else if (signal_proto.state() == lorgnette::SCAN_STATE_IN_PROGRESS &&
+               state.progress_callback.has_value()) {
+      state.progress_callback.value().Run(signal_proto.progress());
+    }
+  }
+
+  void ScanStatusChangedConnected(const std::string& interface_name,
+                                  const std::string& signal_name,
+                                  bool success) {
+    LOG_IF(WARNING, !success)
+        << "Failed to connect to ScanStatusChanged signal.";
+  }
+
+  dbus::ObjectProxy* lorgnette_daemon_proxy_ = nullptr;
+
+  // Map from scan UUIDs to ScanDataReader and callbacks for reporting scan
+  // progress and completion.
+  base::flat_map<std::string, ScanJobState> scan_job_state_;
+  base::WeakPtrFactory<LorgnetteManagerClientImpl> weak_ptr_factory_{this};
 };
 
 LorgnetteManagerClient::LorgnetteManagerClient() = default;

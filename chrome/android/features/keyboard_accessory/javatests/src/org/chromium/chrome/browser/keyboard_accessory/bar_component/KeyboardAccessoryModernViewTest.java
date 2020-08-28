@@ -4,14 +4,14 @@
 
 package org.chromium.chrome.browser.keyboard_accessory.bar_component;
 
-import static android.support.test.espresso.Espresso.onView;
-import static android.support.test.espresso.action.ViewActions.click;
-import static android.support.test.espresso.assertion.ViewAssertions.matches;
-import static android.support.test.espresso.matcher.ViewMatchers.assertThat;
-import static android.support.test.espresso.matcher.ViewMatchers.isRoot;
-import static android.support.test.espresso.matcher.ViewMatchers.isSelected;
-import static android.support.test.espresso.matcher.ViewMatchers.withChild;
-import static android.support.test.espresso.matcher.ViewMatchers.withText;
+import static androidx.test.espresso.Espresso.onView;
+import static androidx.test.espresso.action.ViewActions.click;
+import static androidx.test.espresso.assertion.ViewAssertions.matches;
+import static androidx.test.espresso.matcher.ViewMatchers.assertThat;
+import static androidx.test.espresso.matcher.ViewMatchers.isRoot;
+import static androidx.test.espresso.matcher.ViewMatchers.isSelected;
+import static androidx.test.espresso.matcher.ViewMatchers.withChild;
+import static androidx.test.espresso.matcher.ViewMatchers.withText;
 
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.not;
@@ -27,18 +27,19 @@ import static org.chromium.chrome.browser.keyboard_accessory.bar_component.Keybo
 import static org.chromium.chrome.browser.keyboard_accessory.bar_component.KeyboardAccessoryProperties.SHEET_TITLE;
 import static org.chromium.chrome.browser.keyboard_accessory.bar_component.KeyboardAccessoryProperties.TAB_LAYOUT_ITEM;
 import static org.chromium.chrome.browser.keyboard_accessory.bar_component.KeyboardAccessoryProperties.VISIBLE;
+import static org.chromium.chrome.test.util.ViewUtils.onViewWaiting;
 import static org.chromium.chrome.test.util.ViewUtils.waitForView;
 
 import android.content.pm.ActivityInfo;
 import android.graphics.Rect;
-import android.support.design.widget.TabLayout;
-import android.support.test.espresso.matcher.RootMatchers;
-import android.support.test.filters.MediumTest;
 import android.view.View;
-import android.view.ViewGroup;
 import android.view.ViewStub;
 
 import androidx.annotation.Nullable;
+import androidx.test.espresso.matcher.RootMatchers;
+import androidx.test.filters.MediumTest;
+
+import com.google.android.material.tabs.TabLayout;
 
 import org.hamcrest.Matcher;
 import org.junit.Before;
@@ -48,9 +49,9 @@ import org.junit.runner.RunWith;
 
 import org.chromium.base.Callback;
 import org.chromium.base.test.util.CommandLineFlags;
-import org.chromium.chrome.browser.ChromeFeatureList;
-import org.chromium.chrome.browser.ChromeSwitches;
 import org.chromium.chrome.browser.feature_engagement.TrackerFactory;
+import org.chromium.chrome.browser.flags.ChromeFeatureList;
+import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.keyboard_accessory.R;
 import org.chromium.chrome.browser.keyboard_accessory.bar_component.KeyboardAccessoryProperties.AutofillBarItem;
 import org.chromium.chrome.browser.keyboard_accessory.bar_component.KeyboardAccessoryProperties.BarItem;
@@ -68,6 +69,7 @@ import org.chromium.components.feature_engagement.Tracker;
 import org.chromium.components.feature_engagement.TriggerState;
 import org.chromium.content_public.browser.test.util.Criteria;
 import org.chromium.content_public.browser.test.util.CriteriaHelper;
+import org.chromium.content_public.browser.test.util.CriteriaNotSatisfiedException;
 import org.chromium.content_public.browser.test.util.JavaScriptUtils;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.ui.DeferredViewStubInflationProvider;
@@ -78,6 +80,7 @@ import org.chromium.ui.modelutil.PropertyModel;
 
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
@@ -114,6 +117,11 @@ public class KeyboardAccessoryModernViewTest {
 
         @Override
         public boolean wouldTriggerHelpUI(String feature) {
+            return true;
+        }
+
+        @Override
+        public boolean hasEverTriggered(String feature, boolean fromWindow) {
             return true;
         }
 
@@ -204,8 +212,7 @@ public class KeyboardAccessoryModernViewTest {
                     createAutofillChipAndTab("Johnathan", result -> clickRecorded.set(true)));
         });
 
-        onView(isRoot()).check((root, e) -> waitForView((ViewGroup) root, withText("Johnathan")));
-        onView(withText("Johnathan")).perform(click());
+        onViewWaiting(withText("Johnathan")).perform(click());
 
         assertTrue(clickRecorded.get());
     }
@@ -241,7 +248,7 @@ public class KeyboardAccessoryModernViewTest {
     @MediumTest
     public void testDismissesPasswordEducationBubbleOnFilling() {
         AutofillBarItem itemWithIPH =
-                new AutofillBarItem(new AutofillSuggestion("Johnathan", "Smith",
+                new AutofillBarItem(new AutofillSuggestion("Johnathan", "Smith", /*itemTag=*/"",
                                             DropdownItem.NO_ICON, false, -2, false, false, false),
                         new KeyboardAccessoryData.Action("", AUTOFILL_SUGGESTION, unused -> {}));
         itemWithIPH.setFeatureForIPH(FeatureConstants.KEYBOARD_ACCESSORY_PASSWORD_FILLING_FEATURE);
@@ -254,7 +261,7 @@ public class KeyboardAccessoryModernViewTest {
             mModel.get(BAR_ITEMS).set(new BarItem[] {itemWithIPH, createTabs()});
         });
 
-        onView(isRoot()).check((root, e) -> waitForView((ViewGroup) root, withText("Johnathan")));
+        onViewWaiting(withText("Johnathan"));
         waitForHelpBubble(withText(R.string.iph_keyboard_accessory_fill_password));
         onView(withChild(withText("Johnathan"))).check(matches(isSelected()));
         onView(withText("Johnathan")).perform(click());
@@ -269,7 +276,7 @@ public class KeyboardAccessoryModernViewTest {
     @MediumTest
     public void testDismissesAddressEducationBubbleOnFilling() {
         AutofillBarItem itemWithIPH =
-                new AutofillBarItem(new AutofillSuggestion("Johnathan", "Smith",
+                new AutofillBarItem(new AutofillSuggestion("Johnathan", "Smith", /*itemTag=*/"",
                                             DropdownItem.NO_ICON, false, 1, false, false, false),
                         new KeyboardAccessoryData.Action("", AUTOFILL_SUGGESTION, unused -> {}));
         itemWithIPH.setFeatureForIPH(FeatureConstants.KEYBOARD_ACCESSORY_ADDRESS_FILL_FEATURE);
@@ -282,7 +289,7 @@ public class KeyboardAccessoryModernViewTest {
             mModel.get(BAR_ITEMS).set(new BarItem[] {itemWithIPH, createTabs()});
         });
 
-        onView(isRoot()).check((root, e) -> waitForView((ViewGroup) root, withText("Johnathan")));
+        onViewWaiting(withText("Johnathan"));
         waitForHelpBubble(withText(R.string.iph_keyboard_accessory_fill_address));
         onView(withText("Johnathan")).perform(click());
 
@@ -295,8 +302,8 @@ public class KeyboardAccessoryModernViewTest {
     @MediumTest
     public void testDismissesPaymentEducationBubbleOnFilling() {
         AutofillBarItem itemWithIPH = new AutofillBarItem(
-                new AutofillSuggestion("Johnathan", "Smith", DropdownItem.NO_ICON, false, 70000,
-                        false, false, false),
+                new AutofillSuggestion("Johnathan", "Smith", /*itemTag=*/"", DropdownItem.NO_ICON,
+                        false, 70000, false, false, false),
                 new KeyboardAccessoryData.Action("", AUTOFILL_SUGGESTION, unused -> {}));
         itemWithIPH.setFeatureForIPH(FeatureConstants.KEYBOARD_ACCESSORY_PAYMENT_FILLING_FEATURE);
 
@@ -308,7 +315,7 @@ public class KeyboardAccessoryModernViewTest {
             mModel.get(BAR_ITEMS).set(new BarItem[] {itemWithIPH, createTabs()});
         });
 
-        onView(isRoot()).check((root, e) -> waitForView((ViewGroup) root, withText("Johnathan")));
+        onViewWaiting(withText("Johnathan"));
         waitForHelpBubble(withText(R.string.iph_keyboard_accessory_fill_payment));
         onView(withText("Johnathan")).perform(click());
 
@@ -321,32 +328,38 @@ public class KeyboardAccessoryModernViewTest {
         View mainDecorView = mActivityTestRule.getActivity().getWindow().getDecorView();
         onView(isRoot())
                 .inRoot(RootMatchers.withDecorView(not(is(mainDecorView))))
-                .check((root, e) -> waitForView((ViewGroup) root, matcher));
+                .check(waitForView(matcher));
     }
 
     private void rotateActivityToLandscape() {
         mActivityTestRule.getActivity().setRequestedOrientation(
                 ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE);
-        CriteriaHelper.pollInstrumentationThread(Criteria.equals("\"landscape\"", () -> {
-            return JavaScriptUtils.executeJavaScriptAndWaitForResult(
-                    mActivityTestRule.getWebContents(), "screen.orientation.type.split('-')[0]");
-        }));
+        CriteriaHelper.pollInstrumentationThread(() -> {
+            try {
+                String result = JavaScriptUtils.executeJavaScriptAndWaitForResult(
+                        mActivityTestRule.getWebContents(),
+                        "screen.orientation.type.split('-')[0]");
+                Criteria.checkThat(result, is("\"landscape\""));
+            } catch (TimeoutException ex) {
+                throw new CriteriaNotSatisfiedException(ex);
+            }
+        });
     }
 
-    private Criteria viewsAreRightAligned(View staticView, View changingView) {
+    private Runnable viewsAreRightAligned(View staticView, View changingView) {
         Rect accessoryViewRect = new Rect();
         staticView.getGlobalVisibleRect(accessoryViewRect);
-        return Criteria.equals(accessoryViewRect.right, () -> {
+        return () -> {
             Rect keyItemRect = new Rect();
             changingView.getGlobalVisibleRect(keyItemRect);
-            return keyItemRect.right;
-        });
+            Criteria.checkThat(keyItemRect.right, is(accessoryViewRect.right));
+        };
     }
 
     private BarItem[] createAutofillChipAndTab(String label, Callback<Action> chipCallback) {
         return new BarItem[] {
-                new AutofillBarItem(new AutofillSuggestion(label, "Smith", DropdownItem.NO_ICON,
-                                            false, 1, false, false, false),
+                new AutofillBarItem(new AutofillSuggestion(label, "Smith", /*itemTag=*/"",
+                                            DropdownItem.NO_ICON, false, 1, false, false, false),
                         new KeyboardAccessoryData.Action(
                                 "Unused", AUTOFILL_SUGGESTION, chipCallback)),
                 createTabs()};

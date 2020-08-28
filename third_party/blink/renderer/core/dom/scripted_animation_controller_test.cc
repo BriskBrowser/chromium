@@ -13,6 +13,7 @@
 #include "third_party/blink/renderer/core/dom/events/event_target.h"
 #include "third_party/blink/renderer/core/dom/events/native_event_listener.h"
 #include "third_party/blink/renderer/core/dom/frame_request_callback_collection.h"
+#include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/testing/dummy_page_holder.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
@@ -36,10 +37,10 @@ void ScriptedAnimationControllerTest::SetUp() {
   dummy_page_holder_ = std::make_unique<DummyPageHolder>(IntSize(800, 600));
 
   // Note: The document doesn't know about this ScriptedAnimationController
-  // instance, and will create another if
-  // Document::ensureScriptedAnimationController is called.
-  controller_ = WrapPersistent(
-      MakeGarbageCollected<ScriptedAnimationController>(&GetDocument()));
+  // instance.
+  controller_ =
+      WrapPersistent(MakeGarbageCollected<ScriptedAnimationController>(
+          dummy_page_holder_->GetFrame().DomWindow()));
 }
 
 namespace {

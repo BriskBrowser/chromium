@@ -84,11 +84,8 @@ class CORE_EXPORT LayoutTableRow final : public LayoutTableBoxComponent,
   }
 
   static LayoutTableRow* CreateAnonymous(Document*);
-  static LayoutTableRow* CreateAnonymousWithParent(const LayoutObject*);
   LayoutBox* CreateAnonymousBoxWithSameTypeAs(
-      const LayoutObject* parent) const override {
-    return CreateAnonymousWithParent(parent);
-  }
+      const LayoutObject* parent) const override;
 
   void SetRowIndex(unsigned row_index) {
     CHECK_LE(row_index, kMaxRowIndex);
@@ -128,7 +125,8 @@ class CORE_EXPORT LayoutTableRow final : public LayoutTableBoxComponent,
   bool BackgroundIsKnownToBeOpaqueInRect(const PhysicalRect&) const override {
     return false;
   }
-  bool PaintedOutputOfObjectHasNoEffectRegardlessOfSize() const override;
+
+  void InvalidatePaint(const PaintInvalidatorContext&) const final;
 
   // LayoutNGTableRowInterface methods start.
 
@@ -153,6 +151,11 @@ class CORE_EXPORT LayoutTableRow final : public LayoutTableBoxComponent,
   // LayoutNGTableRowInterface methods end.
 
  private:
+  MinMaxSizes ComputeIntrinsicLogicalWidths() const final {
+    NOTREACHED();
+    return MinMaxSizes();
+  }
+
   void ComputeVisualOverflow();
   void AddLayoutOverflowFromCell(const LayoutTableCell*);
   void AddVisualOverflowFromCell(const LayoutTableCell*);
@@ -174,7 +177,7 @@ class CORE_EXPORT LayoutTableRow final : public LayoutTableBoxComponent,
         IsStickyPositioned())
       return kNormalPaintLayer;
 
-    if (HasOverflowClip())
+    if (HasNonVisibleOverflow())
       return kOverflowClipPaintLayer;
 
     return kNoPaintLayer;

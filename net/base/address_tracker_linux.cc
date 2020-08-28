@@ -13,11 +13,16 @@
 #include "base/bind_helpers.h"
 #include "base/files/scoped_file.h"
 #include "base/logging.h"
-#include "base/message_loop/message_loop_current.h"
 #include "base/optional.h"
 #include "base/posix/eintr_wrapper.h"
+#include "base/task/current_thread.h"
 #include "base/threading/scoped_blocking_call.h"
+#include "build/build_config.h"
 #include "net/base/network_interfaces_linux.h"
+
+#if defined(OS_ANDROID)
+#include "base/android/build_info.h"
+#endif
 
 namespace net {
 namespace internal {
@@ -156,9 +161,9 @@ AddressTrackerLinux::AddressTrackerLinux()
       threads_waiting_for_connection_type_initialization_(0) {}
 
 AddressTrackerLinux::AddressTrackerLinux(
-    const base::Closure& address_callback,
-    const base::Closure& link_callback,
-    const base::Closure& tunnel_callback,
+    const base::RepeatingClosure& address_callback,
+    const base::RepeatingClosure& link_callback,
+    const base::RepeatingClosure& tunnel_callback,
     const std::unordered_set<std::string>& ignored_interfaces)
     : get_interface_name_(GetInterfaceName),
       address_callback_(address_callback),
@@ -177,6 +182,14 @@ AddressTrackerLinux::AddressTrackerLinux(
 AddressTrackerLinux::~AddressTrackerLinux() = default;
 
 void AddressTrackerLinux::Init() {
+#if defined(OS_ANDROID)
+  // RTM_GETLINK stopped working in Android 11 (see
+  // https://developer.android.com/preview/privacy/mac-address),
+  // so AddressTrackerLinux should not be used in later versions
+  // of Android.  Chromium code doesn't need it past Android P.
+  DCHECK_LT(base::android::BuildInfo::GetInstance()->sdk_int(),
+            base::android::SDK_VERSION_P);
+#endif
   netlink_fd_.reset(socket(AF_NETLINK, SOCK_RAW, NETLINK_ROUTE));
   if (!netlink_fd_.is_valid()) {
     PLOG(ERROR) << "Could not create NETLINK socket";

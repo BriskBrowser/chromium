@@ -34,6 +34,10 @@ class WebAppUiManagerImpl : public BrowserListObserver, public WebAppUiManager {
   explicit WebAppUiManagerImpl(Profile* profile);
   ~WebAppUiManagerImpl() override;
 
+  void SetSubsystems(AppRegistryController* app_registry_controller) override;
+  void Start() override;
+  void Shutdown() override;
+
   WebAppDialogManager& dialog_manager();
 
   // WebAppUiManager:
@@ -45,7 +49,11 @@ class WebAppUiManagerImpl : public BrowserListObserver, public WebAppUiManager {
                            const AppId& to_app) override;
   bool CanAddAppToQuickLaunchBar() const override;
   void AddAppToQuickLaunchBar(const AppId& app_id) override;
-  bool IsInAppWindow(content::WebContents* web_contents) const override;
+  bool IsInAppWindow(content::WebContents* web_contents,
+                     const AppId* app_id) const override;
+  void NotifyOnAssociatedAppChanged(content::WebContents* web_contents,
+                                    const AppId& previous_app_id,
+                                    const AppId& new_app_id) const override;
   bool CanReparentAppTabToWindow(const AppId& app_id,
                                  bool shortcut_created) const override;
   void ReparentAppTabToWindow(content::WebContents* contents,
@@ -68,8 +76,11 @@ class WebAppUiManagerImpl : public BrowserListObserver, public WebAppUiManager {
 
   Profile* const profile_;
 
+  AppRegistryController* app_registry_controller_ = nullptr;
+
   std::map<AppId, std::vector<base::OnceClosure>> windows_closed_requests_map_;
   std::map<AppId, size_t> num_windows_for_apps_map_;
+  bool started_ = false;
 
   base::WeakPtrFactory<WebAppUiManagerImpl> weak_ptr_factory_{this};
 

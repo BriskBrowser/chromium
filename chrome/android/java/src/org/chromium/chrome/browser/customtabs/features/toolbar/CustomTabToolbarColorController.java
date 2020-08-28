@@ -8,14 +8,14 @@ import androidx.annotation.IntDef;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 
-import org.chromium.chrome.browser.ChromeActivity;
+import org.chromium.chrome.browser.app.ChromeActivity;
 import org.chromium.chrome.browser.browserservices.BrowserServicesIntentDataProvider;
 import org.chromium.chrome.browser.customtabs.content.CustomTabActivityTabProvider;
 import org.chromium.chrome.browser.customtabs.content.TabObserverRegistrar;
+import org.chromium.chrome.browser.customtabs.content.TabObserverRegistrar.CustomTabTabObserver;
 import org.chromium.chrome.browser.dependency_injection.ActivityScope;
-import org.chromium.chrome.browser.tab.EmptyTabObserver;
+import org.chromium.chrome.browser.previews.Previews;
 import org.chromium.chrome.browser.tab.Tab;
-import org.chromium.chrome.browser.tab.TabImpl;
 import org.chromium.chrome.browser.tab.TabSelectionType;
 import org.chromium.chrome.browser.tab.TabThemeColorHelper;
 import org.chromium.chrome.browser.toolbar.ToolbarManager;
@@ -43,25 +43,23 @@ public class CustomTabToolbarColorController {
         int INTENT_TOOLBAR_COLOR = 2;
     }
 
+    /**
+     * Interface used to receive a predicate that tells if the current tab is in preview mode.
+     * This makes the {@link #computeToolbarColorType()} test-friendly.
+     */
+    public interface BooleanFunction { boolean get(); }
+
     private final BrowserServicesIntentDataProvider mIntentDataProvider;
-    private final ChromeActivity mActivity;
+    private final ChromeActivity<?> mActivity;
     private final TabObserverRegistrar mTabObserverRegistrar;
     private final CustomTabActivityTabProvider mTabProvider;
-
-    private final CustomTabActivityTabProvider.Observer mActivityTabObserver =
-            new CustomTabActivityTabProvider.Observer() {
-                @Override
-                public void onTabSwapped(@NonNull Tab tab) {
-                    updateColor();
-                }
-            };
 
     private ToolbarManager mToolbarManager;
     private boolean mUseTabThemeColor;
 
     @Inject
     public CustomTabToolbarColorController(BrowserServicesIntentDataProvider intentDataProvider,
-            ChromeActivity activity, CustomTabActivityTabProvider tabProvider,
+            ChromeActivity<?> activity, CustomTabActivityTabProvider tabProvider,
             TabObserverRegistrar tabObserverRegistrar) {
         mIntentDataProvider = intentDataProvider;
         mActivity = activity;
@@ -75,13 +73,12 @@ public class CustomTabToolbarColorController {
      * surfaces with different values for {@link ToolbarColorType.DEFAULT_COLOR}.
      */
     public static int computeToolbarColorType(BrowserServicesIntentDataProvider intentDataProvider,
-            boolean useTabThemeColor, @Nullable Tab tab) {
+            boolean useTabThemeColor, @Nullable Tab tab, BooleanFunction isPreview) {
         if (intentDataProvider.isOpenedByChrome()) {
             return (tab == null) ? ToolbarColorType.DEFAULT_COLOR : ToolbarColorType.THEME_COLOR;
         }
 
-        if (shouldUseDefaultThemeColorForFullscreen(intentDataProvider)
-                || (tab != null && ((TabImpl) tab).isPreview())) {
+        if (shouldUseDefaultThemeColorForFullscreen(intentDataProvider) || isPreview.get()) {
             return ToolbarColorType.DEFAULT_COLOR;
         }
 
@@ -103,13 +100,12 @@ public class CustomTabToolbarColorController {
         assert manager != null : "Toolbar manager not initialized";
 
         observeTabToUpdateColor();
-        mTabProvider.addObserver(mActivityTabObserver);
 
         updateColor();
     }
 
     private void observeTabToUpdateColor() {
-        mTabObserverRegistrar.registerActivityTabObserver(new EmptyTabObserver() {
+        mTabObserverRegistrar.registerActivityTabObserver(new CustomTabTabObserver() {
             @Override
             public void onPageLoadFinished(Tab tab, String url) {
                 // Update the color when the page load finishes.
@@ -129,6 +125,11 @@ public class CustomTabToolbarColorController {
 
             @Override
             public void onShown(Tab tab, @TabSelectionType int type) {
+                updateColor();
+            }
+
+            @Override
+            public void onObservingDifferentTab(@NonNull Tab tab) {
                 updateColor();
             }
         });
@@ -159,7 +160,8 @@ public class CustomTabToolbarColorController {
     private int computeColor() {
         Tab tab = mTabProvider.getTab();
         @ToolbarColorType
-        int toolbarColorType = computeToolbarColorType(mIntentDataProvider, mUseTabThemeColor, tab);
+        int toolbarColorType = computeToolbarColorType(
+                mIntentDataProvider, mUseTabThemeColor, tab, () -> Previews.isPreview(tab));
         switch (toolbarColorType) {
             case ToolbarColorType.THEME_COLOR:
                 assert tab != null;

@@ -10,6 +10,7 @@
 #include "base/observer_list.h"
 #include "base/observer_list_types.h"
 #include "content/common/content_export.h"
+#include "content/public/browser/global_routing_id.h"
 #include "third_party/blink/public/mojom/permissions/permission_status.mojom-forward.h"
 
 namespace content {
@@ -44,15 +45,20 @@ class CONTENT_EXPORT NativeFileSystemPermissionGrant
     kUserDenied = 5,
     kUserDismissed = 6,
     kRequestAborted = 7,
-    kMaxValue = kRequestAborted
+    kGrantedByContentSetting = 8,
+    kMaxValue = kGrantedByContentSetting
   };
+
+  // Passed to |RequestPermission| to indicate if for this particular permission
+  // request user activation is required or not.
+  enum class UserActivationState { kRequired, kNotRequired };
 
   // Call this method to request permission for this grant. The |callback|
   // should be called after the status of this grant has been updated with
   // the outcome of the request.
   virtual void RequestPermission(
-      int process_id,
-      int frame_id,
+      GlobalFrameRoutingId frame_id,
+      UserActivationState user_activation_state,
       base::OnceCallback<void(PermissionRequestOutcome)> callback) = 0;
 
   // This observer can be used to be notified of changes to the permission

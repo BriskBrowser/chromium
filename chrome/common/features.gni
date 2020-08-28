@@ -27,7 +27,7 @@ declare_args() {
   # builtin_cert_verifier_feature_supported platforms.
   # See crbug.com/410574.  This can be removed when the builtin verifier is
   # unconditionally enabled on all platforms.
-  builtin_cert_verifier_policy_supported = is_chromeos || is_desktop_linux
+  builtin_cert_verifier_policy_supported = is_mac
 
   # Enables support for background apps.
   enable_background_contents = !is_android && !is_chromecast
@@ -36,8 +36,6 @@ declare_args() {
   # Enable the printing system dialog for platforms that support printing
   # and have a system dialog.
   enable_basic_print_dialog = enable_basic_printing && !is_chromeos
-
-  enable_captive_portal_detection = !is_android && !is_chromecast
 
   # Enables the Click to Call feature on desktop platforms.
   enable_click_to_call = is_mac || is_win || is_desktop_linux || is_chromeos
@@ -86,6 +84,7 @@ chrome_grit_defines = [
   "enable_printing=$enable_basic_printing",
   "enable_service_discovery=$enable_service_discovery",
   "enable_supervised_users=$enable_supervised_users",
+  "enable_tab_search=$enable_tab_search",
   "enable_vr=$enable_vr",
   "enable_webui_tab_strip=$enable_webui_tab_strip",
   "safe_browsing_mode=$safe_browsing_mode",

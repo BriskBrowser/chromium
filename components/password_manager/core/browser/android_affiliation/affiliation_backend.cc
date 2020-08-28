@@ -20,7 +20,6 @@
 #include "components/password_manager/core/browser/android_affiliation/affiliation_fetch_throttler.h"
 #include "components/password_manager/core/browser/android_affiliation/affiliation_fetcher.h"
 #include "components/password_manager/core/browser/android_affiliation/facet_manager.h"
-#include "net/url_request/url_request_context_getter.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
 
 namespace password_manager {
@@ -37,8 +36,7 @@ AffiliationBackend::AffiliationBackend(
   DETACH_FROM_SEQUENCE(sequence_checker_);
 }
 
-AffiliationBackend::~AffiliationBackend() {
-}
+AffiliationBackend::~AffiliationBackend() = default;
 
 void AffiliationBackend::Initialize(
     std::unique_ptr<network::PendingSharedURLLoaderFactory>
@@ -47,14 +45,14 @@ void AffiliationBackend::Initialize(
     const base::FilePath& db_path) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK(!throttler_);
-  throttler_.reset(new AffiliationFetchThrottler(
-      this, task_runner_, network_connection_tracker, tick_clock_));
+  throttler_ = std::make_unique<AffiliationFetchThrottler>(
+      this, task_runner_, network_connection_tracker, tick_clock_);
 
   // TODO(engedy): Currently, when Init() returns false, it always poisons the
   // DB, so subsequent operations will silently fail. Consider either fully
   // committing to this approach and making Init() a void, or handling the
   // return value here. See: https://crbug.com/478831.
-  cache_.reset(new AffiliationDatabase());
+  cache_ = std::make_unique<AffiliationDatabase>();
   cache_->Init(db_path);
   DCHECK(pending_url_loader_factory);
   DCHECK(!url_loader_factory_);
@@ -65,7 +63,7 @@ void AffiliationBackend::Initialize(
 void AffiliationBackend::GetAffiliationsAndBranding(
     const FacetURI& facet_uri,
     StrategyOnCacheMiss cache_miss_strategy,
-    AffiliationService::ResultCallback callback,
+    AndroidAffiliationService::ResultCallback callback,
     const scoped_refptr<base::TaskRunner>& callback_task_runner) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
@@ -183,7 +181,7 @@ void AffiliationBackend::OnFetchSucceeded(
   fetcher_.reset();
   throttler_->InformOfNetworkRequestComplete(true);
 
-  for (const AffiliatedFacets& affiliated_facets : *result) {
+  for (const AffiliatedFacets& affiliated_facets : result->affiliations) {
     AffiliatedFacetsWithUpdateTime affiliation;
     affiliation.facets = affiliated_facets;
     affiliation.last_update_time = clock_->Now();
@@ -258,9 +256,8 @@ bool AffiliationBackend::OnCanSendNetworkRequest() {
   if (requested_facet_uris.empty())
     return false;
 
-  fetcher_.reset(AffiliationFetcher::Create(url_loader_factory_,
-                                            requested_facet_uris, this));
-  fetcher_->StartRequest();
+  fetcher_ = AffiliationFetcher::Create(url_loader_factory_, this);
+  fetcher_->StartRequest(requested_facet_uris, {.branding_info = true});
   ReportStatistics(requested_facet_uris.size());
   return true;
 }

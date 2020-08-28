@@ -9,7 +9,7 @@
 #include <vector>
 
 #include "base/macros.h"
-#include "chromecast/media/cma/backend/cma_backend.h"
+#include "chromecast/media/api/cma_backend.h"
 #include "chromecast/media/cma/pipeline/av_pipeline_impl.h"
 #include "chromecast/media/cma/pipeline/video_pipeline_client.h"
 #include "chromecast/public/media/stream_id.h"
@@ -28,7 +28,7 @@ class CodedFrameProvider;
 class VideoPipelineImpl : public AvPipelineImpl {
  public:
   VideoPipelineImpl(CmaBackend::VideoDecoder* decoder,
-                    const VideoPipelineClient& client);
+                    VideoPipelineClient client);
   ~VideoPipelineImpl() override;
 
   ::media::PipelineStatus Initialize(

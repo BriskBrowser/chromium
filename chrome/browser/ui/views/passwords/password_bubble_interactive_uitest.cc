@@ -9,26 +9,28 @@
 
 #include "base/bind.h"
 #include "base/command_line.h"
+#include "base/feature_list.h"
 #include "base/macros.h"
 #include "base/metrics/histogram_samples.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/passwords/manage_passwords_test.h"
-#include "chrome/browser/ui/passwords/passwords_client_ui_delegate.h"
-#include "chrome/browser/ui/passwords/passwords_model_delegate.h"
+#include "chrome/browser/ui/passwords/manage_passwords_ui_controller.h"
 #include "chrome/browser/ui/tab_dialogs.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
 #include "chrome/browser/ui/views/passwords/manage_passwords_icon_views.h"
 #include "chrome/browser/ui/views/passwords/password_auto_sign_in_view.h"
-#include "chrome/browser/ui/views/passwords/password_pending_view.h"
+#include "chrome/browser/ui/views/passwords/password_save_update_view.h"
+#include "chrome/browser/ui/views/passwords/password_save_update_with_account_store_view.h"
 #include "chrome/browser/ui/views/toolbar/toolbar_view.h"
 #include "chrome/test/base/interactive_test_utils.h"
 #include "chrome/test/base/ui_test_utils.h"
 #include "components/password_manager/core/common/password_manager_features.h"
 #include "content/public/browser/notification_types.h"
 #include "content/public/browser/render_view_host.h"
+#include "content/public/test/browser_test.h"
 #include "content/public/test/test_utils.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
 #include "net/test/embedded_test_server/http_request.h"
@@ -38,9 +40,9 @@
 using net::test_server::BasicHttpResponse;
 using net::test_server::HttpRequest;
 using net::test_server::HttpResponse;
+using testing::_;
 using testing::Eq;
 using testing::Field;
-using testing::_;
 
 namespace {
 
@@ -51,6 +53,22 @@ bool IsBubbleShowing() {
          PasswordBubbleViewBase::manage_password_bubble()
              ->GetWidget()
              ->IsVisible();
+}
+
+views::View* GetUsernameTextfield(const PasswordBubbleViewBase* bubble) {
+  // Depending on the state of kEnablePasswordsAccountStorage, |bubble| is
+  // either a PasswordSaveUpdateView or a
+  // PasswordSaveUpdateWithAccountStoreView.
+  if (base::FeatureList::IsEnabled(
+          password_manager::features::kEnablePasswordsAccountStorage)) {
+    const PasswordSaveUpdateWithAccountStoreView* save_bubble =
+        static_cast<const PasswordSaveUpdateWithAccountStoreView*>(bubble);
+    return save_bubble->GetUsernameTextfieldForTest();
+  } else {
+    const PasswordSaveUpdateView* save_bubble =
+        static_cast<const PasswordSaveUpdateView*>(bubble);
+    return save_bubble->GetUsernameTextfieldForTest();
+  }
 }
 
 }  // namespace
@@ -82,8 +100,8 @@ IN_PROC_BROWSER_TEST_F(PasswordBubbleInteractiveUiTest, BasicOpenAndClose) {
   EXPECT_FALSE(IsBubbleShowing());
   SetupPendingPassword();
   EXPECT_TRUE(IsBubbleShowing());
-  const PasswordPendingView* bubble = static_cast<const PasswordPendingView*>(
-      PasswordBubbleViewBase::manage_password_bubble());
+  const PasswordBubbleViewBase* bubble =
+      PasswordBubbleViewBase::manage_password_bubble();
   EXPECT_FALSE(bubble->GetFocusManager()->GetFocusedView());
   PasswordBubbleViewBase::CloseCurrentBubble();
   EXPECT_FALSE(IsBubbleShowing());
@@ -97,11 +115,10 @@ IN_PROC_BROWSER_TEST_F(PasswordBubbleInteractiveUiTest, BasicOpenAndClose) {
       browser()->tab_strip_model()->GetActiveWebContents())
       ->ShowManagePasswordsBubble(true /* user_action */);
   EXPECT_TRUE(IsBubbleShowing());
-  bubble = static_cast<const PasswordPendingView*>(
-      PasswordBubbleViewBase::manage_password_bubble());
+  bubble = PasswordBubbleViewBase::manage_password_bubble();
   // A pending password with empty username should initially focus on the
   // username field.
-  EXPECT_EQ(bubble->GetUsernameTextfieldForTest(),
+  EXPECT_EQ(GetUsernameTextfield(bubble),
             bubble->GetFocusManager()->GetFocusedView());
   PasswordBubbleViewBase::CloseCurrentBubble();
   EXPECT_FALSE(IsBubbleShowing());
@@ -296,7 +313,7 @@ IN_PROC_BROWSER_TEST_F(PasswordBubbleInteractiveUiTest,
   // PasswordBubbleViewBase::PendingView:: ButtonPressed(), and
   // simulate the OS event queue by posting a task.
   auto press_button = [](PasswordBubbleViewBase* bubble, bool* ran) {
-    bubble->model()->OnNeverForThisSiteClicked();
+    bubble->Cancel();
     *ran = true;
   };
 
@@ -325,7 +342,7 @@ IN_PROC_BROWSER_TEST_F(PasswordBubbleInteractiveUiTest, AutoSignin) {
   embedded_test_server()->RegisterRequestHandler(base::BindRepeating(
       &PasswordBubbleInteractiveUiTest::HandleRequest, base::Unretained(this)));
   ASSERT_TRUE(embedded_test_server()->InitializeAndListen());
-  test_form()->origin = GURL("https://example.com");
+  test_form()->url = GURL("https://example.com");
   test_form()->display_name = base::ASCIIToUTF16("Peter");
   test_form()->username_value = base::ASCIIToUTF16("pet12@gmail.com");
   test_form()->icon_url = embedded_test_server()->GetURL("/icon.png");
@@ -350,7 +367,7 @@ IN_PROC_BROWSER_TEST_F(PasswordBubbleInteractiveUiTest, AutoSignin) {
 }
 
 IN_PROC_BROWSER_TEST_F(PasswordBubbleInteractiveUiTest, AutoSigninNoFocus) {
-  test_form()->origin = GURL("https://example.com");
+  test_form()->url = GURL("https://example.com");
   test_form()->display_name = base::ASCIIToUTF16("Peter");
   test_form()->username_value = base::ASCIIToUTF16("pet12@gmail.com");
   std::vector<std::unique_ptr<autofill::PasswordForm>> local_credentials;

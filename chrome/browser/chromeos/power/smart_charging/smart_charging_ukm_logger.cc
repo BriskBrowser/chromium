@@ -4,7 +4,6 @@
 
 #include "chrome/browser/chromeos/power/smart_charging/smart_charging_ukm_logger.h"
 
-#include "base/logging.h"
 #include "chrome/browser/chromeos/power/smart_charging/user_charging_event.pb.h"
 #include "services/metrics/public/cpp/ukm_builders.h"
 #include "services/metrics/public/cpp/ukm_recorder.h"
@@ -116,6 +115,10 @@ void SmartChargingUkmLogger::LogEvent(
 
   if (features.has_halt_from_last_charge()) {
     ukm_smart_charging.SetHaltFromLastCharge(features.halt_from_last_charge());
+  }
+
+  if (features.has_is_charging()) {
+    ukm_smart_charging.SetIsCharging(features.is_charging());
   }
 
   ukm::UkmRecorder* const ukm_recorder = ukm::UkmRecorder::Get();

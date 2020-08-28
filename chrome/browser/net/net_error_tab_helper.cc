@@ -13,6 +13,7 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/render_messages.h"
+#include "components/embedder_support/pref_names.h"
 #include "components/error_page/common/net_error_info.h"
 #include "components/pref_registry/pref_registry_syncable.h"
 #include "components/prefs/pref_service.h"
@@ -70,25 +71,12 @@ void NetErrorTabHelper::RenderFrameCreated(
       CanShowNetworkDiagnosticsDialog(web_contents()));
 }
 
-void NetErrorTabHelper::DidStartNavigation(
-    content::NavigationHandle* navigation_handle) {
-  if (!navigation_handle->IsInMainFrame())
-    return;
-
-  if (navigation_handle->IsErrorPage() &&
-      PageTransitionCoreTypeIs(navigation_handle->GetPageTransition(),
-                               ui::PAGE_TRANSITION_RELOAD)) {
-    error_page::RecordEvent(
-        error_page::NETWORK_ERROR_PAGE_BROWSER_INITIATED_RELOAD);
-  }
-}
-
 void NetErrorTabHelper::DidFinishNavigation(
     content::NavigationHandle* navigation_handle) {
   if (!navigation_handle->IsInMainFrame())
     return;
 
-  if (net::IsDnsError(navigation_handle->GetNetErrorCode())) {
+  if (net::IsHostnameResolutionError(navigation_handle->GetNetErrorCode())) {
     dns_error_active_ = true;
     OnMainFrameDnsError();
   }
@@ -111,31 +99,33 @@ void NetErrorTabHelper::DidFinishNavigation(
   }
 }
 
-bool NetErrorTabHelper::OnMessageReceived(
-    const IPC::Message& message,
-    content::RenderFrameHost* render_frame_host) {
-  if (render_frame_host != web_contents()->GetMainFrame())
-    return false;
 #if BUILDFLAG(ENABLE_OFFLINE_PAGES)
-  bool handled = true;
-  IPC_BEGIN_MESSAGE_MAP(NetErrorTabHelper, message)
-    IPC_MESSAGE_HANDLER(ChromeViewHostMsg_DownloadPageLater,
-                        OnDownloadPageLater)
-    IPC_MESSAGE_HANDLER(ChromeViewHostMsg_SetIsShowingDownloadButtonInErrorPage,
-                        OnSetIsShowingDownloadButtonInErrorPage)
-    IPC_MESSAGE_UNHANDLED(handled = false)
-  IPC_END_MESSAGE_MAP()
+void NetErrorTabHelper::DownloadPageLater() {
+  // Makes sure that this is coming from an error page.
+  content::NavigationEntry* entry =
+      web_contents()->GetController().GetLastCommittedEntry();
+  if (!entry || entry->GetPageType() != content::PAGE_TYPE_ERROR)
+    return;
 
-  return handled;
-#else
-  return false;
-#endif  // BUILDFLAG(ENABLE_OFFLINE_PAGES)
+  // Only download the page for HTTP/HTTPS URLs.
+  GURL url(entry->GetVirtualURL());
+  if (!url.SchemeIsHTTPOrHTTPS())
+    return;
+
+  DownloadPageLaterHelper(url);
 }
+
+void NetErrorTabHelper::SetIsShowingDownloadButtonInErrorPage(
+    bool showing_download_button) {
+  is_showing_download_button_in_error_page_ = showing_download_button;
+}
+#endif  // BUILDFLAG(ENABLE_OFFLINE_PAGES)
 
 NetErrorTabHelper::NetErrorTabHelper(WebContents* contents)
     : WebContentsObserver(contents),
       network_diagnostics_receivers_(contents, this),
       network_easter_egg_receivers_(contents, this),
+      net_error_page_support_(contents, this),
       is_error_page_(false),
       dns_error_active_(false),
       dns_error_page_committed_(false),
@@ -189,32 +179,10 @@ void NetErrorTabHelper::OnDnsProbeFinished(DnsProbeStatus result) {
     SendInfo();
 }
 
-#if BUILDFLAG(ENABLE_OFFLINE_PAGES)
-void NetErrorTabHelper::OnDownloadPageLater() {
-  // Makes sure that this is coming from an error page.
-  content::NavigationEntry* entry =
-      web_contents()->GetController().GetLastCommittedEntry();
-  if (!entry || entry->GetPageType() != content::PAGE_TYPE_ERROR)
-    return;
-
-  // Only download the page for HTTP/HTTPS URLs.
-  GURL url(entry->GetVirtualURL());
-  if (!url.SchemeIsHTTPOrHTTPS())
-    return;
-
-  DownloadPageLaterHelper(url);
-}
-
-void NetErrorTabHelper::OnSetIsShowingDownloadButtonInErrorPage(
-    bool is_showing_download_button) {
-  is_showing_download_button_in_error_page_ = is_showing_download_button;
-}
-#endif  // BUILDFLAG(ENABLE_OFFLINE_PAGES)
-
 // static
 void NetErrorTabHelper::RegisterProfilePrefs(
     user_prefs::PrefRegistrySyncable* prefs) {
-  // prefs::kAlternateErrorPagesEnabled is registered by
+  // embedder_support::kAlternateErrorPagesEnabled is registered by
   // NavigationCorrectionTabObserver.
 
   prefs->RegisterIntegerPref(prefs::kNetworkEasterEggHighScore, 0,
@@ -227,8 +195,7 @@ void NetErrorTabHelper::InitializePref(WebContents* contents) {
   BrowserContext* browser_context = contents->GetBrowserContext();
   Profile* profile = Profile::FromBrowserContext(browser_context);
   resolve_errors_with_web_service_.Init(
-      prefs::kAlternateErrorPagesEnabled,
-      profile->GetPrefs());
+      embedder_support::kAlternateErrorPagesEnabled, profile->GetPrefs());
   easter_egg_high_score_.Init(prefs::kNetworkEasterEggHighScore,
                               profile->GetPrefs());
 }

@@ -15,10 +15,10 @@
 #import "ios/chrome/browser/ui/commands/popup_menu_commands.h"
 #import "ios/chrome/browser/ui/commands/qr_scanner_commands.h"
 #import "ios/chrome/browser/ui/commands/snackbar_commands.h"
+#import "ios/chrome/browser/ui/commands/whats_new_commands.h"
 
 class GURL;
 @class ReadingListAddCommand;
-@class SendTabToSelfCommand;
 
 // Protocol for commands that will generally be handled by the "current tab",
 // which in practice is the BrowserViewController instance displaying the tab.
@@ -31,7 +31,8 @@ class GURL;
                            PageInfoCommands,
                            PopupMenuCommands,
                            QRScannerCommands,
-                           SnackbarCommands>
+                           SnackbarCommands,
+                           WhatsNewCommands>
 
 // Closes the current tab.
 - (void)closeCurrentTab;
@@ -68,22 +69,6 @@ class GURL;
 // Shows the translate infobar.
 - (void)showTranslate;
 
-// Shows the Find In Page bar.
-- (void)showFindInPage;
-
-// Closes and disables the Find In Page bar.
-- (void)closeFindInPage;
-
-// Search the current tab for the query string in the Find In Page bar.
-- (void)searchFindInPage;
-
-// Go to the next location of the Find In Page query string in the current tab.
-- (void)findNextStringInPage;
-
-// Go to the previous location of the Find In Page query string in the current
-// tab.
-- (void)findPreviousStringInPage;
-
 // Shows the online help page in a tab.
 - (void)showHelpPage;
 
@@ -109,18 +94,9 @@ class GURL;
 // Searches for an image in the current tab.
 - (void)searchByImage:(UIImage*)image;
 
-// Sends the tab to another of the user's devices using the data in |command|.
-- (void)sendTabToSelf:(SendTabToSelfCommand*)command;
-
 // Shows/Hides the activity indicator overlay that appears over the view to
 // prevent interaction with the web page.
 - (void)showActivityOverlay:(BOOL)show;
-
-// Shows the Text Zoom UI.
-- (void)showTextZoom;
-
-// Dismisses the Text Zoom UI.
-- (void)hideTextZoom;
 
 @end
 

@@ -8,55 +8,20 @@
 #include "base/strings/stringprintf.h"
 #include "chrome/browser/content_settings/host_content_settings_map_factory.h"
 #include "chrome/browser/notifications/notification_permission_context.h"
-#include "chrome/browser/permissions/permission_request_manager.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/common/chrome_features.h"
 #include "chrome/test/base/ui_test_utils.h"
 #include "components/content_settings/core/browser/host_content_settings_map.h"
 #include "components/content_settings/core/common/content_settings.h"
+#include "components/permissions/features.h"
+#include "components/permissions/permission_request_manager.h"
+#include "components/permissions/test/permission_request_observer.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/test/browser_test_utils.h"
 #include "ui/message_center/message_center.h"
 #include "ui/message_center/message_center_observer.h"
-
-namespace {
-
-// Used to observe the creation of permission prompt without responding.
-class PermissionRequestObserver : public PermissionRequestManager::Observer {
- public:
-  explicit PermissionRequestObserver(content::WebContents* web_contents)
-      : request_manager_(
-            PermissionRequestManager::FromWebContents(web_contents)),
-        request_shown_(false),
-        message_loop_runner_(new content::MessageLoopRunner) {
-    request_manager_->AddObserver(this);
-  }
-  ~PermissionRequestObserver() override {
-    // Safe to remove twice if it happens.
-    request_manager_->RemoveObserver(this);
-  }
-
-  void Wait() { message_loop_runner_->Run(); }
-
-  bool request_shown() { return request_shown_; }
-
- private:
-  // PermissionRequestManager::Observer
-  void OnBubbleAdded() override {
-    request_shown_ = true;
-    request_manager_->RemoveObserver(this);
-    message_loop_runner_->Quit();
-  }
-
-  PermissionRequestManager* request_manager_;
-  bool request_shown_;
-  scoped_refptr<content::MessageLoopRunner> message_loop_runner_;
-
-  DISALLOW_COPY_AND_ASSIGN(PermissionRequestObserver);
-};
-
-}  // namespace
 
 class MessageCenterChangeObserver::Impl
     : public message_center::MessageCenterObserver {
@@ -64,6 +29,8 @@ class MessageCenterChangeObserver::Impl
   Impl() : notification_received_(false) {
     message_center::MessageCenter::Get()->AddObserver(this);
   }
+  Impl(const Impl&) = delete;
+  Impl& operator=(const Impl&) = delete;
 
   ~Impl() override {
     message_center::MessageCenter::Get()->RemoveObserver(this);
@@ -107,8 +74,6 @@ class MessageCenterChangeObserver::Impl
 
   bool notification_received_;
   scoped_refptr<content::MessageLoopRunner> message_loop_runner_;
-
-  DISALLOW_COPY_AND_ASSIGN(Impl);
 };
 
 MessageCenterChangeObserver::MessageCenterChangeObserver() : impl_(new Impl) {}
@@ -202,10 +167,10 @@ std::string NotificationsTest::CreateSimpleNotification(
 
 std::string NotificationsTest::RequestAndRespondToPermission(
     Browser* browser,
-    PermissionRequestManager::AutoResponseType bubble_response) {
+    permissions::PermissionRequestManager::AutoResponseType bubble_response) {
   std::string result;
   content::WebContents* web_contents = GetActiveWebContents(browser);
-  PermissionRequestManager::FromWebContents(web_contents)
+  permissions::PermissionRequestManager::FromWebContents(web_contents)
       ->set_auto_response_for_test(bubble_response);
   EXPECT_TRUE(content::ExecuteScriptAndExtractString(
       web_contents, "requestPermission();", &result));
@@ -214,26 +179,26 @@ std::string NotificationsTest::RequestAndRespondToPermission(
 
 bool NotificationsTest::RequestAndAcceptPermission(Browser* browser) {
   std::string result = RequestAndRespondToPermission(
-      browser, PermissionRequestManager::ACCEPT_ALL);
+      browser, permissions::PermissionRequestManager::ACCEPT_ALL);
   return "request-callback-granted" == result;
 }
 
 bool NotificationsTest::RequestAndDenyPermission(Browser* browser) {
   std::string result = RequestAndRespondToPermission(
-      browser, PermissionRequestManager::DENY_ALL);
+      browser, permissions::PermissionRequestManager::DENY_ALL);
   return "request-callback-denied" == result;
 }
 
 bool NotificationsTest::RequestAndDismissPermission(Browser* browser) {
-  std::string result =
-      RequestAndRespondToPermission(browser, PermissionRequestManager::DISMISS);
+  std::string result = RequestAndRespondToPermission(
+      browser, permissions::PermissionRequestManager::DISMISS);
   return "request-callback-default" == result;
 }
 
 bool NotificationsTest::RequestPermissionAndWait(Browser* browser) {
   content::WebContents* web_contents = GetActiveWebContents(browser);
   ui_test_utils::NavigateToURL(browser, GetTestPageURL());
-  PermissionRequestObserver observer(web_contents);
+  permissions::PermissionRequestObserver observer(web_contents);
   std::string result;
   EXPECT_TRUE(content::ExecuteScriptAndExtractString(
       web_contents, "requestPermissionAndRespond();", &result));
@@ -308,12 +273,14 @@ content::WebContents* NotificationsTest::GetActiveWebContents(
 NotificationsTestWithPermissionsEmbargo ::
     NotificationsTestWithPermissionsEmbargo() {
 #if BUILDFLAG(ENABLE_NATIVE_NOTIFICATIONS)
-  feature_list_.InitWithFeatures({features::kBlockPromptsIfDismissedOften,
-                                  features::kBlockPromptsIfIgnoredOften},
-                                 {features::kNativeNotifications});
+  feature_list_.InitWithFeatures(
+      {permissions::features::kBlockPromptsIfDismissedOften,
+       permissions::features::kBlockPromptsIfIgnoredOften},
+      {features::kNativeNotifications});
 #else
-  feature_list_.InitWithFeatures({features::kBlockPromptsIfDismissedOften,
-                                  features::kBlockPromptsIfIgnoredOften},
-                                 {});
+  feature_list_.InitWithFeatures(
+      {permissions::features::kBlockPromptsIfDismissedOften,
+       permissions::features::kBlockPromptsIfIgnoredOften},
+      {});
 #endif  //  BUILDFLAG(ENABLE_NATIVE_NOTIFICATIONS)
 }

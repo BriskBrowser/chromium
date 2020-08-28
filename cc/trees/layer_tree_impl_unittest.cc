@@ -2133,7 +2133,7 @@ TEST_F(LayerTreeImplTest, SelectionBoundsWithLargeTransforms) {
   root->SetBounds(gfx::Size(100, 100));
 
   gfx::Transform large_transform;
-  large_transform.Scale(SkDoubleToMScalar(1e37), SkDoubleToMScalar(1e37));
+  large_transform.Scale(SkDoubleToScalar(1e37), SkDoubleToScalar(1e37));
   large_transform.RotateAboutYAxis(30);
 
   LayerImpl* child = AddLayer<LayerImpl>();
@@ -2199,13 +2199,13 @@ TEST_F(LayerTreeImplTest, DeviceScaleFactorNeedsDrawPropertiesUpdate) {
   EXPECT_TRUE(host_impl().active_tree()->needs_update_draw_properties());
 }
 
-TEST_F(LayerTreeImplTest, RasterColorSpaceDoesNotNeedDrawPropertiesUpdate) {
-  host_impl().active_tree()->SetRasterColorSpace(
-      1, gfx::ColorSpace::CreateXYZD50());
+TEST_F(LayerTreeImplTest, DisplayColorSpacesDoesNotNeedDrawPropertiesUpdate) {
+  host_impl().active_tree()->SetDisplayColorSpaces(
+      gfx::DisplayColorSpaces(gfx::ColorSpace::CreateXYZD50()));
   host_impl().active_tree()->UpdateDrawProperties();
   EXPECT_FALSE(host_impl().active_tree()->needs_update_draw_properties());
-  host_impl().active_tree()->SetRasterColorSpace(1,
-                                                 gfx::ColorSpace::CreateSRGB());
+  host_impl().active_tree()->SetDisplayColorSpaces(
+      gfx::DisplayColorSpaces(gfx::ColorSpace::CreateSRGB()));
   EXPECT_FALSE(host_impl().active_tree()->needs_update_draw_properties());
 }
 

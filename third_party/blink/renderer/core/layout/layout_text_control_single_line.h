@@ -31,6 +31,12 @@ namespace blink {
 
 class HTMLInputElement;
 
+// LayoutObject for text-field <input>s.
+//
+// This class inherits from LayoutTextControl and LayoutBlockFlow. If we'd like
+// to change the base class, we need to make sure that
+// ShouldIgnoreOverflowPropertyForInlineBlockBaseline flag works with the new
+// base class.
 class LayoutTextControlSingleLine : public LayoutTextControl {
  public:
   LayoutTextControlSingleLine(HTMLInputElement*);
@@ -47,8 +53,6 @@ class LayoutTextControlSingleLine : public LayoutTextControl {
   HTMLInputElement* InputElement() const;
 
  private:
-  bool HasControlClip() const final;
-  PhysicalRect ControlClipRect(const PhysicalOffset&) const final;
   bool IsOfType(LayoutObjectType type) const override {
     return type == kLayoutObjectTextField || LayoutTextControl::IsOfType(type);
   }
@@ -60,8 +64,6 @@ class LayoutTextControlSingleLine : public LayoutTextControl {
                    const HitTestLocation&,
                    const PhysicalOffset& accumulated_offset,
                    HitTestAction) final;
-
-  void Autoscroll(const PhysicalOffset&) final;
 
   // Subclassed to forward to our inner div.
   LayoutUnit ScrollWidth() const final;
@@ -80,32 +82,33 @@ class LayoutTextControlSingleLine : public LayoutTextControl {
   // shouldn't affect outside of the INPUT box.  So we ignore child overflow.
   void AddLayoutOverflowFromChildren() final {}
 
-  bool AllowsOverflowClip() const override { return false; }
+  bool AllowsNonVisibleOverflow() const override { return false; }
 
   HTMLElement* InnerSpinButtonElement() const;
 
   bool should_draw_caps_lock_indicator_;
 };
 
-DEFINE_LAYOUT_OBJECT_TYPE_CASTS(LayoutTextControlSingleLine, IsTextField());
+template <>
+struct DowncastTraits<LayoutTextControlSingleLine> {
+  static bool AllowFrom(const LayoutObject& object) {
+    return object.IsTextField();
+  }
+};
 
 // ----------------------------
 
 class LayoutTextControlInnerEditor : public LayoutBlockFlow {
  public:
   LayoutTextControlInnerEditor(Element* element) : LayoutBlockFlow(element) {}
-  bool ShouldIgnoreOverflowPropertyForInlineBlockBaseline() const override {
-    return true;
-  }
 
  private:
   bool IsIntrinsicallyScrollable(
       ScrollbarOrientation orientation) const override {
     return orientation == kHorizontalScrollbar;
   }
-  bool ScrollsOverflowX() const override { return HasOverflowClip(); }
+  bool ScrollsOverflowX() const override { return HasNonVisibleOverflow(); }
   bool ScrollsOverflowY() const override { return false; }
-  bool HasLineIfEmpty() const override { return true; }
 };
 
 }  // namespace blink

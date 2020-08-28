@@ -38,11 +38,10 @@ class TestSyncService : public SyncService {
   void SetFirstSetupComplete(bool first_setup_complete);
   void SetPreferredDataTypes(const ModelTypeSet& types);
   void SetActiveDataTypes(const ModelTypeSet& types);
+  void SetBackedOffDataTypes(const ModelTypeSet& types);
   void SetLastCycleSnapshot(const SyncCycleSnapshot& snapshot);
   void SetUserDemographics(
       const UserDemographicsResult& user_demographics_result);
-  void SetExperimentalAuthenticationKey(
-      std::unique_ptr<crypto::ECPrivateKey> experimental_authentication_key);
   // Convenience versions of the above, for when the caller doesn't care about
   // the particular values in the snapshot, just whether there is one.
   void SetEmptyLastCycleSnapshot();
@@ -50,6 +49,7 @@ class TestSyncService : public SyncService {
   void SetDetailedSyncStatus(bool engine_available, SyncStatus status);
   void SetPassphraseRequired(bool required);
   void SetPassphraseRequiredForPreferredDataTypes(bool required);
+  void SetTrustedVaultKeyRequired(bool required);
   void SetTrustedVaultKeyRequiredForPreferredDataTypes(bool required);
   void SetIsUsingSecondaryPassphrase(bool enabled);
 
@@ -67,8 +67,6 @@ class TestSyncService : public SyncService {
   GoogleServiceAuthError GetAuthError() const override;
   base::Time GetAuthErrorTime() const override;
   bool RequiresClientUpgrade() const override;
-  std::unique_ptr<crypto::ECPrivateKey> GetExperimentalAuthenticationKey()
-      const override;
 
   std::unique_ptr<SyncSetupInProgressHandle> GetSetupInProgressHandle()
       override;
@@ -77,6 +75,7 @@ class TestSyncService : public SyncService {
   ModelTypeSet GetRegisteredDataTypes() const override;
   ModelTypeSet GetPreferredDataTypes() const override;
   ModelTypeSet GetActiveDataTypes() const override;
+  ModelTypeSet GetBackedOffDataTypes() const override;
 
   void StopAndClear() override;
   void OnDataTypeRequestsSyncStartup(ModelType type) override;
@@ -86,8 +85,6 @@ class TestSyncService : public SyncService {
   void AddObserver(SyncServiceObserver* observer) override;
   void RemoveObserver(SyncServiceObserver* observer) override;
   bool HasObserver(const SyncServiceObserver* observer) const override;
-
-  UserShare* GetUserShare() const override;
 
   SyncTokenStatus GetSyncTokenStatusForDebugging() const override;
   bool QueryDetailedSyncStatusForDebugging(SyncStatus* result) const override;
@@ -129,6 +126,7 @@ class TestSyncService : public SyncService {
 
   ModelTypeSet preferred_data_types_;
   ModelTypeSet active_data_types_;
+  ModelTypeSet backed_off_data_types_;
 
   bool detailed_sync_status_engine_available_ = false;
   SyncStatus detailed_sync_status_;
@@ -140,8 +138,6 @@ class TestSyncService : public SyncService {
   GURL sync_service_url_;
 
   UserDemographicsResult user_demographics_result_;
-
-  std::unique_ptr<crypto::ECPrivateKey> experimental_authentication_key_;
 
   DISALLOW_COPY_AND_ASSIGN(TestSyncService);
 };

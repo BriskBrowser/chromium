@@ -9,17 +9,19 @@
 
 #include "base/callback.h"
 #include "base/files/file_path.h"
-#include "base/logging.h"
 #include "base/optional.h"
 #include "base/time/time.h"
 #include "components/download/public/common/download_danger_type.h"
 #include "components/download/public/common/download_item.h"
+#include "components/download/public/common/download_schedule.h"
 #include "components/download/public/common/download_url_parameters.h"
 #include "components/download/public/common/quarantine_connection.h"
 #include "content/common/content_export.h"
 #include "content/public/browser/save_page_type.h"
 #include "content/public/browser/web_contents.h"
 #include "url/origin.h"
+
+class GURL;
 
 namespace content {
 
@@ -63,7 +65,9 @@ using DownloadTargetCallback = base::OnceCallback<void(
     const base::FilePath& target_path,
     download::DownloadItem::TargetDisposition disposition,
     download::DownloadDangerType danger_type,
+    download::DownloadItem::MixedContentStatus mixed_content_status,
     const base::FilePath& intermediate_path,
+    base::Optional<download::DownloadSchedule> download_schedule,
     download::DownloadInterruptReason interrupt_reason)>;
 
 // Called when a download delayed by the delegate has completed.
@@ -102,8 +106,18 @@ class CONTENT_EXPORT DownloadManagerDelegate {
   virtual bool DetermineDownloadTarget(download::DownloadItem* item,
                                        DownloadTargetCallback* callback);
 
-  // Tests if a file type should be opened automatically.
-  virtual bool ShouldOpenFileBasedOnExtension(const base::FilePath& path);
+  // Tests if a file type should be opened automatically. This consider both
+  // user and policy settings, and should be called when it doesn't matter
+  // what set the auto-open, just if it is set.
+  virtual bool ShouldAutomaticallyOpenFile(const GURL& url,
+                                           const base::FilePath& path);
+
+  // Tests if a file type should be opened automatically by policy. This
+  // should only be used if it matters if the file will auto-open by policy.
+  // Generally used to determine if we need to show UI indicating an active
+  // policy.
+  virtual bool ShouldAutomaticallyOpenFileByPolicy(const GURL& url,
+                                                   const base::FilePath& path);
 
   // Allows the delegate to delay completion of the download.  This function
   // will either return true (in which case the download may complete)
@@ -190,6 +204,7 @@ class CONTENT_EXPORT DownloadManagerDelegate {
       const std::string& request_method,
       base::Optional<url::Origin> request_initiator,
       bool from_download_cross_origin_redirect,
+      bool content_initiated,
       CheckDownloadAllowedCallback check_download_allowed_cb);
 
   // Gets a callback which can connect the download manager to a Quarantine

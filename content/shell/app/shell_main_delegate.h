@@ -19,9 +19,13 @@ class ShellContentGpuClient;
 class ShellContentRendererClient;
 class ShellContentUtilityClient;
 
+#if !defined(OS_ANDROID)
+class WebTestBrowserMainRunner;
+#endif
+
 class ShellMainDelegate : public ContentMainDelegate {
  public:
-  explicit ShellMainDelegate(bool is_browsertest = false);
+  explicit ShellMainDelegate(bool is_content_browsertests = false);
   ~ShellMainDelegate() override;
 
   // ContentMainDelegate implementation:
@@ -29,7 +33,7 @@ class ShellMainDelegate : public ContentMainDelegate {
   void PreSandboxStartup() override;
   int RunProcess(const std::string& process_type,
                  const MainFunctionParams& main_function_params) override;
-#if defined(OS_LINUX)
+#if defined(OS_LINUX) || defined(OS_CHROMEOS)
   void ZygoteForked() override;
 #endif
   void PreCreateMainMessageLoop() override;
@@ -42,7 +46,20 @@ class ShellMainDelegate : public ContentMainDelegate {
   static void InitializeResourceBundle();
 
  private:
-  bool is_browsertest_;
+  // Only present when running content_browsertests, which run inside Content
+  // Shell.
+  //
+  // content_browsertests should not set the kRunWebTests command line flag, so
+  // |is_content_browsertests_| and |web_test_runner_| are mututally exclusive.
+  bool is_content_browsertests_;
+#if !defined(OS_ANDROID)
+  // Only present when running web tests, which run inside Content Shell.
+  //
+  // Web tests are not browser tests, so |is_content_browsertests_| and
+  // |web_test_runner_| are mututally exclusive.
+  std::unique_ptr<WebTestBrowserMainRunner> web_test_runner_;
+#endif
+
   std::unique_ptr<ShellContentBrowserClient> browser_client_;
   std::unique_ptr<ShellContentGpuClient> gpu_client_;
   std::unique_ptr<ShellContentRendererClient> renderer_client_;

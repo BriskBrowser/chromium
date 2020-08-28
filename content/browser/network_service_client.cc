@@ -22,12 +22,12 @@
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/child_process_security_policy.h"
+#include "content/public/browser/content_browser_client.h"
 #include "content/public/browser/global_request_id.h"
 #include "content/public/browser/network_service_instance.h"
 #include "content/public/common/content_client.h"
 #include "content/public/common/content_features.h"
 #include "content/public/common/network_service_util.h"
-#include "content/public/common/resource_type.h"
 #include "services/network/public/cpp/load_info_util.h"
 #include "services/network/public/mojom/network_context.mojom.h"
 #include "third_party/blink/public/mojom/web_feature/web_feature.mojom.h"
@@ -36,8 +36,8 @@
 #include "base/android/content_uri_utils.h"
 #endif
 
-#if defined(OS_MACOSX)
-#include "base/message_loop/message_loop_current.h"
+#if defined(OS_MAC)
+#include "base/task/current_thread.h"
 #endif
 
 namespace content {
@@ -64,16 +64,16 @@ NetworkServiceClient::NetworkServiceClient(
 #endif
 {
 
-#if defined(OS_MACOSX)
-  if (base::MessageLoopCurrentForUI::IsSet())  // Not set in some unit tests.
+#if defined(OS_MAC)
+  if (base::CurrentUIThread::IsSet())  // Not set in some unit tests.
     net::CertDatabase::GetInstance()->StartListeningForKeychainEvents();
 #endif
 
   if (IsOutOfProcessNetworkService()) {
     net::CertDatabase::GetInstance()->AddObserver(this);
-    memory_pressure_listener_ =
-        std::make_unique<base::MemoryPressureListener>(base::BindRepeating(
-            &NetworkServiceClient::OnMemoryPressure, base::Unretained(this)));
+    memory_pressure_listener_ = std::make_unique<base::MemoryPressureListener>(
+        FROM_HERE, base::BindRepeating(&NetworkServiceClient::OnMemoryPressure,
+                                       base::Unretained(this)));
 
 #if defined(OS_ANDROID)
     DCHECK(!net::NetworkChangeNotifier::CreateIfNeeded());
@@ -211,10 +211,10 @@ void NetworkServiceClient::OnRawRequest(
     int32_t process_id,
     int32_t routing_id,
     const std::string& devtools_request_id,
-    const net::CookieStatusList& cookies_with_status,
+    const net::CookieAccessResultList& cookies_with_access_result,
     std::vector<network::mojom::HttpRawHeaderPairPtr> headers) {
   devtools_instrumentation::OnRequestWillBeSentExtraInfo(
-      process_id, routing_id, devtools_request_id, cookies_with_status,
+      process_id, routing_id, devtools_request_id, cookies_with_access_result,
       headers);
 }
 
@@ -222,11 +222,50 @@ void NetworkServiceClient::OnRawResponse(
     int32_t process_id,
     int32_t routing_id,
     const std::string& devtools_request_id,
-    const net::CookieAndLineStatusList& cookies_with_status,
+    const net::CookieAndLineAccessResultList& cookies_with_access_result,
     std::vector<network::mojom::HttpRawHeaderPairPtr> headers,
     const base::Optional<std::string>& raw_response_headers) {
   devtools_instrumentation::OnResponseReceivedExtraInfo(
-      process_id, routing_id, devtools_request_id, cookies_with_status, headers,
-      raw_response_headers);
+      process_id, routing_id, devtools_request_id, cookies_with_access_result,
+      headers, raw_response_headers);
 }
+
+void NetworkServiceClient::OnCorsPreflightRequest(
+    int32_t process_id,
+    int32_t render_frame_id,
+    const base::UnguessableToken& devtools_request_id,
+    const network::ResourceRequest& request,
+    const GURL& initiator_url) {
+  devtools_instrumentation::OnCorsPreflightRequest(
+      process_id, render_frame_id, devtools_request_id, request, initiator_url);
+}
+
+void NetworkServiceClient::OnCorsPreflightResponse(
+    int32_t process_id,
+    int32_t render_frame_id,
+    const base::UnguessableToken& devtools_request_id,
+    const GURL& url,
+    network::mojom::URLResponseHeadPtr head) {
+  devtools_instrumentation::OnCorsPreflightResponse(
+      process_id, render_frame_id, devtools_request_id, url, std::move(head));
+}
+
+void NetworkServiceClient::OnCorsPreflightRequestCompleted(
+    int32_t process_id,
+    int32_t render_frame_id,
+    const base::UnguessableToken& devtools_request_id,
+    const network::URLLoaderCompletionStatus& status) {
+  devtools_instrumentation::OnCorsPreflightRequestCompleted(
+      process_id, render_frame_id, devtools_request_id, status);
+}
+
+void NetworkServiceClient::LogCrossOriginFetchFromContentScript3(
+    const std::string& isolated_world_host) {
+  ContentBrowserClient* client = GetContentClient()->browser();
+  if (client) {
+    client->LogUkmEventForCrossOriginFetchFromContentScript3(
+        isolated_world_host);
+  }
+}
+
 }  // namespace content

@@ -96,15 +96,23 @@ void TranslateBubbleModelImpl::DeclineTranslation() {
   translation_declined_ = true;
 }
 
+bool TranslateBubbleModelImpl::ShouldNeverTranslateLanguage() {
+  return ui_delegate_->IsLanguageBlocked();
+}
+
 void TranslateBubbleModelImpl::SetNeverTranslateLanguage(bool value) {
   ui_delegate_->SetLanguageBlocked(value);
+}
+
+bool TranslateBubbleModelImpl::ShouldNeverTranslateSite() {
+  return ui_delegate_->IsSiteBlacklisted();
 }
 
 void TranslateBubbleModelImpl::SetNeverTranslateSite(bool value) {
   ui_delegate_->SetSiteBlacklist(value);
 }
 
-bool TranslateBubbleModelImpl::CanBlacklistSite() {
+bool TranslateBubbleModelImpl::CanBlocklistSite() {
   return ui_delegate_->CanBlacklistSite();
 }
 

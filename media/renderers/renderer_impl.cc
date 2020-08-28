@@ -30,9 +30,6 @@
 
 namespace media {
 
-// See |video_underflow_threshold_|.
-static const int kDefaultVideoUnderflowThresholdMs = 3000;
-
 class RendererImpl::RendererClientInternal final : public RendererClient {
  public:
   RendererClientInternal(DemuxerStream::Type type,
@@ -93,7 +90,7 @@ RendererImpl::RendererImpl(
       video_renderer_(std::move(video_renderer)),
       current_audio_stream_(nullptr),
       current_video_stream_(nullptr),
-      time_source_(NULL),
+      time_source_(nullptr),
       time_ticking_(false),
       playback_rate_(0.0),
       audio_buffering_state_(BUFFERING_HAVE_NOTHING),
@@ -105,23 +102,10 @@ RendererImpl::RendererImpl(
       cdm_context_(nullptr),
       underflow_disabled_for_testing_(false),
       clockless_video_playback_enabled_for_testing_(false),
-      video_underflow_threshold_(
-          base::TimeDelta::FromMilliseconds(kDefaultVideoUnderflowThresholdMs)),
       pending_audio_track_change_(false),
       pending_video_track_change_(false) {
   weak_this_ = weak_factory_.GetWeakPtr();
   DVLOG(1) << __func__;
-
-  // TODO(dalecurtis): Remove once experiments for http://crbug.com/470940 are
-  // complete.
-  int threshold_ms = 0;
-  std::string threshold_ms_str(
-      base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
-          switches::kVideoUnderflowThresholdMs));
-  if (base::StringToInt(threshold_ms_str, &threshold_ms) && threshold_ms > 0) {
-    video_underflow_threshold_ =
-        base::TimeDelta::FromMilliseconds(threshold_ms);
-  }
 }
 
 RendererImpl::~RendererImpl() {
@@ -199,10 +183,19 @@ void RendererImpl::SetLatencyHint(
   DCHECK(!latency_hint || (*latency_hint >= base::TimeDelta()));
   DCHECK(task_runner_->BelongsToCurrentThread());
 
-  // TODO(chcunningham): Plumb to video renderer in a follow up CL.
+  if (video_renderer_)
+    video_renderer_->SetLatencyHint(latency_hint);
 
   if (audio_renderer_)
     audio_renderer_->SetLatencyHint(latency_hint);
+}
+
+void RendererImpl::SetPreservesPitch(bool preserves_pitch) {
+  DVLOG(1) << __func__;
+  DCHECK(task_runner_->BelongsToCurrentThread());
+
+  if (audio_renderer_)
+    audio_renderer_->SetPreservesPitch(preserves_pitch);
 }
 
 void RendererImpl::Flush(base::OnceClosure flush_cb) {
@@ -376,9 +369,6 @@ void RendererImpl::InitializeAudioRenderer() {
   DCHECK_EQ(state_, STATE_INITIALIZING);
   DCHECK(init_cb_);
 
-  PipelineStatusCB done_cb = base::BindRepeating(
-      &RendererImpl::OnAudioRendererInitializeDone, weak_this_);
-
   // TODO(servolk): Implement proper support for multiple streams. But for now
   // pick the first enabled stream to preserve the existing behavior.
   DemuxerStream* audio_stream =
@@ -386,7 +376,9 @@ void RendererImpl::InitializeAudioRenderer() {
 
   if (!audio_stream) {
     audio_renderer_.reset();
-    task_runner_->PostTask(FROM_HERE, base::BindOnce(done_cb, PIPELINE_OK));
+    task_runner_->PostTask(
+        FROM_HERE, base::BindOnce(&RendererImpl::OnAudioRendererInitializeDone,
+                                  weak_this_, PIPELINE_OK));
     return;
   }
 
@@ -396,8 +388,9 @@ void RendererImpl::InitializeAudioRenderer() {
       new RendererClientInternal(DemuxerStream::AUDIO, this, media_resource_));
   // Note: After the initialization of a renderer, error events from it may
   // happen at any time and all future calls must guard against STATE_ERROR.
-  audio_renderer_->Initialize(audio_stream, cdm_context_,
-                              audio_renderer_client_.get(), done_cb);
+  audio_renderer_->Initialize(
+      audio_stream, cdm_context_, audio_renderer_client_.get(),
+      base::BindOnce(&RendererImpl::OnAudioRendererInitializeDone, weak_this_));
 }
 
 void RendererImpl::OnAudioRendererInitializeDone(PipelineStatus status) {
@@ -427,9 +420,6 @@ void RendererImpl::InitializeVideoRenderer() {
   DCHECK_EQ(state_, STATE_INITIALIZING);
   DCHECK(init_cb_);
 
-  PipelineStatusCB done_cb = base::BindRepeating(
-      &RendererImpl::OnVideoRendererInitializeDone, weak_this_);
-
   // TODO(servolk): Implement proper support for multiple streams. But for now
   // pick the first enabled stream to preserve the existing behavior.
   DemuxerStream* video_stream =
@@ -437,7 +427,9 @@ void RendererImpl::InitializeVideoRenderer() {
 
   if (!video_stream) {
     video_renderer_.reset();
-    task_runner_->PostTask(FROM_HERE, base::BindOnce(done_cb, PIPELINE_OK));
+    task_runner_->PostTask(
+        FROM_HERE, base::BindOnce(&RendererImpl::OnVideoRendererInitializeDone,
+                                  weak_this_, PIPELINE_OK));
     return;
   }
 
@@ -449,7 +441,7 @@ void RendererImpl::InitializeVideoRenderer() {
       video_stream, cdm_context_, video_renderer_client_.get(),
       base::BindRepeating(&RendererImpl::GetWallClockTimes,
                           base::Unretained(this)),
-      done_cb);
+      base::BindOnce(&RendererImpl::OnVideoRendererInitializeDone, weak_this_));
 }
 
 void RendererImpl::OnVideoRendererInitializeDone(PipelineStatus status) {
@@ -579,9 +571,8 @@ void RendererImpl::ReinitializeAudioRenderer(
   current_audio_stream_ = stream;
   audio_renderer_->Initialize(
       stream, cdm_context_, audio_renderer_client_.get(),
-      base::BindRepeating(&RendererImpl::OnAudioRendererReinitialized,
-                          weak_this_, stream, time,
-                          base::Passed(&reinitialize_completed_cb)));
+      base::BindOnce(&RendererImpl::OnAudioRendererReinitialized, weak_this_,
+                     stream, time, std::move(reinitialize_completed_cb)));
 }
 
 void RendererImpl::OnAudioRendererReinitialized(
@@ -614,9 +605,8 @@ void RendererImpl::ReinitializeVideoRenderer(
       stream, cdm_context_, video_renderer_client_.get(),
       base::BindRepeating(&RendererImpl::GetWallClockTimes,
                           base::Unretained(this)),
-      base::BindRepeating(&RendererImpl::OnVideoRendererReinitialized,
-                          weak_this_, stream, time,
-                          base::Passed(&reinitialize_completed_cb)));
+      base::BindOnce(&RendererImpl::OnVideoRendererReinitialized, weak_this_,
+                     stream, time, std::move(reinitialize_completed_cb)));
 }
 
 void RendererImpl::OnVideoRendererReinitialized(
@@ -701,12 +691,12 @@ void RendererImpl::OnBufferingStateChange(DemuxerStream::Type type,
 
   const auto* type_string = DemuxerStream::GetTypeName(type);
   DVLOG(1) << __func__ << " " << type_string << " "
-           << MediaLog::BufferingStateToString(*buffering_state) << " -> "
-           << MediaLog::BufferingStateToString(new_buffering_state, reason);
+           << BufferingStateToString(*buffering_state) << " -> "
+           << BufferingStateToString(new_buffering_state, reason);
   DCHECK(task_runner_->BelongsToCurrentThread());
   TRACE_EVENT2("media", "RendererImpl::OnBufferingStateChange", "type",
                type_string, "state",
-               MediaLog::BufferingStateToString(new_buffering_state, reason));
+               BufferingStateToString(new_buffering_state, reason));
 
   bool was_waiting_for_enough_data = WaitingForEnoughData();
 
@@ -737,7 +727,7 @@ void RendererImpl::OnBufferingStateChange(DemuxerStream::Type type,
                               type, new_buffering_state, reason));
       task_runner_->PostDelayedTask(FROM_HERE,
                                     deferred_video_underflow_cb_.callback(),
-                                    video_underflow_threshold_);
+                                    video_underflow_threshold_.value());
       return;
     }
 
@@ -855,19 +845,15 @@ void RendererImpl::OnRendererEnded(DemuxerStream::Type type) {
   DCHECK((type == DemuxerStream::AUDIO) || (type == DemuxerStream::VIDEO));
   TRACE_EVENT1("media", "RendererImpl::OnRendererEnded", "type", type_string);
 
-  if (state_ != STATE_PLAYING)
+  // If all streams are ended, do not propagate a redundant ended event.
+  if (state_ != STATE_PLAYING || PlaybackHasEnded())
     return;
 
   if (type == DemuxerStream::AUDIO) {
-    // If all streams are ended, do not propagate a redundant ended event.
-    if (audio_ended_ && PlaybackHasEnded())
-      return;
+    DCHECK(audio_renderer_);
     audio_ended_ = true;
   } else {
     DCHECK(video_renderer_);
-    // If all streams are ended, do not propagate a redundant ended event.
-    if (audio_ended_ && PlaybackHasEnded())
-      return;
     video_ended_ = true;
     video_renderer_->OnTimeStopped();
   }
@@ -997,9 +983,9 @@ void RendererImpl::OnSelectedVideoTracksChanged(
   }
 
   pending_video_track_change_ = true;
-  video_renderer_->Flush(base::BindOnce(
-      &RendererImpl::CleanUpTrackChange, weak_this_,
-      base::Passed(&fix_stream_cb), &video_ended_, &video_playing_));
+  video_renderer_->Flush(base::BindOnce(&RendererImpl::CleanUpTrackChange,
+                                        weak_this_, std::move(fix_stream_cb),
+                                        &video_ended_, &video_playing_));
 }
 
 void RendererImpl::OnEnabledAudioTracksChanged(
@@ -1039,9 +1025,9 @@ void RendererImpl::OnEnabledAudioTracksChanged(
   if (audio_playing_)
     PausePlayback();
 
-  audio_renderer_->Flush(base::BindOnce(
-      &RendererImpl::CleanUpTrackChange, weak_this_,
-      base::Passed(&fix_stream_cb), &audio_ended_, &audio_playing_));
+  audio_renderer_->Flush(base::BindOnce(&RendererImpl::CleanUpTrackChange,
+                                        weak_this_, std::move(fix_stream_cb),
+                                        &audio_ended_, &audio_playing_));
 }
 
 }  // namespace media

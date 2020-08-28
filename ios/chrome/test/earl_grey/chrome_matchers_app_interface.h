@@ -109,9 +109,6 @@
 // Matcher for the Share menu button.
 + (id<GREYMatcher>)shareButton;
 
-// Returns the GREYMatcher for the button that opens the tab switcher.
-+ (id<GREYMatcher>)tabletTabSwitcherOpenButton;
-
 // Matcher for show tabs button.
 + (id<GREYMatcher>)showTabsButton;
 
@@ -132,17 +129,18 @@
 // a link.
 + (id<GREYMatcher>)openLinkInNewTabButton;
 
+// Matcher for the Open in New Window option in the context menu when long
+// pressing a link.
++ (id<GREYMatcher>)openLinkInNewWindowButton;
+
 // Matcher for the done button on the navigation bar.
 + (id<GREYMatcher>)navigationBarDoneButton;
 
 // Matcher for the done button on the Bookmarks navigation bar.
 + (id<GREYMatcher>)bookmarksNavigationBarDoneButton;
 
-// Returns matcher for the account consistency confirmation button.
-+ (id<GREYMatcher>)accountConsistencyConfirmationOKButton;
-
-// Returns matcher for "ADD ACCOUNT" button in unified consent dialog.
-+ (id<GREYMatcher>)unifiedConsentAddAccountButton;
+// Matcher for the back button on the Bookmarks navigation bar.
++ (id<GREYMatcher>)bookmarksNavigationBarBackButton;
 
 // Returns matcher for the add account accounts button.
 + (id<GREYMatcher>)addAccountButton;
@@ -336,9 +334,6 @@
 // Returns a matcher for "Open In..." button.
 + (id<GREYMatcher>)openInButton;
 
-// Returns the GREYMatcher for the button that opens the tab grid.
-+ (id<GREYMatcher>)tabGridOpenButton;
-
 // Returns the GREYMatcher for the cell at |index| in the tab grid.
 + (id<GREYMatcher>)tabGridCellAtIndex:(unsigned int)index;
 
@@ -398,6 +393,9 @@
 // Returns a matcher for the delete button at the bottom of settings collection
 // views.
 + (id<GREYMatcher>)settingsBottomToolbarDeleteButton;
+
+// Returns a matcher for the search engine button in the main settings view.
++ (id<GREYMatcher>)settingsSearchEngineButton;
 
 // Returns a matcher for an autofill suggestion view.
 + (id<GREYMatcher>)autofillSuggestionViewMatcher;

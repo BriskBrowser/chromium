@@ -19,7 +19,8 @@
 #include "gpu/config/skia_limits.h"
 #include "gpu/ipc/gl_in_process_context.h"
 #include "gpu/skia_bindings/grcontext_for_gles2_interface.h"
-#include "third_party/skia/include/gpu/GrContext.h"
+#include "ipc/common/surface_handle.h"
+#include "third_party/skia/include/gpu/GrDirectContext.h"
 #include "third_party/skia/include/gpu/gl/GrGLInterface.h"
 
 namespace ui {
@@ -101,8 +102,8 @@ gpu::ContextResult InProcessContextProvider::BindToCurrentThread() {
   bind_result_ = context_->Initialize(
       viz::TestGpuServiceHolder::GetInstance()->task_executor(),
       /*surface=*/nullptr,
-      /*is_offscreen=*/!window_, window_, attribs_, gpu::SharedMemoryLimits(),
-      gpu_memory_buffer_manager_, image_factory_,
+      /*is_offscreen=*/window_ == gpu::kNullSurfaceHandle, window_, attribs_,
+      gpu::SharedMemoryLimits(), gpu_memory_buffer_manager_, image_factory_,
       base::ThreadTaskRunnerHandle::Get());
 
   if (bind_result_ != gpu::ContextResult::kSuccess)
@@ -119,7 +120,7 @@ gpu::ContextResult InProcessContextProvider::BindToCurrentThread() {
       "gpu_toplevel", unique_context_name.c_str());
 
   raster_context_ = std::make_unique<gpu::raster::RasterImplementationGLES>(
-      context_->GetImplementation());
+      context_->GetImplementation(), context_->GetImplementation());
 
   return bind_result_;
 }
@@ -149,7 +150,7 @@ gpu::ContextSupport* InProcessContextProvider::ContextSupport() {
   return context_->GetImplementation();
 }
 
-class GrContext* InProcessContextProvider::GrContext() {
+class GrDirectContext* InProcessContextProvider::GrContext() {
   CheckValidThreadOrLockAcquired();
 
   if (gr_context_)

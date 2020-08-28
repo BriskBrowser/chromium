@@ -18,7 +18,6 @@
 #include "base/memory/ref_counted_memory.h"
 #include "base/strings/string_split.h"
 #include "base/strings/stringprintf.h"
-#include "base/task/post_task.h"
 #include "base/time/time.h"
 #include "base/timer/timer.h"
 #include "base/trace_event/memory_dump_manager.h"
@@ -142,8 +141,8 @@ class DevToolsStreamEndpoint : public TracingController::TraceDataEndpoint {
 
   void ReceiveTraceChunk(std::unique_ptr<std::string> chunk) override {
     if (!BrowserThread::CurrentlyOn(BrowserThread::UI)) {
-      base::PostTask(FROM_HERE, {BrowserThread::UI},
-                     base::BindOnce(&DevToolsStreamEndpoint::ReceiveTraceChunk,
+      GetUIThreadTaskRunner({})->PostTask(
+          FROM_HERE, base::BindOnce(&DevToolsStreamEndpoint::ReceiveTraceChunk,
                                     this, std::move(chunk)));
       return;
     }
@@ -153,8 +152,8 @@ class DevToolsStreamEndpoint : public TracingController::TraceDataEndpoint {
 
   void ReceivedTraceFinalContents() override {
     if (!BrowserThread::CurrentlyOn(BrowserThread::UI)) {
-      base::PostTask(
-          FROM_HERE, {BrowserThread::UI},
+      GetUIThreadTaskRunner({})->PostTask(
+          FROM_HERE,
           base::BindOnce(&DevToolsStreamEndpoint::ReceivedTraceFinalContents,
                          this));
       return;
@@ -194,9 +193,11 @@ void FillFrameData(base::trace_event::TracedValue* data,
   data->SetString("frame", node->devtools_frame_token().ToString());
   data->SetString("url", url.ReplaceComponents(strip_fragment).spec());
   data->SetString("name", node->frame_name());
-  if (node->parent())
-    data->SetString("parent",
-                    node->parent()->devtools_frame_token().ToString());
+  if (node->parent()) {
+    data->SetString(
+        "parent",
+        node->parent()->frame_tree_node()->devtools_frame_token().ToString());
+  }
   if (frame_host) {
     RenderProcessHost* process_host = frame_host->GetProcess();
     const base::Process& process_handle = process_host->GetProcess();
@@ -569,8 +570,24 @@ void TracingHandler::Wire(UberDispatcher* dispatcher) {
 Response TracingHandler::Disable() {
   if (session_)
     StopTracing(nullptr, "");
-  return Response::OK();
+  return Response::Success();
 }
+
+namespace {
+class TracingNotification : public crdtp::Serializable {
+ public:
+  explicit TracingNotification(std::string json) : json_(std::move(json)) {}
+
+  void AppendSerialized(std::vector<uint8_t>* out) const override {
+    crdtp::Status status =
+        crdtp::json::ConvertJSONToCBOR(crdtp::SpanFrom(json_), out);
+    DCHECK(status.ok()) << status.ToASCIIString();
+  }
+
+ private:
+  std::string json_;
+};
+}  // namespace
 
 void TracingHandler::OnTraceDataCollected(
     std::unique_ptr<std::string> trace_fragment) {
@@ -589,11 +606,8 @@ void TracingHandler::OnTraceDataCollected(
   message.append(valid_trace_fragment.c_str() +
                  trace_data_buffer_state_.offset);
   message += "] } }";
-  std::vector<uint8_t> cbor;
-  crdtp::Status status =
-      crdtp::json::ConvertJSONToCBOR(crdtp::SpanFrom(message), &cbor);
-  LOG_IF(ERROR, !status.ok()) << status.ToASCIIString();
-  frontend_->sendRawCBORNotification(std::move(cbor));
+  frontend_->sendRawNotification(
+      std::make_unique<TracingNotification>(std::move(message)));
 }
 
 void TracingHandler::OnTraceComplete() {
@@ -697,7 +711,7 @@ void TracingHandler::Start(Maybe<std::string> categories,
       transfer_format.fromMaybe("") == Tracing::StreamFormatEnum::Proto;
 
   if (proto_format && !return_as_stream) {
-    callback->sendFailure(Response::Error(
+    callback->sendFailure(Response::ServerError(
         "Proto format is only supported when using stream transfer mode."));
     return;
   }
@@ -711,7 +725,7 @@ void TracingHandler::Start(Maybe<std::string> categories,
       gzip_compression_ = gzip_compression;
       proto_format_ = proto_format;
     }
-    callback->sendFailure(Response::Error(
+    callback->sendFailure(Response::ServerError(
         "Tracing has already been started (possibly in another tab)."));
     return;
   }
@@ -732,8 +746,11 @@ void TracingHandler::Start(Maybe<std::string> categories,
 
   trace_config_ = base::trace_event::TraceConfig();
   if (config.isJust()) {
-    std::unique_ptr<base::Value> value =
-        protocol::toBaseValue(config.fromJust()->toValue().get(), 1000);
+    std::unique_ptr<base::Value> value = protocol::toBaseValue(
+        protocol::ValueTypeConverter<Tracing::TraceConfig>::ToValue(
+            *config.fromJust())
+            .get(),
+        1000);
     if (value && value->is_dict()) {
       trace_config_ = GetTraceConfigFromDevToolsConfig(
           *static_cast<base::DictionaryValue*>(value.get()));
@@ -744,8 +761,8 @@ void TracingHandler::Start(Maybe<std::string> categories,
   }
 
   // GPU process id can only be retrieved on IO thread. Do some thread hopping.
-  base::PostTaskAndReplyWithResult(
-      FROM_HERE, {BrowserThread::IO}, base::BindOnce([]() {
+  GetIOThreadTaskRunner({})->PostTaskAndReplyWithResult(
+      FROM_HERE, base::BindOnce([]() {
         GpuProcessHost* gpu_process_host =
             GpuProcessHost::Get(GPU_PROCESS_KIND_SANDBOXED,
                                 /* force_create */ false);
@@ -761,7 +778,7 @@ void TracingHandler::StartTracingWithGpuPid(
     base::ProcessId gpu_pid) {
   // Check if tracing was stopped in mid-air.
   if (!did_initiate_recording_) {
-    callback->sendFailure(Response::Error(
+    callback->sendFailure(Response::ServerError(
         "Tracing was stopped before start has been completed."));
     return;
   }
@@ -828,10 +845,10 @@ void TracingHandler::OnProcessReady(RenderProcessHost* process_host) {
 
 Response TracingHandler::End() {
   if (!session_)
-    return Response::Error("Tracing is not started");
+    return Response::ServerError("Tracing is not started");
 
   if (session_->HasTracingFailed())
-    return Response::Error("Tracing failed");
+    return Response::ServerError("Tracing failed");
 
   scoped_refptr<TracingController::TraceDataEndpoint> endpoint;
   if (return_as_stream_) {
@@ -851,7 +868,7 @@ Response TracingHandler::End() {
     StopTracing(endpoint, tracing::mojom::kChromeTraceEventLabel);
   }
 
-  return Response::OK();
+  return Response::Success();
 }
 
 void TracingHandler::GetCategories(
@@ -865,7 +882,7 @@ void TracingHandler::GetCategories(
 void TracingHandler::OnRecordingEnabled(
     std::unique_ptr<StartCallback> callback) {
   if (!did_initiate_recording_) {
-    callback->sendFailure(Response::Error(
+    callback->sendFailure(Response::ServerError(
         "Tracing was stopped before start has been completed."));
     return;
   }
@@ -908,7 +925,7 @@ void TracingHandler::RequestMemoryDump(
     Maybe<bool> deterministic,
     std::unique_ptr<RequestMemoryDumpCallback> callback) {
   if (!IsTracing()) {
-    callback->sendFailure(Response::Error("Tracing is not started"));
+    callback->sendFailure(Response::ServerError("Tracing is not started"));
     return;
   }
 
@@ -938,10 +955,7 @@ void TracingHandler::OnFrameFromVideoConsumer(
     scoped_refptr<media::VideoFrame> frame) {
   const SkBitmap skbitmap = DevToolsVideoConsumer::GetSkBitmapFromFrame(frame);
 
-  base::TimeTicks reference_time;
-  const bool had_reference_time = frame->metadata()->GetTimeTicks(
-      media::VideoFrameMetadata::REFERENCE_TIME, &reference_time);
-  DCHECK(had_reference_time);
+  base::TimeTicks reference_time = *frame->metadata()->reference_time;
 
   TRACE_EVENT_OBJECT_SNAPSHOT_WITH_ID_AND_TIMESTAMP(
       TRACE_DISABLED_BY_DEFAULT("devtools.screenshot"), "Screenshot", 1,
@@ -957,9 +971,9 @@ void TracingHandler::OnFrameFromVideoConsumer(
 
 Response TracingHandler::RecordClockSyncMarker(const std::string& sync_id) {
   if (!IsTracing())
-    return Response::Error("Tracing is not started");
+    return Response::ServerError("Tracing is not started");
   TRACE_EVENT_CLOCK_SYNC_RECEIVER(sync_id);
-  return Response::OK();
+  return Response::Success();
 }
 
 void TracingHandler::SetupTimer(double usage_reporting_interval) {

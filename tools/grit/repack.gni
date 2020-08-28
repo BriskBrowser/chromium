@@ -56,6 +56,7 @@ template("repack") {
     inputs = invoker.sources
     outputs = [
       invoker.output,
+      "${invoker.output}.info",
     ]
 
     args = [ "repack" ]
@@ -80,20 +81,12 @@ template("repack") {
                                "visibility",
                              ])
 
-      public_deps = [
-        ":$_repack_target_name",
-      ]
-      sources = [
-        invoker.output,
-      ]
+      public_deps = [ ":$_repack_target_name" ]
+      sources = [ invoker.output ]
       if (defined(invoker.bundle_output)) {
-        outputs = [
-          invoker.bundle_output,
-        ]
+        outputs = [ invoker.bundle_output ]
       } else {
-        outputs = [
-          "{{bundle_resources_dir}}/{{source_file_part}}",
-        ]
+        outputs = [ "{{bundle_resources_dir}}/{{source_file_part}}" ]
       }
     }
   }

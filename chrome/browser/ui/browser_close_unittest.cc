@@ -5,7 +5,7 @@
 #include <stddef.h>
 
 #include "base/bind.h"
-#include "base/logging.h"
+#include "base/check_op.h"
 #include "base/macros.h"
 #include "base/strings/stringprintf.h"
 #include "build/build_config.h"
@@ -123,7 +123,7 @@ class BrowserCloseTest : public testing::Test {
   Profile* CreateIncognitoProfile(Profile* profile,
                                   int windows,
                                   int downloads) {
-    Profile* otr_profile = profile->GetOffTheRecordProfile();
+    Profile* otr_profile = profile->GetPrimaryOTRProfile();
 
     ConfigureCreatedProfile(otr_profile, windows, downloads);
 
@@ -132,7 +132,7 @@ class BrowserCloseTest : public testing::Test {
 
   Profile* CreateGuestProfile(int windows, int downloads) {
     TestingProfile* profile = profile_manager_.CreateGuestProfile();
-    Profile* incognito_profile = profile->GetOffTheRecordProfile();
+    Profile* incognito_profile = profile->GetPrimaryOTRProfile();
     ConfigureCreatedProfile(incognito_profile, windows, downloads);
 
     return incognito_profile;
@@ -269,7 +269,7 @@ TEST_F(BrowserCloseTest, LastRegular) {
   EXPECT_EQ(Browser::DownloadCloseType::kBrowserShutdown,
             browser->OkToCloseWithInProgressDownloads(&num_downloads_blocking));
   EXPECT_EQ(num_downloads_blocking, 1);
-#if defined(OS_MACOSX) || defined(OS_CHROMEOS)
+#if defined(OS_MAC) || defined(OS_CHROMEOS)
   EXPECT_EQ(true, browser->CanCloseWithInProgressDownloads());
 #else
   EXPECT_EQ(false, browser->CanCloseWithInProgressDownloads());

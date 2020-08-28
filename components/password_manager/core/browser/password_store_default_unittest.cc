@@ -23,6 +23,7 @@
 #include "components/password_manager/core/browser/password_store_consumer.h"
 #include "components/password_manager/core/browser/password_store_origin_unittest.h"
 #include "components/prefs/pref_service.h"
+#include "components/prefs/testing_pref_service.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -52,7 +53,6 @@ class MockPasswordStoreConsumer : public PasswordStoreConsumer {
 class BadLoginDatabase : public LoginDatabase {
  public:
   BadLoginDatabase() : LoginDatabase(base::FilePath(), IsAccountStore(false)) {}
-  ~BadLoginDatabase() override {}
 
   // LoginDatabase:
   bool Init() override { return false; }
@@ -99,6 +99,7 @@ class PasswordStoreDefaultTestDelegate {
 
   base::test::TaskEnvironment task_environment_{base::test::TaskEnvironment::MainThreadType::UI};
   base::ScopedTempDir temp_dir_;
+  TestingPrefServiceSimple prefs_;
   scoped_refptr<PasswordStoreDefault> store_;
 
   DISALLOW_COPY_AND_ASSIGN(PasswordStoreDefaultTestDelegate);
@@ -142,7 +143,7 @@ PasswordStoreDefaultTestDelegate::CreateInitializedStore(
     std::unique_ptr<LoginDatabase> database) {
   scoped_refptr<PasswordStoreDefault> store(
       new PasswordStoreDefault(std::move(database)));
-  store->Init(syncer::SyncableService::StartSyncFlare(), nullptr);
+  store->Init(&prefs_);
 
   return store;
 }
@@ -171,8 +172,8 @@ TEST(PasswordStoreDefaultTest, NonASCIIData) {
 
   // Build the expected forms vector and add the forms to the store.
   std::vector<std::unique_ptr<PasswordForm>> expected_forms;
-  for (unsigned int i = 0; i < base::size(form_data); ++i) {
-    expected_forms.push_back(FillPasswordFormWithData(form_data[i]));
+  for (const auto& data : form_data) {
+    expected_forms.push_back(FillPasswordFormWithData(data));
     store->AddLogin(*expected_forms.back());
   }
 
@@ -249,19 +250,19 @@ TEST(PasswordStoreDefaultTest, OperationsOnABadDatabaseSilentlyFail) {
   testing::StrictMock<MockPasswordStoreObserver> mock_observer;
   bad_store->AddObserver(&mock_observer);
 
-  // Add a new autofillable login + a blacklisted login.
+  // Add a new autofillable login + a blocked login.
   std::unique_ptr<PasswordForm> form =
       FillPasswordFormWithData(CreateTestPasswordFormData());
-  std::unique_ptr<PasswordForm> blacklisted_form(new PasswordForm(*form));
-  blacklisted_form->signon_realm = "http://foo.example.com";
-  blacklisted_form->origin = GURL("http://foo.example.com/origin");
-  blacklisted_form->action = GURL("http://foo.example.com/action");
-  blacklisted_form->blacklisted_by_user = true;
+  std::unique_ptr<PasswordForm> blocked_form(new PasswordForm(*form));
+  blocked_form->signon_realm = "http://foo.example.com";
+  blocked_form->url = GURL("http://foo.example.com/origin");
+  blocked_form->action = GURL("http://foo.example.com/action");
+  blocked_form->blocked_by_user = true;
   bad_store->AddLogin(*form);
-  bad_store->AddLogin(*blacklisted_form);
+  bad_store->AddLogin(*blocked_form);
   delegate.FinishAsyncProcessing();
 
-  // Get all logins; autofillable logins; blacklisted logins.
+  // Get all logins; autofillable logins; blocked logins.
   testing::StrictMock<MockPasswordStoreConsumer> mock_consumer;
   EXPECT_CALL(mock_consumer, OnGetPasswordStoreResultsConstRef(IsEmpty()));
   bad_store->GetLogins(PasswordStore::FormDigest(*form), &mock_consumer);

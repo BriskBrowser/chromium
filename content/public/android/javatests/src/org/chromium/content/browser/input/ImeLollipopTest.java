@@ -4,12 +4,12 @@
 
 package org.chromium.content.browser.input;
 
-import android.annotation.TargetApi;
-import android.os.Build;
-import android.support.test.filters.MediumTest;
 import android.view.inputmethod.CursorAnchorInfo;
 import android.view.inputmethod.InputConnection;
 
+import androidx.test.filters.MediumTest;
+
+import org.hamcrest.Matchers;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Rule;
@@ -17,8 +17,6 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 
 import org.chromium.base.test.util.Feature;
-import org.chromium.base.test.util.MinAndroidSdkLevel;
-import org.chromium.base.test.util.RetryOnFailure;
 import org.chromium.content_public.browser.test.ContentJUnit4ClassRunner;
 import org.chromium.content_public.browser.test.util.Criteria;
 import org.chromium.content_public.browser.test.util.CriteriaHelper;
@@ -30,8 +28,6 @@ import java.util.concurrent.Callable;
  * Integration tests for text input for Android L (or above) features.
  */
 @RunWith(ContentJUnit4ClassRunner.class)
-@MinAndroidSdkLevel(Build.VERSION_CODES.LOLLIPOP)
-@TargetApi(Build.VERSION_CODES.LOLLIPOP)
 public class ImeLollipopTest {
     @Rule
     public ImeActivityTestRule mRule = new ImeActivityTestRule();
@@ -44,7 +40,6 @@ public class ImeLollipopTest {
     @Test
     @MediumTest
     @Feature({"TextInput"})
-    @RetryOnFailure
     public void testUpdateCursorAnchorInfo() throws Throwable {
         requestCursorUpdates(InputConnection.CURSOR_UPDATE_MONITOR);
 
@@ -93,20 +88,14 @@ public class ImeLollipopTest {
     }
 
     private void waitForUpdateCursorAnchorInfoComposingText(final String expected) {
-        CriteriaHelper.pollUiThread(new Criteria() {
-            @Override
-            public boolean isSatisfied() {
-                CursorAnchorInfo info =
-                        mRule.getInputMethodManagerWrapper().getLastCursorAnchorInfo();
-                if (info != null && info.getComposingText() == null) {
-                    updateFailureReason("info.getCompositingText() returned null");
-                    return false;
-                }
-
-                String actual = (info == null ? "" : info.getComposingText().toString());
-                updateFailureReason("Expected: {" + expected + "}, Actual: {" + actual + "}");
-                return expected.equals(actual);
+        CriteriaHelper.pollUiThread(() -> {
+            CursorAnchorInfo info = mRule.getInputMethodManagerWrapper().getLastCursorAnchorInfo();
+            if (info != null) {
+                Criteria.checkThat(info.getComposingText(), Matchers.notNullValue());
             }
+
+            String actual = (info == null ? "" : info.getComposingText().toString());
+            Criteria.checkThat(actual, Matchers.is(expected));
         });
     }
 }

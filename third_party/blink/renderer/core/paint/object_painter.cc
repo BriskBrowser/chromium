@@ -45,8 +45,11 @@ void ObjectPainter::PaintOutline(const PaintInfo& paint_info,
           paint_info.context, layout_object_, paint_info.phase))
     return;
 
-  DrawingRecorder recorder(paint_info.context, layout_object_,
-                           paint_info.phase);
+  IntRect visual_rect =
+      PixelSnappedIntRect(UnionRectEvenIfEmpty(outline_rects));
+  visual_rect.Inflate(style_to_use.OutlineOutsetExtent());
+  DrawingRecorder recorder(paint_info.context, layout_object_, paint_info.phase,
+                           visual_rect);
   PaintOutlineRects(paint_info, outline_rects, style_to_use);
 }
 
@@ -86,7 +89,7 @@ void ObjectPainter::AddURLRectIfNeeded(const PaintInfo& paint_info,
     return;
 
   DrawingRecorder recorder(paint_info.context, layout_object_,
-                           DisplayItem::kPrintedContentPDFURLRect);
+                           DisplayItem::kPrintedContentPDFURLRect, rect);
   if (url.HasFragmentIdentifier() &&
       EqualIgnoringFragmentIdentifier(url,
                                       layout_object_.GetDocument().BaseURL())) {
@@ -99,10 +102,10 @@ void ObjectPainter::AddURLRectIfNeeded(const PaintInfo& paint_info,
 }
 
 void ObjectPainter::PaintAllPhasesAtomically(const PaintInfo& paint_info) {
-  // Pass kSelection and kTextClip to the descendants so that
+  // Pass kSelectionDragImage and kTextClip to the descendants so that
   // they will paint for selection and text clip respectively. We don't need
   // complete painting for these phases.
-  if (paint_info.phase == PaintPhase::kSelection ||
+  if (paint_info.phase == PaintPhase::kSelectionDragImage ||
       paint_info.phase == PaintPhase::kTextClip) {
     layout_object_.Paint(paint_info);
     return;

@@ -11,7 +11,7 @@
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
-#include "chrome/common/media_router/mojom/media_router.mojom.h"
+#include "components/media_router/common/mojom/media_router.mojom.h"
 
 namespace content {
 struct PresentationRequest;
@@ -46,6 +46,10 @@ class WebContentsPresentationManager {
   static base::WeakPtr<WebContentsPresentationManager> Get(
       content::WebContents* web_contents);
 
+  // Sets the instance to be returned by Get(). If this is set, Get() ignores
+  // the |web_contents| argument.
+  static void SetTestInstance(WebContentsPresentationManager* test_instance);
+
   virtual ~WebContentsPresentationManager() = 0;
 
   virtual void AddObserver(Observer* observer) = 0;
@@ -67,6 +71,8 @@ class WebContentsPresentationManager {
       const content::PresentationRequest& presentation_request,
       mojom::RoutePresentationConnectionPtr connection,
       const RouteRequestResult& result) = 0;
+
+  virtual base::WeakPtr<WebContentsPresentationManager> GetWeakPtr() = 0;
 
  protected:
   WebContentsPresentationManager() = default;

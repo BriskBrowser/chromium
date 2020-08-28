@@ -98,28 +98,33 @@ TEST(AccountConsistencyModeManagerTest, SigninAllowedChangesDiceState) {
   }
 }
 
-// The command line switch "disallow-signin" only affects the current run.
-TEST(AccountConsistencyModeManagerTest, DisallowSigninSwitch) {
+TEST(AccountConsistencyModeManagerTest, AllowBrowserSigninSwitch) {
   content::BrowserTaskEnvironment task_environment;
   std::unique_ptr<TestingProfile> profile =
       BuildTestingProfile(/*is_new_profile=*/false);
-
   {
-    // With the switch, signin is disallowed.
     base::test::ScopedCommandLine scoped_command_line;
-    scoped_command_line.GetProcessCommandLine()->AppendSwitch(
-        "disallow-signin");
+    scoped_command_line.GetProcessCommandLine()->AppendSwitchASCII(
+        "allow-browser-signin", "false");
     AccountConsistencyModeManager manager(profile.get());
     EXPECT_FALSE(profile->GetPrefs()->GetBoolean(prefs::kSigninAllowed));
-    EXPECT_TRUE(
-        profile->GetPrefs()->GetBoolean(prefs::kSigninAllowedOnNextStartup));
     // Dice should be disabled.
     EXPECT_EQ(signin::AccountConsistencyMethod::kDisabled,
               manager.GetAccountConsistencyMethod());
   }
 
   {
-    // Remove the switch, signin is allowed again.
+    base::test::ScopedCommandLine scoped_command_line;
+    scoped_command_line.GetProcessCommandLine()->AppendSwitchASCII(
+        "allow-browser-signin", "true");
+    AccountConsistencyModeManager manager(profile.get());
+    EXPECT_TRUE(profile->GetPrefs()->GetBoolean(prefs::kSigninAllowed));
+    // Dice should be enabled.
+    EXPECT_EQ(signin::AccountConsistencyMethod::kDice,
+              manager.GetAccountConsistencyMethod());
+  }
+
+  {
     AccountConsistencyModeManager manager(profile.get());
     EXPECT_TRUE(profile->GetPrefs()->GetBoolean(prefs::kSigninAllowed));
     EXPECT_TRUE(
@@ -180,7 +185,7 @@ TEST(AccountConsistencyModeManagerTest, DiceOnlyForRegularProfile) {
         AccountConsistencyModeManager::ShouldBuildServiceForProfile(&profile));
 
     // Incognito profile.
-    Profile* incognito_profile = profile.GetOffTheRecordProfile();
+    Profile* incognito_profile = profile.GetPrimaryOTRProfile();
     EXPECT_FALSE(AccountConsistencyModeManager::IsDiceEnabledForProfile(
         incognito_profile));
     EXPECT_FALSE(
@@ -190,6 +195,17 @@ TEST(AccountConsistencyModeManagerTest, DiceOnlyForRegularProfile) {
         AccountConsistencyModeManager::GetMethodForProfile(incognito_profile));
     EXPECT_FALSE(AccountConsistencyModeManager::ShouldBuildServiceForProfile(
         incognito_profile));
+
+    // Non-primary off-the-record profile.
+    Profile* otr_profile = profile.GetOffTheRecordProfile(
+        Profile::OTRProfileID("Test::AccountConsistency"));
+    EXPECT_FALSE(
+        AccountConsistencyModeManager::IsDiceEnabledForProfile(otr_profile));
+    EXPECT_FALSE(AccountConsistencyModeManager::GetForProfile(otr_profile));
+    EXPECT_EQ(signin::AccountConsistencyMethod::kDisabled,
+              AccountConsistencyModeManager::GetMethodForProfile(otr_profile));
+    EXPECT_FALSE(AccountConsistencyModeManager::ShouldBuildServiceForProfile(
+        otr_profile));
   }
 
   {
@@ -251,12 +267,12 @@ TEST(AccountConsistencyModeManagerTest, MirrorDisabledForGuestSession) {
             AccountConsistencyModeManager::GetMethodForProfile(&profile));
 }
 
-TEST(AccountConsistencyModeManagerTest, MirrorDisabledForIncognitoProfile) {
+TEST(AccountConsistencyModeManagerTest, MirrorDisabledForOffTheRecordProfile) {
   // Creation of this object sets the current thread's id as UI thread.
   content::BrowserTaskEnvironment task_environment;
 
   TestingProfile profile;
-  Profile* incognito_profile = profile.GetOffTheRecordProfile();
+  Profile* incognito_profile = profile.GetPrimaryOTRProfile();
   EXPECT_FALSE(AccountConsistencyModeManager::IsMirrorEnabledForProfile(
       incognito_profile));
   EXPECT_FALSE(AccountConsistencyModeManager::IsDiceEnabledForProfile(
@@ -264,29 +280,15 @@ TEST(AccountConsistencyModeManagerTest, MirrorDisabledForIncognitoProfile) {
   EXPECT_EQ(
       signin::AccountConsistencyMethod::kDisabled,
       AccountConsistencyModeManager::GetMethodForProfile(incognito_profile));
-}
 
-TEST(AccountConsistencyModeManagerTest, MirrorEnabledByPreference) {
-  // Creation of this object sets the current thread's id as UI thread.
-  content::BrowserTaskEnvironment task_environment;
-
-  TestingProfile::Builder profile_builder;
-  {
-    std::unique_ptr<sync_preferences::TestingPrefServiceSyncable> pref_service =
-        std::make_unique<sync_preferences::TestingPrefServiceSyncable>();
-    RegisterUserProfilePrefs(pref_service->registry());
-    profile_builder.SetPrefService(std::move(pref_service));
-  }
-  std::unique_ptr<TestingProfile> profile = profile_builder.Build();
-  profile->GetPrefs()->SetBoolean(prefs::kAccountConsistencyMirrorRequired,
-                                  true);
-
-  EXPECT_TRUE(
-      AccountConsistencyModeManager::IsMirrorEnabledForProfile(profile.get()));
+  Profile* otr_profile = profile.GetOffTheRecordProfile(
+      Profile::OTRProfileID("Test::AccountConsistency"));
   EXPECT_FALSE(
-      AccountConsistencyModeManager::IsDiceEnabledForProfile(profile.get()));
-  EXPECT_EQ(signin::AccountConsistencyMethod::kMirror,
-            AccountConsistencyModeManager::GetMethodForProfile(profile.get()));
+      AccountConsistencyModeManager::IsMirrorEnabledForProfile(otr_profile));
+  EXPECT_FALSE(
+      AccountConsistencyModeManager::IsDiceEnabledForProfile(otr_profile));
+  EXPECT_EQ(signin::AccountConsistencyMethod::kDisabled,
+            AccountConsistencyModeManager::GetMethodForProfile(otr_profile));
 }
 #endif  // defined(OS_CHROMEOS)
 

@@ -14,8 +14,6 @@ import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
 import android.support.test.InstrumentationRegistry;
-import android.support.test.filters.MediumTest;
-import android.support.test.filters.SmallTest;
 import android.text.Spannable;
 import android.text.style.StyleSpan;
 import android.view.KeyCharacterMap;
@@ -24,6 +22,10 @@ import android.view.View;
 import android.widget.EditText;
 import android.widget.TextView;
 
+import androidx.test.filters.MediumTest;
+import androidx.test.filters.SmallTest;
+
+import org.hamcrest.Matchers;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -31,11 +33,11 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
+import org.chromium.base.test.util.CloseableOnMainThread;
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.Feature;
-import org.chromium.base.test.util.RetryOnFailure;
 import org.chromium.chrome.R;
-import org.chromium.chrome.browser.ChromeSwitches;
+import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.chrome.test.ChromeTabbedActivityTestRule;
@@ -48,8 +50,6 @@ import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.content_public.browser.test.util.TouchCommon;
 import org.chromium.content_public.browser.test.util.UiUtils;
 import org.chromium.net.test.EmbeddedTestServer;
-
-import java.util.concurrent.Callable;
 
 /**
  * Find in page tests.
@@ -83,12 +83,8 @@ public class FindTest {
                 (TextView) mActivityTestRule.getActivity().findViewById(R.id.find_status);
         Assert.assertNotNull(expectedResult);
         Assert.assertNotNull(findResults);
-        CriteriaHelper.pollUiThread(Criteria.equals(expectedResult, new Callable<CharSequence>() {
-            @Override
-            public CharSequence call() {
-                return findResults.getText();
-            }
-        }));
+        CriteriaHelper.pollUiThread(
+                () -> Criteria.checkThat(findResults.getText(), Matchers.is(expectedResult)));
         return findResults.getText().toString();
     }
 
@@ -104,16 +100,17 @@ public class FindTest {
     }
 
     private void waitForFindInPageVisibility(final boolean visible) {
-        CriteriaHelper.pollUiThread(new Criteria() {
-            @Override
-            public boolean isSatisfied() {
-                FindToolbar findToolbar =
-                        (FindToolbar) mActivityTestRule.getActivity().findViewById(
-                                R.id.find_toolbar);
-
-                boolean isVisible = findToolbar != null && findToolbar.isShown();
-                return (visible == isVisible) && !findToolbar.isAnimating();
+        CriteriaHelper.pollUiThread(() -> {
+            FindToolbar findToolbar =
+                    (FindToolbar) mActivityTestRule.getActivity().findViewById(R.id.find_toolbar);
+            if (visible) {
+                Criteria.checkThat(findToolbar, Matchers.notNullValue());
+                Criteria.checkThat(findToolbar.isShown(), Matchers.is(true));
+            } else {
+                if (findToolbar == null) return;
+                Criteria.checkThat(findToolbar.isShown(), Matchers.is(false));
             }
+            Criteria.checkThat(findToolbar.isAnimating(), Matchers.is(false));
         });
     }
 
@@ -165,7 +162,6 @@ public class FindTest {
     @Test
     @MediumTest
     @Feature({"FindInPage", "Main"})
-    @RetryOnFailure
     public void testFind() {
         loadTestAndVerifyFindInPage("pitts", "1/7");
     }
@@ -176,7 +172,6 @@ public class FindTest {
     @Test
     @MediumTest
     @Feature({"FindInPage"})
-    @RetryOnFailure
     public void testFind101() {
         loadTestAndVerifyFindInPage("it", "1/101");
     }
@@ -187,7 +182,6 @@ public class FindTest {
     @Test
     @MediumTest
     @Feature({"FindInPage"})
-    @RetryOnFailure
     public void testFindMultiLine() {
         String multiLineSearchTerm = "This is the text of this document.\n"
                 + " I am going to write the word \'Pitts\' 7 times. (That was one.)";
@@ -201,7 +195,6 @@ public class FindTest {
     @Test
     @MediumTest
     @Feature({"FindInPage"})
-    @RetryOnFailure
     public void testFindMultiLineFalse() {
         String multiLineSearchTerm = "aThis is the text of this document.\n"
                 + " I am going to write the word \'Pitts\' 7 times. (That was one.)";
@@ -214,7 +207,6 @@ public class FindTest {
     @Test
     @MediumTest
     @Feature({"FindInPage"})
-    @RetryOnFailure
     public void testFindNext() {
         String query = "pitts";
         loadTestAndVerifyFindInPage(query, "1/7");
@@ -235,7 +227,6 @@ public class FindTest {
     @Test
     @MediumTest
     @Feature({"FindInPage"})
-    @RetryOnFailure
     public void testFindNextPrevious() {
         String query = "pitts";
         loadTestAndVerifyFindInPage(query, "1/7");
@@ -254,7 +245,6 @@ public class FindTest {
     @Test
     @MediumTest
     @Feature({"FindInPage"})
-    @RetryOnFailure
     public void testFullscreen() {
         loadTestAndVerifyFindInPage("pitts", "1/7");
 
@@ -271,7 +261,6 @@ public class FindTest {
     @Test
     @MediumTest
     @Feature({"FindInPage"})
-    @RetryOnFailure
     public void testResultsBarInitiallyVisible() {
         mActivityTestRule.loadUrl(mTestServer.getURL(FILEPATH));
         findInPageFromMenu();
@@ -284,7 +273,6 @@ public class FindTest {
     @Test
     @MediumTest
     @Feature({"FindInPage"})
-    @RetryOnFailure
     public void testResultsBarVisibleAfterTypingText() {
         mActivityTestRule.loadUrl(mTestServer.getURL(FILEPATH));
         findInPageFromMenu();
@@ -334,7 +322,6 @@ public class FindTest {
     @Test
     @SmallTest
     @Feature({"FindInPage"})
-    @RetryOnFailure
     public void testFindNextPreviousIncognitoTab() {
         String query = "pitts";
         mActivityTestRule.newIncognitoTabFromMenu();
@@ -354,7 +341,6 @@ public class FindTest {
     @Test
     @MediumTest
     @Feature({"FindInPage"})
-    @RetryOnFailure
     public void testFipTextNotRestoredIncognitoTab() throws InterruptedException {
         mActivityTestRule.newIncognitoTabFromMenu();
         loadTestAndVerifyFindInPage("pitts", "1/7");
@@ -378,8 +364,7 @@ public class FindTest {
     @Test
     @SmallTest
     @Feature({"FindInPage"})
-    @RetryOnFailure
-    public void testPastedTextStylingRemoved() {
+    public void testPastedTextStylingRemoved() throws Throwable {
         mActivityTestRule.loadUrl(mTestServer.getURL(FILEPATH));
         findInPageFromMenu();
 
@@ -387,17 +372,23 @@ public class FindTest {
         Assert.assertEquals(View.VISIBLE, findToolbar.getVisibility());
         final EditText findQueryText = getFindQueryText();
 
-        // Emulate pasting the text into the find query text box
-        TestThreadUtils.runOnUiThreadBlocking(() -> {
-            // Setup the clipboard with a selection of stylized text
-            ClipboardManager clipboard =
-                    (ClipboardManager) InstrumentationRegistry.getInstrumentation()
-                            .getTargetContext()
-                            .getSystemService(Context.CLIPBOARD_SERVICE);
-            clipboard.setPrimaryClip(ClipData.newHtmlText("label", "text", "<b>text</b>"));
+        // Allow all thread policies temporarily in main thread to avoid
+        // DiskWrite and UnBufferedIo violations during copying under
+        // emulator environment.
+        try (CloseableOnMainThread ignored =
+                        CloseableOnMainThread.StrictMode.allowAllThreadPolicies()) {
+            // Emulate pasting the text into the find query text box
+            TestThreadUtils.runOnUiThreadBlocking(() -> {
+                // Setup the clipboard with a selection of stylized text
+                ClipboardManager clipboard =
+                        (ClipboardManager) InstrumentationRegistry.getInstrumentation()
+                                .getTargetContext()
+                                .getSystemService(Context.CLIPBOARD_SERVICE);
+                clipboard.setPrimaryClip(ClipData.newHtmlText("label", "text", "<b>text</b>"));
 
-            findQueryText.onTextContextMenuItem(android.R.id.paste);
-        });
+                findQueryText.onTextContextMenuItem(android.R.id.paste);
+            });
+        }
 
         // Resulting text in the find query box should be unstyled
         final Spannable text = findQueryText.getText();
@@ -413,7 +404,6 @@ public class FindTest {
     @Test
     @MediumTest
     @Feature({"FindInPage"})
-    @RetryOnFailure
     public void testBackKeyDoesNotDismissFindWhenImeIsPresent() {
         mActivityTestRule.loadUrl(mTestServer.getURL(FILEPATH));
         findInPageFromMenu();
@@ -436,7 +426,6 @@ public class FindTest {
     @Test
     @MediumTest
     @Feature({"FindInPage"})
-    @RetryOnFailure
     public void testBackKeyDismissesFind() {
         loadTestAndVerifyFindInPage("pitts", "1/7");
         waitForIME(true);
@@ -450,9 +439,10 @@ public class FindTest {
 
     private void waitForIME(final boolean imePresent) {
         // Wait for IME to appear.
-        CriteriaHelper.pollUiThread(Criteria.equals(imePresent,
-                ()
-                        -> mActivityTestRule.getKeyboardDelegate().isKeyboardShowing(
-                                mActivityTestRule.getActivity(), getFindQueryText())));
+        CriteriaHelper.pollUiThread(() -> {
+            Criteria.checkThat(mActivityTestRule.getKeyboardDelegate().isKeyboardShowing(
+                                       mActivityTestRule.getActivity(), getFindQueryText()),
+                    Matchers.is(imePresent));
+        });
     }
 }

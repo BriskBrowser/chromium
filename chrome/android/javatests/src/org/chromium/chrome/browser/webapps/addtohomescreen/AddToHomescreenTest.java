@@ -8,11 +8,12 @@ import android.content.Context;
 import android.content.Intent;
 import android.graphics.Bitmap;
 import android.os.Build;
-import android.support.test.filters.SmallTest;
 import android.text.TextUtils;
 
 import androidx.annotation.StringRes;
+import androidx.test.filters.SmallTest;
 
+import org.hamcrest.Matchers;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Rule;
@@ -23,12 +24,11 @@ import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.DisableIf;
 import org.chromium.base.test.util.Feature;
 import org.chromium.base.test.util.Restriction;
-import org.chromium.base.test.util.RetryOnFailure;
 import org.chromium.base.test.util.UrlUtils;
 import org.chromium.chrome.R;
-import org.chromium.chrome.browser.ChromeActivity;
-import org.chromium.chrome.browser.ChromeSwitches;
 import org.chromium.chrome.browser.ShortcutHelper;
+import org.chromium.chrome.browser.app.ChromeActivity;
+import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tabmodel.TabModel;
 import org.chromium.chrome.browser.webapps.WebappDataStorage;
@@ -45,14 +45,11 @@ import org.chromium.net.test.EmbeddedTestServerRule;
 import org.chromium.ui.base.WindowAndroid;
 import org.chromium.ui.modaldialog.ModalDialogManager;
 
-import java.util.concurrent.Callable;
-
 /**
  * Tests org.chromium.chrome.browser.webapps.addtohomescreen.AddToHomescreenManager and its C++
  * counterpart.
  */
 @RunWith(ChromeJUnit4ClassRunner.class)
-@RetryOnFailure
 @CommandLineFlags.Add({ChromeSwitches.DISABLE_FIRST_RUN_EXPERIENCE})
 public class AddToHomescreenTest {
     @Rule
@@ -308,11 +305,8 @@ public class AddToHomescreenTest {
         addShortcutToTab(mTab, "", true);
 
         // Make sure that the splash screen image was downloaded.
-        CriteriaHelper.pollUiThread(new Criteria() {
-            @Override
-            public boolean isSatisfied() {
-                return dataStorageFactory.mSplashImage != null;
-            }
+        CriteriaHelper.pollUiThread(() -> {
+            Criteria.checkThat(dataStorageFactory.mSplashImage, Matchers.notNullValue());
         });
 
         // Test that bitmap sizes match expectations.
@@ -356,11 +350,9 @@ public class AddToHomescreenTest {
 
         // Make sure that the shortcut was added.
         if (expectAdded) {
-            CriteriaHelper.pollUiThread(new Criteria() {
-                @Override
-                public boolean isSatisfied() {
-                    return mShortcutHelperDelegate.mRequestedShortcutIntent != null;
-                }
+            CriteriaHelper.pollUiThread(() -> {
+                Criteria.checkThat(
+                        mShortcutHelperDelegate.mRequestedShortcutIntent, Matchers.notNullValue());
             });
         }
     }
@@ -376,15 +368,13 @@ public class AddToHomescreenTest {
                     null);
         });
 
-        CriteriaHelper.pollUiThread(Criteria.equals(2, new Callable<Integer>() {
-            @Override
-            public Integer call() {
-                return mActivityTestRule.getActivity()
-                        .getTabModelSelector()
-                        .getModel(false)
-                        .getCount();
-            }
-        }));
+        CriteriaHelper.pollUiThread(() -> {
+            Criteria.checkThat(mActivityTestRule.getActivity()
+                                       .getTabModelSelector()
+                                       .getModel(false)
+                                       .getCount(),
+                    Matchers.is(2));
+        });
 
         TabModel tabModel = mActivityTestRule.getActivity().getTabModelSelector().getModel(false);
         Assert.assertEquals(0, tabModel.indexOf(mTab));

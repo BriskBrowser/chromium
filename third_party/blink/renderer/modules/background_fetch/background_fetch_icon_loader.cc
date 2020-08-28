@@ -8,9 +8,9 @@
 #include "third_party/blink/public/common/manifest/manifest_icon_selector.h"
 #include "third_party/blink/public/platform/web_size.h"
 #include "third_party/blink/public/platform/web_url_request.h"
+#include "third_party/blink/renderer/bindings/modules/v8/v8_image_resource.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
 #include "third_party/blink/renderer/modules/background_fetch/background_fetch_bridge.h"
-#include "third_party/blink/renderer/modules/manifest/image_resource.h"
 #include "third_party/blink/renderer/modules/manifest/image_resource_type_converters.h"
 #include "third_party/blink/renderer/platform/heap/heap_allocator.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_request.h"
@@ -49,7 +49,7 @@ void BackgroundFetchIconLoader::Start(
 void BackgroundFetchIconLoader::DidGetIconDisplaySizeIfSoLoadIcon(
     ExecutionContext* execution_context,
     IconCallback icon_callback,
-    const WebSize& icon_display_size_pixels) {
+    const gfx::Size& icon_display_size_pixels) {
   // If |icon_display_size_pixels| is empty then no image will be displayed by
   // the UI powering Background Fetch. Bail out immediately.
   if (icon_display_size_pixels.IsEmpty()) {
@@ -58,8 +58,8 @@ void BackgroundFetchIconLoader::DidGetIconDisplaySizeIfSoLoadIcon(
     return;
   }
 
-  KURL best_icon_url = PickBestIconForDisplay(execution_context,
-                                              icon_display_size_pixels.height);
+  KURL best_icon_url = PickBestIconForDisplay(
+      execution_context, icon_display_size_pixels.height());
   if (best_icon_url.IsEmpty()) {
     // None of the icons provided was suitable.
     std::move(icon_callback)
@@ -126,7 +126,7 @@ void BackgroundFetchIconLoader::DidGetIcon(SkBitmap icon, double resize_scale) {
   std::move(icon_callback_).Run(icon, ideal_to_chosen_icon_size_times_hundred);
 }
 
-void BackgroundFetchIconLoader::Trace(Visitor* visitor) {
+void BackgroundFetchIconLoader::Trace(Visitor* visitor) const {
   visitor->Trace(icons_);
   visitor->Trace(threaded_icon_loader_);
 }

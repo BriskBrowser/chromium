@@ -18,6 +18,7 @@
 #include "services/network/public/cpp/shared_url_loader_factory.h"
 #include "services/network/public/mojom/cookie_manager.mojom-forward.h"
 #include "services/network/public/mojom/restricted_cookie_manager.mojom-forward.h"
+#include "services/network/public/mojom/trust_tokens.mojom-forward.h"
 
 class GURL;
 
@@ -57,9 +58,9 @@ class BackgroundSyncContext;
 class BrowserContext;
 class CacheStorageContext;
 class ContentIndexContext;
-class DOMStorageContext;
+class DedicatedWorkerService;
 class DevToolsBackgroundServicesContext;
-class IndexedDBContext;
+class DOMStorageContext;
 class GeneratedCodeCacheContext;
 class NativeFileSystemEntryFactory;
 class PlatformNotificationContext;
@@ -105,20 +106,9 @@ class CONTENT_EXPORT StoragePartition {
   virtual network::mojom::CookieManager*
   GetCookieManagerForBrowserProcess() = 0;
 
-  // See documentation for
-  // ContentBrowserClient::WillCreateRestrictedCookieManager for description of
-  // the parameters. The method here is expected pass things through that hook
-  // and then go to the NetworkContext if needed.
-  virtual void CreateRestrictedCookieManager(
-      network::mojom::RestrictedCookieManagerRole role,
-      const url::Origin& origin,
-      const net::SiteForCookies& site_for_cookies,
-      const url::Origin& top_frame_origin,
-      bool is_service_worker,
-      int process_id,
-      int routing_id,
-      mojo::PendingReceiver<network::mojom::RestrictedCookieManager>
-          receiver) = 0;
+  virtual void CreateHasTrustTokensAnswerer(
+      mojo::PendingReceiver<network::mojom::HasTrustTokensAnswerer> receiver,
+      const url::Origin& top_frame_origin) = 0;
 
   virtual storage::QuotaManager* GetQuotaManager() = 0;
   virtual AppCacheService* GetAppCacheService() = 0;
@@ -127,9 +117,9 @@ class CONTENT_EXPORT StoragePartition {
   virtual storage::DatabaseTracker* GetDatabaseTracker() = 0;
   virtual DOMStorageContext* GetDOMStorageContext() = 0;
   virtual storage::mojom::IndexedDBControl& GetIndexedDBControl() = 0;
-  virtual IndexedDBContext* GetIndexedDBContext() = 0;
   virtual NativeFileSystemEntryFactory* GetNativeFileSystemEntryFactory() = 0;
   virtual ServiceWorkerContext* GetServiceWorkerContext() = 0;
+  virtual DedicatedWorkerService* GetDedicatedWorkerService() = 0;
   virtual SharedWorkerService* GetSharedWorkerService() = 0;
   virtual CacheStorageContext* GetCacheStorageContext() = 0;
   virtual GeneratedCodeCacheContext* GetGeneratedCodeCacheContext() = 0;
@@ -162,6 +152,7 @@ class CONTENT_EXPORT StoragePartition {
     REMOVE_DATA_MASK_CACHE_STORAGE = 1 << 8,
     REMOVE_DATA_MASK_PLUGIN_PRIVATE_DATA = 1 << 9,
     REMOVE_DATA_MASK_BACKGROUND_FETCH = 1 << 10,
+    REMOVE_DATA_MASK_CONVERSIONS = 1 << 11,
     REMOVE_DATA_MASK_ALL = 0xFFFFFFFF,
 
     // Corresponds to storage::kStorageTypeTemporary.
@@ -195,6 +186,19 @@ class CONTENT_EXPORT StoragePartition {
   using OriginMatcherFunction =
       base::RepeatingCallback<bool(const url::Origin&,
                                    storage::SpecialStoragePolicy*)>;
+
+  // Observer interface that is notified of specific data clearing events which
+  // which were facilitated by the StoragePartition. Notification occurs on the
+  // UI thread, observer life time is not managed by the StoragePartition.
+  class DataRemovalObserver : public base::CheckedObserver {
+   public:
+    // Called on a deletion event for origin keyed storage APIs.
+    virtual void OnOriginDataCleared(
+        uint32_t remove_mask,
+        base::RepeatingCallback<bool(const url::Origin&)> origin_matcher,
+        const base::Time begin,
+        const base::Time end) = 0;
+  };
 
   // Similar to ClearDataForOrigin().
   // Deletes all data out for the StoragePartition if |storage_origin| is empty.
@@ -254,6 +258,10 @@ class CONTENT_EXPORT StoragePartition {
   // Resets all URLLoaderFactories bound to this partition's network context.
   virtual void ResetURLLoaderFactories() = 0;
 
+  virtual void AddObserver(DataRemovalObserver* observer) = 0;
+
+  virtual void RemoveObserver(DataRemovalObserver* observer) = 0;
+
   // Clear the bluetooth allowed devices map. For test use only.
   virtual void ClearBluetoothAllowedDevicesMapForTesting() = 0;
 
@@ -267,10 +275,16 @@ class CONTENT_EXPORT StoragePartition {
   // Wait until code cache's shutdown is complete. For test use only.
   virtual void WaitForCodeCacheShutdownForTesting() = 0;
 
+  virtual void SetNetworkContextForTesting(
+      mojo::PendingRemote<network::mojom::NetworkContext>
+          network_context_remote) = 0;
+
   // The value pointed to by |settings| should remain valid until the
   // the function is called again with a new value or a nullptr.
   static void SetDefaultQuotaSettingsForTesting(
       const storage::QuotaSettings* settings);
+
+  static bool IsAppCacheEnabled();
 
  protected:
   virtual ~StoragePartition() {}

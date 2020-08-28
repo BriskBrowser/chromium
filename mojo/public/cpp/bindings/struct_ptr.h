@@ -10,7 +10,7 @@
 #include <memory>
 #include <new>
 
-#include "base/logging.h"
+#include "base/check.h"
 #include "base/macros.h"
 #include "base/optional.h"
 #include "mojo/public/cpp/bindings/lib/hash_util.h"
@@ -56,8 +56,13 @@ class StructPtr {
       : ptr_(new Struct(std::forward<Args>(args)...)) {}
 
   template <typename U>
-  U To() const {
+  U To() const& {
     return TypeConverter<U, StructPtr>::Convert(*this);
+  }
+
+  template <typename U>
+  U To() && {
+    return TypeConverter<U, StructPtr>::Convert(std::move(*this));
   }
 
   void reset() { ptr_.reset(); }

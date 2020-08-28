@@ -23,9 +23,9 @@
 #include "base/timer/timer.h"
 #include "components/services/storage/indexed_db/scopes/scope_lock.h"
 #include "content/browser/indexed_db/indexed_db_backing_store.h"
-#include "content/browser/indexed_db/indexed_db_blob_storage.h"
 #include "content/browser/indexed_db/indexed_db_connection.h"
 #include "content/browser/indexed_db/indexed_db_database_error.h"
+#include "content/browser/indexed_db/indexed_db_external_object_storage.h"
 #include "content/browser/indexed_db/indexed_db_observer.h"
 #include "content/browser/indexed_db/indexed_db_task_helper.h"
 #include "third_party/blink/public/common/indexeddb/web_idb_types.h"
@@ -46,6 +46,7 @@ FORWARD_DECLARE_TEST(IndexedDBTransactionTest, SchedulePreemptiveTask);
 FORWARD_DECLARE_TEST(IndexedDBTransactionTestMode, ScheduleNormalTask);
 FORWARD_DECLARE_TEST(IndexedDBTransactionTestMode, TaskFails);
 FORWARD_DECLARE_TEST(IndexedDBTransactionTest, Timeout);
+FORWARD_DECLARE_TEST(IndexedDBTransactionTest, TimeoutPreemptive);
 FORWARD_DECLARE_TEST(IndexedDBTransactionTest, IndexedDBObserver);
 }  // namespace indexed_db_transaction_unittest
 
@@ -196,6 +197,9 @@ class CONTENT_EXPORT IndexedDBTransaction {
   FRIEND_TEST_ALL_PREFIXES(
       indexed_db_transaction_unittest::IndexedDBTransactionTest,
       Timeout);
+  FRIEND_TEST_ALL_PREFIXES(
+      indexed_db_transaction_unittest::IndexedDBTransactionTest,
+      TimeoutPreemptive);
   FRIEND_TEST_ALL_PREFIXES(
       indexed_db_transaction_unittest::IndexedDBTransactionTest,
       IndexedDBObserver);

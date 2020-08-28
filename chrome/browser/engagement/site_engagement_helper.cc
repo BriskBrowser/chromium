@@ -10,8 +10,9 @@
 #include "base/stl_util.h"
 #include "base/time/time.h"
 #include "base/trace_event/trace_event.h"
-#include "chrome/browser/prerender/prerender_contents.h"
+#include "chrome/browser/prerender/chrome_prerender_contents_delegate.h"
 #include "chrome/browser/profiles/profile.h"
+#include "components/prerender/browser/prerender_contents.h"
 #include "content/public/browser/navigation_handle.h"
 #include "content/public/browser/web_contents.h"
 
@@ -84,7 +85,7 @@ void SiteEngagementService::Helper::PeriodicTracker::StartTimer(
     base::TimeDelta delay) {
   pause_timer_->Start(
       FROM_HERE, delay,
-      base::Bind(
+      base::BindOnce(
           &SiteEngagementService::Helper::PeriodicTracker::TrackingStarted,
           base::Unretained(this)));
 }
@@ -108,27 +109,29 @@ void SiteEngagementService::Helper::InputTracker::TrackingStopped() {
 // Once the timer finishes running, the callbacks detecting user input will be
 // registered again.
 void SiteEngagementService::Helper::InputTracker::DidGetUserInteraction(
-    const blink::WebInputEvent::Type type) {
+    const blink::WebInputEvent& event) {
   // Only respond to raw key down to avoid multiple triggering on a single input
   // (e.g. keypress is a key down then key up).
   if (!is_tracking_)
     return;
 
+  const blink::WebInputEvent::Type type = event.GetType();
+
   // This switch has a default NOTREACHED case because it will not test all
   // of the values of the WebInputEvent::Type enum (hence it won't require the
   // compiler verifying that all cases are covered).
   switch (type) {
-    case blink::WebInputEvent::kRawKeyDown:
+    case blink::WebInputEvent::Type::kRawKeyDown:
       helper()->RecordUserInput(SiteEngagementService::ENGAGEMENT_KEYPRESS);
       break;
-    case blink::WebInputEvent::kMouseDown:
+    case blink::WebInputEvent::Type::kMouseDown:
       helper()->RecordUserInput(SiteEngagementService::ENGAGEMENT_MOUSE);
       break;
-    case blink::WebInputEvent::kTouchStart:
+    case blink::WebInputEvent::Type::kTouchStart:
       helper()->RecordUserInput(
           SiteEngagementService::ENGAGEMENT_TOUCH_GESTURE);
       break;
-    case blink::WebInputEvent::kGestureScrollBegin:
+    case blink::WebInputEvent::Type::kGestureScrollBegin:
       helper()->RecordUserInput(SiteEngagementService::ENGAGEMENT_SCROLL);
       break;
     default:
@@ -230,7 +233,8 @@ void SiteEngagementService::Helper::DidFinishNavigation(
   //
   // Prerenders trigger WasShown() when they are swapped in, so input engagement
   // will activate even if navigation engagement is not scored.
-  if (prerender::PrerenderContents::FromWebContents(web_contents()) != nullptr)
+  if (prerender::ChromePrerenderContentsDelegate::FromWebContents(
+          web_contents()) != nullptr)
     return;
 
   service_->HandleNavigation(web_contents(), handle->GetPageTransition());

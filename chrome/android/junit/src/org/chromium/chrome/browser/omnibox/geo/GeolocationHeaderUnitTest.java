@@ -7,7 +7,7 @@ package org.chromium.chrome.browser.omnibox.geo;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
-import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
@@ -27,18 +27,21 @@ import org.robolectric.annotation.Config;
 import org.robolectric.annotation.Implementation;
 import org.robolectric.annotation.Implements;
 
-import org.chromium.base.metrics.test.DisableHistogramsRule;
 import org.chromium.base.test.BaseRobolectricTestRunner;
 import org.chromium.base.test.util.JniMocker;
 import org.chromium.chrome.browser.omnibox.geo.VisibleNetworks.VisibleCell;
 import org.chromium.chrome.browser.omnibox.geo.VisibleNetworks.VisibleWifi;
-import org.chromium.chrome.browser.settings.website.ContentSettingValues;
-import org.chromium.chrome.browser.settings.website.WebsitePreferenceBridge;
-import org.chromium.chrome.browser.settings.website.WebsitePreferenceBridgeJni;
+import org.chromium.chrome.browser.profiles.Profile;
+import org.chromium.chrome.browser.profiles.ProfileJni;
 import org.chromium.chrome.browser.tab.Tab;
-import org.chromium.chrome.browser.util.UrlUtilities;
-import org.chromium.chrome.browser.util.UrlUtilitiesJni;
 import org.chromium.chrome.test.util.browser.Features;
+import org.chromium.components.browser_ui.site_settings.WebsitePreferenceBridge;
+import org.chromium.components.browser_ui.site_settings.WebsitePreferenceBridgeJni;
+import org.chromium.components.content_settings.ContentSettingValues;
+import org.chromium.components.embedder_support.browser_context.BrowserContextHandle;
+import org.chromium.components.embedder_support.util.UrlUtilities;
+import org.chromium.components.embedder_support.util.UrlUtilitiesJni;
+import org.chromium.content_public.browser.WebContents;
 
 import java.util.Arrays;
 import java.util.HashSet;
@@ -99,8 +102,6 @@ public class GeolocationHeaderUnitTest {
     @Rule
     public JniMocker mocker = new JniMocker();
 
-    @Rule
-    public DisableHistogramsRule mDisableHistogramsRule = new DisableHistogramsRule();
 
     @Mock
     UrlUtilities.Natives mUrlUtilitiesJniMock;
@@ -109,25 +110,38 @@ public class GeolocationHeaderUnitTest {
     WebsitePreferenceBridge.Natives mWebsitePreferenceBridgeJniMock;
 
     @Mock
+    Profile.Natives mProfileJniMock;
+
+    @Mock
+    Profile mProfileMock;
+
+    @Mock
     private Tab mTab;
+
+    @Mock
+    WebContents mWebContentsMock;
 
     @Before
     public void setUp() {
         MockitoAnnotations.initMocks(this);
         mocker.mock(UrlUtilitiesJni.TEST_HOOKS, mUrlUtilitiesJniMock);
         mocker.mock(WebsitePreferenceBridgeJni.TEST_HOOKS, mWebsitePreferenceBridgeJniMock);
+        mocker.mock(ProfileJni.TEST_HOOKS, mProfileJniMock);
         GeolocationTracker.setLocationAgeForTesting(null);
         GeolocationHeader.setLocationSourceForTesting(
                 GeolocationHeader.LocationSource.HIGH_ACCURACY);
         GeolocationHeader.setAppPermissionGrantedForTesting(true);
         when(mTab.isIncognito()).thenReturn(false);
+        when(mTab.getWebContents()).thenReturn(mWebContentsMock);
         when(mWebsitePreferenceBridgeJniMock.getGeolocationSettingForOrigin(
-                     anyString(), anyString(), anyBoolean()))
+                     any(BrowserContextHandle.class), anyString(), anyString()))
                 .thenReturn(ContentSettingValues.ALLOW);
         when(mWebsitePreferenceBridgeJniMock.isPermissionControlledByDSE(
-                     anyInt(), anyString(), anyBoolean()))
+                     any(BrowserContextHandle.class), anyInt(), anyString()))
                 .thenReturn(true);
         when(mUrlUtilitiesJniMock.isGoogleSearchUrl(anyString())).thenReturn(true);
+        when(mProfileJniMock.fromWebContents(any(WebContents.class))).thenReturn(mProfileMock);
+        when(mProfileMock.isOffTheRecord()).thenReturn(false);
         sRefreshVisibleNetworksRequests = 0;
         sRefreshLastKnownLocation = 0;
     }
@@ -244,8 +258,9 @@ public class GeolocationHeaderUnitTest {
 
     @Test
     public void testGetGeoHeaderOldLocationLocationOff() {
-        GeolocationHeader.setLocationSourceForTesting(GeolocationHeader.LocationSource.MASTER_OFF);
-        // If the master switch is off, networks should never be included (old location might).
+        GeolocationHeader.setLocationSourceForTesting(
+                GeolocationHeader.LocationSource.LOCATION_OFF);
+        // If the location switch is off, networks should never be included (old location might).
         checkOldLocation("X-Geo: w " + ENCODED_PROTO_LOCATION);
     }
 
@@ -256,6 +271,13 @@ public class GeolocationHeaderUnitTest {
         GeolocationHeader.setAppPermissionGrantedForTesting(false);
         // Nothing should be included when app permission is missing.
         checkOldLocation(null);
+    }
+
+    @Test
+    public void testGetGeoHeaderNoProfile() {
+        when(mProfileJniMock.fromWebContents(any(WebContents.class))).thenReturn(null);
+        String header = GeolocationHeader.getGeoHeader(SEARCH_URL, mTab);
+        assertNull(header);
     }
 
     @Test

@@ -19,10 +19,10 @@
 #include "skia/ext/platform_canvas.h"
 #include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/public/platform/web_graphics_context_3d_provider.h"
-#include "third_party/blink/public/web/modules/mediastream/media_stream_video_track.h"
 #include "third_party/blink/renderer/modules/mediarecorder/buildflags.h"
 #include "third_party/blink/renderer/modules/mediarecorder/vea_encoder.h"
 #include "third_party/blink/renderer/modules/mediarecorder/vpx_encoder.h"
+#include "third_party/blink/renderer/modules/mediastream/media_stream_video_track.h"
 #include "third_party/blink/renderer/platform/mediastream/media_stream_component.h"
 #include "third_party/blink/renderer/platform/mediastream/media_stream_source.h"
 #include "third_party/blink/renderer/platform/scheduler/public/post_cross_thread_task.h"
@@ -98,7 +98,8 @@ media::VideoEncodeAccelerator::SupportedProfiles GetVEASupportedProfiles() {
     DVLOG(2) << "Couldn't initialize GpuVideoAcceleratorFactories";
     return media::VideoEncodeAccelerator::SupportedProfiles();
   }
-  return gpu_factories->GetVideoEncodeAcceleratorSupportedProfiles();
+  return gpu_factories->GetVideoEncodeAcceleratorSupportedProfiles().value_or(
+      media::VideoEncodeAccelerator::SupportedProfiles());
 }
 
 VideoTrackRecorderImpl::CodecEnumerator* GetCodecEnumerator() {
@@ -240,6 +241,7 @@ void VideoTrackRecorderImpl::Encoder::StartFrameEncode(
 
   if (!(video_frame->format() == media::PIXEL_FORMAT_I420 ||
         video_frame->format() == media::PIXEL_FORMAT_ARGB ||
+        video_frame->format() == media::PIXEL_FORMAT_ABGR ||
         video_frame->format() == media::PIXEL_FORMAT_I420A ||
         video_frame->format() == media::PIXEL_FORMAT_NV12 ||
         video_frame->format() == media::PIXEL_FORMAT_XRGB)) {
@@ -312,16 +314,16 @@ void VideoTrackRecorderImpl::Encoder::RetrieveFrameOnMainThread(
     // TODO(crbug/1023390): Add browsertest for these.
     DCHECK(video_frame->HasTextures());
     DCHECK(video_frame->format() == media::PIXEL_FORMAT_ARGB ||
+           video_frame->format() == media::PIXEL_FORMAT_ABGR ||
            video_frame->format() == media::PIXEL_FORMAT_XRGB);
 
     const gfx::Size& old_visible_size = video_frame->visible_rect().size();
     gfx::Size new_visible_size = old_visible_size;
 
-    media::VideoRotation video_rotation = media::VIDEO_ROTATION_0;
-    if (video_frame->metadata()->GetRotation(
-            media::VideoFrameMetadata::ROTATION, &video_rotation) &&
-        (video_rotation == media::VIDEO_ROTATION_90 ||
-         video_rotation == media::VIDEO_ROTATION_270)) {
+    media::VideoRotation video_rotation =
+        video_frame->metadata()->rotation.value_or(media::VIDEO_ROTATION_0);
+    if (video_rotation == media::VIDEO_ROTATION_90 ||
+        video_rotation == media::VIDEO_ROTATION_270) {
       new_visible_size.SetSize(old_visible_size.height(),
                                old_visible_size.width());
     }
@@ -352,9 +354,11 @@ void VideoTrackRecorderImpl::Encoder::RetrieveFrameOnMainThread(
       return;
     }
 
-    const uint32_t source_pixel_format =
-        (kN32_SkColorType == kRGBA_8888_SkColorType) ? libyuv::FOURCC_ABGR
-                                                     : libyuv::FOURCC_ARGB;
+#if SK_PMCOLOR_BYTE_ORDER(R, G, B, A)
+    const uint32_t source_pixel_format = libyuv::FOURCC_ABGR;
+#else
+    const uint32_t source_pixel_format = libyuv::FOURCC_ARGB;
+#endif
     if (libyuv::ConvertToI420(static_cast<uint8_t*>(pixmap.writable_addr()),
                               pixmap.computeByteSize(),
                               frame->visible_data(media::VideoFrame::kYPlane),

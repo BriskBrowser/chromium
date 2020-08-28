@@ -152,14 +152,14 @@ class DialMediaRouteProviderTest : public ::testing::Test {
     EXPECT_CALL(mock_router_, OnRoutesUpdated(_, _, _, _)).Times(0);
     provider_->CreateRoute(
         source_id, sink_id, presentation_id, origin, 1, base::TimeDelta(),
-        /* incognito */ false,
+        /* off_the_record */ false,
         base::BindOnce(&DialMediaRouteProviderTest::ExpectCreateRouteResult,
                        base::Unretained(this)));
     base::RunLoop().RunUntilIdle();
 
     ASSERT_TRUE(route_);
     EXPECT_EQ(presentation_id, route_->presentation_id());
-    EXPECT_FALSE(route_->is_incognito());
+    EXPECT_FALSE(route_->is_off_the_record());
 
     const MediaRoute::Id& route_id = route_->media_route_id();
     std::vector<RouteMessagePtr> received_messages;
@@ -256,7 +256,7 @@ class DialMediaRouteProviderTest : public ::testing::Test {
     app_instance_url_ = GURL(app_launch_url.spec() + "/run");
     auto response_head = network::mojom::URLResponseHead::New();
     response_head->headers = base::MakeRefCounted<net::HttpResponseHeaders>("");
-    response_head->headers->AddHeader("LOCATION: " + app_instance_url_.spec());
+    response_head->headers->AddHeader("LOCATION", app_instance_url_.spec());
     loader_factory_.AddResponse(app_launch_url, std::move(response_head), "",
                                 network::URLLoaderCompletionStatus());
     std::vector<MediaRoute> routes;

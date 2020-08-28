@@ -13,7 +13,6 @@
 
 #include "base/files/file_path.h"
 #include "base/gtest_prod_util.h"
-#include "base/logging.h"
 #include "base/macros.h"
 #include "base/pickle.h"
 #include "net/base/cache_type.h"
@@ -99,7 +98,7 @@ class NET_EXPORT_PRIVATE SimpleIndexFile {
   // |out_result.did_load| untouched, but still return partial and consistent
   // results in |out_result.entries|.
   virtual void LoadIndexEntries(base::Time cache_last_modified,
-                                const base::Closure& callback,
+                                base::OnceClosure callback,
                                 SimpleIndexLoadResult* out_result);
 
   // Writes the specified set of entries to disk.
@@ -107,18 +106,17 @@ class NET_EXPORT_PRIVATE SimpleIndexFile {
                            SimpleIndex::IndexWriteToDiskReason reason,
                            const SimpleIndex::EntrySet& entry_set,
                            uint64_t cache_size,
-                           const base::TimeTicks& start,
-                           bool app_on_background,
-                           const base::Closure& callback);
+                           base::OnceClosure callback);
 
  private:
   friend class WrappedSimpleIndexFile;
 
   // Used for cache directory traversal.
-  using EntryFileCallback = base::Callback<void(const base::FilePath&,
-                                                base::Time last_accessed,
-                                                base::Time last_modified,
-                                                int64_t size)>;
+  using EntryFileCallback =
+      base::RepeatingCallback<void(const base::FilePath&,
+                                   base::Time last_accessed,
+                                   base::Time last_modified,
+                                   int64_t size)>;
 
   // When loading the entries from disk, add this many extra hash buckets to
   // prevent reallocation on the creation sequence when merging in new live
@@ -177,9 +175,7 @@ class NET_EXPORT_PRIVATE SimpleIndexFile {
                               const base::FilePath& cache_directory,
                               const base::FilePath& index_filename,
                               const base::FilePath& temp_index_filename,
-                              std::unique_ptr<base::Pickle> pickle,
-                              const base::TimeTicks& start_time,
-                              bool app_on_background);
+                              std::unique_ptr<base::Pickle> pickle);
 
   // Scan the index directory for entries, returning an EntrySet of all entries
   // found.

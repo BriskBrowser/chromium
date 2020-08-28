@@ -82,7 +82,9 @@ var PeerConnectionUpdateTable = (function() {
       tableElement.firstChild.appendChild(row);
 
       var time = new Date(parseFloat(update.time));
-      row.innerHTML = '<td>' + time.toLocaleString() + '</td>';
+      const timeItem = document.createElement('td');
+      timeItem.textContent = time.toLocaleString();
+      row.appendChild(timeItem);
 
       // map internal event names to spec event names.
       var type = {
@@ -97,8 +99,10 @@ var PeerConnectionUpdateTable = (function() {
       }[update.type] ||
           update.type;
 
-      if (update.value.length == 0) {
-        row.innerHTML += '<td>' + type + '</td>';
+      if (update.value.length === 0) {
+        const typeItem = document.createElement('td');
+        typeItem.textContent = type;
+        row.appendChild(typeItem);
         return;
       }
 
@@ -109,9 +113,18 @@ var PeerConnectionUpdateTable = (function() {
         if (candidateType) {
           type += ' (' + candidateType[1] + ')';
         }
+      } else if (
+          update.type === 'createOfferOnSuccess' ||
+          update.type === 'createAnswerOnSuccess') {
+        this.setLastOfferAnswer_(tableElement, update);
+      } else if (update.type === 'setLocalDescription') {
+        if (update.value !== this.getLastOfferAnswer_(tableElement)) {
+          type += ' (munged)';
+        }
       }
-      row.innerHTML +=
-          '<td><details><summary>' + type + '</summary></details></td>';
+      const summaryItem = $('summary-template').content.cloneNode(true);
+      summaryItem.querySelector('summary').textContent = type;
+      row.appendChild(summaryItem);
 
       var valueContainer = document.createElement('pre');
       var details = row.cells[1].childNodes[0];
@@ -182,10 +195,33 @@ var PeerConnectionUpdateTable = (function() {
         tableElement.id = tableId;
         tableElement.border = 1;
         tableContainer.appendChild(tableElement);
-        tableElement.innerHTML = '<tr><th>Time</th>' +
-            '<th class="update-log-header-event">Event</th></tr>';
+        tableElement.appendChild(
+            $('time-event-template').content.cloneNode(true));
       }
       return tableElement;
+    },
+
+    /**
+     * Store the last createOfferOnSuccess/createAnswerOnSuccess to compare to
+     * setLocalDescription and visualize SDP munging.
+     *
+     * @param {!Element} tableElement The peerconnection update element.
+     * @param {!PeerConnectionUpdateEntry} update The update to add.
+     * @private
+     */
+    setLastOfferAnswer_: function(tableElement, update) {
+      tableElement['data-lastofferanswer'] = update.value;
+    },
+
+    /**
+     * Retrieves the last createOfferOnSuccess/createAnswerOnSuccess to compare
+     * to setLocalDescription and visualize SDP munging.
+     *
+     * @param {!Element} tableElement The peerconnection update element.
+     * @private
+     */
+    getLastOfferAnswer_: function(tableElement) {
+      return tableElement['data-lastofferanswer'];
     }
   };
 

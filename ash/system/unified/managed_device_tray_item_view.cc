@@ -46,6 +46,10 @@ const char* ManagedDeviceTrayItemView::GetClassName() const {
   return "ManagedDeviceTrayItemView";
 }
 
+void ManagedDeviceTrayItemView::HandleLocaleChange() {
+  Update();
+}
+
 void ManagedDeviceTrayItemView::Update() {
   SessionControllerImpl* session = Shell::Get()->session_controller();
   if (session->IsUserPublicAccount()) {
@@ -68,7 +72,7 @@ void ManagedDeviceTrayItemView::Update() {
     }
   } else if (session->IsUserChild()) {
     image_view()->SetImage(gfx::CreateVectorIcon(
-        kSystemTrayFamilyLinkIcon,
+        kSystemTraySupervisedUserIcon,
         TrayIconColor(Shell::Get()->session_controller()->GetSessionState())));
     image_view()->set_tooltip_text(
         l10n_util::GetStringUTF16(IDS_ASH_STATUS_TRAY_FAMILY_LINK_LABEL));

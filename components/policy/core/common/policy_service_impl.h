@@ -16,8 +16,10 @@
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
 #include "base/threading/thread_checker.h"
+#include "build/build_config.h"
 #include "components/policy/core/common/configuration_policy_provider.h"
 #include "components/policy/core/common/policy_bundle.h"
+#include "components/policy/core/common/policy_migrator.h"
 #include "components/policy/core/common/policy_service.h"
 #include "components/policy/policy_export.h"
 
@@ -25,15 +27,24 @@ namespace policy {
 
 class PolicyMap;
 
+#if defined(OS_ANDROID)
+namespace android {
+class PolicyServiceAndroid;
+}
+#endif
+
 class POLICY_EXPORT PolicyServiceImpl
     : public PolicyService,
       public ConfigurationPolicyProvider::Observer {
  public:
   using Providers = std::vector<ConfigurationPolicyProvider*>;
+  using Migrators = std::vector<std::unique_ptr<PolicyMigrator>>;
 
   // Creates a new PolicyServiceImpl with the list of
   // ConfigurationPolicyProviders, in order of decreasing priority.
-  explicit PolicyServiceImpl(Providers providers);
+  explicit PolicyServiceImpl(
+      Providers providers,
+      Migrators migrators = std::vector<std::unique_ptr<PolicyMigrator>>());
 
   // Creates a new PolicyServiceImpl with the list of
   // ConfigurationPolicyProviders, in order of decreasing priority.
@@ -41,7 +52,8 @@ class POLICY_EXPORT PolicyServiceImpl
   // initialization has completed (for any domain) after
   // |UnthrottleInitialization| has been called.
   static std::unique_ptr<PolicyServiceImpl> CreateWithThrottledInitialization(
-      Providers providers);
+      Providers providers,
+      Migrators migrators = std::vector<std::unique_ptr<PolicyMigrator>>());
 
   ~PolicyServiceImpl() override;
 
@@ -56,6 +68,9 @@ class POLICY_EXPORT PolicyServiceImpl
   const PolicyMap& GetPolicies(const PolicyNamespace& ns) const override;
   bool IsInitializationComplete(PolicyDomain domain) const override;
   void RefreshPolicies(base::OnceClosure callback) override;
+#if defined(OS_ANDROID)
+  android::PolicyServiceAndroid* GetPolicyServiceAndroid() override;
+#endif
 
   // If this PolicyServiceImpl has been created using
   // |CreateWithThrottledInitialization|, calling UnthrottleInitialization will
@@ -75,7 +90,9 @@ class POLICY_EXPORT PolicyServiceImpl
   // If |initialization_throttled| is true, this PolicyServiceImpl will only
   // notify observers that initialization has completed (for any domain) after
   // |UnthrottleInitialization| has been called.
-  PolicyServiceImpl(Providers providers, bool initialization_throttled);
+  PolicyServiceImpl(Providers providers,
+                    Migrators migrators,
+                    bool initialization_throttled);
 
   // ConfigurationPolicyProvider::Observer overrides:
   void OnUpdatePolicy(ConfigurationPolicyProvider* provider) override;
@@ -108,6 +125,8 @@ class POLICY_EXPORT PolicyServiceImpl
 
   // The providers, in order of decreasing priority.
   Providers providers_;
+
+  Migrators migrators_;
 
   // Maps each policy namespace to its current policies.
   PolicyBundle policy_bundle_;
@@ -142,6 +161,10 @@ class POLICY_EXPORT PolicyServiceImpl
   // policy domains because the owner of this PolicyService is delaying the
   // initialization signal.
   bool initialization_throttled_;
+
+#if defined(OS_ANDROID)
+  std::unique_ptr<android::PolicyServiceAndroid> policy_service_android_;
+#endif
 
   // Used to verify thread-safe usage.
   base::ThreadChecker thread_checker_;

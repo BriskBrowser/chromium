@@ -7,7 +7,8 @@ package org.chromium.android_webview.test.services;
 import static org.chromium.android_webview.test.OnlyRunIn.ProcessMode.SINGLE_PROCESS;
 
 import android.os.ParcelFileDescriptor;
-import android.support.test.filters.MediumTest;
+
+import androidx.test.filters.MediumTest;
 
 import org.junit.Assert;
 import org.junit.Rule;
@@ -111,7 +112,7 @@ public class MinidumpUploadJobTest {
     public void testUploadingWithoutCrashDir() {
         File webviewCrashDir = mTestRule.getExistingCacheDir();
         // Delete the WebView crash directory to ensure MinidumpUploadJob doesn't crash without it.
-        FileUtils.recursivelyDeleteFile(webviewCrashDir);
+        FileUtils.recursivelyDeleteFile(webviewCrashDir, FileUtils.DELETE_ALL);
         Assert.assertFalse(webviewCrashDir.exists());
 
         PlatformServiceBridge.injectInstance(new TestPlatformServiceBridge(true));

@@ -29,7 +29,7 @@ class GbmSurfacelessWayland : public gl::SurfacelessEGL,
   GbmSurfacelessWayland(WaylandBufferManagerGpu* buffer_manager,
                         gfx::AcceleratedWidget widget);
 
-  void QueueOverlayPlane(OverlayPlane plane);
+  void QueueOverlayPlane(OverlayPlane plane, uint32_t buffer_id);
 
   // gl::GLSurface:
   bool ScheduleOverlayPlane(int z_order,
@@ -57,8 +57,12 @@ class GbmSurfacelessWayland : public gl::SurfacelessEGL,
                           PresentationCallback presentation_callback) override;
   EGLConfig GetConfig() override;
   void SetRelyOnImplicitSync() override;
+  gfx::SurfaceOrigin GetOrigin() const override;
 
  private:
+  FRIEND_TEST_ALL_PREFIXES(WaylandSurfaceFactoryTest,
+                           GbmSurfacelessWaylandCheckOrderOfCallbacksTest);
+
   ~GbmSurfacelessWayland() override;
 
   // WaylandSurfaceGpu overrides:
@@ -67,11 +71,19 @@ class GbmSurfacelessWayland : public gl::SurfacelessEGL,
   void OnPresentation(uint32_t buffer_id,
                       const gfx::PresentationFeedback& feedback) override;
 
+  struct PlaneData {
+    OverlayPlane plane;
+    // The id of the buffer, which represents buffer that backs this overlay
+    // plane.
+    const uint32_t buffer_id;
+  };
+
   struct PendingFrame {
     PendingFrame();
     ~PendingFrame();
 
-    bool ScheduleOverlayPlanes(gfx::AcceleratedWidget widget);
+    // Queues overlay configs to |planes|.
+    void ScheduleOverlayPlanes(gfx::AcceleratedWidget widget);
     void Flush();
 
     bool ready = false;
@@ -86,24 +98,37 @@ class GbmSurfacelessWayland : public gl::SurfacelessEGL,
     std::vector<gl::GLSurfaceOverlay> overlays;
     SwapCompletionCallback completion_callback;
     PresentationCallback presentation_callback;
+
+    bool schedule_planes_succeeded = false;
+    std::vector<PlaneData> planes;
+
+    // TODO(fangzhoug): This is a temporary solution to barrier swap/present
+    // acks of a frame that contains multiple buffer commits. Next step is to
+    // barrier in browser process to avoid extra IPC hops.
+    size_t unacked_submissions;
+    size_t unacked_presentations;
   };
 
-  void SubmitFrame();
+  void MaybeSubmitFrames();
 
   EGLSyncKHR InsertFence(bool implicit);
   void FenceRetired(PendingFrame* frame);
 
+  // Sets a flag that skips glFlush step in unittests.
+  void SetNoGLFlushForTests();
+
   WaylandBufferManagerGpu* const buffer_manager_;
-  std::vector<OverlayPlane> planes_;
 
   // The native surface. Deleting this is allowed to free the EGLNativeWindow.
   gfx::AcceleratedWidget widget_;
   std::vector<std::unique_ptr<PendingFrame>> unsubmitted_frames_;
+  std::vector<std::unique_ptr<PendingFrame>> submitted_frames_;
   std::vector<std::unique_ptr<PendingFrame>> pending_presentation_frames_;
-  std::unique_ptr<PendingFrame> submitted_frame_;
   bool has_implicit_external_sync_;
   bool last_swap_buffers_result_ = true;
   bool use_egl_fence_sync_ = true;
+
+  bool no_gl_flush_for_tests_ = false;
 
   base::WeakPtrFactory<GbmSurfacelessWayland> weak_factory_;
 

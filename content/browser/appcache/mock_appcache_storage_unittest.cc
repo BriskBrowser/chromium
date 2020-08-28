@@ -9,7 +9,7 @@
 #include "base/test/task_environment.h"
 #include "content/browser/appcache/appcache.h"
 #include "content/browser/appcache/appcache_group.h"
-#include "content/browser/appcache/appcache_response.h"
+#include "content/browser/appcache/appcache_response_info.h"
 #include "content/browser/appcache/appcache_storage.h"
 #include "content/browser/appcache/mock_appcache_service.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -589,7 +589,7 @@ TEST_F(MockAppCacheStorageTest, FindMainResponseExclusions) {
   const int64_t kResponseId = 1;
 
   AppCacheManifest manifest;
-  manifest.online_whitelist_namespaces.push_back(AppCacheNamespace(
+  manifest.online_safelist_namespaces.push_back(AppCacheNamespace(
       APPCACHE_NETWORK_NAMESPACE, kOnlineNamespaceUrl, GURL()));
   auto cache = base::MakeRefCounted<AppCache>(service.storage(), kCacheId);
   cache->InitializeWithManifest(&manifest);

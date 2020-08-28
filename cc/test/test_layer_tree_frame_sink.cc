@@ -8,6 +8,7 @@
 
 #include <memory>
 #include <utility>
+#include <vector>
 
 #include "base/bind.h"
 #include "base/single_thread_task_runner.h"
@@ -16,6 +17,7 @@
 #include "components/viz/common/resources/bitmap_allocation.h"
 #include "components/viz/service/display/direct_renderer.h"
 #include "components/viz/service/display/output_surface.h"
+#include "components/viz/service/display/overlay_processor_stub.h"
 #include "components/viz/service/display/skia_output_surface.h"
 #include "components/viz/service/frame_sinks/compositor_frame_sink_support.h"
 #include "mojo/public/cpp/system/platform_handle.h"
@@ -29,6 +31,7 @@ TestLayerTreeFrameSink::TestLayerTreeFrameSink(
     scoped_refptr<viz::RasterContextProvider> worker_context_provider,
     gpu::GpuMemoryBufferManager* gpu_memory_buffer_manager,
     const viz::RendererSettings& renderer_settings,
+    const viz::DebugRendererSettings* const debug_settings,
     scoped_refptr<base::SingleThreadTaskRunner> compositor_task_runner,
     bool synchronous_composite,
     bool disable_display_vsync,
@@ -41,6 +44,7 @@ TestLayerTreeFrameSink::TestLayerTreeFrameSink(
       synchronous_composite_(synchronous_composite),
       disable_display_vsync_(disable_display_vsync),
       renderer_settings_(renderer_settings),
+      debug_settings_(debug_settings),
       refresh_rate_(refresh_rate),
       frame_sink_id_(kLayerTreeFrameSinkId),
       parent_local_surface_id_allocator_(
@@ -53,10 +57,10 @@ TestLayerTreeFrameSink::TestLayerTreeFrameSink(
 TestLayerTreeFrameSink::~TestLayerTreeFrameSink() = default;
 
 void TestLayerTreeFrameSink::SetDisplayColorSpace(
-    const gfx::ColorSpace& output_color_space) {
-  output_color_space_ = output_color_space;
+    const gfx::ColorSpace& display_color_space) {
+  display_color_spaces_ = gfx::DisplayColorSpaces(display_color_space);
   if (display_)
-    display_->SetColorSpace(output_color_space_);
+    display_->SetDisplayColorSpaces(display_color_spaces_);
 }
 
 bool TestLayerTreeFrameSink::BindToClient(LayerTreeFrameSinkClient* client) {
@@ -100,9 +104,11 @@ bool TestLayerTreeFrameSink::BindToClient(LayerTreeFrameSinkClient* client) {
         display_output_surface->capabilities().max_frames_pending);
   }
 
+  auto overlay_processor = std::make_unique<viz::OverlayProcessorStub>();
   display_ = std::make_unique<viz::Display>(
-      shared_bitmap_manager_.get(), renderer_settings_, frame_sink_id_,
-      std::move(display_output_surface), std::move(scheduler),
+      shared_bitmap_manager_.get(), renderer_settings_, debug_settings_,
+      frame_sink_id_, std::move(display_output_surface),
+      std::move(overlay_processor), std::move(scheduler),
       compositor_task_runner_);
 
   constexpr bool is_root = true;
@@ -117,7 +123,7 @@ bool TestLayerTreeFrameSink::BindToClient(LayerTreeFrameSinkClient* client) {
   display_->Initialize(this, frame_sink_manager_->surface_manager());
   display_->renderer_for_testing()->SetEnlargePassTextureAmountForTesting(
       enlarge_pass_texture_amount_);
-  display_->SetColorSpace(output_color_space_);
+  display_->SetDisplayColorSpaces(display_color_spaces_);
   display_->SetVisible(true);
   return true;
 }
@@ -243,7 +249,7 @@ void TestLayerTreeFrameSink::DisplayOutputSurfaceLost() {
 
 void TestLayerTreeFrameSink::DisplayWillDrawAndSwap(
     bool will_draw_and_swap,
-    viz::RenderPassList* render_passes) {
+    viz::AggregatedRenderPassList* render_passes) {
   test_client_->DisplayWillDrawAndSwap(will_draw_and_swap, render_passes);
 }
 
@@ -266,7 +272,8 @@ void TestLayerTreeFrameSink::SendCompositorFrameAckToClient() {
 }
 
 base::TimeDelta TestLayerTreeFrameSink::GetPreferredFrameIntervalForFrameSinkId(
-    const viz::FrameSinkId& id) {
+    const viz::FrameSinkId& id,
+    viz::mojom::CompositorFrameSinkType* type) {
   return viz::BeginFrameArgs::MinInterval();
 }
 

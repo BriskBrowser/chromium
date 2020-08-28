@@ -4,6 +4,8 @@
 
 #include "services/viz/public/cpp/compositing/quads_mojom_traits.h"
 
+#include "services/viz/public/cpp/compositing/render_pass_id_mojom_traits.h"
+#include "services/viz/public/cpp/crash_keys.h"
 #include "ui/gfx/mojom/color_space_mojom_traits.h"
 #include "ui/gfx/mojom/transform_mojom_traits.h"
 
@@ -72,19 +74,22 @@ bool StructTraits<viz::mojom::RenderPassQuadStateDataView, viz::DrawQuad>::Read(
   quad->resources.ids[viz::RenderPassDrawQuad::kMaskResourceIdIndex] =
       data.mask_resource_id();
   quad->resources.count = data.mask_resource_id() ? 1 : 0;
-  quad->render_pass_id = data.render_pass_id();
-  // RenderPass ids are never zero.
-  if (!quad->render_pass_id)
-    return false;
   if (!data.ReadMaskUvRect(&quad->mask_uv_rect) ||
       !data.ReadMaskTextureSize(&quad->mask_texture_size) ||
       !data.ReadFiltersScale(&quad->filters_scale) ||
       !data.ReadFiltersOrigin(&quad->filters_origin) ||
-      !data.ReadTexCoordRect(&quad->tex_coord_rect)) {
+      !data.ReadTexCoordRect(&quad->tex_coord_rect) ||
+      !data.ReadRenderPassId(&quad->render_pass_id)) {
+    return false;
+  }
+  // RenderPass ids are never zero.
+  if (!quad->render_pass_id) {
+    viz::SetDeserializationCrashKeyString("Draw quad invalid render pass ID");
     return false;
   }
   quad->force_anti_aliasing_off = data.force_anti_aliasing_off();
   quad->backdrop_filter_quality = data.backdrop_filter_quality();
+  quad->can_use_backdrop_filter_cache = data.can_use_backdrop_filter_cache();
   return true;
 }
 
@@ -106,8 +111,7 @@ bool StructTraits<viz::mojom::StreamVideoQuadStateDataView, viz::DrawQuad>::
       data.resource_id();
   quad->resources.count = 1;
   return data.ReadResourceSizeInPixels(
-             &quad->overlay_resources.size_in_pixels
-                  [viz::StreamVideoDrawQuad::kResourceIdIndex]) &&
+             &quad->overlay_resources.size_in_pixels) &&
          data.ReadUvTopLeft(&quad->uv_top_left) &&
          data.ReadUvBottomRight(&quad->uv_bottom_right);
 }
@@ -132,19 +136,20 @@ bool StructTraits<viz::mojom::TextureQuadStateDataView, viz::DrawQuad>::Read(
 
   quad->resources.ids[viz::TextureDrawQuad::kResourceIdIndex] =
       data.resource_id();
-  if (!data.ReadResourceSizeInPixels(
-          &quad->overlay_resources
-               .size_in_pixels[viz::TextureDrawQuad::kResourceIdIndex])) {
+  if (!data.ReadResourceSizeInPixels(&quad->overlay_resources.size_in_pixels)) {
     return false;
   }
 
   quad->resources.count = 1;
   quad->premultiplied_alpha = data.premultiplied_alpha();
+  gfx::ProtectedVideoType protected_video_type =
+      gfx::ProtectedVideoType::kClear;
   if (!data.ReadUvTopLeft(&quad->uv_top_left) ||
       !data.ReadUvBottomRight(&quad->uv_bottom_right) ||
-      !data.ReadProtectedVideoType(&quad->protected_video_type)) {
+      !data.ReadProtectedVideoType(&protected_video_type)) {
     return false;
   }
+  quad->protected_video_type = protected_video_type;
   quad->background_color = data.background_color();
   base::span<float> vertex_opacity_array(quad->vertex_opacity);
   if (!data.ReadVertexOpacity(&vertex_opacity_array))
@@ -153,6 +158,7 @@ bool StructTraits<viz::mojom::TextureQuadStateDataView, viz::DrawQuad>::Read(
   quad->y_flipped = data.y_flipped();
   quad->nearest_neighbor = data.nearest_neighbor();
   quad->secure_output_only = data.secure_output_only();
+  quad->is_video_frame = data.is_video_frame();
   return true;
 }
 
@@ -212,8 +218,12 @@ bool StructTraits<viz::mojom::YUVVideoQuadStateDataView, viz::DrawQuad>::Read(
   quad->resource_offset = data.resource_offset();
   quad->resource_multiplier = data.resource_multiplier();
   quad->bits_per_channel = data.bits_per_channel();
-  if (quad->bits_per_channel < viz::YUVVideoDrawQuad::kMinBitsPerChannel ||
-      quad->bits_per_channel > viz::YUVVideoDrawQuad::kMaxBitsPerChannel) {
+  if (quad->bits_per_channel < viz::YUVVideoDrawQuad::kMinBitsPerChannel) {
+    viz::SetDeserializationCrashKeyString("Bits per channel too small");
+    return false;
+  }
+  if (quad->bits_per_channel > viz::YUVVideoDrawQuad::kMaxBitsPerChannel) {
+    viz::SetDeserializationCrashKeyString("Bits per channel too big");
     return false;
   }
   return true;
@@ -226,6 +236,11 @@ bool StructTraits<viz::mojom::DrawQuadDataView, viz::DrawQuad>::Read(
   if (!data.ReadRect(&out->rect) || !data.ReadVisibleRect(&out->visible_rect)) {
     return false;
   }
+  if (!out->rect.Contains(out->visible_rect)) {
+    viz::SetDeserializationCrashKeyString("Rect does not contain visible rect");
+    return false;
+  }
+
   out->needs_blending = data.needs_blending();
   return data.ReadDrawQuadState(out);
 }

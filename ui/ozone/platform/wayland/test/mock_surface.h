@@ -8,14 +8,14 @@
 #include <memory>
 #include <utility>
 
-#include <wayland-server-protocol-core.h>
+#include <wayland-server-protocol.h>
 
 #include "base/macros.h"
 #include "testing/gmock/include/gmock/gmock.h"
-#include "ui/ozone/platform/wayland/test/mock_xdg_popup.h"
 #include "ui/ozone/platform/wayland/test/mock_xdg_surface.h"
 #include "ui/ozone/platform/wayland/test/server_object.h"
 #include "ui/ozone/platform/wayland/test/test_subsurface.h"
+#include "ui/ozone/platform/wayland/test/test_xdg_popup.h"
 
 struct wl_resource;
 
@@ -57,10 +57,14 @@ class MockSurface : public ServerObject {
     frame_callback_ = callback_resource;
   }
 
+  wl_resource* attached_buffer() const { return attached_buffer_; }
+  wl_resource* prev_attached_buffer() const { return prev_attached_buffer_; }
+
   bool has_role() const { return !!xdg_surface_ || !!sub_surface_; }
 
   void AttachNewBuffer(wl_resource* buffer_resource, int32_t x, int32_t y);
-  void ReleasePrevAttachedBuffer();
+  void DestroyPrevAttachedBuffer();
+  void ReleaseBuffer(wl_resource* buffer);
   void SendFrameCallback();
 
  private:

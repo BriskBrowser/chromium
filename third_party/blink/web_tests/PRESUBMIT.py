@@ -9,7 +9,8 @@ for more details about the presubmit API built into gcl.
 """
 
 import filecmp
-
+import inspect
+import sys
 
 def _CheckTestharnessResults(input_api, output_api):
     """Checks for all-PASS generic baselines for testharness.js tests.
@@ -50,9 +51,6 @@ def _TestharnessGenericBaselinesToCheck(input_api):
             input_api.os_path.join(this_dir, 'virtual') in path or
             input_api.os_path.join(this_dir, 'flag-specific') in path):
             continue
-        # Temporary workaround for crbug.com/1041588
-        if path.endswith('http/tests/security/sandbox-iframe-allows-modals-expected.txt'):
-            continue
         baseline_files.append(path)
     return baseline_files
 
@@ -77,19 +75,17 @@ def _CheckFilesUsingEventSender(input_api, output_api):
 
 
 def _CheckTestExpectations(input_api, output_api):
-    lint_path = input_api.os_path.join(input_api.PresubmitLocalPath(),
-        '..', 'tools', 'lint_test_expectations.py')
-    _, errs = input_api.subprocess.Popen(
-        [input_api.python_executable, lint_path],
-        stdout=input_api.subprocess.PIPE,
-        stderr=input_api.subprocess.PIPE).communicate()
-    if not errs:
-        return [output_api.PresubmitError(
-            "lint_test_expectations.py failed "
-            "to produce output; check by hand. ")]
-    if errs.strip() != 'Lint succeeded.':
-        return [output_api.PresubmitError(errs)]
-    return []
+    results = []
+    os_path = input_api.os_path
+    sys.path.append(
+        os_path.join(
+            os_path.dirname(
+                os_path.abspath(inspect.getfile(_CheckTestExpectations))),
+                '..', 'tools'))
+    from blinkpy.web_tests.lint_test_expectations_presubmit import (
+        PresubmitCheckTestExpectations)
+    results.extend(PresubmitCheckTestExpectations(input_api, output_api))
+    return results
 
 
 def _CheckForJSTest(input_api, output_api):
@@ -97,8 +93,7 @@ def _CheckForJSTest(input_api, output_api):
     jstest_re = input_api.re.compile(r'resources/js-test.js')
 
     def source_file_filter(path):
-        return input_api.FilterSourceFile(path,
-                                          white_list=[r'\.(html|js|php|pl|svg)$'])
+        return input_api.FilterSourceFile(path, files_to_check=[r'\.(html|js|php|pl|svg)$'])
 
     errors = input_api.canned_checks._FindNewViolationsOfRule(
         lambda _, x: not jstest_re.search(x), input_api, source_file_filter)

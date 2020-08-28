@@ -10,7 +10,7 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/logging.h"
+#include "base/check.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/optional.h"
@@ -132,7 +132,7 @@ class NET_EXPORT ClientSocketHandle {
   void RemoveHigherLayeredPool(HigherLayeredPool* higher_pool);
 
   // Closes idle sockets that are in the same group with |this|.
-  void CloseIdleSocketsInGroup();
+  void CloseIdleSocketsInGroup(const char* net_log_reason_utf8);
 
   // Returns true when Init() has completed successfully.
   bool is_initialized() const { return is_initialized_; }

@@ -3,9 +3,11 @@
 // found in the LICENSE file.
 
 #include "third_party/blink/renderer/core/script/modulator_impl_base.h"
-
+#include "base/feature_list.h"
+#include "third_party/blink/public/common/features.h"
 #include "third_party/blink/public/mojom/devtools/console_message.mojom-blink.h"
 #include "third_party/blink/public/platform/task_type.h"
+#include "third_party/blink/renderer/bindings/core/v8/module_record.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise_resolver.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
 #include "third_party/blink/renderer/core/frame/web_feature.h"
@@ -51,82 +53,6 @@ bool ModulatorImplBase::IsScriptingDisabled() const {
 
 bool ModulatorImplBase::ImportMapsEnabled() const {
   return RuntimeEnabledFeatures::ImportMapsEnabled(GetExecutionContext());
-}
-
-bool ModulatorImplBase::BuiltInModuleInfraEnabled() const {
-  return RuntimeEnabledFeatures::BuiltInModuleInfraEnabled(
-      GetExecutionContext());
-}
-
-bool ModulatorImplBase::BuiltInModuleEnabled(layered_api::Module module) const {
-  DCHECK(BuiltInModuleInfraEnabled());
-
-  // Some built-in APIs are available only on SecureContexts.
-  // https://crbug.com/977470
-  if (BuiltInModuleRequireSecureContext(module) &&
-      !GetExecutionContext()->IsSecureContext()) {
-    return false;
-  }
-
-  if (RuntimeEnabledFeatures::BuiltInModuleAllEnabled())
-    return true;
-  switch (module) {
-    case layered_api::Module::kBlank:
-      return true;
-    case layered_api::Module::kKvStorage:
-      return RuntimeEnabledFeatures::BuiltInModuleKvStorageEnabled(
-          GetExecutionContext());
-    case layered_api::Module::kElementsInternal:
-      // Union of conditions of KElementsSwitch and kElementsToast.
-      return RuntimeEnabledFeatures::BuiltInModuleSwitchElementEnabled();
-    case layered_api::Module::kElementsSwitch:
-      return RuntimeEnabledFeatures::BuiltInModuleSwitchElementEnabled();
-    case layered_api::Module::kElementsToast:
-      return RuntimeEnabledFeatures::BuiltInModuleAllEnabled();
-    case layered_api::Module::kElementsVirtualScroller:
-      return false;
-  }
-}
-
-bool ModulatorImplBase::BuiltInModuleRequireSecureContext(
-    layered_api::Module module) {
-  switch (module) {
-    case layered_api::Module::kBlank:
-    case layered_api::Module::kElementsInternal:
-    case layered_api::Module::kElementsSwitch:
-    case layered_api::Module::kElementsToast:
-    case layered_api::Module::kElementsVirtualScroller:
-      return false;
-    case layered_api::Module::kKvStorage:
-      return true;
-  }
-}
-
-void ModulatorImplBase::BuiltInModuleUseCount(
-    layered_api::Module module) const {
-  DCHECK(BuiltInModuleInfraEnabled());
-  DCHECK(BuiltInModuleEnabled(module));
-  switch (module) {
-    case layered_api::Module::kBlank:
-      break;
-    case layered_api::Module::kElementsInternal:
-      break;
-    case layered_api::Module::kElementsSwitch:
-      UseCounter::Count(GetExecutionContext(),
-                        WebFeature::kBuiltInModuleSwitchImported);
-      break;
-    case layered_api::Module::kElementsToast:
-      UseCounter::Count(GetExecutionContext(), WebFeature::kBuiltInModuleToast);
-      break;
-    case layered_api::Module::kElementsVirtualScroller:
-      UseCounter::Count(GetExecutionContext(),
-                        WebFeature::kBuiltInModuleVirtualScroller);
-      break;
-    case layered_api::Module::kKvStorage:
-      UseCounter::Count(GetExecutionContext(),
-                        WebFeature::kBuiltInModuleKvStorage);
-      break;
-  }
 }
 
 // <specdef label="fetch-a-module-script-tree"
@@ -177,7 +103,7 @@ KURL ModulatorImplBase::ResolveModuleSpecifier(const String& specifier,
                                                const KURL& base_url,
                                                String* failure_reason) {
   ParsedSpecifier parsed_specifier =
-      ParsedSpecifier::Create(specifier, base_url, BuiltInModuleInfraEnabled());
+      ParsedSpecifier::Create(specifier, base_url);
 
   if (!parsed_specifier.IsValid()) {
     if (failure_reason) {
@@ -401,7 +327,7 @@ void ModulatorImplBase::ProduceCacheModuleTree(
 }
 
 // <specdef href="https://html.spec.whatwg.org/C/#run-a-module-script">
-ScriptValue ModulatorImplBase::ExecuteModule(
+ModuleEvaluationResult ModulatorImplBase::ExecuteModule(
     ModuleScript* module_script,
     CaptureEvalErrorFlag capture_error) {
   // <spec step="1">If rethrow errors is not given, let it be false.</spec>
@@ -413,23 +339,24 @@ ScriptValue ModulatorImplBase::ExecuteModule(
   // <spec step="3">Check if we can run script with settings. If this returns
   // "do not run" then return NormalCompletion(empty).</spec>
   if (IsScriptingDisabled())
-    return ScriptValue();
+    return ModuleEvaluationResult::Empty();
 
   // <spec step="4">Prepare to run script given settings.</spec>
   //
   // This is placed here to also cover ModuleRecord::ReportException().
-  ScriptState::Scope scope(script_state_);
+  ScriptState::EscapableScope scope(script_state_);
 
   // <spec step="5">Let evaluationStatus be null.</spec>
   //
-  // |error| corresponds to "evaluationStatus of [[Type]]: throw".
-  ScriptValue error;
+  // |result| corresponds to "evaluationStatus of [[Type]]: throw".
+  ModuleEvaluationResult result = ModuleEvaluationResult::Empty();
 
   // <spec step="6">If script's error to rethrow is not null, ...</spec>
   if (module_script->HasErrorToRethrow()) {
     // <spec step="6">... then set evaluationStatus to Completion { [[Type]]:
     // throw, [[Value]]: script's error to rethrow, [[Target]]: empty }.</spec>
-    error = module_script->CreateErrorToRethrow();
+    result = ModuleEvaluationResult::FromException(
+        module_script->CreateErrorToRethrow().V8Value());
   } else {
     // <spec step="7">Otherwise:</spec>
 
@@ -438,8 +365,8 @@ ScriptValue ModulatorImplBase::ExecuteModule(
     CHECK(!record.IsEmpty());
 
     // <spec step="7.2">Set evaluationStatus to record.Evaluate(). ...</spec>
-    error = ModuleRecord::Evaluate(script_state_, record,
-                                   module_script->SourceURL());
+    result = ModuleRecord::Evaluate(script_state_, record,
+                                    module_script->SourceURL());
 
     // <spec step="7.2">... If Evaluate fails to complete as a result of the
     // user agent aborting the running script, then set evaluationStatus to
@@ -447,7 +374,7 @@ ScriptValue ModulatorImplBase::ExecuteModule(
     // DOMException, [[Target]]: empty }.</spec>
 
     // [not specced] Store V8 code cache on successful evaluation.
-    if (error.IsEmpty()) {
+    if (result.IsSuccess()) {
       TaskRunner()->PostTask(
           FROM_HERE,
           WTF::Bind(&ModulatorImplBase::ProduceCacheModuleTreeTopLevel,
@@ -456,24 +383,27 @@ ScriptValue ModulatorImplBase::ExecuteModule(
   }
 
   // <spec step="8">If evaluationStatus is an abrupt completion, then:</spec>
-  if (!error.IsEmpty()) {
+  if (result.IsException()) {
     // <spec step="8.1">If rethrow errors is true, rethrow the exception given
     // by evaluationStatus.[[Value]].</spec>
     if (capture_error == CaptureEvalErrorFlag::kCapture)
-      return error;
+      return result.Escape(&scope);
 
     // <spec step="8.2">Otherwise, report the exception given by
     // evaluationStatus.[[Value]] for script.</spec>
-    ModuleRecord::ReportException(script_state_, error.V8Value());
+    ModuleRecord::ReportException(script_state_, result.GetException());
   }
 
   // <spec step="9">Clean up after running script with settings.</spec>
   //
   // Implemented as the ScriptState::Scope destructor.
-  return ScriptValue();
+  if (base::FeatureList::IsEnabled(features::kTopLevelAwait))
+    return result.Escape(&scope);
+  else
+    return ModuleEvaluationResult::Empty();
 }
 
-void ModulatorImplBase::Trace(Visitor* visitor) {
+void ModulatorImplBase::Trace(Visitor* visitor) const {
   visitor->Trace(script_state_);
   visitor->Trace(map_);
   visitor->Trace(tree_linker_registry_);

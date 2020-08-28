@@ -18,6 +18,7 @@
 #include "chrome/browser/notifications/notification_platform_bridge.h"
 #include "chrome/browser/notifications/notification_ui_manager.h"
 #include "chrome/browser/notifications/system_notification_helper.h"
+#include "chrome/browser/permissions/chrome_permissions_client.h"
 #include "chrome/browser/policy/chrome_browser_policy_connector.h"
 #include "chrome/browser/printing/print_job_manager.h"
 #include "chrome/browser/profiles/profile_manager.h"
@@ -26,8 +27,10 @@
 #include "chrome/common/buildflags.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/test/base/testing_browser_process_platform_part.h"
+#include "components/federated_learning/floc_blocklist_service.h"
 #include "components/network_time/network_time_tracker.h"
 #include "components/optimization_guide/optimization_guide_service.h"
+#include "components/permissions/permissions_client.h"
 #include "components/policy/core/browser/browser_policy_connector.h"
 #include "components/prefs/pref_service.h"
 #include "components/subresource_filter/content/browser/ruleset_service.h"
@@ -60,6 +63,10 @@
 
 #if !defined(OS_ANDROID)
 #include "components/keep_alive_registry/keep_alive_registry.h"
+#endif
+
+#if defined(OS_CHROMEOS)
+#include "chrome/browser/chromeos/policy/browser_policy_connector_chromeos.h"
 #endif
 
 // static
@@ -120,6 +127,9 @@ void TestingBrowserProcess::Init() {
   extensions::AppWindowClient::Set(ChromeAppWindowClient::GetInstance());
   extensions::ExtensionsBrowserClient::Set(extensions_browser_client_.get());
 #endif
+
+  // Make sure permissions client has been set.
+  ChromePermissionsClient::GetInstance();
 
 #if !defined(OS_ANDROID)
   KeepAliveRegistry::GetInstance()->SetIsShuttingDown(false);
@@ -205,7 +215,7 @@ TestingBrowserProcess::browser_policy_connector() {
     EXPECT_FALSE(created_browser_policy_connector_);
     created_browser_policy_connector_ = true;
 
-#if defined(OS_POSIX) && !defined(OS_MACOSX)
+#if defined(OS_POSIX) && !defined(OS_MAC)
     // Make sure that the machine policy directory does not exist so that
     // machine-wide policies do not affect tests.
     // Note that passing false as last argument to OverrideAndCreateIfNeeded
@@ -217,7 +227,13 @@ TestingBrowserProcess::browser_policy_connector() {
         chrome::DIR_POLICY_FILES, local_policy_path, true, false));
 #endif
 
-    browser_policy_connector_ = platform_part_->CreateBrowserPolicyConnector();
+#if defined(OS_CHROMEOS)
+    browser_policy_connector_ =
+        std::make_unique<policy::BrowserPolicyConnectorChromeOS>();
+#else
+    browser_policy_connector_ =
+        std::make_unique<policy::ChromeBrowserPolicyConnector>();
+#endif  // defined(OS_CHROMEOS)
 
     // Note: creating the ChromeBrowserPolicyConnector invokes BrowserThread::
     // GetTaskRunnerForThread(), which initializes a base::LazyInstance of
@@ -259,14 +275,14 @@ TestingBrowserProcess::safe_browsing_service() {
   return sb_service_.get();
 }
 
-safe_browsing::ClientSideDetectionService*
-TestingBrowserProcess::safe_browsing_detection_service() {
-  return nullptr;
-}
-
 subresource_filter::RulesetService*
 TestingBrowserProcess::subresource_filter_ruleset_service() {
   return subresource_filter_ruleset_service_.get();
+}
+
+federated_learning::FlocBlocklistService*
+TestingBrowserProcess::floc_blocklist_service() {
+  return floc_blocklist_service_.get();
 }
 
 optimization_guide::OptimizationGuideService*
@@ -398,7 +414,9 @@ WebRtcLogUploader* TestingBrowserProcess::webrtc_log_uploader() {
 network_time::NetworkTimeTracker*
 TestingBrowserProcess::network_time_tracker() {
   if (!network_time_tracker_) {
-    DCHECK(local_state_);
+    if (!local_state_)
+      return nullptr;
+
     network_time_tracker_.reset(new network_time::NetworkTimeTracker(
         std::unique_ptr<base::Clock>(new base::DefaultClock()),
         std::unique_ptr<base::TickClock>(new base::DefaultTickClock()),
@@ -418,6 +436,14 @@ TestingBrowserProcess::resource_coordinator_parts() {
         std::make_unique<resource_coordinator::ResourceCoordinatorParts>();
   }
   return resource_coordinator_parts_.get();
+}
+
+BuildState* TestingBrowserProcess::GetBuildState() {
+#if !defined(OS_ANDROID)
+  return &build_state_;
+#else
+  return nullptr;
+#endif
 }
 
 resource_coordinator::TabManager* TestingBrowserProcess::GetTabManager() {
@@ -469,6 +495,11 @@ void TestingBrowserProcess::ShutdownBrowserPolicyConnector() {
   browser_policy_connector_.reset();
 }
 
+TestingBrowserProcessPlatformPart*
+TestingBrowserProcess::GetTestPlatformPart() {
+  return platform_part_.get();
+}
+
 void TestingBrowserProcess::SetSafeBrowsingService(
     safe_browsing::SafeBrowsingService* sb_service) {
   sb_service_ = sb_service;
@@ -477,6 +508,11 @@ void TestingBrowserProcess::SetSafeBrowsingService(
 void TestingBrowserProcess::SetRulesetService(
     std::unique_ptr<subresource_filter::RulesetService> ruleset_service) {
   subresource_filter_ruleset_service_.swap(ruleset_service);
+}
+
+void TestingBrowserProcess::SetFlocBlocklistService(
+    std::unique_ptr<federated_learning::FlocBlocklistService> service) {
+  floc_blocklist_service_.swap(service);
 }
 
 void TestingBrowserProcess::SetOptimizationGuideService(

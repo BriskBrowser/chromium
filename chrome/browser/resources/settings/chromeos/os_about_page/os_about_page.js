@@ -25,6 +25,7 @@ Polymer({
         message: '',
         progress: 0,
         rollback: false,
+        powerwash: false,
         status: UpdateStatus.DISABLED
       },
     },
@@ -52,6 +53,12 @@ Polymer({
 
     /** @private {!BrowserChannel} */
     targetChannel_: String,
+
+    /** @private */
+    isLts_: {
+      type: Boolean,
+      value: false,
+    },
 
     /** @private {?RegulatoryInfo} */
     regulatoryInfo_: Object,
@@ -102,14 +109,7 @@ Polymer({
     showRelaunch_: {
       type: Boolean,
       value: false,
-    },
-
-    /** @private */
-    showRelaunchAndPowerwash_: {
-      type: Boolean,
-      value: false,
-      computed: 'computeShowRelaunchAndPowerwash_(' +
-          'currentUpdateStatusEvent_, targetChannel_, currentChannel_)',
+      computed: 'computeShowRelaunch_(currentUpdateStatusEvent_)',
     },
 
     /** @private */
@@ -156,10 +156,8 @@ Polymer({
     'updateShowUpdateStatus_(' +
         'hasEndOfLife_, currentUpdateStatusEvent_,' +
         'hasCheckedForUpdates_)',
-    'updateShowRelaunch_(currentUpdateStatusEvent_, targetChannel_,' +
-        'currentChannel_)',
     'updateShowButtonContainer_(' +
-        'showRelaunch_, showRelaunchAndPowerwash_, showCheckUpdates_)',
+        'showRelaunch_, showCheckUpdates_)',
     'handleCrostiniEnabledChanged_(prefs.crostini.enabled.value)',
   ],
 
@@ -184,6 +182,7 @@ Polymer({
     this.aboutBrowserProxy_.getChannelInfo().then(info => {
       this.currentChannel_ = info.currentChannel;
       this.targetChannel_ = info.targetChannel;
+      this.isLts_ = info.isLts;
       this.startListening_();
     });
 
@@ -204,7 +203,8 @@ Polymer({
       this.hasInternetConnection_ = result;
     });
 
-    if (settings.getQueryParameters().get('checkForUpdate') == 'true') {
+    if (settings.Router.getInstance().getQueryParameters().get(
+            'checkForUpdate') == 'true') {
       this.onCheckUpdatesClick_();
     }
   },
@@ -270,6 +270,7 @@ Polymer({
 
   /** @private */
   onRelaunchClick_() {
+    settings.recordSettingChange();
     this.lifetimeBrowserProxy_.relaunch();
   },
 
@@ -299,14 +300,12 @@ Polymer({
    * @private
    */
   updateShowButtonContainer_() {
-    this.showButtonContainer_ = this.showRelaunch_ ||
-        this.showRelaunchAndPowerwash_ || this.showCheckUpdates_;
+    this.showButtonContainer_ = this.showRelaunch_ || this.showCheckUpdates_;
   },
 
   /** @private */
-  updateShowRelaunch_() {
-    this.showRelaunch_ =
-        this.checkStatus_(UpdateStatus.NEARLY_UPDATED) && !this.isRollback_();
+  computeShowRelaunch_() {
+    return this.checkStatus_(UpdateStatus.NEARLY_UPDATED);
   },
 
   /**
@@ -343,8 +342,8 @@ Polymer({
         if (this.currentChannel_ != this.targetChannel_) {
           return this.i18nAdvanced('aboutUpgradeUpdatingChannelSwitch', {
             substitutions: [
-              this.i18nAdvanced(
-                  settings.browserChannelToI18nId(this.targetChannel_)),
+              this.i18nAdvanced(settings.browserChannelToI18nId(
+                  this.targetChannel_, this.isLts_)),
               progressPercent
             ]
           });
@@ -401,6 +400,7 @@ Polymer({
         return 'cr:error';
       case UpdateStatus.UPDATED:
       case UpdateStatus.NEARLY_UPDATED:
+        // TODO(crbug.com/986596): Don't use browser icons here. Fork them.
         return 'settings:check-circle';
       default:
         return null;
@@ -443,39 +443,29 @@ Polymer({
    * @return {boolean}
    * @private
    */
-  isRollback_() {
-    assert(this.currentChannel_.length > 0);
-    assert(this.targetChannel_.length > 0);
-    if (this.currentUpdateStatusEvent_.rollback) {
-      return true;
-    }
-    // Channel switch to a more stable channel is also a rollback
-    return settings.isTargetChannelMoreStable(
-        this.currentChannel_, this.targetChannel_);
+  isPowerwash_() {
+    return this.currentUpdateStatusEvent_.powerwash;
   },
 
   /** @private */
   onDetailedBuildInfoClick_() {
-    settings.navigateTo(settings.routes.DETAILED_BUILD_INFO);
-  },
-
-  /** @private */
-  onRelaunchAndPowerwashClick_() {
-    if (this.currentUpdateStatusEvent_.rollback) {
-      // Wipe already initiated, simply relaunch.
-      this.lifetimeBrowserProxy_.relaunch();
-    } else {
-      this.lifetimeBrowserProxy_.factoryReset(
-          /* requestTpmFirmwareUpdate= */ false);
-    }
+    settings.Router.getInstance().navigateTo(
+        settings.routes.DETAILED_BUILD_INFO);
   },
 
   /**
-   * @return {boolean}
+   * @return {string}
    * @private
    */
-  computeShowRelaunchAndPowerwash_() {
-    return this.checkStatus_(UpdateStatus.NEARLY_UPDATED) && this.isRollback_();
+  getRelaunchButtonText_() {
+    if (this.checkStatus_(UpdateStatus.NEARLY_UPDATED)) {
+      if (this.isPowerwash_()) {
+        return this.i18nAdvanced('aboutRelaunchAndPowerwash');
+      } else {
+        return this.i18nAdvanced('aboutRelaunch');
+      }
+    }
+    return '';
   },
 
   /** @private */

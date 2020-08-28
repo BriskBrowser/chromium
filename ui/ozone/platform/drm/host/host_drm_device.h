@@ -16,15 +16,12 @@
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "mojo/public/cpp/bindings/remote.h"
 #include "ui/gfx/native_widget_types.h"
+#include "ui/ozone/platform/drm/common/display_types.h"
 #include "ui/ozone/platform/drm/host/drm_cursor.h"
 #include "ui/ozone/platform/drm/host/gpu_thread_adapter.h"
 #include "ui/ozone/public/gpu_platform_support_host.h"
 #include "ui/ozone/public/mojom/device_cursor.mojom.h"
 #include "ui/ozone/public/mojom/drm_device.mojom.h"
-
-namespace display {
-class DisplaySnapshot;
-}
 
 namespace ui {
 class DrmDisplayHostManager;
@@ -68,10 +65,9 @@ class HostDrmDevice : public base::RefCountedThreadSafe<HostDrmDevice>,
   bool GpuRemoveGraphicsDevice(const base::FilePath& path) override;
 
   // Services needed by DrmDisplayHost
-  bool GpuConfigureNativeDisplay(int64_t display_id,
-                                 const ui::DisplayMode_Params& display_mode,
-                                 const gfx::Point& point) override;
-  bool GpuDisableNativeDisplay(int64_t display_id) override;
+  void GpuConfigureNativeDisplays(
+      const std::vector<display::DisplayConfigurationParams>& config_requests,
+      display::ConfigureCallback callback) override;
   bool GpuGetHDCPState(int64_t display_id) override;
   bool GpuSetHDCPState(int64_t display_id, display::HDCPState state) override;
   bool GpuSetColorMatrix(int64_t display_id,
@@ -80,6 +76,7 @@ class HostDrmDevice : public base::RefCountedThreadSafe<HostDrmDevice>,
       int64_t display_id,
       const std::vector<display::GammaRampRGBEntry>& degamma_lut,
       const std::vector<display::GammaRampRGBEntry>& gamma_lut) override;
+  bool GpuSetPrivacyScreen(int64_t display_id, bool enabled) override;
 
   // Services needed by DrmWindowHost
   bool GpuDestroyWindow(gfx::AcceleratedWidget widget) override;
@@ -96,15 +93,7 @@ class HostDrmDevice : public base::RefCountedThreadSafe<HostDrmDevice>,
 
   void OnDrmServiceStarted();
 
-  // TODO(rjkroege): Get rid of the need for this method in a subsequent CL.
-  void PollForSingleThreadReady(int previous_delay);
-
-  void GpuConfigureNativeDisplayCallback(int64_t display_id,
-                                         bool success) const;
-
-  void GpuRefreshNativeDisplaysCallback(
-      std::vector<std::unique_ptr<display::DisplaySnapshot>> displays) const;
-  void GpuDisableNativeDisplayCallback(int64_t display_id, bool success) const;
+  void GpuRefreshNativeDisplaysCallback(MovableDisplaySnapshots displays) const;
   void GpuTakeDisplayControlCallback(bool success) const;
   void GpuRelinquishDisplayControlCallback(bool success) const;
   void GpuGetHDCPStateCallback(int64_t display_id,

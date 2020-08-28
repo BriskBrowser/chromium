@@ -11,6 +11,7 @@ yusufo@chromium.org
 per-file static_initializers.gni=*
 per-file java_sources.gni=*
 per-file chrome_java_sources.gni=*
+per-file chrome_java_resources.gni=*
 per-file chrome_test_java_sources.gni=*
 per-file chrome_junit_test_java_sources.gni=*
 
@@ -23,5 +24,6 @@ per-file *.gn*=file://build/android/OWNERS
 # Translation artifacts:
 per-file *.xtb=file://tools/translation/TRANSLATION_OWNERS
 
-# COMPONENT: Mobile
+# COMPONENT: UI>Browser>Mobile
+# TEAM: clank-dev@google.com
 # OS: Android

@@ -8,8 +8,8 @@
 #include <utility>
 
 #include "base/logging.h"
+#include "chromecast/media/api/decoder_buffer_base.h"
 #include "chromecast/media/cma/backend/media_pipeline_backend_manager.h"
-#include "chromecast/media/cma/base/decoder_buffer_base.h"
 #include "chromecast/public/media/cast_decoder_buffer.h"
 
 namespace chromecast {
@@ -43,6 +43,7 @@ class RevokedAudioDecoderWrapper : public DestructableAudioDecoder {
     *statistics = statistics_;
   }
   bool RequiresDecryption() override { return requires_decryption_; }
+  void SetObserver(CmaBackend::AudioDecoder::Observer* observer) override {}
 
   const RenderingDelay rendering_delay_;
   const Statistics statistics_;

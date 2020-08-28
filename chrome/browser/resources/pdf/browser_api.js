@@ -28,7 +28,6 @@ function lookupDefaultZoom(streamInfo) {
  * Returns a promise that will resolve to the initial zoom factor
  * upon starting the plugin. This may differ from the default zoom
  * if, for example, the page is zoomed before the plugin is run.
- *
  * @param {!Object} streamInfo The stream object pointing to the data contained
  *     in the PDF.
  * @return {Promise<number>} A promise that will resolve to the initial zoom
@@ -46,9 +45,7 @@ function lookupInitialZoom(streamInfo) {
   });
 }
 
-/**
- * A class providing an interface to the browser.
- */
+// A class providing an interface to the browser.
 export class BrowserApi {
   /**
    * @param {!Object} streamInfo The stream object which points to the data
@@ -90,37 +87,30 @@ export class BrowserApi {
 
   /**
    * Sets the browser zoom.
-   *
    * @param {number} zoom The zoom factor to send to the browser.
    * @return {Promise} A promise that will be resolved when the browser zoom
    *     has been updated.
    */
   setZoom(zoom) {
     assert(
-        this.zoomBehavior_ == BrowserApi.ZoomBehavior.MANAGE,
+        this.zoomBehavior_ === BrowserApi.ZoomBehavior.MANAGE,
         'Viewer does not manage browser zoom.');
     return new Promise((resolve, reject) => {
       chrome.tabs.setZoom(this.streamInfo_.tabId, zoom, resolve);
     });
   }
 
-  /**
-   * @return {number} The default browser zoom factor.
-   */
+  /** @return {number} The default browser zoom factor. */
   getDefaultZoom() {
     return this.defaultZoom_;
   }
 
-  /**
-   * @return {number} The initial browser zoom factor.
-   */
+  /** @return {number} The initial browser zoom factor. */
   getInitialZoom() {
     return this.initialZoom_;
   }
 
-  /**
-   * @return {BrowserApi.ZoomBehavior} How to manage zoom.
-   */
+  /** @return {BrowserApi.ZoomBehavior} How to manage zoom. */
   getZoomBehavior() {
     return this.zoomBehavior_;
   }
@@ -132,15 +122,15 @@ export class BrowserApi {
    *     factor.
    */
   addZoomEventListener(listener) {
-    if (!(this.zoomBehavior_ == BrowserApi.ZoomBehavior.MANAGE ||
-          this.zoomBehavior_ == BrowserApi.ZoomBehavior.PROPAGATE_PARENT)) {
+    if (!(this.zoomBehavior_ === BrowserApi.ZoomBehavior.MANAGE ||
+          this.zoomBehavior_ === BrowserApi.ZoomBehavior.PROPAGATE_PARENT)) {
       return;
     }
 
     chrome.tabs.onZoomChange.addListener(info => {
       const zoomChangeInfo =
           /** @type {{tabId: number, newZoomFactor: number}} */ (info);
-      if (zoomChangeInfo.tabId != this.streamInfo_.tabId) {
+      if (zoomChangeInfo.tabId !== this.streamInfo_.tabId) {
         return;
       }
       listener(zoomChangeInfo.newZoomFactor);
@@ -160,7 +150,6 @@ BrowserApi.ZoomBehavior = {
 
 /**
  * Creates a BrowserApi for an extension running as a mime handler.
- *
  * @return {!Promise<!BrowserApi>} A promise to a BrowserApi instance
  *     constructed using the mimeHandlerPrivate API.
  */
@@ -171,7 +160,7 @@ function createBrowserApiForMimeHandlerView() {
       .then(function(streamInfo) {
         const promises = [];
         let zoomBehavior = BrowserApi.ZoomBehavior.NONE;
-        if (streamInfo.tabId != -1) {
+        if (streamInfo.tabId !== -1) {
           zoomBehavior = streamInfo.embedded ?
               BrowserApi.ZoomBehavior.PROPAGATE_PARENT :
               BrowserApi.ZoomBehavior.MANAGE;
@@ -183,7 +172,7 @@ function createBrowserApiForMimeHandlerView() {
             }
           }));
         }
-        if (zoomBehavior == BrowserApi.ZoomBehavior.MANAGE) {
+        if (zoomBehavior === BrowserApi.ZoomBehavior.MANAGE) {
           promises.push(new Promise(function(resolve) {
             chrome.tabs.setZoomSettings(
                 streamInfo.tabId, {mode: 'manual', scope: 'per-tab'}, resolve);
@@ -197,7 +186,6 @@ function createBrowserApiForMimeHandlerView() {
 
 /**
  * Creates a BrowserApi instance for an extension not running as a mime handler.
- *
  * @return {!Promise<!BrowserApi>} A promise to a BrowserApi instance
  *     constructed from the URL.
  */
@@ -207,7 +195,7 @@ function createBrowserApiForPrintPreview() {
     streamUrl: url,
     originalUrl: url,
     responseHeaders: {},
-    embedded: window.parent != window,
+    embedded: window.parent !== window,
     tabId: -1,
   };
   return new Promise(function(resolve, reject) {

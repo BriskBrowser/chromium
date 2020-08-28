@@ -8,6 +8,7 @@
 #import "ios/chrome/browser/ui/coordinators/chrome_coordinator.h"
 
 @class ManualFillInjectionHandler;
+@class ReauthenticationModule;
 
 // Delegate for the coordinator actions.
 @protocol FormInputAccessoryCoordinatorNavigator <NSObject>
@@ -20,9 +21,6 @@
 
 // Opens the credit cards settings.
 - (void)openCreditCardSettings;
-
-// Opens the all passwords picker, used for manual fallback.
-- (void)openAllPasswordsPicker;
 
 @end
 
@@ -38,14 +36,7 @@
 // a |webStateList|.
 - (instancetype)initWithBaseViewController:(UIViewController*)viewController
                                    browser:(Browser*)browser
-                          injectionHandler:
-                              (ManualFillInjectionHandler*)injectionHandler
     NS_DESIGNATED_INITIALIZER;
-
-- (instancetype)initWithBaseViewController:(UIViewController*)viewController
-                              browserState:
-                                  (ios::ChromeBrowserState*)browserState
-    NS_UNAVAILABLE;
 
 - (instancetype)initWithBaseViewController:(UIViewController*)viewController
                                    browser:(Browser*)browser NS_UNAVAILABLE;

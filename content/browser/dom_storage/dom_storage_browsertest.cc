@@ -12,8 +12,8 @@
 #include "components/services/storage/dom_storage/legacy_dom_storage_database.h"
 #include "components/services/storage/dom_storage/local_storage_impl.h"
 #include "components/services/storage/public/cpp/constants.h"
+#include "components/services/storage/public/cpp/filesystem/filesystem_proxy.h"
 #include "content/browser/dom_storage/dom_storage_context_wrapper.h"
-#include "content/browser/dom_storage/session_storage_context_mojo.h"
 #include "content/browser/dom_storage/session_storage_namespace_impl.h"
 #include "content/browser/web_contents/web_contents_impl.h"
 #include "content/public/browser/browser_context.h"
@@ -22,6 +22,7 @@
 #include "content/public/browser/storage_usage_info.h"
 #include "content/public/common/content_paths.h"
 #include "content/public/common/content_switches.h"
+#include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/content_browser_test.h"
 #include "content/public/test/content_browser_test_utils.h"
@@ -83,14 +84,6 @@ class DOMStorageBrowserTest : public ContentBrowserTest {
   DOMStorageContextWrapper* context_wrapper() {
     return static_cast<DOMStorageContextWrapper*>(
         partition()->GetDOMStorageContext());
-  }
-
-  base::SequencedTaskRunner* mojo_task_runner() {
-    return context_wrapper()->mojo_task_runner();
-  }
-
-  SessionStorageContextMojo* session_storage_context() {
-    return context_wrapper()->mojo_session_state_;
   }
 };
 
@@ -182,7 +175,10 @@ IN_PROC_BROWSER_TEST_F(DOMStorageBrowserTest, DataMigrates) {
   {
     base::ScopedAllowBlockingForTesting allow_blocking;
     EXPECT_TRUE(base::CreateDirectory(legacy_local_storage_path));
-    storage::LegacyDomStorageDatabase db(db_path);
+    storage::LegacyDomStorageDatabase db(
+        db_path,
+        std::make_unique<storage::FilesystemProxy>(
+            storage::FilesystemProxy::UNRESTRICTED, legacy_local_storage_path));
     storage::LegacyDomStorageValuesMap data;
     data[base::ASCIIToUTF16("foo")] =
         base::NullableString16(base::ASCIIToUTF16("bar"), false);

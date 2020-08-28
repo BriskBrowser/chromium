@@ -144,7 +144,8 @@
 #pragma mark - OverlayPresenterObserving
 
 - (void)overlayPresenter:(OverlayPresenter*)presenter
-    willShowOverlayForRequest:(OverlayRequest*)request {
+    willShowOverlayForRequest:(OverlayRequest*)request
+          initialPresentation:(BOOL)initialPresentation {
   self.webContentAreaShowingOverlay = YES;
   self.webContentAreaShowingHTTPAuthDialog =
       !!request->GetConfig<HTTPAuthOverlayRequestConfig>();
@@ -162,7 +163,7 @@
     didChangeActiveWebState:(web::WebState*)newWebState
                 oldWebState:(web::WebState*)oldWebState
                     atIndex:(int)atIndex
-                     reason:(int)reason {
+                     reason:(ActiveWebStateChangeReason)reason {
   DCHECK_EQ(_webStateList, webStateList);
   self.webState = newWebState;
   [self.consumer defocusOmnibox];
@@ -272,7 +273,7 @@
 - (void)notifyConsumerOfChangedLocation {
   [self.consumer updateLocationText:[self currentLocationString]
                            clipTail:[self locationShouldClipTail]];
-  GURL URL = self.webState->GetVisibleURL();
+  GURL URL = self.webState ? self.webState->GetVisibleURL() : GURL::EmptyGURL();
   BOOL isNTP = IsURLNewTabPage(URL);
   if (isNTP) {
     [self.consumer updateAfterNavigatingToNTP];
@@ -294,7 +295,7 @@
   return base::SysUTF16ToNSString(string);
 }
 
-// Some URLs (data://) should have their tail clipped when presented; while for
+// Data URLs (data://) should have their tail clipped when presented; while for
 // others (http://) it would be more appropriate to clip the head.
 - (BOOL)locationShouldClipTail {
   if (self.webContentAreaShowingHTTPAuthDialog)
@@ -321,7 +322,7 @@
 
 // Returns a location icon for offline pages.
 - (UIImage*)imageForOfflinePage {
-  return [[UIImage imageNamed:@"location_bar_offline"]
+  return [[UIImage imageNamed:@"location_bar_connection_offline"]
       imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
 }
 
@@ -340,6 +341,10 @@
   // are displayed over the web content area.
   if (self.webContentAreaShowingOverlay)
     return NO;
+
+  if (!self.webState) {
+    return NO;
+  }
 
   const GURL& URL = self.webState->GetLastCommittedURL();
   return URL.is_valid() && !web::GetWebClient()->IsAppSpecificURL(URL);

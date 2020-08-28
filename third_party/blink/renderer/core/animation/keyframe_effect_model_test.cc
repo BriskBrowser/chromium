@@ -64,8 +64,9 @@ class AnimationKeyframeEffectModel : public PageTestBase {
 
   void ExpectLengthValue(double expected_value,
                          Interpolation* interpolation_value) {
-    ActiveInterpolations interpolations;
-    interpolations.push_back(interpolation_value);
+    ActiveInterpolations* interpolations =
+        MakeGarbageCollected<ActiveInterpolations>();
+    interpolations->push_back(interpolation_value);
     EnsureInterpolatedValueCached(interpolations, GetDocument(), element);
 
     const auto* typed_value =
@@ -73,7 +74,7 @@ class AnimationKeyframeEffectModel : public PageTestBase {
             ->GetCachedValueForTesting();
     // Length values are stored as an |InterpolableLength|; here we assume
     // pixels.
-    EXPECT_TRUE(typed_value->GetInterpolableValue().IsLength());
+    ASSERT_TRUE(typed_value->GetInterpolableValue().IsLength());
     const InterpolableLength& length =
         To<InterpolableLength>(typed_value->GetInterpolableValue());
     // Lengths are computed in logical units, which are quantized to 64ths of
@@ -85,8 +86,9 @@ class AnimationKeyframeEffectModel : public PageTestBase {
 
   void ExpectNonInterpolableValue(const String& expected_value,
                                   Interpolation* interpolation_value) {
-    ActiveInterpolations interpolations;
-    interpolations.push_back(interpolation_value);
+    ActiveInterpolations* interpolations =
+        MakeGarbageCollected<ActiveInterpolations>();
+    interpolations->push_back(interpolation_value);
     EnsureInterpolatedValueCached(interpolations, GetDocument(), element);
 
     const auto* typed_value =
@@ -151,12 +153,12 @@ const PropertySpecificKeyframeVector& ConstructEffectAndGetKeyframes(
   StringKeyframeVector keyframes =
       KeyframesAtZeroAndOne(property_name, zero_value, one_value);
 
-  element->style()->setProperty(document, property_name, zero_value,
-                                g_empty_string, exception_state);
+  element->style()->setProperty(document->GetExecutionContext(), property_name,
+                                zero_value, g_empty_string, exception_state);
 
   auto* effect = MakeGarbageCollected<StringKeyframeEffectModel>(keyframes);
 
-  auto style = document->EnsureStyleResolver().StyleForElement(element);
+  auto style = document->GetStyleResolver().StyleForElement(element);
 
   // Snapshot should update first time after construction
   EXPECT_TRUE(effect->SnapshotAllCompositorKeyframesIfNecessary(
@@ -630,7 +632,7 @@ TEST_F(AnimationKeyframeEffectModel, CompositorSnapshotUpdateBasic) {
       KeyframesAtZeroAndOne(CSSPropertyID::kOpacity, "0", "1");
   auto* effect = MakeGarbageCollected<StringKeyframeEffectModel>(keyframes);
 
-  auto style = GetDocument().EnsureStyleResolver().StyleForElement(element);
+  auto style = GetDocument().GetStyleResolver().StyleForElement(element);
 
   const CompositorKeyframeValue* value;
 
@@ -666,7 +668,7 @@ TEST_F(AnimationKeyframeEffectModel,
   auto* effect =
       MakeGarbageCollected<StringKeyframeEffectModel>(opacity_keyframes);
 
-  auto style = GetDocument().EnsureStyleResolver().StyleForElement(element);
+  auto style = GetDocument().GetStyleResolver().StyleForElement(element);
 
   EXPECT_TRUE(effect->SnapshotAllCompositorKeyframesIfNecessary(
       *element, *style, nullptr));
@@ -713,8 +715,9 @@ TEST_F(AnimationKeyframeEffectModel, CompositorUpdateColorProperty) {
   ScopedOffMainThreadCSSPaintForTest off_main_thread_css_paint(true);
   DummyExceptionStateForTesting exception_state;
 
-  element->style()->setProperty(&GetDocument(), "color", "rgb(0, 255, 0)",
-                                g_empty_string, exception_state);
+  element->style()->setProperty(GetDocument().GetExecutionContext(), "color",
+                                "rgb(0, 255, 0)", g_empty_string,
+                                exception_state);
 
   // Compositor keyframe value available after snapshot
   const CompositorKeyframeValue* value_rgb =

@@ -10,6 +10,7 @@
 #include <string>
 
 #include "base/macros.h"
+#include "components/autofill/core/common/form_data.h"
 #include "url/gurl.h"
 
 namespace base {
@@ -17,8 +18,6 @@ class Value;
 }
 
 namespace autofill {
-
-struct PasswordForm;
 
 // When logging decisions made by password management code about whether to
 // offer user-entered credentials for saving or not, do use this class. It
@@ -69,16 +68,12 @@ class SavePasswordProgressLogger {
     STRING_FORM_FOUND_ON_PAGE,
     STRING_FORM_IS_VISIBLE,
     STRING_FORM_IS_PASSWORD,
-    STRING_FORM_IS_NOT_PASSWORD,
-    STRING_WILL_SUBMIT_FORM_METHOD,
     STRING_HTML_FORM_FOR_SUBMIT,
-    STRING_CREATED_PASSWORD_FORM,
     STRING_DID_START_PROVISIONAL_LOAD_METHOD,
     STRING_FRAME_NOT_MAIN_FRAME,
     STRING_PROVISIONALLY_SAVE_FORM_METHOD,
     STRING_EMPTY_PASSWORD,
     STRING_MATCHING_NOT_COMPLETE,
-    STRING_FORM_BLACKLISTED,
     STRING_INVALID_FORM,
     STRING_SYNC_CREDENTIAL,
     STRING_BLOCK_PASSWORD_SAME_ORIGIN_INSECURE_SCHEME,
@@ -148,6 +143,8 @@ class SavePasswordProgressLogger {
     STRING_LEAK_DETECTION_INVALID_SERVER_RESPONSE_ERROR,
     STRING_LEAK_DETECTION_SIGNED_OUT_ERROR,
     STRING_LEAK_DETECTION_TOKEN_REQUEST_ERROR,
+    STRING_LEAK_DETECTION_NETWORK_ERROR,
+    STRING_LEAK_DETECTION_QUOTA_LIMIT,
     STRING_PASSWORD_REQUIREMENTS_VOTE_FOR_LOWERCASE,
     STRING_PASSWORD_REQUIREMENTS_VOTE_FOR_SPECIAL_SYMBOL,
     STRING_PASSWORD_REQUIREMENTS_VOTE_FOR_SPECIFIC_SPECIAL_SYMBOL,
@@ -157,6 +154,9 @@ class SavePasswordProgressLogger {
     STRING_NAVIGATION_NTP,
     STRING_SERVER_PREDICTIONS,
     STRING_USERNAME_FIRST_FLOW_VOTE,
+    STRING_POSSIBLE_USERNAME_USED,
+    STRING_POSSIBLE_USERNAME_NOT_USED,
+    STRING_LOCALLY_SAVED_PREDICTION,
     STRING_INVALID,  // Represents a string returned in a case of an error.
     STRING_MAX = STRING_INVALID
   };
@@ -166,7 +166,7 @@ class SavePasswordProgressLogger {
 
   // Call these methods to log information. They sanitize the input and call
   // SendLog to pass it for display.
-  void LogPasswordForm(StringID label, const PasswordForm& form);
+  void LogFormData(StringID label, const FormData& form_data);
   void LogHTMLForm(StringID label,
                    const std::string& name_or_id,
                    const GURL& action);

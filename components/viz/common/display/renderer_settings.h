@@ -29,9 +29,6 @@ class VIZ_COMMON_EXPORT RendererSettings {
   bool partial_swap_enabled = false;
   bool should_clear_root_render_pass = true;
   bool release_overlay_resources_after_gpu_query = false;
-  bool tint_gl_composited_content = false;
-  bool show_overdraw_feedback = false;
-  bool show_aggregated_damage = false;
   bool use_skia_renderer = false;
   bool allow_overlays = true;
   bool dont_round_texture_sizes_for_pixel_tests = false;
@@ -39,12 +36,19 @@ class VIZ_COMMON_EXPORT RendererSettings {
   bool auto_resize_output_surface = true;
   bool requires_alpha_channel = false;
   bool record_sk_picture = false;
-  bool show_dc_layer_debug_borders = false;
 
   int slow_down_compositing_scale_factor = 1;
 
-  // The required minimum size for DrawQuad to apply Draw Occlusion on.
-  gfx::Size kMinimumDrawOcclusionSize = gfx::Size(60, 60);
+  // The maximum number of occluding Rects to track during occlusion culling.
+  int kMaximumOccluderComplexity = 10;
+
+  // The maximum number (exclusive) of quads one draw quad may be split into
+  // during occlusion culling. e.g. an L-shaped visible region split into two
+  // quads
+  int quad_split_limit = 5;
+  // The minimum number of fragments that would not be drawn if a quads was
+  // split into multiple quads during occlusion culling.
+  int minimum_fragments_reduced = 128 * 128;
 
 #if defined(OS_ANDROID)
   // The screen size at renderer creation time.
@@ -58,6 +62,19 @@ class VIZ_COMMON_EXPORT RendererSettings {
   // then overlays aren't supported.
   std::vector<OverlayStrategy> overlay_strategies;
 #endif
+};
+
+// This is a set of debug flags that can be changed at runtime, so that we can
+// trigger developer features. (The above RendererSettings cannot be changed in
+// viz after initialization.) It has a single instance in viz (basically a
+// singleton, owned by FrameSinkManagerImpl), while other objects keep a
+// reference to it. On the host size the single instance is owned by
+// HostFrameSinkManager.
+struct VIZ_COMMON_EXPORT DebugRendererSettings {
+  bool tint_composited_content = false;
+  bool show_overdraw_feedback = false;
+  bool show_dc_layer_debug_borders = false;
+  bool show_aggregated_damage = false;
 };
 
 }  // namespace viz

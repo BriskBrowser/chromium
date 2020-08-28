@@ -9,9 +9,9 @@
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
+#include "base/check.h"
 #include "base/files/file_path.h"
 #include "base/location.h"
-#include "base/logging.h"
 #include "base/optional.h"
 #include "base/path_service.h"
 #include "base/sequenced_task_runner.h"
@@ -25,9 +25,8 @@ DeviceLocalAccountExternalDataService::DeviceLocalAccountExternalDataService(
     DeviceLocalAccountPolicyService* parent,
     scoped_refptr<base::SequencedTaskRunner> backend_task_runner)
     : parent_(parent), backend_task_runner_(std::move(backend_task_runner)) {
-  base::FilePath cache_dir;
-  CHECK(base::PathService::Get(chromeos::DIR_DEVICE_LOCAL_ACCOUNT_EXTERNAL_DATA,
-                               &cache_dir));
+  const base::FilePath cache_dir = base::PathService::CheckedGet(
+      chromeos::DIR_DEVICE_LOCAL_ACCOUNT_EXTERNAL_DATA);
   resource_cache_.reset(new ResourceCache(cache_dir, backend_task_runner_,
                                           /* max_cache_size */ base::nullopt));
   parent_->AddObserver(this);
@@ -43,7 +42,7 @@ DeviceLocalAccountExternalDataService::
     DCHECK(it->second->HasOneRef());
   }
 #endif  // !defined(NDEBUG)
-  backend_task_runner_->DeleteSoon(FROM_HERE, resource_cache_.release());
+  backend_task_runner_->DeleteSoon(FROM_HERE, std::move(resource_cache_));
 }
 
 void DeviceLocalAccountExternalDataService::OnPolicyUpdated(

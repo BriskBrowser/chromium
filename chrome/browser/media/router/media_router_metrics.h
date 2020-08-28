@@ -12,6 +12,7 @@
 #include "chrome/browser/media/router/discovery/dial/dial_app_discovery_service.h"
 #include "chrome/browser/media/router/discovery/dial/safe_dial_device_description_parser.h"
 #include "chrome/browser/ui/media_router/media_cast_mode.h"
+#include "components/media_router/common/media_source.h"
 #include "media/base/container_names.h"
 
 class GURL;
@@ -19,6 +20,7 @@ class GURL;
 namespace media_router {
 
 enum class SinkIconType;
+enum MediaRouteProviderId;
 
 // NOTE: Do not renumber enums as that would confuse interpretation of
 // previously logged data. When making changes, also update the enum list
@@ -112,13 +114,21 @@ enum class PresentationUrlType {
   kPresentationUrlTypeCount
 };
 
-// Whether audio has been played since the last navigation. Do not modify
-// existing values, since they are used for metrics reporting. Add new values
-// only at the bottom, and also update tools/metrics/histograms/enums.xml.
-enum class WebContentsAudioState {
-  kWasNeverAudible = 0,
-  kIsCurrentlyAudible = 1,
-  kWasPreviouslyAudible = 2,  // Was playing audio, but not currently.
+// Records the possible ways a Presentation URL can be used to start a
+// presentation, both by the kind of URL and the type of the sink the URL will
+// be presented on.  "Normal" (https:, file:, or chrome-extension:) URLs are
+// typically implemented by loading them into an offscreen tab for streaming,
+// while Cast and DIAL URLs are sent directly to a compatible device.
+enum class PresentationUrlBySink {
+  kUnknown = 0,
+  kNormalUrlToChromecast = 1,
+  kNormalUrlToExtension = 2,
+  kNormalUrlToWiredDisplay = 3,
+  kCastUrlToChromecast = 4,
+  kDialUrlToDial = 5,
+  // Add new values immediately above this line.  Also update kMaxValue below
+  // and the enum of the same name in tools/metrics/histograms/enums.xml.
+  kMaxValue = kDialUrlToDial,
 };
 
 class MediaRouterMetrics {
@@ -128,6 +138,8 @@ class MediaRouterMetrics {
 
   // UMA histogram names.
   static const char kHistogramCloseLatency[];
+  static const char kHistogramCloudPrefAtDialogOpen[];
+  static const char kHistogramCloudPrefAtInit[];
   static const char kHistogramDialParsingError[];
   static const char kHistogramDialFetchAppInfo[];
   static const char kHistogramIconClickLocation[];
@@ -136,7 +148,6 @@ class MediaRouterMetrics {
   static const char kHistogramMediaRouterFileSize[];
   static const char kHistogramMediaSinkType[];
   static const char kHistogramPresentationUrlType[];
-  static const char kHistogramRecordSearchSinkOutcome[];
   static const char kHistogramRouteCreationOutcome[];
   static const char kHistogramStartLocalLatency[];
   static const char kHistogramStartLocalPosition[];
@@ -217,10 +228,6 @@ class MediaRouterMetrics {
   static void RecordStopLocalRoute();
   static void RecordStopRemoteRoute();
 
-  // Records whether or not a sink was found for the ID that the user manually
-  // entered and attempted to cast to.
-  static void RecordSearchSinkOutcome(bool success);
-
   // Records whether the toolbar icon is pinned by the user pref / admin policy.
   // Recorded whenever the Cast dialog is opened.
   static void RecordIconStateAtDialogOpen(bool is_pinned);
@@ -229,12 +236,25 @@ class MediaRouterMetrics {
   // Recorded whenever the browser is initialized.
   static void RecordIconStateAtInit(bool is_pinned);
 
+  // Records the pref value to enable the cloud services. Recorded whenever the
+  // Cast dialog is opened.
+  static void RecordCloudPrefAtDialogOpen(bool enabled);
+
+  // Records the pref value to enable the cloud services. Recorded whenever the
+  // browser is initialized.
+  static void RecordCloudPrefAtInit(bool enabled);
+
   // Recorded whenever a Cast session is started from the Cast dialog. Records
   // how the dialog was opened, and the Cast mode of the started session.
   static void RecordDialogActivationLocationAndCastMode(
       MediaRouterDialogOpenOrigin activation_location,
       MediaCastMode cast_mode,
       bool is_icon_pinned);
+
+  // Records the type of Presentation URL and sink used to create a media route.
+  static void RecordPresentationRequestUrlBySink(
+      const MediaSource& source,
+      MediaRouteProviderId provider_id);
 };
 
 }  // namespace media_router

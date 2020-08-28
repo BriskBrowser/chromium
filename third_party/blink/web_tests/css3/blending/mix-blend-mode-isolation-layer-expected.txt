@@ -6,13 +6,13 @@
     },
     {
       "name": "LayoutNGBlockFlow (positioned) DIV class='stacking-context'",
+      "position": [8, 8],
       "bounds": [160, 90],
       "contentsOpaque": true,
-      "backgroundColor": "#008000",
-      "transform": 1
+      "backgroundColor": "#008000"
     },
     {
-      "name": "ContentsLayer for LayoutImage IMG class='accelerated blended'",
+      "name": "LayoutImage IMG class='accelerated blended'",
       "bounds": [160, 90],
       "transform": 1
     },

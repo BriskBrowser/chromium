@@ -69,6 +69,8 @@ TEST_F(SystemSnapshotMacTest, GetCPUArchitecture) {
   EXPECT_EQ(cpu_architecture, kCPUArchitectureX86);
 #elif defined(ARCH_CPU_X86_64)
   EXPECT_EQ(cpu_architecture, kCPUArchitectureX86_64);
+#elif defined(ARCH_CPU_ARM64)
+  EXPECT_EQ(cpu_architecture, kCPUArchitectureARM64);
 #else
 #error port to your architecture
 #endif
@@ -87,6 +89,8 @@ TEST_F(SystemSnapshotMacTest, CPUVendor) {
   if (cpu_vendor != "GenuineIntel" && cpu_vendor != "AuthenticAMD") {
     FAIL() << "cpu_vendor " << cpu_vendor;
   }
+#elif defined(ARCH_CPU_ARM64)
+  EXPECT_EQ(cpu_vendor, "Apple processor");
 #else
 #error port to your architecture
 #endif
@@ -124,6 +128,12 @@ TEST_F(SystemSnapshotMacTest, OSVersionFull) {
 
 TEST_F(SystemSnapshotMacTest, MachineDescription) {
   EXPECT_FALSE(system_snapshot().MachineDescription().empty());
+}
+
+TEST_F(SystemSnapshotMacTest, NXEnabled) {
+  // Assume NX will always be enabled, as it was always enabled by default on
+  // all supported versions of macOS.
+  EXPECT_TRUE(system_snapshot().NXEnabled());
 }
 
 }  // namespace

@@ -119,6 +119,12 @@ void DriverEGL::InitializeClientExtensionBindings() {
 
   ext.b_EGL_ANGLE_feature_control =
       gfx::HasExtension(extensions, "EGL_ANGLE_feature_control");
+  ext.b_EGL_EXT_device_base =
+      gfx::HasExtension(extensions, "EGL_EXT_device_base");
+  ext.b_EGL_EXT_device_enumeration =
+      gfx::HasExtension(extensions, "EGL_EXT_device_enumeration");
+  ext.b_EGL_EXT_device_query =
+      gfx::HasExtension(extensions, "EGL_EXT_device_query");
   ext.b_EGL_KHR_debug = gfx::HasExtension(extensions, "EGL_KHR_debug");
 
   if (ext.b_EGL_KHR_debug) {
@@ -135,6 +141,17 @@ void DriverEGL::InitializeClientExtensionBindings() {
   if (ext.b_EGL_KHR_debug) {
     fn.eglQueryDebugKHRFn = reinterpret_cast<eglQueryDebugKHRProc>(
         GetGLProcAddress("eglQueryDebugKHR"));
+  }
+
+  if (ext.b_EGL_EXT_device_base || ext.b_EGL_EXT_device_enumeration) {
+    fn.eglQueryDevicesEXTFn = reinterpret_cast<eglQueryDevicesEXTProc>(
+        GetGLProcAddress("eglQueryDevicesEXT"));
+  }
+
+  if (ext.b_EGL_EXT_device_base || ext.b_EGL_EXT_device_query) {
+    fn.eglQueryDeviceStringEXTFn =
+        reinterpret_cast<eglQueryDeviceStringEXTProc>(
+            GetGLProcAddress("eglQueryDeviceStringEXT"));
   }
 
   if (ext.b_EGL_ANGLE_feature_control) {
@@ -164,12 +181,16 @@ void DriverEGL::InitializeExtensionBindings() {
       gfx::HasExtension(extensions, "EGL_ANDROID_native_fence_sync");
   ext.b_EGL_ANGLE_d3d_share_handle_client_buffer =
       gfx::HasExtension(extensions, "EGL_ANGLE_d3d_share_handle_client_buffer");
+  ext.b_EGL_ANGLE_power_preference =
+      gfx::HasExtension(extensions, "EGL_ANGLE_power_preference");
   ext.b_EGL_ANGLE_query_surface_pointer =
       gfx::HasExtension(extensions, "EGL_ANGLE_query_surface_pointer");
   ext.b_EGL_ANGLE_stream_producer_d3d_texture =
       gfx::HasExtension(extensions, "EGL_ANGLE_stream_producer_d3d_texture");
   ext.b_EGL_ANGLE_surface_d3d_texture_2d_share_handle = gfx::HasExtension(
       extensions, "EGL_ANGLE_surface_d3d_texture_2d_share_handle");
+  ext.b_EGL_ANGLE_sync_control_rate =
+      gfx::HasExtension(extensions, "EGL_ANGLE_sync_control_rate");
   ext.b_EGL_CHROMIUM_sync_control =
       gfx::HasExtension(extensions, "EGL_CHROMIUM_sync_control");
   ext.b_EGL_EXT_image_flush_external =
@@ -261,6 +282,11 @@ void DriverEGL::InitializeExtensionBindings() {
             GetGLProcAddress("eglGetFrameTimestampSupportedANDROID"));
   }
 
+  if (ext.b_EGL_ANGLE_sync_control_rate) {
+    fn.eglGetMscRateANGLEFn = reinterpret_cast<eglGetMscRateANGLEProc>(
+        GetGLProcAddress("eglGetMscRateANGLE"));
+  }
+
   if (ext.b_EGL_ANDROID_get_native_client_buffer) {
     fn.eglGetNativeClientBufferANDROIDFn =
         reinterpret_cast<eglGetNativeClientBufferANDROIDProc>(
@@ -277,6 +303,12 @@ void DriverEGL::InitializeExtensionBindings() {
     fn.eglGetSyncValuesCHROMIUMFn =
         reinterpret_cast<eglGetSyncValuesCHROMIUMProc>(
             GetGLProcAddress("eglGetSyncValuesCHROMIUM"));
+  }
+
+  if (ext.b_EGL_ANGLE_power_preference) {
+    fn.eglHandleGPUSwitchANGLEFn =
+        reinterpret_cast<eglHandleGPUSwitchANGLEProc>(
+            GetGLProcAddress("eglHandleGPUSwitchANGLE"));
   }
 
   if (ext.b_EGL_EXT_image_flush_external) {
@@ -304,6 +336,18 @@ void DriverEGL::InitializeExtensionBindings() {
     fn.eglQuerySurfacePointerANGLEFn =
         reinterpret_cast<eglQuerySurfacePointerANGLEProc>(
             GetGLProcAddress("eglQuerySurfacePointerANGLE"));
+  }
+
+  if (ext.b_EGL_ANGLE_power_preference) {
+    fn.eglReacquireHighPowerGPUANGLEFn =
+        reinterpret_cast<eglReacquireHighPowerGPUANGLEProc>(
+            GetGLProcAddress("eglReacquireHighPowerGPUANGLE"));
+  }
+
+  if (ext.b_EGL_ANGLE_power_preference) {
+    fn.eglReleaseHighPowerGPUANGLEFn =
+        reinterpret_cast<eglReleaseHighPowerGPUANGLEProc>(
+            GetGLProcAddress("eglReleaseHighPowerGPUANGLE"));
   }
 
   if (ext.b_EGL_ANDROID_blob_cache) {
@@ -580,6 +624,13 @@ EGLBoolean EGLApiBase::eglGetFrameTimestampSupportedANDROIDFn(
                                                             timestamp);
 }
 
+EGLBoolean EGLApiBase::eglGetMscRateANGLEFn(EGLDisplay dpy,
+                                            EGLSurface surface,
+                                            EGLint* numerator,
+                                            EGLint* denominator) {
+  return driver_->fn.eglGetMscRateANGLEFn(dpy, surface, numerator, denominator);
+}
+
 EGLClientBuffer EGLApiBase::eglGetNativeClientBufferANDROIDFn(
     const struct AHardwareBuffer* ahardwarebuffer) {
   return driver_->fn.eglGetNativeClientBufferANDROIDFn(ahardwarebuffer);
@@ -616,6 +667,10 @@ EGLBoolean EGLApiBase::eglGetSyncValuesCHROMIUMFn(EGLDisplay dpy,
                                                   EGLuint64CHROMIUM* msc,
                                                   EGLuint64CHROMIUM* sbc) {
   return driver_->fn.eglGetSyncValuesCHROMIUMFn(dpy, surface, ust, msc, sbc);
+}
+
+void EGLApiBase::eglHandleGPUSwitchANGLEFn(EGLDisplay dpy) {
+  driver_->fn.eglHandleGPUSwitchANGLEFn(dpy);
 }
 
 EGLBoolean EGLApiBase::eglImageFlushExternalEXTFn(
@@ -669,6 +724,17 @@ EGLBoolean EGLApiBase::eglQueryDebugKHRFn(EGLint attribute, EGLAttrib* value) {
   return driver_->fn.eglQueryDebugKHRFn(attribute, value);
 }
 
+EGLBoolean EGLApiBase::eglQueryDevicesEXTFn(EGLint max_devices,
+                                            EGLDeviceEXT* devices,
+                                            EGLint* num_devices) {
+  return driver_->fn.eglQueryDevicesEXTFn(max_devices, devices, num_devices);
+}
+
+const char* EGLApiBase::eglQueryDeviceStringEXTFn(EGLDeviceEXT device,
+                                                  EGLint name) {
+  return driver_->fn.eglQueryDeviceStringEXTFn(device, name);
+}
+
 EGLBoolean EGLApiBase::eglQueryDisplayAttribANGLEFn(EGLDisplay dpy,
                                                     EGLint attribute,
                                                     EGLAttrib* value) {
@@ -712,6 +778,15 @@ EGLBoolean EGLApiBase::eglQuerySurfacePointerANGLEFn(EGLDisplay dpy,
                                                      void** value) {
   return driver_->fn.eglQuerySurfacePointerANGLEFn(dpy, surface, attribute,
                                                    value);
+}
+
+void EGLApiBase::eglReacquireHighPowerGPUANGLEFn(EGLDisplay dpy,
+                                                 EGLContext ctx) {
+  driver_->fn.eglReacquireHighPowerGPUANGLEFn(dpy, ctx);
+}
+
+void EGLApiBase::eglReleaseHighPowerGPUANGLEFn(EGLDisplay dpy, EGLContext ctx) {
+  driver_->fn.eglReleaseHighPowerGPUANGLEFn(dpy, ctx);
 }
 
 EGLBoolean EGLApiBase::eglReleaseTexImageFn(EGLDisplay dpy,
@@ -1076,6 +1151,14 @@ EGLBoolean TraceEGLApi::eglGetFrameTimestampSupportedANDROIDFn(
                                                           timestamp);
 }
 
+EGLBoolean TraceEGLApi::eglGetMscRateANGLEFn(EGLDisplay dpy,
+                                             EGLSurface surface,
+                                             EGLint* numerator,
+                                             EGLint* denominator) {
+  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglGetMscRateANGLE")
+  return egl_api_->eglGetMscRateANGLEFn(dpy, surface, numerator, denominator);
+}
+
 EGLClientBuffer TraceEGLApi::eglGetNativeClientBufferANDROIDFn(
     const struct AHardwareBuffer* ahardwarebuffer) {
   TRACE_EVENT_BINARY_EFFICIENT0("gpu",
@@ -1119,6 +1202,11 @@ EGLBoolean TraceEGLApi::eglGetSyncValuesCHROMIUMFn(EGLDisplay dpy,
                                                    EGLuint64CHROMIUM* sbc) {
   TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglGetSyncValuesCHROMIUM")
   return egl_api_->eglGetSyncValuesCHROMIUMFn(dpy, surface, ust, msc, sbc);
+}
+
+void TraceEGLApi::eglHandleGPUSwitchANGLEFn(EGLDisplay dpy) {
+  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglHandleGPUSwitchANGLE")
+  egl_api_->eglHandleGPUSwitchANGLEFn(dpy);
 }
 
 EGLBoolean TraceEGLApi::eglImageFlushExternalEXTFn(
@@ -1180,6 +1268,19 @@ EGLBoolean TraceEGLApi::eglQueryDebugKHRFn(EGLint attribute, EGLAttrib* value) {
   return egl_api_->eglQueryDebugKHRFn(attribute, value);
 }
 
+EGLBoolean TraceEGLApi::eglQueryDevicesEXTFn(EGLint max_devices,
+                                             EGLDeviceEXT* devices,
+                                             EGLint* num_devices) {
+  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglQueryDevicesEXT")
+  return egl_api_->eglQueryDevicesEXTFn(max_devices, devices, num_devices);
+}
+
+const char* TraceEGLApi::eglQueryDeviceStringEXTFn(EGLDeviceEXT device,
+                                                   EGLint name) {
+  TRACE_EVENT_BINARY_EFFICIENT0("gpu", "TraceEGLAPI::eglQueryDeviceStringEXT")
+  return egl_api_->eglQueryDeviceStringEXTFn(device, name);
+}
+
 EGLBoolean TraceEGLApi::eglQueryDisplayAttribANGLEFn(EGLDisplay dpy,
                                                      EGLint attribute,
                                                      EGLAttrib* value) {
@@ -1232,6 +1333,20 @@ EGLBoolean TraceEGLApi::eglQuerySurfacePointerANGLEFn(EGLDisplay dpy,
                                 "TraceEGLAPI::eglQuerySurfacePointerANGLE")
   return egl_api_->eglQuerySurfacePointerANGLEFn(dpy, surface, attribute,
                                                  value);
+}
+
+void TraceEGLApi::eglReacquireHighPowerGPUANGLEFn(EGLDisplay dpy,
+                                                  EGLContext ctx) {
+  TRACE_EVENT_BINARY_EFFICIENT0("gpu",
+                                "TraceEGLAPI::eglReacquireHighPowerGPUANGLE")
+  egl_api_->eglReacquireHighPowerGPUANGLEFn(dpy, ctx);
+}
+
+void TraceEGLApi::eglReleaseHighPowerGPUANGLEFn(EGLDisplay dpy,
+                                                EGLContext ctx) {
+  TRACE_EVENT_BINARY_EFFICIENT0("gpu",
+                                "TraceEGLAPI::eglReleaseHighPowerGPUANGLE")
+  egl_api_->eglReleaseHighPowerGPUANGLEFn(dpy, ctx);
 }
 
 EGLBoolean TraceEGLApi::eglReleaseTexImageFn(EGLDisplay dpy,
@@ -1748,6 +1863,20 @@ EGLBoolean LogEGLApi::eglGetFrameTimestampSupportedANDROIDFn(EGLDisplay dpy,
   return result;
 }
 
+EGLBoolean LogEGLApi::eglGetMscRateANGLEFn(EGLDisplay dpy,
+                                           EGLSurface surface,
+                                           EGLint* numerator,
+                                           EGLint* denominator) {
+  GL_SERVICE_LOG("eglGetMscRateANGLE"
+                 << "(" << dpy << ", " << surface << ", "
+                 << static_cast<const void*>(numerator) << ", "
+                 << static_cast<const void*>(denominator) << ")");
+  EGLBoolean result =
+      egl_api_->eglGetMscRateANGLEFn(dpy, surface, numerator, denominator);
+  GL_SERVICE_LOG("GL_RESULT: " << result);
+  return result;
+}
+
 EGLClientBuffer LogEGLApi::eglGetNativeClientBufferANDROIDFn(
     const struct AHardwareBuffer* ahardwarebuffer) {
   GL_SERVICE_LOG("eglGetNativeClientBufferANDROID"
@@ -1822,6 +1951,12 @@ EGLBoolean LogEGLApi::eglGetSyncValuesCHROMIUMFn(EGLDisplay dpy,
       egl_api_->eglGetSyncValuesCHROMIUMFn(dpy, surface, ust, msc, sbc);
   GL_SERVICE_LOG("GL_RESULT: " << result);
   return result;
+}
+
+void LogEGLApi::eglHandleGPUSwitchANGLEFn(EGLDisplay dpy) {
+  GL_SERVICE_LOG("eglHandleGPUSwitchANGLE"
+                 << "(" << dpy << ")");
+  egl_api_->eglHandleGPUSwitchANGLEFn(dpy);
 }
 
 EGLBoolean LogEGLApi::eglImageFlushExternalEXTFn(EGLDisplay dpy,
@@ -1917,6 +2052,28 @@ EGLBoolean LogEGLApi::eglQueryDebugKHRFn(EGLint attribute, EGLAttrib* value) {
   return result;
 }
 
+EGLBoolean LogEGLApi::eglQueryDevicesEXTFn(EGLint max_devices,
+                                           EGLDeviceEXT* devices,
+                                           EGLint* num_devices) {
+  GL_SERVICE_LOG("eglQueryDevicesEXT"
+                 << "(" << max_devices << ", "
+                 << static_cast<const void*>(devices) << ", "
+                 << static_cast<const void*>(num_devices) << ")");
+  EGLBoolean result =
+      egl_api_->eglQueryDevicesEXTFn(max_devices, devices, num_devices);
+  GL_SERVICE_LOG("GL_RESULT: " << result);
+  return result;
+}
+
+const char* LogEGLApi::eglQueryDeviceStringEXTFn(EGLDeviceEXT device,
+                                                 EGLint name) {
+  GL_SERVICE_LOG("eglQueryDeviceStringEXT"
+                 << "(" << device << ", " << name << ")");
+  const char* result = egl_api_->eglQueryDeviceStringEXTFn(device, name);
+  GL_SERVICE_LOG("GL_RESULT: " << result);
+  return result;
+}
+
 EGLBoolean LogEGLApi::eglQueryDisplayAttribANGLEFn(EGLDisplay dpy,
                                                    EGLint attribute,
                                                    EGLAttrib* value) {
@@ -1997,6 +2154,19 @@ EGLBoolean LogEGLApi::eglQuerySurfacePointerANGLEFn(EGLDisplay dpy,
       egl_api_->eglQuerySurfacePointerANGLEFn(dpy, surface, attribute, value);
   GL_SERVICE_LOG("GL_RESULT: " << result);
   return result;
+}
+
+void LogEGLApi::eglReacquireHighPowerGPUANGLEFn(EGLDisplay dpy,
+                                                EGLContext ctx) {
+  GL_SERVICE_LOG("eglReacquireHighPowerGPUANGLE"
+                 << "(" << dpy << ", " << ctx << ")");
+  egl_api_->eglReacquireHighPowerGPUANGLEFn(dpy, ctx);
+}
+
+void LogEGLApi::eglReleaseHighPowerGPUANGLEFn(EGLDisplay dpy, EGLContext ctx) {
+  GL_SERVICE_LOG("eglReleaseHighPowerGPUANGLE"
+                 << "(" << dpy << ", " << ctx << ")");
+  egl_api_->eglReleaseHighPowerGPUANGLEFn(dpy, ctx);
 }
 
 EGLBoolean LogEGLApi::eglReleaseTexImageFn(EGLDisplay dpy,

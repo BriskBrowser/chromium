@@ -9,6 +9,7 @@
 
 #include "base/callback_forward.h"
 #include "base/component_export.h"
+#include "base/containers/span.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/optional.h"
@@ -25,6 +26,7 @@
 namespace device {
 
 struct CtapGetAssertionRequest;
+struct CtapGetAssertionOptions;
 struct CtapMakeCredentialRequest;
 
 namespace pin {
@@ -79,24 +81,41 @@ class COMPONENT_EXPORT(DEVICE_FIDO) FidoAuthenticator {
   virtual void MakeCredential(CtapMakeCredentialRequest request,
                               MakeCredentialCallback callback) = 0;
   virtual void GetAssertion(CtapGetAssertionRequest request,
+                            CtapGetAssertionOptions options,
                             GetAssertionCallback callback) = 0;
   // GetNextAssertion fetches the next assertion from a device that indicated in
   // the response to |GetAssertion| that multiple results were available.
   virtual void GetNextAssertion(GetAssertionCallback callback);
   // GetTouch causes an (external) authenticator to flash and wait for a touch.
   virtual void GetTouch(base::OnceCallback<void()> callback);
-  // GetRetries gets the number of PIN attempts remaining before an
+  // GetPinRetries gets the number of PIN attempts remaining before an
   // authenticator locks. It is only valid to call this method if |Options|
   // indicates that the authenticator supports PINs.
-  virtual void GetRetries(GetRetriesCallback callback);
+  virtual void GetPinRetries(GetRetriesCallback callback);
+  // GetUvRetries gets the number of internal user verification attempts before
+  // internal user verification locks. It is only valid to call this method if
+  // |Options| indicates that the authenticator supports user verification.
+  virtual void GetUvRetries(GetRetriesCallback callback);
   // GetPINToken uses the given PIN to request a PinUvAuthToken from an
   // authenticator. It is only valid to call this method if |Options| indicates
   // that the authenticator supports PINs.
-  virtual void GetPINToken(std::string pin, GetTokenCallback callback);
+  // |permissions| are flags indicating which commands the token may be used
+  // for.
+  // |rp_id| binds the token to operations related to a given RP ID. |rp_id|
+  // must be set if |permissions| includes MakeCredential or GetAssertion.
+  virtual void GetPINToken(std::string pin,
+                           const std::vector<pin::Permissions>& permissions,
+                           base::Optional<std::string> rp_id,
+                           GetTokenCallback callback);
+  // Returns |true| if the authenticator supports GetUvToken.
+  virtual bool CanGetUvToken();
   // GetUvToken uses internal user verification to request a PinUvAuthToken from
-  // an authenticator. It is only valid to call this method if |Options|
-  // indicates that the authenticator supports UV tokens.
-  virtual void GetUvToken(GetTokenCallback callback);
+  // an authenticator. It is only valid to call this method if CanGetUvToken()
+  // returns true.
+  // |rp_id| must be set if the PinUvAuthToken will be used for MakeCredential
+  // or GetAssertion.
+  virtual void GetUvToken(base::Optional<std::string> rp_id,
+                          GetTokenCallback callback);
   // SetPIN sets a new PIN on a device that does not currently have one. The
   // length of |pin| must respect |pin::kMinLength| and |pin::kMaxLength|. It is
   // only valid to call this method if |Options| indicates that the
@@ -119,6 +138,9 @@ class COMPONENT_EXPORT(DEVICE_FIDO) FidoAuthenticator {
     // kUsePIN means that a PIN must be gathered and used to make this
     // credential.
     kUsePIN,
+    // kUsePINForFallback means that a PIN may be used for fallback if internal
+    // user verification fails.
+    kUsePINForFallback,
     // kSetPIN means that the operation should set and then use a PIN to
     // make this credential.
     kSetPIN,
@@ -140,6 +162,9 @@ class COMPONENT_EXPORT(DEVICE_FIDO) FidoAuthenticator {
     kNoPIN,
     // kUsePIN means that a PIN must be gathered and used for this assertion.
     kUsePIN,
+    // kUsePINForFallback means that a PIN may be used for fallback if internal
+    // user verification fails.
+    kUsePINForFallback,
     // kUnsatisfiable means that the request cannot be satisfied by this
     // authenticator.
     kUnsatisfiable,
@@ -177,6 +202,11 @@ class COMPONENT_EXPORT(DEVICE_FIDO) FidoAuthenticator {
                                std::vector<uint8_t> template_id,
                                BioEnrollmentCallback);
 
+  // GetAlgorithms returns the list of supported COSEAlgorithmIdentifiers, or
+  // |nullopt| if this is unknown and thus all requests should be tried in case
+  // they work.
+  virtual base::Optional<base::span<const int32_t>> GetAlgorithms();
+
   // Reset triggers a reset operation on the authenticator. This erases all
   // stored resident keys and any configured PIN.
   virtual void Reset(ResetCallback callback);
@@ -184,6 +214,9 @@ class COMPONENT_EXPORT(DEVICE_FIDO) FidoAuthenticator {
   virtual std::string GetId() const = 0;
   virtual base::string16 GetDisplayName() const = 0;
   virtual ProtocolVersion SupportedProtocol() const;
+  virtual bool SupportsCredProtectExtension() const;
+  virtual bool SupportsHMACSecretExtension() const;
+  virtual bool SupportsEnterpriseAttestation() const;
   virtual const base::Optional<AuthenticatorSupportedOptions>& Options()
       const = 0;
   virtual base::Optional<FidoTransportProtocol> AuthenticatorTransport()
@@ -194,9 +227,12 @@ class COMPONENT_EXPORT(DEVICE_FIDO) FidoAuthenticator {
 #if defined(OS_WIN)
   virtual bool IsWinNativeApiAuthenticator() const = 0;
 #endif  // defined(OS_WIN)
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
   virtual bool IsTouchIdAuthenticator() const = 0;
-#endif  // defined(OS_MACOSX)
+#endif  // defined(OS_MAC)
+#if defined(OS_CHROMEOS)
+  virtual bool IsChromeOSAuthenticator() const = 0;
+#endif
   virtual base::WeakPtr<FidoAuthenticator> GetWeakPtr() = 0;
 
  private:

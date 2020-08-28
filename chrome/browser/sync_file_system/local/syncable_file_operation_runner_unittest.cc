@@ -11,6 +11,7 @@
 #include <string>
 
 #include "base/bind.h"
+#include "base/callback_helpers.h"
 #include "base/files/file.h"
 #include "base/files/file_util.h"
 #include "base/location.h"
@@ -110,8 +111,8 @@ class SyncableFileOperationRunnerTest : public testing::Test {
 
   StatusCallback ExpectStatus(const base::Location& location,
                               File::Error expect) {
-    return base::Bind(&SyncableFileOperationRunnerTest::DidFinish,
-                      weak_factory_.GetWeakPtr(), location, expect);
+    return base::BindOnce(&SyncableFileOperationRunnerTest::DidFinish,
+                          weak_factory_.GetWeakPtr(), location, expect);
   }
 
   FileSystemOperation::WriteCallback GetWriteCallback(
@@ -201,7 +202,9 @@ TEST_F(SyncableFileOperationRunnerTest, SimpleQueue) {
   EXPECT_EQ(1, callback_count_);
 }
 
-TEST_F(SyncableFileOperationRunnerTest, WriteToParentAndChild) {
+// Disabled because the implementation doesn't actually give the ordering
+// guarantees this test expects. https://crbug.com/1092668
+TEST_F(SyncableFileOperationRunnerTest, DISABLED_WriteToParentAndChild) {
   // First create the kDir directory and kChild in the dir.
   EXPECT_EQ(File::FILE_OK, file_system_.CreateDirectory(URL(kDir)));
   EXPECT_EQ(File::FILE_OK, file_system_.CreateFile(URL(kChild)));

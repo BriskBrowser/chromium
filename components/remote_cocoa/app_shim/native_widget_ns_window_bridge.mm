@@ -14,7 +14,6 @@
 #include "base/logging.h"
 #import "base/mac/foundation_util.h"
 #include "base/mac/mac_util.h"
-#import "base/mac/sdk_forward_declarations.h"
 #include "base/no_destructor.h"
 #include "base/single_thread_task_runner.h"
 #include "base/strings/sys_string_conversions.h"
@@ -170,16 +169,6 @@ namespace {
 
 using RankMap = std::map<NSView*, int>;
 
-// SDK 10.11 contains incompatible changes of sortSubviewsUsingFunction.
-// It takes (__kindof NSView*) as comparator argument.
-// https://llvm.org/bugs/show_bug.cgi?id=25149
-#if !defined(MAC_OS_X_VERSION_10_11) || \
-    MAC_OS_X_VERSION_MAX_ALLOWED < MAC_OS_X_VERSION_10_11
-using NSViewComparatorValue = id;
-#else
-using NSViewComparatorValue = __kindof NSView*;
-#endif
-
 // Return the content size for a minimum or maximum widget size.
 gfx::Size GetClientSizeForWindowSize(NSWindow* window,
                                      const gfx::Size& window_size) {
@@ -191,8 +180,8 @@ gfx::Size GetClientSizeForWindowSize(NSWindow* window,
   return gfx::Size([window contentRectForFrameRect:frame_rect].size);
 }
 
-NSComparisonResult SubviewSorter(NSViewComparatorValue lhs,
-                                 NSViewComparatorValue rhs,
+NSComparisonResult SubviewSorter(__kindof NSView* lhs,
+                                 __kindof NSView* rhs,
                                  void* rank_as_void) {
   DCHECK_NE(lhs, rhs);
 

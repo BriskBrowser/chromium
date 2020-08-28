@@ -28,7 +28,7 @@ directory_test(async (t, root) => {
   const handle = await createEmptyFile(t, file_name, dir);
 
   await root.removeEntry('parent_dir', {recursive: true});
-  await promise_rejects(t, 'NotFoundError', handle.createWritable());
+  await promise_rejects_dom(t, 'NotFoundError', handle.createWritable());
 }, 'createWritable() fails when parent directory is removed');
 
 directory_test(async (t, root) => {
@@ -38,7 +38,7 @@ directory_test(async (t, root) => {
   const stream = await handle.createWritable();
 
   await root.removeEntry('parent_dir', {recursive: true});
-  await promise_rejects(t, 'NotFoundError', stream.write('foo'));
+  await promise_rejects_dom(t, 'NotFoundError', stream.write('foo'));
 }, 'write() fails when parent directory is removed');
 
 directory_test(async (t, root) => {
@@ -48,7 +48,7 @@ directory_test(async (t, root) => {
   const stream = await handle.createWritable();
 
   await root.removeEntry('parent_dir', {recursive: true});
-  await promise_rejects(t, 'NotFoundError', stream.truncate(0));
+  await promise_rejects_dom(t, 'NotFoundError', stream.truncate(0));
 }, 'truncate() fails when parent directory is removed');
 
 directory_test(async (t, root) => {
@@ -104,14 +104,20 @@ directory_test(async (t, root) => {
 directory_test(async (t, root) => {
   const handle = await createEmptyFile(t, 'contents', root);
   const stream = await handle.createWritable();
+  assert_false(stream.locked);
 
   stream.write('abc');
+  assert_false(stream.locked);
   stream.write('def');
+  assert_false(stream.locked);
   stream.truncate(9);
+  assert_false(stream.locked);
   stream.seek(0);
+  assert_false(stream.locked);
   stream.write('xyz');
+  assert_false(stream.locked);
   await stream.close();
 
   assert_equals(await getFileContents(handle), 'xyzdef\0\0\0');
   assert_equals(await getFileSize(handle), 9);
-}, 'commands are queued');
+}, 'commands are queued, stream is unlocked after each operation');

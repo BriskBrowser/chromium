@@ -91,15 +91,15 @@
 #include "ppapi/thunk/enter.h"
 #include "ppapi/thunk/ppb_buffer_api.h"
 #include "printing/buildflags/buildflags.h"
+#include "printing/mojom/print.mojom.h"
 #include "skia/ext/platform_canvas.h"
+#include "third_party/blink/public/common/input/web_coalesced_input_event.h"
 #include "third_party/blink/public/common/input/web_input_event.h"
 #include "third_party/blink/public/common/input/web_keyboard_event.h"
 #include "third_party/blink/public/common/input/web_mouse_event.h"
 #include "third_party/blink/public/common/input/web_pointer_event.h"
 #include "third_party/blink/public/common/input/web_touch_event.h"
 #include "third_party/blink/public/platform/url_conversion.h"
-#include "third_party/blink/public/platform/web_coalesced_input_event.h"
-#include "third_party/blink/public/platform/web_cursor_info.h"
 #include "third_party/blink/public/platform/web_float_rect.h"
 #include "third_party/blink/public/platform/web_rect.h"
 #include "third_party/blink/public/platform/web_security_origin.h"
@@ -110,19 +110,18 @@
 #include "third_party/blink/public/web/web_document.h"
 #include "third_party/blink/public/web/web_document_loader.h"
 #include "third_party/blink/public/web/web_frame_widget.h"
-#include "third_party/blink/public/web/web_ime_text_span.h"
 #include "third_party/blink/public/web/web_local_frame.h"
 #include "third_party/blink/public/web/web_plugin_container.h"
 #include "third_party/blink/public/web/web_plugin_script_forbidden_scope.h"
 #include "third_party/blink/public/web/web_print_params.h"
 #include "third_party/blink/public/web/web_print_preset_options.h"
-#include "third_party/blink/public/web/web_print_scaling_option.h"
 #include "third_party/blink/public/web/web_script_source.h"
 #include "third_party/blink/public/web/web_view.h"
 #include "third_party/khronos/GLES2/gl2.h"
 #include "ui/events/blink/blink_event_util.h"
 #include "ui/events/blink/web_input_event.h"
 #include "ui/events/keycodes/dom/dom_code.h"
+#include "ui/gfx/geometry/point.h"
 #include "ui/gfx/geometry/rect_conversions.h"
 #include "ui/gfx/image/image_skia.h"
 #include "ui/gfx/image/image_skia_rep.h"
@@ -165,7 +164,6 @@ using ppapi::thunk::PPB_ImageData_API;
 using ppapi::Var;
 using ppapi::ArrayBufferVar;
 using ppapi::ViewData;
-using blink::WebCursorInfo;
 using blink::WebDocument;
 using blink::WebElement;
 using blink::WebFrame;
@@ -174,7 +172,6 @@ using blink::WebLocalFrame;
 using blink::WebPlugin;
 using blink::WebPluginContainer;
 using blink::WebPrintParams;
-using blink::WebPrintScalingOption;
 using blink::WebString;
 using blink::WebURLError;
 using blink::WebAssociatedURLLoaderClient;
@@ -216,9 +213,9 @@ const char kHeight[] = "height";
 const char kBorder[] = "border";  // According to w3c, deprecated.
 const char kStyle[] = "style";
 
-#define STATIC_ASSERT_MATCHING_ENUM(webkit_name, np_name)        \
-  static_assert(static_cast<int>(ui::CursorType::webkit_name) == \
-                    static_cast<int>(np_name),                   \
+#define STATIC_ASSERT_MATCHING_ENUM(webkit_name, np_name)               \
+  static_assert(static_cast<int>(ui::mojom::CursorType::webkit_name) == \
+                    static_cast<int>(np_name),                          \
                 "mismatching enums: " #webkit_name)
 
 STATIC_ASSERT_MATCHING_ENUM(kPointer, PP_MOUSECURSOR_TYPE_POINTER);
@@ -280,18 +277,18 @@ STATIC_ASSERT_MATCHING_ENUM(kMiddlePanningVertical,
                             PP_MOUSECURSOR_TYPE_MIDDLEPANNINGVERTICAL);
 STATIC_ASSERT_MATCHING_ENUM(kMiddlePanningHorizontal,
                             PP_MOUSECURSOR_TYPE_MIDDLEPANNINGHORIZONTAL);
-// Do not assert WebCursorInfo::TypeCustom == PP_CURSORTYPE_CUSTOM;
+// Do not assert kCustom == PP_CURSORTYPE_CUSTOM;
 // PP_CURSORTYPE_CUSTOM is pinned to allow new cursor types.
 
 #undef STATIC_ASSERT_MATCHING_ENUM
 
-STATIC_ASSERT_ENUM(blink::kWebPrintScalingOptionNone,
+STATIC_ASSERT_ENUM(printing::mojom::PrintScalingOption::kNone,
                    PP_PRINTSCALINGOPTION_NONE);
-STATIC_ASSERT_ENUM(blink::kWebPrintScalingOptionFitToPrintableArea,
+STATIC_ASSERT_ENUM(printing::mojom::PrintScalingOption::kFitToPrintableArea,
                    PP_PRINTSCALINGOPTION_FIT_TO_PRINTABLE_AREA);
-STATIC_ASSERT_ENUM(blink::kWebPrintScalingOptionSourceSize,
+STATIC_ASSERT_ENUM(printing::mojom::PrintScalingOption::kSourceSize,
                    PP_PRINTSCALINGOPTION_SOURCE_SIZE);
-STATIC_ASSERT_ENUM(blink::kWebPrintScalingOptionFitToPaper,
+STATIC_ASSERT_ENUM(printing::mojom::PrintScalingOption::kFitToPaper,
                    PP_PRINTSCALINGOPTION_FIT_TO_PAPER);
 
 #undef STATIC_ASSERT_ENUM
@@ -328,8 +325,8 @@ std::unique_ptr<const char* []> StringVectorToArgArray(
 // for things like screen brightness and volume control.
 bool IsReservedSystemInputEvent(const blink::WebInputEvent& event) {
 #if defined(OS_CHROMEOS)
-  if (event.GetType() != WebInputEvent::kKeyDown &&
-      event.GetType() != WebInputEvent::kKeyUp)
+  if (event.GetType() != WebInputEvent::Type::kKeyDown &&
+      event.GetType() != WebInputEvent::Type::kKeyUp)
     return false;
   const blink::WebKeyboardEvent& key_event =
       static_cast<const blink::WebKeyboardEvent&>(event);
@@ -384,8 +381,15 @@ void PrintPDFOutput(PP_Resource print_output,
     return;
   }
 
-  metafile->InitFromData(mapper.data(), mapper.size());
+  metafile->InitFromData(mapper);
 #endif  // BUILDFLAG(ENABLE_PRINTING)
+}
+
+constexpr char kChromePrint[] = "chrome://print/";
+
+bool IsPrintPreviewUrl(const GURL& document_url) {
+  return url::Origin::Create(document_url.GetOrigin()) ==
+         url::Origin::Create(GURL(kChromePrint));
 }
 
 }  // namespace
@@ -553,7 +557,8 @@ PepperPluginInstanceImpl::PepperPluginInstanceImpl(
         !render_frame_->GetLocalRootRenderWidget()->is_hidden();
 
     // Set the initial focus.
-    SetContentAreaFocus(render_frame_->GetLocalRootRenderWidget()->has_focus());
+    SetContentAreaFocus(
+        render_frame_->GetLocalRootRenderWidget()->GetWebWidget()->HasFocus());
 
     if (!module_->IsProxied()) {
       created_in_process_instance_ = true;
@@ -746,25 +751,6 @@ void PepperPluginInstanceImpl::InvalidateRect(const gfx::Rect& rect) {
   }
 }
 
-void PepperPluginInstanceImpl::ScrollRect(int dx,
-                                          int dy,
-                                          const gfx::Rect& rect) {
-  if (texture_layer_) {
-    InvalidateRect(rect);
-  } else if (fullscreen_container_) {
-    fullscreen_container_->ScrollRect(dx, dy, rect);
-  } else {
-    if (full_frame_ && !IsViewAccelerated()) {
-      container_->ScrollRect(rect);
-    } else {
-      // Can't do optimized scrolling since there could be other elements on top
-      // of us or the view renders via the accelerated compositor which is
-      // incompatible with the move and backfill scrolling model.
-      InvalidateRect(rect);
-    }
-  }
-}
-
 void PepperPluginInstanceImpl::CommitTransferableResource(
     const viz::TransferableResource& resource) {
   if (!committed_texture_.mailbox_holder.mailbox.IsZero() &&
@@ -946,7 +932,7 @@ bool PepperPluginInstanceImpl::HandleDocumentLoad(
 bool PepperPluginInstanceImpl::SendCompositionEventToPlugin(
     PP_InputEvent_Type type,
     const base::string16& text) {
-  std::vector<blink::WebImeTextSpan> empty;
+  std::vector<ui::ImeTextSpan> empty;
   return SendCompositionEventWithImeTextSpanInformationToPlugin(
       type, text, empty, static_cast<int>(text.size()),
       static_cast<int>(text.size()));
@@ -956,7 +942,7 @@ bool PepperPluginInstanceImpl::
     SendCompositionEventWithImeTextSpanInformationToPlugin(
         PP_InputEvent_Type type,
         const base::string16& text,
-        const std::vector<blink::WebImeTextSpan>& ime_text_spans,
+        const std::vector<ui::ImeTextSpan>& ime_text_spans,
         int selection_start,
         int selection_end) {
   // Keep a reference on the stack. See NOTE above.
@@ -1005,8 +991,7 @@ bool PepperPluginInstanceImpl::
 
   // Set the composition target.
   for (size_t i = 0; i < ime_text_spans.size(); ++i) {
-    if (ime_text_spans[i].thickness ==
-        ui::mojom::ImeTextSpanThickness::kThick) {
+    if (ime_text_spans[i].thickness == ui::ImeTextSpan::Thickness::kThick) {
       auto it = std::find(event.composition_segment_offsets.begin(),
                           event.composition_segment_offsets.end(),
                           utf8_offsets[2 * i + 2]);
@@ -1047,7 +1032,7 @@ bool PepperPluginInstanceImpl::HandleCompositionStart(
 
 bool PepperPluginInstanceImpl::HandleCompositionUpdate(
     const base::string16& text,
-    const std::vector<blink::WebImeTextSpan>& ime_text_spans,
+    const std::vector<ui::ImeTextSpan>& ime_text_spans,
     int selection_start,
     int selection_end) {
   return SendCompositionEventWithImeTextSpanInformationToPlugin(
@@ -1106,29 +1091,29 @@ gfx::Rect PepperPluginInstanceImpl::GetCaretBounds() const {
 
 bool PepperPluginInstanceImpl::HandleCoalescedInputEvent(
     const blink::WebCoalescedInputEvent& event,
-    WebCursorInfo* cursor_info) {
+    ui::Cursor* cursor) {
   if (blink::WebInputEvent::IsTouchEventType(event.Event().GetType()) &&
       ((filtered_input_event_mask_ & PP_INPUTEVENT_CLASS_COALESCED_TOUCH) ||
        (input_event_mask_ & PP_INPUTEVENT_CLASS_COALESCED_TOUCH))) {
     bool result = false;
     for (size_t i = 0; i < event.CoalescedEventSize(); ++i) {
-      result |= HandleInputEvent(event.CoalescedEvent(i), cursor_info);
+      result |= HandleInputEvent(event.CoalescedEvent(i), cursor);
     }
     return result;
   }
-  return HandleInputEvent(event.Event(), cursor_info);
+  return HandleInputEvent(event.Event(), cursor);
 }
 
 bool PepperPluginInstanceImpl::HandleInputEvent(
     const blink::WebInputEvent& event,
-    WebCursorInfo* cursor_info) {
+    ui::Cursor* cursor) {
   TRACE_EVENT0("ppapi", "PepperPluginInstanceImpl::HandleInputEvent");
 
   if (!render_frame_)
     return false;
 
   if (!has_been_clicked_ && is_flash_plugin_ &&
-      event.GetType() == blink::WebInputEvent::kMouseDown &&
+      event.GetType() == blink::WebInputEvent::Type::kMouseDown &&
       (event.GetModifiers() & blink::WebInputEvent::kLeftButtonDown)) {
     has_been_clicked_ = true;
   }
@@ -1186,7 +1171,7 @@ bool PepperPluginInstanceImpl::HandleInputEvent(
   }
 
   if (cursor_)
-    *cursor_info = *cursor_;
+    *cursor = *cursor_;
   return rv;
 }
 
@@ -1296,7 +1281,9 @@ void PepperPluginInstanceImpl::ViewChanged(
   if (desired_fullscreen_state_ || view_data_.is_fullscreen) {
     bool is_fullscreen_element = container_->IsFullscreenElement();
     if (!view_data_.is_fullscreen && desired_fullscreen_state_ &&
-        render_frame()->GetLocalRootRenderWidget()->is_fullscreen_granted() &&
+        render_frame()
+            ->GetLocalRootRenderWidget()
+            ->IsFullscreenGrantedForFrame() &&
         is_fullscreen_element) {
       // Entered fullscreen. Only possible via SetFullscreen().
       view_data_.is_fullscreen = true;
@@ -1527,7 +1514,7 @@ void PepperPluginInstanceImpl::SelectAll() {
   // in sync.
   ui::KeyEvent keyup_event(ui::ET_KEY_RELEASED, ui::VKEY_A, kPlatformModifier);
 
-  WebCursorInfo dummy_cursor_info;
+  ui::Cursor dummy_cursor_info;
   HandleInputEvent(MakeWebKeyboardEvent(char_event), &dummy_cursor_info);
   HandleInputEvent(MakeWebKeyboardEvent(keyup_event), &dummy_cursor_info);
 }
@@ -2032,16 +2019,17 @@ bool PepperPluginInstanceImpl::GetPrintPresetOptionsFromDocument(
   preset_options->is_scaling_disabled = PP_ToBool(options.is_scaling_disabled);
   switch (options.duplex) {
     case PP_PRIVATEDUPLEXMODE_SIMPLEX:
-      preset_options->duplex_mode = blink::kWebSimplex;
+      preset_options->duplex_mode = printing::mojom::DuplexMode::kSimplex;
       break;
     case PP_PRIVATEDUPLEXMODE_SHORT_EDGE:
-      preset_options->duplex_mode = blink::kWebShortEdge;
+      preset_options->duplex_mode = printing::mojom::DuplexMode::kShortEdge;
       break;
     case PP_PRIVATEDUPLEXMODE_LONG_EDGE:
-      preset_options->duplex_mode = blink::kWebLongEdge;
+      preset_options->duplex_mode = printing::mojom::DuplexMode::kLongEdge;
       break;
     default:
-      preset_options->duplex_mode = blink::kWebUnknownDuplexMode;
+      preset_options->duplex_mode =
+          printing::mojom::DuplexMode::kUnknownDuplexMode;
       break;
   }
   preset_options->copies = options.copies;
@@ -2147,18 +2135,6 @@ void PepperPluginInstanceImpl::UpdateFlashFullscreenState(
     SendFocusChangeNotification();
 }
 
-bool PepperPluginInstanceImpl::IsViewAccelerated() {
-  if (!container_)
-    return false;
-
-  WebDocument document = container_->GetDocument();
-  WebLocalFrame* frame = document.GetFrame();
-  if (!frame)
-    return false;
-
-  return frame->FrameWidget()->IsAcceleratedCompositingActive();
-}
-
 void PepperPluginInstanceImpl::UpdateLayer(bool force_creation) {
   if (!container_)
     return;
@@ -2214,7 +2190,7 @@ void PepperPluginInstanceImpl::UpdateLayer(bool force_creation) {
 
   if (texture_layer_) {
     if (fullscreen_container_)
-      fullscreen_container_->SetLayer(texture_layer_.get());
+      fullscreen_container_->SetLayer(texture_layer_);
     else
       container_->SetCcLayer(texture_layer_.get(), true);
     if (is_flash_plugin_)
@@ -2260,6 +2236,12 @@ void PepperPluginInstanceImpl::OnHiddenForPlaceholder(bool hidden) {
   UpdateLayer(false /* device_changed */);
 }
 
+bool PepperPluginInstanceImpl::SupportsKeyboardFocus() {
+  // Only PDF plugin supports keyboard focus. PDF plugin shouldn't be focusable
+  // if it's embedded in Print Preview.
+  return LoadPdfInterface() && !IsPrintPreviewUrl(document_url_);
+}
+
 void PepperPluginInstanceImpl::AddPluginObject(PluginObject* plugin_object) {
   DCHECK(live_plugin_objects_.find(plugin_object) ==
          live_plugin_objects_.end());
@@ -2288,9 +2270,9 @@ void PepperPluginInstanceImpl::OnMouseLockLost() {
 
 void PepperPluginInstanceImpl::HandleMouseLockedInputEvent(
     const blink::WebMouseEvent& event) {
-  // |cursor_info| is ignored since it is hidden when the mouse is locked.
-  blink::WebCursorInfo cursor_info;
-  HandleInputEvent(event, &cursor_info);
+  // |cursor| is ignored since it is hidden when the mouse is locked.
+  ui::Cursor cursor;
+  HandleInputEvent(event, &cursor);
 }
 
 void PepperPluginInstanceImpl::SimulateInputEvent(
@@ -2310,8 +2292,9 @@ void PepperPluginInstanceImpl::SimulateInputEvent(
       CreateSimulatedWebInputEvents(
           input_event, view_data_.rect.point.x + view_data_.rect.size.width / 2,
           view_data_.rect.point.y + view_data_.rect.size.height / 2);
-  for (auto it = events.begin(); it != events.end(); ++it) {
-    widget->HandleInputEvent(blink::WebCoalescedInputEvent(*it->get()));
+  for (auto& event : events) {
+    widget->HandleInputEvent(
+        blink::WebCoalescedInputEvent(std::move(event), ui::LatencyInfo()));
   }
   if (input_event.event_type == PP_INPUTEVENT_TYPE_TOUCHSTART ||
       input_event.event_type == PP_INPUTEVENT_TYPE_TOUCHMOVE ||
@@ -2336,7 +2319,7 @@ bool PepperPluginInstanceImpl::SimulateIMEEvent(
         return false;
       render_frame_->SimulateImeCommitText(
           base::UTF8ToUTF16(input_event.character_text),
-          std::vector<blink::WebImeTextSpan>(), gfx::Range());
+          std::vector<ui::ImeTextSpan>(), gfx::Range());
       break;
     default:
       return false;
@@ -2359,13 +2342,13 @@ void PepperPluginInstanceImpl::SimulateImeSetCompositionEvent(
   base::string16 utf16_text =
       base::UTF8ToUTF16AndAdjustOffsets(input_event.character_text, &offsets);
 
-  std::vector<blink::WebImeTextSpan> ime_text_spans;
+  std::vector<ui::ImeTextSpan> ime_text_spans;
   for (size_t i = 2; i + 1 < offsets.size(); ++i) {
-    blink::WebImeTextSpan ime_text_span;
+    ui::ImeTextSpan ime_text_span;
     ime_text_span.start_offset = offsets[i];
     ime_text_span.end_offset = offsets[i + 1];
     if (input_event.composition_target_segment == static_cast<int32_t>(i - 2))
-      ime_text_span.thickness = ui::mojom::ImeTextSpanThickness::kThick;
+      ime_text_span.thickness = ui::ImeTextSpan::Thickness::kThick;
     ime_text_spans.push_back(ime_text_span);
   }
 
@@ -2533,7 +2516,7 @@ PP_Var PepperPluginInstanceImpl::ExecuteScript(PP_Instance instance,
 uint32_t PepperPluginInstanceImpl::GetAudioHardwareOutputSampleRate(
     PP_Instance instance) {
   return render_frame() ? AudioDeviceFactory::GetOutputDeviceInfo(
-                              render_frame()->GetRoutingID(),
+                              render_frame()->GetWebFrame()->GetFrameToken(),
                               media::AudioSinkParameters())
                               .output_params()
                               .sample_rate()
@@ -2543,7 +2526,7 @@ uint32_t PepperPluginInstanceImpl::GetAudioHardwareOutputSampleRate(
 uint32_t PepperPluginInstanceImpl::GetAudioHardwareOutputBufferSize(
     PP_Instance instance) {
   return render_frame() ? AudioDeviceFactory::GetOutputDeviceInfo(
-                              render_frame()->GetRoutingID(),
+                              render_frame()->GetWebFrame()->GetFrameToken(),
                               media::AudioSinkParameters())
                               .output_params()
                               .frames_per_buffer()
@@ -2636,9 +2619,10 @@ PP_Bool PepperPluginInstanceImpl::GetScreenSize(PP_Instance instance,
     // All other cases: Report the screen size.
     if (!render_frame_)
       return PP_FALSE;
-    blink::WebScreenInfo info =
-        render_frame_->GetLocalRootRenderWidget()->GetScreenInfo();
-    *size = PP_MakeSize(info.rect.width, info.rect.height);
+    blink::ScreenInfo info = render_frame_->GetLocalRootRenderWidget()
+                                 ->GetWebWidget()
+                                 ->GetScreenInfo();
+    *size = PP_MakeSize(info.rect.width(), info.rect.height());
   }
   return PP_TRUE;
 }
@@ -2717,7 +2701,7 @@ PP_Bool PepperPluginInstanceImpl::SetCursor(PP_Instance instance,
 
   if (type != PP_MOUSECURSOR_TYPE_CUSTOM) {
     DoSetCursor(
-        std::make_unique<WebCursorInfo>(static_cast<ui::CursorType>(type)));
+        std::make_unique<ui::Cursor>(static_cast<ui::mojom::CursorType>(type)));
     return PP_TRUE;
   }
 
@@ -2731,18 +2715,19 @@ PP_Bool PepperPluginInstanceImpl::SetCursor(PP_Instance instance,
   if (!auto_mapper.is_valid())
     return PP_FALSE;
 
-  auto custom_cursor = std::make_unique<WebCursorInfo>(ui::CursorType::kCustom);
-  custom_cursor->hot_spot.x = hot_spot->x;
-  custom_cursor->hot_spot.y = hot_spot->y;
+  auto custom_cursor =
+      std::make_unique<ui::Cursor>(ui::mojom::CursorType::kCustom);
+  custom_cursor->set_custom_hotspot(gfx::Point(hot_spot->x, hot_spot->y));
 
   SkBitmap bitmap(image_data->GetMappedBitmap());
   // Make a deep copy, so that the cursor remains valid even after the original
   // image data gets freed.
-  SkBitmap& dst = custom_cursor->custom_image;
+  SkBitmap dst = custom_cursor->custom_bitmap();
   if (!dst.tryAllocPixels(bitmap.info()) ||
       !bitmap.readPixels(dst.info(), dst.getPixels(), dst.rowBytes(), 0, 0)) {
     return PP_FALSE;
   }
+  custom_cursor->set_custom_bitmap(dst);
 
   DoSetCursor(std::move(custom_cursor));
   return PP_TRUE;
@@ -3059,8 +3044,7 @@ void PepperPluginInstanceImpl::SetAlwaysOnTop(bool on_top) {
   always_on_top_ = on_top;
 }
 
-void PepperPluginInstanceImpl::DoSetCursor(
-    std::unique_ptr<WebCursorInfo> cursor) {
+void PepperPluginInstanceImpl::DoSetCursor(std::unique_ptr<ui::Cursor> cursor) {
   cursor_ = std::move(cursor);
   if (fullscreen_container_)
     fullscreen_container_->PepperDidChangeCursor(*cursor_);
@@ -3220,9 +3204,10 @@ void PepperPluginInstanceImpl::SetSizeAttributesForFullscreen() {
   // behavior, the width and height should probably be set to 100%, rather than
   // a fixed screen size.
 
-  blink::WebScreenInfo info =
-      render_frame_->GetLocalRootRenderWidget()->GetScreenInfo();
-  screen_size_for_fullscreen_ = gfx::Size(info.rect.width, info.rect.height);
+  blink::ScreenInfo info = render_frame_->GetLocalRootRenderWidget()
+                               ->GetWebWidget()
+                               ->GetScreenInfo();
+  screen_size_for_fullscreen_ = info.rect.size();
   std::string width = base::NumberToString(screen_size_for_fullscreen_.width());
   std::string height =
       base::NumberToString(screen_size_for_fullscreen_.height());
@@ -3278,9 +3263,10 @@ bool PepperPluginInstanceImpl::IsMouseLocked() {
 
 bool PepperPluginInstanceImpl::LockMouse(bool request_unadjusted_movement) {
   WebLocalFrame* requester_frame = container_->GetDocument().GetFrame();
-  return GetMouseLockDispatcher()->LockMouse(GetOrCreateLockTargetAdapter(),
-                                             requester_frame,
-                                             request_unadjusted_movement);
+  return GetMouseLockDispatcher()->LockMouse(
+      GetOrCreateLockTargetAdapter(), requester_frame,
+      base::OnceCallback<void(blink::mojom::PointerLockResult)>(),
+      request_unadjusted_movement);
 }
 
 MouseLockDispatcher::LockTarget*
@@ -3403,7 +3389,7 @@ bool PepperPluginInstanceImpl::IsTextureInUse(
 }
 
 void PepperPluginInstanceImpl::HandleAccessibilityChange() {
-  if (render_frame_ && render_frame_->render_accessibility() &&
+  if (render_frame_ && render_frame_->GetRenderAccessibility() &&
       LoadPdfInterface()) {
     plugin_pdf_interface_->EnableAccessibility(pp_instance());
   }

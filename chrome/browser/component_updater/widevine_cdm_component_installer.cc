@@ -19,7 +19,7 @@
 #include "base/memory/ref_counted.h"
 #include "base/native_library.h"
 #include "base/stl_util.h"
-#include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
 #include "base/values.h"
 #include "build/build_config.h"
 #include "chrome/common/media/cdm_manifest.h"
@@ -34,7 +34,7 @@
 #include "third_party/widevine/cdm/buildflags.h"
 #include "third_party/widevine/cdm/widevine_cdm_common.h"
 
-#if defined(OS_LINUX)
+#if defined(OS_LINUX) || defined(OS_CHROMEOS)
 #include "chrome/common/media/component_widevine_cdm_hint_file_linux.h"
 #endif
 
@@ -59,7 +59,7 @@ static_assert(base::size(kWidevineSha2Hash) == crypto::kSHA256Length,
 
 // Name of the Widevine CDM OS in the component manifest.
 const char kWidevineCdmPlatform[] =
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
     "mac";
 #elif defined(OS_WIN)
     "win";
@@ -87,7 +87,7 @@ base::FilePath GetPlatformDirectory(const base::FilePath& base_path) {
   return base_path.AppendASCII("_platform_specific").AppendASCII(platform_arch);
 }
 
-#if !defined(OS_LINUX)
+#if !defined(OS_LINUX) && !defined(OS_CHROMEOS)
 // On Linux the Widevine CDM is loaded at startup before the zygote is locked
 // down. As a result there is no need to register the CDM with Chrome as it
 // can't be used until Chrome is restarted. Instead we simply update the hint
@@ -116,14 +116,14 @@ void RegisterWidevineCdmWithChrome(
                        cdm_path, kWidevineCdmFileSystemId,
                        std::move(capability), kWidevineKeySystem, false));
 }
-#endif  // !defined(OS_LINUX)
+#endif  // !defined(OS_LINUX) && !defined(OS_CHROMEOS)
 
 }  // namespace
 
 class WidevineCdmComponentInstallerPolicy : public ComponentInstallerPolicy {
  public:
   WidevineCdmComponentInstallerPolicy();
-  ~WidevineCdmComponentInstallerPolicy() override {}
+  ~WidevineCdmComponentInstallerPolicy() override = default;
 
  private:
   // The following methods override ComponentInstallerPolicy.
@@ -152,7 +152,8 @@ class WidevineCdmComponentInstallerPolicy : public ComponentInstallerPolicy {
   DISALLOW_COPY_AND_ASSIGN(WidevineCdmComponentInstallerPolicy);
 };
 
-WidevineCdmComponentInstallerPolicy::WidevineCdmComponentInstallerPolicy() {}
+WidevineCdmComponentInstallerPolicy::WidevineCdmComponentInstallerPolicy() =
+    default;
 
 bool WidevineCdmComponentInstallerPolicy::
     SupportsGroupPolicyEnabledComponentUpdates() const {
@@ -184,9 +185,8 @@ void WidevineCdmComponentInstallerPolicy::ComponentReady(
 
   // Widevine CDM affects encrypted media playback, hence USER_VISIBLE.
   // See http://crbug.com/900169 for the context.
-  base::PostTask(
-      FROM_HERE,
-      {base::ThreadPool(), base::MayBlock(), base::TaskPriority::USER_VISIBLE},
+  base::ThreadPool::PostTask(
+      FROM_HERE, {base::MayBlock(), base::TaskPriority::USER_VISIBLE},
       base::BindOnce(&WidevineCdmComponentInstallerPolicy::UpdateCdmPath,
                      base::Unretained(this), version, path,
                      base::Passed(&manifest)));
@@ -244,18 +244,17 @@ void WidevineCdmComponentInstallerPolicy::UpdateCdmPath(
     return;
   }
 
-#if defined(OS_LINUX)
+#if defined(OS_LINUX) || defined(OS_CHROMEOS)
   VLOG(1) << "Updating hint file with Widevine CDM " << cdm_version;
 
   // This is running on a thread that allows IO, so simply update the hint file.
   if (!UpdateWidevineCdmHintFile(cdm_install_dir))
     PLOG(WARNING) << "Failed to update Widevine CDM hint path.";
 #else
-  base::CreateSingleThreadTaskRunner({content::BrowserThread::UI})
-      ->PostTask(
-          FROM_HERE,
-          base::BindOnce(&RegisterWidevineCdmWithChrome, cdm_version,
-                         absolute_cdm_install_dir, base::Passed(&manifest)));
+  content::GetUIThreadTaskRunner({})->PostTask(
+      FROM_HERE,
+      base::BindOnce(&RegisterWidevineCdmWithChrome, cdm_version,
+                     absolute_cdm_install_dir, base::Passed(&manifest)));
 #endif
 }
 

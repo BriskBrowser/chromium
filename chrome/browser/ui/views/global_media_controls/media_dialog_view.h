@@ -21,8 +21,8 @@ class MediaDialogView : public views::BubbleDialogDelegateView,
                         public MediaDialogDelegate,
                         public MediaNotificationContainerObserver {
  public:
-  static void ShowDialog(views::View* anchor_view,
-                         MediaNotificationService* service);
+  static views::Widget* ShowDialog(views::View* anchor_view,
+                                   MediaNotificationService* service);
   static void HideDialog();
   static bool IsShowing();
 
@@ -36,27 +36,29 @@ class MediaDialogView : public views::BubbleDialogDelegateView,
   std::unique_ptr<OverlayMediaNotification> PopOut(const std::string& id,
                                                    gfx::Rect bounds) override;
 
-  // views::DialogDelegate implementation.
-  bool Close() override;
-
   // views::View implementation.
   void AddedToWidget() override;
   gfx::Size CalculatePreferredSize() const override;
 
   // MediaNotificationContainerObserver implementation.
-  void OnContainerExpanded(bool expanded) override;
+  void OnContainerSizeChanged() override;
   void OnContainerMetadataChanged() override;
+  void OnContainerActionsChanged() override;
   void OnContainerClicked(const std::string& id) override {}
   void OnContainerDismissed(const std::string& id) override {}
   void OnContainerDestroyed(const std::string& id) override;
   void OnContainerDraggedOut(const std::string& id, gfx::Rect bounds) override {
   }
+  void OnAudioSinkChosen(const std::string& id,
+                         const std::string& sink_id) override {}
 
   void AddObserver(MediaDialogViewObserver* observer);
   void RemoveObserver(MediaDialogViewObserver* observer);
 
   const std::map<const std::string, MediaNotificationContainerImplView*>&
   GetNotificationsForTesting() const;
+
+  const MediaNotificationListView* GetListViewForTesting() const;
 
  private:
   explicit MediaDialogView(views::View* anchor_view,

@@ -34,13 +34,16 @@
 #include "base/files/file_enumerator.h"
 #include "base/files/file_util.h"
 #include "base/logging.h"
+#include "base/memory/ptr_util.h"
 #include "base/memory/ref_counted_memory.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/no_destructor.h"
+#include "base/numerics/safe_conversions.h"
 #include "base/path_service.h"
 #include "base/sequenced_task_runner.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
 #include "base/task_runner_util.h"
 #include "base/values.h"
 #include "chromeos/constants/chromeos_switches.h"
@@ -188,12 +191,12 @@ bool ResizeAndEncodeImage(const gfx::ImageSkia& image,
     double vertical_ratio = static_cast<double>(preferred_height) / height;
     if (vertical_ratio > horizontal_ratio) {
       resized_width =
-          gfx::ToRoundedInt(static_cast<double>(width) * vertical_ratio);
+          base::ClampRound(static_cast<double>(width) * vertical_ratio);
       resized_height = preferred_height;
     } else {
       resized_width = preferred_width;
       resized_height =
-          gfx::ToRoundedInt(static_cast<double>(height) * horizontal_ratio);
+          base::ClampRound(static_cast<double>(height) * horizontal_ratio);
     }
   } else if (layout == WALLPAPER_LAYOUT_STRETCH) {
     resized_width = preferred_width;
@@ -222,7 +225,7 @@ bool ResizeAndSaveWallpaper(const gfx::ImageSkia& image,
                             int preferred_height) {
   if (layout == WALLPAPER_LAYOUT_CENTER) {
     if (base::PathExists(path))
-      base::DeleteFile(path, false);
+      base::DeleteFile(path);
     return false;
   }
   scoped_refptr<base::RefCountedBytes> data;
@@ -286,19 +289,18 @@ void OnWallpaperDataRead(LoadedCallback callback,
                          bool read_is_successful) {
   if (!read_is_successful) {
     base::ThreadTaskRunnerHandle::Get()->PostTask(
-        FROM_HERE,
-        base::BindOnce(std::move(callback), base::Passed(gfx::ImageSkia())));
+        FROM_HERE, base::BindOnce(std::move(callback), gfx::ImageSkia()));
     return;
   }
   // This image was once encoded to JPEG by |ResizeAndEncodeImage|.
-  DecodeWallpaper(*data, data_decoder::mojom::ImageCodec::ROBUST_JPEG,
+  DecodeWallpaper(*data, data_decoder::mojom::ImageCodec::DEFAULT,
                   std::move(callback));
 }
 
 // Deletes a list of wallpaper files in |file_list|.
 void DeleteWallpaperInList(std::vector<base::FilePath> file_list) {
   for (const base::FilePath& path : file_list) {
-    if (!base::DeleteFileRecursively(path))
+    if (!base::DeletePathRecursively(path))
       LOG(ERROR) << "Failed to remove user wallpaper at " << path.value();
   }
 }
@@ -332,18 +334,18 @@ void SaveCustomWallpaper(const std::string& wallpaper_files_id,
                          const base::FilePath& original_path,
                          WallpaperLayout layout,
                          gfx::ImageSkia image) {
-  base::DeleteFile(WallpaperControllerImpl::GetCustomWallpaperDir(
-                       WallpaperControllerImpl::kOriginalWallpaperSubDir)
-                       .Append(wallpaper_files_id),
-                   true /* recursive */);
-  base::DeleteFile(WallpaperControllerImpl::GetCustomWallpaperDir(
-                       WallpaperControllerImpl::kSmallWallpaperSubDir)
-                       .Append(wallpaper_files_id),
-                   true /* recursive */);
-  base::DeleteFile(WallpaperControllerImpl::GetCustomWallpaperDir(
-                       WallpaperControllerImpl::kLargeWallpaperSubDir)
-                       .Append(wallpaper_files_id),
-                   true /* recursive */);
+  base::DeletePathRecursively(
+      WallpaperControllerImpl::GetCustomWallpaperDir(
+          WallpaperControllerImpl::kOriginalWallpaperSubDir)
+          .Append(wallpaper_files_id));
+  base::DeletePathRecursively(
+      WallpaperControllerImpl::GetCustomWallpaperDir(
+          WallpaperControllerImpl::kSmallWallpaperSubDir)
+          .Append(wallpaper_files_id));
+  base::DeletePathRecursively(
+      WallpaperControllerImpl::GetCustomWallpaperDir(
+          WallpaperControllerImpl::kLargeWallpaperSubDir)
+          .Append(wallpaper_files_id));
   EnsureCustomWallpaperDirectories(wallpaper_files_id);
   const std::string file_name = original_path.BaseName().value();
   const base::FilePath small_wallpaper_path =
@@ -479,9 +481,8 @@ const char WallpaperControllerImpl::kOriginalWallpaperSubDir[] = "original";
 WallpaperControllerImpl::WallpaperControllerImpl(PrefService* local_state)
     : color_profiles_(GetProminentColorProfiles()),
       wallpaper_reload_delay_(kWallpaperReloadDelay),
-      sequenced_task_runner_(base::CreateSequencedTaskRunner(
-          {base::ThreadPool(), base::MayBlock(),
-           base::TaskPriority::USER_VISIBLE,
+      sequenced_task_runner_(base::ThreadPool::CreateSequencedTaskRunner(
+          {base::MayBlock(), base::TaskPriority::USER_VISIBLE,
            base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN})),
       local_state_(local_state) {
   DCHECK(!g_instance_);
@@ -623,6 +624,15 @@ bool WallpaperControllerImpl::HasShownAnyWallpaper() const {
   return !!current_wallpaper_;
 }
 
+void WallpaperControllerImpl::MaybeClosePreviewWallpaper() {
+  if (!confirm_preview_wallpaper_callback_) {
+    DCHECK(!reload_preview_wallpaper_callback_);
+    return;
+  }
+  wallpaper_controller_client_->MaybeClosePreviewWallpaper();
+  CancelPreviewWallpaper();
+}
+
 void WallpaperControllerImpl::ShowWallpaperImage(const gfx::ImageSkia& image,
                                                  WallpaperInfo info,
                                                  bool preview_mode,
@@ -645,6 +655,9 @@ void WallpaperControllerImpl::ShowWallpaperImage(const gfx::ImageSkia& image,
   // (WALLPAPER_LAYOUT_TILE also serves this purpose.)
   if (image.width() == 1 && image.height() == 1)
     info.layout = WALLPAPER_LAYOUT_STRETCH;
+
+  if (info.type == WallpaperType::ONE_SHOT)
+    info.one_shot_wallpaper = image.DeepCopy();
 
   VLOG(1) << "SetWallpaper: image_id=" << WallpaperResizer::GetImageId(image)
           << " layout=" << info.layout;
@@ -762,8 +775,7 @@ bool WallpaperControllerImpl::SetUserWallpaperInfo(const AccountId& account_id,
     // Remove the color cache of the previous wallpaper if it exists.
     DictionaryPrefUpdate wallpaper_colors_update(local_state_,
                                                  prefs::kWallpaperColors);
-    wallpaper_colors_update->RemoveWithoutPathExpansion(old_info.location,
-                                                        nullptr);
+    wallpaper_colors_update->RemoveKey(old_info.location);
   }
 
   DictionaryPrefUpdate wallpaper_update(local_state_,
@@ -1019,9 +1031,7 @@ void WallpaperControllerImpl::SetPolicyWallpaper(
     std::move(callback).Run(CreateSolidColorWallpaper(kDefaultWallpaperColor));
     return;
   }
-  // The default codec cannot be used here because the image data is provided by
-  // user and thus not trusted. In addition, only JPEG |data| is accepted.
-  DecodeWallpaper(data, data_decoder::mojom::ImageCodec::ROBUST_JPEG,
+  DecodeWallpaper(data, data_decoder::mojom::ImageCodec::DEFAULT,
                   std::move(callback));
 }
 
@@ -1210,6 +1220,7 @@ void WallpaperControllerImpl::ShowAlwaysOnTopWallpaper(
   const WallpaperInfo info = {
       std::string(), WallpaperLayout::WALLPAPER_LAYOUT_CENTER_CROPPED,
       WallpaperType::ONE_SHOT, base::Time::Now().LocalMidnight()};
+  ReparentWallpaper(GetWallpaperContainerId(locked_));
   ReadAndDecodeWallpaper(
       base::BindOnce(&WallpaperControllerImpl::OnAlwaysOnTopWallpaperDecoded,
                      weak_factory_.GetWeakPtr(), info),
@@ -1223,6 +1234,9 @@ void WallpaperControllerImpl::RemoveAlwaysOnTopWallpaper() {
   }
   is_always_on_top_wallpaper_ = false;
   reload_always_on_top_wallpaper_callback_.Reset();
+  ReparentWallpaper(GetWallpaperContainerId(locked_));
+  // Forget current wallpaper data.
+  current_wallpaper_.reset();
   ReloadWallpaper(/*clear_cache=*/false);
 }
 
@@ -1347,8 +1361,8 @@ void WallpaperControllerImpl::OnDisplayConfigurationChanged() {
     GetInternalDisplayCompositorLock();
     timer_.Start(
         FROM_HERE, wallpaper_reload_delay_,
-        base::BindRepeating(&WallpaperControllerImpl::ReloadWallpaper,
-                            weak_factory_.GetWeakPtr(), /*clear_cache=*/false));
+        base::BindOnce(&WallpaperControllerImpl::ReloadWallpaper,
+                       weak_factory_.GetWeakPtr(), /*clear_cache=*/false));
   }
 }
 
@@ -1370,10 +1384,12 @@ void WallpaperControllerImpl::OnRootWindowAdded(aura::Window* root_window) {
 
 void WallpaperControllerImpl::OnShellInitialized() {
   Shell::Get()->tablet_mode_controller()->AddObserver(this);
+  Shell::Get()->overview_controller()->AddObserver(this);
 }
 
 void WallpaperControllerImpl::OnShellDestroying() {
   Shell::Get()->tablet_mode_controller()->RemoveObserver(this);
+  Shell::Get()->overview_controller()->RemoveObserver(this);
 }
 
 void WallpaperControllerImpl::OnWallpaperResized() {
@@ -1427,6 +1443,13 @@ void WallpaperControllerImpl::OnTabletModeEnded() {
   RepaintWallpaper();
 }
 
+void WallpaperControllerImpl::OnOverviewModeWillStart() {
+  // Due to visual glitches when overview mode is activated whilst wallpaper
+  // preview is active (http://crbug.com/895265), cancel wallpaper preview and
+  // close its front-end before toggling overview mode.
+  MaybeClosePreviewWallpaper();
+}
+
 void WallpaperControllerImpl::CompositorLockTimedOut() {
   compositor_lock_.reset();
 }
@@ -1440,6 +1463,10 @@ void WallpaperControllerImpl::CreateEmptyWallpaperForTesting() {
   current_wallpaper_.reset();
   wallpaper_mode_ = WALLPAPER_IMAGE;
   UpdateWallpaperForAllRootWindows(/*lock_state_changed=*/false);
+}
+
+void WallpaperControllerImpl::ReloadWallpaperForTesting(bool clear_cache) {
+  ReloadWallpaper(clear_cache);
 }
 
 void WallpaperControllerImpl::UpdateWallpaperForRootWindow(
@@ -1512,12 +1539,11 @@ void WallpaperControllerImpl::RemoveUserWallpaperInfo(
   GetUserWallpaperInfo(account_id, &info);
   DictionaryPrefUpdate prefs_wallpapers_info_update(local_state_,
                                                     prefs::kUserWallpaperInfo);
-  prefs_wallpapers_info_update->RemoveWithoutPathExpansion(
-      account_id.GetUserEmail(), nullptr);
+  prefs_wallpapers_info_update->RemoveKey(account_id.GetUserEmail());
   // Remove the color cache of the previous wallpaper if it exists.
   DictionaryPrefUpdate wallpaper_colors_update(local_state_,
                                                prefs::kWallpaperColors);
-  wallpaper_colors_update->RemoveWithoutPathExpansion(info.location, nullptr);
+  wallpaper_colors_update->RemoveKey(info.location);
 }
 
 void WallpaperControllerImpl::RemoveUserWallpaperImpl(
@@ -1540,9 +1566,9 @@ void WallpaperControllerImpl::RemoveUserWallpaperImpl(
   wallpaper_path = GetCustomWallpaperDir(kOriginalWallpaperSubDir);
   files_to_remove.push_back(wallpaper_path.Append(wallpaper_files_id));
 
-  base::PostTask(
+  base::ThreadPool::PostTask(
       FROM_HERE,
-      {base::ThreadPool(), base::MayBlock(), base::TaskPriority::BEST_EFFORT,
+      {base::MayBlock(), base::TaskPriority::BEST_EFFORT,
        base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN},
       base::BindOnce(&DeleteWallpaperInList, std::move(files_to_remove)));
 }
@@ -1644,7 +1670,7 @@ void WallpaperControllerImpl::ReadAndDecodeWallpaper(
       task_runner.get(), FROM_HERE,
       base::BindOnce(&base::ReadFileToString, file_path, data),
       base::BindOnce(&OnWallpaperDataRead, std::move(callback),
-                     base::Passed(base::WrapUnique(data))));
+                     base::WrapUnique(data)));
 }
 
 bool WallpaperControllerImpl::InitializeUserWallpaperInfo(
@@ -1849,9 +1875,8 @@ void WallpaperControllerImpl::SaveAndSetWallpaper(
     // Block shutdown on this task. Otherwise, we may lose the custom wallpaper
     // that the user selected.
     scoped_refptr<base::SequencedTaskRunner> blocking_task_runner =
-        base::CreateSequencedTaskRunner(
-            {base::ThreadPool(), base::MayBlock(),
-             base::TaskPriority::USER_BLOCKING,
+        base::ThreadPool::CreateSequencedTaskRunner(
+            {base::MayBlock(), base::TaskPriority::USER_BLOCKING,
              base::TaskShutdownBehavior::BLOCK_SHUTDOWN});
     blocking_task_runner->PostTask(
         FROM_HERE, base::BindOnce(&SaveCustomWallpaper, wallpaper_files_id,
@@ -1888,6 +1913,11 @@ void WallpaperControllerImpl::OnWallpaperDecoded(const AccountId& account_id,
 }
 
 void WallpaperControllerImpl::ReloadWallpaper(bool clear_cache) {
+  const bool was_one_shot_wallpaper = IsOneShotWallpaper();
+  const gfx::ImageSkia one_shot_wallpaper =
+      was_one_shot_wallpaper
+          ? current_wallpaper_->wallpaper_info().one_shot_wallpaper
+          : gfx::ImageSkia();
   current_wallpaper_.reset();
   if (clear_cache)
     wallpaper_cache_map_.clear();
@@ -1898,6 +1928,8 @@ void WallpaperControllerImpl::ReloadWallpaper(bool clear_cache) {
     reload_preview_wallpaper_callback_.Run();
   else if (current_user_.is_valid())
     ShowUserWallpaper(current_user_);
+  else if (was_one_shot_wallpaper)
+    ShowOneShotWallpaper(one_shot_wallpaper);
   else
     ShowSigninWallpaper();
 }
@@ -2035,9 +2067,8 @@ bool WallpaperControllerImpl::ShouldSetDevicePolicyWallpaper() const {
 void WallpaperControllerImpl::SetDevicePolicyWallpaper() {
   DCHECK(ShouldSetDevicePolicyWallpaper());
   ReadAndDecodeWallpaper(
-      base::BindRepeating(
-          &WallpaperControllerImpl::OnDevicePolicyWallpaperDecoded,
-          weak_factory_.GetWeakPtr()),
+      base::BindOnce(&WallpaperControllerImpl::OnDevicePolicyWallpaperDecoded,
+                     weak_factory_.GetWeakPtr()),
       sequenced_task_runner_.get(), device_policy_wallpaper_path_);
 }
 

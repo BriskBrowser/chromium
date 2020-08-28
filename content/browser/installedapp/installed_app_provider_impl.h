@@ -8,6 +8,7 @@
 #include <string>
 #include <vector>
 
+#include "content/public/browser/web_contents_observer.h"
 #include "third_party/blink/public/mojom/installedapp/installed_app_provider.mojom.h"
 #include "third_party/blink/public/mojom/installedapp/related_application.mojom.h"
 
@@ -15,7 +16,8 @@ namespace content {
 
 class RenderFrameHost;
 
-class InstalledAppProviderImpl : public blink::mojom::InstalledAppProvider {
+class InstalledAppProviderImpl : public blink::mojom::InstalledAppProvider,
+                                 public content::WebContentsObserver {
  public:
   explicit InstalledAppProviderImpl(RenderFrameHost* render_frame_host);
   static void Create(
@@ -27,10 +29,14 @@ class InstalledAppProviderImpl : public blink::mojom::InstalledAppProvider {
   // InstalledAppProvider overrides:
   void FilterInstalledApps(
       std::vector<blink::mojom::RelatedApplicationPtr> related_apps,
+      const GURL& manifest_url,
       FilterInstalledAppsCallback callback) override;
 
+  // WebContentsObserver
+  void RenderFrameDeleted(RenderFrameHost* render_frame_host) override;
+
  private:
-  RenderFrameHost* const render_frame_host_;
+  RenderFrameHost* render_frame_host_;
 };
 
 }  // namespace content

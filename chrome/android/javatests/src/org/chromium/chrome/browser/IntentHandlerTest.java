@@ -4,6 +4,10 @@
 
 package org.chromium.chrome.browser;
 
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
+
 import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
@@ -12,10 +16,11 @@ import android.os.SystemClock;
 import android.provider.Browser;
 import android.speech.RecognizerResultsIntent;
 import android.support.test.InstrumentationRegistry;
-import android.support.test.annotation.UiThreadTest;
-import android.support.test.filters.MediumTest;
-import android.support.test.filters.SmallTest;
-import android.support.test.rule.UiThreadTestRule;
+
+import androidx.browser.customtabs.CustomTabsService;
+import androidx.browser.customtabs.CustomTabsSessionToken;
+import androidx.test.filters.MediumTest;
+import androidx.test.filters.SmallTest;
 
 import org.junit.Assert;
 import org.junit.Before;
@@ -25,15 +30,19 @@ import org.junit.rules.RuleChain;
 import org.junit.runner.RunWith;
 
 import org.chromium.base.CollectionUtil;
-import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.base.test.BaseJUnit4ClassRunner;
+import org.chromium.base.test.UiThreadTest;
 import org.chromium.base.test.util.Feature;
+import org.chromium.chrome.browser.browserservices.OriginVerifier;
+import org.chromium.chrome.browser.customtabs.CustomTabsConnection;
+import org.chromium.chrome.browser.customtabs.CustomTabsTestUtils;
 import org.chromium.chrome.browser.test.CommandLineInitRule;
-import org.chromium.chrome.browser.util.UrlConstants;
-import org.chromium.chrome.browser.webapps.WebappInfo;
 import org.chromium.chrome.browser.webapps.WebappLauncherActivity;
 import org.chromium.chrome.test.ChromeBrowserTestRule;
 import org.chromium.chrome.test.util.browser.webapps.WebappTestHelper;
+import org.chromium.components.embedder_support.util.Origin;
+import org.chromium.components.embedder_support.util.UrlConstants;
+import org.chromium.content_public.browser.test.util.TestThreadUtils;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -45,9 +54,8 @@ import java.util.List;
 @RunWith(BaseJUnit4ClassRunner.class)
 public class IntentHandlerTest {
     @Rule
-    public final RuleChain mChain = RuleChain.outerRule(new CommandLineInitRule(null))
-                                            .around(new ChromeBrowserTestRule())
-                                            .around(new UiThreadTestRule());
+    public final RuleChain mChain =
+            RuleChain.outerRule(new CommandLineInitRule(null)).around(new ChromeBrowserTestRule());
 
     private static final String VOICE_SEARCH_QUERY = "VOICE_QUERY";
     private static final String VOICE_SEARCH_QUERY_URL = "http://www.google.com/?q=VOICE_QUERY";
@@ -216,9 +224,10 @@ public class IntentHandlerTest {
     public void testUrlFromIntent_WebappUrl() {
         Intent webappLauncherActivityIntent =
                 WebappTestHelper.createMinimalWebappIntent("id", GOOGLE_URL);
-        WebappInfo webappInfo = WebappInfo.create(webappLauncherActivityIntent);
+        WebappLauncherActivity.LaunchData launchData = new WebappLauncherActivity.LaunchData("id",
+                GOOGLE_URL, null /* webApkPackageName */, false /* isSplashProvidedByWebApk */);
         mIntent = WebappLauncherActivity.createIntentToLaunchForWebapp(
-                webappLauncherActivityIntent, webappInfo, 0);
+                webappLauncherActivityIntent, launchData, 0);
         Assert.assertEquals(GOOGLE_URL, IntentHandler.getUrlFromIntent(mIntent));
     }
 
@@ -266,7 +275,7 @@ public class IntentHandlerTest {
     @SmallTest
     @UiThreadTest
     @Feature({"Android-AppBase"})
-    public void testRefererUrl_extraReferrer() {
+    public void testReferrerUrl_extraReferrer() {
         // Check that EXTRA_REFERRER is not accepted with a random URL.
         Intent foreignIntent = new Intent(Intent.ACTION_VIEW);
         foreignIntent.putExtra(Intent.EXTRA_REFERRER, GOOGLE_URL);
@@ -299,14 +308,14 @@ public class IntentHandlerTest {
     @SmallTest
     @UiThreadTest
     @Feature({"Android-AppBase"})
-    public void testRefererUrl_extraHeadersInclReferer() {
+    public void testReferrerUrl_extraHeadersInclReferer() {
         // Check that invalid header specified in EXTRA_HEADERS isn't used.
         Bundle bundle = new Bundle();
-        bundle.putString("X-custom-header", "X-custom-value");
+        bundle.putString("Accept", "application/xhtml+xml");
         bundle.putString("Referer", GOOGLE_URL);
         Intent headersIntent = new Intent(Intent.ACTION_VIEW);
         headersIntent.putExtra(Browser.EXTRA_HEADERS, bundle);
-        Assert.assertEquals("X-custom-header: X-custom-value",
+        Assert.assertEquals("Accept: application/xhtml+xml",
                 IntentHandler.getExtraHeadersFromIntent(headersIntent));
         Assert.assertNull(IntentHandler.getReferrerUrlIncludingExtraHeaders(headersIntent));
     }
@@ -315,15 +324,15 @@ public class IntentHandlerTest {
     @SmallTest
     @UiThreadTest
     @Feature({"Android-AppBase"})
-    public void testRefererUrl_extraHeadersInclRefererMultiple() {
+    public void testReferrerUrl_extraHeadersInclRefererMultiple() {
         // Check that invalid header specified in EXTRA_HEADERS isn't used.
         Bundle bundle = new Bundle();
-        bundle.putString("X-custom-header", "X-custom-value");
-        bundle.putString("X-custom-header-2", "X-custom-value-2");
+        bundle.putString("Accept", "application/xhtml+xml");
+        bundle.putString("Content-Language", "de-DE, en-CA");
         bundle.putString("Referer", GOOGLE_URL);
         Intent headersIntent = new Intent(Intent.ACTION_VIEW);
         headersIntent.putExtra(Browser.EXTRA_HEADERS, bundle);
-        Assert.assertEquals("X-custom-header-2: X-custom-value-2\nX-custom-header: X-custom-value",
+        Assert.assertEquals("Content-Language: de-DE, en-CA\nAccept: application/xhtml+xml",
                 IntentHandler.getExtraHeadersFromIntent(headersIntent));
         Assert.assertNull(IntentHandler.getReferrerUrlIncludingExtraHeaders(headersIntent));
     }
@@ -332,7 +341,7 @@ public class IntentHandlerTest {
     @SmallTest
     @UiThreadTest
     @Feature({"Android-AppBase"})
-    public void testRefererUrl_extraHeadersOnlyReferer() {
+    public void testReferrerUrl_extraHeadersOnlyReferer() {
         // Check that invalid header specified in EXTRA_HEADERS isn't used.
         Bundle bundle = new Bundle();
         bundle.putString("Referer", GOOGLE_URL);
@@ -345,7 +354,7 @@ public class IntentHandlerTest {
     @SmallTest
     @UiThreadTest
     @Feature({"Android-AppBase"})
-    public void testRefererUrl_extraHeadersAndExtraReferrer() {
+    public void testReferrerUrl_extraHeadersAndExtraReferrer() {
         String validReferer = "android-app://package/http/url";
         Bundle bundle = new Bundle();
         bundle.putString("Referer", GOOGLE_URL);
@@ -361,7 +370,7 @@ public class IntentHandlerTest {
     @SmallTest
     @UiThreadTest
     @Feature({"Android-AppBase"})
-    public void testRefererUrl_extraHeadersValidReferrer() {
+    public void testReferrerUrl_extraHeadersValidReferrer() {
         String validReferer = "android-app://package/http/url";
         Bundle bundle = new Bundle();
         bundle.putString("Referer", validReferer);
@@ -370,6 +379,79 @@ public class IntentHandlerTest {
         Assert.assertEquals(
                 validReferer, IntentHandler.getReferrerUrlIncludingExtraHeaders(headersIntent));
         Assert.assertNull(IntentHandler.getExtraHeadersFromIntent(headersIntent));
+    }
+
+    @Test
+    @SmallTest
+    public void testExtraHeadersVerifiedOrigin() throws Exception {
+        // Check that non-whitelisted headers from extras are passed
+        // when origin is verified.
+        Context context = InstrumentationRegistry.getTargetContext();
+        Intent headersIntent = CustomTabsTestUtils.createMinimalCustomTabIntent(
+                context, "https://www.google.com/");
+
+        Bundle headers = new Bundle();
+        headers.putString("bearer-token", "Some token");
+        headers.putString("redirect-url", "https://www.google.com");
+        headersIntent.putExtra(Browser.EXTRA_HEADERS, headers);
+
+        CustomTabsSessionToken token =
+                CustomTabsSessionToken.getSessionTokenFromIntent(headersIntent);
+        CustomTabsConnection connection = CustomTabsConnection.getInstance();
+        connection.newSession(token);
+        connection.overridePackageNameForSessionForTesting(token, "app1");
+        TestThreadUtils.runOnUiThreadBlocking(
+                ()
+                        -> OriginVerifier.addVerificationOverride("app1",
+                                Origin.create(headersIntent.getData()),
+                                CustomTabsService.RELATION_USE_AS_ORIGIN));
+
+        String extraHeaders = IntentHandler.getExtraHeadersFromIntent(headersIntent);
+        assertTrue(extraHeaders.contains("bearer-token: Some token"));
+        assertTrue(extraHeaders.contains("redirect-url: https://www.google.com"));
+    }
+
+    @Test
+    @SmallTest
+    public void testExtraHeadersNonVerifiedOrigin() throws Exception {
+        // Check that non-whitelisted headers from extras are passed
+        // when origin is verified.
+        Context context = InstrumentationRegistry.getTargetContext();
+        Intent headersIntent = CustomTabsTestUtils.createMinimalCustomTabIntent(
+                context, "https://www.google.com/");
+
+        Bundle headers = new Bundle();
+        headers.putString("bearer-token", "Some token");
+        headers.putString("redirect-url", "https://www.google.com");
+        headersIntent.putExtra(Browser.EXTRA_HEADERS, headers);
+
+        CustomTabsSessionToken token =
+                CustomTabsSessionToken.getSessionTokenFromIntent(headersIntent);
+        CustomTabsConnection connection = CustomTabsConnection.getInstance();
+        connection.newSession(token);
+        connection.overridePackageNameForSessionForTesting(token, "app1");
+        TestThreadUtils.runOnUiThreadBlocking(
+                ()
+                        -> OriginVerifier.addVerificationOverride("app2",
+                                Origin.create(headersIntent.getData()),
+                                CustomTabsService.RELATION_USE_AS_ORIGIN));
+
+        String extraHeaders = IntentHandler.getExtraHeadersFromIntent(headersIntent);
+        assertNull(extraHeaders);
+    }
+
+    @Test
+    @SmallTest
+    @UiThreadTest
+    @Feature({"Android-AppBase"})
+    public void testReferrerUrl_customTabIntentWithSession() {
+        Context context = InstrumentationRegistry.getTargetContext();
+        Intent intent = CustomTabsTestUtils.createMinimalCustomTabIntent(
+                context, "https://www.google.com/");
+        Assert.assertTrue(CustomTabsConnection.getInstance().newSession(
+                CustomTabsSessionToken.getSessionTokenFromIntent(intent)));
+        Assert.assertEquals("android-app://org.chromium.chrome.tests",
+                IntentHandler.getReferrerUrlIncludingExtraHeaders(intent));
     }
 
     @Test
@@ -415,19 +497,26 @@ public class IntentHandlerTest {
     @SmallTest
     @UiThreadTest
     @Feature({"Android-AppBase"})
-    public void testLogHeaders() {
+    public void testKeepCustomHeaderFromInternalIntents() {
         Bundle bundle = new Bundle();
-        bundle.putString("Content-Length", "1234");
+        bundle.putString("X-Some-Header", "1");
         Intent headersIntent = new Intent(Intent.ACTION_VIEW);
         headersIntent.putExtra(Browser.EXTRA_HEADERS, bundle);
+        IntentHandler.addTrustedIntentExtrasInternal(headersIntent);
+        Assert.assertEquals(
+                "X-Some-Header: 1", IntentHandler.getExtraHeadersFromIntent(headersIntent));
+    }
 
-        IntentHandler.getExtraHeadersFromIntent(headersIntent);
-        Assert.assertEquals(0,
-                RecordHistogram.getHistogramTotalCountForTesting("Android.IntentHeaders"));
-
-        IntentHandler.getExtraHeadersFromIntent(headersIntent, true);
-        Assert.assertEquals(1,
-                RecordHistogram.getHistogramTotalCountForTesting("Android.IntentHeaders"));
+    @Test
+    @SmallTest
+    @UiThreadTest
+    @Feature({"Android-AppBase"})
+    public void testStripNonCorsSafelistedCustomHeader() {
+        Bundle bundle = new Bundle();
+        bundle.putString("X-Some-Header", "1");
+        Intent headersIntent = new Intent(Intent.ACTION_VIEW);
+        headersIntent.putExtra(Browser.EXTRA_HEADERS, bundle);
+        Assert.assertNull(IntentHandler.getExtraHeadersFromIntent(headersIntent));
     }
 
     @Test
@@ -496,7 +585,23 @@ public class IntentHandlerTest {
                 intent.getBooleanExtra(IntentHandler.EXTRA_OPEN_NEW_INCOGNITO_TAB, false));
 
         intent = IntentHandler.createTrustedOpenNewTabIntent(context, false);
-        Assert.assertFalse(
-                intent.getBooleanExtra(IntentHandler.EXTRA_OPEN_NEW_INCOGNITO_TAB, true));
+        assertFalse(intent.getBooleanExtra(IntentHandler.EXTRA_OPEN_NEW_INCOGNITO_TAB, true));
+    }
+
+    /**
+     * Test that IntentHandler#shouldIgnoreIntent() returns false for Webapp launch intents.
+     */
+    @Test
+    @SmallTest
+    @Feature({"Android-AppBase"})
+    public void testShouldIgnoreIntentWebapp() {
+        Intent webappLauncherActivityIntent =
+                WebappTestHelper.createMinimalWebappIntent("id", GOOGLE_URL);
+        WebappLauncherActivity.LaunchData launchData = new WebappLauncherActivity.LaunchData("id",
+                GOOGLE_URL, null /* webApkPackageName */, false /* isSplashProvidedByWebApk */);
+        Intent intent = WebappLauncherActivity.createIntentToLaunchForWebapp(
+                webappLauncherActivityIntent, launchData, 0);
+
+        assertFalse(mIntentHandler.shouldIgnoreIntent(intent));
     }
 }

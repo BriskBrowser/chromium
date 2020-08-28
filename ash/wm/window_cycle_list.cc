@@ -5,15 +5,18 @@
 #include "ash/wm/window_cycle_list.h"
 
 #include <map>
-#include <memory>
+#include <string>
+#include <utility>
+
 #include "ash/accessibility/accessibility_controller_impl.h"
 #include "ash/app_list/app_list_controller_impl.h"
+#include "ash/frame_throttler/frame_throttling_controller.h"
 #include "ash/public/cpp/ash_features.h"
+#include "ash/public/cpp/metrics_util.h"
 #include "ash/public/cpp/shell_window_ids.h"
 #include "ash/public/cpp/window_properties.h"
 #include "ash/shell.h"
 #include "ash/style/ash_color_provider.h"
-#include "ash/wm/mru_window_tracker.h"
 #include "ash/wm/window_mini_view.h"
 #include "ash/wm/window_preview_view.h"
 #include "ash/wm/window_state.h"
@@ -22,27 +25,21 @@
 #include "base/numerics/ranges.h"
 #include "ui/accessibility/ax_enums.mojom.h"
 #include "ui/accessibility/ax_node_data.h"
-#include "ui/aura/client/aura_constants.h"
 #include "ui/aura/scoped_window_targeter.h"
 #include "ui/aura/window.h"
 #include "ui/aura/window_targeter.h"
+#include "ui/compositor/animation_throughput_reporter.h"
 #include "ui/compositor/layer_animation_sequence.h"
 #include "ui/compositor/scoped_layer_animation_settings.h"
 #include "ui/display/display.h"
-#include "ui/gfx/canvas.h"
 #include "ui/gfx/geometry/insets.h"
-#include "ui/gfx/image/image_skia_operations.h"
-#include "ui/views/background.h"
-#include "ui/views/border.h"
-#include "ui/views/controls/image_view.h"
-#include "ui/views/controls/label.h"
+#include "ui/views/animation/bounds_animator.h"
 #include "ui/views/layout/box_layout.h"
-#include "ui/views/painter.h"
 #include "ui/views/view.h"
 #include "ui/views/widget/widget.h"
 #include "ui/views/widget/widget_delegate.h"
-#include "ui/wm/core/visibility_controller.h"
 #include "ui/wm/core/window_animations.h"
+#include "ui/wm/core/coordinate_conversion.h"
 
 namespace ash {
 
@@ -50,22 +47,15 @@ namespace {
 
 bool g_disable_initial_delay = false;
 
-// The color of the window thumbnail backdrop and window cycle highlight - white
-// at 14% opacity.
-constexpr SkColor kHighlightAndBackdropColor = SkColorSetA(SK_ColorWHITE, 0x24);
-
 // Shield rounded corner radius
 constexpr gfx::RoundedCornersF kBackgroundCornerRadius{4.f};
 
 // Shield background blur sigma.
 constexpr float kBackgroundBlurSigma =
-    (float)AshColorProvider::LayerBlurSigma::kBlurDefault;
+    static_cast<float>(AshColorProvider::LayerBlurSigma::kBlurDefault);
 
 // Quality of the shield background blur.
 constexpr float kBackgroundBlurQuality = 0.33f;
-
-// Corner radius applied to the alt-tab selector border.
-constexpr gfx::RoundedCornersF kWindowSelectionCornerRadii{9};
 
 // All previews are the same height (this is achieved via a combination of
 // scaling and padding).
@@ -82,15 +72,37 @@ constexpr int kInsideBorderVerticalPaddingDp = 60;
 // Padding between the window previews within the alt-tab bandshield.
 constexpr int kBetweenChildPaddingDp = 10;
 
+// The UMA histogram that logs smoothness of the fade-in animation.
+constexpr char kShowAnimationSmoothness[] =
+    "Ash.WindowCycleView.AnimationSmoothness.Show";
+// The UMA histogram that logs smoothness of the window container animation.
+constexpr char kContainerAnimationSmoothness[] =
+    "Ash.WindowCycleView.AnimationSmoothness.Container";
+
+// Delay before the UI fade in animation starts. This is so users can switch
+// quickly between windows without bringing up the UI.
+constexpr base::TimeDelta kShowDelayDuration =
+    base::TimeDelta::FromMilliseconds(150);
+
+// Duration of the window cycle UI fade in animation.
+constexpr base::TimeDelta kFadeInDuration =
+    base::TimeDelta::FromMilliseconds(100);
+
+// Duration of the window cycle elements slide animation.
+constexpr base::TimeDelta kContainerSlideDuration =
+    base::TimeDelta::FromMilliseconds(120);
+
 // The alt-tab cycler widget is not activatable (except when ChromeVox is on),
 // so we use WindowTargeter to send input events to the widget.
 class CustomWindowTargeter : public aura::WindowTargeter {
  public:
   explicit CustomWindowTargeter(aura::Window* tab_cycler)
       : tab_cycler_(tab_cycler) {}
+  CustomWindowTargeter(const CustomWindowTargeter&) = delete;
+  CustomWindowTargeter& operator=(const CustomWindowTargeter&) = delete;
   ~CustomWindowTargeter() override = default;
 
-  // aura::WindowTargeter
+  // aura::WindowTargeter:
   ui::EventTarget* FindTargetForEvent(ui::EventTarget* root,
                                       ui::Event* event) override {
     if (event->IsLocatedEvent())
@@ -100,71 +112,6 @@ class CustomWindowTargeter : public aura::WindowTargeter {
 
  private:
   aura::Window* tab_cycler_;
-
-  DISALLOW_COPY_AND_ASSIGN(CustomWindowTargeter);
-};
-
-// The UMA histogram that logs smoothness of the fade-in animation.
-constexpr char kWindowCycleShowAnimationSmoothness[] =
-    "Ash.WindowCycleView.AnimationSmoothness.Show";
-// The UMA histogram that logs smoothness of the window container animation.
-constexpr char kContainerAnimationSmoothness[] =
-    "Ash.WindowCycleView.AnimationSmoothness.Container";
-// The UMA histogram that logs smoothness of the highlight animation.
-constexpr char kHighlightAnimationSmoothness[] =
-    "Ash.WindowCycleView.AnimationSmoothness.Highlight";
-
-class WindowCycleAnimationMetricsReporter
-    : public ui::AnimationMetricsReporter {
- public:
-  explicit WindowCycleAnimationMetricsReporter(const char* name)
-      : name_(name) {}
-  ~WindowCycleAnimationMetricsReporter() override = default;
-  WindowCycleAnimationMetricsReporter(
-      const WindowCycleAnimationMetricsReporter&) = delete;
-  WindowCycleAnimationMetricsReporter& operator=(
-      const WindowCycleAnimationMetricsReporter&) = delete;
-
-  // ui::AnimationMetricsReporter:
-  void Report(int value) override {
-    base::UmaHistogramPercentage(name_, value);
-  }
-
- private:
-  const std::string name_;
-};
-
-class WindowCycleAnimationObserver : public ui::LayerAnimationObserver {
- public:
-  enum class Type { CONTAINER, HIGHLIGHT };
-
-  WindowCycleAnimationObserver(Type type) {
-    switch (type) {
-      case Type::CONTAINER:
-        animation_metrics_reporter_ =
-            std::make_unique<WindowCycleAnimationMetricsReporter>(
-                kContainerAnimationSmoothness);
-        break;
-      case Type::HIGHLIGHT:
-        animation_metrics_reporter_ =
-            std::make_unique<WindowCycleAnimationMetricsReporter>(
-                kHighlightAnimationSmoothness);
-        break;
-      default:
-        NOTREACHED();
-    }
-  }
-
-  void OnLayerAnimationStarted(ui::LayerAnimationSequence* sequence) override {}
-  void OnLayerAnimationEnded(ui::LayerAnimationSequence* sequence) override {}
-  void OnLayerAnimationAborted(ui::LayerAnimationSequence* sequence) override {}
-  void OnLayerAnimationScheduled(
-      ui::LayerAnimationSequence* sequence) override {
-    sequence->SetAnimationMetricsReporter(animation_metrics_reporter_.get());
-  }
-
-  std::unique_ptr<WindowCycleAnimationMetricsReporter>
-      animation_metrics_reporter_;
 };
 
 }  // namespace
@@ -173,18 +120,70 @@ class WindowCycleAnimationObserver : public ui::LayerAnimationObserver {
 // thumbnail of the window's contents.
 class WindowCycleItemView : public WindowMiniView {
  public:
-  explicit WindowCycleItemView(aura::Window* window)
-      : WindowMiniView(window, /*views_should_paint_to_layers=*/true) {
-    SetShowPreview(/*show=*/true);
+  explicit WindowCycleItemView(aura::Window* window) : WindowMiniView(window) {
     SetFocusBehavior(FocusBehavior::ALWAYS);
+    set_notify_enter_exit_on_child(true);
   }
+  WindowCycleItemView(const WindowCycleItemView&) = delete;
+  WindowCycleItemView& operator=(const WindowCycleItemView&) = delete;
   ~WindowCycleItemView() override = default;
+
+  // Shows the preview and icon. For performance reasons, these are not created
+  // on construction. This should be called at most one time during the lifetime
+  // of |this|.
+  void ShowPreview() {
+    DCHECK(!preview_view());
+
+    UpdateIconView();
+    SetShowPreview(/*show=*/true);
+    UpdatePreviewRoundedCorners(/*show=*/true);
+  }
+
+  // views::View:
+  void OnMouseEntered(const ui::MouseEvent& event) override {
+    Shell::Get()->window_cycle_controller()->StepToWindow(source_window());
+  }
+
+  bool OnMousePressed(const ui::MouseEvent& event) override {
+    Shell::Get()->window_cycle_controller()->CompleteCycling();
+    return true;
+  }
+
+  void OnGestureEvent(ui::GestureEvent* event) override {
+    switch (event->type()) {
+      case ui::ET_GESTURE_TAP:
+      case ui::ET_GESTURE_LONG_PRESS:
+      case ui::ET_GESTURE_LONG_TAP:
+      case ui::ET_GESTURE_TWO_FINGER_TAP: {
+        WindowCycleController* controller =
+            Shell::Get()->window_cycle_controller();
+        controller->StepToWindow(source_window());
+        controller->CompleteCycling();
+        break;
+      }
+      default:
+        break;
+    }
+  }
 
  private:
   // WindowMiniView:
-  // Returns the size for the preview view, scaled to fit within the max bounds.
-  // Scaling is always 1:1 and we only scale down, never up.
   gfx::Size GetPreviewViewSize() const override {
+    // When the preview is not shown, do an estimate of the expected size.
+    // |this| will not be visible anyways, and will get corrected once
+    // ShowPreview() is called.
+    if (!preview_view()) {
+      gfx::SizeF source_size(source_window()->bounds().size());
+      // Windows may have no size in tests.
+      if (source_size.IsEmpty())
+        return gfx::Size();
+      const float aspect_ratio = source_size.width() / source_size.height();
+      return gfx::Size(kFixedPreviewHeightDp * aspect_ratio,
+                       kFixedPreviewHeightDp);
+    }
+
+    // Returns the size for the preview view, scaled to fit within the max
+    // bounds. Scaling is always 1:1 and we only scale down, never up.
     gfx::Size preview_pref_size = preview_view()->GetPreferredSize();
     if (preview_pref_size.width() > kMaxPreviewWidthDp ||
         preview_pref_size.height() > kFixedPreviewHeightDp) {
@@ -202,9 +201,12 @@ class WindowCycleItemView : public WindowMiniView {
   void Layout() override {
     WindowMiniView::Layout();
 
+    if (!preview_view())
+      return;
+
     // Show the backdrop if the preview view does not take up all the bounds
     // allocated for it.
-    gfx::Rect preview_max_bounds = GetLocalBounds();
+    gfx::Rect preview_max_bounds = GetContentsBounds();
     preview_max_bounds.Subtract(GetHeaderBounds());
     const gfx::Rect preview_area_bounds = preview_view()->bounds();
     SetBackdropVisibility(preview_max_bounds.size() !=
@@ -212,17 +214,9 @@ class WindowCycleItemView : public WindowMiniView {
   }
 
   gfx::Size CalculatePreferredSize() const override {
-    gfx::Size size = GetSizeForPreviewArea();
-    size.Enlarge(0, WindowMiniView::kHeaderHeightDp);
-    return size;
-  }
-
-  // Returns the size for the entire preview area (preview view and additional
-  // padding). All previews will be the same height, so if the preview view
-  // isn't tall enough we will add top and bottom padding. Previews can range
-  // in width from half to double of |kFixedPreviewHeightDp|. Again, padding
-  // will be added to the sides to achieve this if the preview is too narrow.
-  gfx::Size GetSizeForPreviewArea() const {
+    // Previews can range in width from half to double of
+    // |kFixedPreviewHeightDp|. Padding will be added to the sides to achieve
+    // this if the preview is too narrow.
     gfx::Size preview_size = GetPreviewViewSize();
 
     // All previews are the same height (this may add padding on top and
@@ -234,82 +228,105 @@ class WindowCycleItemView : public WindowMiniView {
     preview_size.set_width(base::ClampToRange(
         preview_size.width(), kMinPreviewWidthDp, kMaxPreviewWidthDp));
 
+    const int margin = GetInsets().width();
+    preview_size.Enlarge(margin, margin + WindowMiniView::kHeaderHeightDp);
     return preview_size;
   }
-
-  DISALLOW_COPY_AND_ASSIGN(WindowCycleItemView);
 };
 
 // A view that shows a collection of windows the user can tab through.
-class WindowCycleView : public views::WidgetDelegateView {
+class WindowCycleView : public views::WidgetDelegateView,
+                        public ui::ImplicitAnimationObserver {
  public:
-  explicit WindowCycleView(const WindowCycleList::WindowList& windows)
-      : mirror_container_(new views::View()),
-        highlight_view_(new views::View()),
-        target_window_(nullptr),
-        animation_metrics_reporter_(
-            std::make_unique<WindowCycleAnimationMetricsReporter>(
-                kWindowCycleShowAnimationSmoothness)),
-        container_animation_observer_(
-            WindowCycleAnimationObserver::Type::CONTAINER),
-        highlight_animation_observer_(
-            WindowCycleAnimationObserver::Type::HIGHLIGHT) {
+  explicit WindowCycleView(const WindowCycleList::WindowList& windows) {
     DCHECK(!windows.empty());
-    SetPaintToLayer();
-    layer()->SetFillsBoundsOpaquely(false);
-    layer()->SetMasksToBounds(true);
-    layer()->SetOpacity(0.0);
-    {
-      ui::ScopedLayerAnimationSettings animate_fade(layer()->GetAnimator());
-      animate_fade.SetAnimationMetricsReporter(
-          animation_metrics_reporter_.get());
-      animate_fade.SetTransitionDuration(
-          base::TimeDelta::FromMilliseconds(100));
-      layer()->SetOpacity(1.0);
-    }
 
-    auto layout = std::make_unique<views::BoxLayout>(
-        views::BoxLayout::Orientation::kHorizontal,
-        gfx::Insets(kInsideBorderVerticalPaddingDp,
-                    kInsideBorderHorizontalPaddingDp),
-        kBetweenChildPaddingDp);
+    // Start the occlusion tracker pauser. It's used to increase smoothness for
+    // the fade in but we also create windows here which may occlude other
+    // windows.
+    occlusion_tracker_pauser_ =
+        std::make_unique<aura::WindowOcclusionTracker::ScopedPause>();
+
+    // The layer for |this| is responsible for showing color, background blur
+    // and fading in.
+    SetPaintToLayer(ui::LAYER_SOLID_COLOR);
+    ui::Layer* layer = this->layer();
+    SkColor background_color = AshColorProvider::Get()->GetBaseLayerColor(
+        AshColorProvider::BaseLayerType::kTransparent80,
+        AshColorProvider::AshColorMode::kDark);
+    layer->SetColor(background_color);
+    layer->SetBackgroundBlur(kBackgroundBlurSigma);
+    layer->SetBackdropFilterQuality(kBackgroundBlurQuality);
+    layer->SetName("WindowCycleView");
+
+    // |mirror_container_| may be larger than |this|. In this case, it will be
+    // shifted along the x-axis when the user tabs through. It is a container
+    // for the previews and has no rendered content.
+    mirror_container_ = AddChildView(std::make_unique<views::View>());
+    mirror_container_->SetPaintToLayer(ui::LAYER_NOT_DRAWN);
+    mirror_container_->layer()->SetName("WindowCycleView/MirrorContainer");
+    views::BoxLayout* layout =
+        mirror_container_->SetLayoutManager(std::make_unique<views::BoxLayout>(
+            views::BoxLayout::Orientation::kHorizontal,
+            gfx::Insets(kInsideBorderVerticalPaddingDp,
+                        kInsideBorderHorizontalPaddingDp),
+            kBetweenChildPaddingDp));
     layout->set_cross_axis_alignment(
         views::BoxLayout::CrossAxisAlignment::kStart);
-    mirror_container_->SetLayoutManager(std::move(layout));
-    mirror_container_->SetPaintToLayer(ui::LAYER_SOLID_COLOR);
-    mirror_container_->layer()->SetFillsBoundsOpaquely(false);
-    SkColor background_color = AshColorProvider::Get()->GetBaseLayerColor(
-        AshColorProvider::BaseLayerType::kTransparent74,
-        AshColorProvider::AshColorMode::kDark);
-    mirror_container_->layer()->SetColor(background_color);
-    mirror_container_->layer()->SetBackgroundBlur(kBackgroundBlurSigma);
-    mirror_container_->layer()->SetBackdropFilterQuality(
-        kBackgroundBlurQuality);
-    mirror_container_->layer()->AddCacheRenderSurfaceRequest();
-    mirror_container_->layer()->SetName("windowCycleList/MirrorContainer");
 
     for (auto* window : windows) {
       // |mirror_container_| owns |view|. The |preview_view_| in |view| will
       // use trilinear filtering in InitLayerOwner().
-      views::View* view = new WindowCycleItemView(window);
+      auto* view = mirror_container_->AddChildView(
+          std::make_unique<WindowCycleItemView>(window));
       window_view_map_[window] = view;
-      mirror_container_->AddChildView(view);
+
+      no_previews_set_.insert(view);
     }
 
-    highlight_view_->SetPaintToLayer(ui::LAYER_SOLID_COLOR);
-    highlight_view_->layer()->SetRoundedCornerRadius(
-        kWindowSelectionCornerRadii);
-    highlight_view_->layer()->SetColor(kHighlightAndBackdropColor);
-    highlight_view_->layer()->SetFillsBoundsOpaquely(false);
-
-    AddChildView(mirror_container_);
-    AddChildView(highlight_view_);
+    // The insets in the WindowCycleItemView are coming from its border, which
+    // paints the focus ring around the view when it is highlighted. Exclude the
+    // insets such that the spacing between the contents of the views rather
+    // than the views themselves is |kBetweenChildPaddingDp|.
+    const gfx::Insets cycle_item_insets =
+        window_view_map_.begin()->second->GetInsets();
+    layout->set_between_child_spacing(kBetweenChildPaddingDp -
+                                      cycle_item_insets.width());
   }
-
+  WindowCycleView(const WindowCycleView&) = delete;
+  WindowCycleView& operator=(const WindowCycleView&) = delete;
   ~WindowCycleView() override = default;
 
+  void FadeInLayer() {
+    DCHECK(GetWidget());
+
+    layer()->SetOpacity(0.f);
+    ui::ScopedLayerAnimationSettings settings(layer()->GetAnimator());
+    settings.SetTransitionDuration(kFadeInDuration);
+    settings.AddObserver(this);
+    settings.CacheRenderSurface();
+    ui::AnimationThroughputReporter reporter(
+        settings.GetAnimator(),
+        metrics_util::ForSmoothness(base::BindRepeating([](int smoothness) {
+          UMA_HISTOGRAM_PERCENTAGE(kShowAnimationSmoothness, smoothness);
+        })));
+
+    layer()->SetOpacity(1.f);
+  }
+
   void SetTargetWindow(aura::Window* target) {
+    // Hide the focus border of the previous target window and show the focus
+    // border of the new one.
+    if (target_window_) {
+      auto target_it = window_view_map_.find(target_window_);
+      if (target_it != window_view_map_.end())
+        target_it->second->UpdateBorderState(/*show=*/false);
+    }
     target_window_ = target;
+    auto target_it = window_view_map_.find(target_window_);
+    if (target_it != window_view_map_.end())
+      target_it->second->UpdateBorderState(/*show=*/true);
+
     if (GetWidget()) {
       Layout();
       if (target_window_)
@@ -320,11 +337,13 @@ class WindowCycleView : public views::WidgetDelegateView {
   void HandleWindowDestruction(aura::Window* destroying_window,
                                aura::Window* new_target) {
     auto view_iter = window_view_map_.find(destroying_window);
-    views::View* preview = view_iter->second;
+    WindowCycleItemView* preview = view_iter->second;
     views::View* parent = preview->parent();
     DCHECK_EQ(mirror_container_, parent);
     window_view_map_.erase(view_iter);
+    no_previews_set_.erase(preview);
     delete preview;
+
     // With one of its children now gone, we must re-layout
     // |mirror_container_|. This must happen before SetTargetWindow() to make
     // sure our own Layout() works correctly when it's calculating highlight
@@ -335,11 +354,12 @@ class WindowCycleView : public views::WidgetDelegateView {
 
   void DestroyContents() {
     window_view_map_.clear();
+    no_previews_set_.clear();
     target_window_ = nullptr;
     RemoveAllChildViews(true);
   }
 
-  // views::WidgetDelegateView overrides:
+  // views::WidgetDelegateView:
   gfx::Size CalculatePreferredSize() const override {
     return mirror_container_->GetPreferredSize();
   }
@@ -348,16 +368,17 @@ class WindowCycleView : public views::WidgetDelegateView {
     if (!target_window_ || bounds().IsEmpty())
       return;
 
-    bool first_layout = mirror_container_->bounds().IsEmpty();
+    const bool first_layout = mirror_container_->bounds().IsEmpty();
     // If |mirror_container_| has not yet been laid out, we must lay it and
     // its descendants out so that the calculations based on |target_view|
     // work properly.
     if (first_layout) {
       mirror_container_->SizeToPreferredSize();
-      if (mirror_container_->GetPreferredSize().width() < width()) {
-        mirror_container_->layer()->SetRoundedCornerRadius(
-            kBackgroundCornerRadius);
-      }
+      // Give rounded corners to our layer if it takes up less space than the
+      // width of the screen (our width will match |mirror_container_|'s if the
+      // widget's width is less than that of the screen).
+      if (mirror_container_->GetPreferredSize().width() <= width())
+        layer()->SetRoundedCornerRadius(kBackgroundCornerRadius);
     }
 
     views::View* target_view = window_view_map_[target_window_];
@@ -381,29 +402,40 @@ class WindowCycleView : public views::WidgetDelegateView {
       x_offset = std::max(x_offset, width() - container_bounds.width());
     }
     container_bounds.set_x(x_offset);
-    mirror_container_->SetBoundsRect(container_bounds);
-
-    // Calculate the target preview's bounds relative to |this|.
-    views::View::ConvertRectToTarget(mirror_container_, this, &target_bounds);
-    const int kHighlightPaddingDip = 5;
-    target_bounds.Inset(gfx::InsetsF(-kHighlightPaddingDip));
-    target_bounds.set_x(
-        GetMirroredXWithWidthInView(target_bounds.x(), target_bounds.width()));
-    highlight_view_->SetBoundsRect(gfx::ToEnclosingRect(target_bounds));
 
     // Enable animations only after the first Layout() pass.
-    if (first_layout) {
-      // The preview list animates bounds changes (other animatable properties
-      // never change).
-      ui::LayerAnimator* animator = ui::LayerAnimator::CreateImplicitAnimator();
-      animator->AddObserver(&container_animation_observer_);
-      mirror_container_->layer()->SetAnimator(animator);
+    std::unique_ptr<ui::ScopedLayerAnimationSettings> settings;
+    base::Optional<ui::AnimationThroughputReporter> reporter;
+    if (!first_layout) {
+      settings = std::make_unique<ui::ScopedLayerAnimationSettings>(
+          mirror_container_->layer()->GetAnimator());
+      settings->SetTransitionDuration(kContainerSlideDuration);
+      reporter.emplace(
+          settings->GetAnimator(),
+          metrics_util::ForSmoothness(base::BindRepeating([](int smoothness) {
+            // Reports animation metrics when the mirror container, which holds
+            // all the preview views slides along the x-axis. This can happen
+            // while tabbing through windows, if the window cycle ui spans the
+            // length of the display.
+            UMA_HISTOGRAM_PERCENTAGE(kContainerAnimationSmoothness, smoothness);
+          })));
+    }
+    mirror_container_->SetBoundsRect(container_bounds);
 
-      // The selection highlight also animates all bounds changes and never
-      // changes other animatable properties.
-      animator = ui::LayerAnimator::CreateImplicitAnimator();
-      animator->AddObserver(&highlight_animation_observer_);
-      highlight_view_->layer()->SetAnimator(animator);
+    // If an element in |no_previews_set_| is no onscreen (its bounds in |this|
+    // coordinates intersects |this|), create the rest of its elements and
+    // remove it from the set.
+    const gfx::RectF local_bounds(GetLocalBounds());
+    for (auto it = no_previews_set_.begin(); it != no_previews_set_.end();) {
+      WindowCycleItemView* view = *it;
+      gfx::RectF bounds(view->GetLocalBounds());
+      views::View::ConvertRectToTarget(view, this, &bounds);
+      if (bounds.Intersects(local_bounds)) {
+        view->ShowPreview();
+        it = no_previews_set_.erase(it);
+      } else {
+        ++it;
+      }
     }
   }
 
@@ -411,22 +443,29 @@ class WindowCycleView : public views::WidgetDelegateView {
     return window_view_map_[target_window_];
   }
 
-  aura::Window* target_window() { return target_window_; }
+  const views::View::Views& GetPreviewViewsForTesting() const {
+    return mirror_container_->children();
+  }
+
+  // ui::ImplicitAnimationObserver:
+  void OnImplicitAnimationsCompleted() override {
+    occlusion_tracker_pauser_.reset();
+  }
 
  private:
-  std::map<aura::Window*, views::View*> window_view_map_;
-  views::View* mirror_container_;
-  views::View* highlight_view_;
-  aura::Window* target_window_;
+  std::map<aura::Window*, WindowCycleItemView*> window_view_map_;
+  views::View* mirror_container_ = nullptr;
+  aura::Window* target_window_ = nullptr;
 
-  // Metric reporter for animation.
-  const std::unique_ptr<WindowCycleAnimationMetricsReporter>
-      animation_metrics_reporter_;
+  // Set which contains items which have been created but have some of their
+  // performance heavy elements not created yet. These elements will be created
+  // once onscreen to improve fade in performance, then removed from this set.
+  base::flat_set<WindowCycleItemView*> no_previews_set_;
 
-  WindowCycleAnimationObserver container_animation_observer_;
-  WindowCycleAnimationObserver highlight_animation_observer_;
-
-  DISALLOW_COPY_AND_ASSIGN(WindowCycleView);
+  // Used for preventng occlusion state computations for the duration of the
+  // fade in animation.
+  std::unique_ptr<aura::WindowOcclusionTracker::ScopedPause>
+      occlusion_tracker_pauser_;
 };
 
 WindowCycleList::WindowCycleList(const WindowList& windows)
@@ -441,8 +480,8 @@ WindowCycleList::WindowCycleList(const WindowList& windows)
     if (g_disable_initial_delay) {
       InitWindowCycleView();
     } else {
-      show_ui_timer_.Start(FROM_HERE, base::TimeDelta::FromMilliseconds(150),
-                           this, &WindowCycleList::InitWindowCycleView);
+      show_ui_timer_.Start(FROM_HERE, kShowDelayDuration, this,
+                           &WindowCycleList::InitWindowCycleView);
     }
   }
 }
@@ -473,9 +512,10 @@ WindowCycleList::~WindowCycleList() {
     auto* target_window = windows_[current_index_];
     SelectWindow(target_window);
   }
+  Shell::Get()->frame_throttling_controller()->EndThrottling();
 }
 
-void WindowCycleList::Step(WindowCycleController::Direction direction) {
+void WindowCycleList::Step(int offset) {
   if (windows_.empty())
     return;
 
@@ -493,13 +533,11 @@ void WindowCycleList::Step(WindowCycleController::Direction direction) {
     // Special case the situation where we're cycling forward but the MRU
     // window is not active. This occurs when all windows are minimized. The
     // starting window should be the first one rather than the second.
-    if (direction == WindowCycleController::FORWARD &&
-        !wm::IsActiveWindow(windows_[0]))
+    if (offset == 1 && !wm::IsActiveWindow(windows_[0]))
       current_index_ = -1;
   }
 
-  // We're in a valid cycle, so step forward or backward.
-  current_index_ += direction == WindowCycleController::FORWARD ? 1 : -1;
+  current_index_ += offset;
 
   // Wrap to window list size.
   current_index_ = (current_index_ + windows_.size()) % windows_.size();
@@ -512,6 +550,26 @@ void WindowCycleList::Step(WindowCycleController::Direction direction) {
     if (cycle_view_)
       cycle_view_->SetTargetWindow(windows_[current_index_]);
   }
+}
+
+void WindowCycleList::Step(WindowCycleController::Direction direction) {
+  Step(direction == WindowCycleController::FORWARD ? 1 : -1);
+}
+
+void WindowCycleList::StepToWindow(aura::Window* window) {
+  auto target_window = std::find(windows_.begin(), windows_.end(), window);
+  DCHECK(target_window != windows_.end());
+  int target_index = std::distance(windows_.begin(), target_window);
+
+  Step(target_index - current_index_);
+}
+
+bool WindowCycleList::IsEventInCycleView(ui::LocatedEvent* event) {
+  aura::Window* target = static_cast<aura::Window*>(event->target());
+  aura::Window* event_root = target->GetRootWindow();
+  gfx::Point event_screen_point = event->root_location();
+  wm::ConvertPointToScreen(event_root, &event_screen_point);
+  return cycle_view_->GetBoundsInScreen().Contains(event_screen_point);
 }
 
 // static
@@ -559,7 +617,7 @@ void WindowCycleList::OnDisplayMetricsChanged(const display::Display& display,
 }
 
 bool WindowCycleList::ShouldShowUi() {
-  return windows_.size() > 1;
+  return windows_.size() > 1u;
 }
 
 void WindowCycleList::InitWindowCycleView() {
@@ -569,16 +627,18 @@ void WindowCycleList::InitWindowCycleView() {
   cycle_view_ = new WindowCycleView(windows_);
   cycle_view_->SetTargetWindow(windows_[current_index_]);
 
-  // We need to activate the widget if ChromeVox is enabled as ChromeVox relies
-  // on activation.
+  // We need to activate the widget if ChromeVox is enabled as ChromeVox
+  // relies on activation.
   const bool spoken_feedback_enabled =
       Shell::Get()->accessibility_controller()->spoken_feedback_enabled();
 
-  views::Widget* widget = new views::Widget;
+  views::Widget* widget = new views::Widget();
   views::Widget::InitParams params;
   params.delegate = cycle_view_;
   params.type = views::Widget::InitParams::TYPE_WINDOW_FRAMELESS;
   params.opacity = views::Widget::InitParams::WindowOpacity::kTranslucent;
+  params.layer_type = ui::LAYER_NOT_DRAWN;
+
   // Don't let the alt-tab cycler be activatable. This lets the currently
   // activated window continue to be in the foreground. This may affect
   // things such as video automatically pausing/playing.
@@ -590,18 +650,20 @@ void WindowCycleList::InitWindowCycleView() {
   // or a system modal dialog is shown.
   aura::Window* root_window = Shell::GetRootWindowForNewWindows();
   params.parent = root_window->GetChildById(kShellWindowId_OverlayContainer);
-  gfx::Rect widget_rect = display::Screen::GetScreen()
-                              ->GetDisplayNearestWindow(root_window)
-                              .bounds();
-  const int widget_height = cycle_view_->GetPreferredSize().height();
-  widget_rect.set_y(widget_rect.y() +
-                    (widget_rect.height() - widget_height) / 2);
-  widget_rect.set_height(widget_height);
+
+  // The widget is sized clamped to the screen bounds. Its child, the mirror
+  // container which is parent to all the previews may be larger than the widget
+  // as some previews will be offscreen. In Layout() of |cyclev_view_| the
+  // mirror container will be slid back and forth depending on the target
+  // window.
+  gfx::Rect widget_rect = root_window->GetBoundsInScreen();
+  widget_rect.ClampToCenteredSize(cycle_view_->GetPreferredSize());
   params.bounds = widget_rect;
-  widget->Init(std::move(params));
 
   screen_observer_.Add(display::Screen::GetScreen());
+  widget->Init(std::move(params));
   widget->Show();
+  cycle_view_->FadeInLayer();
   cycle_ui_widget_ = widget;
 
   // Since this window is not activated, grab events.
@@ -613,6 +675,8 @@ void WindowCycleList::InitWindowCycleView() {
   // Close the app list, if it's open in clamshell mode.
   if (!Shell::Get()->tablet_mode_controller()->InTabletMode())
     Shell::Get()->app_list_controller()->DismissAppList();
+
+  Shell::Get()->frame_throttling_controller()->StartThrottling(windows_);
 }
 
 void WindowCycleList::SelectWindow(aura::Window* window) {
@@ -630,6 +694,11 @@ void WindowCycleList::SelectWindow(aura::Window* window) {
   }
 
   window_selected_ = true;
+}
+
+const views::View::Views& WindowCycleList::GetWindowCycleItemViewsForTesting()
+    const {
+  return cycle_view_->GetPreviewViewsForTesting();
 }
 
 }  // namespace ash

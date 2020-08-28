@@ -6,6 +6,7 @@
 
 #include <memory>
 
+#import "base/ios/ios_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/sys_string_conversions.h"
 #import "base/test/ios/wait_util.h"
@@ -498,13 +499,7 @@ id<GREYMatcher> ResendPostButtonMatcher() {
 // Tests that pressing the button on a POST-based form with same-page action
 // does not change the page URL and that the back button works as expected
 // afterwards.
-// TODO(crbug.com/714303): Re-enable this test on devices.
-#if TARGET_IPHONE_SIMULATOR
-#define MAYBE_testPostFormToSamePage testPostFormToSamePage
-#else
-#define MAYBE_testPostFormToSamePage FLAKY_testPostFormToSamePage
-#endif
-- (void)MAYBE_testPostFormToSamePage {
+- (void)testPostFormToSamePage {
   web::test::SetUpHttpServer(std::make_unique<TestFormResponseProvider>());
   const GURL formURL = GetFormPostOnSamePageUrl();
 
@@ -534,6 +529,11 @@ id<GREYMatcher> ResendPostButtonMatcher() {
 // keyboard navigates to the correct URL and the back button works as expected
 // afterwards.
 - (void)testPostFormEntryWithKeyboard {
+  // Test fails on iPad Air 2 13.4 crbug.com/1102608.
+  if ([ChromeEarlGrey isIPadIdiom] && base::ios::IsRunningOnOrLater(13, 0, 0)) {
+    EARL_GREY_TEST_DISABLED(@"Fails in iOS 13 on iPads.");
+  }
+
   [self setUpFormTestSimpleHttpServer];
   const GURL destinationURL = GetDestinationUrl();
 

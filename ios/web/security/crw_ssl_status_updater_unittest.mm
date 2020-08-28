@@ -7,7 +7,6 @@
 #import <WebKit/WebKit.h>
 
 #include "base/mac/foundation_util.h"
-#include "base/mac/scoped_block.h"
 #include "base/strings/sys_string_conversions.h"
 #import "ios/web/navigation/navigation_manager_impl.h"
 #import "ios/web/navigation/wk_based_navigation_manager_impl.h"
@@ -124,8 +123,7 @@ class CRWSSLStatusUpdaterTest : public web::WebTest {
     [fake_wk_list_ setCurrentURL:base::SysUTF8ToNSString(item_url_spec)];
     nav_manager_.AddPendingItem(
         GURL(item_url_spec), Referrer(), ui::PAGE_TRANSITION_LINK,
-        web::NavigationInitiationType::BROWSER_INITIATED,
-        NavigationManager::UserAgentOverrideOption::INHERIT);
+        web::NavigationInitiationType::BROWSER_INITIATED);
     nav_manager_.CommitPendingItem();
   }
 

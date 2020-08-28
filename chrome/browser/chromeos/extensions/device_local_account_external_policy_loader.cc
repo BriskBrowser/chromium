@@ -7,7 +7,7 @@
 #include <utility>
 
 #include "base/callback.h"
-#include "base/logging.h"
+#include "base/check_op.h"
 #include "base/values.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chromeos/extensions/external_cache_impl.h"
@@ -89,18 +89,6 @@ void DeviceLocalAccountExternalPolicyLoader::OnExtensionListsUpdated(
   // Only call LoadFinished() when there is an owner to consume |prefs_|.
   if (has_owner())
     LoadFinished(std::move(prefs_));
-}
-
-void DeviceLocalAccountExternalPolicyLoader::OnExtensionLoadedInCache(
-    const std::string& id) {}
-
-void DeviceLocalAccountExternalPolicyLoader::OnExtensionDownloadFailed(
-    const std::string& id) {}
-
-std::string
-DeviceLocalAccountExternalPolicyLoader::GetInstalledExtensionVersion(
-    const std::string& id) {
-  return std::string();
 }
 
 ExternalCache*

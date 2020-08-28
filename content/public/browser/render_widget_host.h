@@ -11,18 +11,20 @@
 #include <vector>
 
 #include "base/callback.h"
+#include "base/i18n/rtl.h"
+#include "base/optional.h"
 #include "build/build_config.h"
 #include "content/common/content_export.h"
 #include "content/public/browser/native_web_keyboard_event.h"
 #include "content/public/common/drop_data.h"
-#include "content/public/common/input_event_ack_source.h"
-#include "content/public/common/input_event_ack_state.h"
 #include "ipc/ipc_channel.h"
 #include "ipc/ipc_sender.h"
 #include "third_party/blink/public/common/input/web_gesture_event.h"
 #include "third_party/blink/public/common/input/web_input_event.h"
-#include "third_party/blink/public/platform/web_drag_operation.h"
-#include "third_party/blink/public/web/web_text_direction.h"
+#include "third_party/blink/public/common/page/web_drag_operation.h"
+#include "third_party/blink/public/common/widget/screen_info.h"
+#include "third_party/blink/public/mojom/input/input_event_result.mojom-shared.h"
+#include "ui/base/ui_base_types.h"
 #include "ui/surface/transport_dib.h"
 
 namespace blink {
@@ -30,11 +32,16 @@ class WebMouseEvent;
 class WebMouseWheelEvent;
 }
 
+namespace cc {
+enum class TouchAction;
+}
+
 namespace gfx {
 class Point;
 }
 
 namespace ui {
+class Cursor;
 class LatencyInfo;
 }
 
@@ -43,13 +50,10 @@ class FrameSinkId;
 }
 
 namespace content {
-
-struct CursorInfo;
 class RenderProcessHost;
 class RenderWidgetHostIterator;
 class RenderWidgetHostObserver;
 class RenderWidgetHostView;
-struct ScreenInfo;
 
 // A RenderWidgetHost manages the browser side of a browser<->renderer
 // HWND connection.  The HWND lives in the browser process, and
@@ -144,7 +148,8 @@ class CONTENT_EXPORT RenderWidgetHost : public IPC::Sender {
   // In this scenario, we receive a menu event only once and we should update
   // the text direction immediately when a user chooses a menu item. So, we
   // should call both functions at once as listed in the following snippet.
-  //   void RenderViewHost::SetTextDirection(WebTextDirection direction) {
+  //   void RenderViewHost::SetTextDirection(
+  //       base::i18n::TextDirection direction) {
   //     UpdateTextDirection(direction);
   //     NotifyTextDirection();
   //   }
@@ -170,7 +175,7 @@ class CONTENT_EXPORT RenderWidgetHost : public IPC::Sender {
   // NotifyTextDirection(). (We may receive keydown events even after we
   // canceled updating the text direction because of auto-repeat.)
   // Note: we cannot undo this change for compatibility with Firefox and IE.
-  virtual void UpdateTextDirection(blink::WebTextDirection direction) = 0;
+  virtual void UpdateTextDirection(base::i18n::TextDirection direction) = 0;
   virtual void NotifyTextDirection() = 0;
 
   virtual void Focus() = 0;
@@ -239,8 +244,8 @@ class CONTENT_EXPORT RenderWidgetHost : public IPC::Sender {
     virtual ~InputEventObserver() {}
 
     virtual void OnInputEvent(const blink::WebInputEvent&) {}
-    virtual void OnInputEventAck(InputEventAckSource source,
-                                 InputEventAckState state,
+    virtual void OnInputEventAck(blink::mojom::InputEventResultSource source,
+                                 blink::mojom::InputEventResultState state,
                                  const blink::WebInputEvent&) {}
 
 #if defined(OS_ANDROID)
@@ -276,7 +281,13 @@ class CONTENT_EXPORT RenderWidgetHost : public IPC::Sender {
   virtual void RemoveObserver(RenderWidgetHostObserver* observer) = 0;
 
   // Get the screen info corresponding to this render widget.
-  virtual void GetScreenInfo(ScreenInfo* result) = 0;
+  virtual void GetScreenInfo(blink::ScreenInfo* screen_info) = 0;
+
+  // This must always return the same device scale factor as GetScreenInfo.
+  virtual float GetDeviceScaleFactor() = 0;
+
+  // Get the allowed touch action corresponding to this render widget.
+  virtual base::Optional<cc::TouchAction> GetAllowedTouchAction() = 0;
 
   // Drag-and-drop drop target messages that get sent to Blink.
   virtual void DragTargetDragEnter(
@@ -317,7 +328,11 @@ class CONTENT_EXPORT RenderWidgetHost : public IPC::Sender {
   virtual void FilterDropData(DropData* drop_data) {}
 
   // Sets cursor to a specified one when it is over this widget.
-  virtual void SetCursor(const CursorInfo& cursor_info) {}
+  virtual void SetCursor(const ui::Cursor& cursor) {}
+
+  // Shows the context menu using the specified point as anchor point.
+  virtual void ShowContextMenuAtPoint(const gfx::Point& point,
+                                      const ui::MenuSourceType source_type) {}
 };
 
 }  // namespace content

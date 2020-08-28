@@ -14,6 +14,7 @@
 #include "components/content_settings/core/browser/host_content_settings_map.h"
 #include "components/history/core/browser/history_service.h"
 #include "components/history/core/browser/history_service_observer.h"
+#include "components/keyed_service/core/keyed_service.h"
 #include "components/safe_browsing/core/proto/csd.pb.h"
 #include "components/safe_browsing/core/proto/realtimeapi.pb.h"
 #include "url/gurl.h"
@@ -26,7 +27,8 @@ using ReusedPasswordAccountType =
     LoginReputationClientRequest::PasswordReuseEvent::ReusedPasswordAccountType;
 
 // Structure: http://screen/YaNfDRYrcnk.png.
-class VerdictCacheManager : public history::HistoryServiceObserver {
+class VerdictCacheManager : public history::HistoryServiceObserver,
+                            public KeyedService {
  public:
   explicit VerdictCacheManager(
       history::HistoryService* history_service,
@@ -41,6 +43,10 @@ class VerdictCacheManager : public history::HistoryServiceObserver {
   base::WeakPtr<VerdictCacheManager> GetWeakPtr() {
     return weak_factory_.GetWeakPtr();
   }
+
+  // KeyedService:
+  // Called before the actual deletion of the object.
+  void Shutdown() override;
 
   // Stores |verdict| in |content_settings_| based on its |trigger_type|, |url|,
   // reused |password_type|, |verdict| and |receive_time|.
@@ -66,9 +72,14 @@ class VerdictCacheManager : public history::HistoryServiceObserver {
 
   // Stores |verdict| in |content_settings_| based on its |url|, |verdict| and
   // |receive_time|.
+  // |store_old_cache| is used for compatibility test. It is set to true only
+  // when we need to store an old cache for testing.
+  // TODO(crbug.com/1049376): |store_old_cache| should be removed once
+  // |cache_expression| field is deprecated.
   void CacheRealTimeUrlVerdict(const GURL& url,
                                const RTLookupResponse& verdict,
-                               const base::Time& receive_time);
+                               const base::Time& receive_time,
+                               bool store_old_cache);
 
   // Looks up |content_settings_| to find the cached verdict response. If
   // verdict is not available or is expired, return VERDICT_TYPE_UNSPECIFIED.
@@ -84,6 +95,10 @@ class VerdictCacheManager : public history::HistoryServiceObserver {
 
   void HistoryServiceBeingDeleted(
       history::HistoryService* history_service) override;
+
+  // Returns true if an artificial unsafe URL has been provided using the
+  // command-line flag "mark_as_real_time_phishing".
+  static bool has_artificial_unsafe_url();
 
  private:
   FRIEND_TEST_ALL_PREFIXES(VerdictCacheManagerTest, TestCleanUpExpiredVerdict);
@@ -117,10 +132,14 @@ class VerdictCacheManager : public history::HistoryServiceObserver {
   // This method is only used for testing.
   size_t GetRealTimeUrlCheckVerdictCountForURL(const GURL& url);
 
-  // This method is only used for testing.
-  int GetStoredRealTimeUrlCheckVerdictCount() {
+  // This method is only used for testing and logging metrics.
+  int stored_verdict_count_real_time_url_check() {
     return stored_verdict_count_real_time_url_check_;
   }
+
+  // This adds a cached verdict for a URL that has artificially been marked as
+  // unsafe using the command line flag "mark_as_real_time_phishing".
+  void CacheArtificialVerdict();
 
   // Number of verdict stored for this profile for password on focus pings.
   base::Optional<size_t> stored_verdict_count_password_on_focus_;
@@ -130,7 +149,7 @@ class VerdictCacheManager : public history::HistoryServiceObserver {
   base::Optional<size_t> stored_verdict_count_password_entry_;
 
   // Number of verdict stored for this profile for real time url check pings.
-  // This is only used for testing.
+  // This is only used for testing and logging metrics.
   int stored_verdict_count_real_time_url_check_ = 0;
 
   ScopedObserver<history::HistoryService, history::HistoryServiceObserver>
@@ -140,6 +159,8 @@ class VerdictCacheManager : public history::HistoryServiceObserver {
   scoped_refptr<HostContentSettingsMap> content_settings_;
 
   base::WeakPtrFactory<VerdictCacheManager> weak_factory_{this};
+
+  static bool has_artificial_unsafe_url_;
 };
 
 }  // namespace safe_browsing

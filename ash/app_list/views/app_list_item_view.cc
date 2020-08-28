@@ -42,7 +42,6 @@
 #include "ui/views/controls/image_view.h"
 #include "ui/views/controls/label.h"
 #include "ui/views/controls/menu/menu_runner.h"
-#include "ui/views/controls/progress_bar.h"
 #include "ui/views/drag_controller.h"
 
 namespace ash {
@@ -61,6 +60,9 @@ constexpr int kTouchLongpressDelayInMs = 300;
 // The drag and drop app icon should get scaled by this factor.
 constexpr float kDragDropAppIconScale = 1.2f;
 
+// The app icon should get scaled by this factor when entering cardify mode.
+constexpr float kCardifyIconScale = 0.84f;
+
 // The drag and drop icon scaling up or down animation transition duration.
 constexpr int kDragDropAppIconScaleTransitionInMs = 200;
 
@@ -71,7 +73,8 @@ constexpr SkColor kFolderGridTitleColor = SK_ColorBLACK;
 constexpr SkColor kFolderGridFocusRingColor = gfx::kGoogleBlue600;
 
 // The color of an item selected via right-click context menu.
-constexpr SkColor kContextSelection = SkColorSetA(gfx::kGoogleGrey100, 31);
+constexpr SkColor kContextSelection =
+    SkColorSetA(SK_ColorWHITE, 41);  // 16% opacity
 
 // The color of an item selected via right-click context menu in a folder.
 constexpr SkColor kContextSelectionFolder =
@@ -153,20 +156,39 @@ class AppListItemView::IconImageView : public views::ImageView {
     return old_layer;
   }
 
-  // Update the rounded corner and insets with animation. |show| is true when
-  // the target rounded corner radius and insets are for showing the indicator
-  // circle.
-  void AnimateRoundedCornerAndInsets(const AppListConfig& config, bool show) {
-    ui::ScopedLayerAnimationSettings settings(layer()->GetAnimator());
-    settings.SetTweenType(gfx::Tween::EASE_IN);
-    settings.SetTransitionDuration(base::TimeDelta::FromMilliseconds(125));
+  // Update the rounded corner and insets with animation. |extended| is true
+  // when the target rounded corner radius and insets are for showing the
+  // indicator circle.
+  void SetExtendedState(const AppListConfig& config,
+                        bool extended,
+                        bool animate) {
+    base::Optional<ui::ScopedLayerAnimationSettings> settings;
+    if (animate) {
+      settings.emplace(layer()->GetAnimator());
+      settings->SetTweenType(gfx::Tween::EASE_IN);
+      settings->SetTransitionDuration(base::TimeDelta::FromMilliseconds(125));
+    }
+
+    extended_ = extended;
 
     SetRoundedCornerAndInsets(
-        show ? config.folder_unclipped_icon_dimension() / 2
-             : config.folder_icon_dimension() / 2,
-        show ? gfx::Insets() : gfx::Insets(config.folder_icon_insets()));
+        extended ? config.folder_unclipped_icon_dimension() / 2
+                 : config.folder_icon_dimension() / 2,
+        extended ? gfx::Insets() : gfx::Insets(config.folder_icon_insets()));
   }
 
+  // Ensure that the view has a layer.
+  void EnsureLayer() {
+    if (!layer()) {
+      SetPaintToLayer();
+      layer()->SetFillsBoundsOpaquely(false);
+      layer()->SetName(GetClassName());
+    }
+  }
+
+  bool extended() const { return extended_; }
+
+ private:
   // Sets the rounded corner and the clip insets.
   void SetRoundedCornerAndInsets(int corner_radius, const gfx::Insets& insets) {
     EnsureLayer();
@@ -184,16 +206,10 @@ class AppListItemView::IconImageView : public views::ImageView {
     insets_ = insets;
   }
 
-  // Ensure that the view has a layer.
-  void EnsureLayer() {
-    if (!layer()) {
-      SetPaintToLayer();
-      layer()->SetFillsBoundsOpaquely(false);
-      layer()->SetName(GetClassName());
-    }
-  }
+  // Whether corner radius and insets are set for showing the drop target
+  // indicator circle.
+  bool extended_ = false;
 
- private:
   // The rounded corner radius.
   int corner_radius_ = 0;
 
@@ -222,19 +238,6 @@ AppListItemView::AppListItemView(AppsGridView* apps_grid_view,
       apps_grid_view_(apps_grid_view) {
   SetFocusBehavior(FocusBehavior::ALWAYS);
 
-  auto icon = std::make_unique<IconImageView>();
-
-  if (is_folder_) {
-    // Set background blur for folder icon and use mask layer to clip it into
-    // circle. Note that blur is only enabled in tablet mode to improve dragging
-    // smoothness.
-    if (apps_grid_view_->IsTabletMode())
-      SetBackgroundBlurEnabled(true);
-    icon->SetRoundedCornerAndInsets(
-        GetAppListConfig().folder_icon_radius(),
-        gfx::Insets(GetAppListConfig().folder_icon_insets()));
-  }
-
   if (!is_in_folder && !is_folder_) {
     // To display shadow for icon while not affecting the icon's bounds, icon
     // shadow is behind the icon.
@@ -260,14 +263,23 @@ AppListItemView::AppListItemView(AppsGridView* apps_grid_view,
     title_shadow_margins_ = gfx::ShadowValue::GetMargin(title_shadow);
   }
 
-  icon_ = AddChildView(std::move(icon));
+  icon_ = AddChildView(std::make_unique<IconImageView>());
+
+  if (is_folder_) {
+    // Set background blur for folder icon and use mask layer to clip it into
+    // circle. Note that blur is only enabled in tablet mode to improve dragging
+    // smoothness.
+    if (apps_grid_view_->IsTabletMode())
+      SetBackgroundBlurEnabled(true);
+    icon_->SetExtendedState(GetAppListConfig(), false /*extended*/,
+                            false /*animate*/);
+  }
+
   title_ = AddChildView(std::move(title));
-  progress_bar_ = AddChildView(std::make_unique<views::ProgressBar>());
 
   SetIcon(item->GetIcon(GetAppListConfig().type()));
   SetItemName(base::UTF8ToUTF16(item->GetDisplayName()),
               base::UTF8ToUTF16(item->name()));
-  SetItemIsInstalling(item->is_installing());
   item->AddObserver(this);
 
   set_context_menu_controller(this);
@@ -280,6 +292,7 @@ AppListItemView::AppListItemView(AppsGridView* apps_grid_view,
 AppListItemView::~AppListItemView() {
   if (item_weak_)
     item_weak_->RemoveObserver(this);
+  StopObservingImplicitAnimations();
 }
 
 void AppListItemView::SetIcon(const gfx::ImageSkia& icon) {
@@ -288,13 +301,19 @@ void AppListItemView::SetIcon(const gfx::ImageSkia& icon) {
     icon_->SetImage(nullptr);
     if (icon_shadow_)
       icon_shadow_->SetImage(nullptr);
+    icon_image_ = gfx::ImageSkia();
     return;
   }
+  icon_image_ = icon;
+
+  gfx::Size icon_bounds = is_folder_
+                              ? GetAppListConfig().folder_unclipped_icon_size()
+                              : GetAppListConfig().grid_icon_size();
+
+  icon_bounds = gfx::ScaleToRoundedSize(icon_bounds, icon_scale_);
 
   gfx::ImageSkia resized = gfx::ImageSkiaOperations::CreateResizedImage(
-      icon, skia::ImageOperations::RESIZE_BEST,
-      is_folder_ ? GetAppListConfig().folder_unclipped_icon_size()
-                 : GetAppListConfig().grid_icon_size());
+      icon, skia::ImageOperations::RESIZE_BEST, icon_bounds);
   icon_->SetImage(resized);
 
   if (icon_shadow_) {
@@ -310,26 +329,54 @@ void AppListItemView::SetIcon(const gfx::ImageSkia& icon) {
   Layout();
 }
 
+void AppListItemView::RefreshIcon() {
+  if (!item_weak_) {
+    SetIcon(gfx::ImageSkia());
+    return;
+  }
+
+  SetIcon(item_weak_->GetIcon(GetAppListConfig().type()));
+  if (is_folder_) {
+    icon_->SetExtendedState(GetAppListConfig(), icon_->extended(),
+                            false /*animate*/);
+  }
+}
+
+void AppListItemView::ScaleIconImmediatly(float scale_factor) {
+  icon_scale_ = scale_factor;
+  SetIcon(icon_image_);
+  layer()->SetTransform(gfx::Transform());
+}
+
 void AppListItemView::SetUIState(UIState ui_state) {
   if (ui_state_ == ui_state)
     return;
 
-  ui_state_ = ui_state;
-
-  switch (ui_state_) {
+  switch (ui_state) {
     case UI_STATE_NORMAL:
-      title_->SetVisible(!is_installing_);
-      progress_bar_->SetVisible(is_installing_);
-      ScaleAppIcon(false);
+      title_->SetVisible(true);
+      if (ui_state_ == UI_STATE_DRAGGING) {
+        ScaleAppIcon(false);
+      } else if (ui_state_ == UI_STATE_CARDIFY) {
+        title_->SetFontList(GetAppListConfig().app_title_font());
+        ScaleIconImmediatly(1.0f);
+      }
       break;
     case UI_STATE_DRAGGING:
       title_->SetVisible(false);
-      progress_bar_->SetVisible(false);
-      ScaleAppIcon(true);
+      if (ui_state_ == UI_STATE_NORMAL)
+        ScaleAppIcon(true);
       break;
     case UI_STATE_DROPPING_IN_FOLDER:
       break;
+    case UI_STATE_CARDIFY:
+      gfx::FontList font_size = GetAppListConfig().app_title_font();
+      const int size_delta = font_size.GetFontSize() * (1 - kCardifyIconScale);
+      title_->SetFontList(font_size.DeriveWithSizeDelta(-size_delta));
+      ScaleIconImmediatly(kCardifyIconScale);
+      break;
   }
+  ui_state_ = ui_state;
 
   SchedulePaint();
 }
@@ -337,17 +384,50 @@ void AppListItemView::SetUIState(UIState ui_state) {
 void AppListItemView::ScaleAppIcon(bool scale_up) {
   if (!layer())
     return;
-  const gfx::Rect bounds(layer()->bounds().size());
-  gfx::Transform transform =
-      gfx::GetScaleTransform(bounds.CenterPoint(), kDragDropAppIconScale);
+  if (!is_folder_) {
+    if (scale_up) {
+      icon_scale_ = kDragDropAppIconScale;
+      SetIcon(icon_image_);
+      layer()->SetTransform(gfx::GetScaleTransform(
+          GetContentsBounds().CenterPoint(), 1 / kDragDropAppIconScale));
+    } else if (apps_grid_view_->IsDraggedView(this)) {
+      // If a drag view has been created for this icon, the item transition to
+      // target bounds is handled by the apps grid view bounds animator. At the
+      // end of that animation, the layer will be destroyed, causing the
+      // animation observer to get canceled. For this case, we need to scale
+      // down the icon immediately, with no animation.
+      ScaleIconImmediatly(1.0f);
+    }
+  }
 
   ui::ScopedLayerAnimationSettings settings(layer()->GetAnimator());
   settings.SetTransitionDuration(
       base::TimeDelta::FromMilliseconds((kDragDropAppIconScaleTransitionInMs)));
-  if (scale_up)
-    layer()->SetTransform(transform);
-  else
-    layer()->SetTransform(gfx::Transform());
+  settings.SetTweenType(gfx::Tween::EASE_OUT_2);
+  if (scale_up) {
+    if (is_folder_) {
+      const gfx::Rect bounds(layer()->bounds().size());
+      gfx::Transform transform =
+          gfx::GetScaleTransform(bounds.CenterPoint(), kDragDropAppIconScale);
+      layer()->SetTransform(transform);
+    } else {
+      layer()->SetTransform(gfx::Transform());
+    }
+  } else {
+    if (is_folder_) {
+      layer()->SetTransform(gfx::Transform());
+    } else if (!apps_grid_view_->IsDraggedView(this)) {
+      // To avoid poor quality icons, update icon image with the correct scale
+      // after the transform animation is completed.
+      settings.AddObserver(this);
+      layer()->SetTransform(gfx::GetScaleTransform(
+          GetContentsBounds().CenterPoint(), 1 / kDragDropAppIconScale));
+    }
+  }
+}
+
+void AppListItemView::OnImplicitAnimationsCompleted() {
+  ScaleIconImmediatly(1.0f);
 }
 
 void AppListItemView::SetTouchDragging(bool touch_dragging) {
@@ -369,13 +449,6 @@ void AppListItemView::SetMouseDragging(bool mouse_dragging) {
 
   SetState(STATE_NORMAL);
   SetUIState(mouse_dragging_ ? UI_STATE_DRAGGING : UI_STATE_NORMAL);
-
-  if (!mouse_dragging_) {
-    mouse_drag_proxy_created_ = false;
-
-    // EndDrag may delete |this|.
-    apps_grid_view_->EndDrag(false);
-  }
 }
 
 void AppListItemView::OnMouseDragTimer() {
@@ -447,24 +520,6 @@ void AppListItemView::SetItemName(const base::string16& display_name,
                        full_name.empty() ? folder_name_placeholder : full_name)
                  : full_name);
   Layout();
-}
-
-void AppListItemView::SetItemIsInstalling(bool is_installing) {
-  is_installing_ = is_installing;
-  if (ui_state_ == UI_STATE_NORMAL) {
-    title_->SetVisible(!is_installing);
-    progress_bar_->SetVisible(is_installing);
-  }
-  SchedulePaint();
-}
-
-void AppListItemView::SetItemPercentDownloaded(int percent_downloaded) {
-  // A percent_downloaded() of -1 can mean it's not known how much percent is
-  // completed, or the download hasn't been marked complete, as is the case
-  // while an extension is being installed after being downloaded.
-  if (percent_downloaded == -1)
-    return;
-  progress_bar_->SetValue(percent_downloaded / 100.0);
 }
 
 void AppListItemView::OnContextMenuModelReceived(
@@ -551,6 +606,7 @@ void AppListItemView::PaintButtonContents(gfx::Canvas* canvas) {
   // TODO(ginko) focus and selection should be unified.
   if ((apps_grid_view_->IsSelectedView(this) || HasFocus()) &&
       (delegate_->KeyboardTraversalEngaged() ||
+       waiting_for_context_menu_options_ ||
        (context_menu_ && context_menu_->IsShowingMenu()))) {
     cc::PaintFlags flags;
     flags.setAntiAlias(true);
@@ -613,23 +669,20 @@ void AppListItemView::Layout() {
     return;
 
   const gfx::Rect icon_bounds = GetIconBoundsForTargetViewBounds(
-      GetAppListConfig(), rect, icon_->GetImage().size());
+      GetAppListConfig(), rect, icon_->GetImage().size(), icon_scale_);
   icon_->SetBoundsRect(icon_bounds);
 
   if (icon_shadow_) {
     const gfx::Rect icon_shadow_bounds = GetIconBoundsForTargetViewBounds(
-        GetAppListConfig(), rect, icon_shadow_->size());
+        GetAppListConfig(), rect, icon_shadow_->size(), icon_scale_);
     icon_shadow_->SetBoundsRect(icon_shadow_bounds);
   }
 
   gfx::Rect title_bounds = GetTitleBoundsForTargetViewBounds(
-      GetAppListConfig(), rect, title_->GetPreferredSize());
+      GetAppListConfig(), rect, title_->GetPreferredSize(), icon_scale_);
   if (!apps_grid_view_->is_in_folder())
     title_bounds.Inset(title_shadow_margins_);
   title_->SetBoundsRect(title_bounds);
-
-  progress_bar_->SetBoundsRect(GetProgressBarBoundsForTargetViewBounds(
-      rect, progress_bar_->GetPreferredSize()));
 }
 
 gfx::Size AppListItemView::CalculatePreferredSize() const {
@@ -651,6 +704,17 @@ bool AppListItemView::OnKeyPressed(const ui::KeyEvent& event) {
 void AppListItemView::OnMouseReleased(const ui::MouseEvent& event) {
   Button::OnMouseReleased(event);
   SetMouseDragging(false);
+
+  // EndDrag may delete |this|.
+  apps_grid_view_->EndDrag(false /*cancel*/);
+}
+
+void AppListItemView::OnMouseCaptureLost() {
+  Button::OnMouseCaptureLost();
+  SetMouseDragging(false);
+
+  // EndDrag may delete |this|.
+  apps_grid_view_->EndDrag(true /*cancel*/);
 }
 
 bool AppListItemView::OnMouseDragged(const ui::MouseEvent& event) {
@@ -720,7 +784,7 @@ void AppListItemView::OnGestureEvent(ui::GestureEvent* event) {
       }
       break;
     case ui::ET_GESTURE_TAP_DOWN:
-      if (state() != STATE_DISABLED) {
+      if (GetState() != STATE_DISABLED) {
         SetState(STATE_PRESSED);
         touch_drag_timer_.Start(
             FROM_HERE,
@@ -733,7 +797,7 @@ void AppListItemView::OnGestureEvent(ui::GestureEvent* event) {
       break;
     case ui::ET_GESTURE_TAP:
     case ui::ET_GESTURE_TAP_CANCEL:
-      if (state() != STATE_DISABLED) {
+      if (GetState() != STATE_DISABLED) {
         touch_drag_timer_.Stop();
         SetState(STATE_NORMAL);
       }
@@ -773,7 +837,8 @@ base::string16 AppListItemView::GetTooltipText(const gfx::Point& p) const {
 
 void AppListItemView::OnDraggedViewEnter() {
   if (is_folder_) {
-    icon_->AnimateRoundedCornerAndInsets(GetAppListConfig(), true);
+    icon_->SetExtendedState(GetAppListConfig(), true /*extended*/,
+                            true /*animate*/);
     return;
   }
   CreateDraggedViewHoverAnimation();
@@ -782,7 +847,8 @@ void AppListItemView::OnDraggedViewEnter() {
 
 void AppListItemView::OnDraggedViewExit() {
   if (is_folder_) {
-    icon_->AnimateRoundedCornerAndInsets(GetAppListConfig(), false);
+    icon_->SetExtendedState(GetAppListConfig(), false /*extended*/,
+                            true /*animate*/);
     return;
   }
   CreateDraggedViewHoverAnimation();
@@ -808,12 +874,20 @@ void AppListItemView::FireMouseDragTimerForTest() {
   mouse_drag_timer_.FireNow();
 }
 
+bool AppListItemView::FireTouchDragTimerForTest() {
+  if (!touch_drag_timer_.IsRunning())
+    return false;
+
+  touch_drag_timer_.FireNow();
+  return true;
+}
+
 void AppListItemView::AnimationProgressed(const gfx::Animation* animation) {
   DCHECK(!is_folder_);
 
   preview_circle_radius_ = gfx::Tween::IntValueBetween(
       animation->GetCurrentValue(), 0,
-      GetAppListConfig().folder_dropping_circle_radius());
+      GetAppListConfig().folder_dropping_circle_radius() * icon_scale_);
   SchedulePaint();
 }
 
@@ -875,13 +949,22 @@ void AppListItemView::SetDragUIState() {
   SetUIState(UI_STATE_DRAGGING);
 }
 
+void AppListItemView::SetCardifyUIState() {
+  SetUIState(UI_STATE_CARDIFY);
+}
+
+void AppListItemView::SetNormalUIState() {
+  SetUIState(UI_STATE_NORMAL);
+}
+
 // static
 gfx::Rect AppListItemView::GetIconBoundsForTargetViewBounds(
     const AppListConfig& config,
     const gfx::Rect& target_bounds,
-    const gfx::Size& icon_size) {
+    const gfx::Size& icon_size,
+    const float icon_scale) {
   gfx::Rect rect(target_bounds);
-  rect.Inset(0, 0, 0, config.grid_icon_bottom_padding());
+  rect.Inset(0, 0, 0, config.grid_icon_bottom_padding() * icon_scale);
   rect.ClampToCenteredSize(icon_size);
   return rect;
 }
@@ -890,12 +973,13 @@ gfx::Rect AppListItemView::GetIconBoundsForTargetViewBounds(
 gfx::Rect AppListItemView::GetTitleBoundsForTargetViewBounds(
     const AppListConfig& config,
     const gfx::Rect& target_bounds,
-    const gfx::Size& title_size) {
+    const gfx::Size& title_size,
+    float icon_scale) {
   gfx::Rect rect(target_bounds);
-  rect.Inset(config.grid_title_horizontal_padding(),
-             config.grid_title_top_padding(),
-             config.grid_title_horizontal_padding(),
-             config.grid_title_bottom_padding());
+  rect.Inset(config.grid_title_horizontal_padding() * icon_scale,
+             config.grid_title_top_padding() * icon_scale,
+             config.grid_title_horizontal_padding() * icon_scale,
+             config.grid_title_bottom_padding() * icon_scale);
   rect.ClampToCenteredSize(title_size);
   // Respect the title preferred height, to ensure the text does not get clipped
   // due to padding if the item view gets too small.
@@ -904,17 +988,6 @@ gfx::Rect AppListItemView::GetTitleBoundsForTargetViewBounds(
     rect.set_height(title_size.height());
   }
   return rect;
-}
-
-// static
-gfx::Rect AppListItemView::GetProgressBarBoundsForTargetViewBounds(
-    const gfx::Rect& target_bounds,
-    const gfx::Size& progress_bar_size) {
-  gfx::Rect progress_bar_bounds(progress_bar_size);
-  progress_bar_bounds.set_x(
-      (target_bounds.width() - progress_bar_bounds.width()) / 2);
-  progress_bar_bounds.set_y(target_bounds.y());
-  return progress_bar_bounds;
 }
 
 void AppListItemView::ItemIconChanged(AppListConfigType config_type) {
@@ -929,14 +1002,6 @@ void AppListItemView::ItemIconChanged(AppListConfigType config_type) {
 void AppListItemView::ItemNameChanged() {
   SetItemName(base::UTF8ToUTF16(item_weak_->GetDisplayName()),
               base::UTF8ToUTF16(item_weak_->name()));
-}
-
-void AppListItemView::ItemIsInstallingChanged() {
-  SetItemIsInstalling(item_weak_->is_installing());
-}
-
-void AppListItemView::ItemPercentDownloadedChanged() {
-  SetItemPercentDownloaded(item_weak_->percent_downloaded());
 }
 
 void AppListItemView::ItemBeingDestroyed() {

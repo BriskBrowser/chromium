@@ -18,6 +18,7 @@
 #include "base/time/time.h"
 #include "base/timer/timer.h"
 #include "content/browser/appcache/appcache_quota_client.h"
+#include "content/browser/child_process_security_policy_impl.h"
 #include "content/browser/url_loader_factory_getter.h"
 #include "content/common/appcache_interfaces.h"
 #include "content/common/content_export.h"
@@ -27,7 +28,7 @@
 #include "net/base/completion_once_callback.h"
 #include "net/base/net_errors.h"
 #include "storage/browser/quota/quota_manager_proxy.h"
-#include "third_party/blink/public/mojom/appcache/appcache.mojom.h"
+#include "third_party/blink/public/mojom/appcache/appcache.mojom-forward.h"
 
 namespace base {
 class FilePath;
@@ -67,8 +68,6 @@ class CONTENT_EXPORT AppCacheStorageReference
 // on disk.
 class CONTENT_EXPORT AppCacheServiceImpl : public AppCacheService {
  public:
-  using OnceCompletionCallback = base::OnceCallback<void(int)>;
-
   class CONTENT_EXPORT Observer {
    public:
     Observer(const Observer&) = delete;
@@ -112,7 +111,7 @@ class CONTENT_EXPORT AppCacheServiceImpl : public AppCacheService {
 
   // AppCacheService
   void GetAllAppCacheInfo(AppCacheInfoCollection* collection,
-                          OnceCompletionCallback callback) override;
+                          net::CompletionOnceCallback callback) override;
   void DeleteAppCachesForOrigin(const url::Origin& origin,
                                 net::CompletionOnceCallback callback) override;
 
@@ -171,6 +170,7 @@ class CONTENT_EXPORT AppCacheServiceImpl : public AppCacheService {
       const base::UnguessableToken& host_id,
       int32_t render_frame_id,
       int process_id,
+      ChildProcessSecurityPolicyImpl::Handle security_policy_handle,
       mojo::ReportBadMessageCallback bad_message_callback);
 
  protected:

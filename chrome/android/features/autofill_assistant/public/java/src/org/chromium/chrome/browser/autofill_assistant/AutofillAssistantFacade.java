@@ -12,50 +12,24 @@ import androidx.annotation.Nullable;
 
 import org.chromium.base.BuildInfo;
 import org.chromium.base.Callback;
+import org.chromium.base.FieldTrialList;
 import org.chromium.chrome.browser.ActivityTabProvider;
-import org.chromium.chrome.browser.ChromeActivity;
-import org.chromium.chrome.browser.ChromeFeatureList;
+import org.chromium.chrome.browser.app.ChromeActivity;
 import org.chromium.chrome.browser.autofill_assistant.metrics.DropOutReason;
+import org.chromium.chrome.browser.autofill_assistant.metrics.LiteScriptStarted;
+import org.chromium.chrome.browser.browser_controls.BrowserControlsStateProvider;
+import org.chromium.chrome.browser.compositor.CompositorViewHolder;
+import org.chromium.chrome.browser.customtabs.CustomTabActivity;
 import org.chromium.chrome.browser.directactions.DirectActionHandler;
 import org.chromium.chrome.browser.flags.ActivityType;
+import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.metrics.UmaSessionStats;
 import org.chromium.chrome.browser.tab.Tab;
-import org.chromium.chrome.browser.tabmodel.TabModelSelector;
-import org.chromium.chrome.browser.util.IntentUtils;
-import org.chromium.chrome.browser.widget.ScrimView;
-import org.chromium.chrome.browser.widget.bottomsheet.BottomSheetController;
-
-import java.net.URLDecoder;
-import java.util.HashMap;
-import java.util.Map;
+import org.chromium.components.browser_ui.bottomsheet.BottomSheetController;
+import org.chromium.components.browser_ui.bottomsheet.BottomSheetControllerProvider;
 
 /** Facade for starting Autofill Assistant on a custom tab. */
 public class AutofillAssistantFacade {
-    /**
-     * Prefix for Intent extras relevant to this feature.
-     *
-     * <p>Intent starting with this prefix are reported to the controller as parameters, except for
-     * the ones starting with {@code INTENT_SPECIAL_PREFIX}.
-     */
-    private static final String INTENT_EXTRA_PREFIX =
-            "org.chromium.chrome.browser.autofill_assistant.";
-
-    /** Prefix for intent extras which are not parameters. */
-    private static final String INTENT_SPECIAL_PREFIX = INTENT_EXTRA_PREFIX + "special.";
-
-    /** Special parameter that enables the feature. */
-    private static final String PARAMETER_ENABLED = "ENABLED";
-
-    /**
-     * Identifier used by parameters/or special intent that indicates experiments passed from
-     * the caller.
-     */
-    private static final String EXPERIMENT_IDS_IDENTIFIER = "EXPERIMENT_IDS";
-
-    /** Intent extra name for csv list of experiment ids. */
-    private static final String EXPERIMENT_IDS_NAME =
-            INTENT_SPECIAL_PREFIX + EXPERIMENT_IDS_IDENTIFIER;
-
     /**
      * Synthetic field trial names and group names should match those specified in
      * google3/analysis/uma/dashboards/
@@ -67,9 +41,18 @@ public class AutofillAssistantFacade {
 
     private static final String EXPERIMENTS_SYNTHETIC_TRIAL = "AutofillAssistantExperimentsTrial";
 
+    /**
+     * When starting a lite script, depending on incoming script parameters, we mark users as being
+     * in either the control or the experiment group to allow for aggregation of UKM metrics.
+     */
+    private static final String LITE_SCRIPT_EXPERIMENT_TRIAL =
+            "AutofillAssistantLiteScriptExperiment";
+    private static final String LITE_SCRIPT_EXPERIMENT_TRIAL_CONTROL = "Control";
+    private static final String LITE_SCRIPT_EXPERIMENT_TRIAL_EXPERIMENT = "Experiment";
+
     /** Returns true if conditions are satisfied to attempt to start Autofill Assistant. */
-    private static boolean isConfigured(@Nullable Bundle intentExtras) {
-        return getBooleanParameter(intentExtras, PARAMETER_ENABLED);
+    private static boolean isConfigured(AutofillAssistantArguments arguments) {
+        return arguments.isEnabled();
     }
 
     /**
@@ -78,8 +61,11 @@ public class AutofillAssistantFacade {
      *         started. This must be a launch activity holding the correct intent for starting.
      */
     public static void start(ChromeActivity activity) {
-        start(activity, activity.getInitialIntent().getExtras(),
-                activity.getInitialIntent().getDataString());
+        start(activity,
+                AutofillAssistantArguments.newBuilder()
+                        .fromBundle(activity.getInitialIntent().getExtras())
+                        .withInitialUrl(activity.getInitialIntent().getDataString())
+                        .build());
     }
 
     /**
@@ -90,11 +76,27 @@ public class AutofillAssistantFacade {
      *         Assistant.
      * @param initialUrl the initial URL the Autofill Assistant should be started on.
      */
-    public static void start(ChromeActivity activity, Bundle bundleExtras, String initialUrl) {
+    public static void start(
+            ChromeActivity activity, @Nullable Bundle bundleExtras, String initialUrl) {
+        start(activity,
+                AutofillAssistantArguments.newBuilder()
+                        .fromBundle(bundleExtras)
+                        .withInitialUrl(initialUrl)
+                        .build());
+    }
+
+    /**
+     * Starts Autofill Assistant.
+     * @param activity {@link ChromeActivity} the activity on which the Autofill Assistant is being
+     *         started.
+     * @param arguments {@link AutofillAssistantArguments} the arguments which were used to start
+     *          the Autofill Assistant.
+     */
+    public static void start(ChromeActivity activity, AutofillAssistantArguments arguments) {
         // Register synthetic trial as soon as possible.
         UmaSessionStats.registerSyntheticFieldTrial(TRIGGERED_SYNTHETIC_TRIAL, ENABLED_GROUP);
         // Synthetic trial for experiments.
-        String experimentIds = getExperimentIds(bundleExtras);
+        String experimentIds = arguments.getExperimentIds();
         if (!experimentIds.isEmpty()) {
             for (String experimentId : experimentIds.split(",")) {
                 UmaSessionStats.registerSyntheticFieldTrial(
@@ -105,19 +107,52 @@ public class AutofillAssistantFacade {
         // Have an "attempted starts" baseline for the drop out histogram.
         AutofillAssistantMetrics.recordDropOut(DropOutReason.AA_START);
         waitForTabWithWebContents(activity, tab -> {
+            if (arguments.containsTriggerScript()) {
+                // Create a field trial and assign experiment arm based on script parameter. This
+                // is needed to tag UKM data to allow for A/B experiment comparisons.
+                FieldTrialList.createFieldTrial(LITE_SCRIPT_EXPERIMENT_TRIAL,
+                        arguments.isLiteScriptExperiment() ? LITE_SCRIPT_EXPERIMENT_TRIAL_EXPERIMENT
+                                                           : LITE_SCRIPT_EXPERIMENT_TRIAL_CONTROL);
+
+                if (!AutofillAssistantPreferencesUtil.isAutofillAssistantSwitchOn()) {
+                    AutofillAssistantMetrics.recordLiteScriptStarted(tab.getWebContents(),
+                            AutofillAssistantPreferencesUtil
+                                            .isAutofillAssistantLiteScriptCancelThresholdReached()
+                                    ? LiteScriptStarted.LITE_SCRIPT_CANCELED_TWO_TIMES
+                                    : LiteScriptStarted.LITE_SCRIPT_ONBOARDING_REJECTED);
+                    // Opt-out users who have seen and rejected the onboarding, or who have canceled
+                    // the lite script too many times.
+                    return;
+                }
+                if (AutofillAssistantModuleEntryProvider.INSTANCE.getModuleEntryIfInstalled()
+                        == null) {
+                    // Opt-out users who don't have DFM installed.
+                    AutofillAssistantMetrics.recordLiteScriptStarted(
+                            tab.getWebContents(), LiteScriptStarted.LITE_SCRIPT_DFM_UNAVAILABLE);
+                    return;
+                }
+            }
+
+            AutofillAssistantMetrics.recordLiteScriptStarted(tab.getWebContents(),
+                    AutofillAssistantPreferencesUtil.isAutofillAssistantFirstTimeLiteScriptUser()
+                            ? LiteScriptStarted.LITE_SCRIPT_FIRST_TIME_USER
+                            : LiteScriptStarted.LITE_SCRIPT_RETURNING_USER);
             AutofillAssistantModuleEntryProvider.INSTANCE.getModuleEntry(
                     tab, (moduleEntry) -> {
-                        if (moduleEntry == null) {
+                        if (moduleEntry == null || activity.isActivityFinishingOrDestroyed()) {
                             AutofillAssistantMetrics.recordDropOut(
                                     DropOutReason.DFM_INSTALL_FAILED);
                             return;
                         }
 
-                        Map<String, String> parameters = extractParameters(bundleExtras);
-                        parameters.remove(PARAMETER_ENABLED);
-                        moduleEntry.start(tab, tab.getWebContents(),
-                                !AutofillAssistantPreferencesUtil.getShowOnboarding(), initialUrl,
-                                parameters, experimentIds, bundleExtras);
+                        moduleEntry.start(
+                                BottomSheetControllerProvider.from(activity.getWindowAndroid()),
+                                activity.getBrowserControlsManager(),
+                                activity.getCompositorViewHolder(), activity, tab.getWebContents(),
+                                !AutofillAssistantPreferencesUtil.getShowOnboarding(),
+                                activity instanceof CustomTabActivity, arguments.getInitialUrl(),
+                                arguments.getParameters(), arguments.getExperimentIds(),
+                                arguments.getCallerAccount(), arguments.getUserName());
                     });
         });
     }
@@ -140,63 +175,12 @@ public class AutofillAssistantFacade {
      * can also return null if autofill assistant is not available for some other reasons.
      */
     public static DirectActionHandler createDirectActionHandler(Context context,
-            BottomSheetController bottomSheetController, ScrimView scrimView,
-            TabModelSelector tabModelSelector) {
-        // TODO(b/134740534): Consider restricting signature of createDirectActionHandler() to get
-        // only getCurrentTab instead of a TabModelSelector.
-        return new AutofillAssistantDirectActionHandler(context, bottomSheetController, scrimView,
-                tabModelSelector::getCurrentTab, AutofillAssistantModuleEntryProvider.INSTANCE);
-    }
-
-    /**
-     * In M74 experiment ids might come from parameters. This function merges both exp ids from
-     * special intent and parameters.
-     * @return Comma-separated list of active experiment ids.
-     */
-    private static String getExperimentIds(@Nullable Bundle bundleExtras) {
-        if (bundleExtras == null) {
-            return "";
-        }
-
-        StringBuilder experiments = new StringBuilder();
-        Map<String, String> parameters = extractParameters(bundleExtras);
-        if (parameters.containsKey(EXPERIMENT_IDS_IDENTIFIER)) {
-            experiments.append(parameters.get(EXPERIMENT_IDS_IDENTIFIER));
-        }
-
-        String experimentsFromIntent = IntentUtils.safeGetString(bundleExtras, EXPERIMENT_IDS_NAME);
-        if (experimentsFromIntent != null) {
-            if (experiments.length() > 0 && !experiments.toString().endsWith(",")) {
-                experiments.append(",");
-            }
-            experiments.append(experimentsFromIntent);
-        }
-        return experiments.toString();
-    }
-
-    /** Return the value if the given boolean parameter from the extras. */
-    private static boolean getBooleanParameter(@Nullable Bundle extras, String parameterName) {
-        return extras != null
-                && IntentUtils.safeGetBoolean(extras, INTENT_EXTRA_PREFIX + parameterName, false);
-    }
-
-    /** Returns a map containing the extras starting with {@link #INTENT_EXTRA_PREFIX}. */
-    private static Map<String, String> extractParameters(@Nullable Bundle extras) {
-        Map<String, String> result = new HashMap<>();
-        if (extras != null) {
-            for (String key : extras.keySet()) {
-                try {
-                    if (key.startsWith(INTENT_EXTRA_PREFIX)
-                            && !key.startsWith(INTENT_SPECIAL_PREFIX)) {
-                        result.put(key.substring(INTENT_EXTRA_PREFIX.length()),
-                                URLDecoder.decode(extras.get(key).toString(), "UTF-8"));
-                    }
-                } catch (java.io.UnsupportedEncodingException e) {
-                    throw new IllegalStateException("UTF-8 encoding not available.", e);
-                }
-            }
-        }
-        return result;
+            BottomSheetController bottomSheetController,
+            BrowserControlsStateProvider browserControls, CompositorViewHolder compositorViewHolder,
+            ActivityTabProvider activityTabProvider) {
+        return new AutofillAssistantDirectActionHandler(context, bottomSheetController,
+                browserControls, compositorViewHolder, activityTabProvider,
+                AutofillAssistantModuleEntryProvider.INSTANCE);
     }
 
     /** Provides the callback with a tab that has a web contents, waits if necessary. */
@@ -221,16 +205,14 @@ public class AutofillAssistantFacade {
     }
 
     public static boolean isAutofillAssistantEnabled(Intent intent) {
-        // Check for configuration first for early return to prevent test failures on checking
-        // feature flags.
-        return AutofillAssistantFacade.isConfigured(intent.getExtras())
-                && ChromeFeatureList.isEnabled(ChromeFeatureList.AUTOFILL_ASSISTANT);
+        return ChromeFeatureList.isEnabled(ChromeFeatureList.AUTOFILL_ASSISTANT)
+                && AutofillAssistantFacade.isConfigured(AutofillAssistantArguments.newBuilder()
+                                                                .fromBundle(intent.getExtras())
+                                                                .build());
     }
 
     public static boolean isAutofillAssistantByIntentTriggeringEnabled(Intent intent) {
-        // Check for configuration first for early return to prevent test failures on checking
-        // feature flags.
-        return AutofillAssistantFacade.isAutofillAssistantEnabled(intent)
-                && ChromeFeatureList.isEnabled(ChromeFeatureList.AUTOFILL_ASSISTANT_CHROME_ENTRY);
+        return ChromeFeatureList.isEnabled(ChromeFeatureList.AUTOFILL_ASSISTANT_CHROME_ENTRY)
+                && AutofillAssistantFacade.isAutofillAssistantEnabled(intent);
     }
 }

@@ -11,7 +11,9 @@
 #include "base/files/file_path.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/test/metrics/user_action_tester.h"
 #include "base/test/scoped_feature_list.h"
+#include "build/build_config.h"
 #include "chrome/browser/extensions/chrome_test_extension_loader.h"
 #include "chrome/browser/extensions/extension_action_test_util.h"
 #include "chrome/browser/extensions/extension_service.h"
@@ -38,8 +40,10 @@
 #include "ui/events/base_event_utils.h"
 #include "ui/events/event.h"
 #include "ui/events/event_constants.h"
+#include "ui/events/types/event_type.h"
 #include "ui/gfx/geometry/point.h"
 #include "ui/views/controls/button/image_button.h"
+#include "ui/views/layout/animating_layout_manager_test_util.h"
 #include "ui/views/widget/widget.h"
 
 namespace {
@@ -101,6 +105,8 @@ class ExtensionsMenuViewUnitTest : public TestWithBrowserView {
   ExtensionsMenuItemView* GetOnlyMenuItem();
 
   void ClickPinButton(ExtensionsMenuItemView* menu_item) const;
+  void ClickContextMenuButton(ExtensionsMenuItemView* menu_item) const;
+  void ClickButton(views::Button* button) const;
 
   std::vector<ToolbarActionView*> GetPinnedExtensionViews();
 
@@ -113,6 +119,10 @@ class ExtensionsMenuViewUnitTest : public TestWithBrowserView {
   // Since this is a unittest (and doesn't have as much "real" rendering),
   // the ExtensionsMenuView sometimes needs a nudge to re-layout the views.
   void LayoutMenuIfNecessary();
+
+  // Waits for the extensions container to animate (on pin, unpin, pop-out,
+  // etc.)
+  void WaitForAnimation();
 
  private:
   base::AutoReset<bool> allow_extension_menu_instances_;
@@ -136,8 +146,11 @@ void ExtensionsMenuViewUnitTest::SetUp() {
   extension_service_ =
       extensions::ExtensionSystem::Get(profile())->extension_service();
 
+  // Shorten delay on animations so tests run faster.
+  views::test::ReduceAnimationDuration(extensions_container());
+
   ExtensionsMenuView::ShowBubble(extensions_container()->extensions_button(),
-                                 browser(), extensions_container());
+                                 browser(), extensions_container(), true);
 }
 
 scoped_refptr<const extensions::Extension>
@@ -163,15 +176,23 @@ ExtensionsMenuItemView* ExtensionsMenuViewUnitTest::GetOnlyMenuItem() {
 
 void ExtensionsMenuViewUnitTest::ClickPinButton(
     ExtensionsMenuItemView* menu_item) const {
-  views::ImageButton* pin_button = menu_item->pin_button_for_testing();
+  ClickButton(menu_item->pin_button_for_testing());
+}
+
+void ExtensionsMenuViewUnitTest::ClickContextMenuButton(
+    ExtensionsMenuItemView* menu_item) const {
+  ClickButton(menu_item->context_menu_button_for_testing());
+}
+
+void ExtensionsMenuViewUnitTest::ClickButton(views::Button* button) const {
   ui::MouseEvent press_event(ui::ET_MOUSE_PRESSED, gfx::Point(1, 1),
                              gfx::Point(), ui::EventTimeForNow(),
                              ui::EF_LEFT_MOUSE_BUTTON, 0);
-  pin_button->OnMousePressed(press_event);
+  button->OnMousePressed(press_event);
   ui::MouseEvent release_event(ui::ET_MOUSE_RELEASED, gfx::Point(1, 1),
                                gfx::Point(), ui::EventTimeForNow(),
                                ui::EF_LEFT_MOUSE_BUTTON, 0);
-  pin_button->OnMouseReleased(release_event);
+  button->OnMouseReleased(release_event);
 }
 
 std::vector<ToolbarActionView*>
@@ -179,9 +200,19 @@ ExtensionsMenuViewUnitTest::GetPinnedExtensionViews() {
   std::vector<ToolbarActionView*> result;
   for (views::View* child : extensions_container()->children()) {
     // Ensure we don't downcast the ExtensionsToolbarButton.
-    if (child->GetVisible() &&
-        child->GetClassName() == ToolbarActionView::kClassName) {
-      result.push_back(static_cast<ToolbarActionView*>(child));
+    if (child->GetClassName() == ToolbarActionView::kClassName) {
+      ToolbarActionView* const action = static_cast<ToolbarActionView*>(child);
+#if defined(OS_MAC)
+      // TODO(crbug.com/1045212): Use IsActionVisibleOnToolbar() because it
+      // queries the underlying model and not GetVisible(), as that relies on an
+      // animation running, which is not reliable in unit tests on Mac.
+      const bool is_visible = extensions_container()->IsActionVisibleOnToolbar(
+          action->view_controller());
+#else
+      const bool is_visible = action->GetVisible();
+#endif
+      if (is_visible)
+        result.push_back(action);
     }
   }
   return result;
@@ -215,6 +246,15 @@ void ExtensionsMenuViewUnitTest::LayoutMenuIfNecessary() {
   extensions_menu()->GetWidget()->LayoutRootViewIfNecessary();
 }
 
+void ExtensionsMenuViewUnitTest::WaitForAnimation() {
+#if defined(OS_MAC)
+  // TODO(crbug.com/1045212): we avoid using animations on Mac due to the lack
+  // of support in unit tests. Therefore this is a no-op.
+#else
+  views::test::WaitForAnimatingLayoutManager(extensions_container());
+#endif
+}
+
 TEST_F(ExtensionsMenuViewUnitTest, ExtensionsAreShownInTheMenu) {
   // To start, there should be no extensions in the menu.
   EXPECT_EQ(0u, extensions_menu()->extensions_menu_items_for_testing().size());
@@ -245,11 +285,13 @@ TEST_F(ExtensionsMenuViewUnitTest, PinnedExtensionAppearsInToolbar) {
   EXPECT_THAT(GetPinnedExtensionNames(), testing::IsEmpty());
 
   ClickPinButton(menu_item);
+  WaitForAnimation();
 
   EXPECT_TRUE(extensions_container()->IsActionVisibleOnToolbar(controller));
   EXPECT_THAT(GetPinnedExtensionNames(), testing::ElementsAre(kName));
 
   ClickPinButton(menu_item);  // Unpin.
+  WaitForAnimation();
 
   EXPECT_FALSE(extensions_container()->IsActionVisibleOnToolbar(
       menu_item->view_controller()));
@@ -292,11 +334,13 @@ TEST_F(ExtensionsMenuViewUnitTest, PinnedExtensionRemovedWhenDisabled) {
 
   extension_service()->DisableExtension(
       id, extensions::disable_reason::DISABLE_USER_ACTION);
+  WaitForAnimation();
 
   ASSERT_EQ(0u, extensions_menu()->extensions_menu_items_for_testing().size());
   EXPECT_THAT(GetPinnedExtensionNames(), testing::IsEmpty());
 
   extension_service()->EnableExtension(id);
+  WaitForAnimation();
 
   ASSERT_EQ(1u, extensions_menu()->extensions_menu_items_for_testing().size());
   EXPECT_THAT(GetPinnedExtensionNames(), testing::ElementsAre(kName));
@@ -318,6 +362,7 @@ TEST_F(ExtensionsMenuViewUnitTest, ReorderPinnedExtensions) {
     EXPECT_TRUE(extensions_container()->IsActionVisibleOnToolbar(
         menu_item->view_controller()));
   }
+  WaitForAnimation();
 
   EXPECT_THAT(GetPinnedExtensionNames(),
               testing::ElementsAre(kName1, kName2, kName3));
@@ -332,6 +377,7 @@ TEST_F(ExtensionsMenuViewUnitTest, ReorderPinnedExtensions) {
                                  ui::DragDropTypes::DRAG_MOVE);
   extensions_container()->OnDragUpdated(drop_event);
   extensions_container()->OnPerformDrop(drop_event);
+  WaitForAnimation();
 
   EXPECT_THAT(GetPinnedExtensionNames(),
               testing::ElementsAre(kName3, kName1, kName2));
@@ -348,12 +394,14 @@ TEST_F(ExtensionsMenuViewUnitTest, PinnedExtensionsReorderOnPrefChange) {
        extensions_menu()->extensions_menu_items_for_testing()) {
     ClickPinButton(menu_item);
   }
+  WaitForAnimation();
 
   EXPECT_THAT(GetPinnedExtensionNames(),
               testing::ElementsAre(kName1, kName2, kName3));
 
   extensions::ExtensionPrefs::Get(profile())->SetPinnedExtensions(
       {id2, id3, id1});
+  WaitForAnimation();
 
   EXPECT_THAT(GetPinnedExtensionNames(),
               testing::ElementsAre(kName2, kName3, kName1));
@@ -366,6 +414,7 @@ TEST_F(ExtensionsMenuViewUnitTest, PinnedExtensionLayout) {
        extensions_menu()->extensions_menu_items_for_testing()) {
     ClickPinButton(menu_item);
   }
+  WaitForAnimation();
 
   std::vector<ToolbarActionView*> action_views = GetPinnedExtensionViews();
   ASSERT_EQ(3u, action_views.size());
@@ -462,6 +511,35 @@ TEST_F(ExtensionsMenuViewUnitTest, ReloadExtensionFailed) {
   for (views::View* child : extensions_container()->children())
     EXPECT_NE(ToolbarActionView::kClassName, child->GetClassName());
   EXPECT_EQ(0u, extensions_menu()->extensions_menu_items_for_testing().size());
+}
+
+TEST_F(ExtensionsMenuViewUnitTest, PinButtonUserAction) {
+  base::UserActionTester user_action_tester;
+  AddSimpleExtension("Test Extension");
+
+  ExtensionsMenuItemView* menu_item = GetOnlyMenuItem();
+  ASSERT_TRUE(menu_item);
+
+  constexpr char kPinButtonUserAction[] = "Extensions.Toolbar.PinButtonPressed";
+  EXPECT_EQ(0, user_action_tester.GetActionCount(kPinButtonUserAction));
+  ClickPinButton(menu_item);
+  EXPECT_EQ(1, user_action_tester.GetActionCount(kPinButtonUserAction));
+  ClickPinButton(menu_item);  // Unpin.
+  EXPECT_EQ(2, user_action_tester.GetActionCount(kPinButtonUserAction));
+}
+
+TEST_F(ExtensionsMenuViewUnitTest, ContextMenuButtonUserAction) {
+  base::UserActionTester user_action_tester;
+  AddSimpleExtension("Test Extension");
+
+  ExtensionsMenuItemView* menu_item = GetOnlyMenuItem();
+  ASSERT_TRUE(menu_item);
+
+  constexpr char kContextMenuButtonUserAction[] =
+      "Extensions.Toolbar.MoreActionsButtonPressedFromMenu";
+  EXPECT_EQ(0, user_action_tester.GetActionCount(kContextMenuButtonUserAction));
+  ClickContextMenuButton(menu_item);
+  EXPECT_EQ(1, user_action_tester.GetActionCount(kContextMenuButtonUserAction));
 }
 
 // TODO(crbug.com/984654): When supported, add a test to verify the

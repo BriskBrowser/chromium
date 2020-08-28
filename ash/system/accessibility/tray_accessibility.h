@@ -9,7 +9,7 @@
 
 #include "ash/accessibility/accessibility_delegate.h"
 #include "ash/accessibility/accessibility_observer.h"
-#include "ash/session/session_observer.h"
+#include "ash/public/cpp/session/session_observer.h"
 #include "ash/system/tray/tray_detailed_view.h"
 #include "base/macros.h"
 #include "ui/gfx/font.h"
@@ -37,6 +37,8 @@ namespace tray {
 // Create the detailed view of accessibility tray.
 class ASH_EXPORT AccessibilityDetailedView : public TrayDetailedView {
  public:
+  static constexpr char kClassName[] = "AccessibilityDetailedView";
+
   explicit AccessibilityDetailedView(DetailedViewDelegate* delegate);
   ~AccessibilityDetailedView() override {}
 

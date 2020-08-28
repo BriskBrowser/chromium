@@ -19,7 +19,6 @@
 #include "net/base/escape.h"
 #include "net/base/load_flags.h"
 #include "net/base/net_errors.h"
-#include "net/url_request/url_request_status.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
 
 namespace gcm {
@@ -405,6 +404,7 @@ class InstanceIDGetTokenRequestTest : public RegistrationRequestTest {
                      const std::string& instance_id,
                      const std::string& authorized_entity,
                      const std::string& scope,
+                     base::TimeDelta time_to_live,
                      const std::map<std::string, std::string>& options);
 };
 
@@ -419,6 +419,7 @@ void InstanceIDGetTokenRequestTest::CreateRequest(
     const std::string& instance_id,
     const std::string& authorized_entity,
     const std::string& scope,
+    base::TimeDelta time_to_live,
     const std::map<std::string, std::string>& options) {
   std::string category = use_subtype ? kProductCategoryForSubtypes : kAppId;
   std::string subtype = use_subtype ? kAppId : std::string();
@@ -426,7 +427,8 @@ void InstanceIDGetTokenRequestTest::CreateRequest(
                                                 category, subtype);
   std::unique_ptr<InstanceIDGetTokenRequestHandler> request_handler(
       new InstanceIDGetTokenRequestHandler(instance_id, authorized_entity,
-                                           scope, kGCMVersion, options));
+                                           scope, kGCMVersion, time_to_live,
+                                           options));
   request_.reset(new RegistrationRequest(
       GURL(kRegistrationURL), request_info, std::move(request_handler),
       GetBackoffPolicy(),
@@ -442,7 +444,7 @@ TEST_F(InstanceIDGetTokenRequestTest, RequestSuccessful) {
 
   set_max_retry_count(0);
   CreateRequest(false /* use_subtype */, kInstanceId, kDeveloperId, kScope,
-                options);
+                /*time_to_live=*/base::TimeDelta(), options);
   request_->Start();
 
   SetResponseForURLAndComplete(kRegistrationURL, net::HTTP_OK, "token=2501");
@@ -455,7 +457,7 @@ TEST_F(InstanceIDGetTokenRequestTest, RequestDataAndURL) {
   std::map<std::string, std::string> options;
   options["Foo"] = "Bar";
   CreateRequest(false /* use_subtype */, kInstanceId, kDeveloperId, kScope,
-                options);
+                /*time_to_live=*/base::TimeDelta(), options);
   request_->Start();
 
   // Verify that the no-cookie flag is set.
@@ -493,11 +495,32 @@ TEST_F(InstanceIDGetTokenRequestTest, RequestDataAndURL) {
       VerifyFetcherUploadDataForURL(kRegistrationURL, &expected_pairs));
 }
 
+TEST_F(InstanceIDGetTokenRequestTest, RequestDataWithTTL) {
+  CreateRequest(false, kInstanceId, kDeveloperId, kScope,
+                /*time_to_live=*/base::TimeDelta::FromSeconds(100),
+                /*options=*/{});
+  request_->Start();
+
+  // Same as RequestDataAndURL except "ttl" and "X-Foo".
+  std::map<std::string, std::string> expected_pairs;
+  expected_pairs["gmsv"] = base::NumberToString(kGCMVersion);
+  expected_pairs["app"] = kAppId;
+  expected_pairs["sender"] = kDeveloperId;
+  expected_pairs["device"] = base::NumberToString(kAndroidId);
+  expected_pairs["appid"] = kInstanceId;
+  expected_pairs["scope"] = kScope;
+  expected_pairs["ttl"] = "100";
+  expected_pairs["X-scope"] = kScope;
+
+  ASSERT_NO_FATAL_FAILURE(
+      VerifyFetcherUploadDataForURL(kRegistrationURL, &expected_pairs));
+}
+
 TEST_F(InstanceIDGetTokenRequestTest, RequestDataWithSubtype) {
   std::map<std::string, std::string> options;
   options["Foo"] = "Bar";
   CreateRequest(true /* use_subtype */, kInstanceId, kDeveloperId, kScope,
-                options);
+                /*time_to_live=*/base::TimeDelta(), options);
   request_->Start();
 
   // Same as RequestDataAndURL except "app" and "X-subtype".
@@ -531,7 +554,7 @@ TEST_F(InstanceIDGetTokenRequestTest, RequestDataWithSubtype) {
 TEST_F(InstanceIDGetTokenRequestTest, ResponseHttpStatusNotOK) {
   std::map<std::string, std::string> options;
   CreateRequest(false /* use_subtype */, kInstanceId, kDeveloperId, kScope,
-                options);
+                /*time_to_live=*/base::TimeDelta(), options);
   request_->Start();
 
   SetResponseForURLAndComplete(kRegistrationURL, net::HTTP_UNAUTHORIZED,

@@ -5,6 +5,7 @@
 #include "ui/events/event.h"
 #include "ui/events/event_constants.h"
 #include "ui/events/event_utils.h"
+#include "ui/events/types/event_type.h"
 
 namespace ui {
 
@@ -81,19 +82,18 @@ gfx::Vector2d GetMouseWheelOffset(const PlatformEvent& native_event) {
   return event->offset();
 }
 
+gfx::Vector2d GetMouseWheelTick120ths(const PlatformEvent& native_event) {
+  const ui::MouseWheelEvent* event =
+      static_cast<const ui::MouseWheelEvent*>(native_event);
+  DCHECK_EQ(event->type(), ET_MOUSEWHEEL);
+  return event->tick_120ths();
+}
+
 PlatformEvent CopyNativeEvent(const PlatformEvent& event) {
   return NULL;
 }
 
 void ReleaseCopiedNativeEvent(const PlatformEvent& event) {}
-
-// TODO(687724): Will remove all GetTouchId functions.
-int GetTouchId(const PlatformEvent& native_event) {
-  const ui::TouchEvent* event =
-      static_cast<const ui::TouchEvent*>(native_event);
-  DCHECK(event->IsTouchEvent());
-  return event->pointer_details().id;
-}
 
 PointerDetails GetTouchPointerDetailsFromNative(
     const PlatformEvent& native_event) {

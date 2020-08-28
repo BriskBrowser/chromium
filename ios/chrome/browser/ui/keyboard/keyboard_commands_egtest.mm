@@ -113,7 +113,8 @@ using chrome_test_util::SettingsDoneButton;
   [ChromeEarlGrey loadURL:self.testServer->GetURL("/pony.html")];
 
   // Bookmark page
-  if ([ChromeEarlGrey isIPadIdiom]) {
+  if ([ChromeEarlGrey isIPadIdiom] &&
+      ![ChromeEarlGrey isChangeTabSwitcherPositionEnabled]) {
     id<GREYMatcher> bookmarkMatcher =
         chrome_test_util::ButtonWithAccessibilityLabelId(IDS_TOOLTIP_STAR);
     [[EarlGrey selectElementWithMatcher:bookmarkMatcher]
@@ -149,7 +150,7 @@ using chrome_test_util::SettingsDoneButton;
   // Open Bookmarks
   [ChromeEarlGreyUI openToolsMenu];
   [ChromeEarlGreyUI tapToolsMenuButton:chrome_test_util::BookmarksMenuButton()];
-  [[GREYUIThreadExecutor sharedInstance] drainUntilIdle];
+  [ChromeEarlGreyUI waitForAppToIdle];
 
   [self verifyNoKeyboardCommandsAreRegistered];
 
@@ -163,7 +164,7 @@ using chrome_test_util::SettingsDoneButton;
   // Open Recent Tabs
   [ChromeEarlGreyUI openToolsMenu];
   [ChromeEarlGreyUI tapToolsMenuButton:RecentTabsMenuButton()];
-  [[GREYUIThreadExecutor sharedInstance] drainUntilIdle];
+  [ChromeEarlGreyUI waitForAppToIdle];
 
   [self verifyNoKeyboardCommandsAreRegistered];
 

@@ -56,10 +56,8 @@ class NavigationItemImpl : public web::NavigationItem {
   SSLStatus& GetSSL() override;
   void SetTimestamp(base::Time timestamp) override;
   base::Time GetTimestamp() const override;
-  void SetUserAgentType(UserAgentType type,
-                        bool update_inherited_user_agent) override;
+  void SetUserAgentType(UserAgentType type) override;
   UserAgentType GetUserAgentType() const override;
-  UserAgentType GetUserAgentForInheritance() const override;
   bool HasPostData() const override;
   NSDictionary* GetHttpRequestHeaders() const override;
   void AddHttpRequestHeaders(NSDictionary* additional_headers) override;
@@ -131,6 +129,9 @@ class NavigationItemImpl : public web::NavigationItem {
   void SetUntrusted();
   bool IsUntrusted();
 
+  // Restores the state of the |other| navigation item in this item.
+  void RestoreStateFromItem(NavigationItem* other);
+
 #ifndef NDEBUG
   // Returns a human-readable description of the state for debugging purposes.
   NSString* GetDescription() const;
@@ -153,7 +154,6 @@ class NavigationItemImpl : public web::NavigationItem {
   SSLStatus ssl_;
   base::Time timestamp_;
   UserAgentType user_agent_type_;
-  UserAgentType user_agent_type_inheritance_;
   NSMutableDictionary* http_request_headers_;
 
   NSString* serialized_state_object_;

@@ -8,6 +8,7 @@
 <translation id="1046068652463704410">Masukan bahasa Jepang (untuk keyboard AS)</translation>
 <translation id="1047956942837015229">Menghapus <ph name="COUNT" /> item...</translation>
 <translation id="1049926623896334335">Dokumen Word</translation>
+<translation id="1060368002126861100">Untuk membuka file dengan <ph name="APP_NAME" />, pindahkan ke folder file Windows terlebih dulu.</translation>
 <translation id="1062407476771304334">Ganti</translation>
 <translation id="1065449928621190041">Keyboard untuk bahasa Prancis Kanada</translation>
 <translation id="1119069657431255176">Arsip tar terkompresi Bzip2</translation>
@@ -20,6 +21,7 @@
 <translation id="1150565364351027703">Kacamata Hitam</translation>
 <translation id="115443833402798225">Hangul Ahnmatae</translation>
 <translation id="1155759005174418845">Catalan</translation>
+<translation id="1172970565351728681">Sekitar <ph name="REMAINING_TIME" /> lagi</translation>
 <translation id="1173894706177603556">Ganti nama</translation>
 <translation id="117624967391683467">Menyalin <ph name="FILE_NAME" />...</translation>
 <translation id="1178581264944972037">Jeda</translation>
@@ -29,6 +31,7 @@
 <translation id="1243314992276662751">Upload</translation>
 <translation id="1249250836236328755">Genre</translation>
 <translation id="1278813325885878377">Keyboard QWERTY Magyar</translation>
+<translation id="1293556467332435079">File</translation>
 <translation id="1297922636971898492">Saat ini Google Drive tidak tersedia. Upload akan dimulai ulang secara otomatis setelah Google Drive aktif kembali.</translation>
 <translation id="1307931752636661898">Tidak dapat melihat file Linux</translation>
 <translation id="1310751437842832374">Transliterasi (mausam → ନମସ୍ତେ)</translation>
@@ -44,6 +47,8 @@
 <translation id="1395262318152388157">Bilah geser</translation>
 <translation id="1399648040768741453">Keyboard Telugu (Fonetik)</translation>
 <translation id="1430915738399379752">Cetak</translation>
+<translation id="1433600251059882049">Folder ini dibagikan ke Linux dan Windows</translation>
+<translation id="1435838927755162558">Bagikan folder ke Parallels Desktop</translation>
 <translation id="1439494416798956626">Dipindahkan ke <ph name="FOLDER_NAME" />.</translation>
 <translation id="1441841714100794440">Keyboard Vietnam (Telex)</translation>
 <translation id="1455548678241328678">Keyboard untuk bahasa Norsk</translation>
@@ -78,6 +83,7 @@
 <translation id="1844692022597038441">File ini tidak tersedia secara offline.</translation>
 <translation id="184633654410729720">Keyboard Thai (Kedmanee)</translation>
 <translation id="1847880352285315359">Disimpan</translation>
+<translation id="1853795129690976061">Folder ini dibagikan ke Linux</translation>
 <translation id="1864756863218646478">File tidak dapat ditemukan.</translation>
 <translation id="1921986354447415460">Keyboard Turki-F</translation>
 <translation id="1924372192547904021"><ph name="DRIVE_NAME" /> telah diformat</translation>
@@ -89,6 +95,7 @@
 <translation id="1947424002851288782">Keyboard untuk bahasa Jerman</translation>
 <translation id="1972984168337863910">Luaskan panel masukan file</translation>
 <translation id="1984603991036629094">Keyboard fonetik Armenia</translation>
+<translation id="1995337122023280937">Buka lokasi file</translation>
 <translation id="2001796770603320721">Kelola di Drive</translation>
 <translation id="2009067268969781306">Memformat drive akan menghapus semua data yang tersimpan di dalamnya. Tindakan ini tidak dapat diurungkan.</translation>
 <translation id="2028997212275086731">Arsip RAR</translation>
@@ -100,7 +107,6 @@
 <translation id="2085470240340828803">File bernama "<ph name="FILENAME" />" sudah ada. Apa yang ingin Anda lakukan?</translation>
 <translation id="2121825465123208577">Ubah ukuran</translation>
 <translation id="2136953289241069843">Transliterasi (namaste → नमस्कार)</translation>
-<translation id="2138867954865495510">Tidak dapat membuka "<ph name="PATH" />": <ph name="ERROR_MESSAGE" /></translation>
 <translation id="2163152940313951844">Karakter tidak valid: <ph name="CHARACTER_NAME" /></translation>
 <translation id="2164862903024139959">Keyboard Vietnam (TCVN)</translation>
 <translation id="2168214441502403371">Keyboard Persia</translation>
@@ -122,6 +128,7 @@
 <translation id="2384596874640104496">Keyboard Sinhala</translation>
 <translation id="240770291734945588"><ph name="SPACE_AVAILABLE" /> tersedia</translation>
 <translation id="2425665904502185219">Ukuran file total</translation>
+<translation id="2428749644083375155">Menyalin <ph name="NUMBER_OF_ITEMS" /> item ke <ph name="FOLDER_NAME" /></translation>
 <translation id="2448312741937722512">Jenis</translation>
 <translation id="2453576648990281505">File sudah ada</translation>
 <translation id="2464079411014186876">Es krim</translation>
@@ -140,6 +147,7 @@
 <translation id="2638942478653899953">Google Drive tidak dapat dibuka. <ph name="BEGIN_LINK" />Keluar<ph name="END_LINK" /> dan masuk lagi.</translation>
 <translation id="2649120831653069427">Ikan Pelangi</translation>
 <translation id="2661146741306740526">16x9</translation>
+<translation id="2664412712123763093">Lokasi file</translation>
 <translation id="2672394958563893062">Terjadi kesalahan. Klik untuk memulai ulang dari awal.</translation>
 <translation id="2676946222714718093">Diputar di</translation>
 <translation id="2735698359135166290">Keyboard standar Rumania</translation>
@@ -175,6 +183,7 @@
 <translation id="303198083543495566">Geografi</translation>
 <translation id="3057861065630527966">Cadangkan foto dan video</translation>
 <translation id="3064388234319122767">Transliterasi (zdravo → здраво)</translation>
+<translation id="3067790092342515856">File Windows</translation>
 <translation id="3078461028045006476">Bagikan dengan <ph name="EXTENSION_NAME" /></translation>
 <translation id="3088034400796962477">Transliterasi (salam ← سلام)</translation>
 <translation id="3116361045094675131">Keyboard Inggris</translation>
@@ -189,6 +198,7 @@
 <translation id="3236289833370040187">Kepemilikan akan ditransfer ke <ph name="DESTINATION_DOMAIN" />.</translation>
 <translation id="3241720467332021590">Irlandia</translation>
 <translation id="3245321423178950146">Artis Tidak Dikenal</translation>
+<translation id="3248185426436836442">Tertunda</translation>
 <translation id="3252266817569339921">Prancis</translation>
 <translation id="3254434849914415189">Pilih aplikasi default untuk file <ph name="FILE_TYPE" />:</translation>
 <translation id="3264582393905923483">Konteks</translation>
@@ -199,6 +209,7 @@
 <translation id="3335337277364016868">Tahun perekaman</translation>
 <translation id="3338239663705455570">Keyboard untuk bahasa Slovenia</translation>
 <translation id="3353984535370177728">Pilih folder untuk diunggah</translation>
+<translation id="3356580349448036450">Selesai</translation>
 <translation id="3399597614303179694">Keyboard Makedonia</translation>
 <translation id="3414856743105198592">Memformat media yang dapat dilepas akan menghapus semua data. Apakah Anda ingin melanjutkan?</translation>
 <translation id="3437801641691368414">Waktu pembuatan</translation>
@@ -210,8 +221,10 @@
 <translation id="3495304270784461826"><ph name="COUNT" /> kesalahan.</translation>
 <translation id="3519867315646775981">Transliterasi (shalom ← שלום)</translation>
 <translation id="3522708245912499433">Portugis</translation>
+<translation id="3524311639100184459">Perhatian: File ini bersifat sementara dan dapat dihapus secara otomatis untuk mengosongkan ruang disk.  <ph name="BEGIN_LINK" />Pelajari Lebih Lanjut<ph name="END_LINK" /></translation>
 <translation id="3527085408025491307">Folder</translation>
 <translation id="3549797760399244642">Buka drive.google.com...</translation>
+<translation id="3553048479571901246">Untuk membuka file dengan <ph name="APP_NAME" />, salin ke folder file Windows terlebih dulu.</translation>
 <translation id="357479282490346887">Lithuania</translation>
 <translation id="3583509704582854624">Masukan alfanumerik (untuk keyboard bahasa Jepang)</translation>
 <translation id="3603385196401704894">Prancis Kanada</translation>
@@ -232,9 +245,11 @@
 <translation id="3780536599611287598">Anda tidak memiliki izin untuk memindahkan file ke '<ph name="FOLDER_NAME" />'.</translation>
 <translation id="3786301125658655746">Anda sedang offline</translation>
 <translation id="3789841737615482174">Instal</translation>
+<translation id="3793469551756281394">Sekitar <ph name="REMAINING_TIME_HOUR" /> <ph name="REMAINING_TIME_MINUTE" /> lagi</translation>
 <translation id="3798449238516105146">Versi</translation>
 <translation id="3801082500826908679">Faeroe</translation>
 <translation id="3809272675881623365">Kelinci</translation>
+<translation id="3810973564298564668">Kelola</translation>
 <translation id="3811494700605067549">1 file dipilih</translation>
 <translation id="3815016854028376614">Metode masukan Zhuyin</translation>
 <translation id="3825863595139017598">Keyboard Mongolia</translation>
@@ -242,7 +257,7 @@
 <translation id="3830674330436234648">Pemutaran tidak tersedia</translation>
 <translation id="3833761542219863804">Transliterasi (mausam → ਮੌਸਮ)</translation>
 <translation id="383652340667548381">Serb</translation>
-<translation id="385051799172605136">Mundur</translation>
+<translation id="385051799172605136">Kembali</translation>
 <translation id="3855472144336161447">Neo 2 Jerman</translation>
 <translation id="3856075812838139784">Hanya baca</translation>
 <translation id="3858678421048828670">Keyboard untuk bahasa Italia</translation>
@@ -255,6 +270,7 @@
 <translation id="3943857333388298514">Sisipkan</translation>
 <translation id="3958548648197196644">Burung Kiwi</translation>
 <translation id="3966388904776714213">Pemutar Audio</translation>
+<translation id="3984317463833596033">Beri Parallels Desktop izin untuk mengubah file di folder <ph name="FOLDER_NAME" /></translation>
 <translation id="4002066346123236978">Judul</translation>
 <translation id="4070370845051020638">Metode masukan Kanton</translation>
 <translation id="4072248638558688893">Keyboard Tamil (Fonetik)</translation>
@@ -283,8 +299,10 @@
 <translation id="4470564870223067757">2 Himpunan Hangul</translation>
 <translation id="4477219268485577442">Fonetik Bulgaria</translation>
 <translation id="4479812471636796472">Keyboard Dvorak AS</translation>
+<translation id="4481711095103932593">Folder ini dibagikan ke Windows</translation>
 <translation id="4487088045714738411">Keyboard untuk bahasa Belgia</translation>
 <translation id="4522570452068850558">Detail</translation>
+<translation id="4542387084127299777">Tidak dapat membuka "<ph name="PATH" />"</translation>
 <translation id="4552678318981539154">Beli penyimpanan lagi</translation>
 <translation id="4559767610552730302">Efek Bokeh</translation>
 <translation id="4572815280350369984">File <ph name="FILE_TYPE" /></translation>
@@ -292,6 +310,7 @@
 <translation id="4579744207439506346"><ph name="ENTRY_NAME" /> ditambahkan ke pilihan.</translation>
 <translation id="4582497162516204941">Instal dengan Linux (Beta)</translation>
 <translation id="4594543368593301662">Menampilkan hasil untuk <ph name="SEARCH_TERM" />.</translation>
+<translation id="4603392156942865207">Menyalin <ph name="FILE_NAME" /> ke <ph name="FOLDER_NAME" /></translation>
 <translation id="4631887759990505102">Artis</translation>
 <translation id="4656293982926141856">Komputer ini</translation>
 <translation id="4669606053856530811">Anggota '<ph name="SOURCE_NAME" />' akan kehilangan akses kecuali jika item berikut dibagikan dengan mereka.</translation>
@@ -325,10 +344,12 @@
 <translation id="4880520557730313061">Perbaikan Otomatis</translation>
 <translation id="4881695831933465202">Buka</translation>
 <translation id="4886021172213954916">Keyboard Tamil (Mesin ketik)</translation>
+<translation id="4900532980794411603">Bagikan ke Parallels Desktop</translation>
 <translation id="4905417359854579806">Siap untuk mencadangkan <ph name="FILE_COUNT" /></translation>
 <translation id="4924638091161556692">Telah Diperbaiki</translation>
 <translation id="4935975195727477204">Bunga Gazania</translation>
 <translation id="4943368462779413526">Sepak bola</translation>
+<translation id="4961158930123534723">1 folder dibagikan ke Parallels Desktop</translation>
 <translation id="4969785127455456148">Album</translation>
 <translation id="497244430928947428">Keyboard Malayalam (Fonetik)</translation>
 <translation id="4973523518332075481">Gunakan nama yang terdiri dari <ph name="MAX_LENGTH" /> karakter atau kurang</translation>
@@ -340,10 +361,12 @@
 <translation id="5010406651457630570">Komputer</translation>
 <translation id="5011233892417813670">Chromebook</translation>
 <translation id="5024856940085636730">Operasi berlangsung lebih lama dari biasanya. Ingin membatalkannya?</translation>
+<translation id="5036159836254554629">Kelola berbagi Parallels Desktop</translation>
 <translation id="5038625366300922036">Lihat lebih banyak...</translation>
 <translation id="5061708541166515394">Kontras</translation>
 <translation id="5068919226082848014">Pizza</translation>
 <translation id="5081517858322016911"><ph name="TOTAL_FILE_SIZE" /> file akan dihapus</translation>
+<translation id="508423945471810158">Memindahkan <ph name="NUMBER_OF_ITEMS" /> item ke <ph name="FOLDER_NAME" /></translation>
 <translation id="509429900233858213">Terjadi kesalahan.</translation>
 <translation id="5098629044894065541">Ibrani</translation>
 <translation id="5123433949759960244">Bola basket</translation>
@@ -389,6 +412,7 @@
 <translation id="5418923334382419584">Keyboard Myanmar</translation>
 <translation id="5428105026674456456">Spanyol</translation>
 <translation id="5438282218546237410">Tidak ada hasil untuk <ph name="SEARCH_TERM" />.</translation>
+<translation id="5449551289610225147">Sandi tidak valid</translation>
 <translation id="5464696796438641524">Keyboard untuk bahasa Polandia</translation>
 <translation id="5465122519792752163">Keyboard Nepali (Dalam Skrip)</translation>
 <translation id="5469868506864199649">Italia</translation>
@@ -447,6 +471,7 @@
 <translation id="6054173164583630569">Keyboard untuk bahasa Prancis</translation>
 <translation id="6074825444536523002">Google Formulir</translation>
 <translation id="6096979789310008754">Teks penelusuran dihapus, menampilkan semua file dan folder.</translation>
+<translation id="610101264611565198">Memindahkan <ph name="FILE_NAME" /> ke <ph name="FOLDER_NAME" /></translation>
 <translation id="6111770213269631447">Transliterasi (namaskar → নমস্কার)</translation>
 <translation id="6129953537138746214">Spasi</translation>
 <translation id="6133173853026656527">Memindahkan <ph name="FILE_NAME" />...</translation>
@@ -487,9 +512,11 @@
 <translation id="656398493051028875">Menghapus "<ph name="FILENAME" />"...</translation>
 <translation id="6581162200855843583">Tautan Google Drive</translation>
 <translation id="6607272825297743757">Info file</translation>
+<translation id="6609332149380188670"><ph name="NUMBER_OF_ITEMS" /> folder dibagikan ke Parallels Desktop</translation>
 <translation id="6629841649550503054">Semua dicadangkan ke <ph name="BEGIN_LINK" />Google Drive!<ph name="END_LINK" /></translation>
 <translation id="6643016212128521049">Hapus</translation>
 <translation id="6650726141019353908">Kupu-kupu merah muda</translation>
+<translation id="6657585470893396449">Sandi</translation>
 <translation id="6710213216561001401">Sebelumnya</translation>
 <translation id="6718273304615422081">Membuat file zip...</translation>
 <translation id="6751256176799620176">1 folder dipilih</translation>
@@ -499,6 +526,7 @@
 <translation id="6806699711453372963">Kelola fitur berbagi Linux</translation>
 <translation id="6808193438228982088">Rubah</translation>
 <translation id="6820687829547641339">Arsip tar terkompresi Gzip</translation>
+<translation id="6823166707458800069">Semua file yang disimpan dalam folder ini otomatis dicadangkan secara online.</translation>
 <translation id="6825883775269213504">Rusia</translation>
 <translation id="6827236167376090743">Video ini akan terus berputar sampai sapinya pulang.</translation>
 <translation id="6847101934483209767"><ph name="ENTRY_NAME" /> dihapus dari pilihan.</translation>
@@ -508,6 +536,7 @@
 <translation id="6878261347041253038">Keyboard Devanagari (Fonetik)</translation>
 <translation id="6885780034956018177">Siput</translation>
 <translation id="6896758677409633944">Salin</translation>
+<translation id="6898028766943174120">Lebih banyak subfolder ...</translation>
 <translation id="691516599546977041">Tidak dapat menyimpan ke <ph name="FOLDER_NAME" />. Gambar yang telah diedit akan disimpan dalam folder Download.</translation>
 <translation id="6915678159055240887">Chromebox</translation>
 <translation id="6918340160281024199">Workman AS</translation>
@@ -520,6 +549,7 @@
 <translation id="696203921837389374">Aktifkan sinkronisasi melalui data seluler</translation>
 <translation id="6965382102122355670">Oke</translation>
 <translation id="6970230597523682626">Bulgaria</translation>
+<translation id="6973630695168034713">Folder</translation>
 <translation id="6978611942794658017">File ini dirancang untuk PC yang menggunakan software Windows. File ini tidak kompatibel dengan perangkat Anda yang menjalankan Chrome OS. Telusuri di Chrome Webstore untuk mendapatkan aplikasi pengganti yang sesuai.</translation>
 <translation id="6979158407327259162">Google Drive</translation>
 <translation id="6990081529015358884">Anda telah kehabisan ruang</translation>
@@ -553,6 +583,7 @@
 <translation id="7417705661718309329">Peta Google</translation>
 <translation id="7419631653042041064">Keyboard untuk bahasa Katalana</translation>
 <translation id="7434823369735508263">Keyboard Dvorak Inggris</translation>
+<translation id="7447678886297481665">File dalam folder ini bersifat hanya baca. Beberapa aktivitas tidak didukung.</translation>
 <translation id="7460898608667578234">Ukraina</translation>
 <translation id="7474889694310679759">Keyboard untuk bahasa Inggris Kanada</translation>
 <translation id="7489215562877293245"><ph name="FILE_COUNT" /> ditemukan
@@ -662,6 +693,7 @@
 <translation id="8475647382427415476">Saat ini Google Drive tidak dapat menyinkronkan "<ph name="FILENAME" />". Google Drive akan mencoba lagi nanti.</translation>
 <translation id="8477649328507734757">Putaran</translation>
 <translation id="8487700953926739672">Tersedia secara offline</translation>
+<translation id="8490342535582768689">Beri Parallels Desktop izin aplikasi untuk mengubah file di Google Drive Anda. Perubahan akan disinkronkan ke perangkat Anda lainnya.</translation>
 <translation id="8521441079177373948">Inggris</translation>
 <translation id="8525306231823319788">Layar penuh</translation>
 <translation id="8551494947769799688">Latvia</translation>
@@ -697,6 +729,7 @@
 <translation id="9065203028668620118">Edit</translation>
 <translation id="9099674669267916096">Hitungan halaman</translation>
 <translation id="9110990317705400362">Kami terus mencari cara agar penjelajahan Anda lebih aman. Sebelumnya, situs web apa pun dapat meminta Anda untuk menambahkan ekstensi ke browser. Pada versi terbaru Google Chrome, Anda harus memberitahukan dengan jelas kepada Chrome bahwa Anda ingin memasang ekstensi ini dengan menambahkannya melalui halaman Ekstensi. <ph name="BEGIN_LINK" />Pelajari lebih lanjut<ph name="END_LINK" /></translation>
+<translation id="9111102763498581341">Buka kunci</translation>
 <translation id="912419004897138677">Codec</translation>
 <translation id="9129931661813833980">Pasang pin pada folder</translation>
 <translation id="9130775360844693113">Anggota '<ph name="DESTINATION_NAME" />' akan mendapatkan akses ke item berikut.</translation>

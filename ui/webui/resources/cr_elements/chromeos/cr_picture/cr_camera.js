@@ -33,8 +33,6 @@ const CAPTURE_DURATION_MS = 1000;
 Polymer({
   is: 'cr-camera',
 
-  behaviors: [CrPngBehavior],
-
   properties: {
     /** Strings provided by host */
     takePhotoLabel: String,
@@ -131,8 +129,11 @@ Polymer({
     const interval = setInterval(() => {
       /** Stop capturing frames when all allocated frames have been consumed. */
       if (frames.length) {
-        capturedFrames.push(
-            this.captureFrame_(this.$.cameraVideo, frames.pop()));
+        capturedFrames.push(this.captureFrame_(
+            /**
+             * @type {!HTMLVideoElement}
+             */
+            (this.$.cameraVideo), frames.pop()));
       } else {
         clearInterval(interval);
         this.fire(
@@ -168,6 +169,7 @@ Polymer({
       facingMode: 'user',
       width: {ideal: CAPTURE_SIZE.width},
       height: {ideal: CAPTURE_SIZE.height},
+      resizeMode: 'none',
     };
     navigator.webkitGetUserMedia(
         {video: videoConstraints}, successCallback, errorCallback);
@@ -284,8 +286,7 @@ Polymer({
         encodedImages.concat(encodedImages.slice(1, -1).reverse());
 
     /** Convert image sequence to animated PNG. */
-    return CrPngBehavior.convertImageSequenceToPng(
-        forwardBackwardImageSequence);
+    return cr.png.convertImageSequenceToPng(forwardBackwardImageSequence);
   },
 
   /**

@@ -8,9 +8,9 @@ import android.content.Context;
 
 import org.chromium.base.ContextUtils;
 import org.chromium.base.task.PostTask;
-import org.chromium.chrome.browser.background_task_scheduler.NativeBackgroundTask;
 import org.chromium.components.background_task_scheduler.BackgroundTaskScheduler;
 import org.chromium.components.background_task_scheduler.BackgroundTaskSchedulerFactory;
+import org.chromium.components.background_task_scheduler.NativeBackgroundTask;
 import org.chromium.components.background_task_scheduler.TaskIds;
 import org.chromium.components.background_task_scheduler.TaskInfo;
 import org.chromium.components.background_task_scheduler.TaskParameters;
@@ -41,8 +41,8 @@ public class FeedRefreshTask extends NativeBackgroundTask {
         long flexWindowSizeMs = (long) (thresholdMs * 2 * FLEX_FACTOR);
 
         BackgroundTaskScheduler scheduler = BackgroundTaskSchedulerFactory.getScheduler();
-        TaskInfo taskInfo = TaskInfo.createPeriodicTask(TaskIds.FEED_REFRESH_JOB_ID,
-                                            FeedRefreshTask.class, intervalMs, flexWindowSizeMs)
+        TaskInfo taskInfo = TaskInfo.createPeriodicTask(TaskIds.FEED_REFRESH_JOB_ID, intervalMs,
+                                            flexWindowSizeMs)
                                     .setIsPersisted(true)
                                     .setUpdateCurrent(true)
                                     .setRequiredNetworkType(TaskInfo.NetworkType.ANY)

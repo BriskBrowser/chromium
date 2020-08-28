@@ -107,11 +107,19 @@ function formActivity_(evt) {
       __gCrWeb.form.wasEditedByUser !== null) {
     __gCrWeb.form.wasEditedByUser.set(target, evt.isTrusted);
   }
-  if (target != lastFocusedElement) return;
+  if (target !== lastFocusedElement) {
+    return;
+  }
+  __gCrWeb.fill.setUniqueIDIfNeeded(target.form);
+  __gCrWeb.fill.setUniqueIDIfNeeded(target);
+  const formUniqueId = __gCrWeb.fill.getUniqueID(target.form);
+  const fieldUniqueId = __gCrWeb.fill.getUniqueID(target);
   const msg = {
     'command': 'form.activity',
-    'formName': __gCrWeb.form.getFormIdentifier(evt.target.form),
+    'formName': __gCrWeb.form.getFormIdentifier(target.form),
+    'uniqueFormID': formUniqueId,
     'fieldIdentifier': __gCrWeb.form.getFieldIdentifier(target),
+    'uniqueFieldID': fieldUniqueId,
     'fieldType': fieldType,
     'type': evt.type,
     'value': value,
@@ -222,12 +230,16 @@ __gCrWeb.formHandlers['trackFormMutations'] = function(delay) {
     for (let i = 0; i < mutations.length; i++) {
       const mutation = mutations[i];
       // Only process mutations to the tree of nodes.
-      if (mutation.type != 'childList') continue;
+      if (mutation.type !== 'childList') {
+        continue;
+      }
       const addedElements = [];
       for (let j = 0; j < mutation.addedNodes.length; j++) {
         const node = mutation.addedNodes[j];
         // Ignore non-element nodes.
-        if (node.nodeType != Node.ELEMENT_NODE) continue;
+        if (node.nodeType !== Node.ELEMENT_NODE) {
+          continue;
+        }
         addedElements.push(node);
         [].push.apply(
             addedElements, [].slice.call(node.getElementsByTagName('*')));
@@ -239,9 +251,50 @@ __gCrWeb.formHandlers['trackFormMutations'] = function(delay) {
         const msg = {
           'command': 'form.activity',
           'formName': '',
+          'uniqueFormID': '',
           'fieldIdentifier': '',
+          'uniqueFieldID': '',
           'fieldType': '',
           'type': 'form_changed',
+          'value': '',
+          'hasUserGesture': false
+        };
+        return sendFormMutationMessageAfterDelay_(msg, delay);
+      }
+
+      const removedElements = [];
+      for (let j = 0; j < mutation.removedNodes.length; j++) {
+        const node = mutation.removedNodes[j];
+        // Ignore non-element nodes.
+        if (node.nodeType !== Node.ELEMENT_NODE) {
+          continue;
+        }
+        removedElements.push(node);
+        [].push.apply(
+            removedElements, [].slice.call(node.getElementsByTagName('FORM')));
+      }
+      const formGone = removedElements.find(function(element) {
+        if (element.tagName.match(/(FORM)/)) {
+          for (let k = 0; k < element.elements.length; k++) {
+            if (element.elements[k].tagName.match(/(INPUT)/) &&
+                element.elements[k].type === 'password') {
+              return true;
+            }
+          }
+          return false;
+        }
+        return false;
+      });
+      const uniqueFormId = __gCrWeb.fill.getUniqueID(formGone);
+      if (formGone) {
+        const msg = {
+          'command': 'form.activity',
+          'formName': '',
+          'uniqueFormID': uniqueFormId,
+          'fieldIdentifier': '',
+          'uniqueFieldID': '',
+          'fieldType': '',
+          'type': 'password_form_removed',
           'value': '',
           'hasUserGesture': false
         };

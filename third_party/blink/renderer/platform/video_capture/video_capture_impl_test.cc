@@ -74,7 +74,9 @@ class MockMojoVideoCaptureHost : public media::mojom::blink::VideoCaptureHost {
                     const media::VideoCaptureParams&));
   MOCK_METHOD1(RequestRefreshFrame, void(const base::UnguessableToken&));
   MOCK_METHOD3(ReleaseBuffer,
-               void(const base::UnguessableToken&, int32_t, double));
+               void(const base::UnguessableToken&,
+                    int32_t,
+                    const media::VideoFrameFeedback&));
   MOCK_METHOD3(GetDeviceSupportedFormatsMock,
                void(const base::UnguessableToken&,
                     const base::UnguessableToken&,
@@ -193,15 +195,14 @@ class VideoCaptureImplTest : public ::testing::Test {
         media::mojom::blink::VideoFrameInfo::New();
 
     const base::TimeTicks now = base::TimeTicks::Now();
-    media::VideoFrameMetadata frame_metadata;
-    frame_metadata.SetTimeTicks(media::VideoFrameMetadata::REFERENCE_TIME, now);
-    info->metadata = frame_metadata.GetInternalValues().Clone();
-
+    media::VideoFrameMetadata metadata;
+    metadata.reference_time = now;
     info->timestamp = now - base::TimeTicks();
     info->pixel_format = pixel_format;
-    info->coded_size = WebSize(size);
-    info->visible_rect = WebRect(gfx::Rect(size));
+    info->coded_size = size;
+    info->visible_rect = gfx::Rect(size);
     info->color_space = gfx::ColorSpace();
+    info->metadata = metadata;
 
     video_capture_impl_->OnBufferReady(buffer_id, std::move(info));
   }

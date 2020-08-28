@@ -34,25 +34,20 @@ class MojoDecryptor : public Decryptor {
   ~MojoDecryptor() final;
 
   // Decryptor implementation.
-  void RegisterNewKeyCB(StreamType stream_type,
-                        const NewKeyCB& key_added_cb) final;
   void Decrypt(StreamType stream_type,
                scoped_refptr<DecoderBuffer> encrypted,
-               const DecryptCB& decrypt_cb) final;
+               DecryptCB decrypt_cb) final;
   void CancelDecrypt(StreamType stream_type) final;
   void InitializeAudioDecoder(const AudioDecoderConfig& config,
-                              const DecoderInitCB& init_cb) final;
+                              DecoderInitCB init_cb) final;
   void InitializeVideoDecoder(const VideoDecoderConfig& config,
-                              const DecoderInitCB& init_cb) final;
+                              DecoderInitCB init_cb) final;
   void DecryptAndDecodeAudio(scoped_refptr<DecoderBuffer> encrypted,
                              const AudioDecodeCB& audio_decode_cb) final;
   void DecryptAndDecodeVideo(scoped_refptr<DecoderBuffer> encrypted,
                              const VideoDecodeCB& video_decode_cb) final;
   void ResetDecoder(StreamType stream_type) final;
   void DeinitializeDecoder(StreamType stream_type) final;
-
-  // Called when keys have changed and an additional key is available.
-  void OnKeyAdded();
 
  private:
   // These are once callbacks corresponding to repeating callbacks DecryptCB,
@@ -62,16 +57,14 @@ class MojoDecryptor : public Decryptor {
   // TODO(xhwang): Update Decryptor to use OnceCallback. The change is easy,
   // but updating tests is hard given gmock doesn't support move-only types.
   // See http://crbug.com/751838
-  using DecryptOnceCB = base::OnceCallback<DecryptCB::RunType>;
-  using DecoderInitOnceCB = base::OnceCallback<DecoderInitCB::RunType>;
   using AudioDecodeOnceCB = base::OnceCallback<AudioDecodeCB::RunType>;
   using VideoDecodeOnceCB = base::OnceCallback<VideoDecodeCB::RunType>;
 
   // Called when a buffer is decrypted.
-  void OnBufferDecrypted(DecryptOnceCB decrypt_cb,
+  void OnBufferDecrypted(DecryptCB decrypt_cb,
                          Status status,
                          mojom::DecoderBufferPtr buffer);
-  void OnBufferRead(DecryptOnceCB decrypt_cb,
+  void OnBufferRead(DecryptCB decrypt_cb,
                     Status status,
                     scoped_refptr<DecoderBuffer> buffer);
   void OnAudioDecoded(AudioDecodeOnceCB audio_decode_cb,
@@ -102,9 +95,6 @@ class MojoDecryptor : public Decryptor {
   // Helper class to receive decrypted DecoderBuffer from the
   // |remote_decryptor_|, shared by audio and video.
   std::unique_ptr<MojoDecoderBufferReader> decrypted_buffer_reader_;
-
-  NewKeyCB new_audio_key_cb_;
-  NewKeyCB new_video_key_cb_;
 
   base::WeakPtrFactory<MojoDecryptor> weak_factory_{this};
 

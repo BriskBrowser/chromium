@@ -13,6 +13,7 @@
 #include "base/debug/stack_trace.h"
 #include "base/i18n/icu_util.h"
 #include "base/logging.h"
+#include "base/memory/shared_memory_hooks.h"
 #include "base/message_loop/message_pump_type.h"
 #include "base/optional.h"
 #include "base/process/launch.h"
@@ -31,6 +32,8 @@
 #include "mojo/core/embedder/configuration.h"
 #include "mojo/core/embedder/embedder.h"
 #include "mojo/core/embedder/scoped_ipc_support.h"
+#include "mojo/public/cpp/base/shared_memory_utils.h"
+#include "sandbox/policy/sandbox_type.h"
 #include "services/service_manager/embedder/main_delegate.h"
 #include "services/service_manager/embedder/process_type.h"
 #include "services/service_manager/embedder/set_process_title.h"
@@ -59,14 +62,14 @@
 #include "base/posix/global_descriptors.h"
 #endif
 
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
 #include "base/mac/scoped_nsautorelease_pool.h"
 #include "services/service_manager/embedder/mac_init.h"
 
 #if BUILDFLAG(USE_ALLOCATOR_SHIM)
 #include "base/allocator/allocator_shim.h"
 #endif
-#endif  // defined(OS_MACOSX)
+#endif  // defined(OS_MAC)
 
 namespace service_manager {
 
@@ -254,7 +257,7 @@ int Main(const MainParams& params) {
   int exit_code = -1;
   base::debug::GlobalActivityTracker* tracker = nullptr;
   ProcessType process_type = delegate->OverrideProcessType();
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
   std::unique_ptr<base::mac::ScopedNSAutoreleasePool> autorelease_pool;
 #endif
 
@@ -267,12 +270,12 @@ int Main(const MainParams& params) {
 #endif
   if (!is_initialized) {
     is_initialized = true;
-#if defined(OS_MACOSX) && BUILDFLAG(USE_ALLOCATOR_SHIM)
+#if defined(OS_MAC) && BUILDFLAG(USE_ALLOCATOR_SHIM)
     base::allocator::InitializeAllocatorShim();
 #endif
     base::EnableTerminationOnOutOfMemory();
 
-#if defined(OS_LINUX)
+#if defined(OS_LINUX) || defined(OS_CHROMEOS)
     // The various desktop environments set this environment variable that
     // allows the dbus client library to connect directly to the bus. When this
     // variable is not set (test environments like xvfb-run), the dbus client
@@ -341,7 +344,7 @@ int Main(const MainParams& params) {
 
     MainDelegate::InitializeParams init_params;
 
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
     // We need this pool for all the objects created before we get to the event
     // loop, but we don't want to leave them hanging around until the app quits.
     // Each "main" needs to flush this pool right before it goes into its main
@@ -358,8 +361,7 @@ int Main(const MainParams& params) {
       mojo_config.is_broker_process = true;
     }
     mojo_config.max_message_num_bytes = kMaximumMojoMessageSize;
-    delegate->OverrideMojoConfiguration(&mojo_config);
-    mojo::core::Init(mojo_config);
+    delegate->InitializeMojo(&mojo_config);
 
     ui::RegisterPathProvider();
 
@@ -373,6 +375,34 @@ int Main(const MainParams& params) {
       }
       return exit_code;
     }
+
+    // Note #1: the installed shared memory hooks require a live instance of
+    // mojo::core::ScopedIPCSupport to function, which is instantiated below by
+    // the process type's main function. However, some implementations of the
+    // service_manager::MainDelegate::Initialize() delegate method allocate
+    // shared memory, so the hooks cannot be installed before the Initialize()
+    // call above, or the shared memory allocation will simply fail.
+    //
+    // Note #2: some platforms can directly allocated shared memory in a
+    // sandboxed process. The defines below must be in sync with the
+    // implementation of mojo::NodeController::CreateSharedBuffer().
+#if !defined(OS_MAC) && !defined(OS_NACL_SFI) && !defined(OS_FUCHSIA)
+    if (sandbox::policy::IsUnsandboxedSandboxType(
+            sandbox::policy::SandboxTypeFromCommandLine(command_line))) {
+      // Unsandboxed processes don't need shared memory brokering... because
+      // they're not sandboxed.
+    } else if (mojo_config.force_direct_shared_memory_allocation) {
+      // Don't bother with hooks if direct shared memory allocation has been
+      // requested.
+    } else {
+      // Sanity check, since installing the shared memory hooks in a broker
+      // process will lead to infinite recursion.
+      DCHECK(!mojo_config.is_broker_process);
+      // Otherwise, this is a sandboxed process that will need brokering to
+      // allocate shared memory.
+      mojo::SharedMemoryUtils::InstallBaseHooks();
+    }
+#endif  // !defined(OS_MAC) && !defined(OS_NACL_SFI) && !defined(OS_FUCHSIA)
 
 #if defined(OS_WIN)
     // Route stdio to parent console (if any) or create one.
@@ -435,7 +465,7 @@ int Main(const MainParams& params) {
     }
   }
 
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
   autorelease_pool.reset();
 #endif
 

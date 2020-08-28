@@ -79,11 +79,12 @@ class PluginVmDriveImageDownloadService {
   int64_t total_bytes_downloaded_ = 0;
   base::FilePath download_directory_{kPluginVmDriveDownloadDirectory};
   base::FilePath download_file_path_;
-  google_apis::CancelCallback cancel_callback_;
+  google_apis::CancelCallbackOnce cancel_callback_;
 
   base::WeakPtrFactory<PluginVmDriveImageDownloadService> weak_ptr_factory_{
       this};
 };
 
 }  // namespace plugin_vm
+
 #endif  // CHROME_BROWSER_CHROMEOS_PLUGIN_VM_PLUGIN_VM_DRIVE_IMAGE_DOWNLOAD_SERVICE_H_

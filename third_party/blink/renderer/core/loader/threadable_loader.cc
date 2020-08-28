@@ -32,6 +32,7 @@
 #include "third_party/blink/renderer/core/loader/threadable_loader.h"
 
 #include <memory>
+
 #include "base/memory/weak_ptr.h"
 #include "base/single_thread_task_runner.h"
 #include "services/network/public/cpp/cors/cors_error_status.h"
@@ -44,6 +45,7 @@
 #include "third_party/blink/public/platform/web_url_request.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/frame/frame_console.h"
+#include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/frame/local_frame_client.h"
 #include "third_party/blink/renderer/core/frame/web_feature.h"
@@ -56,6 +58,7 @@
 #include "third_party/blink/renderer/core/probe/core_probes.h"
 #include "third_party/blink/renderer/core/workers/worker_global_scope.h"
 #include "third_party/blink/renderer/platform/exported/wrapped_resource_request.h"
+#include "third_party/blink/renderer/platform/heap/heap.h"
 #include "third_party/blink/renderer/platform/heap/self_keep_alive.h"
 #include "third_party/blink/renderer/platform/loader/cors/cors.h"
 #include "third_party/blink/renderer/platform/loader/cors/cors_error_string.h"
@@ -72,6 +75,7 @@
 #include "third_party/blink/renderer/platform/weborigin/security_policy.h"
 #include "third_party/blink/renderer/platform/wtf/assertions.h"
 #include "third_party/blink/renderer/platform/wtf/shared_buffer.h"
+#include "third_party/blink/renderer/platform/wtf/text/string_builder.h"
 
 namespace blink {
 
@@ -106,8 +110,6 @@ AtomicString CreateAccessControlRequestHeadersHeader(
 class ThreadableLoader::DetachedClient final
     : public GarbageCollected<DetachedClient>,
       public ThreadableLoaderClient {
-  USING_GARBAGE_COLLECTED_MIXIN(DetachedClient);
-
  public:
   explicit DetachedClient(ThreadableLoader* loader)
       : self_keep_alive_(PERSISTENT_FROM_HERE, this), loader_(loader) {}
@@ -118,7 +120,7 @@ class ThreadableLoader::DetachedClient final
   }
   void DidFail(const ResourceError&) override { self_keep_alive_.Clear(); }
   void DidFailRedirectCheck() override { self_keep_alive_.Clear(); }
-  void Trace(Visitor* visitor) override {
+  void Trace(Visitor* visitor) const override {
     visitor->Trace(loader_);
     ThreadableLoaderClient::Trace(visitor);
   }
@@ -227,7 +229,7 @@ ThreadableLoader::ThreadableLoader(
   }
 }
 
-void ThreadableLoader::Start(const ResourceRequest& request) {
+void ThreadableLoader::Start(ResourceRequest request) {
   original_security_origin_ = security_origin_ = request.RequestorOrigin();
   // Setting an outgoing referer is only supported in the async code path.
   DCHECK(async_ ||
@@ -274,15 +276,13 @@ void ThreadableLoader::Start(const ResourceRequest& request) {
   request_headers_ = request.HttpHeaderFields();
   report_upload_progress_ = request.ReportUploadProgress();
 
-  ResourceRequest new_request(request);
-
   // Set the service worker mode to none if "bypass for network" in DevTools is
   // enabled.
   bool should_bypass_service_worker = false;
   probe::ShouldBypassServiceWorker(execution_context_,
                                    &should_bypass_service_worker);
   if (should_bypass_service_worker)
-    new_request.SetSkipServiceWorker(true);
+    request.SetSkipServiceWorker(true);
 
   // Process the CORS protocol inside the ThreadableLoader for the
   // following cases:
@@ -307,24 +307,25 @@ void ThreadableLoader::Start(const ResourceRequest& request) {
   const bool is_controlled_by_service_worker =
       resource_fetcher_->IsControlledByServiceWorker() ==
       blink::mojom::ControllerServiceWorkerMode::kControlled;
-  if (!async_ || new_request.GetSkipServiceWorker() ||
+  if (!async_ || request.GetSkipServiceWorker() ||
       !SchemeRegistry::ShouldTreatURLSchemeAsAllowingServiceWorkers(
-          new_request.Url().Protocol()) ||
+          request.Url().Protocol()) ||
       !is_controlled_by_service_worker) {
-    DispatchInitialRequest(new_request);
+    DispatchInitialRequest(request);
     return;
   }
 
-  if (cors::IsCorsEnabledRequestMode(request.GetMode())) {
+  if (!out_of_blink_cors_ &&
+      cors::IsCorsEnabledRequestMode(request.GetMode())) {
     // Save the request to fallback_request_for_service_worker to use when the
     // service worker doesn't handle (call respondWith()) a CORS enabled
     // request.
-    fallback_request_for_service_worker_ = ResourceRequest(request);
+    fallback_request_for_service_worker_.CopyFrom(request);
     // Skip the service worker for the fallback request.
     fallback_request_for_service_worker_.SetSkipServiceWorker(true);
   }
 
-  LoadRequest(new_request, resource_loader_options_);
+  LoadRequest(request, resource_loader_options_);
 }
 
 void ThreadableLoader::DispatchInitialRequest(ResourceRequest& request) {
@@ -356,7 +357,7 @@ void ThreadableLoader::LoadPreflightRequest(
   std::unique_ptr<ResourceRequest> preflight_request =
       CreateAccessControlPreflightRequest(actual_request, GetSecurityOrigin());
 
-  actual_request_ = actual_request;
+  actual_request_.CopyFrom(actual_request);
   actual_options_ = actual_options;
 
   // Explicitly set |skip_service_worker| to true here. Although the page is
@@ -405,7 +406,8 @@ void ThreadableLoader::MakeCrossOriginAccessRequest(
     return;
   }
 
-  ResourceRequest cross_origin_request(request);
+  ResourceRequest cross_origin_request;
+  cross_origin_request.CopyFrom(request);
   ResourceLoaderOptions cross_origin_options(resource_loader_options_);
 
   cross_origin_request.RemoveUserAndPassFromURL();
@@ -598,7 +600,7 @@ bool ThreadableLoader::RedirectReceived(
     if (redirect_limit_ <= 0) {
       ThreadableLoaderClient* client = client_;
       Clear();
-      ConsoleMessage* message = ConsoleMessage::Create(
+      auto* message = MakeGarbageCollected<ConsoleMessage>(
           mojom::ConsoleMessageSource::kNetwork,
           mojom::ConsoleMessageLevel::kError,
           "Failed to load resource: net::ERR_TOO_MANY_REDIRECTS",
@@ -628,9 +630,7 @@ bool ThreadableLoader::RedirectReceived(
 
     probe::DidReceiveCorsRedirectResponse(
         execution_context_, resource->InspectorId(),
-        GetDocument() && GetDocument()->GetFrame()
-            ? GetDocument()->GetFrame()->Loader().GetDocumentLoader()
-            : nullptr,
+        GetFrame() ? GetFrame()->Loader().GetDocumentLoader() : nullptr,
         redirect_response_to_pass, resource);
 
     if (auto error_status = cors::CheckRedirectLocation(
@@ -678,8 +678,8 @@ bool ThreadableLoader::RedirectReceived(
   // We're initiating a new request (for redirect), so update
   // |last_request_url_| by destroying |assign_on_scope_exit|.
 
-  ResourceRequest cross_origin_request(new_request);
-  cross_origin_request.SetInitialUrlForResourceTiming(initial_request_url_);
+  ResourceRequest cross_origin_request;
+  cross_origin_request.CopyFrom(new_request);
 
   // Remove any headers that may have been added by the network layer that cause
   // access control to fail.
@@ -771,7 +771,7 @@ void ThreadableLoader::HandlePreflightResponse(
 void ThreadableLoader::ReportResponseReceived(
     uint64_t identifier,
     const ResourceResponse& response) {
-  LocalFrame* frame = GetDocument() ? GetDocument()->GetFrame() : nullptr;
+  LocalFrame* frame = GetFrame();
   if (!frame)
     return;
   DocumentLoader* loader = frame->Loader().GetDocumentLoader();
@@ -949,16 +949,18 @@ void ThreadableLoader::LoadFallbackRequestForServiceWorker() {
   if (GetResource())
     checker_.WillRemoveClient();
   ClearResource();
-  ResourceRequest fallback_request(fallback_request_for_service_worker_);
-  fallback_request_for_service_worker_ = ResourceRequest();
+  ResourceRequest fallback_request;
+  fallback_request.CopyFrom(fallback_request_for_service_worker_);
+  fallback_request_for_service_worker_.CopyFrom(ResourceRequest());
   DispatchInitialRequest(fallback_request);
 }
 
 void ThreadableLoader::LoadActualRequest() {
-  ResourceRequest actual_request = actual_request_;
+  ResourceRequest actual_request;
+  actual_request.CopyFrom(actual_request_);
   ResourceLoaderOptions actual_options = actual_options_;
-  actual_request_ = ResourceRequest();
-  actual_options_ = ResourceLoaderOptions();
+  actual_request_.CopyFrom(ResourceRequest());
+  actual_options_ = ResourceLoaderOptions(nullptr /* world */);
 
   if (GetResource())
     checker_.WillRemoveClient();
@@ -983,7 +985,7 @@ void ThreadableLoader::DispatchDidFail(const ResourceError& error) {
         *error.CorsErrorStatus(), initial_request_url_, last_request_url_,
         *GetSecurityOrigin(), ResourceType::kRaw,
         resource_loader_options_.initiator_info.name);
-    execution_context_->AddConsoleMessage(ConsoleMessage::Create(
+    execution_context_->AddConsoleMessage(MakeGarbageCollected<ConsoleMessage>(
         mojom::ConsoleMessageSource::kJavaScript,
         mojom::ConsoleMessageLevel::kError, std::move(message)));
   }
@@ -1035,7 +1037,7 @@ void ThreadableLoader::LoadRequest(
     }
   }
 
-  FetchParameters new_params(request, resource_loader_options);
+  FetchParameters new_params(std::move(request), resource_loader_options);
   DCHECK(!GetResource());
 
   checker_.WillAddClient();
@@ -1061,11 +1063,12 @@ const SecurityOrigin* ThreadableLoader::GetSecurityOrigin() const {
                                 .GetSecurityOrigin();
 }
 
-Document* ThreadableLoader::GetDocument() const {
-  return DynamicTo<Document>(execution_context_.Get());
+LocalFrame* ThreadableLoader::GetFrame() const {
+  auto* window = DynamicTo<LocalDOMWindow>(execution_context_.Get());
+  return window ? window->GetFrame() : nullptr;
 }
 
-void ThreadableLoader::Trace(blink::Visitor* visitor) {
+void ThreadableLoader::Trace(Visitor* visitor) const {
   visitor->Trace(execution_context_);
   visitor->Trace(client_);
   visitor->Trace(resource_fetcher_);

@@ -171,7 +171,7 @@ bool SupportsInvalidation(CSSSelector::PseudoType type) {
     case CSSSelector::kPseudoSlotted:
     case CSSSelector::kPseudoVideoPersistent:
     case CSSSelector::kPseudoVideoPersistentAncestor:
-    case CSSSelector::kPseudoXrImmersiveDomOverlay:
+    case CSSSelector::kPseudoXrOverlay:
       return true;
     case CSSSelector::kPseudoIs:
     case CSSSelector::kPseudoWhere:
@@ -321,10 +321,10 @@ void RuleFeatureSet::AddInvalidationSet(
   scoped_refptr<InvalidationSet>& slot =
       map.insert(key, nullptr).stored_value->value;
   if (!slot) {
-    slot = invalidation_set;
+    slot = std::move(invalidation_set);
   } else {
-    EnsureInvalidationSet(
-        map, key, invalidation_set->GetType(),
+    EnsureMutableInvalidationSet(
+        slot, invalidation_set->GetType(),
         invalidation_set->IsSelfInvalidationSet() ? kSubject : kAncestor)
         .Combine(*invalidation_set);
   }
@@ -338,10 +338,10 @@ void RuleFeatureSet::AddInvalidationSet(
   scoped_refptr<InvalidationSet>& slot =
       map.insert(key, nullptr).stored_value->value;
   if (!slot) {
-    slot = invalidation_set;
+    slot = std::move(invalidation_set);
   } else {
-    EnsureInvalidationSet(
-        map, key, invalidation_set->GetType(),
+    EnsureMutableInvalidationSet(
+        slot, invalidation_set->GetType(),
         invalidation_set->IsSelfInvalidationSet() ? kSubject : kAncestor)
         .Combine(*invalidation_set);
   }
@@ -553,7 +553,7 @@ InvalidationSet* RuleFeatureSet::InvalidationSetForSimpleSelector(
       case CSSSelector::kPseudoDefined:
       case CSSSelector::kPseudoVideoPersistent:
       case CSSSelector::kPseudoVideoPersistentAncestor:
-      case CSSSelector::kPseudoXrImmersiveDomOverlay:
+      case CSSSelector::kPseudoXrOverlay:
       case CSSSelector::kPseudoSpatialNavigationInterest:
       case CSSSelector::kPseudoMultiSelectFocus:
         return &EnsurePseudoInvalidationSet(selector.GetPseudoType(), type,

@@ -13,10 +13,10 @@
 #include "base/time/time.h"
 #include "base/values.h"
 #include "chrome/test/chromedriver/chrome/browser_info.h"
-#include "chrome/test/chromedriver/chrome/devtools_client.h"
 #include "chrome/test/chromedriver/chrome/devtools_client_impl.h"
 #include "chrome/test/chromedriver/chrome/page_load_strategy.h"
 #include "chrome/test/chromedriver/chrome/status.h"
+#include "chrome/test/chromedriver/chrome/stub_devtools_client.h"
 #include "chrome/test/chromedriver/net/sync_websocket.h"
 #include "chrome/test/chromedriver/net/sync_websocket_factory.h"
 #include "chrome/test/chromedriver/net/timeout.h"
@@ -24,10 +24,10 @@
 
 namespace {
 
-class FakeDevToolsClient : public DevToolsClient {
+class FakeDevToolsClient : public StubDevToolsClient {
  public:
-  FakeDevToolsClient() : id_("fake-id"), status_(kOk) {}
-  ~FakeDevToolsClient() override {}
+  FakeDevToolsClient() : status_(kOk) {}
+  ~FakeDevToolsClient() override = default;
 
   void set_status(const Status& status) {
     status_ = status;
@@ -38,30 +38,6 @@ class FakeDevToolsClient : public DevToolsClient {
   }
 
   // Overridden from DevToolsClient:
-  const std::string& GetId() override { return id_; }
-  bool WasCrashed() override { return false; }
-  Status ConnectIfNecessary() override { return Status(kOk); }
-  Status SendCommand(
-      const std::string& method,
-      const base::DictionaryValue& params) override {
-    return SendCommandAndGetResult(method, params, nullptr);
-  }
-  Status SendCommandFromWebSocket(const std::string& method,
-                                  const base::DictionaryValue& params,
-                                  const int client_command_id) override {
-    return SendCommandAndGetResult(method, params, nullptr);
-  }
-  Status SendCommandWithTimeout(
-      const std::string& method,
-      const base::DictionaryValue& params,
-      const Timeout* timeout) override {
-    return SendCommandAndGetResult(method, params, nullptr);
-  }
-  Status SendAsyncCommand(
-      const std::string& method,
-      const base::DictionaryValue& params) override {
-    return SendCommandAndGetResult(method, params, nullptr);
-  }
   Status SendCommandAndGetResult(
       const std::string& method,
       const base::DictionaryValue& params,
@@ -71,29 +47,8 @@ class FakeDevToolsClient : public DevToolsClient {
     result->reset(result_.DeepCopy());
     return Status(kOk);
   }
-  Status SendCommandAndGetResultWithTimeout(
-      const std::string& method,
-      const base::DictionaryValue& params,
-      const Timeout* timeout,
-      std::unique_ptr<base::DictionaryValue>* result) override {
-    return SendCommandAndGetResult(method, params, result);
-  }
-  Status SendCommandAndIgnoreResponse(
-      const std::string& method,
-      const base::DictionaryValue& params) override {
-    return SendCommandAndGetResult(method, params, nullptr);
-  }
-  void AddListener(DevToolsEventListener* listener) override {}
-  Status HandleEventsUntil(const ConditionalFunc& conditional_func,
-                           const Timeout& timeout) override {
-    return Status(kOk);
-  }
-  Status HandleReceivedEvents() override { return Status(kOk); }
-  void SetDetached() override {}
-  void SetOwner(WebViewImpl* owner) override {}
 
  private:
-  const std::string id_;
   Status status_;
   base::DictionaryValue result_;
 };
@@ -102,9 +57,9 @@ void AssertEvalFails(const base::DictionaryValue& command_result) {
   std::unique_ptr<base::DictionaryValue> result;
   FakeDevToolsClient client;
   client.set_result(command_result);
-  Status status = internal::EvaluateScript(&client, 0, std::string(),
-                                           internal::ReturnByValue,
-                                           base::TimeDelta::Max(), &result);
+  Status status = internal::EvaluateScript(
+      &client, 0, std::string(), internal::ReturnByValue,
+      base::TimeDelta::Max(), false, &result);
   ASSERT_EQ(kUnknownError, status.code());
   ASSERT_FALSE(result);
 }
@@ -115,41 +70,34 @@ TEST(EvaluateScript, CommandError) {
   std::unique_ptr<base::DictionaryValue> result;
   FakeDevToolsClient client;
   client.set_status(Status(kUnknownError));
-  Status status = internal::EvaluateScript(&client, 0, std::string(),
-                                           internal::ReturnByValue,
-                                           base::TimeDelta::Max(), &result);
+  Status status = internal::EvaluateScript(
+      &client, 0, std::string(), internal::ReturnByValue,
+      base::TimeDelta::Max(), false, &result);
   ASSERT_EQ(kUnknownError, status.code());
   ASSERT_FALSE(result);
 }
 
-TEST(EvaluateScript, MissingWasThrown) {
-  base::DictionaryValue dict;
-  ASSERT_NO_FATAL_FAILURE(AssertEvalFails(dict));
-}
-
 TEST(EvaluateScript, MissingResult) {
   base::DictionaryValue dict;
-  dict.SetBoolean("wasThrown", false);
   ASSERT_NO_FATAL_FAILURE(AssertEvalFails(dict));
 }
 
 TEST(EvaluateScript, Throws) {
   base::DictionaryValue dict;
-  dict.SetBoolean("wasThrown", true);
-  dict.SetString("result.type", "undefined");
+  dict.SetString("exceptionDetails.exception.className", "SyntaxError");
+  dict.SetString("result.type", "object");
   ASSERT_NO_FATAL_FAILURE(AssertEvalFails(dict));
 }
 
 TEST(EvaluateScript, Ok) {
   std::unique_ptr<base::DictionaryValue> result;
   base::DictionaryValue dict;
-  dict.SetBoolean("wasThrown", false);
   dict.SetInteger("result.key", 100);
   FakeDevToolsClient client;
   client.set_result(dict);
   ASSERT_TRUE(internal::EvaluateScript(&client, 0, std::string(),
                                        internal::ReturnByValue,
-                                       base::TimeDelta::Max(), &result)
+                                       base::TimeDelta::Max(), false, &result)
                   .IsOk());
   ASSERT_TRUE(result);
   ASSERT_TRUE(result->HasKey("key"));
@@ -159,11 +107,11 @@ TEST(EvaluateScriptAndGetValue, MissingType) {
   std::unique_ptr<base::Value> result;
   FakeDevToolsClient client;
   base::DictionaryValue dict;
-  dict.SetBoolean("wasThrown", false);
   dict.SetInteger("result.value", 1);
   client.set_result(dict);
-  ASSERT_TRUE(internal::EvaluateScriptAndGetValue(
-                  &client, 0, std::string(), base::TimeDelta::Max(), &result)
+  ASSERT_TRUE(internal::EvaluateScriptAndGetValue(&client, 0, std::string(),
+                                                  base::TimeDelta::Max(), false,
+                                                  &result)
                   .IsError());
 }
 
@@ -171,11 +119,10 @@ TEST(EvaluateScriptAndGetValue, Undefined) {
   std::unique_ptr<base::Value> result;
   FakeDevToolsClient client;
   base::DictionaryValue dict;
-  dict.SetBoolean("wasThrown", false);
   dict.SetString("result.type", "undefined");
   client.set_result(dict);
   Status status = internal::EvaluateScriptAndGetValue(
-      &client, 0, std::string(), base::TimeDelta::Max(), &result);
+      &client, 0, std::string(), base::TimeDelta::Max(), false, &result);
   ASSERT_EQ(kOk, status.code());
   ASSERT_TRUE(result && result->is_none());
 }
@@ -184,12 +131,11 @@ TEST(EvaluateScriptAndGetValue, Ok) {
   std::unique_ptr<base::Value> result;
   FakeDevToolsClient client;
   base::DictionaryValue dict;
-  dict.SetBoolean("wasThrown", false);
   dict.SetString("result.type", "integer");
   dict.SetInteger("result.value", 1);
   client.set_result(dict);
   Status status = internal::EvaluateScriptAndGetValue(
-      &client, 0, std::string(), base::TimeDelta::Max(), &result);
+      &client, 0, std::string(), base::TimeDelta::Max(), false, &result);
   ASSERT_EQ(kOk, status.code());
   int value;
   ASSERT_TRUE(result && result->GetAsInteger(&value));
@@ -199,14 +145,13 @@ TEST(EvaluateScriptAndGetValue, Ok) {
 TEST(EvaluateScriptAndGetObject, NoObject) {
   FakeDevToolsClient client;
   base::DictionaryValue dict;
-  dict.SetBoolean("wasThrown", false);
   dict.SetString("result.type", "integer");
   client.set_result(dict);
   bool got_object;
   std::string object_id;
-  ASSERT_TRUE(internal::EvaluateScriptAndGetObject(&client, 0, std::string(),
-                                                   base::TimeDelta::Max(),
-                                                   &got_object, &object_id)
+  ASSERT_TRUE(internal::EvaluateScriptAndGetObject(
+                  &client, 0, std::string(), base::TimeDelta::Max(), false,
+                  &got_object, &object_id)
                   .IsOk());
   ASSERT_FALSE(got_object);
   ASSERT_TRUE(object_id.empty());
@@ -215,14 +160,13 @@ TEST(EvaluateScriptAndGetObject, NoObject) {
 TEST(EvaluateScriptAndGetObject, Ok) {
   FakeDevToolsClient client;
   base::DictionaryValue dict;
-  dict.SetBoolean("wasThrown", false);
   dict.SetString("result.objectId", "id");
   client.set_result(dict);
   bool got_object;
   std::string object_id;
-  ASSERT_TRUE(internal::EvaluateScriptAndGetObject(&client, 0, std::string(),
-                                                   base::TimeDelta::Max(),
-                                                   &got_object, &object_id)
+  ASSERT_TRUE(internal::EvaluateScriptAndGetObject(
+                  &client, 0, std::string(), base::TimeDelta::Max(), false,
+                  &got_object, &object_id)
                   .IsOk());
   ASSERT_TRUE(got_object);
   ASSERT_STREQ("id", object_id.c_str());
@@ -301,7 +245,7 @@ std::unique_ptr<SyncWebSocket> CreateMockSyncWebSocket(
 
 TEST(CreateChild, MultiLevel) {
   SyncWebSocketFactory factory =
-      base::Bind(&CreateMockSyncWebSocket, SyncWebSocket::kOk);
+      base::BindRepeating(&CreateMockSyncWebSocket, SyncWebSocket::kOk);
   // CreateChild relies on client_ being a DevToolsClientImpl, so no mocking
   std::unique_ptr<DevToolsClientImpl> client_uptr =
       std::make_unique<DevToolsClientImpl>(factory, "http://url", "id");
@@ -322,7 +266,7 @@ TEST(CreateChild, MultiLevel) {
 
 TEST(CreateChild, IsNonBlocking_NoErrors) {
   SyncWebSocketFactory factory =
-      base::Bind(&CreateMockSyncWebSocket, SyncWebSocket::kOk);
+      base::BindRepeating(&CreateMockSyncWebSocket, SyncWebSocket::kOk);
   // CreateChild relies on client_ being a DevToolsClientImpl, so no mocking
   std::unique_ptr<DevToolsClientImpl> client_uptr =
       std::make_unique<DevToolsClientImpl>(factory, "http://url", "id");
@@ -342,7 +286,7 @@ TEST(CreateChild, IsNonBlocking_NoErrors) {
 
 TEST(CreateChild, Load_NoErrors) {
   SyncWebSocketFactory factory =
-      base::Bind(&CreateMockSyncWebSocket, SyncWebSocket::kOk);
+      base::BindRepeating(&CreateMockSyncWebSocket, SyncWebSocket::kOk);
   // CreateChild relies on client_ being a DevToolsClientImpl, so no mocking
   std::unique_ptr<DevToolsClientImpl> client_uptr =
       std::make_unique<DevToolsClientImpl>(factory, "http://url", "id");
@@ -360,7 +304,7 @@ TEST(CreateChild, Load_NoErrors) {
 
 TEST(CreateChild, WaitForPendingNavigations_NoErrors) {
   SyncWebSocketFactory factory =
-      base::Bind(&CreateMockSyncWebSocket, SyncWebSocket::kTimeout);
+      base::BindRepeating(&CreateMockSyncWebSocket, SyncWebSocket::kTimeout);
   // CreateChild relies on client_ being a DevToolsClientImpl, so no mocking
   std::unique_ptr<DevToolsClientImpl> client_uptr =
       std::make_unique<DevToolsClientImpl>(factory, "http://url", "id");
@@ -380,7 +324,7 @@ TEST(CreateChild, WaitForPendingNavigations_NoErrors) {
 
 TEST(CreateChild, IsPendingNavigation_NoErrors) {
   SyncWebSocketFactory factory =
-      base::Bind(&CreateMockSyncWebSocket, SyncWebSocket::kOk);
+      base::BindRepeating(&CreateMockSyncWebSocket, SyncWebSocket::kOk);
   // CreateChild relies on client_ being a DevToolsClientImpl, so no mocking
   std::unique_ptr<DevToolsClientImpl> client_uptr =
       std::make_unique<DevToolsClientImpl>(factory, "http://url", "id");
@@ -395,8 +339,7 @@ TEST(CreateChild, IsPendingNavigation_NoErrors) {
 
   Timeout timeout(base::TimeDelta::FromMilliseconds(10));
   bool result;
-  ASSERT_NO_FATAL_FAILURE(
-      child_view->IsPendingNavigation("1234", &timeout, &result));
+  ASSERT_NO_FATAL_FAILURE(child_view->IsPendingNavigation(&timeout, &result));
 }
 
 TEST(ManageCookies, AddCookie_SameSiteTrue) {

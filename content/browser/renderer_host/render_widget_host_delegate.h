@@ -13,15 +13,14 @@
 #include "base/callback.h"
 #include "build/build_config.h"
 #include "components/viz/common/vertical_scroll_direction.h"
-#include "content/browser/renderer_host/input_event_shim.h"
 #include "content/common/content_export.h"
 #include "content/common/drag_event_source_info.h"
 #include "content/public/common/drop_data.h"
 #include "services/metrics/public/cpp/ukm_recorder.h"
 #include "third_party/blink/public/common/input/web_input_event.h"
+#include "third_party/blink/public/common/page/web_drag_operation.h"
 #include "third_party/blink/public/mojom/frame/lifecycle.mojom.h"
 #include "third_party/blink/public/mojom/manifest/display_mode.mojom.h"
-#include "third_party/blink/public/platform/web_drag_operation.h"
 #include "ui/gfx/native_widget_types.h"
 
 namespace blink {
@@ -42,6 +41,7 @@ class Sample;
 namespace content {
 
 class BrowserAccessibilityManager;
+class FrameTree;
 class RenderFrameHostImpl;
 class RenderWidgetHostImpl;
 class RenderWidgetHostInputEventRouter;
@@ -123,7 +123,7 @@ class CONTENT_EXPORT RenderWidgetHostDelegate {
   // Notification that an input event from the user was dispatched to the
   // widget.
   virtual void DidReceiveInputEvent(RenderWidgetHostImpl* render_widget_host,
-                                    const blink::WebInputEvent::Type type) {}
+                                    const blink::WebInputEvent& event) {}
 
   // Asks whether the page is in a state of ignoring input events.
   virtual bool ShouldIgnoreInputEvents();
@@ -148,9 +148,12 @@ class CONTENT_EXPORT RenderWidgetHostDelegate {
   virtual void ExecuteEditCommand(
       const std::string& command,
       const base::Optional<base::string16>& value) = 0;
+  virtual void Undo() = 0;
+  virtual void Redo() = 0;
   virtual void Cut() = 0;
   virtual void Copy() = 0;
   virtual void Paste() = 0;
+  virtual void PasteAndMatchStyle() = 0;
   virtual void SelectAll() = 0;
 
   // Requests the renderer to move the selection extent to a new position.
@@ -208,17 +211,19 @@ class CONTENT_EXPORT RenderWidgetHostDelegate {
                                   bool last_unlocked_by_target,
                                   bool privileged) {}
 
+  virtual void UnlockMouse(RenderWidgetHostImpl* render_widget_host) {}
+
   // Returns whether the associated tab is in fullscreen mode.
-  virtual bool IsFullscreenForCurrentTab();
+  virtual bool IsFullscreen();
 
   // Returns true if the widget's frame content needs to be stored before
   // eviction and displayed until a new frame is generated. If false, a white
   // solid color is displayed instead.
   virtual bool ShouldShowStaleContentOnEviction();
 
-  // Returns the display mode for the view.
-  virtual blink::mojom::DisplayMode GetDisplayMode(
-      RenderWidgetHostImpl* render_widget_host) const;
+  // Returns the display mode for all widgets in the frame tree. Only applies
+  // to frame-based widgets. Other widgets are always kBrowser.
+  virtual blink::mojom::DisplayMode GetDisplayMode() const;
 
   // Notification that the widget has lost capture.
   virtual void LostCapture(RenderWidgetHostImpl* render_widget_host) {}
@@ -302,20 +307,15 @@ class CONTENT_EXPORT RenderWidgetHostDelegate {
   // if the eTLD+1 is not known for |render_widget_host|.
   virtual bool AddDomainInfoToRapporSample(rappor::Sample* sample);
 
-  // Get the UKM source ID for current content. This is used for providing
-  // data about the content to the URL-keyed metrics service.
-  // Note: This is also exposed by the RenderFrameHostDelegate.
-  virtual ukm::SourceId GetUkmSourceIdForLastCommittedSource() const;
-
   // Return this object cast to a WebContents, if it is one. If the object is
   // not a WebContents, returns nullptr.
   virtual WebContents* GetAsWebContents();
 
-  // Gets the size set by a top-level frame with auto-resize enabled.
-  virtual gfx::Size GetAutoResizeSize();
-
-  // Reset the auto-size value, to indicate that auto-size is no longer active.
-  virtual void ResetAutoResizeSize() {}
+  // Get the UKM source ID for current content. This is used for providing
+  // data about the content to the URL-keyed metrics service.
+  // Note: Prefer using RenderFrameHost::GetPageUkmSourceId wherever
+  // possible.
+  virtual ukm::SourceId GetCurrentPageUkmSourceId();
 
   // Returns true if there is context menu shown on page.
   virtual bool IsShowingContextMenuOnPage() const;
@@ -333,7 +333,16 @@ class CONTENT_EXPORT RenderWidgetHostDelegate {
       viz::VerticalScrollDirection scroll_direction) {}
 
   // Returns true if the delegate is a portal.
-  virtual bool IsPortal() const;
+  virtual bool IsPortal();
+
+  // Notify the delegate that the screen orientation has been changed.
+  virtual void DidChangeScreenOrientation() {}
+
+  // Returns the FrameTree that this RenderWidgetHost is attached to. If the
+  // RenderWidgetHost is attached to a frame, then its RenderFrameHost will be
+  // in the tree. Otherwise, the RenderWidgetHost is for a popup which was
+  // opened by a frame in the FrameTree.
+  virtual FrameTree* GetFrameTree();
 
  protected:
   virtual ~RenderWidgetHostDelegate() {}

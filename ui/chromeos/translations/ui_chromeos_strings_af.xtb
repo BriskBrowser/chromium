@@ -8,6 +8,7 @@
 <translation id="1046068652463704410">Japannese invoer (vir VSA-sleutelbord)</translation>
 <translation id="1047956942837015229">Tans besig om <ph name="COUNT" /> items uit te vee …</translation>
 <translation id="1049926623896334335">Word-dokument</translation>
+<translation id="1060368002126861100">Om lêers met <ph name="APP_NAME" /> oop te maak, moet jy hulle eers na die Windows-lêersvouer toe skuif.</translation>
 <translation id="1062407476771304334">Vervang</translation>
 <translation id="1065449928621190041">Kanadese Frans-sleutelbord</translation>
 <translation id="1119069657431255176">Bzip2 se saamgeperste teerargief</translation>
@@ -20,6 +21,7 @@
 <translation id="1150565364351027703">Sonbril</translation>
 <translation id="115443833402798225">Hangul Ahnmatae</translation>
 <translation id="1155759005174418845">Katalaans</translation>
+<translation id="1172970565351728681">Omtrent <ph name="REMAINING_TIME" /> bly oor</translation>
 <translation id="1173894706177603556">Hernoem</translation>
 <translation id="117624967391683467">Kopieer tans <ph name="FILE_NAME" /> …</translation>
 <translation id="1178581264944972037">Laat wag</translation>
@@ -29,6 +31,7 @@
 <translation id="1243314992276662751">Laai op</translation>
 <translation id="1249250836236328755">Genre</translation>
 <translation id="1278813325885878377">Hongaarse QWERTY-sleutelbord</translation>
+<translation id="1293556467332435079">Lêers</translation>
 <translation id="1297922636971898492">Google Drive is nie nou beskikbaar nie. Oplaai sal outomaties herbegin wanneer Google Drive terug is.</translation>
 <translation id="1307931752636661898">Kan nie Linux-lêers bekyk nie</translation>
 <translation id="1310751437842832374">Transliterasie (mausam → ନମସ୍ତେ)</translation>
@@ -44,6 +47,8 @@
 <translation id="1395262318152388157">Soekglyer</translation>
 <translation id="1399648040768741453">Telugu-sleutelbord (foneties)</translation>
 <translation id="1430915738399379752">Druk uit</translation>
+<translation id="1433600251059882049">Hierdie vouer word met Linux en Windows gedeel</translation>
+<translation id="1435838927755162558">Deel vouer met Parallels Desktop</translation>
 <translation id="1439494416798956626">Geskuif na <ph name="FOLDER_NAME" /></translation>
 <translation id="1441841714100794440">Viëtnamese sleutelbord (Telex)</translation>
 <translation id="1455548678241328678">Noorweegse sleutelbord</translation>
@@ -78,6 +83,7 @@
 <translation id="1844692022597038441">Hierdie lêer is nie vanlyn beskikbaar nie.</translation>
 <translation id="184633654410729720">Thaise sleutelbord (Kedmanee)</translation>
 <translation id="1847880352285315359">Gestoor</translation>
+<translation id="1853795129690976061">Hierdie vouer word met Linux gedeel</translation>
 <translation id="1864756863218646478">Die lêer kon nie gevind word nie.</translation>
 <translation id="1921986354447415460">Turkse F-sleutelbord</translation>
 <translation id="1924372192547904021">Het <ph name="DRIVE_NAME" /> geformateer</translation>
@@ -89,6 +95,7 @@
 <translation id="1947424002851288782">Duitse sleutelbord</translation>
 <translation id="1972984168337863910">Vou lêersterugvoerpanele uit</translation>
 <translation id="1984603991036629094">Armeense fonetiese sleutelbord</translation>
+<translation id="1995337122023280937">Gaan na lêerligging toe</translation>
 <translation id="2001796770603320721">Bestuur in Drive</translation>
 <translation id="2009067268969781306">Alle data wat op 'n skyf geberg is, sal uitgevee word wanneer dit geformateer word. Hierdie handeling kan nie ontdoen word nie.</translation>
 <translation id="2028997212275086731">RAR-argief</translation>
@@ -100,7 +107,6 @@
 <translation id="2085470240340828803">'n Lêer met die naam "<ph name="FILENAME" />" bestaan reeds. Wat wil jy doen?</translation>
 <translation id="2121825465123208577">Verander grootte</translation>
 <translation id="2136953289241069843">Transliterasie (namaste → नमस्कार)</translation>
-<translation id="2138867954865495510">Kan nie "<ph name="PATH" />" oopmaak nie: <ph name="ERROR_MESSAGE" /></translation>
 <translation id="2163152940313951844">Ongeldige karakter: <ph name="CHARACTER_NAME" /></translation>
 <translation id="2164862903024139959">Viëtnamese sleutelbord (TCVN)</translation>
 <translation id="2168214441502403371">Persiese sleutelbord</translation>
@@ -122,6 +128,7 @@
 <translation id="2384596874640104496">Sinhala-sleutelbord</translation>
 <translation id="240770291734945588"><ph name="SPACE_AVAILABLE" /> beskikbaar</translation>
 <translation id="2425665904502185219">Totale lêergrootte</translation>
+<translation id="2428749644083375155">Kopieer <ph name="NUMBER_OF_ITEMS" /> items nou na <ph name="FOLDER_NAME" /></translation>
 <translation id="2448312741937722512">Soort</translation>
 <translation id="2453576648990281505">Lêer bestaan reeds</translation>
 <translation id="2464079411014186876">Roomys</translation>
@@ -140,6 +147,7 @@
 <translation id="2638942478653899953">Google Drive kon nie bereik word nie. <ph name="BEGIN_LINK" />Meld asseblief af<ph name="END_LINK" /> en meld dan weer aan.</translation>
 <translation id="2649120831653069427">Reënboogvis</translation>
 <translation id="2661146741306740526">16x9</translation>
+<translation id="2664412712123763093">Lêerligging</translation>
 <translation id="2672394958563893062">'n Fout het voorgekom. Klik om van die begin af te herbegin.</translation>
 <translation id="2676946222714718093">Speel tans op</translation>
 <translation id="2735698359135166290">Roemeense standaardsleutelbord</translation>
@@ -175,6 +183,7 @@
 <translation id="303198083543495566">Geografie</translation>
 <translation id="3057861065630527966">Rugsteun jou foto's en video's</translation>
 <translation id="3064388234319122767">Transliterasie (zdravo → здраво)</translation>
+<translation id="3067790092342515856">Windows-lêers</translation>
 <translation id="3078461028045006476">Deel met <ph name="EXTENSION_NAME" /></translation>
 <translation id="3088034400796962477">Transliterasie (salam ← سلام)</translation>
 <translation id="3116361045094675131">VK-sleutelbord</translation>
@@ -189,6 +198,7 @@
 <translation id="3236289833370040187">Eienaarskap sal na <ph name="DESTINATION_DOMAIN" /> oorgedra word.</translation>
 <translation id="3241720467332021590">Iers</translation>
 <translation id="3245321423178950146">Onbekende kunstenaar</translation>
+<translation id="3248185426436836442">Hangend</translation>
 <translation id="3252266817569339921">Frans</translation>
 <translation id="3254434849914415189">Kies die verstekprogram vir <ph name="FILE_TYPE" />-lêers:</translation>
 <translation id="3264582393905923483">Konteks</translation>
@@ -199,6 +209,7 @@
 <translation id="3335337277364016868">Jaar opgeneem</translation>
 <translation id="3338239663705455570">Sloweense sleutelbord</translation>
 <translation id="3353984535370177728">Kies 'n vouer om op te laai</translation>
+<translation id="3356580349448036450">Voltooi</translation>
 <translation id="3399597614303179694">Masedoniese sleutelbord</translation>
 <translation id="3414856743105198592">Die formatering van verwyderbare media gaan alle data uitvee. Wil jy voortgaan?</translation>
 <translation id="3437801641691368414">Tyd geskep</translation>
@@ -210,8 +221,10 @@
 <translation id="3495304270784461826"><ph name="COUNT" /> foute.</translation>
 <translation id="3519867315646775981">Transliterasie (shalom ← שלום)</translation>
 <translation id="3522708245912499433">Portugees</translation>
+<translation id="3524311639100184459">Wees versigtig: Hierdie lêers is tydelik en kan outomaties uitgevee word om skyfspasie beskikbaar te maak.  <ph name="BEGIN_LINK" />Kom meer te wete<ph name="END_LINK" /></translation>
 <translation id="3527085408025491307">Vouer</translation>
 <translation id="3549797760399244642">Gaan na drive.google.com …</translation>
+<translation id="3553048479571901246">Om lêers met <ph name="APP_NAME" /> oop te maak, moet jy hulle eers na die Windows-lêersvouer toe kopieer.</translation>
 <translation id="357479282490346887">Litaus</translation>
 <translation id="3583509704582854624">Alfanumeriese invoer (vir Japannese sleutelbord)</translation>
 <translation id="3603385196401704894">Kanadese Frans</translation>
@@ -232,9 +245,11 @@
 <translation id="3780536599611287598">Jy het nie toestemming om lêers na "<ph name="FOLDER_NAME" />" te skuif nie.</translation>
 <translation id="3786301125658655746">Jy is vanlyn</translation>
 <translation id="3789841737615482174">Installeer</translation>
+<translation id="3793469551756281394">Omtrent <ph name="REMAINING_TIME_HOUR" /> <ph name="REMAINING_TIME_MINUTE" /> bly oor</translation>
 <translation id="3798449238516105146">Weergawe</translation>
 <translation id="3801082500826908679">Faroëes</translation>
 <translation id="3809272675881623365">Haas</translation>
+<translation id="3810973564298564668">Bestuur</translation>
 <translation id="3811494700605067549">1 lêer gekies</translation>
 <translation id="3815016854028376614">Zhuyin-invoermetode</translation>
 <translation id="3825863595139017598">Mongoolse sleutelbord</translation>
@@ -255,6 +270,7 @@
 <translation id="3943857333388298514">Plak</translation>
 <translation id="3958548648197196644">Kiwi</translation>
 <translation id="3966388904776714213">Oudiospeler</translation>
+<translation id="3984317463833596033">Gee Parallels Desktop toestemming om lêers in die <ph name="FOLDER_NAME" />-vouer te wysig</translation>
 <translation id="4002066346123236978">Titel</translation>
 <translation id="4070370845051020638">Kantonnese invoermetode</translation>
 <translation id="4072248638558688893">Tamil-sleutelbord (foneties)</translation>
@@ -283,8 +299,10 @@
 <translation id="4470564870223067757">Hangul 2 Stel</translation>
 <translation id="4477219268485577442">Bulgaars foneties</translation>
 <translation id="4479812471636796472">VSA Dvorak-sleutelbord</translation>
+<translation id="4481711095103932593">Hierdie vouer word met Windows gedeel</translation>
 <translation id="4487088045714738411">Belgiese sleutelbord</translation>
 <translation id="4522570452068850558">Besonderhede</translation>
+<translation id="4542387084127299777">Kan nie "<ph name="PATH" />" oopmaak nie</translation>
 <translation id="4552678318981539154">Koop meer berging</translation>
 <translation id="4559767610552730302">Bokeh</translation>
 <translation id="4572815280350369984"><ph name="FILE_TYPE" />-lêer</translation>
@@ -292,6 +310,7 @@
 <translation id="4579744207439506346">Het <ph name="ENTRY_NAME" /> by seleksie gevoeg.</translation>
 <translation id="4582497162516204941">Installeer met Linux (Beta)</translation>
 <translation id="4594543368593301662">Wys tans resultate vir <ph name="SEARCH_TERM" />.</translation>
+<translation id="4603392156942865207">Kopieer <ph name="FILE_NAME" /> nou na <ph name="FOLDER_NAME" /></translation>
 <translation id="4631887759990505102">Kunstenaar</translation>
 <translation id="4656293982926141856">Hierdie rekenaar</translation>
 <translation id="4669606053856530811">Lede van "<ph name="SOURCE_NAME" />" sal toegang verloor tensy hierdie items met hulle gedeel word.</translation>
@@ -325,10 +344,12 @@
 <translation id="4880520557730313061">Outoherstel</translation>
 <translation id="4881695831933465202">Maak oop</translation>
 <translation id="4886021172213954916">Tamil-sleutelbord (tikmasjien)</translation>
+<translation id="4900532980794411603">Deel met Parallels Desktop</translation>
 <translation id="4905417359854579806">Gereed om <ph name="FILE_COUNT" /> te rugsteun</translation>
 <translation id="4924638091161556692">Reggestel</translation>
 <translation id="4935975195727477204">Botterblom</translation>
 <translation id="4943368462779413526">Voetbal</translation>
+<translation id="4961158930123534723">1 vouer is met Parallels Desktop gedeel</translation>
 <translation id="4969785127455456148">Album</translation>
 <translation id="497244430928947428">Malabaarse sleutelbord (foneties)</translation>
 <translation id="4973523518332075481">Gebruik 'n naam wat <ph name="MAX_LENGTH" /> karakters of minder bevat</translation>
@@ -340,10 +361,12 @@
 <translation id="5010406651457630570">Rekenaars</translation>
 <translation id="5011233892417813670">Chromebook</translation>
 <translation id="5024856940085636730">'n Handeling vat langer as verwag. Wil jy dit staak?</translation>
+<translation id="5036159836254554629">Bestuur Parallels Desktop-deling</translation>
 <translation id="5038625366300922036">Sien nog …</translation>
 <translation id="5061708541166515394">Kontras</translation>
 <translation id="5068919226082848014">Pizza</translation>
 <translation id="5081517858322016911"><ph name="TOTAL_FILE_SIZE" /> se lêers sal uitgevee word</translation>
+<translation id="508423945471810158">Skuif <ph name="NUMBER_OF_ITEMS" /> items nou na <ph name="FOLDER_NAME" /> toe</translation>
 <translation id="509429900233858213">'n Fout het voorgekom.</translation>
 <translation id="5098629044894065541">Hebreeus</translation>
 <translation id="5123433949759960244">Basketbal</translation>
@@ -388,6 +411,7 @@
 <translation id="5418923334382419584">Mianmese sleutelbord</translation>
 <translation id="5428105026674456456">Spaans</translation>
 <translation id="5438282218546237410">Daar is geen resultate vir <ph name="SEARCH_TERM" /> nie.</translation>
+<translation id="5449551289610225147">Ongeldige wagwoord</translation>
 <translation id="5464696796438641524">Poolse sleutelbord</translation>
 <translation id="5465122519792752163">Nepalese sleutelbord (InScript)</translation>
 <translation id="5469868506864199649">Italiaans</translation>
@@ -446,6 +470,7 @@
 <translation id="6054173164583630569">Franse sleutelbord</translation>
 <translation id="6074825444536523002">Google-vorm</translation>
 <translation id="6096979789310008754">Soekteks is uitgevee; alle lêers en vouers word gewys.</translation>
+<translation id="610101264611565198">Skuif <ph name="FILE_NAME" /> nou na <ph name="FOLDER_NAME" /> toe</translation>
 <translation id="6111770213269631447">Transliterasie (namaskar → নমস্কার)</translation>
 <translation id="6129953537138746214">Spasie</translation>
 <translation id="6133173853026656527">Skuif tans <ph name="FILE_NAME" /> …</translation>
@@ -486,9 +511,11 @@
 <translation id="656398493051028875">Vee tans "<ph name="FILENAME" />" uit …</translation>
 <translation id="6581162200855843583">Google Drive-skakel</translation>
 <translation id="6607272825297743757">Lêerinligting</translation>
+<translation id="6609332149380188670"><ph name="NUMBER_OF_ITEMS" /> vouers is met Parallels Desktop gedeel</translation>
 <translation id="6629841649550503054">Alles is gerugsteun na <ph name="BEGIN_LINK" />Google Drive!<ph name="END_LINK" /></translation>
 <translation id="6643016212128521049">Vee uit</translation>
 <translation id="6650726141019353908">Pienk skoenlapper</translation>
+<translation id="6657585470893396449">Wagwoord</translation>
 <translation id="6710213216561001401">Vorige</translation>
 <translation id="6718273304615422081">Kompakteer tans …</translation>
 <translation id="6751256176799620176">1 vouer is gekies</translation>
@@ -498,6 +525,7 @@
 <translation id="6806699711453372963">Bestuur Linux-deling</translation>
 <translation id="6808193438228982088">Jakkals</translation>
 <translation id="6820687829547641339">Gzip saamgeperste teerargief</translation>
+<translation id="6823166707458800069">Al die lêers wat in hierdie vouer gestoor is, word outomaties aanlyn gerugsteun.</translation>
 <translation id="6825883775269213504">Russies</translation>
 <translation id="6827236167376090743">Hierdie video sal aanhou speel tot die perde horings kry.</translation>
 <translation id="6847101934483209767">Het <ph name="ENTRY_NAME" /> uit keuse verwyder.</translation>
@@ -507,6 +535,7 @@
 <translation id="6878261347041253038">Devanagari-sleutelbord (foneties)</translation>
 <translation id="6885780034956018177">Slak</translation>
 <translation id="6896758677409633944">Kopieer</translation>
+<translation id="6898028766943174120">Meer subvouers …</translation>
 <translation id="691516599546977041">Kan nie in <ph name="FOLDER_NAME" /> stoor nie. Geredigeerde prente sal in die Aflaaie-vouer gestoor word.</translation>
 <translation id="6915678159055240887">Chromekassie</translation>
 <translation id="6918340160281024199">VSA-Workman</translation>
@@ -519,6 +548,7 @@
 <translation id="696203921837389374">Aktiveer sinkronisering oor mobiele data</translation>
 <translation id="6965382102122355670">OK</translation>
 <translation id="6970230597523682626">Bulgaars</translation>
+<translation id="6973630695168034713">Vouers</translation>
 <translation id="6978611942794658017">Hierdie lêer is ontwerp vir 'n rekenaar met Windows-sagteware. Dit is nie versoenbaar met jou toestel wat Chrome-bedryfstelsel laat loop nie. Deursoek asseblief die Chrome-webwinkel vir 'n geskikte plaasvervangerprogram.</translation>
 <translation id="6979158407327259162">Google Drive</translation>
 <translation id="6990081529015358884">Jy het nie meer spasie nie</translation>
@@ -552,6 +582,7 @@
 <translation id="7417705661718309329">Google-kaart</translation>
 <translation id="7419631653042041064">Katalaanse sleutelbord</translation>
 <translation id="7434823369735508263">VK Dvorak-sleutelbord</translation>
+<translation id="7447678886297481665">Lêers in hierdie vouer is leesalleen. Sommige aktiwiteite word nie gesteun nie.</translation>
 <translation id="7460898608667578234">Oekraïens</translation>
 <translation id="7474889694310679759">Kanadese Engels-sleutelbord</translation>
 <translation id="7489215562877293245"><ph name="FILE_COUNT" /> gevind
@@ -661,6 +692,7 @@
 <translation id="8475647382427415476">Google Drive kon <ph name="FILENAME" /> nie nou onmiddellik sinkroniseer nie. Google Drive sal later weer probeer.</translation>
 <translation id="8477649328507734757">Spin</translation>
 <translation id="8487700953926739672">Vanlyn beskikbaar</translation>
+<translation id="8490342535582768689">Gee Parallels Desktop toestemming om lêers in jou Google Drive te wysig. Veranderinge sal met jou ander toestelle gesinkroniseer word.</translation>
 <translation id="8521441079177373948">VK</translation>
 <translation id="8525306231823319788">Volskerm</translation>
 <translation id="8551494947769799688">Letties</translation>
@@ -696,6 +728,7 @@
 <translation id="9065203028668620118">Wysig</translation>
 <translation id="9099674669267916096">Aantal bladsye</translation>
 <translation id="9110990317705400362">Ons soek gedurig na maniere om jou blaai-ervaring veiliger te maak. Voorheen kon enige webwerf jou vra om 'n uitbreiding by jou blaaier te voeg. In die nuutste weergawes van Google Chrome moet jy Chrome spesifiek aansê dat jy hierdie uitbreidings wil installeer deur hulle via die uitbreidingbladsy by te voeg. <ph name="BEGIN_LINK" />Kom meer te wete<ph name="END_LINK" /></translation>
+<translation id="9111102763498581341">Ontsluit</translation>
 <translation id="912419004897138677">Kodek</translation>
 <translation id="9129931661813833980">Speld vouer vas</translation>
 <translation id="9130775360844693113">Lede van "<ph name="DESTINATION_NAME" />" sal toegang tot hierdie items kry.</translation>

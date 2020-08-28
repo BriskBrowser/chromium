@@ -21,40 +21,56 @@
 namespace cc {
 namespace {
 
-// Can't templatize a class on its own members, so ReadbackType and
+// Can't templatize a class on its own members, so TestReadBackType and
 // ReadbackTestConfig are declared here, before LayerTreeHostReadbackPixelTest.
-enum ReadbackType {
-  READBACK_TEXTURE,
-  READBACK_BITMAP,
+enum class TestReadBackType {
+  kTexture,
+  kBitmap,
 };
 
 struct ReadbackTestConfig {
-  LayerTreeTest::RendererType renderer_type;
-  ReadbackType readback_type;
+  TestRendererType renderer_type;
+  TestReadBackType readback_type;
 };
+
+// Provides a test readback suffix appropriate for |type|.
+const char* ReadbackTypeTestSuffix(TestReadBackType type) {
+  switch (type) {
+    case TestReadBackType::kTexture:
+      return "Texture";
+    case TestReadBackType::kBitmap:
+      return "Bitmap";
+  }
+}
+
+void PrintTo(const ReadbackTestConfig& config, std::ostream* os) {
+  PrintTo(config.renderer_type, os);
+  *os << '_' << ReadbackTypeTestSuffix(config.readback_type);
+}
 
 class LayerTreeHostReadbackPixelTest
     : public LayerTreePixelTest,
       public testing::WithParamInterface<ReadbackTestConfig> {
  protected:
   LayerTreeHostReadbackPixelTest()
-      : insert_copy_request_after_frame_count_(0) {}
+      : LayerTreePixelTest(renderer_type()),
+        insert_copy_request_after_frame_count_(0) {}
 
-  RendererType renderer_type() const { return GetParam().renderer_type; }
+  TestRendererType renderer_type() const { return GetParam().renderer_type; }
 
-  ReadbackType readback_type() const { return GetParam().readback_type; }
+  TestReadBackType readback_type() const { return GetParam().readback_type; }
 
   std::unique_ptr<viz::CopyOutputRequest> CreateCopyOutputRequest() override {
     std::unique_ptr<viz::CopyOutputRequest> request;
 
-    if (readback_type() == READBACK_BITMAP) {
+    if (readback_type() == TestReadBackType::kBitmap) {
       request = std::make_unique<viz::CopyOutputRequest>(
           viz::CopyOutputRequest::ResultFormat::RGBA_BITMAP,
           base::BindOnce(
               &LayerTreeHostReadbackPixelTest::ReadbackResultAsBitmap,
               base::Unretained(this)));
     } else {
-      DCHECK_NE(renderer_type_, RENDERER_SOFTWARE);
+      DCHECK_NE(renderer_type_, TestRendererType::kSoftware);
       request = std::make_unique<viz::CopyOutputRequest>(
           viz::CopyOutputRequest::ResultFormat::RGBA_TEXTURE,
           base::BindOnce(
@@ -125,8 +141,7 @@ TEST_P(LayerTreeHostReadbackPixelTest, ReadbackRootLayer) {
       CreateSolidColorLayer(gfx::Rect(200, 200), SK_ColorGREEN);
   background->AddChild(green);
 
-  RunPixelTest(renderer_type(), background,
-               base::FilePath(FILE_PATH_LITERAL("green.png")));
+  RunPixelTest(background, base::FilePath(FILE_PATH_LITERAL("green.png")));
 }
 
 TEST_P(LayerTreeHostReadbackPixelTest, ReadbackRootLayerWithChild) {
@@ -141,7 +156,7 @@ TEST_P(LayerTreeHostReadbackPixelTest, ReadbackRootLayerWithChild) {
       CreateSolidColorLayer(gfx::Rect(150, 150, 50, 50), SK_ColorBLUE);
   green->AddChild(blue);
 
-  RunPixelTest(renderer_type(), background,
+  RunPixelTest(background,
                base::FilePath(FILE_PATH_LITERAL("green_with_blue_corner.png")));
 }
 
@@ -154,8 +169,7 @@ TEST_P(LayerTreeHostReadbackPixelTest, ReadbackNonRootLayer) {
   background->AddChild(green);
 
   RunPixelTestWithReadbackTarget(
-      renderer_type(), background, green.get(),
-      base::FilePath(FILE_PATH_LITERAL("green.png")));
+      background, green.get(), base::FilePath(FILE_PATH_LITERAL("green.png")));
 }
 
 TEST_P(LayerTreeHostReadbackPixelTest, ReadbackSmallNonRootLayer) {
@@ -167,7 +181,7 @@ TEST_P(LayerTreeHostReadbackPixelTest, ReadbackSmallNonRootLayer) {
   background->AddChild(green);
 
   RunPixelTestWithReadbackTarget(
-      renderer_type(), background, green.get(),
+      background, green.get(),
       base::FilePath(FILE_PATH_LITERAL("green_small.png")));
 }
 
@@ -184,7 +198,7 @@ TEST_P(LayerTreeHostReadbackPixelTest, ReadbackSmallNonRootLayerWithChild) {
   green->AddChild(blue);
 
   RunPixelTestWithReadbackTarget(
-      renderer_type(), background, green.get(),
+      background, green.get(),
       base::FilePath(FILE_PATH_LITERAL("green_small_with_blue_corner.png")));
 }
 
@@ -210,7 +224,7 @@ TEST_P(LayerTreeHostReadbackPixelTestMaybeVulkan,
 
   copy_subrect_ = gfx::Rect(0, 0, 100, 100);
   RunPixelTestWithReadbackTarget(
-      renderer_type(), background, target.get(),
+      background, target.get(),
       base::FilePath(FILE_PATH_LITERAL("green_small_with_blue_corner.png")));
 }
 
@@ -233,7 +247,7 @@ TEST_P(LayerTreeHostReadbackPixelTest,
 
   copy_subrect_ = gfx::Rect(50, 50, 100, 100);
   RunPixelTestWithReadbackTarget(
-      renderer_type(), background, target.get(),
+      background, target.get(),
       base::FilePath(FILE_PATH_LITERAL("green_small_with_blue_corner.png")));
 }
 
@@ -251,7 +265,7 @@ TEST_P(LayerTreeHostReadbackPixelTest, ReadbackHiddenSubtree) {
   hidden_target->AddChild(blue);
 
   RunPixelTestWithReadbackTarget(
-      renderer_type(), background, hidden_target.get(),
+      background, hidden_target.get(),
       base::FilePath(FILE_PATH_LITERAL("green_with_blue_corner.png")));
 }
 
@@ -271,8 +285,7 @@ TEST_P(LayerTreeHostReadbackPixelTest,
 
   hidden_target->RequestCopyOfOutput(
       viz::CopyOutputRequest::CreateStubForTesting());
-  RunPixelTest(renderer_type(), background,
-               base::FilePath(FILE_PATH_LITERAL("black.png")));
+  RunPixelTest(background, base::FilePath(FILE_PATH_LITERAL("black.png")));
 }
 
 TEST_P(LayerTreeHostReadbackPixelTest, ReadbackSubrect) {
@@ -291,7 +304,7 @@ TEST_P(LayerTreeHostReadbackPixelTest, ReadbackSubrect) {
   copy_subrect_ = gfx::Rect(50, 50, 100, 100);
 
   RunPixelTest(
-      renderer_type(), background,
+      background,
       base::FilePath(FILE_PATH_LITERAL("green_small_with_blue_corner.png")));
 }
 
@@ -311,7 +324,7 @@ TEST_P(LayerTreeHostReadbackPixelTest, ReadbackNonRootLayerSubrect) {
   copy_subrect_ = gfx::Rect(25, 25, 100, 100);
 
   RunPixelTestWithReadbackTarget(
-      renderer_type(), background, green.get(),
+      background, green.get(),
       base::FilePath(FILE_PATH_LITERAL("green_small_with_blue_corner.png")));
 }
 
@@ -333,7 +346,7 @@ TEST_P(LayerTreeHostReadbackPixelTest, ReadbackWhenNoDamage) {
 
   insert_copy_request_after_frame_count_ = 1;
   RunPixelTestWithReadbackTarget(
-      renderer_type(), background, target.get(),
+      background, target.get(),
       base::FilePath(FILE_PATH_LITERAL("green_small_with_blue_corner.png")));
 }
 
@@ -356,7 +369,7 @@ TEST_P(LayerTreeHostReadbackPixelTest, ReadbackOutsideViewportWhenNoDamage) {
 
   insert_copy_request_after_frame_count_ = 1;
   RunPixelTestWithReadbackTarget(
-      renderer_type(), background, target.get(),
+      background, target.get(),
       base::FilePath(FILE_PATH_LITERAL("green_small_with_blue_corner.png")));
 }
 
@@ -376,7 +389,7 @@ TEST_P(LayerTreeHostReadbackPixelTest, ReadbackNonRootLayerOutsideViewport) {
   green->AddChild(blue);
 
   RunPixelTestWithReadbackTarget(
-      renderer_type(), background, green.get(),
+      background, green.get(),
       base::FilePath(FILE_PATH_LITERAL("green_with_blue_corner.png")));
 }
 
@@ -394,7 +407,7 @@ TEST_P(LayerTreeHostReadbackPixelTestMaybeVulkan, ReadbackNonRootOrFirstLayer) {
   background->AddChild(blue);
 
   RunPixelTestWithReadbackTarget(
-      renderer_type(), background, background.get(),
+      background, background.get(),
       base::FilePath(FILE_PATH_LITERAL("green_with_blue_corner.png")));
 }
 
@@ -412,44 +425,52 @@ TEST_P(LayerTreeHostReadbackPixelTest, MultipleReadbacksOnLayer) {
       viz::CopyOutputRequest::CreateStubForTesting());
 
   RunPixelTestWithReadbackTarget(
-      renderer_type(), background, background.get(),
+      background, background.get(),
       base::FilePath(FILE_PATH_LITERAL("green.png")));
 }
 
 // TODO(crbug.com/971257): Enable these tests for Skia Vulkan using texture
 // readback.
 ReadbackTestConfig const kTestConfigs[] = {
-    ReadbackTestConfig{LayerTreeTest::RENDERER_SOFTWARE, READBACK_BITMAP},
-    ReadbackTestConfig{LayerTreeTest::RENDERER_GL, READBACK_TEXTURE},
-    ReadbackTestConfig{LayerTreeTest::RENDERER_GL, READBACK_BITMAP},
-    ReadbackTestConfig{LayerTreeTest::RENDERER_SKIA_GL, READBACK_TEXTURE},
-    ReadbackTestConfig{LayerTreeTest::RENDERER_SKIA_GL, READBACK_BITMAP},
+    ReadbackTestConfig{TestRendererType::kSoftware, TestReadBackType::kBitmap},
+    ReadbackTestConfig{TestRendererType::kGL, TestReadBackType::kTexture},
+    ReadbackTestConfig{TestRendererType::kGL, TestReadBackType::kBitmap},
+    ReadbackTestConfig{TestRendererType::kSkiaGL, TestReadBackType::kTexture},
+    ReadbackTestConfig{TestRendererType::kSkiaGL, TestReadBackType::kBitmap},
 #if defined(ENABLE_CC_VULKAN_TESTS)
-    ReadbackTestConfig{LayerTreeTest::RENDERER_SKIA_VK, READBACK_BITMAP},
-#endif
+    ReadbackTestConfig{TestRendererType::kSkiaVk, TestReadBackType::kBitmap},
+#endif  // defined(ENABLE_CC_VULKAN_TESTS)
+#if defined(ENABLE_CC_DAWN_TESTS)
+    ReadbackTestConfig{TestRendererType::kSkiaDawn, TestReadBackType::kBitmap},
+#endif  // defined(ENABLE_CC_DAWN_TESTS)
 };
 
 INSTANTIATE_TEST_SUITE_P(All,
                          LayerTreeHostReadbackPixelTest,
-                         ::testing::ValuesIn(kTestConfigs));
+                         ::testing::ValuesIn(kTestConfigs),
+                         ::testing::PrintToStringParamName());
 
 // TODO(crbug.com/974283): These tests are crashing with vulkan when TSan or
 // MSan are used.
 ReadbackTestConfig const kMaybeVulkanTestConfigs[] = {
-    ReadbackTestConfig{LayerTreeTest::RENDERER_SOFTWARE, READBACK_BITMAP},
-    ReadbackTestConfig{LayerTreeTest::RENDERER_GL, READBACK_TEXTURE},
-    ReadbackTestConfig{LayerTreeTest::RENDERER_GL, READBACK_BITMAP},
-    ReadbackTestConfig{LayerTreeTest::RENDERER_SKIA_GL, READBACK_TEXTURE},
-    ReadbackTestConfig{LayerTreeTest::RENDERER_SKIA_GL, READBACK_BITMAP},
+    ReadbackTestConfig{TestRendererType::kSoftware, TestReadBackType::kBitmap},
+    ReadbackTestConfig{TestRendererType::kGL, TestReadBackType::kTexture},
+    ReadbackTestConfig{TestRendererType::kGL, TestReadBackType::kBitmap},
+    ReadbackTestConfig{TestRendererType::kSkiaGL, TestReadBackType::kTexture},
+    ReadbackTestConfig{TestRendererType::kSkiaGL, TestReadBackType::kBitmap},
 #if defined(ENABLE_CC_VULKAN_TESTS) && !defined(THREAD_SANITIZER) && \
     !defined(MEMORY_SANITIZER)
-    ReadbackTestConfig{LayerTreeTest::RENDERER_SKIA_VK, READBACK_BITMAP},
+    ReadbackTestConfig{TestRendererType::kSkiaVk, TestReadBackType::kBitmap},
 #endif
+#if defined(ENABLE_CC_DAWN_TESTS)
+    ReadbackTestConfig{TestRendererType::kSkiaDawn, TestReadBackType::kBitmap},
+#endif  // defined(ENABLE_CC_DAWN_TESTS)
 };
 
 INSTANTIATE_TEST_SUITE_P(All,
                          LayerTreeHostReadbackPixelTestMaybeVulkan,
-                         ::testing::ValuesIn(kMaybeVulkanTestConfigs));
+                         ::testing::ValuesIn(kMaybeVulkanTestConfigs),
+                         ::testing::PrintToStringParamName());
 
 class LayerTreeHostReadbackDeviceScalePixelTest
     : public LayerTreeHostReadbackPixelTest {
@@ -499,7 +520,7 @@ TEST_P(LayerTreeHostReadbackDeviceScalePixelTest, ReadbackSubrect) {
   copy_subrect_ = gfx::Rect(25, 25, 50, 50);
   device_scale_factor_ = 2.f;
   RunPixelTest(
-      renderer_type(), background,
+      background,
       base::FilePath(FILE_PATH_LITERAL("green_small_with_blue_corner.png")));
 }
 
@@ -527,13 +548,14 @@ TEST_P(LayerTreeHostReadbackDeviceScalePixelTest, ReadbackNonRootLayerSubrect) {
   copy_subrect_ = gfx::Rect(25, 25, 50, 50);
   device_scale_factor_ = 2.f;
   RunPixelTestWithReadbackTarget(
-      renderer_type(), background, green.get(),
+      background, green.get(),
       base::FilePath(FILE_PATH_LITERAL("green_small_with_blue_corner.png")));
 }
 
 INSTANTIATE_TEST_SUITE_P(All,
                          LayerTreeHostReadbackDeviceScalePixelTest,
-                         ::testing::ValuesIn(kTestConfigs));
+                         ::testing::ValuesIn(kTestConfigs),
+                         ::testing::PrintToStringParamName());
 
 class LayerTreeHostReadbackColorSpacePixelTest
     : public LayerTreeHostReadbackPixelTest {
@@ -567,13 +589,14 @@ TEST_P(LayerTreeHostReadbackColorSpacePixelTest, Readback) {
   background->SetIsDrawable(true);
 
   // The sRGB green should be converted into P3.
-  RunPixelTest(renderer_type(), background,
+  RunPixelTest(background,
                base::FilePath(FILE_PATH_LITERAL("srgb_green_in_p3.png")));
 }
 
 INSTANTIATE_TEST_SUITE_P(All,
                          LayerTreeHostReadbackColorSpacePixelTest,
-                         ::testing::ValuesIn(kTestConfigs));
+                         ::testing::ValuesIn(kTestConfigs),
+                         ::testing::PrintToStringParamName());
 
 }  // namespace
 }  // namespace cc

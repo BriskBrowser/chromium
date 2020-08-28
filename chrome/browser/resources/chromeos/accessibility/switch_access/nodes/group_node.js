@@ -25,7 +25,7 @@ class GroupNode extends SAChildNode {
 
   /** @override */
   get actions() {
-    return [];
+    return [SwitchAccessMenuAction.SELECT];
   }
 
   /** @override */
@@ -36,7 +36,7 @@ class GroupNode extends SAChildNode {
   /** @override */
   get location() {
     const childLocations = this.children_.map(c => c.location);
-    return RectHelper.unionAll(childLocations);
+    return RectUtil.unionAll(childLocations);
   }
 
   /** @override */
@@ -50,7 +50,7 @@ class GroupNode extends SAChildNode {
   asRootNode() {
     const root = new SARootNode();
 
-    let children = [];
+    const children = [];
     for (const child of this.children_) {
       children.push(child);
     }
@@ -72,7 +72,7 @@ class GroupNode extends SAChildNode {
       return false;
     }
     for (let i = 0; i < this.children_.length; i++) {
-      if (other.children_[i].equals(this.children_[i])) {
+      if (!other.children_[i].equals(this.children_[i])) {
         return false;
       }
     }
@@ -81,6 +81,16 @@ class GroupNode extends SAChildNode {
 
   /** @override */
   isEquivalentTo(node) {
+    if (node instanceof GroupNode) {
+      return this.equals(node);
+    }
+
+    for (const child of this.children_) {
+      if (child.isEquivalentTo(node)) {
+        return true;
+      }
+    }
+
     return false;
   }
 
@@ -90,8 +100,22 @@ class GroupNode extends SAChildNode {
   }
 
   /** @override */
+  isValidAndVisible() {
+    for (const child of this.children_) {
+      if (child.isValidAndVisible()) {
+        return super.isValidAndVisible();
+      }
+    }
+    return false;
+  }
+
+  /** @override */
   performAction(action) {
-    return true;
+    if (action === SwitchAccessMenuAction.SELECT) {
+      NavigationManager.enterGroup();
+      return SAConstants.ActionResponse.CLOSE_MENU;
+    }
+    return SAConstants.ActionResponse.NO_ACTION_TAKEN;
   }
 
   // ================= Static methods =================
@@ -102,20 +126,23 @@ class GroupNode extends SAChildNode {
    * @return {!Array<!GroupNode>}
    */
   static separateByRow(nodes) {
-    let result = [];
+    const result = [];
 
     for (let i = 0; i < nodes.length;) {
-      let children = [];
+      const children = [];
       children.push(nodes[i]);
       i++;
 
       while (i < nodes.length &&
-             RectHelper.sameRow(children[0].location, nodes[i].location)) {
+             RectUtil.sameRow(children[0].location, nodes[i].location)) {
         children.push(nodes[i]);
         i++;
       }
       if (children.length <= 1) {
-        throw new Error('Cannot group row with only one element.');
+        throw SwitchAccess.error(
+            SAConstants.ErrorType.ROW_TOO_SHORT,
+            'Cannot group row with only one element.',
+            true /* shouldRecover */);
       }
 
       result.push(new GroupNode(children));

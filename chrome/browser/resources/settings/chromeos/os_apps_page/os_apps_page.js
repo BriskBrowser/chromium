@@ -12,8 +12,10 @@ Polymer({
 
   behaviors: [
     app_management.StoreClient,
+    DeepLinkingBehavior,
     I18nBehavior,
     PrefsBehavior,
+    settings.RouteObserverBehavior,
   ],
 
   properties: {
@@ -46,12 +48,11 @@ Polymer({
      */
     showAndroidApps: Boolean,
 
-
     /**
-     * Show link to App Management.
+     * Show Plugin VM shared folders sub-page.
      * @type {boolean}
      */
-    showAppManagement: Boolean,
+    showPluginVm: Boolean,
 
     /** @private {!Map<string, string>} */
     focusConfig_: {
@@ -75,10 +76,35 @@ Polymer({
      * @private
      */
     app_: Object,
+
+    /**
+     * Used by DeepLinkingBehavior to focus this page's deep links.
+     * @type {!Set<!chromeos.settings.mojom.Setting>}
+     */
+    supportedSettingIds: {
+      type: Object,
+      value: () => new Set([
+        chromeos.settings.mojom.Setting.kManageAndroidPreferences,
+        chromeos.settings.mojom.Setting.kTurnOnPlayStore,
+      ]),
+    },
   },
 
   attached() {
     this.watch('app_', state => app_management.util.getSelectedApp(state));
+  },
+
+  /**
+   * @param {!settings.Route} route
+   * @param {!settings.Route} oldRoute
+   */
+  currentRouteChanged(route, oldRoute) {
+    // Does not apply to this page.
+    if (route !== settings.routes.APPS) {
+      return;
+    }
+
+    this.attemptDeepLink();
   },
 
   /**
@@ -99,7 +125,7 @@ Polymer({
         AppManagementEntryPointsHistogramName,
         AppManagementEntryPoint.OsSettingsMainPage,
         Object.keys(AppManagementEntryPoint).length);
-    settings.navigateTo(settings.routes.APP_MANAGEMENT);
+    settings.Router.getInstance().navigateTo(settings.routes.APP_MANAGEMENT);
   },
 
   /**
@@ -121,12 +147,9 @@ Polymer({
 
   /** @private */
   onAndroidAppsSubpageTap_(event) {
-    if (event.target && event.target.tagName == 'A') {
-      // Filter out events coming from 'Learn more' link
-      return;
-    }
     if (this.androidAppsInfo.playStoreEnabled) {
-      settings.navigateTo(settings.routes.ANDROID_APPS_DETAILS);
+      settings.Router.getInstance().navigateTo(
+          settings.routes.ANDROID_APPS_DETAILS);
     }
   },
 

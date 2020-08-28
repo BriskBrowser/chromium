@@ -94,7 +94,7 @@ Tests that AudioBufferSourceNode supports loop-points with .loopStart and .loopE
             label: 'initialize',
             description: 'Set up context and expected results'
           },
-          (task, should) => {
+          async (task, should) => {
             // Create offline audio context.
             should(
                 () => {context = new OfflineAudioContext(
@@ -102,19 +102,11 @@ Tests that AudioBufferSourceNode supports loop-points with .loopStart and .loopE
                 'Creating context for testing')
                 .notThrow();
 
-            should(
-                Audit
-                    .loadFileFromUrl(
-                        'resources/audiobuffersource-loop-points-expected.wav')
-                    .then(arrayBuffer => {
-                      context.decodeAudioData(arrayBuffer).then(audioBuffer => {
-                        expectedAudio = audioBuffer;
-                      });
-                    }),
-                'Fetching expected audio')
-                .beResolved()
-                .then(() => task.done());
-          });
+            const arrayBuffer = await Audit.loadFileFromUrl(
+              'resources/audiobuffersource-loop-points-expected.wav');
+            expectedAudio = await context.decodeAudioData(arrayBuffer);
+            task.done();
+         });
 
       audit.define(
           {
@@ -145,7 +137,7 @@ Tests that AudioBufferSourceNode supports loop-points with .loopStart and .loopE
                   // in ULP. This is experimentally determined. Assuming that
                   // the reference file is a 16-bit wav file, the max values in
                   // the wave file are +/- 32768.
-                  let maxUlp = 0;
+                  let maxUlp = 1.9532e-3;
                   let threshold = maxUlp / 32768;
 
                   for (let k = 0; k < renderedAudio.numberOfChannels; ++k) {

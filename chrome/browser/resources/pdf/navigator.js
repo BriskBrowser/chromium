@@ -5,11 +5,34 @@
 import {OpenPdfParamsParser} from './open_pdf_params_parser.js';
 import {Viewport} from './viewport.js';
 
-/**
- * NavigatorDelegate for calling browser-specific functions to do the actual
- * navigating.
- */
+// NavigatorDelegate for calling browser-specific functions to do the actual
+// navigating.
+/** @interface */
 export class NavigatorDelegate {
+  /**
+   * Called when navigation should happen in the current tab.
+   * @param {string} url The url to be opened in the current tab.
+   */
+  navigateInCurrentTab(url) {}
+
+  /**
+   * Called when navigation should happen in the new tab.
+   * @param {string} url The url to be opened in the new tab.
+   * @param {boolean} active Indicates if the new tab should be the active tab.
+   */
+  navigateInNewTab(url, active) {}
+
+  /**
+   * Called when navigation should happen in the new window.
+   * @param {string} url The url to be opened in the new window.
+   */
+  navigateInNewWindow(url) {}
+}
+
+// NavigatorDelegate for calling browser-specific functions to do the actual
+// navigating.
+/** @implements {NavigatorDelegate} */
+export class NavigatorDelegateImpl {
   /**
    * @param {number} tabId The tab ID of the PDF viewer or -1 if the viewer is
    *     not displayed in a tab.
@@ -19,25 +42,18 @@ export class NavigatorDelegate {
     this.tabId_ = tabId;
   }
 
-  /**
-   * Called when navigation should happen in the current tab.
-   * @param {string} url The url to be opened in the current tab.
-   */
+  /** @override */
   navigateInCurrentTab(url) {
     // When the PDFviewer is inside a browser tab, prefer the tabs API because
     // it can navigate from one file:// URL to another.
-    if (chrome.tabs && this.tabId_ != -1) {
+    if (chrome.tabs && this.tabId_ !== -1) {
       chrome.tabs.update(this.tabId_, {url: url});
     } else {
       window.location.href = url;
     }
   }
 
-  /**
-   * Called when navigation should happen in the new tab.
-   * @param {string} url The url to be opened in the new tab.
-   * @param {boolean} active Indicates if the new tab should be the active tab.
-   */
+  /** @override */
   navigateInNewTab(url, active) {
     // Prefer the tabs API because it guarantees we can just open a new tab.
     // window.open doesn't have this guarantee.
@@ -48,10 +64,7 @@ export class NavigatorDelegate {
     }
   }
 
-  /**
-   * Called when navigation should happen in the new window.
-   * @param {string} url The url to be opened in the new window.
-   */
+  /** @override */
   navigateInNewWindow(url) {
     // Prefer the windows API because it guarantees we can just open a new
     // window. window.open with '_blank' argument doesn't have this guarantee.
@@ -63,7 +76,7 @@ export class NavigatorDelegate {
   }
 }
 
-/** Navigator for navigating to links inside or outside the PDF. */
+// Navigator for navigating to links inside or outside the PDF.
 export class PdfNavigator {
   /**
    * @param {string} originalUrl The original page URL.
@@ -100,7 +113,7 @@ export class PdfNavigator {
    *     disposition when navigating to the new URL.
    */
   navigate(urlString, disposition) {
-    if (urlString.length == 0) {
+    if (urlString.length === 0) {
       return;
     }
 
@@ -169,7 +182,7 @@ export class PdfNavigator {
     }
 
     const pageNumber = viewportPosition.page;
-    if (pageNumber != undefined && this.originalUrl_ && newUrl &&
+    if (pageNumber !== undefined && this.originalUrl_ && newUrl &&
         this.originalUrl_.origin === newUrl.origin &&
         this.originalUrl_.pathname === newUrl.pathname) {
       this.viewport_.goToPage(pageNumber);
@@ -236,7 +249,7 @@ export class PdfNavigator {
     }
     if (!url.startsWith('.')) {
       const domainSeparatorIndex = url.indexOf('/');
-      const domainName = domainSeparatorIndex == -1 ?
+      const domainName = domainSeparatorIndex === -1 ?
           url :
           url.substr(0, domainSeparatorIndex);
       const domainDotCount = (domainName.match(/\./g) || []).length;

@@ -36,7 +36,9 @@ function setUp() {
       onDriveConnectionStatusChangedListeners_: [],
       driveConnectionState_: 'ONLINE',
       volumeMetadataList_: [],
-      addMount: function(fileUrl, callback) {
+      password: undefined,
+      addMount: function(fileUrl, password, callback) {
+        mockChrome.fileManagerPrivate.password = password;
         callback(mockChrome.fileManagerPrivate.mountSourcePath_);
       },
       removeMount: function(volumeId) {
@@ -205,9 +207,11 @@ function testMountArchiveAndUnmount(callback) {
     const numberOfVolumes = volumeManager.volumeInfoList.length;
 
     // Mount an archive
+    const password = 'My Password';
     const mounted = volumeManager.mountArchive(
         'filesystem:chrome-extension://extensionid/external/' +
-        'Downloads-test/foobar.zip');
+            'Downloads-test/foobar.zip',
+        password);
 
     mockChrome.fileManagerPrivate.onMountCompleted.dispatchEvent({
       eventType: 'mount',
@@ -228,6 +232,7 @@ function testMountArchiveAndUnmount(callback) {
     await mounted;
 
     assertEquals(numberOfVolumes + 1, volumeManager.volumeInfoList.length);
+    assertEquals(password, mockChrome.fileManagerPrivate.password);
 
     // Unmount the mounted archive
     const entry = MockFileEntry.create(
@@ -325,6 +330,33 @@ function testGetLocationInfo(callback) {
         assertFalse(driveFilesByIdLocationInfo.hasFixedLabel);
         assertFalse(driveFilesByIdLocationInfo.isReadOnly);
         assertFalse(driveFilesByIdLocationInfo.isRootEntry);
+
+        const driveShortcutTargetsByIdDirectoryEntry =
+            MockDirectoryEntry.create(
+                new MockFileSystem('drive:drive-foobar%40chromium.org-hash'),
+                '/.shortcut-targets-by-id/abcdef');
+        const driveShortcutTargetsByIdDirectoryLocationInfo =
+            volumeManager.getLocationInfo(
+                driveShortcutTargetsByIdDirectoryEntry);
+        assertEquals(
+            VolumeManagerCommon.RootType.DRIVE_OTHER,
+            driveShortcutTargetsByIdDirectoryLocationInfo.rootType);
+        assertFalse(
+            driveShortcutTargetsByIdDirectoryLocationInfo.hasFixedLabel);
+        assertTrue(driveShortcutTargetsByIdDirectoryLocationInfo.isReadOnly);
+        assertFalse(driveShortcutTargetsByIdDirectoryLocationInfo.isRootEntry);
+
+        const driveShortcutTargetsByIdEntry = MockDirectoryEntry.create(
+            new MockFileSystem('drive:drive-foobar%40chromium.org-hash'),
+            '/.shortcut-targets-by-id/abcdef/foo');
+        const driveShortcutTargetsByIdLocationInfo =
+            volumeManager.getLocationInfo(driveShortcutTargetsByIdEntry);
+        assertEquals(
+            VolumeManagerCommon.RootType.DRIVE_OTHER,
+            driveShortcutTargetsByIdLocationInfo.rootType);
+        assertFalse(driveShortcutTargetsByIdLocationInfo.hasFixedLabel);
+        assertFalse(driveShortcutTargetsByIdLocationInfo.isReadOnly);
+        assertFalse(driveShortcutTargetsByIdLocationInfo.isRootEntry);
 
         const androidRoot =
             MockFileEntry.create(new MockFileSystem('android_files:0'), '/');

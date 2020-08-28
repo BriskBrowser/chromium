@@ -68,6 +68,7 @@ ONC_EXPORT extern const char kIPConfigTypeStatic[];
 ONC_EXPORT extern const char kSavedIPConfig[];
 ONC_EXPORT extern const char kStaticIPConfig[];
 ONC_EXPORT extern const char kMacAddress[];
+ONC_EXPORT extern const char kMetered[];
 ONC_EXPORT extern const char kNameServersConfigType[];
 ONC_EXPORT extern const char kName[];
 ONC_EXPORT extern const char kPriority[];
@@ -235,7 +236,6 @@ ONC_EXPORT extern const char kBSSID[];
 ONC_EXPORT extern const char kEAP[];
 ONC_EXPORT extern const char kFrequency[];
 ONC_EXPORT extern const char kFrequencyList[];
-ONC_EXPORT extern const char kFTEnabled[];
 ONC_EXPORT extern const char kHexSSID[];
 ONC_EXPORT extern const char kHiddenSSID[];
 ONC_EXPORT extern const char kPassphrase[];
@@ -391,6 +391,7 @@ ONC_EXPORT extern const char kAuth[];
 ONC_EXPORT extern const char kCipher[];
 ONC_EXPORT extern const char kCompLZO[];
 ONC_EXPORT extern const char kCompNoAdapt[];
+ONC_EXPORT extern const char kCompressionAlgorithm[];
 ONC_EXPORT extern const char kExtraHosts[];
 ONC_EXPORT extern const char kIgnoreDefaultRoute[];
 ONC_EXPORT extern const char kInteract[];
@@ -424,6 +425,14 @@ ONC_EXPORT extern const char kVerb[];
 ONC_EXPORT extern const char kVerifyHash[];
 ONC_EXPORT extern const char kVerifyX509[];
 }  // namespace openvpn
+
+namespace openvpn_compression_algorithm {
+ONC_EXPORT extern const char kFramingOnly[];
+ONC_EXPORT extern const char kLz4[];
+ONC_EXPORT extern const char kLz4V2[];
+ONC_EXPORT extern const char kLzo[];
+ONC_EXPORT extern const char kNone[];
+}  // namespace openvpn_compression_algorithm
 
 namespace openvpn_user_auth_type {
 ONC_EXPORT extern const char kNone[];
@@ -482,7 +491,8 @@ namespace global_network_config {
 ONC_EXPORT extern const char kAllowOnlyPolicyNetworksToAutoconnect[];
 ONC_EXPORT extern const char kAllowOnlyPolicyNetworksToConnect[];
 ONC_EXPORT extern const char kAllowOnlyPolicyNetworksToConnectIfAvailable[];
-ONC_EXPORT extern const char kBlacklistedHexSSIDs[];
+ONC_EXPORT extern const char kBlacklistedHexSSIDs[];  // Deprecated
+ONC_EXPORT extern const char kBlockedHexSSIDs[];
 ONC_EXPORT extern const char kDisableNetworkTypes[];
 }  // global_network_config
 

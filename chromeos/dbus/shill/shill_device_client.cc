@@ -8,6 +8,7 @@
 #include <utility>
 
 #include "base/bind.h"
+#include "base/logging.h"
 #include "base/macros.h"
 #include "base/stl_util.h"
 #include "base/values.h"
@@ -171,21 +172,6 @@ class ShillDeviceClientImpl : public ShillDeviceClient {
     GetHelper(device_path)
         ->CallVoidMethodWithErrorCallback(&method_call, std::move(callback),
                                           std::move(error_callback));
-  }
-
-  void PerformTDLSOperation(const dbus::ObjectPath& device_path,
-                            const std::string& operation,
-                            const std::string& peer,
-                            StringCallback callback,
-                            ErrorCallback error_callback) override {
-    dbus::MethodCall method_call(shill::kFlimflamDeviceInterface,
-                                 shill::kPerformTDLSOperationFunction);
-    dbus::MessageWriter writer(&method_call);
-    writer.AppendString(operation);
-    writer.AppendString(peer);
-    GetHelper(device_path)
-        ->CallStringMethodWithErrorCallback(&method_call, std::move(callback),
-                                            std::move(error_callback));
   }
 
   void AddWakeOnPacketConnection(const dbus::ObjectPath& device_path,

@@ -4,26 +4,36 @@
 
 #include "base/logging.h"
 
+// logging.h is a widely included header and its size has significant impact on
+// build time. Try not to raise this limit unless absolutely necessary. See
+// https://chromium.googlesource.com/chromium/src/+/HEAD/docs/wmax_tokens.md
+#ifndef NACL_TC_REV
+#pragma clang max_tokens_here 350000
+#endif  // NACL_TC_REV
+
+#ifdef BASE_CHECK_H_
+#error "logging.h should not include check.h"
+#endif
+
 #include <limits.h>
 #include <stdint.h>
 
 #include "base/pending_task.h"
 #include "base/stl_util.h"
 #include "base/task/common/task_annotator.h"
-#include "base/trace_event/trace_event.h"
+#include "base/trace_event/base_tracing.h"
 #include "build/build_config.h"
 
 #if defined(OS_WIN)
 #include <io.h>
 #include <windows.h>
 typedef HANDLE FileHandle;
-typedef HANDLE MutexHandle;
 // Windows warns on using write().  It prefers _write().
 #define write(fd, buf, count) _write(fd, buf, static_cast<unsigned int>(count))
 // Windows doesn't define STDERR_FILENO.  Define it here.
 #define STDERR_FILENO 2
 
-#elif defined(OS_MACOSX)
+#elif defined(OS_APPLE)
 // In MacOS 10.12 and iOS 10.0 and later ASL (Apple System Log) was deprecated
 // in favor of OS_LOG (Unified Logging).
 #include <AvailabilityMacros.h>
@@ -70,7 +80,6 @@ typedef HANDLE MutexHandle;
 #if defined(OS_POSIX) || defined(OS_FUCHSIA)
 #include <errno.h>
 #include <paths.h>
-#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -78,7 +87,6 @@ typedef HANDLE MutexHandle;
 #include "base/process/process_handle.h"
 #define MAX_PATH PATH_MAX
 typedef FILE* FileHandle;
-typedef pthread_mutex_t* MutexHandle;
 #endif
 
 #include <algorithm>
@@ -107,7 +115,8 @@ typedef pthread_mutex_t* MutexHandle;
 #include "base/strings/stringprintf.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/synchronization/lock_impl.h"
+#include "base/synchronization/lock.h"
+#include "base/test/scoped_logging_settings.h"
 #include "base/threading/platform_thread.h"
 #include "base/vlog.h"
 
@@ -145,6 +154,12 @@ int g_min_log_level = 0;
 // Specifies the process' logging sink(s), represented as a combination of
 // LoggingDestination values joined by bitwise OR.
 int g_logging_destination = LOG_DEFAULT;
+
+#if defined(OS_CHROMEOS)
+// Specifies the format of log header. If set to LOG_FORMAT_SYSLOG, each
+// LogMessage will generate a syslog-like log header.
+LogFormat g_log_format = LogFormat::LOG_FORMAT_CHROME;
+#endif
 
 // For LOG_ERROR and above, always print to stderr.
 const int kAlwaysPrintErrorLevel = LOG_ERROR;
@@ -185,7 +200,7 @@ uint64_t TickCount() {
 #elif defined(OS_FUCHSIA)
   return zx_clock_get_monotonic() /
          static_cast<zx_time_t>(base::Time::kNanosecondsPerMicrosecond);
-#elif defined(OS_MACOSX)
+#elif defined(OS_APPLE)
   return mach_absolute_time();
 #elif defined(OS_NACL)
   // NaCl sadly does not have _POSIX_TIMERS enabled in sys/features.h
@@ -235,72 +250,11 @@ PathString GetDefaultLogFile() {
 // We don't need locks on Windows for atomically appending to files. The OS
 // provides this functionality.
 #if defined(OS_POSIX) || defined(OS_FUCHSIA)
-// This class acts as a wrapper for locking the logging files.
-// LoggingLock::Init() should be called from the main thread before any logging
-// is done. Then whenever logging, be sure to have a local LoggingLock
-// instance on the stack. This will ensure that the lock is unlocked upon
-// exiting the frame.
-// LoggingLocks can not be nested.
-class LoggingLock {
- public:
-  LoggingLock() {
-    LockLogging();
-  }
 
-  ~LoggingLock() {
-    UnlockLogging();
-  }
-
-  static void Init(LogLockingState lock_log, const PathChar* new_log_file) {
-    if (initialized)
-      return;
-    lock_log_file = lock_log;
-
-    if (lock_log_file != LOCK_LOG_FILE)
-      log_lock = new base::internal::LockImpl();
-
-    initialized = true;
-  }
-
- private:
-  static void LockLogging() {
-    if (lock_log_file == LOCK_LOG_FILE) {
-      pthread_mutex_lock(&log_mutex);
-    } else {
-      // use the lock
-      log_lock->Lock();
-    }
-  }
-
-  static void UnlockLogging() {
-    if (lock_log_file == LOCK_LOG_FILE) {
-      pthread_mutex_unlock(&log_mutex);
-    } else {
-      log_lock->Unlock();
-    }
-  }
-
-  // The lock is used if log file locking is false. It helps us avoid problems
-  // with multiple threads writing to the log file at the same time.  Use
-  // LockImpl directly instead of using Lock, because Lock makes logging calls.
-  static base::internal::LockImpl* log_lock;
-
-  // When we don't use a lock, we are using a global mutex. We need to do this
-  // because LockFileEx is not thread safe.
-  static pthread_mutex_t log_mutex;
-
-  static bool initialized;
-  static LogLockingState lock_log_file;
-};
-
-// static
-bool LoggingLock::initialized = false;
-// static
-base::internal::LockImpl* LoggingLock::log_lock = nullptr;
-// static
-LogLockingState LoggingLock::lock_log_file = LOCK_LOG_FILE;
-
-pthread_mutex_t LoggingLock::log_mutex = PTHREAD_MUTEX_INITIALIZER;
+base::Lock& GetLoggingLock() {
+  static base::NoDestructor<base::Lock> lock;
+  return *lock;
+}
 
 #endif  // OS_POSIX || OS_FUCHSIA
 
@@ -439,7 +393,7 @@ bool BaseInitLoggingImpl(const LoggingSettings& settings) {
     const char* log_tag_data = log_tag.data();
     config.tags = &log_tag_data;
     config.num_tags = 1;
-    fx_log_init_with_config(&config);
+    fx_log_reconfigure(&config);
   }
 #endif
 
@@ -448,8 +402,7 @@ bool BaseInitLoggingImpl(const LoggingSettings& settings) {
     return true;
 
 #if defined(OS_POSIX) || defined(OS_FUCHSIA)
-  LoggingLock::Init(settings.lock_log, settings.log_file_path);
-  LoggingLock logging_lock;
+  base::AutoLock guard(GetLoggingLock());
 #endif
 
   // Calling InitLogging twice or after some log call has already opened the
@@ -457,6 +410,7 @@ bool BaseInitLoggingImpl(const LoggingSettings& settings) {
   CloseLogFileUnlocked();
 
 #if defined(OS_CHROMEOS)
+  g_log_format = settings.log_format;
   if (settings.log_file) {
     DCHECK(!settings.log_file_path);
     g_log_file = settings.log_file;
@@ -551,22 +505,6 @@ LogMessageHandlerFunction GetLogMessageHandler() {
   return log_message_handler;
 }
 
-// Explicit instantiations for commonly used comparisons.
-template std::string* MakeCheckOpString<int, int>(
-    const int&, const int&, const char* names);
-template std::string* MakeCheckOpString<unsigned long, unsigned long>(
-    const unsigned long&, const unsigned long&, const char* names);
-template std::string* MakeCheckOpString<unsigned long, unsigned int>(
-    const unsigned long&, const unsigned int&, const char* names);
-template std::string* MakeCheckOpString<unsigned int, unsigned long>(
-    const unsigned int&, const unsigned long&, const char* names);
-template std::string* MakeCheckOpString<std::string, std::string>(
-    const std::string&, const std::string&, const char* name);
-
-void MakeCheckOpValueString(std::ostream* os, std::nullptr_t p) {
-  (*os) << "nullptr";
-}
-
 #if !defined(NDEBUG)
 // Displays a message box to the user with the error message in it.
 // Used for fatal messages, where we close the app simultaneously.
@@ -602,21 +540,6 @@ LogMessage::LogMessage(const char* file, int line, const char* condition)
     : severity_(LOG_FATAL), file_(file), line_(line) {
   Init(file, line);
   stream_ << "Check failed: " << condition << ". ";
-}
-
-LogMessage::LogMessage(const char* file, int line, std::string* result)
-    : severity_(LOG_FATAL), file_(file), line_(line) {
-  Init(file, line);
-  stream_ << "Check failed: " << *result;
-  delete result;
-}
-
-LogMessage::LogMessage(const char* file, int line, LogSeverity severity,
-                       std::string* result)
-    : severity_(severity), file_(file), line_(line) {
-  Init(file, line);
-  stream_ << "Check failed: " << *result;
-  delete result;
 }
 
 LogMessage::~LogMessage() {
@@ -657,7 +580,7 @@ LogMessage::~LogMessage() {
   if ((g_logging_destination & LOG_TO_SYSTEM_DEBUG_LOG) != 0) {
 #if defined(OS_WIN)
     OutputDebugStringA(str_newline.c_str());
-#elif defined(OS_MACOSX)
+#elif defined(OS_APPLE)
     // In LOG_TO_SYSTEM_DEBUG_LOG mode, log messages are always written to
     // stderr. If stderr is /dev/null, also log via ASL (Apple System Log) or
     // its successor OS_LOG. If there's something weird about stderr, assume
@@ -883,8 +806,7 @@ LogMessage::~LogMessage() {
     // the lock. This is why InitLogging should be called from the main
     // thread at the beginning of execution.
 #if defined(OS_POSIX) || defined(OS_FUCHSIA)
-    LoggingLock::Init(LOCK_LOG_FILE, nullptr);
-    LoggingLock logging_lock;
+    base::AutoLock guard(GetLoggingLock());
 #endif
     if (InitializeLogFileHandle()) {
 #if defined(OS_WIN)
@@ -968,60 +890,66 @@ void LogMessage::Init(const char* file, int line) {
   // Stores the base name as the null-terminated suffix substring of |filename|.
   file_basename_ = filename.data();
 
-  // TODO(darin): It might be nice if the columns were fixed width.
-
-  stream_ <<  '[';
-  if (g_log_prefix)
-    stream_ << g_log_prefix << ':';
-  if (g_log_process_id)
-    stream_ << base::GetUniqueIdForProcess() << ':';
-  if (g_log_thread_id)
-    stream_ << base::PlatformThread::CurrentId() << ':';
-  if (g_log_timestamp) {
+#if defined(OS_CHROMEOS)
+  if (g_log_format == LogFormat::LOG_FORMAT_SYSLOG) {
+    InitWithSyslogPrefix(
+        filename, line, TickCount(), log_severity_name(severity_), g_log_prefix,
+        g_log_process_id, g_log_thread_id, g_log_timestamp, g_log_tickcount);
+  } else
+#endif  // defined(OS_CHROMEOS)
+  {
+    // TODO(darin): It might be nice if the columns were fixed width.
+    stream_ << '[';
+    if (g_log_prefix)
+      stream_ << g_log_prefix << ':';
+    if (g_log_process_id)
+      stream_ << base::GetUniqueIdForProcess() << ':';
+    if (g_log_thread_id)
+      stream_ << base::PlatformThread::CurrentId() << ':';
+    if (g_log_timestamp) {
 #if defined(OS_WIN)
-    SYSTEMTIME local_time;
-    GetLocalTime(&local_time);
-    stream_ << std::setfill('0')
-            << std::setw(2) << local_time.wMonth
-            << std::setw(2) << local_time.wDay
-            << '/'
-            << std::setw(2) << local_time.wHour
-            << std::setw(2) << local_time.wMinute
-            << std::setw(2) << local_time.wSecond
-            << '.'
-            << std::setw(3)
-            << local_time.wMilliseconds
-            << ':';
+      SYSTEMTIME local_time;
+      GetLocalTime(&local_time);
+      stream_ << std::setfill('0')
+              << std::setw(2) << local_time.wMonth
+              << std::setw(2) << local_time.wDay
+              << '/'
+              << std::setw(2) << local_time.wHour
+              << std::setw(2) << local_time.wMinute
+              << std::setw(2) << local_time.wSecond
+              << '.'
+              << std::setw(3) << local_time.wMilliseconds
+              << ':';
 #elif defined(OS_POSIX) || defined(OS_FUCHSIA)
-    timeval tv;
-    gettimeofday(&tv, nullptr);
-    time_t t = tv.tv_sec;
-    struct tm local_time;
-    localtime_r(&t, &local_time);
-    struct tm* tm_time = &local_time;
-    stream_ << std::setfill('0')
-            << std::setw(2) << 1 + tm_time->tm_mon
-            << std::setw(2) << tm_time->tm_mday
-            << '/'
-            << std::setw(2) << tm_time->tm_hour
-            << std::setw(2) << tm_time->tm_min
-            << std::setw(2) << tm_time->tm_sec
-            << '.'
-            << std::setw(6) << tv.tv_usec
-            << ':';
+      timeval tv;
+      gettimeofday(&tv, nullptr);
+      time_t t = tv.tv_sec;
+      struct tm local_time;
+      localtime_r(&t, &local_time);
+      struct tm* tm_time = &local_time;
+      stream_ << std::setfill('0')
+              << std::setw(2) << 1 + tm_time->tm_mon
+              << std::setw(2) << tm_time->tm_mday
+              << '/'
+              << std::setw(2) << tm_time->tm_hour
+              << std::setw(2) << tm_time->tm_min
+              << std::setw(2) << tm_time->tm_sec
+              << '.'
+              << std::setw(6) << tv.tv_usec
+              << ':';
 #else
 #error Unsupported platform
 #endif
+    }
+    if (g_log_tickcount)
+      stream_ << TickCount() << ':';
+    if (severity_ >= 0) {
+      stream_ << log_severity_name(severity_);
+    } else {
+      stream_ << "VERBOSE" << -severity_;
+    }
+    stream_ << ":" << filename << "(" << line << ")] ";
   }
-  if (g_log_tickcount)
-    stream_ << TickCount() << ':';
-  if (severity_ >= 0)
-    stream_ << log_severity_name(severity_);
-  else
-    stream_ << "VERBOSE" << -severity_;
-
-  stream_ << ":" << filename << "(" << line << ")] ";
-
   message_start_ = stream_.str().length();
 }
 
@@ -1066,9 +994,7 @@ Win32ErrorLogMessage::Win32ErrorLogMessage(const char* file,
                                            int line,
                                            LogSeverity severity,
                                            SystemErrorCode err)
-    : err_(err),
-      log_message_(file, line, severity) {
-}
+    : LogMessage(file, line, severity), err_(err) {}
 
 Win32ErrorLogMessage::~Win32ErrorLogMessage() {
   stream() << ": " << SystemErrorCodeToString(err_);
@@ -1082,9 +1008,7 @@ ErrnoLogMessage::ErrnoLogMessage(const char* file,
                                  int line,
                                  LogSeverity severity,
                                  SystemErrorCode err)
-    : err_(err),
-      log_message_(file, line, severity) {
-}
+    : LogMessage(file, line, severity), err_(err) {}
 
 ErrnoLogMessage::~ErrnoLogMessage() {
   stream() << ": " << SystemErrorCodeToString(err_);
@@ -1097,7 +1021,7 @@ ErrnoLogMessage::~ErrnoLogMessage() {
 
 void CloseLogFile() {
 #if defined(OS_POSIX) || defined(OS_FUCHSIA)
-  LoggingLock logging_lock;
+  base::AutoLock guard(GetLoggingLock());
 #endif
   CloseLogFileUnlocked();
 }
@@ -1120,6 +1044,38 @@ FILE* DuplicateLogFILE() {
   return duplicate;
 }
 #endif
+
+// Used for testing. Declared in test/scoped_logging_settings.h.
+ScopedLoggingSettings::ScopedLoggingSettings()
+    : enable_process_id_(g_log_process_id),
+      enable_thread_id_(g_log_thread_id),
+      enable_timestamp_(g_log_timestamp),
+      enable_tickcount_(g_log_tickcount),
+      min_log_level_(GetMinLogLevel()),
+      message_handler_(GetLogMessageHandler()) {
+#if defined(OS_CHROMEOS)
+  log_format_ = g_log_format;
+#endif  // defined(OS_CHROMEOS)
+}
+
+ScopedLoggingSettings::~ScopedLoggingSettings() {
+  g_log_process_id = enable_process_id_;
+  g_log_thread_id = enable_thread_id_;
+  g_log_timestamp = enable_timestamp_;
+  g_log_tickcount = enable_tickcount_;
+  SetMinLogLevel(min_log_level_);
+  SetLogMessageHandler(message_handler_);
+
+#if defined(OS_CHROMEOS)
+  g_log_format = log_format_;
+#endif  // defined(OS_CHROMEOS)
+}
+
+#if defined(OS_CHROMEOS)
+void ScopedLoggingSettings::SetLogFormat(LogFormat log_format) const {
+  g_log_format = log_format;
+}
+#endif  // defined(OS_CHROMEOS)
 
 void RawLog(int level, const char* message) {
   if (level >= g_min_log_level && message) {
@@ -1166,11 +1122,6 @@ std::wstring GetLogFileFullPath() {
   return std::wstring();
 }
 #endif
-
-BASE_EXPORT void LogErrorNotReached(const char* file, int line) {
-  LogMessage(file, line, LOG_ERROR).stream()
-      << "NOTREACHED() hit.";
-}
 
 }  // namespace logging
 

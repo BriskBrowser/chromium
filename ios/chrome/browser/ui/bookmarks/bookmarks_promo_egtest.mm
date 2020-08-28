@@ -6,6 +6,8 @@
 #import <XCTest/XCTest.h>
 
 #include "base/ios/ios_util.h"
+#import "ios/chrome/browser/ui/authentication/signin/signin_constants.h"
+#import "ios/chrome/browser/ui/authentication/signin_earl_grey.h"
 #import "ios/chrome/browser/ui/authentication/signin_earl_grey_ui.h"
 #import "ios/chrome/browser/ui/bookmarks/bookmark_earl_grey.h"
 #import "ios/chrome/browser/ui/bookmarks/bookmark_earl_grey_ui.h"
@@ -15,6 +17,7 @@
 #import "ios/chrome/test/earl_grey/chrome_earl_grey_ui.h"
 #import "ios/chrome/test/earl_grey/chrome_matchers.h"
 #import "ios/chrome/test/earl_grey/chrome_test_case.h"
+#import "ios/public/provider/chrome/browser/signin/fake_chrome_identity.h"
 #import "ios/testing/earl_grey/earl_grey_test.h"
 #include "ui/base/l10n/l10n_util.h"
 
@@ -23,7 +26,7 @@
 #endif
 
 using chrome_test_util::BookmarkHomeDoneButton;
-using chrome_test_util::NavigateBackButtonTo;
+using chrome_test_util::BookmarksNavigationBarBackButton;
 using chrome_test_util::PrimarySignInButton;
 using chrome_test_util::SecondarySignInButton;
 
@@ -51,15 +54,7 @@ using chrome_test_util::SecondarySignInButton;
 
 // Tests that the promo view is only seen at root level and not in any of the
 // child nodes.
-// TODO(crbug.com/1034183): Enable for EG2 once NavigateBackButtonTo() is fixed.
-#if defined(CHROME_EARL_GREY_2)
-#define MAYBE_testPromoViewIsSeenOnlyInRootNode \
-  DISABLED_testPromoViewIsSeenOnlyInRootNode
-#else
-#define MAYBE_testPromoViewIsSeenOnlyInRootNode \
-  testPromoViewIsSeenOnlyInRootNode
-#endif
-- (void)MAYBE_testPromoViewIsSeenOnlyInRootNode {
+- (void)testPromoViewIsSeenOnlyInRootNode {
   [BookmarkEarlGrey setupStandardBookmarks];
   [BookmarkEarlGreyUI openBookmarks];
 
@@ -71,19 +66,19 @@ using chrome_test_util::SecondarySignInButton;
   // Check that sign-in promo view is visible.
   [BookmarkEarlGrey verifyPromoAlreadySeen:NO];
   [SigninEarlGreyUI
-      checkSigninPromoVisibleWithMode:SigninPromoViewModeColdState];
+      verifySigninPromoVisibleWithMode:SigninPromoViewModeColdState];
 
   // Go to child node.
   [BookmarkEarlGreyUI openMobileBookmarks];
 
   // Wait until promo is gone.
-  [SigninEarlGreyUI checkSigninPromoNotVisible];
+  [SigninEarlGreyUI verifySigninPromoNotVisible];
 
   // Check that the promo already seen state is not updated.
   [BookmarkEarlGrey verifyPromoAlreadySeen:NO];
 
   // Come back to root node, and the promo view should appear.
-  [[EarlGrey selectElementWithMatcher:NavigateBackButtonTo(@"Bookmarks")]
+  [[EarlGrey selectElementWithMatcher:BookmarksNavigationBarBackButton()]
       performAction:grey_tap()];
 
   // Check promo view is still visible.
@@ -104,15 +99,17 @@ using chrome_test_util::SecondarySignInButton;
   // Check that sign-in promo view is visible.
   [BookmarkEarlGrey verifyPromoAlreadySeen:NO];
   [SigninEarlGreyUI
-      checkSigninPromoVisibleWithMode:SigninPromoViewModeColdState];
+      verifySigninPromoVisibleWithMode:SigninPromoViewModeColdState];
 
   // Tap the dismiss button.
   [[EarlGrey
-      selectElementWithMatcher:grey_accessibilityID(kSigninPromoCloseButtonId)]
+      selectElementWithMatcher:grey_allOf(grey_accessibilityID(
+                                              kSigninPromoCloseButtonId),
+                                          grey_sufficientlyVisible(), nil)]
       performAction:grey_tap()];
 
   // Wait until promo is gone.
-  [SigninEarlGreyUI checkSigninPromoNotVisible];
+  [SigninEarlGreyUI verifySigninPromoNotVisible];
 
   // Check that the promo already seen state is updated.
   [BookmarkEarlGrey verifyPromoAlreadySeen:YES];
@@ -127,7 +124,7 @@ using chrome_test_util::SecondarySignInButton;
   // Check that sign-in promo view are visible.
   [BookmarkEarlGrey verifyPromoAlreadySeen:NO];
   [SigninEarlGreyUI
-      checkSigninPromoVisibleWithMode:SigninPromoViewModeColdState];
+      verifySigninPromoVisibleWithMode:SigninPromoViewModeColdState];
 
   // Tap the primary button.
   [[EarlGrey
@@ -135,15 +132,14 @@ using chrome_test_util::SecondarySignInButton;
                                           grey_sufficientlyVisible(), nil)]
       performAction:grey_tap()];
   // Cancel the sign-in operation.
-  [[EarlGrey selectElementWithMatcher:
-                 grey_buttonTitle([l10n_util::GetNSString(
-                     IDS_IOS_ACCOUNT_CONSISTENCY_SETUP_SKIP_BUTTON)
-                     uppercaseString])] performAction:grey_tap()];
+  [[EarlGrey selectElementWithMatcher:grey_accessibilityID(
+                                          kSkipSigninAccessibilityIdentifier)]
+      performAction:grey_tap()];
 
   // Check that the bookmarks UI reappeared and the cell is still here.
   [BookmarkEarlGrey verifyPromoAlreadySeen:NO];
   [SigninEarlGreyUI
-      checkSigninPromoVisibleWithMode:SigninPromoViewModeColdState];
+      verifySigninPromoVisibleWithMode:SigninPromoViewModeColdState];
 }
 
 // Tests the tapping on the primary button of sign-in promo view in a warm
@@ -154,12 +150,12 @@ using chrome_test_util::SecondarySignInButton;
   [BookmarkEarlGreyUI openBookmarks];
 
   // Set up a fake identity.
-  [BookmarkEarlGrey setupFakeIdentity];
+  [SigninEarlGrey addFakeIdentity:[SigninEarlGrey fakeIdentity1]];
 
   // Check that promo is visible.
   [BookmarkEarlGrey verifyPromoAlreadySeen:NO];
   [SigninEarlGreyUI
-      checkSigninPromoVisibleWithMode:SigninPromoViewModeWarmState];
+      verifySigninPromoVisibleWithMode:SigninPromoViewModeWarmState];
 
   // Tap the primary button.
   [[EarlGrey
@@ -168,14 +164,13 @@ using chrome_test_util::SecondarySignInButton;
       performAction:grey_tap()];
 
   // Cancel the sign-in operation.
-  [[EarlGrey selectElementWithMatcher:
-                 grey_buttonTitle([l10n_util::GetNSString(
-                     IDS_IOS_ACCOUNT_CONSISTENCY_SETUP_SKIP_BUTTON)
-                     uppercaseString])] performAction:grey_tap()];
+  [[EarlGrey selectElementWithMatcher:grey_accessibilityID(
+                                          kSkipSigninAccessibilityIdentifier)]
+      performAction:grey_tap()];
 
   // Check that the bookmarks UI reappeared and the cell is still here.
   [SigninEarlGreyUI
-      checkSigninPromoVisibleWithMode:SigninPromoViewModeWarmState];
+      verifySigninPromoVisibleWithMode:SigninPromoViewModeWarmState];
 
   [BookmarkEarlGrey verifyPromoAlreadySeen:NO];
 }
@@ -186,13 +181,14 @@ using chrome_test_util::SecondarySignInButton;
 - (void)testSignInPromoWithWarmStateUsingSecondaryButton {
   [BookmarkEarlGrey setupStandardBookmarks];
   [BookmarkEarlGreyUI openBookmarks];
-  // Set up a fake identity.
-  NSString* identityEmail = [BookmarkEarlGrey setupFakeIdentity];
+
+  FakeChromeIdentity* fakeIdentity = [SigninEarlGrey fakeIdentity1];
+  [SigninEarlGrey addFakeIdentity:fakeIdentity];
 
   // Check that sign-in promo view are visible.
   [BookmarkEarlGrey verifyPromoAlreadySeen:NO];
   [SigninEarlGreyUI
-      checkSigninPromoVisibleWithMode:SigninPromoViewModeWarmState];
+      verifySigninPromoVisibleWithMode:SigninPromoViewModeWarmState];
 
   // Tap the secondary button.
   [[EarlGrey
@@ -201,18 +197,17 @@ using chrome_test_util::SecondarySignInButton;
       performAction:grey_tap()];
 
   // Select the identity to dismiss the identity chooser.
-  [SigninEarlGreyUI selectIdentityWithEmail:identityEmail];
+  [SigninEarlGreyUI selectIdentityWithEmail:fakeIdentity.userEmail];
 
   // Tap the CANCEL button.
-  [[EarlGrey selectElementWithMatcher:
-                 grey_buttonTitle([l10n_util::GetNSString(
-                     IDS_IOS_ACCOUNT_CONSISTENCY_SETUP_SKIP_BUTTON)
-                     uppercaseString])] performAction:grey_tap()];
+  [[EarlGrey selectElementWithMatcher:grey_accessibilityID(
+                                          kSkipSigninAccessibilityIdentifier)]
+      performAction:grey_tap()];
 
   // Check that the bookmarks UI reappeared and the cell is still here.
   [BookmarkEarlGrey verifyPromoAlreadySeen:NO];
   [SigninEarlGreyUI
-      checkSigninPromoVisibleWithMode:SigninPromoViewModeWarmState];
+      verifySigninPromoVisibleWithMode:SigninPromoViewModeWarmState];
 }
 
 // Tests that the sign-in promo should not be shown after been shown 19 times.
@@ -221,7 +216,7 @@ using chrome_test_util::SecondarySignInButton;
   [BookmarkEarlGreyUI openBookmarks];
   // Check the sign-in promo view is visible.
   [SigninEarlGreyUI
-      checkSigninPromoVisibleWithMode:SigninPromoViewModeColdState];
+      verifySigninPromoVisibleWithMode:SigninPromoViewModeColdState];
   // Check the sign-in promo already-seen state didn't change.
   [BookmarkEarlGrey verifyPromoAlreadySeen:NO];
   GREYAssertEqual(20, [BookmarkEarlGrey numberOfTimesPromoAlreadySeen],
@@ -231,9 +226,9 @@ using chrome_test_util::SecondarySignInButton;
   [[EarlGrey selectElementWithMatcher:BookmarkHomeDoneButton()]
       performAction:grey_tap()];
   [BookmarkEarlGreyUI openBookmarks];
-  [[GREYUIThreadExecutor sharedInstance] drainUntilIdle];
+  [ChromeEarlGreyUI waitForAppToIdle];
   // Check that the sign-in promo is not visible anymore.
-  [SigninEarlGreyUI checkSigninPromoNotVisible];
+  [SigninEarlGreyUI verifySigninPromoNotVisible];
 }
 
 @end

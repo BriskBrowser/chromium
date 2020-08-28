@@ -4,7 +4,10 @@
 
 #include "chrome/browser/chromeos/child_accounts/time_limits/app_types.h"
 
-#include "base/logging.h"
+#include <algorithm>
+
+#include "base/check_op.h"
+#include "base/notreached.h"
 
 namespace chromeos {
 
@@ -28,8 +31,35 @@ std::string AppTypeToString(apps::mojom::AppType app_type) {
       return "Crostini";
     case apps::mojom::AppType::kMacNative:
       return "Mac native";
+    case apps::mojom::AppType::kPluginVm:
+      return "Plugin VM";
+    case apps::mojom::AppType::kLacros:
+      return "LaCrOS";
+    case apps::mojom::AppType::kRemote:
+      return "Remote";
+    case apps::mojom::AppType::kBorealis:
+      return "Borealis";
   }
   NOTREACHED();
+}
+
+// static
+bool CanMerge(const AppActivity::ActiveTime& t1,
+              const AppActivity::ActiveTime& t2) {
+  if (t1.active_from() <= t2.active_from() &&
+      t1.active_to() >=
+          t2.active_from() -
+              AppActivity::ActiveTime::kActiveTimeMergePrecision) {
+    return true;
+  }
+
+  if (t2.active_from() <= t1.active_from() &&
+      t2.active_to() >=
+          t1.active_from() -
+              AppActivity::ActiveTime::kActiveTimeMergePrecision) {
+    return true;
+  }
+  return false;
 }
 
 }  // namespace
@@ -66,6 +96,11 @@ std::ostream& operator<<(std::ostream& out, const AppId& id) {
              << "]";
 }
 
+PauseAppInfo::PauseAppInfo(const AppId& app,
+                           base::TimeDelta limit,
+                           bool show_dialog)
+    : app_id(app), daily_limit(limit), show_pause_dialog(show_dialog) {}
+
 AppLimit::AppLimit(AppRestriction restriction,
                    base::Optional<base::TimeDelta> daily_limit,
                    base::Time last_updated)
@@ -89,6 +124,22 @@ AppLimit::AppLimit(AppLimit&&) = default;
 AppLimit& AppLimit::operator=(AppLimit&&) = default;
 
 AppLimit::~AppLimit() = default;
+
+// static
+base::Optional<AppActivity::ActiveTime> AppActivity::ActiveTime::Merge(
+    const ActiveTime& t1,
+    const ActiveTime& t2) {
+  if (!CanMerge(t1, t2))
+    return base::nullopt;
+
+  base::Time active_from = std::min(t1.active_from(), t2.active_from());
+  base::Time active_to = std::max(t1.active_to(), t2.active_to());
+  return AppActivity::ActiveTime(active_from, active_to);
+}
+
+// static
+const base::TimeDelta AppActivity::ActiveTime::kActiveTimeMergePrecision =
+    base::TimeDelta::FromSeconds(1);
 
 AppActivity::ActiveTime::ActiveTime(base::Time start, base::Time end)
     : active_from_(start), active_to_(end) {
@@ -135,6 +186,11 @@ AppActivity::AppActivity(AppState app_state)
     : app_state_(app_state),
       running_active_time_(base::TimeDelta::FromSeconds(0)),
       last_updated_time_ticks_(base::TimeTicks::Now()) {}
+AppActivity::AppActivity(AppState app_state,
+                         base::TimeDelta running_active_time)
+    : app_state_(app_state),
+      running_active_time_(running_active_time),
+      last_updated_time_ticks_(base::TimeTicks::Now()) {}
 AppActivity::AppActivity(const AppActivity&) = default;
 AppActivity& AppActivity::operator=(const AppActivity&) = default;
 AppActivity::AppActivity(AppActivity&&) = default;
@@ -143,7 +199,9 @@ AppActivity::~AppActivity() = default;
 
 void AppActivity::SetAppState(AppState app_state) {
   app_state_ = app_state;
-  last_updated_time_ticks_ = base::TimeTicks::Now();
+  CaptureOngoingActivity(base::Time::Now());
+  if (!is_active_)
+    last_updated_time_ticks_ = base::TimeTicks::Now();
 }
 
 void AppActivity::SetAppActive(base::Time timestamp) {
@@ -157,16 +215,13 @@ void AppActivity::SetAppActive(base::Time timestamp) {
 void AppActivity::SetAppInactive(base::Time timestamp) {
   if (!is_active_)
     return;
-
-  base::TimeTicks now = base::TimeTicks::Now();
-  base::TimeDelta active_time = now - last_updated_time_ticks_;
-  base::Time start_time = timestamp - active_time;
-
+  CaptureOngoingActivity(timestamp);
   is_active_ = false;
-  active_times_.push_back(ActiveTime(start_time, timestamp));
+}
 
-  running_active_time_ += active_time;
-  last_updated_time_ticks_ = now;
+void AppActivity::ResetRunningActiveTime(base::Time timestamp) {
+  CaptureOngoingActivity(timestamp);
+  running_active_time_ = base::TimeDelta::FromMinutes(0);
 }
 
 base::TimeDelta AppActivity::RunningActiveTime() const {
@@ -177,23 +232,31 @@ base::TimeDelta AppActivity::RunningActiveTime() const {
          (base::TimeTicks::Now() - last_updated_time_ticks_);
 }
 
-void AppActivity::RemoveActiveTimeEarlierThan(base::Time timestamp) {
-  for (auto active_time = active_times_.begin();
-       active_time != active_times_.end();) {
-    if (active_time->IsEarlierThan(timestamp)) {
-      active_time = active_times_.erase(active_time);
-      continue;
-    }
-    if (active_time->IsLaterThan(timestamp)) {
-      ++active_time;
-      continue;
-    }
-    DCHECK(active_time->Contains(timestamp));
-    active_time->set_active_from(timestamp);
-    ++active_time;
-  }
+void AppActivity::CaptureOngoingActivity(base::Time timestamp) {
+  if (!is_active_)
+    return;
+
+  // Log the active time before the until the reset.
+  base::TimeTicks now = base::TimeTicks::Now();
+  base::TimeDelta active_time = now - last_updated_time_ticks_;
+
+  // Update |running_active_time_|.
+  running_active_time_ += active_time;
+
+  base::Time start_time = timestamp - active_time;
+
+  // Timestamps can be equal if SetAppInactive() is called directly after
+  // SetAppState(). Happens in tests.
+  DCHECK_GE(timestamp, start_time);
+  if (timestamp > start_time)
+    active_times_.push_back(ActiveTime(start_time, timestamp));
+
+  last_updated_time_ticks_ = now;
+}
+
+std::vector<AppActivity::ActiveTime> AppActivity::TakeActiveTimes() {
+  return std::move(active_times_);
 }
 
 }  // namespace app_time
-
 }  // namespace chromeos

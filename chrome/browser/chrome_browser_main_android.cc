@@ -5,9 +5,10 @@
 #include "chrome/browser/chrome_browser_main_android.h"
 
 #include "base/bind.h"
-#include "base/message_loop/message_loop_current.h"
 #include "base/path_service.h"
+#include "base/task/current_thread.h"
 #include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
 #include "base/trace_event/trace_event.h"
 #include "chrome/browser/android/mojo/chrome_interface_registrar_android.h"
 #include "chrome/browser/android/preferences/clipboard_android.h"
@@ -66,7 +67,7 @@ int ChromeBrowserMainPartsAndroid::PreEarlyInitialization() {
     "ChromeBrowserMainPartsAndroid::PreEarlyInitialization")
   content::Compositor::Initialize();
 
-  CHECK(base::MessageLoopCurrent::IsSet());
+  CHECK(base::CurrentThread::IsSet());
 
   return ChromeBrowserMainParts::PreEarlyInitialization();
 }
@@ -81,9 +82,8 @@ void ChromeBrowserMainPartsAndroid::PostEarlyInitialization() {
 void ChromeBrowserMainPartsAndroid::PostBrowserStart() {
   ChromeBrowserMainParts::PostBrowserStart();
 
-  base::PostDelayedTask(
-      FROM_HERE,
-      {base::ThreadPool(), base::MayBlock(), base::TaskPriority::BEST_EFFORT},
+  base::ThreadPool::PostDelayedTask(
+      FROM_HERE, {base::MayBlock(), base::TaskPriority::BEST_EFFORT},
       base::BindOnce(&ReportSeccompSupport), base::TimeDelta::FromMinutes(1));
 
   RegisterChromeJavaMojoInterfaces();

@@ -41,7 +41,7 @@
     bigTypedArray["FAIL"] = "FAIL: Object.getOwnPropertyNames() should not have been run";
     console.dir(bigTypedArray);
 
-    // document.createEvent("Event") has a special property "isTrusted" flagged "Unforgeable".
+    // document.createEvent("Event") has a special property "isTrusted" flagged "LegacyUnforgeable".
     var event = document.createEvent("Event");
     Object.defineProperty(event, "timeStamp", {value: 0})
     console.dir(event);
@@ -59,8 +59,8 @@
     ConsoleTestRunner.expandConsoleMessages(dumpConsoleMessages, expandTreeElementFilter);
   }
 
-  function dumpConsoleMessages() {
-    ConsoleTestRunner.dumpConsoleMessagesIgnoreErrorStackFrames();
+  async function dumpConsoleMessages() {
+    await ConsoleTestRunner.dumpConsoleMessagesIgnoreErrorStackFrames();
     TestRunner.completeTest();
   }
 })();

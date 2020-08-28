@@ -12,9 +12,9 @@
 #include <unordered_map>
 #include <vector>
 
+#include "base/callback_forward.h"
 #include "base/files/file_path.h"
 #include "base/gtest_prod_util.h"
-#include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
 #include "base/strings/string16.h"
@@ -40,6 +40,8 @@ class ProfileAttributesStorage
   using Observer = ProfileInfoCacheObserver;
 
   explicit ProfileAttributesStorage(PrefService* prefs);
+  ProfileAttributesStorage(const ProfileAttributesStorage&) = delete;
+  ProfileAttributesStorage& operator=(const ProfileAttributesStorage&) = delete;
   virtual ~ProfileAttributesStorage();
 
   // If the |supervised_user_id| is non-empty, the profile will be marked to be
@@ -94,6 +96,10 @@ class ProfileAttributesStorage
   bool IsDefaultProfileName(const base::string16& name,
                             bool include_check_for_legacy_profile_name) const;
 
+  // Records statistics about profiles as would be visible in the profile picker
+  // (if we would display it in this moment).
+  void RecordProfilesState();
+
   // Returns an avatar icon index that can be assigned to a newly created
   // profile. Note that the icon may not be unique since there are a limited
   // set of default icons.
@@ -127,6 +133,10 @@ class ProfileAttributesStorage
   // ProfileAttributesEntry.
   void NotifyOnProfileAvatarChanged(const base::FilePath& profile_path) const;
 
+  // Disables the periodic reporting of profile metrics, as this is causing
+  // tests to time out.
+  virtual void DisableProfileMetricsForTesting() {}
+
  protected:
   FRIEND_TEST_ALL_PREFIXES(ProfileInfoCacheTest, EntriesInAttributesStorage);
   FRIEND_TEST_ALL_PREFIXES(ProfileAttributesStorageTest,
@@ -145,7 +155,8 @@ class ProfileAttributesStorage
   void SaveAvatarImageAtPath(const base::FilePath& profile_path,
                              gfx::Image image,
                              const std::string& key,
-                             const base::FilePath& image_path);
+                             const base::FilePath& image_path,
+                             base::OnceClosure callback);
 
   PrefService* const prefs_;
   mutable std::unordered_map<base::FilePath::StringType,
@@ -187,13 +198,19 @@ class ProfileAttributesStorage
   // Called when the picture given by |file_name| has been saved to disk. Used
   // both for the GAIA profile picture and the high res avatar files.
   void OnAvatarPictureSaved(const std::string& file_name,
-                            const base::FilePath& profile_path) const;
+                            const base::FilePath& profile_path,
+                            base::OnceClosure callback,
+                            bool success) const;
+
+  // Helper function that calls SaveAvatarImageAtPath without a callback.
+  void SaveAvatarImageAtPathNoCallback(const base::FilePath& profile_path,
+                                       gfx::Image image,
+                                       const std::string& key,
+                                       const base::FilePath& image_path);
 
   // Notifies observers.
   void NotifyOnProfileHighResAvatarLoaded(
       const base::FilePath& profile_path) const;
-
-  DISALLOW_COPY_AND_ASSIGN(ProfileAttributesStorage);
 };
 
 #endif  // CHROME_BROWSER_PROFILES_PROFILE_ATTRIBUTES_STORAGE_H_

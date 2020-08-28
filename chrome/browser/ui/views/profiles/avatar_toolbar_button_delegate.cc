@@ -4,8 +4,7 @@
 
 #include "chrome/browser/ui/views/profiles/avatar_toolbar_button_delegate.h"
 
-#include "base/feature_list.h"
-#include "base/logging.h"
+#include "base/check_op.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_avatar_icon_util.h"
@@ -17,7 +16,12 @@
 #include "chrome/browser/sync/profile_sync_service_factory.h"
 #include "chrome/browser/sync/sync_ui_util.h"
 #include "chrome/browser/ui/browser_list.h"
-#include "chrome/browser/ui/ui_features.h"
+#include "components/signin/public/identity_manager/consent_level.h"
+#include "ui/base/resource/resource_bundle.h"
+
+#if defined(OS_CHROMEOS)
+#include "chromeos/constants/chromeos_features.h"
+#endif
 
 namespace {
 
@@ -52,11 +56,16 @@ bool IsGenericProfile(const ProfileAttributesEntry& entry) {
 
 // Returns the avatar image for the current profile. May be called only in
 // "normal" states where the user is guaranteed to have an avatar image (i.e.
-// not kGenericProfile, not kGuestSession and not kIncognitoProfile).
-const gfx::Image& GetAvatarImage(Profile* profile,
-                                 const gfx::Image& user_identity_image) {
+// not kGuestSession and not kIncognitoProfile).
+gfx::Image GetAvatarImage(Profile* profile,
+                          const gfx::Image& user_identity_image,
+                          int preferred_size) {
   ProfileAttributesEntry* entry = GetProfileAttributesEntry(profile);
-  DCHECK(entry);
+  if (!entry) {  // This can happen if the user deletes the current profile.
+    return ui::ResourceBundle::GetSharedInstance().GetImageNamed(
+        profiles::GetPlaceholderAvatarIconResourceID());
+  }
+
   // TODO(crbug.com/1012179): it should suffice to call entry->GetAvatarIcon().
   // For this to work well, this class needs to observe ProfileAttributesStorage
   // instead of (or on top of) IdentityManager. Only then we can rely on |entry|
@@ -77,7 +86,7 @@ const gfx::Image& GetAvatarImage(Profile* profile,
     return user_identity_image;
   }
 
-  return entry->GetAvatarIcon();
+  return entry->GetAvatarIcon(preferred_size);
 }
 
 }  // namespace
@@ -92,10 +101,8 @@ void AvatarToolbarButtonDelegate::Init(AvatarToolbarButton* button,
                                        Profile* profile) {
   avatar_toolbar_button_ = button;
   profile_ = profile;
-#if !defined(OS_CHROMEOS)
   error_controller_ =
       std::make_unique<AvatarButtonErrorController>(this, profile_);
-#endif  // !defined(OS_CHROMEOS)
   profile_observer_.Add(&GetProfileAttributesStorage());
   AvatarToolbarButton::State state = GetState();
   if (state == AvatarToolbarButton::State::kIncognitoProfile) {
@@ -110,13 +117,13 @@ void AvatarToolbarButtonDelegate::Init(AvatarToolbarButton* button,
   }
 
 #if defined(OS_CHROMEOS)
-  // On CrOS this button should only show as badging for Incognito and Guest
-  // sessions. It's only enabled for Incognito where a menu is available for
-  // closing all Incognito windows.
-  DCHECK(state == AvatarToolbarButton::State::kIncognitoProfile ||
-         state == AvatarToolbarButton::State::kGuestSession);
-  avatar_toolbar_button_->SetEnabled(
-      state == AvatarToolbarButton::State::kIncognitoProfile);
+  if (!base::FeatureList::IsEnabled(chromeos::features::kAvatarToolbarButton)) {
+    // On CrOS this button should only show as badging for Incognito and Guest
+    // sessions. It's only enabled for Incognito where a menu is available for
+    // closing all Incognito windows.
+    avatar_toolbar_button_->SetEnabled(
+        state == AvatarToolbarButton::State::kIncognitoProfile);
+  }
 #endif  // !defined(OS_CHROMEOS)
 }
 
@@ -133,11 +140,13 @@ base::string16 AvatarToolbarButtonDelegate::GetShortProfileName() const {
 gfx::Image AvatarToolbarButtonDelegate::GetGaiaAccountImage() const {
   signin::IdentityManager* identity_manager =
       IdentityManagerFactory::GetForProfile(profile_);
-  if (identity_manager && identity_manager->HasUnconsentedPrimaryAccount()) {
+  if (identity_manager &&
+      identity_manager->HasPrimaryAccount(signin::ConsentLevel::kNotRequired)) {
     base::Optional<AccountInfo> account_info =
         identity_manager
             ->FindExtendedAccountInfoForAccountWithRefreshTokenByAccountId(
-                identity_manager->GetUnconsentedPrimaryAccountId());
+                identity_manager->GetPrimaryAccountId(
+                    signin::ConsentLevel::kNotRequired));
     if (account_info.has_value())
       return account_info->account_image;
   }
@@ -145,25 +154,30 @@ gfx::Image AvatarToolbarButtonDelegate::GetGaiaAccountImage() const {
 }
 
 gfx::Image AvatarToolbarButtonDelegate::GetProfileAvatarImage(
-    gfx::Image gaia_account_image) const {
-  return GetAvatarImage(profile_, gaia_account_image);
+    gfx::Image gaia_account_image,
+    int preferred_size) const {
+  return GetAvatarImage(profile_, gaia_account_image, preferred_size);
 }
 
 int AvatarToolbarButtonDelegate::GetIncognitoWindowsCount() const {
-  return BrowserList::GetIncognitoSessionsActiveForProfile(profile_);
+  return BrowserList::GetOffTheRecordBrowsersActiveForProfile(profile_);
 }
 
 AvatarToolbarButton::State AvatarToolbarButtonDelegate::GetState() const {
-  if (profile_->IsIncognitoProfile())
-    return AvatarToolbarButton::State::kIncognitoProfile;
   if (profile_->IsGuestSession())
     return AvatarToolbarButton::State::kGuestSession;
+
+  // Return |kIncognitoProfile| state for all OffTheRecord profile types except
+  // guest mode.
+  if (profile_->IsOffTheRecord())
+    return AvatarToolbarButton::State::kIncognitoProfile;
 
   signin::IdentityManager* identity_manager =
       IdentityManagerFactory::GetForProfile(profile_);
   ProfileAttributesEntry* entry = GetProfileAttributesEntry(profile_);
   if (!entry ||  // This can happen if the user deletes the current profile.
-      (!identity_manager->HasUnconsentedPrimaryAccount() &&
+      (!identity_manager->HasPrimaryAccount(
+           signin::ConsentLevel::kNotRequired) &&
        IsGenericProfile(*entry))) {
     return AvatarToolbarButton::State::kGenericProfile;
   }
@@ -175,16 +189,14 @@ AvatarToolbarButton::State AvatarToolbarButtonDelegate::GetState() const {
     return AvatarToolbarButton::State::kAnimatedUserIdentity;
   }
 
-#if !defined(OS_CHROMEOS)
   if (identity_manager->HasPrimaryAccount() &&
       ProfileSyncServiceFactory::IsSyncAllowed(profile_) &&
       error_controller_->HasAvatarError()) {
+    const sync_ui_util::AvatarSyncErrorType error =
+        sync_ui_util::GetAvatarSyncErrorType(profile_);
+
     // When DICE is enabled and the error is an auth error, the sync-paused
     // icon is shown.
-    int unused;
-    const sync_ui_util::AvatarSyncErrorType error =
-        sync_ui_util::GetMessagesForAvatarSyncError(profile_, &unused, &unused);
-
     if (AccountConsistencyModeManager::IsDiceEnabledForProfile(profile_) &&
         error == sync_ui_util::AUTH_ERROR) {
       return AvatarToolbarButton::State::kSyncPaused;
@@ -196,7 +208,7 @@ AvatarToolbarButton::State AvatarToolbarButtonDelegate::GetState() const {
 
     return AvatarToolbarButton::State::kSyncError;
   }
-#endif  // !defined(OS_CHROMEOS)
+
   return AvatarToolbarButton::State::kNormal;
 }
 
@@ -229,8 +241,8 @@ void AvatarToolbarButtonDelegate::ShowIdentityAnimation(
 
   // Check that the user is still signed in. See https://crbug.com/1025674
   CoreAccountInfo user_identity =
-      IdentityManagerFactory::GetForProfile(profile_)
-          ->GetUnconsentedPrimaryAccountInfo();
+      IdentityManagerFactory::GetForProfile(profile_)->GetPrimaryAccountInfo(
+          signin::ConsentLevel::kNotRequired);
   if (user_identity.IsEmpty()) {
     identity_animation_state_ = IdentityAnimationState::kNotShowing;
     return;
@@ -308,7 +320,7 @@ void AvatarToolbarButtonDelegate::OnUnconsentedPrimaryAccountChanged(
     const CoreAccountInfo& unconsented_primary_account_info) {
   if (unconsented_primary_account_info.IsEmpty())
     return;
-  OnUserIdentityChanged(features::kAnimatedAvatarButtonOnSignIn);
+  OnUserIdentityChanged();
 }
 
 void AvatarToolbarButtonDelegate::OnRefreshTokensLoaded() {
@@ -327,11 +339,12 @@ void AvatarToolbarButtonDelegate::OnRefreshTokensLoaded() {
           GetProfileAttributesStorage(), profile_)) {
     return;
   }
-  CoreAccountInfo account = IdentityManagerFactory::GetForProfile(profile_)
-                                ->GetUnconsentedPrimaryAccountInfo();
+  CoreAccountInfo account =
+      IdentityManagerFactory::GetForProfile(profile_)->GetPrimaryAccountInfo(
+          signin::ConsentLevel::kNotRequired);
   if (account.IsEmpty())
     return;
-  OnUserIdentityChanged(features::kAnimatedAvatarButtonOnOpeningWindow);
+  OnUserIdentityChanged();
 }
 
 void AvatarToolbarButtonDelegate::OnAccountsInCookieUpdated(
@@ -355,18 +368,8 @@ void AvatarToolbarButtonDelegate::OnAvatarErrorChanged() {
   avatar_toolbar_button_->UpdateText();
 }
 
-void AvatarToolbarButtonDelegate::OnUserIdentityChanged(
-    const base::Feature& triggering_feature) {
-  // Record the last time the animated identity was set. This is done even if
-  // the feature is disabled, to allow comparing metrics between experimental
-  // groups.
+void AvatarToolbarButtonDelegate::OnUserIdentityChanged() {
   signin_ui_util::RecordAnimatedIdentityTriggered(profile_);
-
-  if (!base::FeatureList::IsEnabled(triggering_feature) ||
-      !base::FeatureList::IsEnabled(features::kAnimatedAvatarButton)) {
-    return;
-  }
-
   identity_animation_state_ = IdentityAnimationState::kWaitingForImage;
   // If we already have a gaia image, the pill will be immediately displayed by
   // UpdateIcon().

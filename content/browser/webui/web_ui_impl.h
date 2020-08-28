@@ -14,20 +14,21 @@
 #include "base/compiler_specific.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
+#include "content/common/web_ui.mojom.h"
 #include "content/public/browser/web_ui.h"
-
-namespace IPC {
-class Message;
-}
+#include "mojo/public/cpp/bindings/pending_receiver.h"
+#include "mojo/public/cpp/bindings/receiver.h"
+#include "mojo/public/cpp/bindings/remote.h"
 
 namespace content {
 class RenderFrameHost;
 class WebContentsImpl;
 
 class CONTENT_EXPORT WebUIImpl : public WebUI,
+                                 public mojom::WebUIHost,
                                  public base::SupportsWeakPtr<WebUIImpl> {
  public:
-  explicit WebUIImpl(WebContentsImpl* contents);
+  explicit WebUIImpl(WebContentsImpl* contents, RenderFrameHost* frame_host);
   ~WebUIImpl() override;
 
   // Called when a RenderFrame is created for a WebUI (reload after a renderer
@@ -42,6 +43,15 @@ class CONTENT_EXPORT WebUIImpl : public WebUI,
   // Called when the owning RenderFrameHost has started unloading.
   void RenderFrameHostUnloading();
 
+  // Called right after AllowBindings is notified to a RenderFrame.
+  void SetupMojoConnection();
+
+  // Called when a RenderFrame is deleted for a WebUI (i.e. a renderer crash).
+  void InvalidateMojoConnection();
+
+  // Add a property to the WebUI binding object.
+  void SetProperty(const std::string& name, const std::string& value);
+
   // WebUI implementation:
   WebContents* GetWebContents() override;
   WebUIController* GetController() override;
@@ -51,6 +61,8 @@ class CONTENT_EXPORT WebUIImpl : public WebUI,
   void OverrideTitle(const base::string16& title) override;
   int GetBindings() override;
   void SetBindings(int bindings) override;
+  const std::vector<std::string>& GetRequestableSchemes() override;
+  void AddRequestableScheme(const char* scheme) override;
   void AddMessageHandler(std::unique_ptr<WebUIMessageHandler> handler) override;
   void RegisterMessageCallback(base::StringPiece message,
                                const MessageCallback& callback) override;
@@ -79,15 +91,15 @@ class CONTENT_EXPORT WebUIImpl : public WebUI,
   std::vector<std::unique_ptr<WebUIMessageHandler>>* GetHandlersForTesting()
       override;
 
-  bool OnMessageReceived(const IPC::Message& message, RenderFrameHost* sender);
+  const mojo::Remote<mojom::WebUI>& GetRemoteForTest() const { return remote_; }
+
+  RenderFrameHost* frame_host_for_test() const { return frame_host_; }
 
  private:
   class MainFrameNavigationObserver;
 
-  // IPC message handling.
-  void OnWebUISend(RenderFrameHost* sender,
-                   const std::string& message,
-                   const base::ListValue& args);
+  // mojom::WebUIHost
+  void Send(const std::string& message, base::Value args) override;
 
   // Execute a string of raw JavaScript on the page.
   void ExecuteJavascript(const base::string16& javascript);
@@ -104,8 +116,14 @@ class CONTENT_EXPORT WebUIImpl : public WebUI,
   int bindings_;  // The bindings from BindingsPolicy that should be enabled for
                   // this page.
 
+  // The URL schemes that can be requested by this document.
+  std::vector<std::string> requestable_schemes_;
+
   // The WebUIMessageHandlers we own.
   std::vector<std::unique_ptr<WebUIMessageHandler>> handlers_;
+
+  // RenderFrameHost associated with |this|.
+  RenderFrameHost* frame_host_;
 
   // Non-owning pointer to the WebContentsImpl this WebUI is associated with.
   WebContentsImpl* web_contents_;
@@ -114,6 +132,9 @@ class CONTENT_EXPORT WebUIImpl : public WebUI,
   std::unique_ptr<MainFrameNavigationObserver> web_contents_observer_;
 
   std::unique_ptr<WebUIController> controller_;
+
+  mojo::Remote<mojom::WebUI> remote_;
+  mojo::Receiver<mojom::WebUIHost> receiver_{this};
 
   DISALLOW_COPY_AND_ASSIGN(WebUIImpl);
 };

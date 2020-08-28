@@ -7,18 +7,18 @@ package org.chromium.chrome.test.util;
 import android.content.Context;
 import android.view.View;
 import android.view.inputmethod.InputMethodManager;
-import android.widget.ListView;
 
+import org.hamcrest.Matchers;
 import org.junit.Assert;
 
 import org.chromium.chrome.browser.omnibox.LocationBarLayout;
-import org.chromium.chrome.browser.omnibox.MatchClassificationStyle;
 import org.chromium.chrome.browser.omnibox.UrlBar;
 import org.chromium.chrome.browser.omnibox.suggestions.AutocompleteController;
 import org.chromium.chrome.browser.omnibox.suggestions.AutocompleteController.OnSuggestionsReceivedListener;
 import org.chromium.chrome.browser.omnibox.suggestions.AutocompleteCoordinatorTestUtils;
+import org.chromium.chrome.browser.omnibox.suggestions.AutocompleteResult;
 import org.chromium.chrome.browser.omnibox.suggestions.OmniboxSuggestion;
-import org.chromium.chrome.browser.omnibox.suggestions.OmniboxSuggestion.MatchClassification;
+import org.chromium.chrome.browser.omnibox.suggestions.OmniboxSuggestionsDropdown;
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.content_public.browser.test.util.Criteria;
 import org.chromium.content_public.browser.test.util.CriteriaHelper;
@@ -73,15 +73,6 @@ public class OmniboxTestUtils {
         private final List<OmniboxSuggestion> mSuggestions = new ArrayList<OmniboxSuggestion>();
         private String mAutocompleteText;
 
-        public SuggestionsResultBuilder addGeneratedSuggestion(
-                int type, String text, String url) {
-            List<MatchClassification> classifications = new ArrayList<>();
-            classifications.add(new MatchClassification(0, MatchClassificationStyle.NONE));
-            mSuggestions.add(new OmniboxSuggestion(type, false, 0, 0, text, classifications, null,
-                    classifications, null, "", url, null, null, false, false));
-            return this;
-        }
-
         public SuggestionsResultBuilder addSuggestion(OmniboxSuggestion suggestion) {
             mSuggestions.add(suggestion);
             return this;
@@ -134,18 +125,17 @@ public class OmniboxTestUtils {
         private int mZeroSuggestCalledCount;
         private boolean mStartAutocompleteCalled;
 
-        public TestAutocompleteController(
-                View view,
-                OnSuggestionsReceivedListener listener,
+        public TestAutocompleteController(View view, OnSuggestionsReceivedListener listener,
                 Map<String, List<SuggestionsResult>> suggestions) {
-            super(listener);
             mView = view;
             mSuggestions = suggestions;
+            setOnSuggestionsReceivedListener(listener);
         }
 
         @Override
         public void start(Profile profile, String url, int pageClassification, final String text,
-                int cursorPosition, boolean preventInlineAutocomplete) {
+                int cursorPosition, boolean preventInlineAutocomplete, String queryTileId,
+                boolean isQueryStartedFromTiles) {
             mStartAutocompleteCalled = true;
             mSuggestionsDispatcher = new Runnable() {
                 @Override
@@ -155,10 +145,10 @@ public class OmniboxTestUtils {
                     if (suggestions == null) return;
 
                     for (int i = 0; i < suggestions.size(); i++) {
+                        AutocompleteResult autocompleteResult =
+                                new AutocompleteResult(suggestions.get(i).mSuggestions, null);
                         onSuggestionsReceived(
-                                suggestions.get(i).mSuggestions,
-                                suggestions.get(i).mAutocompleteText,
-                                0);
+                                autocompleteResult, suggestions.get(i).mAutocompleteText, 0);
                     }
                 }
             };
@@ -194,10 +184,11 @@ public class OmniboxTestUtils {
      */
     public static class StubAutocompleteController extends AutocompleteController {
         public StubAutocompleteController() {
-            super(new OnSuggestionsReceivedListener() {
+            super();
+            setOnSuggestionsReceivedListener(new OnSuggestionsReceivedListener() {
                 @Override
-                public void onSuggestionsReceived(List<OmniboxSuggestion> suggestions,
-                        String inlineAutocompleteText) {
+                public void onSuggestionsReceived(
+                        AutocompleteResult autocompleteResult, String inlineAutocompleteText) {
                     Assert.fail("No autocomplete suggestions should be received");
                 }
             });
@@ -205,7 +196,8 @@ public class OmniboxTestUtils {
 
         @Override
         public void start(Profile profile, String url, int pageClassification, String text,
-                int cursorPosition, boolean preventInlineAutocomplete) {}
+                int cursorPosition, boolean preventInlineAutocomplete, String queryTileId,
+                boolean isQueryStartedFromTiles) {}
 
         @Override
         public void startZeroSuggest(Profile profile, String omniboxText, String url,
@@ -250,9 +242,8 @@ public class OmniboxTestUtils {
         return TestThreadUtils.runOnUiThreadBlockingNoException(new Callable<Boolean>() {
             @Override
             public Boolean call() {
-                InputMethodManager imm =
-                        (InputMethodManager) view.getContext().getSystemService(
-                                Context.INPUT_METHOD_SERVICE);
+                InputMethodManager imm = (InputMethodManager) view.getContext().getSystemService(
+                        Context.INPUT_METHOD_SERVICE);
                 return imm.isActive(view);
             }
         });
@@ -267,16 +258,10 @@ public class OmniboxTestUtils {
         if (gainFocus) {
             // During early startup (before completion of its first onDraw), the UrlBar
             // is not focusable. Tests have to wait for that to happen before trying to focus it.
-            CriteriaHelper.pollUiThread(new Criteria() {
-                @Override
-                public boolean isSatisfied() {
-                    boolean shown = urlBar.isShown();
-                    boolean focusable = urlBar.isFocusable();
-                    updateFailureReason(String.format(Locale.US,
-                            "UrlBar is invalid state - shown: %b, focusable: %b", shown,
-                            focusable));
-                    return shown && focusable;
-                }
+            CriteriaHelper.pollUiThread(() -> {
+                Criteria.checkThat("UrlBar not shown.", urlBar.isShown(), Matchers.is(true));
+                Criteria.checkThat(
+                        "UrlBar not focusable.", urlBar.isFocusable(), Matchers.is(true));
             });
 
             TouchCommon.singleClickView(urlBar);
@@ -292,17 +277,11 @@ public class OmniboxTestUtils {
      * @param active Whether the UrlBar is expected to have focus or not.
      */
     public static void waitForFocusAndKeyboardActive(final UrlBar urlBar, final boolean active) {
-        CriteriaHelper.pollInstrumentationThread(new Criteria() {
-            @Override
-            public boolean isSatisfied() {
-                if (doesUrlBarHaveFocus(urlBar) != active) {
-                    updateFailureReason("URL Bar did not have expected focus: " + active);
-                    return false;
-                }
-                updateFailureReason(
-                        "The keyboard did not reach the expected active state: " + active);
-                return isKeyboardActiveForView(urlBar) == active;
-            }
+        CriteriaHelper.pollInstrumentationThread(() -> {
+            Criteria.checkThat("URL Bar did not have expected focus", doesUrlBarHaveFocus(urlBar),
+                    Matchers.is(active));
+            Criteria.checkThat("Keyboard did not reach expected state",
+                    isKeyboardActiveForView(urlBar), Matchers.is(active));
         });
     }
 
@@ -323,25 +302,16 @@ public class OmniboxTestUtils {
      */
     public static void waitForOmniboxSuggestions(
             final LocationBarLayout locationBar, long maxPollTimeMs) {
-        CriteriaHelper.pollUiThread(new Criteria() {
-            @Override
-            public boolean isSatisfied() {
-                ListView suggestionsList = AutocompleteCoordinatorTestUtils.getSuggestionList(
-                        locationBar.getAutocompleteCoordinator());
-                if (suggestionsList == null) {
-                    updateFailureReason("suggestionList is null");
-                    return false;
-                }
-                if (!suggestionsList.isShown()) {
-                    updateFailureReason("suggestionList is not shown");
-                    return false;
-                }
-                if (suggestionsList.getCount() == 0) {
-                    updateFailureReason("suggestionList has no entries");
-                    return false;
-                }
-                return true;
-            }
+        CriteriaHelper.pollUiThread(() -> {
+            OmniboxSuggestionsDropdown suggestionsDropdown =
+                    AutocompleteCoordinatorTestUtils.getSuggestionsDropdown(
+                            locationBar.getAutocompleteCoordinator());
+            Criteria.checkThat(
+                    "suggestion list is null", suggestionsDropdown, Matchers.notNullValue());
+            Criteria.checkThat("suggestion list is not shown",
+                    suggestionsDropdown.getViewGroup().isShown(), Matchers.is(true));
+            Criteria.checkThat("suggestion list has no entries", suggestionsDropdown.getItemCount(),
+                    Matchers.greaterThan(0));
         }, maxPollTimeMs, CriteriaHelper.DEFAULT_POLLING_INTERVAL);
     }
 
@@ -352,15 +322,13 @@ public class OmniboxTestUtils {
      */
     public static void waitForOmniboxSuggestions(
             final LocationBarLayout locationBar, final int expectedCount) {
-        CriteriaHelper.pollUiThread(new Criteria() {
-            @Override
-            public boolean isSatisfied() {
-                ListView suggestionsList = AutocompleteCoordinatorTestUtils.getSuggestionList(
-                        locationBar.getAutocompleteCoordinator());
-                return suggestionsList != null
-                        && suggestionsList.isShown()
-                        && suggestionsList.getCount() == expectedCount;
-            }
+        CriteriaHelper.pollUiThread(() -> {
+            OmniboxSuggestionsDropdown suggestionsDropdown =
+                    AutocompleteCoordinatorTestUtils.getSuggestionsDropdown(
+                            locationBar.getAutocompleteCoordinator());
+            Criteria.checkThat(suggestionsDropdown, Matchers.notNullValue());
+            Criteria.checkThat(suggestionsDropdown.getViewGroup().isShown(), Matchers.is(true));
+            Criteria.checkThat(suggestionsDropdown.getItemCount(), Matchers.is(expectedCount));
         });
     }
 }

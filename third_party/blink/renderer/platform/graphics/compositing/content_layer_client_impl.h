@@ -67,6 +67,7 @@ class PLATFORM_EXPORT ContentLayerClientImpl : public cc::ContentLayerClient,
  private:
   // Callback from raster_invalidator_.
   void InvalidateRect(const IntRect& rect) {
+    raster_invalidated_ = true;
     cc_picture_layer_->SetNeedsDisplayRect(rect);
   }
 
@@ -74,6 +75,9 @@ class PLATFORM_EXPORT ContentLayerClientImpl : public cc::ContentLayerClient,
   scoped_refptr<cc::PictureLayer> cc_picture_layer_;
   scoped_refptr<cc::DisplayItemList> cc_display_item_list_;
   RasterInvalidator raster_invalidator_;
+  RasterInvalidator::RasterInvalidationFunction raster_invalidation_function_;
+  bool raster_invalidated_ = false;
+
   PropertyTreeState layer_state_;
 
   String debug_name_;

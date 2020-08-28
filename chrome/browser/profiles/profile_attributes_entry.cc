@@ -3,23 +3,45 @@
 // found in the LICENSE file.
 
 #include <utility>
+#include <vector>
 
+#include "base/hash/hash.h"
+#include "base/logging.h"
+#include "base/notreached.h"
+#include "base/optional.h"
+#include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
+#include "chrome/app/vector_icons/vector_icons.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/profiles/profile_attributes_entry.h"
 #include "chrome/browser/profiles/profile_avatar_icon_util.h"
 #include "chrome/browser/profiles/profile_info_cache.h"
+#include "chrome/browser/profiles/profiles_state.h"
 #include "chrome/browser/signin/signin_util.h"
 #include "chrome/browser/ui/ui_features.h"
 #include "chrome/common/pref_names.h"
+#include "components/policy/core/browser/browser_policy_connector.h"
 #include "components/prefs/pref_registry_simple.h"
 #include "components/prefs/pref_service.h"
 #include "components/prefs/scoped_user_pref_update.h"
+#include "components/profile_metrics/state.h"
+#include "components/signin/public/base/signin_pref_names.h"
+#include "components/signin/public/identity_manager/account_info.h"
 #include "ui/base/resource/resource_bundle.h"
+#include "ui/gfx/canvas.h"
+#include "ui/gfx/color_utils.h"
+#include "ui/gfx/image/canvas_image_source.h"
+#include "ui/gfx/paint_vector_icon.h"
+#include "ui/native_theme/native_theme.h"
 
 #if BUILDFLAG(ENABLE_SUPERVISED_USERS)
 #include "chrome/browser/supervised_user/supervised_user_constants.h"
+#endif
+
+#if !defined(OS_ANDROID)
+#include "chrome/browser/themes/theme_properties.h"
+#include "chrome/browser/ui/signin/profile_colors_util.h"
 #endif
 
 namespace {
@@ -33,9 +55,31 @@ const char kPasswordTokenKey[] = "gaia_password_token";
 const char kIsAuthErrorKey[] = "is_auth_error";
 const char kMetricsBucketIndex[] = "metrics_bucket_index";
 const char kSigninRequiredKey[] = "signin_required";
+const char kHostedDomain[] = "hosted_domain";
+
+// Profile colors info.
+const char kProfileHighlightColorKey[] = "profile_highlight_color";
+const char kDefaultAvatarFillColorKey[] = "default_avatar_fill_color";
+const char kDefaultAvatarStrokeColorKey[] = "default_avatar_stroke_color";
+
+// Low-entropy accounts info, for metrics only.
+const char kFirstAccountNameHash[] = "first_account_name_hash";
+const char kHasMultipleAccountNames[] = "has_multiple_account_names";
+const char kAccountCategories[] = "account_categories";
 
 // Local state pref to keep track of the next available profile bucket.
 const char kNextMetricsBucketIndex[] = "profile.metrics.next_bucket_index";
+
+constexpr int kIntegerNotSet = -1;
+
+// Persisted in prefs.
+constexpr int kAccountCategoriesConsumerOnly = 0;
+constexpr int kAccountCategoriesEnterpriseOnly = 1;
+constexpr int kAccountCategoriesBoth = 2;
+
+// Number of distinct low-entropy hash values. Changing this value invalidates
+// existing persisted hashes.
+constexpr int kNumberOfLowEntropyHashValues = 1024;
 
 // Returns the next available metrics bucket index and increases the index
 // counter. I.e. two consecutive calls will return two consecutive numbers.
@@ -49,7 +93,24 @@ int NextAvailableMetricsBucketIndex() {
   return next_index;
 }
 
+int GetLowEntropyHashValue(const std::string& value) {
+  return base::PersistentHash(value) % kNumberOfLowEntropyHashValues;
+}
+
 }  // namespace
+
+bool ProfileThemeColors::operator==(const ProfileThemeColors& other) const {
+  return std::tie(this->profile_highlight_color,
+                  this->default_avatar_fill_color,
+                  this->default_avatar_stroke_color) ==
+         std::tie(other.profile_highlight_color,
+                  other.default_avatar_fill_color,
+                  other.default_avatar_stroke_color);
+}
+
+bool ProfileThemeColors::operator!=(const ProfileThemeColors& other) const {
+  return !(*this == other);
+}
 
 const char ProfileAttributesEntry::kSupervisedUserId[] = "managed_user_id";
 const char ProfileAttributesEntry::kIsOmittedFromProfileListKey[] =
@@ -73,10 +134,7 @@ void ProfileAttributesEntry::RegisterLocalStatePrefs(
   registry->RegisterIntegerPref(kNextMetricsBucketIndex, 1);
 }
 
-ProfileAttributesEntry::ProfileAttributesEntry()
-    : profile_info_cache_(nullptr),
-      prefs_(nullptr),
-      profile_path_(base::FilePath()) {}
+ProfileAttributesEntry::ProfileAttributesEntry() = default;
 
 void ProfileAttributesEntry::Initialize(ProfileInfoCache* cache,
                                         const base::FilePath& path,
@@ -108,7 +166,8 @@ void ProfileAttributesEntry::Initialize(ProfileInfoCache* cache,
   if (is_force_signin_enabled_) {
     if (!IsAuthenticated())
       is_force_signin_profile_locked_ = true;
-#if defined(OS_MACOSX) || defined(OS_LINUX) || defined(OS_WIN)
+#if defined(OS_MAC) || defined(OS_LINUX) || defined(OS_CHROMEOS) || \
+    defined(OS_WIN)
   } else if (IsSigninRequired()) {
     // Profiles that require signin in the absence of an enterprise policy are
     // left-overs from legacy supervised users. Just unlock them, so users can
@@ -177,22 +236,6 @@ bool ProfileAttributesEntry::ShouldShowProfileLocalName(
   return false;
 }
 
-base::string16 ProfileAttributesEntry::GetNameToDisplay() const {
-  base::string16 name_to_display = GetGAIANameToDisplay();
-
-  base::string16 local_profile_name = GetLocalProfileName();
-  if (name_to_display.empty())
-    return local_profile_name;
-
-  if (!ShouldShowProfileLocalName(name_to_display))
-    return name_to_display;
-
-  name_to_display.append(base::UTF8ToUTF16(" ("));
-  name_to_display.append(local_profile_name);
-  name_to_display.append(base::UTF8ToUTF16(")"));
-  return name_to_display;
-}
-
 base::string16 ProfileAttributesEntry::GetLastNameToDisplay() const {
   return last_name_to_display_;
 }
@@ -206,8 +249,25 @@ bool ProfileAttributesEntry::HasProfileNameChanged() {
   return true;
 }
 
+NameForm ProfileAttributesEntry::GetNameForm() const {
+  base::string16 name_to_display = GetGAIANameToDisplay();
+  if (name_to_display.empty())
+    return NameForm::kLocalName;
+  if (!ShouldShowProfileLocalName(name_to_display))
+    return NameForm::kGaiaName;
+  return NameForm::kGaiaAndLocalName;
+}
+
 base::string16 ProfileAttributesEntry::GetName() const {
-  return GetNameToDisplay();
+  switch (GetNameForm()) {
+    case NameForm::kGaiaName:
+      return GetGAIANameToDisplay();
+    case NameForm::kLocalName:
+      return GetLocalProfileName();
+    case NameForm::kGaiaAndLocalName:
+      return GetGAIANameToDisplay() + base::UTF8ToUTF16(" (") +
+             GetLocalProfileName() + base::UTF8ToUTF16(")");
+  }
 }
 
 base::string16 ProfileAttributesEntry::GetShortcutName() const {
@@ -230,16 +290,24 @@ base::string16 ProfileAttributesEntry::GetUserName() const {
   return GetString16(kUserNameKey);
 }
 
-const gfx::Image& ProfileAttributesEntry::GetAvatarIcon() const {
+gfx::Image ProfileAttributesEntry::GetAvatarIcon(
+    int size_for_placeholder_avatar) const {
   if (IsUsingGAIAPicture()) {
     const gfx::Image* image = GetGAIAPicture();
     if (image)
       return *image;
   }
 
-#if !defined(OS_CHROMEOS) && !defined(OS_ANDROID)
-  // Use the high resolution version of the avatar if it exists. Mobile and
-  // ChromeOS don't need the high resolution version so no need to fetch it.
+  // TODO(crbug.com/1100835): After launch, remove the treatment of placeholder
+  // avatars from GetHighResAvatar() and from any other places.
+  if (base::FeatureList::IsEnabled(features::kNewProfilePicker) &&
+      GetAvatarIconIndex() == profiles::GetPlaceholderAvatarIndex()) {
+    return GetPlaceholderAvatarIcon(size_for_placeholder_avatar);
+  }
+
+#if !defined(OS_ANDROID)
+  // Use the high resolution version of the avatar if it exists. Mobile doesn't
+  // need the high resolution version so no need to fetch it.
   const gfx::Image* image = GetHighResAvatar();
   if (image)
     return *image;
@@ -349,6 +417,10 @@ bool ProfileAttributesEntry::IsAuthError() const {
   return GetBool(kIsAuthErrorKey);
 }
 
+bool ProfileAttributesEntry::IsSignedInWithCredentialProvider() const {
+  return GetBool(prefs::kSignedInWithCredentialProvider);
+}
+
 size_t ProfileAttributesEntry::GetAvatarIconIndex() const {
   std::string icon_url = GetString(kAvatarIconKey);
   size_t icon_index = 0;
@@ -358,13 +430,40 @@ size_t ProfileAttributesEntry::GetAvatarIconIndex() const {
   return icon_index;
 }
 
+ProfileThemeColors ProfileAttributesEntry::GetProfileThemeColors() const {
+  base::Optional<SkColor> profile_highlight_color =
+      GetProfileThemeColor(kProfileHighlightColorKey);
+  base::Optional<SkColor> default_avatar_fill_color =
+      GetProfileThemeColor(kDefaultAvatarFillColorKey);
+  base::Optional<SkColor> default_avatar_stroke_color =
+      GetProfileThemeColor(kDefaultAvatarStrokeColorKey);
+  if (!profile_highlight_color.has_value()) {
+    DCHECK(!default_avatar_fill_color.has_value() &&
+           !default_avatar_stroke_color.has_value());
+    return GetDefaultProfileThemeColors(
+        ui::NativeTheme::GetInstanceForNativeUi()->ShouldUseDarkColors());
+  }
+
+  DCHECK(default_avatar_fill_color.has_value() &&
+         default_avatar_stroke_color.has_value());
+  ProfileThemeColors colors;
+  colors.profile_highlight_color = profile_highlight_color.value();
+  colors.default_avatar_fill_color = default_avatar_fill_color.value();
+  colors.default_avatar_stroke_color = default_avatar_stroke_color.value();
+  return colors;
+}
+
 size_t ProfileAttributesEntry::GetMetricsBucketIndex() {
   int bucket_index = GetInteger(kMetricsBucketIndex);
-  if (bucket_index == -1) {
+  if (bucket_index == kIntegerNotSet) {
     bucket_index = NextAvailableMetricsBucketIndex();
     SetInteger(kMetricsBucketIndex, bucket_index);
   }
   return bucket_index;
+}
+
+std::string ProfileAttributesEntry::GetHostedDomain() const {
+  return GetString(kHostedDomain);
 }
 
 void ProfileAttributesEntry::SetLocalProfileName(const base::string16& name) {
@@ -417,8 +516,11 @@ void ProfileAttributesEntry::SetGAIAGivenName(const base::string16& name) {
     profile_info_cache_->NotifyIfProfileNamesHaveChanged();
 }
 
-void ProfileAttributesEntry::SetGAIAPicture(gfx::Image image) {
-  profile_info_cache_->SetGAIAPictureOfProfileAtIndex(profile_index(), image);
+void ProfileAttributesEntry::SetGAIAPicture(
+    const std::string& image_url_with_size,
+    gfx::Image image) {
+  profile_info_cache_->SetGAIAPictureOfProfileAtIndex(
+      profile_index(), image_url_with_size, image);
 }
 
 void ProfileAttributesEntry::SetIsUsingGAIAPicture(bool value) {
@@ -435,12 +537,23 @@ void ProfileAttributesEntry::SetIsSigninRequired(bool value) {
     LockForceSigninProfile(value);
 }
 
+void ProfileAttributesEntry::SetSignedInWithCredentialProvider(bool value) {
+  if (value != GetBool(prefs::kSignedInWithCredentialProvider)) {
+    SetBool(prefs::kSignedInWithCredentialProvider, value);
+  }
+}
+
 void ProfileAttributesEntry::LockForceSigninProfile(bool is_lock) {
   DCHECK(is_force_signin_enabled_);
   if (is_force_signin_profile_locked_ == is_lock)
     return;
   is_force_signin_profile_locked_ = is_lock;
   profile_info_cache_->NotifyIsSigninRequiredChanged(GetPath());
+}
+
+void ProfileAttributesEntry::RecordAccountMetrics() const {
+  RecordAccountCategoriesMetric();
+  RecordAccountNamesMetric();
 }
 
 void ProfileAttributesEntry::SetIsEphemeral(bool value) {
@@ -489,6 +602,24 @@ void ProfileAttributesEntry::SetAvatarIconIndex(size_t icon_index) {
   profile_info_cache_->NotifyOnProfileAvatarChanged(profile_path);
 }
 
+void ProfileAttributesEntry::SetProfileThemeColors(
+    const base::Optional<ProfileThemeColors>& colors) {
+  if (colors.has_value()) {
+    SetInteger(kProfileHighlightColorKey, colors->profile_highlight_color);
+    SetInteger(kDefaultAvatarFillColorKey, colors->default_avatar_fill_color);
+    SetInteger(kDefaultAvatarStrokeColorKey,
+               colors->default_avatar_stroke_color);
+  } else {
+    ClearValue(kProfileHighlightColorKey);
+    ClearValue(kDefaultAvatarFillColorKey);
+    ClearValue(kDefaultAvatarStrokeColorKey);
+  }
+}
+
+void ProfileAttributesEntry::SetHostedDomain(std::string hosted_domain) {
+  SetString(kHostedDomain, hosted_domain);
+}
+
 void ProfileAttributesEntry::SetAuthInfo(const std::string& gaia_id,
                                          const base::string16& user_name,
                                          bool is_consented_primary_account) {
@@ -511,10 +642,66 @@ void ProfileAttributesEntry::SetAuthInfo(const std::string& gaia_id,
   profile_info_cache_->NotifyProfileAuthInfoChanged(profile_path_);
 }
 
+void ProfileAttributesEntry::AddAccountName(const std::string& name) {
+  int hash = GetLowEntropyHashValue(name);
+  int first_hash = GetInteger(kFirstAccountNameHash);
+  if (first_hash == kIntegerNotSet) {
+    SetInteger(kFirstAccountNameHash, hash);
+    return;
+  }
+
+  if (first_hash != hash) {
+    SetBool(kHasMultipleAccountNames, true);
+  }
+}
+
+void ProfileAttributesEntry::AddAccountCategory(AccountCategory category) {
+  int current_categories = GetInteger(kAccountCategories);
+  if (current_categories == kAccountCategoriesBoth)
+    return;
+
+  int new_category = category == AccountCategory::kConsumer
+                         ? kAccountCategoriesConsumerOnly
+                         : kAccountCategoriesEnterpriseOnly;
+  if (current_categories == kIntegerNotSet) {
+    SetInteger(kAccountCategories, new_category);
+  } else if (current_categories != new_category) {
+    SetInteger(kAccountCategories, kAccountCategoriesBoth);
+  }
+}
+
+void ProfileAttributesEntry::ClearAccountNames() {
+  ClearValue(kFirstAccountNameHash);
+  ClearValue(kHasMultipleAccountNames);
+}
+
+void ProfileAttributesEntry::ClearAccountCategories() {
+  ClearValue(kAccountCategories);
+}
+
 size_t ProfileAttributesEntry::profile_index() const {
   size_t index = profile_info_cache_->GetIndexOfProfileWithPath(profile_path_);
   DCHECK(index < profile_info_cache_->GetNumberOfProfiles());
   return index;
+}
+
+// static
+ProfileThemeColors ProfileAttributesEntry::GetDefaultProfileThemeColors(
+    bool dark_mode) {
+#if defined(OS_ANDROID)
+  // Profile theme colors shouldn't be queried on Android.
+  NOTREACHED();
+  return {SK_ColorRED, SK_ColorRED, SK_ColorRED};
+#else
+  ProfileThemeColors default_colors;
+  default_colors.profile_highlight_color = ThemeProperties::GetDefaultColor(
+      ThemeProperties::COLOR_FRAME_ACTIVE, /*incognito=*/false, dark_mode);
+  default_colors.default_avatar_fill_color = ThemeProperties::GetDefaultColor(
+      ThemeProperties::COLOR_FRAME_ACTIVE, /*incognito=*/false, dark_mode);
+  default_colors.default_avatar_stroke_color =
+      GetAvatarStrokeColor(default_colors.default_avatar_fill_color);
+  return default_colors;
+#endif
 }
 
 const gfx::Image* ProfileAttributesEntry::GetHighResAvatar() const {
@@ -533,6 +720,56 @@ const gfx::Image* ProfileAttributesEntry::GetHighResAvatar() const {
       profiles::GetPathOfHighResAvatarAtIndex(avatar_index);
   return profile_info_cache_->LoadAvatarPictureFromPath(GetPath(), key,
                                                         image_path);
+}
+
+gfx::Image ProfileAttributesEntry::GetPlaceholderAvatarIcon(int size) const {
+  ProfileThemeColors colors = GetProfileThemeColors();
+  return profiles::GetPlaceholderAvatarIconWithColors(
+      colors.default_avatar_fill_color, colors.default_avatar_stroke_color,
+      size);
+}
+
+bool ProfileAttributesEntry::HasMultipleAccountNames() const {
+  // If the value is not set, GetBool() returns false.
+  return GetBool(kHasMultipleAccountNames);
+}
+
+bool ProfileAttributesEntry::HasBothAccountCategories() const {
+  // If the value is not set, GetInteger returns kIntegerNotSet which does not
+  // equal kAccountTypeBoth.
+  return GetInteger(kAccountCategories) == kAccountCategoriesBoth;
+}
+
+void ProfileAttributesEntry::RecordAccountCategoriesMetric() const {
+  if (HasBothAccountCategories()) {
+    if (IsAuthenticated()) {
+      bool consumer_syncing = GetHostedDomain() == kNoHostedDomainFound;
+      profile_metrics::LogProfileAllAccountsCategories(
+          consumer_syncing ? profile_metrics::AllAccountsCategories::
+                                 kBothConsumerAndEnterpriseSyncingConsumer
+                           : profile_metrics::AllAccountsCategories::
+                                 kBothConsumerAndEnterpriseSyncingEnterprise);
+    } else {
+      profile_metrics::LogProfileAllAccountsCategories(
+          profile_metrics::AllAccountsCategories::
+              kBothConsumerAndEnterpriseNoSync);
+    }
+  } else {
+    profile_metrics::LogProfileAllAccountsCategories(
+        profile_metrics::AllAccountsCategories::kSingleCategory);
+  }
+}
+
+void ProfileAttributesEntry::RecordAccountNamesMetric() const {
+  if (HasMultipleAccountNames()) {
+    profile_metrics::LogProfileAllAccountsNames(
+        IsAuthenticated()
+            ? profile_metrics::AllAccountsNames::kMultipleNamesWithSync
+            : profile_metrics::AllAccountsNames::kMultipleNamesWithoutSync);
+  } else {
+    profile_metrics::LogProfileAllAccountsNames(
+        profile_metrics::AllAccountsNames::kLikelySingleName);
+  }
 }
 
 const base::Value* ProfileAttributesEntry::GetEntryData() const {
@@ -583,7 +820,15 @@ bool ProfileAttributesEntry::GetBool(const char* key) const {
 int ProfileAttributesEntry::GetInteger(const char* key) const {
   const base::Value* value = GetValue(key);
   if (!value || !value->is_int())
-    return -1;
+    return kIntegerNotSet;
+  return value->GetInt();
+}
+
+base::Optional<SkColor> ProfileAttributesEntry::GetProfileThemeColor(
+    const char* key) const {
+  const base::Value* value = GetValue(key);
+  if (!value || !value->is_int())
+    return base::nullopt;
   return value->GetInt();
 }
 
@@ -668,6 +913,17 @@ bool ProfileAttributesEntry::SetInteger(const char* key, int value) {
   base::Value new_data = old_data ? GetEntryData()->Clone()
                                   : base::Value(base::Value::Type::DICTIONARY);
   new_data.SetKey(key, base::Value(value));
+  SetEntryData(std::move(new_data));
+  return true;
+}
+
+bool ProfileAttributesEntry::ClearValue(const char* key) {
+  const base::Value* old_data = GetEntryData();
+  if (!old_data || !old_data->FindKey(key))
+    return false;
+
+  base::Value new_data = GetEntryData()->Clone();
+  new_data.RemoveKey(key);
   SetEntryData(std::move(new_data));
   return true;
 }

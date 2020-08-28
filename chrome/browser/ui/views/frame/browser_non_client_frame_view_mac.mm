@@ -12,7 +12,7 @@
 #include "chrome/browser/themes/theme_service.h"
 #include "chrome/browser/themes/theme_service_factory.h"
 #include "chrome/browser/ui/cocoa/fullscreen/fullscreen_menubar_tracker.h"
-#include "chrome/browser/ui/cocoa/fullscreen/fullscreen_toolbar_controller_views.h"
+#include "chrome/browser/ui/cocoa/fullscreen/fullscreen_toolbar_controller.h"
 #include "chrome/browser/ui/exclusive_access/fullscreen_controller.h"
 #include "chrome/browser/ui/layout_constants.h"
 #include "chrome/browser/ui/view_ids.h"
@@ -20,6 +20,7 @@
 #include "chrome/browser/ui/views/frame/browser_frame.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
 #include "chrome/browser/ui/views/frame/browser_view_layout.h"
+#include "chrome/browser/ui/views/frame/tab_strip_region_view.h"
 #include "chrome/browser/ui/views/tabs/tab_strip.h"
 #include "chrome/browser/ui/views/toolbar/toolbar_view.h"
 #include "chrome/browser/ui/views/web_apps/web_app_frame_toolbar_view.h"
@@ -58,18 +59,17 @@ BrowserNonClientFrameViewMac::BrowserNonClientFrameViewMac(
   show_fullscreen_toolbar_.Init(
       prefs::kShowFullscreenToolbar, browser_view->GetProfile()->GetPrefs(),
       base::BindRepeating(&BrowserNonClientFrameViewMac::UpdateFullscreenTopUI,
-                          base::Unretained(this), true));
+                          base::Unretained(this)));
   if (!base::FeatureList::IsEnabled(features::kImmersiveFullscreen)) {
     fullscreen_toolbar_controller_.reset(
-        [[FullscreenToolbarControllerViews alloc]
-            initWithBrowserView:browser_view]);
+        [[FullscreenToolbarController alloc] initWithBrowserView:browser_view]);
     [fullscreen_toolbar_controller_
         setToolbarStyle:GetUserPreferredToolbarStyle(
                             *show_fullscreen_toolbar_)];
   }
 
   if (browser_view->IsBrowserTypeWebApp()) {
-    if (browser_view->browser()->app_controller()->HasTitlebarToolbar()) {
+    if (browser_view->browser()->app_controller()) {
       set_web_app_frame_toolbar(AddChildView(
           std::make_unique<WebAppFrameToolbarView>(frame, browser_view)));
     }
@@ -77,10 +77,11 @@ BrowserNonClientFrameViewMac::BrowserNonClientFrameViewMac(
     // The window title appears above the web app frame toolbar (if present),
     // which surrounds the title with minimal-ui buttons on the left,
     // and other controls (such as the app menu button) on the right.
-    DCHECK(browser_view->ShouldShowWindowTitle());
-    window_title_ = AddChildView(
-        std::make_unique<views::Label>(browser_view->GetWindowTitle()));
-    window_title_->SetID(VIEW_ID_WINDOW_TITLE);
+    if (browser_view->ShouldShowWindowTitle()) {
+      window_title_ = AddChildView(
+          std::make_unique<views::Label>(browser_view->GetWindowTitle()));
+      window_title_->SetID(VIEW_ID_WINDOW_TITLE);
+    }
   }
 }
 
@@ -104,7 +105,7 @@ void BrowserNonClientFrameViewMac::OnFullscreenStateChanged() {
     // Exiting tab fullscreen requires updating Top UI.
     // Called from here so we can capture exiting tab fullscreen both by
     // pressing 'ESC' key and by clicking green traffic light button.
-    UpdateFullscreenTopUI(false);
+    UpdateFullscreenTopUI();
     [fullscreen_toolbar_controller_ exitFullscreenMode];
   }
   browser_view()->Layout();
@@ -118,20 +119,18 @@ bool BrowserNonClientFrameViewMac::CaptionButtonsOnLeadingEdge() const {
 }
 
 gfx::Rect BrowserNonClientFrameViewMac::GetBoundsForTabStripRegion(
-    const views::View* tabstrip) const {
+    const gfx::Size& tabstrip_minimum_size) const {
   // TODO(weili): In the future, we should hide the title bar, and show the
   // tab strip directly under the menu bar. For now, just lay our content
   // under the native title bar. Use the default title bar height to avoid
   // calling through private APIs.
-  DCHECK(tabstrip);
-
   const bool restored = !frame()->IsMaximized() && !frame()->IsFullscreen();
   gfx::Rect bounds(0, GetTopInset(restored), width(),
-                   tabstrip->GetPreferredSize().height());
+                   tabstrip_minimum_size.height());
 
   // Do not draw caption buttons on fullscreen.
   if (!frame()->IsFullscreen()) {
-    constexpr int kCaptionWidth = 70;
+    const int kCaptionWidth = base::mac::IsAtMostOS10_15() ? 70 : 85;
     if (CaptionButtonsOnLeadingEdge())
       bounds.Inset(gfx::Insets(0, kCaptionWidth, 0, 0));
     else
@@ -186,8 +185,7 @@ int BrowserNonClientFrameViewMac::GetThemeBackgroundXInset() const {
   return 0;
 }
 
-void BrowserNonClientFrameViewMac::UpdateFullscreenTopUI(
-    bool needs_check_tab_fullscreen) {
+void BrowserNonClientFrameViewMac::UpdateFullscreenTopUI() {
   if (base::FeatureList::IsEnabled(features::kImmersiveFullscreen))
     return;
 
@@ -199,14 +197,14 @@ void BrowserNonClientFrameViewMac::UpdateFullscreenTopUI(
   FullscreenController* controller =
       browser_view()->GetExclusiveAccessManager()->fullscreen_controller();
   if ((controller->IsWindowFullscreenForTabOrPending() ||
-       controller->IsExtensionFullscreenOrPending()) &&
-      needs_check_tab_fullscreen) {
+       controller->IsExtensionFullscreenOrPending())) {
+    browser_view()->HideDownloadShelf();
     new_style = FullscreenToolbarStyle::TOOLBAR_NONE;
   } else {
     new_style = GetUserPreferredToolbarStyle(*show_fullscreen_toolbar_);
+    browser_view()->UnhideDownloadShelf();
   }
   [fullscreen_toolbar_controller_ setToolbarStyle:new_style];
-
   if (![fullscreen_toolbar_controller_ isInFullscreen] ||
       old_style == new_style)
     return;
@@ -216,8 +214,13 @@ void BrowserNonClientFrameViewMac::UpdateFullscreenTopUI(
   browser_view()->browser()->FullscreenTopUIStateChanged();
 
   // Re-layout if toolbar style changes in fullscreen mode.
-  if (frame()->IsFullscreen())
+  if (frame()->IsFullscreen()) {
     browser_view()->Layout();
+    // The web frame toolbar is visible in fullscreen mode on Mac and thus
+    // requires a re-layout when in fullscreen.
+    if (web_app_frame_toolbar())
+      InvalidateLayout();
+  }
 }
 
 bool BrowserNonClientFrameViewMac::ShouldHideTopUIForFullscreen() const {
@@ -295,7 +298,8 @@ void BrowserNonClientFrameViewMac::UpdateMinimumSize() {
 gfx::Size BrowserNonClientFrameViewMac::GetMinimumSize() const {
   gfx::Size client_size = frame()->client_view()->GetMinimumSize();
   if (browser_view()->browser()->is_type_normal())
-    client_size.SetToMax(browser_view()->tabstrip()->GetMinimumSize());
+    client_size.SetToMax(
+        browser_view()->tab_strip_region_view()->GetMinimumSize());
 
   // macOS apps generally don't allow their windows to get shorter than a
   // certain height, which empirically seems to be related to their *minimum*

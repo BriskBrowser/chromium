@@ -10,42 +10,61 @@
 #include <vector>
 
 #include "ash/assistant/model/assistant_ui_model.h"
+#include "ash/assistant/test/mocked_assistant_interaction.h"
 #include "ash/test/ash_test_base.h"
 #include "base/macros.h"
-#include "base/test/scoped_feature_list.h"
+#include "chromeos/services/assistant/public/cpp/assistant_prefs.h"
+
+namespace aura {
+class Window;
+}  // namespace aura
 
 namespace views {
 class Textfield;
 class View;
+class Widget;
 }  // namespace views
 
 namespace ash {
 
-class AssistantController;
-class AssistantInteractionController;
+class AppListView;
+class AssistantOnboardingSuggestionView;
 class AssistantTestApi;
+class SuggestionChipView;
+class TestAssistantClient;
 class TestAssistantService;
+class TestAssistantSetup;
 class TestAssistantWebViewFactory;
+class TestImageDownloader;
 
 // Helper class to make testing the Assistant Ash UI easier.
 class AssistantAshTestBase : public AshTestBase {
  public:
-  using AssistantEntryPoint = chromeos::assistant::mojom::AssistantEntryPoint;
-  using AssistantExitPoint = chromeos::assistant::mojom::AssistantExitPoint;
+  using AssistantEntryPoint = chromeos::assistant::AssistantEntryPoint;
+  using AssistantExitPoint = chromeos::assistant::AssistantExitPoint;
+  using AssistantOnboardingMode =
+      chromeos::assistant::prefs::AssistantOnboardingMode;
+  using ConsentStatus = chromeos::assistant::prefs::ConsentStatus;
 
   AssistantAshTestBase();
+  explicit AssistantAshTestBase(base::test::TaskEnvironment::TimeSource time);
   ~AssistantAshTestBase() override;
 
+  // AshTestBase:
   void SetUp() override;
   void TearDown() override;
+
+  // Creates and switches to a new active user.
+  void CreateAndSwitchActiveUser(const std::string& display_email,
+                                 const std::string& given_name);
 
   // Show the Assistant UI. The optional |entry_point| can be used to emulate
   // the different ways of launching the Assistant.
   void ShowAssistantUi(
       AssistantEntryPoint entry_point = AssistantEntryPoint::kUnspecified);
-  // Close the Assistant UI without closing the launcher. The optional
-  // |exit_point| can be used to emulate the different ways of closing the
-  // Assistant.
+  // Close the Assistant UI. The optional |exit_point| can be used to emulate
+  // the different ways of closing the Assistant, such as without closing the
+  // launcher.
   void CloseAssistantUi(
       AssistantExitPoint exit_point = AssistantExitPoint::kUnspecified);
 
@@ -56,9 +75,23 @@ class AssistantAshTestBase : public AshTestBase {
 
   void SetTabletMode(bool enable);
 
+  // Change the user preference controlling the status of user consent.
+  void SetConsentStatus(ConsentStatus consent_status);
+
+  // Sets the number of user sessions where Assistant onboarding was shown.
+  void SetNumberOfSessionsWhereOnboardingShown(int number_of_sessions);
+
+  // Changes the user preference controlling the mode of the onboarding UX.
+  void SetOnboardingMode(AssistantOnboardingMode onboarding_mode);
+
   // Change the user setting controlling whether the user prefers voice or
   // keyboard.
   void SetPreferVoice(bool value);
+
+  // Sets the time of the user's last interaction with Assistant.
+  void SetTimeOfLastInteraction(const base::Time& time);
+
+  void StartOverview();
 
   // Return true if the Assistant UI is visible.
   bool IsVisible();
@@ -73,26 +106,30 @@ class AssistantAshTestBase : public AshTestBase {
 
   // Return the app list view hosting the Assistant page view.
   // Can only be used after |ShowAssistantUi| has been called.
-  views::View* app_list_view();
+  AppListView* app_list_view();
 
   // Return the root view hosting the Assistant page view.
   // Can only be used after |ShowAssistantUi| has been called.
   views::View* root_view();
 
-  // Spoof sending a request to the Assistant service,
-  // and receiving |response_text| as a response to display.
-  void MockAssistantInteractionWithResponse(const std::string& response_text);
-
-  void MockAssistantInteractionWithQueryAndResponse(
-      const std::string& query,
-      const std::string& response_text);
+  // Simulate the user entering a query.
+  // Returns a builder object that allows you to specify the query and the
+  // responses.  The interaction will be auto submitted in the destructor,
+  // meaning you should just use it and let it go out of scope.
+  // Example usage:
+  //
+  //    MockTextInteraction()
+  //       .WithQuery("a query")
+  //       .WithTextResponse("First response")
+  //       .WithTextResponse("Second response");
+  MockedAssistantInteraction MockTextInteraction();
 
   // Simulate the user entering a query followed by <return>.
   void SendQueryThroughTextField(const std::string& query);
 
   // Simulate the user tapping on the given view.
   // Waits for the event to be processed.
-  void TapOnAndWait(views::View* view);
+  void TapOnAndWait(const views::View* view);
 
   // Simulate the user tapping at the given position.
   // Waits for the event to be processed.
@@ -100,18 +137,23 @@ class AssistantAshTestBase : public AshTestBase {
 
   // Simulate a mouse click on the given view.
   // Waits for the event to be processed.
-  void ClickOnAndWait(views::View* view);
+  void ClickOnAndWait(const views::View* view,
+                      bool check_if_view_can_process_events = true);
 
-  // Returns the current interaction. Returns |base::nullopt| if no interaction
+  // Return the current interaction. Returns |base::nullopt| if no interaction
   // is in progress.
-  base::Optional<chromeos::assistant::mojom::AssistantInteractionMetadata>
+  base::Optional<chromeos::assistant::AssistantInteractionMetadata>
   current_interaction();
 
-  // Create a new App window, and activate it. This will take the focus away
-  // from the Assistant UI (and force it to close).
+  // Create a new App window, and activate it.
   // Returns a pointer to the newly created window.
-  // The window will be destroyed when the test if finished.
+  // The window will be destroyed when the test is finished.
   aura::Window* SwitchToNewAppWindow();
+
+  // Create a new Widget, and activate it.
+  // Returns a pointer to the newly created widget.
+  // The widget will be destroyed when the test is finished.
+  views::Widget* SwitchToNewWidget();
 
   // Return the window containing the Assistant UI.
   // Note that this window is shared for all components of the |AppList|.
@@ -132,25 +174,47 @@ class AssistantAshTestBase : public AshTestBase {
   // Return the button to enable text mode.
   views::View* keyboard_input_toggle();
 
-  // Show the on-screen keyboard.
-  void ShowKeyboard();
+  // Return the Assistant onboarding view.
+  views::View* onboarding_view();
 
-  // Dismiss the on-screen keyboard.
+  // Return the button to launch Assistant setup.
+  views::View* opt_in_view();
+
+  // Return the container with all the suggestion chips.
+  views::View* suggestion_chip_container();
+
+  // Return the onboarding suggestions that are currently displayed.
+  std::vector<AssistantOnboardingSuggestionView*>
+  GetOnboardingSuggestionViews();
+
+  // Return the suggestion chips that are currently displayed.
+  std::vector<SuggestionChipView*> GetSuggestionChips();
+
+  // Show/Dismiss the on-screen keyboard.
+  void ShowKeyboard();
   void DismissKeyboard();
 
   // Returns if the on-screen keyboard is being displayed.
   bool IsKeyboardShowing() const;
 
- private:
-  AssistantInteractionController* interaction_controller();
+  // Enable/Disable the on-screen keyboard.
+  void EnableKeyboard() { SetVirtualKeyboardEnabled(true); }
+  void DisableKeyboard() { SetVirtualKeyboardEnabled(false); }
+
   TestAssistantService* assistant_service();
 
+ private:
+  void SetUpActiveUser();
+
   std::unique_ptr<AssistantTestApi> test_api_;
+  std::unique_ptr<TestAssistantSetup> test_setup_;
   std::unique_ptr<TestAssistantWebViewFactory> test_web_view_factory_;
-  base::test::ScopedFeatureList scoped_feature_list_;
-  AssistantController* controller_ = nullptr;
+  std::unique_ptr<TestImageDownloader> test_image_downloader_;
 
   std::vector<std::unique_ptr<aura::Window>> windows_;
+  std::vector<std::unique_ptr<views::Widget>> widgets_;
+
+  std::unique_ptr<TestAssistantClient> assistant_client_;
 
   DISALLOW_COPY_AND_ASSIGN(AssistantAshTestBase);
 };

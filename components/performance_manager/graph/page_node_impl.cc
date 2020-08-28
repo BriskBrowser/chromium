@@ -6,7 +6,8 @@
 
 #include <memory>
 
-#include "base/logging.h"
+#include "base/bind.h"
+#include "base/check_op.h"
 #include "base/stl_util.h"
 #include "base/time/default_tick_clock.h"
 #include "components/performance_manager/graph/frame_node_impl.h"
@@ -16,15 +17,14 @@
 
 namespace performance_manager {
 
-PageNodeImpl::PageNodeImpl(GraphImpl* graph,
-                           const WebContentsProxy& contents_proxy,
+PageNodeImpl::PageNodeImpl(const WebContentsProxy& contents_proxy,
                            const std::string& browser_context_id,
                            const GURL& visible_url,
                            bool is_visible,
-                           bool is_audible)
-    : TypedNodeBase(graph),
-      contents_proxy_(contents_proxy),
-      visibility_change_time_(base::TimeTicks::Now()),
+                           bool is_audible,
+                           base::TimeTicks visibility_change_time)
+    : contents_proxy_(contents_proxy),
+      visibility_change_time_(visibility_change_time),
       main_frame_url_(visible_url),
       browser_context_id_(browser_context_id),
       is_visible_(is_visible),
@@ -34,6 +34,8 @@ PageNodeImpl::PageNodeImpl(GraphImpl* graph,
 
 PageNodeImpl::~PageNodeImpl() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  DCHECK_EQ(nullptr, opener_frame_node_);
+  DCHECK_EQ(OpenedType::kInvalid, opened_type_);
 }
 
 const WebContentsProxy& PageNodeImpl::contents_proxy() const {
@@ -122,22 +124,6 @@ void PageNodeImpl::OnMainFrameNavigationCommitted(
     observer->OnMainFrameDocumentChanged(this);
 }
 
-double PageNodeImpl::GetCPUUsage() const {
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  double cpu_usage = 0;
-
-  // TODO(chrisha/siggi): This should all be ripped out / refactored.
-  for (auto* process_node :
-       GraphImplOperations::GetAssociatedProcessNodes(this)) {
-    size_t pages_in_process =
-        GraphImplOperations::GetAssociatedPageNodes(process_node).size();
-    DCHECK_LE(1u, pages_in_process);
-    cpu_usage += process_node->cpu_usage() / pages_in_process;
-  }
-
-  return cpu_usage;
-}
-
 base::TimeDelta PageNodeImpl::TimeSinceLastNavigation() const {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   if (navigation_committed_time_.is_null())
@@ -164,6 +150,18 @@ FrameNodeImpl* PageNodeImpl::GetMainFrameNodeImpl() const {
 
   // Otherwise, return any old main frame node.
   return *main_frame_nodes_.begin();
+}
+
+FrameNodeImpl* PageNodeImpl::opener_frame_node() const {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  DCHECK(opener_frame_node_ || opened_type_ == OpenedType::kInvalid);
+  return opener_frame_node_;
+}
+
+PageNodeImpl::OpenedType PageNodeImpl::opened_type() const {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  DCHECK(opener_frame_node_ || opened_type_ == OpenedType::kInvalid);
+  return opened_type_;
 }
 
 bool PageNodeImpl::is_visible() const {
@@ -217,11 +215,6 @@ base::TimeTicks PageNodeImpl::usage_estimate_time() const {
   return usage_estimate_time_;
 }
 
-base::TimeDelta PageNodeImpl::cumulative_cpu_usage_estimate() const {
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  return cumulative_cpu_usage_estimate_;
-}
-
 uint64_t PageNodeImpl::private_footprint_kb_estimate() const {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   return private_footprint_kb_estimate_;
@@ -230,11 +223,6 @@ uint64_t PageNodeImpl::private_footprint_kb_estimate() const {
 const std::string& PageNodeImpl::browser_context_id() const {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   return browser_context_id_;
-}
-
-bool PageNodeImpl::page_almost_idle() const {
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  return page_almost_idle_.value();
 }
 
 const GURL& PageNodeImpl::main_frame_url() const {
@@ -257,16 +245,47 @@ bool PageNodeImpl::had_form_interaction() const {
   return had_form_interaction_.value();
 }
 
+void PageNodeImpl::SetOpenerFrameNodeAndOpenedType(FrameNodeImpl* opener,
+                                                   OpenedType opened_type) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  DCHECK(opener);
+  DCHECK(graph()->NodeInGraph(opener));
+  DCHECK_NE(this, opener->page_node());
+  DCHECK_NE(OpenedType::kInvalid, opened_type);
+
+  auto* previous_opener = opener_frame_node_;
+  auto previous_type = opened_type_;
+
+  if (previous_opener)
+    previous_opener->RemoveOpenedPage(PassKey(), this);
+  opener_frame_node_ = opener;
+  opened_type_ = opened_type;
+  opener->AddOpenedPage(PassKey(), this);
+
+  for (auto* observer : GetObservers())
+    observer->OnOpenerFrameNodeChanged(this, previous_opener, previous_type);
+}
+
+void PageNodeImpl::ClearOpenerFrameNodeAndOpenedType() {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  DCHECK_NE(nullptr, opener_frame_node_);
+  DCHECK_NE(OpenedType::kInvalid, opened_type_);
+
+  auto* previous_opener = opener_frame_node_;
+  auto previous_type = opened_type_;
+
+  opener_frame_node_->RemoveOpenedPage(PassKey(), this);
+  opener_frame_node_ = nullptr;
+  opened_type_ = OpenedType::kInvalid;
+
+  for (auto* observer : GetObservers())
+    observer->OnOpenerFrameNodeChanged(this, previous_opener, previous_type);
+}
+
 void PageNodeImpl::set_usage_estimate_time(
     base::TimeTicks usage_estimate_time) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   usage_estimate_time_ = usage_estimate_time;
-}
-
-void PageNodeImpl::set_cumulative_cpu_usage_estimate(
-    base::TimeDelta cumulative_cpu_usage_estimate) {
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  cumulative_cpu_usage_estimate_ = cumulative_cpu_usage_estimate;
 }
 
 void PageNodeImpl::set_private_footprint_kb_estimate(
@@ -281,7 +300,7 @@ void PageNodeImpl::set_has_nonempty_beforeunload(
   has_nonempty_beforeunload_ = has_nonempty_beforeunload;
 }
 
-void PageNodeImpl::JoinGraph() {
+void PageNodeImpl::OnJoiningGraph() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 #if DCHECK_IS_ON()
   // Dereferencing the WeakPtr associated with this node will bind it to the
@@ -289,16 +308,16 @@ void PageNodeImpl::JoinGraph() {
   // same WeakPtr).
   GetWeakPtr()->GetImpl();
 #endif
-
-  NodeBase::JoinGraph();
 }
 
-void PageNodeImpl::LeaveGraph() {
+void PageNodeImpl::OnBeforeLeavingGraph() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
-  DCHECK_EQ(0u, frame_node_count_);
+  // Sever opener relationships.
+  if (opener_frame_node_)
+    ClearOpenerFrameNodeAndOpenedType();
 
-  NodeBase::LeaveGraph();
+  DCHECK_EQ(0u, frame_node_count_);
 }
 
 const std::string& PageNodeImpl::GetBrowserContextID() const {
@@ -306,9 +325,14 @@ const std::string& PageNodeImpl::GetBrowserContextID() const {
   return browser_context_id();
 }
 
-bool PageNodeImpl::IsPageAlmostIdle() const {
+const FrameNode* PageNodeImpl::GetOpenerFrameNode() const {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  return page_almost_idle();
+  return opener_frame_node();
+}
+
+PageNodeImpl::OpenedType PageNodeImpl::GetOpenedType() const {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  return opened_type();
 }
 
 bool PageNodeImpl::IsVisible() const {
@@ -376,6 +400,16 @@ const FrameNode* PageNodeImpl::GetMainFrameNode() const {
   return GetMainFrameNodeImpl();
 }
 
+bool PageNodeImpl::VisitMainFrameNodes(const FrameNodeVisitor& visitor) const {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  for (auto* frame_impl : main_frame_nodes_) {
+    const FrameNode* frame = frame_impl;
+    if (!visitor.Run(frame))
+      return false;
+  }
+  return true;
+}
+
 const base::flat_set<const FrameNode*> PageNodeImpl::GetMainFrameNodes() const {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   base::flat_set<const FrameNode*> main_frame_nodes(main_frame_nodes_.begin(),
@@ -395,11 +429,6 @@ bool PageNodeImpl::HadFormInteraction() const {
 
 const WebContentsProxy& PageNodeImpl::GetContentsProxy() const {
   return contents_proxy();
-}
-
-void PageNodeImpl::SetPageAlmostIdle(bool page_almost_idle) {
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  page_almost_idle_.SetAndMaybeNotify(this, page_almost_idle);
 }
 
 void PageNodeImpl::SetLifecycleState(LifecycleState lifecycle_state) {

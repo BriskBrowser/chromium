@@ -17,6 +17,7 @@
 #include "base/sequenced_task_runner.h"
 #include "base/synchronization/lock.h"
 #include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
 #include "base/thread_annotations.h"
 #include "base/threading/sequenced_task_runner_handle.h"
 #include "mojo/public/cpp/system/simple_watcher.h"
@@ -52,6 +53,8 @@ class DataPipeProducer::SequenceState
   void Cancel() {
     base::AutoLock lock(lock_);
     is_cancelled_ = true;
+    owning_task_runner()->PostTask(
+        FROM_HERE, base::BindOnce(&SequenceState::CancelOnSequence, this));
   }
 
   void Start(std::unique_ptr<DataSource> data_source) {
@@ -150,6 +153,13 @@ class DataPipeProducer::SequenceState
                                   std::move(producer_handle_), result));
   }
 
+  void CancelOnSequence() {
+    if (!data_source_)
+      return;
+    data_source_->Abort();
+    Finish(MOJO_RESULT_CANCELLED);
+  }
+
   const scoped_refptr<base::SequencedTaskRunner> callback_task_runner_;
 
   // State which is effectively owned and used only on the file sequence.
@@ -184,8 +194,8 @@ void DataPipeProducer::InitializeNewRequest(CompletionCallback callback) {
   // TODO(crbug.com/924416): Re-evaluate how TaskPriority is set here and in
   // other file URL-loading-related code. Some callers require USER_VISIBLE
   // (i.e., BEST_EFFORT is not enough).
-  auto file_task_runner = base::CreateSequencedTaskRunner(
-      {base::ThreadPool(), base::MayBlock(), base::TaskPriority::USER_VISIBLE});
+  auto file_task_runner = base::ThreadPool::CreateSequencedTaskRunner(
+      {base::MayBlock(), base::TaskPriority::USER_VISIBLE});
   sequence_state_ = new SequenceState(
       std::move(producer_), file_task_runner,
       base::BindOnce(&DataPipeProducer::OnWriteComplete,

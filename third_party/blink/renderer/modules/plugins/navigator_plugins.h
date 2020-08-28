@@ -17,8 +17,6 @@ class Navigator;
 
 class NavigatorPlugins final : public GarbageCollected<NavigatorPlugins>,
                                public Supplement<Navigator> {
-  USING_GARBAGE_COLLECTED_MIXIN(NavigatorPlugins);
-
  public:
   static const char kSupplementName[];
 
@@ -31,7 +29,7 @@ class NavigatorPlugins final : public GarbageCollected<NavigatorPlugins>,
 
   explicit NavigatorPlugins(Navigator&);
 
-  void Trace(blink::Visitor*) override;
+  void Trace(Visitor*) const override;
 
  private:
   DOMPluginArray* plugins(LocalFrame*) const;

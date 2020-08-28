@@ -2,6 +2,7 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+import("//build/config/chromeos/ui_mode.gni")
 import("//build/config/features.gni")
 import("//chrome/common/features.gni")
 
@@ -11,10 +12,6 @@ schema_sources_ = [
   "accessibility_features.json",
   "accessibility_private.json",
   "activity_log_private.json",
-  "cast_streaming_receiver_session.idl",
-  "cast_streaming_rtp_stream.idl",
-  "cast_streaming_session.idl",
-  "cast_streaming_udp_transport.idl",
   "autofill_private.idl",
   "autotest_private.idl",
   "bookmark_manager_private.json",
@@ -52,6 +49,7 @@ schema_sources_ = [
   "permissions.json",
   "resources_private.idl",
   "safe_browsing_private.idl",
+  "search.idl",
   "sessions.json",
   "settings_private.idl",
   "signed_in_devices.idl",
@@ -80,13 +78,18 @@ if (is_chromeos || is_mac || is_win) {
   schema_sources_ += [ "networking_cast_private.idl" ]
 }
 
+if (is_chromeos || chromeos_is_browser_only) {
+  schema_sources_ += [ "enterprise_platform_keys.idl" ]
+}
+
 if (is_chromeos) {
   schema_sources_ += [
     "certificate_provider.idl",
     "certificate_provider_internal.idl",
+    "document_scan.idl",
     "echo_private.json",
     "enterprise_device_attributes.idl",
-    "enterprise_platform_keys.idl",
+    "enterprise_networking_attributes.idl",
     "enterprise_platform_keys_internal.idl",
     "enterprise_platform_keys_private.json",
     "file_browser_handler_internal.json",
@@ -103,7 +106,6 @@ if (is_chromeos) {
     "login_state.idl",
     "platform_keys.idl",
     "platform_keys_internal.idl",
-    "printing_metrics.idl",
     "quick_unlock_private.idl",
     "terminal_private.json",
     "users_private.idl",
@@ -111,9 +113,12 @@ if (is_chromeos) {
     "wallpaper_private.json",
   ]
   if (use_cups) {
-    schema_sources_ += [ "printing.idl" ]
+    schema_sources_ += [
+      "printing.idl",
+      "printing_metrics.idl",
+    ]
   }
-} else if (is_linux || is_win) {
+} else if (is_linux || is_chromeos || is_win) {
   schema_sources_ += [ "input_ime.json" ]
 }
 
@@ -127,6 +132,10 @@ if (enable_print_preview && !is_chromeos) {
 
 if (enable_service_discovery) {
   schema_sources_ += [ "mdns.idl" ]
+}
+
+if (enable_autofill_assistant_api) {
+  schema_sources_ += [ "autofill_assistant_private.idl" ]
 }
 
 uncompiled_sources_ = [

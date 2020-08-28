@@ -7,16 +7,19 @@
 namespace ui {
 
 KeyEventParams::KeyEventParams(int device_id,
+                               int flags,
                                unsigned int code,
+                               unsigned int scan_code,
                                bool down,
                                bool suppress_auto_repeat,
                                base::TimeTicks timestamp)
     : device_id(device_id),
+      flags(flags),
       code(code),
+      scan_code(scan_code),
       down(down),
       suppress_auto_repeat(suppress_auto_repeat),
-      timestamp(timestamp) {
-}
+      timestamp(timestamp) {}
 
 KeyEventParams::KeyEventParams(const KeyEventParams& other) = default;
 
@@ -62,6 +65,17 @@ MouseButtonEventParams::MouseButtonEventParams(
 
 MouseButtonEventParams::~MouseButtonEventParams() {
 }
+
+MouseWheelEventParams::MouseWheelEventParams(int device_id,
+                                             const gfx::PointF& location,
+                                             const gfx::Vector2d& delta,
+                                             const gfx::Vector2d& tick_120ths,
+                                             base::TimeTicks timestamp)
+    : device_id(device_id),
+      location(location),
+      delta(delta),
+      tick_120ths(tick_120ths),
+      timestamp(timestamp) {}
 
 MouseWheelEventParams::MouseWheelEventParams(int device_id,
                                              const gfx::PointF& location,

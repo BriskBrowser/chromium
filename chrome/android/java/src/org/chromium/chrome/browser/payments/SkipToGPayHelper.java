@@ -4,14 +4,14 @@
 
 package org.chromium.chrome.browser.payments;
 
-import android.support.v4.util.ArrayMap;
+import androidx.collection.ArrayMap;
 
 import org.json.JSONException;
 import org.json.JSONObject;
 import org.json.JSONTokener;
 
-import org.chromium.chrome.browser.ChromeFeatureList;
 import org.chromium.components.payments.MethodStrings;
+import org.chromium.components.payments.PaymentFeatureList;
 import org.chromium.content_public.browser.WebContents;
 import org.chromium.payments.mojom.GooglePaymentMethodData;
 import org.chromium.payments.mojom.PaymentAddress;
@@ -70,18 +70,18 @@ public class SkipToGPayHelper {
         if (methodData.isEmpty()) return false;
 
         // V2 experiment: enable skip-to-GPay regardless of usable basic-card.
-        if (PaymentsExperimentalFeatures.isEnabled(
-                    ChromeFeatureList.PAYMENT_REQUEST_SKIP_TO_GPAY)) {
+        if (PaymentFeatureList.isEnabledOrExperimentalFeaturesEnabled(
+                    PaymentFeatureList.PAYMENT_REQUEST_SKIP_TO_GPAY)) {
             return true;
         }
 
         // V1 experiment: only enable skip-to-GPay if no usable basic-card exists.
-        // This check for autofill instrument is duplicate work if skip-to-GPay ends up not being
+        // This check for autofill card is duplicate work if skip-to-GPay ends up not being
         // enabled and adds a small delay (average ~3ms with first time ) to all hybrid request
         // flows. However, this is the cleanest way to implement SKIP_TO_GPAY_IF_NO_CARD.
         return !AutofillPaymentAppFactory.hasUsableAutofillCard(webContents, methodData)
-                && PaymentsExperimentalFeatures.isEnabled(
-                        ChromeFeatureList.PAYMENT_REQUEST_SKIP_TO_GPAY_IF_NO_CARD);
+                && PaymentFeatureList.isEnabledOrExperimentalFeaturesEnabled(
+                        PaymentFeatureList.PAYMENT_REQUEST_SKIP_TO_GPAY_IF_NO_CARD);
     }
 
     /**
@@ -110,7 +110,7 @@ public class SkipToGPayHelper {
      * @return True if a shipping is requested and a single pre-selected shipping option exists.
      * False otherwise.
      */
-    public boolean setShippingOption(PaymentDetails details) {
+    public boolean setShippingOptionIfValid(PaymentDetails details) {
         if (!mPaymentOptionsRequestShipping) return true;
         if (details.shippingOptions == null || details.shippingOptions.length != 1
                 || !details.shippingOptions[0].selected) {

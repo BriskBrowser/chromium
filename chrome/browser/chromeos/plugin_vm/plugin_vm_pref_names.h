@@ -10,9 +10,14 @@ class PrefRegistrySimple;
 namespace plugin_vm {
 namespace prefs {
 
+extern const char kPluginVmAllowed[];
 extern const char kPluginVmImage[];
 extern const char kPluginVmImageExists[];
+extern const char kPluginVmPrintersAllowed[];
+extern const char kPluginVmUserId[];
 extern const char kEngagementPrefsPrefix[];
+extern const char kPluginVmDataCollectionAllowed[];
+extern const char kPluginVmRequiredFreeDiskSpaceGB[];
 
 void RegisterProfilePrefs(PrefRegistrySimple* registry);
 

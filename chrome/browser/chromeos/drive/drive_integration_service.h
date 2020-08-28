@@ -15,6 +15,7 @@
 #include "base/memory/singleton.h"
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
+#include "base/observer_list_types.h"
 #include "base/scoped_observer.h"
 #include "chromeos/components/drivefs/drivefs_host.h"
 #include "chromeos/dbus/power/power_manager_client.h"
@@ -66,7 +67,7 @@ struct QuickAccessItem {
 
 // Interface for classes that need to observe events from
 // DriveIntegrationService.  All events are notified on UI thread.
-class DriveIntegrationServiceObserver {
+class DriveIntegrationServiceObserver : public base::CheckedObserver {
  public:
   // Triggered when the file system is mounted.
   virtual void OnFileSystemMounted() {
@@ -79,9 +80,6 @@ class DriveIntegrationServiceObserver {
   // Triggered when mounting the filesystem has failed in a fashion that will
   // not be automatically retried.
   virtual void OnFileSystemMountFailed() {}
-
- protected:
-  virtual ~DriveIntegrationServiceObserver() {}
 };
 
 // DriveIntegrationService is used to integrate Drive to Chrome. This class
@@ -102,15 +100,12 @@ class DriveIntegrationService : public KeyedService,
   using GetQuickAccessItemsCallback =
       base::OnceCallback<void(drive::FileError, std::vector<QuickAccessItem>)>;
 
-  // test_drive_service, test_mount_point_name, test_cache_root and
-  // test_file_system are used by tests to inject customized instances.
+  // test_mount_point_name, test_cache_root and
+  // test_drivefs_mojo_listener_factory are used by tests to inject customized
+  // instances.
   // Pass NULL or the empty value when not interested.
-  // |preference_watcher| observes the drive enable preference, and sets the
-  // enable state when changed. It can be NULL. The ownership is taken by
-  // the DriveIntegrationService.
   DriveIntegrationService(
       Profile* profile,
-      PreferenceWatcher* preference_watcher,
       const std::string& test_mount_point_name,
       const base::FilePath& test_cache_root,
       DriveFsMojoListenerFactory test_drivefs_mojo_listener_factory = {});
@@ -152,12 +147,10 @@ class DriveIntegrationService : public KeyedService,
 
   EventLogger* event_logger() { return logger_.get(); }
 
-  // Clears all the local cache file, the local resource metadata, and
-  // in-memory Drive app registry, and remounts the file system. |callback|
+  // Clears all the local cache folder and remounts the file system. |callback|
   // is called with true when this operation is done successfully. Otherwise,
   // |callback| is called with false. |callback| must not be null.
-  void ClearCacheAndRemountFileSystem(
-      const base::Callback<void(bool)>& callback);
+  void ClearCacheAndRemountFileSystem(base::OnceCallback<void(bool)> callback);
 
   // Returns the DriveFsHost if it is enabled.
   drivefs::DriveFsHost* GetDriveFsHost() const;
@@ -168,6 +161,42 @@ class DriveIntegrationService : public KeyedService,
 
   void GetQuickAccessItems(int max_number,
                            GetQuickAccessItemsCallback callback);
+
+  // Returns the metadata for Drive file at |local_path|.
+  void GetMetadata(const base::FilePath& local_path,
+                   drivefs::mojom::DriveFs::GetMetadataCallback callback);
+
+  void RestartDrive();
+
+  // Sets the arguments to be parsed by DriveFS on startup. Should only be
+  // called in developer mode.
+  void SetStartupArguments(std::string arguments,
+                           base::OnceCallback<void(bool)> callback);
+
+  // Gets the currently set arguments parsed by DriveFS on startup. Should only
+  // be called in developer mode.
+  void GetStartupArguments(
+      base::OnceCallback<void(const std::string&)> callback);
+
+  // Enables or disables performance tracing, which logs to
+  // |data_dir_path|/Logs/drive_fs_trace.
+  void SetTracingEnabled(bool enabled);
+
+  // Enables or disables networking for testing. Should only be called in
+  // developer mode.
+  void SetNetworkingEnabled(bool enabled);
+
+  // Overrides syncing to be paused if enabled. Should only be called in
+  // developer mode.
+  void ForcePauseSyncing(bool enabled);
+
+  // Dumps account settings (including feature flags) to
+  // |data_dir_path/account_settings. Should only be called in developer mode.
+  void DumpAccountSettings();
+
+  // Loads account settings (including feature flags) from
+  // |data_dir_path/account_settings. Should only be called in developer mode.
+  void LoadAccountSettings();
 
  private:
   enum State {
@@ -190,6 +219,9 @@ class DriveIntegrationService : public KeyedService,
   // complete before adding the mount point.
   void AddDriveMountPoint();
 
+  // Mounts Drive if the directory exists.
+  void MaybeMountDrive(bool data_directory_exists);
+
   // Registers remote file system for drive mount point.
   bool AddDriveMountPointAfterMounted();
 
@@ -207,6 +239,11 @@ class DriveIntegrationService : public KeyedService,
   // retry when the user is online.
   void MaybeRemountFileSystem(base::Optional<base::TimeDelta> remount_delay,
                               bool failed_to_mount);
+
+  // Helper function for ClearCacheAndRemountFileSystem() that deletes the cache
+  // folder and remounts Drive.
+  void ClearCacheAndRemountFileSystemAfterUnmount(
+      base::OnceCallback<void(bool)> callback);
 
   // Initializes the object. This function should be called before any
   // other functions.
@@ -243,6 +280,7 @@ class DriveIntegrationService : public KeyedService,
   State state_;
   bool enabled_;
   bool mount_failed_ = false;
+  bool in_clear_cache_ = false;
   // Custom mount point name that can be injected for testing in constructor.
   std::string mount_point_name_;
 
@@ -252,7 +290,7 @@ class DriveIntegrationService : public KeyedService,
   std::unique_ptr<internal::ResourceMetadataStorage, util::DestroyHelper>
       metadata_storage_;
 
-  base::ObserverList<DriveIntegrationServiceObserver>::Unchecked observers_;
+  base::ObserverList<DriveIntegrationServiceObserver> observers_;
 
   std::unique_ptr<DriveFsHolder> drivefs_holder_;
   std::unique_ptr<PreferenceWatcher> preference_watcher_;

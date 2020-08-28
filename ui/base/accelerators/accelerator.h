@@ -14,10 +14,10 @@
 #include <memory>
 #include <utility>
 
+#include "base/component_export.h"
 #include "base/strings/string16.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
-#include "ui/base/ui_base_export.h"
 #include "ui/events/event_constants.h"
 #include "ui/events/keycodes/keyboard_codes.h"
 
@@ -30,7 +30,7 @@ class KeyEvent;
 // for a particular KeyEvent matches an accelerator with or without the repeat
 // flag. A side effect of this is that == (and <) does not consider the
 // repeat flag in its comparison.
-class UI_BASE_EXPORT Accelerator {
+class COMPONENT_EXPORT(UI_BASE) Accelerator {
  public:
   enum class KeyState {
     PRESSED,
@@ -42,14 +42,13 @@ class UI_BASE_EXPORT Accelerator {
   // for example:
   //     Accelerator(ui::VKEY_Z, ui::EF_SHIFT_DOWN | ui::EF_CONTROL_DOWN)
   // would correspond to the shortcut "ctrl + shift + z".
-  //
-  // NOTE: this constructor strips out non key related flags.
   Accelerator(KeyboardCode key_code,
               int modifiers,
               KeyState key_state = KeyState::PRESSED,
               base::TimeTicks time_stamp = base::TimeTicks());
   explicit Accelerator(const KeyEvent& key_event);
   Accelerator(const Accelerator& accelerator);
+  Accelerator& operator=(const Accelerator& accelerator);
   ~Accelerator();
 
   // Masks out all the non-modifiers KeyEvent |flags| and returns only the
@@ -57,8 +56,6 @@ class UI_BASE_EXPORT Accelerator {
   static int MaskOutKeyEventFlags(int flags);
 
   KeyEvent ToKeyEvent() const;
-
-  Accelerator& operator=(const Accelerator& accelerator);
 
   // Define the < operator so that the KeyboardShortcut can be used as a key in
   // a std::map.
@@ -83,13 +80,14 @@ class UI_BASE_EXPORT Accelerator {
   bool IsShiftDown() const;
   bool IsCtrlDown() const;
   bool IsAltDown() const;
+  bool IsAltGrDown() const;
   bool IsCmdDown() const;
   bool IsRepeat() const;
 
   // Returns a string with the localized shortcut if any.
   base::string16 GetShortcutText() const;
 
-#if defined(OS_MACOSX)
+#if defined(OS_APPLE)
   base::string16 KeyCodeToMacSymbol() const;
 #endif
   base::string16 KeyCodeToName() const;
@@ -130,7 +128,7 @@ class UI_BASE_EXPORT Accelerator {
 
 // An interface that classes that want to register for keyboard accelerators
 // should implement.
-class UI_BASE_EXPORT AcceleratorTarget {
+class COMPONENT_EXPORT(UI_BASE) AcceleratorTarget {
  public:
   // Should return true if the accelerator was processed.
   virtual bool AcceleratorPressed(const Accelerator& accelerator) = 0;

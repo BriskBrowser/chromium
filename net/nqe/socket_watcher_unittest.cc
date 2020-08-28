@@ -9,6 +9,7 @@
 #include "base/test/simple_test_tick_clock.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
+#include "build/build_config.h"
 #include "net/base/address_list.h"
 #include "net/base/ip_address.h"
 #include "net/socket/socket_performance_watcher.h"
@@ -114,8 +115,9 @@ TEST_F(NetworkQualitySocketWatcherTest, NotificationsThrottled) {
   SocketWatcher socket_watcher(
       SocketPerformanceWatcherFactory::PROTOCOL_TCP, address_list,
       base::TimeDelta::FromMilliseconds(2000), false,
-      base::ThreadTaskRunnerHandle::Get(), base::Bind(OnUpdatedRTTAvailable),
-      base::Bind(ShouldNotifyRTTCallback), &tick_clock);
+      base::ThreadTaskRunnerHandle::Get(),
+      base::BindRepeating(OnUpdatedRTTAvailable),
+      base::BindRepeating(ShouldNotifyRTTCallback), &tick_clock);
 
   EXPECT_TRUE(socket_watcher.ShouldNotifyUpdatedRTT());
   socket_watcher.OnUpdatedRTTAvailable(base::TimeDelta::FromSeconds(10));
@@ -158,8 +160,8 @@ TEST_F(NetworkQualitySocketWatcherTest, QuicFirstNotificationDropped) {
       SocketPerformanceWatcherFactory::PROTOCOL_QUIC, address_list,
       base::TimeDelta::FromMilliseconds(2000), false,
       base::ThreadTaskRunnerHandle::Get(),
-      base::Bind(OnUpdatedRTTAvailableStoreParams),
-      base::Bind(ShouldNotifyRTTCallback), &tick_clock);
+      base::BindRepeating(OnUpdatedRTTAvailableStoreParams),
+      base::BindRepeating(ShouldNotifyRTTCallback), &tick_clock);
 
   EXPECT_TRUE(socket_watcher.ShouldNotifyUpdatedRTT());
   socket_watcher.OnUpdatedRTTAvailable(base::TimeDelta::FromSeconds(10));
@@ -188,7 +190,13 @@ TEST_F(NetworkQualitySocketWatcherTest, QuicFirstNotificationDropped) {
   EXPECT_TRUE(socket_watcher.ShouldNotifyUpdatedRTT());
 }
 
-TEST_F(NetworkQualitySocketWatcherTest, PrivateAddressRTTNotNotified) {
+#if defined(OS_IOS)
+// Flaky on iOS: crbug.com/672917.
+#define MAYBE_PrivateAddressRTTNotNotified DISABLED_PrivateAddressRTTNotNotified
+#else
+#define MAYBE_PrivateAddressRTTNotNotified PrivateAddressRTTNotNotified
+#endif
+TEST_F(NetworkQualitySocketWatcherTest, MAYBE_PrivateAddressRTTNotNotified) {
   base::SimpleTestTickClock tick_clock;
   tick_clock.SetNowTicks(base::TimeTicks::Now());
 
@@ -212,8 +220,9 @@ TEST_F(NetworkQualitySocketWatcherTest, PrivateAddressRTTNotNotified) {
     SocketWatcher socket_watcher(
         SocketPerformanceWatcherFactory::PROTOCOL_TCP, address_list,
         base::TimeDelta::FromMilliseconds(2000), false,
-        base::ThreadTaskRunnerHandle::Get(), base::Bind(OnUpdatedRTTAvailable),
-        base::Bind(ShouldNotifyRTTCallback), &tick_clock);
+        base::ThreadTaskRunnerHandle::Get(),
+        base::BindRepeating(OnUpdatedRTTAvailable),
+        base::BindRepeating(ShouldNotifyRTTCallback), &tick_clock);
 
     EXPECT_EQ(test.expect_should_notify_rtt,
               socket_watcher.ShouldNotifyUpdatedRTT());
@@ -251,8 +260,8 @@ TEST_F(NetworkQualitySocketWatcherTest, RemoteHostIPHashComputedCorrectly) {
         SocketPerformanceWatcherFactory::PROTOCOL_TCP, address_list,
         base::TimeDelta::FromMilliseconds(2000), false,
         base::ThreadTaskRunnerHandle::Get(),
-        base::Bind(OnUpdatedRTTAvailableStoreParams),
-        base::Bind(ShouldNotifyRTTCallback), &tick_clock);
+        base::BindRepeating(OnUpdatedRTTAvailableStoreParams),
+        base::BindRepeating(ShouldNotifyRTTCallback), &tick_clock);
     EXPECT_TRUE(socket_watcher.ShouldNotifyUpdatedRTT());
     socket_watcher.OnUpdatedRTTAvailable(base::TimeDelta::FromSeconds(10));
     base::RunLoop().RunUntilIdle();

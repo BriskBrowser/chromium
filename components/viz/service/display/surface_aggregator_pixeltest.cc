@@ -5,14 +5,15 @@
 #include "base/time/time.h"
 #include "build/build_config.h"
 #include "cc/test/pixel_comparator.h"
-#include "cc/test/pixel_test.h"
 #include "components/viz/common/frame_sinks/begin_frame_args.h"
 #include "components/viz/common/quads/compositor_frame.h"
 #include "components/viz/common/quads/render_pass.h"
 #include "components/viz/common/quads/solid_color_draw_quad.h"
 #include "components/viz/common/quads/surface_draw_quad.h"
+#include "components/viz/common/surfaces/aggregated_frame.h"
 #include "components/viz/common/surfaces/parent_local_surface_id_allocator.h"
 #include "components/viz/service/display/surface_aggregator.h"
+#include "components/viz/service/display/viz_pixel_test.h"
 #include "components/viz/service/display_embedder/server_shared_bitmap_manager.h"
 #include "components/viz/service/frame_sinks/compositor_frame_sink_support.h"
 #include "components/viz/service/frame_sinks/frame_sink_manager_impl.h"
@@ -33,8 +34,7 @@ constexpr FrameSinkId kArbitraryRightFrameSinkId(4, 4);
 constexpr bool kIsRoot = true;
 constexpr bool kIsChildRoot = false;
 
-template <typename RendererType>
-class SurfaceAggregatorPixelTest : public cc::RendererPixelTest<RendererType> {
+class SurfaceAggregatorPixelTest : public VizPixelTestWithParam {
  public:
   SurfaceAggregatorPixelTest()
       : manager_(&shared_bitmap_manager_),
@@ -60,14 +60,10 @@ class SurfaceAggregatorPixelTest : public cc::RendererPixelTest<RendererType> {
       base::TimeTicks() + base::TimeDelta::FromSeconds(1);
 };
 
-using RendererTypes = ::testing::Types<GLRenderer,
-                                       SkiaRenderer
-#ifdef ENABLE_VIZ_VULKAN_TESTS
-                                       ,
-                                       cc::VulkanSkiaRenderer
-#endif
-                                       >;
-TYPED_TEST_SUITE(SurfaceAggregatorPixelTest, RendererTypes);
+INSTANTIATE_TEST_SUITE_P(,
+                         SurfaceAggregatorPixelTest,
+                         testing::ValuesIn(GetGpuRendererTypes()),
+                         testing::PrintToStringParamName());
 
 SharedQuadState* CreateAndAppendTestSharedQuadState(
     RenderPass* render_pass,
@@ -89,9 +85,9 @@ SharedQuadState* CreateAndAppendTestSharedQuadState(
 }
 
 // Draws a very simple frame with no surface references.
-TYPED_TEST(SurfaceAggregatorPixelTest, DrawSimpleFrame) {
+TEST_P(SurfaceAggregatorPixelTest, DrawSimpleFrame) {
   gfx::Rect rect(this->device_viewport_size_);
-  int id = 1;
+  RenderPassId id{1};
   auto pass = RenderPass::Create();
   pass->SetNew(id, rect, rect, gfx::Transform());
 
@@ -118,19 +114,19 @@ TYPED_TEST(SurfaceAggregatorPixelTest, DrawSimpleFrame) {
 
   SurfaceAggregator aggregator(this->manager_.surface_manager(),
                                this->resource_provider_.get(), true, false);
-  CompositorFrame aggregated_frame = aggregator.Aggregate(
+  auto aggregated_frame = aggregator.Aggregate(
       root_surface_id, this->GetNextDisplayTime(), gfx::OVERLAY_TRANSFORM_NONE);
 
   bool discard_alpha = false;
   cc::ExactPixelComparator pixel_comparator(discard_alpha);
-  RenderPassList* pass_list = &aggregated_frame.render_pass_list;
+  auto* pass_list = &aggregated_frame.render_pass_list;
   EXPECT_TRUE(this->RunPixelTest(pass_list,
                                  base::FilePath(FILE_PATH_LITERAL("green.png")),
                                  pixel_comparator));
 }
 
 // Draws a frame with simple surface embedding.
-TYPED_TEST(SurfaceAggregatorPixelTest, DrawSimpleAggregatedFrame) {
+TEST_P(SurfaceAggregatorPixelTest, DrawSimpleAggregatedFrame) {
   gfx::Size child_size(200, 100);
   auto child_support = std::make_unique<CompositorFrameSinkSupport>(
       nullptr, &this->manager_, kArbitraryChildFrameSinkId, kIsChildRoot);
@@ -150,7 +146,7 @@ TYPED_TEST(SurfaceAggregatorPixelTest, DrawSimpleAggregatedFrame) {
 
   {
     gfx::Rect rect(this->device_viewport_size_);
-    int id = 1;
+    RenderPassId id{1};
     auto pass = RenderPass::Create();
     pass->SetNew(id, rect, rect, gfx::Transform());
 
@@ -177,7 +173,7 @@ TYPED_TEST(SurfaceAggregatorPixelTest, DrawSimpleAggregatedFrame) {
 
   {
     gfx::Rect rect(child_size);
-    int id = 1;
+    RenderPassId id{1};
     auto pass = RenderPass::Create();
     pass->SetNew(id, rect, rect, gfx::Transform());
 
@@ -198,20 +194,19 @@ TYPED_TEST(SurfaceAggregatorPixelTest, DrawSimpleAggregatedFrame) {
 
   SurfaceAggregator aggregator(this->manager_.surface_manager(),
                                this->resource_provider_.get(), true, false);
-  CompositorFrame aggregated_frame = aggregator.Aggregate(
+  auto aggregated_frame = aggregator.Aggregate(
       root_surface_id, this->GetNextDisplayTime(), gfx::OVERLAY_TRANSFORM_NONE);
 
   bool discard_alpha = false;
   cc::ExactPixelComparator pixel_comparator(discard_alpha);
-  RenderPassList* pass_list = &aggregated_frame.render_pass_list;
+  auto* pass_list = &aggregated_frame.render_pass_list;
   EXPECT_TRUE(this->RunPixelTest(
       pass_list, base::FilePath(FILE_PATH_LITERAL("blue_yellow.png")),
       pixel_comparator));
 }
 
 // Tests a surface quad that has a non-identity transform into its pass.
-TYPED_TEST(SurfaceAggregatorPixelTest,
-           DrawAggregatedFrameWithSurfaceTransforms) {
+TEST_P(SurfaceAggregatorPixelTest, DrawAggregatedFrameWithSurfaceTransforms) {
   gfx::Size child_size(100, 200);
   gfx::Size quad_size(100, 100);
   // Structure:
@@ -247,7 +242,7 @@ TYPED_TEST(SurfaceAggregatorPixelTest,
 
   {
     gfx::Rect rect(this->device_viewport_size_);
-    int id = 1;
+    RenderPassId id{1};
     auto pass = RenderPass::Create();
     pass->SetNew(id, rect, rect, gfx::Transform());
 
@@ -280,7 +275,7 @@ TYPED_TEST(SurfaceAggregatorPixelTest,
 
   {
     gfx::Rect rect(child_size);
-    int id = 1;
+    RenderPassId id{1};
     auto pass = RenderPass::Create();
     pass->SetNew(id, rect, rect, gfx::Transform());
 
@@ -308,7 +303,7 @@ TYPED_TEST(SurfaceAggregatorPixelTest,
 
   {
     gfx::Rect rect(child_size);
-    int id = 1;
+    RenderPassId id{1};
     auto pass = RenderPass::Create();
     pass->SetNew(id, rect, rect, gfx::Transform());
 
@@ -336,12 +331,12 @@ TYPED_TEST(SurfaceAggregatorPixelTest,
 
   SurfaceAggregator aggregator(this->manager_.surface_manager(),
                                this->resource_provider_.get(), true, false);
-  CompositorFrame aggregated_frame = aggregator.Aggregate(
+  auto aggregated_frame = aggregator.Aggregate(
       root_surface_id, this->GetNextDisplayTime(), gfx::OVERLAY_TRANSFORM_NONE);
 
   bool discard_alpha = false;
   cc::ExactPixelComparator pixel_comparator(discard_alpha);
-  RenderPassList* pass_list = &aggregated_frame.render_pass_list;
+  auto* pass_list = &aggregated_frame.render_pass_list;
   EXPECT_TRUE(this->RunPixelTest(
       pass_list,
       base::FilePath(FILE_PATH_LITERAL("four_blue_green_checkers.png")),

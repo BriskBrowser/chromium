@@ -22,6 +22,7 @@ js_type_check("closure_compile_module") {
     ":measurement_system",
     ":model",
     ":printable_area",
+    ":printer_status_cros",
     ":scaling",
     ":size",
     ":state",
@@ -82,9 +83,7 @@ js_library("cloud_parsers") {
 }
 
 js_library("invitation") {
-  deps = [
-    ":destination",
-  ]
+  deps = [ ":destination" ]
 }
 
 js_library("destination") {
@@ -114,9 +113,7 @@ js_library("margins") {
 }
 
 js_library("measurement_system") {
-  deps = [
-    "//ui/webui/resources/js:assert.m",
-  ]
+  deps = [ "//ui/webui/resources/js:assert.m" ]
 }
 
 js_library("model") {
@@ -168,4 +165,7 @@ js_library("user_manager") {
     "//ui/webui/resources/js:event_tracker.m",
     "//ui/webui/resources/js:web_ui_listener_behavior.m",
   ]
+}
+
+js_library("printer_status_cros") {
 }

@@ -29,6 +29,44 @@ namespace http://www.w3.org/1999/xhtml
     property animate
     property append
     property appendChild
+    property ariaAtomic
+    property ariaAutoComplete
+    property ariaBusy
+    property ariaChecked
+    property ariaColCount
+    property ariaColIndex
+    property ariaColSpan
+    property ariaCurrent
+    property ariaDescription
+    property ariaDisabled
+    property ariaExpanded
+    property ariaHasPopup
+    property ariaHidden
+    property ariaKeyShortcuts
+    property ariaLabel
+    property ariaLevel
+    property ariaLive
+    property ariaModal
+    property ariaMultiLine
+    property ariaMultiSelectable
+    property ariaOrientation
+    property ariaPlaceholder
+    property ariaPosInSet
+    property ariaPressed
+    property ariaReadOnly
+    property ariaRelevant
+    property ariaRequired
+    property ariaRoleDescription
+    property ariaRowCount
+    property ariaRowIndex
+    property ariaRowSpan
+    property ariaSelected
+    property ariaSetSize
+    property ariaSort
+    property ariaValueMax
+    property ariaValueMin
+    property ariaValueNow
+    property ariaValueText
     property assignedSlot
     property attachInternals
     property attachShadow
@@ -64,6 +102,7 @@ namespace http://www.w3.org/1999/xhtml
     property firstChild
     property firstElementChild
     property focus
+    property getAnimations
     property getAttribute
     property getAttributeNS
     property getAttributeNames
@@ -122,6 +161,7 @@ namespace http://www.w3.org/1999/xhtml
     property onbeforecopy
     property onbeforecut
     property onbeforepaste
+    property onbeforexrselect
     property onblur
     property oncancel
     property oncanplay
@@ -201,7 +241,10 @@ namespace http://www.w3.org/1999/xhtml
     property ontouchend
     property ontouchmove
     property ontouchstart
+    property ontransitioncancel
     property ontransitionend
+    property ontransitionrun
+    property ontransitionstart
     property onvolumechange
     property onwaiting
     property onwebkitanimationend
@@ -231,6 +274,7 @@ namespace http://www.w3.org/1999/xhtml
     property removeChild
     property removeEventListener
     property replaceChild
+    property replaceChildren
     property replaceWith
     property requestFullscreen
     property requestPointerLock
@@ -355,6 +399,7 @@ html element audio
     property playbackRate
     property played
     property preload
+    property preservesPitch
     property readyState
     property remote
     property seekable
@@ -881,6 +926,7 @@ html element select
 html element shadow
     property getDistributedNodes
 html element slot
+    property assign
     property assignedElements
     property assignedNodes
     property name
@@ -1062,6 +1108,7 @@ html element video
     property autoplay
     property buffered
     property canPlayType
+    property cancelVideoFrameCallback
     property captureStream
     property controls
     property controlsList
@@ -1094,9 +1141,11 @@ html element video
     property playsInline
     property poster
     property preload
+    property preservesPitch
     property readyState
     property remote
     property requestPictureInPicture
+    property requestVideoFrameCallback
     property seekable
     property seeking
     property setMediaKeys
@@ -1148,6 +1197,44 @@ namespace http://www.w3.org/2000/svg
     property animate
     property append
     property appendChild
+    property ariaAtomic
+    property ariaAutoComplete
+    property ariaBusy
+    property ariaChecked
+    property ariaColCount
+    property ariaColIndex
+    property ariaColSpan
+    property ariaCurrent
+    property ariaDescription
+    property ariaDisabled
+    property ariaExpanded
+    property ariaHasPopup
+    property ariaHidden
+    property ariaKeyShortcuts
+    property ariaLabel
+    property ariaLevel
+    property ariaLive
+    property ariaModal
+    property ariaMultiLine
+    property ariaMultiSelectable
+    property ariaOrientation
+    property ariaPlaceholder
+    property ariaPosInSet
+    property ariaPressed
+    property ariaReadOnly
+    property ariaRelevant
+    property ariaRequired
+    property ariaRoleDescription
+    property ariaRowCount
+    property ariaRowIndex
+    property ariaRowSpan
+    property ariaSelected
+    property ariaSetSize
+    property ariaSort
+    property ariaValueMax
+    property ariaValueMin
+    property ariaValueNow
+    property ariaValueText
     property assignedSlot
     property attachShadow
     property attributeStyleMap
@@ -1176,6 +1263,7 @@ namespace http://www.w3.org/2000/svg
     property firstChild
     property firstElementChild
     property focus
+    property getAnimations
     property getAttribute
     property getAttributeNS
     property getAttributeNames
@@ -1224,6 +1312,7 @@ namespace http://www.w3.org/2000/svg
     property onbeforecopy
     property onbeforecut
     property onbeforepaste
+    property onbeforexrselect
     property onblur
     property oncancel
     property oncanplay
@@ -1303,7 +1392,10 @@ namespace http://www.w3.org/2000/svg
     property ontouchend
     property ontouchmove
     property ontouchstart
+    property ontransitioncancel
     property ontransitionend
+    property ontransitionrun
+    property ontransitionstart
     property onvolumechange
     property onwaiting
     property onwebkitanimationend
@@ -1333,6 +1425,7 @@ namespace http://www.w3.org/2000/svg
     property removeChild
     property removeEventListener
     property replaceChild
+    property replaceChildren
     property replaceWith
     property requestFullscreen
     property requestPointerLock

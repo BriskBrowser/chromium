@@ -13,7 +13,6 @@
 #include "base/callback_forward.h"
 #include "base/json/json_reader.h"
 #include "base/json/json_writer.h"
-#include "base/task/post_task.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 
@@ -30,9 +29,8 @@ DevtoolsClient::DevtoolsClient(
       renderer_crashed_(false),
       next_message_id_(0),
       frame_tracker_(this) {
-  browser_main_thread_ =
-      base::CreateSingleThreadTaskRunner({content::BrowserThread::UI});
-  agent_host_->AttachClient(this);
+  browser_main_thread_ = content::GetUIThreadTaskRunner({});
+  agent_host_->AttachClientWithoutWakeLock(this);
   frame_tracker_.Start();
 }
 
@@ -104,9 +102,8 @@ void DevtoolsClient::SendMessageWithParams(
   std::string json_message;
   base::JSONWriter::Write(message, &json_message);
 
-  bool success = agent_host_->DispatchProtocolMessage(
+  agent_host_->DispatchProtocolMessage(
       this, base::as_bytes(base::make_span(json_message)));
-  DCHECK(success);
 }
 
 void DevtoolsClient::RegisterEventHandler(

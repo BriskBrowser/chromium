@@ -13,7 +13,7 @@
 #include "chrome/browser/renderer_context_menu/render_view_context_menu_browsertest_util.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_window.h"
-#include "chrome/browser/ui/exclusive_access/fullscreen_controller_test.h"
+#include "chrome/browser/ui/exclusive_access/exclusive_access_test.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/interactive_test_utils.h"
@@ -37,6 +37,7 @@
 #include "content/public/browser/render_widget_host_iterator.h"
 #include "content/public/browser/render_widget_host_view.h"
 #include "content/public/browser/web_contents.h"
+#include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/content_browser_test_utils.h"
 #include "content/public/test/hit_test_region_observer.h"
@@ -47,6 +48,7 @@
 #include "net/dns/mock_host_resolver.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
 #include "ui/base/test/ui_controls.h"
+#include "ui/base/ui_base_features.h"
 #include "ui/display/display.h"
 #include "ui/display/screen.h"
 #include "ui/gfx/geometry/point.h"
@@ -418,12 +420,17 @@ IN_PROC_BROWSER_TEST_F(SitePerProcessInteractiveBrowserTest,
   EXPECT_EQ(main_frame, web_contents->GetFocusedFrame());
 }
 
-#if (defined(OS_LINUX) && !defined(USE_OZONE)) || defined(OS_WIN)
+#if (defined(OS_LINUX) && !defined(OS_CHROMEOS)) || defined(OS_WIN)
 // Ensures that renderers know to advance focus to sibling frames and parent
 // frames in the presence of mouse click initiated focus changes.
 // Verifies against regression of https://crbug.com/702330
 IN_PROC_BROWSER_TEST_F(SitePerProcessInteractiveBrowserTest,
                        TabAndMouseFocusNavigation) {
+#if defined(USE_OZONE)
+  // TODO(https://crbug.com/1109696): enable for ozone.
+  if (!features::IsUsingOzonePlatform())
+    return;
+#endif
   GURL main_url(embedded_test_server()->GetURL(
       "a.com", "/cross_site_iframe_factory.html?a(b,c)"));
   ui_test_utils::NavigateToURL(browser(), main_url);
@@ -733,7 +740,7 @@ void WaitForMultipleFullscreenEvents(
 // - fullscreenchange events fire in both frames.
 // - fullscreen CSS is applied correctly in both frames.
 //
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
 // https://crbug.com/845389
 #define MAYBE_FullscreenElementInSubframe DISABLED_FullscreenElementInSubframe
 #else
@@ -930,7 +937,8 @@ void SitePerProcessInteractiveBrowserTest::FullscreenElementInABA(
   EXPECT_EQ("none", GetFullscreenElementId(grandchild));
 }
 
-#if defined(OS_MACOSX)
+// https://crbug.com/1087392: Flaky for ASAN and TSAN
+#if defined(OS_MAC) || defined(ADDRESS_SANITIZER) || defined(THREAD_SANITIZER)
 #define MAYBE_FullscreenElementInABAAndExitViaEscapeKey \
   DISABLED_FullscreenElementInABAAndExitViaEscapeKey
 #else
@@ -971,15 +979,9 @@ IN_PROC_BROWSER_TEST_F(SitePerProcessInteractiveBrowserTest,
 // The test also exits fullscreen by simulating pressing ESC rather than using
 // document.webkitExitFullscreen(), which tests the browser-initiated
 // fullscreen exit path.
-#if defined(OS_CHROMEOS) || defined(OS_MACOSX)
-#define MAYBE_FullscreenElementInMultipleSubframes \
-  DISABLED_FullscreenElementInMultipleSubframes
-#else
-#define MAYBE_FullscreenElementInMultipleSubframes \
-  FullscreenElementInMultipleSubframes
-#endif
+// TODO(crbug.com/756338): flaky on all platforms.
 IN_PROC_BROWSER_TEST_F(SitePerProcessInteractiveBrowserTest,
-                       MAYBE_FullscreenElementInMultipleSubframes) {
+                       DISABLED_FullscreenElementInMultipleSubframes) {
   // Allow fullscreen in all iframes descending to |c_middle|.
   GURL main_url(embedded_test_server()->GetURL(
       "a.com",
@@ -1104,8 +1106,10 @@ IN_PROC_BROWSER_TEST_F(SitePerProcessInteractiveBrowserTest,
 
 // Test that deleting a RenderWidgetHost that holds the mouse lock won't cause a
 // crash. https://crbug.com/619571.
+
+// Flaky on multiple builders. https://crbug.com/1059632
 IN_PROC_BROWSER_TEST_F(SitePerProcessInteractiveBrowserTest,
-                       RenderWidgetHostDeletedWhileMouseLocked) {
+                       DISABLED_RenderWidgetHostDeletedWhileMouseLocked) {
   GURL main_url(embedded_test_server()->GetURL(
       "a.com", "/cross_site_iframe_factory.html?a(b)"));
   ui_test_utils::NavigateToURL(browser(), main_url);
@@ -1251,9 +1255,9 @@ IN_PROC_BROWSER_TEST_F(SitePerProcessInteractivePDFTest,
   };
 
   send_right_mouse_event(child_view->GetRenderWidgetHost(), 10, 20,
-                         blink::WebInputEvent::kMouseDown);
+                         blink::WebInputEvent::Type::kMouseDown);
   send_right_mouse_event(child_view->GetRenderWidgetHost(), 10, 20,
-                         blink::WebInputEvent::kMouseUp);
+                         blink::WebInputEvent::Type::kMouseUp);
   menu_waiter.WaitForMenuOpenAndClose();
 
   gfx::Point point_in_root_window =
@@ -1374,13 +1378,9 @@ class SitePerProcessAutofillTest : public SitePerProcessInteractiveBrowserTest {
     }
 
     void ShowAutofillPopup(
-        const gfx::RectF& element_bounds,
-        base::i18n::TextDirection text_direction,
-        const std::vector<autofill::Suggestion>& suggestions,
-        bool autoselect_first_suggestion,
-        autofill::PopupType popup_type,
+        const autofill::AutofillClient::PopupOpenArgs& open_args,
         base::WeakPtr<autofill::AutofillPopupDelegate> delegate) override {
-      element_bounds_ = element_bounds;
+      element_bounds_ = open_args.element_bounds;
       popup_shown_ = true;
       if (loop_runner_)
         loop_runner_->Quit();
@@ -1557,7 +1557,7 @@ IN_PROC_BROWSER_TEST_F(SitePerProcessInteractiveBrowserTest,
     event.button = blink::WebMouseEvent::Button::kLeft;
 
     // Send a mouse down event.
-    event.SetType(blink::WebInputEvent::kMouseDown);
+    event.SetType(blink::WebInputEvent::Type::kMouseDown);
     child_widget_host->ForwardMouseEvent(event);
 
     base::RunLoop run_loop;
@@ -1566,7 +1566,7 @@ IN_PROC_BROWSER_TEST_F(SitePerProcessInteractiveBrowserTest,
     run_loop.Run();
 
     // Now send a mouse up event.
-    event.SetType(blink::WebMouseEvent::kMouseUp);
+    event.SetType(blink::WebMouseEvent::Type::kMouseUp);
     child_widget_host->ForwardMouseEvent(event);
 
     // Wait until the popup disappears and we go back to the normal
@@ -1587,7 +1587,7 @@ IN_PROC_BROWSER_TEST_F(SitePerProcessInteractiveBrowserTest,
 // the NSEvent is sent to NSApplication in ui/base/test/ui_controls_mac.mm .
 // This test is disabled on only the Mac until the problem is resolved.
 // See http://crbug.com/425859 for more information.
-#if !defined(OS_MACOSX)
+#if !defined(OS_MAC)
 // Tests that ctrl-click in a subframe results in a background, not a foreground
 // tab - see https://crbug.com/804838.  This test is somewhat similar to
 // CtrlClickShouldEndUpIn*ProcessTest tests, but this test has to simulate an
@@ -1612,7 +1612,7 @@ IN_PROC_BROWSER_TEST_F(SitePerProcessInteractiveBrowserTest,
   content::WebContents* new_contents = nullptr;
   {
     content::WebContentsAddedObserver new_tab_observer;
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
     ASSERT_TRUE(ui_test_utils::SendKeyPressToWindowSync(
         old_contents->GetTopLevelNativeWindow(), ui::VKEY_RETURN, false, false,
         false, true /* cmd */));

@@ -16,6 +16,7 @@
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chromeos/dbus/cryptohome/fake_cryptohome_client.h"
 #include "components/policy/proto/chrome_device_policy.pb.h"
+#include "content/public/test/browser_test.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 using chromeos::attestation::PlatformVerificationFlow;
@@ -66,8 +67,9 @@ class AttestationDevicePolicyTest
             nullptr, nullptr, chromeos::FakeCryptohomeClient::Get(), nullptr));
     verifier->ChallengePlatformKey(
         browser()->tab_strip_model()->GetActiveWebContents(), "fake_service_id",
-        "fake_challenge", base::Bind(&AttestationDevicePolicyTest::Callback,
-                                     base::Unretained(this)));
+        "fake_challenge",
+        base::BindOnce(&AttestationDevicePolicyTest::Callback,
+                       base::Unretained(this)));
     WaitForAsyncOperation();
     return result_;
   }

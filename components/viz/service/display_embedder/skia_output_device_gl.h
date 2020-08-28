@@ -11,7 +11,6 @@
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
-#include "build/build_config.h"
 #include "components/viz/service/display_embedder/skia_output_device.h"
 #include "gpu/command_buffer/common/mailbox.h"
 
@@ -19,10 +18,6 @@ namespace gl {
 class GLImage;
 class GLSurface;
 }  // namespace gl
-
-namespace gfx {
-class GpuFence;
-}  // namespace gfx
 
 namespace gpu {
 class MailboxManager;
@@ -46,39 +41,35 @@ class SkiaOutputDeviceGL final : public SkiaOutputDevice {
       DidSwapBufferCompleteCallback did_swap_buffer_complete_callback);
   ~SkiaOutputDeviceGL() override;
 
-  bool supports_alpha() {
-    return supports_alpha_;
-  }
-
   // SkiaOutputDevice implementation:
   bool Reshape(const gfx::Size& size,
                float device_scale_factor,
                const gfx::ColorSpace& color_space,
-               bool has_alpha,
+               gfx::BufferFormat format,
                gfx::OverlayTransform transform) override;
   void SwapBuffers(BufferPresentedCallback feedback,
                    std::vector<ui::LatencyInfo> latency_info) override;
   void PostSubBuffer(const gfx::Rect& rect,
                      BufferPresentedCallback feedback,
                      std::vector<ui::LatencyInfo> latency_info) override;
-  void SetDrawRectangle(const gfx::Rect& draw_rectangle) override;
+  void CommitOverlayPlanes(BufferPresentedCallback feedback,
+                           std::vector<ui::LatencyInfo> latency_info) override;
+  bool SetDrawRectangle(const gfx::Rect& draw_rectangle) override;
   void SetGpuVSyncEnabled(bool enabled) override;
-#if defined(OS_WIN)
   void SetEnableDCLayers(bool enable) override;
   void ScheduleOverlays(SkiaOutputSurface::OverlayList overlays) override;
-#endif
   void EnsureBackbuffer() override;
   void DiscardBackbuffer() override;
-  SkSurface* BeginPaint() override;
-  void EndPaint(const GrBackendSemaphore& semaphore) override;
+  SkSurface* BeginPaint(
+      std::vector<GrBackendSemaphore>* end_semaphores) override;
+  void EndPaint() override;
 
  private:
   // Used as callback for SwapBuffersAsync and PostSubBufferAsync to finish
   // operation
   void DoFinishSwapBuffers(const gfx::Size& size,
                            std::vector<ui::LatencyInfo> latency_info,
-                           gfx::SwapResult result,
-                           std::unique_ptr<gfx::GpuFence>);
+                           gfx::SwapCompletionResult result);
 
   scoped_refptr<gl::GLImage> GetGLImageForMailbox(const gpu::Mailbox& mailbox);
 
@@ -86,10 +77,11 @@ class SkiaOutputDeviceGL final : public SkiaOutputDevice {
 
   gpu::SharedContextState* const context_state_;
   scoped_refptr<gl::GLSurface> gl_surface_;
+  const bool supports_async_swap_;
 
   sk_sp<SkSurface> sk_surface_;
 
-  bool supports_alpha_ = false;
+  uint64_t backbuffer_estimated_size_ = 0;
 
   base::WeakPtrFactory<SkiaOutputDeviceGL> weak_ptr_factory_{this};
 

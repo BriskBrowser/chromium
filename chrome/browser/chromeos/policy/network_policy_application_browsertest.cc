@@ -9,7 +9,7 @@
 #include "base/macros.h"
 #include "base/test/values_test_util.h"
 #include "chrome/browser/chromeos/login/login_manager_test.h"
-#include "chrome/browser/chromeos/login/startup_utils.h"
+#include "chrome/browser/chromeos/login/test/login_manager_mixin.h"
 #include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chromeos/constants/chromeos_switches.h"
 #include "chromeos/dbus/shill/shill_device_client.h"
@@ -125,12 +125,10 @@ class ScopedNetworkPolicyApplicationObserver : public NetworkPolicyObserver {
 // application across sign-in screen and/or user session.
 class NetworkPolicyApplicationTest : public LoginManagerTest {
  public:
-  NetworkPolicyApplicationTest()
-      : LoginManagerTest(true /* should_launch_browser */,
-                         true /* should_initialize_webui */),
-        test_account_id_(AccountId::FromUserEmailGaiaId(
-            policy::PolicyBuilder::kFakeUsername,
-            policy::PolicyBuilder::kFakeGaiaId)) {}
+  NetworkPolicyApplicationTest() : LoginManagerTest() {
+    login_mixin_.AppendRegularUsers(1);
+    test_account_id_ = login_mixin_.users()[0].account_id;
+  }
 
  protected:
   // InProcessBrowserTest:
@@ -176,20 +174,20 @@ class NetworkPolicyApplicationTest : public LoginManagerTest {
 
   void SetDeviceOpenNetworkConfiguration(
       const std::string& device_onc_policy_blob) {
-    current_policy_.Set(
-        policy::key::kDeviceOpenNetworkConfiguration,
-        policy::POLICY_LEVEL_MANDATORY, policy::POLICY_SCOPE_MACHINE,
-        policy::POLICY_SOURCE_CLOUD,
-        std::make_unique<base::Value>(device_onc_policy_blob), nullptr);
+    current_policy_.Set(policy::key::kDeviceOpenNetworkConfiguration,
+                        policy::POLICY_LEVEL_MANDATORY,
+                        policy::POLICY_SCOPE_MACHINE,
+                        policy::POLICY_SOURCE_CLOUD,
+                        base::Value(device_onc_policy_blob), nullptr);
     policy_provider_.UpdateChromePolicy(current_policy_);
   }
 
   void SetUserOpenNetworkConfiguration(
       const std::string& user_onc_policy_blob) {
-    current_policy_.Set(
-        policy::key::kOpenNetworkConfiguration, policy::POLICY_LEVEL_MANDATORY,
-        policy::POLICY_SCOPE_USER, policy::POLICY_SOURCE_CLOUD,
-        std::make_unique<base::Value>(user_onc_policy_blob), nullptr);
+    current_policy_.Set(policy::key::kOpenNetworkConfiguration,
+                        policy::POLICY_LEVEL_MANDATORY,
+                        policy::POLICY_SCOPE_USER, policy::POLICY_SOURCE_CLOUD,
+                        base::Value(user_onc_policy_blob), nullptr);
     policy_provider_.UpdateChromePolicy(current_policy_);
   }
 
@@ -205,9 +203,8 @@ class NetworkPolicyApplicationTest : public LoginManagerTest {
     base::RunLoop run_loop;
     ShillServiceClient::Get()->Connect(
         dbus::ObjectPath(service_path), run_loop.QuitClosure(),
-        base::BindRepeating(
-            &NetworkPolicyApplicationTest::OnConnectToServiceFailed,
-            base::Unretained(this), run_loop.QuitClosure()));
+        base::BindOnce(&NetworkPolicyApplicationTest::OnConnectToServiceFailed,
+                       base::Unretained(this), run_loop.QuitClosure()));
     run_loop.Run();
   }
 
@@ -217,6 +214,7 @@ class NetworkPolicyApplicationTest : public LoginManagerTest {
   ShillProfileClient::TestInterface* shill_profile_client_test_ = nullptr;
   ShillDeviceClient::TestInterface* shill_device_client_test_ = nullptr;
 
+  LoginManagerMixin login_mixin_{&mixin_host_};
   AccountId test_account_id_;
 
  private:
@@ -225,12 +223,6 @@ class NetworkPolicyApplicationTest : public LoginManagerTest {
 
   DISALLOW_COPY_AND_ASSIGN(NetworkPolicyApplicationTest);
 };
-
-IN_PROC_BROWSER_TEST_F(NetworkPolicyApplicationTest,
-                       PRE_OnlyPolicyAutoconnectWithSlowUserPolicyApplication) {
-  RegisterUser(test_account_id_);
-  StartupUtils::MarkOobeCompleted();
-}
 
 // This test applies a global network policy with
 // AllowOnlyPolicyNetworksToAutoconnect set to true. It then performs a user

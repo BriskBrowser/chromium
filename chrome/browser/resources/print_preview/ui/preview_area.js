@@ -25,11 +25,11 @@ import {PrintableArea} from '../data/printable_area.js';
 import {ScalingType} from '../data/scaling.js';
 import {Size} from '../data/size.js';
 import {Error, State} from '../data/state.js';
-import {NativeLayer} from '../native_layer.js';
+import {NativeLayer, NativeLayerImpl} from '../native_layer.js';
 import {areRangesEqual} from '../print_preview_utils.js';
 
 import {MARGIN_KEY_MAP} from './margin_control_container.js';
-import {PluginProxy} from './plugin_proxy.js';
+import {PluginProxy, PluginProxyImpl} from './plugin_proxy.js';
 import {SettingsBehavior} from './settings_behavior.js';
 
 /**
@@ -42,7 +42,6 @@ let MediaSizeValue;
 
 /** @enum {string} */
 export const PreviewAreaState = {
-  NO_PLUGIN: 'no-plugin',
   LOADING: 'loading',
   DISPLAY_PREVIEW: 'display-preview',
   OPEN_IN_PREVIEW_LOADING: 'open-in-preview-loading',
@@ -93,8 +92,8 @@ Polymer({
     /** @type {!State} */
     state: Number,
 
-    /** @private {boolean} Whether the plugin is loaded */
-    pluginLoaded_: {
+    /** @private {boolean} Whether the plugin completely loaded the preview */
+    pluginLoadComplete_: {
       type: Boolean,
       value: false,
     },
@@ -109,7 +108,7 @@ Polymer({
     previewLoaded_: {
       type: Boolean,
       notify: true,
-      computed: 'computePreviewLoaded_(documentReady_, pluginLoaded_)',
+      computed: 'computePreviewLoaded_(documentReady_, pluginLoadComplete_)',
     },
   },
 
@@ -120,7 +119,7 @@ Polymer({
 
   observers: [
     'onDarkModeChanged_(inDarkMode)',
-    'pluginOrDocumentStatusChanged_(pluginLoaded_, documentReady_)',
+    'pluginOrDocumentStatusChanged_(pluginLoadComplete_, documentReady_)',
     'onStateOrErrorChange_(state, error)',
   ],
 
@@ -141,7 +140,7 @@ Polymer({
 
   /** @override */
   attached() {
-    this.nativeLayer_ = NativeLayer.getInstance();
+    this.nativeLayer_ = NativeLayerImpl.getInstance();
     this.addWebUIListener(
         'page-preview-ready', this.onPagePreviewReady_.bind(this));
 
@@ -154,7 +153,7 @@ Polymer({
 
   /** @override */
   created() {
-    this.pluginProxy_ = PluginProxy.getInstance();
+    this.pluginProxy_ = PluginProxyImpl.getInstance();
   },
 
   /**
@@ -162,7 +161,7 @@ Polymer({
    * @private
    */
   computePreviewLoaded_() {
-    return this.documentReady_ && this.pluginLoaded_;
+    return this.documentReady_ && this.pluginLoadComplete_;
   },
 
   /** @return {boolean} Whether the preview is loaded. */
@@ -210,7 +209,7 @@ Polymer({
 
   /** @private */
   pluginOrDocumentStatusChanged_() {
-    if (!this.pluginLoaded_ || !this.documentReady_ ||
+    if (!this.pluginLoadComplete_ || !this.documentReady_ ||
         this.previewState === PreviewAreaState.ERROR) {
       return;
     }
@@ -343,14 +342,14 @@ Polymer({
       const plugin = this.pluginProxy_.createPlugin(previewUid, index);
       this.pluginProxy_.setKeyEventCallback(this.keyEventCallback_);
       this.$$('.preview-area-plugin-wrapper')
-          .appendChild(
-              /** @type {Node} */ (plugin));
-      this.pluginProxy_.setLoadCallback(this.onPluginLoad_.bind(this));
+          .appendChild(/** @type {Node} */ (plugin));
+      this.pluginProxy_.setLoadCompleteCallback(
+          this.onPluginLoadComplete_.bind(this));
       this.pluginProxy_.setViewportChangedCallback(
           this.onPreviewVisualStateChange_.bind(this));
     }
 
-    this.pluginLoaded_ = false;
+    this.pluginLoadComplete_ = false;
     if (this.inDarkMode) {
       this.pluginProxy_.darkModeChanged(true);
     }
@@ -361,15 +360,13 @@ Polymer({
   },
 
   /**
-   * Called when the plugin loads. This is a consequence of calling
-   * plugin.reload(). Certain plugin state can only be set after the plugin
-   * has loaded.
+   * Called when the plugin loads the preview completely.
    * @param {boolean} success Whether the plugin load succeeded or not.
    * @private
    */
-  onPluginLoad_(success) {
+  onPluginLoadComplete_(success) {
     if (success) {
-      this.pluginLoaded_ = true;
+      this.pluginLoadComplete_ = true;
     } else {
       this.error = Error.PREVIEW_FAILED;
       this.previewState = PreviewAreaState.ERROR;
@@ -399,6 +396,14 @@ Polymer({
         pageWidth / this.pageSize.width);
     this.$.marginControlContainer.updateClippingMask(
         new Size(viewportWidth, viewportHeight));
+    // Align the margin control container with the preview content area.
+    // The offset may be caused by the scrollbar on the left in the preview
+    // area in right-to-left direction.
+    const previewDocument = this.$$('.preview-area-plugin').contentDocument;
+    if (previewDocument && previewDocument.documentElement) {
+      this.$.marginControlContainer.style.left =
+          previewDocument.documentElement.offsetLeft + 'px';
+    }
   },
 
   /**

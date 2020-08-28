@@ -8,10 +8,10 @@
 #include <utility>
 
 #include "services/device/public/mojom/nfc.mojom-blink.h"
+#include "third_party/blink/renderer/bindings/modules/v8/v8_ndef_scan_options.h"
+#include "third_party/blink/renderer/bindings/modules/v8/v8_ndef_write_options.h"
 #include "third_party/blink/renderer/modules/nfc/ndef_message.h"
 #include "third_party/blink/renderer/modules/nfc/ndef_record.h"
-#include "third_party/blink/renderer/modules/nfc/ndef_scan_options.h"
-#include "third_party/blink/renderer/modules/nfc/ndef_write_options.h"
 #include "third_party/blink/renderer/modules/nfc/nfc_utils.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
 
@@ -57,9 +57,10 @@ TypeConverter<NDEFWriteOptionsPtr, const blink::NDEFWriteOptions*>::Convert(
     const blink::NDEFWriteOptions* write_options) {
   // https://w3c.github.io/web-nfc/#the-ndefwriteoptions-dictionary
   // Default values for NDEFWriteOptions dictionary are:
-  // ignoreRead = true
+  // ignoreRead = true, overwrite = true
   NDEFWriteOptionsPtr write_options_ptr = NDEFWriteOptions::New();
   write_options_ptr->ignore_read = write_options->ignoreRead();
+  write_options_ptr->overwrite = write_options->overwrite();
 
   return write_options_ptr;
 }

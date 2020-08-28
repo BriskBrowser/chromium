@@ -13,10 +13,10 @@
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
 #include "base/optional.h"
-#include "chrome/browser/chromeos/policy/device_account_initializer.h"
 #include "chrome/browser/chromeos/policy/device_cloud_policy_initializer.h"
 #include "chrome/browser/chromeos/policy/device_cloud_policy_validator.h"
 #include "chrome/browser/chromeos/policy/enrollment_config.h"
+#include "chrome/browser/policy/device_account_initializer.h"
 #include "chromeos/dbus/authpolicy/authpolicy_client.h"
 #include "chromeos/dbus/constants/attestation_constants.h"
 #include "chromeos/tpm/install_attributes.h"
@@ -37,7 +37,7 @@ class ActiveDirectoryJoinDelegate;
 namespace attestation {
 class AttestationFlow;
 }
-}
+}  // namespace chromeos
 
 namespace policy {
 
@@ -102,6 +102,10 @@ class EnrollmentHandlerChromeOS : public CloudPolicyClient::Observer,
   void OnDeviceAccountTokenStored() override;
   void OnDeviceAccountTokenError(EnrollmentStatus status) override;
   void OnDeviceAccountClientError(DeviceManagementStatus status) override;
+  enterprise_management::DeviceServiceApiAccessRequest::DeviceType
+  GetRobotAuthCodeDeviceType() override;
+  std::set<std::string> GetRobotOAuthScopes() override;
+  scoped_refptr<network::SharedURLLoaderFactory> GetURLLoaderFactory() override;
 
  private:
   // Indicates what step of the process is currently pending. These steps need

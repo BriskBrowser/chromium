@@ -14,6 +14,7 @@
 #include "gpu/command_buffer/common/mailbox.h"
 #include "gpu/command_buffer/service/shared_image_manager.h"
 #include "gpu/command_buffer/service/texture_manager.h"
+#include "gpu/config/gpu_preferences.h"
 #include "gpu/gpu_gles2_export.h"
 #include "gpu/ipc/common/surface_handle.h"
 #include "ui/gfx/buffer_types.h"
@@ -25,6 +26,7 @@ class VulkanContextProvider;
 }  // namespace viz
 
 namespace gpu {
+class ExternalVkImageFactory;
 class GpuDriverBugWorkarounds;
 class ImageFactory;
 class MailboxManager;
@@ -47,6 +49,7 @@ class WrappedSkImageFactory;
 // SharedImageRepresentationFactory.
 class GPU_GLES2_EXPORT SharedImageFactory {
  public:
+  // All objects passed are expected to outlive this class.
   SharedImageFactory(const GpuPreferences& gpu_preferences,
                      const GpuDriverBugWorkarounds& workarounds,
                      const GpuFeatureInfo& gpu_feature_info,
@@ -62,11 +65,17 @@ class GPU_GLES2_EXPORT SharedImageFactory {
                          viz::ResourceFormat format,
                          const gfx::Size& size,
                          const gfx::ColorSpace& color_space,
+                         GrSurfaceOrigin surface_origin,
+                         SkAlphaType alpha_type,
+                         gpu::SurfaceHandle surface_handle,
+
                          uint32_t usage);
   bool CreateSharedImage(const Mailbox& mailbox,
                          viz::ResourceFormat format,
                          const gfx::Size& size,
                          const gfx::ColorSpace& color_space,
+                         GrSurfaceOrigin surface_origin,
+                         SkAlphaType alpha_type,
                          uint32_t usage,
                          base::span<const uint8_t> pixel_data);
   bool CreateSharedImage(const Mailbox& mailbox,
@@ -76,6 +85,8 @@ class GPU_GLES2_EXPORT SharedImageFactory {
                          SurfaceHandle surface_handle,
                          const gfx::Size& size,
                          const gfx::ColorSpace& color_space,
+                         GrSurfaceOrigin surface_origin,
+                         SkAlphaType alpha_type,
                          uint32_t usage);
   bool UpdateSharedImage(const Mailbox& mailbox);
   bool UpdateSharedImage(const Mailbox& mailbox,
@@ -90,13 +101,17 @@ class GPU_GLES2_EXPORT SharedImageFactory {
                        viz::ResourceFormat format,
                        const gfx::Size& size,
                        const gfx::ColorSpace& color_space,
+                       GrSurfaceOrigin surface_origin,
+                       SkAlphaType alpha_type,
                        uint32_t usage);
   bool PresentSwapChain(const Mailbox& mailbox);
 #endif  // OS_WIN
 
 #if defined(OS_FUCHSIA)
   bool RegisterSysmemBufferCollection(gfx::SysmemBufferCollectionId id,
-                                      zx::channel token);
+                                      zx::channel token,
+                                      gfx::BufferFormat format,
+                                      gfx::BufferUsage usage);
   bool ReleaseSysmemBufferCollection(gfx::SysmemBufferCollectionId id);
 #endif  // defined(OS_FUCHSIA)
 
@@ -107,21 +122,39 @@ class GPU_GLES2_EXPORT SharedImageFactory {
   bool RegisterBacking(std::unique_ptr<SharedImageBacking> backing,
                        bool allow_legacy_mailbox);
 
+  SharedContextState* GetSharedContextState() const {
+    return shared_context_state_;
+  }
+
+#if defined(OS_ANDROID)
+  bool CreateSharedImageWithAHB(const Mailbox& out_mailbox,
+                                const Mailbox& in_mailbox,
+                                uint32_t usage);
+#endif
+
   void RegisterSharedImageBackingFactoryForTesting(
       SharedImageBackingFactory* factory);
 
+  MailboxManager* mailbox_manager() { return mailbox_manager_; }
+
  private:
   bool IsSharedBetweenThreads(uint32_t usage);
+  bool CanUseWrappedSkImage(uint32_t usage) const;
   SharedImageBackingFactory* GetFactoryByUsage(
       uint32_t usage,
+      viz::ResourceFormat format,
       bool* allow_legacy_mailbox,
       gfx::GpuMemoryBufferType gmb_type = gfx::EMPTY_BUFFER);
+
   MailboxManager* mailbox_manager_;
   SharedImageManager* shared_image_manager_;
+  SharedContextState* shared_context_state_;
   std::unique_ptr<MemoryTypeTracker> memory_tracker_;
-  const bool using_vulkan_;
-  const bool using_metal_;
-  const bool using_dawn_;
+
+  // This is |shared_context_state_|'s context type. Some tests leave
+  // |shared_context_state_| as nullptr, in which case this is set to a default
+  /// of kGL.
+  const GrContextType gr_context_type_;
 
   // The set of SharedImages which have been created (and are being kept alive)
   // by this factory.
@@ -135,6 +168,13 @@ class GPU_GLES2_EXPORT SharedImageFactory {
   // Used for creating shared image which can be shared between GL, Vulkan and
   // D3D12.
   std::unique_ptr<SharedImageBackingFactory> interop_backing_factory_;
+
+#if defined(OS_ANDROID)
+  // On android we have two interop factory which is |interop_backing_factory_|
+  // and |external_vk_image_factory_| and we choose one of those
+  // based on the format it supports.
+  std::unique_ptr<ExternalVkImageFactory> external_vk_image_factory_;
+#endif
 
   // Non-null if compositing with SkiaRenderer.
   std::unique_ptr<raster::WrappedSkImageFactory> wrapped_sk_image_factory_;

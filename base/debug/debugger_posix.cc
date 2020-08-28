@@ -17,8 +17,11 @@
 #include <memory>
 #include <vector>
 
-#include "base/clang_coverage_buildflags.h"
+#include "base/check_op.h"
+#include "base/clang_profiling_buildflags.h"
+#include "base/notreached.h"
 #include "base/stl_util.h"
+#include "base/strings/string_util.h"
 #include "base/threading/platform_thread.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
@@ -27,11 +30,11 @@
 #include <cxxabi.h>
 #endif
 
-#if defined(OS_MACOSX)
+#if defined(OS_APPLE)
 #include <AvailabilityMacros.h>
 #endif
 
-#if defined(OS_MACOSX) || defined(OS_BSD)
+#if defined(OS_APPLE) || defined(OS_BSD)
 #include <sys/sysctl.h>
 #endif
 
@@ -39,20 +42,25 @@
 #include <sys/user.h>
 #endif
 
+#if defined(OS_FUCHSIA)
+#include <zircon/process.h>
+#include <zircon/syscalls.h>
+#endif
+
 #include <ostream>
 
+#include "base/check.h"
 #include "base/debug/alias.h"
 #include "base/debug/debugging_buildflags.h"
 #include "base/environment.h"
 #include "base/files/file_util.h"
-#include "base/logging.h"
 #include "base/posix/eintr_wrapper.h"
 #include "base/process/process.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_piece.h"
 
-#if BUILDFLAG(CLANG_COVERAGE)
-#include "base/test/clang_coverage.h"
+#if BUILDFLAG(CLANG_PROFILING)
+#include "base/test/clang_profiling.h"
 #endif
 
 #if defined(USE_SYMBOLIZE)
@@ -62,7 +70,7 @@
 namespace base {
 namespace debug {
 
-#if defined(OS_MACOSX) || defined(OS_BSD)
+#if defined(OS_APPLE) || defined(OS_BSD)
 
 // Based on Apple's recommended method as described in
 // http://developer.apple.com/qa/qa2004/qa1361.html
@@ -145,7 +153,8 @@ void VerifyDebugger() {
 #endif
 }
 
-#elif defined(OS_LINUX) || defined(OS_ANDROID) || defined(OS_AIX)
+#elif defined(OS_LINUX) || defined(OS_CHROMEOS) || defined(OS_ANDROID) || \
+    defined(OS_AIX)
 
 // We can look in /proc/self/status for TracerPid.  We are likely used in crash
 // handling, so we are careful not to use the heap or have side effects.
@@ -230,8 +239,12 @@ void VerifyDebugger() {
 #elif defined(OS_FUCHSIA)
 
 bool BeingDebugged() {
-  // TODO(fuchsia): No gdb/gdbserver in the SDK yet.
-  return false;
+  zx_info_process_t info = {};
+  // Ignore failures. The 0-initialization above will result in "false" for
+  // error cases.
+  zx_object_get_info(zx_process_self(), ZX_INFO_PROCESS, &info, sizeof(info),
+                     nullptr, nullptr);
+  return info.debugger_attached;
 }
 
 void VerifyDebugger() {}
@@ -272,14 +285,14 @@ void VerifyDebugger() {}
 #define DEBUG_BREAK_ASM() asm("int3")
 #endif
 
-#if defined(NDEBUG) && !defined(OS_MACOSX) && !defined(OS_ANDROID)
+#if defined(NDEBUG) && !defined(OS_APPLE) && !defined(OS_ANDROID)
 #define DEBUG_BREAK() abort()
 #elif defined(OS_NACL)
 // The NaCl verifier doesn't let use use int3.  For now, we call abort().  We
 // should ask for advice from some NaCl experts about the optimum thing here.
 // http://code.google.com/p/nativeclient/issues/detail?id=645
 #define DEBUG_BREAK() abort()
-#elif !defined(OS_MACOSX)
+#elif !defined(OS_APPLE)
 // Though Android has a "helpful" process called debuggerd to catch native
 // signals on the general assumption that they are fatal errors. If no debugger
 // is attached, we call abort since Breakpad needs SIGABRT to create a dump.
@@ -315,8 +328,8 @@ void DebugBreak() {
 #endif
 
 void BreakDebugger() {
-#if BUILDFLAG(CLANG_COVERAGE)
-  WriteClangCoverageProfile();
+#if BUILDFLAG(CLANG_PROFILING)
+  WriteClangProfilingProfile();
 #endif
 
   // NOTE: This code MUST be async-signal safe (it's used by in-process
@@ -337,7 +350,13 @@ void BreakDebugger() {
   // setting the 'go' variable above.
 #elif defined(NDEBUG)
   // Terminate the program after signaling the debug break.
+  // When DEBUG_BREAK() expands to abort(), this is unreachable code. Rather
+  // than carefully tracking in which cases DEBUG_BREAK()s is noreturn, just
+  // disable the unreachable code warning here.
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunreachable-code"
   _exit(1);
+#pragma GCC diagnostic pop
 #endif
 }
 

@@ -54,10 +54,12 @@ SaveCardBubbleViews::SaveCardBubbleViews(views::View* anchor_view,
                                          SaveCardBubbleController* controller)
     : LocationBarBubbleDelegateView(anchor_view, web_contents),
       controller_(controller) {
-  DialogDelegate::set_button_label(ui::DIALOG_BUTTON_OK,
-                                   controller->GetAcceptButtonText());
-  DialogDelegate::set_button_label(ui::DIALOG_BUTTON_CANCEL,
-                                   controller->GetDeclineButtonText());
+  SetButtonLabel(ui::DIALOG_BUTTON_OK, controller->GetAcceptButtonText());
+  SetButtonLabel(ui::DIALOG_BUTTON_CANCEL, controller->GetDeclineButtonText());
+  SetCancelCallback(base::BindOnce(&SaveCardBubbleViews::OnDialogCancelled,
+                                   base::Unretained(this)));
+  SetAcceptCallback(base::BindOnce(&SaveCardBubbleViews::OnDialogAccepted,
+                                   base::Unretained(this)));
   DCHECK(controller);
   chrome::RecordDialogCreation(chrome::DialogIdentifier::SAVE_CARD);
 }
@@ -68,40 +70,28 @@ void SaveCardBubbleViews::Show(DisplayReason reason) {
 }
 
 void SaveCardBubbleViews::Hide() {
+  CloseBubble();
+
   // If |controller_| is null, WindowClosing() won't invoke OnBubbleClosed(), so
   // do that here. This will clear out |controller_|'s reference to |this|. Note
   // that WindowClosing() happens only after the _asynchronous_ Close() task
   // posted in CloseBubble() completes, but we need to fix references sooner.
   if (controller_)
-    controller_->OnBubbleClosed();
+    controller_->OnBubbleClosed(closed_reason_);
+
   controller_ = nullptr;
-  CloseBubble();
 }
 
-bool SaveCardBubbleViews::Accept() {
+void SaveCardBubbleViews::OnDialogAccepted() {
+  // TODO(https://crbug.com/1046793): Maybe delete this.
   if (controller_)
     controller_->OnSaveButton({});
-  return true;
 }
 
-bool SaveCardBubbleViews::Cancel() {
+void SaveCardBubbleViews::OnDialogCancelled() {
+  // TODO(https://crbug.com/1046793): Maybe delete this.
   if (controller_)
     controller_->OnCancelButton();
-  return true;
-}
-
-bool SaveCardBubbleViews::Close() {
-  // If there is a cancel button (non-Material UI), Cancel is logged as a
-  // different user action than closing, so override Close() to prevent the
-  // superclass' implementation from calling Cancel().
-  //
-  // Clicking the top-right [X] close button and/or focusing then unfocusing the
-  // bubble count as a close action only (without calling Cancel), which means
-  // we can't tell the controller to permanently hide the bubble on close,
-  // because the user simply dismissed/ignored the bubble; they might want to
-  // access the bubble again from the location bar icon. Return true to indicate
-  // that the bubble can be closed.
-  return true;
 }
 
 gfx::Size SaveCardBubbleViews::CalculatePreferredSize() const {
@@ -132,16 +122,26 @@ base::string16 SaveCardBubbleViews::GetWindowTitle() const {
 
 void SaveCardBubbleViews::WindowClosing() {
   if (controller_) {
-    controller_->OnBubbleClosed();
+    controller_->OnBubbleClosed(closed_reason_);
     controller_ = nullptr;
   }
+}
+
+void SaveCardBubbleViews::OnWidgetClosing(views::Widget* widget) {
+  LocationBarBubbleDelegateView::OnWidgetDestroying(widget);
+  closed_reason_ = GetPaymentsBubbleClosedReasonFromWidgetClosedReason(
+      widget->closed_reason());
 }
 
 views::View* SaveCardBubbleViews::GetFootnoteViewForTesting() {
   return footnote_view_;
 }
 
-SaveCardBubbleViews::~SaveCardBubbleViews() {}
+const base::string16 SaveCardBubbleViews::GetCardIdentifierString() const {
+  return controller_->GetCard().CardIdentifierStringForAutofillDisplay();
+}
+
+SaveCardBubbleViews::~SaveCardBubbleViews() = default;
 
 // Overridden
 std::unique_ptr<views::View> SaveCardBubbleViews::CreateMainContentView() {
@@ -163,7 +163,7 @@ std::unique_ptr<views::View> SaveCardBubbleViews::CreateMainContentView() {
     view->AddChildView(explanation_label);
   }
 
-  // Add the card type icon, last four digits and expiration date.
+  // Add the card network icon, last four digits and expiration date.
   auto* description_view = new views::View();
   views::BoxLayout* box_layout =
       description_view->SetLayoutManager(std::make_unique<views::BoxLayout>(
@@ -173,17 +173,23 @@ std::unique_ptr<views::View> SaveCardBubbleViews::CreateMainContentView() {
   view->AddChildView(description_view);
 
   const CreditCard& card = controller_->GetCard();
-  auto* card_type_icon = new views::ImageView();
-  card_type_icon->SetImage(
+  auto* card_network_icon = new views::ImageView();
+  card_network_icon->SetImage(
       ui::ResourceBundle::GetSharedInstance()
           .GetImageNamed(CreditCard::IconResourceId(card.network()))
           .AsImageSkia());
-  card_type_icon->set_tooltip_text(card.NetworkForDisplay());
-  description_view->AddChildView(card_type_icon);
+  card_network_icon->set_tooltip_text(card.NetworkForDisplay());
+  description_view->AddChildView(card_network_icon);
 
-  description_view->AddChildView(
-      new views::Label(card.NetworkAndLastFourDigits(), CONTEXT_BODY_TEXT_LARGE,
+  views::Label* label = description_view->AddChildView(
+      new views::Label(GetCardIdentifierString(), CONTEXT_BODY_TEXT_LARGE,
                        views::style::STYLE_PRIMARY));
+  label->SetMultiLine(true);
+  label->SetHorizontalAlignment(gfx::ALIGN_LEFT);
+  int label_width =
+      GetPreferredSize().width() -
+      card_network_icon->GetPreferredSize().width() -
+      provider->GetDistanceMetric(views::DISTANCE_RELATED_BUTTON_HORIZONTAL);
 
   if (!card.IsExpired(base::Time::Now())) {
     // The spacer will stretch to use the available horizontal space in the
@@ -197,8 +203,12 @@ std::unique_ptr<views::View> SaveCardBubbleViews::CreateMainContentView() {
         CONTEXT_BODY_TEXT_LARGE, views::style::STYLE_SECONDARY);
     expiration_date_label->SetID(DialogViewId::EXPIRATION_DATE_LABEL);
     description_view->AddChildView(expiration_date_label);
+    constexpr int kExpirationDateLabelWidth = 60;
+    label_width -=
+        kExpirationDateLabelWidth +
+        provider->GetDistanceMetric(views::DISTANCE_RELATED_BUTTON_HORIZONTAL);
   }
-
+  label->SetMaximumWidth(label_width);
   return view;
 }
 

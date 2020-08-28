@@ -6,12 +6,14 @@
 
 #include <string.h>
 
+#include "base/logging.h"
 #include "base/strings/string_number_conversions.h"
 #include "chrome/browser/ui/views/status_icons/status_tray_win.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "ui/gfx/geometry/point.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/icon_util.h"
+#include "ui/gfx/image/image_skia.h"
 #include "ui/message_center/public/cpp/notifier_id.h"
 #include "ui/views/controls/menu/menu_runner.h"
 
@@ -22,11 +24,7 @@ StatusIconWin::StatusIconWin(StatusTrayWin* tray,
                              UINT id,
                              HWND window,
                              UINT message)
-    : tray_(tray),
-      icon_id_(id),
-      window_(window),
-      message_id_(message),
-      menu_model_(NULL) {
+    : tray_(tray), icon_id_(id), window_(window), message_id_(message) {
   NOTIFYICONDATA icon_data;
   InitIconData(&icon_data);
   icon_data.uFlags = NIF_MESSAGE;

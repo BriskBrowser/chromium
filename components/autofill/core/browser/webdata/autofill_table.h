@@ -97,16 +97,70 @@ struct PaymentsCustomerData;
 //                      A flag indicating whether the validity states of
 //                      different fields according to the client validity api is
 //                      updated or not. Added in version 80.
+//
+// autofill_profile_addresses
+//   guid               The guid string that identifies the profile to which
+//                      the name belongs.
+//                      This table stores the structured address information.
+//   street_address     Stores the street address. This field is also stored in
+//                      the profile table and is used to detect if a legacy
+//                      client that does not support writing to this table
+//                      changed the address. If this is true, the address stored
+//                      in the table is removed.
+//   street_name        The name of the street.
+//   dependent_street_name
+//                      The name of the crossing street.
+//   house_number       The house number.
+//   subpremise         The floor, apartment number and staircase.
+//                      apartment number.
+//   premise_name       The name of the premise.
+//   street_address_status
+//   street_name_status
+//   dependent_street_name_status
+//   house_number_status
+//   subpremise_status
+//   premise_name_status
+//                      Each token of the address has an additional validation
+//                      status that indicates if Autofill parsed the value out
+//                      of an unstructured (last) name, or if autofill formatted
+//                      the token from its structured subcomponents, or if the
+//                      value was observed in a form submission, or even
+//                      validated by the user in the settings.
+//
 // autofill_profile_names
 //                      This table contains the multi-valued name fields
 //                      associated with a profile.
 //
 //   guid               The guid string that identifies the profile to which
 //                      the name belongs.
-//   first_name
-//   middle_name
-//   last_name
-//   full_name
+//   honorific_prefix   The honorific prefix of a person like Ms, Mr or Prof
+//   first_name         The first name of a person.
+//   middle_name        The middle name or even names of a person.
+//   last_name          The unstructured last name that is a combination of the
+//                      first and second last name.
+//   first_last_name    The first part of the last name. Mostly used for
+//                      Latinx/Hispanic last names.
+//   conjunction_last_name
+//                      An optional conjunction that is mostly used in
+//                      Hispanic/Latinx last names in between the first and
+//                      second last name in the unstructured representation.
+//   second_last_name   The second part of the last names. Last names only
+//                      consisting of a single part are stored in the second
+//                      part by default.
+//   full_name          The unstructured full name of a person.
+//   honorific_prefix_status
+//   first_name_status
+//   middle_name_status
+//   last_name_status
+//   first_last_name_status
+//   conjunction_last_name_status
+//   second_last_name_status
+//                      Each token of the names has an additional validation
+//                      status that indicates if Autofill parsed the value out
+//                      of an unstructured (last) name, or if autofill formatted
+//                      the token from its structured subcomponents, or if the
+//                      value was observed in a form submission, or even
+//                      validated by the user in the settings.
 //
 // autofill_profile_emails
 //                      This table contains the multi-valued email fields
@@ -154,6 +208,8 @@ struct PaymentsCustomerData;
 //                      is the billing address for this card. Can be null in the
 //                      database, but always returned as an empty string in
 //                      CreditCard. Added in version 66.
+//   nickname           A nickname for the card, entered by the user. Added in
+//                      version 87.
 //
 // masked_credit_cards
 //                      This table contains "masked" credit card information
@@ -171,15 +227,15 @@ struct PaymentsCustomerData;
 //   name_on_card
 //   network            Issuer network of the card. For example, "VISA". Renamed
 //                      from "type" in version 72.
-//   type               Card type. One of CreditCard::CardType enum values.
-//                      Added in version 74.
 //   last_four          Last four digits of the card number. For de-duping
 //                      with locally stored cards and generating descriptions.
 //   exp_month          Expiration month: 1-12
 //   exp_year           Four-digit year: 2017
 //   bank_name          Issuer bank name of the credit card.
-//   cloud_token_data   Opaque identifier for the cloud token associated with
-//                      the payment instrument.
+//   nickname           The card's nickname, if it exists. Added in version 84.
+//   card_issuer        Issuer for the card. An integer representing the
+//                      CardIssuer.Issuer enum from the Chrome Sync response.
+//                      For example, GOOGLE or ISSUER_UNKNOWN.
 //
 // unmasked_credit_cards
 //                      When a masked credit credit card is unmasked and the
@@ -191,9 +247,6 @@ struct PaymentsCustomerData;
 //                      masked_credit_cards table to get the rest of the data.
 //   card_number_encrypted
 //                      Full card number, encrypted.
-//   use_count          DEPRECATED in version 65. See server_card_metadata.
-//   use_date           DEPRECATED in version 65. See server_card_metadata.
-//                      TODO(crbug.com/682326): Remove deprecated columns.
 //   unmask_date        The date this card was unmasked in units of
 //                      Time::ToInternalValue. Added in version 64.
 //
@@ -466,6 +519,9 @@ class AutofillTable : public WebDatabaseTable,
   // Adds |upi_id| to the saved UPI IDs.
   bool InsertUpiId(const std::string& upi_id);
 
+  // Returns all the UPI IDs stored in the database.
+  std::vector<std::string> GetAllUpiIds();
+
   // Deletes all data from the server card and profile tables. Returns true if
   // any data was deleted, false if not (so false means "commit not needed"
   // rather than "error").
@@ -552,6 +608,13 @@ class AutofillTable : public WebDatabaseTable,
   bool MigrateToVersion78AddModelTypeColumns();
   bool MigrateToVersion80AddIsClientValidityStatesUpdatedColumn();
   bool MigrateToVersion81CleanUpWrongModelTypeData();
+  bool MigrateToVersion83RemoveServerCardTypeColumn();
+  bool MigrateToVersion84AddNicknameColumn();
+  bool MigrateToVersion85AddCardIssuerColumnToMaskedCreditCard();
+  bool MigrateToVersion86RemoveUnmaskedCreditCardsUseColumns();
+  bool MigrateToVersion87AddCreditCardNicknameColumn();
+  bool MigrateToVersion88AddNewNameColumns();
+
   // Max data length saved in the table, AKA the maximum length allowed for
   // form data.
   // Copied to components/autofill/ios/browser/resources/autofill_controller.js.
@@ -645,6 +708,7 @@ class AutofillTable : public WebDatabaseTable,
   bool InitMainTable();
   bool InitCreditCardsTable();
   bool InitProfilesTable();
+  bool InitProfileAddressesTable();
   bool InitProfileNamesTable();
   bool InitProfileEmailsTable();
   bool InitProfilePhonesTable();

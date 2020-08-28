@@ -22,9 +22,10 @@ class WebViewImpl;
 // A DevTools client of a single DevTools debugger.
 class DevToolsClient {
  public:
-  typedef base::Callback<Status(bool* is_condition_met)> ConditionalFunc;
+  typedef base::RepeatingCallback<Status(bool* is_condition_met)>
+      ConditionalFunc;
 
-  virtual ~DevToolsClient() {}
+  virtual ~DevToolsClient() = default;
 
   virtual const std::string& GetId() = 0;
 
@@ -32,6 +33,8 @@ class DevToolsClient {
 
   // Connect to DevTools if the DevToolsClient is disconnected.
   virtual Status ConnectIfNecessary() = 0;
+
+  virtual Status SetUpDevTools() = 0;
 
   virtual Status SendCommand(
       const std::string& method,

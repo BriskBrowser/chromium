@@ -10,6 +10,7 @@
 #include "base/bind_helpers.h"
 #include "base/command_line.h"
 #include "base/compiler_specific.h"
+#include "base/sequenced_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "build/chromecast_buildflags.h"
 #include "cc/base/switches.h"
@@ -46,7 +47,7 @@
 #include "components/viz/service/display_embedder/gl_output_surface_android.h"
 #endif
 
-#if defined(OS_MACOSX)
+#if defined(OS_APPLE)
 #include "components/viz/service/display_embedder/software_output_device_mac.h"
 #include "ui/base/cocoa/remote_layer_api.h"
 #endif
@@ -57,6 +58,7 @@
 
 #if defined(USE_OZONE)
 #include "components/viz/service/display_embedder/software_output_device_ozone.h"
+#include "ui/base/ui_base_features.h"
 #include "ui/display/types/display_snapshot.h"
 #include "ui/ozone/public/ozone_platform.h"
 #include "ui/ozone/public/platform_window_surface.h"
@@ -101,7 +103,8 @@ std::unique_ptr<OutputSurface> OutputSurfaceProviderImpl::CreateOutputSurface(
     gpu::SurfaceHandle surface_handle,
     bool gpu_compositing,
     mojom::DisplayClient* display_client,
-    const RendererSettings& renderer_settings) {
+    const RendererSettings& renderer_settings,
+    const DebugRendererSettings* debug_settings) {
 #if defined(OS_CHROMEOS)
   if (surface_handle == gpu::kNullSurfaceHandle)
     return std::make_unique<OutputSurfaceUnified>();
@@ -115,17 +118,12 @@ std::unique_ptr<OutputSurface> OutputSurfaceProviderImpl::CreateOutputSurface(
     output_surface = std::make_unique<SoftwareOutputSurface>(
         CreateSoftwareOutputDeviceForPlatform(surface_handle, display_client));
   } else if (renderer_settings.use_skia_renderer) {
-#if defined(OS_MACOSX)
-    // TODO(penghuang): Support SkiaRenderer for all platforms.
-    NOTIMPLEMENTED();
-    return nullptr;
-#else
     {
       gpu::ScopedAllowScheduleGpuTask allow_schedule_gpu_task;
       output_surface = SkiaOutputSurfaceImpl::Create(
           std::make_unique<SkiaOutputSurfaceDependencyImpl>(gpu_service_impl_,
                                                             surface_handle),
-          renderer_settings);
+          renderer_settings, debug_settings);
     }
     if (!output_surface) {
 #if defined(OS_CHROMEOS) || BUILDFLAG(IS_CHROMECAST)
@@ -138,7 +136,6 @@ std::unique_ptr<OutputSurface> OutputSurfaceProviderImpl::CreateOutputSurface(
 #endif
       return nullptr;
     }
-#endif
   } else {
     DCHECK(task_executor_);
 
@@ -182,22 +179,15 @@ std::unique_ptr<OutputSurface> OutputSurfaceProviderImpl::CreateOutputSurface(
       output_surface = std::make_unique<GLOutputSurfaceOffscreen>(
           std::move(context_provider));
     } else if (context_provider->ContextCapabilities().surfaceless) {
+#if defined(USE_OZONE) || defined(OS_APPLE) || defined(OS_ANDROID)
 #if defined(USE_OZONE)
+      if (!features::IsUsingOzonePlatform())
+        NOTREACHED();
+#endif
       output_surface = std::make_unique<GLOutputSurfaceBufferQueue>(
           std::move(context_provider), surface_handle,
-          gpu_memory_buffer_manager_.get(),
-          display::DisplaySnapshot::PrimaryFormat());
-#elif defined(OS_MACOSX)
-      output_surface = std::make_unique<GLOutputSurfaceBufferQueue>(
-          std::move(context_provider), surface_handle,
-          gpu_memory_buffer_manager_.get(), gfx::BufferFormat::RGBA_8888);
-#elif defined(OS_ANDROID)
-      auto buffer_format = context_provider->UseRGB565PixelFormat()
-                               ? gfx::BufferFormat::BGR_565
-                               : gfx::BufferFormat::RGBA_8888;
-      output_surface = std::make_unique<GLOutputSurfaceBufferQueue>(
-          std::move(context_provider), surface_handle,
-          gpu_memory_buffer_manager_.get(), buffer_format);
+          std::make_unique<BufferQueue>(
+              context_provider->SharedImageInterface(), surface_handle));
 #else
       NOTREACHED();
 #endif
@@ -221,6 +211,13 @@ std::unique_ptr<OutputSurface> OutputSurfaceProviderImpl::CreateOutputSurface(
   return output_surface;
 }
 
+gpu::SharedImageManager* OutputSurfaceProviderImpl::GetSharedImageManager() {
+  if (!gpu_service_impl_)
+    return nullptr;
+
+  return gpu_service_impl_->shared_image_manager();
+}
+
 std::unique_ptr<SoftwareOutputDevice>
 OutputSurfaceProviderImpl::CreateSoftwareOutputDeviceForPlatform(
     gpu::SurfaceHandle surface_handle,
@@ -231,31 +228,31 @@ OutputSurfaceProviderImpl::CreateSoftwareOutputDeviceForPlatform(
 #if defined(OS_WIN)
   return CreateSoftwareOutputDeviceWin(surface_handle, &output_device_backing_,
                                        display_client);
-#elif defined(OS_MACOSX)
+#elif defined(OS_APPLE)
   return std::make_unique<SoftwareOutputDeviceMac>(task_runner_);
 #elif defined(OS_ANDROID)
   // Android does not do software compositing, so we can't get here.
   NOTREACHED();
   return nullptr;
 #elif defined(USE_OZONE)
-  ui::SurfaceFactoryOzone* factory =
-      ui::OzonePlatform::GetInstance()->GetSurfaceFactoryOzone();
-  std::unique_ptr<ui::PlatformWindowSurface> platform_window_surface =
-      factory->CreatePlatformWindowSurface(surface_handle);
-  bool in_host_process =
-      !gpu_service_impl_ || gpu_service_impl_->in_host_process();
-  std::unique_ptr<ui::SurfaceOzoneCanvas> surface_ozone =
-      factory->CreateCanvasForWidget(
-          surface_handle,
-          in_host_process ? nullptr : gpu_service_impl_->main_runner());
-  CHECK(surface_ozone);
-  return std::make_unique<SoftwareOutputDeviceOzone>(
-      std::move(platform_window_surface), std::move(surface_ozone));
-#elif defined(USE_X11)
-  return std::make_unique<SoftwareOutputDeviceX11>(
-      surface_handle, gpu_service_impl_->in_host_process()
-                          ? nullptr
-                          : gpu_service_impl_->main_runner());
+  if (features::IsUsingOzonePlatform()) {
+    ui::SurfaceFactoryOzone* factory =
+        ui::OzonePlatform::GetInstance()->GetSurfaceFactoryOzone();
+    std::unique_ptr<ui::PlatformWindowSurface> platform_window_surface =
+        factory->CreatePlatformWindowSurface(surface_handle);
+    std::unique_ptr<ui::SurfaceOzoneCanvas> surface_ozone =
+        factory->CreateCanvasForWidget(surface_handle);
+    CHECK(surface_ozone);
+    return std::make_unique<SoftwareOutputDeviceOzone>(
+        std::move(platform_window_surface), std::move(surface_ozone));
+  }
+#endif
+
+#if defined(USE_X11)
+  return std::make_unique<SoftwareOutputDeviceX11>(surface_handle);
+#else
+  NOTREACHED();
+  return nullptr;
 #endif
 }
 

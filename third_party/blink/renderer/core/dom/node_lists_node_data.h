@@ -22,7 +22,6 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_DOM_NODE_LISTS_NODE_DATA_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_DOM_NODE_LISTS_NODE_DATA_H_
 
-#include "base/macros.h"
 #include "third_party/blink/renderer/core/dom/child_node_list.h"
 #include "third_party/blink/renderer/core/dom/empty_node_list.h"
 #include "third_party/blink/renderer/core/dom/qualified_name.h"
@@ -43,7 +42,6 @@ class NodeListsNodeData final : public GarbageCollected<NodeListsNodeData> {
   }
 
   ChildNodeList* EnsureChildNodeList(ContainerNode& node) {
-    DCHECK(ThreadState::Current()->IsGCForbidden());
     if (child_node_list_)
       return To<ChildNodeList>(child_node_list_.Get());
     auto* list = MakeGarbageCollected<ChildNodeList>(node);
@@ -52,7 +50,6 @@ class NodeListsNodeData final : public GarbageCollected<NodeListsNodeData> {
   }
 
   EmptyNodeList* EnsureEmptyChildNodeList(Node& node) {
-    DCHECK(ThreadState::Current()->IsGCForbidden());
     if (child_node_list_)
       return To<EmptyNodeList>(child_node_list_.Get());
     auto* list = MakeGarbageCollected<EmptyNodeList>(node);
@@ -88,7 +85,6 @@ class NodeListsNodeData final : public GarbageCollected<NodeListsNodeData> {
   T* AddCache(ContainerNode& node,
               CollectionType collection_type,
               const AtomicString& name) {
-    DCHECK(ThreadState::Current()->IsGCForbidden());
     NodeListAtomicNameCacheMap::AddResult result = atomic_name_caches_.insert(
         std::make_pair(collection_type, name), nullptr);
     if (!result.is_new_entry) {
@@ -102,7 +98,6 @@ class NodeListsNodeData final : public GarbageCollected<NodeListsNodeData> {
 
   template <typename T>
   T* AddCache(ContainerNode& node, CollectionType collection_type) {
-    DCHECK(ThreadState::Current()->IsGCForbidden());
     NodeListAtomicNameCacheMap::AddResult result = atomic_name_caches_.insert(
         NamedNodeListKey(collection_type, CSSSelector::UniversalSelectorAtom()),
         nullptr);
@@ -124,7 +119,6 @@ class NodeListsNodeData final : public GarbageCollected<NodeListsNodeData> {
   TagCollectionNS* AddCache(ContainerNode& node,
                             const AtomicString& namespace_uri,
                             const AtomicString& local_name) {
-    DCHECK(ThreadState::Current()->IsGCForbidden());
     QualifiedName name(g_null_atom, local_name, namespace_uri);
     TagCollectionNSCache::AddResult result =
         tag_collection_ns_caches_.insert(name, nullptr);
@@ -138,6 +132,8 @@ class NodeListsNodeData final : public GarbageCollected<NodeListsNodeData> {
   }
 
   NodeListsNodeData() : child_node_list_(nullptr) {}
+  NodeListsNodeData(const NodeListsNodeData&) = delete;
+  NodeListsNodeData& operator=(const NodeListsNodeData&) = delete;
 
   void InvalidateCaches(const QualifiedName* attr_name = nullptr);
 
@@ -171,19 +167,17 @@ class NodeListsNodeData final : public GarbageCollected<NodeListsNodeData> {
     }
   }
 
-  void Trace(Visitor*);
+  void Trace(Visitor*) const;
 
  private:
   // Can be a ChildNodeList or an EmptyNodeList.
   Member<NodeList> child_node_list_;
   NodeListAtomicNameCacheMap atomic_name_caches_;
   TagCollectionNSCache tag_collection_ns_caches_;
-  DISALLOW_COPY_AND_ASSIGN(NodeListsNodeData);
 };
 
 template <typename Collection>
 inline Collection* ContainerNode::EnsureCachedCollection(CollectionType type) {
-  ThreadState::MainThreadGCForbiddenScope gc_forbidden;
   return EnsureNodeLists().AddCache<Collection>(*this, type);
 }
 
@@ -191,7 +185,6 @@ template <typename Collection>
 inline Collection* ContainerNode::EnsureCachedCollection(
     CollectionType type,
     const AtomicString& name) {
-  ThreadState::MainThreadGCForbiddenScope gc_forbidden;
   return EnsureNodeLists().AddCache<Collection>(*this, type, name);
 }
 
@@ -201,7 +194,6 @@ inline Collection* ContainerNode::EnsureCachedCollection(
     const AtomicString& namespace_uri,
     const AtomicString& local_name) {
   DCHECK_EQ(type, kTagCollectionNSType);
-  ThreadState::MainThreadGCForbiddenScope gc_forbidden;
   return EnsureNodeLists().AddCache(*this, namespace_uri, local_name);
 }
 

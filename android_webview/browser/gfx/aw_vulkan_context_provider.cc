@@ -10,13 +10,15 @@
 #include "base/bind.h"
 #include "base/callback_helpers.h"
 #include "base/files/file_path.h"
+#include "base/logging.h"
 #include "base/native_library.h"
+#include "gpu/vulkan/init/gr_vk_memory_allocator_impl.h"
 #include "gpu/vulkan/init/vulkan_factory.h"
 #include "gpu/vulkan/vulkan_device_queue.h"
 #include "gpu/vulkan/vulkan_fence_helper.h"
 #include "gpu/vulkan/vulkan_function_pointers.h"
 #include "gpu/vulkan/vulkan_util.h"
-#include "third_party/skia/include/gpu/GrContext.h"
+#include "third_party/skia/include/gpu/GrDirectContext.h"
 #include "third_party/skia/include/gpu/vk/GrVkBackendContext.h"
 #include "third_party/skia/include/gpu/vk/GrVkExtensions.h"
 
@@ -25,17 +27,6 @@ namespace android_webview {
 namespace {
 
 AwVulkanContextProvider* g_vulkan_context_provider = nullptr;
-
-GrVkGetProc MakeUnifiedGetter(const PFN_vkGetInstanceProcAddr& iproc,
-                              const PFN_vkGetDeviceProcAddr& dproc) {
-  return [&iproc, &dproc](const char* proc_name, VkInstance instance,
-                          VkDevice device) {
-    if (device != VK_NULL_HANDLE) {
-      return dproc(device, proc_name);
-    }
-    return iproc(instance, proc_name);
-  };
-}
 
 bool InitVulkanForWebView(VkInstance instance,
                           VkPhysicalDevice physical_device,
@@ -48,11 +39,11 @@ bool InitVulkanForWebView(VkInstance instance,
 
   // If we are re-initing, we don't need to re-load the shared library or
   // re-bind unassociated pointers. These shouldn't change.
-  if (!vulkan_function_pointers->vulkan_loader_library_) {
+  if (!vulkan_function_pointers->vulkan_loader_library) {
     base::NativeLibraryLoadError native_library_load_error;
-    vulkan_function_pointers->vulkan_loader_library_ = base::LoadNativeLibrary(
+    vulkan_function_pointers->vulkan_loader_library = base::LoadNativeLibrary(
         base::FilePath("libvulkan.so"), &native_library_load_error);
-    if (!vulkan_function_pointers->vulkan_loader_library_)
+    if (!vulkan_function_pointers->vulkan_loader_library)
       return false;
     if (!vulkan_function_pointers->BindUnassociatedFunctionPointers())
       return false;
@@ -101,6 +92,10 @@ AwVulkanContextProvider::AwVulkanContextProvider() {
 AwVulkanContextProvider::~AwVulkanContextProvider() {
   DCHECK_EQ(g_vulkan_context_provider, this);
   g_vulkan_context_provider = nullptr;
+
+  draw_context_.reset();
+  gr_context_.reset();
+
   device_queue_->Destroy();
   device_queue_ = nullptr;
 }
@@ -113,7 +108,7 @@ gpu::VulkanDeviceQueue* AwVulkanContextProvider::GetDeviceQueue() {
   return device_queue_.get();
 }
 
-GrContext* AwVulkanContextProvider::GetGrContext() {
+GrDirectContext* AwVulkanContextProvider::GetGrContext() {
   return gr_context_.get();
 }
 
@@ -162,8 +157,11 @@ bool AwVulkanContextProvider::Initialize(AwDrawFn_InitVkParams* params) {
       params->graphics_queue_index, std::move(device_extensions));
 
   // Create our Skia GrContext.
-  GrVkGetProc get_proc =
-      MakeUnifiedGetter(vkGetInstanceProcAddr, vkGetDeviceProcAddr);
+  GrVkGetProc get_proc = [](const char* proc_name, VkInstance instance,
+                            VkDevice device) {
+    return device ? vkGetDeviceProcAddr(device, proc_name)
+                  : vkGetInstanceProcAddr(instance, proc_name);
+  };
   GrVkExtensions vk_extensions;
   vk_extensions.init(get_proc, params->instance, params->physical_device,
                      params->enabled_instance_extension_names_length,
@@ -180,11 +178,11 @@ bool AwVulkanContextProvider::Initialize(AwDrawFn_InitVkParams* params) {
       .fVkExtensions = &vk_extensions,
       .fDeviceFeatures = params->device_features,
       .fDeviceFeatures2 = params->device_features_2,
-      .fMemoryAllocator = nullptr,
+      .fMemoryAllocator = gpu::CreateGrVkMemoryAllocator(device_queue_.get()),
       .fGetProc = get_proc,
       .fOwnsInstanceAndDevice = false,
   };
-  gr_context_ = GrContext::MakeVulkan(backend_context);
+  gr_context_ = GrDirectContext::MakeVulkan(backend_context);
   if (!gr_context_) {
     LOG(ERROR) << "Unable to initialize GrContext.";
     return false;

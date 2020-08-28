@@ -34,15 +34,13 @@ source_set("device_monitors") {
   }
 
   if (is_mac) {
-    libs = [ "Foundation.framework" ]
+    frameworks = [ "Foundation.framework" ]
   }
 }
 
 source_set("unit_tests") {
   testonly = true
-  sources = [
-    "system_message_window_win_unittest.cc",
-  ]
+  sources = [ "system_message_window_win_unittest.cc" ]
 
   deps = [
     "//base",

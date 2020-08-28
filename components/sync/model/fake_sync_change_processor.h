@@ -21,22 +21,14 @@ class FakeSyncChangeProcessor : public SyncChangeProcessor {
   //
   // ProcessSyncChanges will accumulate changes in changes() until they are
   // cleared.
-  SyncError ProcessSyncChanges(const base::Location& from_here,
-                               const SyncChangeList& change_list) override;
+  base::Optional<ModelError> ProcessSyncChanges(
+      const base::Location& from_here,
+      const SyncChangeList& change_list) override;
 
   // SyncChangeProcessor implementation.
   //
   // Returns data().
   SyncDataList GetAllSyncData(ModelType type) const override;
-
-  // SyncChangeProcessor implementation.
-  //
-  // Updates context().
-  SyncError UpdateDataTypeContext(ModelType type,
-                                  ContextRefreshStatus refresh_status,
-                                  const std::string& context) override;
-  void AddLocalChangeObserver(LocalChangeObserver* observer) override;
-  void RemoveLocalChangeObserver(LocalChangeObserver* observer) override;
 
   virtual const SyncChangeList& changes() const;
   virtual SyncChangeList& changes();
@@ -44,13 +36,9 @@ class FakeSyncChangeProcessor : public SyncChangeProcessor {
   virtual const SyncDataList& data() const;
   virtual SyncDataList& data();
 
-  virtual const std::string& context() const;
-  virtual std::string& context();
-
  private:
   SyncChangeList changes_;
   SyncDataList data_;
-  std::string context_;
 
   DISALLOW_COPY_AND_ASSIGN(FakeSyncChangeProcessor);
 };

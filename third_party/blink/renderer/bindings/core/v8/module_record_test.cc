@@ -7,11 +7,11 @@
 #include "testing/gmock/include/gmock/gmock-matchers.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/renderer/bindings/core/v8/boxed_v8_module.h"
-#include "third_party/blink/renderer/bindings/core/v8/script_controller.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_source_code.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_value.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_binding_for_testing.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
+#include "third_party/blink/renderer/core/script/classic_script.h"
 #include "third_party/blink/renderer/core/script/module_record_resolver.h"
 #include "third_party/blink/renderer/core/testing/dummy_modulator.h"
 #include "third_party/blink/renderer/platform/bindings/v8_binding.h"
@@ -34,7 +34,7 @@ class TestModuleRecordResolver final : public ModuleRecordResolver {
         MakeGarbageCollected<BoxedV8Module>(isolate_, module));
   }
 
-  void Trace(blink::Visitor* visitor) override {
+  void Trace(Visitor* visitor) const override {
     visitor->Trace(module_records_);
     ModuleRecordResolver::Trace(visitor);
   }
@@ -68,7 +68,7 @@ class ModuleRecordTestModulator final : public DummyModulator {
   ModuleRecordTestModulator(v8::Isolate* isolate);
   ~ModuleRecordTestModulator() override = default;
 
-  void Trace(blink::Visitor*) override;
+  void Trace(Visitor*) const override;
 
   TestModuleRecordResolver* GetTestModuleRecordResolver() {
     return resolver_.Get();
@@ -87,7 +87,7 @@ class ModuleRecordTestModulator final : public DummyModulator {
 ModuleRecordTestModulator::ModuleRecordTestModulator(v8::Isolate* isolate)
     : resolver_(MakeGarbageCollected<TestModuleRecordResolver>(isolate)) {}
 
-void ModuleRecordTestModulator::Trace(blink::Visitor* visitor) {
+void ModuleRecordTestModulator::Trace(Visitor* visitor) const {
   visitor->Trace(resolver_);
   DummyModulator::Trace(visitor);
 }
@@ -205,9 +205,9 @@ TEST(ModuleRecordTest, EvaluationErrorIsRemembered) {
   ASSERT_TRUE(ModuleRecord::Instantiate(scope.GetScriptState(), module_failure,
                                         js_url_f)
                   .IsEmpty());
-  ScriptValue evaluation_error =
+  ModuleEvaluationResult evaluation_result1 =
       ModuleRecord::Evaluate(scope.GetScriptState(), module_failure, js_url_f);
-  EXPECT_FALSE(evaluation_error.IsEmpty());
+  EXPECT_TRUE(evaluation_result1.IsException());
 
   resolver->PrepareMockResolveResult(module_failure);
 
@@ -220,11 +220,12 @@ TEST(ModuleRecordTest, EvaluationErrorIsRemembered) {
   ASSERT_TRUE(
       ModuleRecord::Instantiate(scope.GetScriptState(), module, js_url_c)
           .IsEmpty());
-  ScriptValue evaluation_error2 =
+  ModuleEvaluationResult evaluation_result2 =
       ModuleRecord::Evaluate(scope.GetScriptState(), module, js_url_f);
-  EXPECT_FALSE(evaluation_error2.IsEmpty());
+  EXPECT_TRUE(evaluation_result2.IsException());
 
-  EXPECT_EQ(evaluation_error, evaluation_error2);
+  EXPECT_EQ(evaluation_result1.GetException(),
+            evaluation_result2.GetException());
 
   ASSERT_EQ(1u, resolver->ResolveCount());
   EXPECT_EQ("failure", resolver->Specifiers()[0]);
@@ -247,13 +248,11 @@ TEST(ModuleRecordTest, Evaluate) {
       ModuleRecord::Instantiate(scope.GetScriptState(), module, js_url);
   ASSERT_TRUE(exception.IsEmpty());
 
-  EXPECT_TRUE(
-      ModuleRecord::Evaluate(scope.GetScriptState(), module, js_url).IsEmpty());
-  v8::Local<v8::Value> value = scope.GetFrame()
-                                   .GetScriptController()
-                                   .ExecuteScriptInMainWorldAndReturnValue(
-                                       ScriptSourceCode("window.foo"), KURL(),
-                                       SanitizeScriptErrors::kSanitize);
+  EXPECT_TRUE(ModuleRecord::Evaluate(scope.GetScriptState(), module, js_url)
+                  .IsSuccess());
+  v8::Local<v8::Value> value =
+      ClassicScript::CreateUnspecifiedScript(ScriptSourceCode("window.foo"))
+          ->RunScriptAndReturnValue(&scope.GetFrame());
   ASSERT_TRUE(value->IsString());
   EXPECT_EQ("bar", ToCoreString(v8::Local<v8::String>::Cast(value)));
 
@@ -283,11 +282,12 @@ TEST(ModuleRecordTest, EvaluateCaptureError) {
       ModuleRecord::Instantiate(scope.GetScriptState(), module, js_url);
   ASSERT_TRUE(exception.IsEmpty());
 
-  ScriptValue error =
+  ModuleEvaluationResult result =
       ModuleRecord::Evaluate(scope.GetScriptState(), module, js_url);
-  ASSERT_FALSE(error.IsEmpty());
-  ASSERT_TRUE(error.V8Value()->IsString());
-  EXPECT_EQ("bar", ToCoreString(v8::Local<v8::String>::Cast(error.V8Value())));
+  ASSERT_TRUE(result.IsException());
+  v8::Local<v8::Value> value = result.GetException();
+  ASSERT_TRUE(value->IsString());
+  EXPECT_EQ("bar", ToCoreString(v8::Local<v8::String>::Cast(value)));
 }
 
 }  // namespace

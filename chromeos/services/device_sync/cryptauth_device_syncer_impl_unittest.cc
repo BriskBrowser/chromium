@@ -35,6 +35,7 @@
 #include "chromeos/services/device_sync/fake_cryptauth_group_private_key_sharer.h"
 #include "chromeos/services/device_sync/fake_cryptauth_metadata_syncer.h"
 #include "chromeos/services/device_sync/fake_ecies_encryption.h"
+#include "chromeos/services/device_sync/fake_synced_bluetooth_address_tracker.h"
 #include "chromeos/services/device_sync/mock_cryptauth_client.h"
 #include "chromeos/services/device_sync/network_request_error.h"
 #include "chromeos/services/device_sync/proto/cryptauth_common.pb.h"
@@ -112,15 +113,14 @@ class DeviceSyncCryptAuthDeviceSyncerImplTest : public testing::Test {
         fake_cryptauth_feature_status_getter_factory_(
             std::make_unique<FakeCryptAuthFeatureStatusGetterFactory>()),
         fake_cryptauth_group_private_key_sharer_factory_(
-            std::make_unique<FakeCryptAuthGroupPrivateKeySharerFactory>()) {
+            std::make_unique<FakeCryptAuthGroupPrivateKeySharerFactory>()),
+        fake_synced_bluetooth_address_tracker_(
+            std::make_unique<FakeSyncedBluetoothAddressTracker>()) {
     CryptAuthKeyRegistryImpl::RegisterPrefs(pref_service_.registry());
-    key_registry_ =
-        CryptAuthKeyRegistryImpl::Factory::Get()->BuildInstance(&pref_service_);
-
+    key_registry_ = CryptAuthKeyRegistryImpl::Factory::Create(&pref_service_);
     CryptAuthDeviceRegistryImpl::RegisterPrefs(pref_service_.registry());
     device_registry_ =
-        CryptAuthDeviceRegistryImpl::Factory::Get()->BuildInstance(
-            &pref_service_);
+        CryptAuthDeviceRegistryImpl::Factory::Create(&pref_service_);
   }
 
   ~DeviceSyncCryptAuthDeviceSyncerImplTest() override = default;
@@ -139,8 +139,9 @@ class DeviceSyncCryptAuthDeviceSyncerImplTest : public testing::Test {
     auto mock_timer = std::make_unique<base::MockOneShotTimer>();
     timer_ = mock_timer.get();
 
-    syncer_ = CryptAuthDeviceSyncerImpl::Factory::Get()->BuildInstance(
+    syncer_ = CryptAuthDeviceSyncerImpl::Factory::Create(
         device_registry_.get(), key_registry_.get(), client_factory_.get(),
+        fake_synced_bluetooth_address_tracker_.get(), &pref_service_,
         std::move(mock_timer));
 
     std::string local_user_public_key =
@@ -206,6 +207,8 @@ class DeviceSyncCryptAuthDeviceSyncerImplTest : public testing::Test {
       const CryptAuthKey* expected_initial_group_key) {
     EXPECT_EQ(client_factory_.get(),
               fake_cryptauth_metadata_syncer_factory_->last_client_factory());
+    EXPECT_EQ(&pref_service_,
+              fake_cryptauth_metadata_syncer_factory_->last_pref_service());
     ASSERT_EQ(1u, fake_cryptauth_metadata_syncer_factory_->instances().size());
     ASSERT_TRUE(metadata_syncer()->request_context());
     ASSERT_TRUE(metadata_syncer()->local_device_metadata());
@@ -313,7 +316,7 @@ class DeviceSyncCryptAuthDeviceSyncerImplTest : public testing::Test {
 
     CryptAuthEciesEncryptor::IdToInputMap id_to_encrypted_metadata_map;
     CryptAuthEciesEncryptor::IdToOutputMap id_to_unencrypted_metadata_map;
-    for (const cryptauthv2::DeviceMetadataPacket metadata :
+    for (const cryptauthv2::DeviceMetadataPacket& metadata :
          expected_device_metadata_packets) {
       id_to_encrypted_metadata_map[metadata.device_id()] =
           CryptAuthEciesEncryptor::PayloadAndKey(
@@ -372,6 +375,16 @@ class DeviceSyncCryptAuthDeviceSyncerImplTest : public testing::Test {
     ASSERT_TRUE(device_sync_result_);
     EXPECT_EQ(expected_result, *device_sync_result_);
 
+    if (expected_result.IsSuccess()) {
+      EXPECT_EQ(kDefaultLocalDeviceBluetoothAddress,
+                fake_synced_bluetooth_address_tracker_
+                    ->last_synced_bluetooth_address());
+    } else {
+      EXPECT_TRUE(fake_synced_bluetooth_address_tracker_
+                      ->last_synced_bluetooth_address()
+                      .empty());
+    }
+
     CryptAuthDeviceRegistry::InstanceIdToDeviceMap expected_registry;
     for (const CryptAuthDevice& device : expected_devices_in_registry) {
       expected_registry.insert_or_assign(device.instance_id(), device);
@@ -417,6 +430,8 @@ class DeviceSyncCryptAuthDeviceSyncerImplTest : public testing::Test {
   TestingPrefServiceSimple pref_service_;
   std::unique_ptr<CryptAuthKeyRegistry> key_registry_;
   std::unique_ptr<CryptAuthDeviceRegistry> device_registry_;
+  std::unique_ptr<FakeSyncedBluetoothAddressTracker>
+      fake_synced_bluetooth_address_tracker_;
   base::MockOneShotTimer* timer_;
 
   base::Optional<CryptAuthDeviceSyncResult> device_sync_result_;
@@ -507,6 +522,65 @@ TEST_F(DeviceSyncCryptAuthDeviceSyncerImplTest, Success_InitialGroupKeyValid) {
                                 true /* device_registry_changed */,
                                 cryptauthv2::GetClientDirectiveForTest()),
       GetAllTestDevices());
+}
+
+TEST_F(DeviceSyncCryptAuthDeviceSyncerImplTest,
+       Success_InitialGroupKeyValid_SomeDevicesHaveNoEncryptedMetadata) {
+  // Add the correct group key to the registry.
+  AddInitialGroupKeyToRegistry(GetGroupKey());
+
+  CallSync();
+
+  std::string encrypted_group_private_key = MakeFakeEncryptedString(
+      GetGroupKey().private_key(),
+      GetLocalDeviceForTest().device_better_together_public_key);
+
+  // In addition to the local device, remote devices are returned that do not
+  // have any encrypted metadata. This can happen if the remote device has not
+  // uploaded metadata encrypted with the correct group public key.
+  std::vector<cryptauthv2::DeviceMetadataPacket> device_metadata_packets =
+      GetAllTestDeviceMetadataPackets();
+  device_metadata_packets[1].clear_encrypted_metadata();
+  device_metadata_packets[2].clear_encrypted_metadata();
+
+  // The initial group key is valid, so a new group key was not created.
+  VerifyMetadataSyncerInput(&GetGroupKey());
+  FinishMetadataSyncerAttempt(
+      device_metadata_packets, base::nullopt /* new_group_key */,
+      encrypted_group_private_key, cryptauthv2::GetClientDirectiveForTest(),
+      CryptAuthDeviceSyncResult::ResultCode::kSuccess);
+
+  VerifyGroupKeyInRegistry(GetGroupKey());
+
+  VerifyFeatureStatusGetterInput(GetAllTestDeviceIds());
+  FinishFeatureStatusGetterAttempt(
+      GetAllTestDeviceIds(), CryptAuthDeviceSyncResult::ResultCode::kSuccess);
+
+  // Even though we have the unencrypted group private key in the key registry,
+  // we decrypt the group private key from CryptAuth and check consistency.
+  RunGroupPrivateKeyDecryptor(encrypted_group_private_key, true /* succeed */);
+
+  // We should only attempt to decrypt the local device metadata because the
+  // remote devices did not return any encrypted metadata.
+  RunDeviceMetadataDecryptor({GetLocalDeviceMetadataPacketForTest()},
+                             GetGroupKey().private_key(),
+                             {} /* device_ids_to_fail */);
+
+  VerifyGroupPrivateKeySharerInput(
+      GetGroupKey(), GetAllTestDeviceIdsThatNeedGroupPrivateKey());
+  FinishShareGroupPrivateKeyAttempt(
+      CryptAuthDeviceSyncResult::ResultCode::kSuccess);
+
+  // The remote devices did not send encrypted metadata.
+  std::vector<CryptAuthDevice> devices = GetAllTestDevices();
+  devices[1].better_together_device_metadata.reset();
+  devices[2].better_together_device_metadata.reset();
+
+  VerifyDeviceSyncResult(
+      CryptAuthDeviceSyncResult(CryptAuthDeviceSyncResult::ResultCode::kSuccess,
+                                true /* device_registry_changed */,
+                                cryptauthv2::GetClientDirectiveForTest()),
+      devices);
 }
 
 TEST_F(DeviceSyncCryptAuthDeviceSyncerImplTest,
@@ -804,6 +878,42 @@ TEST_F(DeviceSyncCryptAuthDeviceSyncerImplTest,
       {GetLocalDeviceForTest()});
 }
 
+TEST_F(
+    DeviceSyncCryptAuthDeviceSyncerImplTest,
+    NonFatalError_InitialGroupKeyStale_GetNewGroupPublicKeyFromCryptAuth_WithEmptyGroupPrivateKey) {
+  AddInitialGroupKeyToRegistry(GetStaleGroupKey());
+
+  CallSync();
+
+  // The initial group key is stale, so CryptAuth provides us with the new
+  // unencrypted group public key but an unexpectedly empty encrypted group
+  // private key string. This is considered a non-fatal error.
+  VerifyMetadataSyncerInput(&GetStaleGroupKey());
+  FinishMetadataSyncerAttempt(
+      GetAllTestDeviceMetadataPackets(),
+      GetGroupKeyWithoutPrivateKey() /* new_group_key */,
+      std::string() /* encrypted_group_private_key */,
+      cryptauthv2::GetClientDirectiveForTest(),
+      CryptAuthDeviceSyncResult::ResultCode::kSuccess);
+
+  VerifyGroupKeyInRegistry(GetGroupKeyWithoutPrivateKey());
+
+  VerifyFeatureStatusGetterInput(GetAllTestDeviceIds());
+  FinishFeatureStatusGetterAttempt(
+      GetAllTestDeviceIds(), CryptAuthDeviceSyncResult::ResultCode::kSuccess);
+
+  // Only the local device has its BetterTogetherDeviceMetadata in the device
+  // registry since the other metadata cannot be decrypted without the group
+  // private key, and because the previous device registry did not have any
+  // existing metadata to draw from.
+  VerifyDeviceSyncResult(
+      CryptAuthDeviceSyncResult(
+          CryptAuthDeviceSyncResult::ResultCode::kFinishedWithNonFatalErrors,
+          true /* device_registry_changed */,
+          cryptauthv2::GetClientDirectiveForTest()),
+      GetAllTestDevicesWithoutRemoteMetadata());
+}
+
 TEST_F(DeviceSyncCryptAuthDeviceSyncerImplTest,
        NonFatalError_FromFeatureStatusGetter_MissingDeviceFeatureStatuses) {
   AddInitialGroupKeyToRegistry(GetGroupKey());
@@ -886,6 +996,62 @@ TEST_F(DeviceSyncCryptAuthDeviceSyncerImplTest,
           true /* device_registry_changed */,
           cryptauthv2::GetClientDirectiveForTest()),
       GetAllTestDevices());
+}
+
+TEST_F(DeviceSyncCryptAuthDeviceSyncerImplTest,
+       NonFatalError_NoDevicesHaveEncryptedMetadata) {
+  // Add the correct group key to the registry.
+  AddInitialGroupKeyToRegistry(GetGroupKey());
+
+  CallSync();
+
+  std::string encrypted_group_private_key = MakeFakeEncryptedString(
+      GetGroupKey().private_key(),
+      GetLocalDeviceForTest().device_better_together_public_key);
+
+  // All metadata packets are missing encrypted metadata, though we always
+  // expect the local device to have encrypted metadata, at a minimum.
+  std::vector<cryptauthv2::DeviceMetadataPacket> device_metadata_packets =
+      GetAllTestDeviceMetadataPackets();
+  for (auto& packet : device_metadata_packets)
+    packet.clear_encrypted_metadata();
+
+  // The initial group key is valid, so a new group key was not created.
+  VerifyMetadataSyncerInput(&GetGroupKey());
+  FinishMetadataSyncerAttempt(
+      device_metadata_packets, base::nullopt /* new_group_key */,
+      encrypted_group_private_key, cryptauthv2::GetClientDirectiveForTest(),
+      CryptAuthDeviceSyncResult::ResultCode::kSuccess);
+
+  VerifyGroupKeyInRegistry(GetGroupKey());
+
+  VerifyFeatureStatusGetterInput(GetAllTestDeviceIds());
+  FinishFeatureStatusGetterAttempt(
+      GetAllTestDeviceIds(), CryptAuthDeviceSyncResult::ResultCode::kSuccess);
+
+  // Even though we have the unencrypted group private key in the key registry,
+  // we decrypt the group private key from CryptAuth and check consistency.
+  RunGroupPrivateKeyDecryptor(encrypted_group_private_key, true /* succeed */);
+
+  // The metadata decryptor will not be run because there is no metadata to
+  // decrypt.
+
+  VerifyGroupPrivateKeySharerInput(
+      GetGroupKey(), GetAllTestDeviceIdsThatNeedGroupPrivateKey());
+  FinishShareGroupPrivateKeyAttempt(
+      CryptAuthDeviceSyncResult::ResultCode::kSuccess);
+
+  // The local device is still able to populate its own metadata.
+  std::vector<CryptAuthDevice> devices = GetAllTestDevices();
+  devices[1].better_together_device_metadata.reset();
+  devices[2].better_together_device_metadata.reset();
+
+  VerifyDeviceSyncResult(
+      CryptAuthDeviceSyncResult(
+          CryptAuthDeviceSyncResult::ResultCode::kFinishedWithNonFatalErrors,
+          true /* device_registry_changed */,
+          cryptauthv2::GetClientDirectiveForTest()),
+      devices);
 }
 
 TEST_F(DeviceSyncCryptAuthDeviceSyncerImplTest,

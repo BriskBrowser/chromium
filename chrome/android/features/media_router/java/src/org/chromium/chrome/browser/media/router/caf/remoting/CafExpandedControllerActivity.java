@@ -7,18 +7,19 @@ package org.chromium.chrome.browser.media.router.caf.remoting;
 import android.graphics.Color;
 import android.os.Bundle;
 import android.os.Handler;
-import android.support.v4.app.FragmentActivity;
 import android.support.v4.media.session.PlaybackStateCompat;
-import android.support.v7.app.MediaRouteButton;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
 import android.view.WindowManager;
 import android.widget.TextView;
 
+import androidx.fragment.app.FragmentActivity;
+import androidx.mediarouter.app.MediaRouteButton;
+
 import org.chromium.chrome.browser.media.router.caf.BaseSessionController;
-import org.chromium.chrome.browser.metrics.MediaNotificationUma;
 import org.chromium.chrome.media.router.R;
+import org.chromium.components.browser_ui.media.MediaNotificationUma;
 import org.chromium.third_party.android.media.MediaController;
 
 /**
@@ -71,7 +72,7 @@ public class CafExpandedControllerActivity
         public void seekTo(long pos) {
             if (!mSessionController.isConnected()) return;
 
-            mSessionController.safelySeek(pos);
+            mSessionController.getSession().getRemoteMediaClient().seek(pos);
         }
 
         @Override

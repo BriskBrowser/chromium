@@ -34,9 +34,11 @@ class IOSChromeUpdatePasswordInfoBarDelegate
       infobars::InfoBarManager* infobar_manager,
       std::unique_ptr<password_manager::PasswordFormManagerForUI> form_to_save,
       UIViewController* baseViewController,
-      id<ApplicationCommands> dispatcher);
+      id<ApplicationCommands> handler);
 
   ~IOSChromeUpdatePasswordInfoBarDelegate() override;
+
+  bool ShouldExpire(const NavigationDetails& details) const override;
 
   // Returns whether the user has multiple saved credentials, of which the
   // infobar affects just one. If so, the infobar should clarify which

@@ -7,7 +7,8 @@ package org.chromium.android_webview.test.services;
 import static org.chromium.android_webview.test.OnlyRunIn.ProcessMode.SINGLE_PROCESS;
 
 import android.os.ParcelFileDescriptor;
-import android.support.test.filters.MediumTest;
+
+import androidx.test.filters.MediumTest;
 
 import org.json.JSONException;
 import org.junit.Assert;
@@ -95,7 +96,8 @@ public class CrashReceiverServiceTest {
         // Asserting some fields just to make sure that contents are valid.
         Assert.assertEquals(TEST_CRASH_LOCAL_ID, crashInfo.localId);
         Assert.assertEquals(testCrashFile.lastModified(), crashInfo.captureTime);
-        Assert.assertEquals(TEST_CRASH_PACKAGE, crashInfo.packageName);
+        Assert.assertEquals(
+                TEST_CRASH_PACKAGE, crashInfo.getCrashKey(CrashInfo.APP_PACKAGE_NAME_KEY));
     }
 
     private static String readEntireFile(File file) throws IOException {

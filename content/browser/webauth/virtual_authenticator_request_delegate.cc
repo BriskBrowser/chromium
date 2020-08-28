@@ -4,13 +4,10 @@
 
 #include "content/browser/webauth/virtual_authenticator_request_delegate.h"
 
-#include <utility>
 #include <vector>
 
 #include "base/callback.h"
 #include "content/browser/webauth/authenticator_environment_impl.h"
-#include "content/browser/webauth/virtual_authenticator.h"
-#include "content/browser/webauth/virtual_fido_discovery_factory.h"
 #include "device/fido/authenticator_get_assertion_response.h"
 #include "device/fido/fido_transport_protocol.h"
 
@@ -36,19 +33,10 @@ void VirtualAuthenticatorRequestDelegate::SelectAccount(
   std::move(callback).Run(std::move(responses[0]));
 }
 
-bool VirtualAuthenticatorRequestDelegate::
-    IsUserVerifyingPlatformAuthenticatorAvailable() {
-  auto* virtual_discovery_factory =
-      AuthenticatorEnvironmentImpl::GetInstance()->GetVirtualFactoryFor(
-          frame_tree_node_);
-  if (!virtual_discovery_factory) {
-    return false;
-  }
-  const auto& authenticators = virtual_discovery_factory->GetAuthenticators();
-  return std::any_of(authenticators.begin(), authenticators.end(),
-                     [](VirtualAuthenticator* a) {
-                       return a->is_user_verifying_platform_authenticator();
-                     });
+base::Optional<bool> VirtualAuthenticatorRequestDelegate::
+    IsUserVerifyingPlatformAuthenticatorAvailableOverride() {
+  return AuthenticatorEnvironmentImpl::GetInstance()
+      ->HasVirtualUserVerifyingPlatformAuthenticator(frame_tree_node_);
 }
 
 }  // namespace content

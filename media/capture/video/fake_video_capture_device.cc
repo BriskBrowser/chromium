@@ -132,6 +132,7 @@ VideoCaptureFormat FindClosestSupportedFormat(
 gfx::ColorSpace GetDefaultColorSpace(VideoPixelFormat format) {
   switch (format) {
     case PIXEL_FORMAT_YUY2:
+    case PIXEL_FORMAT_UYVY:
     case PIXEL_FORMAT_YV12:
     case PIXEL_FORMAT_I420:
     case PIXEL_FORMAT_I422:
@@ -431,8 +432,14 @@ void PacmanFramePainter::DrawPacman(base::TimeDelta elapsed_time,
   SkCanvas canvas(bitmap);
 
   const SkScalar unscaled_zoom = fake_device_state_->zoom / 100.f;
+  const SkScalar translate_x =
+      (fake_device_state_->pan - kMinPan) * (width / (kMaxPan - kMinPan));
+  const SkScalar translate_y =
+      (fake_device_state_->tilt - kMinTilt) * (height / (kMaxTilt - kMinTilt));
   SkMatrix matrix;
   matrix.setScale(unscaled_zoom, unscaled_zoom, width / 2, height / 2);
+  matrix.setTranslateX(translate_x);
+  matrix.setTranslateY(translate_y);
   canvas.setMatrix(matrix);
 
   // For the SK_N32 case, match the green color tone produced by the
@@ -498,8 +505,11 @@ void FakePhotoDevice::TakePhoto(VideoCaptureDevice::TakePhotoCallback callback,
   sk_n32_painter_->PaintFrame(elapsed_time, buffer.get());
   mojom::BlobPtr blob = mojom::Blob::New();
   const gfx::PNGCodec::ColorFormat encoding_source_format =
-      (kN32_SkColorType == kRGBA_8888_SkColorType) ? gfx::PNGCodec::FORMAT_RGBA
-                                                   : gfx::PNGCodec::FORMAT_BGRA;
+#if SK_PMCOLOR_BYTE_ORDER(R, G, B, A)
+      gfx::PNGCodec::FORMAT_RGBA;
+#else
+      gfx::PNGCodec::FORMAT_BGRA;
+#endif
   const bool result = gfx::PNGCodec::Encode(
       buffer.get(), encoding_source_format,
       fake_device_state_->format.frame_size,
@@ -606,22 +616,28 @@ void FakePhotoDevice::GetPhotoState(
   photo_state->focus_distance->step = kFocusDistanceStep;
 
   photo_state->pan = mojom::Range::New();
-  photo_state->pan->current = fake_device_state_->pan;
-  photo_state->pan->max = kMaxPan;
-  photo_state->pan->min = kMinPan;
-  photo_state->pan->step = kPanStep;
+  if (config_.pan_tilt_zoom_supported) {
+    photo_state->pan->current = fake_device_state_->pan;
+    photo_state->pan->max = kMaxPan;
+    photo_state->pan->min = kMinPan;
+    photo_state->pan->step = kPanStep;
+  }
 
   photo_state->tilt = mojom::Range::New();
-  photo_state->tilt->current = fake_device_state_->tilt;
-  photo_state->tilt->max = kMaxTilt;
-  photo_state->tilt->min = kMinTilt;
-  photo_state->tilt->step = kTiltStep;
+  if (config_.pan_tilt_zoom_supported) {
+    photo_state->tilt->current = fake_device_state_->tilt;
+    photo_state->tilt->max = kMaxTilt;
+    photo_state->tilt->min = kMinTilt;
+    photo_state->tilt->step = kTiltStep;
+  }
 
   photo_state->zoom = mojom::Range::New();
-  photo_state->zoom->current = fake_device_state_->zoom;
-  photo_state->zoom->max = kMaxZoom;
-  photo_state->zoom->min = kMinZoom;
-  photo_state->zoom->step = kZoomStep;
+  if (config_.pan_tilt_zoom_supported) {
+    photo_state->zoom->current = fake_device_state_->zoom;
+    photo_state->zoom->max = kMaxZoom;
+    photo_state->zoom->min = kMinZoom;
+    photo_state->zoom->step = kZoomStep;
+  }
 
   photo_state->supports_torch = false;
   photo_state->torch = false;
@@ -685,7 +701,7 @@ void FakeVideoCaptureDevice::TakePhoto(TakePhotoCallback callback) {
   base::ThreadTaskRunnerHandle::Get()->PostTask(
       FROM_HERE, base::BindOnce(&FakePhotoDevice::TakePhoto,
                                 base::Unretained(photo_device_.get()),
-                                base::Passed(&callback), elapsed_time_));
+                                std::move(callback), elapsed_time_));
 }
 
 OwnBufferFrameDeliverer::OwnBufferFrameDeliverer(

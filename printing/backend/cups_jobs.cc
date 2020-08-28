@@ -7,8 +7,10 @@
 #include <cups/ipp.h>
 
 #include <array>
+#include <cstring>
 #include <map>
 #include <memory>
+#include <string>
 
 #include "base/logging.h"
 #include "base/stl_util.h"
@@ -17,7 +19,8 @@
 #include "base/threading/scoped_blocking_call.h"
 #include "base/version.h"
 #include "printing/backend/cups_deleters.h"
-#include "printing/backend/cups_ipp_util.h"
+#include "printing/backend/cups_ipp_helper.h"
+#include "printing/printer_status.h"
 
 namespace printing {
 namespace {
@@ -35,8 +38,6 @@ const char kPrinterMakeAndModel[] = "printer-make-and-model";
 const char kIppVersionsSupported[] = "ipp-versions-supported";
 const char kIppFeaturesSupported[] = "ipp-features-supported";
 const char kDocumentFormatSupported[] = "document-format-supported";
-const char kPwgRasterDocumentResolutionSupported[] =
-    "pwg-raster-document-resolution-supported";
 
 // job attributes
 const char kJobUri[] = "job-uri";
@@ -110,9 +111,10 @@ constexpr int kHttpConnectTimeoutMs = 1000;
 constexpr std::array<const char* const, 3> kPrinterAttributes{
     {kPrinterState, kPrinterStateReasons, kPrinterStateMessage}};
 
-constexpr std::array<const char* const, 5> kPrinterInfo{
+constexpr std::array<const char* const, 7> kPrinterInfoAndStatus{
     {kPrinterMakeAndModel, kIppVersionsSupported, kIppFeaturesSupported,
-     kDocumentFormatSupported, kPwgRasterDocumentResolutionSupported}};
+     kDocumentFormatSupported, kPrinterState, kPrinterStateReasons,
+     kPrinterStateMessage}};
 
 // Converts an IPP attribute |attr| to the appropriate JobState enum.
 CupsJob::JobState ToJobState(ipp_attribute_t* attr) {
@@ -244,8 +246,10 @@ void ParseCollection(ipp_attribute_t* attr,
                      std::vector<std::string>* collection) {
   int count = ippGetCount(attr);
   for (int i = 0; i < count; i++) {
-    base::StringPiece value = ippGetString(attr, i, nullptr);
-    collection->push_back(value.as_string());
+    const char* const value = ippGetString(attr, i, nullptr);
+    if (value) {
+      collection->push_back(value);
+    }
   }
 }
 
@@ -262,7 +266,10 @@ void ParseField(ipp_attribute_t* attr, base::StringPiece name, CupsJob* job) {
   } else if (name == kJobStateReasons) {
     ParseCollection(attr, &(job->state_reasons));
   } else if (name == kJobStateMessage) {
-    job->state_message = ippGetString(attr, 0, nullptr);
+    const char* message_string = ippGetString(attr, 0, nullptr);
+    if (message_string) {
+      job->state_message = message_string;
+    }
   } else if (name == kTimeAtProcessing) {
     job->processing_started = ippGetInteger(attr, 0);
   }
@@ -285,9 +292,9 @@ void ParseJobs(ipp_t* response,
   CupsJob* current_job = NewJob(printer_id, jobs);
   for (ipp_attribute_t* attr = starting_attr; attr != nullptr;
        attr = ippNextAttribute(response)) {
-    base::StringPiece attribute_name = ippGetName(attr);
+    const char* const attribute_name = ippGetName(attr);
     // Separators indicate a new job.  Separators have empty names.
-    if (attribute_name.empty()) {
+    if (!attribute_name || strlen(attribute_name) == 0) {
       current_job = NewJob(printer_id, jobs);
       continue;
     }
@@ -303,10 +310,17 @@ void ParseJobs(ipp_t* response,
 bool ParsePrinterInfo(ipp_t* response, PrinterInfo* printer_info) {
   for (ipp_attribute_t* attr = ippFirstAttribute(response); attr != nullptr;
        attr = ippNextAttribute(response)) {
-    base::StringPiece name = ippGetName(attr);
+    const char* const value = ippGetName(attr);
+    if (!value) {
+      continue;
+    }
+    base::StringPiece name(value);
     if (name == base::StringPiece(kPrinterMakeAndModel)) {
       DCHECK_EQ(IPP_TAG_TEXT, ippGetValueTag(attr));
-      printer_info->make_and_model = ippGetString(attr, 0, nullptr);
+      const char* make_and_model_string = ippGetString(attr, 0, nullptr);
+      if (make_and_model_string) {
+        printer_info->make_and_model = make_and_model_string;
+      }
     } else if (name == base::StringPiece(kIppVersionsSupported)) {
       std::vector<std::string> ipp_versions;
       ParseCollection(attr, &ipp_versions);
@@ -322,9 +336,6 @@ bool ParsePrinterInfo(ipp_t* response, PrinterInfo* printer_info) {
       printer_info->ipp_everywhere = base::Contains(features, kIppEverywhere);
     } else if (name == base::StringPiece(kDocumentFormatSupported)) {
       ParseCollection(attr, &printer_info->document_formats);
-    } else if (name ==
-               base::StringPiece(kPwgRasterDocumentResolutionSupported)) {
-      printer_info->supports_pwg_raster_resolution = ippGetCount(attr) > 0;
     }
   }
 
@@ -351,12 +362,6 @@ CupsJob::CupsJob() = default;
 CupsJob::CupsJob(const CupsJob& other) = default;
 
 CupsJob::~CupsJob() = default;
-
-PrinterStatus::PrinterStatus() = default;
-
-PrinterStatus::PrinterStatus(const PrinterStatus& other) = default;
-
-PrinterStatus::~PrinterStatus() = default;
 
 PrinterInfo::PrinterInfo() = default;
 
@@ -420,12 +425,15 @@ ScopedIppPtr GetPrinterAttributes(http_t* http,
 }
 
 void ParsePrinterStatus(ipp_t* response, PrinterStatus* printer_status) {
+  *printer_status = PrinterStatus();
+
   for (ipp_attribute_t* attr = ippFirstAttribute(response); attr != nullptr;
        attr = ippNextAttribute(response)) {
-    base::StringPiece name = ippGetName(attr);
-    if (name.empty()) {
+    const char* const value = ippGetName(attr);
+    if (!value) {
       continue;
     }
+    base::StringPiece name(value);
 
     if (name == kPrinterState) {
       DCHECK_EQ(IPP_TAG_ENUM, ippGetValueTag(attr));
@@ -437,7 +445,10 @@ void ParsePrinterStatus(ipp_t* response, PrinterStatus* printer_status) {
         printer_status->reasons.push_back(ToPrinterReason(reason));
       }
     } else if (name == kPrinterStateMessage) {
-      printer_status->message = ippGetString(attr, 0, nullptr);
+      const char* message_string = ippGetString(attr, 0, nullptr);
+      if (message_string) {
+        printer_status->message = message_string;
+      }
     }
   }
 }
@@ -446,7 +457,11 @@ PrinterQueryResult GetPrinterInfo(const std::string& address,
                                   const int port,
                                   const std::string& resource,
                                   bool encrypted,
-                                  PrinterInfo* printer_info) {
+                                  PrinterInfo* printer_info,
+                                  PrinterStatus* printer_status) {
+  DCHECK(printer_info);
+  DCHECK(printer_status);
+
   ScopedHttpPtr http = ScopedHttpPtr(httpConnect2(
       address.c_str(), port, nullptr, AF_INET,
       encrypted ? HTTP_ENCRYPTION_ALWAYS : HTTP_ENCRYPTION_IF_REQUESTED, 0,
@@ -467,13 +482,15 @@ PrinterQueryResult GetPrinterInfo(const std::string& address,
                          address.c_str(), port, path.c_str());
 
   ipp_status_t status;
-  ScopedIppPtr response =
-      GetPrinterAttributes(http.get(), printer_uri, resource,
-                           kPrinterInfo.size(), kPrinterInfo.data(), &status);
+  ScopedIppPtr response = GetPrinterAttributes(
+      http.get(), printer_uri, resource, kPrinterInfoAndStatus.size(),
+      kPrinterInfoAndStatus.data(), &status);
   if (StatusError(status) || response.get() == nullptr) {
     LOG(WARNING) << "Get attributes failure: " << status;
     return PrinterQueryResult::UNKNOWN_FAILURE;
   }
+
+  ParsePrinterStatus(response.get(), printer_status);
 
   if (ParsePrinterInfo(response.get(), printer_info)) {
     return PrinterQueryResult::SUCCESS;

@@ -41,17 +41,12 @@ const ConsentStatus = {
 Polymer({
   is: 'settings-google-assistant-page',
 
-  behaviors: [I18nBehavior, PrefsBehavior, WebUIListenerBehavior],
+  behaviors: [
+    DeepLinkingBehavior, I18nBehavior, PrefsBehavior,
+    settings.RouteObserverBehavior, WebUIListenerBehavior
+  ],
 
   properties: {
-    /** @private */
-    isAssistantAllowed_: {
-      type: Boolean,
-      value() {
-        return loadTimeData.getBoolean('isAssistantAllowed');
-      },
-    },
-
     /** @private */
     shouldShowVoiceMatchSettings_: {
       type: Boolean,
@@ -98,14 +93,39 @@ Polymer({
 
     /** @private {DspHotwordState} */
     dspHotwordState_: Number,
+
+    /** @private */
+    quickAnswersAvailable_: {
+      type: Boolean,
+      value: false,
+    },
+
+    /**
+     * Used by DeepLinkingBehavior to focus this page's deep links.
+     * @type {!Set<!chromeos.settings.mojom.Setting>}
+     */
+    supportedSettingIds: {
+      type: Object,
+      value: () => new Set([
+        chromeos.settings.mojom.Setting.kAssistantOnOff,
+        chromeos.settings.mojom.Setting.kAssistantRelatedInfo,
+        chromeos.settings.mojom.Setting.kAssistantQuickAnswers,
+        chromeos.settings.mojom.Setting.kAssistantOkGoogle,
+        chromeos.settings.mojom.Setting.kAssistantNotifications,
+        chromeos.settings.mojom.Setting.kAssistantVoiceInput,
+        chromeos.settings.mojom.Setting.kTrainAssistantVoiceModel,
+      ]),
+    },
   },
 
   observers: [
-    'onPrefsChanged_(prefs.settings.voice_interaction.hotword.enabled.value)',
-    'onPrefsChanged_(prefs.settings.voice_interaction.hotword.always_on.value)',
-    `onPrefsChanged_(
-      prefs.settings.voice_interaction.activity_control.consent_status.value)`,
-    'onPrefsChanged_(prefs.settings.assistant.disabled_by_policy.value)',
+    'onPrefsChanged_(' +
+        'prefs.settings.voice_interaction.hotword.enabled.value, ' +
+        'prefs.settings.voice_interaction.hotword.always_on.value, ' +
+        'prefs.settings.voice_interaction.activity_control.consent_status' +
+        '.value, ' +
+        'prefs.settings.assistant.disabled_by_policy.value, ' +
+        'prefs.settings.voice_interaction.context.enabled.value)',
   ],
 
   /** @private {?settings.GoogleAssistantBrowserProxy} */
@@ -126,6 +146,19 @@ Polymer({
   },
 
   /**
+   * @param {!settings.Route} route
+   * @param {!settings.Route} oldRoute
+   */
+  currentRouteChanged(route, oldRoute) {
+    // Does not apply to this page.
+    if (route !== settings.routes.GOOGLE_ASSISTANT) {
+      return;
+    }
+
+    this.attemptDeepLink();
+  },
+
+  /**
    * @param {boolean} toggleValue
    * @return {string}
    * @private
@@ -138,11 +171,13 @@ Polymer({
   /** @private */
   onGoogleAssistantSettingsTapped_() {
     this.browserProxy_.showGoogleAssistantSettings();
+    settings.recordSettingChange();
   },
 
   /** @private */
   onRetrainVoiceModelTapped_() {
     this.browserProxy_.retrainAssistantVoiceModel();
+    settings.recordSettingChange();
   },
 
   /** @private */
@@ -187,7 +222,7 @@ Polymer({
 
   /** @private */
   onPrefsChanged_() {
-    if (this.getPref('settings.assistant.disabled_by_policy.value')) {
+    if (this.getPref('settings.assistant.disabled_by_policy').value) {
       this.setPrefValue('settings.voice_interaction.enabled', false);
       return;
     }
@@ -196,24 +231,25 @@ Polymer({
 
     this.shouldShowVoiceMatchSettings_ =
         !loadTimeData.getBoolean('voiceMatchDisabled') &&
-        this.getPref('settings.voice_interaction.hotword.enabled.value') &&
-        (this.getPref(
-             'settings.voice_interaction.activity_control.consent_status.value') ==
-         ConsentStatus.kActivityControlAccepted);
+        !!this.getPref('settings.voice_interaction.hotword.enabled').value;
 
     const hotwordEnabled =
         this.getPref('settings.voice_interaction.hotword.enabled');
 
     this.hotwordEnforced_ = hotwordEnabled.enforcement ==
         chrome.settingsPrivate.Enforcement.ENFORCED;
+
+    this.quickAnswersAvailable_ =
+        loadTimeData.getBoolean('quickAnswersAvailable') &&
+        !!this.getPref('settings.voice_interaction.context.enabled').value;
   },
 
   /** @private */
   refreshDspHotwordState_() {
-    if (!this.getPref('settings.voice_interaction.hotword.enabled.value')) {
+    if (!this.getPref('settings.voice_interaction.hotword.enabled').value) {
       this.dspHotwordState_ = DspHotwordState.OFF;
-    } else if (this.getPref(
-                   'settings.voice_interaction.hotword.always_on.value')) {
+    } else if (this.getPref('settings.voice_interaction.hotword.always_on')
+                   .value) {
       this.dspHotwordState_ = DspHotwordState.ALWAYS_ON;
     } else {
       this.dspHotwordState_ = DspHotwordState.DEFAULT_ON;

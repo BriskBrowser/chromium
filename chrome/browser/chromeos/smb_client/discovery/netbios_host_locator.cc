@@ -7,6 +7,7 @@
 #include <memory>
 
 #include "base/bind.h"
+#include "base/logging.h"
 #include "base/strings/string_util.h"
 #include "base/time/time.h"
 #include "chrome/browser/chromeos/smb_client/smb_constants.h"
@@ -181,18 +182,18 @@ void NetBiosHostLocator::ResetHostLocator() {
 void NetBiosHostLocator::AddHostToResult(const net::IPEndPoint& sender_ip,
                                          const std::string& hostname) {
   if (WouldOverwriteResult(sender_ip, hostname)) {
-    LOG(ERROR) << hostname << ":" << results_[hostname]
+    LOG(ERROR) << hostname << ":" << results_[hostname].ToString()
                << " will be overwritten by " << hostname << ":"
                << sender_ip.ToStringWithoutPort();
   }
-  results_[hostname] = sender_ip.ToStringWithoutPort();
+  results_[hostname] = sender_ip.address();
 }
 
 bool NetBiosHostLocator::WouldOverwriteResult(
     const net::IPEndPoint& sender_ip,
     const std::string& hostname) const {
   return results_.count(hostname) &&
-         results_.at(hostname) != sender_ip.ToStringWithoutPort();
+         results_.at(hostname) != sender_ip.address();
 }
 
 }  // namespace smb_client

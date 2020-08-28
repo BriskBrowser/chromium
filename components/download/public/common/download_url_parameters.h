@@ -18,9 +18,8 @@
 #include "components/download/public/common/download_interrupt_reasons.h"
 #include "components/download/public/common/download_save_info.h"
 #include "components/download/public/common/download_source.h"
-#include "net/base/network_isolation_key.h"
 #include "net/traffic_annotation/network_traffic_annotation.h"
-#include "net/url_request/url_request.h"
+#include "net/url_request/referrer_policy.h"
 #include "services/network/public/cpp/resource_request_body.h"
 #include "services/network/public/mojom/fetch_api.mojom-shared.h"
 #include "storage/browser/blob/blob_data_handle.h"
@@ -80,8 +79,7 @@ class COMPONENTS_DOWNLOAD_EXPORT DownloadUrlParameters {
   // non-privileged frame.
   DownloadUrlParameters(
       const GURL& url,
-      const net::NetworkTrafficAnnotationTag& traffic_annotation,
-      const net::NetworkIsolationKey& network_isolation_key);
+      const net::NetworkTrafficAnnotationTag& traffic_annotation);
 
   // The RenderView routing ID must correspond to the RenderView of the
   // RenderFrame, both of which share the same RenderProcess. This may be a
@@ -91,8 +89,7 @@ class COMPONENTS_DOWNLOAD_EXPORT DownloadUrlParameters {
       int render_process_host_id,
       int render_view_host_routing_id,
       int render_frame_host_routing_id,
-      const net::NetworkTrafficAnnotationTag& traffic_annotation,
-      const net::NetworkIsolationKey& network_isolation_key);
+      const net::NetworkTrafficAnnotationTag& traffic_annotation);
 
   ~DownloadUrlParameters();
 
@@ -108,7 +105,7 @@ class COMPONENTS_DOWNLOAD_EXPORT DownloadUrlParameters {
 
   // HTTP Referrer, referrer policy and encoding.
   void set_referrer(const GURL& referrer) { referrer_ = referrer; }
-  void set_referrer_policy(net::URLRequest::ReferrerPolicy referrer_policy) {
+  void set_referrer_policy(net::ReferrerPolicy referrer_policy) {
     referrer_policy_ = referrer_policy;
   }
   void set_referrer_encoding(const std::string& referrer_encoding) {
@@ -268,9 +265,7 @@ class COMPONENTS_DOWNLOAD_EXPORT DownloadUrlParameters {
   int64_t post_id() const { return post_id_; }
   bool prefer_cache() const { return prefer_cache_; }
   const GURL& referrer() const { return referrer_; }
-  net::URLRequest::ReferrerPolicy referrer_policy() const {
-    return referrer_policy_;
-  }
+  net::ReferrerPolicy referrer_policy() const { return referrer_policy_; }
   const std::string& referrer_encoding() const { return referrer_encoding_; }
   const base::Optional<url::Origin>& initiator() const { return initiator_; }
   const std::string& request_origin() const { return request_origin_; }
@@ -311,9 +306,6 @@ class COMPONENTS_DOWNLOAD_EXPORT DownloadUrlParameters {
   bool is_transient() const { return transient_; }
   std::string guid() const { return guid_; }
   bool require_safety_checks() const { return require_safety_checks_; }
-  const net::NetworkIsolationKey& network_isolation_key() const {
-    return network_isolation_key_;
-  }
 
   // STATE CHANGING: All save_info_ sub-objects will be in an indeterminate
   // state following this call.
@@ -342,7 +334,7 @@ class COMPONENTS_DOWNLOAD_EXPORT DownloadUrlParameters {
   int64_t post_id_;
   bool prefer_cache_;
   GURL referrer_;
-  net::URLRequest::ReferrerPolicy referrer_policy_;
+  net::ReferrerPolicy referrer_policy_;
   base::Optional<url::Origin> initiator_;
   std::string referrer_encoding_;
   int render_process_host_id_;
@@ -361,7 +353,6 @@ class COMPONENTS_DOWNLOAD_EXPORT DownloadUrlParameters {
   DownloadSource download_source_;
   UploadProgressCallback upload_callback_;
   bool require_safety_checks_;
-  net::NetworkIsolationKey network_isolation_key_;
 
   DISALLOW_COPY_AND_ASSIGN(DownloadUrlParameters);
 };

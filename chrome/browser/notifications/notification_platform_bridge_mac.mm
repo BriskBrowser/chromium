@@ -24,7 +24,6 @@
 #include "base/strings/sys_string_conversions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/system/sys_info.h"
-#include "base/task/post_task.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/notifications/notification_common.h"
 #include "chrome/browser/notifications/notification_display_service_impl.h"
@@ -37,7 +36,7 @@
 #import "chrome/browser/ui/cocoa/notifications/notification_response_builder_mac.h"
 #include "chrome/common/buildflags.h"
 #include "chrome/grit/generated_resources.h"
-#include "components/crash/content/app/crashpad.h"
+#include "components/crash/core/app/crashpad.h"
 #include "components/url_formatter/elide_url.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
@@ -114,7 +113,10 @@ void RecordXPCEvent(XPCConnectionEvent event) {
 base::string16 CreateNotificationTitle(
     const message_center::Notification& notification) {
   base::string16 title;
-  if (notification.type() == message_center::NOTIFICATION_TYPE_PROGRESS) {
+  // Show progress percentage if available. We don't support indeterminate
+  // states on macOS native notifications.
+  if (notification.type() == message_center::NOTIFICATION_TYPE_PROGRESS &&
+      notification.progress() >= 0 && notification.progress() <= 100) {
     title += base::FormatPercent(notification.progress());
     title += base::UTF8ToUTF16(" - ");
   }
@@ -300,6 +302,8 @@ void NotificationPlatformBridgeMac::Display(
   [builder setNotificationId:base::SysUTF8ToNSString(notification.id())];
   [builder setProfileId:base::SysUTF8ToNSString(GetProfileId(profile))];
   [builder setIncognito:profile->IsOffTheRecord()];
+  [builder setCreatorPid:[NSNumber numberWithInteger:static_cast<NSInteger>(
+                                                         getpid())]];
   [builder
       setNotificationType:[NSNumber numberWithInteger:static_cast<NSInteger>(
                                                           notification_type)]];
@@ -391,8 +395,8 @@ void NotificationPlatformBridgeMac::ProcessNotificationResponse(
     action_index = button_index.intValue;
   }
 
-  base::PostTask(
-      FROM_HERE, {content::BrowserThread::UI},
+  content::GetUIThreadTaskRunner({})->PostTask(
+      FROM_HERE,
       base::BindOnce(DoProcessNotificationResponse,
                      static_cast<NotificationCommon::Operation>(
                          operation.unsignedIntValue),
@@ -412,6 +416,8 @@ bool NotificationPlatformBridgeMac::VerifyNotificationData(
       ![response objectForKey:notification_constants::kNotificationId] ||
       ![response objectForKey:notification_constants::kNotificationProfileId] ||
       ![response objectForKey:notification_constants::kNotificationIncognito] ||
+      ![response
+          objectForKey:notification_constants::kNotificationCreatorPid] ||
       ![response objectForKey:notification_constants::kNotificationType]) {
     LOG(ERROR) << "Missing required key";
     return false;
@@ -427,6 +433,12 @@ bool NotificationPlatformBridgeMac::VerifyNotificationData(
       [response objectForKey:notification_constants::kNotificationProfileId];
   NSNumber* notification_type =
       [response objectForKey:notification_constants::kNotificationType];
+  NSNumber* creator_pid =
+      [response objectForKey:notification_constants::kNotificationCreatorPid];
+
+  if (creator_pid.unsignedIntValue != static_cast<NSInteger>(getpid())) {
+    return false;
+  }
 
   if (button_index.intValue <
           notification_constants::kNotificationInvalidButtonIndex ||
@@ -463,7 +475,7 @@ bool NotificationPlatformBridgeMac::VerifyNotificationData(
   // Origin is not actually required but if it's there it should be a valid one.
   NSString* origin =
       [response objectForKey:notification_constants::kNotificationOrigin];
-  if (origin) {
+  if (origin && origin.length) {
     std::string notificationOrigin = base::SysNSStringToUTF8(origin);
     GURL url(notificationOrigin);
     if (!url.is_valid())
@@ -614,8 +626,8 @@ getDisplayedAlertsForProfileId:(NSString*)profileId
     for (NSString* alert in alerts)
       displayedNotifications.insert(base::SysNSStringToUTF8(alert));
 
-    base::PostTask(
-        FROM_HERE, {content::BrowserThread::UI},
+    content::GetUIThreadTaskRunner({})->PostTask(
+        FROM_HERE,
         base::BindOnce(copyable_callback, std::move(displayedNotifications),
                        true /* supports_synchronization */));
   };

@@ -10,10 +10,12 @@
 #include "ash/app_list/views/app_list_view.h"
 #include "ash/app_list/views/contents_view.h"
 #include "ash/assistant/ui/assistant_view_ids.h"
+#include "ash/public/cpp/ash_pref_names.h"
 #include "ash/public/cpp/assistant/assistant_state.h"
 #include "ash/public/cpp/tablet_mode.h"
 #include "ash/session/session_controller_impl.h"
 #include "ash/shell.h"
+#include "ash/wm/overview/overview_controller.h"
 #include "base/bind.h"
 #include "components/prefs/pref_service.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -91,24 +93,47 @@ views::View* AssistantTestApiImpl::keyboard_input_toggle() {
   return page_view()->GetViewByID(AssistantViewID::kKeyboardInputToggle);
 }
 
+views::View* AssistantTestApiImpl::suggestion_chip_container() {
+  return page_view()->GetViewByID(AssistantViewID::kSuggestionContainer);
+}
+
+views::View* AssistantTestApiImpl::onboarding_view() {
+  return page_view()->GetViewByID(AssistantViewID::kOnboardingView);
+}
+
+views::View* AssistantTestApiImpl::opt_in_view() {
+  return page_view()->GetViewByID(AssistantViewID::kOptInView);
+}
+
 aura::Window* AssistantTestApiImpl::window() {
   return main_view()->GetWidget()->GetNativeWindow();
 }
 
-views::View* AssistantTestApiImpl::app_list_view() {
-  return static_cast<views::View*>(contents_view()->app_list_view());
+AppListView* AssistantTestApiImpl::app_list_view() {
+  return contents_view()->app_list_view();
 }
 
 aura::Window* AssistantTestApiImpl::root_window() {
   return Shell::Get()->GetPrimaryRootWindow();
 }
 
-void AssistantTestApiImpl::SetAssistantEnabled(bool value) {
+void AssistantTestApiImpl::SetAssistantEnabled(bool enabled) {
   Shell::Get()->session_controller()->GetPrimaryUserPrefService()->SetBoolean(
-      chromeos::assistant::prefs::kAssistantEnabled, value);
+      chromeos::assistant::prefs::kAssistantEnabled, enabled);
 
   // Ensure the value has taken effect.
-  ASSERT_EQ(GetAssistantState()->settings_enabled(), value)
+  ASSERT_EQ(GetAssistantState()->settings_enabled(), enabled)
+      << "Changing this preference did not take effect immediately, which will "
+         "cause timing issues in this test. If this trace is seen we must add "
+         "a waiter here to wait for the new state to take effect.";
+}
+
+void AssistantTestApiImpl::SetScreenContextEnabled(bool enabled) {
+  Shell::Get()->session_controller()->GetPrimaryUserPrefService()->SetBoolean(
+      chromeos::assistant::prefs::kAssistantContextEnabled, enabled);
+
+  // Ensure the value has taken effect.
+  ASSERT_EQ(GetAssistantState()->context_enabled(), enabled)
       << "Changing this preference did not take effect immediately, which will "
          "cause timing issues in this test. If this trace is seen we must add "
          "a waiter here to wait for the new state to take effect.";
@@ -116,6 +141,41 @@ void AssistantTestApiImpl::SetAssistantEnabled(bool value) {
 
 void AssistantTestApiImpl::SetTabletMode(bool enable) {
   TabletMode::Get()->SetEnabledForTest(enable);
+}
+
+void AssistantTestApiImpl::StartOverview() {
+  Shell::Get()->overview_controller()->StartOverview();
+}
+
+void AssistantTestApiImpl::SetConsentStatus(
+    chromeos::assistant::prefs::ConsentStatus consent_status) {
+  Shell::Get()->session_controller()->GetPrimaryUserPrefService()->SetInteger(
+      chromeos::assistant::prefs::kAssistantConsentStatus, consent_status);
+
+  // Ensure the value has taken effect.
+  ASSERT_EQ(GetAssistantState()->consent_status(), consent_status)
+      << "Changing this preference did not take effect immediately, which will "
+         "cause timing issues in this test. If this trace is seen we must add "
+         "a waiter here to wait for the new state to take effect.";
+}
+
+void AssistantTestApiImpl::SetNumberOfSessionsWhereOnboardingShown(
+    int number_of_sessions) {
+  Shell::Get()->session_controller()->GetPrimaryUserPrefService()->SetInteger(
+      prefs::kAssistantNumSessionsWhereOnboardingShown, number_of_sessions);
+}
+
+void AssistantTestApiImpl::SetOnboardingMode(
+    chromeos::assistant::prefs::AssistantOnboardingMode onboarding_mode) {
+  Shell::Get()->session_controller()->GetPrimaryUserPrefService()->SetString(
+      chromeos::assistant::prefs::kAssistantOnboardingMode,
+      chromeos::assistant::prefs::ToOnboardingModeString(onboarding_mode));
+
+  // Ensure the value has taken effect.
+  ASSERT_EQ(GetAssistantState()->onboarding_mode(), onboarding_mode)
+      << "Changing this preference did not take effect immediately, which will "
+         "cause timing issues in this test. If this trace is seen we must add "
+         "a waiter here to wait for the new state to take effect.";
 }
 
 void AssistantTestApiImpl::SetPreferVoice(bool value) {
@@ -129,8 +189,17 @@ void AssistantTestApiImpl::SetPreferVoice(bool value) {
          "a waiter here to wait for the new state to take effect.";
 }
 
+void AssistantTestApiImpl::SetTimeOfLastInteraction(base::Time time) {
+  Shell::Get()->session_controller()->GetPrimaryUserPrefService()->SetTime(
+      prefs::kAssistantTimeOfLastInteraction, time);
+}
+
 AssistantState* AssistantTestApiImpl::GetAssistantState() {
   return AssistantState::Get();
+}
+
+void AssistantTestApiImpl::WaitUntilIdle() {
+  base::RunLoop().RunUntilIdle();
 }
 
 void AssistantTestApiImpl::EnableAnimations() {

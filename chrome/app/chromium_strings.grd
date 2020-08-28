@@ -32,8 +32,10 @@ If you update this file, be sure also to update google_chrome_strings.grd. -->
       <output filename="chromium_strings_pa.pak" type="data_package" lang="pa" />
       <output filename="chromium_strings_si.pak" type="data_package" lang="si" />
       <output filename="chromium_strings_sq.pak" type="data_package" lang="sq" />
+      <output filename="chromium_strings_sr-Latn.pak" type="data_package" lang="sr-Latn" />
       <output filename="chromium_strings_ur.pak" type="data_package" lang="ur" />
       <output filename="chromium_strings_uz.pak" type="data_package" lang="uz" />
+      <output filename="chromium_strings_zh-HK.pak" type="data_package" lang="zh-HK" />
       <output filename="chromium_strings_zu.pak" type="data_package" lang="zu" />
     </if>
     <output filename="chromium_strings_am.pak" type="data_package" lang="am" />
@@ -159,6 +161,7 @@ If you update this file, be sure also to update google_chrome_strings.grd. -->
     <file path="resources/chromium_strings_sl.xtb" lang="sl" />
     <file path="resources/chromium_strings_sq.xtb" lang="sq" />
     <file path="resources/chromium_strings_sr.xtb" lang="sr" />
+    <file path="resources/chromium_strings_sr-Latn.xtb" lang="sr-Latn" />
     <file path="resources/chromium_strings_sv.xtb" lang="sv" />
     <file path="resources/chromium_strings_sw.xtb" lang="sw" />
     <file path="resources/chromium_strings_ta.xtb" lang="ta" />
@@ -206,9 +209,6 @@ If you update this file, be sure also to update google_chrome_strings.grd. -->
           Chromium OS
         </message>
       </if>
-      <message name="IDS_SHORT_PRODUCT_LOGO_ALT_TEXT" desc="Alt text for the Chromium logo image.">
-        Chromium logo
-      </message>
       <!-- Chrome enterprise logo won't be used in Chromium -->
       <message name="IDS_PRODUCT_LOGO_ENTERPRISE_ALT_TEXT" desc="Alt text for the Chromium Enterprise logo image."/>
       <if expr="is_win">
@@ -216,9 +216,16 @@ If you update this file, be sure also to update google_chrome_strings.grd. -->
           New window
         </message>
       </if>
-      <message name="IDS_TASK_MANAGER_TITLE" desc="The title of the Task Manager window">
-        Task Manager - Chromium
-      </message>
+      <if expr="is_macosx or chromeos">
+        <message name="IDS_TASK_MANAGER_TITLE" desc="The title of the Task Manager window">
+          Task Manager
+        </message>
+      </if>
+      <if expr="not is_macosx and not chromeos">
+        <message name="IDS_TASK_MANAGER_TITLE" desc="The title of the Task Manager window">
+          Task Manager - Chromium
+        </message>
+      </if>
       <message name="IDS_SESSION_CRASHED_VIEW_UMA_OPTIN" desc="Text besides the checkbox to let users optin to UMA in the restore from previous crash bubble.">
         Help make Chromium better by sending crash reports and <ph name="UMA_LINK">$1<ex>usage statistics</ex></ph> to Google
       </message>
@@ -232,6 +239,24 @@ If you update this file, be sure also to update google_chrome_strings.grd. -->
         <!-- Browser Window Title Format -->
         <message name="IDS_BROWSER_WINDOW_TITLE_FORMAT" desc="The format for titles displayed in tabbed browser windows">
           Chromium - <ph name="PAGE_TITLE">$1<ex>Google</ex></ph>
+        </message>
+      </if>
+      <if expr="not chromeos and not is_macosx">
+        <!-- Captive Portal Browser Window Title Format -->
+        <message name="IDS_CAPTIVE_PORTAL_BROWSER_WINDOW_TITLE_FORMAT" desc="The format for titles displayed in captive portal popup windows">
+          <ph name="PAGE_TITLE">$1<ex>Google</ex></ph> - Network Sign-in - Chromium
+        </message>
+      </if>
+      <if expr="chromeos">
+        <!-- Captive Portal Browser Window Title Format -->
+        <message name="IDS_CAPTIVE_PORTAL_BROWSER_WINDOW_TITLE_FORMAT" desc="The format for titles displayed in captive portal popup windows">
+          Chromium - Network Sign-in - <ph name="PAGE_TITLE">$1<ex>Google</ex></ph>
+        </message>
+      </if>
+      <if expr="is_macosx">
+        <!-- Captive Portal Browser Window Title Format -->
+        <message name="IDS_CAPTIVE_PORTAL_BROWSER_WINDOW_TITLE_FORMAT" desc="The format for titles displayed in captive portal popup windows">
+          <ph name="PAGE_TITLE">$1<ex>Google</ex></ph> - Network Sign-in
         </message>
       </if>
       <!-- Accessible window title format - includes the channel, and the same
@@ -266,7 +291,7 @@ If you update this file, be sure also to update google_chrome_strings.grd. -->
         </message>
       </if>
       <message name="IDS_ABOUT_TERMS_OF_SERVICE" desc="The terms of service label in the About box." translateable="false">
-        Not used in Chromium. Placeholder to keep resource maps in sync. It expects one argument: <ph name="ARGUMENT">$1</ph>.
+        Not used in Chromium. Placeholder to keep resource maps in sync.
       </message>
       <if expr="is_macosx">
         <message name="IDS_MAC_10_9_OBSOLETE_NOW" desc="A message displayed on an at-launch infobar and About (Help) page warning the user that the OS version they are using is no longer supported.">
@@ -324,7 +349,7 @@ Chromium cannot read and write to its data directory:
       </message>
       <if expr="chromeos">
         <message name="IDS_EULA_CHECKBOX_ENABLE_LOGGING" desc="The label of the checkbox to enable/disable crash and user metrics logging">
-          Optional: Help make Chromium better by automatically sending usage statistics and crash reports to Google.
+          Optional: Help improve Chromium OS features and performance by automatically sending diagnostic and usage data to Google.
         </message>
       </if>
       <message name="IDS_PROFILE_TOO_NEW_ERROR" desc="Error displayed on startup when the profile is from a newer version of the product and can not be read">
@@ -366,6 +391,12 @@ Chromium is unable to recover your settings.
         <message name="IDS_PASSWORDS_PAGE_AUTHENTICATION_PROMPT" desc="Text for the dialog box that prompts the user for their OS account password before revealing plaintext passwords on the password page.">
           Chromium is trying to show passwords.
         </message>
+        <message name="IDS_PASSWORDS_PAGE_COPY_AUTHENTICATION_PROMPT" desc="Text for the dialog box that prompts the user for their OS account password before copying plaintext passwords into the clipboard.">
+          Chromium is trying to copy passwords.
+        </message>
+        <message name="IDS_PASSWORDS_PAGE_EDIT_AUTHENTICATION_PROMPT" desc="Text for the dialog box that prompts the user for their OS account password before editing plaintext passwords on the password page.">
+          Chromium is trying to edit passwords.
+        </message>
         <message name="IDS_PASSWORDS_PAGE_EXPORT_AUTHENTICATION_PROMPT" desc="Text for the dialog box that prompts the user for their OS account password before exporting passwords to a file.">
           Chromium wants to export your passwords.
         </message>
@@ -373,6 +404,12 @@ Chromium is unable to recover your settings.
       <if expr="is_win">
         <message name="IDS_PASSWORDS_PAGE_AUTHENTICATION_PROMPT" desc="Text for the dialog box that prompts the user for their OS account password before revealing plaintext passwords on the password page.">
           Chromium is trying to show passwords. Type your Windows password to allow this.
+        </message>
+        <message name="IDS_PASSWORDS_PAGE_COPY_AUTHENTICATION_PROMPT" desc="Text for the dialog box that prompts the user for their OS account password before copying plaintext passwords into the clipboard.">
+          Chromium is trying to copy passwords. Type your Windows password to allow this.
+        </message>
+        <message name="IDS_PASSWORDS_PAGE_EDIT_AUTHENTICATION_PROMPT" desc="Text for the dialog box that prompts the user for their OS account password before editing plaintext passwords on the password page.">
+          Chromium is trying to edit passwords. Type your Windows password to allow this.
         </message>
         <message name="IDS_PASSWORDS_PAGE_EXPORT_AUTHENTICATION_PROMPT" desc="Text for the dialog box that prompts the user for their OS account password before exporting passwords to a file.">
           Chromium wants to export your passwords. Type your Windows password to allow this.
@@ -664,6 +701,16 @@ Chromium is unable to recover your settings.
         </message>
       </if>
 
+      <!-- Dice Web Signin Interception Bubble-->
+      <if expr="not chromeos and not is_android">
+        <message name="IDS_SIGNIN_DICE_WEB_INTERCEPT_CONSUMER_BUBBLE_TITLE" desc="Title of the web signin interception bubble">
+          Create your own profile in Chromium?
+        </message>
+        <message name="IDS_SIGNIN_DICE_WEB_INTERCEPT_ENTERPRISE_CONSUMER_BUBBLE_DESC" desc="Body of the web signin interception bubble when the new account is managed and the existing account is personal">
+          To separate personal and <ph name="NEW_USER">$1<ex>example.com</ex></ph> browsing, create a new profile in Chromium
+        </message>
+      </if>
+
       <!-- Chrome Cleanup prompt.
            Note: these strings should only be used by Google Chrome, but
                  omitting them brings up a hash collision error. -->
@@ -690,10 +737,10 @@ Chromium is unable to recover your settings.
           Chromium OS System
         </message>
         <message name="IDS_SYNC_NEEDS_KEYS_FOR_EVERYTHING_ERROR_BUBBLE_VIEW_MESSAGE" desc="Message in the sync error notification when the user needs to reauth to retrieve the sync encryption keys and resume sync.">
-          Chromium OS could not sync your data. Fix now.
+          Chromium OS could not sync your data.
         </message>
         <message name="IDS_SYNC_NEEDS_KEYS_FOR_PASSWORDS_ERROR_BUBBLE_VIEW_MESSAGE" desc="Message in the sync error notification when the user needs to reauth to retrieve the sync encryption keys, required to resume syncing of passwords specifically (other sync data works normally).">
-          Chromium OS could not sync your passwords. Fix now.
+          Chromium OS could not sync your passwords.
         </message>
         <message name="IDS_SYNC_PASSPHRASE_ERROR_BUBBLE_VIEW_MESSAGE" desc="Message in the sync error notification when the user needs to update their sync passphrase.">
           Chromium OS could not sync your data. Please update your Sync passphrase.
@@ -917,9 +964,6 @@ Chromium is unable to recover your settings.
       </message>
 
       <!-- User menu errors -->
-      <message name="IDS_SYNC_ERROR_USER_MENU_UPGRADE_MESSAGE" desc="Message of the out-of-date Chrome client error in the header of desktop user menu.">
-        Chromium is out of date
-      </message>
       <message name="IDS_SYNC_ERROR_USER_MENU_UPGRADE_BUTTON" desc="Button in the header of desktop user menu that prompts the user to update Chrome to fix the out-of-date Chrome client error.">
         Update Chromium
       </message>
@@ -979,6 +1023,9 @@ Chromium is unable to recover your settings.
 
       <!-- Runtime permission strings -->
       <if expr="is_android">
+        <message name="IDS_INFOBAR_MISSING_AR_CAMERA_PERMISSION_TEXT" desc="Text shown in an infobar when a website has requested access to augmented reality capabilities, but Chrome is missing the Android camera permission.">
+          Chromium needs permission to access your camera to create a 3D map of your surroundings
+        </message>
         <message name="IDS_INFOBAR_MISSING_CAMERA_PERMISSION_TEXT" desc="Text shown in an infobar when a website has requested access to the camera capabilities, but Chrome is missing the Android camera permission.">
           Chromium needs permission to access your camera for this site
         </message>
@@ -1088,6 +1135,42 @@ Chromium is unable to recover your settings.
       <if expr="not is_android">
         <message name="IDS_HATS_BUBBLE_TITLE" translateable="false" desc="The title of Happiness Tracking Survey's invitation banner, it invites users to take a survey">
           Help us improve Chromium
+        </message>
+      </if>
+      <!-- Chrome parent extension/app install blocking dialog. -->
+      <if expr="chromeos">
+        <message name="IDS_EXTENSION_INSTALL_BLOCKED_BY_PARENT_PROMPT_MESSAGE" desc="Text for the dialog indicating that a parent has blocked extensions and apps.">
+         Your parent has turned off "Permissions for sites, apps and extensions" for Chromium. Adding this <ph name="EXTENSION_TYPE_PARAMETER">$1<ex>extension</ex></ph> is not allowed.
+        </message>
+        <message name="IDS_EXTENSION_ENABLE_BLOCKED_BY_PARENT_PROMPT_MESSAGE" desc="Text for the dialog indicating that a parent has blocked extensions and apps.">
+         Your parent has turned off "Permissions for sites, apps and extensions" for Chromium. Enabling this <ph name="EXTENSION_TYPE_PARAMETER">$1<ex>extension</ex></ph> is not allowed.
+        </message>
+
+      </if>
+
+      <!-- Profile Picker -->
+      <if expr="not chromeos and not is_android">
+        <message name="IDS_PROFILE_PICKER_MAIN_VIEW_TITLE" desc="Profile picker main view title">
+          Who's using Chromium?
+        </message>
+        <message name="IDS_PROFILE_PICKER_MAIN_VIEW_SUBTITLE" desc="Profile picker main view subtitle">
+          Use different profiles in Chromium to separate work and personal browsing, or for different people who use this device
+        </message>
+        <message name="IDS_PROFILE_PICKER_REMOVE_WARNING_SIGNED_IN_PROFILE" desc="Remove warning message shown for signed in profiles shown when the user selects remove from the 3 dotted menu">
+          This will permanently delete your browsing data from this device. To recover the data, sign in to Chromium as
+        </message>
+        <message name="IDS_PROFILE_PICKER_PROFILE_CREATION_FLOW_PROFILE_TYPE_CHOICE_TITLE" desc="Profile picker profile type choice title">
+          Set up your new Chromium profile
+        </message>
+        <message name="IDS_PROFILE_PICKER_ASK_ON_STARTUP" desc="Text for the checkbox on the profile picker main view">
+          Ask when I open Chromium
+        </message>
+      </if>
+
+      <!-- Global Media Controls -->
+      <if expr="not is_android">
+        <message name="IDS_GLOBAL_MEDIA_CONTROLS_DEVICES_BUTTON_LABEL" desc="Label for a button that opens a menu for picking an audio device to play from.">
+          Devices
         </message>
       </if>
     </messages>

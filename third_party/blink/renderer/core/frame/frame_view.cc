@@ -12,9 +12,15 @@
 #include "third_party/blink/renderer/core/intersection_observer/intersection_geometry.h"
 #include "third_party/blink/renderer/core/intersection_observer/intersection_observer.h"
 #include "third_party/blink/renderer/core/layout/layout_embedded_content.h"
+#include "third_party/blink/renderer/core/layout/layout_view.h"
 #include "third_party/blink/renderer/core/page/page.h"
+#include "ui/gfx/transform.h"
 
 namespace blink {
+
+FrameView::FrameView(const IntRect& frame_rect)
+    : EmbeddedContentView(frame_rect),
+      frame_visibility_(blink::mojom::FrameVisibility::kRenderedInViewport) {}
 
 Frame& FrameView::GetFrame() const {
   if (const LocalFrameView* lfv = DynamicTo<LocalFrameView>(this))
@@ -25,12 +31,13 @@ Frame& FrameView::GetFrame() const {
 bool FrameView::CanThrottleRenderingForPropagation() const {
   if (CanThrottleRendering())
     return true;
-  LocalFrame* parent_frame = DynamicTo<LocalFrame>(GetFrame().Tree().Parent());
-  if (!parent_frame)
-    return false;
   Frame& frame = GetFrame();
-  LayoutEmbeddedContent* owner = frame.OwnerLayoutObject();
-  return !owner && frame.IsCrossOriginSubframe();
+  if (!frame.IsCrossOriginToMainFrame())
+    return false;
+  if (frame.IsLocalFrame() && To<LocalFrame>(frame).IsHidden())
+    return true;
+  LocalFrame* parent_frame = DynamicTo<LocalFrame>(GetFrame().Tree().Parent());
+  return (parent_frame && !frame.OwnerLayoutObject());
 }
 
 bool FrameView::DisplayLockedInParentFrame() {
@@ -46,14 +53,16 @@ void FrameView::UpdateViewportIntersection(unsigned flags,
                                            bool needs_occlusion_tracking) {
   if (!(flags & IntersectionObservation::kImplicitRootObserversNeedUpdate))
     return;
+
   // This should only run in child frames.
   Frame& frame = GetFrame();
   HTMLFrameOwnerElement* owner_element = frame.DeprecatedLocalOwner();
   if (!owner_element)
     return;
+
   Document& owner_document = owner_element->GetDocument();
-  IntPoint viewport_offset;
-  IntRect viewport_intersection, mainframe_document_intersection;
+  IntRect viewport_intersection, mainframe_intersection;
+  TransformationMatrix main_frame_transform_matrix;
   DocumentLifecycle::LifecycleState parent_lifecycle_state =
       owner_document.Lifecycle().GetState();
   FrameOcclusionState occlusion_state =
@@ -61,8 +70,7 @@ void FrameView::UpdateViewportIntersection(unsigned flags,
   bool should_compute_occlusion =
       needs_occlusion_tracking &&
       occlusion_state == FrameOcclusionState::kGuaranteedNotOccluded &&
-      parent_lifecycle_state >= DocumentLifecycle::kPrePaintClean &&
-      RuntimeEnabledFeatures::IntersectionObserverV2Enabled();
+      parent_lifecycle_state >= DocumentLifecycle::kPrePaintClean;
 
   LayoutEmbeddedContent* owner_layout_object =
       owner_element->GetLayoutEmbeddedContent();
@@ -78,9 +86,9 @@ void FrameView::UpdateViewportIntersection(unsigned flags,
     if (should_compute_occlusion)
       geometry_flags |= IntersectionGeometry::kShouldComputeVisibility;
 
-    IntersectionGeometry geometry(nullptr, *owner_element, {},
+    IntersectionGeometry geometry(nullptr, *owner_element, {} /* root_margin */,
                                   {IntersectionObserver::kMinimumThreshold},
-                                  geometry_flags);
+                                  {} /* target_margin */, geometry_flags);
     PhysicalRect new_rect_in_parent = geometry.IntersectionRect();
     if (new_rect_in_parent.size != rect_in_parent_.size ||
         ((new_rect_in_parent.X() - rect_in_parent_.X()).Abs() +
@@ -96,19 +104,6 @@ void FrameView::UpdateViewportIntersection(unsigned flags,
     if (should_compute_occlusion && !geometry.IsVisible())
       occlusion_state = FrameOcclusionState::kPossiblyOccluded;
 
-    // The coordinate system for the iframe's LayoutObject has its origin at the
-    // top/left of the border box rect. The coordinate system of the child frame
-    // is the same as the coordinate system of the iframe's content box rect.
-    // The iframe's PhysicalContentBoxOffset() can be used to move between them.
-    PhysicalOffset content_box_offset =
-        owner_layout_object->PhysicalContentBoxOffset();
-
-    if (NeedsViewportOffset()) {
-      viewport_offset =
-          RoundedIntPoint(owner_layout_object->LocalToAbsolutePoint(
-              content_box_offset,
-              kTraverseDocumentBoundaries | kApplyRemoteRootFrameOffset));
-    }
     // Generate matrix to transform from the space of the containing document
     // to the space of the iframe's contents.
     TransformState parent_frame_to_iframe_content_transform(
@@ -137,31 +132,59 @@ void FrameView::UpdateViewportIntersection(unsigned flags,
       }
     }
 
+    PhysicalRect mainframe_intersection_rect;
     if (!geometry.UnclippedIntersectionRect().IsEmpty()) {
-      PhysicalRect mainframe_intersection_rect;
       mainframe_intersection_rect = PhysicalRect::EnclosingRect(
           matrix.ProjectQuad(FloatRect(geometry.UnclippedIntersectionRect()))
               .BoundingBox());
 
       if (mainframe_intersection_rect.IsEmpty()) {
-        mainframe_document_intersection = IntRect(
+        mainframe_intersection = IntRect(
             FlooredIntPoint(mainframe_intersection_rect.offset), IntSize());
       } else {
-        mainframe_document_intersection =
-            EnclosingIntRect(mainframe_intersection_rect);
+        mainframe_intersection = EnclosingIntRect(mainframe_intersection_rect);
       }
     }
+
+    TransformState child_frame_to_root_frame(
+        TransformState::kUnapplyInverseTransformDirection);
+    if (owner_layout_object) {
+      owner_layout_object->MapAncestorToLocal(
+          nullptr, child_frame_to_root_frame,
+          kTraverseDocumentBoundaries | kApplyRemoteMainFrameTransform);
+      child_frame_to_root_frame.Move(
+          owner_layout_object->PhysicalContentBoxOffset());
+    }
+    main_frame_transform_matrix =
+        child_frame_to_root_frame.AccumulatedTransform();
   } else if (occlusion_state == FrameOcclusionState::kGuaranteedNotOccluded) {
     // If the parent LocalFrameView is throttled and out-of-date, then we can't
     // get any useful information.
     occlusion_state = FrameOcclusionState::kUnknown;
   }
 
-  SetViewportIntersection({viewport_offset, viewport_intersection,
-                           mainframe_document_intersection, WebRect(),
-                           occlusion_state});
+  // An iframe's content is always pixel-snapped, even if the iframe element has
+  // non-pixel-aligned location.
+  gfx::Transform main_frame_gfx_transform =
+      TransformationMatrix::ToTransform(main_frame_transform_matrix);
+  main_frame_gfx_transform.RoundTranslationComponents();
+  SetViewportIntersection(
+      {viewport_intersection, mainframe_intersection, WebRect(),
+       occlusion_state, frame.GetMainFrameViewportSize(),
+       frame.GetMainFrameScrollOffset(), main_frame_gfx_transform});
 
   UpdateFrameVisibility(!viewport_intersection.IsEmpty());
+
+  if (ShouldReportMainFrameIntersection()) {
+    IntRect projected_rect = EnclosingIntRect(PhysicalRect::EnclosingRect(
+        main_frame_transform_matrix
+            .ProjectQuad(FloatRect(mainframe_intersection))
+            .BoundingBox()));
+    // Return <0, 0, 0, 0> if there is no area.
+    if (projected_rect.IsEmpty())
+      projected_rect.SetLocation(IntPoint(0, 0));
+    GetFrame().Client()->OnMainFrameIntersectionChanged(projected_rect);
+  }
 
   // We don't throttle 0x0 or display:none iframes, because in practice they are
   // sometimes used to drive UI logic.

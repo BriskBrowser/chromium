@@ -18,6 +18,7 @@
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/scoped_feature_list.h"
 #include "base/third_party/dynamic_annotations/dynamic_annotations.h"
@@ -780,8 +781,7 @@ TEST_F(DiskCacheBackendTest, SimpleCreateBackendRecoveryAppCache) {
 
   // Delete the index.
   base::DeleteFile(
-      cache_path_.AppendASCII("index-dir").AppendASCII("the-real-index"),
-      false);
+      cache_path_.AppendASCII("index-dir").AppendASCII("the-real-index"));
 
   // Open the cache again. The fixture will also waits for index init.
   InitCache();
@@ -797,7 +797,7 @@ TEST_F(DiskCacheBackendTest, SimpleCreateBackendRecoveryAppCache) {
 TEST_F(DiskCacheBackendTest, CreateBackend_MissingFile) {
   ASSERT_TRUE(CopyTestCache("bad_entry"));
   base::FilePath filename = cache_path_.AppendASCII("data_1");
-  base::DeleteFile(filename, false);
+  base::DeleteFile(filename);
   net::TestCompletionCallback cb;
 
   bool prev = base::ThreadRestrictions::SetIOAllowed(false);
@@ -2324,6 +2324,7 @@ void DiskCacheBackendTest::BackendCalculateSizeOfEntriesBetween(
   ASSERT_THAT(CreateEntry("first", &entry), IsOk());
   entry->Close();
   FlushQueueForTest();
+  base::RunLoop().RunUntilIdle();
 
   AddDelay();
   Time middle = Time::Now();
@@ -2334,6 +2335,7 @@ void DiskCacheBackendTest::BackendCalculateSizeOfEntriesBetween(
   ASSERT_THAT(CreateEntry("third_entry", &entry), IsOk());
   entry->Close();
   FlushQueueForTest();
+  base::RunLoop().RunUntilIdle();
 
   AddDelay();
   Time end = Time::Now();
@@ -3917,18 +3919,18 @@ TEST_F(DiskCacheBackendTest, FileSharing) {
 #if defined(OS_WIN)
   DWORD sharing = FILE_SHARE_READ | FILE_SHARE_WRITE;
   DWORD access = GENERIC_READ | GENERIC_WRITE;
-  base::win::ScopedHandle file2(CreateFile(base::as_wcstr(name.value()), access,
+  base::win::ScopedHandle file2(CreateFile(name.value().c_str(), access,
                                            sharing, nullptr, OPEN_EXISTING, 0,
                                            nullptr));
   EXPECT_FALSE(file2.IsValid());
 
   sharing |= FILE_SHARE_DELETE;
-  file2.Set(CreateFile(base::as_wcstr(name.value()), access, sharing, nullptr,
+  file2.Set(CreateFile(name.value().c_str(), access, sharing, nullptr,
                        OPEN_EXISTING, 0, nullptr));
   EXPECT_TRUE(file2.IsValid());
 #endif
 
-  EXPECT_TRUE(base::DeleteFile(name, false));
+  EXPECT_TRUE(base::DeleteFile(name));
 
   // We should be able to use the file.
   const int kSize = 200;
@@ -4328,8 +4330,8 @@ TEST_F(DiskCacheBackendTest, DISABLED_SimpleCachePrioritizedEntryOrder) {
   // priority order.
   disk_cache::SimpleBackendImpl* simple_cache =
       static_cast<disk_cache::SimpleBackendImpl*>(cache_.get());
-  auto task_runner = base::CreateSequencedTaskRunner(
-      {base::ThreadPool(), base::TaskPriority::USER_VISIBLE, base::MayBlock()});
+  auto task_runner = base::ThreadPool::CreateSequencedTaskRunner(
+      {base::TaskPriority::USER_VISIBLE, base::MayBlock()});
   simple_cache->SetTaskRunnerForTesting(task_runner);
 
   // Create three entries. Priority order is 3, 1, 2 because 3 has the highest
@@ -4420,8 +4422,8 @@ TEST_F(DiskCacheBackendTest, SimpleCacheFIFOEntryOrder) {
   // priority order.
   disk_cache::SimpleBackendImpl* simple_cache =
       static_cast<disk_cache::SimpleBackendImpl*>(cache_.get());
-  auto task_runner = base::CreateSequencedTaskRunner(
-      {base::ThreadPool(), base::TaskPriority::USER_VISIBLE, base::MayBlock()});
+  auto task_runner = base::ThreadPool::CreateSequencedTaskRunner(
+      {base::TaskPriority::USER_VISIBLE, base::MayBlock()});
   simple_cache->SetTaskRunnerForTesting(task_runner);
 
   // Create three entries. If their priority was honored, they'd run in order
@@ -5275,4 +5277,39 @@ TEST_F(DiskCacheBackendTest, SimpleDontLeakPostDoomCreate) {
   entry->Close();
 
   // Should not have leaked files here.
+}
+
+TEST_F(DiskCacheBackendTest, BlockFileDelayedWriteFailureRecovery) {
+  // Test that blockfile recovers appropriately when some entries are
+  // in a screwed up state due to an error in delayed writeback.
+  //
+  // https://crbug.com/1086727
+  InitCache();
+
+  const char kKey[] = "Key2";
+  disk_cache::Entry* entry = nullptr;
+  ASSERT_THAT(CreateEntry(kKey, &entry), IsOk());
+
+  const int kBufSize = 24320;
+  scoped_refptr<net::IOBuffer> buffer =
+      base::MakeRefCounted<net::IOBuffer>(kBufSize);
+  CacheTestFillBuffer(buffer->data(), kBufSize, true);
+
+  ASSERT_EQ(kBufSize, WriteSparseData(entry, 0, buffer.get(), kBufSize));
+
+  // Setting the size limit artificially low injects a failure on writing back
+  // data buffered above.
+  SetMaxSize(4096);
+
+  // This causes SparseControl to close the child entry corresponding to
+  // low portion of offset space, triggering the writeback --- which fails
+  // due to the space cap, and in particular fails to allocate data for
+  // a stream, so it gets address 0.
+  ASSERT_EQ(net::ERR_FAILED, WriteSparseData(entry, 16773118, buffer.get(), 4));
+
+  // Now try reading the broken child. This should report an error, not
+  // DCHECK.
+  ASSERT_EQ(net::ERR_FAILED, ReadSparseData(entry, 4, buffer.get(), 4));
+
+  entry->Close();
 }

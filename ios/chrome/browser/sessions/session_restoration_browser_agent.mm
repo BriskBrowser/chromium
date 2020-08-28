@@ -4,20 +4,23 @@
 
 #include "ios/chrome/browser/sessions/session_restoration_browser_agent.h"
 
+#include "base/memory/ptr_util.h"
 #include "base/strings/sys_string_conversions.h"
 #include "components/favicon/ios/web_favicon_driver.h"
 #include "ios/chrome/browser/browser_state/chrome_browser_state.h"
 #include "ios/chrome/browser/chrome_url_constants.h"
 #import "ios/chrome/browser/main/browser.h"
+#import "ios/chrome/browser/metrics/previous_session_info.h"
+#import "ios/chrome/browser/sessions/session_ios.h"
 #import "ios/chrome/browser/sessions/session_ios_factory.h"
-#include "ios/chrome/browser/sessions/session_restoration_observer.h"
+#import "ios/chrome/browser/sessions/session_restoration_observer.h"
 #import "ios/chrome/browser/sessions/session_service_ios.h"
 #import "ios/chrome/browser/sessions/session_window_ios.h"
+#import "ios/chrome/browser/ui/util/multi_window_support.h"
 #import "ios/chrome/browser/web/page_placeholder_tab_helper.h"
 #import "ios/chrome/browser/web_state_list/web_state_list.h"
 #import "ios/chrome/browser/web_state_list/web_state_list_serialization.h"
-#import "ios/chrome/browser/web_state_list/web_usage_enabler/web_state_list_web_usage_enabler.h"
-#import "ios/chrome/browser/web_state_list/web_usage_enabler/web_state_list_web_usage_enabler_factory.h"
+#import "ios/chrome/browser/web_state_list/web_usage_enabler/web_usage_enabler_browser_agent.h"
 #include "ios/web/public/navigation/navigation_item.h"
 #import "ios/web/public/navigation/navigation_manager.h"
 #include "ios/web/public/security/certificate_policy_cache.h"
@@ -30,6 +33,10 @@
 #endif
 
 BROWSER_USER_DATA_KEY_IMPL(SessionRestorationBrowserAgent)
+
+namespace {
+const std::string kSessionDirectory = "Sessions";
+}
 
 // static
 void SessionRestorationBrowserAgent::CreateForBrowser(
@@ -48,14 +55,26 @@ SessionRestorationBrowserAgent::SessionRestorationBrowserAgent(
     SessionServiceIOS* session_service)
     : session_service_(session_service),
       web_state_list_(browser->GetWebStateList()),
+      web_enabler_(WebUsageEnablerBrowserAgent::FromBrowser(browser)),
       browser_state_(browser->GetBrowserState()),
       session_ios_factory_(
-          [[SessionIOSFactory alloc] initWithWebStateList:web_state_list_]) {}
+          [[SessionIOSFactory alloc] initWithWebStateList:web_state_list_]) {
+  browser->AddObserver(this);
+  web_state_list_->AddObserver(this);
+}
 
 SessionRestorationBrowserAgent::~SessionRestorationBrowserAgent() {
   // Disconnect the session factory object as it's not granteed that it will be
   // released before it's referenced by the session service.
   [session_ios_factory_ disconnect];
+}
+
+void SessionRestorationBrowserAgent::SetSessionID(
+    const std::string& session_identifier) {
+  // It's probably incorrect to set this more than once.
+  DCHECK(session_identifier_.empty() ||
+         session_identifier_ == session_identifier);
+  session_identifier_ = session_identifier;
 }
 
 void SessionRestorationBrowserAgent::AddObserver(
@@ -71,7 +90,8 @@ void SessionRestorationBrowserAgent::RemoveObserver(
 bool SessionRestorationBrowserAgent::RestoreSessionWindow(
     SessionWindowIOS* window) {
   if (!window.sessions.count)
-    return NO;
+    return false;
+  restoring_session_ = true;
 
   for (auto& observer : observers_) {
     observer.WillStartSessionRestoration();
@@ -84,18 +104,15 @@ bool SessionRestorationBrowserAgent::RestoreSessionWindow(
       WebStateList* web_state_list) {
     // Don't trigger the initial load for these restored WebStates since the
     // number of WKWebViews is unbounded and may lead to an OOM crash.
-    WebStateListWebUsageEnabler* webUsageEnabler =
-        WebStateListWebUsageEnablerFactory::GetInstance()->GetForBrowserState(
-            browser_state_);
-    const bool wasTriggersInitialLoadSet =
-        webUsageEnabler->TriggersInitialLoad();
-    webUsageEnabler->SetTriggersInitialLoad(false);
+    const bool saved_triggers_initial_load =
+        web_enabler_->TriggersInitialLoad();
+    web_enabler_->SetTriggersInitialLoad(false);
     web::WebState::CreateParams createParams(browser_state_);
     DeserializeWebStateList(
         web_state_list, window,
         base::BindRepeating(&web::WebState::CreateWithStorageSession,
                             createParams));
-    webUsageEnabler->SetTriggersInitialLoad(wasTriggersInitialLoadSet);
+    web_enabler_->SetTriggersInitialLoad(saved_triggers_initial_load);
   }));
 
   DCHECK_GT(web_state_list_->count(), old_count);
@@ -133,33 +150,58 @@ bool SessionRestorationBrowserAgent::RestoreSessionWindow(
   }
 
   // If there was only one tab and it was the new tab page, clobber it.
-  BOOL closed_ntp_tab = NO;
+  bool closed_ntp_tab = false;
   if (old_count == 1) {
     web::WebState* webState = web_state_list_->GetWebStateAt(0);
-    BOOL hasPendingLoad =
+    bool hasPendingLoad =
         webState->GetNavigationManager()->GetPendingItem() != nullptr;
     if (!hasPendingLoad &&
         webState->GetLastCommittedURL() == kChromeUINewTabURL) {
       web_state_list_->CloseWebStateAt(0, WebStateList::CLOSE_USER_ACTION);
 
-      closed_ntp_tab = YES;
+      closed_ntp_tab = true;
       old_count = 0;
     }
   }
   for (auto& observer : observers_) {
     observer.SessionRestorationFinished(restored_web_states);
   }
+  restoring_session_ = false;
   return closed_ntp_tab;
+}
+
+bool SessionRestorationBrowserAgent::RestoreSession() {
+  PreviousSessionInfo* session_info = [PreviousSessionInfo sharedInstance];
+  BOOL is_previous_session_multi_window =
+      session_info.isMultiWindowEnabledSession;
+  BOOL force_single_window =
+      IsMultiwindowSupported() && !is_previous_session_multi_window;
+  NSString* path = base::SysUTF8ToNSString(
+      GetSessionStoragePath(force_single_window).AsUTF8Unsafe());
+  auto scoped_restore = [session_info startSessionRestoration];
+  SessionIOS* session = [session_service_ loadSessionFromDirectory:path];
+  SessionWindowIOS* session_window = nil;
+
+  if (session) {
+    DCHECK_EQ(session.sessionWindows.count, 1u);
+    session_window = session.sessionWindows[0];
+  }
+
+  return RestoreSessionWindow(session_window);
+}
+
+bool SessionRestorationBrowserAgent::IsRestoringSession() {
+  return restoring_session_;
 }
 
 void SessionRestorationBrowserAgent::SaveSession(bool immediately) {
   if (!CanSaveSession())
     return;
 
-  NSString* statePath =
-      base::SysUTF8ToNSString(browser_state_->GetStatePath().AsUTF8Unsafe());
+  NSString* path = base::SysUTF8ToNSString(
+      GetSessionStoragePath(/*force_single_window=*/false).AsUTF8Unsafe());
   [session_service_ saveSession:session_ios_factory_
-                      directory:statePath
+                      directory:path
                     immediately:immediately];
 }
 
@@ -173,4 +215,38 @@ bool SessionRestorationBrowserAgent::CanSaveSession() {
     return NO;
 
   return YES;
+}
+
+// Browser Observer methods:
+void SessionRestorationBrowserAgent::BrowserDestroyed(Browser* browser) {
+  DCHECK_EQ(browser->GetWebStateList(), web_state_list_);
+  browser->GetWebStateList()->RemoveObserver(this);
+  browser->RemoveObserver(this);
+}
+
+// WebStateList Observer methods:
+void SessionRestorationBrowserAgent::WebStateActivatedAt(
+    WebStateList* web_state_list,
+    web::WebState* old_web_state,
+    web::WebState* new_web_state,
+    int active_index,
+    ActiveWebStateChangeReason reason) {
+  if (new_web_state && new_web_state->IsLoading())
+    return;
+
+  // Persist the session state if the new web state is not loading.
+  SaveSession(/*immediately=*/false);
+}
+
+base::FilePath SessionRestorationBrowserAgent::GetSessionStoragePath(
+    bool force_single_window) {
+  base::FilePath path = browser_state_->GetStatePath();
+  if (!force_single_window && IsMultiwindowSupported() &&
+      !session_identifier_.empty()) {
+    path = path.Append(kSessionDirectory)
+               .Append(session_identifier_)
+               .AsEndingWithSeparator();
+  }
+
+  return path;
 }

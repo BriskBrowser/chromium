@@ -8,7 +8,6 @@
 
 #include <string>
 
-#include "base/logging.h"
 #include "base/memory/ptr_util.h"
 #include "base/time/tick_clock.h"
 #include "cc/debug/rendering_stats_instrumentation.h"
@@ -95,6 +94,11 @@ void FakeCompositorTimingHistory::SetActivateDurationEstimate(
 void FakeCompositorTimingHistory::SetDrawDurationEstimate(
     base::TimeDelta duration) {
   draw_duration_ = duration;
+}
+
+void FakeCompositorTimingHistory::SetBeginMainFrameSentTime(
+    base::TimeTicks time) {
+  begin_main_frame_sent_time_ = time;
 }
 
 base::TimeDelta

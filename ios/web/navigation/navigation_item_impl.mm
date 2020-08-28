@@ -9,7 +9,7 @@
 #include <memory>
 #include <utility>
 
-#include "base/logging.h"
+#include "base/check_op.h"
 #include "base/strings/utf_string_conversions.h"
 #include "components/url_formatter/url_formatter.h"
 #include "ios/web/common/features.h"
@@ -36,6 +36,12 @@ static int GetUniqueIDInConstructor() {
 
 namespace web {
 
+// Value 50 was picked experimentally by examining Chrome for iOS UI. Tab strip
+// on 12.9" iPad Pro trucates the title to less than 50 characters (title that
+// only consists of letters "i"). Tab strip has the biggest surface to fit
+// title.
+const size_t kMaxTitleLength = 50;
+
 // static
 std::unique_ptr<NavigationItem> NavigationItem::Create() {
   return std::unique_ptr<NavigationItem>(new NavigationItemImpl());
@@ -45,7 +51,6 @@ NavigationItemImpl::NavigationItemImpl()
     : unique_id_(GetUniqueIDInConstructor()),
       transition_type_(ui::PAGE_TRANSITION_LINK),
       user_agent_type_(UserAgentType::NONE),
-      user_agent_type_inheritance_(UserAgentType::NONE),
       is_created_from_push_state_(false),
       has_state_been_replaced_(false),
       is_created_from_hash_change_(false),
@@ -53,12 +58,6 @@ NavigationItemImpl::NavigationItemImpl()
       should_skip_serialization_(false),
       navigation_initiation_type_(web::NavigationInitiationType::NONE),
       is_untrusted_(false) {
-  if (base::FeatureList::IsEnabled(features::kUseDefaultUserAgentInWebClient)) {
-    // TODO(crbug.com/1025227): Once it is enabled by default, move it to the
-    // default constructor.
-    user_agent_type_ = UserAgentType::AUTOMATIC;
-    user_agent_type_inheritance_ = UserAgentType::AUTOMATIC;
-  }
 }
 
 NavigationItemImpl::~NavigationItemImpl() {
@@ -77,7 +76,6 @@ NavigationItemImpl::NavigationItemImpl(const NavigationItemImpl& item)
       ssl_(item.ssl_),
       timestamp_(item.timestamp_),
       user_agent_type_(item.user_agent_type_),
-      user_agent_type_inheritance_(item.user_agent_type_inheritance_),
       http_request_headers_([item.http_request_headers_ mutableCopy]),
       serialized_state_object_([item.serialized_state_object_ copy]),
       is_created_from_push_state_(item.is_created_from_push_state_),
@@ -108,16 +106,6 @@ void NavigationItemImpl::SetURL(const GURL& url) {
   url_ = url;
   cached_display_title_.clear();
   error_retry_state_machine_.SetURL(url);
-  if (!wk_navigation_util::URLNeedsUserAgentType(url)) {
-    SetUserAgentType(UserAgentType::NONE,
-                     /*update_inherited_user_agent =*/true);
-  } else if (GetUserAgentType() == web::UserAgentType::NONE) {
-    UserAgentType type =
-        base::FeatureList::IsEnabled(features::kUseDefaultUserAgentInWebClient)
-            ? UserAgentType::AUTOMATIC
-            : UserAgentType::MOBILE;
-    SetUserAgentType(type, /*update_inherited_user_agent =*/true);
-  }
 }
 
 const GURL& NavigationItemImpl::GetURL() const {
@@ -144,7 +132,12 @@ const GURL& NavigationItemImpl::GetVirtualURL() const {
 void NavigationItemImpl::SetTitle(const base::string16& title) {
   if (title_ == title)
     return;
-  title_ = title;
+
+  if (title.size() > kMaxTitleLength) {
+    title_ = gfx::TruncateString(title, kMaxTitleLength, gfx::CHARACTER_BREAK);
+  } else {
+    title_ = title;
+  }
   cached_display_title_.clear();
 }
 
@@ -210,11 +203,8 @@ base::Time NavigationItemImpl::GetTimestamp() const {
   return timestamp_;
 }
 
-void NavigationItemImpl::SetUserAgentType(UserAgentType type,
-                                          bool update_inherited_user_agent) {
+void NavigationItemImpl::SetUserAgentType(UserAgentType type) {
   user_agent_type_ = type;
-  if (update_inherited_user_agent)
-    user_agent_type_inheritance_ = type;
   DCHECK_EQ(!wk_navigation_util::URLNeedsUserAgentType(GetURL()),
             user_agent_type_ == UserAgentType::NONE);
 }
@@ -229,10 +219,6 @@ bool NavigationItemImpl::IsUntrusted() {
 
 UserAgentType NavigationItemImpl::GetUserAgentType() const {
   return user_agent_type_;
-}
-
-UserAgentType NavigationItemImpl::GetUserAgentForInheritance() const {
-  return user_agent_type_inheritance_;
 }
 
 bool NavigationItemImpl::HasPostData() const {
@@ -338,6 +324,20 @@ void NavigationItemImpl::ResetForCommit() {
   SetNavigationInitiationType(web::NavigationInitiationType::NONE);
 }
 
+void NavigationItemImpl::RestoreStateFromItem(NavigationItem* other) {
+  // Restore the UserAgent type in any case, as if the URLs are different it
+  // might mean that |this| is a next navigation. The page display state and the
+  // virtual URL only make sense if it is the same item. The other headers might
+  // not make sense after creating a new navigation to the page.
+  if (other->GetUserAgentType() != UserAgentType::NONE) {
+    SetUserAgentType(other->GetUserAgentType());
+  }
+  if (url_ == other->GetURL()) {
+    SetPageDisplayState(other->GetPageDisplayState());
+    SetVirtualURL(other->GetVirtualURL());
+  }
+}
+
 ErrorRetryStateMachine& NavigationItemImpl::error_retry_state_machine() {
   DCHECK(!base::FeatureList::IsEnabled(web::features::kUseJSForErrorPage));
   return error_retry_state_machine_;
@@ -368,7 +368,7 @@ NSString* NavigationItemImpl::GetDescription() const {
       stringWithFormat:
           @"url:%s virtual_url_:%s originalurl:%s referrer: %s title:%s "
           @"transition:%d "
-           "displayState:%@ userAgentType:%s userAgentForInheritance:%s "
+           "displayState:%@ userAgent:%s "
            "is_create_from_push_state: %@ "
            "has_state_been_replaced: %@ is_created_from_hash_change: %@ "
            "navigation_initiation_type: %d",
@@ -377,7 +377,6 @@ NSString* NavigationItemImpl::GetDescription() const {
           base::UTF16ToUTF8(title_).c_str(), transition_type_,
           page_display_state_.GetDescription(),
           GetUserAgentTypeDescription(user_agent_type_).c_str(),
-          GetUserAgentTypeDescription(user_agent_type_inheritance_).c_str(),
           is_created_from_push_state_ ? @"true" : @"false",
           has_state_been_replaced_ ? @"true" : @"false",
           is_created_from_hash_change_ ? @"true" : @"false",

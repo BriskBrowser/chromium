@@ -4,11 +4,7 @@
 
 package org.chromium.chrome.browser.payments;
 
-import static org.chromium.chrome.browser.payments.PaymentRequestTestRule.HAVE_INSTRUMENTS;
-import static org.chromium.chrome.browser.payments.PaymentRequestTestRule.IMMEDIATE_RESPONSE;
-
-import android.os.Build;
-import android.support.test.filters.MediumTest;
+import androidx.test.filters.MediumTest;
 
 import org.junit.Assert;
 import org.junit.ClassRule;
@@ -17,15 +13,15 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 
 import org.chromium.base.test.util.CommandLineFlags;
-import org.chromium.base.test.util.DisableIf;
 import org.chromium.base.test.util.DisabledTest;
 import org.chromium.base.test.util.Feature;
 import org.chromium.chrome.R;
-import org.chromium.chrome.browser.ChromeSwitches;
 import org.chromium.chrome.browser.autofill.AutofillTestHelper;
-import org.chromium.chrome.browser.autofill.CardType;
 import org.chromium.chrome.browser.autofill.PersonalDataManager.AutofillProfile;
 import org.chromium.chrome.browser.autofill.PersonalDataManager.CreditCard;
+import org.chromium.chrome.browser.flags.ChromeSwitches;
+import org.chromium.chrome.browser.payments.PaymentRequestTestRule.AppPresence;
+import org.chromium.chrome.browser.payments.PaymentRequestTestRule.FactorySpeed;
 import org.chromium.chrome.browser.payments.PaymentRequestTestRule.MainActivityStartCallback;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.chrome.test.util.ChromeRenderTestRule;
@@ -51,8 +47,7 @@ public class PaymentRequestRetryTest implements MainActivityStartCallback {
             new PaymentRequestTestRule("payment_request_retry.html", this);
 
     @Rule
-    public RenderTestRule mRenderTestRule =
-            new RenderTestRule("components/test/data/payments/render_tests");
+    public RenderTestRule mRenderTestRule = RenderTestRule.Builder.withPublicCorpus().build();
 
     @Override
     public void onMainActivityStarted() throws TimeoutException {
@@ -63,10 +58,65 @@ public class PaymentRequestRetryTest implements MainActivityStartCallback {
                 "US", "333-333-3333", "jon.doe@gmail.com", "en-US"));
         helper.setCreditCard(new CreditCard("", "https://example.com", true /* isLocal */,
                 true /* isCached */, "Jon Doe", "5555555555554444", "" /* obfuscatedNumber */, "12",
-                "2050", "mastercard", R.drawable.mc_card, CardType.UNKNOWN, billing_address_id,
-                "" /* serverId */));
+                "2050", "mastercard", R.drawable.mc_card, billing_address_id, "" /* serverId */));
+        helper.setCreditCard(new CreditCard("", "https://example.com", true /* isLocal */,
+                true /* isCached */, "Jon Doe", "4111111111111111", "" /* obfuscatedNumber */, "12",
+                "2050", "visa", R.drawable.mc_card, billing_address_id, "" /* serverId */));
 
-        mPaymentRequestTestRule.installPaymentApp(HAVE_INSTRUMENTS, IMMEDIATE_RESPONSE);
+        mPaymentRequestTestRule.addPaymentAppFactory(
+                AppPresence.HAVE_APPS, FactorySpeed.FAST_FACTORY);
+    }
+
+    /** Tests that only the initially selected payment app is available during retry(). */
+    @Test
+    @MediumTest
+    @Feature({"Payments"})
+    public void testDoNotAllowPaymentAppChange() throws TimeoutException {
+        mPaymentRequestTestRule.triggerUIAndWait(mPaymentRequestTestRule.getReadyForInput());
+        mPaymentRequestTestRule.clickAndWait(
+                R.id.button_primary, mPaymentRequestTestRule.getReadyForUnmaskInput());
+
+        // Confirm that two payment apps are available for payment.
+        Assert.assertEquals(2, mPaymentRequestTestRule.getNumberOfPaymentApps());
+
+        mPaymentRequestTestRule.setTextInCardUnmaskDialogAndWait(
+                R.id.card_unmask_input, "123", mPaymentRequestTestRule.getReadyToUnmask());
+        mPaymentRequestTestRule.clickCardUnmaskButtonAndWait(
+                ModalDialogProperties.ButtonType.POSITIVE,
+                mPaymentRequestTestRule.getPaymentResponseReady());
+
+        // Confirm that only one payment app is available for retry().
+        mPaymentRequestTestRule.retryPaymentRequest("{}", mPaymentRequestTestRule.getReadyToPay());
+        Assert.assertEquals(1, mPaymentRequestTestRule.getNumberOfPaymentApps());
+    }
+
+    /**
+     * Tests that adding new cards is disabled during retry().
+     */
+    @Test
+    @MediumTest
+    @Feature({"Payments"})
+    public void testDoNotAllowAddingCards() throws TimeoutException {
+        mPaymentRequestTestRule.triggerUIAndWait(mPaymentRequestTestRule.getReadyForInput());
+        mPaymentRequestTestRule.clickAndWait(
+                R.id.button_primary, mPaymentRequestTestRule.getReadyForUnmaskInput());
+
+        // Confirm that "Add Card" option is available.
+        Assert.assertNotNull(mPaymentRequestTestRule.getPaymentRequestUI()
+                                     .getPaymentMethodSectionForTest()
+                                     .findViewById(R.id.payments_add_option_button));
+
+        mPaymentRequestTestRule.setTextInCardUnmaskDialogAndWait(
+                R.id.card_unmask_input, "123", mPaymentRequestTestRule.getReadyToUnmask());
+        mPaymentRequestTestRule.clickCardUnmaskButtonAndWait(
+                ModalDialogProperties.ButtonType.POSITIVE,
+                mPaymentRequestTestRule.getPaymentResponseReady());
+
+        // Confirm that "Add Card" option does not exist during retry.
+        mPaymentRequestTestRule.retryPaymentRequest("{}", mPaymentRequestTestRule.getReadyToPay());
+        Assert.assertNull(mPaymentRequestTestRule.getPaymentRequestUI()
+                                  .getPaymentMethodSectionForTest()
+                                  .findViewById(R.id.payments_add_option_button));
     }
 
     /**
@@ -172,8 +222,6 @@ public class PaymentRequestRetryTest implements MainActivityStartCallback {
      */
     @Test
     @MediumTest
-    @DisableIf.
-    Build(sdk_is_less_than = Build.VERSION_CODES.LOLLIPOP, message = "https://crbug.com/979159")
     @Feature({"Payments", "RenderTest"})
     public void testRetryWithPayerErrors() throws Throwable {
         mPaymentRequestTestRule.triggerUIAndWait(mPaymentRequestTestRule.getReadyForInput());

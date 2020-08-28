@@ -8,15 +8,10 @@
     },
     {
       "name": "LayoutInline (relative positioned) SPAN",
-      "position": [158, 158],
-      "bounds": [100, 100],
-      "contentsOpaque": true,
-      "paintInvalidations": [
-        {
-          "object": "LayoutNGBlockFlow (relative positioned) (floating) DIV id='float'",
-          "rect": [0, 0, 100, 100],
-          "reason": "background"
-        }
+      "position": [8, 8],
+      "bounds": [250, 250],
+      "invalidations": [
+        [150, 150, 100, 100]
       ]
     }
   ]

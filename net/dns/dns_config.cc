@@ -24,10 +24,10 @@ DnsConfig::DnsConfig(std::vector<IPEndPoint> nameservers)
       dns_over_tls_hostname(std::string()),
       unhandled_options(false),
       append_to_multi_label_name(true),
-      randomize_ports(false),
       ndots(1),
       timeout(kDnsDefaultTimeout),
       attempts(2),
+      doh_attempts(1),
       rotate(false),
       use_local_ipv6(false),
       secure_dns_mode(SecureDnsMode::OFF),
@@ -58,8 +58,8 @@ bool DnsConfig::EqualsIgnoreHosts(const DnsConfig& d) const {
          (search == d.search) && (unhandled_options == d.unhandled_options) &&
          (append_to_multi_label_name == d.append_to_multi_label_name) &&
          (ndots == d.ndots) && (timeout == d.timeout) &&
-         (attempts == d.attempts) && (rotate == d.rotate) &&
-         (use_local_ipv6 == d.use_local_ipv6) &&
+         (attempts == d.attempts) && (doh_attempts == d.doh_attempts) &&
+         (rotate == d.rotate) && (use_local_ipv6 == d.use_local_ipv6) &&
          (dns_over_https_servers == d.dns_over_https_servers) &&
          (secure_dns_mode == d.secure_dns_mode) &&
          (allow_dns_over_https_upgrade == d.allow_dns_over_https_upgrade) &&
@@ -76,6 +76,7 @@ void DnsConfig::CopyIgnoreHosts(const DnsConfig& d) {
   ndots = d.ndots;
   timeout = d.timeout;
   attempts = d.attempts;
+  doh_attempts = d.doh_attempts;
   rotate = d.rotate;
   use_local_ipv6 = d.use_local_ipv6;
   dns_over_https_servers = d.dns_over_https_servers;
@@ -105,6 +106,7 @@ std::unique_ptr<base::Value> DnsConfig::ToValue() const {
   dict->SetInteger("ndots", ndots);
   dict->SetDouble("timeout", timeout.InSecondsF());
   dict->SetInteger("attempts", attempts);
+  dict->SetInteger("doh_attempts", doh_attempts);
   dict->SetBoolean("rotate", rotate);
   dict->SetBoolean("use_local_ipv6", use_local_ipv6);
   dict->SetInteger("num_hosts", hosts.size());
@@ -128,16 +130,6 @@ std::unique_ptr<base::Value> DnsConfig::ToValue() const {
   dict->Set("disabled_upgrade_providers", std::move(list));
 
   return std::move(dict);
-}
-
-DnsConfig::DnsOverHttpsServerConfig::DnsOverHttpsServerConfig(
-    const std::string& server_template,
-    bool use_post)
-    : server_template(server_template), use_post(use_post) {}
-
-bool DnsConfig::DnsOverHttpsServerConfig::operator==(
-    const DnsOverHttpsServerConfig& other) const {
-  return server_template == other.server_template && use_post == other.use_post;
 }
 
 }  // namespace net

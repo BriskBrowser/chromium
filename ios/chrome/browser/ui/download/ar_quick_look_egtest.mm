@@ -37,6 +37,11 @@ using base::test::ios::kWaitForUIElementTimeout;
 
 namespace {
 
+#if defined(CHROME_EARL_GREY_2)
+// Use separate timeout for EG2 tests to accomodate for IPC delays.
+const NSTimeInterval kWaitForARPresentationTimeout = 30.0;
+#endif  // CHROME_EARL_GREY_2
+
 // USDZ landing page and download request handler.
 std::unique_ptr<net::test_server::HttpResponse> GetResponse(
     const net::test_server::HttpRequest& request) {
@@ -88,6 +93,16 @@ std::unique_ptr<net::test_server::HttpResponse> GetResponse(
 
 // Tests that QLPreviewController is shown for sucessfully downloaded USDZ file.
 - (void)testDownloadUsdz {
+#if defined(__IPHONE_14_0) && __IPHONE_OS_VERSION_MAX_ALLOWED >= __IPHONE_14_0
+  // TODO(crbug.com/1114202): The XCUIElement queries in this test are broken on
+  // Xcode 12 beta 4 when running on the iOS 12 simulator.  Disable until Xcode
+  // is fixed.
+  if (@available(iOS 13, *)) {
+  } else {
+    EARL_GREY_TEST_DISABLED(@"Test disabled on iOS12.");
+  }
+#endif
+
   [ChromeEarlGrey loadURL:self.testServer->GetURL("/")];
   [ChromeEarlGrey waitForWebStateContainingText:"Good"];
   [ChromeEarlGrey tapWebStateElementWithID:@"good"];
@@ -111,14 +126,25 @@ std::unique_ptr<net::test_server::HttpResponse> GetResponse(
   // presentation.
   XCUIApplication* app = [[XCUIApplication alloc] init];
   XCUIElement* goodTitle = app.staticTexts[@"good"];
-  GREYAssert([goodTitle waitForExistenceWithTimeout:kWaitForDownloadTimeout],
-             @"AR preview dialog UI was not presented");
+  GREYAssert(
+      [goodTitle waitForExistenceWithTimeout:kWaitForARPresentationTimeout],
+      @"AR preview dialog UI was not presented");
 #else
 #error Must define either CHROME_EARL_GREY_1 or CHROME_EARL_GREY_2.
 #endif
 }
 
 - (void)testDownloadUnauthorized {
+#if defined(__IPHONE_14_0) && __IPHONE_OS_VERSION_MAX_ALLOWED >= __IPHONE_14_0
+  // TODO(crbug.com/1114202): The XCUIElement queries in this test are broken on
+  // Xcode 12 beta 4 when running on the iOS 12 simulator.  Disable until Xcode
+  // is fixed.
+  if (@available(iOS 13, *)) {
+  } else {
+    EARL_GREY_TEST_DISABLED(@"Test disabled on iOS12.");
+  }
+#endif
+
   [ChromeEarlGrey loadURL:self.testServer->GetURL("/")];
   [ChromeEarlGrey waitForWebStateContainingText:"Unauthorized"];
   [ChromeEarlGrey tapWebStateElementWithID:@"unauthorized"];
@@ -143,7 +169,7 @@ std::unique_ptr<net::test_server::HttpResponse> GetResponse(
   XCUIApplication* app = [[XCUIApplication alloc] init];
   XCUIElement* goodTitle = app.staticTexts[@"good"];
   GREYAssertFalse(
-      [goodTitle waitForExistenceWithTimeout:kWaitForDownloadTimeout],
+      [goodTitle waitForExistenceWithTimeout:kWaitForARPresentationTimeout],
       @"AR preview dialog UI was presented");
 #else
 #error Must define either CHROME_EARL_GREY_1 or CHROME_EARL_GREY_2.
@@ -151,6 +177,16 @@ std::unique_ptr<net::test_server::HttpResponse> GetResponse(
 }
 
 - (void)testDownloadForbidden {
+#if defined(__IPHONE_14_0) && __IPHONE_OS_VERSION_MAX_ALLOWED >= __IPHONE_14_0
+  // TODO(crbug.com/1114202): The XCUIElement queries in this test are broken on
+  // Xcode 12 beta 4 when running on the iOS 12 simulator.  Disable until Xcode
+  // is fixed.
+  if (@available(iOS 13, *)) {
+  } else {
+    EARL_GREY_TEST_DISABLED(@"Test disabled on iOS12.");
+  }
+#endif
+
   [ChromeEarlGrey loadURL:self.testServer->GetURL("/")];
   [ChromeEarlGrey waitForWebStateContainingText:"Forbidden"];
   [ChromeEarlGrey tapWebStateElementWithID:@"forbidden"];
@@ -175,7 +211,7 @@ std::unique_ptr<net::test_server::HttpResponse> GetResponse(
   XCUIApplication* app = [[XCUIApplication alloc] init];
   XCUIElement* goodTitle = app.staticTexts[@"good"];
   GREYAssertFalse(
-      [goodTitle waitForExistenceWithTimeout:kWaitForDownloadTimeout],
+      [goodTitle waitForExistenceWithTimeout:kWaitForARPresentationTimeout],
       @"AR preview dialog UI was presented");
 #else
 #error Must define either CHROME_EARL_GREY_1 or CHROME_EARL_GREY_2.
@@ -183,6 +219,16 @@ std::unique_ptr<net::test_server::HttpResponse> GetResponse(
 }
 
 - (void)testDownloadChangingMimeType {
+#if defined(__IPHONE_14_0) && __IPHONE_OS_VERSION_MAX_ALLOWED >= __IPHONE_14_0
+  // TODO(crbug.com/1114202): The XCUIElement queries in this test are broken on
+  // Xcode 12 beta 4 when running on the iOS 12 simulator.  Disable until Xcode
+  // is fixed.
+  if (@available(iOS 13, *)) {
+  } else {
+    EARL_GREY_TEST_DISABLED(@"Test disabled on iOS12.");
+  }
+#endif
+
   [ChromeEarlGrey loadURL:self.testServer->GetURL("/")];
   [ChromeEarlGrey waitForWebStateContainingText:"Changing Mime Type"];
   [ChromeEarlGrey tapWebStateElementWithID:@"changing-mime-type"];
@@ -207,7 +253,7 @@ std::unique_ptr<net::test_server::HttpResponse> GetResponse(
   XCUIApplication* app = [[XCUIApplication alloc] init];
   XCUIElement* goodTitle = app.staticTexts[@"good"];
   GREYAssertFalse(
-      [goodTitle waitForExistenceWithTimeout:kWaitForDownloadTimeout],
+      [goodTitle waitForExistenceWithTimeout:kWaitForARPresentationTimeout],
       @"AR preview dialog UI was presented");
 #else
 #error Must define either CHROME_EARL_GREY_1 or CHROME_EARL_GREY_2.

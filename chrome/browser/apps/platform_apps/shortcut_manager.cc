@@ -11,7 +11,6 @@
 #include "base/one_shot_event.h"
 #include "base/strings/string16.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/task/post_task.h"
 #include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/extensions/extension_service.h"
@@ -29,8 +28,7 @@
 #include "extensions/browser/extension_system.h"
 #include "extensions/common/extension_set.h"
 
-#if defined(OS_MACOSX)
-#include "chrome/browser/apps/platform_apps/app_shim_registry_mac.h"
+#if defined(OS_MAC)
 #include "chrome/common/mac/app_mode_common.h"
 #endif
 
@@ -38,19 +36,10 @@ using extensions::Extension;
 
 namespace {
 
-#if defined(OS_MACOSX)
-bool UseAppShimRegistry(content::BrowserContext* browser_context,
-                        const Extension* extension) {
-  if (browser_context->IsOffTheRecord())
-    return false;
-  return extension->is_app() && extension->from_bookmark();
-}
-#endif
-
 // This version number is stored in local prefs to check whether app shortcuts
 // need to be recreated. This might happen when we change various aspects of app
 // shortcuts like command-line flags or associated icons, binaries, etc.
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
 const int kCurrentAppShortcutsVersion = APP_SHIM_VERSION_NUMBER;
 #else
 const int kCurrentAppShortcutsVersion = 0;
@@ -71,7 +60,15 @@ void CreateShortcutsForApp(Profile* profile, const Extension* app) {
                            creation_locations, profile, app, base::DoNothing());
 }
 
+// Used to disable shortcut syscalls to prevent tests from flaking.
+bool g_suppress_shortcuts_for_testing = false;
+
 }  // namespace
+
+// static
+void AppShortcutManager::SuppressShortcutsForTesting() {
+  g_suppress_shortcuts_for_testing = true;
+}
 
 // static
 void AppShortcutManager::RegisterProfilePrefs(
@@ -114,37 +111,18 @@ AppShortcutManager::~AppShortcutManager() {
   }
 }
 
-void AppShortcutManager::OnExtensionLoaded(
-    content::BrowserContext* browser_context,
-    const Extension* extension) {
-#if defined(OS_MACOSX)
-  // Register installed apps as soon as their extension is loaded. This happens
-  // when the profile is loaded. This is redundant, because apps are registered
-  // when they are installed. It is necessary, however, because app registration
-  // was added long after app installation launched. This should be removed
-  // after shipping for a few versions (whereupon it may be assumed that most
-  // applications have been registered).
-  if (UseAppShimRegistry(browser_context, extension)) {
-    AppShimRegistry::Get()->OnAppInstalledForProfile(extension->id(),
-                                                     profile_->GetPath());
-  }
-#endif
-}
-
 void AppShortcutManager::OnExtensionWillBeInstalled(
     content::BrowserContext* browser_context,
     const Extension* extension,
     bool is_update,
     const std::string& old_name) {
-  if (!extension->is_app())
+  // Bookmark apps are handled in
+  // web_app::AppShortcutManager::OnWebAppInstalled() and
+  // web_app::AppShortcutManager::OnWebAppManifestUpdated().
+  if (!extension->is_app() || extension->from_bookmark() ||
+      g_suppress_shortcuts_for_testing) {
     return;
-
-#if defined(OS_MACOSX)
-  if (UseAppShimRegistry(browser_context, extension)) {
-    AppShimRegistry::Get()->OnAppInstalledForProfile(extension->id(),
-                                                     profile_->GetPath());
   }
-#endif
 
   // If the app is being updated, update any existing shortcuts but do not
   // create new ones. If it is being installed, automatically create a
@@ -161,44 +139,17 @@ void AppShortcutManager::OnExtensionUninstalled(
     content::BrowserContext* browser_context,
     const Extension* extension,
     extensions::UninstallReason reason) {
-#if defined(OS_MACOSX)
-  if (UseAppShimRegistry(browser_context, extension)) {
-    bool delete_multi_profile_shortcuts =
-        AppShimRegistry::Get()->OnAppUninstalledForProfile(extension->id(),
-                                                           profile_->GetPath());
-    if (delete_multi_profile_shortcuts) {
-      web_app::internals::GetShortcutIOTaskRunner()->PostTask(
-          FROM_HERE,
-          base::BindOnce(&web_app::internals::DeleteMultiProfileShortcutsForApp,
-                         extension->id()));
-    }
-  }
-#endif
-
-  web_app::DeleteAllShortcuts(profile_, extension);
+  // Bookmark apps are handled in
+  // web_app::AppShortcutManager::OnWebAppUninstalled()
+  if (!extension->from_bookmark() && !g_suppress_shortcuts_for_testing)
+    web_app::DeleteAllShortcuts(profile_, extension);
 }
 
 void AppShortcutManager::OnProfileWillBeRemoved(
     const base::FilePath& profile_path) {
-  if (profile_path != profile_->GetPath())
+  if (profile_path != profile_->GetPath() || g_suppress_shortcuts_for_testing) {
     return;
-
-#if defined(OS_MACOSX)
-  // If any multi-profile app shims exist only for this profile, delete them.
-  std::set<std::string> apps_for_profile =
-      AppShimRegistry::Get()->GetInstalledAppsForProfile(profile_path);
-  for (const auto& app_id : apps_for_profile) {
-    bool delete_multi_profile_shortcuts =
-        AppShimRegistry::Get()->OnAppUninstalledForProfile(app_id,
-                                                           profile_path);
-    if (delete_multi_profile_shortcuts) {
-      web_app::internals::GetShortcutIOTaskRunner()->PostTask(
-          FROM_HERE,
-          base::BindOnce(&web_app::internals::DeleteMultiProfileShortcutsForApp,
-                         app_id));
-    }
   }
-#endif
 
   web_app::internals::GetShortcutIOTaskRunner()->PostTask(
       FROM_HERE,
@@ -207,10 +158,12 @@ void AppShortcutManager::OnProfileWillBeRemoved(
 }
 
 void AppShortcutManager::UpdateShortcutsForAllAppsNow() {
-  web_app::UpdateShortcutsForAllApps(
-      profile_,
-      base::BindOnce(&AppShortcutManager::SetCurrentAppShortcutsVersion,
-                     weak_ptr_factory_.GetWeakPtr()));
+  if (!g_suppress_shortcuts_for_testing) {
+    web_app::UpdateShortcutsForAllApps(
+        profile_,
+        base::BindOnce(&AppShortcutManager::SetCurrentAppShortcutsVersion,
+                       weak_ptr_factory_.GetWeakPtr()));
+  }
 }
 
 void AppShortcutManager::SetCurrentAppShortcutsVersion() {
@@ -229,8 +182,8 @@ void AppShortcutManager::UpdateShortcutsForAllAppsIfNeeded() {
   if (last_version >= kCurrentAppShortcutsVersion)
     return;
 
-  base::PostDelayedTask(
-      FROM_HERE, {content::BrowserThread::UI},
+  content::GetUIThreadTaskRunner({})->PostDelayedTask(
+      FROM_HERE,
       base::BindOnce(&AppShortcutManager::UpdateShortcutsForAllAppsNow,
                      weak_ptr_factory_.GetWeakPtr()),
       base::TimeDelta::FromSeconds(kUpdateShortcutsForAllAppsDelay));

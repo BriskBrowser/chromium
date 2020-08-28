@@ -52,7 +52,7 @@ void ResourceLoadingHintsWebContentsObserver::ReadyToCommitNavigation(
   DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
 
   if (!navigation_handle->IsInMainFrame() ||
-      navigation_handle->IsSameDocument() || navigation_handle->IsErrorPage()) {
+      navigation_handle->IsSameDocument()) {
     return;
   }
 
@@ -105,8 +105,6 @@ void ResourceLoadingHintsWebContentsObserver::SendResourceLoadingHints(
       GetResourceLoadingHintsResourcePatternsToBlock(
           navigation_handle->GetURL());
 
-  UMA_HISTOGRAM_BOOLEAN(
-      "ResourceLoadingHints.ResourcePatternsAvailableAtCommit", !hints.empty());
   if (is_redirect) {
     UMA_HISTOGRAM_BOOLEAN(
         "ResourceLoadingHints.ResourcePatternsAvailableAtCommitForRedirect",
@@ -121,9 +119,9 @@ void ResourceLoadingHintsWebContentsObserver::SendResourceLoadingHints(
   for (const std::string& hint : hints)
     hints_ptr->subresources_to_block.push_back(hint);
 
-    auto hints_receiver_associated =
-        GetResourceLoadingHintsReceiver(navigation_handle);
-    hints_receiver_associated->SetResourceLoadingHints(std::move(hints_ptr));
+  auto hints_receiver_associated =
+      GetResourceLoadingHintsReceiver(navigation_handle);
+  hints_receiver_associated->SetResourceLoadingHints(std::move(hints_ptr));
 }
 
 const std::vector<std::string> ResourceLoadingHintsWebContentsObserver::

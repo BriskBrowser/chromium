@@ -13,12 +13,10 @@
 #include "base/single_thread_task_runner.h"
 #include "components/browser_sync/browser_sync_client.h"
 
+class ChromeBrowserState;
+
 namespace autofill {
 class AutofillWebDataService;
-}
-
-namespace ios {
-class ChromeBrowserState;
 }
 
 namespace password_manager {
@@ -31,11 +29,12 @@ class ProfileSyncComponentsFactoryImpl;
 
 class IOSChromeSyncClient : public browser_sync::BrowserSyncClient {
  public:
-  explicit IOSChromeSyncClient(ios::ChromeBrowserState* browser_state);
+  explicit IOSChromeSyncClient(ChromeBrowserState* browser_state);
   ~IOSChromeSyncClient() override;
 
   // BrowserSyncClient implementation.
   PrefService* GetPrefService() override;
+  signin::IdentityManager* GetIdentityManager() override;
   base::FilePath GetLocalSyncBackendFolder() override;
   syncer::ModelTypeStoreService* GetModelTypeStoreService() override;
   syncer::DeviceInfoSyncService* GetDeviceInfoSyncService() override;
@@ -49,6 +48,7 @@ class IOSChromeSyncClient : public browser_sync::BrowserSyncClient {
   syncer::DataTypeController::TypeVector CreateDataTypeControllers(
       syncer::SyncService* sync_service) override;
   invalidation::InvalidationService* GetInvalidationService() override;
+  syncer::SyncInvalidationsService* GetSyncInvalidationsService() override;
   syncer::TrustedVaultClient* GetTrustedVaultClient() override;
   BookmarkUndoService* GetBookmarkUndoService() override;
   scoped_refptr<syncer::ExtensionsActivity> GetExtensionsActivity() override;
@@ -62,7 +62,7 @@ class IOSChromeSyncClient : public browser_sync::BrowserSyncClient {
   syncer::SyncTypePreferenceProvider* GetPreferenceProvider() override;
 
  private:
-  ios::ChromeBrowserState* const browser_state_;
+  ChromeBrowserState* const browser_state_;
 
   // The sync api component factory in use by this client.
   // TODO(crbug.com/915154): Revert to SyncApiComponentFactory once common

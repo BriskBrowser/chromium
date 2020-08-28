@@ -9,25 +9,6 @@
     {
       "name": "LayoutNGBlockFlow DIV id='scroller'",
       "bounds": [200, 200],
-      "paintInvalidations": [
-        {
-          "object": "LayoutNGBlockFlow DIV id='scroller'",
-          "rect": [0, 0, 200, 200],
-          "reason": "full layer"
-        }
-      ],
-      "transform": 1
-    },
-    {
-      "name": "Scrolling Contents Layer",
-      "bounds": [185, 350],
-      "paintInvalidations": [
-        {
-          "object": "Scrolling Contents Layer",
-          "rect": [0, 0, 185, 350],
-          "reason": "full layer"
-        }
-      ],
       "transform": 1
     },
     {
@@ -46,6 +27,14 @@
       "name": "Scroll Corner Layer",
       "position": [185, 185],
       "bounds": [15, 15],
+      "transform": 1
+    },
+    {
+      "name": "Scrolling Contents Layer",
+      "bounds": [185, 350],
+      "invalidations": [
+        [0, 0, 185, 350]
+      ],
       "transform": 1
     }
   ],

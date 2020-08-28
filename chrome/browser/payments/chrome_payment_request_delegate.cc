@@ -6,8 +6,9 @@
 
 #include <vector>
 
-#include "base/logging.h"
+#include "base/check_op.h"
 #include "base/memory/ref_counted.h"
+#include "build/build_config.h"
 #include "chrome/browser/autofill/address_normalizer_factory.h"
 #include "chrome/browser/autofill/personal_data_manager_factory.h"
 #include "chrome/browser/autofill/validation_rules_storage_factory.h"
@@ -22,6 +23,7 @@
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/views/payments/payment_request_dialog_view.h"
 #include "chrome/browser/web_data_service_factory.h"
+#include "components/autofill/content/browser/webauthn/internal_authenticator_impl.h"
 #include "components/autofill/core/browser/address_normalizer_impl.h"
 #include "components/autofill/core/browser/geo/region_data_loader_impl.h"
 #include "components/autofill/core/browser/personal_data_manager.h"
@@ -37,6 +39,10 @@
 #include "services/network/public/cpp/shared_url_loader_factory.h"
 #include "third_party/libaddressinput/chromium/chrome_metadata_source.h"
 #include "third_party/libaddressinput/chromium/chrome_storage_impl.h"
+
+#if defined(OS_CHROMEOS)
+#include "chrome/browser/chromeos/apps/apk_web_app_service.h"
+#endif  // OS_CHROMEOS
 
 namespace payments {
 
@@ -63,8 +69,20 @@ ChromePaymentRequestDelegate::ChromePaymentRequestDelegate(
 ChromePaymentRequestDelegate::~ChromePaymentRequestDelegate() {}
 
 void ChromePaymentRequestDelegate::ShowDialog(PaymentRequest* request) {
-  DCHECK_EQ(nullptr, shown_dialog_);
-  shown_dialog_ = new payments::PaymentRequestDialogView(request, nullptr);
+  DCHECK_EQ(nullptr, shown_dialog_.get());
+  DCHECK_EQ(nullptr, spc_dialog_.get());
+
+  switch (dialog_type_) {
+    case DialogType::PAYMENT_REQUEST:
+      shown_dialog_ = PaymentRequestDialogView::Create(request, nullptr);
+      break;
+    case DialogType::SECURE_PAYMENT_CONFIRMATION:
+      spc_dialog_ = std::make_unique<SecurePaymentConfirmationController>(
+          request->GetWeakPtr());
+      shown_dialog_ = spc_dialog_->GetWeakPtr();
+      break;
+  }
+
   shown_dialog_->ShowDialog();
 }
 
@@ -78,6 +96,8 @@ void ChromePaymentRequestDelegate::CloseDialog() {
     shown_dialog_->CloseDialog();
     shown_dialog_ = nullptr;
   }
+
+  spc_dialog_.reset();
 }
 
 void ChromePaymentRequestDelegate::ShowErrorMessage() {
@@ -103,10 +123,10 @@ const std::string& ChromePaymentRequestDelegate::GetApplicationLocale() const {
   return g_browser_process->GetApplicationLocale();
 }
 
-bool ChromePaymentRequestDelegate::IsIncognito() const {
+bool ChromePaymentRequestDelegate::IsOffTheRecord() const {
   Profile* profile =
       Profile::FromBrowserContext(web_contents_->GetBrowserContext());
-  return profile && profile->IsIncognitoProfile();
+  return profile && profile->IsOffTheRecord();
 }
 
 const GURL& ChromePaymentRequestDelegate::GetLastCommittedURL() const {
@@ -162,6 +182,12 @@ bool ChromePaymentRequestDelegate::IsBrowserWindowActive() const {
   return browser && browser->window() && browser->window()->IsActive();
 }
 
+std::unique_ptr<autofill::InternalAuthenticator>
+ChromePaymentRequestDelegate::CreateInternalAuthenticator(
+    content::RenderFrameHost* rfh) const {
+  return std::make_unique<content::InternalAuthenticatorImpl>(rfh);
+}
+
 scoped_refptr<PaymentManifestWebDataService>
 ChromePaymentRequestDelegate::GetPaymentManifestWebDataService() const {
   return WebDataServiceFactory::GetPaymentManifestWebDataForProfile(
@@ -199,6 +225,23 @@ ChromePaymentRequestDelegate::GetInvalidSslCertificateErrorMessage() {
 
 bool ChromePaymentRequestDelegate::SkipUiForBasicCard() const {
   return false;  // Only tests do this.
+}
+
+std::string ChromePaymentRequestDelegate::GetTwaPackageName() const {
+#if defined(OS_CHROMEOS)
+  auto* apk_web_app_service = chromeos::ApkWebAppService::Get(
+      Profile::FromBrowserContext(web_contents_->GetBrowserContext()));
+  if (!apk_web_app_service)
+    return "";
+
+  base::Optional<std::string> twa_package_name =
+      apk_web_app_service->GetPackageNameForWebApp(
+          web_contents_->GetLastCommittedURL());
+
+  return twa_package_name.has_value() ? twa_package_name.value() : "";
+#else
+  return "";
+#endif  // OS_CHROMEOS
 }
 
 }  // namespace payments

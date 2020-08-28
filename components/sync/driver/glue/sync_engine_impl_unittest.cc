@@ -5,6 +5,9 @@
 #include "components/sync/driver/glue/sync_engine_impl.h"
 
 #include <cstddef>
+#include <map>
+#include <set>
+#include <string>
 #include <utility>
 
 #include "base/bind.h"
@@ -25,11 +28,11 @@
 #include "components/invalidation/impl/invalidation_switches.h"
 #include "components/invalidation/impl/profile_invalidation_provider.h"
 #include "components/invalidation/public/invalidation_service.h"
+#include "components/invalidation/public/invalidation_util.h"
 #include "components/invalidation/public/invalidator_state.h"
-#include "components/invalidation/public/object_id_invalidation_map.h"
 #include "components/sync/base/invalidation_helper.h"
+#include "components/sync/base/model_type.h"
 #include "components/sync/base/sync_prefs.h"
-#include "components/sync/base/test_unrecoverable_error_handler.h"
 #include "components/sync/driver/sync_driver_switches.h"
 #include "components/sync/engine/cycle/commit_counters.h"
 #include "components/sync/engine/cycle/status_counters.h"
@@ -40,15 +43,21 @@
 #include "components/sync/engine/passive_model_worker.h"
 #include "components/sync/engine/sync_engine_host_stub.h"
 #include "components/sync/engine/sync_manager_factory.h"
+#include "components/sync/invalidations/mock_sync_invalidations_service.h"
+#include "components/sync/invalidations/switches.h"
+#include "components/sync/invalidations/sync_invalidations_service.h"
+#include "components/sync/protocol/sync_invalidations_payload.pb.h"
 #include "components/sync/test/callback_counter.h"
 #include "components/sync_preferences/pref_service_syncable.h"
 #include "components/sync_preferences/testing_pref_service_syncable.h"
-#include "google/cacheinvalidation/include/types.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
 #include "services/network/test/test_network_connection_tracker.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "url/gurl.h"
+
+using testing::NiceMock;
+using testing::NotNull;
 
 namespace syncer {
 
@@ -75,8 +84,6 @@ class TestSyncEngineHost : public SyncEngineHostStub {
   void OnEngineInitialized(ModelTypeSet initial_types,
                            const WeakHandle<JsBackend>&,
                            const WeakHandle<DataTypeDebugInfoListener>&,
-                           const std::string&,
-                           const std::string&,
                            const std::string&,
                            const std::string&,
                            bool success) override {
@@ -151,9 +158,9 @@ class MockInvalidationService : public invalidation::InvalidationService {
 
   MOCK_METHOD1(RegisterInvalidationHandler,
                void(syncer::InvalidationHandler* handler));
-  MOCK_METHOD2(UpdateRegisteredInvalidationIds,
+  MOCK_METHOD2(UpdateInterestedTopics,
                bool(syncer::InvalidationHandler* handler,
-                    const syncer::ObjectIdSet& ids));
+                    const syncer::TopicSet& topics));
   MOCK_METHOD1(UnregisterInvalidationHandler,
                void(syncer::InvalidationHandler* handler));
   MOCK_METHOD0(GetInvalidatorStat, syncer::InvalidatorState());
@@ -189,11 +196,11 @@ class SyncEngineImplTest : public testing::Test {
 
     sync_prefs_ = std::make_unique<SyncPrefs>(&pref_service_);
     sync_thread_.StartAndWaitForTesting();
-    ON_CALL(invalidator_,
-            UpdateRegisteredInvalidationIds(testing::_, testing::_))
+    ON_CALL(invalidator_, UpdateInterestedTopics(testing::_, testing::_))
         .WillByDefault(testing::Return(true));
     backend_ = std::make_unique<SyncEngineImpl>(
-        "dummyDebugName", &invalidator_, sync_prefs_->AsWeakPtr(),
+        "dummyDebugName", &invalidator_, GetSyncInvalidationsService(),
+        sync_prefs_->AsWeakPtr(),
         temp_dir_.GetPath().Append(base::FilePath(kTestSyncDir)));
 
     fake_manager_factory_ = std::make_unique<FakeSyncManagerFactory>(
@@ -234,8 +241,6 @@ class SyncEngineImplTest : public testing::Test {
     params.http_factory_getter = base::BindOnce(&CreateHttpBridgeFactory);
     params.authenticated_account_id = CoreAccountId("account_id");
     params.sync_manager_factory = std::move(fake_manager_factory_);
-    params.unrecoverable_error_handler =
-        MakeWeakHandle(test_unrecoverable_error_handler_.GetWeakPtr()),
     sync_prefs_->GetInvalidationVersions(&params.invalidation_versions);
 
     backend_->Initialize(std::move(params));
@@ -277,6 +282,12 @@ class SyncEngineImplTest : public testing::Test {
   }
 
  protected:
+  // Used to initialize SyncEngineImpl. Returns nullptr if there is no sync
+  // invalidations service enabled.
+  virtual SyncInvalidationsService* GetSyncInvalidationsService() {
+    return nullptr;
+  }
+
   void DownloadReady(ModelTypeSet succeeded_types, ModelTypeSet failed_types) {
     engine_types_.PutAll(succeeded_types);
     std::move(quit_loop_).Run();
@@ -301,7 +312,6 @@ class SyncEngineImplTest : public testing::Test {
   sync_preferences::TestingPrefServiceSyncable pref_service_;
   base::Thread sync_thread_;
   TestSyncEngineHost host_;
-  TestUnrecoverableErrorHandler test_unrecoverable_error_handler_;
   std::unique_ptr<SyncPrefs> sync_prefs_;
   std::unique_ptr<SyncEngineImpl> backend_;
   std::unique_ptr<FakeSyncManagerFactory> fake_manager_factory_;
@@ -312,15 +322,28 @@ class SyncEngineImplTest : public testing::Test {
   testing::NiceMock<MockInvalidationService> invalidator_;
 };
 
+class SyncEngineImplWithSyncInvalidationsTest : public SyncEngineImplTest {
+ public:
+  SyncEngineImplWithSyncInvalidationsTest() {
+    override_features_.InitAndEnableFeature(
+        switches::kSubscribeForSyncInvalidations);
+  }
+
+ protected:
+  SyncInvalidationsService* GetSyncInvalidationsService() override {
+    return &mock_instance_id_driver_;
+  }
+
+  base::test::ScopedFeatureList override_features_;
+  NiceMock<MockSyncInvalidationsService> mock_instance_id_driver_;
+};
+
 // Test basic initialization with no initial types (first time initialization).
 // Only the nigori should be configured.
 TEST_F(SyncEngineImplTest, InitShutdown) {
   InitializeBackend(true);
   EXPECT_EQ(ControlTypes(), fake_manager_->GetAndResetDownloadedTypes());
   EXPECT_EQ(ControlTypes(), fake_manager_->InitialSyncEndedTypes());
-  EXPECT_TRUE(
-      fake_manager_->GetTypesWithEmptyProgressMarkerToken(ControlTypes())
-          .Empty());
 }
 
 // Test first time sync scenario. All types should be properly configured.
@@ -329,9 +352,6 @@ TEST_F(SyncEngineImplTest, FirstTimeSync) {
   InitializeBackend(true);
   EXPECT_EQ(ControlTypes(), fake_manager_->GetAndResetDownloadedTypes());
   EXPECT_EQ(ControlTypes(), fake_manager_->InitialSyncEndedTypes());
-  EXPECT_TRUE(
-      fake_manager_->GetTypesWithEmptyProgressMarkerToken(ControlTypes())
-          .Empty());
 
   ModelTypeSet ready_types = ConfigureDataTypes();
   // Nigori is always downloaded so won't be ready.
@@ -339,127 +359,35 @@ TEST_F(SyncEngineImplTest, FirstTimeSync) {
   EXPECT_TRUE(fake_manager_->GetAndResetDownloadedTypes().HasAll(
       Difference(enabled_types_, ControlTypes())));
   EXPECT_EQ(enabled_types_, fake_manager_->InitialSyncEndedTypes());
-  EXPECT_TRUE(
-      fake_manager_->GetTypesWithEmptyProgressMarkerToken(enabled_types_)
-          .Empty());
 }
 
 // Test the restart after setting up sync scenario. No enabled types should be
-// downloaded or cleaned.
+// downloaded.
 TEST_F(SyncEngineImplTest, Restart) {
   sync_prefs_->SetFirstSetupComplete();
   fake_manager_factory_->set_progress_marker_types(enabled_types_);
   fake_manager_factory_->set_initial_sync_ended_types(enabled_types_);
   InitializeBackend(true);
   EXPECT_TRUE(fake_manager_->GetAndResetDownloadedTypes().Empty());
-  EXPECT_TRUE(
-      Intersection(fake_manager_->GetAndResetPurgedTypes(), enabled_types_)
-          .Empty());
   EXPECT_EQ(enabled_types_, fake_manager_->InitialSyncEndedTypes());
-  EXPECT_TRUE(
-      fake_manager_->GetTypesWithEmptyProgressMarkerToken(enabled_types_)
-          .Empty());
 
   ModelTypeSet ready_types = ConfigureDataTypes();
   EXPECT_EQ(enabled_types_, ready_types);
   EXPECT_TRUE(fake_manager_->GetAndResetDownloadedTypes().Empty());
-  EXPECT_TRUE(
-      Intersection(fake_manager_->GetAndResetPurgedTypes(), enabled_types_)
-          .Empty());
   EXPECT_EQ(enabled_types_, fake_manager_->InitialSyncEndedTypes());
-  EXPECT_TRUE(
-      fake_manager_->GetTypesWithEmptyProgressMarkerToken(enabled_types_)
-          .Empty());
-}
-
-// Test a sync restart scenario where some types had never finished configuring.
-// The partial types should be purged, then reconfigured properly.
-TEST_F(SyncEngineImplTest, PartialTypes) {
-  sync_prefs_->SetFirstSetupComplete();
-  // Set sync manager behavior before passing it down. All types have progress
-  // markers, but nigori and bookmarks are missing initial sync ended.
-  ModelTypeSet partial_types(NIGORI, BOOKMARKS);
-  ModelTypeSet full_types = Difference(enabled_types_, partial_types);
-  fake_manager_factory_->set_progress_marker_types(enabled_types_);
-  fake_manager_factory_->set_initial_sync_ended_types(full_types);
-
-  // Bringing up the backend should purge all partial types, then proceed to
-  // download the Nigori.
-  InitializeBackend(true);
-  EXPECT_EQ(ModelTypeSet(NIGORI), fake_manager_->GetAndResetDownloadedTypes());
-  EXPECT_TRUE(fake_manager_->GetAndResetPurgedTypes().HasAll(partial_types));
-  EXPECT_EQ(Union(full_types, ModelTypeSet(NIGORI)),
-            fake_manager_->InitialSyncEndedTypes());
-  EXPECT_EQ(
-      Difference(partial_types, ModelTypeSet(NIGORI)),
-      fake_manager_->GetTypesWithEmptyProgressMarkerToken(enabled_types_));
-
-  // Now do the actual configuration, which should download and apply bookmarks.
-  ModelTypeSet ready_types = ConfigureDataTypes();
-  EXPECT_EQ(full_types, ready_types);
-  EXPECT_TRUE(
-      Intersection(fake_manager_->GetAndResetPurgedTypes(), enabled_types_)
-          .Empty());
-  EXPECT_EQ(partial_types, fake_manager_->GetAndResetDownloadedTypes());
-  EXPECT_EQ(enabled_types_, fake_manager_->InitialSyncEndedTypes());
-  EXPECT_TRUE(
-      fake_manager_->GetTypesWithEmptyProgressMarkerToken(enabled_types_)
-          .Empty());
-}
-
-// Test the behavior when we lose the sync db. Although we already have types
-// enabled, we should re-download all of them because we lost their data.
-TEST_F(SyncEngineImplTest, LostDB) {
-  sync_prefs_->SetFirstSetupComplete();
-  // Initialization should fetch the Nigori node.  Everything else should be
-  // left untouched.
-  InitializeBackend(true);
-  EXPECT_EQ(ModelTypeSet(ControlTypes()),
-            fake_manager_->GetAndResetDownloadedTypes());
-  EXPECT_EQ(ModelTypeSet(ControlTypes()),
-            fake_manager_->InitialSyncEndedTypes());
-  EXPECT_EQ(
-      Difference(enabled_types_, ControlTypes()),
-      fake_manager_->GetTypesWithEmptyProgressMarkerToken(enabled_types_));
-
-  // The database was empty, so any cleaning is entirely optional.  We want to
-  // reset this value before running the next part of the test, though.
-  fake_manager_->GetAndResetPurgedTypes();
-
-  // The actual configuration should redownload and apply all the enabled types.
-  ModelTypeSet ready_types = ConfigureDataTypes();
-  // Nigori is always downloaded so won't be ready.
-  EXPECT_EQ(Difference(ControlTypes(), ModelTypeSet(NIGORI)), ready_types);
-  EXPECT_TRUE(fake_manager_->GetAndResetDownloadedTypes().HasAll(
-      Difference(enabled_types_, ControlTypes())));
-  EXPECT_TRUE(
-      Intersection(fake_manager_->GetAndResetPurgedTypes(), enabled_types_)
-          .Empty());
-  EXPECT_EQ(enabled_types_, fake_manager_->InitialSyncEndedTypes());
-  EXPECT_TRUE(
-      fake_manager_->GetTypesWithEmptyProgressMarkerToken(enabled_types_)
-          .Empty());
 }
 
 TEST_F(SyncEngineImplTest, DisableTypes) {
   // Simulate first time sync.
   InitializeBackend(true);
-  fake_manager_->GetAndResetPurgedTypes();
   ModelTypeSet ready_types = ConfigureDataTypes();
   // Nigori is always downloaded so won't be ready.
   EXPECT_EQ(Difference(ControlTypes(), ModelTypeSet(NIGORI)), ready_types);
   EXPECT_EQ(enabled_types_, fake_manager_->GetAndResetDownloadedTypes());
-  EXPECT_TRUE(
-      Intersection(fake_manager_->GetAndResetPurgedTypes(), enabled_types_)
-          .Empty());
   EXPECT_EQ(enabled_types_, fake_manager_->InitialSyncEndedTypes());
-  EXPECT_TRUE(
-      fake_manager_->GetTypesWithEmptyProgressMarkerToken(enabled_types_)
-          .Empty());
 
   // Then disable two datatypes.
   ModelTypeSet disabled_types(BOOKMARKS, SEARCH_ENGINES);
-  ModelTypeSet old_types = enabled_types_;
   enabled_types_.RemoveAll(disabled_types);
   ready_types = ConfigureDataTypes();
 
@@ -467,29 +395,16 @@ TEST_F(SyncEngineImplTest, DisableTypes) {
   // downloaded.
   EXPECT_EQ(enabled_types_, ready_types);
   EXPECT_TRUE(fake_manager_->GetAndResetDownloadedTypes().Empty());
-  EXPECT_EQ(disabled_types,
-            Intersection(fake_manager_->GetAndResetPurgedTypes(), old_types));
-  EXPECT_EQ(enabled_types_, fake_manager_->InitialSyncEndedTypes());
-  EXPECT_TRUE(
-      fake_manager_->GetTypesWithEmptyProgressMarkerToken(enabled_types_)
-          .Empty());
 }
 
 TEST_F(SyncEngineImplTest, AddTypes) {
   // Simulate first time sync.
   InitializeBackend(true);
-  fake_manager_->GetAndResetPurgedTypes();
   ModelTypeSet ready_types = ConfigureDataTypes();
   // Nigori is always downloaded so won't be ready.
   EXPECT_EQ(Difference(ControlTypes(), ModelTypeSet(NIGORI)), ready_types);
   EXPECT_EQ(enabled_types_, fake_manager_->GetAndResetDownloadedTypes());
-  EXPECT_TRUE(
-      Intersection(fake_manager_->GetAndResetPurgedTypes(), enabled_types_)
-          .Empty());
   EXPECT_EQ(enabled_types_, fake_manager_->InitialSyncEndedTypes());
-  EXPECT_TRUE(
-      fake_manager_->GetTypesWithEmptyProgressMarkerToken(enabled_types_)
-          .Empty());
 
   // Then add two datatypes.
   ModelTypeSet new_types(EXTENSIONS, APPS);
@@ -501,34 +416,20 @@ TEST_F(SyncEngineImplTest, AddTypes) {
   new_types.Put(NIGORI);
   EXPECT_EQ(Difference(enabled_types_, new_types), ready_types);
   EXPECT_EQ(new_types, fake_manager_->GetAndResetDownloadedTypes());
-  EXPECT_TRUE(
-      Intersection(fake_manager_->GetAndResetPurgedTypes(), enabled_types_)
-          .Empty());
   EXPECT_EQ(enabled_types_, fake_manager_->InitialSyncEndedTypes());
-  EXPECT_TRUE(
-      fake_manager_->GetTypesWithEmptyProgressMarkerToken(enabled_types_)
-          .Empty());
 }
 
 // And and disable in the same configuration.
 TEST_F(SyncEngineImplTest, AddDisableTypes) {
   // Simulate first time sync.
   InitializeBackend(true);
-  fake_manager_->GetAndResetPurgedTypes();
   ModelTypeSet ready_types = ConfigureDataTypes();
   // Nigori is always downloaded so won't be ready.
   EXPECT_EQ(Difference(ControlTypes(), ModelTypeSet(NIGORI)), ready_types);
   EXPECT_EQ(enabled_types_, fake_manager_->GetAndResetDownloadedTypes());
-  EXPECT_TRUE(
-      Intersection(fake_manager_->GetAndResetPurgedTypes(), enabled_types_)
-          .Empty());
   EXPECT_EQ(enabled_types_, fake_manager_->InitialSyncEndedTypes());
-  EXPECT_TRUE(
-      fake_manager_->GetTypesWithEmptyProgressMarkerToken(enabled_types_)
-          .Empty());
 
   // Then add two datatypes.
-  ModelTypeSet old_types = enabled_types_;
   ModelTypeSet disabled_types(BOOKMARKS, SEARCH_ENGINES);
   ModelTypeSet new_types(EXTENSIONS, APPS);
   enabled_types_.PutAll(new_types);
@@ -540,11 +441,6 @@ TEST_F(SyncEngineImplTest, AddDisableTypes) {
   new_types.Put(NIGORI);
   EXPECT_EQ(Difference(enabled_types_, new_types), ready_types);
   EXPECT_EQ(new_types, fake_manager_->GetAndResetDownloadedTypes());
-  EXPECT_EQ(disabled_types,
-            Intersection(fake_manager_->GetAndResetPurgedTypes(), old_types));
-  EXPECT_EQ(enabled_types_, fake_manager_->InitialSyncEndedTypes());
-  EXPECT_EQ(disabled_types,
-            fake_manager_->GetTypesWithEmptyProgressMarkerToken(old_types));
 }
 
 // Test restarting the browser to newly supported datatypes. The new datatypes
@@ -562,11 +458,7 @@ TEST_F(SyncEngineImplTest, NewlySupportedTypes) {
   // Does nothing.
   InitializeBackend(true);
   EXPECT_TRUE(fake_manager_->GetAndResetDownloadedTypes().Empty());
-  EXPECT_TRUE(
-      Intersection(fake_manager_->GetAndResetPurgedTypes(), old_types).Empty());
   EXPECT_EQ(old_types, fake_manager_->InitialSyncEndedTypes());
-  EXPECT_EQ(new_types, fake_manager_->GetTypesWithEmptyProgressMarkerToken(
-                           enabled_types_));
 
   // Downloads and applies the new types (plus nigori).
   ModelTypeSet ready_types = ConfigureDataTypes();
@@ -574,54 +466,7 @@ TEST_F(SyncEngineImplTest, NewlySupportedTypes) {
   new_types.Put(NIGORI);
   EXPECT_EQ(Difference(old_types, ModelTypeSet(NIGORI)), ready_types);
   EXPECT_EQ(new_types, fake_manager_->GetAndResetDownloadedTypes());
-  EXPECT_TRUE(
-      Intersection(fake_manager_->GetAndResetPurgedTypes(), enabled_types_)
-          .Empty());
   EXPECT_EQ(enabled_types_, fake_manager_->InitialSyncEndedTypes());
-  EXPECT_TRUE(
-      fake_manager_->GetTypesWithEmptyProgressMarkerToken(enabled_types_)
-          .Empty());
-}
-
-// Test the newly supported types scenario, but with the presence of partial
-// types as well. Both partial and newly supported types should be downloaded
-// the configuration.
-TEST_F(SyncEngineImplTest, NewlySupportedTypesWithPartialTypes) {
-  sync_prefs_->SetFirstSetupComplete();
-  // Set sync manager behavior before passing it down. All types have progress
-  // markers and initial sync ended except the new types.
-  ModelTypeSet old_types = enabled_types_;
-  ModelTypeSet partial_types(NIGORI, BOOKMARKS);
-  ModelTypeSet full_types = Difference(enabled_types_, partial_types);
-  fake_manager_factory_->set_progress_marker_types(old_types);
-  fake_manager_factory_->set_initial_sync_ended_types(full_types);
-  ModelTypeSet new_types(APP_SETTINGS, EXTENSION_SETTINGS);
-  enabled_types_.PutAll(new_types);
-
-  // Purge the partial types.  The nigori will be among the purged types, but
-  // the syncer will re-download it by the time the initialization is complete.
-  InitializeBackend(true);
-  EXPECT_EQ(ModelTypeSet(NIGORI), fake_manager_->GetAndResetDownloadedTypes());
-  EXPECT_TRUE(fake_manager_->GetAndResetPurgedTypes().HasAll(partial_types));
-  EXPECT_EQ(Union(full_types, ModelTypeSet(NIGORI)),
-            fake_manager_->InitialSyncEndedTypes());
-  EXPECT_EQ(
-      Union(new_types, Difference(partial_types, ModelTypeSet(NIGORI))),
-      fake_manager_->GetTypesWithEmptyProgressMarkerToken(enabled_types_));
-
-  // Downloads and applies the new types and partial types (which includes
-  // nigori anyways).
-  ModelTypeSet ready_types = ConfigureDataTypes();
-  EXPECT_EQ(full_types, ready_types);
-  EXPECT_EQ(Union(new_types, partial_types),
-            fake_manager_->GetAndResetDownloadedTypes());
-  EXPECT_TRUE(
-      Intersection(fake_manager_->GetAndResetPurgedTypes(), enabled_types_)
-          .Empty());
-  EXPECT_EQ(enabled_types_, fake_manager_->InitialSyncEndedTypes());
-  EXPECT_TRUE(
-      fake_manager_->GetTypesWithEmptyProgressMarkerToken(enabled_types_)
-          .Empty());
 }
 
 // Verify that downloading control types only downloads those types that do
@@ -640,12 +485,7 @@ TEST_F(SyncEngineImplTest, DownloadControlTypes) {
   // any old types.
   InitializeBackend(true);
   EXPECT_EQ(new_types, fake_manager_->GetAndResetDownloadedTypes());
-  EXPECT_EQ(Difference(ModelTypeSet::All(), enabled_types_),
-            fake_manager_->GetAndResetPurgedTypes());
   EXPECT_EQ(enabled_types_, fake_manager_->InitialSyncEndedTypes());
-  EXPECT_TRUE(
-      fake_manager_->GetTypesWithEmptyProgressMarkerToken(enabled_types_)
-          .Empty());
 }
 
 // Fail to download control types.  It's believed that there is a server bug
@@ -710,15 +550,11 @@ TEST_F(SyncEngineImplTest, DisableThenPurgeType) {
   // Then mark the error types as unready (disables without purging).
   ready_types = ConfigureDataTypesWithUnready(error_types);
   EXPECT_EQ(Difference(enabled_types_, error_types), ready_types);
-  EXPECT_TRUE(
-      fake_manager_->GetTypesWithEmptyProgressMarkerToken(error_types).Empty());
 
   // Lastly explicitly disable the error types, which should result in a purge.
   enabled_types_.RemoveAll(error_types);
   ready_types = ConfigureDataTypes();
   EXPECT_EQ(Difference(enabled_types_, error_types), ready_types);
-  EXPECT_FALSE(
-      fake_manager_->GetTypesWithEmptyProgressMarkerToken(error_types).Empty());
 }
 
 // Tests that SyncEngineImpl retains ModelTypeConnector after call to
@@ -738,29 +574,25 @@ TEST_F(SyncEngineImplTest,
   // Making sure that the noisy types we're interested in are in the
   // |enabled_types_|.
   enabled_types_.Put(SESSIONS);
-  enabled_types_.Put(FAVICON_IMAGES);
-  enabled_types_.Put(FAVICON_TRACKING);
 
-  ModelTypeSet invalidation_enabled_types(enabled_types_);
+  ModelTypeSet invalidation_enabled_types(
+      Difference(enabled_types_, CommitOnlyTypes()));
 
 #if defined(OS_ANDROID)
-  // SESSIONS, FAVICON_IMAGES, FAVICON_TRACKING are noisy data types whose
-  // invalidations aren't enabled by default on Android.
+  // SESSIONS is a noisy data type whose invalidations aren't enabled by default
+  // on Android.
   invalidation_enabled_types.Remove(SESSIONS);
-  invalidation_enabled_types.Remove(FAVICON_IMAGES);
-  invalidation_enabled_types.Remove(FAVICON_TRACKING);
 #endif
 
   InitializeBackend(true);
-  EXPECT_CALL(invalidator_,
-              UpdateRegisteredInvalidationIds(
-                  backend_.get(),
-                  ModelTypeSetToObjectIdSet(invalidation_enabled_types)));
+  EXPECT_CALL(
+      invalidator_,
+      UpdateInterestedTopics(
+          backend_.get(), ModelTypeSetToTopicSet(invalidation_enabled_types)));
   ConfigureDataTypes();
 
   // At shutdown, we clear the registered invalidation ids.
-  EXPECT_CALL(invalidator_,
-              UpdateRegisteredInvalidationIds(backend_.get(), ObjectIdSet()));
+  EXPECT_CALL(invalidator_, UpdateInterestedTopics(backend_.get(), TopicSet()));
 }
 
 TEST_F(SyncEngineImplTest, WhenEnabledTypesStayDisabled) {
@@ -768,18 +600,16 @@ TEST_F(SyncEngineImplTest, WhenEnabledTypesStayDisabled) {
   // they're disabled in Sync, hence removing noisy datatypes from
   // |enabled_types_|.
   enabled_types_.Remove(SESSIONS);
-  enabled_types_.Remove(FAVICON_IMAGES);
-  enabled_types_.Remove(FAVICON_TRACKING);
 
   InitializeBackend(true);
   EXPECT_CALL(invalidator_,
-              UpdateRegisteredInvalidationIds(
-                  backend_.get(), ModelTypeSetToObjectIdSet(enabled_types_)));
+              UpdateInterestedTopics(backend_.get(),
+                                     ModelTypeSetToTopicSet(Difference(
+                                         enabled_types_, CommitOnlyTypes()))));
   ConfigureDataTypes();
 
   // At shutdown, we clear the registered invalidation ids.
-  EXPECT_CALL(invalidator_,
-              UpdateRegisteredInvalidationIds(backend_.get(), ObjectIdSet()));
+  EXPECT_CALL(invalidator_, UpdateInterestedTopics(backend_.get(), TopicSet()));
 }
 
 TEST_F(SyncEngineImplTest,
@@ -787,40 +617,31 @@ TEST_F(SyncEngineImplTest,
   // Making sure that the noisy types we're interested in are in the
   // |enabled_types_|.
   enabled_types_.Put(SESSIONS);
-  enabled_types_.Put(FAVICON_IMAGES);
-  enabled_types_.Put(FAVICON_TRACKING);
 
   InitializeBackend(true);
   ConfigureDataTypes();
 
   EXPECT_CALL(invalidator_,
-              UpdateRegisteredInvalidationIds(
-                  backend_.get(), ModelTypeSetToObjectIdSet(enabled_types_)));
+              UpdateInterestedTopics(backend_.get(),
+                                     ModelTypeSetToTopicSet(Difference(
+                                         enabled_types_, CommitOnlyTypes()))));
   backend_->SetInvalidationsForSessionsEnabled(true);
 
   ModelTypeSet enabled_types(enabled_types_);
   enabled_types.Remove(SESSIONS);
-  enabled_types.Remove(FAVICON_IMAGES);
-  enabled_types.Remove(FAVICON_TRACKING);
 
   EXPECT_CALL(invalidator_,
-              UpdateRegisteredInvalidationIds(
-                  backend_.get(), ModelTypeSetToObjectIdSet(enabled_types)));
+              UpdateInterestedTopics(backend_.get(),
+                                     ModelTypeSetToTopicSet(Difference(
+                                         enabled_types, CommitOnlyTypes()))));
   backend_->SetInvalidationsForSessionsEnabled(false);
 
   // At shutdown, we clear the registered invalidation ids.
-  EXPECT_CALL(invalidator_,
-              UpdateRegisteredInvalidationIds(backend_.get(), ObjectIdSet()));
+  EXPECT_CALL(invalidator_, UpdateInterestedTopics(backend_.get(), TopicSet()));
 }
 
 // Regression test for crbug.com/1019956.
 TEST_F(SyncEngineImplTest, ShouldDestroyAfterInitFailure) {
-  base::test::ScopedFeatureList override_features;
-  override_features.InitWithFeatures(
-      /*enable_feature=*/{switches::kSyncUSSPasswords,
-                          switches::kSyncUSSNigori},
-      /*disable_feature=*/{});
-
   fake_manager_factory_->set_should_fail_on_init(true);
   // Sync manager will report initialization failure and gets destroyed during
   // the error handling.
@@ -833,6 +654,26 @@ TEST_F(SyncEngineImplTest, ShouldDestroyAfterInitFailure) {
   backend_.reset();
 
   base::RunLoop().RunUntilIdle();
+}
+
+TEST_F(SyncEngineImplWithSyncInvalidationsTest,
+       ShouldInvalidateDataTypesOnIncomingInvalidation) {
+  EXPECT_CALL(mock_instance_id_driver_, AddListener(backend_.get()));
+  InitializeBackend(/*expect_success=*/true);
+
+  sync_pb::SyncInvalidationsPayload payload;
+  auto* bookmarks_invalidation = payload.add_data_type_invalidations();
+  bookmarks_invalidation->set_data_type_id(
+      GetSpecificsFieldNumberFromModelType(ModelType::BOOKMARKS));
+  auto* preferences_invalidation = payload.add_data_type_invalidations();
+  preferences_invalidation->set_data_type_id(
+      GetSpecificsFieldNumberFromModelType(ModelType::PREFERENCES));
+
+  backend_->OnInvalidationReceived(payload.SerializeAsString());
+
+  fake_manager_->WaitForSyncThread();
+  EXPECT_EQ(1, fake_manager_->GetInvalidationCount(ModelType::BOOKMARKS));
+  EXPECT_EQ(1, fake_manager_->GetInvalidationCount(ModelType::PREFERENCES));
 }
 
 }  // namespace

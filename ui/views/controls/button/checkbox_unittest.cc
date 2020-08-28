@@ -4,10 +4,12 @@
 
 #include "ui/views/controls/button/checkbox.h"
 
+#include <memory>
+#include <utility>
+
 #include "base/strings/utf_string_conversions.h"
 #include "ui/accessibility/ax_enums.mojom.h"
 #include "ui/accessibility/ax_node_data.h"
-#include "ui/views/controls/button/checkbox.h"
 #include "ui/views/controls/styled_label.h"
 #include "ui/views/test/views_test_base.h"
 
@@ -30,8 +32,7 @@ class CheckboxTest : public ViewsTestBase {
     widget_->Init(std::move(params));
     widget_->Show();
 
-    checkbox_ = new Checkbox(base::string16());
-    widget_->SetContentsView(checkbox_);
+    checkbox_ = widget_->SetContentsView(std::make_unique<Checkbox>());
   }
 
   void TearDown() override {
@@ -51,7 +52,8 @@ class CheckboxTest : public ViewsTestBase {
 
 TEST_F(CheckboxTest, AccessibilityTest) {
   const base::string16 label_text = base::ASCIIToUTF16("Some label");
-  StyledLabel label(label_text, nullptr);
+  StyledLabel label;
+  label.SetText(label_text);
   checkbox()->SetAssociatedLabel(&label);
 
   ui::AXNodeData ax_data;

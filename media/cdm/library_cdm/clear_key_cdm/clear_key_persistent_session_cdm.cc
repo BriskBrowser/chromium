@@ -5,12 +5,14 @@
 #include "media/cdm/library_cdm/clear_key_cdm/clear_key_persistent_session_cdm.h"
 
 #include <memory>
+#include <utility>
 
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "media/base/cdm_promise.h"
+#include "media/cdm/json_web_key.h"
 
 namespace media {
 
@@ -93,9 +95,12 @@ ClearKeyPersistentSessionCdm::ClearKeyPersistentSessionCdm(
     const SessionClosedCB& session_closed_cb,
     const SessionKeysChangeCB& session_keys_change_cb,
     const SessionExpirationUpdateCB& session_expiration_update_cb)
-    : cdm_host_proxy_(cdm_host_proxy), session_closed_cb_(session_closed_cb) {
+    : cdm_host_proxy_(cdm_host_proxy),
+      session_message_cb_(session_message_cb),
+      session_closed_cb_(session_closed_cb) {
   cdm_ = base::MakeRefCounted<AesDecryptor>(
-      session_message_cb,
+      base::Bind(&ClearKeyPersistentSessionCdm::OnSessionMessage,
+                 weak_factory_.GetWeakPtr()),
       base::Bind(&ClearKeyPersistentSessionCdm::OnSessionClosed,
                  weak_factory_.GetWeakPtr()),
       session_keys_change_cb, session_expiration_update_cb);
@@ -115,7 +120,10 @@ void ClearKeyPersistentSessionCdm::CreateSessionAndGenerateRequest(
     const std::vector<uint8_t>& init_data,
     std::unique_ptr<NewSessionCdmPromise> promise) {
   std::unique_ptr<NewSessionCdmPromise> new_promise;
-  if (session_type != CdmSessionType::kPersistentLicense) {
+  // TODO(crbug.com/1102976) Add browser test for loading EME
+  // persistent-usage-record session
+  if (session_type == CdmSessionType::kTemporary ||
+      session_type == CdmSessionType::kPersistentUsageRecord) {
     new_promise = std::move(promise);
   } else {
     // Since it's a persistent session, we need to save the session ID after
@@ -140,9 +148,9 @@ void ClearKeyPersistentSessionCdm::LoadSession(
   CdmFileAdapter* file_ref = file.get();
   file_ref->Open(
       session_id,
-      base::Bind(&ClearKeyPersistentSessionCdm::OnFileOpenedForLoadSession,
-                 weak_factory_.GetWeakPtr(), session_id, base::Passed(&file),
-                 base::Passed(std::move(promise))));
+      base::BindOnce(&ClearKeyPersistentSessionCdm::OnFileOpenedForLoadSession,
+                     weak_factory_.GetWeakPtr(), session_id, std::move(file),
+                     std::move(promise)));
 }
 
 void ClearKeyPersistentSessionCdm::OnFileOpenedForLoadSession(
@@ -158,10 +166,10 @@ void ClearKeyPersistentSessionCdm::OnFileOpenedForLoadSession(
   }
 
   CdmFileAdapter* file_reader = file.get();
-  file_reader->Read(base::Bind(
-      &ClearKeyPersistentSessionCdm::OnFileReadForLoadSession,
-      weak_factory_.GetWeakPtr(), session_id, base::Passed(std::move(file)),
-      base::Passed(std::move(promise))));
+  file_reader->Read(
+      base::BindOnce(&ClearKeyPersistentSessionCdm::OnFileReadForLoadSession,
+                     weak_factory_.GetWeakPtr(), session_id, std::move(file),
+                     std::move(promise)));
 }
 
 void ClearKeyPersistentSessionCdm::OnFileReadForLoadSession(
@@ -235,9 +243,10 @@ void ClearKeyPersistentSessionCdm::UpdateSession(
   CdmFileAdapter* file_ref = file.get();
   file_ref->Open(
       session_id,
-      base::Bind(&ClearKeyPersistentSessionCdm::OnFileOpenedForUpdateSession,
-                 weak_factory_.GetWeakPtr(), session_id, key_added,
-                 base::Passed(&file), base::Passed(std::move(promise))));
+      base::BindOnce(
+          &ClearKeyPersistentSessionCdm::OnFileOpenedForUpdateSession,
+          weak_factory_.GetWeakPtr(), session_id, key_added, std::move(file),
+          std::move(promise)));
 }
 
 void ClearKeyPersistentSessionCdm::OnFileOpenedForUpdateSession(
@@ -258,10 +267,10 @@ void ClearKeyPersistentSessionCdm::OnFileOpenedForUpdateSession(
   CdmFileAdapter* file_writer = file.get();
   file_writer->Write(
       std::vector<uint8_t>(current_state.begin(), current_state.end()),
-      base::Bind(&ClearKeyPersistentSessionCdm::OnFileWrittenForUpdateSession,
-                 weak_factory_.GetWeakPtr(), session_id, key_added,
-                 base::Passed(std::move(file)),
-                 base::Passed(std::move(promise))));
+      base::BindOnce(
+          &ClearKeyPersistentSessionCdm::OnFileWrittenForUpdateSession,
+          weak_factory_.GetWeakPtr(), session_id, key_added, std::move(file),
+          std::move(promise)));
 }
 
 void ClearKeyPersistentSessionCdm::OnFileWrittenForUpdateSession(
@@ -292,7 +301,33 @@ void ClearKeyPersistentSessionCdm::RemoveSession(
   auto it = persistent_sessions_.find(session_id);
   if (it == persistent_sessions_.end()) {
     // Not a persistent session, so simply pass the request on.
+
+    // TODO(crbug.com/1102976) Add test for loading PUR session
+    // TODO(crbug.com/1107614) Move session message for persistent-license
+    // session to ClearKeyPersistentSessionCdm Query the record of key usage
+    // before calling remove as RemoveSession will delete the keys. Steps from
+    // https://w3c.github.io/encrypted-media/#remove. 4.4.1.2 Follow the steps
+    // for the value of this object's session type
+    //           "persistent-usage-record"
+    //              Let message be a message containing or reflecting this
+    //              object's record of key usage.
+    KeyIdList key_ids;
+    base::Time first_decryption_time;
+    base::Time latest_decryption_time;
+    bool is_persistent_usage_record_session = cdm_->GetRecordOfKeyUsage(
+        session_id, key_ids, first_decryption_time, latest_decryption_time);
     cdm_->RemoveSession(session_id, std::move(promise));
+
+    // Both times will be null if the session type is not PUR.
+    if (is_persistent_usage_record_session) {
+      std::vector<uint8_t> message = CreateLicenseReleaseMessage(
+          key_ids, first_decryption_time, latest_decryption_time);
+      // EME spec specifies that the message event should be fired before the
+      // promise is resolve but since this is only for testing we can leave this
+      // here.
+      session_message_cb_.Run(session_id, CdmMessageType::LICENSE_RELEASE,
+                              message);
+    }
     return;
   }
 
@@ -301,9 +336,10 @@ void ClearKeyPersistentSessionCdm::RemoveSession(
   CdmFileAdapter* file_ref = file.get();
   file_ref->Open(
       session_id,
-      base::Bind(&ClearKeyPersistentSessionCdm::OnFileOpenedForRemoveSession,
-                 weak_factory_.GetWeakPtr(), session_id, base::Passed(&file),
-                 base::Passed(std::move(promise))));
+      base::BindOnce(
+          &ClearKeyPersistentSessionCdm::OnFileOpenedForRemoveSession,
+          weak_factory_.GetWeakPtr(), session_id, std::move(file),
+          std::move(promise)));
 }
 
 void ClearKeyPersistentSessionCdm::OnFileOpenedForRemoveSession(
@@ -321,10 +357,10 @@ void ClearKeyPersistentSessionCdm::OnFileOpenedForRemoveSession(
   CdmFileAdapter* file_writer = file.get();
   file_writer->Write(
       std::vector<uint8_t>(),
-      base::Bind(&ClearKeyPersistentSessionCdm::OnFileWrittenForRemoveSession,
-                 weak_factory_.GetWeakPtr(), session_id,
-                 base::Passed(std::move(file)),
-                 base::Passed(std::move(promise))));
+      base::BindOnce(
+          &ClearKeyPersistentSessionCdm::OnFileWrittenForRemoveSession,
+          weak_factory_.GetWeakPtr(), session_id, std::move(file),
+          std::move(promise)));
 }
 
 void ClearKeyPersistentSessionCdm::OnFileWrittenForRemoveSession(
@@ -333,7 +369,6 @@ void ClearKeyPersistentSessionCdm::OnFileWrittenForRemoveSession(
     std::unique_ptr<SimpleCdmPromise> promise,
     bool success) {
   DCHECK(success);
-  cdm_->RemoveSession(session_id, std::move(promise));
 }
 
 CdmContext* ClearKeyPersistentSessionCdm::GetCdmContext() {
@@ -349,6 +384,13 @@ void ClearKeyPersistentSessionCdm::OnSessionClosed(
     const std::string& session_id) {
   persistent_sessions_.erase(session_id);
   session_closed_cb_.Run(session_id);
+}
+
+void ClearKeyPersistentSessionCdm::OnSessionMessage(
+    const std::string& session_id,
+    CdmMessageType message_type,
+    const std::vector<uint8_t>& message) {
+  session_message_cb_.Run(session_id, message_type, message);
 }
 
 }  // namespace media

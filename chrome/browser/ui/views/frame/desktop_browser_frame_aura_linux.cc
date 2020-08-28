@@ -7,6 +7,7 @@
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "chrome/browser/shell_integration_linux.h"
+#include "chrome/browser/ui/views/frame/browser_desktop_window_tree_host_linux.h"
 #include "chrome/browser/ui/views/frame/browser_frame.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
 #include "chrome/common/chrome_switches.h"
@@ -65,6 +66,11 @@ bool DesktopBrowserFrameAuraLinux::UseCustomFrame() const {
     return true;
 
   return false;
+}
+
+void DesktopBrowserFrameAuraLinux::TabDraggingKindChanged(
+    TabDragKind tab_drag_kind) {
+  host_->TabDraggingKindChanged(tab_drag_kind);
 }
 
 void DesktopBrowserFrameAuraLinux::OnUseCustomChromeFrameChanged() {

@@ -12,7 +12,6 @@
 
 #include "base/bind.h"
 #include "base/strings/stringprintf.h"
-#include "base/task/post_task.h"
 #include "base/values.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
@@ -21,8 +20,6 @@
 #include "extensions/common/api/storage.h"
 
 namespace extensions {
-
-using content::BrowserThread;
 
 // SettingsFunction
 
@@ -77,8 +74,8 @@ ExtensionFunction::ResponseAction SettingsFunction::Run() {
 
 void SettingsFunction::AsyncRunWithStorage(ValueStore* storage) {
   ResponseValue response = RunWithStorage(storage);
-  base::PostTask(
-      FROM_HERE, {BrowserThread::UI},
+  content::GetUIThreadTaskRunner({})->PostTask(
+      FROM_HERE,
       base::BindOnce(&SettingsFunction::Respond, this, std::move(response)));
 }
 
@@ -141,10 +138,12 @@ void GetModificationQuotaLimitHeuristics(QuotaLimitHeuristics* heuristics) {
       api::storage::sync::MAX_WRITE_OPERATIONS_PER_HOUR,
       base::TimeDelta::FromHours(1)};
   heuristics->push_back(std::make_unique<QuotaService::TimedLimit>(
-      short_limit_config, new QuotaLimitHeuristic::SingletonBucketMapper(),
+      short_limit_config,
+      std::make_unique<QuotaLimitHeuristic::SingletonBucketMapper>(),
       "MAX_WRITE_OPERATIONS_PER_MINUTE"));
   heuristics->push_back(std::make_unique<QuotaService::TimedLimit>(
-      long_limit_config, new QuotaLimitHeuristic::SingletonBucketMapper(),
+      long_limit_config,
+      std::make_unique<QuotaLimitHeuristic::SingletonBucketMapper>(),
       "MAX_WRITE_OPERATIONS_PER_HOUR"));
 }
 

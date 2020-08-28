@@ -27,6 +27,7 @@
 #include "ui/events/fraction_of_time_without_user_input_recorder.h"
 #include "ui/events/gestures/gesture_recognizer.h"
 #include "ui/events/gestures/gesture_types.h"
+#include "ui/events/types/event_type.h"
 #include "ui/gfx/geometry/point.h"
 #include "ui/gfx/native_widget_types.h"
 
@@ -280,7 +281,8 @@ class AURA_EXPORT WindowEventDispatcher : public ui::EventProcessor,
                                                  ui::GestureEvent* event);
   ui::EventDispatchDetails PreDispatchTouchEvent(Window* target,
                                                  ui::TouchEvent* event);
-  ui::EventDispatchDetails PreDispatchKeyEvent(ui::KeyEvent* event);
+  ui::EventDispatchDetails PreDispatchKeyEvent(Window* target,
+                                               ui::KeyEvent* event);
 
   WindowTreeHost* host_;
 

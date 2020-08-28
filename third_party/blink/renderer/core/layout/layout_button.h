@@ -48,26 +48,22 @@ class LayoutButton final : public LayoutFlexibleBox {
   void RemoveLeftoverAnonymousBlock(LayoutBlock*) override {}
   bool CreatesAnonymousWrapper() const override { return true; }
 
-  bool HasControlClip() const override;
-  PhysicalRect ControlClipRect(const PhysicalOffset&) const override;
-
   LayoutUnit BaselinePosition(FontBaseline,
                               bool first_line,
                               LineDirectionMode,
                               LinePositionMode) const override;
 
+  static void UpdateAnonymousChildStyle(const ComputedStyle& parent_sytle,
+                                        ComputedStyle& child_style);
+  static bool ShouldCountWrongBaseline(const ComputedStyle& style,
+                                       const ComputedStyle* parent_style);
+
  private:
   void UpdateAnonymousChildStyle(const LayoutObject* child,
                                  ComputedStyle& child_style) const override;
 
-  bool HasLineIfEmpty() const override {
-    return IsA<HTMLInputElement>(GetNode());
-  }
-
   LayoutBlock* inner_;
 };
-
-DEFINE_LAYOUT_OBJECT_TYPE_CASTS(LayoutButton, IsLayoutButton());
 
 }  // namespace blink
 

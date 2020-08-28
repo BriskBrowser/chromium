@@ -18,6 +18,7 @@
 #include "chrome/browser/ui/simple_message_box.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/feedback/system_logs/system_logs_fetcher.h"
+#include "components/signin/public/identity_manager/consent_level.h"
 #include "components/signin/public/identity_manager/identity_manager.h"
 #include "components/strings/grit/components_strings.h"
 #include "content/public/browser/browser_context.h"
@@ -69,9 +70,10 @@ ChromeFeedbackPrivateDelegate::GetStrings(
       std::make_unique<base::DictionaryValue>();
 
 #define SET_STRING(id, idr) dict->SetString(id, l10n_util::GetStringUTF16(idr))
-  SET_STRING("page-title", from_crash
-                               ? IDS_FEEDBACK_REPORT_PAGE_TITLE_SAD_TAB_FLOW
-                               : IDS_FEEDBACK_REPORT_PAGE_TITLE);
+  SET_STRING("pageTitle", from_crash
+                              ? IDS_FEEDBACK_REPORT_PAGE_TITLE_SAD_TAB_FLOW
+                              : IDS_FEEDBACK_REPORT_PAGE_TITLE);
+  SET_STRING("appTitle", IDS_FEEDBACK_REPORT_APP_TITLE);
   SET_STRING("additionalInfo", IDS_FEEDBACK_ADDITIONAL_INFO_LABEL);
   SET_STRING("minimizeBtnLabel", IDS_FEEDBACK_MINIMIZE_BUTTON_LABEL);
   SET_STRING("closeBtnLabel", IDS_FEEDBACK_CLOSE_BUTTON_LABEL);
@@ -116,7 +118,7 @@ ChromeFeedbackPrivateDelegate::GetStrings(
 system_logs::SystemLogsFetcher*
 ChromeFeedbackPrivateDelegate::CreateSystemLogsFetcher(
     content::BrowserContext* context) const {
-  return system_logs::BuildChromeSystemLogsFetcher();
+  return system_logs::BuildChromeSystemLogsFetcher(/*scrub_data=*/true);
 }
 
 #if defined(OS_CHROMEOS)
@@ -239,8 +241,12 @@ std::string ChromeFeedbackPrivateDelegate::GetSignedInUserEmail(
     content::BrowserContext* context) const {
   auto* identity_manager = IdentityManagerFactory::GetForProfile(
       Profile::FromBrowserContext(context));
-  return identity_manager ? identity_manager->GetPrimaryAccountInfo().email
-                          : std::string();
+  if (!identity_manager)
+    return std::string();
+  // Browser sync consent is not required to use feedback.
+  return identity_manager
+      ->GetPrimaryAccountInfo(signin::ConsentLevel::kNotRequired)
+      .email;
 }
 
 void ChromeFeedbackPrivateDelegate::NotifyFeedbackDelayed() const {

@@ -6,7 +6,6 @@
 
 #include <stddef.h>
 
-#include "base/feature_list.h"
 #include "base/files/file_path.h"
 #include "base/macros.h"
 #include "base/run_loop.h"
@@ -22,12 +21,12 @@
 #include "chrome/common/url_constants.h"
 #include "chrome/test/base/ui_test_utils.h"
 #include "components/prefs/pref_service.h"
+#include "content/public/test/browser_test.h"
 #include "extensions/browser/extension_error.h"
 #include "extensions/common/constants.h"
 #include "extensions/common/error_utils.h"
 #include "extensions/common/extension.h"
 #include "extensions/common/extension_urls.h"
-#include "extensions/common/feature_switch.h"
 #include "extensions/common/manifest_constants.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -133,7 +132,7 @@ void CheckManifestError(const ExtensionError* error,
 
 class ErrorConsoleBrowserTest : public ExtensionBrowserTest {
  public:
-  ErrorConsoleBrowserTest() : error_console_(NULL) { }
+  ErrorConsoleBrowserTest() : error_console_(nullptr) {}
   ~ErrorConsoleBrowserTest() override {}
 
  protected:
@@ -169,7 +168,7 @@ class ErrorConsoleBrowserTest : public ExtensionBrowserTest {
       }
     }
 
-    void OnErrorConsoleDestroyed() override { error_console_ = NULL; }
+    void OnErrorConsoleDestroyed() override { error_console_ = nullptr; }
 
     // Spin until the appropriate number of errors have been observed.
     void WaitForErrors() {
@@ -203,16 +202,6 @@ class ErrorConsoleBrowserTest : public ExtensionBrowserTest {
     // or by a manifest/loading warning).
     ACTION_NONE
   };
-
-  void SetUpInProcessBrowserTestFixture() override {
-    ExtensionBrowserTest::SetUpInProcessBrowserTestFixture();
-
-    // We need to enable the ErrorConsole FeatureSwitch in order to collect
-    // errors. This should be enabled on any channel <= Dev, but let's make
-    // sure (in case a test is running on, e.g., a beta channel).
-    FeatureSwitch::error_console()->SetOverrideValue(
-        FeatureSwitch::OVERRIDE_ENABLED);
-  }
 
   void SetUpOnMainThread() override {
     ExtensionBrowserTest::SetUpOnMainThread();
@@ -294,7 +283,7 @@ class ErrorConsoleBrowserTest : public ExtensionBrowserTest {
 // Test to ensure that we are successfully reporting manifest errors as an
 // extension is installed.
 IN_PROC_BROWSER_TEST_F(ErrorConsoleBrowserTest, ReportManifestErrors) {
-  const Extension* extension = NULL;
+  const Extension* extension = nullptr;
   // We expect two errors - one for an invalid permission, and a second for
   // an unknown key.
   LoadExtensionAndCheckErrors("manifest_warnings", kFlagIgnoreManifestWarnings,
@@ -307,8 +296,8 @@ IN_PROC_BROWSER_TEST_F(ErrorConsoleBrowserTest, ReportManifestErrors) {
   // manifest, so there's not a definitive order in which these errors may
   // occur. As such, we need to determine which error corresponds to which
   // expected error.
-  const ExtensionError* permissions_error = NULL;
-  const ExtensionError* unknown_key_error = NULL;
+  const ExtensionError* permissions_error = nullptr;
+  const ExtensionError* unknown_key_error = nullptr;
   const char kFakeKey[] = "not_a_real_key";
   for (const auto& error : errors) {
     ASSERT_EQ(ExtensionError::MANIFEST_ERROR, error->type());
@@ -346,7 +335,7 @@ IN_PROC_BROWSER_TEST_F(ErrorConsoleBrowserTest,
                        DontStoreErrorsWithoutDeveloperMode) {
   profile()->GetPrefs()->SetBoolean(prefs::kExtensionsUIDeveloperMode, false);
 
-  const Extension* extension = NULL;
+  const Extension* extension = nullptr;
   // Same test as ReportManifestErrors, except we don't expect any errors since
   // we disable Developer Mode.
   LoadExtensionAndCheckErrors("manifest_warnings", kFlagIgnoreManifestWarnings,
@@ -366,7 +355,7 @@ IN_PROC_BROWSER_TEST_F(ErrorConsoleBrowserTest,
 // log, and then crashes with a JS TypeError.
 IN_PROC_BROWSER_TEST_F(ErrorConsoleBrowserTest,
                        ContentScriptLogAndRuntimeError) {
-  const Extension* extension = NULL;
+  const Extension* extension = nullptr;
   LoadExtensionAndCheckErrors(
       "content_script_log_and_runtime_error",
       kNoFlags,
@@ -420,7 +409,7 @@ IN_PROC_BROWSER_TEST_F(ErrorConsoleBrowserTest,
 // Catch an error from a BrowserAction; this is more complex than a content
 // script error, since browser actions are routed through our own code.
 IN_PROC_BROWSER_TEST_F(ErrorConsoleBrowserTest, BrowserActionRuntimeError) {
-  const Extension* extension = NULL;
+  const Extension* extension = nullptr;
   LoadExtensionAndCheckErrors(
       "browser_action_runtime_error",
       kNoFlags,
@@ -455,7 +444,7 @@ IN_PROC_BROWSER_TEST_F(ErrorConsoleBrowserTest, BrowserActionRuntimeError) {
 
 // Test that we can catch an error for calling an API with improper arguments.
 IN_PROC_BROWSER_TEST_F(ErrorConsoleBrowserTest, BadAPIArgumentsRuntimeError) {
-  const Extension* extension = NULL;
+  const Extension* extension = nullptr;
   LoadExtensionAndCheckErrors(
       "bad_api_arguments_runtime_error",
       kNoFlags,
@@ -484,7 +473,7 @@ IN_PROC_BROWSER_TEST_F(ErrorConsoleBrowserTest, BadAPIArgumentsRuntimeError) {
 // Test that we catch an error when we try to call an API method without
 // permission.
 IN_PROC_BROWSER_TEST_F(ErrorConsoleBrowserTest, BadAPIPermissionsRuntimeError) {
-  const Extension* extension = NULL;
+  const Extension* extension = nullptr;
   LoadExtensionAndCheckErrors(
       "bad_api_permissions_runtime_error",
       kNoFlags,
@@ -515,7 +504,7 @@ IN_PROC_BROWSER_TEST_F(ErrorConsoleBrowserTest, BadAPIPermissionsRuntimeError) {
 // Test that if there is an error in an HTML page loaded by an extension (most
 // common with apps), it is caught and reported by the ErrorConsole.
 IN_PROC_BROWSER_TEST_F(ErrorConsoleBrowserTest, BadExtensionPage) {
-  const Extension* extension = NULL;
+  const Extension* extension = nullptr;
   LoadExtensionAndCheckErrors(
       "bad_extension_page",
       kNoFlags,
@@ -527,7 +516,7 @@ IN_PROC_BROWSER_TEST_F(ErrorConsoleBrowserTest, BadExtensionPage) {
 // Test that extension errors that go to chrome.runtime.lastError are caught
 // and reported by the ErrorConsole.
 IN_PROC_BROWSER_TEST_F(ErrorConsoleBrowserTest, CatchesLastError) {
-  const Extension* extension = NULL;
+  const Extension* extension = nullptr;
   LoadExtensionAndCheckErrors(
       "trigger_last_error",
       kNoFlags,

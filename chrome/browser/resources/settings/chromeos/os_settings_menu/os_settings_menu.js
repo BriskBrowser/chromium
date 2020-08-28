@@ -28,8 +28,6 @@ Polymer({
       readOnly: true,
     },
 
-    showApps: Boolean,
-
     showCrostini: Boolean,
 
     showReset: Boolean,
@@ -38,11 +36,21 @@ Polymer({
 
   /** @param {!settings.Route} newRoute */
   currentRouteChanged(newRoute) {
+    const urlSearchQuery =
+        settings.Router.getInstance().getQueryParameters().get('search');
+
+    // If the route navigated to by a search result is in the advanced
+    // section, the advanced menu will expand.
+    if (urlSearchQuery && settings.routes.ADVANCED &&
+        settings.routes.ADVANCED.contains(newRoute)) {
+      this.advancedOpened = true;
+    }
+
     // Focus the initially selected path.
     const anchors = this.root.querySelectorAll('a');
     for (let i = 0; i < anchors.length; ++i) {
-      const anchorRoute =
-          settings.router.getRouteForPath(anchors[i].getAttribute('href'));
+      const anchorRoute = settings.Router.getInstance().getRouteForPath(
+          anchors[i].getAttribute('href'));
       if (anchorRoute && anchorRoute.contains(newRoute)) {
         this.setSelectedUrl_(anchors[i].href);
         return;

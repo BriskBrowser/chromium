@@ -11,10 +11,12 @@
 #include "components/sync_device_info/device_info.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/base/clipboard/clipboard.h"
+#include "ui/base/clipboard/test/clipboard_test_util.h"
 #include "ui/base/clipboard/test/test_clipboard.h"
 #include "ui/message_center/public/cpp/notification.h"
 
-SharedClipboardTestBase::SharedClipboardTestBase() = default;
+SharedClipboardTestBase::SharedClipboardTestBase()
+    : task_environment_(base::test::TaskEnvironment::TimeSource::MOCK_TIME) {}
 
 SharedClipboardTestBase::~SharedClipboardTestBase() = default;
 
@@ -30,8 +32,8 @@ void SharedClipboardTestBase::TearDown() {
 }
 
 chrome_browser_sharing::SharingMessage SharedClipboardTestBase::CreateMessage(
-    std::string guid,
-    std::string device_name) {
+    const std::string& guid,
+    const std::string& device_name) {
   chrome_browser_sharing::SharingMessage message;
   message.set_sender_guid(guid);
   message.set_sender_device_name(device_name);
@@ -41,8 +43,31 @@ chrome_browser_sharing::SharingMessage SharedClipboardTestBase::CreateMessage(
 std::string SharedClipboardTestBase::GetClipboardText() {
   base::string16 text;
   ui::Clipboard::GetForCurrentThread()->ReadText(
-      ui::ClipboardBuffer::kCopyPaste, &text);
+      ui::ClipboardBuffer::kCopyPaste, /* data_dst = */ nullptr, &text);
   return base::UTF16ToUTF8(text);
+}
+
+SkBitmap SharedClipboardTestBase::GetClipboardImage() {
+  return ui::clipboard_test_util::ReadImage(
+      ui::Clipboard::GetForCurrentThread());
+}
+
+bool SharedClipboardTestBase::HasImageNotification() {
+  auto notifications = notification_tester_->GetDisplayedNotificationsForType(
+      NotificationHandler::Type::SHARING);
+  if (notifications.size() != 1u)
+    return false;
+
+  return notifications[0].type() == message_center::NOTIFICATION_TYPE_IMAGE;
+}
+
+bool SharedClipboardTestBase::HasProgressNotification() {
+  auto notifications = notification_tester_->GetDisplayedNotificationsForType(
+      NotificationHandler::Type::SHARING);
+  if (notifications.size() != 1u)
+    return false;
+
+  return notifications[0].type() == message_center::NOTIFICATION_TYPE_PROGRESS;
 }
 
 message_center::Notification SharedClipboardTestBase::GetNotification() {
@@ -52,6 +77,29 @@ message_center::Notification SharedClipboardTestBase::GetNotification() {
 
   const message_center::Notification& notification = notifications[0];
   EXPECT_EQ(message_center::NOTIFICATION_TYPE_SIMPLE, notification.type());
+
+  return notification;
+}
+
+message_center::Notification
+SharedClipboardTestBase::GetProgressNotification() {
+  auto notifications = notification_tester_->GetDisplayedNotificationsForType(
+      NotificationHandler::Type::SHARING);
+  EXPECT_EQ(notifications.size(), 1u);
+
+  const message_center::Notification& notification = notifications[0];
+  EXPECT_EQ(message_center::NOTIFICATION_TYPE_PROGRESS, notification.type());
+
+  return notification;
+}
+
+message_center::Notification SharedClipboardTestBase::GetImageNotification() {
+  auto notifications = notification_tester_->GetDisplayedNotificationsForType(
+      NotificationHandler::Type::SHARING);
+  EXPECT_EQ(notifications.size(), 1u);
+
+  const message_center::Notification& notification = notifications[0];
+  EXPECT_EQ(message_center::NOTIFICATION_TYPE_IMAGE, notification.type());
 
   return notification;
 }

@@ -7,7 +7,7 @@
 
 #include <vector>
 
-#include "base/logging.h"
+#include "base/notreached.h"
 #include "base/strings/string16.h"
 
 namespace base {
@@ -90,7 +90,7 @@ struct ObserverCompletionInfo {
 // typically implemented by a progress window.
 class InstallProgressObserver {
  public:
-  virtual ~InstallProgressObserver() {}
+  virtual ~InstallProgressObserver() = default;
   virtual void OnCheckingForUpdate() = 0;
   virtual void OnUpdateAvailable(const base::string16& app_id,
                                  const base::string16& app_name,

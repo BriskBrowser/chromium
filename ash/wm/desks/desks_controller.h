@@ -11,7 +11,7 @@
 
 #include "ash/ash_export.h"
 #include "ash/public/cpp/desks_helper.h"
-#include "ash/session/session_observer.h"
+#include "ash/public/cpp/session/session_observer.h"
 #include "ash/wm/desks/desks_histogram_enums.h"
 #include "ash/wm/desks/root_window_desk_switch_animator.h"
 #include "base/containers/flat_map.h"
@@ -27,6 +27,7 @@ class Window;
 namespace ash {
 
 class Desk;
+class DeskAnimationBase;
 
 // Defines a controller for creating, destroying and managing virtual desks and
 // their windows.
@@ -70,6 +71,10 @@ class ASH_EXPORT DesksController : public DesksHelper,
   const std::vector<std::unique_ptr<Desk>>& desks() const { return desks_; }
 
   const Desk* active_desk() const { return active_desk_; }
+
+  // Returns the current |active_desk()| or the soon-to-be active desk if a desk
+  // switch animation is in progress.
+  const Desk* GetTargetActiveDesk() const;
 
   // Destroys any pending animations in preparation for shutdown.
   void Shutdown();
@@ -119,13 +124,28 @@ class ASH_EXPORT DesksController : public DesksHelper,
   bool ActivateAdjacentDesk(bool going_left, DesksSwitchSource source);
 
   // Moves |window| (which must belong to the currently active desk) to
-  // |target_desk| (which must be a different desk). If |window| is minimized,
-  // it will be unminimized after it's moved to |target_desk|.
+  // |target_desk| (which must be a different desk).
+  // |target_root| is provided if |window| is desired to be moved to another
+  // desk on another display, otherwise, you can just provide
+  // |window->GetRootWindow()| if the window should stay on the same display.
+  // If |window| is minimized, it will be unminimized after it's moved to
+  // |target_desk|.
   // Returns true on success, false otherwise (e.g. if |window| doesn't belong
   // to the active desk).
   bool MoveWindowFromActiveDeskTo(aura::Window* window,
                                   Desk* target_desk,
+                                  aura::Window* target_root,
                                   DesksMoveWindowFromActiveDeskSource source);
+
+  // Reverts the name of the given |desk| to the default value (i.e. "Desk 1",
+  // "Desk 2", ... etc.) according to its position in the |desks_| list, as if
+  // it was never modified by users.
+  void RevertDeskNameToDefault(Desk* desk);
+
+  // Restores the desk at |index| to the given |name|. This is only for user-
+  // modified desk names, and hence |name| should never be empty since users are
+  // not allowed to set empty names.
+  void RestoreNameOfDeskAtIndex(base::string16 name, size_t index);
 
   // Called explicitly by the RootWindowController when a root window has been
   // added or about to be removed in order to update all the available desks.
@@ -145,11 +165,12 @@ class ASH_EXPORT DesksController : public DesksHelper,
 
   // SessionObserver:
   void OnActiveUserSessionChanged(const AccountId& account_id) override;
+  void OnFirstSessionStarted() override;
 
  private:
-  class DeskAnimationBase;
-  class DeskActivationAnimation;
-  class DeskRemovalAnimation;
+  friend class DeskAnimationBase;
+  friend class DeskActivationAnimation;
+  friend class DeskRemovalAnimation;
 
   void OnAnimationFinished(DeskAnimationBase* animation);
 
@@ -181,6 +202,11 @@ class ASH_EXPORT DesksController : public DesksHelper,
 
   void ReportDesksCountHistogram() const;
 
+  // Updates the default names (e.g. "Desk 1", "Desk 2", ... etc.) given to the
+  // desks. This is called when desks are added or removed to update the names
+  // based on the desks order.
+  void UpdateDesksDefaultNames();
+
   std::vector<std::unique_ptr<Desk>> desks_;
 
   Desk* active_desk_ = nullptr;
@@ -197,12 +223,16 @@ class ASH_EXPORT DesksController : public DesksHelper,
   bool are_desks_being_modified_ = false;
 
   // List of on-going desks animations.
+  // TODO(sammiequon): Investigate if this needs to still be a list.
   std::vector<std::unique_ptr<DeskAnimationBase>> animations_;
 
   // A free list of desk container IDs to be used for newly-created desks. New
   // desks pops from this queue and removed desks's associated container IDs are
   // re-pushed on this queue.
   std::queue<int> available_container_ids_;
+
+  // True when the enhanced desk animations feature is enabled.
+  const bool is_enhanced_desk_animations_;
 
   base::ObserverList<Observer>::Unchecked observers_;
 

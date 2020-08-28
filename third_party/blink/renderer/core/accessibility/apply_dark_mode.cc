@@ -16,40 +16,10 @@
 namespace blink {
 namespace {
 
-const int kAlphaThreshold = 100;
-const int kBrightnessThreshold = 50;
-
-// TODO(https://crbug.com/925949): Add detection and classification of
-// background image color. Most sites with dark background images also have a
-// dark background color set, so this is less of a priority than it would be
-// otherwise.
-bool HasLightBackground(const LayoutView& root) {
-  const ComputedStyle& style = root.StyleRef();
-
-  // If we can't easily determine the background color, default to inverting the
-  // page.
-  if (!style.HasBackground())
-    return true;
-
-  Color color = style.VisitedDependentColor(GetCSSPropertyBackgroundColor());
-  if (color.Alpha() < kAlphaThreshold)
-    return true;
-
-  return DarkModeColorClassifier::CalculateColorBrightness(color) >
-         kBrightnessThreshold;
-}
-
-bool IsDarkModeEnabled(const Settings& frame_settings) {
-  static bool isDarkModeEnabledByFeatureFlag =
-      features::kForceDarkInversionMethodParam.Get() !=
-      ForceDarkInversionMethod::kUseBlinkSettings;
-  return isDarkModeEnabledByFeatureFlag || frame_settings.GetDarkModeEnabled();
-}
-
 DarkModeInversionAlgorithm GetMode(const Settings& frame_settings) {
   switch (features::kForceDarkInversionMethodParam.Get()) {
     case ForceDarkInversionMethod::kUseBlinkSettings:
-      return frame_settings.GetDarkModeInversionAlgorithm();
+      return frame_settings.GetForceDarkModeInversionAlgorithm();
     case ForceDarkInversionMethod::kCielabBased:
       return DarkModeInversionAlgorithm::kInvertLightnessLAB;
     case ForceDarkInversionMethod::kHslBased:
@@ -62,7 +32,7 @@ DarkModeInversionAlgorithm GetMode(const Settings& frame_settings) {
 DarkModeImagePolicy GetImagePolicy(const Settings& frame_settings) {
   switch (features::kForceDarkImageBehaviorParam.Get()) {
     case ForceDarkImageBehavior::kUseBlinkSettings:
-      return frame_settings.GetDarkModeImagePolicy();
+      return frame_settings.GetForceDarkModeImagePolicy();
     case ForceDarkImageBehavior::kInvertNone:
       return DarkModeImagePolicy::kFilterNone;
     case ForceDarkImageBehavior::kInvertSelectively:
@@ -74,8 +44,9 @@ int GetTextBrightnessThreshold(const Settings& frame_settings) {
   const int flag_value = base::GetFieldTrialParamByFeatureAsInt(
       features::kForceWebContentsDarkMode,
       features::kForceDarkTextLightnessThresholdParam.name, -1);
-  return flag_value >= 0 ? flag_value
-                         : frame_settings.GetDarkModeTextBrightnessThreshold();
+  return flag_value >= 0
+             ? flag_value
+             : frame_settings.GetForceDarkModeTextBrightnessThreshold();
 }
 
 int GetBackgroundBrightnessThreshold(const Settings& frame_settings) {
@@ -84,7 +55,7 @@ int GetBackgroundBrightnessThreshold(const Settings& frame_settings) {
       features::kForceDarkBackgroundLightnessThresholdParam.name, -1);
   return flag_value >= 0
              ? flag_value
-             : frame_settings.GetDarkModeBackgroundBrightnessThreshold();
+             : frame_settings.GetForceDarkModeBackgroundBrightnessThreshold();
 }
 
 DarkModeSettings GetEnabledSettings(const Settings& frame_settings) {
@@ -96,9 +67,10 @@ DarkModeSettings GetEnabledSettings(const Settings& frame_settings) {
   settings.background_brightness_threshold =
       GetBackgroundBrightnessThreshold(frame_settings);
 
-  settings.grayscale = frame_settings.GetDarkModeGrayscale();
-  settings.contrast = frame_settings.GetDarkModeContrast();
-  settings.image_grayscale_percent = frame_settings.GetDarkModeImageGrayscale();
+  settings.grayscale = frame_settings.GetForceDarkModeGrayscale();
+  settings.contrast = frame_settings.GetForceDarkModeContrast();
+  settings.image_grayscale_percent =
+      frame_settings.GetForceDarkModeImageGrayscale();
   return settings;
 }
 
@@ -111,26 +83,13 @@ DarkModeSettings GetDisabledSettings() {
 }  // namespace
 
 DarkModeSettings BuildDarkModeSettings(const Settings& frame_settings,
-                                       const LayoutView& root) {
-  if (IsDarkModeEnabled(frame_settings) &&
-      ShouldApplyDarkModeFilterToPage(frame_settings.GetDarkModePagePolicy(),
-                                      root)) {
-    return GetEnabledSettings(frame_settings);
-  }
-  return GetDisabledSettings();
-}
+                                       bool content_has_dark_color_scheme) {
+  if (content_has_dark_color_scheme)
+    return GetDisabledSettings();
 
-bool ShouldApplyDarkModeFilterToPage(DarkModePagePolicy policy,
-                                     const LayoutView& root) {
-  if (root.StyleRef().DarkColorScheme())
-    return false;
-
-  switch (policy) {
-    case DarkModePagePolicy::kFilterAll:
-      return true;
-    case DarkModePagePolicy::kFilterByBackground:
-      return HasLightBackground(root);
-  }
+  return frame_settings.GetForceDarkModeEnabled()
+             ? GetEnabledSettings(frame_settings)
+             : GetDisabledSettings();
 }
 
 }  // namespace blink

@@ -9,7 +9,7 @@ import {assert} from 'chrome://resources/js/assert.m.js';
 import {tap} from 'chrome://resources/polymer/v3_0/iron-test-helpers/mock-interactions.js';
 import {flush} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
-import {isVisible} from '../test_util.m.js';
+import {isChildVisible} from '../test_util.m.js';
 
 import {TestService} from './test_service.js';
 import {createExtensionInfo, MockItemDelegate, testVisible} from './test_util.js';
@@ -85,10 +85,10 @@ extension_item_tests.TestNames = {
   FailedReloadFiresLoadError: 'failed reload fires load error',
   Warnings: 'warnings',
   SourceIndicator: 'source indicator',
-  EnableToggleAndButton:
-      'Enable toggle and button are disabled/hidden when necessary',
+  EnableToggle: 'Enable toggle is disabled when necessary',
   RemoveButton: 'remove button hidden when necessary',
   HtmlInName: 'html in extension name',
+  RepairButton: 'Repair button visibility',
 };
 
 suite(extension_item_tests.suiteName, function() {
@@ -103,7 +103,7 @@ suite(extension_item_tests.suiteName, function() {
 
   // Initialize an extension item before each test.
   setup(function() {
-    PolymerTest.clearBody();
+    document.body.innerHTML = '';
     mockDelegate = new MockItemDelegate();
     item = document.createElement('extensions-item');
     item.data = createExtensionInfo();
@@ -146,12 +146,17 @@ suite(extension_item_tests.suiteName, function() {
         flush();
         testVisible(item, '#dev-reload-button', false);
 
+        item.set('data.disableReasons.reloading', true);
+        flush();
+        testVisible(item, '#dev-reload-button', true);
+
+        item.set('data.disableReasons.reloading', false);
+        flush();
         item.set(
             'data.state', chrome.developerPrivate.ExtensionState.TERMINATED);
         flush();
         testVisible(item, '#dev-reload-button', false);
         testVisible(item, '#enableToggle', false);
-        testVisible(item, '#enableButton', false);
       });
 
   /** Tests that the delegate methods are correctly called. */
@@ -162,8 +167,6 @@ suite(extension_item_tests.suiteName, function() {
         item.$['remove-button'], 'deleteItem', [item.data.id]);
     mockDelegate.testClickingCalls(
         item.$['enableToggle'], 'setItemEnabled', [item.data.id, false]);
-    mockDelegate.testClickingCalls(
-        item.$['enableButton'], 'setItemEnabled', [item.data.id, true]);
     mockDelegate.testClickingCalls(
         item.$$('#inspect-views a[is="action-link"]'), 'inspectItemView',
         [item.data.id, item.data.views[0]]);
@@ -190,7 +193,8 @@ suite(extension_item_tests.suiteName, function() {
     mockDelegate.testClickingCalls(
         item.$$('#repair-button'), 'repairItem', [item.data.id]);
     testVisible(item, '#enableToggle', false);
-    testVisible(item, '#enableButton', false);
+    item.set('data.disableReasons.corruptInstall', false);
+    flush();
 
     item.set('data.state', chrome.developerPrivate.ExtensionState.TERMINATED);
     flush();
@@ -260,12 +264,15 @@ suite(extension_item_tests.suiteName, function() {
     const kRuntime = 1 << 3;
 
     function assertWarnings(mask) {
-      assertEquals(!!(mask & kCorrupt), isVisible(item, '#corrupted-warning'));
       assertEquals(
-          !!(mask & kSuspicious), isVisible(item, '#suspicious-warning'));
+          !!(mask & kCorrupt), isChildVisible(item, '#corrupted-warning'));
       assertEquals(
-          !!(mask & kBlacklisted), isVisible(item, '#blacklisted-warning'));
-      assertEquals(!!(mask & kRuntime), isVisible(item, '#runtime-warnings'));
+          !!(mask & kSuspicious), isChildVisible(item, '#suspicious-warning'));
+      assertEquals(
+          !!(mask & kBlacklisted),
+          isChildVisible(item, '#blacklisted-warning'));
+      assertEquals(
+          !!(mask & kRuntime), isChildVisible(item, '#runtime-warnings'));
     }
 
     assertWarnings(0);
@@ -298,75 +305,84 @@ suite(extension_item_tests.suiteName, function() {
   });
 
   test(assert(extension_item_tests.TestNames.SourceIndicator), function() {
-    expectFalse(isVisible(item, '#source-indicator'));
+    expectFalse(isChildVisible(item, '#source-indicator'));
     item.set('data.location', 'UNPACKED');
     flush();
-    expectTrue(isVisible(item, '#source-indicator'));
+    expectTrue(isChildVisible(item, '#source-indicator'));
     const icon = item.$$('#source-indicator iron-icon');
     assertTrue(!!icon);
     expectEquals('extensions-icons:unpacked', icon.icon);
 
     item.set('data.location', 'THIRD_PARTY');
     flush();
-    expectTrue(isVisible(item, '#source-indicator'));
+    expectTrue(isChildVisible(item, '#source-indicator'));
     expectEquals('extensions-icons:input', icon.icon);
 
     item.set('data.location', 'UNKNOWN');
     flush();
-    expectTrue(isVisible(item, '#source-indicator'));
+    expectTrue(isChildVisible(item, '#source-indicator'));
     expectEquals('extensions-icons:input', icon.icon);
 
     item.set('data.location', 'FROM_STORE');
-    item.set('data.controlledInfo', {type: 'POLICY', text: 'policy'});
+    item.set('data.controlledInfo', {text: 'policy'});
     flush();
-    expectTrue(isVisible(item, '#source-indicator'));
+    expectTrue(isChildVisible(item, '#source-indicator'));
     expectEquals('extensions-icons:business', icon.icon);
 
     item.set('data.controlledInfo', null);
     flush();
-    expectFalse(isVisible(item, '#source-indicator'));
+    expectFalse(isChildVisible(item, '#source-indicator'));
   });
 
-  test(
-      assert(extension_item_tests.TestNames.EnableToggleAndButton), function() {
-        expectFalse(item.$['enableToggle'].disabled);
-        expectFalse(item.$['enableButton'].disabled);
+  test(assert(extension_item_tests.TestNames.EnableToggle), function() {
+    expectFalse(item.$['enableToggle'].disabled);
 
-        // Test case where user does not have permission.
-        item.set('data.userMayModify', false);
-        flush();
-        expectTrue(item.$['enableToggle'].disabled);
-        expectFalse(item.$['enableButton'].disabled);
+    // Test case where user does not have permission.
+    item.set('data.userMayModify', false);
+    flush();
+    expectTrue(item.$['enableToggle'].disabled);
+    // Reset state.
+    item.set('data.userMayModify', true);
+    flush();
 
-        // Test case of a blacklisted extension.
-        item.set('data.userMayModify', true);
-        item.set('data.state', 'BLACKLISTED');
-        flush();
-        expectTrue(item.$['enableToggle'].disabled);
+    // Test case of a blacklisted extension.
+    item.set('data.state', 'BLACKLISTED');
+    flush();
+    expectTrue(item.$['enableToggle'].disabled);
+    // Reset state.
+    item.set('data.state', 'ENABLED');
+    flush();
 
-        // This section tests that the enable toggle is visible but disabled
-        // when disableReasons.blockedByPolicy is true. This test prevents a
-        // regression to crbug/1003014.
-        item.set('data.disableReasons.blockedByPolicy', true);
-        flush();
-        testVisible(item, '#enableToggle', true);
-        expectTrue(item.$['enableToggle'].disabled);
-        testVisible(item, '#enableButton', false);
-        item.set('data.disableReasons.blockedByPolicy', false);
-        flush();
+    // This section tests that the enable toggle is visible but disabled
+    // when disableReasons.blockedByPolicy is true. This test prevents a
+    // regression to crbug/1003014.
+    item.set('data.disableReasons.blockedByPolicy', true);
+    flush();
+    testVisible(item, '#enableToggle', true);
+    expectTrue(item.$['enableToggle'].disabled);
+    item.set('data.disableReasons.blockedByPolicy', false);
+    flush();
 
-        item.set('data.disableReasons.custodianApprovalRequired', true);
-        flush();
-        testVisible(item, '#enableToggle', false);
-        testVisible(item, '#enableButton', true);
-        expectFalse(item.$$('#enableButton').disabled);
-        item.set('data.disableReasons.custodianApprovalRequired', false);
-        flush();
-      });
+    testVisible(item, '#parentDisabledPermissionsToolTip', false);
+    item.set('data.disableReasons.parentDisabledPermissions', true);
+    flush();
+    testVisible(item, '#enableToggle', true);
+    expectFalse(item.$['enableToggle'].disabled);
+    testVisible(item, '#parentDisabledPermissionsToolTip', true);
+    item.set('data.disableReasons.parentDisabledPermissions', false);
+    flush();
+
+    item.set('data.disableReasons.custodianApprovalRequired', true);
+    flush();
+    testVisible(item, '#enableToggle', true);
+    expectFalse(item.$$('#enableToggle').disabled);
+    item.set('data.disableReasons.custodianApprovalRequired', false);
+    flush();
+  });
 
   test(assert(extension_item_tests.TestNames.RemoveButton), function() {
     expectFalse(item.$['remove-button'].hidden);
-    item.set('data.controlledInfo', {type: 'POLICY', text: 'policy'});
+    item.set('data.mustRemainInstalled', true);
     flush();
     expectTrue(item.$['remove-button'].hidden);
   });
@@ -379,5 +395,24 @@ suite(extension_item_tests.suiteName, function() {
     // "Related to $1" is IDS_MD_EXTENSIONS_EXTENSION_A11Y_ASSOCIATION.
     assertEquals(
         `Related to ${name}`, item.$.a11yAssociation.textContent.trim());
+  });
+
+  test(assert(extension_item_tests.TestNames.RepairButton), function() {
+    // For most extensions, the "repair" button should be displayed if the
+    // extension is detected as corrupted.
+    testVisible(item, '#repair-button', false);
+    item.set('data.disableReasons.corruptInstall', true);
+    flush();
+    testVisible(item, '#repair-button', true);
+    item.set('data.disableReasons.corruptInstall', false);
+    flush();
+    testVisible(item, '#repair-button', false);
+
+    // However, the user isn't allowed to initiate a repair for extensions they
+    // aren't allowed to modify, so the button shouldn't be visible.
+    item.set('data.userMayModify', false);
+    item.set('data.disableReasons.corruptInstall', true);
+    flush();
+    testVisible(item, '#repair-button', false);
   });
 });

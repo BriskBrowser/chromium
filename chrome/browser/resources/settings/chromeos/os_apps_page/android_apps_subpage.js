@@ -10,7 +10,12 @@
 Polymer({
   is: 'settings-android-apps-subpage',
 
-  behaviors: [I18nBehavior, PrefsBehavior],
+  behaviors: [
+    DeepLinkingBehavior,
+    I18nBehavior,
+    PrefsBehavior,
+    settings.RouteObserverBehavior,
+  ],
 
   properties: {
     /** Preferences state. */
@@ -36,14 +41,40 @@ Polymer({
             'androidAppsDisableDialogMessage',
             {substitutions: [], tags: ['br']});
       }
+    },
+
+    /**
+     * Used by DeepLinkingBehavior to focus this page's deep links.
+     * @type {!Set<!chromeos.settings.mojom.Setting>}
+     */
+    supportedSettingIds: {
+      type: Object,
+      value: () => new Set([
+        chromeos.settings.mojom.Setting.kManageAndroidPreferences,
+        chromeos.settings.mojom.Setting.kRemovePlayStore,
+      ]),
+    },
+  },
+
+  /**
+   * @param {!settings.Route} route
+   * @param {!settings.Route} oldRoute
+   */
+  currentRouteChanged(route, oldRoute) {
+    // Does not apply to this page.
+    if (route !== settings.routes.ANDROID_APPS_DETAILS) {
+      return;
     }
+
+    this.attemptDeepLink();
   },
 
   /** @private */
   onPlayStoreEnabledChanged_(enabled) {
     if (!enabled &&
-        settings.getCurrentRoute() == settings.routes.ANDROID_APPS_DETAILS) {
-      settings.navigateToPreviousRoute();
+        settings.Router.getInstance().getCurrentRoute() ==
+            settings.routes.ANDROID_APPS_DETAILS) {
+      settings.Router.getInstance().navigateToPreviousRoute();
     }
   },
 

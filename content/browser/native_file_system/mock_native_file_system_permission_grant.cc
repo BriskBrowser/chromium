@@ -12,10 +12,10 @@ MockNativeFileSystemPermissionGrant::~MockNativeFileSystemPermissionGrant() =
     default;
 
 void MockNativeFileSystemPermissionGrant::RequestPermission(
-    int process_id,
-    int frame_id,
+    GlobalFrameRoutingId frame_id,
+    UserActivationState user_activation_state,
     base::OnceCallback<void(PermissionRequestOutcome)> callback) {
-  RequestPermission_(process_id, frame_id, callback);
+  RequestPermission_(frame_id, user_activation_state, callback);
 }
 
 }  // namespace content

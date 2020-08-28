@@ -26,7 +26,6 @@
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/sync/session_sync_service_factory.h"
 #include "chrome/browser/ui/app_list/app_list_test_util.h"
-#include "chrome/browser/ui/app_list/arc/arc_app_item.h"
 #include "chrome/browser/ui/app_list/arc/arc_app_list_prefs.h"
 #include "chrome/browser/ui/app_list/arc/arc_app_test.h"
 #include "chrome/browser/ui/app_list/arc/arc_default_app_list.h"
@@ -35,12 +34,16 @@
 #include "chrome/browser/ui/app_list/search/search_result_ranker/ranking_item_util.h"
 #include "chrome/browser/ui/app_list/test/fake_app_list_model_updater.h"
 #include "chrome/browser/ui/app_list/test/test_app_list_controller_delegate.h"
+#include "chrome/browser/web_applications/components/web_app_provider_base.h"
+#include "chrome/browser/web_applications/test/web_app_install_test_utils.h"
+#include "chrome/browser/web_applications/test/web_app_test.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_features.h"
-#include "chrome/services/app_service/public/cpp/stub_icon_loader.h"
 #include "chrome/test/base/testing_profile.h"
 #include "components/arc/test/fake_app_instance.h"
 #include "components/crx_file/id_util.h"
+#include "components/services/app_service/public/cpp/stub_icon_loader.h"
+#include "components/services/app_service/public/mojom/types.mojom.h"
 #include "components/sessions/content/content_test_helper.h"
 #include "components/sessions/core/serialized_navigation_entry_test_helper.h"
 #include "components/sessions/core/session_id.h"
@@ -57,6 +60,8 @@
 #include "extensions/common/extension_set.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
+
+using web_app::ProviderType;
 
 namespace app_list {
 namespace test {
@@ -85,6 +90,9 @@ constexpr char kRankingNormalAppPackageName[] = "test.ranking.app.normal";
 
 constexpr char kSettingsInternalName[] = "Settings";
 
+constexpr char kWebAppUrl[] = "https://webappone.com/";
+constexpr char kWebAppName[] = "WebApp1";
+
 // Waits for base::Time::Now() is updated.
 void WaitTimeUpdated() {
   base::RunLoop run_loop;
@@ -102,11 +110,33 @@ bool MoreRelevant(const ChromeSearchResult* result1,
   return result1->relevance() > result2->relevance();
 }
 
+void UpdateIconKey(apps::AppServiceProxy& proxy, const std::string& app_id) {
+  apps::mojom::AppPtr app = apps::mojom::App::New();
+  app->app_id = app_id;
+  proxy.AppRegistryCache().ForOneApp(
+      app_id, [&app](const apps::AppUpdate& update) {
+        app->app_type = update.AppType();
+        app->icon_key = apps::mojom::IconKey::New(
+            update.IconKey()->timeline + 1, update.IconKey()->resource_id,
+            update.IconKey()->icon_effects);
+      });
+
+  std::vector<apps::mojom::AppPtr> apps;
+  apps.push_back(app.Clone());
+  proxy.AppRegistryCache().OnApps(std::move(apps));
+  proxy.FlushMojoCallsForTesting();
+}
+
 class AppSearchProviderTest : public AppListTestBase {
  public:
   AppSearchProviderTest() {
     // Disable System Web Apps so the Settings Internal App is still installed.
-    scoped_feature_list_.InitAndDisableFeature(features::kSystemWebApps);
+    // TODO(crbug.com/990684): disable FuzzyAppSearch because we flipped the
+    // flag to be enabled by default, need to enable it after it is fully
+    // launched.
+    scoped_feature_list_.InitWithFeatures(
+        {},
+        {features::kSystemWebApps, app_list_features::kEnableFuzzyAppSearch});
   }
   ~AppSearchProviderTest() override {}
 
@@ -133,7 +163,7 @@ class AppSearchProviderTest : public AppListTestBase {
     open_tabs_ui_delegate_ =
         std::make_unique<sync_sessions::OpenTabsUIDelegateImpl>(
             &mock_sync_sessions_client_, session_tracker_.get(),
-            /*favicon_cache=*/nullptr, base::DoNothing());
+            base::DoNothing());
     app_search_->set_open_tabs_ui_delegate_for_testing(
         open_tabs_ui_delegate_.get());
   }
@@ -167,7 +197,8 @@ class AppSearchProviderTest : public AppListTestBase {
     std::vector<ChromeSearchResult*> priority_results;
     for (const auto& result : app_search_->results()) {
       if (result->display_index() == ash::kFirstIndex &&
-          result->display_location() == ash::kSuggestionChipContainer) {
+          (result->display_type() == ash::kChip ||
+           result->display_type() == ash::kTile)) {
         priority_results.emplace_back(result.get());
       } else {
         non_relevance_results.emplace_back(result.get());
@@ -688,7 +719,55 @@ TEST_F(AppSearchProviderTest, FetchInternalApp) {
   EXPECT_EQ(kSettingsInternalName, RunQuery("Set"));
 }
 
-TEST_F(AppSearchProviderTest, CrostiniTerminal) {
+class AppSearchProviderWebAppTest : public AppSearchProviderTest {
+ public:
+  AppSearchProviderWebAppTest() {
+    scoped_feature_list_.InitAndEnableFeature(
+        features::kDesktopPWAsWithoutExtensions);
+  }
+
+  ~AppSearchProviderWebAppTest() override = default;
+
+ private:
+  base::test::ScopedFeatureList scoped_feature_list_;
+};
+
+TEST_F(AppSearchProviderWebAppTest, WebApp) {
+  apps::AppServiceProxy* proxy =
+      apps::AppServiceProxyFactory::GetForProfile(testing_profile());
+  proxy->FlushMojoCallsForTesting();
+
+  const web_app::AppId app_id = web_app::InstallDummyWebApp(
+      testing_profile(), kWebAppName, GURL(kWebAppUrl));
+
+  // Allow async callbacks to run.
+  base::RunLoop().RunUntilIdle();
+
+  CreateSearch();
+  EXPECT_EQ("WebApp1", RunQuery("WebA"));
+}
+
+class AppSearchProviderCrostiniTest
+    : public AppSearchProviderTest,
+      public ::testing::WithParamInterface<ProviderType> {
+ protected:
+  AppSearchProviderCrostiniTest() {
+    if (GetParam() == ProviderType::kWebApps) {
+      scoped_feature_list_.InitAndEnableFeature(
+          features::kDesktopPWAsWithoutExtensions);
+    } else if (GetParam() == ProviderType::kBookmarkApps) {
+      scoped_feature_list_.InitAndDisableFeature(
+          features::kDesktopPWAsWithoutExtensions);
+    }
+  }
+
+  ~AppSearchProviderCrostiniTest() override = default;
+
+ private:
+  base::test::ScopedFeatureList scoped_feature_list_;
+};
+
+TEST_P(AppSearchProviderCrostiniTest, CrostiniTerminal) {
   CreateSearch();
 
   // Crostini UI is not allowed yet.
@@ -721,7 +800,7 @@ TEST_F(AppSearchProviderTest, CrostiniTerminal) {
   EXPECT_EQ("Terminal", RunQuery("cros"));
 }
 
-TEST_F(AppSearchProviderTest, CrostiniApp) {
+TEST_P(AppSearchProviderCrostiniTest, CrostiniApp) {
   // This both allows Crostini UI and enables Crostini.
   crostini::CrostiniTestHelper crostini_test_helper(testing_profile());
   crostini_test_helper.ReInitializeAppServiceIntegration();
@@ -774,15 +853,23 @@ TEST_F(AppSearchProviderTest, AppServiceIconCache) {
   RunQuery("pa");
   EXPECT_EQ(2, stub_icon_loader.NumLoadIconFromIconKeyCalls());
 
-  // Hiding the UI (i.e. calling ViewClosing) should clear the icon cache. The
-  // number of LoadIconFromIconKey calls should not change.
+  // The number of LoadIconFromIconKey calls should not change, when hiding the
+  // UI (i.e. calling ViewClosing).
   CallViewClosing();
   EXPECT_EQ(2, stub_icon_loader.NumLoadIconFromIconKeyCalls());
 
-  // Issuing the same "pa" query should bypass the now-clear icon cache, with 2
-  // further calls to the wrapped stub_icon_loader, bringing the total to 4.
+  // The icon has been added to the map, so issuing the same "pa" query should
+  // not call the wrapped stub_icon_loader.
   RunQuery("pa");
-  EXPECT_EQ(4, stub_icon_loader.NumLoadIconFromIconKeyCalls());
+  EXPECT_EQ(2, stub_icon_loader.NumLoadIconFromIconKeyCalls());
+
+  // Update the icon key to remove the app icon from cache.
+  UpdateIconKey(*proxy, kPackagedApp2Id);
+
+  // The icon has been removed from the cache, so issuing the same "pa" query
+  // should call the wrapped stub_icon_loader.
+  RunQuery("pa");
+  EXPECT_EQ(3, stub_icon_loader.NumLoadIconFromIconKeyCalls());
 
   proxy->OverrideInnerIconLoaderForTesting(old_icon_loader);
 }
@@ -792,7 +879,7 @@ TEST_F(AppSearchProviderTest, FuzzyAppSearchTest) {
   feature_list.InitAndEnableFeature(app_list_features::kEnableFuzzyAppSearch);
   CreateSearch();
   EXPECT_EQ("Packaged App 1,Packaged App 2", RunQuery("pa"));
-  std::string result = RunQuery("packahe");
+  std::string result = RunQuery("ackaged");
   EXPECT_TRUE(result == "Packaged App 1,Packaged App 2" ||
               result == "Packaged App 2,Packaged App 1");
   EXPECT_EQ(kKeyboardShortcutHelperInternalName, RunQuery("Helper"));
@@ -930,14 +1017,6 @@ TEST_P(AppSearchProviderWithExtensionInstallType, OemResultsOnFirstBoot) {
   }
 }
 
-INSTANTIATE_TEST_SUITE_P(
-    All,
-    AppSearchProviderWithExtensionInstallType,
-    ::testing::ValuesIn({TestExtensionInstallType::CONTROLLED_BY_POLICY,
-                         TestExtensionInstallType::CHROME_COMPONENT,
-                         TestExtensionInstallType::INSTALLED_BY_DEFAULT,
-                         TestExtensionInstallType::INSTALLED_BY_OEM}));
-
 enum class TestArcAppInstallType {
   CONTROLLED_BY_POLICY,
   INSTALLED_BY_DEFAULT,
@@ -1023,9 +1102,23 @@ TEST_P(AppSearchProviderWithArcAppInstallType,
 
 INSTANTIATE_TEST_SUITE_P(
     All,
+    AppSearchProviderWithExtensionInstallType,
+    ::testing::ValuesIn({TestExtensionInstallType::CONTROLLED_BY_POLICY,
+                         TestExtensionInstallType::CHROME_COMPONENT,
+                         TestExtensionInstallType::INSTALLED_BY_DEFAULT,
+                         TestExtensionInstallType::INSTALLED_BY_OEM}));
+
+INSTANTIATE_TEST_SUITE_P(
+    All,
     AppSearchProviderWithArcAppInstallType,
     ::testing::ValuesIn({TestArcAppInstallType::CONTROLLED_BY_POLICY,
                          TestArcAppInstallType::INSTALLED_BY_DEFAULT}));
+
+INSTANTIATE_TEST_SUITE_P(All,
+                         AppSearchProviderCrostiniTest,
+                         ::testing::Values(ProviderType::kBookmarkApps,
+                                           ProviderType::kWebApps),
+                         web_app::ProviderTypeParamToString);
 
 }  // namespace test
 }  // namespace app_list

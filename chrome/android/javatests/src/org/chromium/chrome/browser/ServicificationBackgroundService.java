@@ -10,12 +10,10 @@ import com.google.android.gms.gcm.TaskParams;
 
 import org.junit.Assert;
 
-import org.chromium.base.library_loader.LibraryProcessType;
 import org.chromium.chrome.browser.init.BrowserParts;
 import org.chromium.chrome.browser.init.ChromeBrowserInitializer;
 import org.chromium.chrome.browser.init.EmptyBrowserParts;
 import org.chromium.content_public.browser.BrowserStartupController;
-import org.chromium.content_public.browser.test.util.Criteria;
 import org.chromium.content_public.browser.test.util.CriteriaHelper;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
 
@@ -67,12 +65,7 @@ public class ServicificationBackgroundService extends ChromeBackgroundService {
 
     public void waitForNativeLoaded() {
         CriteriaHelper.pollUiThread(
-                new Criteria("Failed while waiting for starting Service Manager.") {
-                    @Override
-                    public boolean isSatisfied() {
-                        return mNativeLoaded;
-                    }
-                });
+                () -> mNativeLoaded, "Failed while waiting for starting Service Manager.");
     }
 
     public void setSupportsServiceManagerOnly(boolean supportsServiceManagerOnly) {
@@ -86,11 +79,9 @@ public class ServicificationBackgroundService extends ChromeBackgroundService {
         // {@link mFullBrowserStartupDone} has been set to true.
         TestThreadUtils.runOnUiThreadBlocking(() -> {
             Assert.assertTrue("Native has not been started.",
-                    BrowserStartupController.get(LibraryProcessType.PROCESS_BROWSER)
-                            .isNativeStarted());
+                    BrowserStartupController.getInstance().isNativeStarted());
             Assert.assertFalse("The full browser is started instead of ServiceManager only.",
-                    BrowserStartupController.get(LibraryProcessType.PROCESS_BROWSER)
-                            .isFullBrowserStarted());
+                    BrowserStartupController.getInstance().isFullBrowserStarted());
         });
     }
 
@@ -102,13 +93,17 @@ public class ServicificationBackgroundService extends ChromeBackgroundService {
         TestThreadUtils.runOnUiThreadBlocking(
                 ()
                         -> Assert.assertTrue("The full browser has not been started",
-                                BrowserStartupController.get(LibraryProcessType.PROCESS_BROWSER)
-                                        .isFullBrowserStarted()));
+                                BrowserStartupController.getInstance().isFullBrowserStarted()));
     }
 
     public void assertPersistentHistogramsOnDiskSystemProfile() {
         Assert.assertTrue(nativeTestPersistentHistogramsOnDiskSystemProfile());
     }
 
+    public void assertBackgroundSessionStart() {
+        Assert.assertTrue(nativeIsBackgroundSessionStart());
+    }
+
     private static native boolean nativeTestPersistentHistogramsOnDiskSystemProfile();
+    private static native boolean nativeIsBackgroundSessionStart();
 }

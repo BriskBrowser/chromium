@@ -6,20 +6,21 @@
 
 #include <memory>
 
-#include "base/test/metrics/histogram_tester.h"
 #include "testing/gmock/include/gmock/gmock.h"
+#include "third_party/blink/public/mojom/scroll/scrollbar_mode.mojom-blink.h"
 #include "third_party/blink/renderer/core/html/html_anchor_element.h"
 #include "third_party/blink/renderer/core/html/html_element.h"
+#include "third_party/blink/renderer/core/html/html_iframe_element.h"
 #include "third_party/blink/renderer/core/layout/layout_view.h"
 #include "third_party/blink/renderer/core/paint/paint_layer.h"
 #include "third_party/blink/renderer/core/paint/paint_layer_scrollable_area.h"
 #include "third_party/blink/renderer/core/paint/paint_property_tree_printer.h"
+#include "third_party/blink/renderer/core/paint/paint_timing.h"
 #include "third_party/blink/renderer/core/testing/core_unit_test_helper.h"
 #include "third_party/blink/renderer/core/testing/sim/sim_request.h"
 #include "third_party/blink/renderer/core/testing/sim/sim_test.h"
 #include "third_party/blink/renderer/platform/geometry/int_size.h"
 #include "third_party/blink/renderer/platform/graphics/paint/paint_artifact.h"
-#include "third_party/blink/renderer/platform/instrumentation/memory_pressure_listener.h"
 #include "third_party/blink/renderer/platform/runtime_enabled_features.h"
 #include "third_party/blink/renderer/platform/testing/unit_test_helpers.h"
 
@@ -116,16 +117,16 @@ TEST_F(LocalFrameViewTest, HideTooltipWhenScrollPositionChanges) {
 
   EXPECT_CALL(GetAnimationMockChromeClient(),
               MockSetToolTip(GetDocument().GetFrame(), String(), _));
-  GetDocument().View()->LayoutViewport()->SetScrollOffset(ScrollOffset(1, 1),
-                                                          kUserScroll);
+  GetDocument().View()->LayoutViewport()->SetScrollOffset(
+      ScrollOffset(1, 1), mojom::blink::ScrollType::kUser);
 
   // Programmatic scrolling should not dismiss the tooltip, so setToolTip
   // should not be called for this invocation.
   EXPECT_CALL(GetAnimationMockChromeClient(),
               MockSetToolTip(GetDocument().GetFrame(), String(), _))
       .Times(0);
-  GetDocument().View()->LayoutViewport()->SetScrollOffset(ScrollOffset(2, 2),
-                                                          kProgrammaticScroll);
+  GetDocument().View()->LayoutViewport()->SetScrollOffset(
+      ScrollOffset(2, 2), mojom::blink::ScrollType::kProgrammatic);
 }
 
 // NoOverflowInIncrementVisuallyNonEmptyPixelCount tests fail if the number of
@@ -159,8 +160,8 @@ TEST_F(LocalFrameViewTest,
   sticky->Layer()->UpdateAncestorOverflowLayer(nullptr);
 
   // This call should not crash.
-  GetDocument().View()->LayoutViewport()->SetScrollOffset(ScrollOffset(0, 100),
-                                                          kProgrammaticScroll);
+  GetDocument().View()->LayoutViewport()->SetScrollOffset(
+      ScrollOffset(0, 100), mojom::blink::ScrollType::kProgrammatic);
 }
 
 TEST_F(LocalFrameViewTest, UpdateLifecyclePhasesForPrintingDetachedFrame) {
@@ -171,9 +172,9 @@ TEST_F(LocalFrameViewTest, UpdateLifecyclePhasesForPrintingDetachedFrame) {
   ChildDocument().View()->UpdateLifecyclePhasesForPrinting();
 
   // The following checks that the detached frame has been walked for PrePaint.
-  EXPECT_EQ(DocumentLifecycle::kPrePaintClean,
+  EXPECT_EQ(DocumentLifecycle::kCompositingAssignmentsClean,
             GetDocument().Lifecycle().GetState());
-  EXPECT_EQ(DocumentLifecycle::kPrePaintClean,
+  EXPECT_EQ(DocumentLifecycle::kCompositingAssignmentsClean,
             ChildDocument().Lifecycle().GetState());
   auto* child_layout_view = ChildDocument().GetLayoutView();
   EXPECT_TRUE(child_layout_view->FirstFragment().PaintProperties());
@@ -183,8 +184,8 @@ TEST_F(LocalFrameViewTest, CanHaveScrollbarsIfScrollingAttrEqualsNoChanged) {
   SetBodyInnerHTML("<iframe scrolling='no'></iframe>");
   EXPECT_FALSE(ChildDocument().View()->CanHaveScrollbars());
 
-  ChildDocument().WillChangeFrameOwnerProperties(0, 0, ScrollbarMode::kAlwaysOn,
-                                                 false);
+  ChildDocument().WillChangeFrameOwnerProperties(
+      0, 0, mojom::blink::ScrollbarMode::kAlwaysOn, false);
   EXPECT_TRUE(ChildDocument().View()->CanHaveScrollbars());
 }
 
@@ -302,66 +303,6 @@ TEST_F(LocalFrameViewTest,
       frame_view->RequiresMainThreadScrollingForBackgroundAttachmentFixed());
 }
 
-TEST_F(LocalFrameViewTest, PurgeSignalHistogram) {
-  const char* kHistogramName =
-      "Memory.Experimental.Renderer.LocalFrameRootPurgeSignal";
-  base::HistogramTester histogram_tester;
-
-  SetBodyInnerHTML("");
-  UpdateAllLifecyclePhasesForTest();
-
-  histogram_tester.ExpectTotalCount(kHistogramName, 0);
-
-  MemoryPressureListenerRegistry::Instance().OnPurgeMemory();
-  histogram_tester.ExpectTotalCount(kHistogramName, 1);
-  histogram_tester.ExpectBucketCount(kHistogramName, 0 /* kInitial */, 1);
-
-  MemoryPressureListenerRegistry::Instance().OnPurgeMemory();
-  histogram_tester.ExpectTotalCount(kHistogramName, 2);
-  histogram_tester.ExpectBucketCount(kHistogramName, 1 /* kMultiple */, 1);
-
-  MemoryPressureListenerRegistry::Instance().OnPurgeMemory();
-  histogram_tester.ExpectTotalCount(kHistogramName, 3);
-  histogram_tester.ExpectBucketCount(kHistogramName, 1 /* kMultiple */, 2);
-}
-
-// The inner frame used for SVG images does not support compositing should not
-// receive compositing memory pressure signals.
-TEST_F(LocalFrameViewTest, NoSVGImagePurgeSignalHistogram) {
-  const char* kHistogramName =
-      "Memory.Experimental.Renderer.LocalFrameRootPurgeSignal";
-  base::HistogramTester histogram_tester;
-
-  SetBodyInnerHTML(R"HTML(
-    <style>
-      div {
-        background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg"></svg>');
-      }
-    </style>
-    <div></div>
-  )HTML");
-  UpdateAllLifecyclePhasesForTest();
-
-  histogram_tester.ExpectTotalCount(kHistogramName, 0);
-  MemoryPressureListenerRegistry::Instance().OnPurgeMemory();
-  histogram_tester.ExpectTotalCount(kHistogramName, 1);
-}
-
-TEST_F(LocalFrameViewTest, NoPurgeSignalHistogramWhenBackgrounded) {
-  const char* kHistogramName =
-      "Memory.Experimental.Renderer.LocalFrameRootPurgeSignal";
-  base::HistogramTester histogram_tester;
-
-  SetBodyInnerHTML("");
-  UpdateAllLifecyclePhasesForTest();
-
-  histogram_tester.ExpectTotalCount(kHistogramName, 0);
-
-  GetPage().SetVisibilityState(PageVisibilityState::kHidden, false);
-  MemoryPressureListenerRegistry::Instance().OnPurgeMemory();
-  histogram_tester.ExpectTotalCount(kHistogramName, 0);
-}
-
 // Ensure the fragment navigation "scroll into view and focus" behavior doesn't
 // activate synchronously while rendering is blocked waiting on a stylesheet.
 // See https://crbug.com/851338.
@@ -405,9 +346,9 @@ TEST_F(SimTest, FragmentNavChangesFocusWhileRenderingBlocked) {
       << "Scroll offset changed while rendering is blocked";
 
   // Force a layout.
-  anchor->style()->setProperty(&GetDocument(), "display", "block", String(),
-                               ASSERT_NO_EXCEPTION);
-  GetDocument().UpdateStyleAndLayout();
+  anchor->style()->setProperty(GetDocument().GetExecutionContext(), "display",
+                               "block", String(), ASSERT_NO_EXCEPTION);
+  GetDocument().UpdateStyleAndLayout(DocumentUpdateReason::kTest);
 
   EXPECT_EQ(GetDocument().body(), GetDocument().ActiveElement())
       << "Active element changed due to layout while rendering is blocked";
@@ -447,9 +388,173 @@ TEST_F(SimTest, ForcedLayoutWithIncompleteSVGChildFrame) {
   // Mark the top-level document for layout and then force layout. This will
   // cause the layout tree in the <object> object to be built.
   GetDocument().View()->SetNeedsLayout();
-  GetDocument().UpdateStyleAndLayout();
+  GetDocument().UpdateStyleAndLayout(DocumentUpdateReason::kTest);
 
   svg_resource.Finish();
+}
+
+TEST_F(LocalFrameViewTest, TogglePaintEligibility) {
+  SetBodyInnerHTML("<iframe><p>Hello</p></iframe>");
+
+  PaintTiming& parent_timing = PaintTiming::From(GetDocument());
+  PaintTiming& child_timing = PaintTiming::From(ChildDocument());
+
+  // Allow throttling.
+  DocumentLifecycle::AllowThrottlingScope throttling_scope(
+      GetDocument().Lifecycle());
+
+  // Mainframes are unthrottled by default.
+  EXPECT_FALSE(GetDocument().View()->ShouldThrottleRendering());
+  EXPECT_FALSE(parent_timing.FirstEligibleToPaint().is_null());
+
+  GetDocument().View()->MarkFirstEligibleToPaint();
+  EXPECT_FALSE(parent_timing.FirstEligibleToPaint().is_null());
+
+  // Subframes are throttled by default (when throttling is allowed).
+  EXPECT_TRUE(ChildDocument().View()->ShouldThrottleRendering());
+
+  // Toggle paint elgibility to true.
+  ChildDocument().View()->SetLifecycleUpdatesThrottledForTesting(
+      false /* throttled */);
+  ChildDocument().View()->UpdateRenderThrottlingStatus(
+      false /* hidden_for_throttling */, false /* subtree_throttled */);
+  ChildDocument().View()->MarkFirstEligibleToPaint();
+  EXPECT_FALSE(ChildDocument().View()->ShouldThrottleRendering());
+  EXPECT_FALSE(child_timing.FirstEligibleToPaint().is_null());
+
+  // Toggle paint elgibility to false.
+  ChildDocument().View()->SetLifecycleUpdatesThrottledForTesting(
+      true /* throttled */);
+  ChildDocument().View()->UpdateRenderThrottlingStatus(
+      true /* hidden_for_throttling */, true /* subtree_throttled */);
+  ChildDocument().View()->MarkIneligibleToPaint();
+  EXPECT_TRUE(ChildDocument().View()->ShouldThrottleRendering());
+  EXPECT_TRUE(child_timing.FirstEligibleToPaint().is_null());
+}
+
+TEST_F(SimTest, PaintEligibilityNoSubframe) {
+  SimRequest resource("https://example.com/", "text/html");
+
+  LoadURL("https://example.com/");
+  resource.Complete("<p>Hello</p>");
+
+  PaintTiming& timing = PaintTiming::From(GetDocument());
+
+  // Allow throttling.
+  DocumentLifecycle::AllowThrottlingScope throttling_scope(
+      GetDocument().Lifecycle());
+
+  EXPECT_FALSE(GetDocument().View()->ShouldThrottleRendering());
+  EXPECT_TRUE(timing.FirstEligibleToPaint().is_null());
+
+  Compositor().BeginFrame();
+
+  EXPECT_FALSE(GetDocument().View()->ShouldThrottleRendering());
+  EXPECT_FALSE(timing.FirstEligibleToPaint().is_null());
+}
+
+TEST_F(SimTest, SameOriginPaintEligibility) {
+  SimRequest resource("https://example.com/", "text/html");
+
+  LoadURL("https://example.com/");
+  resource.Complete(R"HTML(
+      <iframe id=frame top=4000px left=4000px>
+        <p>Hello</p>
+      </iframe>
+    )HTML");
+
+  auto* frame_element =
+      To<HTMLIFrameElement>(GetDocument().getElementById("frame"));
+  auto* frame_document = frame_element->contentDocument();
+  PaintTiming& frame_timing = PaintTiming::From(*frame_document);
+
+  // Allow throttling.
+  DocumentLifecycle::AllowThrottlingScope throttling_scope(
+      GetDocument().Lifecycle());
+
+  EXPECT_FALSE(GetDocument().View()->ShouldThrottleRendering());
+
+  // Same origin frames are not throttled.
+  EXPECT_FALSE(frame_document->View()->ShouldThrottleRendering());
+  EXPECT_TRUE(frame_timing.FirstEligibleToPaint().is_null());
+
+  Compositor().BeginFrame();
+
+  EXPECT_FALSE(GetDocument().View()->ShouldThrottleRendering());
+  EXPECT_FALSE(frame_document->View()->ShouldThrottleRendering());
+  EXPECT_FALSE(frame_timing.FirstEligibleToPaint().is_null());
+}
+
+TEST_F(SimTest, CrossOriginPaintEligibility) {
+  SimRequest resource("https://example.com/", "text/html");
+
+  LoadURL("https://example.com/");
+  resource.Complete(R"HTML(
+      <iframe id=frame srcdoc ="<p>Hello</p>" sandbox top=4000px left=4000px>
+      </iframe>
+    )HTML");
+
+  auto* frame_element =
+      To<HTMLIFrameElement>(GetDocument().getElementById("frame"));
+  auto* frame_document = frame_element->contentDocument();
+  PaintTiming& frame_timing = PaintTiming::From(*frame_document);
+
+  // Allow throttling.
+  DocumentLifecycle::AllowThrottlingScope throttling_scope(
+      GetDocument().Lifecycle());
+
+  EXPECT_FALSE(GetDocument().View()->ShouldThrottleRendering());
+
+  // Hidden cross origin frames are throttled.
+  EXPECT_TRUE(frame_document->View()->ShouldThrottleRendering());
+  EXPECT_TRUE(frame_timing.FirstEligibleToPaint().is_null());
+
+  Compositor().BeginFrame();
+
+  EXPECT_FALSE(GetDocument().View()->ShouldThrottleRendering());
+  EXPECT_TRUE(frame_document->View()->ShouldThrottleRendering());
+  EXPECT_TRUE(frame_timing.FirstEligibleToPaint().is_null());
+}
+
+TEST_F(SimTest, NestedCrossOriginPaintEligibility) {
+  // Create a document with doubly nested iframes.
+  SimRequest main_resource("https://example.com/", "text/html");
+  SimRequest frame_resource("https://example.com/iframe.html", "text/html");
+
+  LoadURL("https://example.com/");
+  main_resource.Complete("<iframe id=outer src=iframe.html></iframe>");
+  frame_resource.Complete(R"HTML(
+      <iframe id=inner srcdoc ="<p>Hello</p>" sandbox top=4000px left=4000px>
+      </iframe>
+    )HTML");
+
+  auto* outer_frame_element =
+      To<HTMLIFrameElement>(GetDocument().getElementById("outer"));
+  auto* outer_frame_document = outer_frame_element->contentDocument();
+  PaintTiming& outer_frame_timing = PaintTiming::From(*outer_frame_document);
+
+  auto* inner_frame_element =
+      To<HTMLIFrameElement>(outer_frame_document->getElementById("inner"));
+  auto* inner_frame_document = inner_frame_element->contentDocument();
+  PaintTiming& inner_frame_timing = PaintTiming::From(*inner_frame_document);
+
+  // Allow throttling.
+  DocumentLifecycle::AllowThrottlingScope throttling_scope(
+      GetDocument().Lifecycle());
+
+  EXPECT_FALSE(GetDocument().View()->ShouldThrottleRendering());
+  EXPECT_FALSE(outer_frame_document->View()->ShouldThrottleRendering());
+  EXPECT_TRUE(outer_frame_timing.FirstEligibleToPaint().is_null());
+  EXPECT_TRUE(inner_frame_document->View()->ShouldThrottleRendering());
+  EXPECT_TRUE(inner_frame_timing.FirstEligibleToPaint().is_null());
+
+  Compositor().BeginFrame();
+
+  EXPECT_FALSE(GetDocument().View()->ShouldThrottleRendering());
+  EXPECT_FALSE(outer_frame_document->View()->ShouldThrottleRendering());
+  EXPECT_FALSE(outer_frame_timing.FirstEligibleToPaint().is_null());
+  EXPECT_TRUE(inner_frame_document->View()->ShouldThrottleRendering());
+  EXPECT_TRUE(inner_frame_timing.FirstEligibleToPaint().is_null());
 }
 
 }  // namespace

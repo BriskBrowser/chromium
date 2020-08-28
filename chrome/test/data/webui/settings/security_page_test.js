@@ -2,75 +2,442 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+// clang-format off
+import {isMac, isWindows} from 'chrome://resources/js/cr.m.js';
+import {loadTimeData} from 'chrome://resources/js/load_time_data.m.js';
+import {flush} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+import {SafeBrowsingSetting} from 'chrome://settings/lazy_load.js';
+import {MetricsBrowserProxyImpl, PrivacyElementInteractions,PrivacyPageBrowserProxyImpl, Router, routes, SecureDnsMode, SyncBrowserProxyImpl} from 'chrome://settings/settings.js';
+
+import {assertEquals, assertFalse, assertTrue} from '../chai_assert.js';
+import {flushTasks, isChildVisible} from '../test_util.m.js';
+
+import {TestMetricsBrowserProxy} from './test_metrics_browser_proxy.js';
+import {TestPrivacyPageBrowserProxy} from './test_privacy_page_browser_proxy.js';
+import {TestSyncBrowserProxy} from './test_sync_browser_proxy.m.js';
+
+// clang-format on
+
 suite('CrSettingsSecurityPageTest', function() {
-  /** @type {settings.SyncBrowserProxy} */
+  /** @type {!TestMetricsBrowserProxy} */
+  let testMetricsBrowserProxy;
+
+  /** @type {!TestSyncBrowserProxy} */
   let syncBrowserProxy;
 
-  /** @type {settings.TestPrivacyPageBrowserProxy} */
+  /** @type {!TestPrivacyPageBrowserProxy} */
   let testPrivacyBrowserProxy;
 
-  /** @type {SettingsSecurityPageElement} */
+  /** @type {!SettingsSecurityPageElement} */
   let page;
 
+  suiteSetup(function() {
+    loadTimeData.overrideValues({
+      enableSecurityKeysSubpage: true,
+      safeBrowsingEnhancedEnabled: true,
+    });
+  });
+
   setup(function() {
+    testMetricsBrowserProxy = new TestMetricsBrowserProxy();
+    MetricsBrowserProxyImpl.instance_ = testMetricsBrowserProxy;
     testPrivacyBrowserProxy = new TestPrivacyPageBrowserProxy();
-    settings.PrivacyPageBrowserProxyImpl.instance_ = testPrivacyBrowserProxy;
+    PrivacyPageBrowserProxyImpl.instance_ = testPrivacyBrowserProxy;
     syncBrowserProxy = new TestSyncBrowserProxy();
-    settings.SyncBrowserProxyImpl.instance_ = syncBrowserProxy;
-    PolymerTest.clearBody();
-    page = document.createElement('settings-security-page');
+    SyncBrowserProxyImpl.instance_ = syncBrowserProxy;
+    document.body.innerHTML = '';
+    page = /** @type {!SettingsSecurityPageElement} */ (
+        document.createElement('settings-security-page'));
     page.prefs = {
-      profile: {password_manager_leak_detection: {value: true}},
+      profile: {password_manager_leak_detection: {value: false}},
       signin: {
         allowed_on_next_startup:
             {type: chrome.settingsPrivate.PrefType.BOOLEAN, value: true}
       },
-      safebrowsing:
-          {enabled: {value: true}, scout_reporting_enabled: {value: true}},
+      safebrowsing: {
+        enabled: {value: true},
+        scout_reporting_enabled: {value: true},
+        enhanced: {value: false}
+      },
+      generated: {
+        safe_browsing: {
+          type: chrome.settingsPrivate.PrefType.NUMBER,
+          value: SafeBrowsingSetting.STANDARD,
+        },
+      },
+      dns_over_https:
+          {mode: {value: SecureDnsMode.AUTOMATIC}, templates: {value: ''}},
     };
     document.body.appendChild(page);
-    Polymer.dom.flush();
+    page.$$('#safeBrowsingEnhanced').updateCollapsed();
+    page.$$('#safeBrowsingStandard').updateCollapsed();
+    flush();
   });
 
   teardown(function() {
     page.remove();
   });
 
-  if (cr.isMac || cr.isWindows) {
+  if (isMac || isWindows) {
     test('NativeCertificateManager', function() {
       page.$$('#manageCertificates').click();
       return testPrivacyBrowserProxy.whenCalled('showManageSSLCertificates');
     });
   }
 
-  test('LogManageCerfificatesClick', function() {
+  // Initially specified pref option should be expanded
+  test('SafeBrowsingRadio_InitialPrefOptionIsExpanded', function() {
+    assertFalse(page.$$('#safeBrowsingEnhanced').expanded);
+    assertTrue(page.$$('#safeBrowsingStandard').expanded);
+  });
+
+  test('LogManageCerfificatesClick', async function() {
     page.$$('#manageCertificates').click();
-    return testPrivacyBrowserProxy.whenCalled('recordSettingsPageHistogram')
-        .then(result => {
-          assertEquals(
-              settings.SettingsPageInteractions.PRIVACY_MANAGE_CERTIFICATES,
-              result);
-        });
+    const result =
+        await testMetricsBrowserProxy.whenCalled('recordSettingsPageHistogram');
+    assertEquals(PrivacyElementInteractions.MANAGE_CERTIFICATES, result);
+  });
+
+  test('ManageSecurityKeysSubpageVisible', function() {
+    assertTrue(isChildVisible(page, '#security-keys-subpage-trigger'));
+  });
+
+  test('LogSafeBrowsingExtendedToggle', async function() {
+    page.$$('#safeBrowsingStandard').click();
+    flush();
+
+    page.$$('#safeBrowsingReportingToggle').click();
+    const result =
+        await testMetricsBrowserProxy.whenCalled('recordSettingsPageHistogram');
+    assertEquals(PrivacyElementInteractions.IMPROVE_SECURITY, result);
   });
 
   test('safeBrowsingReportingToggle', function() {
-    const safeBrowsingToggle = page.$.safeBrowsingToggle;
-    const safeBrowsingReportingToggle = page.$.safeBrowsingReportingToggle;
-    assertTrue(safeBrowsingToggle.checked);
+    page.$$('#safeBrowsingStandard').click();
+    assertEquals(
+        SafeBrowsingSetting.STANDARD, page.prefs.generated.safe_browsing.value);
+
+    const safeBrowsingReportingToggle = page.$$('#safeBrowsingReportingToggle');
     assertFalse(safeBrowsingReportingToggle.disabled);
     assertTrue(safeBrowsingReportingToggle.checked);
-    safeBrowsingToggle.click();
-    Polymer.dom.flush();
 
-    assertFalse(safeBrowsingToggle.checked);
+    // This could also be set to disabled, anything other than standard.
+    page.$$('#safeBrowsingEnhanced').click();
+    assertEquals(
+        SafeBrowsingSetting.ENHANCED, page.prefs.generated.safe_browsing.value);
+    flush();
     assertTrue(safeBrowsingReportingToggle.disabled);
-    assertFalse(safeBrowsingReportingToggle.checked);
+    assertTrue(safeBrowsingReportingToggle.checked);
     assertTrue(page.prefs.safebrowsing.scout_reporting_enabled.value);
-    safeBrowsingToggle.click();
-    Polymer.dom.flush();
 
-    assertTrue(safeBrowsingToggle.checked);
+    page.$$('#safeBrowsingStandard').click();
+    assertEquals(
+        SafeBrowsingSetting.STANDARD, page.prefs.generated.safe_browsing.value);
+    flush();
     assertFalse(safeBrowsingReportingToggle.disabled);
     assertTrue(safeBrowsingReportingToggle.checked);
+  });
+
+  test(
+      'SafeBrowsingRadio_ManuallyExpandedRemainExpandedOnRepeatSelection',
+      function() {
+        page.$$('#safeBrowsingStandard').click();
+        flush();
+        assertEquals(
+            SafeBrowsingSetting.STANDARD,
+            page.prefs.generated.safe_browsing.value);
+        assertTrue(page.$$('#safeBrowsingStandard').expanded);
+        assertFalse(page.$$('#safeBrowsingEnhanced').expanded);
+
+        // Expanding another radio button should not collapse already expanded
+        // option.
+        page.$$('#safeBrowsingEnhanced').$$('cr-expand-button').click();
+        flush();
+        assertTrue(page.$$('#safeBrowsingStandard').expanded);
+        assertTrue(page.$$('#safeBrowsingEnhanced').expanded);
+
+        // Clicking on already selected button should not collapse manually
+        // expanded option.
+        page.$$('#safeBrowsingStandard').click();
+        flush();
+        assertTrue(page.$$('#safeBrowsingStandard').expanded);
+        assertTrue(page.$$('#safeBrowsingEnhanced').expanded);
+      });
+
+  test(
+      'SafeBrowsingRadio_ManuallyExpandedRemainExpandedOnSelectedChanged',
+      async function() {
+        page.$$('#safeBrowsingStandard').click();
+        flush();
+        assertEquals(
+            SafeBrowsingSetting.STANDARD,
+            page.prefs.generated.safe_browsing.value);
+
+        page.$$('#safeBrowsingEnhanced').$$('cr-expand-button').click();
+        flush();
+        assertTrue(page.$$('#safeBrowsingStandard').expanded);
+        assertTrue(page.$$('#safeBrowsingEnhanced').expanded);
+
+        page.$$('#safeBrowsingDisabled').click();
+        flush();
+
+        // Previously selected option must remain opened.
+        assertTrue(page.$$('#safeBrowsingStandard').expanded);
+        assertTrue(page.$$('#safeBrowsingEnhanced').expanded);
+
+        page.$$('settings-disable-safebrowsing-dialog')
+            .$$('.action-button')
+            .click();
+        flush();
+
+        // Wait for onDisableSafebrowsingDialogClose_ to finish.
+        await flushTasks();
+
+        // The deselected option should become collapsed.
+        assertFalse(page.$$('#safeBrowsingStandard').expanded);
+        assertTrue(page.$$('#safeBrowsingEnhanced').expanded);
+      });
+
+  test('DisableSafebrowsingDialog_Confirm', async function() {
+    page.$$('#safeBrowsingStandard').click();
+    assertEquals(
+        SafeBrowsingSetting.STANDARD, page.prefs.generated.safe_browsing.value);
+    flush();
+
+    page.$$('#safeBrowsingDisabled').click();
+    flush();
+
+    // Previously selected option must remain opened.
+    assertTrue(page.$$('#safeBrowsingStandard').expanded);
+
+    page.$$('settings-disable-safebrowsing-dialog')
+        .$$('.action-button')
+        .click();
+    flush();
+
+    // Wait for onDisableSafebrowsingDialogClose_ to finish.
+    await flushTasks();
+
+    assertEquals(null, page.$$('settings-disable-safebrowsing-dialog'));
+
+    assertFalse(page.$$('#safeBrowsingEnhanced').checked);
+    assertFalse(page.$$('#safeBrowsingStandard').checked);
+    assertTrue(page.$$('#safeBrowsingDisabled').checked);
+    assertEquals(
+        SafeBrowsingSetting.DISABLED, page.prefs.generated.safe_browsing.value);
+  });
+
+  test('DisableSafebrowsingDialog_CancelFromEnhanced', async function() {
+    page.$$('#safeBrowsingEnhanced').click();
+    assertEquals(
+        SafeBrowsingSetting.ENHANCED, page.prefs.generated.safe_browsing.value);
+    flush();
+
+    page.$$('#safeBrowsingDisabled').click();
+    flush();
+
+    // Previously selected option must remain opened.
+    assertTrue(page.$$('#safeBrowsingEnhanced').expanded);
+
+    page.$$('settings-disable-safebrowsing-dialog')
+        .$$('.cancel-button')
+        .click();
+    flush();
+
+    // Wait for onDisableSafebrowsingDialogClose_ to finish.
+    await flushTasks();
+
+    assertEquals(null, page.$$('settings-disable-safebrowsing-dialog'));
+
+    assertTrue(page.$$('#safeBrowsingEnhanced').checked);
+    assertFalse(page.$$('#safeBrowsingStandard').checked);
+    assertFalse(page.$$('#safeBrowsingDisabled').checked);
+    assertEquals(
+        SafeBrowsingSetting.ENHANCED, page.prefs.generated.safe_browsing.value);
+  });
+
+  test('DisableSafebrowsingDialog_CancelFromStandard', async function() {
+    page.$$('#safeBrowsingStandard').click();
+    assertEquals(
+        SafeBrowsingSetting.STANDARD, page.prefs.generated.safe_browsing.value);
+    flush();
+
+    page.$$('#safeBrowsingDisabled').click();
+    flush();
+
+    // Previously selected option must remain opened.
+    assertTrue(page.$$('#safeBrowsingStandard').expanded);
+
+    page.$$('settings-disable-safebrowsing-dialog')
+        .$$('.cancel-button')
+        .click();
+    flush();
+
+    // Wait for onDisableSafebrowsingDialogClose_ to finish.
+    await flushTasks();
+
+    assertEquals(null, page.$$('settings-disable-safebrowsing-dialog'));
+
+    assertFalse(page.$$('#safeBrowsingEnhanced').checked);
+    assertTrue(page.$$('#safeBrowsingStandard').checked);
+    assertFalse(page.$$('#safeBrowsingDisabled').checked);
+    assertEquals(
+        SafeBrowsingSetting.STANDARD, page.prefs.generated.safe_browsing.value);
+  });
+
+  test('noControlSafeBrowsingReportingInEnhanced', function() {
+    page.$$('#safeBrowsingStandard').click();
+    flush();
+
+    assertFalse(page.$$('#safeBrowsingReportingToggle').disabled);
+    page.$$('#safeBrowsingEnhanced').click();
+    flush();
+
+    assertTrue(page.$$('#safeBrowsingReportingToggle').disabled);
+  });
+
+  test('noValueChangeSafeBrowsingReportingInEnhanced', function() {
+    page.$$('#safeBrowsingStandard').click();
+    flush();
+    const previous = page.prefs.safebrowsing.scout_reporting_enabled.value;
+
+    page.$$('#safeBrowsingEnhanced').click();
+    flush();
+
+    assertTrue(
+        page.prefs.safebrowsing.scout_reporting_enabled.value === previous);
+  });
+
+  test('noControlSafeBrowsingReportingInDisabled', async function() {
+    page.$$('#safeBrowsingStandard').click();
+    flush();
+
+    assertFalse(page.$$('#safeBrowsingReportingToggle').disabled);
+    page.$$('#safeBrowsingDisabled').click();
+    flush();
+
+    // Previously selected option must remain opened.
+    assertTrue(page.$$('#safeBrowsingStandard').expanded);
+
+    page.$$('settings-disable-safebrowsing-dialog')
+        .$$('.action-button')
+        .click();
+    flush();
+
+    // Wait for onDisableSafebrowsingDialogClose_ to finish.
+    await flushTasks();
+
+    assertTrue(page.$$('#safeBrowsingReportingToggle').disabled);
+  });
+
+  test('noValueChangeSafeBrowsingReportingInDisabled', async function() {
+    page.$$('#safeBrowsingStandard').click();
+    flush();
+    const previous = page.prefs.safebrowsing.scout_reporting_enabled.value;
+
+    page.$$('#safeBrowsingDisabled').click();
+    flush();
+
+    // Previously selected option must remain opened.
+    assertTrue(page.$$('#safeBrowsingStandard').expanded);
+
+    page.$$('settings-disable-safebrowsing-dialog')
+        .$$('.action-button')
+        .click();
+    flush();
+
+    // Wait for onDisableSafebrowsingDialogClose_ to finish.
+    await flushTasks();
+
+    assertTrue(
+        page.prefs.safebrowsing.scout_reporting_enabled.value === previous);
+  });
+
+  test('noValueChangePasswordLeakSwitchToEnhanced', function() {
+    page.$$('#safeBrowsingStandard').click();
+    flush();
+    const previous = page.prefs.profile.password_manager_leak_detection.value;
+
+    page.$$('#safeBrowsingEnhanced').click();
+    flush();
+
+    assertTrue(
+        page.prefs.profile.password_manager_leak_detection.value === previous);
+  });
+
+  test('noValuePasswordLeakSwitchToDisabled', async function() {
+    page.$$('#safeBrowsingStandard').click();
+    flush();
+    const previous = page.prefs.profile.password_manager_leak_detection.value;
+
+    page.$$('#safeBrowsingDisabled').click();
+    flush();
+
+    // Previously selected option must remain opened.
+    assertTrue(page.$$('#safeBrowsingStandard').expanded);
+
+    page.$$('settings-disable-safebrowsing-dialog')
+        .$$('.action-button')
+        .click();
+    flush();
+
+    // Wait for onDisableSafebrowsingDialogClose_ to finish.
+    await flushTasks();
+
+    assertTrue(
+        page.prefs.profile.password_manager_leak_detection.value === previous);
+  });
+});
+
+
+suite('CrSettingsSecurityPageTest_FlagsDisabled', function() {
+  /** @type {!SettingsSecurityPageElement} */
+  let page;
+
+  suiteSetup(function() {
+    loadTimeData.overrideValues({
+      enableSecurityKeysSubpage: false,
+      safeBrowsingEnhancedEnabled: false,
+    });
+  });
+
+  setup(function() {
+    document.body.innerHTML = '';
+    page = /** @type {!SettingsSecurityPageElement} */ (
+        document.createElement('settings-security-page'));
+    page.prefs = {
+      profile: {password_manager_leak_detection: {value: true}},
+      signin: {
+        allowed_on_next_startup:
+            {type: chrome.settingsPrivate.PrefType.BOOLEAN, value: true}
+      },
+      safebrowsing: {
+        enabled: {value: true},
+        scout_reporting_enabled: {value: true},
+        enhanced: {value: false}
+      },
+      generated: {
+        safe_browsing: {
+          type: chrome.settingsPrivate.PrefType.NUMBER,
+          value: SafeBrowsingSetting.STANDARD,
+        },
+      },
+      dns_over_https:
+          {mode: {value: SecureDnsMode.AUTOMATIC}, templates: {value: ''}},
+    };
+    document.body.appendChild(page);
+    flush();
+  });
+
+  teardown(function() {
+    page.remove();
+  });
+
+  test('EnhancedHiddenWhenDisbled', function() {
+    assertFalse(isChildVisible(page, '#safeBrowsingEnhanced'));
+  });
+
+  test('ManageSecurityKeysSubpageHidden', function() {
+    assertFalse(isChildVisible(page, '#security-keys-subpage-trigger'));
   });
 });

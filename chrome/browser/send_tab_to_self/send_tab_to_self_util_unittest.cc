@@ -61,7 +61,7 @@ class SendTabToSelfUtilTest : public BrowserWithTestWindowTest {
 
   void SetUp() override {
     BrowserWithTestWindowTest::SetUp();
-    incognito_profile_ = profile()->GetOffTheRecordProfile();
+    incognito_profile_ = profile()->GetPrimaryOTRProfile();
     url_ = GURL("https://www.google.com");
     title_ = base::UTF8ToUTF16(base::StringPiece("Google"));
   }
@@ -91,12 +91,20 @@ TEST_F(SendTabToSelfUtilTest, NotHTTPOrHTTPS) {
   EXPECT_FALSE(AreContentRequirementsMet(url_, profile()));
 }
 
+TEST_F(SendTabToSelfUtilTest, UntrustedPage) {
+  url_ = GURL("chrome-untrusted://url");
+  EXPECT_FALSE(AreContentRequirementsMet(url_, profile()));
+}
+
 TEST_F(SendTabToSelfUtilTest, NativePage) {
   url_ = GURL("chrome://flags");
   EXPECT_FALSE(AreContentRequirementsMet(url_, profile()));
 }
 
 TEST_F(SendTabToSelfUtilTest, IncognitoMode) {
+  // Note: if changing this, audit profile-finding logic in the feature.
+  // For example, NotificationManager.java in the Android code assumes
+  // incognito is not supported.
   EXPECT_FALSE(AreContentRequirementsMet(url_, incognito_profile_));
 }
 

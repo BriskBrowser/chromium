@@ -8,7 +8,7 @@
 #include <numeric>
 #include <sstream>
 
-#include "base/logging.h"
+#include "base/notreached.h"
 
 namespace media {
 
@@ -43,6 +43,7 @@ std::vector<ColorPlaneLayout> PlanesFromStrides(
 // static
 size_t VideoFrameLayout::NumPlanes(VideoPixelFormat format) {
   switch (format) {
+    case PIXEL_FORMAT_UYVY:
     case PIXEL_FORMAT_YUY2:
     case PIXEL_FORMAT_ARGB:
     case PIXEL_FORMAT_BGRA:
@@ -171,7 +172,7 @@ std::ostream& operator<<(std::ostream& ostream,
           << VectorToString(layout.planes())
           << ", is_multi_planar: " << layout.is_multi_planar()
           << ", buffer_addr_align: " << layout.buffer_addr_align()
-          << ", modifier: " << layout.modifier() << ")";
+          << ", modifier: 0x" << std::hex << layout.modifier() << ")";
   return ostream;
 }
 

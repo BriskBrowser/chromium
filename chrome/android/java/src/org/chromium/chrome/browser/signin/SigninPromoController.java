@@ -17,11 +17,11 @@ import androidx.annotation.VisibleForTesting;
 import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.base.metrics.RecordUserAction;
 import org.chromium.chrome.R;
-import org.chromium.chrome.browser.metrics.ImpressionTracker;
-import org.chromium.chrome.browser.metrics.OneShotImpressionListener;
 import org.chromium.chrome.browser.preferences.ChromePreferenceKeys;
 import org.chromium.chrome.browser.preferences.SharedPreferencesManager;
 import org.chromium.chrome.browser.signin.SigninActivity.AccessPoint;
+import org.chromium.components.browser_ui.widget.impression.ImpressionTracker;
+import org.chromium.components.browser_ui.widget.impression.OneShotImpressionListener;
 import org.chromium.components.signin.metrics.SigninAccessPoint;
 
 /**
@@ -72,9 +72,7 @@ public class SigninPromoController {
         SharedPreferencesManager preferencesManager = SharedPreferencesManager.getInstance();
         switch (accessPoint) {
             case SigninAccessPoint.BOOKMARK_MANAGER:
-                return preferencesManager.readInt(
-                               ChromePreferenceKeys.SIGNIN_PROMO_IMPRESSIONS_COUNT_BOOKMARKS)
-                        < MAX_IMPRESSIONS_BOOKMARKS;
+                return getSigninPromoImpressionsCountBookmarks() < MAX_IMPRESSIONS_BOOKMARKS;
             case SigninAccessPoint.NTP_CONTENT_SUGGESTIONS:
                 // There is no impression limit for NTP content suggestions.
                 return true;
@@ -269,10 +267,10 @@ public class SigninPromoController {
 
         view.getDescription().setText(mDescriptionStringIdNoAccount);
 
-        view.getSigninButton().setText(R.string.sign_in_to_chrome);
-        view.getSigninButton().setOnClickListener(v -> signinWithNewAccount(context));
+        view.getPrimaryButton().setText(R.string.sign_in_to_chrome);
+        view.getPrimaryButton().setOnClickListener(v -> signinWithNewAccount(context));
 
-        view.getChooseAccountButton().setVisibility(View.GONE);
+        view.getSecondaryButton().setVisibility(View.GONE);
     }
 
     private void setupHotState(final Context context, PersonalizedSigninPromoView view) {
@@ -284,12 +282,12 @@ public class SigninPromoController {
 
         String signinButtonText = context.getString(
                 R.string.signin_promo_continue_as, mProfileData.getGivenNameOrFullNameOrEmail());
-        view.getSigninButton().setText(signinButtonText);
-        view.getSigninButton().setOnClickListener(v -> signinWithDefaultAccount(context));
+        view.getPrimaryButton().setText(signinButtonText);
+        view.getPrimaryButton().setOnClickListener(v -> signinWithDefaultAccount(context));
 
-        view.getChooseAccountButton().setText(R.string.signin_promo_choose_another_account);
-        view.getChooseAccountButton().setOnClickListener(v -> signinWithNotDefaultAccount(context));
-        view.getChooseAccountButton().setVisibility(View.VISIBLE);
+        view.getSecondaryButton().setText(R.string.signin_promo_choose_another_account);
+        view.getSecondaryButton().setOnClickListener(v -> signinWithNotDefaultAccount(context));
+        view.getSecondaryButton().setVisibility(View.VISIBLE);
     }
 
     private int getNumImpressions() {
@@ -299,20 +297,21 @@ public class SigninPromoController {
     private void signinWithNewAccount(Context context) {
         recordSigninButtonUsed();
         RecordUserAction.record(mSigninNewAccountUserActionName);
-        SigninActivityLauncher.get().launchActivityForPromoAddAccountFlow(context, mAccessPoint);
+        SigninActivityLauncherImpl.get().launchActivityForPromoAddAccountFlow(
+                context, mAccessPoint);
     }
 
     private void signinWithDefaultAccount(Context context) {
         recordSigninButtonUsed();
         RecordUserAction.record(mSigninWithDefaultUserActionName);
-        SigninActivityLauncher.get().launchActivityForPromoDefaultFlow(
+        SigninActivityLauncherImpl.get().launchActivityForPromoDefaultFlow(
                 context, mAccessPoint, mProfileData.getAccountName());
     }
 
     private void signinWithNotDefaultAccount(Context context) {
         recordSigninButtonUsed();
         RecordUserAction.record(mSigninNotDefaultUserActionName);
-        SigninActivityLauncher.get().launchActivityForPromoChooseAccountFlow(
+        SigninActivityLauncherImpl.get().launchActivityForPromoChooseAccountFlow(
                 context, mAccessPoint, mProfileData.getAccountName());
     }
 
@@ -353,7 +352,7 @@ public class SigninPromoController {
     }
 
     @VisibleForTesting
-    public static int getSigninPromoImpressionsCountBookmarksForTests() {
+    public static int getSigninPromoImpressionsCountBookmarks() {
         return SharedPreferencesManager.getInstance().readInt(
                 ChromePreferenceKeys.SIGNIN_PROMO_IMPRESSIONS_COUNT_BOOKMARKS);
     }

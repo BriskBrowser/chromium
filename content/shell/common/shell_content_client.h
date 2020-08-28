@@ -24,14 +24,10 @@ class ShellContentClient : public ContentClient {
                                     ui::ScaleFactor scale_factor) override;
   base::RefCountedMemory* GetDataResourceBytes(int resource_id) override;
   gfx::Image& GetNativeImageNamed(int resource_id) override;
-  base::DictionaryValue GetNetLogConstants() override;
   blink::OriginTrialPolicy* GetOriginTrialPolicy() override;
-
-  void SetInWebTest(bool in_web_test);
 
  private:
   ShellOriginTrialPolicy origin_trial_policy_;
-  bool in_web_test_ = false;
 };
 
 }  // namespace content

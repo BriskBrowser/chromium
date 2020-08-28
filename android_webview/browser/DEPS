@@ -4,6 +4,7 @@ include_rules = [
   "+android_webview/browser_jni_headers",
   "+android_webview/common",
   "+android_webview/grit",
+  "+android_webview/proto",
   "+android_webview/test/android_webview_unittests_jni",
   "+cc",
   "+components/autofill/android",
@@ -12,10 +13,12 @@ include_rules = [
   "+components/autofill/core/browser",
   "+components/autofill/core/common",
   "+components/cdm/browser",
-  "+components/crash/content/app",
   "+components/crash/content/browser",
   "+components/crash/core",
   "+components/download/public/common",
+  "+components/embedder_support/android/metrics",
+  "+components/favicon_base",
+  "+components/flags_ui",
   "+components/heap_profiling",
   "+components/keyed_service/core",
   "+components/minidump_uploader",
@@ -65,6 +68,9 @@ include_rules = [
   "+services/resource_coordinator/public/cpp",
   "+services/service_manager/public/cpp",
 
+  # This is needed for AwPacResolver
+  "+services/proxy_resolver",
+
   # network service related unit tests
   "+services/network/test",
   "+mojo/core/embedder/embedder.h",
@@ -73,13 +79,13 @@ include_rules = [
   "+storage/browser/quota",
   "+storage/common/quota",
 
+  "+third_party/blink/public/mojom/loader/resource_load_info.mojom-shared.h",
   "+third_party/crashpad/crashpad/client",
   "+third_party/crashpad/crashpad/util",
 
   "+ui/display",
   "+ui/gfx",
   "+ui/gl",
-  "+ui/native_theme",
   "+ui/touch_selection/touch_handle.h",
 
   # Temporary until we bundle our own favicon. See
@@ -90,13 +96,15 @@ include_rules = [
   "+third_party/blink/public/common/associated_interfaces/associated_interface_provider.h",
   # Required for AwURLLoaderThrottle.
   "+third_party/blink/public/common/loader/url_loader_throttle.h",
+  # For messaging between embedders and Javascript content.
+  "+third_party/blink/public/common/messaging",
   # Required for MediaStreams.
   "+third_party/blink/public/common/mediastream",
   # QuotaStatusCode required by AwQuotaManagerBridge.
   "+third_party/blink/public/mojom/quota",
   "+third_party/blink/public/mojom/mediastream/media_stream.mojom-shared.h",
-  # Interface required for in-process input event handling.
-  "+third_party/blink/public/web/WebCompositorInputHandler.h",
+  # For favicon url
+  "+third_party/blink/public/mojom/favicon",
   # For find-in-page
   "+third_party/blink/public/mojom/frame",
   # Required for the Web Speech API.

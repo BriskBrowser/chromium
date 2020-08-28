@@ -101,9 +101,8 @@ function initializeDiscoverAPI() {
      * @override
      */
     onBeforeShow() {
-      OobeDialogHostBehavior.onBeforeShow.call(this);
-      this.propagateFullScreenMode('#discoverWelcome');
-      this.propagateFullScreenMode('.module');
+      this.propagateOnBeforeShow('#discoverWelcome');
+      this.propagateOnBeforeShow('.module');
 
       if (this.firstRun) {
         this.showModule_('pinSetup');
@@ -138,6 +137,7 @@ function initializeDiscoverAPI() {
       }
       if (module) {
         this.hideAll_();
+        cr.ui.login.invokePolymerMethod(module, 'onBeforeShow');
         module.hidden = false;
         module.show();
       } else {

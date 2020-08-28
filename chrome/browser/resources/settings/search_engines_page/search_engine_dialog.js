@@ -6,8 +6,21 @@
  * @fileoverview 'settings-search-engine-dialog' is a component for adding
  * or editing a search engine entry.
  */
+import 'chrome://resources/cr_elements/cr_button/cr_button.m.js';
+import 'chrome://resources/cr_elements/cr_dialog/cr_dialog.m.js';
+import 'chrome://resources/cr_elements/cr_input/cr_input.m.js';
+
+import {WebUIListenerBehavior} from 'chrome://resources/js/web_ui_listener_behavior.m.js';
+import {html, Polymer} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+
+import {loadTimeData} from '../i18n_setup.js';
+
+import {SearchEngine, SearchEnginesBrowserProxy, SearchEnginesBrowserProxyImpl, SearchEnginesInfo} from './search_engines_browser_proxy.m.js';
+
 Polymer({
   is: 'settings-search-engine-dialog',
+
+  _template: html`{__html_template__}`,
 
   behaviors: [WebUIListenerBehavior],
 
@@ -35,7 +48,7 @@ Polymer({
     actionButtonText_: String,
   },
 
-  /** @private {settings.SearchEnginesBrowserProxy} */
+  /** @private {SearchEnginesBrowserProxy} */
   browserProxy_: null,
 
   /**
@@ -48,7 +61,7 @@ Polymer({
 
   /** @override */
   created() {
-    this.browserProxy_ = settings.SearchEnginesBrowserProxyImpl.getInstance();
+    this.browserProxy_ = SearchEnginesBrowserProxyImpl.getInstance();
   },
 
   /** @override */
@@ -92,7 +105,7 @@ Polymer({
     if (this.model) {
       const engineWasRemoved = ['defaults', 'others', 'extensions'].every(
           engineType =>
-              searchEnginesInfo[engineType].every(e => e.id != this.model.id));
+              searchEnginesInfo[engineType].every(e => e.id !== this.model.id));
       if (engineWasRemoved) {
         this.cancel_();
         return;
@@ -105,7 +118,7 @@ Polymer({
 
   /** @private */
   cancel_() {
-    this.$.dialog.cancel();
+    /** @type {!CrDialogElement} */ (this.$.dialog).cancel();
   },
 
   /** @private */
@@ -122,7 +135,7 @@ Polymer({
   validateElement_(inputElement) {
     // If element is empty, disable the action button, but don't show the red
     // invalid message.
-    if (inputElement.value == '') {
+    if (inputElement.value === '') {
       inputElement.invalid = false;
       this.updateActionButtonState_();
       return;

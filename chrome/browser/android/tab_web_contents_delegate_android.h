@@ -5,12 +5,15 @@
 #ifndef CHROME_BROWSER_ANDROID_TAB_WEB_CONTENTS_DELEGATE_ANDROID_H_
 #define CHROME_BROWSER_ANDROID_TAB_WEB_CONTENTS_DELEGATE_ANDROID_H_
 
+#include <memory>
+
 #include "base/files/file_path.h"
 #include "base/macros.h"
 #include "base/scoped_observer.h"
-#include "chrome/browser/ui/find_bar/find_result_observer.h"
-#include "chrome/browser/ui/find_bar/find_tab_helper.h"
 #include "components/embedder_support/android/delegate/web_contents_delegate_android.h"
+#include "components/find_in_page/find_result_observer.h"
+#include "components/find_in_page/find_tab_helper.h"
+#include "components/paint_preview/buildflags/buildflags.h"
 #include "content/public/browser/bluetooth_chooser.h"
 #include "printing/buildflags/buildflags.h"
 #include "third_party/blink/public/mojom/frame/blocked_navigation_types.mojom.h"
@@ -36,13 +39,14 @@ namespace android {
 // the Chromium Android port but not to be shared with WebView.
 class TabWebContentsDelegateAndroid
     : public web_contents_delegate_android::WebContentsDelegateAndroid,
-      public FindResultObserver {
+      public find_in_page::FindResultObserver {
  public:
   TabWebContentsDelegateAndroid(JNIEnv* env, jobject obj);
   ~TabWebContentsDelegateAndroid() override;
 
+  void PortalWebContentsCreated(content::WebContents* portal_contents) override;
   void RunFileChooser(content::RenderFrameHost* render_frame_host,
-                      std::unique_ptr<content::FileSelectListener> listener,
+                      scoped_refptr<content::FileSelectListener> listener,
                       const blink::mojom::FileChooserParams& params) override;
   std::unique_ptr<content::BluetoothChooser> RunBluetoothChooser(
       content::RenderFrameHost* frame,
@@ -73,7 +77,7 @@ class TabWebContentsDelegateAndroid
       content::WebContents* source) override;
   void AdjustPreviewsStateForNavigation(
       content::WebContents* web_contents,
-      content::PreviewsState* previews_state) override;
+      blink::PreviewsState* previews_state) override;
   void RequestMediaAccessPermission(
       content::WebContents* web_contents,
       const content::MediaStreamRequest& request,
@@ -93,6 +97,7 @@ class TabWebContentsDelegateAndroid
   bool ShouldResumeRequestsForCreatedWindow() override;
   void AddNewContents(content::WebContents* source,
                       std::unique_ptr<content::WebContents> new_contents,
+                      const GURL& target_url,
                       WindowOpenDisposition disposition,
                       const gfx::Rect& initial_rect,
                       bool user_gesture,
@@ -112,11 +117,11 @@ class TabWebContentsDelegateAndroid
       const viz::SurfaceId&,
       const gfx::Size&) override;
   void ExitPictureInPicture() override;
-  std::unique_ptr<content::WebContents> SwapWebContents(
-      content::WebContents* old_contents,
-      std::unique_ptr<content::WebContents> new_contents,
-      bool did_start_load,
-      bool did_finish_load) override;
+  std::unique_ptr<content::WebContents> ActivatePortalWebContents(
+      content::WebContents* predecessor_contents,
+      std::unique_ptr<content::WebContents> portal_contents) override;
+  device::mojom::GeolocationContext* GetInstalledWebappGeolocationContext()
+      override;
 
 #if BUILDFLAG(ENABLE_PRINTING)
   void PrintCrossProcessSubframe(
@@ -126,9 +131,17 @@ class TabWebContentsDelegateAndroid
       content::RenderFrameHost* subframe_host) const override;
 #endif
 
-  // FindResultObserver:
+#if BUILDFLAG(ENABLE_PAINT_PREVIEW)
+  void CapturePaintPreviewOfSubframe(
+      content::WebContents* web_contents,
+      const gfx::Rect& rect,
+      const base::UnguessableToken& guid,
+      content::RenderFrameHost* render_frame_host) override;
+#endif
+
+  // find_in_page::FindResultObserver:
   void OnFindResultAvailable(content::WebContents* web_contents) override;
-  void OnFindTabHelperDestroyed(FindTabHelper* helper) override;
+  void OnFindTabHelperDestroyed(find_in_page::FindTabHelper* helper) override;
 
   bool ShouldEnableEmbeddedMediaExperience() const;
   bool IsPictureInPictureEnabled() const;
@@ -140,9 +153,14 @@ class TabWebContentsDelegateAndroid
   // might change over the lifetime of the tab.
   bool IsCustomTab() const;
   const GURL GetManifestScope() const;
+  bool IsInstalledWebappDelegateGeolocation() const;
 
  private:
-  ScopedObserver<FindTabHelper, FindResultObserver> find_result_observer_{this};
+  std::unique_ptr<device::mojom::GeolocationContext>
+      installed_webapp_geolocation_context_;
+
+  ScopedObserver<find_in_page::FindTabHelper, find_in_page::FindResultObserver>
+      find_result_observer_{this};
 
   DISALLOW_COPY_AND_ASSIGN(TabWebContentsDelegateAndroid);
 };

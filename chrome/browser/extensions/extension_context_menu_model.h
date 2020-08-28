@@ -13,7 +13,6 @@
 #include "ui/base/models/simple_menu_model.h"
 
 class Browser;
-class ExtensionAction;
 class GURL;
 class Profile;
 
@@ -22,8 +21,9 @@ class WebContents;
 }
 
 namespace extensions {
-class Extension;
 class ContextMenuMatcher;
+class Extension;
+class ExtensionAction;
 
 // The context menu model for extension icons.
 class ExtensionContextMenuModel : public ui::SimpleMenuModel,
@@ -68,9 +68,6 @@ class ExtensionContextMenuModel : public ui::SimpleMenuModel,
     kPageAccessLearnMore = 11,
     kMaxValue = kPageAccessLearnMore,
   };
-
-  // Type of action the extension icon represents.
-  enum ActionType { NO_ACTION = 0, BROWSER_ACTION, PAGE_ACTION };
 
   // The current visibility of the button; this can affect the "hide"/"show"
   // strings in the menu.
@@ -134,6 +131,10 @@ class ExtensionContextMenuModel : public ui::SimpleMenuModel,
   void HandlePageAccessCommand(int command_id,
                                const Extension* extension) const;
 
+  // Logs a user action when an option is selected in the page access section of
+  // the context menu.
+  void LogPageAccessAction(int command_id) const;
+
   // Gets the extension we are displaying the menu for. Returns NULL if the
   // extension has been uninstalled and no longer exists.
   const Extension* GetExtension() const;
@@ -160,9 +161,6 @@ class ExtensionContextMenuModel : public ui::SimpleMenuModel,
 
   // The delegate which handles the 'inspect popup' menu command (or NULL).
   PopupDelegate* delegate_;
-
-  // The type of extension action to which this context menu is attached.
-  ActionType action_type_;
 
   // The visibility of the button at the time the menu opened.
   ButtonVisibility button_visibility_;

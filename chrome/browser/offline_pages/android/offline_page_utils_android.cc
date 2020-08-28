@@ -4,7 +4,6 @@
 
 #include "chrome/browser/offline_pages/offline_page_utils.h"
 
-#include "base/logging.h"
 #include "chrome/browser/android/tab_android.h"
 #include "chrome/browser/android/tab_web_contents_delegate_android.h"
 #include "chrome/browser/offline_pages/android/downloads/offline_page_download_bridge.h"
@@ -36,12 +35,12 @@ bool OfflinePageUtils::CurrentlyShownInCustomTab(
 
 // static
 void OfflinePageUtils::ShowDuplicatePrompt(
-    const base::Closure& confirm_continuation,
+    base::OnceClosure confirm_continuation,
     const GURL& url,
     bool exists_duplicate_request,
     content::WebContents* web_contents) {
-  OfflinePageInfoBarDelegate::Create(
-      confirm_continuation, url, exists_duplicate_request, web_contents);
+  OfflinePageInfoBarDelegate::Create(std::move(confirm_continuation), url,
+                                     exists_duplicate_request, web_contents);
 }
 
 // static

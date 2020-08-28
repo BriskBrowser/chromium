@@ -24,6 +24,7 @@
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_contents_observer.h"
 #include "content/public/common/url_constants.h"
+#include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/test_utils.h"
 #include "net/dns/mock_host_resolver.h"
@@ -37,8 +38,8 @@ namespace {
 
 class MockAutofillClient : public TestAutofillClient {
  public:
-  MockAutofillClient() {}
-  ~MockAutofillClient() override {}
+  MockAutofillClient() = default;
+  ~MockAutofillClient() override = default;
 
   PrefService* GetPrefs() override { return &prefs_; }
 
@@ -46,15 +47,12 @@ class MockAutofillClient : public TestAutofillClient {
     return prefs_.registry();
   }
 
-  MOCK_METHOD6(ShowAutofillPopup,
-               void(const gfx::RectF& element_bounds,
-                    base::i18n::TextDirection text_direction,
-                    const std::vector<autofill::Suggestion>& suggestions,
-                    bool autoselect_first_suggestion,
-                    PopupType popup_type,
-                    base::WeakPtr<AutofillPopupDelegate> delegate));
-
-  MOCK_METHOD0(HideAutofillPopup, void());
+  MOCK_METHOD(void,
+              ShowAutofillPopup,
+              (const PopupOpenArgs& open_args,
+               base::WeakPtr<AutofillPopupDelegate> delegate),
+              (override));
+  MOCK_METHOD(void, HideAutofillPopup, (PopupHidingReason), (override));
 
  private:
   sync_preferences::TestingPrefServiceSyncable prefs_;
@@ -154,11 +152,11 @@ class ContentAutofillDriverBrowserTest : public InProcessBrowserTest,
     run_loop.Run();
   }
 
-  void OnGetElementFormAndFieldData(const base::Closure& done_callback,
+  void OnGetElementFormAndFieldData(base::RepeatingClosure done_callback,
                                     size_t expected_form_size,
                                     const autofill::FormData& form_data,
                                     const autofill::FormFieldData& form_field) {
-    done_callback.Run();
+    std::move(done_callback).Run();
     if (expected_form_size) {
       ASSERT_EQ(form_data.fields.size(), expected_form_size);
       ASSERT_FALSE(form_field.label.empty());
@@ -183,13 +181,13 @@ class ContentAutofillDriverBrowserTest : public InProcessBrowserTest,
 
 IN_PROC_BROWSER_TEST_F(ContentAutofillDriverBrowserTest,
                        SwitchTabAndHideAutofillPopup) {
-  EXPECT_CALL(autofill_client(), HideAutofillPopup()).Times(1);
+  EXPECT_CALL(autofill_client(),
+              HideAutofillPopup(PopupHidingReason::kTabGone));
 
   scoped_refptr<content::MessageLoopRunner> runner =
       new content::MessageLoopRunner;
   web_contents_hidden_callback_ = runner->QuitClosure();
-  chrome::AddSelectedTabWithURL(browser(),
-                                GURL(url::kAboutBlankURL),
+  chrome::AddSelectedTabWithURL(browser(), GURL(url::kAboutBlankURL),
                                 ui::PAGE_TRANSITION_AUTO_TOPLEVEL);
   runner->Run();
 }
@@ -203,7 +201,8 @@ IN_PROC_BROWSER_TEST_F(ContentAutofillDriverBrowserTest,
   // The Autofill popup should be hidden for same document navigations. It may
   // called twice because the zoom changed event may also fire for same-page
   // navigations.
-  EXPECT_CALL(autofill_client(), HideAutofillPopup())
+  EXPECT_CALL(autofill_client(),
+              HideAutofillPopup(PopupHidingReason::kNavigation))
       .Times(testing::AtLeast(1));
 
   scoped_refptr<content::MessageLoopRunner> runner =
@@ -224,7 +223,7 @@ IN_PROC_BROWSER_TEST_F(ContentAutofillDriverBrowserTest,
   ui_test_utils::NavigateToURL(browser(), url);
 
   // The Autofill popup should NOT be hidden for subframe navigations.
-  EXPECT_CALL(autofill_client(), HideAutofillPopup()).Times(0);
+  EXPECT_CALL(autofill_client(), HideAutofillPopup).Times(0);
 
   scoped_refptr<content::MessageLoopRunner> runner =
       new content::MessageLoopRunner;
@@ -241,7 +240,9 @@ IN_PROC_BROWSER_TEST_F(ContentAutofillDriverBrowserTest,
 IN_PROC_BROWSER_TEST_F(ContentAutofillDriverBrowserTest,
                        TestPageNavigationHidingAutofillPopup) {
   // HideAutofillPopup is called once for each navigation.
-  EXPECT_CALL(autofill_client(), HideAutofillPopup()).Times(2);
+  EXPECT_CALL(autofill_client(),
+              HideAutofillPopup(PopupHidingReason::kNavigation))
+      .Times(2);
 
   scoped_refptr<content::MessageLoopRunner> runner =
       new content::MessageLoopRunner;

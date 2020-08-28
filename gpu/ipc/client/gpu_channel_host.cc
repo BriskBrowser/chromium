@@ -9,11 +9,14 @@
 
 #include "base/atomic_sequence_num.h"
 #include "base/bind.h"
+#include "base/memory/ptr_util.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/single_thread_task_runner.h"
 #include "base/threading/thread_restrictions.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
+#include "gpu/command_buffer/common/gpu_memory_buffer_support.h"
+#include "gpu/ipc/client/client_shared_image_interface.h"
 #include "gpu/ipc/common/command_buffer_id.h"
 #include "gpu/ipc/common/gpu_messages.h"
 #include "gpu/ipc/common/gpu_param_traits_macros.h"
@@ -50,6 +53,10 @@ GpuChannelHost::GpuChannelHost(int channel_id,
   for (int32_t i = 0;
        i <= static_cast<int32_t>(GpuChannelReservedRoutes::kMaxValue); ++i)
     next_route_id_.GetNext();
+
+#if defined(OS_MAC)
+  gpu::SetMacOSSpecificTextureTarget(gpu_info.macos_specific_texture_target);
+#endif  // defined(OS_MAC)
 }
 
 bool GpuChannelHost::Send(IPC::Message* msg) {
@@ -237,6 +244,15 @@ int32_t GpuChannelHost::GenerateRouteID() {
 
 void GpuChannelHost::CrashGpuProcessForTesting() {
   Send(new GpuChannelMsg_CrashForTesting());
+}
+
+void GpuChannelHost::TerminateGpuProcessForTesting() {
+  Send(new GpuChannelMsg_TerminateForTesting());
+}
+
+std::unique_ptr<ClientSharedImageInterface>
+GpuChannelHost::CreateClientSharedImageInterface() {
+  return std::make_unique<ClientSharedImageInterface>(&shared_image_interface_);
 }
 
 GpuChannelHost::~GpuChannelHost() = default;

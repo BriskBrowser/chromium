@@ -24,12 +24,13 @@
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/system/sys_info.h"
-#include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
 #include "chrome/browser/chromeos/arc/arc_util.h"
 #include "chrome/browser/chromeos/arc/fileapi/arc_documents_provider_root_map.h"
 #include "chrome/browser/chromeos/arc/fileapi/arc_documents_provider_util.h"
 #include "chrome/browser/chromeos/arc/fileapi/arc_file_system_operation_runner.h"
 #include "chrome/browser/chromeos/arc/fileapi/arc_media_view_util.h"
+#include "chrome/browser/chromeos/arc/session/arc_session_manager.h"
 #include "chrome/browser/chromeos/crostini/crostini_manager.h"
 #include "chrome/browser/chromeos/crostini/crostini_util.h"
 #include "chrome/browser/chromeos/drive/drive_integration_service.h"
@@ -533,10 +534,9 @@ void VolumeManager::Initialize() {
                Volume::CreateForDownloads(localVolume));
 
   // Asyncrhonously record the disk usage for the downloads path
-  base::PostTask(
+  base::ThreadPool::PostTask(
       FROM_HERE,
-      {base::ThreadPool(), base::MayBlock(),
-       base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN,
+      {base::MayBlock(), base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN,
        base::TaskPriority::BEST_EFFORT},
       base::BindOnce(&RecordDownloadsDiskUsageStats, std::move(localVolume)));
 
@@ -586,8 +586,8 @@ void VolumeManager::Initialize() {
   // Subscribe to storage monitor for MTP notifications.
   if (storage_monitor::StorageMonitor::GetInstance()) {
     storage_monitor::StorageMonitor::GetInstance()->EnsureInitialized(
-        base::Bind(&VolumeManager::OnStorageMonitorInitialized,
-                   weak_ptr_factory_.GetWeakPtr()));
+        base::BindOnce(&VolumeManager::OnStorageMonitorInitialized,
+                       weak_ptr_factory_.GetWeakPtr()));
   }
 
   // Subscribe to ARC file system events.
@@ -677,8 +677,7 @@ void VolumeManager::AddSshfsCrostiniVolume(
   // Listen for crostini container shutdown and remove volume.
   crostini::CrostiniManager::GetForProfile(profile_)
       ->AddShutdownContainerCallback(
-          crostini::kCrostiniDefaultVmName,
-          crostini::kCrostiniDefaultContainerName,
+          crostini::ContainerId::GetDefault(),
           base::BindOnce(&VolumeManager::RemoveSshfsCrostiniVolume,
                          weak_ptr_factory_.GetWeakPtr(), sshfs_mount_path,
                          base::BindOnce([](bool result) {
@@ -993,7 +992,7 @@ void VolumeManager::OnRenameEvent(
       return;
     case chromeos::disks::DiskMountManager::RENAME_COMPLETED:
       // Find previous mount point label if it exists
-      std::string mount_label = "";
+      std::string mount_label;
       auto disk_map_iter = disk_mount_manager_->disks().find(device_path);
       if (disk_map_iter != disk_mount_manager_->disks().end() &&
           !disk_map_iter->second->base_mount_path().empty()) {
@@ -1227,8 +1226,8 @@ void VolumeManager::DoAttachMtpStorage(
           storage::FileSystemMountOption(), path);
   DCHECK(result);
 
-  base::PostTask(
-      FROM_HERE, {content::BrowserThread::IO},
+  content::GetIOThreadTaskRunner({})->PostTask(
+      FROM_HERE,
       base::BindOnce(&MTPDeviceMapService::RegisterMTPFileSystem,
                      base::Unretained(MTPDeviceMapService::GetInstance()),
                      info.location(), fsid, read_only));
@@ -1248,8 +1247,8 @@ void VolumeManager::OnRemovableStorageDetached(
 
       const std::string fsid = GetMountPointNameForMediaStorage(info);
       storage::ExternalMountPoints::GetSystemInstance()->RevokeFileSystem(fsid);
-      base::PostTask(
-          FROM_HERE, {content::BrowserThread::IO},
+      content::GetIOThreadTaskRunner({})->PostTask(
+          FROM_HERE,
           base::BindOnce(&MTPDeviceMapService::RevokeMTPFileSystem,
                          base::Unretained(MTPDeviceMapService::GetInstance()),
                          fsid));

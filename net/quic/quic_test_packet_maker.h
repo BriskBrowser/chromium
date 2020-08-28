@@ -18,10 +18,10 @@
 #include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
 #include "net/third_party/quiche/src/quic/core/http/http_encoder.h"
 #include "net/third_party/quiche/src/quic/core/qpack/qpack_encoder.h"
+#include "net/third_party/quiche/src/quic/core/quic_clock.h"
 #include "net/third_party/quiche/src/quic/core/quic_packets.h"
 #include "net/third_party/quiche/src/quic/core/quic_stream_frame_data_producer.h"
 #include "net/third_party/quiche/src/quic/core/quic_utils.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_clock.h"
 #include "net/third_party/quiche/src/quic/test_tools/mock_random.h"
 #include "net/third_party/quiche/src/quic/test_tools/qpack/qpack_encoder_test_utils.h"
 #include "net/third_party/quiche/src/quic/test_tools/qpack/qpack_test_utils.h"
@@ -72,8 +72,7 @@ class QuicTestPacketMaker {
       uint64_t num,
       bool include_version,
       uint64_t largest_received,
-      uint64_t smallest_received,
-      uint64_t least_unacked);
+      uint64_t smallest_received);
 
   std::unique_ptr<quic::QuicReceivedPacket> MakeStreamsBlockedPacket(
       uint64_t num,
@@ -116,15 +115,23 @@ class QuicTestPacketMaker {
       quic::QuicStreamId rst_stream_id,
       quic::QuicRstStreamErrorCode rst_error_code);
 
+  std::unique_ptr<quic::QuicReceivedPacket> MakeDataRstAndAckPacket(
+      uint64_t num,
+      bool include_version,
+      quic::QuicStreamId data_stream_id,
+      quiche::QuicheStringPiece data,
+      quic::QuicStreamId rst_stream_id,
+      quic::QuicRstStreamErrorCode rst_error_code,
+      uint64_t largest_received,
+      uint64_t smallest_received);
+
   std::unique_ptr<quic::QuicReceivedPacket> MakeAckAndRstPacket(
       uint64_t num,
       bool include_version,
       quic::QuicStreamId stream_id,
       quic::QuicRstStreamErrorCode error_code,
       uint64_t largest_received,
-      uint64_t smallest_received,
-      uint64_t least_unacked,
-      bool send_feedback);
+      uint64_t smallest_received);
 
   std::unique_ptr<quic::QuicReceivedPacket> MakeAckAndRstPacket(
       uint64_t num,
@@ -133,8 +140,6 @@ class QuicTestPacketMaker {
       quic::QuicRstStreamErrorCode error_code,
       uint64_t largest_received,
       uint64_t smallest_received,
-      uint64_t least_unacked,
-      bool send_feedback,
       bool include_stop_sending_if_v99);
 
   std::unique_ptr<quic::QuicReceivedPacket> MakeRstAckAndConnectionClosePacket(
@@ -144,7 +149,6 @@ class QuicTestPacketMaker {
       quic::QuicRstStreamErrorCode error_code,
       uint64_t largest_received,
       uint64_t smallest_received,
-      uint64_t least_unacked,
       quic::QuicErrorCode quic_error,
       const std::string& quic_error_details);
 
@@ -176,7 +180,6 @@ class QuicTestPacketMaker {
       quic::QuicRstStreamErrorCode error_code,
       uint64_t largest_received,
       uint64_t smallest_received,
-      uint64_t least_unacked,
       quic::QuicErrorCode quic_error,
       const std::string& quic_error_details);
 
@@ -185,7 +188,6 @@ class QuicTestPacketMaker {
       bool include_version,
       uint64_t largest_received,
       uint64_t smallest_received,
-      uint64_t least_unacked,
       quic::QuicErrorCode quic_error,
       const std::string& quic_error_details,
       uint64_t frame_type);
@@ -204,17 +206,13 @@ class QuicTestPacketMaker {
   std::unique_ptr<quic::QuicReceivedPacket> MakeAckPacket(
       uint64_t packet_number,
       uint64_t largest_received,
-      uint64_t smallest_received,
-      uint64_t least_unacked,
-      bool send_feedback);
+      uint64_t smallest_received);
 
   std::unique_ptr<quic::QuicReceivedPacket> MakeAckPacket(
       uint64_t packet_number,
       uint64_t first_received,
       uint64_t largest_received,
-      uint64_t smallest_received,
-      uint64_t least_unacked,
-      bool send_feedback);
+      uint64_t smallest_received);
 
   std::unique_ptr<quic::QuicReceivedPacket> MakeDataPacket(
       uint64_t packet_number,
@@ -229,7 +227,6 @@ class QuicTestPacketMaker {
       quic::QuicStreamId stream_id,
       uint64_t largest_received,
       uint64_t smallest_received,
-      uint64_t least_unacked,
       bool fin,
       quiche::QuicheStringPiece data);
 
@@ -301,19 +298,42 @@ class QuicTestPacketMaker {
       quic::QuicStreamId parent_stream_id,
       spdy::SpdyPriority priority);
 
+  std::unique_ptr<quic::QuicReceivedPacket> MakeAckAndPriorityPacket(
+      uint64_t packet_number,
+      bool should_include_version,
+      uint64_t largest_received,
+      uint64_t smallest_received,
+      quic::QuicStreamId id,
+      quic::QuicStreamId parent_stream_id,
+      spdy::SpdyPriority priority);
+
+  std::unique_ptr<quic::QuicReceivedPacket> MakeMultiplePriorityFramesPacket(
+      uint64_t packet_number,
+      bool should_include_version,
+      const std::vector<Http2StreamDependency>& priority_frames);
+
   std::unique_ptr<quic::QuicReceivedPacket>
   MakeAckAndMultiplePriorityFramesPacket(
       uint64_t packet_number,
       bool should_include_version,
       uint64_t largest_received,
       uint64_t smallest_received,
-      uint64_t least_unacked,
       const std::vector<Http2StreamDependency>& priority_frames);
 
   std::unique_ptr<quic::QuicReceivedPacket> MakeRetransmissionPacket(
       uint64_t original_packet_number,
       uint64_t new_packet_number,
       bool should_include_version);
+
+  std::unique_ptr<quic::QuicReceivedPacket> MakeAckAndPriorityUpdatePacket(
+      uint64_t packet_number,
+      bool should_include_version,
+      uint64_t largest_received,
+      uint64_t smallest_received,
+      quic::QuicStreamId id,
+      spdy::SpdyPriority priority);
+
+  std::unique_ptr<quic::QuicEncryptedPacket> MakeStatelessResetPacket();
 
   // Removes all stream frames associated with |stream_id|.
   void RemoveSavedStreamFrames(quic::QuicStreamId stream_id);
@@ -425,6 +445,7 @@ class QuicTestPacketMaker {
   std::string GenerateHttp3MaxPushIdData();
   std::string GenerateHttp3PriorityData(spdy::SpdyPriority priority,
                                         quic::QuicStreamId stream_id);
+  std::string GenerateHttp3GreaseData();
 
   void MaybeAddHttp3SettingsFrames();
 

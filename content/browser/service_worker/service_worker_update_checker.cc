@@ -22,7 +22,8 @@
 #include "content/public/common/content_client.h"
 #include "content/public/common/content_features.h"
 #include "content/public/common/content_switches.h"
-#include "services/network/loader_util.h"
+#include "net/http/http_request_headers.h"
+#include "services/network/public/cpp/constants.h"
 #include "services/network/public/cpp/features.h"
 
 namespace content {
@@ -50,7 +51,8 @@ void SetUpOnUI(
 
   // Set the accept header to '*/*'.
   // https://fetch.spec.whatwg.org/#concept-fetch
-  headers.SetHeader(network::kAcceptHeader, network::kDefaultAcceptHeader);
+  headers.SetHeader(net::HttpRequestHeaders::kAccept,
+                    network::kDefaultAcceptHeaderValue);
 
   BrowserContext* browser_context = process_manager->browser_context();
   blink::mojom::RendererPreferences renderer_preferences;
@@ -79,7 +81,8 @@ void SetUpOnUI(
 }  // namespace
 
 ServiceWorkerUpdateChecker::ServiceWorkerUpdateChecker(
-    std::vector<ServiceWorkerDatabase::ResourceRecord> scripts_to_compare,
+    std::vector<storage::mojom::ServiceWorkerResourceRecordPtr>
+        scripts_to_compare,
     const GURL& main_script_url,
     int64_t main_script_resource_id,
     scoped_refptr<ServiceWorkerVersion> version_to_update,
@@ -170,6 +173,11 @@ void ServiceWorkerUpdateChecker::OnOneUpdateCheckFinished(
   if (running_checker_->network_accessed())
     network_accessed_ = true;
 
+  if (is_main_script) {
+    cross_origin_embedder_policy_ =
+        running_checker_->cross_origin_embedder_policy();
+  }
+
   if (ServiceWorkerSingleScriptUpdateChecker::Result::kDifferent == result) {
     TRACE_EVENT_WITH_FLOW0(
         "ServiceWorker",
@@ -202,7 +210,7 @@ void ServiceWorkerUpdateChecker::OnOneUpdateCheckFinished(
   }
 
   // The main script should be skipped since it should be compared first.
-  if (scripts_to_compare_[next_script_index_to_compare_].url ==
+  if (scripts_to_compare_[next_script_index_to_compare_]->url ==
       main_script_url_) {
     next_script_index_to_compare_++;
     if (next_script_index_to_compare_ >= scripts_to_compare_.size()) {
@@ -220,9 +228,10 @@ void ServiceWorkerUpdateChecker::OnOneUpdateCheckFinished(
     }
   }
 
-  const GURL& next_url = scripts_to_compare_[next_script_index_to_compare_].url;
+  const GURL& next_url =
+      scripts_to_compare_[next_script_index_to_compare_]->url;
   int64_t next_resource_id =
-      scripts_to_compare_[next_script_index_to_compare_].resource_id;
+      scripts_to_compare_[next_script_index_to_compare_]->resource_id;
   next_script_index_to_compare_++;
   CheckOneScript(next_url, next_resource_id);
 }
@@ -238,29 +247,46 @@ void ServiceWorkerUpdateChecker::CheckOneScript(const GURL& url,
       "ServiceWorker", "ServiceWorkerUpdateChecker::CheckOneScript", this,
       TRACE_EVENT_FLAG_FLOW_IN | TRACE_EVENT_FLAG_FLOW_OUT, "url", url.spec());
 
-  DCHECK_NE(ServiceWorkerConsts::kInvalidServiceWorkerResourceId, resource_id)
+  DCHECK_NE(blink::mojom::kInvalidServiceWorkerResourceId, resource_id)
       << "All the target scripts should be stored in the storage.";
 
+  version_to_update_->context()->GetStorageControl()->GetNewResourceId(
+      base::BindOnce(
+          &ServiceWorkerUpdateChecker::OnResourceIdAssignedForOneScriptCheck,
+          weak_factory_.GetWeakPtr(), url, resource_id));
+}
+
+void ServiceWorkerUpdateChecker::OnResourceIdAssignedForOneScriptCheck(
+    const GURL& url,
+    const int64_t resource_id,
+    const int64_t new_resource_id) {
   // When the url matches with the main script url, we can always think that
   // it's the main script even if a main script imports itself because the
   // second load (network load for imported script) should hit the script
   // cache map and it doesn't issue network request.
   const bool is_main_script = url == main_script_url_;
 
-  ServiceWorkerStorage* storage = version_to_update_->context()->storage();
+  ServiceWorkerRegistry* registry = version_to_update_->context()->registry();
 
   // We need two identical readers for comparing and reading the resource for
   // |resource_id| from the storage.
-  auto compare_reader = storage->CreateResponseReader(resource_id);
-  auto copy_reader = storage->CreateResponseReader(resource_id);
+  mojo::Remote<storage::mojom::ServiceWorkerResourceReader> compare_reader;
+  registry->GetRemoteStorageControl()->CreateResourceReader(
+      resource_id, compare_reader.BindNewPipeAndPassReceiver());
+  mojo::Remote<storage::mojom::ServiceWorkerResourceReader> copy_reader;
+  registry->GetRemoteStorageControl()->CreateResourceReader(
+      resource_id, copy_reader.BindNewPipeAndPassReceiver());
 
-  auto writer = storage->CreateResponseWriter(storage->NewResourceId());
+  mojo::Remote<storage::mojom::ServiceWorkerResourceWriter> writer;
+  registry->GetRemoteStorageControl()->CreateResourceWriter(
+      new_resource_id, writer.BindNewPipeAndPassReceiver());
+
   running_checker_ = std::make_unique<ServiceWorkerSingleScriptUpdateChecker>(
       url, is_main_script, main_script_url_, version_to_update_->scope(),
       force_bypass_cache_, update_via_cache_, fetch_client_settings_object_,
       time_since_last_check_, default_headers_, browser_context_getter_,
       loader_factory_, std::move(compare_reader), std::move(copy_reader),
-      std::move(writer),
+      std::move(writer), new_resource_id,
       base::BindOnce(&ServiceWorkerUpdateChecker::OnOneUpdateCheckFinished,
                      weak_factory_.GetWeakPtr(), resource_id));
 }

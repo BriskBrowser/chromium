@@ -13,6 +13,7 @@
 #include "chromeos/dbus/cryptohome/fake_cryptohome_client.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "components/account_id/account_id.h"
+#include "content/public/test/browser_test.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace chromeos {
@@ -24,9 +25,7 @@ constexpr char kTestUserGaiaId[] = "1234567890";
 
 class PinMigrationTest : public LoginManagerTest {
  public:
-  PinMigrationTest()
-      : LoginManagerTest(false /*should_launch_browser*/,
-                         true /* should_initialize_webui */) {}
+  PinMigrationTest() = default;
   ~PinMigrationTest() override = default;
 
   void SetUp() override {
@@ -57,7 +56,7 @@ IN_PROC_BROWSER_TEST_F(PinMigrationTest, PRE_Migrate) {
   // Register PIN.
   QuickUnlockStorage* storage =
       QuickUnlockFactory::GetForAccountId(test_account);
-  ASSERT_TRUE(!!storage);
+  ASSERT_TRUE(storage);
   storage->pin_storage_prefs()->SetPin("111111");
 
   // Validate PIN is set.

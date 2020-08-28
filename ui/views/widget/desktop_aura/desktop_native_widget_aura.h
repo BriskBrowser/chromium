@@ -5,6 +5,7 @@
 #ifndef UI_VIEWS_WIDGET_DESKTOP_AURA_DESKTOP_NATIVE_WIDGET_AURA_H_
 #define UI_VIEWS_WIDGET_DESKTOP_AURA_DESKTOP_NATIVE_WIDGET_AURA_H_
 
+#include <memory>
 #include <string>
 
 #include "base/macros.h"
@@ -26,8 +27,8 @@ namespace client {
 class DragDropClient;
 class ScreenPositionClient;
 class WindowParentingClient;
-}
-}
+}  // namespace client
+}  // namespace aura
 
 namespace wm {
 class CompoundEventFilter;
@@ -36,7 +37,7 @@ class FocusController;
 class ShadowController;
 class VisibilityController;
 class WindowModalityController;
-}
+}  // namespace wm
 
 namespace views {
 namespace corewm {
@@ -87,9 +88,7 @@ class VIEWS_EXPORT DesktopNativeWidgetAura
   wm::CompoundEventFilter* root_window_event_filter() {
     return root_window_event_filter_.get();
   }
-  aura::WindowTreeHost* host() {
-    return host_.get();
-  }
+  aura::WindowTreeHost* host() { return host_.get(); }
 
   aura::Window* content_window() { return content_window_; }
 
@@ -98,6 +97,9 @@ class VIEWS_EXPORT DesktopNativeWidgetAura
   // Ensures that the correct window is activated/deactivated based on whether
   // we are being activated/deactivated.
   void HandleActivationChanged(bool active);
+
+  // Called before the window tree host will close.
+  void OnHostWillClose();
 
   // Overridden from internal::NativeWidgetPrivate:
   gfx::NativeWindow GetNativeWindow() const override;
@@ -110,10 +112,12 @@ class VIEWS_EXPORT DesktopNativeWidgetAura
   // internal::NativeWidgetPrivate:
   void InitNativeWidget(Widget::InitParams params) override;
   void OnWidgetInitDone() override;
-  NonClientFrameView* CreateNonClientFrameView() override;
+  std::unique_ptr<NonClientFrameView> CreateNonClientFrameView() override;
   bool ShouldUseNativeFrame() const override;
   bool ShouldWindowContentsBeTransparent() const override;
   void FrameTypeChanged() override;
+  Widget* GetWidget() override;
+  const Widget* GetWidget() const override;
   gfx::NativeView GetNativeView() const override;
   Widget* GetTopLevelWidget() override;
   const ui::Compositor* GetCompositor() const override;
@@ -173,7 +177,7 @@ class VIEWS_EXPORT DesktopNativeWidgetAura
                     std::unique_ptr<ui::OSExchangeData> data,
                     const gfx::Point& location,
                     int operation,
-                    ui::DragDropTypes::DragEventSource source) override;
+                    ui::mojom::DragEventSource source) override;
   void SchedulePaintInRect(const gfx::Rect& rect) override;
   void ScheduleLayout() override;
   void SetCursor(gfx::NativeCursor cursor) override;
@@ -258,9 +262,6 @@ class VIEWS_EXPORT DesktopNativeWidgetAura
 
   // Notify the root view of our widget of a native accessibility event.
   void NotifyAccessibilityEvent(ax::mojom::Event event_type);
-
-  // internal::NativeWidgetPrivate
-  const Widget* GetWidgetImpl() const override;
 
   std::unique_ptr<aura::WindowTreeHost> host_;
   DesktopWindowTreeHost* desktop_window_tree_host_;

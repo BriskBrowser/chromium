@@ -7,18 +7,25 @@
 
 #include <bitset>
 #include "base/single_thread_task_runner.h"
+#include "base/unguessable_token.h"
 #include "services/network/public/mojom/fetch_api.mojom-blink-forward.h"
+#include "services/network/public/mojom/web_sandbox_flags.mojom-blink-forward.h"
+#include "third_party/blink/public/mojom/loader/resource_load_info_notifier.mojom-shared.h"
+#include "third_party/blink/public/platform/cross_variant_mojo_util.h"
 #include "third_party/blink/public/platform/web_url_request.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_cache_options.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/dom/events/event_target.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
 #include "third_party/blink/renderer/core/frame/csp/content_security_policy.h"
+#include "third_party/blink/renderer/core/frame/deprecation.h"
 #include "third_party/blink/renderer/core/frame/web_feature_forward.h"
 #include "third_party/blink/renderer/core/script/modulator.h"
 #include "third_party/blink/renderer/core/workers/global_scope_creation_params.h"
 #include "third_party/blink/renderer/core/workers/worker_clients.h"
 #include "third_party/blink/renderer/core/workers/worker_navigator.h"
+#include "third_party/blink/renderer/platform/loader/fetch/resource_load_scheduler.h"
+#include "third_party/blink/renderer/platform/loader/fetch/resource_loader_options.h"
 #include "third_party/blink/renderer/platform/scheduler/public/worker_scheduler.h"
 #include "third_party/blink/renderer/platform/wtf/casting.h"
 
@@ -43,7 +50,6 @@ class CORE_EXPORT WorkerOrWorkletGlobalScope : public EventTargetWithInlineData,
       v8::Isolate*,
       scoped_refptr<SecurityOrigin> origin,
       Agent* agent,
-      OffMainThreadWorkerScriptFetchOption,
       const String& name,
       const base::UnguessableToken& parent_devtools_token,
       V8CacheOptions,
@@ -57,8 +63,8 @@ class CORE_EXPORT WorkerOrWorkletGlobalScope : public EventTargetWithInlineData,
   const AtomicString& InterfaceName() const override;
 
   // ScriptWrappable
-  v8::Local<v8::Object> Wrap(v8::Isolate*,
-                             v8::Local<v8::Object> creation_context) final;
+  v8::Local<v8::Value> Wrap(v8::Isolate*,
+                            v8::Local<v8::Object> creation_context) final;
   v8::Local<v8::Object> AssociateWithWrapper(
       v8::Isolate*,
       const WrapperTypeInfo*,
@@ -89,7 +95,6 @@ class CORE_EXPORT WorkerOrWorkletGlobalScope : public EventTargetWithInlineData,
 
   // UseCounter
   void CountUse(WebFeature feature) final { CountFeature(feature); }
-  void CountDeprecation(WebFeature) final;
 
   // May return nullptr if this global scope is not threaded (i.e.,
   // WorkletGlobalScope for the main thread) or after Dispose() is called.
@@ -97,6 +102,14 @@ class CORE_EXPORT WorkerOrWorkletGlobalScope : public EventTargetWithInlineData,
 
   // Returns nullptr if this global scope is a WorkletGlobalScope
   virtual WorkerNavigator* navigator() const { return nullptr; }
+
+  // Returns true when we should reject a response without
+  // cross-origin-embedder-policy: require-corp.
+  // TODO(crbug.com/1064920): Remove this once PlzDedicatedWorker ships.
+  virtual RejectCoepUnsafeNone ShouldRejectCoepUnsafeNoneTopModuleScript()
+      const {
+    return RejectCoepUnsafeNone(false);
+  }
 
   // Returns the resource fetcher for subresources (a.k.a. inside settings
   // resource fetcher). See core/workers/README.md for details.
@@ -120,6 +133,7 @@ class CORE_EXPORT WorkerOrWorkletGlobalScope : public EventTargetWithInlineData,
   const base::UnguessableToken& GetParentDevToolsToken() {
     return parent_devtools_token_;
   }
+  virtual const base::UnguessableToken& GetDevToolsToken() const = 0;
 
   WorkerClients* Clients() const { return worker_clients_.Get(); }
 
@@ -135,18 +149,20 @@ class CORE_EXPORT WorkerOrWorkletGlobalScope : public EventTargetWithInlineData,
 
   WorkerReportingProxy& ReportingProxy() { return reporting_proxy_; }
 
-  void Trace(blink::Visitor*) override;
+  void Trace(Visitor*) const override;
 
   scoped_refptr<base::SingleThreadTaskRunner> GetTaskRunner(TaskType) override;
 
-  OffMainThreadWorkerScriptFetchOption GetOffMainThreadWorkerScriptFetchOption()
-      const {
-    return off_main_thread_fetch_option_;
-  }
-
-  void ApplySandboxFlags(SandboxFlags mask);
+  void ApplySandboxFlags(network::mojom::blink::WebSandboxFlags mask);
 
   void SetDefersLoadingForResourceFetchers(bool defers);
+
+  virtual int GetOutstandingThrottledLimit() const;
+
+  Deprecation& GetDeprecation() { return deprecation_; }
+
+  CrossVariantMojoRemote<mojom::ResourceLoadInfoNotifierInterfaceBase>
+  CloneResourceLoadInfoNotifier();
 
  protected:
   // Sets outside's CSP used for off-main-thread top-level worker script
@@ -175,6 +191,17 @@ class CORE_EXPORT WorkerOrWorkletGlobalScope : public EventTargetWithInlineData,
     web_worker_fetch_context_->SetIsOfflineMode(is_offline_mode);
   }
 
+  WebWorkerFetchContext* web_worker_fetch_context() const {
+    return web_worker_fetch_context_.get();
+  }
+
+  virtual ResourceLoadScheduler::ThrottleOptionOverride
+  GetThrottleOptionOverride() const;
+
+  // This method must be call after the fetcher is created if conditions
+  // change such that a different ThrottleOptionOverride should be applied.
+  void UpdateFetcherThrottleOptionOverride();
+
  private:
   void InitializeWebFetchContextIfNeeded();
   ResourceFetcher* CreateFetcherInternal(const FetchClientSettingsObject&,
@@ -183,7 +210,6 @@ class CORE_EXPORT WorkerOrWorkletGlobalScope : public EventTargetWithInlineData,
 
   bool web_fetch_context_initialized_ = false;
 
-  const OffMainThreadWorkerScriptFetchOption off_main_thread_fetch_option_;
   const String name_;
   const base::UnguessableToken parent_devtools_token_;
 
@@ -223,6 +249,9 @@ class CORE_EXPORT WorkerOrWorkletGlobalScope : public EventTargetWithInlineData,
   // This is the set of features that this worker has used.
   std::bitset<static_cast<size_t>(WebFeature::kNumberOfFeatures)>
       used_features_;
+
+  // This tracks deprecation features that have been used.
+  Deprecation deprecation_;
 
   // LocalDOMWindow::modulator_ workaround equivalent.
   // TODO(kouhei): Remove this.

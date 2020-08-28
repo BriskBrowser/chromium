@@ -19,6 +19,7 @@ class AppSpecifics;
 class ArcPackageSpecifics;
 class AutofillProfileSpecifics;
 class AutofillSpecifics;
+class AutofillOfferSpecifics;
 class AutofillWalletSpecifics;
 class BookmarkSpecifics;
 class ClientConfigParams;
@@ -60,6 +61,7 @@ class SessionHeader;
 class SessionSpecifics;
 class SessionTab;
 class SessionWindow;
+class SharingMessageSpecifics;
 class SyncCycleCompletedEventInfo;
 class SyncEntity;
 class TabNavigation;
@@ -100,6 +102,9 @@ std::unique_ptr<base::DictionaryValue> AppSpecificsToValue(
 
 std::unique_ptr<base::DictionaryValue> ArcPackageSpecificsToValue(
     const sync_pb::ArcPackageSpecifics& proto);
+
+std::unique_ptr<base::DictionaryValue> AutofillOfferSpecificsToValue(
+    const sync_pb::AutofillOfferSpecifics& autofill_offer_specifics);
 
 std::unique_ptr<base::DictionaryValue> AutofillProfileSpecificsToValue(
     const sync_pb::AutofillProfileSpecifics& autofill_profile_specifics);
@@ -225,6 +230,9 @@ std::unique_ptr<base::DictionaryValue> SessionTabToValue(
 
 std::unique_ptr<base::DictionaryValue> SessionWindowToValue(
     const sync_pb::SessionWindow& session_window);
+
+std::unique_ptr<base::DictionaryValue> SharingMessageSpecificsToValue(
+    const sync_pb::SharingMessageSpecifics& sharing_message_specifics);
 
 std::unique_ptr<base::DictionaryValue> SyncCycleCompletedEventInfoToValue(
     const sync_pb::SyncCycleCompletedEventInfo& proto);

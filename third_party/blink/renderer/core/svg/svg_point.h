@@ -34,6 +34,7 @@
 #include "third_party/blink/renderer/core/svg/properties/svg_property_helper.h"
 #include "third_party/blink/renderer/core/svg/svg_parsing_error.h"
 #include "third_party/blink/renderer/platform/geometry/float_point.h"
+#include "third_party/blink/renderer/platform/wtf/casting.h"
 
 namespace blink {
 
@@ -82,7 +83,12 @@ class SVGPoint final : public SVGPropertyHelper<SVGPoint> {
   FloatPoint value_;
 };
 
-DEFINE_SVG_PROPERTY_TYPE_CASTS(SVGPoint);
+template <>
+struct DowncastTraits<SVGPoint> {
+  static bool AllowFrom(const SVGPropertyBase& value) {
+    return value.GetType() == SVGPoint::ClassType();
+  }
+};
 
 }  // namespace blink
 

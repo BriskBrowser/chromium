@@ -52,14 +52,14 @@ class SVGGeometryElement : public SVGGraphicsElement {
   SVGAnimatedNumber* pathLength() const { return path_length_.Get(); }
 
   virtual float getTotalLength(ExceptionState&);
-  virtual SVGPointTearOff* getPointAtLength(float distance);
+  virtual SVGPointTearOff* getPointAtLength(float distance, ExceptionState&);
 
   float AuthorPathLength() const;
   float PathLengthScaleFactor() const;
   static float PathLengthScaleFactor(float computed_path_length,
                                      float author_path_length);
 
-  void Trace(blink::Visitor*) override;
+  void Trace(Visitor*) const override;
 
  protected:
   SVGGeometryElement(const QualifiedName&,

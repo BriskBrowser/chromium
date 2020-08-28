@@ -46,12 +46,12 @@ NSString* IOSChromePasswordManagerInfoBarDelegate::GetPasswordText() const {
 }
 
 NSString* IOSChromePasswordManagerInfoBarDelegate::GetURLHostText() const {
-  return base::SysUTF8ToNSString(form_to_save_->GetOrigin().host());
+  return base::SysUTF8ToNSString(form_to_save_->GetURL().host());
 }
 
-void IOSChromePasswordManagerInfoBarDelegate::set_dispatcher(
-    id<ApplicationCommands> dispatcher) {
-  dispatcher_ = dispatcher;
+void IOSChromePasswordManagerInfoBarDelegate::set_handler(
+    id<ApplicationCommands> handler) {
+  handler_ = handler;
 }
 
 int IOSChromePasswordManagerInfoBarDelegate::GetIconId() const {

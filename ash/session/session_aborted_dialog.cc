@@ -49,24 +49,6 @@ void SessionAbortedDialog::Show(const std::string& user_email) {
   }
 }
 
-bool SessionAbortedDialog::Accept() {
-  Shell::Get()->session_controller()->RequestSignOut();
-  return true;
-}
-
-ui::ModalType SessionAbortedDialog::GetModalType() const {
-  return ui::MODAL_TYPE_SYSTEM;
-}
-
-base::string16 SessionAbortedDialog::GetWindowTitle() const {
-  return l10n_util::GetStringUTF16(
-      IDS_ASH_MULTIPROFILES_SESSION_ABORT_HEADLINE);
-}
-
-bool SessionAbortedDialog::ShouldShowCloseButton() const {
-  return false;
-}
-
 gfx::Size SessionAbortedDialog::CalculatePreferredSize() const {
   return gfx::Size(
       kDefaultWidth,
@@ -74,11 +56,17 @@ gfx::Size SessionAbortedDialog::CalculatePreferredSize() const {
 }
 
 SessionAbortedDialog::SessionAbortedDialog() {
-  DialogDelegate::set_buttons(ui::DIALOG_BUTTON_OK);
-  DialogDelegate::set_button_label(
-      ui::DIALOG_BUTTON_OK,
-      l10n_util::GetStringUTF16(
-          IDS_ASH_MULTIPROFILES_SESSION_ABORT_BUTTON_LABEL));
+  SetModalType(ui::MODAL_TYPE_SYSTEM);
+  SetTitle(
+      l10n_util::GetStringUTF16(IDS_ASH_MULTIPROFILES_SESSION_ABORT_HEADLINE));
+  SetShowCloseButton(false);
+
+  SetButtons(ui::DIALOG_BUTTON_OK);
+  SetButtonLabel(ui::DIALOG_BUTTON_OK,
+                 l10n_util::GetStringUTF16(
+                     IDS_ASH_MULTIPROFILES_SESSION_ABORT_BUTTON_LABEL));
+  SetAcceptCallback(base::BindOnce(
+      []() { Shell::Get()->session_controller()->RequestSignOut(); }));
 }
 
 SessionAbortedDialog::~SessionAbortedDialog() = default;

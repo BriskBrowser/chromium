@@ -36,7 +36,7 @@ HISTOGRAM2CSV = os.path.join(
 RUN_BENCHMARK = os.path.join(SRC_ROOT, 'tools', 'perf', 'run_benchmark')
 DATA_DIR = os.path.join(SRC_ROOT, 'tools', 'perf', 'page_sets', 'data')
 RECORD_WPR = os.path.join(SRC_ROOT, 'tools', 'perf', 'record_wpr')
-DEFAULT_REVIEWERS = ['crouleau@chromium.org']
+DEFAULT_REVIEWERS = ['johnchen@chromium.org']
 MISSING_RESOURCE_RE = re.compile(
     r'\[network\]: Failed to load resource: the server responded with a status '
     r'of 404 \(\) ([^\s]+)')
@@ -280,12 +280,11 @@ class WprUpdater(object):
 
 
     args.extend([
-      '--output-format=html', '--show-stdout',
-      '--reset-results', '--story-filter={story}',
-      '--browser-logging-verbosity=verbose',
-      '--pageset-repeat=%s' % self.repeat,
-      '--output-dir', self.output_dir,
-      '--also-run-disabled-tests'])
+        '--output-format=html', '--show-stdout', '--reset-results',
+        '--story-filter={story}', '--browser-logging-verbosity=verbose',
+        '--pageset-repeat=%s' % self.repeat, '--output-dir', self.output_dir,
+        '--also-run-disabled-tests', '--legacy-json-trace-format'
+    ])
     if live:
       args.append('--use-live-sites')
     out_file = self._CheckLog(args, log_name=log_name)

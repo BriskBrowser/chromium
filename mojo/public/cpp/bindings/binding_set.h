@@ -15,8 +15,6 @@
 #include "base/stl_util.h"
 #include "mojo/public/cpp/bindings/binding.h"
 #include "mojo/public/cpp/bindings/connection_error_callback.h"
-#include "mojo/public/cpp/bindings/interface_ptr.h"
-#include "mojo/public/cpp/bindings/interface_request.h"
 #include "mojo/public/cpp/bindings/message.h"
 
 namespace mojo {
@@ -322,6 +320,8 @@ class BindingSetBase {
   DISALLOW_COPY_AND_ASSIGN(BindingSetBase);
 };
 
+// DEPRECATED: Do not introduce new uses of this type. Instead use the
+// ReceiverSet type defined in receiver_set.h.
 template <typename Interface, typename ContextType = void>
 using BindingSet = BindingSetBase<Interface, Binding<Interface>, ContextType>;
 

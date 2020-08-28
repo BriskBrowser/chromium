@@ -272,7 +272,7 @@ HungRendererDialogView::HungRendererDialogView() {
 #if defined(OS_WIN)
   // Never use the custom frame when Aero Glass is disabled. See
   // https://crbug.com/323278
-  DialogDelegate::set_use_custom_frame(ui::win::IsAeroGlassEnabled());
+  set_use_custom_frame(ui::win::IsAeroGlassEnabled());
 #endif
   set_margins(ChromeLayoutProvider::Get()->GetDialogInsetsForContentType(
       views::TEXT, views::CONTROL));
@@ -287,13 +287,21 @@ HungRendererDialogView::HungRendererDialogView() {
       hung_pages_table_model_.get(), columns, views::ICON_AND_TEXT, true);
   hung_pages_table_ = hung_pages_table.get();
 
-  DialogDelegate::set_button_label(
+  SetButtonLabel(
       ui::DIALOG_BUTTON_CANCEL,
       l10n_util::GetPluralStringFUTF16(IDS_BROWSER_HANGMONITOR_RENDERER_END,
                                        hung_pages_table_model_->RowCount()));
-  DialogDelegate::set_button_label(
+  SetButtonLabel(
       ui::DIALOG_BUTTON_OK,
       l10n_util::GetStringUTF16(IDS_BROWSER_HANGMONITOR_RENDERER_WAIT));
+
+  SetAcceptCallback(base::BindOnce(&HungRendererDialogView::RestartHangTimer,
+                                   base::Unretained(this)));
+  SetCancelCallback(base::BindOnce(
+      &HungRendererDialogView::ForceCrashHungRenderer, base::Unretained(this)));
+  SetCloseCallback(base::BindOnce(&HungRendererDialogView::RestartHangTimer,
+                                  base::Unretained(this)));
+
   DialogModelChanged();
 
   views::GridLayout* layout =
@@ -303,7 +311,7 @@ HungRendererDialogView::HungRendererDialogView() {
   constexpr int kColumnSetId = 0;
   views::ColumnSet* column_set = layout->AddColumnSet(kColumnSetId);
   column_set->AddColumn(views::GridLayout::FILL, views::GridLayout::FILL, 1.0,
-                        views::GridLayout::USE_PREF, 0, 0);
+                        views::GridLayout::ColumnSize::kUsePreferred, 0, 0);
 
   layout->StartRow(views::GridLayout::kFixedSize, kColumnSetId);
   info_label_ = layout->AddView(std::move(info_label));
@@ -359,8 +367,7 @@ void HungRendererDialogView::ShowForWebContents(
     Profile* profile =
         Profile::FromBrowserContext(contents->GetBrowserContext());
     ui::win::SetAppIdForWindow(
-        shell_integration::win::GetChromiumModelIdForProfile(
-            profile->GetPath()),
+        shell_integration::win::GetAppUserModelIdForBrowser(profile->GetPath()),
         views::HWNDForWidget(GetWidget()));
 #endif
 
@@ -407,7 +414,7 @@ void HungRendererDialogView::WindowClosing() {
   g_instance_ = nullptr;
 }
 
-bool HungRendererDialogView::Cancel() {
+void HungRendererDialogView::ForceCrashHungRenderer() {
   auto* render_widget_host = hung_pages_table_model_->GetRenderWidgetHost();
   bool currently_unresponsive =
       render_widget_host && render_widget_host->IsCurrentlyUnresponsive();
@@ -417,7 +424,7 @@ bool HungRendererDialogView::Cancel() {
   content::RenderProcessHost* rph =
       hung_pages_table_model_->GetRenderWidgetHost()->GetProcess();
   if (rph) {
-#if defined(OS_LINUX)
+#if defined(OS_LINUX) || defined(OS_CHROMEOS)
     // A generic |CrashDumpHungChildProcess()| is not implemented for Linux.
     // Instead we send an explicit IPC to crash on the renderer's IO thread.
     rph->ForceCrash();
@@ -427,16 +434,6 @@ bool HungRendererDialogView::Cancel() {
     rph->Shutdown(content::RESULT_CODE_HUNG);
 #endif
   }
-  return true;
-}
-
-bool HungRendererDialogView::Accept() {
-  RestartHangTimer();
-  return true;
-}
-
-bool HungRendererDialogView::Close() {
-  return Accept();
 }
 
 ///////////////////////////////////////////////////////////////////////////////

@@ -4,7 +4,7 @@
 
 #include "third_party/blink/renderer/modules/push_messaging/push_event.h"
 
-#include "third_party/blink/renderer/modules/push_messaging/push_event_init.h"
+#include "third_party/blink/renderer/bindings/modules/v8/v8_push_event_init.h"
 
 namespace blink {
 
@@ -48,7 +48,7 @@ PushMessageData* PushEvent::data() {
   return data_.Get();
 }
 
-void PushEvent::Trace(blink::Visitor* visitor) {
+void PushEvent::Trace(Visitor* visitor) const {
   visitor->Trace(data_);
   ExtendableEvent::Trace(visitor);
 }

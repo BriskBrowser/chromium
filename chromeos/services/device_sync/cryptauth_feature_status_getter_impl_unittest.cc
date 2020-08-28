@@ -122,9 +122,8 @@ class DeviceSyncCryptAuthFeatureStatusGetterImplTest
     auto mock_timer = std::make_unique<base::MockOneShotTimer>();
     timer_ = mock_timer.get();
 
-    feature_status_getter_ =
-        CryptAuthFeatureStatusGetterImpl::Factory::Get()->BuildInstance(
-            client_factory_.get(), std::move(mock_timer));
+    feature_status_getter_ = CryptAuthFeatureStatusGetterImpl::Factory::Create(
+        client_factory_.get(), std::move(mock_timer));
   }
 
   // MockCryptAuthClientFactory::Observer:
@@ -218,15 +217,15 @@ class DeviceSyncCryptAuthFeatureStatusGetterImplTest
  private:
   void OnBatchGetFeatureStatuses(
       const cryptauthv2::BatchGetFeatureStatusesRequest& request,
-      const CryptAuthClient::BatchGetFeatureStatusesCallback& callback,
-      const CryptAuthClient::ErrorCallback& error_callback) {
+      CryptAuthClient::BatchGetFeatureStatusesCallback callback,
+      CryptAuthClient::ErrorCallback error_callback) {
     EXPECT_FALSE(batch_get_feature_statuses_request_);
     EXPECT_FALSE(batch_get_feature_statuses_success_callback_);
     EXPECT_FALSE(batch_get_feature_statuses_failure_callback_);
 
     batch_get_feature_statuses_request_ = request;
-    batch_get_feature_statuses_success_callback_ = callback;
-    batch_get_feature_statuses_failure_callback_ = error_callback;
+    batch_get_feature_statuses_success_callback_ = std::move(callback);
+    batch_get_feature_statuses_failure_callback_ = std::move(error_callback);
   }
 
   void OnGetFeatureStatusesComplete(

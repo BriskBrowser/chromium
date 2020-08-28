@@ -16,7 +16,6 @@
 #include "base/bind_helpers.h"
 #include "base/callback.h"
 #include "base/command_line.h"
-#include "base/feature_list.h"
 #include "base/files/file_enumerator.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
@@ -29,6 +28,7 @@
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/metrics/histogram_functions.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/no_destructor.h"
 #include "base/path_service.h"
 #include "base/process/process_handle.h"
@@ -39,15 +39,14 @@
 #include "base/strings/stringprintf.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/task/post_task.h"
 #include "base/task/task_traits.h"
+#include "base/task/thread_pool.h"
 #include "base/threading/scoped_blocking_call.h"
 #include "base/version.h"
 #import "chrome/browser/mac/dock.h"
 #include "chrome/browser/shell_integration.h"
 #include "chrome/common/channel_info.h"
 #include "chrome/common/chrome_constants.h"
-#include "chrome/common/chrome_features.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_switches.h"
 #import "chrome/common/mac/app_mode_common.h"
@@ -103,8 +102,8 @@
   if (newValue) {
     base::scoped_nsobject<TerminationObserver> scoped_self(
         self, base::scoped_policy::RETAIN);
-    base::PostTask(FROM_HERE, {content::BrowserThread::UI},
-                   base::BindOnce(
+    content::GetUIThreadTaskRunner({})->PostTask(
+        FROM_HERE, base::BindOnce(
                        [](base::scoped_nsobject<TerminationObserver> observer) {
                          [observer onTerminated];
                        },
@@ -160,6 +159,36 @@ namespace web_app {
 
 namespace {
 
+// UMA metric name for creating shortcut result.
+constexpr const char* kCreateShortcutResult = "Apps.CreateShortcuts.Mac.Result";
+
+// Result of creating app shortcut.
+// These values are persisted to logs. Entries should not be renumbered and
+// numeric values should never be reused.
+enum class CreateShortcutResult {
+  kSuccess = 0,
+  kApplicationDirNotFound = 1,
+  kFailToLocalizeApplication = 2,
+  kFailToGetApplicationPaths = 3,
+  kFailToCreateTempDir = 4,
+  kStagingDirectoryNotExist = 5,
+  kFailToCreateExecutablePath = 6,
+  kFailToCopyExecutablePath = 7,
+  kFailToCopyPlist = 8,
+  kFailToWritePkgInfoFile = 9,
+  kFailToUpdatePlist = 10,
+  kFailToUpdateDisplayName = 11,
+  kFailToUpdateIcon = 12,
+  kFailToCreateParentDir = 13,
+  kFailToCopyApp = 14,
+  kMaxValue = kFailToCopyApp
+};
+
+// Records the result of creating shortcut to UMA.
+void RecordCreateShortcut(CreateShortcutResult result) {
+  UMA_HISTOGRAM_ENUMERATION(kCreateShortcutResult, result);
+}
+
 // The maximum number to append to to an app name before giving up and using the
 // extension id.
 constexpr int kMaxConflictNumber = 999;
@@ -210,6 +239,19 @@ bool IsImageValidForIcon(const gfx::Image& image) {
       return true;
   }
   return false;
+}
+
+// Remove the leading . from the entries of |extensions|. Any items that do not
+// have a leading . are removed.
+std::set<std::string> GetFileHandlerExtensionsWithoutDot(
+    const std::set<std::string>& file_extensions) {
+  std::set<std::string> result;
+  for (const auto& file_extension : file_extensions) {
+    if (file_extension.length() <= 1 || file_extension[0] != '.')
+      continue;
+    result.insert(file_extension.substr(1));
+  }
+  return result;
 }
 
 bool AppShimCreationDisabledForTest() {
@@ -416,16 +458,16 @@ void LaunchShimOnFileThread(LaunchShimUpdateBehavior update_behavior,
             NSWorkspaceLaunchDefault | NSWorkspaceLaunchWithoutActivation),
         base::scoped_policy::RETAIN);
     if (app) {
-      base::PostTask(FROM_HERE, {content::BrowserThread::UI},
-                     base::BindOnce(&RunAppLaunchCallbacks, app,
+      content::GetUIThreadTaskRunner({})->PostTask(
+          FROM_HERE, base::BindOnce(&RunAppLaunchCallbacks, app,
                                     std::move(launched_callback),
                                     std::move(terminated_callback)));
       return;
     }
   }
 
-  base::PostTask(FROM_HERE, {content::BrowserThread::UI},
-                 base::BindOnce(std::move(launched_callback), base::Process()));
+  content::GetUIThreadTaskRunner({})->PostTask(
+      FROM_HERE, base::BindOnce(std::move(launched_callback), base::Process()));
 }
 
 base::FilePath GetLocalizableAppShortcutsSubdirName() {
@@ -527,9 +569,9 @@ void GetImageResourcesOnUIThread(
     (*result)[id] = ImageRepForGFXImage(image);
   }
 
-  base::PostTask(
+  base::ThreadPool::PostTask(
       FROM_HERE,
-      {base::ThreadPool(), base::MayBlock(), base::TaskPriority::USER_VISIBLE,
+      {base::MayBlock(), base::TaskPriority::USER_VISIBLE,
        base::TaskShutdownBehavior::BLOCK_SHUTDOWN},
       base::BindOnce(std::move(io_task), std::move(result)));
 }
@@ -597,8 +639,8 @@ bool UpdateAppShortcutsSubdirLocalizedName(
       base::mac::FilePathToNSString(localized.Append(locale + ".strings"));
   [strings_dict writeToFile:strings_path atomically:YES];
 
-  base::PostTask(FROM_HERE, {content::BrowserThread::UI},
-                 base::BindOnce(&GetImageResourcesOnUIThread,
+  content::GetUIThreadTaskRunner({})->PostTask(
+      FROM_HERE, base::BindOnce(&GetImageResourcesOnUIThread,
                                 base::BindOnce(&SetWorkspaceIconOnWorkerThread,
                                                apps_directory)));
   return true;
@@ -802,7 +844,8 @@ base::FilePath WebAppShortcutCreator::GetFallbackBasename() const {
 bool WebAppShortcutCreator::BuildShortcut(
     const base::FilePath& staging_path) const {
   if (!base::DirectoryExists(staging_path.DirName())) {
-    LOG(ERROR) << "Staging path directory does not exit: "
+    RecordCreateShortcut(CreateShortcutResult::kStagingDirectoryNotExist);
+    LOG(ERROR) << "Staging path directory does not exist: "
                << staging_path.DirName();
     return false;
   }
@@ -831,6 +874,7 @@ bool WebAppShortcutCreator::BuildShortcut(
                              NSFilePosixPermissions : @(0755)
                            }
                                 error:&error]) {
+    RecordCreateShortcut(CreateShortcutResult::kFailToCreateExecutablePath);
     LOG(ERROR) << "Failed to create destination executable path: "
                << destination_executable_path
                << ", error=" << base::SysNSStringToUTF8([error description]);
@@ -840,6 +884,7 @@ bool WebAppShortcutCreator::BuildShortcut(
   // Copy the executable file.
   if (!base::CopyFile(executable_path, destination_executable_path.Append(
                                            executable_path.BaseName()))) {
+    RecordCreateShortcut(CreateShortcutResult::kFailToCopyExecutablePath);
     LOG(ERROR) << "Failed to copy executable: " << executable_path;
     return false;
   }
@@ -847,6 +892,7 @@ bool WebAppShortcutCreator::BuildShortcut(
   // Copy the Info.plist.
   if (!base::CopyFile(plist_path,
                       destination_contents_path.Append("Info.plist"))) {
+    RecordCreateShortcut(CreateShortcutResult::kFailToCopyPlist);
     LOG(ERROR) << "Failed to copy plist: " << plist_path;
     return false;
   }
@@ -856,12 +902,33 @@ bool WebAppShortcutCreator::BuildShortcut(
   constexpr size_t kPkgInfoDataSize = base::size(kPkgInfoData) - 1;
   if (base::WriteFile(destination_contents_path.Append("PkgInfo"), kPkgInfoData,
                       kPkgInfoDataSize) != kPkgInfoDataSize) {
+    RecordCreateShortcut(CreateShortcutResult::kFailToWritePkgInfoFile);
     LOG(ERROR) << "Failed to write PkgInfo file: " << destination_contents_path;
     return false;
   }
 
-  return UpdatePlist(staging_path) && UpdateDisplayName(staging_path) &&
-         UpdateIcon(staging_path);
+  bool result = UpdatePlist(staging_path);
+  if (!result) {
+    RecordCreateShortcut(CreateShortcutResult::kFailToUpdatePlist);
+    return result;
+  }
+  result = UpdateDisplayName(staging_path);
+  if (!result) {
+    RecordCreateShortcut(CreateShortcutResult::kFailToUpdateDisplayName);
+    return result;
+  }
+  result = UpdateIcon(staging_path);
+  if (!result) {
+    RecordCreateShortcut(CreateShortcutResult::kFailToUpdateIcon);
+  }
+  return result;
+}
+
+// Returns a reference to the static UpdateShortcuts lock.
+// See https://crbug.com/1090548 for more info.
+base::Lock& GetUpdateShortcutsLock() {
+  static base::NoDestructor<base::Lock> lock;
+  return *lock;
 }
 
 void WebAppShortcutCreator::CreateShortcutsAt(
@@ -870,9 +937,20 @@ void WebAppShortcutCreator::CreateShortcutsAt(
   DCHECK(updated_paths && updated_paths->empty());
   DCHECK(!dst_app_paths.empty());
 
+  // CreateShortcutsAt() modifies the app shim on disk, first by deleting
+  // the destination app shim (if it exists), then by copying a new app shim
+  // from the source app to the destination.  To ensure that process works,
+  // we must guarantee that no more than one CreateShortcutsAt() call will
+  // ever run at a time.  We have an UpdateShortcuts lock for this purpose,
+  // so check that lock has been acquired on this thread before proceeding.
+  // See https://crbug.com/1090548 for more info.
+  GetUpdateShortcutsLock().AssertAcquired();
+
   base::ScopedTempDir scoped_temp_dir;
-  if (!scoped_temp_dir.CreateUniqueTempDir())
+  if (!scoped_temp_dir.CreateUniqueTempDir()) {
+    RecordCreateShortcut(CreateShortcutResult::kFailToCreateTempDir);
     return;
+  }
 
   // Create the bundle in |staging_path|. Note that the staging path will be
   // encoded in CFBundleName, and only .apps with that exact name will have
@@ -889,16 +967,18 @@ void WebAppShortcutCreator::CreateShortcutsAt(
     // Create the parent directory for the app.
     base::FilePath dst_parent_dir = dst_app_path.DirName();
     if (!base::CreateDirectory(dst_parent_dir)) {
+      RecordCreateShortcut(CreateShortcutResult::kFailToCreateParentDir);
       LOG(ERROR) << "Creating directory " << dst_parent_dir.value()
                  << " failed.";
       continue;
     }
 
     // Delete any old copies that may exist.
-    base::DeleteFileRecursively(dst_app_path);
+    base::DeletePathRecursively(dst_app_path);
 
     // Copy the bundle to |dst_app_path|.
     if (!base::CopyDirectory(staging_path, dst_app_path, true)) {
+      RecordCreateShortcut(CreateShortcutResult::kFailToCopyApp);
       LOG(ERROR) << "Copying app to dst dir: " << dst_parent_dir.value()
                  << " failed";
       continue;
@@ -922,7 +1002,8 @@ bool WebAppShortcutCreator::CreateShortcuts(
   if (!UpdateShortcuts(true /* create_if_needed */, &updated_app_paths))
     return false;
   if (creation_reason == SHORTCUT_CREATION_BY_USER)
-    RevealAppShimInFinder();
+    RevealAppShimInFinder(updated_app_paths[0]);
+  RecordCreateShortcut(CreateShortcutResult::kSuccess);
   return true;
 }
 
@@ -935,15 +1016,25 @@ bool WebAppShortcutCreator::UpdateShortcuts(
     const base::FilePath applications_dir = GetChromeAppsFolder();
     if (applications_dir.empty() ||
         !base::DirectoryExists(applications_dir.DirName())) {
+      RecordCreateShortcut(CreateShortcutResult::kApplicationDirNotFound);
       LOG(ERROR) << "Couldn't find an Applications directory to copy app to.";
       return false;
     }
     // Only set folder icons and a localized name once. This avoids concurrent
     // calls to -[NSWorkspace setIcon:..], which is not reentrant.
     static bool once = UpdateAppShortcutsSubdirLocalizedName(applications_dir);
-    if (!once)
+    if (!once) {
+      RecordCreateShortcut(CreateShortcutResult::kFailToLocalizeApplication);
       LOG(ERROR) << "Failed to localize " << applications_dir.value();
+    }
   }
+
+  // Acquire the UpdateShortcuts lock.  This ensures only a single
+  // UpdateShortcuts call at a time will run at once past here.  Not
+  // protecting against that can result in multiple CreateShortcutsAt()
+  // calls deleting and creating the app shim folder at once.
+  // See https://crbug.com/1090548 for more info.
+  base::AutoLock auto_lock(GetUpdateShortcutsLock());
 
   // Get the list of paths to (re)create by bundle id (wherever it was moved
   // or copied by the user).
@@ -955,8 +1046,10 @@ bool WebAppShortcutCreator::UpdateShortcuts(
     app_paths.push_back(
         GetApplicationsShortcutPath(true /* avoid_conflicts */));
   }
-  if (app_paths.empty())
+  if (app_paths.empty()) {
+    RecordCreateShortcut(CreateShortcutResult::kFailToGetApplicationPaths);
     return false;
+  }
 
   CreateShortcutsAt(app_paths, updated_paths);
   return updated_paths->size() == app_paths.size();
@@ -1025,17 +1118,19 @@ bool WebAppShortcutCreator::UpdatePlist(const base::FilePath& app_path) const {
             forKey:app_mode::kNSHighResolutionCapableKey];
 
   // 3. Fill in file handlers.
-  if (!info_->file_handler_extensions.empty() ||
+  const auto file_handler_extensions =
+      GetFileHandlerExtensionsWithoutDot(info_->file_handler_extensions);
+  if (!file_handler_extensions.empty() ||
       !info_->file_handler_mime_types.empty()) {
     base::scoped_nsobject<NSMutableArray> doc_types_value(
         [[NSMutableArray alloc] init]);
     base::scoped_nsobject<NSMutableDictionary> doc_types_dict(
         [[NSMutableDictionary alloc] init]);
-    if (!info_->file_handler_extensions.empty()) {
+    if (!file_handler_extensions.empty()) {
       base::scoped_nsobject<NSMutableArray> extensions(
           [[NSMutableArray alloc] init]);
-      for (const auto& extension : info_->file_handler_extensions)
-        [extensions addObject:base::SysUTF8ToNSString(extension)];
+      for (const auto& file_extension : file_handler_extensions)
+        [extensions addObject:base::SysUTF8ToNSString(file_extension)];
       [doc_types_dict setObject:extensions
                          forKey:app_mode::kCFBundleTypeExtensionsKey];
     }
@@ -1052,9 +1147,17 @@ bool WebAppShortcutCreator::UpdatePlist(const base::FilePath& app_path) const {
               forKey:app_mode::kCFBundleDocumentTypesKey];
   }
 
-  base::FilePath app_name = app_path.BaseName().RemoveFinalExtension();
-  [plist setObject:base::mac::FilePathToNSString(app_name)
-            forKey:base::mac::CFToNSCast(kCFBundleNameKey)];
+  if (IsMultiProfile()) {
+    [plist setObject:base::SysUTF16ToNSString(info_->title)
+              forKey:base::mac::CFToNSCast(kCFBundleNameKey)];
+  } else {
+    // The appropriate bundle name is |info_->title|. Avoiding changing the
+    // behavior of non-multi-profile apps when fixing
+    // https://crbug.com/1021804.
+    base::FilePath app_name = app_path.BaseName().RemoveFinalExtension();
+    [plist setObject:base::mac::FilePathToNSString(app_name)
+              forKey:base::mac::CFToNSCast(kCFBundleNameKey)];
+  }
 
   return [plist writeToFile:plist_path atomically:YES];
 }
@@ -1172,39 +1275,24 @@ std::vector<base::FilePath> WebAppShortcutCreator::GetAppBundlesById() const {
 }
 
 bool WebAppShortcutCreator::IsMultiProfile() const {
-  // Only PWAs and bookmark apps are multi-profile capable.
-  if (!info_->url.is_valid())
-    return false;
-  return base::FeatureList::IsEnabled(features::kAppShimMultiProfile);
+  return info_->is_multi_profile;
 }
 
-void WebAppShortcutCreator::RevealAppShimInFinder() const {
-  // Note that RevealAppShimInFinder is called immediately after requesting to
-  // build the app shim. This almost always happens before the app shim has
-  // completed building (and so we just open the Chrome apps folder).
-
-  // Check if the app shim exists.
-  auto app_paths = GetAppBundlesById();
-  if (!app_paths.empty()) {
-    base::FilePath app_path = app_paths.front();
-    // Use selectFile to show the contents of parent directory with the app
-    // shim selected.
-    [[NSWorkspace sharedWorkspace]
-                      selectFile:base::mac::FilePathToNSString(app_path)
-        inFileViewerRootedAtPath:@""];
-    return;
-  }
-
-  // Otherwise, open the Chrome apps folder, in the hopes that the app shim is
-  // being asynchronously created there.
-  base::FilePath apps_path = GetChromeAppsFolder();
-  if (!base::PathExists(apps_path))
-    return;
-
-  // Since |app_path| is a directory, use openFile to show the contents of
-  // that directory in Finder.
-  [[NSWorkspace sharedWorkspace]
-      openFile:base::mac::FilePathToNSString(apps_path)];
+void WebAppShortcutCreator::RevealAppShimInFinder(
+    const base::FilePath& app_path) const {
+  auto closure = base::BindOnce(
+      [](const base::FilePath& app_path) {
+        // Use selectFile to show the contents of parent directory with the app
+        // shim selected.
+        [[NSWorkspace sharedWorkspace]
+                          selectFile:base::mac::FilePathToNSString(app_path)
+            inFileViewerRootedAtPath:@""];
+      },
+      app_path);
+  // Perform the call to NSWorkSpace on the UI thread. Calling it on the IO
+  // thread appears to cause crashes.
+  // https://crbug.com/1067367
+  content::GetUIThreadTaskRunner({})->PostTask(FROM_HERE, std::move(closure));
 }
 
 void LaunchShim(LaunchShimUpdateBehavior update_behavior,
@@ -1212,8 +1300,8 @@ void LaunchShim(LaunchShimUpdateBehavior update_behavior,
                 ShimTerminatedCallback terminated_callback,
                 std::unique_ptr<ShortcutInfo> shortcut_info) {
   if (AppShimLaunchDisabled()) {
-    base::PostTask(
-        FROM_HERE, {content::BrowserThread::UI},
+    content::GetUIThreadTaskRunner({})->PostTask(
+        FROM_HERE,
         base::BindOnce(std::move(launched_callback), base::Process()));
     return;
   }
@@ -1240,15 +1328,19 @@ bool CreatePlatformShortcuts(const base::FilePath& app_data_path,
   return shortcut_creator.CreateShortcuts(creation_reason, creation_locations);
 }
 
-void DeletePlatformShortcuts(const base::FilePath& app_data_path,
+bool DeletePlatformShortcuts(const base::FilePath& app_data_path,
                              const ShortcutInfo& shortcut_info) {
   base::ScopedBlockingCall scoped_blocking_call(FROM_HERE,
                                                 base::BlockingType::MAY_BLOCK);
   const std::string bundle_id = GetBundleIdentifier(shortcut_info.extension_id,
                                                     shortcut_info.profile_path);
   auto bundle_infos = SearchForBundlesById(bundle_id);
-  for (const auto& bundle_info : bundle_infos)
-    base::DeleteFileRecursively(bundle_info.bundle_path());
+  bool result = true;
+  for (const auto& bundle_info : bundle_infos) {
+    if (!base::DeletePathRecursively(bundle_info.bundle_path()))
+      result = false;
+  }
+  return result;
 }
 
 void DeleteMultiProfileShortcutsForApp(const std::string& app_id) {
@@ -1257,7 +1349,7 @@ void DeleteMultiProfileShortcutsForApp(const std::string& app_id) {
   const std::string bundle_id = GetBundleIdentifier(app_id);
   auto bundle_infos = SearchForBundlesById(bundle_id);
   for (const auto& bundle_info : bundle_infos) {
-    base::DeleteFileRecursively(bundle_info.bundle_path());
+    base::DeletePathRecursively(bundle_info.bundle_path());
   }
 }
 
@@ -1289,7 +1381,7 @@ void DeleteAllShortcutsForProfile(const base::FilePath& profile_path) {
       continue;
     if (!info.IsForProfile(profile_path))
       continue;
-    base::DeleteFileRecursively(info.bundle_path());
+    base::DeletePathRecursively(info.bundle_path());
   }
 }
 

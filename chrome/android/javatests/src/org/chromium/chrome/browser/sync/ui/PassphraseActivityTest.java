@@ -10,7 +10,8 @@ import android.content.Context;
 import android.content.Intent;
 import android.os.Bundle;
 import android.support.test.InstrumentationRegistry;
-import android.support.test.filters.SmallTest;
+
+import androidx.test.filters.SmallTest;
 
 import org.junit.After;
 import org.junit.Assert;
@@ -21,12 +22,9 @@ import org.junit.runner.RunWith;
 
 import org.chromium.base.test.BaseJUnit4ClassRunner;
 import org.chromium.base.test.util.Feature;
-import org.chromium.base.test.util.RetryOnFailure;
 import org.chromium.chrome.browser.sync.FakeProfileSyncService;
 import org.chromium.chrome.browser.sync.ProfileSyncService;
 import org.chromium.chrome.test.ChromeBrowserTestRule;
-import org.chromium.chrome.test.util.browser.signin.SigninTestUtil;
-import org.chromium.components.signin.ChromeSigninController;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
 
 /**
@@ -46,7 +44,6 @@ public class PassphraseActivityTest {
 
     @After
     public void tearDown() {
-        // Clear ProfileSyncService in case it was mocked.
         TestThreadUtils.runOnUiThreadBlocking(() -> ProfileSyncService.resetForTests());
     }
 
@@ -56,16 +53,11 @@ public class PassphraseActivityTest {
     @Test
     @SmallTest
     @Feature({"Sync"})
-    @RetryOnFailure
     public void testCallbackAfterBackgrounded() {
         InstrumentationRegistry.getInstrumentation().waitForIdleSync();
-        SigninTestUtil.addAndSignInTestAccount();
-
-        // Override before creating the activity so we know initialized is false.
+        // Override before signing in, otherwise regular ProfileSyncService will be created.
         overrideProfileSyncService();
-
-        // PassphraseActivity won't start if an account isn't set.
-        Assert.assertNotNull(ChromeSigninController.get().getSignedInAccountName());
+        mChromeBrowserTestRule.addAndSignInTestAccount();
 
         // Create the activity.
         final PassphraseActivity activity = launchPassphraseActivity();
@@ -79,9 +71,12 @@ public class PassphraseActivityTest {
             // Fake sync's backend finishing its initialization.
             FakeProfileSyncService pss = (FakeProfileSyncService) ProfileSyncService.get();
             pss.setEngineInitialized(true);
-            pss.syncStateChanged();
         });
         // Nothing crashed; success!
+
+        // Finish the activity before resetting the state.
+        activity.finish();
+        InstrumentationRegistry.getInstrumentation().waitForIdleSync();
     }
 
     private PassphraseActivity launchPassphraseActivity() {

@@ -56,7 +56,7 @@ class PepperPlatformAudioInput
 
   // media::AudioInputIPCDelegate.
   void OnStreamCreated(base::ReadOnlySharedMemoryRegion shared_memory_region,
-                       base::SyncSocket::Handle socket_handle,
+                       base::SyncSocket::ScopedHandle socket_handle,
                        bool initially_muted) override;
   void OnError() override;
   void OnMuted(bool is_muted) override;
@@ -103,6 +103,7 @@ class PepperPlatformAudioInput
 
   // The frame containing the Pepper widget.
   int render_frame_id_;
+  base::UnguessableToken render_frame_token_;
 
   // The unique ID to identify the opened device. THIS MUST ONLY BE ACCESSED ON
   // THE MAIN THREAD.

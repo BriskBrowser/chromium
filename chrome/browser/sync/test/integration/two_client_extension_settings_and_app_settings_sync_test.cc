@@ -11,6 +11,7 @@
 #include "chrome/browser/sync/test/integration/profile_sync_service_harness.h"
 #include "chrome/browser/sync/test/integration/sync_datatype_helper.h"
 #include "chrome/browser/sync/test/integration/sync_test.h"
+#include "content/public/test/browser_test.h"
 
 #if defined(OS_CHROMEOS)
 #include "chrome/browser/sync/test/integration/os_sync_test.h"
@@ -19,7 +20,7 @@
 
 namespace {
 
-using apps_helper::InstallAppForAllProfiles;
+using apps_helper::InstallHostedAppForAllProfiles;
 using extension_settings_helper::AllExtensionSettingsSameAsVerifier;
 using extension_settings_helper::SetExtensionSettings;
 using extension_settings_helper::SetExtensionSettingsForAllProfiles;
@@ -196,8 +197,9 @@ IN_PROC_BROWSER_TEST_F(TwoClientExtensionSettingsAndAppSettingsSyncTest,
 IN_PROC_BROWSER_TEST_F(TwoClientExtensionSettingsAndAppSettingsSyncTest,
                        AppsStartWithSameSettings) {
   ASSERT_TRUE(SetupClients());
-  ASSERT_PRED3(StartWithSameSettingsTest, InstallAppForAllProfiles(0),
-               InstallAppForAllProfiles(1), InstallAppForAllProfiles(2));
+  ASSERT_PRED3(StartWithSameSettingsTest, InstallHostedAppForAllProfiles(0),
+               InstallHostedAppForAllProfiles(1),
+               InstallHostedAppForAllProfiles(2));
 }
 
 IN_PROC_BROWSER_TEST_F(TwoClientExtensionSettingsAndAppSettingsSyncTest,
@@ -211,8 +213,9 @@ IN_PROC_BROWSER_TEST_F(TwoClientExtensionSettingsAndAppSettingsSyncTest,
 IN_PROC_BROWSER_TEST_F(TwoClientExtensionSettingsAndAppSettingsSyncTest,
                        AppsStartWithDifferentSettings) {
   ASSERT_TRUE(SetupClients());
-  ASSERT_PRED3(StartWithDifferentSettingsTest, InstallAppForAllProfiles(0),
-               InstallAppForAllProfiles(1), InstallAppForAllProfiles(2));
+  ASSERT_PRED3(
+      StartWithDifferentSettingsTest, InstallHostedAppForAllProfiles(0),
+      InstallHostedAppForAllProfiles(1), InstallHostedAppForAllProfiles(2));
 }
 
 #if defined(OS_CHROMEOS)
@@ -228,16 +231,18 @@ IN_PROC_BROWSER_TEST_F(TwoClientAppSettingsOsSyncTest,
                        AppsStartWithSameSettings) {
   ASSERT_TRUE(chromeos::features::IsSplitSettingsSyncEnabled());
   ASSERT_TRUE(SetupClients());
-  ASSERT_PRED3(StartWithSameSettingsTest, InstallAppForAllProfiles(0),
-               InstallAppForAllProfiles(1), InstallAppForAllProfiles(2));
+  ASSERT_PRED3(StartWithSameSettingsTest, InstallHostedAppForAllProfiles(0),
+               InstallHostedAppForAllProfiles(1),
+               InstallHostedAppForAllProfiles(2));
 }
 
 IN_PROC_BROWSER_TEST_F(TwoClientAppSettingsOsSyncTest,
                        AppsStartWithDifferentSettings) {
   ASSERT_TRUE(chromeos::features::IsSplitSettingsSyncEnabled());
   ASSERT_TRUE(SetupClients());
-  ASSERT_PRED3(StartWithDifferentSettingsTest, InstallAppForAllProfiles(0),
-               InstallAppForAllProfiles(1), InstallAppForAllProfiles(2));
+  ASSERT_PRED3(
+      StartWithDifferentSettingsTest, InstallHostedAppForAllProfiles(0),
+      InstallHostedAppForAllProfiles(1), InstallHostedAppForAllProfiles(2));
 }
 #endif  // defined(OS_CHROMEOS)
 

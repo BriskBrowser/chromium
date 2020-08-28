@@ -8,7 +8,7 @@
 #include "base/component_export.h"
 #include "base/macros.h"
 #include "base/observer_list.h"
-#include "chromeos/services/assistant/public/mojom/assistant.mojom.h"
+#include "chromeos/services/assistant/public/cpp/assistant_service.h"
 #include "ui/gfx/geometry/rect.h"
 
 namespace ash {
@@ -19,15 +19,11 @@ class AssistantUiModelObserver;
 enum class AssistantUiMode {
   kAmbientUi,
   kLauncherEmbeddedUi,
-  kMainUi,
-  kMiniUi,
-  kWebUi,
 };
 
 // Enumeration of Assistant visibility states.
 enum class AssistantVisibility {
   kClosed,   // Assistant UI is hidden and the previous session has finished.
-  kHidden,   // Assistant UI is hidden and the previous session is paused.
   kVisible,  // Assistant UI is visible and a session is in progress.
 };
 
@@ -35,12 +31,12 @@ enum class AssistantVisibility {
 // Entries should not be renumbered and numeric values should never be reused.
 // Only append to this enum is allowed if more buttons will be added.
 enum class AssistantButtonId {
-  kBack = 1,
-  kClose = 2,
-  kMinimize = 3,
+  kBackDeprecated = 1,
+  kCloseDeprecated = 2,
+  kMinimizeDeprecated = 3,
   kKeyboardInputToggle = 4,
   kVoiceInputToggle = 5,
-  kSettings = 6,
+  kSettingsDeprecated = 6,
   kBackInLauncherDeprecated = 7,
   kMaxValue = kBackInLauncherDeprecated
 };
@@ -48,15 +44,15 @@ enum class AssistantButtonId {
 // Models the Assistant UI.
 class COMPONENT_EXPORT(ASSISTANT_MODEL) AssistantUiModel {
  public:
-  using AssistantEntryPoint = chromeos::assistant::mojom::AssistantEntryPoint;
-  using AssistantExitPoint = chromeos::assistant::mojom::AssistantExitPoint;
+  using AssistantEntryPoint = chromeos::assistant::AssistantEntryPoint;
+  using AssistantExitPoint = chromeos::assistant::AssistantExitPoint;
 
   AssistantUiModel();
   ~AssistantUiModel();
 
   // Adds/removes the specified |observer|.
-  void AddObserver(AssistantUiModelObserver* observer);
-  void RemoveObserver(AssistantUiModelObserver* observer);
+  void AddObserver(AssistantUiModelObserver* observer) const;
+  void RemoveObserver(AssistantUiModelObserver* observer) const;
 
   // Sets the UI mode. If |due_to_interaction| is true, the UI mode was changed
   // as a result of an Assistant interaction.
@@ -67,7 +63,6 @@ class COMPONENT_EXPORT(ASSISTANT_MODEL) AssistantUiModel {
 
   // Sets the UI visibility.
   void SetVisible(AssistantEntryPoint entry_point);
-  void SetHidden(AssistantExitPoint exit_point);
   void SetClosed(AssistantExitPoint exit_point);
 
   AssistantVisibility visibility() const { return visibility_; }
@@ -93,13 +88,11 @@ class COMPONENT_EXPORT(ASSISTANT_MODEL) AssistantUiModel {
       base::Optional<AssistantExitPoint> exit_point);
   void NotifyUsableWorkAreaChanged();
 
-  AssistantUiMode ui_mode_;
-
+  AssistantUiMode ui_mode_ = AssistantUiMode::kLauncherEmbeddedUi;
   AssistantVisibility visibility_ = AssistantVisibility::kClosed;
-
   AssistantEntryPoint entry_point_ = AssistantEntryPoint::kUnspecified;
 
-  base::ObserverList<AssistantUiModelObserver> observers_;
+  mutable base::ObserverList<AssistantUiModelObserver> observers_;
 
   // Usable work area for Assistant. Value is only meaningful when Assistant
   // UI exists.

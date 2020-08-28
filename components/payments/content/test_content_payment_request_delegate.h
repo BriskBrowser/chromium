@@ -22,6 +22,8 @@ class TestContentPaymentRequestDelegate : public ContentPaymentRequestDelegate {
   ~TestContentPaymentRequestDelegate() override;
 
   // ContentPaymentRequestDelegate:
+  std::unique_ptr<autofill::InternalAuthenticator> CreateInternalAuthenticator(
+      content::RenderFrameHost* rfh) const override;
   scoped_refptr<PaymentManifestWebDataService>
   GetPaymentManifestWebDataService() const override;
   PaymentRequestDisplayManager* GetDisplayManager() override;
@@ -32,9 +34,10 @@ class TestContentPaymentRequestDelegate : public ContentPaymentRequestDelegate {
   void ShowProcessingSpinner() override;
   bool IsBrowserWindowActive() const override;
   bool SkipUiForBasicCard() const override;
+  std::string GetTwaPackageName() const override;
   autofill::PersonalDataManager* GetPersonalDataManager() override;
   const std::string& GetApplicationLocale() const override;
-  bool IsIncognito() const override;
+  bool IsOffTheRecord() const override;
   const GURL& GetLastCommittedURL() const override;
   void DoFullCardRequest(
       const autofill::CreditCard& credit_card,

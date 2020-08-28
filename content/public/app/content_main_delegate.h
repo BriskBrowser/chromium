@@ -21,7 +21,6 @@ class CommandLine;
 namespace service_manager {
 class BackgroundServiceManager;
 class Identity;
-class ZygoteForkDelegate;
 }  // namespace service_manager
 
 namespace content {
@@ -31,6 +30,7 @@ class ContentClient;
 class ContentGpuClient;
 class ContentRendererClient;
 class ContentUtilityClient;
+class ZygoteForkDelegate;
 struct MainFunctionParams;
 
 class CONTENT_EXPORT ContentMainDelegate {
@@ -60,29 +60,16 @@ class CONTENT_EXPORT ContentMainDelegate {
   // Called right before the process exits.
   virtual void ProcessExiting(const std::string& process_type) {}
 
-#if defined(OS_MACOSX)
-  // Returns true if the process registers with the system monitor, so that we
-  // can allocate an IO port for it before the sandbox is initialized. Embedders
-  // are called only for process types that content doesn't know about.
-  virtual bool ProcessRegistersWithSystemProcess(
-      const std::string& process_type);
-
-  // Allows the embedder to override initializing the sandbox. This is needed
-  // because some processes might not want to enable it right away or might not
-  // want it at all.
-  virtual bool DelaySandboxInitialization(const std::string& process_type);
-
-#elif defined(OS_LINUX)
+#if defined(OS_LINUX) || defined(OS_CHROMEOS)
   // Tells the embedder that the zygote process is starting, and allows it to
   // specify one or more zygote delegates if it wishes by storing them in
   // |*delegates|.
   virtual void ZygoteStarting(
-      std::vector<std::unique_ptr<service_manager::ZygoteForkDelegate>>*
-          delegates);
+      std::vector<std::unique_ptr<ZygoteForkDelegate>>* delegates);
 
   // Called every time the zygote process forks.
   virtual void ZygoteForked() {}
-#endif  // defined(OS_LINUX)
+#endif  // defined(OS_LINUX) || defined(OS_CHROMEOS)
 
   // Fatal errors during initialization are reported by this function, so that
   // the embedder can implement graceful exit by displaying some message and
@@ -121,7 +108,7 @@ class CONTENT_EXPORT ContentMainDelegate {
   // Allows the embedder to perform initialization once field trials/FeatureList
   // initialization has completed if ShouldCreateFeatureList() returns true.
   // Otherwise, the embedder is responsible for calling this method once feature
-  // list initialization is complete.
+  // list initialization is complete. Called in every process.
   virtual void PostFieldTrialInitialization() {}
 
   // Allows the embedder to perform its own initialization after early content

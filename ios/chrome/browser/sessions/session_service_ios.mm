@@ -7,6 +7,7 @@
 #import <UIKit/UIKit.h>
 
 #include "base/bind.h"
+#include "base/bind_helpers.h"
 #include "base/files/file_path.h"
 #include "base/format_macros.h"
 #include "base/location.h"
@@ -18,6 +19,7 @@
 #include "base/sequenced_task_runner.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
 #include "base/threading/scoped_blocking_call.h"
 #include "base/time/time.h"
 #import "ios/chrome/browser/sessions/session_ios.h"
@@ -43,6 +45,9 @@
 namespace {
 const NSTimeInterval kSaveDelay = 2.5;     // Value taken from Desktop Chrome.
 NSString* const kRootObjectKey = @"root";  // Key for the root object.
+NSString* const kSessionDirectory =
+    @"Sessions";  // The directory name inside BrowserState directory which
+                  // contain all sessions directories.
 }
 
 @implementation NSKeyedUnarchiver (CrLegacySessionCompatibility)
@@ -51,24 +56,6 @@ NSString* const kRootObjectKey = @"root";  // Key for the root object.
 // removal and mark it with a release at least one year after the introduction
 // of the alias.
 - (void)cr_registerCompatibilityAliases {
-  // TODO(crbug.com/661633): those aliases where introduced between M57 and
-  // M58, so remove them after M67 has shipped to stable.
-  [self setClass:[CRWSessionCertificatePolicyCacheStorage class]
-      forClassName:@"SessionCertificatePolicyManager"];
-  [self setClass:[CRWSessionStorage class] forClassName:@"SessionController"];
-  [self setClass:[CRWSessionStorage class]
-      forClassName:@"CRWSessionController"];
-  [self setClass:[CRWNavigationItemStorage class] forClassName:@"SessionEntry"];
-  [self setClass:[CRWNavigationItemStorage class]
-      forClassName:@"CRWSessionEntry"];
-  [self setClass:[SessionWindowIOS class] forClassName:@"SessionWindow"];
-
-  // TODO(crbug.com/661633): this alias was introduced between M58 and M59, so
-  // remove it after M68 has shipped to stable.
-  [self setClass:[CRWSessionStorage class]
-      forClassName:@"CRWNavigationManagerStorage"];
-  [self setClass:[CRWSessionCertificatePolicyCacheStorage class]
-      forClassName:@"CRWSessionCertificatePolicyManager"];
 }
 
 @end
@@ -86,9 +73,8 @@ NSString* const kRootObjectKey = @"root";  // Key for the root object.
 
 - (instancetype)init {
   scoped_refptr<base::SequencedTaskRunner> taskRunner =
-      base::CreateSequencedTaskRunner(
-          {base::ThreadPool(), base::MayBlock(),
-           base::TaskPriority::BEST_EFFORT,
+      base::ThreadPool::CreateSequencedTaskRunner(
+          {base::MayBlock(), base::TaskPriority::BEST_EFFORT,
            base::TaskShutdownBehavior::BLOCK_SHUTDOWN});
   return [self initWithTaskRunner:taskRunner];
 }
@@ -186,22 +172,21 @@ NSString* const kRootObjectKey = @"root";  // Key for the root object.
 - (void)deleteLastSessionFileInDirectory:(NSString*)directory
                               completion:(base::OnceClosure)callback {
   NSString* sessionPath = [[self class] sessionPathForDirectory:directory];
-  _taskRunner->PostTaskAndReply(
-      FROM_HERE, base::BindOnce(^{
-        base::ScopedBlockingCall scoped_blocking_call(
-            FROM_HERE, base::BlockingType::MAY_BLOCK);
-        NSFileManager* fileManager = [NSFileManager defaultManager];
-        if (![fileManager fileExistsAtPath:sessionPath])
-          return;
+  [self deletePaths:[NSArray arrayWithObject:sessionPath]
+         completion:std::move(callback)];
+}
 
-        NSError* error = nil;
-        if (![fileManager removeItemAtPath:sessionPath error:&error] || error) {
-          CHECK(false) << "Unable to delete session file: "
-                       << base::SysNSStringToUTF8(sessionPath) << ": "
-                       << base::SysNSStringToUTF8([error description]);
-        }
-      }),
-      std::move(callback));
+- (void)deleteSessions:(NSArray<NSString*>*)sessionIDs
+    fromBrowserStateDirectory:(NSString*)directory {
+  NSString* sessionsDirectoryPath =
+      [directory stringByAppendingPathComponent:kSessionDirectory];
+  NSMutableArray<NSString*>* paths =
+      [NSMutableArray arrayWithCapacity:sessionIDs.count];
+  for (NSString* sessionID : sessionIDs) {
+    [paths addObject:[sessionsDirectoryPath
+                         stringByAppendingPathComponent:sessionID]];
+  }
+  [self deletePaths:paths completion:base::DoNothing()];
 }
 
 + (NSString*)sessionPathForDirectory:(NSString*)directory {
@@ -209,6 +194,29 @@ NSString* const kRootObjectKey = @"root";  // Key for the root object.
 }
 
 #pragma mark - Private methods
+
+// Delete files/folders of the given |paths|.
+- (void)deletePaths:(NSArray<NSString*>*)paths
+         completion:(base::OnceClosure)callback {
+  _taskRunner->PostTaskAndReply(
+      FROM_HERE, base::BindOnce(^{
+        base::ScopedBlockingCall scoped_blocking_call(
+            FROM_HERE, base::BlockingType::MAY_BLOCK);
+        NSFileManager* fileManager = [NSFileManager defaultManager];
+        for (NSString* path : paths) {
+          if (![fileManager fileExistsAtPath:path])
+            continue;
+
+          NSError* error = nil;
+          if (![fileManager removeItemAtPath:path error:&error] || error) {
+            CHECK(false) << "Unable to delete path: "
+                         << base::SysNSStringToUTF8(path) << ": "
+                         << base::SysNSStringToUTF8([error description]);
+          }
+        }
+      }),
+      std::move(callback));
+}
 
 // Do the work of saving on a background thread.
 - (void)performSaveToPathInBackground:(NSString*)sessionPath {

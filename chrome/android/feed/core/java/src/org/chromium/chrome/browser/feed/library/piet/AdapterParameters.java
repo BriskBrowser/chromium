@@ -5,9 +5,10 @@
 package org.chromium.chrome.browser.feed.library.piet;
 
 import android.content.Context;
-import android.support.annotation.VisibleForTesting;
 import android.view.View;
 import android.view.ViewGroup;
+
+import androidx.annotation.VisibleForTesting;
 
 import org.chromium.base.supplier.Supplier;
 import org.chromium.chrome.browser.feed.library.common.time.Clock;
@@ -41,7 +42,7 @@ class AdapterParameters {
     // Doesn't like passing "this" to the new ElementAdapterFactory; however, nothing in the
     // factory's construction will reference the elementAdapterFactory member of this, so should be
     // safe.
-    @SuppressWarnings("initialization")
+    @SuppressWarnings("nullness")
     public AdapterParameters(Context context, Supplier<ViewGroup> parentViewSupplier,
             HostProviders hostProviders, Clock clock, boolean allowLegacyRoundedCornerImpl,
             boolean allowOutlineRoundedCornerImpl) {

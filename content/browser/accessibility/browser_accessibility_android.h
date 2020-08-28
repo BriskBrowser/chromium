@@ -8,9 +8,11 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <string>
+#include <vector>
+
 #include "base/android/scoped_java_ref.h"
 #include "base/macros.h"
-#include "base/timer/elapsed_timer.h"
 #include "content/browser/accessibility/browser_accessibility.h"
 #include "ui/accessibility/platform/ax_platform_node.h"
 
@@ -23,13 +25,8 @@ class CONTENT_EXPORT BrowserAccessibilityAndroid : public BrowserAccessibility {
 
   // Overrides from BrowserAccessibility.
   void OnDataChanged() override;
-  bool IsNative() const override;
   void OnLocationChanged() override;
   base::string16 GetValue() const override;
-
-  bool PlatformIsLeafIncludingIgnored() const override;
-  // Android needs events even on objects that are trimmed away.
-  bool CanFireEvents() const override;
 
   bool IsCheckable() const;
   bool IsChecked() const;
@@ -39,16 +36,16 @@ class CONTENT_EXPORT BrowserAccessibilityAndroid : public BrowserAccessibility {
   bool IsCollectionItem() const;
   bool IsContentInvalid() const;
   bool IsDismissable() const;
-  bool IsEditableText() const;
   bool IsEnabled() const;
   bool IsExpanded() const;
   bool IsFocusable() const;
   bool IsFocused() const;
+  bool IsFormDescendant() const;
   bool IsHeading() const;
   bool IsHierarchical() const;
   bool IsLink() const;
   bool IsMultiLine() const;
-  bool IsPassword() const;
+  bool IsMultiselectable() const;
   bool IsRangeType() const;
   bool IsScrollable() const;
   bool IsSelected() const;
@@ -83,12 +80,17 @@ class CONTENT_EXPORT BrowserAccessibilityAndroid : public BrowserAccessibility {
   bool HasImage() const;
 
   const char* GetClassName() const;
+  bool IsChildOfLeaf() const override;
+  bool IsLeaf() const override;
   base::string16 GetInnerText() const override;
   base::string16 GetHint() const;
 
   std::string GetRoleString() const;
 
   base::string16 GetContentInvalidErrorMessage() const;
+
+  base::string16 GetStateDescription() const;
+  base::string16 GetMultiselectableStateDescription() const;
 
   base::string16 GetRoleDescription() const;
 
@@ -107,7 +109,7 @@ class CONTENT_EXPORT BrowserAccessibilityAndroid : public BrowserAccessibility {
   int GetMinScrollY() const;
   int GetMaxScrollX() const;
   int GetMaxScrollY() const;
-  bool Scroll(int direction) const;
+  bool Scroll(int direction, bool is_page_scroll) const;
 
   int GetTextChangeFromIndex() const;
   int GetTextChangeAddedCount() const;
@@ -162,11 +164,6 @@ class CONTENT_EXPORT BrowserAccessibilityAndroid : public BrowserAccessibility {
   // and end offsets.
   void GetSuggestions(std::vector<int>* suggestion_starts,
                       std::vector<int>* suggestion_ends) const;
-
-  // Used to keep track of when to stop reporting content_invalid.
-  // Timer only applies if node has focus.
-  void ResetContentInvalidTimer();
-  base::ElapsedTimer content_invalid_timer_ = base::ElapsedTimer();
 
  private:
   // This gives BrowserAccessibility::Create access to the class constructor.

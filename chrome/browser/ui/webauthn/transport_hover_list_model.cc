@@ -9,7 +9,6 @@
 #include "chrome/app/vector_icons/vector_icons.h"
 #include "chrome/browser/ui/webauthn/transport_utils.h"
 #include "chrome/grit/generated_resources.h"
-#include "device/fido/features.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/gfx/paint_vector_icon.h"
 
@@ -19,14 +18,17 @@ namespace {
 // any values of |AuthenticatorTransport|.
 
 constexpr int kTagExtraBase = 1 << 16;
-// Command ID for triggering QR flow.
-constexpr int kPairPhoneTag = kTagExtraBase + 0;
+constexpr int kNativeWinApiTag = kTagExtraBase;
+
 }  // namespace
 
 TransportHoverListModel::TransportHoverListModel(
-    std::vector<AuthenticatorTransport> transport_list,
+    base::flat_set<AuthenticatorTransport> transport_list,
+    bool show_win_native_api_item,
     Delegate* delegate)
-    : transport_list_(std::move(transport_list)), delegate_(delegate) {}
+    : transport_list_(std::move(transport_list)),
+      show_win_native_api_item_(show_win_native_api_item),
+      delegate_(delegate) {}
 
 TransportHoverListModel::~TransportHoverListModel() = default;
 
@@ -42,23 +44,27 @@ const gfx::VectorIcon* TransportHoverListModel::GetPlaceholderIcon() const {
   return &gfx::kNoneIcon;
 }
 
-std::vector<int> TransportHoverListModel::GetItemTags() const {
+std::vector<int> TransportHoverListModel::GetThrobberTags() const {
+  return {};
+}
+
+std::vector<int> TransportHoverListModel::GetButtonTags() const {
   std::vector<int> tag_list(transport_list_.size());
   std::transform(
       transport_list_.begin(), transport_list_.end(), tag_list.begin(),
       [](const auto& transport) { return base::strict_cast<int>(transport); });
-
-  if (base::FeatureList::IsEnabled(device::kWebAuthPhoneSupport)) {
-    tag_list.push_back(kPairPhoneTag);
+  if (show_win_native_api_item_) {
+    tag_list.push_back(kNativeWinApiTag);
   }
+
   return tag_list;
 }
 
 base::string16 TransportHoverListModel::GetItemText(int item_tag) const {
-  if (item_tag == kPairPhoneTag) {
-    return l10n_util::GetStringUTF16(IDS_WEBAUTHN_TRANSPORT_POPUP_PAIR_PHONE);
+  if (item_tag == kNativeWinApiTag) {
+    return l10n_util::GetStringUTF16(
+        IDS_WEBAUTHN_TRANSPORT_POPUP_DIFFERENT_AUTHENTICATOR_WIN);
   }
-
   return GetTransportHumanReadableName(
       static_cast<AuthenticatorTransport>(item_tag),
       TransportSelectionContext::kTransportSelectionSheet);
@@ -70,9 +76,11 @@ base::string16 TransportHoverListModel::GetDescriptionText(int item_tag) const {
 
 const gfx::VectorIcon* TransportHoverListModel::GetItemIcon(
     int item_tag) const {
-  if (item_tag == kPairPhoneTag) {
-    return &kSmartphoneIcon;
+  if (item_tag == kNativeWinApiTag) {
+    return GetTransportVectorIcon(
+        AuthenticatorTransport::kUsbHumanInterfaceDevice);
   }
+
   return GetTransportVectorIcon(static_cast<AuthenticatorTransport>(item_tag));
 }
 
@@ -81,17 +89,15 @@ void TransportHoverListModel::OnListItemSelected(int item_tag) {
     return;
   }
 
-  if (item_tag == kPairPhoneTag) {
-    delegate_->StartPhonePairing();
+  if (item_tag == kNativeWinApiTag) {
+    delegate_->StartWinNativeApi();
     return;
   }
-
   delegate_->OnTransportSelected(static_cast<AuthenticatorTransport>(item_tag));
 }
 
 size_t TransportHoverListModel::GetPreferredItemCount() const {
-  return transport_list_.size() + static_cast<int>(base::FeatureList::IsEnabled(
-                                      device::kWebAuthPhoneSupport));
+  return transport_list_.size() + static_cast<int>(show_win_native_api_item_);
 }
 
 bool TransportHoverListModel::StyleForTwoLines() const {

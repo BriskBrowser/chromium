@@ -21,6 +21,10 @@
 #include "media/media_buildflags.h"
 #include "third_party/blink/public/common/peerconnection/webrtc_ip_handling_policy.h"
 
+#if !defined(OS_CHROMEOS)
+#include "ui/accessibility/accessibility_features.h"
+#endif
+
 #if defined(OS_WIN)
 #include "base/win/windows_version.h"
 #endif
@@ -109,7 +113,7 @@ void RegisterBrowserUserPrefs(user_prefs::PrefRegistrySyncable* registry) {
   registry->RegisterBooleanPref(prefs::kClickToCallEnabled, true);
 #endif  // BUILDFLAG(ENABLE_CLICK_TO_CALL)
 
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
   // This really belongs in platform code, but there's no good place to
   // initialize it between the time when the AppController is created
   // (where there's no profile) and the time the controller gets another
@@ -135,5 +139,18 @@ void RegisterBrowserUserPrefs(user_prefs::PrefRegistrySyncable* registry) {
   registry->RegisterBooleanPref(prefs::kUserFeedbackAllowed, true);
   registry->RegisterBooleanPref(prefs::kAllowSyncXHRInPageDismissal, false);
   registry->RegisterBooleanPref(
-      prefs::kExternalProtocolDialogShowAlwaysOpenCheckbox, false);
+      prefs::kExternalProtocolDialogShowAlwaysOpenCheckbox, true);
+  registry->RegisterBooleanPref(prefs::kScreenCaptureAllowed, true);
+
+#if !defined(OS_ANDROID)
+  registry->RegisterBooleanPref(prefs::kCaretBrowsingEnabled, false);
+  registry->RegisterBooleanPref(prefs::kCloudPrintDeprecationWarningsSuppressed,
+                                false);
+  registry->RegisterBooleanPref(prefs::kShowCaretBrowsingDialog, true);
+#endif
+
+#if !defined(OS_CHROMEOS)
+  registry->RegisterBooleanPref(prefs::kAccessibilityFocusHighlightEnabled,
+                                false);
+#endif
 }

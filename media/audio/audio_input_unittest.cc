@@ -6,6 +6,7 @@
 
 #include "base/bind.h"
 #include "base/callback.h"
+#include "base/command_line.h"
 #include "base/environment.h"
 #include "base/macros.h"
 #include "base/message_loop/message_pump_type.h"
@@ -19,6 +20,7 @@
 #include "media/audio/audio_manager.h"
 #include "media/audio/audio_unittest_util.h"
 #include "media/audio/test_audio_thread.h"
+#include "media/base/media_switches.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace media {
@@ -72,7 +74,7 @@ class AudioInputTest : public testing::Test {
       : message_loop_(base::MessagePumpType::UI),
         audio_manager_(AudioManager::CreateForTesting(
             std::make_unique<TestAudioThread>())),
-        audio_input_stream_(NULL) {
+        audio_input_stream_(nullptr) {
     base::RunLoop().RunUntilIdle();
   }
 
@@ -80,8 +82,16 @@ class AudioInputTest : public testing::Test {
 
  protected:
   bool InputDevicesAvailable() {
+#if defined(OS_FUCHSIA)
+    // On Fuchsia HasAudioInputDevices() returns true, but AudioInputStream is
+    // not implemented. Audio input is implemented in
+    // FuchsiaAudioCapturerStream. It implements AudioCapturerStream interface
+    // and runs in the renderer process.
+    return false;
+#else
     return AudioDeviceInfoAccessorForTests(audio_manager_.get())
         .HasAudioInputDevices();
+#endif
   }
 
   void MakeAudioInputStreamOnAudioThread() {
@@ -92,7 +102,7 @@ class AudioInputTest : public testing::Test {
   void CloseAudioInputStreamOnAudioThread() {
     RunOnAudioThread(base::BindOnce(&AudioInputStream::Close,
                                     base::Unretained(audio_input_stream_)));
-    audio_input_stream_ = NULL;
+    audio_input_stream_ = nullptr;
   }
 
   void OpenAndCloseAudioInputStreamOnAudioThread() {
@@ -132,7 +142,7 @@ class AudioInputTest : public testing::Test {
     DCHECK(audio_manager_->GetTaskRunner()->BelongsToCurrentThread());
     EXPECT_TRUE(audio_input_stream_->Open());
     audio_input_stream_->Close();
-    audio_input_stream_ = NULL;
+    audio_input_stream_ = nullptr;
   }
 
   void OpenAndStart(AudioInputStream::AudioInputCallback* sink) {
@@ -146,14 +156,14 @@ class AudioInputTest : public testing::Test {
     EXPECT_TRUE(audio_input_stream_->Open());
     audio_input_stream_->Stop();
     audio_input_stream_->Close();
-    audio_input_stream_ = NULL;
+    audio_input_stream_ = nullptr;
   }
 
   void StopAndClose() {
     DCHECK(audio_manager_->GetTaskRunner()->BelongsToCurrentThread());
     audio_input_stream_->Stop();
     audio_input_stream_->Close();
-    audio_input_stream_ = NULL;
+    audio_input_stream_ = nullptr;
   }
 
   // Synchronously runs the provided callback/closure on the audio thread.
@@ -179,41 +189,23 @@ TEST_F(AudioInputTest, CreateAndClose) {
   CloseAudioInputStreamOnAudioThread();
 }
 
-#if defined(OS_LINUX) && !defined(OS_CHROMEOS) && defined(ARCH_CPU_ARM_FAMILY)
-// This test is failing on ARM linux: http://crbug.com/238490
-#define MAYBE_OpenAndClose DISABLED_OpenAndClose
-#else
-#define MAYBE_OpenAndClose OpenAndClose
-#endif
 // Test create, open and close of an AudioInputStream without recording audio.
-TEST_F(AudioInputTest, MAYBE_OpenAndClose) {
+TEST_F(AudioInputTest, OpenAndClose) {
   ABORT_AUDIO_TEST_IF_NOT(InputDevicesAvailable());
   MakeAudioInputStreamOnAudioThread();
   OpenAndCloseAudioInputStreamOnAudioThread();
 }
 
-#if defined(OS_LINUX) && !defined(OS_CHROMEOS) && defined(ARCH_CPU_ARM_FAMILY)
-// This test is failing on ARM linux: http://crbug.com/238490
-#define MAYBE_OpenStopAndClose DISABLED_OpenStopAndClose
-#else
-#define MAYBE_OpenStopAndClose OpenStopAndClose
-#endif
 // Test create, open, stop and close of an AudioInputStream without recording.
-TEST_F(AudioInputTest, MAYBE_OpenStopAndClose) {
+TEST_F(AudioInputTest, OpenStopAndClose) {
   ABORT_AUDIO_TEST_IF_NOT(InputDevicesAvailable());
   MakeAudioInputStreamOnAudioThread();
   OpenStopAndCloseAudioInputStreamOnAudioThread();
 }
 
-#if defined(OS_LINUX) && !defined(OS_CHROMEOS) && defined(ARCH_CPU_ARM_FAMILY)
-// This test is failing on ARM linux: http://crbug.com/238490
-#define MAYBE_Record DISABLED_Record
-#else
-#define MAYBE_Record Record
-#endif
 // Test a normal recording sequence using an AudioInputStream.
 // Very simple test which starts capturing and verifies that recording starts.
-TEST_F(AudioInputTest, MAYBE_Record) {
+TEST_F(AudioInputTest, Record) {
   ABORT_AUDIO_TEST_IF_NOT(InputDevicesAvailable());
   MakeAudioInputStreamOnAudioThread();
 

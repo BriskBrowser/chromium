@@ -12,7 +12,7 @@
 #include "base/bind.h"
 #include "base/location.h"
 #include "base/macros.h"
-#include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/local_discovery/service_discovery_client_impl.h"
@@ -85,7 +85,8 @@ class ServiceDiscoveryClientMdns::Proxy {
   }
 
   static bool PostToUIThread(base::OnceClosure task) {
-    return base::PostTask(FROM_HERE, {BrowserThread::UI}, std::move(task));
+    return content::GetUIThreadTaskRunner({})->PostTask(FROM_HERE,
+                                                        std::move(task));
   }
 
   ServiceDiscoveryClient* client() {
@@ -148,8 +149,8 @@ void InitMdns(MdnsInitCallback on_initialized,
               const net::InterfaceIndexFamilyList& interfaces,
               net::MDnsClient* mdns) {
   SocketFactory socket_factory(interfaces);
-  base::PostTask(FROM_HERE, {BrowserThread::UI},
-                 base::BindOnce(std::move(on_initialized),
+  content::GetUIThreadTaskRunner({})->PostTask(
+      FROM_HERE, base::BindOnce(std::move(on_initialized),
                                 mdns->StartListening(&socket_factory)));
 }
 
@@ -329,7 +330,7 @@ class LocalDomainResolverProxy : public ProxyBase<LocalDomainResolver> {
 }  // namespace
 
 ServiceDiscoveryClientMdns::ServiceDiscoveryClientMdns()
-    : mdns_runner_(base::CreateSingleThreadTaskRunner({BrowserThread::IO})) {
+    : mdns_runner_(content::GetIOThreadTaskRunner({})) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   content::GetNetworkConnectionTracker()->AddNetworkConnectionObserver(this);
   StartNewClient();
@@ -397,9 +398,8 @@ void ServiceDiscoveryClientMdns::StartNewClient() {
   DestroyMdns();
   mdns_ = net::MDnsClient::CreateDefault();
   client_ = std::make_unique<ServiceDiscoveryClientImpl>(mdns_.get());
-  base::PostTaskAndReplyWithResult(
-      FROM_HERE,
-      {base::ThreadPool(), base::TaskPriority::BEST_EFFORT, base::MayBlock()},
+  base::ThreadPool::PostTaskAndReplyWithResult(
+      FROM_HERE, {base::TaskPriority::BEST_EFFORT, base::MayBlock()},
       base::BindOnce(&net::GetMDnsInterfacesToBind),
       base::BindOnce(&ServiceDiscoveryClientMdns::OnInterfaceListReady,
                      weak_ptr_factory_.GetWeakPtr()));

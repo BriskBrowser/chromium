@@ -15,7 +15,6 @@
 #include "base/compiler_specific.h"
 #include "base/files/file_path.h"
 #include "base/gtest_prod_util.h"
-#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
 #include "base/strings/string16.h"
@@ -25,6 +24,7 @@
 #include "chrome/browser/profiles/profile_attributes_storage.h"
 #include "chrome/browser/profiles/profile_info_cache_observer.h"
 #include "chrome/browser/profiles/profile_info_interface.h"
+#include "components/signin/public/base/persistent_repeating_timer.h"
 
 namespace gfx {
 class Image;
@@ -47,6 +47,8 @@ class ProfileInfoCache : public ProfileInfoInterface,
                          public base::SupportsWeakPtr<ProfileInfoCache> {
  public:
   ProfileInfoCache(PrefService* prefs, const base::FilePath& user_data_dir);
+  ProfileInfoCache(const ProfileInfoCache&) = delete;
+  ProfileInfoCache& operator=(const ProfileInfoCache&) = delete;
   ~ProfileInfoCache() override;
 
   // If the |supervised_user_id| is non-empty, the profile will be marked to be
@@ -91,8 +93,10 @@ class ProfileInfoCache : public ProfileInfoInterface,
 
   // Will be removed SOON with ProfileInfoCache tests. Do not use!
   void SetAvatarIconOfProfileAtIndex(size_t index, size_t icon_index);
-  void SetSupervisedUserIdOfProfileAtIndex(size_t index, const std::string& id);
-  void SetGAIAPictureOfProfileAtIndex(size_t index, gfx::Image image);
+  void SetGAIAPictureOfProfileAtIndex(size_t index,
+                                      const std::string& image_url_with_size,
+                                      gfx::Image image);
+
   void SetIsUsingGAIAPictureOfProfileAtIndex(size_t index, bool value);
   void SetProfileIsUsingDefaultAvatarAtIndex(size_t index, bool value);
 
@@ -118,6 +122,7 @@ class ProfileInfoCache : public ProfileInfoInterface,
 
   bool GetProfileAttributesWithPath(const base::FilePath& path,
                                     ProfileAttributesEntry** entry) override;
+  void DisableProfileMetricsForTesting() override;
 
   void NotifyProfileAuthInfoChanged(const base::FilePath& profile_path);
   void NotifyIfProfileNamesHaveChanged();
@@ -129,6 +134,8 @@ class ProfileInfoCache : public ProfileInfoInterface,
                            DownloadHighResAvatarTest);
   FRIEND_TEST_ALL_PREFIXES(ProfileInfoCacheTest,
                            MigrateLegacyProfileNamesAndRecomputeIfNeeded);
+  FRIEND_TEST_ALL_PREFIXES(ProfileInfoCacheTest, PersistGAIAPicture);
+  FRIEND_TEST_ALL_PREFIXES(ProfileInfoCacheTest, EmptyGAIAInfo);
 
   const base::DictionaryValue* GetInfoForProfileAtIndex(size_t index) const;
   // Saves the profile info to a cache.
@@ -151,20 +158,37 @@ class ProfileInfoCache : public ProfileInfoInterface,
   // Download and high-res avatars used by the profiles.
   void DownloadAvatars();
 
-#if !defined(OS_ANDROID) && !defined(OS_CHROMEOS)
+  std::string GetLastDownloadedGAIAPictureUrlWithSizeOfProfileAtIndex(
+      size_t index) const;
+
+  void SetLastDownloadedGAIAPictureUrlWithSizeOfProfileAtIndex(
+      size_t index,
+      const std::string& image_url_with_size);
+
+  bool ShouldUpdateGAIAPictureOfProfileAtIndex(
+      size_t index,
+      const std::string& old_file_name,
+      const std::string& key,
+      const std::string& image_url_with_size,
+      bool image_is_empty) const;
+#if !defined(OS_ANDROID)
   void LoadGAIAPictureIfNeeded();
+#endif
+
+#if !defined(OS_ANDROID) && !defined(OS_CHROMEOS)
   // Migrate any legacy profile names ("First user", "Default Profile") to
   // new style default names ("Person 1"). Rename any duplicates of "Person n"
   // i.e. Two or more profiles with the profile name "Person 1" would be
   // recomputed to "Person 1" and "Person 2".
   void MigrateLegacyProfileNamesAndRecomputeIfNeeded();
   static void SetLegacyProfileMigrationForTesting(bool value);
+
+  std::unique_ptr<signin::PersistentRepeatingTimer> repeating_timer_;
 #endif  // !defined(OS_ANDROID) && !defined(OS_CHROMEOS)
 
   std::vector<std::string> keys_;
   const base::FilePath user_data_dir_;
-
-  DISALLOW_COPY_AND_ASSIGN(ProfileInfoCache);
+  base::WeakPtrFactory<ProfileInfoCache> weak_factory_{this};
 };
 
 #endif  // CHROME_BROWSER_PROFILES_PROFILE_INFO_CACHE_H_

@@ -8,10 +8,11 @@
 #include <utility>
 
 #include "base/bind.h"
+#include "base/bind_helpers.h"
 #include "base/callback.h"
 #include "base/location.h"
 #include "base/logging.h"
-#include "base/task/post_task.h"
+#include "base/sequence_checker.h"
 #include "build/branding_buildflags.h"
 #include "build/buildflag.h"
 #include "chrome/browser/chromeos/login/startup_utils.h"
@@ -39,8 +40,8 @@ void GotSystemSlotOnUIThread(
 void GotSystemSlotOnIOThread(
     base::OnceCallback<void(crypto::ScopedPK11Slot)> callback_ui_thread,
     crypto::ScopedPK11Slot system_slot) {
-  base::PostTask(
-      FROM_HERE, {content::BrowserThread::UI},
+  content::GetUIThreadTaskRunner({})->PostTask(
+      FROM_HERE,
       base::BindOnce(&GotSystemSlotOnUIThread, std::move(callback_ui_thread),
                      std::move(system_slot)));
 }
@@ -73,6 +74,9 @@ bool ShallAttemptTpmOwnership() {
 #endif
 }
 
+// ChromeBrowserMainPartsChromeos owns this.
+SystemTokenCertDBInitializer* g_system_token_cert_db_initializer = nullptr;
+
 }  // namespace
 
 SystemTokenCertDBInitializer::SystemTokenCertDBInitializer() {
@@ -81,27 +85,82 @@ SystemTokenCertDBInitializer::SystemTokenCertDBInitializer() {
   CryptohomeClient::Get()->WaitForServiceToBeAvailable(
       base::BindOnce(&SystemTokenCertDBInitializer::OnCryptohomeAvailable,
                      weak_ptr_factory_.GetWeakPtr()));
+
+  DCHECK_EQ(g_system_token_cert_db_initializer, nullptr);
+  g_system_token_cert_db_initializer = this;
 }
 
-SystemTokenCertDBInitializer::~SystemTokenCertDBInitializer() = default;
+SystemTokenCertDBInitializer::~SystemTokenCertDBInitializer() {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
+  DCHECK_EQ(g_system_token_cert_db_initializer, this);
+  g_system_token_cert_db_initializer = nullptr;
+}
+
+// static
+SystemTokenCertDBInitializer* SystemTokenCertDBInitializer::Get() {
+  return g_system_token_cert_db_initializer;
+}
 
 void SystemTokenCertDBInitializer::ShutDown() {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
   // Note that the observer could potentially not be added yet, but
   // RemoveObserver() is a no-op in that case.
   CryptohomeClient::Get()->RemoveObserver(this);
+
+  // Cancel any in-progress initialization sequence.
+  weak_ptr_factory_.InvalidateWeakPtrs();
+
+  // Notify observers that the SystemTokenCertDBInitializer and the
+  // NSSCertDatabase it provides can not be used anymore.
+  for (auto& observer : observers_)
+    observer.OnSystemTokenCertDBDestroyed();
+
+  // Now it's safe to destroy the NSSCertDatabase.
+  system_token_cert_database_.reset();
 }
 
 void SystemTokenCertDBInitializer::TpmInitStatusUpdated(
     bool ready,
     bool owned,
     bool was_owned_this_boot) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
   if (ready) {
     // The TPM "ready" means that it's available && owned && not being owned.
     MaybeStartInitializingDatabase();
   }
 }
 
+void SystemTokenCertDBInitializer::GetSystemTokenCertDb(
+    GetSystemTokenCertDbCallback callback) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
+  DCHECK(callback);
+
+  if (system_token_cert_database_) {
+    std::move(callback).Run(system_token_cert_database_.get());
+  } else {
+    get_system_token_cert_db_callback_list_.AddUnsafe(std::move(callback));
+  }
+}
+
+void SystemTokenCertDBInitializer::AddObserver(
+    SystemTokenCertDBObserver* observer) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  observers_.AddObserver(observer);
+}
+
+void SystemTokenCertDBInitializer::RemoveObserver(
+    SystemTokenCertDBObserver* observer) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  observers_.RemoveObserver(observer);
+}
+
 void SystemTokenCertDBInitializer::OnCryptohomeAvailable(bool available) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
   if (!available) {
     LOG(ERROR) << "SystemTokenCertDBInitializer: Failed to wait for "
                   "cryptohome to become available.";
@@ -117,6 +176,8 @@ void SystemTokenCertDBInitializer::OnCryptohomeAvailable(bool available) {
 
 void SystemTokenCertDBInitializer::OnGotTpmIsReady(
     base::Optional<bool> tpm_is_ready) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
   if (!tpm_is_ready.has_value() || !tpm_is_ready.value()) {
     VLOG(1) << "SystemTokenCertDBInitializer: TPM is not ready - not loading "
                "system token.";
@@ -126,8 +187,7 @@ void SystemTokenCertDBInitializer::OnGotTpmIsReady(
       // have been lost if initialization was interrupted.
       // We don't care about the result, and don't block waiting for it.
       LOG(WARNING) << "Request attempting TPM ownership.";
-      CryptohomeClient::Get()->TpmCanAttemptOwnership(
-          EmptyVoidDBusMethodCallback());
+      CryptohomeClient::Get()->TpmCanAttemptOwnership(base::DoNothing());
     }
 
     return;
@@ -136,6 +196,8 @@ void SystemTokenCertDBInitializer::OnGotTpmIsReady(
 }
 
 void SystemTokenCertDBInitializer::MaybeStartInitializingDatabase() {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
   if (started_initializing_)
     return;
   started_initializing_ = true;
@@ -145,12 +207,14 @@ void SystemTokenCertDBInitializer::MaybeStartInitializingDatabase() {
   base::RepeatingCallback<void(crypto::ScopedPK11Slot)> callback =
       base::BindRepeating(&SystemTokenCertDBInitializer::InitializeDatabase,
                           weak_ptr_factory_.GetWeakPtr());
-  base::PostTask(FROM_HERE, {content::BrowserThread::IO},
-                 base::BindOnce(&GetSystemSlotOnIOThread, callback));
+  content::GetIOThreadTaskRunner({})->PostTask(
+      FROM_HERE, base::BindOnce(&GetSystemSlotOnIOThread, callback));
 }
 
 void SystemTokenCertDBInitializer::InitializeDatabase(
     crypto::ScopedPK11Slot system_slot) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
   // Currently, NSSCertDatabase requires a public slot to be set, so we use
   // the system slot there. We also want GetSystemSlot() to return the system
   // slot. As ScopedPK11Slot is actually a unique_ptr which will be moved into
@@ -164,6 +228,8 @@ void SystemTokenCertDBInitializer::InitializeDatabase(
   database->SetSystemSlot(std::move(system_slot_copy));
 
   system_token_cert_database_ = std::move(database);
+  get_system_token_cert_db_callback_list_.Notify(
+      system_token_cert_database_.get());
 
   VLOG(1) << "SystemTokenCertDBInitializer: Passing system token NSS "
              "database to NetworkCertLoader.";

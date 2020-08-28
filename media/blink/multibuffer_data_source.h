@@ -17,6 +17,7 @@
 #include "base/synchronization/lock.h"
 #include "media/base/data_source.h"
 #include "media/base/ranges.h"
+#include "media/base/tuneable.h"
 #include "media/blink/media_blink_export.h"
 #include "media/blink/url_index.h"
 #include "url/gurl.h"
@@ -37,7 +38,7 @@ class MultiBufferReader;
 // with the |task_runner| passed in the constructor.
 class MEDIA_BLINK_EXPORT MultibufferDataSource : public DataSource {
  public:
-  typedef base::Callback<void(bool)> DownloadingCB;
+  using DownloadingCB = base::RepeatingCallback<void(bool)>;
 
   // Used to specify video preload states. They are "hints" to the browser about
   // how aggressively the browser should load and buffer data.
@@ -60,14 +61,14 @@ class MEDIA_BLINK_EXPORT MultibufferDataSource : public DataSource {
       scoped_refptr<UrlData> url_data,
       MediaLog* media_log,
       BufferedDataSourceHost* host,
-      const DownloadingCB& downloading_cb);
+      DownloadingCB downloading_cb);
   ~MultibufferDataSource() override;
 
   // Executes |init_cb| with the result of initialization when it has completed.
   //
   // Method called on the render thread.
-  typedef base::Callback<void(bool)> InitializeCB;
-  void Initialize(const InitializeCB& init_cb);
+  using InitializeCB = base::OnceCallback<void(bool)>;
+  void Initialize(InitializeCB init_cb);
 
   // Adjusts the buffering algorithm based on the given preload value.
   void SetPreload(Preload preload);
@@ -117,7 +118,7 @@ class MEDIA_BLINK_EXPORT MultibufferDataSource : public DataSource {
   void Read(int64_t position,
             int size,
             uint8_t* data,
-            const DataSource::ReadCB& read_cb) override;
+            DataSource::ReadCB read_cb) override;
   bool GetSize(int64_t* size_out) override;
   bool IsStreaming() override;
   void SetBitrate(int bitrate) override;
@@ -266,6 +267,14 @@ class MEDIA_BLINK_EXPORT MultibufferDataSource : public DataSource {
   BufferedDataSourceHost* host_;
 
   DownloadingCB downloading_cb_;
+
+  // Preload this many seconds of data by default.
+  media::Tuneable<int> preload_seconds_ = {"SrcMediaMultibufferPreloadSeconds",
+                                           0, 10, 60};
+
+  // Keep this many seconds of data for going back by default.
+  media::Tuneable<int> keep_after_playback_seconds_ = {
+      "SrcMediaMultibufferKeepAfterPlaybackSeconds", 0, 2, 60};
 
   // Disallow rebinding WeakReference ownership to a different thread by keeping
   // a persistent reference. This avoids problems with the thread-safety of

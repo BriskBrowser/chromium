@@ -39,12 +39,10 @@ gfx::Rect GetBoundsInRoot(const gfx::Rect& bounds_in_screen,
 class TestFocusView : public views::WidgetDelegateView {
  public:
   TestFocusView()
-      : button_1_(new views::LabelButton(nullptr, {})),
-        button_2_(new views::LabelButton(nullptr, {})) {
+      : button_1_(AddChildView(std::make_unique<views::LabelButton>())),
+        button_2_(AddChildView(std::make_unique<views::LabelButton>())) {
     button_1_->SetFocusForPlatform();
     button_2_->SetFocusForPlatform();
-    AddChildView(button_1_);
-    AddChildView(button_2_);
   }
 
   ~TestFocusView() override = default;
@@ -112,7 +110,7 @@ constexpr gfx::Size MagnifierFocusTestHelper::kTestFocusViewSize;
 void MagnifierFocusTestHelper::CreateAndShowFocusTestView(
     const gfx::Point& location) {
   focus_test_view_ = new TestFocusView;
-  views::Widget* widget = views::Widget::CreateWindowWithContextAndBounds(
+  views::Widget* widget = views::Widget::CreateWindowWithContext(
       focus_test_view_, Shell::GetPrimaryRootWindow(),
       gfx::Rect(location, MagnifierFocusTestHelper::kTestFocusViewSize));
   widget->Show();
@@ -152,8 +150,8 @@ void MagnifierTextInputTestHelper::CreateAndShowTextInputViewInRoot(
     const gfx::Rect& bounds,
     aura::Window* root) {
   text_input_view_ = new TestTextInputView;
-  views::Widget* widget = views::Widget::CreateWindowWithContextAndBounds(
-      text_input_view_, root, bounds);
+  views::Widget* widget =
+      views::Widget::CreateWindowWithContext(text_input_view_, root, bounds);
   widget->Show();
 }
 

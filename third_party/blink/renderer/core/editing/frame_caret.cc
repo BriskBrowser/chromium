@@ -61,13 +61,9 @@ FrameCaret::FrameCaret(LocalFrame& frame,
 
 FrameCaret::~FrameCaret() = default;
 
-void FrameCaret::Trace(Visitor* visitor) {
+void FrameCaret::Trace(Visitor* visitor) const {
   visitor->Trace(selection_editor_);
   visitor->Trace(frame_);
-}
-
-const DisplayItemClient& FrameCaret::GetDisplayItemClient() const {
-  return *display_item_client_;
 }
 
 const PositionWithAffinity FrameCaret::CaretPosition() const {
@@ -133,10 +129,6 @@ void FrameCaret::SetCaretVisibility(CaretVisibility visibility) {
   if (visibility == CaretVisibility::kHidden)
     StopCaretBlinkTimer();
   ScheduleVisualUpdateForPaintInvalidationIfNeeded();
-}
-
-void FrameCaret::ClearPreviousVisualRect(const LayoutBlock& block) {
-  display_item_client_->ClearPreviousVisualRect(block);
 }
 
 void FrameCaret::LayoutBlockWillBeDestroyed(const LayoutBlock& block) {

@@ -16,10 +16,10 @@
 #include "build/build_config.h"
 #include "chrome/browser/download/download_target_determiner_delegate.h"
 #include "chrome/browser/download/download_target_info.h"
-#include "chrome/common/safe_browsing/download_file_types.pb.h"
 #include "components/download/public/common/download_danger_type.h"
 #include "components/download/public/common/download_item.h"
 #include "components/download/public/common/download_path_reservation_tracker.h"
+#include "components/safe_browsing/core/proto/download_file_types.pb.h"
 #include "content/public/browser/download_manager_delegate.h"
 #include "ppapi/buildflags/buildflags.h"
 
@@ -97,7 +97,7 @@ class DownloadTargetDeterminer : public download::DownloadItem::Observer {
   // handler returns COMPLETE.
   enum State {
     STATE_GENERATE_TARGET_PATH,
-    STATE_CHECK_IF_DOWNLOAD_BLOCKED,
+    STATE_SET_MIXED_CONTENT_STATUS,
     STATE_NOTIFY_EXTENSIONS,
     STATE_RESERVE_VIRTUAL_PATH,
     STATE_PROMPT_USER_FOR_DOWNLOAD_PATH,
@@ -159,20 +159,21 @@ class DownloadTargetDeterminer : public download::DownloadItem::Observer {
   // the download item.
   // Next state:
   // - STATE_NONE : If the download is not in progress, returns COMPLETE.
-  // - STATE_CHECK_IF_DOWNLOAD_BLOCKED : All other downloads.
+  // - STATE_SET_MIXED_CONTENT_STATUS : All other downloads.
   Result DoGenerateTargetPath();
 
-  // Determines whether the download ought to be blocked before a user is
-  // prompted for file path. Used for active mixed content blocking. This
-  // function relies on the delegate for the actual determination.
+  // Determines the mixed content status of the download, so as to block it
+  // prior to prompting the user for the file path.  This function relies on the
+  // delegate for the actual determination.
   //
   // Next state:
   // - STATE_NOTIFY_EXTENSIONS
-  Result DoCheckIfDownloadBlocked();
+  Result DoSetMixedContentStatus();
 
-  // Callback invoked by delegate after blocking is determined. Does the actual
-  // cancellation of the download if necessary.
-  void CheckIfDownloadBlockedDone(bool should_block);
+  // Callback invoked by delegate after mixed content status is determined.
+  // Cancels the download if status indicates blocking is necessary.
+  void GetMixedContentStatusDone(
+      download::DownloadItem::MixedContentStatus status);
 
   // Notifies downloads extensions. If any extension wishes to override the
   // download filename, it will respond to the OnDeterminingFilename()
@@ -205,8 +206,10 @@ class DownloadTargetDeterminer : public download::DownloadItem::Observer {
 
   // Callback invoked after the file picker completes. Cancels the download if
   // the user cancels the file picker.
-  void RequestConfirmationDone(DownloadConfirmationResult result,
-                               const base::FilePath& virtual_path);
+  void RequestConfirmationDone(
+      DownloadConfirmationResult result,
+      const base::FilePath& virtual_path,
+      base::Optional<download::DownloadSchedule> download_schedule);
 
   // Up until this point, the path that was used is considered to be a virtual
   // path. This step determines the local file system path corresponding to this
@@ -323,6 +326,10 @@ class DownloadTargetDeterminer : public download::DownloadItem::Observer {
   safe_browsing::DownloadFileType::DangerLevel GetDangerLevel(
       PriorVisitsToReferrer visits) const;
 
+  // Generates the download file name based on information from URL, response
+  // headers and sniffed mime type.
+  base::FilePath GenerateFileName() const;
+
   // download::DownloadItem::Observer
   void OnDownloadDestroyed(download::DownloadItem* download) override;
 
@@ -340,6 +347,7 @@ class DownloadTargetDeterminer : public download::DownloadItem::Observer {
   base::FilePath intermediate_path_;
   std::string mime_type_;
   bool is_filetype_handled_safely_;
+  download::DownloadItem::MixedContentStatus mixed_content_status_;
 #if defined(OS_ANDROID)
   bool is_checking_dialog_confirmed_path_;
 #endif
@@ -350,6 +358,7 @@ class DownloadTargetDeterminer : public download::DownloadItem::Observer {
   DownloadTargetDeterminerDelegate* delegate_;
   CompletionCallback completion_callback_;
   base::CancelableTaskTracker history_tracker_;
+  base::Optional<download::DownloadSchedule> download_schedule_;
 
   base::WeakPtrFactory<DownloadTargetDeterminer> weak_ptr_factory_{this};
 

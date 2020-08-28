@@ -174,12 +174,10 @@ class MockVideoCaptureDeviceFactory
   MockVideoCaptureDeviceFactory() {}
   ~MockVideoCaptureDeviceFactory() override {}
 
-  MOCK_METHOD0(MockGetDeviceDescriptors, void());
-  void GetDeviceDescriptors(
-      media::VideoCaptureDeviceDescriptors* device_descriptors) override {
-    media::FakeVideoCaptureDeviceFactory::GetDeviceDescriptors(
-        device_descriptors);
-    MockGetDeviceDescriptors();
+  MOCK_METHOD0(MockGetDevicesInfo, void());
+  void GetDevicesInfo(GetDevicesInfoCallback callback) override {
+    media::FakeVideoCaptureDeviceFactory::GetDevicesInfo(std::move(callback));
+    MockGetDevicesInfo();
   }
 };
 
@@ -349,8 +347,7 @@ class MediaDevicesManagerTest : public ::testing::Test {
 TEST_F(MediaDevicesManagerTest, EnumerateNoCacheAudioInput) {
   EXPECT_CALL(*audio_manager_, MockGetAudioInputDeviceNames(_))
       .Times(kNumCalls);
-  EXPECT_CALL(*video_capture_device_factory_, MockGetDeviceDescriptors())
-      .Times(0);
+  EXPECT_CALL(*video_capture_device_factory_, MockGetDevicesInfo()).Times(0);
   EXPECT_CALL(*audio_manager_, MockGetAudioOutputDeviceNames(_)).Times(0);
   EXPECT_CALL(*this, MockCallback(_)).Times(kNumCalls);
   EXPECT_CALL(media_devices_manager_client_, InputDevicesChangedUI(_, _));
@@ -368,7 +365,7 @@ TEST_F(MediaDevicesManagerTest, EnumerateNoCacheAudioInput) {
 
 TEST_F(MediaDevicesManagerTest, EnumerateNoCacheVideoInput) {
   EXPECT_CALL(*audio_manager_, MockGetAudioInputDeviceNames(_)).Times(0);
-  EXPECT_CALL(*video_capture_device_factory_, MockGetDeviceDescriptors())
+  EXPECT_CALL(*video_capture_device_factory_, MockGetDevicesInfo())
       .Times(kNumCalls);
   EXPECT_CALL(*audio_manager_, MockGetAudioOutputDeviceNames(_)).Times(0);
   EXPECT_CALL(*this, MockCallback(_)).Times(kNumCalls);
@@ -387,8 +384,7 @@ TEST_F(MediaDevicesManagerTest, EnumerateNoCacheVideoInput) {
 
 TEST_F(MediaDevicesManagerTest, EnumerateNoCacheAudioOutput) {
   EXPECT_CALL(*audio_manager_, MockGetAudioInputDeviceNames(_)).Times(0);
-  EXPECT_CALL(*video_capture_device_factory_, MockGetDeviceDescriptors())
-      .Times(0);
+  EXPECT_CALL(*video_capture_device_factory_, MockGetDevicesInfo()).Times(0);
   EXPECT_CALL(*audio_manager_, MockGetAudioOutputDeviceNames(_))
       .Times(kNumCalls);
   EXPECT_CALL(*this, MockCallback(_)).Times(kNumCalls);
@@ -426,8 +422,7 @@ TEST_F(MediaDevicesManagerTest, EnumerateNoCacheAudio) {
 
 TEST_F(MediaDevicesManagerTest, EnumerateCacheAudio) {
   EXPECT_CALL(*audio_manager_, MockGetAudioInputDeviceNames(_)).Times(1);
-  EXPECT_CALL(*video_capture_device_factory_, MockGetDeviceDescriptors())
-      .Times(0);
+  EXPECT_CALL(*video_capture_device_factory_, MockGetDevicesInfo()).Times(0);
   EXPECT_CALL(*audio_manager_, MockGetAudioOutputDeviceNames(_)).Times(1);
   EXPECT_CALL(*this, MockCallback(_)).Times(kNumCalls);
   EXPECT_CALL(media_devices_manager_client_, InputDevicesChangedUI(_, _));
@@ -448,8 +443,7 @@ TEST_F(MediaDevicesManagerTest, EnumerateCacheAudio) {
 
 TEST_F(MediaDevicesManagerTest, EnumerateCacheVideo) {
   EXPECT_CALL(*audio_manager_, MockGetAudioInputDeviceNames(_)).Times(0);
-  EXPECT_CALL(*video_capture_device_factory_, MockGetDeviceDescriptors())
-      .Times(1);
+  EXPECT_CALL(*video_capture_device_factory_, MockGetDevicesInfo()).Times(1);
   EXPECT_CALL(*audio_manager_, MockGetAudioOutputDeviceNames(_)).Times(0);
   EXPECT_CALL(*this, MockCallback(_)).Times(kNumCalls);
   EXPECT_CALL(media_devices_manager_client_, InputDevicesChangedUI(_, _));
@@ -469,8 +463,7 @@ TEST_F(MediaDevicesManagerTest, EnumerateCacheVideo) {
 TEST_F(MediaDevicesManagerTest, EnumerateCacheAudioWithDeviceChanges) {
   MediaDeviceEnumeration enumeration;
   EXPECT_CALL(*audio_manager_, MockGetAudioOutputDeviceNames(_)).Times(3);
-  EXPECT_CALL(*video_capture_device_factory_, MockGetDeviceDescriptors())
-      .Times(0);
+  EXPECT_CALL(*video_capture_device_factory_, MockGetDevicesInfo()).Times(0);
   EXPECT_CALL(*audio_manager_, MockGetAudioInputDeviceNames(_)).Times(3);
   EXPECT_CALL(*this, MockCallback(_))
       .Times(3 * kNumCalls)
@@ -552,8 +545,7 @@ TEST_F(MediaDevicesManagerTest, EnumerateCacheAudioWithDeviceChanges) {
 TEST_F(MediaDevicesManagerTest, EnumerateCacheVideoWithDeviceChanges) {
   MediaDeviceEnumeration enumeration;
   EXPECT_CALL(*audio_manager_, MockGetAudioOutputDeviceNames(_)).Times(0);
-  EXPECT_CALL(*video_capture_device_factory_, MockGetDeviceDescriptors())
-      .Times(3);
+  EXPECT_CALL(*video_capture_device_factory_, MockGetDevicesInfo()).Times(3);
   EXPECT_CALL(*audio_manager_, MockGetAudioInputDeviceNames(_)).Times(0);
   EXPECT_CALL(*this, MockCallback(_))
       .Times(3 * kNumCalls)
@@ -628,8 +620,7 @@ TEST_F(MediaDevicesManagerTest, EnumerateCacheVideoWithDeviceChanges) {
 TEST_F(MediaDevicesManagerTest, EnumerateCacheAllWithDeviceChanges) {
   MediaDeviceEnumeration enumeration;
   EXPECT_CALL(*audio_manager_, MockGetAudioOutputDeviceNames(_)).Times(2);
-  EXPECT_CALL(*video_capture_device_factory_, MockGetDeviceDescriptors())
-      .Times(2);
+  EXPECT_CALL(*video_capture_device_factory_, MockGetDevicesInfo()).Times(2);
   EXPECT_CALL(*audio_manager_, MockGetAudioInputDeviceNames(_)).Times(2);
   EXPECT_CALL(*this, MockCallback(_))
       .Times(2 * kNumCalls)
@@ -707,8 +698,7 @@ TEST_F(MediaDevicesManagerTest, EnumerateCacheAllWithDeviceChanges) {
 
 TEST_F(MediaDevicesManagerTest, SubscribeDeviceChanges) {
   EXPECT_CALL(*audio_manager_, MockGetAudioOutputDeviceNames(_)).Times(3);
-  EXPECT_CALL(*video_capture_device_factory_, MockGetDeviceDescriptors())
-      .Times(3);
+  EXPECT_CALL(*video_capture_device_factory_, MockGetDevicesInfo()).Times(3);
   EXPECT_CALL(*audio_manager_, MockGetAudioInputDeviceNames(_)).Times(3);
   EXPECT_CALL(media_devices_manager_client_, InputDevicesChangedUI(_, _))
       .Times(2);
@@ -879,7 +869,7 @@ TEST_F(MediaDevicesManagerTest, EnumerateDevicesWithCapabilities) {
   EXPECT_CALL(*audio_manager_, MockGetAudioInputDeviceNames(_));
   EXPECT_CALL(media_devices_manager_client_,
               InputDevicesChangedUI(blink::MEDIA_DEVICE_TYPE_AUDIO_INPUT, _));
-  EXPECT_CALL(*video_capture_device_factory_, MockGetDeviceDescriptors());
+  EXPECT_CALL(*video_capture_device_factory_, MockGetDevicesInfo());
   EXPECT_CALL(media_devices_manager_client_,
               InputDevicesChangedUI(blink::MEDIA_DEVICE_TYPE_VIDEO_INPUT, _));
   // Configure fake devices with video formats different from the fallback
@@ -920,18 +910,14 @@ TEST_F(MediaDevicesManagerTest, EnumerateDevicesWithCapabilities) {
 
 TEST_F(MediaDevicesManagerTest, EnumerateDevicesUnplugDefaultDevice) {
   // This tests does not apply to CrOS, which is to seemlessly switch device.
-#if defined(OS_CHROMEOS)
-  return;
-#endif  // defined(OS_CHROMEOS)
-
+#if !defined(OS_CHROMEOS)
   std::string default_device_id("fake_device_id_1");
   std::string new_default_device_id("fake_device_id_2");
 
   EXPECT_EQ(removed_device_ids_.size(), 0u);
 
   EXPECT_CALL(*audio_manager_, MockGetAudioInputDeviceNames(_)).Times(2);
-  EXPECT_CALL(*video_capture_device_factory_, MockGetDeviceDescriptors())
-      .Times(0);
+  EXPECT_CALL(*video_capture_device_factory_, MockGetDevicesInfo()).Times(0);
   EXPECT_CALL(*audio_manager_, MockGetAudioOutputDeviceNames(_)).Times(0);
   EXPECT_CALL(*this, MockCallback(_)).Times(2);
   EXPECT_CALL(media_devices_manager_client_, InputDevicesChangedUI(_, _))
@@ -958,22 +944,20 @@ TEST_F(MediaDevicesManagerTest, EnumerateDevicesUnplugDefaultDevice) {
   EXPECT_TRUE(base::Contains(removed_device_ids_, default_device_id));
   EXPECT_TRUE(base::Contains(removed_device_ids_,
                              media::AudioDeviceDescription::kDefaultDeviceId));
+#endif  // defined(OS_CHROMEOS)
 }
 
 TEST_F(MediaDevicesManagerTest, EnumerateDevicesUnplugCommunicationsDevice) {
   // This test has only significance on Windows devices, since communication
   // devices can only be found on windows.
-#if !defined(OS_WIN)
-  return;
-#endif  // OS_WIN
+#if defined(OS_WIN)
   std::string communications_device_id("fake_device_id_1");
   std::string new_communications_device_id("fake_device_id_2");
 
   EXPECT_EQ(removed_device_ids_.size(), 0u);
 
   EXPECT_CALL(*audio_manager_, MockGetAudioInputDeviceNames(_)).Times(2);
-  EXPECT_CALL(*video_capture_device_factory_, MockGetDeviceDescriptors())
-      .Times(0);
+  EXPECT_CALL(*video_capture_device_factory_, MockGetDevicesInfo()).Times(0);
   EXPECT_CALL(*audio_manager_, MockGetAudioOutputDeviceNames(_)).Times(0);
   EXPECT_CALL(*this, MockCallback(_)).Times(2);
   EXPECT_CALL(media_devices_manager_client_, InputDevicesChangedUI(_, _))
@@ -1001,15 +985,14 @@ TEST_F(MediaDevicesManagerTest, EnumerateDevicesUnplugCommunicationsDevice) {
   EXPECT_TRUE(
       base::Contains(removed_device_ids_,
                      media::AudioDeviceDescription::kCommunicationsDeviceId));
+#endif  // OS_WIN
 }
 
 TEST_F(MediaDevicesManagerTest,
        EnumerateDevicesUnplugDefaultAndCommunicationsDevice) {
   // This test has only significance on Windows devices, since communication
   // devices can only be found on windows.
-#if !defined(OS_WIN)
-  return;
-#endif  // OS_WIN
+#if defined(OS_WIN)
   // The two device IDs that will be used as 'default' and 'communications'
   // devices.
   std::string target_device_id("fake_device_id_1");
@@ -1018,8 +1001,7 @@ TEST_F(MediaDevicesManagerTest,
   EXPECT_EQ(removed_device_ids_.size(), 0u);
 
   EXPECT_CALL(*audio_manager_, MockGetAudioInputDeviceNames(_)).Times(2);
-  EXPECT_CALL(*video_capture_device_factory_, MockGetDeviceDescriptors())
-      .Times(0);
+  EXPECT_CALL(*video_capture_device_factory_, MockGetDevicesInfo()).Times(0);
   EXPECT_CALL(*audio_manager_, MockGetAudioOutputDeviceNames(_)).Times(0);
   EXPECT_CALL(*this, MockCallback(_)).Times(2);
   EXPECT_CALL(media_devices_manager_client_, InputDevicesChangedUI(_, _))
@@ -1052,6 +1034,7 @@ TEST_F(MediaDevicesManagerTest,
   EXPECT_TRUE(
       base::Contains(removed_device_ids_,
                      media::AudioDeviceDescription::kCommunicationsDeviceId));
+#endif  // OS_WIN
 }
 
 TEST_F(MediaDevicesManagerTest, GuessVideoGroupID) {

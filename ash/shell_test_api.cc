@@ -29,6 +29,7 @@
 #include "ui/compositor/compositor.h"
 #include "ui/compositor/compositor_observer.h"
 #include "ui/compositor/layer_animation_observer.h"
+#include "ui/display/manager/display_manager.h"
 #include "ui/events/devices/device_data_manager_test_api.h"
 #include "ui/events/gesture_detection/gesture_configuration.h"
 
@@ -94,7 +95,6 @@ class WindowAnimationWaiter : public ui::LayerAnimationObserver {
       ui::LayerAnimationSequence* sequence) override {}
 
   void Wait() {
-    DCHECK(animator_->is_animating());
     run_loop_.Run();
   }
 
@@ -143,6 +143,10 @@ PowerPrefs* ShellTestApi::power_prefs() {
   return shell_->power_prefs_.get();
 }
 
+display::DisplayManager* ShellTestApi::display_manager() {
+  return shell_->display_manager();
+}
+
 void ShellTestApi::ResetPowerButtonControllerForTest() {
   shell_->backlights_forced_off_setter_->ResetForTest();
   shell_->power_button_controller_ = std::make_unique<PowerButtonController>(
@@ -164,6 +168,7 @@ void ShellTestApi::SetTabletModeEnabledForTest(bool enable,
   // to prevent the callback from evdev thread from overwriting whatever we set
   // here below. See `InputDeviceFactoryEvdevProxy::OnStartupScanComplete()`.
   base::RunLoop().RunUntilIdle();
+  ui::DeviceDataManagerTestApi().OnDeviceListsComplete();
   ui::DeviceDataManagerTestApi().SetMouseDevices({});
 
   TabletMode::Waiter waiter(enable);
@@ -239,6 +244,12 @@ void ShellTestApi::WaitForLauncherAnimationState(
 void ShellTestApi::WaitForWindowFinishAnimating(aura::Window* window) {
   WindowAnimationWaiter waiter(window);
   waiter.Wait();
+}
+
+base::OnceClosure ShellTestApi::CreateWaiterForFinishingWindowAnimation(
+    aura::Window* window) {
+  auto waiter = std::make_unique<WindowAnimationWaiter>(window);
+  return base::BindOnce(&WindowAnimationWaiter::Wait, std::move(waiter));
 }
 
 PaginationModel* ShellTestApi::GetAppListPaginationModel() {

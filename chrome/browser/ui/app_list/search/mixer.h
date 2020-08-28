@@ -18,6 +18,7 @@
 
 class AppListModelUpdater;
 class ChromeSearchResult;
+class Profile;
 
 namespace app_list {
 
@@ -25,14 +26,15 @@ namespace test {
 FORWARD_DECLARE_TEST(MixerTest, Publish);
 }
 
+class ChipRanker;
+class SearchController;
 class SearchProvider;
 class SearchResultRanker;
 enum class RankingItemType;
 
 // Mixer collects results from providers, sorts them and publishes them to the
 // SearchResults UI model. The targeted results have 6 slots to hold the
-// result. The search controller can specify any number of groups, each with a
-// different number of results and priority boost.
+// result.
 class Mixer {
  public:
   explicit Mixer(AppListModelUpdater* model_updater);
@@ -41,10 +43,8 @@ class Mixer {
   // Adds a new mixer group. A "soft" maximum of |max_results| results will be
   // chosen from this group (if 0, will allow unlimited results from this
   // group). If there aren't enough results from all groups, more than
-  // |max_results| may be chosen from this group. Each result in the group will
-  // have its score multiplied by |multiplier| and added by |boost|. Returns the
-  // group's group_id.
-  size_t AddGroup(size_t max_results, double multiplier, double boost);
+  // |max_results| may be chosen from this group. Returns the group's group_id.
+  size_t AddGroup(size_t max_results);
 
   // Associates a provider with a mixer group.
   void AddProviderToGroup(size_t group_id, SearchProvider* provider);
@@ -56,9 +56,16 @@ class Mixer {
   // published.
   void SetNonAppSearchResultRanker(std::unique_ptr<SearchResultRanker> ranker);
 
-  // Get a pointer to the SearchResultRanker owned by this object used for all
-  // non-app ranking.
-  SearchResultRanker* GetNonAppSearchResultRanker();
+  void InitializeRankers(Profile* profile, SearchController* search_controller);
+
+  SearchResultRanker* search_result_ranker() {
+    if (!search_result_ranker_)
+      return nullptr;
+    return search_result_ranker_.get();
+  }
+
+  // Sets a ChipRanker to re-rank chip results before they are published.
+  void SetChipRanker(std::unique_ptr<ChipRanker> ranker);
 
   // Handle a training signal.
   void Train(const AppLaunchData& app_launch_data);
@@ -94,7 +101,8 @@ class Mixer {
   Groups groups_;
 
   // Adaptive models used for re-ranking search results.
-  std::unique_ptr<SearchResultRanker> non_app_ranker_;
+  std::unique_ptr<SearchResultRanker> search_result_ranker_;
+  std::unique_ptr<ChipRanker> chip_ranker_;
 
   DISALLOW_COPY_AND_ASSIGN(Mixer);
 };

@@ -10,7 +10,6 @@
 #include "third_party/skia/include/core/SkColor.h"
 #include "ui/base/ui_base_types.h"
 
-class Browser;
 class Tab;
 class TabSlotView;
 
@@ -23,7 +22,6 @@ class Rect;
 namespace tab_groups {
 enum class TabGroupColorId;
 class TabGroupId;
-class TabGroupVisualData;
 }  // namespace tab_groups
 namespace ui {
 class ListSelectionModel;
@@ -60,11 +58,11 @@ class TabController {
   // Closes the tab.
   virtual void CloseTab(Tab* tab, CloseTabSource source) = 0;
 
-  // Attempts to move the specified tab to the right.
-  virtual void MoveTabRight(Tab* tab) = 0;
+  // Attempts to shift the specified tab to the right by one index.
+  virtual void ShiftTabRight(Tab* tab) = 0;
 
-  // Attempts to move the specified tab to the left.
-  virtual void MoveTabLeft(Tab* tab) = 0;
+  // Attempts to shift the specified tab to the left by one index.
+  virtual void ShiftTabLeft(Tab* tab) = 0;
 
   // Attempts to move the specified tab to the beginning of the tabstrip (or the
   // beginning of the unpinned tab region if the tab is not pinned).
@@ -89,9 +87,8 @@ class TabController {
   // Returns whether |tab| is pinned.
   virtual bool IsTabPinned(const Tab* tab) const = 0;
 
-  // Returns whether |tab| is the first or last one visible.
-  virtual bool IsFirstVisibleTab(const Tab* tab) const = 0;
-  virtual bool IsLastVisibleTab(const Tab* tab) const = 0;
+  // Returns whether |tab| is the first in the model.
+  virtual bool IsTabFirst(const Tab* tab) const = 0;
 
   // Returns true if any tab or one of its children has focus.
   virtual bool IsFocusInTabs() const = 0;
@@ -125,6 +122,9 @@ class TabController {
   // hovered and whether the card should be shown. Providing a nullptr for |tab|
   // will cause the tab hover card to be hidden.
   virtual void UpdateHoverCard(Tab* tab) = 0;
+
+  // Returns whether domain/origin should be shown in tab hover cards.
+  virtual bool ShowDomainInHoverCards() const = 0;
 
   // Returns true if the hover card is showing for the given tab.
   virtual bool HoverCardIsShowingForTab(Tab* tab) = 0;
@@ -201,19 +201,6 @@ class TabController {
   // current theme.
   virtual SkColor GetPaintedGroupColor(
       const tab_groups::TabGroupColorId& color_id) const = 0;
-
-  // Sets the title and color ID of the given |group|.
-  virtual void SetVisualDataForGroup(
-      const tab_groups::TabGroupId& group,
-      const tab_groups::TabGroupVisualData& visual_data) = 0;
-
-  virtual void CloseAllTabsInGroup(const tab_groups::TabGroupId& group) = 0;
-
-  virtual void UngroupAllTabsInGroup(const tab_groups::TabGroupId& group) = 0;
-
-  virtual void AddNewTabInGroup(const tab_groups::TabGroupId& group) = 0;
-
-  virtual const Browser* GetBrowser() = 0;
 
  protected:
   virtual ~TabController() {}

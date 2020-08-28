@@ -9,7 +9,7 @@
 
 namespace blink {
 
-void WindowProxyManager::Trace(blink::Visitor* visitor) {
+void WindowProxyManager::Trace(Visitor* visitor) const {
   visitor->Trace(frame_);
   visitor->Trace(window_proxy_);
   visitor->Trace(isolated_worlds_);
@@ -113,9 +113,10 @@ void LocalWindowProxyManager::UpdateSecurityOrigin(
   for (auto& entry : isolated_worlds_) {
     auto* isolated_window_proxy =
         static_cast<LocalWindowProxy*>(entry.value.Get());
-    const SecurityOrigin* isolated_security_origin =
-        isolated_window_proxy->World().IsolatedWorldSecurityOrigin();
-    isolated_window_proxy->UpdateSecurityOrigin(isolated_security_origin);
+    scoped_refptr<SecurityOrigin> isolated_security_origin =
+        isolated_window_proxy->World().IsolatedWorldSecurityOrigin(
+            security_origin->AgentClusterId());
+    isolated_window_proxy->UpdateSecurityOrigin(isolated_security_origin.get());
   }
 }
 

@@ -5,7 +5,7 @@
 #include "components/safe_browsing/content/renderer/renderer_url_loader_throttle.h"
 
 #include "base/bind.h"
-#include "base/logging.h"
+#include "base/check_op.h"
 #include "base/trace_event/trace_event.h"
 #include "components/safe_browsing/core/common/safebrowsing_constants.h"
 #include "components/safe_browsing/core/common/utils.h"
@@ -55,7 +55,7 @@ void RendererURLLoaderThrottle::WillStartRequest(
   safe_browsing_->CreateCheckerAndCheck(
       render_frame_id_, url_checker_.BindNewPipeAndPassReceiver(), request->url,
       request->method, headers, request->load_flags,
-      static_cast<content::ResourceType>(request->resource_type),
+      static_cast<blink::mojom::ResourceType>(request->resource_type),
       request->has_user_gesture, request->originated_from_service_worker,
       base::BindOnce(&RendererURLLoaderThrottle::OnCheckUrlResult,
                      weak_factory_.GetWeakPtr()));
@@ -70,7 +70,8 @@ void RendererURLLoaderThrottle::WillRedirectRequest(
     const network::mojom::URLResponseHead& /* response_head */,
     bool* /* defer */,
     std::vector<std::string>* /* to_be_removed_headers */,
-    net::HttpRequestHeaders* /* modified_headers */) {
+    net::HttpRequestHeaders* /* modified_headers */,
+    net::HttpRequestHeaders* /* modified_cors_exempt_headers */) {
   // If |blocked_| is true, the resource load has been canceled and there
   // shouldn't be such a notification.
   DCHECK(!blocked_);
@@ -180,8 +181,11 @@ void RendererURLLoaderThrottle::OnCompleteCheckInternal(
     notifier_receivers_.reset();
     pending_checks_ = 0;
     pending_slow_checks_ = 0;
-    delegate_->CancelWithError(GetNetErrorCodeForSafeBrowsing(),
-                               kCustomCancelReasonForURLLoader);
+    // If we didn't show an interstitial, we cancel with ERR_ABORTED to not show
+    // an error page either.
+    delegate_->CancelWithError(
+        showed_interstitial ? kNetErrorCodeForSafeBrowsing : net::ERR_ABORTED,
+        kCustomCancelReasonForURLLoader);
   }
 }
 

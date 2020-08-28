@@ -10,6 +10,7 @@
 #include "third_party/blink/renderer/core/editing/frame_selection.h"
 #include "third_party/blink/renderer/core/editing/selection_template.h"
 #include "third_party/blink/renderer/core/editing/testing/editing_test_base.h"
+#include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/html/forms/html_input_element.h"
 #include "third_party/blink/renderer/platform/testing/unit_test_helpers.h"
 
@@ -18,8 +19,8 @@ namespace blink {
 class EditorTest : public EditingTestBase {
  public:
   void TearDown() override {
-    SystemClipboard::GetInstance().WritePlainText(String(""));
-    SystemClipboard::GetInstance().CommitWrite();
+    GetDocument().GetFrame()->GetSystemClipboard()->WritePlainText(String(""));
+    GetDocument().GetFrame()->GetSystemClipboard()->CommitWrite();
     EditingTestBase::TearDown();
   }
 
@@ -69,7 +70,8 @@ TEST_F(EditorTest, CopyVisibleSelection) {
 
   ExecuteCopy();
 
-  const String copied = SystemClipboard::GetInstance().ReadPlainText();
+  const String copied =
+      GetDocument().GetFrame()->GetSystemClipboard()->ReadPlainText();
   EXPECT_EQ("HEY", copied);
 }
 
@@ -89,7 +91,8 @@ TEST_F(EditorTest, DontCopyHiddenSelections) {
 
   ExecuteCopy();
 
-  const String copied = SystemClipboard::GetInstance().ReadPlainText();
+  const String copied =
+      GetDocument().GetFrame()->GetSystemClipboard()->ReadPlainText();
   EXPECT_TRUE(copied.IsEmpty()) << copied << " was copied.";
 }
 

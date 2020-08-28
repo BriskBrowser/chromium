@@ -454,9 +454,7 @@
         "skipStripping": false,
         "doubleTap": true,
         "keys": {
-          "keyCode": [
-            91
-          ]
+          "keyCode": [91]
         }
       }
     },
@@ -939,21 +937,11 @@
       }
     },
     {
-      "command": "darkenScreen",
+      "command": "toggleDarkScreen",
       "sequence": {
         "cvoxModifier": true,
         "keys": {
-          "keyCode": [118],
-          "shiftKey": [true]
-        }
-      }
-    },
-    {
-      "command": "undarkenScreen",
-      "sequence": {
-        "cvoxModifier": true,
-        "keys": {
-          "keyCode": [118]
+          "keyCode": [217]
         }
       }
     },
@@ -962,7 +950,7 @@
       "sequence": {
         "cvoxModifier": true,
         "keys": {
-          "keyCode": [119]
+          "keyCode": [173]
         }
       }
     },
@@ -1066,6 +1054,24 @@
           "keyCode": [220],
           "ctrlKey": [true],
           "shiftKey": [true]
+        }
+      }
+    },
+    {
+      "command": "toggleAnnotationsWidget",
+      "sequence": {
+        "cvoxModifier": true,
+        "keys": {
+          "keyCode": [65, 79]
+        }
+      }
+    },
+    {
+      "command": "logLanguageInformationForCurrentNode",
+      "sequence": {
+        "cvoxModifier": true,
+        "keys": {
+          "keyCode": [80, 76]
         }
       }
     }

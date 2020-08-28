@@ -38,6 +38,24 @@ class CORE_EXPORT OffscreenFontSelector : public FontSelector {
 
   void ReportFailedLocalFontMatch(const AtomicString& font_name) override;
 
+  void ReportFontLookupByUniqueOrFamilyName(
+      const AtomicString& name,
+      const FontDescription& font_description,
+      LocalFontLookupType check_type,
+      SimpleFontData* resulting_font_data,
+      bool is_loading_fallback = false) override;
+
+  void ReportFontLookupByFallbackCharacter(
+      UChar32 fallback_character,
+      const FontDescription& font_description,
+      LocalFontLookupType check_type,
+      SimpleFontData* resulting_font_data) override;
+
+  void ReportLastResortFallbackFontLookup(
+      const FontDescription& font_description,
+      LocalFontLookupType check_type,
+      SimpleFontData* resulting_font_data) override;
+
   scoped_refptr<FontData> GetFontData(const FontDescription&,
                                       const AtomicString&) override;
   void WillUseFontData(const FontDescription&,
@@ -55,7 +73,7 @@ class CORE_EXPORT OffscreenFontSelector : public FontSelector {
   }
 
   void FontCacheInvalidated() override;
-  void FontFaceInvalidated() override;
+  void FontFaceInvalidated(FontInvalidationReason) override;
 
   void UpdateGenericFontFamilySettings(const GenericFontFamilySettings&);
 
@@ -69,7 +87,7 @@ class CORE_EXPORT OffscreenFontSelector : public FontSelector {
     return execution_context_;
   }
 
-  void Trace(blink::Visitor*) override;
+  void Trace(Visitor*) const override;
 
  protected:
   void DispatchInvalidationCallbacks();

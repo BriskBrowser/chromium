@@ -29,7 +29,7 @@
 
 namespace autofill_assistant {
 struct ClientSettings;
-class GenericUiControllerAndroid;
+class GenericUiRootControllerAndroid;
 
 // Starts and owns the UI elements required to display AA.
 //
@@ -59,30 +59,34 @@ class UiControllerAndroid : public ControllerObserver {
 
   // Attaches the UI to the given client, its web contents and delegate.
   //
-  // |web_contents| and |client| must remain valid for the lifetime of this
-  // instance or until Attach() is called again, with different pointers.
-  //
-  // |ui_delegate| must remain valid for the lifetime of this instance or until
-  // either Attach() or Detach() are called.
+  // |web_contents|, |client| and |ui_delegate| must remain valid for the
+  // lifetime of this instance or until Attach() is called again, with different
+  // pointers.
   void Attach(content::WebContents* web_contents,
               Client* client,
               UiDelegate* ui_delegate);
 
-  // Detaches the UI from its delegate. This guarantees the delegate is not
-  // called anymore after the call.
+  // Detaches the UI from |ui_delegate_|. It will stop receiving notifications
+  // from the delegate until it is attached again.
   void Detach();
 
   // Returns true if the UI is attached to a delegate.
-  bool IsAttached() { return ui_delegate_; }
+  bool IsAttached() { return ui_delegate_ != nullptr; }
+
+  // Returns whether the UI is currently attached to the given delegate or not.
+  bool IsAttachedTo(UiDelegate* ui_delegate) {
+    return ui_delegate_ == ui_delegate;
+  }
 
   // Have the UI react as if a close or cancel button was pressed.
   //
   // If action_index != -1, execute that action as close/cancel. Otherwise
   // execute the default close or cancel action.
   void CloseOrCancel(int action_index,
-                     std::unique_ptr<TriggerContext> trigger_context);
+                     std::unique_ptr<TriggerContext> trigger_context,
+                     Metrics::DropOutReason dropout_reason);
 
-  // Overrides UiController:
+  // Overrides ControllerObserver:
   void OnStateChanged(AutofillAssistantState new_state) override;
   void OnStatusMessageChanged(const std::string& message) override;
   void OnBubbleMessageChanged(const std::string& message) override;
@@ -95,7 +99,12 @@ class UiControllerAndroid : public ControllerObserver {
   void OnDetailsChanged(const Details* details) override;
   void OnInfoBoxChanged(const InfoBox* info_box) override;
   void OnProgressChanged(int progress) override;
+  void OnProgressActiveStepChanged(int active_step) override;
   void OnProgressVisibilityChanged(bool visible) override;
+  void OnProgressBarErrorStateChanged(bool error) override;
+  void OnStepProgressBarConfigurationChanged(
+      const ShowProgressBarProto::StepProgressBarConfiguration& configuration)
+      override;
   void OnTouchableAreaChanged(
       const RectF& visual_viewport,
       const std::vector<RectF>& touchable_areas,
@@ -103,20 +112,26 @@ class UiControllerAndroid : public ControllerObserver {
   void OnViewportModeChanged(ViewportMode mode) override;
   void OnPeekModeChanged(
       ConfigureBottomSheetProto::PeekMode peek_mode) override;
+  void OnExpandBottomSheet() override;
+  void OnCollapseBottomSheet() override;
   void OnOverlayColorsChanged(const UiDelegate::OverlayColors& colors) override;
-  void OnFormChanged(const FormProto* form) override;
+  void OnFormChanged(const FormProto* form,
+                     const FormProto::Result* result) override;
   void OnClientSettingsChanged(const ClientSettings& settings) override;
+  void OnGenericUserInterfaceChanged(
+      const GenericUserInterfaceProto* generic_ui) override;
+  void OnShouldShowOverlayChanged(bool should_show) override;
 
   // Called by AssistantOverlayDelegate:
   void OnUnexpectedTaps();
-  void UpdateTouchableArea();
   void OnUserInteractionInsideTouchableArea();
 
   // Called by AssistantHeaderDelegate:
   void OnFeedbackButtonClicked();
 
   // Called by AssistantGenericUiDelegate:
-  void OnViewEvent(const EventHandler::EventKey& key, const ValueProto& value);
+  void OnViewEvent(const EventHandler::EventKey& key);
+  void OnValueChanged(const std::string& identifier, const ValueProto& value);
 
   // Called by AssistantCollectUserDataDelegate:
   void OnShippingAddressChanged(
@@ -127,22 +142,22 @@ class UiControllerAndroid : public ControllerObserver {
       std::unique_ptr<autofill::AutofillProfile> billing_profile);
   void OnTermsAndConditionsChanged(TermsAndConditionsState state);
   void OnLoginChoiceChanged(std::string identifier);
-  void OnTermsAndConditionsLinkClicked(int link);
+  void OnTextLinkClicked(int link);
   void OnFormActionLinkClicked(int link);
-  void OnDateTimeRangeStartChanged(int year,
-                                   int month,
-                                   int day,
-                                   int hour,
-                                   int minute,
-                                   int second);
-  void OnDateTimeRangeEndChanged(int year,
-                                 int month,
-                                 int day,
-                                 int hour,
-                                 int minute,
-                                 int second);
-  void OnKeyValueChanged(const std::string& key, const std::string& value);
+  void OnDateTimeRangeStartDateChanged(int year, int month, int day);
+  void OnDateTimeRangeStartDateCleared();
+  void OnDateTimeRangeStartTimeSlotChanged(int index);
+  void OnDateTimeRangeStartTimeSlotCleared();
+  void OnDateTimeRangeEndDateChanged(int year, int month, int day);
+  void OnDateTimeRangeEndDateCleared();
+  void OnDateTimeRangeEndTimeSlotChanged(int index);
+  void OnDateTimeRangeEndTimeSlotCleared();
+  void OnKeyValueChanged(const std::string& key, const ValueProto& value);
   void OnTextFocusLost();
+  bool IsContactComplete(autofill::AutofillProfile* contact);
+  bool IsShippingAddressComplete(autofill::AutofillProfile* address);
+  bool IsPaymentInstrumentComplete(autofill::CreditCard* card,
+                                   autofill::AutofillProfile* address);
 
   // Called by AssistantFormDelegate:
   void OnCounterChanged(int input_index, int counter_index, int value);
@@ -174,6 +189,12 @@ class UiControllerAndroid : public ControllerObserver {
   void OnCloseButtonClicked(
       JNIEnv* env,
       const base::android::JavaParamRef<jobject>& jcaller);
+  void OnKeyboardVisibilityChanged(
+      JNIEnv* env,
+      const base::android::JavaParamRef<jobject>& jcaller,
+      jboolean visible);
+  bool OnBackButtonClicked(JNIEnv* env,
+                           const base::android::JavaParamRef<jobject>& jcaller);
   void SetVisible(JNIEnv* env,
                   const base::android::JavaParamRef<jobject>& jcaller,
                   jboolean visible);
@@ -200,17 +221,27 @@ class UiControllerAndroid : public ControllerObserver {
   base::android::ScopedJavaLocalRef<jobject> GetInfoBoxModel();
   base::android::ScopedJavaLocalRef<jobject> GetCollectUserDataModel();
   base::android::ScopedJavaLocalRef<jobject> GetFormModel();
+  base::android::ScopedJavaLocalRef<jobject> GetGenericUiModel();
 
+  // The UiDelegate has the last say on whether we should show the overlay.
+  // This saves the AutofillAssistantState-determined OverlayState and then
+  // applies it the actual UI only if the UiDelegate's ShouldShowOverlay is
+  // true.
   void SetOverlayState(OverlayState state);
+  // Applies the specified OverlayState to the UI.
+  void ApplyOverlayState(OverlayState state);
   void AllowShowingSoftKeyboard(bool enabled);
-  void ExpandBottomSheet();
+  void ShowContentAndExpandBottomSheet();
   void SetSpinPoodle(bool enabled);
   std::string GetDebugContext();
   void DestroySelf();
   void Shutdown(Metrics::DropOutReason reason);
   void UpdateActions(const std::vector<UserAction>& GetUserActions);
-  void UpdateSuggestions(const std::vector<UserAction>& GetUserActions);
   void HideKeyboardIfFocusNotOnText();
+
+  void ResetGenericUiControllers();
+  std::unique_ptr<GenericUiRootControllerAndroid>
+  CreateGenericUiControllerForProto(const GenericUserInterfaceProto& proto);
 
   // Hide the UI, show a snackbar with an undo button, and execute the given
   // action after a short delay unless the user taps the undo button.
@@ -218,7 +249,9 @@ class UiControllerAndroid : public ControllerObserver {
                     const std::string& message,
                     base::OnceCallback<void()> action);
 
-  void OnCancel(int action_index, std::unique_ptr<TriggerContext> context);
+  void OnCancel(int action_index,
+                std::unique_ptr<TriggerContext> context,
+                Metrics::DropOutReason dropout_reason);
 
   // Updates the state of the UI to reflect the UIDelegate's state.
   void SetupForState();
@@ -230,18 +263,19 @@ class UiControllerAndroid : public ControllerObserver {
   // for a few seconds before it destroys itself.
   std::unique_ptr<base::OneShotTimer> destroy_timer_;
 
-  // Debug context captured previously. If non-empty, GetDebugContext() returns
-  // this context.
-  std::string captured_debug_context_;
-
   // Java-side AutofillAssistantUiController object.
   base::android::ScopedJavaGlobalRef<jobject> java_object_;
 
-  // Native controller for generic UI in collect user data action.
-  std::unique_ptr<GenericUiControllerAndroid>
-      collect_user_data_generic_ui_controller_;
+  // Native controllers for generic UI.
+  std::unique_ptr<GenericUiRootControllerAndroid>
+      collect_user_data_prepended_generic_ui_controller_;
+  std::unique_ptr<GenericUiRootControllerAndroid>
+      collect_user_data_appended_generic_ui_controller_;
+  std::unique_ptr<GenericUiRootControllerAndroid> generic_ui_controller_;
 
   OverlayState desired_overlay_state_ = OverlayState::FULL;
+  OverlayState overlay_state_ = OverlayState::FULL;
+
   base::WeakPtrFactory<UiControllerAndroid> weak_ptr_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(UiControllerAndroid);

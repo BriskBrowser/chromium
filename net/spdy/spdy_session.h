@@ -87,6 +87,13 @@ const spdy::SpdyStreamId kFirstStreamId = 1;
 const spdy::SpdyStreamId kLastStreamId = 0x7fffffff;
 
 // Maximum number of capped frames that can be queued at any time.
+// We measured how many queued capped frames were ever in the
+// SpdyWriteQueue at one given time between 2019-08 and 2020-02.
+// The numbers showed that in 99.94% of cases it would always
+// stay below 10, and that it would exceed 1000 only in
+// 10^-8 of cases. Therefore we picked 10000 as a number that will
+// virtually never be hit in practice, while still preventing an
+// attacker from growing this queue unboundedly.
 const int kSpdySessionMaxQueuedCappedFrames = 10000;
 
 class NetLog;
@@ -117,6 +124,24 @@ enum SpdyProtocolErrorDetails {
   SPDY_ERROR_INTERNAL_FRAMER_ERROR = 41,
   SPDY_ERROR_INVALID_CONTROL_FRAME_SIZE = 37,
   SPDY_ERROR_OVERSIZED_PAYLOAD = 40,
+  // HttpDecoder or HttpDecoderAdapter error.
+  SPDY_ERROR_HPACK_INDEX_VARINT_ERROR = 43,
+  SPDY_ERROR_HPACK_NAME_LENGTH_VARINT_ERROR = 44,
+  SPDY_ERROR_HPACK_VALUE_LENGTH_VARINT_ERROR = 45,
+  SPDY_ERROR_HPACK_NAME_TOO_LONG = 46,
+  SPDY_ERROR_HPACK_VALUE_TOO_LONG = 47,
+  SPDY_ERROR_HPACK_NAME_HUFFMAN_ERROR = 48,
+  SPDY_ERROR_HPACK_VALUE_HUFFMAN_ERROR = 49,
+  SPDY_ERROR_HPACK_MISSING_DYNAMIC_TABLE_SIZE_UPDATE = 50,
+  SPDY_ERROR_HPACK_INVALID_INDEX = 51,
+  SPDY_ERROR_HPACK_INVALID_NAME_INDEX = 52,
+  SPDY_ERROR_HPACK_DYNAMIC_TABLE_SIZE_UPDATE_NOT_ALLOWED = 53,
+  SPDY_ERROR_HPACK_INITIAL_DYNAMIC_TABLE_SIZE_UPDATE_IS_ABOVE_LOW_WATER_MARK =
+      54,
+  SPDY_ERROR_HPACK_DYNAMIC_TABLE_SIZE_UPDATE_IS_ABOVE_ACKNOWLEDGED_SETTING = 55,
+  SPDY_ERROR_HPACK_TRUNCATED_BLOCK = 56,
+  SPDY_ERROR_HPACK_FRAGMENT_TOO_LONG = 57,
+  SPDY_ERROR_HPACK_COMPRESSED_HEADER_SIZE_EXCEEDS_LIMIT = 58,
   // spdy::SpdyErrorCode mappings.
   STATUS_CODE_NO_ERROR = 41,
   STATUS_CODE_PROTOCOL_ERROR = 11,
@@ -147,7 +172,7 @@ enum SpdyProtocolErrorDetails {
   PROTOCOL_ERROR_RECEIVE_WINDOW_VIOLATION = 28,
 
   // Next free value.
-  NUM_SPDY_PROTOCOL_ERROR_DETAILS = 43,
+  NUM_SPDY_PROTOCOL_ERROR_DETAILS = 59,
 };
 SpdyProtocolErrorDetails NET_EXPORT_PRIVATE MapFramerErrorToProtocolError(
     http2::Http2DecoderAdapter::SpdyFramerError error);
@@ -187,7 +212,7 @@ enum class SpdyPushedStreamFate {
 
 // If these compile asserts fail then SpdyProtocolErrorDetails needs
 // to be updated with new values, as do the mapping functions above.
-static_assert(17 == http2::Http2DecoderAdapter::LAST_ERROR,
+static_assert(33 == http2::Http2DecoderAdapter::LAST_ERROR,
               "SpdyProtocolErrorDetails / Spdy Errors mismatch");
 static_assert(13 == spdy::SpdyErrorCode::ERROR_CODE_MAX,
               "SpdyProtocolErrorDetails / spdy::SpdyErrorCode mismatch");
@@ -304,7 +329,8 @@ class NET_EXPORT SpdySession : public BufferedSpdyFramerVisitorInterface,
                       const SSLInfo& ssl_info,
                       const SSLConfigService& ssl_config_service,
                       const std::string& old_hostname,
-                      const std::string& new_hostname);
+                      const std::string& new_hostname,
+                      const net::NetworkIsolationKey& network_isolation_key);
 
   // Create a new SpdySession.
   // |spdy_session_key| is the host/port that this session connects to, privacy
@@ -325,6 +351,7 @@ class NET_EXPORT SpdySession : public BufferedSpdyFramerVisitorInterface,
               const spdy::SettingsMap& initial_settings,
               const base::Optional<SpdySessionPool::GreasedHttp2Frame>&
                   greased_http2_frame,
+              bool http2_end_stream_with_data_frame,
               TimeFunc time_func,
               ServerPushDelegate* push_delegate,
               NetworkQualityEstimator* network_quality_estimator,
@@ -405,6 +432,14 @@ class NET_EXPORT SpdySession : public BufferedSpdyFramerVisitorInterface,
   // https://tools.ietf.org/html/draft-bishop-httpbis-grease-00.
   bool GreasedFramesEnabled() const;
 
+  // Returns true if HEADERS frames on request streams should not have the
+  // END_STREAM flag set, but instead an empty DATA frame with END_STREAM should
+  // be sent afterwards to close the stream.  Does not apply to bidirectional or
+  // proxy streams.
+  bool EndStreamWithDataFrame() const {
+    return http2_end_stream_with_data_frame_;
+  }
+
   // Send greased frame, that is, a frame of reserved type.
   void EnqueueGreasedFrame(const base::WeakPtr<SpdyStream>& stream);
 
@@ -421,12 +456,16 @@ class NET_EXPORT SpdySession : public BufferedSpdyFramerVisitorInterface,
       spdy::SpdyHeaderBlock headers,
       NetLogSource source_dependency);
 
-  // Creates and returns a SpdyBuffer holding a data frame with the
-  // given data. May return NULL if stalled by flow control.
+  // Creates and returns a SpdyBuffer holding a data frame with the given data.
+  // Sets |*effective_len| to number of bytes sent, and |*end_stream| to the
+  // value of the END_STREAM (also known as fin) flag.  Returns nullptr if
+  // session is draining or if session or stream is stalled by flow control.
   std::unique_ptr<SpdyBuffer> CreateDataBuffer(spdy::SpdyStreamId stream_id,
                                                IOBuffer* data,
                                                int len,
-                                               spdy::SpdyDataFlags flags);
+                                               spdy::SpdyDataFlags flags,
+                                               int* effective_len,
+                                               bool* end_stream);
 
   // Send PRIORITY frames according to the new priority of an existing stream.
   void UpdateStreamPriority(SpdyStream* stream,
@@ -1081,10 +1120,18 @@ class NET_EXPORT SpdySession : public BufferedSpdyFramerVisitorInterface,
   // and maximum HPACK dynamic table size.
   const spdy::SettingsMap initial_settings_;
 
-  // If set, an HTTP/2 frame with a reserved frame type will be sent after every
-  // valid HTTP/2 frame.  See
+  // If set, an HTTP/2 frame with a reserved frame type will be sent after
+  // every HTTP/2 SETTINGS frame and before every HTTP/2 DATA frame. See
   // https://tools.ietf.org/html/draft-bishop-httpbis-grease-00.
   const base::Optional<SpdySessionPool::GreasedHttp2Frame> greased_http2_frame_;
+
+  // If set, the HEADERS frame carrying a request without body will not have the
+  // END_STREAM flag set.  The stream will be closed by a subsequent empty DATA
+  // frame with END_STREAM.  Does not affect bidirectional or proxy streams.
+  // If unset, the HEADERS frame will have the END_STREAM flag set on.
+  // This is useful in conjuction with |greased_http2_frame_| so that a frame
+  // of reserved type can be sent out even on requests without a body.
+  bool http2_end_stream_with_data_frame_;
 
   // The callbacks to notify a request that the handshake has been confirmed.
   std::vector<CompletionOnceCallback> waiting_for_confirmation_callbacks_;

@@ -15,10 +15,10 @@
 class ImportLockDialogView : public views::DialogDelegateView {
  public:
   static void Show(gfx::NativeWindow parent,
-                   const base::Callback<void(bool)>& callback);
+                   base::OnceCallback<void(bool)> callback);
 
  private:
-  explicit ImportLockDialogView(const base::Callback<void(bool)>& callback);
+  explicit ImportLockDialogView(base::OnceCallback<void(bool)> callback);
   ~ImportLockDialogView() override;
 
   // views::View:
@@ -26,15 +26,13 @@ class ImportLockDialogView : public views::DialogDelegateView {
 
   // views::DialogDelegate:
   base::string16 GetWindowTitle() const override;
-  bool Accept() override;
-  bool Cancel() override;
 
   // views::WidgetDelegate:
   bool ShouldShowCloseButton() const override;
 
  private:
   // Called with the result of the dialog.
-  base::Callback<void(bool)> callback_;
+  base::OnceCallback<void(bool)> callback_;
 
   DISALLOW_COPY_AND_ASSIGN(ImportLockDialogView);
 };

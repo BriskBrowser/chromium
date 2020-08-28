@@ -35,22 +35,18 @@ class UninstallView : public views::ButtonListener,
   // Overridden form views::ButtonListener.
   void ButtonPressed(views::Button* sender, const ui::Event& event) override;
 
-  // Overridden from views::DialogDelegateView:
-  bool Accept() override;
-  bool Cancel() override;
-
-  // Overridden from views::WidgetDelegate:
-  base::string16 GetWindowTitle() const override;
-
   // Overridden from ui::ComboboxModel:
   int GetItemCount() const override;
-  base::string16 GetItemAt(int index) override;
+  base::string16 GetItemAt(int index) const override;
 
  private:
   typedef std::map<base::string16, base::string16> BrowsersMap;
 
   // Initializes the controls on the dialog.
   void SetupControls();
+
+  void OnDialogAccepted();
+  void OnDialogCancelled();
 
   views::Label* confirm_label_;
   views::Checkbox* delete_profile_;

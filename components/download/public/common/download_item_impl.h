@@ -17,6 +17,7 @@
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
 #include "base/optional.h"
+#include "base/threading/thread_checker.h"
 #include "base/threading/thread_checker_impl.h"
 #include "base/time/time.h"
 #include "components/download/database/in_progress/download_entry.h"
@@ -54,7 +55,6 @@ class COMPONENTS_DOWNLOAD_EXPORT DownloadItemImpl
                 const GURL& tab_url,
                 const GURL& tab_referrer_url,
                 const base::Optional<url::Origin>& request_initiator,
-                const net::NetworkIsolationKey& network_isolation_key,
                 const std::string& suggested_filename,
                 const base::FilePath& forced_file_path,
                 ui::PageTransition transition_type,
@@ -63,8 +63,7 @@ class COMPONENTS_DOWNLOAD_EXPORT DownloadItemImpl
                 base::Time start_time);
     RequestInfo();
     explicit RequestInfo(const RequestInfo& other);
-    explicit RequestInfo(const GURL& url,
-                         const net::NetworkIsolationKey& network_isolation_key);
+    explicit RequestInfo(const GURL& url);
     ~RequestInfo();
 
     // The chain of redirects that leading up to and including the final URL.
@@ -84,10 +83,6 @@ class COMPONENTS_DOWNLOAD_EXPORT DownloadItemImpl
 
     // The origin of the requester that originally initiated the download.
     base::Optional<url::Origin> request_initiator;
-
-    // The key used to isolate requests from different contexts in accessing
-    // shared network resources like the cache.
-    net::NetworkIsolationKey network_isolation_key;
 
     // Filename suggestion from DownloadSaveInfo. It could, among others, be the
     // suggested filename in 'download' attribute of an anchor. Details:
@@ -201,6 +196,7 @@ class COMPONENTS_DOWNLOAD_EXPORT DownloadItemImpl
       base::Time last_access_time,
       bool transient,
       const std::vector<DownloadItem::ReceivedSlice>& received_slices,
+      base::Optional<DownloadSchedule> download_schedule,
       std::unique_ptr<DownloadEntry> download_entry);
 
   // Constructing for a regular download.
@@ -216,7 +212,6 @@ class COMPONENTS_DOWNLOAD_EXPORT DownloadItemImpl
                    const base::FilePath& path,
                    const GURL& url,
                    const std::string& mime_type,
-                   const net::NetworkIsolationKey& network_isolation_key,
                    DownloadJob::CancelRequestCallback cancel_request_callback);
 
   ~DownloadItemImpl() override;
@@ -226,8 +221,9 @@ class COMPONENTS_DOWNLOAD_EXPORT DownloadItemImpl
   void RemoveObserver(DownloadItem::Observer* observer) override;
   void UpdateObservers() override;
   void ValidateDangerousDownload() override;
+  void ValidateMixedContentDownload() override;
   void StealDangerousDownload(bool need_removal,
-                              const AcquireFileCallback& callback) override;
+                              AcquireFileCallback callback) override;
   void Pause() override;
   void Resume(bool user_resume) override;
   void Cancel(bool user_cancel) override;
@@ -255,7 +251,6 @@ class COMPONENTS_DOWNLOAD_EXPORT DownloadItemImpl
   const GURL& GetTabUrl() const override;
   const GURL& GetTabReferrerUrl() const override;
   const base::Optional<url::Origin>& GetRequestInitiator() const override;
-  const net::NetworkIsolationKey& GetNetworkIsolationKey() const override;
   std::string GetSuggestedFilename() const override;
   const scoped_refptr<const net::HttpResponseHeaders>& GetResponseHeaders()
       const override;
@@ -280,7 +275,9 @@ class COMPONENTS_DOWNLOAD_EXPORT DownloadItemImpl
   void DeleteFile(base::OnceCallback<void(bool)> callback) override;
   DownloadFile* GetDownloadFile() override;
   bool IsDangerous() const override;
+  bool IsMixedContent() const override;
   DownloadDangerType GetDangerType() const override;
+  MixedContentStatus GetMixedContentStatus() const override;
   bool TimeRemaining(base::TimeDelta* remaining) const override;
   int64_t CurrentSpeed() const override;
   int PercentComplete() const override;
@@ -294,6 +291,7 @@ class COMPONENTS_DOWNLOAD_EXPORT DownloadItemImpl
   bool CanShowInFolder() override;
   bool CanOpenDownload() override;
   bool ShouldOpenFileBasedOnExtension() override;
+  bool ShouldOpenFileByPolicyBasedOnExtension() override;
   bool GetOpenWhenComplete() const override;
   bool GetAutoOpened() override;
   bool GetOpened() const override;
@@ -301,9 +299,12 @@ class COMPONENTS_DOWNLOAD_EXPORT DownloadItemImpl
   bool IsTransient() const override;
   bool IsParallelDownload() const override;
   DownloadCreationType GetDownloadCreationType() const override;
+  const base::Optional<DownloadSchedule>& GetDownloadSchedule() const override;
   void OnContentCheckCompleted(DownloadDangerType danger_type,
                                DownloadInterruptReason reason) override;
   void OnAsyncScanningCompleted(DownloadDangerType danger_type) override;
+  void OnDownloadScheduleChanged(
+      base::Optional<DownloadSchedule> schedule) override;
   void SetOpenWhenComplete(bool open) override;
   void SetOpened(bool opened) override;
   void SetLastAccessTime(base::Time last_access_time) override;
@@ -563,13 +564,27 @@ class COMPONENTS_DOWNLOAD_EXPORT DownloadItemImpl
       const base::FilePath& target_path,
       TargetDisposition disposition,
       DownloadDangerType danger_type,
+      MixedContentStatus mixed_content_status,
       const base::FilePath& intermediate_path,
+      base::Optional<DownloadSchedule> download_schedule,
       DownloadInterruptReason interrupt_reason);
 
   void OnDownloadRenamedToIntermediateName(DownloadInterruptReason reason,
                                            const base::FilePath& full_path);
 
   void OnTargetResolved();
+
+  // If |download_schedule_| presents, maybe interrupt the download and start
+  // later. Returns whether the download should be started later.
+  bool MaybeDownloadLater();
+
+  // Returns whether the download should proceed later based on network
+  // condition and user scheduled start time defined in |download_schedule_|.
+  bool ShouldDownloadLater() const;
+
+  // Swap the |download_schedule_| with new data, may pass in base::nullopt to
+  // remove the schedule.
+  void SwapDownloadSchedule(base::Optional<DownloadSchedule> download_schedule);
 
   // If all pre-requisites have been met, complete download processing, i.e. do
   // internal cleanup, file rename, and potentially auto-open.  (Dangerous
@@ -626,7 +641,7 @@ class COMPONENTS_DOWNLOAD_EXPORT DownloadItemImpl
   // Check if a download is ready for completion.  The callback provided
   // may be called at some point in the future if an external entity
   // state has change s.t. this routine should be checked again.
-  bool IsDownloadReadyForCompletion(const base::Closure& state_change_notify);
+  bool IsDownloadReadyForCompletion(base::OnceClosure state_change_notify);
 
   // Call to transition state; all state transitions should go through this.
   // |notify_action| specifies whether or not to call UpdateObservers() after
@@ -841,8 +856,11 @@ class COMPONENTS_DOWNLOAD_EXPORT DownloadItemImpl
   // UKM ID for reporting, default to 0 if uninitialized.
   uint64_t ukm_download_id_ = 0;
 
-  // Whether download has been resumed.
-  bool has_resumed_ = false;
+  // The MixedContentStatus if determined.
+  MixedContentStatus mixed_content_status_ = MixedContentStatus::UNKNOWN;
+
+  // Defines when to start the download. Used by download later feature.
+  base::Optional<DownloadSchedule> download_schedule_;
 
   THREAD_CHECKER(thread_checker_);
 

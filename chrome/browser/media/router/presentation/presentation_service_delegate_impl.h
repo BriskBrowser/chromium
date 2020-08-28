@@ -20,8 +20,8 @@
 #include "chrome/browser/media/router/media_router.h"
 #include "chrome/browser/media/router/presentation/presentation_service_delegate_observers.h"
 #include "chrome/browser/media/router/presentation/web_contents_presentation_manager.h"
-#include "chrome/common/media_router/media_source.h"
-#include "chrome/common/media_router/mojom/media_router.mojom.h"
+#include "components/media_router/common/media_source.h"
+#include "components/media_router/common/mojom/media_router.mojom.h"
 #include "content/public/browser/presentation_request.h"
 #include "content/public/browser/presentation_service_delegate.h"
 #include "content/public/browser/web_contents_observer.h"
@@ -158,8 +158,7 @@ class PresentationServiceDelegateImpl
   void OnPresentationResponse(const content::PresentationRequest& request,
                               mojom::RoutePresentationConnectionPtr connection,
                               const RouteRequestResult& result) override;
-
-  base::WeakPtr<PresentationServiceDelegateImpl> GetWeakPtr();
+  base::WeakPtr<WebContentsPresentationManager> GetWeakPtr() override;
 
   // Returns the WebContents that owns this instance.
   content::WebContents* web_contents() const { return web_contents_; }
@@ -254,6 +253,7 @@ class PresentationServiceDelegateImpl
 
   void NotifyDefaultPresentationChanged(
       const content::PresentationRequest* request);
+  void NotifyMediaRoutesChanged();
 
   // References to the WebContents that owns this instance, and associated
   // browser profile's MediaRouter instance.
@@ -261,7 +261,7 @@ class PresentationServiceDelegateImpl
   MediaRouter* router_;
 
   // References to the observers listening for changes to the default
-  // presentation of the associated WebContents.
+  // presentation and presentation MediaRoutes associated with the WebContents.
   base::ObserverList<WebContentsPresentationManager::Observer>
       presentation_observers_;
 

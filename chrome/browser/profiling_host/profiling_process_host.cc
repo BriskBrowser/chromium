@@ -17,13 +17,13 @@
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/stringprintf.h"
 #include "base/system/sys_info.h"
-#include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
 #include "base/trace_event/trace_log.h"
 #include "base/values.h"
 #include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/tracing/crash_service_uploader.h"
-#include "components/heap_profiling/supervisor.h"
+#include "components/heap_profiling/multi_process/supervisor.h"
 #include "components/services/heap_profiling/public/cpp/controller.h"
 #include "components/services/heap_profiling/public/cpp/settings.h"
 #include "components/version_info/version_info.h"
@@ -96,10 +96,10 @@ void UploadTraceToCrashServer(std::string upload_url,
   if (!upload_url.empty())
     uploader->SetUploadURL(upload_url);
 
-  uploader->DoUpload(file_contents, content::TraceUploader::COMPRESSED_UPLOAD,
-                     std::move(metadata),
-                     content::TraceUploader::UploadProgressCallback(),
-                     base::Bind(&OnTraceUploadComplete, base::Owned(uploader)));
+  uploader->DoUpload(
+      file_contents, content::TraceUploader::COMPRESSED_UPLOAD,
+      std::move(metadata), content::TraceUploader::UploadProgressCallback(),
+      base::BindOnce(&OnTraceUploadComplete, base::Owned(uploader)));
 }
 
 }  // namespace
@@ -140,14 +140,12 @@ void ProfilingProcessHost::SaveTraceWithHeapDumpToFile(
       [](base::FilePath dest, SaveTraceFinishedCallback done, bool success,
          std::string trace) {
         if (!success) {
-          base::CreateSingleThreadTaskRunner({content::BrowserThread::UI})
-              ->PostTask(FROM_HERE, base::BindOnce(std::move(done), false));
+          content::GetUIThreadTaskRunner({})->PostTask(
+              FROM_HERE, base::BindOnce(std::move(done), false));
           return;
         }
-        base::PostTask(
-            FROM_HERE,
-            {base::ThreadPool(), base::TaskPriority::USER_VISIBLE,
-             base::MayBlock()},
+        base::ThreadPool::PostTask(
+            FROM_HERE, {base::TaskPriority::USER_VISIBLE, base::MayBlock()},
             base::BindOnce(
                 &ProfilingProcessHost::SaveTraceToFileOnBlockingThread,
                 base::Unretained(ProfilingProcessHost::GetInstance()),
@@ -197,17 +195,17 @@ void ProfilingProcessHost::SaveTraceToFileOnBlockingThread(
   gzFile gz_file = gzdopen(fd, "w");
   if (!gz_file) {
     DLOG(ERROR) << "Cannot compress trace file";
-    base::CreateSingleThreadTaskRunner({content::BrowserThread::UI})
-        ->PostTask(FROM_HERE, base::BindOnce(std::move(done), false));
+    content::GetUIThreadTaskRunner({})->PostTask(
+        FROM_HERE, base::BindOnce(std::move(done), false));
     return;
   }
 
   size_t written_bytes = gzwrite(gz_file, trace.c_str(), trace.size());
   gzclose(gz_file);
 
-  base::CreateSingleThreadTaskRunner({content::BrowserThread::UI})
-      ->PostTask(FROM_HERE, base::BindOnce(std::move(done),
-                                           written_bytes == trace.size()));
+  content::GetUIThreadTaskRunner({})->PostTask(
+      FROM_HERE,
+      base::BindOnce(std::move(done), written_bytes == trace.size()));
 }
 
 void ProfilingProcessHost::ReportMetrics() {

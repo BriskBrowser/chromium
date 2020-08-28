@@ -13,8 +13,6 @@
 namespace blink {
 
 class GraphicsContext;
-class GraphicsLayer;
-class LayerAsJSONClient;
 
 // Represents foreign content (produced outside Blink) which draws to a layer.
 // A client supplies a layer which can be unwrapped and inserted into the full
@@ -22,30 +20,26 @@ class LayerAsJSONClient;
 //
 // Before CAP, this content is not painted, but is instead inserted into the
 // GraphicsLayer tree.
-class PLATFORM_EXPORT ForeignLayerDisplayItem final : public DisplayItem {
+class PLATFORM_EXPORT ForeignLayerDisplayItem : public DisplayItem {
  public:
   ForeignLayerDisplayItem(const DisplayItemClient& client,
                           Type,
                           scoped_refptr<cc::Layer>,
-                          const FloatPoint& offset,
-                          const LayerAsJSONClient*);
-  ~ForeignLayerDisplayItem() override;
+                          const IntPoint& offset);
 
-  cc::Layer* GetLayer() const;
-
-  const LayerAsJSONClient* GetLayerAsJSONClient() const;
+  cc::Layer* GetLayer() const { return layer_.get(); }
 
   // DisplayItem
-  bool Equals(const DisplayItem&) const override;
+  bool Equals(const DisplayItem&) const final;
 #if DCHECK_IS_ON()
-  void PropertiesAsJSON(JSONObject&) const override;
+  void PropertiesAsJSON(JSONObject&) const final;
 #endif
 
-  FloatPoint Offset() const { return offset_; }
+  IntPoint Offset() const { return offset_; }
 
  private:
-  FloatPoint offset_;
-  const LayerAsJSONClient* json_client_;
+  IntPoint offset_;
+  scoped_refptr<cc::Layer> layer_;
 };
 
 // When a foreign layer's debug name is a literal string, define a instance of
@@ -56,10 +50,6 @@ class LiteralDebugNameClient : public DisplayItemClient {
   LiteralDebugNameClient(const char* name) : name_(name) {}
 
   String DebugName() const override { return name_; }
-  IntRect VisualRect() const override {
-    NOTREACHED();
-    return IntRect();
-  }
 
  private:
   const char* name_;
@@ -74,14 +64,8 @@ PLATFORM_EXPORT void RecordForeignLayer(
     const DisplayItemClient& client,
     DisplayItem::Type type,
     scoped_refptr<cc::Layer> layer,
-    const FloatPoint& offset,
-    const base::Optional<PropertyTreeState>& = base::nullopt);
-
-// Records a graphics layer into a GraphicsContext.
-PLATFORM_EXPORT void RecordGraphicsLayerAsForeignLayer(
-    GraphicsContext& context,
-    DisplayItem::Type type,
-    const GraphicsLayer& graphics_layer);
+    const IntPoint& offset,
+    const PropertyTreeStateOrAlias* properties = nullptr);
 
 }  // namespace blink
 

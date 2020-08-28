@@ -14,6 +14,7 @@
 #include "content/browser/accessibility/accessibility_event_recorder.h"
 #include "content/public/browser/accessibility_tree_formatter.h"
 #include "content/public/test/content_browser_test.h"
+#include "third_party/blink/public/common/features.h"
 
 namespace content {
 
@@ -64,6 +65,10 @@ class DumpAccessibilityTestBase : public ContentBrowserTest,
   // additional useful info.
   virtual void OnDiffFailed() {}
 
+  // Choose which feature flags to enable or disable.
+  virtual void ChooseFeatures(std::vector<base::Feature>* enabled_features,
+                              std::vector<base::Feature>* disabled_features);
+
   //
   // Helpers
   //
@@ -92,6 +97,7 @@ class DumpAccessibilityTestBase : public ContentBrowserTest,
   // string to appear before comparing the results. There can be multiple
   // @WAIT-FOR: directives.
   void ParseHtmlForExtraDirectives(const std::string& test_html,
+                                   std::vector<std::string>* no_load_expected,
                                    std::vector<std::string>* wait_for,
                                    std::vector<std::string>* execute,
                                    std::vector<std::string>* run_until,
@@ -132,6 +138,10 @@ class DumpAccessibilityTestBase : public ContentBrowserTest,
  private:
   BrowserAccessibility* FindNodeInSubtree(BrowserAccessibility& node,
                                           const std::string& name);
+
+  void WaitForAXTreeLoaded(WebContentsImpl* web_contents,
+                           const std::vector<std::string>& no_load_expected,
+                           const std::vector<std::string>& wait_for);
 };
 
 }  // namespace content

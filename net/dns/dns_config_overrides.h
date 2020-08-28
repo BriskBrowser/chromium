@@ -14,6 +14,7 @@
 #include "net/base/net_export.h"
 #include "net/dns/dns_config.h"
 #include "net/dns/dns_hosts.h"
+#include "net/dns/public/dns_over_https_server_config.h"
 
 namespace net {
 
@@ -49,14 +50,13 @@ struct NET_EXPORT DnsConfigOverrides {
   base::Optional<std::vector<std::string>> search;
   base::Optional<DnsHosts> hosts;
   base::Optional<bool> append_to_multi_label_name;
-  base::Optional<bool> randomize_ports;
   base::Optional<int> ndots;
   base::Optional<base::TimeDelta> timeout;
   base::Optional<int> attempts;
+  base::Optional<int> doh_attempts;
   base::Optional<bool> rotate;
   base::Optional<bool> use_local_ipv6;
-  base::Optional<std::vector<DnsConfig::DnsOverHttpsServerConfig>>
-      dns_over_https_servers;
+  base::Optional<std::vector<DnsOverHttpsServerConfig>> dns_over_https_servers;
   base::Optional<DnsConfig::SecureDnsMode> secure_dns_mode;
   base::Optional<bool> allow_dns_over_https_upgrade;
   base::Optional<std::vector<std::string>> disabled_upgrade_providers;

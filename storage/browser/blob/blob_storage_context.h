@@ -21,6 +21,7 @@
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
 #include "base/trace_event/memory_dump_provider.h"
+#include "components/services/storage/public/mojom/blob_storage_context.mojom.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "mojo/public/cpp/bindings/receiver_set.h"
@@ -29,19 +30,21 @@
 #include "storage/browser/blob/blob_memory_controller.h"
 #include "storage/browser/blob/blob_storage_constants.h"
 #include "storage/browser/blob/blob_storage_registry.h"
-#include "storage/browser/blob/mojom/blob_storage_context.mojom.h"
 #include "third_party/blink/public/mojom/blob/blob.mojom.h"
 
-class GURL;
-
 namespace content {
-class BlobDispatcherHost;
-class BlobDispatcherHostTest;
+
 class ChromeBlobStorageContext;
 class ShareableBlobDataItem;
-}
+
+namespace indexed_db_backing_store_unittest {
+class BlobStorageContextShim;
+}  // namespace indexed_db_backing_store_unittest
+
+}  // namespace content
 
 namespace storage {
+
 class BlobDataBuilder;
 class BlobDataHandle;
 class BlobDataSnapshot;
@@ -67,7 +70,6 @@ class COMPONENT_EXPORT(STORAGE_BROWSER) BlobStorageContext
   // The following three methods all lookup a BlobDataHandle based on some
   // input. If no blob matching the input exists these methods return null.
   std::unique_ptr<BlobDataHandle> GetBlobDataFromUUID(const std::string& uuid);
-  mojo::PendingRemote<blink::mojom::Blob> GetBlobFromPublicURL(const GURL& url);
   // If this BlobStorageContext is deleted before this method finishes, the
   // callback will still be called with null.
   void GetBlobDataFromBlobRemote(
@@ -91,11 +93,6 @@ class COMPONENT_EXPORT(STORAGE_BROWSER) BlobStorageContext
       const std::string& content_type,
       const std::string& content_disposition,
       BlobStatus reason);
-
-  // Useful for coining blob urls from within the browser process.
-  bool RegisterPublicBlobURL(const GURL& url,
-                             mojo::PendingRemote<blink::mojom::Blob> blob);
-  void RevokePublicBlobURL(const GURL& url);
 
   size_t blob_count() const { return registry_.blob_count(); }
 
@@ -171,8 +168,6 @@ class COMPONENT_EXPORT(STORAGE_BROWSER) BlobStorageContext
   }
 
  protected:
-  friend class content::BlobDispatcherHost;
-  friend class content::BlobDispatcherHostTest;
   friend class content::ChromeBlobStorageContext;
   friend class BlobBuilderFromStream;
   friend class BlobDataHandle;
@@ -180,6 +175,8 @@ class COMPONENT_EXPORT(STORAGE_BROWSER) BlobStorageContext
   friend class BlobRegistryImplTest;
   friend class BlobStorageContextTest;
   friend class BlobURLTokenImpl;
+  friend class content::indexed_db_backing_store_unittest::
+      BlobStorageContextShim;
 
   enum class TransportQuotaType { MEMORY, FILE };
 
@@ -244,7 +241,7 @@ class COMPONENT_EXPORT(STORAGE_BROWSER) BlobStorageContext
   bool OnMemoryDump(const base::trace_event::MemoryDumpArgs& args,
                     base::trace_event::ProcessMemoryDump* pmd) override;
 
-  // storage::mojom::BlobStorageContext implementation.
+  // mojom::BlobStorageContext implementation.
   void RegisterFromDataItem(mojo::PendingReceiver<blink::mojom::Blob> blob,
                             const std::string& uuid,
                             mojom::BlobDataItemPtr item) override;

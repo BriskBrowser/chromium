@@ -14,9 +14,9 @@
 #include "base/optional.h"
 #include "base/values.h"
 #include "chrome/browser/media/router/providers/cast/cast_internal_message_util.h"
-#include "chrome/common/media_router/mojom/media_router.mojom.h"
-#include "chrome/common/media_router/providers/cast/cast_media_source.h"
 #include "components/cast_channel/cast_message_handler.h"
+#include "components/media_router/common/mojom/media_router.mojom.h"
+#include "components/media_router/common/providers/cast/cast_media_source.h"
 #include "mojo/public/cpp/bindings/receiver.h"
 #include "mojo/public/cpp/bindings/remote.h"
 #include "services/data_decoder/public/cpp/data_decoder.h"
@@ -25,7 +25,7 @@
 
 namespace media_router {
 
-class CastActivityRecord;
+class CastActivity;
 
 // Represents a Cast SDK client connection to a Cast session. This class
 // contains PresentationConnection Mojo pipes to send and receive messages
@@ -117,7 +117,7 @@ class CastSessionClientImpl : public CastSessionClient,
                         const url::Origin& origin,
                         int tab_id,
                         AutoJoinPolicy auto_join_policy,
-                        CastActivityRecord* activity);
+                        CastActivity* activity);
   ~CastSessionClientImpl() override;
 
   // CastSessionClient implementation
@@ -159,9 +159,13 @@ class CastSessionClientImpl : public CastSessionClient,
   // succeeded or failed.
   void SendResultResponse(int sequence_number, cast_channel::Result result);
 
+  // Builds a callback that calls SendResultResponse().
+  cast_channel::ResultCallback MakeResultCallback(
+      const CastInternalMessage& cast_message);
+
   const AutoJoinPolicy auto_join_policy_;
 
-  CastActivityRecord* const activity_;
+  CastActivity* const activity_;
 
   // The maximum number of pending media requests, used to prevent memory leaks.
   // Normally the number of pending requests should be fairly small, but each

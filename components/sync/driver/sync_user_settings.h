@@ -48,8 +48,8 @@ class SyncUserSettings {
 
   // Whether the initial Sync setup has been completed, meaning the user has
   // consented to Sync.
-  // NOTE: On Android and ChromeOS, this gets set automatically, so it doesn't
-  // really mean anything. See |browser_defaults::kSyncAutoStarts|.
+  // NOTE: On ChromeOS, this gets set automatically, so it doesn't really mean
+  // anything. See |browser_defaults::kSyncAutoStarts|.
   virtual bool IsFirstSetupComplete() const = 0;
   virtual void SetFirstSetupComplete(SyncFirstSetupCompleteSource source) = 0;
 
@@ -104,9 +104,16 @@ class SyncUserSettings {
   // Whether a passphrase is required to decrypt the data for any currently
   // enabled data type.
   virtual bool IsPassphraseRequiredForPreferredDataTypes() const = 0;
+  // Whether trusted vault keys are required for encryption or decryption. Note
+  // that Sync might still be working fine if the user has disabled all
+  // encrypted data types.
+  virtual bool IsTrustedVaultKeyRequired() const = 0;
   // Whether trusted vault keys are required for encryption or decryption to
-  // proceed for any currently enabled data type.
+  // proceed for currently enabled data types.
   virtual bool IsTrustedVaultKeyRequiredForPreferredDataTypes() const = 0;
+  // Whether recoverability of the trusted vault keys is degraded and user
+  // action is required, affecting currently enabled data types.
+  virtual bool IsTrustedVaultRecoverabilityDegraded() const = 0;
   // Whether a "secondary" passphrase is in use (aka explicit passphrase), which
   // means either a custom or a frozen implicit passphrase.
   virtual bool IsUsingSecondaryPassphrase() const = 0;

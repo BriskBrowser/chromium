@@ -14,6 +14,7 @@
 #include "base/bind_helpers.h"
 #include "base/callback.h"
 #include "base/i18n/case_conversion.h"
+#include "base/logging.h"
 #include "base/numerics/math_constants.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
@@ -72,12 +73,12 @@
 #include "chrome/browser/vr/ui_scene.h"
 #include "chrome/browser/vr/ui_scene_constants.h"
 #include "chrome/browser/vr/vector_icons/vector_icons.h"
-#include "chrome/common/chrome_features.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/omnibox/browser/vector_icons.h"
 #include "components/strings/grit/components_strings.h"
 #include "components/url_formatter/elide_url.h"
 #include "components/vector_icons/vector_icons.h"
+#include "device/base/features.h"
 #include "device/vr/buildflags/buildflags.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/gfx/paint_vector_icon.h"
@@ -965,7 +966,7 @@ void BindIndicatorTranscienceForWin(
   e->RefreshVisible();
 
   SetVisibleInLayout(scene->GetUiElementByName(kWebVrExclusiveScreenToast),
-                     !model->browsing_disabled);
+                     model->gvr_input_support);
 
   for (const auto& spec : GetIndicatorSpecs()) {
     SetVisibleInLayout(
@@ -1043,7 +1044,7 @@ void BindIndicatorTranscience(
   e->SetVisible(true);
   e->RefreshVisible();
   SetVisibleInLayout(scene->GetUiElementByName(kWebVrExclusiveScreenToast),
-                     !model->browsing_disabled && !in_long_press);
+                     model->gvr_input_support && !in_long_press);
 
   auto specs = GetIndicatorSpecs();
   for (const auto& spec : specs) {
@@ -1097,7 +1098,7 @@ void BindIndicatorTranscience(
 
 int GetIndicatorsTimeout() {
 #if BUILDFLAG(ENABLE_WINDOWS_MR)
-  if (base::FeatureList::IsEnabled(features::kWindowsMixedReality))
+  if (base::FeatureList::IsEnabled(device::features::kWindowsMixedReality))
     return kWmrInitialIndicatorsTimeoutSeconds;
 #endif
   return kToastTimeoutSeconds;

@@ -6,6 +6,7 @@
 #define CHROME_BROWSER_UI_VIEWS_EXTERNAL_PROTOCOL_DIALOG_H_
 
 #include "base/macros.h"
+#include "chrome/browser/profiles/profile.h"
 #include "content/public/browser/web_contents_observer.h"
 #include "ui/views/window/dialog_delegate.h"
 #include "url/gurl.h"
@@ -37,19 +38,16 @@ class ExternalProtocolDialog : public views::DialogDelegateView,
   gfx::Size CalculatePreferredSize() const override;
   bool ShouldShowCloseButton() const override;
   base::string16 GetWindowTitle() const override;
-  bool Cancel() override;
-  bool Accept() override;
   views::View* GetContentsView() override;
   ui::ModalType GetModalType() const override;
+  views::Widget* GetWidget() override;
+  const views::Widget* GetWidget() const override;
 
  private:
   friend class test::ExternalProtocolDialogTestApi;
 
-  void ShowRememberSelectionCheckbox();
   void SetRememberSelectionCheckboxCheckedForTesting(bool checked);
-
-  // views::DialogDelegateView:
-  const views::Widget* GetWidgetImpl() const override;
+  void OnDialogAccepted();
 
   const GURL url_;
   const base::string16 program_name_;

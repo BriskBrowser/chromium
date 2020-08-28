@@ -6,6 +6,7 @@
 
 #include "base/bind.h"
 #include "base/location.h"
+#include "base/logging.h"
 #include "base/rand_util.h"
 #include "base/single_thread_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
@@ -61,18 +62,18 @@ FakeBluetoothGattCharacteristicClient::Properties::~Properties() = default;
 void FakeBluetoothGattCharacteristicClient::Properties::Get(
     dbus::PropertyBase* property,
     dbus::PropertySet::GetCallback callback) {
-  VLOG(1) << "Get " << property->name();
+  DVLOG(1) << "Get " << property->name();
   std::move(callback).Run(true);
 }
 
 void FakeBluetoothGattCharacteristicClient::Properties::GetAll() {
-  VLOG(1) << "GetAll";
+  DVLOG(1) << "GetAll";
 }
 
 void FakeBluetoothGattCharacteristicClient::Properties::Set(
     dbus::PropertyBase* property,
     dbus::PropertySet::SetCallback callback) {
-  VLOG(1) << "Set " << property->name();
+  DVLOG(1) << "Set " << property->name();
   std::move(callback).Run(false);
 }
 
@@ -206,6 +207,7 @@ void FakeBluetoothGattCharacteristicClient::ReadValue(
 void FakeBluetoothGattCharacteristicClient::WriteValue(
     const dbus::ObjectPath& object_path,
     const std::vector<uint8_t>& value,
+    base::StringPiece type_option,
     base::OnceClosure callback,
     ErrorCallback error_callback) {
   if (!authenticated_) {
@@ -387,11 +389,11 @@ void FakeBluetoothGattCharacteristicClient::StopNotify(
 void FakeBluetoothGattCharacteristicClient::ExposeHeartRateCharacteristics(
     const dbus::ObjectPath& service_path) {
   if (IsHeartRateVisible()) {
-    VLOG(2) << "Fake Heart Rate characteristics are already visible.";
+    DVLOG(2) << "Fake Heart Rate characteristics are already visible.";
     return;
   }
 
-  VLOG(2) << "Exposing fake Heart Rate characteristics.";
+  DVLOG(2) << "Exposing fake Heart Rate characteristics.";
 
   std::vector<std::string> flags;
 
@@ -455,7 +457,7 @@ void FakeBluetoothGattCharacteristicClient::ExposeHeartRateCharacteristics(
 }
 
 void FakeBluetoothGattCharacteristicClient::HideHeartRateCharacteristics() {
-  VLOG(2) << "Hiding fake Heart Rate characteristics.";
+  DVLOG(2) << "Hiding fake Heart Rate characteristics.";
 
   // Hide the descriptors.
   FakeBluetoothGattDescriptorClient* descriptor_client =
@@ -491,7 +493,7 @@ void FakeBluetoothGattCharacteristicClient::SetExtraProcessing(
     action_extra_requests_.clear();
     return;
   }
-  VLOG(2) << "Requests SLOW now, " << requests << " InProgress errors each.";
+  DVLOG(2) << "Requests SLOW now, " << requests << " InProgress errors each.";
 }
 
 size_t FakeBluetoothGattCharacteristicClient::GetExtraProcessing() const {
@@ -516,8 +518,8 @@ FakeBluetoothGattCharacteristicClient::GetHeartRateControlPointPath() const {
 void FakeBluetoothGattCharacteristicClient::OnPropertyChanged(
     const dbus::ObjectPath& object_path,
     const std::string& property_name) {
-  VLOG(2) << "Characteristic property changed: " << object_path.value() << ": "
-          << property_name;
+  DVLOG(2) << "Characteristic property changed: " << object_path.value() << ": "
+           << property_name;
 
   for (auto& observer : observers_)
     observer.GattCharacteristicPropertyChanged(object_path, property_name);
@@ -525,14 +527,14 @@ void FakeBluetoothGattCharacteristicClient::OnPropertyChanged(
 
 void FakeBluetoothGattCharacteristicClient::NotifyCharacteristicAdded(
     const dbus::ObjectPath& object_path) {
-  VLOG(2) << "GATT characteristic added: " << object_path.value();
+  DVLOG(2) << "GATT characteristic added: " << object_path.value();
   for (auto& observer : observers_)
     observer.GattCharacteristicAdded(object_path);
 }
 
 void FakeBluetoothGattCharacteristicClient::NotifyCharacteristicRemoved(
     const dbus::ObjectPath& object_path) {
-  VLOG(2) << "GATT characteristic removed: " << object_path.value();
+  DVLOG(2) << "GATT characteristic removed: " << object_path.value();
   for (auto& observer : observers_)
     observer.GattCharacteristicRemoved(object_path);
 }
@@ -546,7 +548,7 @@ void FakeBluetoothGattCharacteristicClient::
   if (!heart_rate_measurement_properties_->notifying.value())
     return;
 
-  VLOG(2) << "Updating heart rate value.";
+  DVLOG(2) << "Updating heart rate value.";
   std::vector<uint8_t> measurement = GetHeartRateMeasurementValue();
   heart_rate_measurement_properties_->value.ReplaceValue(measurement);
 

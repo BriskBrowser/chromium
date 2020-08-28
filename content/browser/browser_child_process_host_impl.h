@@ -128,6 +128,7 @@ class CONTENT_EXPORT BrowserChildProcessHostImpl
 
 #if defined(OS_ANDROID)
   void EnableWarmUpConnection();
+  void DumpProcessStack();
 #endif
 
   BrowserChildProcessHostDelegate* delegate() const { return delegate_; }
@@ -182,6 +183,9 @@ class CONTENT_EXPORT BrowserChildProcessHostImpl
   static void OnMojoError(
       base::WeakPtr<BrowserChildProcessHostImpl> process,
       scoped_refptr<base::SingleThreadTaskRunner> task_runner,
+      const std::string& error);
+  static void TerminateProcessForBadMessage(
+      base::WeakPtr<BrowserChildProcessHostImpl> process,
       const std::string& error);
 
 #if defined(OS_WIN)

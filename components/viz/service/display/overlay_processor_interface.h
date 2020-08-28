@@ -6,21 +6,23 @@
 #define COMPONENTS_VIZ_SERVICE_DISPLAY_OVERLAY_PROCESSOR_INTERFACE_H_
 
 #include <memory>
+#include <vector>
 
 #include "base/containers/flat_map.h"
 #include "base/macros.h"
 #include "build/build_config.h"
-#include "components/viz/common/quads/render_pass.h"
+#include "components/viz/common/quads/aggregated_render_pass.h"
 #include "components/viz/service/display/output_surface.h"
 #include "components/viz/service/display/overlay_candidate.h"
 #include "components/viz/service/viz_service_export.h"
 #include "gpu/ipc/common/surface_handle.h"
+#include "gpu/ipc/gpu_task_scheduler_helper.h"
 
 #if defined(OS_WIN)
 #include "components/viz/service/display/dc_layer_overlay.h"
 #endif
 
-#if defined(OS_MACOSX)
+#if defined(OS_APPLE)
 #include "components/viz/service/display/ca_layer_overlay.h"
 #endif
 
@@ -29,6 +31,7 @@ class DisplayResourceProvider;
 }
 
 namespace viz {
+struct DebugRendererSettings;
 class OutputSurface;
 class RendererSettings;
 
@@ -39,7 +42,7 @@ class RendererSettings;
 // for overlay processing that each platform needs to implement.
 class VIZ_SERVICE_EXPORT OverlayProcessorInterface {
  public:
-#if defined(OS_MACOSX)
+#if defined(OS_APPLE)
   using CandidateList = CALayerOverlayList;
 #elif defined(OS_WIN)
   using CandidateList = DCLayerOverlayList;
@@ -49,7 +52,9 @@ class VIZ_SERVICE_EXPORT OverlayProcessorInterface {
 #endif
 
   using FilterOperationsMap =
-      base::flat_map<RenderPassId, cc::FilterOperations*>;
+      base::flat_map<AggregatedRenderPassId, cc::FilterOperations*>;
+
+  virtual bool DisableSplittingQuads() const;
 
   // Used by Window's DCLayerOverlay system and OverlayProcessorUsingStrategy.
   static void RecordOverlayDamageRectHistograms(
@@ -78,6 +83,8 @@ class VIZ_SERVICE_EXPORT OverlayProcessorInterface {
     // TODO(weiliangc): Should be replaced by SharedImage mailbox.
     // Gpu fence to wait for before overlay is ready for display.
     unsigned gpu_fence_id;
+    // Mailbox corresponding to the buffer backing the primary plane.
+    gpu::Mailbox mailbox;
   };
 
   // TODO(weiliangc): Eventually the asymmetry between primary plane and
@@ -87,18 +94,22 @@ class VIZ_SERVICE_EXPORT OverlayProcessorInterface {
       const gfx::Size& viewport_size,
       const gfx::BufferFormat& buffer_format,
       const gfx::ColorSpace& color_space,
-      bool has_alpha);
+      bool has_alpha,
+      const gpu::Mailbox& mailbox);
 
   static std::unique_ptr<OverlayProcessorInterface> CreateOverlayProcessor(
-      SkiaOutputSurface* skia_output_surface,
-      gpu::SurfaceHandle surface_handle,
-      const OutputSurface::Capabilities& capabilities,
+      OutputSurface* output_surface,
+      gpu::SharedImageManager* shared_image_manager,
       const RendererSettings& renderer_settings,
-      gpu::SharedImageInterface* shared_image_interface);
+      const DebugRendererSettings* debug_settings);
 
   virtual ~OverlayProcessorInterface() {}
 
   virtual bool IsOverlaySupported() const = 0;
+  // Returns a bounding rectangle of the last set of overlay planes scheduled.
+  // It's expected to be called after ProcessForOverlays at frame N-1 has been
+  // called and before GetAndResetOverlayDamage at frame N.
+  virtual gfx::Rect GetPreviousFrameOverlaysBoundingRect() const = 0;
   virtual gfx::Rect GetAndResetOverlayDamage() = 0;
 
   // Returns true if the platform supports hw overlays and surface occluding
@@ -110,7 +121,7 @@ class VIZ_SERVICE_EXPORT OverlayProcessorInterface {
   // or CALayers. This must be called every frame.
   virtual void ProcessForOverlays(
       DisplayResourceProvider* resource_provider,
-      RenderPassList* render_passes,
+      AggregatedRenderPassList* render_passes,
       const SkMatrix44& output_color_matrix,
       const FilterOperationsMap& render_pass_filters,
       const FilterOperationsMap& render_pass_backdrop_filters,
@@ -127,7 +138,26 @@ class VIZ_SERVICE_EXPORT OverlayProcessorInterface {
   virtual void AdjustOutputSurfaceOverlay(
       base::Optional<OutputSurfaceOverlayPlane>* output_surface_plane) = 0;
 
-  // These two functions are used by Android SurfaceControl.
+  // Before the overlay refactor to use OverlayProcessorOnGpu, overlay
+  // candidates are stored inside DirectRenderer. Those overlay candidates are
+  // later sent over to the GPU thread by GLRenderer or SkiaRenderer. This
+  // helper function will be called by DirectRenderer to take these overlay
+  // candidates inside overlay processor to avoid sending over DirectRenderer
+  // implementation. This is overridden by each platform that is ready to send
+  // overlay candidates inside |OverlayProcessor|. Must be called before
+  // ScheduleOverlays().
+  virtual void TakeOverlayCandidates(CandidateList* candidate_list) {}
+
+  // TODO(weiliangc): Make it pure virtual after it is implemented by every
+  // subclass.
+  virtual void ScheduleOverlays(
+      DisplayResourceProvider* display_resource_provider);
+  // This is a signal from Display::DidReceiveSwapBuffersAck. This is used as
+  // approximate signale for when the overlays are presented.
+  virtual void OverlayPresentationComplete();
+
+  // These two functions are used by Android SurfaceControl, and SetViewportSize
+  // is also used for Windows DC layers.
   virtual void SetDisplayTransformHint(gfx::OverlayTransform transform) {}
   virtual void SetViewportSize(const gfx::Size& size) {}
 

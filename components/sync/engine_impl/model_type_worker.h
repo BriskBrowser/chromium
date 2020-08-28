@@ -123,10 +123,6 @@ class ModelTypeWorker : public UpdateHandler,
   // called when a new encryption mechanism is ready.
   void EncryptionAcceptedMaybeApplyUpdates();
 
-  // If migration the directory encounters an error partway through, we need to
-  // clear the update data that has been added so far.
-  void AbortMigration();
-
   // Public for testing.
   // Returns true if this type should stop communicating because of outstanding
   // encryption issues and must wait for keys to be updated.
@@ -208,7 +204,13 @@ class ModelTypeWorker : public UpdateHandler,
   void DeduplicatePendingUpdatesBasedOnOriginatorClientItemId();
 
   // Callback for when our contribution gets a response.
-  void OnCommitResponse(const CommitResponseDataList& committed_response_list);
+  void OnCommitResponse(
+      const CommitResponseDataList& committed_response_list,
+      const FailedCommitResponseDataList& error_response_list);
+
+  // Callback when there is no response or server returns an error without
+  // response body.
+  void OnFullCommitFailure(SyncCommitError commit_error);
 
   ModelType type_;
   DataTypeDebugInfoEmitter* debug_info_emitter_;

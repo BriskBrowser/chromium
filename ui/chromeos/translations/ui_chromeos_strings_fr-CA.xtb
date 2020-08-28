@@ -8,6 +8,7 @@
 <translation id="1046068652463704410">Mode d'entrée japonais (pour clavier anglais américain)</translation>
 <translation id="1047956942837015229">Suppression de <ph name="COUNT" /> éléments en cours…</translation>
 <translation id="1049926623896334335">Document Word</translation>
+<translation id="1060368002126861100">Pour ouvrir des fichiers avec <ph name="APP_NAME" />, déplacez-les d'abord dans le dossier des fichiers Windows.</translation>
 <translation id="1062407476771304334">Remplacer</translation>
 <translation id="1065449928621190041">Clavier canadien français</translation>
 <translation id="1119069657431255176">Archive tar compressée avec bzip2</translation>
@@ -20,6 +21,7 @@
 <translation id="1150565364351027703">Lunettes de soleil</translation>
 <translation id="115443833402798225">Hangul ahnmatae</translation>
 <translation id="1155759005174418845">Catalan</translation>
+<translation id="1172970565351728681">Temps restant : environ <ph name="REMAINING_TIME" /></translation>
 <translation id="1173894706177603556">Renommer</translation>
 <translation id="117624967391683467">Copie de <ph name="FILE_NAME" /> en cours…</translation>
 <translation id="1178581264944972037">Interrompre</translation>
@@ -29,6 +31,7 @@
 <translation id="1243314992276662751">Téléverser</translation>
 <translation id="1249250836236328755">Genre</translation>
 <translation id="1278813325885878377">Clavier QWERTY hongrois</translation>
+<translation id="1293556467332435079">Fichiers</translation>
 <translation id="1297922636971898492">Google Disque n'est pas accessible pour le moment. Le téléversement reprendra lorsque Google Disque sera de nouveau fonctionnel.</translation>
 <translation id="1307931752636661898">Impossible d'afficher les fichiers Linux</translation>
 <translation id="1310751437842832374">Translittération (mausam → ନମସ୍ତେ)</translation>
@@ -44,6 +47,8 @@
 <translation id="1395262318152388157">Curseur de la barre de recherche</translation>
 <translation id="1399648040768741453">Clavier télougou (phonétique)</translation>
 <translation id="1430915738399379752">Imprimer</translation>
+<translation id="1433600251059882049">Ce dossier est partagé avec Linux et Windows</translation>
+<translation id="1435838927755162558">Partager le dossier avec Parallels Desktop</translation>
 <translation id="1439494416798956626">Déplacé dans le dossier <ph name="FOLDER_NAME" />.</translation>
 <translation id="1441841714100794440">Clavier vietnamien (télex)</translation>
 <translation id="1455548678241328678">Clavier norvégien</translation>
@@ -78,6 +83,7 @@
 <translation id="1844692022597038441">Ce fichier n'est pas accessible hors connexion.</translation>
 <translation id="184633654410729720">Clavier thaï (kedmanee)</translation>
 <translation id="1847880352285315359">Enregistré</translation>
+<translation id="1853795129690976061">Ce dossier est partagé avec Linux.</translation>
 <translation id="1864756863218646478">Fichier introuvable.</translation>
 <translation id="1921986354447415460">Clavier turc-F</translation>
 <translation id="1924372192547904021"><ph name="DRIVE_NAME" /> formaté</translation>
@@ -89,6 +95,7 @@
 <translation id="1947424002851288782">Clavier allemand</translation>
 <translation id="1972984168337863910">Développer les panneaux de commentaires sur les fichiers</translation>
 <translation id="1984603991036629094">Clavier phonétique arménien</translation>
+<translation id="1995337122023280937">Accéder au dossier du fichier</translation>
 <translation id="2001796770603320721">Gérer dans Google Disque</translation>
 <translation id="2009067268969781306">Le formatage d'un lecteur effacera toutes les données qu'il contient. Cette action est irréversible.</translation>
 <translation id="2028997212275086731">Archive RAR</translation>
@@ -100,7 +107,6 @@
 <translation id="2085470240340828803">Un fichier nommé « <ph name="FILENAME" /> » existe déjà. Que voulez-vous faire?</translation>
 <translation id="2121825465123208577">Redimensionner</translation>
 <translation id="2136953289241069843">Translittération (namaste → नमस्कार)</translation>
-<translation id="2138867954865495510">Impossible d'ouvrir « <ph name="PATH" /> » : <ph name="ERROR_MESSAGE" /></translation>
 <translation id="2163152940313951844">Caractère incorrect : <ph name="CHARACTER_NAME" /></translation>
 <translation id="2164862903024139959">Clavier vietnamien (TCVN)</translation>
 <translation id="2168214441502403371">Clavier perse</translation>
@@ -122,6 +128,7 @@
 <translation id="2384596874640104496">Clavier cinghalais</translation>
 <translation id="240770291734945588"><ph name="SPACE_AVAILABLE" /> disponible</translation>
 <translation id="2425665904502185219">Taille totale du fichier</translation>
+<translation id="2428749644083375155">Copie de <ph name="NUMBER_OF_ITEMS" /> éléments dans le dossier <ph name="FOLDER_NAME" /> en cours…</translation>
 <translation id="2448312741937722512">Type</translation>
 <translation id="2453576648990281505">Le fichier existe déjà</translation>
 <translation id="2464079411014186876">Crème glacée</translation>
@@ -140,6 +147,7 @@
 <translation id="2638942478653899953">Impossible d'accéder à Google Disque. Veuillez vous <ph name="BEGIN_LINK" />déconnecter<ph name="END_LINK" />, puis vous reconnecter.</translation>
 <translation id="2649120831653069427">Poisson-arc-en-ciel</translation>
 <translation id="2661146741306740526">16:9</translation>
+<translation id="2664412712123763093">Lieu du fichier</translation>
 <translation id="2672394958563893062">Une erreur s'est produite. Cliquez pour redémarrer depuis le début.</translation>
 <translation id="2676946222714718093">En cours de lecture sur</translation>
 <translation id="2735698359135166290">Clavier roumain standard</translation>
@@ -175,6 +183,7 @@
 <translation id="303198083543495566">Géographie</translation>
 <translation id="3057861065630527966">Sauvegarder vos photos et vidéos</translation>
 <translation id="3064388234319122767">Translittération (zdravo → здраво)</translation>
+<translation id="3067790092342515856">Fichiers Windows</translation>
 <translation id="3078461028045006476">Partager avec <ph name="EXTENSION_NAME" /></translation>
 <translation id="3088034400796962477">Translittération (salam ← سلام)</translation>
 <translation id="3116361045094675131">Clavier britannique</translation>
@@ -189,6 +198,7 @@
 <translation id="3236289833370040187">La propriété sera transférée à <ph name="DESTINATION_DOMAIN" />.</translation>
 <translation id="3241720467332021590">Irlandais</translation>
 <translation id="3245321423178950146">Artiste inconnu</translation>
+<translation id="3248185426436836442">En attente</translation>
 <translation id="3252266817569339921">Français</translation>
 <translation id="3254434849914415189">Choisissez l'application par défaut pour les fichiers <ph name="FILE_TYPE" /> :</translation>
 <translation id="3264582393905923483">Contexte</translation>
@@ -199,6 +209,7 @@
 <translation id="3335337277364016868">Année d'enregistrement</translation>
 <translation id="3338239663705455570">Clavier slovène</translation>
 <translation id="3353984535370177728">Sélectionner le dossier à téléverser</translation>
+<translation id="3356580349448036450">Terminé</translation>
 <translation id="3399597614303179694">Clavier macédonien</translation>
 <translation id="3414856743105198592">Le formatage du support amovible va effacer toutes les données. Voulez-vous continuer?</translation>
 <translation id="3437801641691368414">Date de création</translation>
@@ -210,8 +221,10 @@
 <translation id="3495304270784461826"><ph name="COUNT" /> erreurs.</translation>
 <translation id="3519867315646775981">Translittération (shalom ← שלום)</translation>
 <translation id="3522708245912499433">Portugais</translation>
+<translation id="3524311639100184459">Attention : Ces fichiers sont temporaires et peuvent être automatiquement supprimés pour libérer de l'espace disque.  <ph name="BEGIN_LINK" />En savoir plus<ph name="END_LINK" /></translation>
 <translation id="3527085408025491307">Dossier</translation>
 <translation id="3549797760399244642">Accéder à drive.google.com...</translation>
+<translation id="3553048479571901246">Pour ouvrir des fichiers avec <ph name="APP_NAME" />, copiez-les d'abord dans le dossier des fichiers Windows.</translation>
 <translation id="357479282490346887">Lituanien</translation>
 <translation id="3583509704582854624">Mode d'entrée alphanumérique (pour clavier japonais)</translation>
 <translation id="3603385196401704894">Français canadien</translation>
@@ -232,9 +245,11 @@
 <translation id="3780536599611287598">Vous n'êtes pas autorisé à déplacer des fichiers dans « <ph name="FOLDER_NAME" /> ».</translation>
 <translation id="3786301125658655746">Vous êtes hors ligne.</translation>
 <translation id="3789841737615482174">Installer</translation>
+<translation id="3793469551756281394">Temps restant : environ <ph name="REMAINING_TIME_HOUR" /> et <ph name="REMAINING_TIME_MINUTE" /></translation>
 <translation id="3798449238516105146">Version</translation>
 <translation id="3801082500826908679">Féroïen</translation>
 <translation id="3809272675881623365">Lapin</translation>
+<translation id="3810973564298564668">Gérer</translation>
 <translation id="3811494700605067549">1 fichier sélectionné</translation>
 <translation id="3815016854028376614">Mode d'entrée zhuyin</translation>
 <translation id="3825863595139017598">Clavier mongol</translation>
@@ -255,6 +270,7 @@
 <translation id="3943857333388298514">Coller</translation>
 <translation id="3958548648197196644">Kiwi</translation>
 <translation id="3966388904776714213">Lecteur audio</translation>
+<translation id="3984317463833596033">Autoriser Parallels Desktop à modifier les fichiers dans le dossier <ph name="FOLDER_NAME" /></translation>
 <translation id="4002066346123236978">Titre</translation>
 <translation id="4070370845051020638">Méthode d'entrée cantonaise</translation>
 <translation id="4072248638558688893">Clavier tamoul (phonétique)</translation>
@@ -283,8 +299,10 @@
 <translation id="4470564870223067757">Hangûl, dubeol-sik</translation>
 <translation id="4477219268485577442">Phonétique bulgare</translation>
 <translation id="4479812471636796472">Clavier Dvorak américain</translation>
+<translation id="4481711095103932593">Ce dossier est partagé avec Windows</translation>
 <translation id="4487088045714738411">Clavier belge</translation>
 <translation id="4522570452068850558">Détails</translation>
+<translation id="4542387084127299777">Impossible d'ouvrir « <ph name="PATH" /> »</translation>
 <translation id="4552678318981539154">Acheter de l'espace de stockage supplémentaire</translation>
 <translation id="4559767610552730302">Bokeh</translation>
 <translation id="4572815280350369984">Fichier <ph name="FILE_TYPE" /></translation>
@@ -292,6 +310,7 @@
 <translation id="4579744207439506346"><ph name="ENTRY_NAME" /> ajouté à la sélection.</translation>
 <translation id="4582497162516204941">Installer avec Linux (bêta)</translation>
 <translation id="4594543368593301662">Affichage des résultats pour <ph name="SEARCH_TERM" />.</translation>
+<translation id="4603392156942865207">Copie de <ph name="FILE_NAME" /> vers <ph name="FOLDER_NAME" /> en cours…</translation>
 <translation id="4631887759990505102">Artiste</translation>
 <translation id="4656293982926141856">Cet ordinateur</translation>
 <translation id="4669606053856530811">Les membres de « <ph name="SOURCE_NAME" /> » perdront l'accès à ces éléments à moins que ces derniers soient partagés avec eux.</translation>
@@ -325,10 +344,12 @@
 <translation id="4880520557730313061">Correction automatique</translation>
 <translation id="4881695831933465202">Ouvrir</translation>
 <translation id="4886021172213954916">Clavier tamoul (machine à écrire)</translation>
+<translation id="4900532980794411603">Partager avec Parallels Desktop</translation>
 <translation id="4905417359854579806">Prêt à sauvegarder <ph name="FILE_COUNT" /></translation>
 <translation id="4924638091161556692">Ajustée</translation>
 <translation id="4935975195727477204">Gazania</translation>
 <translation id="4943368462779413526">Football</translation>
+<translation id="4961158930123534723">1 dossier partagé avec Parallels Desktop</translation>
 <translation id="4969785127455456148">Album</translation>
 <translation id="497244430928947428">Clavier malayalam (phonétique)</translation>
 <translation id="4973523518332075481">Utilisez un nom contenant au maximum <ph name="MAX_LENGTH" /> caractères</translation>
@@ -340,10 +361,12 @@
 <translation id="5010406651457630570">Ordinateurs</translation>
 <translation id="5011233892417813670">Chromebook</translation>
 <translation id="5024856940085636730">Une opération prend plus de temps que prévu. Voulez-vous l'annuler?</translation>
+<translation id="5036159836254554629">Gérer le partage avec Parallels Desktop</translation>
 <translation id="5038625366300922036">En voir davantage...</translation>
 <translation id="5061708541166515394">Contraste</translation>
 <translation id="5068919226082848014">Pizza</translation>
 <translation id="5081517858322016911"><ph name="TOTAL_FILE_SIZE" /> de fichiers seront supprimés</translation>
+<translation id="508423945471810158">Déplacement de <ph name="NUMBER_OF_ITEMS" /> éléments vers le dossier <ph name="FOLDER_NAME" /> en cours…</translation>
 <translation id="509429900233858213">Une erreur s'est produite.</translation>
 <translation id="5098629044894065541">Hébreu</translation>
 <translation id="5123433949759960244">Basketball</translation>
@@ -390,6 +413,7 @@
 <translation id="5418923334382419584">Clavier birman</translation>
 <translation id="5428105026674456456">Espagnol</translation>
 <translation id="5438282218546237410">Aucun résultat pour <ph name="SEARCH_TERM" />.</translation>
+<translation id="5449551289610225147">Mot de passe non valide</translation>
 <translation id="5464696796438641524">Clavier polonais</translation>
 <translation id="5465122519792752163">Clavier népalais (InScript)</translation>
 <translation id="5469868506864199649">Italien</translation>
@@ -448,6 +472,7 @@
 <translation id="6054173164583630569">Clavier français</translation>
 <translation id="6074825444536523002">Formulaire Google</translation>
 <translation id="6096979789310008754">Texte de recherche effacé, tous les fichiers et dossiers sont affichés.</translation>
+<translation id="610101264611565198">Déplacement de <ph name="FILE_NAME" /> vers <ph name="FOLDER_NAME" /> en cours…</translation>
 <translation id="6111770213269631447">Translittération (namaskar → নমস্কার)</translation>
 <translation id="6129953537138746214">Espace</translation>
 <translation id="6133173853026656527">Déplacement de <ph name="FILE_NAME" /> en cours...</translation>
@@ -488,9 +513,11 @@
 <translation id="656398493051028875">Suppression de « <ph name="FILENAME" /> » en cours...</translation>
 <translation id="6581162200855843583">Lien Google Disque</translation>
 <translation id="6607272825297743757">Information sur le fichier</translation>
+<translation id="6609332149380188670"><ph name="NUMBER_OF_ITEMS" /> dossiers sont partagés avec Parallels Desktop</translation>
 <translation id="6629841649550503054">Tous les fichiers ont été sauvegardés dans <ph name="BEGIN_LINK" />Google Disque<ph name="END_LINK" />!</translation>
 <translation id="6643016212128521049">Effacer</translation>
 <translation id="6650726141019353908">Papillon rose</translation>
+<translation id="6657585470893396449">Mot de passe</translation>
 <translation id="6710213216561001401">Précédent</translation>
 <translation id="6718273304615422081">Compression au format .zip en cours...</translation>
 <translation id="6751256176799620176">1 dossier sélectionné</translation>
@@ -500,6 +527,7 @@
 <translation id="6806699711453372963">Gérer le partage Linux</translation>
 <translation id="6808193438228982088">Renard</translation>
 <translation id="6820687829547641339">Archive tar compressée avec gzip</translation>
+<translation id="6823166707458800069">Tous les fichiers enregistrés dans ce dossier sont automatiquement sauvegardés en ligne.</translation>
 <translation id="6825883775269213504">Russe</translation>
 <translation id="6827236167376090743">Cette vidéo va être lue en boucle.</translation>
 <translation id="6847101934483209767"><ph name="ENTRY_NAME" /> retiré de la sélection.</translation>
@@ -509,6 +537,7 @@
 <translation id="6878261347041253038">Clavier devanagari (phonétique)</translation>
 <translation id="6885780034956018177">Escargot</translation>
 <translation id="6896758677409633944">Copier</translation>
+<translation id="6898028766943174120">Autres sous-dossiers…</translation>
 <translation id="691516599546977041">Impossible d'enregistrer les fichiers dans le dossier <ph name="FOLDER_NAME" />. Les images modifiées seront enregistrées dans le dossier Téléchargements.</translation>
 <translation id="6915678159055240887">Chromebox</translation>
 <translation id="6918340160281024199">Workman américain</translation>
@@ -521,6 +550,7 @@
 <translation id="696203921837389374">Activer la synchronisation des données sur mobile</translation>
 <translation id="6965382102122355670">OK</translation>
 <translation id="6970230597523682626">Bulgare</translation>
+<translation id="6973630695168034713">Dossiers</translation>
 <translation id="6978611942794658017">Ce fichier est destiné à un ordinateur utilisant un logiciel Windows. Il n'est pas compatible avec votre appareil qui exécute Chrome OS. Veuillez chercher une application de remplacement appropriée dans la boutique Chrome Web Store.</translation>
 <translation id="6979158407327259162">Google Disque</translation>
 <translation id="6990081529015358884">Vous avez utilisé tout l'espace de stockage.</translation>
@@ -554,6 +584,7 @@
 <translation id="7417705661718309329">Carte Google</translation>
 <translation id="7419631653042041064">Clavier catalan</translation>
 <translation id="7434823369735508263">Clavier Dvorak britannique</translation>
+<translation id="7447678886297481665">Les fichiers dans ce dossier sont en lecture seule. Certaines activités ne sont pas prises en charge.</translation>
 <translation id="7460898608667578234">Ukrainien</translation>
 <translation id="7474889694310679759">Clavier anglais canadien</translation>
 <translation id="7489215562877293245"><ph name="FILE_COUNT" /> trouvées
@@ -663,6 +694,7 @@
 <translation id="8475647382427415476">Google Disque ne peut pas synchroniser le fichier « <ph name="FILENAME" /> » pour le moment. Google Disque réessayera plus tard.</translation>
 <translation id="8477649328507734757">Cercles concentriques</translation>
 <translation id="8487700953926739672">Offert en ligne</translation>
+<translation id="8490342535582768689">Autoriser Parallels Desktop à modifier vos fichiers sur Google Disque. Les modifications seront synchronisées sur vos autres appareils.</translation>
 <translation id="8521441079177373948">R.-U.</translation>
 <translation id="8525306231823319788">Plein écran</translation>
 <translation id="8551494947769799688">Letton</translation>
@@ -698,6 +730,7 @@
 <translation id="9065203028668620118">Modifier</translation>
 <translation id="9099674669267916096">Nombre de pages</translation>
 <translation id="9110990317705400362">Nous recherchons sans cesse à sécuriser voter navigation. Avant, n'importe quel site Web pouvait vous inviter à ajouter une extension à votre navigateur. Avec les dernières versions de Google Chrome, vous devez préciser explicitement à Chrome que vous souhaitez installer ces extensions en les ajoutant depuis la page Extensions. <ph name="BEGIN_LINK" />En savoir plus<ph name="END_LINK" /></translation>
+<translation id="9111102763498581341">Déverrouiller</translation>
 <translation id="912419004897138677">Codec</translation>
 <translation id="9129931661813833980">Épingler le dossier</translation>
 <translation id="9130775360844693113">Les membres de « <ph name="DESTINATION_NAME" /> » pourront accéder à ces éléments.</translation>

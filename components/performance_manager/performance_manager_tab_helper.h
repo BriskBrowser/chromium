@@ -18,12 +18,12 @@
 #include "content/public/browser/web_contents_observer.h"
 #include "content/public/browser/web_contents_user_data.h"
 #include "services/metrics/public/cpp/ukm_source_id.h"
+#include "third_party/blink/public/mojom/favicon/favicon_url.mojom-forward.h"
 
 namespace performance_manager {
 
 class FrameNodeImpl;
 class PageNodeImpl;
-class PerformanceManagerImpl;
 
 // This tab helper maintains a page node, and its associated tree of frame nodes
 // in the performance manager graph. It also sources a smattering of attributes
@@ -62,20 +62,27 @@ class PerformanceManagerTabHelper
   void RenderFrameDeleted(content::RenderFrameHost* render_frame_host) override;
   void RenderFrameHostChanged(content::RenderFrameHost* old_host,
                               content::RenderFrameHost* new_host) override;
-  void DidStartLoading() override;
-  void DidStopLoading() override;
   void OnVisibilityChanged(content::Visibility visibility) override;
   void OnAudioStateChanged(bool audible) override;
+  void OnFrameAudioStateChanged(content::RenderFrameHost* render_frame_host,
+                                bool is_audible) override;
   void DidFinishNavigation(
       content::NavigationHandle* navigation_handle) override;
   void TitleWasSet(content::NavigationEntry* entry) override;
+  void InnerWebContentsAttached(content::WebContents* inner_web_contents,
+                                content::RenderFrameHost* render_frame_host,
+                                bool is_full_page) override;
+  void InnerWebContentsDetached(
+      content::WebContents* inner_web_contents) override;
   void WebContentsDestroyed() override;
   void DidUpdateFaviconURL(
-      const std::vector<content::FaviconURL>& candidates) override;
+      content::RenderFrameHost* render_frame_host,
+      const std::vector<blink::mojom::FaviconURLPtr>& candidates) override;
 
   // WebContentsProxyImpl overrides.
   content::WebContents* GetWebContents() const override;
   int64_t LastNavigationId() const override;
+  int64_t LastNewDocNavigationId() const override;
 
   void BindDocumentCoordinationUnit(
       content::RenderFrameHost* render_frame_host,
@@ -83,7 +90,8 @@ class PerformanceManagerTabHelper
 
   void SetUkmSourceIdForTesting(ukm::SourceId id) { ukm_source_id_ = id; }
 
-  // Retrieves the frame node associated with |render_frame_host|.
+  // Retrieves the frame node associated with |render_frame_host|. Returns
+  // nullptr if none exist for that frame.
   FrameNodeImpl* GetFrameNode(content::RenderFrameHost* render_frame_host);
 
   class Observer : public base::CheckedObserver {
@@ -109,18 +117,8 @@ class PerformanceManagerTabHelper
   // PerformanceManagerRegistry.
   using WebContentsUserData<PerformanceManagerTabHelper>::CreateForWebContents;
 
-  // Post a task to run in the performance manager sequence. The |node| will be
-  // passed as unretained, and the closure will be created with BindOnce.
-  template <typename Functor, typename NodeType, typename... Args>
-  void PostToGraph(const base::Location& from_here,
-                   Functor&& functor,
-                   NodeType* node,
-                   Args&&... args);
+  void OnMainFrameNavigation(int64_t navigation_id, bool same_doc);
 
-  void OnMainFrameNavigation(int64_t navigation_id);
-
-  // The performance manager for this process, if any.
-  PerformanceManagerImpl* const performance_manager_;
   std::unique_ptr<PageNodeImpl> page_node_;
   ukm::SourceId ukm_source_id_ = ukm::kInvalidSourceId;
 
@@ -134,6 +132,10 @@ class PerformanceManagerTabHelper
   // The last navigation ID that was committed to a main frame in this web
   // contents.
   int64_t last_navigation_id_ = 0;
+  // Similar to the above, but for the last non same-document navigation
+  // associated with this WebContents. This is always for a navigation that is
+  // older or equal to |last_navigation_id_|.
+  int64_t last_new_doc_navigation_id_ = 0;
 
   // Maps from RenderFrameHost to the associated PM node.
   std::map<content::RenderFrameHost*, std::unique_ptr<FrameNodeImpl>> frames_;

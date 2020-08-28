@@ -7,7 +7,7 @@
 #include <string>
 #include <utility>
 
-#include "base/logging.h"
+#include "base/check_op.h"
 #include "chrome/android/modules/dev_ui/provider/dev_ui_module_provider.h"
 #include "chrome/browser/dev_ui/android/dev_ui_loader_error_page.h"
 #include "chrome/common/webui_url_constants.h"
@@ -37,6 +37,7 @@ bool IsWebUiHostInDevUiDfm(const std::string& host) {
          host == chrome::kChromeUIDomainReliabilityInternalsHost ||
          host == chrome::kChromeUIDownloadInternalsHost ||
          host == chrome::kChromeUIGCMInternalsHost ||
+         host == chrome::kChromeUIInternalsHost ||
          host == chrome::kChromeUIInterstitialHost ||
          host == chrome::kChromeUIInterventionsInternalsHost ||
          host == chrome::kChromeUIInvalidationsHost ||
@@ -46,7 +47,6 @@ bool IsWebUiHostInDevUiDfm(const std::string& host) {
          host == chrome::kChromeUINTPTilesInternalsHost ||
          host == chrome::kChromeUINetExportHost ||
          host == chrome::kChromeUINetInternalsHost ||
-         host == chrome::kChromeUINotificationsInternalsHost ||
          host == chrome::kChromeUIOmniboxHost ||
          host == chrome::kChromeUIPasswordManagerInternalsHost ||
          host == chrome::kChromeUIPolicyHost ||
@@ -60,7 +60,6 @@ bool IsWebUiHostInDevUiDfm(const std::string& host) {
          host == chrome::kChromeUISupervisedUserInternalsHost ||
          host == chrome::kChromeUISyncInternalsHost ||
          host == chrome::kChromeUITranslateInternalsHost ||
-         host == chrome::kChromeUIUkmHost ||
          host == chrome::kChromeUIUsbInternalsHost ||
          host == chrome::kChromeUIUserActionsHost ||
          host == chrome::kChromeUIWebApksHost ||
@@ -74,6 +73,7 @@ bool IsWebUiHostInDevUiDfm(const std::string& host) {
          host == content::kChromeUINetworkErrorsListingHost ||
          host == content::kChromeUIProcessInternalsHost ||
          host == content::kChromeUIServiceWorkerInternalsHost ||
+         host == content::kChromeUIUkmHost ||
          host == content::kChromeUIWebRTCInternalsHost;
 }
 
@@ -98,10 +98,8 @@ DevUiLoaderThrottle::MaybeCreateThrottleFor(content::NavigationHandle* handle) {
   if (!ShouldInstallDevUiDfm(handle->GetURL()))
     return nullptr;
 
-  // If module is already installed, ensure that it is loaded.
   if (dev_ui::DevUiModuleProvider::GetInstance()->ModuleInstalled()) {
-    // Synchronously load module (if not already loaded).
-    dev_ui::DevUiModuleProvider::GetInstance()->LoadModule();
+    dev_ui::DevUiModuleProvider::GetInstance()->EnsureLoaded();
     return nullptr;
   }
 
@@ -132,7 +130,7 @@ DevUiLoaderThrottle::WillStartRequest() {
 
 void DevUiLoaderThrottle::OnDevUiDfmInstallWithStatus(bool success) {
   if (success) {
-    dev_ui::DevUiModuleProvider::GetInstance()->LoadModule();
+    dev_ui::DevUiModuleProvider::GetInstance()->EnsureLoaded();
     Resume();
   } else {
     std::string html = BuildErrorPageHtml();

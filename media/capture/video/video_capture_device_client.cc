@@ -158,8 +158,8 @@ VideoCaptureDeviceClient::VideoCaptureDeviceClient(
       buffer_pool_(std::move(buffer_pool)),
       last_captured_pixel_format_(PIXEL_FORMAT_UNKNOWN) {
   on_started_using_gpu_cb_ =
-      base::Bind(&VideoFrameReceiver::OnStartedUsingGpuDecode,
-                 base::Unretained(receiver_.get()));
+      base::BindOnce(&VideoFrameReceiver::OnStartedUsingGpuDecode,
+                     base::Unretained(receiver_.get()));
 }
 #else
 VideoCaptureDeviceClient::VideoCaptureDeviceClient(
@@ -292,12 +292,16 @@ void VideoCaptureDeviceClient::OnIncomingCapturedData(
       DCHECK(!chopped_width && !chopped_height);
       fourcc_format = libyuv::FOURCC_YUY2;
       break;
+    case PIXEL_FORMAT_UYVY:
+      DCHECK(!chopped_width && !chopped_height);
+      fourcc_format = libyuv::FOURCC_UYVY;
+      break;
     case PIXEL_FORMAT_RGB24:
 // Linux RGB24 defines red at lowest byte address,
 // see http://linuxtv.org/downloads/v4l-dvb-apis/packed-rgb.html.
 // Windows RGB24 defines blue at lowest byte,
 // see https://msdn.microsoft.com/en-us/library/windows/desktop/dd407253
-#if defined(OS_LINUX)
+#if defined(OS_LINUX) || defined(OS_CHROMEOS)
       fourcc_format = libyuv::FOURCC_RAW;
 #elif defined(OS_WIN)
       fourcc_format = libyuv::FOURCC_24BG;
@@ -523,10 +527,9 @@ void VideoCaptureDeviceClient::OnIncomingCapturedBufferExt(
     const VideoFrameMetadata& additional_metadata) {
   DFAKE_SCOPED_RECURSIVE_LOCK(call_from_producer_);
 
-  VideoFrameMetadata metadata;
-  metadata.MergeMetadataFrom(&additional_metadata);
-  metadata.SetDouble(VideoFrameMetadata::FRAME_RATE, format.frame_rate);
-  metadata.SetTimeTicks(VideoFrameMetadata::REFERENCE_TIME, reference_time);
+  VideoFrameMetadata metadata = additional_metadata;
+  metadata.frame_rate = format.frame_rate;
+  metadata.reference_time = reference_time;
 
   mojom::VideoFrameInfoPtr info = mojom::VideoFrameInfo::New();
   info->timestamp = timestamp;
@@ -534,7 +537,7 @@ void VideoCaptureDeviceClient::OnIncomingCapturedBufferExt(
   info->color_space = color_space;
   info->coded_size = format.frame_size;
   info->visible_rect = visible_rect;
-  info->metadata = metadata.GetInternalValues().Clone();
+  info->metadata = metadata;
 
   buffer_pool_->HoldForConsumers(buffer.id, 1);
   receiver_->OnFrameReadyInBuffer(

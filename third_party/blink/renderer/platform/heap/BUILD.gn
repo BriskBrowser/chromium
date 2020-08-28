@@ -3,7 +3,8 @@
 # found in the LICENSE file.
 
 import("//build/buildflag_header.gni")
-import("//build/config/jumbo.gni")
+import("//build/config/compiler/compiler.gni")
+import("//build/config/sanitizers/sanitizers.gni")
 import("//testing/test.gni")
 import("//third_party/blink/public/public_features.gni")
 import("//third_party/blink/renderer/platform/platform.gni")
@@ -18,6 +19,28 @@ buildflag_header("blink_heap_buildflags") {
   ]
 }
 
+source_set("heap_unsanitized") {
+  if (is_asan) {
+    configs -= [ "//build/config/sanitizers:default_sanitizer_flags" ]
+  }
+  configs +=
+      [ "//third_party/blink/renderer/platform:blink_platform_implementation" ]
+
+  # std::atomic<>:: functions must be inlined.
+  configs -= [ "//build/config/compiler:default_optimization" ]
+  configs += [ "//build/config/compiler:optimize_max" ]
+
+  sources = [
+    "unsanitized_atomic.cc",
+    "unsanitized_atomic.h",
+  ]
+
+  deps = [
+    "//base",
+    "//third_party/blink/renderer/platform/wtf",
+  ]
+}
+
 blink_platform_sources("heap") {
   sources = [
     "atomic_entry_flag.h",
@@ -25,8 +48,9 @@ blink_platform_sources("heap") {
     "blink_gc.h",
     "blink_gc_memory_dump_provider.cc",
     "blink_gc_memory_dump_provider.h",
-    "cancelable_task_scheduler.cc",
-    "cancelable_task_scheduler.h",
+    "collection_support/heap_hash_table_backing.h",
+    "collection_support/heap_linked_stack.h",
+    "collection_support/heap_vector_backing.h",
     "disallow_new_wrapper.h",
     "finalizer_traits.h",
     "garbage_collected.h",
@@ -40,12 +64,13 @@ blink_platform_sources("heap") {
     "heap_allocator.h",
     "heap_compact.cc",
     "heap_compact.h",
-    "heap_linked_stack.h",
     "heap_page.cc",
     "heap_page.h",
     "heap_stats_collector.cc",
     "heap_stats_collector.h",
     "heap_traits.h",
+    "marking_scheduling_oracle.cc",
+    "marking_scheduling_oracle.h",
     "marking_verifier.cc",
     "marking_verifier.h",
     "marking_visitor.cc",
@@ -82,13 +107,19 @@ blink_platform_sources("heap") {
     ":blink_heap_buildflags",
     "//base",
     "//third_party/blink/renderer/platform:make_platform_generated",
+    "//third_party/blink/renderer/platform/heap:heap_unsanitized",
     "//third_party/blink/renderer/platform/heap/asm",
     "//third_party/icu",
     "//v8",
   ]
+
+  if (!is_debug && !optimize_for_size) {
+    configs -= [ "//build/config/compiler:default_optimization" ]
+    configs += [ "//build/config/compiler:optimize_max" ]
+  }
 }
 
-jumbo_source_set("test_support") {
+source_set("test_support") {
   testonly = true
 
   sources = [
@@ -116,30 +147,35 @@ test("blink_heap_unittests") {
   }
 }
 
-jumbo_source_set("blink_heap_unittests_sources") {
+source_set("blink_heap_unittests_sources") {
   testonly = true
   sources = [
     "../testing/run_all_tests.cc",
-    "blink_gc_memory_dump_provider_test.cc",
-    "cancelable_task_scheduler_test.cc",
-    "card_table_test.cc",
-    "concurrent_marking_test.cc",
-    "gc_info_test.cc",
-    "heap_compact_test.cc",
-    "heap_stats_collector_test.cc",
-    "heap_test.cc",
-    "heap_thread_test.cc",
-    "heap_traits_test.cc",
-    "incremental_marking_test.cc",
-    "marking_verifier_test.cc",
-    "name_trait_test.cc",
-    "object_start_bitmap_test.cc",
-    "persistent_test.cc",
-    "thread_state_scheduling_test.cc",
-    "weakness_marking_test.cc",
-    "worklist_test.cc",
-    "write_barrier_perftest.cc",
+    "test/blink_gc_memory_dump_provider_test.cc",
+    "test/card_table_test.cc",
+    "test/concurrent_marking_test.cc",
+    "test/gc_info_test.cc",
+    "test/heap_compact_test.cc",
+    "test/heap_linked_stack_test.cc",
+    "test/heap_stats_collector_test.cc",
+    "test/heap_test.cc",
+    "test/heap_thread_test.cc",
+    "test/heap_traits_test.cc",
+    "test/incremental_marking_test.cc",
+    "test/marking_scheduling_oracle_test.cc",
+    "test/marking_verifier_test.cc",
+    "test/name_trait_test.cc",
+    "test/object_start_bitmap_test.cc",
+    "test/persistent_test.cc",
+    "test/thread_state_scheduling_test.cc",
+    "test/weakness_marking_test.cc",
+    "test/worklist_test.cc",
+    "test/write_barrier_perftest.cc",
   ]
+
+  if (enable_blink_heap_young_generation) {
+    sources += [ "test/minor_gc_test.cc" ]
+  }
 
   configs += [
     "//third_party/blink/renderer/platform/wtf:wtf_config",

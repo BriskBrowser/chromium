@@ -14,6 +14,12 @@ class CompositingInputsUpdaterTest : public RenderingTest {
  public:
   CompositingInputsUpdaterTest()
       : RenderingTest(MakeGarbageCollected<SingleChildLocalFrameClient>()) {}
+
+ protected:
+  void SetUp() override {
+    EnableCompositing();
+    RenderingTest::SetUp();
+  }
 };
 
 // Tests that transitioning a sticky away from an ancestor overflow layer that
@@ -69,7 +75,8 @@ TEST_F(CompositingInputsUpdaterTest,
 
   // Before we update compositing inputs, validate that the current ancestor
   // overflow no longer has a scrollable area.
-  GetDocument().View()->UpdateLifecycleToLayoutClean();
+  GetDocument().View()->UpdateLifecycleToLayoutClean(
+      DocumentUpdateReason::kTest);
   EXPECT_FALSE(sticky->Layer()->AncestorOverflowLayer()->GetScrollableArea());
   EXPECT_EQ(sticky->Layer()->AncestorOverflowLayer(), outer_scroller->Layer());
 
@@ -99,8 +106,8 @@ TEST_F(CompositingInputsUpdaterTest, UnclippedAndClippedRectsUnderScroll) {
   LayoutBoxModelObject* target =
       ToLayoutBoxModelObject(GetLayoutObjectByElementId("target"));
 
-  GetDocument().View()->LayoutViewport()->ScrollBy(ScrollOffset(0, 25),
-                                                   kUserScroll);
+  GetDocument().View()->LayoutViewport()->ScrollBy(
+      ScrollOffset(0, 25), mojom::blink::ScrollType::kUser);
   GetDocument()
       .View()
       ->GetLayoutView()
@@ -125,8 +132,8 @@ TEST_F(CompositingInputsUpdaterTest,
   LayoutBoxModelObject* target =
       ToLayoutBoxModelObject(GetLayoutObjectByElementId("target"));
 
-  GetDocument().View()->LayoutViewport()->ScrollBy(ScrollOffset(0, 25),
-                                                   kUserScroll);
+  GetDocument().View()->LayoutViewport()->ScrollBy(
+      ScrollOffset(0, 25), mojom::blink::ScrollType::kUser);
   GetDocument()
       .View()
       ->GetLayoutView()
@@ -134,10 +141,18 @@ TEST_F(CompositingInputsUpdaterTest,
       ->SetNeedsCompositingInputsUpdate();
 
   UpdateAllLifecyclePhasesForTest();
-  EXPECT_EQ(IntRect(8, 8, 200, 200),
-            target->Layer()->ClippedAbsoluteBoundingBox());
-  EXPECT_EQ(IntRect(8, 8, 200, 200),
-            target->Layer()->UnclippedAbsoluteBoundingBox());
+  if (RuntimeEnabledFeatures::CompositingOptimizationsEnabled()) {
+    EXPECT_EQ(IntRect(8, 33, 200, 200),
+              target->Layer()->ClippedAbsoluteBoundingBox());
+    EXPECT_EQ(IntRect(8, 33, 200, 200),
+              target->Layer()->UnclippedAbsoluteBoundingBox());
+
+  } else {
+    EXPECT_EQ(IntRect(8, 8, 200, 200),
+              target->Layer()->ClippedAbsoluteBoundingBox());
+    EXPECT_EQ(IntRect(8, 8, 200, 200),
+              target->Layer()->UnclippedAbsoluteBoundingBox());
+  }
 }
 
 TEST_F(CompositingInputsUpdaterTest, ClipPathAncestor) {

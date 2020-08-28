@@ -13,7 +13,7 @@
 #include "base/single_thread_task_runner.h"
 #include "base/stl_util.h"
 #include "base/synchronization/waitable_event.h"
-#include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
 #include "base/task/thread_pool/thread_pool_instance.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "chrome/browser/sync_file_system/local/canned_syncable_file_system.h"
@@ -37,7 +37,6 @@
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/leveldatabase/leveldb_chrome.h"
 
-using content::BrowserThread;
 using storage::FileSystemURL;
 using storage::FileSystemURLSet;
 using ::testing::AnyNumber;
@@ -79,7 +78,7 @@ void AssignValueAndQuit(base::RunLoop* run_loop,
 void VerifyFileError(base::Closure callback,
                      base::File::Error error) {
   EXPECT_EQ(base::File::FILE_OK, error);
-  base::PostTask(FROM_HERE, {BrowserThread::UI}, callback);
+  content::GetUIThreadTaskRunner({})->PostTask(FROM_HERE, callback);
 }
 
 }  // namespace
@@ -135,10 +134,8 @@ class SyncFileSystemServiceTest : public testing::Test {
   void SetUp() override {
     in_memory_env_ = leveldb_chrome::NewMemEnv("SyncFileSystemServiceTest");
     file_system_.reset(new CannedSyncableFileSystem(
-        GURL(kOrigin), in_memory_env_.get(),
-        base::CreateSingleThreadTaskRunner({BrowserThread::IO}),
-        base::CreateSingleThreadTaskRunner(
-            {base::ThreadPool(), base::MayBlock()})));
+        GURL(kOrigin), in_memory_env_.get(), content::GetIOThreadTaskRunner({}),
+        base::ThreadPool::CreateSingleThreadTaskRunner({base::MayBlock()})));
 
     std::unique_ptr<LocalFileSyncService> local_service =
         LocalFileSyncService::CreateForTesting(&profile_, in_memory_env_.get());
@@ -425,8 +422,8 @@ TEST_F(SyncFileSystemServiceTest, SimpleSyncFlowWithFileBusy) {
 
   // Start a local operation on the same file (to make it BUSY).
   base::RunLoop verify_file_error_run_loop;
-  base::PostTask(
-      FROM_HERE, {BrowserThread::IO},
+  content::GetIOThreadTaskRunner({})->PostTask(
+      FROM_HERE,
       base::BindOnce(&CannedSyncableFileSystem::DoCreateFile,
                      base::Unretained(file_system_.get()), kFile,
                      base::Bind(&VerifyFileError,

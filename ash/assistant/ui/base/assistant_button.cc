@@ -12,7 +12,7 @@
 #include "ui/gfx/paint_vector_icon.h"
 #include "ui/views/animation/flood_fill_ink_drop_ripple.h"
 #include "ui/views/animation/ink_drop_impl.h"
-#include "ui/views/animation/ink_drop_mask.h"
+#include "ui/views/controls/highlight_path_generator.h"
 
 namespace ash {
 
@@ -24,13 +24,21 @@ constexpr int kInkDropInset = 2;
 
 }  // namespace
 
+// AssistantButton::InitParams -------------------------------------------------
+
+AssistantButton::InitParams::InitParams() = default;
+AssistantButton::InitParams::InitParams(InitParams&&) = default;
+AssistantButton::InitParams::~InitParams() = default;
+
+// AssistantButton -------------------------------------------------------------
+
 AssistantButton::AssistantButton(AssistantButtonListener* listener,
                                  AssistantButtonId button_id)
     : views::ImageButton(this), listener_(listener), id_(button_id) {
   constexpr SkColor kInkDropBaseColor = SK_ColorBLACK;
   constexpr float kInkDropVisibleOpacity = 0.06f;
 
-  // Avoid drawing default focus rings since assistant buttons use
+  // Avoid drawing default focus rings since Assistant buttons use
   // a custom highlight on focus.
   SetInstallFocusRingOnFocus(false);
 
@@ -38,6 +46,7 @@ AssistantButton::AssistantButton(AssistantButtonListener* listener,
   SetFocusForPlatform();
 
   // Image.
+  EnableCanvasFlippingForRTLUI(false);
   SetImageHorizontalAlignment(views::ImageButton::ALIGN_CENTER);
   SetImageVerticalAlignment(views::ImageButton::ALIGN_MIDDLE);
 
@@ -46,28 +55,34 @@ AssistantButton::AssistantButton(AssistantButtonListener* listener,
   set_has_ink_drop_action_on_click(true);
   set_ink_drop_base_color(kInkDropBaseColor);
   set_ink_drop_visible_opacity(kInkDropVisibleOpacity);
+  views::InstallCircleHighlightPathGenerator(this, gfx::Insets(kInkDropInset));
 }
 
 AssistantButton::~AssistantButton() = default;
 
 // static
-AssistantButton* AssistantButton::Create(AssistantButtonListener* listener,
-                                         const gfx::VectorIcon& icon,
-                                         int size_in_dip,
-                                         int icon_size_in_dip,
-                                         int accessible_name_id,
-                                         AssistantButtonId button_id,
-                                         base::Optional<int> tooltip_id,
-                                         SkColor icon_color) {
-  auto* button = new AssistantButton(listener, button_id);
-  button->SetAccessibleName(l10n_util::GetStringUTF16(accessible_name_id));
+std::unique_ptr<AssistantButton> AssistantButton::Create(
+    AssistantButtonListener* listener,
+    const gfx::VectorIcon& icon,
+    AssistantButtonId button_id,
+    InitParams params) {
+  DCHECK_GT(params.size_in_dip, 0);
+  DCHECK_GT(params.icon_size_in_dip, 0);
+  DCHECK(params.accessible_name_id.has_value());
 
-  if (tooltip_id)
-    button->SetTooltipText(l10n_util::GetStringUTF16(tooltip_id.value()));
+  auto button = std::make_unique<AssistantButton>(listener, button_id);
+  button->SetAccessibleName(
+      l10n_util::GetStringUTF16(params.accessible_name_id.value()));
 
-  button->SetImage(views::Button::STATE_NORMAL,
-                   gfx::CreateVectorIcon(icon, icon_size_in_dip, icon_color));
-  button->SetPreferredSize(gfx::Size(size_in_dip, size_in_dip));
+  if (params.tooltip_id) {
+    button->SetTooltipText(
+        l10n_util::GetStringUTF16(params.tooltip_id.value()));
+  }
+
+  button->SetImage(
+      views::Button::STATE_NORMAL,
+      gfx::CreateVectorIcon(icon, params.icon_size_in_dip, params.icon_color));
+  button->SetPreferredSize(gfx::Size(params.size_in_dip, params.size_in_dip));
   return button;
 }
 
@@ -88,22 +103,15 @@ std::unique_ptr<views::InkDrop> AssistantButton::CreateInkDrop() {
       std::make_unique<views::InkDropImpl>(this, size());
   ink_drop->SetAutoHighlightMode(
       views::InkDropImpl::AutoHighlightMode::SHOW_ON_RIPPLE);
-  ink_drop->SetShowHighlightOnHover(true);
   return ink_drop;
 }
 
 std::unique_ptr<views::InkDropHighlight>
 AssistantButton::CreateInkDropHighlight() const {
-  return std::make_unique<views::InkDropHighlight>(
-      gfx::PointF(GetLocalBounds().CenterPoint()),
-      std::make_unique<views::CircleLayerDelegate>(
-          SkColorSetA(GetInkDropBaseColor(), 0xff * kInkDropHighlightOpacity),
-          size().width() / 2 - kInkDropInset));
-}
-
-std::unique_ptr<views::InkDropMask> AssistantButton::CreateInkDropMask() const {
-  return std::make_unique<views::RoundRectInkDropMask>(
-      size(), gfx::Insets(kInkDropInset), size().width() / 2);
+  auto highlight = std::make_unique<views::InkDropHighlight>(
+      gfx::SizeF(size()), GetInkDropBaseColor());
+  highlight->set_visible_opacity(kInkDropHighlightOpacity);
+  return highlight;
 }
 
 std::unique_ptr<views::InkDropRipple> AssistantButton::CreateInkDropRipple()

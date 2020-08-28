@@ -6,6 +6,7 @@
 
 #include <utility>
 
+#include "base/memory/ptr_util.h"
 #include "content/common/service_worker/service_worker_utils.h"
 #include "content/public/common/origin_util.h"
 #include "content/public/renderer/render_frame_observer.h"
@@ -61,17 +62,17 @@ class ServiceWorkerNetworkProviderForFrame::NewDocumentObserver
 std::unique_ptr<ServiceWorkerNetworkProviderForFrame>
 ServiceWorkerNetworkProviderForFrame::Create(
     RenderFrameImpl* frame,
-    blink::mojom::ServiceWorkerProviderInfoForClientPtr provider_info,
+    blink::mojom::ServiceWorkerContainerInfoForClientPtr container_info,
     blink::mojom::ControllerServiceWorkerInfoPtr controller_info,
     scoped_refptr<network::SharedURLLoaderFactory> fallback_loader_factory) {
-  DCHECK(provider_info);
+  DCHECK(container_info);
 
   auto provider =
       base::WrapUnique(new ServiceWorkerNetworkProviderForFrame(frame));
   provider->context_ = base::MakeRefCounted<ServiceWorkerProviderContext>(
-      blink::mojom::ServiceWorkerProviderType::kForWindow,
-      std::move(provider_info->client_receiver),
-      std::move(provider_info->host_remote), std::move(controller_info),
+      blink::mojom::ServiceWorkerContainerType::kForWindow,
+      std::move(container_info->client_receiver),
+      std::move(container_info->host_remote), std::move(controller_info),
       std::move(fallback_loader_factory));
 
   return provider;
@@ -174,14 +175,13 @@ void ServiceWorkerNetworkProviderForFrame::DispatchNetworkQuiet() {
   context()->DispatchNetworkQuiet();
 }
 
-mojo::ScopedMessagePipeHandle
+blink::CrossVariantMojoReceiver<
+    blink::mojom::WorkerTimingContainerInterfaceBase>
 ServiceWorkerNetworkProviderForFrame::TakePendingWorkerTimingReceiver(
     int request_id) {
   if (!context())
     return {};
-  auto worker_timing_receiver =
-      context()->TakePendingWorkerTimingReceiver(request_id);
-  return worker_timing_receiver.PassPipe();
+  return context()->TakePendingWorkerTimingReceiver(request_id);
 }
 
 void ServiceWorkerNetworkProviderForFrame::NotifyExecutionReady() {

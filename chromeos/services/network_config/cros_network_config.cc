@@ -4,17 +4,23 @@
 
 #include "chromeos/services/network_config/cros_network_config.h"
 
+#include <vector>
+
+#include "base/strings/string_util.h"
+#include "chromeos/components/sync_wifi/network_eligibility_checker.h"
 #include "chromeos/login/login_state/login_state.h"
 #include "chromeos/network/device_state.h"
 #include "chromeos/network/managed_network_configuration_handler.h"
 #include "chromeos/network/network_connection_handler.h"
 #include "chromeos/network/network_device_handler.h"
 #include "chromeos/network/network_handler.h"
+#include "chromeos/network/network_metadata_store.h"
 #include "chromeos/network/network_state.h"
 #include "chromeos/network/network_state_handler.h"
 #include "chromeos/network/network_type_pattern.h"
 #include "chromeos/network/network_util.h"
 #include "chromeos/network/onc/onc_translation_tables.h"
+#include "chromeos/network/prohibited_technologies_handler.h"
 #include "chromeos/network/proxy/ui_proxy_config_service.h"
 #include "chromeos/services/network_config/public/cpp/cros_network_config_util.h"
 #include "chromeos/services/network_config/public/mojom/cros_network_config_mojom_traits.h"
@@ -23,6 +29,7 @@
 #include "components/user_manager/user_manager.h"
 #include "net/base/ip_address.h"
 #include "third_party/cros_system_api/dbus/service_constants.h"
+#include "third_party/cros_system_api/dbus/shill/dbus-constants.h"
 
 using user_manager::UserManager;
 
@@ -181,6 +188,19 @@ std::string MojoVpnTypeToOnc(mojom::VpnType mojo_vpn_type) {
   return ::onc::vpn::kOpenVPN;
 }
 
+bool GetIsConfiguredByUser(const std::string& network_guid) {
+  if (!NetworkHandler::IsInitialized())
+    return false;
+
+  NetworkMetadataStore* network_metadata_store =
+      NetworkHandler::Get()->network_metadata_store();
+
+  if (!network_metadata_store)
+    return false;
+
+  return network_metadata_store->GetIsCreatedByUser(network_guid);
+}
+
 mojom::DeviceStateType GetMojoDeviceStateType(
     NetworkStateHandler::TechnologyState technology_state) {
   switch (technology_state) {
@@ -191,8 +211,7 @@ mojom::DeviceStateType GetMojoDeviceStateType(
     case NetworkStateHandler::TECHNOLOGY_AVAILABLE:
       return mojom::DeviceStateType::kDisabled;
     case NetworkStateHandler::TECHNOLOGY_DISABLING:
-      // TODO(jonmann): Add a DeviceStateType::kDisabling.
-      return mojom::DeviceStateType::kDisabled;
+      return mojom::DeviceStateType::kDisabling;
     case NetworkStateHandler::TECHNOLOGY_ENABLING:
       return mojom::DeviceStateType::kEnabling;
     case NetworkStateHandler::TECHNOLOGY_ENABLED:
@@ -234,6 +253,24 @@ const std::string& GetVpnProviderName(
   return base::EmptyString();
 }
 
+mojom::DeviceStatePropertiesPtr GetVpnState() {
+  auto result = mojom::DeviceStateProperties::New();
+  result->type = mojom::NetworkType::kVPN;
+
+  bool vpn_disabled = false;
+  if (NetworkHandler::IsInitialized()) {
+    std::vector<std::string> prohibited_technologies =
+        NetworkHandler::Get()
+            ->prohibited_technologies_handler()
+            ->GetCurrentlyProhibitedTechnologies();
+    vpn_disabled = base::Contains(prohibited_technologies, shill::kTypeVPN);
+  }
+
+  result->device_state = vpn_disabled ? mojom::DeviceStateType::kProhibited
+                                      : mojom::DeviceStateType::kEnabled;
+  return result;
+}
+
 mojom::NetworkStatePropertiesPtr NetworkStateToMojo(
     NetworkStateHandler* network_state_handler,
     const std::vector<mojom::VpnProviderPtr>& vpn_providers,
@@ -254,15 +291,14 @@ mojom::NetworkStatePropertiesPtr NetworkStateToMojo(
     const DeviceState* device =
         network_state_handler->GetDeviceState(network->device_path());
     if (!device) {
-      // When a device is removed (e.g. cellular modem unplugged) it's possible
-      // for the device object to disappear before networks on that device
-      // are cleaned up.  This fixes crbug/1001687.
-      NET_LOG(DEBUG) << "Cellular is not available.";
-      return nullptr;
-    }
-
-    if (device->IsSimLocked() || device->scanning())
+      // When a device is removed or SIM is replaced, the Shill Service may
+      // outlive the Device. Such services are not connectable.
+      NET_LOG(DEBUG) << "Cellular device is not available: "
+                     << network->device_path();
       result->connectable = false;
+    } else if (device->IsSimLocked() || device->scanning()) {
+      result->connectable = false;
+    }
   }
   result->connect_requested = network->connect_requested();
   bool technology_enabled = network->Matches(NetworkTypePattern::VPN()) ||
@@ -276,17 +312,11 @@ mojom::NetworkStatePropertiesPtr NetworkStateToMojo(
   result->priority = network->priority();
   result->prohibited_by_policy = network->blocked_by_policy();
   result->source = GetMojoOncSource(network);
-
-  // NetworkHandler and UIProxyConfigService may not exist in tests.
-  UIProxyConfigService* ui_proxy_config_service =
-      NetworkHandler::IsInitialized() &&
-              NetworkHandler::Get()->has_ui_proxy_config_service()
-          ? NetworkHandler::Get()->ui_proxy_config_service()
-          : nullptr;
   result->proxy_mode =
-      ui_proxy_config_service
+      NetworkHandler::HasUiProxyConfigService()
           ? mojom::ProxyMode(
-                ui_proxy_config_service->ProxyModeForNetwork(network))
+                NetworkHandler::GetUiProxyConfigService()->ProxyModeForNetwork(
+                    network))
           : mojom::ProxyMode::kDirect;
 
   const NetworkState::CaptivePortalProviderInfo* captive_portal_provider =
@@ -309,7 +339,7 @@ mojom::NetworkStatePropertiesPtr NetworkStateToMojo(
 
       const DeviceState* cellular_device =
           network_state_handler->GetDeviceState(network->device_path());
-      cellular->sim_locked = cellular_device->IsSimLocked();
+      cellular->sim_locked = cellular_device && cellular_device->IsSimLocked();
       result->type_state =
           mojom::NetworkTypeStateProperties::NewCellular(std::move(cellular));
       break;
@@ -1086,9 +1116,8 @@ mojom::ManagedOpenVPNPropertiesPtr GetManagedOpenVPNProperties(
       GetManagedString(openvpn_dict, ::onc::client_cert::kClientCertRef);
   openvpn->client_cert_type =
       GetManagedString(openvpn_dict, ::onc::client_cert::kClientCertType);
-  openvpn->comp_lzo = GetManagedString(openvpn_dict, ::onc::openvpn::kCompLZO);
-  openvpn->comp_no_adapt =
-      GetManagedBoolean(openvpn_dict, ::onc::openvpn::kCompNoAdapt);
+  openvpn->compression_algorithm =
+      GetManagedString(openvpn_dict, ::onc::openvpn::kCompressionAlgorithm);
   openvpn->extra_hosts =
       GetManagedStringList(openvpn_dict, ::onc::openvpn::kExtraHosts);
   openvpn->ignore_default_route =
@@ -1150,7 +1179,7 @@ mojom::ManagedOpenVPNPropertiesPtr GetManagedOpenVPNProperties(
 mojom::ManagedPropertiesPtr ManagedPropertiesToMojo(
     const NetworkState* network_state,
     const std::vector<mojom::VpnProviderPtr>& vpn_providers,
-    const base::DictionaryValue* properties) {
+    const base::Value* properties) {
   DCHECK(network_state);
   DCHECK(properties);
   base::Optional<std::string> onc_type =
@@ -1205,6 +1234,8 @@ mojom::ManagedPropertiesPtr ManagedPropertiesToMojo(
   // Managed properties
   result->ip_address_config_type =
       GetManagedString(properties, ::onc::network_config::kIPAddressConfigType);
+  result->metered =
+      GetManagedBoolean(properties, ::onc::network_config::kMetered);
   result->name = GetManagedString(properties, ::onc::network_config::kName);
   result->name_servers_config_type = GetManagedString(
       properties, ::onc::network_config::kNameServersConfigType);
@@ -1395,7 +1426,6 @@ mojom::ManagedPropertiesPtr ManagedPropertiesToMojo(
       wifi->frequency = GetInt32(wifi_dict, ::onc::wifi::kFrequency);
       wifi->frequency_list =
           GetInt32List(wifi_dict, ::onc::wifi::kFrequencyList);
-      wifi->ft_enabled = GetManagedBoolean(wifi_dict, ::onc::wifi::kFTEnabled);
       wifi->hex_ssid = GetManagedString(wifi_dict, ::onc::wifi::kHexSSID);
       wifi->hidden_ssid =
           GetManagedBoolean(wifi_dict, ::onc::wifi::kHiddenSSID);
@@ -1405,6 +1435,11 @@ mojom::ManagedPropertiesPtr ManagedPropertiesToMojo(
       wifi->signal_strength = GetInt32(wifi_dict, ::onc::wifi::kSignalStrength);
       wifi->tethering_state =
           GetString(wifi_dict, ::onc::wifi::kTetheringState);
+      wifi->is_syncable = sync_wifi::IsEligibleForSync(
+          result->guid, result->connectable, wifi->security, result->source,
+          /*log_result=*/false);
+      wifi->is_configured_by_active_user = GetIsConfiguredByUser(result->guid);
+
       result->type_properties =
           mojom::NetworkTypeManagedProperties::NewWifi(std::move(wifi));
       break;
@@ -1561,7 +1596,10 @@ std::unique_ptr<base::DictionaryValue> GetOncFromConfigProperties(
                 open_vpn.user_authentication_type, &open_vpn_dict);
       type_dict.SetKey(::onc::vpn::kOpenVPN, std::move(open_vpn_dict));
     }
-    SetString(::onc::vpn::kType, MojoVpnTypeToOnc(vpn.type), &type_dict);
+    if (vpn.type) {
+      SetString(::onc::vpn::kType, MojoVpnTypeToOnc(vpn.type->value),
+                &type_dict);
+    }
   } else if (properties->type_config->is_wifi()) {
     type = mojom::NetworkType::kWiFi;
     const mojom::WiFiConfigProperties& wifi =
@@ -1589,9 +1627,11 @@ std::unique_ptr<base::DictionaryValue> GetOncFromConfigProperties(
     onc->SetStringKey(::onc::network_config::kIPAddressConfigType,
                       *properties->ip_address_config_type);
   }
-
+  if (properties->metered) {
+    onc->SetBoolKey(::onc::network_config::kMetered,
+                    properties->metered->value);
+  }
   SetString(::onc::network_config::kName, properties->name, onc.get());
-
   SetString(::onc::network_config::kNameServersConfigType,
             properties->name_servers_config_type, onc.get());
 
@@ -1800,6 +1840,12 @@ void CrosNetworkConfig::GetDeviceStateList(
     if (mojo_device)
       result.emplace_back(std::move(mojo_device));
   }
+
+  // Handle VPN state separately because VPN is not considered a device by shill
+  // and thus will not be included in the |devices| list returned by network
+  // state handler. In the UI code, it is treated as a "device" for consistency.
+  result.emplace_back(GetVpnState());
+
   std::move(callback).Run(std::move(result));
 }
 
@@ -1820,32 +1866,33 @@ void CrosNetworkConfig::GetManagedProperties(
     return;
   }
 
-  int callback_id = callback_id_++;
-  get_managed_properties_callbacks_[callback_id] = std::move(callback);
-
   network_configuration_handler_->GetManagedProperties(
       chromeos::LoginState::Get()->primary_user_hash(), network->path(),
-      base::Bind(&CrosNetworkConfig::GetManagedPropertiesSuccess,
-                 weak_factory_.GetWeakPtr(), callback_id),
-      base::Bind(&CrosNetworkConfig::GetManagedPropertiesFailure,
-                 weak_factory_.GetWeakPtr(), guid, callback_id));
+      base::BindOnce(&CrosNetworkConfig::OnGetManagedProperties,
+                     weak_factory_.GetWeakPtr(), std::move(callback), guid));
 }
 
-void CrosNetworkConfig::GetManagedPropertiesSuccess(
-    int callback_id,
+void CrosNetworkConfig::OnGetManagedProperties(
+    GetManagedPropertiesCallback callback,
+    std::string guid,
     const std::string& service_path,
-    const base::DictionaryValue& properties) {
-  auto iter = get_managed_properties_callbacks_.find(callback_id);
-  DCHECK(iter != get_managed_properties_callbacks_.end());
+    base::Optional<base::Value> properties,
+    base::Optional<std::string> error) {
+  if (!properties) {
+    NET_LOG(ERROR) << "GetManagedProperties failed for: " << guid
+                   << " Error: " << error.value_or("Failed");
+    std::move(callback).Run(nullptr);
+    return;
+  }
   const NetworkState* network_state =
       network_state_handler_->GetNetworkState(service_path);
   if (!network_state) {
     NET_LOG(ERROR) << "Network not found: " << service_path;
-    std::move(iter->second).Run(nullptr);
+    std::move(callback).Run(nullptr);
     return;
   }
-  mojom::ManagedPropertiesPtr managed_properties =
-      ManagedPropertiesToMojo(network_state, vpn_providers_, &properties);
+  mojom::ManagedPropertiesPtr managed_properties = ManagedPropertiesToMojo(
+      network_state, vpn_providers_, &properties.value());
 
   // For Ethernet networks with no authentication, check for a separate
   // EthernetEAP configuration.
@@ -1861,8 +1908,7 @@ void CrosNetworkConfig::GetManagedPropertiesSuccess(
   }
   if (!eap_state) {
     // No EAP properties, return the managed properties as-is.
-    std::move(iter->second).Run(std::move(managed_properties));
-    get_managed_properties_callbacks_.erase(iter);
+    std::move(callback).Run(std::move(managed_properties));
     return;
   }
 
@@ -1871,74 +1917,35 @@ void CrosNetworkConfig::GetManagedPropertiesSuccess(
   // be returned as-is.
   NET_LOG(DEBUG) << "Requesting EAP state for: " + service_path
                  << " from: " << eap_state->path();
-  managed_properties_[callback_id] = std::move(managed_properties);
   network_configuration_handler_->GetManagedProperties(
       chromeos::LoginState::Get()->primary_user_hash(), eap_state->path(),
-      base::Bind(&CrosNetworkConfig::GetManagedPropertiesSuccessEap,
-                 weak_factory_.GetWeakPtr(), callback_id),
-      base::Bind(&CrosNetworkConfig::GetManagedPropertiesSuccessNoEap,
-                 weak_factory_.GetWeakPtr(), callback_id));
+      base::BindOnce(&CrosNetworkConfig::OnGetManagedPropertiesEap,
+                     weak_factory_.GetWeakPtr(), std::move(callback),
+                     std::move(managed_properties)));
 }
 
-void CrosNetworkConfig::GetManagedPropertiesSuccessEap(
-    int callback_id,
+void CrosNetworkConfig::OnGetManagedPropertiesEap(
+    GetManagedPropertiesCallback callback,
+    mojom::ManagedPropertiesPtr managed_properties,
     const std::string& service_path,
-    const base::DictionaryValue& eap_properties) {
-  auto iter = get_managed_properties_callbacks_.find(callback_id);
-  DCHECK(iter != get_managed_properties_callbacks_.end());
-
-  auto properties_iter = managed_properties_.find(callback_id);
-  DCHECK(properties_iter != managed_properties_.end());
-  mojom::ManagedPropertiesPtr managed_properties =
-      std::move(properties_iter->second);
-  managed_properties_.erase(properties_iter);
-
-  // Copy the EAP properties to |managed_properties_| before sending.
-  const base::Value* ethernet_dict =
-      GetDictionary(&eap_properties, ::onc::network_config::kEthernet);
-  if (ethernet_dict) {
-    auto ethernet = mojom::ManagedEthernetProperties::New();
-    ethernet->authentication =
-        GetManagedString(ethernet_dict, ::onc::ethernet::kAuthentication);
-    ethernet->eap =
-        GetManagedEAPProperties(ethernet_dict, ::onc::ethernet::kEAP);
-    managed_properties->type_properties =
-        mojom::NetworkTypeManagedProperties::NewEthernet(std::move(ethernet));
+    base::Optional<base::Value> eap_properties,
+    base::Optional<std::string> error) {
+  if (eap_properties) {
+    // Copy the EAP properties to |managed_properties| before sending.
+    const base::Value* ethernet_dict =
+        eap_properties->FindDictKey(::onc::network_config::kEthernet);
+    if (ethernet_dict) {
+      auto ethernet = mojom::ManagedEthernetProperties::New();
+      ethernet->authentication =
+          GetManagedString(ethernet_dict, ::onc::ethernet::kAuthentication);
+      ethernet->eap =
+          GetManagedEAPProperties(ethernet_dict, ::onc::ethernet::kEAP);
+      managed_properties->type_properties =
+          mojom::NetworkTypeManagedProperties::NewEthernet(std::move(ethernet));
+    }
   }
 
-  std::move(iter->second).Run(std::move(managed_properties));
-  get_managed_properties_callbacks_.erase(iter);
-}
-
-void CrosNetworkConfig::GetManagedPropertiesSuccessNoEap(
-    int callback_id,
-    const std::string& error_name,
-    std::unique_ptr<base::DictionaryValue> error_data) {
-  auto iter = get_managed_properties_callbacks_.find(callback_id);
-  DCHECK(iter != get_managed_properties_callbacks_.end());
-
-  auto properties_iter = managed_properties_.find(callback_id);
-  DCHECK(properties_iter != managed_properties_.end());
-  mojom::ManagedPropertiesPtr managed_properties =
-      std::move(properties_iter->second);
-  managed_properties_.erase(properties_iter);
-
-  // No EAP properties, send the unmodified managed_properties_.
-  std::move(iter->second).Run(std::move(managed_properties));
-  get_managed_properties_callbacks_.erase(iter);
-}
-
-void CrosNetworkConfig::GetManagedPropertiesFailure(
-    std::string guid,
-    int callback_id,
-    const std::string& error_name,
-    std::unique_ptr<base::DictionaryValue> error_data) {
-  auto iter = get_managed_properties_callbacks_.find(callback_id);
-  DCHECK(iter != get_managed_properties_callbacks_.end());
-  NET_LOG(ERROR) << "Failed to get network properties: " << guid
-                 << " Error: " << error_name;
-  std::move(iter->second).Run(nullptr);
-  get_managed_properties_callbacks_.erase(iter);
+  std::move(callback).Run(std::move(managed_properties));
 }
 
 void CrosNetworkConfig::SetProperties(const std::string& guid,
@@ -1998,19 +2005,19 @@ void CrosNetworkConfig::SetProperties(const std::string& guid,
     std::string user_id_hash = LoginState::Get()->primary_user_hash();
     network_configuration_handler_->CreateConfiguration(
         user_id_hash, *onc,
-        base::Bind(&CrosNetworkConfig::SetPropertiesConfigureSuccess,
-                   weak_factory_.GetWeakPtr(), callback_id),
-        base::Bind(&CrosNetworkConfig::SetPropertiesFailure,
-                   weak_factory_.GetWeakPtr(), guid, callback_id));
+        base::BindOnce(&CrosNetworkConfig::SetPropertiesConfigureSuccess,
+                       weak_factory_.GetWeakPtr(), callback_id),
+        base::BindOnce(&CrosNetworkConfig::SetPropertiesFailure,
+                       weak_factory_.GetWeakPtr(), guid, callback_id));
     return;
   }
 
   network_configuration_handler_->SetProperties(
       network->path(), *onc,
-      base::Bind(&CrosNetworkConfig::SetPropertiesSuccess,
-                 weak_factory_.GetWeakPtr(), callback_id),
-      base::Bind(&CrosNetworkConfig::SetPropertiesFailure,
-                 weak_factory_.GetWeakPtr(), guid, callback_id));
+      base::BindOnce(&CrosNetworkConfig::SetPropertiesSuccess,
+                     weak_factory_.GetWeakPtr(), callback_id),
+      base::BindOnce(&CrosNetworkConfig::SetPropertiesFailure,
+                     weak_factory_.GetWeakPtr(), guid, callback_id));
 }
 
 void CrosNetworkConfig::SetPropertiesSuccess(int callback_id) {
@@ -2057,6 +2064,7 @@ void CrosNetworkConfig::ConfigureNetwork(mojom::ConfigPropertiesPtr properties,
     NET_LOG(ERROR)
         << "Attempt to set unshared configuration from non primary user";
     std::move(callback).Run(/*guid=*/base::nullopt, kErrorAccessToSharedConfig);
+    return;
   }
 
   std::unique_ptr<base::DictionaryValue> onc =
@@ -2075,10 +2083,10 @@ void CrosNetworkConfig::ConfigureNetwork(mojom::ConfigPropertiesPtr properties,
 
   network_configuration_handler_->CreateConfiguration(
       user_id_hash, *onc,
-      base::Bind(&CrosNetworkConfig::ConfigureNetworkSuccess,
-                 weak_factory_.GetWeakPtr(), callback_id),
-      base::Bind(&CrosNetworkConfig::ConfigureNetworkFailure,
-                 weak_factory_.GetWeakPtr(), callback_id));
+      base::BindOnce(&CrosNetworkConfig::ConfigureNetworkSuccess,
+                     weak_factory_.GetWeakPtr(), callback_id),
+      base::BindOnce(&CrosNetworkConfig::ConfigureNetworkFailure,
+                     weak_factory_.GetWeakPtr(), callback_id));
 }
 
 void CrosNetworkConfig::ConfigureNetworkSuccess(int callback_id,
@@ -2138,17 +2146,17 @@ void CrosNetworkConfig::ForgetNetwork(const std::string& guid,
   if (allow_forget_shared_config) {
     network_configuration_handler_->RemoveConfiguration(
         network->path(),
-        base::Bind(&CrosNetworkConfig::ForgetNetworkSuccess,
-                   weak_factory_.GetWeakPtr(), callback_id),
-        base::Bind(&CrosNetworkConfig::ForgetNetworkFailure,
-                   weak_factory_.GetWeakPtr(), guid, callback_id));
+        base::BindOnce(&CrosNetworkConfig::ForgetNetworkSuccess,
+                       weak_factory_.GetWeakPtr(), callback_id),
+        base::BindOnce(&CrosNetworkConfig::ForgetNetworkFailure,
+                       weak_factory_.GetWeakPtr(), guid, callback_id));
   } else {
     network_configuration_handler_->RemoveConfigurationFromCurrentProfile(
         network->path(),
-        base::Bind(&CrosNetworkConfig::ForgetNetworkSuccess,
-                   weak_factory_.GetWeakPtr(), callback_id),
-        base::Bind(&CrosNetworkConfig::ForgetNetworkFailure,
-                   weak_factory_.GetWeakPtr(), guid, callback_id));
+        base::BindOnce(&CrosNetworkConfig::ForgetNetworkSuccess,
+                       weak_factory_.GetWeakPtr(), callback_id),
+        base::BindOnce(&CrosNetworkConfig::ForgetNetworkFailure,
+                       weak_factory_.GetWeakPtr(), guid, callback_id));
   }
 }
 
@@ -2226,10 +2234,10 @@ void CrosNetworkConfig::SetCellularSimState(
     network_device_handler_->UnblockPin(
         device_state->path(), sim_state->current_pin_or_puk,
         *sim_state->new_pin,
-        base::Bind(&CrosNetworkConfig::SetCellularSimStateSuccess,
-                   weak_factory_.GetWeakPtr(), callback_id),
-        base::Bind(&CrosNetworkConfig::SetCellularSimStateFailure,
-                   weak_factory_.GetWeakPtr(), callback_id));
+        base::BindOnce(&CrosNetworkConfig::SetCellularSimStateSuccess,
+                       weak_factory_.GetWeakPtr(), callback_id),
+        base::BindOnce(&CrosNetworkConfig::SetCellularSimStateFailure,
+                       weak_factory_.GetWeakPtr(), callback_id));
     return;
   }
 
@@ -2237,10 +2245,10 @@ void CrosNetworkConfig::SetCellularSimState(
     // Unlock locked SIM.
     network_device_handler_->EnterPin(
         device_state->path(), sim_state->current_pin_or_puk,
-        base::Bind(&CrosNetworkConfig::SetCellularSimStateSuccess,
-                   weak_factory_.GetWeakPtr(), callback_id),
-        base::Bind(&CrosNetworkConfig::SetCellularSimStateFailure,
-                   weak_factory_.GetWeakPtr(), callback_id));
+        base::BindOnce(&CrosNetworkConfig::SetCellularSimStateSuccess,
+                       weak_factory_.GetWeakPtr(), callback_id),
+        base::BindOnce(&CrosNetworkConfig::SetCellularSimStateFailure,
+                       weak_factory_.GetWeakPtr(), callback_id));
     return;
   }
 
@@ -2249,10 +2257,10 @@ void CrosNetworkConfig::SetCellularSimState(
     network_device_handler_->ChangePin(
         device_state->path(), sim_state->current_pin_or_puk,
         *sim_state->new_pin,
-        base::Bind(&CrosNetworkConfig::SetCellularSimStateSuccess,
-                   weak_factory_.GetWeakPtr(), callback_id),
-        base::Bind(&CrosNetworkConfig::SetCellularSimStateFailure,
-                   weak_factory_.GetWeakPtr(), callback_id));
+        base::BindOnce(&CrosNetworkConfig::SetCellularSimStateSuccess,
+                       weak_factory_.GetWeakPtr(), callback_id),
+        base::BindOnce(&CrosNetworkConfig::SetCellularSimStateFailure,
+                       weak_factory_.GetWeakPtr(), callback_id));
     return;
   }
 
@@ -2260,10 +2268,10 @@ void CrosNetworkConfig::SetCellularSimState(
   network_device_handler_->RequirePin(
       device_state->path(), sim_state->require_pin,
       sim_state->current_pin_or_puk,
-      base::Bind(&CrosNetworkConfig::SetCellularSimStateSuccess,
-                 weak_factory_.GetWeakPtr(), callback_id),
-      base::Bind(&CrosNetworkConfig::SetCellularSimStateFailure,
-                 weak_factory_.GetWeakPtr(), callback_id));
+      base::BindOnce(&CrosNetworkConfig::SetCellularSimStateSuccess,
+                     weak_factory_.GetWeakPtr(), callback_id),
+      base::BindOnce(&CrosNetworkConfig::SetCellularSimStateFailure,
+                     weak_factory_.GetWeakPtr(), callback_id));
 }
 
 void CrosNetworkConfig::SetCellularSimStateSuccess(int callback_id) {
@@ -2304,10 +2312,10 @@ void CrosNetworkConfig::SelectCellularMobileNetwork(
 
   network_device_handler_->RegisterCellularNetwork(
       device_state->path(), network_id,
-      base::Bind(&CrosNetworkConfig::SelectCellularMobileNetworkSuccess,
-                 weak_factory_.GetWeakPtr(), callback_id),
-      base::Bind(&CrosNetworkConfig::SelectCellularMobileNetworkFailure,
-                 weak_factory_.GetWeakPtr(), callback_id));
+      base::BindOnce(&CrosNetworkConfig::SelectCellularMobileNetworkSuccess,
+                     weak_factory_.GetWeakPtr(), callback_id),
+      base::BindOnce(&CrosNetworkConfig::SelectCellularMobileNetworkFailure,
+                     weak_factory_.GetWeakPtr(), callback_id));
 }
 
 void CrosNetworkConfig::SelectCellularMobileNetworkSuccess(int callback_id) {
@@ -2348,7 +2356,7 @@ void CrosNetworkConfig::GetGlobalPolicy(GetGlobalPolicyCallback callback) {
         global_policy_dict, ::onc::global_network_config::
                                 kAllowOnlyPolicyNetworksToConnectIfAvailable);
     base::Optional<std::vector<std::string>> blocked_hex_ssids = GetStringList(
-        global_policy_dict, ::onc::global_network_config::kBlacklistedHexSSIDs);
+        global_policy_dict, ::onc::global_network_config::kBlockedHexSSIDs);
     if (blocked_hex_ssids)
       result->blocked_hex_ssids = std::move(*blocked_hex_ssids);
   }
@@ -2369,10 +2377,10 @@ void CrosNetworkConfig::StartConnect(const std::string& guid,
 
   network_connection_handler_->ConnectToNetwork(
       service_path,
-      base::Bind(&CrosNetworkConfig::StartConnectSuccess,
-                 weak_factory_.GetWeakPtr(), callback_id),
-      base::Bind(&CrosNetworkConfig::StartConnectFailure,
-                 weak_factory_.GetWeakPtr(), callback_id),
+      base::BindOnce(&CrosNetworkConfig::StartConnectSuccess,
+                     weak_factory_.GetWeakPtr(), callback_id),
+      base::BindOnce(&CrosNetworkConfig::StartConnectFailure,
+                     weak_factory_.GetWeakPtr(), callback_id),
       true /* check_error_state */, chromeos::ConnectCallbackMode::ON_STARTED);
 }
 
@@ -2431,10 +2439,10 @@ void CrosNetworkConfig::StartDisconnect(const std::string& guid,
 
   network_connection_handler_->DisconnectNetwork(
       service_path,
-      base::Bind(&CrosNetworkConfig::StartDisconnectSuccess,
-                 weak_factory_.GetWeakPtr(), callback_id),
-      base::Bind(&CrosNetworkConfig::StartDisconnectFailure,
-                 weak_factory_.GetWeakPtr(), callback_id));
+      base::BindOnce(&CrosNetworkConfig::StartDisconnectSuccess,
+                     weak_factory_.GetWeakPtr(), callback_id),
+      base::BindOnce(&CrosNetworkConfig::StartDisconnectFailure,
+                     weak_factory_.GetWeakPtr(), callback_id));
 }
 
 void CrosNetworkConfig::StartDisconnectSuccess(int callback_id) {

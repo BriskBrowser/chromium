@@ -14,7 +14,6 @@
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/task/post_task.h"
 #include "base/values.h"
 #include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
@@ -46,7 +45,6 @@
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #endif
 
-using content::BrowserThread;
 using content::WebContents;
 
 namespace {
@@ -83,8 +81,8 @@ class TabCloser : public content::WebContentsUserData<TabCloser> {
   friend class content::WebContentsUserData<TabCloser>;
 
   explicit TabCloser(WebContents* web_contents) : web_contents_(web_contents) {
-    base::PostTask(FROM_HERE, {BrowserThread::UI},
-                   base::BindOnce(&TabCloser::CloseTabImpl,
+    content::GetUIThreadTaskRunner({})->PostTask(
+        FROM_HERE, base::BindOnce(&TabCloser::CloseTabImpl,
                                   weak_ptr_factory_.GetWeakPtr()));
   }
 
@@ -180,7 +178,9 @@ SupervisedUserInterstitial::~SupervisedUserInterstitial() {}
 // static
 std::string SupervisedUserInterstitial::GetHTMLContents(
     Profile* profile,
-    supervised_user_error_page::FilteringBehaviorReason reason) {
+    supervised_user_error_page::FilteringBehaviorReason reason,
+    bool already_sent_request,
+    bool is_main_frame) {
   bool is_child_account = profile->IsChild();
 
   bool is_deprecated = !is_child_account;
@@ -206,7 +206,8 @@ std::string SupervisedUserInterstitial::GetHTMLContents(
       allow_access_requests, profile_image_url, profile_image_url2, custodian,
       custodian_email, second_custodian, second_custodian_email,
       is_child_account, is_deprecated, reason,
-      g_browser_process->GetApplicationLocale());
+      g_browser_process->GetApplicationLocale(), already_sent_request,
+      is_main_frame);
 }
 
 void SupervisedUserInterstitial::GoBack() {

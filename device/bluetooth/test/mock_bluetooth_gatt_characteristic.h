@@ -32,14 +32,12 @@ class MockBluetoothGattCharacteristic
   MockBluetoothGattCharacteristic(MockBluetoothGattService* service,
                                   const std::string& identifier,
                                   const BluetoothUUID& uuid,
-                                  bool is_local,
                                   Properties properties,
                                   Permissions permissions);
   ~MockBluetoothGattCharacteristic() override;
 
   MOCK_CONST_METHOD0(GetIdentifier, std::string());
   MOCK_CONST_METHOD0(GetUUID, BluetoothUUID());
-  MOCK_CONST_METHOD0(IsLocal, bool());
   MOCK_CONST_METHOD0(GetValue, const std::vector<uint8_t>&());
   MOCK_CONST_METHOD0(GetService, BluetoothRemoteGattService*());
   MOCK_CONST_METHOD0(GetProperties, Properties());
@@ -49,7 +47,6 @@ class MockBluetoothGattCharacteristic
                      std::vector<BluetoothRemoteGattDescriptor*>());
   MOCK_CONST_METHOD1(GetDescriptor,
                      BluetoothRemoteGattDescriptor*(const std::string&));
-  MOCK_METHOD1(UpdateValue, bool(const std::vector<uint8_t>&));
 #if defined(OS_CHROMEOS)
   void StartNotifySession(NotificationType t,
                           NotifySessionCallback c,
@@ -75,11 +72,22 @@ class MockBluetoothGattCharacteristic
   }
   MOCK_METHOD2(ReadRemoteCharacteristic_, void(ValueCallback&, ErrorCallback&));
   void WriteRemoteCharacteristic(const std::vector<uint8_t>& v,
+                                 WriteType t,
                                  base::OnceClosure c,
                                  ErrorCallback ec) override {
-    WriteRemoteCharacteristic_(v, c, ec);
+    WriteRemoteCharacteristic_(v, t, c, ec);
   }
-  MOCK_METHOD3(WriteRemoteCharacteristic_,
+  MOCK_METHOD4(WriteRemoteCharacteristic_,
+               void(const std::vector<uint8_t>&,
+                    WriteType,
+                    base::OnceClosure&,
+                    ErrorCallback&));
+  void DeprecatedWriteRemoteCharacteristic(const std::vector<uint8_t>& v,
+                                           base::OnceClosure c,
+                                           ErrorCallback ec) override {
+    DeprecatedWriteRemoteCharacteristic_(v, c, ec);
+  }
+  MOCK_METHOD3(DeprecatedWriteRemoteCharacteristic_,
                void(const std::vector<uint8_t>&,
                     base::OnceClosure&,
                     ErrorCallback&));
@@ -94,7 +102,6 @@ class MockBluetoothGattCharacteristic
                     base::OnceClosure&,
                     ErrorCallback&));
 #endif
-  MOCK_METHOD1(WriteWithoutResponse, bool(base::span<const uint8_t>));
 
   void AddMockDescriptor(
       std::unique_ptr<MockBluetoothGattDescriptor> mock_descriptor);

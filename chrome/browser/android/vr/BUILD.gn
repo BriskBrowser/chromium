@@ -16,6 +16,8 @@ static_library("vr_android") {
   sources = [
     "android_ui_gesture_target.cc",
     "android_ui_gesture_target.h",
+    "android_vr_utils.cc",
+    "android_vr_utils.h",
     "android_vsync_helper.cc",
     "android_vsync_helper.h",
     "autocomplete_controller.cc",
@@ -25,12 +27,12 @@ static_library("vr_android") {
     "cardboard_input_delegate.cc",
     "cardboard_input_delegate.h",
     "gl_browser_interface.h",
-    "gvr_consent_helper_impl.cc",
-    "gvr_consent_helper_impl.h",
     "gvr_graphics_delegate.cc",
     "gvr_graphics_delegate.h",
     "gvr_input_delegate.cc",
     "gvr_input_delegate.h",
+    "gvr_install_helper.cc",
+    "gvr_install_helper.h",
     "gvr_keyboard_delegate.cc",
     "gvr_keyboard_delegate.h",
     "gvr_keyboard_shim.cc",
@@ -49,8 +51,6 @@ static_library("vr_android") {
     "scoped_gpu_trace.h",
     "vr_controller.cc",
     "vr_controller.h",
-    "vr_core_info.cc",
-    "vr_core_info.h",
     "vr_gl_thread.cc",
     "vr_gl_thread.h",
     "vr_input_connection.cc",
@@ -61,6 +61,8 @@ static_library("vr_android") {
     "vr_shell.h",
     "vr_shell_delegate.cc",
     "vr_shell_delegate.h",
+    "vrcore_install_helper.cc",
+    "vrcore_install_helper.h",
     "web_xr_presentation_state.cc",
     "web_xr_presentation_state.h",
   ]
@@ -71,9 +73,6 @@ static_library("vr_android") {
       "arcore_device/ar_image_transport.h",
       "arcore_device/ar_renderer.cc",
       "arcore_device/ar_renderer.h",
-      "arcore_device/arcore.h",
-      "arcore_device/arcore_consent_prompt.cc",
-      "arcore_device/arcore_consent_prompt.h",
       "arcore_device/arcore_device.cc",
       "arcore_device/arcore_device.h",
       "arcore_device/arcore_device_provider.cc",
@@ -82,16 +81,11 @@ static_library("vr_android") {
       "arcore_device/arcore_gl.h",
       "arcore_device/arcore_gl_thread.cc",
       "arcore_device/arcore_gl_thread.h",
-      "arcore_device/arcore_impl.cc",
-      "arcore_device/arcore_impl.h",
+      "arcore_device/arcore_install_helper.cc",
+      "arcore_device/arcore_install_helper.h",
       "arcore_device/arcore_java_utils.cc",
       "arcore_device/arcore_java_utils.h",
-      "arcore_device/arcore_sdk.h",
       "arcore_device/arcore_session_utils.h",
-      "arcore_device/arcore_shim.cc",
-      "arcore_device/arcore_shim.h",
-      "arcore_device/type_converters.cc",
-      "arcore_device/type_converters.h",
     ]
   }
 
@@ -104,13 +98,18 @@ static_library("vr_android") {
     "//chrome/browser/vr:vr_common",
     "//chrome/common",
     "//chrome/common:constants",
+    "//components/browser_ui/util/android",
+    "//components/content_settings/core/browser",
     "//components/language/core/browser",
     "//components/omnibox/browser",
+    "//components/page_info",
+    "//components/permissions",
     "//components/rappor",
     "//components/search_engines:search_engines",
     "//content/public/browser",
     "//content/public/common",
     "//device/vr",
+    "//device/vr:vr_base",
     "//device/vr/buildflags:buildflags",
     "//services/device/public/mojom",
     "//services/metrics/public/cpp:ukm_builders",
@@ -124,7 +123,10 @@ static_library("vr_android") {
   ]
 
   if (enable_arcore) {
-    deps += [ ":ar_jni_headers" ]
+    deps += [
+      ":ar_jni_headers",
+      "//device/vr/android/arcore",
+    ]
   }
 
   public_deps = [ "//device/vr/public/mojom" ]
@@ -135,10 +137,6 @@ static_library("vr_android") {
     "//third_party/gvr-android-keyboard:kb_config",
     "//third_party/gvr-android-sdk:libgvr_config",
   ]
-
-  if (enable_arcore) {
-    configs += [ "//third_party/arcore-android-sdk:libarcore_config" ]
-  }
 }
 
 # The VR UI module factory interface.
@@ -240,7 +238,8 @@ test("vr_android_unittests") {
     "//base/test:test_support",
     "//chrome/browser",
     "//components/translate/core/language_detection:language_detection",
-    "//device/vr:fakes",
+    "//device/vr:vr_fakes",
+    "//device/vr/android/arcore",
     "//device/vr/public/mojom",
     "//mojo/core/embedder",
     "//mojo/public/cpp/bindings",
@@ -248,6 +247,7 @@ test("vr_android_unittests") {
     "//testing/android/native_test:native_test_native_code",
     "//testing/gmock",
     "//testing/gtest",
-    "//ui/android:ui_java",  # TODO: Remove once http://crbug.com/951419 is fixed!
+    "//ui/android:ui_java",  # TODO: Remove once http://crbug.com/951419 is
+                             # fixed!
   ]
 }

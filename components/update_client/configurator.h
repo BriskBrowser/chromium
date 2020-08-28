@@ -23,6 +23,7 @@ class Version;
 namespace update_client {
 
 class ActivityDataService;
+class CrxDownloaderFactory;
 class NetworkFetcherFactory;
 class PatcherFactory;
 class ProtocolHandlerFactory;
@@ -95,6 +96,8 @@ class Configurator : public base::RefCountedThreadSafe<Configurator> {
 
   virtual scoped_refptr<NetworkFetcherFactory> GetNetworkFetcherFactory() = 0;
 
+  virtual scoped_refptr<CrxDownloaderFactory> GetCrxDownloaderFactory() = 0;
+
   virtual scoped_refptr<UnzipperFactory> GetUnzipperFactory() = 0;
 
   virtual scoped_refptr<PatcherFactory> GetPatcherFactory() = 0;
@@ -146,7 +149,7 @@ class Configurator : public base::RefCountedThreadSafe<Configurator> {
  protected:
   friend class base::RefCountedThreadSafe<Configurator>;
 
-  virtual ~Configurator() {}
+  virtual ~Configurator() = default;
 };
 
 }  // namespace update_client

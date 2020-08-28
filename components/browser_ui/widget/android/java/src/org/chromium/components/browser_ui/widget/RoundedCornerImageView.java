@@ -19,13 +19,13 @@ import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.shapes.RoundRectShape;
 import android.graphics.drawable.shapes.Shape;
-import android.support.annotation.ColorInt;
-import android.support.v4.view.ViewCompat;
-import android.support.v7.widget.AppCompatImageView;
 import android.util.AttributeSet;
 import android.widget.ImageView;
 
+import androidx.annotation.ColorInt;
 import androidx.annotation.Nullable;
+import androidx.appcompat.widget.AppCompatImageView;
+import androidx.core.view.ViewCompat;
 
 /**
  * A custom {@link ImageView} that is able to render bitmaps and colors with rounded off corners.
@@ -162,7 +162,8 @@ public class RoundedCornerImageView extends AppCompatImageView {
         if (drawable instanceof ColorDrawable) {
             mRoundedBackgroundPaint.setColor(((ColorDrawable) getDrawable()).getColor());
             mRoundedContentPaint = null;
-        } else if (drawable instanceof BitmapDrawable) {
+        } else if (drawable instanceof BitmapDrawable
+                && ((BitmapDrawable) drawable).getBitmap() != null) {
             mRoundedBackgroundPaint.setColor(mFillColor);
             mRoundedContentPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
 
@@ -210,7 +211,6 @@ public class RoundedCornerImageView extends AppCompatImageView {
             Shader shader = mRoundedContentPaint.getShader();
             if (shader != null) {
                 Drawable drawable = getDrawable();
-
                 Bitmap bitmap = ((BitmapDrawable) drawable).getBitmap();
                 mTmpMatrix.set(getImageMatrix());
                 mTmpMatrix.preScale((float) drawable.getIntrinsicWidth() / bitmap.getWidth(),

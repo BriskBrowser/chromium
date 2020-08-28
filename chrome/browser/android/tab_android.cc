@@ -13,6 +13,7 @@
 #include "base/android/jni_android.h"
 #include "base/android/jni_string.h"
 #include "base/bind.h"
+#include "base/memory/ptr_util.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/metrics/user_metrics.h"
 #include "base/trace_event/trace_event.h"
@@ -26,27 +27,26 @@
 #include "chrome/browser/browser_about_handler.h"
 #include "chrome/browser/history/history_service_factory.h"
 #include "chrome/browser/infobars/infobar_service.h"
-#include "chrome/browser/prerender/prerender_manager.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_android.h"
 #include "chrome/browser/profiles/profile_manager.h"
+#include "chrome/browser/resource_coordinator/tab_load_tracker.h"
 #include "chrome/browser/sync/glue/synced_tab_delegate_android.h"
 #include "chrome/browser/tab_contents/tab_util.h"
 #include "chrome/browser/ui/android/context_menu_helper.h"
 #include "chrome/browser/ui/android/infobars/infobar_container_android.h"
 #include "chrome/browser/ui/android/tab_model/tab_model.h"
 #include "chrome/browser/ui/android/tab_model/tab_model_list.h"
-#include "chrome/browser/ui/android/view_android_helper.h"
 #include "chrome/browser/ui/browser_navigator_params.h"
 #include "chrome/browser/ui/startup/bad_flags_prompt.h"
 #include "chrome/browser/ui/tab_contents/core_tab_helper.h"
 #include "chrome/browser/ui/tab_helpers.h"
 #include "chrome/common/url_constants.h"
+#include "components/prerender/browser/prerender_manager.h"
 #include "components/sessions/content/session_tab_helper.h"
 #include "components/url_formatter/url_fixer.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/devtools_agent_host.h"
-#include "content/public/browser/interstitial_page.h"
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/navigation_handle.h"
 #include "content/public/browser/render_frame_host.h"
@@ -61,6 +61,8 @@
 #include "ui/android/view_android.h"
 #include "ui/android/window_android.h"
 #include "ui/base/resource/resource_bundle.h"
+#include "url/android/gurl_android.h"
+#include "url/gurl.h"
 
 using base::android::AttachCurrentThread;
 using base::android::ConvertUTF8ToJavaString;
@@ -122,7 +124,6 @@ TabAndroid::TabAndroid(JNIEnv* env, const JavaRef<jobject>& obj)
     : weak_java_tab_(env, obj),
       session_window_id_(SessionID::InvalidValue()),
       content_layer_(cc::Layer::Create()),
-      tab_content_manager_(nullptr),
       synced_tab_delegate_(new browser_sync::SyncedTabDelegateAndroid(this)) {
   Java_TabImpl_setNativePtr(env, obj, reinterpret_cast<intptr_t>(this));
 }
@@ -147,6 +148,11 @@ int TabAndroid::GetAndroidId() const {
   return Java_TabImpl_getId(env, weak_java_tab_.get(env));
 }
 
+bool TabAndroid::IsNativePage() const {
+  JNIEnv* env = base::android::AttachCurrentThread();
+  return Java_TabImpl_isNativePage(env, weak_java_tab_.get(env));
+}
+
 base::string16 TabAndroid::GetTitle() const {
   JNIEnv* env = base::android::AttachCurrentThread();
   ScopedJavaLocalRef<jstring> java_title =
@@ -155,15 +161,11 @@ base::string16 TabAndroid::GetTitle() const {
                     : base::string16();
 }
 
-bool TabAndroid::IsNativePage() const {
-  JNIEnv* env = base::android::AttachCurrentThread();
-  return Java_TabImpl_isNativePage(env, weak_java_tab_.get(env));
-}
-
 GURL TabAndroid::GetURL() const {
   JNIEnv* env = base::android::AttachCurrentThread();
-  return GURL(base::android::ConvertJavaStringToUTF8(
-      Java_TabImpl_getUrl(env, weak_java_tab_.get(env))));
+  std::unique_ptr<GURL> gurl = url::GURLAndroid::ToNativeGURL(
+      env, Java_TabImpl_getUrl(env, weak_java_tab_.get(env)));
+  return std::move(*gurl);
 }
 
 bool TabAndroid::IsUserInteractable() const {
@@ -200,6 +202,35 @@ void TabAndroid::SetWindowSessionID(SessionID window_id) {
   session_tab_helper->SetWindowID(session_window_id_);
 }
 
+std::unique_ptr<content::WebContents> TabAndroid::SwapWebContents(
+    std::unique_ptr<content::WebContents> new_contents,
+    bool did_start_load,
+    bool did_finish_load) {
+  content::WebContents* old_contents = web_contents_.get();
+  // TODO(crbug.com/836409): TabLoadTracker should not rely on being notified
+  // directly about tab contents swaps.
+  resource_coordinator::TabLoadTracker::Get()->SwapTabContents(
+      old_contents, new_contents.get());
+
+  JNIEnv* env = base::android::AttachCurrentThread();
+  Java_TabImpl_swapWebContents(env, weak_java_tab_.get(env),
+                               new_contents->GetJavaWebContents(),
+                               did_start_load, did_finish_load);
+  DCHECK_EQ(web_contents_, new_contents);
+  new_contents.release();
+  return base::WrapUnique(old_contents);
+}
+
+bool TabAndroid::IsCustomTab() {
+  JNIEnv* env = base::android::AttachCurrentThread();
+  return Java_TabImpl_isCustomTab(env, weak_java_tab_.get(env));
+}
+
+bool TabAndroid::IsHidden() {
+  JNIEnv* env = base::android::AttachCurrentThread();
+  return Java_TabImpl_isHidden(env, weak_java_tab_.get(env));
+}
+
 void TabAndroid::Destroy(JNIEnv* env, const JavaParamRef<jobject>& obj) {
   delete this;
 }
@@ -228,8 +259,6 @@ void TabAndroid::InitWebContents(
 
   ContextMenuHelper::FromWebContents(web_contents())->SetPopulator(
       jcontext_menu_populator);
-  ViewAndroidHelper::FromWebContents(web_contents())->
-      SetViewAndroid(web_contents()->GetNativeView());
 
   synced_tab_delegate_->SetWebContents(web_contents(), jparent_tab_id);
 
@@ -323,7 +352,7 @@ TabAndroid::TabLoadStatus TabAndroid::LoadUrl(
     JNIEnv* env,
     const JavaParamRef<jobject>& obj,
     const JavaParamRef<jstring>& url,
-    const JavaParamRef<jstring>& j_initiator_origin,
+    const JavaParamRef<jobject>& j_initiator_origin,
     const JavaParamRef<jstring>& j_extra_headers,
     const JavaParamRef<jobject>& j_post_data,
     jint page_transition,
@@ -344,14 +373,6 @@ TabAndroid::TabLoadStatus TabAndroid::LoadUrl(
   GURL gurl(base::android::ConvertJavaStringToUTF8(env, url));
   if (gurl.is_empty())
     return PAGE_LOAD_FAILED;
-
-  // If the page was prerendered, use it.
-  // Note in incognito mode, we don't have a PrerenderManager.
-  bool loaded;
-  if (prerender::PrerenderManager::MaybeUsePrerenderedPage(
-          GetProfile(), web_contents(), gurl, &loaded)) {
-    return loaded ? FULL_PRERENDERED_PAGE_LOAD : PARTIAL_PRERENDERED_PAGE_LOAD;
-  }
 
   GURL fixed_url(
       url_formatter::FixupURL(gurl.possibly_invalid_spec(), std::string()));
@@ -385,8 +406,8 @@ TabAndroid::TabLoadStatus TabAndroid::LoadUrl(
           content::Referrer::ConvertToPolicy(referrer_policy));
     }
     if (j_initiator_origin) {
-      load_params.initiator_origin = url::Origin::Create(GURL(
-          base::android::ConvertJavaStringToUTF8(env, j_initiator_origin)));
+      load_params.initiator_origin =
+          url::Origin::FromJavaObject(j_initiator_origin);
     }
     load_params.is_renderer_initiated = is_renderer_initiated;
     load_params.should_replace_current_entry = should_replace_current_entry;

@@ -20,6 +20,7 @@
 #include "chrome/browser/media/webrtc/media_stream_capture_indicator.h"
 #include "chrome/browser/media/webrtc/native_desktop_media_list.h"
 #include "chrome/browser/media/webrtc/tab_desktop_media_list.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/browser_window.h"
@@ -27,7 +28,9 @@
 #include "chrome/browser/ui/simple_message_box.h"
 #include "chrome/common/chrome_features.h"
 #include "chrome/common/chrome_switches.h"
+#include "chrome/common/pref_names.h"
 #include "chrome/grit/generated_resources.h"
+#include "components/prefs/pref_service.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/desktop_capture.h"
 #include "content/public/browser/desktop_streams_registry.h"
@@ -56,9 +59,9 @@
 #include "ui/base/ui_base_features.h"
 #endif  // defined(OS_CHROMEOS)
 
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
 #include "chrome/browser/media/webrtc/system_media_capture_permissions_mac.h"
-#endif  // defined(OS_MACOSX)
+#endif  // defined(OS_MAC)
 
 using content::BrowserThread;
 
@@ -169,7 +172,7 @@ void DesktopCaptureAccessHandler::ProcessScreenCaptureAccessRequest(
           switches::kEnableUserMediaScreenCapturing) ||
       MediaCaptureDevicesDispatcher::IsOriginForCasting(
           request.security_origin) ||
-      IsExtensionWhitelistedForScreenCapture(extension) ||
+      IsExtensionAllowedForScreenCapture(extension) ||
       IsBuiltInExtension(request.security_origin);
 
   const bool origin_is_secure =
@@ -269,7 +272,7 @@ bool DesktopCaptureAccessHandler::IsDefaultApproved(
   return extension &&
          (extension->location() == extensions::Manifest::COMPONENT ||
           extension->location() == extensions::Manifest::EXTERNAL_COMPONENT ||
-          IsExtensionWhitelistedForScreenCapture(extension));
+          IsExtensionAllowedForScreenCapture(extension));
 }
 
 bool DesktopCaptureAccessHandler::SupportsStreamType(
@@ -293,6 +296,7 @@ void DesktopCaptureAccessHandler::HandleRequest(
     const content::MediaStreamRequest& request,
     content::MediaResponseCallback callback,
     const extensions::Extension* extension) {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   blink::MediaStreamDevices devices;
   std::unique_ptr<content::MediaStreamUI> ui;
 
@@ -300,6 +304,15 @@ void DesktopCaptureAccessHandler::HandleRequest(
       blink::mojom::MediaStreamType::GUM_DESKTOP_VIDEO_CAPTURE) {
     std::move(callback).Run(
         devices, blink::mojom::MediaStreamRequestResult::INVALID_STATE,
+        std::move(ui));
+    return;
+  }
+
+  Profile* profile =
+      Profile::FromBrowserContext(web_contents->GetBrowserContext());
+  if (!profile->GetPrefs()->GetBoolean(prefs::kScreenCaptureAllowed)) {
+    std::move(callback).Run(
+        devices, blink::mojom::MediaStreamRequestResult::PERMISSION_DENIED,
         std::move(ui));
     return;
   }
@@ -313,7 +326,7 @@ void DesktopCaptureAccessHandler::HandleRequest(
   // If the device id wasn't specified then this is a screen capture request
   // (i.e. chooseDesktopMedia() API wasn't used to generate device id).
   if (request.requested_video_device_id.empty()) {
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
     if (system_media_permissions::CheckSystemScreenCapturePermission() !=
         system_media_permissions::SystemPermission::kAllowed) {
       std::move(callback).Run(
@@ -355,7 +368,7 @@ void DesktopCaptureAccessHandler::HandleRequest(
         std::move(ui));
     return;
   }
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
   if (media_id.type != content::DesktopMediaID::TYPE_WEB_CONTENTS &&
       system_media_permissions::CheckSystemScreenCapturePermission() !=
           system_media_permissions::SystemPermission::kAllowed) {
@@ -366,6 +379,17 @@ void DesktopCaptureAccessHandler::HandleRequest(
     return;
   }
 #endif
+
+  if (media_id.type == content::DesktopMediaID::TYPE_WEB_CONTENTS &&
+      !content::WebContents::FromRenderFrameHost(
+          content::RenderFrameHost::FromID(
+              media_id.web_contents_id.render_process_id,
+              media_id.web_contents_id.main_render_frame_id))) {
+    std::move(callback).Run(
+        devices, blink::mojom::MediaStreamRequestResult::TAB_CAPTURE_FAILURE,
+        std::move(ui));
+    return;
+  }
 
   bool loopback_audio_supported = false;
 #if defined(USE_CRAS) || defined(OS_WIN)

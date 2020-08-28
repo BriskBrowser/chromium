@@ -18,6 +18,7 @@
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_view_host.h"
 #include "content/public/common/content_features.h"
+#include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/test_navigation_observer.h"
 #include "extensions/browser/event_router.h"
@@ -35,7 +36,8 @@ namespace {
 
 void MouseDownInWebContents(content::WebContents* web_contents) {
   blink::WebMouseEvent mouse_event(
-      blink::WebInputEvent::kMouseDown, blink::WebInputEvent::kNoModifiers,
+      blink::WebInputEvent::Type::kMouseDown,
+      blink::WebInputEvent::kNoModifiers,
       blink::WebInputEvent::GetStaticTimeStampForTests());
   mouse_event.button = blink::WebMouseEvent::Button::kLeft;
   mouse_event.SetPositionInWidget(10, 10);
@@ -46,7 +48,7 @@ void MouseDownInWebContents(content::WebContents* web_contents) {
 
 void MouseUpInWebContents(content::WebContents* web_contents) {
   blink::WebMouseEvent mouse_event(
-      blink::WebInputEvent::kMouseUp, blink::WebInputEvent::kNoModifiers,
+      blink::WebInputEvent::Type::kMouseUp, blink::WebInputEvent::kNoModifiers,
       blink::WebInputEvent::GetStaticTimeStampForTests());
   mouse_event.button = blink::WebMouseEvent::Button::kLeft;
   mouse_event.SetPositionInWidget(10, 10);
@@ -136,7 +138,7 @@ IN_PROC_BROWSER_TEST_F(ExtensionBindingsApiTest,
 // Regression test for http://crbug.com/269149.
 // Regression test for http://crbug.com/436593.
 // Flaky on Mac. http://crbug.com/733064.
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
 #define MAYBE_EventOverriding DISABLED_EventOverriding
 #else
 #define MAYBE_EventOverriding EventOverriding
@@ -347,7 +349,7 @@ IN_PROC_BROWSER_TEST_F(ExtensionBindingsApiTest, ValidationInterception) {
       browser(),
       embedded_test_server()->GetURL(
           "/extensions/api_test/bindings/validation_interception.html"));
-  content::WaitForLoadStop(web_contents);
+  EXPECT_TRUE(content::WaitForLoadStop(web_contents));
   ASSERT_FALSE(web_contents->IsCrashed());
   bool caught = false;
   ASSERT_TRUE(content::ExecuteScriptAndExtractBool(
@@ -537,12 +539,12 @@ IN_PROC_BROWSER_TEST_F(
   const GURL page_url = extension->GetResourceURL("page.html");
   ui_test_utils::NavigateToURLWithDisposition(
       browser(), page_url, WindowOpenDisposition::NEW_FOREGROUND_TAB,
-      ui_test_utils::BROWSER_TEST_WAIT_FOR_NAVIGATION);
+      ui_test_utils::BROWSER_TEST_WAIT_FOR_LOAD_STOP);
   content::WebContents* first_tab =
       browser()->tab_strip_model()->GetActiveWebContents();
   ui_test_utils::NavigateToURLWithDisposition(
       browser(), page_url, WindowOpenDisposition::NEW_FOREGROUND_TAB,
-      ui_test_utils::BROWSER_TEST_WAIT_FOR_NAVIGATION);
+      ui_test_utils::BROWSER_TEST_WAIT_FOR_LOAD_STOP);
   content::WebContents* second_tab =
       browser()->tab_strip_model()->GetActiveWebContents();
 
@@ -574,7 +576,7 @@ IN_PROC_BROWSER_TEST_F(
   ui_test_utils::NavigateToURLWithDisposition(
       browser(), GURL("chrome://newtab"),
       WindowOpenDisposition::NEW_FOREGROUND_TAB,
-      ui_test_utils::BROWSER_TEST_WAIT_FOR_NAVIGATION);
+      ui_test_utils::BROWSER_TEST_WAIT_FOR_LOAD_STOP);
   content::WebContents* new_tab =
       browser()->tab_strip_model()->GetActiveWebContents();
 

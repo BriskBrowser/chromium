@@ -5,8 +5,10 @@
 #include "components/optimization_guide/optimization_guide_store.h"
 
 #include "base/bind.h"
+#include "base/bind_helpers.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/sequence_checker.h"
 #include "base/strings/strcat.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
@@ -37,9 +39,6 @@ constexpr size_t kDatabaseWriteBufferSizeBytes = 128 * 1024;
 //    "[StoreEntryType::kMetadata]_[MetadataType]"
 //    "[StoreEntryType::kComponentHint]_[component_version]_[host]"
 constexpr char kKeySectionDelimiter = '_';
-
-// Realistic minimum length of a host suffix.
-const int kMinHostSuffix = 6;  // eg., abc.tv
 
 // Enumerates the possible outcomes of loading metadata. Used in UMA histograms,
 // so the order of enumerators should not be changed.
@@ -178,7 +177,6 @@ void OptimizationGuideStore::UpdateComponentHints(
     base::OnceClosure callback) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK(component_data);
-  DCHECK(!data_update_in_flight_);
   DCHECK(component_data->component_version());
 
   if (!IsAvailable()) {
@@ -193,10 +191,6 @@ void OptimizationGuideStore::UpdateComponentHints(
     std::move(callback).Run();
     return;
   }
-
-  // Mark that there's now a component data update in-flight. While this is
-  // true, keys and hints will not be returned by the store.
-  data_update_in_flight_ = true;
 
   // Set the component version prior to requesting the update. This ensures that
   // a second update request for the same component version won't be allowed. In
@@ -236,7 +230,6 @@ void OptimizationGuideStore::UpdateFetchedHints(
     base::OnceClosure callback) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK(fetched_hints_data);
-  DCHECK(!data_update_in_flight_);
   DCHECK(fetched_hints_data->update_time());
 
   if (!IsAvailable()) {
@@ -245,8 +238,6 @@ void OptimizationGuideStore::UpdateFetchedHints(
   }
 
   fetched_update_time_ = *fetched_hints_data->update_time();
-
-  data_update_in_flight_ = true;
 
   entry_keys_.reset();
 
@@ -307,7 +298,6 @@ void OptimizationGuideStore::OnLoadEntriesToPurgeExpired(
     }
   }
 
-  data_update_in_flight_ = true;
   entry_keys_.reset();
 
   auto empty_entries = std::make_unique<EntryVector>();
@@ -349,25 +339,9 @@ bool OptimizationGuideStore::FindEntryKeyForHostWithPrefix(
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK(out_entry_key);
 
-  // Look for longest host name suffix that has a hint. No need to continue
-  // lookups and substring work once get to a root domain like ".com" or
-  // ".co.in" (MinHostSuffix length check is a heuristic for that).
-  std::string host_suffix(host);
-  while (host_suffix.length() >= kMinHostSuffix) {
-    // Attempt to find an entry key associated with the current host suffix.
-    *out_entry_key = entry_key_prefix + host_suffix;
-    if (entry_keys_ &&
-        entry_keys_->find(*out_entry_key) != entry_keys_->end()) {
-      return true;
-    }
-
-    size_t pos = host_suffix.find_first_of('.');
-    if (pos == std::string::npos) {
-      break;
-    }
-    host_suffix = host_suffix.substr(pos + 1);
-  }
-  return false;
+  // Look for entry key for host.
+  *out_entry_key = entry_key_prefix + host;
+  return entry_keys_ && entry_keys_->find(*out_entry_key) != entry_keys_->end();
 }
 
 void OptimizationGuideStore::LoadHint(const EntryKey& hint_entry_key,
@@ -533,14 +507,12 @@ void OptimizationGuideStore::ClearComponentVersion() {
 
 void OptimizationGuideStore::ClearFetchedHintsFromDatabase() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  DCHECK(!data_update_in_flight_);
 
   base::UmaHistogramBoolean(
       "OptimizationGuide.ClearFetchedHints.StoreAvailable", IsAvailable());
   if (!IsAvailable())
     return;
 
-  data_update_in_flight_ = true;
   auto entries_to_save = std::make_unique<EntryVector>();
 
   // TODO(mcrouse): Add histogram to record the number of hints being removed.
@@ -560,9 +532,9 @@ void OptimizationGuideStore::ClearFetchedHintsFromDatabase() {
 void OptimizationGuideStore::MaybeLoadEntryKeys(base::OnceClosure callback) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
-  // If the database is unavailable or if there's an in-flight component data
-  // update, then don't load the hint keys. Simply run the callback.
-  if (!IsAvailable() || data_update_in_flight_) {
+  // If the database is unavailable  don't load the hint keys. Simply run the
+  // callback.
+  if (!IsAvailable()) {
     std::move(callback).Run();
     return;
   }
@@ -740,9 +712,7 @@ void OptimizationGuideStore::OnPurgeDatabase(base::OnceClosure callback,
 void OptimizationGuideStore::OnUpdateStore(base::OnceClosure callback,
                                            bool success) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  DCHECK(data_update_in_flight_);
 
-  data_update_in_flight_ = false;
   if (!success) {
     UpdateStatus(Status::kFailed);
     std::move(callback).Run();
@@ -757,7 +727,6 @@ void OptimizationGuideStore::OnLoadEntryKeys(
     bool success,
     std::unique_ptr<EntryMap> /*unused*/) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  DCHECK(!entry_keys_);
 
   if (!success) {
     UpdateStatus(Status::kFailed);
@@ -765,15 +734,14 @@ void OptimizationGuideStore::OnLoadEntryKeys(
     return;
   }
 
-  // If the store was set to unavailable after the request was started, or if
-  // there's an in-flight component data update, which means the keys are
-  // about to be invalidated, then the loaded keys should not be considered
-  // valid. Reset the keys so that they are cleared.
-  if (!IsAvailable() || data_update_in_flight_) {
+  // If the store was set to unavailable after the request was started, then the
+  // loaded keys should not be considered valid. Reset the keys so that they are
+  // cleared.
+  if (!IsAvailable())
     hint_entry_keys.reset();
-  }
 
   entry_keys_ = std::move(hint_entry_keys);
+
   std::move(callback).Run();
 }
 
@@ -789,7 +757,7 @@ void OptimizationGuideStore::OnLoadHint(
   // means the entry is about to be invalidated, then the loaded hint should
   // not be considered valid. Reset the entry so that no hint is returned to
   // the requester.
-  if (!success || !IsAvailable() || data_update_in_flight_) {
+  if (!success || !IsAvailable()) {
     entry.reset();
   }
 
@@ -848,16 +816,11 @@ void OptimizationGuideStore::UpdatePredictionModels(
     base::OnceClosure callback) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK(prediction_models_update_data);
-  DCHECK(!data_update_in_flight_);
 
   if (!IsAvailable()) {
     std::move(callback).Run();
     return;
   }
-
-  data_update_in_flight_ = true;
-
-  entry_keys_.reset();
 
   std::unique_ptr<EntryVector> entry_vectors =
       prediction_models_update_data->TakeUpdateEntries();
@@ -883,6 +846,33 @@ bool OptimizationGuideStore::FindPredictionModelEntryKey(
   return false;
 }
 
+bool OptimizationGuideStore::RemovePredictionModelFromEntryKey(
+    const EntryKey& entry_key) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
+  if (!IsAvailable() || !entry_keys_ ||
+      entry_keys_->find(entry_key) == entry_keys_->end()) {
+    return false;
+  }
+
+  auto key_to_remove = std::make_unique<leveldb_proto::KeyVector>();
+  key_to_remove->push_back(entry_key);
+  database_->UpdateEntries(
+      std::make_unique<EntryVector>(), std::move(key_to_remove),
+      base::BindOnce(
+          &OptimizationGuideStore::OnRemovePredictionModelFromEntryKey,
+          weak_ptr_factory_.GetWeakPtr(), entry_key));
+  return true;
+}
+
+void OptimizationGuideStore::OnRemovePredictionModelFromEntryKey(
+    const EntryKey& entry_key,
+    bool success) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  if (success)
+    entry_keys_->erase(entry_key);
+}
+
 void OptimizationGuideStore::LoadPredictionModel(
     const EntryKey& prediction_model_entry_key,
     PredictionModelLoadedCallback callback) {
@@ -905,14 +895,11 @@ void OptimizationGuideStore::OnLoadPredictionModel(
     std::unique_ptr<proto::StoreEntry> entry) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
-  // If either the request failed, the store was set to unavailable after the
-  // request was started, or there's an in-flight update, which
-  // means the entry is about to be invalidated, then the loaded model should
-  // not be considered valid. Reset the entry so that nothing is returned to
+  // If either the request failed or the store was set to unavailable after the
+  // request was started, then the loaded model should not be considered valid.
+  // Reset the entry so that nothing is returned to
   // the requester.
-  UMA_HISTOGRAM_BOOLEAN("OptimizationGuide.PredictionModelStore.OnLoadCollided",
-                        data_update_in_flight_);
-  if (!success || !IsAvailable() || data_update_in_flight_) {
+  if (!success || !IsAvailable()) {
     entry.reset();
   }
 
@@ -952,10 +939,6 @@ void OptimizationGuideStore::UpdateHostModelFeatures(
 
   host_model_features_update_time_ =
       *host_model_features_update_data->update_time();
-
-  // TODO(crbug/1001194): Add protection/lock around setting
-  // |data_update_in_flight_|.
-  data_update_in_flight_ = true;
 
   entry_keys_.reset();
 
@@ -1022,12 +1005,11 @@ void OptimizationGuideStore::OnLoadHostModelFeatures(
     std::unique_ptr<proto::StoreEntry> entry) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
-  // If either the request failed, the store was set to unavailable after the
-  // request was started, or there's an in-flight update, which means the entry
-  // is about to be invalidated, then the loaded host model features should not
+  // If either the request failed or the store was set to unavailable after the
+  // request was started, then the loaded host model features should not
   // be considered valid. Reset the entry so that nothing is returned to the
   // requester.
-  if (!success || !IsAvailable() || data_update_in_flight_) {
+  if (!success || !IsAvailable()) {
     entry.reset();
   }
   if (!entry || !entry->has_host_model_features()) {
@@ -1046,12 +1028,11 @@ void OptimizationGuideStore::OnLoadAllHostModelFeatures(
     std::unique_ptr<std::vector<proto::StoreEntry>> entries) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
-  // If either the request failed, the store was set to unavailable after the
-  // request was started, or there's an in-flight update, which means the entry
-  // is about to be invalidated, then the loaded host model features should not
+  // If either the request failed or the store was set to unavailable after the
+  // request was started, then the loaded host model features should not
   // be considered valid. Reset the entry so that nothing is returned to the
   // requester.
-  if (!success || !IsAvailable() || data_update_in_flight_) {
+  if (!success || !IsAvailable()) {
     entries.reset();
   }
 
@@ -1075,14 +1056,12 @@ void OptimizationGuideStore::OnLoadAllHostModelFeatures(
 
 void OptimizationGuideStore::ClearHostModelFeaturesFromDatabase() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  DCHECK(!data_update_in_flight_);
 
   base::UmaHistogramBoolean(
       "OptimizationGuide.ClearHostModelFeatures.StoreAvailable", IsAvailable());
   if (!IsAvailable())
     return;
 
-  data_update_in_flight_ = true;
   auto entries_to_save = std::make_unique<EntryVector>();
 
   entry_keys_.reset();

@@ -5,8 +5,9 @@
 import logging
 import os
 import subprocess
-import sys
 import threading
+
+from common import SubprocessCallWithTimeout
 
 _SSH = ['ssh']
 _SCP = ['scp', '-C']  # Use gzip compression.
@@ -55,33 +56,17 @@ class CommandRunner(object):
 
     ssh_command = self._GetSshCommandLinePrefix() + command
     _SSH_LOGGER.debug('ssh exec: ' + ' '.join(ssh_command))
-    if silent:
-      devnull = open(os.devnull, 'w')
-      process = subprocess.Popen(ssh_command, stderr=devnull, stdout=devnull)
-    else:
-      process = subprocess.Popen(ssh_command)
-
-    timeout_timer = None
-    if timeout_secs:
-      timeout_timer = threading.Timer(timeout_secs, process.kill)
-      timeout_timer.start()
-
-    process.wait()
-
-    if timeout_timer:
-      timeout_timer.cancel()
-
-    if process.returncode == -9:
-      raise Exception('Timeout when executing \"%s\".' % ' '.join(command))
-
-    return process.returncode
+    retval, _, _ = SubprocessCallWithTimeout(ssh_command, silent, timeout_secs)
+    return retval
 
 
-  def RunCommandPiped(self, command = None, ssh_args = None, **kwargs):
+  def RunCommandPiped(self, command, stdout, stderr, ssh_args = None, **kwargs):
     """Executes an SSH command on the remote host and returns a process object
     with access to the command's stdio streams. Does not block.
 
     command: A list of strings containing the command and its arguments.
+    stdout: subprocess stdout.  Must not be None.
+    stderr: subprocess stderr.  Must not be None.
     ssh_args: Arguments that will be passed to SSH.
     kwargs: A dictionary of parameters to be passed to subprocess.Popen().
             The parameters can be used to override stdin and stdout, for
@@ -89,14 +74,15 @@ class CommandRunner(object):
 
     Returns a Popen object for the command."""
 
-    if not command:
-      command = []
+    if not stdout or not stderr:
+      raise Exception('Stdout/stderr must be specified explicitly')
+
     if not ssh_args:
       ssh_args = []
 
     ssh_command = self._GetSshCommandLinePrefix() + ssh_args + ['--'] + command
     _SSH_LOGGER.debug(' '.join(ssh_command))
-    return subprocess.Popen(ssh_command, **kwargs)
+    return subprocess.Popen(ssh_command, stdout=stdout, stderr=stderr, **kwargs)
 
 
   def RunScp(self, sources, dest, direction, recursive=False):
@@ -130,4 +116,9 @@ class CommandRunner(object):
     scp_command += [dest]
 
     _SSH_LOGGER.debug(' '.join(scp_command))
-    subprocess.check_call(scp_command, stdout=open(os.devnull, 'w'))
+    try:
+      scp_output = subprocess.check_output(scp_command,
+                                           stderr=subprocess.STDOUT)
+    except subprocess.CalledProcessError as error:
+      _SSH_LOGGER.info(error.output)
+      raise

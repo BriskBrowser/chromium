@@ -7,6 +7,7 @@
 #include <utility>
 
 #include "base/bind.h"
+#include "base/logging.h"
 #include "chromeos/components/mojo_bootstrap/pending_connection_manager.h"
 #include "dbus/message.h"
 #include "third_party/cros_system_api/dbus/service_constants.h"
@@ -24,8 +25,8 @@ void DriveFileStreamServiceProvider::Start(
       drivefs::kDriveFileStreamOpenIpcChannelMethod,
       base::BindRepeating(&DriveFileStreamServiceProvider::HandleOpenIpcChannel,
                           weak_ptr_factory_.GetWeakPtr()),
-      base::BindRepeating([](const std::string& interface_name,
-                             const std::string& method_name, bool success) {
+      base::BindOnce([](const std::string& interface_name,
+                        const std::string& method_name, bool success) {
         LOG_IF(ERROR, !success)
             << "Failed to export " << interface_name << "." << method_name;
       }));

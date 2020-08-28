@@ -7,11 +7,13 @@
 #include <utility>
 
 #include "ash/public/cpp/shell_window_ids.h"
+#include "base/bind_helpers.h"
 #include "base/callback_helpers.h"
 #include "base/containers/adapters.h"
 #include "base/logging.h"
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
+#include "base/numerics/safe_conversions.h"
 #include "base/trace_event/trace_event.h"
 #include "base/trace_event/traced_value.h"
 #include "components/exo/buffer.h"
@@ -35,12 +37,14 @@
 #include "ui/aura/window_targeter.h"
 #include "ui/base/class_property.h"
 #include "ui/base/cursor/cursor.h"
+#include "ui/base/cursor/mojom/cursor_type.mojom-shared.h"
 #include "ui/base/hit_test.h"
 #include "ui/compositor/layer.h"
+#include "ui/display/display.h"
+#include "ui/display/screen.h"
 #include "ui/events/event.h"
 #include "ui/gfx/buffer_format_util.h"
 #include "ui/gfx/geometry/dip_util.h"
-#include "ui/gfx/geometry/safe_integer_conversions.h"
 #include "ui/gfx/geometry/size_conversions.h"
 #include "ui/gfx/gpu_fence.h"
 #include "ui/gfx/gpu_memory_buffer.h"
@@ -134,7 +138,7 @@ class CustomWindowDelegate : public aura::WindowDelegate {
         views::Widget::GetTopLevelWidgetForNativeView(surface_->window());
     if (widget)
       return widget->GetNativeWindow()->GetCursor(point /* not used */);
-    return ui::CursorType::kNull;
+    return ui::mojom::CursorType::kNull;
   }
   int GetNonClientComponent(const gfx::Point& point) const override {
     views::Widget* widget =
@@ -159,8 +163,8 @@ class CustomWindowDelegate : public aura::WindowDelegate {
   void OnWindowDestroying(aura::Window* window) override {}
   void OnWindowDestroyed(aura::Window* window) override { delete this; }
   void OnWindowTargetVisibilityChanged(bool visible) override {}
-  void OnWindowOcclusionChanged(aura::Window::OcclusionState occlusion_state,
-                                const SkRegion& occluded_region) override {
+  void OnWindowOcclusionChanged(
+      aura::Window::OcclusionState occlusion_state) override {
     surface_->OnWindowOcclusionChanged();
   }
   bool HasHitTestMask() const override { return true; }
@@ -219,6 +223,8 @@ const std::string& GetApplicationId(aura::Window* window) {
   return empty_app_id;
 }
 
+int surface_id = 0;
+
 }  // namespace
 
 DEFINE_UI_CLASS_PROPERTY_KEY(int32_t, kClientSurfaceIdKey, 0)
@@ -239,7 +245,7 @@ Surface::Surface()
     : window_(
           std::make_unique<aura::Window>(new CustomWindowDelegate(this),
                                          aura::client::WINDOW_TYPE_CONTROL)) {
-  window_->SetName("ExoSurface");
+  window_->SetName(base::StringPrintf("ExoSurface-%d", surface_id++));
   window_->SetProperty(kSurfaceKey, this);
   window_->Init(ui::LAYER_NOT_DRAWN);
   window_->SetEventTargeter(std::make_unique<CustomWindowTargeter>());
@@ -361,6 +367,18 @@ void Surface::AddSubSurface(Surface* sub_surface) {
   pending_sub_surfaces_.push_back(std::make_pair(sub_surface, gfx::Point()));
   sub_surfaces_.push_back(std::make_pair(sub_surface, gfx::Point()));
   sub_surfaces_changed_ = true;
+
+  // The shell might have not be added to the root yet.
+  if (window_->GetRootWindow()) {
+    auto display =
+        display::Screen::GetScreen()->GetDisplayNearestWindow(window_.get());
+    sub_surface->UpdateDisplay(display::kInvalidDisplayId, display.id());
+  }
+}
+
+void Surface::OnNewOutputAdded() {
+  if (delegate_)
+    delegate_->OnNewOutputAdded();
 }
 
 void Surface::RemoveSubSurface(Surface* sub_surface) {
@@ -520,6 +538,13 @@ void Surface::SetApplicationId(const char* application_id) {
     delegate_->OnSetApplicationId(application_id);
 }
 
+void Surface::SetUseImmersiveForFullscreen(bool value) {
+  TRACE_EVENT1("exo", "Surface::SetUseImmersiveForFullscreen", "value", value);
+
+  if (delegate_)
+    delegate_->SetUseImmersiveForFullscreen(value);
+}
+
 void Surface::SetColorSpace(gfx::ColorSpace color_space) {
   TRACE_EVENT1("exo", "Surface::SetColorSpace", "color_space",
                color_space.ToString());
@@ -589,6 +614,15 @@ void Surface::Commit() {
     CommitSurfaceHierarchy(false);
 }
 
+void Surface::UpdateDisplay(int64_t old_display, int64_t new_display) {
+  if (!leave_enter_callback_.is_null())
+    leave_enter_callback_.Run(old_display, new_display);
+  for (const auto& sub_surface_entry : base::Reversed(sub_surfaces_)) {
+    auto* sub_surface = sub_surface_entry.first;
+    sub_surface->UpdateDisplay(old_display, new_display);
+  }
+}
+
 void Surface::CommitSurfaceHierarchy(bool synchronized) {
   TRACE_EVENT0("exo", "Surface::CommitSurfaceHierarchy");
   if (needs_commit_surface_ && (synchronized || !IsSynchronized())) {
@@ -608,7 +642,8 @@ void Surface::CommitSurfaceHierarchy(bool synchronized) {
             state_.only_visible_on_secure_output ||
         pending_state_.blend_mode != state_.blend_mode ||
         pending_state_.alpha != state_.alpha ||
-        pending_state_.color_space != state_.color_space;
+        pending_state_.color_space != state_.color_space ||
+        pending_state_.is_tracking_occlusion != state_.is_tracking_occlusion;
 
     bool needs_update_buffer_transform =
         pending_state_.buffer_scale != state_.buffer_scale ||
@@ -635,6 +670,13 @@ void Surface::CommitSurfaceHierarchy(bool synchronized) {
         (state_.input_region.has_value() && state_.input_region->IsEmpty())
             ? aura::EventTargetingPolicy::kDescendantsOnly
             : aura::EventTargetingPolicy::kTargetAndDescendants);
+
+    if (state_.is_tracking_occlusion) {
+      // TODO(edcourtney): Currently, it doesn't seem to be possible to stop
+      // tracking the occlusion state once started, but it would be nice to stop
+      // if the tracked occlusion region becomes empty.
+      window_->TrackOcclusionState();
+    }
 
 #if defined(OS_CHROMEOS)
     if (needs_output_protection) {
@@ -857,12 +899,11 @@ bool Surface::FillsBoundsOpaquely() const {
 }
 
 void Surface::SetOcclusionTracking(bool tracking) {
-  is_tracking_occlusion_ = tracking;
-  // TODO(edcourtney): Currently, it doesn't seem to be possible to stop
-  // tracking the occlusion state once started, but it would be nice to stop if
-  // the tracked occlusion region becomes empty.
-  if (is_tracking_occlusion_)
-    window()->TrackOcclusionState();
+  pending_state_.is_tracking_occlusion = tracking;
+}
+
+bool Surface::IsTrackingOcclusion() {
+  return state_.is_tracking_occlusion;
 }
 
 void Surface::SetSurfaceHierarchyContentBoundsForTest(
@@ -937,7 +978,15 @@ void Surface::UpdateResource(FrameSinkResourceManager* resource_manager) {
             state_.only_visible_on_secure_output, &current_resource_)) {
       current_resource_has_alpha_ =
           FormatHasAlpha(current_buffer_.buffer()->GetFormat());
-      current_resource_.color_space = state_.color_space;
+      // Planar buffers are sampled as RGB. Technically, the driver is supposed
+      // to preserve the colorspace, so we could still pass the primaries and
+      // transfer function.  However, we don't actually pass the colorspace
+      // to the driver, and it's unclear what drivers would actually do if we
+      // did. So in effect, the colorspace is undefined.
+      if (NumberOfPlanesForLinearBufferFormat(
+              current_buffer_.buffer()->GetFormat()) > 1) {
+        current_resource_.color_space = state_.color_space;
+      }
     } else {
       current_resource_.id = 0;
       // Use the buffer's size, so the AppendContentsToFrame() will append
@@ -994,9 +1043,20 @@ void Surface::AppendContentsToFrame(const gfx::Point& origin,
     damage_rect.Inset(-1, -1);
     damage_rect += origin.OffsetFromOrigin();
     damage_rect.Intersect(output_rect);
-    render_pass->damage_rect.Union(
-        gfx::ConvertRectToPixel(device_scale_factor, damage_rect));
+    if (device_scale_factor <= 1) {
+      render_pass->damage_rect.Union(
+          gfx::ConvertRectToPixel(device_scale_factor, damage_rect));
+    } else {
+      // The damage will eventually be rescaled by 1/device_scale_factor. Since
+      // that scale factor is <1, taking the enclosed rect here means that that
+      // rescaled RectF is <1px smaller than |damage_rect| in each dimension,
+      // which makes the enclosing rect equal to |damage_rect|.
+      gfx::RectF scaled_damage(damage_rect);
+      scaled_damage.Scale(device_scale_factor);
+      render_pass->damage_rect.Union(gfx::ToEnclosedRect(scaled_damage));
+    }
   }
+  damage_.Clear();
 
   gfx::PointF scale(content_size_.width(), content_size_.height());
 
@@ -1050,6 +1110,7 @@ void Surface::AppendContentsToFrame(const gfx::Point& origin,
       gfx::RRectF() /*rounded_corner_bounds=*/, gfx::Rect() /*clip_rect=*/,
       false /*is_clipped=*/, are_contents_opaque, state_.alpha /*opacity=*/,
       SkBlendMode::kSrcOver /*blend_mode=*/, 0 /*sorting_context_id=*/);
+  quad_state->no_damage = damage_rect.IsEmpty();
 
   if (current_resource_.id) {
     gfx::RectF uv_crop(gfx::SizeF(1, 1));
@@ -1083,7 +1144,8 @@ void Surface::AppendContentsToFrame(const gfx::Point& origin,
           first_embedded_surface_id_ = current_surface_id;
         }
       }
-      if (latest_embedded_surface_id_.is_valid()) {
+      if (latest_embedded_surface_id_.is_valid() &&
+          !embedded_surface_size_.IsEmpty()) {
         if (!state_.crop.IsEmpty()) {
           quad_state->is_clipped = true;
           quad_state->clip_rect = output_rect;
@@ -1129,8 +1191,9 @@ void Surface::UpdateContentSize() {
   if (!state_.viewport.IsEmpty()) {
     content_size = state_.viewport;
   } else if (!state_.crop.IsEmpty()) {
-    DLOG_IF(WARNING, !gfx::IsExpressibleAsInt(state_.crop.width()) ||
-                         !gfx::IsExpressibleAsInt(state_.crop.height()))
+    DLOG_IF(WARNING,
+            !base::IsValueInRangeForNumericType<int>(state_.crop.width()) ||
+                !base::IsValueInRangeForNumericType<int>(state_.crop.height()))
         << "Crop rectangle size (" << state_.crop.size().ToString()
         << ") most be expressible using integers when viewport is not set";
     content_size = gfx::ToCeiledSize(state_.crop.size());
@@ -1150,11 +1213,14 @@ void Surface::UpdateContentSize() {
   if (content_size_ != content_size) {
     content_size_ = content_size;
     window_->SetBounds(gfx::Rect(window_->bounds().origin(), content_size_));
+
+    for (SurfaceObserver& observer : observers_)
+      observer.OnContentSizeChanged(this);
   }
 }
 
 void Surface::OnWindowOcclusionChanged() {
-  if (!is_tracking_occlusion_)
+  if (!state_.is_tracking_occlusion)
     return;
 
   for (SurfaceObserver& observer : observers_)

@@ -13,8 +13,8 @@
 namespace net {
 
 // Default QUIC version used in absence of any external configuration.
-constexpr quic::ParsedQuicVersion kDefaultSupportedQuicVersion{
-    quic::PROTOCOL_QUIC_CRYPTO, quic::QUIC_VERSION_46};
+constexpr quic::ParsedQuicVersion kDefaultSupportedQuicVersion =
+    quic::ParsedQuicVersion::Q050();
 
 // Returns a list containing only the current default version.
 inline NET_EXPORT_PRIVATE quic::ParsedQuicVersionVector
@@ -157,8 +157,6 @@ struct NET_EXPORT QuicParams {
   bool go_away_on_path_degrading = false;
   // If true, bidirectional streams over QUIC will be disabled.
   bool disable_bidirectional_streams = false;
-  // If true, race cert verification with host resolution.
-  bool race_cert_verification = false;
   // If true, estimate the initial RTT for QUIC connections based on network.
   bool estimate_initial_rtt = false;
   // If true, client headers will include HTTP/2 stream dependency info
@@ -167,6 +165,10 @@ struct NET_EXPORT QuicParams {
   // The initial rtt that will be used in crypto handshake if no cached
   // smoothed rtt is present.
   base::TimeDelta initial_rtt_for_handshake;
+  // If true, QUIC with TLS will not try 0-RTT connection.
+  bool disable_tls_zero_rtt = false;
+  // If true, gQUIC requests will always require confirmation.
+  bool disable_gquic_zero_rtt = false;
 };
 
 // QuicContext contains QUIC-related variables that are shared across all of the
@@ -187,6 +189,11 @@ class NET_EXPORT_PRIVATE QuicContext {
   }
   const quic::ParsedQuicVersionVector& supported_versions() {
     return params_.supported_versions;
+  }
+
+  void SetHelperForTesting(
+      std::unique_ptr<quic::QuicConnectionHelperInterface> helper) {
+    helper_ = std::move(helper);
   }
 
  private:

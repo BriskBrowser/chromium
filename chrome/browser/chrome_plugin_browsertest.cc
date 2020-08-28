@@ -15,7 +15,6 @@
 #include "base/process/process.h"
 #include "base/stl_util.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/task/post_task.h"
 #include "build/branding_buildflags.h"
 #include "build/build_config.h"
 #include "chrome/browser/plugins/plugin_prefs.h"
@@ -35,6 +34,7 @@
 #include "content/public/common/content_paths.h"
 #include "content/public/common/process_type.h"
 #include "content/public/common/webplugininfo.h"
+#include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/test_utils.h"
 #include "net/base/filename_util.h"
@@ -43,47 +43,6 @@
 #include "ui/aura/window.h"
 #include "ui/aura/window_tree_host.h"
 #endif
-
-using content::BrowserThread;
-
-namespace {
-
-class CallbackBarrier : public base::RefCountedThreadSafe<CallbackBarrier> {
- public:
-  explicit CallbackBarrier(const base::Closure& target_callback)
-      : target_callback_(target_callback),
-        outstanding_callbacks_(0),
-        did_enable_(true) {
-  }
-
-  base::Callback<void(bool)> CreateCallback() {
-    outstanding_callbacks_++;
-    return base::Bind(&CallbackBarrier::MayRunTargetCallback, this);
-  }
-
- private:
-  friend class base::RefCountedThreadSafe<CallbackBarrier>;
-
-  ~CallbackBarrier() {
-    EXPECT_TRUE(target_callback_.is_null());
-  }
-
-  void MayRunTargetCallback(bool did_enable) {
-    EXPECT_GT(outstanding_callbacks_, 0);
-    did_enable_ = did_enable_ && did_enable;
-    if (--outstanding_callbacks_ == 0) {
-      EXPECT_TRUE(did_enable_);
-      target_callback_.Run();
-      target_callback_.Reset();
-    }
-  }
-
-  base::Closure target_callback_;
-  int outstanding_callbacks_;
-  bool did_enable_;
-};
-
-}  // namespace
 
 class ChromePluginTest : public InProcessBrowserTest {
  protected:
@@ -113,8 +72,8 @@ class ChromePluginTest : public InProcessBrowserTest {
   static void CrashFlash() {
     scoped_refptr<content::MessageLoopRunner> runner =
         new content::MessageLoopRunner;
-    base::PostTask(FROM_HERE, {BrowserThread::IO},
-                   base::BindOnce(&CrashFlashInternal, runner->QuitClosure()));
+    content::GetIOThreadTaskRunner({})->PostTask(
+        FROM_HERE, base::BindOnce(&CrashFlashInternal, runner->QuitClosure()));
     runner->Run();
   }
 
@@ -142,8 +101,8 @@ class ChromePluginTest : public InProcessBrowserTest {
     int actual = 0;
     scoped_refptr<content::MessageLoopRunner> runner =
         new content::MessageLoopRunner;
-    base::PostTask(
-        FROM_HERE, {BrowserThread::IO},
+    content::GetIOThreadTaskRunner({})->PostTask(
+        FROM_HERE,
         base::BindOnce(&CountPluginProcesses, &actual, runner->QuitClosure()));
     runner->Run();
     ASSERT_EQ(expected, actual);
@@ -159,7 +118,8 @@ class ChromePluginTest : public InProcessBrowserTest {
       found = true;
     }
     ASSERT_TRUE(found) << "Didn't find Flash process!";
-    base::PostTask(FROM_HERE, {BrowserThread::UI}, std::move(quit_task));
+    content::GetUIThreadTaskRunner({})->PostTask(FROM_HERE,
+                                                 std::move(quit_task));
   }
 
   static void GetPluginsInfoCallback(
@@ -175,7 +135,8 @@ class ChromePluginTest : public InProcessBrowserTest {
       if (iter.GetData().process_type == content::PROCESS_TYPE_PPAPI_PLUGIN)
         (*count)++;
     }
-    base::PostTask(FROM_HERE, {BrowserThread::UI}, std::move(quit_task));
+    content::GetUIThreadTaskRunner({})->PostTask(FROM_HERE,
+                                                 std::move(quit_task));
   }
 };
 

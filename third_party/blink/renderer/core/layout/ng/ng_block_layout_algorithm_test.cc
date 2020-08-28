@@ -5,6 +5,7 @@
 #include "third_party/blink/renderer/core/layout/ng/ng_block_layout_algorithm.h"
 
 #include "testing/gmock/include/gmock/gmock.h"
+#include "third_party/blink/renderer/core/dom/dom_token_list.h"
 #include "third_party/blink/renderer/core/dom/node_computed_style.h"
 #include "third_party/blink/renderer/core/dom/tag_collection.h"
 #include "third_party/blink/renderer/core/layout/ng/layout_ng_block_flow.h"
@@ -33,7 +34,7 @@ class NGBlockLayoutAlgorithmTest : public NGBaseLayoutAlgorithmTest {
     NGBaseLayoutAlgorithmTest::SetUp();
   }
 
-  MinMaxSize RunComputeMinAndMax(NGBlockNode node) {
+  MinMaxSizes RunComputeMinMaxSizes(NGBlockNode node) {
     // The constraint space is not used for min/max computation, but we need
     // it to create the algorithm.
     NGConstraintSpace space = ConstructBlockLayoutTestConstraintSpace(
@@ -43,11 +44,10 @@ class NGBlockLayoutAlgorithmTest : public NGBaseLayoutAlgorithmTest {
         CalculateInitialMinMaxFragmentGeometry(space, node);
 
     NGBlockLayoutAlgorithm algorithm({node, fragment_geometry, space});
-    MinMaxSizeInput input(
-        /* percentage_resolution_block_size */ (LayoutUnit()));
-    auto min_max = algorithm.ComputeMinMaxSize(input);
-    EXPECT_TRUE(min_max.has_value());
-    return *min_max;
+    MinMaxSizesInput input(
+        /* percentage_resolution_block_size */ LayoutUnit(),
+        MinMaxSizesType::kContent);
+    return algorithm.ComputeMinMaxSizes(input).sizes;
   }
 
   scoped_refptr<const NGLayoutResult> RunCachedLayoutResult(
@@ -97,10 +97,11 @@ TEST_F(NGBlockLayoutAlgorithmTest, FixedSize) {
 }
 
 TEST_F(NGBlockLayoutAlgorithmTest, Caching) {
-  ScopedLayoutNGFragmentCachingForTest layout_ng_fragment_caching(true);
-
+  // The inner element exists so that "simplified" layout logic isn't invoked.
   SetBodyInnerHTML(R"HTML(
-    <div id="box" style="width:30px; height:40%;"></div>
+    <div id="box" style="width:30px; height:40%;">
+      <div style="height: 100%;"></div>
+    </div>
   )HTML");
 
   NGConstraintSpace space = ConstructBlockLayoutTestConstraintSpace(
@@ -132,7 +133,7 @@ TEST_F(NGBlockLayoutAlgorithmTest, Caching) {
   EXPECT_NE(result.get(), nullptr);
 
   // Test a different constraint space that will actually result in a different
-  // size.
+  // sized fragment.
   space = ConstructBlockLayoutTestConstraintSpace(
       WritingMode::kHorizontalTb, TextDirection::kLtr,
       LogicalSize(LayoutUnit(200), LayoutUnit(200)));
@@ -146,8 +147,6 @@ TEST_F(NGBlockLayoutAlgorithmTest, Caching) {
 }
 
 TEST_F(NGBlockLayoutAlgorithmTest, MinInlineSizeCaching) {
-  ScopedLayoutNGFragmentCachingForTest layout_ng_fragment_caching(true);
-
   SetBodyInnerHTML(R"HTML(
     <div id="box" style="min-width:30%; width: 10px; height:40px;"></div>
   )HTML");
@@ -190,8 +189,6 @@ TEST_F(NGBlockLayoutAlgorithmTest, MinInlineSizeCaching) {
 }
 
 TEST_F(NGBlockLayoutAlgorithmTest, PercentageBlockSizeQuirkDescendantsCaching) {
-  ScopedLayoutNGFragmentCachingForTest layout_ng_fragment_caching(true);
-
   // Quirks mode triggers the interesting parent-child %-resolution behaviour.
   GetDocument().SetCompatibilityMode(Document::kQuirksMode);
 
@@ -214,17 +211,13 @@ TEST_F(NGBlockLayoutAlgorithmTest, PercentageBlockSizeQuirkDescendantsCaching) {
         <div style="height: 20px;"></div>
         <div style="display: flex; height: 50%;"></div>
       </div>
-      <div id="box6">
-        <div style="height: 20px;"></div>
-        <div style="display: table;"></div>
-      </div>
-      <div id="box7" style="position: relative;">
+      <div id="box6" style="position: relative;">
         <div style="position: absolute; width: 10px; height: 100%;"></div>
       </div>
-      <div id="box8">
+      <div id="box7">
         <img />
       </div>
-      <div id="box9">
+      <div id="box8">
         <img style="height: 100%;" />
       </div>
     </div>
@@ -277,27 +270,20 @@ TEST_F(NGBlockLayoutAlgorithmTest, PercentageBlockSizeQuirkDescendantsCaching) {
   // behaviour, but is %-sized.
   EXPECT_EQ(run_test("box5"), nullptr);
 
-  // Test 6: A table (legacy descendant), which does use the quirks mode
-  // behaviour.
-  // NOTE: This test may fail when tables are converted to LayoutNG.
-  EXPECT_EQ(run_test("box6"), nullptr);
-
-  // Test 7: An OOF positioned descentant which has a %-height, should not
+  // Test 6: An OOF positioned descentant which has a %-height, should not
   // count as a percentage descendant.
+  EXPECT_NE(run_test("box6"), nullptr);
+
+  // Test 7: A replaced element (legacy descendant), shouldn't use the quirks
+  // mode behaviour.
   EXPECT_NE(run_test("box7"), nullptr);
 
   // Test 8: A replaced element (legacy descendant), shouldn't use the quirks
-  // mode behaviour.
-  EXPECT_NE(run_test("box8"), nullptr);
-
-  // Test 9: A replaced element (legacy descendant), shouldn't use the quirks
   // mode behaviour, but is %-sized.
-  EXPECT_EQ(run_test("box9"), nullptr);
+  EXPECT_EQ(run_test("box8"), nullptr);
 }
 
 TEST_F(NGBlockLayoutAlgorithmTest, LineOffsetCaching) {
-  ScopedLayoutNGFragmentCachingForTest layout_ng_fragment_caching(true);
-
   SetBodyInnerHTML(R"HTML(
     <div id="container" style="display: flow-root; width: 300px; height: 100px;">
       <div id="box1" style="width: 100px; margin: 0 auto 0 auto;"></div>
@@ -1549,7 +1535,7 @@ TEST_F(NGBlockLayoutAlgorithmTest, ComputeMinMaxContent) {
 
   NGBlockNode container(ToLayoutBox(GetLayoutObjectByElementId("container")));
 
-  MinMaxSize sizes = RunComputeMinAndMax(container);
+  MinMaxSizes sizes = RunComputeMinMaxSizes(container);
   EXPECT_EQ(kSecondChildWidth, sizes.min_size);
   EXPECT_EQ(kSecondChildWidth, sizes.max_size);
 }
@@ -1570,7 +1556,7 @@ TEST_F(NGBlockLayoutAlgorithmTest, ComputeMinMaxContentFloats) {
 
   NGBlockNode container(ToLayoutBox(GetLayoutObjectByElementId("container")));
 
-  MinMaxSize sizes = RunComputeMinAndMax(container);
+  MinMaxSizes sizes = RunComputeMinMaxSizes(container);
   EXPECT_EQ(LayoutUnit(40), sizes.min_size);
   EXPECT_EQ(LayoutUnit(90), sizes.max_size);
 }
@@ -1591,7 +1577,7 @@ TEST_F(NGBlockLayoutAlgorithmTest, ComputeMinMaxContentFloatsClearance) {
 
   NGBlockNode container(ToLayoutBox(GetLayoutObjectByElementId("container")));
 
-  MinMaxSize sizes = RunComputeMinAndMax(container);
+  MinMaxSizes sizes = RunComputeMinMaxSizes(container);
   EXPECT_EQ(LayoutUnit(40), sizes.min_size);
   EXPECT_EQ(LayoutUnit(50), sizes.max_size);
 }
@@ -1612,7 +1598,7 @@ TEST_F(NGBlockLayoutAlgorithmTest, ComputeMinMaxContentNewFormattingContext) {
 
   NGBlockNode container(ToLayoutBox(GetLayoutObjectByElementId("container")));
 
-  MinMaxSize sizes = RunComputeMinAndMax(container);
+  MinMaxSizes sizes = RunComputeMinMaxSizes(container);
   EXPECT_EQ(LayoutUnit(100), sizes.min_size);
   EXPECT_EQ(LayoutUnit(100), sizes.max_size);
 }
@@ -1634,7 +1620,7 @@ TEST_F(NGBlockLayoutAlgorithmTest,
 
   NGBlockNode container(ToLayoutBox(GetLayoutObjectByElementId("container")));
 
-  MinMaxSize sizes = RunComputeMinAndMax(container);
+  MinMaxSizes sizes = RunComputeMinMaxSizes(container);
   EXPECT_EQ(LayoutUnit(30), sizes.min_size);
   EXPECT_EQ(LayoutUnit(70), sizes.max_size);
 }
@@ -1652,7 +1638,7 @@ TEST_F(NGBlockLayoutAlgorithmTest,
 
   NGBlockNode container(ToLayoutBox(GetLayoutObjectByElementId("container")));
 
-  MinMaxSize sizes = RunComputeMinAndMax(container);
+  MinMaxSizes sizes = RunComputeMinMaxSizes(container);
   EXPECT_EQ(LayoutUnit(), sizes.min_size);
   EXPECT_EQ(LayoutUnit(), sizes.max_size);
 }
@@ -2455,6 +2441,52 @@ TEST_F(NGBlockLayoutAlgorithmTest, RootFragmentOffsetInsideLegacy) {
   // EXPECT_EQ(PhysicalOffset(20, 10), fragment->Offset());
 }
 
+// This test checks if the inline block baseline is computed correctly when it
+// is from the logical bottom margin edge, even after the simplified layout.
+TEST_F(NGBlockLayoutAlgorithmTest,
+       BaselineAtBlockEndMarginEdgeAfterSimplifiedLayout) {
+  SetBodyInnerHTML(R"HTML(
+    <!DOCTYPE html>
+    <style>
+    #outer {
+      height: 200px;
+    }
+    #outer.after {
+      height: 400px;
+    }
+    #target {
+      display: inline-block;
+      overflow: hidden;
+      width: 300px;
+      height: 100%;
+    }
+    </style>
+    <div id="outer">
+        <div id="target">
+        </div>
+    </div>
+  )HTML");
+  UpdateAllLifecyclePhasesForTest();
+
+  // #target uses the logical bottom margin edge for the inline block baseline.
+  auto* target_block_flow =
+      To<LayoutBlockFlow>(GetLayoutObjectByElementId("target"));
+  NGBlockNode target(target_block_flow);
+  ASSERT_TRUE(target.UseBlockEndMarginEdgeForInlineBlockBaseline());
+  scoped_refptr<const NGPhysicalBoxFragment> before =
+      To<NGPhysicalBoxFragment>(target_block_flow->CurrentFragment());
+  EXPECT_EQ(*before->LastBaseline(), LayoutUnit(200));
+
+  // Change the height of the container. This should kick the simplified layout.
+  Element* outer_element = GetElementById("outer");
+  outer_element->classList().Add("after");
+  UpdateAllLifecyclePhasesForTest();
+
+  scoped_refptr<const NGPhysicalBoxFragment> after =
+      To<NGPhysicalBoxFragment>(target_block_flow->CurrentFragment());
+  EXPECT_EQ(*after->LastBaseline(), LayoutUnit(400));
+}
+
 // TODO(dgrogan): Move this to ng_flex_layout_algorithm_test.cc if there ever is
 // one.
 TEST_F(NGBlockLayoutAlgorithmTest, DetailsFlexDoesntCrash) {
@@ -2463,6 +2495,14 @@ TEST_F(NGBlockLayoutAlgorithmTest, DetailsFlexDoesntCrash) {
   )HTML");
   UpdateAllLifecyclePhasesForTest();
   // No crash is good.
+}
+
+TEST_F(NGBlockLayoutAlgorithmTest, LayoutRubyTextCrash) {
+  // crbug.com/1102186. This test passes if no DCHECK failure.
+  SetBodyInnerHTML(R"HTML(
+    <ruby>base<rt style="writing-mode:vertical-rl">annotation</ruby>
+  )HTML");
+  UpdateAllLifecyclePhasesForTest();
 }
 
 }  // namespace

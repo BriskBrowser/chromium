@@ -7,8 +7,18 @@
  * 'category-setting-exceptions' is the polymer element for showing a certain
  * category of exceptions under Site Settings.
  */
+import './site_list.js';
+
+import {WebUIListenerBehavior} from 'chrome://resources/js/web_ui_listener_behavior.m.js';
+import {html, Polymer} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+
+import {ContentSetting, ContentSettingsTypes, SiteSettingSource} from './constants.js';
+import {SiteSettingsBehavior} from './site_settings_behavior.js';
+
 Polymer({
   is: 'category-setting-exceptions',
+
+  _template: html`{__html_template__}`,
 
   behaviors: [SiteSettingsBehavior, WebUIListenerBehavior],
 
@@ -17,7 +27,7 @@ Polymer({
     /**
      * The string ID of the category that this element is displaying data for.
      * See site_settings/constants.js for possible values.
-     * @type {!settings.ContentSettingsTypes}
+     * @type {!ContentSettingsTypes}
      */
     category: String,
 
@@ -60,6 +70,32 @@ Polymer({
       type: Boolean,
       value: true,
     },
+
+    /**
+     * Whether the block list has any discarded content setting
+     * pattern.
+     * @private
+     */
+    blockSiteListHasDiscardedExceptions_: Boolean,
+
+    /**
+     * Whether the allow list has any discarded content setting
+     * pattern.
+     * @private
+     */
+    allowSiteListHasDiscardedExceptions_: Boolean,
+
+    /**
+     * Boolean which keeps a track if any of the displayed lists has discarded
+     * content setting patterns.
+     */
+    siteListsHaveDiscardedExceptions: {
+      type: Boolean,
+      computed: 'computeHasDiscarded_(blockSiteListHasDiscardedExceptions_, ' +
+          'allowSiteListHasDiscardedExceptions_)',
+      notify: true,
+    },
+
   },
 
   observers: [
@@ -68,7 +104,7 @@ Polymer({
 
   /** @override */
   ready() {
-    this.ContentSetting = settings.ContentSetting;
+    this.ContentSetting = ContentSetting;
     this.addWebUIListener(
         'contentSettingCategoryChanged', this.updateDefaultManaged_.bind(this));
   },
@@ -80,8 +116,7 @@ Polymer({
    * @private
    */
   computeShowAllowSiteList_() {
-    return this.category !=
-        settings.ContentSettingsTypes.NATIVE_FILE_SYSTEM_WRITE;
+    return this.category !== ContentSettingsTypes.FILE_SYSTEM_WRITE;
   },
 
   /**
@@ -94,10 +129,9 @@ Polymer({
     }
 
     this.browserProxy.getDefaultValueForContentType(this.category)
-      .then(update => {
-        this.defaultManaged_ =
-          update.source === settings.SiteSettingSource.POLICY;
-      });
+        .then(update => {
+          this.defaultManaged_ = update.source === SiteSettingSource.POLICY;
+        });
   },
 
   /**
@@ -110,5 +144,17 @@ Polymer({
    */
   getReadOnlyList_() {
     return this.readOnlyList || this.defaultManaged_;
-  }
+  },
+
+  /**
+   * Merges the flags which keep track of discarded content setting patterns
+   * from each list into one boolean.
+   * @return {boolean}
+   * @private
+   */
+  computeHasDiscarded_() {
+    return this.blockSiteListHasDiscardedExceptions_ ||
+        this.allowSiteListHasDiscardedExceptions_;
+  },
+
 });

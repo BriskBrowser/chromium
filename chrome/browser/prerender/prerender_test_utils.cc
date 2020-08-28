@@ -16,8 +16,6 @@
 #include "base/memory/ptr_util.h"
 #include "base/run_loop.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/task/post_task.h"
-#include "chrome/browser/prerender/prerender_manager.h"
 #include "chrome/browser/prerender/prerender_manager_factory.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
@@ -26,6 +24,7 @@
 #include "chrome/grit/generated_resources.h"
 #include "chrome/test/base/ui_test_utils.h"
 #include "components/prefs/pref_service.h"
+#include "components/prerender/browser/prerender_manager.h"
 #include "components/safe_browsing/core/db/v4_protocol_manager_util.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/render_view_host.h"
@@ -55,9 +54,7 @@ class NeverRunsExternalProtocolHandlerDelegate
     : public ExternalProtocolHandler::Delegate {
  public:
   scoped_refptr<shell_integration::DefaultProtocolClientWorker>
-  CreateShellWorker(
-      const shell_integration::DefaultWebClientWorkerCallback& callback,
-      const std::string& protocol) override {
+  CreateShellWorker(const std::string& protocol) override {
     NOTREACHED();
     // This will crash, but it shouldn't get this far with BlockState::BLOCK
     // anyway.
@@ -104,8 +101,8 @@ bool FakeSafeBrowsingDatabaseManager::CheckBrowseUrl(
     return true;
   }
 
-  base::PostTask(
-      FROM_HERE, {content::BrowserThread::IO},
+  content::GetIOThreadTaskRunner({})->PostTask(
+      FROM_HERE,
       base::BindOnce(&FakeSafeBrowsingDatabaseManager::OnCheckBrowseURLDone,
                      this, gurl, client));
   return false;
@@ -120,7 +117,7 @@ bool FakeSafeBrowsingDatabaseManager::ChecksAreAlwaysAsync() const {
 }
 
 bool FakeSafeBrowsingDatabaseManager::CanCheckResourceType(
-    content::ResourceType /* resource_type */) const {
+    blink::mojom::ResourceType /* resource_type */) const {
   return true;
 }
 
@@ -140,15 +137,16 @@ void FakeSafeBrowsingDatabaseManager::OnCheckBrowseURLDone(const GURL& gurl,
 
 TestPrerenderContents::TestPrerenderContents(
     PrerenderManager* prerender_manager,
-    Profile* profile,
+    content::BrowserContext* browser_context,
     const GURL& url,
     const content::Referrer& referrer,
     const base::Optional<url::Origin>& initiator_origin,
     Origin origin,
     FinalStatus expected_final_status,
     bool ignore_final_status)
-    : PrerenderContents(prerender_manager,
-                        profile,
+    : PrerenderContents(std::make_unique<ChromePrerenderContentsDelegate>(),
+                        prerender_manager,
+                        browser_context,
                         url,
                         referrer,
                         initiator_origin,
@@ -391,8 +389,9 @@ void TestPrerenderContentsFactory::IgnorePrerenderContents() {
 }
 
 PrerenderContents* TestPrerenderContentsFactory::CreatePrerenderContents(
+    std::unique_ptr<PrerenderContentsDelegate> delegate,
     PrerenderManager* prerender_manager,
-    Profile* profile,
+    content::BrowserContext* browser_context,
     const GURL& url,
     const content::Referrer& referrer,
     const base::Optional<url::Origin>& initiator_origin,
@@ -403,8 +402,8 @@ PrerenderContents* TestPrerenderContentsFactory::CreatePrerenderContents(
     expected_contents_queue_.pop_front();
   }
   TestPrerenderContents* contents = new TestPrerenderContents(
-      prerender_manager, profile, url, referrer, initiator_origin, origin,
-      expected.final_status, expected.ignore);
+      prerender_manager, browser_context, url, referrer, initiator_origin,
+      origin, expected.final_status, expected.ignore);
   if (expected.handle)
     expected.handle->OnPrerenderCreated(contents);
   return contents;
@@ -605,13 +604,28 @@ GURL PrerenderInProcessBrowserTest::ServeLoaderURL(
     const std::string& loader_path,
     const std::string& replacement_variable,
     const GURL& url_to_prerender,
-    const std::string& loader_query) {
+    const std::string& loader_query,
+    const std::string& hostname_alternative) {
   base::StringPairs replacement_text;
   replacement_text.push_back(
       make_pair(replacement_variable, url_to_prerender.spec()));
   std::string replacement_path = net::test_server::GetFilePathWithReplacements(
       loader_path, replacement_text);
   return src_server()->GetURL(replacement_path + loader_query);
+}
+
+GURL PrerenderInProcessBrowserTest::ServeLoaderURLWithHostname(
+    const std::string& loader_path,
+    const std::string& replacement_variable,
+    const GURL& url_to_prerender,
+    const std::string& loader_query,
+    const std::string& hostname) {
+  base::StringPairs replacement_text;
+  replacement_text.push_back(
+      make_pair(replacement_variable, url_to_prerender.spec()));
+  std::string replacement_path = net::test_server::GetFilePathWithReplacements(
+      loader_path, replacement_text);
+  return src_server()->GetURL(hostname, replacement_path + loader_query);
 }
 
 void PrerenderInProcessBrowserTest::MonitorResourceRequest(

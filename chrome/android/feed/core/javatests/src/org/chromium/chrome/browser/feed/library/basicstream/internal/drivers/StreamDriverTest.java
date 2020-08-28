@@ -36,7 +36,7 @@ import org.mockito.Mockito;
 import org.robolectric.Robolectric;
 import org.robolectric.annotation.Config;
 
-import org.chromium.chrome.browser.feed.library.api.client.stream.Stream.ContentChangedListener;
+import org.chromium.chrome.R;
 import org.chromium.chrome.browser.feed.library.api.host.action.ActionApi;
 import org.chromium.chrome.browser.feed.library.api.host.config.Configuration;
 import org.chromium.chrome.browser.feed.library.api.host.logging.BasicLoggingApi;
@@ -72,6 +72,7 @@ import org.chromium.chrome.browser.feed.library.testing.modelprovider.FakeModelC
 import org.chromium.chrome.browser.feed.library.testing.modelprovider.FakeModelCursor;
 import org.chromium.chrome.browser.feed.library.testing.modelprovider.FakeModelFeature;
 import org.chromium.chrome.browser.feed.library.testing.modelprovider.FeatureChangeBuilder;
+import org.chromium.chrome.browser.feed.shared.stream.Stream.ContentChangedListener;
 import org.chromium.components.feed.core.proto.libraries.api.internal.StreamDataProto.StreamFeature;
 import org.chromium.components.feed.core.proto.libraries.sharedstream.UiRefreshReasonProto.UiRefreshReason;
 import org.chromium.components.feed.core.proto.libraries.sharedstream.UiRefreshReasonProto.UiRefreshReason.Reason;
@@ -1011,9 +1012,9 @@ public class StreamDriverTest {
         verify(mContentlistener).notifyContentRemoved(0);
         verify(mSnackbarApi)
                 .show(eq(undoAction.getConfirmationLabel()),
-                        undoAction.hasUndoLabel() ? eq(undoAction.getUndoLabel())
-                                                  : eq(mContext.getResources().getString(
-                                                          R.string.snackbar_default_action)),
+                        undoAction.hasUndoLabel()
+                                ? eq(undoAction.getUndoLabel())
+                                : eq(mContext.getResources().getString(R.string.undo)),
                         snackbarCallbackApi.capture());
 
         return snackbarCallbackApi.getValue();

@@ -6,10 +6,12 @@
 
 #include <stdlib.h>
 #include <time.h>
+
 #include <memory>
+#include <string>
 
 #include "base/bind.h"
-#include "base/logging.h"
+#include "base/check_op.h"
 #include "base/path_service.h"
 #include "base/run_loop.h"
 #include "chrome/chrome_cleaner/chrome_utils/chrome_util.h"
@@ -153,7 +155,7 @@ void ScannerController::DoneScanning(ResultCode status,
 
   LoggingServiceAPI* logging_service_api = LoggingServiceAPI::GetInstance();
 
-  const base::string16 kChromeExecutableName = L"chrome.exe";
+  const std::wstring kChromeExecutableName = L"chrome.exe";
   bool has_modified_shortcuts = false;
   for (const auto& shortcut : shortcuts_found_) {
     base::FilePath target_path(shortcut.target_path);

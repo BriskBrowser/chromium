@@ -150,7 +150,7 @@ void ProcessingInstruction::Process(const String& href, const String& charset) {
   if (is_xsl_ && !RuntimeEnabledFeatures::XSLTEnabled())
     return;
 
-  ResourceLoaderOptions options;
+  ResourceLoaderOptions options(GetExecutionContext()->GetCurrentWorld());
   options.initiator_info.name =
       fetch_initiator_type_names::kProcessinginstruction;
   FetchParameters params(ResourceRequest(GetDocument().CompleteURL(href)),
@@ -207,6 +207,8 @@ void ProcessingInstruction::NotifyFinished(Resource* resource) {
         GetDocument(), style_resource->GetResponse().ResponseUrl(),
         style_resource->GetResponse().IsCorsSameOrigin(),
         style_resource->GetReferrerPolicy(), style_resource->Encoding());
+    if (style_resource->GetResourceRequest().IsAdResource())
+      parser_context->SetIsAdRelated();
 
     auto* new_sheet = MakeGarbageCollected<StyleSheetContents>(
         parser_context, style_resource->Url());
@@ -218,7 +220,8 @@ void ProcessingInstruction::NotifyFinished(Resource* resource) {
       GetDocument().GetStyleEngine().SetPreferredStylesheetSetNameIfNotSet(
           title_);
     }
-    css_sheet->SetMediaQueries(MediaQuerySet::Create(media_));
+    css_sheet->SetMediaQueries(
+        MediaQuerySet::Create(media_, GetExecutionContext()));
     sheet_ = css_sheet;
     // We don't need the cross-origin security check here because we are
     // getting the sheet text in "strict" mode. This enforces a valid CSS MIME
@@ -289,7 +292,7 @@ void ProcessingInstruction::RemovePendingSheet() {
                                                     style_engine_context_);
 }
 
-void ProcessingInstruction::Trace(Visitor* visitor) {
+void ProcessingInstruction::Trace(Visitor* visitor) const {
   visitor->Trace(sheet_);
   visitor->Trace(listener_for_xslt_);
   CharacterData::Trace(visitor);

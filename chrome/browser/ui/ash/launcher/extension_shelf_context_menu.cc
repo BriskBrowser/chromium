@@ -7,6 +7,7 @@
 #include <utility>
 
 #include "ash/public/cpp/app_menu_constants.h"
+#include "ash/public/cpp/new_window_delegate.h"
 #include "base/bind.h"
 #include "chrome/browser/extensions/context_menu_matcher.h"
 #include "chrome/browser/extensions/extension_util.h"
@@ -23,8 +24,10 @@
 #include "chrome/common/extensions/extension_constants.h"
 #include "chrome/grit/chromium_strings.h"
 #include "chrome/grit/generated_resources.h"
-#include "content/public/common/context_menu_params.h"
+#include "content/public/browser/context_menu_params.h"
 #include "extensions/browser/extension_prefs.h"
+#include "ui/base/models/image_model.h"
+#include "ui/display/scoped_display_for_new_windows.h"
 #include "ui/display/screen.h"
 #include "ui/gfx/paint_vector_icon.h"
 
@@ -34,27 +37,6 @@ namespace {
 bool MenuItemHasLauncherContext(const extensions::MenuItem* item) {
   return item->contexts().Contains(extensions::MenuItem::LAUNCHER);
 }
-
-// Temporarily sets the display for new windows. Only use this when it's
-// guaranteed messages won't be received from ash to update the display.
-// For example, it's OK to use temporarily at function scope, but don't
-// heap-allocate one and hang on to it.
-class ScopedDisplayIdForNewWindows {
- public:
-  explicit ScopedDisplayIdForNewWindows(int64_t display_id)
-      : old_display_id_(display_id) {
-    display::Screen::GetScreen()->SetDisplayForNewWindows(display_id);
-  }
-
-  ~ScopedDisplayIdForNewWindows() {
-    display::Screen::GetScreen()->SetDisplayForNewWindows(old_display_id_);
-  }
-
- private:
-  const int64_t old_display_id_;
-
-  DISALLOW_COPY_AND_ASSIGN(ScopedDisplayIdForNewWindows);
-};
 
 }  // namespace
 
@@ -174,7 +156,7 @@ void ExtensionShelfContextMenu::ExecuteCommand(int command_id,
     return;
 
   // Place new windows on the same display as the context menu.
-  ScopedDisplayIdForNewWindows scoped_display(display_id());
+  display::ScopedDisplayForNewWindows scoped_display(display_id());
 
   switch (static_cast<ash::CommandId>(command_id)) {
     case ash::SHOW_APP_INFO:
@@ -200,10 +182,10 @@ void ExtensionShelfContextMenu::ExecuteCommand(int command_id,
       SetLaunchType(extensions::LAUNCH_TYPE_FULLSCREEN);
       break;
     case ash::MENU_NEW_WINDOW:
-      chrome::NewEmptyWindow(controller()->profile());
+      ash::NewWindowDelegate::GetInstance()->NewWindow(/*incognito=*/false);
       break;
     case ash::MENU_NEW_INCOGNITO_WINDOW:
-      chrome::NewEmptyWindow(controller()->profile()->GetOffTheRecordProfile());
+      ash::NewWindowDelegate::GetInstance()->NewWindow(/*incognito=*/true);
       break;
     default:
       if (extension_items_) {
@@ -227,7 +209,9 @@ void ExtensionShelfContextMenu::CreateOpenNewSubmenu(
   menu_model->AddActionableSubmenuWithStringIdAndIcon(
       ash::MENU_OPEN_NEW, GetLaunchTypeStringId(),
       open_new_submenu_model_.get(),
-      GetCommandIdVectorIcon(ash::MENU_OPEN_NEW, GetLaunchTypeStringId()));
+      ui::ImageModel::FromVectorIcon(
+          GetCommandIdVectorIcon(ash::MENU_OPEN_NEW, GetLaunchTypeStringId()),
+          /*color_id=*/-1, ash::kAppContextMenuIconSize));
 }
 
 extensions::LaunchType ExtensionShelfContextMenu::GetLaunchType() const {

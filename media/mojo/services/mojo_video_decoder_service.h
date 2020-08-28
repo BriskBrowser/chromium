@@ -12,6 +12,7 @@
 #include "base/memory/scoped_refptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/unguessable_token.h"
+#include "media/base/cdm_context.h"
 #include "media/base/decode_status.h"
 #include "media/base/overlay_info.h"
 #include "media/base/video_decoder.h"
@@ -21,11 +22,9 @@
 #include "mojo/public/cpp/bindings/associated_remote.h"
 #include "mojo/public/cpp/bindings/pending_associated_remote.h"
 #include "mojo/public/cpp/bindings/self_owned_receiver.h"
-#include "mojo/public/cpp/bindings/strong_binding.h"
 
 namespace media {
 
-class CdmContextRef;
 class DecoderBuffer;
 class MojoCdmServiceContext;
 class MojoDecoderBufferReader;
@@ -56,7 +55,7 @@ class MEDIA_MOJO_EXPORT MojoVideoDecoderService final
       const gfx::ColorSpace& target_color_space) final;
   void Initialize(const VideoDecoderConfig& config,
                   bool low_delay,
-                  int32_t cdm_id,
+                  const base::Optional<base::UnguessableToken>& cdm_id,
                   InitializeCallback callback) final;
   void Decode(mojom::DecoderBufferPtr buffer, DecodeCallback callback) final;
   void Reset(ResetCallback callback) final;
@@ -67,7 +66,7 @@ class MEDIA_MOJO_EXPORT MojoVideoDecoderService final
   // running mojom::VideoDecoder callbacks after connection error happens and
   // |this| is deleted. It's not safe to run the callbacks after a connection
   // error.
-  void OnDecoderInitialized(bool success);
+  void OnDecoderInitialized(Status status);
   void OnReaderRead(DecodeCallback callback,
                     std::unique_ptr<ScopedDecodeTrace> trace_event,
                     scoped_refptr<DecoderBuffer> buffer);
@@ -85,7 +84,7 @@ class MEDIA_MOJO_EXPORT MojoVideoDecoderService final
 
   void OnDecoderRequestedOverlayInfo(
       bool restart_for_transitions,
-      const ProvideOverlayInfoCB& provide_overlay_info_cb);
+      ProvideOverlayInfoCB provide_overlay_info_cb);
 
   // Whether this instance is active (Decode() was called at least once).
   bool is_active_instance_ = false;
@@ -110,8 +109,9 @@ class MEDIA_MOJO_EXPORT MojoVideoDecoderService final
   // Helper for reading DecoderBuffer data from the DataPipe.
   std::unique_ptr<MojoDecoderBufferReader> mojo_decoder_buffer_reader_;
 
-  // Holds the CdmContextRef to keep the CdmContext alive for the lifetime of
-  // the |decoder_|.
+  // The CDM ID and the corresponding CdmContextRef, which must be held to keep
+  // the CdmContext alive for the lifetime of the |decoder_|.
+  base::Optional<base::UnguessableToken> cdm_id_;
   std::unique_ptr<CdmContextRef> cdm_context_ref_;
 
   std::unique_ptr<media::VideoDecoder> decoder_;

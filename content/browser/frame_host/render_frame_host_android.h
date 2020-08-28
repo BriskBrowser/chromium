@@ -50,9 +50,9 @@ class RenderFrameHostAndroid : public base::SupportsUserData::Data {
       const base::android::JavaParamRef<jobject>&,
       const base::android::JavaParamRef<jobject>& jcallback) const;
 
-  bool IsPaymentFeaturePolicyEnabled(
-      JNIEnv* env,
-      const base::android::JavaParamRef<jobject>&) const;
+  bool IsFeatureEnabled(JNIEnv* env,
+                        const base::android::JavaParamRef<jobject>&,
+                        jint feature) const;
 
   // Returns UnguessableToken.
   base::android::ScopedJavaLocalRef<jobject> GetAndroidOverlayRoutingToken(
@@ -68,6 +68,18 @@ class RenderFrameHostAndroid : public base::SupportsUserData::Data {
 
   jboolean IsProcessBlocked(JNIEnv* env,
                             const base::android::JavaParamRef<jobject>&) const;
+
+  jint PerformGetAssertionWebAuthSecurityChecks(
+      JNIEnv* env,
+      const base::android::JavaParamRef<jobject>&,
+      const base::android::JavaParamRef<jstring>&,
+      const base::android::JavaParamRef<jobject>&) const;
+
+  jint PerformMakeCredentialWebAuthSecurityChecks(
+      JNIEnv* env,
+      const base::android::JavaParamRef<jobject>&,
+      const base::android::JavaParamRef<jstring>&,
+      const base::android::JavaParamRef<jobject>&) const;
 
   RenderFrameHostImpl* render_frame_host() const { return render_frame_host_; }
 

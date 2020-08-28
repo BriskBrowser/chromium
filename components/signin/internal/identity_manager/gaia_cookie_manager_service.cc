@@ -21,10 +21,12 @@
 #include "base/time/time.h"
 #include "base/values.h"
 #include "build/build_config.h"
+#include "build/buildflag.h"
 #include "components/prefs/pref_service.h"
 #include "components/signin/internal/identity_manager/account_tracker_service.h"
 #include "components/signin/internal/identity_manager/oauth_multilogin_helper.h"
 #include "components/signin/internal/identity_manager/ubertoken_fetcher_impl.h"
+#include "components/signin/public/base/signin_buildflags.h"
 #include "components/signin/public/base/signin_metrics.h"
 #include "components/signin/public/base/signin_pref_names.h"
 #include "components/signin/public/identity_manager/set_accounts_in_cookie_result.h"
@@ -161,6 +163,12 @@ void GaiaCookieManagerService::GaiaCookieRequest::
     std::move(add_account_to_cookie_completed_callback_).Run(account_id, error);
 }
 
+void GaiaCookieManagerService::GaiaCookieRequest::
+    RunLogOutFromCookieCompletedCallback(const GoogleServiceAuthError& error) {
+  if (log_out_from_cookie_completed_callback_)
+    std::move(log_out_from_cookie_completed_callback_).Run(error);
+}
+
 // static
 GaiaCookieManagerService::GaiaCookieRequest
 GaiaCookieManagerService::GaiaCookieRequest::CreateAddAccountRequest(
@@ -192,9 +200,12 @@ GaiaCookieManagerService::GaiaCookieRequest::CreateSetAccountsRequest(
 // static
 GaiaCookieManagerService::GaiaCookieRequest
 GaiaCookieManagerService::GaiaCookieRequest::CreateLogOutRequest(
-    gaia::GaiaSource source) {
-  return GaiaCookieManagerService::GaiaCookieRequest(
+    gaia::GaiaSource source,
+    LogOutFromCookieCompletedCallback callback) {
+  GaiaCookieManagerService::GaiaCookieRequest request(
       GaiaCookieRequestType::LOG_OUT, source);
+  request.log_out_from_cookie_completed_callback_ = std::move(callback);
+  return request;
 }
 
 // static
@@ -592,11 +603,13 @@ void GaiaCookieManagerService::ForceOnCookieChangeProcessing() {
           false /* httponly */, net::CookieSameSite::NO_RESTRICTION,
           net::COOKIE_PRIORITY_DEFAULT));
   OnCookieChange(
-      net::CookieChangeInfo(*cookie, net::CookieAccessSemantics::UNKNOWN,
+      net::CookieChangeInfo(*cookie, net::CookieAccessResult(),
                             net::CookieChangeCause::UNKNOWN_DELETION));
 }
 
-void GaiaCookieManagerService::LogOutAllAccounts(gaia::GaiaSource source) {
+void GaiaCookieManagerService::LogOutAllAccounts(
+    gaia::GaiaSource source,
+    LogOutFromCookieCompletedCallback completion_callback) {
   VLOG(1) << "GaiaCookieManagerService::LogOutAllAccounts";
 
   bool log_out_queued = false;
@@ -636,13 +649,17 @@ void GaiaCookieManagerService::LogOutAllAccounts(gaia::GaiaSource source) {
   }
 
   if (!log_out_queued) {
-    requests_.push_back(GaiaCookieRequest::CreateLogOutRequest(source));
+    requests_.push_back(GaiaCookieRequest::CreateLogOutRequest(
+        source, std::move(completion_callback)));
     if (requests_.size() == 1) {
       fetcher_retries_ = 0;
       signin_client_->DelayNetworkCall(
           base::BindOnce(&GaiaCookieManagerService::StartGaiaLogOut,
                          weak_ptr_factory_.GetWeakPtr()));
     }
+  } else {
+    std::move(completion_callback)
+        .Run(GoogleServiceAuthError(GoogleServiceAuthError::REQUEST_CANCELED));
   }
 }
 
@@ -692,6 +709,9 @@ void GaiaCookieManagerService::OnCookieChange(
         base::BindOnce(&GaiaCookieManagerService::StartFetchingListAccounts,
                        weak_ptr_factory_.GetWeakPtr()));
   } else {
+// TODO(https://crbug.com/1051864): Re-enable this codepath for Dice, once the
+// reconcilor has a loop-prevention mechanism.
+#if !BUILDFLAG(ENABLE_DICE_SUPPORT)
     // Remove all /ListAccounts requests except the very first request because
     // it is currently executing.
     requests_.erase(std::remove_if(requests_.begin() + 1, requests_.end(),
@@ -702,6 +722,7 @@ void GaiaCookieManagerService::OnCookieChange(
                     requests_.end());
     // Add a new /ListAccounts request at the end.
     requests_.push_back(GaiaCookieRequest::CreateListAccountsRequest());
+#endif  // !BUILDFLAG(ENABLE_DICE_SUPPORT)
   }
 }
 
@@ -733,6 +754,12 @@ void GaiaCookieManagerService::SignalSetAccountsComplete(
   DCHECK(requests_.front().request_type() ==
          GaiaCookieRequestType::SET_ACCOUNTS);
   requests_.front().RunSetAccountsInCookieCompletedCallback(result);
+}
+
+void GaiaCookieManagerService::SignalLogOutComplete(
+    const GoogleServiceAuthError& error) {
+  DCHECK(requests_.front().request_type() == GaiaCookieRequestType::LOG_OUT);
+  requests_.front().RunLogOutFromCookieCompletedCallback(error);
 }
 
 void GaiaCookieManagerService::SetGaiaAccountsInCookieUpdatedCallback(
@@ -904,6 +931,7 @@ void GaiaCookieManagerService::OnLogOutSuccess() {
   RecordLogoutRequestState(LogoutRequestState::kSuccess);
 
   MarkListAccountsStale();
+  SignalLogOutComplete(GoogleServiceAuthError::AuthErrorNone());
   fetcher_backoff_.InformOfRequest(true);
   HandleNextRequest();
 }
@@ -925,6 +953,7 @@ void GaiaCookieManagerService::OnLogOutFailure(
     return;
   }
 
+  SignalLogOutComplete(error);
   HandleNextRequest();
 }
 

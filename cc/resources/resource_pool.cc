@@ -8,6 +8,7 @@
 #include <stdint.h>
 
 #include <algorithm>
+#include <memory>
 #include <utility>
 
 #include "base/atomic_sequence_num.h"
@@ -101,9 +102,9 @@ ResourcePool::ResourcePool(
       clock_(base::DefaultTickClock::GetInstance()) {
   base::trace_event::MemoryDumpManager::GetInstance()->RegisterDumpProvider(
       this, "cc::ResourcePool", task_runner_.get());
-  memory_pressure_listener_.reset(
-      new base::MemoryPressureListener(base::BindRepeating(
-          &ResourcePool::OnMemoryPressure, weak_ptr_factory_.GetWeakPtr())));
+  memory_pressure_listener_ = std::make_unique<base::MemoryPressureListener>(
+      FROM_HERE, base::BindRepeating(&ResourcePool::OnMemoryPressure,
+                                     weak_ptr_factory_.GetWeakPtr()));
 }
 
 ResourcePool::~ResourcePool() {
@@ -200,7 +201,8 @@ ResourcePool::TryAcquireResourceForPartialRaster(
     uint64_t new_content_id,
     const gfx::Rect& new_invalidated_rect,
     uint64_t previous_content_id,
-    gfx::Rect* total_invalidated_rect) {
+    gfx::Rect* total_invalidated_rect,
+    const gfx::ColorSpace& raster_color_space) {
   DCHECK(new_content_id);
   DCHECK(previous_content_id);
   *total_invalidated_rect = gfx::Rect();
@@ -213,6 +215,9 @@ ResourcePool::TryAcquireResourceForPartialRaster(
   for (auto it = unused_resources_.begin(); it != unused_resources_.end();
        ++it) {
     PoolResource* resource = it->get();
+    if (resource->color_space() != raster_color_space)
+      continue;
+
     if (resource->content_id() == previous_content_id) {
       UpdateResourceContentIdAndInvalidation(resource, new_content_id,
                                              new_invalidated_rect);

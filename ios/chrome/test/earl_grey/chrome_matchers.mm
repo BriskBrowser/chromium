@@ -135,10 +135,6 @@ id<GREYMatcher> ShareButton() {
   return [ChromeMatchersAppInterface shareButton];
 }
 
-id<GREYMatcher> TabletTabSwitcherOpenButton() {
-  return [ChromeMatchersAppInterface tabletTabSwitcherOpenButton];
-}
-
 id<GREYMatcher> ShowTabsButton() {
   return [ChromeMatchersAppInterface showTabsButton];
 }
@@ -167,6 +163,10 @@ id<GREYMatcher> OpenLinkInNewTabButton() {
   return [ChromeMatchersAppInterface openLinkInNewTabButton];
 }
 
+id<GREYMatcher> OpenLinkInNewWindowButton() {
+  return [ChromeMatchersAppInterface openLinkInNewWindowButton];
+}
+
 id<GREYMatcher> NavigationBarDoneButton() {
   return [ChromeMatchersAppInterface navigationBarDoneButton];
 }
@@ -175,12 +175,8 @@ id<GREYMatcher> BookmarksNavigationBarDoneButton() {
   return [ChromeMatchersAppInterface bookmarksNavigationBarDoneButton];
 }
 
-id<GREYMatcher> AccountConsistencyConfirmationOkButton() {
-  return [ChromeMatchersAppInterface accountConsistencyConfirmationOKButton];
-}
-
-id<GREYMatcher> UnifiedConsentAddAccountButton() {
-  return [ChromeMatchersAppInterface unifiedConsentAddAccountButton];
+id<GREYMatcher> BookmarksNavigationBarBackButton() {
+  return [ChromeMatchersAppInterface bookmarksNavigationBarBackButton];
 }
 
 id<GREYMatcher> AddAccountButton() {
@@ -419,10 +415,6 @@ id<GREYMatcher> OpenInButton() {
   return [ChromeMatchersAppInterface openInButton];
 }
 
-id<GREYMatcher> TabGridOpenButton() {
-  return [ChromeMatchersAppInterface tabGridOpenButton];
-}
-
 id<GREYMatcher> TabGridCellAtIndex(unsigned int index) {
   return [ChromeMatchersAppInterface tabGridCellAtIndex:index];
 }
@@ -489,6 +481,10 @@ id<GREYMatcher> SettingsCreditCardMatcher() {
 
 id<GREYMatcher> SettingsBottomToolbarDeleteButton() {
   return [ChromeMatchersAppInterface settingsBottomToolbarDeleteButton];
+}
+
+id<GREYMatcher> SettingsSearchEngineButton() {
+  return [ChromeMatchersAppInterface settingsSearchEngineButton];
 }
 
 id<GREYMatcher> AutofillSuggestionViewMatcher() {

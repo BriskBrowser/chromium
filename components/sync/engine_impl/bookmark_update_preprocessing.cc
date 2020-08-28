@@ -13,28 +13,16 @@
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/strcat.h"
+#include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "components/sync/base/hash_util.h"
 #include "components/sync/base/unique_position.h"
-#include "components/sync/engine_impl/syncer_proto_util.h"
 #include "components/sync/model/entity_data.h"
 #include "components/sync/protocol/sync.pb.h"
 
 namespace syncer {
 
 namespace {
-
-// Enumeration of possible values for the positioning schemes used in Sync
-// entities. Used in UMA metrics. Do not re-order or delete these entries; they
-// are used in a UMA histogram. Please edit SyncPositioningScheme in enums.xml
-// if a value is added.
-enum class SyncPositioningScheme {
-  kUniquePosition = 0,
-  kPositionInParent = 1,
-  kInsertAfterItemId = 2,
-  kMissing = 3,
-  kMaxValue = kMissing
-};
 
 // Used in metric "Sync.BookmarkGUIDSource2". These values are persisted to
 // logs. Entries should not be renumbered and numeric values should never be
@@ -94,13 +82,13 @@ std::string InferGuidForLegacyBookmark(
 
   const std::string unique_tag =
       base::StrCat({originator_cache_guid, originator_client_item_id});
-  const std::array<uint8_t, base::kSHA1Length> hash =
+  const base::SHA1Digest hash =
       base::SHA1HashSpan(base::as_bytes(base::make_span(unique_tag)));
 
   static_assert(base::kSHA1Length >= 16, "16 bytes needed to infer GUID");
 
   const std::string guid = ComputeGuidFromBytes(base::make_span(hash));
-  DCHECK(base::IsValidGUID(guid));
+  DCHECK(base::IsValidGUIDOutputString(guid));
   return guid;
 }
 
@@ -109,12 +97,20 @@ std::string InferGuidForLegacyBookmark(
 void AdaptUniquePositionForBookmark(const sync_pb::SyncEntity& update_entity,
                                     EntityData* data) {
   DCHECK(data);
-  bool has_position_scheme = false;
-  SyncPositioningScheme sync_positioning_scheme;
+
+  // Tombstones don't need positioning information.
+  if (update_entity.deleted()) {
+    return;
+  }
+
+  // Permanent folders don't need positioning information.
+  if (update_entity.folder() &&
+      !update_entity.server_defined_unique_tag().empty()) {
+    return;
+  }
+
   if (update_entity.has_unique_position()) {
     data->unique_position = update_entity.unique_position();
-    has_position_scheme = true;
-    sync_positioning_scheme = SyncPositioningScheme::kUniquePosition;
   } else if (update_entity.has_position_in_parent() ||
              update_entity.has_insert_after_item_id()) {
     bool missing_originator_fields = false;
@@ -134,24 +130,14 @@ void AdaptUniquePositionForBookmark(const sync_pb::SyncEntity& update_entity,
       data->unique_position =
           UniquePosition::FromInt64(update_entity.position_in_parent(), suffix)
               .ToProto();
-      has_position_scheme = true;
-      sync_positioning_scheme = SyncPositioningScheme::kPositionInParent;
     } else {
       // If update_entity has insert_after_item_id, use 0 index.
       DCHECK(update_entity.has_insert_after_item_id());
       data->unique_position = UniquePosition::FromInt64(0, suffix).ToProto();
-      has_position_scheme = true;
-      sync_positioning_scheme = SyncPositioningScheme::kInsertAfterItemId;
     }
-  } else if (SyncerProtoUtil::ShouldMaintainPosition(update_entity) &&
-             !update_entity.deleted()) {
-    DLOG(ERROR) << "Missing required position information in update.";
-    has_position_scheme = true;
-    sync_positioning_scheme = SyncPositioningScheme::kMissing;
-  }
-  if (has_position_scheme) {
-    UMA_HISTOGRAM_ENUMERATION("Sync.Entities.PositioningScheme",
-                              sync_positioning_scheme);
+  } else {
+    DLOG(ERROR) << "Missing required position information in update: "
+                << update_entity.id_string();
   }
 }
 
@@ -167,34 +153,44 @@ void AdaptTitleForBookmark(const sync_pb::SyncEntity& update_entity,
   }
   // Legacy clients populate the name field in the SyncEntity instead of the
   // title field in the BookmarkSpecifics.
-  if (!specifics->bookmark().has_title() && !update_entity.name().empty()) {
-    specifics->mutable_bookmark()->set_title(update_entity.name());
+  if (!specifics->bookmark().has_legacy_canonicalized_title() &&
+      !update_entity.name().empty()) {
+    specifics->mutable_bookmark()->set_legacy_canonicalized_title(
+        update_entity.name());
   }
 }
 
-void AdaptGuidForBookmark(const sync_pb::SyncEntity& update_entity,
+bool AdaptGuidForBookmark(const sync_pb::SyncEntity& update_entity,
                           sync_pb::EntitySpecifics* specifics) {
   DCHECK(specifics);
   // Tombstones and permanent entities don't have a GUID.
   if (update_entity.deleted() ||
       !update_entity.server_defined_unique_tag().empty()) {
-    return;
+    return false;
   }
   // Legacy clients don't populate the guid field in the BookmarkSpecifics, so
   // we use the originator_client_item_id instead, if it is a valid GUID.
   // Otherwise, we leave the field empty.
   if (specifics->bookmark().has_guid()) {
     LogGuidSource(BookmarkGuidSource::kSpecifics);
-  } else if (base::IsValidGUID(update_entity.originator_client_item_id())) {
+    return false;
+  }
+  if (base::IsValidGUID(update_entity.originator_client_item_id())) {
+    // Bookmarks created around 2016, between [M44..M52) use an uppercase GUID
+    // as originator client item ID, so it needs to be lowercased to adhere to
+    // the invariant that GUIDs in specifics are canonicalized.
     specifics->mutable_bookmark()->set_guid(
-        update_entity.originator_client_item_id());
+        base::ToLowerASCII(update_entity.originator_client_item_id()));
+    DCHECK(base::IsValidGUIDOutputString(specifics->bookmark().guid()));
     LogGuidSource(BookmarkGuidSource::kValidOCII);
   } else {
     specifics->mutable_bookmark()->set_guid(
         InferGuidForLegacyBookmark(update_entity.originator_cache_guid(),
                                    update_entity.originator_client_item_id()));
+    DCHECK(base::IsValidGUIDOutputString(specifics->bookmark().guid()));
     LogGuidSource(BookmarkGuidSource::kInferred);
   }
+  return true;
 }
 
 std::string InferGuidForLegacyBookmarkForTesting(

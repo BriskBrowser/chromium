@@ -123,7 +123,8 @@ enum LineDirectionMode { kHorizontalLine, kVerticalLine };
 //   block coordinates", without considering text direction. Examples are
 //   "LogicalLeft" and "LogicalRight".
 //
-// For more, see Source/core/layout/README.md ### Coordinate Spaces.
+// For more information, see the following doc about coordinate spaces:
+// https://chromium.googlesource.com/chromium/src.git/+/master/third_party/blink/renderer/core/layout/README.md#coordinate-spaces
 class CORE_EXPORT LayoutBoxModelObject : public LayoutObject {
  public:
   LayoutBoxModelObject(ContainerNode*);
@@ -185,14 +186,9 @@ class CORE_EXPORT LayoutBoxModelObject : public LayoutObject {
 
   bool UsesCompositedScrolling() const;
 
-  // Returns which layers backgrounds should be painted into for overflow
-  // scrolling boxes.
-  // TODO(yigu): PaintLayerScrollableArea::ComputeNeedsCompositedScrolling
-  // calls this method to obtain main thread scrolling reasons due to
-  // background paint location. Once the cases get handled on compositor the
-  // parameter "reasons" could be removed.
-  BackgroundPaintLocation GetBackgroundPaintLocation(
-      uint32_t* main_thread_scrolling_reasons = nullptr) const;
+  // Returns which layers backgrounds should be painted into for a overflow
+  // scrolling box if it uses composited scrolling.
+  BackgroundPaintLocation ComputeBackgroundPaintLocationIfComposited() const;
 
   // These return the CSS computed padding values.
   LayoutUnit ComputedCSSPaddingTop() const {
@@ -415,13 +411,15 @@ class CORE_EXPORT LayoutBoxModelObject : public LayoutObject {
       LayoutGeometryMap&) const override;
 
   void ContentChanged(ContentChangeType);
-  bool HasAcceleratedCompositing() const;
 
   // Returns true if the background is painted opaque in the given rect.
   // The query rect is given in local coordinate system.
   virtual bool BackgroundIsKnownToBeOpaqueInRect(const PhysicalRect&) const {
     return false;
   }
+  // Returns true if all text in the paint-order subtree will be painted on
+  // opaque background.
+  virtual bool TextIsKnownToBeOnOpaqueBackground() const { return false; }
 
   // This object's background is transferred to its LayoutView if:
   // 1. it's the document element, or
@@ -476,7 +474,7 @@ class CORE_EXPORT LayoutBoxModelObject : public LayoutObject {
   // See continuation above for more details.
   void SetContinuation(LayoutBoxModelObject*);
 
-  virtual PhysicalOffset AccumulateInFlowPositionOffsets() const {
+  virtual PhysicalOffset AccumulateRelativePositionOffsets() const {
     return PhysicalOffset();
   }
 

@@ -6,10 +6,13 @@
 
 #include <utility>
 
+#include "net/base/io_buffer.h"
+#include "services/network/public/mojom/url_loader_factory.mojom.h"
+
 namespace content {
 
 ServiceWorkerDiskCache::ServiceWorkerDiskCache()
-    : AppCacheDiskCache("DiskCache.ServiceWorker", /*use_simple_cache=*/true) {}
+    : AppCacheDiskCache(/*use_simple_cache=*/true) {}
 
 ServiceWorkerResponseReader::ServiceWorkerResponseReader(
     int64_t resource_id,

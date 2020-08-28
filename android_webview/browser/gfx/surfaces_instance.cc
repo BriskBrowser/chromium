@@ -29,6 +29,7 @@
 #include "components/viz/common/surfaces/parent_local_surface_id_allocator.h"
 #include "components/viz/service/display/display.h"
 #include "components/viz/service/display/display_scheduler.h"
+#include "components/viz/service/display/overlay_processor_stub.h"
 #include "components/viz/service/display_embedder/skia_output_surface_impl.h"
 #include "components/viz/service/frame_sinks/compositor_frame_sink_support.h"
 #include "components/viz/service/frame_sinks/frame_sink_manager_impl.h"
@@ -79,11 +80,13 @@ SurfacesInstance::SurfacesInstance()
   auto scheduler = std::make_unique<viz::DisplayScheduler>(
       begin_frame_source_.get(), nullptr /* current_task_runner */,
       output_surface->capabilities().max_frames_pending);
+  auto overlay_processor = std::make_unique<viz::OverlayProcessorStub>();
   display_ = std::make_unique<viz::Display>(
       nullptr /* shared_bitmap_manager */,
-      output_surface_provider_.renderer_settings(), frame_sink_id_,
-      std::move(output_surface), std::move(scheduler),
-      nullptr /* current_task_runner */);
+      output_surface_provider_.renderer_settings(),
+      output_surface_provider_.debug_settings(), frame_sink_id_,
+      std::move(output_surface), std::move(overlay_processor),
+      std::move(scheduler), nullptr /* current_task_runner */);
   display_->Initialize(this, frame_sink_manager_->surface_manager(),
                        output_surface_provider_.enable_shared_image());
   frame_sink_manager_->RegisterBeginFrameSource(begin_frame_source_.get(),
@@ -118,23 +121,30 @@ viz::FrameSinkManagerImpl* SurfacesInstance::GetFrameSinkManager() {
   return frame_sink_manager_.get();
 }
 
-void SurfacesInstance::DrawAndSwap(const gfx::Size& viewport,
-                                   const gfx::Rect& clip,
-                                   const gfx::Transform& transform,
+void SurfacesInstance::DrawAndSwap(gfx::Size viewport,
+                                   gfx::Rect clip,
+                                   gfx::Transform transform,
                                    const gfx::Size& frame_size,
                                    const viz::SurfaceId& child_id,
                                    float device_scale_factor,
                                    const gfx::ColorSpace& color_space) {
   DCHECK(base::Contains(child_ids_, child_id));
 
+  // Support for SkiaRenderer
+  if (output_surface_provider_.renderer_settings().use_skia_renderer) {
+    output_surface_provider_.gl_surface()->RecalculateClipAndTransform(
+        &viewport, &clip, &transform);
+  }
+
   gfx::ColorSpace display_color_space =
       color_space.IsValid() ? color_space : gfx::ColorSpace::CreateSRGB();
-  display_->SetColorSpace(display_color_space);
+  display_->SetDisplayColorSpaces(gfx::DisplayColorSpaces(display_color_space));
 
   // Create a frame with a single SurfaceDrawQuad referencing the child
   // Surface and transformed using the given transform.
   std::unique_ptr<viz::RenderPass> render_pass = viz::RenderPass::Create();
-  render_pass->SetNew(1, gfx::Rect(viewport), clip, gfx::Transform());
+  render_pass->SetNew(viz::RenderPassId{1}, gfx::Rect(viewport), clip,
+                      gfx::Transform());
   render_pass->has_transparent_background = false;
 
   viz::SharedQuadState* quad_state =
@@ -218,7 +228,7 @@ void SurfacesInstance::SetSolidColorRootFrame() {
   bool is_clipped = false;
   bool are_contents_opaque = true;
   std::unique_ptr<viz::RenderPass> render_pass = viz::RenderPass::Create();
-  render_pass->SetNew(1, rect, rect, gfx::Transform());
+  render_pass->SetNew(viz::RenderPassId{1}, rect, rect, gfx::Transform());
   viz::SharedQuadState* quad_state =
       render_pass->CreateAndAppendSharedQuadState();
   quad_state->SetAll(gfx::Transform(), rect, rect, gfx::RRectF(), rect,
@@ -264,8 +274,9 @@ void SurfacesInstance::ReclaimResources(
 void SurfacesInstance::OnBeginFramePausedChanged(bool paused) {}
 
 base::TimeDelta SurfacesInstance::GetPreferredFrameIntervalForFrameSinkId(
-    const viz::FrameSinkId& id) {
-  return frame_sink_manager_->GetPreferredFrameIntervalForFrameSinkId(id);
+    const viz::FrameSinkId& id,
+    viz::mojom::CompositorFrameSinkType* type) {
+  return frame_sink_manager_->GetPreferredFrameIntervalForFrameSinkId(id, type);
 }
 
 bool SurfacesInstance::BackdropFiltersPreventMerge(
@@ -280,6 +291,10 @@ bool SurfacesInstance::BackdropFiltersPreventMerge(
   //  in the cases listed above. crbug.com/996434
   const viz::Surface* surface =
       frame_sink_manager_->surface_manager()->GetSurfaceForId(surface_id);
+
+  if (!surface || !surface->HasActiveFrame())
+    return false;
+
   const auto& frame = surface->GetActiveFrame();
   base::flat_set<viz::RenderPassId> backdrop_filter_passes;
   for (const auto& render_pass : frame.render_pass_list) {

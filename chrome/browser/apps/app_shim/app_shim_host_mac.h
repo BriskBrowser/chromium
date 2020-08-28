@@ -31,11 +31,11 @@ class AppShimHostBootstrap;
 
 // This is the counterpart to AppShimController in
 // chrome/app/chrome_main_app_mode_mac.mm. The AppShimHost is owned by the
-// ExtensionAppShimHandler, which implements its client interface.
+// AppShimManager, which implements its client interface.
 class AppShimHost : public chrome::mojom::AppShimHost {
  public:
   // The interface through which the AppShimHost interacts with
-  // ExtensionAppShimHandler.
+  // AppShimManager.
   class Client {
    public:
     // Request that the handler launch the app shim process.
@@ -52,6 +52,9 @@ class AppShimHost : public chrome::mojom::AppShimHost {
 
     // Invoked by the shim host when the shim process receives a focus event.
     virtual void OnShimFocus(AppShimHost* host) = 0;
+
+    // Invoked by the shim host when the shim process should reopen if needed.
+    virtual void OnShimReopen(AppShimHost* host) = 0;
 
     // Invoked by the shim host when the shim opens a file, e.g, by dragging
     // a file onto the dock icon.
@@ -112,6 +115,7 @@ class AppShimHost : public chrome::mojom::AppShimHost {
 
   // chrome::mojom::AppShimHost.
   void FocusApp() override;
+  void ReopenApp() override;
   void FilesOpened(const std::vector<base::FilePath>& files) override;
   void ProfileSelectedFromMenu(const base::FilePath& profile_path) override;
 

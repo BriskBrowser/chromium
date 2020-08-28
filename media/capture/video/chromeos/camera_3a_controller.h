@@ -32,6 +32,7 @@ class CAPTURE_EXPORT Camera3AController
 
   // CaptureMetadataDispatcher::ResultMetadataObserver implementation.
   void OnResultMetadataAvailable(
+      uint32_t frame_number,
       const cros::mojom::CameraMetadataPtr& result_metadata) final;
 
   // Enable the auto-focus mode suitable for still capture.
@@ -46,6 +47,10 @@ class CAPTURE_EXPORT Camera3AController
   // Set point of interest. The coordinate system is based on the active
   // pixel array.
   void SetPointOfInterest(gfx::Point point);
+
+  // Updates the availability of Zero-Shutter Lag (ZSL). We skip 3A (AE, AF,
+  // AWB) if ZSL is enabled.
+  void UpdateZeroShutterLagAvailability(bool enabled);
 
   base::WeakPtr<Camera3AController> GetWeakPtr();
 
@@ -113,6 +118,8 @@ class CAPTURE_EXPORT Camera3AController
   bool set_point_of_interest_running_;
 
   bool ae_locked_for_point_of_interest_;
+
+  bool zero_shutter_lag_enabled_;
 
   base::TimeDelta latest_sensor_timestamp_;
 

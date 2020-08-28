@@ -37,7 +37,12 @@ class MockControllerObserver : public ControllerObserver {
   MOCK_METHOD1(OnDetailsChanged, void(const Details* details));
   MOCK_METHOD1(OnInfoBoxChanged, void(const InfoBox* info_box));
   MOCK_METHOD1(OnProgressChanged, void(int progress));
+  MOCK_METHOD1(OnProgressActiveStepChanged, void(int active_step));
   MOCK_METHOD1(OnProgressVisibilityChanged, void(bool visible));
+  MOCK_METHOD1(OnStepProgressBarConfigurationChanged,
+               void(const ShowProgressBarProto::StepProgressBarConfiguration&
+                        configuration));
+  MOCK_METHOD1(OnProgressBarErrorStateChanged, void(bool error));
   MOCK_METHOD3(OnTouchableAreaChanged,
                void(const RectF&,
                     const std::vector<RectF>& touchable_areas,
@@ -47,10 +52,16 @@ class MockControllerObserver : public ControllerObserver {
   MOCK_METHOD1(OnViewportModeChanged, void(ViewportMode mode));
   MOCK_METHOD1(OnPeekModeChanged,
                void(ConfigureBottomSheetProto::PeekMode peek_mode));
+  MOCK_METHOD0(OnExpandBottomSheet, void());
+  MOCK_METHOD0(OnCollapseBottomSheet, void());
   MOCK_METHOD1(OnOverlayColorsChanged,
                void(const UiDelegate::OverlayColors& colors));
-  MOCK_METHOD1(OnFormChanged, void(const FormProto* form));
+  MOCK_METHOD2(OnFormChanged,
+               void(const FormProto* form, const FormProto::Result* result));
   MOCK_METHOD1(OnClientSettingsChanged, void(const ClientSettings& settings));
+  MOCK_METHOD1(OnGenericUserInterfaceChanged,
+               void(const GenericUserInterfaceProto* generic_ui));
+  MOCK_METHOD1(OnShouldShowOverlayChanged, void(bool should_show));
 };
 
 }  // namespace autofill_assistant

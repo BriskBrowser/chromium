@@ -4,34 +4,37 @@
 
 #include "ios/chrome/browser/crash_report/crash_reporter_breadcrumb_observer.h"
 
-#include "ios/chrome/browser/browser_state/chrome_browser_state.h"
-#include "ios/chrome/browser/crash_report/breadcrumbs/breadcrumb_manager_keyed_service.h"
-#include "ios/chrome/browser/crash_report/breadcrumbs/breadcrumb_manager_keyed_service_factory.h"
-#include "ios/chrome/browser/crash_report/breakpad_helper.h"
+#include "base/strings/sys_string_conversions.h"
+#include "ios/chrome/browser/crash_report/breadcrumbs/breadcrumb_manager.h"
+#import "ios/chrome/browser/crash_report/breadcrumbs/breadcrumb_manager_observer_bridge.h"
+#include "ios/chrome/browser/crash_report/crash_keys_helper.h"
+#include "ios/chrome/browser/crash_report/crash_reporter_breadcrumb_constants.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
 #endif
 
-namespace {
-// The maximum string length of combined breadcrumb events to store at any given
-// time. Breakpad truncates long values, so keeping the string stored here short
-// will save on used memory. This will not affect the amount of data attached to
-// crash reports (as long as the value matches or exceeds the breakpad maximum).
-const int kMaxCombinedBreadcrumbLength = 255;
+@interface CrashReporterBreadcrumbObserver () {
+  // Map associating the observed BreadcrumbManager with the corresponding
+  // observer bridge instances.
+  std::map<BreadcrumbManager*, std::unique_ptr<BreadcrumbManagerObserverBridge>>
+      _breadcrumbManagerObservers;
+
+  // Map associating the observed BreadcrumbManagerKeyedServices with the
+  // corresponding observer bridge instances.
+  std::map<BreadcrumbManagerKeyedService*,
+           std::unique_ptr<BreadcrumbManagerObserverBridge>>
+      _breadcrumbManagerServiceObservers;
+
+  // A string which stores the received breadcrumbs. Since breakpad limits
+  // product data string length, it may be truncated when a new event is added
+  // in order to reduce overall memory usage.
+  NSMutableString* _breadcrumbs;
 }
 
-@interface CrashReporterBreadcrumbObserver () {
-  // Map associating the observed ChromeBrowserStates with the corresponding
-  // observer bridge instances.
-  std::map<ios::ChromeBrowserState*,
-           std::unique_ptr<BreadcrumbManagerObserverBridge>>
-      _breadcrumbManagerObservers;
-  // A string which stores the received breadcrumbs. Since breakpad will
-  // truncate this string anyway, it is truncated when a new event is added in
-  // order to reduce overall memory usage.
-  NSMutableString* _breadcrumbsString;
-}
+// Updates the breadcrumbs stored in the crash log.
+- (void)updateBreadcrumbEventsCrashKey;
+
 @end
 
 @implementation CrashReporterBreadcrumbObserver
@@ -44,22 +47,56 @@ const int kMaxCombinedBreadcrumbLength = 255;
 
 - (instancetype)init {
   if ((self = [super init])) {
-    _breadcrumbsString = [[NSMutableString alloc] init];
+    _breadcrumbs = [[NSMutableString alloc] init];
   }
   return self;
 }
 
-- (void)observeBrowserState:(ios::ChromeBrowserState*)browserState {
-  DCHECK(!_breadcrumbManagerObservers[browserState]);
+- (void)observeBreadcrumbManager:(BreadcrumbManager*)breadcrumbManager {
+  DCHECK(!_breadcrumbManagerObservers[breadcrumbManager]);
 
-  BreadcrumbManagerKeyedService* service =
-      BreadcrumbManagerKeyedServiceFactory::GetForBrowserState(browserState);
-  _breadcrumbManagerObservers[browserState] =
-      std::make_unique<BreadcrumbManagerObserverBridge>(service, self);
+  _breadcrumbManagerObservers[breadcrumbManager] =
+      std::make_unique<BreadcrumbManagerObserverBridge>(breadcrumbManager,
+                                                        self);
 }
 
-- (void)stopObservingBrowserState:(ios::ChromeBrowserState*)browserState {
-  _breadcrumbManagerObservers[browserState] = nullptr;
+- (void)stopObservingBreadcrumbManager:(BreadcrumbManager*)breadcrumbManager {
+  _breadcrumbManagerObservers.erase(breadcrumbManager);
+}
+
+- (void)observeBreadcrumbManagerService:
+    (BreadcrumbManagerKeyedService*)breadcrumbManagerService {
+  DCHECK(!_breadcrumbManagerServiceObservers[breadcrumbManagerService]);
+
+  _breadcrumbManagerServiceObservers[breadcrumbManagerService] =
+      std::make_unique<BreadcrumbManagerObserverBridge>(
+          breadcrumbManagerService, self);
+}
+
+- (void)stopObservingBreadcrumbManagerService:
+    (BreadcrumbManagerKeyedService*)breadcrumbManagerService {
+  _breadcrumbManagerServiceObservers[breadcrumbManagerService] = nullptr;
+}
+
+- (void)setPreviousSessionEvents:(const std::vector<std::string>&)events {
+  for (auto event_it = events.rbegin(); event_it != events.rend(); ++event_it) {
+    NSString* event = base::SysUTF8ToNSString(*event_it);
+    NSString* eventWithSeperator = [NSString stringWithFormat:@"%@\n", event];
+    [_breadcrumbs appendString:eventWithSeperator];
+  }
+
+  [self updateBreadcrumbEventsCrashKey];
+}
+
+- (void)updateBreadcrumbEventsCrashKey {
+  if (_breadcrumbs.length > kMaxBreadcrumbsDataLength) {
+    NSRange trimRange =
+        NSMakeRange(kMaxBreadcrumbsDataLength,
+                    _breadcrumbs.length - kMaxBreadcrumbsDataLength);
+    [_breadcrumbs deleteCharactersInRange:trimRange];
+  }
+
+  crash_keys::SetBreadcrumbEvents(_breadcrumbs);
 }
 
 #pragma mark - BreadcrumbManagerObserving protocol
@@ -67,15 +104,9 @@ const int kMaxCombinedBreadcrumbLength = 255;
 - (void)breadcrumbManager:(BreadcrumbManager*)manager
               didAddEvent:(NSString*)event {
   NSString* eventWithSeperator = [NSString stringWithFormat:@"%@\n", event];
-  [_breadcrumbsString insertString:eventWithSeperator atIndex:0];
+  [_breadcrumbs insertString:eventWithSeperator atIndex:0];
 
-  if (_breadcrumbsString.length > kMaxCombinedBreadcrumbLength) {
-    NSRange trimRange =
-        NSMakeRange(kMaxCombinedBreadcrumbLength,
-                    _breadcrumbsString.length - kMaxCombinedBreadcrumbLength);
-    [_breadcrumbsString deleteCharactersInRange:trimRange];
-  }
-  breakpad_helper::SetBreadcrumbEvents(_breadcrumbsString);
+  [self updateBreadcrumbEventsCrashKey];
 }
 
 @end

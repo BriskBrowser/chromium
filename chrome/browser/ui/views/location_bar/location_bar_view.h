@@ -24,10 +24,11 @@
 #include "chrome/browser/ui/views/extensions/extension_popup.h"
 #include "chrome/browser/ui/views/location_bar/content_setting_image_view.h"
 #include "chrome/browser/ui/views/location_bar/location_icon_view.h"
+#include "chrome/browser/ui/views/location_bar/permission_chip.h"
 #include "chrome/browser/ui/views/omnibox/omnibox_view_views.h"
 #include "chrome/browser/ui/views/page_action/page_action_icon_view.h"
 #include "components/security_state/core/security_state.h"
-#include "ui/base/material_design/material_design_controller_observer.h"
+#include "ui/base/pointer/touch_ui_controller.h"
 #include "ui/gfx/animation/slide_animation.h"
 #include "ui/gfx/font.h"
 #include "ui/gfx/geometry/rect.h"
@@ -73,8 +74,7 @@ class LocationBarView : public LocationBar,
                         public IconLabelBubbleView::Delegate,
                         public LocationIconView::Delegate,
                         public ContentSettingImageView::Delegate,
-                        public PageActionIconView::Delegate,
-                        public ui::MaterialDesignControllerObserver {
+                        public PageActionIconView::Delegate {
  public:
   class Delegate {
    public:
@@ -155,11 +155,14 @@ class LocationBarView : public LocationBar,
   }
 
   OmniboxViewViews* omnibox_view() { return omnibox_view_; }
-  const OmniboxViewViews* omnibox_view() const { return omnibox_view_; }
+
+  // Sets the additional omnibox text. E.g. the title corresponding to the URL
+  // displayed in the OmniboxView.
+  void SetOmniboxAdditionalText(const base::string16& text);
 
   // Updates the controller, and, if |contents| is non-null, restores saved
   // state that the tab holds.
-  void Update(const content::WebContents* contents);
+  void Update(content::WebContents* contents);
 
   // Clears the location bar's state for |contents|.
   void ResetTabState(content::WebContents* contents);
@@ -167,6 +170,8 @@ class LocationBarView : public LocationBar,
   // Activates the first visible but inactive PageActionIconView for
   // accessibility.
   bool ActivateFirstInactiveBubbleForAccessibility();
+
+  PermissionChip* permission_chip() { return permission_chip_; }
 
   // LocationBar:
   void FocusLocation(bool is_user_initiated) override;
@@ -192,6 +197,7 @@ class LocationBarView : public LocationBar,
   SkColor GetIconLabelBubbleBackgroundColor() const override;
 
   // ContentSettingImageView::Delegate:
+  bool ShouldHideContentSettingImage() override;
   content::WebContents* GetContentSettingWebContents() override;
   ContentSettingBubbleModelDelegate* GetContentSettingBubbleModelDelegate()
       override;
@@ -298,6 +304,13 @@ class LocationBarView : public LocationBar,
   void OnVisibleBoundsChanged() override;
   void OnFocus() override;
   void OnPaintBorder(gfx::Canvas* canvas) override;
+  // LocationBarView directs mouse button events from OmniboxAdditionalTextView
+  // to OmniboxView so that e.g., clicking the former will focus the latter.
+  bool OnMousePressed(const ui::MouseEvent& event) override;
+  bool OnMouseDragged(const ui::MouseEvent& event) override;
+  void OnMouseReleased(const ui::MouseEvent& event) override;
+  void OnMouseMoved(const ui::MouseEvent& event) override;
+  void OnMouseExited(const ui::MouseEvent& event) override;
 
   // views::DragController:
   void WriteDragDataForView(View* sender,
@@ -310,7 +323,7 @@ class LocationBarView : public LocationBar,
 
   // PageActionIconView::Delegate:
   content::WebContents* GetWebContentsForPageActionIconView() override;
-  bool IsLocationBarUserInputInProgress() const override;
+  bool ShouldHidePageActionIcons() const override;
 
   // views::AnimationDelegateViews:
   void AnimationProgressed(const gfx::Animation* animation) override;
@@ -325,13 +338,16 @@ class LocationBarView : public LocationBar,
   // DropdownBarHostDelegate:
   void FocusAndSelectAll() override;
 
-  // ui::MaterialDesignControllerObserver:
-  void OnTouchUiChanged() override;
+  void OnTouchUiChanged();
 
   // Called with an async fetched for the keyword view.
   void OnKeywordFaviconFetched(const gfx::Image& icon);
 
+  // Updates the visibility of the QR Code Generator icon.
+  void UpdateQRCodeGeneratorIcon();
+
   // Updates the visibility of the send tab to self icon.
+  // Returns true if visibility changed.
   bool UpdateSendTabToSelfIcon();
 
   // The Browser this LocationBarView is in.  Note that at least
@@ -342,10 +358,20 @@ class LocationBarView : public LocationBar,
   // May be nullptr in tests.
   Profile* const profile_;
 
+  // The omnibox view where the user types and the current page URL is displayed
+  // when user input is not in progress.
   OmniboxViewViews* omnibox_view_ = nullptr;
+  // The complementary omnibox label displaying the selected suggestion's title
+  // or URL when the omnibox view is displaying the other and when user input is
+  // in progress. Will remain a nullptr if the rich autocompletion
+  // feature flag is disabled.
+  views::Label* omnibox_additional_text_view_ = nullptr;
 
   // Our delegate.
   Delegate* delegate_;
+
+  // A view that contains a chip button that shows a permission request.
+  PermissionChip* permission_chip_ = nullptr;
 
   // An icon to the left of the edit field: the HTTPS lock, blank page icon,
   // search icon, EV HTTPS bubble, etc.
@@ -390,13 +416,14 @@ class LocationBarView : public LocationBar,
   const bool is_popup_mode_;
 
   // The focus ring, if one is in use.
-  std::unique_ptr<views::FocusRing> focus_ring_;
+  views::FocusRing* focus_ring_ = nullptr;
 
   bool is_initialized_ = false;
 
-  ScopedObserver<ui::MaterialDesignController,
-                 ui::MaterialDesignControllerObserver>
-      md_observer_{this};
+  std::unique_ptr<ui::TouchUiController::Subscription> subscription_ =
+      ui::TouchUiController::Get()->RegisterCallback(
+          base::BindRepeating(&LocationBarView::OnTouchUiChanged,
+                              base::Unretained(this)));
 
   base::WeakPtrFactory<LocationBarView> weak_factory_{this};
 

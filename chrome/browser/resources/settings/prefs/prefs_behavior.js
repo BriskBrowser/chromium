@@ -6,8 +6,12 @@
  * @fileoverview Common prefs behavior.
  */
 
+// clang-format off
+// #import {assert} from 'chrome://resources/js/assert.m.js';
+// clang-format on
+
 /** @polymerBehavior */
-const PrefsBehavior = {
+/* #export */ const PrefsBehavior = {
   properties: {
     /** Preferences state. */
     prefs: {
@@ -25,7 +29,7 @@ const PrefsBehavior = {
   getPref(prefPath) {
     const pref = /** @type {!chrome.settingsPrivate.PrefObject} */ (
         this.get(prefPath, this.prefs));
-    assert(typeof pref != 'undefined', 'Pref is missing: ' + prefPath);
+    assert(typeof pref !== 'undefined', 'Pref is missing: ' + prefPath);
     return pref;
   },
 
@@ -51,8 +55,8 @@ const PrefsBehavior = {
    */
   appendPrefListItem(key, item) {
     const pref = this.getPref(key);
-    assert(pref && pref.type == chrome.settingsPrivate.PrefType.LIST);
-    if (pref.value.indexOf(item) == -1) {
+    assert(pref && pref.type === chrome.settingsPrivate.PrefType.LIST);
+    if (pref.value.indexOf(item) === -1) {
       this.push('prefs.' + key + '.value', item);
     }
   },
@@ -65,7 +69,7 @@ const PrefsBehavior = {
    * @protected
    */
   deletePrefListItem(key, item) {
-    assert(this.getPref(key).type == chrome.settingsPrivate.PrefType.LIST);
+    assert(this.getPref(key).type === chrome.settingsPrivate.PrefType.LIST);
     this.arrayDelete('prefs.' + key + '.value', item);
   },
 };

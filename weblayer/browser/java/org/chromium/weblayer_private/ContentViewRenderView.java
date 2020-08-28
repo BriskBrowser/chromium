@@ -7,15 +7,19 @@ package org.chromium.weblayer_private;
 import android.content.Context;
 import android.graphics.Color;
 import android.graphics.PixelFormat;
+import android.graphics.Rect;
 import android.graphics.SurfaceTexture;
+import android.util.Size;
 import android.view.Surface;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
 import android.view.TextureView;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.inputmethod.InputMethodManager;
 import android.webkit.ValueCallback;
 import android.widget.FrameLayout;
+import android.widget.RelativeLayout;
 
 import androidx.annotation.IntDef;
 
@@ -23,6 +27,7 @@ import org.chromium.base.annotations.CalledByNative;
 import org.chromium.base.annotations.JNINamespace;
 import org.chromium.base.annotations.NativeMethods;
 import org.chromium.base.task.PostTask;
+import org.chromium.components.browser_ui.widget.InsetObserverView;
 import org.chromium.content_public.browser.UiThreadTaskTraits;
 import org.chromium.content_public.browser.WebContents;
 import org.chromium.ui.base.WindowAndroid;
@@ -40,12 +45,16 @@ import java.util.ArrayList;
  * visually seamless.
  */
 @JNINamespace("weblayer")
-public class ContentViewRenderView extends FrameLayout {
+public class ContentViewRenderView extends RelativeLayout {
     @Retention(RetentionPolicy.SOURCE)
     @IntDef({MODE_SURFACE_VIEW, MODE_SURFACE_VIEW})
     public @interface Mode {}
     public static final int MODE_SURFACE_VIEW = 0;
     public static final int MODE_TEXTURE_VIEW = 1;
+
+    // A child view of this class. Parent of SurfaceView/TextureView.
+    // Needed to support not resizing the surface when soft keyboard is showing.
+    private final SurfaceParent mSurfaceParent;
 
     // This is mode that is requested by client.
     private SurfaceData mRequested;
@@ -56,14 +65,25 @@ public class ContentViewRenderView extends FrameLayout {
     // The native side of this object.
     private long mNativeContentViewRenderView;
 
+    // An invisible view that notifies observers of changes to window insets and safe area.
+    private InsetObserverView mInsetObserverView;
+
     private WindowAndroid mWindowAndroid;
     private WebContents mWebContents;
 
     private int mBackgroundColor;
-    private int mWidth;
-    private int mHeight;
+
+    // This is the size of the surfaces, so the "physical" size for the compositor.
+    // This is the size of the |mSurfaceParent| view, which is the immediate parent
+    // of the SurfaceView/TextureView. Note this does not always match the size of
+    // this ContentViewRenderView; when the soft keyboard is displayed,
+    // ContentViewRenderView will shrink in height, but |mSurfaceParent| will not.
+    private int mPhysicalWidth;
+    private int mPhysicalHeight;
 
     private int mWebContentsHeightDelta;
+
+    private boolean mCompositorHasSurface;
 
     // Common interface to listen to surface related events.
     private interface SurfaceEventListener {
@@ -72,6 +92,7 @@ public class ContentViewRenderView extends FrameLayout {
                 int width, int height);
         // |cacheBackBuffer| will delay destroying the EGLSurface until after the next swap.
         void surfaceDestroyed(boolean cacheBackBuffer);
+        void surfaceRedrawNeededAsync(Runnable drawingFinished);
     }
 
     private final ArrayList<TrackedRunnable> mPendingRunnables = new ArrayList<>();
@@ -131,6 +152,7 @@ public class ContentViewRenderView extends FrameLayout {
             assert mSurfaceData == ContentViewRenderView.this.mCurrent;
             ContentViewRenderViewJni.get().surfaceChanged(mNativeContentViewRenderView,
                     canBeUsedWithSurfaceControl, format, width, height, surface);
+            mCompositorHasSurface = surface != null;
             if (mWebContents != null) {
                 ContentViewRenderViewJni.get().onPhysicalBackingSizeChanged(
                         mNativeContentViewRenderView, mWebContents, width, height);
@@ -143,6 +165,12 @@ public class ContentViewRenderView extends FrameLayout {
             assert mSurfaceData == ContentViewRenderView.this.mCurrent;
             ContentViewRenderViewJni.get().surfaceDestroyed(
                     mNativeContentViewRenderView, cacheBackBuffer);
+            mCompositorHasSurface = false;
+        }
+
+        @Override
+        public void surfaceRedrawNeededAsync(Runnable drawingFinished) {
+            assert false; // NOTREACHED.
         }
     }
 
@@ -204,6 +232,7 @@ public class ContentViewRenderView extends FrameLayout {
         private final TextureViewSurfaceTextureListener mSurfaceTextureListener;
 
         private final ArrayList<ValueCallback<Boolean>> mModeCallbacks = new ArrayList<>();
+        private ArrayList<Runnable> mSurfaceRedrawNeededCallbacks;
 
         public SurfaceData(@Mode int mode, FrameLayout parent, SurfaceEventListener listener,
                 int backgroundColor, Runnable evict) {
@@ -286,6 +315,7 @@ public class ContentViewRenderView extends FrameLayout {
                 mListener.surfaceDestroyed(mCachedSurfaceNeedsEviction);
                 mNeedsOnSurfaceDestroyed = false;
             }
+            runSurfaceRedrawNeededCallbacks();
 
             if (mMode == MODE_SURFACE_VIEW) {
                 mSurfaceView.getHolder().removeCallback(mSurfaceCallback);
@@ -387,6 +417,15 @@ public class ContentViewRenderView extends FrameLayout {
             return false;
         }
 
+        public void runSurfaceRedrawNeededCallbacks() {
+            ArrayList<Runnable> callbacks = mSurfaceRedrawNeededCallbacks;
+            mSurfaceRedrawNeededCallbacks = null;
+            if (callbacks == null) return;
+            for (Runnable r : callbacks) {
+                r.run();
+            }
+        }
+
         private void destroyPreviousData() {
             if (mPrevSurfaceDataNeedsDestroy != null) {
                 mPrevSurfaceDataNeedsDestroy.destroy();
@@ -429,6 +468,22 @@ public class ContentViewRenderView extends FrameLayout {
             assert mNeedsOnSurfaceDestroyed;
             mListener.surfaceDestroyed(cacheBackBuffer);
             mNeedsOnSurfaceDestroyed = false;
+            runSurfaceRedrawNeededCallbacks();
+        }
+
+        @Override
+        public void surfaceRedrawNeededAsync(Runnable drawingFinished) {
+            if (mMarkedForDestroy) {
+                drawingFinished.run();
+                return;
+            }
+            assert mNativeContentViewRenderView != 0;
+            assert this == ContentViewRenderView.this.mCurrent;
+            if (mSurfaceRedrawNeededCallbacks == null) {
+                mSurfaceRedrawNeededCallbacks = new ArrayList<>();
+            }
+            mSurfaceRedrawNeededCallbacks.add(drawingFinished);
+            ContentViewRenderViewJni.get().setNeedsRedraw(mNativeContentViewRenderView);
         }
 
         private void runCallbacks() {
@@ -454,7 +509,7 @@ public class ContentViewRenderView extends FrameLayout {
     }
 
     // Adapter for SurfaceHoolder.Callback.
-    private static class SurfaceHolderCallback implements SurfaceHolder.Callback {
+    private static class SurfaceHolderCallback implements SurfaceHolder.Callback2 {
         private final SurfaceEventListener mListener;
 
         public SurfaceHolderCallback(SurfaceEventListener listener) {
@@ -474,6 +529,16 @@ public class ContentViewRenderView extends FrameLayout {
         @Override
         public void surfaceDestroyed(SurfaceHolder holder) {
             mListener.surfaceDestroyed(false /* cacheBackBuffer */);
+        }
+
+        @Override
+        public void surfaceRedrawNeeded(SurfaceHolder holder) {
+            // Intentionally not implemented.
+        }
+
+        @Override
+        public void surfaceRedrawNeededAsync(SurfaceHolder holder, Runnable drawingFinished) {
+            mListener.surfaceRedrawNeededAsync(drawingFinished);
         }
     }
 
@@ -516,6 +581,35 @@ public class ContentViewRenderView extends FrameLayout {
         public void onSurfaceTextureUpdated(SurfaceTexture surfaceTexture) {}
     }
 
+    // This is a child of ContentViewRenderView and parent of SurfaceView/TextureView.
+    // This exists to avoid resizing SurfaceView/TextureView when the soft keyboard is displayed.
+    private class SurfaceParent extends FrameLayout {
+        public SurfaceParent(Context context) {
+            super(context);
+        }
+
+        @Override
+        protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+            int existingHeight = getMeasuredHeight();
+            // If width is the same and height shrinks, then check if we should
+            // avoid this resize for displaying the soft keyboard.
+            if (getMeasuredWidth() == MeasureSpec.getSize(widthMeasureSpec)
+                    && existingHeight > MeasureSpec.getSize(heightMeasureSpec)
+                    && shouldAvoidSurfaceResizeForSoftKeyboard()) {
+                // Just set the height to the current height.
+                heightMeasureSpec =
+                        MeasureSpec.makeMeasureSpec(existingHeight, MeasureSpec.EXACTLY);
+            }
+            super.onMeasure(widthMeasureSpec, heightMeasureSpec);
+        }
+
+        @Override
+        protected void onSizeChanged(int w, int h, int oldw, int oldh) {
+            mPhysicalWidth = w;
+            mPhysicalHeight = h;
+        }
+    }
+
     /**
      * Constructs a new ContentViewRenderView.
      * This should be called and the {@link ContentViewRenderView} should be added to the view
@@ -525,7 +619,24 @@ public class ContentViewRenderView extends FrameLayout {
      */
     public ContentViewRenderView(Context context) {
         super(context);
+        mSurfaceParent = new SurfaceParent(context);
+        addView(mSurfaceParent,
+                new FrameLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT));
         setBackgroundColor(Color.WHITE);
+
+        mInsetObserverView = InsetObserverView.create(context);
+        addView(mInsetObserverView);
+        mInsetObserverView.addObserver(new InsetObserverView.WindowInsetObserver() {
+            @Override
+            public void onInsetChanged(int left, int top, int right, int bottom) {
+                if (mWebContents != null && mWebContents.isFullscreenForCurrentTab()) {
+                    updateWebContentsSize();
+                }
+            }
+
+            @Override
+            public void onSafeAreaChanged(Rect area) {}
+        });
     }
 
     /**
@@ -556,7 +667,7 @@ public class ContentViewRenderView extends FrameLayout {
         if (mRequested == null) {
             SurfaceEventListenerImpl listener = new SurfaceEventListenerImpl();
             mRequested = new SurfaceData(
-                    mode, this, listener, mBackgroundColor, this::evictCachedSurface);
+                    mode, mSurfaceParent, listener, mBackgroundColor, this::evictCachedSurface);
             listener.setRequestData(mRequested);
         }
         assert mRequested.getMode() == mode;
@@ -574,13 +685,25 @@ public class ContentViewRenderView extends FrameLayout {
 
     private void updateWebContentsSize() {
         if (mWebContents == null) return;
-        mWebContents.setSize(mWidth, mHeight - mWebContentsHeightDelta);
+        Size size = getViewportSize();
+        mWebContents.setSize(size.getWidth(), size.getHeight() - mWebContentsHeightDelta);
+    }
+
+    /** {@link CompositorViewHolder#getViewportSize()} for explanation. */
+    private Size getViewportSize() {
+        if (mWebContents.isFullscreenForCurrentTab()
+                && mWindowAndroid.getKeyboardDelegate().isKeyboardShowing(getContext(), this)) {
+            Rect visibleRect = new Rect();
+            getWindowVisibleDisplayFrame(visibleRect);
+            return new Size(Math.min(visibleRect.width(), getWidth()),
+                    Math.min(visibleRect.height(), getHeight()));
+        }
+
+        return new Size(getWidth(), getHeight());
     }
 
     @Override
     protected void onSizeChanged(int w, int h, int oldw, int oldh) {
-        mWidth = w;
-        mHeight = h;
         updateWebContentsSize();
     }
 
@@ -618,6 +741,10 @@ public class ContentViewRenderView extends FrameLayout {
         }
     }
 
+    public InsetObserverView getInsetObserverView() {
+        return mInsetObserverView;
+    }
+
     /**
      * Should be called when the ContentViewRenderView is not needed anymore so its associated
      * native resource can be freed.
@@ -651,9 +778,11 @@ public class ContentViewRenderView extends FrameLayout {
         mWebContents = webContents;
 
         if (webContents != null) {
-            updateWebContentsSize();
+            if (getWidth() != 0 && getHeight() != 0) {
+                updateWebContentsSize();
+            }
             ContentViewRenderViewJni.get().onPhysicalBackingSizeChanged(
-                    mNativeContentViewRenderView, webContents, mWidth, mHeight);
+                    mNativeContentViewRenderView, webContents, mPhysicalWidth, mPhysicalHeight);
         }
         ContentViewRenderViewJni.get().setCurrentWebContents(
                 mNativeContentViewRenderView, webContents);
@@ -663,10 +792,21 @@ public class ContentViewRenderView extends FrameLayout {
         return ContentViewRenderViewJni.get().getResourceManager(mNativeContentViewRenderView);
     }
 
+    public boolean hasSurface() {
+        return mCompositorHasSurface;
+    }
+
     @CalledByNative
     private boolean didSwapFrame() {
         assert mCurrent != null;
         return mCurrent.didSwapFrame();
+    }
+
+    @CalledByNative
+    private void didSwapBuffers(boolean sizeMatches) {
+        assert mCurrent != null;
+        if (!sizeMatches) return;
+        mCurrent.runSurfaceRedrawNeededCallbacks();
     }
 
     private void evictCachedSurface() {
@@ -676,6 +816,19 @@ public class ContentViewRenderView extends FrameLayout {
 
     public long getNativeHandle() {
         return mNativeContentViewRenderView;
+    }
+
+    private boolean shouldAvoidSurfaceResizeForSoftKeyboard() {
+        // TextureView is more common with embedding use cases that should lead to resize.
+        boolean usingSurfaceView = mCurrent != null && mCurrent.getMode() == MODE_SURFACE_VIEW;
+        if (!usingSurfaceView) return false;
+
+        boolean isFullWidth = isAttachedToWindow() && getWidth() == getRootView().getWidth();
+        if (!isFullWidth) return false;
+
+        InputMethodManager inputMethodManager =
+                (InputMethodManager) getContext().getSystemService(Context.INPUT_METHOD_SERVICE);
+        return inputMethodManager.isActive();
     }
 
     @NativeMethods
@@ -689,6 +842,7 @@ public class ContentViewRenderView extends FrameLayout {
         void surfaceDestroyed(long nativeContentViewRenderView, boolean cacheBackBuffer);
         void surfaceChanged(long nativeContentViewRenderView, boolean canBeUsedWithSurfaceControl,
                 int format, int width, int height, Surface surface);
+        void setNeedsRedraw(long nativeContentViewRenderView);
         void evictCachedSurface(long nativeContentViewRenderView);
         ResourceManager getResourceManager(long nativeContentViewRenderView);
     }

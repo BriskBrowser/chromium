@@ -28,7 +28,6 @@
 #include "components/password_manager/core/browser/password_manager_test_utils.h"
 #include "components/password_manager/core/browser/password_store_change.h"
 #include "components/password_manager/core/browser/password_store_consumer.h"
-#include "components/password_manager/core/browser/password_store_origin_unittest.h"
 #include "components/password_manager/core/common/password_manager_features.h"
 #include "components/password_manager/core/common/password_manager_pref_names.h"
 #include "components/prefs/pref_registry_simple.h"
@@ -70,12 +69,12 @@ class MockPasswordStoreConsumer
 
 PasswordForm MakePasswordForm() {
   PasswordForm form;
-  form.origin = GURL("http://www.origin.com");
+  form.url = GURL("http://www.origin.com");
   form.username_element = base::UTF8ToUTF16("username_element");
   form.username_value = base::UTF8ToUTF16(kUsername);
   form.password_element = base::UTF8ToUTF16("password_element");
   form.password_value = base::UTF8ToUTF16(kPassword);
-  form.signon_realm = form.origin.GetOrigin().spec();
+  form.signon_realm = form.url.GetOrigin().spec();
   form.in_store = autofill::PasswordForm::Store::kProfileStore;
   return form;
 }
@@ -133,12 +132,12 @@ TEST_F(PasswordStoreXTest, MigrationCompleted) {
       test_login_db_file_path(), password_manager::IsAccountStore(false));
   scoped_refptr<PasswordStoreX> store =
       new PasswordStoreX(std::move(login_db), fake_pref_service());
-  store->Init(syncer::SyncableService::StartSyncFlare(), nullptr);
+  store->Init(nullptr);
 
   // Check the contents are still around.
   MockPasswordStoreConsumer consumer;
   EXPECT_CALL(consumer, OnGetPasswordStoreResultsConstRef(
-                            ElementsAre(Pointee(MakePasswordForm()))));
+                            testing::ElementsAre(Pointee(MakePasswordForm()))));
   store->GetAutofillableLogins(&consumer);
 
   WaitForPasswordStore();
@@ -179,7 +178,7 @@ TEST_F(PasswordStoreXTest, MigrationNotAttemptedEmptyDB) {
 
   scoped_refptr<PasswordStoreX> store =
       new PasswordStoreX(std::move(login_db), fake_pref_service());
-  store->Init(syncer::SyncableService::StartSyncFlare(), nullptr);
+  store->Init(nullptr);
   WaitForPasswordStore();
 
   // Add a password to the db.
@@ -234,7 +233,7 @@ TEST_F(PasswordStoreXTest, MigrationNotAttemptedNonEmptyDB) {
 
   scoped_refptr<PasswordStoreX> store =
       new PasswordStoreX(std::move(login_db), fake_pref_service());
-  store->Init(syncer::SyncableService::StartSyncFlare(), nullptr);
+  store->Init(nullptr);
   WaitForPasswordStore();
 
   // Add another password to the db.

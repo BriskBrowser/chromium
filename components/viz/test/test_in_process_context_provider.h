@@ -17,7 +17,7 @@
 #include "components/viz/test/test_image_factory.h"
 #include "gpu/config/gpu_feature_info.h"
 
-class GrContext;
+class GrDirectContext;
 
 namespace gpu {
 class GLInProcessContext;
@@ -43,6 +43,7 @@ class TestInProcessContextProvider
       public RasterContextProvider {
  public:
   explicit TestInProcessContextProvider(
+      bool enable_gpu_rasterization,
       bool enable_oop_rasterization,
       bool support_locking,
       gpu::raster::GrShaderCache* gr_shader_cache = nullptr,
@@ -55,7 +56,7 @@ class TestInProcessContextProvider
   gpu::gles2::GLES2Interface* ContextGL() override;
   gpu::raster::RasterInterface* RasterInterface() override;
   gpu::ContextSupport* ContextSupport() override;
-  class GrContext* GrContext() override;
+  class GrDirectContext* GrContext() override;
   gpu::SharedImageInterface* SharedImageInterface() override;
   ContextCacheController* CacheController() override;
   base::Lock* GetLock() override;
@@ -71,12 +72,14 @@ class TestInProcessContextProvider
   ~TestInProcessContextProvider() override;
 
  private:
-  bool enable_oop_rasterization_ = false;
+  const bool enable_gpu_rasterization_;
+  const bool enable_oop_rasterization_;
   gpu::raster::GrShaderCache* gr_shader_cache_ = nullptr;
   gpu::GpuProcessActivityFlags* activity_flags_ = nullptr;
 
   TestGpuMemoryBufferManager gpu_memory_buffer_manager_;
   TestImageFactory image_factory_;
+  gpu::Capabilities caps_;
 
   // Used if support_gles2_interface.
   std::unique_ptr<gpu::GLInProcessContext> gles2_context_;

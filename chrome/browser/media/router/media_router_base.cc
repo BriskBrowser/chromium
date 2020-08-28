@@ -9,8 +9,6 @@
 #include "base/bind.h"
 #include "base/guid.h"
 #include "base/stl_util.h"
-#include "chrome/browser/chrome_notification_types.h"
-#include "chrome/browser/profiles/profile.h"
 #include "content/public/browser/browser_thread.h"
 
 using blink::mojom::PresentationConnectionState;
@@ -31,19 +29,19 @@ class MediaRouterBase::InternalMediaRoutesObserver
       const std::vector<MediaRoute>& routes,
       const std::vector<MediaRoute::Id>& joinable_route_ids) override {
     current_routes = routes;
-    incognito_route_ids.clear();
+    off_the_record_route_ids.clear();
     // TODO(crbug.com/611486): Have the MRPM pass a list of joinable route ids
     // via |joinable_route_ids|, and check here if it is non-empty.
     has_route = !routes.empty();
     for (const auto& route : routes) {
-      if (route.is_incognito())
-        incognito_route_ids.push_back(route.media_route_id());
+      if (route.is_off_the_record())
+        off_the_record_route_ids.push_back(route.media_route_id());
     }
   }
 
   bool has_route;
   std::vector<MediaRoute> current_routes;
-  std::vector<MediaRoute::Id> incognito_route_ids;
+  std::vector<MediaRoute::Id> off_the_record_route_ids;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(InternalMediaRoutesObserver);
@@ -62,7 +60,7 @@ MediaRouterBase::AddPresentationConnectionStateChangedCallback(
   auto& callbacks = presentation_connection_state_callbacks_[route_id];
   if (!callbacks) {
     callbacks = std::make_unique<PresentationConnectionStateChangedCallbacks>();
-    callbacks->set_removal_callback(base::Bind(
+    callbacks->set_removal_callback(base::BindRepeating(
         &MediaRouterBase::OnPresentationConnectionStateCallbackRemoved,
         base::Unretained(this), route_id));
   }
@@ -71,7 +69,8 @@ MediaRouterBase::AddPresentationConnectionStateChangedCallback(
 }
 
 void MediaRouterBase::OnIncognitoProfileShutdown() {
-  for (const auto& route_id : internal_routes_observer_->incognito_route_ids)
+  for (const auto& route_id :
+       internal_routes_observer_->off_the_record_route_ids)
     TerminateRoute(route_id);
 }
 
@@ -93,6 +92,10 @@ void MediaRouterBase::GetMediaController(
     const MediaRoute::Id& route_id,
     mojo::PendingReceiver<mojom::MediaController> controller,
     mojo::PendingRemote<mojom::MediaStatusObserver> observer) {}
+
+base::Value MediaRouterBase::GetLogs() const {
+  return base::Value();
+}
 #endif  // !defined(OS_ANDROID)
 
 MediaRouterBase::MediaRouterBase() : initialized_(false) {}
@@ -167,26 +170,16 @@ void MediaRouterBase::Shutdown() {
   internal_routes_observer_.reset();
 }
 
-void MediaRouterBase::RegisterRemotingSource(
-    SessionID tab_id,
-    CastRemotingConnector* remoting_source) {
-  auto it = remoting_sources_.find(tab_id);
-  if (it != remoting_sources_.end()) {
-    DCHECK(remoting_source == it->second);
-    return;
-  }
-  remoting_sources_.emplace(tab_id, remoting_source);
-}
-
-void MediaRouterBase::UnregisterRemotingSource(SessionID tab_id) {
-  auto it = remoting_sources_.find(tab_id);
-  DCHECK(it != remoting_sources_.end());
-  remoting_sources_.erase(it);
-}
-
 base::Value MediaRouterBase::GetState() const {
   NOTREACHED() << "Should not invoke MediaRouterBase::GetState()";
   return base::Value(base::Value::Type::DICTIONARY);
+}
+
+void MediaRouterBase::GetProviderState(
+    MediaRouteProviderId provider_id,
+    mojom::MediaRouteProvider::GetStateCallback callback) const {
+  NOTREACHED() << "Should not invoke MediaRouterBase::GetProviderState()";
+  std::move(callback).Run(mojom::ProviderStatePtr());
 }
 
 }  // namespace media_router

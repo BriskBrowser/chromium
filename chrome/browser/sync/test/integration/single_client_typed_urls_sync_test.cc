@@ -3,12 +3,12 @@
 // found in the LICENSE file.
 
 #include "base/macros.h"
-#include "chrome/browser/sessions/session_service.h"
 #include "chrome/browser/sync/test/integration/sync_test.h"
 #include "chrome/browser/sync/test/integration/typed_urls_helper.h"
 #include "chrome/browser/sync/test/integration/updated_progress_marker_checker.h"
 #include "components/history/core/browser/history_types.h"
 #include "components/sync/driver/profile_sync_service.h"
+#include "content/public/test/browser_test.h"
 
 using typed_urls_helper::AddUrlToHistory;
 using typed_urls_helper::AddUrlToHistoryWithTransition;

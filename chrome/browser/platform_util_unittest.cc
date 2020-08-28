@@ -58,7 +58,8 @@ class PlatformUtilTestContentBrowserClient : public ChromeContentBrowserClient {
     // New FileSystemBackend that uses our MockSpecialStoragePolicy.
     additional_backends->push_back(
         std::make_unique<chromeos::FileSystemBackend>(
-            nullptr, nullptr, nullptr, nullptr, nullptr, external_mount_points,
+            nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
+            external_mount_points,
             storage::ExternalMountPoints::GetSystemInstance()));
   }
 };
@@ -184,8 +185,8 @@ class PlatformUtilTest : public PlatformUtilTestBase {
     base::RunLoop run_loop;
     OpenOperationResult result = OPEN_SUCCEEDED;
     OpenOperationCallback callback =
-        base::Bind(&OnOpenOperationDone, run_loop.QuitClosure(), &result);
-    OpenItem(GetProfile(), path, item_type, callback);
+        base::BindOnce(&OnOpenOperationDone, run_loop.QuitClosure(), &result);
+    OpenItem(GetProfile(), path, item_type, std::move(callback));
     run_loop.Run();
     return result;
   }
@@ -200,11 +201,11 @@ class PlatformUtilTest : public PlatformUtilTestBase {
  private:
   std::unique_ptr<base::RunLoop> run_loop_;
 
-  static void OnOpenOperationDone(const base::Closure& closure,
+  static void OnOpenOperationDone(base::OnceClosure closure,
                                   OpenOperationResult* store_result,
                                   OpenOperationResult result) {
     *store_result = result;
-    closure.Run();
+    std::move(closure).Run();
   }
 };
 

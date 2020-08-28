@@ -6,12 +6,12 @@
 
 #include <string>
 
-#include "base/test/task_environment.h"
 #include "content/browser/appcache/appcache.h"
 #include "content/browser/appcache/appcache_group.h"
 #include "content/browser/appcache/appcache_host.h"
 #include "content/browser/appcache/appcache_update_job.h"
 #include "content/browser/appcache/mock_appcache_service.h"
+#include "content/public/test/browser_task_environment.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "mojo/public/cpp/bindings/receiver_set.h"
 #include "mojo/public/cpp/bindings/remote.h"
@@ -88,11 +88,14 @@ class TestAppCacheHost : public AppCacheHost {
   TestAppCacheHost(const base::UnguessableToken& host_id,
                    TestAppCacheFrontend* frontend,
                    AppCacheServiceImpl* service)
-      : AppCacheHost(host_id,
-                     /*process_id=*/456,
-                     /*render_frame_id=*/789,
-                     frontend->Bind(host_id),
-                     service),
+      : AppCacheHost(
+            host_id,
+            /*process_id=*/456,
+            /*render_frame_id=*/789,
+            ChildProcessSecurityPolicyImpl::GetInstance()->CreateHandle(
+                /*process_id=*/456),
+            frontend->Bind(host_id),
+            service),
         update_completed_(false) {}
 
   void OnUpdateComplete(AppCacheGroup* group) override {
@@ -104,7 +107,7 @@ class TestAppCacheHost : public AppCacheHost {
 
 class AppCacheGroupTest : public testing::Test {
  private:
-  base::test::TaskEnvironment task_environment_;
+  BrowserTaskEnvironment task_environment_;
 };
 
 TEST_F(AppCacheGroupTest, AddRemoveCache) {
@@ -184,13 +187,19 @@ TEST_F(AppCacheGroupTest, CleanupUnusedGroup) {
       new AppCacheGroup(service.storage(), GURL("http://foo.com"), 111);
 
   auto host1_id = base::UnguessableToken::Create();
-  AppCacheHost host1(host1_id,
-                     /*process_id=*/1, /*render_frame_id=*/1,
-                     frontend.Bind(host1_id), &service);
+  const int kMockProcessId1 = 1;
+  const int kMockProcessId2 = 2;
+  AppCacheHost host1(
+      host1_id, kMockProcessId1, /*render_frame_id=*/1,
+      ChildProcessSecurityPolicyImpl::GetInstance()->CreateHandle(
+          kMockProcessId1),
+      frontend.Bind(host1_id), &service);
   auto host2_id = base::UnguessableToken::Create();
-  AppCacheHost host2(host2_id,
-                     /*process_id=*/2, /*render_frame_id=*/2,
-                     frontend.Bind(host2_id), &service);
+  AppCacheHost host2(
+      host2_id, kMockProcessId2, /*render_frame_id=*/2,
+      ChildProcessSecurityPolicyImpl::GetInstance()->CreateHandle(
+          kMockProcessId2),
+      frontend.Bind(host2_id), &service);
 
   base::Time now = base::Time::Now();
 

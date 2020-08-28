@@ -21,6 +21,7 @@ namespace net {
 class CertNetFetcher;
 class CertVerifyResult;
 class CRLSet;
+class NetLogWithSource;
 class X509Certificate;
 typedef std::vector<scoped_refptr<X509Certificate> > CertificateList;
 
@@ -65,15 +66,14 @@ class NET_EXPORT CertVerifyProc
     kMaxValue = kChainLengthOne
   };
 
-#if !defined(OS_FUCHSIA)
+#if !(defined(OS_FUCHSIA) || defined(OS_LINUX) || defined(OS_CHROMEOS))
   // Creates and returns a CertVerifyProc that uses the system verifier.
   // |cert_net_fetcher| may not be used, depending on the implementation.
   static scoped_refptr<CertVerifyProc> CreateSystemVerifyProc(
       scoped_refptr<CertNetFetcher> cert_net_fetcher);
 #endif
 
-#if defined(OS_FUCHSIA) || defined(USE_NSS_CERTS) || \
-    (defined(OS_MACOSX) && !defined(OS_IOS))
+#if defined(OS_FUCHSIA) || defined(USE_NSS_CERTS) || defined(OS_MAC)
   // Creates and returns a CertVerifyProcBuiltin using the SSL SystemTrustStore.
   static scoped_refptr<CertVerifyProc> CreateBuiltinVerifyProc(
       scoped_refptr<CertNetFetcher> cert_net_fetcher);
@@ -114,7 +114,8 @@ class NET_EXPORT CertVerifyProc
              int flags,
              CRLSet* crl_set,
              const CertificateList& additional_trust_anchors,
-             CertVerifyResult* verify_result);
+             CertVerifyResult* verify_result,
+             const NetLogWithSource& net_log);
 
   // Returns true if the implementation supports passing additional trust
   // anchors to the Verify() call. The |additional_trust_anchors| parameter
@@ -171,7 +172,8 @@ class NET_EXPORT CertVerifyProc
                              int flags,
                              CRLSet* crl_set,
                              const CertificateList& additional_trust_anchors,
-                             CertVerifyResult* verify_result) = 0;
+                             CertVerifyResult* verify_result,
+                             const NetLogWithSource& net_log) = 0;
 
   // HasNameConstraintsViolation returns true iff one of |public_key_hashes|
   // (which are hashes of SubjectPublicKeyInfo structures) has name constraints

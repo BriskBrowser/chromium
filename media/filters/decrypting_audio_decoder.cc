@@ -18,7 +18,6 @@
 #include "media/base/audio_decoder_config.h"
 #include "media/base/audio_timestamp_helper.h"
 #include "media/base/bind_to_current_loop.h"
-#include "media/base/cdm_context.h"
 #include "media/base/decoder_buffer.h"
 #include "media/base/media_log.h"
 #include "media/base/timestamp_constants.h"
@@ -39,6 +38,10 @@ DecryptingAudioDecoder::DecryptingAudioDecoder(
     MediaLog* media_log)
     : task_runner_(task_runner), media_log_(media_log) {}
 
+bool DecryptingAudioDecoder::SupportsDecryption() const {
+  return true;
+}
+
 std::string DecryptingAudioDecoder::GetDisplayName() const {
   return "DecryptingAudioDecoder";
 }
@@ -57,12 +60,12 @@ void DecryptingAudioDecoder::Initialize(const AudioDecoderConfig& config,
   if (!cdm_context) {
     // Once we have a CDM context, one should always be present.
     DCHECK(!support_clear_content_);
-    std::move(init_cb_).Run(false);
+    std::move(init_cb_).Run(StatusCode::kDecoderMissingCdmForEncryptedContent);
     return;
   }
 
   if (!config.is_encrypted() && !support_clear_content_) {
-    std::move(init_cb_).Run(false);
+    std::move(init_cb_).Run(StatusCode::kClearContentUnsupported);
     return;
   }
 
@@ -70,7 +73,6 @@ void DecryptingAudioDecoder::Initialize(const AudioDecoderConfig& config,
   // the decryptor for clear content as well.
   support_clear_content_ = true;
 
-  weak_this_ = weak_factory_.GetWeakPtr();
   output_cb_ = BindToCurrentLoop(output_cb);
 
   DCHECK(waiting_cb);
@@ -79,7 +81,7 @@ void DecryptingAudioDecoder::Initialize(const AudioDecoderConfig& config,
   // TODO(xhwang): We should be able to DCHECK config.IsValidConfig().
   if (!config.IsValidConfig()) {
     DLOG(ERROR) << "Invalid audio stream config.";
-    std::move(init_cb_).Run(false);
+    std::move(init_cb_).Run(StatusCode::kDecoderUnsupportedCodec);
     return;
   }
 
@@ -88,11 +90,14 @@ void DecryptingAudioDecoder::Initialize(const AudioDecoderConfig& config,
   if (state_ == kUninitialized) {
     if (!cdm_context->GetDecryptor()) {
       DVLOG(1) << __func__ << ": no decryptor";
-      std::move(init_cb_).Run(false);
+      std::move(init_cb_).Run(StatusCode::kDecoderFailedInitialization);
       return;
     }
 
     decryptor_ = cdm_context->GetDecryptor();
+    event_cb_registration_ = cdm_context->RegisterEventCB(
+        base::BindRepeating(&DecryptingAudioDecoder::OnCdmContextEvent,
+                            weak_factory_.GetWeakPtr()));
   } else {
     // Reinitialization (i.e. upon a config change). The new config can be
     // encrypted or clear.
@@ -103,14 +108,14 @@ void DecryptingAudioDecoder::Initialize(const AudioDecoderConfig& config,
 }
 
 void DecryptingAudioDecoder::Decode(scoped_refptr<DecoderBuffer> buffer,
-                                    const DecodeCB& decode_cb) {
+                                    DecodeCB decode_cb) {
   DVLOG(3) << "Decode()";
   DCHECK(task_runner_->BelongsToCurrentThread());
   DCHECK(state_ == kIdle || state_ == kDecodeFinished) << state_;
   DCHECK(decode_cb);
   CHECK(!decode_cb_) << "Overlapping decodes are not supported.";
 
-  decode_cb_ = BindToCurrentLoop(decode_cb);
+  decode_cb_ = BindToCurrentLoop(std::move(decode_cb));
 
   // Return empty (end-of-stream) frames if decoding has finished.
   if (state_ == kDecodeFinished) {
@@ -172,11 +177,11 @@ DecryptingAudioDecoder::~DecryptingAudioDecoder() {
 
   if (decryptor_) {
     decryptor_->DeinitializeDecoder(Decryptor::kAudio);
-    decryptor_ = NULL;
+    decryptor_ = nullptr;
   }
   pending_buffer_to_decode_.reset();
   if (init_cb_)
-    std::move(init_cb_).Run(false);
+    std::move(init_cb_).Run(StatusCode::kDecoderInitializeNeverCompleted);
   if (decode_cb_)
     std::move(decode_cb_).Run(DecodeStatus::ABORTED);
   if (reset_cb_)
@@ -186,8 +191,9 @@ DecryptingAudioDecoder::~DecryptingAudioDecoder() {
 void DecryptingAudioDecoder::InitializeDecoder() {
   state_ = kPendingDecoderInit;
   decryptor_->InitializeAudioDecoder(
-      config_, BindToCurrentLoop(base::Bind(
-                   &DecryptingAudioDecoder::FinishInitialization, weak_this_)));
+      config_, BindToCurrentLoop(
+                   base::BindOnce(&DecryptingAudioDecoder::FinishInitialization,
+                                  weak_factory_.GetWeakPtr())));
 }
 
 void DecryptingAudioDecoder::FinishInitialization(bool success) {
@@ -200,8 +206,9 @@ void DecryptingAudioDecoder::FinishInitialization(bool success) {
 
   if (!success) {
     DVLOG(1) << __func__ << ": failed to init audio decoder on decryptor";
-    std::move(init_cb_).Run(false);
-    decryptor_ = NULL;
+    std::move(init_cb_).Run(StatusCode::kDecoderInitializeNeverCompleted);
+    decryptor_ = nullptr;
+    event_cb_registration_.reset();
     state_ = kError;
     return;
   }
@@ -210,12 +217,8 @@ void DecryptingAudioDecoder::FinishInitialization(bool success) {
   timestamp_helper_.reset(
       new AudioTimestampHelper(config_.samples_per_second()));
 
-  decryptor_->RegisterNewKeyCB(
-      Decryptor::kAudio, BindToCurrentLoop(base::Bind(
-                             &DecryptingAudioDecoder::OnKeyAdded, weak_this_)));
-
   state_ = kIdle;
-  std::move(init_cb_).Run(true);
+  std::move(init_cb_).Run(OkStatus());
 }
 
 void DecryptingAudioDecoder::DecodePendingBuffer() {
@@ -228,9 +231,9 @@ void DecryptingAudioDecoder::DecodePendingBuffer() {
   }
 
   decryptor_->DecryptAndDecodeAudio(
-      pending_buffer_to_decode_,
-      BindToCurrentLoop(base::Bind(&DecryptingAudioDecoder::DeliverFrame,
-                                   weak_this_, buffer_size)));
+      pending_buffer_to_decode_, BindToCurrentLoop(base::BindRepeating(
+                                     &DecryptingAudioDecoder::DeliverFrame,
+                                     weak_factory_.GetWeakPtr(), buffer_size)));
 }
 
 void DecryptingAudioDecoder::DeliverFrame(
@@ -315,8 +318,11 @@ void DecryptingAudioDecoder::DeliverFrame(
   std::move(decode_cb_).Run(DecodeStatus::OK);
 }
 
-void DecryptingAudioDecoder::OnKeyAdded() {
+void DecryptingAudioDecoder::OnCdmContextEvent(CdmContext::Event event) {
   DCHECK(task_runner_->BelongsToCurrentThread());
+
+  if (event != CdmContext::Event::kHasAdditionalUsableKey)
+    return;
 
   if (state_ == kPendingDecode) {
     key_added_while_decode_pending_ = true;

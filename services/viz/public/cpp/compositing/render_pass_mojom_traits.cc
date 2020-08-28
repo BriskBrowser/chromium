@@ -5,7 +5,10 @@
 #include "services/viz/public/cpp/compositing/render_pass_mojom_traits.h"
 
 #include "base/numerics/safe_conversions.h"
-#include "ui/gfx/mojom/color_space_mojom_traits.h"
+#include "components/viz/common/quads/render_pass.h"
+#include "services/viz/public/cpp/compositing/render_pass_id_mojom_traits.h"
+#include "services/viz/public/cpp/crash_keys.h"
+#include "ui/gfx/mojom/display_color_spaces_mojom_traits.h"
 
 namespace mojo {
 
@@ -21,14 +24,16 @@ bool StructTraits<viz::mojom::RenderPassDataView,
       !data.ReadFilters(&(*out)->filters) ||
       !data.ReadBackdropFilters(&(*out)->backdrop_filters) ||
       !data.ReadBackdropFilterBounds(&(*out)->backdrop_filter_bounds) ||
-      !data.ReadColorSpace(&(*out)->color_space) ||
-      !data.ReadCopyRequests(&(*out)->copy_requests)) {
+      !data.ReadContentColorUsage(&(*out)->content_color_usage) ||
+      !data.ReadCopyRequests(&(*out)->copy_requests) ||
+      !data.ReadId(&(*out)->id)) {
     return false;
   }
-  (*out)->id = data.id();
   // RenderPass ids are never zero.
-  if (!(*out)->id)
+  if (!(*out)->id) {
+    viz::SetDeserializationCrashKeyString("Invalid render pass ID");
     return false;
+  }
   (*out)->has_transparent_background = data.has_transparent_background();
   (*out)->cache_render_pass = data.cache_render_pass();
   (*out)->has_damage_from_contributing_content =
@@ -46,8 +51,10 @@ bool StructTraits<viz::mojom::RenderPassDataView,
 
     viz::DrawQuad* quad =
         AllocateAndConstruct(quad_state_data_view.tag(), &(*out)->quad_list);
-    if (!quad)
+    if (!quad) {
+      viz::SetDeserializationCrashKeyString("AllocateAndConstruct quad failed");
       return false;
+    }
     if (!quads.Read(i, quad))
       return false;
 
@@ -62,8 +69,10 @@ bool StructTraits<viz::mojom::RenderPassDataView,
         return false;
     }
     quad->shared_quad_state = last_sqs;
-    if (!quad->shared_quad_state)
+    if (!quad->shared_quad_state) {
+      viz::SetDeserializationCrashKeyString("No shared quad state");
       return false;
+    }
   }
   return true;
 }

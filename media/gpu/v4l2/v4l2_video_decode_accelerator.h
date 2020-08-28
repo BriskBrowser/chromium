@@ -20,6 +20,7 @@
 #include <vector>
 
 #include "base/callback_forward.h"
+#include "base/cancelable_callback.h"
 #include "base/containers/queue.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
@@ -48,8 +49,11 @@ class GLFenceEGL;
 
 namespace media {
 
-class H264Parser;
 class V4L2StatefulWorkaround;
+
+namespace v4l2_vda_helpers {
+class InputBufferFragmentSplitter;
+}
 
 // This class handles video accelerators directly through a V4L2 device exported
 // by the hardware blocks.
@@ -218,8 +222,6 @@ class MEDIA_GPU_EXPORT V4L2VideoDecodeAccelerator
   // Decode from the buffers queued in decoder_input_queue_.  Calls
   // DecodeBufferInitial() or DecodeBufferContinue() as appropriate.
   void DecodeBufferTask();
-  // Advance to the next fragment that begins a frame.
-  bool AdvanceFrameFragment(const uint8_t* data, size_t size, size_t* endpos);
   // Schedule another DecodeBufferTask() if we're behind.
   void ScheduleDecodeBufferTaskIfNeeded();
 
@@ -250,15 +252,17 @@ class MEDIA_GPU_EXPORT V4L2VideoDecodeAccelerator
                                            VideoPixelFormat pixel_format,
                                            gfx::NativePixmapHandle handle);
 
-  // Create an EGLImage for the buffer associated with V4L2 |buffer_index| and
-  // for |picture_buffer_id|, and backed by |handle|.
-  // The buffer should be bound to |texture_id| and is of |size| and format
-  // described by |fourcc|.
-  void CreateEGLImageFor(size_t buffer_index,
+  // Create an EGLImage on |egl_device| for the buffer associated with V4L2
+  // |buffer_index| and |picture_buffer_id|, backed by |handle|.
+  // The buffer should be bound to |texture_id| and is of format described by
+  // |fourcc|. |visible_size| is the size in pixels that the EGL device will be
+  // able to see.
+  void CreateEGLImageFor(scoped_refptr<V4L2Device> egl_device,
+                         size_t buffer_index,
                          int32_t picture_buffer_id,
                          gfx::NativePixmapHandle handle,
                          GLuint texture_id,
-                         const gfx::Size& size,
+                         const gfx::Size& visible_size,
                          const Fourcc fourcc);
 
   // Take the EGLImage |egl_image|, created for |picture_buffer_id|, and use it
@@ -427,6 +431,15 @@ class MEDIA_GPU_EXPORT V4L2VideoDecodeAccelerator
   // Image processor notifies an error.
   void ImageProcessorError();
 
+  // TODO(crbug.com/1109312): some pages with lots of small videos are causing
+  // crashes, so limit the number of simultaneous decoder instances for now.
+  // |num_instances_| tracks the number of simultaneous decoders.
+  // |can_use_decoder_| is true iff we haven't reached the maximum number of
+  // instances at the time this decoder is created.
+  static constexpr int kMaxNumOfInstances = 10;
+  static base::AtomicRefCount num_instances_;
+  const bool can_use_decoder_;
+
   // Our original calling task runner for the child thread.
   scoped_refptr<base::SingleThreadTaskRunner> child_task_runner_;
 
@@ -461,6 +474,15 @@ class MEDIA_GPU_EXPORT V4L2VideoDecodeAccelerator
   base::Thread decoder_thread_;
   // Decoder state machine state.
   State decoder_state_;
+
+  // Cancelable callback for running ServiceDeviceTask(). Must only be accessed
+  // on |decoder_thread_|.
+  base::CancelableRepeatingCallback<void(bool)> cancelable_service_device_task_;
+  // Concrete callback from |cancelable_service_device_task_| that can be copied
+  // on |device_poll_thread_|. This exists because
+  // CancelableRepeatingCallback::callback() creates a WeakPtr internally, which
+  // must be created/destroyed from the same thread.
+  base::RepeatingCallback<void(bool)> cancelable_service_device_task_callback_;
 
   // Waitable event signaled when the decoder is destroying.
   base::WaitableEvent destroy_pending_;
@@ -499,16 +521,15 @@ class MEDIA_GPU_EXPORT V4L2VideoDecodeAccelerator
   // base::circular_deque because we need to do random access in OnMemoryDump().
   base::circular_deque<std::unique_ptr<BitstreamBufferRef>>
       decoder_input_queue_;
-  // For H264 decode, hardware requires that we send it frame-sized chunks.
-  // We'll need to parse the stream.
-  std::unique_ptr<H264Parser> decoder_h264_parser_;
+
+  // Used to split our input frames at the correct boundary. Only really useful
+  // for H.264 streams.
+  std::unique_ptr<v4l2_vda_helpers::InputBufferFragmentSplitter>
+      frame_splitter_;
 
   // Workaround for V4L2VideoDecodeAccelerator. This is created only if some
   // workaround is necessary for the V4L2VideoDecodeAccelerator.
   std::vector<std::unique_ptr<V4L2StatefulWorkaround>> workarounds_;
-
-  // Set if the decoder has a pending incomplete frame in an input buffer.
-  bool decoder_partial_frame_pending_;
 
   //
   // Hardware state and associated queues.  Since decoder_thread_ services
@@ -577,9 +598,7 @@ class MEDIA_GPU_EXPORT V4L2VideoDecodeAccelerator
   // Callback to set the correct gl context.
   MakeGLContextCurrentCallback make_context_current_cb_;
 
-  // The codec we'll be decoding for.
-  VideoCodecProfile video_profile_;
-  // Chosen input format for video_profile_.
+  // Chosen input format for the video profile we are decoding from.
   uint32_t input_format_fourcc_;
   // Chosen output format.
   base::Optional<Fourcc> output_format_fourcc_;
@@ -589,8 +608,6 @@ class MEDIA_GPU_EXPORT V4L2VideoDecodeAccelerator
   // Image processor. Accessed on |decoder_thread_|.
   std::unique_ptr<ImageProcessor> image_processor_;
 
-  // The V4L2Device EGLImage is created from.
-  scoped_refptr<V4L2Device> egl_image_device_;
   // The format of EGLImage.
   base::Optional<Fourcc> egl_image_format_fourcc_;
   // The logical dimensions of EGLImage buffer in pixels.

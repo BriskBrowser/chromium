@@ -33,6 +33,7 @@ source_set("main") {
     "//services/metrics/public/cpp:metrics_cpp",
     "//services/metrics/public/mojom",
     "//services/service_manager/public/cpp",
+    "//services/tracing/public/cpp",
     "//services/viz/privileged/mojom",
     "//ui/gfx:memory_buffer",
     "//ui/gl/init",
@@ -50,5 +51,9 @@ source_set("main") {
 
   if (is_chromecast) {
     deps += [ "//chromecast/media/service/mojom" ]
+  }
+
+  if (use_x11) {
+    deps += [ "//ui/base/x" ]
   }
 }

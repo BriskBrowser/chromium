@@ -55,13 +55,18 @@ void MockIMEEngineHandler::ProcessKeyEvent(const ui::KeyEvent& key_event,
 void MockIMEEngineHandler::SetCompositionBounds(
     const std::vector<gfx::Rect>& bounds) {}
 
+ui::InputMethodKeyboardController*
+MockIMEEngineHandler::GetInputMethodKeyboardController() const {
+  return nullptr;
+}
+
 void MockIMEEngineHandler::PropertyActivate(const std::string& property_name) {
   last_activated_property_ = property_name;
 }
 
 void MockIMEEngineHandler::CandidateClicked(uint32_t index) {}
 
-void MockIMEEngineHandler::SetSurroundingText(const std::string& text,
+void MockIMEEngineHandler::SetSurroundingText(const base::string16& text,
                                               uint32_t cursor_pos,
                                               uint32_t anchor_pos,
                                               uint32_t offset_pos) {

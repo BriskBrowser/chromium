@@ -7,8 +7,6 @@
 #include <memory>
 #include <string>
 
-#include "base/logging.h"
-#include "base/macros.h"
 #include "base/strings/string16.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
@@ -54,6 +52,10 @@ base::Time FixedTime() {
 class NotificationTemplateBuilderTest : public ::testing::Test {
  public:
   NotificationTemplateBuilderTest() = default;
+  NotificationTemplateBuilderTest(const NotificationTemplateBuilderTest&) =
+      delete;
+  NotificationTemplateBuilderTest& operator=(
+      const NotificationTemplateBuilderTest&) = delete;
   ~NotificationTemplateBuilderTest() override = default;
 
   void SetUp() override { SetContextMenuLabelForTesting(kContextMenuLabel); }
@@ -89,9 +91,6 @@ class NotificationTemplateBuilderTest : public ::testing::Test {
   }
 
   base::test::TaskEnvironment task_environment_;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(NotificationTemplateBuilderTest);
 };
 
 TEST_F(NotificationTemplateBuilderTest, SimpleToast) {
@@ -467,6 +466,33 @@ TEST_F(NotificationTemplateBuilderTest, ProgressBar) {
    <text>My Message</text>
    <text placement="attribution">example.com</text>
    <progress status="" value="0.30"/>
+  </binding>
+ </visual>
+ <actions>
+  <action content="settings" placement="contextMenu" activationType="foreground" arguments="2|0|Default|0|https://example.com/|notification_id"/>
+ </actions>
+</toast>
+)";
+
+  ASSERT_NO_FATAL_FAILURE(VerifyXml(notification, kExpectedXml));
+}
+
+TEST_F(NotificationTemplateBuilderTest, ProgressBar_Indeterminate) {
+  message_center::Notification notification = BuildNotification();
+
+  notification.set_type(message_center::NOTIFICATION_TYPE_PROGRESS);
+  // Setting the progress outside the [0-100] range should result in an
+  // indeterminate progress notification.
+  notification.set_progress(-1);
+
+  const wchar_t kExpectedXml[] =
+      LR"(<toast launch="0|0|Default|0|https://example.com/|notification_id" displayTimestamp="1998-09-04T01:02:03Z">
+ <visual>
+  <binding template="ToastGeneric">
+   <text>My Title</text>
+   <text>My Message</text>
+   <text placement="attribution">example.com</text>
+   <progress status="" value="indeterminate"/>
   </binding>
  </visual>
  <actions>

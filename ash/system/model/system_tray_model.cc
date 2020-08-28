@@ -17,7 +17,6 @@
 #include "ash/system/network/tray_network_state_model.h"
 #include "ash/system/status_area_widget.h"
 #include "ash/system/unified/unified_system_tray.h"
-#include "base/logging.h"
 
 namespace ash {
 
@@ -114,6 +113,11 @@ void SystemTrayModel::ShowNetworkDetailedViewBubble(bool show_by_click) {
                                        ->unified_system_tray();
   if (system_tray)
     system_tray->ShowNetworkDetailedViewBubble(show_by_click);
+}
+
+void SystemTrayModel::SetPhoneHubManager(
+    chromeos::phonehub::PhoneHubManager* phone_hub_manager) {
+  // TODO(tengs): Use |phone_hub_manager|.
 }
 
 }  // namespace ash

@@ -8,6 +8,7 @@
 
 #include "base/metrics/histogram_macros.h"
 #include "content/browser/web_contents/web_contents_impl.h"
+#include "content/public/browser/browser_thread.h"
 #include "ui/gfx/animation/animation.h"
 
 @interface NSWorkspace (Partials)
@@ -45,15 +46,15 @@ void SetupAccessibilityDisplayOptionsNotifier() {
                 gfx::Animation::UpdatePrefersReducedMotion();
                 for (WebContentsImpl* wc :
                      WebContentsImpl::GetAllWebContents()) {
-                  wc->GetRenderViewHost()->OnWebkitPreferencesChanged();
+                  wc->OnWebPreferencesChanged();
                 }
               }];
 }
 }  // namespace
 
 void BrowserAccessibilityStateImpl::PlatformInitialize() {
-  base::PostTask(FROM_HERE, {BrowserThread::UI},
-                 base::BindOnce(&SetupAccessibilityDisplayOptionsNotifier));
+  GetUIThreadTaskRunner({})->PostTask(
+      FROM_HERE, base::BindOnce(&SetupAccessibilityDisplayOptionsNotifier));
 }
 
 void BrowserAccessibilityStateImpl::

@@ -4,10 +4,10 @@
 
 package org.chromium.chrome.browser.keyboard_accessory;
 
-import static android.support.test.espresso.Espresso.onView;
-import static android.support.test.espresso.matcher.ViewMatchers.isAssignableFrom;
-import static android.support.test.espresso.matcher.ViewMatchers.isDisplayed;
-import static android.support.test.espresso.matcher.ViewMatchers.isRoot;
+import static androidx.test.espresso.Espresso.onView;
+import static androidx.test.espresso.matcher.ViewMatchers.isAssignableFrom;
+import static androidx.test.espresso.matcher.ViewMatchers.isDisplayed;
+import static androidx.test.espresso.matcher.ViewMatchers.isRoot;
 
 import static org.hamcrest.core.AllOf.allOf;
 
@@ -16,30 +16,34 @@ import static org.chromium.chrome.browser.keyboard_accessory.tab_layout_componen
 import static org.chromium.chrome.test.util.ViewUtils.VIEW_GONE;
 import static org.chromium.chrome.test.util.ViewUtils.VIEW_INVISIBLE;
 import static org.chromium.chrome.test.util.ViewUtils.VIEW_NULL;
+import static org.chromium.chrome.test.util.ViewUtils.onViewWaiting;
 import static org.chromium.chrome.test.util.ViewUtils.waitForView;
 import static org.chromium.ui.base.LocalizationUtils.setRtlForTesting;
 
 import android.app.Activity;
-import android.support.design.widget.TabLayout;
 import android.support.test.InstrumentationRegistry;
-import android.support.test.espresso.PerformException;
-import android.support.test.espresso.UiController;
-import android.support.test.espresso.ViewAction;
-import android.support.test.espresso.ViewInteraction;
-import android.support.test.espresso.matcher.BoundedMatcher;
-import android.support.v7.widget.RecyclerView;
 import android.text.method.PasswordTransformationMethod;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.TextView;
 
+import androidx.recyclerview.widget.RecyclerView;
+import androidx.test.espresso.PerformException;
+import androidx.test.espresso.UiController;
+import androidx.test.espresso.ViewAction;
+import androidx.test.espresso.ViewInteraction;
+import androidx.test.espresso.matcher.BoundedMatcher;
+
+import com.google.android.material.tabs.TabLayout;
+
 import org.hamcrest.Description;
 import org.hamcrest.Matcher;
+import org.hamcrest.Matchers;
 import org.junit.Assert;
 
 import org.chromium.base.task.PostTask;
-import org.chromium.chrome.browser.ChromeActivity;
 import org.chromium.chrome.browser.ChromeWindow;
+import org.chromium.chrome.browser.app.ChromeActivity;
 import org.chromium.chrome.browser.autofill.AutofillTestHelper;
 import org.chromium.chrome.browser.autofill.PersonalDataManager.AutofillProfile;
 import org.chromium.chrome.browser.keyboard_accessory.bar_component.KeyboardAccessoryCoordinator;
@@ -105,6 +109,12 @@ public class ManualFillingTestHelper {
         ChromeWindow.setKeyboardVisibilityDelegateFactory(keyboardDelegate);
         mActivityTestRule.startMainActivityWithURL(mEmbeddedTestServer.getURL(url));
         setRtlForTesting(isRtl);
+        updateWebContentsDependentState();
+        cacheCredentials(new String[0], new String[0], false); // This caches the empty state.
+        if (waitForNode) DOMUtils.waitForNonZeroNodeBounds(mWebContentsRef.get(), PASSWORD_NODE_ID);
+    }
+
+    public void updateWebContentsDependentState() {
         TestThreadUtils.runOnUiThreadBlocking(() -> {
             ChromeActivity activity = mActivityTestRule.getActivity();
             mWebContentsRef.set(activity.getActivityTab().getWebContents());
@@ -120,8 +130,6 @@ public class ManualFillingTestHelper {
             getManualFillingCoordinator().registerSheetDataProvider(
                     AccessoryTabType.PASSWORDS, mSheetSuggestionsProvider);
         });
-        if (waitForNode) DOMUtils.waitForNonZeroNodeBounds(mWebContentsRef.get(), PASSWORD_NODE_ID);
-        cacheCredentials(new String[0], new String[0]); // This caches the empty state.
     }
 
     public void clear() {
@@ -256,32 +264,29 @@ public class ManualFillingTestHelper {
 
     public DropdownPopupWindowInterface waitForAutofillPopup(String filterInput) {
         final WebContents webContents = mActivityTestRule.getActivity().getCurrentWebContents();
-        final ViewGroup view = webContents.getViewAndroidDelegate().getContainerView();
+        final View view = webContents.getViewAndroidDelegate().getContainerView();
 
         // Wait for InputConnection to be ready and fill the filterInput. Then wait for the anchor.
-        CriteriaHelper.pollUiThread(
-                Criteria.equals(1, () -> mInputMethodManagerWrapper.getShowSoftInputCounter()));
+        CriteriaHelper.pollUiThread(() -> {
+            Criteria.checkThat(
+                    mInputMethodManagerWrapper.getShowSoftInputCounter(), Matchers.is(1));
+        });
         TestThreadUtils.runOnUiThreadBlocking(() -> {
             ImeAdapter.fromWebContents(webContents).setComposingTextForTest(filterInput, 4);
         });
-        CriteriaHelper.pollUiThread(new Criteria("Autofill Popup anchor view was never added.") {
-            @Override
-            public boolean isSatisfied() {
-                return view.findViewById(R.id.dropdown_popup_window) != null;
-            }
+        CriteriaHelper.pollUiThread(() -> {
+            Criteria.checkThat("Autofill Popup anchor view was never added.",
+                    view.findViewById(R.id.dropdown_popup_window), Matchers.notNullValue());
         });
         View anchorView = view.findViewById(R.id.dropdown_popup_window);
 
         Assert.assertTrue(anchorView.getTag() instanceof DropdownPopupWindowInterface);
         final DropdownPopupWindowInterface popup =
                 (DropdownPopupWindowInterface) anchorView.getTag();
-        CriteriaHelper.pollUiThread(new Criteria("Autofill Popup view never showed!") {
-            @Override
-            public boolean isSatisfied() {
-                // Wait until the popup is showing and onLayout() has happened.
-                return popup.isShowing() && popup.getListView() != null
-                        && popup.getListView().getHeight() != 0;
-            }
+        CriteriaHelper.pollUiThread(() -> {
+            Criteria.checkThat(popup.isShowing(), Matchers.is(true));
+            Criteria.checkThat(popup.getListView(), Matchers.notNullValue());
+            Criteria.checkThat(popup.getListView().getHeight(), Matchers.not(0));
         });
         return popup;
     }
@@ -314,7 +319,7 @@ public class ManualFillingTestHelper {
      */
     public void cacheTestCredentials() {
         cacheCredentials(new String[] {"mpark@gmail.com", "mayapark@googlemail.com"},
-                new String[] {"TestPassword", "SomeReallyLongPassword"});
+                new String[] {"TestPassword", "SomeReallyLongPassword"}, false);
     }
 
     /**
@@ -323,7 +328,7 @@ public class ManualFillingTestHelper {
      * @param password A {@link String} to be used as display text for a password chip.
      */
     public void cacheCredentials(String username, String password) {
-        cacheCredentials(new String[] {username}, new String[] {password});
+        cacheCredentials(new String[] {username}, new String[] {password}, false);
     }
 
     /**
@@ -331,11 +336,14 @@ public class ManualFillingTestHelper {
      * controller. The controller will only refresh this cache on page load.
      * @param usernames {@link String}s to be used as display text for username chips.
      * @param passwords {@link String}s to be used as display text for password chips.
+     * @param originBlacklisted boolean indicating whether password saving is disabled for the
+     *                          origin.
      */
-    public void cacheCredentials(String[] usernames, String[] passwords) {
+    public void cacheCredentials(
+            String[] usernames, String[] passwords, boolean originBlacklisted) {
         TestThreadUtils.runOnUiThreadBlocking(() -> {
             ManualFillingComponentBridge.cachePasswordSheetData(
-                    mActivityTestRule.getWebContents(), usernames, passwords);
+                    mActivityTestRule.getWebContents(), usernames, passwords, originBlacklisted);
         });
     }
 
@@ -441,14 +449,13 @@ public class ManualFillingTestHelper {
     }
 
     /**
-     * Use like {@link android.support.test.espresso.Espresso#onView}. It waits for a view matching
+     * Use like {@link androidx.test.espresso.Espresso#onView}. It waits for a view matching
      * the given |matcher| to be displayed and allows to chain checks/performs on the result.
      * @param matcher The matcher matching exactly the view that is expected to be displayed.
-     * @return An interaction on the view matching |matcher.
+     * @return An interaction on the view matching |matcher|.
      */
     public static ViewInteraction whenDisplayed(Matcher<View> matcher) {
-        onView(isRoot()).check((r, e) -> waitForView((ViewGroup) r, allOf(matcher, isDisplayed())));
-        return onView(matcher);
+        return onViewWaiting(allOf(matcher, isDisplayed()));
     }
 
     public ViewInteraction waitForViewOnRoot(View root, Matcher<View> matcher) {
@@ -463,9 +470,7 @@ public class ManualFillingTestHelper {
     }
 
     public static void waitToBeHidden(Matcher<View> matcher) {
-        onView(isRoot()).check((r, e) -> {
-            waitForView((ViewGroup) r, matcher, VIEW_INVISIBLE | VIEW_NULL | VIEW_GONE);
-        });
+        onView(isRoot()).check(waitForView(matcher, VIEW_INVISIBLE | VIEW_NULL | VIEW_GONE));
     }
 
     public String getAttribute(String node, String attribute)

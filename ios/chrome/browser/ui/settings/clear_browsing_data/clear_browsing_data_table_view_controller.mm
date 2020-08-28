@@ -7,11 +7,13 @@
 #include "base/mac/foundation_util.h"
 #include "base/metrics/user_metrics.h"
 #include "base/metrics/user_metrics_action.h"
+#include "components/browsing_data/core/pref_names.h"
 #include "components/prefs/pref_service.h"
 #include "ios/chrome/browser/browser_state/chrome_browser_state.h"
 #include "ios/chrome/browser/browsing_data/browsing_data_features.h"
 #include "ios/chrome/browser/browsing_data/browsing_data_remove_mask.h"
 #include "ios/chrome/browser/chrome_url_constants.h"
+#import "ios/chrome/browser/main/browser.h"
 #import "ios/chrome/browser/ui/alert_coordinator/action_sheet_coordinator.h"
 #import "ios/chrome/browser/ui/alert_coordinator/alert_coordinator.h"
 #import "ios/chrome/browser/ui/commands/application_commands.h"
@@ -20,17 +22,17 @@
 #include "ios/chrome/browser/ui/settings/cells/clear_browsing_data_constants.h"
 #import "ios/chrome/browser/ui/settings/cells/table_view_clear_browsing_data_item.h"
 #import "ios/chrome/browser/ui/settings/clear_browsing_data/clear_browsing_data_consumer.h"
-#include "ios/chrome/browser/ui/settings/clear_browsing_data/clear_browsing_data_local_commands.h"
 #import "ios/chrome/browser/ui/settings/clear_browsing_data/clear_browsing_data_manager.h"
 #import "ios/chrome/browser/ui/settings/clear_browsing_data/clear_browsing_data_ui_constants.h"
+#include "ios/chrome/browser/ui/settings/clear_browsing_data/clear_browsing_data_ui_delegate.h"
 #import "ios/chrome/browser/ui/settings/clear_browsing_data/time_range_selector_table_view_controller.h"
 #import "ios/chrome/browser/ui/settings/settings_navigation_controller.h"
 #import "ios/chrome/browser/ui/table_view/cells/table_view_cells_constants.h"
 #import "ios/chrome/browser/ui/table_view/cells/table_view_text_button_item.h"
 #import "ios/chrome/browser/ui/table_view/cells/table_view_text_link_item.h"
 #import "ios/chrome/browser/ui/table_view/chrome_table_view_styler.h"
-#import "ios/chrome/common/colors/UIColor+cr_semantic_colors.h"
-#import "ios/chrome/common/colors/semantic_color_names.h"
+#import "ios/chrome/common/ui/colors/UIColor+cr_semantic_colors.h"
+#import "ios/chrome/common/ui/colors/semantic_color_names.h"
 #include "ios/chrome/grit/ios_chromium_strings.h"
 #include "ios/chrome/grit/ios_strings.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -48,7 +50,10 @@
 @property(nonatomic, readonly, strong) ClearBrowsingDataManager* dataManager;
 
 // Browser state.
-@property(nonatomic, assign) ios::ChromeBrowserState* browserState;
+@property(nonatomic, readonly) ChromeBrowserState* browserState;
+
+// Browser.
+@property(nonatomic, readonly) Browser* browser;
 
 // Coordinator that managers a UIAlertController to clear browsing data.
 @property(nonatomic, strong) ActionSheetCoordinator* actionSheetCoordinator;
@@ -56,7 +61,7 @@
 // Coordinator for displaying a modal overlay with native activity indicator to
 // prevent the user from interacting with the page.
 @property(nonatomic, strong)
-    ChromeActivityOverlayCoordinator* chromeActivityOverlayCoordinator;
+    ChromeActivityOverlayCoordinator* overlayCoordinator;
 
 @property(nonatomic, readonly, strong)
     UIBarButtonItem* clearBrowsingDataBarButton;
@@ -75,20 +80,22 @@
 @synthesize actionSheetCoordinator = _actionSheetCoordinator;
 @synthesize alertCoordinator = _alertCoordinator;
 @synthesize browserState = _browserState;
+@synthesize browser = _browser;
 @synthesize clearBrowsingDataBarButton = _clearBrowsingDataBarButton;
 @synthesize dataManager = _dataManager;
 @synthesize dispatcher = _dispatcher;
-@synthesize localDispatcher = _localDispatcher;
+@synthesize delegate = _delegate;
 @synthesize suppressTableViewUpdates = _suppressTableViewUpdates;
 
 #pragma mark - ViewController Lifecycle.
 
-- (instancetype)initWithBrowserState:(ios::ChromeBrowserState*)browserState {
+- (instancetype)initWithBrowser:(Browser*)browser {
   self = [super initWithStyle:UITableViewStylePlain];
   if (self) {
-    _browserState = browserState;
-    _dataManager =
-        [[ClearBrowsingDataManager alloc] initWithBrowserState:browserState];
+    _browser = browser;
+    _browserState = browser->GetBrowserState();
+    _dataManager = [[ClearBrowsingDataManager alloc]
+        initWithBrowserState:browser->GetBrowserState()];
     _dataManager.consumer = self;
   }
   return self;
@@ -134,9 +141,6 @@
   self.tableView.estimatedRowHeight = 56;
   self.tableView.rowHeight = UITableViewAutomaticDimension;
   self.tableView.estimatedSectionHeaderHeight = 0;
-  // Add a tableFooterView in order to disable separators at the bottom of the
-  // tableView.
-  self.tableView.tableFooterView = [[UIView alloc] init];
   // Navigation controller configuration.
   self.title = l10n_util::GetNSString(IDS_IOS_CLEAR_BROWSING_DATA_TITLE);
   // Adds the "Done" button and hooks it up to |dismiss|.
@@ -165,26 +169,15 @@
   self.navigationController.toolbarHidden = NO;
 }
 
-- (void)viewWillDisappear:(BOOL)animated {
-  [super viewWillDisappear:animated];
-  // Write data type cell selection states back to the browser state.
-  NSArray* dataTypeItems = [self.tableViewModel
-      itemsInSectionWithIdentifier:SectionIdentifierDataTypes];
-  for (TableViewClearBrowsingDataItem* dataTypeItem in dataTypeItems) {
-    DCHECK([dataTypeItem isKindOfClass:[TableViewClearBrowsingDataItem class]]);
-    self.browserState->GetPrefs()->SetBoolean(dataTypeItem.prefName,
-                                              dataTypeItem.checked);
-  }
-}
-
 - (void)loadModel {
   [super loadModel];
   [self.dataManager loadModel:self.tableViewModel];
 }
 
 - (void)dismiss {
+  base::RecordAction(base::UserMetricsAction("MobileClearBrowsingDataClose"));
   [self prepareForDismissal];
-  [self.localDispatcher dismissClearBrowsingData];
+  [self.delegate dismissClearBrowsingData];
 }
 
 #pragma mark - Public Methods
@@ -272,9 +265,10 @@
       DCHECK([item isKindOfClass:[TableViewClearBrowsingDataItem class]]);
       TableViewClearBrowsingDataItem* clearBrowsingDataItem =
           base::mac::ObjCCastStrict<TableViewClearBrowsingDataItem>(item);
-      clearBrowsingDataItem.checked = !clearBrowsingDataItem.checked;
-      [self reconfigureCellsForItems:@[ clearBrowsingDataItem ]];
-      [self.tableView deselectRowAtIndexPath:indexPath animated:YES];
+
+      self.browserState->GetPrefs()->SetBoolean(clearBrowsingDataItem.prefName,
+                                                !clearBrowsingDataItem.checked);
+      // UI update will be trigerred by data manager.
       break;
     }
     default:
@@ -288,23 +282,30 @@
 - (void)tableViewTextLinkCell:(TableViewTextLinkCell*)cell
             didRequestOpenURL:(const GURL&)URL {
   GURL copiedURL(URL);
-  [self.localDispatcher openURL:copiedURL];
+  [self.delegate openURL:copiedURL];
 }
 
 #pragma mark - ClearBrowsingDataConsumer
 
-- (void)updateCellsForItem:(ListItem*)item {
+- (void)updateCellsForItem:(TableViewItem*)item reload:(BOOL)reload {
   if (self.suppressTableViewUpdates)
     return;
 
-  // Reload the item instead of reconfiguring it. This might update
-  // TableViewTextLinkItems which which can have different number of lines,
-  // thus the cell height needs to adapt accordingly.
-  [self reloadCellsForItems:@[ item ]
-           withRowAnimation:UITableViewRowAnimationAutomatic];
+  if (!reload) {
+    [self reconfigureCellsForItems:@[ item ]];
+    NSIndexPath* indexPath = [self.tableViewModel
+        indexPathForItem:static_cast<TableViewItem*>(item)];
+    [self.tableView deselectRowAtIndexPath:indexPath animated:YES];
+  } else {
+    // Reload the item instead of reconfiguring it. This might update
+    // TableViewTextLinkItems which which can have different number of lines,
+    // thus the cell height needs to adapt accordingly.
+    [self reloadCellsForItems:@[ item ]
+             withRowAnimation:UITableViewRowAnimationAutomatic];
+  }
 }
 
-- (void)removeBrowsingDataForBrowserState:(ios::ChromeBrowserState*)browserState
+- (void)removeBrowsingDataForBrowserState:(ChromeBrowserState*)browserState
                                timePeriod:(browsing_data::TimePeriod)timePeriod
                                removeMask:(BrowsingDataRemoveMask)removeMask
                           completionBlock:(ProceduralBlock)completionBlock {
@@ -312,13 +313,16 @@
       base::UserMetricsAction("MobileClearBrowsingDataTriggeredFromUIRefresh"));
 
   // Show activity indicator modal while removal is happening.
-  self.chromeActivityOverlayCoordinator =
-      [[ChromeActivityOverlayCoordinator alloc]
-          initWithBaseViewController:self.navigationController];
-  self.chromeActivityOverlayCoordinator.messageText =
-      l10n_util::GetNSStringWithFixup(
-          IDS_IOS_CLEAR_BROWSING_DATA_ACTIVITY_MODAL);
-  [self.chromeActivityOverlayCoordinator start];
+  self.overlayCoordinator = [[ChromeActivityOverlayCoordinator alloc]
+      initWithBaseViewController:self.navigationController
+                         browser:_browser];
+
+  self.overlayCoordinator.messageText = l10n_util::GetNSStringWithFixup(
+      IDS_IOS_CLEAR_BROWSING_DATA_ACTIVITY_MODAL);
+
+  self.overlayCoordinator.blockAllWindows = YES;
+
+  [self.overlayCoordinator start];
 
   __weak ClearBrowsingDataTableViewController* weakSelf = self;
   dispatch_time_t timeOneSecondLater =
@@ -332,11 +336,21 @@
     // (<1sec), so ensure that overlay displays for at
     // least 1 second instead of looking like a glitch.
     dispatch_after(timeOneSecondLater, dispatch_get_main_queue(), ^{
-      [self.chromeActivityOverlayCoordinator stop];
+      [self.overlayCoordinator stop];
       if (completionBlock)
         completionBlock();
     });
   };
+
+  // If browsing History will be cleared set the kLastClearBrowsingDataTime.
+  // TODO(crbug.com/1085419): This pref is used by the Feed to prevent the
+  // showing of customized content after history has been cleared. We might want
+  // to create a specific Pref for this.
+  if (IsRemoveDataMaskSet(removeMask, BrowsingDataRemoveMask::REMOVE_HISTORY)) {
+    browserState->GetPrefs()->SetInt64(
+        browsing_data::prefs::kLastClearBrowsingDataTime,
+        base::Time::Now().ToTimeT());
+  }
 
   [self.dispatcher
       removeBrowsingDataForBrowserState:browserState
@@ -353,6 +367,7 @@
 
   self.alertCoordinator =
       [[AlertCoordinator alloc] initWithBaseViewController:self
+                                                   browser:_browser
                                                      title:title
                                                    message:message];
 
@@ -362,7 +377,7 @@
           l10n_util::GetNSString(
               IDS_IOS_CLEAR_BROWSING_DATA_HISTORY_NOTICE_OPEN_HISTORY_BUTTON)
                 action:^{
-                  [weakSelf.localDispatcher openURL:GURL(kGoogleMyAccountURL)];
+                  [weakSelf.delegate openURL:GURL(kGoogleMyAccountURL)];
                 }
                  style:UIAlertActionStyleDefault];
 
@@ -379,13 +394,15 @@
 
 - (void)presentationControllerDidDismiss:
     (UIPresentationController*)presentationController {
+  base::RecordAction(
+      base::UserMetricsAction("IOSClearBrowsingDataCloseWithSwipe"));
   // Call prepareForDismissal to clean up state and  stop the Coordinator.
   [self prepareForDismissal];
 }
 
 - (BOOL)presentationControllerShouldDismiss:
     (UIPresentationController*)presentationController {
-  return !self.chromeActivityOverlayCoordinator.started;
+  return !self.overlayCoordinator.started;
 }
 
 #pragma mark - Private Helpers
@@ -404,6 +421,7 @@
   self.actionSheetCoordinator = [self.dataManager
       actionSheetCoordinatorWithDataTypesToRemove:dataTypeMaskToRemove
                                baseViewController:self
+                                          browser:_browser
                               sourceBarButtonItem:sender];
   [self.actionSheetCoordinator start];
 }

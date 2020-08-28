@@ -24,6 +24,8 @@ window.addEventListener('error', function(e) {
 
 _SCRIPT = r'<script src="%s"></script>'
 _IMPORT = r'<link rel="import" href="%s">'
+_HTML_IMPORT_POLYFIL =  _SCRIPT  % (
+    'chrome://resources/polymer/v1_0/html-imports/html-imports.min.js')
 
 _HTML_FOOTER = r"""
 </body>
@@ -45,6 +47,10 @@ def _process_deps(unique_deps, html_import, target_name):
     Iterator of strings, each string is a HTML tag <script> or <link>.
   """
   for dep in unique_deps:
+    # Scripts from cr_elements are included via HTML imports.
+    if '/cr_elements/' in dep:
+      continue
+
     # Special case for jstemplate which has multiple files but we server all of
     # them combined from chrome://resources/js/jstemplate_compiled.js
     if '/jstemplate/' in dep:
@@ -57,6 +63,11 @@ def _process_deps(unique_deps, html_import, target_name):
     # Map file_manager files:
     dep = dep.replace('ui/file_manager/',
                       'chrome://file_manager_test/ui/file_manager/', 1)
+
+    # Extern files from closure in //third_party/
+    closure = 'third_party/closure_compiler/externs/'
+    dep = dep.replace(closure, 'chrome://file_manager_test/%s' % closure, 1)
+
     # WebUI files (both Polymer and non-Polymer):
     dep = dep.replace('ui/webui/resources/', 'chrome://resources/', 1)
 
@@ -99,6 +110,10 @@ def _process(deps, output_filename, mocks, html_import, target_name):
 
   with open(output_filename, 'w') as out:
     out.write(_HTML_FILE)
+
+    if html_import:
+      out.write(_HTML_IMPORT_POLYFIL + '\n')
+
     for dep in _process_deps(mocks, html_import, target_name):
       out.write(dep + '\n')
     for dep in _process_deps(deps, html_import, target_name):

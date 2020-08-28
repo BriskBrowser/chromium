@@ -40,6 +40,7 @@
 #include "third_party/blink/renderer/bindings/core/v8/js_based_event_listener.h"
 #include "third_party/blink/renderer/bindings/core/v8/js_event_listener.h"
 #include "third_party/blink/renderer/bindings/core/v8/source_location.h"
+#include "third_party/blink/renderer/core/dom/events/add_event_listener_options_resolved.h"
 #include "third_party/blink/renderer/core/dom/events/event.h"
 #include "third_party/blink/renderer/core/dom/events/event_dispatch_forbidden_scope.h"
 #include "third_party/blink/renderer/core/dom/events/event_target_impl.h"
@@ -179,7 +180,7 @@ void CountFiringEventListeners(const Event& event,
   }
   if (CheckTypeThenUseCount(event, event_type_names::kPointerdown,
                             WebFeature::kPointerDownFired, document)) {
-    if (event.IsPointerEvent() &&
+    if (IsA<PointerEvent>(event) &&
         static_cast<const PointerEvent&>(event).pointerType() == "touch") {
       UseCounter::Count(document, WebFeature::kPointerDownFiredForTouch);
     }
@@ -216,7 +217,7 @@ void CountFiringEventListeners(const Event& event,
 
 void RegisterWithScheduler(ExecutionContext* execution_context,
                            const AtomicString& event_type) {
-  if (!execution_context)
+  if (!execution_context || !execution_context->GetScheduler())
     return;
   // TODO(altimin): Ideally we would also support tracking unregistration of
   // event listeners, but we don't do this for performance reasons.
@@ -248,7 +249,7 @@ EventTargetData::EventTargetData() = default;
 
 EventTargetData::~EventTargetData() = default;
 
-void EventTargetData::Trace(Visitor* visitor) {
+void EventTargetData::Trace(Visitor* visitor) const {
   visitor->Trace(event_listener_map);
 }
 
@@ -298,9 +299,7 @@ EventTarget* EventTarget::Create(ScriptState* script_state) {
 }
 
 inline LocalDOMWindow* EventTarget::ExecutingWindow() {
-  if (ExecutionContext* context = GetExecutionContext())
-    return context->ExecutingWindow();
-  return nullptr;
+  return DynamicTo<LocalDOMWindow>(GetExecutionContext());
 }
 
 bool EventTarget::IsTopLevelNode() {
@@ -341,8 +340,7 @@ void EventTarget::SetDefaultAddEventListenerOptions(
     }
   }
 
-  if (RuntimeEnabledFeatures::PassiveDocumentEventListenersEnabled() &&
-      IsTouchScrollBlockingEvent(event_type)) {
+  if (IsTouchScrollBlockingEvent(event_type)) {
     if (!options->hasPassive() && IsTopLevelNode()) {
       options->setPassive(true);
       options->SetPassiveForcedForDocumentTarget(true);
@@ -365,11 +363,9 @@ void EventTarget::SetDefaultAddEventListenerOptions(
             executing_window->document(),
             WebFeature::kAddDocumentLevelPassiveDefaultWheelEventListener);
       }
-      if (RuntimeEnabledFeatures::PassiveDocumentWheelEventListenersEnabled()) {
-        options->setPassive(true);
-        options->SetPassiveForcedForDocumentTarget(true);
-        return;
-      }
+      options->setPassive(true);
+      options->SetPassiveForcedForDocumentTarget(true);
+      return;
     }
   }
 
@@ -397,7 +393,7 @@ void EventTarget::SetDefaultAddEventListenerOptions(
                           WebFeature::kSmoothScrollJSInterventionActivated);
 
         executing_window->GetFrame()->Console().AddMessage(
-            ConsoleMessage::Create(
+            MakeGarbageCollected<ConsoleMessage>(
                 mojom::ConsoleMessageSource::kIntervention,
                 mojom::ConsoleMessageLevel::kWarning,
                 "Registering mousewheel event as passive due to "
@@ -541,14 +537,17 @@ void EventTarget::AddedEventListener(
     RegisteredEventListener& registered_listener) {
   if (const LocalDOMWindow* executing_window = ExecutingWindow()) {
     if (Document* document = executing_window->document()) {
-      if (event_type == event_type_names::kAuxclick)
+      if (event_type == event_type_names::kAuxclick) {
         UseCounter::Count(*document, WebFeature::kAuxclickAddListenerCount);
-      else if (event_type == event_type_names::kAppinstalled)
+      } else if (event_type == event_type_names::kAppinstalled) {
         UseCounter::Count(*document, WebFeature::kAppInstalledEventAddListener);
-      else if (event_util::IsPointerEventType(event_type))
+      } else if (event_util::IsPointerEventType(event_type)) {
         UseCounter::Count(*document, WebFeature::kPointerEventAddListenerCount);
-      else if (event_type == event_type_names::kSlotchange)
+      } else if (event_type == event_type_names::kSlotchange) {
         UseCounter::Count(*document, WebFeature::kSlotChangeEventAddListener);
+      } else if (event_type == event_type_names::kBeforematch) {
+        UseCounter::Count(*document, WebFeature::kBeforematchHandlerRegistered);
+      }
     }
   }
 
@@ -660,7 +659,7 @@ RegisteredEventListener* EventTarget::GetAttributeRegisteredEventListener(
 
   for (auto& event_listener : *listener_vector) {
     EventListener* listener = event_listener.Callback();
-    if (listener->IsEventHandler() &&
+    if (GetExecutionContext() && listener->IsEventHandler() &&
         listener->BelongsToTheCurrentWorld(GetExecutionContext()))
       return &event_listener;
   }
@@ -879,6 +878,11 @@ bool EventTarget::FireEventListeners(Event& event,
   bool fired_listener = false;
 
   while (i < size) {
+    // If stopImmediatePropagation has been called, we just break out
+    // immediately, without handling any more events on this target.
+    if (event.ImmediatePropagationStopped())
+      break;
+
     RegisteredEventListener registered_listener = entry[i];
 
     // Move the iterator past this event listener. This must match
@@ -896,11 +900,6 @@ bool EventTarget::FireEventListeners(Event& event,
     if (registered_listener.Once())
       removeEventListener(event.type(), listener,
                           registered_listener.Capture());
-
-    // If stopImmediatePropagation has been called, we just break out
-    // immediately, without handling any more events on this target.
-    if (event.ImmediatePropagationStopped())
-      break;
 
     event.SetHandlingPassive(EventPassiveMode(registered_listener));
 
@@ -945,6 +944,12 @@ EventListenerVector* EventTarget::GetEventListeners(
   if (!data)
     return nullptr;
   return data->event_listener_map.Find(event_type);
+}
+
+int EventTarget::NumberOfEventListeners(const AtomicString& event_type) const {
+  EventListenerVector* listeners =
+      const_cast<EventTarget*>(this)->GetEventListeners(event_type);
+  return listeners ? listeners->size() : 0;
 }
 
 Vector<AtomicString> EventTarget::EventTypes() {

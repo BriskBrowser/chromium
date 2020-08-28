@@ -76,7 +76,7 @@ class CORE_EXPORT InspectorDOMAgent final
     virtual ~DOMListener() = default;
     virtual void DidAddDocument(Document*) = 0;
     virtual void DidRemoveDocument(Document*) = 0;
-    virtual void DidRemoveDOMNode(Node*) = 0;
+    virtual void WillRemoveDOMNode(Node*) = 0;
     virtual void DidModifyDOMAttr(Element*) = 0;
   };
 
@@ -87,14 +87,14 @@ class CORE_EXPORT InspectorDOMAgent final
         : source_location_(std::move(source_location)) {}
 
     SourceLocation& GetSourceLocation() { return *source_location_; }
-    virtual void Trace(blink::Visitor* visitor) {}
+    virtual void Trace(Visitor* visitor) const {}
 
    private:
     std::unique_ptr<SourceLocation> source_location_;
   };
 
   static protocol::Response ToResponse(ExceptionState&);
-  static bool GetPseudoElementType(PseudoId, String*);
+  static protocol::DOM::PseudoType ProtocolPseudoElementType(PseudoId);
   static protocol::DOM::ShadowRootType GetShadowRootType(ShadowRoot*);
   static ShadowRoot* UserAgentShadowRoot(Node*);
   static Color ParseColor(protocol::DOM::RGBA*);
@@ -103,7 +103,7 @@ class CORE_EXPORT InspectorDOMAgent final
                     InspectedFrames*,
                     v8_inspector::V8InspectorSession*);
   ~InspectorDOMAgent() override;
-  void Trace(blink::Visitor*) override;
+  void Trace(Visitor*) const override;
 
   void Restore() override;
 
@@ -117,6 +117,12 @@ class CORE_EXPORT InspectorDOMAgent final
       protocol::Maybe<int> depth,
       protocol::Maybe<bool> traverse_frames,
       std::unique_ptr<protocol::DOM::Node>* root) override;
+  protocol::Response getNodesForSubtreeByStyle(
+      int node_id,
+      std::unique_ptr<protocol::Array<protocol::DOM::CSSComputedStyleProperty>>
+          computed_styles,
+      protocol::Maybe<bool> pierce,
+      std::unique_ptr<protocol::Array<int>>* node_ids) override;
   protocol::Response getFlattenedDocument(
       protocol::Maybe<int> depth,
       protocol::Maybe<bool> pierce,
@@ -234,6 +240,11 @@ class CORE_EXPORT InspectorDOMAgent final
       protocol::Maybe<int> depth,
       protocol::Maybe<bool> pierce,
       std::unique_ptr<protocol::DOM::Node>*) override;
+  protocol::Response scrollIntoViewIfNeeded(
+      protocol::Maybe<int> node_id,
+      protocol::Maybe<int> backend_node_id,
+      protocol::Maybe<String> object_id,
+      protocol::Maybe<protocol::DOM::Rect> rect) override;
 
   protocol::Response getFrameOwner(const String& frame_id,
                                    int* backend_node_id,
@@ -273,7 +284,8 @@ class CORE_EXPORT InspectorDOMAgent final
 
   Node* NodeForId(int node_id);
   int BoundNodeId(Node*);
-  void SetDOMListener(DOMListener*);
+  void AddDOMListener(DOMListener*);
+  void RemoveDOMListener(DOMListener*);
   int PushNodePathToFrontend(Node*);
   protocol::Response NodeForRemoteObjectId(const String& remote_object_id,
                                            Node*&);
@@ -312,10 +324,15 @@ class CORE_EXPORT InspectorDOMAgent final
   // For idempotence, call enable().
   void EnableAndReset();
 
+  void NotifyDidAddDocument(Document*);
+  void NotifyDidRemoveDocument(Document*);
+  void NotifyWillRemoveDOMNode(Node*);
+  void NotifyDidModifyDOMAttr(Element*);
+
   // Node-related methods.
   typedef HeapHashMap<Member<Node>, int> NodeToIdMap;
   int Bind(Node*, NodeToIdMap*);
-  void Unbind(Node*, NodeToIdMap*);
+  void Unbind(Node*);
 
   protocol::Response AssertEditableNode(int node_id, Node*&);
   protocol::Response AssertEditableChildNode(Element* parent_element,
@@ -362,7 +379,7 @@ class CORE_EXPORT InspectorDOMAgent final
   v8::Isolate* isolate_;
   Member<InspectedFrames> inspected_frames_;
   v8_inspector::V8InspectorSession* v8_session_;
-  Member<DOMListener> dom_listener_;
+  HeapHashSet<Member<DOMListener>> dom_listeners_;
   Member<NodeToIdMap> document_node_to_id_map_;
   // Owns node mappings for dangling nodes.
   HeapVector<Member<NodeToIdMap>> dangling_node_to_id_maps_;
@@ -375,7 +392,7 @@ class CORE_EXPORT InspectorDOMAgent final
   HashMap<int, int> cached_child_count_;
   int last_node_id_;
   Member<Document> document_;
-  typedef HeapHashMap<String, HeapVector<Member<Node>>> SearchResults;
+  typedef HeapHashMap<String, Member<HeapVector<Member<Node>>>> SearchResults;
   SearchResults search_results_;
   Member<InspectorRevalidateDOMTask> revalidate_task_;
   Member<InspectorHistory> history_;

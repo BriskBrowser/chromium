@@ -14,12 +14,21 @@
 #include "chrome/browser/ui/app_list/app_list_controller_delegate.h"
 #include "chrome/browser/ui/app_list/search/omnibox_result.h"
 #include "components/omnibox/browser/autocomplete_classifier.h"
-#include "components/omnibox/browser/autocomplete_controller.h"
 #include "components/omnibox/browser/autocomplete_input.h"
+#include "components/search_engines/omnibox_focus_type.h"
 #include "third_party/metrics_proto/omnibox_event.pb.h"
 #include "url/gurl.h"
 
 namespace app_list {
+namespace {
+
+bool IsDriveUrl(const GURL& url) {
+  // Returns true if the |url| points to a Drive Web host.
+  const std::string& host = url.host();
+  return host == "drive.google.com" || host == "docs.google.com";
+}
+
+}  //  namespace
 
 OmniboxProvider::OmniboxProvider(Profile* profile,
                                  AppListControllerDelegate* list_controller)
@@ -29,11 +38,12 @@ OmniboxProvider::OmniboxProvider(Profile* profile,
       list_controller_(list_controller),
       controller_(std::make_unique<AutocompleteController>(
           std::make_unique<ChromeAutocompleteProviderClient>(profile),
-          this,
           is_zero_state_enabled_
               ? AutocompleteClassifier::DefaultOmniboxProviders()
               : AutocompleteClassifier::DefaultOmniboxProviders() &
-                    ~AutocompleteProvider::TYPE_ZERO_SUGGEST)) {}
+                    ~AutocompleteProvider::TYPE_ZERO_SUGGEST)) {
+  controller_->AddObserver(this);
+}
 
 OmniboxProvider::~OmniboxProvider() {}
 
@@ -53,7 +63,7 @@ void OmniboxProvider::Start(const base::string16& query) {
   // Sets the |from_omnibox_focus| flag to enable ZeroSuggestProvider to process
   // the requests from app_list.
   if (is_zero_state_enabled_ && input.text().empty()) {
-    input.set_from_omnibox_focus(true);
+    input.set_focus_type(OmniboxFocusType::ON_FOCUS);
     is_zero_state_input_ = true;
   } else {
     is_zero_state_input_ = false;
@@ -63,20 +73,37 @@ void OmniboxProvider::Start(const base::string16& query) {
   controller_->Start(input);
 }
 
+ash::AppListSearchResultType OmniboxProvider::ResultType() {
+  return ash::AppListSearchResultType::kOmnibox;
+}
+
 void OmniboxProvider::PopulateFromACResult(const AutocompleteResult& result) {
   SearchProvider::Results new_results;
   new_results.reserve(result.size());
   for (const AutocompleteMatch& match : result) {
-    if (!match.destination_url.is_valid())
+    // Do not return a match in any of these cases:
+    // - The URL is invalid.
+    // - The URL points to Drive Web. The LauncherSearchProvider surfaces Drive
+    //   results.
+    // - The URL points to a local file. The LauncherSearchProvider also handles
+    //   files results, even if they've been opened in the browser.
+    if (!match.destination_url.is_valid() ||
+        IsDriveUrl(match.destination_url) ||
+        match.destination_url.SchemeIsFile()) {
       continue;
+    }
     new_results.emplace_back(std::make_unique<OmniboxResult>(
         profile_, list_controller_, controller_.get(), match,
         is_zero_state_input_));
   }
+
   SwapResults(&new_results);
 }
 
-void OmniboxProvider::OnResultChanged(bool default_match_changed) {
+void OmniboxProvider::OnResultChanged(AutocompleteController* controller,
+                                      bool default_match_changed) {
+  DCHECK(controller == controller_.get());
+
   // Record the query latency.
   RecordQueryLatencyHistogram();
 

@@ -3,8 +3,18 @@
 // found in the LICENSE file.
 
 #include "components/autofill_assistant/browser/trigger_context.h"
+#include "base/strings/string_split.h"
 
 namespace autofill_assistant {
+
+// Parameter that allows setting the color of the overlay.
+const char kOverlayColorParameterName[] = "OVERLAY_COLORS";
+
+// Parameter that contains the current session username. Should be synced with
+// |SESSION_USERNAME_PARAMETER| from
+// .../password_manager/PasswordChangeLauncher.java
+// TODO(b/151401974): Eliminate duplicate parameter definitions.
+const char kPasswordChangeUsernameParameterName[] = "PASSWORD_CHANGE_USERNAME";
 
 // static
 std::unique_ptr<TriggerContext> TriggerContext::CreateEmpty() {
@@ -27,6 +37,14 @@ std::unique_ptr<TriggerContext> TriggerContext::Merge(
 TriggerContext::TriggerContext() {}
 TriggerContext::~TriggerContext() {}
 
+base::Optional<std::string> TriggerContext::GetOverlayColors() const {
+  return GetParameter(kOverlayColorParameterName);
+}
+
+base::Optional<std::string> TriggerContext::GetPasswordChangeUsername() const {
+  return GetParameter(kPasswordChangeUsernameParameterName);
+}
+
 TriggerContextImpl::TriggerContextImpl() {}
 
 TriggerContextImpl::TriggerContextImpl(
@@ -34,15 +52,11 @@ TriggerContextImpl::TriggerContextImpl(
     const std::string& experiment_ids)
     : parameters_(std::move(parameters)),
       experiment_ids_(std::move(experiment_ids)) {}
+
 TriggerContextImpl::~TriggerContextImpl() = default;
 
-void TriggerContextImpl::AddParameters(
-    google::protobuf::RepeatedPtrField<ScriptParameterProto>* dest) const {
-  for (const auto& param_entry : parameters_) {
-    ScriptParameterProto* parameter = dest->Add();
-    parameter->set_name(param_entry.first);
-    parameter->set_value(param_entry.second);
-  }
+std::map<std::string, std::string> TriggerContextImpl::GetParameters() const {
+  return parameters_;
 }
 
 base::Optional<std::string> TriggerContextImpl::GetParameter(
@@ -58,6 +72,15 @@ std::string TriggerContextImpl::experiment_ids() const {
   return experiment_ids_;
 }
 
+bool TriggerContextImpl::HasExperimentId(
+    const std::string& experiment_id) const {
+  std::vector<std::string> experiments = base::SplitString(
+      experiment_ids_, ",", base::WhitespaceHandling::TRIM_WHITESPACE,
+      base::SplitResult::SPLIT_WANT_NONEMPTY);
+  return std::find(experiments.begin(), experiments.end(), experiment_id) !=
+         experiments.end();
+}
+
 bool TriggerContextImpl::is_cct() const {
   return cct_;
 }
@@ -70,17 +93,24 @@ bool TriggerContextImpl::is_direct_action() const {
   return direct_action_;
 }
 
+std::string TriggerContextImpl::get_caller_account_hash() const {
+  return caller_account_hash_;
+}
+
 MergedTriggerContext::MergedTriggerContext(
     std::vector<const TriggerContext*> contexts)
     : contexts_(contexts) {}
 
 MergedTriggerContext::~MergedTriggerContext() {}
 
-void MergedTriggerContext::AddParameters(
-    google::protobuf::RepeatedPtrField<ScriptParameterProto>* dest) const {
+std::map<std::string, std::string> MergedTriggerContext::GetParameters() const {
+  std::map<std::string, std::string> merged_parameters;
   for (const TriggerContext* context : contexts_) {
-    context->AddParameters(dest);
+    for (const auto& parameter : context->GetParameters()) {
+      merged_parameters.insert(parameter);
+    }
   }
+  return merged_parameters;
 }
 
 base::Optional<std::string> MergedTriggerContext::GetParameter(
@@ -108,6 +138,16 @@ std::string MergedTriggerContext::experiment_ids() const {
   return experiment_ids;
 }
 
+bool MergedTriggerContext::HasExperimentId(
+    const std::string& experiment_id) const {
+  for (const TriggerContext* context : contexts_) {
+    if (context->HasExperimentId(experiment_id)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 bool MergedTriggerContext::is_cct() const {
   for (const TriggerContext* context : contexts_) {
     if (context->is_cct())
@@ -130,6 +170,14 @@ bool MergedTriggerContext::is_direct_action() const {
       return true;
   }
   return false;
+}
+
+std::string MergedTriggerContext::get_caller_account_hash() const {
+  for (const TriggerContext* context : contexts_) {
+    if (!context->get_caller_account_hash().empty())
+      return context->get_caller_account_hash();
+  }
+  return "";
 }
 
 }  // namespace autofill_assistant

@@ -42,7 +42,6 @@ namespace blink {
 
 class Animation;
 class CallbackFunctionTest;
-class CanvasRenderingContext;
 class DOMArrayBuffer;
 class DOMPoint;
 class DOMRect;
@@ -77,13 +76,13 @@ class RecordTest;
 class ScriptPromiseResolver;
 class ScrollState;
 class SequenceTest;
-class SerializedScriptValue;
 class ShadowRoot;
-template <typename NodeType>
-class StaticNodeTypeList;
 class StaticSelection;
 class TypeConversions;
 class UnionTypesTest;
+
+template <typename NodeType>
+class StaticNodeTypeList;
 
 using StaticNodeList = StaticNodeTypeList<Node>;
 
@@ -204,6 +203,8 @@ class Internals final : public ScriptWrappable {
   void addCompositionMarker(const Range*,
                             const String& underline_color_value,
                             const String& thickness_value,
+                            const String& underline_style_value,
+                            const String& text_color_value,
                             const String& background_color_value,
                             ExceptionState&);
   void addActiveSuggestionMarker(const Range*,
@@ -236,6 +237,10 @@ class Internals final : public ScriptWrappable {
   void setAutofilledValue(Element*, const String&, ExceptionState&);
   void setEditingValue(Element* input_element, const String&, ExceptionState&);
   void setAutofilled(Element*, bool enabled, ExceptionState&);
+  void setSelectionRangeForNumberType(Element* input_element,
+                                      uint32_t start,
+                                      uint32_t end,
+                                      ExceptionState&);
 
   Range* rangeFromLocationAndLength(Element* scope,
                                     int range_location,
@@ -277,10 +282,10 @@ class Internals final : public ScriptWrappable {
 
   Vector<AtomicString> userPreferredLanguages() const;
   void setUserPreferredLanguages(const Vector<String>&);
+  void setSystemTimeZone(const String&);
 
   unsigned mediaKeysCount();
   unsigned mediaKeySessionCount();
-  unsigned contextLifecycleStateObserverObjectCount(Document*);
   unsigned wheelEventHandlerCount(Document*) const;
   unsigned scrollEventHandlerCount(Document*) const;
   unsigned touchStartOrMoveEventHandlerCount(Document*) const;
@@ -293,6 +298,8 @@ class Internals final : public ScriptWrappable {
                       const String& name,
                       const String& value,
                       ExceptionState&);
+
+  void triggerTestInspectorIssue(Document*);
 
   AtomicString htmlNamespace();
   Vector<AtomicString> htmlTags();
@@ -390,7 +397,10 @@ class Internals final : public ScriptWrappable {
                                 float max_scale_factor,
                                 ExceptionState&);
 
+  float pageZoomFactor(ExceptionState&);
+
   void setIsCursorVisible(Document*, bool, ExceptionState&);
+  void setMaxNumberOfFramesToTen(bool);
 
   String effectivePreload(HTMLMediaElement*);
   void mediaPlayerRemoteRouteAvailabilityChanged(HTMLMediaElement*, bool);
@@ -425,18 +435,14 @@ class Internals final : public ScriptWrappable {
   DOMRectList* draggableRegions(Document*, ExceptionState&);
   DOMRectList* nonDraggableRegions(Document*, ExceptionState&);
 
-  DOMArrayBuffer* serializeObject(scoped_refptr<SerializedScriptValue>) const;
-  scoped_refptr<SerializedScriptValue> deserializeBuffer(DOMArrayBuffer*) const;
-
-  DOMArrayBuffer* serializeWithInlineWasm(ScriptValue) const;
-  ScriptValue deserializeBufferContainingWasm(ScriptState*,
-                                              DOMArrayBuffer*) const;
+  DOMArrayBuffer* serializeObject(v8::Isolate* isolate,
+                                  const ScriptValue&,
+                                  ExceptionState& exception_state) const;
+  ScriptValue deserializeBuffer(v8::Isolate* isolate, DOMArrayBuffer*) const;
 
   String getCurrentCursorInfo();
 
   bool cursorUpdatePending() const;
-
-  bool fakeMouseMovePending() const;
 
   String markerTextForListItem(Element*);
 
@@ -485,7 +491,7 @@ class Internals final : public ScriptWrappable {
   ScriptPromise promiseCheckOverload(ScriptState*, Document*);
   ScriptPromise promiseCheckOverload(ScriptState*, Location*, int32_t, int32_t);
 
-  void Trace(blink::Visitor*) override;
+  void Trace(Visitor*) const override;
 
   void setValueForUser(HTMLInputElement*, const String&);
 
@@ -494,20 +500,12 @@ class Internals final : public ScriptWrappable {
 
   Element* interestedElement();
 
-  unsigned countHitRegions(CanvasRenderingContext*);
-
   bool isInCanvasFontCache(Document*, const String&);
   unsigned canvasFontCacheMaxFonts();
 
   void setScrollChain(ScrollState*,
                       const HeapVector<Member<Element>>& elements,
                       ExceptionState&);
-
-  // Schedule a forced Blink GC run (Oilpan) at the end of event loop.
-  // Note: This is designed to be only used from PerformanceTests/BlinkGC to
-  //       explicitly measure only Blink GC time.  Normal web tests should use
-  //       gc() instead as it would trigger both Blink GC and V8 GC.
-  void scheduleBlinkGC();
 
   String selectedHTMLForClipboard();
   String selectedTextForClipboard();
@@ -549,6 +547,10 @@ class Internals final : public ScriptWrappable {
   // document time in seconds
   double monotonicTimeToZeroBasedDocumentTime(double, ExceptionState&);
 
+  // Translate an event's DOMHighResTimeStamp in seconds into a monotonic time
+  // in milliseconds.
+  int64_t zeroBasedDocumentTimeToMonotonicTime(double dom_event_time);
+
   // Returns the current time ticks (in microseconds).
   int64_t currentTimeTicks();
 
@@ -561,9 +563,6 @@ class Internals final : public ScriptWrappable {
   // ScrollAnimatorCompositorCoordinater::RunState), or -1 if the node does not
   // have a scrollable area.
   String getProgrammaticScrollAnimationState(Node*) const;
-
-  // Returns the visual rect of a node's LayoutObject.
-  DOMRect* visualRect(Node*);
 
   // Intentional crash.
   void crash();
@@ -591,16 +590,20 @@ class Internals final : public ScriptWrappable {
   bool isSiteIsolated(HTMLIFrameElement* iframe) const;
   bool isTrackingOcclusionForIFrame(HTMLIFrameElement* iframe) const;
 
+  void DisableFrequencyCappingForOverlayPopupDetection() const;
+
   void addEmbedderCustomElementName(const AtomicString& name, ExceptionState&);
 
   LocalFrame* GetFrame() const;
 
   void setDeviceEmulationScale(float scale, ExceptionState&);
 
-  String getDocumentAgentId(Document*);
+  String getAgentId(DOMWindow*);
 
   void useMockOverlayScrollbars();
   bool overlayScrollbarsEnabled() const;
+
+  void generateTestReport(const String& message);
 
  private:
   Document* ContextDocument() const;

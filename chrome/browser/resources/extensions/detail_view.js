@@ -31,7 +31,7 @@ import {afterNextRender, html, Polymer} from 'chrome://resources/polymer/v3_0/po
 
 import {ItemDelegate} from './item.js';
 import {ItemBehavior} from './item_behavior.js';
-import {computeInspectableViewLabel, EnableControl, getEnableControl, getItemSource, getItemSourceString, isControlled, isEnabled, userCanChangeEnablement} from './item_util.js';
+import {computeInspectableViewLabel, EnableControl, getEnableControl, getItemSource, getItemSourceString, isEnabled, userCanChangeEnablement} from './item_util.js';
 import {navigation, Page} from './navigation_helper.js';
 
 Polymer({
@@ -132,14 +132,6 @@ Polymer({
    * @return {boolean}
    * @private
    */
-  isControlled_() {
-    return isControlled(this.data);
-  },
-
-  /**
-   * @return {boolean}
-   * @private
-   */
   isEnabled_() {
     return isEnabled(this.data.state);
   },
@@ -167,10 +159,8 @@ Polymer({
   hasWarnings_() {
     return this.data.disableReasons.corruptInstall ||
         this.data.disableReasons.suspiciousInstall ||
-        this.data.disableReasons.updateRequired ||
-        this.data.disableReasons.blockedByPolicy ||
-        this.data.disableReasons.custodianApprovalRequired ||
-        !!this.data.blacklistText || this.data.runtimeWarnings.length > 0;
+        this.data.disableReasons.updateRequired || !!this.data.blacklistText ||
+        this.data.runtimeWarnings.length > 0;
   },
 
   /**
@@ -230,11 +220,7 @@ Polymer({
   /** @private */
   onEnableToggleChange_() {
     this.delegate.setItemEnabled(this.data.id, this.$.enableToggle.checked);
-  },
-
-  /** @private */
-  onEnableButtonClick_() {
-    this.delegate.setItemEnabled(this.data.id, true);
+    this.$.enableToggle.checked = this.isEnabled_();
   },
 
   /**
@@ -319,22 +305,6 @@ Polymer({
   },
 
   /**
-   * @param {chrome.developerPrivate.ControllerType} type
-   * @return {string}
-   * @private
-   */
-  getIndicatorIcon_(type) {
-    switch (type) {
-      case 'POLICY':
-        return 'cr20:domain';
-      case 'SUPERVISED_USER_CUSTODIAN':
-        return 'cr:supervisor-account';
-      default:
-        return '';
-    }
-  },
-
-  /**
    * @return {boolean}
    * @private
    */
@@ -407,14 +377,5 @@ Polymer({
     // detail view, because the repair button appears just beneath it.
     return enableControl === EnableControl.ENABLE_TOGGLE ||
         enableControl === EnableControl.REPAIR;
-  },
-
-  /**
-   * Returns true if the enable button should be shown.
-   * @return {boolean}
-   * @private
-   */
-  showEnableButton_() {
-    return getEnableControl(this.data) === EnableControl.ENABLE_BUTTON;
   },
 });

@@ -9,8 +9,8 @@
 #include "base/debug/alias.h"
 #include "base/rand_util.h"
 #include "base/stl_util.h"
-#include "base/task/post_task.h"
 #include "base/task/task_traits.h"
+#include "base/task/thread_pool.h"
 #include "base/task/thread_pool/task_tracker.h"
 #include "base/task/thread_pool/thread_pool_instance.h"
 
@@ -23,12 +23,8 @@ TimeDelta g_heartbeat_for_testing = TimeDelta();
 
 }  // namespace
 
-ServiceThread::ServiceThread(const TaskTracker* task_tracker,
-                             RepeatingClosure report_heartbeat_metrics_callback)
-    : Thread("ThreadPoolServiceThread"),
-      task_tracker_(task_tracker),
-      report_heartbeat_metrics_callback_(
-          std::move(report_heartbeat_metrics_callback)) {}
+ServiceThread::ServiceThread(const TaskTracker* task_tracker)
+    : Thread("ThreadPoolServiceThread"), task_tracker_(task_tracker) {}
 
 ServiceThread::~ServiceThread() = default;
 
@@ -51,20 +47,16 @@ void ServiceThread::Init() {
         FROM_HERE,
         g_heartbeat_for_testing.is_zero() ? kHeartbeat
                                           : g_heartbeat_for_testing,
-        BindRepeating(&ServiceThread::ReportHeartbeatMetrics,
+        BindRepeating(&ServiceThread::PerformHeartbeatLatencyReport,
                       Unretained(this)));
   }
 }
 
 NOINLINE void ServiceThread::Run(RunLoop* run_loop) {
-  const int line_number = __LINE__;
   Thread::Run(run_loop);
+  // Inhibit tail calls of Run and inhibit code folding.
+  const int line_number = __LINE__;
   base::debug::Alias(&line_number);
-}
-
-void ServiceThread::ReportHeartbeatMetrics() const {
-  report_heartbeat_metrics_callback_.Run();
-  PerformHeartbeatLatencyReport();
 }
 
 void ServiceThread::PerformHeartbeatLatencyReport() const {
@@ -87,8 +79,8 @@ void ServiceThread::PerformHeartbeatLatencyReport() const {
   // every set of traits in case PostTask() itself is slow.
   // Bonus: this approach also includes the overhead of BindOnce() in the
   // reported latency.
-  base::PostTask(
-      FROM_HERE, {base::ThreadPool(), profiled_priority},
+  ThreadPool::PostTask(
+      FROM_HERE, {profiled_priority},
       BindOnce(
           &TaskTracker::RecordHeartbeatLatencyAndTasksRunWhileQueuingHistograms,
           Unretained(task_tracker_), profiled_priority, TimeTicks::Now(),

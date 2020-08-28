@@ -4,28 +4,29 @@
 
 #include "third_party/blink/renderer/core/frame/deprecation.h"
 
-#include <bitset>
 #include "base/time/time.h"
 #include "build/build_config.h"
 #include "third_party/blink/public/mojom/feature_policy/feature_policy.mojom-blink.h"
 #include "third_party/blink/public/mojom/reporting/reporting.mojom-blink.h"
 #include "third_party/blink/public/platform/platform.h"
-#include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
 #include "third_party/blink/renderer/core/frame/deprecation_report_body.h"
 #include "third_party/blink/renderer/core/frame/frame_console.h"
+#include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/frame/local_frame_client.h"
 #include "third_party/blink/renderer/core/frame/report.h"
 #include "third_party/blink/renderer/core/frame/reporting_context.h"
 #include "third_party/blink/renderer/core/inspector/console_message.h"
 #include "third_party/blink/renderer/core/loader/document_loader.h"
+#include "third_party/blink/renderer/core/origin_trials/origin_trial_context.h"
 #include "third_party/blink/renderer/core/page/page.h"
 #include "third_party/blink/renderer/core/workers/worker_or_worklet_global_scope.h"
+#include "third_party/blink/renderer/platform/heap/heap.h"
 #include "third_party/blink/renderer/platform/runtime_enabled_features.h"
 #include "third_party/blink/renderer/platform/wtf/date_math.h"
 
-using blink::WebFeature;
+namespace blink {
 
 namespace {
 
@@ -60,6 +61,12 @@ enum Milestone {
   kM80 = 80,
   kM81 = 81,
   kM82 = 82,
+  kM83 = 83,
+  kM84 = 84,
+  kM85 = 85,
+  kM86 = 86,
+  kM87 = 87,
+  kM88 = 88,
 };
 
 // Returns estimated milestone dates as milliseconds since January 1, 1970.
@@ -97,9 +104,33 @@ base::Time::Exploded MilestoneDate(Milestone milestone) {
     case kM80:
       return {2020, 2, 0, 4, 4};
     case kM81:
-      return {2020, 3, 0, 17, 4};
+      return {2020, 4, 0, 7, 4};
     case kM82:
-      return {2020, 4, 0, 28, 4};
+      // This release was cancelled, so this is the (new) M83 date.
+      // https://groups.google.com/a/chromium.org/d/msg/chromium-dev/N1NxbSVOZas/ySlEKDKkBgAJ
+      return {2020, 5, 0, 18, 4};
+    case kM83:
+      return {2020, 5, 0, 18, 4};
+    case kM84:
+      // This release is not yet scheduled, so this date is a guess.
+      // https://groups.google.com/a/chromium.org/d/msg/chromium-dev/N1NxbSVOZas/ySlEKDKkBgAJ
+      return {2020, 7, 0, 14, 4};
+    case kM85:
+      // This release is not yet scheduled, so this date is a guess.
+      // https://groups.google.com/a/chromium.org/d/msg/chromium-dev/N1NxbSVOZas/ySlEKDKkBgAJ
+      return {2020, 8, 0, 25, 4};
+    case kM86:
+      // This release is not yet scheduled, so this date is a guess.
+      // https://groups.google.com/a/chromium.org/d/msg/chromium-dev/N1NxbSVOZas/ySlEKDKkBgAJ
+      return {2020, 10, 0, 6, 4};
+    case kM87:
+      // This release is not yet scheduled, so this date is a guess.
+      // https://groups.google.com/a/chromium.org/d/msg/chromium-dev/N1NxbSVOZas/ySlEKDKkBgAJ
+      return {2020, 11, 0, 17, 4};
+    case kM88:
+      // This release is not yet scheduled, so this date is a guess.
+      // https://groups.google.com/a/chromium.org/d/msg/chromium-dev/N1NxbSVOZas/ySlEKDKkBgAJ
+      return {2021, 1, 0, 19, 4};
   }
 
   NOTREACHED();
@@ -291,12 +322,12 @@ DeprecationInfo GetDeprecationInfo(WebFeature feature) {
 
     case WebFeature::kApplicationCacheAPISecureOrigin:
       return {
-          "ApplicationCacheAPISecureOrigin", kM82,
-          WillBeRemoved("Application Cache API use", kM82, "6192449487634432")};
+          "ApplicationCacheAPISecureOrigin", kM85,
+          WillBeRemoved("Application Cache API use", kM85, "6192449487634432")};
 
     case WebFeature::kApplicationCacheManifestSelectSecureOrigin:
-      return {"ApplicationCacheAPISecureOrigin", kM82,
-              WillBeRemoved("Application Cache API manifest selection", kM82,
+      return {"ApplicationCacheAPISecureOrigin", kM85,
+              WillBeRemoved("Application Cache API manifest selection", kM85,
                             "6192449487634432")};
 
     case WebFeature::kNotificationInsecureOrigin:
@@ -401,16 +432,6 @@ DeprecationInfo GetDeprecationInfo(WebFeature feature) {
 
 #undef kWebComponentsV0DeprecationPost
 
-    case WebFeature::kPresentationRequestStartInsecureOrigin:
-    case WebFeature::kPresentationReceiverInsecureOrigin:
-      return {
-          "PresentationInsecureOrigin", kM72,
-          String("Using the Presentation API on insecure origins is "
-                 "deprecated and will be removed in M72. You should consider "
-                 "switching your application to a secure origin, such as "
-                 "HTTPS. See "
-                 "https://goo.gl/rStTGz for more details.")};
-
     case WebFeature::kLocalCSSFileExtensionRejected:
       return {"LocalCSSFileExtensionRejected", kM64,
               String("CSS cannot be loaded from `file:` URLs unless they end "
@@ -480,13 +501,13 @@ DeprecationInfo GetDeprecationInfo(WebFeature feature) {
                   MilestoneString(kM72).Ascii().c_str())};
 
     case WebFeature::kNoSysexWebMIDIWithoutPermission:
-      return {"NoSysexWebMIDIWithoutPermission", kM77,
+      return {"NoSysexWebMIDIWithoutPermission", kM82,
               String::Format(
                   "Web MIDI will ask a permission to use even if the sysex is "
-                  "not specified in the MIDIOptions since %s. See "
+                  "not specified in the MIDIOptions since around %s. See "
                   "https://www.chromestatus.com/feature/5138066234671104 for "
                   "more details.",
-                  MilestoneString(kM77).Ascii().c_str())};
+                  MilestoneString(kM82).Ascii().c_str())};
 
     case WebFeature::kCustomCursorIntersectsViewport:
       return {
@@ -496,166 +517,12 @@ DeprecationInfo GetDeprecationInfo(WebFeature feature) {
               "native UI",
               kM75, "5825971391299584")};
 
-    case WebFeature::kV8AtomicsWake:
-      return {"V8AtomicsWake", kM76,
-              ReplacedWillBeRemoved("Atomics.wake", "Atomics.notify", kM76,
-                                    "6228189936353280")};
-
-    case WebFeature::kCSSValueAppearanceCheckboxForOthersRendered:
-      return {"CSSValueAppearanceCheckboxForOthersRendered", kM79,
-              WillBeRemoved("'-webkit-appearance: checkbox' for elements other "
-                            "than input[type=checkbox]",
-                            kM79, "5070237827334144")};
-    case WebFeature::kCSSValueAppearanceRadioForOthersRendered:
-      return {"CSSValueAppearanceRadioForOthersRendered", kM79,
-              WillBeRemoved("'-webkit-appearance: radio' for elements other "
-                            "than input[type=radio]",
-                            kM79, "5070237827334144")};
-    case WebFeature::kCSSValueAppearancePushButtonForOthersRendered:
-      return {
-          "CSSValueAppearancePushButtonForOthersRendered", kM79,
-          WillBeRemoved(
-              "'-webkit-appearance: push-button' for elements other than "
-              "input[type=button], input[type=reset], and input[type=submit]",
-              kM79, "5070237827334144")};
-    case WebFeature::kCSSValueAppearanceSquareButtonForOthersRendered:
-      return {"CSSValueAppearanceSquareButtonForOthersRendered", kM79,
-              WillBeRemoved("'-webkit-appearance: square-button' for elements "
-                            "other than input[type=color]",
-                            kM79, "5070237827334144")};
-    case WebFeature::kCSSValueAppearanceButtonForAnchor:
-      return {"CSSValueAppearanceSquareButtonForAnchor", kM79,
-              WillBeRemoved("'-webkit-appearance: button' for a", kM79,
-                            "5070237827334144")};
-    case WebFeature::kCSSValueAppearanceButtonForSelectRendered:
-      return {
-          "CSSValueAppearanceButtonForSelectRendered", kM79,
-          WillBeRemoved("'-webkit-appearance: button' for drop-down box select",
-                        kM79, "5070237827334144")};
-    case WebFeature::kCSSValueAppearanceInnerSpinButtonForOthersRendered:
-      return {"CSSValueAppearanceInnerSpinButtonForOthersRendered", kM79,
-              WillBeRemoved("'-webkit-appearance: inner-spin-button' for "
-                            "elements other than :-webkit-inner-spin-button",
-                            kM79, "5070237827334144")};
-    case WebFeature::kCSSValueAppearanceListboxForOthersRendered:
-      return {"CSSValueAppearanceListboxForOthersRendered", kM79,
-              WillBeRemoved("'-webkit-appearance: listbox' for "
-                            "elements other than listbox select",
-                            kM79, "5070237827334144")};
-    case WebFeature::kCSSValueAppearanceMenuListForOthersRendered:
-      return {
-        "CSSValueAppearanceMenuListForOthersRendered", kM79,
-            WillBeRemoved(
-#if defined(OS_ANDROID)
-                "'-webkit-appearance: menulist' for elements other "
-                "than drop-down box select, input[type=color][list], "
-                "input[type=date], "
-                "input[type=datetime-local], input[type=month], "
-                "input[type=time], and input[type=week]",
-#else
-                "'-webkit-appearance: menulist' for elements other "
-                "than select and input[type=color][list]",
-#endif
-                kM79, "5070237827334144")
-      };
-    case WebFeature::kCSSValueAppearanceMenuListButtonForOthersRendered:
-      return {
-        "CSSValueAppearanceMenuListButtonForOthersRendered", kM79,
-            WillBeRemoved(
-#if defined(OS_ANDROID)
-                "'-webkit-appearance: menulist-button' for elements other "
-                "than drop-down box select, input[type=color][list], "
-                "input[type=date], "
-                "input[type=datetime-local], input[type=month], "
-                "input[type=time], and input[type=week]",
-#else
-                "'-webkit-appearance: menulist-button' for elements other "
-                "than select and input[type=color][list]",
-#endif
-                kM79, "5070237827334144")
-      };
-    case WebFeature::kCSSValueAppearanceMeterForOthersRendered:
-      return {"CSSValueAppearanceMeterForOthersRendered", kM79,
-              WillBeRemoved("'-webkit-appearance: meter' for "
-                            "elements other than meter",
-                            kM79, "5070237827334144")};
-    case WebFeature::kCSSValueAppearanceProgressBarForOthersRendered:
-      return {"CSSValueAppearanceProgressBarForOthersRendered", kM79,
-              WillBeRemoved("'-webkit-appearance: progress-bar' for "
-                            "elements other than progress",
-                            kM79, "5070237827334144")};
-    case WebFeature::kCSSValueAppearanceSliderHorizontalForOthersRendered:
-      return {"CSSValueAppearanceSliderHorizontalForOthersRendered", kM79,
-              WillBeRemoved("'-webkit-appearance: slider-horizontal' for "
-                            "elements other than input[type=range]",
-                            kM79, "5070237827334144")};
-    case WebFeature::kCSSValueAppearanceSliderVerticalForOthersRendered:
-      return {"CSSValueAppearanceSliderVerticalForOthersRendered", kM79,
-              WillBeRemoved("'-webkit-appearance: slider-vertical' for "
-                            "elements other than input[type=range]",
-                            kM79, "5070237827334144")};
-    case WebFeature::kCSSValueAppearanceSliderThumbHorizontalForOthersRendered:
-      return {"CSSValueAppearanceSliderThumbHorizontalForOthersRendered", kM79,
-              WillBeRemoved("'-webkit-appearance: sliderthumb-horizontal' for "
-                            "elements other than ::-webkit-slider-thumb and "
-                            "::-webkit-media-slider-thumb",
-                            kM79, "5070237827334144")};
-    case WebFeature::kCSSValueAppearanceSliderThumbVerticalForOthersRendered:
-      return {"CSSValueAppearanceSliderThumbVerticalForOthersRendered", kM79,
-              WillBeRemoved("'-webkit-appearance: sliderthumb-vertical' for "
-                            "elements other than ::-webkit-slider-thumb and "
-                            "::-webkit-media-slider-thumb",
-                            kM79, "5070237827334144")};
-    case WebFeature::kCSSValueAppearanceSearchFieldForOthersRendered:
-      return {"CSSValueAppearanceSearchFieldForOthersRendered", kM79,
-              WillBeRemoved("'-webkit-appearance: searchfield' for "
-                            "elements other than input[type=search]",
-                            kM79, "5070237827334144")};
-    case WebFeature::kCSSValueAppearanceSearchCancelForOthers2Rendered:
-      return {
-          "CSSValueAppearanceSearchCancelForOthers2Rendered", kM79,
-          WillBeRemoved("'-webkit-appearance: searchfield-cancel-button' for "
-                        "elements other than ::-webkit-clear-button and "
-                        "::-webkit-search-cancel-button",
-                        kM79, "5070237827334144")};
-    case WebFeature::kCSSValueAppearanceTextFieldForOthersRendered:
-      return {
-        "CSSValueAppearanceTextFieldForOthersRendered", kM79,
-            WillBeRemoved(
-                "'-webkit-appearance: textfield' for "
-#if defined(OS_ANDROID)
-                "elements other than input[type=email], input[type=number], "
-                "input[type=password], input[type=search], input[type=tel], "
-                "input[type=text], input[type=url]",
-#else
-                "elements other than input[type=email], input[type=number], "
-                "input[type=password], input[type=search], input[type=tel], "
-                "input[type=text], input[type=url], input[type=date], "
-                "input[type=datetime-local], input[type=month], "
-                "input[type=time], and input[type=week]",
-#endif
-                kM79, "5070237827334144")
-      };
-    case WebFeature::kCSSValueAppearanceTextAreaForOthersRendered:
-      return {"CSSValueAppearanceTextAreaForOthersRendered", kM79,
-              WillBeRemoved("'-webkit-appearance: textarea' for "
-                            "elements other than textarea",
-                            kM79, "5070237827334144")};
     case WebFeature::kXRSupportsSession:
       return {"XRSupportsSession", kM80,
               ReplacedBy(
                   "supportsSession()",
                   "isSessionSupported() and check the resolved boolean value")};
 
-    case WebFeature::kCSSValueAppearanceButtonForBootstrapLooseSelectorRendered:
-    case WebFeature::kCSSValueAppearanceButtonForOthers2Rendered:
-      // The below DeprecationInfo::id doesn't match to WebFeature enums
-      // intentionally.
-      return {"CSSValueAppearanceButtonForOthersRendered", kM80,
-              WillBeRemoved("'-webkit-appearance: button' for "
-                            "elements other than <button> and <input "
-                            "type=button/color/reset/submit>",
-                            kM80, "4867142128238592")};
     case WebFeature::kObsoleteWebrtcTlsVersion:
       return {"ObsoleteWebRtcCipherSuite", kM81,
               String::Format(
@@ -664,18 +531,80 @@ DeprecationInfo GetDeprecationInfo(WebFeature feature) {
                   "Please check with your partner to have this fixed.",
                   MilestoneString(kM81).Ascii().c_str())};
 
+    case WebFeature::kCssStyleSheetReplaceWithImport:
+      return {
+          "CssStyleSheetReplaceWithImport", kM84,
+          String::Format(
+              "Support for calls to CSSStyleSheet.replace() with stylesheet "
+              "text that includes @import has been deprecated, and will be "
+              "removed in %s. See "
+              "https://chromestatus.com/feature/4735925877735424 for more "
+              "details.",
+              MilestoneString(kM84).Ascii().c_str())};
+
+    case WebFeature::kV8RTCRtpSender_CreateEncodedAudioStreams_Method:
+      return {"V8RTCRtpSender_CreateEncodedAudioStreams_Method", kM88,
+              ReplacedWillBeRemoved("RTCRtpSender.createEncodedAudioStreams",
+                                    "RTCRtpSender.createEncodedStreams", kM88,
+                                    "6321945865879552")};
+
+    case WebFeature::kV8RTCRtpSender_CreateEncodedVideoStreams_Method:
+      return {"V8RTCRtpSender_CreateEncodedVideoStreams_Method", kM88,
+              ReplacedWillBeRemoved("RTCRtpSender.createEncodedVideoStreams",
+                                    "RTCRtpSender.createEncodedStreams", kM88,
+                                    "6321945865879552")};
+
+    case WebFeature::kV8RTCRtpReceiver_CreateEncodedAudioStreams_Method:
+      return {"V8RTCRtpReceiver_CreateEncodedAudioStreams_Method", kM88,
+              ReplacedWillBeRemoved("RTCRtpReceiver.createEncodedAudioStreams",
+                                    "RTCRtpReceiver.createEncodedStreams", kM88,
+                                    "6321945865879552")};
+
+    case WebFeature::kV8RTCRtpReceiver_CreateEncodedVideoStreams_Method:
+      return {"V8RTCRtpReceiver_CreateEncodedVideoStreams_Method", kM88,
+              ReplacedWillBeRemoved("RTCRtpReceiver.createEncodedVideoStreams",
+                                    "RTCRtpReceiver.createEncodedStreams", kM88,
+                                    "6321945865879552")};
+
+    case WebFeature::kForceEncodedAudioInsertableStreams:
+      return {"ForceEncodedAudioInsertableStreams", kM88,
+              ReplacedWillBeRemoved(
+                  "RTCConfiguration.forceEncodedAudioInsertableStreams",
+                  "RTCConfiguration.encodedInsertableStreams", kM88,
+                  "6321945865879552")};
+
+    case WebFeature::kForceEncodedVideoInsertableStreams:
+      return {"ForceEncodedVideoInsertableStreams", kM88,
+              ReplacedWillBeRemoved(
+                  "RTCConfiguration.forceEncodedVideoInsertableStreams",
+                  "RTCConfiguration.encodedInsertableStreams", kM88,
+                  "6321945865879552")};
+
     // Features that aren't deprecated don't have a deprecation message.
     default:
       return {"NotDeprecated", kUnknown, ""};
   }
 }
 
+Report* CreateReportInternal(const KURL& context_url,
+                             const DeprecationInfo& info) {
+  base::Optional<base::Time> optional_removal_date;
+  if (info.anticipated_removal != kUnknown) {
+    base::Time removal_date;
+    bool result = base::Time::FromUTCExploded(
+        MilestoneDate(info.anticipated_removal), &removal_date);
+    DCHECK(result);
+    optional_removal_date = removal_date;
+  }
+  DeprecationReportBody* body = MakeGarbageCollected<DeprecationReportBody>(
+      info.id, optional_removal_date, info.message);
+  return MakeGarbageCollected<Report>(ReportType::kDeprecation, context_url,
+                                      body);
+}
+
 }  // anonymous namespace
 
-namespace blink {
-
-Deprecation::Deprecation() : mute_count_(0) {
-}
+Deprecation::Deprecation() : mute_count_(0) {}
 
 void Deprecation::ClearSuppression() {
   css_property_deprecation_bits_.reset();
@@ -720,9 +649,9 @@ void Deprecation::WarnOnDeprecatedProperties(
   String message = DeprecationMessage(unresolved_property);
   if (!message.IsEmpty()) {
     page->GetDeprecation().Suppress(unresolved_property);
-    ConsoleMessage* console_message =
-        ConsoleMessage::Create(mojom::ConsoleMessageSource::kDeprecation,
-                               mojom::ConsoleMessageLevel::kWarning, message);
+    auto* console_message = MakeGarbageCollected<ConsoleMessage>(
+        mojom::ConsoleMessageSource::kDeprecation,
+        mojom::ConsoleMessageLevel::kWarning, message);
     frame->Console().AddMessage(console_message);
   }
 }
@@ -734,82 +663,83 @@ String Deprecation::DeprecationMessage(CSSPropertyID unresolved_property) {
   return g_empty_string;
 }
 
+void Deprecation::CountDeprecationCrossOriginIframe(LocalDOMWindow* window,
+                                                    WebFeature feature) {
+  DCHECK(window);
+  if (!window->GetFrame())
+    return;
+
+  // Check to see if the frame can script into the top level context.
+  Frame& top = window->GetFrame()->Tree().Top();
+  if (!window->GetSecurityOrigin()->CanAccess(
+          top.GetSecurityContext()->GetSecurityOrigin())) {
+    CountDeprecation(window, feature);
+  }
+}
+
 void Deprecation::CountDeprecation(ExecutionContext* context,
                                    WebFeature feature) {
   if (!context)
     return;
 
-  context->CountDeprecation(feature);
-}
+  Deprecation* deprecation = nullptr;
+  if (auto* window = DynamicTo<LocalDOMWindow>(context)) {
+    if (window->GetFrame())
+      deprecation = &window->GetFrame()->GetPage()->GetDeprecation();
+  } else if (auto* scope = DynamicTo<WorkerOrWorkletGlobalScope>(context)) {
+    deprecation = &scope->GetDeprecation();
+  }
 
-void Deprecation::CountDeprecation(const Document& document,
-                                   WebFeature feature) {
-  Deprecation::CountDeprecation(document.Loader(), feature);
-}
-
-void Deprecation::CountDeprecation(DocumentLoader* loader, WebFeature feature) {
-  if (!loader)
+  if (!deprecation || deprecation->mute_count_ ||
+      deprecation->GetReported(feature)) {
     return;
-  LocalFrame* frame = loader->GetFrame();
-  if (!frame)
-    return;
-  Page* page = frame->GetPage();
-  if (!loader || !page || page->GetDeprecation().mute_count_ ||
-      page->GetDeprecation().GetReported(feature))
-    return;
+  }
+  deprecation->SetReported(feature);
 
-  page->GetDeprecation().SetReported(feature);
-  UseCounter::Count(loader, feature);
-  GenerateReport(frame, feature);
-}
+  // TODO(yoichio): We should remove these counters when v0 APIs are removed.
+  // crbug.com/946875.
+  if (feature == WebFeature::kHTMLImports &&
+      context->GetOriginTrialContext()->IsFeatureEnabled(
+          OriginTrialFeature::kHTMLImports)) {
+    context->CountUse(WebFeature::kHTMLImportsOnReverseOriginTrials);
+  } else if (feature == WebFeature::kElementCreateShadowRoot &&
+             context->GetOriginTrialContext()->IsFeatureEnabled(
+                 OriginTrialFeature::kShadowDOMV0)) {
+    context->CountUse(
+        WebFeature::kElementCreateShadowRootOnReverseOriginTrials);
+  } else if (feature == WebFeature::kDocumentRegisterElement &&
+             context->GetOriginTrialContext()->IsFeatureEnabled(
+                 OriginTrialFeature::kCustomElementsV0)) {
+    context->CountUse(
+        WebFeature::kDocumentRegisterElementOnReverseOriginTrials);
+  }
 
-void Deprecation::CountDeprecationCrossOriginIframe(const Document& document,
-                                                    WebFeature feature) {
-  LocalFrame* frame = document.GetFrame();
-  if (!frame)
-    return;
+  // Don't count usage of WebComponentsV0 for chrome:// URLs, but still report
+  // the deprecation messages.
+  bool count_usage = true;
+  if (context->Url().ProtocolIs("chrome") &&
+      (feature == WebFeature::kHTMLImports ||
+       feature == WebFeature::kElementCreateShadowRoot ||
+       feature == WebFeature::kDocumentRegisterElement)) {
+    count_usage = false;
+  }
+  if (count_usage)
+    context->CountUse(feature);
 
-  // Check to see if the frame can script into the top level document.
-  const SecurityOrigin* security_origin =
-      frame->GetSecurityContext()->GetSecurityOrigin();
-  Frame& top = frame->Tree().Top();
-  if (!security_origin->CanAccess(
-          top.GetSecurityContext()->GetSecurityOrigin()))
-    CountDeprecation(document, feature);
-}
-
-void Deprecation::GenerateReport(const LocalFrame* frame, WebFeature feature) {
-  DeprecationInfo info = GetDeprecationInfo(feature);
+  const DeprecationInfo info = GetDeprecationInfo(feature);
 
   // Send the deprecation message to the console as a warning.
   DCHECK(!info.message.IsEmpty());
-  ConsoleMessage* console_message = ConsoleMessage::Create(
+  auto* console_message = MakeGarbageCollected<ConsoleMessage>(
       mojom::ConsoleMessageSource::kDeprecation,
       mojom::ConsoleMessageLevel::kWarning, info.message);
-  frame->Console().AddMessage(console_message);
+  context->AddConsoleMessage(console_message);
 
-  if (!frame || !frame->Client())
-    return;
-
-  Document* document = frame->GetDocument();
-
-  // Construct the deprecation report.
-  base::Optional<base::Time> optional_removal_date;
-  if (info.anticipated_removal != kUnknown) {
-    base::Time removal_date;
-    bool result = base::Time::FromUTCExploded(
-        MilestoneDate(info.anticipated_removal), &removal_date);
-    DCHECK(result);
-    optional_removal_date = removal_date;
-  }
-  DeprecationReportBody* body = MakeGarbageCollected<DeprecationReportBody>(
-      info.id, optional_removal_date, info.message);
-  Report* report = MakeGarbageCollected<Report>(
-      ReportType::kDeprecation, document->Url().GetString(), body);
+  Report* report = CreateReportInternal(context->Url(), info);
 
   // Send the deprecation report to the Reporting API and any
   // ReportingObservers.
-  ReportingContext::From(document)->QueueReport(report);
+  ReportingContext::From(context)->QueueReport(report);
 }
 
 // static

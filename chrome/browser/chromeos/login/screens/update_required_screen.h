@@ -16,6 +16,7 @@
 #include "chrome/browser/chromeos/login/screens/base_screen.h"
 #include "chrome/browser/chromeos/login/screens/error_screen.h"
 #include "chrome/browser/chromeos/login/version_updater/version_updater.h"
+#include "chrome/browser/chromeos/settings/cros_settings.h"
 
 namespace base {
 class Clock;
@@ -24,29 +25,24 @@ class Clock;
 namespace chromeos {
 
 class ErrorScreensHistogramHelper;
+class ScreenManager;
 class UpdateRequiredView;
-
-namespace login {
-class NetworkStateHelper;
-}  // namespace login
 
 // Controller for the update required screen.
 class UpdateRequiredScreen : public BaseScreen,
                              public VersionUpdater::Delegate,
                              public NetworkStateHandlerObserver {
  public:
-  explicit UpdateRequiredScreen(UpdateRequiredView* view,
-                                ErrorScreen* error_screen);
+  static UpdateRequiredScreen* Get(ScreenManager* manager);
+
+  UpdateRequiredScreen(UpdateRequiredView* view,
+                       ErrorScreen* error_screen,
+                       base::RepeatingClosure exit_callback);
   ~UpdateRequiredScreen() override;
 
   // Called when the being destroyed. This should call Unbind() on the
   // associated View if this class is destroyed before it.
   void OnViewDestroyed(UpdateRequiredView* view);
-
-  // BaseScreen:
-  void Show() override;
-  void Hide() override;
-  void OnUserAction(const std::string& action_id) override;
 
   // VersionUpdater::Delegate:
   void OnWaitForRebootTimeElapsed() override;
@@ -61,29 +57,41 @@ class UpdateRequiredScreen : public BaseScreen,
       const VersionUpdater::UpdateInfo& update_info) override;
   void FinishExitUpdate(VersionUpdater::Result result) override;
 
+  // Exit the screen.
+  void Exit();
+
   VersionUpdater* GetVersionUpdaterForTesting();
 
   // Set a base clock (used to set current time) for testing EOL.
   void SetClockForTesting(base::Clock* clock);
 
+  void SetErrorMessageDelayForTesting(const base::TimeDelta& delay);
+
  private:
+  // BaseScreen:
+  void ShowImpl() override;
+  void HideImpl() override;
+  void OnUserAction(const std::string& action_id) override;
+
   void EnsureScreenIsShown();
+
+  // Callback for changes to chromeos::kMinimumChromeVersionAueMessage.
+  void OnEolMessageChanged();
 
   void OnSelectNetworkButtonClicked();
   void OnUpdateButtonClicked();
 
   // NetworkStateHandlerObserver:
-  void NetworkConnectionStateChanged(const NetworkState* network) override;
   void DefaultNetworkChanged(const NetworkState* network) override;
 
   void RefreshNetworkState();
   void RefreshView(const VersionUpdater::UpdateInfo& update_info);
 
   // Subscribes to network change notifications.
-  void SubscribeNetworkNotification();
+  void ObserveNetworkState();
 
   // Unsubscribes from network change notifications.
-  void UnsubscribeNetworkNotification();
+  void StopObservingNetworkState();
 
   void HideErrorMessage();
 
@@ -100,6 +108,7 @@ class UpdateRequiredScreen : public BaseScreen,
 
   UpdateRequiredView* view_ = nullptr;
   ErrorScreen* error_screen_;
+  base::RepeatingClosure exit_callback_;
   std::unique_ptr<ErrorScreensHistogramHelper> histogram_helper_;
 
   // Whether the screen is shown.
@@ -112,10 +121,10 @@ class UpdateRequiredScreen : public BaseScreen,
   bool first_time_shown_ = true;
   bool is_updating_now_ = false;
   bool waiting_for_reboot_ = false;
-  bool waiting_for_permission_ = false;
+  bool waiting_for_connection_ = false;
+  bool metered_network_update_permission = false;
 
   std::unique_ptr<VersionUpdater> version_updater_;
-  std::unique_ptr<login::NetworkStateHelper> network_state_helper_;
 
   // Timer for the captive portal detector to show portal login page.
   // If redirect did not happen during this delay, error message is shown
@@ -124,6 +133,11 @@ class UpdateRequiredScreen : public BaseScreen,
 
   // Overridden for testing EOL by setting the current time.
   base::Clock* clock_;
+
+  base::TimeDelta error_message_delay_;
+
+  std::unique_ptr<chromeos::CrosSettings::ObserverSubscription>
+      eol_message_subscription_;
 
   ErrorScreen::ConnectRequestCallbackSubscription connect_request_subscription_;
 

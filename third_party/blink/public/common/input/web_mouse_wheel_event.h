@@ -67,7 +67,7 @@ class BLINK_COMMON_EXPORT WebMouseWheelEvent : public WebMouseEvent {
 
   // Whether the event is blocking, non-blocking, all event
   // listeners were passive or was forced to be non-blocking.
-  DispatchType dispatch_type = kBlocking;
+  DispatchType dispatch_type = DispatchType::kBlocking;
 
   // The expected result of this wheel event (if not canceled).
   EventAction event_action = EventAction::kPageZoom;
@@ -80,8 +80,7 @@ class BLINK_COMMON_EXPORT WebMouseWheelEvent : public WebMouseEvent {
   // kScrollByPrecisePixel, kScrollByPixel, and kScrollByPage, as they are
   // the only values expected after converting an OS event to a
   // WebMouseWheelEvent.
-  ui::input_types::ScrollGranularity delta_units =
-      ui::input_types::ScrollGranularity::kScrollByPixel;
+  ui::ScrollGranularity delta_units = ui::ScrollGranularity::kScrollByPixel;
 
   WebMouseWheelEvent(Type type, int modifiers, base::TimeTicks time_stamp)
       : WebMouseEvent(type, modifiers, time_stamp, kMousePointerId) {}
@@ -95,9 +94,19 @@ class BLINK_COMMON_EXPORT WebMouseWheelEvent : public WebMouseEvent {
   // back to 1 and |frame_translate_| X and Y coordinates back to 0.
   WebMouseWheelEvent FlattenTransform() const;
 
-  bool IsCancelable() const { return dispatch_type == kBlocking; }
+  bool IsCancelable() const { return dispatch_type == DispatchType::kBlocking; }
 
   std::unique_ptr<WebInputEvent> Clone() const override;
+  bool CanCoalesce(const WebInputEvent& event) const override;
+  void Coalesce(const WebInputEvent& event) override;
+
+  // Return the platform specific default event action given the mouse wheel
+  // event. Can be used to determine the appropriate value for |event_action|.
+  static EventAction GetPlatformSpecificDefaultEventAction(
+      const WebMouseWheelEvent& event);
+
+ private:
+  bool HaveConsistentPhase(const WebMouseWheelEvent& event) const;
 };
 
 }  // namespace blink

@@ -11,6 +11,7 @@
 #include "base/bind.h"
 #include "base/files/file_util.h"
 #include "base/json/json_writer.h"
+#include "base/logging.h"
 #include "base/path_service.h"
 #include "base/run_loop.h"
 #include "base/strings/string_number_conversions.h"
@@ -35,25 +36,6 @@ AXTreeServer::AXTreeServer(const base::StringPiece& pattern,
   base::string16 accessibility_contents_utf16;
   std::unique_ptr<base::DictionaryValue> dict =
       formatter->BuildAccessibilityTreeForPattern(pattern);
-
-  if (!dict) {
-    LOG(ERROR) << "Error: Failed to get accessibility tree";
-    return;
-  }
-
-  Format(*formatter, *dict, filters_path, use_json);
-}
-
-AXTreeServer::AXTreeServer(base::ProcessId pid,
-                           const base::FilePath& filters_path,
-                           bool use_json) {
-  std::unique_ptr<AccessibilityTreeFormatter> formatter(
-      AccessibilityTreeFormatter::Create());
-
-  // Get accessibility tree as nested dictionary.
-  base::string16 accessibility_contents_utf16;
-  std::unique_ptr<base::DictionaryValue> dict =
-      formatter->BuildAccessibilityTreeForProcess(pid);
 
   if (!dict) {
     LOG(ERROR) << "Error: Failed to get accessibility tree";
@@ -93,27 +75,26 @@ std::vector<AccessibilityTreeFormatter::PropertyFilter> GetPropertyFilters(
                              base::SPLIT_WANT_ALL)) {
         if (base::StartsWith(line, kAllowOptEmptyStr,
                              base::CompareCase::SENSITIVE)) {
-          filters.push_back(AccessibilityTreeFormatter::PropertyFilter(
-              base::UTF8ToUTF16(line.substr(strlen(kAllowOptEmptyStr))),
-              AccessibilityTreeFormatter::PropertyFilter::ALLOW_EMPTY));
+          filters.emplace_back(
+              line.substr(strlen(kAllowOptEmptyStr)),
+              AccessibilityTreeFormatter::PropertyFilter::ALLOW_EMPTY);
         } else if (base::StartsWith(line, kAllowOptStr,
                                     base::CompareCase::SENSITIVE)) {
-          filters.push_back(AccessibilityTreeFormatter::PropertyFilter(
-              base::UTF8ToUTF16(line.substr(strlen(kAllowOptStr))),
-              AccessibilityTreeFormatter::PropertyFilter::ALLOW));
+          filters.emplace_back(
+              line.substr(strlen(kAllowOptStr)),
+              AccessibilityTreeFormatter::PropertyFilter::ALLOW);
         } else if (base::StartsWith(line, kDenyOptStr,
                                     base::CompareCase::SENSITIVE)) {
-          filters.push_back(AccessibilityTreeFormatter::PropertyFilter(
-              base::UTF8ToUTF16(line.substr(strlen(kDenyOptStr))),
-              AccessibilityTreeFormatter::PropertyFilter::DENY));
+          filters.emplace_back(
+              line.substr(strlen(kDenyOptStr)),
+              AccessibilityTreeFormatter::PropertyFilter::DENY);
         }
       }
     }
   }
   if (filters.empty()) {
     filters = {AccessibilityTreeFormatter::PropertyFilter(
-        base::ASCIIToUTF16("*"),
-        AccessibilityTreeFormatter::PropertyFilter::ALLOW)};
+        "*", AccessibilityTreeFormatter::PropertyFilter::ALLOW)};
   }
 
   return filters;

@@ -34,7 +34,7 @@ class PaymentRequestStateTest : public testing::Test,
   PaymentRequestStateTest()
       : num_on_selected_information_changed_called_(0),
         test_payment_request_delegate_(&test_personal_data_manager_),
-        journey_logger_(test_payment_request_delegate_.IsIncognito(),
+        journey_logger_(test_payment_request_delegate_.IsOffTheRecord(),
                         ukm::UkmRecorder::GetNewSourceID()),
         address_(autofill::test::GetFullProfile()),
         credit_card_visa_(autofill::test::GetCreditCard()) {
@@ -78,15 +78,14 @@ class PaymentRequestStateTest : public testing::Test,
         std::move(options), std::move(details), std::move(method_data),
         /*observer=*/nullptr, "en-US");
     PaymentAppServiceFactory::SetForTesting(
-        std::make_unique<PaymentAppService>());
+        std::make_unique<PaymentAppService>(/*context=*/nullptr));
     state_ = std::make_unique<PaymentRequestState>(
-        /*web_contents=*/nullptr, GURL("https://example.com"),
-        GURL("https://example.com/pay"), spec_.get(), this, "en-US",
-        &test_personal_data_manager_, &test_payment_request_delegate_,
-        base::Bind(
-            [](const url::Origin& origin,
-               int64_t registration_id) { /* Intentionally left blank. */ }),
-        &journey_logger_);
+        /*web_contents=*/nullptr,
+        /*render_frame_host=*/nullptr, GURL("https://example.com"),
+        GURL("https://example.com/pay"),
+        url::Origin::Create(GURL("https://example.com")), spec_.get(),
+        weak_ptr_factory_.GetWeakPtr(), "en-US", &test_personal_data_manager_,
+        &test_payment_request_delegate_, &journey_logger_);
     state_->AddObserver(this);
   }
 
@@ -149,6 +148,7 @@ class PaymentRequestStateTest : public testing::Test,
   // Test data.
   autofill::AutofillProfile address_;
   autofill::CreditCard credit_card_visa_;
+  base::WeakPtrFactory<PaymentRequestStateTest> weak_ptr_factory_{this};
 };
 
 TEST_F(PaymentRequestStateTest, CanMakePayment) {

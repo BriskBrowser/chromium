@@ -5,7 +5,9 @@
 #ifndef CC_TEST_FAKE_RECORDING_SOURCE_H_
 #define CC_TEST_FAKE_RECORDING_SOURCE_H_
 
-#include <stddef.h>
+#include <cstddef>
+#include <memory>
+#include <utility>
 
 #include "cc/base/region.h"
 #include "cc/layers/recording_source.h"
@@ -60,10 +62,6 @@ class FakeRecordingSource : public RecordingSource {
     client_.set_bounds(layer_bounds);
   }
 
-  void SetClearCanvasWithDebugColor(bool clear) {
-    clear_canvas_with_debug_color_ = clear;
-  }
-
   void set_fill_with_nonsolid_color(bool nonsolid) {
     client_.set_fill_with_nonsolid_color(nonsolid);
   }
@@ -75,6 +73,8 @@ class FakeRecordingSource : public RecordingSource {
   void set_has_slow_paths(bool slow_paths) {
     client_.set_contains_slow_paths(slow_paths);
   }
+
+  void set_has_draw_text_op() { client_.set_has_draw_text_op(); }
 
   void Rerecord() {
     SetNeedsDisplayRect(recorded_viewport_);
@@ -142,11 +142,6 @@ class FakeRecordingSource : public RecordingSource {
     playback_allowed_event_ = event;
   }
 
-  // Checks that the basic properties of the |other| match |this|.  For the
-  // DisplayItemList, it checks that the painted result matches the painted
-  // result of |other|.
-  bool EqualsTo(const FakeRecordingSource& other);
-
   void SetRecordingScaleFactor(float recording_scale_factor) {
     recording_scale_factor_ = recording_scale_factor;
   }
@@ -158,7 +153,7 @@ class FakeRecordingSource : public RecordingSource {
  private:
   FakeContentLayerClient client_;
   PaintFlags default_flags_;
-  base::WaitableEvent* playback_allowed_event_;
+  base::WaitableEvent* playback_allowed_event_ = nullptr;
 };
 
 }  // namespace cc

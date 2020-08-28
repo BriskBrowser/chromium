@@ -12,7 +12,6 @@
 #include "build/build_config.h"
 #include "media/capture/video/video_capture_buffer_handle.h"
 #include "media/capture/video/video_capture_buffer_tracker.h"
-#include "mojo/public/cpp/system/platform_handle.h"
 #include "ui/gfx/buffer_format_util.h"
 
 namespace media {
@@ -59,7 +58,7 @@ VideoCaptureBufferPoolImpl::CreateSharedMemoryViaRawFileDescriptorStruct(
     int buffer_id) {
 // This requires platforms where base::SharedMemoryHandle is backed by a
 // file descriptor.
-#if defined(OS_LINUX)
+#if defined(OS_LINUX) || defined(OS_CHROMEOS)
   base::AutoLock lock(lock_);
 
   VideoCaptureBufferTracker* tracker = GetTracker(buffer_id);
@@ -78,7 +77,7 @@ VideoCaptureBufferPoolImpl::CreateSharedMemoryViaRawFileDescriptorStruct(
   }
   base::subtle::ScopedFDPair fds = platform_region.PassPlatformHandle();
   auto result = mojom::SharedMemoryViaRawFileDescriptor::New();
-  result->file_descriptor_handle = mojo::WrapPlatformFile(fds.fd.release());
+  result->file_descriptor_handle = mojo::PlatformHandle(std::move(fds.fd));
   result->shared_memory_size_in_bytes = tracker->GetMemorySizeInBytes();
   return result;
 #else

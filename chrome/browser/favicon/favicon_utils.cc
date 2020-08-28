@@ -8,14 +8,14 @@
 #include "build/build_config.h"
 #include "chrome/browser/favicon/favicon_service_factory.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/search/search.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/grit/platform_locale_settings.h"
 #include "components/favicon/content/content_favicon_driver.h"
 #include "components/favicon/core/fallback_url_util.h"
+#include "components/favicon/core/favicon_service.h"
+#include "content/public/browser/favicon_status.h"
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/navigation_entry.h"
-#include "content/public/common/favicon_url.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/gfx/canvas.h"
@@ -134,32 +134,6 @@ SkBitmap GenerateMonogramFavicon(GURL url, int icon_size, int circle_size) {
   return bitmap;
 }
 
-bool ShouldDisplayFavicon(content::WebContents* web_contents) {
-  // No favicon on interstitials.
-  if (web_contents->ShowingInterstitialPage())
-    return false;
-
-  // Suppress the icon for the new-tab page, even if a navigation to it is
-  // not committed yet. Note that we're looking at the visible URL, so
-  // navigations from NTP generally don't hit this case and still show an icon.
-  GURL url = web_contents->GetVisibleURL();
-  if (url.SchemeIs(content::kChromeUIScheme) &&
-      url.host_piece() == chrome::kChromeUINewTabHost) {
-    return false;
-  }
-
-  // Also suppress instant-NTP. This does not use search::IsInstantNTP since
-  // it looks at the last-committed entry and we need to show icons for pending
-  // navigations away from it.
-  if (search::IsInstantNTPURL(url, Profile::FromBrowserContext(
-                                       web_contents->GetBrowserContext()))) {
-    return false;
-  }
-
-  // Otherwise, always display the favicon.
-  return true;
-}
-
 gfx::Image TabFaviconFromWebContents(content::WebContents* contents) {
   DCHECK(contents);
 
@@ -190,6 +164,37 @@ gfx::Image GetDefaultFavicon() {
   int resource_id = is_dark ? IDR_DEFAULT_FAVICON_DARK : IDR_DEFAULT_FAVICON;
   return ui::ResourceBundle::GetSharedInstance().GetNativeImageNamed(
       resource_id);
+}
+
+void SaveFaviconEvenIfInIncognito(content::WebContents* contents) {
+  content::NavigationEntry* entry =
+      contents->GetController().GetLastCommittedEntry();
+  if (!entry)
+    return;
+
+  Profile* original_profile =
+      Profile::FromBrowserContext(contents->GetBrowserContext())
+          ->GetOriginalProfile();
+  favicon::FaviconService* favicon_service =
+      FaviconServiceFactory::GetForProfile(original_profile,
+                                           ServiceAccessType::EXPLICIT_ACCESS);
+  if (!favicon_service)
+    return;
+
+  // Make sure the page is in history, otherwise adding the favicon does
+  // nothing.
+  GURL page_url = entry->GetURL();
+  favicon_service->AddPageNoVisitForBookmark(page_url, entry->GetTitle());
+
+  const content::FaviconStatus& favicon_status = entry->GetFavicon();
+  if (!favicon_status.valid || favicon_status.url.is_empty() ||
+      favicon_status.image.IsEmpty()) {
+    return;
+  }
+
+  favicon_service->SetFavicons({page_url}, favicon_status.url,
+                               favicon_base::IconType::kFavicon,
+                               favicon_status.image);
 }
 
 }  // namespace favicon

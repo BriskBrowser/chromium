@@ -14,14 +14,23 @@
 
 namespace blink {
 
-struct NGLineHeightMetrics;
-
 class CORE_EXPORT NGBoxFragment final : public NGFragment {
  public:
   NGBoxFragment(WritingMode writing_mode,
                 TextDirection direction,
                 const NGPhysicalBoxFragment& physical_fragment)
       : NGFragment(writing_mode, physical_fragment), direction_(direction) {}
+
+  base::Optional<LayoutUnit> FirstBaseline() const {
+    if (GetWritingMode() != physical_fragment_.Style().GetWritingMode())
+      return base::nullopt;
+
+    return To<NGPhysicalBoxFragment>(physical_fragment_).Baseline();
+  }
+
+  LayoutUnit FirstBaselineOrSynthesize() const {
+    return FirstBaseline().value_or(BlockSize());
+  }
 
   // Returns the baseline for this fragment wrt. the parent writing mode. Will
   // return a null baseline if:
@@ -31,16 +40,22 @@ class CORE_EXPORT NGBoxFragment final : public NGFragment {
     if (GetWritingMode() != physical_fragment_.Style().GetWritingMode())
       return base::nullopt;
 
-    // TODO containment?
+    if (auto last_baseline =
+            To<NGPhysicalBoxFragment>(physical_fragment_).LastBaseline())
+      return last_baseline;
+
     return To<NGPhysicalBoxFragment>(physical_fragment_).Baseline();
+  }
+
+  LayoutUnit BaselineOrSynthesize() const {
+    return Baseline().value_or(BlockSize());
   }
 
   // Compute baseline metrics (ascent/descent) for this box.
   //
   // This will synthesize baseline metrics if no baseline is available. See
   // |Baseline()| for when this may occur.
-  NGLineHeightMetrics BaselineMetrics(const NGLineBoxStrut& margins,
-                                      FontBaseline) const;
+  FontHeight BaselineMetrics(const NGLineBoxStrut& margins, FontBaseline) const;
 
   NGBoxStrut Borders() const {
     const NGPhysicalBoxFragment& physical_box_fragment =
@@ -53,13 +68,6 @@ class CORE_EXPORT NGBoxFragment final : public NGFragment {
         To<NGPhysicalBoxFragment>(physical_fragment_);
     return physical_box_fragment.Padding().ConvertToLogical(GetWritingMode(),
                                                             direction_);
-  }
-
-  NGBorderEdges BorderEdges() const {
-    const NGPhysicalBoxFragment& physical_box_fragment =
-        To<NGPhysicalBoxFragment>(physical_fragment_);
-    return NGBorderEdges::FromPhysical(physical_box_fragment.BorderEdges(),
-                                       GetWritingMode());
   }
 
  protected:

@@ -7,7 +7,9 @@
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
+#include "base/logging.h"
 #include "base/strings/string_util.h"
+#include "base/test/gtest_util.h"
 #include "build/build_config.h"
 #include "testing/gtest/include/gtest/gtest-spi.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -36,23 +38,43 @@ bool ReturnsValidPath(int dir_type) {
   if (dir_type == DIR_CACHE)
     check_path_exists = false;
 #endif
-#if defined(OS_LINUX)
+#if defined(OS_LINUX) || defined(OS_CHROMEOS)
   // On the linux try-bots: a path is returned (e.g. /home/chrome-bot/Desktop),
   // but it doesn't exist.
   if (dir_type == DIR_USER_DESKTOP)
     check_path_exists = false;
 #endif
-#if defined(OS_MACOSX)
+#if defined(OS_WIN)
+  if (dir_type == DIR_TASKBAR_PINS)
+    check_path_exists = false;
+#endif
+#if defined(OS_APPLE)
   if (dir_type != DIR_EXE && dir_type != DIR_MODULE && dir_type != FILE_EXE &&
       dir_type != FILE_MODULE) {
-    if (path.ReferencesParent())
+    if (path.ReferencesParent()) {
+      LOG(INFO) << "Path (" << path << ") references parent.";
       return false;
+    }
   }
 #else
-  if (path.ReferencesParent())
+  if (path.ReferencesParent()) {
+    LOG(INFO) << "Path (" << path << ") references parent.";
     return false;
+  }
 #endif
-  return result && !path.empty() && (!check_path_exists || PathExists(path));
+  if (!result) {
+    LOG(INFO) << "PathService::Get() returned false.";
+    return false;
+  }
+  if (path.empty()) {
+    LOG(INFO) << "PathService::Get() returned an empty path.";
+    return false;
+  }
+  if (check_path_exists && !PathExists(path)) {
+    LOG(INFO) << "Path (" << path << ") does not exist.";
+    return false;
+  }
+  return true;
 }
 
 #if defined(OS_WIN)
@@ -99,11 +121,11 @@ TEST_F(PathServiceTest, Get) {
       valid = base::win::GetVersion() >= base::win::Version::WIN8;
 
     if (valid)
-      EXPECT_TRUE(ReturnsValidPath(key)) << key;
+      EXPECT_PRED1(ReturnsValidPath, key);
     else
-      EXPECT_TRUE(ReturnsInvalidPath(key)) << key;
+      EXPECT_PRED1(ReturnsInvalidPath, key);
   }
-#elif defined(OS_MACOSX)
+#elif defined(OS_APPLE)
   for (int key = PATH_MAC_START + 1; key < PATH_MAC_END; ++key) {
     EXPECT_PRED1(ReturnsValidPath, key);
   }
@@ -119,6 +141,26 @@ TEST_F(PathServiceTest, Get) {
   }
 #endif
 }
+
+// Tests that CheckedGet returns the same path as Get.
+TEST_F(PathServiceTest, CheckedGet) {
+  constexpr int kKey = DIR_CURRENT;
+  FilePath path;
+  ASSERT_TRUE(PathService::Get(kKey, &path));
+  EXPECT_EQ(path, PathService::CheckedGet(kKey));
+}
+
+#if defined(GTEST_HAS_DEATH_TEST)
+
+// Tests that CheckedGet CHECKs on failure.
+TEST_F(PathServiceTest, CheckedGetFailure) {
+  constexpr int kBadKey = PATH_END;
+  FilePath path;
+  EXPECT_FALSE(PathService::Get(kBadKey, &path));
+  EXPECT_DEATH(PathService::CheckedGet(kBadKey), "Failed to get the path");
+}
+
+#endif  // GTEST_HAS_DEATH_TEST
 
 // Test that all versions of the Override function of PathService do what they
 // are supposed to do.
@@ -181,12 +223,12 @@ TEST_F(PathServiceTest, OverrideMultiple) {
   FilePath fake_cache_dir1(temp_dir.GetPath().AppendASCII("1"));
   EXPECT_TRUE(PathService::Override(my_special_key, fake_cache_dir1));
   EXPECT_TRUE(PathExists(fake_cache_dir1));
-  ASSERT_EQ(1, WriteFile(fake_cache_dir1.AppendASCII("t1"), ".", 1));
+  ASSERT_TRUE(WriteFile(fake_cache_dir1.AppendASCII("t1"), "."));
 
   FilePath fake_cache_dir2(temp_dir.GetPath().AppendASCII("2"));
   EXPECT_TRUE(PathService::Override(my_special_key + 1, fake_cache_dir2));
   EXPECT_TRUE(PathExists(fake_cache_dir2));
-  ASSERT_EQ(1, WriteFile(fake_cache_dir2.AppendASCII("t2"), ".", 1));
+  ASSERT_TRUE(WriteFile(fake_cache_dir2.AppendASCII("t2"), "."));
 
   FilePath result;
   EXPECT_TRUE(PathService::Get(my_special_key, &result));

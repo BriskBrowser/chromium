@@ -19,20 +19,9 @@ namespace switches {
 extern const char kClearTokenService[];
 extern const char kDisableSigninScopedDeviceId[];
 
-#if !BUILDFLAG(ENABLE_MIRROR)
-// Note: Account consistency (Mirror) is already enabled on mobile platforms, so
-// this switch only exist on desktop platforms.
-extern const char kAccountConsistency[];
-extern const char kAccountConsistencyMirror[];
-extern const char kAccountConsistencyDice[];
-#endif
-
 #if defined(OS_CHROMEOS)
 extern const base::Feature kAccountIdMigration;
 #endif
-
-// Enables the remote consent flow for chrome.identity extension API.
-extern const base::Feature kOAuthRemoteConsent;
 
 }  // namespace switches
 

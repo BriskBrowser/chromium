@@ -4,7 +4,7 @@
 
 #include "base/command_line.h"
 #include "base/json/json_reader.h"
-#include "base/task/post_task.h"
+#include "base/memory/ptr_util.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/component_updater/chrome_component_updater_configurator.h"
 #include "chrome/browser/policy/policy_test_utils.h"
@@ -16,6 +16,8 @@
 #include "components/update_client/update_client.h"
 #include "components/update_client/update_client_errors.h"
 #include "content/public/browser/browser_task_traits.h"
+#include "content/public/browser/browser_thread.h"
+#include "content/public/test/browser_test.h"
 #include "url/gurl.h"
 
 namespace policy {
@@ -70,6 +72,7 @@ class ComponentUpdaterPolicyTest : public PolicyTest {
       bool supports_group_policy_enable_component_updates);
 
   TestCase cur_test_case_;
+  base::RepeatingClosure quit_closure_;
 
   static const char component_id_[];
 
@@ -123,8 +126,7 @@ void ComponentUpdaterPolicyTest::SetEnableComponentUpdates(
   PolicyMap policies;
   policies.Set(key::kComponentUpdatesEnabled, POLICY_LEVEL_MANDATORY,
                POLICY_SCOPE_MACHINE, POLICY_SOURCE_ENTERPRISE_DEFAULT,
-               base::WrapUnique(new base::Value(enable_component_updates)),
-               nullptr);
+               base::Value(enable_component_updates), nullptr);
   UpdateProviderPolicy(policies);
 }
 
@@ -136,6 +138,8 @@ update_client::CrxComponent ComponentUpdaterPolicyTest::MakeCrxComponent(
 
     void Install(const base::FilePath& unpack_path,
                  const std::string& public_key,
+                 std::unique_ptr<InstallParams> /*install_params*/,
+                 ProgressCallback /*progress_callback*/,
                  Callback callback) override {
       DoInstall(unpack_path, public_key, std::move(callback));
     }
@@ -185,8 +189,8 @@ void ComponentUpdaterPolicyTest::UpdateComponent(
 }
 
 void ComponentUpdaterPolicyTest::CallAsync(TestCaseAction action) {
-  base::PostTask(FROM_HERE, {content::BrowserThread::UI},
-                 base::BindOnce(action, base::Unretained(this)));
+  content::GetUIThreadTaskRunner({})->PostTask(
+      FROM_HERE, base::BindOnce(action, base::Unretained(this)));
 }
 
 void ComponentUpdaterPolicyTest::OnDemandComplete(update_client::Error error) {
@@ -212,9 +216,7 @@ void ComponentUpdaterPolicyTest::BeginTest() {
 void ComponentUpdaterPolicyTest::EndTest() {
   post_interceptor_.reset();
   cus_ = nullptr;
-  // TODO(crbug.com/1033439): replace QuitCurrentWhenIdleDeprecated with RunLoop
-  // instance instead
-  base::RunLoop::QuitCurrentWhenIdleDeprecated();
+  quit_closure_.Run();
 }
 
 void ComponentUpdaterPolicyTest::VerifyExpectations(bool update_disabled) {
@@ -339,7 +341,9 @@ void ComponentUpdaterPolicyTest::
 
 IN_PROC_BROWSER_TEST_F(ComponentUpdaterPolicyTest, EnabledComponentUpdates) {
   BeginTest();
-  base::RunLoop().Run();
+  base::RunLoop loop;
+  quit_closure_ = loop.QuitWhenIdleClosure();
+  loop.Run();
 }
 
 }  // namespace policy

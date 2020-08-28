@@ -12,6 +12,13 @@
 
 namespace metal {
 
+enum class METAL_UTIL_EXPORT TestShaderComponent {
+  // Test a shader compile from source.
+  kCompile,
+  // Test linking a precompiled shader.
+  kLink,
+};
+
 enum class METAL_UTIL_EXPORT TestShaderResult {
   // Not attempted (e.g, because macOS version does not support Metal).
   kNotAttempted,
@@ -24,25 +31,25 @@ enum class METAL_UTIL_EXPORT TestShaderResult {
 };
 
 using TestShaderCallback =
-    base::OnceCallback<void(TestShaderResult result,
-                            const base::TimeDelta& method_time,
+    base::OnceCallback<void(TestShaderComponent component,
+                            TestShaderResult result,
                             const base::TimeDelta& compile_time)>;
 
 // A default timeout value for compiling the test shader.
 constexpr base::TimeDelta kTestShaderTimeout = base::TimeDelta::FromMinutes(1);
 
-// Return the value kTestShaderTimeoutTime for |method_time| and |compile_time|
-// if they time out.
+// Return the value kTestShaderTimeoutTime for |compile_time| if it times out.
 constexpr base::TimeDelta kTestShaderTimeForever =
     base::TimeDelta::FromMinutes(3);
 
 // A default delay before attempting to compile the test shader.
-constexpr base::TimeDelta kTestShaderDelay = base::TimeDelta::FromSeconds(90);
+constexpr base::TimeDelta kTestShaderDelay = base::TimeDelta::FromMinutes(3);
 
 // Attempt to asynchronously compile a trivial Metal shader. If |delay| is zero,
 // then compile synchronously, otherwise, post a delayed task to do the compile.
 // |callback| with the result when the shader succeeds or after |timeout| has
-// elapsed.
+// elapsed. Whether compile or link was tested is communicated to |callback| in
+// its |component| argument.
 //
 // This is used to determine of the Metal shader compiler is resposive. Note
 // that |callback| will be called either on another thread or inside the
@@ -51,7 +58,7 @@ constexpr base::TimeDelta kTestShaderDelay = base::TimeDelta::FromSeconds(90);
 void METAL_UTIL_EXPORT
 TestShader(TestShaderCallback callback,
            const base::TimeDelta& delay = kTestShaderDelay,
-           const base::TimeDelta& timeout = kTestShaderTimeout);
+           const base::TimeDelta& timeout = kTestShaderTimeForever);
 
 }  // namespace metal
 

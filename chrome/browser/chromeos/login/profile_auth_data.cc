@@ -11,6 +11,7 @@
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/storage_partition.h"
 #include "net/cookies/canonical_cookie.h"
+#include "net/cookies/cookie_access_result.h"
 #include "net/cookies/cookie_util.h"
 #include "services/network/public/mojom/cookie_manager.mojom.h"
 #include "services/network/public/mojom/network_context.mojom.h"
@@ -62,7 +63,7 @@ bool IsGAIACookie(const net::CanonicalCookie& cookie) {
 }
 
 void OnCookieSet(base::RepeatingClosure completion_callback,
-                 net::CanonicalCookie::CookieInclusionStatus status) {
+                 net::CookieAccessResult result) {
   completion_callback.Run();
 }
 
@@ -89,10 +90,10 @@ void ImportCookies(base::RepeatingClosure completion_callback,
     net::CookieOptions options;
     options.set_include_httponly();
     options.set_same_site_cookie_context(
-        net::CookieOptions::SameSiteCookieContext::SAME_SITE_STRICT);
+        net::CookieOptions::SameSiteCookieContext::MakeInclusive());
     cookie_manager->SetCanonicalCookie(
-        cookie, "https", options,
-        base::BindOnce(&OnCookieSet, cookie_completion_callback));
+        cookie, net::cookie_util::SimulatedCookieSource(cookie, "https"),
+        options, base::BindOnce(&OnCookieSet, cookie_completion_callback));
   }
 }
 

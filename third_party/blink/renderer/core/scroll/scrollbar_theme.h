@@ -39,11 +39,12 @@ class GraphicsContext;
 class WebMouseEvent;
 
 class CORE_EXPORT ScrollbarTheme {
-  DISALLOW_COPY_AND_ASSIGN(ScrollbarTheme);
   USING_FAST_MALLOC(ScrollbarTheme);
 
  public:
   ScrollbarTheme() = default;
+  ScrollbarTheme(const ScrollbarTheme&) = delete;
+  ScrollbarTheme& operator=(const ScrollbarTheme&) = delete;
   virtual ~ScrollbarTheme() = default;
 
   // If true, then scrollbars with this theme will be painted every time
@@ -54,18 +55,14 @@ class CORE_EXPORT ScrollbarTheme {
   virtual void UpdateEnabledState(const Scrollbar&) {}
 
   // |context|'s current space is the space of the scrollbar's FrameRect().
-  void Paint(const Scrollbar&, GraphicsContext& context);
+  void Paint(const Scrollbar&,
+             GraphicsContext& context,
+             const IntPoint& paint_offset);
 
   ScrollbarPart HitTestRootFramePosition(const Scrollbar&, const IntPoint&);
 
-  // This returns a fixed value regardless of device-scale-factor.
-  // This returns thickness when scrollbar is painted.  i.e. It's not 0 even in
-  // overlay scrollbar mode.
-  // See also Scrollbar::scrollbarThickness().
-  virtual int ScrollbarThickness(ScrollbarControlSize = kRegularScrollbar) {
-    return 0;
-  }
-  virtual int ScrollbarMargin() const { return 0; }
+  virtual int ScrollbarThickness(float scale_from_dip) { return 0; }
+  virtual int ScrollbarMargin(float scale_from_dip) const { return 0; }
 
   virtual bool IsSolidColor() const { return false; }
   virtual bool UsesOverlayScrollbars() const { return false; }
@@ -77,6 +74,13 @@ class CORE_EXPORT ScrollbarTheme {
   // fading out the scrollbars. Aura scrollbars require disabling the scrollbar
   // to prevent painting it.
   virtual bool ShouldDisableInvisibleScrollbars() const { return true; }
+
+  // If true, Blink is in charge of hiding/showing of overlay scrollbars.  As
+  // above, this option exists because on Mac the visibility is controlled by
+  // Mac painting code which Blink doesn't have an input into. In order to
+  // prevent the two from getting out of sync we disable setting the Blink-side
+  // parameter on Mac.
+  virtual bool BlinkControlsOverlayVisibility() const { return true; }
 
   virtual bool InvalidateOnMouseEnterExit() { return false; }
 
@@ -111,6 +115,7 @@ class CORE_EXPORT ScrollbarTheme {
   }
 
   virtual bool SupportsDragSnapBack() const { return false; }
+  virtual bool JumpOnTrackClick() const { return false; }
 
   // The position of the thumb relative to the track.
   int ThumbPosition(const Scrollbar& scrollbar) {
@@ -127,9 +132,9 @@ class CORE_EXPORT ScrollbarTheme {
   virtual int TrackPosition(const Scrollbar&);
   // The length of the track along the axis of the scrollbar.
   virtual int TrackLength(const Scrollbar&);
-  // The opacity to be applied to the thumb. A theme overriding ThumbOpacity()
+  // The opacity to be applied to the scrollbar. A theme overriding Opacity()
   // should also override PaintThumbWithOpacity().
-  virtual float ThumbOpacity(const Scrollbar&) const { return 1.0f; }
+  virtual float Opacity(const Scrollbar&) const { return 1.0f; }
 
   // Whether the native theme of the OS has scrollbar buttons.
   virtual bool NativeThemeHasButtons() = 0;
@@ -145,7 +150,6 @@ class CORE_EXPORT ScrollbarTheme {
   virtual IntRect ForwardButtonRect(const Scrollbar&) = 0;
   virtual IntRect TrackRect(const Scrollbar&) = 0;
   virtual IntRect ThumbRect(const Scrollbar&);
-  virtual int ThumbThickness(const Scrollbar&);
 
   virtual int MinimumThumbLength(const Scrollbar&) = 0;
 
@@ -216,13 +220,13 @@ class CORE_EXPORT ScrollbarTheme {
                                     const Scrollbar&,
                                     const IntPoint& offset);
 
-  // Paint the thumb with ThumbOpacity() applied.
+  // Paint the thumb with Opacity() applied.
   virtual void PaintThumbWithOpacity(GraphicsContext& context,
                                      const Scrollbar& scrollbar,
                                      const IntRect& rect) {
     // By default this method just calls PaintThumb(). A theme with custom
-    // ThumbOpacity() should override this method to apply the opacity.
-    DCHECK_EQ(1.0f, ThumbOpacity(scrollbar));
+    // Opacity() should override this method to apply the opacity.
+    DCHECK_EQ(1.0f, Opacity(scrollbar));
     PaintThumb(context, scrollbar, rect);
   }
 

@@ -7,6 +7,7 @@
 #include "base/bind.h"
 #include "base/memory/ptr_util.h"
 #include "base/run_loop.h"
+#include "base/test/gmock_callback_support.h"
 #include "base/test/task_environment.h"
 #include "media/gpu/accelerated_video_decoder.h"
 #include "media/gpu/vaapi/vaapi_picture.h"
@@ -14,7 +15,9 @@
 #include "media/gpu/vaapi/vaapi_wrapper.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "ui/base/ui_base_features.h"
 
+using base::test::RunClosure;
 using ::testing::_;
 using ::testing::DoAll;
 using ::testing::Invoke;
@@ -27,10 +30,6 @@ namespace media {
 
 namespace {
 
-ACTION_P(RunClosure, closure) {
-  closure.Run();
-}
-
 struct TestParams {
   VideoCodecProfile video_codec;
   bool decode_using_client_picture_buffers;
@@ -39,10 +38,10 @@ struct TestParams {
 constexpr int32_t kBitstreamId = 123;
 constexpr size_t kInputSize = 256;
 
-constexpr size_t kNumPictures = 4;
+constexpr size_t kNumPictures = 14;
 const gfx::Size kPictureSize(64, 48);
 
-constexpr size_t kNewNumPictures = 3;
+constexpr size_t kNewNumPictures = 13;
 const gfx::Size kNewPictureSize(64, 48);
 
 MATCHER_P2(IsExpectedDecoderBuffer, data_size, decrypt_config, "") {
@@ -76,7 +75,8 @@ class MockVaapiWrapper : public VaapiWrapper {
                     size_t,
                     std::vector<VASurfaceID>*));
   MOCK_METHOD1(CreateContext, bool(const gfx::Size&));
-  MOCK_METHOD1(DestroyContextAndSurfaces, void(std::vector<VASurfaceID>));
+  MOCK_METHOD0(DestroyContext, void());
+  MOCK_METHOD1(DestroySurface, void(VASurfaceID));
 
  private:
   ~MockVaapiWrapper() override = default;
@@ -89,6 +89,7 @@ class MockVaapiPicture : public VaapiPicture {
                    const BindGLImageCallback& bind_image_cb,
                    int32_t picture_buffer_id,
                    const gfx::Size& size,
+                   const gfx::Size& visible_size,
                    uint32_t texture_id,
                    uint32_t client_texture_id,
                    uint32_t texture_target)
@@ -97,13 +98,14 @@ class MockVaapiPicture : public VaapiPicture {
                      bind_image_cb,
                      picture_buffer_id,
                      size,
+                     visible_size,
                      texture_id,
                      client_texture_id,
                      texture_target) {}
   ~MockVaapiPicture() override = default;
 
   // VaapiPicture implementation.
-  bool Allocate(gfx::BufferFormat format) override { return true; }
+  Status Allocate(gfx::BufferFormat format) override { return OkStatus(); }
   bool ImportGpuMemoryBufferHandle(
       gfx::BufferFormat format,
       gfx::GpuMemoryBufferHandle gpu_memory_buffer_handle) override {
@@ -124,19 +126,22 @@ class MockVaapiPictureFactory : public VaapiPictureFactory {
   MockVaapiPictureFactory() = default;
   ~MockVaapiPictureFactory() override = default;
 
-  MOCK_METHOD2(MockCreateVaapiPicture, void(VaapiWrapper*, const gfx::Size&));
+  MOCK_METHOD3(MockCreateVaapiPicture,
+               void(VaapiWrapper*, const gfx::Size&, const gfx::Size&));
   std::unique_ptr<VaapiPicture> Create(
       scoped_refptr<VaapiWrapper> vaapi_wrapper,
       const MakeGLContextCurrentCallback& make_context_current_cb,
       const BindGLImageCallback& bind_image_cb,
-      const PictureBuffer& picture_buffer) override {
+      const PictureBuffer& picture_buffer,
+      const gfx::Size& visible_size) override {
     const uint32_t service_texture_id = picture_buffer.service_texture_ids()[0];
     const uint32_t client_texture_id = picture_buffer.client_texture_ids()[0];
-    MockCreateVaapiPicture(vaapi_wrapper.get(), picture_buffer.size());
+    MockCreateVaapiPicture(vaapi_wrapper.get(), picture_buffer.size(),
+                           visible_size);
     return std::make_unique<MockVaapiPicture>(
         std::move(vaapi_wrapper), make_context_current_cb, bind_image_cb,
-        picture_buffer.id(), picture_buffer.size(), service_texture_id,
-        client_texture_id, picture_buffer.texture_target());
+        picture_buffer.id(), picture_buffer.size(), visible_size,
+        service_texture_id, client_texture_id, picture_buffer.texture_target());
   }
 };
 
@@ -228,22 +233,17 @@ class VaapiVideoDecodeAcceleratorTest : public TestWithParam<TestParams>,
     EXPECT_CALL(*mock_decoder_, Decode())
         .WillOnce(Return(AcceleratedVideoDecoder::kConfigChange));
 
+    EXPECT_CALL(*mock_decoder_, GetPicSize()).WillOnce(Return(picture_size));
+    EXPECT_CALL(*mock_decoder_, GetVisibleRect())
+        .WillOnce(Return(gfx::Rect(picture_size)));
     EXPECT_CALL(*mock_decoder_, GetRequiredNumOfPictures())
         .WillOnce(Return(num_pictures));
-    EXPECT_CALL(*mock_decoder_, GetPicSize()).WillOnce(Return(picture_size));
     const size_t kNumReferenceFrames = num_pictures / 2;
     EXPECT_CALL(*mock_decoder_, GetNumReferenceFrames())
         .WillOnce(Return(kNumReferenceFrames));
-    EXPECT_CALL(*mock_decoder_, GetVisibleRect())
-        .WillOnce(Return(gfx::Rect(picture_size)));
     EXPECT_CALL(*mock_decoder_, GetProfile())
         .WillOnce(Return(GetParam().video_codec));
-    if (vda_.buffer_allocation_mode_ !=
-        VaapiVideoDecodeAccelerator::BufferAllocationMode::kNone) {
-      EXPECT_CALL(*mock_vaapi_wrapper_, DestroyContextAndSurfaces(_));
-    } else {
-      // TODO(crbug.com/971891): Make virtual and expect DestroyContext().
-    }
+    EXPECT_CALL(*mock_vaapi_wrapper_, DestroyContext());
 
     if (expect_dismiss_picture_buffers) {
       EXPECT_CALL(*this, DismissPictureBuffer(_))
@@ -288,9 +288,11 @@ class VaapiVideoDecodeAcceleratorTest : public TestWithParam<TestParams>,
     if (GetParam().decode_using_client_picture_buffers) {
       EXPECT_CALL(*mock_vaapi_wrapper_, CreateContext(picture_size))
           .WillOnce(Return(true));
-      EXPECT_CALL(
-          *mock_vaapi_picture_factory_,
-          MockCreateVaapiPicture(mock_vaapi_wrapper_.get(), picture_size))
+      EXPECT_CALL(*mock_decoder_, GetVisibleRect())
+          .WillRepeatedly(Return(gfx::Rect(picture_size)));
+      EXPECT_CALL(*mock_vaapi_picture_factory_,
+                  MockCreateVaapiPicture(mock_vaapi_wrapper_.get(),
+                                         picture_size, picture_size))
           .Times(num_pictures);
     } else {
       EXPECT_EQ(
@@ -308,8 +310,12 @@ class VaapiVideoDecodeAcceleratorTest : public TestWithParam<TestParams>,
                 va_surface_ids->resize(kNumReferenceFrames);
               })),
               Return(true)));
+      EXPECT_CALL(*mock_vaapi_wrapper_, DestroySurface(_))
+          .Times(kNumReferenceFrames);
+      EXPECT_CALL(*mock_decoder_, GetVisibleRect())
+          .WillRepeatedly(Return(gfx::Rect(picture_size)));
       EXPECT_CALL(*mock_vaapi_picture_factory_,
-                  MockCreateVaapiPicture(_, picture_size))
+                  MockCreateVaapiPicture(_, picture_size, picture_size))
           .Times(num_pictures);
     }
 
@@ -358,7 +364,7 @@ class VaapiVideoDecodeAcceleratorTest : public TestWithParam<TestParams>,
   }
 
   // VideoDecodeAccelerator::Client methods.
-  MOCK_METHOD1(NotifyInitializationComplete, void(bool));
+  MOCK_METHOD1(NotifyInitializationComplete, void(Status));
   MOCK_METHOD5(
       ProvidePictureBuffers,
       void(uint32_t, VideoPixelFormat, uint32_t, const gfx::Size&, uint32_t));
@@ -400,9 +406,11 @@ TEST_P(VaapiVideoDecodeAcceleratorTest, SupportedPlatforms) {
                 gl::kGLImplementationEGLGLES2));
 
 #if defined(USE_X11)
-  EXPECT_EQ(VaapiPictureFactory::kVaapiImplementationX11,
-            mock_vaapi_picture_factory_->GetVaapiImplementation(
-                gl::kGLImplementationDesktopGL));
+  if (!features::IsUsingOzonePlatform()) {
+    EXPECT_EQ(VaapiPictureFactory::kVaapiImplementationX11,
+              mock_vaapi_picture_factory_->GetVaapiImplementation(
+                  gl::kGLImplementationDesktopGL));
+  }
 #endif
 }
 
@@ -483,6 +491,7 @@ TEST_P(VaapiVideoDecodeAcceleratorTest,
 
 constexpr TestParams kTestCases[] = {
     {H264PROFILE_MIN, false /* decode_using_client_picture_buffers */},
+    {H264PROFILE_MIN, true /* decode_using_client_picture_buffers */},
     {VP8PROFILE_MIN, false /* decode_using_client_picture_buffers */},
     {VP9PROFILE_MIN, false /* decode_using_client_picture_buffers */},
     {VP9PROFILE_MIN, true /* decode_using_client_picture_buffers */}};

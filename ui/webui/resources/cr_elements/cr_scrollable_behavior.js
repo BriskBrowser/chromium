@@ -34,8 +34,13 @@
  * will not be sized correctly.
  */
 
+// clang-format off
+// #import {beforeNextRender, Polymer} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+// #import 'chrome://resources/polymer/v3_0/iron-list/iron-list.js';
+// clang-format on
+
 /** @polymerBehavior */
-const CrScrollableBehavior = {
+/* #export */ const CrScrollableBehavior = {
 
   /** @private {number|null} */
   intervalId_: null,
@@ -105,7 +110,10 @@ const CrScrollableBehavior = {
           const ironList = /** @type {!IronListElement} */ (node);
           ironList.notifyResize();
         }
-        if (scrollHeight <= 1) {
+
+        // TODO(crbug.com/1121679): Add UI Test for this behavior.
+        if (scrollHeight <= 1 &&
+            window.getComputedStyle(node.parentNode).display !== 'none') {
           checkAgain.push({
             node: node,
             lastScrollHeight: scrollHeight,

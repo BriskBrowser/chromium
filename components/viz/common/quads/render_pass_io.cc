@@ -4,6 +4,10 @@
 
 #include "components/viz/common/quads/render_pass_io.h"
 
+#include <string>
+#include <utility>
+#include <vector>
+
 #include "base/base64.h"
 #include "base/bit_cast.h"
 #include "base/containers/span.h"
@@ -376,7 +380,7 @@ std::string PaintFilterToString(const sk_sp<cc::PaintFilter>& filter) {
   // constraints explicitly disable serializing images using the transfer cache
   // and serialization of PaintRecords.
   cc::PaintOp::SerializeOptions options(nullptr, nullptr, nullptr, nullptr,
-                                        nullptr, nullptr, false, false, 0, 0.f,
+                                        nullptr, nullptr, false, false, 0,
                                         SkMatrix::I());
   cc::PaintOpWriter writer(buffer.data(), buffer.size(), options,
                            true /* enable_security_constraints */);
@@ -402,7 +406,7 @@ sk_sp<cc::PaintFilter> PaintFilterFromString(const std::string& encoded) {
   // and serialization of PaintRecords.
   std::vector<uint8_t> scratch_buffer;
   cc::PaintOp::DeserializeOptions options(nullptr, nullptr, nullptr,
-                                          &scratch_buffer);
+                                          &scratch_buffer, false, nullptr);
   cc::PaintOpReader reader(buffer.data(), buffer.size(), options,
                            /*enable_security_constraints=*/true);
   sk_sp<cc::PaintFilter> filter;
@@ -614,6 +618,7 @@ const char* ColorSpaceTransferIdToString(gfx::ColorSpace::TransferID id) {
     MATCH_ENUM_CASE(TransferID, LINEAR_HDR)
     MATCH_ENUM_CASE(TransferID, CUSTOM)
     MATCH_ENUM_CASE(TransferID, CUSTOM_HDR)
+    MATCH_ENUM_CASE(TransferID, PIECEWISE_HDR)
   }
 }
 
@@ -693,6 +698,7 @@ uint8_t StringToColorSpaceTransferId(const std::string& token) {
   MATCH_ENUM_CASE(TransferID, LINEAR_HDR)
   MATCH_ENUM_CASE(TransferID, CUSTOM)
   MATCH_ENUM_CASE(TransferID, CUSTOM_HDR)
+  MATCH_ENUM_CASE(TransferID, PIECEWISE_HDR)
   return -1;
 }
 
@@ -1037,8 +1043,9 @@ void RenderPassDrawQuadToDict(const RenderPassDrawQuad* draw_quad,
                               base::Value* dict) {
   DCHECK(draw_quad);
   DCHECK(dict);
-  dict->SetStringKey("render_pass_id",
-                     base::NumberToString(draw_quad->render_pass_id));
+  dict->SetStringKey(
+      "render_pass_id",
+      base::NumberToString(static_cast<uint64_t>(draw_quad->render_pass_id)));
   dict->SetKey("mask_uv_rect", RectFToDict(draw_quad->mask_uv_rect));
   dict->SetKey("mask_texture_size", SizeToDict(draw_quad->mask_texture_size));
   dict->SetKey("filters_scale", Vector2dFToDict(draw_quad->filters_scale));
@@ -1048,6 +1055,8 @@ void RenderPassDrawQuadToDict(const RenderPassDrawQuad* draw_quad,
                      draw_quad->backdrop_filter_quality);
   dict->SetBoolKey("force_anti_aliasing_off",
                    draw_quad->force_anti_aliasing_off);
+  dict->SetBoolKey("can_use_backdrop_filter_cache",
+                   draw_quad->can_use_backdrop_filter_cache);
   DCHECK_GE(1u, draw_quad->resources.count);
 }
 
@@ -1066,10 +1075,9 @@ void StreamVideoDrawQuadToDict(const StreamVideoDrawQuad* draw_quad,
   DCHECK(dict);
   dict->SetKey("uv_top_left", PointFToDict(draw_quad->uv_top_left));
   dict->SetKey("uv_bottom_right", PointFToDict(draw_quad->uv_bottom_right));
-  const size_t kIndex = StreamVideoDrawQuad::kResourceIdIndex;
   DCHECK_EQ(1u, draw_quad->resources.count);
   dict->SetKey("overlay_resource_size_in_pixels",
-               SizeToDict(draw_quad->overlay_resources.size_in_pixels[kIndex]));
+               SizeToDict(draw_quad->overlay_resources.size_in_pixels));
 }
 
 #define MAP_VIDEO_TYPE_TO_STRING(NAME) \
@@ -1115,9 +1123,8 @@ void TextureDrawQuadToDict(const TextureDrawQuad* draw_quad,
       "protected_video_type",
       ProtectedVideoTypeToString(draw_quad->protected_video_type));
   DCHECK_EQ(1u, draw_quad->resources.count);
-  const size_t kIndex = TextureDrawQuad::kResourceIdIndex;
   dict->SetKey("resource_size_in_pixels",
-               SizeToDict(draw_quad->overlay_resources.size_in_pixels[kIndex]));
+               SizeToDict(draw_quad->overlay_resources.size_in_pixels));
 }
 
 void TileDrawQuadToDict(const TileDrawQuad* draw_quad, base::Value* dict) {
@@ -1219,18 +1226,20 @@ bool RenderPassDrawQuadFromDict(const base::Value& dict,
       dict.FindDoubleKey("backdrop_filter_quality");
   base::Optional<bool> force_anti_aliasing_off =
       dict.FindBoolKey("force_anti_aliasing_off");
+  base::Optional<bool> can_use_backdrop_filter_cache =
+      dict.FindBoolKey("can_use_backdrop_filter_cache");
 
   if (!render_pass_id || !mask_uv_rect || !mask_texture_size ||
       !filters_scale || !filters_origin || !tex_coord_rect ||
       !backdrop_filter_quality || !force_anti_aliasing_off) {
     return false;
   }
-  RenderPassId t_render_pass_id;
+  uint64_t render_pass_id_as_int;
   gfx::RectF t_mask_uv_rect, t_tex_coord_rect;
   gfx::Size t_mask_texture_size;
   gfx::Vector2dF t_filters_scale;
   gfx::PointF t_filters_origin;
-  if (!base::StringToUint64(*render_pass_id, &t_render_pass_id) ||
+  if (!base::StringToUint64(*render_pass_id, &render_pass_id_as_int) ||
       !RectFFromDict(*mask_uv_rect, &t_mask_uv_rect) ||
       !SizeFromDict(*mask_texture_size, &t_mask_texture_size) ||
       !Vector2dFFromDict(*filters_scale, &t_filters_scale) ||
@@ -1238,6 +1247,7 @@ bool RenderPassDrawQuadFromDict(const base::Value& dict,
       !RectFFromDict(*tex_coord_rect, &t_tex_coord_rect)) {
     return false;
   }
+  RenderPassId t_render_pass_id{render_pass_id_as_int};
 
   ResourceId mask_resource_id = 0u;
   if (common.resources.count == 1u) {
@@ -1248,7 +1258,9 @@ bool RenderPassDrawQuadFromDict(const base::Value& dict,
       common.shared_quad_state, common.rect, common.visible_rect,
       common.needs_blending, t_render_pass_id, mask_resource_id, t_mask_uv_rect,
       t_mask_texture_size, t_filters_scale, t_filters_origin, t_tex_coord_rect,
-      force_anti_aliasing_off.value(), backdrop_filter_quality.value());
+      force_anti_aliasing_off.value(), backdrop_filter_quality.value(),
+      can_use_backdrop_filter_cache ? can_use_backdrop_filter_cache.value()
+                                    : false);
   return true;
 }
 
@@ -1730,7 +1742,9 @@ bool SharedQuadStateListFromList(const base::Value& list,
 
 base::Value GetRenderPassMetadata(const RenderPass& render_pass) {
   base::Value dict(base::Value::Type::DICTIONARY);
-  dict.SetStringKey("render_pass_id", base::NumberToString(render_pass.id));
+  dict.SetStringKey(
+      "render_pass_id",
+      base::NumberToString(static_cast<uint64_t>(render_pass.id)));
   dict.SetIntKey("quad_count", static_cast<int>(render_pass.quad_list.size()));
   dict.SetIntKey("shared_quad_state_count",
                  static_cast<int>(render_pass.shared_quad_state_list.size()));
@@ -1749,7 +1763,8 @@ base::Value GetRenderPassListMetadata(const RenderPassList& render_pass_list) {
 base::Value RenderPassToDict(const RenderPass& render_pass) {
   base::Value dict(base::Value::Type::DICTIONARY);
   if (ProcessRenderPassField(kRenderPassID))
-    dict.SetStringKey("id", base::NumberToString(render_pass.id));
+    dict.SetStringKey(
+        "id", base::NumberToString(static_cast<uint64_t>(render_pass.id)));
   if (ProcessRenderPassField(kRenderPassOutputRect))
     dict.SetKey("output_rect", RectToDict(render_pass.output_rect));
   if (ProcessRenderPassField(kRenderPassDamageRect))
@@ -1770,7 +1785,11 @@ base::Value RenderPassToDict(const RenderPass& render_pass) {
                 RRectFToDict(render_pass.backdrop_filter_bounds.value()));
   }
   if (ProcessRenderPassField(kRenderPassColorSpace)) {
-    dict.SetKey("color_space", ColorSpaceToDict(render_pass.color_space));
+    // RenderPasses used to have a color space field, but this was removed in
+    // favor of color usage.
+    // https://crbug.com/1049334
+    gfx::ColorSpace render_pass_color_space = gfx::ColorSpace::CreateSRGB();
+    dict.SetKey("color_space", ColorSpaceToDict(render_pass_color_space));
   }
   if (ProcessRenderPassField(kRenderPassHasTransparentBackground)) {
     dict.SetBoolKey("has_transparent_background",
@@ -1808,8 +1827,10 @@ std::unique_ptr<RenderPass> RenderPassFromDict(const base::Value& dict) {
     const std::string* id = dict.FindStringKey("id");
     if (!id)
       return nullptr;
-    if (!base::StringToUint64(*id, &(pass->id)))
+    uint64_t pass_id_as_int = 0;
+    if (!base::StringToUint64(*id, &pass_id_as_int))
       return nullptr;
+    pass->id = RenderPassId{pass_id_as_int};
   }
 
   if (ProcessRenderPassField(kRenderPassOutputRect)) {
@@ -1873,7 +1894,11 @@ std::unique_ptr<RenderPass> RenderPassFromDict(const base::Value& dict) {
     if (!color_space)
       return nullptr;
 
-    if (!ColorSpaceFromDict(*color_space, &(pass->color_space)))
+    // RenderPasses used to have a color space field, but this was removed in
+    // favor of color usage.
+    // https://crbug.com/1049334
+    gfx::ColorSpace pass_color_space = gfx::ColorSpace::CreateSRGB();
+    if (!ColorSpaceFromDict(*color_space, &pass_color_space))
       return nullptr;
   }
 

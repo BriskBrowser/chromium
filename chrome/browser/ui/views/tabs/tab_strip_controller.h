@@ -80,17 +80,29 @@ class TabStripController {
   virtual bool BeforeCloseTab(int index, CloseTabSource source) = 0;
 
   // Closes the tab at the specified index in the model.
-  virtual void CloseTab(int index, CloseTabSource source) = 0;
+  virtual void CloseTab(int index) = 0;
 
-  // Ungroups the tabs at the specified index in the model.
-  virtual void UngroupAllTabsInGroup(const tab_groups::TabGroupId& group) = 0;
+  // Adds a tab to an existing tab group.
+  virtual void AddTabToGroup(int model_index,
+                             const tab_groups::TabGroupId& group) = 0;
 
-  // Adds a new tab to end of the tab group.
-  virtual void AddNewTabInGroup(const tab_groups::TabGroupId& group) = 0;
+  // Removes a tab from its tab group.
+  virtual void RemoveTabFromGroup(int model_index) = 0;
 
   // Moves the tab at |start_index| so that it is now at |final_index|, sliding
   // any tabs in between left or right as appropriate.
   virtual void MoveTab(int start_index, int final_index) = 0;
+
+  // Moves all the tabs in |group| so that it is now at |final_index|, sliding
+  // any tabs in between left or right as appropriate.
+  virtual void MoveGroup(const tab_groups::TabGroupId& group,
+                         int final_index) = 0;
+
+  // Switches the collapsed state of a tab group. Returns false if the state was
+  // not successfully switched.
+  virtual bool ToggleTabGroupCollapsedState(
+      const tab_groups::TabGroupId group,
+      bool record_user_action = false) = 0;
 
   // Shows a context menu for the tab at the specified point in screen coords.
   virtual void ShowContextMenuForTab(Tab* tab,
@@ -118,7 +130,9 @@ class TabStripController {
   virtual void StackedLayoutMaybeChanged() = 0;
 
   // Notifies controller that the user started dragging this tabstrip's tabs.
-  virtual void OnStartedDragging() = 0;
+  // |dragging_window| indicates if the whole window is moving, or if tabs are
+  // moving within a window.
+  virtual void OnStartedDragging(bool dragging_window) = 0;
 
   // Notifies controller that the user stopped dragging this tabstrip's tabs.
   // This is also called when the tabs that the user is dragging were detached
@@ -129,13 +143,21 @@ class TabStripController {
   // to |index|.
   virtual void OnKeyboardFocusedTabChanged(base::Optional<int> index) = 0;
 
-  // Returns the displayed title of the given |group|.
+  // Returns the title of the given |group|.
   virtual base::string16 GetGroupTitle(
+      const tab_groups::TabGroupId& group) const = 0;
+
+  // Returns the string describing the contents of the given |group|.
+  virtual base::string16 GetGroupContentString(
       const tab_groups::TabGroupId& group) const = 0;
 
   // Returns the color ID of the given |group|.
   virtual tab_groups::TabGroupColorId GetGroupColorId(
       const tab_groups::TabGroupId& group) const = 0;
+
+  // Returns the |group| collapsed state. Returns false if the group does not
+  // exist or is not collapsed.
+  virtual bool IsGroupCollapsed(const tab_groups::TabGroupId& group) const = 0;
 
   // Sets the title and color ID of the given |group|.
   virtual void SetVisualDataForGroup(

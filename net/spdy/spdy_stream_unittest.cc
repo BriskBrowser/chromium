@@ -66,7 +66,7 @@ class SpdyStreamTest : public TestWithTaskEnvironment {
  protected:
   // A function that takes a SpdyStream and the number of bytes which
   // will unstall the next frame completely.
-  typedef base::Callback<void(const base::WeakPtr<SpdyStream>&, int32_t)>
+  typedef base::OnceCallback<void(const base::WeakPtr<SpdyStream>&, int32_t)>
       UnstallFunction;
 
   SpdyStreamTest()
@@ -88,10 +88,9 @@ class SpdyStreamTest : public TestWithTaskEnvironment {
   void TearDown() override { base::RunLoop().RunUntilIdle(); }
 
   void RunResumeAfterUnstallRequestResponseTest(
-      const UnstallFunction& unstall_function);
+      UnstallFunction unstall_function);
 
-  void RunResumeAfterUnstallBidirectionalTest(
-      const UnstallFunction& unstall_function);
+  void RunResumeAfterUnstallBidirectionalTest(UnstallFunction unstall_function);
 
   // Add{Read,Write}() populates lists that are eventually passed to a
   // SocketData class. |frame| must live for the whole test.
@@ -1085,6 +1084,69 @@ TEST_F(SpdyStreamTest, InformationalHeaders) {
   EXPECT_TRUE(data.AllReadDataConsumed());
 }
 
+// 103 Early Hints hasn't been implemented yet, but we collect timing
+// information for the experiment (https://crbug.com/1093693). This tests it.
+TEST_F(SpdyStreamTest, EarlyHints) {
+  spdy::SpdySerializedFrame req(
+      spdy_util_.ConstructSpdyGet(nullptr, 0, 1, LOWEST));
+  AddWrite(req);
+
+  // Serve the early hints.
+  spdy::SpdyHeaderBlock informational_headers;
+  informational_headers[":status"] = "103";
+  spdy::SpdySerializedFrame informational_response(
+      spdy_util_.ConstructSpdyResponseHeaders(
+          1, std::move(informational_headers), false));
+  AddRead(informational_response);
+
+  spdy::SpdySerializedFrame reply(
+      spdy_util_.ConstructSpdyGetReply(nullptr, 0, 1));
+  AddRead(reply);
+
+  spdy::SpdySerializedFrame body(
+      spdy_util_.ConstructSpdyDataFrame(1, kPostBodyStringPiece, true));
+  AddRead(body);
+
+  AddReadEOF();
+
+  SequencedSocketData data(GetReads(), GetWrites());
+  MockConnect connect_data(SYNCHRONOUS, OK);
+  data.set_connect_data(connect_data);
+  session_deps_.socket_factory->AddSocketDataProvider(&data);
+
+  AddSSLSocketData();
+
+  base::WeakPtr<SpdySession> session(CreateDefaultSpdySession());
+
+  base::WeakPtr<SpdyStream> stream = CreateStreamSynchronously(
+      SPDY_REQUEST_RESPONSE_STREAM, session, url_, LOWEST, NetLogWithSource());
+  ASSERT_TRUE(stream);
+  EXPECT_EQ(kDefaultUrl, stream->url().spec());
+
+  StreamDelegateDoNothing delegate(stream);
+  stream->SetDelegate(&delegate);
+
+  spdy::SpdyHeaderBlock headers(
+      spdy_util_.ConstructGetHeaderBlock(kDefaultUrl));
+  EXPECT_EQ(ERR_IO_PENDING, stream->SendRequestHeaders(std::move(headers),
+                                                       NO_MORE_DATA_TO_SEND));
+
+  EXPECT_THAT(delegate.WaitForClose(), IsOk());
+  EXPECT_EQ("200", delegate.GetResponseHeaderValue(spdy::kHttp2StatusHeader));
+  EXPECT_EQ(std::string(kPostBody, kPostBodyLength),
+            delegate.TakeReceivedData());
+
+  // Check if the timing of the early hints response is captured.
+  const LoadTimingInfo& load_timing_info = delegate.GetLoadTimingInfo();
+  EXPECT_FALSE(load_timing_info.first_early_hints_time.is_null());
+
+  // Finish async network reads and writes.
+  base::RunLoop().RunUntilIdle();
+
+  EXPECT_TRUE(data.AllWriteDataConsumed());
+  EXPECT_TRUE(data.AllReadDataConsumed());
+}
+
 TEST_F(SpdyStreamTest, StatusMustBeNumber) {
   spdy::SpdySerializedFrame req(
       spdy_util_.ConstructSpdyGet(nullptr, 0, 1, LOWEST));
@@ -1327,7 +1389,7 @@ void AdjustStreamSendWindowSize(const base::WeakPtr<SpdyStream>& stream,
 // request/response (i.e., an HTTP-like) stream resumes after a stall
 // and unstall.
 void SpdyStreamTest::RunResumeAfterUnstallRequestResponseTest(
-    const UnstallFunction& unstall_function) {
+    UnstallFunction unstall_function) {
   spdy::SpdySerializedFrame req(spdy_util_.ConstructSpdyPost(
       kDefaultUrl, 1, kPostBodyLength, LOWEST, nullptr, 0));
   AddWrite(req);
@@ -1372,7 +1434,7 @@ void SpdyStreamTest::RunResumeAfterUnstallRequestResponseTest(
 
   EXPECT_TRUE(stream->send_stalled_by_flow_control());
 
-  unstall_function.Run(stream, kPostBodyLength);
+  std::move(unstall_function).Run(stream, kPostBodyLength);
 
   EXPECT_FALSE(stream->send_stalled_by_flow_control());
 
@@ -1386,18 +1448,18 @@ void SpdyStreamTest::RunResumeAfterUnstallRequestResponseTest(
 
 TEST_F(SpdyStreamTest, ResumeAfterSendWindowSizeIncreaseRequestResponse) {
   RunResumeAfterUnstallRequestResponseTest(
-      base::Bind(&IncreaseStreamSendWindowSize));
+      base::BindOnce(&IncreaseStreamSendWindowSize));
 }
 
 TEST_F(SpdyStreamTest, ResumeAfterSendWindowSizeAdjustRequestResponse) {
   RunResumeAfterUnstallRequestResponseTest(
-      base::Bind(&AdjustStreamSendWindowSize));
+      base::BindOnce(&AdjustStreamSendWindowSize));
 }
 
 // Given an unstall function, runs a test to make sure that a bidirectional
 // (i.e., non-HTTP-like) stream resumes after a stall and unstall.
 void SpdyStreamTest::RunResumeAfterUnstallBidirectionalTest(
-    const UnstallFunction& unstall_function) {
+    UnstallFunction unstall_function) {
   spdy::SpdySerializedFrame req(spdy_util_.ConstructSpdyPost(
       kDefaultUrl, 1, kPostBodyLength, LOWEST, nullptr, 0));
   AddWrite(req);
@@ -1451,7 +1513,7 @@ void SpdyStreamTest::RunResumeAfterUnstallBidirectionalTest(
 
   EXPECT_TRUE(stream->send_stalled_by_flow_control());
 
-  unstall_function.Run(stream, kPostBodyLength);
+  std::move(unstall_function).Run(stream, kPostBodyLength);
 
   EXPECT_FALSE(stream->send_stalled_by_flow_control());
 
@@ -1466,12 +1528,12 @@ void SpdyStreamTest::RunResumeAfterUnstallBidirectionalTest(
 
 TEST_F(SpdyStreamTest, ResumeAfterSendWindowSizeIncreaseBidirectional) {
   RunResumeAfterUnstallBidirectionalTest(
-      base::Bind(&IncreaseStreamSendWindowSize));
+      base::BindOnce(&IncreaseStreamSendWindowSize));
 }
 
 TEST_F(SpdyStreamTest, ResumeAfterSendWindowSizeAdjustBidirectional) {
   RunResumeAfterUnstallBidirectionalTest(
-      base::Bind(&AdjustStreamSendWindowSize));
+      base::BindOnce(&AdjustStreamSendWindowSize));
 }
 
 // Test calculation of amount of bytes received from network.

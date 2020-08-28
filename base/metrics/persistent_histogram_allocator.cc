@@ -4,7 +4,8 @@
 
 #include "base/metrics/persistent_histogram_allocator.h"
 
-#include <memory>
+#include <limits>
+#include <utility>
 
 #include "base/atomicops.h"
 #include "base/files/file_path.h"
@@ -118,8 +119,6 @@ PersistentSparseHistogramDataManager::UseSampleMapRecords(uint64_t id,
 PersistentSampleMapRecords*
 PersistentSparseHistogramDataManager::GetSampleMapRecordsWhileLocked(
     uint64_t id) {
-  lock_.AssertAcquired();
-
   auto found = sample_records_.find(id);
   if (found != sample_records_.end())
     return found->second.get();
@@ -718,7 +717,7 @@ bool GlobalHistogramAllocator::CreateWithActiveFile(const FilePath& base_path,
                                                     StringPiece name) {
   // Old "active" becomes "base".
   if (!base::ReplaceFile(active_path, base_path, nullptr))
-    base::DeleteFile(base_path, /*recursive=*/false);
+    base::DeleteFile(base_path);
   if (base::PathExists(active_path))
     return false;
 
@@ -855,7 +854,7 @@ bool GlobalHistogramAllocator::CreateSpareFile(const FilePath& spare_path,
     success = ReplaceFile(temp_spare_path, spare_path, nullptr);
 
   if (!success)
-    DeleteFile(temp_spare_path, /*recursive=*/false);
+    DeleteFile(temp_spare_path);
 
   return success;
 }

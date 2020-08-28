@@ -14,6 +14,9 @@
 #include "base/supports_user_data.h"
 #include "components/safe_browsing/content/base_blocking_page.h"
 #include "components/safe_browsing/core/features.h"
+#include "components/security_interstitials/content/unsafe_resource_util.h"
+#include "components/security_interstitials/core/unsafe_resource.h"
+#include "content/public/browser/browser_context.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/web_contents.h"
@@ -122,7 +125,7 @@ BaseUIManager::~BaseUIManager() {}
 bool BaseUIManager::IsWhitelisted(const UnsafeResource& resource) {
   NavigationEntry* entry = nullptr;
   if (resource.is_subresource) {
-    entry = resource.GetNavigationEntryForResource();
+    entry = GetNavigationEntryForResource(resource);
   }
   SBThreatType unused_threat_type;
   return IsUrlWhitelistedOrPendingForWebContents(
@@ -162,13 +165,15 @@ void BaseUIManager::OnBlockingPageDone(
     const std::vector<UnsafeResource>& resources,
     bool proceed,
     WebContents* web_contents,
-    const GURL& main_frame_url) {
+    const GURL& main_frame_url,
+    bool showed_interstitial) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   for (const auto& resource : resources) {
     if (!resource.callback.is_null()) {
       DCHECK(resource.callback_thread);
       resource.callback_thread->PostTask(
-          FROM_HERE, base::BindOnce(resource.callback, proceed));
+          FROM_HERE,
+          base::BindOnce(resource.callback, proceed, showed_interstitial));
     }
 
     GURL whitelist_url = GetWhitelistUrl(
@@ -186,6 +191,21 @@ void BaseUIManager::OnBlockingPageDone(
   }
 }
 
+namespace {
+// In the case of nested WebContents, returns the WebContents where it is
+// suitable to show an interstitial.
+content::WebContents* GetEmbeddingWebContentsForInterstitial(
+    content::WebContents* source_contents) {
+  content::WebContents* top_level_contents = source_contents;
+  // Note that |WebContents::GetResponsibleWebContents| is not suitable here
+  // since we want to stay within any GuestViews.
+  while (top_level_contents->IsPortal()) {
+    top_level_contents = top_level_contents->GetPortalHostWebContents();
+  }
+  return top_level_contents;
+}
+}  // namespace
+
 void BaseUIManager::DisplayBlockingPage(
     const UnsafeResource& resource) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
@@ -202,7 +222,8 @@ void BaseUIManager::DisplayBlockingPage(
       if (!resource.callback.is_null()) {
         DCHECK(resource.callback_thread);
         resource.callback_thread->PostTask(
-            FROM_HERE, base::BindOnce(resource.callback, true));
+            FROM_HERE, base::BindOnce(resource.callback, true /* proceed */,
+                                      false /* showed_interstitial */));
       }
       return;
     }
@@ -213,9 +234,9 @@ void BaseUIManager::DisplayBlockingPage(
   WebContents* web_contents = resource.web_contents_getter.Run();
   if (!web_contents) {
     OnBlockingPageDone(std::vector<UnsafeResource>{resource},
-                       false /* proceed */,
-                       web_contents,
-                       GetMainFrameWhitelistUrlForResource(resource));
+                       false /* proceed */, web_contents,
+                       GetMainFrameWhitelistUrlForResource(resource),
+                       false /* showed_interstitial */);
     return;
   }
 
@@ -225,7 +246,8 @@ void BaseUIManager::DisplayBlockingPage(
     if (!resource.callback.is_null()) {
       DCHECK(resource.callback_thread);
       resource.callback_thread->PostTask(
-          FROM_HERE, base::BindOnce(resource.callback, true));
+          FROM_HERE, base::BindOnce(resource.callback, true /* proceed */,
+                                    false /* showed_interstitial */));
     }
 
     return;
@@ -239,63 +261,73 @@ void BaseUIManager::DisplayBlockingPage(
   }
 
   AddToWhitelistUrlSet(GetMainFrameWhitelistUrlForResource(resource),
-                       resource.web_contents_getter.Run(),
-                       true /* A decision is now pending */,
+                       web_contents, true /* A decision is now pending */,
                        resource.threat_type);
-  if (SafeBrowsingInterstitialsAreCommittedNavigations()) {
-    GURL unsafe_url = (resource.IsMainPageLoadBlocked() ||
-                       !resource.GetNavigationEntryForResource())
-                          ? resource.url
-                          : resource.GetNavigationEntryForResource()->GetURL();
-    AddUnsafeResource(unsafe_url, resource);
-    // With committed interstitials we just cancel the load from here, the
-    // actual interstitial will be shown from the
-    // SafeBrowsingNavigationThrottle.
-    resource.callback_thread->PostTask(
-        FROM_HERE, base::BindOnce(resource.callback, false));
-    if (!resource.IsMainPageLoadBlocked() && !IsWhitelisted(resource)) {
-      // For subresource triggered interstitials, we trigger the error page
-      // navigation from here since there will be no navigation to intercept
-      // in the throttle.
-      content::WebContents* contents = resource.web_contents_getter.Run();
-      content::NavigationEntry* entry =
-          resource.GetNavigationEntryForResource();
-      // entry can be null if we are on a brand new tab, and a resource is added
-      // via javascript without a navigation.
-      GURL blocked_url = entry ? entry->GetURL() : resource.url;
 
-      // Blocking pages handle both user interaction, and generation of the
-      // interstitial HTML. In the case of subresources, we need the HTML
-      // content prior to (and in a different process than when) installing the
-      // command handlers. For this reason we create a blocking page here just
-      // to generate the HTML, and immediately delete it.
-      BaseBlockingPage* blocking_page =
-          CreateBlockingPageForSubresource(contents, blocked_url, resource);
-      contents->GetController().LoadPostCommitErrorPage(
-          contents->GetMainFrame(), blocked_url,
-          blocking_page->GetHTMLContents(), net::ERR_BLOCKED_BY_CLIENT);
-      delete blocking_page;
-    }
-    return;
+  // |entry| can be null if we are on a brand new tab, and a resource is added
+  // via javascript without a navigation.
+  content::NavigationEntry* entry = GetNavigationEntryForResource(resource);
+
+  // If unsafe content is loaded in a portal, we treat its embedder as
+  // dangerous.
+  content::WebContents* outermost_contents =
+      GetEmbeddingWebContentsForInterstitial(web_contents);
+
+  GURL unsafe_url = resource.url;
+  if (outermost_contents != web_contents) {
+    DCHECK(outermost_contents->GetController().GetLastCommittedEntry());
+    unsafe_url =
+        outermost_contents->GetController().GetLastCommittedEntry()->GetURL();
+  } else if (entry && !resource.IsMainPageLoadBlocked()) {
+    unsafe_url = entry->GetURL();
   }
-  ShowBlockingPageForResource(resource);
+  AddUnsafeResource(unsafe_url, resource);
+  // If the delayed warnings experiment is not enabled, with committed
+  // interstitials we just cancel the load from here, the actual interstitial
+  // will be shown from the SafeBrowsingNavigationThrottle.
+  // showed_interstitial is set to false for subresources since this
+  // cancellation doesn't correspond to the navigation that triggers the error
+  // page (the call to LoadPostCommitErrorPage creates another navigation).
+  //
+  // If the experiment is enabled, the interstitial is shown below.
+  if (!resource.callback.is_null()) {
+    resource.callback_thread->PostTask(
+        FROM_HERE,
+        base::BindOnce(
+            resource.callback, false /* proceed */,
+            resource.IsMainPageLoadBlocked() /* showed_interstitial */));
+  }
+
+  if (!base::FeatureList::IsEnabled(safe_browsing::kDelayedWarnings)) {
+    DCHECK(!resource.is_delayed_warning);
+  }
+
+  if (!resource.IsMainPageLoadBlocked() || resource.is_delayed_warning ||
+      outermost_contents != web_contents) {
+    DCHECK(!IsWhitelisted(resource));
+    // For subresource triggered interstitials, we trigger the error page
+    // navigation from here since there will be no navigation to intercept
+    // in the throttle.
+    //
+    // Blocking pages handle both user interaction, and generation of the
+    // interstitial HTML. In the case of subresources, we need the HTML
+    // content prior to (and in a different process than when) installing the
+    // command handlers. For this reason we create a blocking page here just
+    // to generate the HTML, and immediately delete it.
+    std::unique_ptr<BaseBlockingPage> blocking_page =
+        base::WrapUnique(CreateBlockingPageForSubresource(
+            outermost_contents, unsafe_url, resource));
+    outermost_contents->GetController().LoadPostCommitErrorPage(
+        outermost_contents->GetMainFrame(), unsafe_url,
+        blocking_page->GetHTMLContents(), net::ERR_BLOCKED_BY_CLIENT);
+  }
 }
 
-void BaseUIManager::EnsureWhitelistCreated(
-    WebContents* web_contents) {
+void BaseUIManager::EnsureWhitelistCreated(WebContents* web_contents) {
   GetOrCreateWhitelist(web_contents);
 }
 
 void BaseUIManager::CreateAndSendHitReport(const UnsafeResource& resource) {}
-
-void BaseUIManager::ShowBlockingPageForResource(
-    const UnsafeResource& resource) {
-  BaseBlockingPage::ShowBlockingPage(this, resource);
-}
-
-bool BaseUIManager::SafeBrowsingInterstitialsAreCommittedNavigations() {
-  return base::FeatureList::IsEnabled(kCommittedSBInterstitials);
-}
 
 BaseBlockingPage* BaseUIManager::CreateBlockingPageForSubresource(
     content::WebContents* contents,
@@ -322,6 +354,7 @@ void BaseUIManager::MaybeReportSafeBrowsingHit(
 // If the user had opted-in to send ThreatDetails, this gets called
 // when the report is ready.
 void BaseUIManager::SendSerializedThreatDetails(
+    content::BrowserContext* browser_context,
     const std::string& serialized) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   return;
@@ -435,7 +468,7 @@ void BaseUIManager::RemoveWhitelistUrlSet(const GURL& whitelist_url,
 GURL BaseUIManager::GetMainFrameWhitelistUrlForResource(
     const security_interstitials::UnsafeResource& resource) {
   if (resource.is_subresource) {
-    NavigationEntry* entry = resource.GetNavigationEntryForResource();
+    NavigationEntry* entry = GetNavigationEntryForResource(resource);
     if (!entry)
       return GURL();
     return entry->GetURL().GetWithEmptyPath();

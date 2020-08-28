@@ -17,6 +17,7 @@ import org.chromium.chrome.browser.metrics.UmaSessionStats;
 import org.chromium.chrome.browser.preferences.ChromePreferenceKeys;
 import org.chromium.chrome.browser.preferences.SharedPreferencesManager;
 import org.chromium.components.signin.AccountManagerFacade;
+import org.chromium.components.signin.AccountManagerFacadeProvider;
 
 /** Provides first run related utility functions. */
 public class FirstRunUtils {
@@ -36,10 +37,8 @@ public class FirstRunUtils {
         boolean javaPrefValue =
                 javaPrefs.readBoolean(ChromePreferenceKeys.FIRST_RUN_CACHED_TOS_ACCEPTED, false);
         boolean nativePrefValue = isFirstRunEulaAccepted();
-        boolean userHasSeenTos =
-                ToSAckedReceiver.checkAnyUserHasSeenToS();
         boolean isFirstRunComplete = FirstRunStatus.getFirstRunFlowComplete();
-        if (javaPrefValue || nativePrefValue || userHasSeenTos || isFirstRunComplete) {
+        if (javaPrefValue || nativePrefValue || isFirstRunComplete) {
             if (!javaPrefValue) {
                 javaPrefs.writeBoolean(ChromePreferenceKeys.FIRST_RUN_CACHED_TOS_ACCEPTED, true);
             }
@@ -56,8 +55,7 @@ public class FirstRunUtils {
         // Note: Does not check FirstRunUtils.isFirstRunEulaAccepted() because this may be called
         // before native is initialized.
         return SharedPreferencesManager.getInstance().readBoolean(
-                       ChromePreferenceKeys.FIRST_RUN_CACHED_TOS_ACCEPTED, false)
-                || ToSAckedReceiver.checkAnyUserHasSeenToS();
+                ChromePreferenceKeys.FIRST_RUN_CACHED_TOS_ACCEPTED, false);
     }
 
     /**
@@ -82,7 +80,7 @@ public class FirstRunUtils {
     @VisibleForTesting
     static boolean hasGoogleAccountAuthenticator() {
         if (sHasGoogleAccountAuthenticator == null) {
-            AccountManagerFacade accountHelper = AccountManagerFacade.get();
+            AccountManagerFacade accountHelper = AccountManagerFacadeProvider.getInstance();
             sHasGoogleAccountAuthenticator = accountHelper.hasGoogleAccountAuthenticator();
         }
         return sHasGoogleAccountAuthenticator;
@@ -90,7 +88,7 @@ public class FirstRunUtils {
 
     @VisibleForTesting
     static boolean hasGoogleAccounts() {
-        return AccountManagerFacade.get().hasGoogleAccounts();
+        return !AccountManagerFacadeProvider.getInstance().tryGetGoogleAccounts().isEmpty();
     }
 
     @SuppressLint("InlinedApi")
@@ -115,9 +113,17 @@ public class FirstRunUtils {
         FirstRunUtilsJni.get().setEulaAccepted();
     }
 
+    /**
+     * @return Whether the ToS should be shown during the first-run for CCTs/PWAs.
+     */
+    public static boolean isCctTosDialogEnabled() {
+        return FirstRunUtilsJni.get().getCctTosDialogEnabled();
+    }
+
     @NativeMethods
     public interface Natives {
         boolean getFirstRunEulaAccepted();
         void setEulaAccepted();
+        boolean getCctTosDialogEnabled();
     }
 }

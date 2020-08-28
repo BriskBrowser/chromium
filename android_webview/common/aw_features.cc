@@ -18,23 +18,26 @@ const base::Feature kWebViewBrotliSupport{"WebViewBrotliSupport",
 const base::Feature kWebViewConnectionlessSafeBrowsing{
     "WebViewConnectionlessSafeBrowsing", base::FEATURE_DISABLED_BY_DEFAULT};
 
-// Sniff the content stream to guess the MIME type when the application doesn't
-// tell us the MIME type explicitly.
-//
-// This only applies:
-// * when NetworkService is enabled (if disabled, the legacy net path sniffs
-//   content anyway, as an implementation detail).
-// * to app-provided content (shouldInterceptRequest,
-//   file:///android_{asset,res} URLs, content:// URLs), rather than content
-//   from the net stack (we may sniff content from the net stack anyway,
-//   depending on headers, but that's a NetworkService implementation detail).
-const base::Feature kWebViewSniffMimeType{"WebViewSniffMimeType",
-                                          base::FEATURE_ENABLED_BY_DEFAULT};
+// Enable display cutout support for Android P and above.
+const base::Feature kWebViewDisplayCutout{"WebViewDisplayCutout",
+                                          base::FEATURE_DISABLED_BY_DEFAULT};
 
-// Wake up the MetricsService for each page load start/finish, renderer hang,
-// and renderer close. This aligns with Chrome's behavior.
-const base::Feature kWebViewWakeMetricsService{
-    "WebViewWakeMetricsService", base::FEATURE_DISABLED_BY_DEFAULT};
+// Only allow extra headers added via loadUrl() to be sent to the original
+// domain (eTLD+1); strip them from the request if a cross-domain redirect
+// occurs. kWebViewExtraHeadersSameOriginOnly is stricter; when that's enabled,
+// this feature has no effect.
+const base::Feature kWebViewExtraHeadersSameDomainOnly{
+    "WebViewExtraHeadersSameDomainOnly", base::FEATURE_DISABLED_BY_DEFAULT};
+
+// Only allow extra headers added via loadUrl() to be sent to the original
+// origin; strip them from the request if a cross-origin redirect occurs.
+// When this is enabled, kWebViewExtraHeadersSameDomainOnly has no effect.
+const base::Feature kWebViewExtraHeadersSameOriginOnly{
+    "WebViewExtraHeadersSameOriginOnly", base::FEATURE_DISABLED_BY_DEFAULT};
+
+// A Feature used for WebView variations tests. Not used in production.
+const base::Feature kWebViewTestFeature{"WebViewTestFeature",
+                                        base::FEATURE_DISABLED_BY_DEFAULT};
 
 // Enable raster in wide color gamut for apps that use webview in a wide color
 // gamut activity.

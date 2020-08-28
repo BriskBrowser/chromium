@@ -7,9 +7,11 @@
 #include <algorithm>
 #include <string>
 
+#include "base/memory/ptr_util.h"
 #include "base/optional.h"
 #include "base/strings/string_util.h"
 #include "base/time/time.h"
+#include "components/page_load_metrics/browser/observers/largest_contentful_paint_handler.h"
 #include "components/page_load_metrics/browser/page_load_metrics_util.h"
 #include "components/page_load_metrics/common/page_load_timing.h"
 #include "content/public/browser/navigation_handle.h"
@@ -126,6 +128,10 @@ void AMPPageLoadMetricsObserver::OnCommitSameDocumentNavigation(
 void AMPPageLoadMetricsObserver::OnDidFinishSubFrameNavigation(
     content::NavigationHandle* navigation_handle) {
   if (!navigation_handle->HasCommitted())
+    return;
+
+  // Ignore same document navigations; see crbug.com/1104365
+  if (navigation_handle->IsSameDocument())
     return;
 
   // A new navigation is committing, so ensure any old information associated
@@ -254,7 +260,7 @@ void AMPPageLoadMetricsObserver::OnLoadingBehaviorObserved(
 }
 
 void AMPPageLoadMetricsObserver::RecordLoadingBehaviorObserved() {
-  ukm::builders::AmpPageLoad builder(GetDelegate().GetSourceId());
+  ukm::builders::AmpPageLoad builder(GetDelegate().GetPageUkmSourceId());
   bool should_record = false;
   if (!observed_amp_main_frame_ &&
       (GetDelegate().GetMainFrameMetadata().behavior_flags &
@@ -336,6 +342,12 @@ void AMPPageLoadMetricsObserver::MaybeRecordAmpDocumentMetrics() {
   }
 
   if (!subframe_info.timing.is_null()) {
+    if (subframe_info.timing->paint_timing->first_paint.has_value()) {
+      builder.SetSubFrame_PaintTiming_NavigationToFirstPaint(
+          subframe_info.timing->paint_timing->first_paint.value()
+              .InMilliseconds());
+    }
+
     if (subframe_info.timing->paint_timing->first_contentful_paint
             .has_value()) {
       builder.SetSubFrame_PaintTiming_NavigationToFirstContentfulPaint(
@@ -361,10 +373,15 @@ void AMPPageLoadMetricsObserver::MaybeRecordAmpDocumentMetrics() {
 
     base::Optional<base::TimeDelta> largest_content_paint_time;
     uint64_t largest_content_paint_size;
-    PageLoadMetricsObserver::LargestContentType largest_content_type;
-    if (AssignTimeAndSizeForLargestContentfulPaint(
-            subframe_info.timing->paint_timing, &largest_content_paint_time,
-            &largest_content_paint_size, &largest_content_type)) {
+    page_load_metrics::ContentfulPaintTimingInfo::LargestContentType
+        largest_content_type;
+    const page_load_metrics::mojom::PaintTimingPtr& paint_timing =
+        subframe_info.timing->paint_timing;
+    if (page_load_metrics::LargestContentfulPaintHandler::
+            AssignTimeAndSizeForLargestContentfulPaint(
+                *paint_timing->largest_contentful_paint,
+                &largest_content_paint_time, &largest_content_paint_size,
+                &largest_content_type)) {
       builder.SetSubFrame_PaintTiming_NavigationToLargestContentfulPaint(
           largest_content_paint_time.value().InMilliseconds());
 

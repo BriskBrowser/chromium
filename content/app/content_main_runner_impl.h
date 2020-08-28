@@ -10,6 +10,7 @@
 #include "base/callback_forward.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/metrics/field_trial.h"
+#include "base/threading/hang_watcher.h"
 #include "build/build_config.h"
 #include "content/browser/startup_data_impl.h"
 #include "content/public/app/content_main.h"
@@ -19,7 +20,7 @@
 
 #if defined(OS_WIN)
 #include "sandbox/win/src/sandbox_types.h"
-#elif defined(OS_MACOSX)
+#elif defined(OS_MAC)
 #include "base/mac/scoped_nsautorelease_pool.h"
 #endif  // OS_WIN
 
@@ -51,17 +52,18 @@ class ContentMainRunnerImpl : public ContentMainRunner {
   void Shutdown() override;
 
  private:
-#if !defined(CHROME_MULTIPLE_DLL_CHILD)
   int RunServiceManager(MainFunctionParams& main_function_params,
                         bool start_service_manager_only);
 
   bool is_browser_main_loop_started_ = false;
 
+  // The hang watcher is leaked to make sure it survives all watched threads.
+  base::HangWatcher* hang_watcher_;
+
   std::unique_ptr<discardable_memory::DiscardableSharedMemoryManager>
       discardable_shared_memory_manager_;
   std::unique_ptr<StartupDataImpl> startup_data_;
   std::unique_ptr<ServiceManagerEnvironment> service_manager_environment_;
-#endif  // !defined(CHROME_MULTIPLE_DLL_CHILD)
 
   // True if the runner has been initialized.
   bool is_initialized_ = false;
@@ -79,7 +81,7 @@ class ContentMainRunnerImpl : public ContentMainRunner {
 
 #if defined(OS_WIN)
   sandbox::SandboxInterfaceInfo sandbox_info_;
-#elif defined(OS_MACOSX)
+#elif defined(OS_MAC)
   base::mac::ScopedNSAutoreleasePool* autorelease_pool_ = nullptr;
 #endif
 

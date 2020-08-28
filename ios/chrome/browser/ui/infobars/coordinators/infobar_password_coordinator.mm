@@ -86,8 +86,7 @@
     self.bannerViewController.buttonText =
         base::SysUTF16ToNSString(self.passwordInfoBarDelegate->GetButtonLabel(
             ConfirmInfoBarDelegate::BUTTON_OK));
-    self.bannerViewController.iconImage =
-        [UIImage imageNamed:@"infobar_passwords_icon"];
+    self.bannerViewController.iconImage = [UIImage imageNamed:@"password_key"];
     NSString* hiddenPasswordText =
         l10n_util::GetNSString(IDS_IOS_SETTINGS_PASSWORD_HIDDEN_LABEL);
     [self.bannerViewController
@@ -104,7 +103,9 @@
     self.started = NO;
     // RemoveInfoBar() will delete the InfobarIOS that owns this Coordinator
     // from memory.
-    self.delegate->RemoveInfoBar();
+    if (self.delegate) {
+      self.delegate->RemoveInfoBar();
+    }
     _passwordInfoBarDelegate = nil;
     [self.infobarContainer childCoordinatorStopped:self];
   }
@@ -177,7 +178,10 @@
   if (presentedFromBanner)
     return;
 
-  self.passwordInfoBarDelegate->InfobarPresenting(NO /*automatic*/);
+  // There's a chance the Delegate was destroyed while the presentation was
+  // taking place. Check if the delegate still exists.
+  if (self.passwordInfoBarDelegate)
+    self.passwordInfoBarDelegate->InfobarPresenting(NO /*automatic*/);
 }
 
 - (void)dismissBannerIfReady {
@@ -242,10 +246,10 @@
 }
 
 - (void)presentPasswordSettings {
-  DCHECK(self.dispatcher);
+  DCHECK(self.handler);
   [self dismissInfobarModalAnimated:NO
                          completion:^{
-                           [self.dispatcher
+                           [self.handler
                                showSavedPasswordsSettingsFromViewController:
                                    self.baseViewController];
                          }];

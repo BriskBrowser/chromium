@@ -9,6 +9,7 @@
 #include "base/command_line.h"
 #include "base/path_service.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/scoped_feature_list.h"
 #include "base/threading/thread_restrictions.h"
@@ -25,6 +26,7 @@
 #include "components/prefs/pref_service.h"
 #include "components/variations/variations_switches.h"
 #include "content/public/common/content_switches.h"
+#include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
 #include "media/base/key_system_names.h"
 #include "media/base/media_switches.h"
@@ -71,16 +73,13 @@ const char kExternalClearKeyVerifyCdmHostTestKeySystem[] =
 #endif  // BUILDFLAG(ENABLE_CDM_HOST_VERIFICATION)
 const char kExternalClearKeyStorageIdTestKeySystem[] =
     "org.chromium.externalclearkey.storageidtest";
-#if BUILDFLAG(ENABLE_CDM_PROXY)
-const char kExternalClearKeyCdmProxyKeySystem[] =
-    "org.chromium.externalclearkey.cdmproxy";
-#endif  // BUILDFLAG(ENABLE_CDM_PROXY)
 #endif  // BUILDFLAG(ENABLE_LIBRARY_CDMS)
 
 // Sessions to load.
 const char kNoSessionToLoad[] = "";
 #if BUILDFLAG(ENABLE_LIBRARY_CDMS)
-const char kLoadableSession[] = "LoadableSession";
+const char kPersistentLicense[] = "PersistentLicense";
+const char kPersistentUsageRecord[] = "PersistentUsageRecord";
 const char kUnknownSession[] = "UnknownSession";
 #endif
 
@@ -348,17 +347,6 @@ class ECKEncryptedMediaTest : public EncryptedMediaTestBase,
                           PlayCount::ONCE, expected_title);
   }
 
-  void TestOutputProtection(bool create_recorder_before_media_keys) {
-    // Make sure the Clear Key CDM is properly registered in CdmRegistry.
-    EXPECT_TRUE(IsLibraryCdmRegistered(media::kClearKeyCdmGuid));
-
-    base::StringPairs query_params;
-    if (create_recorder_before_media_keys)
-      query_params.emplace_back("createMediaRecorderBeforeMediaKeys", "1");
-    RunMediaTestPage("eme_and_get_display_media.html", query_params,
-                     kUnitTestSuccess, true);
-  }
-
  protected:
   void SetUpCommandLine(base::CommandLine* command_line) override {
     EncryptedMediaTestBase::SetUpCommandLine(command_line);
@@ -367,10 +355,47 @@ class ECKEncryptedMediaTest : public EncryptedMediaTestBase,
     command_line->AppendSwitchASCII(
         switches::kOverrideEnabledCdmInterfaceVersion,
         base::NumberToString(GetCdmInterfaceVersion()));
+    command_line->AppendSwitchASCII(
+        switches::kEnableBlinkFeatures,
+        "EncryptedMediaPersistentUsageRecordSession");
+  }
+};
+
+// Tests encrypted media playback with output protection using ExternalClearKey
+// key system with a specific display surface to be captured specified as the
+// test parameter.
+class ECKEncryptedMediaOutputProtectionTest
+    : public EncryptedMediaTestBase,
+      public testing::WithParamInterface<const char*> {
+ public:
+  void TestOutputProtection(bool create_recorder_before_media_keys) {
+    // Make sure the Clear Key CDM is properly registered in CdmRegistry.
+    EXPECT_TRUE(IsLibraryCdmRegistered(media::kClearKeyCdmGuid));
+
+#if defined(OS_LINUX) && defined(OS_CHROMEOS)
+    // QueryOutputProtectionStatus() is known to fail on Linux Chrome OS builds.
+    std::string expected_title = kEmeUnitTestFailure;
+#else
+    std::string expected_title = kUnitTestSuccess;
+#endif
+
+    base::StringPairs query_params;
+    if (create_recorder_before_media_keys)
+      query_params.emplace_back("createMediaRecorderBeforeMediaKeys", "1");
+    RunMediaTestPage("eme_and_get_display_media.html", query_params,
+                     expected_title, true);
+  }
+
+ protected:
+  void SetUpCommandLine(base::CommandLine* command_line) override {
+    EncryptedMediaTestBase::SetUpCommandLine(command_line);
+    SetUpCommandLineForKeySystem(kExternalClearKeyKeySystem, command_line);
     // The output protection tests create a MediaRecorder on a MediaStream,
     // so this allows for a fake stream to be created.
     command_line->AppendSwitch(switches::kUseFakeUIForMediaStream);
-    command_line->AppendSwitch(switches::kUseFakeDeviceForMediaStream);
+    command_line->AppendSwitchASCII(
+        switches::kUseFakeDeviceForMediaStream,
+        base::StringPrintf("display-media-type=%s", GetParam()));
   }
 };
 
@@ -593,7 +618,9 @@ IN_PROC_BROWSER_TEST_P(EncryptedMediaTest, Playback_AudioOnly_MP4_OPUS) {
   TestSimplePlayback("bear-opus-cenc.mp4");
 }
 
-IN_PROC_BROWSER_TEST_P(EncryptedMediaTest, Playback_VideoOnly_MP4_VP9) {
+// TODO(crbug.com/1045393): Flaky on multiple platforms.
+IN_PROC_BROWSER_TEST_P(EncryptedMediaTest,
+                       DISABLED_Playback_VideoOnly_MP4_VP9) {
   // MP4 without MSE is not support yet, http://crbug.com/170793.
   if (CurrentSourceType() != SrcType::MSE) {
     DVLOG(0) << "Skipping test; Can only play MP4 encrypted streams by MSE.";
@@ -658,7 +685,9 @@ IN_PROC_BROWSER_TEST_P(EncryptedMediaTest, ConfigChangeVideo_ClearToEncrypted) {
   TestConfigChange(ConfigChangeType::CLEAR_TO_ENCRYPTED);
 }
 
-IN_PROC_BROWSER_TEST_P(EncryptedMediaTest, ConfigChangeVideo_EncryptedToClear) {
+// TODO(crbug.com/1045376): Flaky on multiple platforms.
+IN_PROC_BROWSER_TEST_P(EncryptedMediaTest,
+                       DISABLED_ConfigChangeVideo_EncryptedToClear) {
   TestConfigChange(ConfigChangeType::ENCRYPTED_TO_CLEAR);
 }
 
@@ -807,15 +836,6 @@ IN_PROC_BROWSER_TEST_P(ECKEncryptedMediaTest, FileIOTest) {
   TestNonPlaybackCases(kExternalClearKeyFileIOTestKeySystem, kUnitTestSuccess);
 }
 
-// Output protection tests.
-IN_PROC_BROWSER_TEST_P(ECKEncryptedMediaTest, OutputProtectionBeforeMediaKeys) {
-  TestOutputProtection(/*create_recorder_before_media_keys=*/true);
-}
-
-IN_PROC_BROWSER_TEST_P(ECKEncryptedMediaTest, OutputProtectionAfterMediaKeys) {
-  TestOutputProtection(/*create_recorder_before_media_keys=*/false);
-}
-
 IN_PROC_BROWSER_TEST_P(ECKEncryptedMediaTest, PlatformVerificationTest) {
   TestNonPlaybackCases(kExternalClearKeyPlatformVerificationTestKeySystem,
                        kUnitTestSuccess);
@@ -843,8 +863,9 @@ IN_PROC_BROWSER_TEST_P(ECKEncryptedMediaTest, MAYBE_MessageTypeTest) {
   EXPECT_EQ(3, num_received_message_types);
 }
 
-IN_PROC_BROWSER_TEST_P(ECKEncryptedMediaTest, LoadLoadableSession) {
-  TestPlaybackCase(kExternalClearKeyKeySystem, kLoadableSession, media::kEnded);
+IN_PROC_BROWSER_TEST_P(ECKEncryptedMediaTest, LoadPersistentLicense) {
+  TestPlaybackCase(kExternalClearKeyKeySystem, kPersistentLicense,
+                   media::kEnded);
 }
 
 IN_PROC_BROWSER_TEST_P(ECKEncryptedMediaTest, LoadUnknownSession) {
@@ -857,6 +878,18 @@ IN_PROC_BROWSER_TEST_P(ECKEncryptedMediaTest, LoadSessionAfterClose) {
   RunEncryptedMediaTestPage("eme_load_session_after_close_test.html",
                             kExternalClearKeyKeySystem, query_params,
                             media::kEnded);
+}
+
+IN_PROC_BROWSER_TEST_P(ECKEncryptedMediaTest, VerifyPersistentUsageRecord) {
+  TestPlaybackCase(kExternalClearKeyKeySystem, kPersistentUsageRecord,
+                   media::kEnded);
+}
+
+IN_PROC_BROWSER_TEST_P(ECKEncryptedMediaTest, RemovePersistentUsageRecord) {
+  RunEncryptedMediaTest("eme_remove_session_test.html",
+                        "bear-320x240-v_enc-v.webm", kExternalClearKeyKeySystem,
+                        SrcType::MSE, kPersistentUsageRecord, false,
+                        PlayCount::ONCE, media::kEnded);
 }
 
 const char kExternalClearKeyDecryptOnlyKeySystem[] =
@@ -944,20 +977,28 @@ IN_PROC_BROWSER_TEST_P(ECKEncryptedMediaTest, MAYBE_MultipleCdmTypes) {
                    true);
 }
 
-// Tests that only works on newer CDM interfaces.
+// Output Protection Tests. Run with different capture inputs. "monitor"
+// simulates the whole screen being captured. "window" simulates the Chrome
+// window being captured. "browser" simulates the current Chrome tab being
+// captured.
 
-#if BUILDFLAG(ENABLE_CDM_PROXY)
-IN_PROC_BROWSER_TEST_P(ECKEncryptedMediaTest, CdmProxy) {
-  if (GetCdmInterfaceVersion() < 11) {
-    DVLOG(0) << "Skipping test; CdmProxy only supported on CDM_11 and above.";
-    return;
-  }
+INSTANTIATE_TEST_SUITE_P(Capture_Monitor,
+                         ECKEncryptedMediaOutputProtectionTest,
+                         Values("monitor"));
+INSTANTIATE_TEST_SUITE_P(Capture_Window,
+                         ECKEncryptedMediaOutputProtectionTest,
+                         Values("window"));
+INSTANTIATE_TEST_SUITE_P(Capture_Browser,
+                         ECKEncryptedMediaOutputProtectionTest,
+                         Values("browser"));
 
-  // ClearKeyCdmProxy only supports decrypt-only.
-  RunSimpleEncryptedMediaTest("bear-a_enc-a.webm",
-                              kExternalClearKeyCdmProxyKeySystem, SrcType::MSE);
+IN_PROC_BROWSER_TEST_P(ECKEncryptedMediaOutputProtectionTest, BeforeMediaKeys) {
+  TestOutputProtection(/*create_recorder_before_media_keys=*/true);
 }
-#endif  // BUILDFLAG(ENABLE_CDM_PROXY)
+
+IN_PROC_BROWSER_TEST_P(ECKEncryptedMediaOutputProtectionTest, AfterMediaKeys) {
+  TestOutputProtection(/*create_recorder_before_media_keys=*/false);
+}
 
 // Incognito tests. Ideally we would run all above tests in incognito mode to
 // ensure that everything works. However, that would add a lot of extra tests

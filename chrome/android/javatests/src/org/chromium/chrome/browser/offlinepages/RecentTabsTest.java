@@ -5,7 +5,8 @@
 package org.chromium.chrome.browser.offlinepages;
 
 import android.support.test.InstrumentationRegistry;
-import android.support.test.filters.MediumTest;
+
+import androidx.test.filters.MediumTest;
 
 import org.junit.After;
 import org.junit.Assert;
@@ -15,7 +16,7 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 
 import org.chromium.base.test.util.CommandLineFlags;
-import org.chromium.chrome.browser.ChromeSwitches;
+import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tabmodel.TabModel;
 import org.chromium.chrome.browser.tabmodel.TabModelSelector;
@@ -103,7 +104,7 @@ public class RecentTabsTest {
                 new ClientId(OfflinePageBridge.LAST_N_NAMESPACE, Integer.toString(tab.getId()));
 
         // The tab should be foreground and so no snapshot should exist.
-        TabModelSelector tabModelSelector = TabModelSelector.from(tab);
+        TabModelSelector tabModelSelector = mActivityTestRule.getActivity().getTabModelSelector();
         Assert.assertEquals(tabModelSelector.getCurrentTab(), tab);
         Assert.assertFalse(tab.isHidden());
         Assert.assertNull(OfflineTestUtil.getPageByClientId(firstTabClientId));

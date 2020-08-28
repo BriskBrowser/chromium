@@ -1,4 +1,7 @@
+# Note: don't add "+chrome/browser/ui" here, because it will
+# cause a circular dependency.  See crbug.com/1030821.
 include_rules = [
+  "+components/openscreen_platform",
   "+services/network",
   "+third_party/openscreen/src/cast/common/certificate/proto",
   "+third_party/openscreen/src/cast/common/channel/proto",

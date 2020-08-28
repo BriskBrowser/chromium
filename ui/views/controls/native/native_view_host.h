@@ -5,11 +5,16 @@
 #ifndef UI_VIEWS_CONTROLS_NATIVE_NATIVE_VIEW_HOST_H_
 #define UI_VIEWS_CONTROLS_NATIVE_NATIVE_VIEW_HOST_H_
 
+#include <memory>
 #include <string>
 
 #include "base/macros.h"
 #include "ui/gfx/native_widget_types.h"
 #include "ui/views/view.h"
+
+namespace gfx {
+class RoundedCornersF;
+}
 
 namespace views {
 namespace test {
@@ -46,14 +51,16 @@ class VIEWS_EXPORT NativeViewHost : public View {
   // detached before calling this function, and this has no effect in that case.
   void Detach();
 
-  // Sets the corner radius for clipping gfx::NativeView. Returns true on
-  // success or false if the platform doesn't support the operation.
-  // This method calls SetCustomMask internally.
-  bool SetCornerRadius(int corner_radius);
+  // Sets the corner radii for clipping gfx::NativeView. Returns true on success
+  // or false if the platform doesn't support the operation. This method calls
+  // SetCustomMask internally.
+  bool SetCornerRadii(const gfx::RoundedCornersF& corner_radii);
 
   // Sets the custom layer mask for clipping gfx::NativeView. Returns true on
   // success or false if the platform doesn't support the operation.
   // NB: This does not interact nicely with fast_resize.
+  // TODO(tluk): This is currently only being used to apply rounded corners in
+  // ash code. Migrate existing use to SetCornerRadii().
   bool SetCustomMask(std::unique_ptr<ui::LayerOwner> mask);
 
   // Sets the height of the top region where the gfx::NativeView shouldn't be

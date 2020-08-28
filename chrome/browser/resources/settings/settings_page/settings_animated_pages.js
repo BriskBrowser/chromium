@@ -57,21 +57,37 @@ Polymer({
    * @private
    */
   onIronSelect_(e) {
-    // Call initialFocus() on the selected subpage, only if:
+    // Ignore bubbling 'iron-select' events not originating from
+    // |animatedPages| itself.
+    if (e.target !== this.$.animatedPages) {
+      return;
+    }
+
+    // <if expr="chromeos">
+    // If the setting ID parameter is present, don't focus anything since
+    // a setting element will be deep linked and focused.
+    if (loadTimeData.valueExists('isOSSettings') &&
+        loadTimeData.getBoolean('isOSSettings') && getSettingIdParameter()) {
+      return;
+    }
+    // </if>
+
+    // Call focusBackButton() on the selected subpage, only if:
     //  1) Not a direct navigation (such that the search box stays focused), and
     //  2) Not a "back" navigation, in which case the anchor element should be
     //     focused (further below in this function).
-    if (this.previousRoute_ && !settings.lastRouteChangeWasPopstate()) {
+    if (this.previousRoute_ &&
+        !settings.Router.getInstance().lastRouteChangeWasPopstate()) {
       const subpage = this.querySelector('settings-subpage.iron-selected');
       if (subpage) {
-        subpage.initialFocus();
+        subpage.focusBackButton();
         return;
       }
     }
 
     // Don't attempt to focus any anchor element, unless last navigation was a
     // 'pop' (backwards) navigation.
-    if (!settings.lastRouteChangeWasPopstate()) {
+    if (!settings.Router.getInstance().lastRouteChangeWasPopstate()) {
       return;
     }
 
@@ -82,14 +98,21 @@ Polymer({
     // Ensure focus-config was correctly specified as a Polymer property.
     assert(this.focusConfig instanceof Map);
 
-    let pathConfig = this.focusConfig.get(this.previousRoute_.path);
+
+    const currentRoute = settings.Router.getInstance().getCurrentRoute();
+    const fromToKey = `${this.previousRoute_.path}_${currentRoute.path}`;
+
+    // Look for a key that captures both previous and current route first. If
+    // not found, then look for a key that only captures the previous route.
+    let pathConfig = this.focusConfig.get(fromToKey) ||
+        this.focusConfig.get(this.previousRoute_.path);
     if (pathConfig) {
       let handler;
-      if (typeof pathConfig == 'function') {
+      if (typeof pathConfig === 'function') {
         handler = pathConfig;
       } else {
         handler = () => {
-          if (typeof pathConfig == 'string') {
+          if (typeof pathConfig === 'string') {
             pathConfig = assert(this.querySelector(pathConfig));
           }
           cr.ui.focusWithoutInk(/** @type {!Element} */ (pathConfig));
@@ -130,7 +153,7 @@ Polymer({
   currentRouteChanged(newRoute, oldRoute) {
     this.previousRoute_ = oldRoute;
 
-    if (newRoute.section == this.section && newRoute.isSubpage()) {
+    if (newRoute.section === this.section && newRoute.isSubpage()) {
       this.switchToSubpage_(newRoute, oldRoute);
     } else {
       this.$.animatedPages.selected = 'default';
@@ -160,7 +183,7 @@ Polymer({
    * @private
    */
   ensureSubpageInstance_() {
-    const routePath = settings.getCurrentRoute().path;
+    const routePath = settings.Router.getInstance().getCurrentRoute().path;
     const domIf = this.querySelector(`dom-if[route-path='${routePath}']`);
 
     // Nothing to do if the subpage isn't wrapped in a <dom-if> or the template
@@ -170,8 +193,14 @@ Polymer({
     }
 
     // Set the subpage's id for use by neon-animated-pages.
-    const content = Polymer.DomIf._contentForTemplate(
-        /** @type {!HTMLTemplateElement} */ (domIf.firstElementChild));
+    const content =
+        /**
+           @type {!{_contentForTemplate:
+               function(!HTMLTemplateElement):!HTMLElement}}
+         */
+        (Polymer.DomIf)
+            ._contentForTemplate(
+                /** @type {!HTMLTemplateElement} */ (domIf.firstElementChild));
     const subpage = content.querySelector('settings-subpage');
     subpage.setAttribute('route-path', routePath);
 

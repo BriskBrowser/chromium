@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <memory>
 #include <utility>
+#include <vector>
 
 #include "base/strings/string_number_conversions.h"
 #include "mojo/public/cpp/bindings/remote.h"
@@ -22,9 +23,10 @@ const base::FilePath::CharType kFutureFileName[] =
     FILE_PATH_LITERAL("_future_name_");
 }
 
-class MojoDataItem : public storage::BlobDataItem::DataHandle {
+class MojoDataItem : public BlobDataItem::DataHandle {
  public:
-  MojoDataItem(mojom::BlobDataItemPtr element) : item_(std::move(element)) {
+  explicit MojoDataItem(mojom::BlobDataItemPtr element)
+      : item_(std::move(element)) {
     reader_.Bind(std::move(item_->reader));
   }
 
@@ -50,17 +52,6 @@ class MojoDataItem : public storage::BlobDataItem::DataHandle {
     // TODO(enne): this is tricky to implement, as it's synchronous.
     // PrintTo should ideally be asynchronous.  See: http://crbug.com/809821
     *os << "<MojoDataItem>";
-  }
-
-  const char* BytesReadHistogramLabel() const override {
-    switch (item_->type) {
-      case mojom::BlobDataItemType::kUnknown:
-        return nullptr;
-      case mojom::BlobDataItemType::kCacheStorage:
-        return "DiskCache.CacheStorage";
-      case mojom::BlobDataItemType::kIndexedDB:
-        return "IndexedDB";
-    }
   }
 
  protected:

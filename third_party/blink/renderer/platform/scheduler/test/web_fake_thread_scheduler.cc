@@ -7,6 +7,7 @@
 #include "base/single_thread_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
+#include "third_party/blink/public/common/input/web_input_event_attribution.h"
 #include "third_party/blink/renderer/platform/scheduler/public/thread.h"
 #include "third_party/blink/renderer/platform/scheduler/test/web_fake_widget_scheduler.h"
 
@@ -28,11 +29,6 @@ WebFakeThreadScheduler::DefaultTaskRunner() {
 
 scoped_refptr<base::SingleThreadTaskRunner>
 WebFakeThreadScheduler::CompositorTaskRunner() {
-  return nullptr;
-}
-
-scoped_refptr<base::SingleThreadTaskRunner>
-WebFakeThreadScheduler::IPCTaskRunner() {
   return nullptr;
 }
 
@@ -60,10 +56,12 @@ void WebFakeThreadScheduler::DidHandleInputEventOnCompositorThread(
     InputEventState event_state) {}
 
 void WebFakeThreadScheduler::WillPostInputEventToMainThread(
-    WebInputEvent::Type web_input_event_type) {}
+    WebInputEvent::Type web_input_event_type,
+    const WebInputEventAttribution& attribution) {}
 
 void WebFakeThreadScheduler::WillHandleInputEventOnMainThread(
-    WebInputEvent::Type web_input_event_type) {}
+    WebInputEvent::Type web_input_event_type,
+    const WebInputEventAttribution& attribution) {}
 
 void WebFakeThreadScheduler::DidHandleInputEventOnMainThread(
     const blink::WebInputEvent& web_input_event,

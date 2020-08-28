@@ -57,7 +57,7 @@ std::string VideoFrame::StorageTypeToString(
       return "OWNED_MEMORY";
     case VideoFrame::STORAGE_SHMEM:
       return "SHMEM";
-#if defined(OS_LINUX)
+#if defined(OS_LINUX) || defined(OS_CHROMEOS)
     case VideoFrame::STORAGE_DMABUFS:
       return "DMABUFS";
 #endif
@@ -74,7 +74,7 @@ std::string VideoFrame::StorageTypeToString(
 // static
 bool VideoFrame::IsStorageTypeMappable(VideoFrame::StorageType storage_type) {
   return
-#if defined(OS_LINUX)
+#if defined(OS_LINUX) || defined(OS_CHROMEOS)
       // This is not strictly needed but makes explicit that, at VideoFrame
       // level, DmaBufs are not mappable from userspace.
       storage_type != VideoFrame::STORAGE_DMABUFS &&
@@ -131,6 +131,7 @@ gfx::Size VideoFrame::SampleSize(VideoPixelFormat format, size_t plane) {
         case PIXEL_FORMAT_P016LE:
           return gfx::Size(2, 2);
 
+        case PIXEL_FORMAT_UYVY:
         case PIXEL_FORMAT_UNKNOWN:
         case PIXEL_FORMAT_YUY2:
         case PIXEL_FORMAT_ARGB:
@@ -193,6 +194,7 @@ static bool RequiresEvenSizeAllocation(VideoPixelFormat format) {
     case PIXEL_FORMAT_YUV422P12:
     case PIXEL_FORMAT_YUV444P12:
     case PIXEL_FORMAT_I420A:
+    case PIXEL_FORMAT_UYVY:
     case PIXEL_FORMAT_P016LE:
       return true;
     case PIXEL_FORMAT_UNKNOWN:
@@ -257,7 +259,7 @@ static base::Optional<VideoFrameLayout> GetDefaultLayout(
   return VideoFrameLayout::CreateWithPlanes(format, coded_size, planes);
 }
 
-#if defined(OS_LINUX)
+#if defined(OS_LINUX) || defined(OS_CHROMEOS)
 // This class allows us to embed a vector<ScopedFD> into a scoped_refptr, and
 // thus to have several VideoFrames share the same set of DMABUF FDs.
 class VideoFrame::DmabufHolder
@@ -275,7 +277,7 @@ class VideoFrame::DmabufHolder
   friend class base::RefCountedThreadSafe<DmabufHolder>;
   ~DmabufHolder() = default;
 };
-#endif  // defined(OS_LINUX)
+#endif  // defined(OS_LINUX) || defined(OS_CHROMEOS)
 
 // static
 bool VideoFrame::IsValidConfig(VideoPixelFormat format,
@@ -336,8 +338,7 @@ scoped_refptr<VideoFrame> VideoFrame::CreateVideoHoleFrame(
   scoped_refptr<VideoFrame> frame =
       new VideoFrame(*layout, StorageType::STORAGE_OPAQUE,
                      gfx::Rect(natural_size), natural_size, timestamp);
-  frame->metadata()->SetUnguessableToken(VideoFrameMetadata::OVERLAY_PLANE_ID,
-                                         overlay_plane_id);
+  frame->metadata()->overlay_plane_id = overlay_plane_id;
   return frame;
 }
 
@@ -364,7 +365,7 @@ scoped_refptr<VideoFrame> VideoFrame::WrapNativeTextures(
   if (format != PIXEL_FORMAT_ARGB && format != PIXEL_FORMAT_XRGB &&
       format != PIXEL_FORMAT_NV12 && format != PIXEL_FORMAT_I420 &&
       format != PIXEL_FORMAT_ABGR && format != PIXEL_FORMAT_XR30 &&
-      format != PIXEL_FORMAT_XB30) {
+      format != PIXEL_FORMAT_XB30 && format != PIXEL_FORMAT_P016LE) {
     DLOG(ERROR) << "Unsupported pixel format: "
                 << VideoPixelFormatToString(format);
     return nullptr;
@@ -588,7 +589,7 @@ scoped_refptr<VideoFrame> VideoFrame::WrapExternalGpuMemoryBuffer(
   return frame;
 }
 
-#if defined(OS_LINUX)
+#if defined(OS_LINUX) || defined(OS_CHROMEOS)
 // static
 scoped_refptr<VideoFrame> VideoFrame::WrapExternalDmabufs(
     const VideoFrameLayout& layout,
@@ -630,7 +631,7 @@ scoped_refptr<VideoFrame> VideoFrame::WrapExternalDmabufs(
 }
 #endif
 
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
 // static
 scoped_refptr<VideoFrame> VideoFrame::WrapCVPixelBuffer(
     CVPixelBufferRef cv_pixel_buffer,
@@ -724,7 +725,7 @@ scoped_refptr<VideoFrame> VideoFrame::WrapVideoFrame(
     }
   }
 
-#if defined(OS_LINUX)
+#if defined(OS_LINUX) || defined(OS_CHROMEOS)
   DCHECK(frame->dmabuf_fds_);
   // If there are any |dmabuf_fds_| plugged in, we should refer them too.
   wrapping_frame->dmabuf_fds_ = frame->dmabuf_fds_;
@@ -732,8 +733,7 @@ scoped_refptr<VideoFrame> VideoFrame::WrapVideoFrame(
 
   if (frame->storage_type() == STORAGE_SHMEM) {
     DCHECK(frame->shm_region_ && frame->shm_region_->IsValid());
-    wrapping_frame->BackWithSharedMemory(frame->shm_region_,
-                                         frame->shared_memory_offset());
+    wrapping_frame->BackWithSharedMemory(frame->shm_region_);
   }
 
   wrapping_frame->wrapped_frame_ = std::move(frame);
@@ -749,7 +749,7 @@ scoped_refptr<VideoFrame> VideoFrame::CreateEOSFrame() {
   }
   scoped_refptr<VideoFrame> frame = new VideoFrame(
       *layout, STORAGE_UNKNOWN, gfx::Rect(), gfx::Size(), kNoTimestamp);
-  frame->metadata()->SetBoolean(VideoFrameMetadata::END_OF_STREAM, true);
+  frame->metadata()->end_of_stream = true;
   return frame;
 }
 
@@ -864,6 +864,7 @@ int VideoFrame::BytesPerElement(VideoPixelFormat format, size_t plane) {
     case PIXEL_FORMAT_RGB24:
       return 3;
     case PIXEL_FORMAT_Y16:
+    case PIXEL_FORMAT_UYVY:
     case PIXEL_FORMAT_YUY2:
     case PIXEL_FORMAT_YUV420P9:
     case PIXEL_FORMAT_YUV422P9:
@@ -874,13 +875,17 @@ int VideoFrame::BytesPerElement(VideoPixelFormat format, size_t plane) {
     case PIXEL_FORMAT_YUV420P12:
     case PIXEL_FORMAT_YUV422P12:
     case PIXEL_FORMAT_YUV444P12:
-    case PIXEL_FORMAT_P016LE:
       return 2;
     case PIXEL_FORMAT_NV12:
     case PIXEL_FORMAT_NV21: {
       static const int bytes_per_element[] = {1, 2};
       DCHECK_LT(plane, base::size(bytes_per_element));
       return bytes_per_element[plane];
+    }
+    case PIXEL_FORMAT_P016LE: {
+      static const int bytes_per_element[] = {1, 2};
+      DCHECK_LT(plane, base::size(bytes_per_element));
+      return bytes_per_element[plane] * 2;
     }
     case PIXEL_FORMAT_YV12:
     case PIXEL_FORMAT_I420:
@@ -941,8 +946,7 @@ void VideoFrame::HashFrameForTesting(base::MD5Context* context,
   }
 }
 
-void VideoFrame::BackWithSharedMemory(base::UnsafeSharedMemoryRegion* region,
-                                      size_t offset) {
+void VideoFrame::BackWithSharedMemory(base::UnsafeSharedMemoryRegion* region) {
   DCHECK(!shm_region_);
   DCHECK(!owned_shm_region_.IsValid());
   // Either we should be backing a frame created with WrapExternal*, or we are
@@ -953,13 +957,11 @@ void VideoFrame::BackWithSharedMemory(base::UnsafeSharedMemoryRegion* region,
   DCHECK(region && region->IsValid());
   storage_type_ = STORAGE_SHMEM;
   shm_region_ = region;
-  shared_memory_offset_ = offset;
 }
 
 void VideoFrame::BackWithOwnedSharedMemory(
     base::UnsafeSharedMemoryRegion region,
-    base::WritableSharedMemoryMapping mapping,
-    size_t offset) {
+    base::WritableSharedMemoryMapping mapping) {
   DCHECK(!shm_region_);
   DCHECK(!owned_shm_region_.IsValid());
   // We should be backing a frame created with WrapExternal*. We cannot be
@@ -969,7 +971,6 @@ void VideoFrame::BackWithOwnedSharedMemory(
   owned_shm_region_ = std::move(region);
   shm_region_ = &owned_shm_region_;
   owned_shm_mapping_ = std::move(mapping);
-  shared_memory_offset_ = offset;
 }
 
 bool VideoFrame::IsMappable() const {
@@ -1004,6 +1005,17 @@ bool VideoFrame::HasGpuMemoryBuffer() const {
 gfx::GpuMemoryBuffer* VideoFrame::GetGpuMemoryBuffer() const {
   return wrapped_frame_ ? wrapped_frame_->GetGpuMemoryBuffer()
                         : gpu_memory_buffer_.get();
+}
+
+bool VideoFrame::IsSameAllocation(VideoPixelFormat format,
+                                  const gfx::Size& coded_size,
+                                  const gfx::Rect& visible_rect,
+                                  const gfx::Size& natural_size) const {
+  // CreateFrameInternal() changes coded_size to new_coded_size. Match that
+  // behavior here.
+  const gfx::Size new_coded_size = DetermineAlignedSize(format, coded_size);
+  return this->format() == format && this->coded_size() == new_coded_size &&
+         visible_rect_ == visible_rect && natural_size_ == natural_size;
 }
 
 gfx::ColorSpace VideoFrame::ColorSpace() const {
@@ -1050,7 +1062,7 @@ VideoFrame::mailbox_holder(size_t texture_index) const {
                         : mailbox_holders_[texture_index];
 }
 
-#if defined(OS_LINUX)
+#if defined(OS_LINUX) || defined(OS_CHROMEOS)
 const std::vector<base::ScopedFD>& VideoFrame::DmabufFds() const {
   DCHECK_EQ(storage_type_, STORAGE_DMABUFS);
 
@@ -1068,7 +1080,7 @@ bool VideoFrame::IsSameDmaBufsAs(const VideoFrame& frame) const {
 }
 #endif
 
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
 CVPixelBufferRef VideoFrame::CvPixelBuffer() const {
   return cv_pixel_buffer_.get();
 }
@@ -1109,8 +1121,8 @@ gpu::SyncToken VideoFrame::UpdateReleaseSyncToken(SyncTokenClient* client) {
   return release_sync_token_;
 }
 
-std::string VideoFrame::AsHumanReadableString() {
-  if (metadata()->IsTrue(VideoFrameMetadata::END_OF_STREAM))
+std::string VideoFrame::AsHumanReadableString() const {
+  if (metadata()->end_of_stream)
     return "end of stream";
 
   std::ostringstream s;
@@ -1133,7 +1145,7 @@ VideoFrame::VideoFrame(const VideoFrameLayout& layout,
       storage_type_(storage_type),
       visible_rect_(Intersection(visible_rect, gfx::Rect(layout.coded_size()))),
       natural_size_(natural_size),
-#if defined(OS_LINUX)
+#if defined(OS_LINUX) || defined(OS_CHROMEOS)
       dmabuf_fds_(base::MakeRefCounted<DmabufHolder>()),
 #endif
       timestamp_(timestamp),
@@ -1201,7 +1213,7 @@ scoped_refptr<VideoFrame> VideoFrame::CreateFrameInternal(
   // line up on sample boundaries. See discussion at http://crrev.com/1240833003
   const gfx::Size new_coded_size = DetermineAlignedSize(format, coded_size);
   auto layout = VideoFrameLayout::CreateWithStrides(
-      format, new_coded_size, ComputeStrides(format, coded_size));
+      format, new_coded_size, ComputeStrides(format, new_coded_size));
   if (!layout) {
     DLOG(ERROR) << "Invalid layout.";
     return nullptr;

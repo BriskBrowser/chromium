@@ -4,7 +4,7 @@
 
 package org.chromium.chrome.browser.payments;
 
-import android.support.test.filters.SmallTest;
+import androidx.test.filters.SmallTest;
 
 import org.junit.Assert;
 import org.junit.Before;
@@ -15,16 +15,15 @@ import org.junit.runner.RunWith;
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.Feature;
 import org.chromium.chrome.R;
-import org.chromium.chrome.browser.ChromeActivity;
-import org.chromium.chrome.browser.ChromeFeatureList;
-import org.chromium.chrome.browser.ChromeSwitches;
+import org.chromium.chrome.browser.app.ChromeActivity;
 import org.chromium.chrome.browser.autofill.AutofillTestHelper;
-import org.chromium.chrome.browser.autofill.CardType;
 import org.chromium.chrome.browser.autofill.PersonalDataManager.AutofillProfile;
 import org.chromium.chrome.browser.autofill.PersonalDataManager.CreditCard;
+import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.test.ChromeActivityTestRule;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.components.payments.MethodStrings;
+import org.chromium.components.payments.PaymentFeatureList;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.payments.mojom.PaymentMethodData;
 
@@ -63,8 +62,8 @@ public final class SkipToGPayHelperTest {
 
     private CreditCard makeCreditCard(String billingAddressProfileId) {
         return new CreditCard("", "https://example.com", true, true, "Jon Doe", "4111111111111111",
-                "1111", "12", "2050", "amex", R.drawable.amex_card, CardType.UNKNOWN,
-                billingAddressProfileId, /*serverId=*/"");
+                "1111", "12", "2050", "amex", R.drawable.amex_card, billingAddressProfileId,
+                /*serverId=*/"");
     }
 
     /**
@@ -81,13 +80,13 @@ public final class SkipToGPayHelperTest {
 
     /**
      * Verifies that when PAYMENT_REQUEST_SKIP_TO_GPAY_IF_NO_CARD is enabled, experiment is not
-     * activiated if user has a complete autofill instrument.
+     * activiated if user has a complete autofill card.
      */
     @Test
     @SmallTest
     @Feature({"Payments"})
-    @CommandLineFlags.Add({"disable-features=" + ChromeFeatureList.PAYMENT_REQUEST_SKIP_TO_GPAY,
-            "enable-features=" + ChromeFeatureList.PAYMENT_REQUEST_SKIP_TO_GPAY_IF_NO_CARD})
+    @CommandLineFlags.Add({"disable-features=" + PaymentFeatureList.PAYMENT_REQUEST_SKIP_TO_GPAY,
+            "enable-features=" + PaymentFeatureList.PAYMENT_REQUEST_SKIP_TO_GPAY_IF_NO_CARD})
     public void
     testSkipToGPayIfNoCard_HasCard() throws TimeoutException {
         String billingAddressProfileId = mHelper.setProfile(makeCompleteProfile());
@@ -97,13 +96,13 @@ public final class SkipToGPayHelperTest {
 
     /**
      * Verifies that when PAYMENT_REQUEST_SKIP_TO_GPAY_IF_NO_CARD is enabled, experiment is
-     * activated if user doesn't have a complete autofill instrument.
+     * activated if user doesn't have a complete autofill card.
      */
     @Test
     @SmallTest
     @Feature({"Payments"})
-    @CommandLineFlags.Add({"disable-features=" + ChromeFeatureList.PAYMENT_REQUEST_SKIP_TO_GPAY,
-            "enable-features=" + ChromeFeatureList.PAYMENT_REQUEST_SKIP_TO_GPAY_IF_NO_CARD})
+    @CommandLineFlags.Add({"disable-features=" + PaymentFeatureList.PAYMENT_REQUEST_SKIP_TO_GPAY,
+            "enable-features=" + PaymentFeatureList.PAYMENT_REQUEST_SKIP_TO_GPAY_IF_NO_CARD})
     public void
     testSkipToGPayIfNoCard_IncompleteCard() throws TimeoutException {
         mHelper.setCreditCard(makeCreditCard(/*billingAddressProfileId=*/""));
@@ -112,13 +111,13 @@ public final class SkipToGPayHelperTest {
 
     /**
      * Verifies that when PAYMENT_REQUEST_SKIP_TO_GPAY_IF_NO_CARD is enabled, experiment is
-     * activated if user doesn't have any autofill instrument.
+     * activated if user doesn't have any autofill card.
      */
     @Test
     @SmallTest
     @Feature({"Payments"})
-    @CommandLineFlags.Add({"disable-features=" + ChromeFeatureList.PAYMENT_REQUEST_SKIP_TO_GPAY,
-            "enable-features=" + ChromeFeatureList.PAYMENT_REQUEST_SKIP_TO_GPAY_IF_NO_CARD})
+    @CommandLineFlags.Add({"disable-features=" + PaymentFeatureList.PAYMENT_REQUEST_SKIP_TO_GPAY,
+            "enable-features=" + PaymentFeatureList.PAYMENT_REQUEST_SKIP_TO_GPAY_IF_NO_CARD})
     public void
     testSkipToGPayIfNoCard_NoCard() throws TimeoutException {
         assertCanActivateExperiment(true);
@@ -126,12 +125,12 @@ public final class SkipToGPayHelperTest {
 
     /**
      * Verifies that when PAYMENT_REQUEST_SKIP_TO_GPAY is enabled, experiment is activated
-     * regardless whether user has a complete autofill instrument or not.
+     * regardless whether user has a complete autofill card or not.
      */
     @Test
     @SmallTest
     @Feature({"Payments"})
-    @CommandLineFlags.Add({"enable-features=" + ChromeFeatureList.PAYMENT_REQUEST_SKIP_TO_GPAY})
+    @CommandLineFlags.Add({"enable-features=" + PaymentFeatureList.PAYMENT_REQUEST_SKIP_TO_GPAY})
     public void testSkipToGPay_AlwaysEnabled() throws TimeoutException {
         // At this point, there is no card in the profile.
         assertCanActivateExperiment(true);
@@ -144,13 +143,13 @@ public final class SkipToGPayHelperTest {
 
     /**
      * Verifies that when both experiment flags are disabled, experiment is not activated when user
-     * doesn't have any autofill instrument.
+     * doesn't have any autofill card.
      */
     @Test
     @SmallTest
     @Feature({"Payments"})
-    @CommandLineFlags.Add({"disable-features=" + ChromeFeatureList.PAYMENT_REQUEST_SKIP_TO_GPAY
-            + "," + ChromeFeatureList.PAYMENT_REQUEST_SKIP_TO_GPAY_IF_NO_CARD})
+    @CommandLineFlags.Add({"disable-features=" + PaymentFeatureList.PAYMENT_REQUEST_SKIP_TO_GPAY
+            + "," + PaymentFeatureList.PAYMENT_REQUEST_SKIP_TO_GPAY_IF_NO_CARD})
     public void
     testSkipToGPayDisabled_NoCard() throws TimeoutException {
         assertCanActivateExperiment(false);
@@ -158,13 +157,13 @@ public final class SkipToGPayHelperTest {
 
     /**
      * Verifies that when both experiment flags are disabled, experiment is not activated when user
-     * has a complete autofill instrument.
+     * has a complete autofill card.
      */
     @Test
     @SmallTest
     @Feature({"Payments"})
-    @CommandLineFlags.Add({"disable-features=" + ChromeFeatureList.PAYMENT_REQUEST_SKIP_TO_GPAY
-            + "," + ChromeFeatureList.PAYMENT_REQUEST_SKIP_TO_GPAY_IF_NO_CARD})
+    @CommandLineFlags.Add({"disable-features=" + PaymentFeatureList.PAYMENT_REQUEST_SKIP_TO_GPAY
+            + "," + PaymentFeatureList.PAYMENT_REQUEST_SKIP_TO_GPAY_IF_NO_CARD})
     public void
     testSkipToGPayDisabled_HasCard() throws TimeoutException {
         String billingAddressProfileId = mHelper.setProfile(makeCompleteProfile());

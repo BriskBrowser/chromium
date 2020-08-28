@@ -8,6 +8,7 @@
 <translation id="1046068652463704410">Εισαγωγή Ιαπωνικών (για πληκτρολόγιο ΗΠΑ)</translation>
 <translation id="1047956942837015229">Διαγραφή <ph name="COUNT" /> στοιχείων…</translation>
 <translation id="1049926623896334335">Έγγραφο του Word</translation>
+<translation id="1060368002126861100">Για να ανοίξετε αρχεία με την εφαρμογή <ph name="APP_NAME" />, αρχικά, μετακινήστε τα στον φάκελο Αρχεία Windows.</translation>
 <translation id="1062407476771304334">Αντικατάσταση</translation>
 <translation id="1065449928621190041">Πληκτρολόγιο με γαλλικούς χαρακτήρες (Καναδά)</translation>
 <translation id="1119069657431255176">Συμπιεσμένο αρχείο tar Bzip2</translation>
@@ -21,6 +22,7 @@
 <translation id="115443833402798225">Χανγκίλ Ahnmatae</translation>
 <translation id="1155759005174418845">Καταλανικά
 </translation>
+<translation id="1172970565351728681">Απομένουν περίπου <ph name="REMAINING_TIME" />.</translation>
 <translation id="1173894706177603556">Μετονομασία</translation>
 <translation id="117624967391683467">Αντιγραφή αρχείου <ph name="FILE_NAME" />…</translation>
 <translation id="1178581264944972037">Παύση</translation>
@@ -30,6 +32,7 @@
 <translation id="1243314992276662751">Μεταφόρτωση</translation>
 <translation id="1249250836236328755">Είδος</translation>
 <translation id="1278813325885878377">Πληκτρολόγιο Qwerty Ουγγρικών</translation>
+<translation id="1293556467332435079">Αρχεία</translation>
 <translation id="1297922636971898492">Το Google Drive δεν είναι διαθέσιμο αυτήν τη στιγμή. Η μεταφόρτωση θα ξεκινήσει ξανά, όταν το Google Drive είναι και πάλι διαθέσιμο.</translation>
 <translation id="1307931752636661898">Δεν είναι δυνατή η προβολή αρχείων Linux</translation>
 <translation id="1310751437842832374">Μεταγραφή (mausam → ନମସ୍ତେ)</translation>
@@ -45,6 +48,8 @@
 <translation id="1395262318152388157">Ρυθμιστικό αναζήτησης</translation>
 <translation id="1399648040768741453">Πληκτρολόγιο Τελούγκου (Φωνητικό)</translation>
 <translation id="1430915738399379752">Εκτύπωση</translation>
+<translation id="1433600251059882049">Αυτός ο φάκελος χρησιμοποιείται από κοινού με το Linux και τα Windows.</translation>
+<translation id="1435838927755162558">Κοινή χρήση φακέλου με το Parallels Desktop</translation>
 <translation id="1439494416798956626">Μετακινήθηκε στον φάκελο "<ph name="FOLDER_NAME" />".</translation>
 <translation id="1441841714100794440">Πληκτρολόγιο Βιετναμικών (Telex)</translation>
 <translation id="1455548678241328678">Πληκτρολόγιο με νορβηγικούς χαρακτήρες</translation>
@@ -79,6 +84,7 @@
 <translation id="1844692022597038441">Αυτό το αρχείο δεν είναι διαθέσιμο εκτός σύνδεσης.</translation>
 <translation id="184633654410729720">Πληκτρολόγιο Ταϊλανδικών (Kedmanee)</translation>
 <translation id="1847880352285315359">Αποθηκεύτηκε</translation>
+<translation id="1853795129690976061">Αυτός ο φάκελος χρησιμοποιείται από κοινού με το Linux.</translation>
 <translation id="1864756863218646478">Δεν ήταν δυνατή η εύρεση του αρχείου.</translation>
 <translation id="1921986354447415460">Πληκτρολόγιο Τουρκικών-F</translation>
 <translation id="1924372192547904021">Έγινε μορφοποίηση της συσκευής <ph name="DRIVE_NAME" /></translation>
@@ -91,6 +97,7 @@
 <translation id="1947424002851288782">Πληκτρολόγιο με γερμανικούς χαρακτήρες</translation>
 <translation id="1972984168337863910">Ανάπτυξη πλαισίων σχολίων αρχείων</translation>
 <translation id="1984603991036629094">Αρμενικό φωνητικό πληκτρολόγιο</translation>
+<translation id="1995337122023280937">Μετάβαση στην τοποθεσία αρχείου</translation>
 <translation id="2001796770603320721">Διαχείριση στο Drive</translation>
 <translation id="2009067268969781306">Η διαμόρφωση ενός δίσκου θα διαγράψει όλα τα δεδομένα που έχουν αποθηκευτεί σε αυτόν. Δεν είναι δυνατή η αναίρεση αυτής της ενέργειας.</translation>
 <translation id="2028997212275086731">Αρχείο RAR</translation>
@@ -102,7 +109,6 @@
 <translation id="2085470240340828803">Υπάρχει ήδη αρχείο με το όνομα "<ph name="FILENAME" />". Τι θέλετε να γίνει;</translation>
 <translation id="2121825465123208577">Προσαρμογή μεγέθους</translation>
 <translation id="2136953289241069843">Μεταγραφή (namaste → नमस्कार)</translation>
-<translation id="2138867954865495510">Δεν είναι δυνατό το άνοιγμα της διαδομής "<ph name="PATH" />": <ph name="ERROR_MESSAGE" /></translation>
 <translation id="2163152940313951844">Μη έγκυρος χαρακτήρας: <ph name="CHARACTER_NAME" /></translation>
 <translation id="2164862903024139959">Πληκτρολόγιο Βιετναμικών (TCVN)</translation>
 <translation id="2168214441502403371">Πληκτρολόγιο Περσικών</translation>
@@ -124,6 +130,7 @@
 <translation id="2384596874640104496">Πληκτρολόγιο Σινχάλα</translation>
 <translation id="240770291734945588"><ph name="SPACE_AVAILABLE" /> διαθέσιμα</translation>
 <translation id="2425665904502185219">Συνολικό μέγεθος αρχείου</translation>
+<translation id="2428749644083375155">Αντιγραφή <ph name="NUMBER_OF_ITEMS" /> στοιχείων στον φάκελο <ph name="FOLDER_NAME" /></translation>
 <translation id="2448312741937722512">Τύπος</translation>
 <translation id="2453576648990281505">Το αρχείο υπάρχει ήδη</translation>
 <translation id="2464079411014186876">Παγωτό</translation>
@@ -142,6 +149,7 @@
 <translation id="2638942478653899953">Δεν ήταν δυνατή η επικοινωνία με το Google Drive. <ph name="BEGIN_LINK" />Αποσυνδεθείτε<ph name="END_LINK" /> και συνδεθείτε ξανά.</translation>
 <translation id="2649120831653069427">Πέστροφες</translation>
 <translation id="2661146741306740526">16x9</translation>
+<translation id="2664412712123763093">Τοποθεσία αρχείου</translation>
 <translation id="2672394958563893062">Παρουσιάστηκε σφάλμα. Κάντε κλικ για επανεκκίνηση από την αρχή.</translation>
 <translation id="2676946222714718093">Αναπαραγωγή σε</translation>
 <translation id="2735698359135166290">Τυπικό πληκτρολόγιο Ρουμανικών</translation>
@@ -179,6 +187,7 @@
 <translation id="303198083543495566">Γεωγραφία</translation>
 <translation id="3057861065630527966">Δημιουργία αντιγράφων ασφαλείας για τις φωτογραφίες και τα βίντεό σας</translation>
 <translation id="3064388234319122767">Μεταγραφή (zdravo → здраво)</translation>
+<translation id="3067790092342515856">Αρχεία Windows</translation>
 <translation id="3078461028045006476">Μοιραστείτε με την επέκταση <ph name="EXTENSION_NAME" /></translation>
 <translation id="3088034400796962477">Μεταγραφή (salam ← سلام)</translation>
 <translation id="3116361045094675131">Πληκτρολόγιο με αγγλικούς χαρακτήρες (ΗΒ)</translation>
@@ -193,6 +202,7 @@
 <translation id="3236289833370040187">Η ιδιοκτησία θα μεταφερθεί στον τομέα <ph name="DESTINATION_DOMAIN" />.</translation>
 <translation id="3241720467332021590">Ιρλανδικά</translation>
 <translation id="3245321423178950146">Άγνωστος καλλιτέχνης</translation>
+<translation id="3248185426436836442">Σε εκκρεμότητα</translation>
 <translation id="3252266817569339921">Γαλλικά
 </translation>
 <translation id="3254434849914415189">Επιλέξτε την προεπιλεγμένη εφαρμογή για τα αρχεία <ph name="FILE_TYPE" />:</translation>
@@ -205,6 +215,7 @@
 <translation id="3335337277364016868">Έτος ηχογράφησης</translation>
 <translation id="3338239663705455570">Πληκτρολόγιο με σλοβενικούς χαρακτήρες</translation>
 <translation id="3353984535370177728">Επιλέξτε έναν φάκελο για μεταφόρτωση</translation>
+<translation id="3356580349448036450">Ολοκληρώθηκε</translation>
 <translation id="3399597614303179694">Πληκτρολόγιο Σλαβομακεδονικών</translation>
 <translation id="3414856743105198592">Η μορφοποίηση του αφαιρούμενου μέσου θα διαγράψει όλα τα δεδομένα. Θέλετε να συνεχίσετε;</translation>
 <translation id="3437801641691368414">Ώρα δημιουργίας</translation>
@@ -216,8 +227,10 @@
 <translation id="3495304270784461826"><ph name="COUNT" /> σφάλματα.</translation>
 <translation id="3519867315646775981">Μεταγραφή (shalom ← שלום)</translation>
 <translation id="3522708245912499433">Πορτογαλικά</translation>
+<translation id="3524311639100184459">Προσοχή: Αυτά τα αρχεία είναι προσωρινά και ενδέχεται να διαγραφούν αυτόματα για να απελευθερωθεί χώρος στη μονάδα δίσκου.  <ph name="BEGIN_LINK" />Μάθετε περισσότερα<ph name="END_LINK" /></translation>
 <translation id="3527085408025491307">Φάκελος</translation>
 <translation id="3549797760399244642">Μετάβαση στη διεύθυνση drive.google.com…</translation>
+<translation id="3553048479571901246">Για να ανοίξετε αρχεία με την εφαρμογή <ph name="APP_NAME" />, αρχικά, αντιγράψτε τα στον φάκελο Αρχεία Windows.</translation>
 <translation id="357479282490346887">Λιθουανικά
 </translation>
 <translation id="3583509704582854624">Αλφαριθμητική εισαγωγή (για πληκτρολόγιο Ιαπωνικών)</translation>
@@ -239,9 +252,11 @@
 <translation id="3780536599611287598">Δεν έχετε άδεια για τη μετακίνηση αρχείων στον φάκελο "<ph name="FOLDER_NAME" />".</translation>
 <translation id="3786301125658655746">Είστε εκτός σύνδεσης</translation>
 <translation id="3789841737615482174">Εγκατάσταση</translation>
+<translation id="3793469551756281394">Απομένουν περίπου <ph name="REMAINING_TIME_HOUR" /> <ph name="REMAINING_TIME_MINUTE" />.</translation>
 <translation id="3798449238516105146">Έκδοση</translation>
 <translation id="3801082500826908679">Φερόε</translation>
 <translation id="3809272675881623365">Κουνέλι</translation>
+<translation id="3810973564298564668">Διαχείριση</translation>
 <translation id="3811494700605067549">έχει επιλεγεί 1 αρχείο</translation>
 <translation id="3815016854028376614">Μέθοδος εισαγωγής Zhuyin</translation>
 <translation id="3825863595139017598">Μογγολικό πληκτρολόγιο</translation>
@@ -263,6 +278,7 @@
 <translation id="3943857333388298514">Επικόλληση</translation>
 <translation id="3958548648197196644">Ακτινίδιο</translation>
 <translation id="3966388904776714213">Πρόγραμμα αναπαραγωγής ήχου</translation>
+<translation id="3984317463833596033">Δώστε άδεια στο Parallels Desktop για τροποποίηση αρχείων στον φάκελο <ph name="FOLDER_NAME" />.</translation>
 <translation id="4002066346123236978">Τίτλος</translation>
 <translation id="4070370845051020638">Μέθοδος εισαγωγής Καντονέζικων</translation>
 <translation id="4072248638558688893">Πληκτρολόγιο Ταμίλ (Φωνητικό)</translation>
@@ -291,8 +307,10 @@
 <translation id="4470564870223067757">Σύνολο Χανγκίλ 2</translation>
 <translation id="4477219268485577442">Φωνητικό Βουλγαρικά</translation>
 <translation id="4479812471636796472">Πληκτρολόγιο Dvorak (ΗΠΑ)</translation>
+<translation id="4481711095103932593">Αυτός ο φάκελος χρησιμοποιείται από κοινού με τα Windows.</translation>
 <translation id="4487088045714738411">Πληκτρολόγιο με βελγικούς χαρακτήρες</translation>
 <translation id="4522570452068850558">Λεπτομέρειες</translation>
+<translation id="4542387084127299777">Δεν είναι δυνατό το άνοιγμα του αρχείου <ph name="PATH" /></translation>
 <translation id="4552678318981539154">Αγοράστε περισσότερο αποθηκευτικό χώρο</translation>
 <translation id="4559767610552730302">Εφέ Bokeh</translation>
 <translation id="4572815280350369984">Αρχείο <ph name="FILE_TYPE" /></translation>
@@ -300,6 +318,7 @@
 <translation id="4579744207439506346">Το <ph name="ENTRY_NAME" /> προστέθηκε στην επιλογή.</translation>
 <translation id="4582497162516204941">Εγκατάσταση με Linux (beta)</translation>
 <translation id="4594543368593301662">Εμφάνιση αποτελεσμάτων για <ph name="SEARCH_TERM" />.</translation>
+<translation id="4603392156942865207">Αντιγραφή αρχείου <ph name="FILE_NAME" /> στον φάκελο <ph name="FOLDER_NAME" /></translation>
 <translation id="4631887759990505102">Καλλιτέχνης</translation>
 <translation id="4656293982926141856">Αυτός ο υπολογιστής</translation>
 <translation id="4669606053856530811">Τα μέλη του "<ph name="SOURCE_NAME" />" θα χάσουν την πρόσβαση, εκτός εάν αυτά τα στοιχεία είναι κοινόχρηστα για τα συγκεκριμένα μέλη.</translation>
@@ -335,10 +354,12 @@
 <translation id="4880520557730313061">Αυτόματη επιδιόρθωση</translation>
 <translation id="4881695831933465202">Άνοιγμα</translation>
 <translation id="4886021172213954916">Πληκτρολόγιο Ταμίλ (Γραφομηχανής)</translation>
+<translation id="4900532980794411603">Κοινή χρήση με το Parallels Desktop</translation>
 <translation id="4905417359854579806">Έτοιμο για δημιουργία αντιγράφων ασφαλείας για <ph name="FILE_COUNT" /> αρχεία</translation>
 <translation id="4924638091161556692">Διορθώθηκε</translation>
 <translation id="4935975195727477204">Φυτό γκαζάνια</translation>
 <translation id="4943368462779413526">Αμερικάνικο ποδόσφαιρο</translation>
+<translation id="4961158930123534723">Μοιραστήκατε έναν φάκελο με το Parallels Desktop.</translation>
 <translation id="4969785127455456148">Λεύκωμα</translation>
 <translation id="497244430928947428">Πληκτρολόγιο Μαλαγιάλαμ (Φωνητικό)</translation>
 <translation id="4973523518332075481">Χρησιμοποιήστε ένα όνομα το οποίο αποτελείται από <ph name="MAX_LENGTH" /> χαρακτήρες ή λιγότερους</translation>
@@ -350,10 +371,12 @@
 <translation id="5010406651457630570">Υπολογιστές</translation>
 <translation id="5011233892417813670">Chromebook</translation>
 <translation id="5024856940085636730">Μια λειτουργία διαρκεί περισσότερο από το αναμενόμενο. Θέλετε να τη ματαιώσετε;</translation>
+<translation id="5036159836254554629">Διαχειριστείτε την κοινή χρήση με το Parallels Desktop</translation>
 <translation id="5038625366300922036">Δείτε περισσότερα…</translation>
 <translation id="5061708541166515394">Αντίθεση</translation>
 <translation id="5068919226082848014">Πίτσα</translation>
 <translation id="5081517858322016911">Θα διαγραφούν αρχεία που καταλαμβάνουν συνολικά <ph name="TOTAL_FILE_SIZE" /></translation>
+<translation id="508423945471810158">Μετακίνηση <ph name="NUMBER_OF_ITEMS" /> στοιχείων στον φάκελο <ph name="FOLDER_NAME" /></translation>
 <translation id="509429900233858213">Παρουσιάστηκε σφάλμα.</translation>
 <translation id="5098629044894065541">Εβραϊκά
 </translation>
@@ -402,6 +425,7 @@
 <translation id="5428105026674456456">Ισπανικά
 </translation>
 <translation id="5438282218546237410">Δεν υπάρχουν αποτελέσματα για <ph name="SEARCH_TERM" />.</translation>
+<translation id="5449551289610225147">Μη έγκυρος κωδικός πρόσβασης</translation>
 <translation id="5464696796438641524">Πληκτρολόγιο με πολωνικούς χαρακτήρες</translation>
 <translation id="5465122519792752163">Πληκτρολόγιο Νεπάλι (InScript)</translation>
 <translation id="5469868506864199649">Ιταλικά</translation>
@@ -460,6 +484,7 @@
 <translation id="6054173164583630569">Πληκτρολόγιο με γαλλικούς χαρακτήρες</translation>
 <translation id="6074825444536523002">Φόρμα Google</translation>
 <translation id="6096979789310008754">Έγινε κατάργηση του κειμένου αναζήτησης, εμφανίζονται όλα τα αρχεία και οι φάκελοι.</translation>
+<translation id="610101264611565198">Μετακίνηση αρχείου <ph name="FILE_NAME" /> στον φάκελο <ph name="FOLDER_NAME" /></translation>
 <translation id="6111770213269631447">Μεταγραφή (namaskar → নমস্কার)</translation>
 <translation id="6129953537138746214">Κενό</translation>
 <translation id="6133173853026656527">Μετακίνηση αρχείου <ph name="FILE_NAME" />…</translation>
@@ -500,9 +525,11 @@
 <translation id="656398493051028875">Διαγραφή αρχείου "<ph name="FILENAME" />"…</translation>
 <translation id="6581162200855843583">Σύνδεσμος του Google Drive</translation>
 <translation id="6607272825297743757">Πληροφορίες αρχείου</translation>
+<translation id="6609332149380188670">Μοιραστήκατε <ph name="NUMBER_OF_ITEMS" /> φακέλους με το Parallels Desktop.</translation>
 <translation id="6629841649550503054">Δημιουργήθηκαν αντίγραφα ασφαλείας για όλα τα αρχεία στο <ph name="BEGIN_LINK" />Google Drive!<ph name="END_LINK" /></translation>
 <translation id="6643016212128521049">Διαγραφή</translation>
 <translation id="6650726141019353908">Ροζ πεταλούδα</translation>
+<translation id="6657585470893396449">Κωδικός πρόσβασης</translation>
 <translation id="6710213216561001401">Προηγούμενο</translation>
 <translation id="6718273304615422081">Συμπίεση…</translation>
 <translation id="6751256176799620176">Επιλέχθηκε 1 φάκελος</translation>
@@ -512,6 +539,7 @@
 <translation id="6806699711453372963">Διαχείριση κοινοποίησης Linux</translation>
 <translation id="6808193438228982088">Αλεπού</translation>
 <translation id="6820687829547641339">Συμπιεσμένο αρχείο tar Gzip</translation>
+<translation id="6823166707458800069">Για όλα τα αρχεία που αποθηκεύονται σε αυτόν το φάκελο δημιουργούνται αυτόματα αντίγραφα ασφαλείας στο διαδίκτυο.</translation>
 <translation id="6825883775269213504">Ρωσικά
 </translation>
 <translation id="6827236167376090743">Αυτό το βίντεο θα συνεχίσει να παίζει για πάντα.</translation>
@@ -522,6 +550,7 @@
 <translation id="6878261347041253038">Πληκτρολόγιο Ντεβαναγκάρι (Φωνητικό)</translation>
 <translation id="6885780034956018177">Σαλιγκάρι</translation>
 <translation id="6896758677409633944">Αντιγραφή</translation>
+<translation id="6898028766943174120">Περισσότεροι υποφακέλοι…</translation>
 <translation id="691516599546977041">Δεν είναι δυνατή η αποθήκευση στον φάκελο <ph name="FOLDER_NAME" />. Οι επεξεργασμένες εικόνες θα αποθηκεύονται στον φάκελο Λήψεις.</translation>
 <translation id="6915678159055240887">Chromebox</translation>
 <translation id="6918340160281024199">ΗΠΑ Workman</translation>
@@ -534,6 +563,7 @@
 <translation id="696203921837389374">Ενεργοποίηση συγχρονισμού μέσω δεδομένων κινητής τηλεφωνίας</translation>
 <translation id="6965382102122355670">OK</translation>
 <translation id="6970230597523682626">Βουλγαρικά</translation>
+<translation id="6973630695168034713">Φάκελοι</translation>
 <translation id="6978611942794658017">Αυτό το αρχείο έχει σχεδιαστεί για έναν υπολογιστή ο οποίος χρησιμοποιεί λογισμικό Windows. Δεν είναι συμβατό με τη συσκευή σας η οποία χρησιμοποιεί Chrome OS. Αναζήτηστε μια κατάλληλη εφαρμογή αντικατάστασης στο Chrome Web Store.</translation>
 <translation id="6979158407327259162">Google Drive</translation>
 <translation id="6990081529015358884">Δεν υπάρχει ελεύθερος χώρος</translation>
@@ -567,6 +597,7 @@
 <translation id="7417705661718309329">Χάρτης Google</translation>
 <translation id="7419631653042041064">Πληκτρολόγιο με καταλανικούς χαρακτήρες</translation>
 <translation id="7434823369735508263">Πληκτρολόγιο Dvorak ΗΒ</translation>
+<translation id="7447678886297481665">Τα αρχεία σε αυτόν τον φάκελο είναι μόνο για ανάγνωση. Δεν υποστηρίζονται ορισμένες δραστηριότητες.</translation>
 <translation id="7460898608667578234">Ουκρανικά
 </translation>
 <translation id="7474889694310679759">Πληκτρολόγιο με αγγλικούς χαρακτήρες (Καναδά)</translation>
@@ -681,6 +712,7 @@
 <translation id="8475647382427415476">Το Google Drive δεν ήταν δυνατό να συγχρονίσει το "<ph name="FILENAME" />" αυτήν τη στιγμή. Δοκιμάστε ξανά αργότερα.</translation>
 <translation id="8477649328507734757">Έλικας</translation>
 <translation id="8487700953926739672">Διαθέσιμο εκτός σύνδεσης</translation>
+<translation id="8490342535582768689">Δώστε άδεια στο Parallels Desktop για τροποποίηση αρχείων στο Google Drive. Οι αλλαγές θα συγχρονιστούν με τις άλλες συσκευές σας.</translation>
 <translation id="8521441079177373948">ΗΒ</translation>
 <translation id="8525306231823319788">Πλήρης οθόνη</translation>
 <translation id="8551494947769799688">Λετονικά
@@ -720,6 +752,7 @@
 <translation id="9065203028668620118">Επεξεργασία</translation>
 <translation id="9099674669267916096">Πλήθος σελίδων</translation>
 <translation id="9110990317705400362">Αναζητούμε συνεχώς νέους τρόπους για να κάνουμε πιο ασφαλή την περιήγησή σας. Παλιότερα, ένας ιστότοπος μπορούσε να σας ζητήσει να προσθέσετε μια επέκταση στο πρόγραμμα περιήγησής σας. Στις πιο πρόσφατες εκδόσεις του Google Chrome, πρέπει να πείτε ρητά στο Chrome ότι επιθυμείτε την εγκατάσταση αυτών των επεκτάσεων, προσθέτοντάς τες μέσω της σελίδας "Επεκτάσεις". <ph name="BEGIN_LINK" />Μάθετε περισσότερα<ph name="END_LINK" /></translation>
+<translation id="9111102763498581341">Ξεκλείδωμα</translation>
 <translation id="912419004897138677">Κωδικοποιητής</translation>
 <translation id="9129931661813833980">Καρφίτσωμα φακέλου</translation>
 <translation id="9130775360844693113">Τα μέλη του "<ph name="DESTINATION_NAME" />" θα αποκτήσουν πρόσβαση σε αυτά τα στοιχεία.</translation>

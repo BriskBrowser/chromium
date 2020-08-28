@@ -14,6 +14,7 @@
 #include "base/numerics/safe_conversions.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/threading/thread_task_runner_handle.h"
+#include "base/trace_event/trace_event.h"
 #include "media/capture/mojom/image_capture_types.h"
 #include "media/capture/video/android/capture_jni_headers/VideoCapture_jni.h"
 #include "media/capture/video/android/photo_capabilities.h"
@@ -225,8 +226,8 @@ void VideoCaptureDeviceAndroid::TakePhoto(TakePhotoCallback callback) {
                            "wait for first frame",
                            TRACE_EVENT_SCOPE_PROCESS);
       photo_requests_queue_.push_back(
-          base::Bind(&VideoCaptureDeviceAndroid::DoTakePhoto,
-                     weak_ptr_factory_.GetWeakPtr(), base::Passed(&callback)));
+          base::BindOnce(&VideoCaptureDeviceAndroid::DoTakePhoto,
+                         weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
       return;
     }
   }
@@ -241,8 +242,8 @@ void VideoCaptureDeviceAndroid::GetPhotoState(GetPhotoStateCallback callback) {
       return;
     if (!got_first_frame_) {  // We have to wait until we get the first frame.
       photo_requests_queue_.push_back(
-          base::Bind(&VideoCaptureDeviceAndroid::DoGetPhotoState,
-                     weak_ptr_factory_.GetWeakPtr(), base::Passed(&callback)));
+          base::BindOnce(&VideoCaptureDeviceAndroid::DoGetPhotoState,
+                         weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
       return;
     }
   }
@@ -259,9 +260,9 @@ void VideoCaptureDeviceAndroid::SetPhotoOptions(
       return;
     if (!got_first_frame_) {  // We have to wait until we get the first frame.
       photo_requests_queue_.push_back(
-          base::Bind(&VideoCaptureDeviceAndroid::DoSetPhotoOptions,
-                     weak_ptr_factory_.GetWeakPtr(), base::Passed(&settings),
-                     base::Passed(&callback)));
+          base::BindOnce(&VideoCaptureDeviceAndroid::DoSetPhotoOptions,
+                         weak_ptr_factory_.GetWeakPtr(), std::move(settings),
+                         std::move(callback)));
       return;
     }
   }
@@ -602,8 +603,8 @@ void VideoCaptureDeviceAndroid::ProcessFirstFrameAvailable(
 
   // Set aside one frame allowance for fluctuation.
   expected_next_frame_time_ = current_time - frame_interval_;
-  for (const auto& request : photo_requests_queue_)
-    main_task_runner_->PostTask(FROM_HERE, request);
+  for (auto& request : photo_requests_queue_)
+    main_task_runner_->PostTask(FROM_HERE, std::move(request));
   photo_requests_queue_.clear();
 }
 

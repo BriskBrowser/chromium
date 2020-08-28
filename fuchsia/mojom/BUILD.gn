@@ -9,15 +9,31 @@ import("//testing/test.gni")
 
 mojom("example_interfaces") {
   testonly = true
-  sources = [
-    "example.mojom",
+  sources = [ "example.mojom" ]
+  cpp_typemaps = [
+    {
+      types = [
+        {
+          mojom = "fuchsia.test.mojom.TestInterfaceRequest"
+          cpp = "::fidl::InterfaceRequest<::base::fuchsia::testfidl::TestInterface>"
+          move_only = true
+        },
+      ]
+
+      traits_headers = [
+        "//base/fuchsia/testfidl/cpp/fidl.h",
+        "//fuchsia/mojom/test_interface_request_mojom_traits.h",
+      ]
+      traits_public_deps = [
+        ":traits",
+        "//base:testfidl",
+      ]
+    },
   ]
 }
 
 source_set("traits") {
-  sources = [
-    "fidl_interface_request_mojom_traits.h",
-  ]
+  sources = [ "fidl_interface_request_mojom_traits.h" ]
 
   public_deps = [
     "//mojo/public/cpp/platform",

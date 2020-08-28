@@ -11,7 +11,7 @@
 <link rel="import" href="storage_external.html">
 <link rel="import" href="../route_origin_behavior.html">
 <link rel="import" href="../../prefs/prefs.html">
-<link rel="import" href="../../route.html">
+<link rel="import" href="../os_route.html">
 <link rel="import" href="../../settings_shared_css.html">
 
 <dom-module id="settings-storage">
@@ -141,14 +141,14 @@
       }
 
       button > iron-icon {
-        --iron-icon-fill-color: var(--paper-grey-400);
+        --iron-icon-fill-color: var(--google-grey-400);
         --iron-icon-height: 24px;
         --iron-icon-width: 24px;
       }
     </style>
     <template is="dom-if" if="[[isSpaceLow_(sizeStat_.spaceState)]]">
       <div class="settings-box first">
-        <div class="message-area">
+        <div id="lowMessage" class="message-area">
           <iron-icon icon="cr:warning"></iron-icon>
           <div class="message">
             <div class="message-title">$i18n{storageSpaceLowMessageTitle}</div>
@@ -203,32 +203,49 @@
     </div>
     <cr-link-row id="myFilesSize" class="hr" on-click="onMyFilesTap_"
         label="$i18n{storageItemMyFiles}"
-        sub-label="$i18n{storageSizeComputing}" external></cr-link-row>
+        sub-label="$i18n{storageSizeComputing}" external>
+    </cr-link-row>
     <cr-link-row id="browsingDataSize" class="hr" on-click="onBrowsingDataTap_"
         label="$i18n{storageItemBrowsingData}"
-        sub-label="$i18n{storageSizeComputing}" external></cr-link-row>
-    <template is="dom-if" if="[[androidRunning_]]">
-      <cr-link-row id="androidSize" class="hr" on-click="onAndroidTap_"
-          label="$i18n{storageItemAndroid}"
-          sub-label="$i18n{storageSizeComputing}" external></cr-link-row>
-    </template>
+        sub-label="$i18n{storageSizeComputing}" external>
+    </cr-link-row>
+    <cr-link-row id="appsSize" class="hr" on-click="onAppsTap_"
+        label="$i18n{storageItemApps}"
+        sub-label="$i18n{storageSizeComputing}" external>
+    </cr-link-row>
     <template is="dom-if" if="[[showCrostiniStorage_]]">
       <cr-link-row id="crostiniSize" class="hr" on-click="onCrostiniTap_"
           label="$i18n{storageItemCrostini}"
           sub-label="$i18n{storageSizeComputing}"
-          role-description="$i18n{subpageArrowRoleDescription}"></cr-link-row>
+          role-description="$i18n{subpageArrowRoleDescription}">
+      </cr-link-row>
     </template>
-    <template is="dom-if" if="[[!isGuest_]]">
+    <template is="dom-if" if="[[showOtherUsers_]]">
       <cr-link-row id="otherUsersSize" class="hr" on-click="onOtherUsersTap_"
           label="$i18n{storageItemOtherUsers}"
           sub-label="$i18n{storageSizeComputing}"
-          role-description="$i18n{subpageArrowRoleDescription}"></cr-link-row>
+          role-description="$i18n{subpageArrowRoleDescription}">
+      </cr-link-row>
+    </template>
+    <template is="dom-if" if="[[!isGuest_]]">
+      <div id="systemSize"
+          class="settings-box two-line single-column stretch settings-box-text"
+          aria-describedby="systemSizeLabel"
+          aria-labelledby="systemSizeSubLabel">
+        <div id="systemSizeLabel" class="label" aria-hidden="true">
+          $i18n{storageItemSystem}
+        </div>
+        <div id="systemSizeSubLabel" class="secondary label" aria-hidden="true">
+          $i18n{storageSizeComputing}
+        </div>
+      </div>
     </template>
     <template is="dom-if" if="[[androidEnabled]]">
       <cr-link-row id="externalStoragePreferences" class="hr"
           on-click="onExternalStoragePreferencesTap_"
           label="$i18n{storageExternal}"
-          role-description="$i18n{subpageArrowRoleDescription}"></cr-link-row>
+          role-description="$i18n{subpageArrowRoleDescription}">
+      </cr-link-row>
     </template>
   </template>
   <script src="storage.js"></script>

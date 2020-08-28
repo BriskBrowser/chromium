@@ -19,11 +19,8 @@ class HTMLFrameElementTest : public testing::Test {};
 // fullscreen feature should be unconditionally disabled.
 TEST_F(HTMLFrameElementTest, DefaultContainerPolicy) {
   const KURL document_url("http://example.com");
-  DocumentInit init =
-      DocumentInit::Create()
-          .WithInitiatorOrigin(SecurityOrigin::Create(document_url))
-          .WithURL(document_url);
-  auto* document = MakeGarbageCollected<Document>(init);
+  auto* document = MakeGarbageCollected<Document>(
+      DocumentInit::Create().ForTest().WithURL(document_url));
 
   auto* frame_element = MakeGarbageCollected<HTMLFrameElement>(*document);
 
@@ -34,10 +31,10 @@ TEST_F(HTMLFrameElementTest, DefaultContainerPolicy) {
       frame_element->GetFramePolicy().container_policy;
   EXPECT_EQ(1UL, container_policy.size());
   // Fullscreen should be disabled in this frame
-  EXPECT_EQ(mojom::FeaturePolicyFeature::kFullscreen,
+  EXPECT_EQ(mojom::blink::FeaturePolicyFeature::kFullscreen,
             container_policy[0].feature);
-  EXPECT_EQ(0UL, container_policy[0].values.size());
-  EXPECT_GE(PolicyValue(false), container_policy[0].fallback_value);
+  EXPECT_TRUE(container_policy[0].allowed_origins.empty());
+  EXPECT_GE(false, container_policy[0].matches_all_origins);
 }
 
 }  // namespace blink

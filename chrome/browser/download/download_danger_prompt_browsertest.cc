@@ -22,6 +22,7 @@
 #include "components/safe_browsing/core/db/database_manager.h"
 #include "components/safe_browsing/core/proto/csd.pb.h"
 #include "content/public/browser/download_item_utils.h"
+#include "content/public/test/browser_test.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "url/gurl.h"
@@ -71,7 +72,7 @@ class DownloadDangerPromptTest : public InProcessBrowserTest {
         browser(), GURL("about:blank"),
         WindowOpenDisposition::NEW_FOREGROUND_TAB,
         ui_test_utils::BROWSER_TEST_WAIT_FOR_TAB |
-            ui_test_utils::BROWSER_TEST_WAIT_FOR_NAVIGATION);
+            ui_test_utils::BROWSER_TEST_WAIT_FOR_LOAD_STOP);
   }
 
   void SetUpExpectations(

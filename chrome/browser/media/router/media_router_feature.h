@@ -31,6 +31,14 @@ extern const base::Feature kCastMediaRouteProvider;
 // https://crbug.com/813974.
 extern const base::Feature kCastAllowAllIPsFeature;
 
+// Determine whether global media controls are used to start and stop casting.
+// Only relevant when media::kGlobalMediaControlsOverlayControls is enabled.
+extern const base::Feature kGlobalMediaControlsCastStartStop;
+
+// If enabled, allows all websites to request to start mirroring via
+// Presentation API. If disabled, only the allowlisted sites can do so.
+extern const base::Feature kAllowAllSitesToInitiateMirroring;
+
 namespace prefs {
 // Pref name for the enterprise policy for allowing Cast devices on all IPs.
 constexpr char kMediaRouterCastAllowAllIPs[] =
@@ -63,9 +71,8 @@ bool DialMediaRouteProviderEnabled();
 // enabled.
 bool CastMediaRouteProviderEnabled();
 
-// Returns true if Mirroring Service should be used for mirroring.
-bool ShouldUseMirroringService();
-
+// Returns true if global media controls are used to start and stop casting.
+bool GlobalMediaControlsCastStartStopEnabled();
 #endif  // !defined(OS_ANDROID)
 
 }  // namespace media_router

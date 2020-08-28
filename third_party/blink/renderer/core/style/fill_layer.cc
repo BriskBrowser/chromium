@@ -23,6 +23,7 @@
 
 #include "third_party/blink/renderer/core/layout/layout_object.h"
 #include "third_party/blink/renderer/core/style/data_equivalency.h"
+#include "third_party/blink/renderer/platform/wtf/size_assertions.h"
 
 namespace blink {
 
@@ -40,8 +41,7 @@ struct SameSizeAsFillLayer {
   unsigned bitfields2_;
 };
 
-static_assert(sizeof(FillLayer) == sizeof(SameSizeAsFillLayer),
-              "FillLayer should stay small");
+ASSERT_SIZE(FillLayer, SameSizeAsFillLayer);
 
 FillLayer::FillLayer(EFillLayerType type, bool use_initial_values)
     : next_(nullptr),
@@ -61,8 +61,6 @@ FillLayer::FillLayer(EFillLayerType type, bool use_initial_values)
               ? static_cast<unsigned>(FillLayer::InitialFillSizeType(type))
               : static_cast<unsigned>(EFillSizeType::kSizeNone)),
       blend_mode_(static_cast<unsigned>(FillLayer::InitialFillBlendMode(type))),
-      mask_source_type_(
-          static_cast<unsigned>(FillLayer::InitialFillMaskSourceType(type))),
       background_x_origin_(static_cast<unsigned>(BackgroundEdgeOrigin::kLeft)),
       background_y_origin_(static_cast<unsigned>(BackgroundEdgeOrigin::kTop)),
       image_set_(use_initial_values),
@@ -77,7 +75,6 @@ FillLayer::FillLayer(EFillLayerType type, bool use_initial_values)
       background_y_origin_set_(false),
       composite_set_(use_initial_values || type == EFillLayerType::kMask),
       blend_mode_set_(use_initial_values),
-      mask_source_type_set_(use_initial_values),
       type_(static_cast<unsigned>(type)),
       layers_clip_max_(0),
       any_layer_uses_content_box_(false),
@@ -101,7 +98,6 @@ FillLayer::FillLayer(const FillLayer& o)
       composite_(o.composite_),
       size_type_(o.size_type_),
       blend_mode_(o.blend_mode_),
-      mask_source_type_(o.mask_source_type_),
       background_x_origin_(o.background_x_origin_),
       background_y_origin_(o.background_y_origin_),
       image_set_(o.image_set_),
@@ -116,7 +112,6 @@ FillLayer::FillLayer(const FillLayer& o)
       background_y_origin_set_(o.background_y_origin_set_),
       composite_set_(o.composite_set_),
       blend_mode_set_(o.blend_mode_set_),
-      mask_source_type_set_(o.mask_source_type_set_),
       type_(o.type_),
       layers_clip_max_(0),
       any_layer_uses_content_box_(false),
@@ -152,7 +147,6 @@ FillLayer& FillLayer::operator=(const FillLayer& o) {
   repeat_x_ = o.repeat_x_;
   repeat_y_ = o.repeat_y_;
   size_type_ = o.size_type_;
-  mask_source_type_ = o.mask_source_type_;
 
   image_set_ = o.image_set_;
   attachment_set_ = o.attachment_set_;
@@ -164,7 +158,6 @@ FillLayer& FillLayer::operator=(const FillLayer& o) {
   repeat_y_set_ = o.repeat_y_set_;
   pos_x_set_ = o.pos_x_set_;
   pos_y_set_ = o.pos_y_set_;
-  mask_source_type_set_ = o.mask_source_type_set_;
 
   type_ = o.type_;
 
@@ -182,7 +175,6 @@ bool FillLayer::LayerPropertiesEqual(const FillLayer& o) const {
          composite_ == o.composite_ && blend_mode_ == o.blend_mode_ &&
          origin_ == o.origin_ && repeat_x_ == o.repeat_x_ &&
          repeat_y_ == o.repeat_y_ && size_type_ == o.size_type_ &&
-         mask_source_type_ == o.mask_source_type_ &&
          size_length_ == o.size_length_ && type_ == o.type_;
 }
 
@@ -399,7 +391,7 @@ bool FillLayer::ImageIsOpaque(const Document& document,
   // checking for IsEmpty.
   return image_->KnownToBeOpaque(document, style) &&
          !image_
-              ->ImageSize(document, style.EffectiveZoom(), LayoutSize(),
+              ->ImageSize(document, style.EffectiveZoom(), FloatSize(),
                           kRespectImageOrientation)
               .IsEmpty();
 }

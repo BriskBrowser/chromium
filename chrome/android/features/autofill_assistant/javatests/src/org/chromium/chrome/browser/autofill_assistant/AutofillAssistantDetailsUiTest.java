@@ -4,20 +4,22 @@
 
 package org.chromium.chrome.browser.autofill_assistant;
 
-import static android.support.test.espresso.Espresso.onView;
-import static android.support.test.espresso.assertion.ViewAssertions.matches;
-import static android.support.test.espresso.matcher.ViewMatchers.assertThat;
-import static android.support.test.espresso.matcher.ViewMatchers.isDisplayed;
-import static android.support.test.espresso.matcher.ViewMatchers.withContentDescription;
-import static android.support.test.espresso.matcher.ViewMatchers.withText;
 import static android.view.View.IMPORTANT_FOR_ACCESSIBILITY_AUTO;
 import static android.view.View.IMPORTANT_FOR_ACCESSIBILITY_NO;
+
+import static androidx.test.espresso.Espresso.onView;
+import static androidx.test.espresso.assertion.ViewAssertions.matches;
+import static androidx.test.espresso.matcher.ViewMatchers.assertThat;
+import static androidx.test.espresso.matcher.ViewMatchers.isDisplayed;
+import static androidx.test.espresso.matcher.ViewMatchers.withContentDescription;
+import static androidx.test.espresso.matcher.ViewMatchers.withText;
 
 import static org.hamcrest.Matchers.allOf;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.nullValue;
 
+import static org.chromium.chrome.browser.autofill_assistant.AutofillAssistantUiTestUtil.hasTypefaceSpan;
 import static org.chromium.chrome.browser.autofill_assistant.AutofillAssistantUiTestUtil.hasTypefaceStyle;
 import static org.chromium.chrome.browser.autofill_assistant.AutofillAssistantUiTestUtil.isImportantForAccessibility;
 import static org.chromium.chrome.browser.autofill_assistant.AutofillAssistantUiTestUtil.isTextMaxLines;
@@ -27,10 +29,11 @@ import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Typeface;
 import android.support.test.InstrumentationRegistry;
-import android.support.test.filters.MediumTest;
 import android.view.View;
 import android.widget.ImageView;
 import android.widget.TextView;
+
+import androidx.test.filters.MediumTest;
 
 import org.junit.Before;
 import org.junit.Rule;
@@ -39,11 +42,11 @@ import org.junit.runner.RunWith;
 
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.chrome.autofill_assistant.R;
-import org.chromium.chrome.browser.ChromeSwitches;
 import org.chromium.chrome.browser.autofill_assistant.details.AssistantDetails;
 import org.chromium.chrome.browser.autofill_assistant.details.AssistantDetailsCoordinator;
 import org.chromium.chrome.browser.autofill_assistant.details.AssistantDetailsModel;
 import org.chromium.chrome.browser.customtabs.CustomTabActivityTestRule;
+import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 
 /** Tests for the Autofill Assistant details. */
@@ -380,5 +383,33 @@ public class AutofillAssistantDetailsUiTest {
                 .check(matches(hasTypefaceStyle(Typeface.BOLD_ITALIC)));
         onView(is(viewHolder.mPriceAttributionView))
                 .check(matches(hasTypefaceStyle(Typeface.BOLD_ITALIC)));
+    }
+
+    @Test
+    @MediumTest
+    public void testStyleSpans() throws Exception {
+        AssistantDetailsModel model = new AssistantDetailsModel();
+        AssistantDetailsCoordinator coordinator = createCoordinator(model);
+        ViewHolder viewHolder = runOnUiThreadBlocking(() -> new ViewHolder(coordinator.getView()));
+
+        runOnUiThreadBlocking(() -> {
+            model.set(AssistantDetailsModel.DETAILS,
+                    new AssistantDetails("<b>title</b>", 1, "image", "hint", null, false,
+                            "<b>Total</b>", "<b>$12</b>", "<b>line 1</b>", "<b>line 2</b>", "",
+                            "<b>line 3</b>", false, false, false, false, false, false));
+        });
+
+        onView(withText("title"))
+                .check(matches(hasTypefaceSpan(0, "title".length() - 1, Typeface.BOLD)));
+        onView(withText("Total"))
+                .check(matches(hasTypefaceSpan(0, "Total".length() - 1, Typeface.BOLD)));
+        onView(withText("$12"))
+                .check(matches(hasTypefaceSpan(0, "$12".length() - 1, Typeface.BOLD)));
+        onView(withText("line 1"))
+                .check(matches(hasTypefaceSpan(0, "line 1".length() - 1, Typeface.BOLD)));
+        onView(withText("line 2"))
+                .check(matches(hasTypefaceSpan(0, "line 2".length() - 1, Typeface.BOLD)));
+        onView(withText("line 3"))
+                .check(matches(hasTypefaceSpan(0, "line 3".length() - 1, Typeface.BOLD)));
     }
 }

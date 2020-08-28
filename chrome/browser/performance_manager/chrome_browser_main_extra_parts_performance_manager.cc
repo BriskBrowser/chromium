@@ -15,28 +15,38 @@
 #include "chrome/browser/performance_manager/decorators/helpers/page_live_state_decorator_helper.h"
 #include "chrome/browser/performance_manager/decorators/page_aggregator.h"
 #include "chrome/browser/performance_manager/decorators/process_metrics_decorator.h"
-#include "chrome/browser/performance_manager/graph/policies/policy_features.h"
-#include "chrome/browser/performance_manager/graph/policies/urgent_page_discarding_policy.h"
-#include "chrome/browser/performance_manager/graph/policies/working_set_trimmer_policy.h"
+#include "chrome/browser/performance_manager/metrics/memory_pressure_metrics.h"
 #include "chrome/browser/performance_manager/observers/isolation_context_metrics.h"
 #include "chrome/browser/performance_manager/observers/metrics_collector.h"
+#include "chrome/browser/performance_manager/policies/background_tab_loading_policy.h"
+#include "chrome/browser/performance_manager/policies/high_pmf_discard_policy.h"
+#include "chrome/browser/performance_manager/policies/policy_features.h"
+#include "chrome/browser/performance_manager/policies/working_set_trimmer_policy.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "components/performance_manager/embedder/performance_manager_lifetime.h"
 #include "components/performance_manager/embedder/performance_manager_registry.h"
-#include "components/performance_manager/performance_manager_lock_observer.h"
+#include "components/performance_manager/performance_manager_feature_observer_client.h"
+#include "components/performance_manager/public/decorators/page_load_tracker_decorator_helper.h"
+#include "components/performance_manager/public/features.h"
 #include "components/performance_manager/public/graph/graph.h"
+#include "components/performance_manager/public/graph/policies/tab_loading_frame_navigation_policy.h"
 #include "content/public/browser/storage_partition.h"
 #include "content/public/common/content_features.h"
 
-#if defined(OS_LINUX)
+#if defined(OS_CHROMEOS)
 #include "base/allocator/buildflags.h"
+#include "chrome/browser/performance_manager/policies/userspace_swap_policy_chromeos.h"
+
 #if BUILDFLAG(USE_TCMALLOC)
-#include "chrome/browser/performance_manager/graph/policies/dynamic_tcmalloc_policy_linux.h"
+#include "chrome/browser/performance_manager/policies/dynamic_tcmalloc_policy_chromeos.h"
 #include "chrome/common/performance_manager/mojom/tcmalloc.mojom.h"
 #endif  // BUILDFLAG(USE_TCMALLOC)
-#endif  // defined(OS_LINUX)
+
+#endif  // defined(OS_CHROMEOS)
 
 #if !defined(OS_ANDROID)
+#include "chrome/browser/performance_manager/policies/page_discarding_helper.h"
+#include "chrome/browser/performance_manager/policies/urgent_page_discarding_policy.h"
 #include "chrome/browser/tab_contents/form_interaction_tab_helper.h"
 #endif  // !defined(OS_ANDROID)
 
@@ -46,8 +56,9 @@ ChromeBrowserMainExtraPartsPerformanceManager* g_instance = nullptr;
 
 ChromeBrowserMainExtraPartsPerformanceManager::
     ChromeBrowserMainExtraPartsPerformanceManager()
-    : lock_observer_(std::make_unique<
-                     performance_manager::PerformanceManagerLockObserver>()) {
+    : feature_observer_client_(
+          std::make_unique<
+              performance_manager::PerformanceManagerFeatureObserverClient>()) {
   DCHECK(!g_instance);
   g_instance = this;
 }
@@ -82,7 +93,13 @@ void ChromeBrowserMainExtraPartsPerformanceManager::CreatePoliciesAndDecorators(
                            CreatePolicyForPlatform());
   }
 
-#if defined(OS_LINUX)
+#if defined(OS_CHROMEOS)
+  if (performance_manager::policies::UserspaceSwapPolicy::
+          UserspaceSwapSupportedAndEnabled()) {
+    graph->PassToGraph(
+        std::make_unique<performance_manager::policies::UserspaceSwapPolicy>());
+  }
+
 #if BUILDFLAG(USE_TCMALLOC)
   if (base::FeatureList::IsEnabled(
           performance_manager::features::kDynamicTcmallocTuning)) {
@@ -90,7 +107,7 @@ void ChromeBrowserMainExtraPartsPerformanceManager::CreatePoliciesAndDecorators(
                        performance_manager::policies::DynamicTcmallocPolicy>());
   }
 #endif  // BUILDFLAG(USE_TCMALLOC)
-#endif  // defined(OS_LINUX)
+#endif  // defined(OS_CHROMEOS)
 
 #if !defined(OS_ANDROID)
   graph->PassToGraph(FormInteractionTabHelper::CreateGraphObserver());
@@ -98,16 +115,42 @@ void ChromeBrowserMainExtraPartsPerformanceManager::CreatePoliciesAndDecorators(
   if (base::FeatureList::IsEnabled(
           performance_manager::features::
               kUrgentDiscardingFromPerformanceManager)) {
+    graph->PassToGraph(std::make_unique<
+                       performance_manager::policies::PageDiscardingHelper>());
     graph->PassToGraph(
         std::make_unique<
             performance_manager::policies::UrgentPageDiscardingPolicy>());
   }
+
+  if (base::FeatureList::IsEnabled(
+          performance_manager::features::
+              kBackgroundTabLoadingFromPerformanceManager)) {
+    graph->PassToGraph(
+        std::make_unique<
+            performance_manager::policies::BackgroundTabLoadingPolicy>());
+  }
+
+  if (base::FeatureList::IsEnabled(
+          performance_manager::features::kHighPMFDiscardPolicy)) {
+    graph->PassToGraph(std::make_unique<
+                       performance_manager::policies::HighPMFDiscardPolicy>());
+  }
 #endif  // !defined(OS_ANDROID)
+
+  graph->PassToGraph(
+      std::make_unique<performance_manager::metrics::MemoryPressureMetrics>());
+
+  if (base::FeatureList::IsEnabled(
+          performance_manager::features::kTabLoadingFrameNavigationThrottles)) {
+    graph->PassToGraph(
+        std::make_unique<
+            performance_manager::policies::TabLoadingFrameNavigationPolicy>());
+  }
 }
 
-content::LockObserver*
-ChromeBrowserMainExtraPartsPerformanceManager::GetLockObserver() {
-  return lock_observer_.get();
+content::FeatureObserverClient*
+ChromeBrowserMainExtraPartsPerformanceManager::GetFeatureObserverClient() {
+  return feature_observer_client_.get();
 }
 
 void ChromeBrowserMainExtraPartsPerformanceManager::PostCreateThreads() {
@@ -127,6 +170,8 @@ void ChromeBrowserMainExtraPartsPerformanceManager::PostCreateThreads() {
 
   page_live_state_data_helper_ =
       std::make_unique<performance_manager::PageLiveStateDecoratorHelper>();
+  page_load_tracker_decorator_helper_ =
+      std::make_unique<performance_manager::PageLoadTrackerDecoratorHelper>();
 }
 
 void ChromeBrowserMainExtraPartsPerformanceManager::PostMainMessageLoopRun() {
@@ -138,13 +183,13 @@ void ChromeBrowserMainExtraPartsPerformanceManager::PostMainMessageLoopRun() {
   g_browser_process->profile_manager()->RemoveObserver(this);
   observed_profiles_.RemoveAll();
 
+  page_load_tracker_decorator_helper_.reset();
   page_live_state_data_helper_.reset();
 
-  // There may still be WebContents and RenderProcessHosts with attached user
-  // data, retaining PageNodes, FrameNodes and ProcessNodes. Tear down the
-  // registry to release these nodes. There is no convenient later call-out to
-  // destroy the performance manager after all WebContents and
-  // RenderProcessHosts have been destroyed.
+  // There may still be worker hosts, WebContents and RenderProcessHosts with
+  // attached user data, retaining WorkerNodes, PageNodes, FrameNodes and
+  // ProcessNodes. Tear down the registry to release these nodes. After this,
+  // there is no convenient call-out to destroy the performance manager.
   registry_->TearDown();
   registry_.reset();
 

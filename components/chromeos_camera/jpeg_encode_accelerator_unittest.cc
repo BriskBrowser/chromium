@@ -31,7 +31,7 @@
 #include "media/gpu/buildflags.h"
 #include "media/gpu/chromeos/generic_dmabuf_video_frame_mapper.h"
 #include "media/gpu/test/local_gpu_memory_buffer_manager.h"
-#include "media/gpu/test/video_accelerator_unittest_helpers.h"
+#include "media/gpu/test/video_test_helpers.h"
 #include "media/parsers/jpeg_parser.h"
 #include "mojo/core/embedder/embedder.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -644,7 +644,8 @@ void JpegClient::StartEncodeDmaBuf(int32_t bitstream_buffer_id) {
 
   auto input_buffer = gpu_memory_buffer_manager_->CreateGpuMemoryBuffer(
       test_image->visible_size, gfx::BufferFormat::YUV_420_BIPLANAR,
-      gfx::BufferUsage::SCANOUT_CAMERA_READ_WRITE, gpu::kNullSurfaceHandle);
+      gfx::BufferUsage::SCANOUT_VEA_READ_CAMERA_AND_CPU_READ_WRITE,
+      gpu::kNullSurfaceHandle);
   ASSERT_EQ(input_buffer->Map(), true);
 
   uint8_t* plane_buf[2] = {static_cast<uint8_t*>(input_buffer->memory(0)),

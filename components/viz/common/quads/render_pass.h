@@ -7,18 +7,22 @@
 
 #include <stddef.h>
 
+#include <memory>
 #include <utility>
 #include <vector>
 
 #include "base/callback.h"
 #include "base/hash/hash.h"
 #include "base/macros.h"
+#include "base/util/type_safety/id_type.h"
 #include "cc/base/list_container.h"
 #include "cc/paint/filter_operations.h"
 #include "components/viz/common/quads/draw_quad.h"
 #include "components/viz/common/quads/largest_draw_quad.h"
+#include "components/viz/common/quads/quad_list.h"
+#include "components/viz/common/quads/render_pass_internal.h"
 #include "components/viz/common/viz_common_export.h"
-#include "ui/gfx/color_space.h"
+#include "ui/gfx/display_color_spaces.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/rrect_f.h"
 #include "ui/gfx/transform.h"
@@ -30,37 +34,19 @@ class TracedValue;
 }  // namespace base
 
 namespace viz {
-class CopyOutputRequest;
+class AggregatedRenderPass;
+class AggregatedRenderPassDrawQuad;
 class DrawQuad;
+class RenderPass;
 class RenderPassDrawQuad;
-class SharedQuadState;
 
-// A list of DrawQuad objects, sorted internally in front-to-back order. To
-// add a new quad drawn behind another quad, it must be placed after the other
-// quad.
-class VIZ_COMMON_EXPORT QuadList : public cc::ListContainer<DrawQuad> {
- public:
-  QuadList();
-  explicit QuadList(size_t default_size_to_reserve);
+using RenderPassId = util::IdTypeU64<RenderPass>;
 
-  typedef QuadList::ReverseIterator BackToFrontIterator;
-  typedef QuadList::ConstReverseIterator ConstBackToFrontIterator;
-
-  inline BackToFrontIterator BackToFrontBegin() { return rbegin(); }
-  inline BackToFrontIterator BackToFrontEnd() { return rend(); }
-  inline ConstBackToFrontIterator BackToFrontBegin() const { return rbegin(); }
-  inline ConstBackToFrontIterator BackToFrontEnd() const { return rend(); }
-
-  // This function is used by overlay algorithm to fill the backbuffer with
-  // transparent black.
-  void ReplaceExistingQuadWithOpaqueTransparentSolidColor(Iterator at);
-};
-
-using SharedQuadStateList = cc::ListContainer<SharedQuadState>;
-
-using RenderPassId = uint64_t;
-
-class VIZ_COMMON_EXPORT RenderPass {
+// This class represents a render pass that is submitted from the UI or renderer
+// compositor to viz. It is mojo-serializable and typically has a unique
+// RenderPassId within its surface id.
+// TODO(vmpstr): Rename this to CompositorRenderPass.
+class VIZ_COMMON_EXPORT RenderPass : public RenderPassInternal {
  public:
   ~RenderPass();
 
@@ -68,17 +54,6 @@ class VIZ_COMMON_EXPORT RenderPass {
   static std::unique_ptr<RenderPass> Create(size_t num_layers);
   static std::unique_ptr<RenderPass> Create(size_t shared_quad_state_list_size,
                                             size_t quad_list_size);
-
-  // A shallow copy of the render pass, which does not include its quads or copy
-  // requests.
-  std::unique_ptr<RenderPass> Copy(int new_id) const;
-
-  // A deep copy of the render pass that includes quads.
-  std::unique_ptr<RenderPass> DeepCopy() const;
-
-  // A deep copy of the render passes in the list including the quads.
-  static void CopyAll(const std::vector<std::unique_ptr<RenderPass>>& in,
-                      std::vector<std::unique_ptr<RenderPass>>* out);
 
   void SetNew(RenderPassId id,
               const gfx::Rect& output_rect,
@@ -92,7 +67,7 @@ class VIZ_COMMON_EXPORT RenderPass {
               const cc::FilterOperations& filters,
               const cc::FilterOperations& backdrop_filters,
               const base::Optional<gfx::RRectF>& backdrop_filter_bounds,
-              const gfx::ColorSpace& color_space,
+              gfx::ContentColorUsage content_color_usage,
               bool has_transparent_background,
               bool cache_render_pass,
               bool has_damage_from_contributing_content,
@@ -100,73 +75,37 @@ class VIZ_COMMON_EXPORT RenderPass {
 
   void AsValueInto(base::trace_event::TracedValue* dict) const;
 
-  SharedQuadState* CreateAndAppendSharedQuadState();
-
   template <typename DrawQuadType>
   DrawQuadType* CreateAndAppendDrawQuad() {
+    static_assert(
+        !std::is_same<DrawQuadType, AggregatedRenderPassDrawQuad>::value,
+        "cannot create RenderPassDrawQuad in AggregatedRenderPass");
     return quad_list.AllocateAndConstruct<DrawQuadType>();
   }
 
+  // Uniquely identifies the render pass in the compositor's current frame.
+  RenderPassId id;
+
+  // For testing functions.
+  // TODO(vmpstr): See if we can clean these up by moving the tests to use
+  // AggregatedRenderPasses where appropriate.
   RenderPassDrawQuad* CopyFromAndAppendRenderPassDrawQuad(
       const RenderPassDrawQuad* quad,
       RenderPassId render_pass_id);
   DrawQuad* CopyFromAndAppendDrawQuad(const DrawQuad* quad);
 
-  // Uniquely identifies the render pass in the compositor's current frame.
-  RenderPassId id = 0;
-
-  // These are in the space of the render pass' physical pixels.
-  gfx::Rect output_rect;
-  gfx::Rect damage_rect;
-
-  // Transforms from the origin of the |output_rect| to the origin of the root
-  // render pass' |output_rect|.
-  gfx::Transform transform_to_root_target;
-
-  // Post-processing filters, applied to the pixels in the render pass' texture.
-  cc::FilterOperations filters;
-
-  // Post-processing filters, applied to the pixels showing through the
-  // backdrop of the render pass, from behind it.
-  cc::FilterOperations backdrop_filters;
-
-  // Clipping bounds for backdrop filter.
-  base::Optional<gfx::RRectF> backdrop_filter_bounds;
-
-  // The color space into which content will be rendered for this render pass.
-  gfx::ColorSpace color_space = gfx::ColorSpace::CreateSRGB();
-
-  // If false, the pixels in the render pass' texture are all opaque.
-  bool has_transparent_background = true;
-
-  // If true we might reuse the texture if there is no damage.
-  bool cache_render_pass = false;
-  // Indicates whether there is accumulated damage from contributing render
-  // surface or layer or surface quad. Not including property changes on itself.
-  bool has_damage_from_contributing_content = false;
-
-  // Generate mipmap for trilinear filtering, applied to render pass' texture.
-  bool generate_mipmap = false;
-
-  // If non-empty, the renderer should produce a copy of the render pass'
-  // contents as a bitmap, and give a copy of the bitmap to each callback in
-  // this list.
-  std::vector<std::unique_ptr<CopyOutputRequest>> copy_requests;
-
-  QuadList quad_list;
-  SharedQuadStateList shared_quad_state_list;
+  // A deep copy of the render pass that includes quads.
+  std::unique_ptr<RenderPass> DeepCopy() const;
 
  protected:
-  explicit RenderPass(size_t num_layers);
+  // This is essentially "using RenderPassInternal::RenderPassInternal", but
+  // since that generates inline (complex) ctors, the chromium-style plug-in
+  // refuses to compile it.
   RenderPass();
+  explicit RenderPass(size_t num_layers);
   RenderPass(size_t shared_quad_state_list_size, size_t quad_list_size);
 
  private:
-  template <typename DrawQuadType>
-  DrawQuadType* CopyFromAndAppendTypedDrawQuad(const DrawQuad* quad) {
-    return quad_list.AllocateAndCopyFrom(DrawQuadType::MaterialCast(quad));
-  }
-
   DISALLOW_COPY_AND_ASSIGN(RenderPass);
 };
 

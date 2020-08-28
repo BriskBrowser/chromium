@@ -10,6 +10,7 @@
 #include "base/feature_list.h"
 #include "base/memory/ptr_util.h"
 #include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
 #include "base/task_runner_util.h"
 #include "build/build_config.h"
 
@@ -37,8 +38,8 @@ constexpr base::TimeDelta kDefaultRefreshInterval =
 
 SystemMonitor::SystemMonitor(
     std::unique_ptr<MetricEvaluatorsHelper> metric_evaluators_helper)
-    : blocking_task_runner_(base::CreateSequencedTaskRunner(
-          {base::ThreadPool(), base::MayBlock(),
+    : blocking_task_runner_(base::ThreadPool::CreateSequencedTaskRunner(
+          {base::MayBlock(),
            base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN})),
       metric_evaluators_helper_(
           metric_evaluators_helper.release(),
@@ -199,8 +200,8 @@ void SystemMonitor::UpdateObservedMetrics() {
   } else if (!refresh_timer_.IsRunning() ||
              refresh_interval != refresh_timer_.GetCurrentDelay()) {
     refresh_timer_.Start(FROM_HERE, refresh_interval,
-                         base::BindRepeating(&SystemMonitor::RefreshCallback,
-                                             base::Unretained(this)));
+                         base::BindOnce(&SystemMonitor::RefreshCallback,
+                                        base::Unretained(this)));
   }
 }
 
@@ -212,9 +213,9 @@ void SystemMonitor::RefreshCallback() {
       base::BindOnce(&SystemMonitor::NotifyObservers,
                      weak_factory_.GetWeakPtr()));
 
-  refresh_timer_.Start(FROM_HERE, refresh_timer_.GetCurrentDelay(),
-                       base::BindRepeating(&SystemMonitor::RefreshCallback,
-                                           base::Unretained(this)));
+  refresh_timer_.Start(
+      FROM_HERE, refresh_timer_.GetCurrentDelay(),
+      base::BindOnce(&SystemMonitor::RefreshCallback, base::Unretained(this)));
 }
 
 void SystemMonitor::NotifyObservers(SystemMonitor::MetricVector metrics) {

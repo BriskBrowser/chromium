@@ -4,11 +4,12 @@
 
 #include "content/browser/download/save_file_manager.h"
 
+#include <utility>
+
 #include "base/bind.h"
 #include "base/files/file_util.h"
 #include "base/logging.h"
 #include "base/strings/string_util.h"
-#include "base/task/post_task.h"
 #include "build/build_config.h"
 #include "components/download/public/common/download_task_runner.h"
 #include "content/browser/child_process_security_policy_impl.h"
@@ -18,6 +19,7 @@
 #include "content/browser/file_system/file_system_url_loader_factory.h"
 #include "content/browser/loader/file_url_loader_factory.h"
 #include "content/browser/renderer_host/render_view_host_impl.h"
+#include "content/browser/storage_partition_impl.h"
 #include "content/browser/web_contents/web_contents_impl.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/browser_task_traits.h"
@@ -27,17 +29,13 @@
 #include "content/public/browser/storage_partition.h"
 #include "content/public/browser/web_ui_url_loader_factory.h"
 #include "content/public/common/content_client.h"
-#include "content/public/common/previews_state.h"
-#include "net/base/io_buffer.h"
 #include "net/base/load_flags.h"
 #include "net/traffic_annotation/network_traffic_annotation.h"
-#include "net/url_request/url_request.h"
-#include "net/url_request/url_request_context.h"
-#include "net/url_request/url_request_job_factory.h"
 #include "services/network/public/cpp/simple_url_loader.h"
 #include "services/network/public/cpp/simple_url_loader_stream_consumer.h"
 #include "services/network/public/mojom/url_loader_factory.mojom.h"
 #include "services/network/public/mojom/url_response_head.mojom.h"
+#include "third_party/blink/public/common/loader/previews_state.h"
 #include "url/gurl.h"
 
 namespace content {
@@ -255,8 +253,8 @@ void SaveFileManager::SaveURL(SaveItemId save_item_id,
 
     network::mojom::URLLoaderFactory* factory = nullptr;
     std::unique_ptr<network::mojom::URLLoaderFactory> url_loader_factory;
-    RenderFrameHost* rfh = RenderFrameHost::FromID(render_process_host_id,
-                                                   render_frame_routing_id);
+    auto* rfh = RenderFrameHostImpl::FromID(render_process_host_id,
+                                            render_frame_routing_id);
 
     // TODO(qinmin): should this match the if statements in
     // DownloadManagerImpl::BeginResourceDownloadOnChecksComplete so that it
@@ -271,18 +269,13 @@ void SaveFileManager::SaveURL(SaveItemId save_item_id,
           base::TaskPriority::USER_VISIBLE);
       factory = url_loader_factory.get();
     } else if (url.SchemeIsFileSystem() && rfh) {
-      std::string storage_domain;
-      auto* site_instance = rfh->GetSiteInstance();
-      if (site_instance) {
-        std::string partition_name;
-        bool in_memory;
-        GetContentClient()->browser()->GetStoragePartitionConfigForSite(
-            context, site_instance->GetSiteURL(), true, &storage_domain,
-            &partition_name, &in_memory);
-      }
+      auto* storage_partition_impl =
+          static_cast<StoragePartitionImpl*>(storage_partition);
+      auto partition_domain =
+          rfh->GetSiteInstance()->GetPartitionDomain(storage_partition_impl);
       url_loader_factory = CreateFileSystemURLLoaderFactory(
           rfh->GetProcess()->GetID(), rfh->GetFrameTreeNodeId(),
-          storage_partition->GetFileSystemContext(), storage_domain);
+          storage_partition->GetFileSystemContext(), partition_domain);
       factory = url_loader_factory.get();
     } else if (rfh && url.SchemeIs(content::kChromeUIScheme)) {
       url_loader_factory = CreateWebUIURLLoader(rfh, url.scheme(),
@@ -343,14 +336,6 @@ SavePackage* SaveFileManager::GetSavePackageFromRenderIds(
   return web_contents->save_package();
 }
 
-void SaveFileManager::DeleteDirectoryOrFile(const base::FilePath& full_path,
-                                            bool is_dir) {
-  DCHECK_CURRENTLY_ON(BrowserThread::UI);
-  download::GetDownloadTaskRunner()->PostTask(
-      FROM_HERE, base::BindOnce(&SaveFileManager::OnDeleteDirectoryOrFile, this,
-                                full_path, is_dir));
-}
-
 void SaveFileManager::SendCancelRequest(SaveItemId save_item_id) {
   // Cancel the request which has specific save id.
   DCHECK(!save_item_id.is_null());
@@ -378,8 +363,8 @@ void SaveFileManager::StartSave(std::unique_ptr<SaveFileCreateInfo> info) {
   DCHECK(!LookupSaveFile(save_file->save_item_id()));
   save_file_map_[save_file->save_item_id()] = std::move(save_file);
 
-  base::PostTask(FROM_HERE, {BrowserThread::UI},
-                 base::BindOnce(&SaveFileManager::OnStartSave, this,
+  GetUIThreadTaskRunner({})->PostTask(
+      FROM_HERE, base::BindOnce(&SaveFileManager::OnStartSave, this,
                                 save_file_create_info));
 }
 
@@ -396,8 +381,8 @@ void SaveFileManager::UpdateSaveProgress(SaveItemId save_item_id,
 
     download::DownloadInterruptReason reason =
         save_file->AppendDataToFile(data.data(), data.size());
-    base::PostTask(
-        FROM_HERE, {BrowserThread::UI},
+    GetUIThreadTaskRunner({})->PostTask(
+        FROM_HERE,
         base::BindOnce(&SaveFileManager::OnUpdateSaveProgress, this,
                        save_file->save_item_id(), save_file->BytesSoFar(),
                        reason == download::DOWNLOAD_INTERRUPT_REASON_NONE));
@@ -427,8 +412,8 @@ void SaveFileManager::SaveFinished(SaveItemId save_item_id,
     save_file->Detach();
   }
 
-  base::PostTask(FROM_HERE, {BrowserThread::UI},
-                 base::BindOnce(&SaveFileManager::OnSaveFinished, this,
+  GetUIThreadTaskRunner({})->PostTask(
+      FROM_HERE, base::BindOnce(&SaveFileManager::OnSaveFinished, this,
                                 save_item_id, bytes_so_far, is_success));
 }
 
@@ -486,11 +471,11 @@ void SaveFileManager::CancelSave(SaveItemId save_item_id) {
       // We've won a race with the UI thread--we finished the file before
       // the UI thread cancelled it on us.  Unfortunately, in this situation
       // the cancel wins, so we need to delete the now detached file.
-      base::DeleteFile(save_file->FullPath(), false);
+      base::DeleteFile(save_file->FullPath());
     } else if (save_file->save_source() ==
                SaveFileCreateInfo::SAVE_FILE_FROM_NET) {
-      base::PostTask(
-          FROM_HERE, {BrowserThread::UI},
+      GetUIThreadTaskRunner({})->PostTask(
+          FROM_HERE,
           base::BindOnce(&SaveFileManager::ClearURLLoader, this, save_item_id));
     }
 
@@ -505,14 +490,6 @@ void SaveFileManager::ClearURLLoader(SaveItemId save_item_id) {
   auto url_loader_iter = url_loader_helpers_.find(save_item_id);
   if (url_loader_iter != url_loader_helpers_.end())
     url_loader_helpers_.erase(url_loader_iter);
-}
-
-void SaveFileManager::OnDeleteDirectoryOrFile(const base::FilePath& full_path,
-                                              bool is_dir) {
-  DCHECK(download::GetDownloadTaskRunner()->RunsTasksInCurrentSequence());
-  DCHECK(!full_path.empty());
-
-  base::DeleteFile(full_path, is_dir);
 }
 
 void SaveFileManager::RenameAllFiles(const FinalNamesMap& final_names,
@@ -538,8 +515,8 @@ void SaveFileManager::RenameAllFiles(const FinalNamesMap& final_names,
     }
   }
 
-  base::PostTask(FROM_HERE, {BrowserThread::UI},
-                 base::BindOnce(&SaveFileManager::OnFinishSavePageJob, this,
+  GetUIThreadTaskRunner({})->PostTask(
+      FROM_HERE, base::BindOnce(&SaveFileManager::OnFinishSavePageJob, this,
                                 render_process_id, render_frame_routing_id,
                                 save_package_id));
 }
@@ -565,7 +542,7 @@ void SaveFileManager::RemoveSavedFileFromFileMap(
     if (it != save_file_map_.end()) {
       SaveFile* save_file = it->second.get();
       DCHECK(!save_file->InProgress());
-      base::DeleteFile(save_file->FullPath(), false);
+      base::DeleteFile(save_file->FullPath());
       save_file_map_.erase(it);
     }
   }

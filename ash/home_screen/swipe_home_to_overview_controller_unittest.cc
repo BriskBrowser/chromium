@@ -4,20 +4,27 @@
 
 #include "ash/home_screen/swipe_home_to_overview_controller.h"
 
+#include "ash/app_list/test/app_list_test_helper.h"
+#include "ash/app_list/views/app_list_view.h"
+#include "ash/app_list/views/search_box_view.h"
 #include "ash/home_screen/home_screen_controller.h"
 #include "ash/home_screen/home_screen_delegate.h"
 #include "ash/public/cpp/ash_features.h"
+#include "ash/root_window_controller.h"
 #include "ash/shelf/shelf.h"
 #include "ash/shelf/shelf_metrics.h"
+#include "ash/shelf/test/overview_animation_waiter.h"
 #include "ash/shell.h"
 #include "ash/test/ash_test_base.h"
 #include "ash/wm/overview/overview_controller.h"
 #include "ash/wm/tablet_mode/tablet_mode_controller_test_api.h"
+#include "base/macros.h"
 #include "base/optional.h"
 #include "base/run_loop.h"
 #include "base/test/metrics/histogram_tester.h"
-#include "base/test/scoped_feature_list.h"
 #include "base/test/simple_test_tick_clock.h"
+#include "ui/compositor/scoped_animation_duration_scale_mode.h"
+#include "ui/compositor/test/test_utils.h"
 #include "ui/gfx/geometry/point_f.h"
 #include "ui/gfx/geometry/rect_f.h"
 
@@ -25,19 +32,19 @@ namespace ash {
 
 namespace {
 
-gfx::RectF GetShelfBounds() {
-  return gfx::RectF(
-      Shelf::ForWindow(Shell::GetPrimaryRootWindow())->GetIdealBounds());
+gfx::Rect GetShelfBounds() {
+  return Shelf::ForWindow(Shell::GetPrimaryRootWindow())->GetIdealBounds();
+}
+
+gfx::RectF GetShelfBoundsInFloat() {
+  return gfx::RectF(GetShelfBounds());
 }
 
 }  // namespace
 
 class SwipeHomeToOverviewControllerTest : public AshTestBase {
  public:
-  SwipeHomeToOverviewControllerTest() {
-    scoped_feature_list_.InitWithFeatures(
-        {features::kDragFromShelfToHomeOrOverview}, {});
-  }
+  SwipeHomeToOverviewControllerTest() {}
   ~SwipeHomeToOverviewControllerTest() override = default;
 
   // AshTestBase:
@@ -89,6 +96,33 @@ class SwipeHomeToOverviewControllerTest : public AshTestBase {
         ->FireNow();
   }
 
+  void WaitForHomeLauncherAnimationToFinish() {
+    auto* compositor =
+        Shell::GetPrimaryRootWindowController()->GetHost()->compositor();
+    // Wait until home launcher animation finishes.
+    while (GetAppListTestHelper()
+               ->GetAppListView()
+               ->GetWidget()
+               ->GetLayer()
+               ->GetAnimator()
+               ->is_animating()) {
+      EXPECT_TRUE(ui::WaitForNextFrameToBePresented(compositor));
+    }
+
+    // Ensure there is one more frame presented after animation finishes
+    // to allow animation throughput data is passed from cc to ui.
+    ignore_result(ui::WaitForNextFrameToBePresented(
+        compositor, base::TimeDelta::FromMilliseconds(200)));
+  }
+
+  void TapOnHomeLauncherSearchBox() {
+    GetEventGenerator()->GestureTapAt(GetAppListTestHelper()
+                                          ->GetAppListView()
+                                          ->search_box_view()
+                                          ->GetBoundsInScreen()
+                                          .CenterPoint());
+  }
+
   base::TimeTicks GetTimerDesiredRunTime() const {
     return home_to_overview_controller_->overview_transition_timer_for_testing()
         ->desired_run_time();
@@ -104,16 +138,70 @@ class SwipeHomeToOverviewControllerTest : public AshTestBase {
  private:
   std::unique_ptr<SwipeHomeToOverviewController> home_to_overview_controller_;
 
-  base::test::ScopedFeatureList scoped_feature_list_;
   DISALLOW_COPY_AND_ASSIGN(SwipeHomeToOverviewControllerTest);
 };
 
+// Verify that the metrics of home launcher animation are recorded correctly
+// when entering/exiting overview mode.
+TEST_F(SwipeHomeToOverviewControllerTest, VerifyHomeLauncherMetrics) {
+  // Set non-zero animation duration to report animation metrics.
+  ui::ScopedAnimationDurationScaleMode non_zero_duration_mode(
+      ui::ScopedAnimationDurationScaleMode::NON_ZERO_DURATION);
+
+  const gfx::Rect shelf_bounds = GetShelfBounds();
+  const int transition_threshold =
+      SwipeHomeToOverviewController::kVerticalThresholdForOverviewTransition;
+
+  base::HistogramTester histogram_tester;
+
+  // Enter overview mode by gesture swipe on shelf.
+  {
+    GetEventGenerator()->set_current_screen_location(
+        shelf_bounds.CenterPoint());
+    GetEventGenerator()->PressTouch();
+    GetEventGenerator()->MoveTouchBy(
+        0, -transition_threshold - shelf_bounds.height() / 2 - 10);
+
+    // Move touch location by a tiny distance to ensure the slow scroll speed
+    // which is required to trigger the overview animation.
+    GetEventGenerator()->MoveTouchBy(0, -1);
+
+    // Wait until overview animation finishes.
+    OverviewAnimationWaiter enter_overview_waiter;
+    enter_overview_waiter.Wait();
+
+    GetEventGenerator()->ReleaseTouch();
+    WaitForHomeLauncherAnimationToFinish();
+  }
+
+  // Verify that the animation to hide the home launcher is recorded.
+  histogram_tester.ExpectTotalCount(
+      "Apps.HomeLauncherTransition.AnimationSmoothness.FadeInOverview", 1);
+  histogram_tester.ExpectTotalCount(
+      "Apps.HomeLauncherTransition.AnimationSmoothness.FadeOutOverview", 0);
+
+  // Exit overview mode by gesture tap.
+  GetEventGenerator()->GestureTapAt(
+      GetContext()->GetBoundsInScreen().top_center());
+
+  // Wait until overview animation finishes.
+  OverviewAnimationWaiter exit_overview_waiter;
+  exit_overview_waiter.Wait();
+  WaitForHomeLauncherAnimationToFinish();
+
+  // Verify that the animation to show the home launcher is recorded.
+  histogram_tester.ExpectTotalCount(
+      "Apps.HomeLauncherTransition.AnimationSmoothness.FadeInOverview", 1);
+  histogram_tester.ExpectTotalCount(
+      "Apps.HomeLauncherTransition.AnimationSmoothness.FadeOutOverview", 1);
+}
+
 TEST_F(SwipeHomeToOverviewControllerTest, BasicFlow) {
-  const gfx::RectF shelf_bounds = GetShelfBounds();
+  const gfx::RectF shelf_bounds = GetShelfBoundsInFloat();
 
   base::HistogramTester histogram_tester;
   histogram_tester.ExpectBucketCount(
-      kEnterOverviewHistogramName, EnterOverviewFromHomeLauncher::kSuccess, 0);
+      kEnterOverviewHistogramName, EnterOverviewFromHomeLauncher::kOverview, 0);
 
   StartDrag();
   // Drag to a point within shelf bounds - verify that app list has not been
@@ -129,7 +217,7 @@ TEST_F(SwipeHomeToOverviewControllerTest, BasicFlow) {
   EXPECT_FALSE(OverviewTransitionTimerRunning());
   EXPECT_FALSE(OverviewStarted());
   histogram_tester.ExpectBucketCount(
-      kEnterOverviewHistogramName, EnterOverviewFromHomeLauncher::kSuccess, 0);
+      kEnterOverviewHistogramName, EnterOverviewFromHomeLauncher::kOverview, 0);
 
   const int transition_threshold =
       SwipeHomeToOverviewController::kVerticalThresholdForOverviewTransition;
@@ -146,7 +234,7 @@ TEST_F(SwipeHomeToOverviewControllerTest, BasicFlow) {
   EXPECT_FALSE(home_screen_window->transform().IsIdentityOrTranslation());
   EXPECT_EQ(1.f, home_screen_window->layer()->opacity());
   histogram_tester.ExpectBucketCount(
-      kEnterOverviewHistogramName, EnterOverviewFromHomeLauncher::kSuccess, 0);
+      kEnterOverviewHistogramName, EnterOverviewFromHomeLauncher::kOverview, 0);
 
   // Move above the transition threshold - verify the overview transition timer
   // has started.
@@ -161,14 +249,14 @@ TEST_F(SwipeHomeToOverviewControllerTest, BasicFlow) {
   EXPECT_TRUE(OverviewTransitionTimerRunning());
   EXPECT_FALSE(OverviewStarted());
   histogram_tester.ExpectBucketCount(
-      kEnterOverviewHistogramName, EnterOverviewFromHomeLauncher::kSuccess, 0);
+      kEnterOverviewHistogramName, EnterOverviewFromHomeLauncher::kOverview, 0);
 
   // Fire overview transition timer, and verify the overview has started.
   FireOverviewTransitionTimer();
 
   EXPECT_TRUE(OverviewStarted());
   histogram_tester.ExpectBucketCount(
-      kEnterOverviewHistogramName, EnterOverviewFromHomeLauncher::kSuccess, 1);
+      kEnterOverviewHistogramName, EnterOverviewFromHomeLauncher::kOverview, 1);
 
   // Home screen is still scaled down, and not visible.
   EXPECT_EQ(home_screen_window->transform(),
@@ -184,7 +272,7 @@ TEST_F(SwipeHomeToOverviewControllerTest, BasicFlow) {
 
   EXPECT_TRUE(OverviewStarted());
   histogram_tester.ExpectBucketCount(
-      kEnterOverviewHistogramName, EnterOverviewFromHomeLauncher::kSuccess, 1);
+      kEnterOverviewHistogramName, EnterOverviewFromHomeLauncher::kOverview, 1);
 
   // Home screen is still scaled down, and not visible.
   EXPECT_EQ(home_screen_window->transform(),
@@ -195,7 +283,7 @@ TEST_F(SwipeHomeToOverviewControllerTest, BasicFlow) {
 }
 
 TEST_F(SwipeHomeToOverviewControllerTest, EndDragBeforeTimeout) {
-  const gfx::RectF shelf_bounds = GetShelfBounds();
+  const gfx::RectF shelf_bounds = GetShelfBoundsInFloat();
 
   StartDrag();
 
@@ -235,8 +323,109 @@ TEST_F(SwipeHomeToOverviewControllerTest, EndDragBeforeTimeout) {
   EXPECT_FALSE(OverviewStarted());
 }
 
+TEST_F(SwipeHomeToOverviewControllerTest, GoBackOnHomeLauncher) {
+  // Show home screen search results page.
+  GetAppListTestHelper()->CheckVisibility(true);
+  TapOnHomeLauncherSearchBox();
+  GetAppListTestHelper()->CheckState(AppListViewState::kFullscreenSearch);
+
+  const gfx::RectF shelf_bounds = GetShelfBoundsInFloat();
+
+  StartDrag();
+
+  aura::Window* home_screen_window =
+      home_screen_delegate()->GetHomeScreenWindow();
+  ASSERT_TRUE(home_screen_window);
+
+  const int transition_threshold =
+      SwipeHomeToOverviewController::kVerticalThresholdForOverviewTransition;
+
+  // Move above the transition threshold - verify the overview transition timer
+  // has started.
+  Drag(shelf_bounds.top_center() - gfx::Vector2d(0, transition_threshold / 2),
+       0.f, 1.f);
+  Drag(shelf_bounds.top_center() - gfx::Vector2d(0, transition_threshold + 10),
+       0.f, 1.f);
+
+  EXPECT_EQ(home_screen_window->transform(),
+            home_screen_window->layer()->GetTargetTransform());
+  EXPECT_TRUE(home_screen_window->transform().IsScaleOrTranslation());
+  EXPECT_FALSE(home_screen_window->transform().IsIdentityOrTranslation());
+
+  EXPECT_TRUE(OverviewTransitionTimerRunning());
+  EXPECT_FALSE(OverviewStarted());
+
+  // The user ending drag with a fling should move home to the initial state -
+  // fullscreen all apps.
+  EndDrag(
+      shelf_bounds.top_center() - gfx::Vector2d(0, transition_threshold + 10),
+      -1500.f);
+
+  EXPECT_EQ(home_screen_window->transform(),
+            home_screen_window->layer()->GetTargetTransform());
+  EXPECT_EQ(gfx::Transform(), home_screen_window->transform());
+  EXPECT_EQ(1.f, home_screen_window->layer()->opacity());
+
+  EXPECT_FALSE(OverviewTransitionTimerRunning());
+  EXPECT_FALSE(OverviewStarted());
+  GetAppListTestHelper()->CheckState(AppListViewState::kFullscreenAllApps);
+}
+
+TEST_F(SwipeHomeToOverviewControllerTest, FlingOnAppsPage) {
+  // Show home screen search results page.
+  GetAppListTestHelper()->CheckVisibility(true);
+  GetAppListTestHelper()->CheckState(AppListViewState::kFullscreenAllApps);
+
+  const gfx::RectF shelf_bounds = GetShelfBoundsInFloat();
+
+  StartDrag();
+
+  aura::Window* home_screen_window =
+      home_screen_delegate()->GetHomeScreenWindow();
+  ASSERT_TRUE(home_screen_window);
+
+  const int transition_threshold =
+      SwipeHomeToOverviewController::kVerticalThresholdForOverviewTransition;
+
+  // Move above the transition threshold - verify the overview transition timer
+  // has started.
+  Drag(shelf_bounds.top_center() - gfx::Vector2d(0, transition_threshold / 2),
+       0.f, 1.f);
+  Drag(shelf_bounds.top_center() - gfx::Vector2d(0, transition_threshold + 10),
+       0.f, 1.f);
+
+  EXPECT_EQ(home_screen_window->transform(),
+            home_screen_window->layer()->GetTargetTransform());
+  EXPECT_TRUE(home_screen_window->transform().IsScaleOrTranslation());
+  EXPECT_FALSE(home_screen_window->transform().IsIdentityOrTranslation());
+
+  EXPECT_TRUE(OverviewTransitionTimerRunning());
+  EXPECT_FALSE(OverviewStarted());
+
+  // The user ending drag with a fling should move home to the initial state -
+  // fullscreen all apps.
+  EndDrag(
+      shelf_bounds.top_center() - gfx::Vector2d(0, transition_threshold + 10),
+      -1500.f);
+
+  EXPECT_EQ(home_screen_window->transform(),
+            home_screen_window->layer()->GetTargetTransform());
+  EXPECT_EQ(gfx::Transform(), home_screen_window->transform());
+  EXPECT_EQ(1.f, home_screen_window->layer()->opacity());
+
+  EXPECT_FALSE(OverviewTransitionTimerRunning());
+  EXPECT_FALSE(OverviewStarted());
+
+  GetAppListTestHelper()->CheckState(AppListViewState::kFullscreenAllApps);
+}
+
 TEST_F(SwipeHomeToOverviewControllerTest, CancelDragBeforeTimeout) {
-  const gfx::RectF shelf_bounds = GetShelfBounds();
+  // Show home screen search results page.
+  GetAppListTestHelper()->CheckVisibility(true);
+  TapOnHomeLauncherSearchBox();
+  GetAppListTestHelper()->CheckState(AppListViewState::kFullscreenSearch);
+
+  const gfx::RectF shelf_bounds = GetShelfBoundsInFloat();
 
   StartDrag();
 
@@ -272,10 +461,14 @@ TEST_F(SwipeHomeToOverviewControllerTest, CancelDragBeforeTimeout) {
 
   EXPECT_FALSE(OverviewTransitionTimerRunning());
   EXPECT_FALSE(OverviewStarted());
+
+  // The gesture was not a fling - the home screen should have stayed in the
+  // fullscreen search state.
+  GetAppListTestHelper()->CheckState(AppListViewState::kFullscreenSearch);
 }
 
 TEST_F(SwipeHomeToOverviewControllerTest, DragMovementRestartsTimeout) {
-  const gfx::RectF shelf_bounds = GetShelfBounds();
+  const gfx::RectF shelf_bounds = GetShelfBoundsInFloat();
 
   StartDrag();
 
@@ -322,7 +515,7 @@ TEST_F(SwipeHomeToOverviewControllerTest, DragMovementRestartsTimeout) {
 
 TEST_F(SwipeHomeToOverviewControllerTest,
        SmallDragMovementDoesNotRestartTimeout) {
-  const gfx::RectF shelf_bounds = GetShelfBounds();
+  const gfx::RectF shelf_bounds = GetShelfBoundsInFloat();
 
   StartDrag();
 
@@ -376,7 +569,7 @@ TEST_F(SwipeHomeToOverviewControllerTest,
 }
 
 TEST_F(SwipeHomeToOverviewControllerTest, DragBellowThresholdStopsTimer) {
-  const gfx::RectF shelf_bounds = GetShelfBounds();
+  const gfx::RectF shelf_bounds = GetShelfBoundsInFloat();
 
   StartDrag();
   Drag(shelf_bounds.CenterPoint(), 0.f, 1.f);
@@ -451,7 +644,7 @@ TEST_F(SwipeHomeToOverviewControllerTest, DragBellowThresholdStopsTimer) {
 }
 
 TEST_F(SwipeHomeToOverviewControllerTest, ScaleChangesDuringDrag) {
-  const gfx::RectF shelf_bounds = GetShelfBounds();
+  const gfx::RectF shelf_bounds = GetShelfBoundsInFloat();
 
   StartDrag();
   Drag(shelf_bounds.CenterPoint(), 0.f, 1.f);

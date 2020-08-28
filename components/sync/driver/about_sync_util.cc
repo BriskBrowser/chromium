@@ -9,7 +9,7 @@
 #include <vector>
 
 #include "base/i18n/time_formatting.h"
-#include "base/logging.h"
+#include "base/notreached.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
@@ -202,8 +202,6 @@ std::string GetDisableReasonsString(
     reason_strings.push_back("User choice");
   if (disable_reasons.Has(SyncService::DISABLE_REASON_UNRECOVERABLE_ERROR))
     reason_strings.push_back("Unrecoverable error");
-  if (disable_reasons.Has(SyncService::DISABLE_REASON_PAUSED))
-    reason_strings.push_back("Paused");
   return base::JoinString(reason_strings, ", ");
 }
 
@@ -211,6 +209,8 @@ std::string GetTransportStateString(syncer::SyncService::TransportState state) {
   switch (state) {
     case syncer::SyncService::TransportState::DISABLED:
       return "Disabled";
+    case syncer::SyncService::TransportState::PAUSED:
+      return "Paused";
     case syncer::SyncService::TransportState::START_DEFERRED:
       return "Start deferred";
     case syncer::SyncService::TransportState::INITIALIZING:

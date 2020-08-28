@@ -21,14 +21,10 @@ namespace bindings {
 // Implements the CastOS BindingsManager.
 class BindingsManagerCast : public BindingsManager,
                             public CastWebContents::Observer,
-                            public mojo::MessageReceiver {
+                            public blink::WebMessagePort::MessageReceiver {
  public:
-  BindingsManagerCast();
+  explicit BindingsManagerCast(chromecast::CastWebContents* cast_web_contents);
   ~BindingsManagerCast() override;
-
-  // Add JS bindings to the page |cast_web_contents_|.
-  // Start Observing the PageState changes.
-  void AttachToPage(chromecast::CastWebContents* cast_web_contents);
 
   // The document and its statically-declared subresources are loaded.
   // BindingsManagerCast will inject all registered bindings at this time.
@@ -37,25 +33,22 @@ class BindingsManagerCast : public BindingsManager,
   // port to communicate with the native part.
   void OnPageLoaded();
 
-  // BindingsManager implementation:
+  // BindingsManager implementation.
   void AddBinding(base::StringPiece binding_name,
                   base::StringPiece binding_script) override;
 
-  // CastWebContents::Observer implementation:
+ private:
+  // CastWebContents::Observer implementation.
   void OnPageStateChanged(CastWebContents* cast_web_contents) override;
 
- private:
-  // |connector_| has been disconnected.
-  void OnControlPortDisconnected();
+  // blink::WebMessagePort::MessageReceiver implementation:
+  bool OnMessage(blink::WebMessagePort::Message message) override;
+  void OnPipeError() override;
 
-  // mojo::MessageReceiver implementation:
-  bool Accept(mojo::Message* message) override;
-
-  // Stores all bindings, keyed on the string-based IDs.
-  std::map<std::string, std::string> bindings_by_id_;
   chromecast::CastWebContents* cast_web_contents_;
-  // Binded with the MessagePort used to receive messages from the page JS.
-  std::unique_ptr<mojo::Connector> connector_;
+
+  // Receives messages from JS.
+  blink::WebMessagePort blink_port_;
 
   DISALLOW_COPY_AND_ASSIGN(BindingsManagerCast);
 };

@@ -46,8 +46,19 @@ bear-vp8-webvtt.webm as a 'subt' handler type.
 Just the first initialization segment of bear-1280x720_av_frag.mp4, modified to
 have the mvhd version 0 32-bit duration field set to all 1's.
 
-#### media/test/data/negative-audio-timestamps.avi
-A truncated audio/video file with audio packet timestamps of -1. We need to ensure that these packets arent dropped.
+#### negative-audio-timestamps.avi
+A truncated audio/video file with audio packet timestamps of -1. We need to ensure that these packets aren't dropped.
+
+#### noise-xhe-aac.mp4
+Fragmented mp4 of noise encoded with xHE-AAC, from xHE-AAC samples in [Android
+CTS](https://android.googlesource.com/platform/cts/+/master/tests/tests/media/res/raw),
+using ffmpeg version 4.2.2 (where nofillin lets audio nonkeyframes in input be
+indicated the same in output, unlike more recent tip-of-tree ffmpeg's operation
+with this option) to remux, unfortunately with empty MOOV not giving real
+duration:
+```
+ffmpeg -fflags nofillin -i noise_2ch_48khz_aot42_19_lufs_mp4.m4a -acodec copy -t 1 -movflags frag_keyframe+empty_moov+default_base_moof noise-xhe-aac.mp4
+```
 
 ### FLAC
 
@@ -109,6 +120,9 @@ ffmpeg -i bear.y4m -vcodec libaom-av1 -strict -2 -y -f mp4 -b:v 50k \
 ffmpeg -i bear-av1-slowstart.mp4 -vcodec copy -strict -2 -y -f mp4 \
   -movflags frag_keyframe+empty_moov+default_base_moof+faststart bear-av1.mp4
 ```
+
+#### bear-mono-av1.mp4
+Similar to the above but using aomenc for encoding with the --monochrome option.
 
 #### bear-av1.webm
 Created using aomenc with the following command:
@@ -266,6 +280,9 @@ is converted from four-colors.mp4 by adding an opacity of 0.5 using ffmpeg.
 #### bear-320x240-vp9_profile2.webm
 VP9 encoded video with profile 2 (10-bit, 4:2:0).
 Codec string: vp09.02.10.10.01.02.02.02.00.
+
+#### vp9-hdr-init-segment.mp4
+Init segment for a VP9.2 HDR in MP4 file; from https://crbug.com/1102200#c6
 
 ### AAC test data from MPEG-DASH demoplayer (44100 Hz, stereo)
 Duration of each packet is (1024/44100 Hz), approximately 23.22 ms.
@@ -497,6 +514,17 @@ using key ID [1] and key [2].
 Unless noted otherwise, the codec string is `av01.0.04M.08` for 8-bit files,
 and `av01.0.04M.10` for 10-bit files.
 
+#### av1-I-frame-320x240
+vpxdec media/test/data/bear-vp9.webm -o bear.y4m
+aomenc -o bear.ivf -p 2 --target-bitrate=150 bear.y4m --limit=1 --ivf
+tail -c +45 bear.ivf > av1-I-frame-320x240
+
+#### av1-I-frame-1280x720
+Same as av1-I-frame-320x240 but using bear-1280x720.webm as input.
+
+#### av1-monochrome-I-frame-320x240-[8,10,12]bpp
+Same as av1-I-frame-320x240 with --monochrome and -b=[8,10,12] aomenc options.
+
 #### bear-av1-cenc.mp4
 Encrypted version of bear-av1.mp4. Encrypted by [Shaka Packager] built locally
 at commit 53aa775ea488c0ffd3a2e1cb78ad000154e414e1 using key ID [1] and key [2].
@@ -656,6 +684,13 @@ video_decode_accelerator_tests. This includes the video codec, resolution and
 md5 checksums of individual video frames when converted to the I420 format.
 
 
+### VP9 video with raw vp9 frames
+
+#### buck-1280x720-vp9.webm
+1280x720 version of Big Buck Bunny https://peach.blender.org/ muxed with raw
+vp9 frames (versus superframes).
+
+
 ### VP9 video with show_existing_frame flag
 
 #### vp90_2_10_show_existing_frame2.vp9.ivf
@@ -764,6 +799,27 @@ RAW BGRA format data. This data is created from bear\_320x192.i420.yuv.
 Alpha channel is always 0xFF.
 To get the uncompressed yuv, execute the following command.
 `ffmpeg -s 320x192 -pix_fmt yuv420p -i bear_320x192.i420.yuv -vcodec rawvideo -f image2 -pix_fmt rgba bear_320x192.bgra`
+
+#### bear\_192x320\_90.nv12.yuv
+Rotate bear\_320x192.nv12.yuv by 90 degrees clockwise.
+`ffmpeg -s:v 320x192 -pix_fmt nv12 -i bear_320x192.nv12.yuv -vf transpose=1 -c:v rawvideo -pix_fmt nv12 bear_192x320_90.nv12.yuv`
+
+#### bear\_192x320\_90.nv12.yuv.json
+Metadata describing bear\_192x320\_90.nv12.yuv
+
+#### bear\_320x192\_180.nv12.yuv
+Rotate bear\_320x192.nv12.yuv by 180 degrees clockwise.
+`ffmpeg -s:v 320x192 -pix_fmt nv12 -i bear_320x192.nv12.yuv -vf "transpose=2,transpose=2" -c:v rawvideo -pix_fmt nv12 bear_320x192_180.nv12.yuv`
+
+#### bear\_320x192\_180.nv12.yuv.json
+Metadata describing bear\_320x192\_180.nv12.yuv
+
+#### bear\_192x320\_270.nv12.yuv
+Rotate bear\_320x192.nv12.yuv by 270 degrees clockwise.
+`ffmpeg -s:v 320x192 -pix_fmt nv12 -i bear_320x192.nv12.yuv -vf transpose=2 -c:v rawvideo -pix_fmt nv12 bear_192x320_270.nv12.yuv`
+
+#### bear\_192x320\_270.nv12.yuv.json
+Metadata describing bear\_192x320\_270.nv12.yuv
 
 #### puppets-1280x720.nv12.yuv
 RAW NV12 format data. The width and height are 1280 and 720, respectively.

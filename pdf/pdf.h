@@ -9,6 +9,7 @@
 
 #include "base/containers/span.h"
 #include "base/optional.h"
+#include "base/values.h"
 #include "build/build_config.h"
 
 #if defined(OS_WIN)
@@ -24,7 +25,7 @@ typedef void (*PDFEnsureTypefaceCharactersAccessible)(const LOGFONT* font,
 namespace gfx {
 class Rect;
 class Size;
-}
+}  // namespace gfx
 
 namespace chrome_pdf {
 
@@ -36,12 +37,16 @@ std::vector<uint8_t> CreateFlattenedPdf(base::span<const uint8_t> input_buffer);
 #endif  // defined(OS_CHROMEOS)
 
 #if defined(OS_WIN)
-// Printing modes - type to convert PDF to for printing
+// Printing modes - type to convert PDF to for printing. See PDFium's
+// FPDF_SetPrintMode() for details.
 enum PrintingMode {
   kEmf = 0,
   kTextOnly = 1,
   kPostScript2 = 2,
   kPostScript3 = 3,
+  // Values 4 and 5 are similar to |kPostScript2| and |kPostScript3|, but are
+  // not intended for use in sandboxed environments like Chromium's.
+  kEmfWithReducedRasterization = 6,
 };
 
 // |pdf_buffer| is the buffer that contains the entire PDF document to be
@@ -105,6 +110,11 @@ bool GetPDFDocInfo(base::span<const uint8_t> pdf_buffer,
 // PDF but untagged, and nullopt if the PDF can't be parsed.
 base::Optional<bool> IsPDFDocTagged(base::span<const uint8_t> pdf_buffer);
 
+// Given a tagged PDF (see IsPDFDocTagged, above), return the portion of
+// the structure tree for a given page as a hierarchical tree of base::Values.
+base::Value GetPDFStructTreeForPage(base::span<const uint8_t> pdf_buffer,
+                                    int page_index);
+
 // Gets the dimensions of a specific page in a document.
 // |pdf_buffer| is the buffer that contains the entire PDF document to be
 //     rendered.
@@ -126,6 +136,10 @@ bool GetPDFPageSizeByIndex(base::span<const uint8_t> pdf_buffer,
 // |bitmap_width| is the width of the output bitmap.
 // |bitmap_height| is the height of the output bitmap.
 // |dpi_x| and |dpi_y| is the resolution.
+// |stretch_to_bounds| specifies whether the output should be stretched to fit
+//     the supplied |bitmap_width| and |bitmap_height|.
+// |keep_aspect_ratio| If any scaling is needed, this parameter specifies
+//     whether the original aspect ratio of the page is preserved while scaling.
 // |autorotate| specifies whether the final image should be rotated to match
 //     the output bound.
 // |use_color| specifies color or grayscale.
@@ -137,6 +151,8 @@ bool RenderPDFPageToBitmap(base::span<const uint8_t> pdf_buffer,
                            int bitmap_height,
                            int dpi_x,
                            int dpi_y,
+                           bool stretch_to_bounds,
+                           bool keep_aspect_ratio,
                            bool autorotate,
                            bool use_color);
 

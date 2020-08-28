@@ -29,7 +29,7 @@ extern const char kIosSettingsPromoAlreadySeen[];
 extern const char kIosSettingsSigninPromoDisplayedCount[];
 extern const char kLastSessionExitedCleanly[];
 extern const char kMetricsReportingWifiOnly[];
-extern const char kNtpShownPage[];
+extern const char kPrintingEnabled[];
 extern const char kSavingBrowserHistoryDisabled[];
 extern const char kSearchSuggestEnabled[];
 
@@ -47,6 +47,8 @@ extern const char kSigninShouldPromptForSigninAgain[];
 
 extern const char kOmniboxGeolocationAuthorizationState[];
 extern const char kOmniboxGeolocationLastAuthorizationAlertVersion[];
+
+extern const char kIosUserZoomMultipliers[];
 
 }  // namespace prefs
 

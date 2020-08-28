@@ -32,35 +32,26 @@ class SingleChildLocalFrameClient final : public EmptyLocalFrameClient {
  public:
   explicit SingleChildLocalFrameClient() = default;
 
-  void Trace(blink::Visitor* visitor) override {
-    visitor->Trace(child_);
+  void Trace(Visitor* visitor) const override {
     EmptyLocalFrameClient::Trace(visitor);
   }
 
   // LocalFrameClient overrides:
-  LocalFrame* FirstChild() const override { return child_.Get(); }
   LocalFrame* CreateFrame(const AtomicString& name,
                           HTMLFrameOwnerElement*) override;
-
-  void DidDetachChild() { child_ = nullptr; }
-
- private:
-  Member<LocalFrame> child_;
 };
 
 class LocalFrameClientWithParent final : public EmptyLocalFrameClient {
  public:
   explicit LocalFrameClientWithParent(LocalFrame* parent) : parent_(parent) {}
 
-  void Trace(blink::Visitor* visitor) override {
+  void Trace(Visitor* visitor) const override {
     visitor->Trace(parent_);
     EmptyLocalFrameClient::Trace(visitor);
   }
 
   // FrameClient overrides:
   void Detached(FrameDetachType) override;
-  LocalFrame* Parent() const override { return parent_.Get(); }
-  LocalFrame* Top() const override { return parent_.Get(); }
 
  private:
   Member<LocalFrame> parent_;
@@ -96,6 +87,13 @@ class RenderingTestChromeClient : public EmptyChromeClient {
   TransformationMatrix GetDeviceEmulationTransform() const override {
     return device_emulation_transform_;
   }
+
+  void InjectGestureScrollEvent(LocalFrame& local_frame,
+                                WebGestureDevice device,
+                                const gfx::Vector2dF& delta,
+                                ScrollGranularity granularity,
+                                CompositorElementId scrollable_area_element_id,
+                                WebInputEvent::Type injected_type) override;
 
  private:
   std::unique_ptr<LayerTreeHostEmbedder> layer_tree_;

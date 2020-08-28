@@ -10,7 +10,9 @@ import androidx.annotation.Nullable;
 
 import org.chromium.base.CommandLine;
 import org.chromium.base.test.util.AnnotationRule;
-import org.chromium.chrome.browser.ChromeFeatureList;
+import org.chromium.chrome.browser.flags.CachedFeatureFlags;
+import org.chromium.chrome.browser.flags.ChromeFeatureList;
+import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 
 import java.lang.annotation.Annotation;
 import java.lang.annotation.Retention;
@@ -88,11 +90,15 @@ public class Features {
 
     private void applyForJUnit() {
         ChromeFeatureList.setTestFeatures(mRegisteredState);
+        CachedFeatureFlags.setFeaturesForTesting(mRegisteredState);
     }
 
     private void applyForInstrumentation() {
+        ChromeFeatureList.setTestCanUseDefaultsForTesting();
         mergeFeatureLists("enable-features", true);
         mergeFeatureLists("disable-features", false);
+        CachedFeatureFlags.setFeaturesForTesting(mRegisteredState);
+        FieldTrials.getInstance().applyFieldTrials();
     }
 
     /**
@@ -121,6 +127,9 @@ public class Features {
     private static void reset() {
         sInstance = null;
         ChromeFeatureList.setTestFeatures(null);
+        ChromeFeatureList.resetTestCanUseDefaultsForTesting();
+        CachedFeatureFlags.resetFlagsForTesting();
+        FieldTrials.getInstance().reset();
     }
 
     /**
@@ -137,8 +146,8 @@ public class Features {
 
     /**
      * Feature processor intended to be used in instrumentation tests with native library, like
-     * {@link ChromeBrowserTestRule}. The collected feature states would be applied to
-     * {@link CommandLine}.
+     * those run with {@link ChromeJUnit4ClassRunner}. The collected feature states would be applied
+     * to {@link CommandLine}.
      */
     public static class InstrumentationProcessor extends Processor {
         @Override
@@ -170,7 +179,7 @@ public class Features {
 
         protected abstract void applyFeatures();
 
-        private void collectFeatures() {
+        protected void collectFeatures() {
             for (Annotation annotation : getAnnotations()) {
                 if (annotation instanceof EnableFeatures) {
                     getInstance().enable(((EnableFeatures) annotation).value());

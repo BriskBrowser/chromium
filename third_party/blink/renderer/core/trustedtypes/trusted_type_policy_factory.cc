@@ -10,12 +10,17 @@
 #include "third_party/blink/renderer/bindings/core/v8/v8_trusted_script.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_trusted_script_url.h"
 #include "third_party/blink/renderer/core/dom/document.h"
+#include "third_party/blink/renderer/core/dom/events/event.h"
+#include "third_party/blink/renderer/core/events/before_create_policy_event.h"
+#include "third_party/blink/renderer/core/execution_context/execution_context.h"
 #include "third_party/blink/renderer/core/frame/csp/content_security_policy.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/trustedtypes/trusted_type_policy.h"
 #include "third_party/blink/renderer/core/trustedtypes/trusted_types_util.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
+#include "third_party/blink/renderer/platform/bindings/v8_dom_wrapper.h"
 #include "third_party/blink/renderer/platform/instrumentation/use_counter.h"
+#include "third_party/blink/renderer/platform/runtime_enabled_features.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_hash.h"
 
 namespace blink {
@@ -24,6 +29,16 @@ TrustedTypePolicy* TrustedTypePolicyFactory::createPolicy(
     const String& policy_name,
     const TrustedTypePolicyOptions* policy_options,
     ExceptionState& exception_state) {
+  if (RuntimeEnabledFeatures::TrustedTypeBeforePolicyCreationEventEnabled()) {
+    DispatchEventResult result =
+        DispatchEvent(*BeforeCreatePolicyEvent::Create(policy_name));
+    if (result != DispatchEventResult::kNotCanceled) {
+      exception_state.ThrowDOMException(
+          DOMExceptionCode::kNotAllowedError,
+          "The policy creation has been canceled.");
+      return nullptr;
+    }
+  }
   if (!GetExecutionContext()) {
     exception_state.ThrowDOMException(DOMExceptionCode::kInvalidStateError,
                                       "The document is detached.");
@@ -53,12 +68,14 @@ TrustedTypePolicy* TrustedTypePolicyFactory::createPolicy(
     exception_state.ThrowTypeError(message);
     return nullptr;
   }
-
+  UseCounter::Count(GetExecutionContext(),
+                    WebFeature::kTrustedTypesPolicyCreated);
   if (policy_name == "default") {
     DCHECK(!policy_map_.Contains("default"));
     UseCounter::Count(GetExecutionContext(),
-                      WebFeature::kTrustedTypesDefaultPolicyUsed);
+                      WebFeature::kTrustedTypesDefaultPolicyCreated);
   }
+
   auto* policy = MakeGarbageCollected<TrustedTypePolicy>(
       policy_name, const_cast<TrustedTypePolicyOptions*>(policy_options));
   policy_map_.insert(policy_name, policy);
@@ -70,19 +87,9 @@ TrustedTypePolicy* TrustedTypePolicyFactory::defaultPolicy() const {
 }
 
 TrustedTypePolicyFactory::TrustedTypePolicyFactory(ExecutionContext* context)
-    : ContextClient(context),
+    : ExecutionContextClient(context),
       empty_html_(MakeGarbageCollected<TrustedHTML>("")),
-      empty_script_(MakeGarbageCollected<TrustedScript>("")) {
-  UseCounter::Count(context, WebFeature::kTrustedTypesEnabled);
-}
-
-Vector<String> TrustedTypePolicyFactory::getPolicyNames() const {
-  Vector<String> policyNames;
-  for (const String name : policy_map_.Keys()) {
-    policyNames.push_back(name);
-  }
-  return policyNames;
-}
+      empty_script_(MakeGarbageCollected<TrustedScript>("")) {}
 
 const WrapperTypeInfo*
 TrustedTypePolicyFactory::GetWrapperTypeInfoFromScriptValue(
@@ -141,20 +148,18 @@ const struct {
   bool is_not_property : 1;
   bool is_not_attribute : 1;
 } kTypeTable[] = {
-    {"embed", "src", nullptr, SpecificTrustedType::kTrustedScriptURL},
-    {"iframe", "srcdoc", nullptr, SpecificTrustedType::kTrustedHTML},
-    {"object", "codeBase", nullptr, SpecificTrustedType::kTrustedScriptURL},
-    {"object", "data", nullptr, SpecificTrustedType::kTrustedScriptURL},
-    {"script", "innerText", nullptr, SpecificTrustedType::kTrustedScript, false,
+    {"embed", "src", nullptr, SpecificTrustedType::kScriptURL},
+    {"iframe", "srcdoc", nullptr, SpecificTrustedType::kHTML},
+    {"object", "codeBase", nullptr, SpecificTrustedType::kScriptURL},
+    {"object", "data", nullptr, SpecificTrustedType::kScriptURL},
+    {"script", "innerText", nullptr, SpecificTrustedType::kScript, false, true},
+    {"script", "src", nullptr, SpecificTrustedType::kScriptURL},
+    {"script", "text", nullptr, SpecificTrustedType::kScript, false, true},
+    {"script", "textContent", nullptr, SpecificTrustedType::kScript, false,
      true},
-    {"script", "src", nullptr, SpecificTrustedType::kTrustedScriptURL},
-    {"script", "text", nullptr, SpecificTrustedType::kTrustedScript, false,
-     true},
-    {"script", "textContent", nullptr, SpecificTrustedType::kTrustedScript,
-     false, true},
-    {"*", "innerHTML", nullptr, SpecificTrustedType::kTrustedHTML, false, true},
-    {"*", "outerHTML", nullptr, SpecificTrustedType::kTrustedHTML, false, true},
-    {"*", "on*", nullptr, SpecificTrustedType::kTrustedScript, true, false},
+    {"*", "innerHTML", nullptr, SpecificTrustedType::kHTML, false, true},
+    {"*", "outerHTML", nullptr, SpecificTrustedType::kHTML, false, true},
+    {"*", "on*", nullptr, SpecificTrustedType::kScript, true, false},
 };
 
 // Does a type table entry match a property?
@@ -186,11 +191,11 @@ bool EqualsAttribute(decltype(*kTypeTable)& left,
 
 String getTrustedTypeName(SpecificTrustedType type) {
   switch (type) {
-    case SpecificTrustedType::kTrustedHTML:
+    case SpecificTrustedType::kHTML:
       return "TrustedHTML";
-    case SpecificTrustedType::kTrustedScript:
+    case SpecificTrustedType::kScript:
       return "TrustedScript";
-    case SpecificTrustedType::kTrustedScriptURL:
+    case SpecificTrustedType::kScriptURL:
       return "TrustedScriptURL";
     case SpecificTrustedType::kNone:
       return String();
@@ -317,9 +322,17 @@ void TrustedTypePolicyFactory::CountTrustedTypeAssignmentError() {
   }
 }
 
-void TrustedTypePolicyFactory::Trace(blink::Visitor* visitor) {
-  ScriptWrappable::Trace(visitor);
-  ContextClient::Trace(visitor);
+const AtomicString& TrustedTypePolicyFactory::InterfaceName() const {
+  return event_target_names::kTrustedTypePolicyFactory;
+}
+
+ExecutionContext* TrustedTypePolicyFactory::GetExecutionContext() const {
+  return ExecutionContextClient::GetExecutionContext();
+}
+
+void TrustedTypePolicyFactory::Trace(Visitor* visitor) const {
+  EventTargetWithInlineData::Trace(visitor);
+  ExecutionContextClient::Trace(visitor);
   visitor->Trace(empty_html_);
   visitor->Trace(empty_script_);
   visitor->Trace(policy_map_);

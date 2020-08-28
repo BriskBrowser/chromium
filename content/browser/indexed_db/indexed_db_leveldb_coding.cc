@@ -10,8 +10,9 @@
 #include <utility>
 
 #include "base/big_endian.h"
+#include "base/check_op.h"
 #include "base/containers/span.h"
-#include "base/logging.h"
+#include "base/notreached.h"
 #include "base/strings/string16.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/sys_byteorder.h"
@@ -142,6 +143,12 @@ void EncodeString(const base::string16& value, std::string* into) {
 
 void EncodeBinary(const std::string& value, std::string* into) {
   EncodeVarInt(value.length(), into);
+  into->append(value.begin(), value.end());
+  DCHECK(into->size() >= value.size());
+}
+
+void EncodeBinary(base::span<const uint8_t> value, std::string* into) {
+  EncodeVarInt(value.size(), into);
   into->append(value.begin(), value.end());
   DCHECK(into->size() >= value.size());
 }
@@ -332,6 +339,22 @@ bool DecodeBinary(StringPiece* slice, std::string* value) {
     return false;
 
   value->assign(slice->begin(), size);
+  slice->remove_prefix(size);
+  return true;
+}
+
+bool DecodeBinary(StringPiece* slice, base::span<const uint8_t>* value) {
+  if (slice->empty())
+    return false;
+
+  int64_t length = 0;
+  if (!DecodeVarInt(slice, &length) || length < 0)
+    return false;
+  size_t size = length;
+  if (slice->size() < size)
+    return false;
+
+  *value = base::as_bytes(base::make_span(slice->substr(0, size)));
   slice->remove_prefix(size);
   return true;
 }

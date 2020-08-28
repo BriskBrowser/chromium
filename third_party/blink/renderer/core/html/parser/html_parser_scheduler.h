@@ -42,10 +42,10 @@ class SpeculationsPumpSession : public NestingLevelIncrementer {
   STACK_ALLOCATED();
 
  public:
-  SpeculationsPumpSession(unsigned& nesting_level);
+  explicit SpeculationsPumpSession(unsigned& nesting_level);
   ~SpeculationsPumpSession();
 
-  base::TimeDelta ElapsedTime() const;
+  base::TimeDelta ElapsedTime() const { return start_time_.Elapsed(); }
   void AddedElementTokens(size_t count);
   size_t ProcessedElementTokens() const { return processed_element_tokens_; }
 
@@ -66,7 +66,7 @@ class HTMLParserScheduler final : public GarbageCollected<HTMLParserScheduler> {
 
   void Detach();  // Clear active tasks if any.
 
-  void Trace(Visitor*);
+  void Trace(Visitor*) const;
 
  private:
   bool ShouldYield(const SpeculationsPumpSession&, bool starting_script) const;

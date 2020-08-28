@@ -19,15 +19,18 @@
 @implementation ContentSuggestionsAlertFactory
 
 + (AlertCoordinator*)
-alertCoordinatorForSuggestionItem:(ContentSuggestionsItem*)item
-                 onViewController:(UICollectionViewController*)viewController
-                          atPoint:(CGPoint)touchLocation
-                      atIndexPath:(NSIndexPath*)indexPath
-                  readLaterAction:(BOOL)readLaterAction
-                   commandHandler:
-                       (id<ContentSuggestionsGestureCommands>)commandHandler {
+    alertCoordinatorForSuggestionItem:(ContentSuggestionsItem*)item
+                     onViewController:
+                         (UICollectionViewController*)viewController
+                              atPoint:(CGPoint)touchLocation
+                          atIndexPath:(NSIndexPath*)indexPath
+                      readLaterAction:(BOOL)readLaterAction
+                       commandHandler:
+                           (id<ContentSuggestionsGestureCommands>)commandHandler
+                              browser:(Browser*)browser {
   AlertCoordinator* alertCoordinator = [[ActionSheetCoordinator alloc]
       initWithBaseViewController:viewController
+                         browser:browser
                            title:nil
                          message:nil
                             rect:CGRectMake(touchLocation.x, touchLocation.y, 0,
@@ -90,23 +93,21 @@ alertCoordinatorForSuggestionItem:(ContentSuggestionsItem*)item
                                 }
                               }
                                style:UIAlertActionStyleDestructive];
-
-  [alertCoordinator addItemWithTitle:l10n_util::GetNSString(IDS_APP_CANCEL)
-                              action:^{
-                              }
-                               style:UIAlertActionStyleCancel];
   return alertCoordinator;
 }
 
 + (AlertCoordinator*)
-alertCoordinatorForMostVisitedItem:(ContentSuggestionsMostVisitedItem*)item
-                  onViewController:(UICollectionViewController*)viewController
-                           atPoint:(CGPoint)touchLocation
-                       atIndexPath:(NSIndexPath*)indexPath
-                    commandHandler:
-                        (id<ContentSuggestionsGestureCommands>)commandHandler {
+    alertCoordinatorForMostVisitedItem:(ContentSuggestionsMostVisitedItem*)item
+                      onViewController:
+                          (UICollectionViewController*)viewController
+                           withBrowser:(Browser*)browser
+                               atPoint:(CGPoint)touchLocation
+                           atIndexPath:(NSIndexPath*)indexPath
+                        commandHandler:(id<ContentSuggestionsGestureCommands>)
+                                           commandHandler {
   AlertCoordinator* alertCoordinator = [[ActionSheetCoordinator alloc]
       initWithBaseViewController:viewController
+                         browser:browser
                            title:nil
                          message:nil
                             rect:CGRectMake(touchLocation.x, touchLocation.y, 0,

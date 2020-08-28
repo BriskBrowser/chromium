@@ -5,10 +5,10 @@
 package org.chromium.chrome.browser.offlinepages;
 
 import android.net.Uri;
-import android.os.Build;
 import android.support.test.InstrumentationRegistry;
-import android.support.test.filters.MediumTest;
 import android.util.Base64;
+
+import androidx.test.filters.MediumTest;
 
 import org.junit.After;
 import org.junit.Assert;
@@ -21,11 +21,9 @@ import org.chromium.base.ApiCompatibilityUtils;
 import org.chromium.base.Callback;
 import org.chromium.base.task.PostTask;
 import org.chromium.base.test.util.CommandLineFlags;
-import org.chromium.base.test.util.DisableIf;
 import org.chromium.base.test.util.DisabledTest;
-import org.chromium.base.test.util.RetryOnFailure;
-import org.chromium.chrome.browser.ChromeActivity;
-import org.chromium.chrome.browser.ChromeSwitches;
+import org.chromium.chrome.browser.app.ChromeActivity;
+import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.offlinepages.OfflinePageBridge.OfflinePageModelObserver;
 import org.chromium.chrome.browser.offlinepages.OfflinePageBridge.SavePageCallback;
 import org.chromium.chrome.browser.offlinepages.downloads.OfflinePageDownloadBridge;
@@ -78,7 +76,7 @@ public class OfflinePageBridgeTest {
             throws InterruptedException {
         final Semaphore semaphore = new Semaphore(0);
         PostTask.runOrPostTask(UiThreadTaskTraits.DEFAULT, () -> {
-            Profile profile = Profile.getLastUsedProfile();
+            Profile profile = Profile.getLastUsedRegularProfile();
             if (incognitoProfile) {
                 profile = profile.getOffTheRecordProfile();
             }
@@ -100,11 +98,16 @@ public class OfflinePageBridgeTest {
         if (!incognitoProfile) Assert.assertNotNull(mOfflinePageBridge);
     }
 
-    private OfflinePageBridge getBridgeForProfileKey() throws InterruptedException {
+    private OfflinePageBridge getBridgeForProfileKey(final boolean incognitoProfile)
+            throws InterruptedException {
         final Semaphore semaphore = new Semaphore(0);
         AtomicReference<OfflinePageBridge> offlinePageBridgeRef = new AtomicReference<>();
         PostTask.runOrPostTask(UiThreadTaskTraits.DEFAULT, () -> {
-            ProfileKey profileKey = ProfileKey.getLastUsedProfileKey();
+            Profile profile = Profile.getLastUsedRegularProfile();
+            if (incognitoProfile) {
+                profile = profile.getOffTheRecordProfile();
+            }
+            ProfileKey profileKey = profile.getProfileKey();
             // Ensure we start in an offline state.
             OfflinePageBridge offlinePageBridge = OfflinePageBridge.getForProfileKey(profileKey);
             offlinePageBridgeRef.set(offlinePageBridge);
@@ -121,7 +124,7 @@ public class OfflinePageBridgeTest {
             });
         });
         Assert.assertTrue(semaphore.tryAcquire(TIMEOUT_MS, TimeUnit.MILLISECONDS));
-        Assert.assertNotNull(offlinePageBridgeRef.get());
+        if (!incognitoProfile) Assert.assertNotNull(offlinePageBridgeRef.get());
         return offlinePageBridgeRef.get();
     }
 
@@ -151,13 +154,12 @@ public class OfflinePageBridgeTest {
     @Test
     @MediumTest
     public void testProfileAndKeyMapToSameOfflinePageBridge() throws Exception {
-        OfflinePageBridge offlinePageBridgeRetrievedByKey = getBridgeForProfileKey();
+        OfflinePageBridge offlinePageBridgeRetrievedByKey = getBridgeForProfileKey(false);
         Assert.assertSame(mOfflinePageBridge, offlinePageBridgeRetrievedByKey);
     }
 
     @Test
     @MediumTest
-    @RetryOnFailure
     public void testLoadOfflinePagesWhenEmpty() throws Exception {
         List<OfflinePageItem> offlinePages = OfflineTestUtil.getAllPages();
         Assert.assertEquals("Offline pages count incorrect.", 0, offlinePages.size());
@@ -165,9 +167,6 @@ public class OfflinePageBridgeTest {
 
     @Test
     @MediumTest
-    @RetryOnFailure
-    @DisableIf.
-    Build(message = "https://crbug.com/853255", sdk_is_less_than = Build.VERSION_CODES.LOLLIPOP)
     public void testAddOfflinePageAndLoad() throws Exception {
         mActivityTestRule.loadUrl(mTestPage);
         savePage(SavePageResult.SUCCESS, mTestPage);
@@ -179,7 +178,6 @@ public class OfflinePageBridgeTest {
 
     @Test
     @MediumTest
-    @RetryOnFailure
     public void testGetPageByBookmarkId() throws Exception {
         mActivityTestRule.loadUrl(mTestPage);
         savePage(SavePageResult.SUCCESS, mTestPage);
@@ -192,9 +190,6 @@ public class OfflinePageBridgeTest {
 
     @Test
     @MediumTest
-    @RetryOnFailure
-    @DisableIf.
-    Build(message = "https://crbug.com/853255", sdk_is_less_than = Build.VERSION_CODES.LOLLIPOP)
     public void testDeleteOfflinePage() throws Exception {
         deletePage(TEST_CLIENT_ID, DeletePageResult.SUCCESS);
         mActivityTestRule.loadUrl(mTestPage);
@@ -208,10 +203,16 @@ public class OfflinePageBridgeTest {
 
     @Test
     @MediumTest
-    @RetryOnFailure
     public void testOfflinePageBridgeDisabledInIncognito() throws Exception {
         initializeBridgeForProfile(true);
         Assert.assertEquals(null, mOfflinePageBridge);
+    }
+
+    @Test
+    @MediumTest
+    public void testOfflinePageBridgeForProfileKeyDisabledInIncognito() throws Exception {
+        OfflinePageBridge offlinePageBridgeRetrievedByKey = getBridgeForProfileKey(true);
+        Assert.assertNull(offlinePageBridgeRetrievedByKey);
     }
 
     @Test
@@ -292,7 +293,6 @@ public class OfflinePageBridgeTest {
 
     @Test
     @MediumTest
-    @RetryOnFailure
     @DisabledTest(message = "crbug.com/954205")
     public void testDownloadPage() throws Exception {
         final OfflinePageOrigin origin =
@@ -303,7 +303,7 @@ public class OfflinePageBridgeTest {
         TestThreadUtils.runOnUiThreadBlocking(() -> {
             Assert.assertNotNull("Tab is null", mActivityTestRule.getActivity().getActivityTab());
             Assert.assertEquals("URL does not match requested.", mTestPage,
-                    mActivityTestRule.getActivity().getActivityTab().getUrl());
+                    mActivityTestRule.getActivity().getActivityTab().getUrlString());
             Assert.assertNotNull("WebContents is null", mActivityTestRule.getWebContents());
 
             mOfflinePageBridge.addObserver(new OfflinePageModelObserver() {
@@ -366,9 +366,6 @@ public class OfflinePageBridgeTest {
 
     @Test
     @MediumTest
-    @RetryOnFailure
-    @DisableIf.
-    Build(message = "https://crbug.com/853255", sdk_is_less_than = Build.VERSION_CODES.LOLLIPOP)
     public void testGetLoadUrlParamsForOpeningMhtmlFileUrl() throws Exception {
         mActivityTestRule.loadUrl(mTestPage);
         savePage(SavePageResult.SUCCESS, mTestPage);
@@ -441,7 +438,7 @@ public class OfflinePageBridgeTest {
         TestThreadUtils.runOnUiThreadBlocking(() -> {
             Assert.assertNotNull("Tab is null", mActivityTestRule.getActivity().getActivityTab());
             Assert.assertEquals("URL does not match requested.", expectedUrl,
-                    mActivityTestRule.getActivity().getActivityTab().getUrl());
+                    mActivityTestRule.getActivity().getActivityTab().getUrlString());
             Assert.assertNotNull("WebContents is null", mActivityTestRule.getWebContents());
 
             mOfflinePageBridge.savePage(

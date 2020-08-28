@@ -30,6 +30,7 @@
 #include "content/public/browser/web_ui_data_source.h"
 #include "net/base/url_util.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/base/webui/web_ui_util.h"
 #include "ui/display/display.h"
 #include "ui/display/screen.h"
 #include "ui/strings/grit/ui_strings.h"
@@ -88,6 +89,8 @@ PasswordChangeUI::PasswordChangeUI(content::WebUI* web_ui)
   web_ui->AddMessageHandler(
       std::make_unique<PasswordChangeHandler>(password_change_url));
 
+  source->DisableTrustedTypesCSP();
+
   source->AddString("hostedHeader", GetHostedHeaderText(password_change_url));
   source->UseStringsJs();
 
@@ -110,6 +113,8 @@ ConfirmPasswordChangeUI::ConfirmPasswordChangeUI(content::WebUI* web_ui)
       prefs::kSamlInSessionPasswordChangeEnabled));
   content::WebUIDataSource* source = content::WebUIDataSource::Create(
       chrome::kChromeUIConfirmPasswordChangeHost);
+
+  source->DisableTrustedTypesCSP();
 
   static constexpr webui::LocalizedString kLocalizedStrings[] = {
       {"title", IDS_PASSWORD_CHANGE_CONFIRM_DIALOG_TITLE},
@@ -155,6 +160,8 @@ UrgentPasswordExpiryNotificationUI::UrgentPasswordExpiryNotificationUI(
 
   content::WebUIDataSource* source = content::WebUIDataSource::Create(
       chrome::kChromeUIUrgentPasswordExpiryNotificationHost);
+
+  source->DisableTrustedTypesCSP();
 
   SamlPasswordAttributes attrs = SamlPasswordAttributes::LoadFromPrefs(prefs);
   if (attrs.has_expiration_time()) {

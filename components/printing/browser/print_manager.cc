@@ -22,28 +22,32 @@ struct PrintManager::FrameDispatchHelper {
     manager->OnGetDefaultPrintSettings(render_frame_host, reply_msg);
   }
 
-  void OnScriptedPrint(const PrintHostMsg_ScriptedPrint_Params& scripted_params,
+  void OnScriptedPrint(const mojom::ScriptedPrintParams& scripted_params,
                        IPC::Message* reply_msg) {
     manager->OnScriptedPrint(render_frame_host, scripted_params, reply_msg);
   }
 
-  void OnDidPrintDocument(const PrintHostMsg_DidPrintDocument_Params& params,
+  void OnDidPrintDocument(const mojom::DidPrintDocumentParams& params,
                           IPC::Message* reply_msg) {
     // If DidPrintDocument message was received then need to transition from
     // a variable allocated on stack (which has efficient memory management
     // when dealing with any other incoming message) to a persistent variable
     // on the heap that can be referenced by the asynchronous processing which
     // occurs beyond the scope of PrintViewManagerBase::OnMessageReceived().
-    manager->OnDidPrintDocument(render_frame_host, params,
-                                std::make_unique<DelayedFrameDispatchHelper>(
-                                    render_frame_host, reply_msg));
+    manager->OnDidPrintDocument(
+        render_frame_host, params,
+        std::make_unique<DelayedFrameDispatchHelper>(
+            manager->web_contents(), render_frame_host, reply_msg));
   }
 };
 
 PrintManager::DelayedFrameDispatchHelper::DelayedFrameDispatchHelper(
+    content::WebContents* contents,
     content::RenderFrameHost* render_frame_host,
     IPC::Message* reply_msg)
-    : render_frame_host_(render_frame_host), reply_msg_(reply_msg) {}
+    : content::WebContentsObserver(contents),
+      render_frame_host_(render_frame_host),
+      reply_msg_(reply_msg) {}
 
 PrintManager::DelayedFrameDispatchHelper::~DelayedFrameDispatchHelper() {
   if (reply_msg_) {
@@ -53,7 +57,8 @@ PrintManager::DelayedFrameDispatchHelper::~DelayedFrameDispatchHelper() {
 }
 
 void PrintManager::DelayedFrameDispatchHelper::SendCompleted() {
-  DCHECK(reply_msg_);
+  if (!reply_msg_)
+    return;
 
   PrintHostMsg_DidPrintDocument::WriteReplyParams(reply_msg_, true);
   render_frame_host_->Send(reply_msg_);
@@ -62,8 +67,15 @@ void PrintManager::DelayedFrameDispatchHelper::SendCompleted() {
   reply_msg_ = nullptr;
 }
 
+void PrintManager::DelayedFrameDispatchHelper::RenderFrameDeleted(
+    content::RenderFrameHost* render_frame_host) {
+  if (render_frame_host == render_frame_host_)
+    reply_msg_ = nullptr;
+}
+
 PrintManager::PrintManager(content::WebContents* contents)
-    : content::WebContentsObserver(contents) {}
+    : content::WebContentsObserver(contents),
+      print_manager_host_receivers_(contents, this) {}
 
 PrintManager::~PrintManager() = default;
 
@@ -73,10 +85,6 @@ bool PrintManager::OnMessageReceived(
   FrameDispatchHelper helper = {this, render_frame_host};
   bool handled = true;
   IPC_BEGIN_MESSAGE_MAP(PrintManager, message)
-    IPC_MESSAGE_HANDLER(PrintHostMsg_DidGetPrintedPagesCount,
-                        OnDidGetPrintedPagesCount)
-    IPC_MESSAGE_HANDLER(PrintHostMsg_DidGetDocumentCookie,
-                        OnDidGetDocumentCookie)
     IPC_MESSAGE_FORWARD_DELAY_REPLY(
         PrintHostMsg_GetDefaultPrintSettings, &helper,
         FrameDispatchHelper::OnGetDefaultPrintSettings)
@@ -96,16 +104,18 @@ void PrintManager::RenderFrameDeleted(
   print_render_frames_.erase(render_frame_host);
 }
 
-void PrintManager::OnDidGetPrintedPagesCount(int cookie,
-                                             int number_pages) {
+void PrintManager::DidGetPrintedPagesCount(int32_t cookie,
+                                           int32_t number_pages) {
   DCHECK_GT(cookie, 0);
   DCHECK_GT(number_pages, 0);
   number_pages_ = number_pages;
 }
 
-void PrintManager::OnDidGetDocumentCookie(int cookie) {
+void PrintManager::DidGetDocumentCookie(int32_t cookie) {
   cookie_ = cookie;
 }
+
+void PrintManager::DidShowPrintDialog() {}
 
 void PrintManager::OnPrintingFailed(int cookie) {
   if (cookie != cookie_) {

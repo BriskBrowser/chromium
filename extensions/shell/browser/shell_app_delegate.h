@@ -29,13 +29,14 @@ class ShellAppDelegate : public AppDelegate {
       const content::OpenURLParams& params) override;
   void AddNewContents(content::BrowserContext* context,
                       std::unique_ptr<content::WebContents> new_contents,
+                      const GURL& target_url,
                       WindowOpenDisposition disposition,
                       const gfx::Rect& initial_rect,
                       bool user_gesture) override;
   content::ColorChooser* ShowColorChooser(content::WebContents* web_contents,
                                           SkColor initial_color) override;
   void RunFileChooser(content::RenderFrameHost* render_frame_host,
-                      std::unique_ptr<content::FileSelectListener> listener,
+                      scoped_refptr<content::FileSelectListener> listener,
                       const blink::mojom::FileChooserParams& params) override;
   void RequestMediaAccessPermission(content::WebContents* web_contents,
                                     const content::MediaStreamRequest& request,
@@ -49,7 +50,7 @@ class ShellAppDelegate : public AppDelegate {
   void SetWebContentsBlocked(content::WebContents* web_contents,
                              bool blocked) override;
   bool IsWebContentsVisible(content::WebContents* web_contents) override;
-  void SetTerminatingCallback(const base::Closure& callback) override;
+  void SetTerminatingCallback(base::OnceClosure callback) override;
   void OnHide() override {}
   void OnShow() override {}
   bool TakeFocus(content::WebContents* web_contents, bool reverse) override;

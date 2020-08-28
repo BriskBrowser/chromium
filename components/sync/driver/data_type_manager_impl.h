@@ -56,11 +56,11 @@ class DataTypeManagerImpl : public DataTypeManager,
 
   void Stop(ShutdownReason reason) override;
   ModelTypeSet GetActiveDataTypes() const override;
+  ModelTypeSet GetPurgedDataTypes() const override;
   bool IsNigoriEnabled() const override;
   State state() const override;
 
   // |ModelAssociationManagerDelegate| implementation.
-  void OnSingleDataTypeWillStart(ModelType type) override;
   void OnAllDataTypesReadyForConfigure() override;
   void OnSingleDataTypeAssociationDone(
       ModelType type,

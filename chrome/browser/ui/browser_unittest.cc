@@ -80,7 +80,7 @@ TEST_F(BrowserUnitTest, ReloadCrashedTab) {
 
 // This tests a workaround which is not necessary on Mac.
 // https://crbug.com/719230
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
 #define MAYBE_SetBackgroundColorForNewTab DISABLED_SetBackgroundColorForNewTab
 #else
 #define MAYBE_SetBackgroundColorForNewTab SetBackgroundColorForNewTab
@@ -179,7 +179,7 @@ TEST_F(BrowserUnitTest, CreateGuestSessionBrowser) {
 
   // Creating a browser in OTR guest profile should succeed.
   Browser::CreateParams off_the_record_create_params(
-      test_profile->GetOffTheRecordProfile(), false);
+      test_profile->GetPrimaryOTRProfile(), false);
   std::unique_ptr<BrowserWindow> test_window(CreateBrowserWindow());
   off_the_record_create_params.window = test_window.get();
   std::unique_ptr<Browser> otr_browser(
@@ -201,7 +201,7 @@ TEST_F(BrowserUnitTest, CreateBrowserFailsIfProfileDisallowsBrowserWindows) {
       Browser::Create(Browser::CreateParams(test_profile.get(), false)));
   EXPECT_FALSE(browser);
   std::unique_ptr<Browser> otr_browser(Browser::Create(
-      Browser::CreateParams(test_profile->GetOffTheRecordProfile(), false)));
+      Browser::CreateParams(test_profile->GetPrimaryOTRProfile(), false)));
   EXPECT_FALSE(otr_browser);
 }
 
@@ -215,7 +215,7 @@ TEST_F(BrowserUnitTest, CreateBrowserWithIncognitoModeDisabled) {
   // Creating a browser window in OTR profile should fail if incognito is
   // disabled.
   std::unique_ptr<Browser> otr_browser(Browser::Create(
-      Browser::CreateParams(test_profile->GetOffTheRecordProfile(), false)));
+      Browser::CreateParams(test_profile->GetPrimaryOTRProfile(), false)));
   EXPECT_FALSE(otr_browser);
 
   // Verify creating a browser in the original profile succeeds.
@@ -241,7 +241,7 @@ TEST_F(BrowserUnitTest, CreateBrowserWithIncognitoModeForced) {
 
   // Creating a browser in OTR test profile should succeed.
   Browser::CreateParams off_the_record_create_params(
-      test_profile->GetOffTheRecordProfile(), false);
+      test_profile->GetPrimaryOTRProfile(), false);
   std::unique_ptr<BrowserWindow> test_window(CreateBrowserWindow());
   off_the_record_create_params.window = test_window.get();
   std::unique_ptr<Browser> otr_browser(
@@ -266,7 +266,7 @@ TEST_F(BrowserUnitTest, CreateBrowserWithIncognitoModeEnabled) {
 
   // Creating a browser in OTR test profile should succeed.
   Browser::CreateParams off_the_record_create_params(
-      test_profile->GetOffTheRecordProfile(), false);
+      test_profile->GetPrimaryOTRProfile(), false);
   std::unique_ptr<BrowserWindow> otr_test_window(CreateBrowserWindow());
   off_the_record_create_params.window = otr_test_window.get();
   std::unique_ptr<Browser> otr_browser(
@@ -333,7 +333,7 @@ class BrowserBookmarkBarTest : public BrowserWithTestWindowTest {
   class BookmarkBarStateTestBrowserWindow : public TestBrowserWindow {
    public:
     BookmarkBarStateTestBrowserWindow()
-        : browser_(NULL), bookmark_bar_state_(BookmarkBar::HIDDEN) {}
+        : browser_(nullptr), bookmark_bar_state_(BookmarkBar::HIDDEN) {}
     ~BookmarkBarStateTestBrowserWindow() override {}
 
     void set_browser(Browser* browser) { browser_ = browser; }

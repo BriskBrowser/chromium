@@ -14,8 +14,7 @@ cr.define('usb_internals', function() {
       // actions after the page is loaded but before any script is run.
       await window.setupFn();
 
-      const pageHandler = mojom.UsbInternalsPageHandler.getRemote(
-          /*useBrowserInterfaceBroker=*/ true);
+      const pageHandler = mojom.UsbInternalsPageHandler.getRemote();
 
       // Connection to the UsbInternalsPageHandler instance running in the
       // browser process.
@@ -44,7 +43,7 @@ cr.define('usb_internals', function() {
       const response = await this.usbManagerTest_.getTestDevices();
 
       const tableBody = $('test-device-list');
-      tableBody.innerHTML = '';
+      tableBody.innerHTML = trustedTypes.emptyHTML;
 
       const rowTemplate = document.querySelector('#test-device-row');
       const td = rowTemplate.content.querySelectorAll('td');

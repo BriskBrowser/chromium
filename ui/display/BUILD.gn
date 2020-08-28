@@ -2,18 +2,17 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-import("//build/config/jumbo.gni")
 import("//build/config/ui.gni")
 import("//testing/test.gni")
 import("//ui/display/display.gni")
 
 # Reset sources_assignment_filter for the BUILD.gn file to prevent
 # regression during the migration of Chromium away from the feature.
-# See build/no_sources_assignment_filter.md for more information.
+# See docs/no_sources_assignment_filter.md for more information.
 # TODO(crbug.com/1018739): remove this when migration is done.
 set_sources_assignment_filter([])
 
-jumbo_component("display") {
+component("display") {
   sources = [
     "display.cc",
     "display.h",
@@ -36,6 +35,8 @@ jumbo_component("display") {
     "display_switches.h",
     "display_transform.cc",
     "display_transform.h",
+    "scoped_display_for_new_windows.cc",
+    "scoped_display_for_new_windows.h",
     "screen.cc",
     "screen.h",
     "screen_base.cc",
@@ -58,18 +59,24 @@ jumbo_component("display") {
 
   if (is_win) {
     sources += [
+      "win/base_window_finder_win.cc",
+      "win/base_window_finder_win.h",
       "win/color_profile_reader.cc",
       "win/color_profile_reader.h",
       "win/display_info.cc",
       "win/display_info.h",
       "win/dpi.cc",
       "win/dpi.h",
+      "win/local_process_window_finder_win.cc",
+      "win/local_process_window_finder_win.h",
       "win/scaling_util.cc",
       "win/scaling_util.h",
       "win/screen_win.cc",
       "win/screen_win.h",
       "win/screen_win_display.cc",
       "win/screen_win_display.h",
+      "win/topmost_window_finder_win.cc",
+      "win/topmost_window_finder_win.h",
       "win/uwp_text_scale_factor.cc",
       "win/uwp_text_scale_factor.h",
     ]
@@ -105,7 +112,7 @@ jumbo_component("display") {
   }
 
   if (is_mac) {
-    libs = [
+    frameworks = [
       "AppKit.framework",
       "CoreGraphics.framework",
       "QuartzCore.framework",
@@ -122,9 +129,7 @@ component("display_manager_test_api") {
 
   defines = [ "DISPLAY_IMPLEMENTATION" ]
 
-  public_deps = [
-    "//ui/display/manager",
-  ]
+  public_deps = [ "//ui/display/manager" ]
 
   deps = [
     "//base",
@@ -133,7 +138,7 @@ component("display_manager_test_api") {
   ]
 }
 
-jumbo_static_library("test_support") {
+static_library("test_support") {
   testonly = true
   sources = [
     "test/display_matchers.cc",
@@ -147,6 +152,8 @@ jumbo_static_library("test_support") {
 
   if (is_win) {
     sources += [
+      "win/test/scoped_screen_win.cc",
+      "win/test/scoped_screen_win.h",
       "win/test/screen_util_win.cc",
       "win/test/screen_util_win.h",
     ]

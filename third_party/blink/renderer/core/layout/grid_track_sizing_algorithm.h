@@ -6,7 +6,6 @@
 #define THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_GRID_TRACK_SIZING_ALGORITHM_H_
 
 #include <memory>
-#include "base/macros.h"
 #include "base/optional.h"
 #include "third_party/blink/renderer/core/layout/grid_baseline_alignment.h"
 #include "third_party/blink/renderer/core/layout/layout_box.h"
@@ -24,11 +23,6 @@ class Grid;
 class GridTrackSizingAlgorithmStrategy;
 class LayoutGrid;
 
-enum TrackSizeComputationVariant {
-  kNotCrossingIntrinsicFlexibleTracks,
-  kCrossingIntrinsicFlexibleTracks,
-};
-
 enum TrackSizeComputationPhase {
   kResolveIntrinsicMinimums,
   kResolveContentBasedMinimums,
@@ -36,11 +30,6 @@ enum TrackSizeComputationPhase {
   kResolveIntrinsicMaximums,
   kResolveMaxContentMaximums,
   kMaximizeTracks,
-};
-
-enum SpaceDistributionLimit {
-  kUpToGrowthLimit,
-  kBeyondGrowthLimit,
 };
 
 class GridTrack {
@@ -167,19 +156,14 @@ class GridTrackSizingAlgorithm final {
   void SizeTrackToFitNonSpanningItem(const GridSpan&,
                                      LayoutBox& grid_item,
                                      GridTrack&);
-  bool SpanningItemCrossesIntrinsicFlexibleSizedTracks(const GridSpan&) const;
+  bool SpanningItemCrossesFlexibleSizedTracks(const GridSpan&) const;
   typedef struct GridItemsSpanGroupRange GridItemsSpanGroupRange;
-  template <TrackSizeComputationVariant variant,
-            TrackSizeComputationPhase phase>
-  void IncreaseSizesToAccommodateSpanningItems(
-      const GridItemsSpanGroupRange& grid_items_with_span);
-  template <TrackSizeComputationVariant variant>
+  template <TrackSizeComputationPhase phase>
   void IncreaseSizesToAccommodateSpanningItems(
       const GridItemsSpanGroupRange& grid_items_with_span);
   LayoutUnit ItemSizeForTrackSizeComputationPhase(TrackSizeComputationPhase,
                                                   LayoutBox&) const;
-  template <TrackSizeComputationVariant variant,
-            TrackSizeComputationPhase phase>
+  template <TrackSizeComputationPhase phase>
   void DistributeSpaceToTracks(
       Vector<GridTrack*>& tracks,
       Vector<GridTrack*>* grow_beyond_growth_limits_tracks,
@@ -291,6 +275,10 @@ class GridTrackSizingAlgorithmStrategy {
   USING_FAST_MALLOC(GridTrackSizingAlgorithmStrategy);
 
  public:
+  GridTrackSizingAlgorithmStrategy(const GridTrackSizingAlgorithmStrategy&) =
+      delete;
+  GridTrackSizingAlgorithmStrategy& operator=(
+      const GridTrackSizingAlgorithmStrategy&) = delete;
   virtual ~GridTrackSizingAlgorithmStrategy();
 
   virtual LayoutUnit MinContentForChild(LayoutBox&) const;
@@ -341,6 +329,12 @@ class GridTrackSizingAlgorithmStrategy {
   }
 
   // Helper functions
+  static bool HasRelativeMarginOrPaddingForChild(const LayoutGrid&,
+                                                 const LayoutBox& child,
+                                                 GridTrackSizingDirection);
+  static bool HasRelativeOrIntrinsicSizeForChild(const LayoutGrid&,
+                                                 const LayoutBox& child,
+                                                 GridTrackSizingDirection);
   static bool ShouldClearOverrideContainingBlockContentSizeForChild(
       const LayoutGrid&,
       const LayoutBox& child,
@@ -351,9 +345,6 @@ class GridTrackSizingAlgorithmStrategy {
       LayoutUnit size);
 
   GridTrackSizingAlgorithm& algorithm_;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(GridTrackSizingAlgorithmStrategy);
 };
 }
 

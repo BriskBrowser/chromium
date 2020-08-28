@@ -66,12 +66,15 @@ std::string InitResourceBundleAndDetermineLocale(PrefService* local_state,
   // not have been created yet.
   DCHECK(!ui::ResourceBundle::HasSharedInstance());
   // Auto-detect based on en-US whether secondary locale .pak files exist.
+  bool in_split = false;
+  bool log_error = false;
   ui::SetLoadSecondaryLocalePaks(
-      !ui::GetPathForAndroidLocalePakWithinApk("en-US").empty());
+      !ui::GetPathForAndroidLocalePakWithinApk("en-US", in_split, log_error)
+           .empty());
 #endif
 
   std::string preferred_locale;
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
   // TODO(markusheintz): Read preference pref::kApplicationLocale in order
   // to enforce the application locale.
   // Tests always get en-US.
@@ -87,8 +90,8 @@ std::string InitResourceBundleAndDetermineLocale(PrefService* local_state,
   // method InitSharedInstance is ignored.
   std::string actual_locale = ui::ResourceBundle::InitSharedInstanceWithLocale(
       preferred_locale, nullptr, ui::ResourceBundle::LOAD_COMMON_RESOURCES);
-  if (actual_locale.empty())
-    return actual_locale;
+  CHECK(!actual_locale.empty())
+      << "Locale could not be found for " << preferred_locale;
 
   // First run prefs needs data from the ResourceBundle, so load it now.
   {

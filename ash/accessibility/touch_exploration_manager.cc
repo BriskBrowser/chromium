@@ -17,10 +17,12 @@
 #include "ash/shell.h"
 #include "ash/wm/window_util.h"
 #include "base/command_line.h"
+#include "base/metrics/histogram_functions.h"
 #include "chromeos/audio/chromeos_sounds.h"
 #include "chromeos/audio/cras_audio_handler.h"
 #include "chromeos/constants/chromeos_switches.h"
 #include "extensions/common/constants.h"
+#include "ui/accessibility/ax_enums.mojom.h"
 #include "ui/aura/client/aura_constants.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/wm/public/activation_client.h"
@@ -116,7 +118,8 @@ void TouchExplorationManager::PlayPassthroughEarcon() {
   GetA11yController()->PlayEarcon(chromeos::SOUND_PASSTHROUGH);
 }
 
-void TouchExplorationManager::PlayExitScreenEarcon() {
+void TouchExplorationManager::PlayLongPressRightClickEarcon() {
+  // TODO: Rename this sound to SOUND_LONG_PRESS_RIGHT_CLICK.
   GetA11yController()->PlayEarcon(chromeos::SOUND_EXIT_SCREEN);
 }
 
@@ -125,8 +128,11 @@ void TouchExplorationManager::PlayEnterScreenEarcon() {
 }
 
 void TouchExplorationManager::HandleAccessibilityGesture(
-    ax::mojom::Gesture gesture) {
-  GetA11yController()->HandleAccessibilityGesture(gesture);
+    ax::mojom::Gesture gesture,
+    gfx::PointF location) {
+  base::UmaHistogramEnumeration("Accessibility.ChromeVox.PerformGestureType",
+                                gesture);
+  GetA11yController()->HandleAccessibilityGesture(gesture, location);
 }
 
 void TouchExplorationManager::OnDisplayMetricsChanged(

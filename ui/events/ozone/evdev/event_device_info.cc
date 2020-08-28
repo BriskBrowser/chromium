@@ -6,8 +6,11 @@
 
 #include <linux/input.h>
 
+#include <cstring>
+
 #include "base/files/file_path.h"
 #include "base/logging.h"
+#include "base/notreached.h"
 #include "base/stl_util.h"
 #include "base/threading/thread_restrictions.h"
 #include "ui/events/devices/device_util_linux.h"
@@ -24,6 +27,34 @@ namespace {
 // characters each, so device names more than twice that should be
 // unusual.
 const size_t kMaximumDeviceNameLength = 256;
+
+constexpr struct {
+  uint16_t vendor;
+  uint16_t product_id;
+} kKeyboardBlocklist[] = {
+    {0x03f0, 0xa407},  // HP X4000 Wireless Mouse
+    {0x045e, 0x0745},  // Microsoft Wireless Mobile Mouse 6000
+    {0x045e, 0x0821},  // Microsoft Surface Precision Mouse
+    {0x045e, 0x082a},  // Microsoft Pro IntelliMouse
+    {0x045e, 0x082f},  // Microsoft Bluetooth Mouse
+    {0x045e, 0x0b05},  // Xbox One Elite Series 2 gamepad
+    {0x046d, 0x4069},  // Logitech MX Master 2S (Unifying)
+    {0x046d, 0xb016},  // Logitech M535
+    {0x046d, 0xb019},  // Logitech MX Master 2S (Bluetooth)
+    {0x046d, 0xc093},  // Logitech M500s
+    {0x046d, 0xc534},  // Logitech M185/M187
+    {0x056e, 0x0134},  // Elecom Enelo IR LED Mouse 350
+    {0x056e, 0x0141},  // Elecom EPRIM Blue LED 5 button mouse 228
+    {0x056e, 0x0159},  // Elecom Blue LED Mouse 203
+    {0x1bcf, 0x08a0},  // Kensington Pro Fit Full-size
+};
+
+constexpr struct {
+  uint16_t vendor;
+  uint16_t product_id;
+} kStylusButtonDevices[] = {
+    {0x413c, 0x81d5},  // Dell Active Pen PN579X
+};
 
 bool GetEventBits(int fd,
                   const base::FilePath& path,
@@ -118,17 +149,17 @@ void AssignBitset(const unsigned long* src,
     memset(&dst[src_len], 0, (dst_len - src_len) * sizeof(unsigned long));
 }
 
-bool IsBlacklistedAbsoluteMouseDevice(const input_id& id) {
+bool IsDenylistedAbsoluteMouseDevice(const input_id& id) {
   static constexpr struct {
     uint16_t vid;
     uint16_t pid;
-  } kUSBLegacyBlackListedDevices[] = {
+  } kUSBLegacyDenyListedDevices[] = {
       {0x222a, 0x0001},  // ILITEK ILITEK-TP
   };
 
-  for (size_t i = 0; i < base::size(kUSBLegacyBlackListedDevices); ++i) {
-    if (id.vendor == kUSBLegacyBlackListedDevices[i].vid &&
-        id.product == kUSBLegacyBlackListedDevices[i].pid) {
+  for (size_t i = 0; i < base::size(kUSBLegacyDenyListedDevices); ++i) {
+    if (id.vendor == kUSBLegacyDenyListedDevices[i].vid &&
+        id.product == kUSBLegacyDenyListedDevices[i].pid) {
       return true;
     }
   }
@@ -146,6 +177,7 @@ EventDeviceInfo::EventDeviceInfo() {
   memset(msc_bits_, 0, sizeof(msc_bits_));
   memset(sw_bits_, 0, sizeof(sw_bits_));
   memset(led_bits_, 0, sizeof(led_bits_));
+  memset(ff_bits_, 0, sizeof(ff_bits_));
   memset(prop_bits_, 0, sizeof(prop_bits_));
   memset(abs_info_, 0, sizeof(abs_info_));
 }
@@ -172,6 +204,9 @@ bool EventDeviceInfo::Initialize(int fd, const base::FilePath& path) {
     return false;
 
   if (!GetEventBits(fd, path, EV_LED, led_bits_, sizeof(led_bits_)))
+    return false;
+
+  if (!GetEventBits(fd, path, EV_FF, ff_bits_, sizeof(ff_bits_)))
     return false;
 
   if (!GetPropBits(fd, path, prop_bits_, sizeof(prop_bits_)))
@@ -241,6 +276,10 @@ void EventDeviceInfo::SetSwEvents(const unsigned long* sw_bits, size_t len) {
 
 void EventDeviceInfo::SetLedEvents(const unsigned long* led_bits, size_t len) {
   AssignBitset(led_bits, len, led_bits_, base::size(led_bits_));
+}
+
+void EventDeviceInfo::SetFfEvents(const unsigned long* ff_bits, size_t len) {
+  AssignBitset(ff_bits, len, ff_bits_, base::size(ff_bits_));
 }
 
 void EventDeviceInfo::SetProps(const unsigned long* prop_bits, size_t len) {
@@ -324,6 +363,12 @@ bool EventDeviceInfo::HasLedEvent(unsigned int code) const {
   if (code > LED_MAX)
     return false;
   return EvdevBitIsSet(led_bits_, code);
+}
+
+bool EventDeviceInfo::HasFfEvent(unsigned int code) const {
+  if (code > FF_MAX)
+    return false;
+  return EvdevBitIsSet(ff_bits_, code);
 }
 
 bool EventDeviceInfo::HasProp(unsigned int code) const {
@@ -435,8 +480,32 @@ bool EventDeviceInfo::HasStylus() const {
          HasKeyEvent(BTN_STYLUS2);
 }
 
+bool EventDeviceInfo::IsStylusButtonDevice() const {
+  for (const auto& device_id : kStylusButtonDevices) {
+    if (input_id_.vendor == device_id.vendor &&
+        input_id_.product == device_id.product_id)
+      return true;
+  }
+
+  return false;
+}
+
+bool IsInKeyboardBlockList(input_id input_id_) {
+  for (const auto& blocklist_id : kKeyboardBlocklist) {
+    if (input_id_.vendor == blocklist_id.vendor &&
+        input_id_.product == blocklist_id.product_id)
+      return true;
+  }
+
+  return false;
+}
+
 bool EventDeviceInfo::HasKeyboard() const {
   if (!HasEventType(EV_KEY))
+    return false;
+  if (IsInKeyboardBlockList(input_id_))
+    return false;
+  if (IsStylusButtonDevice())
     return false;
 
   // Check first 31 keys: If we have all of them, consider it a full
@@ -481,6 +550,10 @@ bool EventDeviceInfo::HasGamepad() const {
   return support_gamepad_btn && !HasTablet() && !HasKeyboard();
 }
 
+bool EventDeviceInfo::SupportsRumble() const {
+  return HasEventType(EV_FF) && HasFfEvent(FF_RUMBLE);
+}
+
 // static
 ui::InputDeviceType EventDeviceInfo::GetInputDeviceTypeFromId(input_id id) {
   static constexpr struct {
@@ -491,6 +564,7 @@ ui::InputDeviceType EventDeviceInfo::GetInputDeviceTypeFromId(input_id id) {
       {0x18d1, 0x5030},  // Google, Whiskers PID (nocturne)
       {0x18d1, 0x503c},  // Google, Masterball PID (krane)
       {0x18d1, 0x503d},  // Google, Magnemite PID (kodama)
+      {0x18d1, 0x5044},  // Google, Moonball PID (kakadu)
       {0x1fd2, 0x8103},  // LG, Internal TouchScreen PID
   };
 
@@ -535,7 +609,7 @@ EventDeviceInfo::ProbeLegacyAbsoluteDevice() const {
 
   // ABS_Z mitigation for extra device on some Elo devices.
   if (HasKeyEvent(BTN_LEFT) && !HasAbsEvent(ABS_Z) &&
-      !IsBlacklistedAbsoluteMouseDevice(input_id_))
+      !IsDenylistedAbsoluteMouseDevice(input_id_))
     return LegacyAbsoluteDeviceType::TOUCHSCREEN;
 
   return LegacyAbsoluteDeviceType::NONE;

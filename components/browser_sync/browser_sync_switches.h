@@ -15,13 +15,7 @@ extern const char kEnableLocalSyncBackend[];
 extern const char kLocalSyncBackendDir[];
 
 #if defined(OS_ANDROID)
-extern const base::Feature kSyncManualStartAndroid;
 extern const base::Feature kSyncUseSessionsUnregisterDelay;
-extern const base::Feature kSyncErrorInfoBarAndroid;
-#endif
-
-#if defined(OS_CHROMEOS)
-extern const base::Feature kSyncManualStartChromeOS;
 #endif
 
 }  // namespace switches

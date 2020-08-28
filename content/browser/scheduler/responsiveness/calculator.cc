@@ -7,7 +7,10 @@
 #include <algorithm>
 #include <set>
 
+#include "base/bind.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/trace_event/trace_event.h"
+#include "build/build_config.h"
 #include "content/public/browser/browser_thread.h"
 
 namespace content {
@@ -18,17 +21,15 @@ namespace {
 // We divide the measurement interval into discretized time slices.
 // Each slice is marked as janky if it contained a janky task. A janky task is
 // one whose execution latency is greater than kJankThreshold.
-constexpr base::TimeDelta kMeasurementInterval =
-    base::TimeDelta::FromSeconds(30);
+constexpr auto kMeasurementInterval = base::TimeDelta::FromSeconds(30);
 
 // A task or event longer than kJankThreshold is considered janky.
-constexpr base::TimeDelta kJankThreshold =
-    base::TimeDelta::FromMilliseconds(100);
+constexpr auto kJankThreshold = base::TimeDelta::FromMilliseconds(100);
 
 // If there have been no events/tasks on the UI thread for a significant period
 // of time, it's likely because Chrome was suspended.
 // This value is copied from queueing_time_estimator.cc:kInvalidPeriodThreshold.
-constexpr base::TimeDelta kSuspendInterval = base::TimeDelta::FromSeconds(30);
+constexpr auto kSuspendInterval = base::TimeDelta::FromSeconds(30);
 
 // Given a |jank|, finds each janky slice between |start_time| and |end_time|,
 // and adds it to |janky_slices|.
@@ -47,7 +48,7 @@ void AddJankySlices(std::set<int>* janky_slices,
   // Find each janky slice, and add it to |janky_slices|.
   while (jank_start < jank_end) {
     // Convert |jank_start| to a slice label.
-    int64_t label = (jank_start - start_time) / kJankThreshold;
+    int64_t label = (jank_start - start_time).IntDiv(kJankThreshold);
     janky_slices->insert(label);
 
     jank_start += kJankThreshold;
@@ -63,7 +64,23 @@ Calculator::Jank::Jank(base::TimeTicks start_time, base::TimeTicks end_time)
 
 Calculator::Calculator()
     : last_calculation_time_(base::TimeTicks::Now()),
-      most_recent_activity_time_(last_calculation_time_) {}
+      most_recent_activity_time_(last_calculation_time_)
+#if defined(OS_ANDROID)
+      ,
+      application_status_listener_(
+          base::android::ApplicationStatusListener::New(
+              base::BindRepeating(&Calculator::OnApplicationStateChanged,
+                                  // Listener is destroyed at destructor, and
+                                  // object will be alive for any callback.
+                                  base::Unretained(this)))) {
+  OnApplicationStateChanged(
+      base::android::ApplicationStatusListener::GetState());
+}
+#else
+{
+}
+#endif
+
 Calculator::~Calculator() = default;
 
 void Calculator::TaskOrEventFinishedOnUIThread(
@@ -76,6 +93,15 @@ void Calculator::TaskOrEventFinishedOnUIThread(
   if (execution_finish_time - queue_time >= kJankThreshold) {
     GetQueueAndExecutionJanksOnUIThread().emplace_back(queue_time,
                                                        execution_finish_time);
+    // Emit a trace event to highlight large janky slices.
+    TRACE_EVENT_NESTABLE_ASYNC_BEGIN_WITH_TIMESTAMP0(
+        "latency", "Large UI Jank", TRACE_ID_LOCAL(g_num_large_ui_janks_),
+        queue_time);
+    TRACE_EVENT_NESTABLE_ASYNC_END_WITH_TIMESTAMP0(
+        "latency", "Large UI Jank", TRACE_ID_LOCAL(g_num_large_ui_janks_),
+        execution_finish_time);
+    g_num_large_ui_janks_++;
+
     if (execution_finish_time - execution_start_time >= kJankThreshold) {
       GetExecutionJanksOnUIThread().emplace_back(execution_start_time,
                                                  execution_finish_time);
@@ -97,6 +123,15 @@ void Calculator::TaskOrEventFinishedOnIOThread(
     base::AutoLock lock(io_thread_lock_);
     queue_and_execution_janks_on_io_thread_.emplace_back(queue_time,
                                                          execution_finish_time);
+    // Emit a trace event to highlight large janky slices.
+    TRACE_EVENT_NESTABLE_ASYNC_BEGIN_WITH_TIMESTAMP0(
+        "latency", "Large IO Jank", TRACE_ID_LOCAL(g_num_large_io_janks_),
+        queue_time);
+    TRACE_EVENT_NESTABLE_ASYNC_END_WITH_TIMESTAMP0(
+        "latency", "Large IO Jank", TRACE_ID_LOCAL(g_num_large_io_janks_),
+        execution_finish_time);
+    g_num_large_io_janks_++;
+
     if (execution_finish_time - execution_start_time >= kJankThreshold) {
       execution_janks_on_io_thread_.emplace_back(execution_start_time,
                                                  execution_finish_time);
@@ -104,7 +139,17 @@ void Calculator::TaskOrEventFinishedOnIOThread(
   }
 }
 
-void Calculator::EmitResponsiveness(JankType jank_type, size_t janky_slices) {
+void Calculator::SetProcessSuspended(bool suspended) {
+  // Keep track of the current power state.
+  is_process_suspended_ = suspended;
+  // Regardless of whether the process is entering or exiting suspension, the
+  // current 30-second interval should be flagged as containing suspended state.
+  was_process_suspended_ = true;
+}
+
+void Calculator::EmitResponsiveness(JankType jank_type,
+                                    size_t janky_slices,
+                                    bool was_process_suspended) {
   constexpr size_t kMaxJankySlices = 300;
   DCHECK_LE(janky_slices, kMaxJankySlices);
   switch (jank_type) {
@@ -112,6 +157,11 @@ void Calculator::EmitResponsiveness(JankType jank_type, size_t janky_slices) {
       UMA_HISTOGRAM_COUNTS_1000(
           "Browser.Responsiveness.JankyIntervalsPerThirtySeconds",
           janky_slices);
+      if (!was_process_suspended) {
+        UMA_HISTOGRAM_COUNTS_1000(
+            "Browser.Responsiveness.JankyIntervalsPerThirtySeconds.NoSuspend",
+            janky_slices);
+      }
       break;
     }
     case JankType::kQueueAndExecution: {
@@ -138,7 +188,11 @@ void Calculator::CalculateResponsivenessIfNecessary(
   // Chrome is not suspended, there is a steady stream of tasks and events on
   // the UI thread. If there's been a significant amount of time since the last
   // calculation, then it's likely because Chrome was suspended.
-  if (current_time - last_activity_time > kSuspendInterval) {
+  bool is_suspended = current_time - last_activity_time > kSuspendInterval;
+#if defined(OS_ANDROID)
+  is_suspended |= !is_application_visible_;
+#endif
+  if (is_suspended) {
     last_calculation_time_ = current_time;
     GetExecutionJanksOnUIThread().clear();
     GetQueueAndExecutionJanksOnUIThread().clear();
@@ -158,13 +212,8 @@ void Calculator::CalculateResponsivenessIfNecessary(
   // At least |kMeasurementInterval| time has passed, so we want to move forward
   // |last_calculation_time_| and make measurements based on janks in that
   // interval.
-  int64_t number_of_measurement_intervals =
-      time_since_last_calculation / kMeasurementInterval;
-  DCHECK_GE(number_of_measurement_intervals, 1);
-
   const base::TimeTicks new_calculation_time =
-      last_calculation_time_ +
-      number_of_measurement_intervals * kMeasurementInterval;
+      current_time - (time_since_last_calculation % kMeasurementInterval);
 
   // Acquire the janks in the measurement interval from the UI and IO threads.
   std::vector<JankList> execution_janks_from_multiple_threads;
@@ -192,6 +241,7 @@ void Calculator::CalculateResponsivenessIfNecessary(
       last_calculation_time_, new_calculation_time);
 
   last_calculation_time_ = new_calculation_time;
+  was_process_suspended_ = is_process_suspended_;
 }
 
 void Calculator::CalculateResponsiveness(
@@ -220,7 +270,7 @@ void Calculator::CalculateResponsiveness(
       }
     }
 
-    EmitResponsiveness(jank_type, janky_slices.size());
+    EmitResponsiveness(jank_type, janky_slices.size(), was_process_suspended_);
 
     start_time = current_interval_end_time;
   }
@@ -258,6 +308,26 @@ Calculator::JankList Calculator::TakeJanksOlderThanTime(
   janks->erase(janks->begin(), first_jank_to_keep);
   return janks_to_return;
 }
+
+#if defined(OS_ANDROID)
+void Calculator::OnApplicationStateChanged(
+    base::android::ApplicationState state) {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+  switch (state) {
+    case base::android::APPLICATION_STATE_HAS_RUNNING_ACTIVITIES:
+    case base::android::APPLICATION_STATE_HAS_PAUSED_ACTIVITIES:
+      // The application is still visible and partially hidden in paused state.
+      is_application_visible_ = true;
+      break;
+    case base::android::APPLICATION_STATE_HAS_STOPPED_ACTIVITIES:
+    case base::android::APPLICATION_STATE_HAS_DESTROYED_ACTIVITIES:
+      is_application_visible_ = false;
+      break;
+    case base::android::APPLICATION_STATE_UNKNOWN:
+      break;  // Keep in previous state.
+  }
+}
+#endif
 
 }  // namespace responsiveness
 }  // namespace content

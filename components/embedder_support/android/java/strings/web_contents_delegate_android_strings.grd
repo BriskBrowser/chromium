@@ -69,6 +69,7 @@
     <output filename="values-sl/web_contents_delegate_android_strings.xml" lang="sl" type="android" />
     <output filename="values-sq/web_contents_delegate_android_strings.xml" lang="sq" type="android" />
     <output filename="values-sr/web_contents_delegate_android_strings.xml" lang="sr" type="android" />
+    <output filename="values-b+sr+Latn/web_contents_delegate_android_strings.xml" lang="sr-Latn" type="android" />
     <output filename="values-sv/web_contents_delegate_android_strings.xml" lang="sv" type="android" />
     <output filename="values-sw/web_contents_delegate_android_strings.xml" lang="sw" type="android" />
     <output filename="values-ta/web_contents_delegate_android_strings.xml" lang="ta" type="android" />
@@ -80,6 +81,7 @@
     <output filename="values-uz/web_contents_delegate_android_strings.xml" lang="uz" type="android" />
     <output filename="values-vi/web_contents_delegate_android_strings.xml" lang="vi" type="android" />
     <output filename="values-zh-rCN/web_contents_delegate_android_strings.xml" lang="zh-CN" type="android" />
+    <output filename="values-zh-rHK/web_contents_delegate_android_strings.xml" lang="zh-HK" type="android" />
     <output filename="values-zh-rTW/web_contents_delegate_android_strings.xml" lang="zh-TW" type="android" />
     <output filename="values-zu/web_contents_delegate_android_strings.xml" lang="zu" type="android" />
   </outputs>
@@ -149,6 +151,7 @@
     <file lang="sl" path="translations/web_contents_delegate_android_strings_sl.xtb" />
     <file lang="sq" path="translations/web_contents_delegate_android_strings_sq.xtb" />
     <file lang="sr" path="translations/web_contents_delegate_android_strings_sr.xtb" />
+    <file lang="sr-Latn" path="translations/web_contents_delegate_android_strings_sr-Latn.xtb" />
     <file lang="sv" path="translations/web_contents_delegate_android_strings_sv.xtb" />
     <file lang="sw" path="translations/web_contents_delegate_android_strings_sw.xtb" />
     <file lang="ta" path="translations/web_contents_delegate_android_strings_ta.xtb" />

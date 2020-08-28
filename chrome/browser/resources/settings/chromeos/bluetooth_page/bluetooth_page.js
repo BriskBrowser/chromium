@@ -8,7 +8,7 @@
  * just provodes a summary and link to the subpage.
  */
 
-const bluetoothApis = window['bluetoothApis'] || {
+/* #export */ const bluetoothApis = window['bluetoothApis'] || {
   /**
    * Set this to provide a fake implementation for testing.
    * @type {Bluetooth}
@@ -25,7 +25,12 @@ const bluetoothApis = window['bluetoothApis'] || {
 Polymer({
   is: 'settings-bluetooth-page',
 
-  behaviors: [I18nBehavior, PrefsBehavior],
+  behaviors: [
+    I18nBehavior,
+    DeepLinkingBehavior,
+    PrefsBehavior,
+    settings.RouteObserverBehavior,
+  ],
 
   properties: {
     /** Preferences state. */
@@ -123,6 +128,15 @@ Polymer({
       },
       readOnly: true,
     },
+
+    /**
+     * Used by DeepLinkingBehavior to focus this page's deep links.
+     * @type {!Set<!chromeos.settings.mojom.Setting>}
+     */
+    supportedSettingIds: {
+      type: Object,
+      value: () => new Set([chromeos.settings.mojom.Setting.kBluetoothOnOff]),
+    },
   },
 
   observers: ['deviceListChanged_(deviceList_.*)'],
@@ -161,6 +175,21 @@ Polymer({
       this.bluetooth.onAdapterStateChanged.removeListener(
           this.bluetoothAdapterStateChangedListener_);
     }
+  },
+
+  /**
+   * settings.RouteObserverBehavior
+   * @param {!settings.Route} newRoute
+   * @param {!settings.Route} oldRoute
+   * @protected
+   */
+  currentRouteChanged(newRoute, oldRoute) {
+    // Does not apply to this page.
+    if (newRoute != settings.routes.BLUETOOTH) {
+      return;
+    }
+
+    this.attemptDeepLink();
   },
 
   /**
@@ -256,6 +285,6 @@ Polymer({
 
   /** @private */
   openSubpage_() {
-    settings.navigateTo(settings.routes.BLUETOOTH_DEVICES);
+    settings.Router.getInstance().navigateTo(settings.routes.BLUETOOTH_DEVICES);
   }
 });

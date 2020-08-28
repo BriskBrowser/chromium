@@ -6,7 +6,7 @@
 
 #import "content/browser/accessibility/browser_accessibility_mac.h"
 
-#include "base/task/post_task.h"
+#include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #import "content/browser/accessibility/browser_accessibility_cocoa.h"
 #include "content/browser/accessibility/browser_accessibility_manager_mac.h"
@@ -21,19 +21,14 @@ BrowserAccessibility* BrowserAccessibility::Create() {
 BrowserAccessibilityMac::BrowserAccessibilityMac()
     : browser_accessibility_cocoa_(NULL) {}
 
-bool BrowserAccessibilityMac::IsNative() const {
-  return true;
-}
-
-void BrowserAccessibilityMac::NativeReleaseReference() {
+BrowserAccessibilityMac::~BrowserAccessibilityMac() {
   // Detach this object from |browser_accessibility_cocoa_| so it
   // no longer has a pointer to this object.
   [browser_accessibility_cocoa_ detach];
+
   // Now, release it - but at this point, other processes may have a
   // reference to the cocoa object.
   [browser_accessibility_cocoa_ release];
-  // Finally, it's safe to delete this since we've detached.
-  delete this;
 }
 
 void BrowserAccessibilityMac::OnDataChanged() {
@@ -87,7 +82,7 @@ void BrowserAccessibilityMac::ReplaceNativeObject() {
   base::scoped_nsobject<BrowserAccessibilityCocoa> retained_destroyed_node(
       [old_native_obj retain]);
 
-  base::PostDelayedTask(
+  base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
       FROM_HERE,
       base::BindOnce(
           [](base::scoped_nsobject<BrowserAccessibilityCocoa> destroyed) {
@@ -181,14 +176,12 @@ BrowserAccessibility* BrowserAccessibilityMac::PlatformGetPreviousSibling()
 const BrowserAccessibilityCocoa* ToBrowserAccessibilityCocoa(
     const BrowserAccessibility* obj) {
   DCHECK(obj);
-  DCHECK(obj->IsNative());
   return static_cast<const BrowserAccessibilityMac*>(obj)->native_view();
 }
 
 BrowserAccessibilityCocoa* ToBrowserAccessibilityCocoa(
     BrowserAccessibility* obj) {
   DCHECK(obj);
-  DCHECK(obj->IsNative());
   return static_cast<BrowserAccessibilityMac*>(obj)->native_view();
 }
 

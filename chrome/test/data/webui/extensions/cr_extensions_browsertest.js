@@ -6,9 +6,10 @@
 
 // Polymer BrowserTest fixture.
 GEN_INCLUDE(['//chrome/test/data/webui/polymer_browser_test_base.js']);
+
 GEN('#include "chrome/browser/ui/webui/extensions/' +
     'extension_settings_browsertest.h"');
-GEN('#include "services/network/public/cpp/features.h"');
+GEN('#include "content/public/test/browser_test.h"');
 
 /**
  * Basic test fixture for the MD chrome://extensions page. Installs no
@@ -36,11 +37,6 @@ const CrExtensionsBrowserTest = class extends PolymerTest {
   // The name of the mocha suite. Should be overriden by subclasses.
   get suiteName() {
     return null;
-  }
-
-  /** @override */
-  get featureList() {
-    return {enabled: ['network::features::kOutOfBlinkCors']};
   }
 
   /** @param {string} testName The name of the test to run. */
@@ -115,7 +111,7 @@ TEST_F('CrExtensionsToolbarTest', 'FailedUpdateFiresLoadError', function() {
 });
 
 // TODO(crbug.com/882342) Disabled on other platforms but MacOS due to timeouts.
-GEN('#if !defined(OS_MACOSX)');
+GEN('#if !defined(OS_MAC)');
 GEN('#define MAYBE_ClickHandlers DISABLED_ClickHandlers');
 GEN('#else');
 GEN('#define MAYBE_ClickHandlers ClickHandlers');
@@ -172,8 +168,8 @@ TEST_F('CrExtensionsItemsTest', 'SourceIndicator', function() {
   this.runMochaTest(extension_item_tests.TestNames.SourceIndicator);
 });
 
-TEST_F('CrExtensionsItemsTest', 'EnableToggleAndButton', function() {
-  this.runMochaTest(extension_item_tests.TestNames.EnableToggleAndButton);
+TEST_F('CrExtensionsItemsTest', 'EnableToggle', function() {
+  this.runMochaTest(extension_item_tests.TestNames.EnableToggle);
 });
 
 TEST_F('CrExtensionsItemsTest', 'RemoveButton', function() {
@@ -182,6 +178,10 @@ TEST_F('CrExtensionsItemsTest', 'RemoveButton', function() {
 
 TEST_F('CrExtensionsItemsTest', 'HtmlInName', function() {
   this.runMochaTest(extension_item_tests.TestNames.HtmlInName);
+});
+
+TEST_F('CrExtensionsItemsTest', 'RepairButton', function() {
+  this.runMochaTest(extension_item_tests.TestNames.RepairButton);
 });
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -284,6 +284,12 @@ TEST_F('CrExtensionsDetailViewTest', 'Layout', function() {
 TEST_F('CrExtensionsDetailViewTest', 'LayoutSource', function() {
   this.runMochaTest(extension_detail_view_tests.TestNames.LayoutSource);
 });
+
+TEST_F(
+    'CrExtensionsDetailViewTest', 'SupervisedUserDisableReasons', function() {
+      this.runMochaTest(
+          extension_detail_view_tests.TestNames.SupervisedUserDisableReasons);
+    });
 
 TEST_F('CrExtensionsDetailViewTest', 'ClickableElements', function() {
   this.runMochaTest(extension_detail_view_tests.TestNames.ClickableElements);
@@ -628,7 +634,7 @@ TEST_F('CrExtensionsPackDialogTest', 'PackError', function() {
 
 // Temporarily disabling on Mac due to flakiness.
 // http://crbug.com/877109
-GEN('#if defined(OS_MACOSX)');
+GEN('#if defined(OS_MAC)');
 GEN('#define MAYBE_PackWarning DISABLED_PackWarning');
 GEN('#else');
 GEN('#define MAYBE_PackWarning PackWarning');
@@ -761,7 +767,6 @@ var CrExtensionsErrorConsoleTest = class extends CrExtensionsBrowserTest {
   /** @override */
   testGenPreamble() {
     GEN('  SetDevModeEnabled(true);');
-    GEN('  EnableErrorConsole();');
     GEN('  InstallErrorsExtension();');
   }
 

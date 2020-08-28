@@ -46,6 +46,7 @@
 #include "components/autofill/core/common/autofill_features.h"
 #include "components/autofill/core/common/autofill_switches.h"
 #include "components/autofill/core/common/autofill_util.h"
+#include "content/public/test/browser_test.h"
 #include "content/public/test/test_renderer_host.h"
 #include "content/public/test/test_utils.h"
 #include "net/dns/mock_host_resolver.h"
@@ -101,7 +102,8 @@ class AutofillCapturedSitesInteractiveTest
     int tries = 0;
     while (tries < attempts) {
       tries++;
-      autofill_manager->client()->HideAutofillPopup();
+      autofill_manager->client()->HideAutofillPopup(
+          autofill::PopupHidingReason::kViewDestroyed);
 
       if (!ShowAutofillSuggestion(focus_element_css_selector, iframe_path,
                                   frame)) {
@@ -132,7 +134,8 @@ class AutofillCapturedSitesInteractiveTest
       return true;
     }
 
-    autofill_manager->client()->HideAutofillPopup();
+    autofill_manager->client()->HideAutofillPopup(
+        autofill::PopupHidingReason::kViewDestroyed);
     ADD_FAILURE() << "Failed to autofill the form!";
     return false;
   }
@@ -204,7 +207,10 @@ class AutofillCapturedSitesInteractiveTest
         std::make_unique<test::ServerCacheReplayer>(
             GetParam().capture_file_path,
             test::ServerCacheReplayer::kOptionFailOnInvalidJsonRecord |
-                test::ServerCacheReplayer::kOptionSplitRequestsByForm)));
+                test::ServerCacheReplayer::kOptionSplitRequestsByForm,
+            base::FeatureList::IsEnabled(features::kAutofillUseApi)
+                ? test::AutofillServerType::kApi
+                : test::AutofillServerType::kLegacy)));
   }
 
   void TearDownOnMainThread() override {
@@ -222,6 +228,7 @@ class AutofillCapturedSitesInteractiveTest
     // Allow access exception to live Autofill Server for
     // overriding cache replay behavior.
     host_resolver()->AllowDirectLookup("clients1.google.com");
+    host_resolver()->AllowDirectLookup("content-autofill.googleapis.com");
     AutofillUiTest::SetUpInProcessBrowserTestFixture();
   }
 
@@ -231,9 +238,9 @@ class AutofillCapturedSitesInteractiveTest
     // prediction. Test will check this attribute on all the relevant input
     // elements in a form to determine if the form is ready for interaction.
     feature_list_.InitWithFeatures(
-        /*enabled_features=*/{features::kAutofillShowTypePredictions},
-        /*disabled_features=*/{features::kAutofillCacheQueryResponses,
-                               features::kAutofillUseApi});
+        /*enabled_features=*/{features::kAutofillShowTypePredictions,
+                              features::kAutofillUseApi},
+        /*disabled_features=*/{features::kAutofillCacheQueryResponses});
     command_line->AppendSwitch(switches::kShowAutofillTypePredictions);
     command_line->AppendSwitchASCII(::switches::kForceFieldTrials,
                                     "AutofillFieldMetadata/Enabled/");

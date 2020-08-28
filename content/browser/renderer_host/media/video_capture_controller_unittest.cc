@@ -19,7 +19,7 @@
 #include "base/memory/ref_counted.h"
 #include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
-#include "base/task/post_task.h"
+#include "base/test/bind_test_util.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "content/browser/renderer_host/media/media_stream_provider.h"
@@ -47,16 +47,29 @@ using ::testing::_;
 using ::testing::AnyNumber;
 using ::testing::InSequence;
 using ::testing::Mock;
+using ::testing::NiceMock;
 using ::testing::SaveArg;
+using ::testing::StrEq;
 
 namespace content {
+namespace {
+
+class MockEmitLogMessageCb {
+ public:
+  MOCK_METHOD1(EmitLogMessage, void(const std::string&));
+
+  base::RepeatingCallback<void(const std::string&)> Callback() {
+    return base::BindRepeating(base::BindLambdaForTesting(
+        [this](const std::string& message) { EmitLogMessage(message); }));
+  }
+};
 
 class MockVideoCaptureControllerEventHandler
     : public VideoCaptureControllerEventHandler {
  public:
   explicit MockVideoCaptureControllerEventHandler(
       VideoCaptureController* controller)
-      : controller_(controller), resource_utilization_(-1.0) {}
+      : controller_(controller) {}
   ~MockVideoCaptureControllerEventHandler() override {}
   void set_enable_auto_return_buffer_on_buffer_ready(bool enable) {
     enable_auto_return_buffer_on_buffer_ready_ = enable;
@@ -95,17 +108,13 @@ class MockVideoCaptureControllerEventHandler
       const media::mojom::VideoFrameInfoPtr& frame_info) override {
     EXPECT_EQ(expected_pixel_format_, frame_info->pixel_format);
     EXPECT_EQ(expected_color_space_, frame_info->color_space);
-    media::VideoFrameMetadata metadata;
-    metadata.MergeInternalValuesFrom(frame_info->metadata);
-    base::TimeTicks reference_time;
-    EXPECT_TRUE(metadata.GetTimeTicks(media::VideoFrameMetadata::REFERENCE_TIME,
-                                      &reference_time));
+    EXPECT_TRUE(frame_info->metadata.reference_time.has_value());
     DoBufferReady(id, frame_info->coded_size);
     if (enable_auto_return_buffer_on_buffer_ready_) {
       base::ThreadTaskRunnerHandle::Get()->PostTask(
           FROM_HERE, base::BindOnce(&VideoCaptureController::ReturnBuffer,
                                     base::Unretained(controller_), id, this,
-                                    buffer_id, resource_utilization_));
+                                    buffer_id, feedback_));
     }
   }
   void OnEnded(const VideoCaptureControllerID& id) override {
@@ -120,7 +129,7 @@ class MockVideoCaptureControllerEventHandler
   VideoCaptureController* controller_;
   media::VideoPixelFormat expected_pixel_format_ = media::PIXEL_FORMAT_I420;
   gfx::ColorSpace expected_color_space_ = gfx::ColorSpace::CreateREC709();
-  double resource_utilization_;
+  media::VideoFrameFeedback feedback_;
   bool enable_auto_return_buffer_on_buffer_ready_ = true;
 };
 
@@ -150,8 +159,9 @@ class VideoCaptureControllerTest
     auto device_launcher = std::make_unique<MockVideoCaptureDeviceLauncher>();
     controller_ = new VideoCaptureController(
         arbitrary_device_id, arbitrary_stream_type, arbitrary_params,
-        std::move(device_launcher),
-        base::BindRepeating([](const std::string&) {}));
+        std::move(device_launcher), emit_log_message_mock_.Callback());
+    // TODO(crbug.com/1062705): Fix the lifetime issue between `controller_`
+    // and `emit_log_message_mock_`.
     InitializeNewDeviceClientAndBufferPoolInstances();
     auto mock_launched_device =
         std::make_unique<MockLaunchedVideoCaptureDevice>();
@@ -173,15 +183,13 @@ class VideoCaptureControllerTest
     device_client_.reset(new media::VideoCaptureDeviceClient(
         media::VideoCaptureBufferType::kSharedMemory,
         std::make_unique<media::VideoFrameReceiverOnTaskRunner>(
-            controller_->GetWeakPtrForIOThread(),
-            base::CreateSingleThreadTaskRunner({BrowserThread::IO})),
+            controller_->GetWeakPtrForIOThread(), GetIOThreadTaskRunner({})),
         buffer_pool_, media::VideoCaptureJpegDecoderFactoryCB()));
 #else
     device_client_.reset(new media::VideoCaptureDeviceClient(
         media::VideoCaptureBufferType::kSharedMemory,
         std::make_unique<media::VideoFrameReceiverOnTaskRunner>(
-            controller_->GetWeakPtrForIOThread(),
-            base::CreateSingleThreadTaskRunner({BrowserThread::IO})),
+            controller_->GetWeakPtrForIOThread(), GetIOThreadTaskRunner({})),
         buffer_pool_));
 #endif  // defined(OS_CHROMEOS)
   }
@@ -206,6 +214,7 @@ class VideoCaptureControllerTest
   scoped_refptr<media::VideoCaptureBufferPool> buffer_pool_;
   std::unique_ptr<MockVideoCaptureControllerEventHandler> client_a_;
   std::unique_ptr<MockVideoCaptureControllerEventHandler> client_b_;
+  NiceMock<MockEmitLogMessageCb> emit_log_message_mock_;
   scoped_refptr<VideoCaptureController> controller_;
   std::unique_ptr<media::VideoCaptureDevice::Client> device_client_;
   MockLaunchedVideoCaptureDevice* mock_launched_device_;
@@ -400,12 +409,15 @@ TEST_P(VideoCaptureControllerTest, NormalCaptureMultipleClients) {
     EXPECT_CALL(*client_a_,
                 DoBufferReady(client_a_route_2, device_format.frame_size));
   }
-  client_a_->resource_utilization_ = 0.5;
-  client_b_->resource_utilization_ = -1.0;
+  client_a_->feedback_.resource_utilization = 0.5;
+  client_b_->feedback_.resource_utilization = base::nullopt;
   // Expect VideoCaptureController to call the load observer with a
   // resource utilization of 0.5 (the largest of all reported values).
-  EXPECT_CALL(*mock_launched_device_,
-              OnUtilizationReport(arbitrary_frame_feedback_id, 0.5));
+  const media::VideoFrameFeedback kExpectedFeedback = media::VideoFrameFeedback(
+      0.5, std::numeric_limits<float>::infinity(), base::nullopt);
+  EXPECT_CALL(
+      *mock_launched_device_,
+      OnUtilizationReport(arbitrary_frame_feedback_id, kExpectedFeedback));
 
   device_client_->OnIncomingCapturedBuffer(std::move(buffer), device_format,
                                            arbitrary_reference_time_,
@@ -428,12 +440,15 @@ TEST_P(VideoCaptureControllerTest, NormalCaptureMultipleClients) {
             result_code_2);
   auto buffer2_access = buffer2.handle_provider->GetHandleForInProcessAccess();
   memset(buffer2_access->data(), buffer_no++, buffer2_access->mapped_size());
-  client_a_->resource_utilization_ = 0.5;
-  client_b_->resource_utilization_ = 3.14;
+
+  client_a_->feedback_ = media::VideoFrameFeedback(0.5, 60, 1000);
+  client_b_->feedback_ = media::VideoFrameFeedback(3.14, 30, base::nullopt);
   // Expect VideoCaptureController to call the load observer with a
-  // resource utilization of 3.14 (the largest of all reported values).
+  // resource utilization of 3.14 (the largest of all reported values) and
+  // sink constraints being the minimum of all reported values.
   EXPECT_CALL(*mock_launched_device_,
-              OnUtilizationReport(arbitrary_frame_feedback_id_2, 3.14));
+              OnUtilizationReport(arbitrary_frame_feedback_id_2,
+                                  media::VideoFrameFeedback(3.14, 30, 1000)));
 
   device_client_->OnIncomingCapturedBuffer(std::move(buffer2), device_format,
                                            arbitrary_reference_time_,
@@ -694,17 +709,19 @@ TEST_F(VideoCaptureControllerTest, FrameFeedbackIsReportedForSequenceOfFrames) {
   for (int frame_index = 0; frame_index < kTestFrameSequenceLength;
        frame_index++) {
     const int stub_frame_feedback_id = frame_index;
-    const float stub_consumer_utilization =
-        static_cast<float>(frame_index) / kTestFrameSequenceLength;
+    const media::VideoFrameFeedback stub_consumer_feedback =
+        media::VideoFrameFeedback(
+            static_cast<float>(frame_index) / kTestFrameSequenceLength,
+            std::numeric_limits<float>::infinity(), base::nullopt);
 
-    client_a_->resource_utilization_ = stub_consumer_utilization;
+    client_a_->feedback_ = stub_consumer_feedback;
 
     EXPECT_CALL(*client_a_,
                 DoBufferReady(route_id, arbitrary_format.frame_size))
         .Times(1);
     EXPECT_CALL(
         *mock_launched_device_,
-        OnUtilizationReport(stub_frame_feedback_id, stub_consumer_utilization))
+        OnUtilizationReport(stub_frame_feedback_id, stub_consumer_feedback))
         .Times(1);
 
     // Device prepares and pushes a frame.
@@ -805,10 +822,10 @@ TEST_F(VideoCaptureControllerTest,
   // |client_a_| signals to |controller_| that it has finished consuming the
   // frame.
   EXPECT_CALL(*client_a_, DoBufferDestroyed(_, _)).Times(1);
-  const double arbitrary_utilization = 0.0;
+  const media::VideoFrameFeedback arbitrary_feedback =
+      media::VideoFrameFeedback();
   controller_->ReturnBuffer(arbitrary_route_id_, client_a_.get(),
-                            buffer_id_reported_to_client,
-                            arbitrary_utilization);
+                            buffer_id_reported_to_client, arbitrary_feedback);
   base::RunLoop().RunUntilIdle();
   Mock::VerifyAndClearExpectations(client_a_.get());
 }
@@ -864,9 +881,10 @@ TEST_F(VideoCaptureControllerTest,
   // first frame.
   EXPECT_CALL(*client_a_, DoBufferDestroyed(_, first_buffer_id)).Times(1);
   EXPECT_CALL(*client_a_, DoBufferDestroyed(_, second_buffer_id)).Times(0);
-  const double arbitrary_utilization = 0.0;
+  const media::VideoFrameFeedback arbitrary_feedback =
+      media::VideoFrameFeedback();
   controller_->ReturnBuffer(arbitrary_route_id_, client_a_.get(),
-                            first_buffer_id, arbitrary_utilization);
+                            first_buffer_id, arbitrary_feedback);
   base::RunLoop().RunUntilIdle();
   Mock::VerifyAndClearExpectations(client_a_.get());
 
@@ -876,7 +894,7 @@ TEST_F(VideoCaptureControllerTest,
   EXPECT_CALL(*client_a_, DoBufferDestroyed(_, first_buffer_id)).Times(0);
   EXPECT_CALL(*client_a_, DoBufferDestroyed(_, second_buffer_id)).Times(0);
   controller_->ReturnBuffer(arbitrary_route_id_, client_a_.get(),
-                            second_buffer_id, arbitrary_utilization);
+                            second_buffer_id, arbitrary_feedback);
   base::RunLoop().RunUntilIdle();
   Mock::VerifyAndClearExpectations(client_a_.get());
 }
@@ -1048,6 +1066,103 @@ TEST_F(VideoCaptureControllerTest,
       media::VideoCaptureFrameDropReason::kBufferPoolMaxBufferCountExceeded, 1);
 }
 
+TEST_F(VideoCaptureControllerTest, DroppedFrameCausesLogToBeEmitted) {
+  constexpr media::VideoCaptureFrameDropReason kReason1 =
+      static_cast<media::VideoCaptureFrameDropReason>(1);
+  EXPECT_CALL(emit_log_message_mock_,
+              EmitLogMessage(StrEq("Frame dropped with reason code 1.")))
+      .Times(1);
+  controller_->OnFrameDropped(kReason1);
+}
+
+TEST_F(VideoCaptureControllerTest, DroppedFrameEmittedLogEventuallySuppressed) {
+  constexpr media::VideoCaptureFrameDropReason kReason1 =
+      static_cast<media::VideoCaptureFrameDropReason>(1);
+
+  constexpr int kBeforeSuppressing =
+      VideoCaptureController::kMaxEmittedLogsForDroppedFramesBeforeSuppressing;
+
+  InSequence s;
+
+  EXPECT_CALL(emit_log_message_mock_,
+              EmitLogMessage(StrEq("Frame dropped with reason code 1.")))
+      .Times(kBeforeSuppressing - 1);
+  EXPECT_CALL(
+      emit_log_message_mock_,
+      EmitLogMessage(StrEq("Frame dropped with reason code 1. Additional logs "
+                           "will be partially suppressed.")))
+      .Times(1);
+  EXPECT_CALL(emit_log_message_mock_, EmitLogMessage(_)).Times(0);
+
+  // (Note that we drop N+1 times, and the last time is suppressed.)
+  for (int i = 0; i < kBeforeSuppressing + 1; ++i) {
+    controller_->OnFrameDropped(kReason1);
+  }
+}
+
+TEST_F(VideoCaptureControllerTest,
+       DroppedFrameEmittedLogSuppressionOverOneReasonDoesNotAffectAnother) {
+  constexpr media::VideoCaptureFrameDropReason kReason1 =
+      static_cast<media::VideoCaptureFrameDropReason>(1);
+  constexpr media::VideoCaptureFrameDropReason kReason2 =
+      static_cast<media::VideoCaptureFrameDropReason>(2);
+
+  constexpr int kBeforeSuppressing =
+      VideoCaptureController::kMaxEmittedLogsForDroppedFramesBeforeSuppressing;
+
+  // Emit reason-1 until it becomes suppressed.
+  for (int i = 0; i < kBeforeSuppressing; ++i) {
+    controller_->OnFrameDropped(kReason1);
+  }
+
+  // As per a previous test, log emission for reason-1 will now be suppressed.
+  // However, this does not affect reason-2, which is counted separately.
+  InSequence s;
+  EXPECT_CALL(emit_log_message_mock_,
+              EmitLogMessage(StrEq("Frame dropped with reason code 2.")))
+      .Times(kBeforeSuppressing - 1);
+  EXPECT_CALL(
+      emit_log_message_mock_,
+      EmitLogMessage(StrEq("Frame dropped with reason code 2. Additional logs "
+                           "will be partially suppressed.")))
+      .Times(1);
+  EXPECT_CALL(emit_log_message_mock_, EmitLogMessage(_)).Times(0);
+
+  // (Note that we drop N+1 times, and the last time is suppressed.)
+  for (int i = 0; i < kBeforeSuppressing; ++i) {
+    controller_->OnFrameDropped(kReason2);
+  }
+}
+
+TEST_F(VideoCaptureControllerTest,
+       DroppedFrameEmittedLogEmittedAtReducedFrequencyIfSuppressed) {
+  constexpr media::VideoCaptureFrameDropReason kReason1 =
+      static_cast<media::VideoCaptureFrameDropReason>(1);
+
+  constexpr int kBeforeSuppressing =
+      VideoCaptureController::kMaxEmittedLogsForDroppedFramesBeforeSuppressing;
+  constexpr int kSuppressedFrequency =
+      VideoCaptureController::kFrequencyForSuppressedLogs;
+
+  // Emit reason-1 until it becomes suppressed.
+  int drops = 0;
+  for (; drops < kBeforeSuppressing; ++drops) {
+    controller_->OnFrameDropped(kReason1);
+  }
+
+  // Logs stay suppressed until we reach kSuppressedFrequency.
+  EXPECT_CALL(emit_log_message_mock_, EmitLogMessage(_)).Times(0);
+  for (; drops < kSuppressedFrequency - 1; ++drops) {
+    controller_->OnFrameDropped(kReason1);
+  }
+
+  // Suppressed logs still emitted, but at reduced frequency.
+  EXPECT_CALL(emit_log_message_mock_,
+              EmitLogMessage(StrEq("Frame dropped with reason code 1.")))
+      .Times(1);
+  controller_->OnFrameDropped(kReason1);
+}
+
 TEST_F(VideoCaptureControllerTest, DeviceClientWithColorSpace) {
   // Register |client_a_| at |controller_|.
   media::VideoCaptureParams requested_params;
@@ -1087,4 +1202,5 @@ TEST_F(VideoCaptureControllerTest, DeviceClientWithColorSpace) {
   Mock::VerifyAndClearExpectations(client_a_.get());
 }
 
+}  // namespace
 }  // namespace content

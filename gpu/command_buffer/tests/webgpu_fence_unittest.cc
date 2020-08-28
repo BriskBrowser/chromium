@@ -53,11 +53,11 @@ TEST_F(WebGPUFenceTest, InitialValue) {
     LOG(ERROR) << "Test skipped";
     return;
   }
-  constexpr uint32_t kAdapterID = 0;
-  webgpu()->RequestDeviceAsync(kAdapterID, nullptr,
-                               base::BindOnce(&OnRequestDeviceCallback));
-  wgpu::Device device = wgpu::Device::Acquire(webgpu()->GetDefaultDevice());
-  wgpu::Queue queue = device.CreateQueue();
+
+  DeviceAndClientID device_and_id = GetNewDeviceAndClientID();
+  wgpu::Device device = device_and_id.device;
+
+  wgpu::Queue queue = device.GetDefaultQueue();
   {
     wgpu::FenceDescriptor fence_desc{nullptr, nullptr, 0};
     wgpu::Fence fence = queue.CreateFence(&fence_desc);
@@ -76,11 +76,11 @@ TEST_F(WebGPUFenceTest, GetCompletedValue) {
     LOG(ERROR) << "Test skipped";
     return;
   }
-  constexpr uint32_t kAdapterID = 0;
-  webgpu()->RequestDeviceAsync(kAdapterID, nullptr,
-                               base::BindOnce(&OnRequestDeviceCallback));
-  wgpu::Device device = wgpu::Device::Acquire(webgpu()->GetDefaultDevice());
-  wgpu::Queue queue = device.CreateQueue();
+
+  DeviceAndClientID device_and_id = GetNewDeviceAndClientID();
+  wgpu::Device device = device_and_id.device;
+
+  wgpu::Queue queue = device.GetDefaultQueue();
   wgpu::FenceDescriptor fence_desc{nullptr, nullptr, 0};
   wgpu::Fence fence = queue.CreateFence(&fence_desc);
   queue.Signal(fence, 2u);
@@ -95,11 +95,11 @@ TEST_F(WebGPUFenceTest, OnCompletion) {
     LOG(ERROR) << "Test skipped";
     return;
   }
-  constexpr uint32_t kAdapterID = 0;
-  webgpu()->RequestDeviceAsync(kAdapterID, nullptr,
-                               base::BindOnce(&OnRequestDeviceCallback));
-  wgpu::Device device = wgpu::Device::Acquire(webgpu()->GetDefaultDevice());
-  wgpu::Queue queue = device.CreateQueue();
+
+  DeviceAndClientID device_and_id = GetNewDeviceAndClientID();
+  wgpu::Device device = device_and_id.device;
+
+  wgpu::Queue queue = device.GetDefaultQueue();
   wgpu::FenceDescriptor fence_desc{nullptr, nullptr, 0};
   wgpu::Fence fence = queue.CreateFence(&fence_desc);
   queue.Signal(fence, 2u);
@@ -117,11 +117,11 @@ TEST_F(WebGPUFenceTest, SignalManyTimes) {
     LOG(ERROR) << "Test skipped";
     return;
   }
-  constexpr uint32_t kAdapterID = 0;
-  webgpu()->RequestDeviceAsync(kAdapterID, nullptr,
-                               base::BindOnce(&OnRequestDeviceCallback));
-  wgpu::Device device = wgpu::Device::Acquire(webgpu()->GetDefaultDevice());
-  wgpu::Queue queue = device.CreateQueue();
+
+  DeviceAndClientID device_and_id = GetNewDeviceAndClientID();
+  wgpu::Device device = device_and_id.device;
+
+  wgpu::Queue queue = device.GetDefaultQueue();
   wgpu::FenceDescriptor fence_desc{nullptr, nullptr, 0};
   wgpu::Fence fence = queue.CreateFence(&fence_desc);
 

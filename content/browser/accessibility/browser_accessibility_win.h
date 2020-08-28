@@ -5,6 +5,8 @@
 #ifndef CONTENT_BROWSER_ACCESSIBILITY_BROWSER_ACCESSIBILITY_WIN_H_
 #define CONTENT_BROWSER_ACCESSIBILITY_BROWSER_ACCESSIBILITY_WIN_H_
 
+#include <vector>
+
 #include "base/win/atl.h"
 #include "content/browser/accessibility/browser_accessibility.h"
 #include "content/browser/accessibility/browser_accessibility_com_win.h"
@@ -23,13 +25,17 @@ class CONTENT_EXPORT BrowserAccessibilityWin : public BrowserAccessibility {
   void UpdatePlatformAttributes() override;
 
   //
-  // BrowserAccessibility methods.
+  // BrowserAccessibility overrides.
   //
+
+  bool CanFireEvents() const override;
   ui::AXPlatformNode* GetAXPlatformNode() const override;
-  bool IsNative() const override;
   void OnLocationChanged() override;
   base::string16 GetText() const override;
   base::string16 GetHypertext() const override;
+
+  const std::vector<gfx::NativeViewAccessible> GetUIADescendants()
+      const override;
 
   gfx::NativeViewAccessible GetNativeViewAccessible() override;
 
@@ -37,6 +43,8 @@ class CONTENT_EXPORT BrowserAccessibilityWin : public BrowserAccessibility {
 
  protected:
   ui::TextAttributeList ComputeTextAttributes() const override;
+
+  bool ShouldHideChildrenForUIA() const;
 
  private:
   CComObject<BrowserAccessibilityComWin>* browser_accessibility_com_;

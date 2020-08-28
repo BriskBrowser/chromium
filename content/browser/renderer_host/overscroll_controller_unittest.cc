@@ -9,12 +9,12 @@
 #include "base/containers/queue.h"
 #include "base/test/scoped_feature_list.h"
 #include "content/browser/renderer_host/overscroll_controller_delegate.h"
-#include "content/common/input/synthetic_web_input_event_builders.h"
 #include "content/public/browser/overscroll_configuration.h"
 #include "content/public/common/content_features.h"
 #include "content/public/test/scoped_overscroll_modes.h"
 #include "content/test/test_overscroll_delegate.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/blink/public/common/input/synthetic_web_input_event_builders.h"
 #include "third_party/blink/public/common/input/web_input_event.h"
 
 namespace content {
@@ -43,9 +43,8 @@ class OverscrollControllerTest : public ::testing::Test {
   bool SimulateMouseWheel(float dx, float dy) {
     DCHECK(!current_event_);
     current_event_ = std::make_unique<blink::WebMouseWheelEvent>(
-        SyntheticWebMouseWheelEventBuilder::Build(
-            0, 0, dx, dy, 0,
-            ui::input_types::ScrollGranularity::kScrollByPrecisePixel));
+        blink::SyntheticWebMouseWheelEventBuilder::Build(
+            0, 0, dx, dy, 0, ui::ScrollGranularity::kScrollByPrecisePixel));
     return controller_->WillHandleEvent(*current_event_);
   }
 
@@ -56,7 +55,7 @@ class OverscrollControllerTest : public ::testing::Test {
                             base::TimeTicks timestamp) {
     DCHECK(!current_event_);
     current_event_ = std::make_unique<blink::WebGestureEvent>(
-        SyntheticWebGestureEventBuilder::Build(type, source_device));
+        blink::SyntheticWebGestureEventBuilder::Build(type, source_device));
     current_event_->SetTimeStamp(timestamp);
     return controller_->WillHandleEvent(*current_event_);
   }
@@ -71,7 +70,8 @@ class OverscrollControllerTest : public ::testing::Test {
                                    bool inertial_update) {
     DCHECK(!current_event_);
     auto event = std::make_unique<blink::WebGestureEvent>(
-        SyntheticWebGestureEventBuilder::BuildScrollUpdate(dx, dy, 0, device));
+        blink::SyntheticWebGestureEventBuilder::BuildScrollUpdate(dx, dy, 0,
+                                                                  device));
     event->SetTimeStamp(timestamp);
     if (inertial_update) {
       event->data.scroll_update.inertial_phase =
@@ -89,8 +89,8 @@ class OverscrollControllerTest : public ::testing::Test {
                                  base::TimeTicks timestamp) {
     DCHECK(!current_event_);
     current_event_ = std::make_unique<blink::WebGestureEvent>(
-        SyntheticWebGestureEventBuilder::BuildFling(velocity_x, velocity_y,
-                                                    device));
+        blink::SyntheticWebGestureEventBuilder::BuildFling(velocity_x,
+                                                           velocity_y, device));
     current_event_->SetTimeStamp(timestamp);
     return controller_->WillHandleEvent(*current_event_);
   }
@@ -176,9 +176,9 @@ TEST_F(OverscrollControllerTest,
   const base::TimeTicks timestamp =
       blink::WebInputEvent::GetStaticTimeStampForTests();
 
-  EXPECT_FALSE(SimulateGestureEvent(blink::WebInputEvent::kGestureScrollBegin,
-                                    blink::WebGestureDevice::kTouchpad,
-                                    timestamp));
+  EXPECT_FALSE(
+      SimulateGestureEvent(blink::WebInputEvent::Type::kGestureScrollBegin,
+                           blink::WebGestureDevice::kTouchpad, timestamp));
   SimulateAck(false);
 
   EXPECT_FALSE(SimulateGestureScrollUpdate(
@@ -223,9 +223,9 @@ TEST_F(OverscrollControllerTest, OnlyProcessLimitedInertialGSUEvents) {
   base::TimeTicks timestamp =
       blink::WebInputEvent::GetStaticTimeStampForTests();
 
-  EXPECT_FALSE(SimulateGestureEvent(blink::WebInputEvent::kGestureScrollBegin,
-                                    blink::WebGestureDevice::kTouchpad,
-                                    timestamp));
+  EXPECT_FALSE(
+      SimulateGestureEvent(blink::WebInputEvent::Type::kGestureScrollBegin,
+                           blink::WebGestureDevice::kTouchpad, timestamp));
   SimulateAck(false);
 
   EXPECT_FALSE(SimulateGestureScrollUpdate(
@@ -281,9 +281,9 @@ TEST_F(OverscrollControllerTest, PullToRefreshDisabled) {
   base::TimeTicks timestamp =
       blink::WebInputEvent::GetStaticTimeStampForTests();
 
-  EXPECT_FALSE(SimulateGestureEvent(blink::WebInputEvent::kGestureScrollBegin,
-                                    blink::WebGestureDevice::kTouchpad,
-                                    timestamp));
+  EXPECT_FALSE(
+      SimulateGestureEvent(blink::WebInputEvent::Type::kGestureScrollBegin,
+                           blink::WebGestureDevice::kTouchpad, timestamp));
   SimulateAck(false);
 
   // Simulate a touchpad gesture scroll-update event that passes the start
@@ -311,9 +311,9 @@ TEST_F(OverscrollControllerTest, PullToRefreshDisabled) {
 
   timestamp += base::TimeDelta::FromSeconds(1);
 
-  EXPECT_FALSE(SimulateGestureEvent(blink::WebInputEvent::kGestureScrollBegin,
-                                    blink::WebGestureDevice::kTouchscreen,
-                                    timestamp));
+  EXPECT_FALSE(
+      SimulateGestureEvent(blink::WebInputEvent::Type::kGestureScrollBegin,
+                           blink::WebGestureDevice::kTouchscreen, timestamp));
   SimulateAck(false);
 
   // Simulate a touchscreen gesture scroll-update event that passes the start
@@ -331,9 +331,9 @@ TEST_F(OverscrollControllerTest, PullToRefreshDisabled) {
 
   // Simulate a touchscreen gesture scroll-end which would normally end
   // pull-to-refresh, and ACK it as not processed. Nothing should happen.
-  EXPECT_FALSE(SimulateGestureEvent(blink::WebInputEvent::kGestureScrollEnd,
-                                    blink::WebGestureDevice::kTouchscreen,
-                                    timestamp));
+  EXPECT_FALSE(
+      SimulateGestureEvent(blink::WebInputEvent::Type::kGestureScrollEnd,
+                           blink::WebGestureDevice::kTouchscreen, timestamp));
   SimulateAck(false);
   EXPECT_EQ(OVERSCROLL_NONE, controller_mode());
   EXPECT_EQ(OverscrollSource::NONE, controller_source());
@@ -350,9 +350,9 @@ TEST_F(OverscrollControllerTest, PullToRefreshEnabled) {
   base::TimeTicks timestamp =
       blink::WebInputEvent::GetStaticTimeStampForTests();
 
-  EXPECT_FALSE(SimulateGestureEvent(blink::WebInputEvent::kGestureScrollBegin,
-                                    blink::WebGestureDevice::kTouchpad,
-                                    timestamp));
+  EXPECT_FALSE(
+      SimulateGestureEvent(blink::WebInputEvent::Type::kGestureScrollBegin,
+                           blink::WebGestureDevice::kTouchpad, timestamp));
   SimulateAck(false);
 
   // Simulate a touchpad gesture scroll-update event that passes the start
@@ -379,9 +379,9 @@ TEST_F(OverscrollControllerTest, PullToRefreshEnabled) {
 
   timestamp += base::TimeDelta::FromSeconds(1);
 
-  EXPECT_FALSE(SimulateGestureEvent(blink::WebInputEvent::kGestureScrollBegin,
-                                    blink::WebGestureDevice::kTouchscreen,
-                                    timestamp));
+  EXPECT_FALSE(
+      SimulateGestureEvent(blink::WebInputEvent::Type::kGestureScrollBegin,
+                           blink::WebGestureDevice::kTouchscreen, timestamp));
   SimulateAck(false);
 
   // Simulate a touchscreen gesture scroll-update event that passes the start
@@ -398,9 +398,9 @@ TEST_F(OverscrollControllerTest, PullToRefreshEnabled) {
 
   // Simulate a touchscreen gesture scroll-end and ACK it as not processed. It
   // should abort pull-to-refresh.
-  EXPECT_FALSE(SimulateGestureEvent(blink::WebInputEvent::kGestureScrollEnd,
-                                    blink::WebGestureDevice::kTouchscreen,
-                                    timestamp));
+  EXPECT_FALSE(
+      SimulateGestureEvent(blink::WebInputEvent::Type::kGestureScrollEnd,
+                           blink::WebGestureDevice::kTouchscreen, timestamp));
   SimulateAck(false);
   EXPECT_EQ(OVERSCROLL_NONE, controller_mode());
   EXPECT_EQ(OverscrollSource::NONE, controller_source());
@@ -417,9 +417,9 @@ TEST_F(OverscrollControllerTest, PullToRefreshEnabledTouchscreen) {
   base::TimeTicks timestamp =
       blink::WebInputEvent::GetStaticTimeStampForTests();
 
-  EXPECT_FALSE(SimulateGestureEvent(blink::WebInputEvent::kGestureScrollBegin,
-                                    blink::WebGestureDevice::kTouchpad,
-                                    timestamp));
+  EXPECT_FALSE(
+      SimulateGestureEvent(blink::WebInputEvent::Type::kGestureScrollBegin,
+                           blink::WebGestureDevice::kTouchpad, timestamp));
   SimulateAck(false);
 
   // Simulate a touchpad gesture scroll-update event that passes the start
@@ -447,9 +447,9 @@ TEST_F(OverscrollControllerTest, PullToRefreshEnabledTouchscreen) {
 
   timestamp += base::TimeDelta::FromSeconds(1);
 
-  EXPECT_FALSE(SimulateGestureEvent(blink::WebInputEvent::kGestureScrollBegin,
-                                    blink::WebGestureDevice::kTouchscreen,
-                                    timestamp));
+  EXPECT_FALSE(
+      SimulateGestureEvent(blink::WebInputEvent::Type::kGestureScrollBegin,
+                           blink::WebGestureDevice::kTouchscreen, timestamp));
   SimulateAck(false);
 
   // Simulate a touchscreen gesture scroll-update event that passes the start
@@ -466,9 +466,9 @@ TEST_F(OverscrollControllerTest, PullToRefreshEnabledTouchscreen) {
 
   // Simulate a touchscreen gesture scroll-end and ACK it as not processed. It
   // should abort pull-to-refresh.
-  EXPECT_FALSE(SimulateGestureEvent(blink::WebInputEvent::kGestureScrollEnd,
-                                    blink::WebGestureDevice::kTouchscreen,
-                                    timestamp));
+  EXPECT_FALSE(
+      SimulateGestureEvent(blink::WebInputEvent::Type::kGestureScrollEnd,
+                           blink::WebGestureDevice::kTouchscreen, timestamp));
   SimulateAck(false);
   EXPECT_EQ(OVERSCROLL_NONE, controller_mode());
   EXPECT_EQ(OverscrollSource::NONE, controller_source());
@@ -513,9 +513,9 @@ TEST_F(OverscrollControllerTest, PullToRefreshBeforeCoolOff) {
   base::TimeTicks timestamp =
       blink::WebInputEvent::GetStaticTimeStampForTests();
 
-  EXPECT_FALSE(SimulateGestureEvent(blink::WebInputEvent::kGestureScrollBegin,
-                                    blink::WebGestureDevice::kTouchscreen,
-                                    timestamp));
+  EXPECT_FALSE(
+      SimulateGestureEvent(blink::WebInputEvent::Type::kGestureScrollBegin,
+                           blink::WebGestureDevice::kTouchscreen, timestamp));
   SimulateAck(false);
 
   // Simulate a touchscreen gesture scroll-update event that passes the start
@@ -532,9 +532,9 @@ TEST_F(OverscrollControllerTest, PullToRefreshBeforeCoolOff) {
 
   // Simulate a touchscreen gesture scroll-end which would normally end
   // pull-to-refresh, and ACK it as not processed. Nothing should happen.
-  EXPECT_FALSE(SimulateGestureEvent(blink::WebInputEvent::kGestureScrollEnd,
-                                    blink::WebGestureDevice::kTouchscreen,
-                                    timestamp));
+  EXPECT_FALSE(
+      SimulateGestureEvent(blink::WebInputEvent::Type::kGestureScrollEnd,
+                           blink::WebGestureDevice::kTouchscreen, timestamp));
   SimulateAck(false);
   EXPECT_EQ(OVERSCROLL_NONE, controller_mode());
   EXPECT_EQ(OverscrollSource::NONE, controller_source());
@@ -544,9 +544,9 @@ TEST_F(OverscrollControllerTest, PullToRefreshBeforeCoolOff) {
   // 2) Scroll before cool off -> PTR not triggered.
   timestamp += base::TimeDelta::FromMilliseconds(500);
 
-  EXPECT_FALSE(SimulateGestureEvent(blink::WebInputEvent::kGestureScrollBegin,
-                                    blink::WebGestureDevice::kTouchscreen,
-                                    timestamp));
+  EXPECT_FALSE(
+      SimulateGestureEvent(blink::WebInputEvent::Type::kGestureScrollBegin,
+                           blink::WebGestureDevice::kTouchscreen, timestamp));
   SimulateAck(false);
 
   // Simulate a touchscreen gesture scroll-update event that passes the start
@@ -564,9 +564,9 @@ TEST_F(OverscrollControllerTest, PullToRefreshBeforeCoolOff) {
 
   // Simulate a touchscreen gesture scroll-end which would normally end
   // pull-to-refresh, and ACK it as not processed. Nothing should happen.
-  EXPECT_FALSE(SimulateGestureEvent(blink::WebInputEvent::kGestureScrollEnd,
-                                    blink::WebGestureDevice::kTouchscreen,
-                                    timestamp));
+  EXPECT_FALSE(
+      SimulateGestureEvent(blink::WebInputEvent::Type::kGestureScrollEnd,
+                           blink::WebGestureDevice::kTouchscreen, timestamp));
   SimulateAck(false);
   EXPECT_EQ(OVERSCROLL_NONE, controller_mode());
   EXPECT_EQ(OverscrollSource::NONE, controller_source());
@@ -576,9 +576,9 @@ TEST_F(OverscrollControllerTest, PullToRefreshBeforeCoolOff) {
   // 3) Scroll before cool off -> PTR not triggered.
   timestamp += base::TimeDelta::FromMilliseconds(500);
 
-  EXPECT_FALSE(SimulateGestureEvent(blink::WebInputEvent::kGestureScrollBegin,
-                                    blink::WebGestureDevice::kTouchscreen,
-                                    timestamp));
+  EXPECT_FALSE(
+      SimulateGestureEvent(blink::WebInputEvent::Type::kGestureScrollBegin,
+                           blink::WebGestureDevice::kTouchscreen, timestamp));
   SimulateAck(false);
 
   // Simulate a touchscreen gesture scroll-update event that passes the start
@@ -596,9 +596,9 @@ TEST_F(OverscrollControllerTest, PullToRefreshBeforeCoolOff) {
 
   // Simulate a touchscreen gesture scroll-end which would normally end
   // pull-to-refresh, and ACK it as not processed. Nothing should happen.
-  EXPECT_FALSE(SimulateGestureEvent(blink::WebInputEvent::kGestureScrollEnd,
-                                    blink::WebGestureDevice::kTouchscreen,
-                                    timestamp));
+  EXPECT_FALSE(
+      SimulateGestureEvent(blink::WebInputEvent::Type::kGestureScrollEnd,
+                           blink::WebGestureDevice::kTouchscreen, timestamp));
   SimulateAck(false);
   EXPECT_EQ(OVERSCROLL_NONE, controller_mode());
   EXPECT_EQ(OverscrollSource::NONE, controller_source());
@@ -608,9 +608,9 @@ TEST_F(OverscrollControllerTest, PullToRefreshBeforeCoolOff) {
   // 4) Scroll after cool off -> PTR triggered.
   timestamp += base::TimeDelta::FromSeconds(1);
 
-  EXPECT_FALSE(SimulateGestureEvent(blink::WebInputEvent::kGestureScrollBegin,
-                                    blink::WebGestureDevice::kTouchscreen,
-                                    timestamp));
+  EXPECT_FALSE(
+      SimulateGestureEvent(blink::WebInputEvent::Type::kGestureScrollBegin,
+                           blink::WebGestureDevice::kTouchscreen, timestamp));
   SimulateAck(false);
 
   // Simulate a touchscreen gesture scroll-update event that passes the start
@@ -627,9 +627,9 @@ TEST_F(OverscrollControllerTest, PullToRefreshBeforeCoolOff) {
 
   // Simulate a touchscreen gesture scroll-end which will end pull-to-refresh,
   // and ACK it as not processed. Pull-to-refresh should be aborted.
-  EXPECT_FALSE(SimulateGestureEvent(blink::WebInputEvent::kGestureScrollEnd,
-                                    blink::WebGestureDevice::kTouchscreen,
-                                    timestamp));
+  EXPECT_FALSE(
+      SimulateGestureEvent(blink::WebInputEvent::Type::kGestureScrollEnd,
+                           blink::WebGestureDevice::kTouchscreen, timestamp));
   SimulateAck(false);
   EXPECT_EQ(OVERSCROLL_NONE, controller_mode());
   EXPECT_EQ(OverscrollSource::NONE, controller_source());
@@ -639,9 +639,9 @@ TEST_F(OverscrollControllerTest, PullToRefreshBeforeCoolOff) {
   // 5) Scroll before cool off -> PTR triggered.
   timestamp += base::TimeDelta::FromMilliseconds(500);
 
-  EXPECT_FALSE(SimulateGestureEvent(blink::WebInputEvent::kGestureScrollBegin,
-                                    blink::WebGestureDevice::kTouchscreen,
-                                    timestamp));
+  EXPECT_FALSE(
+      SimulateGestureEvent(blink::WebInputEvent::Type::kGestureScrollBegin,
+                           blink::WebGestureDevice::kTouchscreen, timestamp));
   SimulateAck(false);
 
   // Simulate a touchscreen gesture scroll-update event that passes the start
@@ -658,9 +658,9 @@ TEST_F(OverscrollControllerTest, PullToRefreshBeforeCoolOff) {
 
   // Simulate a touchscreen gesture scroll-end which will end pull-to-refresh,
   // and ACK it as not processed. Pull-to-refresh should be aborted.
-  EXPECT_FALSE(SimulateGestureEvent(blink::WebInputEvent::kGestureScrollEnd,
-                                    blink::WebGestureDevice::kTouchscreen,
-                                    timestamp));
+  EXPECT_FALSE(
+      SimulateGestureEvent(blink::WebInputEvent::Type::kGestureScrollEnd,
+                           blink::WebGestureDevice::kTouchscreen, timestamp));
   SimulateAck(false);
   EXPECT_EQ(OVERSCROLL_NONE, controller_mode());
   EXPECT_EQ(OverscrollSource::NONE, controller_source());
@@ -682,9 +682,9 @@ TEST_F(OverscrollControllerTest, PullToRefreshAfterCoolOff) {
   base::TimeTicks timestamp =
       blink::WebInputEvent::GetStaticTimeStampForTests();
 
-  EXPECT_FALSE(SimulateGestureEvent(blink::WebInputEvent::kGestureScrollBegin,
-                                    blink::WebGestureDevice::kTouchscreen,
-                                    timestamp));
+  EXPECT_FALSE(
+      SimulateGestureEvent(blink::WebInputEvent::Type::kGestureScrollBegin,
+                           blink::WebGestureDevice::kTouchscreen, timestamp));
   SimulateAck(false);
 
   // Simulate a touchscreen gesture scroll-update event that passes the start
@@ -701,9 +701,9 @@ TEST_F(OverscrollControllerTest, PullToRefreshAfterCoolOff) {
 
   // Simulate a touchscreen gesture scroll-end which would normally end
   // pull-to-refresh, and ACK it as not processed. Nothing should happen.
-  EXPECT_FALSE(SimulateGestureEvent(blink::WebInputEvent::kGestureScrollEnd,
-                                    blink::WebGestureDevice::kTouchscreen,
-                                    timestamp));
+  EXPECT_FALSE(
+      SimulateGestureEvent(blink::WebInputEvent::Type::kGestureScrollEnd,
+                           blink::WebGestureDevice::kTouchscreen, timestamp));
   SimulateAck(false);
   EXPECT_EQ(OVERSCROLL_NONE, controller_mode());
   EXPECT_EQ(OverscrollSource::NONE, controller_source());
@@ -713,9 +713,9 @@ TEST_F(OverscrollControllerTest, PullToRefreshAfterCoolOff) {
   // 2) Scroll after cool off -> PTR triggered.
   timestamp += base::TimeDelta::FromSeconds(1);
 
-  EXPECT_FALSE(SimulateGestureEvent(blink::WebInputEvent::kGestureScrollBegin,
-                                    blink::WebGestureDevice::kTouchscreen,
-                                    timestamp));
+  EXPECT_FALSE(
+      SimulateGestureEvent(blink::WebInputEvent::Type::kGestureScrollBegin,
+                           blink::WebGestureDevice::kTouchscreen, timestamp));
   SimulateAck(false);
 
   // Simulate a touchscreen gesture scroll-update event that passes the start
@@ -732,9 +732,9 @@ TEST_F(OverscrollControllerTest, PullToRefreshAfterCoolOff) {
 
   // Simulate a touchscreen gesture scroll-end which will end pull-to-refresh,
   // and ACK it as not processed. Pull-to-refresh should be aborted.
-  EXPECT_FALSE(SimulateGestureEvent(blink::WebInputEvent::kGestureScrollEnd,
-                                    blink::WebGestureDevice::kTouchscreen,
-                                    timestamp));
+  EXPECT_FALSE(
+      SimulateGestureEvent(blink::WebInputEvent::Type::kGestureScrollEnd,
+                           blink::WebGestureDevice::kTouchscreen, timestamp));
   SimulateAck(false);
   EXPECT_EQ(OVERSCROLL_NONE, controller_mode());
   EXPECT_EQ(OverscrollSource::NONE, controller_source());
@@ -744,9 +744,9 @@ TEST_F(OverscrollControllerTest, PullToRefreshAfterCoolOff) {
   // 3) Scroll before cool off -> PTR triggered.
   timestamp += base::TimeDelta::FromMilliseconds(500);
 
-  EXPECT_FALSE(SimulateGestureEvent(blink::WebInputEvent::kGestureScrollBegin,
-                                    blink::WebGestureDevice::kTouchscreen,
-                                    timestamp));
+  EXPECT_FALSE(
+      SimulateGestureEvent(blink::WebInputEvent::Type::kGestureScrollBegin,
+                           blink::WebGestureDevice::kTouchscreen, timestamp));
   SimulateAck(false);
 
   // Simulate a touchscreen gesture scroll-update event that passes the start
@@ -763,9 +763,9 @@ TEST_F(OverscrollControllerTest, PullToRefreshAfterCoolOff) {
 
   // Simulate a touchscreen gesture scroll-end which will end pull-to-refresh,
   // and ACK it as not processed. Pull-to-refresh should be aborted.
-  EXPECT_FALSE(SimulateGestureEvent(blink::WebInputEvent::kGestureScrollEnd,
-                                    blink::WebGestureDevice::kTouchscreen,
-                                    timestamp));
+  EXPECT_FALSE(
+      SimulateGestureEvent(blink::WebInputEvent::Type::kGestureScrollEnd,
+                           blink::WebGestureDevice::kTouchscreen, timestamp));
   SimulateAck(false);
   EXPECT_EQ(OVERSCROLL_NONE, controller_mode());
   EXPECT_EQ(OverscrollSource::NONE, controller_source());

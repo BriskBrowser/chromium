@@ -17,6 +17,7 @@
 #include "base/run_loop.h"
 #include "base/sequenced_task_runner.h"
 #include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
 #include "base/time/time.h"
 #include "chrome/browser/task_manager/sampling/shared_sampler_win_defines.h"
 #include "chrome/browser/task_manager/task_manager_observer.h"
@@ -35,8 +36,8 @@ class SharedSamplerTest : public testing::Test {
         shared_sampler_(new SharedSampler(blocking_pool_runner_)) {
     shared_sampler_->RegisterCallback(
         base::GetCurrentProcId(),
-        base::Bind(&SharedSamplerTest::OnSamplerRefreshDone,
-                   base::Unretained(this)));
+        base::BindRepeating(&SharedSamplerTest::OnSamplerRefreshDone,
+                            base::Unretained(this)));
   }
 
   ~SharedSamplerTest() override {}
@@ -64,8 +65,7 @@ class SharedSamplerTest : public testing::Test {
 
  private:
   static scoped_refptr<base::SequencedTaskRunner> GetBlockingPoolRunner() {
-    return base::CreateSequencedTaskRunner(
-        {base::ThreadPool(), base::MayBlock()});
+    return base::ThreadPool::CreateSequencedTaskRunner({base::MayBlock()});
   }
 
   void OnRefreshTypeFinished(int64_t finished_refresh_type) {
@@ -88,7 +88,7 @@ class SharedSamplerTest : public testing::Test {
 
   int64_t expected_refresh_type_ = 0;
   int64_t finished_refresh_type_ = 0;
-  base::Closure quit_closure_;
+  base::RepeatingClosure quit_closure_;
 
   int idle_wakeups_per_second_ = -1;
   base::Time start_time_;
@@ -170,9 +170,8 @@ TEST_F(SharedSamplerTest, MultipleRefreshTypes) {
 static int ReturnZeroThreadProcessInformation(unsigned char* buffer,
                                               int buffer_size) {
   // Calculate the number of bytes required for the structure, and ImageName.
-  base::FilePath current_exe;
-  CHECK(base::PathService::Get(base::FILE_EXE, &current_exe));
-  base::string16 image_name = current_exe.BaseName().value();
+  base::string16 image_name =
+      base::PathService::CheckedGet(base::FILE_EXE).BaseName().value();
 
   const int kImageNameBytes = image_name.length() * sizeof(base::char16);
   const int kRequiredBytes = sizeof(SYSTEM_PROCESS_INFORMATION) +

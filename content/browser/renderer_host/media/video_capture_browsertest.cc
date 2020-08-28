@@ -3,9 +3,9 @@
 // found in the LICENSE file.
 
 #include "base/bind.h"
+#include "base/bind_helpers.h"
 #include "base/command_line.h"
 #include "base/run_loop.h"
-#include "base/task/post_task.h"
 #include "base/test/scoped_feature_list.h"
 #include "build/build_config.h"
 #include "content/browser/browser_main_loop.h"
@@ -16,11 +16,16 @@
 #include "content/public/browser/browser_thread.h"
 #include "content/public/common/content_features.h"
 #include "content/public/common/content_switches.h"
+#include "content/public/test/browser_test.h"
 #include "content/public/test/content_browser_test.h"
 #include "media/base/bind_to_current_loop.h"
 #include "media/base/media_switches.h"
 #include "media/capture/video_capture_types.h"
 #include "testing/gmock/include/gmock/gmock.h"
+
+#if defined(OS_MAC)
+#include "base/mac/mac_util.h"
+#endif
 
 using testing::_;
 using testing::AtLeast;
@@ -248,8 +253,8 @@ IN_PROC_BROWSER_TEST_P(VideoCaptureBrowserTest, StartAndImmediatelyStop) {
       base::BindOnce(&VideoCaptureBrowserTest::TearDownCaptureDeviceOnIOThread,
                      base::Unretained(this),
                      std::move(quit_run_loop_on_current_thread_cb), true);
-  base::PostTask(
-      FROM_HERE, {content::BrowserThread::IO},
+  content::GetIOThreadTaskRunner({})->PostTask(
+      FROM_HERE,
       base::BindOnce(
           &VideoCaptureBrowserTest::SetUpAndStartCaptureDeviceOnIOThread,
           base::Unretained(this), std::move(after_start_continuation)));
@@ -257,8 +262,7 @@ IN_PROC_BROWSER_TEST_P(VideoCaptureBrowserTest, StartAndImmediatelyStop) {
 }
 
 // Flaky on MSAN. https://crbug.com/840294
-// Flaky on MacOS 10.12. https://crbug.com/938074
-#if defined(MEMORY_SANITIZER) || defined(MAC_OS_X_VERSION_10_12)
+#if defined(MEMORY_SANITIZER)
 #define MAYBE_ReceiveFramesFromFakeCaptureDevice \
   DISABLED_ReceiveFramesFromFakeCaptureDevice
 #else
@@ -267,6 +271,13 @@ IN_PROC_BROWSER_TEST_P(VideoCaptureBrowserTest, StartAndImmediatelyStop) {
 #endif
 IN_PROC_BROWSER_TEST_P(VideoCaptureBrowserTest,
                        MAYBE_ReceiveFramesFromFakeCaptureDevice) {
+#if defined(OS_MAC)
+  if (base::mac::IsOS10_12()) {
+    // Flaky on MacOS 10.12. https://crbug.com/938074
+    return;
+  }
+#endif
+
   // Only fake device with index 2 delivers MJPEG.
   if (params_.exercise_accelerated_jpeg_decoding &&
       params_.device_index_to_use != 2) {
@@ -315,9 +326,10 @@ IN_PROC_BROWSER_TEST_P(VideoCaptureBrowserTest,
             received_frame_info.timestamp = frame_info->timestamp;
             received_frame_infos.emplace_back(received_frame_info);
 
-            const double kArbitraryUtilization = 0.5;
+            const media::VideoFrameFeedback kArbitraryFeedback =
+                media::VideoFrameFeedback(0.5, 60.0, base::nullopt);
             controller_->ReturnBuffer(id, &mock_controller_event_handler_,
-                                      buffer_id, kArbitraryUtilization);
+                                      buffer_id, kArbitraryFeedback);
 
             if ((received_frame_infos.size() >= kMinFramesToReceive &&
                  !must_wait_for_gpu_decode_to_start) ||
@@ -326,8 +338,8 @@ IN_PROC_BROWSER_TEST_P(VideoCaptureBrowserTest,
             }
           }));
 
-  base::PostTask(
-      FROM_HERE, {content::BrowserThread::IO},
+  content::GetIOThreadTaskRunner({})->PostTask(
+      FROM_HERE,
       base::BindOnce(
           &VideoCaptureBrowserTest::SetUpAndStartCaptureDeviceOnIOThread,
           base::Unretained(this), base::DoNothing::Once()));

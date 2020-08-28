@@ -10,6 +10,8 @@
 #include "base/bind.h"
 #include "base/files/file_util.h"
 #include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
+#include "base/threading/scoped_thread_priority.h"
 #include "ui/display/win/display_info.h"
 #include "ui/gfx/icc_profile.h"
 
@@ -67,9 +69,8 @@ void ColorProfileReader::UpdateIfNeeded() {
   // Enumerate device profile paths on a background thread.  When this
   // completes it will run another task on a background thread to read
   // the profiles.
-  base::PostTaskAndReplyWithResult(
-      FROM_HERE,
-      {base::ThreadPool(), base::MayBlock(), base::TaskPriority::BEST_EFFORT},
+  base::ThreadPool::PostTaskAndReplyWithResult(
+      FROM_HERE, {base::MayBlock(), base::TaskPriority::BEST_EFFORT},
       base::BindOnce(
           &ColorProfileReader::BuildDeviceToPathMapOnBackgroundThread),
       base::BindOnce(&ColorProfileReader::BuildDeviceToPathMapCompleted,
@@ -79,6 +80,7 @@ void ColorProfileReader::UpdateIfNeeded() {
 // static
 ColorProfileReader::DeviceToPathMap
 ColorProfileReader::BuildDeviceToPathMapOnBackgroundThread() {
+  SCOPED_MAY_LOAD_LIBRARY_AT_BACKGROUND_PRIORITY();
   DeviceToPathMap device_to_path_map;
   EnumDisplayMonitors(nullptr, nullptr, EnumMonitorForProfilePathCallback,
                       reinterpret_cast<LPARAM>(&device_to_path_map));
@@ -97,9 +99,8 @@ void ColorProfileReader::BuildDeviceToPathMapCompleted(
 
   device_to_path_map_ = new_device_to_path_map;
 
-  base::PostTaskAndReplyWithResult(
-      FROM_HERE,
-      {base::ThreadPool(), base::MayBlock(), base::TaskPriority::BEST_EFFORT},
+  base::ThreadPool::PostTaskAndReplyWithResult(
+      FROM_HERE, {base::MayBlock(), base::TaskPriority::BEST_EFFORT},
       base::BindOnce(&ColorProfileReader::ReadProfilesOnBackgroundThread,
                      new_device_to_path_map),
       base::BindOnce(&ColorProfileReader::ReadProfilesCompleted,
@@ -125,7 +126,6 @@ void ColorProfileReader::ReadProfilesCompleted(
     DeviceToDataMap device_to_data_map) {
   DCHECK(update_in_flight_);
   update_in_flight_ = false;
-  has_read_profiles_ = true;
 
   display_id_to_profile_map_.clear();
   for (auto entry : device_to_data_map) {
@@ -148,8 +148,6 @@ gfx::ColorSpace ColorProfileReader::GetDisplayColorSpace(
   auto found = display_id_to_profile_map_.find(display_id);
   if (found != display_id_to_profile_map_.end())
     icc_profile = found->second;
-  if (has_read_profiles_)
-    icc_profile.HistogramDisplay(display_id);
   return icc_profile.IsValid() ? icc_profile.GetPrimariesOnlyColorSpace()
                                : gfx::ColorSpace::CreateSRGB();
 }

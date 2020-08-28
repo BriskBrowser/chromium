@@ -2,12 +2,24 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+// clang-format off
+// #import {assertEquals, assertNotEquals} from '../chai_assert.js';
+// #import {FakeChromeEvent} from '../fake_chrome_event.m.js';
+// clang-format on
+
 /** @fileoverview Fake implementation of chrome.settingsPrivate for testing. */
 cr.define('settings', function() {
   /**
+   * @typedef {Array<{key: string,
+   *               type: chrome.settingsPrivate.PrefType,
+   *               values: !Array<*>}>}
+   */
+  /* #export */ let FakeSettingsPrivatePref;
+
+  /**
    * Creates a deep copy of the object.
-   * @param {!Object} obj
-   * @return {!Object}
+   * @param {*} obj
+   * @return {*}
    */
   function deepCopy(obj) {
     return JSON.parse(JSON.stringify(obj));
@@ -19,8 +31,8 @@ cr.define('settings', function() {
    * FakeSettingsPrivate to settings-prefs#initialize().
    * @implements {SettingsPrivate}
    */
-  class FakeSettingsPrivate {
-    /** @param {Array<!settings.FakeSettingsPrivate.Pref>=} opt_initialPrefs */
+  /* #export */ class FakeSettingsPrivate {
+    /** @param {Array<!settings.FakeSettingsPrivatePref>=} opt_initialPrefs */
     constructor(opt_initialPrefs) {
       this.disallowSetPref_ = false;
       this.failNextSetPref_ = false;
@@ -35,7 +47,7 @@ cr.define('settings', function() {
       }
 
       // chrome.settingsPrivate override.
-      this.onPrefsChanged = new FakeChromeEvent();
+      this.onPrefsChanged = /** @type {!ChromeEvent} */ (new FakeChromeEvent());
     }
 
     // chrome.settingsPrivate overrides.
@@ -64,7 +76,7 @@ cr.define('settings', function() {
       }
       assertNotEquals(true, this.disallowSetPref_);
 
-      const changed = JSON.stringify(pref.value) != JSON.stringify(value);
+      const changed = JSON.stringify(pref.value) !== JSON.stringify(value);
       pref.value = deepCopy(value);
       callback(true);
 
@@ -77,7 +89,8 @@ cr.define('settings', function() {
     getPref(key, callback) {
       const pref = this.prefs[key];
       assertNotEquals(undefined, pref);
-      callback(deepCopy(pref));
+      callback(
+          /** @type {!chrome.settingsPrivate.PrefObject} */ (deepCopy(pref)));
     }
 
     // Functions used by tests.
@@ -98,7 +111,7 @@ cr.define('settings', function() {
 
     /**
      * Notifies the listeners of pref changes.
-     * @param {!Object<{key: string, value: *}>} changes
+     * @param {!Array<{key: string, value: *}>} changes
      */
     sendPrefChanges(changes) {
       const prefs = [];
@@ -108,8 +121,14 @@ cr.define('settings', function() {
         pref.value = change.value;
         prefs.push(deepCopy(pref));
       }
-      this.onPrefsChanged.callListeners(prefs);
+      /** @type {FakeChromeEvent} */ (this.onPrefsChanged).callListeners(prefs);
     }
+
+    /** @override */
+    getDefaultZoom() {}
+
+    /** @override */
+    setDefaultZoom() {}
 
     // Private methods for use by the fake API.
 
@@ -128,12 +147,9 @@ cr.define('settings', function() {
     }
   }
 
-  return {FakeSettingsPrivate: FakeSettingsPrivate};
+  // #cr_define_end
+  return {
+    FakeSettingsPrivate: FakeSettingsPrivate,
+    FakeSettingsPrivatePref: FakeSettingsPrivatePref,
+  };
 });
-
-/**
- * @type {Array<{key: string,
- *               type: chrome.settingsPrivate.PrefType,
- *               values: !Array<*>}>}
- */
-settings.FakeSettingsPrivate.Pref;

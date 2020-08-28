@@ -4,12 +4,13 @@
 
 // The rules for parsing content-types were borrowed from Firefox:
 // http://lxr.mozilla.org/mozilla/source/netwerk/base/src/nsURLHelper.cpp#834
+#include "base/strings/string_util.h"
 
 #include "net/http/http_util.h"
 
 #include <algorithm>
 
-#include "base/logging.h"
+#include "base/check_op.h"
 #include "base/stl_util.h"
 #include "base/strings/strcat.h"
 #include "base/strings/string_number_conversions.h"
@@ -20,6 +21,7 @@
 #include "base/strings/stringprintf.h"
 #include "base/time/time.h"
 #include "net/base/features.h"
+#include "net/base/parse_number.h"
 #include "net/base/url_util.h"
 
 namespace net {
@@ -364,11 +366,11 @@ bool HttpUtil::ParseContentRangeHeaderFor206(
 bool HttpUtil::ParseRetryAfterHeader(const std::string& retry_after_string,
                                      base::Time now,
                                      base::TimeDelta* retry_after) {
-  int seconds;
+  uint32_t seconds;
   base::Time time;
   base::TimeDelta interval;
 
-  if (base::StringToInt(retry_after_string, &seconds)) {
+  if (net::ParseUint32(retry_after_string, &seconds)) {
     interval = base::TimeDelta::FromSeconds(seconds);
   } else if (base::Time::FromUTCString(retry_after_string.c_str(), &time)) {
     interval = time - now;
@@ -718,7 +720,7 @@ std::string HttpUtil::AssembleRawHeaders(base::StringPiece input) {
 
   // Copy the status line.
   size_t status_line_end = FindStatusLineEnd(input);
-  input.substr(0, status_line_end).AppendToString(&raw_headers);
+  raw_headers.append(input.data(), status_line_end);
   input.remove_prefix(status_line_end);
 
   // After the status line, every subsequent line is a header line segment.
@@ -737,14 +739,10 @@ std::string HttpUtil::AssembleRawHeaders(base::StringPiece input) {
 
     if (prev_line_continuable && IsLWS(line[0])) {
       // Join continuation; reduce the leading LWS to a single SP.
-      raw_headers.push_back(' ');
-      RemoveLeadingNonLWS(line).AppendToString(&raw_headers);
+      base::StrAppend(&raw_headers, {" ", RemoveLeadingNonLWS(line)});
     } else {
-      // Terminate the previous line.
-      raw_headers.push_back('\n');
-
-      // Copy the raw data to output.
-      line.AppendToString(&raw_headers);
+      // Terminate the previous line and copy the raw data to output.
+      base::StrAppend(&raw_headers, {"\n", line});
 
       // Check if the current line can be continued.
       prev_line_continuable = IsLineSegmentContinuable(line);
@@ -767,8 +765,7 @@ std::string HttpUtil::ConvertHeadersBackToHTTPResponse(const std::string& str) {
   std::string disassembled_headers;
   base::StringTokenizer tokenizer(str, std::string(1, '\0'));
   while (tokenizer.GetNext()) {
-    tokenizer.token_piece().AppendToString(&disassembled_headers);
-    disassembled_headers.append("\r\n");
+    base::StrAppend(&disassembled_headers, {tokenizer.token_piece(), "\r\n"});
   }
   disassembled_headers.append("\r\n");
 
@@ -1155,7 +1152,7 @@ bool HttpUtil::ParseAcceptEncoding(const std::string& accept_encoding,
     if (qvalue.empty())
       return false;
     if (qvalue[0] == '1') {
-      if (base::StringPiece("1.000").starts_with(qvalue)) {
+      if (base::StartsWith("1.000", qvalue)) {
         allowed_encodings->insert(base::ToLowerASCII(encoding));
         continue;
       }

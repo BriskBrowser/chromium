@@ -15,6 +15,11 @@ import subprocess
 import test_runner
 
 
+# Some system errors are reported as failed tests in Xcode test result log in
+# Xcode 12, e.g. test app crash in xctest parallel testing. This are reported
+# as 'BUILD_INTERRUPTED' in failed test log of the attempt and will be removed
+# if all tests pass in re-attempts.
+SYSTEM_ERROR_TEST_NAME_SUFFIXES = ['encountered an error']
 LOGGER = logging.getLogger(__name__)
 
 
@@ -49,7 +54,7 @@ def format_test_case(test_case):
                `[TestClass/TestMethod]`
 
   Returns:
-    Test case id in format TestClass_TestMethod.
+    Test case id in format TestClass/TestMethod.
   """
   return test_case.replace('[', '').replace(']', '').replace(
       '-', '').replace(' ', '/')
@@ -154,17 +159,14 @@ class Xcode11LogParser(object):
     return failed
 
   @staticmethod
-  def _list_of_passed_tests(xcresult):
-    """Gets list of passed tests from xcresult.
+  def _get_test_statuses(xcresult, results):
+    """Updated |results| with passed and failed tests from xcresult.
 
     Args:
       xcresult: (str) A path to xcresult.
-
-    Returns:
-      A list of passed tests.
+      results: (dict) A dictionary with passed and failed tests.
     """
     root = json.loads(Xcode11LogParser._xcresulttool_get(xcresult, 'testsRef'))
-    passed_tests = []
     for summary in root['summaries']['_values'][0][
         'testableSummaries']['_values']:
       if not summary['tests']:
@@ -177,9 +179,29 @@ class Xcode11LogParser(object):
           # can be parsed from root.
           continue
         for test in test_suite['subtests']['_values']:
+          test_name = test['identifier']['_value']
+          if any(
+              test_name.endswith(suffix)
+              for suffix in SYSTEM_ERROR_TEST_NAME_SUFFIXES):
+            test_name = 'BUILD_INTERRUPTED'
           if test['testStatus']['_value'] == 'Success':
-            passed_tests.append(test['identifier']['_value'])
-    return passed_tests
+            results['passed'].append(test_name)
+          else:
+            # Parse data for failed test by its id.
+            rootFailure = json.loads(
+                Xcode11LogParser._xcresulttool_get(
+                    xcresult, test['summaryRef']['id']['_value']))
+            failure_message = []
+            for failure in rootFailure['failureSummaries']['_values']:
+              failure_location = '<unknown>'
+              if 'lineNumber' in failure:
+                failure_location = '%s:%s' % (failure['fileName'].get(
+                    '_value', ''), failure['lineNumber'].get('_value', ''))
+              elif 'fileName' in failure:
+                failure_location = failure['fileName'].get('_value', '')
+              failure_message += [failure_location
+                                 ] + failure['message']['_value'].splitlines()
+            results['failed'][test_name] = failure_message
 
   @staticmethod
   def collect_test_results(xcresult, output):
@@ -208,7 +230,18 @@ class Xcode11LogParser(object):
           '%s with test results does not exist.' % xcresult]
       return test_results
 
-    plist_path = os.path.join(xcresult + '.xcresult', 'Info.plist')
+    # During a run `xcodebuild .. -resultBundlePath %output_path%`
+    # that generates output_path folder,
+    # but Xcode 11+ generates `output_path.xcresult` and `output_path`
+    # where output_path.xcresult is a folder with results and `output_path`
+    # is symlink to the `output_path.xcresult` folder.
+    # `xcresulttool` with folder/symlink behaves
+    # in different way on laptop and on bots.
+    # To support debugging added this check.
+    if not xcresult.endswith('.xcresult'):
+      xcresult += '.xcresult'
+
+    plist_path = os.path.join(xcresult, 'Info.plist')
     if not os.path.exists(plist_path):
       test_results['failed']['BUILD_INTERRUPTED'] = [
           '%s with test results does not exist.' % plist_path] + output
@@ -222,9 +255,10 @@ class Xcode11LogParser(object):
         metrics.get('testsFailedCount', {}).get('_value', 0) == 0):
       test_results['failed']['TESTS_DID_NOT_START'] = ['0 tests executed!']
     else:
+      # For some crashed tests info about error contained only in root node.
       test_results['failed'] = Xcode11LogParser._list_of_failed_tests(root)
-      test_results['passed'] = Xcode11LogParser._list_of_passed_tests(xcresult)
-    Xcode11LogParser._export_diagnostic_data(xcresult + '.xcresult')
+      Xcode11LogParser._get_test_statuses(xcresult, test_results)
+    Xcode11LogParser._export_diagnostic_data(xcresult)
     return test_results
 
   @staticmethod

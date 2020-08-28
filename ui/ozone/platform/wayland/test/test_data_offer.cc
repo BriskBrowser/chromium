@@ -13,16 +13,16 @@
 #include "base/sequenced_task_runner.h"
 #include "base/task/post_task.h"
 #include "base/task/task_traits.h"
-#include "ui/ozone/platform/wayland/test/constants.h"
+#include "base/task/thread_pool.h"
 
 namespace wl {
 
 namespace {
 
 void WriteDataOnWorkerThread(base::ScopedFD fd,
-                             const ui::PlatformClipboard::Data& data) {
-  if (!base::WriteFileDescriptor(
-          fd.get(), reinterpret_cast<const char*>(data.data()), data.size())) {
+                             ui::PlatformClipboard::Data data) {
+  if (!base::WriteFileDescriptor(fd.get(), data->front_as<char>(),
+                                 data->size())) {
     LOG(ERROR) << "Failed to write selection data to clipboard.";
   }
 }
@@ -65,8 +65,8 @@ const struct wl_data_offer_interface kTestDataOfferImpl = {
 
 TestDataOffer::TestDataOffer(wl_resource* resource)
     : ServerObject(resource),
-      task_runner_(base::CreateSequencedTaskRunner(
-          {base::ThreadPool(), base::MayBlock()})),
+      task_runner_(
+          base::ThreadPool::CreateSequencedTaskRunner({base::MayBlock()})),
       write_data_weak_ptr_factory_(this) {}
 
 TestDataOffer::~TestDataOffer() {}
@@ -80,7 +80,7 @@ void TestDataOffer::Receive(const std::string& mime_type, base::ScopedFD fd) {
 }
 
 void TestDataOffer::OnOffer(const std::string& mime_type,
-                            const ui::PlatformClipboard::Data& data) {
+                            ui::PlatformClipboard::Data data) {
   data_to_offer_[mime_type] = data;
   wl_data_offer_send_offer(resource(), mime_type.c_str());
 }

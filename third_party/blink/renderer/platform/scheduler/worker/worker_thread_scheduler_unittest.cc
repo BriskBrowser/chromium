@@ -490,10 +490,10 @@ class WorkerThreadSchedulerWithProxyTest : public testing::Test {
     frame_scheduler_ = FakeFrameScheduler::Builder()
                            .SetIsPageVisible(false)
                            .SetFrameType(FrameScheduler::FrameType::kSubframe)
-                           .SetIsCrossOrigin(true)
+                           .SetIsCrossOriginToMainFrame(true)
                            .SetDelegate(frame_scheduler_delegate_.get())
                            .Build();
-    frame_scheduler_->SetCrossOrigin(true);
+    frame_scheduler_->SetCrossOriginToMainFrame(true);
 
     worker_scheduler_proxy_ =
         std::make_unique<WorkerSchedulerProxy>(frame_scheduler_.get());
@@ -539,7 +539,7 @@ TEST_F(WorkerThreadSchedulerWithProxyTest, UkmTaskRecording) {
   scheduler_->SetUkmRecorderForTest(std::move(owned_ukm_recorder));
 
   base::sequence_manager::FakeTask task(
-      static_cast<int>(TaskType::kJavascriptTimer));
+      static_cast<int>(TaskType::kJavascriptTimerDelayed));
   base::sequence_manager::FakeTaskTiming task_timing(
       base::TimeTicks() + base::TimeDelta::FromMilliseconds(200),
       base::TimeTicks() + base::TimeDelta::FromMilliseconds(700),
@@ -557,7 +557,8 @@ TEST_F(WorkerThreadSchedulerWithProxyTest, UkmTaskRecording) {
   ukm::TestUkmRecorder::ExpectEntryMetric(entries[0], "RendererBackgrounded",
                                           true);
   ukm::TestUkmRecorder::ExpectEntryMetric(
-      entries[0], "TaskType", static_cast<int>(TaskType::kJavascriptTimer));
+      entries[0], "TaskType",
+      static_cast<int>(TaskType::kJavascriptTimerDelayed));
   ukm::TestUkmRecorder::ExpectEntryMetric(
       entries[0], "FrameStatus",
       static_cast<int>(FrameStatus::kCrossOriginBackground));

@@ -23,7 +23,9 @@ namespace test {
 
 class TestConditionWaiter;
 
-// Utility class for tests that allows us to evalute and check JavaScript
+using UIPath = std::initializer_list<base::StringPiece>;
+
+// Utility class for tests that allows us to evaluate and check JavaScript
 // expressions inside given web contents. All calls are made synchronously.
 class JSChecker {
  public:
@@ -40,9 +42,9 @@ class JSChecker {
   void ExecuteAsync(const std::string& expression);
 
   // Evaluates |expression| and returns its result.
-  bool GetBool(const std::string& expression);
-  int GetInt(const std::string& expression);
-  std::string GetString(const std::string& expression);
+  WARN_UNUSED_RESULT bool GetBool(const std::string& expression);
+  WARN_UNUSED_RESULT int GetInt(const std::string& expression);
+  WARN_UNUSED_RESULT std::string GetString(const std::string& expression);
 
   // Checks truthfulness of the given |expression|.
   void ExpectTrue(const std::string& expression);
@@ -56,10 +58,57 @@ class JSChecker {
   void ExpectEQ(const std::string& expression, bool result);
   void ExpectNE(const std::string& expression, bool result);
 
+  // Evaluates value of element with |element_id|'s |attribute| and
+  // returns its result.
+  WARN_UNUSED_RESULT bool GetAttributeBool(
+      const std::string& attribute,
+      std::initializer_list<base::StringPiece> element_id);
+  WARN_UNUSED_RESULT int GetAttributeInt(
+      const std::string& attribute,
+      std::initializer_list<base::StringPiece> element_id);
+  WARN_UNUSED_RESULT std::string GetAttributeString(
+      const std::string& attribute,
+      std::initializer_list<base::StringPiece> element_id);
+
+  // Compares value of element with |element_id|'s |attribute| with |result|.
+  void ExpectAttributeEQ(const std::string& attribute,
+                         std::initializer_list<base::StringPiece> element_id,
+                         int result);
+  void ExpectAttributeNE(const std::string& attribute,
+                         std::initializer_list<base::StringPiece> element_id,
+                         int result);
+  void ExpectAttributeEQ(const std::string& attribute,
+                         std::initializer_list<base::StringPiece> element_id,
+                         const std::string& result);
+  void ExpectAttributeNE(const std::string& attribute,
+                         std::initializer_list<base::StringPiece> element_id,
+                         const std::string& result);
+  void ExpectAttributeEQ(const std::string& attribute,
+                         std::initializer_list<base::StringPiece> element_id,
+                         bool result);
+  void ExpectAttributeNE(const std::string& attribute,
+                         std::initializer_list<base::StringPiece> element_id,
+                         bool result);
+
   // Checks test waiter that would await until |js_condition| evaluates
   // to true.
   WARN_UNUSED_RESULT std::unique_ptr<TestConditionWaiter> CreateWaiter(
       const std::string& js_condition);
+
+  // Checks test waiter that would await until |js_condition| evaluates
+  // to true.
+  WARN_UNUSED_RESULT std::unique_ptr<TestConditionWaiter>
+  CreateWaiterWithDescription(const std::string& js_condition,
+                              const std::string& description);
+
+  // Waiter that waits until the given attribute is (not) present.
+  // WARNING! This does not cover the case where ATTRIBUTE=false.
+  // Should only be used for boolean attributes.
+  WARN_UNUSED_RESULT std::unique_ptr<TestConditionWaiter>
+  CreateAttributePresenceWaiter(
+      const std::string& attribute,
+      bool presence,
+      std::initializer_list<base::StringPiece> element_ids);
 
   // Waiter that waits until specified element is (not) hidden.
   WARN_UNUSED_RESULT std::unique_ptr<TestConditionWaiter>
@@ -111,11 +160,38 @@ class JSChecker {
   // Expects that the indicated UI element is not disabled.
   void ExpectEnabledPath(std::initializer_list<base::StringPiece> element_ids);
 
+  // Expects that the indicated UI element is invalid.
+  void ExpectInvalidPath(std::initializer_list<base::StringPiece> element_ids);
+
+  // Expects that the indicated UI element is not invalid.
+  void ExpectValidPath(std::initializer_list<base::StringPiece> element_ids);
+
   // Expects that indicated UI element has particular class.
   void ExpectHasClass(const std::string& css_class,
                       std::initializer_list<base::StringPiece> element_ids);
   void ExpectHasNoClass(const std::string& css_class,
                         std::initializer_list<base::StringPiece> element_ids);
+
+  // Expects that indicated UI element has particular attribute.
+  void ExpectHasAttribute(const std::string& attribute,
+                          std::initializer_list<base::StringPiece> element_ids);
+  void ExpectHasNoAttribute(
+      const std::string& attribute,
+      std::initializer_list<base::StringPiece> element_ids);
+
+  // Expect that the indicated UI element has the exact same text content.
+  void ExpectElementText(const std::string& content,
+                         std::initializer_list<base::StringPiece> element_ids);
+
+  // Expect that the indicated UI element contains particular text content.
+  void ExpectElementContainsText(
+      const std::string& content,
+      std::initializer_list<base::StringPiece> element_ids);
+
+  // Expect that the indicated UI element has the same value attribute (could be
+  // used in elements like input, button, option).
+  void ExpectElementValue(const std::string& value,
+                          std::initializer_list<base::StringPiece> element_ids);
 
   // Fires a native 'click' event on the indicated UI element. Prefer using
   // native 'click' event as it works on both polymer and native UI elements.
@@ -175,6 +251,13 @@ void ExecuteOobeJSAsync(const std::string& script);
 // are searched by ID in parent). It is assumed that all intermediate elements
 // are Polymer-based.
 std::string GetOobeElementPath(
+    std::initializer_list<base::StringPiece> element_ids);
+
+// Generates JS expression that evaluates to attribute of the element in
+// hierarchy. It is assumed that all intermediate elements
+// are Polymer-based.
+std::string GetAttributeExpression(
+    const std::string& attribute,
     std::initializer_list<base::StringPiece> element_ids);
 
 // Creates a waiter that allows to wait until screen with |oobe_screen_id| is

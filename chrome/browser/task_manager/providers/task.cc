@@ -6,6 +6,7 @@
 
 #include <stddef.h>
 
+#include "base/numerics/safe_conversions.h"
 #include "base/process/process.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/profiles/profile.h"
@@ -34,7 +35,6 @@ base::ProcessId DetermineProcessId(base::ProcessHandle handle,
 }  // namespace
 
 Task::Task(const base::string16& title,
-           const std::string& rappor_sample,
            const gfx::ImageSkia* icon,
            base::ProcessHandle handle,
            base::ProcessId process_id)
@@ -46,12 +46,11 @@ Task::Task(const base::string16& title,
       network_sent_rate_(0),
       network_read_rate_(0),
       title_(title),
-      rappor_sample_name_(rappor_sample),
       icon_(icon ? *icon : gfx::ImageSkia()),
       process_handle_(handle),
       process_id_(DetermineProcessId(handle, process_id)) {}
 
-Task::~Task() {}
+Task::~Task() = default;
 
 // static
 base::string16 Task::GetProfileNameFromProfile(Profile* profile) {
@@ -94,15 +93,13 @@ void Task::Refresh(const base::TimeDelta& update_interval,
 
   int64_t current_cycle_read_byte_count =
       cumulative_bytes_read_ - last_refresh_cumulative_bytes_read_;
-  network_read_rate_ =
-      (current_cycle_read_byte_count * base::TimeDelta::FromSeconds(1)) /
-      update_interval;
+  network_read_rate_ = base::ClampRound<int64_t>(current_cycle_read_byte_count /
+                                                 update_interval.InSecondsF());
 
   int64_t current_cycle_sent_byte_count =
       cumulative_bytes_sent_ - last_refresh_cumulative_bytes_sent_;
-  network_sent_rate_ =
-      (current_cycle_sent_byte_count * base::TimeDelta::FromSeconds(1)) /
-      update_interval;
+  network_sent_rate_ = base::ClampRound<int64_t>(current_cycle_sent_byte_count /
+                                                 update_interval.InSecondsF());
 
   last_refresh_cumulative_bytes_read_ = cumulative_bytes_read_;
   last_refresh_cumulative_bytes_sent_ = cumulative_bytes_sent_;
@@ -165,10 +162,6 @@ bool Task::ReportsSqliteMemory() const {
 
 int64_t Task::GetSqliteMemoryUsed() const {
   return -1;
-}
-
-bool Task::ReportsV8Memory() const {
-  return GetV8MemoryAllocated() != -1;
 }
 
 int64_t Task::GetV8MemoryAllocated() const {

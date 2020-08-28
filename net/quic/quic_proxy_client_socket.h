@@ -10,7 +10,7 @@
 #include <string>
 
 #include "net/base/completion_once_callback.h"
-#include "net/base/load_timing_info.h"
+#include "net/base/proxy_server.h"
 #include "net/http/proxy_client_socket.h"
 #include "net/quic/quic_chromium_client_session.h"
 #include "net/quic/quic_chromium_client_stream.h"
@@ -20,6 +20,7 @@
 namespace net {
 
 class HttpAuthController;
+class ProxyDelegate;
 
 // QuicProxyClientSocket provides a socket interface to an underlying
 // QuicChromiumClientStream. Bytes written to/read from a QuicProxyClientSocket
@@ -32,10 +33,12 @@ class NET_EXPORT_PRIVATE QuicProxyClientSocket : public ProxyClientSocket {
   QuicProxyClientSocket(
       std::unique_ptr<QuicChromiumClientStream::Handle> stream,
       std::unique_ptr<QuicChromiumClientSession::Handle> session,
+      const ProxyServer& proxy_server,
       const std::string& user_agent,
       const HostPortPair& endpoint,
       const NetLogWithSource& net_log,
-      HttpAuthController* auth_controller);
+      HttpAuthController* auth_controller,
+      ProxyDelegate* proxy_delegate);
 
   // On destruction Disconnect() is called.
   ~QuicProxyClientSocket() override;
@@ -105,8 +108,6 @@ class NET_EXPORT_PRIVATE QuicProxyClientSocket : public ProxyClientSocket {
   int DoReadReply();
   int DoReadReplyComplete(int result);
 
-  bool GetLoadTimingInfo(LoadTimingInfo* load_timing_info) const;
-
   State next_state_;
 
   // Handle to the QUIC Stream that this sits on top of.
@@ -137,10 +138,12 @@ class NET_EXPORT_PRIVATE QuicProxyClientSocket : public ProxyClientSocket {
   const HostPortPair endpoint_;
   scoped_refptr<HttpAuthController> auth_;
 
-  std::string user_agent_;
+  const ProxyServer proxy_server_;
 
-  // Session connect timing info.
-  LoadTimingInfo::ConnectTiming connect_timing_;
+  // This delegate must outlive this proxy client socket.
+  ProxyDelegate* const proxy_delegate_;
+
+  std::string user_agent_;
 
   const NetLogWithSource net_log_;
 

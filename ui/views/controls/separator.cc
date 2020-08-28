@@ -4,6 +4,8 @@
 
 #include "ui/views/controls/separator.h"
 
+#include <algorithm>
+
 #include "ui/accessibility/ax_enums.mojom.h"
 #include "ui/accessibility/ax_node_data.h"
 #include "ui/gfx/canvas.h"
@@ -93,10 +95,9 @@ void Separator::OnPaint(gfx::Canvas* canvas) {
   canvas->FillRect({x, y, w, h}, color);
 }
 
-BEGIN_METADATA(Separator)
-METADATA_PARENT_CLASS(View)
-ADD_PROPERTY_METADATA(Separator, SkColor, Color)
-ADD_PROPERTY_METADATA(Separator, int, PreferredHeight)
+BEGIN_METADATA(Separator, View)
+ADD_PROPERTY_METADATA(SkColor, Color)
+ADD_PROPERTY_METADATA(int, PreferredHeight)
 END_METADATA()
 
 }  // namespace views

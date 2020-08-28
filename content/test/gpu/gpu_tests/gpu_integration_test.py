@@ -10,6 +10,7 @@ from telemetry.testing import serially_executed_browser_test_case
 from telemetry.util import screenshot
 from typ import json_results
 
+from gpu_tests import common_browser_args as cba
 from gpu_tests import gpu_helper
 
 _START_BROWSER_RETRIES = 3
@@ -23,6 +24,7 @@ _SUPPORTED_WIN_GPU_VENDORS = [0x8086, 0x10de, 0x1002]
 _SUPPORTED_WIN_INTEL_GPUS = [0x5912, 0x3e92]
 _SUPPORTED_WIN_INTEL_GPUS_WITH_YUY2_OVERLAYS = [0x5912, 0x3e92]
 _SUPPORTED_WIN_INTEL_GPUS_WITH_NV12_OVERLAYS = [0x5912, 0x3e92]
+
 
 class GpuIntegrationTest(
     serially_executed_browser_test_case.SeriallyExecutedBrowserTestCase):
@@ -59,21 +61,80 @@ class GpuIntegrationTest(
     Subclasses overriding this method must invoke the superclass's
     version!"""
     parser.add_option(
-      '--disable-log-uploads',
-      dest='disable_log_uploads',
-      action='store_true', default=False,
-      help='Disables uploads of logs to cloud storage')
+        '--disable-log-uploads',
+        dest='disable_log_uploads',
+        action='store_true',
+        default=False,
+        help='Disables uploads of logs to cloud storage')
 
   @classmethod
-  def CustomizeBrowserArgs(cls, browser_args):
-    """Customizes the browser's command line arguments.
+  def GenerateBrowserArgs(cls, additional_args):
+    """Generates the browser args to use for the next browser startup.
+
+    Child classes are expected to override this and add any additional default
+    arguments that make sense for that particular class in addition to
+    the args returned by the parent's implementation.
+
+    Args:
+      additional_args: A list of strings containing any additional, non-default
+          args to use for the next browser startup.
+
+    Returns:
+      A list of strings containing all the browser arguments to use for the next
+      browser startup.
+    """
+    default_args = [
+        '--disable-metal-test-shaders',
+    ]
+    return default_args + additional_args
+
+  @classmethod
+  def CustomizeBrowserArgs(cls, additional_args=None):
+    """Customizes the browser's command line arguments for the next startup.
 
     NOTE that redefining this method in subclasses will NOT do what
     you expect! Do not attempt to redefine this method!
+
+    Args:
+      additional_args: A list of strings containing any additional, non-default
+          args to use for the next browser startup. See the child class'
+          GenerateBrowserArgs implementation for default arguments.
     """
-    if not browser_args:
-      browser_args = []
-    cls._finder_options = cls._original_finder_options.Copy()
+    cls._SetBrowserArgsForNextStartup(
+        cls._GenerateAndSanitizeBrowserArgs(additional_args))
+
+  @classmethod
+  def _GenerateAndSanitizeBrowserArgs(cls, additional_args=None):
+    """Generates browser arguments and sanitizes invalid arguments.
+
+    Args:
+      additional_args: A list of strings containing any additional, non-default
+          args to use for the next browser startup. See the child class'
+          GenerateBrowserArgs implementation for default arguments.
+
+    Returns:
+      A list of strings containing all the browser arguments to use for the
+      next browser startup with invalid arguments removed.
+    """
+    additional_args = additional_args or []
+    browser_args = cls.GenerateBrowserArgs(additional_args)
+    if cba.DISABLE_GPU in browser_args:
+      # Some platforms require GPU process, so browser fails to launch with
+      # --disable-gpu mode, therefore, even test expectations fail to evaluate.
+      os_name = cls.browser.platform.GetOSName()
+      if os_name == 'android' or os_name == 'chromeos':
+        browser_args.remove(cba.DISABLE_GPU)
+    return browser_args
+
+  @classmethod
+  def _SetBrowserArgsForNextStartup(cls, browser_args):
+    """Sets the browser arguments to use for the next browser startup.
+
+    Args:
+      browser_args: A list of strings containing the browser arguments to use
+          for the next browser startup.
+    """
+    cls._finder_options = cls.GetOriginalFinderOptions().Copy()
     browser_options = cls._finder_options.browser_options
 
     # If requested, disable uploading of failure logs to cloud storage.
@@ -86,25 +147,33 @@ class GpuIntegrationTest(
     cls.SetBrowserOptions(cls._finder_options)
 
   @classmethod
-  def RestartBrowserIfNecessaryWithArgs(cls, browser_args, force_restart=False):
-    if not browser_args:
-      browser_args = []
-    elif '--disable-gpu' in browser_args:
-      # Some platforms require GPU process, so browser fails to launch with
-      # --disable-gpu mode, therefore, even test expectations fail to evaluate.
-      browser_args = list(browser_args)
-      os_name = cls.browser.platform.GetOSName()
-      if os_name == 'android' or os_name == 'chromeos':
-        browser_args.remove('--disable-gpu')
-    if force_restart or set(browser_args) != cls._last_launched_browser_args:
-      logging.info('Restarting browser with arguments: ' + str(browser_args))
+  def RestartBrowserIfNecessaryWithArgs(cls,
+                                        additional_args=None,
+                                        force_restart=False):
+    """Restarts the browser if it is determined to be necessary.
+
+    A restart is necessary if restarting would cause the browser to run with
+    different arguments or if it is explicitly forced.
+
+    Args:
+      additional_args: A list of strings containing any additional, non-default
+          args to use for the next browser startup. See the child class'
+          GenerateBrowserArgs implementation for default arguments.
+      force_restart: True to force the browser to restart even if restarting
+          the browser would not change any browser arguments.
+    """
+    new_browser_args = cls._GenerateAndSanitizeBrowserArgs(additional_args)
+    if force_restart or set(
+        new_browser_args) != cls._last_launched_browser_args:
+      logging.info('Restarting browser with arguments: ' +
+                   str(new_browser_args))
       cls.StopBrowser()
-      cls.CustomizeBrowserArgs(browser_args)
+      cls._SetBrowserArgsForNextStartup(new_browser_args)
       cls.StartBrowser()
 
   @classmethod
-  def RestartBrowserWithArgs(cls, browser_args):
-    cls.RestartBrowserIfNecessaryWithArgs(browser_args, force_restart=True)
+  def RestartBrowserWithArgs(cls, additional_args=None):
+    cls.RestartBrowserIfNecessaryWithArgs(additional_args, force_restart=True)
 
   # The following is the rest of the framework for the GPU integration tests.
 
@@ -121,22 +190,22 @@ class GpuIntegrationTest(
     # to push the fetch of the first tab into the lower retry loop
     # without breaking Telemetry's unit tests, and that hook is used
     # to implement the gpu_integration_test_unittests.
-    for x in range(1, _START_BROWSER_RETRIES+1):  # Index from 1 instead of 0.
+    for x in range(1, _START_BROWSER_RETRIES + 1):  # Index from 1 instead of 0.
       try:
         super(GpuIntegrationTest, cls).StartBrowser()
         cls.tab = cls.browser.tabs[0]
         return
-      except Exception:
+      except Exception:  # pylint: disable=broad-except
         logging.exception('Browser start failed (attempt %d of %d). Backtrace:',
                           x, _START_BROWSER_RETRIES)
         # If we are on the last try and there is an exception take a screenshot
         # to try and capture more about the browser failure and raise
         if x == _START_BROWSER_RETRIES:
           url = screenshot.TryCaptureScreenShotAndUploadToCloudStorage(
-            cls.platform)
+              cls.platform)
           if url is not None:
             logging.info("GpuIntegrationTest screenshot of browser failure " +
-              "located at " + url)
+                         "located at " + url)
           else:
             logging.warning("GpuIntegrationTest unable to take screenshot.")
         # Stop the browser to make sure it's in an
@@ -149,13 +218,13 @@ class GpuIntegrationTest(
 
   @classmethod
   def _RestartBrowser(cls, reason):
-    logging.warning('Restarting browser due to '+ reason)
+    logging.warning('Restarting browser due to ' + reason)
     # The Browser may be None at this point if all attempts to start it failed.
     # This can occur if there is a consistent startup crash. For example caused
     # by a bad combination of command-line arguments. So reset to the original
     # options in attempt to successfully launch a browser.
     if cls.browser is None:
-      cls.SetBrowserOptions(cls._original_finder_options)
+      cls.SetBrowserOptions(cls.GetOriginalFinderOptions())
       cls.StartBrowser()
     else:
       cls.StopBrowser()
@@ -172,9 +241,13 @@ class GpuIntegrationTest(
       # generator?
       if len(args) == 1 and isinstance(args[0], tuple):
         args = args[0]
+      expected_crashes = self.GetExpectedCrashes(args)
       self.RunActualGpuTest(url, *args)
     except Exception:
       if ResultType.Failure in expected_results or should_retry_on_failure:
+        # We don't check the return value here since we'll be raising the
+        # caught exception already.
+        self._ClearExpectedCrashes(expected_crashes)
         if should_retry_on_failure:
           logging.exception('Exception while running flaky test %s', test_name)
           # For robustness, shut down the browser and restart it
@@ -204,13 +277,20 @@ class GpuIntegrationTest(
         # crash, so restart the browser to make sure any state doesn't
         # propagate to the next test iteration.
         self._RestartBrowser('unexpected test failure')
-      self.fail()
+      raise
     else:
+      # We always want to clear any expected crashes, but we don't bother
+      # failing the test if it's expected to fail.
+      actual_and_expected_crashes_match = self._ClearExpectedCrashes(
+          expected_crashes)
       if ResultType.Failure in expected_results:
-        logging.warning(
-          '%s was expected to fail, but passed.\n', test_name)
+        logging.warning('%s was expected to fail, but passed.\n', test_name)
+      else:
+        if not actual_and_expected_crashes_match:
+          raise RuntimeError('Actual and expected crashes did not match')
 
-  def _IsIntel(self, vendor_id):
+  @staticmethod
+  def _IsIntel(vendor_id):
     return vendor_id == 0x8086
 
   def _IsIntelGPUActive(self):
@@ -230,13 +310,66 @@ class GpuIntegrationTest(
       self.fail('Target machine must have a GPU')
     if len(gpu.devices) != 2:
       return False
-    if (self._IsIntel(gpu.devices[0].vendor_id) and not
-        self._IsIntel(gpu.devices[1].vendor_id)):
+    if (self._IsIntel(gpu.devices[0].vendor_id)
+        and not self._IsIntel(gpu.devices[1].vendor_id)):
       return True
-    if (not self._IsIntel(gpu.devices[0].vendor_id) and
-        self._IsIntel(gpu.devices[1].vendor_id)):
+    if (not self._IsIntel(gpu.devices[0].vendor_id)
+        and self._IsIntel(gpu.devices[1].vendor_id)):
       return True
     return False
+
+  def _ClearExpectedCrashes(self, expected_crashes):
+    """Clears any expected crash minidumps so they're not caught later.
+
+    Args:
+      expected_crashes: A dictionary mapping crash types as strings to the
+          number of expected crashes of that type.
+
+    Returns:
+      True if the actual number of crashes matched the expected number,
+      otherwise False.
+    """
+    # We can't get crashes if we don't have a browser.
+    if self.browser is None:
+      return True
+    # TODO(crbug.com/1006331): Properly match type once we have a way of
+    # checking the crashed process type without symbolizing the minidump.
+    total_expected_crashes = sum(expected_crashes.values())
+    # The Telemetry-wide cleanup will handle any remaining minidumps, so early
+    # return here since we don't expect any, which saves us a bit of work.
+    if total_expected_crashes == 0:
+      return True
+    unsymbolized_minidumps = self.browser.GetAllUnsymbolizedMinidumpPaths()
+    total_unsymbolized_minidumps = len(unsymbolized_minidumps)
+
+    if total_expected_crashes == total_unsymbolized_minidumps:
+      for path in unsymbolized_minidumps:
+        self.browser.IgnoreMinidump(path)
+      return True
+
+    logging.error(
+        'Found %d unsymbolized minidumps when we expected %d. Expected '
+        'crash breakdown: %s', total_unsymbolized_minidumps,
+        total_expected_crashes, expected_crashes)
+    return False
+
+  def GetExpectedCrashes(self, args):  # pylint: disable=no-self-use
+    """Returns which crashes, per process type, to expect for the current test.
+
+    Should be overridden by child classes to actually return valid data if
+    available.
+
+    Args:
+      args: The list passed to _RunGpuTest()
+
+    Returns:
+      A dictionary mapping crash types as strings to the number of expected
+      crashes of that type. Examples include 'gpu' for the GPU process,
+      'renderer' for the renderer process, and 'browser' for the browser
+      process.
+    """
+    del args
+    return {}
 
   @classmethod
   def GenerateGpuTests(cls, options):
@@ -277,17 +410,19 @@ class GpuIntegrationTest(
     os_version = os_version.lower()
 
     config = {
-      'direct_composition': False,
-      'supports_overlays': False,
-      'yuy2_overlay_support': 'NONE',
-      'nv12_overlay_support': 'NONE',
+        'direct_composition': False,
+        'supports_overlays': False,
+        'yuy2_overlay_support': 'NONE',
+        'nv12_overlay_support': 'NONE',
     }
     assert os_version in _SUPPORTED_WIN_VERSIONS
     assert gpu_vendor_id in _SUPPORTED_WIN_GPU_VENDORS
     if os_version in _SUPPORTED_WIN_VERSIONS_WITH_DIRECT_COMPOSITION:
       config['direct_composition'] = True
+      config['supports_overlays'] = True
+      config['yuy2_overlay_support'] = 'SOFTWARE'
+      config['nv12_overlay_support'] = 'SOFTWARE'
       if gpu_vendor_id == 0x8086:
-        config['supports_overlays'] = True
         assert gpu_device_id in _SUPPORTED_WIN_INTEL_GPUS
         if gpu_device_id in _SUPPORTED_WIN_INTEL_GPUS_WITH_YUY2_OVERLAYS:
           config['yuy2_overlay_support'] = 'SCALING'
@@ -321,26 +456,14 @@ class GpuIntegrationTest(
     assert os_version in _SUPPORTED_WIN_VERSIONS
 
     config = {
-      'supports_dx12': True,
-      'supports_vulkan': True,
+        'supports_dx12': True,
+        'supports_vulkan': True,
     }
 
     if os_version == 'win7':
       config['supports_dx12'] = False
 
     return config
-
-  @classmethod
-  def GenerateTags(cls, finder_options, possible_browser):
-    # If no expectations file paths are returned from cls.ExpectationsFiles()
-    # then an empty list will be returned from this function. If tags are
-    # returned and there are no expectations files, then Typ will raise
-    # an exception.
-    if not cls.ExpectationsFiles():
-      return []
-    with possible_browser.BrowserSession(
-        finder_options.browser_options) as browser:
-      return cls.GetPlatformTags(browser)
 
   @classmethod
   def GetPlatformTags(cls, browser):
@@ -359,6 +482,7 @@ class GpuIntegrationTest(
       # it's the discrete GPU, so that test expectations can be written that
       # target the discrete GPU.
       gpu_tags.append(gpu_helper.GetANGLERenderer(gpu_info))
+      gpu_tags.append(gpu_helper.GetSwiftShaderGLRenderer(gpu_info))
       gpu_tags.append(gpu_helper.GetCommandDecoder(gpu_info))
       if gpu_info and gpu_info.devices:
         for ii in xrange(0, len(gpu_info.devices)):
@@ -378,20 +502,21 @@ class GpuIntegrationTest(
             gpu_tags.extend([gpu_vendor, gpu_device_tag])
       # all spaces and underscores in the tag will be replaced by dashes
       tags.extend([re.sub('[ _]', '-', tag) for tag in gpu_tags])
+
+      # Add tags based on GPU feature status.
+      skia_renderer = gpu_helper.GetSkiaRenderer(gpu_info.feature_status)
+      tags.append(skia_renderer)
+      use_vulkan = gpu_helper.GetVulkan(gpu_info.feature_status)
+      tags.append(use_vulkan)
+
     # If additional options have been set via '--extra-browser-args' check for
     # those which map to expectation tags. The '_browser_backend' attribute may
     # not exist in unit tests.
-    if (hasattr(browser, '_browser_backend') and
-        browser._browser_backend.browser_options.extra_browser_args):
-      skia_renderer = gpu_helper.GetSkiaRenderer(\
-          browser._browser_backend.browser_options.extra_browser_args)
-      tags.extend([skia_renderer])
-      use_gl = gpu_helper.GetGL(\
-          browser._browser_backend.browser_options.extra_browser_args)
-      tags.extend([use_gl])
-      use_vulkan = gpu_helper.GetVulkan(\
-          browser._browser_backend.browser_options.extra_browser_args)
-      tags.extend([use_vulkan])
+    if hasattr(browser, 'startup_args'):
+      use_gl = gpu_helper.GetGL(browser.startup_args)
+      tags.append(use_gl)
+      use_skia_dawn = gpu_helper.GetSkiaDawn(browser.startup_args)
+      tags.append(use_skia_dawn)
     return tags
 
   @classmethod
@@ -412,6 +537,12 @@ class GpuIntegrationTest(
       logging.exception("Failure during browser startup")
       cls._RestartBrowser('failure in setup')
       raise
+
+  # @property doesn't work on class methods without messing with __metaclass__,
+  # so just use an explicit getter for simplicity.
+  @classmethod
+  def GetOriginalFinderOptions(cls):
+    return cls._original_finder_options
 
   def setUp(self):
     self._EnsureTabIsAvailable()

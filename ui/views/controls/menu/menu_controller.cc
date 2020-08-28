@@ -17,6 +17,7 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
+#include "ui/base/dragdrop/mojom/drag_drop_types.mojom-shared.h"
 #include "ui/base/dragdrop/os_exchange_data.h"
 #include "ui/display/screen.h"
 #include "ui/events/event.h"
@@ -49,6 +50,8 @@
 #include "ui/views/widget/widget.h"
 
 #if defined(OS_WIN)
+#include "ui/aura/client/screen_position_client.h"
+#include "ui/aura/window_event_dispatcher.h"
 #include "ui/aura/window_tree_host.h"
 #include "ui/base/win/internal_constants.h"
 #include "ui/display/win/screen_win.h"
@@ -56,10 +59,12 @@
 #endif
 
 #if defined(USE_AURA)
-#include "ui/aura/client/screen_position_client.h"
 #include "ui/aura/window.h"
-#include "ui/aura/window_event_dispatcher.h"
-#include "ui/aura/window_tree_host.h"
+#endif
+
+#if defined(USE_OZONE)
+#include "ui/base/ui_base_features.h"
+#include "ui/ozone/public/ozone_platform.h"
 #endif
 
 using base::TimeDelta;
@@ -69,7 +74,7 @@ namespace views {
 
 namespace {
 
-#if defined(OS_MACOSX)
+#if defined(OS_APPLE)
 bool AcceleratorShouldCancelMenu(const ui::Accelerator& accelerator) {
   // Since AcceleratorShouldCancelMenu() is called quite early in key
   // event handling, it is actually invoked for modifier keys themselves
@@ -100,6 +105,18 @@ bool AcceleratorShouldCancelMenu(const ui::Accelerator& accelerator) {
          accelerator.IsCmdDown();
 }
 #endif
+
+bool ShouldIgnoreScreenBoundsForMenus() {
+#if defined(USE_OZONE)
+  // Wayland requires placing menus is screen coordinates. See comment in
+  // ozone_platform_wayland.cc.
+  if (features::IsUsingOzonePlatform())
+    return ui::OzonePlatform::GetInstance()
+        ->GetPlatformProperties()
+        .ignore_screen_bounds_for_menus;
+#endif
+  return false;
+}
 
 // The amount of time the mouse should be down before a mouse release is
 // considered intentional. This is to prevent spurious mouse releases from
@@ -230,7 +247,6 @@ static void RepostEventImpl(const ui::LocatedEvent* event,
   if (!native_view)
     return;
 
-#if defined(OS_WIN)
   gfx::Point screen_loc_pixels =
       display::win::ScreenWin::DIPToScreenPoint(screen_loc);
   HWND target_window = ::WindowFromPoint(screen_loc_pixels.ToPOINT());
@@ -300,9 +316,7 @@ static void RepostEventImpl(const ui::LocatedEvent* event,
     PostMessage(target_window, event_type, target, window_coords);
     return;
   }
-#endif  // defined(OS_WIN)
 
-#if defined(USE_AURA)
   if (!window)
     return;
 
@@ -322,7 +336,6 @@ static void RepostEventImpl(const ui::LocatedEvent* event,
   located_event->set_root_location(root_loc);
 
   root->GetHost()->dispatcher()->RepostEvent(located_event.get());
-#endif  // defined(USE_AURA)
 }
 #endif  // defined(OS_WIN)
 
@@ -503,7 +516,7 @@ void MenuController::Run(Widget* parent,
     menu_pre_target_handler_ = MenuPreTargetHandler::Create(this, owner_);
   }
 
-#if defined(OS_MACOSX)
+#if defined(OS_APPLE)
   menu_cocoa_watcher_ = std::make_unique<MenuCocoaWatcherMac>(base::BindOnce(
       &MenuController::Cancel, this->AsWeakPtr(), ExitType::kAll));
 #endif
@@ -535,7 +548,7 @@ void MenuController::Run(Widget* parent,
 }
 
 void MenuController::Cancel(ExitType type) {
-#if defined(OS_MACOSX)
+#if defined(OS_APPLE)
   menu_closure_animation_.reset();
 #endif
 
@@ -608,6 +621,11 @@ bool MenuController::IsReadonlyCombobox() const {
 
 bool MenuController::IsContextMenu() const {
   return state_.context_menu;
+}
+
+void MenuController::SelectItemAndOpenSubmenu(MenuItemView* item) {
+  DCHECK(item);
+  SetSelection(item, SELECTION_OPEN_SUBMENU | SELECTION_UPDATE_IMMEDIATELY);
 }
 
 bool MenuController::OnMousePressed(SubmenuView* source,
@@ -781,19 +799,15 @@ void MenuController::OnMouseReleased(SubmenuView* source,
         return;
       }
     }
+    const int command = part.menu->GetCommand();
     if (part.menu->GetDelegate()->ShouldExecuteCommandWithoutClosingMenu(
-            part.menu->GetCommand(), event)) {
-      part.menu->GetDelegate()->ExecuteCommand(part.menu->GetCommand(),
-                                               event.flags());
+            command, event)) {
+      part.menu->GetDelegate()->ExecuteCommand(command, event.flags());
       return;
     }
     if (!part.menu->NonIconChildViewsCount() &&
         part.menu->GetDelegate()->IsTriggerableEvent(part.menu, event)) {
-      base::TimeDelta shown_time = base::TimeTicks::Now() - menu_start_time_;
-      if (!state_.context_menu || !View::ShouldShowContextMenuOnMousePress() ||
-          shown_time > menu_selection_hold_time) {
-        Accept(part.menu, event.flags());
-      }
+      Accept(part.menu, event.flags());
       return;
     }
   } else if (part.type == MenuPart::MENU_ITEM) {
@@ -859,12 +873,12 @@ bool MenuController::OnMouseWheel(SubmenuView* source,
 void MenuController::OnGestureEvent(SubmenuView* source,
                                     ui::GestureEvent* event) {
   if (owner_ && send_gesture_events_to_owner()) {
-#if defined(OS_MACOSX)
+#if defined(OS_APPLE)
     NOTIMPLEMENTED();
-#else   // !defined(OS_MACOSX)
+#else   // !defined(OS_APPLE)
     event->ConvertLocationToTarget(source->GetWidget()->GetNativeWindow(),
                                    owner()->GetNativeWindow());
-#endif  // defined(OS_MACOSX)
+#endif  // defined(OS_APPLE)
     owner()->OnGestureEvent(event);
     // Reset |send_gesture_events_to_owner_| when the first gesture ends.
     if (event->type() == ui::ET_GESTURE_END)
@@ -1169,22 +1183,22 @@ ui::PostDispatchAction MenuController::OnWillDispatchKeyEvent(
   base::WeakPtr<MenuController> this_ref = AsWeakPtr();
   if (event->type() == ui::ET_KEY_PRESSED) {
     bool key_handled = false;
-#if defined(OS_MACOSX)
+#if defined(OS_APPLE)
     // Special handling for Option-Up and Option-Down, which should behave like
     // Home and End respectively in menus.
     if ((event->flags() & ui::EF_ALT_DOWN)) {
+      ui::KeyEvent rewritten_event(*event);
       if (event->key_code() == ui::VKEY_UP) {
-        key_handled = OnKeyPressed(ui::VKEY_HOME);
+        rewritten_event.set_key_code(ui::VKEY_HOME);
       } else if (event->key_code() == ui::VKEY_DOWN) {
-        key_handled = OnKeyPressed(ui::VKEY_END);
-      } else {
-        key_handled = OnKeyPressed(event->key_code());
+        rewritten_event.set_key_code(ui::VKEY_END);
       }
+      key_handled = OnKeyPressed(rewritten_event);
     } else {
-      key_handled = OnKeyPressed(event->key_code());
+      key_handled = OnKeyPressed(*event);
     }
 #else
-    key_handled = OnKeyPressed(event->key_code());
+    key_handled = OnKeyPressed(*event);
 #endif
 
     if (key_handled)
@@ -1216,7 +1230,7 @@ ui::PostDispatchAction MenuController::OnWillDispatchKeyEvent(
 
   ui::Accelerator accelerator(*event);
 
-#if defined(OS_MACOSX)
+#if defined(OS_APPLE)
   if (AcceleratorShouldCancelMenu(accelerator)) {
     Cancel(ExitType::kAll);
     return ui::POST_DISPATCH_PERFORM_DEFAULT;
@@ -1282,7 +1296,7 @@ void MenuController::TurnOffMenuSelectionHoldForTest() {
 }
 
 void MenuController::OnMenuItemDestroying(MenuItemView* menu_item) {
-#if defined(OS_MACOSX)
+#if defined(OS_APPLE)
   if (menu_closure_animation_ && menu_closure_animation_->item() == menu_item)
     menu_closure_animation_.reset();
 #endif
@@ -1367,11 +1381,16 @@ void MenuController::SetSelection(MenuItemView* menu_item,
     StartShowTimer();
 
   // Notify an accessibility focus event on all menu items except for the root.
-  if (menu_item &&
+  if (menu_item && pending_item_changed &&
       (MenuDepth(menu_item) != 1 ||
        menu_item->GetType() != MenuItemView::Type::kSubMenu ||
        (menu_item->GetType() == MenuItemView::Type::kActionableSubMenu &&
         (selection_types & SELECTION_OPEN_SUBMENU) == 0))) {
+    // Before firing the selection event, ensure that focus appears to be
+    // within the popup. This is helpful for ATs on some platforms,
+    // specifically on Windows, where selection events in a list are mapped
+    // to focus events. Without this call, the focus appears to be elsewhere.
+    menu_item->GetViewAccessibility().SetPopupFocusOverride();
     menu_item->NotifyAccessibilityEvent(ax::mojom::Event::kSelection, true);
     // Notify an accessibility selected children changed event on the parent
     // submenu.
@@ -1458,23 +1477,25 @@ void MenuController::StartDrag(SubmenuView* source,
   int drag_ops = item->GetDelegate()->GetDragOperations(item);
   did_initiate_drag_ = true;
   base::WeakPtr<MenuController> this_ref = AsWeakPtr();
-  // TODO(varunjain): Properly determine and send DRAG_EVENT_SOURCE below.
+  // TODO(varunjain): Properly determine and send DragEventSource below.
   item->GetWidget()->RunShellDrag(nullptr, std::move(data), widget_loc,
-                                  drag_ops,
-                                  ui::DragDropTypes::DRAG_EVENT_SOURCE_MOUSE);
+                                  drag_ops, ui::mojom::DragEventSource::kMouse);
   // MenuController may have been deleted so check before accessing member
   // variables.
   if (this_ref)
     did_initiate_drag_ = false;
 }
 
-bool MenuController::OnKeyPressed(ui::KeyboardCode key_code) {
-  // Do not process while performing drag-and-drop
+bool MenuController::OnKeyPressed(const ui::KeyEvent& event) {
+  DCHECK_EQ(event.type(), ui::ET_KEY_PRESSED);
+
+  // Do not process while performing drag-and-drop.
   if (for_drop_)
     return false;
 
   bool handled_key_code = false;
 
+  const ui::KeyboardCode key_code = event.key_code();
   switch (key_code) {
     case ui::VKEY_HOME:
       if (IsEditableCombobox())
@@ -1489,10 +1510,12 @@ bool MenuController::OnKeyPressed(ui::KeyboardCode key_code) {
       break;
 
     case ui::VKEY_UP:
+    case ui::VKEY_PRIOR:
       IncrementSelection(INCREMENT_SELECTION_UP);
       break;
 
     case ui::VKEY_DOWN:
+    case ui::VKEY_NEXT:
       IncrementSelection(INCREMENT_SELECTION_DOWN);
       break;
 
@@ -1517,9 +1540,9 @@ bool MenuController::OnKeyPressed(ui::KeyboardCode key_code) {
       break;
 
 // On Mac, treat space the same as return.
-#if !defined(OS_MACOSX)
+#if !defined(OS_APPLE)
     case ui::VKEY_SPACE:
-      SendAcceleratorToHotTrackedView();
+      SendAcceleratorToHotTrackedView(event.flags());
       break;
 #endif
 
@@ -1529,7 +1552,7 @@ bool MenuController::OnKeyPressed(ui::KeyboardCode key_code) {
       // Fallthrough to accept or dismiss combobox menus on F4, like windows.
       FALLTHROUGH;
     case ui::VKEY_RETURN:
-#if defined(OS_MACOSX)
+#if defined(OS_APPLE)
     case ui::VKEY_SPACE:
 #endif
       // An odd special case: if a prefix selection is in flight, space should
@@ -1551,9 +1574,9 @@ bool MenuController::OnKeyPressed(ui::KeyboardCode key_code) {
             OpenSubmenuChangeSelectionIfCan();
         } else {
           handled_key_code = true;
-          if (!SendAcceleratorToHotTrackedView() &&
+          if (!SendAcceleratorToHotTrackedView(event.flags()) &&
               pending_state_.item->GetEnabled()) {
-            Accept(pending_state_.item, 0);
+            Accept(pending_state_.item, event.flags());
           }
         }
       }
@@ -1573,7 +1596,7 @@ bool MenuController::OnKeyPressed(ui::KeyboardCode key_code) {
       CloseSubmenu();
       break;
 
-#if !defined(OS_MACOSX)
+#if !defined(OS_APPLE)
     case ui::VKEY_APPS: {
       Button* hot_view = GetFirstHotTrackedView(pending_state_.item);
       if (hot_view) {
@@ -1628,15 +1651,16 @@ MenuController::~MenuController() {
     active_instance_ = nullptr;
   StopShowTimer();
   StopCancelAllTimer();
+  CHECK(!IsInObserverList());
 }
 
-bool MenuController::SendAcceleratorToHotTrackedView() {
+bool MenuController::SendAcceleratorToHotTrackedView(int event_flags) {
   Button* hot_view = GetFirstHotTrackedView(pending_state_.item);
   if (!hot_view)
     return false;
 
   base::WeakPtr<MenuController> this_ref = AsWeakPtr();
-  ui::Accelerator accelerator(ui::VKEY_RETURN, ui::EF_NONE);
+  ui::Accelerator accelerator(ui::VKEY_RETURN, event_flags);
   hot_view->AcceleratorPressed(accelerator);
   // An accelerator may have canceled the menu after activation.
   if (this_ref) {
@@ -1680,7 +1704,7 @@ void MenuController::UpdateInitialLocation(const gfx::Rect& bounds,
 }
 
 void MenuController::Accept(MenuItemView* item, int event_flags) {
-#if defined(OS_MACOSX)
+#if defined(OS_APPLE)
   menu_closure_animation_ = std::make_unique<MenuClosureAnimationMac>(
       item, item->GetParentMenuItem()->GetSubmenu(),
       base::BindOnce(&MenuController::ReallyAccept, base::Unretained(this),
@@ -1694,7 +1718,7 @@ void MenuController::Accept(MenuItemView* item, int event_flags) {
 void MenuController::ReallyAccept(MenuItemView* item, int event_flags) {
   DCHECK(!for_drop_);
   result_ = item;
-#if defined(OS_MACOSX)
+#if defined(OS_APPLE)
   // Reset the closure animation since it's now finished - this also unblocks
   // input events for the menu.
   menu_closure_animation_.reset();
@@ -2093,12 +2117,9 @@ void MenuController::OpenMenuImpl(MenuItemView* item, bool show) {
         menu_open_mouse_loc_ = mouse_pos;
     }
 
-    // Menus are the only place using kGroupingPropertyKey, so any value (other
-    // than 0) is fine.
-    constexpr int kGroupingId = 1001;
     item->GetSubmenu()->GetWidget()->SetNativeWindowProperty(
         TooltipManager::kGroupingPropertyKey,
-        reinterpret_cast<void*>(kGroupingId));
+        reinterpret_cast<void*>(MenuConfig::kMenuControllerGroupingId));
 
     // Set the selection indices for this menu level based on traversal order.
     SetSelectionIndices(item);
@@ -2234,7 +2255,7 @@ gfx::Rect MenuController::CalculateMenuBounds(MenuItemView* item,
     menu_bounds.set_x(create_on_right ? right_of_parent : left_of_parent);
 
     // Everything after this check requires monitor bounds to be non-empty.
-    if (monitor_bounds.IsEmpty())
+    if (ShouldIgnoreScreenBoundsForMenus() || monitor_bounds.IsEmpty())
       return menu_bounds;
 
     // Menu does not actually fit where it was placed, move it to the other side
@@ -2266,7 +2287,8 @@ gfx::Rect MenuController::CalculateMenuBounds(MenuItemView* item,
           anchor_bounds.x() + (anchor_bounds.width() - menu_bounds.width()) / 2;
       menu_bounds.set_x(horizontally_centered);
       menu_bounds.set_y(above_anchor - kTouchYPadding);
-      if (menu_bounds.y() < monitor_bounds.y())
+      if (!ShouldIgnoreScreenBoundsForMenus() &&
+          menu_bounds.y() < monitor_bounds.y())
         menu_bounds.set_y(anchor_bounds.y() + kTouchYPadding);
     }
 
@@ -2276,7 +2298,7 @@ gfx::Rect MenuController::CalculateMenuBounds(MenuItemView* item,
     }
 
     // Everything beyond this point requires monitor bounds to be non-empty.
-    if (monitor_bounds.IsEmpty())
+    if (ShouldIgnoreScreenBoundsForMenus() || monitor_bounds.IsEmpty())
       return menu_bounds;
 
     // If the menu position is below or above the anchor bounds, force it to fit
@@ -2811,7 +2833,7 @@ void MenuController::RepostEventAndCancel(SubmenuView* source,
     if (last_part.type != MenuPart::NONE)
       exit_type = ExitType::kOutermost;
   }
-#if defined(OS_MACOSX)
+#if defined(OS_APPLE)
   // When doing a menu closure animation, target the deepest submenu - that way
   // MenuClosureAnimationMac will fade out all the menus in sync, rather than
   // the shallowest menu only.
@@ -3098,21 +3120,24 @@ void MenuController::SetNextHotTrackedView(
   SetInitialHotTrackedView(to_select, direction);
 }
 
-void MenuController::SetHotTrackedButton(Button* hot_button) {
-  if (hot_button == hot_button_) {
-    // Hot-tracked state may change outside of the MenuController. Correct it.
-    if (hot_button && !hot_button->IsHotTracked()) {
-      hot_button->SetHotTracked(true);
-      hot_button->NotifyAccessibilityEvent(ax::mojom::Event::kSelection, true);
-    }
-    return;
-  }
-  if (hot_button_)
+void MenuController::SetHotTrackedButton(Button* new_hot_button) {
+  // Set hot tracked state and fire a11y events for the hot tracked button.
+  // This must be done whether or not it was the previous hot tracked button.
+  // For example, when a zoom button is pressed, the menu remains open and the
+  // same zoom button should have its hot tracked state set again.
+
+  // If we're providing a new hot-tracked button, first remove the existing one.
+  if (hot_button_ && hot_button_ != new_hot_button) {
     hot_button_->SetHotTracked(false);
-  hot_button_ = hot_button;
-  if (hot_button) {
-    hot_button->SetHotTracked(true);
-    hot_button->NotifyAccessibilityEvent(ax::mojom::Event::kSelection, true);
+    hot_button_->GetViewAccessibility().EndPopupFocusOverride();
+  }
+
+  // Then set the new one.
+  hot_button_ = new_hot_button;
+  if (hot_button_) {
+    hot_button_->GetViewAccessibility().SetPopupFocusOverride();
+    hot_button_->SetHotTracked(true);
+    hot_button_->NotifyAccessibilityEvent(ax::mojom::Event::kSelection, true);
   }
 }
 
@@ -3141,7 +3166,7 @@ void MenuController::UnregisterAlertedItem(MenuItemView* item) {
 }
 
 bool MenuController::CanProcessInputEvents() const {
-#if defined(OS_MACOSX)
+#if defined(OS_APPLE)
   return !menu_closure_animation_;
 #else
   return true;

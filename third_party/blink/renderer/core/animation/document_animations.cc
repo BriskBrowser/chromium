@@ -40,6 +40,9 @@
 #include "third_party/blink/renderer/core/dom/element.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/frame/local_frame_view.h"
+#include "third_party/blink/renderer/core/page/page.h"
+#include "third_party/blink/renderer/core/page/page_animator.h"
+#include "third_party/blink/renderer/platform/bindings/microtask.h"
 
 namespace blink {
 
@@ -56,7 +59,9 @@ void UpdateAnimationTiming(
 
 bool CompareAnimations(const Member<Animation>& left,
                        const Member<Animation>& right) {
-  return Animation::HasLowerPriority(left.Get(), right.Get());
+  return Animation::HasLowerCompositeOrdering(
+      left.Get(), right.Get(),
+      Animation::CompareAnimationsOrdering::kTreeOrder);
 }
 }  // namespace
 
@@ -69,6 +74,14 @@ void DocumentAnimations::AddTimeline(AnimationTimeline& timeline) {
 
 void DocumentAnimations::UpdateAnimationTimingForAnimationFrame() {
   UpdateAnimationTiming(*document_, timelines_, kTimingUpdateForAnimationFrame);
+
+  // Perform a microtask checkpoint per step 3 of
+  // https://drafts.csswg.org/web-animations-1/#timelines. This is to
+  // ensure that any microtasks queued up as a result of resolving or
+  // rejecting Promise objects as part of updating timelines run their
+  // callbacks prior to dispatching animation events and generating
+  // the next main frame.
+  Microtask::PerformCheckpoint(V8PerIsolateData::MainThreadIsolate());
 }
 
 bool DocumentAnimations::NeedsAnimationTimingUpdate() {
@@ -117,35 +130,55 @@ void DocumentAnimations::UpdateAnimations(
     timeline->ScheduleNextService();
 }
 
-HeapVector<Member<Animation>> DocumentAnimations::getAnimations() {
+void DocumentAnimations::MarkAnimationsCompositorPending() {
+  for (auto& timeline : timelines_)
+    timeline->MarkAnimationsCompositorPending();
+}
+
+HeapVector<Member<Animation>> DocumentAnimations::getAnimations(
+    const TreeScope& tree_scope) {
   // This method implements the Document::getAnimations method defined in the
   // web-animations-1 spec.
   // https://drafts.csswg.org/web-animations-1/#dom-document-getanimations
+  // TODO(crbug.com/1046916): refactoring work to create a shared implementation
+  // of getAnimations for Documents and ShadowRoots.
   document_->UpdateStyleAndLayoutTree();
   HeapVector<Member<Animation>> animations;
-  for (auto& timeline : timelines_) {
-    for (const auto& animation : timeline->GetAnimations()) {
-      if (!animation->effect() || (!animation->effect()->IsCurrent() &&
-                                   !animation->effect()->IsInEffect())) {
-        continue;
-      }
-      if (auto* effect = DynamicTo<KeyframeEffect>(animation->effect())) {
-        Element* target = effect->target();
-        if (!target || !target->isConnected() ||
-            document_ != target->GetDocument()) {
-          continue;
-        }
-      }
-      animations.push_back(animation);
-    }
-  }
+  if (document_->GetPage())
+    animations = document_->GetPage()->Animator().GetAnimations(tree_scope);
+  else
+    GetAnimationsTargetingTreeScope(animations, tree_scope);
+
   std::sort(animations.begin(), animations.end(), CompareAnimations);
   return animations;
 }
 
-void DocumentAnimations::Trace(blink::Visitor* visitor) {
+void DocumentAnimations::Trace(Visitor* visitor) const {
   visitor->Trace(document_);
   visitor->Trace(timelines_);
 }
 
+void DocumentAnimations::GetAnimationsTargetingTreeScope(
+    HeapVector<Member<Animation>>& animations,
+    const TreeScope& tree_scope) {
+  // This method follows the timelines in a given docmuent and append all the
+  // animations to the reference animations.
+  for (auto& timeline : timelines_) {
+    for (const auto& animation : timeline->GetAnimations()) {
+      if (animation->ReplaceStateRemoved())
+        continue;
+      if (!animation->effect() || (!animation->effect()->IsCurrent() &&
+                                   !animation->effect()->IsInEffect())) {
+        continue;
+      }
+      auto* effect = DynamicTo<KeyframeEffect>(animation->effect());
+      Element* target = effect->target();
+      if (!target || !target->isConnected())
+        continue;
+      if (&tree_scope != &target->GetTreeScope())
+        continue;
+      animations.push_back(animation);
+    }
+  }
+}
 }  // namespace blink

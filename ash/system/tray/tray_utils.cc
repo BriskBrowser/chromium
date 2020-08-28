@@ -5,6 +5,7 @@
 #include "ash/system/tray/tray_utils.h"
 
 #include "ash/public/cpp/shelf_config.h"
+#include "ash/public/cpp/shelf_types.h"
 #include "ash/shelf/shelf.h"
 #include "ash/shell.h"
 #include "ash/style/ash_color_provider.h"
@@ -27,7 +28,7 @@ void SetupLabelForTray(views::Label* label) {
 SkColor TrayIconColor(session_manager::SessionState session_state) {
   const bool light_icon = session_state == session_manager::SessionState::OOBE;
   return AshColorProvider::Get()->GetContentLayerColor(
-      AshColorProvider::ContentLayerType::kIconPrimary,
+      AshColorProvider::ContentLayerType::kIconColorPrimary,
       light_icon ? AshColorProvider::AshColorMode::kLight
                  : AshColorProvider::AshColorMode::kDark);
 }
@@ -61,7 +62,8 @@ gfx::Insets GetTrayBubbleInsets() {
   int height_compensation = kTrayBubbleInsetHotseatCompensation;
   switch (shelf->GetBackgroundType()) {
     case ShelfBackgroundType::kInApp:
-      // In-app mode does not require a height compensation.
+    case ShelfBackgroundType::kOverview:
+      // Certain modes do not require a height compensation.
       height_compensation = 0;
       break;
     case ShelfBackgroundType::kLogin:
@@ -74,6 +76,25 @@ gfx::Insets GetTrayBubbleInsets() {
   }
 
   insets.set_bottom(insets.bottom() + height_compensation);
+  return insets;
+}
+
+gfx::Insets GetSecondaryBubbleInsets() {
+  Shelf* shelf = Shelf::ForWindow(Shell::GetPrimaryRootWindow());
+  gfx::Insets insets;
+
+  switch (shelf->alignment()) {
+    case ShelfAlignment::kBottom:
+    case ShelfAlignment::kBottomLocked:
+      insets.set_bottom(kUnifiedMenuPadding);
+      break;
+    case ShelfAlignment::kLeft:
+      insets.set_left(kUnifiedMenuPadding);
+      break;
+    case ShelfAlignment::kRight:
+      insets.set_right(kUnifiedMenuPadding);
+      break;
+  }
   return insets;
 }
 

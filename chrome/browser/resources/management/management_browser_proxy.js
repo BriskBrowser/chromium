@@ -37,7 +37,11 @@ export let BrowserReportingResponse;
  *   managed: boolean,
  *   overview: string,
  *   customerLogo: string,
- *   threatProtectionDescription: string
+ *   threatProtectionDescription: string,
+ *   showUpdateRequiredEol: boolean,
+ *   eolMessage: string,
+ *   eolAdminMessage: string,
+ *   showProxyServerPrivacyDisclosure: boolean
  * }}
  */
 let ManagedDataResponse;
@@ -68,9 +72,14 @@ export const DeviceReportingType = {
   DEVICE_ACTIVITY: 'device activity',
   STATISTIC: 'device statistics',
   DEVICE: 'device',
+  CRASH_REPORT: 'crash report',
+  APP_INFO_AND_ACTIVITY: 'app info and activity',
   LOGS: 'logs',
   PRINT: 'print',
-  CROSTINI: 'crostini'
+  CROSTINI: 'crostini',
+  USERNAME: 'username',
+  EXTENSION: 'extension',
+  ANDROID_APPLICATION: 'android application',
 };
 
 
@@ -100,6 +109,12 @@ export class ManagementBrowserProxy {
    *     items to display in device reporting section.
    */
   getDeviceReportingInfo() {}
+
+  /**
+   * @return {!Promise<boolean>} Boolean describing Plugin VM data collection
+   *     enabled or not.
+   */
+  getPluginVmDataCollectionStatus() {}
   // </if>
 
   /** @return {!Promise<!ManagedDataResponse>} */
@@ -131,6 +146,11 @@ export class ManagementBrowserProxyImpl {
   /** @override */
   getDeviceReportingInfo() {
     return sendWithPromise('getDeviceReportingInfo');
+  }
+
+  /** @override */
+  getPluginVmDataCollectionStatus() {
+    return sendWithPromise('getPluginVmDataCollectionStatus');
   }
   // </if>
 

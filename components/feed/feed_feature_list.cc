@@ -8,6 +8,11 @@ namespace feed {
 
 const base::Feature kInterestFeedContentSuggestions{
     "InterestFeedContentSuggestions", base::FEATURE_ENABLED_BY_DEFAULT};
+// InterestFeedV2 takes precedence over InterestFeedContentSuggestions.
+// InterestFeedV2 is cached in ChromeCachedFlags. If the default value here is
+// changed, please update the cached one's default value in CachedFeatureFlags.
+const base::Feature kInterestFeedV2{"InterestFeedV2",
+                                    base::FEATURE_DISABLED_BY_DEFAULT};
 
 const base::FeatureParam<std::string> kDisableTriggerTypes{
     &kInterestFeedContentSuggestions, "disable_trigger_types", ""};
@@ -26,5 +31,10 @@ const base::Feature kInterestFeedNotifications{
 
 const base::Feature kInterestFeedFeedback{"InterestFeedFeedback",
                                           base::FEATURE_DISABLED_BY_DEFAULT};
+
+const base::Feature kReportFeedUserActions{"ReportFeedUserActions",
+                                           base::FEATURE_DISABLED_BY_DEFAULT};
+
+
 
 }  // namespace feed

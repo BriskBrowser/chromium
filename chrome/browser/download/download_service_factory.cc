@@ -12,8 +12,8 @@
 #include "base/memory/singleton.h"
 #include "base/sequenced_task_runner.h"
 #include "base/single_thread_task_runner.h"
-#include "base/task/post_task.h"
 #include "base/task/task_traits.h"
+#include "base/task/thread_pool.h"
 #include "chrome/browser/background_fetch/background_fetch_download_client.h"
 #include "chrome/browser/chromeos/plugin_vm/plugin_vm_image_download_client.h"
 #include "chrome/browser/download/deferred_client_wrapper.h"
@@ -59,7 +59,7 @@ std::unique_ptr<download::Client> CreateBackgroundFetchDownloadClient(
   return std::make_unique<BackgroundFetchDownloadClient>(profile);
 }
 
-#if defined(CHROMEOS)
+#if defined(OS_CHROMEOS)
 std::unique_ptr<download::Client> CreatePluginVmImageDownloadClient(
     Profile* profile) {
   return std::make_unique<plugin_vm::PluginVmImageDownloadClient>(profile);
@@ -136,15 +136,13 @@ std::unique_ptr<KeyedService> DownloadServiceFactory::BuildServiceInstanceFor(
   clients->insert(std::make_pair(
       download::DownloadClient::BACKGROUND_FETCH,
       std::make_unique<download::DeferredClientWrapper>(
-          download::DownloadClient::BACKGROUND_FETCH,
           base::BindOnce(&CreateBackgroundFetchDownloadClient), key)));
 
-#if defined(CHROMEOS)
+#if defined(OS_CHROMEOS)
   if (!key->IsOffTheRecord()) {
     clients->insert(std::make_pair(
         download::DownloadClient::PLUGIN_VM_IMAGE,
         std::make_unique<download::DeferredClientWrapper>(
-            download::DownloadClient::PLUGIN_VM_IMAGE,
             base::BindOnce(&CreatePluginVmImageDownloadClient), key)));
   }
 #endif
@@ -155,7 +153,7 @@ std::unique_ptr<KeyedService> DownloadServiceFactory::BuildServiceInstanceFor(
     auto blob_context_getter_factory =
         std::make_unique<DownloadBlobContextGetterFactory>(key);
     scoped_refptr<base::SingleThreadTaskRunner> io_task_runner =
-        base::CreateSingleThreadTaskRunner({content::BrowserThread::IO});
+        content::GetIOThreadTaskRunner({});
     scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory =
         SystemNetworkContextManager::GetInstance()->GetSharedURLLoaderFactory();
 
@@ -171,8 +169,8 @@ std::unique_ptr<KeyedService> DownloadServiceFactory::BuildServiceInstanceFor(
           key->GetPath().Append(chrome::kDownloadServiceStorageDirname);
     }
     scoped_refptr<base::SequencedTaskRunner> background_task_runner =
-        base::CreateSequencedTaskRunner({base::ThreadPool(), base::MayBlock(),
-                                         base::TaskPriority::BEST_EFFORT});
+        base::ThreadPool::CreateSequencedTaskRunner(
+            {base::MayBlock(), base::TaskPriority::BEST_EFFORT});
 
     std::unique_ptr<download::TaskScheduler> task_scheduler;
 #if defined(OS_ANDROID)

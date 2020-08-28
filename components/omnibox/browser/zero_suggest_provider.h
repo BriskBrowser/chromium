@@ -13,13 +13,13 @@
 #include <string>
 
 #include "base/compiler_specific.h"
-#include "base/macros.h"
 #include "components/history/core/browser/history_types.h"
 #include "components/omnibox/browser/base_search_provider.h"
 #include "components/omnibox/browser/search_provider.h"
 #include "third_party/metrics_proto/omnibox_event.pb.h"
 
 class AutocompleteProviderListener;
+class PrefRegistrySimple;
 
 namespace base {
 class Value;
@@ -29,9 +29,6 @@ namespace network {
 class SimpleURLLoader;
 }
 
-namespace user_prefs {
-class PrefRegistrySyncable;
-}
 
 // Autocomplete provider for searches based on the current URL.
 //
@@ -57,7 +54,7 @@ class ZeroSuggestProvider : public BaseSearchProvider {
                                      AutocompleteProviderListener* listener);
 
   // Registers a preference used to cache zero suggest results.
-  static void RegisterProfilePrefs(user_prefs::PrefRegistrySyncable* registry);
+  static void RegisterProfilePrefs(PrefRegistrySimple* registry);
 
   // AutocompleteProvider:
   void Start(const AutocompleteInput& input, bool minimal_changes) override;
@@ -69,21 +66,38 @@ class ZeroSuggestProvider : public BaseSearchProvider {
   // Sets |field_trial_triggered_| to false.
   void ResetSession() override;
 
-  // Calling |Start()| will reset the page classification. This is mainly
-  // intended for unit testing TypeOfResultToRun().
-  void SetPageClassificationForTesting(
-      metrics::OmniboxEventProto::PageClassification classification) {
-    current_page_classification_ = classification;
+  // Returns the list of experiment stats corresponding to the latest |results_|
+  // to be logged to SearchboxStats as part of a GWS experiment, if any.
+  const SearchSuggestionParser::ExperimentStats& experiment_stats() const {
+    return results_.experiment_stats;
+  }
+
+  // Returns the map of suggestion group IDs to headers corresponding to the
+  // latest |results_|.
+  const SearchSuggestionParser::HeadersMap& headers_map() const {
+    return results_.headers_map;
+  }
+
+  // Returns the hidden group IDs corresponding to the latest |results_|.
+  const std::vector<int> hidden_group_ids() const {
+    return results_.hidden_group_ids;
   }
 
  private:
+  FRIEND_TEST_ALL_PREFIXES(ZeroSuggestProviderTest,
+                           AllowZeroSuggestSuggestions);
   FRIEND_TEST_ALL_PREFIXES(ZeroSuggestProviderTest, TypeOfResultToRun);
+  FRIEND_TEST_ALL_PREFIXES(ZeroSuggestProviderTest,
+                           TypeOfResultToRunForContextualWeb);
   FRIEND_TEST_ALL_PREFIXES(ZeroSuggestProviderTest,
                            TestStartWillStopForSomeInput);
   ZeroSuggestProvider(AutocompleteProviderClient* client,
                       AutocompleteProviderListener* listener);
 
   ~ZeroSuggestProvider() override;
+
+  ZeroSuggestProvider(const ZeroSuggestProvider&) = delete;
+  ZeroSuggestProvider& operator=(const ZeroSuggestProvider&) = delete;
 
   // ZeroSuggestProvider is processing one of the following type of results
   // at any time.
@@ -168,8 +182,12 @@ class ZeroSuggestProvider : public BaseSearchProvider {
   // context.
   // Logs UMA metrics. Should be called exactly once, on Start(), otherwise the
   // meaning of the data logged would change.
-  ResultType TypeOfResultToRun(const GURL& current_url,
-                               const GURL& suggest_url);
+  //
+  // This method is static for testability and to avoid depending on the
+  // provider state.
+  static ResultType TypeOfResultToRun(AutocompleteProviderClient* client,
+                                      const AutocompleteInput& input,
+                                      const GURL& suggest_url);
 
   AutocompleteProviderListener* listener_;
 
@@ -197,8 +215,7 @@ class ZeroSuggestProvider : public BaseSearchProvider {
   // Loader used to retrieve results.
   std::unique_ptr<network::SimpleURLLoader> loader_;
 
-  // The verbatim match for the current text, whether it's a URL or search query
-  // (which can occur for Query in Omnibox / Query Refinements).
+  // The verbatim match for the current text, which is always a URL.
   AutocompleteMatch current_text_match_;
 
   // Contains suggest and navigation results as well as relevance parsed from
@@ -209,8 +226,6 @@ class ZeroSuggestProvider : public BaseSearchProvider {
 
   // For callbacks that may be run after destruction.
   base::WeakPtrFactory<ZeroSuggestProvider> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(ZeroSuggestProvider);
 };
 
 #endif  // COMPONENTS_OMNIBOX_BROWSER_ZERO_SUGGEST_PROVIDER_H_

@@ -61,7 +61,7 @@ class LayoutTreeBuilder {
   LayoutTreeBuilder(NodeType& node,
                     Node::AttachContext& context,
                     const ComputedStyle* style)
-      : node_(node), context_(context), style_(style) {
+      : node_(&node), context_(context), style_(style) {
     DCHECK(!node.GetLayoutObject());
     DCHECK(node.GetDocument().InStyleRecalc());
     DCHECK(node.InActiveDocument());
@@ -87,9 +87,9 @@ class LayoutTreeBuilder {
     return next;
   }
 
-  Member<NodeType> node_;
+  NodeType* node_;
   Node::AttachContext& context_;
-  const ComputedStyle* style_;
+  scoped_refptr<const ComputedStyle> style_;
 };
 
 class LayoutTreeBuilderForElement : public LayoutTreeBuilder<Element> {

@@ -237,10 +237,11 @@ class ContextSupportStub : public ContextSupport {
     return false;
   }
   bool HasGrContextSupport() const override { return false; }
-  void SetGrContext(GrContext* gr) override {}
+  void SetGrContext(GrDirectContext* gr) override {}
   void WillCallGLFromSkia() override {}
   void DidCallGLFromSkia() override {}
   void SetDisplayTransform(gfx::OverlayTransform transform) override {}
+  void SetFrameRate(float frame_rate) override {}
 
  private:
   std::unique_ptr<char[]> mapped_transfer_cache_entry_;
@@ -260,7 +261,7 @@ class RasterImplementationGLESTest : public testing::Test {
 
   void SetUp() override {
     gl_ = std::make_unique<RasterMockGLES2Interface>();
-    ri_ = std::make_unique<RasterImplementationGLES>(gl_.get());
+    ri_ = std::make_unique<RasterImplementationGLES>(gl_.get(), &support_);
   }
 
   void TearDown() override {}

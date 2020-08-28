@@ -22,7 +22,9 @@ class MockAnimationTimeline : public AnimationTimeline {
  public:
   MockAnimationTimeline(Document* document) : AnimationTimeline(document) {}
 
+  MOCK_METHOD0(Phase, TimelinePhase());
   MOCK_CONST_METHOD0(IsActive, bool());
+  MOCK_METHOD0(ZeroTimeInSeconds, double());
   MOCK_METHOD0(InitialStartTimeForAnimations,
                base::Optional<base::TimeDelta>());
   MOCK_METHOD0(NeedsAnimationTimingUpdate, bool());
@@ -31,13 +33,14 @@ class MockAnimationTimeline : public AnimationTimeline {
   MOCK_METHOD1(ServiceAnimations, void(TimingUpdateReason));
   MOCK_CONST_METHOD0(AnimationsNeedingUpdateCount, wtf_size_t());
   MOCK_METHOD0(ScheduleNextService, void());
+  MOCK_METHOD0(EnsureCompositorTimeline, CompositorAnimationTimeline*());
 
-  void Trace(blink::Visitor* visitor) override {
+  void Trace(Visitor* visitor) const override {
     AnimationTimeline::Trace(visitor);
   }
 
  protected:
-  MOCK_METHOD0(CurrentTimeInternal, base::Optional<base::TimeDelta>());
+  MOCK_METHOD0(CurrentPhaseAndTime, PhaseAndTime());
 };
 
 class DocumentAnimationsTest : public RenderingTest {
@@ -59,8 +62,7 @@ class DocumentAnimationsTest : public RenderingTest {
   }
 
   void UpdateAllLifecyclePhasesForTest() {
-    document->View()->UpdateAllLifecyclePhases(
-        DocumentLifecycle::LifecycleUpdateReason::kTest);
+    document->View()->UpdateAllLifecyclePhases(DocumentUpdateReason::kTest);
     document->View()->RunPostLifecycleSteps();
   }
 

@@ -9,12 +9,14 @@
 
 #include "base/values.h"
 #include "chrome/browser/extensions/active_tab_permission_granter.h"
+#include "chrome/browser/extensions/extension_tab_util.h"
+#include "chrome/browser/extensions/tab_helper.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/extensions/command.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/media_keys_listener_manager.h"
+#include "content/public/browser/web_contents.h"
 #include "extensions/browser/event_router.h"
-#include "extensions/browser/notification_types.h"
 #include "extensions/common/extension_set.h"
 #include "extensions/common/manifest_constants.h"
 
@@ -39,14 +41,7 @@ ExtensionKeybindingRegistry::ExtensionKeybindingRegistry(
       delegate_(delegate),
       shortcut_handling_suspended_(false) {
   extension_registry_observer_.Add(ExtensionRegistry::Get(browser_context_));
-
-  Profile* profile = Profile::FromBrowserContext(browser_context_);
-  registrar_.Add(this,
-                 extensions::NOTIFICATION_EXTENSION_COMMAND_ADDED,
-                 content::Source<Profile>(profile->GetOriginalProfile()));
-  registrar_.Add(this,
-                 extensions::NOTIFICATION_EXTENSION_COMMAND_REMOVED,
-                 content::Source<Profile>(profile->GetOriginalProfile()));
+  command_service_observer_.Add(CommandService::Get(browser_context_));
   media_keys_listener_ = ui::MediaKeysListener::Create(
       this, ui::MediaKeysListener::Scope::kFocused);
 }
@@ -128,7 +123,8 @@ void ExtensionKeybindingRegistry::Init() {
 bool ExtensionKeybindingRegistry::ShouldIgnoreCommand(
     const std::string& command) const {
   return command == manifest_values::kPageActionCommandEvent ||
-         command == manifest_values::kBrowserActionCommandEvent;
+         command == manifest_values::kBrowserActionCommandEvent ||
+         command == manifest_values::kActionCommandEvent;
 }
 
 bool ExtensionKeybindingRegistry::NotifyEventTargets(
@@ -144,17 +140,45 @@ void ExtensionKeybindingRegistry::CommandExecuted(
   if (!extension)
     return;
 
-  // Grant before sending the event so that the permission is granted before
-  // the extension acts on the command. NOTE: The Global Commands handler does
-  // not set the delegate as it deals only with named commands (not page/browser
-  // actions that are associated with the current page directly).
-  ActiveTabPermissionGranter* granter =
-      delegate_ ? delegate_->GetActiveTabPermissionGranter() : NULL;
-  if (granter)
-    granter->GrantIfRequested(extension);
-
   std::unique_ptr<base::ListValue> args(new base::ListValue());
   args->AppendString(command);
+
+  std::unique_ptr<base::Value> tab_value;
+  if (delegate_) {
+    content::WebContents* web_contents =
+        delegate_->GetWebContentsForExtension();
+    // Grant before sending the event so that the permission is granted before
+    // the extension acts on the command. NOTE: The Global Commands handler does
+    // not set the delegate as it deals only with named commands (not
+    // page/browser actions that are associated with the current page directly).
+    ActiveTabPermissionGranter* granter =
+        web_contents ? extensions::TabHelper::FromWebContents(web_contents)
+                           ->active_tab_permission_granter()
+                     : nullptr;
+    if (granter) {
+      granter->GrantIfRequested(extension);
+    }
+
+    if (web_contents) {
+      // The action APIs (browserAction, pageAction, action) are only available
+      // to blessed extension contexts. As such, we deterministically know that
+      // the right context type here is blessed.
+      constexpr Feature::Context context_type =
+          Feature::BLESSED_EXTENSION_CONTEXT;
+      ExtensionTabUtil::ScrubTabBehavior scrub_tab_behavior =
+          ExtensionTabUtil::GetScrubTabBehavior(extension, context_type,
+                                                web_contents);
+      tab_value = ExtensionTabUtil::CreateTabObject(
+                      web_contents, scrub_tab_behavior, extension)
+                      ->ToValue();
+    }
+  }
+
+  if (!tab_value) {
+    // No currently-active tab. Push a null value.
+    tab_value = std::make_unique<base::Value>();
+  }
+  args->Append(std::move(tab_value));
 
   auto event =
       std::make_unique<Event>(events::COMMANDS_ON_COMMAND, kOnCommandEventName,
@@ -241,43 +265,44 @@ void ExtensionKeybindingRegistry::OnExtensionUnloaded(
     RemoveExtensionKeybinding(extension, std::string());
 }
 
-void ExtensionKeybindingRegistry::Observe(
-    int type,
-    const content::NotificationSource& source,
-    const content::NotificationDetails& details) {
-  switch (type) {
-    case extensions::NOTIFICATION_EXTENSION_COMMAND_ADDED:
-    case extensions::NOTIFICATION_EXTENSION_COMMAND_REMOVED: {
-      ExtensionCommandRemovedDetails* payload =
-          content::Details<ExtensionCommandRemovedDetails>(details).ptr();
+void ExtensionKeybindingRegistry::OnExtensionCommandAdded(
+    const std::string& extension_id,
+    const Command& command) {
+  const Extension* extension = ExtensionRegistry::Get(browser_context_)
+                                   ->enabled_extensions()
+                                   .GetByID(extension_id);
+  // During install and uninstall the extension won't be found. We'll catch
+  // those events above, with the OnExtension[Unloaded|Loaded], so we ignore
+  // this event.
+  if (!extension || !ExtensionMatchesFilter(extension))
+    return;
 
-      const Extension* extension = ExtensionRegistry::Get(browser_context_)
-                                       ->enabled_extensions()
-                                       .GetByID(payload->extension_id);
-      // During install and uninstall the extension won't be found. We'll catch
-      // those events above, with the LOADED/UNLOADED, so we ignore this event.
-      if (!extension)
-        return;
+  // Component extensions trigger OnExtensionLoaded() for extension
+  // installs as well as loads. This can cause adding of multiple key
+  // targets.
+  if (extension->location() == Manifest::COMPONENT)
+    return;
 
-      if (ExtensionMatchesFilter(extension)) {
-        if (type == extensions::NOTIFICATION_EXTENSION_COMMAND_ADDED) {
-          // Component extensions triggers OnExtensionLoaded for extension
-          // installs as well as loads. This can cause adding of multiple key
-          // targets.
-          if (extension->location() == Manifest::COMPONENT)
-            return;
+  AddExtensionKeybindings(extension, command.command_name());
+}
 
-          AddExtensionKeybindings(extension, payload->command_name);
-        } else {
-          RemoveExtensionKeybinding(extension, payload->command_name);
-        }
-      }
-      break;
-    }
-    default:
-      NOTREACHED();
-      break;
-  }
+void ExtensionKeybindingRegistry::OnExtensionCommandRemoved(
+    const std::string& extension_id,
+    const Command& command) {
+  const Extension* extension = ExtensionRegistry::Get(browser_context_)
+                                   ->enabled_extensions()
+                                   .GetByID(extension_id);
+  // During install and uninstall the extension won't be found. We'll catch
+  // those events above, with the OnExtension[Unloaded|Loaded], so we ignore
+  // this event.
+  if (!extension || !ExtensionMatchesFilter(extension))
+    return;
+
+  RemoveExtensionKeybinding(extension, command.command_name());
+}
+
+void ExtensionKeybindingRegistry::OnCommandServiceDestroying() {
+  command_service_observer_.RemoveAll();
 }
 
 void ExtensionKeybindingRegistry::OnMediaKeysAccelerator(

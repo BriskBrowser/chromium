@@ -18,11 +18,14 @@ import android.widget.FrameLayout;
 import androidx.annotation.IntDef;
 import androidx.annotation.VisibleForTesting;
 
+import org.chromium.base.Callback;
 import org.chromium.base.MathUtils;
 import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.base.metrics.RecordUserAction;
+import org.chromium.base.supplier.ObservableSupplier;
 import org.chromium.chrome.R;
-import org.chromium.chrome.browser.ChromeFeatureList;
+import org.chromium.chrome.browser.browser_controls.BrowserControlsStateProvider;
+import org.chromium.chrome.browser.browser_controls.BrowserControlsUtils;
 import org.chromium.chrome.browser.compositor.LayerTitleCache;
 import org.chromium.chrome.browser.compositor.animation.CompositorAnimator;
 import org.chromium.chrome.browser.compositor.animation.FloatProperty;
@@ -41,14 +44,14 @@ import org.chromium.chrome.browser.compositor.layouts.phone.stack.Stack;
 import org.chromium.chrome.browser.compositor.layouts.phone.stack.StackTab;
 import org.chromium.chrome.browser.compositor.scene_layer.SceneLayer;
 import org.chromium.chrome.browser.compositor.scene_layer.TabListSceneLayer;
-import org.chromium.chrome.browser.flags.FeatureUtilities;
-import org.chromium.chrome.browser.fullscreen.ChromeFullscreenManager;
-import org.chromium.chrome.browser.partnercustomizations.HomepageManager;
+import org.chromium.chrome.browser.flags.ChromeFeatureList;
+import org.chromium.chrome.browser.homepage.HomepageManager;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tabmodel.TabList;
 import org.chromium.chrome.browser.tabmodel.TabModelSelector;
 import org.chromium.chrome.browser.tabmodel.TabModelSelectorTabModelObserver;
 import org.chromium.chrome.browser.tabmodel.TabModelUtils;
+import org.chromium.chrome.browser.toolbar.bottom.BottomToolbarConfiguration;
 import org.chromium.ui.UiUtils;
 import org.chromium.ui.base.LocalizationUtils;
 import org.chromium.ui.resources.ResourceManager;
@@ -233,6 +236,10 @@ public abstract class StackLayoutBase extends Layout {
     private final ArrayList<Pair<CompositorAnimator, FloatProperty>> mLayoutAnimations =
             new ArrayList<>();
 
+    private final ObservableSupplier<BrowserControlsStateProvider> mBrowserControlsSupplier;
+    private final BrowserControlsStateProvider.Observer mBrowserControlsObserver;
+    private Callback<BrowserControlsStateProvider> mBrowserControlsSupplierObserver;
+
     private class StackLayoutGestureHandler implements GestureHandler {
         @Override
         public void onDown(float x, float y, boolean fromMouse, int buttons) {
@@ -368,12 +375,17 @@ public abstract class StackLayoutBase extends Layout {
     }
 
     /**
-     * @param context     The current Android's context.
-     * @param updateHost  The {@link LayoutUpdateHost} view for this layout.
-     * @param renderHost  The {@link LayoutRenderHost} view for this layout.
+     * @param context                              The current Android's context.
+     * @param updateHost                           The {@link LayoutUpdateHost} view for this
+     *                                             layout.
+     * @param renderHost                           The {@link LayoutRenderHost} view for this
+     *                                             layout.
+     * @param browserControlsStateProviderSupplier An {@link ObservableSupplier} for the
+     *                                             {@link BrowserControlsStateProvider}.
      */
-    public StackLayoutBase(
-            Context context, LayoutUpdateHost updateHost, LayoutRenderHost renderHost) {
+    public StackLayoutBase(Context context, LayoutUpdateHost updateHost,
+            LayoutRenderHost renderHost,
+            ObservableSupplier<BrowserControlsStateProvider> browserControlsStateProviderSupplier) {
         super(context, updateHost, renderHost);
 
         mGestureHandler = new StackLayoutGestureHandler();
@@ -387,6 +399,34 @@ public abstract class StackLayoutBase extends Layout {
         mViewContainer = new FrameLayout(getContext());
         mSceneLayer = new TabListSceneLayer();
         mDpToPx = context.getResources().getDisplayMetrics().density;
+        mBrowserControlsSupplier = browserControlsStateProviderSupplier;
+        mBrowserControlsObserver = new BrowserControlsStateProvider.Observer() {
+            @Override
+            public void onControlsOffsetChanged(int topOffset, int topControlsMinHeightOffset,
+                    int bottomOffset, int bottomControlsMinHeightOffset, boolean needsAnimate) {
+                if (!isActive()) return;
+
+                notifySizeChanged(mWidth, mHeight, mOrientation);
+            }
+        };
+
+        // TODO(https://crbug.com/1084528): Replace with OneShotSupplier when it is available.
+        mBrowserControlsSupplierObserver = (browserControlsStateProvider)
+                -> browserControlsStateProvider.addObserver(mBrowserControlsObserver);
+        mBrowserControlsSupplier.addObserver(mBrowserControlsSupplierObserver);
+    }
+
+    @Override
+    public void destroy() {
+        if (mBrowserControlsSupplier != null) {
+            mBrowserControlsSupplier.removeObserver(mBrowserControlsSupplierObserver);
+
+            if (mBrowserControlsSupplier.get() != null) {
+                mBrowserControlsSupplier.get().removeObserver(mBrowserControlsObserver);
+            }
+        }
+
+        super.destroy();
     }
 
     /**
@@ -609,7 +649,7 @@ public abstract class StackLayoutBase extends Layout {
 
     @Override
     public void attachViews(ViewGroup container) {
-        if (FeatureUtilities.isBottomToolbarEnabled()) {
+        if (BottomToolbarConfiguration.isBottomToolbarEnabled()) {
             // In practice, the "container view" is used for animation. When Duet is enabled, the
             // container is placed behind the bottom toolbar since it is persistent.
             ViewGroup compositorViewHolder = container.findViewById(R.id.compositor_view_holder);
@@ -915,6 +955,16 @@ public abstract class StackLayoutBase extends Layout {
     }
 
     @Override
+    public void doneShowing() {
+        super.doneShowing();
+
+        if (mBrowserControlsSupplier.get() != null) {
+            mBrowserControlsSupplier.get().addObserver(mBrowserControlsObserver);
+            notifySizeChanged(mWidth, mHeight, mOrientation);
+        }
+    }
+
+    @Override
     public void notifySizeChanged(float width, float height, @Orientation int orientation) {
         mWidth = width;
         mHeight = height;
@@ -1006,7 +1056,7 @@ public abstract class StackLayoutBase extends Layout {
         protected float mHeight;
         PortraitViewport() {
             mWidth = StackLayoutBase.this.getWidth();
-            mHeight = StackLayoutBase.this.getHeightMinusBrowserControls();
+            mHeight = StackLayoutBase.this.getHeightMinusContentOffsetsDp();
         }
 
         float getClampedRenderedScrollOffset() {
@@ -1095,14 +1145,14 @@ public abstract class StackLayoutBase extends Layout {
         }
 
         float getTopHeightOffset() {
-            return getTopBrowserControlsHeight() * mStackOffsetYPercent;
+            return getTopContentOffsetDp() * mStackOffsetYPercent;
         }
     }
 
     class LandscapeViewport extends PortraitViewport {
         LandscapeViewport() {
             // This is purposefully inverted.
-            mWidth = StackLayoutBase.this.getHeightMinusBrowserControls();
+            mWidth = StackLayoutBase.this.getHeightMinusContentOffsetsDp();
             mHeight = StackLayoutBase.this.getWidth();
         }
 
@@ -1172,6 +1222,30 @@ public abstract class StackLayoutBase extends Layout {
             if (isHorizontalTabSwitcherFlagEnabled()) return StackLayoutBase.this.getHeight();
             return Math.round(mWidth - getInnerMargin());
         }
+    }
+
+    /**
+     * @return The height of the drawing area minus the top and bottom content offsets in dp.
+     */
+    public float getHeightMinusContentOffsetsDp() {
+        return getHeight() - (getTopContentOffsetDp() + getBottomContentOffsetDp());
+    }
+
+    /**
+     * @return The offset of the content from the top of the screen in dp.
+     */
+    public float getTopContentOffsetDp() {
+        final BrowserControlsStateProvider provider = mBrowserControlsSupplier.get();
+        return provider != null ? provider.getContentOffset() / mDpToPx : 0.f;
+    }
+
+    /**
+     * @return The offset of the content from the bottom of the screen in dp.
+     */
+    private float getBottomContentOffsetDp() {
+        final BrowserControlsStateProvider provider = mBrowserControlsSupplier.get();
+        return provider != null ? BrowserControlsUtils.getBottomContentOffset(provider) / mDpToPx
+                                : 0.f;
     }
 
     private PortraitViewport getViewportParameters() {
@@ -1332,7 +1406,7 @@ public abstract class StackLayoutBase extends Layout {
 
         // Update tab snapping
         for (int i = 0; i < tabVisibleCount; i++) {
-            if (mLayoutTabs[i].updateSnap(dt)) needUpdate = true;
+            if (updateSnap(dt, mLayoutTabs[i])) needUpdate = true;
         }
 
         if (needUpdate) requestUpdate();
@@ -1376,7 +1450,7 @@ public abstract class StackLayoutBase extends Layout {
         // status bar when switching to incognito mode.
         if (isHorizontalTabSwitcherFlagEnabled()) return getHeight();
 
-        float distance = isUsingHorizontalLayout() ? getHeightMinusBrowserControls() : getWidth();
+        float distance = isUsingHorizontalLayout() ? getHeightMinusContentOffsetsDp() : getWidth();
         if (mStacks.size() > 2) {
             return distance - getViewportParameters().getInnerMargin();
         }
@@ -1386,6 +1460,10 @@ public abstract class StackLayoutBase extends Layout {
 
     @Override
     public void startHiding(int nextTabId, boolean hintAtTabSelection) {
+        if (mBrowserControlsSupplier.get() != null) {
+            mBrowserControlsSupplier.get().removeObserver(mBrowserControlsObserver);
+        }
+
         super.startHiding(nextTabId, hintAtTabSelection);
 
         // Reset mIsActiveLayout here instead of in doneHiding() so if a user hits the tab switcher
@@ -1579,14 +1657,14 @@ public abstract class StackLayoutBase extends Layout {
     @Override
     protected void updateSceneLayer(RectF viewport, RectF contentViewport,
             LayerTitleCache layerTitleCache, TabContentManager tabContentManager,
-            ResourceManager resourceManager, ChromeFullscreenManager fullscreenManager) {
+            ResourceManager resourceManager, BrowserControlsStateProvider browserControls) {
         super.updateSceneLayer(viewport, contentViewport, layerTitleCache, tabContentManager,
-                resourceManager, fullscreenManager);
+                resourceManager, browserControls);
         assert mSceneLayer != null;
 
         mSceneLayer.pushLayers(getContext(), viewport, contentViewport, this, layerTitleCache,
-                tabContentManager, resourceManager, fullscreenManager,
-                SceneLayer.INVALID_RESOURCE_ID, 0, 0);
+                tabContentManager, resourceManager, browserControls, SceneLayer.INVALID_RESOURCE_ID,
+                0, 0);
     }
 
     /**

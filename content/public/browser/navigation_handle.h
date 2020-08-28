@@ -9,18 +9,21 @@
 #include <string>
 
 #include "content/common/content_export.h"
+#include "content/public/browser/navigation_handle_timing.h"
 #include "content/public/browser/navigation_throttle.h"
 #include "content/public/browser/reload_type.h"
 #include "content/public/browser/restore_type.h"
+#include "content/public/common/impression.h"
 #include "content/public/common/referrer.h"
-#include "content/public/common/transferrable_url_loader.mojom.h"
 #include "net/base/auth.h"
 #include "net/base/ip_endpoint.h"
+#include "net/base/isolation_info.h"
 #include "net/base/net_errors.h"
-#include "net/base/network_isolation_key.h"
 #include "net/dns/public/resolve_error_info.h"
 #include "net/http/http_response_info.h"
 #include "services/network/public/cpp/resource_request_body.h"
+#include "third_party/blink/public/mojom/loader/referrer.mojom.h"
+#include "third_party/blink/public/mojom/loader/transferrable_url_loader.mojom.h"
 #include "ui/base/page_transition_types.h"
 
 class GURL;
@@ -123,6 +126,9 @@ class CONTENT_EXPORT NavigationHandle {
   // set if unknown.
   virtual base::TimeTicks NavigationInputStart() = 0;
 
+  // The timing information of loading for the navigation.
+  virtual const NavigationHandleTiming& GetNavigationHandleTiming() = 0;
+
   // Whether or not the navigation was started within a context menu.
   virtual bool WasStartedFromContextMenu() = 0;
 
@@ -131,9 +137,7 @@ class CONTENT_EXPORT NavigationHandle {
   virtual const GURL& GetSearchableFormURL() = 0;
   virtual const std::string& GetSearchableFormEncoding() = 0;
 
-  // Returns the reload type for this navigation. Note that renderer-initiated
-  // reloads (via location.reload()) won't count as a reload and do return
-  // ReloadType::NONE.
+  // Returns the reload type for this navigation.
   virtual ReloadType GetReloadType() = 0;
 
   // Returns the restore type for this navigation. RestoreType::NONE is returned
@@ -154,6 +158,12 @@ class CONTENT_EXPORT NavigationHandle {
 
   // Returns a sanitized version of the referrer for this request.
   virtual const blink::mojom::Referrer& GetReferrer() = 0;
+
+  // Sets the referrer. The referrer may only be set during start and redirect
+  // phases. If the referer is set in navigation start, it is reset during the
+  // redirect. In other words, if you need to set a referer that applies to
+  // redirects, then this must be called during DidRedirectNavigation().
+  virtual void SetReferrer(blink::mojom::ReferrerPtr referrer) = 0;
 
   // Whether the navigation was initiated by a user gesture. Note that this
   // will return false for browser-initiated navigations.
@@ -218,10 +228,19 @@ class CONTENT_EXPORT NavigationHandle {
   // errors that leave the user on the previous page.
   virtual bool HasCommitted() = 0;
 
-  // Whether the navigation resulted in an error page.
+  // Whether the navigation committed an error page.
+  //
+  // DO NOT use this before the navigation commit. It would always return false.
+  // You can use it from WebContentsObserver::DidFinishNavigation().
+  //
   // Note that if an error page reloads, this will return true even though
   // GetNetErrorCode will be net::OK.
   virtual bool IsErrorPage() = 0;
+
+  // Indicates whether navigation committed a custom error page (i.e. an error
+  // page that provides its own HTML.) IsErrorPage is always true if this is
+  // true, but the inverse doesn't hold.
+  virtual bool IsCustomErrorPage() = 0;
 
   // Not all committed subframe navigations (i.e., !IsInMainFrame &&
   // HasCommitted) end up causing a change of the current NavigationEntry. For
@@ -239,7 +258,9 @@ class CONTENT_EXPORT NavigationHandle {
   virtual bool DidReplaceEntry() = 0;
 
   // Returns true if the browser history should be updated. Otherwise only
-  // the session history will be updated. E.g., on unreachable urls.
+  // the session history will be updated. E.g., on unreachable urls or other
+  // navigations that the users may not think of as navigations (such as
+  // happens with 'history.replaceState()').
   virtual bool ShouldUpdateHistory() = 0;
 
   // The previous main frame URL that the user was on. This may be empty if
@@ -262,6 +283,15 @@ class CONTENT_EXPORT NavigationHandle {
   // the headers will be applied to the redirected request.
   virtual void SetRequestHeader(const std::string& header_name,
                                 const std::string& header_value) = 0;
+
+  // Set a request's header that is exempt from CORS checks. This is only
+  // honored if the NetworkContext was configured to allow any cors exempt
+  // header (see
+  // |NetworkContext::mojom::allow_any_cors_exempt_header_for_browser|) or
+  // if |header_name| is specified in
+  // |NetworkContextParams::cors_exempt_header_list|.
+  virtual void SetCorsExemptRequestHeader(const std::string& header_name,
+                                          const std::string& header_value) = 0;
 
   // Returns the response headers for the request, or nullptr if there aren't
   // any response headers or they have not been received yet. The response
@@ -289,11 +319,11 @@ class CONTENT_EXPORT NavigationHandle {
   // Returns host resolution error info associated with the request.
   virtual net::ResolveErrorInfo GetResolveErrorInfo() = 0;
 
-  // Gets the NetworkIsolationKey associated with the navigation. Updated as
+  // Gets the net::IsolationInfo associated with the navigation. Updated as
   // redirects are followed. When one of the origins used to construct the
-  // NetworkIsolationKey is opaque, the returned NetworkIsolationKey will not be
-  // consistent between calls.
-  virtual net::NetworkIsolationKey GetNetworkIsolationKey() = 0;
+  // IsolationInfo is opaque, the returned IsolationInfo will not be consistent
+  // between calls.
+  virtual net::IsolationInfo GetIsolationInfo() = 0;
 
   // Returns the ID of the URLRequest associated with this navigation. Can only
   // be called from NavigationThrottle::WillProcessResponse and
@@ -332,6 +362,17 @@ class CONTENT_EXPORT NavigationHandle {
   // initiated from a link that had that attribute set.
   virtual const std::string& GetHrefTranslate() = 0;
 
+  // Returns, if available, the impression associated with the link clicked to
+  // initiate this navigation. The impression is available for the entire
+  // lifetime of the navigation.
+  virtual const base::Optional<Impression>& GetImpression() = 0;
+
+  // Returns the routing id associated with the frame that initiated the
+  // navigation. This can contain a null routing id if the navigation was not
+  // associated with a frame, or may return a valid routing id to a frame that
+  // no longer exists because it was deleted before the navigation began.
+  virtual const GlobalFrameRoutingId& GetInitiatorRoutingId() = 0;
+
   // Returns, if available, the origin of the document that has initiated the
   // navigation for this NavigationHandle.
   virtual const base::Optional<url::Origin>& GetInitiatorOrigin() = 0;
@@ -355,7 +396,18 @@ class CONTENT_EXPORT NavigationHandle {
   virtual int GetNavigationEntryOffset() = 0;
 
   virtual void RegisterSubresourceOverride(
-      mojom::TransferrableURLLoaderPtr transferrable_loader) = 0;
+      blink::mojom::TransferrableURLLoaderPtr transferrable_loader) = 0;
+
+  // Force enables the given origin trials for this navigation. This needs to
+  // be called from WebContents::ReadyToCommitNavigation or earlier to have an
+  // effect.
+  virtual void ForceEnableOriginTrials(
+      const std::vector<std::string>& trials) = 0;
+
+  // Store whether or not we're overriding the user agent. This may only be
+  // called from DidStartNavigation().
+  virtual void SetIsOverridingUserAgent(bool override_ua) = 0;
+  virtual bool GetIsOverridingUserAgent() = 0;
 
   // Testing methods ----------------------------------------------------------
   //

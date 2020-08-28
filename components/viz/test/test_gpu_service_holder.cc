@@ -24,15 +24,18 @@
 #include "gpu/config/gpu_info_collector.h"
 #include "gpu/config/gpu_preferences.h"
 #include "gpu/config/gpu_util.h"
-#include "gpu/ipc/gpu_in_process_thread_service.h"
 #include "gpu/ipc/service/gpu_watchdog_thread.h"
-#include "mojo/public/cpp/bindings/strong_binding.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "ui/base/ui_base_features.h"
 #include "ui/gl/init/gl_factory.h"
 
 #if BUILDFLAG(ENABLE_VULKAN)
 #include "gpu/vulkan/init/vulkan_factory.h"
 #include "gpu/vulkan/vulkan_implementation.h"
+#endif
+
+#if defined(USE_OZONE)
+#include "ui/ozone/public/ozone_platform.h"
 #endif
 
 namespace viz {
@@ -142,7 +145,16 @@ void TestGpuServiceHolder::DoNotResetOnTestExit() {
 TestGpuServiceHolder::TestGpuServiceHolder(
     const gpu::GpuPreferences& gpu_preferences)
     : gpu_thread_("GPUMainThread"), io_thread_("GPUIOThread") {
-  CHECK(gpu_thread_.Start());
+  base::Thread::Options gpu_thread_options;
+#if defined(USE_OZONE)
+  if (features::IsUsingOzonePlatform()) {
+    gpu_thread_options.message_pump_type = ui::OzonePlatform::GetInstance()
+                                               ->GetPlatformProperties()
+                                               .message_pump_type_for_gpu;
+  }
+#endif
+
+  CHECK(gpu_thread_.StartWithOptions(gpu_thread_options));
   CHECK(io_thread_.Start());
 
   base::WaitableEvent completion;
@@ -162,6 +174,15 @@ TestGpuServiceHolder::~TestGpuServiceHolder() {
   io_thread_.Stop();
 }
 
+scoped_refptr<gpu::SharedContextState>
+TestGpuServiceHolder::GetSharedContextState() {
+  return gpu_service_->GetContextState();
+}
+
+scoped_refptr<gl::GLShareGroup> TestGpuServiceHolder::GetShareGroup() {
+  return gpu_service_->share_group();
+}
+
 void TestGpuServiceHolder::ScheduleGpuTask(base::OnceClosure callback) {
   DCHECK(gpu_task_sequence_);
   gpu_task_sequence_->ScheduleTask(std::move(callback), {});
@@ -176,15 +197,20 @@ void TestGpuServiceHolder::InitializeOnGpuThread(
 #if BUILDFLAG(ENABLE_VULKAN)
     bool use_swiftshader = gpu_preferences.use_vulkan ==
                            gpu::VulkanImplementationName::kSwiftshader;
+    bool is_non_ozone_x11 = false;
+#if defined(USE_X11)
+    is_non_ozone_x11 = !features::IsUsingOzonePlatform();
+#endif  // defined(USE_X11)
 
-#ifndef USE_X11
-    // TODO(samans): Support Swiftshader on more platforms.
-    // https://crbug.com/963988
-    LOG_IF(ERROR, use_swiftshader)
-        << "Unable to use Vulkan Swiftshader on this platform. Falling back to "
-           "GPU.";
-    use_swiftshader = false;
-#endif
+    if (!is_non_ozone_x11) {
+      // TODO(samans): Support Swiftshader on more platforms.
+      // https://crbug.com/963988
+      LOG_IF(ERROR, use_swiftshader) << "Unable to use Vulkan Swiftshader on "
+                                        "this platform. Falling back to "
+                                        "GPU.";
+      use_swiftshader = false;
+    }
+
     vulkan_implementation_ = gpu::CreateVulkanImplementation(use_swiftshader);
     if (!vulkan_implementation_ ||
         !vulkan_implementation_->InitializeVulkanInstance(
@@ -196,7 +222,7 @@ void TestGpuServiceHolder::InitializeOnGpuThread(
 #endif
   }
 
-  // Always enable gpu and oop raster, regardless of platform and blacklist.
+  // Always enable gpu and oop raster, regardless of platform and blocklist.
   // The latter instructs GpuChannelManager::GetSharedContextState to create a
   // GrContext, which is required by SkiaRenderer as well as OOP-R.
   gpu::GPUInfo gpu_info;
@@ -235,19 +261,15 @@ void TestGpuServiceHolder::InitializeOnGpuThread(
       /*shutdown_event=*/nullptr);
 
   task_executor_ = std::make_unique<gpu::GpuInProcessThreadService>(
-      gpu_thread_.task_runner(), gpu_service_->GetGpuScheduler(),
+      this, gpu_thread_.task_runner(), gpu_service_->GetGpuScheduler(),
       gpu_service_->sync_point_manager(), gpu_service_->mailbox_manager(),
-      gpu_service_->share_group(),
       gpu_service_->gpu_channel_manager()
           ->default_offscreen_surface()
           ->GetFormat(),
       gpu_service_->gpu_feature_info(),
       gpu_service_->gpu_channel_manager()->gpu_preferences(),
       gpu_service_->shared_image_manager(),
-      gpu_service_->gpu_channel_manager()->program_cache(),
-      // Unretained is safe since |gpu_service_| outlives |task_executor_|.
-      base::BindRepeating(&GpuServiceImpl::GetContextState,
-                          base::Unretained(gpu_service_.get())));
+      gpu_service_->gpu_channel_manager()->program_cache());
 
   // TODO(weiliangc): Since SkiaOutputSurface should not depend on command
   // buffer, the |gpu_task_sequence_| should be coming from

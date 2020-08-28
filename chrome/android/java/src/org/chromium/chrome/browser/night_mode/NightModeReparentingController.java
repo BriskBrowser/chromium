@@ -4,25 +4,22 @@
 
 package org.chromium.chrome.browser.night_mode;
 
-import android.util.SparseArray;
-
 import androidx.annotation.NonNull;
 
 import org.chromium.chrome.browser.ActivityTabProvider;
-import org.chromium.chrome.browser.lifecycle.StartStopWithNativeObserver;
+import org.chromium.chrome.browser.app.tab_activity_glue.ReparentingTask;
 import org.chromium.chrome.browser.tab.Tab;
-import org.chromium.chrome.browser.tab.TabLaunchType;
-import org.chromium.chrome.browser.tab_activity_glue.ReparentingTask;
-import org.chromium.chrome.browser.tabmodel.AsyncTabParams;
 import org.chromium.chrome.browser.tabmodel.AsyncTabParamsManager;
+import org.chromium.chrome.browser.tabmodel.TabList;
 import org.chromium.chrome.browser.tabmodel.TabModel;
 import org.chromium.chrome.browser.tabmodel.TabModelSelector;
 import org.chromium.chrome.browser.tabmodel.TabReparentingParams;
 
-// TODO(wylieb): Write unittests for this class.
+import java.util.ArrayList;
+import java.util.List;
+
 /** Controls the reparenting of tabs when the theme is swapped. */
-public class NightModeReparentingController
-        implements StartStopWithNativeObserver, NightModeStateProvider.Observer {
+public class NightModeReparentingController implements NightModeStateProvider.Observer {
     /** Provides data to {@link NightModeReparentingController} facilitate reparenting tabs. */
     public interface Delegate {
         /** The current ActivityTabProvider which is used to get the current Tab. */
@@ -30,63 +27,57 @@ public class NightModeReparentingController
 
         /** Gets a {@link TabModelSelector} which is used to add the tab. */
         TabModelSelector getTabModelSelector();
+
+        /** @return Whether the given Url is an NTP url, exists solely to support unit testing. */
+        boolean isNTPUrl(String url);
     }
 
-    private Delegate mDelegate;
-    private ReparentingTask.Delegate mReparentingDelegate;
+    private final Delegate mDelegate;
+    private final AsyncTabParamsManager mAsyncTabParamsManager;
 
     /** Constructs a {@link NightModeReparentingController} with the given delegate. */
     public NightModeReparentingController(
-            @NonNull Delegate delegate, @NonNull ReparentingTask.Delegate reparentingDelegate) {
+            @NonNull Delegate delegate, AsyncTabParamsManager asyncTabParamsManager) {
         mDelegate = delegate;
-        mReparentingDelegate = reparentingDelegate;
+        mAsyncTabParamsManager = asyncTabParamsManager;
     }
-
-    @Override
-    public void onStartWithNative() {
-        // Note: for now only the current tab is added to the AsyncTabParamsManager when the theme
-        // is changed. In the future these will be added in tab index order and read at reverse
-        // tab index order.
-        final SparseArray<AsyncTabParams> paramsArray = AsyncTabParamsManager.getAsyncTabParams();
-        for (int i = 0; i < paramsArray.size(); i++) {
-            final int tabId = paramsArray.keyAt(i);
-            AsyncTabParams params = paramsArray.get(tabId);
-            if (!(params instanceof TabReparentingParams)) continue;
-            if (params == null) continue;
-
-            final TabReparentingParams reparentingParams = (TabReparentingParams) params;
-            if (!reparentingParams.isFromNightModeReparenting()) continue;
-            if (!reparentingParams.hasTabToReparent()) continue;
-            if (!reparentingParams.hasTabIndex()) continue;
-
-            final ReparentingTask reparentingTask =
-                    ReparentingTask.get(reparentingParams.getTabToReparent());
-            if (reparentingTask == null) continue;
-            reparentingTask.finish(mReparentingDelegate, () -> {
-                mDelegate.getTabModelSelector().getCurrentModel().addTab(
-                        reparentingParams.getTabToReparent(), reparentingParams.getTabIndex(),
-                        TabLaunchType.FROM_REPARENTING);
-                AsyncTabParamsManager.remove(tabId);
-            });
-        }
-    }
-
-    @Override
-    public void onStopWithNative() {}
 
     @Override
     public void onNightModeStateChanged() {
-        // TODO(crbug.com/1031332): Reparent all tabs in the current tab model.
-        Tab tabToDetach = mDelegate.getActivityTabProvider().get();
-        if (tabToDetach == null) return;
-        TabModel currentTabModel = mDelegate.getTabModelSelector().getCurrentModel();
+        // TODO(crbug.com/1065201): Make tab models detachable.
+        TabModelSelector selector = mDelegate.getTabModelSelector();
 
-        TabReparentingParams params = new TabReparentingParams(tabToDetach, null, null);
-        params.setTabIndex(currentTabModel.indexOf(tabToDetach));
-        params.setFromNightModeReparenting(true);
+        // Close tabs pending closure before saving params.
+        selector.getModel(false).commitAllTabClosures();
+        selector.getModel(true).commitAllTabClosures();
 
-        AsyncTabParamsManager.add(tabToDetach.getId(), params);
-        currentTabModel.removeTab(tabToDetach);
-        ReparentingTask.from(tabToDetach).detach();
+        // Aggregate all the tabs.
+        List<Tab> tabs = new ArrayList<>(selector.getTotalTabCount());
+        populateComprehensiveTabsFromModel(selector.getModel(false), tabs);
+        populateComprehensiveTabsFromModel(selector.getModel(true), tabs);
+
+        // Save all the tabs in memory to be retrieved after restart.
+        mDelegate.getTabModelSelector().enterReparentingMode();
+        for (int i = 0; i < tabs.size(); i++) {
+            Tab tab = tabs.get(i);
+
+            // The current tab has already been detached/stored and is waiting for andorid to
+            // recreate the activity.
+            if (mAsyncTabParamsManager.hasParamsForTabId(tab.getId())) continue;
+            // Intentionally skip new tab pages and allow them to reload and restore scroll
+            // state themselves.
+            if (mDelegate.isNTPUrl(tab.getUrlString())) continue;
+
+            TabReparentingParams params = new TabReparentingParams(tab, null);
+            mAsyncTabParamsManager.add(tab.getId(), params);
+            ReparentingTask.from(tab).detach();
+        }
+    }
+
+    static void populateComprehensiveTabsFromModel(TabModel model, List<Tab> outputTabs) {
+        TabList tabList = model.getComprehensiveModel();
+        for (int i = 0; i < tabList.getCount(); i++) {
+            outputTabs.add(tabList.getTabAt(i));
+        }
     }
 }

@@ -21,6 +21,7 @@
 #include "base/strings/string_util.h"
 #include "base/task/post_task.h"
 #include "base/task/task_traits.h"
+#include "base/task/thread_pool.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "build/branding_buildflags.h"
 #include "build/build_config.h"
@@ -39,6 +40,7 @@
 #include "chrome/common/pref_names.h"
 #include "components/prefs/pref_service.h"
 #include "components/safe_browsing/core/common/safe_browsing_prefs.h"
+#include "components/safe_browsing/core/features.h"
 #include "components/safe_browsing/core/proto/csd.pb.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/download_item_utils.h"
@@ -125,8 +127,8 @@ PersistentIncidentState ComputeIncidentState(const Incident& incident) {
 
 // Returns a task runner for blocking tasks in the background.
 scoped_refptr<base::TaskRunner> GetBackgroundTaskRunner() {
-  return base::CreateTaskRunner(
-      {base::ThreadPool(), base::TaskPriority::BEST_EFFORT,
+  return base::ThreadPool::CreateTaskRunner(
+      {base::TaskPriority::BEST_EFFORT,
        base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN, base::MayBlock()});
 }
 
@@ -303,7 +305,7 @@ IncidentReportingService::UploadContext::~UploadContext() {
 bool IncidentReportingService::IsEnabledForProfile(Profile* profile) {
   if (profile->IsOffTheRecord())
     return false;
-  if (!profile->GetPrefs()->GetBoolean(prefs::kSafeBrowsingEnabled))
+  if (!IsSafeBrowsingEnabled(*profile->GetPrefs()))
     return false;
   return IsExtendedReportingEnabled(*profile->GetPrefs());
 }
@@ -382,9 +384,7 @@ IncidentReportingService::IncidentReportingService(
     SafeBrowsingService* safe_browsing_service,
     base::TimeDelta delayed_task_interval,
     const scoped_refptr<base::TaskRunner>& delayed_task_runner)
-    : url_loader_factory_(safe_browsing_service
-                              ? safe_browsing_service->GetURLLoaderFactory()
-                              : nullptr),
+    : url_loader_factory_(nullptr),
       collect_environment_data_fn_(&CollectEnvironmentData),
       environment_collection_task_runner_(GetBackgroundTaskRunner()),
       collation_timer_(FROM_HERE,
@@ -392,6 +392,11 @@ IncidentReportingService::IncidentReportingService(
                        this,
                        &IncidentReportingService::OnCollationTimeout),
       delayed_analysis_callbacks_(delayed_task_interval, delayed_task_runner) {
+  if (base::FeatureList::IsEnabled(kSafeBrowsingRemoveCookies)) {
+    url_loader_factory_ = g_browser_process->shared_url_loader_factory();
+  } else if (safe_browsing_service) {
+    url_loader_factory_ = safe_browsing_service->GetURLLoaderFactory();
+  }
   if (g_browser_process->profile_manager())
     g_browser_process->profile_manager()->AddObserver(this);
 }
@@ -671,7 +676,8 @@ void IncidentReportingService::OnEnvironmentDataCollected(
   environment_collection_pending_ = false;
 
 // Process::Current().CreationTime() is missing on some platforms.
-#if defined(OS_MACOSX) || defined(OS_WIN) || defined(OS_LINUX)
+#if defined(OS_MAC) || defined(OS_WIN) || defined(OS_LINUX) || \
+    defined(OS_CHROMEOS)
   base::TimeDelta uptime =
       first_incident_time_ - base::Process::Current().CreationTime();
   environment_data->mutable_process()->set_uptime_msec(uptime.InMilliseconds());

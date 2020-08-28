@@ -36,11 +36,11 @@ LogoutButtonTray::LogoutButtonTray(Shelf* shelf) : TrayBackgroundView(shelf) {
   DCHECK(shelf);
   Shell::Get()->session_controller()->AddObserver(this);
 
-  auto button = views::MdTextButton::Create(this, base::string16(),
-                                            CONTEXT_LAUNCHER_BUTTON);
+  auto button = std::make_unique<views::MdTextButton>(this, base::string16(),
+                                                      CONTEXT_LAUNCHER_BUTTON);
   button->SetProminent(true);
-  button->SetBgColorOverride(AshColorProvider::Get()->GetBaseLayerColor(
-      AshColorProvider::BaseLayerType::kRed,
+  button->SetBgColorOverride(AshColorProvider::Get()->GetControlsLayerColor(
+      AshColorProvider::ControlsLayerType::kControlBackgroundColorAlert,
       AshColorProvider::AshColorMode::kDark));
 
   button_ = tray_container()->AddChildView(std::move(button));
@@ -56,11 +56,11 @@ void LogoutButtonTray::RegisterProfilePrefs(PrefRegistrySimple* registry) {
   registry->RegisterIntegerPref(prefs::kLogoutDialogDurationMs, 20000);
 }
 
-void LogoutButtonTray::UpdateAfterShelfChange() {
+void LogoutButtonTray::UpdateLayout() {
   // We must first update the button so that its container can lay it out
   // correctly.
   UpdateButtonTextAndImage();
-  tray_container()->UpdateAfterShelfChange();
+  tray_container()->UpdateLayout();
 }
 
 void LogoutButtonTray::UpdateBackground() {
@@ -117,7 +117,7 @@ void LogoutButtonTray::UpdateLogoutDialogDuration() {
   dialog_duration_ = base::TimeDelta::FromMilliseconds(duration_ms);
 }
 
-void LogoutButtonTray::UpdateAfterLoginStatusChange(LoginStatus status) {
+void LogoutButtonTray::UpdateAfterLoginStatusChange() {
   UpdateButtonTextAndImage();
 }
 
@@ -127,6 +127,10 @@ void LogoutButtonTray::HideBubbleWithView(const TrayBubbleView* bubble_view) {}
 
 base::string16 LogoutButtonTray::GetAccessibleNameForTray() {
   return button_->GetText();
+}
+
+void LogoutButtonTray::HandleLocaleChange() {
+  UpdateButtonTextAndImage();
 }
 
 void LogoutButtonTray::UpdateVisibility() {
@@ -147,12 +151,13 @@ void LogoutButtonTray::UpdateButtonTextAndImage() {
   } else {
     button_->SetText(base::string16());
     button_->SetAccessibleName(title);
-    button_->SetImage(views::Button::STATE_NORMAL,
-                      gfx::CreateVectorIcon(
-                          kShelfLogoutIcon,
-                          AshColorProvider::Get()->GetContentLayerColor(
-                              AshColorProvider::ContentLayerType::kIconPrimary,
-                              AshColorProvider::AshColorMode::kDark)));
+    button_->SetImage(
+        views::Button::STATE_NORMAL,
+        gfx::CreateVectorIcon(
+            kShelfLogoutIcon,
+            AshColorProvider::Get()->GetContentLayerColor(
+                AshColorProvider::ContentLayerType::kIconColorPrimary,
+                AshColorProvider::AshColorMode::kDark)));
     button_->SetMinSize(gfx::Size(kTrayItemSize, kTrayItemSize));
   }
   UpdateVisibility();

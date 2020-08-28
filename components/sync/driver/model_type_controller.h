@@ -46,20 +46,18 @@ class ModelTypeController : public DataTypeController {
   std::unique_ptr<DataTypeActivationResponse> ActivateManuallyForNigori();
 
   // DataTypeController implementation.
-  bool ShouldLoadModelBeforeConfigure() const override;
-  void BeforeLoadModels(ModelTypeConfigurer* configurer) override;
   void LoadModels(const ConfigureContext& configure_context,
                   const ModelLoadCallback& model_load_callback) override;
   RegisterWithBackendResult RegisterWithBackend(
       ModelTypeConfigurer* configurer) override;
-  void StartAssociating(StartCallback start_callback) override;
-  void ActivateDataType(ModelTypeConfigurer* configurer) override;
   void DeactivateDataType(ModelTypeConfigurer* configurer) override;
   void Stop(ShutdownReason shutdown_reason, StopCallback callback) override;
   State state() const override;
   void GetAllNodes(AllNodesCallback callback) override;
   void GetStatusCounters(StatusCountersCallback callback) override;
   void RecordMemoryUsageAndCountsHistograms() override;
+
+  ModelTypeControllerDelegate* GetDelegateForTesting(SyncMode sync_mode);
 
  protected:
   // Subclasses that use this constructor must call InitModelTypeController().
@@ -97,9 +95,9 @@ class ModelTypeController : public DataTypeController {
   // Callbacks for use when stopping the datatype (STOPPING), which also
   // includes aborting a start. This is important because STOPPING is a state
   // used to make sure we don't request two starts in parallel to the delegate,
-  // which is hard to support (most notably in ClientTagBasedProcessor). We
-  // use a vector because it's allowed to call Stop() multiple times (i.e. while
-  // STOPPING).
+  // which is hard to support, most notably in ClientTagBasedModelTypeProcessor.
+  // We use a vector because it's allowed to call Stop() multiple times (i.e.
+  // while STOPPING).
   std::vector<StopCallback> model_stop_callbacks_;
   SyncStopMetadataFate model_stop_metadata_fate_;
 

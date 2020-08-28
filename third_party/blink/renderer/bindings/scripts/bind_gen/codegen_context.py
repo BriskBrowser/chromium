@@ -26,6 +26,23 @@ class CodeGenContext(object):
     NON_MAIN_WORLDS = "other"
     ALL_WORLDS = "all"
 
+    # "v8_callback_type" attribute values
+    #
+    # void (*)(const v8::FunctionCallbackInfo<v8::Value>&)
+    V8_FUNCTION_CALLBACK = "v8::FunctionCallback"
+    # void (*)(v8::Local<v8::Name>,
+    #          const v8::PropertyCallbackInfo<v8::Value>&)
+    V8_ACCESSOR_NAME_GETTER_CALLBACK = "v8::AccessorNameGetterCallback"
+    # void (*)(v8::Local<v8::Name>, v8::Local<v8::Value>,
+    #          const v8::PropertyCallbackInfo<void>&)
+    V8_ACCESSOR_NAME_SETTER_CALLBACK = "v8::AccessorNameSetterCallback"
+    # void (*)(v8::Local<v8::Name>, v8::Local<v8::Value>,
+    #          const v8::PropertyCallbackInfo<v8::Value>&)
+    V8_GENERIC_NAMED_PROPERTY_SETTER_CALLBACK = (
+        "v8::GenericNamedPropertySetterCallback")
+    # Others
+    V8_OTHER_CALLBACK = "other callback type"
+
     @classmethod
     def init(cls):
         """Initialize the class.  Must be called exactly once."""
@@ -54,15 +71,31 @@ class CodeGenContext(object):
             "constructor_group": None,
             "dict_member": None,
             "exposed_construct": None,
+            "is_named_constructor": False,
+            "legacy_window_alias": None,
             "operation": None,
             "operation_group": None,
+
+            # Special member-ish definition
+            "indexed_property_getter": None,
+            "indexed_property_setter": None,
+            "named_property_getter": None,
+            "named_property_setter": None,
+            "named_property_deleter": None,
+            "stringifier": None,
 
             # The names of the class being generated and its base class.
             "base_class_name": None,
             "class_name": None,
 
             # Main world or all worlds
+            # Used via [PerWorldBindings] to optimize the code path of the main
+            # world.
             "for_world": cls.ALL_WORLDS,
+
+            # Type of V8 callback function which implements IDL attribute,
+            # IDL operation, etc.
+            "v8_callback_type": cls.V8_FUNCTION_CALLBACK,
         }
 
         # List of computational attribute names
@@ -81,7 +114,7 @@ class CodeGenContext(object):
         )
 
         # Define public readonly properties of this class.
-        for attr in cls._context_attrs.iterkeys():
+        for attr in cls._context_attrs.keys():
 
             def make_get():
                 _attr = cls._internal_attr(attr)
@@ -100,11 +133,11 @@ class CodeGenContext(object):
     def __init__(self, **kwargs):
         assert CodeGenContext._was_initialized
 
-        for arg in kwargs.iterkeys():
+        for arg in kwargs.keys():
             assert arg in self._context_attrs, "Unknown argument: {}".format(
                 arg)
 
-        for attr, default_value in self._context_attrs.iteritems():
+        for attr, default_value in self._context_attrs.items():
             value = kwargs[attr] if attr in kwargs else default_value
             assert (default_value is None
                     or type(value) is type(default_value)), (
@@ -116,13 +149,13 @@ class CodeGenContext(object):
         Returns a copy of this context applying the updates given as the
         arguments.
         """
-        for arg in kwargs.iterkeys():
+        for arg in kwargs.keys():
             assert arg in self._context_attrs, "Unknown argument: {}".format(
                 arg)
 
         new_object = copy.copy(self)
 
-        for attr, new_value in kwargs.iteritems():
+        for attr, new_value in kwargs.items():
             old_value = getattr(self, attr)
             assert old_value is None or type(new_value) is type(old_value), (
                 "Type mismatch at argument: {}".format(attr))
@@ -139,16 +172,16 @@ class CodeGenContext(object):
         """
         bindings = {}
 
-        for attr in self._context_attrs.iterkeys():
+        for attr in self._context_attrs.keys():
             value = getattr(self, attr)
             if value is None:
-                value = NonRenderable()
+                value = NonRenderable(attr)
             bindings[attr] = value
 
         for attr in self._computational_attrs:
             value = getattr(self, attr)
             if value is None:
-                value = NonRenderable()
+                value = NonRenderable(attr)
             bindings[attr.strip("_")] = value
 
         return bindings
@@ -159,8 +192,18 @@ class CodeGenContext(object):
                 or self.namespace)
 
     @property
+    def does_override_idl_return_type(self):
+        # Blink implementation returns in a type different from the IDL type.
+        # Namely, IndexedPropertySetterResult, NamedPropertySetterResult, and
+        # NamedPropertyDeleterResult are returned ignoring the operation's
+        # return type.
+        return (self.indexed_property_setter or self.named_property_setter
+                or self.named_property_deleter)
+
+    @property
     def function_like(self):
-        return (self.callback_function or self.constructor or self.operation)
+        return (self.callback_function or self.constructor or self.operation
+                or self._indexed_or_named_property)
 
     @property
     def idl_definition(self):
@@ -173,7 +216,7 @@ class CodeGenContext(object):
         idl_def = self.member_like or self.idl_definition
         if idl_def and not isinstance(idl_def, web_idl.Union):
             location = idl_def.debug_info.location
-            text = PathManager.relpath_to_project_root(location.filepath)
+            text = location.filepath
             if location.line_number is not None:
                 text += ":{}".format(location.line_number)
             return text
@@ -195,23 +238,24 @@ class CodeGenContext(object):
 
     @property
     def is_return_by_argument(self):
+        if self.does_override_idl_return_type:
+            return False
         if self.return_type is None:
-            return None
+            return False
         return self.return_type.unwrap().is_union
 
     @property
-    def is_return_value_mutable(self):
-        if (self.attribute_get
-                and "ReflectOnly" in self.attribute.extended_attributes):
-            return True
-        if self.constructor:
-            return True
+    def is_return_type_promise_type(self):
+        if self.attribute:
+            return self.attribute.idl_type.unwrap().is_promise
+        if self.operation_group:
+            return self.operation_group[0].return_type.unwrap().is_promise
         return False
 
     @property
     def may_throw_exception(self):
         if not self.member_like:
-            return None
+            return False
         ext_attr = self.member_like.extended_attributes.get("RaisesException")
         if not ext_attr:
             return False
@@ -222,25 +266,32 @@ class CodeGenContext(object):
     @property
     def member_like(self):
         return (self.attribute or self.constant or self.constructor
-                or self.dict_member or self.operation)
+                or self.dict_member or self.operation
+                or self._indexed_or_named_property)
 
     @property
     def property_(self):
         return (self.attribute or self.constant or self.constructor_group
-                or self.dict_member or self.exposed_construct
-                or self.operation_group)
+                or self.dict_member
+                or (self.legacy_window_alias or self.exposed_construct)
+                or self.operation_group
+                or (self.stringifier and self.stringifier.operation)
+                or self._indexed_or_named_property)
 
     @property
     def return_type(self):
         if self.attribute_get:
             return self.attribute.idl_type
-        if self.callback_function:
-            return self.callback_function.return_type
-        if self.constructor:
-            return self.constructor.return_type
-        if self.operation:
-            return self.operation.return_type
+        function_like = self.function_like
+        if function_like:
+            return function_like.return_type
         return None
+
+    @property
+    def _indexed_or_named_property(self):
+        return (self.indexed_property_getter or self.indexed_property_setter
+                or self.named_property_getter or self.named_property_setter
+                or self.named_property_deleter)
 
 
 CodeGenContext.init()

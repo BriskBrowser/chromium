@@ -67,20 +67,20 @@ class ContentMetadataProvider extends MetadataProvider {
 
     const promises = [];
     for (let i = 0; i < requests.length; i++) {
-      promises.push(new Promise(((request, fulfill) => {
-                                  this.getImpl_(
-                                      request.entry, request.names, fulfill);
-                                }).bind(null, requests[i])));
+      promises.push(new Promise(function(request, fulfill) {
+        this.getImpl_(request.entry, request.names, fulfill);
+      }.bind(this, requests[i])));
     }
+
     return Promise.all(promises);
   }
 
   /**
-   * Fetches the metadata.
+   * Fetches the entry metadata.
    * @param {!Entry} entry File entry.
-   * @param {!Array<string>} names Requested metadata type.
-   * @param {function(!MetadataItem)} callback Callback expects metadata value.
-   *     This callback is called asynchronously.
+   * @param {!Array<string>} names Requested metadata types.
+   * @param {function(!MetadataItem)} callback MetadataItem callback. Note
+   *     this callback is called asynchronously.
    * @private
    */
   getImpl_(entry, names, callback) {
@@ -239,7 +239,7 @@ class ContentMetadataProvider extends MetadataProvider {
   }
 
   /**
-   * Handles the 'initialized' message from the metadata reader Worker.
+   * Handles the 'initialized' message from the metadata Worker.
    * @param {RegExp} regexp Regexp of supported urls.
    * @private
    */
@@ -257,7 +257,7 @@ class ContentMetadataProvider extends MetadataProvider {
   }
 
   /**
-   * Handles the 'result' message from the worker.
+   * Handles the 'result' message from the metadata Worker.
    * @param {string} url File url.
    * @param {!MetadataItem} metadataItem The metadata item.
    * @private
@@ -271,7 +271,7 @@ class ContentMetadataProvider extends MetadataProvider {
   }
 
   /**
-   * Handles the 'log' message from the worker.
+   * Handles the 'log' message from the metadata Worker.
    * @param {Array<*>} arglist Log arguments.
    * @private
    */
@@ -284,7 +284,7 @@ class ContentMetadataProvider extends MetadataProvider {
    * Dispatches a message from MediaGalleries API to the appropriate on* method.
    * @param {!Entry} entry File entry.
    * @param {!Object} metadata The metadata from MediaGalleries API.
-   * @return {!Promise<!MetadataItem>}  Promise that resolves with
+   * @return {!Promise<!MetadataItem>} Promise that resolves with the
    *    converted metadata item.
    * @private
    */
@@ -367,17 +367,15 @@ class ContentMetadataProvider extends MetadataProvider {
   }
 
   /**
-   * Handles the 'error' message from the worker.
+   * Returns an 'error' MetadataItem.
    * @param {string} url File entry.
-   * @param {string} step Step failed.
-   * @param {string} errorDescription Error description.
+   * @param {string} step Step that failed.
+   * @param {string} cause Error cause.
    * @return {!MetadataItem} Error metadata
    * @private
    */
-  createError_(url, step, errorDescription) {
-    // For error case, fill all fields with error object.
-    const error =
-        new ContentMetadataProvider.Error(url, step, errorDescription);
+  createError_(url, step, cause) {
+    const error = new ContentMetadataProvider.Error(url, step, cause);
     const item = new MetadataItem();
     item.contentImageTransformError = error;
     item.contentThumbnailTransformError = error;
@@ -392,11 +390,11 @@ class ContentMetadataProvider extends MetadataProvider {
 ContentMetadataProvider.Error = class extends Error {
   /**
    * @param {string} url File Entry.
-   * @param {string} step Step failed.
-   * @param {string} errorDescription Error description.
+   * @param {string} step Step that failed.
+   * @param {string} cause Error cause.
    */
-  constructor(url, step, errorDescription) {
-    super(errorDescription);
+  constructor(url, step, cause) {
+    super(cause);
 
     /** @public @const {string} */
     this.url = url;
@@ -405,7 +403,7 @@ ContentMetadataProvider.Error = class extends Error {
     this.step = step;
 
     /** @public @const {string} */
-    this.errorDescription = errorDescription;
+    this.errorDescription = cause;
   }
 };
 
@@ -429,7 +427,7 @@ ContentMetadataProvider.PROPERTY_NAMES = [
 ];
 
 /**
- * Path of a worker script.
+ * The metadata Worker script URL.
  * @public @const {string}
  */
 ContentMetadataProvider.WORKER_SCRIPT =

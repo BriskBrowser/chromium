@@ -5,6 +5,7 @@
 // This must be before Windows headers
 #include "base/bind_helpers.h"
 #include "build/build_config.h"
+#include "content/public/test/browser_test.h"
 
 #if defined(OS_WIN)
 #include <objbase.h>
@@ -178,9 +179,9 @@ IN_PROC_BROWSER_TEST_F(FileURLLoaderFactoryBrowserTest, SymlinksToFiles) {
   // Get an absolute path since |temp_dir| can contain a symbolic link.
   base::FilePath absolute_temp_dir = AbsoluteFilePath(temp_dir.GetPath());
 
-  // MIME sniffing uses the symbolic link's path, so this needs to end in
-  // ".html" for it to be sniffed as HTML.
-  base::FilePath sym_link = absolute_temp_dir.AppendASCII("link.html");
+  // MIME sniffing should use the symbolic link's destination path, so despite
+  // not having a file extension of "html", this should be rendered as HTML.
+  base::FilePath sym_link = absolute_temp_dir.AppendASCII("link.bin");
   ASSERT_TRUE(
       base::CreateSymbolicLink(AbsoluteFilePath(TestFilePath()), sym_link));
 
@@ -398,6 +399,70 @@ IN_PROC_BROWSER_TEST_F(FileURLLoaderFactoryBrowserTest,
               net::test::IsError(net::ERR_UNSAFE_REDIRECT));
   // There should never have been a request for the file URL.
   EXPECT_TRUE(test_browser_client.access_allowed_args().empty());
+}
+
+// The test below opens a |popup| in a way that doesn't trigger a
+// RenderFrameImpl::CommitNavigation.  This means that the popup will depend on
+// inheriting URLLoaderFactoryBundle from the opener.
+//
+// Before triggering any subresource fetches in the popup, the test closes the
+// opener window.  If the URLLoaderFactoryBundle hasn't been inherited at this
+// point yet, then we might run into trouble later.  Another way how we might
+// get into trouble is if FileURLLoaderFactory's clone doesn't survive closing
+// of the opener.
+//
+// Finally, the test triggers a subresource fetch in the popup.  We expect that
+// this fetch should use the right URLLoaderFactoryBundle - one that contains
+// a functional FileURLLoaderFactory.
+//
+// This is a regression test for https://crbug.com/1106995
+IN_PROC_BROWSER_TEST_F(FileURLLoaderFactoryBrowserTest,
+                       LifetimeOfClonedFactory) {
+  GURL opener_url(GetTestUrl("", "title1.html"));
+  EXPECT_TRUE(NavigateToURL(shell(), opener_url));
+
+  // Open a |popup| in a way that doesn't trigger RFI::CommitNavigation.
+  WebContentsAddedObserver popup_observer;
+  ASSERT_TRUE(ExecJs(shell(), "window.open('', '_blank')"));
+  WebContents* popup = popup_observer.GetWebContents();
+
+  // Close the opener and make sure that the |popup| actually sees that the
+  // |opener| has closed.
+  //
+  // This test step means that we cannot rely on the |opener| being alive when
+  // the first subresource fetch happens in the |popup| (in the next test step
+  // below).
+  EXPECT_EQ(true, EvalJs(popup, "!!window.opener"));
+  shell()->Close();
+  const char kScriptToWaitForNoOpener[] = R"(
+      new Promise(function (resolve, reject) {
+          function CheckAndWaitMoreIfNeeded() {
+            if (!window.opener)
+              resolve('OPENER GONE');
+
+            setTimeout(CheckAndWaitMoreIfNeeded, 50);
+          }
+
+          CheckAndWaitMoreIfNeeded();
+      });
+  )";
+  EXPECT_EQ("OPENER GONE", EvalJs(popup, kScriptToWaitForNoOpener));
+
+  // Trigger a subresource fetch in the popup.  This is the main test step - it
+  // verifies that at this point the popup has access to a functional
+  // FileURLLoaderFactory.
+  const char kScriptTemplateToTriggerSubresourceFetch[] = R"(
+      new Promise(function (resolve, reject) {
+          var img = document.createElement('img');
+          img.src = $1;
+          img.onload = _ => resolve('OK');
+          img.onerror = e => resolve('ERR: ' + e);
+      });
+  )";
+  GURL img_url = GetTestUrl("site_isolation", "png-corp.png");
+  EXPECT_EQ("OK",
+            EvalJs(popup, JsReplace(kScriptTemplateToTriggerSubresourceFetch,
+                                    img_url)));
 }
 
 }  // namespace

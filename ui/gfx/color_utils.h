@@ -127,6 +127,10 @@ GFX_EXPORT bool IsDark(SkColor color);
 // |color|.
 GFX_EXPORT SkColor GetColorWithMaxContrast(SkColor color);
 
+// Returns whichever of white or the darkest available color contrasts less with
+// |color|.
+GFX_EXPORT SkColor GetEndpointColorWithMinContrast(SkColor color);
+
 // Blends towards the color with max contrast by |alpha|. The alpha of
 // the original color is preserved.
 GFX_EXPORT SkColor BlendTowardMaxContrast(SkColor color, SkAlpha alpha);
@@ -156,11 +160,6 @@ GFX_EXPORT SkColor InvertColor(SkColor color);
 // Gets a Windows system color as a SkColor
 GFX_EXPORT SkColor GetSysSkColor(int which);
 
-// Returns true only if Chrome should use an inverted color scheme - which is
-// only true if the system has high-contrast mode enabled and and is using a
-// light-on-dark color scheme.
-GFX_EXPORT bool IsInvertedColorScheme();
-
 // Derives a color for icons on a UI surface based on the text color on the same
 // surface.
 GFX_EXPORT SkColor DeriveDefaultIconColor(SkColor text_color);
@@ -170,9 +169,6 @@ GFX_EXPORT std::string SkColorToRgbaString(SkColor color);
 
 // Creates an rgb string for an SkColor. For example: '255,0,255'.
 GFX_EXPORT std::string SkColorToRgbString(SkColor color);
-
-// Returns the darkest available color.
-GFX_EXPORT SkColor GetDarkestColor();
 
 // Sets the darkest available color to |color|.  Returns the previous darkest
 // color.

@@ -16,7 +16,7 @@
 #include "ui/gfx/geometry/size.h"
 #include "ui/gfx/gpu_memory_buffer.h"
 
-#if defined(OS_LINUX) || defined(USE_OZONE)
+#if defined(OS_LINUX) || defined(OS_CHROMEOS) || defined(USE_OZONE)
 namespace gfx {
 class ClientNativePixmapFactory;
 }
@@ -38,16 +38,16 @@ class GPU_EXPORT GpuMemoryBufferSupport {
   bool IsNativeGpuMemoryBufferConfigurationSupported(gfx::BufferFormat format,
                                                      gfx::BufferUsage usage);
 
-#if defined(OS_LINUX) || defined(USE_OZONE)
+#if defined(OS_LINUX) || defined(OS_CHROMEOS) || defined(USE_OZONE)
   gfx::ClientNativePixmapFactory* client_native_pixmap_factory() {
     return client_native_pixmap_factory_.get();
   }
 #endif
 
   // Returns whether the provided buffer format is supported.
-  bool IsConfigurationSupported(gfx::GpuMemoryBufferType type,
-                                gfx::BufferFormat format,
-                                gfx::BufferUsage usage);
+  bool IsConfigurationSupportedForTest(gfx::GpuMemoryBufferType type,
+                                       gfx::BufferFormat format,
+                                       gfx::BufferUsage usage);
 
   // Creates a GpuMemoryBufferImpl from the given |handle|. |size| and |format|
   // should match what was used to allocate the |handle|. |callback|, if
@@ -62,7 +62,7 @@ class GPU_EXPORT GpuMemoryBufferSupport {
       GpuMemoryBufferImpl::DestructionCallback callback);
 
  private:
-#if defined(OS_LINUX) || defined(USE_OZONE)
+#if defined(OS_LINUX) || defined(OS_CHROMEOS) || defined(USE_OZONE)
   std::unique_ptr<gfx::ClientNativePixmapFactory> client_native_pixmap_factory_;
 #endif
 

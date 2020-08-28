@@ -16,11 +16,11 @@ import androidx.annotation.VisibleForTesting;
 
 import org.chromium.base.ContextUtils;
 import org.chromium.chrome.R;
-import org.chromium.chrome.browser.notifications.ChromeNotificationBuilder;
-import org.chromium.chrome.browser.notifications.NotificationBuilderFactory;
-import org.chromium.chrome.browser.notifications.NotificationManagerProxy;
-import org.chromium.chrome.browser.notifications.NotificationManagerProxyImpl;
-import org.chromium.chrome.browser.notifications.channels.ChannelDefinitions;
+import org.chromium.chrome.browser.notifications.NotificationWrapperBuilderFactory;
+import org.chromium.chrome.browser.notifications.channels.ChromeChannelDefinitions;
+import org.chromium.components.browser_ui.notifications.NotificationManagerProxy;
+import org.chromium.components.browser_ui.notifications.NotificationManagerProxyImpl;
+import org.chromium.components.browser_ui.notifications.NotificationWrapperBuilder;
 
 /**
  * Manages notifications displayed while tracing and once tracing is complete.
@@ -30,7 +30,7 @@ public class TracingNotificationManager {
     private static final int TRACING_NOTIFICATION_ID = 100;
 
     private static NotificationManagerProxy sNotificationManagerOverride;
-    private static ChromeNotificationBuilder sTracingActiveNotificationBuilder;
+    private static NotificationWrapperBuilder sTracingActiveNotificationBuilder;
     private static int sTracingActiveNotificationBufferPercentage;
 
     // Non-translated strings:
@@ -69,11 +69,6 @@ public class TracingNotificationManager {
      * the user. True if the state can't be determined.
      */
     public static boolean browserNotificationsEnabled() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.KITKAT) {
-            // Can't determine the state, so assume they are enabled.
-            return true;
-        }
-
         if (!getNotificationManager(ContextUtils.getApplicationContext())
                         .areNotificationsEnabled()) {
             return false;
@@ -81,7 +76,7 @@ public class TracingNotificationManager {
 
         // On Android O and above, the BROWSER channel may have independently been disabled, too.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            return notificationChannelEnabled(ChannelDefinitions.ChannelId.BROWSER);
+            return notificationChannelEnabled(ChromeChannelDefinitions.ChannelId.BROWSER);
         }
 
         return true;
@@ -115,7 +110,7 @@ public class TracingNotificationManager {
         }
 
         sTracingActiveNotificationBuilder =
-                createNotificationBuilder()
+                createNotificationWrapperBuilder()
                         .setContentTitle(title)
                         .setContentText(message)
                         .setOngoing(true)
@@ -159,10 +154,10 @@ public class TracingNotificationManager {
         String title = MSG_STOPPING_NOTIFICATION_TITLE;
         String message = MSG_STOPPING_NOTIFICATION_MESSAGE;
 
-        ChromeNotificationBuilder builder = createNotificationBuilder()
-                                                    .setContentTitle(title)
-                                                    .setContentText(message)
-                                                    .setOngoing(true);
+        NotificationWrapperBuilder builder = createNotificationWrapperBuilder()
+                                                     .setContentTitle(title)
+                                                     .setContentText(message)
+                                                     .setOngoing(true);
         showNotification(builder.build());
     }
 
@@ -174,8 +169,8 @@ public class TracingNotificationManager {
         String title = MSG_COMPLETE_NOTIFICATION_TITLE;
         String message = MSG_COMPLETE_NOTIFICATION_MESSAGE;
 
-        ChromeNotificationBuilder builder =
-                createNotificationBuilder()
+        NotificationWrapperBuilder builder =
+                createNotificationWrapperBuilder()
                         .setContentTitle(title)
                         .setContentText(message)
                         .setOngoing(false)
@@ -195,10 +190,10 @@ public class TracingNotificationManager {
         sTracingActiveNotificationBuilder = null;
     }
 
-    private static ChromeNotificationBuilder createNotificationBuilder() {
-        return NotificationBuilderFactory
-                .createChromeNotificationBuilder(
-                        true /* preferCompat */, ChannelDefinitions.ChannelId.BROWSER)
+    private static NotificationWrapperBuilder createNotificationWrapperBuilder() {
+        return NotificationWrapperBuilderFactory
+                .createNotificationWrapperBuilder(
+                        true /* preferCompat */, ChromeChannelDefinitions.ChannelId.BROWSER)
                 .setVisibility(Notification.VISIBILITY_PUBLIC)
                 .setSmallIcon(R.drawable.ic_chrome)
                 .setShowWhen(false)

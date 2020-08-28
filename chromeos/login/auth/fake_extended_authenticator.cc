@@ -4,7 +4,7 @@
 
 #include "chromeos/login/auth/fake_extended_authenticator.h"
 
-#include "base/logging.h"
+#include "base/notreached.h"
 #include "chromeos/login/auth/auth_status_consumer.h"
 #include "components/account_id/account_id.h"
 
@@ -62,6 +62,27 @@ void FakeExtendedAuthenticator::AuthenticateToCheck(
 
   OnAuthFailure(FAILED_MOUNT,
                 AuthFailure(AuthFailure::UNLOCK_FAILED));
+}
+
+void FakeExtendedAuthenticator::StartFingerprintAuthSession(
+    const AccountId& account_id,
+    base::OnceCallback<void(bool)> callback) {
+  std::move(callback).Run(expected_user_context_.GetAccountId() == account_id);
+}
+
+void FakeExtendedAuthenticator::EndFingerprintAuthSession() {}
+
+void FakeExtendedAuthenticator::AuthenticateWithFingerprint(
+    const UserContext& context,
+    base::OnceCallback<void(cryptohome::CryptohomeErrorCode)> callback) {
+  if (expected_user_context_ == context) {
+    std::move(callback).Run(cryptohome::CryptohomeErrorCode::
+                                CRYPTOHOME_ERROR_FINGERPRINT_RETRY_REQUIRED);
+    return;
+  }
+
+  std::move(callback).Run(
+      cryptohome::CryptohomeErrorCode::CRYPTOHOME_ERROR_NOT_SET);
 }
 
 void FakeExtendedAuthenticator::AddKey(const UserContext& context,

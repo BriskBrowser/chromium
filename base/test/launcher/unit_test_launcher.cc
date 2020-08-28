@@ -17,6 +17,7 @@
 #include "base/files/file_util.h"
 #include "base/format_macros.h"
 #include "base/location.h"
+#include "base/logging.h"
 #include "base/macros.h"
 #include "base/message_loop/message_pump_type.h"
 #include "base/sequence_checker.h"
@@ -46,6 +47,7 @@ namespace {
 // This constant controls how many tests are run in a single batch by default.
 const size_t kDefaultTestBatchLimit = 10;
 
+#if !defined(OS_ANDROID)
 void PrintUsage() {
   fprintf(stdout,
           "Runs tests using the gtest framework, each batch of tests being\n"
@@ -125,6 +127,7 @@ bool GetSwitchValueAsInt(const std::string& switch_name, int* result) {
 
   return true;
 }
+#endif
 
 int LaunchUnitTestsInternal(RunTestSuiteCallback run_test_suite,
                             size_t parallel_jobs,
@@ -161,7 +164,6 @@ int LaunchUnitTestsInternal(RunTestSuiteCallback run_test_suite,
       force_single_process) {
     return std::move(run_test_suite).Run();
   }
-#endif
 
   if (CommandLine::ForCurrentProcess()->HasSwitch(switches::kHelpFlag)) {
     PrintUsage();
@@ -203,6 +205,7 @@ int LaunchUnitTestsInternal(RunTestSuiteCallback run_test_suite,
   fflush(stdout);
 
   return (success ? 0 : 1);
+#endif
 }
 
 void InitGoogleTestChar(int* argc, char** argv) {
@@ -225,7 +228,7 @@ int LaunchUnitTests(int argc,
                     RunTestSuiteCallback run_test_suite,
                     size_t retry_limit) {
   CommandLine::Init(argc, argv);
-  size_t parallel_jobs = NumParallelJobs();
+  size_t parallel_jobs = NumParallelJobs(/*cores_per_job=*/1);
   if (parallel_jobs == 0U) {
     return 1;
   }
@@ -262,7 +265,7 @@ int LaunchUnitTests(int argc,
                     RunTestSuiteCallback run_test_suite) {
   // Windows CommandLine::Init ignores argv anyway.
   CommandLine::Init(argc, NULL);
-  size_t parallel_jobs = NumParallelJobs();
+  size_t parallel_jobs = NumParallelJobs(/*cores_per_job=*/1);
   if (parallel_jobs == 0U) {
     return 1;
   }
@@ -307,9 +310,7 @@ CommandLine DefaultUnitTestPlatformDelegate::GetCommandLineForChildGTestProcess(
 
   std::string long_flags(
       StrCat({"--", kGTestFilterFlag, "=", JoinString(test_names, ":")}));
-  CHECK_EQ(static_cast<int>(long_flags.size()),
-           WriteFile(flag_file, long_flags.data(),
-                     static_cast<int>(long_flags.size())));
+  CHECK(WriteFile(flag_file, long_flags));
 
   new_cmd_line.AppendSwitchPath(switches::kTestLauncherOutput, output_file);
   new_cmd_line.AppendSwitchPath(kGTestFlagfileFlag, flag_file);

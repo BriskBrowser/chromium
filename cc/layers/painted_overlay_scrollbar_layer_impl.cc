@@ -4,6 +4,7 @@
 
 #include "cc/layers/painted_overlay_scrollbar_layer_impl.h"
 
+#include "base/memory/ptr_util.h"
 #include "cc/trees/layer_tree_impl.h"
 #include "components/viz/common/quads/solid_color_draw_quad.h"
 #include "components/viz/common/quads/texture_draw_quad.h"
@@ -221,7 +222,9 @@ void PaintedOverlayScrollbarLayerImpl::SetAperture(const gfx::Rect& aperture) {
 }
 
 float PaintedOverlayScrollbarLayerImpl::TrackLength() const {
-  return track_length_ + (orientation() == VERTICAL ? vertical_adjust() : 0);
+  return track_length_ + (orientation() == ScrollbarOrientation::VERTICAL
+                              ? vertical_adjust()
+                              : 0);
 }
 
 bool PaintedOverlayScrollbarLayerImpl::IsThumbResizable() const {

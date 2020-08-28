@@ -8,7 +8,7 @@
 #include <memory>
 
 #include "base/macros.h"
-#include "chrome/browser/ui/webui/chromeos/add_supervision/add_supervision.mojom.h"
+#include "chrome/browser/ui/webui/chromeos/add_supervision/add_supervision.mojom-forward.h"
 #include "chrome/browser/ui/webui/chromeos/add_supervision/add_supervision_handler.h"
 #include "chrome/browser/ui/webui/chromeos/system_web_dialog_delegate.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
@@ -48,8 +48,8 @@ class AddSupervisionDialog : public SystemWebDialogDelegate {
   // ui::WebDialogDelegate:
   ui::ModalType GetDialogModalType() const override;
   void GetDialogSize(gfx::Size* size) const override;
-  bool CanCloseDialog() const override;
   bool OnDialogCloseRequested() override;
+  bool DeprecatedOnDialogCloseRequested() override;
   bool ShouldCloseDialogOnEscape() const override;
 
  protected:

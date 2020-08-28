@@ -33,7 +33,7 @@ AppWebContentsHelper::AppWebContentsHelper(
 bool AppWebContentsHelper::ShouldSuppressGestureEvent(
     const blink::WebGestureEvent& event) {
   // Disable "smart zoom" (double-tap with two fingers on Mac trackpad).
-  if (event.GetType() == blink::WebInputEvent::kGestureDoubleTap)
+  if (event.GetType() == blink::WebInputEvent::Type::kGestureDoubleTap)
     return true;
 
   // Disable pinch zooming in app windows.
@@ -90,7 +90,12 @@ void AppWebContentsHelper::RequestToLockMouse() const {
   bool has_permission = IsExtensionWithPermissionOrSuggestInConsole(
       APIPermission::kPointerLock, extension, web_contents_->GetMainFrame());
 
-  web_contents_->GotResponseToLockMouseRequest(has_permission);
+  if (has_permission)
+    web_contents_->GotResponseToLockMouseRequest(
+        blink::mojom::PointerLockResult::kSuccess);
+  else
+    web_contents_->GotResponseToLockMouseRequest(
+        blink::mojom::PointerLockResult::kPermissionDenied);
 }
 
 void AppWebContentsHelper::RequestMediaAccessPermission(

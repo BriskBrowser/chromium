@@ -25,10 +25,11 @@ constexpr int kDisabledAlpha = 0x61;
 SkColor TrayPopupItemStyle::GetIconColor(ColorStyle color_style,
                                          bool use_unified_theme) {
   const SkColor kBaseIconColor =
-      use_unified_theme ? AshColorProvider::Get()->GetContentLayerColor(
-                              AshColorProvider::ContentLayerType::kIconPrimary,
-                              AshColorProvider::AshColorMode::kDark)
-                        : gfx::kChromeIconGrey;
+      use_unified_theme
+          ? AshColorProvider::Get()->GetContentLayerColor(
+                AshColorProvider::ContentLayerType::kIconColorPrimary,
+                AshColorProvider::AshColorMode::kDark)
+          : gfx::kChromeIconGrey;
   switch (color_style) {
     case ColorStyle::ACTIVE:
       return kBaseIconColor;
@@ -60,9 +61,9 @@ TrayPopupItemStyle::~TrayPopupItemStyle() = default;
 SkColor TrayPopupItemStyle::GetTextColor() const {
   const SkColor kBaseTextColor =
       use_unified_theme_
-          ? AshColorProvider::Get()->DeprecatedGetContentLayerColor(
-                AshColorProvider::ContentLayerType::kTextPrimary,
-                kUnifiedMenuTextColor)
+          ? AshColorProvider::Get()->GetContentLayerColor(
+                AshColorProvider::ContentLayerType::kTextColorPrimary,
+                AshColorProvider::AshColorMode::kDark)
           : SkColorSetA(SK_ColorBLACK, 0xDE);
 
   switch (color_style_) {
@@ -94,6 +95,10 @@ void TrayPopupItemStyle::SetupLabel(views::Label* label) const {
                                                gfx::Font::NORMAL,
                                                gfx::Font::Weight::MEDIUM));
       break;
+    case FontStyle::SMALL_TITLE:
+      label->SetFontList(base_font_list.Derive(1, gfx::Font::NORMAL,
+                                               gfx::Font::Weight::MEDIUM));
+      break;
     case FontStyle::SUB_HEADER:
       label->SetFontList(base_font_list.Derive(4, gfx::Font::NORMAL,
                                                gfx::Font::Weight::MEDIUM));
@@ -113,6 +118,11 @@ void TrayPopupItemStyle::SetupLabel(views::Label* label) const {
     case FontStyle::CAPTION:
       label->SetFontList(base_font_list.Derive(0, gfx::Font::NORMAL,
                                                gfx::Font::Weight::NORMAL));
+      break;
+    case FontStyle::HOLDING_SPACE_TITLE:
+      label->SetFontList(base_font_list.Derive(3, gfx::Font::NORMAL,
+                                               gfx::Font::Weight::NORMAL));
+      label->SetHorizontalAlignment(gfx::HorizontalAlignment::ALIGN_LEFT);
       break;
   }
 }

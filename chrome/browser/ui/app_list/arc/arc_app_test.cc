@@ -14,6 +14,7 @@
 #include "chrome/browser/chromeos/arc/arc_util.h"
 #include "chrome/browser/chromeos/arc/session/arc_play_store_enabled_preference_handler.h"
 #include "chrome/browser/chromeos/arc/session/arc_session_manager.h"
+#include "chrome/browser/chromeos/arc/test/test_arc_session_manager.h"
 #include "chrome/browser/chromeos/login/users/fake_chrome_user_manager.h"
 #include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/profiles/profile.h"
@@ -99,8 +100,8 @@ void ArcAppTest::SetUp(Profile* profile) {
         profile_);
   }
   arc_service_manager_ = std::make_unique<arc::ArcServiceManager>();
-  arc_session_manager_ = std::make_unique<arc::ArcSessionManager>(
-      std::make_unique<arc::ArcSessionRunner>(
+  arc_session_manager_ =
+      arc::CreateTestArcSessionManager(std::make_unique<arc::ArcSessionRunner>(
           base::BindRepeating(arc::FakeArcSession::Create)));
   DCHECK(arc::ArcSessionManager::Get());
   arc::ArcSessionManager::SetUiEnabledForTesting(false);
@@ -168,6 +169,12 @@ void ArcAppTest::CreateFakeAppsAndPackages() {
   app.sticky = true;
   fake_default_apps_.push_back(app);
 
+  app.name = "TestApp3";
+  app.package_name = "test.app3";
+  app.activity = "test.app3.activity";
+  app.sticky = true;
+  fake_default_apps_.push_back(app);
+
   base::flat_map<arc::mojom::AppPermission, arc::mojom::PermissionStatePtr>
       permissions1;
   permissions1.emplace(arc::mojom::AppPermission::CAMERA,
@@ -226,7 +233,8 @@ void ArcAppTest::TearDown() {
   app_instance_.reset();
   arc_play_store_enabled_preference_handler_.reset();
   arc_session_manager_.reset();
-  arc_service_manager_.reset();
+  if (!persist_service_manager_)
+    arc_service_manager_.reset();
   arc::ResetArcAllowedCheckForTesting(profile_);
   if (dbus_thread_manager_initialized_) {
     // DBusThreadManager may be initialized from other testing utility,

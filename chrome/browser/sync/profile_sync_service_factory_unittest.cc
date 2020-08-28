@@ -27,8 +27,14 @@
 
 #if defined(OS_CHROMEOS)
 #include "chrome/browser/chromeos/arc/arc_util.h"
+#include "chrome/browser/sync/wifi_configuration_sync_service_factory.h"
 #include "chrome/browser/ui/app_list/app_list_syncable_service_factory.h"
+#include "chromeos/components/sync_wifi/wifi_configuration_sync_service.h"
 #include "chromeos/constants/chromeos_features.h"
+#include "chromeos/dbus/shill/shill_clients.h"
+#include "chromeos/dbus/shill/shill_manager_client.h"
+#include "chromeos/network/network_handler.h"
+#include "chromeos/services/network_config/public/cpp/cros_network_config_test_helper.h"
 #endif
 
 class ProfileSyncServiceFactoryTest : public testing::Test {
@@ -50,12 +56,22 @@ class ProfileSyncServiceFactoryTest : public testing::Test {
   }
 
  protected:
+#if defined(OS_CHROMEOS)
+  ProfileSyncServiceFactoryTest() {
+    // Fake network stack is required for WIFI_CONFIGURATIONS datatype.
+    chromeos::NetworkHandler::Initialize();
+  }
+  ~ProfileSyncServiceFactoryTest() override {
+    chromeos::NetworkHandler::Shutdown();
+  }
+#else
   ProfileSyncServiceFactoryTest() = default;
   ~ProfileSyncServiceFactoryTest() override = default;
+#endif
 
   // Returns the collection of default datatypes.
   std::vector<syncer::ModelType> DefaultDatatypes() {
-    static_assert(40 == syncer::ModelType::NUM_ENTRIES,
+    static_assert(41 == syncer::ModelType::NUM_ENTRIES,
                   "When adding a new type, you probably want to add it here as "
                   "well (assuming it is already enabled).");
 
@@ -69,7 +85,7 @@ class ProfileSyncServiceFactoryTest : public testing::Test {
 
 #if BUILDFLAG(ENABLE_SUPERVISED_USERS)
     datatypes.push_back(syncer::SUPERVISED_USER_SETTINGS);
-    datatypes.push_back(syncer::SUPERVISED_USER_WHITELISTS);
+    datatypes.push_back(syncer::SUPERVISED_USER_ALLOWLISTS);
 #endif  // BUILDFLAG(ENABLE_SUPERVISED_USERS)
 
 #if BUILDFLAG(ENABLE_EXTENSIONS)
@@ -86,7 +102,7 @@ class ProfileSyncServiceFactoryTest : public testing::Test {
     datatypes.push_back(syncer::SEARCH_ENGINES);
 #endif  // !defined(OS_ANDROID)
 
-#if defined(OS_LINUX) || defined(OS_WIN)
+#if defined(OS_LINUX) || defined(OS_CHROMEOS) || defined(OS_WIN)
     datatypes.push_back(syncer::DICTIONARY);
 #endif
 
@@ -104,24 +120,15 @@ class ProfileSyncServiceFactoryTest : public testing::Test {
     }
 #endif  // OS_CHROMEOS
 
-    // Common types.
+    // Common types. This excludes PASSWORDS because the password store factory
+    // is null for testing and hence no controller gets instantiated.
     datatypes.push_back(syncer::AUTOFILL);
     datatypes.push_back(syncer::AUTOFILL_PROFILE);
     datatypes.push_back(syncer::AUTOFILL_WALLET_DATA);
     datatypes.push_back(syncer::AUTOFILL_WALLET_METADATA);
     datatypes.push_back(syncer::BOOKMARKS);
     datatypes.push_back(syncer::DEVICE_INFO);
-    if (!base::FeatureList::IsEnabled(switches::kDoNotSyncFaviconDataTypes)) {
-      datatypes.push_back(syncer::FAVICON_TRACKING);
-      datatypes.push_back(syncer::FAVICON_IMAGES);
-    }
     datatypes.push_back(syncer::HISTORY_DELETE_DIRECTIVES);
-    if (!base::FeatureList::IsEnabled(switches::kSyncUSSPasswords)) {
-      // Password store factory is null for testing. For directory
-      // implementation, a controller was added anyway. For USS, no controller
-      // gets added, and hence the type isn't available.
-      datatypes.push_back(syncer::PASSWORDS);
-    }
     datatypes.push_back(syncer::PREFERENCES);
     datatypes.push_back(syncer::PRIORITY_PREFERENCES);
     datatypes.push_back(syncer::SESSIONS);
@@ -130,6 +137,7 @@ class ProfileSyncServiceFactoryTest : public testing::Test {
     datatypes.push_back(syncer::USER_EVENTS);
     datatypes.push_back(syncer::USER_CONSENTS);
     datatypes.push_back(syncer::SEND_TAB_TO_SELF);
+    datatypes.push_back(syncer::SHARING_MESSAGE);
     return datatypes;
   }
 
@@ -159,9 +167,17 @@ class ProfileSyncServiceFactoryTest : public testing::Test {
 
   Profile* profile() { return profile_.get(); }
 
+  void RunUntilIdle() { task_environment_.RunUntilIdle(); }
+
  private:
   content::BrowserTaskEnvironment task_environment_;
   std::unique_ptr<TestingProfile> profile_;
+
+#if defined(OS_CHROMEOS)
+  // Sets up  and  tears down the Chrome OS networking mojo service as needed
+  // for the WIFI_CONFIGURATIONS sync service.
+  chromeos::network_config::CrosNetworkConfigTestHelper network_config_helper_;
+#endif
 };
 
 // Verify that the disable sync flag disables creation of the sync service.
@@ -178,6 +194,9 @@ TEST_F(ProfileSyncServiceFactoryTest, CreatePSSDefault) {
   syncer::ModelTypeSet types = pss->GetRegisteredDataTypes();
   EXPECT_EQ(DefaultDatatypesCount(), types.Size());
   CheckDefaultDatatypesInSetExcept(types, syncer::ModelTypeSet());
+
+  pss->Shutdown();
+  RunUntilIdle();
 }
 
 // Verify that a PSS with a disabled datatype can be created and properly
@@ -190,6 +209,9 @@ TEST_F(ProfileSyncServiceFactoryTest, CreatePSSDisableOne) {
   syncer::ModelTypeSet types = pss->GetRegisteredDataTypes();
   EXPECT_EQ(DefaultDatatypesCount() - disabled_types.Size(), types.Size());
   CheckDefaultDatatypesInSetExcept(types, disabled_types);
+
+  pss->Shutdown();
+  RunUntilIdle();
 }
 
 // Verify that a PSS with multiple disabled datatypes can be created and
@@ -203,4 +225,7 @@ TEST_F(ProfileSyncServiceFactoryTest, CreatePSSDisableMultiple) {
   syncer::ModelTypeSet types = pss->GetRegisteredDataTypes();
   EXPECT_EQ(DefaultDatatypesCount() - disabled_types.Size(), types.Size());
   CheckDefaultDatatypesInSetExcept(types, disabled_types);
+
+  pss->Shutdown();
+  RunUntilIdle();
 }

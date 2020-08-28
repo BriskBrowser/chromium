@@ -92,6 +92,9 @@ class ProfileSyncServiceAndroid : public syncer::SyncServiceObserver {
   jboolean IsPassphraseRequiredForPreferredDataTypes(
       JNIEnv* env,
       const base::android::JavaParamRef<jobject>& obj);
+  jboolean IsTrustedVaultKeyRequired(
+      JNIEnv* env,
+      const base::android::JavaParamRef<jobject>& obj);
   jboolean IsTrustedVaultKeyRequiredForPreferredDataTypes(
       JNIEnv* env,
       const base::android::JavaParamRef<jobject>& obj);
@@ -113,8 +116,6 @@ class ProfileSyncServiceAndroid : public syncer::SyncServiceObserver {
       const base::android::JavaParamRef<jobject>&);
   jlong GetExplicitPassphraseTime(JNIEnv* env,
                                   const base::android::JavaParamRef<jobject>&);
-  void FlushDirectory(JNIEnv* env,
-                      const base::android::JavaParamRef<jobject>& obj);
   void GetAllNodes(JNIEnv* env,
                    const base::android::JavaParamRef<jobject>& obj,
                    const base::android::JavaParamRef<jobject>& callback);
@@ -169,6 +170,11 @@ class ProfileSyncServiceAndroid : public syncer::SyncServiceObserver {
   GetSyncEnterCustomPassphraseBodyText(
       JNIEnv* env,
       const base::android::JavaParamRef<jobject>&);
+
+  void RecordKeyRetrievalTrigger(
+      JNIEnv* env,
+      const base::android::JavaParamRef<jobject>& obj,
+      jint trigger);
 
   // Functionality only available for testing purposes.
 

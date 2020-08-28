@@ -20,15 +20,17 @@
 #include "chrome/browser/chromeos/login/test/enrollment_helper_mixin.h"
 #include "chrome/browser/chromeos/login/test/enrollment_ui_mixin.h"
 #include "chrome/browser/chromeos/login/test/js_checker.h"
+#include "chrome/browser/chromeos/login/test/oobe_base_test.h"
 #include "chrome/browser/chromeos/login/test/oobe_screen_waiter.h"
 #include "chrome/browser/chromeos/login/ui/login_display_host.h"
 #include "chrome/browser/chromeos/login/wizard_controller.h"
 #include "chrome/browser/chromeos/policy/browser_policy_connector_chromeos.h"
-#include "chrome/browser/chromeos/policy/enrollment_status_chromeos.h"
+#include "chrome/browser/policy/enrollment_status.h"
 #include "chromeos/dbus/authpolicy/fake_authpolicy_client.h"
 #include "chromeos/dbus/constants/dbus_switches.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "chromeos/dbus/upstart/upstart_client.h"
+#include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/test_utils.h"
 
@@ -40,31 +42,7 @@ namespace chromeos {
 
 namespace {
 
-constexpr char kEnrollmentUI[] = "enterprise-enrollment";
-constexpr char kAdDialog[] = "oauth-enroll-ad-join-ui";
-constexpr char kAdErrorCard[] = "oauth-enroll-error-card";
-
-constexpr char kAdUnlockConfigurationStep[] = "unlockStep";
-constexpr char kAdUnlockPasswordInput[] = "unlockPasswordInput";
-constexpr char kAdUnlockButton[] = "unlockButton";
-constexpr char kSkipButton[] = "skipButton";
-
-constexpr char kAdCredentialsStep[] = "credsStep";
-constexpr char kAdJoinConfigurationForm[] = "joinConfig";
-constexpr char kAdBackToUnlockButton[] = "backToUnlockButton";
-constexpr char kAdMachineNameInput[] = "machineNameInput";
-constexpr char kAdUsernameInput[] = "userInput";
-constexpr char kAdPasswordInput[] = "passwordInput";
-constexpr char kAdConfigurationSelect[] = "joinConfigSelect";
-constexpr char kSubmitButton[] = "submitButton";
-constexpr char kNextButton[] = "nextButton";
-constexpr char kWebview[] = "oauth-enroll-auth-view";
 constexpr char kPartitionAttribute[] = ".partition";
-
-constexpr char kAdEncryptionTypesSelect[] = "encryptionList";
-constexpr char kAdMachineOrgUnitInput[] = "orgUnitInput";
-constexpr char kAdMoreOptionsButton[] = "moreOptionsBtn";
-constexpr char kAdMoreOptionsSaveButton[] = "moreOptionsSave";
 
 constexpr char kAdUserDomain[] = "user.domain.com";
 constexpr char kAdMachineDomain[] = "machine.domain.com";
@@ -112,6 +90,41 @@ constexpr char kAdDomainJoinUnlockedConfig[] = R"!!!(
 ]
 )!!!";
 
+constexpr char kEnrollmentUI[] = "enterprise-enrollment";
+constexpr char kAdDialog[] = "adJoinUI";
+
+const test::UIPath kBackButton = {kEnrollmentUI, "signinBackButton"};
+const test::UIPath kAdRetryButton = {kEnrollmentUI, "adRetryButton"};
+const test::UIPath kWebview = {kEnrollmentUI, "authView"};
+
+const test::UIPath kAdUnlockConfigurationStep = {kEnrollmentUI, kAdDialog,
+                                                 "unlockStep"};
+const test::UIPath kAdUnlockPasswordInput = {kEnrollmentUI, kAdDialog,
+                                             "unlockPasswordInput"};
+const test::UIPath kAdUnlockButton = {kEnrollmentUI, kAdDialog, "unlockButton"};
+const test::UIPath kAdSkipButton = {kEnrollmentUI, kAdDialog, "skipButton"};
+const test::UIPath kAdCredentialsStep = {kEnrollmentUI, kAdDialog, "credsStep"};
+const test::UIPath kAdJoinConfigurationForm = {kEnrollmentUI, kAdDialog,
+                                               "joinConfig"};
+const test::UIPath kAdBackToUnlockButton = {kEnrollmentUI, kAdDialog,
+                                            "backToUnlockButton"};
+const test::UIPath kAdMachineNameInput = {kEnrollmentUI, kAdDialog,
+                                          "machineNameInput"};
+const test::UIPath kAdUsernameInput = {kEnrollmentUI, kAdDialog, "userInput"};
+const test::UIPath kAdPasswordInput = {kEnrollmentUI, kAdDialog,
+                                       "passwordInput"};
+const test::UIPath kAdConfigurationSelect = {kEnrollmentUI, kAdDialog,
+                                             "joinConfigSelect"};
+const test::UIPath kNextButton = {kEnrollmentUI, kAdDialog, "nextButton"};
+const test::UIPath kAdEncryptionTypesSelect = {kEnrollmentUI, kAdDialog,
+                                               "encryptionList"};
+const test::UIPath kAdMachineOrgUnitInput = {kEnrollmentUI, kAdDialog,
+                                             "orgUnitInput"};
+const test::UIPath kAdMoreOptionsButton = {kEnrollmentUI, kAdDialog,
+                                           "moreOptionsBtn"};
+const test::UIPath kAdMoreOptionsSaveButton = {kEnrollmentUI, kAdDialog,
+                                               "moreOptionsSave"};
+
 class MockAuthPolicyClient : public FakeAuthPolicyClient {
  public:
   MockAuthPolicyClient() = default;
@@ -139,11 +152,9 @@ class MockAuthPolicyClient : public FakeAuthPolicyClient {
 
 }  // namespace
 
-class EnterpriseEnrollmentTestBase : public LoginManagerTest {
+class EnterpriseEnrollmentTestBase : public OobeBaseTest {
  public:
-  explicit EnterpriseEnrollmentTestBase(bool should_initialize_webui)
-      : LoginManagerTest(true /*should_launch_browser*/,
-                         should_initialize_webui) {}
+  EnterpriseEnrollmentTestBase() = default;
 
   // Submits regular enrollment credentials.
   void SubmitEnrollmentCredentials() {
@@ -175,7 +186,6 @@ class EnterpriseEnrollmentTestBase : public LoginManagerTest {
     OobeScreenWaiter(EnrollmentScreenView::kScreenId).Wait();
     ASSERT_TRUE(enrollment_screen() != nullptr);
     ASSERT_TRUE(WizardController::default_controller() != nullptr);
-    ASSERT_FALSE(StartupUtils::IsOobeCompleted());
   }
 
   // Helper method to return the current EnrollmentScreen instance.
@@ -194,8 +204,7 @@ class EnterpriseEnrollmentTestBase : public LoginManagerTest {
 
 class EnterpriseEnrollmentTest : public EnterpriseEnrollmentTestBase {
  public:
-  EnterpriseEnrollmentTest()
-      : EnterpriseEnrollmentTestBase(true /* should_initialize_webui */) {}
+  EnterpriseEnrollmentTest() = default;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(EnterpriseEnrollmentTest);
@@ -212,43 +221,25 @@ class ActiveDirectoryJoinTest : public EnterpriseEnrollmentTest {
     EnterpriseEnrollmentTestBase::SetUp();
   }
 
-  std::string AdElement(const std::string& inner_id) {
-    return test::GetOobeElementPath({kEnrollmentUI, kAdDialog, inner_id});
-  }
-
-  void ExpectElementValid(const std::string& inner_id, bool is_valid) {
-    test::OobeJS().ExpectNE(AdElement(inner_id) + ".invalid", is_valid);
-  }
-
   void CheckActiveDirectoryCredentialsShown() {
     enrollment_ui_.ExpectStepVisibility(true, test::ui::kEnrollmentStepADJoin);
 
-    std::initializer_list<base::StringPiece> ad_credentials{
-        kEnrollmentUI, kAdDialog, kAdCredentialsStep};
-    test::OobeJS().ExpectVisiblePath(ad_credentials);
-    test::OobeJS().ExpectNE(
-        test::GetOobeElementPath(ad_credentials) + ".clientWidth", 0);
-    test::OobeJS().ExpectNE(
-        test::GetOobeElementPath(ad_credentials) + ".clientHeight", 0);
-    test::OobeJS().ExpectHiddenPath(
-        {kEnrollmentUI, kAdDialog, kAdUnlockConfigurationStep});
+    test::OobeJS().ExpectVisiblePath(kAdCredentialsStep);
+    test::OobeJS().ExpectPathDisplayed(true, kAdCredentialsStep);
+    test::OobeJS().ExpectHiddenPath(kAdUnlockConfigurationStep);
   }
 
   void CheckConfigurationSelectionVisible(bool visible) {
     if (visible)
-      test::OobeJS().ExpectVisiblePath(
-          {kEnrollmentUI, kAdDialog, kAdJoinConfigurationForm});
+      test::OobeJS().ExpectVisiblePath(kAdJoinConfigurationForm);
     else
-      test::OobeJS().ExpectHiddenPath(
-          {kEnrollmentUI, kAdDialog, kAdJoinConfigurationForm});
+      test::OobeJS().ExpectHiddenPath(kAdJoinConfigurationForm);
   }
 
   void CheckActiveDirectoryUnlockConfigurationShown() {
     enrollment_ui_.ExpectStepVisibility(true, test::ui::kEnrollmentStepADJoin);
-    test::OobeJS().ExpectHiddenPath(
-        {kEnrollmentUI, kAdDialog, kAdCredentialsStep});
-    test::OobeJS().ExpectVisiblePath(
-        {kEnrollmentUI, kAdDialog, kAdUnlockConfigurationStep});
+    test::OobeJS().ExpectHiddenPath(kAdCredentialsStep);
+    test::OobeJS().ExpectVisiblePath(kAdUnlockConfigurationStep);
   }
 
   void CheckAttributeValue(const base::Value* config_value,
@@ -277,10 +268,11 @@ class ActiveDirectoryJoinTest : public EnterpriseEnrollmentTest {
       EXPECT_TRUE(base::EscapeJSONString(config_value->GetString(),
                                          false /* put_in_quotes */,
                                          &escaped_pattern));
-      test::OobeJS().ExpectTrue(AdElement(kAdMachineNameInput) +
+      test::OobeJS().ExpectTrue(test::GetOobeElementPath(kAdMachineNameInput) +
                                 ".pattern  === '" + escaped_pattern + "'");
     } else {
-      test::OobeJS().ExpectTrue("typeof " + AdElement(kAdMachineNameInput) +
+      test::OobeJS().ExpectTrue("typeof " +
+                                test::GetOobeElementPath(kAdMachineNameInput) +
                                 ".pattern === 'undefined'");
     }
   }
@@ -300,29 +292,29 @@ class ActiveDirectoryJoinTest : public EnterpriseEnrollmentTest {
     for (size_t i = 0; i < options->GetList().size(); ++i) {
       const base::Value& option = options->GetList()[i];
       // Select configuration value.
-      test::OobeJS().SelectElementInPath(
-          base::NumberToString(i),
-          {kEnrollmentUI, kAdDialog, kAdConfigurationSelect});
+      test::OobeJS().SelectElementInPath(base::NumberToString(i),
+                                         kAdConfigurationSelect);
 
       CheckAttributeValue(
           option.FindKeyOfType("name", base::Value::Type::STRING), "",
-          AdElement(kAdConfigurationSelect) + ".selectedOptions[0].label");
+          test::GetOobeElementPath(kAdConfigurationSelect) +
+              ".selectedOptions[0].label");
 
       CheckAttributeValueAndDisabled(
           option.FindKeyOfType("ad_username", base::Value::Type::STRING), "",
-          AdElement(kAdUsernameInput));
+          test::GetOobeElementPath(kAdUsernameInput));
 
       CheckAttributeValueAndDisabled(
           option.FindKeyOfType("ad_password", base::Value::Type::STRING), "",
-          AdElement(kAdPasswordInput));
+          test::GetOobeElementPath(kAdPasswordInput));
 
       CheckAttributeValueAndDisabled(
           option.FindKeyOfType("computer_ou", base::Value::Type::STRING), "",
-          AdElement(kAdMachineOrgUnitInput));
+          test::GetOobeElementPath(kAdMachineOrgUnitInput));
 
       CheckAttributeValueAndDisabled(
           option.FindKeyOfType("encryption_types", base::Value::Type::STRING),
-          "strong", AdElement(kAdEncryptionTypesSelect));
+          "strong", test::GetOobeElementPath(kAdEncryptionTypesSelect));
 
       CheckPatternAttribute(option.FindKeyOfType(
           "computer_name_validation_regex", base::Value::Type::STRING));
@@ -337,28 +329,19 @@ class ActiveDirectoryJoinTest : public EnterpriseEnrollmentTest {
                                         const std::string& password) {
     CheckActiveDirectoryCredentialsShown();
 
-    test::OobeJS().TypeIntoPath(
-        machine_name, {kEnrollmentUI, kAdDialog, kAdMachineNameInput});
-    test::OobeJS().TypeIntoPath(username,
-                                {kEnrollmentUI, kAdDialog, kAdUsernameInput});
-    test::OobeJS().TypeIntoPath(password,
-                                {kEnrollmentUI, kAdDialog, kAdPasswordInput});
-    test::OobeJS().TapOnPath({kEnrollmentUI, kAdDialog, kAdMoreOptionsButton});
-    test::OobeJS().TypeIntoPath(
-        machine_dn, {kEnrollmentUI, kAdDialog, kAdMachineOrgUnitInput});
+    test::OobeJS().TypeIntoPath(machine_name, kAdMachineNameInput);
+    test::OobeJS().TypeIntoPath(username, kAdUsernameInput);
+    test::OobeJS().TypeIntoPath(password, kAdPasswordInput);
+    test::OobeJS().TapOnPath(kAdMoreOptionsButton);
+    test::OobeJS().TypeIntoPath(machine_dn, kAdMachineOrgUnitInput);
 
     if (!encryption_types.empty()) {
-      test::OobeJS().SelectElementInPath(
-          encryption_types,
-          {kEnrollmentUI, kAdDialog, kAdEncryptionTypesSelect});
+      test::OobeJS().SelectElementInPath(encryption_types,
+                                         kAdEncryptionTypesSelect);
     }
-    test::OobeJS().TapOnPath(
-        {kEnrollmentUI, kAdDialog, kAdMoreOptionsSaveButton});
-    test::OobeJS()
-        .CreateEnabledWaiter(true /* enabled */,
-                             {kEnrollmentUI, kAdDialog, kNextButton})
-        ->Wait();
-    test::OobeJS().TapOnPath({kEnrollmentUI, kAdDialog, kNextButton});
+    test::OobeJS().TapOnPath(kAdMoreOptionsSaveButton);
+    test::OobeJS().CreateEnabledWaiter(true /* enabled */, kNextButton)->Wait();
+    test::OobeJS().TapOnPath(kNextButton);
   }
 
   void SetExpectedJoinRequest(
@@ -506,13 +489,17 @@ IN_PROC_BROWSER_TEST_F(EnterpriseEnrollmentTest, StoragePartitionUpdated) {
   ExecutePendingJavaScript();
 
   std::string webview_partition_path =
-      test::GetOobeElementPath({kEnrollmentUI, kWebview}) + kPartitionAttribute;
+      test::GetOobeElementPath(kWebview) + kPartitionAttribute;
   std::string webview_partition_name_1 =
       test::OobeJS().GetString(webview_partition_path);
   EXPECT_FALSE(webview_partition_name_1.empty());
 
-  // Simulate navigating over the enrollment screen a second time (without using
-  // 'Back' and 'Next' buttons).
+  // Cancel button is enabled when the authenticator is ready. Do it manually
+  // instead of waiting for it.
+  test::ExecuteOobeJS("$('enterprise-enrollment').isCancelDisabled = false");
+  test::OobeJS().ClickOnPath(kBackButton);
+
+  // Simulate navigating over the enrollment screen a second time.
   ShowEnrollmentScreen();
   ExecutePendingJavaScript();
 
@@ -609,9 +596,9 @@ IN_PROC_BROWSER_TEST_F(ActiveDirectoryJoinTest,
                                    "" /* encryption_types */, kAdTestUser,
                                    "" /* password */);
   enrollment_ui_.ExpectStepVisibility(true, test::ui::kEnrollmentStepADJoin);
-  ExpectElementValid(kAdMachineNameInput, true);
-  ExpectElementValid(kAdUsernameInput, true);
-  ExpectElementValid(kAdPasswordInput, false);
+  test::OobeJS().ExpectValidPath(kAdMachineNameInput);
+  test::OobeJS().ExpectValidPath(kAdUsernameInput);
+  test::OobeJS().ExpectInvalidPath(kAdPasswordInput);
 
   // Checking error in case of too long machine name.
   SubmitActiveDirectoryCredentials("too_long_machine_name", "" /* machine_dn */,
@@ -619,9 +606,9 @@ IN_PROC_BROWSER_TEST_F(ActiveDirectoryJoinTest,
                                    "password");
   WaitForMessage(&message_queue, "\"ShowJoinDomainError\"");
   enrollment_ui_.ExpectStepVisibility(true, test::ui::kEnrollmentStepADJoin);
-  ExpectElementValid(kAdMachineNameInput, false);
-  ExpectElementValid(kAdUsernameInput, true);
-  ExpectElementValid(kAdPasswordInput, true);
+  test::OobeJS().ExpectInvalidPath(kAdMachineNameInput);
+  test::OobeJS().ExpectValidPath(kAdUsernameInput);
+  test::OobeJS().ExpectValidPath(kAdPasswordInput);
 
   // Checking error in case of bad username (without realm).
   SubmitActiveDirectoryCredentials("machine_name", "" /* machine_dn */,
@@ -629,9 +616,9 @@ IN_PROC_BROWSER_TEST_F(ActiveDirectoryJoinTest,
                                    "password");
   WaitForMessage(&message_queue, "\"ShowJoinDomainError\"");
   enrollment_ui_.ExpectStepVisibility(true, test::ui::kEnrollmentStepADJoin);
-  ExpectElementValid(kAdMachineNameInput, true);
-  ExpectElementValid(kAdUsernameInput, false);
-  ExpectElementValid(kAdPasswordInput, true);
+  test::OobeJS().ExpectValidPath(kAdMachineNameInput);
+  test::OobeJS().ExpectInvalidPath(kAdUsernameInput);
+  test::OobeJS().ExpectValidPath(kAdPasswordInput);
 }
 
 // Check that correct error card is shown (Active Directory one). Also checks
@@ -652,7 +639,7 @@ IN_PROC_BROWSER_TEST_F(ActiveDirectoryJoinTest,
                                    "legacy", kAdTestUser, "password");
   WaitForMessage(&message_queue, "\"ShowADJoinError\"");
   enrollment_ui_.WaitForStep(test::ui::kEnrollmentStepError);
-  test::OobeJS().ClickOnPath({kEnrollmentUI, kAdErrorCard, kSubmitButton});
+  test::OobeJS().ClickOnPath(kAdRetryButton);
   enrollment_ui_.WaitForStep(test::ui::kEnrollmentStepADJoin);
 }
 
@@ -675,26 +662,24 @@ IN_PROC_BROWSER_TEST_F(ActiveDirectoryJoinTest,
 
   // Unlock password step should we shown.
   CheckActiveDirectoryUnlockConfigurationShown();
-  ExpectElementValid(kAdUnlockPasswordInput, true);
+  test::OobeJS().ExpectValidPath(kAdUnlockPasswordInput);
 
   // Test skipping the password step and getting back.
-  test::OobeJS().TapOnPath({kEnrollmentUI, kAdDialog, kSkipButton});
+  test::OobeJS().TapOnPath(kAdSkipButton);
   CheckActiveDirectoryCredentialsShown();
   CheckConfigurationSelectionVisible(false);
-  test::OobeJS().ClickOnPath({kEnrollmentUI, kAdDialog, kAdBackToUnlockButton});
+  test::OobeJS().ClickOnPath(kAdBackToUnlockButton);
   CheckActiveDirectoryUnlockConfigurationShown();
 
   // Enter wrong unlock password.
-  test::OobeJS().TypeIntoPath(
-      "wrong_password", {kEnrollmentUI, kAdDialog, kAdUnlockPasswordInput});
-  test::OobeJS().TapOnPath({kEnrollmentUI, kAdDialog, kAdUnlockButton});
+  test::OobeJS().TypeIntoPath("wrong_password", kAdUnlockPasswordInput);
+  test::OobeJS().TapOnPath(kAdUnlockButton);
   WaitForMessage(&message_queue, "\"ShowJoinDomainError\"");
-  ExpectElementValid(kAdUnlockPasswordInput, false);
+  test::OobeJS().ExpectInvalidPath(kAdUnlockPasswordInput);
 
   // Enter right unlock password.
-  test::OobeJS().TypeIntoPath(
-      "test765!", {kEnrollmentUI, kAdDialog, kAdUnlockPasswordInput});
-  test::OobeJS().TapOnPath({kEnrollmentUI, kAdDialog, kAdUnlockButton});
+  test::OobeJS().TypeIntoPath("test765!", kAdUnlockPasswordInput);
+  test::OobeJS().TapOnPath(kAdUnlockButton);
   WaitForMessage(&message_queue, "\"SetAdJoinConfiguration\"");
   CheckActiveDirectoryCredentialsShown();
   // Configuration selector should be visible.

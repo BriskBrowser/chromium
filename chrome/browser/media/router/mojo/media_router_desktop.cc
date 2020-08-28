@@ -14,10 +14,12 @@
 #include "chrome/browser/media/router/providers/cast/cast_media_route_provider.h"
 #include "chrome/browser/media/router/providers/cast/chrome_cast_message_handler.h"
 #include "chrome/browser/media/router/providers/wired_display/wired_display_media_route_provider.h"
+#include "chrome/browser/net/system_network_context_manager.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/chrome_features.h"
-#include "chrome/common/media_router/media_source.h"
 #include "components/cast_channel/cast_socket_service.h"
+#include "components/media_router/common/media_source.h"
+#include "components/openscreen_platform/network_context.h"
 #include "content/public/browser/browser_thread.h"
 #include "extensions/common/extension.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
@@ -48,8 +50,9 @@ void MediaRouterDesktop::OnUserGesture() {
   MediaRouterMojoImpl::OnUserGesture();
   // Allow MRPM to intelligently update sinks and observers by passing in a
   // media source.
-  UpdateMediaSinks(MediaSource::ForDesktop().id());
+  UpdateMediaSinks(MediaSource::ForUnchosenDesktop().id());
 
+  media_sink_service_->BindLogger(GetLogger());
   media_sink_service_->OnUserGesture();
 
 #if defined(OS_WIN)
@@ -59,6 +62,17 @@ void MediaRouterDesktop::OnUserGesture() {
 
 base::Value MediaRouterDesktop::GetState() const {
   return media_sink_service_status_.GetStatusAsValue();
+}
+
+void MediaRouterDesktop::GetProviderState(
+    MediaRouteProviderId provider_id,
+    mojom::MediaRouteProvider::GetStateCallback callback) const {
+  if (provider_id == MediaRouteProviderId::CAST &&
+      CastMediaRouteProviderEnabled()) {
+    media_route_providers_.at(provider_id)->GetState(std::move(callback));
+  } else {
+    std::move(callback).Run(mojom::ProviderStatePtr());
+  }
 }
 
 base::Optional<MediaRouteProviderId>
@@ -102,10 +116,12 @@ void MediaRouterDesktop::RegisterMediaRouteProvider(
   // discovery / sink query. We are migrating discovery from the external Media
   // Route Provider to the Media Router (https://crbug.com/687383), so we need
   // to disable it in the provider.
+  //
+  // FIXME: Remove config flags once all features are launched
   config->enable_cast_discovery = false;
   config->enable_dial_sink_query = false;
   config->enable_cast_sink_query = !CastMediaRouteProviderEnabled();
-  config->use_mirroring_service = ShouldUseMirroringService();
+  config->use_mirroring_service = true;
   std::move(callback).Run(instance_id(), std::move(config));
 
   SyncStateToMediaRouteProvider(provider_id);
@@ -168,7 +184,6 @@ void MediaRouterDesktop::BindToMojoReceiver(
 
 void MediaRouterDesktop::ProvideSinksToExtension() {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
-  DVLOG(1) << "ProvideSinksToExtension";
   // If calling |ProvideSinksToExtension| for the first time, add a callback to
   // be notified of sink updates.
   if (!media_sink_service_subscription_) {
@@ -186,8 +201,11 @@ void MediaRouterDesktop::ProvideSinks(
     const std::string& provider_name,
     const std::vector<MediaSinkInternal>& sinks) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
-  DVLOG(1) << "Provider [" << provider_name << "] found " << sinks.size()
-           << " devices...";
+  // We no longer provide DIAL sources to the extension.
+  constexpr char kDialSourceName[] = "dial";
+  if (provider_name == kDialSourceName) {
+    return;
+  }
   media_route_providers_[MediaRouteProviderId::EXTENSION]->ProvideSinks(
       provider_name, sinks);
 
@@ -195,6 +213,13 @@ void MediaRouterDesktop::ProvideSinks(
 }
 
 void MediaRouterDesktop::InitializeMediaRouteProviders() {
+  if (!openscreen_platform::HasNetworkContextGetter()) {
+    openscreen_platform::SetNetworkContextGetter(base::BindRepeating([] {
+      DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+      return g_browser_process->system_network_context_manager()->GetContext();
+    }));
+  }
+
   InitializeExtensionMediaRouteProviderProxy();
   InitializeWiredDisplayMediaRouteProvider();
   if (CastMediaRouteProviderEnabled())
@@ -221,13 +246,10 @@ void MediaRouterDesktop::OnExtensionProviderError() {
   // The message pipe for |extension_provider_proxy_| might error out due to
   // Media Router extension causing dropped callbacks. Detect this case and
   // recover by re-creating the pipe.
-  DVLOG(2) << "Extension MRP encountered error.";
   if (extension_provider_error_count_ >= kMaxMediaRouteProviderErrorCount)
     return;
 
   ++extension_provider_error_count_;
-  DVLOG(2) << "Reconnecting to extension MRP: "
-           << extension_provider_error_count_;
   InitializeExtensionMediaRouteProviderProxy();
 }
 

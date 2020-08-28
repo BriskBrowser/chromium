@@ -19,6 +19,8 @@
 class AppDistributionProvider;
 class BrandedImageProvider;
 class BrowserURLRewriterProvider;
+class ChromeBrowserState;
+class DiscoverFeedProvider;
 class FullscreenProvider;
 class MailtoHandlerProvider;
 class OmahaServiceProvider;
@@ -45,8 +47,8 @@ class Browser;
 namespace ios {
 
 class ChromeBrowserProvider;
-class ChromeBrowserState;
 class ChromeIdentityService;
+class ChromeTrustedVaultService;
 class GeolocationUpdaterProvider;
 class SigninErrorProvider;
 class SigninResourcesProvider;
@@ -104,6 +106,8 @@ class ChromeBrowserProvider {
       std::unique_ptr<ChromeIdentityService> service);
   // Returns an instance of a Chrome identity service.
   virtual ChromeIdentityService* GetChromeIdentityService();
+  // Returns an instance of a Chrome trusted vault service.
+  virtual ChromeTrustedVaultService* GetChromeTrustedVaultService();
   // Returns an instance of a GeolocationUpdaterProvider.
   virtual GeolocationUpdaterProvider* GetGeolocationUpdaterProvider();
   // Returns risk data used in Wallet requests.
@@ -114,6 +118,10 @@ class ChromeBrowserProvider {
   virtual void AddSerializableData(
       web::SerializableUserDataManager* user_data_manager,
       web::WebState* web_state);
+
+  // Whether the embedder might block specific URL.
+  virtual bool MightBlockUrlDuringRestore();
+
   // Allow embedders to block a specific URL.
   virtual bool ShouldBlockUrlDuringRestore(const GURL& url,
                                            web::WebState* web_state);
@@ -126,7 +134,7 @@ class ChromeBrowserProvider {
 
   // Schedule any embedder-specific startup tasks.
   virtual void ScheduleDeferredStartupTasks(
-      ios::ChromeBrowserState* browser_state) const;
+      ChromeBrowserState* browser_state) const;
 
   // Returns an instance of the voice search provider, if one exists.
   virtual VoiceSearchProvider* GetVoiceSearchProvider() const;
@@ -134,9 +142,9 @@ class ChromeBrowserProvider {
   // Returns an instance of the app distribution provider.
   virtual AppDistributionProvider* GetAppDistributionProvider() const;
 
-  virtual id<LogoVendor> CreateLogoVendor(
-      ios::ChromeBrowserState* browser_state,
-      web::WebState* web_state) const NS_RETURNS_RETAINED;
+  virtual id<LogoVendor> CreateLogoVendor(Browser* browser,
+                                          web::WebState* web_state) const
+      NS_RETURNS_RETAINED;
 
   // Returns an instance of the omaha service provider.
   virtual OmahaServiceProvider* GetOmahaServiceProvider() const;
@@ -168,6 +176,9 @@ class ChromeBrowserProvider {
 
   // Returns an instance of the Overrides provider;
   virtual OverridesProvider* GetOverridesProvider() const;
+
+  // Returns an instance of the DiscoverFeed provider;
+  virtual DiscoverFeedProvider* GetDiscoverFeedProvider() const;
 
   // Adds and removes observers.
   void AddObserver(Observer* observer);

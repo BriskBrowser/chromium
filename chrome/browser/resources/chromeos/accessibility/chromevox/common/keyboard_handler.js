@@ -8,6 +8,7 @@ goog.require('ChromeVox');
 goog.require('KeyMap');
 goog.require('KeySequence');
 goog.require('KeyUtil');
+goog.require('ChromeVoxState');
 
 /**
  * @fileoverview Handles user keyboard input events.
@@ -54,9 +55,9 @@ ChromeVoxKbHandler.loadKeyToFunctionsTable = function(keyToFunctionsTable) {
  * @private
  */
 ChromeVoxKbHandler.sortKeyToFunctionsTable_ = function(keyToFunctionsTable) {
-  var sortingArray = [];
+  const sortingArray = [];
 
-  for (var keySeqStr in keyToFunctionsTable) {
+  for (const keySeqStr in keyToFunctionsTable) {
     sortingArray.push([keySeqStr, keyToFunctionsTable[keySeqStr]]);
   }
 
@@ -84,8 +85,17 @@ ChromeVoxKbHandler.sortKeyToFunctionsTable_ = function(keyToFunctionsTable) {
  * @return {boolean} True if the default action should be performed.
  */
 ChromeVoxKbHandler.basicKeyDownActionsListener = function(evt) {
-  var keySequence = KeyUtil.keyEventToKeySequence(evt);
-  var functionName;
+  const keySequence = KeyUtil.keyEventToKeySequence(evt);
+  const chromeVoxState = ChromeVoxState.instance;
+  const monitor = chromeVoxState ? chromeVoxState.getUserActionMonitor() : null;
+  if (monitor && !monitor.onKeySequence(keySequence)) {
+    // UserActionMonitor returns true if this key sequence was matched. If a
+    // key sequence is matched by the UserActionMonitor, allow it to process.
+    // Otherwise, prevent the default action.
+    return false;
+  }
+
+  let functionName;
   if (ChromeVoxKbHandler.handlerKeyMap != undefined) {
     functionName = ChromeVoxKbHandler.handlerKeyMap.commandForKey(keySequence);
   } else {
@@ -103,8 +113,8 @@ ChromeVoxKbHandler.basicKeyDownActionsListener = function(evt) {
   // This is the key event handler return value - true if the event should
   // propagate and the default action should be performed, false if we eat
   // the key.
-  var returnValue = true;
-  var commandResult = ChromeVoxKbHandler.commandHandler(functionName);
+  let returnValue = true;
+  const commandResult = ChromeVoxKbHandler.commandHandler(functionName);
   if (commandResult !== undefined) {
     returnValue = commandResult;
   } else if (keySequence.cvoxModifier) {

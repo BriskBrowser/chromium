@@ -12,8 +12,10 @@
 #include "third_party/blink/renderer/platform/platform_export.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
+#include "third_party/skia/include/core/SkColor.h"
 
 namespace cc {
+class Layer;
 class PaintCanvas;
 }
 
@@ -60,16 +62,12 @@ class PLATFORM_EXPORT PaintArtifact final : public RefCounted<PaintArtifact> {
     return PaintChunkSubset(PaintChunks(), subset_indices);
   }
 
-  Vector<PaintChunk>::const_iterator FindChunkByDisplayItemIndex(
-      size_t index) const {
-    return FindChunkInVectorByDisplayItemIndex(PaintChunks(), index);
-  }
-
   // Returns the approximate memory usage, excluding memory likely to be
   // shared with the embedder after copying to cc::DisplayItemList.
   size_t ApproximateUnsharedMemoryUsage() const;
 
-  void AppendDebugDrawing(sk_sp<const PaintRecord>, const PropertyTreeState&);
+  void AppendDebugDrawing(sk_sp<const PaintRecord>,
+                          const PropertyTreeStateOrAlias&);
 
   // Draws the paint artifact to a GraphicsContext, into the ancestor state
   // given by |replay_state|.
@@ -90,6 +88,9 @@ class PLATFORM_EXPORT PaintArtifact final : public RefCounted<PaintArtifact> {
   // Will cleanup data (e.g. raster invalidations) that will no longer be used
   // for the next cycle, and update status to be ready for the next cycle.
   void FinishCycle();
+
+  void UpdateBackgroundColor(cc::Layer* layer,
+                             const PaintChunkSubset& paint_chunks) const;
 
  private:
   PaintArtifact();

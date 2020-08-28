@@ -7,6 +7,7 @@
 #include <memory>
 #include <utility>
 
+#include "base/bind_helpers.h"
 #include "base/run_loop.h"
 #include "components/viz/common/quads/solid_color_draw_quad.h"
 #include "components/viz/common/quads/surface_draw_quad.h"
@@ -124,8 +125,8 @@ CompositorFrame FuzzerBrowserProcess::BuildBrowserUICompositorFrame(
       SurfaceRange(base::nullopt, renderer_surface_id));
 
   std::unique_ptr<RenderPass> pass = RenderPass::Create();
-  pass->SetNew(/*id=*/1, gfx::Rect(kBrowserSize), gfx::Rect(kBrowserSize),
-               gfx::Transform());
+  pass->SetNew(RenderPassId{1}, gfx::Rect(kBrowserSize),
+               gfx::Rect(kBrowserSize), gfx::Transform());
 
   auto* renderer_sqs = pass->CreateAndAppendSharedQuadState();
   renderer_sqs->SetAll(gfx::Transform(1.0, 0.0, 0.0, 1.0, 0, 80),

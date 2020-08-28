@@ -15,6 +15,7 @@
 #include "base/strings/sys_string_conversions.h"
 #include "base/strings/utf_string_conversions.h"
 #import "base/test/ios/wait_util.h"
+#import "ios/chrome/browser/ui/page_info/features.h"
 #import "ios/chrome/browser/ui/popup_menu/popup_menu_constants.h"
 #import "ios/chrome/browser/ui/reading_list/reading_list_app_interface.h"
 #import "ios/chrome/browser/ui/reading_list/reading_list_constants.h"
@@ -182,7 +183,7 @@ void AssertAllEntriesVisible() {
 
 // Asserts that the entry |title| is not visible.
 void AssertEntryNotVisible(NSString* title) {
-  [[GREYUIThreadExecutor sharedInstance] drainUntilIdle];
+  [ChromeEarlGreyUI waitForAppToIdle];
   ScrollToTop();
   NSError* error;
 
@@ -200,7 +201,7 @@ void AssertEntryNotVisible(NSString* title) {
 
 // Asserts |header| is visible.
 void AssertHeaderNotVisible(NSString* header) {
-  [[GREYUIThreadExecutor sharedInstance] drainUntilIdle];
+  [ChromeEarlGreyUI waitForAppToIdle];
   ScrollToTop();
   [[EarlGrey selectElementWithMatcher:
                  chrome_test_util::StaticTextWithAccessibilityLabel(header)]
@@ -212,6 +213,19 @@ void OpenReadingList() {
   [ChromeEarlGreyUI openToolsMenu];
   [ChromeEarlGreyUI
       tapToolsMenuButton:chrome_test_util::ReadingListMenuButton()];
+  // It seems that sometimes there is a delay before the ReadingList is
+  // displayed. See https://crbug.com/1109202 .
+  GREYAssert(base::test::ios::WaitUntilConditionOrTimeout(
+                 kWaitForUIElementTimeout,
+                 ^BOOL {
+                   NSError* error = nil;
+                   [[EarlGrey selectElementWithMatcher:grey_accessibilityID(
+                                                           kReadingListViewID)]
+                       assertWithMatcher:grey_sufficientlyVisible()
+                                   error:&error];
+                   return error == nil;
+                 }),
+             @"Reading List didn't appear.");
 }
 
 // Adds 20 read and 20 unread entries to the model, opens the reading list menu
@@ -318,9 +332,11 @@ void WaitForDistillation() {
   ConditionBlock wait_for_distillation_date = ^{
     NSError* error = nil;
     [[EarlGrey
-        selectElementWithMatcher:grey_accessibilityID(
-                                     kTableViewURLCellFaviconBadgeViewID)]
-        assertWithMatcher:grey_sufficientlyVisible()
+        selectElementWithMatcher:grey_allOf(
+                                     grey_accessibilityID(
+                                         kTableViewURLCellFaviconBadgeViewID),
+                                     grey_sufficientlyVisible(), nil)]
+        assertWithMatcher:grey_notNil()
                     error:&error];
     return error == nil;
   };
@@ -390,7 +406,7 @@ void AssertIsShowingDistillablePage(bool online, const GURL& distillable_url) {
   [[EarlGrey selectElementWithMatcher:
                  grey_allOf(chrome_test_util::PageSecurityInfoIndicator(),
                             chrome_test_util::ImageViewWithImageNamed(
-                                @"location_bar_offline"),
+                                @"location_bar_connection_offline"),
                             nil)]
       assertWithMatcher:online ? grey_nil() : grey_notNil()];
 }
@@ -410,6 +426,12 @@ void AssertIsShowingDistillablePage(bool online, const GURL& distillable_url) {
 @implementation ReadingListTestCase
 @synthesize serverRespondsWithContent = _serverRespondsWithContent;
 @synthesize serverResponseDelay = _serverResponseDelay;
+
+- (AppLaunchConfiguration)appConfigurationForTestCase {
+  AppLaunchConfiguration config;
+  config.features_enabled.push_back(kPageInfoRefactoring);
+  return config;
+}
 
 - (void)setUp {
   [super setUp];
@@ -480,7 +502,7 @@ void AssertIsShowingDistillablePage(bool online, const GURL& distillable_url) {
   // Verify that the Page Info is about offline pages.
   id<GREYMatcher> pageInfoTitleMatcher =
       chrome_test_util::StaticTextWithAccessibilityLabelId(
-          IDS_IOS_PAGE_INFO_OFFLINE_TITLE);
+          IDS_IOS_PAGE_INFO_OFFLINE_PAGE_LABEL);
   [[EarlGrey selectElementWithMatcher:pageInfoTitleMatcher]
       assertWithMatcher:grey_notNil()];
 
@@ -674,6 +696,11 @@ void AssertIsShowingDistillablePage(bool online, const GURL& distillable_url) {
   } else {
     if (IsIPadIdiom())
       EARL_GREY_TEST_SKIPPED(@"Test skipped on Ipad Air 2, iOS12.");
+  }
+
+  // TODO(crbug.com/1046978): Test fails on iOS 13.3 iPad
+  if ([ChromeEarlGrey isIPadIdiom] && base::ios::IsRunningOnOrLater(13, 3, 0)) {
+    EARL_GREY_TEST_SKIPPED(@"Test disabled on iOS 13.3 iPad and later.");
   }
 
   AddEntriesAndOpenReadingList();

@@ -14,6 +14,22 @@ interface AbortSignal : EventTarget
     getter onabort
     method constructor
     setter onabort
+interface AudioDecoder
+    attribute @@toStringTag
+    getter decodeQueueSize
+    getter state
+    method close
+    method configure
+    method constructor
+    method decode
+    method flush
+    method reset
+interface AudioFrame
+    attribute @@toStringTag
+    getter buffer
+    getter timestamp
+    method close
+    method constructor
 interface BackgroundFetchEvent : ExtendableEvent
     attribute @@toStringTag
     getter registration
@@ -54,6 +70,15 @@ interface BarcodeDetector
     attribute @@toStringTag
     method constructor
     method detect
+interface BidirectionalStream
+    attribute @@toStringTag
+    getter readable
+    getter readingAborted
+    getter writable
+    getter writingAborted
+    method abortReading
+    method abortWriting
+    method constructor
 interface Blob
     attribute @@toStringTag
     getter size
@@ -108,12 +133,14 @@ interface CacheStorage
     method open
 interface CanMakePaymentEvent : ExtendableEvent
     attribute @@toStringTag
+    getter currency
     getter methodData
     getter modifiers
     getter paymentRequestOrigin
     getter topOrigin
     method constructor
     method respondWith
+    method respondWithMinimalUI
 interface CanvasGradient
     attribute @@toStringTag
     method addColorStop
@@ -398,23 +425,11 @@ interface DecompressionStream
     getter readable
     getter writable
     method constructor
-interface DetectedBarcode
+interface EncodedAudioChunk
     attribute @@toStringTag
-    getter boundingBox
-    getter cornerPoints
-    getter format
-    getter rawValue
-    method constructor
-interface DetectedFace
-    attribute @@toStringTag
-    getter boundingBox
-    getter landmarks
-    method constructor
-interface DetectedText
-    attribute @@toStringTag
-    getter boundingBox
-    getter cornerPoints
-    getter rawValue
+    getter data
+    getter timestamp
+    getter type
     method constructor
 interface ErrorEvent : Event
     attribute @@toStringTag
@@ -497,6 +512,7 @@ interface FaceDetector
 interface FetchEvent : ExtendableEvent
     attribute @@toStringTag
     getter clientId
+    getter handled
     getter isReload
     getter preloadResponse
     getter request
@@ -544,25 +560,27 @@ interface FileReader : EventTarget
     setter onloadstart
     setter onprogress
 interface FileSystemDirectoryHandle : FileSystemHandle
-    static method getSystemDirectory
     attribute @@toStringTag
+    method @@asyncIterator
     method constructor
-    method getDirectory
-    method getEntries
-    method getFile
+    method entries
+    method getDirectoryHandle
+    method getFileHandle
+    method keys
     method removeEntry
+    method resolve
+    method values
 interface FileSystemFileHandle : FileSystemHandle
     attribute @@toStringTag
     method constructor
     method createWritable
-    method createWriter
     method getFile
 interface FileSystemHandle
     attribute @@toStringTag
-    getter isDirectory
-    getter isFile
+    getter kind
     getter name
     method constructor
+    method isSameEntry
     method queryPermission
     method requestPermission
 interface FileSystemWritableFileStream : WritableStream
@@ -570,12 +588,6 @@ interface FileSystemWritableFileStream : WritableStream
     method close
     method constructor
     method seek
-    method truncate
-    method write
-interface FileSystemWriter
-    attribute @@toStringTag
-    method close
-    method constructor
     method truncate
     method write
 interface FontFace
@@ -719,6 +731,7 @@ interface IDBObjectStore
     method openCursor
     method openKeyCursor
     method put
+    method putAllValues
     setter name
 interface IDBObservation
     attribute @@toStringTag
@@ -799,6 +812,18 @@ interface ImageData
     getter width
     method constructor
     method getColorSettings
+interface ImageDecoder
+    static method canDecodeType
+    attribute @@toStringTag
+    getter complete
+    getter frameCount
+    getter repetitionCount
+    getter tracks
+    getter type
+    method constructor
+    method decode
+    method decodeMetadata
+    method selectTrack
 interface InstallEvent : ExtendableEvent
     attribute @@toStringTag
     method constructor
@@ -895,6 +920,22 @@ interface MojoWatcher
     attribute @@toStringTag
     method cancel
     method constructor
+interface NativeIOFile
+    attribute @@toStringTag
+    method close
+    method constructor
+    method flush
+    method getLength
+    method read
+    method setLength
+    method write
+interface NativeIOManager
+    attribute @@toStringTag
+    method constructor
+    method delete
+    method getAll
+    method open
+    method rename
 interface NavigationPreloadManager
     attribute @@toStringTag
     method constructor
@@ -902,6 +943,12 @@ interface NavigationPreloadManager
     method enable
     method getState
     method setHeaderValue
+interface NavigatorUAData
+    attribute @@toStringTag
+    getter brands
+    getter mobile
+    method constructor
+    method getHighEntropyValues
 interface NetworkInformation : EventTarget
     attribute @@toStringTag
     getter downlink
@@ -992,6 +1039,7 @@ interface OffscreenCanvasRenderingContext2D
     method closePath
     method commit
     method constructor
+    method createConicGradient
     method createImageData
     method createLinearGradient
     method createPattern
@@ -1096,7 +1144,6 @@ interface Performance : EventTarget
     method getEntriesByType
     method mark
     method measure
-    method measureMemory
     method now
     method profile
     method setResourceTimingBufferSize
@@ -1184,6 +1231,13 @@ interface Permissions
     method request
     method requestAll
     method revoke
+interface Plane
+    attribute @@toStringTag
+    getter length
+    getter rows
+    getter stride
+    method constructor
+    method readInto
 interface Profiler
     attribute @@toStringTag
     getter sampleInterval
@@ -1234,8 +1288,15 @@ interface PushSubscriptionOptions
     method constructor
 interface QuicTransport
     attribute @@toStringTag
+    getter closed
+    getter ready
     method close
     method constructor
+    method createBidirectionalStream
+    method createSendStream
+    method receiveBidirectionalStreams
+    method receiveDatagrams
+    method receiveStreams
     method sendDatagrams
 interface ReadableStream
     attribute @@toStringTag
@@ -1253,8 +1314,21 @@ interface ReadableStreamDefaultReader
     method constructor
     method read
     method releaseLock
+interface ReceiveStream
+    attribute @@toStringTag
+    getter readable
+    getter readingAborted
+    method abortReading
+    method constructor
+interface ReportingObserver
+    attribute @@toStringTag
+    method constructor
+    method disconnect
+    method observe
+    method takeRecords
 interface Request
     attribute @@toStringTag
+    getter body
     getter bodyUsed
     getter cache
     getter credentials
@@ -1312,6 +1386,12 @@ interface SecurityPolicyViolationEvent : Event
     getter statusCode
     getter violatedDirective
     method constructor
+interface SendStream
+    attribute @@toStringTag
+    getter writable
+    getter writingAborted
+    method abortWriting
+    method constructor
 interface ServiceWorker : EventTarget
     attribute @@toStringTag
     getter onerror
@@ -1347,11 +1427,14 @@ interface ServiceWorkerRegistration : EventTarget
     method unregister
     method update
     setter onupdatefound
-interface StorageManager
+interface StorageManager : EventTarget
     attribute @@toStringTag
+    getter onquotachange
     method constructor
     method estimate
+    method getDirectory
     method persisted
+    setter onquotachange
 interface SubtleCrypto
     attribute @@toStringTag
     method constructor
@@ -1431,12 +1514,21 @@ interface TransformStream
     getter readable
     getter writable
     method constructor
-interface TrustedTypePolicyFactory
+interface TrustedTypePolicyFactory : EventTarget
     attribute @@toStringTag
+    getter defaultPolicy
+    getter emptyHTML
+    getter emptyScript
+    getter onbeforecreatepolicy
     method constructor
+    method createPolicy
     method getAttributeType
     method getPropertyType
     method getTypeMapping
+    method isHTML
+    method isScript
+    method isScriptURL
+    setter onbeforecreatepolicy
 interface URL
     attribute @@toStringTag
     getter hash
@@ -1485,6 +1577,24 @@ interface UserActivation
     getter hasBeenActive
     getter isActive
     method constructor
+interface VideoFrame
+    attribute @@toStringTag
+    getter codedHeight
+    getter codedWidth
+    getter cropHeight
+    getter cropLeft
+    getter cropTop
+    getter cropWidth
+    getter displayHeight
+    getter displayWidth
+    getter duration
+    getter format
+    getter planes
+    getter timestamp
+    method clone
+    method constructor
+    method createImageBitmap
+    method destroy
 interface WebGL2ComputeRenderingContext
     attribute @@toStringTag
     attribute ACTIVE_ATOMIC_COUNTER_BUFFERS
@@ -3695,19 +3805,23 @@ interface WorkerGlobalScope : EventTarget
     attribute @@toStringTag
     getter addressSpace
     getter caches
+    getter crossOriginIsolated
     getter crypto
     getter fonts
     getter indexedDB
     getter isSecureContext
     getter location
+    getter nativeIO
     getter navigator
     getter onerror
     getter onlanguagechange
     getter onrejectionhandled
+    getter ontimezonechange
     getter onunhandledrejection
     getter origin
     getter performance
     getter self
+    getter trustedTypes
     method atob
     method btoa
     method clearInterval
@@ -3722,6 +3836,7 @@ interface WorkerGlobalScope : EventTarget
     setter onerror
     setter onlanguagechange
     setter onrejectionhandled
+    setter ontimezonechange
     setter onunhandledrejection
     setter origin
     setter performance
@@ -3758,8 +3873,11 @@ interface WorkerNavigator
     getter storage
     getter usb
     getter userAgent
+    getter userAgentData
     getter wakeLock
+    method clearAppBadge
     method constructor
+    method setAppBadge
 interface WritableStream
     attribute @@toStringTag
     getter locked
@@ -3805,7 +3923,6 @@ interface WritableStreamDefaultWriter
     getter onsync
     getter registration
     getter serviceWorker
-    getter trustedTypes
     method gc
     method skipWaiting
     setter cookieStore

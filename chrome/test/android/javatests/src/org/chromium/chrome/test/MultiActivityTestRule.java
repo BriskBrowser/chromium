@@ -6,16 +6,16 @@ package org.chromium.chrome.test;
 
 import android.content.Context;
 import android.support.test.InstrumentationRegistry;
-import android.text.TextUtils;
 
+import org.hamcrest.Matchers;
 import org.junit.rules.TestRule;
 import org.junit.runner.Description;
 import org.junit.runners.model.Statement;
 
-import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.base.test.util.CallbackHelper;
-import org.chromium.chrome.browser.ChromeActivity;
+import org.chromium.chrome.browser.app.ChromeActivity;
 import org.chromium.chrome.browser.tab.Tab;
+import org.chromium.chrome.browser.tab.TabCreationState;
 import org.chromium.chrome.browser.tabmodel.EmptyTabModelSelectorObserver;
 import org.chromium.chrome.test.util.ApplicationTestUtils;
 import org.chromium.chrome.test.util.ChromeTabUtils;
@@ -42,13 +42,9 @@ public class MultiActivityTestRule implements TestRule {
         final Tab tab = activity.getActivityTab();
         assert tab != null;
 
-        CriteriaHelper.pollUiThread(new Criteria() {
-            @Override
-            public boolean isSatisfied() {
-                if (!ChromeTabUtils.isLoadingAndRenderingDone(tab)) return false;
-                if (!TextUtils.equals(expectedTitle, tab.getTitle())) return false;
-                return true;
-            }
+        CriteriaHelper.pollUiThread(() -> {
+            Criteria.checkThat(ChromeTabUtils.isLoadingAndRenderingDone(tab), Matchers.is(true));
+            Criteria.checkThat(tab.getTitle(), Matchers.is(expectedTitle));
         });
     }
 
@@ -56,7 +52,7 @@ public class MultiActivityTestRule implements TestRule {
         final CallbackHelper newTabCreatorHelper = new CallbackHelper();
         activity.getTabModelSelector().addObserver(new EmptyTabModelSelectorObserver() {
             @Override
-            public void onNewTabCreated(Tab tab) {
+            public void onNewTabCreated(Tab tab, @TabCreationState int creationState) {
                 newTabCreatorHelper.notifyCalled();
             }
         });
@@ -64,14 +60,12 @@ public class MultiActivityTestRule implements TestRule {
     }
 
     private void ruleSetUp() {
-        RecordHistogram.setDisabledForTests(true);
         mContext = InstrumentationRegistry.getTargetContext();
         ApplicationTestUtils.setUp(mContext);
     }
 
     private void ruleTearDown() {
         ApplicationTestUtils.tearDown(mContext);
-        RecordHistogram.setDisabledForTests(false);
     }
 
     @Override

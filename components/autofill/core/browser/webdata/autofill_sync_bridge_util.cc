@@ -87,46 +87,21 @@ const char* CardNetworkFromWalletCardType(
   }
 }
 
-sync_pb::WalletMaskedCreditCard::WalletCardClass WalletCardClassFromCardType(
-    CreditCard::CardType card_type) {
-  switch (card_type) {
-    case CreditCard::CARD_TYPE_CREDIT:
-      return sync_pb::WalletMaskedCreditCard::CREDIT;
-    case CreditCard::CARD_TYPE_DEBIT:
-      return sync_pb::WalletMaskedCreditCard::DEBIT;
-    case CreditCard::CARD_TYPE_PREPAID:
-      return sync_pb::WalletMaskedCreditCard::PREPAID;
-    case CreditCard::CARD_TYPE_UNKNOWN:
-      return sync_pb::WalletMaskedCreditCard::UNKNOWN_CARD_CLASS;
-  }
-}
-
-CreditCard::CardType CardTypeFromWalletCardClass(
-    sync_pb::WalletMaskedCreditCard::WalletCardClass card_class) {
-  switch (card_class) {
-    case sync_pb::WalletMaskedCreditCard::CREDIT:
-      return CreditCard::CARD_TYPE_CREDIT;
-    case sync_pb::WalletMaskedCreditCard::DEBIT:
-      return CreditCard::CARD_TYPE_DEBIT;
-    case sync_pb::WalletMaskedCreditCard::PREPAID:
-      return CreditCard::CARD_TYPE_PREPAID;
-    case sync_pb::WalletMaskedCreditCard::UNKNOWN_CARD_CLASS:
-      return CreditCard::CARD_TYPE_UNKNOWN;
-  }
-}
-
 // Creates an AutofillProfile from the specified |card| specifics.
 CreditCard CardFromSpecifics(const sync_pb::WalletMaskedCreditCard& card) {
   CreditCard result(CreditCard::MASKED_SERVER_CARD, card.id());
   result.SetNumber(base::UTF8ToUTF16(card.last_four()));
   result.SetServerStatus(ServerToLocalStatus(card.status()));
   result.SetNetworkForMaskedCard(CardNetworkFromWalletCardType(card.type()));
-  result.set_card_type(CardTypeFromWalletCardClass(card.card_class()));
   result.SetRawInfo(CREDIT_CARD_NAME_FULL,
                     base::UTF8ToUTF16(card.name_on_card()));
   result.SetExpirationMonth(card.exp_month());
   result.SetExpirationYear(card.exp_year());
   result.set_billing_address_id(card.billing_address_id());
+  result.set_card_issuer(
+      static_cast<CreditCard::Issuer>(card.card_issuer().issuer()));
+  if (!card.nickname().empty())
+    result.SetNickname(base::UTF8ToUTF16(card.nickname()));
   return result;
 }
 
@@ -267,7 +242,10 @@ void SetAutofillWalletSpecificsFromServerCard(
   wallet_card->set_last_four(base::UTF16ToUTF8(card.LastFourDigits()));
   wallet_card->set_exp_month(card.expiration_month());
   wallet_card->set_exp_year(card.expiration_year());
-  wallet_card->set_card_class(WalletCardClassFromCardType(card.card_type()));
+  if (!card.nickname().empty())
+    wallet_card->set_nickname(base::UTF16ToUTF8(card.nickname()));
+  wallet_card->mutable_card_issuer()->set_issuer(
+      static_cast<sync_pb::CardIssuer::Issuer>(card.card_issuer()));
 }
 
 void SetAutofillWalletSpecificsFromPaymentsCustomerData(

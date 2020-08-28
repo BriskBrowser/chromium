@@ -31,6 +31,11 @@ Polymer({
               settings.routes.CROSTINI_DETAILS.path,
               '#crostini .subpage-arrow');
         }
+        if (settings.routes.CROSTINI_DISK_RESIZE) {
+          map.set(
+              settings.routes.CROSTINI_DISK_RESIZE.path,
+              '#crostini .subpage-arrow');
+        }
         if (settings.routes.CROSTINI_EXPORT_IMPORT) {
           map.set(
               settings.routes.CROSTINI_EXPORT_IMPORT.path,
@@ -44,6 +49,11 @@ Polymer({
         if (settings.routes.CROSTINI_SHARED_USB_DEVICES) {
           map.set(
               settings.routes.CROSTINI_SHARED_USB_DEVICES.path,
+              '#crostini .subpage-arrow');
+        }
+        if (settings.routes.CROSTINI_PORT_FORWARDING) {
+          map.set(
+              settings.routes.CROSTINI_PORT_FORWARDING.path,
               '#crostini .subpage-arrow');
         }
         return map;
@@ -91,7 +101,8 @@ Polymer({
     }
 
     if (this.getPref('crostini.enabled.value')) {
-      settings.navigateTo(settings.routes.CROSTINI_DETAILS);
+      settings.Router.getInstance().navigateTo(
+          settings.routes.CROSTINI_DETAILS);
     }
   },
 });

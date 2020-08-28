@@ -4,6 +4,8 @@
 
 #import "ios/chrome/browser/ui/util/multi_window_support.h"
 
+#import <UIKit/UIKit.h>
+
 #include "base/ios/ios_util.h"
 #include "ios/chrome/browser/ui/util/multi_window_buildflags.h"
 
@@ -12,6 +14,26 @@
 #endif
 
 bool IsMultiwindowSupported() {
-  return BUILDFLAG(IOS_MULTIWINDOW_ENABLED) &&
-         base::ios::IsRunningOnIOS13OrLater();
+#if BUILDFLAG(IOS_MULTIWINDOW_ENABLED)
+  return base::ios::IsRunningOnIOS13OrLater();
+#else
+  return false;
+#endif
+}
+
+bool IsSceneStartupSupported() {
+  if (IsMultiwindowSupported())
+    return true;
+#if BUILDFLAG(IOS_SCENE_STARTUP_ENABLED)
+  return base::ios::IsRunningOnIOS13OrLater();
+#else
+  return false;
+#endif
+}
+
+bool IsMultipleScenesSupported() {
+  if (@available(iOS 13, *)) {
+    return UIApplication.sharedApplication.supportsMultipleScenes;
+  }
+  return false;
 }

@@ -8,26 +8,27 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.os.Build;
-import android.support.v4.app.NotificationCompat;
+
+import androidx.core.app.NotificationCompat;
 
 import org.chromium.base.ContextUtils;
 import org.chromium.base.annotations.CalledByNative;
-import org.chromium.base.library_loader.LibraryProcessType;
 import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.download.DownloadOpenSource;
 import org.chromium.chrome.browser.download.DownloadUtils;
-import org.chromium.chrome.browser.notifications.ChromeNotification;
-import org.chromium.chrome.browser.notifications.ChromeNotificationBuilder;
-import org.chromium.chrome.browser.notifications.NotificationBuilderFactory;
-import org.chromium.chrome.browser.notifications.NotificationManagerProxy;
-import org.chromium.chrome.browser.notifications.NotificationManagerProxyImpl;
-import org.chromium.chrome.browser.notifications.NotificationMetadata;
 import org.chromium.chrome.browser.notifications.NotificationUmaTracker;
-import org.chromium.chrome.browser.notifications.PendingIntentProvider;
-import org.chromium.chrome.browser.notifications.channels.ChannelDefinitions;
+import org.chromium.chrome.browser.notifications.NotificationWrapperBuilderFactory;
+import org.chromium.chrome.browser.notifications.channels.ChromeChannelDefinitions;
+import org.chromium.chrome.browser.notifications.settings.NotificationSettings;
 import org.chromium.chrome.browser.settings.SettingsLauncher;
-import org.chromium.chrome.browser.settings.notifications.NotificationsSettings;
+import org.chromium.chrome.browser.settings.SettingsLauncherImpl;
+import org.chromium.components.browser_ui.notifications.NotificationManagerProxy;
+import org.chromium.components.browser_ui.notifications.NotificationManagerProxyImpl;
+import org.chromium.components.browser_ui.notifications.NotificationMetadata;
+import org.chromium.components.browser_ui.notifications.NotificationWrapper;
+import org.chromium.components.browser_ui.notifications.NotificationWrapperBuilder;
+import org.chromium.components.browser_ui.notifications.PendingIntentProvider;
 import org.chromium.content_public.browser.BrowserStartupController;
 import org.chromium.content_public.browser.BrowserStartupController.StartupCallback;
 
@@ -83,8 +84,9 @@ public class PrefetchedPagesNotifier {
         @Override
         public void onReceive(final Context context, Intent intent) {
             recordNotificationActionWhenChromeLoadsNative(NOTIFICATION_ACTION_SETTINGS_CLICKED);
-            Intent settingsIntent = SettingsLauncher.createIntentForSettingsPage(
-                    context, NotificationsSettings.class.getName());
+            SettingsLauncher settingsLauncher = new SettingsLauncherImpl();
+            Intent settingsIntent = settingsLauncher.createSettingsActivityIntent(
+                    context, NotificationSettings.class.getName());
             settingsIntent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TASK);
             context.startActivity(settingsIntent);
         }
@@ -120,10 +122,10 @@ public class PrefetchedPagesNotifier {
         NotificationMetadata metadata = new NotificationMetadata(
                 NotificationUmaTracker.SystemNotificationType.OFFLINE_CONTENT_SUGGESTION,
                 NOTIFICATION_TAG, notificationId);
-        ChromeNotificationBuilder builder =
-                NotificationBuilderFactory
-                        .createChromeNotificationBuilder(true /* preferCompat */,
-                                ChannelDefinitions.ChannelId.CONTENT_SUGGESTIONS,
+        NotificationWrapperBuilder builder =
+                NotificationWrapperBuilderFactory
+                        .createNotificationWrapperBuilder(true /* preferCompat */,
+                                ChromeChannelDefinitions.ChannelId.CONTENT_SUGGESTIONS,
                                 null /* remoteAppPackageName */, metadata)
                         .setAutoCancel(true)
                         .setContentIntent(clickIntent)
@@ -140,14 +142,13 @@ public class PrefetchedPagesNotifier {
                     NotificationUmaTracker.ActionType.OFFLINE_CONTENT_SUGGESTION_SETTINGS);
         }
 
-        ChromeNotification notification = builder.buildChromeNotification();
+        NotificationWrapper notification = builder.buildNotificationWrapper();
 
         NotificationManagerProxy manager = new NotificationManagerProxyImpl(context);
         manager.notify(notification);
 
         // Increment ignored notification counter.  This will be reset on click.
-        PrefetchPrefs.setIgnoredNotificationCounter(
-                PrefetchPrefs.getIgnoredNotificationCounter() + 1);
+        PrefetchPrefs.incrementIgnoredNotificationCounter();
 
         // Metrics tracking
         recordNotificationAction(NOTIFICATION_ACTION_SHOWN);
@@ -183,8 +184,7 @@ public class PrefetchedPagesNotifier {
      * Does not itself load native.
      */
     private static void runWhenChromeLoadsNative(final Runnable r) {
-        BrowserStartupController browserStartup =
-                BrowserStartupController.get(LibraryProcessType.PROCESS_BROWSER);
+        BrowserStartupController browserStartup = BrowserStartupController.getInstance();
         if (!browserStartup.isFullBrowserStarted()) {
             browserStartup.addStartupCompletedObserver(new StartupCallback() {
                 @Override

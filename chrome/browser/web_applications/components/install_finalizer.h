@@ -8,10 +8,13 @@
 #include <memory>
 
 #include "base/callback_forward.h"
+#include "base/optional.h"
 #include "chrome/browser/installable/installable_metrics.h"
-#include "chrome/browser/web_applications/components/web_app_helpers.h"
+#include "chrome/browser/web_applications/components/web_app_chromeos_data.h"
+#include "chrome/browser/web_applications/components/web_app_id.h"
 
 struct WebApplicationInfo;
+class GURL;
 
 namespace content {
 class WebContents;
@@ -22,6 +25,7 @@ namespace web_app {
 enum class ExternalInstallSource;
 enum class InstallResultCode;
 class AppRegistrar;
+class AppRegistryController;
 class WebAppUiManager;
 
 // An abstract finalizer for the installation process, represents the last step.
@@ -34,8 +38,14 @@ class InstallFinalizer {
   using UninstallWebAppCallback = base::OnceCallback<void(bool uninstalled)>;
 
   struct FinalizeOptions {
+    FinalizeOptions();
+    ~FinalizeOptions();
+    FinalizeOptions(const FinalizeOptions&);
+
     WebappInstallSource install_source = WebappInstallSource::COUNT;
     bool locally_installed = true;
+
+    base::Optional<WebAppChromeOsData> chromeos_data;
   };
 
   // Write the WebApp data to disk and register the app.
@@ -43,11 +53,6 @@ class InstallFinalizer {
                                const FinalizeOptions& options,
                                InstallFinalizedCallback callback) = 0;
 
-  // For the new USS-based system only. Generate missing sync placeholder data
-  // and icons using |sync_data| fields.
-  virtual void FinalizeFallbackInstallAfterSync(
-      const AppId& app_id,
-      InstallFinalizedCallback callback) = 0;
   // Delete app data from disk (icon .png files). |app_id| must be unregistered.
   virtual void FinalizeUninstallAfterSync(const AppId& app_id,
                                           UninstallWebAppCallback callback) = 0;
@@ -84,28 +89,34 @@ class InstallFinalizer {
   virtual bool WasExternalAppUninstalledByUser(const AppId& app_id) const = 0;
 
   // |virtual| for testing.
-  virtual bool CanAddAppToQuickLaunchBar() const;
-  virtual void AddAppToQuickLaunchBar(const AppId& app_id);
-
-  // |virtual| for testing.
   virtual bool CanReparentTab(const AppId& app_id, bool shortcut_created) const;
   virtual void ReparentTab(const AppId& app_id,
                            bool shortcut_created,
                            content::WebContents* web_contents);
 
-  virtual bool CanRevealAppShim() const = 0;
-  virtual void RevealAppShim(const AppId& app_id) = 0;
+  virtual void RemoveLegacyInstallFinalizerForTesting() {}
 
-  void SetSubsystems(AppRegistrar* registrar, WebAppUiManager* ui_manager);
+  virtual void Start() {}
+  virtual void Shutdown() {}
+
+  void SetSubsystems(AppRegistrar* registrar,
+                     WebAppUiManager* ui_manager,
+                     AppRegistryController* registry_controller);
 
   virtual ~InstallFinalizer() = default;
 
  protected:
-  AppRegistrar& registrar() const { return *registrar_; }
+  bool is_legacy_finalizer() const { return registrar_ == nullptr; }
+  AppRegistrar& registrar() const;
+
   WebAppUiManager& ui_manager() const { return *ui_manager_; }
+  AppRegistryController& registry_controller() { return *registry_controller_; }
 
  private:
+  // If these pointers are nullptr then this is legacy install finalizer
+  // operating in standalone mode.
   AppRegistrar* registrar_ = nullptr;
+  AppRegistryController* registry_controller_ = nullptr;
   WebAppUiManager* ui_manager_ = nullptr;
 };
 

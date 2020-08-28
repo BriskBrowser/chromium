@@ -7,73 +7,67 @@
 
 #import <UIKit/UIKit.h>
 
+#include "ios/chrome/app/application_mode.h"
 #import "ios/chrome/browser/ui/main/browser_interface_provider.h"
 
 @protocol ApplicationCommands;
-@class BrowserCoordinator;
 @protocol BrowsingDataCommands;
-@class DeviceSharingManager;
-@protocol WebStateListObserving;
-
-class AppUrlLoadingService;
-
-namespace ios {
 class ChromeBrowserState;
-}
+@class SceneState;
 
-// Protocol for objects that can handle switching browser state storage.
-@protocol BrowserStateStorageSwitching
-- (void)changeStorageFromBrowserState:(ios::ChromeBrowserState*)oldState
-                       toBrowserState:(ios::ChromeBrowserState*)newState;
-@end
+namespace {
+
+// Preference key used to store which profile is current.
+NSString* kIncognitoCurrentKey = @"IncognitoActive";
+
+}  // namespace
 
 // Wrangler (a class in need of further refactoring) for handling the creation
-// and ownership of BrowserViewController instances and their associated
-// TabModels, and a few related methods.
+// and ownership of Browser instances and their associated
+// BrowserViewControllers.
 @interface BrowserViewWrangler : NSObject <BrowserInterfaceProvider>
 
 // Initialize a new instance of this class using |browserState| as the primary
-// browser state for the tab models and BVCs, and setting
-// |WebStateListObserving|, if not nil, as the webStateListObsever for any
-// WebStateLists that are created. |applicationCommandEndpoint| is the object
-// that methods in the ApplicationCommands protocol should be dispatched to by
-// any BVCs that are created. |storageSwitcher| is used to manage changing any
-// storage associated with the interfaces when the current interface changes;
-// this is handled in the implementation of -setCurrentInterface:.
-- (instancetype)initWithBrowserState:(ios::ChromeBrowserState*)browserState
-                webStateListObserver:(id<WebStateListObserving>)observer
+// browser state for the tab models and BVCs.
+// |sceneState| is the scene state that will be associated with any Browsers
+// created.
+// |applicationCommandEndpoint| and |browsingDataCommandEndpoint| are the
+// objects that methods in the ApplicationCommands and BrowsingDataCommands
+// protocol should be dispatched to.
+- (instancetype)initWithBrowserState:(ChromeBrowserState*)browserState
+                          sceneState:(SceneState*)sceneState
           applicationCommandEndpoint:
               (id<ApplicationCommands>)applicationCommandEndpoint
          browsingDataCommandEndpoint:
              (id<BrowsingDataCommands>)browsingDataCommandEndpoint
-                appURLLoadingService:(AppUrlLoadingService*)appURLLoadingService
-                     storageSwitcher:
-                         (id<BrowserStateStorageSwitching>)storageSwitcher
     NS_DESIGNATED_INITIALIZER;
 
 - (instancetype)init NS_UNAVAILABLE;
 
 // Creates the main Browser used by the receiver, using the browser state
-// and tab model observer it was configured with. The main interface is then
-// created; until this method is called, the main and incognito interfaces will
-// be nil. This should be done before the main interface is accessed, usually
-// immediately after initialization.
+// it was configured with. The main interface is then created; until this
+// method is called, the main and incognito interfaces will be nil. This should
+// be done before the main interface is accessed, usually immediately after
+// initialization.
 - (void)createMainBrowser;
 
-// Update the device sharing manager. This should be done after updates to the
-// tab model. This class creates and manages the state of the sharing manager.
-- (void)updateDeviceSharingManager;
+// Tells the receiver to clean up all the state that is tied to the incognito
+// BrowserState. This method should be called before the incognito BrowserState
+// is destroyed.
+- (void)willDestroyIncognitoBrowserState;
 
-// Destroy and rebuild the incognito Browser.
-- (void)destroyAndRebuildIncognitoBrowser;
+// Tells the receiver to create all state that is tied to the incognito
+// BrowserState. This method should be called after the incognito BrowserState
+// has been created.
+- (void)incognitoBrowserStateCreated;
 
-// Called before the instance is deallocated.
+// Tells the receiver to clean up prior to deallocation. It is an error for an
+// instance of this class to deallocate without a call to this method first.
 - (void)shutdown;
 
-@end
+// Switch all global states for the given mode (normal or incognito).
+- (void)switchGlobalStateToMode:(ApplicationMode)mode;
 
-@interface BrowserViewWrangler (Testing)
-@property(nonatomic, readonly) DeviceSharingManager* deviceSharingManager;
 @end
 
 #endif  // IOS_CHROME_BROWSER_UI_MAIN_BROWSER_VIEW_WRANGLER_H_

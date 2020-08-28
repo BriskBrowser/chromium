@@ -32,7 +32,6 @@ class Protocol(object):
         """:returns: Current logger"""
         return self.executor.logger
 
-    @property
     def is_alive(self):
         """Is the browser connection still active
 
@@ -190,6 +189,10 @@ class TestharnessProtocolPart(ProtocolPart):
         :returns: A protocol-specific window handle.
         """
         pass
+
+    @abstractmethod
+    def test_window_loaded(self):
+        """Wait until the newly opened test window has been loaded."""
 
 
 class PrefsProtocolPart(ProtocolPart):
@@ -389,6 +392,7 @@ class CoverageProtocolPart(ProtocolPart):
         """Dump coverage counters"""
         pass
 
+
 class VirtualAuthenticatorProtocolPart(ProtocolPart):
     """Protocol part for creating and manipulating virtual authenticators"""
     __metaclass__ = ABCMeta
@@ -446,4 +450,16 @@ class VirtualAuthenticatorProtocolPart(ProtocolPart):
 
         :param str authenticator_id: The ID of the authenticator
         :param bool uv: the user verified flag"""
+        pass
+
+
+class PrintProtocolPart(ProtocolPart):
+    """Protocol part for rendering to a PDF."""
+    __metaclass__ = ABCMeta
+
+    name = "pdf_print"
+
+    @abstractmethod
+    def render_as_pdf(self, width, height):
+        """Output document as PDF"""
         pass

@@ -49,7 +49,7 @@ StringPiece GetFeatureName(StringPiece feature) {
   StringPiece feature_name = feature;
 
   // Remove default info.
-  if (feature_name.starts_with("*"))
+  if (StartsWith(feature_name, "*"))
     feature_name = feature_name.substr(1);
 
   // Remove field_trial info.
@@ -271,7 +271,7 @@ void ScopedFeatureList::InitWithFeaturesImpl(
   // Restore other field trials. Note: We don't need to do anything for params
   // here because the param associator already has the right state, which has
   // been backed up via |original_params_| to be restored later.
-  FieldTrialList::CreateTrialsFromString(existing_trial_state, {});
+  FieldTrialList::CreateTrialsFromString(existing_trial_state);
 
   OverrideFeatures(current_enabled_features,
                    FeatureList::OverrideState::OVERRIDE_ENABLE_FEATURE,

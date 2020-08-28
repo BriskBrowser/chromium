@@ -11,7 +11,7 @@ crostiniTasks.testErrorLoadingLinuxPackageInfo = async (done) => {
 
   // Save old fmp.getFileTasks and replace with version that returns
   // the internal linux package install handler
-  let oldGetFileTasks = chrome.fileManagerPrivate.getFileTasks;
+  const oldGetFileTasks = chrome.fileManagerPrivate.getFileTasks;
   chrome.fileManagerPrivate.getFileTasks = (entries, callback) => {
     setTimeout(
         callback, 0, [{
@@ -24,10 +24,10 @@ crostiniTasks.testErrorLoadingLinuxPackageInfo = async (done) => {
 
   // Save old fmp.getLinuxPackageInfo and replace with version that saves the
   // callback to manually call later
-  let oldGetLinuxPackageInfo = chrome.fileManagerPrivate.getLinuxPackageInfo;
+  const oldGetLinuxPackageInfo = chrome.fileManagerPrivate.getLinuxPackageInfo;
   let packageInfoCallback = null;
   chrome.fileManagerPrivate.getLinuxPackageInfo = (entry, callback) => {
-    packageInfoCallback = callback;
+    packageInfoCallback = /** @type{function():void} */ (callback);
   };
 
   await test.setupAndWaitUntilReady([], [], [test.ENTRIES.debPackage]);
@@ -53,7 +53,7 @@ crostiniTasks.testErrorLoadingLinuxPackageInfo = async (done) => {
 
   // Call the callback with an error.
   chrome.runtime.lastError = {message: 'error message'};
-  packageInfoCallback(undefined);
+  packageInfoCallback();
   delete chrome.runtime.lastError;
   assertEquals(
       'Details\nFailed to retrieve app info.',

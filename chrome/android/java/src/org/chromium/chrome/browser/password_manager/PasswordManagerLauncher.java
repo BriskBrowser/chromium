@@ -5,21 +5,23 @@
 package org.chromium.chrome.browser.password_manager;
 
 import android.app.Activity;
-import android.os.Build;
 
 import com.google.android.gms.common.ConnectionResult;
+import com.google.android.gms.common.GoogleApiAvailability;
 
+import org.chromium.base.ContextUtils;
 import org.chromium.base.annotations.CalledByNative;
 import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.chrome.browser.AppHooks;
-import org.chromium.chrome.browser.ChromeFeatureList;
+import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.preferences.Pref;
-import org.chromium.chrome.browser.preferences.PrefServiceBridge;
-import org.chromium.chrome.browser.settings.SettingsLauncher;
-import org.chromium.chrome.browser.settings.password.SavePasswordsPreferences;
+import org.chromium.chrome.browser.profiles.Profile;
+import org.chromium.chrome.browser.settings.SettingsLauncherImpl;
+import org.chromium.chrome.browser.signin.IdentityServicesProvider;
 import org.chromium.chrome.browser.sync.ProfileSyncService;
-import org.chromium.components.signin.ChromeSigninController;
+import org.chromium.components.signin.identitymanager.IdentityManager;
 import org.chromium.components.sync.ModelType;
+import org.chromium.components.user_prefs.UserPrefs;
 import org.chromium.content_public.browser.WebContents;
 import org.chromium.ui.base.WindowAndroid;
 
@@ -49,19 +51,20 @@ public class PasswordManagerLauncher {
      */
     public static void showPasswordSettings(
             Activity activity, @ManagePasswordsReferrer int referrer) {
-        RecordHistogram.recordEnumeratedHistogram("PasswordManager.ManagePasswordsReferrer",
-                referrer, ManagePasswordsReferrer.MAX_VALUE + 1);
         if (isSyncingPasswordsWithoutCustomPassphrase()) {
             RecordHistogram.recordEnumeratedHistogram(
                     "PasswordManager.ManagePasswordsReferrerSignedInAndSyncing", referrer,
                     ManagePasswordsReferrer.MAX_VALUE + 1);
-            if (!PrefServiceBridge.getInstance().isManagedPreference(
-                        Pref.REMEMBER_PASSWORDS_ENABLED)) {
+            if (!UserPrefs.get(Profile.getLastUsedRegularProfile())
+                            .isManagedPreference(Pref.CREDENTIALS_ENABLE_SERVICE)) {
                 if (tryShowingTheGooglePasswordManager(activity)) return;
+            }
+            if (ChromeFeatureList.isEnabled(ChromeFeatureList.PASSWORD_CHANGE_IN_SETTINGS)) {
+                PasswordScriptsFetcherBridge.prewarmCache();
             }
         }
 
-        SettingsLauncher.launchSettingsPage(activity, SavePasswordsPreferences.class);
+        PasswordManagerHelper.showPasswordSettings(activity, referrer, new SettingsLauncherImpl());
     }
 
     @CalledByNative
@@ -74,8 +77,9 @@ public class PasswordManagerLauncher {
     }
 
     public static boolean isSyncingPasswordsWithoutCustomPassphrase() {
-        ChromeSigninController signInController = ChromeSigninController.get();
-        if (signInController == null || !signInController.isSignedIn()) return false;
+        IdentityManager identityManager = IdentityServicesProvider.get().getIdentityManager(
+                Profile.getLastUsedRegularProfile());
+        if (!identityManager.hasPrimaryAccount()) return false;
 
         ProfileSyncService profileSyncService = ProfileSyncService.get();
         if (profileSyncService == null
@@ -93,12 +97,12 @@ public class PasswordManagerLauncher {
                 AppHooks.get().createGooglePasswordManagerUIProvider();
         if (googlePasswordManagerUIProvider == null) return false;
 
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) return false;
-
         int minGooglePlayServicesVersion = ChromeFeatureList.getFieldTrialParamByFeatureAsInt(
                 GOOGLE_ACCOUNT_PWM_UI, MIN_GOOGLE_PLAY_SERVICES_VERSION_PARAM,
                 DEFAULT_MIN_GOOGLE_PLAY_SERVICES_APK_VERSION);
-        if (AppHooks.get().isGoogleApiAvailableWithMinApkVersion(minGooglePlayServicesVersion)
+
+        if (GoogleApiAvailability.getInstance().isGooglePlayServicesAvailable(
+                    ContextUtils.getApplicationContext(), minGooglePlayServicesVersion)
                 != ConnectionResult.SUCCESS) {
             return false;
         }

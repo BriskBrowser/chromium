@@ -9,20 +9,13 @@ import './print_preview_vars_css.js';
 import '../strings.m.js';
 
 import {loadTimeData} from 'chrome://resources/js/load_time_data.m.js';
+import {PluralStringProxyImpl} from 'chrome://resources/js/plural_string_proxy.js';
 import {html, Polymer} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
 import {Destination} from '../data/destination.js';
+import {getPrinterTypeForDestination, PrinterType} from '../data/destination_match.js';
 import {Error, State} from '../data/state.js';
-
 import {SettingsBehavior} from './settings_behavior.js';
-
-/**
- * @typedef {{numPages: number,
- *            numSheets: number,
- *            pagesLabel: string,
- *            summaryLabel: string}}
- */
-let LabelInfo;
 
 Polymer({
   is: 'print-preview-header',
@@ -45,16 +38,14 @@ Polymer({
 
     managed: Boolean,
 
+    sheetCount: Number,
+
     /** @private {?string} */
-    summary_: {
-      type: String,
-      value: null,
-    },
+    summary_: String,
   },
 
   observers: [
-    'update_(settings.copies.value, settings.duplex.value, ' +
-        'settings.pages.value, state, destination.id)',
+    'updateSummary_(sheetCount, state, destination.id)',
   ],
 
   /**
@@ -63,55 +54,20 @@ Polymer({
    */
   isPdfOrDrive_() {
     return this.destination &&
-        (this.destination.id === Destination.GooglePromotedId.SAVE_AS_PDF ||
+        (getPrinterTypeForDestination(this.destination) ===
+             PrinterType.PDF_PRINTER ||
          this.destination.id === Destination.GooglePromotedId.DOCS);
   },
 
-  /**
-   * @return {!LabelInfo}
-   * @private
-   */
-  computeLabelInfo_() {
-    const saveToPdfOrDrive = this.isPdfOrDrive_();
-    let numPages = this.getSettingValue('pages').length;
-    let numSheets = numPages;
-    if (!saveToPdfOrDrive && this.getSettingValue('duplex')) {
-      numSheets = Math.ceil(numPages / 2);
-    }
-
-    const copies = parseInt(this.getSettingValue('copies'), 10);
-    numSheets *= copies;
-    numPages *= copies;
-
-    const pagesLabel = loadTimeData.getString('printPreviewPageLabelPlural');
-    let summaryLabel;
-    if (numSheets > 1) {
-      summaryLabel = saveToPdfOrDrive ?
-          pagesLabel :
-          loadTimeData.getString('printPreviewSheetsLabelPlural');
-    } else {
-      summaryLabel = loadTimeData.getString(
-          saveToPdfOrDrive ? 'printPreviewPageLabelSingular' :
-                             'printPreviewSheetsLabelSingular');
-    }
-    return {
-      numPages: numPages,
-      numSheets: numSheets,
-      pagesLabel: pagesLabel,
-      summaryLabel: summaryLabel
-    };
-  },
-
   /** @private */
-  update_() {
+  updateSummary_() {
     switch (this.state) {
       case (State.PRINTING):
         this.summary_ = loadTimeData.getString(
             this.isPdfOrDrive_() ? 'saving' : 'printing');
         break;
       case (State.READY):
-        const labelInfo = this.computeLabelInfo_();
-        this.summary_ = this.getSummary_(labelInfo);
+        this.updateSheetsSummary_();
         break;
       case (State.FATAL_ERROR):
         this.summary_ = this.getErrorMessage_();
@@ -137,16 +93,19 @@ Polymer({
     }
   },
 
-  /**
-   * @param {!LabelInfo} labelInfo
-   * @return {string}
-   * @private
-   */
-  getSummary_(labelInfo) {
-    return labelInfo.numSheets === 0 ?
-        '' :
-        loadTimeData.getStringF(
-            'printPreviewNewSummaryFormatShort',
-            labelInfo.numSheets.toLocaleString(), labelInfo.summaryLabel);
+  /** @private */
+  updateSheetsSummary_() {
+    if (this.sheetCount === 0) {
+      this.summary_ = '';
+      return;
+    }
+
+    const pageOrSheet = this.isPdfOrDrive_() ? 'Page' : 'Sheet';
+    PluralStringProxyImpl.getInstance()
+        .getPluralString(
+            `printPreview${pageOrSheet}SummaryLabel`, this.sheetCount)
+        .then(label => {
+          this.summary_ = label;
+        });
   },
 });

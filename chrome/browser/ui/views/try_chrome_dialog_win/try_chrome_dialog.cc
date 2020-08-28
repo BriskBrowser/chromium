@@ -9,7 +9,10 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/logging.h"
+#include "base/bind_helpers.h"
+#include "base/check_op.h"
+#include "base/memory/ptr_util.h"
+#include "base/notreached.h"
 #include "base/run_loop.h"
 #include "base/stl_util.h"
 #include "base/strings/string16.h"
@@ -34,7 +37,7 @@
 #include "ui/display/screen.h"
 #include "ui/display/win/screen_win.h"
 #include "ui/events/event.h"
-#include "ui/events/event_constants.h"
+#include "ui/events/types/event_type.h"
 #include "ui/gfx/geometry/insets.h"
 #include "ui/gfx/geometry/point_conversions.h"
 #include "ui/gfx/geometry/point_f.h"
@@ -306,6 +309,8 @@ class TryChromeDialog::Context {
     enum class Location { kTop, kLeft, kBottom, kRight };
 
     static std::unique_ptr<TaskbarCalculator> Create(Location location);
+
+    ~TaskbarCalculator() override { CHECK(!IsInObserverList()); }
 
     // DialogCalculator:
     void AddBorderToContents(views::Widget* popup,
@@ -979,12 +984,12 @@ TryChromeDialog::Result TryChromeDialog::Show(
   dialog.ShowDialogAsync();
 
   if (listener) {
-    listener.Run(base::Bind(&TryChromeDialog::OnProcessNotification,
-                            base::Unretained(&dialog)));
+    listener.Run(base::BindRepeating(&TryChromeDialog::OnProcessNotification,
+                                     base::Unretained(&dialog)));
   }
   run_loop.Run();
   if (listener)
-    listener.Run(base::Closure());
+    listener.Run(base::NullCallback());
 
   return dialog.result();
 }
@@ -999,6 +1004,7 @@ TryChromeDialog::TryChromeDialog(size_t group, Delegate* delegate)
 
 TryChromeDialog::~TryChromeDialog() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(my_sequence_checker_);
+  CHECK(!IsInObserverList());
 }
 
 void TryChromeDialog::ShowDialogAsync() {
@@ -1073,16 +1079,17 @@ void TryChromeDialog::OnContextInitialized() {
   columns->AddPaddingColumn(views::GridLayout::kFixedSize,
                             kLogoPadding - kTryChromeBorderThickness);
   columns->AddColumn(views::GridLayout::LEADING, views::GridLayout::LEADING,
-                     views::GridLayout::kFixedSize, views::GridLayout::FIXED,
-                     logo_size.width(), logo_size.height());
+                     views::GridLayout::kFixedSize,
+                     views::GridLayout::ColumnSize::kFixed, logo_size.width(),
+                     logo_size.height());
   columns->AddPaddingColumn(views::GridLayout::kFixedSize, kLogoPadding);
   columns->AddColumn(views::GridLayout::FILL, views::GridLayout::FILL, 1.0,
-                     views::GridLayout::FIXED, kLabelWidth, 0);
+                     views::GridLayout::ColumnSize::kFixed, kLabelWidth, 0);
   columns->AddPaddingColumn(views::GridLayout::kFixedSize,
                             kSpacingHeadingToClose);
   columns->AddColumn(views::GridLayout::LEADING, views::GridLayout::LEADING,
-                     views::GridLayout::kFixedSize, views::GridLayout::USE_PREF,
-                     0, 0);
+                     views::GridLayout::kFixedSize,
+                     views::GridLayout::ColumnSize::kUsePreferred, 0, 0);
   columns->AddPaddingColumn(
       views::GridLayout::kFixedSize,
       kCloseButtonRightPadding - kTryChromeBorderThickness);
@@ -1094,15 +1101,15 @@ void TryChromeDialog::OnContextInitialized() {
       views::GridLayout::kFixedSize,
       kLogoPadding - kTryChromeBorderThickness + logo_padding);
   columns->AddColumn(views::GridLayout::FILL, views::GridLayout::FILL, 1.0,
-                     views::GridLayout::FIXED, kLabelWidth, 0);
+                     views::GridLayout::ColumnSize::kFixed, kLabelWidth, 0);
 
   // Fourth row: [pad][buttons][pad].
   columns = layout->AddColumnSet(2);
   columns->AddPaddingColumn(views::GridLayout::kFixedSize,
                             kTextButtonPadding - kTryChromeBorderThickness);
   columns->AddColumn(views::GridLayout::FILL, views::GridLayout::FILL,
-                     views::GridLayout::kFixedSize, views::GridLayout::USE_PREF,
-                     0, 0);
+                     views::GridLayout::kFixedSize,
+                     views::GridLayout::ColumnSize::kUsePreferred, 0, 0);
   columns->AddPaddingColumn(views::GridLayout::kFixedSize,
                             kTextButtonPadding - kTryChromeBorderThickness);
 
@@ -1188,7 +1195,7 @@ void TryChromeDialog::OnContextInitialized() {
   layout->AddPaddingRow(views::GridLayout::kFixedSize,
                         kTextButtonPadding - kTryChromeBorderThickness);
 
-  popup_->SetContentsView(contents_view.release());
+  popup_->SetContentsView(std::move(contents_view));
 
   // Compute the preferred size after attaching the contents view to the popup,
   // as doing such causes the theme to propagate through the view hierarchy.

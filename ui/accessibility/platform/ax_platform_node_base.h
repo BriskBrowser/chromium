@@ -12,6 +12,7 @@
 #include "base/macros.h"
 #include "build/build_config.h"
 #include "ui/accessibility/ax_enums.mojom-forward.h"
+#include "ui/accessibility/ax_node.h"
 #include "ui/accessibility/platform/ax_platform_node.h"
 #include "ui/accessibility/platform/ax_platform_node_delegate.h"
 #include "ui/accessibility/platform/ax_platform_text_boundary.h"
@@ -29,8 +30,15 @@ struct AXNodeData;
 
 struct AX_EXPORT AXHypertext {
   AXHypertext();
-  AXHypertext(const AXHypertext& other);
   ~AXHypertext();
+  AXHypertext(const AXHypertext& other);
+  AXHypertext& operator=(const AXHypertext& other);
+
+  // A flag that should be set if the hypertext information in this struct is
+  // out-of-date and needs to be updated. This flag should always be set upon
+  // construction because constructing this struct doesn't compute the
+  // hypertext.
+  bool needs_update = true;
 
   // Maps an embedded character offset in |hypertext| to an index in
   // |hyperlinks|.
@@ -57,17 +65,33 @@ class AX_EXPORT AXPlatformNodeBase : public AXPlatformNode {
   gfx::NativeViewAccessible GetFocus();
   gfx::NativeViewAccessible GetParent() const;
   int GetChildCount() const;
-  gfx::NativeViewAccessible ChildAtIndex(int index);
+  gfx::NativeViewAccessible ChildAtIndex(int index) const;
 
-  // This needs to be implemented for each platform.
-  virtual int GetIndexInParent();
+  std::string GetName() const;
+  base::string16 GetNameAsString16() const;
+
+  // This returns nullopt if there's no parent, it's unable to find the child in
+  // the list of its parent's children, or its parent doesn't have children.
+  virtual base::Optional<int> GetIndexInParent();
+
+  // Returns a stack of ancestors of this node. The node at the top of the stack
+  // is the top most ancestor.
+  base::stack<gfx::NativeViewAccessible> GetAncestors();
+
+  // Returns an optional integer indicating the logical order of this node
+  // compared to another node or returns an empty optional if the nodes
+  // are not comparable.
+  //    0: if this position is logically equivalent to the other node
+  //   <0: if this position is logically less than (before) the other node
+  //   >0: if this position is logically greater than (after) the other node
+  base::Optional<int> CompareTo(AXPlatformNodeBase& other);
 
   // AXPlatformNode.
   void Destroy() override;
   gfx::NativeViewAccessible GetNativeViewAccessible() override;
   void NotifyAccessibilityEvent(ax::mojom::Event event_type) override;
 
-#if defined(OS_MACOSX)
+#if defined(OS_APPLE)
   void AnnounceText(const base::string16& text) override;
 #endif
 
@@ -75,11 +99,20 @@ class AX_EXPORT AXPlatformNodeBase : public AXPlatformNode {
   bool IsDescendantOf(AXPlatformNode* ancestor) const override;
 
   // Helpers.
-  AXPlatformNodeBase* GetPreviousSibling();
-  AXPlatformNodeBase* GetNextSibling();
-  AXPlatformNodeBase* GetFirstChild();
-  AXPlatformNodeBase* GetLastChild();
+  AXPlatformNodeBase* GetPreviousSibling() const;
+  AXPlatformNodeBase* GetNextSibling() const;
+  AXPlatformNodeBase* GetFirstChild() const;
+  AXPlatformNodeBase* GetLastChild() const;
   bool IsDescendant(AXPlatformNodeBase* descendant);
+
+  using AXPlatformNodeChildIterator =
+      ui::AXNode::ChildIteratorBase<AXPlatformNodeBase,
+                                    &AXPlatformNodeBase::GetNextSibling,
+                                    &AXPlatformNodeBase::GetPreviousSibling,
+                                    &AXPlatformNodeBase::GetFirstChild,
+                                    &AXPlatformNodeBase::GetLastChild>;
+  AXPlatformNodeChildIterator AXPlatformNodeChildrenBegin() const;
+  AXPlatformNodeChildIterator AXPlatformNodeChildrenEnd() const;
 
   bool HasBoolAttribute(ax::mojom::BoolAttribute attr) const;
   bool GetBoolAttribute(ax::mojom::BoolAttribute attr) const;
@@ -187,23 +220,21 @@ class AX_EXPORT AXPlatformNodeBase : public AXPlatformNode {
   // table.
   base::Optional<int> GetTableRowSpan() const;
 
+  // Returns the font size converted to points, if available.
+  base::Optional<float> GetFontSizeInPoints() const;
+
   // Returns true if either a descendant has selection (sel_focus_object_id) or
   // if this node is a simple text element and has text selection attributes.
-  bool HasCaret();
+  // Optionally accepts an unignored selection to avoid redundant computation.
+  bool HasCaret(const AXTree::Selection* unignored_selection = nullptr);
 
-  // Returns true if an ancestor of this node (not including itself) is a
-  // leaf node, meaning that this node is not actually exposed to the
-  // platform.
+  // See AXPlatformNodeDelegate::IsChildOfLeaf().
   bool IsChildOfLeaf() const;
 
-  // Returns true if this is a leaf node on this platform, meaning any
-  // children should not be exposed to this platform's native accessibility
-  // layer. Each platform subclass should implement this itself.
-  // The definition of a leaf may vary depending on the platform,
-  // but a leaf node should never have children that are focusable or
-  // that might send notifications.
-  bool IsLeaf();
+  // See AXPlatformNodeDelegate::IsLeaf().
+  bool IsLeaf() const;
 
+  // See AXPlatformNodeDelegate::IsInvisibleOrIgnored().
   bool IsInvisibleOrIgnored() const;
 
   // Returns true if this node can be scrolled either in the horizontal or the
@@ -216,23 +247,41 @@ class AX_EXPORT AXPlatformNodeBase : public AXPlatformNode {
   // Returns true if this node can be scrolled in the vertical direction.
   bool IsVerticallyScrollable() const;
 
-  // Returns true if this node has role of StaticText, LineBreak, or
-  // InlineTextBox
-  bool IsTextOnlyObject() const;
+  // See AXNodeData::IsTextField().
+  bool IsTextField() const;
 
-  // Returns true if the node is an editable text field.
+  // See AXNodeData::IsPlainTextField().
   bool IsPlainTextField() const;
+
+  // See AXNodeData::IsRichTextField().
+  bool IsRichTextField() const;
+
+  // See AXNode::IsText().
+  bool IsText() const;
+
+  // Determines whether an element should be exposed with checkable state, and
+  // possibly the checked state. Examples are check box and radio button.
+  // Objects that are exposed as toggle buttons use the platform pressed state
+  // in some platform APIs, and should not be exposed as checkable. They don't
+  // expose the platform equivalent of the internal checked state.
+  virtual bool IsPlatformCheckable() const;
 
   bool HasFocus();
 
-  // Returns the text of this node and represent the text of descendant nodes
-  // with a special character in place of every embedded object. This represents
-  // the concept of text in ATK and IA2 APIs.
-  virtual base::string16 GetHypertext() const;
+  // If this node is a leaf, returns the visible accessible name of this node.
+  // Otherwise represents every non-leaf child node with a special "embedded
+  // object character", and every leaf child node with its visible accessible
+  // name. This is how displayed text and embedded objects are represented in
+  // ATK and IA2 APIs.
+  base::string16 GetHypertext() const;
 
   // Returns the text of this node and all descendant nodes; including text
   // found in embedded objects.
-  virtual base::string16 GetInnerText() const;
+  //
+  // Only text displayed on screen is included. Text from ARIA and HTML
+  // attributes that is either not displayed on screen, or outside this node,
+  // e.g. aria-label and HTML title, is not returned.
+  base::string16 GetInnerText() const;
 
   virtual base::string16 GetValue() const;
 
@@ -248,12 +297,16 @@ class AX_EXPORT AXPlatformNodeBase : public AXPlatformNode {
   // Return the number of instances of AXPlatformNodeBase, for leak testing.
   static size_t GetInstanceCountForTesting();
 
+  static void SetOnNotifyEventCallbackForTesting(
+      ax::mojom::Event event_type,
+      base::RepeatingClosure callback);
+
   // This method finds text boundaries in the text used for platform text APIs.
   // Implementations may use side-channel data such as line or word indices to
   // produce appropriate results.
-  virtual int FindTextBoundary(AXTextBoundary boundary,
+  virtual int FindTextBoundary(ax::mojom::TextBoundary boundary,
                                int offset,
-                               AXTextBoundaryDirection direction,
+                               ax::mojom::MoveDirection direction,
                                ax::mojom::TextAffinity affinity) const;
 
   enum ScrollType {
@@ -267,22 +320,47 @@ class AX_EXPORT AXPlatformNodeBase : public AXPlatformNode {
   };
   bool ScrollToNode(ScrollType scroll_type);
 
+  // This will return the nearest leaf node to the point, the leaf node will not
+  // necessarily be directly under the point. This utilizes
+  // AXPlatformNodeDelegate::HitTestSync, which in the case of
+  // BrowserAccessibility, may not be accurate after a single call. See
+  // BrowserAccessibilityManager::CachingAsyncHitTest
+  AXPlatformNodeBase* NearestLeafToPoint(gfx::Point point) const;
+
   // Return the nearest text index to a point in screen coordinates for an
   // accessibility node. If the node is not a text only node, the implicit
   // nearest index is zero. Note this will only find the index of text on the
-  // input node. The node's subtree will not be searched.
+  // input node. Due to perf concerns, this should only be called on leaf nodes.
   int NearestTextIndexToPoint(gfx::Point point);
 
   ui::TextAttributeList ComputeTextAttributes() const;
 
+  // Get the number of items selected. It checks kMultiselectable and
+  // kFocusable. and uses GetSelectedItems to get the selected number.
+  int GetSelectionCount() const;
+
+  // If this object is a container that supports selectable children, returns
+  // the selected item at the provided index.
+  AXPlatformNodeBase* GetSelectedItem(int selected_index) const;
+
+  // If this object is a container that supports selectable children,
+  // returns the number of selected items in this container.
+  // |out_selected_items| could be set to nullptr if the caller just
+  // needs to know the number of items selected.
+  // |max_items| represents the number that the caller expects as a
+  // maximum. For a single selection list box, it will be 1.
+  int GetSelectedItems(
+      int max_items,
+      std::vector<AXPlatformNodeBase*>* out_selected_items = nullptr) const;
+
   //
   // Delegate.  This is a weak reference which owns |this|.
   //
-  AXPlatformNodeDelegate* delegate_;
+  AXPlatformNodeDelegate* delegate_ = nullptr;
 
  protected:
   bool IsDocument() const;
-  bool IsRichTextField() const;
+
   bool IsSelectionItemSupported() const;
 
   // Get the range value text, which might come from aria-valuetext or
@@ -360,15 +438,15 @@ class AX_EXPORT AXPlatformNodeBase : public AXPlatformNode {
   // Compute the hypertext for this node to be exposed via IA2 and ATK This
   // method is responsible for properly embedding children using the special
   // embedded element character.
-  void UpdateComputedHypertext();
+  void UpdateComputedHypertext() const;
 
   // Selection helper functions.
   // The following functions retrieve the endpoints of the current selection.
   // First they check for a local selection found on the current control, e.g.
   // when querying the selection on a textarea.
   // If not found they retrieve the global selection found on the current frame.
-  int GetUnignoredSelectionAnchor();
-  int GetUnignoredSelectionFocus();
+  int GetSelectionAnchor(const AXTree::Selection* selection);
+  int GetSelectionFocus(const AXTree::Selection* selection);
 
   // Retrieves the selection offsets in the way required by the IA2 APIs.
   // selection_start and selection_end are -1 when there is no selection active
@@ -376,7 +454,12 @@ class AX_EXPORT AXPlatformNodeBase : public AXPlatformNode {
   // The greatest of the two offsets is one past the last character of the
   // selection.)
   void GetSelectionOffsets(int* selection_start, int* selection_end);
-  void GetSelectionOffsetsFromTree(int* selection_start, int* selection_end);
+  void GetSelectionOffsets(const AXTree::Selection* selection,
+                           int* selection_start,
+                           int* selection_end);
+  void GetSelectionOffsetsFromTree(const AXTree::Selection* selection,
+                                   int* selection_start,
+                                   int* selection_end);
 
   // Returns the hyperlink at the given text position, or nullptr if no
   // hyperlink can be found.
@@ -412,13 +495,21 @@ class AX_EXPORT AXPlatformNodeBase : public AXPlatformNode {
 
   std::string GetInvalidValue() const;
 
-  AXHypertext hypertext_;
+  // Based on the characteristics of this object, such as its role and the
+  // presence of a multiselectable attribute, returns the maximum number of
+  // selectable children that this object could potentially contain.
+  int GetMaxSelectableItems() const;
+
+  mutable AXHypertext hypertext_;
 
  private:
-  // Return true if the index represents a text character.
+  // Returns true if the index represents a text character.
   bool IsText(const base::string16& text,
               size_t index,
               bool is_indexed_from_end = false);
+
+  // Compute value for object attribute details-roles on aria-details nodes.
+  std::string ComputeDetailsRoles() const;
 
   DISALLOW_COPY_AND_ASSIGN(AXPlatformNodeBase);
 };

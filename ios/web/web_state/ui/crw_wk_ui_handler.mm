@@ -4,6 +4,7 @@
 
 #import "ios/web/web_state/ui/crw_wk_ui_handler.h"
 
+#include "base/logging.h"
 #include "base/strings/sys_string_conversions.h"
 #import "ios/web/navigation/wk_navigation_action_util.h"
 #import "ios/web/navigation/wk_navigation_util.h"
@@ -191,6 +192,59 @@
       previewingViewController);
 }
 
+- (void)webView:(WKWebView*)webView
+    contextMenuConfigurationForElement:(WKContextMenuElementInfo*)elementInfo
+                     completionHandler:
+                         (void (^)(UIContextMenuConfiguration* _Nullable))
+                             completionHandler API_AVAILABLE(ios(13.0)) {
+  web::WebStateDelegate* delegate = self.webStateImpl->GetDelegate();
+  if (!delegate) {
+    return;
+  }
+
+  delegate->ContextMenuConfiguration(self.webStateImpl,
+                                     net::GURLWithNSURL(elementInfo.linkURL),
+                                     completionHandler);
+}
+
+- (void)webView:(WKWebView*)webView
+    contextMenuDidEndForElement:(WKContextMenuElementInfo*)elementInfo
+    API_AVAILABLE(ios(13.0)) {
+  web::WebStateDelegate* delegate = self.webStateImpl->GetDelegate();
+  if (!delegate) {
+    return;
+  }
+
+  delegate->ContextMenuDidEnd(self.webStateImpl,
+                              net::GURLWithNSURL(elementInfo.linkURL));
+}
+
+- (void)webView:(WKWebView*)webView
+     contextMenuForElement:(nonnull WKContextMenuElementInfo*)elementInfo
+    willCommitWithAnimator:
+        (nonnull id<UIContextMenuInteractionCommitAnimating>)animator
+    API_AVAILABLE(ios(13.0)) {
+  web::WebStateDelegate* delegate = self.webStateImpl->GetDelegate();
+  if (!delegate) {
+    return;
+  }
+
+  delegate->ContextMenuWillCommitWithAnimator(
+      self.webStateImpl, net::GURLWithNSURL(elementInfo.linkURL), animator);
+}
+
+- (void)webView:(WKWebView*)webView
+    contextMenuWillPresentForElement:(WKContextMenuElementInfo*)elementInfo
+    API_AVAILABLE(ios(13.0)) {
+  web::WebStateDelegate* delegate = self.webStateImpl->GetDelegate();
+  if (!delegate) {
+    return;
+  }
+
+  delegate->ContextMenuWillPresent(self.webStateImpl,
+                                   net::GURLWithNSURL(elementInfo.linkURL));
+}
+
 #pragma mark - Helper
 
 // Helper to respond to |webView:runJavaScript...| delegate methods.
@@ -206,6 +260,18 @@
   // the requesting page's URL.
   GURL requestURL = net::GURLWithNSURL(frame.request.URL);
   if (!requestURL.is_valid()) {
+    completionHandler(NO, nil);
+    return;
+  }
+
+  if (self.webStateImpl->GetVisibleURL().GetOrigin() !=
+          requestURL.GetOrigin() &&
+      frame.mainFrame) {
+    // Dialog was requested by web page's main frame, but visible URL has
+    // different origin. This could happen if the user has started a new
+    // browser initiated navigation. There is no value in showing dialogs
+    // requested by page, which this WebState is about to leave. But presenting
+    // the dialog can lead to phishing and other abusive behaviors.
     completionHandler(NO, nil);
     return;
   }

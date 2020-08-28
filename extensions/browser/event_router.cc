@@ -644,8 +644,14 @@ void EventRouter::DispatchEventToProcess(
     }
   }
 
+  // TODO(ortuno): |listener_url| is passed in from the renderer so it can't
+  // fully be trusted. We should retrieve the URL from the browser process.
+  const GURL* url =
+      service_worker_version_id == blink::mojom::kInvalidServiceWorkerVersionId
+          ? &listener_url
+          : nullptr;
   Feature::Context target_context =
-      process_map->GetMostLikelyContextType(extension, process->GetID());
+      process_map->GetMostLikelyContextType(extension, process->GetID(), url);
 
   // We shouldn't be dispatching an event to a webpage, since all such events
   // (e.g.  messaging) don't go through EventRouter.
@@ -820,11 +826,6 @@ void EventRouter::ReportEvent(events::HistogramValue histogram_value,
       UMA_HISTOGRAM_ENUMERATION(
           "Extensions.Events.DispatchWithSuspendedEventPage", histogram_value,
           events::ENUM_BOUNDARY);
-      if (is_component) {
-        UMA_HISTOGRAM_ENUMERATION(
-            "Extensions.Events.DispatchToComponentWithSuspendedEventPage",
-            histogram_value, events::ENUM_BOUNDARY);
-      }
     } else {
       UMA_HISTOGRAM_ENUMERATION(
           "Extensions.Events.DispatchWithRunningEventPage", histogram_value,

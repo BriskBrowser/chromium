@@ -247,11 +247,8 @@ class GeolocationNetworkProviderTest : public testing::Test {
     std::string upload_data = network::GetUploadData(pending_request.request);
     ASSERT_FALSE(upload_data.empty());
 
-    std::string json_parse_error_msg;
-    std::unique_ptr<base::Value> parsed_json =
-        base::JSONReader::ReadAndReturnErrorDeprecated(
-            upload_data, base::JSON_PARSE_RFC, nullptr, &json_parse_error_msg);
-    EXPECT_TRUE(json_parse_error_msg.empty());
+    base::Optional<base::Value> parsed_json =
+        base::JSONReader::Read(upload_data);
     ASSERT_TRUE(parsed_json);
 
     const base::DictionaryValue* request_json;
@@ -322,7 +319,7 @@ TEST_F(GeolocationNetworkProviderTest, NonEmptyApiKey) {
   const GURL& request_url =
       test_url_loader_factory_.pending_requests()->back().request.url;
   EXPECT_TRUE(request_url.has_query());
-  EXPECT_TRUE(request_url.query_piece().starts_with("key="));
+  EXPECT_TRUE(base::StartsWith(request_url.query_piece(), "key="));
 }
 
 // Tests that, after StartProvider(), a TestURLFetcher can be extracted,

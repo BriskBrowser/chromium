@@ -6,6 +6,8 @@ package org.chromium.chrome.browser.tasks.tab_management;
 
 import android.content.Context;
 
+import androidx.annotation.Nullable;
+
 import java.util.ArrayList;
 import java.util.List;
 
@@ -36,11 +38,21 @@ public class MessageCardProviderCoordinator {
 
     /**
      * Get all messages.
-     * @return a list of {@link
-     *         MessageCardProviderMediator.Message}.
+     * @return a list of {@link MessageCardProviderMediator.Message}.
      */
     public List<MessageCardProviderMediator.Message> getMessageItems() {
         return mMediator.getMessageItems();
+    }
+
+    /**
+     * @param messageType The {@link MessageService#mMessageType} associates with the message.
+     * @return The next {@link MessageCardProviderMediator.Message} for the given messageType, if
+     *         there is any. Otherwise returns null.
+     */
+    @Nullable
+    public MessageCardProviderMediator.Message getNextMessageItemForType(
+            @MessageService.MessageType int messageType) {
+        return mMediator.getNextMessageItemForType(messageType);
     }
 
     /**

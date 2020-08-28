@@ -73,19 +73,20 @@ class ToolbarRowView : public views::View {
     // Back button.
     views::ColumnSet* column_set = layout->AddColumnSet(0);
     column_set->AddColumn(GridLayout::CENTER, GridLayout::CENTER, 0,
-                          GridLayout::USE_PREF, 0, 0);
+                          GridLayout::ColumnSize::kUsePreferred, 0, 0);
     column_set->AddPaddingColumn(0, related_horizontal_spacing);
     // Forward button.
     column_set->AddColumn(GridLayout::CENTER, GridLayout::CENTER, 0,
-                          GridLayout::USE_PREF, 0, 0);
+                          GridLayout::ColumnSize::kUsePreferred, 0, 0);
     column_set->AddPaddingColumn(0, related_horizontal_spacing);
     // Reload button.
     column_set->AddColumn(GridLayout::CENTER, GridLayout::CENTER, 0,
-                          GridLayout::USE_PREF, 0, 0);
+                          GridLayout::ColumnSize::kUsePreferred, 0, 0);
     column_set->AddPaddingColumn(0, related_horizontal_spacing);
     // Location bar.
     column_set->AddColumn(GridLayout::FILL, GridLayout::CENTER, 1,
-                          GridLayout::FIXED, kLocationBarHeight, 0);
+                          GridLayout::ColumnSize::kFixed, kLocationBarHeight,
+                          0);
     column_set->AddPaddingColumn(0, related_horizontal_spacing);
 
     layout->StartRow(0, 0);
@@ -141,9 +142,8 @@ SimpleWebViewDialog::~SimpleWebViewDialog() {
 
 void SimpleWebViewDialog::StartLoad(const GURL& url) {
   if (!web_view_container_)
-    web_view_container_.reset(new views::WebView(profile_));
+    web_view_container_ = std::make_unique<views::WebView>(profile_);
   web_view_ = web_view_container_.get();
-  web_view_->set_owned_by_client();
   web_view_->GetWebContents()->SetDelegate(this);
   web_view_->LoadInitialURL(url);
 
@@ -191,8 +191,7 @@ void SimpleWebViewDialog::Init() {
   location_bar_ = location_bar.get();
 
   // Reload button.
-  auto reload = std::make_unique<ReloadButton>(
-      command_updater_.get(), ReloadButton::IconStyle::kBrowser);
+  auto reload = std::make_unique<ReloadButton>(command_updater_.get());
   reload->set_triggerable_event_flags(ui::EF_LEFT_MOUSE_BUTTON |
                                       ui::EF_MIDDLE_MOUSE_BUTTON);
   reload->set_tag(IDC_RELOAD);
@@ -208,19 +207,21 @@ void SimpleWebViewDialog::Init() {
   // Add the views as child views before the grid layout is installed. This
   // ensures ownership is more clear.
   ToolbarRowView* toolbar_row_ptr = AddChildView(std::move(toolbar_row));
-  AddChildView(web_view_);
+  // Transfer ownership of the |web_view_| from the |web_view_container_|
+  // created in StartLoad() to |this|.
+  AddChildView(std::move(web_view_container_));
 
   // Layout.
   GridLayout* layout = SetLayoutManager(std::make_unique<GridLayout>());
 
   views::ColumnSet* column_set = layout->AddColumnSet(0);
   column_set->AddColumn(GridLayout::FILL, GridLayout::FILL, 1,
-                        GridLayout::FIXED, 0, 0);
+                        GridLayout::ColumnSize::kFixed, 0, 0);
 
   column_set = layout->AddColumnSet(1);
   column_set->AddPaddingColumn(0, kInnerMargin);
   column_set->AddColumn(GridLayout::FILL, GridLayout::FILL, 1,
-                        GridLayout::FIXED, 0, 0);
+                        GridLayout::ColumnSize::kFixed, 0, 0);
   column_set->AddPaddingColumn(0, kInnerMargin);
 
   // Setup layout rows.
@@ -353,10 +354,6 @@ void SimpleWebViewDialog::LoadImages() {
                      tp->GetImageSkiaNamed(IDR_FORWARD_P));
   forward_->SetImage(views::Button::STATE_DISABLED,
                      tp->GetImageSkiaNamed(IDR_FORWARD_D));
-
-  reload_->SetColors(
-      tp->GetColor(ThemeProperties::COLOR_TOOLBAR_BUTTON_ICON),
-      tp->GetColor(ThemeProperties::COLOR_TOOLBAR_BUTTON_ICON_INACTIVE));
 }
 
 void SimpleWebViewDialog::UpdateButtons() {

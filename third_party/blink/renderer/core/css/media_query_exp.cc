@@ -32,8 +32,9 @@
 #include "third_party/blink/renderer/core/css/css_math_expression_node.h"
 #include "third_party/blink/renderer/core/css/css_math_function_value.h"
 #include "third_party/blink/renderer/core/css/css_numeric_literal_value.h"
+#include "third_party/blink/renderer/core/css/parser/css_parser_context.h"
 #include "third_party/blink/renderer/core/css/parser/css_parser_token_range.h"
-#include "third_party/blink/renderer/core/css/parser/css_property_parser_helpers.h"
+#include "third_party/blink/renderer/core/css/properties/css_parsing_utils.h"
 #include "third_party/blink/renderer/core/html/parser/html_parser_idioms.h"
 #include "third_party/blink/renderer/platform/runtime_enabled_features.h"
 #include "third_party/blink/renderer/platform/wtf/decimal.h"
@@ -70,23 +71,21 @@ static inline bool FeatureWithValidIdent(const String& media_feature,
   if (media_feature == media_feature_names::kScanMediaFeature)
     return ident == CSSValueID::kInterlace || ident == CSSValueID::kProgressive;
 
-  if (RuntimeEnabledFeatures::MediaQueryShapeEnabled()) {
-    if (media_feature == media_feature_names::kShapeMediaFeature)
-      return ident == CSSValueID::kRect || ident == CSSValueID::kRound;
-  }
-
   if (media_feature == media_feature_names::kColorGamutMediaFeature) {
     return ident == CSSValueID::kSRGB || ident == CSSValueID::kP3 ||
            ident == CSSValueID::kRec2020;
   }
 
-  if (media_feature == media_feature_names::kPrefersColorSchemeMediaFeature) {
-    return ident == CSSValueID::kNoPreference || ident == CSSValueID::kDark ||
-           ident == CSSValueID::kLight;
-  }
+  if (media_feature == media_feature_names::kPrefersColorSchemeMediaFeature)
+    return ident == CSSValueID::kDark || ident == CSSValueID::kLight;
 
   if (media_feature == media_feature_names::kPrefersReducedMotionMediaFeature)
     return ident == CSSValueID::kNoPreference || ident == CSSValueID::kReduce;
+
+  if (RuntimeEnabledFeatures::PrefersReducedDataEnabled() &&
+      media_feature == media_feature_names::kPrefersReducedDataMediaFeature) {
+    return ident == CSSValueID::kNoPreference || ident == CSSValueID::kReduce;
+  }
 
   if (RuntimeEnabledFeatures::ForcedColorsEnabled()) {
     if (media_feature == media_feature_names::kForcedColorsMediaFeature) {
@@ -97,6 +96,14 @@ static inline bool FeatureWithValidIdent(const String& media_feature,
   if (RuntimeEnabledFeatures::MediaQueryNavigationControlsEnabled()) {
     if (media_feature == media_feature_names::kNavigationControlsMediaFeature) {
       return ident == CSSValueID::kNone || ident == CSSValueID::kBackButton;
+    }
+  }
+
+  if (RuntimeEnabledFeatures::CSSFoldablesEnabled()) {
+    if (media_feature == media_feature_names::kScreenSpanningMediaFeature) {
+      return ident == CSSValueID::kNone ||
+             ident == CSSValueID::kSingleFoldVertical ||
+             ident == CSSValueID::kSingleFoldHorizontal;
     }
   }
 
@@ -184,7 +191,9 @@ static inline bool FeatureWithAspectRatio(const String& media_feature) {
          media_feature == kMaxDeviceAspectRatioMediaFeature;
 }
 
-static inline bool FeatureWithoutValue(const String& media_feature) {
+static inline bool FeatureWithoutValue(
+    const String& media_feature,
+    const ExecutionContext* execution_context) {
   // Media features that are prefixed by min/max cannot be used without a value.
   return media_feature == media_feature_names::kMonochromeMediaFeature ||
          media_feature == media_feature_names::kColorMediaFeature ||
@@ -206,15 +215,25 @@ static inline bool FeatureWithoutValue(const String& media_feature) {
          media_feature == media_feature_names::kResolutionMediaFeature ||
          media_feature == media_feature_names::kDisplayModeMediaFeature ||
          media_feature == media_feature_names::kScanMediaFeature ||
-         media_feature == media_feature_names::kShapeMediaFeature ||
          media_feature == media_feature_names::kColorGamutMediaFeature ||
          media_feature == media_feature_names::kImmersiveMediaFeature ||
          media_feature ==
              media_feature_names::kPrefersColorSchemeMediaFeature ||
          media_feature ==
              media_feature_names::kPrefersReducedMotionMediaFeature ||
-         media_feature == media_feature_names::kForcedColorsMediaFeature ||
-         media_feature == media_feature_names::kNavigationControlsMediaFeature;
+         (media_feature ==
+              media_feature_names::kPrefersReducedDataMediaFeature &&
+          RuntimeEnabledFeatures::PrefersReducedDataEnabled()) ||
+         (media_feature == media_feature_names::kForcedColorsMediaFeature &&
+          RuntimeEnabledFeatures::ForcedColorsEnabled()) ||
+         (media_feature ==
+              media_feature_names::kNavigationControlsMediaFeature &&
+          RuntimeEnabledFeatures::MediaQueryNavigationControlsEnabled()) ||
+         (media_feature == media_feature_names::kOriginTrialTestMediaFeature &&
+          RuntimeEnabledFeatures::OriginTrialsSampleAPIEnabled(
+              execution_context)) ||
+         (media_feature == media_feature_names::kScreenSpanningMediaFeature &&
+          RuntimeEnabledFeatures::CSSFoldablesEnabled());
 }
 
 bool MediaQueryExp::IsViewportDependent() const {
@@ -245,8 +264,7 @@ bool MediaQueryExp::IsDeviceDependent() const {
          media_feature_ == media_feature_names::kMinDeviceHeightMediaFeature ||
          media_feature_ == kMaxDeviceAspectRatioMediaFeature ||
          media_feature_ == media_feature_names::kMaxDeviceWidthMediaFeature ||
-         media_feature_ == media_feature_names::kMaxDeviceHeightMediaFeature ||
-         media_feature_ == media_feature_names::kShapeMediaFeature;
+         media_feature_ == media_feature_names::kMaxDeviceHeightMediaFeature;
 }
 
 MediaQueryExp::MediaQueryExp(const MediaQueryExp& other)
@@ -257,30 +275,33 @@ MediaQueryExp::MediaQueryExp(const String& media_feature,
     : media_feature_(media_feature), exp_value_(exp_value) {}
 
 MediaQueryExp MediaQueryExp::Create(const String& media_feature,
-                                    CSSParserTokenRange& range) {
+                                    CSSParserTokenRange& range,
+                                    const CSSParserContext& context,
+                                    const ExecutionContext* execution_context) {
   DCHECK(!media_feature.IsNull());
 
   MediaQueryExpValue exp_value;
   String lower_media_feature =
       AttemptStaticStringCreation(media_feature.LowerASCII());
 
+  CSSParserContext::ParserModeOverridingScope scope(context, kHTMLStandardMode);
+
   CSSPrimitiveValue* value =
-      css_property_parser_helpers::ConsumeInteger(range, 0);
+      css_parsing_utils::ConsumeInteger(range, context, 0);
   if (!value && !FeatureExpectingPositiveInteger(lower_media_feature) &&
       !FeatureWithAspectRatio(lower_media_feature)) {
-    value = css_property_parser_helpers::ConsumeNumber(range,
-                                                       kValueRangeNonNegative);
+    value = css_parsing_utils::ConsumeNumber(range, context,
+                                             kValueRangeNonNegative);
   }
   if (!value) {
-    value = css_property_parser_helpers::ConsumeLength(range, kHTMLStandardMode,
-                                                       kValueRangeNonNegative);
+    value = css_parsing_utils::ConsumeLength(range, context,
+                                             kValueRangeNonNegative);
   }
   if (!value)
-    value = css_property_parser_helpers::ConsumeResolution(range);
+    value = css_parsing_utils::ConsumeResolution(range);
 
   if (!value) {
-    if (CSSIdentifierValue* ident =
-            css_property_parser_helpers::ConsumeIdent(range)) {
+    if (CSSIdentifierValue* ident = css_parsing_utils::ConsumeIdent(range)) {
       CSSValueID ident_id = ident->GetValueID();
       if (!FeatureWithValidIdent(lower_media_feature, ident_id))
         return Invalid();
@@ -288,7 +309,7 @@ MediaQueryExp MediaQueryExp::Create(const String& media_feature,
       exp_value.is_id = true;
       return MediaQueryExp(lower_media_feature, exp_value);
     }
-    if (FeatureWithoutValue(lower_media_feature)) {
+    if (FeatureWithoutValue(lower_media_feature, execution_context)) {
       // Valid, creates a MediaQueryExp with an 'invalid' MediaQueryExpValue
       return MediaQueryExp(lower_media_feature, exp_value);
     }
@@ -300,10 +321,10 @@ MediaQueryExp MediaQueryExp::Create(const String& media_feature,
   if (FeatureWithAspectRatio(lower_media_feature)) {
     if (!value->IsInteger() || value->GetDoubleValue() == 0)
       return Invalid();
-    if (!css_property_parser_helpers::ConsumeSlashIncludingWhitespace(range))
+    if (!css_parsing_utils::ConsumeSlashIncludingWhitespace(range))
       return Invalid();
     CSSPrimitiveValue* denominator =
-        css_property_parser_helpers::ConsumePositiveInteger(range);
+        css_parsing_utils::ConsumePositiveInteger(range, context);
     if (!denominator)
       return Invalid();
 

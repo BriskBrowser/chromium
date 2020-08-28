@@ -9,6 +9,7 @@
 #include <algorithm>
 
 #include "base/bind.h"
+#include "base/logging.h"
 #include "base/memory/ptr_util.h"
 #include "base/strings/string_util.h"
 #include "base/values.h"
@@ -70,15 +71,13 @@ void NetworkProfileHandler::RemoveObserver(NetworkProfileObserver* observer) {
 }
 
 void NetworkProfileHandler::GetManagerPropertiesCallback(
-    DBusMethodCallStatus call_status,
-    const base::DictionaryValue& properties) {
-  if (DBUS_METHOD_CALL_FAILURE) {
+    base::Optional<base::Value> properties) {
+  if (!properties) {
     LOG(ERROR) << "Error when requesting manager properties.";
     return;
   }
 
-  const base::Value* profiles = NULL;
-  properties.GetWithoutPathExpansion(shill::kProfilesProperty, &profiles);
+  const base::Value* profiles = properties->FindKey(shill::kProfilesProperty);
   if (!profiles) {
     LOG(ERROR) << "Manager properties returned from Shill don't contain "
                << "the field " << shill::kProfilesProperty;
@@ -129,15 +128,15 @@ void NetworkProfileHandler::OnPropertyChanged(const std::string& name,
     VLOG(2) << "Requesting properties of profile path " << *it << ".";
     ShillProfileClient::Get()->GetProperties(
         dbus::ObjectPath(*it),
-        base::Bind(&NetworkProfileHandler::GetProfilePropertiesCallback,
-                   weak_ptr_factory_.GetWeakPtr(), *it),
-        base::Bind(&LogProfileRequestError, *it));
+        base::BindOnce(&NetworkProfileHandler::GetProfilePropertiesCallback,
+                       weak_ptr_factory_.GetWeakPtr(), *it),
+        base::BindOnce(&LogProfileRequestError, *it));
   }
 }
 
 void NetworkProfileHandler::GetProfilePropertiesCallback(
     const std::string& profile_path,
-    const base::DictionaryValue& properties) {
+    base::Value properties) {
   if (pending_profile_creations_.erase(profile_path) == 0) {
     VLOG(1) << "Ignore received properties, profile was removed.";
     return;
@@ -146,10 +145,10 @@ void NetworkProfileHandler::GetProfilePropertiesCallback(
     VLOG(1) << "Ignore received properties, profile is already created.";
     return;
   }
-  std::string userhash;
-  properties.GetStringWithoutPathExpansion(shill::kUserHashProperty, &userhash);
+  const std::string* userhash =
+      properties.FindStringKey(shill::kUserHashProperty);
 
-  AddProfile(NetworkProfile(profile_path, userhash));
+  AddProfile(NetworkProfile(profile_path, userhash ? *userhash : ""));
 }
 
 void NetworkProfileHandler::AddProfile(const NetworkProfile& profile) {
@@ -210,8 +209,8 @@ void NetworkProfileHandler::Init() {
 
   // Request the initial profile list.
   ShillManagerClient::Get()->GetProperties(
-      base::Bind(&NetworkProfileHandler::GetManagerPropertiesCallback,
-                 weak_ptr_factory_.GetWeakPtr()));
+      base::BindOnce(&NetworkProfileHandler::GetManagerPropertiesCallback,
+                     weak_ptr_factory_.GetWeakPtr()));
 }
 
 NetworkProfileHandler::~NetworkProfileHandler() {

@@ -6,6 +6,7 @@
 
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
+#include "base/logging.h"
 #include "base/memory/ptr_util.h"
 #include "base/path_service.h"
 #include "base/stl_util.h"
@@ -16,6 +17,7 @@
 #include "build/build_config.h"
 #include "net/traffic_annotation/network_traffic_annotation.h"
 #include "net/traffic_annotation/network_traffic_annotation_test_helper.h"
+#include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "tools/traffic_annotation/auditor/traffic_annotation_exporter.h"
 #include "tools/traffic_annotation/auditor/traffic_annotation_file_filter.h"
@@ -43,10 +45,6 @@ const base::FilePath kTestsFolder =
         .Append(FILE_PATH_LITERAL("auditor"))
         .Append(FILE_PATH_LITERAL("tests"));
 
-const base::FilePath kClangToolPath =
-    base::FilePath(FILE_PATH_LITERAL("tools"))
-        .Append(FILE_PATH_LITERAL("traffic_annotation/bin"));
-
 const std::set<int> kDummyDeprecatedIDs = {100, 101, 102};
 }  // namespace
 
@@ -58,29 +56,17 @@ class TrafficAnnotationAuditorTest : public ::testing::Test {
       return;
     }
 
+    base::FilePath build_path;
+    if (!base::PathService::Get(base::DIR_EXE, &build_path)) {
+      LOG(ERROR) << "Could not get executable directory to find build path.";
+      return;
+    }
+
     tests_folder_ = source_path_.Append(kTestsFolder);
-
-#if defined(OS_WIN)
-    base::FilePath platform_name(FILE_PATH_LITERAL("win32"));
-#elif defined(OS_LINUX)
-    base::FilePath platform_name(FILE_PATH_LITERAL("linux64"));
-#elif defined(OS_MACOSX)
-    base::FilePath platform_name(FILE_PATH_LITERAL("mac"));
-#else
-    NOTREACHED() << "Unexpected platform.";
-#endif
-
-    base::FilePath clang_tool_path =
-        source_path_.Append(kClangToolPath).Append(platform_name);
     std::vector<std::string> path_filters;
 
-    // As build path is not available and not used in tests, the default (empty)
-    // build path is passed to auditor.
     auditor_ = std::make_unique<TrafficAnnotationAuditor>(
-        source_path_,
-        source_path_.Append(FILE_PATH_LITERAL("out"))
-            .Append(FILE_PATH_LITERAL("Default")),
-        clang_tool_path, path_filters);
+        source_path_, build_path, path_filters);
 
     id_checker_ = std::make_unique<TrafficAnnotationIDChecker>(
         TrafficAnnotationAuditor::GetReservedIDsSet(), kDummyDeprecatedIDs);
@@ -94,7 +80,7 @@ class TrafficAnnotationAuditorTest : public ::testing::Test {
 
  protected:
   // Deserializes an annotation or a call instance from a sample file similar to
-  // clang tool outputs.
+  // extractor outputs.
   AuditorResult::Type Deserialize(const std::string& file_name,
                                   InstanceBase* instance);
 
@@ -675,9 +661,27 @@ TEST_F(TrafficAnnotationAuditorTest, CheckAllRequiredFunctionsAreAnnotated) {
 // Tests if TrafficAnnotationAuditor::CheckAnnotationsContents works as
 // expected for COMPLETE annotations. It also inherently checks
 // TrafficAnnotationAuditor::IsAnnotationComplete and
-// TrafficAnnotationAuditor::IsAnnotationConsistent.
+// TrafficAnnotationAuditor::IsAnnotationConsistent and
+// TrafficAnnotationAuditor::InGroupingXML.
 TEST_F(TrafficAnnotationAuditorTest, CheckCompleteAnnotations) {
   AnnotationInstance instance = CreateAnnotationInstanceSample();
+
+  base::FilePath grouping_xml_path =
+      tests_folder().Append(FILE_PATH_LITERAL("test_grouping.xml"));
+  std::set<std::string> annotation_unique_ids;
+  bool success = auditor().GetGroupingAnnotationsUniqueIDs(
+      grouping_xml_path, &annotation_unique_ids);
+  EXPECT_TRUE(success);
+  EXPECT_THAT(annotation_unique_ids,
+              testing::UnorderedElementsAre(
+                  "foobar_policy_fetcher", "foobar_info_fetcher",
+                  "fizzbuzz_handle_front_end_messages",
+                  "fizzbuzz_hard_coded_data_source", "fizzbuzz_http_handler",
+                  "widget_grabber"));
+  auditor().SetGroupedAnnotationUniqueIDsForTesting(annotation_unique_ids);
+  // Set unique id to be something in `tests/test_grouping.xml`.
+  instance.proto.set_unique_id("foobar_policy_fetcher");
+
   std::vector<AnnotationInstance> annotations;
   unsigned int expected_errors_count = 0;
 
@@ -956,4 +960,37 @@ TEST_F(TrafficAnnotationAuditorTest, AnnotationsXMLDifferences) {
   EXPECT_EQ(diff12, expected_diff12);
   EXPECT_EQ(diff13, expected_diff13);
   EXPECT_EQ(diff23, expected_diff23);
+}
+
+// Tests if an 'annotation' is in 'test_grouping.xml' or not.
+TEST_F(TrafficAnnotationAuditorTest, AnnotationGrouping) {
+  AnnotationInstance instance = CreateAnnotationInstanceSample();
+  instance.type = AnnotationInstance::Type::ANNOTATION_COMPLETE;
+
+  base::FilePath grouping_xml_path =
+      tests_folder().Append(FILE_PATH_LITERAL("test_grouping.xml"));
+
+  std::set<std::string> annotation_unique_ids;
+  bool success = auditor().GetGroupingAnnotationsUniqueIDs(
+      grouping_xml_path, &annotation_unique_ids);
+
+  EXPECT_TRUE(success);
+  EXPECT_THAT(annotation_unique_ids,
+              testing::UnorderedElementsAre(
+                  "foobar_policy_fetcher", "foobar_info_fetcher",
+                  "fizzbuzz_handle_front_end_messages",
+                  "fizzbuzz_hard_coded_data_source", "fizzbuzz_http_handler",
+                  "widget_grabber"));
+
+  // Test 'annotation' with unique id "empty" is not in 'test_grouping.xml'
+  instance.proto.set_unique_id("empty");
+  AuditorResult::Type returned_type =
+      instance.InGroupingXML(annotation_unique_ids).type();
+  EXPECT_EQ(returned_type, AuditorResult::Type::ERROR_MISSING_GROUPING);
+
+  // Test 'annotation' with unique id "foobar_policy_fetcher" is in
+  // 'test_grouping.xml'
+  instance.proto.set_unique_id("foobar_policy_fetcher");
+  returned_type = instance.InGroupingXML(annotation_unique_ids).type();
+  EXPECT_EQ(returned_type, AuditorResult::Type::RESULT_OK);
 }

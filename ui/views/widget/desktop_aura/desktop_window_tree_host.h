@@ -6,6 +6,7 @@
 #define UI_VIEWS_WIDGET_DESKTOP_AURA_DESKTOP_WINDOW_TREE_HOST_H_
 
 #include <memory>
+#include <string>
 
 #include "ui/aura/window_event_dispatcher.h"
 #include "ui/base/ui_base_types.h"
@@ -149,7 +150,7 @@ class VIEWS_EXPORT DesktopWindowTreeHost {
 
   virtual void SetVisibilityChangedAnimationsEnabled(bool value) = 0;
 
-  virtual NonClientFrameView* CreateNonClientFrameView() = 0;
+  virtual std::unique_ptr<NonClientFrameView> CreateNonClientFrameView() = 0;
 
   // Determines whether the window should use native title bar and borders.
   virtual bool ShouldUseNativeFrame() const = 0;

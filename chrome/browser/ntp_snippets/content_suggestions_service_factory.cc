@@ -50,13 +50,12 @@
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/storage_partition.h"
 #include "google_apis/google_api_keys.h"
-#include "net/url_request/url_request_context_getter.h"
 #include "services/data_decoder/public/cpp/data_decoder.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
 
 #if defined(OS_ANDROID)
-#include "chrome/browser/android/chrome_feature_list.h"
 #include "chrome/browser/android/ntp/ntp_snippets_launcher.h"
+#include "chrome/browser/flags/android/chrome_feature_list.h"
 #include "chrome/browser/profiles/profile_key.h"
 #include "components/feed/feed_feature_list.h"
 #endif
@@ -251,7 +250,8 @@ ContentSuggestionsServiceFactory::~ContentSuggestionsServiceFactory() = default;
 KeyedService* ContentSuggestionsServiceFactory::BuildServiceInstanceFor(
     content::BrowserContext* context) const {
 #if defined(OS_ANDROID)
-  if (base::FeatureList::IsEnabled(feed::kInterestFeedContentSuggestions)) {
+  if (base::FeatureList::IsEnabled(feed::kInterestFeedContentSuggestions) ||
+      base::FeatureList::IsEnabled(feed::kInterestFeedV2)) {
     return nullptr;
   }
 #endif  // defined(OS_ANDROID)

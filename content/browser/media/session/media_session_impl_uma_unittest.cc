@@ -39,11 +39,23 @@ class MockMediaSessionPlayerObserver : public MediaSessionPlayerObserver {
   void OnSeekBackward(int player_id, base::TimeDelta seek_time) override {}
   void OnSetVolumeMultiplier(int player_id, double volume_multiplier) override {
   }
+  void OnEnterPictureInPicture(int player_id) override {}
+  void OnExitPictureInPicture(int player_id) override {}
+  void OnSetAudioSinkId(int player_id,
+                        const std::string& raw_device_id) override {}
 
   base::Optional<media_session::MediaPosition> GetPosition(
       int player_id) const override {
     return base::nullopt;
   }
+
+  bool IsPictureInPictureAvailable(int player_id) const override {
+    return false;
+  }
+
+  bool HasVideo(int player_id) const override { return false; }
+
+  std::string GetAudioOutputSinkId(int player_id) const override { return ""; }
 
   RenderFrameHost* render_frame_host() const override {
     return render_frame_host_;

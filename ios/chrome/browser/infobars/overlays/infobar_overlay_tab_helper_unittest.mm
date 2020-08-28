@@ -10,8 +10,10 @@
 #include "ios/chrome/browser/infobars/infobar_manager_impl.h"
 #import "ios/chrome/browser/infobars/overlays/fake_infobar_overlay_request_factory.h"
 #import "ios/chrome/browser/infobars/overlays/infobar_overlay_request_factory.h"
+#import "ios/chrome/browser/infobars/overlays/infobar_overlay_request_inserter.h"
 #include "ios/chrome/browser/infobars/test/fake_infobar_delegate.h"
 #import "ios/chrome/browser/infobars/test/fake_infobar_ios.h"
+#import "ios/chrome/browser/overlays/public/common/infobars/infobar_overlay_request_config.h"
 #include "ios/chrome/browser/overlays/public/overlay_request.h"
 #import "ios/chrome/browser/overlays/public/overlay_request_queue.h"
 #include "ios/chrome/browser/overlays/test/fake_overlay_user_data.h"
@@ -35,8 +37,9 @@ class InfobarOverlayTabHelperTest : public PlatformTest {
     web_state_.SetNavigationManager(
         std::make_unique<web::TestNavigationManager>());
     InfoBarManagerImpl::CreateForWebState(&web_state_);
-    InfobarOverlayTabHelper::CreateForWebState(
+    InfobarOverlayRequestInserter::CreateForWebState(
         &web_state_, std::make_unique<FakeInfobarOverlayRequestFactory>());
+    InfobarOverlayTabHelper::CreateForWebState(&web_state_);
   }
 
   // Returns the front request of |web_state_|'s OverlayRequestQueue.
@@ -58,4 +61,21 @@ TEST_F(InfobarOverlayTabHelperTest, AddInfoBar) {
   ASSERT_FALSE(front_request());
   manager()->AddInfoBar(std::make_unique<FakeInfobarIOS>());
   ASSERT_TRUE(front_request());
+}
+
+TEST_F(InfobarOverlayTabHelperTest, HighPriorityInfoBar) {
+  ASSERT_FALSE(front_request());
+  manager()->AddInfoBar(std::make_unique<FakeInfobarIOS>());
+  ASSERT_TRUE(front_request());
+
+  std::unique_ptr<FakeInfobarIOS> high_priority_infobar =
+      std::make_unique<FakeInfobarIOS>(
+          InfobarType::kInfobarTypeTranslate,
+          base::ASCIIToUTF16("FakeTranslateInfobar"));
+  high_priority_infobar->set_high_priority(true);
+  manager()->AddInfoBar(std::move(high_priority_infobar));
+  OverlayRequest* request = front_request();
+  InfobarOverlayRequestConfig* config =
+      request->GetConfig<InfobarOverlayRequestConfig>();
+  ASSERT_TRUE(config->is_high_priority());
 }

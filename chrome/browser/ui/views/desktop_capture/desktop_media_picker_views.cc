@@ -9,7 +9,6 @@
 
 #include "base/bind.h"
 #include "base/callback.h"
-#include "base/task/post_task.h"
 #include "build/build_config.h"
 #include "chrome/browser/media/webrtc/desktop_media_list.h"
 #include "chrome/browser/media/webrtc/desktop_media_picker_manager.h"
@@ -63,9 +62,8 @@ DesktopMediaPickerDialogView::DesktopMediaPickerDialogView(
     DesktopMediaPickerViews* parent,
     std::vector<std::unique_ptr<DesktopMediaList>> source_lists)
     : parent_(parent), modality_(params.modality) {
-  DialogDelegate::set_button_label(
-      ui::DIALOG_BUTTON_OK,
-      l10n_util::GetStringUTF16(IDS_DESKTOP_MEDIA_PICKER_SHARE));
+  SetButtonLabel(ui::DIALOG_BUTTON_OK,
+                 l10n_util::GetStringUTF16(IDS_DESKTOP_MEDIA_PICKER_SHARE));
   const ChromeLayoutProvider* provider = ChromeLayoutProvider::Get();
 
   std::unique_ptr<views::Checkbox> audio_share_checkbox;
@@ -73,8 +71,7 @@ DesktopMediaPickerDialogView::DesktopMediaPickerDialogView(
     audio_share_checkbox = std::make_unique<views::Checkbox>(
         l10n_util::GetStringUTF16(IDS_DESKTOP_MEDIA_PICKER_AUDIO_SHARE));
     audio_share_checkbox->SetChecked(params.approve_audio_by_default);
-    audio_share_checkbox_ =
-        DialogDelegate::SetExtraView(std::move(audio_share_checkbox));
+    audio_share_checkbox_ = SetExtraView(std::move(audio_share_checkbox));
   }
 
   SetLayoutManager(std::make_unique<views::BoxLayout>(
@@ -217,17 +214,17 @@ DesktopMediaPickerDialogView::DesktopMediaPickerDialogView(
     widget =
         constrained_window::ShowWebModalDialogViews(this, params.web_contents);
   } else {
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
     // On Mac, MODAL_TYPE_CHILD with a null parent isn't allowed - fall back to
     // MODAL_TYPE_WINDOW.
     modality_ = ui::MODAL_TYPE_WINDOW;
 #endif
-    widget = DialogDelegate::CreateDialogWidget(this, params.context, nullptr);
+    widget = CreateDialogWidget(this, params.context, nullptr);
     widget->Show();
   }
   chrome::RecordDialogCreation(chrome::DialogIdentifier::DESKTOP_MEDIA_PICKER);
 
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
   // On Mac, even modals are shown using separate native windows.
   bool is_separate_native_window = true;
 #else
@@ -245,7 +242,7 @@ DesktopMediaPickerDialogView::DesktopMediaPickerDialogView(
     // Set native window ID if the windows is outside Ash.
     dialog_window_id.id = AcceleratedWidgetToDesktopMediaId(
         widget->GetNativeWindow()->GetHost()->GetAcceleratedWidget());
-#elif defined(OS_MACOSX)
+#elif defined(OS_MAC)
     // On Mac, the window_id in DesktopMediaID is the same as the actual native
     // window ID. Note that assuming this is a bit of a layering violation; the
     // fact that this code makes that assumption is documented at the code that
@@ -480,8 +477,8 @@ void DesktopMediaPickerViews::NotifyDialogResult(DesktopMediaID source) {
 
   // Notify the |callback_| asynchronously because it may need to destroy
   // DesktopMediaPicker.
-  base::PostTask(FROM_HERE, {content::BrowserThread::UI},
-                 base::BindOnce(std::move(callback_), source));
+  content::GetUIThreadTaskRunner({})->PostTask(
+      FROM_HERE, base::BindOnce(std::move(callback_), source));
 }
 
 // static

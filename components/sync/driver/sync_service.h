@@ -20,14 +20,9 @@
 #include "components/sync/base/user_demographics.h"
 #include "components/sync/driver/sync_service_observer.h"
 
-struct CoreAccountId;
 struct CoreAccountInfo;
 class GoogleServiceAuthError;
 class GURL;
-
-namespace crypto {
-class ECPrivateKey;
-}  // namespace crypto
 
 namespace syncer {
 
@@ -38,7 +33,6 @@ struct SyncTokenStatus;
 class SyncUserSettings;
 class TypeDebugInfoObserver;
 struct SyncStatus;
-struct UserShare;
 
 // UIs that need to prevent Sync startup should hold an instance of this class
 // until the user has finished modifying sync settings. This is not an inner
@@ -144,11 +138,7 @@ class SyncService : public KeyedService {
     // again until either the browser is restarted, or the user fully signs out
     // and back in again.
     DISABLE_REASON_UNRECOVERABLE_ERROR,
-    // Sync is paused because the user signed out on the web. This is different
-    // from NOT_SIGNED_IN: In this case, there *is* still a primary account, but
-    // it doesn't have valid credentials.
-    DISABLE_REASON_PAUSED,
-    DISABLE_REASON_LAST = DISABLE_REASON_PAUSED,
+    DISABLE_REASON_LAST = DISABLE_REASON_UNRECOVERABLE_ERROR,
   };
 
   using DisableReasonSet =
@@ -161,6 +151,9 @@ class SyncService : public KeyedService {
     // Sync is inactive, e.g. due to enterprise policy, or simply because there
     // is no authenticated user.
     DISABLED,
+    // Sync is paused, e.g. because the user signed out on the web, and the
+    // engine is inactive.
+    PAUSED,
     // Sync's startup was deferred, so that it doesn't slow down browser
     // startup. Once the deferral time (usually 10s) expires, or something
     // requests immediate startup, Sync will actually start.
@@ -225,7 +218,6 @@ class SyncService : public KeyedService {
   virtual bool IsLocalSyncEnabled() const = 0;
 
   // Information about the currently signed in user.
-  CoreAccountId GetAuthenticatedAccountId() const;
   virtual CoreAccountInfo GetAuthenticatedAccountInfo() const = 0;
   // Whether the currently signed in user is the "primary" browser account (see
   // IdentityManager). If this is false, then IsSyncFeatureEnabled will also be
@@ -251,15 +243,6 @@ class SyncService : public KeyedService {
   // Returns true if the Chrome client is too old and needs to be updated for
   // Sync to work.
   virtual bool RequiresClientUpgrade() const = 0;
-
-  // Returns a high-entropy elliptic curve (EC) private key that is unique to a
-  // user and sync-ed across devices via Nigori. Populated when the transport
-  // state becomes CONFIGURING. Returns nullptr if not available. Consumers of
-  // this key should observe for changes via
-  // SyncServiceObserver::OnSyncCycleCompleted().
-  // TODO(crbug.com/1012226): Remove when VAPID migration is over.
-  virtual std::unique_ptr<crypto::ECPrivateKey>
-  GetExperimentalAuthenticationKey() const = 0;
 
   //////////////////////////////////////////////////////////////////////////////
   // DERIVED STATE ACCESS
@@ -333,6 +316,10 @@ class SyncService : public KeyedService {
   // be the empty set. Once the configuration completes the set will be updated.
   virtual ModelTypeSet GetActiveDataTypes() const = 0;
 
+  // Returns the set of currently backed off data types (e.g. returns non-empty
+  // result when the network was disabled during last sync cycle).
+  virtual ModelTypeSet GetBackedOffDataTypes() const = 0;
+
   //////////////////////////////////////////////////////////////////////////////
   // ACTIONS / STATE CHANGE REQUESTS
   //////////////////////////////////////////////////////////////////////////////
@@ -402,16 +389,6 @@ class SyncService : public KeyedService {
 
   // Returns true if |observer| has already been added as an observer.
   virtual bool HasObserver(const SyncServiceObserver* observer) const = 0;
-
-  //////////////////////////////////////////////////////////////////////////////
-  // ACCESS TO INNER OBJECTS
-  //////////////////////////////////////////////////////////////////////////////
-
-  // TODO(akalin): This is called mostly by ModelAssociators and
-  // tests.  Figure out how to pass the handle to the ModelAssociators
-  // directly, figure out how to expose this to tests, and remove this
-  // function.
-  virtual UserShare* GetUserShare() const = 0;
 
   //////////////////////////////////////////////////////////////////////////////
   // DETAILED STATE FOR DEBUG UI

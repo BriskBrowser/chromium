@@ -14,10 +14,10 @@
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/chromeos/customization/customization_document.h"
-#include "chrome/browser/chromeos/login/login_manager_test.h"
 #include "chrome/browser/chromeos/login/login_wizard.h"
 #include "chrome/browser/chromeos/login/screens/welcome_screen.h"
 #include "chrome/browser/chromeos/login/test/js_checker.h"
+#include "chrome/browser/chromeos/login/test/oobe_base_test.h"
 #include "chrome/browser/chromeos/login/ui/login_display_host.h"
 #include "chrome/browser/chromeos/login/wizard_controller.h"
 #include "chrome/browser/ui/webui/chromeos/login/oobe_ui.h"
@@ -29,6 +29,7 @@
 #include "components/prefs/pref_service.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/web_contents.h"
+#include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/test_utils.h"
 #include "ui/base/ime/chromeos/extension_ime_util.h"
@@ -44,9 +45,6 @@ namespace chromeos {
 
 namespace {
 
-// Timeout for RunLoop::Run() in this test.
-const int kTimeoutSeconds = 2;
-
 // OOBE constants.
 const char kLanguageSelect[] = "languageSelect";
 const char kKeyboardSelect[] = "keyboardSelect";
@@ -56,52 +54,12 @@ std::string GetGetSelectStatement(const std::string& selectId) {
 }
 
 const char kUSLayout[] = "xkb:us::eng";
-class TimedRunLoop {
- public:
-  TimedRunLoop(const base::TimeDelta& timeout,
-               const std::string& failure_message)
-      : timeout_(timeout), message_(failure_message) {}
-
-  // Returns true if Run() successfully finished,
-  // Returns false on timeout.
-  bool Run() {
-    base::OneShotTimer timer;
-    timer.Start(FROM_HERE, timeout_,
-                base::Bind(&TimedRunLoop::OnTimeout, base::Unretained(this)));
-    loop_.Run();
-    return result_;
-  }
-
-  void Quit() {
-    result_ = true;
-    loop_.Quit();
-  }
-
-  base::Closure QuitClosure() {
-    return base::Bind(&TimedRunLoop::Quit, base::Unretained(this));
-  }
-
- private:
-  void OnTimeout() {
-    LOG(ERROR) << "Timeout waiting for: " << message_;
-    result_ = false;
-    loop_.Quit();
-  }
-
-  bool result_ = false;
-  const base::TimeDelta timeout_;
-  const std::string message_;
-  base::RunLoop loop_;
-
-  DISALLOW_COPY_AND_ASSIGN(TimedRunLoop);
-};
 
 class LanguageListWaiter : public WelcomeScreen::Observer {
  public:
   LanguageListWaiter()
       : welcome_screen_(WelcomeScreen::Get(
-            WizardController::default_controller()->screen_manager())),
-        loop_(base::TimeDelta::FromSeconds(kTimeoutSeconds), "LanguageList") {
+            WizardController::default_controller()->screen_manager())) {
     welcome_screen_->AddObserver(this);
     CheckLanguageList();
   }
@@ -111,13 +69,8 @@ class LanguageListWaiter : public WelcomeScreen::Observer {
   // WelcomeScreen::Observer implementation:
   void OnLanguageListReloaded() override { CheckLanguageList(); }
 
-  // Returns true on success, false on timeout.
-  bool Wait() {
-    if (LanguageListReady())
-      return true;
-
-    return loop_.Run();
-  }
+  // Run the loop until the list is ready or the default Run() timeout expires.
+  void RunUntilLanguageListReady() { loop_.Run(); }
 
  private:
   bool LanguageListReady() const { return welcome_screen_->language_list(); }
@@ -128,7 +81,7 @@ class LanguageListWaiter : public WelcomeScreen::Observer {
   }
 
   WelcomeScreen* welcome_screen_;
-  TimedRunLoop loop_;
+  base::RunLoop loop_;
 };
 
 }  // namespace
@@ -233,7 +186,7 @@ struct LocalizationTestParams {
 };
 
 class OobeLocalizationTest
-    : public LoginManagerTest,
+    : public OobeBaseTest,
       public testing::WithParamInterface<const LocalizationTestParams*> {
  public:
   OobeLocalizationTest();
@@ -241,12 +194,12 @@ class OobeLocalizationTest
   // Verifies that the comma-separated |values| corresponds with the first
   // values in |select_id|, optionally checking for an options group label after
   // the first set of options.
-  bool VerifyInitialOptions(const char* select_id,
+  void VerifyInitialOptions(const char* select_id,
                             const char* values,
                             bool check_separator);
 
   // Verifies that |value| exists in |select_id|.
-  bool VerifyOptionExists(const char* select_id, const char* value);
+  void VerifyOptionExists(const char* select_id, const char* value);
 
   // Dumps OOBE select control (language or keyboard) to string.
   std::string DumpOptions(const char* select_id);
@@ -255,63 +208,54 @@ class OobeLocalizationTest
   // Runs the test for the given locale and keyboard layout.
   void RunLocalizationTest();
 
-  // Returns true on success, false on error.
-  bool WaitUntilJSIsReady() {
-    LoginDisplayHost* host = LoginDisplayHost::default_host();
-    if (!host)
-      return false;
-
-    OobeUI* oobe_ui = host->GetOobeUI();
-    if (!oobe_ui)
-      return false;
-
-    TimedRunLoop run_loop(base::TimeDelta::FromSeconds(kTimeoutSeconds),
-                          "WaitUntilJSIsReady()");
-    const bool oobe_ui_ready = oobe_ui->IsJSReady(run_loop.QuitClosure());
-    if (oobe_ui_ready)
-      return true;
-
-    return run_loop.Run();
-  }
-
  private:
   system::ScopedFakeStatisticsProvider fake_statistics_provider_;
 
   DISALLOW_COPY_AND_ASSIGN(OobeLocalizationTest);
 };
 
-OobeLocalizationTest::OobeLocalizationTest() : LoginManagerTest(false, true) {
+OobeLocalizationTest::OobeLocalizationTest() : OobeBaseTest() {
   fake_statistics_provider_.SetMachineStatistic("initial_locale",
                                                 GetParam()->initial_locale);
   fake_statistics_provider_.SetMachineStatistic("keyboard_layout",
                                                 GetParam()->keyboard_layout);
 }
 
-bool OobeLocalizationTest::VerifyInitialOptions(const char* select_id,
+void OobeLocalizationTest::VerifyInitialOptions(const char* select_id,
                                                 const char* values,
                                                 bool check_separator) {
+  const std::string select = GetGetSelectStatement(select_id);
   const std::string expression = base::StringPrintf(
       "(function () {\n"
       "  let select = %s;\n"
-      "  if (!select)\n"
+      "  if (!select) {\n"
+      "    console.error('Could not find ' + `%s`);\n"
       "    return false;\n"
+      "  }\n"
       "  let values = '%s'.split(',');\n"
       "  let correct = select.selectedIndex == 0;\n"
+      "  if (!correct)\n"
+      "    console.error('Wrong selected index ' + select.selectedIndex);\n"
       "  for (var i = 0; i < values.length && correct; i++) {\n"
-      "    if (select.options[i].value != values[i])\n"
+      "    if (select.options[i].value != values[i]) {\n"
       "      correct = false;\n"
+      "      console.error('Values mismatch ' + "
+      "                     select.options[i].value + ' ' + values[i]);\n"
+      "    }\n"
       "  }\n"
-      "  if (%d && correct)\n"
+      "  if (%d && correct) {\n"
       "    correct = select.children[values.length].tagName === 'OPTGROUP';\n"
+      "    if (!correct)\n"
+      "      console.error('Wrong tagname ' + "
+      "                     select.children[values.length].tagName);\n"
+      "  }\n"
       "  return correct;\n"
       "})()",
-      GetGetSelectStatement(select_id).c_str(), values, check_separator);
-  const bool execute_status = test::OobeJS().GetBool(expression);
-  EXPECT_TRUE(execute_status) << expression;
-  return execute_status;
+      select.c_str(), select.c_str(), values, check_separator);
+  test::OobeJS().ExpectTrue(expression);
 }
 
-bool OobeLocalizationTest::VerifyOptionExists(const char* select_id,
+void OobeLocalizationTest::VerifyOptionExists(const char* select_id,
                                               const char* value) {
   const std::string expression = base::StringPrintf(
       "(function () {\n"
@@ -325,9 +269,7 @@ bool OobeLocalizationTest::VerifyOptionExists(const char* select_id,
       "  return false;\n"
       "})()",
       GetGetSelectStatement(select_id).c_str(), value);
-  const bool execute_status = test::OobeJS().GetBool(expression);
-  EXPECT_TRUE(execute_status) << expression;
-  return execute_status;
+  test::OobeJS().ExpectTrue(expression);
 }
 
 std::string OobeLocalizationTest::DumpOptions(const char* select_id) {
@@ -402,68 +344,34 @@ void OobeLocalizationTest::RunLocalizationTest() {
   const std::string expected_keyboard_select =
       TranslateXKB2Extension(expected_keyboard_select_control);
 
-  ASSERT_TRUE(LanguageListWaiter().Wait());
-
-  ASSERT_TRUE(WaitUntilJSIsReady());
+  ASSERT_NO_FATAL_FAILURE(LanguageListWaiter().RunUntilLanguageListReady());
 
   const std::string first_language =
       expected_locale.substr(0, expected_locale.find(','));
-  bool done = false;
   const std::string get_select_statement =
       GetGetSelectStatement(kLanguageSelect);
-  const std::string waiting_script = base::StringPrintf(
-      "function SendReplyIfAcceptEnabled() {"
-      "  if (%s.value != '%s')"
-      "    return false;"
-      "  domAutomationController.send(true);"
-      "  observer.disconnect();"
-      "  return true;"
-      "}"
-      "var observer = new MutationObserver(SendReplyIfAcceptEnabled);"
-      "if (!SendReplyIfAcceptEnabled()) {"
-      "  let options = { attributes: true };"
-      "  observer.observe(%s, options);"
-      "}",
-      get_select_statement.c_str(), first_language.c_str(),
-      get_select_statement.c_str());
 
-  ASSERT_TRUE(content::ExecuteScriptAndExtractBool(
-      LoginDisplayHost::default_host()->GetOobeUI()->web_ui()->GetWebContents(),
-      waiting_script, &done));
+  ASSERT_NO_FATAL_FAILURE(
+      VerifyInitialOptions(kLanguageSelect, expected_locale.c_str(), true))
+      << "Actual value of " << kLanguageSelect << ":\n"
+      << DumpOptions(kLanguageSelect);
 
-  if (!VerifyInitialOptions(kLanguageSelect, expected_locale.c_str(), true)) {
-    LOG(ERROR) << "Actual value of " << kLanguageSelect << ":\n"
-               << DumpOptions(kLanguageSelect);
-    EXPECT_TRUE(false);
-  }
-  if (!VerifyInitialOptions(
-          kKeyboardSelect,
-          TranslateXKB2Extension(expected_keyboard_layout).c_str(), false)) {
-    LOG(ERROR) << "Actual value of " << kKeyboardSelect << ":\n"
-               << DumpOptions(kKeyboardSelect);
-    EXPECT_TRUE(false);
-  }
+  ASSERT_NO_FATAL_FAILURE(VerifyInitialOptions(
+      kKeyboardSelect, TranslateXKB2Extension(expected_keyboard_layout).c_str(),
+      false))
+      << "Actual value of " << kKeyboardSelect << ":\n"
+      << DumpOptions(kKeyboardSelect);
 
   // Make sure we have a fallback keyboard.
-  if (!VerifyOptionExists(
-          kKeyboardSelect,
-          extension_ime_util::GetInputMethodIDByEngineID(kUSLayout).c_str())) {
-    LOG(ERROR) << "Actual value of " << kKeyboardSelect << ":\n"
-               << DumpOptions(kKeyboardSelect);
-    EXPECT_TRUE(false);
-  }
+  ASSERT_NO_FATAL_FAILURE(VerifyOptionExists(
+      kKeyboardSelect,
+      extension_ime_util::GetInputMethodIDByEngineID(kUSLayout).c_str()))
+      << "Actual value of " << kKeyboardSelect << ":\n"
+      << DumpOptions(kKeyboardSelect);
 
   // Note, that sort order is locale-specific, but is unlikely to change.
   // Especially for keyboard layouts.
   EXPECT_EQ(expected_keyboard_select, DumpOptions(kKeyboardSelect));
-
-  // Shut down the display host.
-  LoginDisplayHost::default_host()->Finalize(base::OnceClosure());
-  base::RunLoop().RunUntilIdle();
-
-  // Clear the locale pref so the statistics provider is pinged next time.
-  g_browser_process->local_state()->SetString(
-      language::prefs::kApplicationLocale, std::string());
 }
 
 IN_PROC_BROWSER_TEST_P(OobeLocalizationTest, LocalizationTest) {
@@ -471,7 +379,7 @@ IN_PROC_BROWSER_TEST_P(OobeLocalizationTest, LocalizationTest) {
 }
 
 INSTANTIATE_TEST_SUITE_P(
-    StructSequence,
+    All,
     OobeLocalizationTest,
     testing::Range(&oobe_localization_test_parameters[0],
                    &oobe_localization_test_parameters[base::size(

@@ -24,12 +24,56 @@ FakeClipboardRecentContent::GetRecentTextFromClipboard() {
   return clipboard_text_content_;
 }
 
-base::Optional<gfx::Image>
-FakeClipboardRecentContent::GetRecentImageFromClipboard() {
-  if (suppress_content_)
-    return base::nullopt;
+void FakeClipboardRecentContent::GetRecentImageFromClipboard(
+    GetRecentImageCallback callback) {
+  if (suppress_content_) {
+    std::move(callback).Run(base::nullopt);
+    return;
+  }
 
-  return clipboard_image_content_;
+  std::move(callback).Run(clipboard_image_content_);
+}
+
+bool FakeClipboardRecentContent::HasRecentImageFromClipboard() {
+  if (suppress_content_)
+    return false;
+  return clipboard_image_content_.has_value();
+}
+
+void FakeClipboardRecentContent::HasRecentContentFromClipboard(
+    std::set<ClipboardContentType> types,
+    HasDataCallback callback) {
+  std::set<ClipboardContentType> matching_types;
+  for (ClipboardContentType type : types) {
+    switch (type) {
+      case ClipboardContentType::URL:
+        if (GetRecentURLFromClipboard()) {
+          matching_types.insert(ClipboardContentType::URL);
+        }
+        break;
+      case ClipboardContentType::Text:
+        if (GetRecentTextFromClipboard()) {
+          matching_types.insert(ClipboardContentType::Text);
+        }
+        break;
+      case ClipboardContentType::Image:
+        if (HasRecentImageFromClipboard()) {
+          matching_types.insert(ClipboardContentType::Image);
+        }
+        break;
+    }
+  }
+  std::move(callback).Run(matching_types);
+}
+
+void FakeClipboardRecentContent::GetRecentURLFromClipboard(
+    GetRecentURLCallback callback) {
+  std::move(callback).Run(GetRecentURLFromClipboard());
+}
+
+void FakeClipboardRecentContent::GetRecentTextFromClipboard(
+    GetRecentTextCallback callback) {
+  std::move(callback).Run(GetRecentTextFromClipboard());
 }
 
 base::TimeDelta FakeClipboardRecentContent::GetClipboardContentAge() const {

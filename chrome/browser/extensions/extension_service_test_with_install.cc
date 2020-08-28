@@ -89,7 +89,7 @@ void ExtensionServiceTestWithInstall::PackCRX(const base::FilePath& dir_path,
     ASSERT_TRUE(base::PathExists(pem_path));
   }
 
-  ASSERT_TRUE(base::DeleteFile(crx_path, false));
+  ASSERT_TRUE(base::DeleteFile(crx_path));
 
   std::unique_ptr<ExtensionCreator> creator(new ExtensionCreator());
   ASSERT_TRUE(creator->Run(dir_path,
@@ -281,8 +281,9 @@ void ExtensionServiceTestWithInstall::UpdateExtension(
   content::WindowedNotificationObserver observer(
       extensions::NOTIFICATION_CRX_INSTALLER_DONE,
       base::Bind(&IsCrxInstallerDone, &installer));
-  service()->UpdateExtension(CRXFileInfo(id, GetTestVerifierFormat(), path),
-                             true, &installer);
+  CRXFileInfo crx_info(path, GetTestVerifierFormat());
+  crx_info.extension_id = id;
+  service()->UpdateExtension(crx_info, true, &installer);
 
   if (installer)
     observer.Wait();

@@ -15,9 +15,9 @@
 #include "chrome/browser/media/router/media_router_feature.h"
 #include "chrome/browser/media/router/providers/wired_display/wired_display_presentation_receiver_factory.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/common/media_router/media_source.h"
-#include "chrome/common/media_router/route_request_result.h"
 #include "chrome/grit/generated_resources.h"
+#include "components/media_router/common/media_source.h"
+#include "components/media_router/common/route_request_result.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/display/display.h"
 #include "ui/display/screen.h"
@@ -109,7 +109,7 @@ void WiredDisplayMediaRouteProvider::CreateRoute(
     const url::Origin& origin,
     int32_t tab_id,
     base::TimeDelta timeout,
-    bool incognito,
+    bool off_the_record,
     CreateRouteCallback callback) {
   DCHECK(!base::Contains(presentations_, presentation_id));
   base::Optional<Display> display = GetDisplayBySinkId(sink_id);
@@ -127,7 +127,7 @@ void WiredDisplayMediaRouteProvider::CreateRoute(
   MediaRoute route(presentation_id, MediaSource(media_source), sink_id,
                    GetRouteDescription(media_source), true, true);
   route.set_local_presentation(true);
-  route.set_incognito(profile_->IsOffTheRecord());
+  route.set_off_the_record(profile_->IsOffTheRecord());
   route.set_controller_type(RouteControllerType::kGeneric);
 
   Presentation& presentation =
@@ -146,7 +146,7 @@ void WiredDisplayMediaRouteProvider::JoinRoute(
     const url::Origin& origin,
     int32_t tab_id,
     base::TimeDelta timeout,
-    bool incognito,
+    bool off_the_record,
     JoinRouteCallback callback) {
   std::move(callback).Run(
       base::nullopt, nullptr,
@@ -161,7 +161,7 @@ void WiredDisplayMediaRouteProvider::ConnectRouteByRouteId(
     const url::Origin& origin,
     int32_t tab_id,
     base::TimeDelta timeout,
-    bool incognito,
+    bool off_the_record,
     ConnectRouteByRouteIdCallback callback) {
   std::move(callback).Run(
       base::nullopt, nullptr,
@@ -255,15 +255,6 @@ void WiredDisplayMediaRouteProvider::UpdateMediaSinks(
     media_router_->OnSinksReceived(kProviderId, media_source, GetSinks(), {});
 }
 
-void WiredDisplayMediaRouteProvider::SearchSinks(
-    const std::string& sink_id,
-    const std::string& media_source,
-    mojom::SinkSearchCriteriaPtr search_criteria,
-    SearchSinksCallback callback) {
-  // The use of this method is not required by this MRP.
-  std::move(callback).Run("");
-}
-
 void WiredDisplayMediaRouteProvider::ProvideSinks(
     const std::string& provider_name,
     const std::vector<media_router::MediaSinkInternal>& sinks) {
@@ -284,6 +275,11 @@ void WiredDisplayMediaRouteProvider::CreateMediaRouteController(
   it->second.SetMojoConnections(std::move(media_controller),
                                 std::move(observer));
   std::move(callback).Run(true);
+}
+
+void WiredDisplayMediaRouteProvider::GetState(GetStateCallback callback) {
+  NOTIMPLEMENTED();
+  std::move(callback).Run(mojom::ProviderStatePtr());
 }
 
 void WiredDisplayMediaRouteProvider::OnDidProcessDisplayChanges() {

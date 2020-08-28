@@ -38,7 +38,10 @@ TEST(PrintingUtilsTest, SimplifyDocumentTitle) {
   EXPECT_EQ("abcdefgh", Simplify("abcdefgh"));
   EXPECT_EQ("abc...ij", Simplify("abcdefghij"));
   EXPECT_EQ("Controls", Simplify("C\ron\nt\15rols"));
-  EXPECT_EQ("C:_foo_", Simplify("C:\\foo\\"));
+  EXPECT_EQ("C__foo_", Simplify("C:\\foo\\"));
+  EXPECT_EQ("C__foo_", Simplify("C:/foo/"));
+  EXPECT_EQ("a_b_c", Simplify("a<b\"c"));
+  EXPECT_EQ("d_e_f_", Simplify("d*e?f~"));
   EXPECT_EQ("", Simplify("\n\r\n\r\t\r"));
 }
 
@@ -94,6 +97,20 @@ TEST(PrintingUtilsTest, SizesEqualWithinEpsilon) {
                                       gfx::Size(215900, 279400), 500));
   EXPECT_TRUE(
       SizesEqualWithinEpsilon(kIsoA4Microns, gfx::Size(210500, 296500), 500));
+}
+
+TEST(PrintingUtilsTest, ParsePaper) {
+  PrinterSemanticCapsAndDefaults::Paper paper_mm =
+      ParsePaper("iso_a4_210x297mm");
+  EXPECT_EQ(gfx::Size(210000, 297000), paper_mm.size_um);
+  EXPECT_EQ("iso_a4_210x297mm", paper_mm.vendor_id);
+  EXPECT_EQ("iso a4", paper_mm.display_name);
+
+  PrinterSemanticCapsAndDefaults::Paper paper_in =
+      ParsePaper("na_letter_8.5x11in");
+  EXPECT_EQ(gfx::Size(215900, 279400), paper_in.size_um);
+  EXPECT_EQ("na_letter_8.5x11in", paper_in.vendor_id);
+  EXPECT_EQ("na letter", paper_in.display_name);
 }
 
 }  // namespace printing

@@ -7,7 +7,7 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/task/post_task.h"
+#include "base/bind_helpers.h"
 #include "build/build_config.h"
 #include "content/browser/renderer_host/media/service_video_capture_device_launcher.h"
 #include "content/browser/renderer_host/media/virtual_video_capture_devices_changed_observer.h"
@@ -27,7 +27,7 @@
 #include "content/public/browser/chromeos/delegate_to_browser_gpu_service_accelerator_factory.h"
 #endif  // defined(OS_CHROMEOS)
 
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
 #include "base/mac/mac_util.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/string_util.h"
@@ -45,7 +45,7 @@ CreateAcceleratorFactory() {
 }
 #endif  // defined(OS_CHROMEOS)
 
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
 static const int kMaxRetriesForGetDeviceInfos = 1;
 #endif
 
@@ -58,8 +58,7 @@ class ServiceVideoCaptureProvider::ServiceProcessObserver
  public:
   ServiceProcessObserver(base::RepeatingClosure start_callback,
                          base::RepeatingClosure stop_callback)
-      : io_task_runner_(
-            base::CreateSingleThreadTaskRunner({BrowserThread::IO})),
+      : io_task_runner_(GetIOThreadTaskRunner({})),
         start_callback_(std::move(start_callback)),
         stop_callback_(std::move(stop_callback)) {
     DCHECK_CURRENTLY_ON(BrowserThread::UI);
@@ -116,18 +115,17 @@ ServiceVideoCaptureProvider::ServiceVideoCaptureProvider(
 #endif  // defined(OS_CHROMEOS)
   if (features::IsVideoCaptureServiceEnabledForOutOfProcess()) {
     service_process_observer_.emplace(
-        base::CreateSingleThreadTaskRunner({BrowserThread::UI}),
+        GetUIThreadTaskRunner({}),
         base::BindRepeating(&ServiceVideoCaptureProvider::OnServiceStarted,
                             weak_ptr_factory_.GetWeakPtr()),
         base::BindRepeating(&ServiceVideoCaptureProvider::OnServiceStopped,
                             weak_ptr_factory_.GetWeakPtr()));
   } else if (features::IsVideoCaptureServiceEnabledForBrowserProcess()) {
     // Connect immediately and permanently when the service runs in-process.
-    base::CreateSingleThreadTaskRunner({BrowserThread::IO})
-        ->PostTask(
-            FROM_HERE,
-            base::BindOnce(&ServiceVideoCaptureProvider::OnServiceStarted,
-                           weak_ptr_factory_.GetWeakPtr()));
+    GetIOThreadTaskRunner({})->PostTask(
+        FROM_HERE,
+        base::BindOnce(&ServiceVideoCaptureProvider::OnServiceStarted,
+                       weak_ptr_factory_.GetWeakPtr()));
   }
 }
 
@@ -169,7 +167,7 @@ void ServiceVideoCaptureProvider::OnServiceStarted() {
 }
 
 void ServiceVideoCaptureProvider::OnServiceStopped() {
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
   DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
   if (stashed_result_callback_for_retry_) {
     TRACE_EVENT_INSTANT0(
@@ -215,7 +213,7 @@ ServiceVideoCaptureProvider::LazyConnectToService() {
   launcher_has_connected_to_source_provider_ = false;
   time_of_last_connect_ = base::TimeTicks::Now();
 
-  auto ui_task_runner = base::CreateSingleThreadTaskRunner({BrowserThread::UI});
+  auto ui_task_runner = GetUIThreadTaskRunner({});
 #if defined(OS_CHROMEOS)
   mojo::PendingRemote<video_capture::mojom::AcceleratorFactory>
       accelerator_factory;
@@ -269,7 +267,7 @@ void ServiceVideoCaptureProvider::OnDeviceInfosReceived(
     int retry_count,
     const std::vector<media::VideoCaptureDeviceInfo>& infos) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
   std::string model = base::mac::GetModelIdentifier();
   if (base::FeatureList::IsEnabled(
           features::kRetryGetVideoCaptureDeviceInfos) &&
@@ -310,7 +308,7 @@ void ServiceVideoCaptureProvider::OnDeviceInfosRequestDropped(
     scoped_refptr<RefCountedVideoSourceProvider> service_connection,
     GetDeviceInfosCallback result_callback,
     int retry_count) {
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
   std::string model = base::mac::GetModelIdentifier();
   if (base::FeatureList::IsEnabled(
           features::kRetryGetVideoCaptureDeviceInfos) &&

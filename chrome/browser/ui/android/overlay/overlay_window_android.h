@@ -48,8 +48,6 @@ class OverlayWindowAndroid : public content::OverlayWindow,
   void OnAnimate(base::TimeTicks frame_begin_time) override {}
   void OnActivityStopped() override;
   void OnActivityStarted() override {}
-  void OnCursorVisibilityChanged(bool visible) override {}
-  void OnFallbackCursorModeToggled(bool is_on) override {}
 
   // OverlayWindow implementation.
   bool IsActive() override;
@@ -61,7 +59,7 @@ class OverlayWindowAndroid : public content::OverlayWindow,
   gfx::Rect GetBounds() override;
   void UpdateVideoSize(const gfx::Size& natural_size) override;
   void SetPlaybackState(PlaybackState playback_state) override {}
-  void SetAlwaysHidePlayPauseButton(bool is_visible) override {}
+  void SetPlayPauseButtonVisibility(bool is_visible) override {}
   void SetSkipAdButtonVisibility(bool is_visible) override {}
   void SetNextTrackButtonVisibility(bool is_visible) override {}
   void SetPreviousTrackButtonVisibility(bool is_visible) override {}

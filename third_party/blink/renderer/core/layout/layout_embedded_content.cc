@@ -24,6 +24,7 @@
 
 #include "third_party/blink/renderer/core/layout/layout_embedded_content.h"
 
+#include "third_party/blink/public/common/features.h"
 #include "third_party/blink/renderer/core/accessibility/ax_object_cache.h"
 #include "third_party/blink/renderer/core/exported/web_plugin_container_impl.h"
 #include "third_party/blink/renderer/core/frame/embedded_content_view.h"
@@ -36,6 +37,7 @@
 #include "third_party/blink/renderer/core/layout/hit_test_result.h"
 #include "third_party/blink/renderer/core/layout/layout_analyzer.h"
 #include "third_party/blink/renderer/core/layout/layout_view.h"
+#include "third_party/blink/renderer/core/paint/compositing/paint_layer_compositor.h"
 #include "third_party/blink/renderer/core/paint/embedded_content_painter.h"
 #include "third_party/blink/renderer/core/paint/paint_layer.h"
 
@@ -68,8 +70,7 @@ void LayoutEmbeddedContent::WillBeDestroyed() {
   LayoutReplaced::WillBeDestroyed();
 }
 
-void LayoutEmbeddedContent::Destroy() {
-  WillBeDestroyed();
+void LayoutEmbeddedContent::DeleteThis() {
   // We call clearNode here because LayoutEmbeddedContent is ref counted. This
   // call to destroy may not actually destroy the layout object. We can keep it
   // around because of references from the LocalFrameView class. (The actual
@@ -92,6 +93,14 @@ FrameView* LayoutEmbeddedContent::ChildFrameView() const {
   return DynamicTo<FrameView>(GetEmbeddedContentView());
 }
 
+LayoutView* LayoutEmbeddedContent::ChildLayoutView() const {
+  if (HTMLFrameOwnerElement* owner_element = GetFrameOwnerElement()) {
+    if (Document* content_document = owner_element->contentDocument())
+      return content_document->GetLayoutView();
+  }
+  return nullptr;
+}
+
 WebPluginContainerImpl* LayoutEmbeddedContent::Plugin() const {
   EmbeddedContentView* embedded_content_view = GetEmbeddedContentView();
   if (embedded_content_view && embedded_content_view->IsPluginView())
@@ -106,37 +115,30 @@ EmbeddedContentView* LayoutEmbeddedContent::GetEmbeddedContentView() const {
 }
 
 PaintLayerType LayoutEmbeddedContent::LayerTypeRequired() const {
-  if (RequiresAcceleratedCompositing())
+  if (AdditionalCompositingReasons())
     return kNormalPaintLayer;
 
   PaintLayerType type = LayoutReplaced::LayerTypeRequired();
   if (type != kNoPaintLayer)
     return type;
+
+  // We can't check layout_view->Layer()->GetCompositingReasons() here because
+  // we're only in style update, so haven't run compositing update yet.
+  if (!RuntimeEnabledFeatures::CompositeAfterPaintEnabled()) {
+    if (LayoutView* child_layout_view = ChildLayoutView()) {
+      if (child_layout_view->AdditionalCompositingReasons())
+        return kNormalPaintLayer;
+    }
+  }
+
   return kForcedPaintLayer;
 }
 
-bool LayoutEmbeddedContent::RequiresAcceleratedCompositing() const {
-  // There are two general cases in which we can return true. First, if this is
-  // a plugin LayoutObject and the plugin has a layer, then we need a layer.
-  // Second, if this is a LayoutObject with a contentDocument and that document
-  // needs a layer, then we need a layer.
-  WebPluginContainerImpl* plugin_view = Plugin();
-  if (plugin_view && plugin_view->CcLayer())
-    return true;
-
-  auto* element = GetFrameOwnerElement();
-  if (!element)
-    return false;
-
-  if (element->ContentFrame() && element->ContentFrame()->IsRemoteFrame())
-    return true;
-
-  if (Document* content_document = element->contentDocument()) {
-    auto* layout_view = content_document->GetLayoutView();
-    if (layout_view)
-      return layout_view->UsesCompositing();
+bool LayoutEmbeddedContent::ContentDocumentIsCompositing() const {
+  if (PaintLayerCompositor* inner_compositor =
+          PaintLayerCompositor::FrameContentsCompositor(*this)) {
+    return inner_compositor->StaleInCompositingMode();
   }
-
   return false;
 }
 
@@ -180,13 +182,13 @@ bool LayoutEmbeddedContent::NodeAtPoint(
   if (local_frame_view->ShouldThrottleRendering() ||
       !local_frame_view->GetFrame().GetDocument() ||
       local_frame_view->GetFrame().GetDocument()->Lifecycle().GetState() <
-          DocumentLifecycle::kCompositingClean) {
+          DocumentLifecycle::kPrePaintClean) {
     return NodeAtPointOverEmbeddedContentView(result, hit_test_location,
                                               accumulated_offset, action);
   }
 
   DCHECK_GE(GetDocument().Lifecycle().GetState(),
-            DocumentLifecycle::kCompositingClean);
+            DocumentLifecycle::kPrePaintClean);
 
   if (action == kHitTestForeground) {
     auto* child_layout_view = local_frame_view->GetLayoutView();
@@ -246,8 +248,15 @@ bool LayoutEmbeddedContent::NodeAtPoint(
 }
 
 CompositingReasons LayoutEmbeddedContent::AdditionalCompositingReasons() const {
-  if (RequiresAcceleratedCompositing())
-    return CompositingReason::kIFrame;
+  WebPluginContainerImpl* plugin_view = Plugin();
+  if (plugin_view && plugin_view->CcLayer())
+    return CompositingReason::kPlugin;
+  if (auto* element = GetFrameOwnerElement()) {
+    if (Frame* content_frame = element->ContentFrame()) {
+      if (content_frame->IsRemoteFrame())
+        return CompositingReason::kIFrame;
+    }
+  }
   return CompositingReason::kNone;
 }
 
@@ -302,7 +311,7 @@ void LayoutEmbeddedContent::InvalidatePaint(
 }
 
 CursorDirective LayoutEmbeddedContent::GetCursor(const PhysicalOffset& point,
-                                                 Cursor& cursor) const {
+                                                 ui::Cursor& cursor) const {
   if (Plugin()) {
     // A plugin is responsible for setting the cursor when the pointer is over
     // it.
@@ -393,7 +402,7 @@ void LayoutEmbeddedContent::UpdateGeometry(
   // TODO(szager): Refactor this functionality into EmbeddedContentView, rather
   // than reimplementing in each concrete subclass.
   LayoutView* layout_view = View();
-  if (layout_view && layout_view->HasOverflowClip()) {
+  if (layout_view && layout_view->HasNonVisibleOverflow()) {
     // Floored because the PixelSnappedScrollOffset returns a ScrollOffset
     // which is a float-type but frame_rect in a content view is an IntRect. We
     // may want to reevaluate the use of pixel snapping that since scroll

@@ -30,9 +30,17 @@ class AssistantTestApiImpl : public AssistantTestApi {
   bool IsVisible() override;
   void SendTextQuery(const std::string& query) override;
   void SetAssistantEnabled(bool enable) override;
+  void SetScreenContextEnabled(bool enabled) override;
   void SetTabletMode(bool enable) override;
+  void SetConsentStatus(chromeos::assistant::prefs::ConsentStatus) override;
+  void SetNumberOfSessionsWhereOnboardingShown(int number_of_sessions) override;
+  void SetOnboardingMode(
+      chromeos::assistant::prefs::AssistantOnboardingMode) override;
   void SetPreferVoice(bool value) override;
+  void SetTimeOfLastInteraction(base::Time time) override;
+  void StartOverview() override;
   AssistantState* GetAssistantState() override;
+  void WaitUntilIdle() override;
   views::View* page_view() override;
   views::View* main_view() override;
   views::View* ui_element_container() override;
@@ -41,8 +49,11 @@ class AssistantTestApiImpl : public AssistantTestApi {
   views::View* greeting_label() override;
   views::View* voice_input_toggle() override;
   views::View* keyboard_input_toggle() override;
+  views::View* suggestion_chip_container() override;
+  views::View* onboarding_view() override;
+  views::View* opt_in_view() override;
   aura::Window* window() override;
-  views::View* app_list_view() override;
+  AppListView* app_list_view() override;
   aura::Window* root_window() override;
 
  private:

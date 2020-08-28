@@ -31,6 +31,7 @@
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/dom/events/event.h"
 #include "third_party/blink/renderer/core/dom/text.h"
+#include "third_party/blink/renderer/core/execution_context/execution_context.h"
 #include "third_party/blink/renderer/core/frame/csp/content_security_policy.h"
 #include "third_party/blink/renderer/core/html_names.h"
 #include "third_party/blink/renderer/core/script/script_loader.h"
@@ -46,13 +47,13 @@ namespace blink {
 HTMLScriptElement::HTMLScriptElement(Document& document,
                                      const CreateElementFlags flags)
     : HTMLElement(html_names::kScriptTag, document),
-      loader_(InitializeScriptLoader(flags.IsCreatedByParser(),
-                                     flags.WasAlreadyStarted())) {}
+      children_changed_by_api_(false),
+      loader_(InitializeScriptLoader(flags)) {}
 
 const AttrNameToTrustedType& HTMLScriptElement::GetCheckedAttributeTypes()
     const {
   DEFINE_STATIC_LOCAL(AttrNameToTrustedType, attribute_map,
-                      ({{"src", SpecificTrustedType::kTrustedScriptURL}}));
+                      ({{"src", SpecificTrustedType::kScriptURL}}));
   return attribute_map;
 }
 
@@ -74,6 +75,10 @@ void HTMLScriptElement::ChildrenChanged(const ChildrenChange& change) {
   HTMLElement::ChildrenChanged(change);
   if (change.IsChildInsertion())
     loader_->ChildrenChanged();
+
+  // We'll record whether the script element children were ever changed by
+  // the API (as opposed to the parser).
+  children_changed_by_api_ |= !change.ByParser();
 }
 
 void HTMLScriptElement::DidMoveToNewDocument(Document& old_document) {
@@ -89,7 +94,8 @@ void HTMLScriptElement::ParseAttribute(
   } else if (params.name == html_names::kAsyncAttr) {
     loader_->HandleAsyncAttribute();
   } else if (params.name == html_names::kImportanceAttr &&
-             RuntimeEnabledFeatures::PriorityHintsEnabled(&GetDocument())) {
+             RuntimeEnabledFeatures::PriorityHintsEnabled(
+                 GetExecutionContext())) {
     // The only thing we need to do for the the importance attribute/Priority
     // Hints is count usage upon parsing. Processing the value happens when the
     // element loads.
@@ -118,10 +124,8 @@ void HTMLScriptElement::DidNotifySubtreeInsertionsToDocument() {
   loader_->DidNotifySubtreeInsertionsToDocument();
 }
 
-void HTMLScriptElement::setText(
-    const StringOrTrustedScript& string_or_trusted_script,
-    ExceptionState& exception_state) {
-  setTextContent(string_or_trusted_script, exception_state);
+void HTMLScriptElement::setText(const String& string) {
+  setTextContent(string);
 }
 
 void HTMLScriptElement::text(StringOrTrustedScript& result) {
@@ -131,8 +135,8 @@ void HTMLScriptElement::text(StringOrTrustedScript& result) {
 void HTMLScriptElement::setInnerText(
     const StringOrTrustedScript& string_or_trusted_script,
     ExceptionState& exception_state) {
-  String value = GetStringFromTrustedScript(string_or_trusted_script,
-                                            &GetDocument(), exception_state);
+  String value = TrustedTypesCheckForScript(
+      string_or_trusted_script, GetExecutionContext(), exception_state);
   if (!exception_state.HadException()) {
     // https://w3c.github.io/webappsec-trusted-types/dist/spec/#setting-slot-values
     // On setting, the innerText [...] perform the regular steps, and then set
@@ -142,11 +146,19 @@ void HTMLScriptElement::setInnerText(
   }
 }
 
+void HTMLScriptElement::setTextContent(const String& string) {
+  // https://w3c.github.io/webappsec-trusted-types/dist/spec/#setting-slot-values
+  // On setting, [..] textContent [..] perform the regular steps, and then set
+  // content object's [[ScriptText]] internal slot value [...].
+  Node::setTextContent(string);
+  script_text_internal_slot_ = ParkableString(string.Impl());
+}
+
 void HTMLScriptElement::setTextContent(
     const StringOrTrustedScript& string_or_trusted_script,
     ExceptionState& exception_state) {
-  String value = GetStringFromTrustedScript(string_or_trusted_script,
-                                            &GetDocument(), exception_state);
+  String value = TrustedTypesCheckForScript(
+      string_or_trusted_script, GetExecutionContext(), exception_state);
   if (!exception_state.HadException()) {
     // https://w3c.github.io/webappsec-trusted-types/dist/spec/#setting-slot-values
     // On setting, [..] textContent [..] perform the regular steps, and then set
@@ -163,8 +175,15 @@ void HTMLScriptElement::setAsync(bool async) {
 
 void HTMLScriptElement::FinishParsingChildren() {
   Element::FinishParsingChildren();
-  DCHECK(!script_text_internal_slot_.length());
-  script_text_internal_slot_ = ParkableString(TextFromChildren().Impl());
+
+  // We normally expect the parser to finish parsing before any script gets
+  // a chance to manipulate the script. However, if script parsing gets
+  // deferrred (or similar; see crbug.com/1033101) then a script might get
+  // access to the HTMLScriptElement before. In this case, we cannot blindly
+  // accept the current TextFromChildren as a parser result.
+  DCHECK(children_changed_by_api_ || !script_text_internal_slot_.length());
+  if (!children_changed_by_api_)
+    script_text_internal_slot_ = ParkableString(TextFromChildren().Impl());
 }
 
 bool HTMLScriptElement::async() const {
@@ -252,13 +271,18 @@ bool HTMLScriptElement::AllowInlineScriptForCSP(
     const AtomicString& nonce,
     const WTF::OrdinalNumber& context_line,
     const String& script_content) {
-  return GetDocument().GetContentSecurityPolicyForWorld()->AllowInline(
-      ContentSecurityPolicy::InlineType::kScript, this, script_content, nonce,
-      GetDocument().Url(), context_line);
+  return GetExecutionContext()
+      ->GetContentSecurityPolicyForCurrentWorld()
+      ->AllowInline(ContentSecurityPolicy::InlineType::kScript, this,
+                    script_content, nonce, GetDocument().Url(), context_line);
 }
 
 Document& HTMLScriptElement::GetDocument() const {
   return Node::GetDocument();
+}
+
+ExecutionContext* HTMLScriptElement::GetExecutionContext() const {
+  return Node::GetExecutionContext();
 }
 
 void HTMLScriptElement::DispatchLoadEvent() {
@@ -275,6 +299,10 @@ void HTMLScriptElement::SetScriptElementForBinding(
     element.SetHTMLScriptElement(this);
 }
 
+ScriptElementBase::Type HTMLScriptElement::GetScriptElementType() {
+  return ScriptElementBase::Type::kHTMLScriptElement;
+}
+
 Element& HTMLScriptElement::CloneWithoutAttributesAndChildren(
     Document& factory) const {
   CreateElementFlags flags =
@@ -283,7 +311,7 @@ Element& HTMLScriptElement::CloneWithoutAttributesAndChildren(
   return *factory.CreateElement(TagQName(), flags, IsValue());
 }
 
-void HTMLScriptElement::Trace(Visitor* visitor) {
+void HTMLScriptElement::Trace(Visitor* visitor) const {
   visitor->Trace(loader_);
   HTMLElement::Trace(visitor);
   ScriptElementBase::Trace(visitor);

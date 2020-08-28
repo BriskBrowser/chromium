@@ -9,6 +9,7 @@
 #include "base/values.h"
 #include "components/omnibox/browser/autocomplete_match.h"
 #include "components/omnibox/browser/test_scheme_classifier.h"
+#include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -143,7 +144,7 @@ TEST(SearchSuggestionParserTest, ParseSuggestResults) {
     ASSERT_EQ(base::ASCIIToUTF16(""), suggestion_result.annotation());
     // This entry has no image.
     ASSERT_EQ("", suggestion_result.image_dominant_color());
-    ASSERT_EQ("", suggestion_result.image_url());
+    ASSERT_EQ(GURL(), suggestion_result.image_url());
   }
   {
     const auto& suggestion_result = results.suggest_results[1];
@@ -152,34 +153,349 @@ TEST(SearchSuggestionParserTest, ParseSuggestResults) {
     ASSERT_EQ(base::ASCIIToUTF16("American author"),
               suggestion_result.annotation());
     ASSERT_EQ("#424242", suggestion_result.image_dominant_color());
-    ASSERT_EQ("http://example.com/a.png", suggestion_result.image_url());
+    ASSERT_EQ(GURL("http://example.com/a.png"), suggestion_result.image_url());
   }
 }
 
 TEST(SearchSuggestionParserTest, SuggestClassification) {
-  AutocompleteMatch::ACMatchClassification none_classification(
-      0, AutocompleteMatch::ACMatchClassification::NONE);
-
   SearchSuggestionParser::SuggestResult result(
-      base::ASCIIToUTF16("foobar"), AutocompleteMatchType::SEARCH_SUGGEST, 0,
+      base::ASCIIToUTF16("foobar"), AutocompleteMatchType::SEARCH_SUGGEST, {},
       false, 400, true, base::string16());
   AutocompleteMatch::ValidateClassifications(result.match_contents(),
                                              result.match_contents_class());
 
-  // Re-classify the match contents, as the ZeroSuggestProvider does.
+  // Nothing should be bolded for ZeroSuggest classified input.
   result.ClassifyMatchContents(true, base::string16());
   AutocompleteMatch::ValidateClassifications(result.match_contents(),
                                              result.match_contents_class());
+  const ACMatchClassifications kNone = {
+      {0, AutocompleteMatch::ACMatchClassification::NONE}};
+  EXPECT_EQ(kNone, result.match_contents_class());
 
-  // Make sure that searching text-not-found still gives valid classifications,
-  // if we don't allow the code to bold everything.
+  // Test a simple case of bolding half the text.
+  result.ClassifyMatchContents(false, base::ASCIIToUTF16("foo"));
+  AutocompleteMatch::ValidateClassifications(result.match_contents(),
+                                             result.match_contents_class());
+  const ACMatchClassifications kHalfBolded = {
+      {0, AutocompleteMatch::ACMatchClassification::NONE},
+      {3, AutocompleteMatch::ACMatchClassification::MATCH}};
+  EXPECT_EQ(kHalfBolded, result.match_contents_class());
+
+  // Test the edge case that if we forbid bolding all, and then reclassifying
+  // would otherwise bold-all, we leave the existing classifications alone.
+  // This is weird, but it's in the function contract, and is useful for
+  // flicker-free search suggestions as the user types.
   result.ClassifyMatchContents(false, base::ASCIIToUTF16("apple"));
   AutocompleteMatch::ValidateClassifications(result.match_contents(),
                                              result.match_contents_class());
+  EXPECT_EQ(kHalfBolded, result.match_contents_class());
 
-  // Make sure that searching text-not-found still gives valid classifications,
-  // if we don't allow the code to bold everything.
-  result.ClassifyMatchContents(true, base::ASCIIToUTF16("foobar"));
+  // And finally, test the case where we do allow bolding-all.
+  result.ClassifyMatchContents(true, base::ASCIIToUTF16("apple"));
   AutocompleteMatch::ValidateClassifications(result.match_contents(),
                                              result.match_contents_class());
+  const ACMatchClassifications kBoldAll = {
+      {0, AutocompleteMatch::ACMatchClassification::MATCH}};
+  EXPECT_EQ(kBoldAll, result.match_contents_class());
+}
+
+TEST(SearchSuggestionParserTest, NavigationClassification) {
+  TestSchemeClassifier scheme_classifier;
+  SearchSuggestionParser::NavigationResult result(
+      scheme_classifier, GURL("https://news.google.com/"),
+      AutocompleteMatchType::Type::NAVSUGGEST, {}, base::string16(),
+      std::string(), false, 400, true, base::ASCIIToUTF16("google"));
+  AutocompleteMatch::ValidateClassifications(result.match_contents(),
+                                             result.match_contents_class());
+  const ACMatchClassifications kBoldMiddle = {
+      {0, AutocompleteMatch::ACMatchClassification::URL},
+      {5, AutocompleteMatch::ACMatchClassification::URL |
+              AutocompleteMatch::ACMatchClassification::MATCH},
+      {11, AutocompleteMatch::ACMatchClassification::URL}};
+  EXPECT_EQ(kBoldMiddle, result.match_contents_class());
+
+  // Reclassifying in a way that would cause bold-none if it's disallowed should
+  // do nothing.
+  result.CalculateAndClassifyMatchContents(
+      false, base::ASCIIToUTF16("term not found"));
+  EXPECT_EQ(kBoldMiddle, result.match_contents_class());
+
+  // Test the allow bold-nothing case too.
+  result.CalculateAndClassifyMatchContents(
+      true, base::ASCIIToUTF16("term not found"));
+  const ACMatchClassifications kAnnotateUrlOnly = {
+      {0, AutocompleteMatch::ACMatchClassification::URL}};
+  EXPECT_EQ(kAnnotateUrlOnly, result.match_contents_class());
+
+  // Nothing should be bolded for ZeroSuggest classified input.
+  result.CalculateAndClassifyMatchContents(true, base::string16());
+  AutocompleteMatch::ValidateClassifications(result.match_contents(),
+                                             result.match_contents_class());
+  const ACMatchClassifications kNone = {
+      {0, AutocompleteMatch::ACMatchClassification::NONE}};
+  EXPECT_EQ(kNone, result.match_contents_class());
+}
+
+TEST(SearchSuggestionParserTest, ParseHeaderInfo) {
+  std::string json_data = R"([
+      "",
+      ["los angeles", "san diego", "las vegas", "san francisco"],
+      ["history", "", "", ""],
+      [],
+      {
+        "google:clientdata": {
+          "bpc": false,
+          "tlw": false
+        },
+        "google:headertexts":{
+          "a":{
+            "40007":"Not recommended for you",
+            "40008":"Recommended for you"
+          },
+          "h":[40007, "40008", "garbage_non_int"]
+        },
+        "google:suggestdetail":[
+          {
+          },
+          {
+            "zl":40007
+          },
+          {
+            "zl":40008
+          },
+          {
+            "zl":40009
+          }
+        ],
+        "google:suggestrelevance": [607, 606, 605, 604],
+        "google:suggesttype": ["PERSONALIZED_QUERY", "QUERY", "QUERY", "QUERY"]
+      }])";
+  base::Optional<base::Value> root_val = base::JSONReader::Read(json_data);
+  ASSERT_TRUE(root_val);
+  TestSchemeClassifier scheme_classifier;
+  AutocompleteInput input(base::ASCIIToUTF16(""),
+                          metrics::OmniboxEventProto::NTP_REALBOX,
+                          scheme_classifier);
+  SearchSuggestionParser::Results results;
+  ASSERT_TRUE(SearchSuggestionParser::ParseSuggestResults(
+      *root_val, input, scheme_classifier, /*default_result_relevance=*/400,
+      /*is_keyword_result=*/false, &results));
+
+  // Parse integers, and only integers, out of the "h" metadata list.
+  ASSERT_EQ(1U, results.hidden_group_ids.size());
+  ASSERT_EQ(40007, results.hidden_group_ids[0]);
+
+  {
+    const auto& suggestion_result = results.suggest_results[0];
+    ASSERT_EQ(base::ASCIIToUTF16("los angeles"),
+              suggestion_result.suggestion());
+    // This suggestion does not belong to a group.
+    ASSERT_EQ(base::nullopt, suggestion_result.suggestion_group_id());
+  }
+  {
+    const auto& suggestion_result = results.suggest_results[1];
+    ASSERT_EQ(base::ASCIIToUTF16("san diego"), suggestion_result.suggestion());
+    ASSERT_EQ(40007, *suggestion_result.suggestion_group_id());
+  }
+  {
+    const auto& suggestion_result = results.suggest_results[2];
+    ASSERT_EQ(base::ASCIIToUTF16("las vegas"), suggestion_result.suggestion());
+    ASSERT_EQ(40008, *suggestion_result.suggestion_group_id());
+  }
+  {
+    const auto& suggestion_result = results.suggest_results[3];
+    ASSERT_EQ(base::ASCIIToUTF16("san francisco"),
+              suggestion_result.suggestion());
+    ASSERT_EQ(40009, *suggestion_result.suggestion_group_id());
+  }
+}
+
+TEST(SearchSuggestionParserTest, ParseValidSubtypes) {
+  std::string json_data = R"([
+      "",
+      ["one", "two", "three", "four"],
+      ["", "", "", ""],
+      [],
+      {
+        "google:clientdata": { "bpc": false, "tlw": false },
+        "google:suggestsubtypes": [[1], [21, 22], [31, 32, 33], [44]],
+        "google:suggestrelevance": [607, 606, 605, 604],
+        "google:suggesttype": ["QUERY", "QUERY", "QUERY", "QUERY"]
+      }])";
+  base::Optional<base::Value> root_val = base::JSONReader::Read(json_data);
+  ASSERT_TRUE(root_val);
+  TestSchemeClassifier scheme_classifier;
+  AutocompleteInput input(base::ASCIIToUTF16(""),
+                          metrics::OmniboxEventProto::NTP_REALBOX,
+                          scheme_classifier);
+  SearchSuggestionParser::Results results;
+  ASSERT_TRUE(SearchSuggestionParser::ParseSuggestResults(
+      *root_val, input, scheme_classifier, /*default_result_relevance=*/400,
+      /*is_keyword_result=*/false, &results));
+
+  {
+    const auto& suggestion_result = results.suggest_results[0];
+    ASSERT_EQ(base::ASCIIToUTF16("one"), suggestion_result.suggestion());
+    ASSERT_THAT(suggestion_result.subtypes(), testing::ElementsAre(1));
+  }
+  {
+    const auto& suggestion_result = results.suggest_results[1];
+    ASSERT_EQ(base::ASCIIToUTF16("two"), suggestion_result.suggestion());
+    ASSERT_THAT(suggestion_result.subtypes(), testing::ElementsAre(21, 22));
+  }
+  {
+    const auto& suggestion_result = results.suggest_results[2];
+    ASSERT_EQ(base::ASCIIToUTF16("three"), suggestion_result.suggestion());
+    ASSERT_THAT(suggestion_result.subtypes(), testing::ElementsAre(31, 32, 33));
+  }
+  {
+    const auto& suggestion_result = results.suggest_results[3];
+    ASSERT_EQ(base::ASCIIToUTF16("four"), suggestion_result.suggestion());
+    ASSERT_THAT(suggestion_result.subtypes(), testing::ElementsAre(44));
+  }
+}
+
+TEST(SearchSuggestionParserTest, IgnoresExcessiveSubtypeEntries) {
+  using testing::ElementsAre;
+  std::string json_data = R"([
+      "",
+      ["one", "two"],
+      ["", ""],
+      [],
+      {
+        "google:clientdata": { "bpc": false, "tlw": false },
+        "google:suggestsubtypes": [[1], [2], [3]],
+        "google:suggestrelevance": [607, 606],
+        "google:suggesttype": ["QUERY", "QUERY"]
+      }])";
+  base::Optional<base::Value> root_val = base::JSONReader::Read(json_data);
+  ASSERT_TRUE(root_val);
+  TestSchemeClassifier scheme_classifier;
+  AutocompleteInput input(base::ASCIIToUTF16(""),
+                          metrics::OmniboxEventProto::NTP_REALBOX,
+                          scheme_classifier);
+  SearchSuggestionParser::Results results;
+  ASSERT_TRUE(SearchSuggestionParser::ParseSuggestResults(
+      *root_val, input, scheme_classifier, /*default_result_relevance=*/400,
+      /*is_keyword_result=*/false, &results));
+
+  ASSERT_THAT(results.suggest_results[0].subtypes(), testing::ElementsAre(1));
+  ASSERT_THAT(results.suggest_results[1].subtypes(), testing::ElementsAre(2));
+}
+
+TEST(SearchSuggestionParserTest, IgnoresMissingSubtypeEntries) {
+  using testing::ElementsAre;
+  std::string json_data = R"([
+      "",
+      ["one", "two", "three"],
+      ["", ""],
+      [],
+      {
+        "google:clientdata": { "bpc": false, "tlw": false },
+        "google:suggestsubtypes": [[1, 7]],
+        "google:suggestrelevance": [607, 606],
+        "google:suggesttype": ["QUERY", "QUERY"]
+      }])";
+  base::Optional<base::Value> root_val = base::JSONReader::Read(json_data);
+  ASSERT_TRUE(root_val);
+  TestSchemeClassifier scheme_classifier;
+  AutocompleteInput input(base::ASCIIToUTF16(""),
+                          metrics::OmniboxEventProto::NTP_REALBOX,
+                          scheme_classifier);
+  SearchSuggestionParser::Results results;
+  ASSERT_TRUE(SearchSuggestionParser::ParseSuggestResults(
+      *root_val, input, scheme_classifier, /*default_result_relevance=*/400,
+      /*is_keyword_result=*/false, &results));
+
+  ASSERT_THAT(results.suggest_results[0].subtypes(),
+              testing::ElementsAre(1, 7));
+  ASSERT_TRUE(results.suggest_results[1].subtypes().empty());
+  ASSERT_TRUE(results.suggest_results[2].subtypes().empty());
+}
+
+TEST(SearchSuggestionParserTest, IgnoresUnexpectedSubtypeValues) {
+  using testing::ElementsAre;
+  std::string json_data = R"([
+      "",
+      ["one", "two", "three", "four", "five"],
+      ["", ""],
+      [],
+      {
+        "google:clientdata": { "bpc": false, "tlw": false },
+        "google:suggestsubtypes": [[1, { "a":true} ], ["2", 7], 3, {}, [12]],
+        "google:suggestrelevance": [607, 606, 605, 604, 603],
+        "google:suggesttype": ["QUERY", "QUERY", "QUERY", "QUERY", "QUERY"]
+      }])";
+  base::Optional<base::Value> root_val = base::JSONReader::Read(json_data);
+  ASSERT_TRUE(root_val);
+  TestSchemeClassifier scheme_classifier;
+  AutocompleteInput input(base::ASCIIToUTF16(""),
+                          metrics::OmniboxEventProto::NTP_REALBOX,
+                          scheme_classifier);
+  SearchSuggestionParser::Results results;
+  ASSERT_TRUE(SearchSuggestionParser::ParseSuggestResults(
+      *root_val, input, scheme_classifier, /*default_result_relevance=*/400,
+      /*is_keyword_result=*/false, &results));
+
+  ASSERT_THAT(results.suggest_results[0].subtypes(), testing::ElementsAre(1));
+  ASSERT_THAT(results.suggest_results[1].subtypes(), testing::ElementsAre(7));
+  ASSERT_TRUE(results.suggest_results[2].subtypes().empty());
+  ASSERT_TRUE(results.suggest_results[3].subtypes().empty());
+  ASSERT_THAT(results.suggest_results[4].subtypes(), testing::ElementsAre(12));
+}
+
+TEST(SearchSuggestionParserTest, IgnoresSubtypesIfNotAList) {
+  using testing::ElementsAre;
+  std::string json_data = R"([
+      "",
+      ["one", "two"],
+      ["", ""],
+      [],
+      {
+        "google:clientdata": { "bpc": false, "tlw": false },
+        "google:suggestsubtypes": { "a": 1, "b": 2 },
+        "google:suggestrelevance": [607, 606],
+        "google:suggesttype": ["QUERY", "QUERY"]
+      }])";
+  base::Optional<base::Value> root_val = base::JSONReader::Read(json_data);
+  ASSERT_TRUE(root_val);
+  TestSchemeClassifier scheme_classifier;
+  AutocompleteInput input(base::ASCIIToUTF16(""),
+                          metrics::OmniboxEventProto::NTP_REALBOX,
+                          scheme_classifier);
+  SearchSuggestionParser::Results results;
+  ASSERT_TRUE(SearchSuggestionParser::ParseSuggestResults(
+      *root_val, input, scheme_classifier, /*default_result_relevance=*/400,
+      /*is_keyword_result=*/false, &results));
+
+  ASSERT_TRUE(results.suggest_results[0].subtypes().empty());
+  ASSERT_TRUE(results.suggest_results[1].subtypes().empty());
+}
+
+TEST(SearchSuggestionParserTest, SubtypesWithEmptyArraysAreValid) {
+  using testing::ElementsAre;
+  std::string json_data = R"([
+      "",
+      ["one", "two"],
+      ["", ""],
+      [],
+      {
+        "google:clientdata": { "bpc": false, "tlw": false },
+        "google:suggestsubtypes": [[], [3]],
+        "google:suggestrelevance": [607, 606],
+        "google:suggesttype": ["QUERY", "QUERY"]
+      }])";
+  base::Optional<base::Value> root_val = base::JSONReader::Read(json_data);
+  ASSERT_TRUE(root_val);
+  TestSchemeClassifier scheme_classifier;
+  AutocompleteInput input(base::ASCIIToUTF16(""),
+                          metrics::OmniboxEventProto::NTP_REALBOX,
+                          scheme_classifier);
+  SearchSuggestionParser::Results results;
+  ASSERT_TRUE(SearchSuggestionParser::ParseSuggestResults(
+      *root_val, input, scheme_classifier, /*default_result_relevance=*/400,
+      /*is_keyword_result=*/false, &results));
+
+  ASSERT_TRUE(results.suggest_results[0].subtypes().empty());
+  ASSERT_THAT(results.suggest_results[1].subtypes(), testing::ElementsAre(3));
 }

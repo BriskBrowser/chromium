@@ -12,11 +12,13 @@
 #include <string>
 #include <vector>
 
-#include "chrome/browser/ui/input_method/input_method_engine_base.h"
+#include "chrome/browser/chromeos/input_method/assistive_window_properties.h"
+#include "chrome/browser/chromeos/input_method/input_method_engine_base.h"
+#include "chrome/browser/chromeos/input_method/suggestion_handler_interface.h"
 #include "ui/base/ime/candidate_window.h"
+#include "ui/base/ime/chromeos/ime_engine_handler_interface.h"
 #include "ui/base/ime/chromeos/input_method_descriptor.h"
 #include "ui/base/ime/chromeos/input_method_manager.h"
-#include "ui/base/ime/ime_engine_handler_interface.h"
 #include "url/gurl.h"
 
 namespace ui {
@@ -24,17 +26,18 @@ struct CompositionText;
 class KeyEvent;
 
 namespace ime {
+struct AssistiveWindowButton;
 struct InputMethodMenuItem;
+struct SuggestionDetails;
 }  // namespace ime
 }  // namespace ui
 
-namespace input_method {
-class InputMethodEngineBase;
-}  // namespace input_method
-
 namespace chromeos {
 
-class InputMethodEngine : public ::input_method::InputMethodEngineBase {
+struct AssistiveWindowProperties;
+
+class InputMethodEngine : public InputMethodEngineBase,
+                          public SuggestionHandlerInterface {
  public:
   enum {
     MENU_ITEM_MODIFIED_LABEL = 0x0001,
@@ -71,6 +74,7 @@ class InputMethodEngine : public ::input_method::InputMethodEngineBase {
   struct CandidateWindowProperty {
     CandidateWindowProperty();
     virtual ~CandidateWindowProperty();
+    CandidateWindowProperty(const CandidateWindowProperty& other);
     int page_size;
     bool is_cursor_visible;
     bool is_vertical;
@@ -80,6 +84,11 @@ class InputMethodEngine : public ::input_method::InputMethodEngineBase {
     // window.
     std::string auxiliary_text;
     bool is_auxiliary_text_visible;
+
+    // The index of the current chosen candidate out of total candidates.
+    // value is -1 if there is no current chosen candidate.
+    int current_candidate_index = -1;
+    int total_candidates = 0;
   };
 
   InputMethodEngine();
@@ -93,17 +102,53 @@ class InputMethodEngine : public ::input_method::InputMethodEngineBase {
   // ui::IMEEngineHandlerInterface overrides.
   void PropertyActivate(const std::string& property_name) override;
   void CandidateClicked(uint32_t index) override;
+  void AssistiveWindowButtonClicked(
+      const ui::ime::AssistiveWindowButton& button) override;
   void SetMirroringEnabled(bool mirroring_enabled) override;
   void SetCastingEnabled(bool casting_enabled) override;
+  ui::InputMethodKeyboardController* GetInputMethodKeyboardController()
+      const override;
 
-  // This function returns the current property of the candidate window.
-  // The caller can use the returned value as the default property and
-  // modify some of specified items.
-  const CandidateWindowProperty& GetCandidateWindowProperty() const;
+  // SuggestionHandlerInterface overrides.
+  bool DismissSuggestion(int context_id, std::string* error) override;
+  bool SetSuggestion(int context_id,
+                     const ui::ime::SuggestionDetails& details,
+                     std::string* error) override;
+  bool AcceptSuggestion(int context_id, std::string* error) override;
+  void OnSuggestionsChanged(
+      const std::vector<std::string>& suggestions) override;
 
-  // Change the property of the candidate window and repaint the candidate
-  // window widget.
-  void SetCandidateWindowProperty(const CandidateWindowProperty& property);
+  bool ShowMultipleSuggestions(int context_id,
+                               const std::vector<base::string16>& suggestions,
+                               std::string* error) override;
+
+  bool SetButtonHighlighted(int context_id,
+                            const ui::ime::AssistiveWindowButton& button,
+                            bool highlighted,
+                            std::string* error) override;
+
+  void ClickButton(const ui::ime::AssistiveWindowButton& button) override;
+
+  bool AcceptSuggestionCandidate(int context_id,
+                                 const base::string16& candidate,
+                                 std::string* error) override;
+
+  bool SetAssistiveWindowProperties(
+      int context_id,
+      const AssistiveWindowProperties& assistive_window,
+      std::string* error) override;
+
+  // This function returns the current property of the candidate window of the
+  // corresponding engine_id. If the CandidateWindowProperty is not set for the
+  // engine_id, a default value is set. The caller can use the returned value as
+  // the default property and modify some of specified items.
+  const CandidateWindowProperty& GetCandidateWindowProperty(
+      const std::string& engine_id);
+
+  // Changes the property of the candidate window of the given engine_id and
+  // repaints the candidate window widget.
+  void SetCandidateWindowProperty(const std::string& engine_id,
+                                  const CandidateWindowProperty& property);
 
   // Show or hide the candidate window.
   bool SetCandidateWindowVisible(bool visible, std::string* error);
@@ -130,8 +175,12 @@ class InputMethodEngine : public ::input_method::InputMethodEngineBase {
   // Hides the input view window (from API call).
   void HideInputView();
 
+  // Determine if the key event should be processed by the key
+  // event handler.
+  bool IsValidKeyEvent(const ui::KeyEvent* ui_event) override;
+
  private:
-  // input_method::InputMethodEngineBase:
+  // InputMethodEngineBase:
   void UpdateComposition(const ui::CompositionText& composition_text,
                          uint32_t cursor_pos,
                          bool is_visible) override;
@@ -139,6 +188,14 @@ class InputMethodEngine : public ::input_method::InputMethodEngineBase {
       uint32_t before,
       uint32_t after,
       const std::vector<ui::ImeTextSpan>& text_spans) override;
+
+  gfx::Range GetAutocorrectRange() override;
+
+  gfx::Rect GetAutocorrectCharacterBounds() override;
+
+  bool SetAutocorrectRange(const base::string16& autocorrect_text,
+                           uint32_t start,
+                           uint32_t end) override;
 
   bool SetSelectionRange(uint32_t start, uint32_t end) override;
 
@@ -160,8 +217,8 @@ class InputMethodEngine : public ::input_method::InputMethodEngineBase {
   // The current candidate window.
   ui::CandidateWindow candidate_window_;
 
-  // The current candidate window property.
-  CandidateWindowProperty candidate_window_property_;
+  // The candidate window property of the current engine_id.
+  std::pair<std::string, CandidateWindowProperty> candidate_window_property_;
 
   // Indicates whether the candidate window is visible.
   bool window_visible_ = false;

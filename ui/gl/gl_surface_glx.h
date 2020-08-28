@@ -14,6 +14,7 @@
 #include "base/macros.h"
 #include "ui/gfx/geometry/size.h"
 #include "ui/gfx/native_widget_types.h"
+#include "ui/gfx/x/event.h"
 #include "ui/gfx/x/x11_types.h"
 #include "ui/gl/gl_export.h"
 #include "ui/gl/gl_surface.h"
@@ -38,6 +39,7 @@ class GL_EXPORT GLSurfaceGLX : public GLSurface {
   // These aren't particularly tied to surfaces, but since we already
   // have the static InitializeOneOff here, it's easiest to reuse its
   // initialization guards.
+  static std::string QueryGLXExtensions();
   static const char* GetGLXExtensions();
   static bool HasGLXExtension(const char* name);
   static bool IsCreateContextSupported();
@@ -54,8 +56,6 @@ class GL_EXPORT GLSurfaceGLX : public GLSurface {
   // Get the FB config that the surface was created with or NULL if it is not
   // a GLX drawable.
   void* GetConfig() override = 0;
-
-  unsigned long GetCompatibilityKey() override = 0;
 
  protected:
   ~GLSurfaceGLX() override;
@@ -84,7 +84,6 @@ class GL_EXPORT NativeViewGLSurfaceGLX : public GLSurfaceGLX {
   bool SupportsPostSubBuffer() override;
   void* GetConfig() override;
   GLSurfaceFormat GetFormat() override;
-  unsigned long GetCompatibilityKey() override;
   gfx::SwapResult PostSubBuffer(int x,
                                 int y,
                                 int width,
@@ -102,10 +101,10 @@ class GL_EXPORT NativeViewGLSurfaceGLX : public GLSurfaceGLX {
   virtual void UnregisterEvents() = 0;
 
   // Forwards Expose event to child window.
-  void ForwardExposeEvent(XEvent* xevent);
+  void ForwardExposeEvent(x11::Event* xevent);
 
   // Checks if event is Expose for child window.
-  bool CanHandleEvent(XEvent* xevent);
+  bool CanHandleEvent(x11::Event* xevent);
 
   gfx::AcceleratedWidget window() const { return window_; }
 
@@ -148,7 +147,6 @@ class GL_EXPORT UnmappedNativeViewGLSurfaceGLX : public GLSurfaceGLX {
   void* GetHandle() override;
   void* GetConfig() override;
   GLSurfaceFormat GetFormat() override;
-  unsigned long GetCompatibilityKey() override;
 
  protected:
   ~UnmappedNativeViewGLSurfaceGLX() override;

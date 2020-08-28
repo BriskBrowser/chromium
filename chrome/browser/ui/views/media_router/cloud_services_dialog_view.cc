@@ -65,26 +65,10 @@ CloudServicesDialogView* CloudServicesDialogView::GetDialogForTest() {
   return instance_;
 }
 
-bool CloudServicesDialogView::ShouldShowCloseButton() const {
-  return true;
-}
-
-base::string16 CloudServicesDialogView::GetWindowTitle() const {
-  return l10n_util::GetStringUTF16(
-      IDS_MEDIA_ROUTER_CLOUD_SERVICES_DIALOG_TITLE);
-}
-
-bool CloudServicesDialogView::Accept() {
+void CloudServicesDialogView::OnDialogAccepted() {
   PrefService* pref_service = browser_->profile()->GetPrefs();
   pref_service->SetBoolean(::prefs::kMediaRouterEnableCloudServices, true);
   pref_service->SetBoolean(::prefs::kMediaRouterCloudServicesPrefSet, true);
-  return true;  // Close the dialog.
-}
-
-bool CloudServicesDialogView::Cancel() {
-  // No need to set the preference to disable cloud services, because this
-  // dialog is shown only when the services are disabled.
-  return true;  // Close the dialog.
 }
 
 gfx::Size CloudServicesDialogView::CalculatePreferredSize() const {
@@ -98,12 +82,16 @@ CloudServicesDialogView::CloudServicesDialogView(views::View* anchor_view,
                                                  Browser* browser)
     : BubbleDialogDelegateView(anchor_view, views::BubbleBorder::TOP_RIGHT),
       browser_(browser) {
-  DialogDelegate::set_button_label(
+  SetShowCloseButton(true);
+  SetTitle(IDS_MEDIA_ROUTER_CLOUD_SERVICES_DIALOG_TITLE);
+  SetButtonLabel(
       ui::DIALOG_BUTTON_OK,
       l10n_util::GetStringUTF16(IDS_MEDIA_ROUTER_CLOUD_SERVICES_DIALOG_ENABLE));
-  DialogDelegate::set_button_label(
+  SetButtonLabel(
       ui::DIALOG_BUTTON_CANCEL,
       l10n_util::GetStringUTF16(IDS_MEDIA_ROUTER_CLOUD_SERVICES_DIALOG_CANCEL));
+  SetAcceptCallback(base::BindOnce(&CloudServicesDialogView::OnDialogAccepted,
+                                   base::Unretained(this)));
   set_close_on_deactivate(false);
   SetLayoutManager(std::make_unique<views::FillLayout>());
 }
@@ -126,10 +114,11 @@ void CloudServicesDialogView::Init() {
       views::StyledLabel::RangeStyleInfo::CreateForLink();
   link_style.disable_line_wrapping = false;
 
-  views::StyledLabel* body_text = new views::StyledLabel(text, this);
+  views::StyledLabel* body_text =
+      AddChildView(std::make_unique<views::StyledLabel>(this));
+  body_text->SetText(text);
   body_text->SetHorizontalAlignment(gfx::ALIGN_LEFT);
   body_text->AddStyleRange(learn_more_range, link_style);
-  AddChildView(body_text);
 }
 
 void CloudServicesDialogView::WindowClosing() {

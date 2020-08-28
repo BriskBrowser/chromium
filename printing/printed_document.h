@@ -9,7 +9,6 @@
 #include <memory>
 
 #include "base/files/file_path.h"
-#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/strings/string16.h"
 #include "base/synchronization/lock.h"
@@ -41,6 +40,8 @@ class PRINTING_EXPORT PrintedDocument
   PrintedDocument(std::unique_ptr<PrintSettings> settings,
                   const base::string16& name,
                   int cookie);
+  PrintedDocument(const PrintedDocument&) = delete;
+  PrintedDocument& operator=(const PrintedDocument&) = delete;
 
 #if defined(OS_WIN)
   // Indicates that the PDF has been generated and the document is waiting for
@@ -67,9 +68,7 @@ class PRINTING_EXPORT PrintedDocument
 #endif  // defined(OS_WIN)
 
   // Sets the document data. Note: locks for a short amount of time.
-  void SetDocument(std::unique_ptr<MetafilePlayer> metafile,
-                   const gfx::Size& page_size,
-                   const gfx::Rect& page_content_rect);
+  void SetDocument(std::unique_ptr<MetafilePlayer> metafile);
 
   // Retrieves the metafile with the data to print. Lock must be held when
   // calling this function
@@ -126,18 +125,18 @@ class PRINTING_EXPORT PrintedDocument
       const base::string16& document_name,
       const base::FilePath::StringType& extension);
 
+#if defined(OS_WIN)
+  // Get page content rect adjusted based on
+  // http://dev.w3.org/csswg/css3-page/#positioning-page-box
+  static gfx::Rect GetCenteredPageContentRect(const gfx::Size& paper_size,
+                                              const gfx::Size& page_size,
+                                              const gfx::Rect& content_rect);
+#endif
+
   // Dump data on blocking task runner.
   // Should only be called when debug dumps are enabled.
   void DebugDumpData(const base::RefCountedMemory* data,
                      const base::FilePath::StringType& extension);
-
-#if defined(OS_WIN) || defined(OS_MACOSX)
-  // Get page content rect adjusted based on
-  // http://dev.w3.org/csswg/css3-page/#positioning-page-box
-  gfx::Rect GetCenteredPageContentRect(const gfx::Size& paper_size,
-                                       const gfx::Size& page_size,
-                                       const gfx::Rect& content_rect) const;
-#endif
 
  private:
   friend class base::RefCountedThreadSafe<PrintedDocument>;
@@ -172,11 +171,6 @@ class PRINTING_EXPORT PrintedDocument
 
     // Whether the PDF is being converted for printing.
     bool converting_pdf_ = false;
-#endif
-
-#if defined(OS_MACOSX)
-    gfx::Size page_size_;
-    gfx::Rect page_content_rect_;
 #endif
   };
 
@@ -213,8 +207,6 @@ class PRINTING_EXPORT PrintedDocument
 
   // All the immutable members.
   const Immutable immutable_;
-
-  DISALLOW_COPY_AND_ASSIGN(PrintedDocument);
 };
 
 }  // namespace printing

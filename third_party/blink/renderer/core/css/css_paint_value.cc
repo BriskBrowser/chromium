@@ -210,7 +210,7 @@ bool CSSPaintValue::ParseInputArguments(const Document& document) {
   for (wtf_size_t i = 0; i < argument_variable_data_.size(); ++i) {
     // If we are parsing a paint() function, we must be a secure context.
     DCHECK_EQ(SecureContextMode::kSecureContext,
-              document.GetSecureContextMode());
+              document.GetExecutionContext()->GetSecureContextMode());
     const CSSValue* parsed_value = argument_variable_data_[i]->ParseForSyntax(
         input_argument_types[i], SecureContextMode::kSecureContext);
     if (!parsed_value) {
@@ -249,7 +249,7 @@ bool CSSPaintValue::Equals(const CSSPaintValue& other) const {
          CustomCSSText() == other.CustomCSSText();
 }
 
-void CSSPaintValue::TraceAfterDispatch(blink::Visitor* visitor) {
+void CSSPaintValue::TraceAfterDispatch(blink::Visitor* visitor) const {
   visitor->Trace(name_);
   visitor->Trace(generators_);
   visitor->Trace(paint_image_generator_observer_);

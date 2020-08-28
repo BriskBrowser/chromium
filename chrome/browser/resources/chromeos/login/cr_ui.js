@@ -131,34 +131,13 @@ cr.define('cr.ui', function() {
   };
 
   /**
-   * Shows password changed screen that offers migration.
-   * @param {boolean} showError Whether to show the incorrect password error.
-   */
-  Oobe.showPasswordChangedScreen = function(showError, email) {
-    DisplayManager.showPasswordChangedScreen(showError, email);
-  };
-
-  /**
-   * Shows TPM error screen.
-   */
-  Oobe.showTpmError = function() {
-    DisplayManager.showTpmError();
-  };
-
-  /**
-   * Shows Active Directory password change screen.
-   * @param {string} username Name of the user that should change the password.
-   */
-  Oobe.showActiveDirectoryPasswordChangeScreen = function(username) {
-    DisplayManager.showActiveDirectoryPasswordChangeScreen(username);
-  };
-
-  /**
    * Show user-pods.
    */
   Oobe.showUserPods = function() {
     $('pod-row').maybePreselectPod();
     Oobe.showScreen({id: SCREEN_ACCOUNT_PICKER});
+    if (Oobe.getInstance().showingViewsLogin)
+      return;
     Oobe.resetSigninUI(true);
   };
 
@@ -267,7 +246,7 @@ cr.define('cr.ui', function() {
     }
 
     Oobe.disableSigninUI();
-    chrome.send('skipToLoginForTesting', [username]);
+    chrome.send('skipToLoginForTesting');
 
     if (!enterpriseEnroll) {
       chrome.send('completeLogin', [gaia_id, username, password, false]);
@@ -277,7 +256,7 @@ cr.define('cr.ui', function() {
         chrome.send('toggleFakeEnrollment');
       });
 
-      waitForOobeScreen('oauth-enrollment', function() {
+      waitForOobeScreen('enterprise-enrollment', function() {
         chrome.send('oauthEnrollCompleteLogin', [username]);
       });
     }
@@ -342,10 +321,13 @@ cr.define('cr.ui', function() {
    * attribute screen if it's present.
    */
   Oobe.isEnrollmentSuccessfulForTest = function() {
-    if ($('enterprise-enrollment').$$('.oauth-enroll-state-attribute-prompt'))
+    const step = $('enterprise-enrollment').uiStep;
+    if (step === ENROLLMENT_STEP.ATTRIBUTE_PROMPT) {
       chrome.send('oauthEnrollAttributes', ['', '']);
+      return true;
+    }
 
-    return !!$('enterprise-enrollment').$$('.oauth-enroll-state-success');
+    return step === ENROLLMENT_STEP.SUCCESS;
   };
 
   /**
@@ -402,6 +384,13 @@ cr.define('cr.ui', function() {
   };
 
   /**
+   * Click on the primary action button ("Next" usually).
+   */
+  Oobe.clickGaiaPrimaryButtonForTesting = function() {
+    $('gaia-signin').clickPrimaryButtonForTesting();
+  };
+
+  /**
    * Sets the number of users on the views login screen.
    * @param {number} userCount The number of users.
    */
@@ -427,7 +416,14 @@ disableTextSelectAndDrag(function(e) {
 (function() {
 'use strict';
 
-document.addEventListener('DOMContentLoaded', function() {
+function initializeOobe() {
+  if (document.readyState === 'loading')
+    return;
+  document.removeEventListener('DOMContentLoaded', initializeOobe);
+
+  // TODO(crbug.com/1082670): Remove excessive logging after investigation.
+  console.warn('1082670 : initializing OOBE');
+
   try {
     Oobe.initialize();
   } finally {
@@ -439,11 +435,24 @@ document.addEventListener('DOMContentLoaded', function() {
     // readyForTesting even on failures, just to make test bots happy.
     Oobe.readyForTesting = true;
   }
-});
+}
 
 // Install a global error handler so stack traces are included in logs.
 window.onerror = function(message, file, line, column, error) {
   if (error && error.stack)
     console.error(error.stack);
 };
+
+// TODO(crbug.com/1082670): Remove excessive logging after investigation.
+console.warn('1082670 : cr_ui loaded');
+
+/**
+ * Final initialization performed after DOM and all scripts have loaded.
+ */
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initializeOobe);
+} else {
+  initializeOobe();
+}
+
 })();

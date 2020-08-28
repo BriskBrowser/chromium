@@ -7,7 +7,6 @@
 #include <stddef.h>
 
 #include <cmath>
-#include <list>
 #include <vector>
 
 #include "base/callback.h"
@@ -39,6 +38,8 @@ const std::set<std::string> inputControlTypes = {
     "text",           "search", "url",   "tel",   "email",
     "password",       "date",   "month", "week",  "time",
     "datetime-local", "number", "range", "color", "file"};
+
+const std::set<std::string> nontypeableControlTypes = {"color"};
 
 namespace {
 
@@ -196,7 +197,7 @@ Status ExecuteClickElement(Session* session,
     if (status.IsError())
       return status;
 
-    std::list<MouseEvent> events;
+    std::vector<MouseEvent> events;
     events.push_back(MouseEvent(kMovedMouseEventType, kNoneMouseButton,
                                 location.x, location.y,
                                 session->sticky_modifiers, 0, 0));
@@ -226,7 +227,7 @@ Status ExecuteTouchSingleTap(Session* session,
     return status;
   if (!session->chrome->HasTouchScreen()) {
     // TODO(samuong): remove this once we stop supporting M44.
-    std::list<TouchEvent> events;
+    std::vector<TouchEvent> events;
     events.push_back(
         TouchEvent(kTouchStart, location.x, location.y));
     events.push_back(
@@ -419,8 +420,8 @@ Status ExecuteSendKeysToElement(Session* session,
     return status;
   const base::ListValue* key_list;
   base::ListValue key_list_local;
+  const base::Value* text = nullptr;
   if (session->w3c_compliant) {
-    const base::Value* text;
     if (!params.Get("text", &text) || !text->is_string())
       return Status(kInvalidArgument, "'text' must be a string");
     key_list_local.Set(0, std::make_unique<base::Value>(text->Clone()));
@@ -444,6 +445,8 @@ Status ExecuteSendKeysToElement(Session* session,
   if (get_element_type->GetAsString(&element_type))
     element_type = base::ToLowerASCII(element_type);
   bool is_file = element_type == "file";
+  bool is_nontypeable = nontypeableControlTypes.find(element_type) !=
+                        nontypeableControlTypes.end();
 
   if (is_input && is_file) {
     if (session->strict_file_interactability) {
@@ -495,6 +498,23 @@ Status ExecuteSendKeysToElement(Session* session,
     std::unique_ptr<base::DictionaryValue> element(CreateElement(element_id));
     return web_view->SetFileInputFiles(session->GetCurrentFrameId(), *element,
                                        paths, multiple);
+  } else if (session->w3c_compliant && is_input && is_nontypeable) {
+    // Special handling for non-typeable inputs is only included in W3C Spec
+    // The Spec calls for returning element not interactable if the element
+    // has no value property, but this is included for all input elements, so
+    // no check is needed here.
+
+    // text is set only when session.w3c_compliant, so confirm here
+    DCHECK(text != nullptr);
+    base::ListValue args;
+    args.Append(CreateElement(element_id));
+    args.AppendString(text->GetString());
+    std::unique_ptr<base::Value> result;
+    // Set value to text as given by user; if this does not match the defined
+    // format for the input type, results are not defined
+    return web_view->CallFunction(session->GetCurrentFrameId(),
+                                  "(element, text) => element.value = text",
+                                  args, &result);
   } else {
     std::unique_ptr<base::Value> get_content_editable;
     base::ListValue args;
@@ -504,39 +524,7 @@ Status ExecuteSendKeysToElement(Session* session,
                                     args, &get_content_editable);
     if (status.IsError())
       return status;
-    bool is_content_editable;
-    if (get_content_editable->GetAsBoolean(&is_content_editable) &&
-        is_content_editable) {
-      // If element is contentEditable, will move caret
-      // at end of element text. W3C mandates that the
-      // caret be moved "after any child content"
-      std::unique_ptr<base::Value> result;
-      status = web_view->CallFunction(
-          session->GetCurrentFrameId(),
-          "function(element) {"
-          "var range = document.createRange();"
-          "range.selectNodeContents(element);"
-          "range.collapse();"
-          "var sel = window.getSelection();"
-          "sel.removeAllRanges();"
-          "sel.addRange(range);"
-          "while (element.parentElement && "
-          "element.parentElement.isContentEditable) {"
-          "    element = element.parentElement;"
-          "  }"
-          "return element;"
-          "}",
-          args, &result);
-      if (status.IsError())
-        return status;
-      const base::DictionaryValue* element_dict;
-      std::string target_element_id;
-      if (!result->GetAsDictionary(&element_dict) ||
-          !element_dict->GetString(GetElementKey(), &target_element_id))
-        return Status(kUnknownError, "no element reference returned by script");
-      return SendKeysToElement(session, web_view, target_element_id, false,
-                               key_list);
-    }
+
     // If element_type is in textControlTypes, sendKeys should append
     bool is_textControlType = is_input && textControlTypes.find(element_type) !=
                                               textControlTypes.end();
@@ -548,6 +536,69 @@ Status ExecuteSendKeysToElement(Session* session,
       return status;
     bool is_text = is_textControlType || is_textarea;
 
+    bool is_content_editable;
+    if (get_content_editable->GetAsBoolean(&is_content_editable) &&
+        is_content_editable) {
+      // If element is contentEditable
+      // check if element is focused
+      bool is_focused = false;
+      status = IsElementFocused(session, web_view, element_id, &is_focused);
+      if (status.IsError())
+        return status;
+
+      // Get top level contentEditable element
+      std::unique_ptr<base::Value> result;
+      status = web_view->CallFunction(
+          session->GetCurrentFrameId(),
+          "function(element) {"
+          "while (element.parentElement && "
+          "element.parentElement.isContentEditable) {"
+          "    element = element.parentElement;"
+          "  }"
+          "return element;"
+          "}",
+          args, &result);
+      if (status.IsError())
+        return status;
+      const base::DictionaryValue* element_dict;
+      std::string top_element_id;
+      if (!result->GetAsDictionary(&element_dict) ||
+          !element_dict->GetString(GetElementKey(), &top_element_id))
+        return Status(kUnknownError, "no element reference returned by script");
+
+      // check if top level contentEditable element is focused
+      bool is_top_focused = false;
+      status =
+          IsElementFocused(session, web_view, top_element_id, &is_top_focused);
+      if (status.IsError())
+        return status;
+      // If is_text we want to send keys to the element
+      // Otherwise, send keys to the top element
+      if ((is_text && !is_focused) || (!is_text && !is_top_focused)) {
+        // If element does not currentley have focus
+        // will move caret
+        // at end of element text. W3C mandates that the
+        // caret be moved "after any child content"
+        // Set selection using the element itself
+        std::unique_ptr<base::Value> unused;
+        status = web_view->CallFunction(session->GetCurrentFrameId(),
+                                        "function(element) {"
+                                        "var range = document.createRange();"
+                                        "range.selectNodeContents(element);"
+                                        "range.collapse();"
+                                        "var sel = window.getSelection();"
+                                        "sel.removeAllRanges();"
+                                        "sel.addRange(range);"
+                                        "}",
+                                        args, &unused);
+        if (status.IsError())
+          return status;
+      }
+      // Use top level element id for the purpose of focusing
+      if (!is_text)
+        return SendKeysToElement(session, web_view, top_element_id, is_text,
+                                 key_list);
+    }
     return SendKeysToElement(session, web_view, element_id, is_text, key_list);
   }
 }
@@ -742,9 +793,11 @@ Status ExecuteGetElementRect(Session* session,
     return status;
 
   std::unique_ptr<base::Value> size;
-  web_view->CallFunction(session->GetCurrentFrameId(),
-                         webdriver::atoms::asString(webdriver::atoms::GET_SIZE),
-                         args, &size);
+  status = web_view->CallFunction(
+      session->GetCurrentFrameId(),
+      webdriver::atoms::asString(webdriver::atoms::GET_SIZE), args, &size);
+  if (status.IsError())
+    return status;
 
   // do type conversions
   base::DictionaryValue* size_dict;
@@ -899,7 +952,7 @@ Status ExecuteElementScreenshot(Session* session,
       "  height: document.documentElement.clientHeight,"
       "  width: document.documentElement.clientWidth,"
       "  device_pixel_ratio: window.devicePixelRatio})",
-      &browser_info);
+      false, &browser_info);
   if (status.IsError())
     return status;
 

@@ -19,17 +19,10 @@ class EventBase {
   EventBase(const EventBase& other);
   virtual ~EventBase();
 
-  // Finalizes the event and sends it for recording. After this call, the event
-  // is left in an invalid state and should not be used further.
-  void Record();
-
- protected:
-  EventBase();
-
   // Specifies which value type a Metric object holds.
   enum class MetricType {
-    STRING = 0,
-    INT = 1,
+    kString = 0,
+    kInt = 1,
   };
 
   // Stores all information about a single metric: name hash, value, and a
@@ -53,21 +46,41 @@ class EventBase {
     int int_value;
   };
 
-  void AddStringMetric(uint64_t name_hash, const std::string& value) {
-    Metric metric(name_hash, MetricType::STRING);
-    metric.string_value = value;
-    metrics_.push_back(metric);
-  }
+  // Finalizes the event and sends it for recording. After this call, the event
+  // is left in an invalid state and should not be used further.
+  void Record();
 
-  void AddIntMetric(uint64_t name_hash, int value) {
-    Metric metric(name_hash, MetricType::INT);
-    metric.int_value = value;
-    metrics_.push_back(metric);
-  }
+  std::vector<Metric> metrics() const { return metrics_; }
 
+  uint64_t name_hash() const { return event_name_hash_; }
+
+  uint64_t project_name_hash() const { return project_name_hash_; }
+
+ protected:
+  explicit EventBase(uint64_t event_name_hash, uint64_t project_name_hash);
+
+  void AddStringMetric(uint64_t name_hash, const std::string& value);
+
+  void AddIntMetric(uint64_t name_hash, int value);
+
+ private:
   // First 8 bytes of the MD5 hash of the event name, as defined in
   // structured.xml. This is calculated by tools/metrics/structured/codegen.py.
   uint64_t event_name_hash_;
+
+  // The project name hash is used to to determine which key to use for hashing
+  // events. The project name comes from this event's definition in
+  // structured.xml, and is decided by the rules:
+  //
+  //  - if this event references a project, eg. <event name="..."
+  //    project="...">, use that project's name.
+  //
+  //  - otherwise, use the event's name.
+  //
+  // |project_name_hash_| is the first 8 bytes of the MD5 hash of the project
+  // name.
+  uint64_t project_name_hash_;
+
   std::vector<Metric> metrics_;
 };
 

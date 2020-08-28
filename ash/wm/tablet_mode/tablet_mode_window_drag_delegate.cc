@@ -5,7 +5,9 @@
 #include "ash/wm/tablet_mode/tablet_mode_window_drag_delegate.h"
 
 #include "ash/display/screen_orientation_controller.h"
+#include "ash/public/cpp/window_backdrop.h"
 #include "ash/root_window_controller.h"
+#include "ash/screen_util.h"
 #include "ash/shelf/shelf_layout_manager.h"
 #include "ash/shell.h"
 #include "ash/system/overview/overview_button_tray.h"
@@ -41,6 +43,13 @@ namespace {
 // drag indicators and preview window when dragging a window into splitscreen in
 // tablet mode.
 constexpr float kIndicatorsThresholdRatio = 0.1;
+
+// Items dragged to within |kDistanceFromEdgeDp| of the screen will get snapped
+// even if they have not moved by |kMinimumDragToSnapDistanceDp|.
+constexpr float kDistanceFromEdgeDp = 16.f;
+// The minimum distance that an item must be moved before it is snapped. This
+// prevents accidental snaps.
+constexpr float kMinimumDragToSnapDistanceDp = 96.f;
 
 // Duration of a drag that it will be considered as an intended drag. Must be at
 // least the duration of the split view divider snap animation, or else issues
@@ -149,9 +158,7 @@ void TabletModeWindowDragDelegate::StartWindowDrag(
       ->UpdateVisibilityState();
 
   // Disable the backdrop on the dragged window.
-  original_backdrop_mode_ = dragged_window_->GetProperty(kBackdropWindowMode);
-  dragged_window_->SetProperty(kBackdropWindowMode,
-                               BackdropWindowMode::kDisabled);
+  WindowBackdrop::Get(dragged_window_)->DisableBackdrop();
 
   OverviewController* controller = Shell::Get()->overview_controller();
   bool was_overview_open = controller->InOverviewSession();
@@ -167,8 +174,7 @@ void TabletModeWindowDragDelegate::StartWindowDrag(
             ->overview_button_tray();
     DCHECK(overview_button_tray);
     overview_button_tray->SnapRippleToActivated();
-    controller->StartOverview(
-        OverviewSession::EnterExitOverviewType::kImmediateEnter);
+    controller->StartOverview(OverviewEnterExitType::kImmediateEnter);
   }
 
   if (controller->InOverviewSession()) {
@@ -264,7 +270,7 @@ void TabletModeWindowDragDelegate::EndWindowDrag(
     const gfx::PointF& location_in_screen) {
   EndingWindowDrag(result, location_in_screen);
 
-  dragged_window_->SetProperty(kBackdropWindowMode, original_backdrop_mode_);
+  WindowBackdrop::Get(dragged_window_)->RestoreBackdrop();
   SplitViewController::SnapPosition snap_position = SplitViewController::NONE;
   if (result == ToplevelWindowEventHandler::DragResult::SUCCESS &&
       split_view_controller_->CanSnapWindow(dragged_window_)) {
@@ -315,8 +321,11 @@ void TabletModeWindowDragDelegate::FlingOrSwipe(ui::GestureEvent* event) {
   if (event->type() == ui::ET_SCROLL_FLING_START) {
     if (ShouldFlingIntoOverview(event)) {
       DCHECK(Shell::Get()->overview_controller()->InOverviewSession());
-      Shell::Get()->overview_controller()->overview_session()->AddItem(
-          dragged_window_, /*reposition=*/true, /*animate=*/false);
+      Shell::Get()
+          ->overview_controller()
+          ->overview_session()
+          ->AddItemInMruOrder(dragged_window_, /*reposition=*/true,
+                              /*animate=*/false, /*restack=*/true);
     }
     StartFling(event);
   }
@@ -353,9 +362,20 @@ SplitViewController::SnapPosition TabletModeWindowDragDelegate::GetSnapPosition(
     return SplitViewController::NONE;
   }
 
-  SplitViewController::SnapPosition snap_position =
-      ::ash::GetSnapPosition(Shell::GetPrimaryRootWindow(), dragged_window_,
-                             gfx::ToRoundedPoint(location_in_screen));
+  const gfx::Rect area =
+      screen_util::GetDisplayWorkAreaBoundsInScreenForActiveDeskContainer(
+          dragged_window_);
+  SplitViewController::SnapPosition snap_position = ::ash::GetSnapPosition(
+      Shell::GetPrimaryRootWindow(), dragged_window_,
+      gfx::ToRoundedPoint(location_in_screen),
+      gfx::ToRoundedPoint(initial_location_in_screen_),
+      /*snap_distance_from_edge=*/kDistanceFromEdgeDp,
+      /*minimum_drag_distance=*/kMinimumDragToSnapDistanceDp,
+      /*horizontal_edge_inset=*/area.width() *
+              kHighlightScreenPrimaryAxisRatio +
+          kHighlightScreenEdgePaddingDp,
+      /*vertical_edge_inset=*/area.height() * kHighlightScreenPrimaryAxisRatio +
+          kHighlightScreenEdgePaddingDp);
 
   // For portrait mode, since the drag always starts from the top of the
   // screen, we only allow the window to be dragged to snap to the bottom of

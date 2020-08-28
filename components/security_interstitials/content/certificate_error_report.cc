@@ -20,7 +20,7 @@
 #include "net/cert/cert_verify_proc_android.h"
 #endif
 
-#if defined(OS_MACOSX)
+#if defined(OS_APPLE)
 #include "net/cert/internal/trust_store_mac.h"
 #endif
 
@@ -105,7 +105,7 @@ void AddVerifyFlagsToReport(
   }
 }
 
-#if defined(OS_MACOSX)
+#if defined(OS_APPLE)
 void AddMacTrustFlagsToReport(
     int mac_trust_flags,
     ::google::protobuf::RepeatedField<int>* report_flags) {
@@ -147,7 +147,7 @@ void AddMacPlatformDebugInfoToReport(
       report_cert_info->add_status_codes(code);
   }
 }
-#endif  // defined(OS_MACOSX)
+#endif  // defined(OS_APPLE)
 #endif  // BUILDFLAG(TRIAL_COMPARISON_CERT_VERIFIER_SUPPORTED)
 
 bool CertificateChainToString(const net::X509Certificate& cert,
@@ -183,6 +183,8 @@ CertificateErrorReport::CertificateErrorReport(
     bool require_rev_checking_local_anchors,
     bool enable_sha1_local_anchors,
     bool disable_symantec_enforcement,
+    const std::string& stapled_ocsp,
+    const std::string& sct_list,
     const net::CertVerifyResult& primary_result,
     const net::CertVerifyResult& trial_result,
     network::mojom::CertVerifierDebugInfoPtr debug_info)
@@ -209,7 +211,13 @@ CertificateErrorReport::CertificateErrorReport(
       enable_rev_checking, require_rev_checking_local_anchors,
       enable_sha1_local_anchors, disable_symantec_enforcement,
       trial_report->mutable_verify_flags());
-#if defined(OS_MACOSX)
+
+  if (!stapled_ocsp.empty())
+    trial_report->set_stapled_ocsp(stapled_ocsp);
+  if (!sct_list.empty())
+    trial_report->set_sct_list(sct_list);
+
+#if defined(OS_APPLE)
   AddMacPlatformDebugInfoToReport(debug_info->mac_platform_debug_info,
                                   trial_report);
   AddMacTrustFlagsToReport(
@@ -276,6 +284,10 @@ void CertificateErrorReport::SetInterstitialInfo(
           chrome_browser_ssl::CertLoggerInterstitialInfo::
               INTERSTITIAL_BLOCKED_INTERCEPTION);
       break;
+    case INTERSTITIAL_LEGACY_TLS:
+      interstitial_info->set_interstitial_reason(
+          chrome_browser_ssl::CertLoggerInterstitialInfo::
+              INTERSTITIAL_LEGACY_TLS);
   }
 
   interstitial_info->set_user_proceeded(proceed_decision == USER_PROCEEDED);

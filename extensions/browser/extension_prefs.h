@@ -19,10 +19,13 @@
 #include "components/keyed_service/core/keyed_service.h"
 #include "components/prefs/scoped_user_pref_update.h"
 #include "components/sync/model/string_ordinal.h"
-#include "extensions/browser/blacklist_state.h"
+#include "extensions/browser/api/declarative_net_request/ruleset_install_pref.h"
+#include "extensions/browser/blocklist_state.h"
 #include "extensions/browser/disable_reason.h"
 #include "extensions/browser/extension_prefs_scope.h"
 #include "extensions/browser/install_flag.h"
+#include "extensions/browser/pref_types.h"
+#include "extensions/common/api/declarative_net_request/constants.h"
 #include "extensions/common/constants.h"
 #include "extensions/common/extension.h"
 #include "extensions/common/extension_id.h"
@@ -179,7 +182,7 @@ class ExtensionPrefs : public KeyedService {
   // Checks whether |extension_id| is disabled. If there's no state pref for
   // the extension, this will return false. Generally you should use
   // ExtensionService::IsExtensionEnabled instead.
-  // Note that blacklisted extensions are NOT marked as disabled!
+  // Note that blocklisted extensions are NOT marked as disabled!
   bool IsExtensionDisabled(const std::string& id) const;
 
   // Get/Set the order that the browser actions appear in the toolbar.
@@ -196,21 +199,22 @@ class ExtensionPrefs : public KeyedService {
   // Called when an extension is installed, so that prefs get created.
   // If |page_ordinal| is invalid then a page will be found for the App.
   // |install_flags| are a bitmask of extension::InstallFlags.
-  // |dnr_ruleset_checksum| is the checksum for the indexed ruleset
-  // corresponding to the Declarative Net Request API.
+  // |ruleset_install_prefs| contains install prefs needed for the Declarative
+  // Net Request API.
   void OnExtensionInstalled(const Extension* extension,
                             Extension::State initial_state,
                             const syncer::StringOrdinal& page_ordinal,
                             int install_flags,
                             const std::string& install_parameter,
-                            const base::Optional<int>& dnr_ruleset_checksum);
-  // OnExtensionInstalled with no install flags and |dnr_ruleset_checksum|.
+                            const declarative_net_request::RulesetInstallPrefs&
+                                ruleset_install_prefs);
+  // OnExtensionInstalled with no install flags and |ruleset_install_prefs|.
   void OnExtensionInstalled(const Extension* extension,
                             Extension::State initial_state,
                             const syncer::StringOrdinal& page_ordinal,
                             const std::string& install_parameter) {
     OnExtensionInstalled(extension, initial_state, page_ordinal,
-                         kInstallFlagNone, install_parameter, base::nullopt);
+                         kInstallFlagNone, install_parameter, {});
   }
 
   // Called when an extension is uninstalled, so that prefs get cleaned up.
@@ -227,25 +231,80 @@ class ExtensionPrefs : public KeyedService {
   void SetExtensionDisabled(const std::string& extension_id,
                             int disable_reasons);
 
-  // Called to change the extension's BlacklistState. Currently only used for
-  // non-malicious extensions.
-  // TODO(oleg): replace SetExtensionBlacklisted by this function.
-  void SetExtensionBlacklistState(const std::string& extension_id,
-                                  BlacklistState state);
+  void SetExtensionBlocklistState(const std::string& extension_id,
+                                  BlocklistState state);
 
   // Checks whether |extension_id| is marked as greylisted.
-  // TODO(oleg): Replace IsExtensionBlacklisted by this method.
-  BlacklistState GetExtensionBlacklistState(
+  // TODO(oleg): Replace IsExtensionBlocklisted by this method.
+  BlocklistState GetExtensionBlocklistState(
       const std::string& extension_id) const;
+
+  // Gets or sets profile wide ExtensionPrefs.
+  void SetIntegerPref(const PrefMap& pref, int value);
+  void SetBooleanPref(const PrefMap& pref, bool value);
+  void SetStringPref(const PrefMap& pref, const std::string& value);
+  void SetTimePref(const PrefMap& pref, base::Time value);
+  void SetGURLPref(const PrefMap& pref, const GURL& value);
+  void SetDictionaryPref(const PrefMap& pref,
+                         std::unique_ptr<base::DictionaryValue> value);
+
+  int GetPrefAsInteger(const PrefMap& pref) const;
+  bool GetPrefAsBoolean(const PrefMap& pref) const;
+  std::string GetPrefAsString(const PrefMap& pref) const;
+  base::Time GetPrefAsTime(const PrefMap& pref) const;
+  GURL GetPrefAsGURL(const PrefMap& pref) const;
+  const base::DictionaryValue* GetPrefAsDictionary(const PrefMap& pref) const;
+
+  // Increments/decrements an ExtensionPref with a PrefType::kInteger.
+  void IncrementPref(const PrefMap& pref);
+  void DecrementPref(const PrefMap& pref);
 
   // Populates |out| with the ids of all installed extensions.
   void GetExtensions(ExtensionIdList* out) const;
+
+  void SetIntegerPref(const std::string& id, const PrefMap& pref, int value);
+  void SetBooleanPref(const std::string& id, const PrefMap& pref, bool value);
+  void SetStringPref(const std::string& id,
+                     const PrefMap& pref,
+                     const std::string value);
+  void SetListPref(const std::string& id,
+                   const PrefMap& pref,
+                   base::Value value);
+  void SetDictionaryPref(const std::string& id,
+                         const PrefMap& pref,
+                         std::unique_ptr<base::DictionaryValue> value);
+  void SetTimePref(const std::string& id,
+                   const PrefMap& pref,
+                   const base::Time value);
 
   void UpdateExtensionPref(const std::string& id,
                            base::StringPiece key,
                            std::unique_ptr<base::Value> value);
 
   void DeleteExtensionPrefs(const std::string& id);
+
+  bool ReadPrefAsBoolean(const std::string& extension_id,
+                         const PrefMap& pref,
+                         bool* out_value) const;
+
+  bool ReadPrefAsInteger(const std::string& extension_id,
+                         const PrefMap& pref,
+                         int* out_value) const;
+
+  bool ReadPrefAsString(const std::string& extension_id,
+                        const PrefMap& pref,
+                        std::string* out_value) const;
+
+  bool ReadPrefAsList(const std::string& extension_id,
+                      const PrefMap& pref,
+                      const base::ListValue** out_value) const;
+
+  bool ReadPrefAsDictionary(const std::string& extension_id,
+                            const PrefMap& pref,
+                            const base::DictionaryValue** out_value) const;
+
+  base::Time ReadPrefAsTime(const std::string& extension_id,
+                            const PrefMap& pref) const;
 
   bool ReadPrefAsBoolean(const std::string& extension_id,
                          base::StringPiece pref_key,
@@ -293,11 +352,11 @@ class ExtensionPrefs : public KeyedService {
   void ClearInapplicableDisableReasonsForComponentExtension(
       const std::string& component_extension_id);
 
-  // Gets the set of extensions that have been blacklisted in prefs. This will
+  // Gets the set of extensions that have been blocklisted in prefs. This will
   // return only the blocked extensions, not the "greylist" extensions.
   // TODO(oleg): Make method names consistent here, in extension service and in
-  // blacklist.
-  std::set<std::string> GetBlacklistedExtensions() const;
+  // blocklist.
+  std::set<std::string> GetBlocklistedExtensions() const;
 
   // Returns the version string for the currently installed extension, or
   // the empty string if not found.
@@ -310,13 +369,18 @@ class ExtensionPrefs : public KeyedService {
   // Returns base extensions install directory.
   const base::FilePath& install_directory() const { return install_directory_; }
 
-  // Returns whether the extension with |id| has its blacklist bit set.
+  // For updating the prefs when the install location is changed for the
+  // extension.
+  void SetInstallLocation(const std::string& extension_id,
+                          Manifest::Location location);
+
+  // Returns whether the extension with |id| has its blocklist bit set.
   //
   // WARNING: this only checks the extension's entry in prefs, so by definition
   // can only check extensions that prefs knows about. There may be other
-  // sources of blacklist information, such as safebrowsing. You probably want
-  // to use Blacklist::GetBlacklistedIDs rather than this method.
-  bool IsExtensionBlacklisted(const std::string& id) const;
+  // sources of blocklist information, such as safebrowsing. You probably want
+  // to use Blocklist::GetBlocklistedIDs rather than this method.
+  bool IsExtensionBlocklisted(const std::string& id) const;
 
   // Increment the count of how many times we prompted the user to acknowledge
   // the given extension, and return the new count.
@@ -326,10 +390,10 @@ class ExtensionPrefs : public KeyedService {
   bool IsExternalExtensionAcknowledged(const std::string& extension_id) const;
   void AcknowledgeExternalExtension(const std::string& extension_id);
 
-  // Whether the user has acknowledged a blacklisted extension.
-  bool IsBlacklistedExtensionAcknowledged(
+  // Whether the user has acknowledged a blocklisted extension.
+  bool IsBlocklistedExtensionAcknowledged(
       const std::string& extension_id) const;
-  void AcknowledgeBlacklistedExtension(const std::string& extension_id);
+  void AcknowledgeBlocklistedExtension(const std::string& extension_id);
 
   // Whether the external extension was installed during the first run
   // of this profile.
@@ -344,6 +408,12 @@ class ExtensionPrefs : public KeyedService {
   // reset it. Don't call it unless you mean it!
   bool SetAlertSystemFirstRun();
 
+  // Whether extensions that were previously visible in the toolbar from
+  // |BrowserActionsContainer| have been migrated to pinned extensions in the
+  // |ExtensionsToolbarContainer|.
+  bool IsPinnedExtensionsMigrationComplete();
+  void MarkPinnedExtensionsMigrationComplete();
+
   // Returns the last value set via SetLastPingDay. If there isn't such a
   // pref, the returned Time will return true for is_null().
   base::Time LastPingDay(const std::string& extension_id) const;
@@ -352,9 +422,9 @@ class ExtensionPrefs : public KeyedService {
   // the client's.
   void SetLastPingDay(const std::string& extension_id, const base::Time& time);
 
-  // Similar to the 2 above, but for the extensions blacklist.
-  base::Time BlacklistLastPingDay() const;
-  void SetBlacklistLastPingDay(const base::Time& time);
+  // Similar to the 2 above, but for the extensions blocklist.
+  base::Time BlocklistLastPingDay() const;
+  void SetBlocklistLastPingDay(const base::Time& time);
 
   // Similar to LastPingDay/SetLastPingDay, but for sending "days since active"
   // ping.
@@ -448,7 +518,7 @@ class ExtensionPrefs : public KeyedService {
   bool HasAllowFileAccessSetting(const std::string& extension_id) const;
 
   // Saves ExtensionInfo for each installed extension with the path to the
-  // version directory and the location. Blacklisted extensions won't be saved
+  // version directory and the location. Blocklisted extensions won't be saved
   // and neither will external extensions the user has explicitly uninstalled.
   // Caller takes ownership of returned structure.
   std::unique_ptr<ExtensionsInfo> GetInstalledExtensionsInfo(
@@ -464,14 +534,14 @@ class ExtensionPrefs : public KeyedService {
   // to install it.
   //
   // |install_flags| are a bitmask of extension::InstallFlags.
-  void SetDelayedInstallInfo(
-      const Extension* extension,
-      Extension::State initial_state,
-      int install_flags,
-      DelayReason delay_reason,
-      const syncer::StringOrdinal& page_ordinal,
-      const std::string& install_parameter,
-      const base::Optional<int>& dnr_ruleset_checksum = base::nullopt);
+  void SetDelayedInstallInfo(const Extension* extension,
+                             Extension::State initial_state,
+                             int install_flags,
+                             DelayReason delay_reason,
+                             const syncer::StringOrdinal& page_ordinal,
+                             const std::string& install_parameter,
+                             const declarative_net_request::RulesetInstallPrefs&
+                                 ruleset_install_prefs = {});
 
   // Removes any delayed install information we have for the given
   // |extension_id|. Returns true if there was info to remove; false otherwise.
@@ -564,39 +634,40 @@ class ExtensionPrefs : public KeyedService {
   void SetInstallParam(const std::string& extension_id,
                        const std::string& install_parameter);
 
-  // The total number of times we've disabled an extension due to corrupted
-  // contents.
-  int GetCorruptedDisableCount() const;
-  void IncrementCorruptedDisableCount();
-
   // Whether the extension with the given |extension_id| needs to be synced.
   // This is set when the state (such as enabled/disabled or allowed in
   // incognito) is changed before Sync is ready.
   bool NeedsSync(const std::string& extension_id) const;
   void SetNeedsSync(const std::string& extension_id, bool needs_sync);
 
-  // Returns false if there is no ruleset checksum corresponding to
-  // |extension_id|. On success, returns true and populates
-  // the checksum.
-  bool GetDNRRulesetChecksum(const ExtensionId& extension_id,
-                             int* checksum) const;
-  void SetDNRRulesetChecksum(const ExtensionId& extension_id, int checksum);
+  // Returns false if there is no ruleset checksum corresponding to the given
+  // |extension_id| and |ruleset_id|. On success, returns true and populates the
+  // checksum.
+  bool GetDNRStaticRulesetChecksum(
+      const ExtensionId& extension_id,
+      declarative_net_request::RulesetID ruleset_id,
+      int* checksum) const;
+  void SetDNRStaticRulesetChecksum(
+      const ExtensionId& extension_id,
+      declarative_net_request::RulesetID ruleset_id,
+      int checksum);
 
   // Returns false if there is no dynamic ruleset corresponding to
   // |extension_id|. On success, returns true and populates the checksum.
-  // TODO(crbug.com/696822): Use a single dictionary to store checksums for
-  // static and dynamic rulesets. This will be more relevant if and when we do
-  // support multiple static rulesets.
   bool GetDNRDynamicRulesetChecksum(const ExtensionId& extension_id,
                                     int* checksum) const;
   void SetDNRDynamicRulesetChecksum(const ExtensionId& extension_id,
                                     int checksum);
 
-  // Sets the set of allowed pages for the given |extension_id|.
-  void SetDNRAllowedPages(const ExtensionId& extension_id, URLPatternSet set);
-
-  // Returns the set of allowed pages for the given |extension_id|.
-  URLPatternSet GetDNRAllowedPages(const ExtensionId& extension_id) const;
+  // Returns the set of enabled static ruleset IDs or base::nullopt if the
+  // extension hasn't updated the set of enabled static rulesets.
+  base::Optional<std::set<declarative_net_request::RulesetID>>
+  GetDNREnabledStaticRulesets(const ExtensionId& extension_id) const;
+  // Updates the set of enabled static rulesets for the |extension_id|. This
+  // preference gets cleared on extension update.
+  void SetDNREnabledStaticRulesets(
+      const ExtensionId& extension_id,
+      const std::set<declarative_net_request::RulesetID>& ids);
 
   // Whether the extension with the given |extension_id| is using its ruleset's
   // matched action count for the badge text. This is set via the
@@ -604,6 +675,22 @@ class ExtensionPrefs : public KeyedService {
   bool GetDNRUseActionCountAsBadgeText(const ExtensionId& extension_id) const;
   void SetDNRUseActionCountAsBadgeText(const ExtensionId& extension_id,
                                        bool use_action_count_as_badge_text);
+
+  // Whether the ruleset for the given |extension_id| and |ruleset_id| should be
+  // ignored while loading the extension.
+  bool ShouldIgnoreDNRRuleset(
+      const ExtensionId& extension_id,
+      declarative_net_request::RulesetID ruleset_id) const;
+
+  // Migrates the disable reasons extension pref for extensions that were
+  // disabled due to a deprecated reason.
+  // TODO(archanasimha): Remove this around M89.
+  void MigrateDeprecatedDisableReasons();
+
+  // Looks to see if the Youtube extension is installed, and removes the
+  // FROM_BOOKMARK flag from it's creation flags.
+  // TODO(dmurph): Remove this in m90.
+  void MigrateYoutubeOffBookmarkApps();
 
   // Iterates over the extension pref entries and removes any obsolete keys. We
   // need to do this here specially (rather than in
@@ -622,6 +709,18 @@ class ExtensionPrefs : public KeyedService {
   // TODO(devlin): Remove this once clients are migrated over, around M84.
   void MigrateToNewExternalUninstallPref();
 
+  // Returns true if the given component extension should be installed, even
+  // though it has been obsoleted. Installing it allows us to ensure it is
+  // cleaned/deleted up properly. After that cleanup is done, this will return
+  // false.
+  bool ShouldInstallObsoleteComponentExtension(const std::string& extension_id);
+
+  // Mark the given component extension as deleted. It should not be installed /
+  // loaded again after this.
+  void MarkObsoleteComponentExtensionAsRemoved(
+      const std::string& extension_id,
+      const Manifest::Location& location);
+
   // When called before the ExtensionService is created, alerts that are
   // normally suppressed in first run will still trigger.
   static void SetRunAlertsInFirstRunForTest();
@@ -638,7 +737,7 @@ class ExtensionPrefs : public KeyedService {
   static const char kFakeObsoletePrefForTesting[];
 
  private:
-  friend class ExtensionPrefsBlacklistedExtensions;  // Unit test.
+  friend class ExtensionPrefsBlocklistedExtensions;  // Unit test.
   friend class ExtensionPrefsComponentExtension;     // Unit test.
   friend class ExtensionPrefsUninstallExtension;     // Unit test.
 
@@ -658,6 +757,15 @@ class ExtensionPrefs : public KeyedService {
       base::Clock* clock,
       bool extensions_disabled,
       const std::vector<EarlyExtensionPrefsObserver*>& early_observers);
+
+  // Gets or sets profile wide ExtensionPrefs.
+  const base::Value* GetPref(const PrefMap& pref) const;
+  void SetPref(const PrefMap& pref, std::unique_ptr<base::Value> value);
+
+  // Updates ExtensionPrefs for a specific extension.
+  void UpdateExtensionPref(const std::string& id,
+                           const PrefMap& pref,
+                           std::unique_ptr<base::Value> value);
 
   // Converts absolute paths in the pref to paths relative to the
   // install_directory_.
@@ -682,11 +790,10 @@ class ExtensionPrefs : public KeyedService {
                                URLPatternSet* result,
                                int valid_schemes) const;
 
-  // DEPRECATED. Use GetExtensionBlacklistState() instead.
-  // TODO(atuchin): Remove this once all clients are updated.
-  // Sets whether the extension with |id| is blacklisted.
-  void SetExtensionBlacklisted(const std::string& extension_id,
-                               bool is_blacklisted);
+  // Deprecated kPrefBlocklistAcknowledged kPrefBlocklist. Use
+  // kPrefBlocklistState instead.
+  // TODO(atuchin): Remove kPrefBlocklistAcknowledged kPrefBlocklist once all
+  // clients are updated.
 
   // Converts |set| to a list of strings and sets the |pref_key| pref belonging
   // to |extension_id|. If |set| is empty, the preference for |pref_key| is
@@ -768,7 +875,7 @@ class ExtensionPrefs : public KeyedService {
       Extension::State initial_state,
       int install_flags,
       const std::string& install_parameter,
-      const base::Optional<int>& dnr_ruleset_checksum,
+      const declarative_net_request::RulesetInstallPrefs& ruleset_install_prefs,
       prefs::DictionaryValueUpdate* extension_dict) const;
 
   void InitExtensionControlledPrefs(const ExtensionsInfo& extensions_info);

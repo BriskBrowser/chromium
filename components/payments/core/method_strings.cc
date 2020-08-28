@@ -14,9 +14,11 @@ namespace methods {
 const char kAndroidPay[] = "https://android.com/pay";
 const char kBasicCard[] = "basic-card";
 const char kGooglePay[] = "https://google.com/pay";
+const char kGooglePlayBilling[] = "https://play.google.com/billing";
 const char kInterledger[] = "interledger";
 const char kPayeeCreditTransfer[] = "payee-credit-transfer";
 const char kPayerCreditTransfer[] = "payer-credit-transfer";
+const char kSecurePaymentConfirmation[] = "secure-payment-confirmation";
 const char kTokenizedCard[] = "tokenized-card";
 
 }  // namespace methods

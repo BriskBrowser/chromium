@@ -10,7 +10,9 @@
 #include "base/threading/thread_task_runner_handle.h"
 #include "components/policy/core/common/cloud/cloud_external_data_manager.h"
 #include "components/policy/core/common/cloud/cloud_policy_constants.h"
+#include "components/policy/core/common/cloud/cloud_policy_util.h"
 #include "components/policy/core/common/cloud/machine_level_user_cloud_policy_store.h"
+#include "components/policy/core/common/features.h"
 #include "components/policy/core/common/policy_pref_names.h"
 #include "components/prefs/pref_service.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
@@ -29,7 +31,7 @@ MachineLevelUserCloudPolicyManager::MachineLevelUserCloudPolicyManager(
     const base::FilePath& policy_dir,
     const scoped_refptr<base::SequencedTaskRunner>& task_runner,
     network::NetworkConnectionTrackerGetter network_connection_tracker_getter)
-    : CloudPolicyManager(dm_protocol::kChromeMachineLevelUserCloudPolicyType,
+    : CloudPolicyManager(GetMachineLevelUserCloudPolicyTypeForCurrentOS(),
                          std::string(),
                          store.get(),
                          task_runner,
@@ -111,6 +113,25 @@ void MachineLevelUserCloudPolicyManager::Shutdown() {
   if (external_data_manager_)
     external_data_manager_->Disconnect();
   CloudPolicyManager::Shutdown();
+}
+
+void MachineLevelUserCloudPolicyManager::OnStoreLoaded(
+    CloudPolicyStore* cloud_policy_store) {
+  DCHECK_EQ(store(), cloud_policy_store);
+  CloudPolicyManager::OnStoreLoaded(cloud_policy_store);
+
+  if (!base::FeatureList::IsEnabled(policy::features::kCBCMPolicyInvalidations))
+    return;
+
+  // It's possible for |client()| to be null during startup if the store is
+  // loaded before Connect is called. In this case, don't do anything and wait
+  // for the browser to do its startup policy refresh.
+  if (client() && store()->policy() &&
+      store()->policy()->has_service_account_identity()) {
+    std::string service_account_id =
+        store()->policy()->service_account_identity();
+    client()->UpdateServiceAccount(service_account_id);
+  }
 }
 
 }  // namespace policy

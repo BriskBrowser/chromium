@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "base/bind.h"
+#include "base/bind_helpers.h"
 #include "base/callback_forward.h"
 #include "base/run_loop.h"
 #include "base/strings/string_number_conversions.h"
@@ -37,15 +38,12 @@ class TestBrowserClient : public ContentBrowserClient {
   TestBrowserClient() = default;
   ~TestBrowserClient() override = default;
 
-  void GetStoragePartitionConfigForSite(BrowserContext* browser_context,
-                                        const GURL& site,
-                                        bool can_be_default,
-                                        std::string* partition_domain,
-                                        std::string* partition_name,
-                                        bool* in_memory) override {
-    *partition_domain = "PartitionDomain" + site.spec();
-    *partition_name = "Partition" + site.spec();
-    *in_memory = false;
+  StoragePartitionConfig GetStoragePartitionConfigForSite(
+      BrowserContext* browser_context,
+      const GURL& site) override {
+    return content::StoragePartitionConfig::Create(
+        "PartitionDomain" + site.spec(), "Partition" + site.spec(),
+        false /* in_memory */);
   }
 };
 
@@ -91,6 +89,14 @@ class BackgroundSyncSchedulerTest : public testing::Test {
   base::TimeDelta GetBrowserWakeupDelay(
       blink::mojom::BackgroundSyncType sync_type) {
     return GetController()->GetBrowserWakeupDelay(sync_type);
+  }
+
+  base::TimeTicks GetBrowserWakeupTime() {
+    auto* scheduler = BackgroundSyncScheduler::GetFor(&test_browser_context_);
+    DCHECK(scheduler);
+
+    return scheduler
+        ->scheduled_wakeup_time_[blink::mojom::BackgroundSyncType::ONE_SHOT];
   }
 
   void SetUp() override {
@@ -281,6 +287,7 @@ TEST_F(BackgroundSyncSchedulerTest,
   base::RunLoop().RunUntilIdle();
   EXPECT_LE(GetBrowserWakeupDelay(blink::mojom::BackgroundSyncType::ONE_SHOT),
             base::TimeDelta::FromSeconds(1));
+  auto wakeup_time1 = GetBrowserWakeupTime();
 
   CancelDelayedProcessing(GURL(kUrl_2),
                           blink::mojom::BackgroundSyncType::ONE_SHOT);
@@ -290,6 +297,7 @@ TEST_F(BackgroundSyncSchedulerTest,
             base::TimeDelta::FromMinutes(1));
   EXPECT_GT(GetBrowserWakeupDelay(blink::mojom::BackgroundSyncType::ONE_SHOT),
             base::TimeDelta::FromSeconds(1));
+  EXPECT_LT(wakeup_time1, GetBrowserWakeupTime());
 }
 
 #endif

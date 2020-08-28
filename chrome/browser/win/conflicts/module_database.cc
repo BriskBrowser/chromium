@@ -11,8 +11,7 @@
 #include "base/files/file_path.h"
 #include "base/location.h"
 #include "base/sequenced_task_runner.h"
-#include "base/task/lazy_task_runner.h"
-#include "base/task/post_task.h"
+#include "base/task/lazy_thread_pool_task_runner.h"
 #include "chrome/browser/win/conflicts/module_database_observer.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
@@ -109,24 +108,16 @@ ModuleDatabase::~ModuleDatabase() {
 
 // static
 scoped_refptr<base::SequencedTaskRunner> ModuleDatabase::GetTaskRunner() {
-  static constexpr base::Feature kDistinctModuleDatabaseSequence{
-      "DistinctModuleDatabaseSequence", base::FEATURE_ENABLED_BY_DEFAULT};
-
-  static base::LazySequencedTaskRunner g_distinct_task_runner =
-      LAZY_SEQUENCED_TASK_RUNNER_INITIALIZER(
-          base::TaskTraits(base::ThreadPool(), base::TaskPriority::BEST_EFFORT,
+  static base::LazyThreadPoolSequencedTaskRunner g_module_database_task_runner =
+      LAZY_THREAD_POOL_SEQUENCED_TASK_RUNNER_INITIALIZER(
+          base::TaskTraits(base::TaskPriority::BEST_EFFORT,
                            base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN));
-
-  // A new task runner to the UI thread can be "created" every time in the
-  // disabled arm, in practice it's always the same task runner (it doesn't need
-  // a lazy instance to a privately owned sequence).
-  return base::FeatureList::IsEnabled(kDistinctModuleDatabaseSequence)
-             ? g_distinct_task_runner.Get()
-             : base::CreateSequencedTaskRunner({content::BrowserThread::UI});
+  return g_module_database_task_runner.Get();
 }
 
 // static
 ModuleDatabase* ModuleDatabase::GetInstance() {
+  DCHECK(GetTaskRunner()->RunsTasksInCurrentSequence());
   return g_module_database;
 }
 
@@ -446,8 +437,7 @@ void ModuleDatabase::MaybeInitializeThirdPartyConflictsManager(
     // disabled at run-time, the |third_party_conflicts_manager_| instance must
     // be destroyed. Since prefs can only be read on the UI thread, the
     // registrar is initialized there.
-    auto ui_task_runner =
-        base::CreateSingleThreadTaskRunner({content::BrowserThread::UI});
+    auto ui_task_runner = content::GetUIThreadTaskRunner({});
     pref_change_registrar_ =
         std::unique_ptr<PrefChangeRegistrar, base::OnTaskRunnerDeleter>(
             new PrefChangeRegistrar(),

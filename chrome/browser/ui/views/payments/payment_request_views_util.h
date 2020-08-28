@@ -9,7 +9,7 @@
 #include <string>
 
 #include "base/strings/string16.h"
-#include "third_party/blink/public/mojom/payments/payment_request.mojom.h"
+#include "third_party/blink/public/mojom/payments/payment_request.mojom-forward.h"
 #include "third_party/skia/include/core/SkColor.h"
 #include "ui/gfx/geometry/insets.h"
 #include "ui/gfx/image/image_skia.h"
@@ -46,6 +46,10 @@ constexpr int kPaymentRequestButtonSpacing = 10;
 constexpr int kDialogMinWidth = 512;
 constexpr int kDialogHeight = 450;
 
+// Preferred dimensions of the payment handler dialog in pixels.
+constexpr int kPreferredPaymentHandlerDialogWidth = 608;
+constexpr int kPreferredPaymentHandlerDialogHeight = 600;
+
 // Fixed width of the amount sections in the payment sheet and the order summary
 // sheet, in pixels.
 constexpr int kAmountSectionWidth = 96;
@@ -59,8 +63,6 @@ enum class PaymentRequestCommonTags {
   // specific events with tags can start their specific tags at this value.
   PAYMENT_REQUEST_COMMON_TAG_MAX
 };
-
-int GetActualDialogWidth();
 
 // Creates and returns a header for all the sheets in the PaymentRequest dialog.
 // The header contains an optional back arrow button (if |show_back_arrow| is
@@ -76,12 +78,13 @@ void PopulateSheetHeaderView(bool show_back_arrow,
                              views::View* container,
                              std::unique_ptr<views::Background> background);
 
-// Returns an instrument image view for the given |img| or |icon_resource_id|
-// and wanted |opacity|. Includes a rounded rect border. Callers need to set the
-// size of the resulting ImageView. Callers should set a |tooltip_text|.
+// Returns an instrument image view for the given |icon_bitmap| or
+// |icon_resource_id| and wanted |opacity|. Includes a rounded rect border.
+// Callers need to set the size of the resulting ImageView. Callers should set a
+// |tooltip_text|.
 std::unique_ptr<views::ImageView> CreateAppIconView(
     int icon_resource_id,
-    gfx::ImageSkia img,
+    const SkBitmap* icon_bitmap,
     const base::string16& tooltip_text,
     float opacity = 1.0f);
 

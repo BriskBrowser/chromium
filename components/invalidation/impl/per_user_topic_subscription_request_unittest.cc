@@ -9,14 +9,15 @@
 #include "base/memory/ptr_util.h"
 #include "base/run_loop.h"
 #include "base/strings/stringprintf.h"
+#include "base/test/bind_test_util.h"
 #include "base/test/gtest_util.h"
 #include "base/test/mock_callback.h"
+#include "base/test/scoped_feature_list.h"
 #include "base/test/task_environment.h"
 #include "base/test/test_simple_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/values.h"
 #include "net/url_request/test_url_fetcher_factory.h"
-#include "net/url_request/url_request_test_util.h"
 #include "services/data_decoder/public/cpp/test_support/in_process_data_decoder.h"
 #include "services/network/test/test_url_loader_factory.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -30,24 +31,21 @@ using testing::_;
 using testing::SaveArg;
 
 MATCHER_P(EqualsJSON, json, "equals JSON") {
-  std::unique_ptr<base::Value> expected =
-      base::JSONReader::ReadDeprecated(json);
+  base::Optional<base::Value> expected = base::JSONReader::Read(json);
   if (!expected) {
     *result_listener << "INTERNAL ERROR: couldn't parse expected JSON";
     return false;
   }
 
-  std::string err_msg;
-  int err_line, err_col;
-  std::unique_ptr<base::Value> actual =
-      base::JSONReader::ReadAndReturnErrorDeprecated(
-          arg, base::JSON_PARSE_RFC, nullptr, &err_msg, &err_line, &err_col);
-  if (!actual) {
-    *result_listener << "input:" << err_line << ":" << err_col << ": "
-                     << "parse error: " << err_msg;
+  base::JSONReader::ValueWithError actual =
+      base::JSONReader::ReadAndReturnValueWithError(arg);
+  if (!actual.value) {
+    *result_listener << "input:" << actual.error_line << ":"
+                     << actual.error_column << ": "
+                     << "parse error: " << actual.error_message;
     return false;
   }
-  return *expected == *actual;
+  return *expected == *actual.value;
 }
 
 network::mojom::URLResponseHeadPtr CreateHeadersForTest(int responce_code) {
@@ -273,6 +271,79 @@ TEST_F(PerUserTopicSubscriptionRequestTest, ShouldUnsubscribe) {
 
   EXPECT_EQ(status.code, StatusCode::SUCCESS);
   EXPECT_EQ(status.message, std::string());
+}
+
+TEST_F(PerUserTopicSubscriptionRequestTest, ShouldSkipUnsubscription) {
+  base::test::ScopedFeatureList feature;
+  feature.InitAndEnableFeature(kInvalidationsSkipUnsubscription);
+
+  PerUserTopicSubscriptionRequest::Builder builder;
+  std::unique_ptr<PerUserTopicSubscriptionRequest> request =
+      builder.SetInstanceIdToken("1234567890")
+          .SetScope("http://valid-url.test")
+          .SetPublicTopicName("test")
+          .SetProjectId("smarty-pants-12345")
+          .SetType(PerUserTopicSubscriptionRequest::UNSUBSCRIBE)
+          .Build();
+
+  base::MockCallback<PerUserTopicSubscriptionRequest::CompletedCallback>
+      callback;
+  Status status(StatusCode::SUCCESS, "initial");
+
+  EXPECT_CALL(callback, Run(_, _)).WillOnce(SaveArg<0>(&status));
+
+  request->Start(callback.Get(), url_loader_factory());
+  base::RunLoop().RunUntilIdle();
+
+  // Since the feature to skip unsubscriptions was specified, no network request
+  // should have been sent, but a non-retriable failure should be reported
+  // immediately.
+  EXPECT_EQ(url_loader_factory()->NumPending(), 0);
+  EXPECT_EQ(status.code, StatusCode::FAILED_NON_RETRIABLE);
+}
+
+// Regression test for crbug.com/1054590, |completed_callback| destroys
+// |request|.
+TEST_F(PerUserTopicSubscriptionRequestTest, ShouldDestroyOnFailure) {
+  std::string token = "1234567890";
+  std::string base_url = "http://valid-url.test";
+  std::string topic = "test";
+  std::string project_id = "smarty-pants-12345";
+  PerUserTopicSubscriptionRequest::RequestType type =
+      PerUserTopicSubscriptionRequest::SUBSCRIBE;
+
+  std::unique_ptr<PerUserTopicSubscriptionRequest> request;
+  bool callback_called = false;
+  auto completed_callback = base::BindLambdaForTesting(
+      [&](const Status& status, const std::string& topic_name) {
+        request.reset();
+        callback_called = true;
+      });
+
+  PerUserTopicSubscriptionRequest::Builder builder;
+  request = builder.SetInstanceIdToken(token)
+                .SetScope(base_url)
+                .SetPublicTopicName(topic)
+                .SetProjectId(project_id)
+                .SetType(type)
+                .Build();
+  std::string response_body = R"(
+    {
+      "privateTopicName": "test-pr"
+    }
+  )";
+
+  network::URLLoaderCompletionStatus response_status(net::ERR_TIMED_OUT);
+  response_status.decoded_body_length = response_body.size();
+
+  url_loader_factory()->AddResponse(url(request.get()),
+                                    CreateHeadersForTest(net::HTTP_OK),
+                                    response_body, response_status);
+  request->Start(std::move(completed_callback), url_loader_factory());
+  base::RunLoop().RunUntilIdle();
+
+  EXPECT_TRUE(callback_called);
+  // The main expectation is that there is no crash.
 }
 
 class PerUserTopicSubscriptionRequestParamTest

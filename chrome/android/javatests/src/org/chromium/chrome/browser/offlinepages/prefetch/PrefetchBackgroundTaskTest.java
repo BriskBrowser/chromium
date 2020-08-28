@@ -9,7 +9,8 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
 import android.content.Context;
-import android.support.test.filters.SmallTest;
+
+import androidx.test.filters.SmallTest;
 
 import org.junit.After;
 import org.junit.Before;
@@ -21,7 +22,8 @@ import org.chromium.base.ContextUtils;
 import org.chromium.base.task.PostTask;
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.DisabledTest;
-import org.chromium.chrome.browser.ChromeSwitches;
+import org.chromium.chrome.browser.background_task_scheduler.ChromeNativeBackgroundTaskDelegate;
+import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.offlinepages.OfflineTestUtil;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.chrome.test.ReducedModeNativeTestRule;
@@ -57,6 +59,7 @@ public class PrefetchBackgroundTaskTest {
 
         public TestPrefetchBackgroundTask(TaskInfo taskInfo) {
             mTaskInfo = taskInfo;
+            setDelegate(new ChromeNativeBackgroundTaskDelegate());
         }
 
         public void startTask(Context context, final TaskFinishedCallback callback) {

@@ -11,6 +11,7 @@ import android.util.DisplayMetrics;
 import com.google.protobuf.ByteString;
 
 import org.chromium.base.Consumer;
+import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.chrome.browser.feed.library.api.host.config.ApplicationInfo;
 import org.chromium.chrome.browser.feed.library.api.host.config.Configuration;
 import org.chromium.chrome.browser.feed.library.api.host.config.Configuration.ConfigKey;
@@ -40,6 +41,10 @@ import org.chromium.chrome.browser.feed.library.common.protoextensions.FeedExten
 import org.chromium.chrome.browser.feed.library.common.time.TimingUtils;
 import org.chromium.chrome.browser.feed.library.common.time.TimingUtils.ElapsedTimeTracker;
 import org.chromium.chrome.browser.feed.library.feedrequestmanager.internal.Utils;
+import org.chromium.chrome.browser.feed.shared.FeedFeatures;
+import org.chromium.chrome.browser.profiles.Profile;
+import org.chromium.chrome.browser.profiles.ProfileManager;
+import org.chromium.chrome.browser.signin.IdentityServicesProvider;
 import org.chromium.components.feed.core.proto.libraries.api.internal.StreamDataProto.StreamToken;
 import org.chromium.components.feed.core.proto.wire.ActionTypeProto;
 import org.chromium.components.feed.core.proto.wire.CapabilityProto.Capability;
@@ -53,6 +58,7 @@ import org.chromium.components.feed.core.proto.wire.FeedActionQueryDataProto.Fee
 import org.chromium.components.feed.core.proto.wire.FeedActionQueryDataProto.FeedActionQueryDataItem;
 import org.chromium.components.feed.core.proto.wire.FeedQueryProto.FeedQuery;
 import org.chromium.components.feed.core.proto.wire.FeedRequestProto.FeedRequest;
+import org.chromium.components.feed.core.proto.wire.FeedResponseProto.FeedResponse;
 import org.chromium.components.feed.core.proto.wire.RequestProto.Request;
 import org.chromium.components.feed.core.proto.wire.RequestProto.Request.RequestVersion;
 import org.chromium.components.feed.core.proto.wire.ResponseProto.Response;
@@ -69,7 +75,7 @@ import java.util.List;
 import java.util.Map;
 
 /** Default implementation of FeedRequestManager. */
-public final class FeedRequestManagerImpl implements FeedRequestManager {
+public class FeedRequestManagerImpl implements FeedRequestManager {
     private static final String TAG = "FeedRequestManagerImpl";
 
     private final Configuration mConfiguration;
@@ -86,6 +92,7 @@ public final class FeedRequestManagerImpl implements FeedRequestManager {
     private final BasicLoggingApi mBasicLoggingApi;
     private final TooltipSupportedApi mTooltipSupportedApi;
     private final ApplicationInfo mApplicationInfo;
+    private final boolean mSignedIn;
 
     public FeedRequestManagerImpl(Configuration configuration, NetworkClient networkClient,
             ProtocolAdapter protocolAdapter, FeedExtensionRegistry extensionRegistry,
@@ -107,6 +114,7 @@ public final class FeedRequestManagerImpl implements FeedRequestManager {
         this.mMainThreadRunner = mainThreadRunner;
         this.mBasicLoggingApi = basicLoggingApi;
         this.mTooltipSupportedApi = tooltipSupportedApi;
+        this.mSignedIn = isSignedIn();
     }
 
     @Override
@@ -174,17 +182,27 @@ public final class FeedRequestManagerImpl implements FeedRequestManager {
         }
     }
 
+    boolean isSignedIn() {
+        try {
+            return IdentityServicesProvider.get()
+                    .getIdentityManager(Profile.getLastUsedRegularProfile())
+                    .hasPrimaryAccount();
+        } catch (IllegalStateException e) {
+            assert !ProfileManager.isInitialized();
+        }
+        return false;
+    }
+
     private void executeRequest(RequestBuilder requestBuilder, Consumer<Result<Model>> consumer) {
         mThreadUtils.checkNotMainThread();
-        Result<List<DismissActionWithSemanticProperties>> dismissActionsResult =
-                mActionReader.getDismissActionsWithSemanticProperties();
-        if (dismissActionsResult.isSuccessful()) {
-            requestBuilder.setActions(dismissActionsResult.getValue());
-            for (DismissActionWithSemanticProperties dismiss : dismissActionsResult.getValue()) {
-                Logger.i(TAG, "Dismiss action: %s", dismiss.getContentId());
+        // Do not include Dismiss actions in the FeedQuery request for signed in users.
+        // Dismiss actions for signed in users are uploaded via the ActionsUpload endpoint.
+        if (!mSignedIn) {
+            Result<List<DismissActionWithSemanticProperties>> dismissActionsResult =
+                    mActionReader.getDismissActionsWithSemanticProperties();
+            if (dismissActionsResult.isSuccessful()) {
+                requestBuilder.setActions(dismissActionsResult.getValue());
             }
-        } else {
-            Logger.e(TAG, "Error fetching dismiss actions");
         }
 
         if (mConfiguration.getValueOrDefault(ConfigKey.CARD_MENU_TOOLTIP_ELIGIBLE, false)) {
@@ -204,16 +222,23 @@ public final class FeedRequestManagerImpl implements FeedRequestManager {
         }
     }
 
+    private static boolean isRequestInteractive(FeedQuery.RequestReason reason) {
+        return !(reason == FeedQuery.RequestReason.SCHEDULED_REFRESH
+                || reason == FeedQuery.RequestReason.WITH_CONTENT);
+    }
+
     private void sendRequest(RequestBuilder requestBuilder, Consumer<Result<Model>> consumer) {
         mThreadUtils.checkNotMainThread();
         String endpoint = mConfiguration.getValueOrDefault(ConfigKey.FEED_SERVER_ENDPOINT, "");
         @HttpMethod
         String httpMethod =
                 mConfiguration.getValueOrDefault(ConfigKey.FEED_SERVER_METHOD, HttpMethod.GET);
-
         HttpRequest httpRequest =
                 RequestHelper.buildHttpRequest(httpMethod, requestBuilder.build().toByteArray(),
-                        endpoint, LocaleUtils.getLanguageTag(mContext));
+                        endpoint, LocaleUtils.getLanguageTag(mContext),
+                        isRequestInteractive(requestBuilder.mRequestReason)
+                                ? RequestHelper.PRIORITY_VALUE_INTERACTIVE
+                                : RequestHelper.PRIORITY_VALUE_BACKGROUND);
 
         Logger.i(TAG, "Making Request: %s", httpRequest.getUri().getPath());
         mNetworkClient.send(httpRequest, input -> {
@@ -232,7 +257,8 @@ public final class FeedRequestManagerImpl implements FeedRequestManager {
                 if (!requestBuilder.hasPageToken()) {
                     mScheduler.onRequestError(input.getResponseCode());
                 }
-                consumer.accept(Result.failure());
+                mMainThreadRunner.execute(
+                        "FeedRequestManagerImpl consumer", () -> consumer.accept(Result.failure()));
                 return;
             }
             handleResponseBytes(input.getResponseBody(), consumer);
@@ -252,12 +278,21 @@ public final class FeedRequestManagerImpl implements FeedRequestManager {
                         mExtensionRegistry.getExtensionRegistry());
             } catch (IOException e) {
                 Logger.e(TAG, e, "Response parse failed");
-                consumer.accept(Result.failure());
+                mMainThreadRunner.execute(
+                        "FeedRequestManagerImpl consumer", () -> consumer.accept(Result.failure()));
                 return;
             }
+            logServerCapabilities(response);
             mMainThreadRunner.execute("FeedRequestManagerImpl consumer",
                     () -> consumer.accept(mProtocolAdapter.createModel(response)));
         });
+    }
+
+    private static void logServerCapabilities(Response response) {
+        FeedResponse feedResponse = response.getExtension(FeedResponse.feedResponse);
+        List<Capability> capabilities = feedResponse.getServerCapabilitiesList();
+        RecordHistogram.recordBooleanHistogram("ContentSuggestions.Feed.NoticeCardFulfilled",
+                capabilities.contains(Capability.REPORT_FEED_USER_ACTIONS_NOTICE_CARD));
     }
 
     private static final class RequestBuilder {
@@ -267,7 +302,7 @@ public final class FeedRequestManagerImpl implements FeedRequestManager {
         private final Context mContext;
         private final ApplicationInfo mApplicationInfo;
         private final Configuration mConfiguration;
-        private final FeedQuery.RequestReason mRequestReason;
+        public final FeedQuery.RequestReason mRequestReason;
         @RequestReason
         private final int mClientLoggingRequestReason;
         private boolean mCardMenuTooltipWouldTrigger;
@@ -348,6 +383,8 @@ public final class FeedRequestManagerImpl implements FeedRequestManager {
             addCapabilityIfConfigEnabled(feedRequestBuilder, ConfigKey.MANAGE_INTERESTS_ENABLED,
                     Capability.MANAGE_INTERESTS);
             addCapabilityIfConfigEnabled(
+                    feedRequestBuilder, ConfigKey.SEND_FEEDBACK_ENABLED, Capability.SEND_FEEDBACK);
+            addCapabilityIfConfigEnabled(
                     feedRequestBuilder, ConfigKey.ENABLE_CAROUSELS, Capability.CAROUSELS);
             if (mCardMenuTooltipWouldTrigger) {
                 addCapabilityIfConfigEnabled(feedRequestBuilder,
@@ -357,6 +394,14 @@ public final class FeedRequestManagerImpl implements FeedRequestManager {
                     feedRequestBuilder, ConfigKey.SNIPPETS_ENABLED, Capability.ARTICLE_SNIPPETS);
             addCapabilityIfConfigEnabled(feedRequestBuilder, ConfigKey.USE_SECONDARY_PAGE_REQUEST,
                     Capability.USE_SECONDARY_PAGE_REQUEST);
+
+            if (FeedFeatures.isReportingUserActions()) {
+                feedRequestBuilder.addClientCapability(Capability.CLICK_ACTION);
+                feedRequestBuilder.addClientCapability(Capability.VIEW_ACTION);
+                feedRequestBuilder.addClientCapability(
+                        Capability.REPORT_FEED_USER_ACTIONS_NOTICE_CARD);
+            }
+
             feedRequestBuilder.addClientCapability(Capability.BASE_UI);
 
             for (Capability capability : feedRequestBuilder.getClientCapabilityList()) {

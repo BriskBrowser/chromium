@@ -10,11 +10,13 @@
 #include "third_party/blink/renderer/core/css/css_keyframe_rule.h"
 #include "third_party/blink/renderer/core/css/parser/css_parser_fast_paths.h"
 #include "third_party/blink/renderer/core/css/parser/css_parser_impl.h"
+#include "third_party/blink/renderer/core/css/parser/css_parser_token_stream.h"
 #include "third_party/blink/renderer/core/css/parser/css_property_parser.h"
 #include "third_party/blink/renderer/core/css/parser/css_selector_parser.h"
 #include "third_party/blink/renderer/core/css/parser/css_supports_parser.h"
 #include "third_party/blink/renderer/core/css/parser/css_tokenizer.h"
 #include "third_party/blink/renderer/core/css/parser/css_variable_parser.h"
+#include "third_party/blink/renderer/core/css/properties/css_parsing_utils.h"
 #include "third_party/blink/renderer/core/css/style_color.h"
 #include "third_party/blink/renderer/core/css/style_rule.h"
 #include "third_party/blink/renderer/core/css/style_sheet_contents.h"
@@ -114,7 +116,7 @@ MutableCSSPropertyValueSet::SetResult CSSParser::ParseValue(
   if (value) {
     bool did_parse = true;
     bool did_change = declaration->SetProperty(CSSPropertyValue(
-        CSSProperty::Get(resolved_property), *value, important));
+        CSSPropertyName(resolved_property), *value, important));
     return MutableCSSPropertyValueSet::SetResult{did_parse, did_change};
   }
   CSSParserContext* context;
@@ -211,12 +213,17 @@ StyleRuleKeyframe* CSSParser::ParseKeyframeRule(const CSSParserContext* context,
 
 bool CSSParser::ParseSupportsCondition(const String& condition,
                                        SecureContextMode secure_context_mode) {
-  CSSTokenizer tokenizer(condition);
-  const auto tokens = tokenizer.TokenizeToEOF();
+  // window.CSS.supports requires to parse as-if it was wrapped in parenthesis.
+  String wrapped_condition = "(" + condition + ")";
+  CSSTokenizer tokenizer(wrapped_condition);
+  CSSParserTokenStream stream(tokenizer);
   CSSParserImpl parser(StrictCSSParserContext(secure_context_mode));
-  return CSSSupportsParser::SupportsCondition(
-             CSSParserTokenRange(tokens), parser,
-             CSSSupportsParser::kForWindowCSS) == CSSSupportsParser::kSupported;
+  CSSSupportsParser::Result result =
+      CSSSupportsParser::ConsumeSupportsCondition(stream, parser);
+  if (!stream.AtEnd())
+    result = CSSSupportsParser::Result::kParseFailure;
+
+  return result == CSSSupportsParser::Result::kSupported;
 }
 
 bool CSSParser::ParseColor(Color& color, const String& string, bool strict) {
@@ -258,14 +265,6 @@ bool CSSParser::ParseSystemColor(Color& color,
   if (!StyleColor::IsSystemColor(id))
     return false;
 
-  if (!RuntimeEnabledFeatures::LinkSystemColorsEnabled() &&
-      (id == CSSValueID::kLinktext || id == CSSValueID::kVisitedtext)) {
-    return false;
-  } else if (!RuntimeEnabledFeatures::NewSystemColorsEnabled() &&
-             (id == CSSValueID::kActivetext || id == CSSValueID::kField ||
-              id == CSSValueID::kFieldtext)) {
-    return false;
-  }
   color = LayoutTheme::GetTheme().SystemColor(id, color_scheme);
   return true;
 }
@@ -280,6 +279,18 @@ const CSSValue* CSSParser::ParseFontFaceDescriptor(
   const CSSValue* value = style->GetPropertyCSSValue(property_id);
 
   return value;
+}
+
+CSSPrimitiveValue* CSSParser::ParseLengthPercentage(
+    const String& string,
+    const CSSParserContext* context) {
+  if (string.IsEmpty() || !context)
+    return nullptr;
+  CSSTokenizer tokenizer(string);
+  const auto tokens = tokenizer.TokenizeToEOF();
+  CSSParserTokenRange range(tokens);
+  return css_parsing_utils::ConsumeLengthOrPercent(range, *context,
+                                                   kValueRangeAll);
 }
 
 }  // namespace blink

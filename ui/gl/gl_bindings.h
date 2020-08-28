@@ -45,7 +45,7 @@
 // The standard OpenGL native extension headers are also included.
 #if defined(OS_WIN)
 #include <GL/wglext.h>
-#elif defined(OS_MACOSX)
+#elif defined(OS_APPLE)
 #include <OpenGL/OpenGL.h>
 #elif defined(USE_GLX)
 #include <GL/glx.h>
@@ -83,6 +83,12 @@
 #define GL_SAMPLER_EXTERNAL_OES                          0x8D66
 #define GL_TEXTURE_BINDING_EXTERNAL_OES                  0x8D67
 #define GL_REQUIRED_TEXTURE_IMAGE_UNITS_OES              0x8D68
+
+// GL_ANGLE_texture_rectangle
+#define GL_MAX_RECTANGLE_TEXTURE_SIZE_ANGLE 0x84F8
+#define GL_TEXTURE_RECTANGLE_ANGLE 0x84F5
+#define GL_TEXTURE_BINDING_RECTANGLE_ANGLE 0x84F6
+#define GL_SAMPLER_2D_RECT_ANGLE 0x8B63
 
 // GL_ANGLE_translated_shader_source
 #define GL_TRANSLATED_SHADER_SOURCE_LENGTH_ANGLE         0x93A0
@@ -222,6 +228,18 @@
 #define GL_COMPRESSED_RGB_PVRTC_2BPPV1_IMG               0x8C01
 #define GL_COMPRESSED_RGBA_PVRTC_4BPPV1_IMG              0x8C02
 #define GL_COMPRESSED_RGBA_PVRTC_2BPPV1_IMG              0x8C03
+
+// GL_EXT_texture_compression_bptc
+#define GL_COMPRESSED_RGBA_BPTC_UNORM_EXT 0x8E8C
+#define GL_COMPRESSED_SRGB_ALPHA_BPTC_UNORM_EXT 0x8E8D
+#define GL_COMPRESSED_RGB_BPTC_SIGNED_FLOAT_EXT 0x8E8E
+#define GL_COMPRESSED_RGB_BPTC_UNSIGNED_FLOAT_EXT 0x8E8F
+
+// GL_EXT_texture_compression_rgtc
+#define GL_COMPRESSED_RED_RGTC1_EXT 0x8DBB
+#define GL_COMPRESSED_SIGNED_RED_RGTC1_EXT 0x8DBC
+#define GL_COMPRESSED_RED_GREEN_RGTC2_EXT 0x8DBD
+#define GL_COMPRESSED_SIGNED_RED_GREEN_RGTC2_EXT 0x8DBE
 
 // GL_OES_vertex_array_object
 #define GL_VERTEX_ARRAY_BINDING_OES                      0x85B5
@@ -369,6 +387,9 @@
 #define GL_RG16_EXT 0x822C
 #define GL_RGBA16_EXT 0x805B
 #define GL_RGB16_EXT 0x8054
+#define GL_R16_SNORM_EXT 0x8F98
+#define GL_RG16_SNORM_EXT 0x8F99
+#define GL_RGBA16_SNORM_EXT 0x8F9B
 #define GL_RGB16_SNORM_EXT 0x8F9A
 #endif /* GL_EXT_texture_norm16 */
 
@@ -396,6 +417,17 @@
 #define GL_ONE_MINUS_SRC1_ALPHA_EXT 0x88FB
 #define GL_MAX_DUAL_SOURCE_DRAW_BUFFERS_EXT 0x88FC
 #endif /* GL_EXT_blend_func_extended */
+
+#ifndef GL_OES_draw_buffers_indexed
+#define GL_OES_draw_buffers_indexed 1
+#define GL_BLEND_EQUATION_RGB 0x8009
+#define GL_BLEND_EQUATION_ALPHA 0x883D
+#define GL_BLEND_SRC_RGB 0x80C9
+#define GL_BLEND_SRC_ALPHA 0x80CB
+#define GL_BLEND_DST_RGB 0x80C8
+#define GL_BLEND_DST_ALPHA 0x80CA
+#define GL_COLOR_WRITEMASK 0x0C23
+#endif /* GL_OES_draw_buffers_indexed */
 
 #ifndef GL_EXT_window_rectangles
 #define GL_EXT_window_rectangles 1
@@ -427,6 +459,7 @@
 #define GL_CHROMIUM_shared_image 1
 #define GL_SHARED_IMAGE_ACCESS_MODE_READ_CHROMIUM 0x8AF6
 #define GL_SHARED_IMAGE_ACCESS_MODE_READWRITE_CHROMIUM 0x8AF7
+#define GL_SHARED_IMAGE_ACCESS_MODE_OVERLAY_CHROMIUM 0x8AF8
 #endif /* GL_CHROMIUM_shared_image */
 
 #ifndef GL_NV_internalformat_sample_query
@@ -435,6 +468,11 @@
 #define GL_SUPERSAMPLE_SCALE_Y_NV 0x9373
 #define GL_CONFORMANT_NV 0x9374
 #endif /* GL_NV_internalformat_sample_query */
+
+#ifndef GL_EXT_YUV_target
+#define GL_EXT_YUV_target 1
+#define GL_SAMPLER_EXTERNAL_2D_Y2Y_EXT 0x8BE7
+#endif /* GL_EXT_YUV_target */
 
 #define GL_GLEXT_PROTOTYPES 1
 

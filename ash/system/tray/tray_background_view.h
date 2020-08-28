@@ -45,7 +45,6 @@ class ASH_EXPORT TrayBackgroundView : public ActionableView,
 
   // ActionableView:
   std::unique_ptr<views::InkDropRipple> CreateInkDropRipple() const override;
-  std::unique_ptr<views::InkDropMask> CreateInkDropMask() const override;
   std::unique_ptr<views::InkDropHighlight> CreateInkDropHighlight()
       const override;
 
@@ -64,24 +63,32 @@ class ASH_EXPORT TrayBackgroundView : public ActionableView,
   // whether the showing operation is initiated by mouse or gesture click.
   virtual void ShowBubble(bool show_by_click);
 
-  // Called whenever the shelf alignment or configuration changes.
-  virtual void UpdateAfterShelfChange();
+  // Calculates the ideal bounds that this view should have depending on the
+  // constraints.
+  virtual void CalculateTargetBounds();
+
+  // Makes this view's bounds and layout match its calculated target bounds.
+  virtual void UpdateLayout();
 
   // Called to update the tray button after the login status changes.
-  virtual void UpdateAfterLoginStatusChange(LoginStatus login_status);
-
-  // Called whenever the bounds of the root window changes.
-  virtual void UpdateAfterRootWindowBoundsChange(const gfx::Rect& old_bounds,
-                                                 const gfx::Rect& new_bounds);
+  virtual void UpdateAfterLoginStatusChange();
 
   // Called whenever the status area's collapse state changes.
   virtual void UpdateAfterStatusAreaCollapseChange();
+
+  // Called whenever the system color mode changes.
+  virtual void UpdateAfterColorModeChange();
 
   // Called when the anchor (tray or bubble) may have moved or changed.
   virtual void AnchorUpdated() {}
 
   // Called from GetAccessibleNodeData, must return a valid accessible name.
   virtual base::string16 GetAccessibleNameForTray() = 0;
+
+  // Called when a locale change is detected. It should reload any strings the
+  // view may be using. Note that the locale is not expected to change after the
+  // user logs in.
+  virtual void HandleLocaleChange() = 0;
 
   // Called when the bubble is resized.
   virtual void BubbleResized(const TrayBubbleView* bubble_view);
@@ -147,7 +154,6 @@ class ASH_EXPORT TrayBackgroundView : public ActionableView,
   }
 
  private:
-  class HighlightPathGenerator;
   class TrayWidgetObserver;
 
   void StartVisibilityAnimation(bool visible);

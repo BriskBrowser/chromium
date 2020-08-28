@@ -171,7 +171,7 @@ Polymer({
   /** @private */
   onMarginSettingsChange_() {
     const margins = this.getSettingValue('customMargins');
-    if (margins.marginTop === undefined) {
+    if (!margins || margins.marginTop === undefined) {
       // This may be called when print preview model initially sets the
       // settings. It sets custom margins empty by default.
       return;
@@ -194,13 +194,8 @@ Polymer({
     }
 
     this.resetMargins_ = true;
-    const marginsSetting = this.getSetting('margins');
-    if (marginsSetting.value === MarginsType.CUSTOM) {
-      // Set the margins value to default first.
-      this.setSetting('margins', MarginsType.DEFAULT);
-    }
-    // Reset custom margins so that the sticky value is not restored for the
-    // new paper size.
+    // Reset custom margins so that the sticky value is not restored for the new
+    // paper size.
     this.setSetting('customMargins', {});
   },
 
@@ -209,8 +204,8 @@ Polymer({
     if (this.state === State.READY && this.resetMargins_ === null) {
       // Don't reset margins if there are sticky values. Otherwise, set them
       // to the document margins when the user selects custom margins.
-      this.resetMargins_ =
-          this.getSettingValue('customMargins').marginTop === undefined;
+      const margins = this.getSettingValue('customMargins');
+      this.resetMargins_ = !margins || margins.marginTop === undefined;
     }
   },
 

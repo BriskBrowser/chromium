@@ -23,7 +23,7 @@ class CastSysInfo;
 class MinidumpUploader : public SynchronizedMinidumpManager {
  public:
   using PrefServiceGeneratorCallback =
-      base::OnceCallback<std::unique_ptr<PrefService>()>;
+      base::RepeatingCallback<std::unique_ptr<PrefService>()>;
 
   // If |server_url| is empty, a default server url will be chosen.
   MinidumpUploader(CastSysInfo* sys_info, const std::string& server_url);
@@ -55,11 +55,6 @@ class MinidumpUploader : public SynchronizedMinidumpManager {
   const std::string system_version_;
 
   const std::string upload_location_;
-
-  // Whether or not we were ratelimited for the last upload.
-  // Used to detect when we first become ratelimited. Must be initialized to
-  // true to prevent reboot loops when ratelimited.
-  bool last_upload_ratelimited_;
 
   // Whether or not a reboot should be scheduled.
   bool reboot_scheduled_;

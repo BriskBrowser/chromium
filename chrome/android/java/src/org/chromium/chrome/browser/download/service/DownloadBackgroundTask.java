@@ -9,10 +9,12 @@ import android.content.Context;
 import org.chromium.base.Callback;
 import org.chromium.base.annotations.JNINamespace;
 import org.chromium.base.annotations.NativeMethods;
-import org.chromium.base.library_loader.LibraryProcessType;
-import org.chromium.chrome.browser.background_task_scheduler.NativeBackgroundTask;
-import org.chromium.chrome.browser.flags.FeatureUtilities;
+import org.chromium.chrome.browser.download.DownloadManagerService;
+import org.chromium.chrome.browser.flags.CachedFeatureFlags;
+import org.chromium.chrome.browser.flags.ChromeFeatureList;
+import org.chromium.chrome.browser.offlinepages.prefetch.PrefetchConfiguration;
 import org.chromium.chrome.browser.profiles.ProfileKey;
+import org.chromium.components.background_task_scheduler.NativeBackgroundTask;
 import org.chromium.components.background_task_scheduler.TaskParameters;
 import org.chromium.components.download.DownloadTaskType;
 import org.chromium.components.download.internal.BatteryStatusListenerAndroid;
@@ -41,8 +43,8 @@ public class DownloadBackgroundTask extends NativeBackgroundTask {
         // The feature value could change during native initialization, store it first.
         mStartsServiceManagerOnly =
                 (mCurrentTaskType == DownloadTaskType.DOWNLOAD_AUTO_RESUMPTION_TASK)
-                ? FeatureUtilities.isServiceManagerForDownloadResumptionEnabled()
-                : FeatureUtilities.isServiceManagerForBackgroundPrefetchEnabled();
+                ? CachedFeatureFlags.isEnabled(ChromeFeatureList.SERVICE_MANAGER_FOR_DOWNLOAD)
+                : PrefetchConfiguration.isServiceManagerForBackgroundPrefetchEnabled();
         // Reschedule if minimum battery level is not satisfied.
         if (!requiresCharging
                 && BatteryStatusListenerAndroid.getBatteryPercentage() < optimalBatteryPercentage) {
@@ -58,11 +60,10 @@ public class DownloadBackgroundTask extends NativeBackgroundTask {
         // In case of future upgrades, we would need to build an intent for the old version and
         // validate that this code still works. This would require decoupling this immediate class
         // from native as well.
-
-        assert BrowserStartupController.get(LibraryProcessType.PROCESS_BROWSER)
-                        .isFullBrowserStarted()
+        assert BrowserStartupController.getInstance().isFullBrowserStarted()
                 || mStartsServiceManagerOnly;
-        ProfileKey key = ProfileKey.getLastUsedProfileKey().getOriginalKey();
+        DownloadManagerService.getDownloadManagerService().initForBackgroundTask();
+        ProfileKey key = ProfileKey.getLastUsedRegularProfileKey();
         DownloadBackgroundTaskJni.get().startBackgroundTask(DownloadBackgroundTask.this, key,
                 mCurrentTaskType, needsReschedule -> callback.taskFinished(needsReschedule));
     }
@@ -81,7 +82,7 @@ public class DownloadBackgroundTask extends NativeBackgroundTask {
     protected boolean onStopTaskWithNative(Context context, TaskParameters taskParameters) {
         @DownloadTaskType
         int taskType = taskParameters.getExtras().getInt(DownloadTaskScheduler.EXTRA_TASK_TYPE);
-        ProfileKey key = ProfileKey.getLastUsedProfileKey().getOriginalKey();
+        ProfileKey key = ProfileKey.getLastUsedRegularProfileKey();
         return DownloadBackgroundTaskJni.get().stopBackgroundTask(
                 DownloadBackgroundTask.this, key, taskType);
     }

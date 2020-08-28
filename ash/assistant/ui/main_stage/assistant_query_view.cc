@@ -80,12 +80,11 @@ void AssistantQueryView::InitLayout() {
       views::BoxLayout::CrossAxisAlignment::kStretch);
 
   // Label.
-  label_ = new views::StyledLabel(base::string16(), /*listener=*/nullptr);
+  label_ = AddChildView(std::make_unique<views::StyledLabel>());
   label_->SetAutoColorReadabilityEnabled(false);
   label_->SetHorizontalAlignment(gfx::HorizontalAlignment::ALIGN_CENTER);
   label_->SetLineHeight(kLineHeightDip);
   label_->SetBackground(views::CreateSolidBackground(SK_ColorWHITE));
-  AddChildView(label_);
 }
 
 void AssistantQueryView::SetQuery(const AssistantQuery& query) {

@@ -121,11 +121,15 @@ class Preferences : public sync_preferences::PrefServiceSyncableObserver,
   BooleanPrefMember vert_edge_scroll_enabled_;
   IntegerPrefMember speed_factor_;
   IntegerPrefMember mouse_sensitivity_;
+  IntegerPrefMember mouse_scroll_sensitivity_;
   IntegerPrefMember touchpad_sensitivity_;
+  IntegerPrefMember touchpad_scroll_sensitivity_;
   BooleanPrefMember primary_mouse_button_right_;
   BooleanPrefMember mouse_reverse_scroll_;
   BooleanPrefMember mouse_acceleration_;
+  BooleanPrefMember mouse_scroll_acceleration_;
   BooleanPrefMember touchpad_acceleration_;
+  BooleanPrefMember touchpad_scroll_acceleration_;
   FilePathPrefMember download_default_directory_;
 
   StringListPrefMember allowed_languages_;
@@ -143,8 +147,6 @@ class Preferences : public sync_preferences::PrefServiceSyncableObserver,
   BooleanPrefMember xkb_auto_repeat_enabled_;
   IntegerPrefMember xkb_auto_repeat_delay_pref_;
   IntegerPrefMember xkb_auto_repeat_interval_pref_;
-
-  BooleanPrefMember wake_on_wifi_darkconnect_;
 
   PrefChangeRegistrar pref_change_registrar_;
 

@@ -4,14 +4,19 @@
 
 #import "ios/chrome/browser/ui/infobars/banners/infobar_banner_view_controller.h"
 
+#include "base/feature_list.h"
 #import "base/ios/block_types.h"
 #include "base/metrics/user_metrics.h"
 #include "base/metrics/user_metrics_action.h"
 #include "ios/chrome/browser/infobars/infobar_metrics_recorder.h"
 #import "ios/chrome/browser/ui/infobars/banners/infobar_banner_constants.h"
+#import "ios/chrome/browser/ui/infobars/banners/infobar_banner_container.h"
 #import "ios/chrome/browser/ui/infobars/banners/infobar_banner_delegate.h"
+#import "ios/chrome/browser/ui/infobars/infobar_feature.h"
+#include "ios/chrome/browser/ui/ui_feature_flags.h"
 #import "ios/chrome/browser/ui/util/uikit_ui_util.h"
-#import "ios/chrome/common/colors/semantic_color_names.h"
+#import "ios/chrome/common/ui/colors/semantic_color_names.h"
+#import "ios/chrome/common/ui/util/pointer_interaction_util.h"
 #include "ios/chrome/grit/ios_strings.h"
 #include "ui/base/l10n/l10n_util.h"
 
@@ -94,6 +99,9 @@ const CGFloat kLongPressTimeDurationInSeconds = 0.4;
 @end
 
 @implementation InfobarBannerViewController
+// Synthesized from InfobarBannerContained.
+@synthesize infobarBannerContainer = _infobarBannerContainer;
+// Synthesized from InfobarBannerInteractable.
 @synthesize interactionDelegate = _interactionDelegate;
 
 - (instancetype)initWithDelegate:(id<InfobarBannerDelegate>)delegate
@@ -199,6 +207,9 @@ const CGFloat kLongPressTimeDurationInSeconds = 0.4;
   UIStackView* labelsStackView = [[UIStackView alloc]
       initWithArrangedSubviews:@[ self.titleLabel, self.subTitleLabel ]];
   labelsStackView.axis = UILayoutConstraintAxisVertical;
+  labelsStackView.layoutMarginsRelativeArrangement = YES;
+  labelsStackView.directionalLayoutMargins = NSDirectionalEdgeInsetsMake(
+      kContainerStackVerticalPadding, 0, kContainerStackVerticalPadding, 0);
 
   // Button setup.
   self.infobarButton = [UIButton buttonWithType:UIButtonTypeSystem];
@@ -214,6 +225,21 @@ const CGFloat kLongPressTimeDurationInSeconds = 0.4;
                forControlEvents:UIControlEventTouchUpInside];
   self.infobarButton.accessibilityIdentifier =
       kInfobarBannerAcceptButtonIdentifier;
+#if defined(__IPHONE_13_4)
+  if (@available(iOS 13.4, *)) {
+    if (base::FeatureList::IsEnabled(kPointerSupport)) {
+      self.infobarButton.pointerInteractionEnabled = YES;
+      self.infobarButton.pointerStyleProvider =
+          ^UIPointerStyle*(UIButton* button, UIPointerEffect* proposedEffect,
+                           UIPointerShape* proposedShape) {
+        UIPointerShape* shape =
+            [UIPointerShape shapeWithRoundedRect:button.frame
+                                    cornerRadius:kBannerViewCornerRadius];
+        return [UIPointerStyle styleWithEffect:proposedEffect shape:shape];
+      };
+    }
+  }
+#endif  // defined(__IPHONE_13_4)
 
   UIView* buttonSeparator = [[UIView alloc] init];
   buttonSeparator.translatesAutoresizingMaskIntoConstraints = NO;
@@ -248,6 +274,15 @@ const CGFloat kLongPressTimeDurationInSeconds = 0.4;
   [containerStack addArrangedSubview:self.openModalButton];
   // Hide open modal button if user shouldn't be allowed to open the modal.
   self.openModalButton.hidden = !self.presentsModal;
+#if defined(__IPHONE_13_4)
+  if (@available(iOS 13.4, *)) {
+    if (base::FeatureList::IsEnabled(kPointerSupport)) {
+      self.openModalButton.pointerInteractionEnabled = YES;
+      self.openModalButton.pointerStyleProvider =
+          CreateDefaultEffectCirclePointerStyleProvider();
+    }
+  }
+#endif  // defined(__IPHONE_13_4)
 
   // Add accept button.
   [containerStack addArrangedSubview:self.infobarButton];
@@ -255,11 +290,8 @@ const CGFloat kLongPressTimeDurationInSeconds = 0.4;
   containerStack.axis = UILayoutConstraintAxisHorizontal;
   containerStack.spacing = kContainerStackSpacing;
   containerStack.distribution = UIStackViewDistributionFill;
-  containerStack.alignment = UIStackViewAlignmentFill;
+  containerStack.alignment = UIStackViewAlignmentCenter;
   containerStack.translatesAutoresizingMaskIntoConstraints = NO;
-  containerStack.layoutMarginsRelativeArrangement = YES;
-  containerStack.directionalLayoutMargins = NSDirectionalEdgeInsetsMake(
-      kContainerStackVerticalPadding, 0, kContainerStackVerticalPadding, 0);
   containerStack.insetsLayoutMarginsFromSafeArea = NO;
   [self.view addSubview:containerStack];
 
@@ -276,6 +308,9 @@ const CGFloat kLongPressTimeDurationInSeconds = 0.4;
         constraintEqualToAnchor:self.view.bottomAnchor],
     // Button.
     [self.infobarButton.widthAnchor constraintEqualToConstant:kButtonWidth],
+    [self.infobarButton.topAnchor constraintEqualToAnchor:self.view.topAnchor],
+    [self.infobarButton.bottomAnchor
+        constraintEqualToAnchor:self.view.bottomAnchor],
     [buttonSeparator.widthAnchor
         constraintEqualToConstant:kButtonSeparatorWidth],
     [buttonSeparator.leadingAnchor
@@ -283,6 +318,14 @@ const CGFloat kLongPressTimeDurationInSeconds = 0.4;
     [buttonSeparator.topAnchor constraintEqualToAnchor:self.view.topAnchor],
     [buttonSeparator.bottomAnchor
         constraintEqualToAnchor:self.view.bottomAnchor],
+    // Open modal button.
+    [NSLayoutConstraint constraintWithItem:self.openModalButton
+                                 attribute:NSLayoutAttributeHeight
+                                 relatedBy:NSLayoutRelationEqual
+                                    toItem:self.openModalButton
+                                 attribute:NSLayoutAttributeWidth
+                                multiplier:1
+                                  constant:0],
   ]];
 
   // Gestures setup.
@@ -304,6 +347,12 @@ const CGFloat kLongPressTimeDurationInSeconds = 0.4;
   [super viewDidAppear:animated];
   [self.metricsRecorder recordBannerEvent:MobileMessagesBannerEvent::Presented];
   self.bannerAppearedTime = [NSDate timeIntervalSinceReferenceDate];
+  // Once the Banner animation has completed check if the banner container
+  // should still present banners.
+  if ([self.infobarBannerContainer shouldDismissBanner]) {
+    [self.presentingViewController dismissViewControllerAnimated:NO
+                                                      completion:nil];
+  }
 }
 
 - (void)viewWillDisappear:(BOOL)animated {
@@ -315,7 +364,14 @@ const CGFloat kLongPressTimeDurationInSeconds = 0.4;
 
 - (void)viewDidDisappear:(BOOL)animated {
   [self.metricsRecorder recordBannerEvent:MobileMessagesBannerEvent::Dismissed];
-  [self.delegate infobarBannerWasDismissed];
+  // If the delegate exists at the time of dismissal it should handle the
+  // dismissal cleanup. Otherwise the BannerContainer needs to be informed that
+  // this banner was dismissed in case it needs to present a queued one.
+  if (self.delegate) {
+    [self.delegate infobarBannerWasDismissed];
+  } else {
+    [self.infobarBannerContainer infobarBannerFinishedPresenting];
+  }
   [super viewDidDisappear:animated];
 }
 
@@ -368,6 +424,15 @@ const CGFloat kLongPressTimeDurationInSeconds = 0.4;
   _presentsModal = presentsModal;
   self.openModalButton.hidden = !presentsModal;
   self.view.accessibilityCustomActions = [self accessibilityActions];
+}
+
+- (void)setInfobarBannerContainer:
+    (id<InfobarBannerContainer>)infobarBannerContainer {
+  _infobarBannerContainer = infobarBannerContainer;
+  // infobarBannerContainer should only be set when the banner by the
+  // InfobarContainerCoordinator and not Overlays. Once we migrate to Overlays
+  // InfobarBannerContainer shouldn't be necessary.
+  DCHECK(!IsInfobarOverlayUIEnabled());
 }
 
 #pragma mark - Private Methods

@@ -6,11 +6,9 @@ package org.chromium.chrome.browser.payments;
 
 import static org.chromium.chrome.browser.payments.PaymentRequestTestRule.DECEMBER;
 import static org.chromium.chrome.browser.payments.PaymentRequestTestRule.FIRST_BILLING_ADDRESS;
-import static org.chromium.chrome.browser.payments.PaymentRequestTestRule.HAVE_INSTRUMENTS;
-import static org.chromium.chrome.browser.payments.PaymentRequestTestRule.IMMEDIATE_RESPONSE;
 import static org.chromium.chrome.browser.payments.PaymentRequestTestRule.NEXT_YEAR;
 
-import android.support.test.filters.MediumTest;
+import androidx.test.filters.MediumTest;
 
 import org.junit.Assert;
 import org.junit.ClassRule;
@@ -22,15 +20,19 @@ import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.Feature;
 import org.chromium.chrome.R;
-import org.chromium.chrome.browser.ChromeSwitches;
 import org.chromium.chrome.browser.autofill.AutofillTestHelper;
-import org.chromium.chrome.browser.autofill.CardType;
 import org.chromium.chrome.browser.autofill.PersonalDataManager.AutofillProfile;
 import org.chromium.chrome.browser.autofill.PersonalDataManager.CreditCard;
+import org.chromium.chrome.browser.flags.ChromeSwitches;
+import org.chromium.chrome.browser.payments.PaymentRequestTestRule.AppPresence;
+import org.chromium.chrome.browser.payments.PaymentRequestTestRule.FactorySpeed;
 import org.chromium.chrome.browser.payments.PaymentRequestTestRule.MainActivityStartCallback;
 import org.chromium.chrome.browser.preferences.Pref;
-import org.chromium.chrome.browser.preferences.PrefServiceBridge;
+import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
+import org.chromium.components.payments.Event;
+import org.chromium.components.prefs.PrefService;
+import org.chromium.components.user_prefs.UserPrefs;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.ui.modaldialog.ModalDialogProperties;
 import org.chromium.ui.test.util.DisableAnimationsTestRule;
@@ -66,7 +68,7 @@ public class PaymentRequestCanMakePaymentMetricsTest implements MainActivityStar
                 "US", "310-310-6000", "john.smith@gmail.com", "en-US"));
         helper.setCreditCard(new CreditCard("", "https://example.com", true, true, "Jon Doe",
                 "4111111111111111", "1111", "12", "2050", "visa", R.drawable.visa_card,
-                CardType.UNKNOWN, billingAddressId, "" /* serverId */));
+                billingAddressId, "" /* serverId */));
     }
 
     /**
@@ -86,8 +88,10 @@ public class PaymentRequestCanMakePaymentMetricsTest implements MainActivityStar
         // Press the back button.
         int callCount = mPaymentRequestTestRule.getDismissed().getCallCount();
         TestThreadUtils.runOnUiThreadBlocking(
-                () -> mPaymentRequestTestRule.getPaymentRequestUI().getDialogForTest()
-                        .onBackPressed());
+                ()
+                        -> mPaymentRequestTestRule.getPaymentRequestUI()
+                                   .getDialogForTest()
+                                   .onBackPressed());
         mPaymentRequestTestRule.getDismissed().waitForCallback(callCount);
         mPaymentRequestTestRule.expectResultContains(
                 new String[] {"User closed the Payment Request UI."});
@@ -155,7 +159,8 @@ public class PaymentRequestCanMakePaymentMetricsTest implements MainActivityStar
     @Feature({"Payments"})
     public void testCanMakePayment_MerchantAbort() throws TimeoutException {
         // Install the app so CanMakePayment returns true.
-        mPaymentRequestTestRule.installPaymentApp(HAVE_INSTRUMENTS, IMMEDIATE_RESPONSE);
+        mPaymentRequestTestRule.addPaymentAppFactory(
+                AppPresence.HAVE_APPS, FactorySpeed.FAST_FACTORY);
 
         // Add credit card so that autofill payment app is also available and payment sheet UI gets
         // shown.
@@ -190,7 +195,8 @@ public class PaymentRequestCanMakePaymentMetricsTest implements MainActivityStar
     @Feature({"Payments"})
     public void testCanMakePayment_Complete() throws TimeoutException {
         // Install the app so CanMakePayment returns true.
-        mPaymentRequestTestRule.installPaymentApp(HAVE_INSTRUMENTS, IMMEDIATE_RESPONSE);
+        mPaymentRequestTestRule.addPaymentAppFactory(
+                AppPresence.HAVE_APPS, FactorySpeed.FAST_FACTORY);
 
         // Add credit card so that autofill payment app is available and payment sheet UI gets
         // shown.
@@ -223,12 +229,15 @@ public class PaymentRequestCanMakePaymentMetricsTest implements MainActivityStar
     @MediumTest
     @Feature({"Payments"})
     public void testCanMakePaymentDisabled_Complete() throws TimeoutException {
-        TestThreadUtils.runOnUiThreadBlocking((Runnable) () -> {
-            PrefServiceBridge.getInstance().setBoolean(Pref.CAN_MAKE_PAYMENT_ENABLED, false);
+        TestThreadUtils.runOnUiThreadBlocking(() -> {
+            PrefService prefs = UserPrefs.get(Profile.fromWebContents(
+                    mPaymentRequestTestRule.getActivity().getCurrentWebContents()));
+            prefs.setBoolean(Pref.CAN_MAKE_PAYMENT_ENABLED, false);
         });
 
         // Install the app so CanMakePayment returns true if it is enabled.
-        mPaymentRequestTestRule.installPaymentApp(HAVE_INSTRUMENTS, IMMEDIATE_RESPONSE);
+        mPaymentRequestTestRule.addPaymentAppFactory(
+                AppPresence.HAVE_APPS, FactorySpeed.FAST_FACTORY);
 
         // Add credit card so that autofill payment app is available and payment sheet UI gets
         // shown.
@@ -268,8 +277,10 @@ public class PaymentRequestCanMakePaymentMetricsTest implements MainActivityStar
         // Press the back button.
         int callCount = mPaymentRequestTestRule.getDismissed().getCallCount();
         TestThreadUtils.runOnUiThreadBlocking(
-                () -> mPaymentRequestTestRule.getPaymentRequestUI().getDialogForTest()
-                        .onBackPressed());
+                ()
+                        -> mPaymentRequestTestRule.getPaymentRequestUI()
+                                   .getDialogForTest()
+                                   .onBackPressed());
         mPaymentRequestTestRule.getDismissed().waitForCallback(callCount);
         mPaymentRequestTestRule.expectResultContains(
                 new String[] {"User closed the Payment Request UI."});
@@ -291,7 +302,8 @@ public class PaymentRequestCanMakePaymentMetricsTest implements MainActivityStar
     @Feature({"Payments"})
     public void testNoQuery_Complete() throws TimeoutException {
         // Install the app so the user can complete the Payment Request.
-        mPaymentRequestTestRule.installPaymentApp(HAVE_INSTRUMENTS, IMMEDIATE_RESPONSE);
+        mPaymentRequestTestRule.addPaymentAppFactory(
+                AppPresence.HAVE_APPS, FactorySpeed.FAST_FACTORY);
 
         // Add credit card so that autofill payment app is available and payment sheet UI gets
         // shown.

@@ -78,6 +78,21 @@ class WebContentsTags {
   static void CreateForExtension(content::WebContents* web_contents,
                                  extensions::ViewType view_type);
 
+  // Tag a WebContents created for a Portal so that it shows up in the task
+  // manager. Calling this function creates a PortalTag, and attaches it to
+  // |web_contents|. If an instance is already attached, this does nothing.
+  // The resulting tag does not have to be cleaned up by the caller, as it is
+  // owned by |web_contents|.
+  static void CreateForPortal(content::WebContents* web_contents);
+
+  // Tag a WebContents created for a tool so that it shows up in the task
+  // manager. Calling this function creates a ToolTag, and attaches it to
+  // |web_contents|. If an instance is already attached, this does nothing. The
+  // resulting tag does not have to be cleaned up by the caller, as it is owned
+  // by |web_contents|. |tool_name| is the string ID of the name of the tool.
+  static void CreateForToolContents(content::WebContents* web_contents,
+                                    int tool_name);
+
   // Clears the task-manager tag, created by any of the above functions, from
   // the given |web_contents| if any.
   // Clearing the tag is necessary only when you need to re-tag an existing

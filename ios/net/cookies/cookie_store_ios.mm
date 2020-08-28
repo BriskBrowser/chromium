@@ -8,14 +8,15 @@
 #include <stddef.h>
 
 #include "base/bind.h"
+#include "base/check_op.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/location.h"
-#include "base/logging.h"
 #include "base/mac/foundation_util.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/notreached.h"
 #include "base/observer_list.h"
 #include "base/sequenced_task_runner.h"
 #include "base/strings/sys_string_conversions.h"
@@ -102,24 +103,24 @@ NotificationTrampoline* NotificationTrampoline::g_notification_trampoline =
 #pragma mark Utility functions
 
 // Returns an empty closure if |callback| is null callback or binds the
-// callback to |status|.
+// callback to |result|.
 base::OnceClosure BindSetCookiesCallback(
     CookieStoreIOS::SetCookiesCallback* callback,
-    net::CanonicalCookie::CookieInclusionStatus status) {
+    net::CookieAccessResult result) {
   base::OnceClosure set_callback;
   if (!callback->is_null()) {
-    set_callback = base::BindOnce(std::move(*callback), status);
+    set_callback = base::BindOnce(std::move(*callback), result);
   }
   return set_callback;
 }
 
 // Adds cookies in |cookies| with name |name| to |filtered|.
-void OnlyCookiesWithName(const net::CookieStatusList& cookies,
+void OnlyCookiesWithName(const net::CookieAccessResultList& cookies,
                          const std::string& name,
                          net::CookieList* filtered) {
-  for (const auto& cookie_with_status : cookies) {
-    if (cookie_with_status.cookie.Name() == name)
-      filtered->push_back(cookie_with_status.cookie);
+  for (const auto& cookie_with_access_result : cookies) {
+    if (cookie_with_access_result.cookie.Name() == name)
+      filtered->push_back(cookie_with_access_result.cookie);
   }
 }
 
@@ -229,7 +230,7 @@ void CookieStoreIOS::SetMetricsEnabled() {
 
 void CookieStoreIOS::SetCanonicalCookieAsync(
     std::unique_ptr<net::CanonicalCookie> cookie,
-    std::string source_scheme,
+    const GURL& source_url,
     const net::CookieOptions& options,
     SetCookiesCallback callback) {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
@@ -243,13 +244,13 @@ void CookieStoreIOS::SetCanonicalCookieAsync(
   // engine.
   DCHECK(!options.exclude_httponly());
 
-  bool secure_source =
-      GURL::SchemeIsCryptographic(base::ToLowerASCII(source_scheme));
+  bool secure_source = source_url.SchemeIsCryptographic();
 
   if (cookie->IsSecure() && !secure_source) {
     if (!callback.is_null())
-      std::move(callback).Run(net::CanonicalCookie::CookieInclusionStatus(
-          net::CanonicalCookie::CookieInclusionStatus::EXCLUDE_SECURE_ONLY));
+      std::move(callback).Run(
+          net::CookieAccessResult(net::CookieInclusionStatus(
+              net::CookieInclusionStatus::EXCLUDE_SECURE_ONLY)));
     return;
   }
 
@@ -258,14 +259,13 @@ void CookieStoreIOS::SetCanonicalCookieAsync(
   if (ns_cookie != nil) {
     system_store_->SetCookieAsync(
         ns_cookie, &cookie->CreationDate(),
-        BindSetCookiesCallback(&callback,
-                               net::CanonicalCookie::CookieInclusionStatus()));
+        BindSetCookiesCallback(&callback, net::CookieAccessResult()));
     return;
   }
 
   if (!callback.is_null())
-    std::move(callback).Run(net::CanonicalCookie::CookieInclusionStatus(
-        net::CanonicalCookie::CookieInclusionStatus::EXCLUDE_FAILURE_TO_STORE));
+    std::move(callback).Run(net::CookieAccessResult(net::CookieInclusionStatus(
+        net::CookieInclusionStatus::EXCLUDE_FAILURE_TO_STORE)));
 }
 
 void CookieStoreIOS::GetCookieListWithOptionsAsync(
@@ -607,15 +607,15 @@ void CookieStoreIOS::RunCallbacksForCookies(
     DCHECK_EQ(name, cookie.Name());
     // TODO(crbug.com/978172): Support CookieAccessSemantics values on iOS and
     // use it to check IncludeForRequestURL before notifying?
-    callbacks->Notify(net::CookieChangeInfo(
-        cookie, net::CookieAccessSemantics::UNKNOWN, cause));
+    callbacks->Notify(
+        net::CookieChangeInfo(cookie, net::CookieAccessResult(), cause));
   }
 }
 
 void CookieStoreIOS::GotCookieListFor(
     const std::pair<GURL, std::string> key,
-    const net::CookieStatusList& cookies,
-    const net::CookieStatusList& excluded_cookies) {
+    const net::CookieAccessResultList& cookies,
+    const net::CookieAccessResultList& excluded_cookies) {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
 
   net::CookieList filtered;
@@ -642,14 +642,13 @@ void CookieStoreIOS::UpdateCachesFromCookieMonster() {
   }
 }
 
-void CookieStoreIOS::UpdateCachesAfterSet(
-    SetCookiesCallback callback,
-    net::CanonicalCookie::CookieInclusionStatus status) {
+void CookieStoreIOS::UpdateCachesAfterSet(SetCookiesCallback callback,
+                                          net::CookieAccessResult result) {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
-  if (status.IsInclude())
+  if (result.status.IsInclude())
     UpdateCachesFromCookieMonster();
   if (!callback.is_null())
-    std::move(callback).Run(status);
+    std::move(callback).Run(result);
 }
 
 void CookieStoreIOS::UpdateCachesAfterDelete(DeleteCallback callback,
@@ -678,15 +677,15 @@ CookieStoreIOS::CanonicalCookieListFromSystemCookies(NSArray* cookies) {
   return cookie_list;
 }
 
-net::CookieStatusList
-CookieStoreIOS::CanonicalCookieWithStatusListFromSystemCookies(
+net::CookieAccessResultList
+CookieStoreIOS::CanonicalCookieWithAccessResultListFromSystemCookies(
     NSArray* cookies) {
-  net::CookieStatusList cookie_list;
+  net::CookieAccessResultList cookie_list;
   cookie_list.reserve([cookies count]);
   for (NSHTTPCookie* cookie in cookies) {
     base::Time created = system_store_->GetCookieCreationTime(cookie);
     cookie_list.push_back({CanonicalCookieFromSystemCookie(cookie, created),
-                           net::CanonicalCookie::CookieInclusionStatus()});
+                           net::CookieAccessResult()});
   }
   return cookie_list;
 }
@@ -695,9 +694,9 @@ void CookieStoreIOS::RunGetCookieListCallbackOnSystemCookies(
     CookieStoreIOS::GetCookieListCallback callback,
     NSArray<NSHTTPCookie*>* cookies) {
   if (!callback.is_null()) {
-    net::CookieStatusList excluded_cookies;
+    net::CookieAccessResultList excluded_cookies;
     std::move(callback).Run(
-        CanonicalCookieWithStatusListFromSystemCookies(cookies),
+        CanonicalCookieWithAccessResultListFromSystemCookies(cookies),
         excluded_cookies);
   }
 }

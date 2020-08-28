@@ -4,7 +4,7 @@
 
 #import "ios/chrome/browser/ui/omnibox/omnibox_util.h"
 
-#include "base/logging.h"
+#include "base/notreached.h"
 #include "base/strings/utf_string_conversions.h"
 #include "ios/chrome/browser/ui/ui_feature_flags.h"
 #include "ios/chrome/grit/ios_theme_resources.h"
@@ -37,11 +37,7 @@ OmniboxSuggestionIconType GetOmniboxSuggestionIconTypeForAutocompleteMatchType(
     case AutocompleteMatchType::HISTORY_TITLE:
     case AutocompleteMatchType::HISTORY_URL:
     case AutocompleteMatchType::TAB_SEARCH_DEPRECATED:
-      return base::FeatureList::IsEnabled(kNewOmniboxPopupLayout) &&
-                     base::FeatureList::IsEnabled(
-                         kOmniboxUseDefaultSearchEngineFavicon)
-                 ? DEFAULT_FAVICON
-                 : HISTORY;
+      return DEFAULT_FAVICON;
     case AutocompleteMatchType::CONTACT_DEPRECATED:
     case AutocompleteMatchType::SEARCH_OTHER_ENGINE:
     case AutocompleteMatchType::SEARCH_SUGGEST:
@@ -55,12 +51,11 @@ OmniboxSuggestionIconType GetOmniboxSuggestionIconTypeForAutocompleteMatchType(
     case AutocompleteMatchType::CLIPBOARD_IMAGE:
       return SEARCH;
     case AutocompleteMatchType::SEARCH_HISTORY:
-      return base::FeatureList::IsEnabled(kNewOmniboxPopupLayout)
-                 ? SEARCH_HISTORY
-                 : HISTORY;
+      return SEARCH_HISTORY;
     case AutocompleteMatchType::CALCULATOR:
       return CALCULATOR;
     case AutocompleteMatchType::EXTENSION_APP_DEPRECATED:
+    case AutocompleteMatchType::TILE_SUGGESTION:
     case AutocompleteMatchType::NUM_TYPES:
       NOTREACHED();
       return DEFAULT_FAVICON;
@@ -72,8 +67,7 @@ UIImage* GetOmniboxSuggestionIconForAutocompleteMatchType(
     bool is_starred) {
   OmniboxSuggestionIconType iconType =
       GetOmniboxSuggestionIconTypeForAutocompleteMatchType(type, is_starred);
-  return GetOmniboxSuggestionIcon(
-      iconType, base::FeatureList::IsEnabled(kNewOmniboxPopupLayout));
+  return GetOmniboxSuggestionIcon(iconType);
 }
 
 #pragma mark - Security icons.
@@ -95,7 +89,6 @@ LocationBarSecurityIconType GetLocationBarSecurityIconTypeForSecurityState(
       if (security_state::ShouldShowDangerTriangleForWarningLevel())
         return NOT_SECURE_WARNING;
       return INFO;
-    case security_state::EV_SECURE:
     case security_state::SECURE:
     case security_state::SECURE_WITH_POLICY_INSTALLED_CERT:
       return SECURE;

@@ -222,8 +222,9 @@ EventFactoryEvdev::CreateSystemInputInjector() {
 void EventFactoryEvdev::DispatchKeyEvent(const KeyEventParams& params) {
   TRACE_EVENT1("evdev", "EventFactoryEvdev::DispatchKeyEvent", "device",
                params.device_id);
-  keyboard_.OnKeyChange(params.code, params.down, params.suppress_auto_repeat,
-                        params.timestamp, params.device_id);
+  keyboard_.OnKeyChange(params.code, params.scan_code, params.down,
+                        params.suppress_auto_repeat, params.timestamp,
+                        params.device_id, params.flags);
 }
 
 void EventFactoryEvdev::DispatchMouseMoveEvent(
@@ -302,9 +303,9 @@ void EventFactoryEvdev::DispatchMouseWheelEvent(
     const MouseWheelEventParams& params) {
   TRACE_EVENT1("evdev", "EventFactoryEvdev::DispatchMouseWheelEvent", "device",
                params.device_id);
-  MouseWheelEvent event(params.delta, gfx::Point(), gfx::Point(),
+  MouseWheelEvent event(params.delta, gfx::PointF(), gfx::PointF(),
                         params.timestamp, modifiers_.GetModifierFlags(),
-                        0 /* changed_button_flags */);
+                        0 /* changed_button_flags */, params.tick_120ths);
   event.set_location_f(params.location);
   event.set_root_location_f(params.location);
   event.set_source_device_id(params.device_id);
@@ -465,12 +466,12 @@ void EventFactoryEvdev::WarpCursorTo(gfx::AcceleratedWidget widget,
 
   base::ThreadTaskRunnerHandle::Get()->PostTask(
       FROM_HERE,
-      base::BindOnce(&EventFactoryEvdev::DispatchMouseMoveEvent,
-                     weak_ptr_factory_.GetWeakPtr(),
-                     MouseMoveEventParams(
-                         -1 /* device_id */, EF_NONE, cursor_->GetLocation(),
-                         PointerDetails(EventPointerType::POINTER_TYPE_MOUSE),
-                         EventTimeForNow())));
+      base::BindOnce(
+          &EventFactoryEvdev::DispatchMouseMoveEvent,
+          weak_ptr_factory_.GetWeakPtr(),
+          MouseMoveEventParams(
+              -1 /* device_id */, EF_NONE, cursor_->GetLocation(),
+              PointerDetails(EventPointerType::kMouse), EventTimeForNow())));
 }
 
 int EventFactoryEvdev::NextDeviceId() {

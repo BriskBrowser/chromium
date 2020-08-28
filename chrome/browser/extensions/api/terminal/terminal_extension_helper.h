@@ -20,10 +20,9 @@ class TerminalExtensionHelper {
   // Returns the crosh extension.  It is the first found out of:
   // 1. nassh-dev    : okddffdblfhhnmhodogpojmfkjmhinfp
   // 2. nassh        : pnhechapfaindjhompbnflcldabbghjo
-  // 3. crosh builtin: nkoccljplnhpfnfiajclkommnmllphnl
   static const Extension* GetTerminalExtension(Profile* profile);
 
-  // Returns crosh URL.  chrome://terminal is used by default, but it can
+  // Returns crosh URL.  chrome-untrusted://crosh is used by default, but it can
   // be overridden by nassh-dev or nassh.
   static GURL GetCroshURL(Profile* profile);
 };

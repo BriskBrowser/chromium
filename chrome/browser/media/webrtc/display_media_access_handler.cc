@@ -16,6 +16,10 @@
 #include "chrome/browser/media/webrtc/desktop_media_picker_factory_impl.h"
 #include "chrome/browser/media/webrtc/native_desktop_media_list.h"
 #include "chrome/browser/media/webrtc/tab_desktop_media_list.h"
+#include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/safe_browsing/user_interaction_observer.h"
+#include "chrome/common/pref_names.h"
+#include "components/prefs/pref_service.h"
 #include "components/url_formatter/elide_url.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/desktop_capture.h"
@@ -26,7 +30,7 @@
 #include "content/public/browser/web_contents.h"
 #include "third_party/blink/public/mojom/mediastream/media_stream.mojom-shared.h"
 
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
 #include "chrome/browser/media/webrtc/system_media_capture_permissions_mac.h"
 #endif
 
@@ -88,7 +92,31 @@ void DisplayMediaAccessHandler::HandleRequest(
     const extensions::Extension* extension) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 
-#if defined(OS_MACOSX)
+  Profile* profile =
+      Profile::FromBrowserContext(web_contents->GetBrowserContext());
+  if (!profile->GetPrefs()->GetBoolean(prefs::kScreenCaptureAllowed)) {
+    std::move(callback).Run(
+        blink::MediaStreamDevices(),
+        blink::mojom::MediaStreamRequestResult::PERMISSION_DENIED, nullptr);
+    return;
+  }
+
+  // SafeBrowsing Delayed Warnings experiment can delay some SafeBrowsing
+  // warnings until user interaction. If the current page has a delayed warning,
+  // it'll have a user interaction observer attached. Show the warning
+  // immediately in that case.
+  safe_browsing::SafeBrowsingUserInteractionObserver* observer =
+      safe_browsing::SafeBrowsingUserInteractionObserver::FromWebContents(
+          web_contents);
+  if (observer) {
+    std::move(callback).Run(
+        blink::MediaStreamDevices(),
+        blink::mojom::MediaStreamRequestResult::PERMISSION_DENIED, nullptr);
+    observer->OnDesktopCaptureRequest();
+    return;
+  }
+
+#if defined(OS_MAC)
   // Do not allow picker UI to be shown on a page that isn't in the foreground
   // in Mac, because the UI implementation in Mac pops a window over any content
   // which might be confusing for the users. See https://crbug.com/1407733 for
@@ -101,7 +129,7 @@ void DisplayMediaAccessHandler::HandleRequest(
         blink::mojom::MediaStreamRequestResult::INVALID_STATE, nullptr);
     return;
   }
-#endif  // defined(OS_MACOSX)
+#endif  // defined(OS_MAC)
 
   std::unique_ptr<DesktopMediaPicker> picker = picker_factory_->CreatePicker();
   if (!picker) {
@@ -203,7 +231,7 @@ void DisplayMediaAccessHandler::OnPickerDialogResults(
     request_result = blink::mojom::MediaStreamRequestResult::PERMISSION_DENIED;
   } else {
     request_result = blink::mojom::MediaStreamRequestResult::OK;
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
     // Check screen capture permissions on Mac if necessary.
     if ((media_id.type == content::DesktopMediaID::TYPE_SCREEN ||
          media_id.type == content::DesktopMediaID::TYPE_WINDOW) &&
@@ -213,6 +241,14 @@ void DisplayMediaAccessHandler::OnPickerDialogResults(
           blink::mojom::MediaStreamRequestResult::SYSTEM_PERMISSION_DENIED;
     }
 #endif
+    if (media_id.type == content::DesktopMediaID::TYPE_WEB_CONTENTS &&
+        !content::WebContents::FromRenderFrameHost(
+            content::RenderFrameHost::FromID(
+                media_id.web_contents_id.render_process_id,
+                media_id.web_contents_id.main_render_frame_id))) {
+      request_result =
+          blink::mojom::MediaStreamRequestResult::TAB_CAPTURE_FAILURE;
+    }
     if (request_result == blink::mojom::MediaStreamRequestResult::OK) {
       const auto& visible_url = url_formatter::FormatUrlForSecurityDisplay(
           web_contents->GetLastCommittedURL(),
@@ -225,6 +261,9 @@ void DisplayMediaAccessHandler::OnPickerDialogResults(
           display_notification_, visible_url, visible_url);
     }
   }
+
+  if (request_result == blink::mojom::MediaStreamRequestResult::OK)
+    UpdateTarget(pending_request.request, media_id);
 
   std::move(pending_request.callback)
       .Run(devices, request_result, std::move(ui));

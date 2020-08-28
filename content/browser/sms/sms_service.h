@@ -13,6 +13,7 @@
 #include "base/sequence_checker.h"
 #include "base/time/time.h"
 #include "content/browser/sms/sms_queue.h"
+#include "content/browser/sms/user_consent_handler.h"
 #include "content/common/content_export.h"
 #include "content/public/browser/frame_service_base.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
@@ -44,6 +45,7 @@ class CONTENT_EXPORT SmsService
              RenderFrameHost*,
              mojo::PendingReceiver<blink::mojom::SmsReceiver>);
   SmsService(SmsFetcher*,
+             std::unique_ptr<UserConsentHandler> consent_handler,
              const url::Origin&,
              RenderFrameHost*,
              mojo::PendingReceiver<blink::mojom::SmsReceiver>);
@@ -54,8 +56,12 @@ class CONTENT_EXPORT SmsService
   void Abort() override;
 
   // content::SmsQueue::Subscriber
-  void OnReceive(const std::string& one_time_code,
-                 const std::string& sms) override;
+  void OnReceive(const std::string& one_time_code) override;
+
+  // Completes the in-flight sms otp code request. Invokes the receive callback,
+  // if one is available, with the provided status code and the existing one
+  // time code.
+  void CompleteRequest(blink::mojom::SmsStatus);
 
  protected:
   // content::WebContentsObserver:
@@ -63,26 +69,18 @@ class CONTENT_EXPORT SmsService
       const content::LoadCommittedDetails& load_details) override;
 
  private:
-  void OpenInfoBar(const std::string& one_time_code);
-  void Process(blink::mojom::SmsStatus, base::Optional<std::string> sms);
   void CleanUp();
 
-  // Called when the user manually clicks the 'Enter code' button.
-  void OnConfirm();
-  // Called when the user manually dismisses the infobar.
-  void OnCancel();
 
   // |fetcher_| is safe because all instances of SmsFetcher are owned
   // by the browser context, which transitively (through RenderFrameHost) owns
   // and outlives this class.
   SmsFetcher* fetcher_;
+  std::unique_ptr<UserConsentHandler> consent_handler_;
 
   const url::Origin origin_;
-
-  bool prompt_open_ = false;
-
   ReceiveCallback callback_;
-  base::Optional<std::string> sms_;
+  base::Optional<std::string> one_time_code_;
   base::TimeTicks start_time_;
   base::TimeTicks receive_time_;
 

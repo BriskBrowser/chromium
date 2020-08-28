@@ -4,6 +4,7 @@
 
 # Fuzzers for content/ components.
 
+import("//mojo/public/tools/fuzzers/mojolpm.gni")
 import("//testing/libfuzzer/fuzzer_test.gni")
 import("//third_party/protobuf/proto_library.gni")
 
@@ -18,7 +19,7 @@ source_set("fuzzer_support") {
   ]
   public_deps = [
     "//base",
-    "//base/test:test_config",
+    "//base/test:test_support",
     "//content/renderer:for_content_tests",
     "//content/shell:content_shell_lib",
     "//content/test:test_support",
@@ -35,18 +36,6 @@ fuzzer_test("origin_trial_token_fuzzer") {
   dict =
       "//content/test/data/fuzzer_dictionaries/origin_trial_token_fuzzer.dict"
   seed_corpus = "//content/test/data/fuzzer_corpus/origin_trial_token_data/"
-}
-
-fuzzer_test("origin_policy_parser_fuzzer") {
-  sources = [ "origin_policy_parser_fuzzer.cc" ]
-  deps = [
-    "//base",
-    "//base:i18n",
-    "//content/test:test_support",
-  ]
-  dict =
-      "//content/test/data/fuzzer_dictionaries/origin_policy_parser_fuzzer.dict"
-  seed_corpus = "//content/test/data/fuzzer_corpus/origin_policy_parser_data/"
 }
 
 fuzzer_test("renderer_fuzzer") {
@@ -162,7 +151,7 @@ fuzzer_test("appcache_fuzzer") {
   deps = [
     ":appcache_fuzzer_proto",
     "//base/test:test_support",
-    "//content/app:both_for_content_tests",
+    "//content/app:for_content_tests",
     "//content/browser:browser",
     "//content/public/browser:browser_sources",
     "//content/test:test_support",
@@ -173,40 +162,28 @@ fuzzer_test("appcache_fuzzer") {
   ]
 }
 
-# Note: this compiles and runs on Mac but may cause
-# system instability; if you try it out, close other
-# programs and then reboot afterwards. It should be
-# possible to make it work on Linux if you use the
-# --enable-speech-dispatcher flag.
-if (is_win) {
-  fuzzer_test("tts_platform_fuzzer") {
-    sources = [
-      "../../browser/speech/mock_tts_controller.cc",
-      "../../browser/speech/tts_mac.mm",
-      "../../browser/speech/tts_platform_fuzzer.cc",
-      "../../browser/speech/tts_platform_impl.cc",
-      "../../browser/speech/tts_platform_impl.h",
-      "../../browser/speech/tts_win.cc",
-      "../../public/browser/tts_controller.h",
-      "../../public/browser/tts_platform.h",
-      "//content/common/content_export.h",
-    ]
+mojolpm_fuzzer_test("code_cache_host_mojolpm_fuzzer") {
+  sources = [ "code_cache_host_mojolpm_fuzzer.cc" ]
 
-    # Don't try to link the code that calls GetContentClient(), because
-    # then we'd need to link in most of //content.
-    defines = [ "NO_CONTENT_CLIENT" ]
+  proto_source = "code_cache_host_mojolpm_fuzzer.proto"
+  testcase_proto_kind = "content.fuzzing.code_cache_host.proto.Testcase"
 
-    # TODO(https://crbug.com/927728): Refactor target to not require this.
-    check_includes = false
+  deps = [
+    "//base/test:test_support",
+    "//content/browser:for_content_tests",
+    "//content/public/browser:browser_sources",
+    "//content/test:test_support",
+    "//services/network:test_support",
+    "//storage/browser:test_support",
+    "//third_party/icu:icudata",
+  ]
 
-    deps = [
-      "//base",
-      "//base/test:test_support",
-      "//third_party/webrtc_overrides:webrtc_component",
-      "//ui/base",
-      "//url:url",
-    ]
-  }
+  proto_deps = [ "//third_party/blink/public/mojom:mojom_platform_mojolpm" ]
+
+  seed_corpus_sources = [
+    "//content/test/data/fuzzer_corpus/code_cache_host_mojolpm_fuzzer/did_generate_cacheable_metadata_origin_a.textproto",
+    "//content/test/data/fuzzer_corpus/code_cache_host_mojolpm_fuzzer/did_generate_cacheable_metadata_origin_b.textproto",
+  ]
 }
 
 fuzzer_test("speech_audio_encoder_fuzzer") {
@@ -228,7 +205,7 @@ fuzzer_test("speech_audio_encoder_fuzzer") {
 fuzzer_test("browser_accessibility_fuzzer") {
   sources = [ "browser_accessibility_fuzzer.cc" ]
   deps = [
-    "//content/app:both_for_content_tests",
+    "//content/app:for_content_tests",
     "//content/browser:browser",
     "//content/browser:browser",
     "//content/public/browser:browser_sources",

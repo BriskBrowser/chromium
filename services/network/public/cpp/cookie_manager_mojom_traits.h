@@ -8,8 +8,10 @@
 #include "ipc/ipc_message_utils.h"
 #include "mojo/public/cpp/bindings/enum_traits.h"
 #include "net/cookies/canonical_cookie.h"
+#include "net/cookies/cookie_access_result.h"
 #include "net/cookies/cookie_change_dispatcher.h"
 #include "net/cookies/cookie_constants.h"
+#include "net/cookies/cookie_inclusion_status.h"
 #include "net/cookies/cookie_options.h"
 #include "services/network/public/mojom/cookie_manager.mojom.h"
 
@@ -30,6 +32,15 @@ struct EnumTraits<network::mojom::CookieSameSite, net::CookieSameSite> {
 };
 
 template <>
+struct EnumTraits<network::mojom::CookieEffectiveSameSite,
+                  net::CookieEffectiveSameSite> {
+  static network::mojom::CookieEffectiveSameSite ToMojom(
+      net::CookieEffectiveSameSite input);
+  static bool FromMojom(network::mojom::CookieEffectiveSameSite input,
+                        net::CookieEffectiveSameSite* output);
+};
+
+template <>
 struct EnumTraits<network::mojom::CookieAccessSemantics,
                   net::CookieAccessSemantics> {
   static network::mojom::CookieAccessSemantics ToMojom(
@@ -39,23 +50,13 @@ struct EnumTraits<network::mojom::CookieAccessSemantics,
 };
 
 template <>
-struct EnumTraits<network::mojom::CookieInclusionStatusWarningReason,
-                  net::CanonicalCookie::CookieInclusionStatus::WarningReason> {
-  static network::mojom::CookieInclusionStatusWarningReason ToMojom(
-      net::CanonicalCookie::CookieInclusionStatus::WarningReason input);
+struct EnumTraits<network::mojom::ContextType,
+                  net::CookieOptions::SameSiteCookieContext::ContextType> {
+  static network::mojom::ContextType ToMojom(
+      net::CookieOptions::SameSiteCookieContext::ContextType input);
   static bool FromMojom(
-      network::mojom::CookieInclusionStatusWarningReason input,
-      net::CanonicalCookie::CookieInclusionStatus::WarningReason* output);
-};
-
-template <>
-struct EnumTraits<network::mojom::CookieSameSiteContext,
-                  net::CookieOptions::SameSiteCookieContext> {
-  static network::mojom::CookieSameSiteContext ToMojom(
-      net::CookieOptions::SameSiteCookieContext input);
-
-  static bool FromMojom(network::mojom::CookieSameSiteContext input,
-                        net::CookieOptions::SameSiteCookieContext* output);
+      network::mojom::ContextType input,
+      net::CookieOptions::SameSiteCookieContext::ContextType* output);
 };
 
 template <>
@@ -74,6 +75,23 @@ struct EnumTraits<network::mojom::CookieChangeCause, net::CookieChangeCause> {
 
   static bool FromMojom(network::mojom::CookieChangeCause input,
                         net::CookieChangeCause* output);
+};
+
+template <>
+struct StructTraits<network::mojom::CookieSameSiteContextDataView,
+                    net::CookieOptions::SameSiteCookieContext> {
+  static net::CookieOptions::SameSiteCookieContext::ContextType context(
+      net::CookieOptions::SameSiteCookieContext& s) {
+    return s.context();
+  }
+
+  static net::CookieOptions::SameSiteCookieContext::ContextType
+  schemeful_context(net::CookieOptions::SameSiteCookieContext& s) {
+    return s.schemeful_context();
+  }
+
+  static bool Read(network::mojom::CookieSameSiteContextDataView mojo_options,
+                   net::CookieOptions::SameSiteCookieContext* context);
 };
 
 template <>
@@ -138,50 +156,68 @@ struct StructTraits<network::mojom::CanonicalCookieDataView,
 
 template <>
 struct StructTraits<network::mojom::CookieInclusionStatusDataView,
-                    net::CanonicalCookie::CookieInclusionStatus> {
-  static uint32_t exclusion_reasons(
-      const net::CanonicalCookie::CookieInclusionStatus& s) {
+                    net::CookieInclusionStatus> {
+  static uint32_t exclusion_reasons(const net::CookieInclusionStatus& s) {
     return s.exclusion_reasons();
   }
-  static net::CanonicalCookie::CookieInclusionStatus::WarningReason warning(
-      const net::CanonicalCookie::CookieInclusionStatus& s) {
-    return s.warning();
+  static uint32_t warning_reasons(const net::CookieInclusionStatus& s) {
+    return s.warning_reasons();
   }
   static bool Read(network::mojom::CookieInclusionStatusDataView status,
-                   net::CanonicalCookie::CookieInclusionStatus* out);
+                   net::CookieInclusionStatus* out);
 };
 
 template <>
-struct StructTraits<network::mojom::CookieWithStatusDataView,
-                    net::CookieWithStatus> {
-  static const net::CanonicalCookie& cookie(const net::CookieWithStatus& c) {
-    return c.cookie;
-  }
-  static const net::CanonicalCookie::CookieInclusionStatus& status(
-      const net::CookieWithStatus& c) {
-    return c.status;
-  }
-  static bool Read(network::mojom::CookieWithStatusDataView cookie,
-                   net::CookieWithStatus* out);
-};
-
-template <>
-struct StructTraits<network::mojom::CookieAndLineWithStatusDataView,
-                    net::CookieAndLineWithStatus> {
+struct StructTraits<network::mojom::CookieAndLineWithAccessResultDataView,
+                    net::CookieAndLineWithAccessResult> {
   static const base::Optional<net::CanonicalCookie>& cookie(
-      const net::CookieAndLineWithStatus& c) {
+      const net::CookieAndLineWithAccessResult& c) {
     return c.cookie;
   }
   static const std::string& cookie_string(
-      const net::CookieAndLineWithStatus& c) {
+      const net::CookieAndLineWithAccessResult& c) {
     return c.cookie_string;
   }
-  static const net::CanonicalCookie::CookieInclusionStatus& status(
-      const net::CookieAndLineWithStatus& c) {
+  static const net::CookieAccessResult& access_result(
+      const net::CookieAndLineWithAccessResult& c) {
+    return c.access_result;
+  }
+  static bool Read(network::mojom::CookieAndLineWithAccessResultDataView cookie,
+                   net::CookieAndLineWithAccessResult* out);
+};
+
+template <>
+struct StructTraits<network::mojom::CookieAccessResultDataView,
+                    net::CookieAccessResult> {
+  static const net::CookieEffectiveSameSite& effective_same_site(
+      const net::CookieAccessResult& c) {
+    return c.effective_same_site;
+  }
+  static const net::CookieInclusionStatus& status(
+      const net::CookieAccessResult& c) {
     return c.status;
   }
-  static bool Read(network::mojom::CookieAndLineWithStatusDataView cookie,
-                   net::CookieAndLineWithStatus* out);
+  static const net::CookieAccessSemantics& access_semantics(
+      const net::CookieAccessResult& c) {
+    return c.access_semantics;
+  }
+  static bool Read(network::mojom::CookieAccessResultDataView access_result,
+                   net::CookieAccessResult* out);
+};
+
+template <>
+struct StructTraits<network::mojom::CookieWithAccessResultDataView,
+                    net::CookieWithAccessResult> {
+  static const net::CanonicalCookie& cookie(
+      const net::CookieWithAccessResult& c) {
+    return c.cookie;
+  }
+  static const net::CookieAccessResult& access_result(
+      const net::CookieWithAccessResult& c) {
+    return c.access_result;
+  }
+  static bool Read(network::mojom::CookieWithAccessResultDataView cookie,
+                   net::CookieWithAccessResult* out);
 };
 
 template <>
@@ -190,9 +226,9 @@ struct StructTraits<network::mojom::CookieChangeInfoDataView,
   static const net::CanonicalCookie& cookie(const net::CookieChangeInfo& c) {
     return c.cookie;
   }
-  static net::CookieAccessSemantics access_semantics(
+  static const net::CookieAccessResult& access_result(
       const net::CookieChangeInfo& c) {
-    return c.access_semantics;
+    return c.access_result;
   }
   static net::CookieChangeCause cause(const net::CookieChangeInfo& c) {
     return c.cause;

@@ -25,11 +25,11 @@ namespace internal {
 // This class is internal to views.
 class PreMenuEventDispatchHandler;
 
-}  // internal
+}  // namespace internal
 
 namespace test {
 class MenuControllerTest;
-}  // test
+}  // namespace test
 
 // SubmenuView uses a MenuHost to house the SubmenuView.
 //
@@ -95,7 +95,7 @@ class MenuHost : public Widget, public WidgetObserver {
   // If true and capture is lost we don't notify the delegate.
   bool ignore_capture_lost_;
 
-#if !defined(OS_MACOSX)
+#if !defined(OS_APPLE)
   // Handles raw touch events at the moment.
   std::unique_ptr<internal::PreMenuEventDispatchHandler> pre_dispatch_handler_;
 #endif

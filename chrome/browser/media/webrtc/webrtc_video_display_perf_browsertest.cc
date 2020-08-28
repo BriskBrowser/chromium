@@ -18,6 +18,7 @@
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/render_view_host.h"
 #include "content/public/common/content_switches.h"
+#include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
 #include "media/base/media_switches.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
@@ -113,7 +114,7 @@ void AssociateEvents(trace_analyzer::TraceAnalyzer* analyzer,
 }
 
 content::WebContents* OpenWebrtcInternalsTab(Browser* browser) {
-  chrome::AddTabAt(browser, GURL(), -1, true);
+  chrome::AddTabAt(browser, GURL(url::kAboutBlankURL), -1, true);
   ui_test_utils::NavigateToURL(browser, GURL("chrome://webrtc-internals"));
   return browser->tab_strip_model()->GetActiveWebContents();
 }
@@ -197,6 +198,7 @@ class WebRtcVideoDisplayPerfBrowserTest
 
   void SetUpCommandLine(base::CommandLine* command_line) override {
     command_line->AppendSwitch(switches::kUseFakeUIForMediaStream);
+    command_line->RemoveSwitch(switches::kUseFakeDeviceForMediaStream);
     command_line->AppendSwitchASCII(
         switches::kUseFakeDeviceForMediaStream,
         base::StringPrintf("fps=%d", test_config_.fps));

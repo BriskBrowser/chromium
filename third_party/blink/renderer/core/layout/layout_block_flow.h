@@ -37,7 +37,6 @@
 #define THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_LAYOUT_BLOCK_FLOW_H_
 
 #include <memory>
-#include "base/macros.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/layout/api/line_layout_item.h"
 #include "third_party/blink/renderer/core/layout/floating_objects.h"
@@ -105,7 +104,6 @@ class CORE_EXPORT LayoutBlockFlow : public LayoutBlock {
   static LayoutBlockFlow* CreateAnonymous(Document*,
                                           scoped_refptr<ComputedStyle>,
                                           LegacyLayout);
-  bool BeingDestroyed() const { return being_destroyed_; }
 
   bool IsLayoutBlockFlow() const final { return true; }
 
@@ -357,6 +355,9 @@ class CORE_EXPORT LayoutBlockFlow : public LayoutBlock {
   }
   void SetFirstForcedBreakOffset(LayoutUnit);
 
+  const AtomicString StartPageName() const final;
+  const AtomicString EndPageName() const final;
+
   void PositionSpannerDescendant(LayoutMultiColumnSpannerPlaceholder& child);
 
   bool CreatesNewFormattingContext() const override;
@@ -434,6 +435,7 @@ class CORE_EXPORT LayoutBlockFlow : public LayoutBlock {
   PositionWithAffinity PositionForPoint(const PhysicalOffset&) const override;
   PositionWithAffinity PositionForPoint(const LayoutObject& offset_parent,
                                         const PhysicalOffset& offset) const;
+  bool ShouldMoveCaretToHorizontalBoundaryWhenPastTopOrBottom() const;
 
   LayoutUnit LowestFloatLogicalBottom(EClear = EClear::kBoth) const;
 
@@ -528,7 +530,6 @@ class CORE_EXPORT LayoutBlockFlow : public LayoutBlock {
                        const PhysicalOffset& additional_offset,
                        NGOutlineType) const override;
 
-  bool PaintedOutputOfObjectHasNoEffectRegardlessOfSize() const override;
   void InvalidateDisplayItemClients(PaintInvalidationReason) const override;
 
   Node* NodeForHitTest() const final;
@@ -537,7 +538,7 @@ class CORE_EXPORT LayoutBlockFlow : public LayoutBlock {
                        const PhysicalOffset& accumulated_offset,
                        HitTestAction) override;
 
-  PhysicalOffset AccumulateInFlowPositionOffsets() const override;
+  PhysicalOffset AccumulateRelativePositionOffsets() const override;
 
  private:
   void ResetLayout();
@@ -671,6 +672,16 @@ class CORE_EXPORT LayoutBlockFlow : public LayoutBlock {
     return rare_data_ && rare_data_->did_break_at_line_to_avoid_widow_;
   }
 
+  // Start page name propagated from the first child, if there are children, and
+  // the first child has a start page name associated with it.
+  const AtomicString PropagatedStartPageName() const;
+  void SetPropagatedStartPageName(const AtomicString&);
+
+  // End page name propagated from the last child, if there are children, and
+  // the last child has a end page name associated with it.
+  const AtomicString PropagatedEndPageName() const;
+  void SetPropagatedEndPageName(const AtomicString&);
+
  public:
   struct FloatWithRect {
     DISALLOW_NEW();
@@ -738,6 +749,8 @@ class CORE_EXPORT LayoutBlockFlow : public LayoutBlock {
       : public GarbageCollected<LayoutBlockFlowRareData> {
    public:
     explicit LayoutBlockFlowRareData(const LayoutBlockFlow* block);
+    LayoutBlockFlowRareData(const LayoutBlockFlowRareData&) = delete;
+    LayoutBlockFlowRareData& operator=(const LayoutBlockFlowRareData&) = delete;
     ~LayoutBlockFlowRareData();
 
     static LayoutUnit PositiveMarginBeforeDefault(
@@ -755,7 +768,7 @@ class CORE_EXPORT LayoutBlockFlow : public LayoutBlock {
       return (-block->MarginAfter()).ClampNegativeToZero();
     }
 
-    void Trace(Visitor*) {}
+    void Trace(Visitor*) const {}
 
     MarginValues margins_;
     LayoutUnit pagination_strut_propagated_from_child_;
@@ -770,11 +783,18 @@ class CORE_EXPORT LayoutBlockFlow : public LayoutBlock {
     // |offset_mapping_| here.
     std::unique_ptr<NGOffsetMapping> offset_mapping_;
 
+    // Name of the start page for this object, if propagated from a descendant;
+    // see https://drafts.csswg.org/css-page-3/#start-page-value
+    AtomicString propagated_start_page_name_;
+
+    // Name of the end page for this object, if propagated from a descendant;
+    // see https://drafts.csswg.org/css-page-3/#end-page-value
+    AtomicString propagated_end_page_name_;
+
     unsigned break_before_ : 4;
     unsigned break_after_ : 4;
     int line_break_to_avoid_widow_;
     bool did_break_at_line_to_avoid_widow_ : 1;
-    DISALLOW_COPY_AND_ASSIGN(LayoutBlockFlowRareData);
   };
 
   void ClearOffsetMappingIfNeeded();

@@ -15,7 +15,6 @@
 #include "base/memory/ptr_util.h"
 #include "base/numerics/ranges.h"
 #include "chrome/browser/extensions/extension_message_bubble_controller.h"
-#include "chrome/browser/extensions/tab_helper.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/themes/theme_properties.h"
 #include "chrome/browser/ui/browser.h"
@@ -119,6 +118,7 @@ BrowserActionsContainer::~BrowserActionsContainer() {
   toolbar_actions_bar_->DeleteActions();
   // All views should be removed as part of ToolbarActionsBar::DeleteActions().
   DCHECK(toolbar_action_views_.empty());
+  CHECK(!IsInObserverList());
 }
 
 std::string BrowserActionsContainer::GetIdAt(size_t index) const {
@@ -301,6 +301,12 @@ void BrowserActionsContainer::ShowToolbarActionBubble(
   DCHECK(!animating());
   DCHECK(!active_bubble_);
 
+  // Action view visibility is updated on layout. This happens
+  // asynchronously with respect to model changes. Normally this is
+  // fine, but here we rely on the View visibilities being up-to-date.
+  // So, force a layout.
+  GetWidget()->LayoutRootViewIfNecessary();
+
   views::View* anchor_view = nullptr;
   bool anchored_to_action_view = false;
   if (!controller->GetAnchorActionId().empty()) {
@@ -324,7 +330,7 @@ void BrowserActionsContainer::ShowToolbarActionBubble(
   active_bubble_ = bubble;
   views::BubbleDialogDelegateView::CreateBubble(bubble);
   bubble->GetWidget()->AddObserver(this);
-  bubble->Show();
+  bubble->GetWidget()->Show();
 }
 
 bool BrowserActionsContainer::CloseOverflowMenuIfOpen() {
@@ -379,10 +385,11 @@ views::FlexRule BrowserActionsContainer::GetFlexRule() {
             const int min_width = browser_actions->num_toolbar_actions() == 0
                                       ? 0
                                       : browser_actions->GetResizeAreaWidth();
-            // The ceiling on the value is the lesser of the preferred and
-            // available size.
-            width = std::max(min_width, std::min(preferred_size.width(),
-                                                 *maximum_size.width()));
+            // If the provided maximum width is too small even for |min_width|,
+            // |min_width| takes precedence.
+            const int max_width = std::max(min_width, *maximum_size.width());
+            width = base::ClampToRange(preferred_size.width(), min_width,
+                                       max_width);
           } else {
             // When not animating or resizing, the desired width should always
             // be based on the number of icons that can be displayed.
@@ -436,7 +443,6 @@ int BrowserActionsContainer::GetHeightForWidth(int width) const {
 }
 
 gfx::Size BrowserActionsContainer::GetMinimumSize() const {
-  DCHECK(interactive_);
   return gfx::Size(GetResizeAreaWidth(),
                    toolbar_actions_bar_->GetViewSize().height());
 }

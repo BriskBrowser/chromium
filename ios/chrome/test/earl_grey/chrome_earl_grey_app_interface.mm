@@ -5,16 +5,22 @@
 #import "ios/chrome/test/earl_grey/chrome_earl_grey_app_interface.h"
 #import "base/test/ios/wait_util.h"
 
+#include "base/command_line.h"
+#include "base/json/json_string_value_serializer.h"
 #include "base/strings/sys_string_conversions.h"
+#include "base/values.h"
 #include "components/autofill/core/browser/personal_data_manager.h"
 #include "components/autofill/core/common/autofill_features.h"
 #include "components/browsing_data/core/pref_names.h"
 #include "components/content_settings/core/browser/host_content_settings_map.h"
+#include "components/metrics/demographic_metrics_provider.h"
 #include "components/prefs/pref_service.h"
 #import "components/ukm/ios/features.h"
+#include "components/unified_consent/unified_consent_service.h"
 #include "components/variations/variations_associated_data.h"
-#include "components/variations/variations_http_header_provider.h"
+#include "components/variations/variations_ids_provider.h"
 #import "ios/chrome/app/main_controller.h"
+#include "ios/chrome/browser/application_context.h"
 #include "ios/chrome/browser/autofill/personal_data_manager_factory.h"
 #include "ios/chrome/browser/browser_state/chrome_browser_state.h"
 #include "ios/chrome/browser/content_settings/host_content_settings_map_factory.h"
@@ -22,8 +28,10 @@
 #import "ios/chrome/browser/ui/commands/application_commands.h"
 #import "ios/chrome/browser/ui/settings/autofill/features.h"
 #import "ios/chrome/browser/ui/table_view/feature_flags.h"
+#import "ios/chrome/browser/ui/toolbar/public/features.h"
 #import "ios/chrome/browser/ui/ui_feature_flags.h"
 #import "ios/chrome/browser/ui/util/named_guide.h"
+#import "ios/chrome/browser/unified_consent/unified_consent_service_factory.h"
 #import "ios/chrome/browser/web/tab_id_tab_helper.h"
 #import "ios/chrome/test/app/bookmarks_test_util.h"
 #import "ios/chrome/test/app/browsing_data_test_util.h"
@@ -61,6 +69,24 @@ using base::test::ios::kWaitForPageLoadTimeout;
 using base::test::ios::WaitUntilConditionOrTimeout;
 using chrome_test_util::BrowserCommandDispatcherForMainBVC;
 
+namespace {
+
+// Returns a JSON-encoded string representing the given |pref|. If |pref| is
+// nullptr, returns a string representing a base::Value of type NONE.
+NSString* SerializedPref(const PrefService::Preference* pref) {
+  base::Value none_value(base::Value::Type::NONE);
+
+  const base::Value* value = pref ? pref->GetValue() : &none_value;
+  DCHECK(value);
+
+  std::string serialized_value;
+  JSONStringValueSerializer serializer(&serialized_value);
+  serializer.Serialize(*value);
+  return base::SysUTF8ToNSString(serialized_value);
+}
+
+}
+
 @implementation ChromeEarlGreyAppInterface
 
 + (NSError*)clearBrowsingHistory {
@@ -70,6 +96,17 @@ using chrome_test_util::BrowserCommandDispatcherForMainBVC;
 
   return testing::NSErrorWithLocalizedDescription(
       @"Clearing browser history timed out");
+}
+
++ (NSInteger)getBrowsingHistoryEntryCount {
+  NSError* error = nil;
+  NSInteger count = chrome_test_util::GetBrowsingHistoryEntryCount(&error);
+
+  if (error != nil) {
+    return -1;
+  }
+
+  return count;
 }
 
 + (NSError*)removeBrowsingCache {
@@ -120,8 +157,7 @@ using chrome_test_util::BrowserCommandDispatcherForMainBVC;
 }
 
 + (void)dismissSettings {
-  [chrome_test_util::DispatcherForActiveBrowserViewController()
-      closeSettingsUI];
+  [chrome_test_util::HandlerForActiveBrowser() closeSettingsUI];
 }
 
 #pragma mark - Tab Utilities (EG2)
@@ -144,6 +180,10 @@ using chrome_test_util::BrowserCommandDispatcherForMainBVC;
 
 + (NSUInteger)incognitoTabCount {
   return chrome_test_util::GetIncognitoTabCount();
+}
+
++ (NSUInteger)browserCount {
+  return chrome_test_util::RegularBrowserCount();
 }
 
 + (NSUInteger)evictedMainTabCount {
@@ -186,8 +226,12 @@ using chrome_test_util::BrowserCommandDispatcherForMainBVC;
   chrome_test_util::OpenNewTab();
 }
 
-+ (void)simulateExternalAppURLOpening {
-  chrome_test_util::SimulateExternalAppURLOpening();
++ (NSURL*)simulateExternalAppURLOpening {
+  return chrome_test_util::SimulateExternalAppURLOpening();
+}
+
++ (void)simulateAddAccountFromWeb {
+  chrome_test_util::SimulateAddAccountFromWeb();
 }
 
 + (void)closeCurrentTab {
@@ -297,6 +341,21 @@ using chrome_test_util::BrowserCommandDispatcherForMainBVC;
   return nil;
 }
 
++ (NSError*)waitForWebStateContainingTextInIFrame:(NSString*)text {
+  std::string stringText = base::SysNSStringToUTF8(text);
+  bool success = WaitUntilConditionOrTimeout(kWaitForPageLoadTimeout, ^bool {
+    return web::test::IsWebViewContainingTextInFrame(
+        chrome_test_util::GetCurrentWebState(), stringText);
+  });
+  if (!success) {
+    NSString* NSErrorDescription = [NSString
+        stringWithFormat:
+            @"Failed waiting for web state's iframes containing text %@", text];
+    return testing::NSErrorWithLocalizedDescription(NSErrorDescription);
+  }
+  return nil;
+}
+
 + (NSError*)submitWebStateFormWithID:(NSString*)formID {
   bool success = web::test::SubmitWebViewFormWithId(
       chrome_test_util::GetCurrentWebState(), base::SysNSStringToUTF8(formID));
@@ -308,6 +367,11 @@ using chrome_test_util::BrowserCommandDispatcherForMainBVC;
   }
 
   return nil;
+}
+
++ (BOOL)webStateContainsElement:(ElementSelector*)selector {
+  return web::test::IsWebViewContainingElement(
+      chrome_test_util::GetCurrentWebState(), selector);
 }
 
 + (BOOL)webStateContainsText:(NSString*)text {
@@ -349,13 +413,12 @@ using chrome_test_util::BrowserCommandDispatcherForMainBVC;
   chrome_test_util::SetContentSettingsBlockPopups(setting);
 }
 
-+ (NSError*)signOutAndClearAccounts {
-  bool success = chrome_test_util::SignOutAndClearAccounts();
-  if (!success) {
-    return testing::NSErrorWithLocalizedDescription(
-        @"Real accounts couldn't be cleared.");
-  }
-  return nil;
++ (void)signOutAndClearIdentities {
+  chrome_test_util::SignOutAndClearIdentities();
+}
+
++ (BOOL)hasIdentities {
+  return chrome_test_util::HasIdentities();
 }
 
 + (NSString*)webStateVisibleURL {
@@ -388,27 +451,6 @@ using chrome_test_util::BrowserCommandDispatcherForMainBVC;
 + (CGSize)webStateWebViewSize {
   web::WebState* web_state = chrome_test_util::GetCurrentWebState();
   return [web_state->GetWebViewProxy() bounds].size;
-}
-
-#pragma mark - Sync Utilities (EG2)
-
-+ (void)clearAutofillProfileWithGUID:(NSString*)GUID {
-  std::string utfGUID = base::SysNSStringToUTF8(GUID);
-  chrome_test_util::ClearAutofillProfile(utfGUID);
-}
-
-+ (void)injectAutofillProfileOnFakeSyncServerWithGUID:(NSString*)GUID
-                                  autofillProfileName:(NSString*)fullName {
-  std::string utfGUID = base::SysNSStringToUTF8(GUID);
-  std::string utfFullName = base::SysNSStringToUTF8(fullName);
-  chrome_test_util::InjectAutofillProfileOnFakeSyncServer(utfGUID, utfFullName);
-}
-
-+ (BOOL)isAutofillProfilePresentWithGUID:(NSString*)GUID
-                     autofillProfileName:(NSString*)fullName {
-  std::string utfGUID = base::SysNSStringToUTF8(GUID);
-  std::string utfFullName = base::SysNSStringToUTF8(fullName);
-  return chrome_test_util::IsAutofillProfilePresent(utfGUID, utfFullName);
 }
 
 #pragma mark - Bookmarks Utilities (EG2)
@@ -447,17 +489,25 @@ using chrome_test_util::BrowserCommandDispatcherForMainBVC;
 }
 
 + (void)addFakeSyncServerBookmarkWithURL:(NSString*)URL title:(NSString*)title {
-  chrome_test_util::InjectBookmarkOnFakeSyncServer(
-      base::SysNSStringToUTF8(URL), base::SysNSStringToUTF8(title));
+  chrome_test_util::AddBookmarkToFakeSyncServer(base::SysNSStringToUTF8(URL),
+                                                base::SysNSStringToUTF8(title));
+}
+
++ (void)addFakeSyncServerLegacyBookmarkWithURL:(NSString*)URL
+                                         title:(NSString*)title
+                     originator_client_item_id:
+                         (NSString*)originator_client_item_id {
+  chrome_test_util::AddLegacyBookmarkToFakeSyncServer(
+      base::SysNSStringToUTF8(URL), base::SysNSStringToUTF8(title),
+      base::SysNSStringToUTF8(originator_client_item_id));
 }
 
 + (void)addFakeSyncServerTypedURL:(NSString*)URL {
-  chrome_test_util::InjectTypedURLOnFakeSyncServer(
-      base::SysNSStringToUTF8(URL));
+  chrome_test_util::AddTypedURLToFakeSyncServer(base::SysNSStringToUTF8(URL));
 }
 
 + (void)addHistoryServiceTypedURL:(NSString*)URL {
-  chrome_test_util::AddTypedURLOnClient(GURL(base::SysNSStringToUTF8(URL)));
+  chrome_test_util::AddTypedURLToClient(GURL(base::SysNSStringToUTF8(URL)));
 }
 
 + (void)deleteHistoryServiceTypedURL:(NSString*)URL {
@@ -477,8 +527,35 @@ using chrome_test_util::BrowserCommandDispatcherForMainBVC;
   chrome_test_util::TriggerSyncCycle(type);
 }
 
-+ (void)deleteAutofillProfileOnFakeSyncServerWithGUID:(NSString*)GUID {
-  chrome_test_util::DeleteAutofillProfileOnFakeSyncServer(
++ (void)
+    addUserDemographicsToSyncServerWithBirthYear:(int)rawBirthYear
+                                          gender:
+                                              (metrics::UserDemographicsProto::
+                                                   Gender)gender {
+  chrome_test_util::AddUserDemographicsToSyncServer(rawBirthYear, gender);
+}
+
++ (void)clearAutofillProfileWithGUID:(NSString*)GUID {
+  std::string utfGUID = base::SysNSStringToUTF8(GUID);
+  chrome_test_util::ClearAutofillProfile(utfGUID);
+}
+
++ (void)addAutofillProfileToFakeSyncServerWithGUID:(NSString*)GUID
+                               autofillProfileName:(NSString*)fullName {
+  std::string utfGUID = base::SysNSStringToUTF8(GUID);
+  std::string utfFullName = base::SysNSStringToUTF8(fullName);
+  chrome_test_util::AddAutofillProfileToFakeSyncServer(utfGUID, utfFullName);
+}
+
++ (BOOL)isAutofillProfilePresentWithGUID:(NSString*)GUID
+                     autofillProfileName:(NSString*)fullName {
+  std::string utfGUID = base::SysNSStringToUTF8(GUID);
+  std::string utfFullName = base::SysNSStringToUTF8(fullName);
+  return chrome_test_util::IsAutofillProfilePresent(utfGUID, utfFullName);
+}
+
++ (void)deleteAutofillProfileFromFakeSyncServerWithGUID:(NSString*)GUID {
+  chrome_test_util::DeleteAutofillProfileFromFakeSyncServer(
       base::SysNSStringToUTF8(GUID));
 }
 
@@ -510,6 +587,10 @@ using chrome_test_util::BrowserCommandDispatcherForMainBVC;
 
 + (NSString*)syncCacheGUID {
   return base::SysUTF8ToNSString(chrome_test_util::GetSyncCacheGuid());
+}
+
++ (BOOL)isFakeSyncServerSetUp {
+  return chrome_test_util::IsFakeSyncServerSetUp();
 }
 
 + (void)setUpFakeSyncServer {
@@ -555,6 +636,13 @@ using chrome_test_util::BrowserCommandDispatcherForMainBVC;
   }
   return error;
 }
+
++ (void)addBookmarkWithSyncPassphrase:(NSString*)syncPassphrase {
+  chrome_test_util::AddBookmarkWithSyncPassphrase(
+      base::SysNSStringToUTF8(syncPassphrase));
+}
+
+#pragma mark - JavaScript Utilities (EG2)
 
 + (id)executeJavaScript:(NSString*)javaScript error:(NSError**)outError {
   __block bool handlerCalled = false;
@@ -610,23 +698,19 @@ using chrome_test_util::BrowserCommandDispatcherForMainBVC;
   return base::FeatureList::IsEnabled(kBlockNewTabPagePendingLoad);
 }
 
-+ (BOOL)isNewOmniboxPopupLayoutEnabled {
-  return base::FeatureList::IsEnabled(kNewOmniboxPopupLayout);
-}
-
 + (BOOL)isVariationEnabled:(int)variationID {
-  variations::VariationsHttpHeaderProvider* provider =
-      variations::VariationsHttpHeaderProvider::GetInstance();
-  std::vector<variations::VariationID> ids =
-      provider->GetVariationsVector(variations::GOOGLE_WEB_PROPERTIES);
+  variations::VariationsIdsProvider* provider =
+      variations::VariationsIdsProvider::GetInstance();
+  std::vector<variations::VariationID> ids = provider->GetVariationsVector(
+      variations::GOOGLE_WEB_PROPERTIES_ANY_CONTEXT);
   return std::find(ids.begin(), ids.end(), variationID) != ids.end();
 }
 
 + (BOOL)isTriggerVariationEnabled:(int)variationID {
-  variations::VariationsHttpHeaderProvider* provider =
-      variations::VariationsHttpHeaderProvider::GetInstance();
-  std::vector<variations::VariationID> ids =
-      provider->GetVariationsVector(variations::GOOGLE_WEB_PROPERTIES_TRIGGER);
+  variations::VariationsIdsProvider* provider =
+      variations::VariationsIdsProvider::GetInstance();
+  std::vector<variations::VariationID> ids = provider->GetVariationsVector(
+      variations::GOOGLE_WEB_PROPERTIES_TRIGGER_ANY_CONTEXT);
   return std::find(ids.begin(), ids.end(), variationID) != ids.end();
 }
 
@@ -638,6 +722,10 @@ using chrome_test_util::BrowserCommandDispatcherForMainBVC;
   return base::FeatureList::IsEnabled(ukm::kUkmFeature);
 }
 
++ (BOOL)isTestFeatureEnabled {
+  return base::FeatureList::IsEnabled(kTestFeature);
+}
+
 + (BOOL)isCreditCardScannerEnabled {
   return base::FeatureList::IsEnabled(kCreditCardScanner);
 }
@@ -647,12 +735,37 @@ using chrome_test_util::BrowserCommandDispatcherForMainBVC;
       autofill::features::kAutofillEnableCompanyName);
 }
 
++ (BOOL)isChangeTabSwitcherPositionEnabled {
+  return base::FeatureList::IsEnabled(kChangeTabSwitcherPosition);
+}
+
++ (BOOL)isDemographicMetricsReportingEnabled {
+  return base::FeatureList::IsEnabled(
+      metrics::DemographicMetricsProvider::kDemographicMetricsReporting);
+}
+
++ (BOOL)appHasLaunchSwitch:(NSString*)launchSwitch {
+  return base::CommandLine::ForCurrentProcess()->HasSwitch(
+      base::SysNSStringToUTF8(launchSwitch));
+}
+
 + (BOOL)isCustomWebKitLoadedIfRequested {
   return IsCustomWebKitLoadedIfRequested();
 }
 
 + (BOOL)isCollectionsCardPresentationStyleEnabled {
   return IsCollectionsCardPresentationStyleEnabled();
+}
+
++ (BOOL)isMobileModeByDefault {
+  if (!web::features::UseWebClientDefaultUserAgent())
+    return YES;
+
+  web::UserAgentType webClientUserAgent =
+      web::GetWebClient()->GetDefaultUserAgent(
+          chrome_test_util::GetCurrentWebState()->GetView(), GURL());
+
+  return webClientUserAgent == web::UserAgentType::MOBILE;
 }
 
 #pragma mark - ScopedBlockPopupsPref
@@ -672,6 +785,21 @@ using chrome_test_util::BrowserCommandDispatcherForMainBVC;
 
 #pragma mark - Pref Utilities (EG2)
 
++ (NSString*)localStatePrefValue:(NSString*)prefName {
+  std::string path = base::SysNSStringToUTF8(prefName);
+  const PrefService::Preference* pref =
+      GetApplicationContext()->GetLocalState()->FindPreference(path);
+  return SerializedPref(pref);
+}
+
++ (NSString*)userPrefValue:(NSString*)prefName {
+  std::string path = base::SysNSStringToUTF8(prefName);
+  const PrefService::Preference* pref =
+      chrome_test_util::GetOriginalBrowserState()->GetPrefs()->FindPreference(
+          path);
+  return SerializedPref(pref);
+}
+
 + (void)setBoolValue:(BOOL)value forUserPref:(NSString*)prefName {
   chrome_test_util::SetBooleanUserPref(
       chrome_test_util::GetOriginalBrowserState(),
@@ -685,6 +813,14 @@ using chrome_test_util::BrowserCommandDispatcherForMainBVC;
   prefs->ClearPref(browsing_data::prefs::kDeleteCache);
   prefs->ClearPref(browsing_data::prefs::kDeletePasswords);
   prefs->ClearPref(browsing_data::prefs::kDeleteFormData);
+}
+
+#pragma mark - Unified Consent utilities
+
++ (void)setURLKeyedAnonymizedDataCollectionEnabled:(BOOL)enabled {
+  UnifiedConsentServiceFactory::GetForBrowserState(
+      chrome_test_util::GetOriginalBrowserState())
+      ->SetUrlKeyedAnonymizedDataCollectionEnabled(enabled);
 }
 
 #pragma mark - Keyboard Command Utilities

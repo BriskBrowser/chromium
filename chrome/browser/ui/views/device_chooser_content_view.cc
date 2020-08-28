@@ -65,7 +65,7 @@ BluetoothStatusContainer::BluetoothStatusContainer(
           views::BoxLayout::Orientation::kHorizontal))
       ->set_cross_axis_alignment(views::BoxLayout::CrossAxisAlignment::kCenter);
 
-  auto re_scan_button = views::MdTextButton::CreateSecondaryUiButton(
+  auto re_scan_button = std::make_unique<views::MdTextButton>(
       listener,
       l10n_util::GetStringUTF16(IDS_BLUETOOTH_DEVICE_CHOOSER_RE_SCAN));
   re_scan_button->SetTooltipText(
@@ -157,7 +157,8 @@ DeviceChooserContentView::DeviceChooserContentView(
   size_t offset = 0;
   base::string16 text = l10n_util::GetStringFUTF16(
       IDS_BLUETOOTH_DEVICE_CHOOSER_TURN_ADAPTER_OFF, link_text, &offset);
-  auto adapter_off_help = std::make_unique<views::StyledLabel>(text, this);
+  auto adapter_off_help = std::make_unique<views::StyledLabel>(this);
+  adapter_off_help->SetText(text);
   adapter_off_help->AddStyleRange(
       gfx::Range(0, link_text.size()),
       views::StyledLabel::RangeStyleInfo::CreateForLink());
@@ -297,9 +298,8 @@ base::string16 DeviceChooserContentView::GetWindowTitle() const {
 
 std::unique_ptr<views::View> DeviceChooserContentView::CreateExtraView() {
   const auto make_help_button = [this]() {
-    auto help_button = views::CreateVectorImageButton(this);
-    views::SetImageFromVectorIcon(help_button.get(),
-                                  vector_icons::kHelpOutlineIcon);
+    auto help_button = views::CreateVectorImageButtonWithNativeTheme(
+        this, vector_icons::kHelpOutlineIcon);
     help_button->SetFocusForPlatform();
     help_button->SetTooltipText(l10n_util::GetStringUTF16(IDS_LEARN_MORE));
     help_button->set_tag(kHelpButtonTag);

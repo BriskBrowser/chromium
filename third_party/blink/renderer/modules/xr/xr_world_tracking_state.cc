@@ -3,23 +3,16 @@
 // found in the LICENSE file.
 
 #include "third_party/blink/renderer/modules/xr/xr_world_tracking_state.h"
+
 #include "third_party/blink/renderer/modules/xr/xr_plane_detection_state.h"
-#include "third_party/blink/renderer/modules/xr/xr_world_tracking_state_init.h"
 
 namespace blink {
 
-XRWorldTrackingState::XRWorldTrackingState(
-    XRWorldTrackingStateInit* world_tracking_state_init) {
-  if (world_tracking_state_init &&
-      world_tracking_state_init->hasPlaneDetectionState()) {
-    plane_detection_state_ = MakeGarbageCollected<XRPlaneDetectionState>(
-        world_tracking_state_init->planeDetectionState());
-  } else {
-    plane_detection_state_ = MakeGarbageCollected<XRPlaneDetectionState>();
-  }
-}
+XRWorldTrackingState::XRWorldTrackingState(bool plane_detection_enabled)
+    : plane_detection_state_(MakeGarbageCollected<XRPlaneDetectionState>(
+          plane_detection_enabled)) {}
 
-void XRWorldTrackingState::Trace(blink::Visitor* visitor) {
+void XRWorldTrackingState::Trace(Visitor* visitor) const {
   visitor->Trace(plane_detection_state_);
   ScriptWrappable::Trace(visitor);
 }

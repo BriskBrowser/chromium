@@ -5,10 +5,13 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_EVENTS_POINTER_EVENT_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_EVENTS_POINTER_EVENT_H_
 
-#include "third_party/blink/renderer/bindings/core/v8/v8_pointer_event_init.h"
+#include "third_party/blink/public/common/input/pointer_id.h"
 #include "third_party/blink/renderer/core/events/mouse_event.h"
+#include "third_party/blink/renderer/platform/wtf/casting.h"
 
 namespace blink {
+
+class PointerEventInit;
 
 class CORE_EXPORT PointerEvent final : public MouseEvent {
   DEFINE_WRAPPERTYPEINFO();
@@ -42,6 +45,8 @@ class CORE_EXPORT PointerEvent final : public MouseEvent {
   float pressure() const { return pressure_; }
   int32_t tiltX() const { return tilt_x_; }
   int32_t tiltY() const { return tilt_y_; }
+  double azimuthAngle() const { return azimuth_angle_; }
+  double altitudeAngle() const { return altitude_angle_; }
   float tangentialPressure() const { return tangential_pressure_; }
   int32_t twist() const { return twist_; }
   const String& pointerType() const { return pointer_type_; }
@@ -58,8 +63,8 @@ class CORE_EXPORT PointerEvent final : public MouseEvent {
   double pageX() const override { return page_location_.X(); }
   double pageY() const override { return page_location_.Y(); }
 
-  double offsetX() override;
-  double offsetY() override;
+  double offsetX() const override;
+  double offsetY() const override;
 
   void ReceivedTarget() override;
 
@@ -74,7 +79,7 @@ class CORE_EXPORT PointerEvent final : public MouseEvent {
 
   DispatchEventResult DispatchEvent(EventDispatcher&) override;
 
-  void Trace(blink::Visitor*) override;
+  void Trace(Visitor*) const override;
 
  private:
   PointerId pointer_id_;
@@ -83,6 +88,8 @@ class CORE_EXPORT PointerEvent final : public MouseEvent {
   float pressure_;
   int32_t tilt_x_;
   int32_t tilt_y_;
+  double azimuth_angle_;
+  double altitude_angle_;
   float tangential_pressure_;
   int32_t twist_;
   String pointer_type_;
@@ -96,7 +103,10 @@ class CORE_EXPORT PointerEvent final : public MouseEvent {
   HeapVector<Member<PointerEvent>> predicted_events_;
 };
 
-DEFINE_EVENT_TYPE_CASTS(PointerEvent);
+template <>
+struct DowncastTraits<PointerEvent> {
+  static bool AllowFrom(const Event& event) { return event.IsPointerEvent(); }
+};
 
 }  // namespace blink
 

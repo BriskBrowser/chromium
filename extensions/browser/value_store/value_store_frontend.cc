@@ -11,7 +11,6 @@
 #include "base/logging.h"
 #include "base/macros.h"
 #include "base/memory/scoped_refptr.h"
-#include "base/task/post_task.h"
 #include "base/trace_event/trace_event.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
@@ -30,8 +29,7 @@ class ValueStoreFrontend::Backend : public base::RefCountedThreadSafe<Backend> {
           BackendType backend_type)
       : store_factory_(store_factory), backend_type_(backend_type) {}
 
-  void Get(const std::string& key,
-           const ValueStoreFrontend::ReadCallback& callback) {
+  void Get(const std::string& key, ValueStoreFrontend::ReadCallback callback) {
     DCHECK(IsOnBackendSequence());
     LazyInit();
     ValueStore::ReadResult result = storage_->Get(key);
@@ -46,9 +44,9 @@ class ValueStoreFrontend::Backend : public base::RefCountedThreadSafe<Backend> {
                    << " failed: " << result.status().message;
     }
 
-    base::PostTask(FROM_HERE, {BrowserThread::UI},
-                   base::BindOnce(&ValueStoreFrontend::Backend::RunCallback,
-                                  this, callback, std::move(value)));
+    content::GetUIThreadTaskRunner({})->PostTask(
+        FROM_HERE, base::BindOnce(&ValueStoreFrontend::Backend::RunCallback,
+                                  this, std::move(callback), std::move(value)));
   }
 
   void Set(const std::string& key, std::unique_ptr<base::Value> value) {
@@ -91,10 +89,10 @@ class ValueStoreFrontend::Backend : public base::RefCountedThreadSafe<Backend> {
     }
   }
 
-  void RunCallback(const ValueStoreFrontend::ReadCallback& callback,
+  void RunCallback(ValueStoreFrontend::ReadCallback callback,
                    std::unique_ptr<base::Value> value) {
     DCHECK_CURRENTLY_ON(BrowserThread::UI);
-    callback.Run(std::move(value));
+    std::move(callback).Run(std::move(value));
   }
 
   // The factory which will be used to lazily create the ValueStore when needed.
@@ -122,13 +120,12 @@ ValueStoreFrontend::~ValueStoreFrontend() {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
 }
 
-void ValueStoreFrontend::Get(const std::string& key,
-                             const ReadCallback& callback) {
+void ValueStoreFrontend::Get(const std::string& key, ReadCallback callback) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
   GetBackendTaskRunner()->PostTask(
       FROM_HERE, base::BindOnce(&ValueStoreFrontend::Backend::Get, backend_,
-                                key, callback));
+                                key, std::move(callback)));
 }
 
 void ValueStoreFrontend::Set(const std::string& key,

@@ -14,7 +14,6 @@ import androidx.annotation.Nullable;
 
 import org.chromium.base.Callback;
 import org.chromium.chrome.R;
-import org.chromium.chrome.browser.ChromeFeatureList;
 import org.chromium.chrome.browser.autofill.PersonalDataManager;
 import org.chromium.chrome.browser.autofill.PersonalDataManager.AutofillProfile;
 import org.chromium.chrome.browser.autofill.PersonalDataManager.GetSubKeysRequestDelegate;
@@ -23,9 +22,10 @@ import org.chromium.chrome.browser.autofill.prefeditor.EditorBase;
 import org.chromium.chrome.browser.autofill.prefeditor.EditorFieldModel;
 import org.chromium.chrome.browser.autofill.prefeditor.EditorFieldModel.EditorFieldValidator;
 import org.chromium.chrome.browser.autofill.prefeditor.EditorModel;
-import org.chromium.chrome.browser.settings.autofill.AutofillProfileBridge;
-import org.chromium.chrome.browser.settings.autofill.AutofillProfileBridge.AddressField;
-import org.chromium.chrome.browser.settings.autofill.AutofillProfileBridge.AddressUiComponent;
+import org.chromium.chrome.browser.autofill.settings.AutofillProfileBridge;
+import org.chromium.chrome.browser.autofill.settings.AutofillProfileBridge.AddressField;
+import org.chromium.chrome.browser.autofill.settings.AutofillProfileBridge.AddressUiComponent;
+import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.payments.mojom.AddressErrors;
 
 import java.lang.annotation.Retention;

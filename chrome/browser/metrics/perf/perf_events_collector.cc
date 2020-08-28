@@ -17,6 +17,7 @@
 #include "base/strings/stringprintf.h"
 #include "base/system/sys_info.h"
 #include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
 #include "chrome/browser/metrics/perf/cpu_identity.h"
 #include "chrome/browser/metrics/perf/process_type_collector.h"
 #include "chrome/browser/metrics/perf/windowed_incognito_observer.h"
@@ -115,44 +116,33 @@ const char kPerfLBRCmd[] = "perf record -a -e r20c4 -b -c 200011";
 // we sample on the branches retired event.
 const char kPerfLBRCmdAtom[] = "perf record -a -e rc4 -b -c 300001";
 
-// The following events count misses in the level 1 caches and TLBs.
-
-// Perf doesn't support the generic dTLB-misses event for Goldmont. We define it
-// in terms of raw event number and umask value. Event codes taken from
-// "Intel 64 and IA-32 Architectures Software Developer's Manual, Vol 3".
-const char kPerfInstructionTLBMissesCmdGLM[] =
-    "perf record -a -e r0481 -c 2003";
-
-const char kPerfDataTLBMissesCmdGLM[] = "perf record -a -e r13d0 -c 2003";
-
-// Use the generic event names for the other microarchitectures.
-const char kPerfInstructionTLBMissesCmd[] =
-    "perf record -a -e iTLB-misses -c 2003";
-
-const char kPerfDataTLBMissesCmd[] = "perf record -a -e dTLB-misses -c 2003";
+// The following events count misses in the last level caches and level 2 TLBs.
 
 // TLB miss cycles for IvyBridge, Haswell, Broadwell and SandyBridge.
 const char kPerfITLBMissCyclesCmdIvyBridge[] =
-    "perf record -a -e itlb_misses.walk_duration -c 2003";
+    "perf record -a -e itlb_misses.walk_duration -c 30001";
 
 const char kPerfDTLBMissCyclesCmdIvyBridge[] =
-    "perf record -a -e dtlb_load_misses.walk_duration -c 2003";
+    "perf record -a -e dtlb_load_misses.walk_duration -g -c 160001";
 
 // TLB miss cycles for Skylake and Kabylake.
 const char kPerfITLBMissCyclesCmdSkylake[] =
-    "perf record -a -e itlb_misses.walk_pending -c 2003";
+    "perf record -a -e itlb_misses.walk_pending -c 30001";
 
 const char kPerfDTLBMissCyclesCmdSkylake[] =
-    "perf record -a -e dtlb_load_misses.walk_pending -c 2003";
+    "perf record -a -e dtlb_load_misses.walk_pending -g -c 160001";
 
 // TLB miss cycles for Atom, including Silvermont, Airmont and Goldmont.
 const char kPerfITLBMissCyclesCmdAtom[] =
-    "perf record -a -e page_walks.i_side_cycles -c 2003";
+    "perf record -a -e page_walks.i_side_cycles -c 30001";
 
 const char kPerfDTLBMissCyclesCmdAtom[] =
-    "perf record -a -e page_walks.d_side_cycles -c 2003";
+    "perf record -a -e page_walks.d_side_cycles -c -g 160001";
 
-const char kPerfCacheMissesCmd[] = "perf record -a -e cache-misses -c 10007";
+const char kPerfLLCMissesCmd[] = "perf record -a -e r412e -g -c 30007";
+// Precise events (request zero skid) for last level cache misses.
+const char kPerfLLCMissesPreciseCmd[] =
+    "perf record -a -e r412e:pp -g -c 30007";
 
 const std::vector<RandomSelector::WeightAndValue> GetDefaultCommands_x86_64(
     const CPUIdentity& cpuid) {
@@ -163,8 +153,6 @@ const std::vector<RandomSelector::WeightAndValue> GetDefaultCommands_x86_64(
 
   // We use different perf events for iTLB, dTLB and LBR profiling on different
   // microarchitectures. Customize each command based on the microarchitecture.
-  const char* itlb_misses_cmd = kPerfInstructionTLBMissesCmd;
-  const char* dtlb_misses_cmd = kPerfDataTLBMissesCmd;
   const char* itlb_miss_cycles_cmd = kPerfITLBMissCyclesCmdIvyBridge;
   const char* dtlb_miss_cycles_cmd = kPerfDTLBMissCyclesCmdIvyBridge;
   const char* lbr_cmd = kPerfLBRCmd;
@@ -179,17 +167,13 @@ const std::vector<RandomSelector::WeightAndValue> GetDefaultCommands_x86_64(
     dtlb_miss_cycles_cmd = kPerfDTLBMissCyclesCmdAtom;
     lbr_cmd = kPerfLBRCmdAtom;
   }
-  if (cpu_uarch == "Goldmont" || cpu_uarch == "GoldmontPlus") {
-    itlb_misses_cmd = kPerfInstructionTLBMissesCmdGLM;
-    dtlb_misses_cmd = kPerfDataTLBMissesCmdGLM;
-  }
 
   if (cpu_uarch == "IvyBridge" || cpu_uarch == "Haswell" ||
       cpu_uarch == "Broadwell" || cpu_uarch == "SandyBridge" ||
       cpu_uarch == "Skylake" || cpu_uarch == "Kabylake" ||
       cpu_uarch == "Silvermont" || cpu_uarch == "Airmont" ||
       cpu_uarch == "Goldmont" || cpu_uarch == "GoldmontPlus") {
-    cmds.push_back(WeightAndValue(40.0, kPerfCyclesCmd));
+    cmds.push_back(WeightAndValue(50.0, kPerfCyclesCmd));
     // Haswell and newer big Intel cores support LBR callstack profiling. This
     // requires kernel support, which was added in kernel 4.4, and it was
     // backported to kernel 3.18. Collect LBR callstack profiling where
@@ -205,19 +189,28 @@ const std::vector<RandomSelector::WeightAndValue> GetDefaultCommands_x86_64(
       cmds.push_back(WeightAndValue(20.0, kPerfFPCallgraphCmd));
     }
     cmds.push_back(WeightAndValue(15.0, lbr_cmd));
-    cmds.push_back(WeightAndValue(5.0, itlb_misses_cmd));
-    cmds.push_back(WeightAndValue(5.0, dtlb_misses_cmd));
     cmds.push_back(WeightAndValue(5.0, itlb_miss_cycles_cmd));
     cmds.push_back(WeightAndValue(5.0, dtlb_miss_cycles_cmd));
-    cmds.push_back(WeightAndValue(5.0, kPerfCacheMissesCmd));
+    // Only atom family and big Intel cores newer than haswell support precise
+    // events on last level cache misses.
+    if (cpu_uarch != "IvyBridge" && cpu_uarch != "Haswell" &&
+        cpu_uarch != "SandyBridge") {
+      cmds.push_back(WeightAndValue(5.0, kPerfLLCMissesPreciseCmd));
+    } else {
+      cmds.push_back(WeightAndValue(5.0, kPerfLLCMissesCmd));
+    }
     return cmds;
   }
-  // Other 64-bit x86
-  cmds.push_back(WeightAndValue(65.0, kPerfCyclesCmd));
+  // Other 64-bit x86. We collect LLC misses for other Intel CPUs, but not for
+  // non-Intel CPUs such as AMD, since the event code provided for LLC is
+  // Intel specific.
+  if (cpuid.vendor=="GenuineIntel"){
+    cmds.push_back(WeightAndValue(75.0, kPerfCyclesCmd));
+    cmds.push_back(WeightAndValue(5.0, kPerfLLCMissesCmd));
+  } else {
+    cmds.push_back(WeightAndValue(80.0, kPerfCyclesCmd));
+  }
   cmds.push_back(WeightAndValue(20.0, kPerfFPCallgraphCmd));
-  cmds.push_back(WeightAndValue(5.0, kPerfInstructionTLBMissesCmd));
-  cmds.push_back(WeightAndValue(5.0, kPerfDataTLBMissesCmd));
-  cmds.push_back(WeightAndValue(5.0, kPerfCacheMissesCmd));
   return cmds;
 }
 
@@ -275,9 +268,9 @@ void PerfCollector::SetUp() {
       std::make_unique<chromeos::DebugDaemonClientProvider>();
 
   auto task_runner = base::SequencedTaskRunnerHandle::Get();
-  base::PostTask(
+  base::ThreadPool::PostTask(
       FROM_HERE,
-      {base::ThreadPool(), base::MayBlock(), base::TaskPriority::BEST_EFFORT,
+      {base::MayBlock(), base::TaskPriority::BEST_EFFORT,
        base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN},
       base::BindOnce(&PerfCollector::ParseCPUFrequencies, task_runner,
                      weak_factory_.GetWeakPtr()));
@@ -451,9 +444,8 @@ void PerfCollector::ParseOutputProtoIfValid(
                   sampled_profile->mutable_cpu_max_frequency_mhz()));
   }
 
-  bool posted = base::PostTaskAndReply(
-      FROM_HERE,
-      {base::ThreadPool(), base::MayBlock(), base::TaskPriority::USER_VISIBLE},
+  bool posted = base::ThreadPool::PostTaskAndReply(
+      FROM_HERE, {base::MayBlock(), base::TaskPriority::USER_VISIBLE},
       base::BindOnce(&OnCollectProcessTypes, sampled_profile.get()),
       base::BindOnce(&PerfCollector::SaveSerializedPerfProto,
                      weak_factory_.GetWeakPtr(), std::move(sampled_profile),

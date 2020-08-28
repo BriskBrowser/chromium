@@ -10,6 +10,7 @@
 #include <string>
 #include <utility>
 
+#include "base/logging.h"
 #include "base/memory/ptr_util.h"
 #include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
@@ -23,6 +24,7 @@
 #include "device/bluetooth/bluetooth_remote_gatt_characteristic.h"
 #include "device/bluetooth/bluetooth_remote_gatt_descriptor.h"
 #include "device/bluetooth/bluetooth_remote_gatt_service.h"
+#include "device/bluetooth/public/cpp/bluetooth_uuid.h"
 #include "device/bluetooth/string_util_icu.h"
 #include "device/bluetooth/strings/grit/bluetooth_strings.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -90,8 +92,9 @@ BluetoothDevice::ConnectionInfo::ConnectionInfo()
       transmit_power(kUnknownPower),
       max_transmit_power(kUnknownPower) {}
 
-BluetoothDevice::ConnectionInfo::ConnectionInfo(
-    int rssi, int transmit_power, int max_transmit_power)
+BluetoothDevice::ConnectionInfo::ConnectionInfo(int rssi,
+                                                int transmit_power,
+                                                int max_transmit_power)
     : rssi(rssi),
       transmit_power(transmit_power),
       max_transmit_power(max_transmit_power) {}
@@ -345,12 +348,25 @@ base::Optional<int8_t> BluetoothDevice::GetInquiryTxPower() const {
 
 void BluetoothDevice::CreateGattConnection(
     GattConnectionCallback callback,
-    ConnectErrorCallback error_callback) {
+    ConnectErrorCallback error_callback,
+    base::Optional<BluetoothUUID> service_uuid) {
+  if (!supports_service_specific_discovery_)
+    service_uuid.reset();
+
   const bool connection_already_pending =
       !create_gatt_connection_success_callbacks_.empty();
 
   create_gatt_connection_success_callbacks_.push_back(std::move(callback));
   create_gatt_connection_error_callbacks_.push_back(std::move(error_callback));
+
+  // If a service-specific discovery was originally requested, but this request
+  // is for a different or non-specific discovery, then the previous discovery
+  // needs to be redone.
+  if (target_service_.has_value() && target_service_ != service_uuid) {
+    DCHECK(IsGattConnected() || connection_already_pending);
+    target_service_ = service_uuid;
+    UpgradeToFullDiscovery();
+  }
 
   if (IsGattConnected()) {
     DCHECK(!connection_already_pending);
@@ -363,7 +379,8 @@ void BluetoothDevice::CreateGattConnection(
     return;
   }
 
-  CreateGattConnectionImpl();
+  target_service_ = service_uuid;
+  CreateGattConnectionImpl(std::move(service_uuid));
 }
 
 void BluetoothDevice::SetGattServicesDiscoveryComplete(bool complete) {
@@ -371,7 +388,7 @@ void BluetoothDevice::SetGattServicesDiscoveryComplete(bool complete) {
 }
 
 bool BluetoothDevice::IsGattServicesDiscoveryComplete() const {
-  return gatt_services_discovery_complete_;
+  return !target_service_ && gatt_services_discovery_complete_;
 }
 
 std::vector<BluetoothRemoteGattService*> BluetoothDevice::GetGattServices()
@@ -390,56 +407,9 @@ BluetoothRemoteGattService* BluetoothDevice::GetGattService(
   return it->second.get();
 }
 
-// static
-std::string BluetoothDevice::CanonicalizeAddress(base::StringPiece address) {
-  std::array<uint8_t, 6> bytes;
-
-  if (!ParseAddress(address, bytes))
-    return std::string();
-
-  std::string canonicalized;
-  canonicalized.reserve(17);
-
-  for (size_t i = 0; i < bytes.size(); ++i) {
-    if (i != 0)
-      canonicalized.push_back(':');
-    base::StringAppendF(&canonicalized, "%02X", bytes[i]);
-  }
-
-  return canonicalized;
+std::string BluetoothDevice::GetIdentifier() const {
+  return GetAddress();
 }
-
-bool BluetoothDevice::ParseAddress(base::StringPiece input,
-                                   base::span<uint8_t> output) {
-  if (output.size() != 6)
-    return false;
-
-  // Try parsing addresses that lack separators, like "1A2B3C4D5E6F".
-  if (input.size() == 12)
-    return base::HexStringToSpan(input, output);
-
-  // Try parsing MAC address with separators like: "00:11:22:33:44:55" or
-  // "00-11-22-33-44-55". Separator can be either '-' or ':', but must use the
-  // same style throughout.
-  if (input.size() == 17) {
-    const char separator = input[2];
-    if (separator != '-' && separator != ':')
-      return false;
-    return (input[2] == separator) && (input[5] == separator) &&
-           (input[8] == separator) && (input[11] == separator) &&
-           (input[14] == separator) &&
-           base::HexStringToSpan(input.substr(0, 2), output.subspan<0, 1>()) &&
-           base::HexStringToSpan(input.substr(3, 2), output.subspan<1, 1>()) &&
-           base::HexStringToSpan(input.substr(6, 2), output.subspan<2, 1>()) &&
-           base::HexStringToSpan(input.substr(9, 2), output.subspan<3, 1>()) &&
-           base::HexStringToSpan(input.substr(12, 2), output.subspan<4, 1>()) &&
-           base::HexStringToSpan(input.substr(15, 2), output.subspan<5, 1>());
-  }
-
-  return false;
-}
-
-std::string BluetoothDevice::GetIdentifier() const { return GetAddress(); }
 
 void BluetoothDevice::UpdateAdvertisementData(
     int8_t rssi,
@@ -470,9 +440,9 @@ void BluetoothDevice::ClearAdvertisementData() {
 
 std::vector<BluetoothRemoteGattService*> BluetoothDevice::GetPrimaryServices() {
   std::vector<BluetoothRemoteGattService*> services;
-  VLOG(2) << "Looking for services.";
+  DVLOG(2) << "Looking for services.";
   for (BluetoothRemoteGattService* service : GetGattServices()) {
-    VLOG(2) << "Service in cache: " << service->GetUUID().canonical_value();
+    DVLOG(2) << "Service in cache: " << service->GetUUID().canonical_value();
     if (service->IsPrimary()) {
       services.push_back(service);
     }
@@ -483,9 +453,9 @@ std::vector<BluetoothRemoteGattService*> BluetoothDevice::GetPrimaryServices() {
 std::vector<BluetoothRemoteGattService*>
 BluetoothDevice::GetPrimaryServicesByUUID(const BluetoothUUID& service_uuid) {
   std::vector<BluetoothRemoteGattService*> services;
-  VLOG(2) << "Looking for service: " << service_uuid.canonical_value();
+  DVLOG(2) << "Looking for service: " << service_uuid.canonical_value();
   for (BluetoothRemoteGattService* service : GetGattServices()) {
-    VLOG(2) << "Service in cache: " << service->GetUUID().canonical_value();
+    DVLOG(2) << "Service in cache: " << service->GetUUID().canonical_value();
     if (service->GetUUID() == service_uuid && service->IsPrimary()) {
       services.push_back(service);
     }
@@ -493,7 +463,7 @@ BluetoothDevice::GetPrimaryServicesByUUID(const BluetoothUUID& service_uuid) {
   return services;
 }
 
-#if defined(OS_CHROMEOS)
+#if defined(OS_CHROMEOS) || defined(OS_LINUX)
 void BluetoothDevice::SetBatteryPercentage(
     base::Optional<uint8_t> battery_percentage) {
   if (battery_percentage)
@@ -506,6 +476,16 @@ void BluetoothDevice::SetBatteryPercentage(
   GetAdapter()->NotifyDeviceBatteryChanged(this);
 }
 #endif
+
+bool BluetoothDevice::supports_service_specific_discovery() const {
+  return supports_service_specific_discovery_;
+}
+
+void BluetoothDevice::UpgradeToFullDiscovery() {
+  // Must be overridden by any subclass that sets
+  // |supports_service_specific_discovery_|.
+  NOTREACHED();
+}
 
 std::unique_ptr<BluetoothGattConnection>
 BluetoothDevice::CreateBluetoothGattConnectionObject() {
@@ -526,6 +506,8 @@ void BluetoothDevice::DidFailToConnectGatt(ConnectErrorCode error) {
   // connections.
   DCHECK(gatt_connections_.empty());
 
+  target_service_.reset();
+
   for (auto& error_callback : create_gatt_connection_error_callbacks_)
     std::move(error_callback).Run(error);
   create_gatt_connection_success_callbacks_.clear();
@@ -536,6 +518,8 @@ void BluetoothDevice::DidDisconnectGatt() {
   // Pending calls to connect GATT are not expected, if they were then
   // DidFailToConnectGatt should have been called.
   DCHECK(create_gatt_connection_error_callbacks_.empty());
+
+  target_service_.reset();
 
   // Invalidate all BluetoothGattConnection objects.
   for (BluetoothGattConnection* connection : gatt_connections_) {

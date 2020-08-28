@@ -6,6 +6,7 @@
 
 #include <string>
 
+#include "base/base_switches.h"
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/location.h"
@@ -16,6 +17,7 @@
 #include "base/test/launcher/test_launcher.h"
 #include "base/test/launcher/test_launcher_test_utils.h"
 #include "base/test/scoped_feature_list.h"
+#include "base/test/scoped_run_loop_timeout.h"
 #include "base/test/test_switches.h"
 #include "base/test/test_timeouts.h"
 #include "base/threading/thread_restrictions.h"
@@ -25,15 +27,20 @@
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/content_switches.h"
+#include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/content_browser_test_utils.h"
 #include "content/public/test/test_launcher.h"
 #include "content/public/test/test_utils.h"
 #include "content/shell/browser/shell.h"
 #include "content/shell/common/shell_switches.h"
-#include "services/service_manager/sandbox/switches.h"
+#include "sandbox/policy/switches.h"
 #include "testing/gtest/include/gtest/gtest-spi.h"
 #include "testing/gtest/include/gtest/gtest.h"
+
+#if defined(USE_OZONE)
+#include "ui/ozone/public/ozone_switches.h"
+#endif
 
 namespace content {
 
@@ -44,8 +51,36 @@ namespace content {
 // TODO(mac): figure out why symbolization doesn't happen in the renderer.
 // http://crbug.com/521456
 // TODO(win): send PDB files for component build. http://crbug.com/521459
-#if !defined(OFFICIAL_BUILD) && !defined(OS_ANDROID) && !defined(OS_MACOSX) && \
+#if !defined(OFFICIAL_BUILD) && !defined(OS_ANDROID) && !defined(OS_MAC) && \
     !(defined(COMPONENT_BUILD) && defined(OS_WIN))
+
+namespace {
+
+const char* kSwitchesToCopy[] = {
+#if defined(USE_OZONE)
+    // Keep the kOzonePlatform switch that the Ozone must use.
+    switches::kOzonePlatform,
+#endif
+    // Some tests use custom cmdline that doesn't hold switches from previous
+    // cmdline. Only a couple of switches are copied. That can result in
+    // incorrect initialization of a process. For example, the work that we do
+    // to have use_x11 && use_ozone, requires UseOzonePlatform feature flag to
+    // be passed to all the process to ensure correct path is chosen.
+    // TODO(https://crbug.com/1096425): update this comment once USE_X11 goes
+    // away.
+    switches::kEnableFeatures,
+    switches::kDisableFeatures,
+};
+
+base::CommandLine CreateCommandLine() {
+  const base::CommandLine& cmdline = *base::CommandLine::ForCurrentProcess();
+  base::CommandLine command_line = base::CommandLine(cmdline.GetProgram());
+  command_line.CopySwitchesFrom(cmdline, kSwitchesToCopy,
+                                base::size(kSwitchesToCopy));
+  return command_line;
+}
+
+}  // namespace
 
 IN_PROC_BROWSER_TEST_F(ContentBrowserTest, MANUAL_ShouldntRun) {
   // Ensures that tests with MANUAL_ prefix don't run automatically.
@@ -78,8 +113,8 @@ IN_PROC_BROWSER_TEST_F(ContentBrowserTest, RendererCrashCallStack) {
   base::ScopedAllowBlockingForTesting allow_blocking;
   base::ScopedTempDir temp_dir;
   ASSERT_TRUE(temp_dir.CreateUniqueTempDir());
-  base::CommandLine new_test =
-      base::CommandLine(base::CommandLine::ForCurrentProcess()->GetProgram());
+
+  base::CommandLine new_test = CreateCommandLine();
   new_test.AppendSwitchASCII(base::kGTestFilterFlag,
                              "ContentBrowserTest.MANUAL_RendererCrash");
   new_test.AppendSwitch(switches::kRunManualTestsFlag);
@@ -88,7 +123,7 @@ IN_PROC_BROWSER_TEST_F(ContentBrowserTest, RendererCrashCallStack) {
 #if defined(THREAD_SANITIZER)
   // TSan appears to not be able to report intentional crashes from sandboxed
   // renderer processes.
-  new_test.AppendSwitch(service_manager::switches::kNoSandbox);
+  new_test.AppendSwitch(sandbox::policy::switches::kNoSandbox);
 #endif
 
   std::string output;
@@ -125,8 +160,8 @@ IN_PROC_BROWSER_TEST_F(ContentBrowserTest, MAYBE_BrowserCrashCallStack) {
   base::ScopedAllowBlockingForTesting allow_blocking;
   base::ScopedTempDir temp_dir;
   ASSERT_TRUE(temp_dir.CreateUniqueTempDir());
-  base::CommandLine new_test =
-      base::CommandLine(base::CommandLine::ForCurrentProcess()->GetProgram());
+
+  base::CommandLine new_test = CreateCommandLine();
   new_test.AppendSwitchASCII(base::kGTestFilterFlag,
                              "ContentBrowserTest.MANUAL_BrowserCrash");
   new_test.AppendSwitch(switches::kRunManualTestsFlag);
@@ -168,14 +203,19 @@ IN_PROC_BROWSER_TEST_F(MockContentBrowserTest, DISABLED_CrashTest) {
   IMMEDIATE_CRASH();
 }
 
+// This is disabled due to flakiness: https://crbug.com/1086372
+#if defined(OS_WIN)
+#define MAYBE_RunMockTests DISABLED_RunMockTests
+#else
+#define MAYBE_RunMockTests RunMockTests
+#endif
 // Using TestLauncher to launch 3 simple browser tests
 // and validate the resulting json file.
-IN_PROC_BROWSER_TEST_F(ContentBrowserTest, RunMockTests) {
+IN_PROC_BROWSER_TEST_F(ContentBrowserTest, MAYBE_RunMockTests) {
   base::ScopedAllowBlockingForTesting allow_blocking;
   base::ScopedTempDir temp_dir;
 
-  base::CommandLine command_line(
-      base::CommandLine::ForCurrentProcess()->GetProgram());
+  base::CommandLine command_line = CreateCommandLine();
   command_line.AppendSwitchASCII("gtest_filter",
                                  "MockContentBrowserTest.DISABLED_*");
   ASSERT_TRUE(temp_dir.CreateUniqueTempDir());
@@ -203,7 +243,7 @@ IN_PROC_BROWSER_TEST_F(ContentBrowserTest, RunMockTests) {
   ASSERT_TRUE(val);
   ASSERT_EQ(1u, val->GetList().size());
 
-  base::Value* iteration_val = &(val->GetList().at(0));
+  base::Value* iteration_val = &(val->GetList()[0]);
   ASSERT_TRUE(iteration_val);
   ASSERT_TRUE(iteration_val->is_dict());
   EXPECT_EQ(3u, iteration_val->DictSize());
@@ -301,12 +341,14 @@ IN_PROC_BROWSER_TEST_F(ContentBrowserTest, NonNestableTask) {
 IN_PROC_BROWSER_TEST_F(ContentBrowserTest, RunTimeoutInstalled) {
   // Verify that a RunLoop timeout is installed and shorter than the test
   // timeout itself.
-  const auto* run_timeout = base::RunLoop::ScopedRunTimeoutForTest::Current();
+  const base::RunLoop::RunLoopTimeout* run_timeout =
+      base::test::ScopedRunLoopTimeout::GetTimeoutForCurrentThread();
   EXPECT_TRUE(run_timeout);
-  EXPECT_LT(run_timeout->timeout(), TestTimeouts::test_launcher_timeout());
+  EXPECT_LT(run_timeout->timeout, TestTimeouts::test_launcher_timeout());
 
-  EXPECT_NONFATAL_FAILURE({ run_timeout->on_timeout().Run(); },
-                          "RunLoop::Run() timed out");
+  static const base::RepeatingClosure& static_on_timeout =
+      run_timeout->on_timeout;
+  EXPECT_FATAL_FAILURE(static_on_timeout.Run(), "RunLoop::Run() timed out");
 }
 
 }  // namespace content

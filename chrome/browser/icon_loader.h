@@ -72,13 +72,18 @@ class IconLoader {
 
   void ReadGroup();
   void ReadIcon();
+#if defined(OS_WIN)
+  // Reads an icon in a sandboxed service. Use this when the file itself must
+  // be parsed.
+  void ReadIconInSandbox();
+#endif
 
-  // The traits of the tasks posted by this class. These operations may block,
-  // because they are fetching icons from the disk, yet the result will be seen
-  // by the user so they should be prioritized accordingly.
+  // The traits of the tasks posted to base::ThreadPool by this class. These
+  // operations may block, because they are fetching icons from the disk, yet
+  // the result will be seen by the user so they should be prioritized
+  // accordingly.
   static constexpr base::TaskTraits traits() {
-    return {base::ThreadPool(), base::MayBlock(),
-            base::TaskPriority::USER_VISIBLE};
+    return {base::MayBlock(), base::TaskPriority::USER_VISIBLE};
   }
 
   // The task runner object of the thread in which we notify the delegate.

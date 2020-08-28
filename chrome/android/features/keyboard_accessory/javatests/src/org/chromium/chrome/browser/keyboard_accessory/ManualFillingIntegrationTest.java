@@ -4,16 +4,16 @@
 
 package org.chromium.chrome.browser.keyboard_accessory;
 
-import static android.support.test.espresso.Espresso.onView;
-import static android.support.test.espresso.action.ViewActions.click;
-import static android.support.test.espresso.assertion.ViewAssertions.doesNotExist;
-import static android.support.test.espresso.assertion.ViewAssertions.matches;
-import static android.support.test.espresso.matcher.ViewMatchers.assertThat;
-import static android.support.test.espresso.matcher.ViewMatchers.isCompletelyDisplayed;
-import static android.support.test.espresso.matcher.ViewMatchers.isDisplayed;
-import static android.support.test.espresso.matcher.ViewMatchers.withChild;
-import static android.support.test.espresso.matcher.ViewMatchers.withId;
-import static android.support.test.espresso.matcher.ViewMatchers.withText;
+import static androidx.test.espresso.Espresso.onView;
+import static androidx.test.espresso.action.ViewActions.click;
+import static androidx.test.espresso.assertion.ViewAssertions.doesNotExist;
+import static androidx.test.espresso.assertion.ViewAssertions.matches;
+import static androidx.test.espresso.matcher.ViewMatchers.assertThat;
+import static androidx.test.espresso.matcher.ViewMatchers.isCompletelyDisplayed;
+import static androidx.test.espresso.matcher.ViewMatchers.isDisplayed;
+import static androidx.test.espresso.matcher.ViewMatchers.withChild;
+import static androidx.test.espresso.matcher.ViewMatchers.withId;
+import static androidx.test.espresso.matcher.ViewMatchers.withText;
 
 import static org.hamcrest.Matchers.allOf;
 import static org.hamcrest.Matchers.is;
@@ -25,10 +25,12 @@ import static org.chromium.chrome.browser.keyboard_accessory.ManualFillingTestHe
 import static org.chromium.chrome.browser.keyboard_accessory.ManualFillingTestHelper.whenDisplayed;
 import static org.chromium.chrome.browser.keyboard_accessory.tab_layout_component.KeyboardAccessoryTabTestHelper.isKeyboardAccessoryTabLayout;
 
-import android.support.test.espresso.Espresso;
-import android.support.test.filters.SmallTest;
+import android.os.Build.VERSION_CODES;
 import android.view.View;
 import android.view.ViewGroup;
+
+import androidx.test.espresso.Espresso;
+import androidx.test.filters.SmallTest;
 
 import org.junit.After;
 import org.junit.Rule;
@@ -37,11 +39,12 @@ import org.junit.runner.RunWith;
 
 import org.chromium.base.task.PostTask;
 import org.chromium.base.test.util.CommandLineFlags;
+import org.chromium.base.test.util.DisableIf;
 import org.chromium.base.test.util.Restriction;
-import org.chromium.chrome.browser.ChromeFeatureList;
-import org.chromium.chrome.browser.ChromeSwitches;
+import org.chromium.chrome.browser.flags.ChromeFeatureList;
+import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.infobar.InfoBarIdentifier;
-import org.chromium.chrome.browser.infobar.SimpleConfirmInfoBarBuilder;
+import org.chromium.chrome.browser.ui.messages.infobar.SimpleConfirmInfoBarBuilder;
 import org.chromium.chrome.browser.ui.messages.snackbar.Snackbar;
 import org.chromium.chrome.browser.ui.messages.snackbar.SnackbarManager;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
@@ -101,7 +104,11 @@ public class ManualFillingIntegrationTest {
 
     @Test
     @SmallTest
-    public void testKeyboardAccessoryDisappearsWithKeyboard() throws TimeoutException {
+    @DisableIf.
+    Build(sdk_is_greater_than = VERSION_CODES.LOLLIPOP_MR1, sdk_is_less_than = VERSION_CODES.N,
+            message = "Flaky on Marshmallow https://crbug.com/1102302")
+    public void
+    testKeyboardAccessoryDisappearsWithKeyboard() throws TimeoutException {
         mHelper.loadTestPage(false);
 
         // Focus the field to bring up the accessory.
@@ -136,7 +143,11 @@ public class ManualFillingIntegrationTest {
 
     @Test
     @SmallTest
-    public void testAccessorySheetHiddenWhenRefocusingField() throws TimeoutException {
+    @DisableIf.
+    Build(sdk_is_greater_than = VERSION_CODES.LOLLIPOP_MR1, sdk_is_less_than = VERSION_CODES.N,
+            message = "Flaky on Marshmallow https://crbug.com/1102302")
+    public void
+    testAccessorySheetHiddenWhenRefocusingField() throws TimeoutException {
         AtomicReference<ViewGroup.MarginLayoutParams> accessoryMargins = new AtomicReference<>();
         AtomicReference<View> accessorySheetView = new AtomicReference<>();
         mHelper.loadTestPage(false);
@@ -173,7 +184,11 @@ public class ManualFillingIntegrationTest {
     @Test
     @SmallTest
     @Features.DisableFeatures(ChromeFeatureList.AUTOFILL_KEYBOARD_ACCESSORY)
-    public void testAccessoryHiddenAfterTappingAutoGenerationButton() throws TimeoutException {
+    @DisableIf.
+    Build(sdk_is_greater_than = VERSION_CODES.LOLLIPOP_MR1, sdk_is_less_than = VERSION_CODES.N,
+            message = "Flaky on Marshmallow https://crbug.com/1102302")
+    public void
+    testAccessoryHiddenAfterTappingAutoGenerationButton() throws TimeoutException {
         mHelper.loadTestPage(false);
 
         // Focus the field to bring up the accessory and add the generation button.
@@ -219,7 +234,11 @@ public class ManualFillingIntegrationTest {
     @Test
     @SmallTest
     @Features.DisableFeatures({ChromeFeatureList.AUTOFILL_KEYBOARD_ACCESSORY})
-    public void testSelectingNonPasswordInputDismissesAccessory() throws TimeoutException {
+    @DisableIf.
+    Build(sdk_is_greater_than = VERSION_CODES.LOLLIPOP_MR1, sdk_is_less_than = VERSION_CODES.N,
+            message = "Flaky on Marshmallow https://crbug.com/1102302")
+    public void
+    testSelectingNonPasswordInputDismissesAccessory() throws TimeoutException {
         mHelper.loadTestPage(false);
 
         // Focus the password field to bring up the accessory.
@@ -297,7 +316,11 @@ public class ManualFillingIntegrationTest {
 
     @Test
     @SmallTest
-    public void testPressingBackButtonHidesAccessorySheet() throws TimeoutException {
+    @DisableIf.
+    Build(sdk_is_greater_than = VERSION_CODES.LOLLIPOP_MR1, sdk_is_less_than = VERSION_CODES.N,
+            message = "Flaky on Marshmallow https://crbug.com/1102302")
+    public void
+    testPressingBackButtonHidesAccessorySheet() throws TimeoutException {
         mHelper.loadTestPage(false);
 
         // Focus the field to bring up the accessory.
@@ -318,7 +341,7 @@ public class ManualFillingIntegrationTest {
 
     @Test
     @SmallTest
-    public void testInfobarStaysHiddenWhileChangingFieldsWithOpenKeybaord()
+    public void testInfobarStaysHiddenWhileChangingFieldsWithOpenKeyboard()
             throws TimeoutException {
         mHelper.loadTestPage(false);
 
@@ -327,7 +350,8 @@ public class ManualFillingIntegrationTest {
         mActivityTestRule.getInfoBarContainer().addAnimationListener(listener);
         final String kInfoBarText = "SomeInfoBar";
         PostTask.runOrPostTask(UiThreadTaskTraits.DEFAULT, () -> {
-            SimpleConfirmInfoBarBuilder.create(mActivityTestRule.getActivity().getActivityTab(),
+            SimpleConfirmInfoBarBuilder.create(
+                    mActivityTestRule.getActivity().getActivityTab().getWebContents(),
                     InfoBarIdentifier.DUPLICATE_DOWNLOAD_INFOBAR_DELEGATE_ANDROID, kInfoBarText,
                     false);
         });
@@ -358,7 +382,11 @@ public class ManualFillingIntegrationTest {
 
     @Test
     @SmallTest
-    public void testInfobarStaysHiddenWhenOpeningSheet() throws TimeoutException {
+    @DisableIf.
+    Build(sdk_is_greater_than = VERSION_CODES.LOLLIPOP_MR1, sdk_is_less_than = VERSION_CODES.N,
+            message = "Flaky on Marshmallow https://crbug.com/1102302")
+    public void
+    testInfobarStaysHiddenWhenOpeningSheet() throws TimeoutException {
         mHelper.loadTestPage(false);
 
         // Initialize and wait for the infobar.
@@ -366,7 +394,8 @@ public class ManualFillingIntegrationTest {
         mActivityTestRule.getInfoBarContainer().addAnimationListener(listener);
         final String kInfoBarText = "SomeInfoBar";
         PostTask.runOrPostTask(UiThreadTaskTraits.DEFAULT, () -> {
-            SimpleConfirmInfoBarBuilder.create(mActivityTestRule.getActivity().getActivityTab(),
+            SimpleConfirmInfoBarBuilder.create(
+                    mActivityTestRule.getActivity().getActivityTab().getWebContents(),
                     InfoBarIdentifier.DUPLICATE_DOWNLOAD_INFOBAR_DELEGATE_ANDROID, kInfoBarText,
                     false);
         });
@@ -402,7 +431,11 @@ public class ManualFillingIntegrationTest {
 
     @Test
     @SmallTest
-    public void testMovesUpSnackbar() throws TimeoutException {
+    @DisableIf.
+    Build(sdk_is_greater_than = VERSION_CODES.LOLLIPOP_MR1, sdk_is_less_than = VERSION_CODES.N,
+            message = "Flaky on Marshmallow https://crbug.com/1102302")
+    public void
+    testMovesUpSnackbar() throws TimeoutException {
         final String kSnackbarText = "snackbar";
 
         mHelper.loadTestPage(false);
@@ -438,7 +471,11 @@ public class ManualFillingIntegrationTest {
 
     @Test
     @SmallTest
-    public void testInfobarReopensOnPressingBack() throws TimeoutException {
+    @DisableIf.
+    Build(sdk_is_greater_than = VERSION_CODES.LOLLIPOP_MR1, sdk_is_less_than = VERSION_CODES.N,
+            message = "Flaky on Marshmallow https://crbug.com/1102302")
+    public void
+    testInfobarReopensOnPressingBack() throws TimeoutException {
         mHelper.loadTestPage(false);
 
         // Initialize and wait for the infobar.
@@ -446,7 +483,8 @@ public class ManualFillingIntegrationTest {
         mActivityTestRule.getInfoBarContainer().addAnimationListener(listener);
         final String kInfoBarText = "SomeInfoBar";
         PostTask.runOrPostTask(UiThreadTaskTraits.DEFAULT, () -> {
-            SimpleConfirmInfoBarBuilder.create(mActivityTestRule.getActivity().getActivityTab(),
+            SimpleConfirmInfoBarBuilder.create(
+                    mActivityTestRule.getActivity().getActivityTab().getWebContents(),
                     InfoBarIdentifier.DUPLICATE_DOWNLOAD_INFOBAR_DELEGATE_ANDROID, kInfoBarText,
                     false);
         });

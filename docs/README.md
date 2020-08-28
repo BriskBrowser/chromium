@@ -110,6 +110,7 @@ used when committed.
 *   [Code Reviews](code_reviews.md) - Code review requirements and guidelines
 *   [Respectful Code Reviews](cr_respect.md) - A guide for code reviewers
 *   [Respectful Changes](cl_respect.md) - A guide for code authors
+*   [Mandatory Code-Review Rollout](code_review_owners.md) - Upcoming policy changes related to code review and OWNERS
 *   [LUCI Migration FAQ](luci_migration_faq.md) - FAQ on Buildbot-to-LUCI
     builder migration for Chromium
 *   [Tour of Continuous Integration UI](tour_of_luci_ui.md) - A tour of our
@@ -153,6 +154,8 @@ used when committed.
     chrome:// URLs).
 *   [Watchlists](infra/watchlists.md) - Use watchlists to get notified of CLs
     you are interested in.
+*   [Shutdown](shutdown.md) - Explains the steps of Chrome shutdown, to make it
+    easier to determine where to add a new shutdown operation.
 
 ### Testing
 *   [Running and Debugging Web Tests](testing/web_tests.md)
@@ -286,6 +289,8 @@ used when committed.
 *   [User Agent in Chrome for iOS](ios/user_agent.md) - Notes on User Agent
     strings using Chrome for iOS.
 *   [Running iOS test suites locally](ios/testing.md)
+*   [Working With Project Files in iOS](ios/working_with_files.md) - How
+    to add, remove, and rename files in the iOS Chromium project.
 
 ### Misc Chrome-OS-Specific Docs
 *   [Setting up captive portals and other restrictive networks](login/restrictive_networks.md)
@@ -368,8 +373,6 @@ used when committed.
     to Mojo and services in Chromium, with examples
 *   [Mojo API Reference](/mojo/README.md) - Detailed reference documentation for
     all things Mojo
-*   [The Service Manager &amp; Services](/services/service_manager/README.md) -
-    Services system overview, API references, example services
 *   [Service Development Guidelines](/services/README.md) - Guidelines for
     service development in the Chromium tree
 *   [Servicifying Chromium Features](servicification.md) - General advice for
@@ -378,6 +381,10 @@ used when committed.
     patterns for practical IPC conversion work
 *   [Mojo “Style” Guide](security/mojo.md) - Recommendations for best practices
     from Mojo and IPC reviewers
+
+### Speed
+*   [Chrome Speed](speed/README.md) - Documentation for performance measurements and regressions in Chrome.
+*   [Chrome Speed Metrics](speed_metrics/README.md) - Documentation about user experience metrics in the web and their JavaScript APIs.
 
 ### WebXR
 *   [Running OpenVR Without Headset](xr/run_openvr_without_headset.md) -

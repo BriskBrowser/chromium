@@ -2,7 +2,6 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-import("//build/config/jumbo.gni")
 import("//build/config/ui.gni")
 import("//testing/test.gni")
 
@@ -10,7 +9,7 @@ if (is_android) {
   import("//build/config/android/rules.gni")
 }
 
-jumbo_component("touch_selection") {
+component("touch_selection") {
   output_name = "ui_touch_selection"
 
   sources = [
@@ -89,20 +88,14 @@ test("ui_touch_selection_unittests") {
     "//ui/gfx:test_support",
   ]
 
-  data_deps = [
-    "//third_party/mesa_headers",
-  ]
+  data_deps = [ "//third_party/mesa_headers" ]
 }
 
 if (is_android) {
   java_cpp_enum("ui_touch_selection_enums_srcjar") {
-    sources = [
-      "selection_event_type.h",
-    ]
+    sources = [ "selection_event_type.h" ]
   }
   java_cpp_enum("ui_touch_handle_orientation_srcjar") {
-    sources = [
-      "touch_handle_orientation.h",
-    ]
+    sources = [ "touch_handle_orientation.h" ]
   }
 }

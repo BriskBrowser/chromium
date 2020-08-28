@@ -35,7 +35,7 @@
 #include "chromeos/network/network_state.h"
 #include "chromeos/network/network_state_handler.h"
 #include "chromeos/network/network_type_pattern.h"
-#include "components/captive_portal/captive_portal_detector.h"
+#include "components/captive_portal/core/captive_portal_detector.h"
 #include "components/prefs/pref_service.h"
 #include "components/session_manager/core/session_manager.h"
 #include "components/user_manager/user_manager.h"
@@ -107,7 +107,6 @@ class NetworkPortalNotificationControllerDelegate
         controller_(controller) {}
 
   // Overridden from message_center::NotificationDelegate:
-  void Close(bool by_user) override;
   void Click(const base::Optional<int>& button_index,
              const base::Optional<base::string16>& reply) override;
 
@@ -127,17 +126,6 @@ class NetworkPortalNotificationControllerDelegate
 
   DISALLOW_COPY_AND_ASSIGN(NetworkPortalNotificationControllerDelegate);
 };
-
-void NetworkPortalNotificationControllerDelegate::Close(bool by_user) {
-  if (clicked_)
-    return;
-  NetworkPortalNotificationController::UserActionMetric metric =
-      by_user ? NetworkPortalNotificationController::USER_ACTION_METRIC_CLOSED
-              : NetworkPortalNotificationController::USER_ACTION_METRIC_IGNORED;
-  UMA_HISTOGRAM_ENUMERATION(
-      NetworkPortalNotificationController::kUserActionMetric, metric,
-      NetworkPortalNotificationController::USER_ACTION_METRIC_COUNT);
-}
 
 void NetworkPortalNotificationControllerDelegate::Click(
     const base::Optional<int>& button_index,
@@ -164,10 +152,6 @@ void NetworkPortalNotificationControllerDelegate::Click(
              NetworkPortalNotificationController::kOpenPortalButtonIndex);
 
   clicked_ = true;
-  UMA_HISTOGRAM_ENUMERATION(
-      NetworkPortalNotificationController::kUserActionMetric,
-      NetworkPortalNotificationController::USER_ACTION_METRIC_CLICKED,
-      NetworkPortalNotificationController::USER_ACTION_METRIC_COUNT);
 
   Profile* profile = ProfileManager::GetActiveUserProfile();
 
@@ -203,10 +187,6 @@ const char NetworkPortalNotificationController::kNotificationId[] =
 // static
 const char NetworkPortalNotificationController::kNotificationMetric[] =
     "CaptivePortal.Notification.Status";
-
-// static
-const char NetworkPortalNotificationController::kUserActionMetric[] =
-    "CaptivePortal.Notification.UserAction";
 
 NetworkPortalNotificationController::NetworkPortalNotificationController(
     NetworkPortalDetector* network_portal_detector)
@@ -278,10 +258,6 @@ void NetworkPortalNotificationController::OnPortalDetectionCompleted(
 
   SystemNotificationHelper::GetInstance()->Display(
       *GetNotification(network, state));
-  UMA_HISTOGRAM_ENUMERATION(
-      NetworkPortalNotificationController::kNotificationMetric,
-      NetworkPortalNotificationController::NOTIFICATION_METRIC_DISPLAYED,
-      NetworkPortalNotificationController::NOTIFICATION_METRIC_COUNT);
 }
 
 void NetworkPortalNotificationController::OnShutdown() {
@@ -338,8 +314,7 @@ NetworkPortalNotificationController::CreateDefaultCaptivePortalNotification(
               base::UTF8ToUTF16(network->name())),
           base::string16(), GURL(), notifier_id, data, std::move(delegate),
           kNotificationCaptivePortalIcon,
-          message_center::SystemNotificationWarningLevel::NORMAL);
-  notification->SetSystemPriority();
+          message_center::SystemNotificationWarningLevel::WARNING);
   return notification;
 }
 
@@ -392,8 +367,7 @@ NetworkPortalNotificationController::
           notification_text, base::string16() /* display_source */, GURL(),
           notifier_id, data, std::move(delegate),
           kNotificationCaptivePortalIcon,
-          message_center::SystemNotificationWarningLevel::NORMAL);
-  notification->SetSystemPriority();
+          message_center::SystemNotificationWarningLevel::WARNING);
   return notification;
 }
 

@@ -8,40 +8,19 @@
 #import <Foundation/Foundation.h>
 #import <UIKit/UIKit.h>
 
-#import "ios/chrome/browser/sessions/session_window_restoring.h"
-
-@class SessionServiceIOS;
-class TabModelSyncedWindowDelegate;
-class TabUsageRecorder;
+class ChromeBrowserState;
 class WebStateList;
 class Browser;
-
-namespace ios {
-class ChromeBrowserState;
-}
 
 // A model of a tab "strip". Although the UI representation may not be a
 // traditional strip at all, tabs are still accessed via an integral index.
 // The model knows about the currently selected tab in order to maintain
 // consistency between multiple views that need the current tab to be
 // synchronized.
-@interface TabModel : NSObject <SessionWindowRestoring>
-
-// The delegate for sync.
-@property(nonatomic, readonly)
-    TabModelSyncedWindowDelegate* syncedWindowDelegate;
+@interface TabModel : NSObject
 
 // BrowserState associated with this TabModel.
-@property(nonatomic, readonly) ios::ChromeBrowserState* browserState;
-
-// Records UMA metrics about Tab usage.
-@property(nonatomic, readonly) TabUsageRecorder* tabUsageRecorder;
-
-// YES if this tab set is off the record.
-@property(nonatomic, readonly, getter=isOffTheRecord) BOOL offTheRecord;
-
-// NO if the model has at least one tab.
-@property(nonatomic, readonly, getter=isEmpty) BOOL empty;
+@property(nonatomic, readonly) ChromeBrowserState* browserState;
 
 // Determines the number of tabs in the model.
 @property(nonatomic, readonly) NSUInteger count;
@@ -49,27 +28,12 @@ class ChromeBrowserState;
 // The WebStateList owned by the TabModel.
 @property(nonatomic, readonly) WebStateList* webStateList;
 
-// YES if there is a session restoration in progress.
-@property(nonatomic, readonly, getter=isRestoringSession) BOOL restoringSession;
-
 // Initializes tabs from existing browser object. |-setCurrentTab| needs to be
 // called in order to display the views associated with the tabs. Waits until
 // the views are ready.
 - (instancetype)initWithBrowser:(Browser*)browser;
 
 - (instancetype)init NS_UNAVAILABLE;
-
-// Closes the tab at the given |index|. |index| must be valid.
-- (void)closeTabAtIndex:(NSUInteger)index;
-
-// Closes ALL the tabs.
-- (void)closeAllTabs;
-
-// Records tab session metrics.
-- (void)recordSessionMetrics;
-
-// Sets whether the user is primarily interacting with this tab model.
-- (void)setPrimary:(BOOL)primary;
 
 // Tells the receiver to disconnect from the model object it depends on. This
 // should be called before destroying the browser state that the receiver was

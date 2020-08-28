@@ -56,6 +56,13 @@ class AppListTestViewDelegate : public AppListViewDelegate,
   // Sets whether the search engine is Google or not.
   void SetSearchEngineIsGoogle(bool is_google);
 
+  // Set whether tablet mode is enabled.
+  void SetIsTabletModeEnabled(bool is_tablet_mode);
+
+  // Set whether the privacy notices should be shown.
+  void SetShouldShowAssistantPrivacyInfo(bool should_show);
+  void SetShouldShowSuggestedContentInfo(bool should_show);
+
   // AppListViewDelegate overrides:
   AppListModel* GetModel() override;
   SearchModel* GetSearchModel() override;
@@ -105,22 +112,30 @@ class AppListTestViewDelegate : public AppListViewDelegate,
       const base::string16& raw_query,
       const ash::SearchResultIdWithPositionIndices& results,
       int position_index) override;
+  void MaybeIncreasePrivacyInfoShownCounts() override;
   bool IsAssistantAllowedAndEnabled() const override;
   bool ShouldShowAssistantPrivacyInfo() const override;
-  void MaybeIncreaseAssistantPrivacyInfoShownCount() override;
   void MarkAssistantPrivacyInfoDismissed() override;
+  bool ShouldShowSuggestedContentInfo() const override;
+  void MarkSuggestedContentInfoDismissed() override;
   void OnStateTransitionAnimationCompleted(
       ash::AppListViewState state) override;
+  void OnViewStateChanged(AppListViewState state) override;
   void GetAppLaunchedMetricParams(
       AppLaunchedMetricParams* metric_params) override;
   gfx::Rect SnapBoundsToDisplayEdge(const gfx::Rect& bounds) override;
   int GetShelfSize() override;
+  bool AppListTargetVisibility() const override;
+  bool IsInTabletMode() override;
+  AppListNotifier* GetNotifier() override;
 
   // Do a bulk replacement of the items in the model.
   void ReplaceTestModel(int item_count);
 
   AppListTestModel* ReleaseTestModel() { return model_.release(); }
   AppListTestModel* GetTestModel() { return model_.get(); }
+
+  SearchModel* ReleaseTestSearchModel() { return search_model_.release(); }
 
  private:
   void RecordAppLaunched(ash::AppListLaunchedFrom launched_from);
@@ -135,6 +150,9 @@ class AppListTestViewDelegate : public AppListViewDelegate,
   int open_assistant_ui_count_ = 0;
   int next_profile_app_count_ = 0;
   int show_wallpaper_context_menu_count_ = 0;
+  bool is_tablet_mode_ = false;
+  bool should_show_assistant_privacy_info_ = false;
+  bool should_show_suggested_content_info_ = false;
   std::map<size_t, int> open_search_result_counts_;
   std::unique_ptr<AppListTestModel> model_;
   std::unique_ptr<SearchModel> search_model_;

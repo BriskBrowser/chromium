@@ -10,6 +10,7 @@
 #include <memory>
 #include <unordered_set>
 
+#include "base/test/scoped_feature_list.h"
 #include "ui/accessibility/platform/ax_fragment_root_delegate_win.h"
 #include "ui/base/win/accessibility_misc_utils.h"
 
@@ -25,7 +26,7 @@ struct IUnknown;
 namespace base {
 namespace win {
 class ScopedVariant;
-}
+}  // namespace win
 }  // namespace base
 
 namespace ui {
@@ -45,7 +46,37 @@ class TestFragmentRootDelegate : public AXFragmentRootDelegateWin {
   bool is_control_element_ = true;
 };
 
-class AXPlatformNodeWinTest : public ui::AXPlatformNodeTest {
+class MockIRawElementProviderSimple
+    : public CComObjectRootEx<CComMultiThreadModel>,
+      public IRawElementProviderSimple {
+ public:
+  BEGIN_COM_MAP(MockIRawElementProviderSimple)
+  COM_INTERFACE_ENTRY(IRawElementProviderSimple)
+  END_COM_MAP()
+
+  MockIRawElementProviderSimple();
+  ~MockIRawElementProviderSimple();
+
+  static HRESULT CreateMockIRawElementProviderSimple(
+      IRawElementProviderSimple** provider);
+
+  //
+  // IRawElementProviderSimple methods.
+  //
+  IFACEMETHODIMP GetPatternProvider(PATTERNID pattern_id,
+                                    IUnknown** result) override;
+
+  IFACEMETHODIMP GetPropertyValue(PROPERTYID property_id,
+                                  VARIANT* result) override;
+
+  IFACEMETHODIMP
+  get_ProviderOptions(enum ProviderOptions* ret) override;
+
+  IFACEMETHODIMP
+  get_HostRawElementProvider(IRawElementProviderSimple** provider) override;
+};
+
+class AXPlatformNodeWinTest : public AXPlatformNodeTest {
  public:
   AXPlatformNodeWinTest();
   ~AXPlatformNodeWinTest() override;
@@ -59,7 +90,7 @@ class AXPlatformNodeWinTest : public ui::AXPlatformNodeTest {
 
   AXPlatformNode* AXPlatformNodeFromNode(AXNode* node);
   template <typename T>
-  Microsoft::WRL::ComPtr<T> QueryInterfaceFromNodeId(int32_t id);
+  Microsoft::WRL::ComPtr<T> QueryInterfaceFromNodeId(AXNode::AXID id);
   template <typename T>
   Microsoft::WRL::ComPtr<T> QueryInterfaceFromNode(AXNode* node);
   Microsoft::WRL::ComPtr<IRawElementProviderSimple>
@@ -68,7 +99,7 @@ class AXPlatformNodeWinTest : public ui::AXPlatformNodeTest {
   GetIRawElementProviderSimpleFromChildIndex(int child_index);
   Microsoft::WRL::ComPtr<IRawElementProviderSimple>
   GetIRawElementProviderSimpleFromTree(const ui::AXTreeID tree_id,
-                                       const int32_t node_id);
+                                       const AXNode::AXID node_id);
   Microsoft::WRL::ComPtr<IRawElementProviderFragment>
   GetRootIRawElementProviderFragment();
   Microsoft::WRL::ComPtr<IRawElementProviderFragment>
@@ -93,11 +124,13 @@ class AXPlatformNodeWinTest : public ui::AXPlatformNodeTest {
   Microsoft::WRL::ComPtr<IRawElementProviderFragmentRoot> GetFragmentRoot();
 
   using PatternSet = std::unordered_set<LONG>;
-  PatternSet GetSupportedPatternsFromNodeId(int32_t id);
+  PatternSet GetSupportedPatternsFromNodeId(AXNode::AXID id);
 
   std::unique_ptr<AXFragmentRootWin> ax_fragment_root_;
 
   std::unique_ptr<TestFragmentRootDelegate> test_fragment_root_delegate_;
+
+  base::test::ScopedFeatureList scoped_feature_list_;
 };
 
 }  // namespace ui

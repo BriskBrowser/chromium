@@ -12,10 +12,8 @@
 #include "base/stl_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/test/metrics/histogram_tester.h"
-#include "base/test/scoped_feature_list.h"
 #include "base/test/task_environment.h"
 #include "base/values.h"
-#include "components/invalidation/impl/invalidation_switches.h"
 #include "components/invalidation/impl/profile_identity_provider.h"
 #include "components/invalidation/public/invalidation_util.h"
 #include "components/prefs/testing_pref_service.h"
@@ -23,14 +21,22 @@
 #include "net/http/http_status_code.h"
 #include "services/data_decoder/public/cpp/test_support/in_process_data_decoder.h"
 #include "services/network/test/test_url_loader_factory.h"
+#include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "url/gurl.h"
+
+using testing::_;
+using testing::Contains;
+using testing::Eq;
+using testing::NiceMock;
+using testing::Not;
+using testing::SizeIs;
 
 namespace syncer {
 
 namespace {
 
-size_t kInvalidationObjectIdsCount = 5;
+size_t kInvalidationTopicsCount = 5;
 
 const char kInvalidationRegistrationScope[] =
     "https://firebaseperusertopics-pa.googleapis.com";
@@ -45,6 +51,17 @@ const char kActiveRegistrationTokens[] =
 
 const char kFakeInstanceIdToken[] = "fake_instance_id_token";
 
+class MockIdentityDiagnosticsObserver
+    : public signin::IdentityManager::DiagnosticsObserver {
+ public:
+  MOCK_METHOD3(OnAccessTokenRequested,
+               void(const CoreAccountId&,
+                    const std::string&,
+                    const signin::ScopeSet&));
+  MOCK_METHOD2(OnAccessTokenRemovedFromCache,
+               void(const CoreAccountId&, const signin::ScopeSet&));
+};
+
 std::string IndexToName(size_t index) {
   char name[2] = "a";
   name[0] += static_cast<char>(index);
@@ -52,10 +69,11 @@ std::string IndexToName(size_t index) {
 }
 
 Topics GetSequenceOfTopicsStartingAt(size_t start, size_t count) {
-  Topics ids;
-  for (size_t i = start; i < start + count; ++i)
-    ids.emplace(IndexToName(i), TopicMetadata{false});
-  return ids;
+  Topics topics;
+  for (size_t i = start; i < start + count; ++i) {
+    topics.emplace(IndexToName(i), TopicMetadata{false});
+  }
+  return topics;
 }
 
 Topics GetSequenceOfTopics(size_t count) {
@@ -206,7 +224,7 @@ class PerUserTopicSubscriptionManagerTest : public testing::Test {
 
 TEST_F(PerUserTopicSubscriptionManagerTest,
        EmptyPrivateTopicShouldNotUpdateSubscribedTopics) {
-  auto ids = GetSequenceOfTopics(kInvalidationObjectIdsCount);
+  auto topics = GetSequenceOfTopics(kInvalidationTopicsCount);
 
   auto per_user_topic_subscription_manager = BuildRegistrationManager();
 
@@ -222,7 +240,7 @@ TEST_F(PerUserTopicSubscriptionManagerTest,
       CreateStatusForTest(net::OK, response_body));
 
   per_user_topic_subscription_manager->UpdateSubscribedTopics(
-      ids, kFakeInstanceIdToken);
+      topics, kFakeInstanceIdToken);
   base::RunLoop().RunUntilIdle();
 
   // The response didn't contain non-empty topic name. So nothing was
@@ -232,7 +250,7 @@ TEST_F(PerUserTopicSubscriptionManagerTest,
 }
 
 TEST_F(PerUserTopicSubscriptionManagerTest, ShouldUpdateSubscribedTopics) {
-  auto ids = GetSequenceOfTopics(kInvalidationObjectIdsCount);
+  auto topics = GetSequenceOfTopics(kInvalidationTopicsCount);
 
   auto per_user_topic_subscription_manager = BuildRegistrationManager();
   ASSERT_TRUE(per_user_topic_subscription_manager->GetSubscribedTopicsForTest()
@@ -241,24 +259,44 @@ TEST_F(PerUserTopicSubscriptionManagerTest, ShouldUpdateSubscribedTopics) {
   AddCorrectSubscriptionResponce();
 
   per_user_topic_subscription_manager->UpdateSubscribedTopics(
-      ids, kFakeInstanceIdToken);
+      topics, kFakeInstanceIdToken);
   base::RunLoop().RunUntilIdle();
 
-  EXPECT_EQ(TopicSetFromTopics(ids),
+  EXPECT_EQ(TopicSetFromTopics(topics),
             per_user_topic_subscription_manager->GetSubscribedTopicsForTest());
   EXPECT_TRUE(
       per_user_topic_subscription_manager->HaveAllRequestsFinishedForTest());
 
-  for (const auto& id : ids) {
+  for (const auto& topic : topics) {
     const base::Value* topics = GetSubscribedTopics();
     const base::Value* private_topic_value =
-        topics->FindKeyOfType(id.first, base::Value::Type::STRING);
+        topics->FindKeyOfType(topic.first, base::Value::Type::STRING);
     ASSERT_NE(private_topic_value, nullptr);
   }
 }
 
+TEST_F(PerUserTopicSubscriptionManagerTest,
+       ShouldNotRequestAccessTokenWhileHaveNoRequests) {
+  NiceMock<MockIdentityDiagnosticsObserver> identity_observer;
+  identity_test_env()->identity_manager()->AddDiagnosticsObserver(
+      &identity_observer);
+
+  EXPECT_CALL(identity_observer, OnAccessTokenRequested(_, _, _)).Times(0);
+  BuildRegistrationManager()->UpdateSubscribedTopics({}, kFakeInstanceIdToken);
+
+  identity_test_env()->identity_manager()->RemoveDiagnosticsObserver(
+      &identity_observer);
+}
+
 TEST_F(PerUserTopicSubscriptionManagerTest, ShouldRepeatRequestsOnFailure) {
-  auto ids = GetSequenceOfTopics(kInvalidationObjectIdsCount);
+  // For this test, we want to manually control when access tokens are returned.
+  identity_test_env()->SetAutomaticIssueOfAccessTokens(false);
+
+  NiceMock<MockIdentityDiagnosticsObserver> identity_observer;
+  identity_test_env()->identity_manager()->AddDiagnosticsObserver(
+      &identity_observer);
+
+  auto topics = GetSequenceOfTopics(kInvalidationTopicsCount);
 
   auto per_user_topic_subscription_manager = BuildRegistrationManager();
   ASSERT_TRUE(per_user_topic_subscription_manager->GetSubscribedTopicsForTest()
@@ -268,9 +306,17 @@ TEST_F(PerUserTopicSubscriptionManagerTest, ShouldRepeatRequestsOnFailure) {
   AddCorrectSubscriptionResponce(
       /*private_topic=*/std::string(), kFakeInstanceIdToken,
       net::HTTP_INTERNAL_SERVER_ERROR);
+  // Since this is a generic failure, not an auth error, the existing access
+  // token should *not* get invalidated.
+  EXPECT_CALL(identity_observer, OnAccessTokenRemovedFromCache(_, _)).Times(0);
 
   per_user_topic_subscription_manager->UpdateSubscribedTopics(
-      ids, kFakeInstanceIdToken);
+      topics, kFakeInstanceIdToken);
+  // This should have resulted in a request for an access token. Return one.
+  identity_test_env()->WaitForAccessTokenRequestIfNecessaryAndRespondWithToken(
+      "access_token", base::Time::Max());
+
+  // Wait for the subscription requests to happen.
   base::RunLoop().RunUntilIdle();
 
   // Since the subscriptions failed, the requests should still be pending.
@@ -282,6 +328,13 @@ TEST_F(PerUserTopicSubscriptionManagerTest, ShouldRepeatRequestsOnFailure) {
   // The second attempt will succeed.
   AddCorrectSubscriptionResponce();
 
+  // Repeating subscriptions shouldn't bypass backoff.
+  // This should have resulted in a request for an access token. Return one.
+  per_user_topic_subscription_manager->UpdateSubscribedTopics(
+      topics, kFakeInstanceIdToken);
+  identity_test_env()->WaitForAccessTokenRequestIfNecessaryAndRespondWithToken(
+      "access_token", base::Time::Max());
+
   // Initial backoff is 2 seconds with 20% jitter, so the minimum possible delay
   // is 1600ms. Advance time to just before that; nothing should have changed
   // yet.
@@ -291,13 +344,105 @@ TEST_F(PerUserTopicSubscriptionManagerTest, ShouldRepeatRequestsOnFailure) {
   EXPECT_FALSE(
       per_user_topic_subscription_manager->HaveAllRequestsFinishedForTest());
 
-  // The maximum backoff is 2 seconds; advance to just past that. Now all
-  // subscriptions should have finished.
+  // The maximum backoff is 2 seconds; advance to just past that.
+  // Access token should be refreshed in order to avoid requests with expired
+  // access token.
+  EXPECT_CALL(identity_observer, OnAccessTokenRequested(_, _, _));
   FastForwardTimeBy(base::TimeDelta::FromMilliseconds(600));
+  identity_test_env()->WaitForAccessTokenRequestIfNecessaryAndRespondWithToken(
+      "access_token", base::Time::Max());
+  base::RunLoop().RunUntilIdle();
+
+  // Now all subscriptions should have finished.
   EXPECT_FALSE(per_user_topic_subscription_manager->GetSubscribedTopicsForTest()
                    .empty());
   EXPECT_TRUE(
       per_user_topic_subscription_manager->HaveAllRequestsFinishedForTest());
+
+  identity_test_env()->identity_manager()->RemoveDiagnosticsObserver(
+      &identity_observer);
+}
+
+TEST_F(PerUserTopicSubscriptionManagerTest, ShouldNotRepeatOngoingRequests) {
+  auto topics = GetSequenceOfTopics(kInvalidationTopicsCount);
+
+  auto per_user_topic_subscription_manager = BuildRegistrationManager();
+
+  per_user_topic_subscription_manager->UpdateSubscribedTopics(
+      topics, kFakeInstanceIdToken);
+  // Wait for the subscription requests to happen.
+  base::RunLoop().RunUntilIdle();
+  // No response was set, so there should be one pending request per
+  // invalidation topic.
+  // Check pending_requests() size instead of NumPending(), because
+  // NumPending() filters out cancelled requests.
+  ASSERT_THAT(*url_loader_factory()->pending_requests(),
+              SizeIs(kInvalidationTopicsCount));
+
+  per_user_topic_subscription_manager->UpdateSubscribedTopics(
+      topics, kFakeInstanceIdToken);
+  // Ensure that all subscription requests have happened.
+  base::RunLoop().RunUntilIdle();
+  // No changes in wanted subscriptions or access token, so there should still
+  // be only one pending request per invalidation topic.
+  // Check pending_requests() size instead of NumPending(), because
+  // NumPending() filters out cancelled requests.
+  EXPECT_THAT(*url_loader_factory()->pending_requests(),
+              SizeIs(kInvalidationTopicsCount));
+}
+
+TEST_F(PerUserTopicSubscriptionManagerTest,
+       ShouldRepeatAccessTokenRequestOnFailure) {
+  // For this test, we want to manually control when access tokens are returned.
+  identity_test_env()->SetAutomaticIssueOfAccessTokens(false);
+
+  NiceMock<MockIdentityDiagnosticsObserver> identity_observer;
+  identity_test_env()->identity_manager()->AddDiagnosticsObserver(
+      &identity_observer);
+
+  auto topics = GetSequenceOfTopics(kInvalidationTopicsCount);
+
+  auto per_user_topic_subscription_manager = BuildRegistrationManager();
+  ASSERT_TRUE(per_user_topic_subscription_manager->GetSubscribedTopicsForTest()
+                  .empty());
+
+  // Emulate failure on first access token request.
+  EXPECT_CALL(identity_observer, OnAccessTokenRequested(_, _, _));
+  per_user_topic_subscription_manager->UpdateSubscribedTopics(
+      topics, kFakeInstanceIdToken);
+  identity_test_env()->WaitForAccessTokenRequestIfNecessaryAndRespondWithError(
+      GoogleServiceAuthError(GoogleServiceAuthError::CONNECTION_FAILED));
+  testing::Mock::VerifyAndClearExpectations(&identity_observer);
+
+  // Initial backoff is 2 seconds with 20% jitter, so the minimum possible delay
+  // is 1600ms. Advance time to just before that; nothing should have changed
+  // yet.
+  EXPECT_CALL(identity_observer, OnAccessTokenRequested(_, _, _)).Times(0);
+  // UpdateSubscribedTopics() call shouldn't lead to backoff bypassing.
+  per_user_topic_subscription_manager->UpdateSubscribedTopics(
+      topics, kFakeInstanceIdToken);
+  FastForwardTimeBy(base::TimeDelta::FromMilliseconds(1500));
+  testing::Mock::VerifyAndClearExpectations(&identity_observer);
+
+  // The maximum backoff is 2 seconds; advance to just past that. Now access
+  // token should be requested.
+  EXPECT_CALL(identity_observer, OnAccessTokenRequested(_, _, _));
+  FastForwardTimeBy(base::TimeDelta::FromMilliseconds(600));
+  testing::Mock::VerifyAndClearExpectations(&identity_observer);
+
+  // Add valid responses to access token and subscription requests and ensure
+  // that subscribtions finished.
+  identity_test_env()->WaitForAccessTokenRequestIfNecessaryAndRespondWithToken(
+      "valid_access_token", base::Time::Max());
+  AddCorrectSubscriptionResponce();
+  base::RunLoop().RunUntilIdle();
+  EXPECT_FALSE(per_user_topic_subscription_manager->GetSubscribedTopicsForTest()
+                   .empty());
+  EXPECT_TRUE(
+      per_user_topic_subscription_manager->HaveAllRequestsFinishedForTest());
+
+  identity_test_env()->identity_manager()->RemoveDiagnosticsObserver(
+      &identity_observer);
 }
 
 TEST_F(PerUserTopicSubscriptionManagerTest,
@@ -305,7 +450,11 @@ TEST_F(PerUserTopicSubscriptionManagerTest,
   // For this test, we need to manually control when access tokens are returned.
   identity_test_env()->SetAutomaticIssueOfAccessTokens(false);
 
-  auto ids = GetSequenceOfTopics(kInvalidationObjectIdsCount);
+  NiceMock<MockIdentityDiagnosticsObserver> identity_observer;
+  identity_test_env()->identity_manager()->AddDiagnosticsObserver(
+      &identity_observer);
+
+  auto topics = GetSequenceOfTopics(kInvalidationTopicsCount);
 
   auto per_user_topic_subscription_manager = BuildRegistrationManager();
   ASSERT_TRUE(per_user_topic_subscription_manager->GetSubscribedTopicsForTest()
@@ -315,9 +464,11 @@ TEST_F(PerUserTopicSubscriptionManagerTest,
   AddCorrectSubscriptionResponce(
       /*private_topic=*/std::string(), kFakeInstanceIdToken,
       net::HTTP_UNAUTHORIZED);
+  // This error should result in invalidating the access token.
+  EXPECT_CALL(identity_observer, OnAccessTokenRemovedFromCache(_, _));
 
   per_user_topic_subscription_manager->UpdateSubscribedTopics(
-      ids, kFakeInstanceIdToken);
+      topics, kFakeInstanceIdToken);
   // This should have resulted in a request for an access token. Return one
   // (which is considered invalid, e.g. already expired).
   identity_test_env()->WaitForAccessTokenRequestIfNecessaryAndRespondWithToken(
@@ -334,12 +485,10 @@ TEST_F(PerUserTopicSubscriptionManagerTest,
   ASSERT_FALSE(
       per_user_topic_subscription_manager->HaveAllRequestsFinishedForTest());
 
-  // A new access token should have been requested. (Note: We'd really want to
-  // check that the previous token got invalidated before a new one was
-  // requested, but the identity test code doesn't expose that.)
-  // Serving a new access token will trigger another subscription attempt; let
-  // this one succeed.
+  // A new access token should have been requested. Serving one will trigger
+  // another subscription attempt; let this one succeed.
   AddCorrectSubscriptionResponce();
+  EXPECT_CALL(identity_observer, OnAccessTokenRemovedFromCache(_, _)).Times(0);
   identity_test_env()->WaitForAccessTokenRequestIfNecessaryAndRespondWithToken(
       "valid_access_token", base::Time::Max());
   base::RunLoop().RunUntilIdle();
@@ -348,21 +497,87 @@ TEST_F(PerUserTopicSubscriptionManagerTest,
                    .empty());
   EXPECT_TRUE(
       per_user_topic_subscription_manager->HaveAllRequestsFinishedForTest());
+
+  identity_test_env()->identity_manager()->RemoveDiagnosticsObserver(
+      &identity_observer);
 }
 
-TEST_F(PerUserTopicSubscriptionManagerTest, ShouldRepeatRequestsOnForbidden) {
-  auto ids = GetSequenceOfTopics(kInvalidationObjectIdsCount);
+TEST_F(PerUserTopicSubscriptionManagerTest,
+       ShouldInvalidateAccessTokenOnlyOnce) {
+  // For this test, we need to manually control when access tokens are returned.
+  identity_test_env()->SetAutomaticIssueOfAccessTokens(false);
+
+  NiceMock<MockIdentityDiagnosticsObserver> identity_observer;
+  identity_test_env()->identity_manager()->AddDiagnosticsObserver(
+      &identity_observer);
+
+  auto topics = GetSequenceOfTopics(kInvalidationTopicsCount);
+
+  auto per_user_topic_subscription_manager = BuildRegistrationManager();
+  ASSERT_TRUE(per_user_topic_subscription_manager->GetSubscribedTopicsForTest()
+                  .empty());
+
+  // The first subscription attempt will fail with an "unauthorized" error.
+  AddCorrectSubscriptionResponce(
+      /*private_topic=*/std::string(), kFakeInstanceIdToken,
+      net::HTTP_UNAUTHORIZED);
+  // This error should result in invalidating the access token.
+  EXPECT_CALL(identity_observer, OnAccessTokenRemovedFromCache(_, _));
+
+  per_user_topic_subscription_manager->UpdateSubscribedTopics(
+      topics, kFakeInstanceIdToken);
+  // This should have resulted in a request for an access token. Return one
+  // (which is considered invalid, e.g. already expired).
+  identity_test_env()->WaitForAccessTokenRequestIfNecessaryAndRespondWithToken(
+      "invalid_access_token", base::Time::Now());
+
+  // Now the subscription requests should be scheduled.
+  ASSERT_FALSE(
+      per_user_topic_subscription_manager->HaveAllRequestsFinishedForTest());
+
+  // Wait for the subscription requests to happen.
+  base::RunLoop().RunUntilIdle();
+
+  // Since the subscriptions failed, the requests should still be pending.
+  ASSERT_FALSE(
+      per_user_topic_subscription_manager->HaveAllRequestsFinishedForTest());
+
+  // At this point, the old access token should have been invalidated and a new
+  // one requested. The new one should *not* get invalidated.
+  EXPECT_CALL(identity_observer, OnAccessTokenRemovedFromCache(_, _)).Times(0);
+  // Serving a new access token will trigger another subscription attempt, but
+  // it'll fail again with the same error.
+  identity_test_env()->WaitForAccessTokenRequestIfNecessaryAndRespondWithToken(
+      "invalid_access_token_2", base::Time::Max());
+  base::RunLoop().RunUntilIdle();
+
+  // On the second auth failure, we should have given up - no new access token
+  // request should have happened, and all the pending subscriptions should have
+  // been dropped, even though still no topics are subscribed.
+  EXPECT_FALSE(identity_test_env()->IsAccessTokenRequestPending());
+  EXPECT_TRUE(per_user_topic_subscription_manager->GetSubscribedTopicsForTest()
+                  .empty());
+  EXPECT_TRUE(
+      per_user_topic_subscription_manager->HaveAllRequestsFinishedForTest());
+
+  identity_test_env()->identity_manager()->RemoveDiagnosticsObserver(
+      &identity_observer);
+}
+
+TEST_F(PerUserTopicSubscriptionManagerTest,
+       ShouldNotRepeatRequestsOnForbidden) {
+  auto topics = GetSequenceOfTopics(kInvalidationTopicsCount);
 
   auto per_user_topic_subscription_manager = BuildRegistrationManager();
   ASSERT_TRUE(per_user_topic_subscription_manager->GetSubscribedTopicsForTest()
                   .empty());
 
   AddCorrectSubscriptionResponce(
-      /* private_topic */ std::string(), kFakeInstanceIdToken,
+      /*private_topic=*/std::string(), kFakeInstanceIdToken,
       net::HTTP_FORBIDDEN);
 
   per_user_topic_subscription_manager->UpdateSubscribedTopics(
-      ids, kFakeInstanceIdToken);
+      topics, kFakeInstanceIdToken);
   base::RunLoop().RunUntilIdle();
 
   EXPECT_TRUE(per_user_topic_subscription_manager->GetSubscribedTopicsForTest()
@@ -372,8 +587,8 @@ TEST_F(PerUserTopicSubscriptionManagerTest, ShouldRepeatRequestsOnForbidden) {
 }
 
 TEST_F(PerUserTopicSubscriptionManagerTest,
-       ShouldDisableIdsAndDeleteFromPrefs) {
-  auto ids = GetSequenceOfTopics(kInvalidationObjectIdsCount);
+       ShouldDisableTopicsAndDeleteFromPrefs) {
+  auto topics = GetSequenceOfTopics(kInvalidationTopicsCount);
 
   AddCorrectSubscriptionResponce();
 
@@ -382,41 +597,41 @@ TEST_F(PerUserTopicSubscriptionManagerTest,
                   .empty());
 
   per_user_topic_subscription_manager->UpdateSubscribedTopics(
-      ids, kFakeInstanceIdToken);
+      topics, kFakeInstanceIdToken);
   base::RunLoop().RunUntilIdle();
-  EXPECT_EQ(TopicSetFromTopics(ids),
+  EXPECT_EQ(TopicSetFromTopics(topics),
             per_user_topic_subscription_manager->GetSubscribedTopicsForTest());
 
-  // Disable some ids.
-  auto disabled_ids = GetSequenceOfTopics(3);
-  auto enabled_ids =
-      GetSequenceOfTopicsStartingAt(3, kInvalidationObjectIdsCount - 3);
-  for (const auto& id : disabled_ids)
-    AddCorrectUnSubscriptionResponceForTopic(id.first);
+  // Disable some topics.
+  auto disabled_topics = GetSequenceOfTopics(3);
+  auto enabled_topics =
+      GetSequenceOfTopicsStartingAt(3, kInvalidationTopicsCount - 3);
+  for (const auto& topic : disabled_topics)
+    AddCorrectUnSubscriptionResponceForTopic(topic.first);
 
   per_user_topic_subscription_manager->UpdateSubscribedTopics(
-      enabled_ids, kFakeInstanceIdToken);
+      enabled_topics, kFakeInstanceIdToken);
   base::RunLoop().RunUntilIdle();
 
-  // ids were disabled, check that they're not in the prefs.
-  for (const auto& id : disabled_ids) {
+  // Topics were disabled, check that they're not in the prefs.
+  for (const auto& topic : disabled_topics) {
     const base::Value* topics = GetSubscribedTopics();
-    const base::Value* private_topic_value = topics->FindKey(id.first);
+    const base::Value* private_topic_value = topics->FindKey(topic.first);
     ASSERT_EQ(private_topic_value, nullptr);
   }
 
-  // Check that enable ids are still in the prefs.
-  for (const auto& id : enabled_ids) {
+  // Check that enable topics are still in the prefs.
+  for (const auto& topic : enabled_topics) {
     const base::Value* topics = GetSubscribedTopics();
     const base::Value* private_topic_value =
-        topics->FindKeyOfType(id.first, base::Value::Type::STRING);
+        topics->FindKeyOfType(topic.first, base::Value::Type::STRING);
     ASSERT_NE(private_topic_value, nullptr);
   }
 }
 
 TEST_F(PerUserTopicSubscriptionManagerTest,
        ShouldDropSavedTopicsOnTokenChange) {
-  auto ids = GetSequenceOfTopics(kInvalidationObjectIdsCount);
+  auto topics = GetSequenceOfTopics(kInvalidationTopicsCount);
 
   auto per_user_topic_subscription_manager = BuildRegistrationManager();
 
@@ -426,16 +641,16 @@ TEST_F(PerUserTopicSubscriptionManagerTest,
   AddCorrectSubscriptionResponce("old-token-topic");
 
   per_user_topic_subscription_manager->UpdateSubscribedTopics(
-      ids, kFakeInstanceIdToken);
+      topics, kFakeInstanceIdToken);
   base::RunLoop().RunUntilIdle();
 
-  EXPECT_EQ(TopicSetFromTopics(ids),
+  EXPECT_EQ(TopicSetFromTopics(topics),
             per_user_topic_subscription_manager->GetSubscribedTopicsForTest());
 
-  for (const auto& id : ids) {
+  for (const auto& topic : topics) {
     const base::Value* topics = GetSubscribedTopics();
     const base::Value* private_topic_value =
-        topics->FindKeyOfType(id.first, base::Value::Type::STRING);
+        topics->FindKeyOfType(topic.first, base::Value::Type::STRING);
     ASSERT_NE(private_topic_value, nullptr);
     std::string private_topic;
     private_topic_value->GetAsString(&private_topic);
@@ -450,19 +665,19 @@ TEST_F(PerUserTopicSubscriptionManagerTest,
   std::string token = "new-fake-token";
   AddCorrectSubscriptionResponce("new-token-topic", token);
 
-  per_user_topic_subscription_manager->UpdateSubscribedTopics(ids, token);
+  per_user_topic_subscription_manager->UpdateSubscribedTopics(topics, token);
   base::RunLoop().RunUntilIdle();
 
   EXPECT_EQ(token, *pref_service()
                         ->GetDictionary(kActiveRegistrationTokens)
                         ->FindStringKey(kProjectId));
-  EXPECT_EQ(TopicSetFromTopics(ids),
+  EXPECT_EQ(TopicSetFromTopics(topics),
             per_user_topic_subscription_manager->GetSubscribedTopicsForTest());
 
-  for (const auto& id : ids) {
+  for (const auto& topic : topics) {
     const base::Value* topics = GetSubscribedTopics();
     const base::Value* private_topic_value =
-        topics->FindKeyOfType(id.first, base::Value::Type::STRING);
+        topics->FindKeyOfType(topic.first, base::Value::Type::STRING);
     ASSERT_NE(private_topic_value, nullptr);
     std::string private_topic;
     private_topic_value->GetAsString(&private_topic);
@@ -472,7 +687,7 @@ TEST_F(PerUserTopicSubscriptionManagerTest,
 
 TEST_F(PerUserTopicSubscriptionManagerTest,
        ShouldDeletTopicsFromPrefsWhenRequestFails) {
-  auto ids = GetSequenceOfTopics(kInvalidationObjectIdsCount);
+  auto topics = GetSequenceOfTopics(kInvalidationTopicsCount);
 
   AddCorrectSubscriptionResponce();
 
@@ -481,83 +696,46 @@ TEST_F(PerUserTopicSubscriptionManagerTest,
                   .empty());
 
   per_user_topic_subscription_manager->UpdateSubscribedTopics(
-      ids, kFakeInstanceIdToken);
+      topics, kFakeInstanceIdToken);
   base::RunLoop().RunUntilIdle();
-  EXPECT_EQ(TopicSetFromTopics(ids),
+  EXPECT_EQ(TopicSetFromTopics(topics),
             per_user_topic_subscription_manager->GetSubscribedTopicsForTest());
 
-  // Disable some ids.
-  auto disabled_ids = GetSequenceOfTopics(3);
-  auto enabled_ids =
-      GetSequenceOfTopicsStartingAt(3, kInvalidationObjectIdsCount - 3);
-  // Without configuring the responce, the request will not happen.
+  // Disable some topics.
+  auto disabled_topics = GetSequenceOfTopics(3);
+  auto enabled_topics =
+      GetSequenceOfTopicsStartingAt(3, kInvalidationTopicsCount - 3);
+  // Without configuring the response, the request will not happen.
   per_user_topic_subscription_manager->UpdateSubscribedTopics(
-      enabled_ids, kFakeInstanceIdToken);
+      enabled_topics, kFakeInstanceIdToken);
   base::RunLoop().RunUntilIdle();
 
-  // Ids should still be removed from prefs.
-  for (const auto& id : disabled_ids) {
+  // Topics should still be removed from prefs.
+  for (const auto& topic : disabled_topics) {
     const base::Value* topics = GetSubscribedTopics();
-    const base::Value* private_topic_value = topics->FindKey(id.first);
+    const base::Value* private_topic_value = topics->FindKey(topic.first);
     ASSERT_EQ(private_topic_value, nullptr);
   }
 
-  // Check that enable ids are still in the prefs.
-  for (const auto& id : enabled_ids) {
+  // Check that enable topics are still in the prefs.
+  for (const auto& topic : enabled_topics) {
     const base::Value* topics = GetSubscribedTopics();
     const base::Value* private_topic_value =
-        topics->FindKeyOfType(id.first, base::Value::Type::STRING);
+        topics->FindKeyOfType(topic.first, base::Value::Type::STRING);
     ASSERT_NE(private_topic_value, nullptr);
   }
 }
 
-TEST_F(
-    PerUserTopicSubscriptionManagerTest,
-    ShouldNotChangeStatusToDisabledWhenTopicsRegistrationFailedFeatureDisabled) {
-  base::test::ScopedFeatureList feature_list;
-  feature_list.InitAndDisableFeature(
-      invalidation::switches::kFCMInvalidationsConservativeEnabling);
-
-  auto ids = GetSequenceOfTopics(kInvalidationObjectIdsCount);
-
-  AddCorrectSubscriptionResponce();
-
-  auto per_user_topic_subscription_manager = BuildRegistrationManager();
-  ASSERT_TRUE(per_user_topic_subscription_manager->GetSubscribedTopicsForTest()
-                  .empty());
-
-  per_user_topic_subscription_manager->UpdateSubscribedTopics(
-      ids, kFakeInstanceIdToken);
-  base::RunLoop().RunUntilIdle();
-  EXPECT_EQ(TopicSetFromTopics(ids),
-            per_user_topic_subscription_manager->GetSubscribedTopicsForTest());
-  EXPECT_EQ(observed_state(), SubscriptionChannelState::ENABLED);
-
-  // Disable some ids.
-  auto disabled_ids = GetSequenceOfTopics(3);
-  auto enabled_ids =
-      GetSequenceOfTopicsStartingAt(3, kInvalidationObjectIdsCount - 3);
-  per_user_topic_subscription_manager->UpdateSubscribedTopics(
-      enabled_ids, kFakeInstanceIdToken);
-  base::RunLoop().RunUntilIdle();
-
-  // Clear previously configured correct response. So next requests will fail.
-  url_loader_factory()->ClearResponses();
-  per_user_topic_subscription_manager->UpdateSubscribedTopics(
-      ids, kFakeInstanceIdToken);
-  url_loader_factory()->AddResponse(
-      FullSubscriptionUrl(kFakeInstanceIdToken).spec(),
-      std::string() /* content */, net::HTTP_NOT_FOUND);
-
+TEST_F(PerUserTopicSubscriptionManagerTest,
+       ShouldChangeStatusToEnabledWhenHasNoPendingSubscription) {
+  BuildRegistrationManager()->UpdateSubscribedTopics(/*topics=*/{},
+                                                     kFakeInstanceIdToken);
   EXPECT_EQ(observed_state(), SubscriptionChannelState::ENABLED);
 }
 
 TEST_F(PerUserTopicSubscriptionManagerTest,
        ShouldChangeStatusToDisabledWhenTopicsRegistrationFailed) {
-  base::test::ScopedFeatureList feature_list;
-  feature_list.InitAndEnableFeature(
-      invalidation::switches::kFCMInvalidationsConservativeEnabling);
-  auto ids = GetSequenceOfTopics(kInvalidationObjectIdsCount);
+  auto topics = GetSequenceOfTopics(kInvalidationTopicsCount);
 
   AddCorrectSubscriptionResponce();
 
@@ -566,18 +744,18 @@ TEST_F(PerUserTopicSubscriptionManagerTest,
                   .empty());
 
   per_user_topic_subscription_manager->UpdateSubscribedTopics(
-      ids, kFakeInstanceIdToken);
+      topics, kFakeInstanceIdToken);
   base::RunLoop().RunUntilIdle();
-  EXPECT_EQ(TopicSetFromTopics(ids),
+  EXPECT_EQ(TopicSetFromTopics(topics),
             per_user_topic_subscription_manager->GetSubscribedTopicsForTest());
   EXPECT_EQ(observed_state(), SubscriptionChannelState::ENABLED);
 
-  // Disable some ids.
-  auto disabled_ids = GetSequenceOfTopics(3);
-  auto enabled_ids =
-      GetSequenceOfTopicsStartingAt(3, kInvalidationObjectIdsCount - 3);
+  // Disable some topics.
+  auto disabled_topics = GetSequenceOfTopics(3);
+  auto enabled_topics =
+      GetSequenceOfTopicsStartingAt(3, kInvalidationTopicsCount - 3);
   per_user_topic_subscription_manager->UpdateSubscribedTopics(
-      enabled_ids, kFakeInstanceIdToken);
+      enabled_topics, kFakeInstanceIdToken);
   base::RunLoop().RunUntilIdle();
 
   // Clear previously configured correct response. So next requests will fail.
@@ -587,14 +765,14 @@ TEST_F(PerUserTopicSubscriptionManagerTest,
       std::string() /* content */, net::HTTP_NOT_FOUND);
 
   per_user_topic_subscription_manager->UpdateSubscribedTopics(
-      ids, kFakeInstanceIdToken);
+      topics, kFakeInstanceIdToken);
   base::RunLoop().RunUntilIdle();
   EXPECT_EQ(observed_state(), SubscriptionChannelState::SUBSCRIPTION_FAILURE);
 
   // Configure correct response and retry.
   AddCorrectSubscriptionResponce();
   per_user_topic_subscription_manager->UpdateSubscribedTopics(
-      ids, kFakeInstanceIdToken);
+      topics, kFakeInstanceIdToken);
   base::RunLoop().RunUntilIdle();
   EXPECT_EQ(observed_state(), SubscriptionChannelState::ENABLED);
 }
@@ -609,7 +787,7 @@ TEST_F(PerUserTopicSubscriptionManagerTest, ShouldRecordTokenStateHistogram) {
     kTokenCleared = 3,
   };
 
-  const Topics topics = GetSequenceOfTopics(kInvalidationObjectIdsCount);
+  const Topics topics = GetSequenceOfTopics(kInvalidationTopicsCount);
   auto per_user_topic_subscription_manager = BuildRegistrationManager();
 
   // Subscribe to some topics (and provide an InstanceID token).

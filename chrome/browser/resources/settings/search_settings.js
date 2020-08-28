@@ -2,6 +2,15 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+// clang-format off
+// #import {assert} from 'chrome://resources/js/assert.m.js';
+// #import {createEmptySearchBubble, findAndRemoveHighlights, highlight, removeHighlights, stripDiacritics} from 'chrome://resources/js/search_highlight_utils.m.js';
+// #import {findAncestor} from 'chrome://resources/js/util.m.js';
+// #import {loadTimeData} from 'chrome://resources/js/load_time_data.m.js';
+// #import {DomIf} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+// #import {PromiseResolver} from 'chrome://resources/js/promise_resolver.m.js';
+// clang-format on
+
 cr.define('settings', function() {
   /**
    * A data structure used by callers to combine the results of multiple search
@@ -13,7 +22,7 @@ cr.define('settings', function() {
    *   wasClearSearch: Boolean,
    * }}
    */
-  let SearchResult;
+  /* #export */ let SearchResult;
 
   /**
    * A CSS attribute indicating that a node should be ignored during searching.
@@ -69,7 +78,7 @@ cr.define('settings', function() {
       //
       // The latter throws an error during the automatic Polymer 2 conversion to
       // <dom-if><template...></dom-if> syntax.
-      if (node.nodeName == 'DOM-IF' && node.hasAttribute('route-path') &&
+      if (node.nodeName === 'DOM-IF' && node.hasAttribute('route-path') &&
           !node.if && !node['noSearch'] &&
           !node.hasAttribute(SKIP_SEARCH_CSS_ATTRIBUTE)) {
         request.queue_.addRenderTask(new RenderTask(request, node));
@@ -83,12 +92,13 @@ cr.define('settings', function() {
       if (node instanceof HTMLElement) {
         const element = /** @type {HTMLElement} */ (node);
         if (element.hasAttribute(SKIP_SEARCH_CSS_ATTRIBUTE) ||
-            element.hasAttribute('hidden') || element.style.display == 'none') {
+            element.hasAttribute('hidden') ||
+            element.style.display === 'none') {
           return;
         }
       }
 
-      if (node.nodeType == Node.TEXT_NODE) {
+      if (node.nodeType === Node.TEXT_NODE) {
         const textContent = node.nodeValue;
         if (textContent.trim().length === 0) {
           return;
@@ -165,14 +175,14 @@ cr.define('settings', function() {
     // Find corresponding SETTINGS-SECTION parent and make it visible.
     let parent = node;
     while (parent.nodeName !== 'SETTINGS-SECTION') {
-      parent = parent.nodeType == Node.DOCUMENT_FRAGMENT_NODE ?
+      parent = parent.nodeType === Node.DOCUMENT_FRAGMENT_NODE ?
           parent.host :
           parent.parentNode;
       if (!parent) {
         // |node| wasn't inside a SETTINGS-SECTION.
         return;
       }
-      if (parent.nodeName == 'SETTINGS-SUBPAGE') {
+      if (parent.nodeName === 'SETTINGS-SUBPAGE') {
         // TODO(dpapad): Cast to SettingsSubpageElement here.
         associatedControl = assert(
             parent.associatedControl,
@@ -246,8 +256,15 @@ cr.define('settings', function() {
     exec() {
       const routePath = this.node.getAttribute('route-path');
 
-      const content = Polymer.DomIf._contentForTemplate(
-          /** @type {!HTMLTemplateElement} */ (this.node.firstElementChild));
+      const content =
+          /**
+            @type {!{_contentForTemplate:
+                function(!HTMLTemplateElement):!HTMLElement}}
+          */
+          (Polymer.DomIf)
+              ._contentForTemplate(
+                  /** @type {!HTMLTemplateElement} */ (
+                      this.node.firstElementChild));
       const subpageTemplate = content.querySelector('settings-subpage');
       subpageTemplate.setAttribute('route-path', routePath);
       assert(!this.node.if);
@@ -414,7 +431,7 @@ cr.define('settings', function() {
     }
   }
 
-  class SearchRequest {
+  /* #export */ class SearchRequest {
     /**
      * @param {string} rawQuery
      * @param {!Element} root
@@ -482,7 +499,7 @@ cr.define('settings', function() {
       const observer = new MutationObserver(mutations => {
         const oldValue = mutations[0].oldValue.trim();
         const newValue = textNode.nodeValue.trim();
-        if (oldValue != newValue) {
+        if (oldValue !== newValue) {
           observer.disconnect();
           this.textObservers_.delete(observer);
           cr.search_highlight_utils.findAndRemoveHighlights(originalParentNode);
@@ -524,7 +541,7 @@ cr.define('settings', function() {
      *     query.
      */
     isSame(rawQuery) {
-      return this.rawQuery_ == rawQuery;
+      return this.rawQuery_ === rawQuery;
     }
 
     /**
@@ -572,7 +589,7 @@ cr.define('settings', function() {
     search(text, page) {
       // Cancel any pending requests if a request with different text is
       // submitted.
-      if (text != this.lastSearchedText_) {
+      if (text !== this.lastSearchedText_) {
         this.activeRequests_.forEach(function(request) {
           request.removeAllTextObservers();
           request.removeAllHighlightsAndBubbles();
@@ -603,7 +620,7 @@ cr.define('settings', function() {
   let instance = null;
 
   /** @return {!SearchManager} */
-  function getSearchManager() {
+  /* #export */ function getSearchManager() {
     if (instance === null) {
       instance = new SearchManagerImpl();
     }
@@ -614,10 +631,11 @@ cr.define('settings', function() {
    * Sets the SearchManager singleton instance, useful for testing.
    * @param {!SearchManager} searchManager
    */
-  function setSearchManagerForTesting(searchManager) {
+  /* #export */ function setSearchManagerForTesting(searchManager) {
     instance = searchManager;
   }
 
+  // #cr_define_end
   return {
     getSearchManager,
     setSearchManagerForTesting,

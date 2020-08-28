@@ -47,7 +47,7 @@ struct CORE_EXPORT EvaluationContext {
   // which lifetime is same as this object, or longer than this object.
   EvaluationContext(Node&, bool& had_type_conversion_error);
 
-  Member<Node> node;
+  Node* node;
   wtf_size_t size;
   wtf_size_t position;
   HashMap<String, String> variable_bindings;
@@ -58,14 +58,14 @@ struct CORE_EXPORT EvaluationContext {
 class CORE_EXPORT ParseNode : public GarbageCollected<ParseNode> {
  public:
   virtual ~ParseNode() = default;
-  virtual void Trace(blink::Visitor* visitor) {}
+  virtual void Trace(Visitor* visitor) const {}
 };
 
 class CORE_EXPORT Expression : public ParseNode {
  public:
   Expression();
   ~Expression() override;
-  void Trace(blink::Visitor*) override;
+  void Trace(Visitor*) const override;
 
   virtual Value Evaluate(EvaluationContext&) const = 0;
 

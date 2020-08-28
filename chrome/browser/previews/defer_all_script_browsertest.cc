@@ -3,6 +3,7 @@
 // found in the LICENSE file.
 
 #include <map>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -14,6 +15,8 @@
 #include "base/test/scoped_feature_list.h"
 #include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
+#include "chrome/browser/optimization_guide/optimization_guide_keyed_service.h"
+#include "chrome/browser/optimization_guide/optimization_guide_keyed_service_factory.h"
 #include "chrome/browser/previews/previews_service.h"
 #include "chrome/browser/previews/previews_service_factory.h"
 #include "chrome/browser/previews/previews_test_util.h"
@@ -31,18 +34,20 @@
 #include "components/optimization_guide/optimization_guide_service.h"
 #include "components/optimization_guide/proto/hints.pb.h"
 #include "components/optimization_guide/test_hints_component_creator.h"
-#include "components/previews/core/previews_black_list.h"
+#include "components/previews/core/previews_block_list.h"
 #include "components/previews/core/previews_features.h"
 #include "components/previews/core/previews_switches.h"
 #include "components/ukm/test_ukm_recorder.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/common/content_features.h"
+#include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
 #include "net/dns/mock_host_resolver.h"
 #include "net/test/embedded_test_server/http_request.h"
 #include "net/test/embedded_test_server/http_response.h"
 #include "services/metrics/public/cpp/ukm_builders.h"
 #include "services/network/public/cpp/network_quality_tracker.h"
+#include "third_party/blink/public/common/features.h"
 
 class DeferAllScriptBrowserTest : public InProcessBrowserTest {
  public:
@@ -51,8 +56,6 @@ class DeferAllScriptBrowserTest : public InProcessBrowserTest {
         {previews::features::kPreviews,
          previews::features::kDeferAllScriptPreviews,
          optimization_guide::features::kOptimizationHints,
-         data_reduction_proxy::features::
-             kDataReductionProxyEnabledWithNetworkService,
          features::kBackForwardCache},
         {});
   }
@@ -61,16 +64,21 @@ class DeferAllScriptBrowserTest : public InProcessBrowserTest {
 
   void SetUpOnMainThread() override {
     host_resolver()->AddRule("*", "127.0.0.1");
-    g_browser_process->network_quality_tracker()
-        ->ReportEffectiveConnectionTypeForTesting(
-            net::EFFECTIVE_CONNECTION_TYPE_2G);
-    https_server_.reset(
-        new net::EmbeddedTestServer(net::EmbeddedTestServer::TYPE_HTTPS));
+    OptimizationGuideKeyedServiceFactory::GetForProfile(browser()->profile())
+        ->OverrideTargetDecisionForTesting(
+            optimization_guide::proto::OPTIMIZATION_TARGET_PAINFUL_PAGE_LOAD,
+            optimization_guide::OptimizationGuideDecision::kTrue);
+    https_server_ = std::make_unique<net::EmbeddedTestServer>(
+        net::EmbeddedTestServer::TYPE_HTTPS);
     https_server_->ServeFilesFromSourceDirectory("chrome/test/data/previews");
     ASSERT_TRUE(https_server_->Start());
 
     https_url_ = https_server_->GetURL("/defer_all_script_test.html");
     ASSERT_TRUE(https_url_.SchemeIs(url::kHttpsScheme));
+
+    https_url_with_iframe_ =
+        https_server_->GetURL("/defer_all_script_test_with_iframe.html");
+
     client_redirect_url_ = https_server_->GetURL("/client_redirect_base.html");
     client_redirect_url_target_url_ = https_server_->GetURL(
         "/client_redirect_loop_with_defer_all_script.html");
@@ -95,10 +103,10 @@ class DeferAllScriptBrowserTest : public InProcessBrowserTest {
     cmd->AppendSwitch("optimization-guide-disable-installer");
     cmd->AppendSwitch("purge_hint_cache_store");
 
-    // Due to race conditions, it's possible that blacklist data is not loaded
+    // Due to race conditions, it's possible that blocklist data is not loaded
     // at the time of first navigation. That may prevent Preview from
     // triggering, and causing the test to flake.
-    cmd->AppendSwitch(previews::switches::kIgnorePreviewsBlacklist);
+    cmd->AppendSwitch(previews::switches::kIgnorePreviewsBlocklist);
 
     InProcessBrowserTest::SetUpCommandLine(cmd);
   }
@@ -149,6 +157,8 @@ class DeferAllScriptBrowserTest : public InProcessBrowserTest {
 
   virtual const GURL& https_url() const { return https_url_; }
 
+  const GURL& https_url_with_iframe() const { return https_url_with_iframe_; }
+
   const GURL& client_redirect_url() const { return client_redirect_url_; }
 
   const GURL& client_redirect_url_target_url() const {
@@ -181,6 +191,7 @@ class DeferAllScriptBrowserTest : public InProcessBrowserTest {
 
   std::unique_ptr<net::EmbeddedTestServer> https_server_;
   GURL https_url_;
+  GURL https_url_with_iframe_;
   GURL client_redirect_url_;
   GURL client_redirect_url_target_url_;
   GURL server_redirect_url_;
@@ -534,12 +545,12 @@ IN_PROC_BROWSER_TEST_F(DeferAllScriptBrowserTest,
   ukm::TestAutoSetUkmRecorder test_ukm_recorder;
 
   // Wait for initial page load to complete.
-  content::WaitForLoadStop(web_contents());
+  EXPECT_TRUE(content::WaitForLoadStop(web_contents()));
 
   // Navigate to DeferAllScript url expecting a DeferAllScript preview.
   ui_test_utils::NavigateToURL(browser(), url);
   base::RunLoop().RunUntilIdle();
-  content::WaitForLoadStop(web_contents());
+  EXPECT_TRUE(content::WaitForLoadStop(web_contents()));
 
   // Verify good DeferAllScript preview.
   EXPECT_EQ(kDeferredPageExpectedOutput, GetScriptLog(browser()));
@@ -549,19 +560,20 @@ IN_PROC_BROWSER_TEST_F(DeferAllScriptBrowserTest,
   histogram_tester.ExpectBucketCount("Previews.PreviewShown.DeferAllScript",
                                      true, 1);
 
-  // Now adjust the network triggering condition to not choose preview for a
+  // Override the target decision to |kFalse| to not trigger a preview for the
   // new decision.
-  g_browser_process->network_quality_tracker()
-      ->ReportEffectiveConnectionTypeForTesting(
-          net::EFFECTIVE_CONNECTION_TYPE_4G);
+  OptimizationGuideKeyedServiceFactory::GetForProfile(browser()->profile())
+      ->OverrideTargetDecisionForTesting(
+          optimization_guide::proto::OPTIMIZATION_TARGET_PAINFUL_PAGE_LOAD,
+          optimization_guide::OptimizationGuideDecision::kFalse);
 
   // Navigate to another host on same tab (to cause previous navigation
   // to be saved in BackForward cache).
   ui_test_utils::NavigateToURLWithDisposition(
       browser(), another_host_url(), WindowOpenDisposition::CURRENT_TAB,
-      ui_test_utils::BROWSER_TEST_WAIT_FOR_NAVIGATION);
+      ui_test_utils::BROWSER_TEST_WAIT_FOR_LOAD_STOP);
   base::RunLoop().RunUntilIdle();
-  content::WaitForLoadStop(web_contents());
+  EXPECT_TRUE(content::WaitForLoadStop(web_contents()));
 
   // Verify preview UI not shown.
   EXPECT_FALSE(PreviewsUITabHelper::FromWebContents(web_contents())
@@ -576,7 +588,7 @@ IN_PROC_BROWSER_TEST_F(DeferAllScriptBrowserTest,
   // not trigger).
   web_contents()->GetController().GoBack();
   base::RunLoop().RunUntilIdle();
-  content::WaitForLoadStop(web_contents());
+  EXPECT_TRUE(content::WaitForLoadStop(web_contents()));
 
   // Verify that the page was restored from BackForwardCache.
   histogram_tester.ExpectUniqueSample(
@@ -585,17 +597,16 @@ IN_PROC_BROWSER_TEST_F(DeferAllScriptBrowserTest,
   // Verify the restored page has the DeferAllScript preview page contents.
   EXPECT_EQ(kDeferredPageExpectedOutput, GetScriptLog(browser()));
 
-  // [BROKEN] Verify preview UI shown.
-  // TODO(dougarnett): Want UI to be shown - crbug/1014148
-  EXPECT_FALSE(PreviewsUITabHelper::FromWebContents(web_contents())
-                   ->displayed_preview_ui());
+  // Verify preview UI shown.
+  EXPECT_TRUE(PreviewsUITabHelper::FromWebContents(web_contents())
+                  ->displayed_preview_ui());
 
-  // Verify no new preview was triggered - same counts as before.
+  // Verify preview was triggered.
   histogram_tester.ExpectBucketCount(
       "Previews.EligibilityReason.DeferAllScript",
       static_cast<int>(previews::PreviewsEligibilityReason::COMMITTED), 1);
   histogram_tester.ExpectBucketCount("Previews.PreviewShown.DeferAllScript",
-                                     true, 1);
+                                     true, 2);
 }
 
 IN_PROC_BROWSER_TEST_F(
@@ -611,18 +622,19 @@ IN_PROC_BROWSER_TEST_F(
   ukm::TestAutoSetUkmRecorder test_ukm_recorder;
 
   // Wait for initial page load to complete.
-  content::WaitForLoadStop(web_contents());
+  EXPECT_TRUE(content::WaitForLoadStop(web_contents()));
 
-  // Adjust the network triggering condition to not choose preview for this
-  // navigation.
-  g_browser_process->network_quality_tracker()
-      ->ReportEffectiveConnectionTypeForTesting(
-          net::EFFECTIVE_CONNECTION_TYPE_4G);
+  // Override the target decision to |kFalse| to choose not to trigger a
+  // preview this navigation.
+  OptimizationGuideKeyedServiceFactory::GetForProfile(browser()->profile())
+      ->OverrideTargetDecisionForTesting(
+          optimization_guide::proto::OPTIMIZATION_TARGET_PAINFUL_PAGE_LOAD,
+          optimization_guide::OptimizationGuideDecision::kFalse);
 
   // Navigate to DeferAllScript url.
   ui_test_utils::NavigateToURL(browser(), url);
   base::RunLoop().RunUntilIdle();
-  content::WaitForLoadStop(web_contents());
+  EXPECT_TRUE(content::WaitForLoadStop(web_contents()));
 
   // Verify non-DeferAllScript page load.
   EXPECT_EQ(kNonDeferredPageExpectedOutput, GetScriptLog(browser()));
@@ -630,19 +642,20 @@ IN_PROC_BROWSER_TEST_F(
       "Previews.EligibilityReason.DeferAllScript",
       static_cast<int>(previews::PreviewsEligibilityReason::COMMITTED), 0);
 
-  // Now adjust the network triggering condition to allow a preview for a
+  // Now override the model decision to |kTrue| to allow a preview for a
   // new decision.
-  g_browser_process->network_quality_tracker()
-      ->ReportEffectiveConnectionTypeForTesting(
-          net::EFFECTIVE_CONNECTION_TYPE_2G);
+  OptimizationGuideKeyedServiceFactory::GetForProfile(browser()->profile())
+      ->OverrideTargetDecisionForTesting(
+          optimization_guide::proto::OPTIMIZATION_TARGET_PAINFUL_PAGE_LOAD,
+          optimization_guide::OptimizationGuideDecision::kTrue);
 
   // Navigate to another host on same tab (to cause previous navigation
   // to be saved in BackForward cache).
   ui_test_utils::NavigateToURLWithDisposition(
       browser(), another_host_url(), WindowOpenDisposition::CURRENT_TAB,
-      ui_test_utils::BROWSER_TEST_WAIT_FOR_NAVIGATION);
+      ui_test_utils::BROWSER_TEST_WAIT_FOR_LOAD_STOP);
   base::RunLoop().RunUntilIdle();
-  content::WaitForLoadStop(web_contents());
+  EXPECT_TRUE(content::WaitForLoadStop(web_contents()));
 
   histogram_tester.ExpectBucketCount(
       "Previews.EligibilityReason.DeferAllScript",
@@ -657,7 +670,7 @@ IN_PROC_BROWSER_TEST_F(
   // not trigger).
   web_contents()->GetController().GoBack();
   base::RunLoop().RunUntilIdle();
-  content::WaitForLoadStop(web_contents());
+  EXPECT_TRUE(content::WaitForLoadStop(web_contents()));
 
   // Verify that the page was restored from BackForwardCache.
   histogram_tester.ExpectUniqueSample(
@@ -666,11 +679,94 @@ IN_PROC_BROWSER_TEST_F(
   // Verify the restored page has the normal page contents.
   EXPECT_EQ(kNonDeferredPageExpectedOutput, GetScriptLog(browser()));
 
-  // [BROKEN] Verify no new preview was triggered - same counts as before.
-  // TODO(dougarnett): Want previews state to not be falsely set - crbug/1014148
+  // Verify no new preview was triggered - same counts as before.
+  histogram_tester.ExpectBucketCount(
+      "Previews.EligibilityReason.DeferAllScript",
+      static_cast<int>(previews::PreviewsEligibilityReason::COMMITTED), 0);
+  histogram_tester.ExpectBucketCount("Previews.PreviewShown.DeferAllScript",
+                                     true, 0);
+}
+
+class DeferAllScriptIframesBrowserTest
+    : public ::testing::WithParamInterface<bool>,
+      public DeferAllScriptBrowserTest {
+ public:
+  DeferAllScriptIframesBrowserTest() {
+    if (GetParam()) {
+      feature_list_.InitAndEnableFeature(
+          blink::features::kDisableForceDeferInChildFrames);
+    } else {
+      feature_list_.InitAndDisableFeature(
+          blink::features::kDisableForceDeferInChildFrames);
+    }
+  }
+
+  bool is_force_defer_disabled_in_child_frames() const { return GetParam(); }
+
+ private:
+  base::test::ScopedFeatureList feature_list_;
+};
+
+INSTANTIATE_TEST_SUITE_P(ShouldSkipPreview,
+                         DeferAllScriptIframesBrowserTest,
+                         ::testing::Bool());
+
+IN_PROC_BROWSER_TEST_P(
+    DeferAllScriptIframesBrowserTest,
+    DISABLE_ON_WIN_MAC_CHROMEOS(DeferAllScriptHttpsWhitelisted_Iframe)) {
+  GURL url = https_url_with_iframe();
+
+  // When defer is disabled
+  // in iframes which should delay execution of SyncScript.
+  static const char kDeferEnabledIframes[] =
+      "ScriptLog:_InlineMainFrameScript_ScriptLogFromIframe:_BodyEnd_"
+      "InlineScript_"
+      "SyncScript_DeveloperDeferScript";
+  // When defer is enabled
+  // in iframes which should execute scripts in regular order.
+  static const char kDeferDisabledIframes[] =
+      "ScriptLog:_InlineMainFrameScript_ScriptLogFromIframe:_InlineScript_"
+      "SyncScript_"
+      "BodyEnd_DeveloperDeferScript";
+
+  // Whitelist DeferAllScript for any path for the url's host.
+  SetDeferAllScriptHintWithPageWithPattern(url, "*");
+
+  base::HistogramTester histogram_tester;
+
+  ui_test_utils::NavigateToURL(browser(), url);
+
+  RetryForHistogramUntilCountReached(
+      &histogram_tester, "PageLoad.DocumentTiming.NavigationToLoadEventFired",
+      1);
+
+  if (is_force_defer_disabled_in_child_frames()) {
+    EXPECT_EQ(kDeferDisabledIframes, GetScriptLog(browser()));
+  } else {
+    EXPECT_EQ(kDeferEnabledIframes, GetScriptLog(browser()));
+  }
+
   histogram_tester.ExpectBucketCount(
       "Previews.EligibilityReason.DeferAllScript",
       static_cast<int>(previews::PreviewsEligibilityReason::COMMITTED), 1);
   histogram_tester.ExpectBucketCount("Previews.PreviewShown.DeferAllScript",
                                      true, 1);
+  histogram_tester.ExpectTotalCount("Previews.PageEndReason.DeferAllScript", 1);
+
+  histogram_tester.ExpectUniqueSample(
+      "Blink.Script.ForceDeferredScripts.Mainframe", 2, 1);
+  histogram_tester.ExpectUniqueSample(
+      "Blink.Script.ForceDeferredScripts.Mainframe.External", 0, 1);
+
+  if (!is_force_defer_disabled_in_child_frames()) {
+    histogram_tester.ExpectUniqueSample(
+        "Blink.Script.ForceDeferredScripts.Subframe", 2, 1);
+    histogram_tester.ExpectTotalCount(
+        "Blink.Script.ForceDeferredScripts.Subframe.External", 1);
+  } else {
+    histogram_tester.ExpectTotalCount(
+        "Blink.Script.ForceDeferredScripts.Subframe", 0);
+    histogram_tester.ExpectTotalCount(
+        "Blink.Script.ForceDeferredScripts.Subframe.External", 0);
+  }
 }

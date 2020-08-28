@@ -6,7 +6,9 @@
 
 #include "third_party/blink/public/mojom/page/display_cutout.mojom-blink.h"
 #include "third_party/blink/public/strings/grit/blink_strings.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_touch_event_init.h"
 #include "third_party/blink/renderer/core/events/touch_event.h"
+#include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/frame/viewport_data.h"
 #include "third_party/blink/renderer/core/frame/web_feature.h"
 #include "third_party/blink/renderer/core/fullscreen/fullscreen.h"
@@ -29,8 +31,9 @@ class MockDisplayCutoutChromeClient : public EmptyChromeClient {
   // ChromeClient overrides:
   void EnterFullscreen(LocalFrame& frame,
                        const FullscreenOptions*,
-                       bool for_cross_process_descendant) override {
-    Fullscreen::DidEnterFullscreen(*frame.GetDocument());
+                       FullscreenRequestType) override {
+    Fullscreen::DidResolveEnterFullscreenRequest(*frame.GetDocument(),
+                                                 true /* granted */);
   }
   void ExitFullscreen(LocalFrame& frame) override {
     Fullscreen::DidExitFullscreen(*frame.GetDocument());
@@ -71,7 +74,9 @@ class MediaControlDisplayCutoutFullscreenButtonElementTest
 
   void SimulateEnterFullscreen() {
     {
-      LocalFrame::NotifyUserActivation(GetDocument().GetFrame());
+      LocalFrame::NotifyUserActivation(
+          GetDocument().GetFrame(),
+          mojom::UserActivationNotificationType::kTest);
       Fullscreen::RequestFullscreen(*video_);
     }
 

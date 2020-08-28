@@ -9,6 +9,7 @@ Polymer({
     settings.RouteObserverBehavior,
     MultiDeviceFeatureBehavior,
     WebUIListenerBehavior,
+    PrefsBehavior,
   ],
 
   properties: {
@@ -36,11 +37,10 @@ Polymer({
 
     /**
      * Authentication token provided by password-prompt-dialog.
-     * @private {string}
+     * @private {!chrome.quickUnlockPrivate.TokenInfo|undefined}
      */
     authToken_: {
-      type: String,
-      value: '',
+      type: Object,
     },
 
     /**
@@ -60,6 +60,24 @@ Polymer({
     showPasswordPromptDialog_: {
       type: Boolean,
       value: false,
+    },
+
+    /** @private {boolean} */
+    showNotificationAccessSetupDialog_: {
+      type: Boolean,
+      value: false,
+    },
+
+    /**
+     * The value of the Nearby Share feature flag which controls if the
+     * Nearby Share settings and subpage are accessible.
+     * @private {boolean}
+     */
+    nearbySharingFeatureEnabled_: {
+      type: Boolean,
+      value: function() {
+        return loadTimeData.getBoolean('nearbySharingFeatureFlag');
+      }
     },
   },
 
@@ -219,7 +237,8 @@ Polymer({
       return;
     }
 
-    settings.navigateTo(settings.routes.MULTIDEVICE_FEATURES);
+    settings.Router.getInstance().navigateTo(
+        settings.routes.MULTIDEVICE_FEATURES);
   },
 
   /** @private */
@@ -263,12 +282,13 @@ Polymer({
     if (this.authToken_) {
       this.browserProxy_.setFeatureEnabledState(
           this.featureToBeEnabledOnceAuthenticated_, true /* enabled */,
-          this.authToken_);
+          this.authToken_.token);
+      settings.recordSettingChange();
 
       // Reset |this.authToken_| now that it has been used. This ensures that
       // users cannot keep an old auth token and reuse it on an subsequent
       // request.
-      this.authToken_ = '';
+      this.authToken_ = undefined;
     }
 
     // Either the feature was enabled above or the user canceled the request by
@@ -295,18 +315,27 @@ Polymer({
     const feature = event.detail.feature;
     const enabled = event.detail.enabled;
 
-    // Disabling any feature does not require authentication, and enable some
-    // features does not require authentication.
-    if (!enabled || !this.isAuthenticationRequiredToEnable_(feature)) {
-      this.browserProxy_.setFeatureEnabledState(feature, enabled);
-      return;
-    }
-
     // If the feature required authentication to be enabled, open the password
     // prompt dialog. This is required every time the user enables a security-
     // sensitive feature (i.e., use of stale auth tokens is not acceptable).
-    this.featureToBeEnabledOnceAuthenticated_ = feature;
-    this.openPasswordPromptDialog_();
+    if (enabled && this.isAuthenticationRequiredToEnable_(feature)) {
+      this.featureToBeEnabledOnceAuthenticated_ = feature;
+      this.openPasswordPromptDialog_();
+      return;
+    }
+
+    // If the feature to enable is Phone Hub Notifications, notification access
+    // must have been granted before the feature can be enabled.
+    if (feature === settings.MultiDeviceFeature.PHONE_HUB_NOTIFICATIONS &&
+        enabled && !this.pageContentData.isNotificationAccessGranted) {
+      this.showNotificationAccessSetupDialog_ = true;
+      return;
+    }
+
+    // Disabling any feature does not require authentication, and enable some
+    // features does not require authentication.
+    this.browserProxy_.setFeatureEnabledState(feature, enabled);
+    settings.recordSettingChange();
   },
 
   /**
@@ -343,7 +372,8 @@ Polymer({
   /** @private */
   onForgetDeviceRequested_() {
     this.browserProxy_.removeHostDevice();
-    settings.navigateTo(settings.routes.MULTIDEVICE);
+    settings.recordSettingChange();
+    settings.Router.getInstance().navigateTo(settings.routes.MULTIDEVICE);
   },
 
   /**
@@ -357,22 +387,72 @@ Polymer({
       return;
     }
 
+    // Host status doesn't matter if we are navigating to Nearby Share
+    // settings.
+    if (settings.routes.NEARBY_SHARE ==
+        settings.Router.getInstance().getCurrentRoute()) {
+      return;
+    }
+
     // If the user gets to the a nested page without a host (e.g. by clicking a
     // stale 'existing user' notifications after forgetting their host) we
     // direct them back to the main settings page.
-    if (settings.routes.MULTIDEVICE != settings.getCurrentRoute() &&
-        settings.routes.MULTIDEVICE.contains(settings.getCurrentRoute()) &&
+    if (settings.routes.MULTIDEVICE !=
+            settings.Router.getInstance().getCurrentRoute() &&
+        settings.routes.MULTIDEVICE.contains(
+            settings.Router.getInstance().getCurrentRoute()) &&
         !this.isHostSet()) {
-      settings.navigateTo(settings.routes.MULTIDEVICE);
+      // Render MULTIDEVICE page before the MULTIDEVICE_FEATURES has a chance.
+      Polymer.RenderStatus.beforeNextRender(this, () => {
+        settings.Router.getInstance().navigateTo(settings.routes.MULTIDEVICE);
+      });
     }
   },
 
   /**
-   * @param {!MultiDevicePageContentData} newData
+   * @param {!settings.MultiDevicePageContentData} newData
    * @private
    */
   onPageContentDataChanged_(newData) {
     this.pageContentData = newData;
     this.leaveNestedPageIfNoHostIsSet_();
+  },
+
+  /**
+   * @param {!CustomEvent<!chrome.quickUnlockPrivate.TokenInfo>} e
+   * @private
+   */
+  onTokenObtained_(e) {
+    this.authToken_ = e.detail;
+  },
+
+
+  /**
+   * @param {boolean} state boolean state that determines which string to show
+   * @param {string} onstr string to show when state is true
+   * @param {string} offstr string to show when state is false
+   * @return {string} localized string
+   * @private
+   */
+  getOnOffString_(state, onstr, offstr) {
+    return state ? onstr : offstr;
+  },
+
+  /**
+   * @param {!Event} event
+   * @private
+   */
+  nearbyShareClick_(event) {
+    if (!this.getPref('nearby_sharing.enabled').value) {
+      this.setPrefValue('nearby_sharing.enabled', true);
+    } else {
+      // Navigate to Nearby Share subpage.
+      settings.Router.getInstance().navigateTo(settings.routes.NEARBY_SHARE);
+    }
+  },
+
+  /** @private */
+  onHideNotificationSetupAccessDialog_() {
+    this.showNotificationAccessSetupDialog_ = false;
   },
 });

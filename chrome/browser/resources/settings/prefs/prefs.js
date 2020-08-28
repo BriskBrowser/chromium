@@ -13,7 +13,6 @@
  */
 
 (function() {
-'use strict';
 
 /**
  * Checks whether two values are recursively equal. Only compares serializable
@@ -49,7 +48,7 @@ function deepEqual(val1, val2) {
  * @return {boolean} True if the arrays are recursively equal.
  */
 function arraysEqual(arr1, arr2) {
-  if (arr1.length != arr2.length) {
+  if (arr1.length !== arr2.length) {
     return false;
   }
 
@@ -70,7 +69,7 @@ function arraysEqual(arr1, arr2) {
 function objectsEqual(obj1, obj2) {
   const keys1 = Object.keys(obj1);
   const keys2 = Object.keys(obj2);
-  if (keys1.length != keys2.length) {
+  if (keys1.length !== keys2.length) {
     return false;
   }
 
@@ -199,7 +198,7 @@ Polymer({
    */
   prefsChanged_(e) {
     // |prefs| can be directly set or unset in tests.
-    if (!CrSettingsPrefs.isInitialized || e.path == 'prefs') {
+    if (!CrSettingsPrefs.isInitialized || e.path === 'prefs') {
       return;
     }
 
@@ -213,6 +212,10 @@ Polymer({
     // a change event from settingsPrivate could make us call
     // settingsPrivate.setPref and potentially trigger an IPC loop.)
     if (!deepEqual(prefStoreValue, prefObj.value)) {
+      // <if expr="chromeos">
+      this.fire('user-action-setting-change');
+      // </if>
+
       this.settingsApi_.setPref(
           key, prefObj.value,
           /* pageId */ '',
@@ -266,6 +269,31 @@ Polymer({
   },
 
   /**
+   * Builds an object structure for the provided |path| within |prefsObject|,
+   * ensuring that names that already exist are not overwritten. For example:
+   * "a.b.c" -> a = {};a.b={};a.b.c={};
+   * @param {string} path Path to the new pref value.
+   * @param {*} value The value to expose at the end of the path.
+   * @param {Object} prefsObject The prefs object to add the path to.
+   * @private
+   */
+  updatePrefPath_(path, value, prefsObject) {
+    const parts = path.split('.');
+    let cur = prefsObject;
+
+    for (let part; parts.length && (part = parts.shift());) {
+      if (!parts.length) {
+        // last part, set the value.
+        cur[part] = value;
+      } else if (part in cur) {
+        cur = cur[part];
+      } else {
+        cur = cur[part] = {};
+      }
+    }
+  },
+
+  /**
    * Updates the prefs model with the given prefs.
    * @param {!Array<!chrome.settingsPrivate.PrefObject>} newPrefs
    * @private
@@ -280,9 +308,9 @@ Polymer({
 
       if (!deepEqual(this.get(newPrefObj.key, prefs), newPrefObj)) {
         // Add the pref to |prefs|.
-        cr.exportPath(newPrefObj.key, newPrefObj, prefs);
+        this.updatePrefPath_(newPrefObj.key, newPrefObj, prefs);
         // If this.prefs already exists, notify listeners of the change.
-        if (prefs == this.prefs) {
+        if (prefs === this.prefs) {
           this.notifyPath('prefs.' + newPrefObj.key, newPrefObj);
         }
       }
@@ -304,7 +332,7 @@ Polymer({
   getPrefKeyFromPath_(path) {
     // Skip the first token, which refers to the member variable (this.prefs).
     const parts = path.split('.');
-    assert(parts.shift() == 'prefs', 'Path doesn\'t begin with \'prefs\'');
+    assert(parts.shift() === 'prefs', 'Path doesn\'t begin with \'prefs\'');
 
     for (let i = 1; i <= parts.length; i++) {
       const key = parts.slice(0, i).join('.');

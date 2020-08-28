@@ -5,6 +5,7 @@
 #ifndef ASH_APP_LIST_TEST_TEST_APP_LIST_CLIENT_H_
 #define ASH_APP_LIST_TEST_TEST_APP_LIST_CLIENT_H_
 
+#include <map>
 #include <memory>
 #include <string>
 #include <utility>
@@ -33,7 +34,7 @@ class TestAppListClient : public AppListClient {
                         bool launch_as_default) override {}
   void InvokeSearchResultAction(const std::string& result_id,
                                 int action_index,
-                                int event_flags) override {}
+                                int event_flags) override;
   void GetSearchResultContextMenuModel(
       const std::string& result_id,
       GetContextMenuModelCallback callback) override;
@@ -47,27 +48,33 @@ class TestAppListClient : public AppListClient {
                            GetContextMenuModelCallback callback) override;
   void OnAppListVisibilityWillChange(bool visible) override {}
   void OnAppListVisibilityChanged(bool visible) override {}
-  void OnFolderCreated(int profile_id,
-                       std::unique_ptr<AppListItemMetadata> item) override {}
-  void OnFolderDeleted(int profile_id,
-                       std::unique_ptr<AppListItemMetadata> item) override {}
+  void OnItemAdded(int profile_id,
+                   std::unique_ptr<AppListItemMetadata> item) override {}
   void OnItemUpdated(int profile_id,
                      std::unique_ptr<AppListItemMetadata> item) override {}
-  void OnPageBreakItemAdded(int profile_id,
-                            const std::string& id,
-                            const syncer::StringOrdinal& position) override {}
+  void OnFolderDeleted(int profile_id,
+                       std::unique_ptr<AppListItemMetadata> item) override {}
   void OnPageBreakItemDeleted(int profile_id, const std::string& id) override {}
   void GetNavigableContentsFactory(
       mojo::PendingReceiver<content::mojom::NavigableContentsFactory> receiver)
       override {}
   void OnSearchResultVisibilityChanged(const std::string& id,
                                        bool visibility) override {}
+  void OnQuickSettingsChanged(
+      const std::string& setting_name,
+      const std::map<std::string, int>& values) override {}
   void NotifySearchResultsForLogging(
       const base::string16& trimmed_query,
       const SearchResultIdWithPositionIndices& results,
       int position_index) override {}
+  AppListNotifier* GetNotifier() override;
+
+  using SearchResultActionId = std::pair<std::string, int>;
+  std::vector<SearchResultActionId> GetAndClearInvokedResultActions();
 
  private:
+  std::vector<SearchResultActionId> invoked_result_actions_;
+
   DISALLOW_COPY_AND_ASSIGN(TestAppListClient);
 };
 

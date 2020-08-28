@@ -41,10 +41,12 @@ AXSlider::AXSlider(LayoutObject* layout_object,
     : AXLayoutObject(layout_object, ax_object_cache) {}
 
 ax::mojom::Role AXSlider::DetermineAccessibilityRole() {
+  native_role_ = ax::mojom::blink::Role::kSlider;
+
   if ((aria_role_ = DetermineAriaRoleAttribute()) != ax::mojom::Role::kUnknown)
     return aria_role_;
 
-  return ax::mojom::Role::kSlider;
+  return native_role_;
 }
 
 AccessibilityOrientation AXSlider::Orientation() const {
@@ -113,6 +115,11 @@ bool AXSlider::OnNativeSetValueAction(const String& value) {
 
   // Fire change event manually, as LayoutSlider::setValueForPosition does.
   input->DispatchFormControlChangeEvent();
+
+  // Dispatching an event could result in changes to the document, like
+  // this AXObject becoming detached.
+  if (IsDetached())
+    return false;
 
   // Ensure the AX node is updated.
   AXObjectCache().MarkAXObjectDirty(this, false);

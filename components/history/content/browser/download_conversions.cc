@@ -4,7 +4,8 @@
 
 #include "components/history/content/browser/download_conversions.h"
 
-#include "base/logging.h"
+#include "base/check_op.h"
+#include "base/notreached.h"
 #include "components/download/public/common/download_danger_type.h"
 #include "components/history/core/browser/download_constants.h"
 
@@ -88,6 +89,8 @@ download::DownloadDangerType ToContentDownloadDangerType(
       return download::DOWNLOAD_DANGER_TYPE_DEEP_SCANNED_OPENED_DANGEROUS;
     case DownloadDangerType::PROMPT_FOR_SCANNING:
       return download::DOWNLOAD_DANGER_TYPE_PROMPT_FOR_SCANNING;
+    case DownloadDangerType::BLOCKED_UNSUPPORTED_FILETYPE:
+      return download::DOWNLOAD_DANGER_TYPE_BLOCKED_UNSUPPORTED_FILETYPE;
     case DownloadDangerType::INVALID:
       NOTREACHED();
       return download::DOWNLOAD_DANGER_TYPE_MAX;
@@ -135,6 +138,8 @@ DownloadDangerType ToHistoryDownloadDangerType(
       return DownloadDangerType::DEEP_SCANNED_OPENED_DANGEROUS;
     case download::DOWNLOAD_DANGER_TYPE_PROMPT_FOR_SCANNING:
       return DownloadDangerType::PROMPT_FOR_SCANNING;
+    case download::DOWNLOAD_DANGER_TYPE_BLOCKED_UNSUPPORTED_FILETYPE:
+      return DownloadDangerType::BLOCKED_UNSUPPORTED_FILETYPE;
 
     default:
       NOTREACHED();

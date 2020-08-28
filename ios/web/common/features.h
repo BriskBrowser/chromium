@@ -10,9 +10,6 @@
 namespace web {
 namespace features {
 
-// Used to always allow scaling of the web page, regardless of author intent.
-extern const base::Feature kIgnoresViewportScaleLimits;
-
 // Used to crash the browser if unexpected URL change is detected.
 // https://crbug.com/841105.
 extern const base::Feature kCrashOnUnexpectedURLChange;
@@ -36,9 +33,6 @@ extern const base::Feature kClearOldNavigationRecordsWorkaround;
 // Used to enable committed interstitials for SSL errors.
 extern const base::Feature kSSLCommittedInterstitials;
 
-// Used to enable using WKWebView.loading for WebState::IsLoading.
-extern const base::Feature kUseWKWebViewLoading;
-
 // Feature flag enabling persistent downloads.
 extern const base::Feature kEnablePersistentDownloads;
 
@@ -48,6 +42,7 @@ extern const base::Feature kUseJSForErrorPage;
 // When enabled, for each navigation, the default user agent is chosen by the
 // WebClient GetDefaultUserAgent() method. If it is disabled, the mobile version
 // is requested by default.
+// Use UseWebClientDefaultUserAgent() instead of checking this variable.
 extern const base::Feature kUseDefaultUserAgentInWebClient;
 
 // When enabled, preserves properties of the UIScrollView using CRWPropertyStore
@@ -55,9 +50,26 @@ extern const base::Feature kUseDefaultUserAgentInWebClient;
 // of properties using hard coded logic.
 extern const base::Feature kPreserveScrollViewProperties;
 
-// Use WKWebView.loading to update WebState::IsLoading.
-// TODO(crbug.com/1006012): Clean up this flag after experiment.
-bool UseWKWebViewLoading();
+// When enabled, display an interstitial on lookalike URL navigations.
+extern const base::Feature kIOSLookalikeUrlNavigationSuggestionsUI;
+
+// When enabled, supports dropping URLs on the web content area to navigate to
+// the URL.
+extern const base::Feature kAddWebContentDropInteraction;
+
+// When enabled, opening a URL with a text fragment (e.g.,
+// example.com/#:~:text=examples) will cause matching text in the page to be
+// highlighted and scrolled into view.
+// See also: https://wicg.github.io/scroll-to-text-fragment/
+extern const base::Feature kScrollToTextIOS;
+
+// When enabled, display an interstitial on legacy TLS connections.
+extern const base::Feature kIOSLegacyTLSInterstitial;
+
+// When true, for each navigation, the default user agent is chosen by the
+// WebClient GetDefaultUserAgent() method. If it is false, the mobile version
+// is requested by default.
+bool UseWebClientDefaultUserAgent();
 
 }  // namespace features
 }  // namespace web

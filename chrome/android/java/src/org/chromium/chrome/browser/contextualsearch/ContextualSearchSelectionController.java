@@ -12,8 +12,7 @@ import androidx.annotation.VisibleForTesting;
 
 import org.chromium.base.Log;
 import org.chromium.base.TimeUtils;
-import org.chromium.chrome.browser.ChromeActivity;
-import org.chromium.chrome.browser.ChromeFeatureList;
+import org.chromium.chrome.browser.app.ChromeActivity;
 import org.chromium.chrome.browser.compositor.bottombar.OverlayPanel;
 import org.chromium.chrome.browser.contextualsearch.ContextualSearchFieldTrial.ContextualSearchSetting;
 import org.chromium.chrome.browser.contextualsearch.ContextualSearchFieldTrial.ContextualSearchSwitch;
@@ -35,7 +34,8 @@ public class ContextualSearchSelectionController {
     /**
      * The type of selection made by the user.
      */
-    @IntDef({SelectionType.UNDETERMINED, SelectionType.TAP, SelectionType.LONG_PRESS})
+    @IntDef({SelectionType.UNDETERMINED, SelectionType.TAP, SelectionType.LONG_PRESS,
+            SelectionType.RESOLVING_LONG_PRESS})
     @Retention(RetentionPolicy.SOURCE)
     public @interface SelectionType {
         int UNDETERMINED = 0;
@@ -56,7 +56,7 @@ public class ContextualSearchSelectionController {
             + "([\\w_-]+(?:(?:\\.[\\w_-]+)+))([\\w.,@?^=%&:/~+#-]*[\\w@?^=%&/~+#-])?");
 
     // Max selection length must be limited or the entire request URL can go past the 2K limit.
-    private static final int MAX_SELECTION_LENGTH = 100;
+    private static final int MAX_SELECTION_LENGTH = 1000;
 
     private static final int INVALID_DURATION = -1;
     // A default tap duration value when we can't compute it.
@@ -66,6 +66,8 @@ public class ContextualSearchSelectionController {
     private final ContextualSearchSelectionHandler mHandler;
     private final float mPxToDp;
     private final Pattern mContainsWordPattern;
+
+    private ContextualSearchPolicy mPolicy;
 
     private String mSelectedText;
     private @SelectionType int mSelectionType;
@@ -153,6 +155,14 @@ public class ContextualSearchSelectionController {
     }
 
     /**
+     * Sets the policy handler so we can delegate policy decisions.
+     * @param policy A {@link ContextualSearchPolicy} for policy decisions.
+     */
+    public void setPolicy(ContextualSearchPolicy policy) {
+        mPolicy = policy;
+    }
+
+    /**
      * Notifies that the base page has started loading a page.
      */
     void onBasePageLoadStarted() {
@@ -206,6 +216,11 @@ public class ContextualSearchSelectionController {
      */
     String getSelectedText() {
         return mSelectedText;
+    }
+
+    /** @return whether the selection was established with a Tap gesture. */
+    boolean isTapSelection() {
+        return mSelectionType == SelectionType.TAP;
     }
 
     /**
@@ -309,14 +324,13 @@ public class ContextualSearchSelectionController {
             case SelectionEventType.SELECTION_HANDLES_SHOWN:
                 mAreSelectionHandlesShown = true;
                 mWasTapGestureDetected = false;
-                mSelectionType = ChromeFeatureList.isEnabled(
-                                         ChromeFeatureList.CONTEXTUAL_SEARCH_LONGPRESS_RESOLVE)
-                        ? SelectionType.RESOLVING_LONG_PRESS
-                        : SelectionType.LONG_PRESS;
+                mSelectionType = mPolicy.canResolveLongpress() ? SelectionType.RESOLVING_LONG_PRESS
+                                                               : SelectionType.LONG_PRESS;
                 shouldHandleSelection = true;
                 SelectionPopupController controller = getSelectionPopupController();
                 if (controller != null) mSelectedText = controller.getSelectedText();
                 mIsAdjustedSelection = false;
+                ContextualSearchUma.logSelectionEstablished();
                 break;
             case SelectionEventType.SELECTION_HANDLES_CLEARED:
                 // Selection handles have been hidden, but there may still be a selection.
@@ -327,6 +341,7 @@ public class ContextualSearchSelectionController {
             case SelectionEventType.SELECTION_HANDLE_DRAG_STOPPED:
                 shouldHandleSelection = true;
                 mIsAdjustedSelection = true;
+                ContextualSearchUma.logSelectionAdjusted(mSelectedText);
                 break;
             default:
         }
@@ -406,7 +421,7 @@ public class ContextualSearchSelectionController {
             mY = y;
             mFontSizeDips = fontSizeDips;
             mTextRunLength = textRunLength;
-            mHandler.handleValidTap();
+            mHandler.handleValidTap(x, y);
         } else {
             // Long press, or long-press selection handles shown; reset last tap state.
             mLastTapState = null;
@@ -505,7 +520,8 @@ public class ContextualSearchSelectionController {
         if (basePageWebContents != null) {
             mDidExpandSelection = true;
             basePageWebContents.adjustSelectionByCharacterOffset(
-                    selectionStartAdjust, selectionEndAdjust, /* show_selection_menu = */ false);
+                    selectionStartAdjust, selectionEndAdjust, /* showSelectionMenu= */ false);
+            ContextualSearchUma.logSelectionExpanded(isTapSelection());
         }
     }
 

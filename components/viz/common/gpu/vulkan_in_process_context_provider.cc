@@ -3,37 +3,56 @@
 // found in the LICENSE file.
 
 #include "components/viz/common/gpu/vulkan_in_process_context_provider.h"
-#include "gpu/config/skia_limits.h"
+
+#include <utility>
+
+#include "base/task/thread_pool.h"
+#include "base/task/thread_pool/thread_pool_instance.h"
 #include "gpu/vulkan/buildflags.h"
+#include "gpu/vulkan/init/gr_vk_memory_allocator_impl.h"
 #include "gpu/vulkan/vulkan_device_queue.h"
 #include "gpu/vulkan/vulkan_fence_helper.h"
 #include "gpu/vulkan/vulkan_function_pointers.h"
 #include "gpu/vulkan/vulkan_implementation.h"
 #include "gpu/vulkan/vulkan_instance.h"
-#include "third_party/skia/include/gpu/GrContext.h"
+#include "gpu/vulkan/vulkan_util.h"
+#include "third_party/skia/include/core/SkExecutor.h"
+#include "third_party/skia/include/gpu/GrDirectContext.h"
 #include "third_party/skia/include/gpu/vk/GrVkExtensions.h"
+
+namespace {
+
+class VizExecutor : public SkExecutor {
+ public:
+  VizExecutor() = default;
+  ~VizExecutor() override = default;
+  VizExecutor(const VizExecutor&) = delete;
+  VizExecutor& operator=(const VizExecutor&) = delete;
+
+  // std::function is used by SkExecutor in //third_party/skia. nocheck
+  using Fn = std::function<void(void)>;  // nocheck
+  // SkExecutor:
+  void add(Fn task) override {
+    base::ThreadPool::PostTask(
+        FROM_HERE, base::BindOnce([](Fn task) { task(); }, std::move(task)));
+  }
+};
+
+}  // namespace
 
 namespace viz {
 
+// static
 scoped_refptr<VulkanInProcessContextProvider>
 VulkanInProcessContextProvider::Create(
-    gpu::VulkanImplementation* vulkan_implementation) {
+    gpu::VulkanImplementation* vulkan_implementation,
+    const GrContextOptions& options,
+    const gpu::GPUInfo* gpu_info) {
   scoped_refptr<VulkanInProcessContextProvider> context_provider(
       new VulkanInProcessContextProvider(vulkan_implementation));
-  if (!context_provider->Initialize())
+  if (!context_provider->Initialize(options, gpu_info))
     return nullptr;
   return context_provider;
-}
-
-GrVkGetProc make_unified_getter(const PFN_vkGetInstanceProcAddr& iproc,
-                                const PFN_vkGetDeviceProcAddr& dproc) {
-  return [&iproc, &dproc](const char* proc_name, VkInstance instance,
-                          VkDevice device) {
-    if (device != VK_NULL_HANDLE) {
-      return dproc(device, proc_name);
-    }
-    return iproc(instance, proc_name);
-  };
 }
 
 VulkanInProcessContextProvider::VulkanInProcessContextProvider(
@@ -44,7 +63,9 @@ VulkanInProcessContextProvider::~VulkanInProcessContextProvider() {
   Destroy();
 }
 
-bool VulkanInProcessContextProvider::Initialize() {
+bool VulkanInProcessContextProvider::Initialize(
+    const GrContextOptions& context_options,
+    const gpu::GPUInfo* gpu_info) {
   DCHECK(!device_queue_);
 
   const auto& instance_extensions = vulkan_implementation_->GetVulkanInstance()
@@ -61,7 +82,8 @@ bool VulkanInProcessContextProvider::Initialize() {
     }
   }
 
-  device_queue_ = gpu::CreateVulkanDeviceQueue(vulkan_implementation_, flags);
+  device_queue_ =
+      gpu::CreateVulkanDeviceQueue(vulkan_implementation_, flags, gpu_info);
   if (!device_queue_)
     return false;
 
@@ -74,12 +96,18 @@ bool VulkanInProcessContextProvider::Initialize() {
   backend_context.fMaxAPIVersion = vulkan_implementation_->GetVulkanInstance()
                                        ->vulkan_info()
                                        .used_api_version;
+  backend_context.fMemoryAllocator =
+      gpu::CreateGrVkMemoryAllocator(device_queue_.get());
 
-  gpu::VulkanFunctionPointers* vulkan_function_pointers =
-      gpu::GetVulkanFunctionPointers();
-  GrVkGetProc get_proc =
-      make_unified_getter(vulkan_function_pointers->vkGetInstanceProcAddrFn,
-                          vulkan_function_pointers->vkGetDeviceProcAddrFn);
+  GrVkGetProc get_proc = [](const char* proc_name, VkInstance instance,
+                            VkDevice device) {
+    if (device) {
+      if (std::strcmp("vkQueueSubmit", proc_name) == 0)
+        return reinterpret_cast<PFN_vkVoidFunction>(&gpu::QueueSubmitHook);
+      return vkGetDeviceProcAddr(device, proc_name);
+    }
+    return vkGetInstanceProcAddr(instance, proc_name);
+  };
 
   std::vector<const char*> device_extensions;
   device_extensions.reserve(device_queue_->enabled_extensions().size());
@@ -99,18 +127,16 @@ bool VulkanInProcessContextProvider::Initialize() {
       vulkan_implementation_->enforce_protected_memory() ? GrProtected::kYes
                                                          : GrProtected::kNo;
 
-  size_t max_resource_cache_bytes;
-  size_t max_glyph_cache_texture_bytes;
-  gpu::DetermineGrCacheLimitsFromAvailableMemory(
-      &max_resource_cache_bytes, &max_glyph_cache_texture_bytes);
-
-  GrContextOptions context_options;
-  context_options.fGlyphCacheTextureMaximumBytes =
-      max_glyph_cache_texture_bytes;
-
-  gr_context_ = GrContext::MakeVulkan(backend_context, context_options);
-  if (gr_context_)
-    gr_context_->setResourceCacheLimit(max_resource_cache_bytes);
+  GrContextOptions options;
+  if (base::ThreadPoolInstance::Get()) {
+    // For some tests, ThreadPoolInstance is not initialized. VizExecutor will
+    // not be used for this case.
+    // TODO(penghuang): Make sure ThreadPoolInstance is initialized for related
+    // tests.
+    executor_ = std::make_unique<VizExecutor>();
+    options.fExecutor = executor_.get();
+  }
+  gr_context_ = GrDirectContext::MakeVulkan(backend_context, options);
 
   return gr_context_ != nullptr;
 }
@@ -130,6 +156,8 @@ void VulkanInProcessContextProvider::Destroy() {
     gr_context_.reset();
   }
 
+  executor_.reset();
+
   if (device_queue_) {
     device_queue_->Destroy();
     device_queue_.reset();
@@ -145,7 +173,7 @@ gpu::VulkanDeviceQueue* VulkanInProcessContextProvider::GetDeviceQueue() {
   return device_queue_.get();
 }
 
-GrContext* VulkanInProcessContextProvider::GetGrContext() {
+GrDirectContext* VulkanInProcessContextProvider::GetGrContext() {
   return gr_context_.get();
 }
 

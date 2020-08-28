@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "base/macros.h"
+#include "build/build_config.h"
 #include "chrome/browser/profiles/avatar_menu.h"
 #include "chrome/browser/profiles/avatar_menu_observer.h"
 #include "chrome/browser/sync/sync_ui_util.h"
@@ -31,16 +32,16 @@ class Browser;
 // It displays a list of profiles and allows users to switch between profiles.
 class ProfileMenuView : public ProfileMenuViewBase {
  public:
-  ProfileMenuView(views::Button* anchor_button,
-                     Browser* browser,
-                     signin_metrics::AccessPoint access_point);
+  ProfileMenuView(views::Button* anchor_button, Browser* browser);
   ~ProfileMenuView() override;
 
   // ProfileMenuViewBase:
   void BuildMenu() override;
+  gfx::ImageSkia GetSyncIcon() const override;
 
  private:
   friend class ProfileMenuViewExtensionsTest;
+  friend class ProfileMenuViewSignoutTest;
 
   // views::BubbleDialogDelegateView:
   base::string16 GetAccessibleWindowTitle() const override;
@@ -51,17 +52,19 @@ class ProfileMenuView : public ProfileMenuViewBase {
   void OnCreditCardsButtonClicked();
   void OnAddressesButtonClicked();
   void OnGuestProfileButtonClicked();
-  void OnManageProfilesButtonClicked();
   void OnExitProfileButtonClicked();
   void OnSyncSettingsButtonClicked();
   void OnSyncErrorButtonClicked(sync_ui_util::AvatarSyncErrorType error);
-  void OnSigninButtonClicked();
   void OnSigninAccountButtonClicked(AccountInfo account);
-  void OnSignoutButtonClicked();
-  void OnOtherProfileSelected(const base::FilePath& profile_path);
   void OnCookiesClearedOnExitLinkClicked();
+#if !defined(OS_CHROMEOS)
+  void OnSignoutButtonClicked();
+  void OnSigninButtonClicked();
+  void OnOtherProfileSelected(const base::FilePath& profile_path);
   void OnAddNewProfileButtonClicked();
+  void OnManageProfilesButtonClicked();
   void OnEditProfileButtonClicked();
+#endif
 
   // We normally close the bubble any time it becomes inactive but this can lead
   // to flaky tests where unexpected UI events are triggering this behavior.
@@ -71,19 +74,14 @@ class ProfileMenuView : public ProfileMenuViewBase {
   // Helper methods for building the menu.
   void BuildIdentity();
   void BuildGuestIdentity();
-  gfx::ImageSkia GetSyncIcon();
   void BuildAutofillButtons();
   void BuildSyncInfo();
   void BuildFeatureButtons();
-  void BuildProfileManagementHeading();
+#if !defined(OS_CHROMEOS)
   void BuildSelectableProfiles();
+  void BuildProfileManagementHeading();
   void BuildProfileManagementFeatureButtons();
-
-  // Clean-up done after an action was performed in the ProfileChooser.
-  void PostActionPerformed(ProfileMetrics::ProfileDesktopMenu action_performed);
-
-  // The current access point of sign in.
-  const signin_metrics::AccessPoint access_point_;
+#endif
 
   DISALLOW_COPY_AND_ASSIGN(ProfileMenuView);
 };

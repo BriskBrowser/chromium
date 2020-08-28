@@ -18,7 +18,6 @@ dgozman@chromium.org
 drott@chromium.org
 dsinclair@chromium.org
 dstockwell@chromium.org
-eae@chromium.org
 enne@chromium.org
 # flackr reviews animation- and scrolling-related changes.
 flackr@chromium.org
@@ -44,12 +43,14 @@ kenneth.r.christiansen@intel.com
 kinuko@chromium.org
 kojii@chromium.org
 kouhei@chromium.org
+masonfreed@chromium.org
 mkwst@chromium.org
 mstensho@chromium.org
 # nainar reviews changes in core/css,core/style
 # and related code in core/dom and core/layout.
 nainar@chromium.org
 nhiroki@chromium.org
+obrufau@igalia.com
 # pdr reviews many svg and text autosizing patches.
 pdr@chromium.org
 pfeldman@chromium.org
@@ -67,7 +68,7 @@ thakis@chromium.org
 timloh@chromium.org
 tkent@chromium.org
 tonyg@chromium.org
-# vollick reviews compositor integration, accelerated transitions, animations and scrolling, scrolling coordinator, CSS transforms
+vmpstr@chromium.org
 vollick@chromium.org
 wangxianzhu@chromium.org
 yhirano@chromium.org

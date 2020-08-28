@@ -31,16 +31,18 @@ class MojoAudioDecoder : public AudioDecoder, public mojom::AudioDecoderClient {
                    mojo::PendingRemote<mojom::AudioDecoder> remote_decoder);
   ~MojoAudioDecoder() final;
 
-  // AudioDecoder implementation.
-  std::string GetDisplayName() const final;
+  // Decoder implementation
   bool IsPlatformDecoder() const final;
+  bool SupportsDecryption() const final;
+  std::string GetDisplayName() const final;
+
+  // AudioDecoder implementation.
   void Initialize(const AudioDecoderConfig& config,
                   CdmContext* cdm_context,
                   InitCB init_cb,
                   const OutputCB& output_cb,
                   const WaitingCB& waiting_cb) final;
-  void Decode(scoped_refptr<DecoderBuffer> buffer,
-              const DecodeCB& decode_cb) final;
+  void Decode(scoped_refptr<DecoderBuffer> buffer, DecodeCB decode_cb) final;
   void Reset(base::OnceClosure closure) final;
   bool NeedsBitstreamConversion() const final;
 
@@ -58,8 +60,11 @@ class MojoAudioDecoder : public AudioDecoder, public mojom::AudioDecoderClient {
   // Callback for connection error on |remote_decoder_|.
   void OnConnectionError();
 
+  // Fail an initialization with a Status.
+  void FailInit(InitCB init_cb, Status err);
+
   // Called when |remote_decoder_| finished initialization.
-  void OnInitialized(bool success, bool needs_bitstream_conversion);
+  void OnInitialized(const Status& status, bool needs_bitstream_conversion);
 
   // Called when |remote_decoder_| accepted or rejected DecoderBuffer.
   void OnDecodeStatus(DecodeStatus decode_status);

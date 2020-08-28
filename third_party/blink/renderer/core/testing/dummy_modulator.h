@@ -27,7 +27,7 @@ class DummyModulator : public Modulator {
  public:
   DummyModulator();
   ~DummyModulator() override;
-  void Trace(blink::Visitor*) override;
+  void Trace(Visitor*) const override;
 
   ModuleRecordResolver* GetModuleRecordResolver() override;
   base::SingleThreadTaskRunner* TaskRunner() override;
@@ -36,9 +36,6 @@ class DummyModulator : public Modulator {
   bool IsScriptingDisabled() const override;
 
   bool ImportMapsEnabled() const override;
-  bool BuiltInModuleInfraEnabled() const override;
-  bool BuiltInModuleEnabled(blink::layered_api::Module) const override;
-  void BuiltInModuleUseCount(blink::layered_api::Module) const override;
 
   void FetchTree(const KURL&,
                  ResourceFetcher*,
@@ -77,9 +74,11 @@ class DummyModulator : public Modulator {
   ScriptValue InstantiateModule(v8::Local<v8::Module>, const KURL&) override;
   Vector<ModuleRequest> ModuleRequestsFromModuleRecord(
       v8::Local<v8::Module>) override;
-  ScriptValue ExecuteModule(ModuleScript*, CaptureEvalErrorFlag) override;
+  ModuleEvaluationResult ExecuteModule(ModuleScript*,
+                                       CaptureEvalErrorFlag) override;
   ModuleScriptFetcher* CreateModuleScriptFetcher(
-      ModuleScriptCustomFetchType) override;
+      ModuleScriptCustomFetchType,
+      util::PassKey<ModuleScriptLoader>) override;
 
   Member<ModuleRecordResolver> resolver_;
 };

@@ -5,7 +5,7 @@
 #ifndef CONTENT_BROWSER_APPCACHE_APPCACHE_UPDATE_METRICS_RECORDER_H_
 #define CONTENT_BROWSER_APPCACHE_APPCACHE_UPDATE_METRICS_RECORDER_H_
 
-#include "base/logging.h"
+#include "base/check_op.h"
 #include "content/browser/appcache/appcache_update_job_state.h"
 #include "content/common/content_export.h"
 
@@ -20,8 +20,12 @@ namespace content {
 // UploadMetrics().
 class CONTENT_EXPORT AppCacheUpdateMetricsRecorder {
  public:
-  AppCacheUpdateMetricsRecorder() = default;
+  AppCacheUpdateMetricsRecorder();
   ~AppCacheUpdateMetricsRecorder() = default;
+
+  // IncrementExistingCorruptionFixedInUpdate() keeps track of the number of
+  // corrupt resources that we've fixed while handling a 304 response.
+  void IncrementExistingCorruptionFixedInUpdate();
 
   // IncrementExistingResourceCheck() keeps track of the number of times
   // we plan to check whether we can reuse existing resources.
@@ -38,6 +42,12 @@ class CONTENT_EXPORT AppCacheUpdateMetricsRecorder {
   // This will only occur when the corruption recovery feature is enabled in
   // a given Chromium instance.
   void IncrementExistingResourceCorruptionRecovery();
+
+  // IncrementExistingResourceNotCorrupt() keeps track of the number of non-
+  // corrupt resources that we've encountered.  Non-corrupt cache entries that
+  // are present and haven't been read or haven't been checked to see if they
+  // can be used will not be detected/reported through this metric.
+  void IncrementExistingResourceNotCorrupt();
 
   // IncrementExistingResourceReused() keeps track of the number of times
   // we've determined we can reuse an existing resource.
@@ -61,9 +71,11 @@ class CONTENT_EXPORT AppCacheUpdateMetricsRecorder {
   void UploadMetrics();
 
  private:
+  int existing_corruption_fixed_in_update_ = 0;
   int existing_resource_check_ = 0;
   int existing_resource_corrupt_ = 0;
   int existing_resource_corruption_recovery_ = 0;
+  int existing_resource_not_corrupt_ = 0;
   int existing_resource_reused_ = 0;
   bool canceled_ = false;
   AppCacheUpdateJobState final_internal_state_;

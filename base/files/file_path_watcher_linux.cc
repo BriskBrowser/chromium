@@ -38,7 +38,7 @@
 #include "base/threading/platform_thread.h"
 #include "base/threading/scoped_blocking_call.h"
 #include "base/threading/sequenced_task_runner_handle.h"
-#include "base/trace_event/trace_event.h"
+#include "base/trace_event/base_tracing.h"
 
 namespace base {
 
@@ -121,11 +121,11 @@ class InotifyReader {
   // Returns true on successful thread creation.
   bool StartThread();
 
-  // Lock to protect |watchers_|.
   Lock lock_;
 
   // We keep track of which delegates want to be notified on which watches.
-  std::unordered_map<Watch, std::set<FilePathWatcherImpl*>> watchers_;
+  std::unordered_map<Watch, std::set<FilePathWatcherImpl*>> watchers_
+      GUARDED_BY(lock_);
 
   // File descriptor returned by inotify_init.
   const int inotify_fd_;
@@ -270,9 +270,6 @@ void InotifyReaderThreadDelegate::ThreadMain() {
     fd_set rfds;
     FD_ZERO(&rfds);
     FD_SET(inotify_fd_, &rfds);
-
-    ScopedBlockingCall scoped_blocking_call(FROM_HERE,
-                                            BlockingType::WILL_BLOCK);
 
     // Wait until some inotify events are available.
     int select_result =

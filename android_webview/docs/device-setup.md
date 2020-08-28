@@ -10,6 +10,22 @@ Android image.
 To build WebView, or [run WebView's automated tests](./test-instructions.md),
 you'll need to set up either an emulator or a physical device.
 
+## I have a device or emulator. Will it work for development?
+
+You can check which Android image you have on your device with the following:
+
+```sh
+# If you don't have `adb` in your path, you can source this file to use
+# the copy from chromium's Android SDK.
+$ source build/android/envsetup.sh
+
+# If this outputs "userdebug" or "eng" then you're OK! If this outputs "user"
+# then you must reflash your physical device or configure a new emulator
+# following this guide.
+$ adb shell getprop ro.build.type
+userdebug
+```
+
 ## Emulator (easy way)
 
 *** promo
@@ -26,13 +42,16 @@ developer hurdles.
 
 ## Physical device
 
-### Flash a prebuilt image (Googler only)
+### Flash a prebuilt image
 
 Googlers can consult internal instructions
-[here](http://go/clank-webview/building-webview/device-setup).
+[here](http://go/clank-webview/device_setup.md).
 
-Unfortunately, Google does not offer prebuilt `userdebug`/`eng` images for
-external contributors.
+External contributors can flash a prebuilt userdebug image (based off
+aosp-master) onto a Pixel device with [Android Flash
+Tool](https://flash.android.com/welcome?continue=%2Fcustom). This requires a
+browser capable of WebUSB (we recommend the latest Google Chrome stable
+release).
 
 ### Building AOSP yourself (hard way)
 
@@ -94,8 +113,8 @@ WebView:
   `monochrome_{public_}apk`, this is not a valid WebView provider. Unlike on
   `userdebug`/`eng` images, the WebView update service performs additional
   signature checks on `user` images, only loading code that has been signed by
-  one of the expected signatures--as above, these keys are not available for
-  local builds.
+  one of the expected signatures&mdash;as above, these keys are not available
+  for local builds.
 
 Both of the above are important security features: these protect users from
 running malware in the context of WebView (which runs inside the context of

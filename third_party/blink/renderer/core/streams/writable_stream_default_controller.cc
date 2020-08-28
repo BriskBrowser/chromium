@@ -153,8 +153,8 @@ void WritableStreamDefaultController::SetUp(
       // 16. Upon fulfillment of startPromise
       //      a. Assert: stream.[[state]] is "writable" or "erroring".
       const auto state = stream_->GetState();
-      DCHECK(state == WritableStream::kWritable ||
-             state == WritableStream::kErroring);
+      CHECK(state == WritableStream::kWritable ||
+            state == WritableStream::kErroring);
 
       //      b. Set controller.[[started]] to true.
       WritableStreamDefaultController* controller = stream_->Controller();
@@ -166,7 +166,7 @@ void WritableStreamDefaultController::SetUp(
                                                             controller);
     }
 
-    void Trace(Visitor* visitor) override {
+    void Trace(Visitor* visitor) const override {
       visitor->Trace(stream_);
       PromiseHandler::Trace(visitor);
     }
@@ -184,8 +184,8 @@ void WritableStreamDefaultController::SetUp(
       // 17. Upon rejection of startPromise with reason r,
       //      a. Assert: stream.[[state]] is "writable" or "erroring".
       const auto state = stream_->GetState();
-      DCHECK(state == WritableStream::kWritable ||
-             state == WritableStream::kErroring);
+      CHECK(state == WritableStream::kWritable ||
+            state == WritableStream::kErroring);
 
       //      b. Set controller.[[started]] to true.
       WritableStreamDefaultController* controller = stream_->Controller();
@@ -195,7 +195,7 @@ void WritableStreamDefaultController::SetUp(
       WritableStream::DealWithRejection(GetScriptState(), stream_, r);
     }
 
-    void Trace(Visitor* visitor) override {
+    void Trace(Visitor* visitor) const override {
       visitor->Trace(stream_);
       PromiseHandler::Trace(visitor);
     }
@@ -392,7 +392,7 @@ void WritableStreamDefaultController::ErrorIfNeeded(
   }
 }
 
-void WritableStreamDefaultController::Trace(Visitor* visitor) {
+void WritableStreamDefaultController::Trace(Visitor* visitor) const {
   visitor->Trace(abort_algorithm_);
   visitor->Trace(close_algorithm_);
   visitor->Trace(controlled_writable_stream_);
@@ -511,7 +511,7 @@ void WritableStreamDefaultController::ProcessClose(
       WritableStream::FinishInFlightClose(GetScriptState(), stream_);
     }
 
-    void Trace(Visitor* visitor) override {
+    void Trace(Visitor* visitor) const override {
       visitor->Trace(stream_);
       PromiseHandler::Trace(visitor);
     }
@@ -533,7 +533,7 @@ void WritableStreamDefaultController::ProcessClose(
                                                    reason);
     }
 
-    void Trace(Visitor* visitor) override {
+    void Trace(Visitor* visitor) const override {
       visitor->Trace(stream_);
       PromiseHandler::Trace(visitor);
     }
@@ -582,8 +582,8 @@ void WritableStreamDefaultController::ProcessWrite(
       const auto state = stream_->GetState();
 
       //      c. Assert: state is "writable" or "erroring".
-      DCHECK(state == WritableStream::kWritable ||
-             state == WritableStream::kErroring);
+      CHECK(state == WritableStream::kWritable ||
+            state == WritableStream::kErroring);
 
       //      d. Perform ! DequeueValue(controller).
       controller_->queue_->DequeueValue(script_state->GetIsolate());
@@ -608,7 +608,7 @@ void WritableStreamDefaultController::ProcessWrite(
                                                             controller_);
     }
 
-    void Trace(Visitor* visitor) override {
+    void Trace(Visitor* visitor) const override {
       visitor->Trace(stream_);
       visitor->Trace(controller_);
       PromiseHandler::Trace(visitor);
@@ -643,7 +643,7 @@ void WritableStreamDefaultController::ProcessWrite(
                                                    reason);
     }
 
-    void Trace(Visitor* visitor) override {
+    void Trace(Visitor* visitor) const override {
       visitor->Trace(stream_);
       visitor->Trace(controller_);
       PromiseHandler::Trace(visitor);

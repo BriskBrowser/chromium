@@ -5,8 +5,8 @@
 #include "content/renderer/pepper/pepper_platform_audio_input.h"
 
 #include "base/bind.h"
+#include "base/check_op.h"
 #include "base/location.h"
-#include "base/logging.h"
 #include "base/single_thread_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
@@ -19,6 +19,7 @@
 #include "content/renderer/render_view_impl.h"
 #include "media/audio/audio_device_description.h"
 #include "ppapi/shared_impl/ppb_audio_config_shared.h"
+#include "third_party/blink/public/web/web_local_frame.h"
 
 namespace content {
 
@@ -77,13 +78,13 @@ void PepperPlatformAudioInput::ShutDown() {
 
 void PepperPlatformAudioInput::OnStreamCreated(
     base::ReadOnlySharedMemoryRegion shared_memory_region,
-    base::SyncSocket::Handle socket_handle,
+    base::SyncSocket::ScopedHandle socket_handle,
     bool initially_muted) {
   DCHECK(shared_memory_region.IsValid());
 #if defined(OS_WIN)
-  DCHECK(socket_handle);
+  DCHECK(socket_handle.IsValid());
 #else
-  DCHECK_NE(-1, socket_handle);
+  DCHECK(socket_handle.is_valid());
 #endif
   DCHECK_GT(shared_memory_region.GetSize(), 0u);
 
@@ -93,15 +94,13 @@ void PepperPlatformAudioInput::OnStreamCreated(
     main_task_runner_->PostTask(
         FROM_HERE, base::BindOnce(&PepperPlatformAudioInput::OnStreamCreated,
                                   this, std::move(shared_memory_region),
-                                  socket_handle, initially_muted));
+                                  std::move(socket_handle), initially_muted));
   } else {
     // Must dereference the client only on the main thread. Shutdown may have
     // occurred while the request was in-flight, so we need to NULL check.
     if (client_) {
-      client_->StreamCreated(std::move(shared_memory_region), socket_handle);
-    } else {
-      // Clean up the handle.
-      base::SyncSocket temp_socket(socket_handle);
+      client_->StreamCreated(std::move(shared_memory_region),
+                             std::move(socket_handle));
     }
   }
 }
@@ -148,6 +147,7 @@ bool PepperPlatformAudioInput::Initialize(
     return false;
 
   render_frame_id_ = render_frame_id;
+  render_frame_token_ = render_frame->GetWebFrame()->GetFrameToken();
   client_ = client;
 
   if (!GetMediaDeviceManager())
@@ -178,7 +178,7 @@ void PepperPlatformAudioInput::InitializeOnIOThread(
 
   if (ipc_startup_state_ != kStopped)
     ipc_ = AudioInputIPCFactory::get()->CreateAudioInputIPC(
-        render_frame_id_, media::AudioSourceParameters(session_id));
+        render_frame_token_, media::AudioSourceParameters(session_id));
   if (!ipc_)
     return;
 

@@ -19,7 +19,6 @@
           android:id="@+id/system_default"
           android:layout_width="match_parent"
           android:layout_height="wrap_content"
-          android:background="?attr/selectableItemBackground"
           app:primaryText="@string/themes_system_default_title"
           app:descriptionText="@string/themes_system_default_summary" />
 
@@ -31,7 +30,6 @@
           android:minHeight="@dimen/min_touch_target_size"
           android:paddingTop="8dp"
           android:paddingBottom="8dp"
-          android:background="?attr/selectableItemBackground"
           app:primaryText="@string/light_mode" />
 
       <org.chromium.components.browser_ui.widget.RadioButtonWithDescription
@@ -41,7 +39,6 @@
           android:minHeight="@dimen/min_touch_target_size"
           android:paddingTop="8dp"
           android:paddingBottom="8dp"
-          android:background="?attr/selectableItemBackground"
           app:primaryText="@string/dark_mode" />
 
     </org.chromium.components.browser_ui.widget.RadioButtonWithDescriptionLayout>
@@ -55,8 +52,8 @@
         android:gravity="center_vertical"
         android:clickable="true"
         android:focusable="true"
-        android:paddingStart="@dimen/theme_preferences_checkbox_container_padding_start"
-        android:paddingEnd="@dimen/theme_preferences_checkbox_container_padding_end"
+        android:paddingStart="@dimen/radio_button_accessory_view_padding_start"
+        android:paddingEnd="@dimen/radio_button_accessory_view_padding_end"
         android:visibility="gone"
         android:background="?attr/selectableItemBackground">
 
@@ -72,6 +69,6 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="@string/darken_websites"
-            android:textAppearance="@style/TextAppearance.BlackTitle1" />
+            android:textAppearance="@style/TextAppearance.TextLarge.Primary" />
     </LinearLayout>
 </LinearLayout>

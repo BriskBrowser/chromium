@@ -7,6 +7,7 @@
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/feature_list.h"
+#include "base/memory/ptr_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
 #include "chrome/browser/banners/app_banner_metrics.h"
@@ -43,6 +44,27 @@ bool gDisableTriggeringForTesting = false;
 
 namespace banners {
 
+AppBannerManagerDesktop::CreateAppBannerManagerForTesting
+    AppBannerManagerDesktop::override_app_banner_manager_desktop_for_testing_ =
+        nullptr;
+
+// static
+void AppBannerManagerDesktop::CreateForWebContents(
+    content::WebContents* web_contents) {
+  if (FromWebContents(web_contents))
+    return;
+
+  if (override_app_banner_manager_desktop_for_testing_) {
+    web_contents->SetUserData(
+        UserDataKey(),
+        override_app_banner_manager_desktop_for_testing_(web_contents));
+    return;
+  }
+  web_contents->SetUserData(
+      UserDataKey(),
+      base::WrapUnique(new AppBannerManagerDesktop(web_contents)));
+}
+
 // static
 AppBannerManager* AppBannerManager::FromWebContents(
     content::WebContents* web_contents) {
@@ -51,6 +73,11 @@ AppBannerManager* AppBannerManager::FromWebContents(
 
 void AppBannerManagerDesktop::DisableTriggeringForTesting() {
   gDisableTriggeringForTesting = true;
+}
+
+TestAppBannerManagerDesktop*
+AppBannerManagerDesktop::AsTestAppBannerManagerDesktopForTesting() {
+  return nullptr;
 }
 
 AppBannerManagerDesktop::AppBannerManagerDesktop(
@@ -130,27 +157,32 @@ bool AppBannerManagerDesktop::IsExternallyInstalledWebApp() {
     // Use manifest as source of truth if available.
     web_app::AppId manifest_app_id =
         web_app::GenerateAppIdFromURL(manifest_.start_url);
-    return registrar().HasExternalApp(manifest_app_id);
+    // TODO(crbug.com/1090182): Make HasExternalApp imply IsLocallyInstalled.
+    return registrar().IsLocallyInstalled(manifest_app_id) &&
+           registrar().HasExternalApp(manifest_app_id);
   }
+
   // Check URL wouldn't collide with an external app's install URL.
   const GURL& url = web_contents()->GetLastCommittedURL();
-  if (registrar().LookupExternalAppId(url).has_value())
+  base::Optional<web_app::AppId> external_app_id =
+      registrar().LookupExternalAppId(url);
+  // TODO(crbug.com/1090182): Make LookupExternalAppId imply IsLocallyInstalled.
+  if (external_app_id && registrar().IsLocallyInstalled(*external_app_id))
     return true;
+
   // Check an app created for this page wouldn't collide with any external app.
   web_app::AppId possible_app_id = web_app::GenerateAppIdFromURL(url);
-  if (registrar().HasExternalApp(possible_app_id))
-    return true;
-  return false;
-}
-
-bool AppBannerManagerDesktop::IsWebAppConsideredInstalled() {
-  DCHECK(!manifest_.IsEmpty());
-  return registrar().IsLocallyInstalled(manifest_.start_url);
+  // TODO(crbug.com/1090182): Make HasExternalApp imply IsLocallyInstalled.
+  return registrar().IsLocallyInstalled(possible_app_id) &&
+         registrar().HasExternalApp(possible_app_id);
 }
 
 bool AppBannerManagerDesktop::ShouldAllowWebAppReplacementInstall() {
+  // Only allow replacement install if this specific app is already installed.
   web_app::AppId app_id = web_app::GenerateAppIdFromURL(manifest_.start_url);
-  DCHECK(registrar().IsLocallyInstalled(app_id));
+  if (!registrar().IsLocallyInstalled(app_id))
+    return false;
+
   if (IsExternallyInstalledWebApp())
     return false;
   auto display_mode = registrar().GetAppUserDisplayMode(app_id);
@@ -191,7 +223,8 @@ void AppBannerManagerDesktop::OnWebAppInstalled(
   if (app_id.has_value() && *app_id == installed_app_id &&
       registrar().GetAppUserDisplayMode(*app_id) ==
           blink::mojom::DisplayMode::kStandalone) {
-    OnInstall(registrar().GetAppDisplayMode(*app_id));
+    OnInstall(registrar().GetEffectiveDisplayModeFromManifest(*app_id));
+    SetInstallableWebAppCheckResult(InstallableWebAppCheckResult::kNo);
   }
 }
 
@@ -205,7 +238,7 @@ void AppBannerManagerDesktop::CreateWebApp(WebappInstallSource install_source) {
 
   // TODO(loyso): Take appropriate action if WebApps disabled for profile.
   web_app::CreateWebAppFromManifest(
-      contents, install_source,
+      contents, /*bypass_service_worker_check=*/false, install_source,
       base::BindOnce(&AppBannerManagerDesktop::DidFinishCreatingWebApp,
                      weak_factory_.GetWeakPtr()));
 }

@@ -9,7 +9,7 @@
 
 @implementation AppShimDelegate
 
-- (id)initWithController:(AppShimController*)controller {
+- (instancetype)initWithController:(AppShimController*)controller {
   if (self = [super init])
     _appShimController = controller;
   return self;
@@ -36,6 +36,12 @@
 
 - (void)applicationWillBecomeActive:(NSNotification*)notification {
   return _appShimController->host()->FocusApp();
+}
+
+- (BOOL)applicationShouldHandleReopen:(NSApplication*)sender
+                    hasVisibleWindows:(BOOL)flag {
+  _appShimController->host()->ReopenApp();
+  return YES;
 }
 
 - (BOOL)validateUserInterfaceItem:(id<NSValidatedUserInterfaceItem>)item {

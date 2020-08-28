@@ -4,6 +4,9 @@
 
 #include "ui/views/controls/button/image_button_factory.h"
 
+#include <memory>
+#include <utility>
+
 #include "components/vector_icons/vector_icons.h"
 #include "ui/gfx/color_palette.h"
 #include "ui/gfx/color_utils.h"
@@ -33,11 +36,51 @@ TEST_F(ImageButtonFactoryTest, SetImageFromVectorIcon) {
             button->GetInkDropBaseColor());
 }
 
-TEST_F(ImageButtonFactoryTest, SetImageFromVectorIcon_Default) {
-  auto button = CreateVectorImageButton(nullptr);
-  SetImageFromVectorIcon(button.get(), vector_icons::kCloseRoundedIcon);
-  EXPECT_EQ(button->GetNativeTheme()->GetSystemColor(
+class ImageButtonFactoryWidgetTest : public ViewsTestBase {
+ public:
+  ImageButtonFactoryWidgetTest() = default;
+  ~ImageButtonFactoryWidgetTest() override = default;
+
+  void SetUp() override {
+    ViewsTestBase::SetUp();
+
+    // Create a widget so that buttons can get access to their NativeTheme
+    // instance.
+    widget_ = std::make_unique<Widget>();
+    Widget::InitParams params =
+        CreateParams(Widget::InitParams::TYPE_WINDOW_FRAMELESS);
+    params.ownership = views::Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
+    params.bounds = gfx::Rect(0, 0, 650, 650);
+    widget_->Init(std::move(params));
+    widget_->Show();
+  }
+
+  void TearDown() override {
+    widget_.reset();
+    ViewsTestBase::TearDown();
+  }
+
+  ImageButton* AddImageButton(std::unique_ptr<ImageButton> button) {
+    button_ = widget_->SetContentsView(std::move(button));
+    return button_;
+  }
+
+ protected:
+  Widget* widget() { return widget_.get(); }
+  ImageButton* button() { return button_; }
+
+ private:
+  std::unique_ptr<Widget> widget_;
+  ImageButton* button_ = nullptr;  // owned by |widget_|.
+
+  DISALLOW_COPY_AND_ASSIGN(ImageButtonFactoryWidgetTest);
+};
+
+TEST_F(ImageButtonFactoryWidgetTest, CreateVectorImageButtonWithNativeTheme) {
+  AddImageButton(CreateVectorImageButtonWithNativeTheme(
+      nullptr, vector_icons::kCloseRoundedIcon));
+  EXPECT_EQ(button()->GetNativeTheme()->GetSystemColor(
                 ui::NativeTheme::kColorId_DefaultIconColor),
-            button->GetInkDropBaseColor());
+            button()->GetInkDropBaseColor());
 }
 }  // namespace views

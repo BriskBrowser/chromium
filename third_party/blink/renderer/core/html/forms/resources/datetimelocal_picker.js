@@ -36,6 +36,7 @@ class DateTimeLocalPicker extends HTMLElement {
     this.hadValidValueWhenOpened_ =
         (config.currentValue !== '') && (this.datePicker_.selection() != null);
     this.initialSelectedValue_ = this.selectedValue;
+    this.initialFocusedFieldIndex_ = config.focusedFieldIndex || 0;
 
     this.addEventListener('keydown', this.onKeyDown_);
     this.addEventListener('click', this.onClick_);
@@ -46,7 +47,20 @@ class DateTimeLocalPicker extends HTMLElement {
   onKeyDown_ = (event) => {
     switch (event.key) {
       case 'Enter':
-        window.pagePopupController.setValueAndClosePopup(0, this.selectedValue);
+        // Submit the popup for an Enter keypress except when the user is
+        // hitting Enter to activate the month switcher button, Today button,
+        // or previous/next month arrows.
+        if (!event.target.matches(
+                '.calendar-navigation-button, .month-popup-button, .year-list-view')) {
+          window.pagePopupController.setValueAndClosePopup(
+              0, this.selectedValue);
+        } else if (event.target.matches(
+                       '.calendar-navigation-button, .year-list-view')) {
+          // Navigating with the previous/next arrows may change selection,
+          // so push this change to the in-page control but don't
+          // close the popup.
+          window.pagePopupController.setValue(this.selectedValue);
+        }
         break;
       case 'Escape':
         if (this.selectedValue === this.initialSelectedValue_) {
@@ -60,21 +74,46 @@ class DateTimeLocalPicker extends HTMLElement {
         break;
       case 'ArrowUp':
       case 'ArrowDown':
-        if (this.hasSelectedDate) {
+      case 'ArrowLeft':
+      case 'ArrowRight':
+      case 'PageUp':
+      case 'PageDown':
+        if (event.target.matches('.calendar-table-view, .time-column') &&
+            this.hasSelectedDate) {
           window.pagePopupController.setValue(this.selectedValue);
         }
+        // Stop the native scrolling behavior; the Time picker needs to manage
+        // its own scroll position.
+        event.preventDefault();
+        break;
+      case 'Home':
+      case 'End':
+        window.pagePopupController.setValue(this.selectedValue);
+        event.stopPropagation();
+        // Prevent an attempt to scroll to the end of
+        // of an infinitely looping time picker column.
+        event.preventDefault();
         break;
     }
   };
 
   onClick_ = (event) => {
-    if (this.hasSelectedDate) {
+    if (event.target.matches(
+            '.day-cell, .time-cell, .today-button-refresh, .calendar-navigation-button, .year-list-view, .calendar-navigation-button, .navigation-button-icon-refresh, .month-button') &&
+        this.hasSelectedDate) {
       window.pagePopupController.setValue(this.selectedValue);
     }
   };
 
   onWindowResize_ = (event) => {
-    this.datePicker_.calendarTableView.element.focus();
+    // Check if we should focus on time field by subtracting 3 (month, day, and
+    // year) from index
+    let timeFocusFieldIndex = this.initialFocusedFieldIndex_ - 3;
+    if (timeFocusFieldIndex < 0 ||
+        !this.timePicker_.focusOnFieldIndex(timeFocusFieldIndex)) {
+      // Default to focus on date
+      this.datePicker_.calendarTableView.element.focus();
+    }
   };
 
   // This will be false if neither the initial value of the

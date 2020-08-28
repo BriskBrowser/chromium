@@ -14,7 +14,6 @@
 #include "base/files/file_util.h"
 #include "base/logging.h"
 #include "base/numerics/safe_math.h"
-#include "base/task/post_task.h"
 #include "components/nacl/browser/nacl_browser.h"
 #include "components/nacl/browser/pnacl_translation_cache.h"
 #include "content/public/browser/browser_task_traits.h"
@@ -32,9 +31,9 @@ static const base::FilePath::CharType kTranslationCacheDirectoryName[] =
 static const int kTranslationCacheInitializationDelayMs = 20;
 
 void CloseBaseFile(base::File file) {
-  base::PostTask(
+  base::ThreadPool::PostTask(
       FROM_HERE,
-      {base::ThreadPool(), base::MayBlock(), base::TaskPriority::BEST_EFFORT,
+      {base::MayBlock(), base::TaskPriority::BEST_EFFORT,
        base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN},
       base::BindOnce(base::DoNothing::Once<base::File>(), std::move(file)));
 }
@@ -82,14 +81,13 @@ PnaclHost* PnaclHost::GetInstance() {
 PnaclHost::PendingTranslation::PendingTranslation()
     : process_handle(base::kNullProcessHandle),
       render_view_id(0),
-      nexe_fd(NULL),
+      nexe_fd(nullptr),
       got_nexe_fd(false),
       got_cache_reply(false),
       got_cache_hit(false),
       is_incognito(false),
       callback(NexeFdCallback()),
-      cache_info(nacl::PnaclCacheInfo()) {
-}
+      cache_info(nacl::PnaclCacheInfo()) {}
 
 PnaclHost::PendingTranslation::PendingTranslation(
     const PendingTranslation& other) = default;
@@ -152,7 +150,7 @@ void PnaclHost::Init() {
   cache_state_ = CacheInitializing;
   int rv = disk_cache_->InitOnDisk(
       cache_path,
-      base::Bind(&PnaclHost::OnCacheInitialized, base::Unretained(this)));
+      base::BindOnce(&PnaclHost::OnCacheInitialized, base::Unretained(this)));
   if (rv != net::ERR_IO_PENDING)
     OnCacheInitialized(rv);
 }
@@ -162,20 +160,19 @@ void PnaclHost::Init() {
 // and re-initializing file task runner.
 void PnaclHost::InitForTest(base::FilePath temp_dir, bool in_memory) {
   DCHECK(thread_checker_.CalledOnValidThread());
-  file_task_runner_ =
-      base::CreateSequencedTaskRunner({base::ThreadPool(), base::MayBlock(),
-                                       base::TaskPriority::USER_VISIBLE});
+  file_task_runner_ = base::ThreadPool::CreateSequencedTaskRunner(
+      {base::MayBlock(), base::TaskPriority::USER_VISIBLE});
   disk_cache_.reset(new PnaclTranslationCache());
   cache_state_ = CacheInitializing;
   temp_dir_ = temp_dir;
   int rv;
   if (in_memory) {
     rv = disk_cache_->InitInMemory(
-        base::Bind(&PnaclHost::OnCacheInitialized, base::Unretained(this)));
+        base::BindOnce(&PnaclHost::OnCacheInitialized, base::Unretained(this)));
   } else {
     rv = disk_cache_->InitOnDisk(
         temp_dir,
-        base::Bind(&PnaclHost::OnCacheInitialized, base::Unretained(this)));
+        base::BindOnce(&PnaclHost::OnCacheInitialized, base::Unretained(this)));
   }
   if (rv != net::ERR_IO_PENDING)
     OnCacheInitialized(rv);
@@ -204,8 +201,8 @@ void PnaclHost::DoCreateTemporaryFile(base::FilePath temp_dir,
     if (!file.IsValid())
       PLOG(ERROR) << "Temp file open failed: " << file.error_details();
   }
-  base::PostTask(FROM_HERE, {BrowserThread::IO},
-                 base::BindOnce(cb, std::move(file)));
+  content::GetIOThreadTaskRunner({})->PostTask(
+      FROM_HERE, base::BindOnce(cb, std::move(file)));
 }
 
 void PnaclHost::CreateTemporaryFile(TempFileCallback cb) {
@@ -232,8 +229,8 @@ void PnaclHost::GetNexeFd(int render_process_id,
   }
   if (cache_state_ != CacheReady) {
     // If the backend hasn't yet initialized, try the request again later.
-    base::PostDelayedTask(
-        FROM_HERE, {BrowserThread::IO},
+    content::GetIOThreadTaskRunner({})->PostDelayedTask(
+        FROM_HERE,
         base::BindOnce(&PnaclHost::GetNexeFd, base::Unretained(this),
                        render_process_id, render_view_id, pp_instance,
                        is_incognito, cache_info, cb),
@@ -274,11 +271,11 @@ void PnaclHost::SendCacheQueryAndTempFileRequest(const std::string& cache_key,
                                                  const TranslationID& id) {
   DCHECK(thread_checker_.CalledOnValidThread());
   pending_backend_operations_++;
-  disk_cache_->GetNexe(cache_key, base::Bind(&PnaclHost::OnCacheQueryReturn,
-                                             base::Unretained(this), id));
+  disk_cache_->GetNexe(cache_key, base::BindOnce(&PnaclHost::OnCacheQueryReturn,
+                                                 base::Unretained(this), id));
 
-  CreateTemporaryFile(
-      base::Bind(&PnaclHost::OnTempFileReturn, base::Unretained(this), id));
+  CreateTemporaryFile(base::BindRepeating(&PnaclHost::OnTempFileReturn,
+                                          base::Unretained(this), id));
 }
 
 // Callback from the translation cache query. |id| is bound from
@@ -372,16 +369,15 @@ void PnaclHost::CheckCacheQueryReady(
   }
 
   std::unique_ptr<base::File> file(pt->nexe_fd);
-  pt->nexe_fd = NULL;
+  pt->nexe_fd = nullptr;
   pt->got_nexe_fd = false;
   FileProxy* proxy(new FileProxy(std::move(file), this));
 
-  base::PostTaskAndReplyWithResult(
-      FROM_HERE,
-      {base::ThreadPool(), base::MayBlock(), base::TaskPriority::BEST_EFFORT},
-      base::Bind(&FileProxy::Write, base::Unretained(proxy),
-                 pt->nexe_read_buffer),
-      base::Bind(&FileProxy::WriteDone, base::Owned(proxy), entry->first));
+  base::ThreadPool::PostTaskAndReplyWithResult(
+      FROM_HERE, {base::MayBlock(), base::TaskPriority::BEST_EFFORT},
+      base::BindOnce(&FileProxy::Write, base::Unretained(proxy),
+                     pt->nexe_read_buffer),
+      base::BindOnce(&FileProxy::WriteDone, base::Owned(proxy), entry->first));
 }
 
 //////////////////// GetNexeFd miss path
@@ -448,22 +444,21 @@ void PnaclHost::TranslationFinished(int render_process_id,
     store_nexe = false;
   } else {
     std::unique_ptr<base::File> file(entry->second.nexe_fd);
-    entry->second.nexe_fd = NULL;
+    entry->second.nexe_fd = nullptr;
     entry->second.got_nexe_fd = false;
 
-    base::PostTaskAndReplyWithResult(
-        FROM_HERE,
-        {base::ThreadPool(), base::MayBlock(), base::TaskPriority::BEST_EFFORT},
-        base::Bind(&PnaclHost::CopyFileToBuffer, Passed(&file)),
-        base::Bind(&PnaclHost::StoreTranslatedNexe, base::Unretained(this),
-                   id));
+    base::ThreadPool::PostTaskAndReplyWithResult(
+        FROM_HERE, {base::MayBlock(), base::TaskPriority::BEST_EFFORT},
+        base::BindOnce(&PnaclHost::CopyFileToBuffer, Passed(&file)),
+        base::BindOnce(&PnaclHost::StoreTranslatedNexe, base::Unretained(this),
+                       id));
   }
 
   if (!store_nexe) {
     // If store_nexe is true, the fd will be closed by CopyFileToBuffer.
     if (entry->second.got_nexe_fd) {
       std::unique_ptr<base::File> file(entry->second.nexe_fd);
-      entry->second.nexe_fd = NULL;
+      entry->second.nexe_fd = nullptr;
       CloseBaseFile(std::move(*file.get()));
     }
     pending_translations_.erase(entry);
@@ -487,14 +482,14 @@ void PnaclHost::StoreTranslatedNexe(
     return;
   }
 
-  if (buffer.get() == NULL) {
+  if (!buffer.get()) {
     LOG(ERROR) << "Error reading translated nexe";
     return;
   }
   pending_backend_operations_++;
   disk_cache_->StoreNexe(it->second.cache_key, buffer.get(),
-                         base::Bind(&PnaclHost::OnTranslatedNexeStored,
-                                    base::Unretained(this), it->first));
+                         base::BindOnce(&PnaclHost::OnTranslatedNexeStored,
+                                        base::Unretained(this), it->first));
 }
 
 // After we know the nexe has been stored, we can clean up, and unblock any
@@ -528,8 +523,9 @@ void PnaclHost::RequeryMatchingTranslations(const std::string& key) {
       // something goes wrong, it will just handle it like a miss.
       it->second.got_cache_reply = false;
       pending_backend_operations_++;
-      disk_cache_->GetNexe(key, base::Bind(&PnaclHost::OnCacheQueryReturn,
-                                           base::Unretained(this), it->first));
+      disk_cache_->GetNexe(key,
+                           base::BindOnce(&PnaclHost::OnCacheQueryReturn,
+                                          base::Unretained(this), it->first));
     }
   }
 }
@@ -548,8 +544,8 @@ void PnaclHost::OnBufferCopiedToTempFile(const TranslationID& id,
   if (file_error == -1) {
     // Write error on the temp file. Request a new file and start over.
     CloseBaseFile(std::move(*file.get()));
-    CreateTemporaryFile(base::Bind(&PnaclHost::OnTempFileReturn,
-                                   base::Unretained(this), entry->first));
+    CreateTemporaryFile(base::BindRepeating(
+        &PnaclHost::OnTempFileReturn, base::Unretained(this), entry->first));
     return;
   }
   entry->second.callback.Run(*file.get(), true);
@@ -570,7 +566,7 @@ void PnaclHost::RendererClosing(int render_process_id) {
       // Clean up the open files.
       if (to_erase->second.nexe_fd) {
         std::unique_ptr<base::File> file(to_erase->second.nexe_fd);
-        to_erase->second.nexe_fd = NULL;
+        to_erase->second.nexe_fd = nullptr;
         CloseBaseFile(std::move(*file.get()));
       }
       std::string key(to_erase->second.cache_key);
@@ -581,8 +577,8 @@ void PnaclHost::RendererClosing(int render_process_id) {
         RequeryMatchingTranslations(key);
     }
   }
-  base::PostTask(
-      FROM_HERE, {BrowserThread::IO},
+  content::GetIOThreadTaskRunner({})->PostTask(
+      FROM_HERE,
       base::BindOnce(&PnaclHost::DeInitIfSafe, base::Unretained(this)));
 }
 
@@ -597,8 +593,8 @@ void PnaclHost::ClearTranslationCacheEntriesBetween(
   }
   if (cache_state_ == CacheInitializing) {
     // If the backend hasn't yet initialized, try the request again later.
-    base::PostDelayedTask(
-        FROM_HERE, {BrowserThread::IO},
+    content::GetIOThreadTaskRunner({})->PostDelayedTask(
+        FROM_HERE,
         base::BindOnce(&PnaclHost::ClearTranslationCacheEntriesBetween,
                        base::Unretained(this), initial_time, end_time,
                        std::move(callback)),
@@ -620,13 +616,13 @@ void PnaclHost::ClearTranslationCacheEntriesBetween(
 
 void PnaclHost::OnEntriesDoomed(base::OnceClosure callback, int net_error) {
   DCHECK(thread_checker_.CalledOnValidThread());
-  base::PostTask(FROM_HERE, {BrowserThread::IO}, std::move(callback));
+  content::GetIOThreadTaskRunner({})->PostTask(FROM_HERE, std::move(callback));
   pending_backend_operations_--;
   // When clearing the cache, the UI is blocked on all the cache-clearing
   // operations, and freeing the backend actually blocks the IO thread. So
   // instead of calling DeInitIfSafe directly, post it for later.
-  base::PostTask(
-      FROM_HERE, {BrowserThread::IO},
+  content::GetIOThreadTaskRunner({})->PostTask(
+      FROM_HERE,
       base::BindOnce(&PnaclHost::DeInitIfSafe, base::Unretained(this)));
 }
 

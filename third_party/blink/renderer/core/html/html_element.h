@@ -25,6 +25,7 @@
 
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/dom/element.h"
+#include "third_party/blink/renderer/core/html/forms/labels_node_list.h"
 #include "third_party/blink/renderer/platform/text/text_direction.h"
 #include "third_party/blink/renderer/platform/wtf/casting.h"
 
@@ -38,7 +39,6 @@ class ExceptionState;
 class FormAssociated;
 class HTMLFormElement;
 class KeyboardEvent;
-class LabelsNodeList;
 class StringOrTrustedScript;
 class StringTreatNullAsEmptyStringOrTrustedScript;
 
@@ -107,6 +107,9 @@ class CORE_EXPORT HTMLElement : public Element {
   bool HasDirectionAuto() const;
   TextDirection DirectionalityIfhasDirAutoAttribute(bool& is_auto) const;
 
+  virtual bool IsHTMLBodyElement() const { return false; }
+  virtual bool IsHTMLFrameSetElement() const { return false; }
+  virtual bool IsHTMLPortalElement() const { return false; }
   virtual bool IsHTMLUnknownElement() const { return false; }
   virtual bool IsPluginElement() const { return false; }
 
@@ -115,9 +118,13 @@ class CORE_EXPORT HTMLElement : public Element {
   // |labels| IDL attribute implementation for IsLabelable()==true elements.
   LabelsNodeList* labels();
 
-  // http://www.whatwg.org/specs/web-apps/current-work/multipage/elements.html#interactive-content
+  // https://html.spec.whatwg.org/C/#interactive-content
   virtual bool IsInteractiveContent() const;
   void DefaultEventHandler(Event&) override;
+
+  // Used to handle return/space key events and simulate clicks. Returns true
+  // if the event is handled.
+  bool HandleKeyboardActivation(Event& event);
 
   static const AtomicString& EventNameForAttributeName(
       const QualifiedName& attr_name);

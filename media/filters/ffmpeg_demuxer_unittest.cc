@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <string>
+#include <utility>
 
 #include "base/bind.h"
 #include "base/callback_forward.h"
@@ -276,6 +277,13 @@ class FFmpegDemuxerTest : public testing::Test {
     if (!duration_known)
       demuxer_->duration_ = kInfiniteDuration;
   }
+
+#if BUILDFLAG(USE_PROPRIETARY_CODECS)
+  bool HasBitstreamConverter(DemuxerStream* stream) const {
+    return !!reinterpret_cast<FFmpegDemuxerStream*>(stream)
+                 ->bitstream_converter_;
+  }
+#endif
 
   // Fixture members.
 
@@ -652,13 +660,6 @@ TEST_F(FFmpegDemuxerTest, Read_AudioNoStartTime) {
   }
 }
 
-TEST_F(FFmpegDemuxerTest, Read_InvalidNegativeTimestamp) {
-  CreateDemuxer("negative_ts.flac");
-  InitializeDemuxer();
-  EXPECT_CALL(host_, OnDemuxerError(DEMUXER_ERROR_COULD_NOT_PARSE));
-  ReadUntilEndOfStream(GetStream(DemuxerStream::AUDIO));
-}
-
 // Android has no Theora support, so these tests doesn't work.
 #if !defined(OS_ANDROID)
 TEST_F(FFmpegDemuxerTest, Read_AudioNegativeStartTimeAndOggDiscard_Bear) {
@@ -853,7 +854,11 @@ TEST_F(FFmpegDemuxerTest, Read_AudioNegativeStartTimeAndOpusSfxDiscard_Sync) {
 
   // Run the test twice with a seek in between.
   for (int i = 0; i < 2; ++i) {
-    Read(audio, FROM_HERE, 314, 0, true);
+    // TODO(sandersd): Read_AudioNegativeStartTimeAndOpusDiscardH264Mp4_Sync
+    // has the same sequence, but doesn't have a different discard padding
+    // after seeking to the start. Why is this test different?
+    Read(audio, FROM_HERE, 314, 0, true, DemuxerStream::Status::kOk,
+         i == 0 ? base::TimeDelta::FromMicroseconds(6500) : base::TimeDelta());
     Read(audio, FROM_HERE, 244, 20000, true);
 
     // Though the internal start time may be below zero, the exposed media time
@@ -1441,6 +1446,26 @@ TEST_F(FFmpegDemuxerTest, Read_Mp4_Crbug657437) {
   InitializeDemuxer();
 }
 
+TEST_F(FFmpegDemuxerTest, XHE_AAC) {
+  CreateDemuxer("noise-xhe-aac.mp4");
+  InitializeDemuxer();
+
+  DemuxerStream* audio = GetStream(DemuxerStream::AUDIO);
+  ASSERT_TRUE(audio);
+
+  EXPECT_EQ(audio->audio_decoder_config().profile(),
+            AudioCodecProfile::kXHE_AAC);
+
+  // ADTS bitstream conversion shouldn't be enabled for xHE-AAC since it can't
+  // be represented with only two bits for the profile.
+  audio->EnableBitstreamConverter();
+  EXPECT_FALSE(HasBitstreamConverter(audio));
+
+  // Even though FFmpeg can't decode xHE-AAC content, it should be demuxing it
+  // just fine.
+  Read(audio, FROM_HERE, 1796, 0, true);
+}
+
 #endif  // BUILDFLAG(USE_PROPRIETARY_CODECS)
 
 TEST_F(FFmpegDemuxerTest, Read_Webm_Multiple_Tracks) {
@@ -1644,27 +1669,27 @@ void DisableAndEnableDemuxerTracks(
   base::RunLoop disable_video;
   demuxer->OnSelectedVideoTrackChanged(
       video_tracks, base::TimeDelta(),
-      base::BindOnce(QuitLoop, base::Passed(disable_video.QuitClosure())));
+      base::BindOnce(QuitLoop, disable_video.QuitClosure()));
   disable_video.Run();
 
   base::RunLoop disable_audio;
   demuxer->OnEnabledAudioTracksChanged(
       audio_tracks, base::TimeDelta(),
-      base::BindOnce(QuitLoop, base::Passed(disable_audio.QuitClosure())));
+      base::BindOnce(QuitLoop, disable_audio.QuitClosure()));
   disable_audio.Run();
 
   base::RunLoop enable_video;
   video_tracks.push_back(MediaTrack::Id("1"));
   demuxer->OnSelectedVideoTrackChanged(
       video_tracks, base::TimeDelta(),
-      base::BindOnce(QuitLoop, base::Passed(enable_video.QuitClosure())));
+      base::BindOnce(QuitLoop, enable_video.QuitClosure()));
   enable_video.Run();
 
   base::RunLoop enable_audio;
   audio_tracks.push_back(MediaTrack::Id("2"));
   demuxer->OnEnabledAudioTracksChanged(
       audio_tracks, base::TimeDelta(),
-      base::BindOnce(QuitLoop, base::Passed(enable_audio.QuitClosure())));
+      base::BindOnce(QuitLoop, enable_audio.QuitClosure()));
   enable_audio.Run();
 
   task_environment->RunUntilIdle();

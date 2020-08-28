@@ -6,8 +6,21 @@
  * @fileoverview 'settings-edit-exception-dialog' is a component for editing a
  * site exception entry.
  */
+import 'chrome://resources/cr_elements/cr_button/cr_button.m.js';
+import 'chrome://resources/cr_elements/cr_dialog/cr_dialog.m.js';
+import 'chrome://resources/cr_elements/cr_input/cr_input.m.js';
+
+import {html, Polymer} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+
+import {loadTimeData} from '../i18n_setup.js';
+
+import {SITE_EXCEPTION_WILDCARD} from './constants.js';
+import {SiteException, SiteSettingsPrefsBrowserProxy, SiteSettingsPrefsBrowserProxyImpl} from './site_settings_prefs_browser_proxy.js';
+
 Polymer({
   is: 'settings-edit-exception-dialog',
+
+  _template: html`{__html_template__}`,
 
   properties: {
     /**
@@ -37,13 +50,12 @@ Polymer({
     },
   },
 
-  /** @private {!settings.SiteSettingsPrefsBrowserProxy} */
+  /** @private {?SiteSettingsPrefsBrowserProxy} */
   browserProxy_: null,
 
   /** @override */
   attached() {
-    this.browserProxy_ =
-        settings.SiteSettingsPrefsBrowserProxyImpl.getInstance();
+    this.browserProxy_ = SiteSettingsPrefsBrowserProxyImpl.getInstance();
     this.origin_ = this.model.origin;
 
     this.$.dialog.showModal();
@@ -56,15 +68,15 @@ Polymer({
 
   /** @private */
   onActionButtonTap_() {
-    if (this.model.origin != this.origin_) {
+    if (this.model.origin !== this.origin_) {
       // The way to "edit" an exception is to remove it and and a new one.
       this.browserProxy_.resetCategoryPermissionForPattern(
           this.model.origin, this.model.embeddingOrigin, this.model.category,
           this.model.incognito);
 
       this.browserProxy_.setCategoryPermissionForPattern(
-          this.origin_, this.origin_, this.model.category, this.model.setting,
-          this.model.incognito);
+          this.origin_, SITE_EXCEPTION_WILDCARD, this.model.category,
+          this.model.setting, this.model.incognito);
     }
 
     this.$.dialog.close();
@@ -72,7 +84,7 @@ Polymer({
 
   /** @private */
   validate_() {
-    if (this.$$('cr-input').value.trim() == '') {
+    if (this.$$('cr-input').value.trim() === '') {
       this.invalid_ = true;
       return;
     }

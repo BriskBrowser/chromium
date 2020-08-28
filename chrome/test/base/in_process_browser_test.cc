@@ -46,7 +46,6 @@
 #include "chrome/browser/ui/browser_tabstrip.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
-#include "chrome/common/buildflags.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_features.h"
 #include "chrome/common/chrome_paths.h"
@@ -59,6 +58,7 @@
 #include "chrome/test/base/test_launcher_utils.h"
 #include "chrome/test/base/testing_browser_process.h"
 #include "chrome/test/base/ui_test_utils.h"
+#include "components/captive_portal/core/buildflags.h"
 #include "components/google/core/common/google_util.h"
 #include "components/os_crypt/os_crypt_mocker.h"
 #include "content/public/browser/devtools_agent_host.h"
@@ -71,8 +71,9 @@
 #include "content/public/test/test_navigation_observer.h"
 #include "extensions/buildflags/buildflags.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
+#include "ui/base/ui_base_features.h"
 
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
 #include "base/mac/scoped_nsautorelease_pool.h"
 #include "chrome/test/base/scoped_bundle_swizzler_mac.h"
 #endif
@@ -84,7 +85,7 @@
 #endif
 
 #if BUILDFLAG(ENABLE_CAPTIVE_PORTAL_DETECTION)
-#include "chrome/browser/captive_portal/captive_portal_service.h"
+#include "components/captive_portal/content/captive_portal_service.h"
 #endif
 
 #if !defined(OS_ANDROID)
@@ -93,6 +94,7 @@
 
 #if defined(OS_CHROMEOS)
 #include "ash/public/cpp/test/shell_test_api.h"
+#include "ash/shell.h"
 #include "base/system/sys_info.h"
 #include "chrome/browser/chromeos/input_method/input_method_configuration.h"
 #include "chromeos/constants/chromeos_switches.h"
@@ -109,8 +111,17 @@
 #endif
 
 #if defined(TOOLKIT_VIEWS)
+#include "chrome/browser/ui/views/frame/browser_view.h"
+#include "chrome/browser/ui/views/tabs/tab.h"
 #include "chrome/test/views/accessibility_checker.h"
+#include "ui/views/test/widget_test.h"
 #include "ui/views/views_delegate.h"
+#include "ui/views/widget/widget.h"
+#endif
+
+#if BUILDFLAG(IS_LACROS)
+#include "ui/aura/test/ui_controls_factory_aura.h"
+#include "ui/base/test/ui_controls.h"
 #endif
 
 namespace {
@@ -123,7 +134,7 @@ class FakeDeviceSyncImplFactory
   ~FakeDeviceSyncImplFactory() override = default;
 
   // chromeos::device_sync::DeviceSyncImpl::Factory:
-  std::unique_ptr<chromeos::device_sync::DeviceSyncBase> BuildInstance(
+  std::unique_ptr<chromeos::device_sync::DeviceSyncBase> CreateInstance(
       signin::IdentityManager* identity_manager,
       gcm::GCMDriver* gcm_driver,
       PrefService* profile_prefs,
@@ -164,6 +175,26 @@ InProcessBrowserTest::InProcessBrowserTest(
 }
 #endif
 
+void InProcessBrowserTest::RunScheduledLayouts() {
+#if defined(TOOLKIT_VIEWS)
+  views::Widget::Widgets widgets_to_layout;
+
+#if defined(OS_CHROMEOS)
+  // WidgetTest::GetAllWidgets() doesn't work for ChromeOS in a production
+  // environment. We must get the Widgets ourself.
+  for (aura::Window* root_window : ash::Shell::GetAllRootWindows())
+    views::Widget::GetAllChildWidgets(root_window, &widgets_to_layout);
+#else
+  widgets_to_layout = views::test::WidgetTest::GetAllWidgets();
+#endif  // defined(OS_CHROMEOS)
+
+  for (views::Widget* widget : widgets_to_layout)
+    widget->LayoutRootViewIfNecessary();
+#endif  // defined(TOOLKIT_VIEWS)
+}
+
+// defined(TOOLKIT_VIEWS)
+
 void InProcessBrowserTest::Initialize() {
   CreateTestServer(GetChromeTestDataDir());
   base::FilePath src_dir;
@@ -175,7 +206,7 @@ void InProcessBrowserTest::Initialize() {
   CHECK(base::PathService::Override(chrome::DIR_TEST_DATA,
                                     src_dir.Append(GetChromeTestDataDir())));
 
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
   bundle_swizzler_ = std::make_unique<ScopedBundleSwizzlerMac>();
 #endif
 }
@@ -244,6 +275,10 @@ void InProcessBrowserTest::SetUp() {
                                       chrome::kTestUserProfileDir);
     }
   }
+
+  // By default, OS settings are not opened in a browser tab but in settings
+  // app. OS browsertests require OS settings to be opened in a browser tab.
+  SetAllowOsSettingsInTabForTesting(true);
 #endif
 
   SetScreenInstance();
@@ -253,22 +288,20 @@ void InProcessBrowserTest::SetUp() {
   // Cookies). Without this on Mac and Linux, many tests will hang waiting for a
   // user to approve KeyChain/kwallet access. On Windows this is not needed as
   // OS APIs never block.
-#if defined(OS_MACOSX) || defined(OS_LINUX)
+#if defined(OS_MAC) || defined(OS_LINUX) || defined(OS_CHROMEOS)
   OSCryptMocker::SetUp();
 #endif
 
 #if BUILDFLAG(ENABLE_CAPTIVE_PORTAL_DETECTION)
-  CaptivePortalService::set_state_for_testing(
-      CaptivePortalService::DISABLED_FOR_TESTING);
+  captive_portal::CaptivePortalService::set_state_for_testing(
+      captive_portal::CaptivePortalService::DISABLED_FOR_TESTING);
 #endif
 
   chrome_browser_net::NetErrorTabHelper::set_state_for_testing(
       chrome_browser_net::NetErrorTabHelper::TESTING_FORCE_DISABLED);
 
-  google_util::SetMockLinkDoctorBaseURLForTesting();
-
 #if defined(OS_CHROMEOS)
-  chromeos::device_sync::DeviceSyncImpl::Factory::SetInstanceForTesting(
+  chromeos::device_sync::DeviceSyncImpl::Factory::SetFactoryForTesting(
       GetFakeDeviceSyncImplFactory());
 
   // On Chrome OS, access to files via file: scheme is restricted. Enable
@@ -287,6 +320,13 @@ void InProcessBrowserTest::SetUp() {
                                     default_download_dir_.GetPath()));
 
   AfterStartupTaskUtils::DisableScheduleTaskDelayForTesting();
+
+#if defined(TOOLKIT_VIEWS)
+  // Prevent hover cards from appearing when the mouse is over the tab. Tests
+  // don't typically account for this possibly, so it can cause unrelated tests
+  // to fail. See crbug.com/1050012.
+  Tab::SetShowHoverCardOnMouseHoverForTesting(false);
+#endif  // defined(TOOLKIT_VIEWS)
 
   BrowserTestBase::SetUp();
 }
@@ -308,13 +348,12 @@ void InProcessBrowserTest::TearDown() {
   com_initializer_.reset();
 #endif
   BrowserTestBase::TearDown();
-#if defined(OS_MACOSX) || defined(OS_LINUX)
+#if defined(OS_MAC) || defined(OS_LINUX) || defined(OS_CHROMEOS)
   OSCryptMocker::TearDown();
 #endif
 
 #if defined(OS_CHROMEOS)
-  chromeos::device_sync::DeviceSyncImpl::Factory::SetInstanceForTesting(
-      nullptr);
+  chromeos::device_sync::DeviceSyncImpl::Factory::SetFactoryForTesting(nullptr);
 #endif
 }
 
@@ -331,7 +370,7 @@ void InProcessBrowserTest::CloseBrowserSynchronously(Browser* browser) {
 
 void InProcessBrowserTest::CloseBrowserAsynchronously(Browser* browser) {
   browser->window()->Close();
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
   // BrowserWindowController depends on the auto release pool being recycled
   // in the message loop to delete itself.
   AutoreleasePool()->Recycle();
@@ -340,7 +379,7 @@ void InProcessBrowserTest::CloseBrowserAsynchronously(Browser* browser) {
 
 void InProcessBrowserTest::CloseAllBrowsers() {
   chrome::CloseAllBrowsers();
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
   // BrowserWindowController depends on the auto release pool being recycled
   // in the message loop to delete itself.
   AutoreleasePool()->Recycle();
@@ -385,13 +424,15 @@ bool InProcessBrowserTest::SetUpUserDataDirectory() {
 
 void InProcessBrowserTest::SetScreenInstance() {
 #if defined(USE_X11) && !defined(OS_CHROMEOS)
-  DCHECK(!display::Screen::GetScreen());
-  display::Screen::SetScreenInstance(
-      views::test::TestDesktopScreenX11::GetInstance());
+  if (!features::IsUsingOzonePlatform()) {
+    DCHECK(!display::Screen::GetScreen());
+    display::Screen::SetScreenInstance(
+        views::test::TestDesktopScreenX11::GetInstance());
+  }
 #endif
 }
 
-#if !defined(OS_MACOSX)
+#if !defined(OS_MAC)
 void InProcessBrowserTest::OpenDevToolsWindow(
     content::WebContents* web_contents) {
   ASSERT_FALSE(content::DevToolsAgentHost::HasFor(web_contents));
@@ -403,7 +444,7 @@ Browser* InProcessBrowserTest::OpenURLOffTheRecord(Profile* profile,
                                                    const GURL& url) {
   chrome::OpenURLOffTheRecord(profile, url);
   Browser* browser =
-      chrome::FindTabbedBrowser(profile->GetOffTheRecordProfile(), false);
+      chrome::FindTabbedBrowser(profile->GetPrimaryOTRProfile(), false);
   content::TestNavigationObserver observer(
       browser->tab_strip_model()->GetActiveWebContents());
   observer.Wait();
@@ -423,8 +464,8 @@ Browser* InProcessBrowserTest::CreateIncognitoBrowser(Profile* profile) {
   if (!profile)
     profile = browser()->profile();
   // Create a new browser with using the incognito profile.
-  Browser* incognito = new Browser(
-      Browser::CreateParams(profile->GetOffTheRecordProfile(), true));
+  Browser* incognito =
+      new Browser(Browser::CreateParams(profile->GetPrimaryOTRProfile(), true));
   AddBlankTabAndShow(incognito);
   return incognito;
 }
@@ -443,7 +484,7 @@ Browser* InProcessBrowserTest::CreateBrowserForApp(const std::string& app_name,
   AddBlankTabAndShow(browser);
   return browser;
 }
-#endif  // !defined(OS_MACOSX)
+#endif  // !defined(OS_MAC)
 
 void InProcessBrowserTest::AddBlankTabAndShow(Browser* browser) {
   content::WindowedNotificationObserver observer(
@@ -456,7 +497,7 @@ void InProcessBrowserTest::AddBlankTabAndShow(Browser* browser) {
   browser->window()->Show();
 }
 
-#if !defined(OS_MACOSX)
+#if !defined(OS_MAC)
 base::CommandLine InProcessBrowserTest::GetCommandLineForRelaunch() {
   base::CommandLine new_command_line(
       base::CommandLine::ForCurrentProcess()->GetProgram());
@@ -503,6 +544,19 @@ void InProcessBrowserTest::PreRunTestOnMainThread() {
     auto* tab = browser_->tab_strip_model()->GetActiveWebContents();
     content::WaitForLoadStop(tab);
     SetInitialWebContents(tab);
+
+    // For other platforms, they install ui controls in
+    // interactive_ui_tests_main.cc. We can't add it there because we have no
+    // WindowTreeHost initialized at the test runner level.
+    // The ozone implementation of CreateUIControlsAura differs from other
+    // implementation in that it requires a WindowTreeHost. Thus, it must be
+    // initialized here rather than earlier.
+#if BUILDFLAG(IS_LACROS)
+    BrowserWindow* window = browser_->window();
+    CHECK(window);
+    ui_controls::InstallUIControlsAura(
+        aura::test::CreateUIControlsAura(window->GetNativeWindow()->GetHost()));
+#endif
   }
 
 #if !defined(OS_ANDROID)
@@ -511,7 +565,7 @@ void InProcessBrowserTest::PreRunTestOnMainThread() {
   ASSERT_TRUE(storage_monitor::TestStorageMonitor::CreateForBrowserTests());
 #endif
 
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
   // On Mac, without the following autorelease pool, code which is directly
   // executed (as opposed to executed inside a message loop) would autorelease
   // objects into a higher-level pool. This pool is not recycled in-sync with
@@ -529,13 +583,13 @@ void InProcessBrowserTest::PreRunTestOnMainThread() {
   if (browser_ && global_browser_set_up_function_)
     ASSERT_TRUE(global_browser_set_up_function_(browser_));
 
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
   autorelease_pool_->Recycle();
 #endif
 }
 
 void InProcessBrowserTest::PostRunTestOnMainThread() {
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
   autorelease_pool_->Recycle();
 #endif
 
@@ -572,7 +626,7 @@ void InProcessBrowserTest::QuitBrowsers() {
       FROM_HERE, base::BindOnce(&chrome::AttemptExit));
   RunUntilBrowserProcessQuits();
 
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
   // chrome::AttemptExit() will attempt to close all browsers by deleting
   // their tab contents. The last tab contents being removed triggers closing of
   // the browser window.

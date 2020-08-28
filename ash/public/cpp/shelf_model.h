@@ -103,6 +103,18 @@ class ASH_PUBLIC_EXPORT ShelfModel {
   // Resets the item at the specified index. The item's id should not change.
   void Set(int index, const ShelfItem& item);
 
+  // Updates the items' |is_on_active_desk| from the given vector
+  // |items_desk_updates|. Items whose indices are not included in
+  // |items_desk_updates| will remain unchanged.
+  struct ItemDeskUpdate {
+    // The index of the item being updated.
+    int index = -1;
+    // The new value of the item's |ShelfItem::is_on_active_desk|.
+    bool is_on_active_desk = false;
+  };
+  void UpdateItemsForDeskChange(
+      const std::vector<ItemDeskUpdate>& items_desk_updates);
+
   // Returns the ID of the currently active item, or an empty ShelfID if
   // nothing is currently active.
   const ShelfID& active_shelf_id() const { return active_shelf_id_; }
@@ -120,13 +132,17 @@ class ASH_PUBLIC_EXPORT ShelfModel {
   // has changed.
   void OnItemStatusChanged(const ShelfID& id);
 
-  // Adds a record of the notification with this app id and notifies observers.
-  void AddNotificationRecord(const std::string& app_id,
-                             const std::string& notification_id);
+  // Notifies observers that an item has been dragged off the shelf (it is still
+  // being dragged).
+  void OnItemRippedOff();
 
-  // Removes the record of the notification with matching ID and notifies
-  // observers.
-  void RemoveNotificationRecord(const std::string& notification_id);
+  // Notifies observers that an item that was dragged off the shelf has been
+  // dragged back onto the shelf (it is still being dragged).
+  void OnItemReturnedFromRipOff(int index);
+
+  // Update the ShelfItem with |app_id| to set whether the item currently has a
+  // notification.
+  void UpdateItemNotification(const std::string& app_id, bool has_badge);
 
   // Returns the index of the item with id |shelf_id|, or -1 if none exists.
   int ItemIndexByID(const ShelfID& shelf_id) const;
@@ -172,10 +188,6 @@ class ASH_PUBLIC_EXPORT ShelfModel {
   // returns the new value.
   int ValidateInsertionIndex(ShelfItemType type, int index) const;
 
-  // Finds the app corresponding to |app_id|, sets ShelfItem.has_notification,
-  // and notifies observers.
-  void UpdateItemNotificationsAndNotifyObservers(const std::string& app_id);
-
   ShelfItems items_;
 
   // The shelf ID of the currently active shelf item, or an empty ID if
@@ -187,11 +199,6 @@ class ASH_PUBLIC_EXPORT ShelfModel {
   // is added once an app has been installed, it is not considered a direct
   // user interaction.
   int current_mutation_is_user_triggered_ = 0;
-
-  // Maps one app id to a set of all matching notification ids.
-  std::map<std::string, std::set<std::string>> app_id_to_notification_id_;
-  // Maps one notification id to one app id.
-  std::map<std::string, std::string> notification_id_to_app_id_;
 
   base::ObserverList<ShelfModelObserver>::Unchecked observers_;
 

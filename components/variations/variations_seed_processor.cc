@@ -42,17 +42,22 @@ void RegisterVariationIds(const Study_Experiment& experiment,
   if (experiment.has_google_web_experiment_id()) {
     const VariationID variation_id =
         static_cast<VariationID>(experiment.google_web_experiment_id());
-    AssociateGoogleVariationIDForce(GOOGLE_WEB_PROPERTIES,
-                                    trial_name,
-                                    experiment.name(),
+    AssociateGoogleVariationIDForce(GOOGLE_WEB_PROPERTIES_ANY_CONTEXT,
+                                    trial_name, experiment.name(),
                                     variation_id);
   }
   if (experiment.has_google_web_trigger_experiment_id()) {
     const VariationID variation_id =
         static_cast<VariationID>(experiment.google_web_trigger_experiment_id());
-    AssociateGoogleVariationIDForce(GOOGLE_WEB_PROPERTIES_TRIGGER,
-                                    trial_name,
-                                    experiment.name(),
+    AssociateGoogleVariationIDForce(GOOGLE_WEB_PROPERTIES_TRIGGER_ANY_CONTEXT,
+                                    trial_name, experiment.name(),
+                                    variation_id);
+  }
+
+  if (experiment.has_google_app_experiment_id()) {
+    const VariationID variation_id =
+        static_cast<VariationID>(experiment.google_app_experiment_id());
+    AssociateGoogleVariationIDForce(GOOGLE_APP, trial_name, experiment.name(),
                                     variation_id);
   }
 }

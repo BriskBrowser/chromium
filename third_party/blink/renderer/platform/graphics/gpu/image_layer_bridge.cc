@@ -11,6 +11,8 @@
 #include "components/viz/common/resources/shared_bitmap.h"
 #include "components/viz/common/resources/transferable_resource.h"
 #include "gpu/command_buffer/client/gles2_interface.h"
+#include "gpu/command_buffer/client/shared_image_interface.h"
+#include "gpu/command_buffer/common/shared_image_usage.h"
 #include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/public/platform/web_graphics_context_3d_provider.h"
 #include "third_party/blink/renderer/platform/graphics/accelerated_static_bitmap_image.h"
@@ -35,14 +37,12 @@ scoped_refptr<StaticBitmapImage> MakeAccelerated(
     return source;
 
   auto paint_image = source->PaintImageForCurrentFrame();
-  auto provider = CanvasResourceProvider::Create(
-      source->Size(),
-      CanvasResourceProvider::ResourceUsage::
-          kAcceleratedCompositedResourceUsage,
-      context_provider_wrapper, 0, kLow_SkFilterQuality,
-      CanvasColorParams(paint_image.GetSkImage()->imageInfo()),
-      CanvasResourceProvider::kDefaultPresentationMode, nullptr,
-      source->IsOriginTopLeft());
+  auto provider = CanvasResourceProvider::CreateSharedImageProvider(
+      source->Size(), kLow_SkFilterQuality,
+      CanvasColorParams(paint_image.GetSkImageInfo()),
+      CanvasResourceProvider::ShouldInitialize::kNo, context_provider_wrapper,
+      RasterMode::kGPU, source->IsOriginTopLeft(),
+      gpu::SHARED_IMAGE_USAGE_DISPLAY);
   if (!provider || !provider->IsAccelerated())
     return nullptr;
 
@@ -62,7 +62,6 @@ ImageLayerBridge::ImageLayerBridge(OpacityMode opacity_mode)
     layer_->SetContentsOpaque(true);
     layer_->SetBlendBackgroundColor(false);
   }
-  GraphicsLayer::RegisterContentsLayer(layer_.get());
 }
 
 ImageLayerBridge::~ImageLayerBridge() {
@@ -73,10 +72,10 @@ ImageLayerBridge::~ImageLayerBridge() {
 void ImageLayerBridge::SetImage(scoped_refptr<StaticBitmapImage> image) {
   if (disposed_)
     return;
-  // There could be the case that the current SkImage (encapsulated in the image
-  // parameter of the function) is null, that means that something went wrong
-  // during the creation of the image and we should not try and setImage with it
-  if (image && !image->PaintImageForCurrentFrame().GetSkImage())
+  // There could be the case that the current PaintImage is null, meaning
+  // that something went wrong during the creation of the image and we should
+  // not try and setImage with it
+  if (image && !image->PaintImageForCurrentFrame())
     return;
 
   image_ = std::move(image);
@@ -113,7 +112,6 @@ void ImageLayerBridge::SetUV(const FloatPoint& left_top,
 
 void ImageLayerBridge::Dispose() {
   if (layer_) {
-    GraphicsLayer::UnregisterContentsLayer(layer_.get());
     layer_->ClearClient();
     layer_ = nullptr;
   }
@@ -150,18 +148,21 @@ bool ImageLayerBridge::PrepareTransferableResource(
   if (gpu_compositing) {
     scoped_refptr<StaticBitmapImage> image_for_compositor =
         MakeAccelerated(image_, SharedGpuContext::ContextProviderWrapper());
-    if (!image_for_compositor)
+    if (!image_for_compositor || !image_for_compositor->ContextProvider())
       return false;
 
     const gfx::Size size(image_for_compositor->width(),
                          image_for_compositor->height());
     uint32_t filter =
         filter_quality_ == kNone_SkFilterQuality ? GL_NEAREST : GL_LINEAR;
-    image_for_compositor->EnsureMailbox(kUnverifiedSyncToken, filter);
+    auto mailbox_holder = image_for_compositor->GetMailboxHolder();
+    auto* sii = image_for_compositor->ContextProvider()->SharedImageInterface();
+    bool is_overlay_candidate = sii->UsageForMailbox(mailbox_holder.mailbox) &
+                                gpu::SHARED_IMAGE_USAGE_SCANOUT;
+
     *out_resource = viz::TransferableResource::MakeGL(
-        image_for_compositor->GetMailbox(), filter, GL_TEXTURE_2D,
-        image_for_compositor->GetSyncToken(), size,
-        false /* is_overlay_candidate */);
+        mailbox_holder.mailbox, filter, mailbox_holder.texture_target,
+        mailbox_holder.sync_token, size, is_overlay_candidate);
     auto func =
         WTF::Bind(&ImageLayerBridge::ResourceReleasedGpu,
                   WrapWeakPersistent(this), std::move(image_for_compositor));
@@ -173,7 +174,8 @@ bool ImageLayerBridge::PrepareTransferableResource(
     if (!image_)
       return false;
 
-    sk_sp<SkImage> sk_image = image_->PaintImageForCurrentFrame().GetSkImage();
+    sk_sp<SkImage> sk_image =
+        image_->PaintImageForCurrentFrame().GetSwSkImage();
     if (!sk_image)
       return false;
 

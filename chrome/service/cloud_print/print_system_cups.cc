@@ -259,8 +259,8 @@ class PrinterWatcherCUPS
   // PrintSystem::PrinterWatcher implementation.
   bool StartWatching(PrintSystem::PrinterWatcher::Delegate* delegate) override {
     scoped_refptr<printing::PrintBackend> print_backend(
-        printing::PrintBackend::CreateInstance(nullptr,
-                                               /*locale=*/std::string()));
+        printing::PrintBackend::CreateInstanceForCloudPrint(
+            /*print_backend_settings=*/nullptr));
     crash_keys::ScopedPrinterInfo crash_key(
         print_backend->GetPrinterDriverInfo(printer_name_));
     if (delegate_)
@@ -463,8 +463,8 @@ void PrintSystemCUPS::AddPrintServer(const std::string& url) {
   backend_settings.SetInteger(kCUPSEncryption, cups_encryption_);
 
   PrintServerInfoCUPS print_server;
-  print_server.backend = printing::PrintBackend::CreateInstance(
-      &backend_settings, /*locale=*/std::string());
+  print_server.backend =
+      printing::PrintBackend::CreateInstanceForCloudPrint(&backend_settings);
   print_server.url = GURL(url.c_str());
 
   print_servers_.push_back(print_server);
@@ -726,8 +726,7 @@ int PrintSystemCUPS::PrintFile(const GURL& url,
   if (url.is_empty())
     return cupsPrintFile(name, filename, title, num_options, options);
 
-  printing::HttpConnectionCUPS http(url, encryption);
-  http.SetBlocking(false);
+  printing::HttpConnectionCUPS http(url, encryption, /*blocking=*/false);
   return cupsPrintFile2(http.http(), name, filename, title, num_options,
                         options);
 }
@@ -743,8 +742,7 @@ int PrintSystemCUPS::GetJobs(cups_job_t** jobs,
   if (url.is_empty())
     return cupsGetJobs(jobs, name, myjobs, whichjobs);
 
-  printing::HttpConnectionCUPS http(url, encryption);
-  http.SetBlocking(false);
+  printing::HttpConnectionCUPS http(url, encryption, /*blocking=*/false);
   return cupsGetJobs2(http.http(), jobs, name, myjobs, whichjobs);
 }
 
@@ -794,7 +792,7 @@ PlatformJobId PrintSystemCUPS::SpoolPrintJob(
       PrintFile(server_info->url, cups_encryption_, short_printer_name.c_str(),
                 print_data_file_path.value().c_str(), job_title.c_str(),
                 cups_options.size(), cups_options.data());
-  base::DeleteFile(print_data_file_path, false);
+  base::DeleteFile(print_data_file_path);
 
   // TODO(alexyu): Output printer id.
   VLOG(1) << "CP_CUPS: Job spooled"

@@ -31,10 +31,16 @@ class BrowserGpuVideoAcceleratorFactories
   Supported IsDecoderConfigSupported(
       media::VideoDecoderImplementation implementation,
       const media::VideoDecoderConfig& config) override;
+  bool IsDecoderSupportKnown() override;
+  void NotifyDecoderSupportKnown(base::OnceClosure) override;
   std::unique_ptr<media::VideoDecoder> CreateVideoDecoder(
       media::MediaLog* media_log,
       media::VideoDecoderImplementation implementation,
-      const media::RequestOverlayInfoCB& request_overlay_info_cb) override;
+      media::RequestOverlayInfoCB request_overlay_info_cb) override;
+  base::Optional<media::VideoEncodeAccelerator::SupportedProfiles>
+  GetVideoEncodeAcceleratorSupportedProfiles() override;
+  bool IsEncoderSupportKnown() override;
+  void NotifyEncoderSupportKnown(base::OnceClosure) override;
   std::unique_ptr<media::VideoEncodeAccelerator> CreateVideoEncodeAccelerator()
       override;
   std::unique_ptr<gfx::GpuMemoryBuffer> CreateGpuMemoryBuffer(
@@ -50,9 +56,7 @@ class BrowserGpuVideoAcceleratorFactories
   gpu::GpuMemoryBufferManager* GpuMemoryBufferManager() override;
   base::UnsafeSharedMemoryRegion CreateSharedMemoryRegion(size_t size) override;
   scoped_refptr<base::SingleThreadTaskRunner> GetTaskRunner() override;
-  media::VideoEncodeAccelerator::SupportedProfiles
-  GetVideoEncodeAcceleratorSupportedProfiles() override;
-  scoped_refptr<viz::ContextProvider> GetMediaContextProvider() override;
+  viz::RasterContextProvider* GetMediaContextProvider() override;
   void SetRenderingColorSpace(const gfx::ColorSpace& color_space) override;
 
   scoped_refptr<viz::ContextProviderCommandBuffer> context_provider_;

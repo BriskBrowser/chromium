@@ -83,28 +83,25 @@ class ExtensionUninstallDialogDelegateView
 
   // Called when the ExtensionUninstallDialog has been destroyed to make sure
   // we invalidate pointers.
-  void DialogDestroyed() { dialog_ = NULL; }
+  void DialogDestroyed() { dialog_ = nullptr; }
 
  private:
+  // views::View:
+  const char* GetClassName() const override;
+
   // views::DialogDelegateView:
-  bool Accept() override;
-  bool Cancel() override;
   gfx::Size CalculatePreferredSize() const override;
 
   // views::WidgetDelegate:
-  ui::ModalType GetModalType() const override { return ui::MODAL_TYPE_WINDOW; }
-  base::string16 GetWindowTitle() const override;
-  gfx::ImageSkia GetWindowIcon() override { return image_; }
-  bool ShouldShowWindowIcon() const override { return true; }
-  bool ShouldShowCloseButton() const override { return false; }
+  ui::ModalType GetModalType() const override {
+    return is_bubble_ ? ui::MODAL_TYPE_NONE : ui::MODAL_TYPE_WINDOW;
+  }
 
   ExtensionUninstallDialogViews* dialog_;
-  const base::string16 extension_name_;
   const bool is_bubble_;
 
   views::Label* heading_;
   views::Checkbox* checkbox_;
-  gfx::ImageSkia image_;
 
   DISALLOW_COPY_AND_ASSIGN(ExtensionUninstallDialogDelegateView);
 };
@@ -135,10 +132,12 @@ void ExtensionUninstallDialogViews::Show() {
     anchor_view = container->GetViewForId(extension()->id());
   } else if (browser_view &&
              !base::FeatureList::IsEnabled(features::kExtensionsToolbarMenu)) {
+    BrowserActionsContainer* const browser_actions_container =
+        browser_view->toolbar_button_provider()->GetBrowserActionsContainer();
     ToolbarActionView* const reference_view =
-        browser_view->toolbar_button_provider()
-            ->GetBrowserActionsContainer()
-            ->GetViewForId(extension()->id());
+        browser_actions_container
+            ? browser_actions_container->GetViewForId(extension()->id())
+            : nullptr;
     if (reference_view && reference_view->GetVisible())
       anchor_view = reference_view;
   }
@@ -194,17 +193,34 @@ ExtensionUninstallDialogDelegateView::ExtensionUninstallDialogDelegateView(
                                anchor_view ? views::BubbleBorder::TOP_RIGHT
                                            : views::BubbleBorder::NONE),
       dialog_(dialog_view),
-      extension_name_(base::UTF8ToUTF16(extension->name())),
       is_bubble_(anchor_view != nullptr),
-      checkbox_(nullptr),
-      image_(gfx::ImageSkiaOperations::CreateResizedImage(
-          *image,
-          skia::ImageOperations::ResizeMethod::RESIZE_GOOD,
-          gfx::Size(extension_misc::EXTENSION_ICON_SMALL,
-                    extension_misc::EXTENSION_ICON_SMALL))) {
-  DialogDelegate::set_button_label(
+      checkbox_(nullptr) {
+  SetButtonLabel(
       ui::DIALOG_BUTTON_OK,
       l10n_util::GetStringUTF16(IDS_EXTENSION_PROMPT_UNINSTALL_BUTTON));
+  SetIcon(gfx::ImageSkiaOperations::CreateResizedImage(
+      *image, skia::ImageOperations::ResizeMethod::RESIZE_GOOD,
+      gfx::Size(extension_misc::EXTENSION_ICON_SMALL,
+                extension_misc::EXTENSION_ICON_SMALL)));
+  SetShowCloseButton(false);
+  SetShowIcon(true);
+  SetTitle(l10n_util::GetStringFUTF16(IDS_EXTENSION_PROMPT_UNINSTALL_TITLE,
+                                      base::UTF8ToUTF16(extension->name())));
+
+  SetAcceptCallback(base::BindOnce(
+      [](ExtensionUninstallDialogDelegateView* view) {
+        if (view->dialog_) {
+          view->dialog_->DialogAccepted(view->checkbox_ &&
+                                        view->checkbox_->GetChecked());
+        }
+      },
+      base::Unretained(this)));
+  SetCancelCallback(base::BindOnce(
+      [](ExtensionUninstallDialogDelegateView* view) {
+        if (view->dialog_)
+          view->dialog_->DialogCanceled();
+      },
+      base::Unretained(this)));
 
   ChromeLayoutProvider* provider = ChromeLayoutProvider::Get();
   SetLayoutManager(std::make_unique<views::BoxLayout>(
@@ -262,16 +278,8 @@ ExtensionUninstallDialogDelegateView::~ExtensionUninstallDialogDelegateView() {
   }
 }
 
-bool ExtensionUninstallDialogDelegateView::Accept() {
-  if (dialog_)
-    dialog_->DialogAccepted(checkbox_ && checkbox_->GetChecked());
-  return true;
-}
-
-bool ExtensionUninstallDialogDelegateView::Cancel() {
-  if (dialog_)
-    dialog_->DialogCanceled();
-  return true;
+const char* ExtensionUninstallDialogDelegateView::GetClassName() const {
+  return "ExtensionUninstallDialogDelegateView";
 }
 
 gfx::Size ExtensionUninstallDialogDelegateView::CalculatePreferredSize() const {
@@ -280,11 +288,6 @@ gfx::Size ExtensionUninstallDialogDelegateView::CalculatePreferredSize() const {
                                    : DISTANCE_MODAL_DIALOG_PREFERRED_WIDTH) -
                     margins().width();
   return gfx::Size(width, GetHeightForWidth(width));
-}
-
-base::string16 ExtensionUninstallDialogDelegateView::GetWindowTitle() const {
-  return l10n_util::GetStringFUTF16(IDS_EXTENSION_PROMPT_UNINSTALL_TITLE,
-                                    extension_name_);
 }
 
 }  // namespace

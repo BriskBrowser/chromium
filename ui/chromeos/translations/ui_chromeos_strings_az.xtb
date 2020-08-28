@@ -8,6 +8,7 @@
 <translation id="1046068652463704410">Yapon dili üçün daxiletmə (ABŞ klaviaturası üçün)</translation>
 <translation id="1047956942837015229"><ph name="COUNT" /> element silinir...</translation>
 <translation id="1049926623896334335">Word sənədi</translation>
+<translation id="1060368002126861100">Faylları <ph name="APP_NAME" /> ilə açmaq üçün əvvəlcə onları Windows fayllar qovluğuna köçürün.</translation>
 <translation id="1062407476771304334">Əvəz edin</translation>
 <translation id="1065449928621190041">Kanada Fransız klaviaturası</translation>
 <translation id="1119069657431255176">Bzip2 sıxılmış tar arxivi</translation>
@@ -20,6 +21,7 @@
 <translation id="1150565364351027703">Gün eynəyi</translation>
 <translation id="115443833402798225">Hangul Ahnmatae</translation>
 <translation id="1155759005174418845">Katalan</translation>
+<translation id="1172970565351728681">Təxminən <ph name="REMAINING_TIME" /> qalıb</translation>
 <translation id="1173894706177603556">Adını dəyişin</translation>
 <translation id="117624967391683467"><ph name="FILE_NAME" /> kopyalanır...</translation>
 <translation id="1178581264944972037">Durdurun</translation>
@@ -29,6 +31,7 @@
 <translation id="1243314992276662751">Yükləyin</translation>
 <translation id="1249250836236328755">Janr</translation>
 <translation id="1278813325885878377">Macar QWERTY klaviaturası</translation>
+<translation id="1293556467332435079">Fayllar</translation>
 <translation id="1297922636971898492">Google Disk hazırda əlçatmazdır. Google Disk əlçatan olan kimi yükləmə avtomatik yenidən başlayacaq.</translation>
 <translation id="1307931752636661898">Linux fayllarını göstərmək alınmadı</translation>
 <translation id="1310751437842832374">Transliterasiya (mausam → ନମସ୍ତେ)</translation>
@@ -44,6 +47,8 @@
 <translation id="1395262318152388157">Axtarış sürüşdürücü</translation>
 <translation id="1399648040768741453">Teluqu klaviaturası (fonetik)</translation>
 <translation id="1430915738399379752">Çap edin</translation>
+<translation id="1433600251059882049">Bu qovluq Linux və Windows ilə paylaşılır</translation>
+<translation id="1435838927755162558">Qovluğu Parallels Desktop ilə paylaşın</translation>
 <translation id="1439494416798956626"><ph name="FOLDER_NAME" /> qovluğuna köçürülüb.</translation>
 <translation id="1441841714100794440">Vyetnam klaviaturası (Telex)</translation>
 <translation id="1455548678241328678">Norveç klaviaturası</translation>
@@ -78,6 +83,7 @@
 <translation id="1844692022597038441">Bu fayl oflayn olaraq əlçatan deyil.</translation>
 <translation id="184633654410729720">Tay klaviaturası (Kedmanee)</translation>
 <translation id="1847880352285315359">Yadda saxlandı</translation>
+<translation id="1853795129690976061">Bu qovluq Linux ilə paylaşılır</translation>
 <translation id="1864756863218646478">Fayl tapılmadı.</translation>
 <translation id="1921986354447415460">Türk-F klaviaturası</translation>
 <translation id="1924372192547904021"><ph name="DRIVE_NAME" /> formatlandı</translation>
@@ -89,6 +95,7 @@
 <translation id="1947424002851288782">Alman klaviaturası</translation>
 <translation id="1972984168337863910">Faylların rəy panelini genişləndirin</translation>
 <translation id="1984603991036629094">Erməni Fonetik klaviaturası</translation>
+<translation id="1995337122023280937">Faylın yerinə keçin</translation>
 <translation id="2001796770603320721">Diskdə idarə edin</translation>
 <translation id="2009067268969781306">Formatdan sonra diskdə saxlanılan bütün data silinəcək. Bu əməliyyat geri qaytarıla bilməz.</translation>
 <translation id="2028997212275086731">RAR arxivi</translation>
@@ -100,7 +107,6 @@
 <translation id="2085470240340828803">"<ph name="FILENAME" />" adlı fayl artıq mövcuddur. Nə etmək istəyirsiniz?</translation>
 <translation id="2121825465123208577">Ölçüsünü dəyişin</translation>
 <translation id="2136953289241069843">Transliterasiya (namaste → नमस्कार)</translation>
-<translation id="2138867954865495510">"<ph name="PATH" />" faylını açmaq alınmadı: <ph name="ERROR_MESSAGE" /></translation>
 <translation id="2163152940313951844">Yanlış simvol: <ph name="CHARACTER_NAME" /></translation>
 <translation id="2164862903024139959">Vyetnam klaviaturası (TCVN)</translation>
 <translation id="2168214441502403371">Fars klaviaturası</translation>
@@ -122,6 +128,7 @@
 <translation id="2384596874640104496">Sinhala klaviaturası</translation>
 <translation id="240770291734945588"><ph name="SPACE_AVAILABLE" /> əlçatandır</translation>
 <translation id="2425665904502185219">Ümumi fayl ölçüsü</translation>
+<translation id="2428749644083375155"><ph name="NUMBER_OF_ITEMS" /> element <ph name="FOLDER_NAME" /> qovluğuna kopyalanır</translation>
 <translation id="2448312741937722512">Növ</translation>
 <translation id="2453576648990281505">Fayl artıq mövcuddur</translation>
 <translation id="2464079411014186876">Dondurma</translation>
@@ -140,6 +147,7 @@
 <translation id="2638942478653899953">Google Diskə daxil olmaq alınmadı. Lütfən, <ph name="BEGIN_LINK" />hesabdan çıxın<ph name="END_LINK" /> və yenidən daxil olun.</translation>
 <translation id="2649120831653069427">Göyqurşaqlı balıq</translation>
 <translation id="2661146741306740526">16x9</translation>
+<translation id="2664412712123763093">Faylın yeri</translation>
 <translation id="2672394958563893062">Xəta oldu. Əvvəldən başlamaq üçün klikləyin.</translation>
 <translation id="2676946222714718093">Playing</translation>
 <translation id="2735698359135166290">Rumın standart klaviaturası</translation>
@@ -175,6 +183,7 @@
 <translation id="303198083543495566">Coğrafiya</translation>
 <translation id="3057861065630527966">Fotolarınızı və videolarınızı yedəkləyin</translation>
 <translation id="3064388234319122767">Transliterasiya (Zdravo → здраво)</translation>
+<translation id="3067790092342515856">Windows faylları</translation>
 <translation id="3078461028045006476"><ph name="EXTENSION_NAME" /> ilə paylaşın</translation>
 <translation id="3088034400796962477">Transliterasiya (salam ← سلام)</translation>
 <translation id="3116361045094675131">Böyük Britaniya klaviaturası</translation>
@@ -189,6 +198,7 @@
 <translation id="3236289833370040187">Sahiblik <ph name="DESTINATION_DOMAIN" /> domeninə ötürüləcək.</translation>
 <translation id="3241720467332021590">İrland</translation>
 <translation id="3245321423178950146">Naməlum Müğənni</translation>
+<translation id="3248185426436836442">Gözləmədə</translation>
 <translation id="3252266817569339921">Fransız</translation>
 <translation id="3254434849914415189"><ph name="FILE_TYPE" /> fayllar üçün defolt tətbiq seçin:</translation>
 <translation id="3264582393905923483">Məzmun</translation>
@@ -199,6 +209,7 @@
 <translation id="3335337277364016868">Qeydə alındığı il</translation>
 <translation id="3338239663705455570">Sloveniya klaviaturası</translation>
 <translation id="3353984535370177728">Yükləmək üçün qovluq seçin</translation>
+<translation id="3356580349448036450">Tamamlandı</translation>
 <translation id="3399597614303179694">Makedoniya klaviaturası</translation>
 <translation id="3414856743105198592">Kənarlaşdırıla bilən medianın format edilməsi bütün datanın silinməsi ilə nəticələnir. Davam edirsiniz?</translation>
 <translation id="3437801641691368414">Yaranma tarixi</translation>
@@ -210,8 +221,10 @@
 <translation id="3495304270784461826"><ph name="COUNT" /> xətalar.</translation>
 <translation id="3519867315646775981">Transliterasiya (shalom ← שלום)</translation>
 <translation id="3522708245912499433">Portuqal</translation>
+<translation id="3524311639100184459">Xəbərdarlıq: Bu fayllar müvəqqətidir və diskdə yer boşaltmaq üçün avtomatik silinə bilər.  <ph name="BEGIN_LINK" />Ətraflı Məlumat<ph name="END_LINK" /></translation>
 <translation id="3527085408025491307">Qovluq</translation>
 <translation id="3549797760399244642">drive.google.com saytına keçin...</translation>
+<translation id="3553048479571901246">Faylları <ph name="APP_NAME" /> ilə açmaq üçün əvvəlcə onları Windows fayllar qovluğuna kopyalayın.</translation>
 <translation id="357479282490346887">Litva</translation>
 <translation id="3583509704582854624">Alfarəqəmsal daxiletmə (Yapon dili klaviaturası üçün)</translation>
 <translation id="3603385196401704894">Kanada Fransızcası</translation>
@@ -232,9 +245,11 @@
 <translation id="3780536599611287598">Faylları "<ph name="FOLDER_NAME" />" ünvanına köçürmək üçün icazəniz yoxdur.</translation>
 <translation id="3786301125658655746">Oflaynsınız.</translation>
 <translation id="3789841737615482174">Quraşdırın</translation>
+<translation id="3793469551756281394">Təxminən <ph name="REMAINING_TIME_HOUR" /> <ph name="REMAINING_TIME_MINUTE" /> qalıb</translation>
 <translation id="3798449238516105146">Versiya</translation>
 <translation id="3801082500826908679">Farer</translation>
 <translation id="3809272675881623365">Dovşan</translation>
+<translation id="3810973564298564668">İdarə edin</translation>
 <translation id="3811494700605067549">1 fayl seçildi</translation>
 <translation id="3815016854028376614">Zhuyin daxiletmə metodu</translation>
 <translation id="3825863595139017598">Monqol klaviaturası</translation>
@@ -255,6 +270,7 @@
 <translation id="3943857333388298514">Yapışdırın.</translation>
 <translation id="3958548648197196644">Kivi</translation>
 <translation id="3966388904776714213">Audio Oxuducu</translation>
+<translation id="3984317463833596033">Parallels Desktop'a <ph name="FOLDER_NAME" /> qovluğunda faylları dəyişdirmə icazəsi verin</translation>
 <translation id="4002066346123236978">Başlıq</translation>
 <translation id="4070370845051020638">Cənubi Çin dili daxil etmə üsulu</translation>
 <translation id="4072248638558688893">Tamil klaviaturası (fonetik)</translation>
@@ -283,8 +299,10 @@
 <translation id="4470564870223067757">Hangul 2 Dəsti</translation>
 <translation id="4477219268485577442">Bolqar fonetikası</translation>
 <translation id="4479812471636796472">ABŞ Dvorak klaviaturası</translation>
+<translation id="4481711095103932593">Bu qovluq Windows ilə paylaşılır</translation>
 <translation id="4487088045714738411">Belçika klaviaturası</translation>
 <translation id="4522570452068850558">Detallar</translation>
+<translation id="4542387084127299777">"<ph name="PATH" />" açılmadı</translation>
 <translation id="4552678318981539154">Əlavə yaddaş ehtiyatı alın</translation>
 <translation id="4559767610552730302">Bokeh</translation>
 <translation id="4572815280350369984"><ph name="FILE_TYPE" /> faylı</translation>
@@ -292,6 +310,7 @@
 <translation id="4579744207439506346"><ph name="ENTRY_NAME" /> seçimə əlavə edildi.</translation>
 <translation id="4582497162516204941">Linux (Beta) ilə quraşdırın</translation>
 <translation id="4594543368593301662"><ph name="SEARCH_TERM" /> üçün nəticələr göstərilir.</translation>
+<translation id="4603392156942865207"><ph name="FILE_NAME" /> faylı <ph name="FOLDER_NAME" /> qovluğuna kopyalanır</translation>
 <translation id="4631887759990505102">Artist</translation>
 <translation id="4656293982926141856">Bu kompüter</translation>
 <translation id="4669606053856530811">"<ph name="SOURCE_NAME" />" bu element onlarla paylaşılmadığı halda, daxil ola bilməyəcəklər.</translation>
@@ -325,10 +344,12 @@
 <translation id="4880520557730313061">Avtomatik düzəliş</translation>
 <translation id="4881695831933465202">Açın</translation>
 <translation id="4886021172213954916">Tamil klaviaturası (Makina)</translation>
+<translation id="4900532980794411603">Parallels Desktop ilə paylaşın</translation>
 <translation id="4905417359854579806"><ph name="FILE_COUNT" /> yedəklənmə üçün hazırdır</translation>
 <translation id="4924638091161556692">Fiksə edilmiş</translation>
 <translation id="4935975195727477204">Gazania Flower</translation>
 <translation id="4943368462779413526">Futbol</translation>
+<translation id="4961158930123534723">1 qovluq Parallels Desktop ilə paylaşılır</translation>
 <translation id="4969785127455456148">Albom</translation>
 <translation id="497244430928947428">Malayalam klaviaturası (fonetik)</translation>
 <translation id="4973523518332075481">Maksimum <ph name="MAX_LENGTH" /> və ya daha az simvoldan ibarət olan addan istifadə edin</translation>
@@ -340,10 +361,12 @@
 <translation id="5010406651457630570">Kompüterlər</translation>
 <translation id="5011233892417813670">Chromebook</translation>
 <translation id="5024856940085636730">Əməliyyat gözlənildiyindən daha çox vaxt aparır. Dayandırmaq istəyirsiniz?</translation>
+<translation id="5036159836254554629">Parallels Desktop paylaşmasını idarə edin</translation>
 <translation id="5038625366300922036">Digərini görün...</translation>
 <translation id="5061708541166515394">Kontrast</translation>
 <translation id="5068919226082848014">Pizza</translation>
 <translation id="5081517858322016911"><ph name="TOTAL_FILE_SIZE" /> həcmində fayllar silinəcək</translation>
+<translation id="508423945471810158"><ph name="NUMBER_OF_ITEMS" /> element <ph name="FOLDER_NAME" /> qovluğuna köçürülür</translation>
 <translation id="509429900233858213">Xəta baş verdi.</translation>
 <translation id="5098629044894065541">İvrit</translation>
 <translation id="5123433949759960244">Basketbol</translation>
@@ -388,6 +411,7 @@
 <translation id="5418923334382419584">Myanma klaviaturası</translation>
 <translation id="5428105026674456456">Ispan</translation>
 <translation id="5438282218546237410"><ph name="SEARCH_TERM" /> üçün nəticə yoxdur.</translation>
+<translation id="5449551289610225147">Yanlış parol</translation>
 <translation id="5464696796438641524">Polyak klaviaturası</translation>
 <translation id="5465122519792752163">Nepal klaviaturası (InScript)</translation>
 <translation id="5469868506864199649">İtalyan</translation>
@@ -446,6 +470,7 @@
 <translation id="6054173164583630569">Fransız klaviaturası</translation>
 <translation id="6074825444536523002">Google forma</translation>
 <translation id="6096979789310008754">Bütün fayl və qovluqları göstərən axtarış mətni silindi.</translation>
+<translation id="610101264611565198"><ph name="FILE_NAME" /> faylı <ph name="FOLDER_NAME" /> qovluğuna köçürülür</translation>
 <translation id="6111770213269631447">Transliterasiya (namaskar →  নমস্কার)</translation>
 <translation id="6129953537138746214">Boşluq</translation>
 <translation id="6133173853026656527"><ph name="FILE_NAME" /> daşınır...</translation>
@@ -486,9 +511,11 @@
 <translation id="656398493051028875">"<ph name="FILENAME" />" silinir...</translation>
 <translation id="6581162200855843583">Google Disk linki</translation>
 <translation id="6607272825297743757">Fayl məlumatı</translation>
+<translation id="6609332149380188670"><ph name="NUMBER_OF_ITEMS" /> qovluq Parallels Desktop ilə paylaşılır</translation>
 <translation id="6629841649550503054">Hər şey <ph name="BEGIN_LINK" />Google Diskə<ph name="END_LINK" /> yedəkləndi!</translation>
 <translation id="6643016212128521049">Silin</translation>
 <translation id="6650726141019353908">Çəhrayı kəpənək</translation>
+<translation id="6657585470893396449">Parol</translation>
 <translation id="6710213216561001401">Əvvəlki</translation>
 <translation id="6718273304615422081">Sıxılır...</translation>
 <translation id="6751256176799620176">1 qovluq seçildi</translation>
@@ -498,6 +525,7 @@
 <translation id="6806699711453372963">Linux paylaşımını idarə edin</translation>
 <translation id="6808193438228982088">Tülkü</translation>
 <translation id="6820687829547641339">Gzip sıxılmış tar arxivi</translation>
+<translation id="6823166707458800069">Bu qovluqda saxlanan bütün fayllar avtomatik olaraq onlayn yedəklənir.</translation>
 <translation id="6825883775269213504">Rus</translation>
 <translation id="6827236167376090743">Bu video uzun müddət ərzində göstəriləcək.</translation>
 <translation id="6847101934483209767"><ph name="ENTRY_NAME" /> seçimdən silindi.</translation>
@@ -507,6 +535,7 @@
 <translation id="6878261347041253038">Devanaqari klaviaturası (fonetik)</translation>
 <translation id="6885780034956018177">İlbiz</translation>
 <translation id="6896758677409633944">Kopyalayın</translation>
+<translation id="6898028766943174120">Digər alt qovluqlar...</translation>
 <translation id="691516599546977041"><ph name="FOLDER_NAME" /> faylında yadda saxlamaq mümkün deyil. Düzəliş edilmiş şəkillər Endirmələr qovluğunda yadda saxlanacaq.</translation>
 <translation id="6915678159055240887">Chromebox</translation>
 <translation id="6918340160281024199">ABŞ İşçisi</translation>
@@ -519,6 +548,7 @@
 <translation id="696203921837389374">Mobil data üzərindən sinxronlaşmanı aktiv edin</translation>
 <translation id="6965382102122355670">OK</translation>
 <translation id="6970230597523682626">Bolqar</translation>
+<translation id="6973630695168034713">Qovluqlar</translation>
 <translation id="6978611942794658017">Bu fayl Windows proqram təminatından istifadə edən stolüstü kompüter üçündür, Chrome OS işlədən cihazınız üçün uyğun deyil.</translation>
 <translation id="6979158407327259162">Google Disk</translation>
 <translation id="6990081529015358884">Boş yer bitdi</translation>
@@ -552,6 +582,7 @@
 <translation id="7417705661718309329">Google xəritə</translation>
 <translation id="7419631653042041064">Katalan klaviaturası</translation>
 <translation id="7434823369735508263">Böyük Britaniya Dvorak klaviaturası</translation>
+<translation id="7447678886297481665">Bu qovluqdakı fayllar ancaq oxuna bilər. Bəzi fəaliyyətlər dəstəklənmir.</translation>
 <translation id="7460898608667578234">Ukrayna</translation>
 <translation id="7474889694310679759">Kanada İngiliscəsi klaviaturası</translation>
 <translation id="7489215562877293245"><ph name="FILE_COUNT" /> nəticə
@@ -659,6 +690,7 @@
 <translation id="8475647382427415476">Google Disk indi "<ph name="FILENAME" />" adlı faylı sinxronizasiya edə bilmədi. Google Disk daha sonra cəhd edəcək.</translation>
 <translation id="8477649328507734757">Dairə</translation>
 <translation id="8487700953926739672">Oflayn olaraq əlçatan</translation>
+<translation id="8490342535582768689">Parallels Desktop'a Google Diskinizdə faylları dəyişdirmə icazəsi verin. Dəyişikliklər digər cihazlara sinxronizasiya ediləcək.</translation>
 <translation id="8521441079177373948">Böyük Britaniya</translation>
 <translation id="8525306231823319788">Tam ekran</translation>
 <translation id="8551494947769799688">Latış</translation>
@@ -694,6 +726,7 @@
 <translation id="9065203028668620118">Düzəliş edin</translation>
 <translation id="9099674669267916096">Səhifə sayı</translation>
 <translation id="9110990317705400362">Brauzerinizi güvənli etməyin yollarını daima axtarırıq. Son Chrome versiyasında artırmaları əlavə etmək üçün bunu Chrome'a açıq şəkildə deməlisiniz. <ph name="BEGIN_LINK" />Ətraflı məlumat<ph name="END_LINK" /></translation>
+<translation id="9111102763498581341">Kiliddən çıxarın</translation>
 <translation id="912419004897138677">Kodeks</translation>
 <translation id="9129931661813833980">Qovluğu panelə bərkidin</translation>
 <translation id="9130775360844693113">"<ph name="DESTINATION_NAME" />" üzvləri bu elementlərə daxil ola biləcək.</translation>

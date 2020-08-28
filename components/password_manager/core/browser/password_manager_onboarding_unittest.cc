@@ -11,6 +11,7 @@
 
 #include "base/bind_helpers.h"
 #include "base/macros.h"
+#include "base/memory/scoped_refptr.h"
 #include "base/stl_util.h"
 #include "base/strings/string16.h"
 #include "base/strings/string_number_conversions.h"
@@ -34,17 +35,11 @@ using base::ASCIIToUTF16;
 
 namespace password_manager {
 
-using OnboardingState = metrics_util::OnboardingState;
-
 class PasswordManagerOnboardingTest : public testing::Test {
  public:
-  PasswordManagerOnboardingTest() = default;
-
   void SetUp() override {
-    store_ = new TestPasswordStore;
-    store_->Init(syncer::SyncableService::StartSyncFlare(), nullptr);
+    store_->Init(nullptr);
 
-    prefs_.reset(new TestingPrefServiceSimple());
     prefs_->registry()->RegisterIntegerPref(
         prefs::kPasswordManagerOnboardingState,
         static_cast<int>(OnboardingState::kDoNotShow));
@@ -65,26 +60,28 @@ class PasswordManagerOnboardingTest : public testing::Test {
 
   PasswordForm MakeSimpleForm(int id) {
     PasswordForm form;
-    form.origin = GURL("https://example.org/");
+    form.url = GURL("https://example.org/");
     form.signon_realm = "https://example.org/";
     form.username_value = ASCIIToUTF16("username") + base::NumberToString16(id);
     form.password_value = ASCIIToUTF16("p4ssword") + base::NumberToString16(id);
     return form;
   }
 
-  PasswordForm MakeSimpleBlacklistedForm(int id) {
+  PasswordForm MakeSimpleBlockedForm(int id) {
     PasswordForm form;
     std::string link = "https://example" + base::NumberToString(id) + ".org/";
-    form.origin = GURL(link);
+    form.url = GURL(link);
     form.signon_realm = link;
-    form.blacklisted_by_user = true;
+    form.blocked_by_user = true;
     return form;
   }
 
  protected:
   base::test::TaskEnvironment task_environment_;
-  scoped_refptr<TestPasswordStore> store_;
-  std::unique_ptr<TestingPrefServiceSimple> prefs_;
+  scoped_refptr<TestPasswordStore> store_ =
+      base::MakeRefCounted<TestPasswordStore>();
+  std::unique_ptr<TestingPrefServiceSimple> prefs_ =
+      std::make_unique<TestingPrefServiceSimple>();
 };
 
 TEST_F(PasswordManagerOnboardingTest, CredentialsCountUnderThreshold) {
@@ -95,9 +92,9 @@ TEST_F(PasswordManagerOnboardingTest, CredentialsCountUnderThreshold) {
   for (int id = 0; id < kOnboardingCredentialsThreshold - 1; ++id) {
     store_->AddLogin(MakeSimpleForm(id));
   }
-  constexpr int kNumberOfBlacklistedLogins = 5;
-  for (int id = 0; id < kNumberOfBlacklistedLogins; ++id) {
-    store_->AddLogin(MakeSimpleBlacklistedForm(id));
+  constexpr int kNumberOfBlockedLogins = 5;
+  for (int id = 0; id < kNumberOfBlockedLogins; ++id) {
+    store_->AddLogin(MakeSimpleBlockedForm(id));
   }
   RunAllPendingTasks();
   UpdateOnboardingState(store_, GetPrefs(), base::TimeDelta::FromSeconds(0));
@@ -204,6 +201,7 @@ TEST_F(PasswordManagerOnboardingTest, ShouldShowOnboardingState) {
                      static_cast<int>(OnboardingState::kDoNotShow));
   EXPECT_FALSE(ShouldShowOnboarding(GetPrefs(), PasswordUpdateBool(false),
                                     BlacklistedBool(false),
+
                                     SyncState::SYNCING_NORMAL_ENCRYPTION));
 
   prefs_->SetInteger(password_manager::prefs::kPasswordManagerOnboardingState,
@@ -256,136 +254,4 @@ TEST_F(PasswordManagerOnboardingTest,
                                     BlacklistedBool(false),
                                     SyncState::NOT_SYNCING));
 }
-
-TEST_F(PasswordManagerOnboardingTest,
-       SavingFlowMetricsRecorderInfobarNoDirectInteraction) {
-  base::HistogramTester histogram_tester;
-  {
-    SavingFlowMetricsRecorder recorder;
-    recorder.SetFlowResult(password_manager::metrics_util::UIDismissalReason::
-                               NO_DIRECT_INTERACTION);
-  }
-  histogram_tester.ExpectUniqueSample(
-      "PasswordManager.Onboarding.ResultOfSavingFlow",
-      password_manager::metrics_util::OnboardingResultOfSavingFlow::
-          kInfobarNoDirectInteraction,
-      1);
-  histogram_tester.ExpectTotalCount(
-      "PasswordManager.Onboarding.ResultOfSavingFlowAfterOnboarding", 0);
-}
-
-TEST_F(PasswordManagerOnboardingTest,
-       SavingFlowMetricsRecorderInfobarClickedSave) {
-  base::HistogramTester histogram_tester;
-  {
-    SavingFlowMetricsRecorder recorder;
-    recorder.SetFlowResult(
-        password_manager::metrics_util::UIDismissalReason::CLICKED_SAVE);
-  }
-  histogram_tester.ExpectUniqueSample(
-      "PasswordManager.Onboarding.ResultOfSavingFlow",
-      password_manager::metrics_util::OnboardingResultOfSavingFlow::
-          kInfobarClickedSave,
-      1);
-  histogram_tester.ExpectTotalCount(
-      "PasswordManager.Onboarding.ResultOfSavingFlowAfterOnboarding", 0);
-}
-
-TEST_F(PasswordManagerOnboardingTest,
-       SavingFlowMetricsRecorderInfobarClickedCancel) {
-  base::HistogramTester histogram_tester;
-  {
-    SavingFlowMetricsRecorder recorder;
-    recorder.SetFlowResult(
-        password_manager::metrics_util::UIDismissalReason::CLICKED_CANCEL);
-  }
-  histogram_tester.ExpectUniqueSample(
-      "PasswordManager.Onboarding.ResultOfSavingFlow",
-      password_manager::metrics_util::OnboardingResultOfSavingFlow::
-          kInfobarClickedCancel,
-      1);
-  histogram_tester.ExpectTotalCount(
-      "PasswordManager.Onboarding.ResultOfSavingFlowAfterOnboarding", 0);
-}
-
-TEST_F(PasswordManagerOnboardingTest,
-       SavingFlowMetricsRecorderInfobarClickedNever) {
-  base::HistogramTester histogram_tester;
-  {
-    SavingFlowMetricsRecorder recorder;
-    recorder.SetFlowResult(
-        password_manager::metrics_util::UIDismissalReason::CLICKED_NEVER);
-  }
-  histogram_tester.ExpectUniqueSample(
-      "PasswordManager.Onboarding.ResultOfSavingFlow",
-      password_manager::metrics_util::OnboardingResultOfSavingFlow::
-          kInfobarClickedNever,
-      1);
-  histogram_tester.ExpectTotalCount(
-      "PasswordManager.Onboarding.ResultOfSavingFlowAfterOnboarding", 0);
-}
-
-TEST_F(PasswordManagerOnboardingTest,
-       SavingFlowMetricsRecorderOnboardingRejected) {
-  base::HistogramTester histogram_tester;
-  {
-    SavingFlowMetricsRecorder recorder;
-    recorder.SetOnboardingShown();
-    recorder.SetFlowResult(
-        password_manager::metrics_util::OnboardingUIDismissalReason::kRejected);
-  }
-  histogram_tester.ExpectUniqueSample(
-      "PasswordManager.Onboarding.ResultOfSavingFlow",
-      password_manager::metrics_util::OnboardingResultOfSavingFlow::
-          kOnboardingRejected,
-      1);
-  histogram_tester.ExpectUniqueSample(
-      "PasswordManager.Onboarding.ResultOfSavingFlowAfterOnboarding",
-      password_manager::metrics_util::OnboardingResultOfSavingFlow::
-          kOnboardingRejected,
-      1);
-}
-
-TEST_F(PasswordManagerOnboardingTest,
-       SavingFlowMetricsRecorderOnboardingDismissed) {
-  base::HistogramTester histogram_tester;
-  {
-    SavingFlowMetricsRecorder recorder;
-    recorder.SetOnboardingShown();
-    recorder.SetFlowResult(password_manager::metrics_util::
-                               OnboardingUIDismissalReason::kDismissed);
-  }
-  histogram_tester.ExpectUniqueSample(
-      "PasswordManager.Onboarding.ResultOfSavingFlow",
-      password_manager::metrics_util::OnboardingResultOfSavingFlow::
-          kOnboardingDismissed,
-      1);
-  histogram_tester.ExpectUniqueSample(
-      "PasswordManager.Onboarding.ResultOfSavingFlowAfterOnboarding",
-      password_manager::metrics_util::OnboardingResultOfSavingFlow::
-          kOnboardingDismissed,
-      1);
-}
-
-TEST_F(PasswordManagerOnboardingTest,
-       SavingFlowMetricsRecorderAfterOnboarding) {
-  base::HistogramTester histogram_tester;
-  {
-    SavingFlowMetricsRecorder recorder;
-    recorder.SetOnboardingShown();
-    recorder.SetFlowResult(
-        password_manager::metrics_util::UIDismissalReason::CLICKED_SAVE);
-  }
-  histogram_tester.ExpectUniqueSample(
-      "PasswordManager.Onboarding.ResultOfSavingFlow",
-      password_manager::metrics_util::OnboardingResultOfSavingFlow::
-          kInfobarClickedSave,
-      1);
-  histogram_tester.ExpectUniqueSample(
-      "PasswordManager.Onboarding.ResultOfSavingFlowAfterOnboarding",
-      password_manager::metrics_util::OnboardingResultOfSavingFlow::
-          kInfobarClickedSave,
-      1);
-}
-
 }  // namespace password_manager

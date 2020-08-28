@@ -4,6 +4,7 @@
 
 'use strict';
 
+importScripts('./auth-consts.js');
 importScripts('./shared.js');
 importScripts('./caspian_web.js');
 
@@ -49,13 +50,42 @@ class DataFetcher {
   }
 
   /**
+   * Sets the access token to be used for authenticated requests. If accessToken
+   * is non-null and the URL is a google storage URL, an authenticated request
+   * is performed instead.
+   * @param {?string} accessToken
+   */
+  setAccessToken(accessToken) {
+    this._accessToken = accessToken;
+  }
+
+  /**
    * Starts a new request and aborts the previous one.
    * @param {string | Request} url
    */
-  async fetch(url) {
+  async fetchUrl(url) {
+    if (this._accessToken && looksLikeGoogleCloudStorage(url)) {
+      return this._fetchFromGoogleCloudStorage(url);
+    } else {
+      return this._doFetch(url);
+    }
+  }
+
+  async _fetchFromGoogleCloudStorage(url) {
+    const {bucket, file} = parseGoogleCloudStorageUrl(url);
+    const params = `alt=media`;
+    const api_url = `${STORAGE_API_ENDPOINT}/b/${bucket}/o/${file}?${params}`;
+    const headers = new Headers();
+    headers.append('Authorization', `Bearer ${this._accessToken}`);
+    return this._doFetch(api_url, headers);
+  }
+
+  async _doFetch(url, headers) {
     if (this._controller) this._controller.abort();
     this._controller = new AbortController();
-    const headers = new Headers();
+    if (!headers) {
+      headers = new Headers();
+    }
     headers.append('cache-control', 'no-cache');
     return fetch(url, {
       headers,
@@ -65,15 +95,27 @@ class DataFetcher {
   }
 
   /**
-   * Outputs a single UInt8Array containing the entire input .size file.
+   * Outputs a single UInt8Array encompassing the entire input .size file.
    */
   async loadSizeBuffer() {
     if (!this._cache) {
-      const response = await this.fetch(this._input);
+      const response = await this.fetchUrl(this._input);
       this._cache = new Uint8Array(await response.arrayBuffer());
     }
     return this._cache;
   }
+}
+
+function looksLikeGoogleCloudStorage(url) {
+  return url.startsWith('https://storage.googleapis.com/');
+}
+
+function parseGoogleCloudStorageUrl(url) {
+  const re = /^https:\/\/storage\.googleapis\.com\/(?<bucket>[^\/]+)\/(?<file>.+)/;
+  const match = re.exec(url);
+  const bucket = encodeURIComponent(match.groups['bucket']);
+  const file = encodeURIComponent(match.groups['file']);
+  return {bucket, file};
 }
 
 function mallocBuffer(buf) {
@@ -94,9 +136,12 @@ async function Open(name) {
 }
 
 // Placeholder input name until supplied via setInput()
-const fetcher = new DataFetcher('data.ndjson');
-let beforeFetcher = null;
-let sizeFileLoaded = false;
+const g_fetcher = new DataFetcher('data.ndjson');
+let g_beforeFetcher = null;
+let g_sizeFileLoaded = false;
+
+/** @type {SizeProperties} */
+let g_size_properties = null;
 
 async function loadSizeFile(isBefore, fetcher) {
   const sizeBuffer = await fetcher.loadSizeBuffer();
@@ -111,20 +156,34 @@ async function loadSizeFile(isBefore, fetcher) {
   Module._free(heapBuffer.byteOffset);
 }
 
+async function loadSizeProperties() {
+  const QueryProperty = Module.cwrap('QueryProperty', 'number', ['string']);
+  const getProperty = (key) => {
+    const stringPtr = QueryProperty(key);
+    const r = Module.UTF8ToString(stringPtr, 2 ** 16);
+    return r;
+  };
+  g_size_properties = {
+    isMultiContainer: (getProperty('isMultiContainer') === 'true')
+  };
+}
+
 async function buildTree(
     groupBy, includeRegex, excludeRegex, includeSections, minSymbolSize,
     flagToFilter, methodCountMode, onProgress) {
 
   onProgress({percent: 0.1, id: 0});
+  /** @type {Metadata} */
   return await LoadWasm.then(async () => {
-    if (!sizeFileLoaded) {
-      const current = loadSizeFile(false, fetcher);
-      const before =
-          beforeFetcher !== null ? loadSizeFile(true, beforeFetcher) : null;
-      await current;
-      await before;
+    if (!g_sizeFileLoaded) {
+      const load_promises = [];
+      load_promises.push(loadSizeFile(false, g_fetcher));
+      if (g_beforeFetcher !== null) {
+        load_promises.push(loadSizeFile(true, g_beforeFetcher));
+      }
+      await Promise.all(load_promises).then(loadSizeProperties);
       onProgress({percent: 0.4, id: 0});
-      sizeFileLoaded = true;
+      g_sizeFileLoaded = true;
     }
 
     const BuildTree = Module.cwrap(
@@ -144,6 +203,7 @@ async function buildTree(
       root,
       percent: 1.0,
       diffMode,
+      isMultiContainer: g_size_properties.isMultiContainer,
     };
   });
 }
@@ -195,8 +255,8 @@ function parseOptions(options) {
 }
 
 const actions = {
-  /** @param {{input:string|null,options:string}} param0 */
-  load({input, options}) {
+  /** @param {{input:string|null,accessToken:string|null,options:string}} param0 */
+  load({input, accessToken, options}) {
     const {
       groupBy,
       includeRegex,
@@ -208,17 +268,20 @@ const actions = {
       url,
       beforeUrl,
     } = parseOptions(options);
+    if (accessToken) {
+      g_fetcher.setAccessToken(accessToken);
+    }
     if (input === 'from-url://' && url) {
       // Display the data from the `load_url` query parameter
       console.info('Displaying data from', url);
-      fetcher.setInput(url);
+      g_fetcher.setInput(url);
     } else if (input != null) {
       console.info('Displaying uploaded data');
-      fetcher.setInput(input);
+      g_fetcher.setInput(input);
     }
 
     if (beforeUrl) {
-      beforeFetcher = new DataFetcher(beforeUrl);
+      g_beforeFetcher = new DataFetcher(beforeUrl);
     }
 
     return buildTree(
@@ -270,4 +333,3 @@ self.onmessage = async event => {
     runAction(id, action, data);
   }
 };
-

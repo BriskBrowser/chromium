@@ -41,7 +41,7 @@ class MockOfflineContentProvider : public OfflineContentProvider {
                            const base::Optional<UpdateDelta>& update_delta);
 
   // OfflineContentProvider implementation.
-  MOCK_METHOD2(OpenItem, void(LaunchLocation, const ContentId&));
+  MOCK_METHOD2(OpenItem, void(const OpenParams&, const ContentId&));
   MOCK_METHOD1(RemoveItem, void(const ContentId&));
   MOCK_METHOD1(CancelDownload, void(const ContentId&));
   MOCK_METHOD1(PauseDownload, void(const ContentId&));
@@ -60,6 +60,10 @@ class MockOfflineContentProvider : public OfflineContentProvider {
   void RemoveObserver(Observer* observer) override;
   MOCK_METHOD3(RenameItem,
                void(const ContentId&, const std::string&, RenameCallback));
+  MOCK_METHOD(void,
+              ChangeSchedule,
+              (const ContentId&, base::Optional<OfflineItemSchedule>),
+              (override));
 
  private:
   base::ObserverList<Observer>::Unchecked observers_;

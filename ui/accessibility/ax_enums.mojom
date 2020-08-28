@@ -27,7 +27,7 @@ module ax.mojom;
 
 enum Event {
   kNone,
-  kActiveDescendantChanged,  // Web
+  kActiveDescendantChanged,
   kAlert,
   kAriaAttributeChanged,   // Implicit
   kAutocorrectionOccured,  // Unknown: http://crbug.com/392498
@@ -41,6 +41,7 @@ enum Event {
   kEndOfTest,        // Sentinel value indicating the end of a test
   kExpandedChanged,  // Web
   kFocus,
+  kFocusAfterMenuClose,
   kFocusContext,  // Contextual focus event that must delay the next focus event
   kHide,          // Remove: http://crbug.com/392502
   kHitTestResult,
@@ -55,13 +56,12 @@ enum Event {
   kLocationChanged,       // Web
   kMediaStartedPlaying,   // Native / Automation
   kMediaStoppedPlaying,   // Native / Automation
-  kMenuEnd,               // Native / Win
+  kMenuEnd,               // Native / web: menu interaction has ended.
   kMenuListItemSelected,  // Web
   kMenuListValueChanged,  // Web
-  kMenuPopupEnd,          // Native
-  kMenuPopupHide,         // Native / AuraLinux
-  kMenuPopupStart,        // Native
-  kMenuStart,             // Native / Win
+  kMenuPopupEnd,          // Native / web: a menu/submenu is hidden/closed.
+  kMenuPopupStart,        // Native / web: a menu/submenu is shown/opened.
+  kMenuStart,             // Native / web: menu interaction has begun.
   kMouseCanceled,
   kMouseDragged,
   kMouseMoved,
@@ -76,7 +76,7 @@ enum Event {
   kSelection,                // Native
   kSelectionAdd,             // Native
   kSelectionRemove,          // Native
-  kShow,                     // Remove: http://crbug.com/392502
+  kShow,                     // Native / Automation
   kStateChanged,             // Native / Automation
   kTextChanged,
   kWindowActivated,             // Native
@@ -215,13 +215,13 @@ enum Role {
   kIgnored,
   kImage,
   kImageMap,
+  kImeCandidate,
   kInlineTextBox,
   kInputTime,
   kKeyboard,
   kLabelText,
   kLayoutTable,
   kLayoutTableCell,
-  kLayoutTableColumn,
   kLayoutTableRow,
   kLegend,
   kLineBreak,
@@ -242,7 +242,6 @@ enum Role {
   kMath,
   kMenu,
   kMenuBar,
-  kMenuButton,
   kMenuItem,
   kMenuItemCheckBox,
   kMenuItemRadio,
@@ -253,7 +252,10 @@ enum Role {
   kNote,
   kPane,
   kParagraph,
+  kPdfActionableHighlight, // PDF specific highlight role.
+  kPluginObject,
   kPopUpButton,
+  kPortal,
   kPre,
   kPresentational,
   kProgressIndicator,
@@ -346,6 +348,9 @@ enum Action {
   // exposed to the open web. See kSetAccessibilityFocus, below.
   kClearAccessibilityFocus,
 
+  // Collapse the collapsible node.
+  kCollapse,
+
   kCustomAction,
 
   // Decrement a slider or range control by one step value.
@@ -353,6 +358,9 @@ enum Action {
 
   // Do the default action for an object, typically this means "click".
   kDoDefault,
+
+  // Expand the expandable node.
+  kExpand,
 
   kFocus,
 
@@ -624,6 +632,9 @@ enum IntAttribute {
   // The list style type. Only available on list items.
   kListStyle,
 
+  // Specifies the alignment of the text, e.g. left, center, right, justify
+  kTextAlign,
+
   // Specifies the direction of the text, e.g., right-to-left.
   kTextDirection,
 
@@ -674,6 +685,9 @@ enum FloatAttribute {
   // range [0, 900] represent keywords such as light, normal, bold, etc. 0 is
   // the default.
   kFontWeight,
+
+  // The text indent of the text, in mm.
+  kTextIndent,
 };
 
 // These attributes can take three states:
@@ -709,7 +723,9 @@ enum BoolAttribute {
   // Set on a canvas element if it has fallback content.
   kCanvasHasFallback,
 
-  // Indicates this node is scrollable (Android only).
+  // Indicates this node is user-scrollable, e.g. overflow:scroll|auto, as
+  // opposed to only programmatically scrollable, like overflow:hidden, or
+  // not scrollable at all, e.g. overflow:visible.
   kScrollable,
 
   // A hint to clients that the node is clickable.
@@ -719,8 +735,17 @@ enum BoolAttribute {
   // overflow: hidden or clip children by default.
   kClipsChildren,
 
+  // Indicates that this node is not selectable because the style has
+  // user-select: none. Note that there may be other reasons why a node is
+  // not selectable - for example, bullets in a list. However, this attribute
+  // is only set on user-select: none.
+  kNotUserSelectableStyle,
+
   // Indicates whether this node is selected or unselected.
   kSelected,
+
+  // Indicates whether this node is selected due to selection follows focus.
+  kSelectedFromFocus,
 
   // Indicates whether this node supports text location.
   kSupportsTextLocation,
@@ -796,6 +821,16 @@ enum StringListAttribute {
   kCustomActionDescriptions,
 };
 
+enum ListStyle {
+  kNone,
+  kCircle,
+  kDisc,
+  kImage,
+  kNumeric,
+  kSquare,
+  kOther, // Language specific ordering (alpha, roman, cjk-ideographic, etc...)
+};
+
 enum MarkerType {
   kNone = 0,
   kSpelling = 1,
@@ -807,17 +842,79 @@ enum MarkerType {
   kSuggestion = 32,
 };
 
-enum ListStyle {
-  kNone,
-  kCircle,
-  kDisc,
-  kImage,
-  kNumeric,
-  kSquare,
-  kOther, // Language specific ordering (alpha, roman, cjk-ideographic, etc...)
+// Describes a move direction in the accessibility tree that is independent of
+// the left-to-right or right-to-left direction of the text. For example, a
+// forward movement will always move to the next node in depth-first pre-order
+// traversal.
+enum MoveDirection {
+  kForward,
+  kBackward,
+  kNone = kForward
 };
 
-enum TextDirection {
+// Describes the edit or selection command that resulted in a selection or a
+// text changed event.
+enum Command {
+  kClearSelection,
+  kCut,
+  kDelete,
+  kDictate,
+  kExtendSelection,  // The existing selection has been extended or shrunk.
+  kFormat,  // The text attributes, such as font size, have changed.
+  kInsert,
+  kMarker,  // A document marker has been added or removed.
+  kMoveSelection,  // The selection has been moved by a specific granularity.
+  kPaste,
+  kReplace,
+  kSetSelection,  // A completely new selection has been set.
+  kType,
+  kNone = kType
+};
+
+// Defines a set of text boundaries in the accessibility tree.
+//
+// Most boundaries come in three flavors: A "WordStartOrEnd" boundary for
+// example differs from a "WordStart" or a "WordEnd" boundary in that the first
+// would consider both the start and the end of the word to be boundaries, while
+// the other two would consider only the start or the end respectively.
+//
+// An "Object" boundary is found at the start or end of a node's entire text,
+// e.g. at the start or end of a text field.
+//
+// TODO(nektar): Split TextBoundary into TextUnit and TextBoundary.
+enum TextBoundary {
+  kCharacter,
+  kFormat,
+  kLineEnd,
+  kLineStart,
+  kLineStartOrEnd,
+  kObject,
+  kPageEnd,
+  kPageStart,
+  kPageStartOrEnd,
+  kParagraphEnd,
+  kParagraphStart,
+  kParagraphStartOrEnd,
+  kSentenceEnd,
+  kSentenceStart,
+  kSentenceStartOrEnd,
+  kWebPage,
+  kWordEnd,
+  kWordStart,
+  kWordStartOrEnd,
+  kNone = kObject
+};
+
+// Types of text alignment according to the IAccessible2 Object Attributes spec.
+enum TextAlign {
+  kNone,
+  kLeft,
+  kRight,
+  kCenter,
+  kJustify,
+};
+
+enum WritingDirection {
   kNone,
   kLtr,
   kRtl,
@@ -839,7 +936,7 @@ enum TextStyle {
   kUnderline,
   kLineThrough,
   kOverline,
-  kNone,
+  kNone
 };
 
 enum TextDecorationStyle {
@@ -909,14 +1006,14 @@ enum SortDirection {
 enum NameFrom {
   kNone,
   kUninitialized,
-  kAttribute,
+  kAttribute,  // E.g. aria-label.
   kAttributeExplicitlyEmpty,
-  kCaption,
+  kCaption,  // E.g. in the case of a table, from a caption element.
   kContents,
-  kPlaceholder,
-  kRelatedElement,
-  kTitle,
-  kValue,
+  kPlaceholder,  // E.g. from an HTML placeholder attribute on a text field.
+  kRelatedElement, // E.g. from a figcaption Element in a figure.
+  kTitle,  // E.g. <input type="text" title="title">.
+  kValue,  // E.g. <input type="button" value="Button's name">.
 };
 
 enum DescriptionFrom {
@@ -958,6 +1055,7 @@ enum Gesture {
   kTap2,
   kTap3,
   kTap4,
+  kTouchExplore,
 };
 
 enum TextAffinity {

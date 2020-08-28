@@ -74,12 +74,11 @@ int URLFetcherFileWriter::Initialize(CompletionOnceCallback callback) {
   if (file_path_.empty()) {
     base::FilePath* temp_file_path = new base::FilePath;
     base::PostTaskAndReplyWithResult(
-        file_task_runner_.get(),
-        FROM_HERE,
-        base::Bind(&base::CreateTemporaryFile, temp_file_path),
-        base::Bind(&URLFetcherFileWriter::DidCreateTempFile,
-                   weak_factory_.GetWeakPtr(),
-                   base::Owned(temp_file_path)));
+        file_task_runner_.get(), FROM_HERE,
+        base::BindOnce(&base::CreateTemporaryFile, temp_file_path),
+        base::BindOnce(&URLFetcherFileWriter::DidCreateTempFile,
+                       weak_factory_.GetWeakPtr(),
+                       base::Owned(temp_file_path)));
   } else {
     result =
         file_stream_->Open(file_path_,
@@ -167,8 +166,7 @@ void URLFetcherFileWriter::CloseAndDeleteFile() {
   file_stream_.reset();
   DisownFile();
   file_task_runner_->PostTask(
-      FROM_HERE, base::BindOnce(base::IgnoreResult(&base::DeleteFile),
-                                file_path_, false /* recursive */));
+      FROM_HERE, base::BindOnce(base::GetDeleteFileCallback(), file_path_));
 }
 
 void URLFetcherFileWriter::DidCreateTempFile(base::FilePath* temp_file_path,

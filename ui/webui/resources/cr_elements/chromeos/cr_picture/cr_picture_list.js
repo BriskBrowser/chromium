@@ -12,8 +12,6 @@
 Polymer({
   is: 'cr-picture-list',
 
-  behaviors: [CrPngBehavior],
-
   properties: {
     cameraPresent: Boolean,
 
@@ -122,7 +120,11 @@ Polymer({
     if (!selected) {
       return;
     }
-    this.setSelectedImage_(this.$.profileImage);
+    this.setSelectedImage_(
+        /**
+         * @type {!CrPicture.ImageElement}
+         */
+        (this.$.profileImage));
   },
 
   /**
@@ -133,7 +135,11 @@ Polymer({
       return image.dataset.url === imageUrl;
     });
     if (image) {
-      this.setSelectedImage_(image);
+      this.setSelectedImage_(
+          /**
+           * @type {!CrPicture.ImageElement}
+           */
+          (image));
       this.selectedImageUrl_ = '';
     } else {
       this.selectedImageUrl_ = imageUrl;
@@ -161,9 +167,17 @@ Polymer({
     } else if (
         this.fallbackImage_ &&
         this.fallbackImage_.dataset.type !== CrPicture.SelectionTypes.OLD) {
-      this.selectImage_(this.fallbackImage_, true /* activate */);
+      this.selectImage_(
+          /**
+           * @type {!CrPicture.ImageElement}
+           */
+          (this.fallbackImage_), true /* activate */);
     } else {
-      this.selectImage_(this.$.profileImage, true /* activate */);
+      this.selectImage_(
+          /**
+           * @type {!CrPicture.ImageElement}
+           */
+          (this.$.profileImage), true /* activate */);
     }
   },
 
@@ -292,7 +306,7 @@ Polymer({
      * url as input if base64 encoded and potentially animated.
      */
     if (url.split(',')[0] === 'data:image/png;base64') {
-      return CrPngBehavior.convertImageSequenceToPng([url]);
+      return cr.png.convertImageSequenceToPng([url]);
     }
 
     return url;

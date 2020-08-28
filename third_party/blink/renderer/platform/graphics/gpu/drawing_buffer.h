@@ -98,6 +98,8 @@ class PLATFORM_EXPORT DrawingBuffer : public cc::TextureLayerClient,
     virtual void DrawingBufferClientRestorePixelPackParameters() = 0;
     // Restores the GL_TEXTURE_2D binding for the active texture unit only.
     virtual void DrawingBufferClientRestoreTexture2DBinding() = 0;
+    // Restores the GL_TEXTURE_CUBE_MAP binding for the active texture unit.
+    virtual void DrawingBufferClientRestoreTextureCubeMapBinding() = 0;
     virtual void DrawingBufferClientRestoreRenderbufferBinding() = 0;
     virtual void DrawingBufferClientRestoreFramebufferBinding() = 0;
     virtual void DrawingBufferClientRestorePixelUnpackBufferBinding() = 0;
@@ -136,9 +138,9 @@ class PLATFORM_EXPORT DrawingBuffer : public cc::TextureLayerClient,
       PreserveDrawingBuffer,
       WebGLVersion,
       ChromiumImageUsage,
+      SkFilterQuality,
       const CanvasColorParams&,
       gl::GpuPreference);
-  static void ForceNextDrawingBufferCreationToFail();
 
   ~DrawingBuffer() override;
 
@@ -282,6 +284,8 @@ class PLATFORM_EXPORT DrawingBuffer : public cc::TextureLayerClient,
   scoped_refptr<CanvasResource> AsCanvasResource(
       base::WeakPtr<CanvasResourceProvider> resource_provider);
 
+  static const size_t kDefaultColorBufferCacheLimit;
+
  protected:  // For unittests
   DrawingBuffer(std::unique_ptr<WebGraphicsContext3DProvider>,
                 bool using_gpu_compositing,
@@ -296,6 +300,7 @@ class PLATFORM_EXPORT DrawingBuffer : public cc::TextureLayerClient,
                 bool wants_depth,
                 bool wants_stencil,
                 ChromiumImageUsage,
+                SkFilterQuality,
                 const CanvasColorParams&,
                 gl::GpuPreference gpu_preference);
 
@@ -402,8 +407,14 @@ class PLATFORM_EXPORT DrawingBuffer : public cc::TextureLayerClient,
                               SourceDrawingBuffer src_buffer,
                               const CopyFunction& copy_function);
 
+  enum ClearOption { ClearOnlyMultisampledFBO, ClearAllFBOs };
+
+  // Clears out newly-allocated framebuffers (really, renderbuffers / textures).
+  void ClearNewlyAllocatedFramebuffers(ClearOption clear_option);
+
   // The same as clearFramebuffers(), but leaves GL state dirty.
-  void ClearFramebuffersInternal(GLbitfield clear_mask);
+  void ClearFramebuffersInternal(GLbitfield clear_mask,
+                                 ClearOption clear_option);
 
   // The same as reset(), but leaves GL state dirty.
   bool ResizeFramebufferInternal(const IntSize&);
@@ -503,7 +514,7 @@ class PLATFORM_EXPORT DrawingBuffer : public cc::TextureLayerClient,
   bool ReallocateMultisampleRenderbuffer(const IntSize&);
 
   // Presents swap chain if swap chain is being used and contents have changed.
-  void PresentSwapChainIfNeeded();
+  void ResolveAndPresentSwapChainIfNeeded();
 
   // Weak, reset by beginDestruction.
   Client* client_ = nullptr;

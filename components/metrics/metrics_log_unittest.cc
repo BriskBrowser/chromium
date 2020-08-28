@@ -15,17 +15,19 @@
 #include "base/metrics/bucket_ranges.h"
 #include "base/metrics/sample_vector.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/system/sys_info.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
+#include "build/lacros_buildflags.h"
 #include "components/metrics/cpu_metrics_provider.h"
 #include "components/metrics/delegating_provider.h"
 #include "components/metrics/environment_recorder.h"
 #include "components/metrics/metrics_pref_names.h"
 #include "components/metrics/metrics_state_manager.h"
-#include "components/metrics/test_metrics_provider.h"
-#include "components/metrics/test_metrics_service_client.h"
+#include "components/metrics/test/test_metrics_provider.h"
+#include "components/metrics/test/test_metrics_service_client.h"
 #include "components/prefs/pref_service.h"
 #include "components/prefs/testing_pref_service.h"
 #include "components/variations/active_field_trials.h"
@@ -72,6 +74,24 @@ class TestMetricsLog : public MetricsLog {
  private:
   DISALLOW_COPY_AND_ASSIGN(TestMetricsLog);
 };
+
+// Returns the expected hardware class for a metrics log.
+std::string GetExpectedHardwareClass() {
+#if defined(OS_CHROMEOS)
+  // Currently, we are relying on base/ implementation for functionality on our
+  // side which can be fragile if in the future someone decides to change that.
+  // This replicates the logic to get the hardware class for ChromeOS and this
+  // result should match with the result by calling
+  // base::SysInfo::HardwareModelName().
+  std::string board = base::SysInfo::GetLsbReleaseBoard();
+  const size_t index = board.find("-signed-");
+  if (index != std::string::npos)
+    board.resize(index);
+  return base::ToUpperASCII(board);
+#else
+  return base::SysInfo::HardwareModelName();
+#endif
+}
 
 }  // namespace
 
@@ -127,9 +147,9 @@ TEST_F(MetricsLogTest, LogType) {
 TEST_F(MetricsLogTest, BasicRecord) {
   TestMetricsServiceClient client;
   client.set_version_string("bogus version");
+  const std::string kClientId = "totally bogus client ID";
   TestingPrefServiceSimple prefs;
-  MetricsLog log("totally bogus client ID", 137, MetricsLog::ONGOING_LOG,
-                 &client);
+  MetricsLog log(kClientId, 137, MetricsLog::ONGOING_LOG, &client);
   log.CloseLog();
 
   std::string encoded;
@@ -146,8 +166,12 @@ TEST_F(MetricsLogTest, BasicRecord) {
 
   SystemProfileProto* system_profile = expected.mutable_system_profile();
   system_profile->set_app_version("bogus version");
+  // Make sure |client_uuid| in the system profile is the unhashed client id
+  // and is the same as the client id in |local_prefs|.
+  system_profile->set_client_uuid(kClientId);
   system_profile->set_channel(client.GetChannel());
   system_profile->set_application_locale(client.GetApplicationLocale());
+  system_profile->set_brand_code(TestMetricsServiceClient::kBrandForTesting);
 
 #if defined(ADDRESS_SANITIZER) || DCHECK_IS_ON()
   system_profile->set_is_instrumented_build(true);
@@ -158,12 +182,18 @@ TEST_F(MetricsLogTest, BasicRecord) {
   hardware->set_cpu_architecture(base::SysInfo::OperatingSystemArchitecture());
 #endif
   hardware->set_system_ram_mb(base::SysInfo::AmountOfPhysicalMemoryMB());
-  hardware->set_hardware_class(base::SysInfo::HardwareModelName());
+  hardware->set_hardware_class(GetExpectedHardwareClass());
 #if defined(OS_WIN)
   hardware->set_dll_base(reinterpret_cast<uint64_t>(CURRENT_MODULE()));
 #endif
 
+#if BUILDFLAG(IS_LACROS)
+  system_profile->mutable_os()->set_name("Lacros");
+#elif defined(OS_CHROMEOS)
+  system_profile->mutable_os()->set_name("CrOS");
+#else
   system_profile->mutable_os()->set_name(base::SysInfo::OperatingSystemName());
+#endif
   system_profile->mutable_os()->set_version(
       base::SysInfo::OperatingSystemVersion());
 #if defined(OS_CHROMEOS)
@@ -373,7 +403,7 @@ TEST_F(MetricsLogTest, TruncateEvents) {
   TestMetricsLog log(kClientId, kSessionId, MetricsLog::ONGOING_LOG, &client);
 
   for (int i = 0; i < internal::kUserActionEventLimit * 2; ++i) {
-    log.RecordUserAction("BasicAction");
+    log.RecordUserAction("BasicAction", base::TimeTicks::Now());
     EXPECT_EQ(i + 1, log.uma_proto().user_action_event_size());
   }
   for (int i = 0; i < internal::kOmniboxEventLimit * 2; ++i) {

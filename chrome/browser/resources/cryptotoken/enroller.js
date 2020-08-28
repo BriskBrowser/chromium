@@ -492,6 +492,8 @@ function handleU2fEnrollRequest(messageSender, request, sendResponse) {
     return null;
   }
 
+  chrome.cryptotokenPrivate.recordRegisterRequest(sender.tabId, sender.frameId);
+
   var timeoutValueSeconds = getTimeoutValueFromRequest(request);
   // Attenuate watchdog timeout value less than the enroller's timeout, so the
   // watchdog only fires after the enroller could reasonably have called back,
@@ -867,14 +869,10 @@ Enroller.prototype.doRegisterWebAuthn_ = function(appId, challenge, request) {
     return;
   }
 
-  const attestationPreference =
-      conveyancePreference(challenge) == ConveyancePreference.DIRECT ?
-      WebAuthnAttestationConveyancePreference.DIRECT :
-      WebAuthnAttestationConveyancePreference.NONE;
-
   if (!chrome.cryptotokenPrivate) {
     this.doRegisterWebAuthnContinue_(
-        appId, encodedChallenge, request, attestationPreference);
+        appId, encodedChallenge, request,
+        WebAuthnAttestationConveyancePreference.DIRECT);
     return;
   }
 
@@ -885,7 +883,7 @@ Enroller.prototype.doRegisterWebAuthn_ = function(appId, challenge, request) {
             appId, encodedChallenge, request,
             enterprise_context ?
                 WebAuthnAttestationConveyancePreference.ENTERPRISE :
-                attestationPreference);
+                WebAuthnAttestationConveyancePreference.DIRECT);
       });
 };
 

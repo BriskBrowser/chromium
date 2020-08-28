@@ -37,10 +37,9 @@ void DisconnectErrorCallback(
   else
     error_data_ss << "<none>";
 
-  NET_LOG(ERROR) << "AutoConnectHandler.Disconnect failed. "
-                 << "Path: \"" << network_path << "\", "
-                 << "Error name: \"" << error_name << "\", "
-                 << "Error data: " << error_data_ss.str();
+  NET_LOG(ERROR) << "AutoConnectHandler.Disconnect failed for: "
+                 << NetworkPathId(network_path) << " Error name: " << error_name
+                 << ", Data: " << error_data_ss.str();
 }
 
 void RemoveNetworkConfigurationErrorCallback(
@@ -51,9 +50,9 @@ void RemoveNetworkConfigurationErrorCallback(
     error_data_ss << *error_data;
   else
     error_data_ss << "<none>";
-  NET_LOG(ERROR) << "AutoConnectHandler RemoveNetworkConfiguration failed. "
-                 << "Error name: \"" << error_name << "\", "
-                 << "Error data: " << error_data_ss.str();
+  NET_LOG(ERROR) << "AutoConnectHandler RemoveNetworkConfiguration failed."
+                 << " Error name: " << error_name
+                 << ", Data: " << error_data_ss.str();
 }
 
 void ConnectToNetworkErrorCallback(
@@ -64,9 +63,9 @@ void ConnectToNetworkErrorCallback(
     error_data_ss << *error_data;
   else
     error_data_ss << "<none>";
-  NET_LOG(ERROR) << "AutoConnectHandler ConnectToNetwork failed. "
-                 << "Error name: \"" << error_name << "\", "
-                 << "Error data: " << error_data_ss.str();
+  NET_LOG(ERROR) << "AutoConnectHandler ConnectToNetwork failed."
+                 << " Error name: " << error_name
+                 << ", Data: " << error_data_ss.str();
 }
 
 void SetPropertiesErrorCallback(
@@ -77,9 +76,9 @@ void SetPropertiesErrorCallback(
     error_data_ss << *error_data;
   else
     error_data_ss << "<none>";
-  NET_LOG(ERROR) << "AutoConnectHandler SetProperties failed. "
-                 << "Error name: \"" << error_name << "\", "
-                 << "Error data: " << error_data_ss.str();
+  NET_LOG(ERROR) << "AutoConnectHandler SetProperties failed."
+                 << " Error name: " << error_name
+                 << ", Data: " << error_data_ss.str();
 }
 
 std::string AutoConnectReasonsToString(int auto_connect_reasons) {
@@ -213,7 +212,7 @@ void AutoConnectHandler::ScanCompleted(const DeviceState* device) {
     if (connected_network && !connected_network->IsManagedByPolicy()) {
       network_connection_handler_->ConnectToNetwork(
           managed_network->path(), base::DoNothing(),
-          base::Bind(&ConnectToNetworkErrorCallback), false,
+          base::BindOnce(&ConnectToNetworkErrorCallback), false,
           ConnectCallbackMode::ON_COMPLETED);
       return;
     }
@@ -317,13 +316,13 @@ void AutoConnectHandler::CheckBestConnection() {
 void AutoConnectHandler::DisconnectIfPolicyRequires() {
   // Wait for both (user & device) policies to be applied. The device policy
   // holds all the policies, which might require disconnects, while the user
-  // policy might whitelist some networks again. This also ensures that we only
+  // policy might allow some networks again. This also ensures that we only
   // disconnect from blocked networks in user sessions.
   if (!device_policy_applied_ || !user_policy_applied_)
     return;
 
-  std::vector<std::string> blacklisted_hex_ssids =
-      managed_configuration_handler_->GetBlacklistedHexSSIDs();
+  std::vector<std::string> blocked_hex_ssids =
+      managed_configuration_handler_->GetBlockedHexSSIDs();
   bool only_managed =
       managed_configuration_handler_->AllowOnlyPolicyNetworksToConnect();
   bool only_managed_autoconnect =
@@ -340,8 +339,8 @@ void AutoConnectHandler::DisconnectIfPolicyRequires() {
     applied_autoconnect_policy_ = only_managed_autoconnect;
 
   // Early exit if no policy is set that requires any disconnects.
-  if (!only_managed && !only_managed_autoconnect &&
-      blacklisted_hex_ssids.empty() && !available_only) {
+  if (!only_managed && !only_managed_autoconnect && blocked_hex_ssids.empty() &&
+      !available_only) {
     return;
   }
 
@@ -369,32 +368,32 @@ void AutoConnectHandler::DisconnectIfPolicyRequires() {
 }
 
 void AutoConnectHandler::DisconnectNetwork(const std::string& service_path) {
-  NET_LOG_EVENT("Disconnect forced by policy", service_path);
-
+  NET_LOG(EVENT) << "Disconnect forced by policy for: "
+                 << NetworkPathId(service_path);
   network_connection_handler_->DisconnectNetwork(
       service_path, base::DoNothing(),
-      base::Bind(&DisconnectErrorCallback, service_path));
+      base::BindOnce(&DisconnectErrorCallback, service_path));
 }
 
 void AutoConnectHandler::RemoveNetworkConfigurationForNetwork(
     const std::string& service_path) {
-  NET_LOG_EVENT("Remove configuration forced by policy", service_path);
-
+  NET_LOG(EVENT) << "Remove configuration forced by policy for: "
+                 << NetworkPathId(service_path);
   managed_configuration_handler_->RemoveConfiguration(
       service_path, base::DoNothing(),
-      base::Bind(&RemoveNetworkConfigurationErrorCallback));
+      base::BindOnce(&RemoveNetworkConfigurationErrorCallback));
 }
 
 void AutoConnectHandler::DisableAutoconnectForWiFiNetwork(
     const std::string& service_path) {
-  NET_LOG_EVENT("Disable auto-connect forced by policy", service_path);
-
+  NET_LOG(EVENT) << "Disable auto-connect forced by policy: "
+                 << NetworkPathId(service_path);
   base::DictionaryValue properties;
   properties.SetPath({::onc::network_config::kWiFi, ::onc::wifi::kAutoConnect},
                      base::Value(false));
   managed_configuration_handler_->SetProperties(
       service_path, properties, base::DoNothing(),
-      base::Bind(&SetPropertiesErrorCallback));
+      base::BindOnce(&SetPropertiesErrorCallback));
 }
 
 void AutoConnectHandler::CallShillConnectToBestServices() {
@@ -402,11 +401,11 @@ void AutoConnectHandler::CallShillConnectToBestServices() {
                  << AutoConnectReasonsToString(auto_connect_reasons_) << "]";
 
   ShillManagerClient::Get()->ConnectToBestServices(
-      base::Bind(&AutoConnectHandler::NotifyAutoConnectInitiated,
-                 weak_ptr_factory_.GetWeakPtr(), auto_connect_reasons_),
-      base::Bind(&network_handler::ShillErrorCallbackFunction,
-                 "ConnectToBestServices Failed", "",
-                 network_handler::ErrorCallback()));
+      base::BindOnce(&AutoConnectHandler::NotifyAutoConnectInitiated,
+                     weak_ptr_factory_.GetWeakPtr(), auto_connect_reasons_),
+      base::BindOnce(&network_handler::ShillErrorCallbackFunction,
+                     "ConnectToBestServices Failed", "",
+                     network_handler::ErrorCallback()));
 }
 
 }  // namespace chromeos

@@ -5,7 +5,6 @@
 // Include test fixture.
 GEN_INCLUDE([
   '//chrome/browser/resources/chromeos/accessibility/chromevox/testing/chromevox_next_e2e_test_base.js',
-  '//chrome/browser/resources/chromeos/accessibility/chromevox/testing/assert_additions.js'
 ]);
 
 GEN_INCLUDE([
@@ -14,36 +13,32 @@ GEN_INCLUDE([
 
 /**
  * Test fixture for editing tests.
- * @constructor
- * @extends {ChromeVoxNextE2ETest}
  */
-function ChromeVoxEditingTest() {
-  ChromeVoxNextE2ETest.call(this);
-  window.RoleType = chrome.automation.RoleType;
-}
-
-ChromeVoxEditingTest.prototype = {
-  __proto__: ChromeVoxNextE2ETest.prototype,
+ChromeVoxEditingTest = class extends ChromeVoxNextE2ETest {
+  constructor() {
+    super();
+    window.RoleType = chrome.automation.RoleType;
+  }
 
   /**
    * @return {!MockFeedback}
    */
   createMockFeedback() {
-    var mockFeedback =
+    const mockFeedback =
         new MockFeedback(this.newCallback(), this.newCallback.bind(this));
     mockFeedback.install();
     return mockFeedback;
-  },
+  }
 
   press(keyCode, modifiers) {
     return function() {
       BackgroundKeyboardHandler.sendKeyPress(keyCode, modifiers);
     };
-  },
-
+  }
 };
 
-var doc = `
+
+const doc = `
   <label for='singleLine'>singleLine</label>
   <input type='text' id='singleLine' value='Single line field'><br>
   <label for='textarea'>textArea</label>
@@ -55,11 +50,11 @@ line 3
 `;
 
 TEST_F('ChromeVoxEditingTest', 'Focus', function() {
-  var mockFeedback = this.createMockFeedback();
+  const mockFeedback = this.createMockFeedback();
   this.runWithLoadedTree(doc, function(root) {
-    var singleLine = root.find(
+    const singleLine = root.find(
         {role: RoleType.TEXT_FIELD, attributes: {name: 'singleLine'}});
-    var textarea =
+    const textarea =
         root.find({role: RoleType.TEXT_FIELD, attributes: {name: 'textArea'}});
     singleLine.focus();
     mockFeedback.expectSpeech('singleLine', 'Single line field', 'Edit text')
@@ -76,9 +71,9 @@ TEST_F('ChromeVoxEditingTest', 'Focus', function() {
 });
 
 TEST_F('ChromeVoxEditingTest', 'Multiline', function() {
-  var mockFeedback = this.createMockFeedback();
+  const mockFeedback = this.createMockFeedback();
   this.runWithLoadedTree(doc, function(root) {
-    var textarea =
+    const textarea =
         root.find({role: RoleType.TEXT_FIELD, attributes: {name: 'textArea'}});
     textarea.focus();
     mockFeedback.expectSpeech('textArea', 'Line 1\nline 2\nline 3', 'Text area')
@@ -100,7 +95,7 @@ TEST_F('ChromeVoxEditingTest', 'Multiline', function() {
 });
 
 TEST_F('ChromeVoxEditingTest', 'TextButNoSelectionChange', function() {
-  var mockFeedback = this.createMockFeedback();
+  const mockFeedback = this.createMockFeedback();
   this.runWithLoadedTree(
       `
       <h1>Test doc</h1>
@@ -109,8 +104,8 @@ TEST_F('ChromeVoxEditingTest', 'TextButNoSelectionChange', function() {
            setSelection function is called, so poll for the actual change. -->
 
       <script>
-        var timer;
-        var input = document.getElementById('input');
+        let timer;
+        let input = document.getElementById('input');
         function poll(e) {
           if (input.selectionStart == 0) {
             return;
@@ -123,7 +118,7 @@ TEST_F('ChromeVoxEditingTest', 'TextButNoSelectionChange', function() {
       </script>
     `,
       function(root) {
-        var input = root.find({role: RoleType.TEXT_FIELD});
+        const input = root.find({role: RoleType.TEXT_FIELD});
         input.focus();
         mockFeedback.expectSpeech('text1', 'Edit text')
             .expectBraille('text1 ed', {startIndex: 0, endIndex: 0})
@@ -138,7 +133,7 @@ TEST_F('ChromeVoxEditingTest', 'RichTextMoveByLine', function() {
   // Turn on rich text output settings.
   localStorage['announceRichTextAttributes'] = 'true';
 
-  var mockFeedback = this.createMockFeedback();
+  const mockFeedback = this.createMockFeedback();
   this.runWithLoadedTree(
       `
     <div role="textbox" contenteditable>
@@ -148,10 +143,10 @@ TEST_F('ChromeVoxEditingTest', 'RichTextMoveByLine', function() {
     </div>
     <button id="go">Go</button>
     <script>
-      var dir = 'forward';
-      var line = 0;
+      let dir = 'forward';
+      let line = 0;
       document.getElementById('go').addEventListener('click', function() {
-        var sel = getSelection();
+        let sel = getSelection();
         sel.modify('move', dir, 'line');
         if (dir == 'forward') {
           line++;
@@ -169,9 +164,9 @@ TEST_F('ChromeVoxEditingTest', 'RichTextMoveByLine', function() {
     </script>
   `,
       function(root) {
-        var input = root.find({role: RoleType.TEXT_FIELD});
-        var go = root.find({role: RoleType.BUTTON});
-        var moveByLine = go.doDefault.bind(go);
+        const input = root.find({role: RoleType.TEXT_FIELD});
+        const go = root.find({role: RoleType.BUTTON});
+        const moveByLine = go.doDefault.bind(go);
         this.listenOnce(input, 'focus', function() {
           mockFeedback.call(moveByLine)
               .expectSpeech('\n')
@@ -195,17 +190,17 @@ TEST_F('ChromeVoxEditingTest', 'RichTextMoveByCharacter', function() {
   // Turn on rich text output settings.
   localStorage['announceRichTextAttributes'] = 'true';
 
-  var mockFeedback = this.createMockFeedback();
+  const mockFeedback = this.createMockFeedback();
   this.runWithLoadedTree(
       `
     <div role="textbox" contenteditable>This <b>is</b> a test.</div>
     <button id="go">Go</button>
 
     <script>
-      var dir = 'forward';
-      var char = 0;
+      let dir = 'forward';
+      let char = 0;
       document.getElementById('go').addEventListener('click', function() {
-        var sel = getSelection();
+        let sel = getSelection();
         sel.modify('move', dir, 'character');
         if (dir == 'forward') {
           char++;
@@ -223,10 +218,10 @@ TEST_F('ChromeVoxEditingTest', 'RichTextMoveByCharacter', function() {
     </script>
   `,
       function(root) {
-        var input = root.find({role: RoleType.TEXT_FIELD});
-        var go = root.find({role: RoleType.BUTTON});
-        var moveByChar = go.doDefault.bind(go);
-        var lineText = 'This is a test. mled';
+        const input = root.find({role: RoleType.TEXT_FIELD});
+        const go = root.find({role: RoleType.BUTTON});
+        const moveByChar = go.doDefault.bind(go);
+        const lineText = 'This is a test. mled';
 
         this.listenOnce(input, 'focus', function() {
           mockFeedback.call(moveByChar)
@@ -275,7 +270,7 @@ TEST_F(
       // Turn on rich text output settings.
       localStorage['announceRichTextAttributes'] = 'true';
 
-      var mockFeedback = this.createMockFeedback();
+      const mockFeedback = this.createMockFeedback();
       this.runWithLoadedTree(
           `
     <div role="textbox" contenteditable>
@@ -290,17 +285,17 @@ TEST_F(
 
     <script>
       document.getElementById('go').addEventListener('click', function() {
-        var sel = getSelection();
+        let sel = getSelection();
         sel.modify('move', 'forward', 'character');
       }, true);
     </script>
   `,
           function(root) {
-            var input = root.find({role: RoleType.TEXT_FIELD});
-            var go = root.find({role: RoleType.BUTTON});
-            var moveByChar = go.doDefault.bind(go);
-            var lineText = 'Move through text by character test! mled';
-            var lineOnLinkText =
+            const input = root.find({role: RoleType.TEXT_FIELD});
+            const go = root.find({role: RoleType.BUTTON});
+            const moveByChar = go.doDefault.bind(go);
+            const lineText = 'Move through text by character test! mled';
+            const lineOnLinkText =
                 'Move through text by character test lnk ! mled';
 
             this.listenOnce(
@@ -449,7 +444,7 @@ TEST_F(
 TEST_F(
     'ChromeVoxEditingTest', 'RichTextMoveByCharacterNodeWorkaround',
     function() {
-      var mockFeedback = this.createMockFeedback();
+      const mockFeedback = this.createMockFeedback();
       this.runWithLoadedTree(
           `
     <div role="textbox" contenteditable>hello <b>world</b></div>
@@ -457,16 +452,16 @@ TEST_F(
 
     <script>
       document.getElementById('go').addEventListener('click', function() {
-        var sel = getSelection();
+        let sel = getSelection();
         sel.modify('move', 'forward', 'character');
       }, true);
     </script>
   `,
           function(root) {
-            var input = root.find({role: RoleType.TEXT_FIELD});
-            var go = root.find({role: RoleType.BUTTON});
-            var moveByChar = go.doDefault.bind(go);
-            var lineText = 'hello world mled';
+            const input = root.find({role: RoleType.TEXT_FIELD});
+            const go = root.find({role: RoleType.BUTTON});
+            const moveByChar = go.doDefault.bind(go);
+            const lineText = 'hello world mled';
 
             this.listenOnce(input, 'focus', function() {
               mockFeedback.call(moveByChar)
@@ -494,7 +489,7 @@ TEST_F(
     });
 
 TEST_F('ChromeVoxEditingTest', 'RichTextMoveByCharacterEndOfLine', function() {
-  var mockFeedback = this.createMockFeedback();
+  const mockFeedback = this.createMockFeedback();
   this.runWithLoadedTree(
       `
     <div role="textbox" contenteditable>Test</div>
@@ -502,16 +497,16 @@ TEST_F('ChromeVoxEditingTest', 'RichTextMoveByCharacterEndOfLine', function() {
 
     <script>
       document.getElementById('go').addEventListener('click', function() {
-        var sel = getSelection();
+        let sel = getSelection();
         sel.modify('move', 'forward', 'character');
       }, true);
     </script>
   `,
       function(root) {
-        var input = root.find({role: RoleType.TEXT_FIELD});
-        var go = root.find({role: RoleType.BUTTON});
-        var moveByChar = go.doDefault.bind(go);
-        var lineText = 'Test mled';
+        const input = root.find({role: RoleType.TEXT_FIELD});
+        const go = root.find({role: RoleType.BUTTON});
+        const moveByChar = go.doDefault.bind(go);
+        const lineText = 'Test mled';
 
         this.listenOnce(input, 'focus', function() {
           mockFeedback.call(moveByChar)
@@ -537,24 +532,24 @@ TEST_F('ChromeVoxEditingTest', 'RichTextLinkOutput', function() {
   // Turn on rich text output settings.
   localStorage['announceRichTextAttributes'] = 'true';
 
-  var mockFeedback = this.createMockFeedback();
+  const mockFeedback = this.createMockFeedback();
   this.runWithLoadedTree(
       `
     <div role="textbox" contenteditable>a <a href="#">test</a></div>
     <button id="go">Go</button>
     <script>
       document.getElementById('go').addEventListener('click', function() {
-        var sel = getSelection();
+        let sel = getSelection();
         sel.modify('move', 'forward', 'character');
       }, true);
     </script>
   `,
       function(root) {
-        var input = root.find({role: RoleType.TEXT_FIELD});
-        var go = root.find({role: RoleType.BUTTON});
-        var moveByChar = go.doDefault.bind(go);
-        var lineText = 'a test mled';
-        var lineOnLinkText = 'a test lnk mled';
+        const input = root.find({role: RoleType.TEXT_FIELD});
+        const go = root.find({role: RoleType.BUTTON});
+        const moveByChar = go.doDefault.bind(go);
+        const lineText = 'a test mled';
+        const lineOnLinkText = 'a test lnk mled';
 
         this.listenOnce(input, 'focus', function() {
           mockFeedback.call(moveByChar)
@@ -583,7 +578,7 @@ TEST_F('ChromeVoxEditingTest', 'RichTextLinkOutput', function() {
 });
 
 TEST_F('ChromeVoxEditingTest', 'RichTextExtendByCharacter', function() {
-  var mockFeedback = this.createMockFeedback();
+  const mockFeedback = this.createMockFeedback();
   this.runWithLoadedTree(
       `
     <div role="textbox" contenteditable>Te<br>st</div>
@@ -591,15 +586,15 @@ TEST_F('ChromeVoxEditingTest', 'RichTextExtendByCharacter', function() {
 
     <script>
       document.getElementById('go').addEventListener('click', function() {
-        var sel = getSelection();
+        let sel = getSelection();
         sel.modify('extend', 'forward', 'character');
       }, true);
     </script>
   `,
       function(root) {
-        var input = root.find({role: RoleType.TEXT_FIELD});
-        var go = root.find({role: RoleType.BUTTON});
-        var moveByChar = go.doDefault.bind(go);
+        const input = root.find({role: RoleType.TEXT_FIELD});
+        const go = root.find({role: RoleType.BUTTON});
+        const moveByChar = go.doDefault.bind(go);
 
         this.listenOnce(input, 'focus', function() {
           mockFeedback.call(moveByChar)
@@ -621,7 +616,7 @@ TEST_F('ChromeVoxEditingTest', 'RichTextExtendByCharacter', function() {
 });
 
 TEST_F('ChromeVoxEditingTest', 'RichTextImageByCharacter', function() {
-  var mockFeedback = this.createMockFeedback();
+  const mockFeedback = this.createMockFeedback();
   this.runWithLoadedTree(
       `
     <p contenteditable>
@@ -629,28 +624,28 @@ TEST_F('ChromeVoxEditingTest', 'RichTextImageByCharacter', function() {
     </p>
     <button id="go">Go</button>
     <script>
-      var dir = 'forward';
-      var moveCount = 0;
+      let dir = 'forward';
+      let moveCount = 0;
       document.getElementById('go').addEventListener('click', function() {
         moveCount++;
         if (moveCount == 9) {
           dir = 'backward';
         }
 
-        var sel = getSelection();
+        let sel = getSelection();
 
         sel.modify('move', dir, 'character');
       }, true);
     </script>
   `,
       function(root) {
-        var input = root.find({role: RoleType.PARAGRAPH});
-        var go = root.find({role: RoleType.BUTTON});
-        var moveByChar = go.doDefault.bind(go);
+        const input = root.find({role: RoleType.PARAGRAPH});
+        const go = root.find({role: RoleType.BUTTON});
+        const moveByChar = go.doDefault.bind(go);
 
         this.listenOnce(input, 'focus', function() {
-          var lineText = 'dog is a cat test mled';
-          var lineOnCatText = 'dog is a cat img test mled';
+          const lineText = 'dog is a cat test mled';
+          const lineOnCatText = 'dog is a cat img test mled';
 
           // This is initial output from focusing the contenteditable (which has
           // no role).
@@ -658,7 +653,7 @@ TEST_F('ChromeVoxEditingTest', 'RichTextImageByCharacter', function() {
               'dog', 'Image', ' is a ', 'cat', 'Image', ' test');
           mockFeedback.expectBraille('dog img is a cat img test');
 
-          var moves = [
+          const moves = [
             {speech: [' '], braille: [lineText, {startIndex: 3, endIndex: 3}]},
             {speech: ['i'], braille: [lineText, {startIndex: 4, endIndex: 4}]},
             {speech: ['s'], braille: [lineText, {startIndex: 5, endIndex: 5}]},
@@ -672,15 +667,15 @@ TEST_F('ChromeVoxEditingTest', 'RichTextImageByCharacter', function() {
             {speech: [' '], braille: [lineText, {startIndex: 12, endIndex: 12}]}
           ];
 
-          for (var item of moves) {
+          for (const item of moves) {
             mockFeedback.call(moveByChar);
             mockFeedback.expectSpeech.apply(mockFeedback, item.speech);
             mockFeedback.expectBraille.apply(mockFeedback, item.braille);
           }
 
-          var backMoves = moves.reverse();
+          const backMoves = moves.reverse();
           backMoves.shift();
-          for (var backItem of backMoves) {
+          for (const backItem of backMoves) {
             mockFeedback.call(moveByChar);
             mockFeedback.expectSpeech.apply(mockFeedback, backItem.speech);
             mockFeedback.expectBraille.apply(mockFeedback, backItem.braille);
@@ -693,7 +688,7 @@ TEST_F('ChromeVoxEditingTest', 'RichTextImageByCharacter', function() {
 });
 
 TEST_F('ChromeVoxEditingTest', 'RichTextSelectByLine', function() {
-  var mockFeedback = this.createMockFeedback();
+  const mockFeedback = this.createMockFeedback();
   // Use digit strings like "11111" and "22222" because the character widths
   // of digits are always the same. This means the test can move down one line
   // middle of "11111" and reliably hit a given character position in "22222",
@@ -709,7 +704,7 @@ TEST_F('ChromeVoxEditingTest', 'RichTextSelectByLine', function() {
       33333 line<br>
     </p>
     <script>
-      var commands = [
+      let commands = [
         ['extend', 'forward', 'character'],
         ['extend', 'forward', 'character'],
 
@@ -731,15 +726,15 @@ TEST_F('ChromeVoxEditingTest', 'RichTextSelectByLine', function() {
         ['extend', 'forward', 'line'],
       ];
       document.getElementById('go').addEventListener('click', function() {
-        var sel = getSelection();
+        let sel = getSelection();
         sel.modify.apply(sel, commands.shift());
       }, true);
     </script>
   `,
       function(root) {
-        var input = root.find({role: RoleType.PARAGRAPH});
-        var go = root.find({role: RoleType.BUTTON});
-        var move = go.doDefault.bind(go);
+        const input = root.find({role: RoleType.PARAGRAPH});
+        const go = root.find({role: RoleType.BUTTON});
+        const move = go.doDefault.bind(go);
 
         this.listenOnce(input, 'focus', function() {
           // By character.
@@ -818,9 +813,9 @@ TEST_F('ChromeVoxEditingTest', 'EditableLineOneStaticText', function() {
     <p contenteditable style="word-spacing:100000px">this is a test</p>
   `,
       function(root) {
-        var staticText = root.find({role: RoleType.STATIC_TEXT});
+        const staticText = root.find({role: RoleType.STATIC_TEXT});
 
-        var e = new editing.EditableLine(staticText, 0, staticText, 0);
+        let e = new editing.EditableLine(staticText, 0, staticText, 0);
         assertEquals('this ', e.text);
 
         assertEquals(0, e.startOffset);
@@ -872,10 +867,10 @@ TEST_F('ChromeVoxEditingTest', 'EditableLineTwoStaticTexts', function() {
     <p contenteditable>hello <b>world</b></p>
   `,
       function(root) {
-        var text = root.find({role: RoleType.STATIC_TEXT});
-        var bold = text.nextSibling;
+        const text = root.find({role: RoleType.STATIC_TEXT});
+        const bold = text.nextSibling;
 
-        var e = new editing.EditableLine(text, 0, text, 0);
+        let e = new editing.EditableLine(text, 0, text, 0);
         assertEquals('hello world', e.text);
 
         assertEquals(0, e.startOffset);
@@ -930,18 +925,18 @@ TEST_F('ChromeVoxEditingTest', 'EditableLineEquality', function() {
     </div>
   `,
       function(root) {
-        var thisIsATest =
+        const thisIsATest =
             root.findAll({role: RoleType.PARAGRAPH})[0].firstChild;
-        var hello = root.findAll({role: RoleType.PARAGRAPH})[1].firstChild;
-        var world = root.findAll({role: RoleType.PARAGRAPH})[1].lastChild;
+        const hello = root.findAll({role: RoleType.PARAGRAPH})[1].firstChild;
+        const world = root.findAll({role: RoleType.PARAGRAPH})[1].lastChild;
 
         // The same position -- sanity check.
-        var e1 = new editing.EditableLine(thisIsATest, 0, thisIsATest, 0);
+        let e1 = new editing.EditableLine(thisIsATest, 0, thisIsATest, 0);
         assertEquals('this ', e1.text);
         assertTrue(e1.isSameLine(e1));
 
         // Offset into the same soft line.
-        var e2 = new editing.EditableLine(thisIsATest, 1, thisIsATest, 1);
+        let e2 = new editing.EditableLine(thisIsATest, 1, thisIsATest, 1);
         assertTrue(e1.isSameLine(e2));
 
         // Boundary.
@@ -1010,18 +1005,18 @@ TEST_F('ChromeVoxEditingTest', 'EditableLineStrictEquality', function() {
     </div>
   `,
       function(root) {
-        var thisIsATest =
+        const thisIsATest =
             root.findAll({role: RoleType.PARAGRAPH})[0].firstChild;
-        var hello = root.findAll({role: RoleType.PARAGRAPH})[1].firstChild;
-        var world = root.findAll({role: RoleType.PARAGRAPH})[1].lastChild;
+        const hello = root.findAll({role: RoleType.PARAGRAPH})[1].firstChild;
+        const world = root.findAll({role: RoleType.PARAGRAPH})[1].lastChild;
 
         // The same position -- sanity check.
-        var e1 = new editing.EditableLine(thisIsATest, 0, thisIsATest, 0);
+        let e1 = new editing.EditableLine(thisIsATest, 0, thisIsATest, 0);
         assertEquals('this ', e1.text);
         assertTrue(e1.isSameLineAndSelection(e1));
 
         // Offset into the same soft line.
-        var e2 = new editing.EditableLine(thisIsATest, 1, thisIsATest, 1);
+        let e2 = new editing.EditableLine(thisIsATest, 1, thisIsATest, 1);
         assertFalse(e1.isSameLineAndSelection(e2));
 
         // Boundary.
@@ -1068,13 +1063,13 @@ TEST_F('ChromeVoxEditingTest', 'EditableLineBaseLineAnchorOrFocus', function() {
     </div>
   `,
       function(root) {
-        var thisIsATest =
+        const thisIsATest =
             root.findAll({role: RoleType.PARAGRAPH})[0].firstChild;
-        var hello = root.findAll({role: RoleType.PARAGRAPH})[1].firstChild;
-        var world = root.findAll({role: RoleType.PARAGRAPH})[1].lastChild;
+        const hello = root.findAll({role: RoleType.PARAGRAPH})[1].firstChild;
+        const world = root.findAll({role: RoleType.PARAGRAPH})[1].lastChild;
 
         // The same position -- sanity check.
-        var e1 = new editing.EditableLine(thisIsATest, 0, thisIsATest, 0, true);
+        let e1 = new editing.EditableLine(thisIsATest, 0, thisIsATest, 0, true);
         assertEquals('this ', e1.text);
 
         // Offsets into different soft lines; base on focus (default).
@@ -1117,12 +1112,11 @@ TEST_F('ChromeVoxEditingTest', 'IsValidLine', function() {
   `,
       function(root) {
         // Each word is on its own line, but parented by a static text.
-        var text, endText;
-        [text, endText] = root.findAll({role: RoleType.STATIC_TEXT});
+        const [text, endText] = root.findAll({role: RoleType.STATIC_TEXT});
 
         // The EditableLine object automatically adjusts to surround the line no
         // matter what the input is.
-        var line = new editing.EditableLine(text, 0, text, 0);
+        const line = new editing.EditableLine(text, 0, text, 0);
         assertTrue(line.isValidLine());
 
         // During the course of editing operations, this line may become
@@ -1153,21 +1147,21 @@ TEST_F('ChromeVoxEditingTest', 'IsValidLine', function() {
 });
 
 TEST_F('ChromeVoxEditingTest', 'TelTrimsWhitespace', function() {
-  var mockFeedback = this.createMockFeedback();
+  const mockFeedback = this.createMockFeedback();
   this.runWithLoadedTree(
       `
     <div id="go"></div>
     <input id="input" type="tel"></input>
     <script>
-      var data = [
+      let data = [
         '6               ',
         '60              ',
         '601             ',
         '60              '
       ];
-      var go = document.getElementById('go');
-      var input = document.getElementById('input');
-      var index = 0;
+      let go = document.getElementById('go');
+      let input = document.getElementById('input');
+      let index = 0;
       go.addEventListener('click', function() {
         input.value = data[index];
         index++;
@@ -1177,9 +1171,9 @@ TEST_F('ChromeVoxEditingTest', 'TelTrimsWhitespace', function() {
     </script>
   `,
       function(root) {
-        var input = root.find({role: RoleType.TEXT_FIELD});
-        var go = root.find({role: RoleType.GENERIC_CONTAINER});
-        var enterKey = go.doDefault.bind(go);
+        const input = root.find({role: RoleType.TEXT_FIELD});
+        const go = root.find({role: RoleType.GENERIC_CONTAINER});
+        const enterKey = go.doDefault.bind(go);
         this.listenOnce(input, 'focus', function() {
           mockFeedback.call(enterKey)
               .expectSpeech('6')
@@ -1197,9 +1191,8 @@ TEST_F('ChromeVoxEditingTest', 'TelTrimsWhitespace', function() {
       });
 });
 
-// TODO(https://crbug.com/1033983) flaky on linux-chromeos-rel/dbg.
-TEST_F('ChromeVoxEditingTest', 'DISABLED_BackwardWordDelete', function() {
-  var mockFeedback = this.createMockFeedback();
+TEST_F('ChromeVoxEditingTest', 'BackwardWordDelete', function() {
+  const mockFeedback = this.createMockFeedback();
   this.runWithLoadedTree(
       `
     <div
@@ -1210,9 +1203,10 @@ TEST_F('ChromeVoxEditingTest', 'DISABLED_BackwardWordDelete', function() {
     </div>
   `,
       function(root) {
-        var input = root.find({role: RoleType.TEXT_FIELD});
+        const input = root.find({role: RoleType.TEXT_FIELD});
         this.listenOnce(input, 'focus', function() {
           mockFeedback.call(this.press(35 /* end */, {ctrl: true}))
+              .expectSpeech('test')
               .call(this.press(8 /* backspace */, {ctrl: true}))
               .expectSpeech('test, deleted')
               .expectBraille('a\u00a0', {startIndex: 2, endIndex: 2})
@@ -1224,7 +1218,7 @@ TEST_F('ChromeVoxEditingTest', 'DISABLED_BackwardWordDelete', function() {
               .expectBraille('this\u00a0mled', {startIndex: 5, endIndex: 5})
               .call(this.press(8 /* backspace */, {ctrl: true}))
               .expectSpeech('this , deleted')
-              .expectBraille(' ed mled', {startIndex: 0, endIndex: 0})
+              .expectBraille(' mled', {startIndex: 0, endIndex: 0})
               .replay();
         });
         input.focus();
@@ -1233,7 +1227,7 @@ TEST_F('ChromeVoxEditingTest', 'DISABLED_BackwardWordDelete', function() {
 
 TEST_F(
     'ChromeVoxEditingTest', 'BackwardWordDeleteAcrossParagraphs', function() {
-      var mockFeedback = this.createMockFeedback();
+      const mockFeedback = this.createMockFeedback();
       this.runWithLoadedTree(
           `
     <div
@@ -1245,7 +1239,7 @@ TEST_F(
     </div>
   `,
           function(root) {
-            var input = root.find({role: RoleType.TEXT_FIELD});
+            const input = root.find({role: RoleType.TEXT_FIELD});
             this.listenOnce(input, 'focus', function() {
               mockFeedback.call(this.press(35 /* end */, {ctrl: true}))
                   .expectSpeech('line')
@@ -1266,7 +1260,7 @@ TEST_F(
     });
 
 TEST_F('ChromeVoxEditingTest', 'GrammarErrors', function() {
-  var mockFeedback = this.createMockFeedback();
+  const mockFeedback = this.createMockFeedback();
   this.runWithLoadedTree(
       `
     <div contenteditable="true" role="textbox">
@@ -1276,15 +1270,15 @@ TEST_F('ChromeVoxEditingTest', 'GrammarErrors', function() {
 
     <script>
       document.getElementById('go').addEventListener('click', function() {
-        var sel = getSelection();
+        let sel = getSelection();
         sel.modify('move', 'forward', 'character');
       }, true);
     </script>
   `,
       function(root) {
-        var input = root.find({role: RoleType.TEXT_FIELD});
-        var go = root.find({role: RoleType.BUTTON});
-        var moveByChar = go.doDefault.bind(go);
+        const input = root.find({role: RoleType.TEXT_FIELD});
+        const go = root.find({role: RoleType.BUTTON});
+        const moveByChar = go.doDefault.bind(go);
 
         this.listenOnce(input, 'focus', function() {
           mockFeedback.call(moveByChar)
@@ -1311,18 +1305,19 @@ TEST_F('ChromeVoxEditingTest', 'GrammarErrors', function() {
       });
 });
 
-// TODO(https://crbug.com/1033649) flaky on linux-chromeos-rel/dbg.
+// Flaky test, crbug.com/1098642.
 TEST_F(
     'ChromeVoxEditingTest', 'DISABLED_CharacterTypedAfterNewLine', function() {
-      var mockFeedback = this.createMockFeedback();
+      const mockFeedback = this.createMockFeedback();
       this.runWithLoadedTree(
           `
+    <p>start</p>
     <div contenteditable role="textbox">
       <p>hello</p>
     </div>
   `,
           function(root) {
-            var input = root.find({role: RoleType.TEXT_FIELD});
+            const input = root.find({role: RoleType.TEXT_FIELD});
             this.listenOnce(input, 'focus', function() {
               mockFeedback.call(this.press(35 /* end */, {ctrl: true}))
                   .expectSpeech('hello')
@@ -1337,7 +1332,7 @@ TEST_F(
     });
 
 TEST_F('ChromeVoxEditingTest', 'SelectAll', function() {
-  var mockFeedback = this.createMockFeedback();
+  const mockFeedback = this.createMockFeedback();
   this.runWithLoadedTree(
       `
     <div contenteditable role="textbox">
@@ -1347,7 +1342,7 @@ TEST_F('ChromeVoxEditingTest', 'SelectAll', function() {
     </div>
   `,
       function(root) {
-        var input = root.find({role: RoleType.TEXT_FIELD});
+        const input = root.find({role: RoleType.TEXT_FIELD});
         this.listenOnce(input, 'focus', function() {
           mockFeedback.call(this.press(35 /* end */, {ctrl: true}))
               .expectSpeech('third line')
@@ -1361,6 +1356,129 @@ TEST_F('ChromeVoxEditingTest', 'SelectAll', function() {
               .expectSpeech('first line')
               .call(this.press(65 /* a */, {ctrl: true}))
               .expectSpeech('first line second line third line', 'selected')
+              .replay();
+        });
+        input.focus();
+      });
+});
+
+TEST_F('ChromeVoxEditingTest', 'TextAreaBrailleEmptyLine', function() {
+  const mockFeedback = this.createMockFeedback();
+  this.runWithLoadedTree('<textarea></textarea>', function(root) {
+    const textarea = root.find({role: RoleType.TEXT_FIELD});
+    this.listenOnce(textarea, 'focus', function() {
+      this.listenOnce(textarea, 'valueChanged', function() {
+        mockFeedback.call(this.press(38 /* up arrow */)).expectBraille('\n');
+        mockFeedback.call(this.press(38 /* up arrow */)).expectBraille('two');
+        mockFeedback.call(this.press(38 /* up arrow */)).expectBraille('one');
+        mockFeedback.call(this.press(38 /* up arrow */)).expectBraille('\n');
+        mockFeedback.call(this.press(38 /* up arrow */))
+            .expectBraille('test mled')
+            .replay();
+      });
+    });
+    textarea.focus();
+    textarea.setValue('test\n\none\ntwo\n\nthree');
+  });
+});
+
+TEST_F('ChromeVoxEditingTest', 'MoveByCharacterIntent', function() {
+  const mockFeedback = this.createMockFeedback();
+  this.runWithLoadedTree(
+      `
+    <div contenteditable role="textbox">
+      <p>123</p>
+      <p>456</p>
+    </div>
+  `,
+      function(root) {
+        const input = root.find({role: RoleType.TEXT_FIELD});
+        this.listenOnce(input, 'focus', function() {
+          mockFeedback.call(this.press(39 /* right */))
+              .expectSpeech('2')
+              .call(this.press(39 /* right */))
+              .expectSpeech('3')
+              .call(this.press(39 /* right */))
+              .expectSpeech('\n')
+              .call(this.press(39 /* right */))
+              .expectSpeech('4')
+              .call(this.press(37 /* left */))
+              .expectSpeech('\n')
+              .call(this.press(37 /* left */))
+              .expectSpeech('3')
+              .replay();
+        });
+        input.focus();
+      });
+});
+
+TEST_F('ChromeVoxEditingTest', 'MoveByLineIntent', function() {
+  const mockFeedback = this.createMockFeedback();
+  this.runWithLoadedTree(
+      `
+    <div contenteditable role="textbox">
+      <p>123</p>
+      <p>456</p>
+      <p>789</p>
+    </div>
+  `,
+      function(root) {
+        const input = root.find({role: RoleType.TEXT_FIELD});
+        this.listenOnce(input, 'focus', function() {
+          mockFeedback.call(this.press(40 /* down */))
+              .expectSpeech('456')
+              .call(this.press(40 /* down */))
+              .expectSpeech('789')
+              .call(this.press(38 /* up */))
+              .expectSpeech('456')
+              .call(this.press(38 /* up */))
+              .expectSpeech('123')
+              .replay();
+        });
+        input.focus();
+      });
+});
+
+TEST_F('ChromeVoxEditingTest', 'SelectAllBareTextContent', function() {
+  const mockFeedback = this.createMockFeedback();
+  this.runWithLoadedTree(
+      `
+    <div contenteditable role="textbox">unread</div>
+  `,
+      function(root) {
+        const input = root.find({role: RoleType.TEXT_FIELD});
+        this.listenOnce(input, 'focus', function() {
+          mockFeedback.call(this.press(35 /* end */, {ctrl: true}))
+              .expectSpeech('unread')
+              .call(this.press(65 /* a */, {ctrl: true}))
+              .expectSpeech('unread', 'selected')
+              .replay();
+        });
+        input.focus();
+      });
+});
+
+TEST_F('ChromeVoxEditingTest', 'NonBreakingSpaceNewLine', function() {
+  const mockFeedback = this.createMockFeedback();
+  this.runWithLoadedTree(
+      `
+    <div contenteditable role="textbox">&nbsp</div>
+  `,
+      function(root) {
+        const input = root.find({role: RoleType.TEXT_FIELD});
+        this.listenOnce(input, 'focus', function() {
+          mockFeedback
+              .call(() => {
+                const node = root.find({role: RoleType.INLINE_TEXT_BOX});
+                const line = new editing.EditableLine(node, 0, node, 0);
+                const prev =
+                    new editing.EditableLine(node.root, 1, node.root, 1);
+                const editableHandler = DesktopAutomationHandler.instance
+                                            .textEditHandler_.editableText_;
+                editableHandler.handleSpeech_(
+                    line, prev, line, line, prev, prev, true, []);
+              })
+              .expectSpeech('\n')
               .replay();
         });
         input.focus();

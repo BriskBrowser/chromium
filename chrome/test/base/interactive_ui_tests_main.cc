@@ -17,6 +17,7 @@
 #include "ui/aura/test/ui_controls_factory_aura.h"
 #include "ui/base/test/ui_controls_aura.h"
 #if defined(USE_OZONE) && defined(OS_LINUX) && !defined(OS_CHROMEOS)
+#include "ui/base/ui_base_features.h"
 #include "ui/ozone/public/ozone_platform.h"
 #endif
 #if defined(USE_X11)
@@ -41,10 +42,8 @@ class InteractiveUITestSuite : public ChromeTestSuite {
  protected:
   // ChromeTestSuite overrides:
   void Initialize() override {
-    // Browser tests are expected not to tear-down various globals and may
-    // complete with the thread priority being above NORMAL.
+    // Browser tests are expected not to tear-down various globals.
     base::TestSuite::DisableCheckForLeakedGlobals();
-    base::TestSuite::DisableCheckForThreadPriorityAtTestEnd();
 
     ChromeTestSuite::Initialize();
 
@@ -54,13 +53,20 @@ class InteractiveUITestSuite : public ChromeTestSuite {
     com_initializer_.reset(new base::win::ScopedCOMInitializer());
     ui_controls::InstallUIControlsAura(
         aura::test::CreateUIControlsAura(nullptr));
-#elif defined(USE_OZONE) && defined(OS_LINUX)
-    ui::OzonePlatform::InitParams params;
-    params.single_process = true;
-    ui::OzonePlatform::InitializeForUI(params);
 #elif defined(OS_LINUX)
-    ui_controls::InstallUIControlsAura(
-        views::test::CreateUIControlsDesktopAura());
+#if defined(USE_OZONE)
+    if (features::IsUsingOzonePlatform()) {
+      ui::OzonePlatform::InitParams params;
+      params.single_process = true;
+      ui::OzonePlatform::InitializeForUI(params);
+    } else
+#endif
+    {
+#if defined(USE_X11)
+      ui_controls::InstallUIControlsAura(
+          views::test::CreateUIControlsDesktopAura());
+#endif
+    }
 #else
     ui_controls::EnableUIControls();
 #endif
@@ -105,7 +111,7 @@ class InteractiveUITestLauncherDelegate : public ChromeTestLauncherDelegate {
     ChromeTestLauncherDelegate::OnTestTimedOut(command_line);
   }
 
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
   void PreRunTest() override {
     // Clear currently pressed modifier keys (if any) before the test starts.
     ui_test_utils::ClearKeyEventModifiers();
@@ -121,7 +127,7 @@ class InteractiveUITestLauncherDelegate : public ChromeTestLauncherDelegate {
     }
     ChromeTestLauncherDelegate::PostRunTest(test_result);
   }
-#endif  // defined(OS_MACOSX)
+#endif  // defined(OS_MAC)
 
  private:
   DISALLOW_COPY_AND_ASSIGN(InteractiveUITestLauncherDelegate);

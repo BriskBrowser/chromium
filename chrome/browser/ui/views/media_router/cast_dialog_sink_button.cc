@@ -13,8 +13,8 @@
 #include "chrome/browser/ui/views/chrome_layout_provider.h"
 #include "chrome/browser/ui/views/chrome_typography.h"
 #include "chrome/browser/ui/views/media_router/cast_dialog_helper.h"
-#include "chrome/common/media_router/issue.h"
 #include "chrome/grit/generated_resources.h"
+#include "components/media_router/common/issue.h"
 #include "components/vector_icons/vector_icons.h"
 #include "content/public/browser/browser_thread.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -35,6 +35,25 @@
 namespace media_router {
 
 namespace {
+
+// A view that represents the primary icon for a sink issue. This class is used
+// to ensure its color is kept in sync with current theme.
+class SinkIssueIconView : public views::ImageView {
+ public:
+  SinkIssueIconView() {
+    SetBorder(views::CreateEmptyBorder(kPrimaryIconBorder));
+  }
+  ~SinkIssueIconView() override = default;
+
+  // views::ImageView:
+  void OnThemeChanged() override {
+    views::ImageView::OnThemeChanged();
+    const SkColor icon_color = GetNativeTheme()->GetSystemColor(
+        ui::NativeTheme::kColorId_DefaultIconColor);
+    SetImage(gfx::CreateVectorIcon(::vector_icons::kInfoOutlineIcon,
+                                   kPrimaryIconSize, icon_color));
+  }
+};
 
 gfx::ImageSkia CreateSinkIcon(SinkIconType icon_type, bool enabled = true) {
   const gfx::VectorIcon* vector_icon;
@@ -93,11 +112,7 @@ std::unique_ptr<views::View> CreatePrimaryIconForSink(
     return CreatePrimaryIconView(gfx::CreateVectorIcon(
         kGenericStopIcon, kPrimaryIconSize, gfx::kGoogleBlue500));
   } else if (sink.issue) {
-    const SkColor icon_color =
-        ui::NativeTheme::GetInstanceForNativeUi()->GetSystemColor(
-            ui::NativeTheme::kColorId_DefaultIconColor);
-    return CreatePrimaryIconView(gfx::CreateVectorIcon(
-        ::vector_icons::kInfoOutlineIcon, kPrimaryIconSize, icon_color));
+    return std::make_unique<SinkIssueIconView>();
   } else if (sink.state == UIMediaSinkState::CONNECTING ||
              sink.state == UIMediaSinkState::DISCONNECTING) {
     return CreateThrobber();
@@ -183,7 +198,7 @@ void CastDialogSinkButton::OnEnabledChanged() {
     return;
 
   SkColor background_color = GetNativeTheme()->GetSystemColor(
-      ui::NativeTheme::kColorId_ProminentButtonColor);
+      ui::NativeTheme::kColorId_DialogBackground);
   if (GetEnabled()) {
     SetTitleTextStyle(views::style::STYLE_PRIMARY, background_color);
     if (saved_status_text_)

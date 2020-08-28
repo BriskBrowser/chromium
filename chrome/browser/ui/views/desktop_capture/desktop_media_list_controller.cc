@@ -7,7 +7,6 @@
 #include "base/command_line.h"
 #include "base/numerics/safe_conversions.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/task/post_task.h"
 #include "chrome/browser/ui/views/desktop_capture/desktop_media_list_view.h"
 #include "chrome/browser/ui/views/desktop_capture/desktop_media_picker_views.h"
 #include "chrome/browser/ui/views/desktop_capture/desktop_media_tab_list.h"
@@ -70,7 +69,8 @@ void DesktopMediaListController::OnSourceSelectionChanged() {
 }
 
 void DesktopMediaListController::AcceptSource() {
-  dialog_->AcceptSource();
+  if (GetSelection())
+    dialog_->AcceptSource();
 }
 
 void DesktopMediaListController::AcceptSpecificSource(
@@ -103,11 +103,12 @@ void DesktopMediaListController::OnSourceAdded(DesktopMediaList* list,
           switches::kAutoSelectDesktopCaptureSource);
   const DesktopMediaList::Source& source = GetSource(index);
   if (autoselect_source.empty() ||
-      base::ASCIIToUTF16(autoselect_source) != source.name) {
+      source.name.find(base::ASCIIToUTF16(autoselect_source)) ==
+          base::string16::npos) {
     return;
   }
-  base::PostTask(
-      FROM_HERE, {content::BrowserThread::UI},
+  content::GetUIThreadTaskRunner({})->PostTask(
+      FROM_HERE,
       base::BindOnce(&DesktopMediaListController::AcceptSpecificSource,
                      weak_factory_.GetWeakPtr(), source.id));
 }

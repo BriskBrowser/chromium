@@ -171,3 +171,24 @@ fuchsia::accessibility::semantics::Node AXNodeDataToSemanticNode(
 
   return fuchsia_node;
 }
+
+bool ConvertAction(fuchsia::accessibility::semantics::Action fuchsia_action,
+                   ax::mojom::Action* mojom_action) {
+  switch (fuchsia_action) {
+    case fuchsia::accessibility::semantics::Action::DEFAULT:
+      *mojom_action = ax::mojom::Action::kDoDefault;
+      return true;
+    case fuchsia::accessibility::semantics::Action::SHOW_ON_SCREEN:
+      *mojom_action = ax::mojom::Action::kScrollToMakeVisible;
+      return true;
+    case fuchsia::accessibility::semantics::Action::SECONDARY:
+    case fuchsia::accessibility::semantics::Action::SET_FOCUS:
+    case fuchsia::accessibility::semantics::Action::SET_VALUE:
+      return false;
+    default:
+      LOG(WARNING)
+          << "Unknown fuchsia::accessibility::semantics::Action with value "
+          << static_cast<int>(fuchsia_action);
+      return false;
+  }
+}

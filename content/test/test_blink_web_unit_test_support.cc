@@ -24,12 +24,12 @@
 #include "content/app/mojo/mojo_init.h"
 #include "content/child/child_process.h"
 #include "content/public/common/service_names.mojom.h"
-#include "content/test/mock_clipboard_host.h"
 #include "media/base/media.h"
 #include "media/media_buildflags.h"
 #include "mojo/public/cpp/bindings/binder_map.h"
 #include "net/cookies/cookie_monster.h"
 #include "third_party/blink/public/common/thread_safe_browser_interface_broker_proxy.h"
+#include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/public/platform/scheduler/test/renderer_scheduler_test_support.h"
 #include "third_party/blink/public/platform/scheduler/web_thread_scheduler.h"
 #include "third_party/blink/public/platform/web_connection_type.h"
@@ -43,7 +43,7 @@
 #include "third_party/blink/public/web/blink.h"
 #include "v8/include/v8.h"
 
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
 #include "base/mac/foundation_util.h"
 #include "base/mac/scoped_nsautorelease_pool.h"
 #endif
@@ -88,27 +88,6 @@ class DummyTaskRunner : public base::SingleThreadTaskRunner {
   DISALLOW_COPY_AND_ASSIGN(DummyTaskRunner);
 };
 
-// TODO(kinuko,toyoshim): Deprecate this, all Blink tests should not rely
-// on this //content implementation.
-class WebURLLoaderFactoryWithMock : public blink::WebURLLoaderFactory {
- public:
-  explicit WebURLLoaderFactoryWithMock(base::WeakPtr<blink::Platform> platform)
-      : platform_(std::move(platform)) {}
-  ~WebURLLoaderFactoryWithMock() override = default;
-
-  std::unique_ptr<blink::WebURLLoader> CreateURLLoader(
-      const blink::WebURLRequest& request,
-      std::unique_ptr<blink::scheduler::WebResourceLoadingTaskRunnerHandle>
-          task_runner_handle) override {
-    DCHECK(platform_);
-    return platform_->GetURLLoaderMockFactory()->CreateURLLoader();
-  }
-
- private:
-  base::WeakPtr<blink::Platform> platform_;
-  DISALLOW_COPY_AND_ASSIGN(WebURLLoaderFactoryWithMock);
-};
-
 #if defined(V8_USE_EXTERNAL_STARTUP_DATA)
 #if defined(USE_V8_CONTEXT_SNAPSHOT)
 constexpr gin::V8Initializer::V8SnapshotFileType kSnapshotType =
@@ -127,19 +106,15 @@ namespace content {
 
 TestBlinkWebUnitTestSupport::TestBlinkWebUnitTestSupport(
     TestBlinkWebUnitTestSupport::SchedulerType scheduler_type) {
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
   base::mac::ScopedNSAutoreleasePool autorelease_pool;
 #endif
-
-  url_loader_factory_ = blink::WebURLLoaderMockFactory::Create();
-  // Mock out clipboard calls so that tests don't mess
-  // with each other's copies/pastes when running in parallel.
-  mock_clipboard_host_ = std::make_unique<MockClipboardHost>();
 
 #if defined(V8_USE_EXTERNAL_STARTUP_DATA)
   gin::V8Initializer::LoadV8Snapshot(kSnapshotType);
 #endif
 
+  blink::Platform::InitializeBlink();
   scoped_refptr<base::SingleThreadTaskRunner> dummy_task_runner;
   std::unique_ptr<base::ThreadTaskRunnerHandle> dummy_task_runner_handle;
   if (scheduler_type == SchedulerType::kMockScheduler) {
@@ -186,25 +161,12 @@ TestBlinkWebUnitTestSupport::TestBlinkWebUnitTestSupport(
   // Test shell always exposes the GC.
   std::string flags("--expose-gc");
   v8::V8::SetFlagsFromString(flags.c_str(), flags.size());
-
-  GetBrowserInterfaceBroker()->SetBinderForTesting(
-      blink::mojom::ClipboardHost::Name_,
-      base::BindRepeating(&TestBlinkWebUnitTestSupport::BindClipboardHost,
-                          weak_factory_.GetWeakPtr()));
 }
 
 TestBlinkWebUnitTestSupport::~TestBlinkWebUnitTestSupport() {
-  url_loader_factory_.reset();
-  mock_clipboard_host_.reset();
   if (main_thread_scheduler_)
     main_thread_scheduler_->Shutdown();
   g_test_platform = nullptr;
-}
-
-std::unique_ptr<blink::WebURLLoaderFactory>
-TestBlinkWebUnitTestSupport::CreateDefaultURLLoaderFactory() {
-  return std::make_unique<WebURLLoaderFactoryWithMock>(
-      weak_factory_.GetWeakPtr());
 }
 
 blink::WebString TestBlinkWebUnitTestSupport::UserAgent() {
@@ -251,7 +213,7 @@ blink::WebString TestBlinkWebUnitTestSupport::QueryLocalizedString(
     case IDS_FORM_VALIDATION_RANGE_OVERFLOW:
       return blink::WebString::FromASCII("range overflow");
     case IDS_FORM_SELECT_MENU_LIST_TEXT:
-      return blink::WebString::FromASCII("$1 selected");
+      return blink::WebString::FromASCII(value.Ascii() + " selected");
   }
 
   return BlinkPlatformImpl::QueryLocalizedString(resource_id, value);
@@ -281,19 +243,8 @@ TestBlinkWebUnitTestSupport::GetIOTaskRunner() const {
                                  : nullptr;
 }
 
-blink::WebURLLoaderMockFactory*
-TestBlinkWebUnitTestSupport::GetURLLoaderMockFactory() {
-  return url_loader_factory_.get();
-}
-
 bool TestBlinkWebUnitTestSupport::IsThreadedAnimationEnabled() {
   return threaded_animation_;
-}
-
-void TestBlinkWebUnitTestSupport::BindClipboardHost(
-    mojo::ScopedMessagePipeHandle handle) {
-  mock_clipboard_host_->Bind(
-      mojo::PendingReceiver<blink::mojom::ClipboardHost>(std::move(handle)));
 }
 
 // static

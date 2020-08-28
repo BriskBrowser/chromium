@@ -5,7 +5,10 @@
 #include "cc/paint/paint_op_reader.h"
 
 #include <stddef.h>
+
 #include <algorithm>
+#include <memory>
+#include <utility>
 
 #include "base/bits.h"
 #include "base/compiler_specific.h"
@@ -25,6 +28,10 @@
 #include "third_party/skia/include/core/SkSerialProcs.h"
 #include "third_party/skia/include/core/SkTextBlob.h"
 #include "third_party/skia/src/core/SkRemoteGlyphCache.h"
+
+#if !defined(OS_ANDROID)
+#include "cc/paint/skottie_transfer_cache_entry.h"
+#endif
 
 namespace cc {
 namespace {
@@ -322,17 +329,46 @@ void PaintOpReader::Read(PaintImage* image) {
 
         *image = PaintImageBuilder::WithDefault()
                      .set_id(PaintImage::GetNextId())
-                     .set_image(SkImage::MakeRasterCopy(pixmap),
-                                PaintImage::kNonLazyStableId)
+                     .set_texture_image(SkImage::MakeRasterCopy(pixmap),
+                                        PaintImage::kNonLazyStableId)
                      .TakePaintImage();
       }
         return;
       case PaintOp::SerializedImageType::kTransferCacheEntry:
+      case PaintOp::SerializedImageType::kMailbox:
         SetInvalid();
         return;
     }
 
     NOTREACHED();
+    return;
+  }
+
+  if (serialized_type == PaintOp::SerializedImageType::kMailbox) {
+    if (!options_.shared_image_provider) {
+      SetInvalid();
+      return;
+    }
+
+    gpu::Mailbox mailbox;
+    Read(&mailbox);
+    if (mailbox.IsZero()) {
+      SetInvalid();
+      return;
+    }
+
+    sk_sp<SkImage> sk_image =
+        options_.shared_image_provider->OpenSharedImageForRead(mailbox);
+    if (!sk_image) {
+      SetInvalid();
+      return;
+    }
+
+    *image = PaintImageBuilder::WithDefault()
+                 .set_id(PaintImage::GetNextId())
+                 .set_texture_image(std::move(sk_image),
+                                    PaintImage::kNonLazyStableId)
+                 .TakePaintImage();
     return;
   }
 
@@ -362,10 +398,11 @@ void PaintOpReader::Read(PaintImage* image) {
               transfer_cache_entry_id)) {
     if (needs_mips)
       entry->EnsureMips();
-    *image = PaintImageBuilder::WithDefault()
-                 .set_id(PaintImage::GetNextId())
-                 .set_image(entry->image(), PaintImage::kNonLazyStableId)
-                 .TakePaintImage();
+    *image =
+        PaintImageBuilder::WithDefault()
+            .set_id(PaintImage::GetNextId())
+            .set_texture_image(entry->image(), PaintImage::kNonLazyStableId)
+            .TakePaintImage();
   }
 }
 
@@ -428,7 +465,8 @@ void PaintOpReader::Read(sk_sp<SkTextBlob>* blob) {
   if (data_bytes == 0u) {
     auto cached_blob = options_.paint_cache->GetTextBlob(blob_id);
     if (!cached_blob) {
-      SetInvalid();
+      // TODO(khushalsagar): Temporary for debugging crbug.com/1019634.
+      SetInvalid(true /* skip_crash_dump*/);
       return;
     }
 
@@ -626,17 +664,47 @@ void PaintOpReader::Read(SkYUVColorSpace* yuv_color_space) {
   *yuv_color_space = static_cast<SkYUVColorSpace>(raw_yuv_color_space);
 }
 
-void PaintOpReader::AlignMemory(size_t alignment) {
-  // Due to the math below, alignment must be a power of two.
-  DCHECK_GT(alignment, 0u);
-  DCHECK_EQ(alignment & (alignment - 1), 0u);
+void PaintOpReader::Read(gpu::Mailbox* mailbox) {
+  ReadData(sizeof(gpu::Mailbox::Name), (*mailbox).name);
+}
 
-  uintptr_t memory = reinterpret_cast<uintptr_t>(memory_);
-  // The following is equivalent to:
-  //   padding = (alignment - memory % alignment) % alignment;
-  // because alignment is a power of two. This doesn't use modulo operator
-  // however, since it can be slow.
-  size_t padding = ((memory + alignment - 1) & ~(alignment - 1)) - memory;
+// Android does not use skottie. Remove below section to keep binary size to a
+// minimum.
+#if !defined(OS_ANDROID)
+void PaintOpReader::Read(scoped_refptr<SkottieWrapper>* skottie) {
+  if (!options_.is_privileged) {
+    valid_ = false;
+    return;
+  }
+
+  uint32_t transfer_cache_entry_id;
+  ReadSimple(&transfer_cache_entry_id);
+  if (!valid_)
+    return;
+  auto* entry =
+      options_.transfer_cache->GetEntryAs<ServiceSkottieTransferCacheEntry>(
+          transfer_cache_entry_id);
+  if (entry) {
+    *skottie = entry->skottie();
+  } else {
+    valid_ = false;
+  }
+
+  size_t bytes_to_skip = 0u;
+  ReadSize(&bytes_to_skip);
+  if (!valid_)
+    return;
+  if (bytes_to_skip > remaining_bytes_) {
+    valid_ = false;
+    return;
+  }
+  memory_ += bytes_to_skip;
+  remaining_bytes_ -= bytes_to_skip;
+}
+#endif  // !defined(OS_ANDROID)
+
+void PaintOpReader::AlignMemory(size_t alignment) {
+  size_t padding = base::bits::Align(memory_, alignment) - memory_;
   if (padding > remaining_bytes_)
     SetInvalid();
 
@@ -645,8 +713,9 @@ void PaintOpReader::AlignMemory(size_t alignment) {
 }
 
 // Don't inline this function so that crash reports can show the caller.
-NOINLINE void PaintOpReader::SetInvalid() {
-  if (valid_ && options_.crash_dump_on_failure && base::RandInt(1, 10) == 1) {
+NOINLINE void PaintOpReader::SetInvalid(bool skip_crash_dump) {
+  if (!skip_crash_dump && valid_ && options_.crash_dump_on_failure &&
+      base::RandInt(1, 10) == 1) {
     base::debug::DumpWithoutCrashing();
   }
   valid_ = false;
@@ -1062,8 +1131,8 @@ void PaintOpReader::ReadMorphologyPaintFilter(
     sk_sp<PaintFilter>* filter,
     const base::Optional<PaintFilter::CropRect>& crop_rect) {
   uint32_t morph_type_int = 0;
-  int radius_x = 0;
-  int radius_y = 0;
+  float radius_x = 0;
+  float radius_y = 0;
   sk_sp<PaintFilter> input;
   Read(&morph_type_int);
   Read(&radius_x);

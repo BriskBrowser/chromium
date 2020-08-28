@@ -9,6 +9,7 @@
 #include "base/bind.h"
 #include "base/metrics/histogram_macros.h"
 #include "gpu/ipc/common/command_buffer_id.h"
+#include "gpu/ipc/common/gpu_peak_memory.h"
 
 // Macro to reduce code duplication when logging memory in
 // GpuCommandBufferMemoryTracker. This is needed as the UMA_HISTOGRAM_* macros
@@ -45,9 +46,11 @@ GpuCommandBufferMemoryTracker::GpuCommandBufferMemoryTracker(
     : command_buffer_id_(command_buffer_id),
       client_tracing_id_(client_tracing_id),
       context_type_(context_type),
-      memory_pressure_listener_(base::BindRepeating(
-          &GpuCommandBufferMemoryTracker::LogMemoryStatsPressure,
-          base::Unretained(this))),
+      memory_pressure_listener_(
+          FROM_HERE,
+          base::BindRepeating(
+              &GpuCommandBufferMemoryTracker::LogMemoryStatsPressure,
+              base::Unretained(this))),
       observer_(observer) {
   // Set up |memory_stats_timer_| to call LogMemoryPeriodic periodically
   // via the provided |task_runner|.
@@ -66,7 +69,9 @@ void GpuCommandBufferMemoryTracker::TrackMemoryAllocatedChange(int64_t delta) {
   uint64_t old_size = size_;
   size_ += delta;
   if (observer_)
-    observer_->OnMemoryAllocatedChange(command_buffer_id_, old_size, size_);
+    observer_->OnMemoryAllocatedChange(
+        command_buffer_id_, old_size, size_,
+        GpuPeakMemoryAllocationSource::COMMAND_BUFFER);
 }
 
 uint64_t GpuCommandBufferMemoryTracker::GetSize() const {

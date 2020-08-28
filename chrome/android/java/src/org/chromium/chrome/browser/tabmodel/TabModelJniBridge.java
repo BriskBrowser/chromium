@@ -6,16 +6,18 @@ package org.chromium.chrome.browser.tabmodel;
 
 import android.os.SystemClock;
 
+import androidx.annotation.Nullable;
+
 import org.chromium.base.annotations.CalledByNative;
 import org.chromium.base.annotations.NativeMethods;
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tab.TabLaunchType;
 import org.chromium.chrome.browser.tab.TabSelectionType;
-import org.chromium.chrome.browser.tabmodel.TabCreatorManager.TabCreator;
 import org.chromium.content_public.browser.LoadUrlParams;
 import org.chromium.content_public.browser.WebContents;
 import org.chromium.content_public.common.ResourceRequestBody;
+import org.chromium.url.Origin;
 
 /**
  * Bridges between the C++ and Java {@link TabModel} interfaces.
@@ -47,8 +49,11 @@ public abstract class TabModelJniBridge implements TabModel {
     /** Initializes the native-side counterpart to this class. */
     protected void initializeNative() {
         assert mNativeTabModelJniBridge == 0;
+        // TODO(https://crbug.com/1099642): Pass the correct OTR profile.
+        Profile profile = Profile.getLastUsedRegularProfile();
+        if (mIsIncognito) profile = profile.getPrimaryOTRProfile();
         mNativeTabModelJniBridge = TabModelJniBridgeJni.get().init(
-                TabModelJniBridge.this, mIsIncognito, mIsTabbedActivityForSync);
+                TabModelJniBridge.this, profile, mIsTabbedActivityForSync);
     }
 
     /** @return Whether the native-side pointer has been initialized. */
@@ -117,9 +122,9 @@ public abstract class TabModelJniBridge implements TabModel {
 
     /**
      * Returns a tab creator for this tab model.
-     * @param incognito Whether to return an incognito TabCreator.
+     * @param profile The profile for which TabCreator is returned.
      */
-    protected abstract TabCreator getTabCreator(boolean incognito);
+    protected abstract TabCreator getTabCreator(Profile profile);
 
     /**
      * Creates a Tab with the given WebContents.
@@ -130,10 +135,10 @@ public abstract class TabModelJniBridge implements TabModel {
      */
     @CalledByNative
     protected abstract boolean createTabWithWebContents(
-            Tab parent, boolean incognito, WebContents webContents);
+            Tab parent, Profile profile, WebContents webContents);
 
     @CalledByNative
-    protected abstract void openNewTab(Tab parent, String url, String initiatorOrigin,
+    protected abstract void openNewTab(Tab parent, String url, @Nullable Origin initiatorOrigin,
             String extraHeaders, ResourceRequestBody postData, int disposition,
             boolean persistParentage, boolean isRendererInitiated);
 
@@ -143,8 +148,8 @@ public abstract class TabModelJniBridge implements TabModel {
      */
     @CalledByNative
     protected Tab createNewTabForDevTools(String url) {
-        return getTabCreator(false).createNewTab(
-                new LoadUrlParams(url), TabLaunchType.FROM_CHROME_UI, null);
+        return getTabCreator(Profile.getLastUsedRegularProfile())
+                .createNewTab(new LoadUrlParams(url), TabLaunchType.FROM_CHROME_UI, null);
     }
 
     @Override
@@ -229,7 +234,7 @@ public abstract class TabModelJniBridge implements TabModel {
 
     @NativeMethods
     interface Natives {
-        long init(TabModelJniBridge caller, boolean isIncognito, boolean isTabbedActivity);
+        long init(TabModelJniBridge caller, Profile profile, boolean isTabbedActivity);
         Profile getProfileAndroid(long nativeTabModelJniBridge, TabModelJniBridge caller);
         void broadcastSessionRestoreComplete(
                 long nativeTabModelJniBridge, TabModelJniBridge caller);

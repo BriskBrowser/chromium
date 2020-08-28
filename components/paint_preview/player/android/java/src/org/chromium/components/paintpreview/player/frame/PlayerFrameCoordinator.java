@@ -5,10 +5,20 @@
 package org.chromium.components.paintpreview.player.frame;
 
 import android.content.Context;
+import android.graphics.Point;
 import android.graphics.Rect;
+import android.util.Size;
 import android.view.View;
+import android.view.ViewConfiguration;
+import android.widget.OverScroller;
 
+import androidx.annotation.Nullable;
+import androidx.annotation.VisibleForTesting;
+
+import org.chromium.base.UnguessableToken;
+import org.chromium.components.paintpreview.player.OverscrollHandler;
 import org.chromium.components.paintpreview.player.PlayerCompositorDelegate;
+import org.chromium.components.paintpreview.player.PlayerGestureListener;
 import org.chromium.ui.modelutil.PropertyModel;
 import org.chromium.ui.modelutil.PropertyModelChangeProcessor;
 
@@ -24,12 +34,42 @@ public class PlayerFrameCoordinator {
      * binds them together.
      */
     public PlayerFrameCoordinator(Context context, PlayerCompositorDelegate compositorDelegate,
-            long frameGuid, int contentWidth, int contentHeight, boolean canDetectZoom) {
+            UnguessableToken frameGuid, int contentWidth, int contentHeight, int initialScrollX,
+            int initialScrollY, boolean canDetectZoom,
+            @Nullable OverscrollHandler overscrollHandler, PlayerGestureListener gestureHandler,
+            @Nullable Runnable firstPaintListener) {
         PropertyModel model = new PropertyModel.Builder(PlayerFrameProperties.ALL_KEYS).build();
-        mMediator = new PlayerFrameMediator(
-                model, compositorDelegate, frameGuid, contentWidth, contentHeight);
-        mView = new PlayerFrameView(context, canDetectZoom, mMediator);
+        OverScroller scroller = new OverScroller(context);
+        scroller.setFriction(ViewConfiguration.getScrollFriction() / 2);
+
+        mMediator = new PlayerFrameMediator(model, compositorDelegate, gestureHandler, frameGuid,
+                new Size(contentWidth, contentHeight), initialScrollX, initialScrollY);
+
+        PlayerFrameScaleController scaleController = null;
+        if (canDetectZoom) {
+            scaleController =
+                    new PlayerFrameScaleController(model.get(PlayerFrameProperties.SCALE_MATRIX),
+                            mMediator, gestureHandler::onScale);
+        }
+        PlayerFrameScrollController scrollController = new PlayerFrameScrollController(
+                scroller, mMediator, gestureHandler::onScroll, gestureHandler::onFling);
+        PlayerFrameGestureDetectorDelegate gestureDelegate = new PlayerFrameGestureDetectorDelegate(
+                scaleController, scrollController, mMediator);
+
+        mView = new PlayerFrameView(context, canDetectZoom, mMediator, gestureDelegate,
+                firstPaintListener);
+        if (overscrollHandler != null) {
+            scrollController.setOverscrollHandler(overscrollHandler);
+        }
         PropertyModelChangeProcessor.create(model, mView, PlayerFrameViewBinder::bind);
+    }
+
+    public Point getScrollPosition() {
+        Rect viewPortRect = mMediator.getViewport().asRect();
+        float scaleFactor = mMediator.getViewport().getScale();
+        if (scaleFactor == 0) scaleFactor = 1;
+        return new Point(
+                (int) (viewPortRect.left / scaleFactor), (int) (viewPortRect.top / scaleFactor));
     }
 
     /**
@@ -38,7 +78,15 @@ public class PlayerFrameCoordinator {
      * @param clipRect The {@link Rect} in which this sub-frame should be shown in.
      */
     public void addSubFrame(PlayerFrameCoordinator subFrame, Rect clipRect) {
-        mMediator.addSubFrame(subFrame.getView(), clipRect);
+        mMediator.addSubFrame(subFrame.mView, clipRect, subFrame.getMediator());
+        subFrame.mView.getGestureDetector().setParentGestureDetector(mView.getGestureDetector());
+    }
+
+    /**
+     * @return The mediator associated with this component.
+     */
+    private PlayerFrameMediator getMediator() {
+        return mMediator;
     }
 
     /**
@@ -46,5 +94,10 @@ public class PlayerFrameCoordinator {
      */
     public View getView() {
         return mView;
+    }
+
+    @VisibleForTesting
+    public boolean checkRequiredBitmapsLoadedForTest() {
+        return mMediator.checkRequiredBitmapsLoadedForTest();
     }
 }

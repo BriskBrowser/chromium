@@ -13,7 +13,7 @@
 #include "base/one_shot_event.h"
 #include "chrome/browser/web_applications/components/app_registrar.h"
 #include "chrome/browser/web_applications/components/pending_app_manager.h"
-#include "chrome/browser/web_applications/components/web_app_helpers.h"
+#include "chrome/browser/web_applications/components/web_app_id.h"
 #include "chrome/browser/web_applications/components/web_app_provider_base.h"
 
 class Profile;
@@ -41,9 +41,11 @@ class WebAppAudioFocusIdMap;
 class WebAppInstallManager;
 class WebAppPolicyManager;
 class WebAppUiManager;
+class OsIntegrationManager;
 
 // Forward declarations for new extension-independent subsystems.
 class WebAppDatabaseFactory;
+class WebAppMigrationManager;
 
 // Connects Web App features, such as the installation of default and
 // policy-managed web apps, with Profiles (as WebAppProvider is a
@@ -79,8 +81,8 @@ class WebAppProvider : public WebAppProviderBase {
   FileHandlerManager& file_handler_manager() override;
   AppIconManager& icon_manager() override;
   AppShortcutManager& shortcut_manager() override;
-
-  SystemWebAppManager& system_web_app_manager();
+  SystemWebAppManager& system_web_app_manager() override;
+  OsIntegrationManager& os_integration_manager() override;
 
   // KeyedService:
   void Shutdown() override;
@@ -92,8 +94,13 @@ class WebAppProvider : public WebAppProviderBase {
     return on_registry_ready_;
   }
 
+  ExternalWebAppManager& external_web_app_manager_for_testing() {
+    return *external_web_app_manager_;
+  }
+
  protected:
   virtual void StartImpl();
+  void OnDatabaseMigrationCompleted(bool success);
 
   // Create subsystems that work with either BMO and Extension backends.
   void CreateCommonSubsystems(Profile* profile);
@@ -113,6 +120,8 @@ class WebAppProvider : public WebAppProviderBase {
 
   // New extension-independent subsystems:
   std::unique_ptr<WebAppDatabaseFactory> database_factory_;
+  // migration_manager_ can be nullptr if no migration needed.
+  std::unique_ptr<WebAppMigrationManager> migration_manager_;
 
   // Generalized subsystems:
   std::unique_ptr<AppRegistrar> registrar_;
@@ -129,6 +138,7 @@ class WebAppProvider : public WebAppProviderBase {
   std::unique_ptr<WebAppInstallManager> install_manager_;
   std::unique_ptr<WebAppPolicyManager> web_app_policy_manager_;
   std::unique_ptr<WebAppUiManager> ui_manager_;
+  std::unique_ptr<OsIntegrationManager> os_integration_manager_;
 
   base::OneShotEvent on_registry_ready_;
 

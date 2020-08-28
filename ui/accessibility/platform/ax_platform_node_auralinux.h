@@ -17,6 +17,7 @@
 #include "base/optional.h"
 #include "base/strings/utf_offset_string_conversions.h"
 #include "base/strings/utf_string_conversions.h"
+#include "ui/accessibility/ax_enums.mojom-forward.h"
 #include "ui/accessibility/ax_export.h"
 #include "ui/accessibility/ax_position.h"
 #include "ui/accessibility/ax_range.h"
@@ -43,8 +44,6 @@ using AtkAttributes = std::unique_ptr<AtkAttributeSet, AtkAttributeSetDeleter>;
   }
 
 namespace ui {
-
-enum class AXTextBoundaryDirection;
 
 struct FindInPageResultInfo {
   AtkObject* node;
@@ -86,7 +85,7 @@ struct AX_EXPORT AtkTableCellInterface {
 // interfaces that an AXPlatformNodeAuraLinux's ATKObject implements.
 class ImplementedAtkInterfaces {
  public:
-  enum Value {
+  enum class Value {
     kDefault = 1 << 1,
     kDocument = 1 << 1,
     kHyperlink = 1 << 2,
@@ -100,18 +99,20 @@ class ImplementedAtkInterfaces {
     kWindow = 1 << 10,
   };
 
-  bool Implements(Value interface) { return value_ & interface; }
+  bool Implements(Value interface) const {
+    return value_ & static_cast<int>(interface);
+  }
 
-  void Add(Value other) { value_ |= other; }
+  void Add(Value other) { value_ |= static_cast<int>(other); }
 
   bool operator!=(const ImplementedAtkInterfaces& other) {
     return value_ != other.value_;
   }
 
-  int value() { return value_; }
+  int value() const { return value_; }
 
  private:
-  int value_ = kDefault;
+  int value_ = static_cast<int>(Value::kDefault);
 };
 
 // Implements accessibility on Aura Linux using ATK.
@@ -119,6 +120,8 @@ class AX_EXPORT AXPlatformNodeAuraLinux : public AXPlatformNodeBase {
  public:
   AXPlatformNodeAuraLinux();
   ~AXPlatformNodeAuraLinux() override;
+
+  static AXPlatformNodeAuraLinux* FromAtkObject(const AtkObject*);
 
   // Set or get the root-level Application object that's the parent of all
   // top-level windows.
@@ -129,6 +132,10 @@ class AX_EXPORT AXPlatformNodeAuraLinux : public AXPlatformNodeBase {
 
   // Do asynchronous static initialization.
   static void StaticInitialize();
+
+  // Enables AXMode calling AXPlatformNode::NotifyAddAXModeFlags. It's used
+  // when ATK APIs are called.
+  static void EnableAXMode();
 
   // EnsureAtkObjectIsValid will destroy and recreate |atk_object_| if the
   // interface mask is different. This partially relies on looking at the tree's
@@ -194,19 +201,22 @@ class AX_EXPORT AXPlatformNodeAuraLinux : public AXPlatformNodeBase {
   // Event helpers
   void OnActiveDescendantChanged();
   void OnCheckedStateChanged();
+  void OnEnabledChanged();
   void OnExpandedStateChanged(bool is_expanded);
   void OnFocused();
   void OnWindowActivated();
   void OnWindowDeactivated();
   void OnMenuPopupStart();
-  void OnMenuPopupHide();
   void OnMenuPopupEnd();
+  void OnAllMenusEnded();
   void OnSelected();
   void OnSelectedChildrenChanged();
+  void OnTextAttributesChanged();
   void OnTextSelectionChanged();
   void OnValueChanged();
   void OnNameChanged();
   void OnDescriptionChanged();
+  void OnSortDirectionChanged();
   void OnInvalidStatusChanged();
   void OnDocumentTitleChanged();
   void OnSubtreeCreated();
@@ -214,6 +224,8 @@ class AX_EXPORT AXPlatformNodeAuraLinux : public AXPlatformNodeBase {
   void OnParentChanged();
   void OnWindowVisibilityChanged();
   void OnScrolledToAnchor();
+  void OnAlertShown();
+  void RunPostponedEvents();
 
   void ResendFocusSignalsForCurrentlyFocusedNode();
   bool SupportsSelectionWithAtkSelection();
@@ -228,8 +240,7 @@ class AX_EXPORT AXPlatformNodeAuraLinux : public AXPlatformNodeBase {
 
   // AXPlatformNodeBase overrides.
   void Init(AXPlatformNodeDelegate* delegate) override;
-  int GetIndexInParent() override;
-  base::string16 GetHypertext() const override;
+  bool IsPlatformCheckable() const override;
 
   bool IsNameExposed();
 
@@ -238,6 +249,7 @@ class AX_EXPORT AXPlatformNodeAuraLinux : public AXPlatformNodeBase {
   const base::OffsetAdjuster::Adjustments& GetHypertextAdjustments();
   size_t UTF16ToUnicodeOffsetInText(size_t utf16_offset);
   size_t UnicodeToUTF16OffsetInText(int unicode_offset);
+  int GetTextOffsetAtPoint(int x, int y, AtkCoordType atk_coord_type);
 
   // Called on a toplevel frame to set the document parent, which is the parent
   // of the toplevel document. This is used to properly express the ATK embeds
@@ -306,6 +318,8 @@ class AX_EXPORT AXPlatformNodeAuraLinux : public AXPlatformNodeBase {
 
   GType GetAccessibilityGType();
   AtkObject* CreateAtkObject();
+  // Get or Create AtkObject. Note that it could return nullptr except
+  // ax::mojom::Role::kApplication when the mode is not enabled.
   gfx::NativeViewAccessible GetOrCreateAtkObject();
   void DestroyAtkObjects();
   void AddRelationToSet(AtkRelationSet*,
@@ -315,7 +329,7 @@ class AX_EXPORT AXPlatformNodeAuraLinux : public AXPlatformNodeBase {
   base::Optional<std::pair<int, int>> GetEmbeddedObjectIndicesForId(int id);
 
   void ComputeStylesIfNeeded();
-  int FindStartOfStyle(int start_offset, ui::AXTextBoundaryDirection direction);
+  int FindStartOfStyle(int start_offset, ax::mojom::MoveDirection direction);
 
   // Reset any find in page operations for the toplevel document of this node.
   void ForgetCurrentFindInPageResult();
@@ -327,8 +341,11 @@ class AX_EXPORT AXPlatformNodeAuraLinux : public AXPlatformNodeBase {
   // the toplevel frame which contains the node.
   void SetDocumentParentOnFrameIfNecessary();
 
-  // Find the first child which is a document containing web content.
-  AtkObject* FindFirstWebContentDocument();
+  // Find the child which is a document containing the primary web content.
+  AtkObject* FindPrimaryWebContentDocument();
+
+  // Returns true if it is a web content for the relations.
+  bool IsWebDocumentForRelations();
 
   // If a selection that intersects this node get the full selection
   // including start and end node ids.
@@ -409,6 +426,8 @@ class AX_EXPORT AXPlatformNodeAuraLinux : public AXPlatformNodeBase {
 
   // The default ATK text attributes for this node.
   TextAttributeList default_text_attributes_;
+
+  bool window_activate_event_postponed_ = false;
 
   DISALLOW_COPY_AND_ASSIGN(AXPlatformNodeAuraLinux);
 };

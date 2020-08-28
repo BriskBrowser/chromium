@@ -43,8 +43,9 @@
 namespace blink {
 
 class RTCIceCandidatePlatform;
-class RTCRtpTransceiverPlatform;
 class RTCRtpReceiverPlatform;
+class RTCRtpTransceiverPlatform;
+class RTCSessionDescriptionPlatform;
 
 struct PLATFORM_EXPORT WebRTCSctpTransportSnapshot {
   rtc::scoped_refptr<webrtc::SctpTransportInterface> transport;
@@ -60,10 +61,17 @@ class PLATFORM_EXPORT RTCPeerConnectionHandlerClient {
 
   virtual void NegotiationNeeded() = 0;
   virtual void DidGenerateICECandidate(RTCIceCandidatePlatform*) = 0;
-  virtual void DidFailICECandidate(const String& host_candidate,
+  virtual void DidFailICECandidate(const String& address,
+                                   base::Optional<uint16_t> port,
+                                   const String& host_candidate,
                                    const String& url,
                                    int error_code,
                                    const String& error_text) = 0;
+  virtual void DidChangeSessionDescriptions(
+      RTCSessionDescriptionPlatform* pending_local_description,
+      RTCSessionDescriptionPlatform* current_local_description,
+      RTCSessionDescriptionPlatform* pending_remote_description,
+      RTCSessionDescriptionPlatform* current_remote_description) = 0;
   virtual void DidChangeSignalingState(
       webrtc::PeerConnectionInterface::SignalingState) = 0;
   virtual void DidChangeIceGatheringState(
@@ -83,7 +91,7 @@ class PLATFORM_EXPORT RTCPeerConnectionHandlerClient {
   virtual void DidAddRemoteDataChannel(
       scoped_refptr<webrtc::DataChannelInterface>) = 0;
   virtual void DidNoteInterestingUsage(int usage_pattern) = 0;
-  virtual void ReleasePeerConnectionHandler() = 0;
+  virtual void UnregisterPeerConnectionHandler() = 0;
   virtual void ClosePeerConnection();
 };
 

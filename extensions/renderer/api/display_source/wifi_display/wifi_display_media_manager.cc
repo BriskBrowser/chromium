@@ -5,7 +5,9 @@
 #include "extensions/renderer/api/display_source/wifi_display/wifi_display_media_manager.h"
 
 #include "base/bind.h"
-#include "base/logging.h"
+#include "base/check_op.h"
+#include "base/memory/unsafe_shared_memory_region.h"
+#include "base/notreached.h"
 #include "base/rand_util.h"
 #include "base/task_runner_util.h"
 #include "base/threading/thread_task_runner_handle.h"
@@ -16,7 +18,6 @@
 #include "extensions/renderer/api/display_source/wifi_display/wifi_display_elementary_stream_info.h"
 #include "extensions/renderer/api/display_source/wifi_display/wifi_display_media_pipeline.h"
 #include "media/base/bind_to_current_loop.h"
-#include "mojo/public/cpp/base/shared_memory_utils.h"
 #include "third_party/blink/public/common/browser_interface_broker_proxy.h"
 
 namespace extensions {
@@ -116,18 +117,15 @@ void WiFiDisplayMediaManager::Play() {
         &WiFiDisplayMediaManager::RegisterMediaService,
         base::Unretained(this),
         base::ThreadTaskRunnerHandle::Get());
-    base::PostTaskAndReplyWithResult(io_task_runner_.get(), FROM_HERE,
-        base::Bind(
-            &WiFiDisplayMediaPipeline::Create,
-            GetSessionType(),
-            video_encoder_parameters_,
-            optimal_audio_codec_,
-            sink_ip_address_,
-            sink_rtp_ports_,
-            service_callback,  // To be invoked on IO thread.
-            media::BindToCurrentLoop(error_callback_)),
-        base::Bind(&WiFiDisplayMediaManager::OnPlayerCreated,
-                   weak_factory_.GetWeakPtr()));
+    base::PostTaskAndReplyWithResult(
+        io_task_runner_.get(), FROM_HERE,
+        base::BindOnce(&WiFiDisplayMediaPipeline::Create, GetSessionType(),
+                       video_encoder_parameters_, optimal_audio_codec_,
+                       sink_ip_address_, sink_rtp_ports_,
+                       service_callback,  // To be invoked on IO thread.
+                       media::BindToCurrentLoop(error_callback_)),
+        base::BindOnce(&WiFiDisplayMediaManager::OnPlayerCreated,
+                       weak_factory_.GetWeakPtr()));
     return;
   }
 
@@ -331,7 +329,7 @@ void CreateVideoEncodeMemory(
   DCHECK(content::RenderThread::Get());
 
   base::UnsafeSharedMemoryRegion shm =
-      mojo::CreateUnsafeSharedMemoryRegion(size);
+      base::UnsafeSharedMemoryRegion::Create(size);
   if (!shm.IsValid()) {
     NOTREACHED() << "Shared memory allocation or map failed";
   }

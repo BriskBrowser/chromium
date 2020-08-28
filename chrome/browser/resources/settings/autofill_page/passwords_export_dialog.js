@@ -7,8 +7,21 @@
  * passwords.
  */
 
-(function() {
-'use strict';
+import 'chrome://resources/cr_elements/cr_button/cr_button.m.js';
+import 'chrome://resources/cr_elements/cr_dialog/cr_dialog.m.js';
+import 'chrome://resources/cr_elements/shared_vars_css.m.js';
+import 'chrome://resources/polymer/v3_0/iron-flex-layout/iron-flex-layout-classes.js';
+import 'chrome://resources/polymer/v3_0/paper-progress/paper-progress.js';
+import '../settings_shared_css.m.js';
+
+import {I18nBehavior} from 'chrome://resources/js/i18n_behavior.m.js';
+import {html, Polymer} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+
+// <if expr="chromeos">
+import {BlockingRequestManager} from './blocking_request_manager.js';
+// </if>
+import {PasswordManagerImpl, PasswordManagerProxy} from './password_manager_proxy.js';
+
 
 /**
  * The states of the export passwords dialog.
@@ -38,6 +51,8 @@ const progressBarBlockMs = 1000;
 Polymer({
   is: 'passwords-export-dialog',
 
+  _template: html`{__html_template__}`,
+
   behaviors: [I18nBehavior],
 
   properties: {
@@ -54,7 +69,7 @@ Polymer({
     showErrorDialog_: Boolean,
 
     // <if expr="chromeos">
-    /** @type settings.BlockingRequestManager */
+    /** @type BlockingRequestManager */
     tokenRequestManager: Object
     // </if>
   },
@@ -71,7 +86,7 @@ Polymer({
    */
   passwordManager_: null,
 
-  /** @private {function(!PasswordManagerProxy.PasswordExportProgress):void} */
+  /** @private {?function(!PasswordManagerProxy.PasswordExportProgress):void} */
   onPasswordsFileExportProgressListener_: null,
 
   /**
@@ -109,7 +124,7 @@ Polymer({
     // If export started on a different tab and is still in progress, display a
     // busy UI.
     this.passwordManager_.requestExportProgressStatus(status => {
-      if (status == ProgressStatus.IN_PROGRESS) {
+      if (status === ProgressStatus.IN_PROGRESS) {
         this.switchToDialog_(States.IN_PROGRESS);
       }
     });
@@ -173,7 +188,11 @@ Polymer({
     this.progressTaskToken_ = null;
     this.delayedCompletionToken_ = null;
     this.passwordManager_.removePasswordsFileExportProgressListener(
-        this.onPasswordsFileExportProgressListener_);
+        /**
+         * @type {function(!PasswordManagerProxy.PasswordExportProgress):
+         *             void}
+         */
+        (this.onPasswordsFileExportProgressListener_));
     this.showStartDialog_ = false;
     this.showProgressDialog_ = false;
     this.showErrorDialog_ = false;
@@ -200,7 +219,7 @@ Polymer({
   exportPasswords_() {
     this.passwordManager_.exportPasswords(() => {
       if (chrome.runtime.lastError &&
-          chrome.runtime.lastError.message == 'in-progress') {
+          chrome.runtime.lastError.message === 'in-progress') {
         // Exporting was started by a different call to exportPasswords() and is
         // is still in progress. This UI needs to be updated to the current
         // status.
@@ -215,18 +234,19 @@ Polymer({
    * @private
    */
   processProgress_(progress) {
-    if (progress.status == ProgressStatus.IN_PROGRESS) {
+    if (progress.status === ProgressStatus.IN_PROGRESS) {
       this.progressTaskToken_ =
           setTimeout(this.progressTask_.bind(this), progressBarDelayMs);
       return;
     }
-    if (progress.status == ProgressStatus.SUCCEEDED) {
+    if (progress.status === ProgressStatus.SUCCEEDED) {
       this.close();
       return;
     }
-    if (progress.status == ProgressStatus.FAILED_WRITE_FAILED) {
-      this.exportErrorMessage =
-          this.i18n('exportPasswordsFailTitle', progress.folderName);
+    if (progress.status === ProgressStatus.FAILED_WRITE_FAILED) {
+      this.exportErrorMessage = this.i18n(
+          'exportPasswordsFailTitle',
+          /** @type {string} */ (progress.folderName));
       this.switchToDialog_(States.ERROR);
       return;
     }
@@ -238,9 +258,9 @@ Polymer({
    * @private
    */
   switchToDialog_(state) {
-    this.showStartDialog_ = state == States.START;
-    this.showProgressDialog_ = state == States.IN_PROGRESS;
-    this.showErrorDialog_ = state == States.ERROR;
+    this.showStartDialog_ = state === States.START;
+    this.showProgressDialog_ = state === States.IN_PROGRESS;
+    this.showErrorDialog_ = state === States.ERROR;
   },
 
   /**
@@ -261,4 +281,3 @@ Polymer({
     this.close();
   },
 });
-})();

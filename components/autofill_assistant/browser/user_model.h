@@ -7,11 +7,17 @@
 
 #include <map>
 #include <string>
+#include <vector>
 
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
-#include "components/autofill_assistant/browser/service.pb.h"
+#include "base/optional.h"
+#include "components/autofill/core/browser/data_model/autofill_profile.h"
+#include "components/autofill/core/browser/data_model/credit_card.h"
+#include "components/autofill_assistant/browser/model.pb.h"
+#include "components/autofill_assistant/browser/value_util.h"
+#include "url/gurl.h"
 
 namespace autofill_assistant {
 
@@ -43,6 +49,53 @@ class UserModel {
                 const ValueProto& value,
                 bool force_notification = false);
 
+  // Returns the value for |identifier| or nullopt if there is no such value.
+  // - Placeholders in |identifier| of the form ${key} are automatically
+  // replaced (see |AddIdentifierPlaceholders|).
+  // - Also supports the array operator to retrieve
+  // a specific element of a list, e.g., "identifier[0]" to get the first item.
+  base::Optional<ValueProto> GetValue(const std::string& identifier) const;
+
+  // Returns the value for |reference| or nullopt if there is no such value.
+  base::Optional<ValueProto> GetValue(
+      const ValueReferenceProto& reference) const;
+
+  // Returns all specified values in a new std::vector. Returns nullopt if any
+  // of the requested values was not found.
+  template <class T>
+  base::Optional<std::vector<ValueProto>> GetValues(
+      const T& value_references) const {
+    std::vector<ValueProto> values;
+    for (const auto& reference : value_references) {
+      auto value = GetValue(reference);
+      if (!value.has_value()) {
+        return base::nullopt;
+      }
+      values.emplace_back(*value);
+    }
+    return values;
+  }
+
+  // Replaces the set of available autofill credit cards.
+  void SetAutofillCreditCards(
+      std::unique_ptr<std::vector<std::unique_ptr<autofill::CreditCard>>>
+          credit_cards);
+
+  // Replaces the set of available autofill profiles.
+  void SetAutofillProfiles(
+      std::unique_ptr<std::vector<std::unique_ptr<autofill::AutofillProfile>>>
+          profiles);
+
+  void SetCurrentURL(GURL current_url);
+
+  // Returns the credit card with |guid| or nullptr if there is no such card.
+  const autofill::CreditCard* GetCreditCard(const std::string& guid) const;
+
+  // Returns the profile with |guid| or nullptr if there is no such profile.
+  const autofill::AutofillProfile* GetProfile(const std::string& guid) const;
+
+  GURL GetCurrentURL() const;
+
   void AddObserver(Observer* observer);
   void RemoveObserver(Observer* observer);
 
@@ -60,17 +113,13 @@ class UserModel {
   friend class UserModelTest;
 
   std::map<std::string, ValueProto> values_;
+  std::map<std::string, std::unique_ptr<autofill::CreditCard>> credit_cards_;
+  std::map<std::string, std::unique_ptr<autofill::AutofillProfile>> profiles_;
+  GURL current_url_;
   base::ObserverList<Observer> observers_;
   base::WeakPtrFactory<UserModel> weak_ptr_factory_{this};
   DISALLOW_COPY_AND_ASSIGN(UserModel);
 };
-
-// Custom comparison operator for |ValueProto|, because we can't use
-// |MessageDifferencer| for protobuf lite and can't rely on serialization.
-bool operator==(const ValueProto& value_a, const ValueProto& value_b);
-
-// Intended for debugging.
-std::ostream& operator<<(std::ostream& out, const ValueProto& value);
 
 }  //  namespace autofill_assistant
 

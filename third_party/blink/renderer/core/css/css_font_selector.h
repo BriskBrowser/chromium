@@ -59,6 +59,24 @@ class CORE_EXPORT CSSFontSelector : public FontSelector {
 
   void ReportFailedLocalFontMatch(const AtomicString& font_name) override;
 
+  void ReportFontLookupByUniqueOrFamilyName(
+      const AtomicString& name,
+      const FontDescription& font_description,
+      LocalFontLookupType check_type,
+      SimpleFontData* resulting_font_data,
+      bool is_loading_fallback = false) override;
+
+  void ReportFontLookupByFallbackCharacter(
+      UChar32 fallback_character,
+      const FontDescription& font_description,
+      LocalFontLookupType check_type,
+      SimpleFontData* resulting_font_data) override;
+
+  void ReportLastResortFallbackFontLookup(
+      const FontDescription& font_description,
+      LocalFontLookupType check_type,
+      SimpleFontData* resulting_font_data) override;
+
   scoped_refptr<FontData> GetFontData(const FontDescription&,
                                       const AtomicString&) override;
   void WillUseFontData(const FontDescription&,
@@ -70,7 +88,7 @@ class CORE_EXPORT CSSFontSelector : public FontSelector {
   bool IsPlatformFamilyMatchAvailable(const FontDescription&,
                                       const AtomicString& family) override;
 
-  void FontFaceInvalidated() override;
+  void FontFaceInvalidated(FontInvalidationReason) override;
 
   // FontCacheClient implementation
   void FontCacheInvalidated() override;
@@ -78,7 +96,9 @@ class CORE_EXPORT CSSFontSelector : public FontSelector {
   void RegisterForInvalidationCallbacks(FontSelectorClient*) override;
   void UnregisterForInvalidationCallbacks(FontSelectorClient*) override;
 
-  ExecutionContext* GetExecutionContext() const override { return document_; }
+  ExecutionContext* GetExecutionContext() const override {
+    return document_ ? document_->GetExecutionContext() : nullptr;
+  }
   FontFaceCache* GetFontFaceCache() override { return &font_face_cache_; }
 
   const GenericFontFamilySettings& GetGenericFontFamilySettings() const {
@@ -86,10 +106,10 @@ class CORE_EXPORT CSSFontSelector : public FontSelector {
   }
   void UpdateGenericFontFamilySettings(Document&);
 
-  void Trace(blink::Visitor*) override;
+  void Trace(Visitor*) const override;
 
  protected:
-  void DispatchInvalidationCallbacks();
+  void DispatchInvalidationCallbacks(FontInvalidationReason);
 
  private:
   // TODO(Oilpan): Ideally this should just be a traced Member but that will

@@ -4,12 +4,11 @@
 
 package org.chromium.chrome.browser.keyboard_accessory.bar_component;
 
-import android.support.design.widget.TabLayout;
-import android.support.v7.widget.RecyclerView;
-
 import androidx.annotation.IntDef;
 import androidx.annotation.Nullable;
-import androidx.annotation.VisibleForTesting;
+import androidx.recyclerview.widget.RecyclerView;
+
+import com.google.android.material.tabs.TabLayout;
 
 import org.chromium.chrome.browser.keyboard_accessory.data.KeyboardAccessoryData.Action;
 import org.chromium.chrome.browser.keyboard_accessory.tab_layout_component.KeyboardAccessoryTabLayoutCoordinator.TabLayoutCallbacks;
@@ -47,7 +46,6 @@ class KeyboardAccessoryProperties {
             new WritableObjectPropertyKey<>("tab_layout_item");
     static final WritableObjectPropertyKey<Runnable> SHOW_KEYBOARD_CALLBACK =
             new WritableObjectPropertyKey<>("keyboard_callback");
-    @VisibleForTesting
     static final ReadableBooleanPropertyKey DISABLE_ANIMATIONS_FOR_TESTING =
             new WritableBooleanPropertyKey("skip_all_animations_for_testing");
 

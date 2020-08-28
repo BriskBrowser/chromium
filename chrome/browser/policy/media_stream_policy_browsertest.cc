@@ -1,20 +1,21 @@
 // Copyright (c) 2012 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
-#include "base/task/post_task.h"
+
 #include "chrome/browser/media/webrtc/media_capture_devices_dispatcher.h"
-#include "chrome/browser/media/webrtc/media_stream_devices_controller.h"
-#include "chrome/browser/permissions/permission_request_manager.h"
 #include "chrome/browser/policy/policy_test_utils.h"
 #include "chrome/browser/ui/browser.h"
-#include "chrome/browser/ui/permission_bubble/mock_permission_prompt_factory.h"
 #include "chrome/test/base/ui_test_utils.h"
+#include "components/permissions/permission_request_manager.h"
+#include "components/permissions/test/mock_permission_prompt_factory.h"
 #include "components/policy/core/common/policy_map.h"
 #include "components/policy/policy_constants.h"
+#include "components/webrtc/media_stream_devices_controller.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/web_contents.h"
+#include "content/public/test/browser_test.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -44,11 +45,13 @@ class MediaStreamDevicesControllerBrowserTest
     // since we are already using WithParamInterface. We only test whichever one
     // is enabled in chrome_features.cc since we won't keep the old path around
     // for long once we flip the flag.
-    PermissionRequestManager* manager =
-        PermissionRequestManager::FromWebContents(
+    permissions::PermissionRequestManager* manager =
+        permissions::PermissionRequestManager::FromWebContents(
             browser()->tab_strip_model()->GetActiveWebContents());
-    prompt_factory_.reset(new MockPermissionPromptFactory(manager));
-    prompt_factory_->set_response_type(PermissionRequestManager::ACCEPT_ALL);
+    prompt_factory_.reset(
+        new permissions::MockPermissionPromptFactory(manager));
+    prompt_factory_->set_response_type(
+        permissions::PermissionRequestManager::ACCEPT_ALL);
   }
 
   void TearDownOnMainThread() override { prompt_factory_.reset(); }
@@ -65,7 +68,8 @@ class MediaStreamDevicesControllerBrowserTest
     return content::MediaStreamRequest(
         render_process_id, render_frame_id, 0, request_url_.GetOrigin(), false,
         blink::MEDIA_DEVICE_ACCESS, std::string(), std::string(),
-        audio_request_type, video_request_type, false);
+        audio_request_type, video_request_type, /*disable_local_echo=*/false,
+        /*request_pan_tilt_zoom_permission=*/false);
   }
 
   // Configure a given policy map. The |policy_name| is the name of either the
@@ -78,18 +82,17 @@ class MediaStreamDevicesControllerBrowserTest
                           const char* whitelist_policy,
                           const char* allow_rule) {
     policies->Set(policy_name, POLICY_LEVEL_MANDATORY, POLICY_SCOPE_USER,
-                  POLICY_SOURCE_CLOUD,
-                  std::make_unique<base::Value>(policy_value_), nullptr);
+                  POLICY_SOURCE_CLOUD, base::Value(policy_value_), nullptr);
 
     if (whitelist_policy) {
       // Add an entry to the whitelist that allows the specified URL regardless
       // of the setting of kAudioCapturedAllowed.
-      std::unique_ptr<base::ListValue> list(new base::ListValue);
+      base::Value list(base::Value::Type::LIST);
       if (allow_rule) {
-        list->AppendString(allow_rule);
+        list.Append(allow_rule);
         request_url_allowed_via_whitelist_ = true;
       } else {
-        list->AppendString(ContentSettingsPattern::Wildcard().ToString());
+        list.Append(ContentSettingsPattern::Wildcard().ToString());
         // We should ignore all wildcard entries in the whitelist, so even
         // though we've added an entry, it should be ignored and our expectation
         // is that the request has not been allowed via the whitelist.
@@ -102,7 +105,9 @@ class MediaStreamDevicesControllerBrowserTest
 
   void Accept(const blink::MediaStreamDevices& devices,
               blink::mojom::MediaStreamRequestResult result,
-              std::unique_ptr<content::MediaStreamUI> ui) {
+              bool blocked_by_feature_policy,
+              ContentSetting audio_setting,
+              ContentSetting video_setting) {
     if (policy_value_ || request_url_allowed_via_whitelist_) {
       ASSERT_EQ(1U, devices.size());
       ASSERT_EQ("fake_dev", devices[0].id);
@@ -117,13 +122,11 @@ class MediaStreamDevicesControllerBrowserTest
                       blink::mojom::MediaStreamType::NO_SERVICE));
     // TODO(raymes): Test MEDIA_DEVICE_OPEN (Pepper) which grants both webcam
     // and microphone permissions at the same time.
-    MediaStreamDevicesController::RequestPermissions(
-        request, base::Bind(&MediaStreamDevicesControllerBrowserTest::Accept,
-                            base::Unretained(this)));
-    // TODO(crbug.com/1033439): replace QuitCurrentWhenIdleDeprecated with
-    // RunLoop
-    // instance instead
-    base::RunLoop::QuitCurrentWhenIdleDeprecated();
+    webrtc::MediaStreamDevicesController::RequestPermissions(
+        request, MediaCaptureDevicesDispatcher::GetInstance(),
+        base::BindOnce(&MediaStreamDevicesControllerBrowserTest::Accept,
+                       base::Unretained(this)));
+    quit_closure_.Run();
   }
 
   void FinishVideoTest() {
@@ -132,19 +135,19 @@ class MediaStreamDevicesControllerBrowserTest
                       blink::mojom::MediaStreamType::DEVICE_VIDEO_CAPTURE));
     // TODO(raymes): Test MEDIA_DEVICE_OPEN (Pepper) which grants both webcam
     // and microphone permissions at the same time.
-    MediaStreamDevicesController::RequestPermissions(
-        request, base::Bind(&MediaStreamDevicesControllerBrowserTest::Accept,
-                            base::Unretained(this)));
-    // TODO(crbug.com/1033439): replace QuitCurrentWhenIdleDeprecated with
-    // RunLoop instance instead
-    base::RunLoop::QuitCurrentWhenIdleDeprecated();
+    webrtc::MediaStreamDevicesController::RequestPermissions(
+        request, MediaCaptureDevicesDispatcher::GetInstance(),
+        base::BindOnce(&MediaStreamDevicesControllerBrowserTest::Accept,
+                       base::Unretained(this)));
+    quit_closure_.Run();
   }
 
-  std::unique_ptr<MockPermissionPromptFactory> prompt_factory_;
+  std::unique_ptr<permissions::MockPermissionPromptFactory> prompt_factory_;
   bool policy_value_;
   bool request_url_allowed_via_whitelist_;
   GURL request_url_;
   std::string request_pattern_;
+  base::RepeatingClosure quit_closure_;
 };
 
 IN_PROC_BROWSER_TEST_P(MediaStreamDevicesControllerBrowserTest,
@@ -159,8 +162,8 @@ IN_PROC_BROWSER_TEST_P(MediaStreamDevicesControllerBrowserTest,
   ConfigurePolicyMap(&policies, key::kAudioCaptureAllowed, nullptr, nullptr);
   UpdateProviderPolicy(policies);
 
-  base::PostTaskAndReply(
-      FROM_HERE, {content::BrowserThread::IO},
+  content::GetIOThreadTaskRunner({})->PostTaskAndReply(
+      FROM_HERE,
       base::BindOnce(
           &MediaCaptureDevicesDispatcher::SetTestAudioCaptureDevices,
           base::Unretained(MediaCaptureDevicesDispatcher::GetInstance()),
@@ -168,7 +171,9 @@ IN_PROC_BROWSER_TEST_P(MediaStreamDevicesControllerBrowserTest,
       base::BindOnce(&MediaStreamDevicesControllerBrowserTest::FinishAudioTest,
                      base::Unretained(this)));
 
-  base::RunLoop().Run();
+  base::RunLoop loop;
+  quit_closure_ = loop.QuitWhenIdleClosure();
+  loop.Run();
 }
 
 IN_PROC_BROWSER_TEST_P(MediaStreamDevicesControllerBrowserTest,
@@ -193,8 +198,8 @@ IN_PROC_BROWSER_TEST_P(MediaStreamDevicesControllerBrowserTest,
                        key::kAudioCaptureAllowedUrls, allow_pattern[i]);
     UpdateProviderPolicy(policies);
 
-    base::PostTaskAndReply(
-        FROM_HERE, {content::BrowserThread::IO},
+    content::GetIOThreadTaskRunner({})->PostTaskAndReply(
+        FROM_HERE,
         base::BindOnce(
             &MediaCaptureDevicesDispatcher::SetTestAudioCaptureDevices,
             base::Unretained(MediaCaptureDevicesDispatcher::GetInstance()),
@@ -203,7 +208,9 @@ IN_PROC_BROWSER_TEST_P(MediaStreamDevicesControllerBrowserTest,
             &MediaStreamDevicesControllerBrowserTest::FinishAudioTest,
             base::Unretained(this)));
 
-    base::RunLoop().Run();
+    base::RunLoop loop;
+    quit_closure_ = loop.QuitWhenIdleClosure();
+    loop.Run();
   }
 }
 
@@ -219,8 +226,8 @@ IN_PROC_BROWSER_TEST_P(MediaStreamDevicesControllerBrowserTest,
   ConfigurePolicyMap(&policies, key::kVideoCaptureAllowed, nullptr, nullptr);
   UpdateProviderPolicy(policies);
 
-  base::PostTaskAndReply(
-      FROM_HERE, {content::BrowserThread::IO},
+  content::GetIOThreadTaskRunner({})->PostTaskAndReply(
+      FROM_HERE,
       base::BindOnce(
           &MediaCaptureDevicesDispatcher::SetTestVideoCaptureDevices,
           base::Unretained(MediaCaptureDevicesDispatcher::GetInstance()),
@@ -228,7 +235,9 @@ IN_PROC_BROWSER_TEST_P(MediaStreamDevicesControllerBrowserTest,
       base::BindOnce(&MediaStreamDevicesControllerBrowserTest::FinishVideoTest,
                      base::Unretained(this)));
 
-  base::RunLoop().Run();
+  base::RunLoop loop;
+  quit_closure_ = loop.QuitWhenIdleClosure();
+  loop.Run();
 }
 
 IN_PROC_BROWSER_TEST_P(MediaStreamDevicesControllerBrowserTest,
@@ -253,8 +262,8 @@ IN_PROC_BROWSER_TEST_P(MediaStreamDevicesControllerBrowserTest,
                        key::kVideoCaptureAllowedUrls, allow_pattern[i]);
     UpdateProviderPolicy(policies);
 
-    base::PostTaskAndReply(
-        FROM_HERE, {content::BrowserThread::IO},
+    content::GetIOThreadTaskRunner({})->PostTaskAndReply(
+        FROM_HERE,
         base::BindOnce(
             &MediaCaptureDevicesDispatcher::SetTestVideoCaptureDevices,
             base::Unretained(MediaCaptureDevicesDispatcher::GetInstance()),
@@ -263,7 +272,9 @@ IN_PROC_BROWSER_TEST_P(MediaStreamDevicesControllerBrowserTest,
             &MediaStreamDevicesControllerBrowserTest::FinishVideoTest,
             base::Unretained(this)));
 
-    base::RunLoop().Run();
+    base::RunLoop loop;
+    quit_closure_ = loop.QuitWhenIdleClosure();
+    loop.Run();
   }
 }
 

@@ -47,12 +47,12 @@ void HttpCredentialCleaner::OnGetPasswordStoreResults(
         {std::string(
              password_manager_util::GetSignonRealmWithProtocolExcluded(*form)),
          form->scheme, form->username_value});
-    if (form->origin.SchemeIs(url::kHttpScheme)) {
-      const GURL origin = form->origin;
+    if (form->url.SchemeIs(url::kHttpScheme)) {
+      auto origin = url::Origin::Create(form->url);
       PostHSTSQueryForHostAndNetworkContext(
           origin, network_context_getter_.Run(),
-          base::Bind(&HttpCredentialCleaner::OnHSTSQueryResult,
-                     base::Unretained(this), base::Passed(&form), form_key));
+          base::BindOnce(&HttpCredentialCleaner::OnHSTSQueryResult,
+                         base::Unretained(this), std::move(form), form_key));
       ++total_http_credentials_;
     } else {  // HTTPS
       https_credentials_map_[form_key].insert(form->password_value);

@@ -197,17 +197,6 @@ void LayoutTextControlSingleLine::CapsLockStateMayHaveChanged() {
   }
 }
 
-bool LayoutTextControlSingleLine::HasControlClip() const {
-  return true;
-}
-
-PhysicalRect LayoutTextControlSingleLine::ControlClipRect(
-    const PhysicalOffset& additional_offset) const {
-  PhysicalRect clip_rect = PhysicalPaddingBoxRect();
-  clip_rect.offset += additional_offset;
-  return clip_rect;
-}
-
 LayoutUnit LayoutTextControlSingleLine::PreferredContentLogicalWidth(
     float char_width) const {
   int factor;
@@ -247,14 +236,6 @@ LayoutUnit LayoutTextControlSingleLine::ComputeControlLogicalHeight(
     LayoutUnit line_height,
     LayoutUnit non_content_height) const {
   return line_height + non_content_height;
-}
-
-void LayoutTextControlSingleLine::Autoscroll(const PhysicalOffset& position) {
-  LayoutBox* layout_object = InnerEditorElement()->GetLayoutBox();
-  if (!layout_object)
-    return;
-
-  layout_object->Autoscroll(position);
 }
 
 LayoutUnit LayoutTextControlSingleLine::ScrollWidth() const {
@@ -300,15 +281,14 @@ void LayoutTextControlSingleLine::ComputeVisualOverflow(
   LayoutRect previous_visual_overflow_rect = VisualOverflowRect();
   ClearVisualOverflow();
   AddVisualOverflowFromChildren();
-
   AddVisualEffectOverflow();
-  AddVisualOverflowFromTheme();
 
   if (recompute_floats || CreatesNewFormattingContext() ||
       HasSelfPaintingLayer())
     AddVisualOverflowFromFloats();
 
   if (VisualOverflowRect() != previous_visual_overflow_rect) {
+    InvalidateIntersectionObserverCachedRects();
     SetShouldCheckForPaintInvalidation();
     GetFrameView()->SetIntersectionObservationState(LocalFrameView::kDesired);
   }

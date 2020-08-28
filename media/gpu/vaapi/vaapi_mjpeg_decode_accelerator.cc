@@ -48,22 +48,6 @@ namespace media {
 
 namespace {
 
-// UMA errors that the VaapiMjpegDecodeAccelerator class reports.
-enum VAJDAFailure {
-  VAAPI_ERROR = 0,
-  VAJDA_FAILURES_MAX,
-};
-
-static void ReportToVAJDADecoderFailureUMA(VAJDAFailure failure) {
-  UMA_HISTOGRAM_ENUMERATION("Media.VAJDA.DecoderFailure", failure,
-                            VAJDA_FAILURES_MAX + 1);
-}
-
-static void ReportToVAJDAVppFailureUMA(VAJDAFailure failure) {
-  UMA_HISTOGRAM_ENUMERATION("Media.VAJDA.VppFailure", failure,
-                            VAJDA_FAILURES_MAX + 1);
-}
-
 static void ReportToVAJDAResponseToClientUMA(
     chromeos_camera::MjpegDecodeAccelerator::Error response) {
   UMA_HISTOGRAM_ENUMERATION(
@@ -151,13 +135,15 @@ bool VaapiMjpegDecodeAccelerator::Initialize(
   client_ = client;
 
   if (!decoder_.Initialize(
-          base::BindRepeating(&ReportToVAJDADecoderFailureUMA, VAAPI_ERROR))) {
+          base::Bind(&ReportVaapiErrorToUMA,
+                     "Media.VaapiMjpegDecodeAccelerator.VAAPIError"))) {
     return false;
   }
 
   vpp_vaapi_wrapper_ = VaapiWrapper::Create(
       VaapiWrapper::kVideoProcess, VAProfileNone,
-      base::BindRepeating(&ReportToVAJDAVppFailureUMA, VAAPI_ERROR));
+      base::Bind(&ReportVaapiErrorToUMA,
+                 "Media.VaapiMjpegDecodeAccelerator.Vpp.VAAPIError"));
   if (!vpp_vaapi_wrapper_) {
     VLOGF(1) << "Failed initializing VAAPI for VPP";
     return false;
@@ -350,12 +336,21 @@ bool VaapiMjpegDecodeAccelerator::OutputPictureVppOnTaskRunner(
     scoped_refptr<VideoFrame> video_frame) {
   DCHECK(decoder_task_runner_->BelongsToCurrentThread());
   DCHECK(surface);
+  DCHECK(video_frame);
 
   TRACE_EVENT1("jpeg", __func__, "input_buffer_id", input_buffer_id);
 
+  scoped_refptr<gfx::NativePixmap> pixmap =
+      CreateNativePixmapDmaBuf(video_frame.get());
+  if (!pixmap) {
+    VLOGF(1) << "Failed to create NativePixmap from VideoFrame";
+    return false;
+  }
+
   // Bind a VA surface to |video_frame|.
   scoped_refptr<VASurface> output_surface =
-      vpp_vaapi_wrapper_->CreateVASurfaceForVideoFrame(video_frame.get());
+      vpp_vaapi_wrapper_->CreateVASurfaceForPixmap(std::move(pixmap));
+
   if (!output_surface) {
     VLOGF(1) << "Cannot create VA surface for output buffer";
     return false;

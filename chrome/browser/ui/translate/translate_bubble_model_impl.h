@@ -41,7 +41,9 @@ class TranslateBubbleModelImpl : public TranslateBubbleModel {
   int GetTargetLanguageIndex() const override;
   void UpdateTargetLanguageIndex(int index) override;
   void DeclineTranslation() override;
+  bool ShouldNeverTranslateLanguage() override;
   void SetNeverTranslateLanguage(bool value) override;
+  bool ShouldNeverTranslateSite() override;
   void SetNeverTranslateSite(bool value) override;
   bool ShouldAlwaysTranslate() const override;
   bool ShouldAlwaysTranslateBeCheckedByDefault() const override;
@@ -51,7 +53,7 @@ class TranslateBubbleModelImpl : public TranslateBubbleModel {
   void RevertTranslation() override;
   void OnBubbleClosing() override;
   bool IsPageTranslatedInCurrentLanguages() const override;
-  bool CanBlacklistSite() override;
+  bool CanBlocklistSite() override;
 
  private:
   std::unique_ptr<translate::TranslateUIDelegate> ui_delegate_;

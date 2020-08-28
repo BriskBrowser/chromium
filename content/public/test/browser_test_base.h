@@ -56,9 +56,6 @@ class BrowserTestBase : public testing::Test {
   // Override this to add command line flags specific to your test.
   virtual void SetUpCommandLine(base::CommandLine* command_line) {}
 
-  // Override this to disallow accesses to be production-compatible.
-  virtual bool AllowFileAccessFromFiles();
-
   // By default browser tests use hardcoded quota settings for consistency,
   // instead of dynamically based on available disk space. Tests can override
   // this if they want to use the production path.
@@ -73,7 +70,7 @@ class BrowserTestBase : public testing::Test {
   // Returns the host resolver being used for the tests. Subclasses might want
   // to configure it inside tests.
   net::RuleBasedHostResolverProc* host_resolver() {
-    return test_host_resolver_->host_resolver();
+    return test_host_resolver_ ? test_host_resolver_->host_resolver() : nullptr;
   }
 
  protected:
@@ -92,6 +89,10 @@ class BrowserTestBase : public testing::Test {
   // Called after the BrowserMainParts have been created, and before
   // PreEarlyInitialization() has been called.
   virtual void CreatedBrowserMainParts(BrowserMainParts* browser_main_parts) {}
+
+  // Sets flag to allow host resolutions to reach the network. Must be called
+  // before Setup() to take effect.
+  void SetAllowNetworkAccessToHostResolutions();
 
   // This is invoked from main after browser_init/browser_main have completed.
   // This prepares for the test by creating a new browser and doing any other
@@ -126,6 +127,8 @@ class BrowserTestBase : public testing::Test {
     return embedded_test_server_.get();
   }
 
+  bool set_up_called() { return set_up_called_; }
+
 #if defined(OS_POSIX)
   // This is only needed by a test that raises SIGTERM to ensure that a specific
   // codepath is taken.
@@ -147,8 +150,11 @@ class BrowserTestBase : public testing::Test {
   // returns.
   void PostTaskToInProcessRendererAndWait(base::OnceClosure task);
 
-  // Call this before SetUp() to cause the test to generate pixel output.
-  void EnablePixelOutput();
+  // Call this before SetUp() to cause the test to generate pixel output. This
+  // function also sets a fixed device scale factor which a test can change.
+  // This is useful for consistent testing across devices with different
+  // display densities.
+  void EnablePixelOutput(float force_device_scale_factor = 1.f);
 
   // Call this before SetUp() to not use GL, but use software compositing
   // instead.
@@ -189,15 +195,20 @@ class BrowserTestBase : public testing::Test {
   // browser start.
   std::unique_ptr<base::FieldTrialList> field_trial_list_;
 
-  // Expected exit code (default is 0).
-  int expected_exit_code_;
+  // Expected exit code.
+  int expected_exit_code_ = 0;
 
   // When true, the compositor will produce pixel output that can be read back
   // for pixel tests.
-  bool enable_pixel_output_;
+  bool enable_pixel_output_ = false;
+
+  // When using EnablePixelOutput, the device scale factor is forced to an
+  // explicit value to ensure consistent results. This value will be passed to
+  // the --force-device-scale-factor flag in SetUp.
+  float force_device_scale_factor_ = 0.f;
 
   // When true, do compositing with the software backend instead of using GL.
-  bool use_software_compositing_;
+  bool use_software_compositing_ = false;
 
   // Initial WebContents to watch for navigations during SetUpOnMainThread.
   WebContents* initial_web_contents_ = nullptr;
@@ -205,13 +216,15 @@ class BrowserTestBase : public testing::Test {
   // Whether SetUp was called. This value is checked in the destructor of this
   // class to ensure that SetUp was called. If it's not called, the test will
   // not run and report a false positive result.
-  bool set_up_called_;
+  bool set_up_called_ = false;
 
   std::unique_ptr<storage::QuotaSettings> quota_settings_;
 
   std::unique_ptr<NoRendererCrashesAssertion> no_renderer_crashes_assertion_;
 
   bool initialized_network_process_ = false;
+
+  bool allow_network_access_to_host_resolutions_ = false;
 
 #if defined(OS_POSIX)
   bool handle_sigterm_;

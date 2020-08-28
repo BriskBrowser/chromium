@@ -8,31 +8,41 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/metrics/histogram_macros.h"
 #include "base/optional.h"
+#include "chrome/browser/apps/app_service/app_launch_params.h"
+#include "chrome/browser/apps/app_service/app_service_proxy.h"
+#include "chrome/browser/apps/app_service/app_service_proxy_factory.h"
+#include "chrome/browser/apps/app_service/browser_app_launcher.h"
 #include "chrome/browser/apps/intent_helper/intent_picker_auto_display_service.h"
 #include "chrome/browser/apps/intent_helper/page_transition_util.h"
-#include "chrome/browser/extensions/extension_util.h"
-#include "chrome/browser/extensions/menu_manager.h"
-#include "chrome/browser/prerender/prerender_contents.h"
+#include "chrome/browser/prerender/chrome_prerender_contents_delegate.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/intent_picker_tab_helper.h"
 #include "chrome/browser/ui/web_applications/web_app_launch_utils.h"
+#include "chrome/browser/web_applications/components/app_icon_manager.h"
+#include "chrome/browser/web_applications/components/app_registrar.h"
+#include "chrome/browser/web_applications/components/web_app_helpers.h"
+#include "chrome/browser/web_applications/components/web_app_provider_base.h"
+#include "chrome/browser/web_applications/components/web_app_tab_helper_base.h"
 #include "chrome/common/chrome_features.h"
 #include "components/page_load_metrics/browser/page_load_metrics_util.h"
+#include "components/prerender/browser/prerender_contents.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/navigation_handle.h"
 #include "content/public/browser/site_instance.h"
 #include "content/public/browser/web_contents.h"
 #include "extensions/common/constants.h"
-#include "third_party/blink/public/mojom/referrer.mojom.h"
+#include "third_party/blink/public/mojom/loader/referrer.mojom.h"
+#include "ui/gfx/image/image.h"
 #include "url/origin.h"
 
 namespace {
+
+using ThrottleCheckResult = content::NavigationThrottle::ThrottleCheckResult;
 
 // Returns true if |url| is a known and valid redirector that will redirect a
 // navigation elsewhere.
@@ -77,10 +87,10 @@ bool ShouldOverrideUrlLoading(const GURL& previous_url,
 
 GURL GetStartingGURL(content::NavigationHandle* navigation_handle) {
   // This helps us determine a reference GURL for the current NavigationHandle.
-  // This is the order or preferrence: Referrer > LastCommittedURL > SiteURL,
-  // GetSiteURL *should* only be used on very rare cases, e.g. when the
-  // navigation goes from https: to http: on a new tab, thus losing the other
-  // potential referrers.
+  // This is the order or preference: Referrer > LastCommittedURL >
+  // InitiatorOrigin. InitiatorOrigin *should* only be used on very rare cases,
+  // e.g. when the navigation goes from https: to http: on a new tab, thus
+  // losing the other potential referrers.
   const GURL referrer_url = navigation_handle->GetReferrer().url;
   if (referrer_url.is_valid() && !referrer_url.is_empty())
     return referrer_url;
@@ -90,12 +100,16 @@ GURL GetStartingGURL(content::NavigationHandle* navigation_handle) {
   if (last_committed_url.is_valid() && !last_committed_url.is_empty())
     return last_committed_url;
 
-  return navigation_handle->GetStartingSiteInstance()->GetSiteURL();
+  const auto& initiator_origin = navigation_handle->GetInitiatorOrigin();
+  return initiator_origin.has_value() ? initiator_origin->GetURL() : GURL();
 }
 
 }  // namespace
 
 namespace apps {
+
+// static
+const char AppsNavigationThrottle::kUseBrowserForLink[] = "use_browser";
 
 // static
 std::unique_ptr<content::NavigationThrottle>
@@ -156,11 +170,6 @@ void AppsNavigationThrottle::OnIntentPickerClosed(
     case PickerEntryType::kMacNative:
       NOTREACHED();
   }
-  PickerAction action =
-      GetPickerAction(entry_type, close_reason, should_persist);
-  Platform platform = GetDestinationPlatform(launch_name, action);
-  RecordUma(launch_name, entry_type, close_reason, Source::kHttpOrHttps,
-            should_persist, action, platform);
 }
 
 // static
@@ -191,6 +200,8 @@ void AppsNavigationThrottle::ShowIntentPickerBubbleForApps(
   Browser* browser = chrome::FindBrowserWithWebContents(web_contents);
   if (!browser)
     return;
+
+  IntentPickerTabHelper::SetShouldShowIcon(web_contents, true);
   browser->window()->ShowIntentPickerBubble(
       std::move(apps), show_stay_in_chrome, show_remember_selection,
       PageActionIconType::kIntentPicker, base::nullopt, std::move(callback));
@@ -217,8 +228,7 @@ const char* AppsNavigationThrottle::GetNameForLogging() {
   return "AppsNavigationThrottle";
 }
 
-content::NavigationThrottle::ThrottleCheckResult
-AppsNavigationThrottle::WillStartRequest() {
+ThrottleCheckResult AppsNavigationThrottle::WillStartRequest() {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   starting_url_ = GetStartingGURL(navigation_handle());
   IntentPickerTabHelper::SetShouldShowIcon(
@@ -226,8 +236,7 @@ AppsNavigationThrottle::WillStartRequest() {
   return HandleRequest();
 }
 
-content::NavigationThrottle::ThrottleCheckResult
-AppsNavigationThrottle::WillRedirectRequest() {
+ThrottleCheckResult AppsNavigationThrottle::WillRedirectRequest() {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 
   // TODO(dominickn): Consider what to do when there is another URL during the
@@ -245,7 +254,8 @@ bool AppsNavigationThrottle::CanCreate(content::WebContents* web_contents) {
   // Do not create the throttle if no apps can be installed.
   // Do not create the throttle in incognito or for a prerender navigation.
   if (web_contents->GetBrowserContext()->IsOffTheRecord() ||
-      prerender::PrerenderContents::FromWebContents(web_contents) != nullptr) {
+      prerender::ChromePrerenderContentsDelegate::FromWebContents(
+          web_contents) != nullptr) {
     return false;
   }
 
@@ -257,26 +267,6 @@ bool AppsNavigationThrottle::CanCreate(content::WebContents* web_contents) {
     return false;
 
   return true;
-}
-
-// static
-void AppsNavigationThrottle::RecordUma(const std::string& selected_app_package,
-                                       PickerEntryType entry_type,
-                                       IntentPickerCloseReason close_reason,
-                                       Source source,
-                                       bool should_persist,
-                                       PickerAction action,
-                                       Platform platform) {
-  // TODO(crbug.com/985233) For now External Protocol Dialog is only querying
-  // ARC apps.
-  if (source == Source::kExternalProtocol) {
-    UMA_HISTOGRAM_ENUMERATION("ChromeOS.Apps.ExternalProtocolDialog", action);
-  } else {
-    UMA_HISTOGRAM_ENUMERATION("ChromeOS.Apps.IntentPickerAction", action);
-
-    UMA_HISTOGRAM_ENUMERATION("ChromeOS.Apps.IntentPickerDestinationPlatform",
-                              platform);
-  }
 }
 
 // static
@@ -361,21 +351,24 @@ std::vector<IntentPickerAppInfo> AppsNavigationThrottle::FindPwaForUrl(
     std::vector<IntentPickerAppInfo> apps) {
   // Check if the current URL has an installed desktop PWA, and add that to
   // the list of apps if it exists.
-  const extensions::Extension* extension =
-      extensions::util::GetInstalledPwaForUrl(
-          web_contents->GetBrowserContext(), url,
-          extensions::LaunchContainer::kLaunchContainerWindow);
+  Profile* const profile =
+      Profile::FromBrowserContext(web_contents->GetBrowserContext());
 
-  if (extension) {
-    auto* menu_manager =
-        extensions::MenuManager::Get(web_contents->GetBrowserContext());
+  base::Optional<web_app::AppId> app_id =
+      web_app::FindInstalledAppWithUrlInScope(profile, url,
+                                              /*window_only=*/true);
+  if (!app_id)
+    return apps;
 
-    // Prefer the web and place apps of type PWA before apps of type ARC.
-    // TODO(crbug.com/824598): deterministically sort this list.
-    apps.emplace(apps.begin(), PickerEntryType::kWeb,
-                 menu_manager->GetIconForExtension(extension->id()),
-                 extension->id(), extension->name());
-  }
+  auto* const provider = web_app::WebAppProviderBase::GetProviderBase(profile);
+  gfx::Image icon = gfx::Image::CreateFrom1xBitmap(
+      provider->icon_manager().GetFavicon(*app_id));
+
+  // Prefer the web and place apps of type PWA before apps of type ARC.
+  // TODO(crbug.com/824598): deterministically sort this list.
+  apps.emplace(apps.begin(), PickerEntryType::kWeb, icon, *app_id,
+               provider->registrar().GetAppShortName(*app_id));
+
   return apps;
 }
 
@@ -411,6 +404,11 @@ bool AppsNavigationThrottle::ShouldShowPersistenceOptions(
   // TODO(avi): When Chrome gains a UI for managing the persistence of PWAs,
   // reuse that UI for managing the persistent behavior of Universal Links.
   return !ContainsOnlyPwasAndMacApps(apps);
+}
+
+bool AppsNavigationThrottle::ShouldCancelNavigation(
+    content::NavigationHandle* handle) {
+  return false;
 }
 
 bool AppsNavigationThrottle::ShouldDeferNavigation(
@@ -469,17 +467,15 @@ IntentPickerResponse AppsNavigationThrottle::GetOnPickerClosedCallback(
                         ui_auto_display_service, url);
 }
 
-bool AppsNavigationThrottle::navigate_from_link() {
+bool AppsNavigationThrottle::navigate_from_link() const {
   return navigate_from_link_;
 }
 
-content::NavigationThrottle::ThrottleCheckResult
-AppsNavigationThrottle::HandleRequest() {
+ThrottleCheckResult AppsNavigationThrottle::HandleRequest() {
   content::NavigationHandle* handle = navigation_handle();
-  // If the navigation happened without changing document or the
-  // navigation resulted in an error page, don't check intent for the
-  // navigation.
-  if (handle->IsSameDocument() || handle->IsErrorPage())
+  // If the navigation won't update the current document, don't check intent for
+  // the navigation.
+  if (handle->IsSameDocument())
     return content::NavigationThrottle::PROCEED;
 
   DCHECK(!ui_displayed_);
@@ -510,6 +506,18 @@ AppsNavigationThrottle::HandleRequest() {
   if (!ShouldOverrideUrlLoading(starting_url_, url))
     return content::NavigationThrottle::PROCEED;
 
+  base::Optional<ThrottleCheckResult> tab_strip_capture =
+      CaptureExperimentalTabStripWebAppScopeNavigations(web_contents, handle);
+  if (tab_strip_capture.has_value())
+    return tab_strip_capture.value();
+
+  // Handles apps that are automatically launched and the navigation needs to be
+  // cancelled. This only applies on the new intent picker system, because we
+  // don't need to defer the navigation to find out preferred app anymore.
+  if (ShouldCancelNavigation(handle)) {
+    return content::NavigationThrottle::CANCEL_AND_IGNORE;
+  }
+
   if (ShouldDeferNavigation(handle)) {
     // Handling is now deferred to ArcIntentPickerAppFetcher, which
     // asynchronously queries ARC for apps, and runs
@@ -533,6 +541,61 @@ AppsNavigationThrottle::HandleRequest() {
       GetOnPickerClosedCallback(web_contents, ui_auto_display_service_, url));
 
   return content::NavigationThrottle::PROCEED;
+}
+
+base::Optional<ThrottleCheckResult>
+AppsNavigationThrottle::CaptureExperimentalTabStripWebAppScopeNavigations(
+    content::WebContents* web_contents,
+    content::NavigationHandle* handle) const {
+  if (!navigate_from_link())
+    return base::nullopt;
+
+  if (!base::FeatureList::IsEnabled(features::kDesktopPWAsTabStrip) ||
+      !base::FeatureList::IsEnabled(
+          features::kDesktopPWAsTabStripLinkCapturing)) {
+    return base::nullopt;
+  }
+
+  Profile* const profile =
+      Profile::FromBrowserContext(web_contents->GetBrowserContext());
+  web_app::WebAppProviderBase* provider =
+      web_app::WebAppProviderBase::GetProviderBase(profile);
+  if (!provider)
+    return base::nullopt;
+
+  base::Optional<web_app::AppId> app_id =
+      provider->registrar().FindInstalledAppWithUrlInScope(
+          handle->GetURL(), /*window_only=*/true);
+  if (!app_id)
+    return base::nullopt;
+
+  if (!provider->registrar().IsInExperimentalTabbedWindowMode(*app_id))
+    return base::nullopt;
+
+  Browser* browser = chrome::FindBrowserWithWebContents(web_contents);
+  if (web_app::AppBrowserController::IsForWebAppBrowser(browser, *app_id)) {
+    // Already in the app window; navigation already captured.
+    return base::nullopt;
+  }
+
+  // If |web_contents| hasn't loaded yet or has only loaded about:blank we
+  // should reparent it into the app window to avoid leaving behind a blank tab.
+  auto* tab_helper =
+      web_app::WebAppTabHelperBase::FromWebContents(web_contents);
+  if (tab_helper && !tab_helper->HasLoadedNonAboutBlankPage()) {
+    web_app::ReparentWebContentsIntoAppBrowser(web_contents, *app_id);
+    return content::NavigationThrottle::PROCEED;
+  }
+
+  apps::AppLaunchParams launch_params(
+      *app_id, apps::mojom::LaunchContainer::kLaunchContainerWindow,
+      WindowOpenDisposition::CURRENT_TAB,
+      apps::mojom::AppLaunchSource::kSourceUrlHandler);
+  launch_params.override_url = handle->GetURL();
+  apps::AppServiceProxyFactory::GetForProfile(profile)
+      ->BrowserAppLauncher()
+      ->LaunchAppWithParams(launch_params);
+  return content::NavigationThrottle::CANCEL_AND_IGNORE;
 }
 
 }  // namespace apps

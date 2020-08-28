@@ -15,13 +15,14 @@
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/callback_helpers.h"
+#include "base/check_op.h"
 #include "base/compiler_specific.h"
 #include "base/format_macros.h"
 #include "base/location.h"
-#include "base/logging.h"
 #include "base/memory/ptr_util.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
+#include "base/notreached.h"
 #include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
 #include "base/stl_util.h"
@@ -189,13 +190,16 @@ class HttpServerTest : public TestWithTaskEnvironment,
   void OnConnect(int connection_id) override {
     DCHECK(connection_map_.find(connection_id) == connection_map_.end());
     connection_map_[connection_id] = true;
+    // This is set in CreateConnection(), which must be invoked once for every
+    // expected connection.
+    quit_on_create_loop_->Quit();
   }
 
   void OnHttpRequest(int connection_id,
                      const HttpServerRequestInfo& info) override {
     requests_.push_back(std::make_pair(info, connection_id));
     if (requests_.size() == quit_after_request_count_)
-      run_loop_quit_func_.Run();
+      std::move(run_loop_quit_func_).Run();
   }
 
   void OnWebSocketRequest(int connection_id,
@@ -211,7 +215,7 @@ class HttpServerTest : public TestWithTaskEnvironment,
     DCHECK(connection_map_.find(connection_id) != connection_map_.end());
     connection_map_[connection_id] = false;
     if (connection_id == quit_on_close_connection_)
-      run_loop_quit_func_.Run();
+      std::move(run_loop_quit_func_).Run();
   }
 
   void RunUntilRequestsReceived(size_t count) {
@@ -220,11 +224,21 @@ class HttpServerTest : public TestWithTaskEnvironment,
       return;
 
     base::RunLoop run_loop;
-    base::AutoReset<base::RepeatingClosure> run_loop_quit_func(
+    base::AutoReset<base::OnceClosure> run_loop_quit_func(
         &run_loop_quit_func_, run_loop.QuitClosure());
     run_loop.Run();
 
     ASSERT_EQ(requests_.size(), count);
+  }
+
+  // Connections should only be created using this method, which waits until
+  // both the server and the client have received the connected socket.
+  void CreateConnection(TestHttpClient* client) {
+    ASSERT_FALSE(quit_on_create_loop_);
+    quit_on_create_loop_ = std::make_unique<base::RunLoop>();
+    EXPECT_THAT(client->ConnectAndWait(server_address_), IsOk());
+    quit_on_create_loop_->Run();
+    quit_on_create_loop_.reset();
   }
 
   void RunUntilConnectionIdClosed(int connection_id) {
@@ -236,7 +250,7 @@ class HttpServerTest : public TestWithTaskEnvironment,
     }
 
     base::RunLoop run_loop;
-    base::AutoReset<base::RepeatingClosure> run_loop_quit_func(
+    base::AutoReset<base::OnceClosure> run_loop_quit_func(
         &run_loop_quit_func_, run_loop.QuitClosure());
     run_loop.Run();
 
@@ -256,8 +270,12 @@ class HttpServerTest : public TestWithTaskEnvironment,
   }
 
   void HandleAcceptResult(std::unique_ptr<StreamSocket> socket) {
+    ASSERT_FALSE(quit_on_create_loop_);
+    quit_on_create_loop_ = std::make_unique<base::RunLoop>();
     server_->accepted_socket_ = std::move(socket);
     server_->HandleAcceptResult(OK);
+    quit_on_create_loop_->Run();
+    quit_on_create_loop_.reset();
   }
 
   std::unordered_map<int, bool>& connection_map() { return connection_map_; }
@@ -265,13 +283,14 @@ class HttpServerTest : public TestWithTaskEnvironment,
  protected:
   std::unique_ptr<HttpServer> server_;
   IPEndPoint server_address_;
-  base::Closure run_loop_quit_func_;
+  base::OnceClosure run_loop_quit_func_;
   std::vector<std::pair<HttpServerRequestInfo, int> > requests_;
   std::unordered_map<int /* connection_id */, bool /* connected */>
       connection_map_;
 
  private:
   size_t quit_after_request_count_;
+  std::unique_ptr<base::RunLoop> quit_on_create_loop_;
   int quit_on_close_connection_;
 };
 
@@ -293,7 +312,7 @@ class WebSocketTest : public HttpServerTest {
 
 TEST_F(HttpServerTest, Request) {
   TestHttpClient client;
-  ASSERT_THAT(client.ConnectAndWait(server_address_), IsOk());
+  CreateConnection(&client);
   client.Send("GET /test HTTP/1.1\r\n\r\n");
   RunUntilRequestsReceived(1);
   ASSERT_EQ("GET", GetRequest(0).method);
@@ -306,7 +325,7 @@ TEST_F(HttpServerTest, Request) {
 
 TEST_F(HttpServerTest, RequestBrokenTermination) {
   TestHttpClient client;
-  ASSERT_THAT(client.ConnectAndWait(server_address_), IsOk());
+  CreateConnection(&client);
   client.Send("GET /test HTTP/1.1\r\n\r)");
   RunUntilConnectionIdClosed(1);
   EXPECT_EQ(0u, num_requests());
@@ -315,7 +334,7 @@ TEST_F(HttpServerTest, RequestBrokenTermination) {
 
 TEST_F(HttpServerTest, RequestWithHeaders) {
   TestHttpClient client;
-  ASSERT_THAT(client.ConnectAndWait(server_address_), IsOk());
+  CreateConnection(&client);
   const char* const kHeaders[][3] = {
       {"Header", ": ", "1"},
       {"HeaderWithNoWhitespace", ":", "1"},
@@ -345,7 +364,7 @@ TEST_F(HttpServerTest, RequestWithHeaders) {
 
 TEST_F(HttpServerTest, RequestWithDuplicateHeaders) {
   TestHttpClient client;
-  ASSERT_THAT(client.ConnectAndWait(server_address_), IsOk());
+  CreateConnection(&client);
   const char* const kHeaders[][3] = {
       {"FirstHeader", ": ", "1"},
       {"DuplicateHeader", ": ", "2"},
@@ -373,7 +392,7 @@ TEST_F(HttpServerTest, RequestWithDuplicateHeaders) {
 
 TEST_F(HttpServerTest, HasHeaderValueTest) {
   TestHttpClient client;
-  ASSERT_THAT(client.ConnectAndWait(server_address_), IsOk());
+  CreateConnection(&client);
   const char* const kHeaders[] = {
       "Header: Abcd",
       "HeaderWithNoWhitespace:E",
@@ -410,7 +429,7 @@ TEST_F(HttpServerTest, HasHeaderValueTest) {
 
 TEST_F(HttpServerTest, RequestWithBody) {
   TestHttpClient client;
-  ASSERT_THAT(client.ConnectAndWait(server_address_), IsOk());
+  CreateConnection(&client);
   std::string body = "a" + std::string(1 << 10, 'b') + "c";
   client.Send(base::StringPrintf(
       "GET /test HTTP/1.1\r\n"
@@ -427,7 +446,7 @@ TEST_F(HttpServerTest, RequestWithBody) {
 
 TEST_F(WebSocketTest, RequestWebSocket) {
   TestHttpClient client;
-  ASSERT_THAT(client.ConnectAndWait(server_address_), IsOk());
+  CreateConnection(&client);
   client.Send(
       "GET /test HTTP/1.1\r\n"
       "Upgrade: WebSocket\r\n"
@@ -440,7 +459,7 @@ TEST_F(WebSocketTest, RequestWebSocket) {
 
 TEST_F(WebSocketTest, RequestWebSocketTrailingJunk) {
   TestHttpClient client;
-  ASSERT_THAT(client.ConnectAndWait(server_address_), IsOk());
+  CreateConnection(&client);
   client.Send(
       "GET /test HTTP/1.1\r\n"
       "Upgrade: WebSocket\r\n"
@@ -454,7 +473,7 @@ TEST_F(WebSocketTest, RequestWebSocketTrailingJunk) {
 
 TEST_F(HttpServerTest, RequestWithTooLargeBody) {
   TestHttpClient client;
-  ASSERT_THAT(client.ConnectAndWait(server_address_), IsOk());
+  CreateConnection(&client);
   client.Send(
       "GET /test HTTP/1.1\r\n"
       "Content-Length: 1073741824\r\n\r\n");
@@ -470,7 +489,7 @@ TEST_F(HttpServerTest, RequestWithTooLargeBody) {
 
 TEST_F(HttpServerTest, Send200) {
   TestHttpClient client;
-  ASSERT_THAT(client.ConnectAndWait(server_address_), IsOk());
+  CreateConnection(&client);
   client.Send("GET /test HTTP/1.1\r\n\r\n");
   RunUntilRequestsReceived(1);
   server_->Send200(GetConnectionId(0), "Response!", "text/plain",
@@ -486,7 +505,7 @@ TEST_F(HttpServerTest, Send200) {
 
 TEST_F(HttpServerTest, SendRaw) {
   TestHttpClient client;
-  ASSERT_THAT(client.ConnectAndWait(server_address_), IsOk());
+  CreateConnection(&client);
   client.Send("GET /test HTTP/1.1\r\n\r\n");
   RunUntilRequestsReceived(1);
   server_->SendRaw(GetConnectionId(0), "Raw Data ",
@@ -511,7 +530,7 @@ TEST_F(HttpServerTest, WrongProtocolRequest) {
 
   for (size_t i = 0; i < base::size(kBadProtocolRequests); ++i) {
     TestHttpClient client;
-    ASSERT_THAT(client.ConnectAndWait(server_address_), IsOk());
+    CreateConnection(&client);
 
     client.Send(kBadProtocolRequests[i]);
     client.ExpectUsedThenDisconnectedWithNoData();
@@ -645,7 +664,7 @@ TEST_F(HttpServerTest, MultipleRequestsOnSameConnection) {
   // The idea behind this test is that requests with or without bodies should
   // not break parsing of the next request.
   TestHttpClient client;
-  ASSERT_THAT(client.ConnectAndWait(server_address_), IsOk());
+  CreateConnection(&client);
   std::string body = "body";
   client.Send(base::StringPrintf(
       "GET /test HTTP/1.1\r\n"
@@ -705,7 +724,7 @@ class CloseOnConnectHttpServerTest : public HttpServerTest {
 
 TEST_F(CloseOnConnectHttpServerTest, ServerImmediatelyClosesConnection) {
   TestHttpClient client;
-  ASSERT_THAT(client.ConnectAndWait(server_address_), IsOk());
+  CreateConnection(&client);
   client.Send("GET / HTTP/1.1\r\n\r\n");
 
   // The server should close the socket without responding.

@@ -7,6 +7,7 @@
 #include <ctime>
 
 #include "base/files/file_util.h"
+#include "base/logging.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
 #include "base/strings/stringprintf.h"
@@ -32,6 +33,12 @@ const base::FilePath kAnnotationsXmlPath =
         .Append(FILE_PATH_LITERAL("traffic_annotation"))
         .Append(FILE_PATH_LITERAL("summary"))
         .Append(FILE_PATH_LITERAL("annotations.xml"));
+
+const base::FilePath kGroupingXmlPath =
+    base::FilePath(FILE_PATH_LITERAL("tools"))
+        .Append(FILE_PATH_LITERAL("traffic_annotation"))
+        .Append(FILE_PATH_LITERAL("summary"))
+        .Append(FILE_PATH_LITERAL("grouping.xml"));
 
 // Extracts annotation id from a line of XML. Expects to have the line in the
 // following format: <... id="..." .../>
@@ -79,7 +86,7 @@ TrafficAnnotationExporter::TrafficAnnotationExporter(
     : source_path_(source_path), modified_(false) {
   all_supported_platforms_.push_back("linux");
   all_supported_platforms_.push_back("windows");
-#if defined(OS_LINUX)
+#if defined(OS_LINUX) || defined(OS_CHROMEOS)
   current_platform_ = "linux";
 #elif defined(OS_WIN)
   current_platform_ = "windows";
@@ -480,7 +487,8 @@ bool TrafficAnnotationExporter::GetOtherPlatformsAnnotationIDs(
     return false;
 
   ids->clear();
-  for (const std::pair<std::string, ArchivedAnnotation>& item : archive_) {
+  for (const std::pair<const std::string, ArchivedAnnotation>& item :
+       archive_) {
     if (item.second.deprecation_date.empty() &&
         !MatchesCurrentPlatform(item.second))
       ids->push_back(item.first);

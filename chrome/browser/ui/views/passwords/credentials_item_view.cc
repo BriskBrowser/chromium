@@ -4,17 +4,23 @@
 
 #include "chrome/browser/ui/views/passwords/credentials_item_view.h"
 
+#include <algorithm>
+#include <memory>
+#include <utility>
+
 #include "base/macros.h"
 #include "base/strings/utf_string_conversions.h"
+#include "chrome/app/vector_icons/vector_icons.h"
 #include "chrome/browser/ui/passwords/manage_passwords_view_utils.h"
 #include "chrome/browser/ui/views/chrome_layout_provider.h"
 #include "chrome/browser/ui/views/chrome_typography.h"
 #include "chrome/grit/theme_resources.h"
-#include "components/autofill/core/common/password_form.h"
+#include "components/vector_icons/vector_icons.h"
 #include "third_party/skia/include/core/SkPath.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/gfx/canvas.h"
 #include "ui/gfx/geometry/insets.h"
+#include "ui/gfx/paint_vector_icon.h"
 #include "ui/views/border.h"
 #include "ui/views/bubble/tooltip_icon.h"
 #include "ui/views/controls/image_view.h"
@@ -53,18 +59,20 @@ CredentialsItemView::CredentialsItemView(
     views::ButtonListener* button_listener,
     const base::string16& upper_text,
     const base::string16& lower_text,
-    SkColor hover_color,
     const autofill::PasswordForm* form,
     network::mojom::URLLoaderFactory* loader_factory,
     int upper_text_style,
     int lower_text_style)
-    : Button(button_listener), form_(form), hover_color_(hover_color) {
+    : Button(button_listener), form_(form) {
   set_notify_enter_exit_on_child(true);
   views::BoxLayout* layout =
       SetLayoutManager(std::make_unique<views::BoxLayout>(
           views::BoxLayout::Orientation::kHorizontal));
   layout->set_cross_axis_alignment(
       views::BoxLayout::CrossAxisAlignment::kCenter);
+  layout->set_between_child_spacing(
+      ChromeLayoutProvider::Get()->GetDistanceMetric(
+          views::DISTANCE_RELATED_LABEL_HORIZONTAL));
   // Create an image-view for the avatar. Make sure it ignores events so that
   // the parent can receive the events instead.
   auto image_view = std::make_unique<CircularImageView>();
@@ -95,12 +103,6 @@ CredentialsItemView::CredentialsItemView(
             views::BoxLayout::Orientation::kVertical));
     text_layout->set_cross_axis_alignment(
         views::BoxLayout::CrossAxisAlignment::kStart);
-    text_container->SetProperty(
-        views::kMarginsKey,
-        gfx::Insets(0,
-                    ChromeLayoutProvider::Get()->GetDistanceMetric(
-                        views::DISTANCE_RELATED_LABEL_HORIZONTAL),
-                    0, 0));
     layout->SetFlexForView(text_container, 1);
   }
 
@@ -121,7 +123,7 @@ CredentialsItemView::CredentialsItemView(
 
   if (form_->is_public_suffix_match) {
     info_icon_ = AddChildView(std::make_unique<views::TooltipIcon>(
-        base::UTF8ToUTF16(form_->origin.GetOrigin().spec())));
+        base::UTF8ToUTF16(form_->url.GetOrigin().spec())));
   }
 
   if (!upper_text.empty() && !lower_text.empty())
@@ -134,13 +136,29 @@ CredentialsItemView::CredentialsItemView(
 
 CredentialsItemView::~CredentialsItemView() = default;
 
-void CredentialsItemView::UpdateAvatar(const gfx::ImageSkia& image) {
-  image_view_->SetImage(ScaleImageForAccountAvatar(image));
+void CredentialsItemView::SetStoreIndicatorIcon(
+    autofill::PasswordForm::Store store) {
+  if (store == autofill::PasswordForm::Store::kAccountStore &&
+      !store_indicator_icon_view_) {
+    store_indicator_icon_view_ =
+        AddChildView(std::make_unique<views::ImageView>());
+    store_indicator_icon_view_->set_can_process_events_within_subtree(false);
+    store_indicator_icon_view_->SetImage(gfx::CreateVectorIcon(
+#if BUILDFLAG(GOOGLE_CHROME_BRANDING)
+        kGoogleGLogoIcon,
+#else
+        vector_icons::kSyncIcon,
+#endif  // !BUILDFLAG(GOOGLE_CHROME_BRANDING)
+        gfx::kPlaceholderColor));
+  } else if (store == autofill::PasswordForm::Store::kProfileStore &&
+             store_indicator_icon_view_) {
+    RemoveChildView(store_indicator_icon_view_);
+    store_indicator_icon_view_ = nullptr;
+  }
 }
 
-void CredentialsItemView::SetLowerLabelColor(SkColor color) {
-  if (lower_label_)
-    lower_label_->SetEnabledColor(color);
+void CredentialsItemView::UpdateAvatar(const gfx::ImageSkia& image) {
+  image_view_->SetImage(ScaleImageForAccountAvatar(image));
 }
 
 int CredentialsItemView::GetPreferredHeight() const {
@@ -148,6 +166,8 @@ int CredentialsItemView::GetPreferredHeight() const {
 }
 
 void CredentialsItemView::OnPaintBackground(gfx::Canvas* canvas) {
-  if (state() == STATE_PRESSED || state() == STATE_HOVERED)
-    canvas->DrawColor(hover_color_);
+  if (GetState() == STATE_PRESSED || GetState() == STATE_HOVERED) {
+    canvas->DrawColor(GetNativeTheme()->GetSystemColor(
+        ui::NativeTheme::kColorId_FocusedMenuItemBackgroundColor));
+  }
 }

@@ -5,14 +5,17 @@
 #include "chrome/browser/ui/global_media_controls/cast_media_notification_item.h"
 
 #include "chrome/browser/bitmap_fetcher/bitmap_fetcher.h"
-#include "chrome/common/media_router/media_route.h"
 #include "chrome/test/base/testing_profile.h"
 #include "components/media_message_center/media_notification_controller.h"
 #include "components/media_message_center/media_notification_view.h"
+#include "components/media_router/common/media_route.h"
+#include "components/vector_icons/vector_icons.h"
 #include "content/public/test/browser_task_environment.h"
+#include "net/url_request/referrer_policy.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/skia/include/core/SkBitmap.h"
+#include "ui/gfx/vector_icon_types.h"
 
 using media_router::mojom::MediaStatus;
 using media_session::mojom::MediaPlaybackState;
@@ -24,7 +27,7 @@ using testing::AtLeast;
 
 namespace {
 
-constexpr char kRouteDesc[] = "route description";
+constexpr char kRouteDesc[] = "My App";
 constexpr char kRouteId[] = "route_id";
 constexpr char kSinkName[] = "My Sink";
 
@@ -46,7 +49,7 @@ class MockBitmapFetcher : public BitmapFetcher {
 
   MOCK_METHOD3(Init,
                void(const std::string& referrer,
-                    net::URLRequest::ReferrerPolicy referrer_policy,
+                    net::ReferrerPolicy referrer_policy,
                     network::mojom::CredentialsMode credentials_mode));
   MOCK_METHOD1(Start, void(network::mojom::URLLoaderFactory* loader_factory));
 };
@@ -58,7 +61,8 @@ class MockMediaNotificationController
   MOCK_METHOD1(HideNotification, void(const std::string&));
   MOCK_METHOD1(RemoveItem, void(const std::string&));
   MOCK_CONST_METHOD0(GetTaskRunner, scoped_refptr<base::SequencedTaskRunner>());
-  MOCK_METHOD1(LogMediaSessionActionButtonPressed, void(const std::string&));
+  MOCK_METHOD2(LogMediaSessionActionButtonPressed,
+               void(const std::string&, MediaSessionAction));
 };
 
 class MockMediaNotificationView
@@ -74,6 +78,7 @@ class MockMediaNotificationView
                void(const base::flat_set<MediaSessionAction>&));
   MOCK_METHOD1(UpdateWithMediaArtwork, void(const gfx::ImageSkia&));
   MOCK_METHOD1(UpdateWithFavicon, void(const gfx::ImageSkia&));
+  MOCK_METHOD1(UpdateWithVectorIcon, void(const gfx::VectorIcon& vector_icon));
 };
 
 class MockSessionController : public CastMediaSessionController {
@@ -104,6 +109,10 @@ class CastMediaNotificationItemTest : public testing::Test {
   }
 
   void SetView() {
+    EXPECT_CALL(view_, UpdateWithVectorIcon(_))
+        .WillOnce([](const gfx::VectorIcon& vector_icon) {
+          EXPECT_EQ(vector_icons::kMediaRouterIdleIcon.reps, vector_icon.reps);
+        });
     EXPECT_CALL(view_, UpdateWithMediaSessionInfo(_))
         .WillOnce([&](const MediaSessionInfoPtr& session_info) {
           EXPECT_EQ(MediaSessionInfo::SessionState::kSuspended,
@@ -119,8 +128,9 @@ class CastMediaNotificationItemTest : public testing::Test {
         });
     EXPECT_CALL(view_, UpdateWithMediaMetadata(_))
         .WillOnce([&](const media_session::MediaMetadata& metadata) {
-          EXPECT_EQ(base::UTF8ToUTF16(kRouteDesc), metadata.artist);
-          EXPECT_EQ(base::UTF8ToUTF16(kSinkName), metadata.source_title);
+          const std::string separator = " \xC2\xB7 ";
+          EXPECT_EQ(base::UTF8ToUTF16(kRouteDesc + separator + kSinkName),
+                    metadata.source_title);
         });
     item_->SetView(&view_);
     testing::Mock::VerifyAndClearExpectations(&view_);
@@ -167,11 +177,14 @@ TEST_F(CastMediaNotificationItemTest, UpdateSessionInfo) {
 TEST_F(CastMediaNotificationItemTest, UpdateMetadata) {
   SetView();
   auto status = MediaStatus::New();
-  std::string title = "my title";
+  const std::string title = "my title";
+  const std::string secondary_title = "my artist";
   status->title = title;
+  status->secondary_title = secondary_title;
   EXPECT_CALL(view_, UpdateWithMediaMetadata(_))
       .WillOnce([&](const media_session::MediaMetadata& metadata) {
         EXPECT_EQ(base::UTF8ToUTF16(title), metadata.title);
+        EXPECT_EQ(base::UTF8ToUTF16(secondary_title), metadata.artist);
       });
   item_->OnMediaStatusUpdated(std::move(status));
 }

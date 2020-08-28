@@ -15,6 +15,7 @@
 #include "base/timer/timer.h"
 #include "components/safe_browsing/buildflags.h"
 #include "components/safe_browsing/core/db/safebrowsing.pb.h"
+#include "components/safe_browsing/core/features.h"
 #include "net/base/load_flags.h"
 #include "net/http/http_response_headers.h"
 #include "net/http/http_status_code.h"
@@ -213,6 +214,7 @@ void V4UpdateProtocolManager::ScheduleNextUpdateAfterInterval(
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK(interval >= base::TimeDelta());
 
+  next_update_time_ = Time::Now() + interval;
   // Unschedule any current timer.
   update_timer_.Stop();
   update_timer_.Start(FROM_HERE, interval, this,
@@ -342,6 +344,8 @@ void V4UpdateProtocolManager::IssueUpdateRequest() {
   GetUpdateUrlAndHeaders(req_base64, &resource_request->url,
                          &resource_request->headers);
   resource_request->load_flags = net::LOAD_DISABLE_CACHE;
+  if (base::FeatureList::IsEnabled(kSafeBrowsingRemoveCookies))
+    resource_request->credentials_mode = network::mojom::CredentialsMode::kOmit;
   std::unique_ptr<network::SimpleURLLoader> loader =
       network::SimpleURLLoader::Create(std::move(resource_request),
                                        traffic_annotation);
@@ -441,12 +445,16 @@ void V4UpdateProtocolManager::CollectUpdateInfo(
 
   if (last_response_time_.ToJavaTime()) {
     update_info->set_last_update_time_millis(last_response_time_.ToJavaTime());
-
-    // We should only find the next update if the last_response is valid.
-    base::Time next_update = last_response_time_ + next_update_interval_;
-    if (next_update.ToJavaTime())
-      update_info->set_next_update_time_millis(next_update.ToJavaTime());
   }
+
+  if (next_update_time_) {
+    update_info->set_next_update_time_millis(
+        next_update_time_.value().ToJavaTime());
+  }
+}
+
+const base::Time& V4UpdateProtocolManager::last_response_time() const {
+  return last_response_time_;
 }
 
 }  // namespace safe_browsing

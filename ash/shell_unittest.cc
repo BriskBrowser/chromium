@@ -14,13 +14,11 @@
 #include "ash/drag_drop/drag_drop_controller_test_api.h"
 #include "ash/keyboard/ui/keyboard_ui_controller.h"
 #include "ash/keyboard/ui/keyboard_util.h"
-#include "ash/public/cpp/ash_features.h"
 #include "ash/public/cpp/ash_prefs.h"
 #include "ash/public/cpp/keyboard/keyboard_switches.h"
 #include "ash/public/cpp/shell_window_ids.h"
 #include "ash/public/cpp/test/shell_test_api.h"
 #include "ash/root_window_controller.h"
-#include "ash/scoped_root_window_for_new_windows.h"
 #include "ash/session/session_controller_impl.h"
 #include "ash/session/test_session_controller_client.h"
 #include "ash/shelf/shelf.h"
@@ -37,15 +35,14 @@
 #include "base/containers/flat_set.h"
 #include "base/stl_util.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/test/scoped_feature_list.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "components/account_id/account_id.h"
-#include "components/prefs/testing_pref_service.h"
 #include "ui/aura/client/aura_constants.h"
 #include "ui/aura/env.h"
 #include "ui/aura/window.h"
 #include "ui/aura/window_event_dispatcher.h"
 #include "ui/base/models/simple_menu_model.h"
+#include "ui/display/scoped_display_for_new_windows.h"
 #include "ui/events/test/event_generator.h"
 #include "ui/events/test/events_test_utils.h"
 #include "ui/events/test/test_event_handler.h"
@@ -114,10 +111,6 @@ void ExpectAllContainers() {
       Shell::GetContainer(root_window, kShellWindowId_LockScreenContainer));
   EXPECT_TRUE(Shell::GetContainer(root_window,
                                   kShellWindowId_LockSystemModalContainer));
-  EXPECT_TRUE(
-      Shell::GetContainer(root_window, kShellWindowId_ShelfControlContainer));
-  EXPECT_TRUE(
-      Shell::GetContainer(root_window, kShellWindowId_OverviewFocusContainer));
   EXPECT_TRUE(Shell::GetContainer(root_window, kShellWindowId_MenuContainer));
   EXPECT_TRUE(Shell::GetContainer(root_window,
                                   kShellWindowId_DragImageAndTooltipContainer));
@@ -137,35 +130,13 @@ void ExpectAllContainers() {
   EXPECT_FALSE(Shell::GetContainer(root_window, kShellWindowId_PhantomWindow));
 }
 
-class ModalWindow : public views::WidgetDelegateView {
- public:
-  ModalWindow() = default;
-  ~ModalWindow() override = default;
-
-  // Overridden from views::WidgetDelegate:
-  bool CanResize() const override { return true; }
-  base::string16 GetWindowTitle() const override {
-    return base::ASCIIToUTF16("Modal Window");
-  }
-  ui::ModalType GetModalType() const override { return ui::MODAL_TYPE_SYSTEM; }
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(ModalWindow);
-};
-
-class WindowWithPreferredSize : public views::WidgetDelegateView {
- public:
-  WindowWithPreferredSize() = default;
-  ~WindowWithPreferredSize() override = default;
-
-  // views::WidgetDelegate:
-  gfx::Size CalculatePreferredSize() const override {
-    return gfx::Size(400, 300);
-  }
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(WindowWithPreferredSize);
-};
+views::WidgetDelegateView* CreateModalWidgetDelegate() {
+  auto delegate = std::make_unique<views::WidgetDelegateView>();
+  delegate->SetCanResize(true);
+  delegate->SetModalType(ui::MODAL_TYPE_SYSTEM);
+  delegate->SetTitle(base::ASCIIToUTF16("Modal Window"));
+  return delegate.release();
+}
 
 class SimpleMenuDelegate : public ui::SimpleMenuModel::Delegate {
  public:
@@ -189,7 +160,7 @@ class ShellTest : public AshTestBase {
   // TODO(jamescook): Convert to AshTestBase::CreateTestWidget().
   views::Widget* CreateTestWindow(views::Widget::InitParams params) {
     views::Widget* widget = new views::Widget;
-    params.context = CurrentContext();
+    params.context = GetContext();
     widget->Init(std::move(params));
     return widget;
   }
@@ -269,14 +240,18 @@ TEST_F(ShellTest, CreateWindowWithPreferredSize) {
   UpdateDisplay("1024x768,800x600");
 
   aura::Window* secondary_root = Shell::GetAllRootWindows()[1];
-  ScopedRootWindowForNewWindows scoped_root(secondary_root);
+  display::ScopedDisplayForNewWindows scoped_display(secondary_root);
 
   views::Widget::InitParams params;
   params.ownership = views::Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
   // Don't specify bounds, parent or context.
-  params.delegate = new WindowWithPreferredSize;
+  {
+    auto delegate = std::make_unique<views::WidgetDelegateView>();
+    delegate->SetPreferredSize(gfx::Size(400, 300));
+    params.delegate = delegate.release();
+  }
   views::Widget widget;
-  params.context = CurrentContext();
+  params.context = GetContext();
   widget.Init(std::move(params));
 
   // Widget is centered on secondary display.
@@ -331,7 +306,7 @@ TEST_F(ShellTest, CreateModalWindow) {
 
   // Create a modal window.
   views::Widget* modal_widget = views::Widget::CreateWindowWithParent(
-      new ModalWindow(), widget->GetNativeView());
+      CreateModalWidgetDelegate(), widget->GetNativeView());
   modal_widget->Show();
 
   // It should be in modal container.
@@ -380,7 +355,7 @@ TEST_F(ShellTest, CreateLockScreenModalWindow) {
 
   // Create a modal window with a lock window as parent.
   views::Widget* lock_modal_widget = views::Widget::CreateWindowWithParent(
-      new ModalWindow(), lock_widget->GetNativeView());
+      CreateModalWidgetDelegate(), lock_widget->GetNativeView());
   lock_modal_widget->Show();
   EXPECT_TRUE(lock_modal_widget->GetNativeView()->HasFocus());
 
@@ -393,7 +368,7 @@ TEST_F(ShellTest, CreateLockScreenModalWindow) {
 
   // Create a modal window with a normal window as parent.
   views::Widget* modal_widget = views::Widget::CreateWindowWithParent(
-      new ModalWindow(), widget->GetNativeView());
+      CreateModalWidgetDelegate(), widget->GetNativeView());
   modal_widget->Show();
   // Window on lock screen shouldn't lost focus.
   EXPECT_FALSE(modal_widget->GetNativeView()->HasFocus());
@@ -406,7 +381,7 @@ TEST_F(ShellTest, CreateLockScreenModalWindow) {
 
   // Modal dialog without parent, caused crash see crbug.com/226141
   views::Widget* modal_dialog = views::DialogDelegate::CreateDialogWidget(
-      new TestModalDialogDelegate(), CurrentContext(), nullptr);
+      new TestModalDialogDelegate(), GetContext(), nullptr);
 
   modal_dialog->Show();
   EXPECT_FALSE(modal_dialog->GetNativeView()->HasFocus());
@@ -589,15 +564,6 @@ TEST_F(ShellTest2, DontCrashWhenWindowDeleted) {
   window_->Init(ui::LAYER_NOT_DRAWN);
 }
 
-// Tests the local state code path.
-class ShellLocalStateTest : public AshTestBase {
- public:
-  ShellLocalStateTest() { DisableProvideLocalState(); }
-
- protected:
-  std::unique_ptr<TestingPrefServiceSimple> local_state_;
-};
-
 using ShellLoginTest = NoSessionAshTestBase;
 
 TEST_F(ShellLoginTest, DragAndDropDisabledBeforeLogin) {
@@ -610,38 +576,10 @@ TEST_F(ShellLoginTest, DragAndDropDisabledBeforeLogin) {
   EXPECT_TRUE(drag_drop_controller_test_api.enabled());
 }
 
-// Defines a parameterized test fixture to validate that there are no duplicate
-// containers IDs in both cases when the Virtual Desks feature is enabled or
-// disabled.
-class NoDuplicateShellContainerIdsTest
-    : public AshTestBase,
-      public ::testing::WithParamInterface<bool> {
- public:
-  NoDuplicateShellContainerIdsTest() = default;
-  ~NoDuplicateShellContainerIdsTest() override = default;
+using NoDuplicateShellContainerIdsTest = AshTestBase;
 
-  // AshTestBase:
-  void SetUp() override {
-    if (GetParam())
-      scoped_feature_list_.InitAndEnableFeature(features::kVirtualDesks);
-    else
-      scoped_feature_list_.InitAndDisableFeature(features::kVirtualDesks);
-
-    AshTestBase::SetUp();
-  }
-
- private:
-  base::test::ScopedFeatureList scoped_feature_list_;
-
-  DISALLOW_COPY_AND_ASSIGN(NoDuplicateShellContainerIdsTest);
-};
-
-TEST_P(NoDuplicateShellContainerIdsTest, ValidateContainersIds) {
+TEST_F(NoDuplicateShellContainerIdsTest, ValidateContainersIds) {
   ExpectAllContainers();
 }
-
-INSTANTIATE_TEST_SUITE_P(All,
-                         NoDuplicateShellContainerIdsTest,
-                         ::testing::Values(false, true));
 
 }  // namespace ash

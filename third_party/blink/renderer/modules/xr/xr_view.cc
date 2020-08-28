@@ -5,14 +5,13 @@
 #include "third_party/blink/renderer/modules/xr/xr_view.h"
 
 #include "third_party/blink/renderer/modules/xr/xr_frame.h"
-#include "third_party/blink/renderer/modules/xr/xr_session.h"
 #include "third_party/blink/renderer/modules/xr/xr_utils.h"
 #include "third_party/blink/renderer/platform/geometry/float_point_3d.h"
 
 namespace blink {
 
-XRView::XRView(XRSession* session, const XRViewData& view_data)
-    : eye_(view_data.Eye()), session_(session) {
+XRView::XRView(XRFrame* frame, const XRViewData& view_data)
+    : eye_(view_data.Eye()), frame_(frame) {
   switch (eye_) {
     case kEyeLeft:
       eye_string_ = "left";
@@ -29,13 +28,16 @@ XRView::XRView(XRSession* session, const XRViewData& view_data)
       transformationMatrixToDOMFloat32Array(view_data.ProjectionMatrix());
 }
 
+XRFrame* XRView::frame() const {
+  return frame_;
+}
+
 XRSession* XRView::session() const {
-  return session_;
+  return frame_->session();
 }
 
 DOMFloat32Array* XRView::projectionMatrix() const {
-  if (!projection_matrix_ || !projection_matrix_->View() ||
-      !projection_matrix_->View()->Data()) {
+  if (!projection_matrix_ || !projection_matrix_->Data()) {
     // A page may take the projection matrix value and detach it so
     // projection_matrix_ is a detached array buffer.  This breaks the
     // inspector, so return null instead.
@@ -142,8 +144,8 @@ XRRigidTransform* XRView::transform() const {
   return ref_space_from_eye_;
 }
 
-void XRView::Trace(blink::Visitor* visitor) {
-  visitor->Trace(session_);
+void XRView::Trace(Visitor* visitor) const {
+  visitor->Trace(frame_);
   visitor->Trace(projection_matrix_);
   visitor->Trace(ref_space_from_eye_);
   ScriptWrappable::Trace(visitor);

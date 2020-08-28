@@ -12,6 +12,7 @@
 #include <utility>
 
 #include "base/bind.h"
+#include "base/callback_helpers.h"
 #include "base/single_thread_task_runner.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/time/time.h"
@@ -29,8 +30,6 @@
 #include "storage/browser/quota/quota_manager_proxy.h"
 #include "storage/common/file_system/file_system_types.h"
 #include "storage/common/file_system/file_system_util.h"
-
-using storage::ScopedFile;
 
 namespace storage {
 
@@ -331,7 +330,12 @@ void FileSystemOperationImpl::CopyFileLocal(
     const CopyFileProgressCallback& progress_callback,
     StatusCallback callback) {
   DCHECK(SetPendingOperationType(kOperationCopy));
-  DCHECK(src_url.IsInSameFileSystem(dest_url));
+  // Don't just DCHECK src_url.IsInSameFileSystem(dest_url). We don't care if
+  // the two URLs are mounted in two different isolated file systems. As long
+  // as their origin and type are the same, they are part of the same file
+  // system, and local operations are allowed.
+  DCHECK_EQ(src_url.origin(), dest_url.origin());
+  DCHECK_EQ(src_url.type(), dest_url.type());
 
   auto repeatable_callback =
       base::AdaptCallbackForRepeating(std::move(callback));
@@ -348,7 +352,12 @@ void FileSystemOperationImpl::MoveFileLocal(const FileSystemURL& src_url,
                                             CopyOrMoveOption option,
                                             StatusCallback callback) {
   DCHECK(SetPendingOperationType(kOperationMove));
-  DCHECK(src_url.IsInSameFileSystem(dest_url));
+  // Don't just DCHECK src_url.IsInSameFileSystem(dest_url). We don't care if
+  // the two URLs are mounted in two different isolated file systems. As long
+  // as their origin and type are the same, they are part of the same file
+  // system, and local operations are allowed.
+  DCHECK_EQ(src_url.origin(), dest_url.origin());
+  DCHECK_EQ(src_url.type(), dest_url.type());
 
   auto repeatable_callback =
       base::AdaptCallbackForRepeating(std::move(callback));
@@ -392,7 +401,7 @@ void FileSystemOperationImpl::GetUsageAndQuotaThenRunTask(
     const FileSystemURL& url,
     base::OnceClosure task,
     base::OnceClosure error_callback) {
-  storage::QuotaManagerProxy* quota_manager_proxy =
+  QuotaManagerProxy* quota_manager_proxy =
       file_system_context()->quota_manager_proxy();
   if (!quota_manager_proxy ||
       !file_system_context()->GetQuotaUtil(url.type())) {

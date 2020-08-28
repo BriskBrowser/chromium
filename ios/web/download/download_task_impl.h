@@ -7,6 +7,8 @@
 
 #include <string>
 
+#include "base/callback_forward.h"
+#include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
 #import "ios/web/public/download/download_task.h"
@@ -45,13 +47,12 @@ class DownloadTaskImpl : public DownloadTask {
 
   // Constructs a new DownloadTaskImpl objects. |web_state|, |identifier| and
   // |delegate| must be valid.
-  DownloadTaskImpl(const WebState* web_state,
+  DownloadTaskImpl(WebState* web_state,
                    const GURL& original_url,
                    NSString* http_method,
                    const std::string& content_disposition,
                    int64_t total_bytes,
                    const std::string& mime_type,
-                   ui::PageTransition page_transition,
                    NSString* identifier,
                    Delegate* delegate);
 
@@ -59,6 +60,7 @@ class DownloadTaskImpl : public DownloadTask {
   void ShutDown();
 
   // DownloadTask overrides:
+  WebState* GetWebState() override;
   DownloadTask::State GetState() const override;
   void Start(std::unique_ptr<net::URLFetcherResponseWriter> writer) override;
   void Cancel() override;
@@ -75,7 +77,6 @@ class DownloadTaskImpl : public DownloadTask {
   std::string GetContentDisposition() const override;
   std::string GetOriginalMimeType() const override;
   std::string GetMimeType() const override;
-  ui::PageTransition GetTransitionType() const override;
   base::string16 GetSuggestedFilename() const override;
   bool HasPerformedBackgroundDownload() const override;
   void AddObserver(DownloadTaskObserver* observer) override;
@@ -130,11 +131,10 @@ class DownloadTaskImpl : public DownloadTask {
   std::string content_disposition_;
   std::string original_mime_type_;
   std::string mime_type_;
-  ui::PageTransition page_transition_ = ui::PAGE_TRANSITION_LINK;
   NSString* identifier_ = nil;
   bool has_performed_background_download_ = false;
 
-  const WebState* web_state_ = nullptr;
+  WebState* web_state_ = nullptr;
   Delegate* delegate_ = nullptr;
   NSURLSession* session_ = nil;
   NSURLSessionTask* session_task_ = nil;

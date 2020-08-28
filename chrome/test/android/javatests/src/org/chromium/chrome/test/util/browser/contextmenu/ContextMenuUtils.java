@@ -4,22 +4,22 @@
 
 package org.chromium.chrome.test.util.browser.contextmenu;
 
-import static android.support.test.espresso.intent.Intents.intended;
+import static androidx.test.espresso.intent.Intents.intended;
 
 import android.app.Activity;
 import android.app.Instrumentation;
-import android.support.test.espresso.intent.Intents;
-import android.support.test.espresso.intent.matcher.IntentMatchers;
 import android.text.TextUtils;
 import android.view.ContextMenu;
 import android.view.MenuItem;
+
+import androidx.test.espresso.intent.Intents;
+import androidx.test.espresso.intent.matcher.IntentMatchers;
 
 import org.junit.Assert;
 
 import org.chromium.base.test.util.CallbackHelper;
 import org.chromium.chrome.browser.tab.EmptyTabObserver;
 import org.chromium.chrome.browser.tab.Tab;
-import org.chromium.content_public.browser.test.util.Criteria;
 import org.chromium.content_public.browser.test.util.CriteriaHelper;
 import org.chromium.content_public.browser.test.util.DOMUtils;
 
@@ -210,13 +210,7 @@ public class ContextMenuUtils {
         });
 
         if (expectedActivity != null) {
-            CriteriaHelper.pollInstrumentationThread(
-                    new Criteria("Activity did not regain focus.") {
-                        @Override
-                        public boolean isSatisfied() {
-                            return expectedActivity.hasWindowFocus();
-                        }
-                    });
+            CriteriaHelper.pollInstrumentationThread(expectedActivity::hasWindowFocus);
         }
 
         if (expectedIntentPackage != null) {

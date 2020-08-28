@@ -11,15 +11,17 @@
 #include "base/macros.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
+#include "build/lacros_buildflags.h"
+#include "chrome/browser/startup_data.h"
 #include "chrome/common/chrome_content_client.h"
 #include "content/public/app/content_main_delegate.h"
 
-#if !defined(CHROME_MULTIPLE_DLL_CHILD)
-#include "chrome/browser/startup_data.h"
-#endif
-
 namespace base {
 class CommandLine;
+}
+
+namespace chromeos {
+class LacrosChromeServiceImpl;
 }
 
 namespace tracing {
@@ -51,22 +53,15 @@ class ChromeMainDelegate : public content::ContentMainDelegate {
       const std::string& process_type,
       const content::MainFunctionParams& main_function_params) override;
   void ProcessExiting(const std::string& process_type) override;
-#if defined(OS_MACOSX)
-  bool ProcessRegistersWithSystemProcess(
-      const std::string& process_type) override;
-  bool DelaySandboxInitialization(const std::string& process_type) override;
-#elif defined(OS_LINUX)
-  void ZygoteStarting(
-      std::vector<std::unique_ptr<service_manager::ZygoteForkDelegate>>*
-          delegates) override;
+#if defined(OS_LINUX) || defined(OS_CHROMEOS)
+  void ZygoteStarting(std::vector<std::unique_ptr<content::ZygoteForkDelegate>>*
+                          delegates) override;
   void ZygoteForked() override;
 #endif
   service_manager::ProcessType OverrideProcessType() override;
   void PreCreateMainMessageLoop() override;
-#if !defined(CHROME_MULTIPLE_DLL_CHILD)
   void PostEarlyInitialization(bool is_running_tests) override;
   bool ShouldCreateFeatureList() override;
-#endif  // !defined(CHROME_MULTIPLE_DLL_CHILD)
   void PostFieldTrialInitialization() override;
 
   content::ContentClient* CreateContentClient() override;
@@ -75,25 +70,27 @@ class ChromeMainDelegate : public content::ContentMainDelegate {
   content::ContentRendererClient* CreateContentRendererClient() override;
   content::ContentUtilityClient* CreateContentUtilityClient() override;
 
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
   void InitMacCrashReporter(const base::CommandLine& command_line,
                             const std::string& process_type);
   void SetUpInstallerPreferences(const base::CommandLine& command_line);
-#endif  // defined(OS_MACOSX)
+#endif  // defined(OS_MAC)
 
   ChromeContentClient chrome_content_client_;
 
   std::unique_ptr<ChromeContentBrowserClient> chrome_content_browser_client_;
 
-#if !defined(CHROME_MULTIPLE_DLL_CHILD)
   std::unique_ptr<StartupData> startup_data_;
-#endif
 
   std::unique_ptr<tracing::TracingSamplerProfiler> tracing_sampler_profiler_;
 
   // The controller schedules UMA heap profiles collections and forwarding down
   // the reporting pipeline.
   std::unique_ptr<HeapProfilerController> heap_profiler_controller_;
+
+#if BUILDFLAG(IS_LACROS)
+  std::unique_ptr<chromeos::LacrosChromeServiceImpl> lacros_chrome_service_;
+#endif
 
   DISALLOW_COPY_AND_ASSIGN(ChromeMainDelegate);
 };

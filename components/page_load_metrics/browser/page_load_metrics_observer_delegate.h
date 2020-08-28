@@ -7,6 +7,7 @@
 
 #include "base/optional.h"
 #include "base/time/time.h"
+#include "components/page_load_metrics/browser/observers/largest_contentful_paint_handler.h"
 #include "components/page_load_metrics/browser/resource_tracker.h"
 #include "components/page_load_metrics/common/page_end_reason.h"
 #include "services/metrics/public/cpp/ukm_source_id.h"
@@ -19,7 +20,7 @@ class WebContents;
 namespace page_load_metrics {
 
 namespace mojom {
-class PageLoadMetadata;
+class FrameMetadata;
 }  // namespace mojom
 
 struct UserInitiatedInfo;
@@ -29,6 +30,20 @@ struct PageRenderData;
 // from any PageLoadMetricsObserver.
 class PageLoadMetricsObserverDelegate {
  public:
+  // States when the page is restored from the back-forward cache.
+  struct BackForwardCacheRestore {
+    explicit BackForwardCacheRestore(bool was_in_foreground);
+    BackForwardCacheRestore(const BackForwardCacheRestore&);
+
+    // The first time when the page becomes backgrounded after the page is
+    // restored. The time is relative to the navigation start of bfcache restore
+    // avigation.
+    base::Optional<base::TimeDelta> first_background_time;
+
+    // True if the page was in foreground when the page is restored.
+    bool was_in_foreground = false;
+  };
+
   virtual content::WebContents* GetWebContents() const = 0;
 
   // The time the navigation was initiated.
@@ -41,6 +56,10 @@ class PageLoadMetricsObserverDelegate {
   // The first time that the page was foregrounded since the navigation started.
   virtual const base::Optional<base::TimeDelta>& GetFirstForegroundTime()
       const = 0;
+
+  // The state of index-th restore from the back-forward cache.
+  virtual const BackForwardCacheRestore& GetBackForwardCacheRestore(
+      size_t index) const = 0;
 
   // True if the page load started in the foreground.
   virtual bool StartedInForeground() const = 0;
@@ -91,17 +110,29 @@ class PageLoadMetricsObserverDelegate {
 
   // Extra information supplied to the page load metrics system from the
   // renderer for the main frame.
-  virtual const mojom::PageLoadMetadata& GetMainFrameMetadata() const = 0;
+  virtual const mojom::FrameMetadata& GetMainFrameMetadata() const = 0;
 
-  // PageLoadMetadata for subframes of the current page load.
-  virtual const mojom::PageLoadMetadata& GetSubframeMetadata() const = 0;
+  // FrameMetadata for subframes of the current page load. This contains
+  // aggregate information across all subframes. Non-aggregatable information
+  // such as subframe intersections is initialized to defaults.
+  virtual const mojom::FrameMetadata& GetSubframeMetadata() const = 0;
   virtual const PageRenderData& GetPageRenderData() const = 0;
+  // InputTiming data accumulated across all frames.
+  virtual const mojom::InputTiming& GetPageInputTiming() const = 0;
   virtual const PageRenderData& GetMainFrameRenderData() const = 0;
   virtual const ui::ScopedVisibilityTracker& GetVisibilityTracker() const = 0;
   virtual const ResourceTracker& GetResourceTracker() const = 0;
 
-  // UKM SourceId for the current page load.
-  virtual ukm::SourceId GetSourceId() const = 0;
+  // Returns a shared LargestContentfulPaintHandler for page load metrics.
+  virtual const LargestContentfulPaintHandler&
+  GetLargestContentfulPaintHandler() const = 0;
+  // Returns a LargestContentfulPaintHandler for the experimental version of
+  // LCP.
+  virtual const LargestContentfulPaintHandler&
+  GetExperimentalLargestContentfulPaintHandler() const = 0;
+
+  // UKM source ID for the current page load.
+  virtual ukm::SourceId GetPageUkmSourceId() const = 0;
 
   // Whether the associated navigation is the first navigation in its associated
   // WebContents. Note that, for newly opened tabs that display the New Tab

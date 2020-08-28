@@ -10,20 +10,18 @@ import static org.chromium.chrome.browser.feed.library.basicstream.internal.view
 import static org.chromium.chrome.browser.feed.library.basicstream.internal.viewholders.ViewHolderType.TYPE_ZERO_STATE;
 
 import android.content.Context;
-import android.support.annotation.VisibleForTesting;
-import android.support.v7.util.DiffUtil;
-import android.support.v7.util.DiffUtil.DiffResult;
-import android.support.v7.util.ListUpdateCallback;
-import android.support.v7.widget.RecyclerView;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.ViewGroup.LayoutParams;
 import android.widget.FrameLayout;
 
 import androidx.annotation.Nullable;
+import androidx.annotation.VisibleForTesting;
+import androidx.recyclerview.widget.DiffUtil;
+import androidx.recyclerview.widget.DiffUtil.DiffResult;
+import androidx.recyclerview.widget.ListUpdateCallback;
+import androidx.recyclerview.widget.RecyclerView;
 
-import org.chromium.chrome.browser.feed.library.api.client.stream.Header;
-import org.chromium.chrome.browser.feed.library.api.client.stream.Stream.ContentChangedListener;
 import org.chromium.chrome.browser.feed.library.api.host.config.Configuration;
 import org.chromium.chrome.browser.feed.library.api.host.stream.CardConfiguration;
 import org.chromium.chrome.browser.feed.library.basicstream.internal.drivers.HeaderDriver;
@@ -42,6 +40,8 @@ import org.chromium.chrome.browser.feed.library.piet.PietManager;
 import org.chromium.chrome.browser.feed.library.sharedstream.deepestcontenttracker.DeepestContentTracker;
 import org.chromium.chrome.browser.feed.library.sharedstream.piet.PietEventLogger;
 import org.chromium.chrome.browser.feed.library.sharedstream.publicapi.scroll.ScrollObservable;
+import org.chromium.chrome.browser.feed.shared.stream.Header;
+import org.chromium.chrome.browser.feed.shared.stream.Stream.ContentChangedListener;
 
 import java.util.ArrayList;
 import java.util.Collections;

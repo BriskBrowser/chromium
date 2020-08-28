@@ -143,7 +143,7 @@ bool BrowserCompositorMac::UpdateSurfaceFromNSView(
   if (recyclable_compositor_) {
     recyclable_compositor_->UpdateSurface(dfh_size_pixels_,
                                           dfh_display_.device_scale_factor(),
-                                          dfh_display_.color_space());
+                                          dfh_display_.color_spaces());
   }
 
   return true;
@@ -165,7 +165,7 @@ void BrowserCompositorMac::UpdateSurfaceFromChild(
       if (recyclable_compositor_) {
         recyclable_compositor_->UpdateSurface(
             dfh_size_pixels_, dfh_display_.device_scale_factor(),
-            dfh_display_.color_space());
+            dfh_display_.color_spaces());
       }
     }
     delegated_frame_host_->EmbedSurface(
@@ -268,10 +268,10 @@ void BrowserCompositorMac::TransitionToState(State new_state) {
   if (new_state == HasOwnCompositor) {
     recyclable_compositor_ =
         ui::RecyclableCompositorMacFactory::Get()->CreateCompositor(
-            content::GetContextFactory(), content::GetContextFactoryPrivate());
+            content::GetContextFactory());
     recyclable_compositor_->UpdateSurface(dfh_size_pixels_,
                                           dfh_display_.device_scale_factor(),
-                                          dfh_display_.color_space());
+                                          dfh_display_.color_spaces());
     recyclable_compositor_->compositor()->SetRootLayer(root_layer_.get());
     recyclable_compositor_->compositor()->SetBackgroundColor(background_color_);
     recyclable_compositor_->widget()->SetNSView(
@@ -285,7 +285,7 @@ void BrowserCompositorMac::TransitionToState(State new_state) {
       delegated_frame_host_->HasSavedFrame();
   delegated_frame_host_->WasShown(
       GetRendererLocalSurfaceIdAllocation().local_surface_id(), dfh_size_dip_,
-      base::nullopt /* record_tab_switch_time_request */);
+      {} /* record_tab_switch_time_request */);
 }
 
 // static
@@ -387,7 +387,7 @@ bool BrowserCompositorMac::ForceNewSurfaceForTesting() {
 }
 
 void BrowserCompositorMac::GetRendererScreenInfo(
-    ScreenInfo* screen_info) const {
+    blink::ScreenInfo* screen_info) const {
   DisplayUtil::DisplayToScreenInfo(screen_info, dfh_display_);
 }
 

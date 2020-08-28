@@ -1958,7 +1958,7 @@ TEST_F(DriveApiRequestsTest, DownloadFileRequest) {
 
   std::string contents;
   base::ReadFileToString(temp_file, &contents);
-  base::DeleteFile(temp_file, false);
+  base::DeleteFile(temp_file);
 
   EXPECT_EQ(HTTP_SUCCESS, result_code);
   EXPECT_EQ(net::test_server::METHOD_GET, http_request_.method);
@@ -1992,7 +1992,7 @@ TEST_F(DriveApiRequestsTest, DownloadFileRequest_GetContentCallback) {
     run_loop.Run();
   }
 
-  base::DeleteFile(temp_file, false);
+  base::DeleteFile(temp_file);
 
   EXPECT_EQ(HTTP_SUCCESS, result_code);
   EXPECT_EQ(net::test_server::METHOD_GET, http_request_.method);
@@ -2095,16 +2095,16 @@ TEST_F(DriveApiRequestsTest, BatchUploadRequest) {
   std::unique_ptr<FileResource> file_resources[2];
   base::RunLoop run_loop[2];
   for (int i = 0; i < 2; ++i) {
-    const FileResourceCallback callback = test_util::CreateQuitCallback(
+    FileResourceCallback callback = test_util::CreateQuitCallback(
         &run_loop[i],
         test_util::CreateCopyResultCallback(&errors[i], &file_resources[i]));
     drive::MultipartUploadNewFileDelegate* const child_request =
         new drive::MultipartUploadNewFileDelegate(
             request_sender_->blocking_task_runner(),
-            base::StringPrintf("new file title %d", i),
-            "parent_resource_id", kTestContentType, kTestContent.size(),
-            base::Time(), base::Time(), kTestFilePath, drive::Properties(),
-            *url_generator_, callback, ProgressCallback());
+            base::StringPrintf("new file title %d", i), "parent_resource_id",
+            kTestContentType, kTestContent.size(), base::Time(), base::Time(),
+            kTestFilePath, drive::Properties(), *url_generator_,
+            std::move(callback), ProgressCallback());
     child_request->SetBoundaryForTesting("INNERBOUNDARY");
     request_ptr->AddRequest(child_request);
   }

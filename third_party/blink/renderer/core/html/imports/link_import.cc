@@ -78,10 +78,10 @@ void LinkImport::Process() {
   network::mojom::ReferrerPolicy referrer_policy = owner_->GetReferrerPolicy();
   resource_request.SetReferrerPolicy(referrer_policy);
 
-  ResourceLoaderOptions options;
+  ResourceLoaderOptions options(GetExecutionContext()->GetCurrentWorld());
   options.initiator_info.name = owner_->localName();
 
-  FetchParameters params(resource_request, options);
+  FetchParameters params(std::move(resource_request), options);
   params.SetCharset(GetCharset());
   params.SetContentSecurityPolicyNonce(owner_->nonce());
 
@@ -128,7 +128,7 @@ void LinkImport::OwnerRemoved() {
     GetDocument().GetStyleEngine().HtmlImportAddedOrRemoved();
 }
 
-void LinkImport::Trace(Visitor* visitor) {
+void LinkImport::Trace(Visitor* visitor) const {
   visitor->Trace(child_);
   HTMLImportChildClient::Trace(visitor);
   LinkResource::Trace(visitor);

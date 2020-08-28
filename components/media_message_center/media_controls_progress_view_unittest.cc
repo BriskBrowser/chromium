@@ -4,6 +4,8 @@
 
 #include "components/media_message_center/media_controls_progress_view.h"
 
+#include <memory>
+
 #include "base/bind_helpers.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/task_environment.h"
@@ -31,8 +33,8 @@ class MediaControlsProgressViewTest : public views::ViewsTestBase {
     params.bounds = gfx::Rect(300, 300);
     params.ownership = views::Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
     widget_.Init(std::move(params));
-    views::View* container = new views::View();
-    widget_.SetContentsView(container);
+    views::View* container =
+        widget_.SetContentsView(std::make_unique<views::View>());
 
     progress_view_ = new MediaControlsProgressView(base::DoNothing());
     container->AddChildView(progress_view_);
@@ -120,8 +122,8 @@ TEST_F(MAYBE_MediaControlsProgressViewTest, UpdateProgress) {
             base::ASCIIToUTF16("05:00"));
   EXPECT_EQ(progress_view_->progress_bar_for_testing()->GetValue(), .5);
 
-  task_environment_->FastForwardBy(base::TimeDelta::FromSeconds(30));
-  task_environment_->RunUntilIdle();
+  task_environment()->FastForwardBy(base::TimeDelta::FromSeconds(30));
+  task_environment()->RunUntilIdle();
 
   EXPECT_EQ(progress_view_->duration_for_testing(),
             base::ASCIIToUTF16("10:00"));
@@ -143,8 +145,8 @@ TEST_F(MAYBE_MediaControlsProgressViewTest, UpdateProgressFastPlayback) {
             base::ASCIIToUTF16("05:00"));
   EXPECT_EQ(progress_view_->progress_bar_for_testing()->GetValue(), .5);
 
-  task_environment_->FastForwardBy(base::TimeDelta::FromSeconds(15));
-  task_environment_->RunUntilIdle();
+  task_environment()->FastForwardBy(base::TimeDelta::FromSeconds(15));
+  task_environment()->RunUntilIdle();
 
   EXPECT_EQ(progress_view_->duration_for_testing(),
             base::ASCIIToUTF16("10:00"));
@@ -166,8 +168,8 @@ TEST_F(MAYBE_MediaControlsProgressViewTest, UpdateProgressSlowPlayback) {
             base::ASCIIToUTF16("05:00"));
   EXPECT_EQ(progress_view_->progress_bar_for_testing()->GetValue(), .5);
 
-  task_environment_->FastForwardBy(base::TimeDelta::FromSeconds(60));
-  task_environment_->RunUntilIdle();
+  task_environment()->FastForwardBy(base::TimeDelta::FromSeconds(60));
+  task_environment()->RunUntilIdle();
 
   EXPECT_EQ(progress_view_->duration_for_testing(),
             base::ASCIIToUTF16("10:00"));
@@ -189,8 +191,8 @@ TEST_F(MAYBE_MediaControlsProgressViewTest, UpdateProgressNegativePlayback) {
             base::ASCIIToUTF16("05:00"));
   EXPECT_EQ(progress_view_->progress_bar_for_testing()->GetValue(), .5);
 
-  task_environment_->FastForwardBy(base::TimeDelta::FromSeconds(30));
-  task_environment_->RunUntilIdle();
+  task_environment()->FastForwardBy(base::TimeDelta::FromSeconds(30));
+  task_environment()->RunUntilIdle();
 
   EXPECT_EQ(progress_view_->duration_for_testing(),
             base::ASCIIToUTF16("10:00"));
@@ -213,8 +215,8 @@ TEST_F(MAYBE_MediaControlsProgressViewTest, UpdateProgressPastDuration) {
   EXPECT_EQ(progress_view_->progress_bar_for_testing()->GetValue(), .5);
 
   // Move forward in time past the duration.
-  task_environment_->FastForwardBy(base::TimeDelta::FromMinutes(6));
-  task_environment_->RunUntilIdle();
+  task_environment()->FastForwardBy(base::TimeDelta::FromMinutes(6));
+  task_environment()->RunUntilIdle();
 
   // Verify the progress does not go past the duration.
   EXPECT_EQ(progress_view_->duration_for_testing(),
@@ -238,8 +240,8 @@ TEST_F(MAYBE_MediaControlsProgressViewTest, UpdateProgressBeforeStart) {
   EXPECT_EQ(progress_view_->progress_bar_for_testing()->GetValue(), .5);
 
   // Move forward in time before the start using negative playback rate.
-  task_environment_->FastForwardBy(base::TimeDelta::FromMinutes(6));
-  task_environment_->RunUntilIdle();
+  task_environment()->FastForwardBy(base::TimeDelta::FromMinutes(6));
+  task_environment()->RunUntilIdle();
 
   // Verify the progress does not go below 0.
   EXPECT_EQ(progress_view_->duration_for_testing(),
@@ -262,8 +264,8 @@ TEST_F(MAYBE_MediaControlsProgressViewTest, UpdateProgressPaused) {
             base::ASCIIToUTF16("05:00"));
   EXPECT_EQ(progress_view_->progress_bar_for_testing()->GetValue(), .5);
 
-  task_environment_->FastForwardBy(base::TimeDelta::FromMinutes(6));
-  task_environment_->RunUntilIdle();
+  task_environment()->FastForwardBy(base::TimeDelta::FromMinutes(6));
+  task_environment()->RunUntilIdle();
 
   // Verify the progress does not change while media is paused.
   EXPECT_EQ(progress_view_->duration_for_testing(),

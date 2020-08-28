@@ -4,6 +4,8 @@
 
 #include "chrome/browser/ui/extensions/extension_installed_waiter.h"
 
+#include "base/bind_helpers.h"
+#include "base/command_line.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/load_error_reporter.h"
 #include "chrome/browser/extensions/test_extension_system.h"
@@ -138,5 +140,25 @@ TEST_F(ExtensionInstalledWaiterTest, BrowserShutdownWhileWaiting) {
 
   browser->OnWindowClosing();
   EXPECT_EQ(1, giving_up_called_);
+  EXPECT_EQ(0, done_called_);
+}
+
+// Regression test for https://crbug.com/1049190.
+TEST_F(ExtensionInstalledWaiterTest, BrowserShutdownWhileWaitingDoesntCrash) {
+  std::unique_ptr<BrowserWindow> window = CreateBrowserWindow();
+  std::unique_ptr<Browser> browser =
+      CreateBrowser(profile(), Browser::TYPE_NORMAL, false, window.get());
+
+  auto foo = MakeExtensionNamed("foo");
+  WaitFor(foo, browser.get());
+
+  // Null out the giving-up callback, which is how the class is actually used in
+  // production.
+  ExtensionInstalledWaiter::SetGivingUpCallbackForTesting({});
+
+  // If the fix for https://crbug.com/1049190 regresses, this will crash:
+  browser->OnWindowClosing();
+
+  EXPECT_EQ(0, giving_up_called_);
   EXPECT_EQ(0, done_called_);
 }

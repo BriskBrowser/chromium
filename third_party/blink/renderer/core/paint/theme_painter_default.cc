@@ -30,6 +30,7 @@
 #include "third_party/blink/public/resources/grit/blink_image_resources.h"
 #include "third_party/blink/renderer/core/frame/local_frame_view.h"
 #include "third_party/blink/renderer/core/html/forms/html_input_element.h"
+#include "third_party/blink/renderer/core/html/forms/spin_button_element.h"
 #include "third_party/blink/renderer/core/html/shadow/shadow_element_names.h"
 #include "third_party/blink/renderer/core/layout/layout_object.h"
 #include "third_party/blink/renderer/core/layout/layout_progress.h"
@@ -350,20 +351,32 @@ bool ThemePainterDefault::PaintSliderTrack(const LayoutObject& o,
   auto* input = DynamicTo<HTMLInputElement>(o.GetNode());
   extra_params.slider.thumb_x = 0;
   extra_params.slider.thumb_y = 0;
+  extra_params.slider.right_to_left = !o.StyleRef().IsLeftToRightDirection();
   if (input) {
     Element* thumb_element = input->UserAgentShadowRoot()
                                  ? input->UserAgentShadowRoot()->getElementById(
                                        shadow_element_names::SliderThumb())
                                  : nullptr;
     LayoutBox* thumb = thumb_element ? thumb_element->GetLayoutBox() : nullptr;
+    LayoutBox* input_box = input->GetLayoutBox();
     if (thumb) {
       IntRect thumb_rect = PixelSnappedIntRect(thumb->FrameRect());
       if (features::IsFormControlsRefreshEnabled()) {
-        extra_params.slider.thumb_x = thumb_rect.X();
-        extra_params.slider.thumb_y = thumb_rect.Y();
+        extra_params.slider.thumb_x = thumb_rect.X() +
+                                      input_box->PaddingLeft().ToInt() +
+                                      input_box->BorderLeft().ToInt();
+        extra_params.slider.thumb_y = thumb_rect.Y() +
+                                      input_box->PaddingTop().ToInt() +
+                                      input_box->BorderTop().ToInt();
       } else {
-        extra_params.slider.thumb_x = thumb_rect.X() / zoom_level;
-        extra_params.slider.thumb_y = thumb_rect.Y() / zoom_level;
+        extra_params.slider.thumb_x =
+            (thumb_rect.X() + input_box->PaddingLeft().ToInt() +
+             input_box->BorderLeft().ToInt()) /
+            zoom_level;
+        extra_params.slider.thumb_y =
+            (thumb_rect.Y() + input_box->PaddingTop().ToInt() +
+             input_box->BorderTop().ToInt()) /
+            zoom_level;
       }
     }
   }
@@ -409,8 +422,14 @@ bool ThemePainterDefault::PaintInnerSpinButton(const Node* node,
                                                const IntRect& rect) {
   WebThemeEngine::ExtraParams extra_params;
   cc::PaintCanvas* canvas = paint_info.context.Canvas();
-  extra_params.inner_spin.spin_up =
-      (LayoutTheme::ControlStatesForNode(node, style) & kSpinUpControlState);
+
+  bool spin_up = false;
+  if (const auto* element = DynamicTo<SpinButtonElement>(node)) {
+    if (element->GetUpDownState() == SpinButtonElement::kUp)
+      spin_up = node->IsHovered() || node->IsActive();
+  }
+
+  extra_params.inner_spin.spin_up = spin_up;
   extra_params.inner_spin.read_only = LayoutTheme::IsReadOnlyControl(node);
 
   Platform::Current()->ThemeEngine()->Paint(
@@ -488,15 +507,26 @@ bool ThemePainterDefault::PaintSearchFieldCancelButton(
       cancel_button_size, cancel_button_size);
   IntRect painting_rect = ConvertToPaintingRect(
       input_layout_box, cancel_button_object, cancel_button_rect, r);
-
+  WebColorScheme color_scheme =
+      cancel_button_object.StyleRef().UsedColorScheme();
   DEFINE_STATIC_REF(Image, cancel_image,
                     (Image::LoadPlatformResource(IDR_SEARCH_CANCEL)));
   DEFINE_STATIC_REF(Image, cancel_pressed_image,
                     (Image::LoadPlatformResource(IDR_SEARCH_CANCEL_PRESSED)));
+  DEFINE_STATIC_REF(Image, cancel_image_dark_mode,
+                    (Image::LoadPlatformResource(IDR_SEARCH_CANCEL_DARK_MODE)));
+  DEFINE_STATIC_REF(
+      Image, cancel_pressed_image_dark_mode,
+      (Image::LoadPlatformResource(IDR_SEARCH_CANCEL_PRESSED_DARK_MODE)));
+  Image* color_scheme_adjusted_cancel_image =
+      color_scheme == kLight ? cancel_image : cancel_image_dark_mode;
+  Image* color_scheme_adjusted_cancel_pressed_image =
+      color_scheme == kLight ? cancel_pressed_image
+                             : cancel_pressed_image_dark_mode;
   paint_info.context.DrawImage(
       LayoutTheme::IsPressed(cancel_button_object.GetNode())
-          ? cancel_pressed_image
-          : cancel_image,
+          ? color_scheme_adjusted_cancel_pressed_image
+          : color_scheme_adjusted_cancel_image,
       Image::kSyncDecode, FloatRect(painting_rect));
   return false;
 }

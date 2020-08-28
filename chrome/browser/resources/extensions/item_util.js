@@ -22,7 +22,6 @@ export const SourceType = {
 export const EnableControl = {
   RELOAD: 'RELOAD',
   REPAIR: 'REPAIR',
-  ENABLE_BUTTON: 'ENABLE_BUTTON',
   ENABLE_TOGGLE: 'ENABLE_TOGGLE',
 };
 
@@ -45,14 +44,6 @@ export function isEnabled(state) {
 }
 
 /**
- * @param {!chrome.developerPrivate.ExtensionInfo} extensionInfo
- * @return {boolean} Whether the extension is controlled.
- */
-export function isControlled(extensionInfo) {
-  return !!extensionInfo.controlledInfo;
-}
-
-/**
  * Returns true if the user can change whether or not the extension is
  * enabled.
  * @param {!chrome.developerPrivate.ExtensionInfo} item
@@ -67,8 +58,7 @@ export function userCanChangeEnablement(item) {
   if (item.disableReasons.corruptInstall ||
       item.disableReasons.suspiciousInstall ||
       item.disableReasons.updateRequired ||
-      item.disableReasons.blockedByPolicy ||
-      item.disableReasons.custodianApprovalRequired) {
+      item.disableReasons.blockedByPolicy) {
     return false;
   }
   // An item with dependent extensions can't be disabled (it would bork the
@@ -89,9 +79,7 @@ export function userCanChangeEnablement(item) {
  * @return {SourceType}
  */
 export function getItemSource(item) {
-  if (item.controlledInfo &&
-      item.controlledInfo.type ===
-          chrome.developerPrivate.ControllerType.POLICY) {
+  if (item.controlledInfo) {
     return SourceType.POLICY;
   }
 
@@ -179,11 +167,8 @@ export function getEnableControl(data) {
   if (isTerminated_(data.state)) {
     return EnableControl.RELOAD;
   }
-  if (data.disableReasons.corruptInstall) {
+  if (data.disableReasons.corruptInstall && data.userMayModify) {
     return EnableControl.REPAIR;
-  }
-  if (data.disableReasons.custodianApprovalRequired) {
-    return EnableControl.ENABLE_BUTTON;
   }
   return EnableControl.ENABLE_TOGGLE;
 }

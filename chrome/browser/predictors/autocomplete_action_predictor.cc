@@ -20,9 +20,6 @@
 #include "chrome/browser/predictors/autocomplete_action_predictor_factory.h"
 #include "chrome/browser/predictors/predictor_database.h"
 #include "chrome/browser/predictors/predictor_database_factory.h"
-#include "chrome/browser/prerender/prerender_field_trial.h"
-#include "chrome/browser/prerender/prerender_handle.h"
-#include "chrome/browser/prerender/prerender_manager.h"
 #include "chrome/browser/prerender/prerender_manager_factory.h"
 #include "chrome/browser/profiles/profile.h"
 #include "components/history/core/browser/in_memory_database.h"
@@ -30,6 +27,9 @@
 #include "components/omnibox/browser/autocomplete_result.h"
 #include "components/omnibox/browser/omnibox_log.h"
 #include "components/omnibox/browser/omnibox_popup_model.h"
+#include "components/prerender/browser/prerender_field_trial.h"
+#include "components/prerender/browser/prerender_handle.h"
+#include "components/prerender/browser/prerender_manager.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/notification_details.h"
 #include "content/public/browser/notification_service.h"
@@ -71,8 +71,8 @@ const size_t AutocompleteActionPredictor::kMaximumStringLength = 1024;
 
 AutocompleteActionPredictor::AutocompleteActionPredictor(Profile* profile)
     : profile_(profile),
-      main_profile_predictor_(NULL),
-      incognito_predictor_(NULL),
+      main_profile_predictor_(nullptr),
+      incognito_predictor_(nullptr),
       initialized_(false) {
   if (profile_->IsOffTheRecord()) {
     main_profile_predictor_ = AutocompleteActionPredictorFactory::GetForProfile(
@@ -104,9 +104,9 @@ AutocompleteActionPredictor::AutocompleteActionPredictor(Profile* profile)
 
 AutocompleteActionPredictor::~AutocompleteActionPredictor() {
   if (main_profile_predictor_)
-    main_profile_predictor_->incognito_predictor_ = NULL;
+    main_profile_predictor_->incognito_predictor_ = nullptr;
   else if (incognito_predictor_)
-    incognito_predictor_->main_profile_predictor_ = NULL;
+    incognito_predictor_->main_profile_predictor_ = nullptr;
   if (prerender_handle_.get())
     prerender_handle_->OnCancel();
 }
@@ -254,9 +254,6 @@ void AutocompleteActionPredictor::OnOmniboxOpenedUrl(const OmniboxLog& log) {
     // Don't release |prerender_handle_| so it is canceled if it survives to the
     // next StartPrerendering call.
   }
-
-  UMA_HISTOGRAM_BOOLEAN("Prerender.OmniboxNavigationsCouldPrerender",
-                        prerender::IsNoStatePrefetchEnabled());
 
   const AutocompleteMatch& match = log.result.match_at(log.selected_index);
   const GURL& opened_url = match.destination_url;

@@ -55,7 +55,6 @@ class VIEWS_EXPORT MenuButtonController : public ButtonController {
   bool OnKeyReleased(const ui::KeyEvent& event) override;
   void OnGestureEvent(ui::GestureEvent* event) override;
   void UpdateAccessibleNodeData(ui::AXNodeData* node_data) override;
-  void OnStateChanged(Button::ButtonState old_state) override;
   bool IsTriggerableEvent(const ui::Event& event) override;
 
   // Calls TakeLock with is_sibling_menu_show as false and a nullptr to the
@@ -77,10 +76,6 @@ class VIEWS_EXPORT MenuButtonController : public ButtonController {
   // menu, this is distinct from IsTriggerableEvent().
   bool IsTriggerableEventType(const ui::Event& event);
 
-  // Returns true if the amount of time since the last menu_closed_time_ is
-  // large enough to be considered an intentionally different event.
-  bool IsIntentionalMenuTrigger() const;
-
  private:
   // Increment/decrement the number of "pressed" locks this button has, and
   // set the state accordingly. The ink drop is snapped to the final ACTIVATED
@@ -91,6 +86,9 @@ class VIEWS_EXPORT MenuButtonController : public ButtonController {
                               const ui::LocatedEvent* event);
 
   void DecrementPressedLocked();
+
+  // Called if the button state changes while pressed lock is engaged.
+  void OnButtonStateChangedWhilePressedLocked();
 
   // Our listener. Not owned.
   ButtonListener* const listener_;
@@ -103,6 +101,9 @@ class VIEWS_EXPORT MenuButtonController : public ButtonController {
   // Windows, the button is not part of the displayed menu.
   base::TimeTicks menu_closed_time_;
 
+  // Tracks if the current triggering event should open a menu.
+  bool is_intentional_menu_trigger_ = true;
+
   // The current number of "pressed" locks this button has.
   int pressed_lock_count_ = 0;
 
@@ -113,6 +114,9 @@ class VIEWS_EXPORT MenuButtonController : public ButtonController {
   // should return to it once the press is complete. This can happen if, e.g.,
   // we programmatically show a menu on a disabled button.
   bool should_disable_after_press_ = false;
+
+  // Subscribes to state changes on the button while pressed lock is engaged.
+  views::PropertyChangedSubscription state_changed_subscription_;
 
   base::WeakPtrFactory<MenuButtonController> weak_factory_{this};
 

@@ -9,9 +9,9 @@
 
 #include "base/bind.h"
 #include "base/strings/string_util.h"
-#include "base/task/post_task.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "content/public/browser/browser_task_traits.h"
+#include "content/public/browser/browser_thread.h"
 #include "net/base/net_errors.h"
 #include "net/dns/mdns_client.h"
 #include "net/dns/public/dns_protocol.h"
@@ -123,8 +123,7 @@ class MDnsHostLocator::Impl {
 };
 
 MDnsHostLocator::MDnsHostLocator()
-    : io_task_runner_(
-          base::CreateSingleThreadTaskRunner({content::BrowserThread::IO})),
+    : io_task_runner_(content::GetIOThreadTaskRunner({})),
       impl_(nullptr, base::OnTaskRunnerDeleter(io_task_runner_)) {}
 
 MDnsHostLocator::~MDnsHostLocator() {
@@ -310,7 +309,7 @@ void MDnsHostLocator::Impl::OnATransactionResponse(
     const net::ARecordRdata* ip = record->rdata<net::ARecordRdata>();
     DCHECK(ip);
 
-    results_[RemoveLocal(raw_hostname)] = ip->address().ToString();
+    results_[RemoveLocal(raw_hostname)] = ip->address();
   }
 
   // Regardless of what the result is, check to see if the callback can be fired

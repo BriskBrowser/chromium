@@ -14,6 +14,7 @@
 #include "base/win/win_util.h"
 #include "build/branding_buildflags.h"
 #include "chrome/chrome_elf/nt_registry/nt_registry.h"
+#include "chrome/install_static/buildflags.h"
 #include "chrome/install_static/install_details.h"
 #include "chrome/install_static/install_modes.h"
 #include "chrome/install_static/test/scoped_install_details.h"
@@ -100,7 +101,7 @@ TEST(InstallStaticTest, GetSwitchValueFromCommandLineTest) {
   value = GetSwitchValueFromCommandLine(L"\"blah --type=\t\t\t", L"type");
   EXPECT_TRUE(value.empty());
 
-  // Anything following "--" should be considered args and therfore ignored.
+  // Anything following "--" should be considered args and therefore ignored.
   value = GetSwitchValueFromCommandLine(L"blah -- --type=bleh", L"type");
   EXPECT_TRUE(value.empty());
 }
@@ -170,8 +171,8 @@ TEST(InstallStaticTest, SpacesAndQuotesInCommandLineArguments) {
   EXPECT_EQ(L"C:\\with space\\b.exe", tokenized[0]);
   EXPECT_EQ(L"--stuff=d:\\stuff and things", tokenized[1]);
 
-  tokenized = TokenizeCommandLineToArray(
-      L"\"C:\\with space\\b.exe\" \\\\\\\"\"");
+  tokenized =
+      TokenizeCommandLineToArray(L"\"C:\\with space\\b.exe\" \\\\\\\"\"");
   ASSERT_EQ(2u, tokenized.size());
   EXPECT_EQ(L"C:\\with space\\b.exe", tokenized[0]);
   EXPECT_EQ(L"\\\"", tokenized[1]);
@@ -198,14 +199,12 @@ TEST(InstallStaticTest, SpacesAndQuotesOldNewThing) {
   EXPECT_EQ(L"program.exe", tokenized[0]);
   EXPECT_EQ(L"C:\\Hello there.txt", tokenized[1]);
 
-  tokenized =
-      TokenizeCommandLineToArray(L"program.exe \"hello\\\"there\"");
+  tokenized = TokenizeCommandLineToArray(L"program.exe \"hello\\\"there\"");
   ASSERT_EQ(2u, tokenized.size());
   EXPECT_EQ(L"program.exe", tokenized[0]);
   EXPECT_EQ(L"hello\"there", tokenized[1]);
 
-  tokenized =
-      TokenizeCommandLineToArray(L"program.exe \"hello\\\\\"");
+  tokenized = TokenizeCommandLineToArray(L"program.exe \"hello\\\\\"");
   ASSERT_EQ(2u, tokenized.size());
   EXPECT_EQ(L"program.exe", tokenized[0]);
   EXPECT_EQ(L"hello\\", tokenized[1]);
@@ -338,15 +337,15 @@ class InstallStaticUtilTest
     EXPECT_TRUE(!medium || system_level_);
 
     std::wstring result(L"Software\\");
-    if (kUseGoogleUpdateIntegration) {
-      result.append(L"Google\\Update\\ClientState");
-      if (medium)
-        result.append(L"Medium");
-      result.push_back(L'\\');
-      result.append(mode_->app_guid);
-    } else {
-      result.append(kProductPathName);
-    }
+#if BUILDFLAG(USE_GOOGLE_UPDATE_INTEGRATION)
+    result.append(L"Google\\Update\\ClientState");
+    if (medium)
+      result.append(L"Medium");
+    result.push_back(L'\\');
+    result.append(mode_->app_guid);
+#else
+    result.append(kProductPathName);
+#endif
     return result;
   }
 
@@ -365,7 +364,9 @@ TEST_P(InstallStaticUtilTest, GetChromeInstallSubDirectory) {
   // The directory strings for the brand's install modes; parallel to
   // kInstallModes.
   static constexpr const wchar_t* kInstallDirs[] = {
-      L"Google\\Chrome", L"Google\\Chrome Beta", L"Google\\Chrome Dev",
+      L"Google\\Chrome",
+      L"Google\\Chrome Beta",
+      L"Google\\Chrome Dev",
       L"Google\\Chrome SxS",
   };
 #else
@@ -386,8 +387,10 @@ TEST_P(InstallStaticUtilTest, GetRegistryPath) {
   // The registry path strings for the brand's install modes; parallel to
   // kInstallModes.
   static constexpr const wchar_t* kRegistryPaths[] = {
-      L"Software\\Google\\Chrome", L"Software\\Google\\Chrome Beta",
-      L"Software\\Google\\Chrome Dev", L"Software\\Google\\Chrome SxS",
+      L"Software\\Google\\Chrome",
+      L"Software\\Google\\Chrome Beta",
+      L"Software\\Google\\Chrome Dev",
+      L"Software\\Google\\Chrome SxS",
   };
 #else
   // The registry path strings for the brand's install modes; parallel to
@@ -431,12 +434,9 @@ TEST_P(InstallStaticUtilTest, GetUninstallRegistryPath) {
 TEST_P(InstallStaticUtilTest, GetAppGuid) {
   // For brands that do not integrate with Omaha/Google Update, the app guid is
   // an empty string.
-  if (!kUseGoogleUpdateIntegration) {
-    EXPECT_STREQ(L"", GetAppGuid());
-    return;
-  }
-
-#if BUILDFLAG(GOOGLE_CHROME_BRANDING)
+#if !BUILDFLAG(USE_GOOGLE_UPDATE_INTEGRATION)
+  EXPECT_STREQ(L"", GetAppGuid());
+#elif BUILDFLAG(GOOGLE_CHROME_BRANDING)
   // The app guids for the brand's install modes; parallel to kInstallModes.
   static constexpr const wchar_t* kAppGuids[] = {
       L"{8A69D345-D564-463c-AFF1-A69D9E530F96}",  // Google Chrome.
@@ -456,7 +456,10 @@ TEST_P(InstallStaticUtilTest, GetBaseAppId) {
 #if BUILDFLAG(GOOGLE_CHROME_BRANDING)
   // The base app ids for the brand's install modes; parallel to kInstallModes.
   static constexpr const wchar_t* kBaseAppIds[] = {
-      L"Chrome", L"ChromeBeta", L"ChromeDev", L"ChromeCanary",
+      L"Chrome",
+      L"ChromeBeta",
+      L"ChromeDev",
+      L"ChromeCanary",
   };
 #else
   // The base app ids for the brand's install modes; parallel to kInstallModes.
@@ -522,7 +525,7 @@ TEST_P(InstallStaticUtilTest, GetToastActivatorClsid) {
   EXPECT_EQ(GetToastActivatorClsid(),
             kToastActivatorClsids[std::get<0>(GetParam())]);
 
-  auto clsid_str = base::win::String16FromGUID(GetToastActivatorClsid());
+  auto clsid_str = base::win::WStringFromGUID(GetToastActivatorClsid());
   EXPECT_THAT(base::as_wcstr(clsid_str.c_str()),
               StrCaseEq(kToastActivatorClsidsString[std::get<0>(GetParam())]));
 }
@@ -576,7 +579,7 @@ TEST_P(InstallStaticUtilTest, GetElevatorClsid) {
 
   EXPECT_EQ(GetElevatorClsid(), kElevatorClsids[std::get<0>(GetParam())]);
 
-  auto clsid_str = base::win::String16FromGUID(GetElevatorClsid());
+  auto clsid_str = base::win::WStringFromGUID(GetElevatorClsid());
   EXPECT_THAT(base::as_wcstr(clsid_str.c_str()),
               StrCaseEq(kElevatorClsidsString[std::get<0>(GetParam())]));
 }
@@ -642,7 +645,7 @@ TEST_P(InstallStaticUtilTest, GetElevatorIid) {
 
   EXPECT_EQ(GetElevatorIid(), kElevatorIids[std::get<0>(GetParam())]);
 
-  auto iid_str = base::win::String16FromGUID(GetElevatorIid());
+  auto iid_str = base::win::WStringFromGUID(GetElevatorIid());
   EXPECT_THAT(base::as_wcstr(iid_str.c_str()),
               StrCaseEq(kElevatorIidsString[std::get<0>(GetParam())]));
 }

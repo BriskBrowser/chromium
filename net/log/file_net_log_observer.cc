@@ -15,11 +15,13 @@
 #include "base/files/file_util.h"
 #include "base/json/json_writer.h"
 #include "base/logging.h"
+#include "base/memory/ptr_util.h"
 #include "base/numerics/clamped_math.h"
 #include "base/sequenced_task_runner.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/synchronization/lock.h"
 #include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
 #include "base/values.h"
 #include "net/log/net_log_capture_mode.h"
 #include "net/log/net_log_entry.h"
@@ -41,8 +43,8 @@ scoped_refptr<base::SequencedTaskRunner> CreateFileTaskRunner() {
   //
   // These intentionally block shutdown to ensure the log file has finished
   // being written.
-  return base::CreateSequencedTaskRunner(
-      {base::ThreadPool(), base::MayBlock(), base::TaskPriority::USER_VISIBLE,
+  return base::ThreadPool::CreateSequencedTaskRunner(
+      {base::MayBlock(), base::TaskPriority::USER_VISIBLE,
        base::TaskShutdownBehavior::BLOCK_SHUTDOWN});
 }
 
@@ -108,7 +110,7 @@ void AppendToFileThenDelete(const base::FilePath& source_path,
 
   // Now that it has been copied, delete the source file.
   source_file.reset();
-  base::DeleteFile(source_path, false);
+  base::DeleteFile(source_path);
 }
 
 base::FilePath SiblingInprogressDirectory(const base::FilePath& log_path) {
@@ -479,7 +481,7 @@ FileNetLogObserver::FileNetLogObserver(
       write_queue_(std::move(write_queue)),
       file_writer_(std::move(file_writer)) {
   if (!constants)
-    constants = GetNetConstants();
+    constants = base::Value::ToUniquePtrValue(GetNetConstants());
   file_task_runner_->PostTask(
       FROM_HERE, base::BindOnce(&FileNetLogObserver::FileWriter::Initialize,
                                 base::Unretained(file_writer_.get()),
@@ -625,13 +627,13 @@ void FileNetLogObserver::FileWriter::DeleteAllFiles() {
 
   if (IsBounded()) {
     current_event_file_.Close();
-    base::DeleteFileRecursively(inprogress_dir_path_);
+    base::DeletePathRecursively(inprogress_dir_path_);
   }
 
   // Only delete |final_log_file_| if it was created internally.
   // (If it was provided as a base::File by the caller, don't try to delete it).
   if (!final_log_path_.empty())
-    base::DeleteFile(final_log_path_, false);
+    base::DeleteFile(final_log_path_);
 }
 
 void FileNetLogObserver::FileWriter::FlushThenStop(
@@ -760,7 +762,7 @@ void FileNetLogObserver::FileWriter::StitchFinalLogFile() {
 
   // Delete the inprogress directory (and anything that may still be left inside
   // it).
-  base::DeleteFileRecursively(inprogress_dir_path_);
+  base::DeletePathRecursively(inprogress_dir_path_);
 }
 
 void FileNetLogObserver::FileWriter::CreateInprogressDirectory() {

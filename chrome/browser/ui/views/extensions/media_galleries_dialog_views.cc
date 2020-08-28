@@ -65,9 +65,8 @@ void ScrollableView::Layout() {
 std::unique_ptr<views::LabelButton> CreateAuxiliaryButton(
     views::ButtonListener* listener,
     const base::string16& label) {
-  return label.empty()
-             ? nullptr
-             : views::MdTextButton::CreateSecondaryUiButton(listener, label);
+  return label.empty() ? nullptr
+                       : std::make_unique<views::MdTextButton>(listener, label);
 }
 
 }  // namespace
@@ -79,9 +78,14 @@ MediaGalleriesDialogViews::MediaGalleriesDialogViews(
       auxiliary_button_(nullptr),
       confirm_available_(false),
       accepted_(false) {
-  DialogDelegate::set_button_label(ui::DIALOG_BUTTON_OK,
-                                   controller_->GetAcceptButtonText());
-  auxiliary_button_ = DialogDelegate::SetExtraView(
+  SetButtonLabel(ui::DIALOG_BUTTON_OK, controller_->GetAcceptButtonText());
+  SetAcceptCallback(base::BindOnce(
+      [](MediaGalleriesDialogViews* dialog) { dialog->accepted_ = true; },
+      base::Unretained(this)));
+  SetShowCloseButton(false);
+  SetTitle(controller_->GetHeader());
+
+  auxiliary_button_ = SetExtraView(
       CreateAuxiliaryButton(this, controller_->GetAuxiliaryButtonText()));
 
   InitChildViews();
@@ -107,10 +111,6 @@ void MediaGalleriesDialogViews::AcceptDialogForTesting() {
   web_modal::WebContentsModalDialogManager::TestApi(manager).CloseAllDialogs();
 }
 
-const views::Widget* MediaGalleriesDialogViews::GetWidgetImpl() const {
-  return contents_->GetWidget();
-}
-
 void MediaGalleriesDialogViews::InitChildViews() {
   // Outer dialog layout.
   contents_->RemoveAllChildViews(true);
@@ -128,7 +128,8 @@ void MediaGalleriesDialogViews::InitChildViews() {
   int column_set_id = 0;
   views::ColumnSet* columns = layout->AddColumnSet(column_set_id);
   columns->AddColumn(views::GridLayout::LEADING, views::GridLayout::LEADING,
-                     1.0, views::GridLayout::FIXED, dialog_content_width, 0);
+                     1.0, views::GridLayout::ColumnSize::kFixed,
+                     dialog_content_width, 0);
 
   // Message text.
   const int vertical_padding =
@@ -229,16 +230,16 @@ bool MediaGalleriesDialogViews::AddOrUpdateGallery(
   return true;
 }
 
-base::string16 MediaGalleriesDialogViews::GetWindowTitle() const {
-  return controller_->GetHeader();
-}
-
-bool MediaGalleriesDialogViews::ShouldShowCloseButton() const {
-  return false;
-}
-
 void MediaGalleriesDialogViews::DeleteDelegate() {
   controller_->DialogFinished(accepted_);
+}
+
+views::Widget* MediaGalleriesDialogViews::GetWidget() {
+  return contents_->GetWidget();
+}
+
+const views::Widget* MediaGalleriesDialogViews::GetWidget() const {
+  return contents_->GetWidget();
 }
 
 views::View* MediaGalleriesDialogViews::GetContentsView() {
@@ -252,15 +253,6 @@ bool MediaGalleriesDialogViews::IsDialogButtonEnabled(
 
 ui::ModalType MediaGalleriesDialogViews::GetModalType() const {
   return ui::MODAL_TYPE_CHILD;
-}
-
-bool MediaGalleriesDialogViews::Cancel() {
-  return true;
-}
-
-bool MediaGalleriesDialogViews::Accept() {
-  accepted_ = true;
-  return true;
 }
 
 void MediaGalleriesDialogViews::ButtonPressed(views::Button* sender,

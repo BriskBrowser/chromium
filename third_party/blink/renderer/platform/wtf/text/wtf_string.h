@@ -206,6 +206,8 @@ class WTF_EXPORT String {
                   unsigned start = 0) const {
     return impl_ ? impl_->Find(match_function, start) : kNotFound;
   }
+  wtf_size_t Find(base::RepeatingCallback<bool(UChar)> match_callback,
+                  wtf_size_t index = 0) const;
 
   // Find substrings.
   wtf_size_t Find(
@@ -422,6 +424,7 @@ class WTF_EXPORT String {
   int ToIntStrict(bool* ok = nullptr) const;
   unsigned ToUIntStrict(bool* ok = nullptr) const;
   unsigned HexToUIntStrict(bool* ok) const;
+  uint64_t HexToUInt64Strict(bool* ok) const;
   int64_t ToInt64Strict(bool* ok = nullptr) const;
   uint64_t ToUInt64Strict(bool* ok = nullptr) const;
 

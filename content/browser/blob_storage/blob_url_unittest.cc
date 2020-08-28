@@ -28,13 +28,13 @@
 #include "net/http/http_request_headers.h"
 #include "net/http/http_response_headers.h"
 #include "net/traffic_annotation/network_traffic_annotation_test_helper.h"
-#include "net/url_request/url_request.h"
 #include "services/network/test/test_url_loader_client.h"
 #include "storage/browser/blob/blob_data_builder.h"
 #include "storage/browser/blob/blob_data_handle.h"
 #include "storage/browser/blob/blob_data_snapshot.h"
 #include "storage/browser/blob/blob_impl.h"
 #include "storage/browser/blob/blob_storage_context.h"
+#include "storage/browser/blob/blob_url_registry.h"
 #include "storage/browser/blob/blob_url_store_impl.h"
 #include "storage/browser/file_system/file_system_context.h"
 #include "storage/browser/file_system/file_system_operation_context.h"
@@ -44,9 +44,11 @@
 #include "storage/browser/test/mock_blob_registry_delegate.h"
 #include "storage/browser/test/test_file_system_context.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "url/gurl.h"
+#include "url/origin.h"
 
-using storage::BlobDataSnapshot;
 using storage::BlobDataBuilder;
+using storage::BlobDataSnapshot;
 
 namespace content {
 
@@ -85,17 +87,13 @@ class BlobURLTest : public testing::Test {
     ASSERT_TRUE(temp_dir_.CreateUniqueTempDir());
 
     temp_file1_ = temp_dir_.GetPath().AppendASCII("BlobFile1.dat");
-    ASSERT_EQ(static_cast<int>(base::size(kTestFileData1) - 1),
-              base::WriteFile(temp_file1_, kTestFileData1,
-                              base::size(kTestFileData1) - 1));
+    ASSERT_TRUE(base::WriteFile(temp_file1_, kTestFileData1));
     base::File::Info file_info1;
     base::GetFileInfo(temp_file1_, &file_info1);
     temp_file_modification_time1_ = file_info1.last_modified;
 
     temp_file2_ = temp_dir_.GetPath().AppendASCII("BlobFile2.dat");
-    ASSERT_EQ(static_cast<int>(base::size(kTestFileData2) - 1),
-              base::WriteFile(temp_file2_, kTestFileData2,
-                              base::size(kTestFileData2) - 1));
+    ASSERT_TRUE(base::WriteFile(temp_file2_, kTestFileData2));
     base::File::Info file_info2;
     base::GetFileInfo(temp_file2_, &file_info2);
     temp_file_modification_time2_ = file_info2.last_modified;
@@ -110,11 +108,11 @@ class BlobURLTest : public testing::Test {
 
   void SetUpFileSystem() {
     // Prepare file system.
-    file_system_context_ =
-        CreateFileSystemContextForTesting(nullptr, temp_dir_.GetPath());
+    file_system_context_ = storage::CreateFileSystemContextForTesting(
+        nullptr, temp_dir_.GetPath());
 
     file_system_context_->OpenFileSystem(
-        GURL(kFileSystemURLOrigin), kFileSystemType,
+        url::Origin::Create(GURL(kFileSystemURLOrigin)), kFileSystemType,
         storage::OPEN_FILE_SYSTEM_CREATE_IF_NONEXISTENT,
         base::BindOnce(&BlobURLTest::OnValidateFileSystem,
                        base::Unretained(this)));
@@ -144,16 +142,16 @@ class BlobURLTest : public testing::Test {
                            base::Time* modification_time) {
     storage::FileSystemURL url =
         file_system_context_->CreateCrackedFileSystemURL(
-            GURL(kFileSystemURLOrigin), kFileSystemType,
+            url::Origin::Create(GURL(kFileSystemURLOrigin)), kFileSystemType,
             base::FilePath().AppendASCII(filename));
 
     ASSERT_EQ(base::File::FILE_OK,
-              content::AsyncFileTestHelper::CreateFileWithData(
+              storage::AsyncFileTestHelper::CreateFileWithData(
                   file_system_context_.get(), url, buf, buf_size));
 
     base::File::Info file_info;
     ASSERT_EQ(base::File::FILE_OK,
-              content::AsyncFileTestHelper::GetMetadata(
+              storage::AsyncFileTestHelper::GetMetadata(
                   file_system_context_.get(), url, &file_info));
     if (modification_time)
       *modification_time = file_info.last_modified;
@@ -192,7 +190,8 @@ class BlobURLTest : public testing::Test {
     request.headers = extra_headers;
 
     storage::MockBlobRegistryDelegate delegate;
-    storage::BlobURLStoreImpl url_store(GetStorageContext(), &delegate);
+    storage::BlobURLStoreImpl url_store(blob_url_registry_.AsWeakPtr(),
+                                        &delegate);
 
     mojo::PendingRemote<blink::mojom::Blob> blob_remote;
     storage::BlobImpl::Create(
@@ -307,6 +306,7 @@ class BlobURLTest : public testing::Test {
   scoped_refptr<storage::FileSystemContext> file_system_context_;
 
   storage::BlobStorageContext blob_context_;
+  storage::BlobUrlRegistry blob_url_registry_;
   std::unique_ptr<storage::BlobDataHandle> blob_handle_;
   std::unique_ptr<BlobDataBuilder> blob_data_;
   std::string blob_uuid_;
@@ -339,9 +339,7 @@ TEST_F(BlobURLTest, TestGetLargeFileRequest) {
   large_data.reserve(kBufferSize * 5);
   for (int i = 0; i < kBufferSize * 5; ++i)
     large_data.append(1, static_cast<char>(i % 256));
-  ASSERT_EQ(
-      static_cast<int>(large_data.size()),
-      base::WriteFile(large_temp_file, large_data.data(), large_data.size()));
+  ASSERT_TRUE(base::WriteFile(large_temp_file, large_data));
   blob_data_->AppendFile(large_temp_file, 0,
                          std::numeric_limits<uint64_t>::max(), base::Time());
   TestSuccessNonrangeRequest(large_data, large_data.size());

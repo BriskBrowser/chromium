@@ -5,6 +5,7 @@
 #include "base/run_loop.h"
 #import "base/test/ios/wait_util.h"
 #include "base/test/scoped_feature_list.h"
+#import "ios/net/protocol_handler_util.h"
 #include "ios/web/common/features.h"
 #import "ios/web/public/navigation/navigation_manager.h"
 #include "ios/web/public/security/certificate_policy_cache.h"
@@ -193,6 +194,7 @@ TEST_P(BadSslResponseTest, ReadFromSessionCertificateStorage) {
                        status:net::CERT_STATUS_AUTHORITY_INVALID];
   session_storage.certPolicyCacheStorage.certificateStorages =
       [NSSet setWithObject:cert_storage];
+  session_storage.userAgentType = UserAgentType::MOBILE;
 
   WebState::CreateParams params(GetBrowserState());
   std::unique_ptr<WebState> web_state =
@@ -223,12 +225,15 @@ TEST_P(BadSslResponseTest, ShowSSLErrorPageCommittedInterstitial) {
     base::RunLoop().RunUntilIdle();
     return !web_state()->IsLoading();
   }));
+  NSError* error = testing::CreateErrorWithUnderlyingErrorChain(
+      {{@"NSURLErrorDomain", NSURLErrorServerCertificateUntrusted},
+       {@"kCFErrorDomainCFNetwork", kCFURLErrorServerCertificateUntrusted},
+       {net::kNSErrorDomain, net::ERR_CERT_AUTHORITY_INVALID}});
   ASSERT_TRUE(test::WaitForWebViewContainingText(
-      web_state(),
-      testing::GetErrorText(web_state(), url, "NSURLErrorDomain",
-                            /*error_code=*/NSURLErrorServerCertificateUntrusted,
-                            /*is_post=*/false, /*is_otr=*/false,
-                            /*has_ssl_info=*/true)));
+      web_state(), testing::GetErrorText(
+                       web_state(), url, error,
+                       /*is_post=*/false, /*is_otr=*/false,
+                       /*cert_status=*/net::CERT_STATUS_AUTHORITY_INVALID)));
   ASSERT_TRUE(security_state_info());
   ASSERT_TRUE(security_state_info()->visible_ssl_status);
   EXPECT_EQ(SECURITY_STYLE_AUTHENTICATION_BROKEN,

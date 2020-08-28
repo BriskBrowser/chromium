@@ -11,7 +11,6 @@
 
 #include "base/macros.h"
 #include "chromeos/services/assistant/platform/audio_input_impl.h"
-#include "chromeos/services/assistant/public/mojom/assistant.mojom.h"
 #include "libassistant/shared/public/platform_audio_input.h"
 
 namespace chromeos {
@@ -22,8 +21,7 @@ namespace assistant {
 
 class AudioInputProviderImpl : public assistant_client::AudioInputProvider {
  public:
-  AudioInputProviderImpl(mojom::Client* client,
-                         PowerManagerClient* power_manager_client,
+  AudioInputProviderImpl(PowerManagerClient* power_manager_client,
                          CrasAudioHandler* cras_audio_handler);
   ~AudioInputProviderImpl() override;
 

@@ -1,0 +1,127 @@
+# Copyright 2020 The Chromium Authors. All rights reserved.
+# Use of this source code is governed by a BSD-style license that can be
+# found in the LICENSE file.
+
+import("//testing/test.gni")
+
+assert(is_chromeos, "Phone Hub is Chrome OS only")
+
+static_library("phonehub") {
+  sources = [
+    "browser_tabs_model.cc",
+    "browser_tabs_model.h",
+    "do_not_disturb_controller.cc",
+    "do_not_disturb_controller.h",
+    "do_not_disturb_controller_impl.cc",
+    "do_not_disturb_controller_impl.h",
+    "feature_status.cc",
+    "feature_status.h",
+    "feature_status_provider.cc",
+    "feature_status_provider.h",
+    "feature_status_provider_impl.cc",
+    "feature_status_provider_impl.h",
+    "find_my_device_controller.cc",
+    "find_my_device_controller.h",
+    "find_my_device_controller_impl.cc",
+    "find_my_device_controller_impl.h",
+    "mutable_phone_model.cc",
+    "mutable_phone_model.h",
+    "notification.cc",
+    "notification.h",
+    "notification_access_manager.cc",
+    "notification_access_manager.h",
+    "notification_access_manager_impl.cc",
+    "notification_access_manager_impl.h",
+    "notification_access_setup_operation.cc",
+    "notification_access_setup_operation.h",
+    "notification_manager.cc",
+    "notification_manager.h",
+    "notification_manager_impl.cc",
+    "notification_manager_impl.h",
+    "phone_hub_manager.h",
+    "phone_hub_manager_impl.cc",
+    "phone_hub_manager_impl.h",
+    "phone_model.cc",
+    "phone_model.h",
+    "phone_status_model.cc",
+    "phone_status_model.h",
+    "pref_names.cc",
+    "pref_names.h",
+    "tether_controller.cc",
+    "tether_controller.h",
+    "tether_controller_impl.cc",
+    "tether_controller_impl.h",
+  ]
+
+  deps = [
+    "//base",
+    "//chromeos/components/multidevice",
+    "//chromeos/components/multidevice/logging",
+    "//chromeos/services/device_sync/public/cpp",
+    "//chromeos/services/multidevice_setup/public/cpp",
+    "//components/keyed_service/core",
+    "//components/prefs",
+    "//device/bluetooth",
+    "//ui/gfx",
+    "//url",
+  ]
+}
+
+static_library("test_support") {
+  testonly = true
+
+  sources = [
+    "fake_do_not_disturb_controller.cc",
+    "fake_do_not_disturb_controller.h",
+    "fake_feature_status_provider.cc",
+    "fake_feature_status_provider.h",
+    "fake_find_my_device_controller.cc",
+    "fake_find_my_device_controller.h",
+    "fake_notification_access_manager.cc",
+    "fake_notification_access_manager.h",
+    "fake_notification_manager.cc",
+    "fake_notification_manager.h",
+    "fake_phone_hub_manager.cc",
+    "fake_phone_hub_manager.h",
+    "fake_tether_controller.cc",
+    "fake_tether_controller.h",
+    "phone_model_test_util.cc",
+    "phone_model_test_util.h",
+  ]
+
+  public_deps = [ ":phonehub" ]
+
+  deps = [ "//base" ]
+}
+
+source_set("unit_tests") {
+  testonly = true
+
+  sources = [
+    "browser_tabs_model_unittest.cc",
+    "do_not_disturb_controller_impl_unittest.cc",
+    "feature_status_provider_impl_unittest.cc",
+    "find_my_device_controller_impl_unittest.cc",
+    "mutable_phone_model_unittest.cc",
+    "notification_access_manager_impl_unittest.cc",
+    "notification_manager_impl_unittest.cc",
+    "phone_status_model_unittest.cc",
+    "tether_controller_impl_unittest.cc",
+  ]
+
+  deps = [
+    ":phonehub",
+    ":test_support",
+    "//base",
+    "//base/test:test_support",
+    "//chromeos/components/multidevice",
+    "//chromeos/components/multidevice:test_support",
+    "//chromeos/services/device_sync/public/cpp",
+    "//chromeos/services/device_sync/public/cpp:test_support",
+    "//chromeos/services/multidevice_setup/public/cpp",
+    "//chromeos/services/multidevice_setup/public/cpp:test_support",
+    "//components/prefs:test_support",
+    "//device/bluetooth:mocks",
+    "//testing/gtest",
+  ]
+}

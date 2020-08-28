@@ -32,14 +32,14 @@ namespace blink {
 
 LayoutFieldset::LayoutFieldset(Element* element) : LayoutBlockFlow(element) {}
 
-void LayoutFieldset::ComputePreferredLogicalWidths() {
-  LayoutBlockFlow::ComputePreferredLogicalWidths();
+MinMaxSizes LayoutFieldset::PreferredLogicalWidths() const {
+  MinMaxSizes sizes = LayoutBlockFlow::PreferredLogicalWidths();
   // Size-contained elements don't consider their contents for preferred sizing.
   if (ShouldApplySizeContainment())
-    return;
+    return sizes;
 
   if (LayoutBox* legend = FindInFlowLegend()) {
-    int legend_min_width = legend->MinPreferredLogicalWidth().ToInt();
+    int legend_min_width = legend->PreferredLogicalWidths().min_size.ToInt();
 
     const Length& legend_margin_left = legend->StyleRef().MarginLeft();
     const Length& legend_margin_right = legend->StyleRef().MarginRight();
@@ -50,10 +50,11 @@ void LayoutFieldset::ComputePreferredLogicalWidths() {
     if (legend_margin_right.IsFixed())
       legend_min_width += legend_margin_right.Value();
 
-    min_preferred_logical_width_ =
-        max(min_preferred_logical_width_,
-            legend_min_width + BorderAndPaddingWidth());
+    sizes.min_size =
+        max(sizes.min_size, legend_min_width + BorderAndPaddingWidth());
   }
+
+  return sizes;
 }
 
 LayoutObject* LayoutFieldset::LayoutSpecialExcludedChild(bool relayout_children,
@@ -149,17 +150,45 @@ LayoutBox* LayoutFieldset::FindInFlowLegend(const LayoutBlock& fieldset) {
       parent = To<LayoutBlock>(fieldset.FirstChild());
       if (!parent)
         return nullptr;
+      // If the anonymous fieldset wrapper is a multi-column, the rendered
+      // legend will be found inside the multi-column flow thread.
+      if (parent->FirstChild() && parent->FirstChild()->IsLayoutFlowThread())
+        parent = To<LayoutBlock>(parent->FirstChild());
     }
   }
   for (LayoutObject* legend = parent->FirstChild(); legend;
        legend = legend->NextSibling()) {
-    if (legend->IsFloatingOrOutOfFlowPositioned())
-      continue;
-
-    if (legend->IsHTMLLegendElement())
+    if (legend->IsRenderedLegendCandidate())
       return ToLayoutBox(legend);
   }
   return nullptr;
+}
+
+LayoutBlock* LayoutFieldset::FindLegendContainingBlock(
+    const LayoutBox& legend,
+    AncestorSkipInfo* skip_info) {
+  DCHECK(legend.IsRenderedLegend());
+  LayoutObject* parent = legend.Parent();
+  if (!parent->IsAnonymous())
+    return To<LayoutBlock>(parent);
+
+  if (skip_info)
+    skip_info->Update(*parent);
+
+  // In LayoutNG all children of a fieldset are wrapped inside an anonymous
+  // block. This also includes the rendered legend, even if that one really
+  // belongs on the outside as a direct fieldset child. Skip the anonymous
+  // wrapper in such cases.
+  if (parent->IsLayoutFlowThread()) {
+    // If the fieldset also establishes a multicol container, we need to skip
+    // the flow thread as well.
+    parent = parent->Parent();
+    if (skip_info)
+      skip_info->Update(*parent);
+    DCHECK(parent->IsAnonymous());
+  }
+  DCHECK(parent->Parent()->IsLayoutNGFieldset());
+  return To<LayoutBlock>(parent->Parent());
 }
 
 void LayoutFieldset::PaintBoxDecorationBackground(

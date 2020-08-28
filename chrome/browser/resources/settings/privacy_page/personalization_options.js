@@ -24,8 +24,10 @@ Polymer({
     },
 
     /**
+     * TODO(dpapad): Restore actual type !PrivacyPageVisibility after this file
+     * is no longer reused by chrome://os-settings.
      * Dictionary defining page visibility.
-     * @type {!PrivacyPageVisibility}
+     * @type {!Object}
      */
     pageVisibility: Object,
 
@@ -63,6 +65,9 @@ Polymer({
     },
   },
 
+  /** @private {?settings.PrivacyPageBrowserProxy} */
+  browserProxy_: null,
+
   /**
    * @return {boolean}
    * @private
@@ -82,6 +87,30 @@ Polymer({
     // </if>
   },
 
+  /**
+   * Returns the autocomplete search suggestions CrToggleElement.
+   * @return {?CrToggleElement}
+   */
+  getSearchSuggestToggle() {
+    return /** @type {?CrToggleElement} */ (this.$$('#searchSuggestToggle'));
+  },
+
+  /**
+   * Returns the anonymized URL collection CrToggleElement.
+   * @return {?CrToggleElement}
+   */
+  getUrlCollectionToggle() {
+    return /** @type {?CrToggleElement} */ (this.$$('#urlCollectionToggle'));
+  },
+
+  /**
+   * Returns the Drive suggestions CrToggleElement.
+   * @return {?CrToggleElement}
+   */
+  getDriveSuggestToggle() {
+    return /** @type {?CrToggleElement} */ (this.$$('#driveSuggestControl'));
+  },
+
   // <if expr="_google_chrome and not chromeos">
   /** @private */
   onMetricsReportingChange_() {
@@ -90,7 +119,7 @@ Polymer({
   },
 
   /**
-   * @param {!MetricsReporting} metricsReporting
+   * @param {!settings.MetricsReporting} metricsReporting
    * @private
    */
   setMetricsReportingPref_(metricsReporting) {
@@ -165,9 +194,6 @@ Polymer({
           .sendPrefChange();
       this.showRestartToast_ = true;
     }
-
-    this.browserProxy_.recordSettingsPageHistogram(
-        settings.SettingsPageInteractions.PRIVACY_CHROME_SIGN_IN);
   },
 
   /** @private */

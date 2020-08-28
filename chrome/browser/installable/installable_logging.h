@@ -8,6 +8,7 @@
 #include <string>
 
 namespace content {
+struct InstallabilityError;
 class WebContents;
 }
 
@@ -54,12 +55,16 @@ enum InstallableStatusCode {
   SHOWING_APP_INSTALLATION_DIALOG = 34,
   NO_URL_FOR_SERVICE_WORKER = 35,
   PREFER_RELATED_APPLICATIONS = 36,
+  PREFER_RELATED_APPLICATIONS_SUPPORTED_ONLY_BETA_STABLE = 37,
+  MANIFEST_URL_CHANGED = 38,
+  MANIFEST_DISPLAY_OVERRIDE_NOT_SUPPORTED = 39,
   MAX_ERROR_CODE,
 };
 
 // Returns a user-readable description for |code|, or an empty string if |code|
 // should not be exposed.
 std::string GetErrorMessage(InstallableStatusCode code);
+content::InstallabilityError GetInstallabilityError(InstallableStatusCode code);
 
 // Logs a message associated with |code| to the devtools console attached to
 // |web_contents|. Does nothing if |web_contents| is nullptr.

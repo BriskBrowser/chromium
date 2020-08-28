@@ -75,7 +75,7 @@ class DateTimeEditBuilder : private DateTimeFormat::TokenHandler {
 
   DateTimeEditElement& EditElement() const;
 
-  Member<DateTimeEditElement> edit_element_;
+  DateTimeEditElement* edit_element_;
   const DateComponents date_value_;
   const DateTimeEditElement::LayoutParameters& parameters_;
   DateTimeNumericFieldElement::Range day_range_;
@@ -540,7 +540,7 @@ DateTimeEditElement::DateTimeEditElement(Document& document,
 
 DateTimeEditElement::~DateTimeEditElement() = default;
 
-void DateTimeEditElement::Trace(Visitor* visitor) {
+void DateTimeEditElement::Trace(Visitor* visitor) const {
   visitor->Trace(fields_);
   visitor->Trace(edit_control_owner_);
   HTMLDivElement::Trace(visitor);
@@ -574,8 +574,7 @@ void DateTimeEditElement::BlurByOwner() {
 scoped_refptr<ComputedStyle> DateTimeEditElement::CustomStyleForLayoutObject() {
   // FIXME: This is a kind of layout. We might want to introduce new
   // layoutObject.
-  scoped_refptr<ComputedStyle> original_style = OriginalStyleForLayoutObject();
-  scoped_refptr<ComputedStyle> style = ComputedStyle::Clone(*original_style);
+  scoped_refptr<ComputedStyle> style = OriginalStyleForLayoutObject();
   float width = 0;
   for (Node* child = FieldsWrapperElement()->firstChild(); child;
        child = child->nextSibling()) {
@@ -598,12 +597,12 @@ scoped_refptr<ComputedStyle> DateTimeEditElement::CustomStyleForLayoutObject() {
   return style;
 }
 
-void DateTimeEditElement::DidBlurFromField(WebFocusType focus_type) {
+void DateTimeEditElement::DidBlurFromField(mojom::blink::FocusType focus_type) {
   if (edit_control_owner_)
     edit_control_owner_->DidBlurFromControl(focus_type);
 }
 
-void DateTimeEditElement::DidFocusOnField(WebFocusType focus_type) {
+void DateTimeEditElement::DidFocusOnField(mojom::blink::FocusType focus_type) {
   if (edit_control_owner_)
     edit_control_owner_->DidFocusOnControl(focus_type);
 }
@@ -700,6 +699,24 @@ bool DateTimeEditElement::FocusOnPreviousField(
     }
   }
   return false;
+}
+
+void DateTimeEditElement::HandleAmPmRollover(
+    DateTimeFieldElement::FieldRolloverType rollover_type) {
+  auto* ampm_field = GetField(DateTimeField::kAMPM);
+  if (!ampm_field)
+    return;
+  DateTimeFieldsState date_time_fields_state = ValueAsDateTimeFieldsState();
+  ampm_field->PopulateDateTimeFieldsState(date_time_fields_state);
+  bool was_am =
+      (date_time_fields_state.Ampm() == DateTimeFieldsState::kAMPMValueAM);
+  date_time_fields_state.SetAMPM(DateTimeFieldsState::kAMPMValuePM);
+  if (rollover_type != DateTimeFieldElement::FieldRolloverType::kToPm &&
+      !was_am)
+    date_time_fields_state.SetAMPM(DateTimeFieldsState::kAMPMValueAM);
+  ampm_field->SetValueAsDateTimeFieldsState(date_time_fields_state);
+  // No need to call EditControlValueChanged since change that triggered
+  // rollover will do so.
 }
 
 bool DateTimeEditElement::IsDateTimeEditElement() const {
@@ -830,6 +847,15 @@ void DateTimeEditElement::SetEmptyValue(
     field->SetEmptyValue(DateTimeFieldElement::kDispatchNoEvent);
 }
 
+DateTimeFieldElement* DateTimeEditElement::GetField(DateTimeField type) const {
+  auto* it = std::find_if(
+      fields_.begin(), fields_.end(),
+      [&type](const auto& field) { return field->Type() == type; });
+  if (it == fields_.end())
+    return nullptr;
+  return *it;
+}
+
 bool DateTimeEditElement::HasField(DateTimeField type) const {
   for (const auto& field : fields_) {
     if (field->Type() == type)
@@ -848,6 +874,13 @@ bool DateTimeEditElement::HasFocusedField() {
   return FocusedFieldIndex() != kInvalidFieldIndex;
 }
 
+void PopulateOnlyYearMonthDay(const DateComponents& date,
+                              DateTimeFieldsState& date_time_fields_state) {
+  date_time_fields_state.SetYear(date.FullYear());
+  date_time_fields_state.SetMonth(date.Month() + 1);
+  date_time_fields_state.SetDayOfMonth(date.MonthDay());
+}
+
 void DateTimeEditElement::SetOnlyYearMonthDay(const DateComponents& date) {
   DCHECK_EQ(date.GetType(), DateComponents::kDate);
 
@@ -855,11 +888,20 @@ void DateTimeEditElement::SetOnlyYearMonthDay(const DateComponents& date) {
     return;
 
   DateTimeFieldsState date_time_fields_state = ValueAsDateTimeFieldsState();
-  date_time_fields_state.SetYear(date.FullYear());
-  date_time_fields_state.SetMonth(date.Month() + 1);
-  date_time_fields_state.SetDayOfMonth(date.MonthDay());
+  PopulateOnlyYearMonthDay(date, date_time_fields_state);
   SetValueAsDateTimeFieldsState(date_time_fields_state);
   edit_control_owner_->EditControlValueChanged();
+}
+
+void PopulateOnlyTime(const DateComponents& date,
+                      DateTimeFieldsState& date_time_fields_state) {
+  date_time_fields_state.SetHour(date.Hour() % 12 ? date.Hour() % 12 : 12);
+  date_time_fields_state.SetMinute(date.Minute());
+  date_time_fields_state.SetSecond(date.Second());
+  date_time_fields_state.SetMillisecond(date.Millisecond());
+  date_time_fields_state.SetAMPM(date.Hour() >= 12
+                                     ? DateTimeFieldsState::kAMPMValuePM
+                                     : DateTimeFieldsState::kAMPMValueAM);
 }
 
 void DateTimeEditElement::SetOnlyTime(const DateComponents& date) {
@@ -869,13 +911,25 @@ void DateTimeEditElement::SetOnlyTime(const DateComponents& date) {
     return;
 
   DateTimeFieldsState date_time_fields_state = ValueAsDateTimeFieldsState();
-  date_time_fields_state.SetHour(date.Hour() % 12 ? date.Hour() % 12 : 12);
-  date_time_fields_state.SetMinute(date.Minute());
-  date_time_fields_state.SetSecond(date.Second());
-  date_time_fields_state.SetMillisecond(date.Millisecond());
-  date_time_fields_state.SetAMPM(date.Hour() >= 12
-                                     ? DateTimeFieldsState::kAMPMValuePM
-                                     : DateTimeFieldsState::kAMPMValueAM);
+  PopulateOnlyTime(date, date_time_fields_state);
+  SetValueAsDateTimeFieldsState(date_time_fields_state);
+  edit_control_owner_->EditControlValueChanged();
+}
+
+void PopulateDateTimeLocal(const DateComponents& date,
+                           DateTimeFieldsState& date_time_fields_state) {
+  PopulateOnlyYearMonthDay(date, date_time_fields_state);
+  PopulateOnlyTime(date, date_time_fields_state);
+}
+
+void DateTimeEditElement::SetDateTimeLocal(const DateComponents& date) {
+  DCHECK_EQ(date.GetType(), DateComponents::kDateTimeLocal);
+
+  if (!edit_control_owner_)
+    return;
+
+  DateTimeFieldsState date_time_fields_state = ValueAsDateTimeFieldsState();
+  PopulateDateTimeLocal(date, date_time_fields_state);
   SetValueAsDateTimeFieldsState(date_time_fields_state);
   edit_control_owner_->EditControlValueChanged();
 }

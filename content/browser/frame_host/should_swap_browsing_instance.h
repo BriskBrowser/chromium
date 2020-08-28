@@ -12,7 +12,7 @@ namespace content {
 // This enum is used for histograms and should not be renumbered.
 // TODO(crbug.com/1026101): Remove after the investigations are complete.
 enum class ShouldSwapBrowsingInstance {
-  kYes = 0,
+  kYes_ForceSwap = 0,
   kNo_ProactiveSwapDisabled = 1,
   kNo_NotMainFrame = 2,
   kNo_HasRelatedActiveContents = 3,
@@ -20,11 +20,21 @@ enum class ShouldSwapBrowsingInstance {
   kNo_SourceURLSchemeIsNotHTTPOrHTTPS = 5,
   kNo_DestinationURLSchemeIsNotHTTPOrHTTPS = 6,
   kNo_SameSiteNavigation = 7,
-  kNo_ErrorPage = 8,
+  kNo_ReloadingErrorPage = 8,
   kNo_AlreadyHasMatchingBrowsingInstance = 9,
   kNo_RendererDebugURL = 10,
+  kNo_NotNeededForBackForwardCache = 11,
+  kYes_CrossSiteProactiveSwap = 12,
+  kYes_SameSiteProactiveSwap = 13,
+  kNo_SameDocumentNavigation = 14,
+  kNo_SamePageNavigation = 15,
+  kNo_WillReplaceEntry = 16,
+  kNo_Reload = 17,
+  kNo_Guest = 18,
+  kNo_HasNotComittedAnyNavigation = 19,
+  kNo_UnloadHandlerExistsOnSameSiteNavigation = 20,
 
-  kMaxValue = kNo_RendererDebugURL
+  kMaxValue = kNo_UnloadHandlerExistsOnSameSiteNavigation
 };
 
 }  // namespace content

@@ -21,19 +21,21 @@
 #include "base/strings/stringprintf.h"
 #include "base/syslog_logging.h"
 #include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
 #include "base/values.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chromeos/policy/policy_pref_names.h"
 #include "chrome/browser/chromeos/policy/upload_job_impl.h"
-#include "chrome/browser/chromeos/settings/device_oauth2_token_service.h"
-#include "chrome/browser/chromeos/settings/device_oauth2_token_service_factory.h"
-#include "chrome/browser/policy/policy_conversions.h"
+#include "chrome/browser/device_identity/device_oauth2_token_service.h"
+#include "chrome/browser/device_identity/device_oauth2_token_service_factory.h"
+#include "chrome/browser/policy/chrome_policy_conversions_client.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/common/chrome_features.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/extensions/extension_constants.h"
-#include "components/feedback/anonymizer_tool.h"
+#include "components/feedback/redaction_tool.h"
 #include "components/policy/core/browser/browser_policy_connector.h"
+#include "components/policy/core/browser/policy_conversions.h"
 #include "components/prefs/pref_service.h"
 #include "components/user_manager/user_manager.h"
 #include "net/http/http_request_headers.h"
@@ -59,13 +61,17 @@ constexpr char kPolicyDumpFileLocation[] = "/var/log/policy_dump.json";
 
 // The file names of the system logs to upload.
 // Note: do not add anything to this list without checking for PII in the file.
-const char* const kSystemLogFileNames[] = {
-    "/var/log/bios_info.txt",
-    "/var/log/chrome/chrome", "/var/log/chrome/chrome.PREVIOUS",
-    "/var/log/eventlog.txt",  "/var/log/platform_info.txt",
-    "/var/log/messages",      "/var/log/messages.1",
-    "/var/log/net.log",       "/var/log/net.1.log",
-    "/var/log/ui/ui.LATEST",  "/var/log/update_engine.log"};
+const char* const kSystemLogFileNames[] = {"/var/log/bios_info.txt",
+                                           "/var/log/chrome/chrome",
+                                           "/var/log/chrome/chrome.PREVIOUS",
+                                           "/var/log/eventlog.txt",
+                                           "/var/log/platform_info.txt",
+                                           "/var/log/messages",
+                                           "/var/log/messages.1",
+                                           "/var/log/net.log",
+                                           "/var/log/net.1.log",
+                                           "/var/log/ui/ui.LATEST",
+                                           "/var/log/update_engine.log"};
 
 std::string ZipFiles(
     std::unique_ptr<SystemLogUploader::SystemLogs> system_logs) {
@@ -101,12 +107,12 @@ std::string ZipFiles(
     PLOG(ERROR) << "Failed to read zipped system logs";
     return compressed_logs;
   }
-  base::DeleteFile(zip_file, false);
+  base::DeleteFile(zip_file);
   return compressed_logs;
 }
 
-std::string ReadAndAnonymizeLogFile(feedback::AnonymizerTool* anonymizer,
-                                    const base::FilePath& file_path) {
+std::string ReadAndRedactLogFile(feedback::RedactionTool* redactor,
+                                 const base::FilePath& file_path) {
   std::string data;
   if (!base::ReadFileToStringWithMaxSize(file_path, &data, kLogCutoffSize) &&
       data.empty()) {
@@ -114,27 +120,26 @@ std::string ReadAndAnonymizeLogFile(feedback::AnonymizerTool* anonymizer,
                   << file_path.value();
   }
   // We want to remove the last line completely because PII data might be cut in
-  // half (anonymizer might not recognize it).
+  // half (redactor might not recognize it).
   if (!data.empty() && data.back() != '\n') {
     size_t pos = data.find_last_of('\n');
     data.erase(pos != std::string::npos ? pos + 1 : 0);
     data += "... [truncated]\n";
   }
-  return SystemLogUploader::RemoveSensitiveData(anonymizer, data);
+  return SystemLogUploader::RemoveSensitiveData(redactor, data);
 }
 
-// Reads the system log files as binary files, anonymizes data, stores the files
+// Reads the system log files as binary files, redacts data, stores the files
 // as pairs (file name, data) and returns. Called on blocking thread.
 std::unique_ptr<SystemLogUploader::SystemLogs> ReadFiles() {
   auto system_logs = std::make_unique<SystemLogUploader::SystemLogs>();
-  feedback::AnonymizerTool anonymizer(
+  feedback::RedactionTool redactor(
       extension_misc::kBuiltInFirstPartyExtensionIds);
   for (const char* file_path : kSystemLogFileNames) {
     if (!base::PathExists(base::FilePath(file_path)))
       continue;
     system_logs->push_back(std::make_pair(
-        file_path,
-        ReadAndAnonymizeLogFile(&anonymizer, base::FilePath(file_path))));
+        file_path, ReadAndRedactLogFile(&redactor, base::FilePath(file_path))));
   }
   return system_logs;
 }
@@ -179,8 +184,9 @@ std::string SystemLogDelegate::GetPolicyAsJSON() {
           user_manager::UserManager::Get()->GetPrimaryUser()->IsAffiliated();
     }
   }
-  return policy::DictionaryPolicyConversions()
-      .WithBrowserContext(ProfileManager::GetActiveUserProfile())
+  auto client = std::make_unique<ChromePolicyConversionsClient>(
+      ProfileManager::GetActiveUserProfile());
+  return policy::DictionaryPolicyConversions(std::move(client))
       .EnableUserPolicies(include_user_policies)
       .EnableDeviceLocalAccountPolicies(true)
       .EnableDeviceInfo(true)
@@ -190,17 +196,16 @@ std::string SystemLogDelegate::GetPolicyAsJSON() {
 void SystemLogDelegate::LoadSystemLogs(LogUploadCallback upload_callback) {
   // Run ReadFiles() in the thread that interacts with the file system and
   // return system logs to |upload_callback| on the current thread.
-  base::PostTaskAndReplyWithResult(
-      FROM_HERE,
-      {base::ThreadPool(), base::MayBlock(), base::TaskPriority::BEST_EFFORT},
+  base::ThreadPool::PostTaskAndReplyWithResult(
+      FROM_HERE, {base::MayBlock(), base::TaskPriority::BEST_EFFORT},
       base::BindOnce(&ReadFiles), std::move(upload_callback));
 }
 
 std::unique_ptr<UploadJob> SystemLogDelegate::CreateUploadJob(
     const GURL& upload_url,
     UploadJob::Delegate* delegate) {
-  chromeos::DeviceOAuth2TokenService* device_oauth2_token_service =
-      chromeos::DeviceOAuth2TokenServiceFactory::Get();
+  DeviceOAuth2TokenService* device_oauth2_token_service =
+      DeviceOAuth2TokenServiceFactory::Get();
 
   CoreAccountId robot_account_id =
       device_oauth2_token_service->GetRobotAccountId();
@@ -214,7 +219,7 @@ std::unique_ptr<UploadJob> SystemLogDelegate::CreateUploadJob(
               "Admins can ask that their devices regularly upload their system "
               "logs."
           trigger: "After reboot and every 12 hours."
-          data: "Non-user specific, anonymized system logs from /var/log/."
+          data: "Non-user specific, redacted system logs from /var/log/."
           destination: GOOGLE_OWNED_SERVICE
         }
         policy {
@@ -238,9 +243,8 @@ std::unique_ptr<UploadJob> SystemLogDelegate::CreateUploadJob(
 void SystemLogDelegate::ZipSystemLogs(
     std::unique_ptr<SystemLogUploader::SystemLogs> system_logs,
     ZippedLogUploadCallback upload_callback) {
-  base::PostTaskAndReplyWithResult(
-      FROM_HERE,
-      {base::ThreadPool(), base::MayBlock(), base::TaskPriority::BEST_EFFORT},
+  base::ThreadPool::PostTaskAndReplyWithResult(
+      FROM_HERE, {base::MayBlock(), base::TaskPriority::BEST_EFFORT},
       base::BindOnce(&ZipFiles, std::move(system_logs)),
       std::move(upload_callback));
 }
@@ -390,9 +394,9 @@ void SystemLogUploader::OnFailure(UploadJob::ErrorCode error_code) {
 
 // static
 std::string SystemLogUploader::RemoveSensitiveData(
-    feedback::AnonymizerTool* anonymizer,
+    feedback::RedactionTool* redactor,
     const std::string& data) {
-  return anonymizer->Anonymize(data);
+  return redactor->Redact(data);
 }
 
 void SystemLogUploader::ScheduleNextSystemLogUploadImmediately() {
@@ -404,7 +408,7 @@ void SystemLogUploader::RefreshUploadSettings() {
   // If trusted values are not available, register this function to be called
   // back when they are available.
   chromeos::CrosSettings* settings = chromeos::CrosSettings::Get();
-  auto trust_status = settings->PrepareTrustedValues(base::Bind(
+  auto trust_status = settings->PrepareTrustedValues(base::BindOnce(
       &SystemLogUploader::RefreshUploadSettings, weak_factory_.GetWeakPtr()));
   if (trust_status != chromeos::CrosSettingsProvider::TRUSTED)
     return;

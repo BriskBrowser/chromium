@@ -12,15 +12,15 @@ namespace chromeos {
 class FakeLoginDisplayHost::FakeBaseScreen : public chromeos::BaseScreen {
  public:
   explicit FakeBaseScreen(chromeos::OobeScreenId screen_id)
-      : BaseScreen(screen_id) {}
+      : BaseScreen(screen_id, OobeScreenPriority::DEFAULT) {}
 
   ~FakeBaseScreen() override = default;
 
-  // chromeos::BaseScreen:
-  void Show() override {}
-  void Hide() override {}
-
  private:
+  // chromeos::BaseScreen:
+  void ShowImpl() override {}
+  void HideImpl() override {}
+
   DISALLOW_COPY_AND_ASSIGN(FakeBaseScreen);
 };
 
@@ -57,6 +57,8 @@ void FakeLoginDisplayHost::BeforeSessionStart() {}
 
 void FakeLoginDisplayHost::Finalize(base::OnceClosure) {}
 
+void FakeLoginDisplayHost::FinalizeImmediately() {}
+
 void FakeLoginDisplayHost::SetStatusAreaVisible(bool visible) {}
 
 void FakeLoginDisplayHost::StartWizard(OobeScreenId first_screen) {
@@ -70,7 +72,7 @@ WizardController* FakeLoginDisplayHost::GetWizardController() {
   return wizard_controller_.get();
 }
 
-AppLaunchController* FakeLoginDisplayHost::GetAppLaunchController() {
+KioskLaunchController* FakeLoginDisplayHost::GetKioskLaunchController() {
   return nullptr;
 }
 
@@ -79,22 +81,16 @@ void FakeLoginDisplayHost::StartUserAdding(
 
 void FakeLoginDisplayHost::CancelUserAdding() {}
 
-void FakeLoginDisplayHost::StartSignInScreen(
-    const LoginScreenContext& context) {}
+void FakeLoginDisplayHost::StartSignInScreen() {}
 
 void FakeLoginDisplayHost::OnPreferencesChanged() {}
 
 void FakeLoginDisplayHost::PrewarmAuthentication() {}
 
-void FakeLoginDisplayHost::StartAppLaunch(const std::string& app_id,
-                                          bool diagnostic_mode,
-                                          bool is_auto_launch) {}
-
 void FakeLoginDisplayHost::StartDemoAppLaunch() {}
 
-void FakeLoginDisplayHost::StartArcKiosk(const AccountId& account_id) {}
-
-void FakeLoginDisplayHost::StartWebKiosk(const AccountId& account_id) {}
+void FakeLoginDisplayHost::StartKiosk(const KioskAppId& kiosk_app_id,
+                                      bool is_auto_launch) {}
 
 void FakeLoginDisplayHost::CompleteLogin(const UserContext& user_context) {}
 
@@ -110,20 +106,15 @@ void FakeLoginDisplayHost::LoadWallpaper(const AccountId& account_id) {}
 
 void FakeLoginDisplayHost::LoadSigninWallpaper() {}
 
-bool FakeLoginDisplayHost::IsUserWhitelisted(const AccountId& account_id) {
+bool FakeLoginDisplayHost::IsUserAllowlisted(const AccountId& account_id) {
   return false;
 }
 
-void FakeLoginDisplayHost::ShowGaiaDialog(bool can_close,
-                                          const AccountId& prefilled_account) {}
+void FakeLoginDisplayHost::ShowGaiaDialog(const AccountId& prefilled_account) {}
 
 void FakeLoginDisplayHost::HideOobeDialog() {}
 
 void FakeLoginDisplayHost::UpdateOobeDialogState(ash::OobeDialogState state) {}
-
-const user_manager::UserList FakeLoginDisplayHost::GetUsers() {
-  return user_manager::UserList();
-}
 
 void FakeLoginDisplayHost::CancelPasswordChangedFlow() {}
 
@@ -131,9 +122,10 @@ void FakeLoginDisplayHost::MigrateUserData(const std::string& old_password) {}
 
 void FakeLoginDisplayHost::ResyncUserData() {}
 
-void FakeLoginDisplayHost::ShowFeedback() {}
-
-void FakeLoginDisplayHost::ShowResetScreen() {}
+bool FakeLoginDisplayHost::HandleAccelerator(
+    ash::LoginAcceleratorAction action) {
+  return false;
+}
 
 void FakeLoginDisplayHost::HandleDisplayCaptivePortal() {}
 

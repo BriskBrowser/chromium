@@ -14,12 +14,12 @@ import org.chromium.base.ContextUtils;
 import org.chromium.base.annotations.CalledByNative;
 import org.chromium.base.annotations.JNINamespace;
 import org.chromium.chrome.browser.DeviceConditions;
-import org.chromium.chrome.browser.background_task_scheduler.NativeBackgroundTask;
-import org.chromium.chrome.browser.background_task_scheduler.NativeBackgroundTask.StartBeforeNativeResult;
+import org.chromium.chrome.browser.flags.CachedFeatureFlags;
+import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.offlinepages.OfflinePageBridge;
 import org.chromium.chrome.browser.profiles.Profile;
-import org.chromium.components.background_task_scheduler.BackgroundTask.TaskFinishedCallback;
 import org.chromium.components.background_task_scheduler.BackgroundTaskSchedulerFactory;
+import org.chromium.components.background_task_scheduler.NativeBackgroundTask;
 import org.chromium.components.background_task_scheduler.TaskIds;
 import org.chromium.components.background_task_scheduler.TaskInfo;
 import org.chromium.components.background_task_scheduler.TaskParameters;
@@ -85,7 +85,6 @@ public class OfflineNotificationBackgroundTask extends NativeBackgroundTask {
 
         TaskInfo taskInfo =
                 TaskInfo.createOneOffTask(TaskIds.OFFLINE_PAGES_PREFETCH_NOTIFICATION_JOB_ID,
-                                OfflineNotificationBackgroundTask.class,
                                 // Minimum time to wait.
                                 delayInMillis,
                                 // Maximum time to wait.  After this interval the event will fire
@@ -139,9 +138,7 @@ public class OfflineNotificationBackgroundTask extends NativeBackgroundTask {
             return StartBeforeNativeResult.DONE;
         }
 
-        int offlineCounter = PrefetchPrefs.getOfflineCounter();
-        offlineCounter++;
-        PrefetchPrefs.setOfflineCounter(offlineCounter);
+        int offlineCounter = PrefetchPrefs.incrementOfflineCounter();
         if (offlineCounter < OFFLINE_POLLING_ATTEMPTS) {
             scheduleTask(DETECTION_MODE_OFFLINE);
             return StartBeforeNativeResult.DONE;
@@ -167,7 +164,12 @@ public class OfflineNotificationBackgroundTask extends NativeBackgroundTask {
 
         if (!contentHost.isEmpty()) {
             PrefetchPrefs.setNotificationLastShownTime(getCurrentTimeMillis());
-            PrefetchedPagesNotifier.getInstance().showNotification(contentHost);
+            if (ChromeFeatureList.isEnabled(
+                        ChromeFeatureList.PREFETCH_NOTIFICATION_SCHEDULING_INTEGRATION)) {
+                PrefetchNotificationServiceBridge.getInstance().schedule(contentHost);
+            } else {
+                PrefetchedPagesNotifier.getInstance().showNotification(contentHost);
+            }
         }
 
         // There is either no fresh content, or we just showed a notification - which implies there
@@ -239,6 +241,13 @@ public class OfflineNotificationBackgroundTask extends NativeBackgroundTask {
 
     private static boolean shouldNotReschedule() {
         boolean noNewPages = !PrefetchPrefs.getHasNewPages();
+        // Notification scheduler framework takes care of smart throttle layer after
+        // this integration.
+        if (CachedFeatureFlags.isEnabled(
+                    ChromeFeatureList.PREFETCH_NOTIFICATION_SCHEDULING_INTEGRATION)) {
+            return noNewPages;
+        }
+
         boolean tooManyIgnoredNotifications =
                 PrefetchPrefs.getIgnoredNotificationCounter() >= IGNORED_NOTIFICATION_MAX;
 
@@ -269,7 +278,8 @@ public class OfflineNotificationBackgroundTask extends NativeBackgroundTask {
         if (sOfflinePageBridgeForTesting != null) {
             return sOfflinePageBridgeForTesting;
         }
-        return OfflinePageBridge.getForProfile(Profile.getLastUsedProfile());
+        // Using regular profile here, since this function is only called in regular mode.
+        return OfflinePageBridge.getForProfile(Profile.getLastUsedRegularProfile());
     }
 
     @VisibleForTesting

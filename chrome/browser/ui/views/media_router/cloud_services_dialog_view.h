@@ -29,22 +29,14 @@ class CloudServicesDialogView : public views::BubbleDialogDelegateView,
   // Called by tests. Returns the singleton dialog instance.
   static CloudServicesDialogView* GetDialogForTest();
 
-  // views::WidgetDelegateView:
-  bool ShouldShowCloseButton() const override;
-
-  // views::WidgetDelegate:
-  base::string16 GetWindowTitle() const override;
-
-  // views::DialogDelegate:
-  bool Accept() override;
-  bool Cancel() override;
-
   // views::View:
   gfx::Size CalculatePreferredSize() const override;
 
  private:
   CloudServicesDialogView(views::View* anchor_view, Browser* browser);
   ~CloudServicesDialogView() override;
+
+  void OnDialogAccepted();
 
   // views::BubbleDialogDelegateView:
   void Init() override;

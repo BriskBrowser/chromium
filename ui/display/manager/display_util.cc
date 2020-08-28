@@ -9,7 +9,8 @@
 #include <array>
 #include <cmath>
 
-#include "base/logging.h"
+#include "base/check_op.h"
+#include "base/notreached.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
 #include "ui/display/manager/managed_display_info.h"
@@ -52,19 +53,14 @@ constexpr std::array<ZoomListBucket, 8> kZoomListBuckets{{
 constexpr std::array<ZoomListBucketDsf, 6> kZoomListBucketsForDsf{{
     {1.25f, {0.7f, 1.f / 1.25f, 0.85f, 0.9f, 0.95f, 1.f, 1.1f, 1.2f, 1.3f}},
     {1.6f, {1.f / 1.6f, 0.7f, 0.75f, 0.8f, 0.85f, 0.9f, 1.f, 1.15f, 1.3f}},
-    {1.77777779102325439453125f,
-     {1.f / 1.77777779102325439453125f, 0.65f, 0.75f, 0.8f, 0.9f, 1.f, 1.1f,
-      1.2f, 1.3f}},
+    {kDsf_1_777,
+     {1.f / kDsf_1_777, 0.65f, 0.75f, 0.8f, 0.9f, 1.f, 1.1f, 1.2f, 1.3f}},
     {2.f, {1.f / 2.f, 0.6f, 0.7f, 0.8f, 0.9f, 1.f, 1.1f, 1.25f, 1.5f}},
-    {2.25f, {1.f / 2.25f, 0.6f, 0.7f, 0.8f, 0.9f, 1.f, 1.15f, 1.3f, 1.5f}},
-    {2.6666667461395263671875f,
-     {1.f / 2.6666667461395263671875f, 0.5f, 0.6f, 0.8f, 0.9f, 1.f, 1.2f, 1.35f,
-      1.5f}},
+    {kDsf_2_252,
+     {1.f / kDsf_2_252, 0.6f, 0.7f, 0.8f, 0.9f, 1.f, 1.15f, 1.3f, 1.5f}},
+    {kDsf_2_666,
+     {1.f / kDsf_2_666, 0.5f, 0.6f, 0.8f, 0.9f, 1.f, 1.2f, 1.35f, 1.5f}},
 }};
-
-bool WithinEpsilon(float a, float b) {
-  return std::abs(a - b) < std::numeric_limits<float>::epsilon();
-}
 
 }  // namespace
 
@@ -107,6 +103,10 @@ int GetDisplayPower(const std::vector<DisplaySnapshot*>& displays,
 }
 
 #endif  // defined(OS_CHROMEOS)
+
+bool WithinEpsilon(float a, float b) {
+  return std::abs(a - b) < std::numeric_limits<float>::epsilon();
+}
 
 std::string MultipleDisplayStateToString(MultipleDisplayState state) {
   switch (state) {

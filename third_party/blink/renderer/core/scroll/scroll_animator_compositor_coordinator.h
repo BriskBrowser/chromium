@@ -34,7 +34,6 @@ class CORE_EXPORT ScrollAnimatorCompositorCoordinator
     : public GarbageCollected<ScrollAnimatorCompositorCoordinator>,
       private CompositorAnimationClient,
       CompositorAnimationDelegate {
-  DISALLOW_COPY_AND_ASSIGN(ScrollAnimatorCompositorCoordinator);
   USING_PRE_FINALIZER(ScrollAnimatorCompositorCoordinator, Dispose);
 
  public:
@@ -82,6 +81,10 @@ class CORE_EXPORT ScrollAnimatorCompositorCoordinator
     kRunningOnCompositorButNeedsAdjustment,
   };
 
+  ScrollAnimatorCompositorCoordinator(
+      const ScrollAnimatorCompositorCoordinator&) = delete;
+  ScrollAnimatorCompositorCoordinator& operator=(
+      const ScrollAnimatorCompositorCoordinator&) = delete;
   ~ScrollAnimatorCompositorCoordinator() override;
 
   bool HasAnimationThatRequiresService() const;
@@ -99,7 +102,7 @@ class CORE_EXPORT ScrollAnimatorCompositorCoordinator
   // Updates the scroll offset of the animator's ScrollableArea by
   // adjustment and update the target of an ongoing scroll offset animation.
   virtual void AdjustAnimationAndSetScrollOffset(const ScrollOffset&,
-                                                 ScrollType);
+                                                 mojom::blink::ScrollType);
   virtual void UpdateCompositorAnimations();
 
   virtual ScrollableArea* GetScrollableArea() const = 0;
@@ -111,12 +114,12 @@ class CORE_EXPORT ScrollAnimatorCompositorCoordinator
 
   RunState RunStateForTesting() { return run_state_; }
 
-  virtual void Trace(blink::Visitor* visitor) {}
+  virtual void Trace(Visitor* visitor) const {}
 
  protected:
   explicit ScrollAnimatorCompositorCoordinator();
 
-  void ScrollOffsetChanged(const ScrollOffset&, ScrollType);
+  void ScrollOffsetChanged(const ScrollOffset&, mojom::blink::ScrollType);
 
   void AdjustImplOnlyScrollOffsetAnimation(const IntSize& adjustment);
   IntSize ImplOnlyAnimationAdjustmentForTesting() {

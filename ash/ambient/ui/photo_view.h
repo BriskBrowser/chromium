@@ -5,46 +5,68 @@
 #ifndef ASH_AMBIENT_UI_PHOTO_VIEW_H_
 #define ASH_AMBIENT_UI_PHOTO_VIEW_H_
 
-#include "ash/ambient/model/photo_model_observer.h"
+#include <memory>
+
+#include "ash/ambient/model/ambient_backend_model_observer.h"
+#include "ash/ambient/ui/ambient_background_image_view.h"
 #include "ash/ash_export.h"
 #include "base/macros.h"
+#include "ui/compositor/layer_animation_observer.h"
 #include "ui/views/view.h"
 
-namespace views {
-class ImageView;
-}  // namespace views
+namespace gfx {
+class ImageSkia;
+}  // namespace gfx
 
 namespace ash {
 
-class AmbientController;
+class AmbientBackgroundImageView;
+class AmbientViewDelegate;
 
 // View to display photos in ambient mode.
-class ASH_EXPORT PhotoView : public views::View, public PhotoModelObserver {
+class ASH_EXPORT PhotoView : public views::View,
+                             public AmbientBackendModelObserver,
+                             public ui::ImplicitAnimationObserver {
  public:
-  explicit PhotoView(AmbientController* ambient_controller);
+  explicit PhotoView(AmbientViewDelegate* delegate);
+  PhotoView(const PhotoView&) = delete;
+  PhotoView& operator=(PhotoView&) = delete;
   ~PhotoView() override;
 
   // views::View:
   const char* GetClassName() const override;
-  void AddedToWidget() override;
+  void OnBoundsChanged(const gfx::Rect& previous_bounds) override;
 
-  // PhotoModelObserver:
+  // AmbientBackendModelObserver:
   void OnImagesChanged() override;
 
+  // ui::ImplicitAnimationObserver:
+  void OnImplicitAnimationsCompleted() override;
+
  private:
+  friend class AmbientAshTestBase;
+
   void Init();
   void UpdateImages();
-  void StartSlideAnimation();
-  bool CanAnimate() const;
+  void StartTransitionAnimation();
 
-  AmbientController* ambient_controller_ = nullptr;
+  // Return if can start transition animation.
+  bool NeedToAnimateTransition() const;
 
-  // Image containers. Used for layer animation.
-  views::ImageView* image_view_prev_ = nullptr;  // Owned by view hierarchy.
-  views::ImageView* image_view_curr_ = nullptr;  // Owned by view hierarchy.
-  views::ImageView* image_view_next_ = nullptr;  // Owned by view hierarchy.
+  const gfx::ImageSkia& GetCurrentImagesForTesting();
 
-  DISALLOW_COPY_AND_ASSIGN(PhotoView);
+  // Note that we should be careful when using |delegate_|, as there is no
+  // strong guarantee on the life cycle.
+  AmbientViewDelegate* const delegate_ = nullptr;
+
+  // Image containers used for animation. Owned by view hierarchy.
+  AmbientBackgroundImageView* image_views_[2]{nullptr, nullptr};
+
+  // The unscaled images used for scaling and displaying in different bounds.
+  gfx::ImageSkia images_unscaled_[2];
+
+  // The index of |image_views_| to update the next image.
+  int image_index_ = 0;
 };
 
 }  // namespace ash

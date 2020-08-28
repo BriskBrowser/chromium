@@ -14,16 +14,13 @@ import jp.tomorrowkey.android.gifplayer.BaseGifImage;
  * Image Fetcher implementation that fetches from the network.
  */
 public class NetworkImageFetcher extends ImageFetcher {
-    // The native bridge.
-    private ImageFetcherBridge mImageFetcherBridge;
-
     /**
      * Creates a NetworkImageFetcher.
      *
-     * @param bridge Bridge used to interact with native.
+     * @param imageFetcherBridge Bridge used to interact with native.
      */
-    NetworkImageFetcher(ImageFetcherBridge bridge) {
-        mImageFetcherBridge = bridge;
+    NetworkImageFetcher(ImageFetcherBridge imageFetcherBridge) {
+        super(imageFetcherBridge);
     }
 
     @Override
@@ -32,19 +29,18 @@ public class NetworkImageFetcher extends ImageFetcher {
     }
 
     @Override
-    public void fetchGif(String url, String clientName, Callback<BaseGifImage> callback) {
-        mImageFetcherBridge.fetchGif(getConfig(), url, clientName, callback);
+    public void fetchGif(final ImageFetcher.Params params, Callback<BaseGifImage> callback) {
+        getImageFetcherBridge().fetchGif(getConfig(), params, callback);
     }
 
     @Override
-    public void fetchImage(
-            String url, String clientName, int width, int height, Callback<Bitmap> callback) {
+    public void fetchImage(final Params params, Callback<Bitmap> callback) {
         long startTimeMillis = System.currentTimeMillis();
-        mImageFetcherBridge.fetchImage(
-                getConfig(), url, clientName, width, height, (Bitmap bitmapFromNative) -> {
-                    callback.onResult(bitmapFromNative);
-                    mImageFetcherBridge.reportTotalFetchTimeFromNative(clientName, startTimeMillis);
-                });
+        getImageFetcherBridge().fetchImage(getConfig(), params, (Bitmap bitmapFromNative) -> {
+            callback.onResult(bitmapFromNative);
+            getImageFetcherBridge().reportTotalFetchTimeFromNative(
+                    params.clientName, startTimeMillis);
+        });
     }
 
     @Override

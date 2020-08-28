@@ -29,8 +29,7 @@ class SelectorFilterParentScopeTest : public testing::Test {
 TEST_F(SelectorFilterParentScopeTest, ParentScope) {
   GetDocument().body()->setAttribute(html_names::kClassAttr, "match");
   GetDocument().documentElement()->SetIdAttribute("myId");
-  SelectorFilter& filter =
-      GetDocument().EnsureStyleResolver().GetSelectorFilter();
+  SelectorFilter& filter = GetDocument().GetStyleResolver().GetSelectorFilter();
   GetDocument().Lifecycle().AdvanceTo(DocumentLifecycle::kInStyleRecalc);
 
   SelectorFilterRootScope root_scope(nullptr);
@@ -56,13 +55,12 @@ TEST_F(SelectorFilterParentScopeTest, ParentScope) {
 }
 
 TEST_F(SelectorFilterParentScopeTest, RootScope) {
-  GetDocument().body()->SetInnerHTMLFromString(R"HTML(
+  GetDocument().body()->setInnerHTML(R"HTML(
     <div class=x>
       <span id=y></span>
     </div>
   )HTML");
-  SelectorFilter& filter =
-      GetDocument().EnsureStyleResolver().GetSelectorFilter();
+  SelectorFilter& filter = GetDocument().GetStyleResolver().GetSelectorFilter();
   GetDocument().Lifecycle().AdvanceTo(DocumentLifecycle::kInStyleRecalc);
 
   SelectorFilterRootScope span_scope(GetDocument().getElementById("y"));
@@ -84,7 +82,7 @@ TEST_F(SelectorFilterParentScopeTest, RootScope) {
 }
 
 TEST_F(SelectorFilterParentScopeTest, ReentrantSVGImageLoading) {
-  GetDocument().body()->SetInnerHTMLFromString(R"HTML(
+  GetDocument().body()->setInnerHTML(R"HTML(
     <style>
       div::before {
         content: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg"></svg>');

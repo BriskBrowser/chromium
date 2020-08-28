@@ -45,7 +45,11 @@ std::string TaskTypeToHistogramSuffix(DownloadTaskType task_type) {
     case DownloadTaskType::CLEANUP_TASK:
       return "CleanUpTask";
     case DownloadTaskType::DOWNLOAD_AUTO_RESUMPTION_TASK:
+      NOTREACHED();
       return "DownloadAutoResumptionTask";
+    case DownloadTaskType::DOWNLOAD_LATER_TASK:
+      NOTREACHED();
+      return "DownloadLaterTask";
   }
   NOTREACHED();
   return std::string();
@@ -188,11 +192,6 @@ void LogStartDownloadResult(DownloadClient client,
                                 DownloadParams::StartResult::COUNT);
 }
 
-void LogRecoveryOperation(Entry::State to_state) {
-  UMA_HISTOGRAM_ENUMERATION("Download.Service.Recovery", to_state,
-                            Entry::State::COUNT);
-}
-
 void LogDownloadCompletion(CompletionType type, uint64_t file_size_bytes) {
   // Records completion type.
   UMA_HISTOGRAM_ENUMERATION("Download.Service.Finish.Type", type,
@@ -284,13 +283,10 @@ void LogFileCleanupStatus(FileCleanupReason reason,
   base::UmaHistogramCounts100(name, external_cleanups);
 }
 
-void LogFileLifeTime(const base::TimeDelta& file_life_time,
-                     int num_cleanup_attempts) {
+void LogFileLifeTime(const base::TimeDelta& file_life_time) {
   UMA_HISTOGRAM_CUSTOM_TIMES("Download.Service.Files.LifeTime", file_life_time,
                              base::TimeDelta::FromSeconds(1),
                              base::TimeDelta::FromDays(8), 100);
-  base::UmaHistogramSparse("Download.Service.Files.Cleanup.Attempts",
-                           num_cleanup_attempts);
 }
 
 void LogFileDirDiskUtilization(int64_t total_disk_space,
@@ -298,22 +294,11 @@ void LogFileDirDiskUtilization(int64_t total_disk_space,
                                int64_t files_size) {
   UMA_HISTOGRAM_PERCENTAGE("Download.Service.Files.FreeDiskSpace",
                            (free_disk_space * 100) / total_disk_space);
-  UMA_HISTOGRAM_PERCENTAGE("Download.Service.Files.DiskUsed",
-                           (files_size * 100) / total_disk_space);
-}
-
-void LogFilePathRenamed(bool renamed) {
-  UMA_HISTOGRAM_BOOLEAN("Download.Service.Files.PathRenamed", renamed);
 }
 
 void LogEntryEvent(DownloadEvent event) {
   UMA_HISTOGRAM_ENUMERATION("Download.Service.Entry.Event", event,
                             DownloadEvent::COUNT);
-}
-
-void LogEntryResumptionCount(uint32_t resume_count) {
-  UMA_HISTOGRAM_COUNTS_100("Download.Service.Entry.ResumptionCount",
-                           resume_count);
 }
 
 void LogEntryRetryCount(uint32_t retry_count) {
@@ -328,12 +313,6 @@ void LogHasUploadData(DownloadClient client, bool has_upload_data) {
   std::string name("Download.Service.Upload.HasUploadData");
   name.append(".").append(ClientToHistogramSuffix(client));
   base::UmaHistogramBoolean(name, has_upload_data);
-}
-
-void LogDownloadClientInflatedFullBrowser(DownloadClient client) {
-  std::string client_name(ClientToHistogramSuffix(client));
-  base::UmaHistogramBoolean(
-      "Download.Service.Clients.InflatedFullBrowser." + client_name, true);
 }
 
 }  // namespace stats

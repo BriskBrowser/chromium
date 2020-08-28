@@ -56,16 +56,16 @@ TEST(SetupUtilTest, GetMaxVersionFromArchiveDirTest) {
       installer::GetMaxVersionFromArchiveDir(test_dir.GetPath()));
   ASSERT_EQ(version->GetString(), "1.0.0.0");
 
-  base::DeleteFileRecursively(chrome_dir);
+  base::DeletePathRecursively(chrome_dir);
   ASSERT_FALSE(base::PathExists(chrome_dir)) << chrome_dir.value();
-  ASSERT_TRUE(installer::GetMaxVersionFromArchiveDir(test_dir.GetPath()) ==
-              NULL);
+  ASSERT_EQ(installer::GetMaxVersionFromArchiveDir(test_dir.GetPath()),
+            nullptr);
 
   chrome_dir = test_dir.GetPath().AppendASCII("ABC");
   base::CreateDirectory(chrome_dir);
   ASSERT_TRUE(base::PathExists(chrome_dir));
-  ASSERT_TRUE(installer::GetMaxVersionFromArchiveDir(test_dir.GetPath()) ==
-              NULL);
+  ASSERT_EQ(installer::GetMaxVersionFromArchiveDir(test_dir.GetPath()),
+            nullptr);
 
   chrome_dir = test_dir.GetPath().AppendASCII("2.3.4.5");
   base::CreateDirectory(chrome_dir);
@@ -174,8 +174,8 @@ ScopedPriorityClass::ScopedPriorityClass(DWORD original_priority_class)
     : original_priority_class_(original_priority_class) {}
 
 ScopedPriorityClass::~ScopedPriorityClass() {
-  BOOL result = ::SetPriorityClass(::GetCurrentProcess(),
-                                   original_priority_class_);
+  BOOL result =
+      ::SetPriorityClass(::GetCurrentProcess(), original_priority_class_);
   EXPECT_NE(FALSE, result);
 }
 
@@ -258,26 +258,17 @@ TEST(SetupUtilTest, RecordUnPackMetricsTest) {
   base::HistogramTester histogram_tester;
   std::string unpack_status_metrics_name =
       std::string(installer::kUnPackStatusMetricsName) + "_SetupExePatch";
-  std::string unpack_result_metrics_name =
-      std::string(installer::kUnPackResultMetricsName) + "_SetupExePatch";
-  std::string ntstatus_metrics_name =
-      std::string(installer::kUnPackNTSTATUSMetricsName) + "_SetupExePatch";
   histogram_tester.ExpectTotalCount(unpack_status_metrics_name, 0);
 
-  RecordUnPackMetrics(UnPackStatus::UNPACK_NO_ERROR, base::nullopt,
-                      base::nullopt,
+  RecordUnPackMetrics(UnPackStatus::UNPACK_NO_ERROR,
                       installer::UnPackConsumer::SETUP_EXE_PATCH);
   histogram_tester.ExpectTotalCount(unpack_status_metrics_name, 1);
   histogram_tester.ExpectBucketCount(unpack_status_metrics_name, 0, 1);
 
-  RecordUnPackMetrics(UnPackStatus::UNPACK_EXTRACT_ERROR, 1, 2,
+  RecordUnPackMetrics(UnPackStatus::UNPACK_EXTRACT_ERROR,
                       installer::UnPackConsumer::SETUP_EXE_PATCH);
   histogram_tester.ExpectTotalCount(unpack_status_metrics_name, 2);
   histogram_tester.ExpectBucketCount(unpack_status_metrics_name, 4, 1);
-  histogram_tester.ExpectTotalCount(unpack_result_metrics_name, 1);
-  histogram_tester.ExpectBucketCount(unpack_result_metrics_name, 2, 1);
-  histogram_tester.ExpectTotalCount(ntstatus_metrics_name, 1);
-  histogram_tester.ExpectBucketCount(ntstatus_metrics_name, 1, 1);
 }
 
 namespace {
@@ -286,8 +277,7 @@ namespace {
 // with a product being updated.
 class FindArchiveToPatchTest : public testing::Test {
  protected:
-  class FakeInstallationState : public installer::InstallationState {
-  };
+  class FakeInstallationState : public installer::InstallationState {};
 
   class FakeProductState : public installer::ProductState {
    public:
@@ -324,22 +314,19 @@ class FindArchiveToPatchTest : public testing::Test {
 
     // Prepare to update the product in the temp dir.
     installer_state_.reset(new installer::InstallerState(
-        kSystemInstall_ ? installer::InstallerState::SYSTEM_LEVEL :
-        installer::InstallerState::USER_LEVEL));
+        kSystemInstall_ ? installer::InstallerState::SYSTEM_LEVEL
+                        : installer::InstallerState::USER_LEVEL));
     installer_state_->set_target_path_for_testing(test_dir_.GetPath());
 
     // Create archives in the two version dirs.
     ASSERT_TRUE(
         base::CreateDirectory(GetProductVersionArchivePath().DirName()));
     ASSERT_EQ(1, base::WriteFile(GetProductVersionArchivePath(), "a", 1));
-    ASSERT_TRUE(
-        base::CreateDirectory(GetMaxVersionArchivePath().DirName()));
+    ASSERT_TRUE(base::CreateDirectory(GetMaxVersionArchivePath().DirName()));
     ASSERT_EQ(1, base::WriteFile(GetMaxVersionArchivePath(), "b", 1));
   }
 
-  void TearDown() override {
-    original_state_.reset();
-  }
+  void TearDown() override { original_state_.reset(); }
 
   base::FilePath GetArchivePath(const base::Version& version) const {
     return test_dir_.GetPath()
@@ -404,7 +391,7 @@ TEST_F(FindArchiveToPatchTest, ProductVersionFound) {
 // missing.
 TEST_F(FindArchiveToPatchTest, MaxVersionFound) {
   // The patch file is absent.
-  ASSERT_TRUE(base::DeleteFile(GetProductVersionArchivePath(), false));
+  ASSERT_TRUE(base::DeleteFile(GetProductVersionArchivePath()));
   base::FilePath patch_source(installer::FindArchiveToPatch(
       *original_state_, *installer_state_, base::Version()));
   EXPECT_EQ(GetMaxVersionArchivePath().value(), patch_source.value());
@@ -420,8 +407,8 @@ TEST_F(FindArchiveToPatchTest, MaxVersionFound) {
 TEST_F(FindArchiveToPatchTest, NoVersionFound) {
   // The product doesn't appear to be installed and no archives are present.
   UninstallProduct();
-  ASSERT_TRUE(base::DeleteFile(GetProductVersionArchivePath(), false));
-  ASSERT_TRUE(base::DeleteFile(GetMaxVersionArchivePath(), false));
+  ASSERT_TRUE(base::DeleteFile(GetProductVersionArchivePath()));
+  ASSERT_TRUE(base::DeleteFile(GetMaxVersionArchivePath()));
 
   base::FilePath patch_source(installer::FindArchiveToPatch(
       *original_state_, *installer_state_, base::Version()));
@@ -430,24 +417,22 @@ TEST_F(FindArchiveToPatchTest, NoVersionFound) {
 
 TEST_F(FindArchiveToPatchTest, DesiredVersionFound) {
   base::FilePath patch_source1(installer::FindArchiveToPatch(
-    *original_state_, *installer_state_, product_version_));
+      *original_state_, *installer_state_, product_version_));
   EXPECT_EQ(GetProductVersionArchivePath().value(), patch_source1.value());
   base::FilePath patch_source2(installer::FindArchiveToPatch(
-    *original_state_, *installer_state_, max_version_));
+      *original_state_, *installer_state_, max_version_));
   EXPECT_EQ(GetMaxVersionArchivePath().value(), patch_source2.value());
 }
 
 TEST_F(FindArchiveToPatchTest, DesiredVersionNotFound) {
   base::FilePath patch_source(installer::FindArchiveToPatch(
-    *original_state_, *installer_state_, base::Version("1.2.3.4")));
+      *original_state_, *installer_state_, base::Version("1.2.3.4")));
   EXPECT_EQ(base::FilePath().value(), patch_source.value());
 }
 
 TEST(SetupUtilTest, ContainsUnsupportedSwitch) {
   EXPECT_FALSE(installer::ContainsUnsupportedSwitch(
       base::CommandLine::FromString(L"foo.exe")));
-  EXPECT_FALSE(installer::ContainsUnsupportedSwitch(
-      base::CommandLine::FromString(L"foo.exe --multi-install --chrome")));
   EXPECT_TRUE(installer::ContainsUnsupportedSwitch(
       base::CommandLine::FromString(L"foo.exe --chrome-frame")));
 }
@@ -544,20 +529,23 @@ class DeleteRegistryKeyPartialTest : public ::testing::Test {
     // These subkeys are added such that 1) keys to preserve are intermixed with
     // other keys, and 2) the case of the keys to preserve doesn't match the
     // values in |to_preserve_|.
-    ASSERT_EQ(ERROR_SUCCESS, RegKey(root_, path_.c_str(), KEY_WRITE)
-                                 .CreateKey(L"0sub", KEY_WRITE));
+    ASSERT_EQ(
+        ERROR_SUCCESS,
+        RegKey(root_, path_.c_str(), KEY_WRITE).CreateKey(L"0sub", KEY_WRITE));
     if (with_preserves) {
       ASSERT_EQ(ERROR_SUCCESS, RegKey(root_, path_.c_str(), KEY_WRITE)
                                    .CreateKey(L"1evreserp", KEY_WRITE));
     }
-    ASSERT_EQ(ERROR_SUCCESS, RegKey(root_, path_.c_str(), KEY_WRITE)
-                                 .CreateKey(L"asub", KEY_WRITE));
+    ASSERT_EQ(
+        ERROR_SUCCESS,
+        RegKey(root_, path_.c_str(), KEY_WRITE).CreateKey(L"asub", KEY_WRITE));
     if (with_preserves) {
       ASSERT_EQ(ERROR_SUCCESS, RegKey(root_, path_.c_str(), KEY_WRITE)
                                    .CreateKey(L"preserve1", KEY_WRITE));
     }
-    ASSERT_EQ(ERROR_SUCCESS, RegKey(root_, path_.c_str(), KEY_WRITE)
-                                 .CreateKey(L"sub1", KEY_WRITE));
+    ASSERT_EQ(
+        ERROR_SUCCESS,
+        RegKey(root_, path_.c_str(), KEY_WRITE).CreateKey(L"sub1", KEY_WRITE));
   }
 
   const HKEY root_ = HKEY_CURRENT_USER;
@@ -623,14 +611,17 @@ TEST_F(DeleteRegistryKeyPartialTest, NonEmptyKeyWithPreserve) {
     RegKey key(root_, path_.c_str(), KEY_SET_VALUE);
     ASSERT_TRUE(key.Valid());
     ASSERT_EQ(ERROR_SUCCESS, key.WriteValue(nullptr, 5U));
-    ASSERT_EQ(1u, base::win::RegistryValueIterator(root_, path_.c_str())
-                      .ValueCount());
+    ASSERT_EQ(
+        1u,
+        base::win::RegistryValueIterator(root_, path_.c_str()).ValueCount());
     ASSERT_EQ(ERROR_SUCCESS, key.WriteValue(L"foo", L"bar"));
-    ASSERT_EQ(2u, base::win::RegistryValueIterator(root_, path_.c_str())
-                      .ValueCount());
+    ASSERT_EQ(
+        2u,
+        base::win::RegistryValueIterator(root_, path_.c_str()).ValueCount());
     ASSERT_EQ(ERROR_SUCCESS, key.WriteValue(L"baz", L"huh"));
-    ASSERT_EQ(3u, base::win::RegistryValueIterator(root_, path_.c_str())
-                      .ValueCount());
+    ASSERT_EQ(
+        3u,
+        base::win::RegistryValueIterator(root_, path_.c_str()).ValueCount());
   }
 
   ASSERT_TRUE(RegKey(root_, path_.c_str(), KEY_WRITE).Valid());
@@ -676,13 +667,9 @@ class LegacyCleanupsTest : public ::testing::Test {
                                   KEY_WRITE)
                     .Valid());
 #if BUILDFLAG(GOOGLE_CHROME_BRANDING)
-    ASSERT_TRUE(base::win::RegKey(HKEY_CURRENT_USER, kGCFClientsKeyPath,
-                                  KEY_WRITE | KEY_WOW64_32KEY)
-                    .Valid());
     ASSERT_TRUE(base::win::RegKey(HKEY_CURRENT_USER, kAppLauncherClientsKeyPath,
                                   KEY_WRITE | KEY_WOW64_32KEY)
                     .Valid());
-    ASSERT_GT(base::WriteFile(GetAppHostExePath(), "cha", 3), 0);
     ASSERT_TRUE(
         base::win::RegKey(HKEY_CURRENT_USER,
                           GetChromeAppCommandPath(L"install-extension").c_str(),
@@ -706,19 +693,11 @@ class LegacyCleanupsTest : public ::testing::Test {
   }
 
 #if BUILDFLAG(GOOGLE_CHROME_BRANDING)
-  bool HasMultiGCFVersionKey() const {
-    return base::win::RegKey(HKEY_CURRENT_USER, kGCFClientsKeyPath,
-                             KEY_QUERY_VALUE | KEY_WOW64_32KEY)
-        .Valid();
-  }
-
   bool HasAppLauncherVersionKey() const {
     return base::win::RegKey(HKEY_CURRENT_USER, kAppLauncherClientsKeyPath,
                              KEY_QUERY_VALUE | KEY_WOW64_32KEY)
         .Valid();
   }
-
-  bool HasAppHostExe() const { return base::PathExists(GetAppHostExePath()); }
 
   bool HasInstallExtensionCommand() const {
     return base::win::RegKey(
@@ -743,10 +722,6 @@ class LegacyCleanupsTest : public ::testing::Test {
   };
 
 #if BUILDFLAG(GOOGLE_CHROME_BRANDING)
-  base::FilePath GetAppHostExePath() const {
-    return installer_state_->target_path().AppendASCII("app_host.exe");
-  }
-
   base::string16 GetChromeAppCommandPath(const wchar_t* command) const {
     return base::string16(
                L"SOFTWARE\\Google\\Update\\Clients\\"
@@ -758,7 +733,6 @@ class LegacyCleanupsTest : public ::testing::Test {
   static const wchar_t kBinariesClientsKeyPath[];
   static const wchar_t kCommandExecuteImplClsid[];
 #if BUILDFLAG(GOOGLE_CHROME_BRANDING)
-  static const wchar_t kGCFClientsKeyPath[];
   static const wchar_t kAppLauncherClientsKeyPath[];
 #endif
 
@@ -774,9 +748,6 @@ const wchar_t LegacyCleanupsTest::kBinariesClientsKeyPath[] =
     L"{4DC8B4CA-1BDA-483e-B5FA-D3C12E15B62D}";
 const wchar_t LegacyCleanupsTest::kCommandExecuteImplClsid[] =
     L"Software\\Classes\\CLSID\\{5C65F4B0-3651-4514-B207-D10CB699B14B}";
-const wchar_t LegacyCleanupsTest::kGCFClientsKeyPath[] =
-    L"SOFTWARE\\Google\\Update\\Clients\\"
-    L"{8BA986DA-5100-405E-AA35-86F34A02ACBF}";
 const wchar_t LegacyCleanupsTest::kAppLauncherClientsKeyPath[] =
     L"SOFTWARE\\Google\\Update\\Clients\\"
     L"{FDA71E6F-AC4C-4a00-8B70-9958A68906BF}";
@@ -792,9 +763,7 @@ TEST_F(LegacyCleanupsTest, NoOpOnFailedUpdate) {
   EXPECT_TRUE(HasBinariesVersionKey());
   EXPECT_TRUE(HasCommandExecuteImplClassKey());
 #if BUILDFLAG(GOOGLE_CHROME_BRANDING)
-  EXPECT_TRUE(HasMultiGCFVersionKey());
   EXPECT_TRUE(HasAppLauncherVersionKey());
-  EXPECT_TRUE(HasAppHostExe());
   EXPECT_TRUE(HasInstallExtensionCommand());
 #endif  // BUILDFLAG(GOOGLE_CHROME_BRANDING)
 }
@@ -804,9 +773,7 @@ TEST_F(LegacyCleanupsTest, Do) {
   EXPECT_FALSE(HasBinariesVersionKey());
   EXPECT_FALSE(HasCommandExecuteImplClassKey());
 #if BUILDFLAG(GOOGLE_CHROME_BRANDING)
-  EXPECT_FALSE(HasMultiGCFVersionKey());
   EXPECT_FALSE(HasAppLauncherVersionKey());
-  EXPECT_FALSE(HasAppHostExe());
   EXPECT_FALSE(HasInstallExtensionCommand());
 #endif  // BUILDFLAG(GOOGLE_CHROME_BRANDING)
 }

@@ -7,8 +7,8 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/task/post_task.h"
 #include "base/trace_event/trace_event.h"
+#include "chrome/browser/predictors/predictors_features.h"
 #include "chrome/browser/predictors/resource_prefetch_predictor.h"
 #include "chrome/browser/profiles/profile.h"
 #include "content/public/browser/browser_task_traits.h"
@@ -82,18 +82,19 @@ PreconnectManager::~PreconnectManager() = default;
 void PreconnectManager::Start(const GURL& url,
                               std::vector<PreconnectRequest> requests) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
-  const std::string host = url.host();
-  if (preresolve_info_.find(host) != preresolve_info_.end())
-    return;
+  PreresolveInfo* info;
+  if (preresolve_info_.find(url) == preresolve_info_.end()) {
+    auto iterator_and_whether_inserted = preresolve_info_.emplace(
+        url, std::make_unique<PreresolveInfo>(url, requests.size()));
+    info = iterator_and_whether_inserted.first->second.get();
+  } else {
+    info = preresolve_info_.find(url)->second.get();
+    info->queued_count += requests.size();
+  }
 
-  auto iterator_and_whether_inserted = preresolve_info_.emplace(
-      host, std::make_unique<PreresolveInfo>(url, requests.size()));
-  PreresolveInfo* info = iterator_and_whether_inserted.first->second.get();
-
-  for (auto request_it = requests.begin(); request_it != requests.end();
-       ++request_it) {
+  for (auto& request : requests) {
     PreresolveJobId job_id = preresolve_jobs_.Add(
-        std::make_unique<PreresolveJob>(std::move(*request_it), info));
+        std::make_unique<PreresolveJob>(std::move(request), info));
     queued_jobs_.push_back(job_id);
   }
 
@@ -147,7 +148,7 @@ void PreconnectManager::StartPreconnectUrl(
 
 void PreconnectManager::Stop(const GURL& url) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
-  auto it = preresolve_info_.find(url.host());
+  auto it = preresolve_info_.find(url);
   if (it == preresolve_info_.end()) {
     return;
   }
@@ -184,10 +185,8 @@ std::unique_ptr<ResolveHostClientImpl> PreconnectManager::PreresolveUrl(
   if (!network_context) {
     // Cannot invoke the callback right away because it would cause the
     // use-after-free after returning from this function.
-    base::PostTask(
-        FROM_HERE,
-        {content::BrowserThread::UI, content::BrowserTaskType::kPreconnect},
-        base::BindOnce(std::move(callback), false));
+    content::GetUIThreadTaskRunner({content::BrowserTaskType::kPreconnect})
+        ->PostTask(FROM_HERE, base::BindOnce(std::move(callback), false));
     return nullptr;
   }
 
@@ -216,7 +215,7 @@ void PreconnectManager::TryToLaunchPreresolveJobs() {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 
   while (!queued_jobs_.empty() &&
-         inflight_preresolves_count_ < kMaxInflightPreresolves) {
+         inflight_preresolves_count_ < features::GetMaxInflightPreresolves()) {
     auto job_id = queued_jobs_.front();
     queued_jobs_.pop_front();
     PreresolveJob* job = preresolve_jobs_.Lookup(job_id);
@@ -231,8 +230,11 @@ void PreconnectManager::TryToLaunchPreresolveJobs() {
           job->url, job->network_isolation_key,
           base::BindOnce(&PreconnectManager::OnProxyLookupFinished,
                          weak_factory_.GetWeakPtr(), job_id));
-      if (info)
+      if (info) {
         ++info->inflight_count;
+        if (delegate_)
+          delegate_->PreconnectInitiated(info->url, job->url);
+      }
       ++inflight_preresolves_count_;
     } else {
       preresolve_jobs_.Remove(job_id);
@@ -315,7 +317,7 @@ void PreconnectManager::FinishPreresolveJob(PreresolveJobId job_id,
 void PreconnectManager::AllPreresolvesForUrlFinished(PreresolveInfo* info) {
   DCHECK(info);
   DCHECK(info->is_done());
-  auto it = preresolve_info_.find(info->url.host());
+  auto it = preresolve_info_.find(info->url);
   DCHECK(it != preresolve_info_.end());
   DCHECK(info == it->second.get());
   if (delegate_)

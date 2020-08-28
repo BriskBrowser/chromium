@@ -6,9 +6,9 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <memory>
 
-#include "base/logging.h"
 #include "base/time/time.h"
 #include "cc/input/browser_controls_offset_manager_client.h"
 #include "cc/layers/layer_impl.h"
@@ -31,7 +31,8 @@ class MockBrowserControlsOffsetManagerClient
       : host_impl_(&task_runner_provider_, &task_graph_runner_),
         redraw_needed_(false),
         update_draw_properties_needed_(false),
-        browser_controls_params_({top_controls_height, 0, 0, 0, false, false}),
+        browser_controls_params_(
+            {top_controls_height, 0, 0, 0, false, false, false}),
         bottom_controls_shown_ratio_(1.f),
         top_controls_shown_ratio_(1.f),
         browser_controls_show_threshold_(browser_controls_show_threshold),
@@ -65,6 +66,14 @@ class MockBrowserControlsOffsetManagerClient
 
   float TopControlsMinHeight() const override {
     return browser_controls_params_.top_controls_min_height;
+  }
+
+  bool OnlyExpandTopControlsAtPageTop() const override {
+    return browser_controls_params_.only_expand_top_controls_at_page_top;
+  }
+
+  gfx::ScrollOffset ViewportScrollOffset() const override {
+    return viewport_scroll_offset_;
   }
 
   void SetCurrentBrowserControlsShownRatio(float top_ratio,
@@ -111,6 +120,15 @@ class MockBrowserControlsOffsetManagerClient
         params.animate_browser_controls_height_changes);
   }
 
+  void SetViewportScrollOffset(float x, float y) {
+    viewport_scroll_offset_ = gfx::ScrollOffset(x, y);
+  }
+
+  void ScrollVerticallyBy(float dy) {
+    gfx::Vector2dF viewport_scroll_delta = manager()->ScrollBy({0.f, dy});
+    viewport_scroll_offset_.Add(gfx::ScrollOffset(viewport_scroll_delta));
+  }
+
  private:
   FakeImplTaskRunnerProvider task_runner_provider_;
   TestTaskGraphRunner task_graph_runner_;
@@ -126,6 +144,7 @@ class MockBrowserControlsOffsetManagerClient
   float top_controls_shown_ratio_;
   float browser_controls_show_threshold_;
   float browser_controls_hide_threshold_;
+  gfx::ScrollOffset viewport_scroll_offset_;
 };
 
 TEST(BrowserControlsOffsetManagerTest, EnsureScrollThresholdApplied) {
@@ -599,6 +618,8 @@ TEST(BrowserControlsOffsetManagerTest, HeightIncreaseWhenFullyShownAnimation) {
   EXPECT_FLOAT_EQ(150.f, manager->TopControlsHeight());
   // Ratio should've been updated to avoid jumping to the new height.
   EXPECT_FLOAT_EQ(100.f / 150.f, manager->TopControlsShownRatio());
+  // Min-height offset should stay 0 since only the height changed.
+  EXPECT_FLOAT_EQ(0.f, manager->TopControlsMinHeightOffset());
 
   base::TimeTicks time = base::TimeTicks::Now();
 
@@ -618,6 +639,8 @@ TEST(BrowserControlsOffsetManagerTest, HeightIncreaseWhenFullyShownAnimation) {
   EXPECT_FLOAT_EQ(1.f, manager->TopControlsShownRatio());
   EXPECT_FLOAT_EQ(0.f, manager->ControlsTopOffset());
   EXPECT_FLOAT_EQ(150.f, manager->ContentTopOffset());
+  // Min-height offset should still be 0.
+  EXPECT_FLOAT_EQ(0.f, manager->TopControlsMinHeightOffset());
 }
 
 TEST(BrowserControlsOffsetManagerTest, HeightDecreaseWhenFullyShownAnimation) {
@@ -668,24 +691,33 @@ TEST(BrowserControlsOffsetManagerTest, MinHeightIncreaseWhenHiddenAnimation) {
   EXPECT_FLOAT_EQ(20.f, manager->TopControlsMinHeight());
   EXPECT_FLOAT_EQ(0.f, manager->ContentTopOffset());
   EXPECT_FLOAT_EQ(0.f, manager->TopControlsShownRatio());
+  EXPECT_FLOAT_EQ(0.f, manager->TopControlsMinHeightOffset());
 
   base::TimeTicks time = base::TimeTicks::Now();
 
-  // First animate will establish the animaion.
-  float previous = manager->TopControlsShownRatio();
+  // First animate will establish the animation.
+  float previous_ratio = manager->TopControlsShownRatio();
+  float previous_min_height_offset = manager->TopControlsMinHeightOffset();
   manager->Animate(time);
-  EXPECT_EQ(manager->TopControlsShownRatio(), previous);
+  EXPECT_EQ(manager->TopControlsShownRatio(), previous_ratio);
+  EXPECT_EQ(manager->TopControlsMinHeightOffset(), previous_min_height_offset);
 
   while (manager->HasAnimation()) {
-    previous = manager->TopControlsShownRatio();
+    previous_ratio = manager->TopControlsShownRatio();
+    previous_min_height_offset = manager->TopControlsMinHeightOffset();
     time = base::TimeDelta::FromMicroseconds(100) + time;
     manager->Animate(time);
-    EXPECT_GT(manager->TopControlsShownRatio(), previous);
+    EXPECT_GT(manager->TopControlsShownRatio(), previous_ratio);
+    // Min-height offset is also animated.
+    EXPECT_GT(manager->TopControlsMinHeightOffset(),
+              previous_min_height_offset);
   }
   EXPECT_FALSE(manager->HasAnimation());
   // Controls should be at the new min-height when the animation ends.
   EXPECT_FLOAT_EQ(20.f / 100.f, manager->TopControlsShownRatio());
   EXPECT_FLOAT_EQ(20.f, manager->ContentTopOffset());
+  // Min-height offset should be equal to the min-height at the end.
+  EXPECT_FLOAT_EQ(20.f, manager->TopControlsMinHeightOffset());
 }
 
 TEST(BrowserControlsOffsetManagerTest,
@@ -708,24 +740,33 @@ TEST(BrowserControlsOffsetManagerTest,
   EXPECT_FLOAT_EQ(0.f, manager->TopControlsMinHeight());
   // The controls should still be at the min-height.
   EXPECT_FLOAT_EQ(20.f, manager->ContentTopOffset());
+  // Min-height offset is equal to min-height.
+  EXPECT_FLOAT_EQ(20.f, manager->TopControlsMinHeightOffset());
 
   base::TimeTicks time = base::TimeTicks::Now();
 
   // First animate will establish the animaion.
-  float previous = manager->TopControlsShownRatio();
+  float previous_ratio = manager->TopControlsShownRatio();
+  float previous_min_height_offset = manager->TopControlsMinHeightOffset();
   manager->Animate(time);
-  EXPECT_EQ(manager->TopControlsShownRatio(), previous);
+  EXPECT_EQ(manager->TopControlsShownRatio(), previous_ratio);
 
   while (manager->HasAnimation()) {
-    previous = manager->TopControlsShownRatio();
+    previous_ratio = manager->TopControlsShownRatio();
+    previous_min_height_offset = manager->TopControlsMinHeightOffset();
     time = base::TimeDelta::FromMicroseconds(100) + time;
     manager->Animate(time);
-    EXPECT_LT(manager->TopControlsShownRatio(), previous);
+    EXPECT_LT(manager->TopControlsShownRatio(), previous_ratio);
+    // Min-height offset is also animated.
+    EXPECT_LT(manager->TopControlsMinHeightOffset(),
+              previous_min_height_offset);
   }
   EXPECT_FALSE(manager->HasAnimation());
   // Controls should be hidden when the animation ends.
   EXPECT_FLOAT_EQ(0.f, manager->TopControlsShownRatio());
   EXPECT_FLOAT_EQ(0.f, manager->ContentTopOffset());
+  // Min-height offset will be equal to the new min-height.
+  EXPECT_FLOAT_EQ(0.f, manager->TopControlsMinHeightOffset());
 }
 
 TEST(BrowserControlsOffsetManagerTest, EnsureNoAnimationCases) {
@@ -784,11 +825,15 @@ TEST(BrowserControlsOffsetManagerTest,
   // Scroll should cause the animation to jump to the end.
   EXPECT_FLOAT_EQ(1.f, manager->TopControlsShownRatio());
   EXPECT_FLOAT_EQ(150.f, manager->ContentTopOffset());
+  // Min-height offset should jump to the new min-height.
+  EXPECT_FLOAT_EQ(30.f, manager->TopControlsMinHeightOffset());
   EXPECT_FALSE(manager->HasAnimation());
   // Then, the scroll will move the controls as it would normally.
   manager->ScrollBy(gfx::Vector2dF(0.f, 60.f));
   EXPECT_FALSE(manager->HasAnimation());
   EXPECT_FLOAT_EQ(90.f, manager->ContentTopOffset());
+  // Min-height offset won't change once the animation is complete.
+  EXPECT_FLOAT_EQ(30.f, manager->TopControlsMinHeightOffset());
   manager->ScrollEnd();
 }
 
@@ -869,6 +914,8 @@ TEST(BrowserControlsOffsetManagerTest,
   // Top controls should snap to the new min-height.
   EXPECT_FLOAT_EQ(-80.f, manager->ControlsTopOffset());
   EXPECT_FLOAT_EQ(20.f, manager->ContentTopOffset());
+  // Min-height offset snaps to the new min-height.
+  EXPECT_FLOAT_EQ(20.f, manager->TopControlsMinHeightOffset());
 
   // Change the min-height from 20 to 0.
   client.SetBrowserControlsParams({100, 0, 0, 0, false, false});
@@ -877,6 +924,8 @@ TEST(BrowserControlsOffsetManagerTest,
   // Top controls should snap to the new min-height, 0.
   EXPECT_FLOAT_EQ(-100.f, manager->ControlsTopOffset());
   EXPECT_FLOAT_EQ(0.f, manager->ContentTopOffset());
+  // Min-height offset snaps to the new min-height.
+  EXPECT_FLOAT_EQ(0.f, manager->TopControlsMinHeightOffset());
 }
 
 TEST(BrowserControlsOffsetManagerTest, ControlsStayAtMinHeightOnHeightChange) {
@@ -1056,6 +1105,133 @@ TEST(BrowserControlsOffsetManagerTest, ScrollWithMinHeightSetForBothControls) {
   EXPECT_FLOAT_EQ(1.f, client.CurrentTopControlsShownRatio());
   EXPECT_FLOAT_EQ(1.f, client.CurrentBottomControlsShownRatio());
   manager->ScrollEnd();
+}
+
+TEST(BrowserControlsOffsetManagerTest, ChangingBottomHeightFromZeroAnimates) {
+  MockBrowserControlsOffsetManagerClient client(100, 0.5f, 0.5f);
+  client.SetBrowserControlsParams({100, 30, 0, 0, false, false});
+  BrowserControlsOffsetManager* manager = client.manager();
+  EXPECT_FLOAT_EQ(1.f, client.CurrentTopControlsShownRatio());
+  EXPECT_FLOAT_EQ(1.f, client.CurrentBottomControlsShownRatio());
+
+  // Set the bottom controls height to 100 with animation.
+  client.SetBrowserControlsParams({100, 30, 100, 0, true, false});
+  EXPECT_TRUE(manager->HasAnimation());
+  // The bottom controls should be hidden in the beginning.
+  EXPECT_FLOAT_EQ(0.f, manager->ContentBottomOffset());
+  EXPECT_FLOAT_EQ(0.f, client.CurrentBottomControlsShownRatio());
+
+  base::TimeTicks time = base::TimeTicks::Now();
+
+  // First animate will establish the animaion.
+  float previous_ratio = manager->BottomControlsShownRatio();
+  manager->Animate(time);
+  EXPECT_EQ(manager->BottomControlsShownRatio(), previous_ratio);
+
+  while (manager->HasAnimation()) {
+    previous_ratio = manager->BottomControlsShownRatio();
+    time = base::TimeDelta::FromMicroseconds(100) + time;
+    manager->Animate(time);
+    EXPECT_GT(manager->BottomControlsShownRatio(), previous_ratio);
+  }
+
+  // Now the bottom controls should be fully shown.
+  EXPECT_FLOAT_EQ(100.f, manager->ContentBottomOffset());
+  EXPECT_FLOAT_EQ(1.f, client.CurrentBottomControlsShownRatio());
+}
+
+TEST(BrowserControlsOffsetManagerTest,
+     ChangingControlsHeightToZeroWithAnimationIsNoop) {
+  MockBrowserControlsOffsetManagerClient client(100, 0.5f, 0.5f);
+  client.SetBrowserControlsParams({100, 20, 80, 10, false, false});
+  BrowserControlsOffsetManager* manager = client.manager();
+  EXPECT_FLOAT_EQ(1.f, client.CurrentTopControlsShownRatio());
+  EXPECT_FLOAT_EQ(1.f, client.CurrentBottomControlsShownRatio());
+
+  // Set the bottom controls height to 0 with animation.
+  client.SetBrowserControlsParams({100, 20, 0, 0, true, false});
+
+  // There shouldn't be an animation because we can't animate controls with 0
+  // height.
+  EXPECT_FALSE(manager->HasAnimation());
+  // Also, the bottom controls ratio should stay the same.
+  EXPECT_FLOAT_EQ(1.f, client.CurrentBottomControlsShownRatio());
+
+  // Increase the top controls height with animation.
+  client.SetBrowserControlsParams({120, 20, 0, 0, true, false});
+  // This shouldn't override the bottom controls shown ratio.
+  EXPECT_FLOAT_EQ(1.f, client.CurrentBottomControlsShownRatio());
+}
+
+TEST(BrowserControlsOffsetManagerTest, OnlyExpandTopControlsAtPageTop) {
+  MockBrowserControlsOffsetManagerClient client(0.f, 0.5f, 0.5f);
+  client.SetBrowserControlsParams(
+      {/*top_controls_height=*/100.f, 0, 0, 0, false, false,
+       /*only_expand_top_controls_at_page_top=*/true});
+  BrowserControlsOffsetManager* manager = client.manager();
+
+  // Scroll down to hide the controls entirely.
+  manager->ScrollBegin();
+  client.ScrollVerticallyBy(150.f);
+  EXPECT_FLOAT_EQ(-100.f, manager->ControlsTopOffset());
+  EXPECT_FLOAT_EQ(50.f, client.ViewportScrollOffset().y());
+  manager->ScrollEnd();
+
+  manager->ScrollBegin();
+
+  // Scroll back up a bit and ensure the controls don't move until we're at
+  // the top.
+  client.ScrollVerticallyBy(-20.f);
+  EXPECT_FLOAT_EQ(-100.f, manager->ControlsTopOffset());
+  EXPECT_FLOAT_EQ(30.f, client.ViewportScrollOffset().y());
+
+  client.ScrollVerticallyBy(-10.f);
+  EXPECT_FLOAT_EQ(-100.f, manager->ControlsTopOffset());
+  EXPECT_FLOAT_EQ(20.f, client.ViewportScrollOffset().y());
+
+  // After scrolling past the top, the top controls should start showing.
+  client.ScrollVerticallyBy(-30.f);
+  EXPECT_FLOAT_EQ(-90.f, manager->ControlsTopOffset());
+  EXPECT_FLOAT_EQ(0.f, client.ViewportScrollOffset().y());
+
+  client.ScrollVerticallyBy(-50.f);
+  EXPECT_FLOAT_EQ(-40.f, manager->ControlsTopOffset());
+  // The final offset is greater than gtest's epsilon.
+  EXPECT_GT(0.0001f, client.ViewportScrollOffset().y());
+
+  manager->ScrollEnd();
+}
+
+// Tests that if the min-height changes while we're animating to the previous
+// min-height, the animation gets updated to end at the new value.
+TEST(BrowserControlsOffsetManagerTest, MinHeightChangeUpdatesAnimation) {
+  MockBrowserControlsOffsetManagerClient client(100, 0.5f, 0.5f);
+  client.SetBrowserControlsParams(
+      {/*top_controls_height=*/100, /*top_controls_min_height=*/50, 0, 0,
+       /*animate_browser_controls_height_changes=*/true, false, false});
+  BrowserControlsOffsetManager* manager = client.manager();
+
+  // Hide the controls to start an animation to min-height.
+  EXPECT_FLOAT_EQ(1.f, manager->TopControlsShownRatio());
+  manager->UpdateBrowserControlsState(BrowserControlsState::kHidden,
+                                      BrowserControlsState::kBoth, true);
+  base::TimeTicks time = base::TimeTicks::Now();
+  manager->Animate(time);
+  EXPECT_TRUE(manager->HasAnimation());
+
+  // Update the min-height to a smaller value.
+  client.SetBrowserControlsParams(
+      {/*top_controls_height=*/100, /*top_controls_min_height=*/10, 0, 0,
+       /*animate_browser_controls_height_changes=*/true, false, false});
+  EXPECT_TRUE(manager->HasAnimation());
+
+  // Make sure the animation finishes at the new min-height.
+  while (manager->HasAnimation()) {
+    time = base::TimeDelta::FromMicroseconds(100) + time;
+    manager->Animate(time);
+  }
+  EXPECT_FALSE(manager->HasAnimation());
+  EXPECT_FLOAT_EQ(0.1f, manager->TopControlsShownRatio());
 }
 
 }  // namespace

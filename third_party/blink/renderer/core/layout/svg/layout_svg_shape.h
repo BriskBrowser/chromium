@@ -27,7 +27,6 @@
 #define THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_SVG_LAYOUT_SVG_SHAPE_H_
 
 #include <memory>
-#include "base/macros.h"
 #include "third_party/blink/renderer/core/layout/svg/layout_svg_model_object.h"
 #include "third_party/blink/renderer/core/layout/svg/svg_marker_data.h"
 #include "third_party/blink/renderer/platform/geometry/float_rect.h"
@@ -50,9 +49,10 @@ struct LayoutSVGShapeRareData {
 
  public:
   LayoutSVGShapeRareData() = default;
+  LayoutSVGShapeRareData(const LayoutSVGShapeRareData&) = delete;
+  LayoutSVGShapeRareData& operator=(const LayoutSVGShapeRareData) = delete;
   Path non_scaling_stroke_path_;
   AffineTransform non_scaling_stroke_transform_;
-  DISALLOW_COPY_AND_ASSIGN(LayoutSVGShapeRareData);
 };
 
 class LayoutSVGShape : public LayoutSVGModelObject {
@@ -93,6 +93,7 @@ class LayoutSVGShape : public LayoutSVGModelObject {
     return rare_data_->non_scaling_stroke_transform_;
   }
 
+  AffineTransform ComputeRootTransform() const;
   AffineTransform ComputeNonScalingStrokeTransform() const;
   AffineTransform LocalSVGTransform() const final { return local_transform_; }
 
@@ -129,9 +130,9 @@ class LayoutSVGShape : public LayoutSVGModelObject {
   void StyleDidChange(StyleDifference, const ComputedStyle* old_style) override;
   void WillBeDestroyed() override;
 
-  float VisualRectOutsetForRasterEffects() const override;
+  RasterEffectOutset VisualRectOutsetForRasterEffects() const override;
 
-  void ClearPath() { path_.reset(); }
+  void ClearPath();
   void CreatePath();
 
   // Update (cached) shape data and the (object) bounding box.
@@ -189,6 +190,7 @@ class LayoutSVGShape : public LayoutSVGModelObject {
   // into removing it.
   std::unique_ptr<Path> path_;
   mutable std::unique_ptr<LayoutSVGShapeRareData> rare_data_;
+  std::unique_ptr<Path> stroke_path_cache_;
 
   StrokeGeometryClass geometry_class_;
   bool needs_boundaries_update_ : 1;

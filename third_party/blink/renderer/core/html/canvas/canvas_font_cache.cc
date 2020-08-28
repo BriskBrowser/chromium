@@ -6,7 +6,7 @@
 
 #include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/renderer/core/css/parser/css_parser.h"
-#include "third_party/blink/renderer/core/css/resolver/style_resolver.h"
+#include "third_party/blink/renderer/core/css/style_engine.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/html/canvas/html_canvas_element.h"
 #include "third_party/blink/renderer/core/style/computed_style.h"
@@ -37,8 +37,6 @@ CanvasFontCache::CanvasFontCache(Document& document)
   default_font_description.SetComputedSize(defaultFontSize);
   default_font_style_ = ComputedStyle::Create();
   default_font_style_->SetFontDescription(default_font_description);
-  default_font_style_->GetFont().Update(
-      default_font_style_->GetFont().GetFontSelector());
 }
 
 CanvasFontCache::~CanvasFontCache() {
@@ -76,8 +74,8 @@ bool CanvasFontCache::GetFontUsingDefaultStyle(HTMLCanvasElement& element,
 
   scoped_refptr<ComputedStyle> font_style =
       ComputedStyle::Clone(*default_font_style_.get());
-  document_->EnsureStyleResolver().ComputeFont(element, font_style.get(),
-                                               *parsed_style);
+  document_->GetStyleEngine().ComputeFont(element, font_style.get(),
+                                          *parsed_style);
   fonts_resolved_using_default_style_.insert(font_string,
                                              font_style->GetFont());
   resolved_font = fonts_resolved_using_default_style_.find(font_string)->value;
@@ -95,8 +93,9 @@ MutableCSSPropertyValueSet* CanvasFontCache::ParseFont(
   } else {
     parsed_style =
         MakeGarbageCollected<MutableCSSPropertyValueSet>(kHTMLStandardMode);
-    CSSParser::ParseValue(parsed_style, CSSPropertyID::kFont, font_string, true,
-                          document_->GetSecureContextMode());
+    CSSParser::ParseValue(
+        parsed_style, CSSPropertyID::kFont, font_string, true,
+        document_->GetExecutionContext()->GetSecureContextMode());
     if (parsed_style->IsEmpty())
       return nullptr;
     // According to
@@ -155,7 +154,7 @@ void CanvasFontCache::PruneAll() {
   fonts_resolved_using_default_style_.clear();
 }
 
-void CanvasFontCache::Trace(Visitor* visitor) {
+void CanvasFontCache::Trace(Visitor* visitor) const {
   visitor->Trace(fetched_fonts_);
   visitor->Trace(document_);
 }

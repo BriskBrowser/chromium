@@ -12,6 +12,7 @@
 #import "ios/chrome/browser/ui/bookmarks/bookmark_earl_grey_ui.h"
 #import "ios/chrome/browser/ui/bookmarks/bookmark_ui_constants.h"
 #import "ios/chrome/browser/ui/table_view/feature_flags.h"
+#import "ios/chrome/browser/ui/util/multi_window_support.h"
 #include "ios/chrome/grit/ios_strings.h"
 #import "ios/chrome/test/earl_grey/chrome_earl_grey.h"
 #import "ios/chrome/test/earl_grey/chrome_matchers.h"
@@ -23,12 +24,12 @@
 #endif
 
 using chrome_test_util::BookmarksDeleteSwipeButton;
+using chrome_test_util::BookmarksNavigationBarBackButton;
 using chrome_test_util::BookmarksSaveEditFolderButton;
 using chrome_test_util::ButtonWithAccessibilityLabelId;
 using chrome_test_util::ContextBarCenterButtonWithLabel;
 using chrome_test_util::ContextBarLeadingButtonWithLabel;
 using chrome_test_util::ContextMenuCopyButton;
-using chrome_test_util::NavigateBackButtonTo;
 using chrome_test_util::OmniboxText;
 using chrome_test_util::TappableBookmarkNodeWithLabel;
 
@@ -205,17 +206,51 @@ using chrome_test_util::TappableBookmarkNodeWithLabel;
                                    [BookmarkEarlGreyUI contextBarMoreString])]
       performAction:grey_tap()];
 
-  [BookmarkEarlGreyUI verifyContextMenuForSingleURL];
+  [BookmarkEarlGreyUI verifyContextMenuForSingleURLWithEditEnabled:YES];
 }
 
-// Verify Edit Text functionality on single URL selection.
-- (void)testEditTextOnSingleURL {
-#if defined(CHROME_EARL_GREY_1)
+// Tests display and selection of 'Open in New Window' in a context menu on a
+// bookmarks entry.
+- (void)testContextMenuOpenInNewWindow {
   // TODO(crbug.com/1035764): EG1 Test fails on iOS 12.
   if (!base::ios::IsRunningOnIOS13OrLater()) {
     EARL_GREY_TEST_DISABLED(@"EG1 Fails on iOS 12.");
   }
-#endif
+
+  if (!IsMultipleScenesSupported()) {
+    EARL_GREY_TEST_DISABLED(@"Multiple scenes can't be opened.");
+  }
+
+  [BookmarkEarlGrey setupStandardBookmarks];
+  [BookmarkEarlGreyUI openBookmarks];
+  [BookmarkEarlGreyUI openMobileBookmarks];
+
+  [ChromeEarlGrey waitForBrowserCount:1];
+
+  // Open a bookmark in a new window (through a long press).
+  [[EarlGrey selectElementWithMatcher:grey_accessibilityID(@"First URL")]
+      performAction:grey_longPress()];
+  [[EarlGrey
+      selectElementWithMatcher:ButtonWithAccessibilityLabelId(
+                                   IDS_IOS_CONTENT_CONTEXT_OPENINNEWWINDOW)]
+      performAction:grey_tap()];
+
+  [[EarlGrey selectElementWithMatcher:chrome_test_util::OmniboxText(
+                                          GetFirstUrl().GetContent())]
+      assertWithMatcher:grey_notNil()];
+  [ChromeEarlGrey waitForBrowserCount:2];
+
+  [ChromeEarlGrey closeCurrentTab];
+  [ChromeEarlGrey waitForBrowserCount:1];
+}
+
+// Verify Edit Text functionality on single URL selection.
+- (void)testEditTextOnSingleURL {
+  // TODO(crbug.com/1049972): Re-enable on iOS 12.
+  if (!base::ios::IsRunningOnIOS13OrLater()) {
+    EARL_GREY_TEST_DISABLED(@"EG1 Fails on iOS 12.");
+  }
+
   [BookmarkEarlGrey setupStandardBookmarks];
   [BookmarkEarlGreyUI openBookmarks];
   [BookmarkEarlGreyUI openMobileBookmarks];
@@ -288,14 +323,8 @@ using chrome_test_util::TappableBookmarkNodeWithLabel;
                                                      newFolderEnabled:YES];
 }
 
-// TODO(crbug.com/1034183): Enable for EG2 once NavigateBackButtonTo() is fixed.
-#if defined(CHROME_EARL_GREY_2)
-#define MAYBE_testMoveOnSingleURL DISABLED_testMoveOnSingleURL
-#else
-#define MAYBE_testMoveOnSingleURL testMoveOnSingleURL
-#endif
 // Verify Move functionality on single URL selection.
-- (void)MAYBE_testMoveOnSingleURL {
+- (void)testMoveOnSingleURL {
 #if defined(CHROME_EARL_GREY_1)
   // TODO(crbug.com/1035764): EG1 Test fails on iOS 12.
   if (!base::ios::IsRunningOnIOS13OrLater()) {
@@ -342,7 +371,7 @@ using chrome_test_util::TappableBookmarkNodeWithLabel;
   // 2. Test the cancel button at edit page.
 
   // Come back to the Mobile Bookmarks.
-  [[EarlGrey selectElementWithMatcher:NavigateBackButtonTo(@"Mobile Bookmarks")]
+  [[EarlGrey selectElementWithMatcher:BookmarksNavigationBarBackButton()]
       performAction:grey_tap()];
 
   // Change to edit mode
@@ -441,8 +470,8 @@ using chrome_test_util::TappableBookmarkNodeWithLabel;
       performAction:grey_tap()];
 
   // Verify it shows the context menu.
-  [[EarlGrey
-      selectElementWithMatcher:grey_accessibilityID(@"bookmark_context_menu")]
+  [[EarlGrey selectElementWithMatcher:grey_accessibilityID(
+                                          kBookmarkHomeContextMenuIdentifier)]
       assertWithMatcher:grey_sufficientlyVisible()];
 
   // Verify options on context menu.
@@ -702,8 +731,8 @@ using chrome_test_util::TappableBookmarkNodeWithLabel;
       performAction:grey_tap()];
 
   // Verify it shows the context menu.
-  [[EarlGrey
-      selectElementWithMatcher:grey_accessibilityID(@"bookmark_context_menu")]
+  [[EarlGrey selectElementWithMatcher:grey_accessibilityID(
+                                          kBookmarkHomeContextMenuIdentifier)]
       assertWithMatcher:grey_sufficientlyVisible()];
 
   // Verify options on context menu.
@@ -728,7 +757,7 @@ using chrome_test_util::TappableBookmarkNodeWithLabel;
       performAction:grey_longPress()];
 
   // Verify context menu.
-  [BookmarkEarlGreyUI verifyContextMenuForSingleURL];
+  [BookmarkEarlGreyUI verifyContextMenuForSingleURLWithEditEnabled:YES];
 }
 
 // Verify Move functionality on mixed folder / url selection.

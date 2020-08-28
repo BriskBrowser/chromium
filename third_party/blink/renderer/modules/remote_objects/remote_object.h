@@ -25,7 +25,7 @@ class RemoteObject : public gin::Wrappable<RemoteObject>,
   // Not copyable or movable
   RemoteObject(const RemoteObject&) = delete;
   RemoteObject& operator=(const RemoteObject&) = delete;
-  ~RemoteObject() override = default;
+  ~RemoteObject() override;
 
   // gin::Wrappable.
   gin::ObjectTemplateBuilder GetObjectTemplateBuilder(
@@ -38,6 +38,10 @@ class RemoteObject : public gin::Wrappable<RemoteObject>,
       v8::Isolate* isolate) override;
 
  private:
+  static void RemoteObjectInvokeCallback(
+      const v8::FunctionCallbackInfo<v8::Value>& info);
+  void EnsureRemoteIsBound();
+
   WeakPersistent<RemoteObjectGatewayImpl> gateway_{nullptr};
   mojo::Remote<mojom::blink::RemoteObject> object_;
   int32_t object_id_;

@@ -332,13 +332,12 @@ int64_t VideoRendererAlgorithm::GetMemoryUsage() const {
 
 void VideoRendererAlgorithm::EnqueueFrame(scoped_refptr<VideoFrame> frame) {
   DCHECK(frame);
-  DCHECK(!frame->metadata()->IsTrue(VideoFrameMetadata::END_OF_STREAM));
+  DCHECK(!frame->metadata()->end_of_stream);
 
   // Note: Not all frames have duration. E.g., this class is used with WebRTC
   // which does not provide duration information for its frames.
-  base::TimeDelta metadata_frame_duration;
-  auto has_duration = frame->metadata()->GetTimeDelta(
-      VideoFrameMetadata::FRAME_DURATION, &metadata_frame_duration);
+  base::TimeDelta metadata_frame_duration =
+      frame->metadata()->frame_duration.value_or(base::TimeDelta());
   auto timestamp = frame->timestamp();
   ReadyFrame ready_frame(std::move(frame));
   auto it = frame_queue_.empty()
@@ -388,18 +387,24 @@ void VideoRendererAlgorithm::EnqueueFrame(scoped_refptr<VideoFrame> frame) {
   //
   // Note: This duration value is not compensated for playback rate and
   // thus is different than |average_frame_duration_| which is compensated.
-  if (!frame_duration_calculator_.count() && has_duration &&
+  if (!frame_duration_calculator_.count() &&
       metadata_frame_duration > base::TimeDelta()) {
     media_timestamps.push_back(timestamp + metadata_frame_duration);
   }
 
   std::vector<base::TimeTicks> wall_clock_times;
+  base::TimeDelta wallclock_duration;
   wall_clock_time_cb_.Run(media_timestamps, &wall_clock_times);
   ready_frame.start_time = wall_clock_times[0];
-  if (frame_duration_calculator_.count())
+  if (frame_duration_calculator_.count()) {
     ready_frame.end_time = ready_frame.start_time + average_frame_duration_;
-  else if (wall_clock_times.size() > 1u)
+    wallclock_duration = average_frame_duration_;
+  } else if (wall_clock_times.size() > 1u) {
     ready_frame.end_time = wall_clock_times[1];
+    wallclock_duration = ready_frame.end_time - ready_frame.start_time;
+  }
+
+  ready_frame.frame->metadata()->wallclock_frame_duration = wallclock_duration;
 
   // The vast majority of cases should always append to the back, but in rare
   // circumstance we get out of order timestamps, http://crbug.com/386551.
@@ -437,7 +442,7 @@ void VideoRendererAlgorithm::AccountForMissedIntervals(
 
   DCHECK_GT(render_interval_, base::TimeDelta());
   const int64_t render_cycle_count =
-      (deadline_min - last_deadline_max_) / render_interval_;
+      (deadline_min - last_deadline_max_).IntDiv(render_interval_);
 
   // In the ideal case this value will be zero.
   if (!render_cycle_count)
@@ -480,10 +485,9 @@ void VideoRendererAlgorithm::UpdateFrameStatistics() {
   bool have_metadata_duration = false;
   {
     const auto& last_frame = frame_queue_.back().frame;
-    base::TimeDelta metadata_frame_duration;
-    if (last_frame->metadata()->GetTimeDelta(VideoFrameMetadata::FRAME_DURATION,
-                                             &metadata_frame_duration) &&
-        metadata_frame_duration > base::TimeDelta()) {
+    base::TimeDelta metadata_frame_duration =
+        last_frame->metadata()->frame_duration.value_or(base::TimeDelta());
+    if (metadata_frame_duration > base::TimeDelta()) {
       have_metadata_duration = true;
       media_timestamps.push_back(last_frame->timestamp() +
                                  metadata_frame_duration);

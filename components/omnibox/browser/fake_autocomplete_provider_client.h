@@ -35,6 +35,10 @@ class FakeAutocompleteProviderClient : public MockAutocompleteProviderClient {
  public:
   explicit FakeAutocompleteProviderClient(bool create_history_db = true);
   ~FakeAutocompleteProviderClient() override;
+  FakeAutocompleteProviderClient(const FakeAutocompleteProviderClient&) =
+      delete;
+  FakeAutocompleteProviderClient& operator=(
+      const FakeAutocompleteProviderClient&) = delete;
 
   const AutocompleteSchemeClassifier& GetSchemeClassifier() const override;
   history::HistoryService* GetHistoryService() override;
@@ -42,6 +46,7 @@ class FakeAutocompleteProviderClient : public MockAutocompleteProviderClient {
   InMemoryURLIndex* GetInMemoryURLIndex() override;
   scoped_refptr<ShortcutsBackend> GetShortcutsBackend() override;
   scoped_refptr<ShortcutsBackend> GetShortcutsBackendIfExists() override;
+  query_tiles::TileService* GetQueryTileService() const override;
 
   void set_in_memory_url_index(std::unique_ptr<InMemoryURLIndex> index) {
     in_memory_url_index_ = std::move(index);
@@ -64,11 +69,10 @@ class FakeAutocompleteProviderClient : public MockAutocompleteProviderClient {
   std::unique_ptr<InMemoryURLIndex> in_memory_url_index_;
   std::unique_ptr<history::HistoryService> history_service_;
   scoped_refptr<ShortcutsBackend> shortcuts_backend_;
+  std::unique_ptr<query_tiles::TileService> tile_service_;
 
   // Substring used to match URLs for IsTabOpenWithURL().
   std::string substring_to_match_;
-
-  DISALLOW_COPY_AND_ASSIGN(FakeAutocompleteProviderClient);
 };
 
 #endif  // COMPONENTS_OMNIBOX_BROWSER_FAKE_AUTOCOMPLETE_PROVIDER_CLIENT_H_

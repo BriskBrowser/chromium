@@ -134,8 +134,7 @@ base::string16 GetValue(const AXNode* node, bool show_password) {
 bool HasOnlyTextAndImageChildren(const AXNode* node) {
   for (size_t i = 0; i < node->GetUnignoredChildCount(); ++i) {
     AXNode* child = node->GetUnignoredChildAtIndex(i);
-    if (child->data().role != ax::mojom::Role::kStaticText &&
-        child->data().role != ax::mojom::Role::kImage) {
+    if (!child->IsText() && !ui::IsImage(child->data().role)) {
       return false;
     }
   }
@@ -374,6 +373,11 @@ AssistantNode::~AssistantNode() = default;
 AssistantTree::AssistantTree() = default;
 AssistantTree::~AssistantTree() = default;
 
+AssistantTree::AssistantTree(const AssistantTree& other) {
+  for (const auto& node : other.nodes)
+    nodes.emplace_back(std::make_unique<AssistantNode>(*node));
+}
+
 std::unique_ptr<AssistantTree> CreateAssistantTree(const AXTreeUpdate& update,
                                                    bool show_password) {
   auto tree = std::make_unique<AXSerializableTree>();
@@ -425,7 +429,7 @@ const char* AXRoleToAndroidClassName(ax::mojom::Role role, bool has_parent) {
     case ax::mojom::Role::kInputTime:
       return kAXSpinnerClassname;
     case ax::mojom::Role::kButton:
-    case ax::mojom::Role::kMenuButton:
+    case ax::mojom::Role::kPdfActionableHighlight:
       return kAXButtonClassname;
     case ax::mojom::Role::kCheckBox:
     case ax::mojom::Role::kSwitch:
@@ -459,6 +463,8 @@ const char* AXRoleToAndroidClassName(ax::mojom::Role role, bool has_parent) {
     case ax::mojom::Role::kMenuItemCheckBox:
     case ax::mojom::Role::kMenuItemRadio:
       return kAXMenuItemClassname;
+    case ax::mojom::Role::kStaticText:
+      return kAXTextViewClassname;
     default:
       return kAXViewClassname;
   }

@@ -1,29 +1,9 @@
-<link rel="import" href="chrome://resources/html/polymer.html">
-
-<link rel="import" href="chrome://resources/cr_elements/cr_button/cr_button.html">
-<link rel="import" href="chrome://resources/cr_elements/cr_search_field/cr_search_field.html">
-<link rel="import" href="chrome://resources/cr_elements/shared_vars_css.html">
-<link rel="import" href="chrome://resources/cr_elements/md_select_css.html">
-<link rel="import" href="chrome://resources/html/web_ui_listener_behavior.html">
-<link rel="import" href="chrome://resources/html/i18n_behavior.html">
-<link rel="import" href="chrome://resources/polymer/v1_0/iron-icon/iron-icon.html">
-<link rel="import" href="chrome://resources/polymer/v1_0/iron-list/iron-list.html">
-<link rel="import" href="../global_scroll_target_behavior.html">
-<link rel="import" href="../route.html">
-<link rel="import" href="../settings_shared_css.html">
-<link rel="import" href="all_sites_icons.html">
-<link rel="import" href="clear_storage_dialog_css.html">
-<link rel="import" href="site_entry.html">
-<link rel="import" href="site_settings_behavior.html">
-
-<dom-module id="all-sites">
-  <template>
-    <style include="settings-shared md-select">
+    <style include="settings-shared md-select clear-storage-dialog-shared">
       #sort {
         align-items: center;
         display: flex;
         margin: 0 var(--cr-icon-button-margin-start);
-        margin-bottom: 50px;
+        margin-bottom: 8px;
         padding: 0 var(--cr-section-padding);
       }
 
@@ -42,6 +22,7 @@
         display: flex;
         height: var(--cr-section-two-line-min-height);
         justify-content: space-between;
+        margin: 0 var(--cr-icon-button-margin-start);
         padding-inline-end: var(--cr-section-padding);
         padding-inline-start: var(--cr-section-padding);
       }
@@ -118,9 +99,7 @@
             $i18n{siteSettingsSiteGroupResetDialogTitle}
           </div>
           <div slot="body">
-            [[getFormatString_(
-                '$i18nPolymer{siteSettingsSiteGroupResetConfirmation}',
-                actionMenuModel_.item.etldPlus1)]]
+            [[getResetPermissionsLabel_(actionMenuModel_)]]
           </div>
           <div slot="button-container">
             <cr-button class="cancel-button" on-click="onCloseDialog_">
@@ -142,9 +121,8 @@
             $i18n{siteSettingsSiteGroupDeleteDialogTitle}
           </div>
           <div slot="body">
-            [[getFormatString_(
-                '$i18nPolymer{siteSettingsSiteGroupDeleteConfirmation}',
-                actionMenuModel_.item.etldPlus1)]]
+            [[getClearDataLabel_(
+                actionMenuModel_, storagePressureFlagEnabled_)]]
           </div>
           <div slot="button-container">
             <cr-button class="cancel-button" on-click="onCloseDialog_">
@@ -161,28 +139,22 @@
     <!-- New version of confirm clear data dialog to show if storage
          pressure UI flag is enabled. -->
     <cr-lazy-render id="confirmClearDataNew">
-      <style include="clear-storage-dialog-shared"></style>
       <template>
         <cr-dialog close-text="$i18n{close}">
           <div slot="title">
             $i18n{siteSettingsSiteGroupDeleteDialogTitle}
           </div>
           <div slot="body">
-            [[getFormatString_(
-                '$i18nPolymer{siteSettingsSiteGroupDeleteConfirmationNew}',
-                actionMenuModel_.item.etldPlus1)]]
+            [[getClearDataLabel_(
+                actionMenuModel_, storagePressureFlagEnabled_)]]
             <div class="detail-list">
               <div class="detail">
                 <iron-icon icon="all-sites:logout"></iron-icon>
-                $i18n{siteSettingsSiteGroupDeleteSignOut}
+                [[getLogoutLabel_()]]
               </div>
               <div class="detail">
                 <iron-icon icon="all-sites:offline"></iron-icon>
                 $i18n{siteSettingsSiteGroupDeleteOfflineData}
-              </div>
-              <div class="detail">
-                <iron-icon icon="all-sites:apps"></iron-icon>
-                $i18n{siteSettingsSiteGroupDeleteApps}
               </div>
             </div>
           </div>
@@ -200,14 +172,13 @@
 
     <!-- Confirm clear all data dialog. -->
     <cr-lazy-render id="confirmClearAllData">
-      <style include="clear-storage-dialog-shared"></style>
       <template>
         <cr-dialog close-text="$i18n{close}">
           <div slot="title">
             $i18n{siteSettingsClearAllStorageDialogTitle}
           </div>
           <div slot="body">
-            [[i18n('siteSettingsClearAllStorageConfirmation', totalUsage_)]]
+            <div>[[getClearAllDataLabel_(totalUsage_)]]</div>
             <div class="detail-list">
               <div class="detail">
                 <iron-icon icon="all-sites:logout"></iron-icon>
@@ -216,10 +187,6 @@
               <div class="detail">
                 <iron-icon icon="all-sites:offline"></iron-icon>
                 $i18n{siteSettingsSiteGroupDeleteOfflineData}
-              </div>
-              <div class="detail">
-                <iron-icon icon="all-sites:apps"></iron-icon>
-                $i18n{siteSettingsSiteGroupDeleteApps}
               </div>
             </div>
           </div>
@@ -234,6 +201,3 @@
         </cr-dialog>
       </template>
     </cr-lazy-render>
-  </template>
-  <script src="all_sites.js"></script>
-</dom-module>

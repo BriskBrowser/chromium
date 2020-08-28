@@ -22,7 +22,7 @@
 #include "base/strings/string_util.h"
 #include "base/values.h"
 #include "build/build_config.h"
-#include "chrome/browser/password_manager/account_storage/account_password_store_factory.h"
+#include "chrome/browser/password_manager/account_password_store_factory.h"
 #include "chrome/browser/password_manager/password_store_factory.h"
 #include "chrome/browser/password_manager/password_store_utils.h"
 #include "chrome/browser/profiles/profile.h"
@@ -33,11 +33,18 @@
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
+#include "components/autofill/core/common/form_data.h"
 #include "components/autofill/core/common/password_form.h"
+#include "components/password_manager/core/browser/form_fetcher_impl.h"
+#include "components/password_manager/core/browser/password_feature_manager.h"
+#include "components/password_manager/core/browser/password_form_metrics_recorder.h"
 #include "components/password_manager/core/browser/password_list_sorter.h"
+#include "components/password_manager/core/browser/password_manager_client.h"
 #include "components/password_manager/core/browser/password_manager_metrics_util.h"
+#include "components/password_manager/core/browser/password_save_manager_impl.h"
 #include "components/password_manager/core/browser/password_sync_util.h"
 #include "components/password_manager/core/browser/password_ui_utils.h"
+#include "components/password_manager/core/browser/ui/plaintext_reason.h"
 #include "components/password_manager/core/common/password_manager_pref_names.h"
 #include "components/prefs/pref_service.h"
 #include "components/sync/driver/sync_service.h"
@@ -99,6 +106,20 @@ FormVector GetEntryList(const std::map<std::string, FormVector>& map) {
 
   return result;
 }
+
+#if !defined(OS_ANDROID)
+password_manager::metrics_util::AccessPasswordInSettingsEvent
+ConvertPlaintextReason(password_manager::PlaintextReason reason) {
+  switch (reason) {
+    case password_manager::PlaintextReason::kCopy:
+      return password_manager::metrics_util::ACCESS_PASSWORD_COPIED;
+    case password_manager::PlaintextReason::kView:
+      return password_manager::metrics_util::ACCESS_PASSWORD_VIEWED;
+    case password_manager::PlaintextReason::kEdit:
+      return password_manager::metrics_util::ACCESS_PASSWORD_EDITED;
+  }
+}
+#endif
 
 class RemovePasswordOperation : public UndoOperation {
  public:
@@ -174,6 +195,42 @@ int AddPasswordOperation::GetRedoLabelId() const {
 }
 
 }  // namespace
+
+PasswordManagerPresenter::MovePasswordToAccountStoreHelper::
+    MovePasswordToAccountStoreHelper(
+        const autofill::PasswordForm& form,
+        password_manager::PasswordManagerClient* client,
+        base::OnceClosure done_callback)
+    : form_(form),
+      client_(client),
+      done_callback_(std::move(done_callback)),
+      form_fetcher_(password_manager::FormFetcherImpl::CreateFormFetcherImpl(
+          password_manager::PasswordStore::FormDigest(form),
+          client,
+          /*should_migrate_http_passwords=*/true)) {
+  form_fetcher_->Fetch();
+  form_fetcher_->AddConsumer(this);
+}
+
+PasswordManagerPresenter::MovePasswordToAccountStoreHelper::
+    ~MovePasswordToAccountStoreHelper() {
+  form_fetcher_->RemoveConsumer(this);
+}
+
+void PasswordManagerPresenter::MovePasswordToAccountStoreHelper::
+    OnFetchCompleted() {
+  auto save_manager =
+      password_manager::PasswordSaveManagerImpl::CreatePasswordSaveManagerImpl(
+          client_);
+  save_manager->Init(client_, form_fetcher_.get(), /*metrics_recorder=*/nullptr,
+                     /*votes_uploader=*/nullptr);
+  save_manager->CreatePendingCredentials(form_, {}, {}, /*is_http_auth=*/false,
+                                         /*is_credential_api_save=*/false);
+  save_manager->MoveCredentialsToAccountStore(
+      password_manager::metrics_util::MoveToAccountStoreTrigger::
+          kExplicitlyTriggeredInSettings);
+  std::move(done_callback_).Run();
+}
 
 PasswordManagerPresenter::PasswordManagerPresenter(
     PasswordUIView* password_view)
@@ -264,48 +321,35 @@ const autofill::PasswordForm* PasswordManagerPresenter::GetPasswordException(
   return TryGetPasswordForm(exception_map_, index);
 }
 
-void PasswordManagerPresenter::ChangeSavedPassword(
-    const std::string& sort_key,
-    const base::string16& new_username,
-    const base::Optional<base::string16>& new_password) {
-  // Find the equivalence class that needs to be updated.
-  auto it = password_map_.find(sort_key);
-  if (it == password_map_.end())
-    return;
-
-  const FormVector& old_forms = it->second;
-
-  // If a password was provided, make sure it is not empty.
-  if (new_password && new_password->empty()) {
+bool PasswordManagerPresenter::ChangeSavedPassword(
+    const std::vector<std::string>& sort_keys,
+    base::string16 new_password) {
+  // Make sure new_password is not empty.
+  if (new_password.empty()) {
     DLOG(ERROR) << "The password is empty.";
-    return;
+    return false;
   }
+  DCHECK(!sort_keys.empty());
 
-  const std::string& signon_realm = old_forms[0]->signon_realm;
-  const base::string16& old_username = old_forms[0]->username_value;
-
-  // TODO(crbug.com/377410): Clean up this check for duplicates because a
-  // very similar one is in password_store_utils in EditSavedPasswords already.
-
-  // In case the username
-  // changed, make sure that there exists no other credential with the same
-  // signon_realm and username.
-  const bool username_changed = old_username != new_username;
-  if (username_changed) {
-    for (const auto& sort_key_passwords_pair : password_map_) {
-      for (const auto& password : sort_key_passwords_pair.second) {
-        if (password->signon_realm == signon_realm &&
-            password->username_value == new_username) {
-          DLOG(ERROR) << "A credential with the same signon_realm and username "
-                         "already exists.";
-          return;
-        }
-      }
+  std::vector<base::span<const FormVector::value_type>> old_forms_for_sort_keys;
+  for (const auto& sort_key : sort_keys) {
+    // Find the equivalence class that needs to be updated.
+    auto it = password_map_.find(sort_key);
+    if (it == password_map_.end()) {
+      return false;
+    } else {
+      DCHECK(!it->second.empty());
+      old_forms_for_sort_keys.push_back(it->second);
     }
   }
 
-  EditSavedPasswords(password_view_->GetProfile(), old_forms, new_username,
-                     new_password);
+  for (const auto& old_forms : old_forms_for_sort_keys) {
+    const base::string16& username = old_forms[0]->username_value;
+    EditSavedPasswords(password_view_->GetProfile(), old_forms, username,
+                       new_password);
+  }
+
+  return true;
 }
 
 void PasswordManagerPresenter::RemoveSavedPassword(size_t index) {
@@ -315,12 +359,16 @@ void PasswordManagerPresenter::RemoveSavedPassword(size_t index) {
   }
 }
 
-void PasswordManagerPresenter::RemoveSavedPassword(
-    const std::string& sort_key) {
-  if (TryRemovePasswordEntries(&password_map_, sort_key)) {
-    base::RecordAction(
-        base::UserMetricsAction("PasswordManager_RemoveSavedPassword"));
+void PasswordManagerPresenter::RemoveSavedPasswords(
+    const std::vector<std::string>& sort_keys) {
+  undo_manager_.StartGroupingActions();
+  for (const std::string& sort_key : sort_keys) {
+    if (TryRemovePasswordEntries(&password_map_, sort_key)) {
+      base::RecordAction(
+          base::UserMetricsAction("PasswordManager_RemoveSavedPassword"));
+    }
   }
+  undo_manager_.EndGroupingActions();
 }
 
 void PasswordManagerPresenter::RemovePasswordException(size_t index) {
@@ -330,21 +378,61 @@ void PasswordManagerPresenter::RemovePasswordException(size_t index) {
   }
 }
 
-void PasswordManagerPresenter::RemovePasswordException(
-    const std::string& sort_key) {
-  if (TryRemovePasswordEntries(&exception_map_, sort_key)) {
-    base::RecordAction(
-        base::UserMetricsAction("PasswordManager_RemovePasswordException"));
+void PasswordManagerPresenter::RemovePasswordExceptions(
+    const std::vector<std::string>& sort_keys) {
+  undo_manager_.StartGroupingActions();
+  for (const std::string& sort_key : sort_keys) {
+    if (TryRemovePasswordEntries(&exception_map_, sort_key)) {
+      base::RecordAction(
+          base::UserMetricsAction("PasswordManager_RemovePasswordException"));
+    }
   }
+  undo_manager_.EndGroupingActions();
 }
 
 void PasswordManagerPresenter::UndoRemoveSavedPasswordOrException() {
   undo_manager_.Undo();
 }
 
-#if !defined(OS_ANDROID)  // This is never called on Android.
-void PasswordManagerPresenter::RequestShowPassword(
+void PasswordManagerPresenter::MovePasswordToAccountStore(
     const std::string& sort_key,
+    password_manager::PasswordManagerClient* client) {
+  if (!client->GetPasswordFeatureManager()->IsOptedInForAccountStorage() ||
+      ProfileSyncServiceFactory::GetForProfile(password_view_->GetProfile())
+          ->IsSyncFeatureEnabled()) {
+    return;
+  }
+
+  auto it = password_map_.find(sort_key);
+  if (it == password_map_.end())
+    return;
+
+  // MovePasswordToAccountStoreHelper takes care of moving the entire
+  // equivalence class, so passing the first element is fine.
+  const autofill::PasswordForm& form = *(it->second[0]);
+
+  // Insert nullptr first to obtain the iterator passed to the callback.
+  MovePasswordToAccountStoreHelperList::iterator helper_it =
+      move_to_account_helpers_.insert(move_to_account_helpers_.begin(),
+                                      nullptr);
+  // The presenter outlives the helper so it's safe to use base::Unretained.
+  *helper_it = std::make_unique<
+      PasswordManagerPresenter::MovePasswordToAccountStoreHelper>(
+      form, client,
+      base::BindOnce(
+          &PasswordManagerPresenter::OnMovePasswordToAccountCompleted,
+          base::Unretained(this), helper_it));
+}
+
+void PasswordManagerPresenter::OnMovePasswordToAccountCompleted(
+    MovePasswordToAccountStoreHelperList::iterator done_helper_it) {
+  move_to_account_helpers_.erase(done_helper_it);
+}
+
+#if !defined(OS_ANDROID)  // This is never called on Android.
+void PasswordManagerPresenter::RequestPlaintextPassword(
+    const std::string& sort_key,
+    password_manager::PlaintextReason reason,
     base::OnceCallback<void(base::Optional<base::string16>)> callback) const {
   auto it = password_map_.find(sort_key);
   if (it == password_map_.end()) {
@@ -371,7 +459,7 @@ void PasswordManagerPresenter::RequestShowPassword(
   std::move(callback).Run(form.password_value);
   UMA_HISTOGRAM_ENUMERATION(
       "PasswordManager.AccessPasswordInSettings",
-      password_manager::metrics_util::ACCESS_PASSWORD_VIEWED,
+      ConvertPlaintextReason(reason),
       password_manager::metrics_util::ACCESS_PASSWORD_COUNT);
 }
 #endif
@@ -459,7 +547,7 @@ bool PasswordManagerPresenter::TryRemovePasswordEntries(
 
 void PasswordManagerPresenter::OnGetPasswordStoreResults(FormVector results) {
   for (auto& form : results) {
-    auto& form_map = form->blacklisted_by_user ? exception_map_ : password_map_;
+    auto& form_map = form->blocked_by_user ? exception_map_ : password_map_;
     form_map[password_manager::CreateSortKey(*form)].push_back(std::move(form));
   }
 

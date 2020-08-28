@@ -19,9 +19,6 @@
   <message name="IDS_EXTENSIONS_CORRUPTED_EXTENSION" desc="The warning for the user that an extension may have been tampered with on disk.">
     This extension may have been corrupted.
   </message>
-  <message name="IDS_EXTENSIONS_ENABLE_BUTTON" desc="The text displayed on the enable button when the extension is disabled pending custodian approval on the chrome://extensions page">
-    Enable
-  </message>
   <message name="IDS_EXTENSIONS_ENABLE_ERROR_COLLECTION" desc="The checkbox for enabling error collection for an extension.">
     Collect errors
   </message>
@@ -45,6 +42,9 @@
   </message>
   <message name="IDS_EXTENSIONS_PATH" desc="The label in front of the extension load path.">
     Loaded from:
+  </message>
+  <message name="IDS_EXTENSIONS_PERMISSIONS_OFF" desc="The tooltip displayed when the extension is blocked due to the parent disabling the 'Permissions for sites, apps and extensions' toggle.">
+    Your parent has disabled extension permissions
   </message>
   <message name="IDS_EXTENSIONS_RELOAD_TERMINATED" desc="The link for reloading extensions.">
     Reload

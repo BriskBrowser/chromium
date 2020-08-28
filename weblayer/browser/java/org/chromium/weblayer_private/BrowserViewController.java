@@ -5,33 +5,79 @@
 package org.chromium.weblayer_private;
 
 import android.content.Context;
-import android.view.Gravity;
+import android.content.res.Resources;
+import android.os.RemoteException;
+import android.util.AndroidRuntimeException;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.ViewGroup.LayoutParams;
 import android.webkit.ValueCallback;
 import android.widget.FrameLayout;
+import android.widget.RelativeLayout;
+
+import androidx.annotation.Nullable;
 
 import org.chromium.base.annotations.JNINamespace;
+import org.chromium.components.browser_ui.modaldialog.AppModalPresenter;
+import org.chromium.components.browser_ui.widget.InsetObserverView;
+import org.chromium.components.embedder_support.view.ContentView;
 import org.chromium.content_public.browser.WebContents;
-import org.chromium.ui.base.ViewAndroidDelegate;
-import org.chromium.ui.base.WindowAndroid;
+import org.chromium.content_public.common.BrowserControlsState;
+import org.chromium.ui.modaldialog.DialogDismissalCause;
+import org.chromium.ui.modaldialog.ModalDialogManager;
+import org.chromium.ui.modaldialog.ModalDialogManager.ModalDialogType;
+import org.chromium.ui.modaldialog.ModalDialogProperties;
+import org.chromium.ui.modaldialog.SimpleModalDialogController;
+import org.chromium.ui.modelutil.PropertyModel;
 
 /**
  * BrowserViewController controls the set of Views needed to show the WebContents.
  */
 @JNINamespace("weblayer")
 public final class BrowserViewController
-        implements TopControlsContainerView.Listener,
-                   WebContentsGestureStateTracker.OnGestureStateChangedListener {
+        implements BrowserControlsContainerView.Delegate,
+                   WebContentsGestureStateTracker.OnGestureStateChangedListener,
+                   ModalDialogManager.ModalDialogManagerObserver {
+    /** Information needed to restore the UI state after recreating the BrowserViewController. */
+    /* package */ static class State {
+        private BrowserControlsContainerView.State mTopControlsState;
+        private BrowserControlsContainerView.State mBottomControlsState;
+
+        private State(BrowserControlsContainerView.State topControlsState,
+                BrowserControlsContainerView.State bottomControlsState) {
+            mTopControlsState = topControlsState;
+            mBottomControlsState = bottomControlsState;
+        }
+    }
+
     private final ContentViewRenderView mContentViewRenderView;
+    // Child of mContentViewRenderView. Be very careful adding Views to this, as any Views are not
+    // accessible (ContentView provides it's own accessible implementation that interacts with
+    // WebContents).
     private final ContentView mContentView;
     // Child of mContentViewRenderView, holds top-view from client.
-    private final TopControlsContainerView mTopControlsContainerView;
+    private final BrowserControlsContainerView mTopControlsContainerView;
+    // Child of mContentViewRenderView, holds bottom-view from client.
+    private final BrowserControlsContainerView mBottomControlsContainerView;
+    // Other child of mContentViewRenderView, which holds views that sit on top of the web contents,
+    // such as tab modal dialogs.
+    private final FrameLayout mWebContentsOverlayView;
+    // Child of mContentViewRenderView. This view has a top margin matching the current state of the
+    // top controls, which allows the autofill popup to be positioned correctly.
+    private final AutofillView mAutofillView;
+    private final RelativeLayout.LayoutParams mAutofillParams = new RelativeLayout.LayoutParams(
+            RelativeLayout.LayoutParams.MATCH_PARENT, RelativeLayout.LayoutParams.MATCH_PARENT);
+
+    private final FragmentWindowAndroid mWindowAndroid;
+    private final View.OnAttachStateChangeListener mOnAttachedStateChangeListener;
+    private final ModalDialogManager mModalDialogManager;
 
     private TabImpl mTab;
 
     private WebContentsGestureStateTracker mGestureStateTracker;
+
+    @BrowserControlsState
+    private int mBrowserControlsConstraint = BrowserControlsState.BOTH;
 
     /**
      * The value of mCachedDoBrowserControlsShrinkRendererSize is set when
@@ -40,33 +86,64 @@ public final class BrowserViewController
      */
     private boolean mCachedDoBrowserControlsShrinkRendererSize;
 
-    public BrowserViewController(Context context, WindowAndroid windowAndroid) {
+    public BrowserViewController(FragmentWindowAndroid windowAndroid,
+            View.OnAttachStateChangeListener listener, @Nullable State savedState) {
+        mWindowAndroid = windowAndroid;
+        mOnAttachedStateChangeListener = listener;
+        Context context = mWindowAndroid.getContext().get();
         mContentViewRenderView = new ContentViewRenderView(context);
+        mContentViewRenderView.addOnAttachStateChangeListener(listener);
 
         mContentViewRenderView.onNativeLibraryLoaded(
-                windowAndroid, ContentViewRenderView.MODE_SURFACE_VIEW);
+                mWindowAndroid, ContentViewRenderView.MODE_SURFACE_VIEW);
         mTopControlsContainerView =
-                new TopControlsContainerView(context, mContentViewRenderView, this);
+                new BrowserControlsContainerView(context, mContentViewRenderView, this, true,
+                        (savedState == null) ? null : savedState.mTopControlsState);
+        mTopControlsContainerView.setId(View.generateViewId());
+        mBottomControlsContainerView =
+                new BrowserControlsContainerView(context, mContentViewRenderView, this, false,
+                        (savedState == null) ? null : savedState.mBottomControlsState);
+        mBottomControlsContainerView.setId(View.generateViewId());
         mContentView = ContentView.createContentView(
-                context, mTopControlsContainerView.getEventOffsetHandler());
-        ViewAndroidDelegate viewAndroidDelegate = new ViewAndroidDelegate(mContentView) {
-            @Override
-            public void onTopControlsChanged(int topControlsOffsetY, int topContentOffsetY) {
-                mTopControlsContainerView.onTopControlsChanged(
-                        topControlsOffsetY, topContentOffsetY);
-            }
-        };
+                context, mTopControlsContainerView.getEventOffsetHandler(), null /* webContents */);
         mContentViewRenderView.addView(mContentView,
-                new FrameLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT,
-                        FrameLayout.LayoutParams.UNSPECIFIED_GRAVITY));
-        mContentView.addView(mTopControlsContainerView,
-                new FrameLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT,
-                        Gravity.FILL_HORIZONTAL | Gravity.TOP));
+                new RelativeLayout.LayoutParams(RelativeLayout.LayoutParams.MATCH_PARENT,
+                        RelativeLayout.LayoutParams.MATCH_PARENT));
+        mContentViewRenderView.addView(mTopControlsContainerView,
+                new RelativeLayout.LayoutParams(
+                        LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT));
+        RelativeLayout.LayoutParams bottomControlsContainerViewParams =
+                new RelativeLayout.LayoutParams(
+                        LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT);
+        bottomControlsContainerViewParams.addRule(RelativeLayout.ALIGN_PARENT_BOTTOM);
+        mContentViewRenderView.addView(
+                mBottomControlsContainerView, bottomControlsContainerViewParams);
+
+        mWebContentsOverlayView = new FrameLayout(context);
+        RelativeLayout.LayoutParams overlayParams =
+                new RelativeLayout.LayoutParams(LayoutParams.MATCH_PARENT, 0);
+        overlayParams.addRule(RelativeLayout.BELOW, mTopControlsContainerView.getId());
+        overlayParams.addRule(RelativeLayout.ABOVE, mBottomControlsContainerView.getId());
+        mContentViewRenderView.addView(mWebContentsOverlayView, overlayParams);
+        mWindowAndroid.setAnimationPlaceholderView(mWebContentsOverlayView);
+
+        mModalDialogManager = new ModalDialogManager(
+                new AppModalPresenter(context), ModalDialogManager.ModalDialogType.APP);
+        mModalDialogManager.addObserver(this);
+        mModalDialogManager.registerPresenter(
+                new WebLayerTabModalPresenter(this, context), ModalDialogType.TAB);
+        mWindowAndroid.setModalDialogManager(mModalDialogManager);
+
+        mAutofillView = new AutofillView(context);
+        mContentViewRenderView.addView(mAutofillView, mAutofillParams);
     }
 
     public void destroy() {
+        mWindowAndroid.setModalDialogManager(null);
         setActiveTab(null);
+        mContentViewRenderView.removeOnAttachStateChangeListener(mOnAttachedStateChangeListener);
         mTopControlsContainerView.destroy();
+        mBottomControlsContainerView.destroy();
         mContentViewRenderView.destroy();
     }
 
@@ -75,8 +152,33 @@ public final class BrowserViewController
         return mContentViewRenderView;
     }
 
+    public InsetObserverView getInsetObserverView() {
+        return mContentViewRenderView.getInsetObserverView();
+    }
+
+    /** Returns the ViewGroup into which the InfoBarContainer should be parented. **/
+    public ViewGroup getInfoBarContainerParentView() {
+        return mContentViewRenderView;
+    }
+
     public ViewGroup getContentView() {
         return mContentView;
+    }
+
+    public FrameLayout getWebContentsOverlayView() {
+        return mWebContentsOverlayView;
+    }
+
+    public ViewGroup getAutofillView() {
+        return mAutofillView;
+    }
+
+    // Returns the index at which the infobar container view should be inserted.
+    public int getDesiredInfoBarContainerViewIndex() {
+        // Ensure that infobars are positioned behind WebContents overlays in z-order.
+        // TODO(blundell): Should infobars instead be hidden while a WebContents overlay is
+        // presented?
+        return mContentViewRenderView.indexOfChild(mWebContentsOverlayView) - 1;
     }
 
     public void setActiveTab(TabImpl tab) {
@@ -84,11 +186,17 @@ public final class BrowserViewController
 
         if (mTab != null) {
             mTab.onDidLoseActive();
+            mTab.setBrowserControlsVisibilityConstraint(
+                    ImplControlsVisibilityReason.ANIMATION, BrowserControlsState.BOTH);
             // WebContentsGestureStateTracker is relatively cheap, easier to destroy rather than
             // update WebContents.
             mGestureStateTracker.destroy();
             mGestureStateTracker = null;
         }
+
+        mModalDialogManager.dismissDialogsOfType(
+                ModalDialogType.TAB, DialogDismissalCause.TAB_SWITCHED);
+
         mTab = tab;
         WebContents webContents = mTab != null ? mTab.getWebContents() : null;
         // Create the WebContentsGestureStateTracker before setting the WebContents on
@@ -97,20 +205,17 @@ public final class BrowserViewController
             mGestureStateTracker =
                     new WebContentsGestureStateTracker(mContentView, webContents, this);
         }
+        mAutofillView.setTab(mTab);
+
         mContentView.setWebContents(webContents);
-
-        if (mTab != null) {
-            // Now that |mContentView| is associated with this Tab's WebContents,
-            // associate |mContentView| with this Tab's AutofillProvider as well.
-            mContentView.setAutofillProvider(mTab.getAutofillProvider());
-        } else {
-            mContentView.setAutofillProvider(null);
-        }
-
         mContentViewRenderView.setWebContents(webContents);
         mTopControlsContainerView.setWebContents(webContents);
+        mBottomControlsContainerView.setWebContents(webContents);
         if (mTab != null) {
-            mTab.onDidGainActive(mTopControlsContainerView.getNativeHandle());
+            mTab.setBrowserControlsVisibilityConstraint(
+                    ImplControlsVisibilityReason.ANIMATION, mBrowserControlsConstraint);
+            mTab.onDidGainActive(mTopControlsContainerView.getNativeHandle(),
+                    mBottomControlsContainerView.getNativeHandle());
             mContentView.requestFocus();
         }
     }
@@ -123,27 +228,98 @@ public final class BrowserViewController
         mTopControlsContainerView.setView(view);
     }
 
+    public void setTopControlsMinHeight(int minHeight) {
+        mTopControlsContainerView.setMinHeight(minHeight);
+    }
+
+    public void setOnlyExpandTopControlsAtPageTop(boolean onlyExpandControlsAtPageTop) {
+        mTopControlsContainerView.setOnlyExpandControlsAtPageTop(onlyExpandControlsAtPageTop);
+    }
+
+    public void setTopControlsAnimationsEnabled(boolean animationsEnabled) {
+        mTopControlsContainerView.setAnimationsEnabled(animationsEnabled);
+    }
+
+    public void setBottomView(View view) {
+        mBottomControlsContainerView.setView(view);
+    }
+
+    public int getBottomContentHeightDelta() {
+        return mBottomControlsContainerView.getContentHeightDelta();
+    }
+
+    public boolean compositorHasSurface() {
+        return mContentViewRenderView.hasSurface();
+    }
+
+    public void setWebContentIsObscured(boolean isObscured) {
+        mContentView.setIsObscuredForAccessibility(isObscured);
+    }
+
     @Override
-    public void onTopControlsCompletelyShownOrHidden() {
+    public void refreshPageHeight() {
         adjustWebContentsHeightIfNecessary();
+    }
+
+    @Override
+    public void setAnimationConstraint(@BrowserControlsState int constraint) {
+        mBrowserControlsConstraint = constraint;
+        if (mTab == null) return;
+        mTab.setBrowserControlsVisibilityConstraint(
+                ImplControlsVisibilityReason.ANIMATION, constraint);
     }
 
     @Override
     public void onGestureStateChanged() {
+        // This is called from |mGestureStateTracker|.
+        assert mGestureStateTracker != null;
         if (mGestureStateTracker.isInGestureOrScroll()) {
             mCachedDoBrowserControlsShrinkRendererSize =
-                    mTopControlsContainerView.isTopControlVisible();
+                    mTopControlsContainerView.isControlVisible()
+                    || mBottomControlsContainerView.isControlVisible();
         }
         adjustWebContentsHeightIfNecessary();
     }
 
+    @Override
+    public void onDialogAdded(PropertyModel model) {
+        onDialogVisibilityChanged(true);
+    }
+
+    @Override
+    public void onLastDialogDismissed() {
+        onDialogVisibilityChanged(false);
+    }
+
+    /* package */ State getState() {
+        return new State(
+                mTopControlsContainerView.getState(), mBottomControlsContainerView.getState());
+    }
+
+    private void onDialogVisibilityChanged(boolean showing) {
+        if (WebLayerFactoryImpl.getClientMajorVersion() < 82) return;
+
+        if (mModalDialogManager.getCurrentType() == ModalDialogType.TAB) {
+            try {
+                mTab.getClient().onTabModalStateChanged(showing);
+            } catch (RemoteException e) {
+                throw new AndroidRuntimeException(e);
+            }
+        }
+    }
+
     private void adjustWebContentsHeightIfNecessary() {
-        if (mGestureStateTracker.isInGestureOrScroll()
-                || !mTopControlsContainerView.isTopControlsCompletelyShownOrHidden()) {
+        if (mGestureStateTracker == null || mGestureStateTracker.isInGestureOrScroll()
+                || !mTopControlsContainerView.isCompletelyExpandedOrCollapsed()
+                || !mBottomControlsContainerView.isCompletelyExpandedOrCollapsed()) {
             return;
         }
         mContentViewRenderView.setWebContentsHeightDelta(
-                mTopControlsContainerView.getTopContentOffset());
+                mTopControlsContainerView.getContentHeightDelta()
+                + mBottomControlsContainerView.getContentHeightDelta());
+
+        mAutofillParams.topMargin = mTopControlsContainerView.getContentHeightDelta();
+        mAutofillView.setLayoutParams(mAutofillParams);
     }
 
     public void setSupportsEmbedding(boolean enable, ValueCallback<Boolean> callback) {
@@ -153,12 +329,73 @@ public final class BrowserViewController
     }
 
     public void onTopControlsChanged(int topControlsOffsetY, int topContentOffsetY) {
-        mTopControlsContainerView.onTopControlsChanged(topControlsOffsetY, topContentOffsetY);
+        mTopControlsContainerView.onOffsetsChanged(topControlsOffsetY, topContentOffsetY);
+    }
+
+    public void onBottomControlsChanged(int bottomControlsOffsetY) {
+        mBottomControlsContainerView.onOffsetsChanged(bottomControlsOffsetY, 0);
     }
 
     public boolean doBrowserControlsShrinkRendererSize() {
-        return (mGestureStateTracker.isInGestureOrScroll())
+        return mGestureStateTracker.isInGestureOrScroll()
                 ? mCachedDoBrowserControlsShrinkRendererSize
-                : mTopControlsContainerView.isTopControlVisible();
+                : (mTopControlsContainerView.isControlVisible()
+                        || mBottomControlsContainerView.isControlVisible());
+    }
+
+    public boolean shouldAnimateBrowserControlsHeightChanges() {
+        return mTopControlsContainerView.shouldAnimateBrowserControlsHeightChanges();
+    }
+
+    /**
+     * Causes the browser controls to be fully shown. Take care in calling this. Normally the
+     * renderer drives the offsets, but this method circumvents that.
+     */
+    public void showControls() {
+        mTopControlsContainerView.onOffsetsChanged(0, mTopControlsContainerView.getHeight());
+        mBottomControlsContainerView.onOffsetsChanged(0, 0);
+    }
+
+    /**
+     * @return true if a tab modal was showing and has been dismissed.
+     */
+    public boolean dismissTabModalOverlay() {
+        return mModalDialogManager.dismissActiveDialogOfType(
+                ModalDialogType.TAB, DialogDismissalCause.NAVIGATE_BACK_OR_TOUCH_OUTSIDE);
+    }
+
+    /**
+     * Asks the user to confirm a page reload on a POSTed page.
+     */
+    public void showRepostFormWarningDialog() {
+        ModalDialogProperties.Controller dialogController =
+                new SimpleModalDialogController(mModalDialogManager, (Integer dismissalCause) -> {
+                    WebContents webContents = mTab == null ? null : mTab.getWebContents();
+                    if (webContents == null) return;
+                    switch (dismissalCause) {
+                        case DialogDismissalCause.POSITIVE_BUTTON_CLICKED:
+                            webContents.getNavigationController().continuePendingReload();
+                            break;
+                        default:
+                            webContents.getNavigationController().cancelPendingReload();
+                            break;
+                    }
+                });
+
+        Resources resources = mWindowAndroid.getContext().get().getResources();
+        PropertyModel dialogModel =
+                new PropertyModel.Builder(ModalDialogProperties.ALL_KEYS)
+                        .with(ModalDialogProperties.CONTROLLER, dialogController)
+                        .with(ModalDialogProperties.TITLE, resources,
+                                R.string.http_post_warning_title)
+                        .with(ModalDialogProperties.MESSAGE, resources, R.string.http_post_warning)
+                        .with(ModalDialogProperties.POSITIVE_BUTTON_TEXT, resources,
+                                R.string.http_post_warning_resend)
+                        .with(ModalDialogProperties.NEGATIVE_BUTTON_TEXT, resources,
+                                R.string.cancel)
+                        .with(ModalDialogProperties.CANCEL_ON_TOUCH_OUTSIDE, true)
+                        .build();
+
+        mModalDialogManager.showDialog(dialogModel, ModalDialogManager.ModalDialogType.TAB, true);
     }
 }

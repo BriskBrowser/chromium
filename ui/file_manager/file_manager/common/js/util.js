@@ -575,13 +575,24 @@ util.getTeamDriveName = entry => {
 };
 
 /**
+ * Returns true if the given root type is for a container of recent files.
+ * @param {VolumeManagerCommon.RootType|null} rootType
+ * @return {boolean}
+ */
+util.isRecentRootType = rootType => {
+  return rootType == VolumeManagerCommon.RootType.RECENT ||
+      rootType == VolumeManagerCommon.RootType.RECENT_AUDIO ||
+      rootType == VolumeManagerCommon.RootType.RECENT_IMAGES ||
+      rootType == VolumeManagerCommon.RootType.RECENT_VIDEOS;
+};
+
+/**
  * Returns true if the given entry is the root folder of recent files.
  * @param {!Entry|!FilesAppEntry} entry Entry or a fake entry.
  * @returns {boolean}
  */
 util.isRecentRoot = entry => {
-  return util.isFakeEntry(entry) &&
-      entry.rootType == VolumeManagerCommon.RootType.RECENT;
+  return util.isFakeEntry(entry) && util.isRecentRootType(entry.rootType);
 };
 
 /**
@@ -1119,6 +1130,12 @@ util.getRootTypeLabel = locationInfo => {
       return str('DRIVE_DIRECTORY_LABEL');
     case VolumeManagerCommon.RootType.RECENT:
       return str('RECENT_ROOT_LABEL');
+    case VolumeManagerCommon.RootType.RECENT_AUDIO:
+      return str('MEDIA_VIEW_AUDIO_ROOT_LABEL');
+    case VolumeManagerCommon.RootType.RECENT_IMAGES:
+      return str('MEDIA_VIEW_IMAGES_ROOT_LABEL');
+    case VolumeManagerCommon.RootType.RECENT_VIDEOS:
+      return str('MEDIA_VIEW_VIDEOS_ROOT_LABEL');
     case VolumeManagerCommon.RootType.CROSTINI:
       return str('LINUX_FILES_ROOT_LABEL');
     case VolumeManagerCommon.RootType.MY_FILES:
@@ -1176,7 +1193,7 @@ util.getEntryLabel = (locationInfo, entry) => {
     if (entry.fullPath == '/Downloads') {
       return str('DOWNLOADS_DIRECTORY_LABEL');
     }
-    if (util.isPluginVmEnabled() && entry.fullPath == '/PvmDefault') {
+    if (entry.fullPath == '/PvmDefault') {
       return str('PLUGIN_VM_DIRECTORY_LABEL');
     }
   }
@@ -1376,19 +1393,71 @@ util.timeoutPromise = (promise, ms, opt_message) => {
 };
 
 /**
- * Examines whether the feedback panel mode is enabled.
- * @return {boolean} True if the feedback panel UI mode is enabled.
- */
-util.isFeedbackPanelEnabled = () => {
-  return loadTimeData.getBoolean('FEEDBACK_PANEL_ENABLED');
-};
-
-/**
  * Returns true when FilesNG is enabled.
  * @return {boolean}
  */
 util.isFilesNg = () => {
   return loadTimeData.getBoolean('FILES_NG_ENABLED');
+};
+
+/**
+ * Returns true if the unified media view is enabled.
+ * @return {boolean}
+ */
+util.isUnifiedMediaViewEnabled = () => {
+  return loadTimeData.getBoolean('UNIFIED_MEDIA_VIEW_ENABLED');
+};
+
+/**
+ * Returns true if filters in Recents view is enabled.
+ * @return {boolean}
+ */
+util.isRecentsFilterEnabled = () => {
+  return loadTimeData.getBoolean('FILTERS_IN_RECENTS_ENABLED');
+};
+
+/**
+ * Returns true when FilesZipMount feature is enabled.
+ * TODO(crbug.com/912236) Remove once transition to new ZIP system is finished.
+ * @return {boolean}
+ */
+util.isZipMountEnabled = () => {
+  return loadTimeData.getBoolean('ZIP_MOUNT');
+};
+
+/**
+ * Returns true when FilesZipPack feature is enabled.
+ * TODO(crbug.com/912236) Remove once transition to new ZIP system is finished.
+ * @return {boolean}
+ */
+util.isZipPackEnabled = () => {
+  return loadTimeData.getBoolean('ZIP_PACK');
+};
+
+/**
+ * Returns true when FilesZipUnpack feature is enabled.
+ * TODO(crbug.com/912236) Remove once transition to new ZIP system is finished.
+ * @return {boolean}
+ */
+util.isZipUnpackEnabled = () => {
+  return loadTimeData.getBoolean('ZIP_UNPACK');
+};
+
+/**
+ * Returns true if transfer details flag is enabled.
+ * @return {boolean}
+ */
+util.isTransferDetailsEnabled = () => {
+  return loadTimeData.getBoolean('FILES_TRANSFER_DETAILS_ENABLED');
+};
+
+/**
+ * Returns true if Drive bidirectional native messaging is enabled.
+ * @return {boolean}
+ */
+util.isDriveBidirectionalNativeMessagingEnabled = () => {
+  return loadTimeData.getBoolean(
+      'DRIVE_BIDIRECTIONAL_NATIVE_MESSAGING_ENABLED');
 };
 
 /**
@@ -1623,4 +1692,45 @@ util.isSameVolume = (entries, volumeManager) => {
   }
 
   return true;
+};
+
+/**
+ * Sets line clamp properties on elements to limit element's text to specified
+ * number of lines and add ellipsis.
+ *
+ * @param {!Element} element Element to clamp.
+ * @param {string} lines Maximum number of lines in element.
+ * @return {!Element}
+ */
+util.setClampLine = (element, lines) => {
+  element.style.overflow = 'hidden';
+  element.style.textOverflow = 'ellipsis';
+  element.style.webkitBoxOrient = 'vertical';
+  element.style.display = '-webkit-box';
+  element.style.webkitLineClamp = lines;
+
+  return element;
+};
+
+/**
+ * Returns true if the element's content has overflowed.
+ *
+ * @param {!Element} element The element to check.
+ * @returns {boolean}
+ */
+util.hasOverflow = (element) => {
+  return element.clientWidth < element.scrollWidth ||
+      element.clientHeight < element.scrollHeight;
+};
+
+/** @return {boolean} */
+util.isSharesheetEnabled = () => {
+  return loadTimeData.valueExists('SHARESHEET_ENABLED') &&
+      loadTimeData.getBoolean('SHARESHEET_ENABLED');
+};
+
+/** @return {boolean} */
+util.isHoldingSpaceEnabled = () => {
+  return loadTimeData.valueExists('HOLDING_SPACE_ENABLED') &&
+      loadTimeData.getBoolean('HOLDING_SPACE_ENABLED');
 };

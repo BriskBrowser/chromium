@@ -6,6 +6,7 @@
 
 #include "base/metrics/histogram_macros.h"
 #include "base/no_destructor.h"
+#include "base/trace_event/trace_event.h"
 #include "build/build_config.h"
 #include "ui/gl/gl_bindings.h"
 #include "ui/gl/gl_implementation.h"
@@ -88,7 +89,7 @@ GLboolean glIsSyncEmulateEGL(GLsync sync) {
   return true;
 }
 
-#if defined(OS_MACOSX)
+#if defined(OS_APPLE)
 std::map<GLuint, base::TimeTicks>& GetProgramCreateTimesMap() {
   static base::NoDestructor<std::map<GLuint, base::TimeTicks>> instance;
   return *instance.get();
@@ -135,7 +136,7 @@ template <bool droppable_call = false, typename R, typename... Args>
 GrGLFunction<R GR_GL_FUNCTION_TYPE(Args...)> bind_slow_on_mac(
     R(GL_BINDING_CALL* func)(Args...),
     gl::ProgressReporter* progress_reporter) {
-#if defined(OS_MACOSX)
+#if defined(OS_APPLE)
   if (!progress_reporter) {
     return maybe_drop_call<droppable_call>(func);
   }
@@ -153,14 +154,22 @@ GrGLFunction<R GR_GL_FUNCTION_TYPE(Args...)> bind_slow_on_mac(
 template <bool droppable_call = false, typename R, typename... Args>
 GrGLFunction<R GR_GL_FUNCTION_TYPE(Args...)> bind_with_flush_on_mac(
     R(GL_BINDING_CALL* func)(Args...)) {
-#if defined(OS_MACOSX)
+#if defined(OS_APPLE)
   return [func](Args... args) {
     // Conditional may be optimized out because droppable_call is set at compile
     // time.
     if (!droppable_call || !HasInitializedNullDrawGLBindings()) {
-      glFlush();
+      {
+        TRACE_EVENT0(
+            "gpu", "CreateGrGLInterface - bind_with_flush_on_mac - beforefunc")
+        glFlush();
+      }
       func(args...);
-      glFlush();
+      {
+        TRACE_EVENT0("gpu",
+                     "CreateGrGLInterface - bind_with_flush_on_mac - afterfunc")
+        glFlush();
+      }
     }
   };
 #else
@@ -303,7 +312,7 @@ sk_sp<GrGLInterface> CreateGrGLInterface(
       bind_slow(gl->glCompressedTexSubImage2DFn, progress_reporter);
   functions->fCopyTexSubImage2D =
       bind_slow(gl->glCopyTexSubImage2DFn, progress_reporter);
-#if defined(OS_MACOSX)
+#if defined(OS_APPLE)
   functions->fCreateProgram = [func = gl->glCreateProgramFn]() {
     auto& program_create_times = GetProgramCreateTimesMap();
     GLuint program = func();
@@ -317,7 +326,7 @@ sk_sp<GrGLInterface> CreateGrGLInterface(
   functions->fCullFace = gl->glCullFaceFn;
   functions->fDeleteBuffers =
       bind_slow(gl->glDeleteBuffersARBFn, progress_reporter);
-#if defined(OS_MACOSX)
+#if defined(OS_APPLE)
   functions->fDeleteProgram = [func = gl->glDeleteProgramFn](GLuint program) {
     auto& program_create_times = GetProgramCreateTimesMap();
     program_create_times.erase(program);
@@ -345,8 +354,20 @@ sk_sp<GrGLInterface> CreateGrGLInterface(
 
   functions->fDrawArraysInstanced = bind_slow_on_mac<true>(
       gl->glDrawArraysInstancedANGLEFn, progress_reporter);
+  functions->fDrawArraysInstancedBaseInstance = bind_slow_on_mac<true>(
+      gl->glDrawArraysInstancedBaseInstanceANGLEFn, progress_reporter);
+  functions->fMultiDrawArraysInstancedBaseInstance = bind_slow_on_mac<true>(
+      gl->glMultiDrawArraysInstancedBaseInstanceANGLEFn, progress_reporter);
   functions->fDrawElementsInstanced = bind_slow_on_mac<true>(
       gl->glDrawElementsInstancedANGLEFn, progress_reporter);
+  functions->fDrawElementsInstancedBaseVertexBaseInstance =
+      bind_slow_on_mac<true>(
+          gl->glDrawElementsInstancedBaseVertexBaseInstanceANGLEFn,
+          progress_reporter);
+  functions->fMultiDrawElementsInstancedBaseVertexBaseInstance =
+      bind_slow_on_mac<true>(
+          gl->glMultiDrawElementsInstancedBaseVertexBaseInstanceANGLEFn,
+          progress_reporter);
 
   // GL 4.0 or GL_ARB_draw_indirect or ES 3.1
   functions->fDrawArraysIndirect =
@@ -375,7 +396,7 @@ sk_sp<GrGLInterface> CreateGrGLInterface(
   functions->fGetQueryiv = gl->glGetQueryivFn;
   functions->fGetProgramBinary = gl->glGetProgramBinaryFn;
   functions->fGetProgramInfoLog = gl->glGetProgramInfoLogFn;
-#if defined(OS_MACOSX)
+#if defined(OS_APPLE)
   functions->fGetProgramiv = [func = gl->glGetProgramivFn](
                                  GLuint program, GLenum pname, GLint* params) {
     func(program, pname, params);
@@ -411,6 +432,7 @@ sk_sp<GrGLInterface> CreateGrGLInterface(
   // functions->fMultiDrawArraysIndirect = gl->glMultiDrawArraysIndirectFn;
   // functions->fMultiDrawElementsIndirect = gl->glMultiDrawElementsIndirectFn;
 
+  functions->fPatchParameteri = gl->glPatchParameteriFn;
   functions->fPixelStorei = gl->glPixelStoreiFn;
   functions->fPolygonMode = gl->glPolygonModeFn;
   functions->fProgramBinary = gl->glProgramBinaryFn;
@@ -495,8 +517,8 @@ sk_sp<GrGLInterface> CreateGrGLInterface(
       gl->glGetFramebufferAttachmentParameterivEXTFn;
   functions->fGetRenderbufferParameteriv =
       gl->glGetRenderbufferParameterivEXTFn;
-  functions->fBindFramebuffer =
-      bind_with_flush_on_mac(gl->glBindFramebufferEXTFn);
+  functions->fBindFramebuffer = bind_slow_with_flush_on_mac(
+      gl->glBindFramebufferEXTFn, progress_reporter);
   functions->fFramebufferTexture2D = gl->glFramebufferTexture2DEXTFn;
   functions->fCheckFramebufferStatus = gl->glCheckFramebufferStatusEXTFn;
   functions->fDeleteFramebuffers = bind_slow_with_flush_on_mac(
@@ -766,6 +788,13 @@ sk_sp<GrGLInterface> CreateGrGLInterface(
     // GL_APPLE_sync support.
     extensions.add("GL_APPLE_sync");
   }
+
+  // Skia can fall back to GL_NV_fence if GLsync objects are not available.
+  functions->fDeleteFences = gl->glDeleteFencesNVFn;
+  functions->fFinishFence = gl->glFinishFenceNVFn;
+  functions->fGenFences = gl->glGenFencesNVFn;
+  functions->fSetFence = gl->glSetFenceNVFn;
+  functions->fTestFence = gl->glTestFenceNVFn;
 
   functions->fGetInternalformativ = gl->glGetInternalformativFn;
 

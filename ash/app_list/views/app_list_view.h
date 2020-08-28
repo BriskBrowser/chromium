@@ -13,6 +13,7 @@
 #include "ash/app_list/app_list_metrics.h"
 #include "ash/app_list/app_list_view_delegate.h"
 #include "ash/public/cpp/app_list/app_list_types.h"
+#include "ash/public/cpp/metrics_util.h"
 #include "ash/public/cpp/presentation_time_recorder.h"
 #include "base/callback.h"
 #include "base/macros.h"
@@ -32,7 +33,6 @@ class Display;
 }
 
 namespace ui {
-class AnimationMetricsReporter;
 class ImplicitAnimationObserver;
 }  // namespace ui
 
@@ -131,18 +131,20 @@ class APP_LIST_EXPORT AppListView : public views::WidgetDelegateView,
   static void SetShortAnimationForTesting(bool enabled);
   static bool ShortAnimationsForTesting();
 
+  // Used for testing, allows the page reset timer to be fired immediately
+  // after starting.
+  static void SetSkipPageResetTimerForTesting(bool enabled);
+
   // Returns the app list transition progress value associated with a app list
   // view state. This matches the values GetAppListTransitionProgress() is
   // expected to return when app list view is exactly in the provided state.
   static float GetTransitionProgressForState(AppListViewState state);
 
   // Initializes the view, only done once per session.
-  void InitView(bool is_tablet_mode,
-                gfx::NativeView parent,
-                base::RepeatingClosure on_bounds_animation_ended_callback);
+  void InitView(gfx::NativeView parent);
 
   // Initializes the contents of the view.
-  void InitContents(bool is_tablet_mode);
+  void InitContents();
 
   // Initializes this view's widget.
   void InitWidget(gfx::NativeView parent);
@@ -151,7 +153,7 @@ class APP_LIST_EXPORT AppListView : public views::WidgetDelegateView,
   void InitChildWidget();
 
   // Sets the state of all child views to be re-shown, then shows the view.
-  void Show(bool is_side_shelf, bool is_tablet_mode);
+  void Show(bool is_side_shelf);
 
   // If |drag_and_drop_host| is not nullptr it will be called upon drag and drop
   // operations outside the application list. This has to be called after
@@ -212,7 +214,7 @@ class APP_LIST_EXPORT AppListView : public views::WidgetDelegateView,
                                  bool triggered_by_contents_change);
 
   // Updates y position and opacity of app list during dragging.
-  void UpdateYPositionAndOpacity(int y_position_in_screen,
+  void UpdateYPositionAndOpacity(float y_position_in_screen,
                                  float background_opacity);
 
   // Offsets the y position of the app list (above the screen)
@@ -296,8 +298,8 @@ class APP_LIST_EXPORT AppListView : public views::WidgetDelegateView,
       const ui::LocatedEvent& event_in_screen,
       float launcher_above_shelf_bottom_amount) const;
 
-  // Returns a animation metrics reportre for state transition.
-  ui::AnimationMetricsReporter* GetStateTransitionMetricsReporter();
+  // Returns a animation metrics reporting callback  for state transition.
+  metrics_util::SmoothnessCallback GetStateTransitionMetricsReportCallback();
 
   // Called when drag in tablet mode starts/proceeds/ends.
   void OnHomeLauncherDragStart();
@@ -346,7 +348,7 @@ class APP_LIST_EXPORT AppListView : public views::WidgetDelegateView,
            app_list_state_ == AppListViewState::kFullscreenSearch;
   }
 
-  bool is_tablet_mode() const { return is_tablet_mode_; }
+  bool is_tablet_mode() const { return delegate_->IsInTabletMode(); }
 
   bool is_side_shelf() const { return is_side_shelf_; }
 
@@ -370,6 +372,10 @@ class APP_LIST_EXPORT AppListView : public views::WidgetDelegateView,
 
   // Returns true if the Embedded Assistant UI is currently being shown.
   bool IsShowingEmbeddedAssistantUI() const;
+
+  // Starts or stops a timer which will reset the app list to the initial apps
+  // page. Called when the app list's visibility changes.
+  void UpdatePageResetTimer(bool app_list_visibility);
 
  private:
   FRIEND_TEST_ALL_PREFIXES(AppListControllerImplTest,
@@ -398,15 +404,15 @@ class APP_LIST_EXPORT AppListView : public views::WidgetDelegateView,
   void HandleClickOrTap(ui::LocatedEvent* event);
 
   // Initializes |initial_drag_point_|.
-  void StartDrag(const gfx::Point& location);
+  void StartDrag(const gfx::PointF& location_in_root);
 
   // Updates the bounds of the widget while maintaining the relative position
   // of the top of the widget and the gesture.
-  void UpdateDrag(const gfx::Point& location);
+  void UpdateDrag(const gfx::PointF& location_in_root);
 
   // Handles app list state transfers. If the drag was fast enough, ignore the
   // release position and snap to the next state.
-  void EndDrag(const gfx::Point& location);
+  void EndDrag(const gfx::PointF& location_in_root);
 
   // Set child views for |target_state|.
   void SetChildViewsForStateTransition(AppListViewState target_state);
@@ -422,8 +428,7 @@ class APP_LIST_EXPORT AppListView : public views::WidgetDelegateView,
   // in progress it will be interrupted.
   void StartAnimationForState(AppListViewState new_state);
 
-  void MaybeIncreaseAssistantPrivacyInfoRowShownCount(
-      AppListViewState new_state);
+  void MaybeIncreasePrivacyInfoRowShownCounts(AppListViewState new_state);
 
   // Applies a bounds animation on this views layer.
   void ApplyBoundsAnimation(AppListViewState target_state,
@@ -492,6 +497,10 @@ class APP_LIST_EXPORT AppListView : public views::WidgetDelegateView,
   // |state| and |is_in_drag_|.
   void UpdateAppListBackgroundYPosition(AppListViewState state);
 
+  // Reset the subpixel position offset of the |layer| so that it's DP origin
+  // is snapped.
+  void ResetSubpixelPositionOffset(ui::Layer* layer);
+
   AppListViewDelegate* delegate_;    // Weak. Owned by AppListService.
   AppListModel* const model_;        // Not Owned.
   SearchModel* const search_model_;  // Not Owned.
@@ -524,22 +533,19 @@ class APP_LIST_EXPORT AppListView : public views::WidgetDelegateView,
   // Whether the view is being built.
   bool is_building_ = false;
 
-  // Y position of the app list in screen space coordinate during dragging.
-  int app_list_y_position_in_screen_ = 0;
-
   // The opacity of app list background during dragging. This ensures a gradual
   // opacity shift from the shelf opacity while dragging to show the AppListView
   // from the shelf.
   float background_opacity_in_drag_ = 0.f;
 
-  // The location of initial gesture event in screen coordinates.
-  gfx::Point initial_drag_point_;
+  // The location of initial gesture event in root window coordinates.
+  gfx::PointF initial_drag_point_;
 
-  // The rectangle of initial widget's window in screen coordinates.
-  gfx::Rect initial_window_bounds_;
+  // The offset to the widget from dragging location.
+  float drag_offset_;
 
-  // The location of the initial mouse event in view coordinates.
-  gfx::Point initial_mouse_drag_point_;
+  // The location of the initial mouse event in root window coordinates.
+  gfx::PointF initial_mouse_drag_point_;
 
   // The velocity of the gesture event.
   float last_fling_velocity_ = 0;
@@ -578,8 +584,9 @@ class APP_LIST_EXPORT AppListView : public views::WidgetDelegateView,
   // instead of the default instance.
   std::unique_ptr<AppListConfig> app_list_config_;
 
-  // Callback which is run when the bounds animation of the widget is ended.
-  base::RepeatingClosure on_bounds_animation_ended_callback_;
+  // A timer which will reset the app list to the initial page. This timer only
+  // goes off when the app list is not visible after a set amount of time.
+  base::OneShotTimer page_reset_timer_;
 
   base::WeakPtrFactory<AppListView> weak_ptr_factory_{this};
 

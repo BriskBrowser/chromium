@@ -5,23 +5,34 @@
 package org.chromium.chrome.browser.dependency_injection;
 
 import static org.chromium.chrome.browser.dependency_injection.ChromeCommonQualifiers.ACTIVITY_CONTEXT;
+import static org.chromium.chrome.browser.dependency_injection.ChromeCommonQualifiers.DECOR_VIEW;
+import static org.chromium.chrome.browser.dependency_injection.ChromeCommonQualifiers.IS_PROMOTABLE_TO_TAB_BOOLEAN;
 
 import android.app.Activity;
 import android.content.Context;
 import android.content.res.Resources;
+import android.view.View;
 
+import org.chromium.base.supplier.Supplier;
 import org.chromium.chrome.browser.ActivityTabProvider;
-import org.chromium.chrome.browser.ChromeActivity;
+import org.chromium.chrome.browser.app.ChromeActivity;
+import org.chromium.chrome.browser.browser_controls.BrowserControlsSizer;
+import org.chromium.chrome.browser.browser_controls.BrowserControlsVisibilityManager;
 import org.chromium.chrome.browser.compositor.CompositorViewHolder;
 import org.chromium.chrome.browser.compositor.layouts.LayoutManager;
 import org.chromium.chrome.browser.compositor.layouts.content.TabContentManager;
-import org.chromium.chrome.browser.fullscreen.ChromeFullscreenManager;
+import org.chromium.chrome.browser.fullscreen.BrowserControlsManager;
+import org.chromium.chrome.browser.fullscreen.FullscreenManager;
 import org.chromium.chrome.browser.lifecycle.ActivityLifecycleDispatcher;
+import org.chromium.chrome.browser.tabmodel.TabCreator;
 import org.chromium.chrome.browser.tabmodel.TabCreatorManager;
 import org.chromium.chrome.browser.tabmodel.TabModelSelector;
 import org.chromium.chrome.browser.ui.messages.snackbar.SnackbarManager;
 import org.chromium.chrome.browser.ui.system.StatusBarColorController;
-import org.chromium.chrome.browser.widget.bottomsheet.BottomSheetController;
+import org.chromium.components.browser_ui.bottomsheet.BottomSheetController;
+import org.chromium.components.browser_ui.bottomsheet.BottomSheetControllerProvider;
+import org.chromium.components.browser_ui.notifications.NotificationManagerProxy;
+import org.chromium.components.browser_ui.notifications.NotificationManagerProxyImpl;
 import org.chromium.content_public.browser.ScreenOrientationProvider;
 import org.chromium.ui.base.ActivityWindowAndroid;
 
@@ -39,7 +50,10 @@ public class ChromeActivityCommonsModule {
     private final ActivityLifecycleDispatcher mLifecycleDispatcher;
 
     /** See {@link ModuleFactoryOverrides} */
-    public interface Factory { ChromeActivityCommonsModule create(ChromeActivity<?> activity); }
+    public interface Factory {
+        ChromeActivityCommonsModule create(ChromeActivity<?> activity,
+                ActivityLifecycleDispatcher activityLifecycleDispatcher);
+    }
 
     public ChromeActivityCommonsModule(
             ChromeActivity<?> activity, ActivityLifecycleDispatcher lifecycleDispatcher) {
@@ -49,10 +63,7 @@ public class ChromeActivityCommonsModule {
 
     @Provides
     public BottomSheetController provideBottomSheetController() {
-        // Once the BottomSheetController is in the dependency graph, this method would no longer
-        // be necessary, as well as the getter in ChromeActivity. Same is true for a few other
-        // methods below.
-        return mActivity.getBottomSheetController();
+        return BottomSheetControllerProvider.from(mActivity.getWindowAndroid());
     }
 
     @Provides
@@ -61,7 +72,22 @@ public class ChromeActivityCommonsModule {
     }
 
     @Provides
-    public ChromeFullscreenManager provideChromeFullscreenManager() {
+    public BrowserControlsManager provideBrowserControlsManager() {
+        return mActivity.getBrowserControlsManager();
+    }
+
+    @Provides
+    public BrowserControlsVisibilityManager provideBrowserControlsVisibilityManager() {
+        return mActivity.getBrowserControlsManager();
+    }
+
+    @Provides
+    public BrowserControlsSizer provideBrowserControlsSizer() {
+        return mActivity.getBrowserControlsManager();
+    }
+
+    @Provides
+    public FullscreenManager provideFullscreenManager() {
         return mActivity.getFullscreenManager();
     }
 
@@ -71,7 +97,7 @@ public class ChromeActivityCommonsModule {
     }
 
     @Provides
-    public ChromeActivity provideChromeActivity() {
+    public ChromeActivity<?> provideChromeActivity() {
         // Ideally providing Context or Activity should be enough, but currently a lot of code is
         // coupled specifically to ChromeActivity.
         return mActivity;
@@ -86,6 +112,12 @@ public class ChromeActivityCommonsModule {
     @Provides
     public Activity provideActivity() {
         return mActivity;
+    }
+
+    @Provides
+    @Named(DECOR_VIEW)
+    public View provideDecorView() {
+        return mActivity.getWindow().getDecorView();
     }
 
     @Provides
@@ -125,7 +157,18 @@ public class ChromeActivityCommonsModule {
 
     @Provides
     public TabCreatorManager provideTabCreatorManager() {
-        return (TabCreatorManager) mActivity;
+        return mActivity;
+    }
+
+    @Provides
+    public Supplier<TabCreator> provideTabCreator() {
+        return mActivity::getCurrentTabCreator;
+    }
+
+    @Provides
+    @Named(IS_PROMOTABLE_TO_TAB_BOOLEAN)
+    public boolean provideIsPromotableToTab() {
+        return !mActivity.isCustomTab();
     }
 
     @Provides
@@ -136,5 +179,10 @@ public class ChromeActivityCommonsModule {
     @Provides
     public ScreenOrientationProvider provideScreenOrientationProvider() {
         return ScreenOrientationProvider.getInstance();
+    }
+
+    @Provides
+    public NotificationManagerProxy provideNotificationManagerProxy() {
+        return new NotificationManagerProxyImpl(mActivity.getApplicationContext());
     }
 }

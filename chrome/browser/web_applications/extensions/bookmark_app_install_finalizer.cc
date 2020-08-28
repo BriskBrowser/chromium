@@ -13,15 +13,19 @@
 #include "base/logging.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/optional.h"
-#include "build/build_config.h"
 #include "chrome/browser/extensions/crx_installer.h"
 #include "chrome/browser/extensions/launch_util.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/web_applications/components/app_registry_controller.h"
 #include "chrome/browser/web_applications/components/web_app_constants.h"
+#include "chrome/browser/web_applications/components/web_app_helpers.h"
+#include "chrome/browser/web_applications/components/web_app_prefs_utils.h"
+#include "chrome/browser/web_applications/components/web_app_provider_base.h"
 #include "chrome/browser/web_applications/components/web_app_utils.h"
 #include "chrome/browser/web_applications/extensions/bookmark_app_finalizer_utils.h"
 #include "chrome/browser/web_applications/extensions/bookmark_app_registrar.h"
 #include "chrome/browser/web_applications/extensions/bookmark_app_util.h"
+#include "chrome/browser/web_applications/os_integration_manager.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/extensions/manifest_handlers/app_launch_info.h"
 #include "chrome/common/web_application_info.h"
@@ -34,10 +38,6 @@
 #include "extensions/common/extension_id.h"
 #include "extensions/common/extension_set.h"
 #include "url/gurl.h"
-
-#if defined(OS_MACOSX)
-#include "chrome/browser/web_applications/extensions/web_app_extension_shortcut_mac.h"
-#endif
 
 namespace extensions {
 
@@ -71,7 +71,7 @@ void BookmarkAppInstallFinalizer::FinalizeInstall(
   crx_installer->set_installer_callback(base::BindOnce(
       &BookmarkAppInstallFinalizer::OnExtensionInstalled,
       weak_ptr_factory_.GetWeakPtr(), web_app_info.app_url, launch_type,
-      options.locally_installed,
+      web_app_info.enable_experimental_tabbed_window, options.locally_installed,
       options.install_source == WebappInstallSource::SYSTEM_DEFAULT,
       std::move(callback), crx_installer));
 
@@ -110,15 +110,12 @@ void BookmarkAppInstallFinalizer::FinalizeInstall(
       break;
   }
 
+  const web_app::AppId app_id =
+      web_app::GenerateAppIdFromURL(web_app_info.app_url);
+  web_app::UpdateIntWebAppPref(profile_->GetPrefs(), app_id,
+                               web_app::kLatestWebAppInstallSource,
+                               static_cast<int>(options.install_source));
   crx_installer->InstallWebApp(web_app_info);
-}
-
-void BookmarkAppInstallFinalizer::FinalizeFallbackInstallAfterSync(
-    const web_app::AppId& app_id,
-    InstallFinalizedCallback callback) {
-  // TODO(crbug.com/1018630): Install synced bookmark apps using a freshly
-  // fetched manifest instead of sync data.
-  NOTREACHED();
 }
 
 void BookmarkAppInstallFinalizer::FinalizeUninstallAfterSync(
@@ -136,8 +133,6 @@ void BookmarkAppInstallFinalizer::FinalizeUpdate(
 
   const Extension* existing_extension = GetEnabledExtension(expected_app_id);
   if (!existing_extension) {
-    DCHECK(ExtensionRegistry::Get(profile_)->GetInstalledExtension(
-        expected_app_id));
     std::move(callback).Run(web_app::AppId(),
                             web_app::InstallResultCode::kWebAppDisabled);
     return;
@@ -149,6 +144,7 @@ void BookmarkAppInstallFinalizer::FinalizeUpdate(
   crx_installer->set_installer_callback(
       base::BindOnce(&BookmarkAppInstallFinalizer::OnExtensionUpdated,
                      weak_ptr_factory_.GetWeakPtr(), std::move(expected_app_id),
+                     existing_extension->short_name(), web_app_info,
                      std::move(callback), crx_installer));
   crx_installer->InitializeCreationFlagsForUpdate(existing_extension,
                                                   Extension::NO_FLAGS);
@@ -227,26 +223,6 @@ void BookmarkAppInstallFinalizer::UninstallExtension(
       FROM_HERE, base::BindOnce(std::move(callback), uninstalled));
 }
 
-bool BookmarkAppInstallFinalizer::CanRevealAppShim() const {
-#if defined(OS_MACOSX)
-  return true;
-#else   // defined(OS_MACOSX)
-  return false;
-#endif  // !defined(OS_MACOSX)
-}
-
-void BookmarkAppInstallFinalizer::RevealAppShim(const web_app::AppId& app_id) {
-  DCHECK(CanRevealAppShim());
-#if defined(OS_MACOSX)
-  const Extension* app = GetEnabledExtension(app_id);
-  DCHECK(app);
-  if (!base::CommandLine::ForCurrentProcess()->HasSwitch(
-          ::switches::kDisableHostedAppShimCreation)) {
-    web_app::RevealAppShimInFinderForApp(profile_, app);
-  }
-#endif  // defined(OS_MACOSX)
-}
-
 void BookmarkAppInstallFinalizer::SetCrxInstallerFactoryForTesting(
     CrxInstallerFactory crx_installer_factory) {
   crx_installer_factory_ = crx_installer_factory;
@@ -262,6 +238,7 @@ const Extension* BookmarkAppInstallFinalizer::GetEnabledExtension(
 void BookmarkAppInstallFinalizer::OnExtensionInstalled(
     const GURL& app_url,
     LaunchType launch_type,
+    bool enable_experimental_tabbed_window,
     bool is_locally_installed,
     bool is_system_app,
     InstallFinalizedCallback callback,
@@ -307,7 +284,11 @@ void BookmarkAppInstallFinalizer::OnExtensionInstalled(
 
   SetBookmarkAppIsLocallyInstalled(profile_, extension, is_locally_installed);
 
-  registrar().NotifyWebAppInstalled(extension->id());
+  if (!is_legacy_finalizer()) {
+    registry_controller().SetExperimentalTabbedWindowMode(
+        extension->id(), enable_experimental_tabbed_window);
+    registrar().NotifyWebAppInstalled(extension->id());
+  }
 
   std::move(callback).Run(extension->id(),
                           web_app::InstallResultCode::kSuccessNewInstall);
@@ -315,6 +296,8 @@ void BookmarkAppInstallFinalizer::OnExtensionInstalled(
 
 void BookmarkAppInstallFinalizer::OnExtensionUpdated(
     const web_app::AppId& expected_app_id,
+    const std::string& old_name,
+    const WebApplicationInfo& web_app_info,
     InstallFinalizedCallback callback,
     scoped_refptr<CrxInstaller> crx_installer,
     const base::Optional<CrxInstallError>& error) {
@@ -335,6 +318,12 @@ void BookmarkAppInstallFinalizer::OnExtensionUpdated(
     return;
   }
 
+  if (!is_legacy_finalizer()) {
+    web_app::WebAppProviderBase::GetProviderBase(profile_)
+        ->os_integration_manager()
+        .UpdateOsHooks(extension->id(), old_name, web_app_info);
+    registrar().NotifyWebAppManifestUpdated(extension->id(), old_name);
+  }
   std::move(callback).Run(extension->id(),
                           web_app::InstallResultCode::kSuccessAlreadyInstalled);
 }

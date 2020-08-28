@@ -398,12 +398,6 @@ void ProfileOAuth2TokenServiceDelegateAndroid::UpdateAccountList(
       !signed_in_account_id.has_value()) {
     account_tracker_service_->SetMigrationDone();
   }
-
-  if (!last_update_accounts_time_.is_null()) {
-    base::TimeDelta sample = base::Time::Now() - last_update_accounts_time_;
-    UmaHistogramLongTimes("Signin.AndroidTimeBetweenUpdateAccountList", sample);
-  }
-  last_update_accounts_time_ = base::Time::Now();
 }
 
 bool ProfileOAuth2TokenServiceDelegateAndroid::UpdateAccountList(
@@ -413,8 +407,7 @@ bool ProfileOAuth2TokenServiceDelegateAndroid::UpdateAccountList(
     std::vector<CoreAccountId>* refreshed_ids,
     std::vector<CoreAccountId>* revoked_ids) {
   bool keep_accounts =
-      base::FeatureList::IsEnabled(signin::kMiceFeature) ||
-      (signed_in_id.has_value() && base::Contains(curr_ids, *signed_in_id));
+      signed_in_id.has_value() && base::Contains(curr_ids, *signed_in_id);
   if (keep_accounts) {
     // Revoke token for ids that have been removed from the device.
     for (const CoreAccountId& prev_id : prev_ids) {
@@ -488,8 +481,7 @@ void ProfileOAuth2TokenServiceDelegateAndroid::LoadCredentials(
             load_credentials_state());
   set_load_credentials_state(
       signin::LoadCredentialsState::LOAD_CREDENTIALS_IN_PROGRESS);
-  if (primary_account_id.empty() &&
-      !base::FeatureList::IsEnabled(signin::kMiceFeature)) {
+  if (primary_account_id.empty()) {
     FireRefreshTokensLoaded();
     return;
   }
@@ -517,11 +509,16 @@ ProfileOAuth2TokenServiceDelegateAndroid::MapAccountNameToAccountId(
 }
 
 namespace signin {
+
 // Called from Java when fetching of an OAuth2 token is finished. The
 // |authToken| param is only valid when |result| is true.
+// |expiration_time_secs| param is the number of seconds (NOT milliseconds)
+// after the Unix epoch when the token is scheduled to expire.
+// It is set to 0 if there's no known expiration time.
 void JNI_ProfileOAuth2TokenServiceDelegate_OnOAuth2TokenFetched(
     JNIEnv* env,
     const JavaParamRef<jstring>& authToken,
+    const jlong expiration_time_secs,
     jboolean isTransientError,
     jlong nativeCallback) {
   std::string token;
@@ -538,6 +535,12 @@ void JNI_ProfileOAuth2TokenServiceDelegate_OnOAuth2TokenFetched(
                   GoogleServiceAuthError::InvalidGaiaCredentialsReason::
                       CREDENTIALS_REJECTED_BY_SERVER);
   }
-  std::move(*heap_callback).Run(err, token, base::Time());
+
+  const base::Time expiration_time =
+      expiration_time_secs == 0
+          ? base::Time()
+          : base::Time::FromJavaTime(expiration_time_secs * 1000);
+
+  std::move(*heap_callback).Run(err, token, expiration_time);
 }
 }  // namespace signin

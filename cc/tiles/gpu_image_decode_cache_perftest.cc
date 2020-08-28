@@ -15,6 +15,7 @@
 #include "testing/gtest/include/gtest/gtest.h"
 #include "testing/perf/perf_result_reporter.h"
 #include "third_party/skia/include/core/SkSurface.h"
+#include "third_party/skia/include/gpu/GrDirectContext.h"
 
 namespace cc {
 namespace {
@@ -48,8 +49,9 @@ class GpuImageDecodeCachePerfTest
                kTimeCheckInterval),
         context_provider_(
             base::MakeRefCounted<viz::TestInProcessContextProvider>(
-                UseTransferCache(),
-                false /* support_locking */)) {}
+                /*gpu_rasterization=*/GetParam() != TestMode::kSw,
+                /*oop_rasterization=*/UseTransferCache(),
+                /*support_locking=*/false)) {}
 
   void SetUp() override {
     gpu::ContextResult result = context_provider_->BindToCurrentThread();
@@ -156,7 +158,7 @@ TEST_P(GpuImageDecodeCachePerfTestNoSw, DecodeWithMips) {
       surface->getCanvas()->drawImageRect(decoded_image.image().get(),
                                           SkRect::MakeWH(1024, 2048),
                                           SkRect::MakeWH(614, 1229), &paint);
-      surface->flush();
+      surface->flushAndSubmit();
     }
 
     cache_->DrawWithImageFinished(image, decoded_image);

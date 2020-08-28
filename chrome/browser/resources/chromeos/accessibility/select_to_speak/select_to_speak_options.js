@@ -2,14 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-/**
- * @constructor
- */
-let SelectToSpeakOptionsPage = function() {
-  this.init_();
-};
+class SelectToSpeakOptionsPage {
+  constructor() {
+    this.init_();
+  }
 
-SelectToSpeakOptionsPage.prototype = {
   /**
    * Translate the page and sync all of the control values to the
    * values loaded from chrome.storage.
@@ -22,9 +19,9 @@ SelectToSpeakOptionsPage.prototype = {
     }.bind(this));
     this.syncSelectControlToPref_('voice', 'voice', 'voiceName');
     this.syncCheckboxControlToPref_(
-        'wordHighlight', 'wordHighlight', function(checked) {
-          let elem = document.getElementById('highlightSubOption');
-          let select = document.getElementById('highlightColor');
+        'wordHighlight', 'wordHighlight', (checked) => {
+          const elem = document.getElementById('highlightSubOption');
+          const select = document.getElementById('highlightColor');
           if (checked) {
             elem.classList.remove('hidden');
             elem.setAttribute('aria-hidden', false);
@@ -35,11 +32,22 @@ SelectToSpeakOptionsPage.prototype = {
             select.disabled = true;
           }
         });
+    this.syncCheckboxControlToPref_(
+        'backgroundShading', 'backgroundShading', (checked) => {
+          const elem = document.getElementById('backgroundPreviewContainer');
+          if (checked) {
+            elem.classList.remove('hidden');
+            elem.setAttribute('aria-hidden', false);
+          } else {
+            elem.classList.add('hidden');
+            elem.setAttribute('aria-hidden', true);
+          }
+        });
     this.setUpHighlightListener_();
     this.setUpTtsButtonClickListener_();
     chrome.metricsPrivate.recordUserAction(
         'Accessibility.CrosSelectToSpeak.LoadSettings');
-  },
+  }
 
   /**
    * Processes an HTML DOM, replacing text content with translated text messages
@@ -64,7 +72,7 @@ SelectToSpeakOptionsPage.prototype = {
       }
       elts[i].classList.add('i18n-processed');
     }
-  },
+  }
 
   /**
    * Populate a select element with the list of TTS voices.
@@ -73,11 +81,11 @@ SelectToSpeakOptionsPage.prototype = {
    */
   populateVoiceList_(selectId) {
     chrome.tts.getVoices(function(voices) {
-      let select = document.getElementById(selectId);
+      const select = document.getElementById(selectId);
       select.innerHTML = '';
 
       // Add the system voice.
-      let option = document.createElement('option');
+      const option = document.createElement('option');
       option.voiceName = PrefsManager.SYSTEM_VOICE;
       option.innerText = chrome.i18n.getMessage('select_to_speak_system_voice');
       select.add(option);
@@ -99,7 +107,7 @@ SelectToSpeakOptionsPage.prototype = {
           // Required event types for Select-to-Speak.
           return;
         }
-        let option = document.createElement('option');
+        const option = document.createElement('option');
         option.voiceName = voice.voiceName;
         option.innerText = option.voiceName;
         select.add(option);
@@ -108,7 +116,7 @@ SelectToSpeakOptionsPage.prototype = {
         select.updateFunction();
       }
     });
-  },
+  }
 
   /**
    * Populate a checkbox with its current setting.
@@ -119,11 +127,11 @@ SelectToSpeakOptionsPage.prototype = {
    * @private
    */
   syncCheckboxControlToPref_(checkboxId, pref, opt_onChange) {
-    let checkbox = document.getElementById(checkboxId);
+    const checkbox = document.getElementById(checkboxId);
 
     function updateFromPref() {
       chrome.storage.sync.get(pref, function(items) {
-        let value = items[pref];
+        const value = items[pref];
         if (value != null) {
           checkbox.checked = value;
           if (opt_onChange) {
@@ -141,7 +149,7 @@ SelectToSpeakOptionsPage.prototype = {
     });
 
     checkbox.addEventListener('change', function() {
-      let setParams = {};
+      const setParams = {};
       setParams[pref] = checkbox.checked;
       chrome.storage.sync.set(setParams);
     });
@@ -149,7 +157,7 @@ SelectToSpeakOptionsPage.prototype = {
     checkbox.updateFunction = updateFromPref;
     updateFromPref();
     chrome.storage.onChanged.addListener(updateFromPref);
-  },
+  }
 
   /**
    * Given the id of an HTML select element and the name of a chrome.storage
@@ -189,15 +197,15 @@ SelectToSpeakOptionsPage.prototype = {
     element.updateFunction = updateFromPref;
     updateFromPref();
     chrome.storage.onChanged.addListener(updateFromPref);
-  },
+  }
 
   /**
    * Sets up the highlight listeners and preferences.
    * @private
    */
   setUpHighlightListener_() {
-    let onChange = function(value) {
-      let examples = document.getElementsByClassName('highlight');
+    const onChange = function(value) {
+      const examples = document.getElementsByClassName('highlight');
       for (let i = 0; i < examples.length; i++) {
         examples[i].style.background = value;
       }
@@ -209,25 +217,26 @@ SelectToSpeakOptionsPage.prototype = {
     document.getElementById('wordHighlightOption')
         .addEventListener('click', function(e) {
           e.stopPropagation();
-          let checkbox = document.getElementById('wordHighlight');
+          const checkbox = document.getElementById('wordHighlight');
           // Make sure it isn't the auto-generated click itself.
           if (e.srcElement !== checkbox) {
             checkbox.click();
           }
         });
-  },
+  }
 
   /**
    * Sets up a listener on the TTS settings button.
    * @private
    */
   setUpTtsButtonClickListener_() {
-    let button = document.getElementById('ttsSettingsBtn');
+    const button = document.getElementById('ttsSettingsBtn');
     button.addEventListener('click', () => {
       chrome.accessibilityPrivate.openSettingsSubpage(
           'manageAccessibility/tts');
     });
   }
-};
+}
+
 
 new SelectToSpeakOptionsPage();

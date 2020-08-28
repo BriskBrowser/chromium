@@ -9,7 +9,6 @@
 
 #include "base/auto_reset.h"
 #include "base/bind_helpers.h"
-#include "base/feature_list.h"
 #include "base/one_shot_event.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/extensions/extension_service.h"
@@ -22,7 +21,6 @@
 #include "chrome/browser/web_applications/components/install_manager.h"
 #include "chrome/browser/web_applications/components/web_app_provider_base.h"
 #include "chrome/common/buildflags.h"
-#include "chrome/common/chrome_features.h"
 #include "chrome/common/extensions/extension_constants.h"
 #include "chrome/common/extensions/sync_helper.h"
 #include "chrome/common/web_application_info.h"
@@ -77,7 +75,7 @@ syncer::SyncDataList ToSyncerSyncDataList(
   return result;
 }
 
-static_assert(extensions::disable_reason::DISABLE_REASON_LAST == (1LL << 17),
+static_assert(extensions::disable_reason::DISABLE_REASON_LAST == (1LL << 20),
               "Please consider whether your new disable reason should be"
               " syncable, and if so update this bitmask accordingly!");
 const int kKnownSyncableDisableReasons =
@@ -108,6 +106,7 @@ struct ExtensionSyncService::PendingUpdate {
 
 ExtensionSyncService::ExtensionSyncService(Profile* profile)
     : profile_(profile),
+      system_(ExtensionSystem::Get(profile_)),
       ignore_updates_(false),
       flare_(sync_start_util::GetFlareForSyncableService(profile->GetPath())) {
   registry_observer_.Add(ExtensionRegistry::Get(profile_));
@@ -137,28 +136,18 @@ void ExtensionSyncService::SyncExtensionChangeIfNeeded(
     DCHECK(!ExtensionPrefs::Get(profile_)->NeedsSync(extension.id()));
   } else {
     ExtensionPrefs::Get(profile_)->SetNeedsSync(extension.id(), true);
-    if (extension_service()->is_ready() && !flare_.is_null())
+    if (system_->is_ready() && !flare_.is_null())
       flare_.Run(type);  // Tell sync to start ASAP.
   }
 }
 
-bool ExtensionSyncService::HasPendingReenable(
-    const std::string& id,
-    const base::Version& version) const {
-  auto it = pending_updates_.find(id);
-  if (it == pending_updates_.end())
-    return false;
-  const PendingUpdate& pending = it->second;
-  return pending.version == version &&
-         pending.grant_permissions_and_reenable;
-}
-
 void ExtensionSyncService::WaitUntilReadyToSync(base::OnceClosure done) {
   // Wait for the extension system to be ready.
-  ExtensionSystem::Get(profile_)->ready().Post(FROM_HERE, std::move(done));
+  system_->ready().Post(FROM_HERE, std::move(done));
 }
 
-syncer::SyncMergeResult ExtensionSyncService::MergeDataAndStartSyncing(
+base::Optional<syncer::ModelError>
+ExtensionSyncService::MergeDataAndStartSyncing(
     syncer::ModelType type,
     const syncer::SyncDataList& initial_sync_data,
     std::unique_ptr<syncer::SyncChangeProcessor> sync_processor,
@@ -196,16 +185,16 @@ syncer::SyncMergeResult ExtensionSyncService::MergeDataAndStartSyncing(
     ExtensionPrefs::Get(profile_)->SetNeedsSync(data.id(), false);
 
   if (type == syncer::APPS)
-    ExtensionSystem::Get(profile_)->app_sorting()->FixNTPOrdinalCollisions();
+    system_->app_sorting()->FixNTPOrdinalCollisions();
 
-  return syncer::SyncMergeResult(type);
+  return base::nullopt;
 }
 
 void ExtensionSyncService::StopSyncing(syncer::ModelType type) {
   GetSyncBundle(type)->Reset();
 }
 
-syncer::SyncDataList ExtensionSyncService::GetAllSyncData(
+syncer::SyncDataList ExtensionSyncService::GetAllSyncDataForTesting(
     syncer::ModelType type) const {
   const SyncBundle* bundle = GetSyncBundle(type);
   if (!bundle->IsSyncing())
@@ -223,7 +212,7 @@ syncer::SyncDataList ExtensionSyncService::GetAllSyncData(
   return ToSyncerSyncDataList(sync_data_list);
 }
 
-syncer::SyncError ExtensionSyncService::ProcessSyncChanges(
+base::Optional<syncer::ModelError> ExtensionSyncService::ProcessSyncChanges(
     const base::Location& from_here,
     const syncer::SyncChangeList& change_list) {
   for (const syncer::SyncChange& sync_change : change_list) {
@@ -233,9 +222,9 @@ syncer::SyncError ExtensionSyncService::ProcessSyncChanges(
       ApplySyncData(*extension_sync_data);
   }
 
-  ExtensionSystem::Get(profile_)->app_sorting()->FixNTPOrdinalCollisions();
+  system_->app_sorting()->FixNTPOrdinalCollisions();
 
-  return syncer::SyncError();
+  return base::nullopt;
 }
 
 ExtensionSyncData ExtensionSyncService::CreateSyncData(
@@ -248,16 +237,16 @@ ExtensionSyncData ExtensionSyncService::CreateSyncData(
   // for the existence of disable reasons instead), we're just setting it here
   // for older Chrome versions (<M48).
   bool enabled = (disable_reasons == extensions::disable_reason::DISABLE_NONE);
-  if (extension_prefs->GetExtensionBlacklistState(extension.id()) ==
-      extensions::BLACKLISTED_MALWARE) {
+  if (extension_prefs->GetExtensionBlocklistState(extension.id()) ==
+      extensions::BLOCKLISTED_MALWARE) {
     enabled = false;
-    NOTREACHED() << "Blacklisted extensions should not be getting synced.";
+    NOTREACHED() << "Blocklisted extensions should not be getting synced.";
   }
 
   bool incognito_enabled = extensions::util::IsIncognitoEnabled(id, profile_);
   bool remote_install = extension_prefs->HasDisableReason(
       id, extensions::disable_reason::DISABLE_REMOTE_INSTALL);
-  AppSorting* app_sorting = ExtensionSystem::Get(profile_)->app_sorting();
+  AppSorting* app_sorting = system_->app_sorting();
 
   ExtensionSyncData result =
       extension.is_app()
@@ -382,7 +371,7 @@ void ExtensionSyncService::ApplySyncData(
   if (!!incoming_disable_reasons == extension_sync_data.enabled()) {
     // The enabled flag disagrees with the presence of disable reasons. This
     // must either come from an old (<M45) client which doesn't sync disable
-    // reasons, or the extension is blacklisted (which doesn't have a
+    // reasons, or the extension is blocklisted (which doesn't have a
     // corresponding disable reason).
     // Update |disable_reasons| based on the enabled flag.
     if (extension_sync_data.enabled())
@@ -452,7 +441,7 @@ void ExtensionSyncService::ApplySyncData(
   if (extension_sync_data.is_app()) {
     if (extension_sync_data.app_launch_ordinal().IsValid() &&
         extension_sync_data.page_ordinal().IsValid()) {
-      AppSorting* app_sorting = ExtensionSystem::Get(profile_)->app_sorting();
+      AppSorting* app_sorting = system_->app_sorting();
       app_sorting->SetAppLaunchOrdinal(
           id,
           extension_sync_data.app_launch_ordinal());
@@ -507,12 +496,6 @@ void ExtensionSyncService::ApplyBookmarkAppSyncData(
     const ExtensionSyncData& extension_sync_data) {
   DCHECK(extension_sync_data.is_app());
 
-  if (base::FeatureList::IsEnabled(features::kDesktopPWAsWithoutExtensions)) {
-    // If new Web Applications system is enabled, any legacy sync-initiated
-    // installation requests are ignored.
-    return;
-  }
-
   // Process bookmark app sync if necessary.
   GURL bookmark_app_url(extension_sync_data.bookmark_app_url());
   if (!bookmark_app_url.is_valid() ||
@@ -539,14 +522,18 @@ void ExtensionSyncService::ApplyBookmarkAppSyncData(
     WebApplicationIconInfo icon_info;
     icon_info.url = icon.url;
     icon_info.square_size_px = icon.size;
+    // Web apps in Extensions system supports Purpose::ANY icons only.
+    icon_info.purpose = blink::Manifest::ImageResource::Purpose::ANY;
     web_app_info->icon_infos.push_back(icon_info);
   }
 
   auto* provider = web_app::WebAppProviderBase::GetProviderBase(profile_);
-  DCHECK(provider);
-
-  provider->install_manager().InstallWebAppFromSync(
-      extension_sync_data.id(), std::move(web_app_info), base::DoNothing());
+  // Legacy profiles containing server-side bookmark apps data must be excluded
+  // from sync if the web apps system is disabled for such a profile.
+  if (provider) {
+    provider->install_manager().InstallBookmarkAppFromSync(
+        extension_sync_data.id(), std::move(web_app_info), base::DoNothing());
+  }
 }
 
 void ExtensionSyncService::SetSyncStartFlareForTesting(
@@ -561,7 +548,7 @@ void ExtensionSyncService::DeleteThemeDoNotUse(const Extension& theme) {
 }
 
 extensions::ExtensionService* ExtensionSyncService::extension_service() const {
-  return ExtensionSystem::Get(profile_)->extension_service();
+  return system_->extension_service();
 }
 
 void ExtensionSyncService::OnExtensionInstalled(
@@ -610,7 +597,7 @@ void ExtensionSyncService::OnExtensionUninstalled(
     if (bundle->IsSyncing()) {
       bundle->PushSyncDeletion(extension->id(),
                                CreateSyncData(*extension).GetSyncData());
-    } else if (extension_service()->is_ready() && !flare_.is_null()) {
+    } else if (system_->is_ready() && !flare_.is_null()) {
       flare_.Run(type);  // Tell sync to start ASAP.
     }
   }
@@ -657,7 +644,7 @@ std::vector<ExtensionSyncData> ExtensionSyncService::GetLocalSyncDataList(
   // Collect the local state.
   ExtensionRegistry* registry = ExtensionRegistry::Get(profile_);
   std::vector<ExtensionSyncData> data;
-  // Note: Maybe we should include blacklisted/blocked extensions here, i.e.
+  // Note: Maybe we should include blocklisted/blocked extensions here, i.e.
   // just call registry->GeneratedInstalledExtensionsSet().
   // It would be more consistent, but the danger is that the black/blocklist
   // hasn't been updated on all clients by the time sync has kicked in -

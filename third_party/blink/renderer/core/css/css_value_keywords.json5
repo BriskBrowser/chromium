@@ -145,7 +145,6 @@
     "fantasy",
     "monospace",
     "-webkit-body",
-    "-webkit-pictograph",
 
     //
     // font-display
@@ -156,7 +155,6 @@
     "fallback",
     "optional",
 
-    //
     //
     // *-color
     //
@@ -228,9 +226,141 @@
     // Value used to implement the behavior in:
     // https://quirks.spec.whatwg.org/#the-tables-inherit-color-from-body-quirk
     "-internal-quirk-inherit",
-    // The default color value for the root element. Using a keyword to account
-    // for different values for different color schemes like dark mode.
-    "-internal-root-color",
+
+    //
+    // "Extended" named colors
+    //
+    "aliceblue",
+    "antiquewhite",
+    "aquamarine",
+    "azure",
+    "beige",
+    "bisque",
+    "blanchedalmond",
+    "blueviolet",
+    "brown",
+    "burlywood",
+    "cadetblue",
+    "chartreuse",
+    "chocolate",
+    "coral",
+    "cornflowerblue",
+    "cornsilk",
+    "crimson",
+    "cyan",
+    "darkblue",
+    "darkcyan",
+    "darkgoldenrod",
+    "darkgray",
+    "darkgreen",
+    "darkgrey",
+    "darkkhaki",
+    "darkmagenta",
+    "darkolivegreen",
+    "darkorange",
+    "darkorchid",
+    "darkred",
+    "darksalmon",
+    "darkseagreen",
+    "darkslateblue",
+    "darkslategray",
+    "darkslategrey",
+    "darkturquoise",
+    "darkviolet",
+    "deeppink",
+    "deepskyblue",
+    "dimgray",
+    "dimgrey",
+    "dodgerblue",
+    "firebrick",
+    "floralwhite",
+    "forestgreen",
+    "gainsboro",
+    "ghostwhite",
+    "gold",
+    "goldenrod",
+    "greenyellow",
+    "honeydew",
+    "hotpink",
+    "indianred",
+    "indigo",
+    "ivory",
+    "khaki",
+    "lavender",
+    "lavenderblush",
+    "lawngreen",
+    "lemonchiffon",
+    "lightblue",
+    "lightcoral",
+    "lightcyan",
+    "lightgoldenrodyellow",
+    "lightgray",
+    "lightgreen",
+    "lightgrey",
+    "lightpink",
+    "lightsalmon",
+    "lightseagreen",
+    "lightskyblue",
+    "lightslategray",
+    "lightslategrey",
+    "lightsteelblue",
+    "lightyellow",
+    "limegreen",
+    "linen",
+    "magenta",
+    "mediumaquamarine",
+    "mediumblue",
+    "mediumorchid",
+    "mediumpurple",
+    "mediumseagreen",
+    "mediumslateblue",
+    "mediumspringgreen",
+    "mediumturquoise",
+    "mediumvioletred",
+    "midnightblue",
+    "mintcream",
+    "mistyrose",
+    "moccasin",
+    "navajowhite",
+    "oldlace",
+    "olivedrab",
+    "orangered",
+    "orchid",
+    "palegoldenrod",
+    "palegreen",
+    "paleturquoise",
+    "palevioletred",
+    "papayawhip",
+    "peachpuff",
+    "peru",
+    "pink",
+    "plum",
+    "powderblue",
+    "rebeccapurple",
+    "rosybrown",
+    "royalblue",
+    "saddlebrown",
+    "salmon",
+    "sandybrown",
+    "seagreen",
+    "seashell",
+    "sienna",
+    "skyblue",
+    "slateblue",
+    "slategray",
+    "slategrey",
+    "snow",
+    "springgreen",
+    "steelblue",
+    "tan",
+    "thistle",
+    "tomato",
+    "turquoise",
+    "violet",
+    "wheat",
+    "whitesmoke",
+    "yellowgreen",
+
     //
     // background-repeat
     //
@@ -446,6 +576,7 @@
     "uppercase",
     "lowercase",
     //none
+    "math-auto",
     //
     // visibility
     //
@@ -480,6 +611,8 @@
     "-webkit-isolate",
     "-webkit-isolate-override",
     "-webkit-plaintext",
+    "jis-b5",
+    "jis-b4",
     "landscape",
     "ledger",
     "legal",
@@ -506,6 +639,12 @@
     "underline",
     "wavy",
     "-webkit-nowrap",
+
+    //
+    // math-style
+    //
+    // inline
+    "display",
 
     // CSS3 Values
     // box-align
@@ -618,6 +757,19 @@
     //
     // auto
     // none
+
+    //
+    // text-decoration-thickness
+    //
+    // auto
+    "from-font",
+
+    // text-underline-position
+    // auto
+    // "from-font",
+    // under
+    // left
+    // right
 
     //
     // word-break
@@ -773,6 +925,7 @@
     //
     "document",
     "reset",
+    "-internal-reset-effective",
 
     //
     // user-zoom
@@ -889,6 +1042,11 @@
     // image-orientation
     "from-image",
 
+    // page-orientation
+    // upright
+    "rotate-left",
+    "rotate-right",
+
     // shape-outside
     "nonzero",
     "evenodd",
@@ -953,7 +1111,7 @@
 
     // text-indent
     "each-line",
-    //hanging   // hanging exists in SVGCSSValueKeywords.in
+    "hanging",
 
     // (scan:) media feature
     "progressive",
@@ -966,6 +1124,53 @@
     // fill
     // stroke
     "markers",
+
+    // mask-type
+    "alpha",
+    "luminance",
+
+    // color-interpolation / color-interpolation-filters
+    // auto
+    "srgb",
+    "linearrgb",
+
+    // stroke-linecap
+    "butt",
+    // round
+    // square
+
+    // stroke-linejoin
+    "miter",
+    // round
+    "bevel",
+
+    // alignment-baseline
+    // auto
+    // baseline
+    "before-edge",
+    "after-edge",
+    // middle
+    "central",
+    "text-before-edge",
+    "text-after-edge",
+    "ideographic",
+    // hanging
+    "mathematical",
+
+    // dominant-baseline
+    // auto
+    "use-script",
+    "no-change",
+    "reset-size",
+
+    // buffered-rendering
+    // auto
+    // static
+    "dynamic",
+
+    // vector-effect
+    // none
+    "non-scaling-stroke",
 
     //
     // CSS3 viewport-length keywords
@@ -1076,7 +1281,7 @@
     "rgba",
     "hsl",
     "hsla",
-    "-internal-light-dark-color",
+    "-internal-light-dark",
 
     // transform
     "matrix",
@@ -1161,14 +1366,14 @@
     "verso",
     "avoid-column",
 
-    // shape
-    // rect
-    // round
-
     // color-gamut
     // srgb
     "p3",
     "rec2020",
+
+    // math-script-level
+    "add",
+    "scriptlevel",
 
     // overscroll-behavior
     // auto,
@@ -1200,6 +1405,7 @@
     "only",
 
     // (prefers-reduced-motion:) media feature
+    // (prefers-reduced-data:) media feature
     "reduce",
 
     // (forced-colors:) media feature
@@ -1210,9 +1416,27 @@
     // none
     "back-button",
 
-    // render-subtree
-    "invisible",
-    "skip-activation",
-    "skip-viewport-activation",
+    // content-visibility
+    "hidden-matchable",
+
+    // -internal-empty-line-height
+    // none
+    "fabricated",
+
+    // @supports selector(...)
+    // https://drafts.csswg.org/css-conditional-4/#typedef-supports-selector-fn
+    "selector",
+
+    // (screen-spanning) media feature
+    // none
+    "single-fold-vertical",
+    "single-fold-horizontal",
+
+    // scrollbar-gutter
+    // auto
+    "stable",
+    // always
+    // both
+    "force",
   ],
 }

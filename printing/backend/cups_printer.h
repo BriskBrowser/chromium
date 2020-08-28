@@ -50,11 +50,21 @@ class PRINTING_EXPORT CupsOptionProvider {
 // share an http connection which the CupsConnection closes on destruction.
 class PRINTING_EXPORT CupsPrinter : public CupsOptionProvider {
  public:
+  // Represents the margins that CUPS reports for some given media.
+  // Its members are valued in PWG units (100ths of mm).
+  // This struct approximates a cups_size_t, which is BLRT.
+  struct CupsMediaMargins {
+    int bottom;
+    int left;
+    int right;
+    int top;
+  };
+
   // Create a printer with a connection defined by |http| and |dest|.
   CupsPrinter(http_t* http, ScopedDestination dest);
-
   CupsPrinter(CupsPrinter&& printer);
-
+  CupsPrinter(const CupsPrinter&) = delete;
+  CupsPrinter& operator=(const CupsPrinter&) = delete;
   ~CupsPrinter() override;
 
   // Returns true if this is the default printer
@@ -76,6 +86,11 @@ class PRINTING_EXPORT CupsPrinter : public CupsOptionProvider {
   std::string GetName() const;
 
   std::string GetMakeAndModel() const;
+
+  // Returns the "printer-info" option of the printer as configured in CUPS.
+  std::string GetInfo() const;
+
+  std::string GetUri() const;
 
   // Lazily initialize dest info as it can require a network call
   bool EnsureDestInfo() const;
@@ -120,6 +135,15 @@ class PRINTING_EXPORT CupsPrinter : public CupsOptionProvider {
   // Returns false if it failed for any reason.
   bool CancelJob(int job_id);
 
+  // Queries CUPS for the margins of the media named by |media_id|.
+  //
+  // A |media_id| is any vendor ID known to CUPS for a given printer.
+  // Vendor IDs are exemplified by the keys of the big map in
+  // print_media_l10n.cc.
+  //
+  // Returns all zeroes if the CUPS API call fails.
+  CupsMediaMargins GetMediaMarginsByName(const std::string& media_id);
+
  private:
   // http connection owned by the CupsConnection which created this object
   http_t* const cups_http_;
@@ -129,8 +153,6 @@ class PRINTING_EXPORT CupsPrinter : public CupsOptionProvider {
 
   // opaque object containing printer attributes and options
   mutable ScopedDestInfo dest_info_;
-
-  DISALLOW_COPY_AND_ASSIGN(CupsPrinter);
 };
 
 }  // namespace printing

@@ -8,13 +8,19 @@
 
 #include "base/logging.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/path_service.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/system/sys_info.h"
+#include "base/task/post_task.h"
 #include "base/version.h"
+#include "components/metrics/metrics_pref_names.h"
 #include "components/metrics/metrics_service.h"
 #include "components/version_info/version_info.h"
+#include "ios/chrome/browser/application_context.h"
 #include "ios/chrome/browser/crash_report/breakpad_helper.h"
+#include "ios/chrome/browser/crash_report/features.h"
 #include "ios/chrome/browser/crash_report/main_thread_freeze_detector.h"
+#include "ios/chrome/browser/crash_report/synthetic_crash_report_util.h"
 #import "ios/chrome/browser/metrics/previous_session_info.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
@@ -39,6 +45,31 @@ enum class VersionComparison {
   kMajorVersionChange = 2,
   kMaxValue = kMajorVersionChange,
 };
+
+// Values of the UMA Stability.iOS.UTE.MobileSessionOOMShutdownHint histogram.
+// These values are persisted to logs. Entries should not be renumbered and
+// numeric values should never be reused.
+enum class MobileSessionOomShutdownHint {
+  // There is no additional information for this UTE/XTE.
+  NoInformation = 0,
+  // Session restoration was in progress before this UTE.
+  SessionRestorationUte = 1,
+  // Session restoration was in progress before this XTE.
+  SessionRestorationXte = 2,
+  kMaxValue = SessionRestorationXte
+};
+
+// Returns value to log for Stability.iOS.UTE.MobileSessionOOMShutdownHint
+// histogram.
+MobileSessionOomShutdownHint GetMobileSessionOomShutdownHint(
+    bool has_possible_explanation) {
+  if ([PreviousSessionInfo sharedInstance].terminatedDuringSessionRestoration) {
+    return has_possible_explanation
+               ? MobileSessionOomShutdownHint::SessionRestorationXte
+               : MobileSessionOomShutdownHint::SessionRestorationUte;
+  }
+  return MobileSessionOomShutdownHint::NoInformation;
+}
 
 // Logs |type| in the shutdown type histogram.
 void LogShutdownType(MobileSessionShutdownType type) {
@@ -155,39 +186,71 @@ void MobileSessionShutdownMetricsProvider::ProvidePreviousSessionData(
   // Log metrics to improve categorization of crashes.
   LogApplicationBackgroundedTime(session_info.sessionEndTime);
 
-  if (session_info.deviceBatteryState == DeviceBatteryState::kUnplugged) {
-    LogBatteryCharge(session_info.deviceBatteryLevel);
-  }
-  if (session_info.availableDeviceStorage >= 0) {
-    LogAvailableStorage(session_info.availableDeviceStorage);
-  }
-  if (session_info.OSVersion) {
-    LogOSVersionChange(base::SysNSStringToUTF8(session_info.OSVersion));
-  }
-  LogLowPowerMode(session_info.deviceWasInLowPowerMode);
-  LogDeviceThermalState(session_info.deviceThermalState);
+  if (shutdown_type == SHUTDOWN_IN_FOREGROUND_NO_CRASH_LOG_NO_MEMORY_WARNING ||
+      shutdown_type ==
+          SHUTDOWN_IN_FOREGROUND_NO_CRASH_LOG_WITH_MEMORY_WARNING) {
+    // Log UTE metrics only if the crash was classified as a UTE.
 
-  UMA_STABILITY_HISTOGRAM_BOOLEAN(
-      "Stability.iOS.UTE.OSRestartedAfterPreviousSession",
-      session_info.OSRestartedAfterPreviousSession);
+    if (session_info.deviceBatteryState == DeviceBatteryState::kUnplugged) {
+      LogBatteryCharge(session_info.deviceBatteryLevel);
+    }
+    if (session_info.availableDeviceStorage >= 0) {
+      LogAvailableStorage(session_info.availableDeviceStorage);
+    }
+    if (session_info.OSVersion) {
+      LogOSVersionChange(base::SysNSStringToUTF8(session_info.OSVersion));
+    }
+    LogLowPowerMode(session_info.deviceWasInLowPowerMode);
+    LogDeviceThermalState(session_info.deviceThermalState);
 
-  bool possible_explanation =
-      // Log any of the following cases as a possible explanation for the
-      // crash:
-      // - device restarted while the battery was critically low
-      (session_info.deviceBatteryState == DeviceBatteryState::kUnplugged &&
-       session_info.deviceBatteryLevel <= kCriticallyLowBatteryLevel &&
-       session_info.OSRestartedAfterPreviousSession) ||
-      // - storage was critically low
-      (session_info.availableDeviceStorage >= 0 &&
-       session_info.availableDeviceStorage <= kCriticallyLowDeviceStorage) ||
-      // - OS version changed
-      session_info.isFirstSessionAfterOSUpgrade ||
-      // - device in abnormal thermal state
-      session_info.deviceThermalState == DeviceThermalState::kCritical ||
-      session_info.deviceThermalState == DeviceThermalState::kSerious;
-  UMA_STABILITY_HISTOGRAM_BOOLEAN("Stability.iOS.UTE.HasPossibleExplanation",
-                                  possible_explanation);
+    UMA_STABILITY_HISTOGRAM_BOOLEAN(
+        "Stability.iOS.UTE.OSRestartedAfterPreviousSession",
+        session_info.OSRestartedAfterPreviousSession);
+
+    bool possible_explanation =
+        // Log any of the following cases as a possible explanation for the
+        // crash:
+        // - device restarted when Chrome was in the foreground (OS was updated,
+        // battery died, or iPhone X or newer was powered off)
+        (session_info.OSRestartedAfterPreviousSession) ||
+        // - storage was critically low
+        (session_info.availableDeviceStorage >= 0 &&
+         session_info.availableDeviceStorage <= kCriticallyLowDeviceStorage) ||
+        // - device in abnormal thermal state
+        session_info.deviceThermalState == DeviceThermalState::kCritical ||
+        session_info.deviceThermalState == DeviceThermalState::kSerious;
+    UMA_STABILITY_HISTOGRAM_BOOLEAN("Stability.iOS.UTE.HasPossibleExplanation",
+                                    possible_explanation);
+
+    UMA_STABILITY_HISTOGRAM_ENUMERATION(
+        "Stability.iOS.UTE.MobileSessionOOMShutdownHint",
+        GetMobileSessionOomShutdownHint(possible_explanation),
+        MobileSessionOomShutdownHint::kMaxValue);
+    if (!possible_explanation &&
+        base::FeatureList::IsEnabled(kSyntheticCrashReportsForUte) &&
+        GetApplicationContext()->GetLocalState()->GetBoolean(
+            metrics::prefs::kMetricsReportingEnabled)) {
+      // UTEs are so common that there will be a little or no value from
+      // generating crash reports for XTEs.
+
+      base::FilePath cache_dir_path;
+      base::PathService::Get(base::DIR_CACHE, &cache_dir_path);
+      NSDictionary* info_dict = NSBundle.mainBundle.infoDictionary;
+
+      base::ThreadPool::PostTask(
+          FROM_HERE, {base::MayBlock()},
+          base::BindOnce(
+              &CreateSyntheticCrashReportForUte,
+              cache_dir_path.Append(FILE_PATH_LITERAL("Breakpad")),
+              base::SysNSStringToUTF8(info_dict[@"BreakpadProductDisplay"]),
+              // Separate product makes throttling on the server easier.
+              base::SysNSStringToUTF8([NSString
+                  stringWithFormat:@"%@_UTE", info_dict[@"BreakpadProduct"]]),
+              base::SysNSStringToUTF8(info_dict[@"BreakpadVersion"]),
+              base::SysNSStringToUTF8(info_dict[@"BreakpadURL"])));
+    }
+  }
+  [session_info resetSessionRestorationFlag];
 }
 
 MobileSessionShutdownType
@@ -202,23 +265,23 @@ MobileSessionShutdownMetricsProvider::GetLastShutdownType() {
     return SHUTDOWN_IN_BACKGROUND;
   }
 
-  // If the last app lifetime ended with main thread not responding, log it as
-  // main thread frozen shutdown.
+  if (HasCrashLogs()) {
+    // The cause of the crash is known.
+    if (ReceivedMemoryWarningBeforeLastShutdown()) {
+      return SHUTDOWN_IN_FOREGROUND_WITH_CRASH_LOG_WITH_MEMORY_WARNING;
+    }
+    return SHUTDOWN_IN_FOREGROUND_WITH_CRASH_LOG_NO_MEMORY_WARNING;
+  }
+
+  // The cause of the crash is not known. Check the common causes in order of
+  // severity and likeliness to have caused the crash.
   if (LastSessionEndedFrozen()) {
     return SHUTDOWN_IN_FOREGROUND_WITH_MAIN_THREAD_FROZEN;
   }
-
-  // If the last app lifetime ended in a crash, log the type of crash.
   if (ReceivedMemoryWarningBeforeLastShutdown()) {
-    if (HasCrashLogs()) {
-      return SHUTDOWN_IN_FOREGROUND_WITH_CRASH_LOG_WITH_MEMORY_WARNING;
-    }
     return SHUTDOWN_IN_FOREGROUND_NO_CRASH_LOG_WITH_MEMORY_WARNING;
   }
-
-  if (HasCrashLogs()) {
-    return SHUTDOWN_IN_FOREGROUND_WITH_CRASH_LOG_NO_MEMORY_WARNING;
-  }
+  // There is no known cause.
   return SHUTDOWN_IN_FOREGROUND_NO_CRASH_LOG_NO_MEMORY_WARNING;
 }
 

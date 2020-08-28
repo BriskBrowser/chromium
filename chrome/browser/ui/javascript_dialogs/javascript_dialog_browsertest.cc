@@ -11,22 +11,24 @@
 #include "build/build_config.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_commands.h"
-#include "chrome/browser/ui/javascript_dialogs/javascript_dialog_tab_helper.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/ui_test_utils.h"
 #include "components/embedder_support/switches.h"
+#include "components/javascript_dialogs/tab_modal_dialog_manager.h"
 #include "components/ukm/content/source_url_recorder.h"
 #include "components/ukm/test_ukm_recorder.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/web_contents.h"
+#include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/test_utils.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
 #include "services/metrics/public/cpp/ukm_builders.h"
 #include "services/metrics/public/cpp/ukm_source.h"
 
-using DismissalCause = JavaScriptDialogTabHelper::DismissalCause;
+using DismissalCause =
+    javascript_dialogs::TabModalDialogManager::DismissalCause;
 
 class JavaScriptDialogTest : public InProcessBrowserTest {
  private:
@@ -36,8 +38,8 @@ class JavaScriptDialogTest : public InProcessBrowserTest {
 IN_PROC_BROWSER_TEST_F(JavaScriptDialogTest, ReloadDoesntHang) {
   content::WebContents* tab =
       browser()->tab_strip_model()->GetActiveWebContents();
-  JavaScriptDialogTabHelper* js_helper =
-      JavaScriptDialogTabHelper::FromWebContents(tab);
+  javascript_dialogs::TabModalDialogManager* js_helper =
+      javascript_dialogs::TabModalDialogManager::FromWebContents(tab);
 
   // Show a dialog.
   scoped_refptr<content::MessageLoopRunner> runner =
@@ -49,7 +51,7 @@ IN_PROC_BROWSER_TEST_F(JavaScriptDialogTest, ReloadDoesntHang) {
 
   // Try reloading.
   tab->GetController().Reload(content::ReloadType::NORMAL, false);
-  content::WaitForLoadStop(tab);
+  EXPECT_TRUE(content::WaitForLoadStop(tab));
 
   // If the WaitForLoadStop doesn't hang forever, we've passed.
 }
@@ -75,8 +77,8 @@ IN_PROC_BROWSER_TEST_F(JavaScriptDialogTest,
   // Tab two shows a dialog.
   scoped_refptr<content::MessageLoopRunner> runner =
       new content::MessageLoopRunner;
-  JavaScriptDialogTabHelper* js_helper2 =
-      JavaScriptDialogTabHelper::FromWebContents(tab2);
+  javascript_dialogs::TabModalDialogManager* js_helper2 =
+      javascript_dialogs::TabModalDialogManager::FromWebContents(tab2);
   js_helper2->SetDialogShownCallbackForTesting(runner->QuitClosure());
   tab2->GetMainFrame()->ExecuteJavaScriptForTests(base::UTF8ToUTF16("alert()"),
                                                   base::NullCallback());
@@ -89,7 +91,7 @@ IN_PROC_BROWSER_TEST_F(JavaScriptDialogTest,
 
   // Try reloading tab one.
   tab1->GetController().Reload(content::ReloadType::NORMAL, false);
-  content::WaitForLoadStop(tab1);
+  EXPECT_TRUE(content::WaitForLoadStop(tab1));
 
   // If the WaitForLoadStop doesn't hang forever, we've passed.
 }
@@ -98,8 +100,8 @@ IN_PROC_BROWSER_TEST_F(JavaScriptDialogTest,
                        ClosingPageWithSubframeAlertingDoesntCrash) {
   content::WebContents* tab =
       browser()->tab_strip_model()->GetActiveWebContents();
-  JavaScriptDialogTabHelper* js_helper =
-      JavaScriptDialogTabHelper::FromWebContents(tab);
+  javascript_dialogs::TabModalDialogManager* js_helper =
+      javascript_dialogs::TabModalDialogManager::FromWebContents(tab);
 
   // A subframe shows a dialog.
   std::string dialog_url = "data:text/html,<script>alert(\"hi\");</script>";
@@ -123,7 +125,8 @@ IN_PROC_BROWSER_TEST_F(JavaScriptDialogTest,
 
 class JavaScriptCallbackHelper {
  public:
-  JavaScriptDialogTabHelper::DialogClosedCallback GetCallback() {
+  javascript_dialogs::TabModalDialogManager::DialogClosedCallback
+  GetCallback() {
     return base::BindOnce(&JavaScriptCallbackHelper::DialogClosed,
                           base::Unretained(this));
   }
@@ -146,8 +149,8 @@ IN_PROC_BROWSER_TEST_F(JavaScriptDialogTest, HandleJavaScriptDialog) {
   content::WebContents* tab =
       browser()->tab_strip_model()->GetActiveWebContents();
   content::RenderFrameHost* frame = tab->GetMainFrame();
-  JavaScriptDialogTabHelper* js_helper =
-      JavaScriptDialogTabHelper::FromWebContents(tab);
+  javascript_dialogs::TabModalDialogManager* js_helper =
+      javascript_dialogs::TabModalDialogManager::FromWebContents(tab);
 
   JavaScriptCallbackHelper callback_helper;
 
@@ -216,7 +219,8 @@ class JavaScriptDialogDismissalCauseTester {
   explicit JavaScriptDialogDismissalCauseTester(JavaScriptDialogTest* test)
       : tab_(test->browser()->tab_strip_model()->GetActiveWebContents()),
         frame_(tab_->GetMainFrame()),
-        js_helper_(JavaScriptDialogTabHelper::FromWebContents(tab_)) {
+        js_helper_(
+            javascript_dialogs::TabModalDialogManager::FromWebContents(tab_)) {
     js_helper_->SetDialogDismissedCallbackForTesting(base::BindOnce(
         &JavaScriptDialogDismissalCauseTester::SetLastDismissalCause,
         weak_factory_.GetWeakPtr()));
@@ -236,7 +240,7 @@ class JavaScriptDialogDismissalCauseTester {
 
   void Reload() {
     tab_->GetController().Reload(content::ReloadType::NORMAL, false);
-    content::WaitForLoadStop(tab_);
+    EXPECT_TRUE(content::WaitForLoadStop(tab_));
   }
 
   void CallHandleDialog(bool accept, const base::string16* prompt_override) {
@@ -258,7 +262,7 @@ class JavaScriptDialogDismissalCauseTester {
  private:
   content::WebContents* tab_;
   content::RenderFrameHost* frame_;
-  JavaScriptDialogTabHelper* js_helper_;
+  javascript_dialogs::TabModalDialogManager* js_helper_;
 
   base::Optional<DismissalCause> dismissal_cause_;
 
@@ -306,7 +310,7 @@ IN_PROC_BROWSER_TEST_F(JavaScriptDialogTest,
   chrome::CloseTab(browser());
 // There are differences in the implementations of Views on different platforms
 // that cause different dismissal causes.
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
   // On MacOS 10.13, |kDialogClosed| is logged, while for other versions
   // |kCancelDialogsCalled| is logged. Expect only one but not both.
   EXPECT_TRUE(tester.GetLastDismissalCause() ==

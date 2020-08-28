@@ -84,19 +84,19 @@ void PolicyApplicator::Run() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   ShillProfileClient::Get()->GetProperties(
       dbus::ObjectPath(profile_.path),
-      base::Bind(&PolicyApplicator::GetProfilePropertiesCallback,
-                 weak_ptr_factory_.GetWeakPtr()),
-      base::Bind(&PolicyApplicator::GetProfilePropertiesError,
-                 weak_ptr_factory_.GetWeakPtr()));
+      base::BindOnce(&PolicyApplicator::GetProfilePropertiesCallback,
+                     weak_ptr_factory_.GetWeakPtr()),
+      base::BindOnce(&PolicyApplicator::GetProfilePropertiesError,
+                     weak_ptr_factory_.GetWeakPtr()));
 }
 
 void PolicyApplicator::GetProfilePropertiesCallback(
-    const base::DictionaryValue& profile_properties) {
+    base::Value profile_properties) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   VLOG(2) << "Received properties for profile " << profile_.ToDebugString();
-  const base::ListValue* entries = nullptr;
-  if (!profile_properties.GetListWithoutPathExpansion(
-           shill::kEntriesProperty, &entries)) {
+  const base::Value* entries =
+      profile_properties.FindListKey(shill::kEntriesProperty);
+  if (!entries) {
     LOG(ERROR) << "Profile " << profile_.ToDebugString()
                << " doesn't contain the property "
                << shill::kEntriesProperty;
@@ -104,10 +104,11 @@ void PolicyApplicator::GetProfilePropertiesCallback(
     return;
   }
 
-  for (base::ListValue::const_iterator it = entries->begin();
-       it != entries->end(); ++it) {
-    std::string entry;
-    it->GetAsString(&entry);
+  for (const auto& it : entries->GetList()) {
+    if (!it.is_string())
+      continue;
+
+    std::string entry = it.GetString();
 
     // Skip "ethernet_any", as this is used by shill internally to persist
     // ethernet settings and the policy application logic should not mess with
@@ -118,10 +119,10 @@ void PolicyApplicator::GetProfilePropertiesCallback(
     pending_get_entry_calls_.insert(entry);
     ShillProfileClient::Get()->GetEntry(
         dbus::ObjectPath(profile_.path), entry,
-        base::Bind(&PolicyApplicator::GetEntryCallback,
-                   weak_ptr_factory_.GetWeakPtr(), entry),
-        base::Bind(&PolicyApplicator::GetEntryError,
-                   weak_ptr_factory_.GetWeakPtr(), entry));
+        base::BindOnce(&PolicyApplicator::GetEntryCallback,
+                       weak_ptr_factory_.GetWeakPtr(), entry),
+        base::BindOnce(&PolicyApplicator::GetEntryError,
+                       weak_ptr_factory_.GetWeakPtr(), entry));
   }
   if (pending_get_entry_calls_.empty())
     ApplyRemainingPolicies();
@@ -136,21 +137,22 @@ void PolicyApplicator::GetProfilePropertiesError(
   NotifyConfigurationHandlerAndFinish();
 }
 
-void PolicyApplicator::GetEntryCallback(
-    const std::string& entry,
-    const base::DictionaryValue& entry_properties) {
+void PolicyApplicator::GetEntryCallback(const std::string& entry,
+                                        base::Value entry_properties) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   VLOG(2) << "Received properties for entry " << entry << " of profile "
           << profile_.ToDebugString();
 
   std::unique_ptr<base::DictionaryValue> onc_part(
       onc::TranslateShillServiceToONCPart(
-          entry_properties, ::onc::ONC_SOURCE_UNKNOWN,
-          &onc::kNetworkWithStateSignature, nullptr /* network_state */));
+          base::Value::AsDictionaryValue(entry_properties),
+          ::onc::ONC_SOURCE_UNKNOWN, &onc::kNetworkWithStateSignature,
+          nullptr /* network_state */));
 
   std::string old_guid = GetGUIDFromONCPart(*onc_part);
   std::unique_ptr<NetworkUIData> ui_data =
-      shill_property_util::GetUIDataFromProperties(entry_properties);
+      shill_property_util::GetUIDataFromProperties(
+          base::Value::AsDictionaryValue(entry_properties));
   if (!ui_data) {
     VLOG(1) << "Entry " << entry << " of profile " << profile_.ToDebugString()
             << " contains no or no valid UIData.";
@@ -207,8 +209,9 @@ void PolicyApplicator::GetEntryCallback(
     return;
   }
 
-  ApplyGlobalPolicyOnUnmanagedEntry(entry, entry_properties,
-                                    std::move(profile_entry_finished_callback));
+  ApplyGlobalPolicyOnUnmanagedEntry(
+      entry, base::Value::AsDictionaryValue(entry_properties),
+      std::move(profile_entry_finished_callback));
 }
 
 void PolicyApplicator::GetEntryError(const std::string& entry,
@@ -320,8 +323,8 @@ void PolicyApplicator::DeleteEntry(const std::string& entry,
       base::AdaptCallbackForRepeating(std::move(callback));
   ShillProfileClient::Get()->DeleteEntry(
       dbus::ObjectPath(profile_.path), entry, adapted_callback,
-      base::BindRepeating(&LogErrorMessageAndInvokeCallback, adapted_callback,
-                          FROM_HERE));
+      base::BindOnce(&LogErrorMessageAndInvokeCallback, adapted_callback,
+                     FROM_HERE));
 }
 
 void PolicyApplicator::WriteNewShillConfiguration(base::Value shill_dictionary,

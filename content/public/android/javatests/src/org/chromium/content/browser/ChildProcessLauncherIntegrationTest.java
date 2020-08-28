@@ -8,7 +8,8 @@ import android.content.ComponentName;
 import android.content.Context;
 import android.os.Bundle;
 import android.os.IBinder;
-import android.support.test.filters.MediumTest;
+
+import androidx.test.filters.MediumTest;
 
 import org.junit.Assert;
 import org.junit.Rule;
@@ -21,7 +22,6 @@ import org.chromium.base.test.BaseJUnit4ClassRunner;
 import org.chromium.base.test.util.UrlUtils;
 import org.chromium.content_public.browser.LoadUrlParams;
 import org.chromium.content_public.browser.NavigationController;
-import org.chromium.content_public.browser.test.util.Criteria;
 import org.chromium.content_public.browser.test.util.CriteriaHelper;
 import org.chromium.content_public.browser.test.util.TestCallbackHelperContainer;
 import org.chromium.content_shell_apk.ChildProcessLauncherTestUtils;
@@ -48,8 +48,8 @@ public class ChildProcessLauncherIntegrationTest {
 
         @Override
         public ChildProcessConnection createConnection(Context context, ComponentName serviceName,
-                boolean bindToCaller, boolean bindAsExternalService, Bundle serviceBundle,
-                String instanceName) {
+                ComponentName fallbackServiceName, boolean bindToCaller,
+                boolean bindAsExternalService, Bundle serviceBundle, String instanceName) {
             TestChildProcessConnection connection = new TestChildProcessConnection(
                     context, serviceName, bindToCaller, bindAsExternalService, serviceBundle);
             mConnections.add(connection);
@@ -67,8 +67,8 @@ public class ChildProcessLauncherIntegrationTest {
         public TestChildProcessConnection(Context context, ComponentName serviceName,
                 boolean bindToCaller, boolean bindAsExternalService,
                 Bundle childProcessCommonParameters) {
-            super(context, serviceName, bindToCaller, bindAsExternalService,
-                    childProcessCommonParameters, null /* instanceName */);
+            super(context, serviceName, null /* fallbackServiceName */, bindToCaller,
+                    bindAsExternalService, childProcessCommonParameters, null /* instanceName */);
         }
 
         @Override
@@ -235,15 +235,15 @@ public class ChildProcessLauncherIntegrationTest {
 
         @Override
         public ChildProcessConnection createConnection(Context context, ComponentName serviceName,
-                boolean bindToCaller, boolean bindAsExternalService, Bundle serviceBundle,
-                String instanceName) {
+                ComponentName fallbackServiceName, boolean bindToCaller,
+                boolean bindAsExternalService, Bundle serviceBundle, String instanceName) {
             if (mCrashConnection == null) {
                 mCrashConnection = new CrashOnLaunchChildProcessConnection(
                         context, serviceName, bindToCaller, bindAsExternalService, serviceBundle);
                 return mCrashConnection;
             }
-            return super.createConnection(context, serviceName, bindToCaller, bindAsExternalService,
-                    serviceBundle, instanceName);
+            return super.createConnection(context, serviceName, fallbackServiceName, bindToCaller,
+                    bindAsExternalService, serviceBundle, instanceName);
         }
 
         public CrashOnLaunchChildProcessConnection getCrashConnection() {
@@ -265,13 +265,10 @@ public class ChildProcessLauncherIntegrationTest {
 
         // Poll until connection is allocated, then wait until connection is disconnected.
         CriteriaHelper.pollInstrumentationThread(
-                new Criteria("The connection wasn't established.") {
-                    @Override
-                    public boolean isSatisfied() {
-                        return ChildProcessLauncherTestUtils.runOnLauncherAndGetResult(
-                                () -> factory.getCrashConnection() != null);
-                    }
-                });
+                ()
+                        -> ChildProcessLauncherTestUtils.runOnLauncherAndGetResult(
+                                () -> factory.getCrashConnection() != null),
+                "The connection wasn't established.");
         CrashOnLaunchChildProcessConnection crashConnection =
                 ChildProcessLauncherTestUtils.runOnLauncherAndGetResult(
                         () -> factory.getCrashConnection());

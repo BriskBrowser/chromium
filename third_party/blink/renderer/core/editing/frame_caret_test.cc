@@ -8,6 +8,7 @@
 #include "third_party/blink/renderer/core/editing/frame_selection.h"
 #include "third_party/blink/renderer/core/editing/selection_template.h"
 #include "third_party/blink/renderer/core/editing/testing/editing_test_base.h"
+#include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/frame/local_frame_view.h"
 #include "third_party/blink/renderer/core/frame/settings.h"
 #include "third_party/blink/renderer/core/layout/layout_theme.h"
@@ -47,7 +48,7 @@ TEST_F(FrameCaretTest, BlinkAfterTyping) {
       base::TimeDelta::FromSecondsD(kInterval));
   GetDocument().GetPage()->GetFocusController().SetActive(true);
   GetDocument().GetPage()->GetFocusController().SetFocused(true);
-  GetDocument().body()->SetInnerHTMLFromString("<textarea>");
+  GetDocument().body()->setInnerHTML("<textarea>");
   auto* editor = To<Element>(GetDocument().body()->firstChild());
   editor->focus();
   UpdateAllLifecyclePhasesForTest();
@@ -81,7 +82,7 @@ TEST_F(FrameCaretTest, ShouldNotBlinkWhenSelectionLooseFocus) {
   FrameCaret& caret = Selection().FrameCaretForTesting();
   GetDocument().GetPage()->GetFocusController().SetActive(true);
   GetDocument().GetPage()->GetFocusController().SetFocused(true);
-  GetDocument().body()->SetInnerHTMLFromString(
+  GetDocument().body()->setInnerHTML(
       "<div id='outer' tabindex='-1'>"
       "<div id='input' contenteditable>foo</div>"
       "</div>");
@@ -103,6 +104,7 @@ TEST_F(FrameCaretTest, ShouldBlinkCaretWhileCaretBrowsing) {
   Selection().SetCaretVisible(true);
   EXPECT_FALSE(ShouldBlinkCaret(caret));
   GetDocument().GetFrame()->GetSettings()->SetCaretBrowsingEnabled(true);
+  UpdateAllLifecyclePhasesForTest();
   EXPECT_TRUE(ShouldBlinkCaret(caret));
 }
 

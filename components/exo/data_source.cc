@@ -15,12 +15,14 @@
 #include "base/posix/eintr_wrapper.h"
 #include "base/strings/string_util.h"
 #include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
 #include "components/exo/data_source_delegate.h"
 #include "components/exo/data_source_observer.h"
 #include "components/exo/mime_utils.h"
 #include "net/base/mime_util.h"
 #include "third_party/blink/public/common/mime_util/mime_util.h"
 #include "third_party/icu/source/common/unicode/ucnv.h"
+#include "ui/base/clipboard/clipboard_constants.h"
 
 namespace exo {
 
@@ -212,9 +214,9 @@ void DataSource::ReadData(const std::string& mime_type,
   PCHECK(base::CreatePipe(&read_fd, &write_fd));
   delegate_->OnSend(mime_type, std::move(write_fd));
 
-  base::PostTaskAndReplyWithResult(
+  base::ThreadPool::PostTaskAndReplyWithResult(
       FROM_HERE,
-      {base::ThreadPool(), base::MayBlock(), base::TaskPriority::USER_BLOCKING,
+      {base::MayBlock(), base::TaskPriority::USER_BLOCKING,
        base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN},
       base::BindOnce(&ReadDataOnWorkerThread, std::move(read_fd)),
       base::BindOnce(
@@ -247,7 +249,7 @@ void DataSource::GetDataForPreferredMimeTypes(
 
   for (auto mime_type : mime_types_) {
     if (net::MatchesMimeType(std::string(kTextPlain), mime_type) ||
-        mime_type == kEncodingUTF8Legacy) {
+        mime_type == ui::kMimeTypeLinuxUtf8String) {
       if (text_reader.is_null())
         continue;
 

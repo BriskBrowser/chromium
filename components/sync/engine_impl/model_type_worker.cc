@@ -12,12 +12,16 @@
 
 #include "base/bind.h"
 #include "base/format_macros.h"
+#include "base/guid.h"
 #include "base/logging.h"
+#include "base/metrics/histogram_functions.h"
+#include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/threading/thread_restrictions.h"
 #include "base/trace_event/memory_usage_estimator.h"
 #include "components/sync/base/cancelation_signal.h"
 #include "components/sync/base/client_tag_hash.h"
+#include "components/sync/base/data_type_histogram.h"
 #include "components/sync/base/hash_util.h"
 #include "components/sync/base/model_type.h"
 #include "components/sync/base/time.h"
@@ -71,6 +75,11 @@ ModelTypeWorker::ModelTypeWorker(
   DCHECK(model_type_processor_);
   DCHECK(type_ != PASSWORDS || cryptographer_);
 
+  if (!CommitOnlyTypes().Has(GetModelType())) {
+    DCHECK_EQ(type, GetModelTypeFromSpecificsFieldNumber(
+                        initial_state.progress_marker().data_type_id()));
+  }
+
   // Request an initial sync if it hasn't been completed yet.
   if (trigger_initial_sync) {
     nudge_handler_->NudgeForInitialDownload(type_);
@@ -100,6 +109,10 @@ ModelTypeWorker::ModelTypeWorker(
 }
 
 ModelTypeWorker::~ModelTypeWorker() {
+  base::UmaHistogramCounts1000(
+      std::string("Sync.UndecryptedEntitiesOnDataTypeDisabled.") +
+          ModelTypeToHistogramSuffix(type_),
+      entries_pending_decryption_.size());
   model_type_processor_->DisconnectSync();
 }
 
@@ -193,9 +206,13 @@ SyncerError ModelTypeWorker::ProcessGetUpdatesResponse(
         // Cannot decrypt now, copy the sync entity for later decryption.
         entries_pending_decryption_[update_entity->id_string()] =
             *update_entity;
+        SyncRecordModelTypeUpdateDropReason(
+            UpdateDropReason::kDecryptionPending, type_);
         break;
       case FAILED_TO_DECRYPT:
         // Failed to decrypt the entity. Likely it is corrupt. Move on.
+        SyncRecordModelTypeUpdateDropReason(UpdateDropReason::kFailedToDecrypt,
+                                            type_);
         break;
     }
   }
@@ -280,7 +297,8 @@ ModelTypeWorker::DecryptionStatus ModelTypeWorker::PopulateUpdateResponseData(
     AdaptUniquePositionForBookmark(update_entity, &data);
     AdaptTitleForBookmark(update_entity, &data.specifics,
                           specifics_were_encrypted);
-    AdaptGuidForBookmark(update_entity, &data.specifics);
+    data.is_bookmark_guid_in_specifics_preprocessed =
+        AdaptGuidForBookmark(update_entity, &data.specifics);
   } else if (model_type == AUTOFILL_WALLET_DATA) {
     AdaptClientTagForWalletData(&data);
   }
@@ -378,10 +396,11 @@ std::unique_ptr<CommitContribution> ModelTypeWorker::GetContribution(
   // updates it received.
   DCHECK(entries_pending_decryption_.empty());
 
-  // Request model type for local changes.
+  // Pull local changes from the processor (in the model thread/sequence). Note
+  // that this takes place independently of nudges (i.e. |has_local_changes_|),
+  // in case the processor decided a local change was not worth a nudge.
   scoped_refptr<GetLocalChangesRequest> request =
       base::MakeRefCounted<GetLocalChangesRequest>(cancelation_signal_);
-  // TODO(mamir): do we need to make this async?
   model_type_processor_->GetLocalChanges(
       max_entries,
       base::BindOnce(&GetLocalChangesRequest::SetResponse, request));
@@ -399,6 +418,8 @@ std::unique_ptr<CommitContribution> ModelTypeWorker::GetContribution(
       GetModelType(), model_type_state_.type_context(), std::move(response),
       base::BindOnce(&ModelTypeWorker::OnCommitResponse,
                      weak_ptr_factory_.GetWeakPtr()),
+      base::BindOnce(&ModelTypeWorker::OnFullCommitFailure,
+                     weak_ptr_factory_.GetWeakPtr()),
       cryptographer_.get(), passphrase_type_, debug_info_emitter_,
       CommitOnlyTypes().Has(GetModelType()));
 }
@@ -408,21 +429,21 @@ bool ModelTypeWorker::HasLocalChangesForTest() const {
 }
 
 void ModelTypeWorker::OnCommitResponse(
-    const CommitResponseDataList& response_list) {
+    const CommitResponseDataList& committed_response_list,
+    const FailedCommitResponseDataList& error_response_list) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
   // Send the responses back to the model thread. It needs to know which
-  // items have been successfully committed so it can save that information in
-  // permanent storage.
-  model_type_processor_->OnCommitCompleted(model_type_state_, response_list);
+  // items have been successfully committed (it can save that information in
+  // permanent storage) and which failed (it can e.g. notify the user).
+  model_type_processor_->OnCommitCompleted(
+      model_type_state_, committed_response_list, error_response_list);
 }
 
-void ModelTypeWorker::AbortMigration() {
-  DCHECK(!model_type_state_.initial_sync_done());
-  model_type_state_ = sync_pb::ModelTypeState();
-  entries_pending_decryption_.clear();
-  pending_updates_.clear();
-  nudge_handler_->NudgeForInitialDownload(type_);
+void ModelTypeWorker::OnFullCommitFailure(SyncCommitError commit_error) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
+  model_type_processor_->OnCommitFailed(commit_error);
 }
 
 size_t ModelTypeWorker::EstimateMemoryUsage() const {
@@ -557,16 +578,19 @@ void ModelTypeWorker::DeduplicatePendingUpdatesBasedOnOriginatorClientItemId() {
 
   std::map<std::string, size_t> id_to_index;
   for (UpdateResponseData& candidate : candidates) {
-    // Items with empty item ID just get passed through (which is the case for
-    // all datatypes except bookmarks).
-    if (candidate.entity.originator_client_item_id.empty()) {
+    // Entities with an item ID that is not a GUID just get passed through
+    // without deduplication, which is the case for all datatypes except
+    // bookmarks, as well as bookmarks created before 2015, when the item ID was
+    // not globally unique across clients.
+    if (!base::IsValidGUID(candidate.entity.originator_client_item_id)) {
       pending_updates_.push_back(std::move(candidate));
       continue;
     }
     // Try to insert. If we already saw an item with the same originator item
     // ID, this will fail but give us its iterator.
     auto it_and_success = id_to_index.emplace(
-        candidate.entity.originator_client_item_id, pending_updates_.size());
+        base::ToLowerASCII(candidate.entity.originator_client_item_id),
+        pending_updates_.size());
     if (it_and_success.second) {
       // New item ID, append at the end. Note that we already inserted the
       // correct index (|pending_updates_.size()|) above.

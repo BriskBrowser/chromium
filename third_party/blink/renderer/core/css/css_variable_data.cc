@@ -83,7 +83,6 @@ CSSVariableData::CSSVariableData(const CSSParserTokenRange& range,
       needs_variable_resolution_(needs_variable_resolution),
       has_font_units_(false),
       has_root_font_units_(false),
-      absolutized_(false),
       base_url_(base_url.IsValid() ? base_url.GetString() : String()),
       charset_(charset) {
   DCHECK(!range.AtEnd());
@@ -96,7 +95,8 @@ const CSSValue* CSSVariableData::ParseForSyntax(
   DCHECK(!NeedsVariableResolution());
   // TODO(timloh): This probably needs a proper parser context for
   // relative URL resolution.
-  return syntax.Parse(TokenRange(), StrictCSSParserContext(secure_context_mode),
+  return syntax.Parse(TokenRange(),
+                      *StrictCSSParserContext(secure_context_mode),
                       is_animation_tainted_);
 }
 

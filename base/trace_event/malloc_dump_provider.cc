@@ -15,7 +15,7 @@
 #include "base/trace_event/traced_value.h"
 #include "build/build_config.h"
 
-#if defined(OS_MACOSX)
+#if defined(OS_APPLE)
 #include <malloc/malloc.h>
 #else
 #include <malloc.h>
@@ -97,7 +97,7 @@ bool MallocDumpProvider::OnMemoryDump(const MemoryDumpArgs& args,
   res = allocator::GetNumericProperty("generic.current_allocated_bytes",
                                       &allocated_objects_size);
   DCHECK(res);
-#elif defined(OS_MACOSX) || defined(OS_IOS)
+#elif defined(OS_APPLE)
   malloc_statistics_t stats = {0};
   malloc_zone_statistics(nullptr, &stats);
   total_virtual_size = stats.size_allocated;
@@ -134,11 +134,6 @@ bool MallocDumpProvider::OnMemoryDump(const MemoryDumpArgs& args,
 // TODO(fuchsia): Port, see https://crbug.com/706592.
 #else
   struct mallinfo info = mallinfo();
-#if !defined(ADDRESS_SANITIZER) && !defined(THREAD_SANITIZER)
-  // Sanitizers override mallinfo.
-  DCHECK_GT(static_cast<int>(info.uordblks), 0);
-#endif
-
   // In case of Android's jemalloc |arena| is 0 and the outer pages size is
   // reported by |hblkhd|. In case of dlmalloc the total is given by
   // |arena| + |hblkhd|. For more details see link: http://goo.gl/fMR8lF.

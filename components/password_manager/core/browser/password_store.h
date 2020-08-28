@@ -10,21 +10,24 @@
 #include <string>
 #include <vector>
 
+#include "base/bind_helpers.h"
 #include "base/callback.h"
 #include "base/callback_list.h"
+#include "base/cancelable_callback.h"
 #include "base/gtest_prod_util.h"
 #include "base/macros.h"
+#include "base/memory/scoped_refptr.h"
 #include "base/observer_list_threadsafe.h"
 #include "base/sequenced_task_runner.h"
 #include "base/time/time.h"
+#include "base/util/type_safety/strong_alias.h"
 #include "build/build_config.h"
 #include "components/keyed_service/core/refcounted_keyed_service.h"
 #include "components/password_manager/core/browser/compromised_credentials_table.h"
 #include "components/password_manager/core/browser/password_store_change.h"
 #include "components/password_manager/core/browser/password_store_sync.h"
-#include "components/sync/model/syncable_service.h"
 
-#if defined(SYNC_PASSWORD_REUSE_DETECTION_ENABLED)
+#if defined(PASSWORD_REUSE_DETECTION_ENABLED)
 #include "components/password_manager/core/browser/hash_password_manager.h"
 #include "components/password_manager/core/browser/password_manager_metrics_util.h"
 #include "components/password_manager/core/browser/password_reuse_detector.h"
@@ -36,35 +39,34 @@ class PrefService;
 namespace autofill {
 struct FormData;
 struct PasswordForm;
-}
+}  // namespace autofill
 
 namespace syncer {
 class ModelTypeControllerDelegate;
 class ProxyModelTypeControllerDelegate;
-class SyncableService;
-}
+}  // namespace syncer
 
 using StateSubscription =
     base::CallbackList<void(const std::string& username)>::Subscription;
 
 namespace password_manager {
 
-#if defined(SYNC_PASSWORD_REUSE_DETECTION_ENABLED)
+using IsAccountStore = util::StrongAlias<class IsAccountStoreTag, bool>;
+
+#if defined(PASSWORD_REUSE_DETECTION_ENABLED)
 using metrics_util::GaiaPasswordHashChange;
 #endif
 
 class AffiliatedMatchHelper;
-class CompromisedCredentialsObserver;
 class PasswordStoreConsumer;
-class PasswordLeakHistoryConsumer;
+class CompromisedCredentialsConsumer;
 class PasswordStoreSigninNotifier;
-class PasswordSyncableService;
 class PasswordSyncBridge;
 struct FieldInfo;
 struct InteractionsStats;
 struct CompromisedCredentials;
 
-#if defined(SYNC_PASSWORD_REUSE_DETECTION_ENABLED)
+#if defined(PASSWORD_REUSE_DETECTION_ENABLED)
 using PasswordHashDataList = base::Optional<std::vector<PasswordHashData>>;
 #endif
 
@@ -77,7 +79,7 @@ using PasswordHashDataList = base::Optional<std::vector<PasswordHashData>>;
 // this manner. If this deferred initialization fails, all subsequent method
 // calls should fail without side effects, return no data, and send no
 // notifications. PasswordStoreSync is a hidden base class because only
-// PasswordSyncableService needs to access these methods.
+// PasswordSyncBridge needs to access these methods.
 class PasswordStore : protected PasswordStoreSync,
                       public RefcountedKeyedService {
  public:
@@ -90,8 +92,46 @@ class PasswordStore : protected PasswordStoreSync,
     // the UI thread.
     virtual void OnLoginsChanged(const PasswordStoreChangeList& changes) = 0;
 
+    // Like OnLoginsChanged(), but also receives the originating PasswordStore
+    // as a parameter. This is useful for observers that observe changes in both
+    // the profile-scoped and the account-scoped store. The default
+    // implementation simply calls OnLoginsChanged(), so observers that don't
+    // care about the store can just ignore this.
+    virtual void OnLoginsChangedIn(PasswordStore* store,
+                                   const PasswordStoreChangeList& changes);
+
    protected:
-    virtual ~Observer() {}
+    virtual ~Observer() = default;
+  };
+
+  class DatabaseCompromisedCredentialsObserver {
+    // An interface used to notify clients (observers) of this object that the
+    // list of compromised credentials in the password store has changed.
+    // Register the observer via
+    // PasswordStore::AddDatabaseCompromisedCredentialsObserver.
+   public:
+    // Notifies the observer that the list of compromised credentials changed.
+    // Will be called from the UI thread.
+    virtual void OnCompromisedCredentialsChanged() = 0;
+
+    // Like OnCompromisedCredentialsChanged(), but also receives the originating
+    // PasswordStore as a parameter. This is useful for observers that observe
+    // changes in both the profile-scoped and the account-scoped store. The
+    // default implementation simply calls OnCompromisedCredentialsChanged(), so
+    // observers that don't care about the store can just ignore this.
+    virtual void OnCompromisedCredentialsChangedIn(PasswordStore* store);
+
+   protected:
+    virtual ~DatabaseCompromisedCredentialsObserver() = default;
+  };
+
+  // Used to notify that unsynced credentials are about to be deleted.
+  class UnsyncedCredentialsDeletionNotifier {
+   public:
+    // Should be called from the UI thread.
+    virtual void Notify(std::vector<autofill::PasswordForm>) = 0;
+    virtual ~UnsyncedCredentialsDeletionNotifier() = default;
+    virtual base::WeakPtr<UnsyncedCredentialsDeletionNotifier> GetWeakPtr() = 0;
   };
 
   // Represents a subset of autofill::PasswordForm needed for credential
@@ -99,7 +139,7 @@ class PasswordStore : protected PasswordStoreSync,
   struct FormDigest {
     FormDigest(autofill::PasswordForm::Scheme scheme,
                const std::string& signon_realm,
-               const GURL& origin);
+               const GURL& url);
     explicit FormDigest(const autofill::PasswordForm& form);
     explicit FormDigest(const autofill::FormData& form);
     FormDigest(const FormDigest& other);
@@ -110,14 +150,13 @@ class PasswordStore : protected PasswordStoreSync,
 
     autofill::PasswordForm::Scheme scheme;
     std::string signon_realm;
-    GURL origin;
+    GURL url;
   };
 
   PasswordStore();
 
   // Always call this too on the UI thread.
   bool Init(
-      const syncer::SyncableService::StartSyncFlare& flare,
       PrefService* prefs,
       base::RepeatingClosure sync_enabled_or_disabled_cb = base::DoNothing());
 
@@ -139,7 +178,7 @@ class PasswordStore : protected PasswordStoreSync,
   virtual void AddLogin(const autofill::PasswordForm& form);
 
   // Updates the matching PasswordForm in the secure password store (async).
-  // If any of the primary key fields (signon_realm, origin, username_element,
+  // If any of the primary key fields (signon_realm, url, username_element,
   // username_value, password_element) are updated, then the second version of
   // the method must be used that takes |old_primary_key|, i.e., the old values
   // for the primary key fields (the rest of the fields are ignored).
@@ -152,22 +191,27 @@ class PasswordStore : protected PasswordStoreSync,
   virtual void RemoveLogin(const autofill::PasswordForm& form);
 
   // Remove all logins whose origins match the given filter and that were
-  // created
-  // in the given date range. |completion| will be posted to the
-  // |main_task_runner_| after deletions have been completed and notification
-  // have been sent out.
+  // created in the given date range. |completion| will be posted to the
+  // |main_task_runner_| after deletions have been completed and notifications
+  // have been sent out. |sync_completion| will be posted to
+  // |main_task_runner_| once the deletions have also been propagated to the
+  // server (or, in rare cases, if the user permanently disables Sync or
+  // deletions haven't been propagated after 30 seconds). This is
+  // only relevant for Sync users and for account store users - for other users,
+  // |sync_completion| will be run immediately after |completion|.
   void RemoveLoginsByURLAndTime(
-      const base::Callback<bool(const GURL&)>& url_filter,
+      const base::RepeatingCallback<bool(const GURL&)>& url_filter,
       base::Time delete_begin,
       base::Time delete_end,
-      const base::Closure& completion);
+      base::OnceClosure completion,
+      base::OnceCallback<void(bool)> sync_completion = base::NullCallback());
 
   // Removes all logins created in the given date range. If |completion| is not
   // null, it will be posted to the |main_task_runner_| after deletions have
   // been completed and notification have been sent out.
   void RemoveLoginsCreatedBetween(base::Time delete_begin,
                                   base::Time delete_end,
-                                  const base::Closure& completion);
+                                  base::OnceClosure completion);
 
   // Removes all the stats created in the given date range.
   // If |origin_filter| is not null, only statistics for matching origins are
@@ -175,25 +219,25 @@ class PasswordStore : protected PasswordStoreSync,
   // |main_task_runner_| after deletions have been completed.
   // Should be called on the UI thread.
   void RemoveStatisticsByOriginAndTime(
-      const base::Callback<bool(const GURL&)>& origin_filter,
+      const base::RepeatingCallback<bool(const GURL&)>& origin_filter,
       base::Time delete_begin,
       base::Time delete_end,
-      const base::Closure& completion);
+      base::OnceClosure completion);
 
   // Sets the 'skip_zero_click' flag for all logins in the database that match
   // |origin_filter| to 'true'. |completion| will be posted to the
   // |main_task_runner_| after these modifications are completed and
   // notifications are sent out.
   void DisableAutoSignInForOrigins(
-      const base::Callback<bool(const GURL&)>& origin_filter,
-      const base::Closure& completion);
+      const base::RepeatingCallback<bool(const GURL&)>& origin_filter,
+      base::OnceClosure completion);
 
   // Unblacklists the login with |form_digest| by deleting all the corresponding
   // blacklisted entries. If |completion| is not null, it will be posted to the
   // |main_task_runner_| after deletions have been completed. Should be called
   // on the UI thread.
-  void Unblacklist(const PasswordStore::FormDigest& form_digest,
-                   base::OnceClosure completion);
+  virtual void Unblacklist(const PasswordStore::FormDigest& form_digest,
+                           base::OnceClosure completion);
 
   // Searches for a matching PasswordForm, and notifies |consumer| on
   // completion. The request will be cancelled if the consumer is destroyed.
@@ -203,18 +247,13 @@ class PasswordStore : protected PasswordStoreSync,
   // Searches for credentials with the specified |plain_text_password|, and
   // notifies |consumer| on completion. The request will be cancelled if the
   // consumer is destroyed.
-  virtual void GetLoginsByPassword(const base::string16& plain_text_password,
-                                   PasswordStoreConsumer* consumer);
+  void GetLoginsByPassword(const base::string16& plain_text_password,
+                           PasswordStoreConsumer* consumer);
 
   // Gets the complete list of PasswordForms that are not blacklist entries--and
   // are thus auto-fillable. |consumer| will be notified on completion.
   // The request will be cancelled if the consumer is destroyed.
   virtual void GetAutofillableLogins(PasswordStoreConsumer* consumer);
-
-  // Gets the complete list of PasswordForms that are blacklist entries and
-  // notifies |consumer| on completion. The request will be cancelled if the
-  // consumer is destroyed.
-  virtual void GetBlacklistLogins(PasswordStoreConsumer* consumer);
 
   // Gets the complete list of PasswordForms (regardless of their blacklist
   // status) and notify |consumer| on completion. The request will be cancelled
@@ -237,6 +276,7 @@ class PasswordStore : protected PasswordStoreSync,
   // Adds or replaces the statistics for the domain |stats.origin_domain|.
   void AddSiteStats(const InteractionsStats& stats);
 
+  // TODO(crbug/1081389): replace GURL with Origin.
   // Removes the statistics for |origin_domain|.
   void RemoveSiteStats(const GURL& origin_domain);
 
@@ -251,14 +291,29 @@ class PasswordStore : protected PasswordStoreSync,
   void AddCompromisedCredentials(
       const CompromisedCredentials& compromised_credentials);
 
-  // Removes information about credentials compromised on |url| for |username|.
-  void RemoveCompromisedCredentials(const GURL& url,
+  // Removes information about credentials compromised on |signon_realm| for
+  // |username|.
+  void RemoveCompromisedCredentials(const std::string& signon_realm,
                                     const base::string16& username,
                                     RemoveCompromisedCredentialsReason reason);
 
+  // Removes information about credentials compromised on |signon_realm| for
+  // |username| and |compromise_type|.
+  void RemoveCompromisedCredentialsByCompromiseType(
+      const std::string& signon_realm,
+      const base::string16& username,
+      const CompromiseType& compromise_type,
+      RemoveCompromisedCredentialsReason reason);
+
   // Retrieves all compromised credentials and notifies |consumer| on
   // completion. The request will be cancelled if the consumer is destroyed.
-  void GetAllCompromisedCredentials(PasswordLeakHistoryConsumer* consumer);
+  void GetAllCompromisedCredentials(CompromisedCredentialsConsumer* consumer);
+
+  // Returns all the compromised records for a given site. This list also
+  // includes Android affiliated credentials.
+  void GetMatchingCompromisedCredentials(
+      const std::string& signon_realm,
+      CompromisedCredentialsConsumer* consumer);
 
   // Removes all compromised credentials in the given date range. If
   // |url_filter| is not null, only compromised credentials for matching urls
@@ -286,11 +341,26 @@ class PasswordStore : protected PasswordStoreSync,
                              base::Time remove_end,
                              base::OnceClosure completion);
 
+  // Deletes and re-creates the whole PasswordStore, unless it is already empty
+  // anyway. If |completion| is not null, it will be posted to the
+  // |main_task_runner_| once the process is complete. The bool parameter
+  // indicates whether any data was actually cleared.
+  void ClearStore(base::OnceCallback<void(bool)> completion);
+
   // Adds an observer to be notified when the password store data changes.
   void AddObserver(Observer* observer);
 
   // Removes |observer| from the observer list.
   void RemoveObserver(Observer* observer);
+
+  // Adds an observer to be notified when the list of compromised passwords in
+  // the password store changes.
+  void AddDatabaseCompromisedCredentialsObserver(
+      DatabaseCompromisedCredentialsObserver* observer);
+
+  // Removes |observer| from the list of compromised credentials observer.
+  void RemoveDatabaseCompromisedCredentialsObserver(
+      DatabaseCompromisedCredentialsObserver* observer);
 
   // Schedules the given |task| to be run on the PasswordStore's TaskRunner.
   bool ScheduleTask(base::OnceClosure task);
@@ -298,17 +368,22 @@ class PasswordStore : protected PasswordStoreSync,
   // Returns true iff initialization was successful.
   virtual bool IsAbleToSavePasswords() const;
 
-  base::WeakPtr<syncer::SyncableService> GetPasswordSyncableService();
-
   // For sync codebase only: instantiates a proxy controller delegate to
   // interact with PasswordSyncBridge. Must be called from the UI thread.
   std::unique_ptr<syncer::ProxyModelTypeControllerDelegate>
   CreateSyncControllerDelegate();
 
-#if defined(SYNC_PASSWORD_REUSE_DETECTION_ENABLED)
+  // Sets |deletion_notifier_|. Must not pass a nullptr.
+  void SetUnsyncedCredentialsDeletionNotifier(
+      std::unique_ptr<UnsyncedCredentialsDeletionNotifier> deletion_notifier);
+
+  void SetSyncTaskTimeoutForTest(base::TimeDelta timeout);
+
+#if defined(PASSWORD_REUSE_DETECTION_ENABLED)
   // Immediately called after |Init()| to retrieve password hash data for
   // reuse detection.
-  void PreparePasswordHashData(const std::string& sync_username);
+  void PreparePasswordHashData(const std::string& sync_username,
+                               bool is_signed_in);
 
   // Checks that some suffix of |input| equals to a password saved on another
   // registry controlled domain than |domain|.
@@ -355,16 +430,19 @@ class PasswordStore : protected PasswordStoreSync,
   // list might have changed. Should only be called on the UI thread.
   virtual std::unique_ptr<StateSubscription>
   RegisterStateCallbackOnHashPasswordManager(
-      const base::Callback<void(const std::string& username)>& callback);
+      const base::RepeatingCallback<void(const std::string& username)>&
+          callback);
 
   // Shouldn't be called more than once, |notifier| must be not nullptr.
   void SetPasswordStoreSigninNotifier(
       std::unique_ptr<PasswordStoreSigninNotifier> notifier);
 
   // Schedules the update of password hashes used by reuse detector.
-  // |does_primary_account_exists| is only used if |should_log_metrics| is true.
+  // |does_primary_account_exists| and |is_signed_in| fields are only used if
+  // |should_log_metrics| is true.
   void SchedulePasswordHashUpdate(bool should_log_metrics,
-                                  bool does_primary_account_exists);
+                                  bool does_primary_account_exists,
+                                  bool is_signed_in);
 
   // Schedules the update of enterprise login and change password URLs.
   // These URLs are used in enterprise password reuse detection.
@@ -375,7 +453,7 @@ class PasswordStore : protected PasswordStoreSync,
  protected:
   friend class base::RefCountedThreadSafe<PasswordStore>;
 
-#if defined(SYNC_PASSWORD_REUSE_DETECTION_ENABLED)
+#if defined(PASSWORD_REUSE_DETECTION_ENABLED)
   // Represents a single CheckReuse() request. Implements functionality to
   // listen to reuse events and propagate them to |consumer| on the sequence on
   // which CheckReuseRequest is created.
@@ -389,7 +467,8 @@ class PasswordStore : protected PasswordStoreSync,
     void OnReuseFound(
         size_t password_length,
         base::Optional<PasswordHashData> reused_protected_password_hash,
-        const std::vector<std::string>& matching_domains,
+        const std::vector<MatchingReusedCredential>&
+            matching_reused_credentials,
         int saved_passwords) override;
 
    private:
@@ -419,20 +498,20 @@ class PasswordStore : protected PasswordStoreSync,
   virtual scoped_refptr<base::SequencedTaskRunner> CreateBackgroundTaskRunner()
       const;
 
-  // Creates PasswordSyncableService and PasswordReuseDetector instances on the
+  // Creates PasswordSyncBridge and PasswordReuseDetector instances on the
   // background sequence. Subclasses can add more logic. Returns true on
   // success.
-  virtual bool InitOnBackgroundSequence(
-      const syncer::SyncableService::StartSyncFlare& flare);
+  virtual bool InitOnBackgroundSequence();
 
   // Methods below will be run in PasswordStore's own sequence.
   // Synchronous implementation that reports usage metrics.
   virtual void ReportMetricsImpl(const std::string& sync_username,
-                                 bool custom_passphrase_sync_enabled) = 0;
+                                 bool custom_passphrase_sync_enabled,
+                                 BulkCheckDone bulk_check_done) = 0;
 
   // Synchronous implementation to remove the given logins.
   virtual PasswordStoreChangeList RemoveLoginsByURLAndTimeImpl(
-      const base::Callback<bool(const GURL&)>& url_filter,
+      const base::RepeatingCallback<bool(const GURL&)>& url_filter,
       base::Time delete_begin,
       base::Time delete_end) = 0;
 
@@ -443,13 +522,13 @@ class PasswordStore : protected PasswordStoreSync,
 
   // Synchronous implementation to remove the statistics.
   virtual bool RemoveStatisticsByOriginAndTimeImpl(
-      const base::Callback<bool(const GURL&)>& origin_filter,
+      const base::RepeatingCallback<bool(const GURL&)>& origin_filter,
       base::Time delete_begin,
       base::Time delete_end) = 0;
 
   // Synchronous implementation to disable auto sign-in.
   virtual PasswordStoreChangeList DisableAutoSignInForOriginsImpl(
-      const base::Callback<bool(const GURL&)>& origin_filter) = 0;
+      const base::RepeatingCallback<bool(const GURL&)>& origin_filter) = 0;
 
   // Synchronous implementation provided by subclasses to add the given login.
   virtual PasswordStoreChangeList AddLoginImpl(
@@ -477,6 +556,18 @@ class PasswordStore : protected PasswordStoreSync,
   virtual std::vector<std::unique_ptr<autofill::PasswordForm>>
   FillMatchingLoginsByPassword(const base::string16& plain_text_password) = 0;
 
+  // Overwrites |forms| with all stored non-blacklisted credentials. Returns
+  // true on success.
+  virtual bool FillAutofillableLogins(
+      std::vector<std::unique_ptr<autofill::PasswordForm>>* forms)
+      WARN_UNUSED_RESULT = 0;
+
+  // Overwrites |forms| with all stored blacklisted credentials. Returns true on
+  // success.
+  virtual bool FillBlacklistLogins(
+      std::vector<std::unique_ptr<autofill::PasswordForm>>* forms)
+      WARN_UNUSED_RESULT = 0;
+
   // Synchronous implementation for manipulating with statistics.
   virtual void AddSiteStatsImpl(const InteractionsStats& stats) = 0;
   virtual void RemoveSiteStatsImpl(const GURL& origin_domain) = 0;
@@ -486,16 +577,22 @@ class PasswordStore : protected PasswordStoreSync,
 
   // Synchronous implementation for manipulating with information about
   // compromised credentials.
-  virtual void AddCompromisedCredentialsImpl(
+  virtual bool AddCompromisedCredentialsImpl(
       const CompromisedCredentials& compromised_credentials) = 0;
-  // TODO(bdea): Add CompromiseType as a filter.
-  virtual void RemoveCompromisedCredentialsImpl(
-      const GURL& url,
+  virtual bool RemoveCompromisedCredentialsImpl(
+      const std::string& signon_realm,
       const base::string16& username,
+      RemoveCompromisedCredentialsReason reason) = 0;
+  virtual bool RemoveCompromisedCredentialsByCompromiseTypeImpl(
+      const std::string& signon_realm,
+      const base::string16& username,
+      const CompromiseType& compromised_type,
       RemoveCompromisedCredentialsReason reason) = 0;
   virtual std::vector<CompromisedCredentials>
   GetAllCompromisedCredentialsImpl() = 0;
-  virtual void RemoveCompromisedCredentialsByUrlAndTimeImpl(
+  virtual std::vector<CompromisedCredentials>
+  GetMatchingCompromisedCredentialsImpl(const std::string& signon_realm) = 0;
+  virtual bool RemoveCompromisedCredentialsByUrlAndTimeImpl(
       const base::RepeatingCallback<bool(const GURL&)>& url_filter,
       base::Time remove_begin,
       base::Time remove_end) = 0;
@@ -506,6 +603,10 @@ class PasswordStore : protected PasswordStoreSync,
   virtual std::vector<FieldInfo> GetAllFieldInfoImpl() = 0;
   virtual void RemoveFieldInfoByTimeImpl(base::Time remove_begin,
                                          base::Time remove_end) = 0;
+
+  // Synchronous implementation provided by subclasses to check whether the
+  // store is empty.
+  virtual bool IsEmpty() = 0;
 
   // PasswordStoreSync:
   PasswordStoreChangeList AddLoginSync(const autofill::PasswordForm& form,
@@ -520,7 +621,17 @@ class PasswordStore : protected PasswordStoreSync,
   // been changed.
   void NotifyLoginsChanged(const PasswordStoreChangeList& changes) override;
 
-#if defined(SYNC_PASSWORD_REUSE_DETECTION_ENABLED)
+  void NotifyDeletionsHaveSynced(bool success) override;
+
+  void NotifyUnsyncedCredentialsWillBeDeleted(
+      std::vector<autofill::PasswordForm> unsynced_credentials) override;
+
+  // Invokes callback and notifies observers if there was a change to the list
+  // of compromised passwords.
+  void InvokeAndNotifyAboutCompromisedPasswordsChange(
+      base::OnceCallback<bool()> callback);
+
+#if defined(PASSWORD_REUSE_DETECTION_ENABLED)
   // Saves |username| and a hash of |password| for password reuse checking.
   // |is_gaia_password| indicates if it is a Gaia account. |event| is used for
   // metric logging. |is_primary_account| is whether account belong to the
@@ -543,7 +654,8 @@ class PasswordStore : protected PasswordStoreSync,
   void SaveProtectedPasswordHashImpl(
       PasswordHashDataList protected_password_data_list,
       bool should_log_metrics,
-      bool does_primary_account_exists);
+      bool does_primary_account_exists,
+      bool is_signed_in);
 
   // Propagates enterprise login urls and change password url to
   // |reuse_detector_|.
@@ -585,9 +697,8 @@ class PasswordStore : protected PasswordStoreSync,
   using StatsResult = std::vector<InteractionsStats>;
   using StatsTask = base::OnceCallback<StatsResult()>;
 
-  using CompromisedCredentialsResult = std::vector<CompromisedCredentials>;
   using CompromisedCredentialsTask =
-      base::OnceCallback<CompromisedCredentialsResult()>;
+      base::OnceCallback<std::vector<CompromisedCredentials>()>;
 
   // Called on the main thread after initialization is completed.
   // |success| is true if initialization was successful. Sets the
@@ -622,7 +733,7 @@ class PasswordStore : protected PasswordStoreSync,
   // Invokes |consumer|->OnGetCompromisedCredentials() on the caller's thread
   // with the result.
   void PostCompromisedCredentialsTaskAndReplyToConsumerWithResult(
-      PasswordLeakHistoryConsumer* consumer,
+      CompromisedCredentialsConsumer* consumer,
       CompromisedCredentialsTask task);
 
   // The following methods notify observers that the password store may have
@@ -635,24 +746,25 @@ class PasswordStore : protected PasswordStoreSync,
       const autofill::PasswordForm& new_form,
       const autofill::PasswordForm& old_primary_key);
   void RemoveLoginsByURLAndTimeInternal(
-      const base::Callback<bool(const GURL&)>& url_filter,
+      const base::RepeatingCallback<bool(const GURL&)>& url_filter,
       base::Time delete_begin,
       base::Time delete_end,
-      const base::Closure& completion);
+      base::OnceClosure completion,
+      base::OnceCallback<void(bool)> sync_completion);
   void RemoveLoginsCreatedBetweenInternal(base::Time delete_begin,
                                           base::Time delete_end,
-                                          const base::Closure& completion);
+                                          base::OnceClosure completion);
   void RemoveStatisticsByOriginAndTimeInternal(
-      const base::Callback<bool(const GURL&)>& origin_filter,
+      const base::RepeatingCallback<bool(const GURL&)>& origin_filter,
       base::Time delete_begin,
       base::Time delete_end,
-      const base::Closure& completion);
+      base::OnceClosure completion);
   void DisableAutoSignInForOriginsInternal(
-      const base::Callback<bool(const GURL&)>& origin_filter,
-      const base::Closure& completion);
+      const base::RepeatingCallback<bool(const GURL&)>& origin_filter,
+      base::OnceClosure completion);
   void UnblacklistInternal(const PasswordStore::FormDigest& form_digest,
                            base::OnceClosure completion);
-  void RemoveCompromisedCredentialsByUrlAndTimeInternal(
+  bool RemoveCompromisedCredentialsByUrlAndTimeInternal(
       const base::RepeatingCallback<bool(const GURL&)>& url_filter,
       base::Time remove_begin,
       base::Time remove_end,
@@ -661,6 +773,8 @@ class PasswordStore : protected PasswordStoreSync,
   void RemoveFieldInfoByTimeInternal(base::Time remove_begin,
                                      base::Time remove_end,
                                      base::OnceClosure completion);
+
+  void ClearStoreInternal(base::OnceCallback<void(bool)> completion);
 
   // Finds all PasswordForms with a signon_realm that is equal to, or is a
   // PSL-match to that of |form|, and takes care of notifying the consumer with
@@ -696,6 +810,12 @@ class PasswordStore : protected PasswordStoreSync,
       const FormDigest& form,
       const std::vector<std::string>& additional_android_realms);
 
+  // Extended version of GetMatchingCompromisedCredentialsImpl that also returns
+  // credentials stored for the specified affiliated Android applications.
+  std::vector<CompromisedCredentials> GetCompromisedWithAffiliationsImpl(
+      const std::string& signon_realm,
+      const std::vector<std::string>& additional_android_realms);
+
   // Retrieves and fills in affiliation and branding information for Android
   // credentials in |forms| and invokes |callback| with the result. Called on
   // the main sequence.
@@ -711,8 +831,15 @@ class PasswordStore : protected PasswordStoreSync,
       base::Time cutoff,
       const std::vector<std::string>& additional_android_realms);
 
+  // Schedules GetCompromisedWithAffiliationsImpl() to be run on the background
+  // sequence.
+  void ScheduleGetCompromisedWithAffiliations(
+      base::WeakPtr<CompromisedCredentialsConsumer> consumer,
+      const std::string& signon_realm,
+      const std::vector<std::string>& additional_android_realms);
+
   // Retrieves the currently stored form, if any, with the same primary key as
-  // |form|, that is, with the same signon_realm, origin, username_element,
+  // |form|, that is, with the same signon_realm, url, username_element,
   // username_value and password_element attributes. To be called on the
   // background sequence.
   std::unique_ptr<autofill::PasswordForm> GetLoginImpl(
@@ -761,20 +888,20 @@ class PasswordStore : protected PasswordStoreSync,
 
   // The observers.
   scoped_refptr<base::ObserverListThreadSafe<Observer>> observers_;
+  scoped_refptr<
+      base::ObserverListThreadSafe<DatabaseCompromisedCredentialsObserver>>
+      compromised_credentials_observers_ =
+          base::MakeRefCounted<base::ObserverListThreadSafe<
+              DatabaseCompromisedCredentialsObserver>>();
 
-  // Either of two below would actually be set based on a feature flag.
-  std::unique_ptr<PasswordSyncableService> syncable_service_;
   std::unique_ptr<PasswordSyncBridge> sync_bridge_;
 
   base::RepeatingClosure sync_enabled_or_disabled_cb_;
 
   std::unique_ptr<AffiliatedMatchHelper> affiliated_match_helper_;
 
-  std::unique_ptr<CompromisedCredentialsObserver>
-      compromised_credentials_observer_;
-
-#if defined(SYNC_PASSWORD_REUSE_DETECTION_ENABLED)
   PrefService* prefs_ = nullptr;
+#if defined(PASSWORD_REUSE_DETECTION_ENABLED)
   // PasswordReuseDetector can be only destroyed on the background sequence. It
   // can't be owned by PasswordStore because PasswordStore can be destroyed on
   // the UI thread and DestroyOnBackgroundThread isn't guaranteed to be called.
@@ -783,9 +910,21 @@ class PasswordStore : protected PasswordStoreSync,
   HashPasswordManager hash_password_manager_;
 #endif
 
-  bool shutdown_called_;
+  std::unique_ptr<UnsyncedCredentialsDeletionNotifier> deletion_notifier_;
 
-  InitStatus init_status_;
+  // A list of callbacks that should be run once all pending deletions have been
+  // sent to the Sync server. Note that the vector itself lives on the
+  // background thread, but the callbacks must be run on the main thread!
+  std::vector<base::OnceCallback<void(bool)>> deletions_have_synced_callbacks_;
+  // Timeout closure that runs if sync takes too long to propagate deletions.
+  base::CancelableClosure deletions_have_synced_timeout_;
+
+  bool shutdown_called_ = false;
+
+  InitStatus init_status_ = InitStatus::kUnknown;
+
+  // This is usually constant, only changed in tests.
+  base::TimeDelta sync_task_timeout_ = base::TimeDelta::FromSeconds(30);
 
   DISALLOW_COPY_AND_ASSIGN(PasswordStore);
 };

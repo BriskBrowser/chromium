@@ -19,7 +19,6 @@
 #include "net/http/http_util.h"
 #include "net/traffic_annotation/network_traffic_annotation_test_helper.h"
 #include "net/url_request/redirect_info.h"
-#include "net/url_request/url_request_job.h"
 #include "net/url_request/url_request_test_util.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -101,7 +100,7 @@ class VectorConsoleMessagesDelegate : public ConsoleMessagesDelegate {
 
   void OutputMessages(const base::RepeatingCallback<WebContents*()>&
                           web_contents_getter) override {
-    *message_buffer_ = messages();
+    *message_buffer_ = GetMessagesForTesting();
   }
 
  private:
@@ -282,7 +281,7 @@ TEST_F(ClearSiteDataHandlerTest, InvalidHeader) {
         &console_delegate, GURL()));
 
     std::string multiline_message;
-    for (const auto& message : console_delegate.messages()) {
+    for (const auto& message : console_delegate.GetMessagesForTesting()) {
       EXPECT_EQ(blink::mojom::ConsoleMessageLevel::kError, message.level);
       multiline_message += message.text + "\n";
     }

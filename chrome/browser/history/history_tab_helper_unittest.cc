@@ -30,8 +30,7 @@ class HistoryTabHelperTest : public ChromeRenderViewHostTestHarness {
   // ChromeRenderViewHostTestHarness:
   void SetUp() override {
     ChromeRenderViewHostTestHarness::SetUp();
-    ASSERT_TRUE(profile()->CreateHistoryService(/*delete_file=*/false,
-                                                /*no_db=*/false));
+    ASSERT_TRUE(profile()->CreateHistoryService());
     history_service_ = HistoryServiceFactory::GetForProfile(
         profile(), ServiceAccessType::IMPLICIT_ACCESS);
     ASSERT_TRUE(history_service_);
@@ -39,7 +38,8 @@ class HistoryTabHelperTest : public ChromeRenderViewHostTestHarness {
         page_url_, base::Time::Now(), /*context_id=*/nullptr,
         /*nav_entry_id=*/0,
         /*referrer=*/GURL(), history::RedirectList(), ui::PAGE_TRANSITION_TYPED,
-        history::SOURCE_BROWSED, /*did_replace_entry=*/false);
+        history::SOURCE_BROWSED, /*did_replace_entry=*/false,
+        /*publicly_routable=*/true);
     HistoryTabHelper::CreateForWebContents(web_contents());
   }
 

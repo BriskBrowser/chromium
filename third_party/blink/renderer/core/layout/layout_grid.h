@@ -42,12 +42,12 @@ struct GridSpan;
 struct ContentAlignmentData {
  public:
   ContentAlignmentData() = default;
+  ContentAlignmentData(const ContentAlignmentData&) = delete;
+  ContentAlignmentData& operator=(const ContentAlignmentData&) = delete;
   bool IsValid() { return position_offset >= 0 && distribution_offset >= 0; }
 
   LayoutUnit position_offset = LayoutUnit(-1);
   LayoutUnit distribution_offset = LayoutUnit(-1);
-
-  DISALLOW_COPY_AND_ASSIGN(ContentAlignmentData);
 };
 
 enum GridAxisPosition { kGridAxisStart, kGridAxisEnd, kGridAxisCenter };
@@ -87,6 +87,13 @@ class LayoutGrid final : public LayoutBlock {
     return grid_->AutoRepeatTracks(direction);
   }
 
+  size_t ExplicitGridStartForDirection(
+      GridTrackSizingDirection direction) const {
+    return grid_->ExplicitGridStart(direction);
+  }
+
+  LayoutUnit TranslateRTLCoordinate(LayoutUnit) const;
+
   LayoutUnit TranslateOutOfFlowRTLCoordinate(const LayoutBox&,
                                              LayoutUnit) const;
 
@@ -113,6 +120,8 @@ class LayoutGrid final : public LayoutBlock {
 
   StyleContentAlignmentData ContentAlignment(GridTrackSizingDirection) const;
 
+  size_t ExplicitGridEndForDirection(GridTrackSizingDirection) const;
+
   // Exposed for testing *ONLY*.
   Grid* InternalGrid() const { return grid_.get(); }
 
@@ -128,9 +137,7 @@ class LayoutGrid final : public LayoutBlock {
   bool IsOfType(LayoutObjectType type) const override {
     return type == kLayoutObjectLayoutGrid || LayoutBlock::IsOfType(type);
   }
-  void ComputeIntrinsicLogicalWidths(
-      LayoutUnit& min_logical_width,
-      LayoutUnit& max_logical_width) const override;
+  MinMaxSizes ComputeIntrinsicLogicalWidths() const override;
 
   void AddChild(LayoutObject* new_child,
                 LayoutObject* before_child = nullptr) override;
@@ -291,8 +298,6 @@ class LayoutGrid final : public LayoutBlock {
 
   size_t NonCollapsedTracks(GridTrackSizingDirection) const;
   size_t NumTracks(GridTrackSizingDirection, const Grid&) const;
-
-  LayoutUnit TranslateRTLCoordinate(LayoutUnit) const;
 
   static LayoutUnit OverrideContainingBlockContentSizeForChild(
       const LayoutBox& child,

@@ -14,6 +14,7 @@
 #include "chrome/browser/extensions/extension_uninstall_dialog.h"
 #include "chrome/browser/ui/tabs/tab_strip_model_observer.h"
 #include "chrome/browser/ui/web_applications/app_browser_controller.h"
+#include "components/services/app_service/public/mojom/types.mojom-forward.h"
 #include "third_party/skia/include/core/SkColor.h"
 
 class Browser;
@@ -31,29 +32,19 @@ class Extension;
 class HostedAppBrowserController : public web_app::AppBrowserController,
                                    public ExtensionUninstallDialog::Delegate {
  public:
-  // Functions to set preferences that are unique to app windows.
-  static void SetAppPrefsForWebContents(
-      web_app::AppBrowserController* controller,
-      content::WebContents* web_contents);
-
-  // Clear preferences that are unique to app windows.
-  static void ClearAppPrefsForWebContents(content::WebContents* web_contents);
-
   explicit HostedAppBrowserController(Browser* browser);
   ~HostedAppBrowserController() override;
 
   // web_app::AppBrowserController:
-  bool CreatedForInstalledPwa() const override;
   bool HasMinimalUiButtons() const override;
   gfx::ImageSkia GetWindowAppIcon() const override;
   gfx::ImageSkia GetWindowIcon() const override;
   base::Optional<SkColor> GetThemeColor() const override;
   base::string16 GetTitle() const override;
-  std::string GetAppShortName() const override;
+  base::string16 GetAppShortName() const override;
   base::string16 GetFormattedUrlOrigin() const override;
   GURL GetAppLaunchURL() const override;
   bool IsUrlInAppScope(const GURL& url) const override;
-  const Extension* GetExtensionForTesting() const;
   bool CanUninstall() const override;
   void Uninstall() override;
   bool IsInstalled() const override;
@@ -65,7 +56,6 @@ class HostedAppBrowserController : public web_app::AppBrowserController,
                                         const base::string16& error) override;
 
   // web_app::AppBrowserController:
-  void OnReceivedInitialURL() override;
   void OnTabInserted(content::WebContents* contents) override;
   void OnTabRemoved(content::WebContents* contents) override;
 
@@ -73,10 +63,16 @@ class HostedAppBrowserController : public web_app::AppBrowserController,
   // Will return nullptr if the extension has been uninstalled.
   const Extension* GetExtension() const;
 
+  // Helper function to call AppServiceProxy to load icon.
+  void LoadAppIcon(bool allow_placeholder_icon) const;
+  // Invoked when the icon is loaded.
+  void OnLoadIcon(apps::mojom::IconValuePtr icon_value);
+
+  gfx::ImageSkia app_icon_;
+
   std::unique_ptr<ExtensionUninstallDialog> uninstall_dialog_;
 
-  const bool created_for_installed_pwa_;
-
+  base::WeakPtrFactory<HostedAppBrowserController> weak_ptr_factory_{this};
   DISALLOW_COPY_AND_ASSIGN(HostedAppBrowserController);
 };
 

@@ -6,6 +6,7 @@
 
 #include "third_party/blink/renderer/platform/wtf/stack_util.h"
 
+#include "base/notreached.h"
 #include "third_party/blink/renderer/platform/wtf/assertions.h"
 #include "third_party/blink/renderer/platform/wtf/threading.h"
 
@@ -24,12 +25,11 @@ size_t GetUnderestimatedStackSize() {
 // and its size is different from the value which APIs tells us.
 #if defined(ADDRESS_SANITIZER)
   return 0;
-#endif
 
 // FIXME: On Mac OSX and Linux, this method cannot estimate stack size
 // correctly for the main thread.
 
-#if defined(__GLIBC__) || defined(OS_ANDROID) || defined(OS_FREEBSD) || \
+#elif defined(__GLIBC__) || defined(OS_ANDROID) || defined(OS_FREEBSD) || \
     defined(OS_FUCHSIA)
   // pthread_getattr_np() can fail if the thread is not invoked by
   // pthread_create() (e.g., the main thread of blink_unittests).
@@ -62,7 +62,7 @@ size_t GetUnderestimatedStackSize() {
   //    low as 512k.
   //
   return 512 * 1024;
-#elif defined(OS_MACOSX)
+#elif defined(OS_MAC)
   // pthread_get_stacksize_np() returns too low a value for the main thread on
   // OSX 10.9,
   // http://mail.openjdk.java.net/pipermail/hotspot-dev/2013-October/011369.html
@@ -128,7 +128,7 @@ void* GetStackStart() {
   NOTREACHED();
   return nullptr;
 #endif
-#elif defined(OS_MACOSX)
+#elif defined(OS_MAC)
   return pthread_get_stackaddr_np(pthread_self());
 #elif defined(OS_WIN) && defined(COMPILER_MSVC)
 // On Windows stack limits for the current thread are available in

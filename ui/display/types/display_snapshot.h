@@ -35,7 +35,7 @@ class DISPLAY_TYPES_EXPORT DisplaySnapshot {
                   DisplayConnectionType type,
                   bool is_aspect_preserving_scaling,
                   bool has_overscan,
-                  bool has_privacy_screen,
+                  PrivacyScreenState privacy_screen_state,
                   bool has_color_correction_matrix,
                   bool color_correction_in_linear_space,
                   const gfx::ColorSpace& color_space,
@@ -61,7 +61,9 @@ class DISPLAY_TYPES_EXPORT DisplaySnapshot {
     return is_aspect_preserving_scaling_;
   }
   bool has_overscan() const { return has_overscan_; }
-  bool has_privacy_screen() const { return has_privacy_screen_; }
+  PrivacyScreenState privacy_screen_state() const {
+    return privacy_screen_state_;
+  }
   bool has_color_correction_matrix() const {
     return has_color_correction_matrix_;
   }
@@ -69,7 +71,6 @@ class DISPLAY_TYPES_EXPORT DisplaySnapshot {
     return color_correction_in_linear_space_;
   }
   const gfx::ColorSpace& color_space() const { return color_space_; }
-  void reset_color_space() { color_space_ = gfx::ColorSpace(); }
   uint32_t bits_per_channel() const { return bits_per_channel_; }
   const std::string& display_name() const { return display_name_; }
   const base::FilePath& sys_path() const { return sys_path_; }
@@ -112,7 +113,7 @@ class DISPLAY_TYPES_EXPORT DisplaySnapshot {
 
   const bool has_overscan_;
 
-  const bool has_privacy_screen_;
+  const PrivacyScreenState privacy_screen_state_;
 
   // Whether this display has advanced color correction available.
   const bool has_color_correction_matrix_;
@@ -120,7 +121,7 @@ class DISPLAY_TYPES_EXPORT DisplaySnapshot {
   // instead of gamma compressed one.
   const bool color_correction_in_linear_space_;
 
-  gfx::ColorSpace color_space_;
+  const gfx::ColorSpace color_space_;
 
   uint32_t bits_per_channel_;
 

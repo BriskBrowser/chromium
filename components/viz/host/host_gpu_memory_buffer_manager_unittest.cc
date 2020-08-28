@@ -8,6 +8,7 @@
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
+#include "base/clang_profiling_buildflags.h"
 #include "base/memory/unsafe_shared_memory_region.h"
 #include "base/run_loop.h"
 #include "base/threading/thread.h"
@@ -17,6 +18,10 @@
 #include "services/viz/privileged/mojom/gl/gpu_service.mojom.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/gfx/client_native_pixmap_factory.h"
+
+#if defined(USE_OZONE) || defined(USE_X11)
+#include "ui/base/ui_base_features.h"  // nogncheck
+#endif
 
 #if defined(USE_OZONE)
 #include "ui/ozone/public/ozone_platform.h"
@@ -144,14 +149,6 @@ class TestGpuService : public mojom::GpuService {
   void GetPeakMemoryUsage(uint32_t sequence_num,
                           GetPeakMemoryUsageCallback callback) override {}
 
-#if defined(OS_WIN)
-  void RequestCompleteGpuInfo(
-      RequestCompleteGpuInfoCallback callback) override {}
-
-  void GetGpuSupportedRuntimeVersion(
-      GetGpuSupportedRuntimeVersionCallback callback) override {}
-#endif
-
   void RequestHDRStatus(RequestHDRStatusCallback callback) override {}
 
   void LoadedShader(int32_t client_id,
@@ -161,6 +158,10 @@ class TestGpuService : public mojom::GpuService {
   void WakeUpGpu() override {}
 
   void GpuSwitched(gl::GpuPreference active_gpu_heuristic) override {}
+
+  void DisplayAdded() override {}
+
+  void DisplayRemoved() override {}
 
   void DestroyAllChannels() override {}
 
@@ -175,10 +176,15 @@ class TestGpuService : public mojom::GpuService {
       base::MemoryPressureListener::MemoryPressureLevel level) override {}
 #endif
 
-#if defined(OS_MACOSX)
+#if defined(OS_APPLE)
   void BeginCATransaction() override {}
 
   void CommitCATransaction(CommitCATransactionCallback callback) override {}
+#endif
+
+#if BUILDFLAG(CLANG_PROFILING_INSIDE_SANDBOX)
+  void WriteClangProfilingProfile(
+      WriteClangProfilingProfileCallback callback) override {}
 #endif
 
   void Crash() override {}
@@ -225,6 +231,11 @@ class HostGpuMemoryBufferManagerTest : public ::testing::Test {
         std::move(gpu_service_provider), 1,
         std::move(gpu_memory_buffer_support),
         base::ThreadTaskRunnerHandle::Get());
+#if defined(USE_X11)
+    // X11 requires GPU process initialization to determine GMB support.
+    if (!features::IsUsingOzonePlatform())
+      gpu_memory_buffer_manager_->native_configurations_initialized_.Signal();
+#endif
   }
 
   // Not all platforms support native configurations (currently only Windows,
@@ -232,13 +243,15 @@ class HostGpuMemoryBufferManagerTest : public ::testing::Test {
   bool IsNativePixmapConfigSupported() {
     bool native_pixmap_supported = false;
 #if defined(USE_OZONE)
-    native_pixmap_supported =
-        ui::OzonePlatform::GetInstance()->IsNativePixmapConfigSupported(
-            gfx::BufferFormat::RGBA_8888, gfx::BufferUsage::GPU_READ);
+    if (features::IsUsingOzonePlatform()) {
+      native_pixmap_supported =
+          ui::OzonePlatform::GetInstance()->IsNativePixmapConfigSupported(
+              gfx::BufferFormat::RGBA_8888, gfx::BufferUsage::GPU_READ);
+    }
 #elif defined(OS_ANDROID)
     native_pixmap_supported =
         base::AndroidHardwareBufferCompat::IsSupportAvailable();
-#elif defined(OS_MACOSX) || defined(OS_WIN)
+#elif defined(OS_APPLE) || defined(OS_WIN)
     native_pixmap_supported = true;
 #endif
 

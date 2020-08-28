@@ -12,13 +12,14 @@ import android.widget.RadioGroup;
 
 import androidx.annotation.VisibleForTesting;
 
+import org.chromium.ui.base.ViewUtils;
+
 import java.util.ArrayList;
 import java.util.List;
 
 /**
  * <p>
- * Manages a group of exclusive RadioButtonWithDescriptions, automatically inserting a margin in
- * between the rows to prevent them from squishing together. Has the option to set an accessory view
+ * Manages a group of exclusive RadioButtonWithDescriptions. Has the option to set an accessory view
  * on any given RadioButtonWithDescription. Only one accessory view per layout is supported.
  * <pre>
  * -------------------------------------------------
@@ -33,13 +34,15 @@ import java.util.List;
  *
  * <p>
  * To declare in XML, define a RadioButtonWithDescriptionLayout that contains
- * RadioButtonWithDescription and/or RadioButtonWithEditText children.
- * For example:
+ * RadioButtonWithDescription, RadioButtonWithDescriptionAndAuxButton and/or
+ * RadioButtonWithEditText children. For example:
  * <pre>{@code
  *  <org.chromium.components.browser_ui.widget.RadioButtonWithDescriptionLayout
  *       android:layout_width="match_parent"
  *       android:layout_height="match_parent" >
  *       <org.chromium.components.browser_ui.widget.RadioButtonWithDescription
+ *           ... />
+ *       <org.chromium.components.browser_ui.widget.RadioButtonWithDescriptionAndAuxButton
  *           ... />
  *       <org.chromium.components.browser_ui.widget.RadioButtonWithEditText
  *           ... />
@@ -49,10 +52,8 @@ import java.util.List;
  */
 public final class RadioButtonWithDescriptionLayout
         extends RadioGroup implements RadioButtonWithDescription.ButtonCheckedStateChangedListener {
-    private final int mMarginBetweenRows;
     private final List<RadioButtonWithDescription> mRadioButtonsWithDescriptions;
     private OnCheckedChangeListener mOnCheckedChangeListener;
-    private View mAccessoryView;
 
     public RadioButtonWithDescriptionLayout(Context context) {
         this(context, null);
@@ -60,9 +61,6 @@ public final class RadioButtonWithDescriptionLayout
 
     public RadioButtonWithDescriptionLayout(Context context, AttributeSet attrs) {
         super(context, attrs);
-        mMarginBetweenRows = context.getResources().getDimensionPixelSize(
-                R.dimen.default_vertical_margin_between_items);
-
         mRadioButtonsWithDescriptions = new ArrayList<>();
     }
 
@@ -75,8 +73,6 @@ public final class RadioButtonWithDescriptionLayout
             RadioButtonWithDescription b = (RadioButtonWithDescription) getChildAt(i);
             setupButton(b);
         }
-
-        updateMargins();
     }
 
     /**
@@ -106,8 +102,6 @@ public final class RadioButtonWithDescriptionLayout
             setupButton(b);
             addView(b, new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT));
         }
-
-        updateMargins();
     }
 
     private View removeAttachedAccessoryView(View view) {
@@ -135,18 +129,6 @@ public final class RadioButtonWithDescriptionLayout
         addView(accessoryView, attachmentPointIndex + 1);
     }
 
-    /** Sets margins between each of the radio buttons. */
-    private void updateMargins() {
-        int childCount = getChildCount();
-        for (int i = 0; i < childCount - 1; i++) {
-            View child = getChildAt(i);
-            MarginLayoutParams params = (MarginLayoutParams) child.getLayoutParams();
-            params.bottomMargin = mMarginBetweenRows;
-        }
-        // LayoutParam changes only take effect after the next layout pass.
-        requestLayout();
-    }
-
     private void setupButton(RadioButtonWithDescription radioButton) {
         radioButton.setOnCheckedChangeListener(this);
         // Give the button a unique id to allow for calling onCheckedChanged (see
@@ -156,6 +138,14 @@ public final class RadioButtonWithDescriptionLayout
         mRadioButtonsWithDescriptions.add(radioButton);
     }
 
+    @Override
+    public void setEnabled(boolean enabled) {
+        super.setEnabled(enabled);
+        for (int i = 0; i < getChildCount(); i++) {
+            ViewUtils.setEnabledRecursive(getChildAt(i), enabled);
+        }
+    }
+
     /**
      * Marks a RadioButton child as being checked.
      *
@@ -163,10 +153,7 @@ public final class RadioButtonWithDescriptionLayout
      */
     @VisibleForTesting
     void selectChildAtIndexForTesting(int childIndex) {
-        int childCount = getChildCount();
-        for (int i = 0; i < childCount; i++) {
-            RadioButtonWithDescription b = (RadioButtonWithDescription) getChildAt(i);
-            b.setChecked(i == childIndex);
-        }
+        RadioButtonWithDescription b = (RadioButtonWithDescription) getChildAt(childIndex);
+        b.setChecked(true);
     }
 }

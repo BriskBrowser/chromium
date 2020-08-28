@@ -8,6 +8,7 @@ import "gpu/ipc/common/mailbox_holder.mojom";
 import "gpu/ipc/common/vulkan_ycbcr_info.mojom";
 import "mojo/public/mojom/base/time.mojom";
 import "mojo/public/mojom/base/values.mojom";
+import "mojo/public/mojom/base/unguessable_token.mojom";
 import "ui/gfx/geometry/mojom/geometry.mojom";
 import "ui/gfx/mojom/buffer_types.mojom";
 import "ui/gfx/mojom/color_space.mojom";
@@ -15,6 +16,8 @@ import "ui/gfx/mojom/color_space.mojom";
 // See media/base/audio_codecs.h for descriptions.
 [Native]
 enum AudioCodec;
+[Native]
+enum AudioCodecProfile;
 
 // See media/base/buffering_state.h for descriptions.
 [Native]
@@ -26,13 +29,13 @@ enum BufferingStateChangeReason;
 [Native]
 enum ChannelLayout;
 
-// See media/base/video_types.h for descriptions.
-[Native]
-enum ColorSpace;
-
 // See media/base/decode_status.h for descriptions.
 [Native]
 enum DecodeStatus;
+
+// See media/base/status_codes.h for descriptions.
+[Native]
+enum StatusCode;
 
 // See media/base/media_log_record.h for description.
 [Native]
@@ -63,8 +66,18 @@ enum VideoCodecProfile;
 enum VideoPixelFormat;
 
 // See media/base/video_transformation.h for descriptions.
-[Native]
-enum VideoRotation;
+enum VideoRotation {
+  kVideoRotation0,
+  kVideoRotation90,
+  kVideoRotation180,
+  kVideoRotation270,
+};
+
+// see media/base/video_frame_metadata.h for descriptions.
+enum CopyMode {
+  kCopyToNewTexture,
+  kCopyMailboxesOnly,
+};
 
 // See media/base/video_transformation.h for descriptions.
 struct VideoTransformation {
@@ -141,6 +154,7 @@ struct HDRMetadata {
 // See media/base/audio_decoder_config.h for descriptions.
 struct AudioDecoderConfig {
   AudioCodec codec;
+  AudioCodecProfile profile;
   SampleFormat sample_format;
   ChannelLayout channel_layout;
   int32 samples_per_second;
@@ -236,6 +250,94 @@ struct AudioBuffer {
   array<uint8> data;
 };
 
+// This defines a mojo transport format for an interleaved, signed
+// 16-bit audio buffer.
+struct AudioDataS16 {
+  // Number of channels.
+  int32 channel_count;
+
+  // Sample rate of the buffer.
+  int32 sample_rate;
+
+  // Number of frames in the buffer.
+  int32 frame_count;
+
+  // Channel data.
+  array<int16> data;
+};
+
+// See media/base/video_frame_metadata.h for a description of fields.
+// TODO(crbug.com/657632): Remove |has_*| values and use nullable types.
+struct VideoFrameMetadata {
+  bool allow_overlay;
+
+  mojo_base.mojom.TimeTicks? capture_begin_time;
+  mojo_base.mojom.TimeTicks? capture_end_time;
+
+  bool has_capture_counter;
+  int32 capture_counter;
+
+  gfx.mojom.Rect? capture_update_rect;
+
+  bool has_copy_mode;
+  CopyMode copy_mode;
+
+  bool end_of_stream;
+
+  mojo_base.mojom.TimeDelta? frame_duration;
+
+  bool has_frame_rate;
+  double frame_rate;
+
+  bool interactive_content;
+
+  mojo_base.mojom.TimeTicks? reference_time;
+
+  bool read_lock_fences_enabled;
+
+  bool has_rotation;
+  VideoRotation rotation;
+
+  bool texture_owner;
+
+  bool wants_promotion_hint;
+
+  bool protected_video;
+
+  bool hw_protected;
+
+  mojo_base.mojom.UnguessableToken? overlay_plane_id;
+
+  bool power_efficient;
+
+  bool has_device_scale_factor;
+  double device_scale_factor;
+
+  bool has_page_scale_factor;
+  double page_scale_factor;
+
+  bool has_root_scroll_offset_x;
+  double root_scroll_offset_x;
+
+  bool has_root_scroll_offset_y;
+  double root_scroll_offset_y;
+
+  bool has_top_controls_visible_height;
+  double top_controls_visible_height;
+
+  mojo_base.mojom.TimeTicks? decode_begin_time;
+  mojo_base.mojom.TimeTicks? decode_end_time;
+
+  mojo_base.mojom.TimeDelta? processing_time;
+
+  bool has_rtp_timestamp;
+  double rtp_timestamp;
+
+  mojo_base.mojom.TimeTicks? receive_time;
+
+  mojo_base.mojom.TimeDelta? wallclock_frame_duration;
+};
+
 // This defines a mojo transport format for media::VideoFrame.
 struct VideoFrame {
   // Format of the frame.
@@ -257,9 +359,10 @@ struct VideoFrame {
   VideoFrameData data;
 
   // Extra properties associated with the VideoFrame.
-  mojo_base.mojom.DictionaryValue metadata;
+  VideoFrameMetadata metadata;
 
   gfx.mojom.ColorSpace color_space;
+  HDRMetadata? hdr_metadata;
 };
 
 // Possible choices for storing VideoFrame data.
@@ -283,18 +386,14 @@ struct SharedBufferVideoFrameData {
 
   // Stride and offsets for each plane. Offsets are relative to the start
   // of |frame_data|.
-  int32 y_stride;
-  int32 u_stride;
-  int32 v_stride;
-  uint64 y_offset;
-  uint64 u_offset;
-  uint64 v_offset;
+  array<int32> strides;
+  array<uint32> offsets;
 };
 
 // This defines video frame data stored in dmabuf.
 struct DmabufVideoFrameData {
   // Size depends on media::VideoFrame::NumPlanes with frame format.
-  array<handle> dmabuf_fds;
+  array<handle<platform>> dmabuf_fds;
 };
 
 struct GpuMemoryBufferVideoFrameData {
@@ -347,4 +446,13 @@ struct PipelineDecoderInfo {
   string decoder_name;
   bool is_platform_decoder = false;
   bool has_decrypting_demuxer_stream = false;
+};
+
+// See media/base/status.h for descriptions.
+struct Status {
+  StatusCode code;
+  string? message;
+  array<mojo_base.mojom.Value> frames;
+  array<media.mojom.Status> causes;
+  mojo_base.mojom.Value? data;
 };

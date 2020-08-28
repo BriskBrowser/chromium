@@ -29,9 +29,6 @@ class CORE_EXPORT NGConstraintSpaceBuilder final {
       : NGConstraintSpaceBuilder(parent_space.GetWritingMode(),
                                  out_writing_mode,
                                  is_new_fc) {
-    // Propagate the intermediate layout bit to the child constraint space.
-    space_.bitfields_.is_intermediate_layout =
-        parent_space.IsIntermediateLayout();
     if (parent_space.IsInsideBalancedColumns())
       space_.EnsureRareData()->is_inside_balanced_columns = true;
   }
@@ -148,10 +145,6 @@ class CORE_EXPORT NGConstraintSpaceBuilder final {
 
   void SetIsShrinkToFit(bool b) { space_.bitfields_.is_shrink_to_fit = b; }
 
-  void SetIsIntermediateLayout(bool b) {
-    space_.bitfields_.is_intermediate_layout = b;
-  }
-
   void SetIsPaintedAtomically(bool b) {
     space_.bitfields_.is_painted_atomically = b;
   }
@@ -179,7 +172,11 @@ class CORE_EXPORT NGConstraintSpaceBuilder final {
     space_.EnsureRareData()->early_break_appeal = appeal;
   }
 
-  void SetIsTableCell(bool b) { space_.bitfields_.is_table_cell = b; }
+  // is_legacy_table_cell must always be assigned if is_table_cell is true.
+  void SetIsTableCell(bool is_table_cell, bool is_legacy_table_cell) {
+    space_.bitfields_.is_table_cell = is_table_cell;
+    space_.bitfields_.is_legacy_table_cell = is_legacy_table_cell;
+  }
 
   void SetIsRestrictedBlockSizeTableCell(bool b) {
     DCHECK(space_.bitfields_.is_table_cell);
@@ -189,7 +186,6 @@ class CORE_EXPORT NGConstraintSpaceBuilder final {
   }
 
   void SetHideTableCellIfEmpty(bool b) {
-    DCHECK(space_.bitfields_.is_table_cell);
     if (!b && !space_.rare_data_)
       return;
     space_.EnsureRareData()->hide_table_cell_if_empty = b;
@@ -216,6 +212,15 @@ class CORE_EXPORT NGConstraintSpaceBuilder final {
 
   void SetBaselineAlgorithmType(NGBaselineAlgorithmType type) {
     space_.bitfields_.baseline_algorithm_type = static_cast<unsigned>(type);
+  }
+
+  void SetCacheSlot(NGCacheSlot slot) {
+    space_.bitfields_.cache_slot = static_cast<unsigned>(slot);
+  }
+
+  void SetBlockStartAnnotationSpace(LayoutUnit space) {
+    if (space)
+      space_.EnsureRareData()->SetBlockStartAnnotationSpace(space);
   }
 
   void SetMarginStrut(const NGMarginStrut& margin_strut) {
@@ -298,6 +303,23 @@ class CORE_EXPORT NGConstraintSpaceBuilder final {
     }
   }
 
+  void SetTableCellAlignmentBaseline(LayoutUnit table_cell_alignment_baseline) {
+#if DCHECK_IS_ON()
+    DCHECK(!is_table_cell_alignment_baseline_set_);
+    is_table_cell_alignment_baseline_set_ = true;
+#endif
+    space_.EnsureRareData()->SetTableCellAlignmentBaseline(
+        table_cell_alignment_baseline);
+  }
+
+  void SetTableCellColumnIndex(wtf_size_t column_index) {
+#if DCHECK_IS_ON()
+    DCHECK(!is_table_cell_column_index_set_);
+    is_table_cell_column_index_set_ = true;
+#endif
+    space_.EnsureRareData()->SetTableCellColumnIndex(column_index);
+  }
+
   void SetTableCellChildLayoutMode(
       NGTableCellChildLayoutMode table_cell_child_layout_mode) {
     space_.bitfields_.table_cell_child_layout_mode =
@@ -319,6 +341,54 @@ class CORE_EXPORT NGConstraintSpaceBuilder final {
       space_.EnsureRareData()->SetCustomLayoutData(
           std::move(custom_layout_data));
     }
+  }
+
+  void SetTableRowData(const NGTableConstraintSpaceData* table_data,
+                       wtf_size_t row_index) {
+#if DCHECK_IS_ON()
+    DCHECK(!is_table_row_data_set_);
+    is_table_row_data_set_ = true;
+#endif
+    space_.EnsureRareData()->SetTableRowData(std::move(table_data), row_index);
+  }
+
+  void SetTableSectionData(
+      scoped_refptr<const NGTableConstraintSpaceData> table_data,
+      wtf_size_t section_index) {
+#if DCHECK_IS_ON()
+    DCHECK(!is_table_section_data_set_);
+    is_table_section_data_set_ = true;
+#endif
+    space_.EnsureRareData()->SetTableSectionData(std::move(table_data),
+                                                 section_index);
+  }
+
+  void SetLinesUntilClamp(const base::Optional<int>& clamp) {
+#if DCHECK_IS_ON()
+    DCHECK(!is_lines_until_clamp_set_);
+    is_lines_until_clamp_set_ = true;
+#endif
+    DCHECK(!is_new_fc_);
+    if (clamp)
+      space_.EnsureRareData()->SetLinesUntilClamp(*clamp);
+  }
+
+  void SetTargetStretchInlineSize(LayoutUnit target_stretch_inline_size) {
+    DCHECK_GE(target_stretch_inline_size, LayoutUnit());
+    space_.EnsureRareData()->SetTargetStretchInlineSize(
+        target_stretch_inline_size);
+  }
+
+  void SetTargetStretchAscentSize(LayoutUnit target_stretch_ascent_size) {
+    DCHECK_GE(target_stretch_ascent_size, LayoutUnit());
+    space_.EnsureRareData()->SetTargetStretchAscentSize(
+        target_stretch_ascent_size);
+  }
+
+  void SetTargetStretchDescentSize(LayoutUnit target_stretch_descent_size) {
+    DCHECK_GE(target_stretch_descent_size, LayoutUnit());
+    space_.EnsureRareData()->SetTargetStretchDescentSize(
+        target_stretch_descent_size);
   }
 
   // Creates a new constraint space.
@@ -365,7 +435,12 @@ class CORE_EXPORT NGConstraintSpaceBuilder final {
   bool is_clearance_offset_set_ = false;
   bool is_table_cell_borders_set_ = false;
   bool is_table_cell_intrinsic_padding_set_ = false;
+  bool is_table_cell_alignment_baseline_set_ = false;
+  bool is_table_cell_column_index_set_ = false;
   bool is_custom_layout_data_set_ = false;
+  bool is_lines_until_clamp_set_ = false;
+  bool is_table_row_data_set_ = false;
+  bool is_table_section_data_set_ = false;
 
   bool to_constraint_space_called_ = false;
 #endif

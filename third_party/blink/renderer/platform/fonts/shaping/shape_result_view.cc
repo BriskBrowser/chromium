@@ -83,6 +83,15 @@ struct ShapeResultView::RunInfoPart {
   // |base::span<RunInfoPart>|.
   const RunInfoPart* get() const { return this; }
 
+  void ExpandRangeToIncludePartialGlyphs(unsigned offset,
+                                         unsigned* from,
+                                         unsigned* to) const {
+    DCHECK_GE(offset + start_index_, offset_);
+    unsigned part_offset = offset + start_index_ - offset_;
+    run_->ExpandRangeToIncludePartialGlyphs(
+        part_offset, reinterpret_cast<int*>(from), reinterpret_cast<int*>(to));
+  }
+
   scoped_refptr<const ShapeResult::RunInfo> run_;
   ShapeResult::RunInfo::GlyphDataRange range_;
 
@@ -582,7 +591,7 @@ void ShapeResultView::ComputePartInkBounds(
   auto glyph_offsets = part.GetGlyphOffsets<has_non_zero_glyph_offsets>();
   const SimpleFontData& current_font_data = *part.run_->font_data_;
   unsigned num_glyphs = part.NumGlyphs();
-#if !defined(OS_MACOSX)
+#if !defined(OS_MAC)
   Vector<Glyph, 256> glyphs(num_glyphs);
   unsigned i = 0;
   for (const auto& glyph_data : part)
@@ -594,7 +603,7 @@ void ShapeResultView::ComputePartInkBounds(
   GlyphBoundsAccumulator bounds(run_advance);
   for (unsigned j = 0; j < num_glyphs; ++j) {
     const HarfBuzzRunGlyphData& glyph_data = part.GlyphAt(j);
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
     FloatRect glyph_bounds = current_font_data.BoundsForGlyph(glyph_data.glyph);
 #else
     FloatRect glyph_bounds(bounds_list[j]);
@@ -631,6 +640,15 @@ FloatRect ShapeResultView::ComputeInkBounds() const {
   }
 
   return ink_bounds;
+}
+
+void ShapeResultView::ExpandRangeToIncludePartialGlyphs(unsigned* from,
+                                                        unsigned* to) const {
+  unsigned accumulated_offset = char_index_offset_;
+  for (const auto& part : Parts()) {
+    part.ExpandRangeToIncludePartialGlyphs(accumulated_offset, from, to);
+    accumulated_offset += part.NumCharacters();
+  }
 }
 
 }  // namespace blink

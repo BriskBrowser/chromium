@@ -70,6 +70,10 @@ void HostnameHandler::Shutdown() {
   }
 }
 
+const std::string& HostnameHandler::GetDeviceHostname() const {
+  return hostname_;
+}
+
 // static
 std::string HostnameHandler::FormatHostname(const std::string& name_template,
                                             const std::string& asset_id,
@@ -99,8 +103,8 @@ void HostnameHandler::DefaultNetworkChanged(
 void HostnameHandler::OnDeviceHostnamePropertyChanged() {
   chromeos::CrosSettingsProvider::TrustedStatus status =
       cros_settings_->PrepareTrustedValues(
-          base::BindRepeating(&HostnameHandler::OnDeviceHostnamePropertyChanged,
-                              weak_factory_.GetWeakPtr()));
+          base::BindOnce(&HostnameHandler::OnDeviceHostnamePropertyChanged,
+                         weak_factory_.GetWeakPtr()));
   if (status != chromeos::CrosSettingsProvider::TRUSTED)
     return;
 
@@ -115,8 +119,12 @@ void HostnameHandler::OnDeviceHostnamePropertyChanged() {
 void HostnameHandler::
     OnDeviceHostnamePropertyChangedAndMachineStatisticsLoaded() {
   std::string hostname_template;
-  cros_settings_->GetString(chromeos::kDeviceHostnameTemplate,
-                            &hostname_template);
+  if (!cros_settings_->GetString(chromeos::kDeviceHostnameTemplate,
+                                 &hostname_template)) {
+    // Do not set an empty hostname (which would overwrite any custom hostname
+    // set) if DeviceHostnameTemplate is not specified by policy.
+    return;
+  }
 
   const std::string serial = chromeos::system::StatisticsProvider::GetInstance()
                                  ->GetEnterpriseMachineID();
@@ -147,8 +155,9 @@ void HostnameHandler::
     }
   }
 
-  handler->SetHostname(FormatHostname(hostname_template, asset_id, serial, mac,
-                                      machine_name, location));
+  hostname_ = FormatHostname(hostname_template, asset_id, serial, mac,
+                             machine_name, location);
+  handler->SetHostname(hostname_);
 }
 
 }  // namespace policy

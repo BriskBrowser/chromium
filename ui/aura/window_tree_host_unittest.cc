@@ -21,7 +21,9 @@ namespace aura {
 using WindowTreeHostTest = test::AuraTestBase;
 
 TEST_F(WindowTreeHostTest, DPIWindowSize) {
-  gfx::Rect starting_bounds(0, 0, 800, 600);
+  constexpr gfx::Rect starting_bounds(
+      aura::test::AuraTestHelper::kDefaultHostSize);
+
   EXPECT_EQ(starting_bounds.size(), host()->compositor()->size());
   EXPECT_EQ(starting_bounds, host()->GetBoundsInPixels());
   EXPECT_EQ(starting_bounds, root_window()->bounds());
@@ -113,6 +115,30 @@ TEST_F(WindowTreeHostTest, HoldPointerMovesOnChildResizing) {
 }
 #endif
 
+#if !defined(OS_CHROMEOS)
+// Tests if scale factor changes take effect. Previously a scale factor change
+// wouldn't take effect without a bounds change. For context see
+// https://crbug.com/1087626
+TEST_F(WindowTreeHostTest, ShouldHandleTextScale) {
+  constexpr gfx::Rect starting_bounds(
+      aura::test::AuraTestHelper::kDefaultHostSize);
+  auto asserter = [&](float test_scale_factor) {
+    test_screen()->SetDeviceScaleFactor(test_scale_factor, false);
+
+    EXPECT_EQ(starting_bounds, host()->GetBoundsInPixels());
+    // Size should be rounded up after scaling.
+    EXPECT_EQ(
+        gfx::ScaleToEnclosingRect(starting_bounds, 1.0f / test_scale_factor),
+        root_window()->bounds());
+    EXPECT_EQ(test_scale_factor, host()->device_scale_factor());
+  };
+
+  asserter(1.0f);
+  asserter(1.05f);
+  asserter(1.5f);
+}
+#endif
+
 TEST_F(WindowTreeHostTest, NoRewritesPostIME) {
   ui::test::TestEventRewriter event_rewriter;
   host()->AddEventRewriter(&event_rewriter);
@@ -125,46 +151,6 @@ TEST_F(WindowTreeHostTest, NoRewritesPostIME) {
 
   host()->RemoveEventRewriter(&event_rewriter);
 }
-
-TEST_F(WindowTreeHostTest, ColorSpace) {
-  EXPECT_EQ(gfx::ColorSpace::CreateSRGB(),
-            host()->compositor()->output_color_space());
-
-  test_screen()->SetColorSpace(gfx::ColorSpace::CreateDisplayP3D65());
-  EXPECT_EQ(gfx::ColorSpace::CreateDisplayP3D65(),
-            host()->compositor()->output_color_space());
-}
-
-#if defined(OS_WIN)
-TEST_F(WindowTreeHostTest, ColorSpaceHDR) {
-  EXPECT_EQ(gfx::ColorSpace::CreateSRGB(),
-            host()->compositor()->output_color_space());
-
-  // UI compositor overrides HDR color space based on whether alpha blending is
-  // needed or not.
-  test_screen()->SetColorSpace(gfx::ColorSpace::CreateHDR10());
-  host()->compositor()->SetBackgroundColor(SK_ColorBLACK);
-  EXPECT_EQ(gfx::ColorSpace::CreateHDR10(),
-            host()->compositor()->output_color_space());
-
-  test_screen()->SetColorSpace(gfx::ColorSpace::CreateHDR10());
-  host()->compositor()->SetBackgroundColor(SK_ColorTRANSPARENT);
-  EXPECT_EQ(gfx::ColorSpace::CreateSCRGBLinear(),
-            host()->compositor()->output_color_space());
-
-  // UI compositor does not override color space if it's already SCRGB linear.
-  test_screen()->SetColorSpace(gfx::ColorSpace::CreateSCRGBLinear(), 200.f);
-  host()->compositor()->SetBackgroundColor(SK_ColorBLACK);
-  EXPECT_EQ(gfx::ColorSpace::CreateSCRGBLinear(),
-            host()->compositor()->output_color_space());
-
-  // UI compositor does not override SDR color space.
-  test_screen()->SetColorSpace(gfx::ColorSpace::CreateSRGB(), 200.f);
-  host()->compositor()->SetBackgroundColor(SK_ColorTRANSPARENT);
-  EXPECT_EQ(gfx::ColorSpace::CreateSRGB(),
-            host()->compositor()->output_color_space());
-}
-#endif  // OS_WIN
 
 class TestWindow : public ui::StubWindow {
  public:

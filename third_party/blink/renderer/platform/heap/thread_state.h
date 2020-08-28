@@ -31,10 +31,12 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_PLATFORM_HEAP_THREAD_STATE_H_
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_HEAP_THREAD_STATE_H_
 
+#include <atomic>
 #include <memory>
 
 #include "base/macros.h"
 #include "base/synchronization/lock.h"
+#include "base/task/post_job.h"
 #include "third_party/blink/renderer/platform/heap/atomic_entry_flag.h"
 #include "third_party/blink/renderer/platform/heap/blink_gc.h"
 #include "third_party/blink/renderer/platform/heap/threading_traits.h"
@@ -61,8 +63,8 @@ namespace incremental_marking_test {
 class IncrementalMarkingScope;
 }  // namespace incremental_marking_test
 
-class CancelableTaskScheduler;
 class MarkingVisitor;
+class MarkingSchedulingOracle;
 class PersistentNode;
 class PersistentRegion;
 class ThreadHeap;
@@ -92,18 +94,18 @@ class Visitor;
 //     }
 //     Member<Bar> bar_;
 //   };
-#define USING_PRE_FINALIZER(Class, preFinalizer)                          \
- public:                                                                  \
-  static bool InvokePreFinalizer(void* object) {                          \
-    Class* self = reinterpret_cast<Class*>(object);                       \
-    if (ThreadHeap::IsHeapObjectAlive(self))                              \
-      return false;                                                       \
-    self->Class::preFinalizer();                                          \
-    return true;                                                          \
-  }                                                                       \
-                                                                          \
- private:                                                                 \
-  ThreadState::PrefinalizerRegistration<Class> prefinalizer_dummy_{this}; \
+#define USING_PRE_FINALIZER(Class, PreFinalizer)                             \
+ public:                                                                     \
+  static bool InvokePreFinalizer(const LivenessBroker& info, void* object) { \
+    Class* self = reinterpret_cast<Class*>(object);                          \
+    if (info.IsHeapObjectAlive(self))                                        \
+      return false;                                                          \
+    self->Class::PreFinalizer();                                             \
+    return true;                                                             \
+  }                                                                          \
+                                                                             \
+ private:                                                                    \
+  ThreadState::PrefinalizerRegistration<Class> prefinalizer_dummy_{this};    \
   using UsingPreFinalizerMacroNeedsTrailingSemiColon = char
 
 class PLATFORM_EXPORT BlinkGCObserver {
@@ -137,7 +139,7 @@ class PLATFORM_EXPORT ThreadState final {
     DISALLOW_NEW();
 
    public:
-    PrefinalizerRegistration(T* self) {
+    PrefinalizerRegistration(T* self) {  // NOLINT
       static_assert(sizeof(&T::InvokePreFinalizer) > 0,
                     "USING_PRE_FINALIZER(T) must be defined.");
       ThreadState* state =
@@ -160,7 +162,6 @@ class PLATFORM_EXPORT ThreadState final {
     kIncrementalMarkingStepPaused,
     kIncrementalMarkingStepScheduled,
     kIncrementalMarkingFinalizeScheduled,
-    kPreciseGCScheduled,
     kForcedGCForTestingScheduled,
     kIncrementalGCScheduled,
   };
@@ -177,16 +178,22 @@ class PLATFORM_EXPORT ThreadState final {
     kSweeping,
   };
 
+  enum class EphemeronProcessing {
+    kPartialProcessing,  // Perofrm one ephemeron processing iteration every
+                         // few step
+    kFullProcessing  // Perofrm full fixed-point ephemeron processing on each
+                     // step
+  };
+
   class AtomicPauseScope;
   class GCForbiddenScope;
   class LsanDisabledScope;
-  class MainThreadGCForbiddenScope;
   class NoAllocationScope;
   class StatisticsCollector;
   struct Statistics;
   class SweepForbiddenScope;
+  class HeapPointersOnStackScope;
 
-  using V8TraceRootsCallback = void (*)(v8::Isolate*, Visitor*);
   using V8BuildEmbedderGraphCallback = void (*)(v8::Isolate*,
                                                 v8::EmbedderGraph*,
                                                 void*);
@@ -237,7 +244,6 @@ class PLATFORM_EXPORT ThreadState final {
   // Associates |ThreadState| with a given |v8::Isolate|, essentially tying
   // there garbage collectors together.
   void AttachToIsolate(v8::Isolate*,
-                       V8TraceRootsCallback,
                        V8BuildEmbedderGraphCallback);
 
   // Removes the association from a potentially attached |v8::Isolate|.
@@ -251,12 +257,10 @@ class PLATFORM_EXPORT ThreadState final {
   }
 
   void PerformIdleLazySweep(base::TimeTicks deadline);
-  void PerformConcurrentSweep();
+  void PerformConcurrentSweep(base::JobDelegate*);
 
-  void SchedulePreciseGC();
   void ScheduleForcedGCForTesting();
   void ScheduleGCIfNeeded();
-  void WillStartV8GC(BlinkGC::V8GCType);
   void SetGCState(GCState);
   GCState GetGCState() const { return gc_state_; }
   void SetGCPhase(GCPhase);
@@ -279,16 +283,18 @@ class PLATFORM_EXPORT ThreadState final {
   // Returns true if the current GC is a memory reducing GC.
   bool IsMemoryReducingGC() const {
     return current_gc_data_.reason ==
-           BlinkGC::GCReason::kUnifiedHeapForMemoryReductionGC;
+               BlinkGC::GCReason::kUnifiedHeapForMemoryReductionGC ||
+           current_gc_data_.reason ==
+               BlinkGC::GCReason::kUnifiedHeapForcedForTestingGC;
   }
 
   bool IsUnifiedHeapGC() const {
     return current_gc_data_.reason == BlinkGC::GCReason::kUnifiedHeapGC ||
            current_gc_data_.reason ==
-               BlinkGC::GCReason::kUnifiedHeapForMemoryReductionGC;
+               BlinkGC::GCReason::kUnifiedHeapForMemoryReductionGC ||
+           current_gc_data_.reason ==
+               BlinkGC::GCReason::kUnifiedHeapForcedForTestingGC;
   }
-
-  void EnableCompactionForNextGCForTesting();
 
   bool FinishIncrementalMarkingIfRunning(BlinkGC::CollectionType,
                                          BlinkGC::StackState,
@@ -298,6 +304,8 @@ class PLATFORM_EXPORT ThreadState final {
 
   void EnableIncrementalMarkingBarrier();
   void DisableIncrementalMarkingBarrier();
+
+  void RestartIncrementalMarkingIfPaused();
 
   void CompleteSweep();
 
@@ -346,18 +354,6 @@ class PLATFORM_EXPORT ThreadState final {
 
   v8::Isolate* GetIsolate() const { return isolate_; }
 
-  // Use CollectAllGarbageForTesting below for testing!
-  void CollectGarbage(BlinkGC::CollectionType,
-                      BlinkGC::StackState,
-                      BlinkGC::MarkingType,
-                      BlinkGC::SweepingType,
-                      BlinkGC::GCReason);
-
-  // Forced garbage collection for testing.
-  void CollectAllGarbageForTesting(
-      BlinkGC::StackState stack_state =
-          BlinkGC::StackState::kNoHeapPointersOnStack);
-
   // Returns |true| if |object| resides on this thread's heap.
   // It is well-defined to call this method on any heap allocated
   // reference, provided its associated heap hasn't been detached
@@ -365,6 +361,12 @@ class PLATFORM_EXPORT ThreadState final {
   // value.
   bool IsOnThreadHeap(const void* object) const {
     return &FromObject(object)->Heap() == &Heap();
+  }
+
+  ALWAYS_INLINE bool IsOnStack(Address address) const {
+    return reinterpret_cast<Address>(start_of_stack_) >= address &&
+           address >= (reinterpret_cast<Address>(reinterpret_cast<uintptr_t>(
+                          WTF::GetCurrentStackPosition())));
   }
 
   int GcAge() const { return gc_age_; }
@@ -376,13 +378,48 @@ class PLATFORM_EXPORT ThreadState final {
   // Returns true if the marking verifier is enabled, false otherwise.
   bool IsVerifyMarkingEnabled() const;
 
+  void SkipIncrementalMarkingForTesting() {
+    skip_incremental_marking_for_testing_ = true;
+  }
+
+  // Performs stand-alone garbage collections considering only C++ objects for
+  // testing.
+  //
+  // Since it only considers C++ objects this type of GC is mostly useful for
+  // unit tests.
+  void CollectGarbageForTesting(BlinkGC::CollectionType,
+                                BlinkGC::StackState,
+                                BlinkGC::MarkingType,
+                                BlinkGC::SweepingType,
+                                BlinkGC::GCReason);
+
+  // Forced garbage collection for testing:
+  // - Performs unified heap garbage collections if ThreadState is attached to a
+  //   v8::Isolate using ThreadState::AttachToIsolate.
+  // - Otherwise, performs stand-alone garbage collections.
+  // - Collects garbage as long as live memory decreases (capped at 5).
+  void CollectAllGarbageForTesting(
+      BlinkGC::StackState stack_state =
+          BlinkGC::StackState::kNoHeapPointersOnStack);
+
+  // Enables compaction for next garbage collection.
+  void EnableCompactionForNextGCForTesting();
+
+  bool RequiresForcedGCForTesting() const {
+    return current_gc_data_.stack_state ==
+               BlinkGC::StackState::kHeapPointersOnStack &&
+           !forced_scheduled_gc_for_testing_;
+  }
+
+  void EnterNoHeapVerificationScopeForTesting() {
+    ++disable_heap_verification_scope_;
+  }
+  void LeaveNoHeapVerificationScopeForTesting() {
+    --disable_heap_verification_scope_;
+  }
+
  private:
   class IncrementalMarkingScheduler;
-
-  // Duration of one incremental marking step. Should be short enough that it
-  // doesn't cause jank even though it is scheduled as a normal task.
-  static constexpr base::TimeDelta kDefaultIncrementalMarkingStepDuration =
-      base::TimeDelta::FromMilliseconds(2);
 
   // Stores whether some ThreadState is currently in incremental marking.
   static AtomicEntryFlag incremental_marking_flag_;
@@ -402,6 +439,12 @@ class PLATFORM_EXPORT ThreadState final {
   // managed objects.
   static void VisitStackAfterPushingRegisters(ThreadState*,
                                               intptr_t* end_of_stack);
+
+  static bool IsForcedGC(BlinkGC::GCReason reason) {
+    return reason == BlinkGC::GCReason::kThreadTerminationGC ||
+           reason == BlinkGC::GCReason::kForcedGCForTesting ||
+           reason == BlinkGC::GCReason::kUnifiedHeapForcedForTestingGC;
+  }
 
   ThreadState();
   ~ThreadState();
@@ -427,6 +470,15 @@ class PLATFORM_EXPORT ThreadState final {
   void EnterStaticReferenceRegistrationDisabledScope();
   void LeaveStaticReferenceRegistrationDisabledScope();
 
+  // Performs stand-alone garbage collections considering only C++ objects.
+  //
+  // Use the public *ForTesting calls for calling GC in tests.
+  void CollectGarbage(BlinkGC::CollectionType,
+                      BlinkGC::StackState,
+                      BlinkGC::MarkingType,
+                      BlinkGC::SweepingType,
+                      BlinkGC::GCReason);
+
   // The following methods are used to compose RunAtomicPause. Public users
   // should use the CollectGarbage entrypoint. Internal users should use these
   // methods to compose a full garbage collection.
@@ -439,7 +491,8 @@ class PLATFORM_EXPORT ThreadState final {
                             BlinkGC::GCReason);
   void AtomicPauseMarkTransitiveClosure();
   void AtomicPauseMarkEpilogue(BlinkGC::MarkingType);
-  void AtomicPauseSweepAndCompact(BlinkGC::MarkingType marking_type,
+  void AtomicPauseSweepAndCompact(BlinkGC::CollectionType,
+                                  BlinkGC::MarkingType marking_type,
                                   BlinkGC::SweepingType sweeping_type);
   void AtomicPauseEpilogue();
 
@@ -460,7 +513,9 @@ class PLATFORM_EXPORT ThreadState final {
   void MarkPhaseEpilogue(BlinkGC::MarkingType);
   void MarkPhaseVisitRoots();
   void MarkPhaseVisitNotFullyConstructedObjects();
-  bool MarkPhaseAdvanceMarking(base::TimeTicks deadline);
+  bool MarkPhaseAdvanceMarkingBasedOnSchedule(base::TimeDelta,
+                                              EphemeronProcessing);
+  bool MarkPhaseAdvanceMarking(base::TimeDelta, EphemeronProcessing);
   void VerifyMarking(BlinkGC::MarkingType);
 
   // Visit the stack after pushing registers onto the stack.
@@ -468,7 +523,9 @@ class PLATFORM_EXPORT ThreadState final {
 
   // Visit local thread stack and trace all pointers conservatively. Never call
   // directly but always call through |PushRegistersAndVisitStack|.
+  void VisitStackImpl(MarkingVisitor*, Address*, Address*);
   void VisitStack(MarkingVisitor*, Address*);
+  void VisitUnsafeStack(MarkingVisitor*);
 
   // Visit the asan fake stack frame corresponding to a slot on the real machine
   // stack if there is one. Never call directly but always call through
@@ -484,9 +541,6 @@ class PLATFORM_EXPORT ThreadState final {
   // Visit all weak persistents allocated on this thread.
   void VisitWeakPersistents(Visitor*);
 
-  // Visit all DOM wrappers allocatd on this thread.
-  void VisitDOMWrappers(Visitor*);
-
   // Visit card tables (remembered sets) containing inter-generational pointers.
   void VisitRememberedSets(MarkingVisitor*);
 
@@ -496,16 +550,14 @@ class PLATFORM_EXPORT ThreadState final {
   // Incremental marking step advance marking on the mutator thread. This method
   // also reschedules concurrent marking tasks if needed. The duration parameter
   // applies only to incremental marking steps on the mutator thread.
-  void IncrementalMarkingStep(
-      BlinkGC::StackState,
-      base::TimeDelta duration = kDefaultIncrementalMarkingStepDuration);
+  void IncrementalMarkingStep(BlinkGC::StackState);
   void IncrementalMarkingFinalize();
 
   // Returns true if concurrent marking is finished (i.e. all current threads
   // terminated and the worklist is empty)
   bool ConcurrentMarkingStep();
   void ScheduleConcurrentMarking();
-  void PerformConcurrentMark();
+  void PerformConcurrentMark(base::JobDelegate* job);
 
   // Schedule helpers.
   void ScheduleIdleLazySweep();
@@ -533,9 +585,13 @@ class PLATFORM_EXPORT ThreadState final {
   // The argument must be registered before calling this.
   void RemoveObserver(BlinkGCObserver*);
 
-  bool IsForcedGC(BlinkGC::GCReason reason) const {
-    return reason == BlinkGC::GCReason::kThreadTerminationGC ||
-           reason == BlinkGC::GCReason::kForcedGCForTesting;
+  bool IsForcedGC() const { return IsForcedGC(current_gc_data_.reason); }
+
+  // Returns whether stack scanning is forced. This is currently only used in
+  // platform tests where non nested tasks can be run with heap pointers on
+  // stack.
+  bool HeapPointersOnStackForced() const {
+    return heap_pointers_on_stack_forced_;
   }
 
 #if defined(ADDRESS_SANITIZER)
@@ -558,8 +614,10 @@ class PLATFORM_EXPORT ThreadState final {
 
   bool in_atomic_pause_ = false;
   bool sweep_forbidden_ = false;
+  bool heap_pointers_on_stack_forced_ = false;
   bool incremental_marking_ = false;
   bool should_optimize_for_load_time_ = false;
+  bool forced_scheduled_gc_for_testing_ = false;
   size_t no_allocation_count_ = 0;
   size_t gc_forbidden_count_ = 0;
   size_t static_persistent_registration_disabled_count_ = 0;
@@ -569,7 +627,7 @@ class PLATFORM_EXPORT ThreadState final {
   BlinkGC::GCReason reason_for_scheduled_gc_ =
       BlinkGC::GCReason::kForcedGCForTesting;
 
-  using PreFinalizerCallback = bool (*)(void*);
+  using PreFinalizerCallback = bool (*)(const LivenessBroker&, void*);
   using PreFinalizer = std::pair<void*, PreFinalizerCallback>;
 
   // Pre-finalizers are called in the reverse order in which they are
@@ -578,7 +636,6 @@ class PLATFORM_EXPORT ThreadState final {
   Deque<PreFinalizer> ordered_pre_finalizers_;
 
   v8::Isolate* isolate_ = nullptr;
-  V8TraceRootsCallback v8_trace_roots_ = nullptr;
   V8BuildEmbedderGraphCallback v8_build_embedder_graph_ = nullptr;
   std::unique_ptr<UnifiedHeapController> unified_heap_controller_;
 
@@ -606,14 +663,16 @@ class PLATFORM_EXPORT ThreadState final {
   GCData current_gc_data_;
 
   std::unique_ptr<IncrementalMarkingScheduler> incremental_marking_scheduler_;
+  std::unique_ptr<MarkingSchedulingOracle> marking_scheduling_;
 
-  std::unique_ptr<CancelableTaskScheduler> marker_scheduler_;
-  Vector<uint8_t> available_concurrent_marking_task_ids_;
-  uint8_t active_markers_ = 0;
-  base::Lock concurrent_marker_bootstrapping_lock_;
-  size_t concurrently_marked_bytes_ = 0;
+  base::JobHandle marker_handle_;
 
-  std::unique_ptr<CancelableTaskScheduler> sweeper_scheduler_;
+  base::JobHandle sweeper_handle_;
+  std::atomic_bool has_unswept_pages_{false};
+
+  size_t disable_heap_verification_scope_ = 0;
+
+  bool skip_incremental_marking_for_testing_ = false;
 
   friend class BlinkGCObserver;
   friend class incremental_marking_test::IncrementalMarkingScope;

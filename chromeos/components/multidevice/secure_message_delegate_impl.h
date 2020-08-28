@@ -19,11 +19,12 @@ class SecureMessageDelegateImpl : public SecureMessageDelegate {
  public:
   class Factory {
    public:
-    static std::unique_ptr<SecureMessageDelegate> NewInstance();
-    static void SetInstanceForTesting(Factory* test_factory);
+    static std::unique_ptr<SecureMessageDelegate> Create();
+    static void SetFactoryForTesting(Factory* test_factory);
 
+   protected:
     virtual ~Factory();
-    virtual std::unique_ptr<SecureMessageDelegate> BuildInstance();
+    virtual std::unique_ptr<SecureMessageDelegate> CreateInstance() = 0;
 
    private:
     static Factory* test_factory_instance_;
@@ -32,20 +33,18 @@ class SecureMessageDelegateImpl : public SecureMessageDelegate {
   ~SecureMessageDelegateImpl() override;
 
   // SecureMessageDelegate:
-  void GenerateKeyPair(const GenerateKeyPairCallback& callback) override;
+  void GenerateKeyPair(GenerateKeyPairCallback callback) override;
   void DeriveKey(const std::string& private_key,
                  const std::string& public_key,
-                 const DeriveKeyCallback& callback) override;
-  void CreateSecureMessage(
-      const std::string& payload,
-      const std::string& key,
-      const CreateOptions& create_options,
-      const CreateSecureMessageCallback& callback) override;
-  void UnwrapSecureMessage(
-      const std::string& serialized_message,
-      const std::string& key,
-      const UnwrapOptions& unwrap_options,
-      const UnwrapSecureMessageCallback& callback) override;
+                 DeriveKeyCallback callback) override;
+  void CreateSecureMessage(const std::string& payload,
+                           const std::string& key,
+                           const CreateOptions& create_options,
+                           CreateSecureMessageCallback callback) override;
+  void UnwrapSecureMessage(const std::string& serialized_message,
+                           const std::string& key,
+                           const UnwrapOptions& unwrap_options,
+                           UnwrapSecureMessageCallback callback) override;
 
  private:
   SecureMessageDelegateImpl();

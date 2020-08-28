@@ -1,28 +1,19 @@
-<link rel="import" href="chrome://resources/html/polymer.html">
-
-<link rel="import" href="chrome://resources/cr_elements/cr_button/cr_button.html">
-<link rel="import" href="chrome://resources/cr_elements/cr_icons_css.html">
-<link rel="import" href="chrome://resources/cr_elements/icons.html">
-<link rel="import" href="chrome://resources/html/assert.html">
-<link rel="import" href="chrome://resources/polymer/v1_0/iron-collapse/iron-collapse.html">
-<link rel="import" href="chrome://resources/polymer/v1_0/iron-icon/iron-icon.html">
-<link rel="import" href="chrome://resources/polymer/v1_0/iron-selector/iron-selector.html">
-<link rel="import" href="../icons.html">
-<link rel="import" href="../route.html">
-<link rel="import" href="../settings_shared_css.html">
-
-<dom-module id="settings-menu">
-  <template>
     <style include="settings-shared cr-icons">
       :host {
         box-sizing: border-box;
         display: block;
-        padding-bottom: 2px;
+        padding-bottom: 5px; /* Prevents focus outlines from being cropped. */
         padding-top: 8px;
       }
 
       :host * {
         -webkit-tap-highlight-color: transparent;
+      }
+
+      #topMenu {
+        display: flex;
+        flex-direction: column;
+        min-width: fit-content;
       }
 
       a[href],
@@ -86,8 +77,9 @@
 
       #advancedButton > iron-icon,
       #extensionsLink > .cr-icon {
-        @apply --cr-icon-height-width;
+        height: var(--cr-icon-size);
         margin-inline-end: 14px;  /* 16px - 2px from margin for outline. */
+        width: var(--cr-icon-size);
       }
 
       #menuSeparator {
@@ -114,6 +106,11 @@
           hidden="[[!pageVisibility.autofill]]">
         <iron-icon icon="settings:assignment"></iron-icon>
         $i18n{autofillPageTitle}
+      </a>
+      <a href="/safetyCheck" hidden="[[!pageVisibility.safetyCheck]]"
+          id="safetyCheck">
+        <iron-icon icon="settings20:safety-check"></iron-icon>
+        $i18n{safetyCheckSectionTitle}
       </a>
       <a href="/privacy" hidden="[[!pageVisibility.privacy]]">
         <iron-icon icon="cr:security"></iron-icon>
@@ -189,6 +186,3 @@
       </a>
       <a id="about-menu" href="/help">$i18n{aboutPageTitle}</a>
     </iron-selector>
-  </template>
-  <script src="settings_menu.js"></script>
-</dom-module>

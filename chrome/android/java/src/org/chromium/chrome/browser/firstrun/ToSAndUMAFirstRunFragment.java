@@ -6,8 +6,6 @@ package org.chromium.chrome.browser.firstrun;
 
 import android.content.res.Resources;
 import android.os.Bundle;
-import android.support.v4.app.Fragment;
-import android.support.v4.view.ViewCompat;
 import android.text.method.LinkMovementMethod;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -16,6 +14,9 @@ import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.TextView;
+
+import androidx.core.view.ViewCompat;
+import androidx.fragment.app.Fragment;
 
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.ChromeVersionInfo;
@@ -43,12 +44,13 @@ public class ToSAndUMAFirstRunFragment extends Fragment implements FirstRunFragm
         }
     }
 
+    protected boolean mNativeInitialized;
+
     private Button mAcceptButton;
     private CheckBox mSendReportCheckBox;
     private TextView mTosAndPrivacy;
     private View mTitle;
     private View mProgressSpinner;
-    private boolean mNativeInitialized;
     private boolean mTriggerAcceptAfterNativeInit;
 
     @Override
@@ -75,7 +77,7 @@ public class ToSAndUMAFirstRunFragment extends Fragment implements FirstRunFragm
             }
         });
 
-        if (ChromeVersionInfo.isOfficialBuild()) {
+        if (canShowUmaCheckBox()) {
             int paddingStart = getResources().getDimensionPixelSize(
                     R.dimen.fre_tos_checkbox_padding);
             ViewCompat.setPaddingRelative(mSendReportCheckBox,
@@ -92,41 +94,38 @@ public class ToSAndUMAFirstRunFragment extends Fragment implements FirstRunFragm
         mTosAndPrivacy.setMovementMethod(LinkMovementMethod.getInstance());
 
         Resources resources = getResources();
-        NoUnderlineClickableSpan clickableTermsSpan =
+        NoUnderlineClickableSpan clickableGoogleTermsSpan =
                 new NoUnderlineClickableSpan(resources, (view1) -> {
                     if (!isAdded()) return;
-                    getPageDelegate().showInfoPage(R.string.chrome_terms_of_service_url);
+                    getPageDelegate().showInfoPage(R.string.google_terms_of_service_url);
                 });
-
-        NoUnderlineClickableSpan clickablePrivacySpan =
+        NoUnderlineClickableSpan clickableChromeAdditionalTermsSpan =
                 new NoUnderlineClickableSpan(resources, (view1) -> {
                     if (!isAdded()) return;
-                    getPageDelegate().showInfoPage(R.string.chrome_privacy_notice_url);
+                    getPageDelegate().showInfoPage(R.string.chrome_additional_terms_of_service_url);
                 });
-
         NoUnderlineClickableSpan clickableFamilyLinkPrivacySpan =
                 new NoUnderlineClickableSpan(resources, (view1) -> {
                     if (!isAdded()) return;
                     getPageDelegate().showInfoPage(R.string.family_link_privacy_policy_url);
                 });
 
-        final CharSequence tosAndPrivacyText;
+        final CharSequence tosText;
         Bundle freProperties = getPageDelegate().getProperties();
         @ChildAccountStatus.Status
         int childAccountStatus = freProperties.getInt(
                 SigninFirstRunFragment.CHILD_ACCOUNT_STATUS, ChildAccountStatus.NOT_CHILD);
         if (childAccountStatus == ChildAccountStatus.REGULAR_CHILD) {
-            tosAndPrivacyText =
-                    SpanApplier.applySpans(getString(R.string.fre_tos_and_privacy_child_account),
-                            new SpanInfo("<LINK1>", "</LINK1>", clickableTermsSpan),
-                            new SpanInfo("<LINK2>", "</LINK2>", clickablePrivacySpan),
-                            new SpanInfo("<LINK3>", "</LINK3>", clickableFamilyLinkPrivacySpan));
+            tosText = SpanApplier.applySpans(getString(R.string.fre_tos_and_privacy_child_account),
+                    new SpanInfo("<LINK1>", "</LINK1>", clickableGoogleTermsSpan),
+                    new SpanInfo("<LINK2>", "</LINK2>", clickableChromeAdditionalTermsSpan),
+                    new SpanInfo("<LINK3>", "</LINK3>", clickableFamilyLinkPrivacySpan));
         } else {
-            tosAndPrivacyText = SpanApplier.applySpans(getString(R.string.fre_tos_and_privacy),
-                    new SpanInfo("<LINK1>", "</LINK1>", clickableTermsSpan),
-                    new SpanInfo("<LINK2>", "</LINK2>", clickablePrivacySpan));
+            tosText = SpanApplier.applySpans(getString(R.string.fre_tos),
+                    new SpanInfo("<LINK1>", "</LINK1>", clickableGoogleTermsSpan),
+                    new SpanInfo("<LINK2>", "</LINK2>", clickableChromeAdditionalTermsSpan));
         }
-        mTosAndPrivacy.setText(tosAndPrivacyText);
+        mTosAndPrivacy.setText(tosText);
 
         // If this page should be skipped, it can be one of the following cases:
         //   1. Native hasn't been initialized yet and this page will be skipped once that happens.
@@ -182,11 +181,31 @@ public class ToSAndUMAFirstRunFragment extends Fragment implements FirstRunFragm
     private void setSpinnerVisible(boolean spinnerVisible) {
         // When the progress spinner is visible, we hide the other UI elements so that
         // the user can't interact with them.
-        int otherElementsVisible = spinnerVisible ? View.INVISIBLE : View.VISIBLE;
-        mTitle.setVisibility(otherElementsVisible);
-        mAcceptButton.setVisibility(otherElementsVisible);
-        mTosAndPrivacy.setVisibility(otherElementsVisible);
-        mSendReportCheckBox.setVisibility(otherElementsVisible);
+        boolean otherElementVisible = !spinnerVisible;
+
+        setTosAndUmaVisible(otherElementVisible);
+        mTitle.setVisibility(otherElementVisible ? View.VISIBLE : View.INVISIBLE);
         mProgressSpinner.setVisibility(spinnerVisible ? View.VISIBLE : View.GONE);
+    }
+
+    // Exposed methods for ToSAndUMACCTFirstRunFragment
+
+    protected void setTosAndUmaVisible(boolean isVisible) {
+        int visibility = isVisible ? View.VISIBLE : View.GONE;
+
+        mAcceptButton.setVisibility(visibility);
+        mTosAndPrivacy.setVisibility(visibility);
+        // Avoid updating visibility if the UMA check box can't be shown right now.
+        if (canShowUmaCheckBox()) {
+            mSendReportCheckBox.setVisibility(visibility);
+        }
+    }
+
+    /**
+     * @return Whether the check box for Uma metrics can be shown. It should be used in conjunction
+     *         with whether other non-spinner elements can generally be shown.
+     */
+    protected boolean canShowUmaCheckBox() {
+        return ChromeVersionInfo.isOfficialBuild();
     }
 }

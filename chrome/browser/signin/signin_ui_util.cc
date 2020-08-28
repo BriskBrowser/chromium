@@ -11,6 +11,8 @@
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/metrics/user_metrics.h"
+#include "base/notreached.h"
+#include "base/strings/strcat.h"
 #include "base/strings/string_util.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/strings/utf_string_conversions.h"
@@ -28,9 +30,11 @@
 #include "chrome/browser/ui/ui_features.h"
 #include "chrome/common/pref_names.h"
 #include "components/prefs/pref_service.h"
+#include "components/signin/public/base/signin_metrics.h"
 #include "components/signin/public/base/signin_pref_names.h"
 #include "components/signin/public/identity_manager/account_info.h"
 #include "components/signin/public/identity_manager/accounts_in_cookie_jar_info.h"
+#include "components/signin/public/identity_manager/consent_level.h"
 #include "components/signin/public/identity_manager/identity_manager.h"
 #include "components/signin/public/identity_manager/identity_utils.h"
 #include "third_party/re2/src/re2/re2.h"
@@ -135,6 +139,26 @@ void CreateDiceTurnSyncOnHelper(
 }
 #endif  // BUILDFLAG(ENABLE_DICE_SUPPORT)
 
+std::string GetReauthAccessPointHistogramSuffix(
+    signin_metrics::ReauthAccessPoint access_point) {
+  switch (access_point) {
+    case signin_metrics::ReauthAccessPoint::kUnknown:
+      NOTREACHED();
+      return std::string();
+    case signin_metrics::ReauthAccessPoint::kAutofillDropdown:
+      return "ToFillPassword";
+    case signin_metrics::ReauthAccessPoint::kPasswordSaveBubble:
+      return "ToSaveOrUpdatePassword";
+    case signin_metrics::ReauthAccessPoint::kPasswordSettings:
+      return "ToManageInSettings";
+    case signin_metrics::ReauthAccessPoint::kGeneratePasswordDropdown:
+    case signin_metrics::ReauthAccessPoint::kGeneratePasswordContextMenu:
+      return "ToGeneratePassword";
+    case signin_metrics::ReauthAccessPoint::kPasswordMoveBubble:
+      return "ToMovePassword";
+  }
+}
+
 }  // namespace
 
 namespace signin_ui_util {
@@ -236,7 +260,7 @@ void EnableSyncFromPromo(
           account.account_id);
   if (needs_reauth_before_enable_sync) {
     browser->signin_view_controller()->ShowDiceEnableSyncTab(
-        browser, access_point, promo_action, account.email);
+        access_point, promo_action, account.email);
     return;
   }
 
@@ -259,25 +283,11 @@ std::vector<AccountInfo> GetAccountsForDicePromos(Profile* profile) {
       identity_manager->GetExtendedAccountInfoForAccountsWithRefreshToken();
 
   // Compute the default account.
-  CoreAccountId default_account_id;
-  if (identity_manager->HasPrimaryAccount()) {
-    default_account_id = identity_manager->GetPrimaryAccountId();
-  } else {
-    // Fetch accounts in the Gaia cookies.
-    auto accounts_in_cookie_jar_info =
-        identity_manager->GetAccountsInCookieJar();
-    std::vector<gaia::ListedAccount> signed_in_accounts =
-        accounts_in_cookie_jar_info.signed_in_accounts;
-    UMA_HISTOGRAM_BOOLEAN("Profile.DiceUI.GaiaAccountsStale",
-                          !accounts_in_cookie_jar_info.accounts_are_fresh);
-
-    if (accounts_in_cookie_jar_info.accounts_are_fresh &&
-        !signed_in_accounts.empty())
-      default_account_id = signed_in_accounts[0].id;
-  }
+  CoreAccountId default_account_id =
+      identity_manager->GetPrimaryAccountId(signin::ConsentLevel::kNotRequired);
 
   // Fetch account information for each id and make sure that the first account
-  // in the list matches the first account in the Gaia cookies (if available).
+  // in the list matches the unconsented primary account (if available).
   std::vector<AccountInfo> accounts;
   for (auto& account_info : accounts_with_tokens) {
     DCHECK(!account_info.IsEmpty());
@@ -293,6 +303,13 @@ std::vector<AccountInfo> GetAccountsForDicePromos(Profile* profile) {
   return accounts;
 }
 
+AccountInfo GetSingleAccountForDicePromos(Profile* profile) {
+  std::vector<AccountInfo> accounts = GetAccountsForDicePromos(profile);
+  if (!accounts.empty())
+    return accounts[0];
+  return AccountInfo();
+}
+
 #endif  // BUILDFLAG(ENABLE_DICE_SUPPORT)
 
 base::string16 GetShortProfileIdentityToDisplay(
@@ -301,8 +318,8 @@ base::string16 GetShortProfileIdentityToDisplay(
   DCHECK(profile);
   signin::IdentityManager* identity_manager =
       IdentityManagerFactory::GetForProfile(profile);
-  CoreAccountInfo core_info =
-      identity_manager->GetUnconsentedPrimaryAccountInfo();
+  CoreAccountInfo core_info = identity_manager->GetPrimaryAccountInfo(
+      signin::ConsentLevel::kNotRequired);
   // If there's no unconsented primary account, simply return the name of the
   // profile according to profile attributes.
   if (core_info.IsEmpty())
@@ -421,6 +438,36 @@ void RecordProfileMenuClick(Profile* profile) {
   } else if (profile->IsIncognitoProfile()) {
     base::RecordAction(
         base::UserMetricsAction("ProfileMenu_ActionableItemClicked_Incognito"));
+  }
+}
+
+void RecordTransactionalReauthResult(
+    signin_metrics::ReauthAccessPoint access_point,
+    signin::ReauthResult result) {
+  const char kHistogramName[] = "Signin.TransactionalReauthResult";
+  base::UmaHistogramEnumeration(kHistogramName, result);
+
+  std::string access_point_suffix =
+      GetReauthAccessPointHistogramSuffix(access_point);
+  if (!access_point_suffix.empty()) {
+    std::string suffixed_histogram_name =
+        base::StrCat({kHistogramName, ".", access_point_suffix});
+    base::UmaHistogramEnumeration(suffixed_histogram_name, result);
+  }
+}
+
+void RecordTransactionalReauthUserAction(
+    signin_metrics::ReauthAccessPoint access_point,
+    SigninReauthViewController::UserAction user_action) {
+  const char kHistogramName[] = "Signin.TransactionalReauthUserAction";
+  base::UmaHistogramEnumeration(kHistogramName, user_action);
+
+  std::string access_point_suffix =
+      GetReauthAccessPointHistogramSuffix(access_point);
+  if (!access_point_suffix.empty()) {
+    std::string suffixed_histogram_name =
+        base::StrCat({kHistogramName, ".", access_point_suffix});
+    base::UmaHistogramEnumeration(suffixed_histogram_name, user_action);
   }
 }
 

@@ -126,34 +126,6 @@
 }
 
 - (void)autofillController:(CWVAutofillController*)autofillController
-    decideSavePolicyForAutofillProfile:(CWVAutofillProfile*)autofillProfile
-                       decisionHandler:
-                           (void (^)(BOOL decision))decisionHandler {
-  UIAlertController* alertController = [UIAlertController
-      alertControllerWithTitle:@"Save profile?"
-                       message:autofillProfile.debugDescription
-                preferredStyle:UIAlertControllerStyleAlert];
-  UIAlertAction* allowAction =
-      [UIAlertAction actionWithTitle:@"Allow"
-                               style:UIAlertActionStyleDefault
-                             handler:^(UIAlertAction* _Nonnull action) {
-                               decisionHandler(YES);
-                             }];
-  UIAlertAction* cancelAction =
-      [UIAlertAction actionWithTitle:@"Cancel"
-                               style:UIAlertActionStyleCancel
-                             handler:^(UIAlertAction* _Nonnull action) {
-                               decisionHandler(NO);
-                             }];
-  [alertController addAction:allowAction];
-  [alertController addAction:cancelAction];
-  [UIApplication.sharedApplication.keyWindow.rootViewController
-      presentViewController:alertController
-                   animated:YES
-                 completion:nil];
-}
-
-- (void)autofillController:(CWVAutofillController*)autofillController
     saveCreditCardWithSaver:(CWVCreditCardSaver*)saver {
   CWVCreditCard* creditCard = saver.creditCard;
   UIAlertController* alertController =
@@ -276,7 +248,6 @@
                 [verifier verifyWithCVC:CVC
                         expirationMonth:nil
                          expirationYear:nil
-                           storeLocally:NO
                                riskData:self.riskDataLoader.riskData
                       completionHandler:^(NSError* error) {
                         if (error) {
@@ -306,21 +277,38 @@
                  completion:nil];
 }
 
+- (void)autofillController:(CWVAutofillController*)autofillController
+    notifyUserOfPasswordLeakOnURL:(NSURL*)URL
+                         leakType:(CWVPasswordLeakType)leakType {
+  NSLog(@"Password on %@ is leaked!", URL);
+}
+
+- (void)autofillController:(CWVAutofillController*)autofillController
+    suggestGeneratedPassword:(NSString*)generatedPassword
+             decisionHandler:(void (^)(BOOL accept))decisionHandler {
+  NSLog(@"Accepting suggested password: %@", generatedPassword);
+  decisionHandler(YES);
+}
+
 #pragma mark - Private Methods
 
 - (UIAlertAction*)actionForSuggestion:(CWVAutofillSuggestion*)suggestion {
   NSString* title =
       [NSString stringWithFormat:@"%@ %@", suggestion.value,
                                  suggestion.displayDescription ?: @""];
-  return [UIAlertAction actionWithTitle:title
-                                  style:UIAlertActionStyleDefault
-                                handler:^(UIAlertAction* _Nonnull action) {
-                                  [_autofillController
-                                       acceptSuggestion:suggestion
-                                      completionHandler:nil];
-                                  [UIApplication.sharedApplication.keyWindow
-                                      endEditing:YES];
-                                }];
+  __weak ShellAutofillDelegate* weakSelf = self;
+  return [UIAlertAction
+      actionWithTitle:title
+                style:UIAlertActionStyleDefault
+              handler:^(UIAlertAction* action) {
+                ShellAutofillDelegate* strongSelf = weakSelf;
+                if (!strongSelf) {
+                  return;
+                }
+                [strongSelf.autofillController acceptSuggestion:suggestion
+                                              completionHandler:nil];
+                [UIApplication.sharedApplication.keyWindow endEditing:YES];
+              }];
 }
 
 @end

@@ -26,6 +26,7 @@
 #include "chrome/common/chrome_switches.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/testing_browser_process.h"
+#include "content/public/test/browser_test.h"
 #include "content/public/test/test_launcher.h"
 
 namespace {
@@ -68,8 +69,7 @@ void CreateAndSwitchToProfile(const std::string& basepath) {
   // terminated by UnblockOnProfileCreation when the profile is created.
   run_loop.Run();
 
-  profiles::SwitchToProfile(path, false, ProfileManager::CreateCallback(),
-                            ProfileMetrics::SWITCH_PROFILE_ICON);
+  profiles::SwitchToProfile(path, false, ProfileManager::CreateCallback());
 }
 
 void CheckBrowserWindows(const std::vector<std::string>& expected_basepaths) {
@@ -123,7 +123,7 @@ class StartupBrowserCreatorCorruptProfileTest : public InProcessBrowserTest {
 
     base::FilePath dir_to_delete = user_data_dir.AppendASCII(basepath);
     return base::DirectoryExists(dir_to_delete) &&
-           base::DeleteFileRecursively(dir_to_delete);
+           base::DeletePathRecursively(dir_to_delete);
   }
 
   bool RemoveCreateDirectoryPermissionForUserDataDirectory() {

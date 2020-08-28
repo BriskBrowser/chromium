@@ -15,7 +15,6 @@
 #include <memory>
 #include <string>
 
-#include "base/debug/stack_trace.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/sequence_checker.h"
@@ -35,8 +34,11 @@
 #include "services/network/public/cpp/network_quality_tracker.h"
 #include "services/network/public/mojom/network_service.mojom-forward.h"
 
+#if !defined(OS_ANDROID)
+#include "chrome/browser/upgrade_detector/build_state.h"
+#endif
+
 class BatteryMetrics;
-class ChromeFeatureListCreator;
 class ChromeMetricsServicesManagerClient;
 class DevToolsAutoOpener;
 class RemoteDebuggingServer;
@@ -93,7 +95,7 @@ class BrowserProcessImpl : public BrowserProcess,
   void SetQuitClosure(base::OnceClosure quit_closure);
 #endif
 
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
   // Clears the quit closure. Shutdown will not be initiated should the
   // KeepAlive count reach zero. This function may be called more than once.
   // TODO(https://crbug.com/845966): Remove this once the Cocoa first run
@@ -166,10 +168,9 @@ class BrowserProcessImpl : public BrowserProcess,
       std::unique_ptr<BackgroundModeManager> manager) override;
   StatusTray* status_tray() override;
   safe_browsing::SafeBrowsingService* safe_browsing_service() override;
-  safe_browsing::ClientSideDetectionService* safe_browsing_detection_service()
-      override;
   subresource_filter::RulesetService* subresource_filter_ruleset_service()
       override;
+  federated_learning::FlocBlocklistService* floc_blocklist_service() override;
   optimization_guide::OptimizationGuideService* optimization_guide_service()
       override;
 
@@ -192,6 +193,8 @@ class BrowserProcessImpl : public BrowserProcess,
   resource_coordinator::ResourceCoordinatorParts* resource_coordinator_parts()
       override;
 
+  BuildState* GetBuildState() override;
+
   static void RegisterPrefs(PrefRegistrySimple* registry);
 
  private:
@@ -207,7 +210,6 @@ class BrowserProcessImpl : public BrowserProcess,
 
   void CreateWatchdogThread();
   void CreateProfileManager();
-  void CreateLocalState();
   void CreateIconManager();
   void CreateIntranetRedirectDetector();
   void CreateNotificationPlatformBridge();
@@ -216,11 +218,11 @@ class BrowserProcessImpl : public BrowserProcess,
   void CreateBackgroundPrintingManager();
   void CreateSafeBrowsingService();
   void CreateSubresourceFilterRulesetService();
+  void CreateFlocBlocklistService();
   void CreateOptimizationGuideService();
   void CreateStatusTray();
   void CreateBackgroundModeManager();
   void CreateGCMDriver();
-  void CreatePhysicalWebDataSource();
 
   void ApplyDefaultBrowserPolicy();
 
@@ -229,17 +231,11 @@ class BrowserProcessImpl : public BrowserProcess,
   void Pin();
   void Unpin();
 
-  // |metrics_services_manager_| owns this.
-  ChromeMetricsServicesManagerClient* metrics_services_manager_client_ =
-      nullptr;
-
-  std::unique_ptr<metrics_services_manager::MetricsServicesManager>
-      metrics_services_manager_;
+  StartupData* const startup_data_;
 
   bool created_watchdog_thread_ = false;
   std::unique_ptr<WatchDogThread> watchdog_thread_;
 
-  bool created_browser_policy_connector_ = false;
   // Must be destroyed after |local_state_|.
   std::unique_ptr<policy::ChromeBrowserPolicyConnector>
       browser_policy_connector_;
@@ -248,6 +244,14 @@ class BrowserProcessImpl : public BrowserProcess,
   std::unique_ptr<ProfileManager> profile_manager_;
 
   std::unique_ptr<PrefService> local_state_;
+
+  // |metrics_services_manager_| owns this.
+  ChromeMetricsServicesManagerClient* metrics_services_manager_client_ =
+      nullptr;
+
+  // Must be destroyed before |local_state_|.
+  std::unique_ptr<metrics_services_manager::MetricsServicesManager>
+      metrics_services_manager_;
 
   std::unique_ptr<network::NetworkQualityTracker> network_quality_tracker_;
 
@@ -315,6 +319,9 @@ class BrowserProcessImpl : public BrowserProcess,
   std::unique_ptr<subresource_filter::RulesetService>
       subresource_filter_ruleset_service_;
 
+  std::unique_ptr<federated_learning::FlocBlocklistService>
+      floc_blocklist_service_;
+
   bool created_optimization_guide_service_ = false;
   std::unique_ptr<optimization_guide::OptimizationGuideService>
       optimization_guide_service_;
@@ -334,12 +341,6 @@ class BrowserProcessImpl : public BrowserProcess,
   std::unique_ptr<DownloadStatusUpdater> download_status_updater_;
 
   scoped_refptr<DownloadRequestLimiter> download_request_limiter_;
-
-  // If non-null, this object holds a pref store that will be taken by
-  // BrowserProcessImpl to create the |local_state_|.
-  ChromeFeatureListCreator* chrome_feature_list_creator_;
-
-  StartupData* startup_data_;
 
   // Ensures that the observers of plugin/print disable/enable state
   // notifications are properly added and removed.
@@ -374,10 +375,6 @@ class BrowserProcessImpl : public BrowserProcess,
 
   std::unique_ptr<BrowserProcessPlatformPart> platform_part_;
 
-  // TODO(eroman): Remove this when done debugging 113031. This tracks
-  // the callstack which released the final module reference count.
-  base::debug::StackTrace release_last_reference_callstack_;
-
   // Lazily initialized.
   std::unique_ptr<WebRtcLogUploader> webrtc_log_uploader_;
 
@@ -400,6 +397,8 @@ class BrowserProcessImpl : public BrowserProcess,
 #if !defined(OS_ANDROID)
   // Called to signal the process' main message loop to exit.
   base::OnceClosure quit_closure_;
+
+  BuildState build_state_;
 #endif
 
   SEQUENCE_CHECKER(sequence_checker_);

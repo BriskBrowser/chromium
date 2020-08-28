@@ -9,9 +9,11 @@
 #include "base/macros.h"
 #include "base/strings/string16.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/test/scoped_feature_list.h"
 #include "components/autofill/core/browser/autofill_type.h"
 #include "components/autofill/core/browser/data_model/address.h"
 #include "components/autofill/core/browser/geo/country_names.h"
+#include "components/autofill/core/common/autofill_features.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 using base::ASCIIToUTF16;
@@ -54,6 +56,73 @@ TEST_F(AddressTest, GetCountry) {
   country = address.GetInfo(
       AutofillType(HTML_TYPE_COUNTRY_CODE, HTML_MODE_NONE), "en-US");
   EXPECT_EQ(ASCIIToUTF16("CA"), country);
+}
+
+// Test that country data can be properly returned as either a country code or a
+// full country name that can even be localized.
+TEST_F(AddressTest, SetHtmlCountryCodeTypeWithFullCountryName) {
+  Address address;
+  EXPECT_EQ(base::string16(), address.GetRawInfo(ADDRESS_HOME_COUNTRY));
+
+  // Enable the feature that allows for full country names although the
+  // field type explicitly set to HTML_TYPE_COUNTRY_CODE.
+  base::test::ScopedFeatureList feature;
+  feature.InitAndEnableFeature(
+      features::kAutofillAllowHtmlTypeCountryCodesWithFullNames);
+
+  // Create an autofill type from HTML_TYPE_COUNTRY_CODE.
+  AutofillType autofill_type(HTML_TYPE_COUNTRY_CODE, HTML_MODE_NONE);
+
+  // Test that the country value can be set and retrieved if it is not
+  // a country code but a full country name.
+  address.SetInfo(autofill_type, ASCIIToUTF16("Germany"), "en-US");
+  base::string16 actual_country =
+      address.GetInfo(AutofillType(ADDRESS_HOME_COUNTRY), "en-US");
+  base::string16 actual_country_code = address.GetInfo(
+      AutofillType(HTML_TYPE_COUNTRY_CODE, HTML_MODE_NONE), "en-US");
+  EXPECT_EQ(ASCIIToUTF16("Germany"), actual_country);
+  EXPECT_EQ(ASCIIToUTF16("DE"), actual_country_code);
+
+  // Reset the country and verify that the reset works as expected.
+  address.SetInfo(autofill_type, ASCIIToUTF16(""), "en-US");
+  actual_country = address.GetInfo(AutofillType(ADDRESS_HOME_COUNTRY), "en-US");
+  actual_country_code = address.GetInfo(
+      AutofillType(HTML_TYPE_COUNTRY_CODE, HTML_MODE_NONE), "en-US");
+  EXPECT_EQ(ASCIIToUTF16(""), actual_country);
+  EXPECT_EQ(ASCIIToUTF16(""), actual_country_code);
+
+  // Test that the country value can be set and retrieved if it is not
+  // a country code but a full country name with a non-standard locale.
+  address.SetInfo(autofill_type, ASCIIToUTF16("deutschland"), "de");
+  actual_country = address.GetInfo(AutofillType(ADDRESS_HOME_COUNTRY), "en-US");
+  actual_country_code = address.GetInfo(
+      AutofillType(HTML_TYPE_COUNTRY_CODE, HTML_MODE_NONE), "en-US");
+  EXPECT_EQ(ASCIIToUTF16("Germany"), actual_country);
+  EXPECT_EQ(ASCIIToUTF16("DE"), actual_country_code);
+
+  // Reset the country.
+  address.SetInfo(autofill_type, ASCIIToUTF16(""), "en-US");
+
+  // Test that the country is still stored correctly with a supplied
+  // country code.
+  address.SetInfo(autofill_type, ASCIIToUTF16("DE"), "en-US");
+  actual_country = address.GetInfo(AutofillType(ADDRESS_HOME_COUNTRY), "en-US");
+  actual_country_code = address.GetInfo(
+      AutofillType(HTML_TYPE_COUNTRY_CODE, HTML_MODE_NONE), "en-US");
+  EXPECT_EQ(ASCIIToUTF16("DE"), actual_country_code);
+  EXPECT_EQ(ASCIIToUTF16("Germany"), actual_country);
+
+  // By disabling the feature, test that the country name deduction actually
+  // uses the path for HTML_TYPE_COUNTRY_CODE.
+  feature.Reset();
+  feature.InitAndDisableFeature(
+      features::kAutofillAllowHtmlTypeCountryCodesWithFullNames);
+  address.SetInfo(autofill_type, ASCIIToUTF16("Germany"), "en-US");
+  actual_country = address.GetInfo(AutofillType(ADDRESS_HOME_COUNTRY), "en-US");
+  actual_country_code = address.GetInfo(
+      AutofillType(HTML_TYPE_COUNTRY_CODE, HTML_MODE_NONE), "en-US");
+  EXPECT_EQ(ASCIIToUTF16(""), actual_country);
+  EXPECT_EQ(ASCIIToUTF16(""), actual_country_code);
 }
 
 // Test that we properly detect country codes appropriate for each country.
@@ -117,6 +186,118 @@ TEST_F(AddressTest, SetCountry) {
   country = address.GetInfo(AutofillType(ADDRESS_HOME_COUNTRY), "en-US");
   EXPECT_EQ(base::string16(), address.GetRawInfo(ADDRESS_HOME_COUNTRY));
   EXPECT_EQ(base::string16(), country);
+}
+
+// Test setting and getting the new structured address tokens
+TEST_F(AddressTest, StructuredAddressTokens){
+  // Activate the feature to support the new structured address tokens.
+  base::test::ScopedFeatureList scoped_feature_list;
+  scoped_feature_list.InitAndEnableFeature(features::kAutofillAddressEnhancementVotes);
+  Address address;
+
+  // Set the address tokens.
+  address.SetRawInfo(ADDRESS_HOME_STREET_NAME, base::ASCIIToUTF16("StreetName"));
+  address.SetRawInfo(ADDRESS_HOME_HOUSE_NUMBER, base::ASCIIToUTF16("HouseNumber"));
+  address.SetRawInfo(ADDRESS_HOME_DEPENDENT_STREET_NAME, base::ASCIIToUTF16("DependentStreetName"));
+  address.SetRawInfo(ADDRESS_HOME_PREMISE_NAME, base::ASCIIToUTF16("PremiseNmae"));
+  address.SetRawInfo(ADDRESS_HOME_SUBPREMISE, base::ASCIIToUTF16("SubPremise"));
+
+  // Retrieve the tokens and verify that they are correct.
+  EXPECT_EQ(address.GetRawInfo(ADDRESS_HOME_STREET_NAME), base::ASCIIToUTF16("StreetName"));
+  EXPECT_EQ(address.GetRawInfo(ADDRESS_HOME_HOUSE_NUMBER), base::ASCIIToUTF16("HouseNumber"));
+  EXPECT_EQ(address.GetRawInfo(ADDRESS_HOME_DEPENDENT_STREET_NAME), base::ASCIIToUTF16("DependentStreetName"));
+  EXPECT_EQ(address.GetRawInfo(ADDRESS_HOME_PREMISE_NAME), base::ASCIIToUTF16("PremiseNmae"));
+  EXPECT_EQ(address.GetRawInfo(ADDRESS_HOME_SUBPREMISE), base::ASCIIToUTF16("SubPremise"));
+}
+
+// Test setting and getting the new structured address tokens
+TEST_F(AddressTest, StructuredAddressTokens_ResetOnChangedUnstructuredInformation){
+  // Activate the feature to support the new structured address tokens.
+  base::test::ScopedFeatureList scoped_feature_list;
+  scoped_feature_list.InitAndEnableFeature(features::kAutofillAddressEnhancementVotes);
+  Address address;
+
+  // Set the address tokens.
+  address.SetRawInfo(ADDRESS_HOME_STREET_ADDRESS, base::ASCIIToUTF16("Line1\nLine2"));
+  address.SetRawInfo(ADDRESS_HOME_STREET_NAME, base::ASCIIToUTF16("StreetName"));
+  address.SetRawInfo(ADDRESS_HOME_HOUSE_NUMBER, base::ASCIIToUTF16("HouseNumber"));
+  address.SetRawInfo(ADDRESS_HOME_DEPENDENT_STREET_NAME, base::ASCIIToUTF16("DependentStreetName"));
+  address.SetRawInfo(ADDRESS_HOME_PREMISE_NAME, base::ASCIIToUTF16("PremiseNmae"));
+  address.SetRawInfo(ADDRESS_HOME_SUBPREMISE, base::ASCIIToUTF16("SubPremise"));
+
+  // Retrieve the tokens and verify that they are correct.
+  EXPECT_EQ(address.GetRawInfo(ADDRESS_HOME_LINE1), base::ASCIIToUTF16("Line1"));
+  EXPECT_EQ(address.GetRawInfo(ADDRESS_HOME_LINE2), base::ASCIIToUTF16("Line2"));
+  EXPECT_EQ(address.GetRawInfo(ADDRESS_HOME_STREET_ADDRESS), base::ASCIIToUTF16("Line1\nLine2"));
+  EXPECT_EQ(address.GetRawInfo(ADDRESS_HOME_STREET_NAME), base::ASCIIToUTF16("StreetName"));
+  EXPECT_EQ(address.GetRawInfo(ADDRESS_HOME_HOUSE_NUMBER), base::ASCIIToUTF16("HouseNumber"));
+  EXPECT_EQ(address.GetRawInfo(ADDRESS_HOME_DEPENDENT_STREET_NAME), base::ASCIIToUTF16("DependentStreetName"));
+  EXPECT_EQ(address.GetRawInfo(ADDRESS_HOME_PREMISE_NAME), base::ASCIIToUTF16("PremiseNmae"));
+  EXPECT_EQ(address.GetRawInfo(ADDRESS_HOME_SUBPREMISE), base::ASCIIToUTF16("SubPremise"));
+
+  // Set the unstructured address information to the same values as they already
+  // are.
+  address.SetRawInfo(ADDRESS_HOME_STREET_ADDRESS, base::ASCIIToUTF16("Line1\nLine2"));
+  address.SetRawInfo(ADDRESS_HOME_LINE1, base::ASCIIToUTF16("Line1"));
+  address.SetRawInfo(ADDRESS_HOME_LINE2, base::ASCIIToUTF16("Line2"));
+
+  // Verify that the structured tokens are still set.
+  EXPECT_EQ(address.GetRawInfo(ADDRESS_HOME_STREET_NAME), base::ASCIIToUTF16("StreetName"));
+  EXPECT_EQ(address.GetRawInfo(ADDRESS_HOME_HOUSE_NUMBER), base::ASCIIToUTF16("HouseNumber"));
+  EXPECT_EQ(address.GetRawInfo(ADDRESS_HOME_DEPENDENT_STREET_NAME), base::ASCIIToUTF16("DependentStreetName"));
+  EXPECT_EQ(address.GetRawInfo(ADDRESS_HOME_PREMISE_NAME), base::ASCIIToUTF16("PremiseNmae"));
+  EXPECT_EQ(address.GetRawInfo(ADDRESS_HOME_SUBPREMISE), base::ASCIIToUTF16("SubPremise"));
+
+  // Now, change the address by changing HOME_ADDRESS_LINE1 and verify that the
+  // structured tokens are reset.
+  address.SetRawInfo(ADDRESS_HOME_LINE1, base::ASCIIToUTF16("NewLine1"));
+
+  EXPECT_EQ(address.GetRawInfo(ADDRESS_HOME_LINE1), base::ASCIIToUTF16("NewLine1"));
+  EXPECT_EQ(address.GetRawInfo(ADDRESS_HOME_LINE2), base::ASCIIToUTF16("Line2"));
+  EXPECT_EQ(address.GetRawInfo(ADDRESS_HOME_STREET_ADDRESS), base::ASCIIToUTF16("NewLine1\nLine2"));
+  EXPECT_EQ(address.GetRawInfo(ADDRESS_HOME_STREET_NAME),base::string16() );
+  EXPECT_EQ(address.GetRawInfo(ADDRESS_HOME_HOUSE_NUMBER),base::string16() );
+  EXPECT_EQ(address.GetRawInfo(ADDRESS_HOME_DEPENDENT_STREET_NAME),base::string16() );
+  EXPECT_EQ(address.GetRawInfo(ADDRESS_HOME_PREMISE_NAME),base::string16() );
+  EXPECT_EQ(address.GetRawInfo(ADDRESS_HOME_SUBPREMISE),base::string16() );
+
+  // Reset the structured tokens and perform the same step for
+  // HOME_ADDRESS_LINE2.
+  address.SetRawInfo(ADDRESS_HOME_STREET_ADDRESS, base::ASCIIToUTF16("Line1\nLine2"));
+  address.SetRawInfo(ADDRESS_HOME_STREET_NAME, base::ASCIIToUTF16("StreetName"));
+  address.SetRawInfo(ADDRESS_HOME_HOUSE_NUMBER, base::ASCIIToUTF16("HouseNumber"));
+  address.SetRawInfo(ADDRESS_HOME_DEPENDENT_STREET_NAME, base::ASCIIToUTF16("DependentStreetName"));
+  address.SetRawInfo(ADDRESS_HOME_PREMISE_NAME, base::ASCIIToUTF16("PremiseNmae"));
+  address.SetRawInfo(ADDRESS_HOME_SUBPREMISE, base::ASCIIToUTF16("SubPremise"));
+
+  address.SetRawInfo(ADDRESS_HOME_LINE2, base::ASCIIToUTF16("NewLine2"));
+
+  EXPECT_EQ(address.GetRawInfo(ADDRESS_HOME_LINE1), base::ASCIIToUTF16("Line1"));
+  EXPECT_EQ(address.GetRawInfo(ADDRESS_HOME_LINE2), base::ASCIIToUTF16("NewLine2"));
+  EXPECT_EQ(address.GetRawInfo(ADDRESS_HOME_STREET_ADDRESS), base::ASCIIToUTF16("Line1\nNewLine2"));
+  EXPECT_EQ(address.GetRawInfo(ADDRESS_HOME_STREET_NAME),base::string16() );
+  EXPECT_EQ(address.GetRawInfo(ADDRESS_HOME_HOUSE_NUMBER),base::string16() );
+  EXPECT_EQ(address.GetRawInfo(ADDRESS_HOME_DEPENDENT_STREET_NAME),base::string16() );
+  EXPECT_EQ(address.GetRawInfo(ADDRESS_HOME_PREMISE_NAME),base::string16() );
+  EXPECT_EQ(address.GetRawInfo(ADDRESS_HOME_SUBPREMISE),base::string16() );
+
+  // And once again for ADDRESS_HOME_STREET_ADDRESS.
+  address.SetRawInfo(ADDRESS_HOME_STREET_ADDRESS, base::ASCIIToUTF16("Line1\nLine2"));
+  address.SetRawInfo(ADDRESS_HOME_STREET_NAME, base::ASCIIToUTF16("StreetName"));
+  address.SetRawInfo(ADDRESS_HOME_HOUSE_NUMBER, base::ASCIIToUTF16("HouseNumber"));
+  address.SetRawInfo(ADDRESS_HOME_DEPENDENT_STREET_NAME, base::ASCIIToUTF16("DependentStreetName"));
+  address.SetRawInfo(ADDRESS_HOME_PREMISE_NAME, base::ASCIIToUTF16("PremiseNmae"));
+  address.SetRawInfo(ADDRESS_HOME_SUBPREMISE, base::ASCIIToUTF16("SubPremise"));
+
+  address.SetRawInfo(ADDRESS_HOME_STREET_ADDRESS, base::ASCIIToUTF16("NewLine1\nNewLine2"));
+  EXPECT_EQ(address.GetRawInfo(ADDRESS_HOME_LINE1), base::ASCIIToUTF16("NewLine1"));
+  EXPECT_EQ(address.GetRawInfo(ADDRESS_HOME_LINE2), base::ASCIIToUTF16("NewLine2"));
+  EXPECT_EQ(address.GetRawInfo(ADDRESS_HOME_STREET_ADDRESS), base::ASCIIToUTF16("NewLine1\nNewLine2"));
+  EXPECT_EQ(address.GetRawInfo(ADDRESS_HOME_STREET_NAME),base::string16() );
+  EXPECT_EQ(address.GetRawInfo(ADDRESS_HOME_HOUSE_NUMBER),base::string16() );
+  EXPECT_EQ(address.GetRawInfo(ADDRESS_HOME_DEPENDENT_STREET_NAME),base::string16() );
+  EXPECT_EQ(address.GetRawInfo(ADDRESS_HOME_PREMISE_NAME),base::string16() );
+  EXPECT_EQ(address.GetRawInfo(ADDRESS_HOME_SUBPREMISE),base::string16() );
 }
 
 // Test that we properly match typed values to stored country data.

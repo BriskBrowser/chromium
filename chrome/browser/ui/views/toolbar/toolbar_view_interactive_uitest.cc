@@ -38,6 +38,7 @@
 #include "chrome/test/base/ui_test_utils.h"
 #include "components/bookmarks/browser/bookmark_model.h"
 #include "components/bookmarks/browser/bookmark_utils.h"
+#include "content/public/test/browser_test.h"
 #include "ui/views/focus/focus_manager.h"
 #include "ui/views/test/widget_test.h"
 #include "ui/views/view.h"
@@ -56,7 +57,7 @@ class ToolbarViewInteractiveUITest : public AppMenuButtonObserver,
                                      public extensions::ExtensionBrowserTest,
                                      public views::WidgetObserver {
  public:
-  ToolbarViewInteractiveUITest() = default;
+  ToolbarViewInteractiveUITest();
   ~ToolbarViewInteractiveUITest() override = default;
 
   // AppMenuButtonObserver:
@@ -93,10 +94,16 @@ class ToolbarViewInteractiveUITest : public AppMenuButtonObserver,
   // InProcessBrowserTest:
   void SetUpOnMainThread() override;
 
+  base::test::ScopedFeatureList scoped_feature_list_;
+
   scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
   bool menu_shown_ = false;
   base::OnceClosure quit_closure_;
 };
+
+ToolbarViewInteractiveUITest::ToolbarViewInteractiveUITest() {
+  scoped_feature_list_.InitAndDisableFeature(features::kExtensionsToolbarMenu);
+}
 
 void ToolbarViewInteractiveUITest::AppMenuShown() {
   menu_shown_ = true;
@@ -145,7 +152,8 @@ void ToolbarViewInteractiveUITest::SetUpOnMainThread() {
 }
 
 // TODO(pkasting): https://crbug.com/939621 Fails on Mac.
-#if defined(OS_MACOSX)
+// Also flaky on linux-chromeos-chrome crbug.com/1076875.
+#if defined(OS_MAC) || defined(OS_LINUX) || defined(OS_CHROMEOS)
 #define MAYBE_TestAppMenuOpensOnDrag DISABLED_TestAppMenuOpensOnDrag
 #else
 #define MAYBE_TestAppMenuOpensOnDrag TestAppMenuOpensOnDrag
@@ -193,8 +201,8 @@ IN_PROC_BROWSER_TEST_F(ToolbarViewInteractiveUITest,
   ASSERT_TRUE(toolbar_action);
   ui_test_utils::MoveMouseToCenterAndPress(
       toolbar_action, ui_controls::LEFT, ui_controls::DOWN,
-      base::BindRepeating(&ToolbarViewInteractiveUITest::StartDrag,
-                          base::Unretained(this)));
+      base::BindOnce(&ToolbarViewInteractiveUITest::StartDrag,
+                     base::Unretained(this)));
   base::RunLoop run_loop;
   set_quit_closure(run_loop.QuitWhenIdleClosure());
   run_loop.Run();

@@ -7,8 +7,6 @@ package org.chromium.chrome.browser.autofill_assistant.user_data.additional_sect
 import static org.chromium.chrome.browser.autofill.prefeditor.EditorFieldModel.INPUT_TYPE_HINT_ALPHA_NUMERIC;
 
 import android.content.Context;
-import android.support.annotation.Nullable;
-import android.support.v4.util.Pair;
 import android.text.Editable;
 import android.text.TextUtils;
 import android.text.TextWatcher;
@@ -18,12 +16,16 @@ import android.view.ViewGroup;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
+import androidx.annotation.Nullable;
+import androidx.core.util.Pair;
+
 import org.chromium.base.ApiCompatibilityUtils;
 import org.chromium.base.Callback;
 import org.chromium.chrome.autofill_assistant.R;
 import org.chromium.chrome.browser.autofill.prefeditor.EditorFieldModel;
 import org.chromium.chrome.browser.autofill.prefeditor.EditorTextField;
 import org.chromium.chrome.browser.autofill_assistant.AssistantTextUtils;
+import org.chromium.chrome.browser.autofill_assistant.generic_ui.AssistantValue;
 import org.chromium.chrome.browser.autofill_assistant.user_data.AssistantVerticalExpander;
 
 import java.util.ArrayList;
@@ -126,7 +128,8 @@ public class AssistantTextInputSection implements AssistantAdditionalSection {
                 R.dimen.autofill_assistant_bottombar_horizontal_spacing);
         for (TextInputFactory input : inputs) {
             TextView summaryView = new TextView(context);
-            ApiCompatibilityUtils.setTextAppearance(summaryView, R.style.TextAppearance_BlackBody);
+            ApiCompatibilityUtils.setTextAppearance(
+                    summaryView, R.style.TextAppearance_TextMedium_Secondary);
             EditorTextField inputView = input.createView(context, result -> {
                 if (mDelegate == null) {
                     return;
@@ -134,9 +137,11 @@ public class AssistantTextInputSection implements AssistantAdditionalSection {
                 summaryView.setText(result.second);
                 summaryView.setVisibility(
                         TextUtils.isEmpty(result.second) ? View.GONE : View.VISIBLE);
-                mDelegate.onValueChanged(result.first, result.second);
+
+                mDelegate.onValueChanged(
+                        result.first, new AssistantValue(new String[] {result.second}));
             });
-            inputView.getInputLayout().addEditTextOnFocusChangeListener((unusedView, hasFocus) -> {
+            inputView.getEditText().setOnFocusChangeListener((unusedView, hasFocus) -> {
                 if (!hasFocus && mDelegate != null) {
                     mDelegate.onTextFocusLost();
                 }

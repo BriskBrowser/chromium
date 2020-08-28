@@ -59,6 +59,7 @@ class SyncUserSettingsTest : public testing::Test {
 
     sync_service_crypto_ = std::make_unique<SyncServiceCrypto>(
         /*notify_observers=*/base::DoNothing(),
+        /*notify_required_user_action_changed=*/base::DoNothing(),
         /*reconfigure=*/base::DoNothing(), sync_prefs_.get(),
         /*trusted_vault_client=*/nullptr);
   }
@@ -137,7 +138,10 @@ TEST_F(SyncUserSettingsTest, PreferredTypesSyncEverything) {
   ModelTypeSet expected_types = GetUserTypes();
   EXPECT_TRUE(sync_user_settings->IsSyncEverythingEnabled());
   EXPECT_EQ(expected_types, GetPreferredUserTypes(*sync_user_settings));
-  for (UserSelectableType type : UserSelectableTypeSet::All()) {
+
+  UserSelectableTypeSet all_registered_types =
+      sync_user_settings->GetRegisteredSelectableTypes();
+  for (UserSelectableType type : all_registered_types) {
     sync_user_settings->SetSelectedTypes(/*sync_everything=*/true,
                                          /*selected_type=*/{type});
     EXPECT_EQ(expected_types, GetPreferredUserTypes(*sync_user_settings));
@@ -169,9 +173,23 @@ TEST_F(SyncUserSettingsTest, PreferredTypesNotKeepEverythingSynced) {
   sync_user_settings->SetSelectedTypes(
       /*sync_everything=*/false,
       /*selected_types=*/UserSelectableTypeSet());
-  ASSERT_NE(GetUserTypes(), GetPreferredUserTypes(*sync_user_settings));
+#if defined(OS_CHROMEOS)
+  if (chromeos::features::IsSplitSettingsSyncEnabled()) {
+    // GetPreferredUserTypes() returns ModelTypes, which includes both browser
+    // and OS types. However, this test exercises browser UserSelectableTypes,
+    // so disable OS selectable types.
+    sync_user_settings->SetSelectedOsTypes(/*sync_all_os_types=*/false,
+                                           UserSelectableOsTypeSet());
+  }
+#endif  // defined(OS_CHROMEOS)
+  // No user selectable types are enabled, so only the "always preferred" types
+  // are preferred.
+  ASSERT_EQ(AlwaysPreferredUserTypes(),
+            GetPreferredUserTypes(*sync_user_settings));
 
-  for (UserSelectableType type : UserSelectableTypeSet::All()) {
+  UserSelectableTypeSet all_registered_types =
+      sync_user_settings->GetRegisteredSelectableTypes();
+  for (UserSelectableType type : all_registered_types) {
     ModelTypeSet expected_preferred_types =
         UserSelectableTypeToAllModelTypes(type);
     expected_preferred_types.PutAll(AlwaysPreferredUserTypes());
@@ -218,14 +236,19 @@ TEST_F(SyncUserSettingsTest, DeviceInfo) {
   std::unique_ptr<SyncUserSettingsImpl> sync_user_settings =
       MakeSyncUserSettings(GetUserTypes());
   EXPECT_TRUE(sync_user_settings->GetPreferredDataTypes().Has(DEVICE_INFO));
+
+  UserSelectableTypeSet all_registered_types =
+      sync_user_settings->GetRegisteredSelectableTypes();
   sync_user_settings->SetSelectedTypes(
       /*keep_everything_synced=*/true,
-      /*selected_types=*/UserSelectableTypeSet::All());
+      /*selected_types=*/all_registered_types);
   EXPECT_TRUE(sync_user_settings->GetPreferredDataTypes().Has(DEVICE_INFO));
+
   sync_user_settings->SetSelectedTypes(
       /*keep_everything_synced=*/false,
-      /*selected_types=*/UserSelectableTypeSet::All());
+      /*selected_types=*/all_registered_types);
   EXPECT_TRUE(sync_user_settings->GetPreferredDataTypes().Has(DEVICE_INFO));
+
   sync_user_settings = MakeSyncUserSettings(ModelTypeSet(DEVICE_INFO));
   sync_user_settings->SetSelectedTypes(
       /*keep_everything_synced=*/false,
@@ -238,14 +261,19 @@ TEST_F(SyncUserSettingsTest, UserConsents) {
   std::unique_ptr<SyncUserSettingsImpl> sync_user_settings =
       MakeSyncUserSettings(GetUserTypes());
   EXPECT_TRUE(sync_user_settings->GetPreferredDataTypes().Has(USER_CONSENTS));
+
+  UserSelectableTypeSet all_registered_types =
+      sync_user_settings->GetRegisteredSelectableTypes();
   sync_user_settings->SetSelectedTypes(
       /*keep_everything_synced=*/true,
-      /*selected_types=*/UserSelectableTypeSet::All());
+      /*selected_types=*/all_registered_types);
   EXPECT_TRUE(sync_user_settings->GetPreferredDataTypes().Has(USER_CONSENTS));
+
   sync_user_settings->SetSelectedTypes(
       /*keep_everything_synced=*/false,
-      /*selected_types=*/UserSelectableTypeSet::All());
+      /*selected_types=*/all_registered_types);
   EXPECT_TRUE(sync_user_settings->GetPreferredDataTypes().Has(USER_CONSENTS));
+
   sync_user_settings = MakeSyncUserSettings(ModelTypeSet(USER_CONSENTS));
   sync_user_settings->SetSelectedTypes(
       /*keep_everything_synced=*/false,

@@ -12,9 +12,7 @@ import org.chromium.chrome.browser.dependency_injection.ActivityScope;
 import org.chromium.chrome.browser.tab.EmptyTabObserver;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tab.TabHidingType;
-import org.chromium.chrome.browser.tab.TabImpl;
 import org.chromium.chrome.browser.tab.TabSelectionType;
-import org.chromium.components.security_state.ConnectionSecurityLevel;
 
 import javax.inject.Inject;
 
@@ -61,11 +59,5 @@ public class CustomTabNavigationEventObserver extends EmptyTabObserver {
     @Override
     public void onHidden(Tab tab, @TabHidingType int type) {
         mConnection.notifyNavigationEvent(mSessionToken, CustomTabsCallback.TAB_HIDDEN);
-    }
-
-    @Override
-    public void onDidAttachInterstitialPage(Tab tab) {
-        if (((TabImpl) tab).getSecurityLevel() != ConnectionSecurityLevel.DANGEROUS) return;
-        mConnection.notifyNavigationEvent(mSessionToken, CustomTabsCallback.NAVIGATION_FAILED);
     }
 }

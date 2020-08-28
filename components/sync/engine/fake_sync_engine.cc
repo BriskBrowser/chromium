@@ -12,9 +12,7 @@
 
 namespace syncer {
 
-constexpr char FakeSyncEngine::kTestCacheGuid[];
 constexpr char FakeSyncEngine::kTestBirthday[];
-constexpr char FakeSyncEngine::kTestKeystoreKey[];
 
 FakeSyncEngine::FakeSyncEngine() {}
 FakeSyncEngine::~FakeSyncEngine() {}
@@ -22,10 +20,10 @@ FakeSyncEngine::~FakeSyncEngine() {}
 void FakeSyncEngine::Initialize(InitParams params) {
   bool success = !fail_initial_download_;
   initialized_ = success;
-  params.host->OnEngineInitialized(
-      ModelTypeSet(), WeakHandle<JsBackend>(),
-      WeakHandle<DataTypeDebugInfoListener>(), kTestCacheGuid, kTestBirthday,
-      /*bag_of_chips=*/"", kTestKeystoreKey, success);
+  params.host->OnEngineInitialized(ModelTypeSet(), WeakHandle<JsBackend>(),
+                                   WeakHandle<DataTypeDebugInfoListener>(),
+                                   kTestBirthday,
+                                   /*bag_of_chips=*/"", success);
 }
 
 bool FakeSyncEngine::IsInitialized() const {
@@ -58,18 +56,7 @@ void FakeSyncEngine::Shutdown(ShutdownReason reason) {}
 
 void FakeSyncEngine::ConfigureDataTypes(ConfigureParams params) {}
 
-void FakeSyncEngine::RegisterDirectoryDataType(ModelType type,
-                                               ModelSafeGroup group) {}
-
-void FakeSyncEngine::UnregisterDirectoryDataType(ModelType type) {}
-
 void FakeSyncEngine::EnableEncryptEverything() {}
-
-void FakeSyncEngine::ActivateDirectoryDataType(
-    ModelType type,
-    ModelSafeGroup group,
-    ChangeProcessor* change_processor) {}
-void FakeSyncEngine::DeactivateDirectoryDataType(ModelType type) {}
 
 void FakeSyncEngine::ActivateNonBlockingDataType(
     ModelType type,
@@ -77,20 +64,18 @@ void FakeSyncEngine::ActivateNonBlockingDataType(
 
 void FakeSyncEngine::DeactivateNonBlockingDataType(ModelType type) {}
 
-UserShare* FakeSyncEngine::GetUserShare() const {
-  return nullptr;
-}
+void FakeSyncEngine::ActivateProxyDataType(ModelType type) {}
 
-SyncStatus FakeSyncEngine::GetDetailedStatus() {
-  return SyncStatus();
+void FakeSyncEngine::DeactivateProxyDataType(ModelType type) {}
+
+const SyncStatus& FakeSyncEngine::GetDetailedStatus() const {
+  return default_sync_status_;
 }
 
 void FakeSyncEngine::HasUnsyncedItemsForTest(
     base::OnceCallback<void(bool)> cb) const {}
 
 void FakeSyncEngine::GetModelSafeRoutingInfo(ModelSafeRoutingInfo* out) const {}
-
-void FakeSyncEngine::FlushDirectory() const {}
 
 void FakeSyncEngine::RequestBufferedProtocolEventsAndEnableForwarding() {}
 

@@ -29,6 +29,7 @@
 #include "third_party/blink/renderer/core/layout/hit_test_request.h"
 #include "third_party/blink/renderer/platform/geometry/float_quad.h"
 #include "third_party/blink/renderer/platform/geometry/float_rect.h"
+#include "third_party/blink/renderer/platform/graphics/compositor_element_id.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
 #include "third_party/blink/renderer/platform/text/text_direction.h"
 #include "third_party/blink/renderer/platform/wtf/forward.h"
@@ -66,7 +67,7 @@ class CORE_EXPORT HitTestResult {
   HitTestResult(const HitTestResult&);
   ~HitTestResult();
   HitTestResult& operator=(const HitTestResult&);
-  void Trace(blink::Visitor*);
+  void Trace(Visitor*) const;
 
   bool EqualForCacheability(const HitTestResult&) const;
   void CacheValues(const HitTestResult& other);
@@ -86,6 +87,7 @@ class CORE_EXPORT HitTestResult {
   Node* InnerPossiblyPseudoNode() const {
     return inner_possibly_pseudo_node_.Get();
   }
+  CompositorElementId GetScrollableContainer() const;
   Element* InnerElement() const { return inner_element_.Get(); }
 
   // If innerNode is an image map or image map area, return the associated image

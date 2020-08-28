@@ -9,12 +9,12 @@
 #include <stdlib.h>
 #include <sys/types.h>
 
+#include <memory>
 #include <string>
 #include <utility>
 #include <vector>
 
 #include "ash/public/cpp/ash_switches.h"
-#include "ash/public/cpp/login_screen.h"
 #include "ash/public/cpp/tablet_mode.h"
 #include "base/bind.h"
 #include "base/callback_helpers.h"
@@ -27,14 +27,14 @@
 #include "base/no_destructor.h"
 #include "base/single_thread_task_runner.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "build/branding_buildflags.h"
-#include "build/buildflag.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_process_platform_part.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/chromeos/accessibility/accessibility_manager.h"
+#include "chrome/browser/chromeos/app_mode/arc/arc_kiosk_app_manager.h"
 #include "chrome/browser/chromeos/app_mode/kiosk_app_manager.h"
 #include "chrome/browser/chromeos/app_mode/web_app/web_kiosk_app_manager.h"
 #include "chrome/browser/chromeos/arc/arc_util.h"
@@ -47,10 +47,13 @@
 #include "chrome/browser/chromeos/login/existing_user_controller.h"
 #include "chrome/browser/chromeos/login/helper.h"
 #include "chrome/browser/chromeos/login/hwid_checker.h"
+#include "chrome/browser/chromeos/login/login_wizard.h"
 #include "chrome/browser/chromeos/login/quick_unlock/quick_unlock_utils.h"
+#include "chrome/browser/chromeos/login/screens/active_directory_password_change_screen.h"
 #include "chrome/browser/chromeos/login/screens/app_downloading_screen.h"
 #include "chrome/browser/chromeos/login/screens/arc_terms_of_service_screen.h"
 #include "chrome/browser/chromeos/login/screens/assistant_optin_flow_screen.h"
+#include "chrome/browser/chromeos/login/screens/base_screen.h"
 #include "chrome/browser/chromeos/login/screens/demo_preferences_screen.h"
 #include "chrome/browser/chromeos/login/screens/demo_setup_screen.h"
 #include "chrome/browser/chromeos/login/screens/device_disabled_screen.h"
@@ -60,7 +63,11 @@
 #include "chrome/browser/chromeos/login/screens/encryption_migration_screen.h"
 #include "chrome/browser/chromeos/login/screens/error_screen.h"
 #include "chrome/browser/chromeos/login/screens/eula_screen.h"
+#include "chrome/browser/chromeos/login/screens/family_link_notice_screen.h"
 #include "chrome/browser/chromeos/login/screens/fingerprint_setup_screen.h"
+#include "chrome/browser/chromeos/login/screens/gaia_password_changed_screen.h"
+#include "chrome/browser/chromeos/login/screens/gaia_screen.h"
+#include "chrome/browser/chromeos/login/screens/gesture_navigation_screen.h"
 #include "chrome/browser/chromeos/login/screens/hid_detection_screen.h"
 #include "chrome/browser/chromeos/login/screens/kiosk_autolaunch_screen.h"
 #include "chrome/browser/chromeos/login/screens/kiosk_enable_screen.h"
@@ -73,17 +80,21 @@
 #include "chrome/browser/chromeos/login/screens/reset_screen.h"
 #include "chrome/browser/chromeos/login/screens/supervision_transition_screen.h"
 #include "chrome/browser/chromeos/login/screens/sync_consent_screen.h"
+#include "chrome/browser/chromeos/login/screens/tpm_error_screen.h"
 #include "chrome/browser/chromeos/login/screens/update_required_screen.h"
 #include "chrome/browser/chromeos/login/screens/update_screen.h"
+#include "chrome/browser/chromeos/login/screens/user_creation_screen.h"
 #include "chrome/browser/chromeos/login/screens/welcome_screen.h"
 #include "chrome/browser/chromeos/login/screens/wrong_hwid_screen.h"
 #include "chrome/browser/chromeos/login/session/user_session_manager.h"
 #include "chrome/browser/chromeos/login/startup_utils.h"
 #include "chrome/browser/chromeos/login/ui/login_display_host.h"
+#include "chrome/browser/chromeos/login/wizard_context.h"
 #include "chrome/browser/chromeos/multidevice_setup/multidevice_setup_client_factory.h"
 #include "chrome/browser/chromeos/net/delay_network_call.h"
 #include "chrome/browser/chromeos/policy/browser_policy_connector_chromeos.h"
 #include "chrome/browser/chromeos/policy/device_cloud_policy_manager_chromeos.h"
+#include "chrome/browser/chromeos/policy/enrollment_requisition_manager.h"
 #include "chrome/browser/chromeos/settings/cros_settings.h"
 #include "chrome/browser/chromeos/settings/stats_reporting_controller.h"
 #include "chrome/browser/chromeos/system/device_disabling_manager.h"
@@ -95,9 +106,9 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/ui/ash/login_screen_client.h"
+#include "chrome/browser/ui/webui/chromeos/login/active_directory_password_change_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/app_downloading_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/app_launch_splash_screen_handler.h"
-#include "chrome/browser/ui/webui/chromeos/login/arc_kiosk_splash_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/arc_terms_of_service_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/assistant_optin_flow_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/auto_enrollment_check_screen_handler.h"
@@ -110,7 +121,11 @@
 #include "chrome/browser/ui/webui/chromeos/login/enrollment_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/error_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/eula_screen_handler.h"
+#include "chrome/browser/ui/webui/chromeos/login/family_link_notice_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/fingerprint_setup_screen_handler.h"
+#include "chrome/browser/ui/webui/chromeos/login/gaia_password_changed_screen_handler.h"
+#include "chrome/browser/ui/webui/chromeos/login/gaia_screen_handler.h"
+#include "chrome/browser/ui/webui/chromeos/login/gesture_navigation_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/hid_detection_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/kiosk_autolaunch_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/kiosk_enable_screen_handler.h"
@@ -125,14 +140,15 @@
 #include "chrome/browser/ui/webui/chromeos/login/supervision_transition_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/sync_consent_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/terms_of_service_screen_handler.h"
+#include "chrome/browser/ui/webui/chromeos/login/tpm_error_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/update_required_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/update_screen_handler.h"
+#include "chrome/browser/ui/webui/chromeos/login/user_creation_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/welcome_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/wrong_hwid_screen_handler.h"
 #include "chrome/browser/ui/webui/help/help_utils_chromeos.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/pref_names.h"
-#include "chromeos/assistant/buildflags.h"
 #include "chromeos/audio/cras_audio_handler.h"
 #include "chromeos/constants/chromeos_constants.h"
 #include "chromeos/constants/chromeos_features.h"
@@ -150,11 +166,12 @@
 #include "chromeos/settings/cros_settings_provider.h"
 #include "chromeos/settings/timezone_settings.h"
 #include "chromeos/timezone/timezone_provider.h"
+#include "chromeos/timezone/timezone_request.h"
 #include "components/arc/arc_prefs.h"
 #include "components/arc/arc_util.h"
 #include "components/arc/session/arc_bridge_service.h"
-#include "components/crash/content/app/breakpad_linux.h"
-#include "components/crash/content/app/crashpad.h"
+#include "components/crash/core/app/breakpad_linux.h"
+#include "components/crash/core/app/crashpad.h"
 #include "components/prefs/pref_registry_simple.h"
 #include "components/prefs/pref_service.h"
 #include "components/session_manager/core/session_manager.h"
@@ -162,7 +179,6 @@
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/notification_types.h"
-#include "content/public/common/service_manager_connection.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
 #include "services/service_manager/public/cpp/connector.h"
 #include "third_party/cros_system_api/dbus/service_constants.h"
@@ -177,6 +193,9 @@ bool g_using_zero_delays = false;
 // Total timezone resolving process timeout.
 const unsigned int kResolveTimeZoneTimeoutSeconds = 60;
 
+constexpr const char kDefaultExitReason[] = "Next";
+constexpr const char kResetScreenExitReason[] = "Cancel";
+
 // Stores the list of all screens that should be shown when resuming OOBE.
 const chromeos::StaticOobeScreenId kResumableScreens[] = {
     chromeos::WelcomeView::kScreenId,
@@ -187,6 +206,7 @@ const chromeos::StaticOobeScreenId kResumableScreens[] = {
     chromeos::TermsOfServiceScreenView::kScreenId,
     chromeos::SyncConsentScreenView::kScreenId,
     chromeos::FingerprintSetupScreenView::kScreenId,
+    chromeos::GestureNavigationScreenView::kScreenId,
     chromeos::ArcTermsOfServiceScreenView::kScreenId,
     chromeos::AutoEnrollmentCheckScreenView::kScreenId,
     chromeos::RecommendAppsScreenView::kScreenId,
@@ -197,13 +217,12 @@ const chromeos::StaticOobeScreenId kResumableScreens[] = {
 };
 
 const chromeos::StaticOobeScreenId kScreensWithHiddenStatusArea[] = {
-    chromeos::ArcKioskSplashScreenView::kScreenId,
     chromeos::EnableAdbSideloadingScreenView::kScreenId,
     chromeos::EnableDebuggingScreenView::kScreenId,
     chromeos::KioskAutolaunchScreenView::kScreenId,
     chromeos::KioskEnableScreenView::kScreenId,
-    chromeos::ResetView::kScreenId,
     chromeos::SupervisionTransitionScreenView::kScreenId,
+    chromeos::TpmErrorView::kScreenId,
     chromeos::WrongHWIDScreenView::kScreenId,
 };
 
@@ -221,17 +240,17 @@ bool CanShowHIDDetectionScreen() {
   }
 }
 
-bool IsResumableScreen(chromeos::OobeScreenId screen) {
+bool IsResumableScreen(chromeos::OobeScreenId screen_id) {
   for (const auto& resumable_screen : kResumableScreens) {
-    if (screen == resumable_screen)
+    if (screen_id == resumable_screen)
       return true;
   }
   return false;
 }
 
-bool ShouldHideStatusArea(chromeos::OobeScreenId screen) {
+bool ShouldHideStatusArea(chromeos::OobeScreenId screen_id) {
   for (const auto& s : kScreensWithHiddenStatusArea) {
-    if (screen == s)
+    if (screen_id == s)
       return true;
   }
   return false;
@@ -253,6 +272,7 @@ constexpr const Entry kLegacyUmaOobeScreenNames[] = {
     {chromeos::TermsOfServiceScreenView::kScreenId, "tos"}};
 
 void RecordUMAHistogramForOOBEStepCompletionTime(chromeos::OobeScreenId screen,
+                                                 const std::string& exit_reason,
                                                  base::TimeDelta step_time) {
   // Fetch screen name; make sure to use initial UMA name if the name has
   // changed.
@@ -275,27 +295,17 @@ void RecordUMAHistogramForOOBEStepCompletionTime(chromeos::OobeScreenId screen,
       base::TimeDelta::FromMinutes(3), 50,
       base::HistogramBase::kUmaTargetedHistogramFlag);
   histogram->AddTime(step_time);
-}
 
-bool IsRemoraRequisition() {
-  policy::DeviceCloudPolicyManagerChromeOS* policy_manager =
-      g_browser_process->platform_part()
-          ->browser_policy_connector_chromeos()
-          ->GetDeviceCloudPolicyManager();
-  return policy_manager && policy_manager->IsRemoraRequisition();
-}
-
-// Return false if the logged in user is a managed or child account. Otherwise,
-// return true if the feature flag for recommend app screen is on.
-bool ShouldShowRecommendAppsScreen() {
-  const user_manager::UserManager* user_manager =
-      user_manager::UserManager::Get();
-  DCHECK(user_manager->IsUserLoggedIn());
-  bool is_managed_account = ProfileManager::GetActiveUserProfile()
-                                ->GetProfilePolicyConnector()
-                                ->IsManaged();
-  bool is_child_account = user_manager->IsLoggedInAsChildUser();
-  return !is_managed_account && !is_child_account;
+  // Use for this Histogram real screen names.
+  screen_name = screen.name;
+  screen_name[0] = std::toupper(screen_name[0]);
+  std::string histogram_name_with_reason =
+      "OOBE.StepCompletionTimeByExitReason." + screen_name + "." + exit_reason;
+  base::HistogramBase* histogram_with_reason = base::Histogram::FactoryTimeGet(
+      histogram_name_with_reason, base::TimeDelta::FromMilliseconds(10),
+      base::TimeDelta::FromMinutes(10), 100,
+      base::HistogramBase::kUmaTargetedHistogramFlag);
+  histogram_with_reason->AddTime(step_time);
 }
 
 chromeos::LoginDisplayHost* GetLoginDisplayHost() {
@@ -347,6 +357,7 @@ PrefService* WizardController::local_state_for_testing_ = nullptr;
 
 WizardController::WizardController()
     : screen_manager_(std::make_unique<ScreenManager>()),
+      wizard_context_(std::make_unique<WizardContext>()),
       network_state_helper_(std::make_unique<login::NetworkStateHelper>()) {
   AccessibilityManager* accessibility_manager = AccessibilityManager::Get();
   if (accessibility_manager) {
@@ -355,6 +366,10 @@ WizardController::WizardController()
         base::Bind(&WizardController::OnAccessibilityStatusChanged,
                    weak_factory_.GetWeakPtr()));
   }
+  if (GetOobeUI()) {
+    // could be null in unit tests.
+    screen_manager_->Init(CreateScreens());
+  }
 }
 
 WizardController::~WizardController() {
@@ -362,20 +377,23 @@ WizardController::~WizardController() {
 }
 
 void WizardController::Init(OobeScreenId first_screen) {
-  screen_manager_->Init(CreateScreens());
+  DCHECK(!is_initialized());
+  is_initialized_ = true;
 
   prescribed_enrollment_config_ = g_browser_process->platform_part()
                                       ->browser_policy_connector_chromeos()
                                       ->GetPrescribedEnrollmentConfig();
 
   VLOG(1) << "Starting OOBE wizard with screen: " << first_screen;
-  first_screen_ = first_screen;
 
   bool oobe_complete = StartupUtils::IsOobeCompleted();
-  if (!oobe_complete)
+  if (!oobe_complete) {
     UpdateOobeConfiguration();
-  if (!oobe_complete || first_screen == OobeScreen::SCREEN_SPECIAL_OOBE)
     is_out_of_box_ = true;
+  }
+
+  wizard_context_->device_has_users =
+      !user_manager::UserManager::Get()->GetUsers().empty();
 
   // This is a hacky way to check for local state corruption, because
   // it depends on the fact that the local state is loaded
@@ -387,7 +405,8 @@ void WizardController::Init(OobeScreenId first_screen) {
   // corruption in the case of asynchronious loading.
   policy::BrowserPolicyConnectorChromeOS* connector =
       g_browser_process->platform_part()->browser_policy_connector_chromeos();
-  if (!connector->IsEnterpriseManaged()) {
+  const bool is_enterprise_managed = connector->IsEnterpriseManaged();
+  if (!is_enterprise_managed) {
     const PrefService::PrefInitializationStatus status =
         GetLocalState()->GetInitializationStatus();
     if (status == PrefService::INITIALIZATION_STATUS_ERROR) {
@@ -400,30 +419,53 @@ void WizardController::Init(OobeScreenId first_screen) {
                          weak_factory_.GetWeakPtr()));
     }
   }
-  if (CrosSettings::IsInitialized()) {
-    guest_mode_policy_subscription_ = CrosSettings::Get()->AddSettingsObserver(
-        kAccountsPrefAllowGuest,
-        base::BindRepeating(&WizardController::OnGuestModePolicyUpdated,
-                            weak_factory_.GetWeakPtr()));
+
+  const bool device_is_owned =
+      is_enterprise_managed || wizard_context_->device_has_users;
+  // Do not show the HID Detection screen if device is owned.
+  if (!device_is_owned && CanShowHIDDetectionScreen() &&
+      first_screen == OobeScreen::SCREEN_UNKNOWN) {
+    base::Callback<void(bool)> on_check =
+        base::Bind(&WizardController::OnHIDScreenNecessityCheck,
+                   weak_factory_.GetWeakPtr());
+    HIDDetectionScreen::Get(screen_manager())->CheckIsScreenRequired(on_check);
+    return;
   }
 
-  // Use the saved screen preference from Local State.
-  const std::string screen_pref =
-      GetLocalState()->GetString(prefs::kOobeScreenPending);
-  if (is_out_of_box_ && !screen_pref.empty() &&
-      (first_screen == OobeScreen::SCREEN_UNKNOWN ||
-       first_screen == OobeScreen::SCREEN_TEST_NO_WINDOW)) {
-    first_screen_ = OobeScreenId(screen_pref);
+  AdvanceToScreenAfterHIDDetection(first_screen);
+}
+
+void WizardController::AdvanceToScreenAfterHIDDetection(
+    OobeScreenId first_screen) {
+  OobeScreenId actual_first_screen = first_screen;
+  if (actual_first_screen == OobeScreen::SCREEN_UNKNOWN) {
+    if (!is_out_of_box_) {
+      DeviceSettingsService::Get()->GetOwnershipStatusAsync(
+          base::Bind(&WizardController::OnOwnershipStatusCheckDone,
+                     weak_factory_.GetWeakPtr()));
+      return;
+    }
+
+    // Use the saved screen preference from Local State.
+    const std::string screen_pref =
+        GetLocalState()->GetString(prefs::kOobeScreenPending);
+    if (!screen_pref.empty())
+      actual_first_screen = OobeScreenId(screen_pref);
+    else
+      actual_first_screen = WelcomeView::kScreenId;
   }
 
-  AdvanceToScreen(first_screen_);
+  first_screen_for_testing_ = actual_first_screen;
+  AdvanceToScreen(actual_first_screen);
+
   if (!IsMachineHWIDCorrect() && !StartupUtils::IsDeviceRegistered() &&
-      first_screen_ == OobeScreen::SCREEN_UNKNOWN)
+      first_screen == OobeScreen::SCREEN_UNKNOWN) {
     ShowWrongHWIDScreen();
+  }
 
   if (base::CommandLine::ForCurrentProcess()->HasSwitch(
           chromeos::switches::kOobeSkipToLogin)) {
-    SkipToLoginForTesting(LoginScreenContext());
+    SkipToLoginForTesting();
   }
 }
 
@@ -431,14 +473,14 @@ ErrorScreen* WizardController::GetErrorScreen() {
   return GetOobeUI()->GetErrorScreen();
 }
 
-bool WizardController::HasScreen(OobeScreenId screen) {
-  return screen_manager_->HasScreen(screen);
+bool WizardController::HasScreen(OobeScreenId screen_id) {
+  return screen_manager_->HasScreen(screen_id);
 }
 
-BaseScreen* WizardController::GetScreen(OobeScreenId screen) {
-  if (screen == ErrorScreenView::kScreenId)
+BaseScreen* WizardController::GetScreen(OobeScreenId screen_id) {
+  if (screen_id == ErrorScreenView::kScreenId)
     return GetErrorScreen();
-  return screen_manager_->GetScreen(screen);
+  return screen_manager_->GetScreen(screen_id);
 }
 
 void WizardController::SetCurrentScreenForTesting(BaseScreen* screen) {
@@ -465,6 +507,11 @@ std::vector<std::unique_ptr<BaseScreen>> WizardController::CreateScreens() {
         oobe_ui->GetView<WelcomeScreenHandler>(),
         base::BindRepeating(&WizardController::OnWelcomeScreenExit,
                             weak_factory_.GetWeakPtr())));
+
+    append(std::make_unique<chromeos::DemoPreferencesScreen>(
+        oobe_ui->GetView<DemoPreferencesScreenHandler>(),
+        base::BindRepeating(&WizardController::OnDemoPreferencesScreenExit,
+                            weak_factory_.GetWeakPtr())));
   }
 
   append(std::make_unique<NetworkScreen>(
@@ -490,10 +537,6 @@ std::vector<std::unique_ptr<BaseScreen>> WizardController::CreateScreens() {
   append(std::make_unique<chromeos::DemoSetupScreen>(
       oobe_ui->GetView<DemoSetupScreenHandler>(),
       base::BindRepeating(&WizardController::OnDemoSetupScreenExit,
-                          weak_factory_.GetWeakPtr())));
-  append(std::make_unique<chromeos::DemoPreferencesScreen>(
-      oobe_ui->GetView<DemoPreferencesScreenHandler>(),
-      base::BindRepeating(&WizardController::OnDemoPreferencesScreenExit,
                           weak_factory_.GetWeakPtr())));
   append(std::make_unique<EnableAdbSideloadingScreen>(
       oobe_ui->GetView<EnableAdbSideloadingScreenHandler>(),
@@ -558,7 +601,9 @@ std::vector<std::unique_ptr<BaseScreen>> WizardController::CreateScreens() {
                           weak_factory_.GetWeakPtr())));
   append(std::make_unique<UpdateRequiredScreen>(
       oobe_ui->GetView<UpdateRequiredScreenHandler>(),
-      oobe_ui->GetErrorScreen()));
+      oobe_ui->GetErrorScreen(),
+      base::BindRepeating(&WizardController::OnUpdateRequiredScreenExit,
+                          weak_factory_.GetWeakPtr())));
   append(std::make_unique<AssistantOptInFlowScreen>(
       oobe_ui->GetView<AssistantOptInFlowScreenHandler>(),
       base::BindRepeating(&WizardController::OnAssistantOptInFlowScreenExit,
@@ -575,6 +620,10 @@ std::vector<std::unique_ptr<BaseScreen>> WizardController::CreateScreens() {
       oobe_ui->GetView<FingerprintSetupScreenHandler>(),
       base::BindRepeating(&WizardController::OnFingerprintSetupScreenExit,
                           weak_factory_.GetWeakPtr())));
+  append(std::make_unique<GestureNavigationScreen>(
+      oobe_ui->GetView<GestureNavigationScreenHandler>(),
+      base::BindRepeating(&WizardController::OnGestureNavigationScreenExit,
+                          weak_factory_.GetWeakPtr())));
   append(std::make_unique<MarketingOptInScreen>(
       oobe_ui->GetView<MarketingOptInScreenHandler>(),
       base::BindRepeating(&WizardController::OnMarketingOptInScreenExit,
@@ -582,6 +631,32 @@ std::vector<std::unique_ptr<BaseScreen>> WizardController::CreateScreens() {
   append(std::make_unique<PackagedLicenseScreen>(
       oobe_ui->GetView<PackagedLicenseScreenHandler>(),
       base::BindRepeating(&WizardController::OnPackagedLicenseScreenExit,
+                          weak_factory_.GetWeakPtr())));
+  auto gaia_screen = std::make_unique<GaiaScreen>(base::BindRepeating(
+      &WizardController::OnGaiaScreenExit, weak_factory_.GetWeakPtr()));
+  gaia_screen->SetView(oobe_ui->GetView<GaiaScreenHandler>());
+  append(std::move(gaia_screen));
+
+  append(std::make_unique<TpmErrorScreen>(
+      oobe_ui->GetView<TpmErrorScreenHandler>()));
+
+  append(std::make_unique<GaiaPasswordChangedScreen>(
+      oobe_ui->GetView<GaiaPasswordChangedScreenHandler>()));
+
+  append(std::make_unique<ActiveDirectoryPasswordChangeScreen>(
+      oobe_ui->GetView<ActiveDirectoryPasswordChangeScreenHandler>(),
+      base::BindRepeating(
+          &WizardController::OnActiveDirectoryPasswordChangeScreenExit,
+          weak_factory_.GetWeakPtr())));
+
+  append(std::make_unique<FamilyLinkNoticeScreen>(
+      oobe_ui->GetView<FamilyLinkNoticeScreenHandler>(),
+      base::BindRepeating(&WizardController::OnFamilyLinkNoticeScreenExit,
+                          weak_factory_.GetWeakPtr())));
+
+  append(std::make_unique<UserCreationScreen>(
+      oobe_ui->GetView<UserCreationScreenHandler>(),
+      base::BindRepeating(&WizardController::OnUserCreationScreenExit,
                           weak_factory_.GetWeakPtr())));
 
   return result;
@@ -600,22 +675,35 @@ void WizardController::OnOwnershipStatusCheckDone(
   if (status == DeviceSettingsService::OWNERSHIP_NONE)
     ShowPackagedLicenseScreen();
   else
-    ShowLoginScreen(LoginScreenContext());
+    ShowLoginScreen();
 }
 
-void WizardController::ShowLoginScreen(const LoginScreenContext& context) {
+void WizardController::ShowLoginScreen() {
   // This may be triggered by multiply asynchronous events from the JS side.
   if (login_screen_started_)
     return;
 
   if (!time_eula_accepted_.is_null()) {
-    base::TimeDelta delta = base::Time::Now() - time_eula_accepted_;
+    base::TimeDelta delta = base::TimeTicks::Now() - time_eula_accepted_;
     UMA_HISTOGRAM_MEDIUM_TIMES("OOBE.EULAToSignInTime", delta);
   }
   VLOG(1) << "Showing login screen.";
-  UpdateStatusAreaVisibilityForScreen(OobeScreen::SCREEN_SPECIAL_LOGIN);
-  GetLoginDisplayHost()->StartSignInScreen(context);
+  UpdateStatusAreaVisibilityForScreen(GaiaView::kScreenId);
+  GetLoginDisplayHost()->StartSignInScreen();
   login_screen_started_ = true;
+}
+
+void WizardController::ShowGaiaPasswordChangedScreen(
+    const AccountId& account_id,
+    bool has_error) {
+  GaiaPasswordChangedScreen* screen =
+      GaiaPasswordChangedScreen::Get(screen_manager());
+  screen->Configure(account_id, has_error);
+  if (current_screen_ != screen) {
+    SetCurrentScreen(screen);
+  } else {
+    screen->Show(wizard_context_.get());
+  }
 }
 
 void WizardController::ShowEulaScreen() {
@@ -659,24 +747,20 @@ void WizardController::ShowEnableDebuggingScreen() {
 }
 
 void WizardController::ShowTermsOfServiceScreen() {
-  // Only show the Terms of Service when logging into a public account and Terms
-  // of Service have been specified through policy. In all other cases, advance
-  // to the post-ToS part immediately.
-  if (!user_manager::UserManager::Get()->IsLoggedInAsPublicAccount() ||
-      !ProfileManager::GetActiveUserProfile()->GetPrefs()->IsManagedPreference(
-          prefs::kTermsOfServiceURL)) {
-    OnTermsOfServiceAccepted();
-    return;
-  }
-
   SetCurrentScreen(GetScreen(TermsOfServiceScreenView::kScreenId));
 }
 
+void WizardController::ShowFamilyLinkNoticeScreen() {
+  AdvanceToScreen(FamilyLinkNoticeView::kScreenId);
+}
+
 void WizardController::ShowSyncConsentScreen() {
-  if (is_branded_build_)
-    SetCurrentScreen(GetScreen(SyncConsentScreenView::kScreenId));
-  else
-    OnSyncConsentFinished();
+  // First screen after login. Perform a timezone request so that any screens
+  // relying on geolocation can tailor their contents according to the user's
+  // region. Currently used on the MarketingOptInScreen.
+  StartNetworkTimezoneResolve();
+
+  SetCurrentScreen(GetScreen(SyncConsentScreenView::kScreenId));
 }
 
 void WizardController::ShowFingerprintSetupScreen() {
@@ -688,13 +772,7 @@ void WizardController::ShowMarketingOptInScreen() {
 }
 
 void WizardController::ShowArcTermsOfServiceScreen() {
-  if (arc::IsArcTermsOfServiceOobeNegotiationNeeded()) {
-    SetCurrentScreen(GetScreen(ArcTermsOfServiceScreenView::kScreenId));
-    ProfileManager::GetActiveUserProfile()->GetPrefs()->SetBoolean(
-        arc::prefs::kArcTermsShownInOobe, true);
-  } else {
-    ShowAssistantOptInFlowScreen();
-  }
+  SetCurrentScreen(GetScreen(ArcTermsOfServiceScreenView::kScreenId));
 }
 
 void WizardController::ShowRecommendAppsScreen() {
@@ -718,10 +796,6 @@ void WizardController::ShowAutoEnrollmentCheckScreen() {
   SetCurrentScreen(screen);
 }
 
-void WizardController::ShowArcKioskSplashScreen() {
-  SetCurrentScreen(GetScreen(ArcKioskSplashScreenView::kScreenId));
-}
-
 void WizardController::ShowHIDDetectionScreen() {
   SetCurrentScreen(GetScreen(HIDDetectionView::kScreenId));
 }
@@ -743,16 +817,15 @@ void WizardController::ShowUpdateRequiredScreen() {
 }
 
 void WizardController::ShowAssistantOptInFlowScreen() {
-#if BUILDFLAG(ENABLE_CROS_LIBASSISTANT)
-  UpdateStatusAreaVisibilityForScreen(AssistantOptInFlowScreenView::kScreenId);
   SetCurrentScreen(GetScreen(AssistantOptInFlowScreenView::kScreenId));
-#else
-  ShowMultiDeviceSetupScreen();
-#endif
 }
 
 void WizardController::ShowMultiDeviceSetupScreen() {
   SetCurrentScreen(GetScreen(MultiDeviceSetupScreenView::kScreenId));
+}
+
+void WizardController::ShowGestureNavigationScreen() {
+  SetCurrentScreen(GetScreen(GestureNavigationScreenView::kScreenId));
 }
 
 void WizardController::ShowDiscoverScreen() {
@@ -760,15 +833,63 @@ void WizardController::ShowDiscoverScreen() {
 }
 
 void WizardController::ShowPackagedLicenseScreen() {
-  if (should_show_packaged_license_screen())
-    SetCurrentScreen(GetScreen(PackagedLicenseView::kScreenId));
-  else
-    ShowLoginScreen(LoginScreenContext());
+  SetCurrentScreen(GetScreen(PackagedLicenseView::kScreenId));
 }
 
-void WizardController::SkipToLoginForTesting(
-    const LoginScreenContext& context) {
+void WizardController::ShowActiveDirectoryPasswordChangeScreen(
+    const std::string& username) {
+  ActiveDirectoryPasswordChangeScreen::Get(screen_manager())
+      ->SetUsername(username);
+  AdvanceToScreen(ActiveDirectoryPasswordChangeView::kScreenId);
+}
+
+void WizardController::OnActiveDirectoryPasswordChangeScreenExit() {
+  OnScreenExit(ActiveDirectoryPasswordChangeView::kScreenId,
+               kDefaultExitReason);
+  ShowLoginScreen();
+}
+
+void WizardController::OnUserCreationScreenExit(
+    UserCreationScreen::Result result) {
+  OnScreenExit(UserCreationView::kScreenId,
+               UserCreationScreen::GetResultString(result));
+  switch (result) {
+    case UserCreationScreen::Result::SIGNIN:
+    case UserCreationScreen::Result::SKIPPED:
+      GaiaScreen::Get(screen_manager())->LoadOnline(EmptyAccountId());
+      AdvanceToScreen(GaiaView::kScreenId);
+      break;
+    case UserCreationScreen::Result::CHILD_SIGNIN:
+      GaiaScreen::Get(screen_manager())->LoadOnlineForChildSignin();
+      AdvanceToScreen(GaiaView::kScreenId);
+      break;
+    case UserCreationScreen::Result::CHILD_ACCOUNT_CREATE:
+      GaiaScreen::Get(screen_manager())->LoadOnlineForChildSignup();
+      AdvanceToScreen(GaiaView::kScreenId);
+      break;
+    case UserCreationScreen::Result::ENTERPRISE_ENROLL:
+      AdvanceToScreen(EnrollmentScreenView::kScreenId);
+      break;
+    case UserCreationScreen::Result::CANCEL:
+      LoginDisplayHost::default_host()->HideOobeDialog();
+      break;
+  }
+}
+
+void WizardController::OnGaiaScreenExit(GaiaScreen::Result result) {
+  OnScreenExit(GaiaView::kScreenId, GaiaScreen::GetResultString(result));
+  switch (result) {
+    case GaiaScreen::Result::BACK:
+      AdvanceToScreen(UserCreationView::kScreenId);
+      break;
+  }
+}
+
+void WizardController::SkipToLoginForTesting() {
   VLOG(1) << "SkipToLoginForTesting.";
+  if (current_screen_ && current_screen_->screen_id() == GaiaView::kScreenId)
+    return;
+  wizard_context_->skip_to_login_for_tests = true;
   StartupUtils::MarkEulaAccepted();
 
   PerformPostEulaActions();
@@ -777,52 +898,67 @@ void WizardController::SkipToLoginForTesting(
 
 void WizardController::SkipToUpdateForTesting() {
   VLOG(1) << "SkipToUpdateForTesting.";
+  wizard_context_->skip_to_update_for_tests = true;
   StartupUtils::MarkEulaAccepted();
   PerformPostEulaActions();
   InitiateOOBEUpdate();
 }
 
-void WizardController::SkipUpdateEnrollAfterEula() {
-  skip_update_enroll_after_eula_ = true;
-}
-
-void WizardController::OnScreenExit(OobeScreenId screen, int exit_code) {
+void WizardController::OnScreenExit(OobeScreenId screen,
+                                    const std::string& exit_reason) {
+  VLOG(1) << "Wizard screen " << screen
+          << " exited with reason: " << exit_reason;
+  // Do not perform checks and record stats for the skipped screen.
+  if (exit_reason == chromeos::BaseScreen::kNotApplicable)
+    return;
   DCHECK(current_screen_->screen_id() == screen);
 
-  VLOG(1) << "Wizard screen " << screen << " exited with code: " << exit_code;
-
   RecordUMAHistogramForOOBEStepCompletionTime(
-      screen, base::Time::Now() - screen_show_times_[screen]);
+      screen, exit_reason, base::TimeTicks::Now() - screen_show_times_[screen]);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
 // WizardController, ExitHandlers:
 void WizardController::OnWrongHWIDScreenExit() {
-  OnScreenExit(WrongHWIDScreenView::kScreenId, 0 /* exit_code */);
+  OnScreenExit(WrongHWIDScreenView::kScreenId, kDefaultExitReason);
+  OnDeviceModificationCanceled();
+}
 
-  if (previous_screen_) {
-    SetCurrentScreen(previous_screen_);
-  } else {
-    ShowPackagedLicenseScreen();
+void WizardController::OnHidDetectionScreenExit(
+    HIDDetectionScreen::Result result) {
+  OnScreenExit(HIDDetectionView::kScreenId,
+               HIDDetectionScreen::GetResultString(result));
+
+  if (result == HIDDetectionScreen::Result::START_DEMO) {
+    LoginDisplayHost::default_host()->StartDemoAppLaunch();
+    return;
+  }
+
+  AdvanceToScreenAfterHIDDetection(OobeScreen::SCREEN_UNKNOWN);
+}
+
+void WizardController::OnWelcomeScreenExit(WelcomeScreen::Result result) {
+  OnScreenExit(WelcomeView::kScreenId, WelcomeScreen::GetResultString(result));
+
+  switch (result) {
+    case WelcomeScreen::Result::START_DEMO:
+      LoginDisplayHost::default_host()->StartDemoAppLaunch();
+      return;
+    case WelcomeScreen::Result::SETUP_DEMO:
+      StartDemoModeSetup();
+      return;
+    case WelcomeScreen::Result::ENABLE_DEBUGGING:
+      ShowEnableDebuggingScreen();
+      return;
+    case WelcomeScreen::Result::NEXT:
+      ShowNetworkScreen();
+      return;
   }
 }
 
-void WizardController::OnHidDetectionScreenExit() {
-  OnScreenExit(HIDDetectionView::kScreenId, 0 /* exit_code */);
-
-  // Check for tests configuration.
-  if (!StartupUtils::IsOobeCompleted())
-    ShowWelcomeScreen();
-}
-
-void WizardController::OnWelcomeScreenExit() {
-  OnScreenExit(WelcomeView::kScreenId, 0 /* exit_code */);
-
-  ShowNetworkScreen();
-}
-
 void WizardController::OnNetworkScreenExit(NetworkScreen::Result result) {
-  OnScreenExit(NetworkScreenView::kScreenId, static_cast<int>(result));
+  OnScreenExit(NetworkScreenView::kScreenId,
+               NetworkScreen::GetResultString(result));
 
   if (result == NetworkScreen::Result::BACK) {
     if (demo_setup_controller_) {
@@ -889,7 +1025,7 @@ bool WizardController::ShowEulaOrArcTosAfterNetworkScreen() {
 }
 
 void WizardController::OnEulaScreenExit(EulaScreen::Result result) {
-  OnScreenExit(EulaView::kScreenId, static_cast<int>(result));
+  OnScreenExit(EulaView::kScreenId, EulaScreen::GetResultString(result));
 
   switch (result) {
     case EulaScreen::Result::ACCEPTED_WITH_USAGE_STATS_REPORTING:
@@ -905,7 +1041,7 @@ void WizardController::OnEulaScreenExit(EulaScreen::Result result) {
 }
 
 void WizardController::OnEulaAccepted(bool usage_statistics_reporting_enabled) {
-  time_eula_accepted_ = base::Time::Now();
+  time_eula_accepted_ = base::TimeTicks::Now();
   StartupUtils::MarkEulaAccepted();
   ChangeMetricsReportingStateWithReply(
       usage_statistics_reporting_enabled,
@@ -920,18 +1056,15 @@ void WizardController::OnEulaAccepted(bool usage_statistics_reporting_enabled) {
     ShowDemoModeSetupScreen();
   }
 
-  if (skip_update_enroll_after_eula_) {
-    ShowAutoEnrollmentCheckScreen();
-  } else {
-    InitiateOOBEUpdate();
-  }
+  InitiateOOBEUpdate();
 }
 
 void WizardController::OnUpdateScreenExit(UpdateScreen::Result result) {
-  OnScreenExit(UpdateView::kScreenId, static_cast<int>(result));
+  OnScreenExit(UpdateView::kScreenId, UpdateScreen::GetResultString(result));
 
   switch (result) {
     case UpdateScreen::Result::UPDATE_NOT_REQUIRED:
+    case UpdateScreen::Result::UPDATE_SKIPPED:
       OnUpdateCompleted();
       break;
     case UpdateScreen::Result::UPDATE_ERROR:
@@ -951,7 +1084,7 @@ void WizardController::OnUpdateCompleted() {
 }
 
 void WizardController::OnAutoEnrollmentCheckScreenExit() {
-  OnScreenExit(AutoEnrollmentCheckScreenView::kScreenId, 0 /* exit_code */);
+  OnScreenExit(AutoEnrollmentCheckScreenView::kScreenId, kDefaultExitReason);
 
   // Check whether the device is disabled. OnDeviceDisabledChecked() will be
   // invoked when the result of this check is known. Until then, the current
@@ -964,10 +1097,12 @@ void WizardController::OnAutoEnrollmentCheckScreenExit() {
 }
 
 void WizardController::OnEnrollmentScreenExit(EnrollmentScreen::Result result) {
-  OnScreenExit(EnrollmentScreenView::kScreenId, static_cast<int>(result));
+  OnScreenExit(EnrollmentScreenView::kScreenId,
+               EnrollmentScreen::GetResultString(result));
 
   switch (result) {
     case EnrollmentScreen::Result::COMPLETED:
+    case EnrollmentScreen::Result::SKIPPED_FOR_TESTS:
       OnEnrollmentDone();
       break;
     case EnrollmentScreen::Result::BACK:
@@ -980,12 +1115,19 @@ void WizardController::OnEnrollmentScreenExit(EnrollmentScreen::Result result) {
 void WizardController::OnEnrollmentDone() {
   PerformOOBECompletedActions();
 
+  // Fetch the rollback flag from |oobe_configuration_|.
+  bool enrollment_mode_rollback = false;
+  auto* restore_after_rollback_value =
+      wizard_context_->configuration.FindKeyOfType(
+          configuration::kRestoreAfterRollback, base::Value::Type::BOOLEAN);
+  if (restore_after_rollback_value)
+    enrollment_mode_rollback = restore_after_rollback_value->GetBool();
+
   // Restart to make the login page pick up the policy changes resulting from
   // enrollment recovery.  (Not pretty, but this codepath is rarely exercised.)
   if (prescribed_enrollment_config_.mode ==
           policy::EnrollmentConfig::MODE_RECOVERY ||
-      prescribed_enrollment_config_.mode ==
-          policy::EnrollmentConfig::MODE_ENROLLED_ROLLBACK) {
+      enrollment_mode_rollback) {
     LOG(WARNING) << "Restart Chrome to pick up the policy changes";
     chrome::AttemptRestart();
     return;
@@ -994,50 +1136,62 @@ void WizardController::OnEnrollmentDone() {
   // We need a log to understand when the device finished enrollment.
   VLOG(1) << "Enrollment done";
 
-  if (KioskAppManager::Get()->IsAutoLaunchEnabled())
-    AutoLaunchKioskApp();
-  else if (WebKioskAppManager::Get()->GetAutoLaunchAccountId().is_valid())
-    AutoLaunchWebKioskApp();
-  else
-    ShowLoginScreen(LoginScreenContext());
+  if (KioskAppManager::Get()->IsAutoLaunchEnabled()) {
+    AutoLaunchKioskApp(KioskAppType::CHROME_APP);
+  } else if (WebKioskAppManager::Get()->GetAutoLaunchAccountId().is_valid()) {
+    AutoLaunchKioskApp(KioskAppType::WEB_APP);
+  } else if (ArcKioskAppManager::Get()->GetAutoLaunchAccountId().is_valid()) {
+    AutoLaunchKioskApp(KioskAppType::ARC_APP);
+  } else if (g_browser_process->platform_part()
+                 ->browser_policy_connector_chromeos()
+                 ->IsEnterpriseManaged()) {
+    // Could be not managed in tests.
+    DCHECK_EQ(LoginDisplayHost::default_host()->GetOobeUI()->display_type(),
+              OobeUI::kOobeDisplay);
+    SwitchWebUItoMojo();
+  } else {
+    ShowLoginScreen();
+  }
 }
 
 void WizardController::OnEnableAdbSideloadingScreenExit() {
-  OnScreenExit(EnableAdbSideloadingScreenView::kScreenId, 0 /* exit_code */);
+  OnScreenExit(EnableAdbSideloadingScreenView::kScreenId, kDefaultExitReason);
 
   OnDeviceModificationCanceled();
 }
 
 void WizardController::OnEnableDebuggingScreenExit() {
-  OnScreenExit(EnableDebuggingScreenView::kScreenId, 0 /* exit_code */);
+  OnScreenExit(EnableDebuggingScreenView::kScreenId, kDefaultExitReason);
 
   OnDeviceModificationCanceled();
 }
 
 void WizardController::OnKioskEnableScreenExit() {
-  OnScreenExit(KioskEnableScreenView::kScreenId, 0 /* exit_code */);
+  OnScreenExit(KioskEnableScreenView::kScreenId, kDefaultExitReason);
 
-  ShowLoginScreen(LoginScreenContext());
+  ShowLoginScreen();
 }
 
 void WizardController::OnKioskAutolaunchScreenExit(
     KioskAutolaunchScreen::Result result) {
-  OnScreenExit(KioskAutolaunchScreenView::kScreenId, 0 /* exit_code */);
+  OnScreenExit(KioskAutolaunchScreenView::kScreenId,
+               KioskAutolaunchScreen::GetResultString(result));
 
   switch (result) {
     case KioskAutolaunchScreen::Result::COMPLETED:
       DCHECK(KioskAppManager::Get()->IsAutoLaunchEnabled());
-      AutoLaunchKioskApp();
+      AutoLaunchKioskApp(KioskAppType::CHROME_APP);
       break;
     case KioskAutolaunchScreen::Result::CANCELED:
-      ShowLoginScreen(LoginScreenContext());
+      ShowLoginScreen();
       break;
   }
 }
 
 void WizardController::OnDemoPreferencesScreenExit(
     DemoPreferencesScreen::Result result) {
-  OnScreenExit(DemoPreferencesScreenView::kScreenId, static_cast<int>(result));
+  OnScreenExit(DemoPreferencesScreenView::kScreenId,
+               DemoPreferencesScreen::GetResultString(result));
 
   DCHECK(demo_setup_controller_);
 
@@ -1053,7 +1207,8 @@ void WizardController::OnDemoPreferencesScreenExit(
 }
 
 void WizardController::OnDemoSetupScreenExit(DemoSetupScreen::Result result) {
-  OnScreenExit(DemoSetupScreenView::kScreenId, static_cast<int>(result));
+  OnScreenExit(DemoSetupScreenView::kScreenId,
+               DemoSetupScreen::GetResultString(result));
 
   DCHECK(demo_setup_controller_);
   demo_setup_controller_.reset();
@@ -1061,7 +1216,7 @@ void WizardController::OnDemoSetupScreenExit(DemoSetupScreen::Result result) {
   switch (result) {
     case DemoSetupScreen::Result::COMPLETED:
       PerformOOBECompletedActions();
-      ShowLoginScreen(LoginScreenContext());
+      ShowLoginScreen();
       break;
     case DemoSetupScreen::Result::CANCELED:
       ShowWelcomeScreen();
@@ -1071,11 +1226,13 @@ void WizardController::OnDemoSetupScreenExit(DemoSetupScreen::Result result) {
 
 void WizardController::OnTermsOfServiceScreenExit(
     TermsOfServiceScreen::Result result) {
-  OnScreenExit(TermsOfServiceScreenView::kScreenId, static_cast<int>(result));
+  OnScreenExit(TermsOfServiceScreenView::kScreenId,
+               TermsOfServiceScreen::GetResultString(result));
 
   switch (result) {
     case TermsOfServiceScreen::Result::ACCEPTED:
-      OnTermsOfServiceAccepted();
+    case TermsOfServiceScreen::Result::NOT_APPLICABLE:
+      ShowFamilyLinkNoticeScreen();
       break;
     case TermsOfServiceScreen::Result::DECLINED:
       // End the session and return to the login screen.
@@ -1085,46 +1242,46 @@ void WizardController::OnTermsOfServiceScreenExit(
   }
 }
 
-void WizardController::OnTermsOfServiceAccepted() {
+void WizardController::OnFamilyLinkNoticeScreenExit(
+    FamilyLinkNoticeScreen::Result result) {
+  OnScreenExit(FamilyLinkNoticeView::kScreenId,
+               FamilyLinkNoticeScreen::GetResultString(result));
   ShowSyncConsentScreen();
 }
 
-void WizardController::OnSyncConsentScreenExit() {
-  OnScreenExit(SyncConsentScreenView::kScreenId, 0 /* exit_code */);
-  OnSyncConsentFinished();
-}
-
-void WizardController::OnSyncConsentFinished() {
+void WizardController::OnSyncConsentScreenExit(
+    SyncConsentScreen::Result result) {
+  OnScreenExit(SyncConsentScreenView::kScreenId,
+               SyncConsentScreen::GetResultString(result));
   ShowFingerprintSetupScreen();
 }
 
-void WizardController::OnFingerprintSetupScreenExit() {
-  OnScreenExit(FingerprintSetupScreenView::kScreenId, 0 /* exit_code */);
+void WizardController::OnFingerprintSetupScreenExit(
+    FingerprintSetupScreen::Result result) {
+  OnScreenExit(FingerprintSetupScreenView::kScreenId,
+               FingerprintSetupScreen::GetResultString(result));
 
   ShowDiscoverScreen();
 }
 
-void WizardController::OnDiscoverScreenExit() {
-  OnScreenExit(DiscoverScreenView::kScreenId, 0 /* exit_code */);
-  ShowMarketingOptInScreen();
-}
+void WizardController::OnDiscoverScreenExit(DiscoverScreen::Result result) {
+  OnScreenExit(DiscoverScreenView::kScreenId,
+               DiscoverScreen::GetResultString(result));
 
-void WizardController::OnMarketingOptInScreenExit() {
-  OnScreenExit(MarketingOptInScreenView::kScreenId, 0 /* exit_code */);
   ShowArcTermsOfServiceScreen();
 }
 
 void WizardController::OnArcTermsOfServiceScreenExit(
     ArcTermsOfServiceScreen::Result result) {
   OnScreenExit(ArcTermsOfServiceScreenView::kScreenId,
-               static_cast<int>(result));
+               ArcTermsOfServiceScreen::GetResultString(result));
 
   switch (result) {
     case ArcTermsOfServiceScreen::Result::ACCEPTED:
       OnArcTermsOfServiceAccepted();
       break;
-    case ArcTermsOfServiceScreen::Result::SKIPPED:
-      OnArcTermsOfServiceSkipped();
+    case ArcTermsOfServiceScreen::Result::NOT_APPLICABLE:
+      ShowAssistantOptInFlowScreen();
       break;
     case ArcTermsOfServiceScreen::Result::BACK:
       DCHECK(demo_setup_controller_);
@@ -1132,12 +1289,6 @@ void WizardController::OnArcTermsOfServiceScreenExit(
       ShowNetworkScreen();
       break;
   }
-}
-
-void WizardController::OnArcTermsOfServiceSkipped() {
-  // If the user finished with the PlayStore Terms of Service, advance to the
-  // assistant opt-in flow screen.
-  ShowAssistantOptInFlowScreen();
 }
 
 void WizardController::OnArcTermsOfServiceAccepted() {
@@ -1149,94 +1300,110 @@ void WizardController::OnArcTermsOfServiceAccepted() {
     }
     return;
   }
-
-  // If the recommend app screen should be shown, show it after the user
-  // accepted the Arc TOS. Otherwise, advance to the assistant opt-in flow
-  // screen.
-  if (ShouldShowRecommendAppsScreen()) {
-    ShowRecommendAppsScreen();
-    return;
-  }
-
-  ShowAssistantOptInFlowScreen();
+  ShowRecommendAppsScreen();
 }
 
 void WizardController::OnRecommendAppsScreenExit(
     RecommendAppsScreen::Result result) {
-  OnScreenExit(RecommendAppsScreenView::kScreenId, static_cast<int>(result));
+  OnScreenExit(RecommendAppsScreenView::kScreenId,
+               RecommendAppsScreen::GetResultString(result));
 
   switch (result) {
     case RecommendAppsScreen::Result::SELECTED:
       ShowAppDownloadingScreen();
       break;
     case RecommendAppsScreen::Result::SKIPPED:
+    case RecommendAppsScreen::Result::NOT_APPLICABLE:
+    case RecommendAppsScreen::Result::LOAD_ERROR:
       ShowAssistantOptInFlowScreen();
       break;
   }
 }
 
 void WizardController::OnAppDownloadingScreenExit() {
-  OnScreenExit(AppDownloadingScreenView::kScreenId, 0 /* exit_code */);
+  OnScreenExit(AppDownloadingScreenView::kScreenId, kDefaultExitReason);
 
   ShowAssistantOptInFlowScreen();
 }
 
-void WizardController::OnAssistantOptInFlowScreenExit() {
-  OnScreenExit(AssistantOptInFlowScreenView::kScreenId, 0 /* exit_code */);
-
+void WizardController::OnAssistantOptInFlowScreenExit(
+    AssistantOptInFlowScreen::Result result) {
+  OnScreenExit(AssistantOptInFlowScreenView::kScreenId,
+               AssistantOptInFlowScreen::GetResultString(result));
   ShowMultiDeviceSetupScreen();
 }
 
-void WizardController::OnMultiDeviceSetupScreenExit() {
-  OnScreenExit(MultiDeviceSetupScreenView::kScreenId, 0 /* exit_code */);
+void WizardController::OnMultiDeviceSetupScreenExit(
+    MultiDeviceSetupScreen::Result result) {
+  OnScreenExit(MultiDeviceSetupScreenView::kScreenId,
+               MultiDeviceSetupScreen::GetResultString(result));
+
+  ShowGestureNavigationScreen();
+}
+
+void WizardController::OnGestureNavigationScreenExit(
+    GestureNavigationScreen::Result result) {
+  OnScreenExit(GestureNavigationScreenView::kScreenId,
+               GestureNavigationScreen::GetResultString(result));
+
+  ShowMarketingOptInScreen();
+}
+
+void WizardController::OnMarketingOptInScreenExit(
+    MarketingOptInScreen::Result result) {
+  OnScreenExit(MarketingOptInScreenView::kScreenId,
+               MarketingOptInScreen::GetResultString(result));
 
   OnOobeFlowFinished();
 }
 
 void WizardController::OnResetScreenExit() {
-  OnScreenExit(ResetView::kScreenId, 0 /* exit_code */);
+  OnScreenExit(ResetView::kScreenId, kResetScreenExitReason);
   OnDeviceModificationCanceled();
 }
 
 void WizardController::OnChangedMetricsReportingState(bool enabled) {
   StatsReportingController::Get()->SetEnabled(
       ProfileManager::GetActiveUserProfile(), enabled);
-  if (crash_reporter::IsCrashpadEnabled()) {
-    crash_reporter::SetUploadConsent(enabled);
-    return;
-  }
-
-  if (!enabled)
-    return;
-#if BUILDFLAG(GOOGLE_CHROME_BRANDING)
-  base::PostTask(FROM_HERE, {base::ThreadPool(), base::MayBlock()},
-                 base::BindOnce(&breakpad::InitCrashReporter, std::string()));
-#endif
 }
 
 void WizardController::OnDeviceModificationCanceled() {
+  current_screen_->Hide();
+  current_screen_ = nullptr;
   if (previous_screen_) {
-    SetCurrentScreen(previous_screen_);
-  } else {
-    if (current_screen_)
-      current_screen_->Hide();
-
-    ShowPackagedLicenseScreen();
+    const OobeScreenId start_screen = features::IsChildSpecificSigninEnabled()
+                                          ? UserCreationView::kScreenId
+                                          : GaiaView::kScreenId;
+    if (previous_screen_ == GetScreen(start_screen)) {
+      ShowLoginScreen();
+    } else {
+      SetCurrentScreen(previous_screen_);
+    }
+    return;
   }
+  ShowPackagedLicenseScreen();
 }
 
 void WizardController::OnSupervisionTransitionScreenExit() {
-  OnScreenExit(SupervisionTransitionScreenView::kScreenId, 0 /* exit_code */);
+  OnScreenExit(SupervisionTransitionScreenView::kScreenId, kDefaultExitReason);
 
   OnOobeFlowFinished();
 }
 
+void WizardController::OnUpdateRequiredScreenExit() {
+  current_screen_->Hide();
+  current_screen_ = nullptr;
+  ShowLoginScreen();
+}
+
 void WizardController::OnPackagedLicenseScreenExit(
     PackagedLicenseScreen::Result result) {
-  OnScreenExit(PackagedLicenseView::kScreenId, 0 /* exit_code */);
+  OnScreenExit(PackagedLicenseView::kScreenId,
+               PackagedLicenseScreen::GetResultString(result));
   switch (result) {
     case PackagedLicenseScreen::Result::DONT_ENROLL:
-      ShowLoginScreen(LoginScreenContext());
+    case PackagedLicenseScreen::Result::NOT_APPLICABLE:
+      ShowLoginScreen();
       break;
     case PackagedLicenseScreen::Result::ENROLL:
       ShowEnrollmentScreen();
@@ -1245,17 +1412,11 @@ void WizardController::OnPackagedLicenseScreenExit(
 }
 
 void WizardController::OnOobeFlowFinished() {
-  if (!time_oobe_started_.is_null()) {
-    base::TimeDelta delta = base::Time::Now() - time_oobe_started_;
-    UMA_HISTOGRAM_CUSTOM_TIMES("OOBE.BootToSignInCompleted", delta,
-                               base::TimeDelta::FromMilliseconds(10),
-                               base::TimeDelta::FromMinutes(30), 100);
-    time_oobe_started_ = base::Time();
-  }
+  SetCurrentScreen(nullptr);
 
   // Launch browser and delete login host controller.
-  base::PostTask(
-      FROM_HERE, {BrowserThread::UI},
+  content::GetUIThreadTaskRunner({})->PostTask(
+      FROM_HERE,
       base::BindOnce(&UserSessionManager::DoBrowserLaunch,
                      base::Unretained(UserSessionManager::GetInstance()),
                      ProfileManager::GetActiveUserProfile(),
@@ -1268,28 +1429,37 @@ void WizardController::OnDeviceDisabledChecked(bool device_disabled) {
                                       ->GetPrescribedEnrollmentConfig();
 
   bool configuration_forced_enrollment = false;
-  auto* start_enrollment_value = oobe_configuration_.FindKeyOfType(
+  auto* start_enrollment_value = wizard_context_->configuration.FindKeyOfType(
       configuration::kWizardAutoEnroll, base::Value::Type::BOOLEAN);
   if (start_enrollment_value)
     configuration_forced_enrollment = start_enrollment_value->GetBool();
+
+  // Fetch the rollback flag from |configuration|. It is not stored in the
+  // |prescribed_enrollment_config_|. To restore after rollback the enrollment
+  // screen needs to be started. (crbug.com/1093928)
+  auto* restore_after_rollback_value =
+      wizard_context_->configuration.FindKeyOfType(
+          configuration::kRestoreAfterRollback, base::Value::Type::BOOLEAN);
+  if (restore_after_rollback_value)
+    configuration_forced_enrollment |= restore_after_rollback_value->GetBool();
 
   if (device_disabled) {
     demo_setup_controller_.reset();
     ShowDeviceDisabledScreen();
   } else if (demo_setup_controller_) {
     ShowDemoModeSetupScreen();
-  } else if (skip_update_enroll_after_eula_ ||
+  } else if (wizard_context_->enrollment_triggered_early ||
              prescribed_enrollment_config_.should_enroll() ||
              configuration_forced_enrollment) {
     VLOG(1) << "StartEnrollment from OnDeviceDisabledChecked(device_disabled="
             << device_disabled << ") "
             << "skip_update_enroll_after_eula_="
-            << skip_update_enroll_after_eula_
+            << wizard_context_->enrollment_triggered_early
             << ", prescribed_enrollment_config_.should_enroll()="
             << prescribed_enrollment_config_.should_enroll()
             << ", configuration_forced_enrollment="
             << configuration_forced_enrollment;
-    StartEnrollmentScreen(skip_update_enroll_after_eula_);
+    StartEnrollmentScreen(wizard_context_->enrollment_triggered_early);
   } else {
     PerformOOBECompletedActions();
     ShowPackagedLicenseScreen();
@@ -1297,30 +1467,14 @@ void WizardController::OnDeviceDisabledChecked(bool device_disabled) {
 }
 
 void WizardController::InitiateOOBEUpdate() {
-  if (IsRemoraRequisition()) {
-    VLOG(1) << "Skip OOBE Update for remora.";
-    OnUpdateCompleted();
-    return;
-  }
-
-  const auto* skip_screen_key = oobe_configuration_.FindKeyOfType(
-      configuration::kUpdateSkipUpdate, base::Value::Type::BOOLEAN);
-  const bool skip_screen = skip_screen_key && skip_screen_key->GetBool();
-
-  if (skip_screen) {
-    VLOG(1) << "Skip OOBE Update because of configuration.";
-    OnUpdateCompleted();
-    return;
-  }
-
   // If this is a Cellular First device, instruct UpdateEngine to allow
   // updates over cellular data connections.
   if (chromeos::switches::IsCellularFirstDevice()) {
     DBusThreadManager::Get()
         ->GetUpdateEngineClient()
         ->SetUpdateOverCellularPermission(
-            true, base::Bind(&WizardController::StartOOBEUpdate,
-                             weak_factory_.GetWeakPtr()));
+            true, base::BindOnce(&WizardController::StartOOBEUpdate,
+                                 weak_factory_.GetWeakPtr()));
   } else {
     StartOOBEUpdate();
   }
@@ -1330,6 +1484,29 @@ void WizardController::StartOOBEUpdate() {
   SetCurrentScreen(GetScreen(UpdateView::kScreenId));
 }
 
+void WizardController::StartNetworkTimezoneResolve() {
+  // Bypass the network requests for the geolocation and the timezone if the
+  // timezone is being overridden through the command line.
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kOobeTimezoneOverrideForTests)) {
+    auto timezone = std::make_unique<TimeZoneResponseData>();
+    timezone->status = TimeZoneResponseData::OK;
+    timezone->timeZoneId =
+        base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
+            switches::kOobeTimezoneOverrideForTests);
+    VLOG(1) << "Timezone is being overridden with : " << timezone->timeZoneId;
+    OnTimezoneResolved(std::move(timezone), /*server_error*/ false);
+    return;
+  }
+
+  DelayNetworkCall(
+      base::TimeDelta::FromMilliseconds(kDefaultNetworkRetryDelayMS),
+      base::Bind(&WizardController::StartTimezoneResolve,
+                 weak_factory_.GetWeakPtr()));
+}
+
+// Resolving the timezone consists of first determining the location,
+// and then determining the timezone.
 void WizardController::StartTimezoneResolve() {
   if (!g_browser_process->platform_part()
            ->GetTimezoneResolverManager()
@@ -1346,15 +1523,12 @@ void WizardController::StartTimezoneResolve() {
       base::TimeDelta::FromSeconds(kResolveTimeZoneTimeoutSeconds),
       false /* send_wifi_geolocation_data */,
       false /* send_cellular_geolocation_data */,
-      base::Bind(&WizardController::OnLocationResolved,
-                 weak_factory_.GetWeakPtr()));
+      base::BindOnce(&WizardController::OnLocationResolved,
+                     weak_factory_.GetWeakPtr()));
 }
 
 void WizardController::PerformPostEulaActions() {
-  DelayNetworkCall(
-      base::TimeDelta::FromMilliseconds(kDefaultNetworkRetryDelayMS),
-      base::Bind(&WizardController::StartTimezoneResolve,
-                 weak_factory_.GetWeakPtr()));
+  StartNetworkTimezoneResolve();
   DelayNetworkCall(
       base::TimeDelta::FromMilliseconds(kDefaultNetworkRetryDelayMS),
       ServicesCustomizationDocument::GetInstance()
@@ -1385,22 +1559,26 @@ void WizardController::PerformOOBECompletedActions() {
 }
 
 void WizardController::SetCurrentScreen(BaseScreen* new_current) {
-  VLOG(1) << "SetCurrentScreen: " << new_current->screen_id();
-  if (current_screen_ == new_current || new_current == nullptr ||
-      GetOobeUI() == nullptr) {
+  VLOG(1) << "SetCurrentScreen: "
+          << (new_current ? new_current->screen_id().name : "null");
+  if (new_current && new_current->MaybeSkip(wizard_context_.get()))
     return;
-  }
+
+  if (current_screen_ == new_current || GetOobeUI() == nullptr)
+    return;
 
   if (current_screen_) {
     current_screen_->Hide();
-    current_screen_->SetConfiguration(nullptr);
   }
-
-  // Record show time for UMA.
-  screen_show_times_[new_current->screen_id()] = base::Time::Now();
 
   previous_screen_ = current_screen_;
   current_screen_ = new_current;
+
+  if (!current_screen_)
+    return;
+
+  // Record show time for UMA.
+  screen_show_times_[new_current->screen_id()] = base::TimeTicks::Now();
 
   // First remember how far have we reached so that we can resume if needed.
   if (is_out_of_box_ && !demo_setup_controller_ &&
@@ -1409,19 +1587,19 @@ void WizardController::SetCurrentScreen(BaseScreen* new_current) {
   }
 
   UpdateStatusAreaVisibilityForScreen(current_screen_->screen_id());
-  current_screen_->SetConfiguration(&oobe_configuration_);
-  current_screen_->Show();
+  current_screen_->Show(wizard_context_.get());
 }
 
 void WizardController::UpdateStatusAreaVisibilityForScreen(
-    OobeScreenId screen) {
-  if (screen == WelcomeView::kScreenId) {
+    OobeScreenId screen_id) {
+  if (screen_id == WelcomeView::kScreenId) {
     // Hide the status area initially; it only appears after OOBE first animates
     // in. Keep it visible if the user goes back to the existing welcome screen.
     GetLoginDisplayHost()->SetStatusAreaVisible(
         screen_manager_->HasScreen(WelcomeView::kScreenId));
   } else {
-    GetLoginDisplayHost()->SetStatusAreaVisible(!ShouldHideStatusArea(screen));
+    GetLoginDisplayHost()->SetStatusAreaVisible(
+        !ShouldHideStatusArea(screen_id));
   }
 }
 
@@ -1430,126 +1608,129 @@ void WizardController::OnHIDScreenNecessityCheck(bool screen_needed) {
     return;
 
   // Check for tests configuration.
-  if (StartupUtils::IsEulaAccepted() || StartupUtils::IsOobeCompleted())
+  if (wizard_context_->skip_to_update_for_tests)
     return;
 
-  const auto* skip_screen_key = oobe_configuration_.FindKeyOfType(
-      configuration::kSkipHIDDetection, base::Value::Type::BOOLEAN);
-  const bool skip_screen = skip_screen_key && skip_screen_key->GetBool();
-
-  if (screen_needed && !skip_screen)
+  if (screen_needed)
     ShowHIDDetectionScreen();
   else
-    ShowWelcomeScreen();
+    AdvanceToScreenAfterHIDDetection(OobeScreen::SCREEN_UNKNOWN);
 }
 
 void WizardController::UpdateOobeConfiguration() {
-  oobe_configuration_ = base::Value(base::Value::Type::DICTIONARY);
+  wizard_context_->configuration = base::Value(base::Value::Type::DICTIONARY);
   chromeos::configuration::FilterConfiguration(
       OobeConfiguration::Get()->GetConfiguration(),
       chromeos::configuration::ConfigurationHandlerSide::HANDLER_CPP,
-      oobe_configuration_);
-  auto* requisition_value = oobe_configuration_.FindKeyOfType(
+      wizard_context_->configuration);
+  auto* requisition_value = wizard_context_->configuration.FindKeyOfType(
       configuration::kDeviceRequisition, base::Value::Type::STRING);
   if (requisition_value) {
-    auto* policy_manager = g_browser_process->platform_part()
-                               ->browser_policy_connector_chromeos()
-                               ->GetDeviceCloudPolicyManager();
-    if (policy_manager) {
-      VLOG(1) << "Using Device Requisition from configuration"
-              << requisition_value->GetString();
-      policy_manager->SetDeviceRequisition(requisition_value->GetString());
-    }
+    VLOG(1) << "Using Device Requisition from configuration"
+            << requisition_value->GetString();
+    policy::EnrollmentRequisitionManager::SetDeviceRequisition(
+        requisition_value->GetString());
   }
 }
 
-void WizardController::AdvanceToScreen(OobeScreenId screen) {
-  if (screen == WelcomeView::kScreenId) {
-    ShowWelcomeScreen();
-  } else if (screen == NetworkScreenView::kScreenId) {
-    ShowNetworkScreen();
-  } else if (screen == OobeScreen::SCREEN_SPECIAL_LOGIN) {
-    ShowLoginScreen(LoginScreenContext());
-  } else if (screen == PackagedLicenseView::kScreenId) {
-    ShowPackagedLicenseScreen();
-  } else if (screen == UpdateView::kScreenId) {
-    InitiateOOBEUpdate();
-  } else if (screen == EulaView::kScreenId) {
-    ShowEulaScreen();
-  } else if (screen == ResetView::kScreenId) {
-    ShowResetScreen();
-  } else if (screen == KioskEnableScreenView::kScreenId) {
-    ShowKioskEnableScreen();
-  } else if (screen == KioskAutolaunchScreenView::kScreenId) {
-    ShowKioskAutolaunchScreen();
-  } else if (screen == EnableAdbSideloadingScreenView::kScreenId) {
-    ShowEnableAdbSideloadingScreen();
-  } else if (screen == EnableDebuggingScreenView::kScreenId) {
-    ShowEnableDebuggingScreen();
-  } else if (screen == EnrollmentScreenView::kScreenId) {
-    ShowEnrollmentScreen();
-  } else if (screen == DemoSetupScreenView::kScreenId) {
-    ShowDemoModeSetupScreen();
-  } else if (screen == DemoPreferencesScreenView::kScreenId) {
-    ShowDemoModePreferencesScreen();
-  } else if (screen == TermsOfServiceScreenView::kScreenId) {
-    ShowTermsOfServiceScreen();
-  } else if (screen == SyncConsentScreenView::kScreenId) {
-    ShowSyncConsentScreen();
-  } else if (screen == ArcTermsOfServiceScreenView::kScreenId) {
-    ShowArcTermsOfServiceScreen();
-  } else if (screen == RecommendAppsScreenView::kScreenId) {
-    ShowRecommendAppsScreen();
-  } else if (screen == AppDownloadingScreenView::kScreenId) {
-    ShowAppDownloadingScreen();
-  } else if (screen == WrongHWIDScreenView::kScreenId) {
-    ShowWrongHWIDScreen();
-  } else if (screen == AutoEnrollmentCheckScreenView::kScreenId) {
-    ShowAutoEnrollmentCheckScreen();
-  } else if (screen == AppLaunchSplashScreenView::kScreenId) {
-    AutoLaunchKioskApp();
-  } else if (screen == ArcKioskSplashScreenView::kScreenId) {
-    ShowArcKioskSplashScreen();
-  } else if (screen == HIDDetectionView::kScreenId) {
-    ShowHIDDetectionScreen();
-  } else if (screen == DeviceDisabledScreenView::kScreenId) {
-    ShowDeviceDisabledScreen();
-  } else if (screen == EncryptionMigrationScreenView::kScreenId) {
-    ShowEncryptionMigrationScreen();
-  } else if (screen == UpdateRequiredView::kScreenId) {
-    ShowUpdateRequiredScreen();
-  } else if (screen == AssistantOptInFlowScreenView::kScreenId) {
-    ShowAssistantOptInFlowScreen();
-  } else if (screen == MultiDeviceSetupScreenView::kScreenId) {
-    ShowMultiDeviceSetupScreen();
-  } else if (screen == DiscoverScreenView::kScreenId) {
-    ShowDiscoverScreen();
-  } else if (screen == FingerprintSetupScreenView::kScreenId) {
-    ShowFingerprintSetupScreen();
-  } else if (screen == MarketingOptInScreenView::kScreenId) {
-    ShowMarketingOptInScreen();
-  } else if (screen == SupervisionTransitionScreenView::kScreenId) {
-    ShowSupervisionTransitionScreen();
-  } else if (screen != OobeScreen::SCREEN_TEST_NO_WINDOW) {
-    if (is_out_of_box_) {
-      time_oobe_started_ = base::Time::Now();
-      if (CanShowHIDDetectionScreen()) {
-        hid_screen_ = GetScreen(HIDDetectionView::kScreenId);
-        base::Callback<void(bool)> on_check =
-            base::Bind(&WizardController::OnHIDScreenNecessityCheck,
-                       weak_factory_.GetWeakPtr());
-        GetOobeUI()
-            ->GetView<HIDDetectionScreenHandler>()
-            ->CheckIsScreenRequired(on_check);
-      } else {
-        ShowWelcomeScreen();
-      }
-    } else {
-      DeviceSettingsService::Get()->GetOwnershipStatusAsync(
-          base::Bind(&WizardController::OnOwnershipStatusCheckDone,
-                     weak_factory_.GetWeakPtr()));
-    }
+bool WizardController::CanNavigateTo(OobeScreenId screen_id) {
+  if (!current_screen_)
+    return true;
+  BaseScreen* next_screen = GetScreen(screen_id);
+  return next_screen->screen_priority() <= current_screen_->screen_priority();
+}
+
+void WizardController::AdvanceToScreen(OobeScreenId screen_id) {
+  if (features::IsOobeScreensPriorityEnabled() && !CanNavigateTo(screen_id)) {
+    LOG(WARNING) << "Cannot advance to screen : " << screen_id
+                 << " as it's priority is less than the current screen : "
+                 << current_screen_->screen_id();
+    return;
   }
+  login_screen_started_ = false;
+
+  if (screen_id == WelcomeView::kScreenId) {
+    ShowWelcomeScreen();
+  } else if (screen_id == NetworkScreenView::kScreenId) {
+    ShowNetworkScreen();
+  } else if (screen_id == PackagedLicenseView::kScreenId) {
+    ShowPackagedLicenseScreen();
+  } else if (screen_id == UpdateView::kScreenId) {
+    InitiateOOBEUpdate();
+  } else if (screen_id == EulaView::kScreenId) {
+    ShowEulaScreen();
+  } else if (screen_id == ResetView::kScreenId) {
+    ShowResetScreen();
+  } else if (screen_id == KioskEnableScreenView::kScreenId) {
+    ShowKioskEnableScreen();
+  } else if (screen_id == KioskAutolaunchScreenView::kScreenId) {
+    ShowKioskAutolaunchScreen();
+  } else if (screen_id == EnableAdbSideloadingScreenView::kScreenId) {
+    ShowEnableAdbSideloadingScreen();
+  } else if (screen_id == EnableDebuggingScreenView::kScreenId) {
+    ShowEnableDebuggingScreen();
+  } else if (screen_id == EnrollmentScreenView::kScreenId) {
+    ShowEnrollmentScreen();
+  } else if (screen_id == DemoSetupScreenView::kScreenId) {
+    ShowDemoModeSetupScreen();
+  } else if (screen_id == DemoPreferencesScreenView::kScreenId) {
+    ShowDemoModePreferencesScreen();
+  } else if (screen_id == TermsOfServiceScreenView::kScreenId) {
+    ShowTermsOfServiceScreen();
+  } else if (screen_id == SyncConsentScreenView::kScreenId) {
+    ShowSyncConsentScreen();
+  } else if (screen_id == ArcTermsOfServiceScreenView::kScreenId) {
+    ShowArcTermsOfServiceScreen();
+  } else if (screen_id == RecommendAppsScreenView::kScreenId) {
+    ShowRecommendAppsScreen();
+  } else if (screen_id == AppDownloadingScreenView::kScreenId) {
+    ShowAppDownloadingScreen();
+  } else if (screen_id == WrongHWIDScreenView::kScreenId) {
+    ShowWrongHWIDScreen();
+  } else if (screen_id == AutoEnrollmentCheckScreenView::kScreenId) {
+    ShowAutoEnrollmentCheckScreen();
+  } else if (screen_id == AppLaunchSplashScreenView::kScreenId) {
+    AutoLaunchKioskApp(KioskAppType::CHROME_APP);
+  } else if (screen_id == HIDDetectionView::kScreenId) {
+    ShowHIDDetectionScreen();
+  } else if (screen_id == DeviceDisabledScreenView::kScreenId) {
+    ShowDeviceDisabledScreen();
+  } else if (screen_id == EncryptionMigrationScreenView::kScreenId) {
+    ShowEncryptionMigrationScreen();
+  } else if (screen_id == UpdateRequiredView::kScreenId) {
+    ShowUpdateRequiredScreen();
+  } else if (screen_id == AssistantOptInFlowScreenView::kScreenId) {
+    ShowAssistantOptInFlowScreen();
+  } else if (screen_id == MultiDeviceSetupScreenView::kScreenId) {
+    ShowMultiDeviceSetupScreen();
+  } else if (screen_id == GestureNavigationScreenView::kScreenId) {
+    ShowGestureNavigationScreen();
+  } else if (screen_id == DiscoverScreenView::kScreenId) {
+    ShowDiscoverScreen();
+  } else if (screen_id == FingerprintSetupScreenView::kScreenId) {
+    ShowFingerprintSetupScreen();
+  } else if (screen_id == MarketingOptInScreenView::kScreenId) {
+    ShowMarketingOptInScreen();
+  } else if (screen_id == SupervisionTransitionScreenView::kScreenId) {
+    ShowSupervisionTransitionScreen();
+  } else if (screen_id == TpmErrorView::kScreenId ||
+             screen_id == GaiaPasswordChangedView::kScreenId ||
+             screen_id == ActiveDirectoryPasswordChangeView::kScreenId ||
+             screen_id == FamilyLinkNoticeView::kScreenId ||
+             screen_id == GaiaView::kScreenId ||
+             screen_id == UserCreationView::kScreenId) {
+    SetCurrentScreen(GetScreen(screen_id));
+  } else {
+    NOTREACHED();
+  }
+}
+
+bool WizardController::HandleAccelerator(ash::LoginAcceleratorAction action) {
+  if (current_screen_) {
+    if (current_screen_->HandleAccelerator(action))
+      return true;
+  }
+  return false;
 }
 
 void WizardController::StartDemoModeSetup() {
@@ -1588,55 +1769,35 @@ void WizardController::OnAccessibilityStatusChanged(
   }
 }
 
-void WizardController::OnGuestModePolicyUpdated() {
-  ash::LoginScreen::Get()->SetAllowLoginAsGuest(
-      user_manager::UserManager::Get()->IsGuestSessionAllowed());
-}
-
-void WizardController::AutoLaunchKioskApp() {
-  KioskAppManager::App app_data;
-  std::string app_id = KioskAppManager::Get()->GetAutoLaunchApp();
-  CHECK(KioskAppManager::Get()->GetApp(app_id, &app_data));
-
-  // Wait for the |CrosSettings| to become either trusted or permanently
-  // untrusted.
-  const CrosSettingsProvider::TrustedStatus status =
-      CrosSettings::Get()->PrepareTrustedValues(base::Bind(
-          &WizardController::AutoLaunchKioskApp, weak_factory_.GetWeakPtr()));
-  if (status == CrosSettingsProvider::TEMPORARILY_UNTRUSTED)
-    return;
-
-  if (status == CrosSettingsProvider::PERMANENTLY_UNTRUSTED) {
-    // If the |cros_settings_| are permanently untrusted, show an error message
-    // and refuse to auto-launch the kiosk app.
-    GetErrorScreen()->SetUIState(NetworkError::UI_STATE_LOCAL_STATE_ERROR);
-    GetLoginDisplayHost()->SetStatusAreaVisible(false);
-    ShowErrorScreen();
-    return;
+void WizardController::AutoLaunchKioskApp(KioskAppType app_type) {
+  KioskAppId kiosk_app_id;
+  switch (app_type) {
+    case KioskAppType::CHROME_APP: {
+      KioskAppManagerBase::App app_data;
+      std::string app_id = KioskAppManager::Get()->GetAutoLaunchApp();
+      CHECK(KioskAppManager::Get()->GetApp(app_id, &app_data));
+      kiosk_app_id = KioskAppId::ForChromeApp(app_id);
+      break;
+    }
+    case KioskAppType::WEB_APP: {
+      const AccountId account_id =
+          WebKioskAppManager::Get()->GetAutoLaunchAccountId();
+      kiosk_app_id = KioskAppId::ForWebApp(account_id);
+      break;
+    }
+    case KioskAppType::ARC_APP:
+      const AccountId account_id =
+          ArcKioskAppManager::Get()->GetAutoLaunchAccountId();
+      kiosk_app_id = KioskAppId::ForArcApp(account_id);
+      break;
   }
-
-  if (system::DeviceDisablingManager::IsDeviceDisabledDuringNormalOperation()) {
-    // If the device is disabled, bail out. A device disabled screen will be
-    // shown by the DeviceDisablingManager.
-    return;
-  }
-
-  const bool diagnostic_mode = false;
-  const bool auto_launch = true;
-  GetLoginDisplayHost()->StartAppLaunch(app_id, diagnostic_mode, auto_launch);
-}
-
-void WizardController::AutoLaunchWebKioskApp() {
-  const AccountId account_id =
-      WebKioskAppManager::Get()->GetAutoLaunchAccountId();
-  CHECK(WebKioskAppManager::Get()->GetAppByAccountId(account_id));
 
   // Wait for the |CrosSettings| to become either trusted or permanently
   // untrusted.
   const CrosSettingsProvider::TrustedStatus status =
       CrosSettings::Get()->PrepareTrustedValues(
-          base::Bind(&WizardController::AutoLaunchWebKioskApp,
-                     weak_factory_.GetWeakPtr()));
+          base::BindOnce(&WizardController::AutoLaunchKioskApp,
+                         weak_factory_.GetWeakPtr(), app_type));
   if (status == CrosSettingsProvider::TEMPORARILY_UNTRUSTED)
     return;
 
@@ -1655,7 +1816,8 @@ void WizardController::AutoLaunchWebKioskApp() {
     return;
   }
 
-  GetLoginDisplayHost()->StartWebKiosk(account_id);
+  constexpr bool auto_launch = true;
+  GetLoginDisplayHost()->StartKiosk(kiosk_app_id, auto_launch);
 }
 
 // static
@@ -1677,6 +1839,7 @@ void WizardController::SkipPostLoginScreensForTesting() {
   const OobeScreenId current_screen_id =
       default_controller()->current_screen()->screen_id();
   if (current_screen_id == TermsOfServiceScreenView::kScreenId ||
+      current_screen_id == FamilyLinkNoticeView::kScreenId ||
       current_screen_id == SyncConsentScreenView::kScreenId ||
       current_screen_id == FingerprintSetupScreenView::kScreenId ||
       current_screen_id == ArcTermsOfServiceScreenView::kScreenId ||
@@ -1715,6 +1878,17 @@ void WizardController::OnLocalStateInitialized(bool /* succeeded */) {
   GetErrorScreen()->SetUIState(NetworkError::UI_STATE_LOCAL_STATE_ERROR);
   GetLoginDisplayHost()->SetStatusAreaVisible(false);
   ShowErrorScreen();
+}
+
+void WizardController::PrepareFirstRunPrefs() {
+  // Showoff starts in parallel to OOBE onboarding. We need to store the prefs
+  // early to make sure showoff has the correct data when launched.
+  Profile* profile = ProfileManager::GetActiveUserProfile();
+  bool shouldShowParentalControl =
+      wizard_context_->sign_in_as_child && !profile->IsChild() &&
+      !profile->GetProfilePolicyConnector()->IsManaged();
+  profile->GetPrefs()->SetBoolean(prefs::kHelpAppShouldShowParentalControl,
+                                  shouldShowParentalControl);
 }
 
 PrefService* WizardController::GetLocalState() {
@@ -1799,8 +1973,8 @@ void WizardController::OnLocationResolved(const Geoposition& position,
   // cancelled on destruction.
   GetTimezoneProvider()->RequestTimezone(
       position, timeout - elapsed,
-      base::Bind(&WizardController::OnTimezoneResolved,
-                 weak_factory_.GetWeakPtr()));
+      base::BindOnce(&WizardController::OnTimezoneResolved,
+                     weak_factory_.GetWeakPtr()));
 }
 
 bool WizardController::SetOnTimeZoneResolvedForTesting(
@@ -1831,14 +2005,15 @@ void WizardController::StartEnrollmentScreen(bool force_interactive) {
 
   // If chrome version is rolled back via policy, the device is actually
   // enrolled but some enrollment-flow steps still need to be taken.
-  auto* restore_after_rollback_value = oobe_configuration_.FindKeyOfType(
-      configuration::kRestoreAfterRollback, base::Value::Type::BOOLEAN);
+  auto* restore_after_rollback_value =
+      wizard_context_->configuration.FindKeyOfType(
+          configuration::kRestoreAfterRollback, base::Value::Type::BOOLEAN);
   if (restore_after_rollback_value && restore_after_rollback_value->GetBool())
     effective_config.mode = policy::EnrollmentConfig::MODE_ENROLLED_ROLLBACK;
 
   // If enrollment token is specified via OOBE configuration use corresponding
   // configuration.
-  auto* enrollment_token = oobe_configuration_.FindKeyOfType(
+  auto* enrollment_token = wizard_context_->configuration.FindKeyOfType(
       configuration::kEnrollmentToken, base::Value::Type::STRING);
   if (enrollment_token && !enrollment_token->GetString().empty()) {
     effective_config.mode =

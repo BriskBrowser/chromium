@@ -6,10 +6,12 @@ package org.chromium.weblayer.test;
 
 import android.net.Uri;
 import android.support.test.InstrumentationRegistry;
-import android.support.test.filters.SmallTest;
 import android.util.Pair;
 import android.webkit.ValueCallback;
 
+import androidx.test.filters.SmallTest;
+
+import org.hamcrest.Matchers;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Rule;
@@ -25,6 +27,7 @@ import org.chromium.weblayer.DownloadCallback;
 import org.chromium.weblayer.DownloadError;
 import org.chromium.weblayer.DownloadState;
 import org.chromium.weblayer.Profile;
+import org.chromium.weblayer.WebLayer;
 import org.chromium.weblayer.shell.InstrumentationActivity;
 
 import java.io.File;
@@ -40,6 +43,8 @@ public class DownloadCallbackTest {
     public InstrumentationActivityTestRule mActivityTestRule =
             new InstrumentationActivityTestRule();
 
+    private static boolean sIsFileNameSupported;
+
     private InstrumentationActivity mActivity;
     private Callback mCallback;
 
@@ -49,6 +54,7 @@ public class DownloadCallbackTest {
         public String mContentDisposition;
         public String mMimetype;
         public String mLocation;
+        public String mFileName;
         public @DownloadState int mState;
         public @DownloadError int mError;
         public long mContentLength;
@@ -77,14 +83,19 @@ public class DownloadCallbackTest {
         @Override
         public void onDownloadStarted(Download download) {
             mSeenStarted = true;
+            download.disableNotification();
         }
 
         @Override
         public void onDownloadCompleted(Download download) {
             mSeenCompleted = true;
             mLocation = download.getLocation().toString();
+            if (sIsFileNameSupported) {
+                mFileName = download.getFileNameToReportToUser().toString();
+            }
             mState = download.getState();
             mError = download.getError();
+            mMimetype = download.getMimeType();
         }
 
         @Override
@@ -95,39 +106,20 @@ public class DownloadCallbackTest {
         }
 
         public void waitForIntercept() {
-            CriteriaHelper.pollInstrumentationThread(new Criteria() {
-                @Override
-                public boolean isSatisfied() {
-                    return mUrl != null;
-                }
-            }, CriteriaHelper.DEFAULT_MAX_TIME_TO_POLL, CriteriaHelper.DEFAULT_POLLING_INTERVAL);
+            CriteriaHelper.pollInstrumentationThread(
+                    () -> Criteria.checkThat(mUrl, Matchers.notNullValue()));
         }
 
         public void waitForStarted() {
-            CriteriaHelper.pollInstrumentationThread(new Criteria() {
-                @Override
-                public boolean isSatisfied() {
-                    return mSeenStarted;
-                }
-            }, CriteriaHelper.DEFAULT_MAX_TIME_TO_POLL, CriteriaHelper.DEFAULT_POLLING_INTERVAL);
+            CriteriaHelper.pollInstrumentationThread(() -> mSeenStarted);
         }
 
         public void waitForCompleted() {
-            CriteriaHelper.pollInstrumentationThread(new Criteria() {
-                @Override
-                public boolean isSatisfied() {
-                    return mSeenCompleted;
-                }
-            }, CriteriaHelper.DEFAULT_MAX_TIME_TO_POLL, CriteriaHelper.DEFAULT_POLLING_INTERVAL);
+            CriteriaHelper.pollInstrumentationThread(() -> mSeenCompleted);
         }
 
         public void waitForFailed() {
-            CriteriaHelper.pollInstrumentationThread(new Criteria() {
-                @Override
-                public boolean isSatisfied() {
-                    return mSeenFailed;
-                }
-            }, CriteriaHelper.DEFAULT_MAX_TIME_TO_POLL, CriteriaHelper.DEFAULT_POLLING_INTERVAL);
+            CriteriaHelper.pollInstrumentationThread(() -> mSeenFailed);
         }
     }
 
@@ -143,9 +135,12 @@ public class DownloadCallbackTest {
 
         mCallback = new Callback();
         TestThreadUtils.runOnUiThreadBlocking(() -> {
-            mActivity.getTab().setDownloadCallback(mCallback);
             Profile profile = mActivity.getBrowser().getProfile();
+            profile.setDownloadCallback(mCallback);
             profile.setDownloadDirectory(new File(tempDownloadDirectory));
+
+            sIsFileNameSupported =
+                    WebLayer.getSupportedMajorVersion(mActivity.getApplicationContext()) >= 86;
         });
     }
 
@@ -211,7 +206,11 @@ public class DownloadCallbackTest {
 
         Assert.assertTrue(mCallback.mLocation.contains(
                 "org.chromium.weblayer.shell/cache/weblayer/Downloads/"));
+        if (sIsFileNameSupported) {
+            Assert.assertTrue(mCallback.mFileName.contains("test"));
+        }
         Assert.assertEquals(DownloadState.COMPLETE, mCallback.mState);
         Assert.assertEquals(DownloadError.NO_ERROR, mCallback.mError);
+        Assert.assertEquals("text/html", mCallback.mMimetype);
     }
 }

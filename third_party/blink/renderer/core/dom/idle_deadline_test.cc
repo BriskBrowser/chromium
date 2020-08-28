@@ -17,6 +17,9 @@ namespace {
 class MockIdleDeadlineScheduler final : public ThreadScheduler {
  public:
   MockIdleDeadlineScheduler() = default;
+  MockIdleDeadlineScheduler(const MockIdleDeadlineScheduler&) = delete;
+  MockIdleDeadlineScheduler& operator=(const MockIdleDeadlineScheduler&) =
+      delete;
   ~MockIdleDeadlineScheduler() override = default;
 
   // ThreadScheduler implementation:
@@ -39,7 +42,7 @@ class MockIdleDeadlineScheduler final : public ThreadScheduler {
   scoped_refptr<base::SingleThreadTaskRunner> CompositorTaskRunner() override {
     return nullptr;
   }
-  scoped_refptr<base::SingleThreadTaskRunner> IPCTaskRunner() override {
+  scoped_refptr<base::SingleThreadTaskRunner> NonWakingTaskRunner() override {
     return nullptr;
   }
   scoped_refptr<base::SingleThreadTaskRunner> DeprecatedDefaultTaskRunner()
@@ -67,9 +70,6 @@ class MockIdleDeadlineScheduler final : public ThreadScheduler {
   }
 
   void SetV8Isolate(v8::Isolate* isolate) override {}
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(MockIdleDeadlineScheduler);
 };
 
 }  // namespace

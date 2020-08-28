@@ -36,12 +36,14 @@ void GeometryMapperTransformCache::Update(
   }
 
   const GeometryMapperTransformCache& parent =
-      node.Parent()->GetTransformCache();
+      node.UnaliasedParent()->GetTransformCache();
 
   // screen_transform_ will be updated only when needed.
   screen_transform_ = nullptr;
 
   if (node.IsIdentityOr2DTranslation()) {
+    // We always use full matrix for animating transforms.
+    DCHECK(!node.HasActiveTransformAnimation());
     root_of_2d_translation_ = parent.root_of_2d_translation_;
     to_2d_translation_root_ = parent.to_2d_translation_root_;
     const auto& translation = node.Translation2D();
@@ -57,6 +59,9 @@ void GeometryMapperTransformCache::Update(
       plane_root_transform_->from_plane_root = parent.from_plane_root();
       plane_root_transform_->from_plane_root.PostTranslate(
           -translation.Width(), -translation.Height());
+      plane_root_transform_->has_animation =
+          parent.plane_root_transform_->has_animation ||
+          node.HasActiveTransformAnimation();
     } else {
       // The parent doesn't have plane_root_transform_ means that the parent's
       // plane root is the same as the 2d translation root, so this node
@@ -86,6 +91,7 @@ void GeometryMapperTransformCache::Update(
     plane_root_transform_->plane_root = &node;
     plane_root_transform_->to_plane_root.MakeIdentity();
     plane_root_transform_->from_plane_root.MakeIdentity();
+    plane_root_transform_->has_animation = false;
   } else {
     plane_root_transform_->plane_root = parent.plane_root();
     plane_root_transform_->to_plane_root.MakeIdentity();
@@ -93,6 +99,9 @@ void GeometryMapperTransformCache::Update(
     plane_root_transform_->to_plane_root.Multiply(local);
     plane_root_transform_->from_plane_root = local.Inverse();
     parent.ApplyFromPlaneRoot(plane_root_transform_->from_plane_root);
+    plane_root_transform_->has_animation =
+        parent.has_animation_to_plane_root() ||
+        node.HasActiveTransformAnimation();
   }
 }
 
@@ -109,8 +118,9 @@ void GeometryMapperTransformCache::UpdateScreenTransform(
   // If the node is the root, then its plane root is itself, and we should have
   // returned above.
   DCHECK(!node.IsRoot());
-  node.Parent()->UpdateScreenTransform();
-  const auto& parent = node.Parent()->GetTransformCache();
+  auto* parent_node = node.UnaliasedParent();
+  parent_node->UpdateScreenTransform();
+  const auto& parent = parent_node->GetTransformCache();
 
   screen_transform_.reset(new ScreenTransform());
   parent.ApplyToScreen(screen_transform_->to_screen);
@@ -130,6 +140,8 @@ void GeometryMapperTransformCache::UpdateScreenTransform(
       to_screen_flattened.IsInvertible();
   if (screen_transform_->projection_from_screen_is_valid)
     screen_transform_->projection_from_screen = to_screen_flattened.Inverse();
+
+  screen_transform_->has_animation |= node.HasActiveTransformAnimation();
 }
 
 #if DCHECK_IS_ON()

@@ -9,11 +9,11 @@
 
 #include "ash/app_list/test/app_list_test_helper.h"
 #include "ash/focus_cycler.h"
+#include "ash/frame_throttler/mock_frame_throttling_observer.h"
 #include "ash/home_screen/home_screen_controller.h"
 #include "ash/public/cpp/ash_features.h"
 #include "ash/public/cpp/shell_window_ids.h"
 #include "ash/public/cpp/window_properties.h"
-#include "ash/scoped_root_window_for_new_windows.h"
 #include "ash/session/session_controller_impl.h"
 #include "ash/session/test_session_controller_client.h"
 #include "ash/shelf/shelf.h"
@@ -30,6 +30,7 @@
 #include "ash/wm/window_state.h"
 #include "ash/wm/window_util.h"
 #include "ash/wm/wm_event.h"
+#include "base/test/metrics/histogram_tester.h"
 #include "base/test/scoped_feature_list.h"
 #include "ui/aura/client/aura_constants.h"
 #include "ui/aura/client/screen_position_client.h"
@@ -40,6 +41,7 @@
 #include "ui/display/display_layout_builder.h"
 #include "ui/display/manager/display_layout_store.h"
 #include "ui/display/manager/display_manager.h"
+#include "ui/display/scoped_display_for_new_windows.h"
 #include "ui/display/test/display_manager_test_api.h"
 #include "ui/events/event_handler.h"
 #include "ui/events/test/event_generator.h"
@@ -112,6 +114,13 @@ class WindowCycleControllerTest : public AshTestBase {
         ->window_cycle_controller()
         ->window_cycle_list()
         ->widget();
+  }
+
+  const views::View::Views& GetWindowCycleItemViews() const {
+    return Shell::Get()
+        ->window_cycle_controller()
+        ->window_cycle_list()
+        ->GetWindowCycleItemViewsForTesting();
   }
 
  private:
@@ -421,7 +430,7 @@ TEST_F(WindowCycleControllerTest, AlwaysOnTopMultipleRootWindows) {
   EXPECT_EQ(root_windows[0], window1->GetRootWindow());
 
   // Move the active root window to the secondary root and create two windows.
-  ScopedRootWindowForNewWindows root_for_new_windows(root_windows[1]);
+  display::ScopedDisplayForNewWindows display_for_new_windows(root_windows[1]);
   std::unique_ptr<Window> window2(CreateTestWindowInShellWithId(2));
   EXPECT_EQ(root_windows[1], window2->GetRootWindow());
 
@@ -572,6 +581,11 @@ TEST_F(WindowCycleControllerTest, TabKeyNotLeaked) {
 
 // While the UI is active, mouse events are captured.
 TEST_F(WindowCycleControllerTest, MouseEventsCaptured) {
+  // Set up a second root window
+  UpdateDisplay("1000x600,600x400");
+  aura::Window::Windows root_windows = Shell::GetAllRootWindows();
+  ASSERT_EQ(2U, root_windows.size());
+
   // This delegate allows the window to receive mouse events.
   aura::test::TestWindowDelegate delegate;
   std::unique_ptr<Window> w0(CreateTestWindowInShellWithDelegate(
@@ -604,6 +618,11 @@ TEST_F(WindowCycleControllerTest, MouseEventsCaptured) {
   controller->CompleteCycling();
   generator->ClickLeftButton();
   EXPECT_LT(0, event_count.GetMouseEventCountAndReset());
+
+  // Click somewhere on the second root window.
+  generator->MoveMouseToCenterOf(root_windows[1]);
+  generator->ClickLeftButton();
+  EXPECT_EQ(0, event_count.GetMouseEventCountAndReset());
 }
 
 // Tests that we can cycle past fullscreen windows: https://crbug.com/622396.
@@ -648,7 +667,7 @@ TEST_F(WindowCycleControllerTest, TabPastFullscreenWindow) {
 TEST_F(WindowCycleControllerTest, MultiDisplayPositioning) {
   int64_t primary_id = GetPrimaryDisplay().id();
   display::DisplayIdList list =
-      display::test::CreateDisplayIdListN(2, primary_id, primary_id + 1);
+      display::test::CreateDisplayIdListN(primary_id, 2);
 
   auto placements = {
       display::DisplayPlacement::BOTTOM, display::DisplayPlacement::TOP,
@@ -696,34 +715,20 @@ TEST_F(WindowCycleControllerTest, MultiDisplayPositioning) {
   }
 }
 
-class DesksWindowCyclingTest : public WindowCycleControllerTest {
- public:
-  DesksWindowCyclingTest() = default;
-  ~DesksWindowCyclingTest() override = default;
-
-  // WindowCycleControllerTest:
-  void SetUp() override {
-    scoped_feature_list_.InitAndEnableFeature(features::kVirtualDesks);
-    WindowCycleControllerTest::SetUp();
-  }
-
- private:
-  base::test::ScopedFeatureList scoped_feature_list_;
-
-  DISALLOW_COPY_AND_ASSIGN(DesksWindowCyclingTest);
-};
-
-TEST_F(DesksWindowCyclingTest, CycleShowsAllDesksWindows) {
-  // Create two desks with two windows in each.
+TEST_F(WindowCycleControllerTest, CycleShowsAllDesksWindows) {
   auto win0 = CreateAppWindow(gfx::Rect(0, 0, 250, 100));
   auto win1 = CreateAppWindow(gfx::Rect(50, 50, 200, 200));
   auto* desks_controller = DesksController::Get();
   desks_controller->NewDesk(DesksCreationRemovalSource::kButton);
-  ASSERT_EQ(2u, desks_controller->desks().size());
+  desks_controller->NewDesk(DesksCreationRemovalSource::kButton);
+  ASSERT_EQ(3u, desks_controller->desks().size());
   const Desk* desk_2 = desks_controller->desks()[1].get();
   ActivateDesk(desk_2);
   EXPECT_EQ(desk_2, desks_controller->active_desk());
   auto win2 = CreateAppWindow(gfx::Rect(0, 0, 300, 200));
+  const Desk* desk_3 = desks_controller->desks()[2].get();
+  ActivateDesk(desk_3);
+  EXPECT_EQ(desk_3, desks_controller->active_desk());
   auto win3 = CreateAppWindow(gfx::Rect(10, 30, 400, 200));
 
   WindowCycleController* cycle_controller =
@@ -740,13 +745,290 @@ TEST_F(DesksWindowCyclingTest, CycleShowsAllDesksWindows) {
   // The MRU order is {win3, win2, win1, win0}. We're now at win2. Cycling one
   // more time and completing the cycle, will activate win1 which exists on a
   // desk_1. This should activate desk_1.
-  DeskSwitchAnimationWaiter waiter;
+  {
+    base::HistogramTester histogram_tester;
+    DeskSwitchAnimationWaiter waiter;
+    cycle_controller->HandleCycleWindow(WindowCycleController::FORWARD);
+    cycle_controller->CompleteCycling();
+    waiter.Wait();
+    Desk* desk_1 = desks_controller->desks()[0].get();
+    EXPECT_EQ(desk_1, desks_controller->active_desk());
+    EXPECT_EQ(win1.get(), window_util::GetActiveWindow());
+    histogram_tester.ExpectUniqueSample(
+        "Ash.WindowCycleController.DesksSwitchDistance",
+        /*desk distance of 3 - 1 = */ 2, /*expected_count=*/1);
+  }
+
+  // Cycle again and activate win2, which exist on desk_2. Expect that desk to
+  // be activated, and a histogram sample of distance of 1 is recorded.
+  // MRU is {win1, win3, win2, win0}.
+  {
+    base::HistogramTester histogram_tester;
+    DeskSwitchAnimationWaiter waiter;
+    cycle_controller->HandleCycleWindow(WindowCycleController::FORWARD);
+    cycle_controller->HandleCycleWindow(WindowCycleController::FORWARD);
+    cycle_controller->CompleteCycling();
+    waiter.Wait();
+    EXPECT_EQ(desk_2, desks_controller->active_desk());
+    EXPECT_EQ(win2.get(), window_util::GetActiveWindow());
+    histogram_tester.ExpectUniqueSample(
+        "Ash.WindowCycleController.DesksSwitchDistance",
+        /*desk distance of 2 - 1 = */ 1, /*expected_count=*/1);
+  }
+}
+
+class LimitedWindowCycleControllerTest : public WindowCycleControllerTest {
+ public:
+  LimitedWindowCycleControllerTest() = default;
+  LimitedWindowCycleControllerTest(const LimitedWindowCycleControllerTest&) =
+      delete;
+  LimitedWindowCycleControllerTest& operator=(
+      const LimitedWindowCycleControllerTest&) = delete;
+  ~LimitedWindowCycleControllerTest() override = default;
+
+  // WindowCycleControllerTest:
+  void SetUp() override {
+    scoped_feature_list_.InitAndEnableFeature(
+        features::kLimitAltTabToActiveDesk);
+    WindowCycleControllerTest::SetUp();
+  }
+
+ private:
+  base::test::ScopedFeatureList scoped_feature_list_;
+};
+
+TEST_F(LimitedWindowCycleControllerTest, CycleShowsActiveDeskWindows) {
+  auto win0 = CreateAppWindow(gfx::Rect(0, 0, 250, 100));
+  auto win1 = CreateAppWindow(gfx::Rect(50, 50, 200, 200));
+  auto* desks_controller = DesksController::Get();
+  desks_controller->NewDesk(DesksCreationRemovalSource::kButton);
+  desks_controller->NewDesk(DesksCreationRemovalSource::kButton);
+  ASSERT_EQ(3u, desks_controller->desks().size());
+  const Desk* desk_2 = desks_controller->desks()[1].get();
+  ActivateDesk(desk_2);
+  EXPECT_EQ(desk_2, desks_controller->active_desk());
+  auto win2 = CreateAppWindow(gfx::Rect(0, 0, 300, 200));
+  const Desk* desk_3 = desks_controller->desks()[2].get();
+  ActivateDesk(desk_3);
+  EXPECT_EQ(desk_3, desks_controller->active_desk());
+  auto win3 = CreateAppWindow(gfx::Rect(10, 30, 400, 200));
+
+  WindowCycleController* cycle_controller =
+      Shell::Get()->window_cycle_controller();
+
+  // Should contain only windows from |desk_3|.
   cycle_controller->HandleCycleWindow(WindowCycleController::FORWARD);
+  auto cycle_windows = GetWindows(cycle_controller);
+  EXPECT_EQ(1u, cycle_windows.size());
+  EXPECT_TRUE(base::Contains(cycle_windows, win3.get()));
   cycle_controller->CompleteCycling();
-  waiter.Wait();
-  Desk* desk_1 = desks_controller->desks()[0].get();
-  EXPECT_EQ(desk_1, desks_controller->active_desk());
-  EXPECT_EQ(win1.get(), window_util::GetActiveWindow());
+  EXPECT_EQ(win3.get(), window_util::GetActiveWindow());
+
+  // Should contain only windows from |desk_2|.
+  ActivateDesk(desk_2);
+  cycle_controller->HandleCycleWindow(WindowCycleController::FORWARD);
+  cycle_windows = GetWindows(cycle_controller);
+  EXPECT_EQ(1u, cycle_windows.size());
+  EXPECT_TRUE(base::Contains(cycle_windows, win2.get()));
+  cycle_controller->CompleteCycling();
+  EXPECT_EQ(win2.get(), window_util::GetActiveWindow());
+
+  // Should contain only windows from |desk_1|.
+  const Desk* desk_1 = desks_controller->desks()[0].get();
+  ActivateDesk(desk_1);
+  cycle_controller->HandleCycleWindow(WindowCycleController::FORWARD);
+  cycle_windows = GetWindows(cycle_controller);
+  EXPECT_EQ(2u, cycle_windows.size());
+  EXPECT_TRUE(base::Contains(cycle_windows, win0.get()));
+  EXPECT_TRUE(base::Contains(cycle_windows, win1.get()));
+  cycle_controller->CompleteCycling();
+  EXPECT_EQ(win0.get(), window_util::GetActiveWindow());
+}
+
+class InteractiveWindowCycleControllerTest : public WindowCycleControllerTest {
+ public:
+  InteractiveWindowCycleControllerTest() = default;
+  InteractiveWindowCycleControllerTest(const InteractiveWindowCycleControllerTest&) =
+      delete;
+  InteractiveWindowCycleControllerTest& operator=(
+      const InteractiveWindowCycleControllerTest&) = delete;
+  ~InteractiveWindowCycleControllerTest() override = default;
+
+  // WindowCycleControllerTest:
+  void SetUp() override {
+    scoped_feature_list_.InitAndEnableFeature(
+        features::kInteractiveWindowCycleList);
+    WindowCycleControllerTest::SetUp();
+  }
+
+ private:
+  base::test::ScopedFeatureList scoped_feature_list_;
+};
+
+// When a user hovers their mouse over an item, it should cycle to it.
+// If a user clicks on an item, it should complete cycling and activate
+// the hovered item.
+TEST_F(InteractiveWindowCycleControllerTest, MouseHoverAndSelect) {
+  std::unique_ptr<Window> w0 = CreateTestWindow();
+  std::unique_ptr<Window> w1 = CreateTestWindow();
+  std::unique_ptr<Window> w2 = CreateTestWindow();
+  ui::test::EventGenerator* generator = GetEventGenerator();
+  WindowCycleController* controller = Shell::Get()->window_cycle_controller();
+
+  // Cycle to the third item, mouse over second item, and release alt-tab.
+  // Starting order of windows in cycle list is [2,1,0].
+  controller->HandleCycleWindow(WindowCycleController::FORWARD);
+  controller->HandleCycleWindow(WindowCycleController::FORWARD);
+  generator->MoveMouseTo(
+      GetWindowCycleItemViews()[1]->GetBoundsInScreen().CenterPoint());
+  controller->CompleteCycling();
+  EXPECT_TRUE(wm::IsActiveWindow(w1.get()));
+
+  // Start cycle, mouse over third item, and release alt-tab.
+  // Starting order of windows in cycle list is [1,2,0].
+  controller->StartCycling();
+  generator->MoveMouseTo(
+      GetWindowCycleItemViews()[2]->GetBoundsInScreen().CenterPoint());
+  controller->CompleteCycling();
+  EXPECT_TRUE(wm::IsActiveWindow(w0.get()));
+
+  // Start cycle, mouse over second item, and click.
+  // Starting order of windows in cycle list is [0,1,2].
+  controller->StartCycling();
+  generator->MoveMouseTo(
+      GetWindowCycleItemViews()[1]->GetBoundsInScreen().CenterPoint());
+  generator->PressLeftButton();
+  EXPECT_TRUE(wm::IsActiveWindow(w1.get()));
+}
+
+// Tests that the left and right keys cycle after the cycle list has been
+// initialized.
+TEST_F(InteractiveWindowCycleControllerTest, LeftRightCycle) {
+  std::unique_ptr<Window> w0 = CreateTestWindow();
+  std::unique_ptr<Window> w1 = CreateTestWindow();
+  std::unique_ptr<Window> w2 = CreateTestWindow();
+  ui::test::EventGenerator* generator = GetEventGenerator();
+  WindowCycleController* controller = Shell::Get()->window_cycle_controller();
+
+  // Start cycle, simulating alt button being held down. Cycle right to the
+  // third item.
+  // Starting order of windows in cycle list is [2,1,0].
+  controller->StartCycling();
+  generator->PressKey(ui::VKEY_RIGHT, ui::EF_NONE);
+  generator->PressKey(ui::VKEY_RIGHT, ui::EF_NONE);
+  controller->CompleteCycling();
+  EXPECT_TRUE(wm::IsActiveWindow(w0.get()));
+
+  // Start cycle. Cycle right once, then left two times.
+  // Starting order of windows in cycle list is [0,2,1].
+  controller->StartCycling();
+  generator->PressKey(ui::VKEY_RIGHT, ui::EF_NONE);
+  generator->PressKey(ui::VKEY_LEFT, ui::EF_NONE);
+  generator->PressKey(ui::VKEY_LEFT, ui::EF_NONE);
+  controller->CompleteCycling();
+  EXPECT_TRUE(wm::IsActiveWindow(w1.get()));
+
+  // Start cycle. Cycle right once, then left once, then right once.
+  // Starting order of windows in cycle list is [0,2,1].
+  controller->StartCycling();
+  generator->PressKey(ui::VKEY_LEFT, ui::EF_ALT_DOWN);
+  generator->PressKey(ui::VKEY_RIGHT, ui::EF_ALT_DOWN);
+  generator->PressKey(ui::VKEY_LEFT, ui::EF_ALT_DOWN);
+  controller->CompleteCycling();
+  EXPECT_TRUE(wm::IsActiveWindow(w2.get()));
+}
+
+// Tests that pressing the space key, pressing the enter key, or releasing the
+// alt key during window cycle confirms a selection.
+TEST_F(InteractiveWindowCycleControllerTest, KeysConfirmSelection) {
+  std::unique_ptr<Window> w0 = CreateTestWindow();
+  std::unique_ptr<Window> w1 = CreateTestWindow();
+  std::unique_ptr<Window> w2 = CreateTestWindow();
+  ui::test::EventGenerator* generator = GetEventGenerator();
+  WindowCycleController* controller = Shell::Get()->window_cycle_controller();
+
+  // Start cycle, simulating alt button being held down. Cycle right once and
+  // complete cycle using space.
+  // Starting order of windows in cycle list is [2,1,0].
+  controller->StartCycling();
+  controller->HandleCycleWindow(WindowCycleController::FORWARD);
+  generator->PressKey(ui::VKEY_SPACE, ui::EF_NONE);
+  EXPECT_TRUE(wm::IsActiveWindow(w1.get()));
+
+  // Start cycle, simulating alt button being held down. Cycle right once and
+  // complete cycle using enter.
+  // Starting order of windows in cycle list is [1,2,0].
+  controller->StartCycling();
+  controller->HandleCycleWindow(WindowCycleController::FORWARD);
+  generator->PressKey(ui::VKEY_RETURN, ui::EF_NONE);
+  EXPECT_TRUE(wm::IsActiveWindow(w2.get()));
+
+  // Start cycle, simulating alt button being held down. Cycle right once and
+  // complete cycle by releasing alt key (Views uses VKEY_MENU for both left and
+  // right alt keys).
+  // Starting order of windows in cycle list is [2,1,0].
+  controller->StartCycling();
+  controller->HandleCycleWindow(WindowCycleController::FORWARD);
+  generator->ReleaseKey(ui::VKEY_MENU, ui::EF_NONE);
+  EXPECT_TRUE(wm::IsActiveWindow(w1.get()));
+}
+
+// When a user taps on an item, it should cycle to it, complete cycling and
+// activate the tapped item.
+TEST_F(InteractiveWindowCycleControllerTest, TapSelect) {
+  std::unique_ptr<Window> w0 = CreateTestWindow();
+  std::unique_ptr<Window> w1 = CreateTestWindow();
+  std::unique_ptr<Window> w2 = CreateTestWindow();
+  ui::test::EventGenerator* generator = GetEventGenerator();
+  WindowCycleController* controller = Shell::Get()->window_cycle_controller();
+
+  // Start cycle and tap third item.
+  // Starting order of windows in cycle list is [2,1,0].
+  controller->StartCycling();
+  generator->GestureTapAt(
+      GetWindowCycleItemViews()[2]->GetBoundsInScreen().CenterPoint());
+  EXPECT_TRUE(wm::IsActiveWindow(w0.get()));
+
+  // Start cycle and tap second item.
+  // Starting order of windows in cycle list is [0,2,1].
+  controller->StartCycling();
+  generator->GestureTapAt(
+      GetWindowCycleItemViews()[1]->GetBoundsInScreen().CenterPoint());
+  EXPECT_TRUE(wm::IsActiveWindow(w2.get()));
+}
+
+// Tests that frame throttling starts and ends accordingly when window cycling
+// starts and ends.
+TEST_F(WindowCycleControllerTest, FrameThrottling) {
+  MockFrameThrottlingObserver observer;
+  FrameThrottlingController* frame_throttling_controller =
+      Shell::Get()->frame_throttling_controller();
+  frame_throttling_controller->AddObserver(&observer);
+  const int window_count = 5;
+  std::unique_ptr<aura::Window> created_windows[window_count];
+  std::vector<aura::Window*> windows(window_count, nullptr);
+  for (int i = 0; i < window_count; ++i) {
+    created_windows[i] = CreateTestWindow();
+    windows[i] = created_windows[i].get();
+  }
+
+  WindowCycleController* controller = Shell::Get()->window_cycle_controller();
+  EXPECT_CALL(observer,
+              OnThrottlingStarted(testing::UnorderedElementsAreArray(windows)));
+  controller->HandleCycleWindow(WindowCycleController::FORWARD);
+  EXPECT_CALL(observer,
+              OnThrottlingStarted(testing::UnorderedElementsAreArray(windows)))
+      .Times(0);
+  controller->HandleCycleWindow(WindowCycleController::FORWARD);
+  EXPECT_CALL(observer, OnThrottlingEnded());
+  controller->CompleteCycling();
+
+  EXPECT_CALL(observer,
+              OnThrottlingStarted(testing::UnorderedElementsAreArray(windows)));
+  controller->HandleCycleWindow(WindowCycleController::FORWARD);
+  EXPECT_CALL(observer, OnThrottlingEnded());
+  controller->CancelCycling();
+  frame_throttling_controller->RemoveObserver(&observer);
 }
 
 }  // namespace ash

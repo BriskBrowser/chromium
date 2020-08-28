@@ -2,6 +2,17 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+// clang-format off
+// #import 'chrome://os-settings/chromeos/os_settings.js';
+
+// #import {TestLifetimeBrowserProxy} from './test_os_lifetime_browser_proxy.m.js';
+// #import {MultiDeviceSettingsMode, MultiDeviceFeature, MultiDeviceFeatureState, MultiDevicePageContentData, MultiDeviceBrowserProxyImpl} from 'chrome://os-settings/chromeos/os_settings.js';
+// #import {TestOsResetBrowserProxy} from './test_os_reset_browser_proxy.m.js';
+// #import {assertEquals, assertFalse, assertNotEquals, assertTrue} from '../../chai_assert.js';
+// #import {flush} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+// #import {TestMultideviceBrowserProxy, createFakePageContentData, HOST_DEVICE} from './test_multidevice_browser_proxy.m.js';
+// clang-format on
+
 suite('Multidevice', function() {
   let multidevicePage = null;
   let browserProxy = null;
@@ -30,14 +41,38 @@ suite('Multidevice', function() {
         multidevice.createFakePageContentData(newMode, opt_newHostDeviceName));
   }
 
+  /**
+   * @param {settings.MultiDeviceFeatureState} newState
+   */
   function setSuiteState(newState) {
     setPageContentData(Object.assign(
         {}, multidevicePage.pageContentData, {betterTogetherState: newState}));
   }
 
+  /**
+   * @param {settings.MultiDeviceFeatureState} newState
+   */
   function setSmartLockState(newState) {
     setPageContentData(Object.assign(
         {}, multidevicePage.pageContentData, {smartLockState: newState}));
+  }
+
+  /**
+   * @param {settings.MultiDeviceFeatureState} newState
+   */
+  function setPhoneHubNotificationsState(newState) {
+    setPageContentData(Object.assign(
+        {}, multidevicePage.pageContentData,
+        {phoneHubNotificationsState: newState}));
+  }
+
+  /**
+   * @param {boolean} accessGranted
+   */
+  function setPhoneHubNotificationAccessGranted(accessGranted) {
+    setPageContentData(Object.assign(
+        {}, multidevicePage.pageContentData,
+        {isNotificationAccessGranted: accessGranted}));
   }
 
   /**
@@ -59,15 +94,26 @@ suite('Multidevice', function() {
     if (authRequired) {
       assertTrue(multidevicePage.showPasswordPromptDialog_);
       // Simulate the user entering a valid password, then closing the dialog.
-      multidevicePage.$$('#multidevicePasswordPrompt').authToken =
-          'validAuthToken';
+      multidevicePage.$$('#multidevicePasswordPrompt').fire('token-obtained', {
+        token: 'validAuthToken',
+        lifetimeSeconds: 300
+      });
       // Simulate closing the password prompt dialog
       multidevicePage.$$('#multidevicePasswordPrompt').fire('close');
       Polymer.dom.flush();
-    } else {
-      assertFalse(multidevicePage.showPasswordPromptDialog_);
     }
 
+    if (enabled &&
+        feature === settings.MultiDeviceFeature.PHONE_HUB_NOTIFICATIONS) {
+      const accessDialog = multidevicePage.$$(
+          'settings-multidevice-notification-access-setup-dialog');
+      assertEquals(
+          !accessDialog,
+          multidevicePage.pageContentData.isNotificationAccessGranted);
+      return;
+    }
+
+    assertFalse(multidevicePage.showPasswordPromptDialog_);
     return browserProxy.whenCalled('setFeatureEnabledState').then(params => {
       assertEquals(feature, params[0]);
       assertEquals(enabled, params[1]);
@@ -169,6 +215,36 @@ suite('Multidevice', function() {
     // Reallow suite.
     setSuiteState(settings.MultiDeviceFeatureState.DISABLED_BY_USER);
     assertFalse(!!multidevicePage.$$('cr-policy-indicator'));
+  });
+
+  test('Phone hub notification access setup dialog', () => {
+    setPhoneHubNotificationsState(
+        settings.MultiDeviceFeatureState.DISABLED_BY_USER);
+    assertFalse(!!multidevicePage.$$(
+        'settings-multidevice-notification-access-setup-dialog'));
+
+    setPhoneHubNotificationAccessGranted(false);
+    simulateFeatureStateChangeRequest(
+        settings.MultiDeviceFeature.PHONE_HUB_NOTIFICATIONS,
+        /*enabled=*/ true, /*authRequired=*/ false);
+
+    // Close the dialog.
+    multidevicePage.showNotificationAccessSetupDialog_ = false;
+
+    setPhoneHubNotificationAccessGranted(false);
+    simulateFeatureStateChangeRequest(
+        settings.MultiDeviceFeature.PHONE_HUB_NOTIFICATIONS,
+        /*enabled=*/ false, /*authRequired=*/ false);
+
+    setPhoneHubNotificationAccessGranted(true);
+    simulateFeatureStateChangeRequest(
+        settings.MultiDeviceFeature.PHONE_HUB_NOTIFICATIONS,
+        /*enabled=*/ true, /*authRequired=*/ false);
+
+    multidevicePage.pageContentData.isNotificationAccessGranted = true;
+    simulateFeatureStateChangeRequest(
+        settings.MultiDeviceFeature.PHONE_HUB_NOTIFICATIONS,
+        /*enabled=*/ false, /*authRequired=*/ false);
   });
 
   test('Disabling features never requires authentication', () => {

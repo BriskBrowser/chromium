@@ -9,6 +9,7 @@
 #include <string>
 #include <vector>
 
+#include "ash/public/cpp/login_accelerators.h"
 #include "chrome/browser/chromeos/login/ui/kiosk_app_menu_controller.h"
 #include "chrome/browser/chromeos/login/ui/login_display_host.h"
 #include "chrome/browser/ui/browser_list_observer.h"
@@ -20,9 +21,7 @@ class AccountId;
 
 namespace chromeos {
 
-class ArcKioskController;
 class DemoAppLauncher;
-class WebKioskController;
 
 // LoginDisplayHostCommon contains code which is not specific to a particular UI
 // implementation - the goal is to reduce code duplication between
@@ -37,16 +36,13 @@ class LoginDisplayHostCommon : public LoginDisplayHost,
   // LoginDisplayHost:
   void BeforeSessionStart() final;
   void Finalize(base::OnceClosure completion_callback) final;
-  AppLaunchController* GetAppLaunchController() final;
+  void FinalizeImmediately() final;
+  KioskLaunchController* GetKioskLaunchController() final;
   void StartUserAdding(base::OnceClosure completion_callback) final;
-  void StartSignInScreen(const LoginScreenContext& context) final;
+  void StartSignInScreen() final;
   void PrewarmAuthentication() final;
-  void StartAppLaunch(const std::string& app_id,
-                      bool diagnostic_mode,
-                      bool is_auto_launch) final;
   void StartDemoAppLaunch() final;
-  void StartArcKiosk(const AccountId& account_id) final;
-  void StartWebKiosk(const AccountId& account_id) final;
+  void StartKiosk(const KioskAppId& kiosk_app_id, bool is_auto_launch) final;
   void CompleteLogin(const UserContext& user_context) final;
   void OnGaiaScreenReady() final;
   void SetDisplayEmail(const std::string& email) final;
@@ -54,10 +50,11 @@ class LoginDisplayHostCommon : public LoginDisplayHost,
                               const std::string& given_name) final;
   void LoadWallpaper(const AccountId& account_id) final;
   void LoadSigninWallpaper() final;
-  bool IsUserWhitelisted(const AccountId& account_id) final;
+  bool IsUserAllowlisted(const AccountId& account_id) final;
   void CancelPasswordChangedFlow() final;
   void MigrateUserData(const std::string& old_password) final;
   void ResyncUserData() final;
+  bool HandleAccelerator(ash::LoginAcceleratorAction action) final;
 
   // BrowserListObserver:
   void OnBrowserAdded(Browser* browser) override;
@@ -68,10 +65,8 @@ class LoginDisplayHostCommon : public LoginDisplayHost,
                const content::NotificationDetails& details) override;
 
  protected:
-  virtual void OnStartSignInScreen(const LoginScreenContext& context) = 0;
+  virtual void OnStartSignInScreen() = 0;
   virtual void OnStartAppLaunch() = 0;
-  virtual void OnStartArcKiosk() = 0;
-  virtual void OnStartWebKiosk() = 0;
   virtual void OnBrowserCreated() = 0;
   virtual void OnStartUserAdding() = 0;
   virtual void OnFinalize() = 0;
@@ -92,21 +87,17 @@ class LoginDisplayHostCommon : public LoginDisplayHost,
   // Active instance of authentication prewarmer.
   std::unique_ptr<AuthPrewarmer> auth_prewarmer_;
 
-  // App launch controller.
-  std::unique_ptr<AppLaunchController> app_launch_controller_;
+  // Kiosk launch controller.
+  std::unique_ptr<KioskLaunchController> kiosk_launch_controller_;
 
   // Demo app launcher.
   std::unique_ptr<DemoAppLauncher> demo_app_launcher_;
 
-  // ARC kiosk controller.
-  std::unique_ptr<ArcKioskController> arc_kiosk_controller_;
-
-  // Web app launch controller.
-  std::unique_ptr<WebKioskController> web_kiosk_controller_;
-
   content::NotificationRegistrar registrar_;
 
  private:
+  void Cleanup();
+
   // True if session start is in progress.
   bool session_starting_ = false;
 

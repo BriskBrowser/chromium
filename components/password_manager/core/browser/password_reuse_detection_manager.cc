@@ -29,7 +29,7 @@ PasswordReuseDetectionManager::PasswordReuseDetectionManager(
   DCHECK(client_);
 }
 
-PasswordReuseDetectionManager::~PasswordReuseDetectionManager() {}
+PasswordReuseDetectionManager::~PasswordReuseDetectionManager() = default;
 
 void PasswordReuseDetectionManager::DidNavigateMainFrame(
     const GURL& main_frame_url) {
@@ -96,7 +96,7 @@ void PasswordReuseDetectionManager::OnPaste(const base::string16 text) {
     return;
   base::string16 input = std::move(text);
   if (input.size() > kMaxNumberOfCharactersToStore)
-    input = text.substr(input.size() - kMaxNumberOfCharactersToStore);
+    input = input.substr(input.size() - kMaxNumberOfCharactersToStore);
   PasswordStore* store = client_->GetProfilePasswordStore();
   if (!store)
     return;
@@ -106,15 +106,20 @@ void PasswordReuseDetectionManager::OnPaste(const base::string16 text) {
 void PasswordReuseDetectionManager::OnReuseFound(
     size_t password_length,
     base::Optional<PasswordHashData> reused_protected_password_hash,
-    const std::vector<std::string>& matching_domains,
+    const std::vector<MatchingReusedCredential>& matching_reused_credentials,
     int saved_passwords) {
   reuse_on_this_page_was_found_ = true;
   metrics_util::PasswordType reused_password_type = GetReusedPasswordType(
-      reused_protected_password_hash, matching_domains.size());
+      reused_protected_password_hash, matching_reused_credentials.size());
 
   if (password_manager_util::IsLoggingActive(client_)) {
     BrowserSavePasswordProgressLogger logger(client_->GetLogManager());
-    std::vector<std::string> domains_to_log(matching_domains);
+    std::vector<std::string> domains_to_log;
+    domains_to_log.reserve(matching_reused_credentials.size());
+    for (const MatchingReusedCredential& credential :
+         matching_reused_credentials) {
+      domains_to_log.push_back(credential.signon_realm);
+    }
     switch (reused_password_type) {
       case metrics_util::PasswordType::PRIMARY_ACCOUNT_PASSWORD:
         domains_to_log.push_back("CHROME SYNC PASSWORD");
@@ -145,21 +150,21 @@ void PasswordReuseDetectionManager::OnReuseFound(
           : false;
 
   metrics_util::LogPasswordReuse(password_length, saved_passwords,
-                                 matching_domains.size(),
+                                 matching_reused_credentials.size(),
                                  password_field_detected, reused_password_type);
-#if defined(SYNC_PASSWORD_REUSE_WARNING_ENABLED)
+#if defined(PASSWORD_REUSE_WARNING_ENABLED)
   if (reused_password_type ==
       metrics_util::PasswordType::PRIMARY_ACCOUNT_PASSWORD)
     client_->LogPasswordReuseDetectedEvent();
 #endif
 
-#if defined(SYNC_PASSWORD_REUSE_DETECTION_ENABLED)
+#if defined(PASSWORD_REUSE_DETECTION_ENABLED)
   std::string username = reused_protected_password_hash.has_value()
                              ? reused_protected_password_hash->username
                              : "";
 
   client_->CheckProtectedPasswordEntry(reused_password_type, username,
-                                       matching_domains,
+                                       matching_reused_credentials,
                                        password_field_detected);
 #endif
 }

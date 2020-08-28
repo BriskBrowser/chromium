@@ -11,7 +11,7 @@
 
 #include "base/bind.h"
 #include "base/callback.h"
-#include "base/logging.h"
+#include "base/check.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "mojo/public/cpp/bindings/associated_binding.h"
@@ -123,6 +123,9 @@ class StrongAssociatedBinding {
   DISALLOW_COPY_AND_ASSIGN(StrongAssociatedBinding);
 };
 
+// DEPRECATED: Do not introduce new uses of this API. Instead use the
+// MakeSelfOwnedAssociatedReceiver API defined in
+// self_owned_associated_receiver.h.
 template <typename Interface, typename Impl>
 StrongAssociatedBindingPtr<Interface> MakeStrongAssociatedBinding(
     std::unique_ptr<Impl> impl,

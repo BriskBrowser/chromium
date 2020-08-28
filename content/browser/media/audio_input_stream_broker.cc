@@ -13,7 +13,6 @@
 #include "base/memory/read_only_shared_memory_region.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/optional.h"
-#include "base/task/post_task.h"
 #include "base/trace_event/trace_event.h"
 #include "build/build_config.h"
 #include "content/browser/browser_main_loop.h"
@@ -23,7 +22,6 @@
 #include "media/audio/audio_logging.h"
 #include "media/base/media_switches.h"
 #include "media/base/user_input_monitor.h"
-#include "mojo/public/cpp/system/platform_handle.h"
 
 #if defined(OS_CHROMEOS)
 #include "content/browser/media/keyboard_mic_registration.h"
@@ -38,8 +36,8 @@ enum KeyboardMicAction { kRegister, kDeregister };
 
 void UpdateKeyboardMicRegistration(KeyboardMicAction action) {
   if (!BrowserThread::CurrentlyOn(BrowserThread::UI)) {
-    base::PostTask(FROM_HERE, {BrowserThread::UI},
-                   base::BindOnce(&UpdateKeyboardMicRegistration, action));
+    GetUIThreadTaskRunner({})->PostTask(
+        FROM_HERE, base::BindOnce(&UpdateKeyboardMicRegistration, action));
     return;
   }
   BrowserMainLoop* browser_main_loop = BrowserMainLoop::GetInstance();
@@ -67,9 +65,8 @@ AudioInputStreamBroker::AudioInputStreamBroker(
     uint32_t shared_memory_count,
     media::UserInputMonitorBase* user_input_monitor,
     bool enable_agc,
-    audio::mojom::AudioProcessingConfigPtr processing_config,
     AudioStreamBroker::DeleterCallback deleter,
-    mojo::PendingRemote<mojom::RendererAudioInputStreamFactoryClient>
+    mojo::PendingRemote<blink::mojom::RendererAudioInputStreamFactoryClient>
         renderer_factory_client)
     : AudioStreamBroker(render_process_id, render_frame_id),
       device_id_(device_id),
@@ -78,7 +75,6 @@ AudioInputStreamBroker::AudioInputStreamBroker(
       user_input_monitor_(user_input_monitor),
       enable_agc_(enable_agc),
       deleter_(std::move(deleter)),
-      processing_config_(std::move(processing_config)),
       renderer_factory_client_(std::move(renderer_factory_client)) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
   DCHECK(renderer_factory_client_);
@@ -130,9 +126,6 @@ AudioInputStreamBroker::~AudioInputStreamBroker() {
   TRACE_EVENT_NESTABLE_ASYNC_END1("audio", "AudioInputStreamBroker", this,
                                   "disconnect reason",
                                   static_cast<uint32_t>(disconnect_reason_));
-
-  UMA_HISTOGRAM_ENUMERATION("Media.Audio.Capture.StreamBrokerDisconnectReason",
-                            disconnect_reason_);
 }
 
 void AudioInputStreamBroker::CreateStream(
@@ -173,8 +166,7 @@ void AudioInputStreamBroker::CreateStream(
           media::AudioLogFactory::AudioComponent::AUDIO_INPUT_CONTROLLER,
           log_component_id, render_process_id(), render_frame_id()),
       device_id_, params_, shared_memory_count_, enable_agc_,
-      mojo::WrapReadOnlySharedMemoryRegion(std::move(key_press_count_buffer)),
-      std::move(processing_config_),
+      std::move(key_press_count_buffer),
       base::BindOnce(&AudioInputStreamBroker::StreamCreated,
                      weak_ptr_factory_.GetWeakPtr(), std::move(stream)));
 }

@@ -10,20 +10,31 @@
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/location.h"
-#include "base/logging.h"
+#include "base/notreached.h"
 #include "base/power_monitor/power_monitor.h"
 #include "base/time/clock.h"
 #include "base/time/default_clock.h"
 #include "base/time/time.h"
 #include "chrome/browser/chromeos/login/reauth_stats.h"
+#include "chrome/browser/chromeos/login/saml/in_session_password_sync_manager.h"
+#include "chrome/browser/chromeos/login/saml/in_session_password_sync_manager_factory.h"
 #include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/pref_names.h"
 #include "components/prefs/pref_service.h"
+#include "components/session_manager/core/session_manager.h"
+#include "components/session_manager/core/session_manager_observer.h"
+#include "components/user_manager/known_user.h"
 #include "components/user_manager/user.h"
 #include "components/user_manager/user_manager.h"
 
 namespace chromeos {
+
+namespace {
+
+constexpr int kSAMLOfflineSigninTimeLimitNotSet = -1;
+
+}
 
 void SAMLOfflineSigninLimiter::SignedIn(UserContext::AuthFlow auth_flow) {
   PrefService* prefs = profile_->GetPrefs();
@@ -51,8 +62,13 @@ void SAMLOfflineSigninLimiter::SignedIn(UserContext::AuthFlow auth_flow) {
     // expires. If the limit already expired (e.g. because it was set to zero),
     // the flag will be set again immediately.
     user_manager::UserManager::Get()->SaveForceOnlineSignin(account_id, false);
-    prefs->SetInt64(prefs::kSAMLLastGAIASignInTime,
-                    clock_->Now().ToInternalValue());
+    prefs->SetTime(prefs::kSAMLLastGAIASignInTime, clock_->Now());
+    const int saml_offline_limit =
+        prefs->GetInteger(prefs::kSAMLOfflineSigninTimeLimit);
+    UpdateOnlineSigninData(
+        clock_->Now(), saml_offline_limit == kSAMLOfflineSigninTimeLimitNotSet
+                           ? base::TimeDelta()
+                           : base::TimeDelta::FromSeconds(saml_offline_limit));
   }
 
   // Start listening for pref changes.
@@ -63,6 +79,13 @@ void SAMLOfflineSigninLimiter::SignedIn(UserContext::AuthFlow auth_flow) {
 
   // Start listening to power state.
   base::PowerMonitor::AddObserver(this);
+
+  // Start listening to session lock state
+  auto* session_manager = session_manager::SessionManager::Get();
+  // Extra check as SessionManager may not be initialized in unit tests.
+  if (session_manager) {
+    session_manager->AddObserver(this);
+  }
 
   // Arm the |offline_signin_limit_timer_| if a limit is in force.
   UpdateLimit();
@@ -82,6 +105,12 @@ void SAMLOfflineSigninLimiter::OnResume() {
   UpdateLimit();
 }
 
+void SAMLOfflineSigninLimiter::OnSessionStateChanged() {
+  if (!session_manager::SessionManager::Get()->IsScreenLocked()) {
+    UpdateLimit();
+  }
+}
+
 SAMLOfflineSigninLimiter::SAMLOfflineSigninLimiter(Profile* profile,
                                                    base::Clock* clock)
     : profile_(profile),
@@ -90,6 +119,10 @@ SAMLOfflineSigninLimiter::SAMLOfflineSigninLimiter(Profile* profile,
 
 SAMLOfflineSigninLimiter::~SAMLOfflineSigninLimiter() {
   base::PowerMonitor::RemoveObserver(this);
+  auto* session_manager = session_manager::SessionManager::Get();
+  if (session_manager) {
+    session_manager->RemoveObserver(this);
+  }
 }
 
 void SAMLOfflineSigninLimiter::UpdateLimit() {
@@ -100,8 +133,8 @@ void SAMLOfflineSigninLimiter::UpdateLimit() {
   const base::TimeDelta offline_signin_time_limit =
       base::TimeDelta::FromSeconds(
           prefs->GetInteger(prefs::kSAMLOfflineSigninTimeLimit));
-  base::Time last_gaia_signin_time = base::Time::FromInternalValue(
-      prefs->GetInt64(prefs::kSAMLLastGAIASignInTime));
+  base::Time last_gaia_signin_time =
+      prefs->GetTime(prefs::kSAMLLastGAIASignInTime);
   if (offline_signin_time_limit < base::TimeDelta() ||
       last_gaia_signin_time.is_null()) {
     // If no limit is in force, return.
@@ -114,7 +147,8 @@ void SAMLOfflineSigninLimiter::UpdateLimit() {
     // current time.
     NOTREACHED();
     last_gaia_signin_time = now;
-    prefs->SetInt64(prefs::kSAMLLastGAIASignInTime, now.ToInternalValue());
+    prefs->SetTime(prefs::kSAMLLastGAIASignInTime, now);
+    UpdateOnlineSigninData(now, offline_signin_time_limit);
   }
 
   const base::TimeDelta time_since_last_gaia_signin =
@@ -136,15 +170,32 @@ void SAMLOfflineSigninLimiter::UpdateLimit() {
 void SAMLOfflineSigninLimiter::ForceOnlineLogin() {
   const user_manager::User* user =
       ProfileHelper::Get()->GetUserByProfile(profile_);
+  DCHECK(user);
+
+  user_manager::UserManager::Get()->SaveForceOnlineSignin(user->GetAccountId(),
+                                                          true);
+  // Re-auth on lock - enabled only for the primary user.
+  InSessionPasswordSyncManager* password_sync_manager =
+      InSessionPasswordSyncManagerFactory::GetForProfile(profile_);
+  if (password_sync_manager && password_sync_manager->IsLockReauthEnabled()) {
+    password_sync_manager->MaybeForceReauthOnLockScreen(
+        InSessionPasswordSyncManager::ReauthenticationReason::kPolicy);
+  }
+  RecordReauthReason(user->GetAccountId(), ReauthReason::SAML_REAUTH_POLICY);
+  offline_signin_limit_timer_->Stop();
+}
+
+void SAMLOfflineSigninLimiter::UpdateOnlineSigninData(base::Time time,
+                                                      base::TimeDelta limit) {
+  const user_manager::User* user =
+      ProfileHelper::Get()->GetUserByProfile(profile_);
   if (!user) {
     NOTREACHED();
     return;
   }
 
-  user_manager::UserManager::Get()->SaveForceOnlineSignin(user->GetAccountId(),
-                                                          true);
-  RecordReauthReason(user->GetAccountId(), ReauthReason::SAML_REAUTH_POLICY);
-  offline_signin_limit_timer_->Stop();
+  user_manager::known_user::SetLastOnlineSignin(user->GetAccountId(), time);
+  user_manager::known_user::SetOfflineSigninLimit(user->GetAccountId(), limit);
 }
 
 }  // namespace chromeos

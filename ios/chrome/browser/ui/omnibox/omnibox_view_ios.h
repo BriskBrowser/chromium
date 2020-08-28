@@ -8,6 +8,7 @@
 #import <UIKit/UIKit.h>
 
 #include <memory>
+
 #include "components/omnibox/browser/location_bar_model.h"
 #include "components/omnibox/browser/omnibox_view.h"
 #import "ios/chrome/browser/ui/omnibox/omnibox_left_image_consumer.h"
@@ -17,16 +18,13 @@
 #import "ios/chrome/browser/ui/omnibox/popup/omnibox_popup_view_suggestions_delegate.h"
 
 class AutocompleteResult;
+class ChromeBrowserState;
 class GURL;
 class WebOmniboxEditController;
 struct AutocompleteMatch;
 @class OmniboxTextFieldIOS;
 @class OmniboxTextFieldPasteDelegate;
-@protocol OmniboxFocuser;
-
-namespace ios {
-class ChromeBrowserState;
-}
+@protocol OmniboxCommands;
 
 // iOS implementation of OmniBoxView.  Wraps a UITextField and
 // interfaces with the rest of the autocomplete system.
@@ -38,8 +36,10 @@ class OmniboxViewIOS : public OmniboxView,
   OmniboxViewIOS(OmniboxTextFieldIOS* field,
                  WebOmniboxEditController* controller,
                  id<OmniboxLeftImageConsumer> left_image_consumer,
-                 ios::ChromeBrowserState* browser_state,
-                 id<OmniboxFocuser> omnibox_focuser);
+                 ChromeBrowserState* browser_state,
+                 id<OmniboxCommands> omnibox_focuser);
+
+  ~OmniboxViewIOS() override;
 
   void SetPopupProvider(OmniboxPopupProvider* provider) {
     popup_provider_ = provider;
@@ -50,6 +50,41 @@ class OmniboxViewIOS : public OmniboxView,
   static UIColor* GetSecureTextColor(
       security_state::SecurityLevel security_level,
       bool in_dark_mode);
+
+  void OnReceiveClipboardURLForOpenMatch(
+      const AutocompleteMatch& match,
+      WindowOpenDisposition disposition,
+      const GURL& alternate_nav_url,
+      const base::string16& pasted_text,
+      size_t selected_line,
+      base::TimeTicks match_selection_timestamp,
+      base::Optional<GURL> optional_gurl);
+
+  void OnReceiveClipboardTextForOpenMatch(
+      const AutocompleteMatch& match,
+      WindowOpenDisposition disposition,
+      const GURL& alternate_nav_url,
+      const base::string16& pasted_text,
+      size_t selected_line,
+      base::TimeTicks match_selection_timestamp,
+      base::Optional<base::string16> optional_text);
+
+  void OnReceiveClipboardImageForOpenMatch(
+      const AutocompleteMatch& match,
+      WindowOpenDisposition disposition,
+      const GURL& alternate_nav_url,
+      const base::string16& pasted_text,
+      size_t selected_line,
+      base::TimeTicks match_selection_timestamp,
+      base::Optional<gfx::Image> optional_image);
+
+  void OnReceiveImageMatchForOpenMatch(
+      WindowOpenDisposition disposition,
+      const GURL& alternate_nav_url,
+      const base::string16& pasted_text,
+      size_t selected_line,
+      base::TimeTicks match_selection_timestamp,
+      base::Optional<AutocompleteMatch> optional_match);
 
   // OmniboxView implementation.
   void OpenMatch(const AutocompleteMatch& match,
@@ -70,7 +105,8 @@ class OmniboxViewIOS : public OmniboxView,
                                    const AutocompleteMatch& match,
                                    bool save_original_selection,
                                    bool notify_text_changed) override;
-  bool OnInlineAutocompleteTextMaybeChanged(const base::string16& display_text,
+  void OnInlineAutocompleteTextMaybeChanged(const base::string16& display_text,
+                                            size_t user_text_start,
                                             size_t user_text_length) override;
   void OnBeforePossibleChange() override;
   bool OnAfterPossibleChange(bool allow_keyword_ui_change) override;
@@ -79,10 +115,12 @@ class OmniboxViewIOS : public OmniboxView,
 
   // OmniboxView stubs.
   void Update() override {}
+  void SetAdditionalText(const base::string16& text) override {}
   void EnterKeywordModeForDefaultSearchProvider() override {}
   bool IsSelectAll() const override;
   void GetSelectionBounds(base::string16::size_type* start,
                           base::string16::size_type* end) const override;
+  size_t GetAllSelectionsLength() const override;
   void SelectAll(bool reversed) override {}
   void SetFocus(bool is_user_initiated) override {}
   void ApplyCaretVisibility() override {}
@@ -121,7 +159,7 @@ class OmniboxViewIOS : public OmniboxView,
                                  const base::string16& pasted_text,
                                  size_t index) override;
 
-  ios::ChromeBrowserState* browser_state() { return browser_state_; }
+  ChromeBrowserState* browser_state() { return browser_state_; }
 
   // Updates this edit view to show the proper text, highlight and images.
   void UpdateAppearance();
@@ -167,7 +205,7 @@ class OmniboxViewIOS : public OmniboxView,
   // TODO(crbug.com/303212): Remove this workaround once the crash is fixed.
   bool ShouldIgnoreUserInputDueToPendingVoiceSearch();
 
-  ios::ChromeBrowserState* browser_state_;
+  ChromeBrowserState* browser_state_;
 
   OmniboxTextFieldIOS* field_;
 
@@ -176,7 +214,7 @@ class OmniboxViewIOS : public OmniboxView,
   __weak id<OmniboxLeftImageConsumer> left_image_consumer_;
   // Focuser, used to transition the location bar to focused/defocused state as
   // necessary.
-  __weak id<OmniboxFocuser> omnibox_focuser_;
+  __weak id<OmniboxCommands> omnibox_focuser_;
 
   State state_before_change_;
   NSString* marked_text_before_change_;
@@ -198,6 +236,9 @@ class OmniboxViewIOS : public OmniboxView,
   NSMutableAttributedString* attributing_display_string_;
 
   OmniboxPopupProvider* popup_provider_;  // weak
+
+  // Used to cancel clipboard callbacks if this is deallocated;
+  base::WeakPtrFactory<OmniboxViewIOS> weak_ptr_factory_{this};
 };
 
 #endif  // IOS_CHROME_BROWSER_UI_OMNIBOX_OMNIBOX_VIEW_IOS_H_

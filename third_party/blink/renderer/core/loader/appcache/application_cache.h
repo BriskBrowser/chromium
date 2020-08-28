@@ -28,7 +28,7 @@
 
 #include "third_party/blink/public/mojom/appcache/appcache.mojom-blink-forward.h"
 #include "third_party/blink/renderer/core/dom/events/event_target.h"
-#include "third_party/blink/renderer/core/execution_context/context_lifecycle_observer.h"
+#include "third_party/blink/renderer/core/execution_context/execution_context_lifecycle_observer.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
 #include "third_party/blink/renderer/platform/wtf/forward.h"
 
@@ -39,9 +39,8 @@ class ExceptionState;
 class LocalFrame;
 
 class ApplicationCache final : public EventTargetWithInlineData,
-                               public DOMWindowClient {
+                               public ExecutionContextClient {
   DEFINE_WRAPPERTYPEINFO();
-  USING_GARBAGE_COLLECTED_MIXIN(ApplicationCache);
 
  public:
   explicit ApplicationCache(LocalFrame*);
@@ -68,7 +67,7 @@ class ApplicationCache final : public EventTargetWithInlineData,
 
   static const AtomicString& ToEventType(mojom::AppCacheEventID);
 
-  void Trace(blink::Visitor*) override;
+  void Trace(Visitor*) const override;
 
  private:
   void RecordAPIUseType() const;

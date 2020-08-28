@@ -20,6 +20,8 @@
 
 namespace content {
 
+class WebBundleNavigationInfo;
+
 // Represents a session history item for a particular frame.  It is matched with
 // corresponding FrameTreeNodes using unique name (or by the root position).
 //
@@ -52,7 +54,8 @@ class CONTENT_EXPORT FrameNavigationEntry
       const PageState& page_state,
       const std::string& method,
       int64_t post_id,
-      scoped_refptr<network::SharedURLLoaderFactory> blob_url_loader_factory);
+      scoped_refptr<network::SharedURLLoaderFactory> blob_url_loader_factory,
+      std::unique_ptr<WebBundleNavigationInfo> web_bundle_navigation_info);
 
   // Creates a copy of this FrameNavigationEntry that can be modified
   // independently from the original.
@@ -73,7 +76,8 @@ class CONTENT_EXPORT FrameNavigationEntry
       const PageState& page_state,
       const std::string& method,
       int64_t post_id,
-      scoped_refptr<network::SharedURLLoaderFactory> blob_url_loader_factory);
+      scoped_refptr<network::SharedURLLoaderFactory> blob_url_loader_factory,
+      std::unique_ptr<WebBundleNavigationInfo> web_bundle_navigation_info);
 
   // The unique name of the frame this entry is for.  This is a stable name for
   // the frame based on its position in the tree and relation to other named
@@ -169,6 +173,9 @@ class CONTENT_EXPORT FrameNavigationEntry
   const std::string& method() const { return method_; }
   void set_method(const std::string& method) { method_ = method; }
 
+  // Returns true if the HTTP method was POST.
+  bool get_has_post_data() { return method() == "POST"; }
+
   // The id of the post corresponding to this navigation or -1 if the
   // navigation was not a POST.
   int64_t post_id() const { return post_id_; }
@@ -188,6 +195,10 @@ class CONTENT_EXPORT FrameNavigationEntry
       scoped_refptr<network::SharedURLLoaderFactory> factory) {
     blob_url_loader_factory_ = std::move(factory);
   }
+
+  void set_web_bundle_navigation_info(
+      std::unique_ptr<WebBundleNavigationInfo> web_bundle_navigation_info);
+  WebBundleNavigationInfo* web_bundle_navigation_info() const;
 
  private:
   friend class base::RefCounted<FrameNavigationEntry>;
@@ -225,6 +236,13 @@ class CONTENT_EXPORT FrameNavigationEntry
   std::string method_;
   int64_t post_id_;
   scoped_refptr<network::SharedURLLoaderFactory> blob_url_loader_factory_;
+
+  // Keeps the Web Bundles related information when |this| is for a navigation
+  // within a Web Bundle file. Used when WebBundles feature or
+  // WebBundlesFromNetwork feature is enabled or TrustableWebBundleFileUrl
+  // switch is set.
+  // TODO(995177): Support Session/Tab restore.
+  std::unique_ptr<WebBundleNavigationInfo> web_bundle_navigation_info_;
 
   DISALLOW_COPY_AND_ASSIGN(FrameNavigationEntry);
 };

@@ -10,19 +10,20 @@
 #include "ash/app_list/app_list_export.h"
 #include "ash/assistant/model/assistant_interaction_model_observer.h"
 #include "ash/assistant/model/assistant_ui_model_observer.h"
+#include "ash/public/cpp/assistant/controller/assistant_controller.h"
+#include "ash/public/cpp/assistant/controller/assistant_controller_observer.h"
 #include "base/macros.h"
+#include "base/scoped_observer.h"
 #include "ui/views/view.h"
 #include "ui/views/view_observer.h"
 
-namespace views {
-class Label;
-}  // namespace views
-
 namespace ash {
+
 class AssistantFooterView;
 class AssistantProgressIndicator;
 class AssistantQueryView;
 class AssistantViewDelegate;
+class AssistantZeroStateView;
 class UiElementContainerView;
 
 // AppListAssistantMainStage is the child of AssistantMainView responsible for
@@ -31,6 +32,7 @@ class UiElementContainerView;
 class APP_LIST_EXPORT AppListAssistantMainStage
     : public views::View,
       public views::ViewObserver,
+      public AssistantControllerObserver,
       public AssistantInteractionModelObserver,
       public AssistantUiModelObserver {
  public:
@@ -43,6 +45,9 @@ class APP_LIST_EXPORT AppListAssistantMainStage
 
   // views::ViewObserver:
   void OnViewPreferredSizeChanged(views::View* view) override;
+
+  // AssistantControllerObserver:
+  void OnAssistantControllerDestroying() override;
 
   // AssistantInteractionModelObserver:
   void OnCommittedQueryChanged(const AssistantQuery& query) override;
@@ -60,16 +65,15 @@ class APP_LIST_EXPORT AppListAssistantMainStage
 
  private:
   void InitLayout();
-  views::View* CreateContentLayoutContainer();
-  void InitGreetingLabel();
-  views::View* CreateMainContentLayoutContainer();
-  views::View* CreateDividerLayoutContainer();
-  views::View* CreateFooterLayoutContainer();
+  std::unique_ptr<views::View> CreateContentLayoutContainer();
+  std::unique_ptr<views::View> CreateMainContentLayoutContainer();
+  std::unique_ptr<views::View> CreateDividerLayoutContainer();
+  std::unique_ptr<views::View> CreateFooterLayoutContainer();
 
-  void AnimateInGreetingLabel();
+  void AnimateInZeroState();
   void AnimateInFooter();
 
-  void MaybeHideGreetingLabel();
+  void MaybeHideZeroState();
 
   AssistantViewDelegate* const delegate_;  // Owned by Shell.
 
@@ -78,8 +82,11 @@ class APP_LIST_EXPORT AppListAssistantMainStage
   views::View* horizontal_separator_;
   AssistantQueryView* query_view_;
   UiElementContainerView* ui_element_container_;
-  views::Label* greeting_label_;
+  AssistantZeroStateView* zero_state_view_;
   AssistantFooterView* footer_;
+
+  ScopedObserver<AssistantController, AssistantControllerObserver>
+      assistant_controller_observer_{this};
 
   DISALLOW_COPY_AND_ASSIGN(AppListAssistantMainStage);
 };

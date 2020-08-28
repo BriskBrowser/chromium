@@ -18,8 +18,6 @@
 #include "mojo/public/cpp/bindings/self_owned_receiver.h"
 #include "net/reporting/reporting_report.h"
 #include "net/reporting/reporting_service.h"
-#include "net/url_request/url_request_context.h"
-#include "net/url_request/url_request_context_getter.h"
 #include "services/network/public/mojom/network_context.mojom.h"
 #include "third_party/blink/public/mojom/reporting/reporting.mojom.h"
 #include "url/gurl.h"
@@ -129,6 +127,29 @@ class ReportingServiceProxyImpl : public blink::mojom::ReportingServiceProxy {
     if (column_number)
       body->SetInteger("columnNumber", column_number);
     QueueReport(url, "default", "feature-policy-violation", std::move(body));
+  }
+
+  void QueueDocumentPolicyViolationReport(
+      const GURL& url,
+      const std::string& group,
+      const std::string& policy_id,
+      const std::string& disposition,
+      const base::Optional<std::string>& message,
+      const base::Optional<std::string>& source_file,
+      int line_number,
+      int column_number) override {
+    auto body = std::make_unique<base::DictionaryValue>();
+    body->SetString("policyId", policy_id);
+    body->SetString("disposition", disposition);
+    if (message)
+      body->SetString("message", *message);
+    if (source_file)
+      body->SetString("sourceFile", *source_file);
+    if (line_number)
+      body->SetInteger("lineNumber", line_number);
+    if (column_number)
+      body->SetInteger("columnNumber", column_number);
+    QueueReport(url, group, "document-policy-violation", std::move(body));
   }
 
  private:

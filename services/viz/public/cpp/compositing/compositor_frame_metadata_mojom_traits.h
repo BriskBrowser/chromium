@@ -10,9 +10,11 @@
 #include "build/build_config.h"
 #include "components/viz/common/quads/compositor_frame_metadata.h"
 #include "services/viz/public/cpp/compositing/begin_frame_args_mojom_traits.h"
+#include "services/viz/public/cpp/compositing/delegated_ink_metadata_mojom_traits.h"
 #include "services/viz/public/cpp/compositing/frame_deadline_mojom_traits.h"
 #include "services/viz/public/cpp/compositing/surface_range_mojom_traits.h"
 #include "services/viz/public/mojom/compositing/compositor_frame_metadata.mojom-shared.h"
+#include "ui/gfx/mojom/display_color_spaces_mojom_traits.h"
 #include "ui/gfx/mojom/overlay_transform_mojom_traits.h"
 
 namespace mojo {
@@ -38,6 +40,11 @@ struct StructTraits<viz::mojom::CompositorFrameMetadataDataView,
   static gfx::SizeF scrollable_viewport_size(
       const viz::CompositorFrameMetadata& metadata) {
     return metadata.scrollable_viewport_size;
+  }
+
+  static gfx::ContentColorUsage content_color_usage(
+      const viz::CompositorFrameMetadata& metadata) {
+    return metadata.content_color_usage;
   }
 
   static bool may_contain_video(const viz::CompositorFrameMetadata& metadata) {
@@ -118,6 +125,11 @@ struct StructTraits<viz::mojom::CompositorFrameMetadataDataView,
   static gfx::OverlayTransform display_transform_hint(
       const viz::CompositorFrameMetadata& metadata) {
     return metadata.display_transform_hint;
+  }
+
+  static const std::unique_ptr<viz::DelegatedInkMetadata>&
+  delegated_ink_metadata(const viz::CompositorFrameMetadata& metadata) {
+    return metadata.delegated_ink_metadata;
   }
 
   static bool Read(viz::mojom::CompositorFrameMetadataDataView data,

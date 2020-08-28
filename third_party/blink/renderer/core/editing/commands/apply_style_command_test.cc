@@ -10,6 +10,7 @@
 #include "third_party/blink/renderer/core/editing/frame_selection.h"
 #include "third_party/blink/renderer/core/editing/selection_template.h"
 #include "third_party/blink/renderer/core/editing/testing/editing_test_base.h"
+#include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/platform/heap/heap.h"
 
@@ -67,9 +68,9 @@ TEST_F(ApplyStyleCommandTest, JustifyRightDetachesDestination) {
       "<button></button>"
       "</ruby");
   Element* body = GetDocument().body();
-  // The bug does't reproduce with a contenteditable <div> as container.
+  // The bug doesn't reproduce with a contenteditable <div> as container.
   body->setAttribute(html_names::kContenteditableAttr, "true");
-  GetDocument().UpdateStyleAndLayout();
+  GetDocument().UpdateStyleAndLayout(DocumentUpdateReason::kTest);
   Selection().SelectAll();
 
   auto* style =
@@ -91,11 +92,10 @@ TEST_F(ApplyStyleCommandTest, FontSizeDeltaWithSpanElement) {
           "<div contenteditable>^<div></div>a<span></span>|</div>"),
       SetSelectionOptions());
 
-  auto* style =
-      MakeGarbageCollected<MutableCSSPropertyValueSet>(kHTMLQuirksMode);
-  style->SetProperty(CSSPropertyID::kWebkitFontSizeDelta, "3",
+  auto* style = MakeGarbageCollected<MutableCSSPropertyValueSet>(kUASheetMode);
+  style->SetProperty(CSSPropertyID::kInternalFontSizeDelta, "3px",
                      /* important */ false,
-                     GetDocument().GetSecureContextMode());
+                     GetFrame().DomWindow()->GetSecureContextMode());
   MakeGarbageCollected<ApplyStyleCommand>(
       GetDocument(), MakeGarbageCollected<EditingStyle>(style),
       InputEvent::InputType::kNone)

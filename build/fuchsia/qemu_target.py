@@ -11,12 +11,16 @@ import logging
 import md5
 import os
 import platform
+import qemu_image
 import shutil
 import subprocess
 import sys
 import tempfile
 
-from common import GetEmuRootForPlatform, EnsurePathExists
+from common import GetHostArchFromPlatform, GetEmuRootForPlatform
+from common import EnsurePathExists
+from qemu_image import ExecQemuImgWithRetry
+from target import FuchsiaTargetException
 
 
 # Virtual networking configuration data for QEMU.
@@ -29,28 +33,43 @@ GUEST_MAC_ADDRESS = '52:54:00:63:5e:7b'
 EXTENDED_BLOBSTORE_SIZE = 1073741824  # 1GB
 
 
+def GetTargetType():
+  return QemuTarget
+
+
 class QemuTarget(emu_target.EmuTarget):
-  def __init__(self, output_dir, target_cpu, system_log_file,
-               emu_type, cpu_cores, require_kvm, ram_size_mb):
+  EMULATOR_NAME = 'qemu'
+
+  def __init__(self, output_dir, target_cpu, system_log_file, cpu_cores,
+               require_kvm, ram_size_mb):
     super(QemuTarget, self).__init__(output_dir, target_cpu,
                                      system_log_file)
-    self._emu_type=emu_type
     self._cpu_cores=cpu_cores
     self._require_kvm=require_kvm
     self._ram_size_mb=ram_size_mb
 
-  def _GetEmulatorName(self):
-    return self._emu_type
-
   def _IsKvmEnabled(self):
-    if self._require_kvm:
-      if (sys.platform.startswith('linux') and
-          os.access('/dev/kvm', os.R_OK | os.W_OK)):
-        if self._target_cpu == 'arm64' and platform.machine() == 'aarch64':
-          return True
-        if self._target_cpu == 'x64' and platform.machine() == 'x86_64':
-          return True
-    return False
+    kvm_supported = sys.platform.startswith('linux') and \
+                    os.access('/dev/kvm', os.R_OK | os.W_OK)
+    same_arch = \
+        (self._target_cpu == 'arm64' and platform.machine() == 'aarch64') or \
+        (self._target_cpu == 'x64' and platform.machine() == 'x86_64')
+    if kvm_supported and same_arch:
+      return True
+    elif self._require_kvm:
+      if same_arch:
+        if not os.path.exists('/dev/kvm'):
+          kvm_error = 'File /dev/kvm does not exist. Please install KVM first.'
+        else:
+          kvm_error = 'To use KVM acceleration, add user to the kvm group '\
+                      'with "sudo usermod -a -G kvm $USER". Log out and back '\
+                      'in for the change to take effect.'
+        raise FuchsiaTargetException(kvm_error)
+      else:
+        raise FuchsiaTargetException('KVM unavailable when CPU architecture of'\
+                                     ' host is different from that of target.')
+    else:
+      return False
 
   def _BuildQemuConfig(self):
     boot_data.AssertBootImagesExist(self._GetTargetSdkArch(), 'qemu')
@@ -85,15 +104,14 @@ class QemuTarget(emu_target.EmuTarget):
       emu_command.extend([
           '-machine','virt,gic_version=3',
       ])
-      netdev_type = 'virtio-net-pci'
     else:
       emu_command.extend([
           '-machine', 'q35',
       ])
-      netdev_type = 'e1000'
 
     # Configure virtual network. It is used in the tests to connect to
     # testserver running on the host.
+    netdev_type = 'virtio-net-pci'
     netdev_config = 'user,id=net0,net=%s,dhcpstart=%s,host=%s' % \
             (GUEST_NET, GUEST_IP_ADDRESS, HOST_IP_ADDRESS)
 
@@ -112,11 +130,10 @@ class QemuTarget(emu_target.EmuTarget):
       if self._target_cpu == 'arm64':
         kvm_command.append('host')
       else:
-        kvm_command.append('host,migratable=no')
+        kvm_command.append('host,migratable=no,+invtsc')
     else:
       logging.warning('Unable to launch %s with KVM acceleration.'
-                       % (self._emu_type) +
-                      'The guest VM will be slow.')
+                      'The guest VM will be slow.' % (self.EMULATOR_NAME))
       if self._target_cpu == 'arm64':
         kvm_command = ['-cpu', 'cortex-a53']
       else:
@@ -142,8 +159,10 @@ class QemuTarget(emu_target.EmuTarget):
 
   def _BuildCommand(self):
     qemu_exec = 'qemu-system-'+self._GetTargetSdkLegacyArch()
-    qemu_command = [os.path.join(GetEmuRootForPlatform(self._emu_type), 'bin',
-                                 qemu_exec)]
+    qemu_command = [
+        os.path.join(GetEmuRootForPlatform(self.EMULATOR_NAME), 'bin',
+                     qemu_exec)
+    ]
     qemu_command.extend(self._BuildQemuConfig())
     qemu_command.append('-nographic')
     return qemu_command
@@ -193,8 +212,13 @@ def _EnsureBlobstoreQcowAndReturnPath(output_dir, target_arch):
 
   # Construct a QCOW image from the extended, temporary FVM volume.
   # The result will be retained in the build output directory for re-use.
-  subprocess.check_call([qimg_tool, 'convert', '-f', 'raw', '-O', 'qcow2',
-                         '-c', extended_blobstore.name, qcow_path])
+  qemu_img_cmd = [qimg_tool, 'convert', '-f', 'raw', '-O', 'qcow2',
+                  '-c', extended_blobstore.name, qcow_path]
+  # TODO(crbug.com/1046861): Remove arm64 call with retries when bug is fixed.
+  if common.GetHostArchFromPlatform() == 'arm64':
+    qemu_image.ExecQemuImgWithRetry(qemu_img_cmd)
+  else:
+    subprocess.check_call(qemu_img_cmd)
 
   # Write out a hash of the original blobstore file, so that subsequent runs
   # can trivially check if a cached extended FVM volume is available for reuse.
@@ -202,5 +226,3 @@ def _EnsureBlobstoreQcowAndReturnPath(output_dir, target_arch):
     blobstore_hash_file.write(current_blobstore_hash)
 
   return qcow_path
-
-

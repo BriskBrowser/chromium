@@ -7,17 +7,11 @@
 
 #include <d3d11_1.h>
 #include <d3d9.h>
+#include <dxva2api.h>
 #include <initguid.h>
+#include <mfidl.h>
 #include <stdint.h>
 #include <wrl/client.h>
-
-// Work around bug in this header by disabling the relevant warning for it.
-// https://connect.microsoft.com/VisualStudio/feedback/details/911260/dxva2api-h-in-win8-sdk-triggers-c4201-with-w4
-#pragma warning(push)
-#pragma warning(disable : 4201)
-#include <dxva2api.h>
-#pragma warning(pop)
-#include <mfidl.h>
 
 #include <list>
 #include <map>
@@ -31,6 +25,7 @@
 #include "base/threading/thread.h"
 #include "gpu/config/gpu_preferences.h"
 #include "media/base/video_color_space.h"
+#include "media/base/win/mf_initializer.h"
 #include "media/gpu/gpu_video_decode_accelerator_helpers.h"
 #include "media/gpu/media_gpu_export.h"
 #include "media/gpu/windows/d3d11_com_defs.h"
@@ -400,6 +395,9 @@ class MEDIA_GPU_EXPORT DXVAVideoDecodeAccelerator
   // To expose client callbacks from VideoDecodeAccelerator.
   VideoDecodeAccelerator::Client* client_;
 
+  // MediaFoundation session, calls MFShutdown on deletion.
+  MFSessionLifetime session_;
+
   Microsoft::WRL::ComPtr<IMFTransform> decoder_;
 
   Microsoft::WRL::ComPtr<IDirect3D9Ex> d3d9_;
@@ -559,6 +557,9 @@ class MEDIA_GPU_EXPORT DXVAVideoDecodeAccelerator
   // Copy video to FP16 scRGB textures.
   bool use_fp16_ = false;
 
+  // True if decoder's output is P010/P016.
+  bool decoder_output_p010_or_p016_ = false;
+
   // When converting YUV to RGB, make sure we tell the blitter about the input
   // color space so that it can convert it correctly.
   bool use_color_info_ = true;
@@ -567,8 +568,8 @@ class MEDIA_GPU_EXPORT DXVAVideoDecodeAccelerator
   // H/W decoding.
   bool use_dx11_;
 
-  // True when using Microsoft's VP9 HMFT for decoding.
-  bool using_ms_vp9_mft_ = false;
+  // True when using Microsoft's VPx HMFT for decoding.
+  bool using_ms_vpx_mft_ = false;
 
   // True if we should use DXGI keyed mutexes to synchronize between the two
   // contexts.
@@ -581,8 +582,12 @@ class MEDIA_GPU_EXPORT DXVAVideoDecodeAccelerator
   bool using_angle_device_;
   bool using_debug_device_;
 
-  // Enables hardware acceleration for VP9 video decoding.
-  const bool enable_accelerated_vpx_decode_;
+  // Enables hardware acceleration for AV1 video decoding.
+  const bool enable_accelerated_av1_decode_;
+
+  // Enables hardware acceleration for VP8/VP9 video decoding.
+  const bool enable_accelerated_vp8_decode_;
+  const bool enable_accelerated_vp9_decode_;
 
   // The media foundation H.264 decoder has problems handling changes like
   // resolution change, bitrate change etc. If we reinitialize the decoder
@@ -603,6 +608,7 @@ class MEDIA_GPU_EXPORT DXVAVideoDecodeAccelerator
   VideoColorSpace current_color_space_;
 
   base::Optional<DisplayHelper> display_helper_;
+  bool use_empty_video_hdr_metadata_ = false;
 
   // WeakPtrFactory for posting tasks back to |this|.
   base::WeakPtrFactory<DXVAVideoDecodeAccelerator> weak_this_factory_{this};

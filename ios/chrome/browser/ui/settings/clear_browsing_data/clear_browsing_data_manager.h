@@ -8,11 +8,10 @@
 #include "components/browsing_data/core/counters/browsing_data_counter.h"
 #import "ios/chrome/browser/ui/list_model/list_model.h"
 
-namespace ios {
-class ChromeBrowserState;
-}
+class Browser;
 class BrowsingDataRemover;
 enum class BrowsingDataRemoveMask;
+class ChromeBrowserState;
 
 @class ActionSheetCoordinator;
 @class BrowsingDataCounterWrapperProducer;
@@ -70,10 +69,10 @@ enum ClearBrowsingDataItemType {
 @property(nonatomic, weak) id<CollectionViewFooterLinkDelegate> linkDelegate;
 
 // Default init method. |browserState| can't be nil.
-- (instancetype)initWithBrowserState:(ios::ChromeBrowserState*)browserState;
+- (instancetype)initWithBrowserState:(ChromeBrowserState*)browserState;
 
 // Designated initializer to allow dependency injection (in tests).
-- (instancetype)initWithBrowserState:(ios::ChromeBrowserState*)browserState
+- (instancetype)initWithBrowserState:(ChromeBrowserState*)browserState
                    browsingDataRemover:(BrowsingDataRemover*)remover
     browsingDataCounterWrapperProducer:
         (BrowsingDataCounterWrapperProducer*)producer NS_DESIGNATED_INITIALIZER;
@@ -94,6 +93,7 @@ enum ClearBrowsingDataItemType {
         (BrowsingDataRemoveMask)dataTypeMaskToRemove
                              baseViewController:
                                  (UIViewController*)baseViewController
+                                        browser:(Browser*)browser
                             sourceBarButtonItem:
                                 (UIBarButtonItem*)sourceBarButtonItem;
 

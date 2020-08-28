@@ -131,9 +131,12 @@ void OfflineContentAggregatorBridge::OpenItem(
     JNIEnv* env,
     const JavaParamRef<jobject>& jobj,
     jint launch_location,
+    jboolean j_open_in_incognito,
     const JavaParamRef<jstring>& j_namespace,
     const JavaParamRef<jstring>& j_id) {
-  provider_->OpenItem(static_cast<LaunchLocation>(launch_location),
+  OpenParams open_params(static_cast<LaunchLocation>(launch_location));
+  open_params.open_in_incognito = j_open_in_incognito;
+  provider_->OpenItem(open_params,
                       JNI_OfflineContentAggregatorBridge_CreateContentId(
                           env, j_namespace, j_id));
 }
@@ -243,6 +246,26 @@ void OfflineContentAggregatorBridge::RenameItem(
                             env, j_namespace, j_id),
                         ConvertJavaStringToUTF8(env, j_name),
                         std::move(callback));
+}
+
+void OfflineContentAggregatorBridge::ChangeSchedule(
+    JNIEnv* env,
+    const base::android::JavaParamRef<jobject>& jobj,
+    const base::android::JavaParamRef<jstring>& j_namespace,
+    const base::android::JavaParamRef<jstring>& j_id,
+    jboolean j_only_on_wifi,
+    jlong j_start_time_ms) {
+  base::Optional<OfflineItemSchedule> schedule;
+  if (j_only_on_wifi)
+    schedule = base::make_optional<OfflineItemSchedule>(true, base::nullopt);
+  else if (j_start_time_ms > 0) {
+    schedule = base::make_optional<OfflineItemSchedule>(
+        false, base::Time::FromJavaTime(j_start_time_ms));
+  }
+
+  provider_->ChangeSchedule(JNI_OfflineContentAggregatorBridge_CreateContentId(
+                                env, j_namespace, j_id),
+                            std::move(schedule));
 }
 
 void OfflineContentAggregatorBridge::OnItemsAdded(

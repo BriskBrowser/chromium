@@ -37,6 +37,7 @@
 #include "third_party/blink/renderer/core/loader/http_equiv.h"
 #include "third_party/blink/renderer/core/page/chrome_client.h"
 #include "third_party/blink/renderer/core/page/page.h"
+#include "third_party/blink/renderer/platform/heap/heap.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_to_number.h"
 
 namespace blink {
@@ -125,9 +126,9 @@ void HTMLMetaElement::ParseContentAttribute(
     String message =
         "Error parsing a meta element's content: ';' is not a valid key-value "
         "pair separator. Please use ',' instead.";
-    document->AddConsoleMessage(
-        ConsoleMessage::Create(mojom::ConsoleMessageSource::kRendering,
-                               mojom::ConsoleMessageLevel::kWarning, message));
+    document->AddConsoleMessage(MakeGarbageCollected<ConsoleMessage>(
+        mojom::ConsoleMessageSource::kRendering,
+        mojom::ConsoleMessageLevel::kWarning, message));
   }
 }
 
@@ -430,9 +431,9 @@ void HTMLMetaElement::ReportViewportWarning(Document* document,
 
   // FIXME: This message should be moved off the console once a solution to
   // https://bugs.webkit.org/show_bug.cgi?id=103274 exists.
-  document->AddConsoleMessage(
-      ConsoleMessage::Create(mojom::ConsoleMessageSource::kRendering,
-                             ViewportErrorMessageLevel(error_code), message));
+  document->AddConsoleMessage(MakeGarbageCollected<ConsoleMessage>(
+      mojom::ConsoleMessageSource::kRendering,
+      ViewportErrorMessageLevel(error_code), message));
 }
 
 void HTMLMetaElement::GetViewportDescriptionFromContentAttribute(
@@ -483,6 +484,8 @@ void HTMLMetaElement::NameRemoved(const AtomicString& name_value) {
     GetDocument().GetFrame()->DidChangeThemeColor();
   } else if (EqualIgnoringASCIICase(name_value, "color-scheme")) {
     GetDocument().ColorSchemeMetaChanged();
+  } else if (EqualIgnoringASCIICase(name_value, "battery-savings")) {
+    GetDocument().BatterySavingsMetaChanged();
   }
 }
 
@@ -564,6 +567,10 @@ void HTMLMetaElement::ProcessContent() {
     GetDocument().ColorSchemeMetaChanged();
     return;
   }
+  if (EqualIgnoringASCIICase(name_value, "battery-savings")) {
+    GetDocument().BatterySavingsMetaChanged();
+    return;
+  }
 
   // All situations below require a content attribute (which can be the empty
   // string).
@@ -573,11 +580,26 @@ void HTMLMetaElement::ProcessContent() {
   if (EqualIgnoringASCIICase(name_value, "viewport")) {
     ProcessViewportContentAttribute(content_value,
                                     ViewportDescription::kViewportMeta);
-  } else if (EqualIgnoringASCIICase(name_value, "referrer")) {
+  } else if (EqualIgnoringASCIICase(name_value, "referrer") &&
+             GetExecutionContext()) {
     UseCounter::Count(&GetDocument(),
                       WebFeature::kHTMLMetaElementReferrerPolicy);
-    GetDocument().ParseAndSetReferrerPolicy(content_value,
-                                            true /* support legacy keywords */);
+    if (!IsDescendantOf(GetDocument().head())) {
+      UseCounter::Count(&GetDocument(),
+                        WebFeature::kHTMLMetaElementReferrerPolicyOutsideHead);
+    }
+    bool comma_in_content_value = false;
+    if (content_value.Contains(',')) {
+      comma_in_content_value = true;
+      UseCounter::Count(
+          &GetDocument(),
+          WebFeature::kHTMLMetaElementReferrerPolicyMultipleTokens);
+    }
+
+    GetExecutionContext()->ParseAndSetReferrerPolicy(
+        content_value, true /* support legacy keywords */,
+        /*from_meta_tag_with_list_of_policies=*/
+        comma_in_content_value);
   } else if (EqualIgnoringASCIICase(name_value, "handheldfriendly") &&
              EqualIgnoringASCIICase(content_value, "true")) {
     ProcessViewportContentAttribute("width=device-width",

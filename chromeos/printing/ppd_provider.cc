@@ -17,7 +17,7 @@
 #include "base/containers/circular_deque.h"
 #include "base/files/file.h"
 #include "base/files/file_util.h"
-#include "base/json/json_parser.h"
+#include "base/json/json_reader.h"
 #include "base/no_destructor.h"
 #include "base/optional.h"
 #include "base/sequenced_task_runner.h"
@@ -29,6 +29,7 @@
 #include "base/strings/stringprintf.h"
 #include "base/synchronization/lock.h"
 #include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
 #include "base/task_runner_util.h"
 #include "base/threading/scoped_blocking_call.h"
 #include "base/threading/sequenced_task_runner_handle.h"
@@ -41,9 +42,6 @@
 #include "net/base/filename_util.h"
 #include "net/base/load_flags.h"
 #include "net/http/http_status_code.h"
-#include "net/url_request/url_fetcher.h"
-#include "net/url_request/url_fetcher_delegate.h"
-#include "net/url_request/url_request_context_getter.h"
 #include "services/network/public/cpp/resource_request.h"
 #include "services/network/public/cpp/simple_url_loader.h"
 #include "url/gurl.h"
@@ -218,79 +216,6 @@ struct PpdReferenceResolutionQueueEntry {
   DISALLOW_COPY_AND_ASSIGN(PpdReferenceResolutionQueueEntry);
 };
 
-// Extract cupsFilter/cupsFilter2 filter names from a line from a ppd.
-
-// cupsFilter2 lines look like this:
-//
-// *cupsFilter2: "application/vnd.cups-raster application/vnd.foo 100
-// rastertofoo"
-//
-// cupsFilter lines look like this:
-//
-// *cupsFilter: "application/vnd.cups-raster 100 rastertofoo"
-//
-// |field_name| is the starting token we look for (*cupsFilter: or
-// *cupsFilter2:).
-//
-// |num_value_tokens| is the number of tokens we expect to find in the
-// value string.  The filter is always the last of these.
-//
-// Return the name of the filter, if one is found.
-//
-// This would be simpler with re2, but re2 is not an allowed dependency in
-// this part of the tree.
-base::Optional<std::string> ExtractCupsFilter(const std::string& line,
-                                              const std::string& field_name,
-                                              int num_value_tokens) {
-  std::string delims(" \n\t\r\"");
-  base::StringTokenizer line_tok(line, delims);
-
-  if (!line_tok.GetNext()) {
-    return {};
-  }
-  if (line_tok.token_piece() != field_name) {
-    return {};
-  }
-
-  // Skip to the last of the value tokens.
-  for (int i = 0; i < num_value_tokens; ++i) {
-    if (!line_tok.GetNext()) {
-      return {};
-    }
-  }
-  if (line_tok.token_piece() != "") {
-    return line_tok.token_piece().as_string();
-  }
-  return {};
-}
-
-// Extract the used cups filters from a ppd.
-//
-// Note that CUPS (post 1.5) discards all cupsFilter lines if *any*
-// cupsFilter2 lines exist.
-//
-std::vector<std::string> ExtractFiltersFromPpd(
-    const std::string& ppd_contents) {
-  std::string line;
-  base::Optional<std::string> tmp;
-  auto ppd_reader = PpdLineReader::Create(ppd_contents, 255);
-  std::vector<std::string> cups_filters;
-  std::vector<std::string> cups_filter2s;
-  while (ppd_reader->NextLine(&line)) {
-    tmp = ExtractCupsFilter(line, "*cupsFilter:", 3);
-    if (tmp.has_value()) {
-      cups_filters.push_back(tmp.value());
-    }
-    tmp = ExtractCupsFilter(line, "*cupsFilter2:", 4);
-    if (tmp.has_value()) {
-      cups_filter2s.push_back(tmp.value());
-    }
-  }
-  if (!cups_filter2s.empty()) {
-    return cups_filter2s;
-  }
-  return cups_filters;
-}
 
 // Returns false if there are obvious errors in the reference that will prevent
 // resolution.
@@ -449,9 +374,9 @@ class PpdProviderImpl : public PpdProvider {
       : browser_locale_(browser_locale),
         loader_factory_(loader_factory),
         ppd_cache_(ppd_cache),
-        disk_task_runner_(base::CreateSequencedTaskRunner(
-            {base::ThreadPool(), base::TaskPriority::USER_VISIBLE,
-             base::MayBlock(), base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN})),
+        disk_task_runner_(base::ThreadPool::CreateSequencedTaskRunner(
+            {base::TaskPriority::USER_VISIBLE, base::MayBlock(),
+             base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN})),
         version_(current_version),
         options_(options) {}
 
@@ -892,17 +817,12 @@ class PpdProviderImpl : public PpdProvider {
   void FinishPpdResolution(ResolvePpdCallback cb,
                            const std::string& ppd_contents,
                            PpdProvider::CallbackResultCode error_code) {
-    if (!ppd_contents.empty()) {
-      base::SequencedTaskRunnerHandle::Get()->PostTask(
-          FROM_HERE,
-          base::BindOnce(std::move(cb), PpdProvider::SUCCESS, ppd_contents,
-                         ExtractFiltersFromPpd(ppd_contents)));
-    } else {
-      DCHECK_NE(error_code, PpdProvider::SUCCESS);
-      base::SequencedTaskRunnerHandle::Get()->PostTask(
-          FROM_HERE, base::BindOnce(std::move(cb), error_code, std::string(),
-                                    std::vector<std::string>()));
+    if (!ppd_contents.empty() && error_code != SUCCESS) {
+      error_code = SUCCESS;
+      LOG(WARNING) << "Resolved from cache due to network issue";
     }
+    base::SequencedTaskRunnerHandle::Get()->PostTask(
+        FROM_HERE, base::BindOnce(std::move(cb), error_code, ppd_contents));
   }
 
   // Callback when the cache lookup for a ppd request finishes.  If we hit in
@@ -1093,8 +1013,17 @@ class PpdProviderImpl : public PpdProvider {
     std::string contents;
     auto& entry = ppd_resolution_queue_.front();
     if ((ValidateAndGetResponseAsString(&contents) != PpdProvider::SUCCESS)) {
-      FinishPpdResolution(std::move(entry.callback), entry.cached_contents,
-                          PpdProvider::SERVER_ERROR);
+      //  If we cannot retrieve a PPD from the server, we want the user to be
+      //  able to keep working.  So, if we retrieved a PPD from cache, even if
+      //  it's stale, provide it to the caller.
+      if (entry.cached_contents.empty()) {
+        FinishPpdResolution(std::move(entry.callback), std::string(),
+                            PpdProvider::SERVER_ERROR);
+      } else {
+        LOG(WARNING) << "Using stale cache PPD.  Unable to fetch from server";
+        FinishPpdResolution(std::move(entry.callback), entry.cached_contents,
+                            PpdProvider::SUCCESS);
+      }
     } else if (contents.size() > kMaxPpdSizeBytes) {
       FinishPpdResolution(std::move(entry.callback), entry.cached_contents,
                           PpdProvider::PPD_TOO_LARGE);
@@ -1298,7 +1227,7 @@ class PpdProviderImpl : public PpdProvider {
     size_t best_idx = -1;
     for (size_t i = 0; i < available_locales.size(); ++i) {
       const std::string& available = available_locales[i];
-      if (base::StringPiece(browser_locale_).starts_with(available + "-") &&
+      if (base::StartsWith(browser_locale_, available + "-") &&
           available.size() > best_len) {
         best_len = available.size();
         best_idx = i;
@@ -1411,7 +1340,7 @@ class PpdProviderImpl : public PpdProvider {
       return PpdProvider::INTERNAL_ERROR;
     }
 
-    *top_list = std::move(ret_list.value().GetList());
+    *top_list = ret_list->TakeList();
     for (const auto& entry : *top_list) {
       if (!entry.is_list()) {
         LOG(ERROR) << "Found unexpected non-list entry in JSON object";

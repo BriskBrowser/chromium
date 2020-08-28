@@ -7,8 +7,8 @@
 #include <windows.h>
 #include <winternl.h>
 
+#include "base/check.h"
 #include "base/debug/alias.h"
-#include "base/logging.h"
 #include "base/profiler/native_unwinder_win.h"
 #include "build/build_config.h"
 
@@ -72,7 +72,7 @@ const TEB* GetThreadEnvironmentBlock(HANDLE thread_handle) {
   using NtQueryInformationThreadFunction =
       NTSTATUS(WINAPI*)(HANDLE, THREAD_INFORMATION_CLASS, PVOID, ULONG, PULONG);
 
-  const auto nt_query_information_thread =
+  static const auto nt_query_information_thread =
       reinterpret_cast<NtQueryInformationThreadFunction>(::GetProcAddress(
           ::GetModuleHandle(L"ntdll.dll"), "NtQueryInformationThread"));
   if (!nt_query_information_thread)

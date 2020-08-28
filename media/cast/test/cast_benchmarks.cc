@@ -35,6 +35,7 @@
 #include "base/bind_helpers.h"
 #include "base/command_line.h"
 #include "base/debug/profiler.h"
+#include "base/logging.h"
 #include "base/memory/ptr_util.h"
 #include "base/memory/weak_ptr.h"
 #include "base/run_loop.h"
@@ -492,7 +493,7 @@ void RunOneBenchmark::Create(const MeasuringPoint& p) {
       CastSender::Create(cast_environment_sender_, &transport_sender_);
 
   cast_sender_->InitializeAudio(audio_sender_config_,
-                                base::Bind(&ExpectAudioSuccess));
+                                base::BindOnce(&ExpectAudioSuccess));
   cast_sender_->InitializeVideo(video_sender_config_,
                                 base::Bind(&ExpectVideoSuccess),
                                 CreateDefaultVideoEncodeAcceleratorCallback(),

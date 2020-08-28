@@ -10,7 +10,7 @@
 namespace autofill {
 
 TestPersonalDataManager::TestPersonalDataManager()
-    : PersonalDataManager("en-US") {}
+    : PersonalDataManager("en-US", "US") {}
 
 TestPersonalDataManager::~TestPersonalDataManager() {}
 
@@ -53,6 +53,7 @@ void TestPersonalDataManager::AddUpiId(const std::string& profile) {
 void TestPersonalDataManager::AddProfile(const AutofillProfile& profile) {
   std::unique_ptr<AutofillProfile> profile_ptr =
       std::make_unique<AutofillProfile>(profile);
+  profile_ptr->FinalizeAfterImport();
   web_profiles_.push_back(std::move(profile_ptr));
   NotifyPersonalDataObserver();
 }
@@ -203,6 +204,17 @@ void TestPersonalDataManager::LoadCreditCardCloudTokenData() {
   }
 }
 
+void TestPersonalDataManager::LoadUpiIds() {
+  pending_upi_ids_query_ = 128;
+  {
+    std::vector<std::string> upi_ids = {"vpa@indianbank"};
+    std::unique_ptr<WDTypedResult> result =
+        std::make_unique<WDResult<std::vector<std::string>>>(
+            AUTOFILL_UPI_RESULT, std::move(upi_ids));
+    OnWebDataServiceRequestDone(pending_upi_ids_query_, std::move(result));
+  }
+}
+
 bool TestPersonalDataManager::IsAutofillEnabled() const {
   return IsAutofillProfileEnabled() || IsAutofillCreditCardEnabled();
 }
@@ -311,6 +323,22 @@ void TestPersonalDataManager::AddCloudTokenData(
   std::unique_ptr<CreditCardCloudTokenData> data =
       std::make_unique<CreditCardCloudTokenData>(cloud_token_data);
   server_credit_card_cloud_token_data_.push_back(std::move(data));
+  NotifyPersonalDataObserver();
+}
+
+void TestPersonalDataManager::SetNicknameForCardWithGUID(
+    const char* guid,
+    const std::string& nickname) {
+  for (auto& card : local_credit_cards_) {
+    if (card->guid() == guid) {
+      card->SetNickname(base::ASCIIToUTF16(nickname));
+    }
+  }
+  for (auto& card : server_credit_cards_) {
+    if (card->guid() == guid) {
+      card->SetNickname(base::ASCIIToUTF16(nickname));
+    }
+  }
   NotifyPersonalDataObserver();
 }
 

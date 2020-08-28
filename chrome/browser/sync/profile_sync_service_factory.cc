@@ -11,7 +11,6 @@
 #include "base/feature_list.h"
 #include "base/memory/singleton.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/task/post_task.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
 #include "chrome/browser/autofill/personal_data_manager_factory.h"
@@ -22,14 +21,14 @@
 #include "chrome/browser/favicon/favicon_service_factory.h"
 #include "chrome/browser/gcm/gcm_profile_service_factory.h"
 #include "chrome/browser/history/history_service_factory.h"
-#include "chrome/browser/invalidation/deprecated_profile_invalidation_provider_factory.h"
 #include "chrome/browser/invalidation/profile_invalidation_provider_factory.h"
-#include "chrome/browser/password_manager/account_storage/account_password_store_factory.h"
+#include "chrome/browser/password_manager/account_password_store_factory.h"
 #include "chrome/browser/password_manager/password_store_factory.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/search_engines/template_url_service_factory.h"
 #include "chrome/browser/security_events/security_event_recorder_factory.h"
+#include "chrome/browser/sharing/sharing_message_bridge_factory.h"
 #include "chrome/browser/signin/about_signin_internals_factory.h"
 #include "chrome/browser/signin/identity_manager_factory.h"
 #include "chrome/browser/spellchecker/spellcheck_factory.h"
@@ -39,6 +38,7 @@
 #include "chrome/browser/sync/model_type_store_service_factory.h"
 #include "chrome/browser/sync/send_tab_to_self_sync_service_factory.h"
 #include "chrome/browser/sync/session_sync_service_factory.h"
+#include "chrome/browser/sync/sync_invalidations_service_factory.h"
 #include "chrome/browser/sync/user_event_service_factory.h"
 #include "chrome/browser/themes/theme_service_factory.h"
 #include "chrome/browser/undo/bookmark_undo_service_factory.h"
@@ -80,11 +80,8 @@
 #if defined(OS_CHROMEOS)
 #include "chrome/browser/chromeos/printing/synced_printers_manager_factory.h"
 #include "chrome/browser/sync/wifi_configuration_sync_service_factory.h"
+#include "chromeos/constants/chromeos_features.h"
 #endif  // defined(OS_CHROMEOS)
-
-#if defined(OS_WIN)
-#include "chrome/browser/sync/roaming_profile_directory_deleter_win.h"
-#endif  // defined(OS_WIN)
 
 namespace {
 
@@ -99,8 +96,8 @@ void UpdateNetworkTimeOnUIThread(base::Time network_time,
 void UpdateNetworkTime(const base::Time& network_time,
                        const base::TimeDelta& resolution,
                        const base::TimeDelta& latency) {
-  base::PostTask(FROM_HERE, {content::BrowserThread::UI},
-                 base::BindOnce(&UpdateNetworkTimeOnUIThread, network_time,
+  content::GetUIThreadTaskRunner({})->PostTask(
+      FROM_HERE, base::BindOnce(&UpdateNetworkTimeOnUIThread, network_time,
                                 resolution, latency, base::TimeTicks::Now()));
 }
 
@@ -149,13 +146,13 @@ ProfileSyncServiceFactory::ProfileSyncServiceFactory()
   DependsOn(gcm::GCMProfileServiceFactory::GetInstance());
   DependsOn(HistoryServiceFactory::GetInstance());
   DependsOn(IdentityManagerFactory::GetInstance());
-  DependsOn(invalidation::DeprecatedProfileInvalidationProviderFactory::
-                GetInstance());
   DependsOn(invalidation::ProfileInvalidationProviderFactory::GetInstance());
+  DependsOn(SyncInvalidationsServiceFactory::GetInstance());
   DependsOn(ModelTypeStoreServiceFactory::GetInstance());
   DependsOn(PasswordStoreFactory::GetInstance());
   DependsOn(SecurityEventRecorderFactory::GetInstance());
   DependsOn(SendTabToSelfSyncServiceFactory::GetInstance());
+  DependsOn(SharingMessageBridgeFactory::GetInstance());
   DependsOn(SpellcheckServiceFactory::GetInstance());
 #if BUILDFLAG(ENABLE_SUPERVISED_USERS)
   DependsOn(SupervisedUserServiceFactory::GetInstance());
@@ -248,19 +245,8 @@ KeyedService* ProfileSyncServiceFactory::BuildServiceInstanceFor(
         invalidation::ProfileInvalidationProviderFactory::GetForProfile(
             profile);
     if (fcm_invalidation_provider) {
-      init_params.invalidations_identity_providers.push_back(
-          fcm_invalidation_provider->GetIdentityProvider());
-    }
-
-    // This code should stay here until all invalidation client are
-    // migrated from deprecated invalidation infrastructure.
-    // Since invalidations will work only if ProfileSyncService calls
-    // SetActiveAccountId for all identity providers.
-    auto* deprecated_invalidation_provider = invalidation::
-        DeprecatedProfileInvalidationProviderFactory::GetForProfile(profile);
-    if (deprecated_invalidation_provider) {
-      init_params.invalidations_identity_providers.push_back(
-          deprecated_invalidation_provider->GetIdentityProvider());
+      init_params.invalidations_identity_provider =
+          fcm_invalidation_provider->GetIdentityProvider();
     }
 
     // TODO(tim): Currently, AUTO/MANUAL settings refer to the *first* time sync
@@ -270,15 +256,8 @@ KeyedService* ProfileSyncServiceFactory::BuildServiceInstanceFor(
     // need to take care that ProfileSyncService doesn't get tripped up between
     // those two cases. Bug 88109.
     bool is_auto_start = browser_defaults::kSyncAutoStarts;
-#if defined(OS_ANDROID)
-    if (base::FeatureList::IsEnabled(switches::kSyncManualStartAndroid))
-      is_auto_start = false;
-#endif
 #if defined(OS_CHROMEOS)
-    // TODO(https://crbug.com/1013466): Replace this with kSplitSettingsSync
-    // when the browser sync consent dialog is working on Chrome OS. This is
-    // here temporarily for manual testing of the OS sync consent flow.
-    if (base::FeatureList::IsEnabled(switches::kSyncManualStartChromeOS))
+    if (chromeos::features::IsSplitSettingsSyncEnabled())
       is_auto_start = false;
 #endif
     init_params.start_behavior = is_auto_start
@@ -288,12 +267,6 @@ KeyedService* ProfileSyncServiceFactory::BuildServiceInstanceFor(
 
   auto pss =
       std::make_unique<syncer::ProfileSyncService>(std::move(init_params));
-
-#if defined(OS_WIN)
-  if (!local_sync_backend_enabled)
-    DeleteRoamingUserDataDirectoryLater();
-#endif
-
   pss->Initialize();
 
   // Hook PSS into PersonalDataManager (a circular dependency).
@@ -315,8 +288,6 @@ bool ProfileSyncServiceFactory::IsSyncAllowed(Profile* profile) {
   if (HasSyncService(profile)) {
     syncer::SyncService* sync_service = GetForProfile(profile);
     return !sync_service->HasDisableReason(
-               syncer::SyncService::DISABLE_REASON_PLATFORM_OVERRIDE) &&
-           !sync_service->HasDisableReason(
                syncer::SyncService::DISABLE_REASON_ENTERPRISE_POLICY);
   }
 

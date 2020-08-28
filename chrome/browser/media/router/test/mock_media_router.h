@@ -11,10 +11,11 @@
 #include <vector>
 
 #include "build/build_config.h"
+#include "chrome/browser/media/router/logger_impl.h"
 #include "chrome/browser/media/router/media_router_base.h"
-#include "chrome/common/media_router/media_route.h"
-#include "chrome/common/media_router/media_sink.h"
-#include "chrome/common/media_router/media_source.h"
+#include "components/media_router/common/media_route.h"
+#include "components/media_router/common/media_sink.h"
+#include "components/media_router/common/media_source.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -104,22 +105,6 @@ class MockMediaRouter : public MediaRouterBase {
                void(const MediaRoute::Id& route_id,
                     std::unique_ptr<std::vector<uint8_t>> data));
   MOCK_METHOD0(OnUserGesture, void());
-
-  void SearchSinks(const MediaSink::Id& sink_id,
-                   const MediaSource::Id& source_id,
-                   const std::string& search_input,
-                   const std::string& domain,
-                   MediaSinkSearchResponseCallback sink_callback) override {
-    SearchSinksInternal(sink_id, source_id, search_input, domain,
-                        sink_callback);
-  }
-  MOCK_METHOD5(SearchSinksInternal,
-               void(const MediaSink::Id& sink_id,
-                    const MediaSource::Id& source_id,
-                    const std::string& search_input,
-                    const std::string& domain,
-                    MediaSinkSearchResponseCallback& sink_callback));
-
   MOCK_METHOD1(OnPresentationSessionDetached,
                void(const MediaRoute::Id& route_id));
   std::unique_ptr<PresentationConnectionStateSubscription>
@@ -138,6 +123,7 @@ class MockMediaRouter : public MediaRouterBase {
                void(const MediaRoute::Id& route_id,
                     mojo::PendingReceiver<mojom::MediaController> controller,
                     mojo::PendingRemote<mojom::MediaStatusObserver> observer));
+  MOCK_METHOD0(GetLogger, LoggerImpl*());
 #endif  // !defined(OS_ANDROID)
   MOCK_METHOD1(OnAddPresentationConnectionStateChangedCallbackInvoked,
                void(const content::PresentationConnectionStateChangedCallback&

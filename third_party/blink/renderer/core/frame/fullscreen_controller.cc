@@ -33,15 +33,16 @@
 #include "base/memory/ptr_util.h"
 #include "third_party/blink/public/mojom/frame/fullscreen.mojom-blink.h"
 #include "third_party/blink/public/web/web_local_frame_client.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_fullscreen_options.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/exported/web_view_impl.h"
+#include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/frame/local_frame_view.h"
 #include "third_party/blink/renderer/core/frame/page_scale_constraints_set.h"
 #include "third_party/blink/renderer/core/frame/screen.h"
 #include "third_party/blink/renderer/core/frame/web_local_frame_impl.h"
 #include "third_party/blink/renderer/core/fullscreen/fullscreen.h"
-#include "third_party/blink/renderer/core/fullscreen/fullscreen_options.h"
 #include "third_party/blink/renderer/core/html/media/html_video_element.h"
 #include "third_party/blink/renderer/core/page/page.h"
 #include "third_party/blink/renderer/core/page/spatial_navigation.h"
@@ -61,29 +62,16 @@ void FullscreenController::DidEnterFullscreen() {
     return;
 
   UpdatePageScaleConstraints(false);
-  web_view_base_->SetPageScaleFactor(1.0f);
-  web_view_base_->SetVisualViewportOffset(FloatPoint());
+
+  // Only reset the scale for the local main frame.
+  if (web_view_base_->MainFrameImpl()) {
+    web_view_base_->SetPageScaleFactor(1.0f);
+    web_view_base_->SetVisualViewportOffset(FloatPoint());
+  }
 
   state_ = State::kFullscreen;
 
-  // Notify all pending local frames in order that we have entered fullscreen.
-  for (LocalFrame* frame : *pending_frames_) {
-    if (frame) {
-      if (Document* document = frame->GetDocument())
-        Fullscreen::DidEnterFullscreen(*document);
-    }
-  }
-
-  // Notify all local frames that we have entered fullscreen.
-  for (Frame* frame = web_view_base_->GetPage()->MainFrame(); frame;
-       frame = frame->Tree().TraverseNext()) {
-    auto* local_frame = DynamicTo<LocalFrame>(frame);
-    if (!local_frame)
-      continue;
-    if (Document* document = local_frame->GetDocument())
-      Fullscreen::DidEnterFullscreen(*document);
-  }
-  pending_frames_->clear();
+  NotifyFramesOfFullscreenEntry(true /* success */);
 
   // TODO(foolip): If the top level browsing context (main frame) ends up with
   // no fullscreen element, exit fullscreen again to recover.
@@ -125,7 +113,7 @@ void FullscreenController::DidExitFullscreen() {
 
 void FullscreenController::EnterFullscreen(LocalFrame& frame,
                                            const FullscreenOptions* options,
-                                           bool for_cross_process_descendant) {
+                                           FullscreenRequestType request_type) {
   // TODO(dtapuska): If we are already in fullscreen. If the options are
   // different than the currently requested one we may wish to request
   // fullscreen mode again.
@@ -141,7 +129,7 @@ void FullscreenController::EnterFullscreen(LocalFrame& frame,
   }
 
   // We need to store these values here rather than in |DidEnterFullscreen()|
-  // since by the time the latter is called, a Resize has already occured,
+  // since by the time the latter is called, a Resize has already occurred,
   // clamping the scroll offset. Don't save values if we're still waiting to
   // restore a previous set. This can happen if we exit and quickly reenter
   // fullscreen without performing a layout.
@@ -163,16 +151,35 @@ void FullscreenController::EnterFullscreen(LocalFrame& frame,
   fullscreen_options->prefers_navigation_bar =
       options->navigationUI() != "hide";
   if (options->hasScreen()) {
-    DCHECK(RuntimeEnabledFeatures::WindowPlacementEnabled());
+    DCHECK(RuntimeEnabledFeatures::WindowPlacementEnabled(frame.DomWindow()));
     if (options->screen()->DisplayId() != Screen::kInvalidDisplayId)
       fullscreen_options->display_id = options->screen()->DisplayId();
   }
 
+  // Propagate the type of fullscreen request (prefixed or unprefixed) to
+  // OOPIF ancestor frames so that they fire matching prefixed or unprefixed
+  // fullscreen events.
+  fullscreen_options->is_prefixed =
+      request_type & FullscreenRequestType::kPrefixed;
+  fullscreen_options->is_xr_overlay =
+      request_type & FullscreenRequestType::kForXrOverlay;
+
+#if DCHECK_IS_ON()
+  DVLOG(2) << __func__ << ": request_type="
+           << FullscreenRequestTypeToDebugString(request_type)
+           << " fullscreen_options={display_id="
+           << fullscreen_options->display_id
+           << ", is_prefixed=" << fullscreen_options->is_prefixed
+           << ", is_xr_overlay=" << fullscreen_options->is_xr_overlay << "}";
+#endif
+
   // Don't send redundant EnterFullscreen message to the browser for the
   // ancestor frames if the subframe has already entered fullscreen.
-  if (!for_cross_process_descendant) {
+  if (!(request_type & FullscreenRequestType::kForCrossProcessDescendant)) {
     frame.GetLocalFrameHostRemote().EnterFullscreen(
-        std::move(fullscreen_options));
+        std::move(fullscreen_options),
+        WTF::Bind(&FullscreenController::EnterFullscreenCallback,
+                  WTF::Unretained(this)));
   }
 
   state_ = State::kEnteringFullscreen;
@@ -245,6 +252,40 @@ void FullscreenController::RestoreBackgroundColorOverride() {
     } else {
       web_view_base_->ClearBackgroundColorOverride();
     }
+  }
+}
+
+void FullscreenController::NotifyFramesOfFullscreenEntry(bool granted) {
+  // Notify all pending local frames in order whether or not we successfully
+  // entered fullscreen.
+  for (LocalFrame* frame : *pending_frames_) {
+    if (frame) {
+      if (Document* document = frame->GetDocument()) {
+        Fullscreen::DidResolveEnterFullscreenRequest(*document, granted);
+      }
+    }
+  }
+
+  // Notify all local frames whether or not we successfully entered fullscreen.
+  for (Frame* frame = web_view_base_->GetPage()->MainFrame(); frame;
+       frame = frame->Tree().TraverseNext()) {
+    auto* local_frame = DynamicTo<LocalFrame>(frame);
+    if (!local_frame)
+      continue;
+    if (Document* document = local_frame->GetDocument()) {
+      Fullscreen::DidResolveEnterFullscreenRequest(*document, granted);
+    }
+  }
+  pending_frames_->clear();
+}
+
+void FullscreenController::EnterFullscreenCallback(bool granted) {
+  if (granted) {
+    // If the fullscreen is granted, then the VisualPropertiesUpdated message
+    // will later be fired and the state will be updated then.
+  } else {
+    state_ = State::kInitial;
+    NotifyFramesOfFullscreenEntry(false /* granted */);
   }
 }
 

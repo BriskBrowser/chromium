@@ -26,7 +26,7 @@ SafetyTipInfoBar::~SafetyTipInfoBar() {}
 
 SafetyTipInfoBar::SafetyTipInfoBar(
     std::unique_ptr<SafetyTipInfoBarDelegate> delegate)
-    : ConfirmInfoBar(std::move(delegate)) {}
+    : ChromeConfirmInfoBar(std::move(delegate)) {}
 
 ScopedJavaLocalRef<jobject> SafetyTipInfoBar::CreateRenderInfoBar(JNIEnv* env) {
   ScopedJavaLocalRef<jstring> ok_button_text =
@@ -50,7 +50,7 @@ ScopedJavaLocalRef<jobject> SafetyTipInfoBar::CreateRenderInfoBar(JNIEnv* env) {
     java_bitmap = gfx::ConvertToJavaBitmap(delegate->GetIcon().ToSkBitmap());
   }
 
-  return Java_SafetyTipInfoBar_create(env, GetEnumeratedIconId(), java_bitmap,
+  return Java_SafetyTipInfoBar_create(env, GetJavaIconId(), java_bitmap,
                                       message_text, link_text, ok_button_text,
                                       cancel_button_text, description_text);
 }

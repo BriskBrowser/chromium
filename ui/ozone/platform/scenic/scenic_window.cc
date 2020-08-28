@@ -51,7 +51,6 @@ ScenicWindow::ScenicWindow(ScenicWindowManager* window_manager,
   // Add input shape.
   node_.AddChild(input_node_);
 
-  // Add rendering subtree.
   node_.AddChild(render_node_);
 
   delegate_->OnAcceleratedWidgetAvailable(window_id_);
@@ -223,8 +222,9 @@ void ScenicWindow::UpdateSize() {
   render_node_.SetScale(size_dips_.width(), size_dips_.height(), 1.f);
 
   // Resize input node to cover the whole surface.
-  input_node_.SetShape(scenic::Rectangle(&scenic_session_, size_dips_.width(),
-                                         size_dips_.height()));
+  scenic::Rectangle window_rect(&scenic_session_, size_dips_.width(),
+                                size_dips_.height());
+  input_node_.SetShape(window_rect);
 
   // This is necessary when using vulkan because ImagePipes are presented
   // separately and we need to make sure our sizes change is committed.
@@ -245,14 +245,30 @@ void ScenicWindow::OnScenicEvents(
     std::vector<fuchsia::ui::scenic::Event> events) {
   for (const auto& event : events) {
     if (event.is_gfx()) {
-      if (event.gfx().is_metrics()) {
-        if (event.gfx().metrics().node_id != node_.id())
-          continue;
-        OnViewMetrics(event.gfx().metrics().metrics);
-      } else if (event.gfx().is_view_properties_changed()) {
-        if (event.gfx().view_properties_changed().view_id != view_.id())
-          continue;
-        OnViewProperties(event.gfx().view_properties_changed().properties);
+      switch (event.gfx().Which()) {
+        case fuchsia::ui::gfx::Event::kMetrics: {
+          if (event.gfx().metrics().node_id != node_.id())
+            continue;
+          OnViewMetrics(event.gfx().metrics().metrics);
+          break;
+        }
+        case fuchsia::ui::gfx::Event::kViewPropertiesChanged: {
+          DCHECK(event.gfx().view_properties_changed().view_id == view_.id());
+          OnViewProperties(event.gfx().view_properties_changed().properties);
+          break;
+        }
+        case fuchsia::ui::gfx::Event::kViewAttachedToScene: {
+          DCHECK(event.gfx().view_attached_to_scene().view_id == view_.id());
+          OnViewAttachedChanged(true);
+          break;
+        }
+        case fuchsia::ui::gfx::Event::kViewDetachedFromScene: {
+          DCHECK(event.gfx().view_detached_from_scene().view_id == view_.id());
+          OnViewAttachedChanged(false);
+          break;
+        }
+        default:
+          break;
       }
     } else if (event.is_input()) {
       OnInputEvent(event.input());
@@ -281,6 +297,12 @@ void ScenicWindow::OnViewProperties(
   size_dips_.SetSize(width, height);
   if (device_pixel_ratio_ > 0.0)
     UpdateSize();
+}
+
+void ScenicWindow::OnViewAttachedChanged(bool is_view_attached) {
+  delegate_->OnWindowStateChanged(is_view_attached
+                                      ? PlatformWindowState::kNormal
+                                      : PlatformWindowState::kMinimized);
 }
 
 void ScenicWindow::OnInputEvent(const fuchsia::ui::input::InputEvent& event) {

@@ -68,7 +68,7 @@ Polymer({
       return;
     }
 
-    const appId = settings.getQueryParameters().get('id');
+    const appId = settings.Router.getInstance().getQueryParameters().get('id');
 
     this.dispatch(app_management.actions.updateSelectedAppId(appId));
   },
@@ -91,6 +91,8 @@ Polymer({
         return 'chrome-app-detail-view';
       case (AppType.kArc):
         return 'arc-detail-view';
+      case (AppType.kPluginVm):
+        return 'plugin-vm-detail-view';
       default:
         assertNotReached();
     }
@@ -119,7 +121,8 @@ Polymer({
    * @private
    */
   selectedAppNotFound_() {
-    const appId = settings.getQueryParameters().get('id');
+    const appId = /** @type {string} */ (
+        settings.Router.getInstance().getQueryParameters().get('id'));
     return this.apps_ && !this.apps_[appId];
   },
 });

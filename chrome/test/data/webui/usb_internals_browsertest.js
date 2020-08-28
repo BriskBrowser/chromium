@@ -6,6 +6,8 @@
  * @fileoverview Tests for chrome://usb-internals
  */
 
+GEN('#include "content/public/test/browser_test.h"');
+
 /**
  * Test fixture for testing async methods of cr.js.
  * @constructor
@@ -268,8 +270,7 @@ UsbInternalsTest.prototype = {
 
     window.setupFn = () => {
       this.pageHandlerInterceptor = new MojoInterfaceInterceptor(
-          mojom.UsbInternalsPageHandler.$interfaceName, 'context',
-          /*useBrowserInterfaceBroker=*/ true);
+          mojom.UsbInternalsPageHandler.$interfaceName);
       this.pageHandlerInterceptor.oninterfacerequest = (e) => {
         this.pageHandler = new FakePageHandlerRemote(e.handle);
       };

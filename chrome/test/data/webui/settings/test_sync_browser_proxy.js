@@ -2,10 +2,16 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+// clang-format off
+// #import {PageStatus, StoredAccount, SyncBrowserProxy, SyncStatus} from 'chrome://settings/settings.js';
+// #import {TestBrowserProxy} from '../test_browser_proxy.m.js';
+// #import {isChromeOS} from 'chrome://resources/js/cr.m.js';
+// clang-format on
+
 /** @implements {settings.SyncBrowserProxy} */
-class TestSyncBrowserProxy extends TestBrowserProxy {
+/* #export */ class TestSyncBrowserProxy extends TestBrowserProxy {
   constructor() {
-    super([
+    const methodNames = [
       'didNavigateAwayFromSyncPage',
       'didNavigateToSyncPage',
       'getPromoImpressionCount',
@@ -19,32 +25,38 @@ class TestSyncBrowserProxy extends TestBrowserProxy {
       'sendSyncPrefsChanged',
       'startSignIn',
       'startSyncingWithEmail',
-      'queryIsHistoryRecordingEnabled',
-    ]);
+    ];
+
+    if (cr.isChromeOS) {
+      methodNames.push('turnOnSync', 'turnOffSync');
+    }
+
+    super(methodNames);
 
     /** @private {number} */
     this.impressionCount_ = 0;
 
-    /** @type {!HistoryRecordingEnabled} */
-    this.historyRecordingEnabled_ = {
-      requestSucceeded: true,
-      historyRecordingEnabled: true
-    };
-
+    // Settable fake data.
     /** @type {!settings.PageStatus} */
     this.encryptionResponse = settings.PageStatus.CONFIGURE;
+    /** @type {!Array<!settings.StoredAccount>} */
+    this.storedAccounts = [];
+    /** @type {!settings.SyncStatus} */
+    this.syncStatus = /** @type {!settings.SyncStatus} */ (
+        {signedIn: true, signedInUsername: 'fakeUsername'});
   }
+
 
   /** @override */
   getSyncStatus() {
     this.methodCalled('getSyncStatus');
-    return Promise.resolve({signedIn: true, signedInUsername: 'fakeUsername'});
+    return Promise.resolve(this.syncStatus);
   }
 
   /** @override */
   getStoredAccounts() {
     this.methodCalled('getStoredAccounts');
-    return Promise.resolve([]);
+    return Promise.resolve(this.storedAccounts);
   }
 
   /** @override */
@@ -109,16 +121,24 @@ class TestSyncBrowserProxy extends TestBrowserProxy {
     this.methodCalled('sendSyncPrefsChanged');
   }
 
-  /**
-   * @param {!HistoryRecordingEnabled} historyRecordingEnabled
-   */
-  setHistoryRecordingEnabled(historyRecordingEnabled) {
-    this.historyRecordingEnabled_ = historyRecordingEnabled;
-  }
+  /** @override */
+  attemptUserExit() {}
 
   /** @override */
-  queryIsHistoryRecordingEnabled() {
-    this.methodCalled('queryIsHistoryRecordingEnabled');
-    return Promise.resolve(this.historyRecordingEnabled_);
-  }
+  openActivityControlsUrl() {}
+
+  /** @override */
+  startKeyRetrieval() {}
+}
+
+if (cr.isChromeOS) {
+  /** @override */
+  TestSyncBrowserProxy.prototype.turnOnSync = function() {
+    this.methodCalled('turnOnSync');
+  };
+
+  /** @override */
+  TestSyncBrowserProxy.prototype.turnOffSync = function() {
+    this.methodCalled('turnOffSync');
+  };
 }

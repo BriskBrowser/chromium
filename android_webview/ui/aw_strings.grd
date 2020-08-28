@@ -72,6 +72,7 @@
     <output filename="aw_strings_sl.pak" type="data_package" lang="sl" />
     <output filename="aw_strings_sq.pak" type="data_package" lang="sq" />
     <output filename="aw_strings_sr.pak" type="data_package" lang="sr" />
+    <output filename="aw_strings_sr-Latn.pak" type="data_package" lang="sr-Latn" />
     <output filename="aw_strings_sv.pak" type="data_package" lang="sv" />
     <output filename="aw_strings_sw.pak" type="data_package" lang="sw" />
     <output filename="aw_strings_ta.pak" type="data_package" lang="ta" />
@@ -83,6 +84,7 @@
     <output filename="aw_strings_uz.pak" type="data_package" lang="uz" />
     <output filename="aw_strings_vi.pak" type="data_package" lang="vi" />
     <output filename="aw_strings_zh-CN.pak" type="data_package" lang="zh-CN" />
+    <output filename="aw_strings_zh-HK.pak" type="data_package" lang="zh-HK" />
     <output filename="aw_strings_zh-TW.pak" type="data_package" lang="zh-TW" />
     <output filename="aw_strings_zu.pak" type="data_package" lang="zu" />
   </outputs>
@@ -153,6 +155,7 @@
     <file path="translations/aw_strings_sl.xtb" lang="sl" />
     <file path="translations/aw_strings_sq.xtb" lang="sq" />
     <file path="translations/aw_strings_sr.xtb" lang="sr" />
+    <file path="translations/aw_strings_sr-Latn.xtb" lang="sr-Latn" />
     <file path="translations/aw_strings_sv.xtb" lang="sv" />
     <file path="translations/aw_strings_sw.xtb" lang="sw" />
     <file path="translations/aw_strings_ta.xtb" lang="ta" />

@@ -7,7 +7,6 @@
 #include "base/memory/read_only_shared_memory_region.h"
 #include "media/base/video_frame.h"
 #include "media/capture/mojom/video_capture_types.mojom.h"
-#include "mojo/public/cpp/base/shared_memory_utils.h"
 
 namespace mirroring {
 
@@ -40,20 +39,18 @@ void FakeVideoCaptureHost::SendOneFrame(const gfx::Size& size,
   if (!observer_)
     return;
 
-  auto shmem = mojo::CreateReadOnlySharedMemoryRegion(5000);
+  auto shmem = base::ReadOnlySharedMemoryRegion::Create(5000);
   memset(shmem.mapping.memory(), 125, 5000);
   observer_->OnNewBuffer(
       0, media::mojom::VideoBufferHandle::NewReadOnlyShmemRegion(
              std::move(shmem.region)));
   media::VideoFrameMetadata metadata;
-  metadata.SetDouble(media::VideoFrameMetadata::FRAME_RATE, 30);
-  metadata.SetTimeTicks(media::VideoFrameMetadata::REFERENCE_TIME,
-                        capture_time);
+  metadata.frame_rate = 30;
+  metadata.reference_time = capture_time;
   observer_->OnBufferReady(
       0, media::mojom::VideoFrameInfo::New(
-             base::TimeDelta(), metadata.GetInternalValues().Clone(),
-             media::PIXEL_FORMAT_I420, size, gfx::Rect(size),
-             gfx::ColorSpace::CreateREC709(), nullptr));
+             base::TimeDelta(), metadata, media::PIXEL_FORMAT_I420, size,
+             gfx::Rect(size), gfx::ColorSpace::CreateREC709(), nullptr));
 }
 
 }  // namespace mirroring

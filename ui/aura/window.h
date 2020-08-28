@@ -13,6 +13,7 @@
 #include <string>
 #include <vector>
 
+#include "base/check.h"
 #include "base/compiler_specific.h"
 #include "base/containers/flat_set.h"
 #include "base/macros.h"
@@ -40,7 +41,7 @@
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/native_widget_types.h"
 
-#if defined(OS_MACOSX)
+#if defined(OS_APPLE)
 #error This file must not be included on macOS; Chromium Mac doesn't use Aura.
 #endif
 
@@ -152,6 +153,7 @@ class AURA_EXPORT Window : public ui::LayerDelegate,
   // Initializes the window. This creates the window's layer.
   void Init(ui::LayerType layer_type);
 
+  bool is_destroying() const { return is_destroying_; }
   void set_owned_by_parent(bool owned_by_parent) {
     owned_by_parent_ = owned_by_parent;
   }
@@ -191,9 +193,9 @@ class AURA_EXPORT Window : public ui::LayerDelegate,
   const Window* parent() const { return parent_; }
 
   // Returns the root Window that contains this Window. The root Window is
-  // defined as the Window that has a dispatcher. These functions return NULL if
-  // the Window is contained in a hierarchy that does not have a dispatcher at
-  // its root.
+  // defined as the Window that has a dispatcher. These functions return nullptr
+  // if the Window is contained in a hierarchy that does not have a dispatcher
+  // at its root.
   Window* GetRootWindow();
   const Window* GetRootWindow() const;
 
@@ -217,17 +219,19 @@ class AURA_EXPORT Window : public ui::LayerDelegate,
   // WindowOcclusionTracker::ScopedPause.
   OcclusionState occlusion_state() const { return occlusion_state_; }
 
-  // Returns the currently occluded region. This will be empty unless
-  // the window is tracked and has a VISIBLE occlusion state. That is,
-  // this is only maintained when the window is partially occluded. Further,
-  // this region may extend outside the window bounds. For performance reasons,
-  // the actual intersection with the window is not computed. The occluded
-  // region is the set of window rectangles that may occlude this window.
-  // Note that this means that the occluded region may be updated if one of
-  // those windows moves, even if the actual intersection of the occluded
-  // region with this window does not change. Clients may compute the actual
-  // intersection region if necessary.
-  const SkRegion& occluded_region() const { return occluded_region_; }
+  // Returns the currently occluded region in the root Window coordinates. This
+  // will be empty unless the window is tracked and has a VISIBLE occlusion
+  // state. That is, this is only maintained when the window is partially
+  // occluded. Further, this region may extend outside the window bounds. For
+  // performance reasons, the actual intersection with the window is not
+  // computed. The occluded region is the set of window rectangles that may
+  // occlude this window. Note that this means that the occluded region may be
+  // updated if one of those windows moves, even if the actual intersection of
+  // the occluded region with this window does not change. Clients may compute
+  // the actual intersection region if necessary.
+  const SkRegion& occluded_region_in_root() const {
+    return occluded_region_in_root_;
+  }
 
   // Returns the window's bounds in root window's coordinates.
   gfx::Rect GetBoundsInRootWindow() const;
@@ -276,7 +280,7 @@ class AURA_EXPORT Window : public ui::LayerDelegate,
   void StackChildAtTop(Window* child);
 
   // Stacks |child| above |target|.  Does nothing if |child| is already above
-  // |target|.  Does not stack on top of windows with NULL layer delegates,
+  // |target|.  Does not stack on top of windows with nullptr layer delegates,
   // see WindowTest.StackingMadrigal for details.
   void StackChildAbove(Window* child, Window* target);
 
@@ -296,14 +300,14 @@ class AURA_EXPORT Window : public ui::LayerDelegate,
   // Returns true if this Window contains |other| somewhere in its children.
   bool Contains(const Window* other) const;
 
-  // Retrieves the first-level child with the specified id, or NULL if no first-
-  // level child is found matching |id|.
+  // Retrieves the first-level child with the specified id, or nullptr if no
+  // first- level child is found matching |id|.
   Window* GetChildById(int id);
   const Window* GetChildById(int id) const;
 
   // Converts |point| from |source|'s coordinates to |target|'s. If |source| is
-  // NULL, the function returns without modifying |point|. |target| cannot be
-  // NULL.
+  // nullptr, the function returns without modifying |point|. |target| cannot be
+  // nullptr.
   static void ConvertPointToTarget(const Window* source,
                                    const Window* target,
                                    gfx::PointF* point);
@@ -399,9 +403,10 @@ class AURA_EXPORT Window : public ui::LayerDelegate,
   // Overridden from ui::LayerOwner:
   std::unique_ptr<ui::Layer> RecreateLayer() override;
 
-#if !defined(NDEBUG)
+#if DCHECK_IS_ON()
   // These methods are useful when debugging.
   std::string GetDebugInfo() const;
+  std::string GetWindowHierarchy(int depth) const;
   void PrintWindowHierarchy(int depth) const;
 #endif
 
@@ -600,7 +605,8 @@ class AURA_EXPORT Window : public ui::LayerDelegate,
                           ui::PropertyChangeReason reason) override;
   void OnLayerOpacityChanged(ui::PropertyChangeReason reason) override;
   void OnLayerAlphaShapeChanged() override;
-  void OnLayerFillsBoundsOpaquelyChanged() override;
+  void OnLayerFillsBoundsOpaquelyChanged(
+      ui::PropertyChangeReason reason) override;
 
   // Overridden from ui::EventTarget:
   bool CanAcceptEvent(const ui::Event& event) override;
@@ -635,6 +641,9 @@ class AURA_EXPORT Window : public ui::LayerDelegate,
 
   client::WindowType type_;
 
+  // True if this window is being destroyed.
+  bool is_destroying_ = false;
+
   // True if the Window is owned by its parent - i.e. it will be deleted by its
   // parent during its parents destruction.
   bool owned_by_parent_ = true;
@@ -655,8 +664,8 @@ class AURA_EXPORT Window : public ui::LayerDelegate,
   // Occlusion state of the window.
   OcclusionState occlusion_state_ = OcclusionState::UNKNOWN;
 
-  // Occluded region of the window.
-  SkRegion occluded_region_;
+  // Occluded region of the window in the root window coordiantes.
+  SkRegion occluded_region_in_root_;
 
   int id_ = kInitialId;
 

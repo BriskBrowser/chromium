@@ -52,7 +52,7 @@ class PluginParameters {
   const Vector<String>& Values() const;
   void AppendAttribute(const Attribute&);
   void AppendNameWithValue(const String& name, const String& value);
-  int FindStringInNames(const String&);
+  void MapDataParamToSrc();
 
  private:
   Vector<String> names_;
@@ -62,17 +62,15 @@ class PluginParameters {
 class CORE_EXPORT HTMLPlugInElement
     : public HTMLFrameOwnerElement,
       public ActiveScriptWrappable<HTMLPlugInElement> {
-  USING_GARBAGE_COLLECTED_MIXIN(HTMLPlugInElement);
-
  public:
   ~HTMLPlugInElement() override;
-  void Trace(Visitor*) override;
+  void Trace(Visitor*) const override;
 
   bool IsPlugin() const final { return true; }
 
   bool HasPendingActivity() const final;
 
-  void SetFocused(bool, WebFocusType) override;
+  void SetFocused(bool, mojom::blink::FocusType) override;
   void ResetInstance();
   // TODO(dcheng): Consider removing this, since HTMLEmbedElementLegacyCall
   // and HTMLObjectElementLegacyCall usage is extremely low.
@@ -99,8 +97,7 @@ class CORE_EXPORT HTMLPlugInElement
 
   bool ShouldAccelerate() const;
 
-  ParsedFeaturePolicy ConstructContainerPolicy(
-      Vector<String>* /* messages */) const override;
+  ParsedFeaturePolicy ConstructContainerPolicy() const override;
 
   bool IsImageType() const;
   HTMLImageLoader* ImageLoader() const { return image_loader_.Get(); }

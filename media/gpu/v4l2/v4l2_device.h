@@ -65,6 +65,13 @@ class V4L2BuffersList;
 class V4L2DecodeSurface;
 class V4L2RequestRef;
 
+// Wrapper for the 'v4l2_ext_control' structure.
+struct V4L2ExtCtrl {
+  V4L2ExtCtrl(uint32_t id);
+  V4L2ExtCtrl(uint32_t id, int32_t val);
+  struct v4l2_ext_control ctrl;
+};
+
 // A unique reference to a buffer for clients to prepare and submit.
 //
 // Clients can prepare a buffer for queuing using the methods of this class, and
@@ -122,6 +129,15 @@ class MEDIA_GPU_EXPORT V4L2WritableBufferRef {
   // list.
   bool QueueDMABuf(const std::vector<gfx::NativePixmapPlane>& planes,
                    V4L2RequestRef* request_ref = nullptr) &&;
+  // Queue a |video_frame| using its file descriptors as DMABUFs. The VideoFrame
+  // must have been constructed from its file descriptors.
+  // The particularity of this method is that a reference to |video_frame| is
+  // kept and made available again when the buffer is dequeued through
+  // |V4L2ReadableBufferRef::GetVideoFrame()|. |video_frame| is thus guaranteed
+  // to be alive until either all the |V4L2ReadableBufferRef| from the dequeued
+  // buffer get out of scope, or |V4L2Queue::Streamoff()| is called.
+  bool QueueDMABuf(scoped_refptr<VideoFrame> video_frame,
+                   V4L2RequestRef* request_ref = nullptr) &&;
 
   // Returns the number of planes in this buffer.
   size_t PlanesCount() const;
@@ -173,7 +189,8 @@ class MEDIA_GPU_EXPORT V4L2WritableBufferRef {
   // filled.
   // When requests are supported, a |request_ref| can be passed along this
   // the buffer to be submitted.
-  bool DoQueue(V4L2RequestRef* request_ref) &&;
+  bool DoQueue(V4L2RequestRef* request_ref,
+               scoped_refptr<VideoFrame> video_frame) &&;
 
   V4L2WritableBufferRef(const struct v4l2_buffer& v4l2_buffer,
                         base::WeakPtr<V4L2Queue> queue);
@@ -238,9 +255,14 @@ class MEDIA_GPU_EXPORT V4L2ReadableBuffer
   ~V4L2ReadableBuffer();
 
   V4L2ReadableBuffer(const struct v4l2_buffer& v4l2_buffer,
-                     base::WeakPtr<V4L2Queue> queue);
+                     base::WeakPtr<V4L2Queue> queue,
+                     scoped_refptr<VideoFrame> video_frame);
 
   std::unique_ptr<V4L2BufferRefBase> buffer_data_;
+  // If this buffer was a DMABUF buffer queued with
+  // QueueDMABuf(scoped_refptr<VideoFrame>), then this will hold the VideoFrame
+  // that has been passed at the time of queueing.
+  scoped_refptr<VideoFrame> video_frame_;
 
   SEQUENCE_CHECKER(sequence_checker_);
   DISALLOW_COPY_AND_ASSIGN(V4L2ReadableBuffer);
@@ -285,6 +307,26 @@ class MEDIA_GPU_EXPORT V4L2Queue
                                                const gfx::Size& size,
                                                size_t buffer_size)
       WARN_UNUSED_RESULT;
+
+  // Returns the currently set format on the queue. The result is returned as
+  // a std::pair where the first member is the format, or base::nullopt if the
+  // format could not be obtained due to an ioctl error. The second member is
+  // only used in case of an error and contains the |errno| set by the failing
+  // ioctl. If the first member is not base::nullopt, the second member will
+  // always be zero.
+  //
+  // If the second member is 0, then the first member is guaranteed to have
+  // a valid value. So clients that are not interested in the precise error
+  // message can just check that the first member is valid and go on.
+  //
+  // This pair is used because not all failures to get the format are
+  // necessarily errors, so we need to way to let the use decide whether it
+  // is one or not.
+  std::pair<base::Optional<struct v4l2_format>, int> GetFormat();
+
+  // Codec-specific method to get the visible rectangle of the queue, using the
+  // VIDIOC_G_SELECTION ioctl if available, or VIDIOC_G_CROP as a fallback.
+  base::Optional<gfx::Rect> GetVisibleRect();
 
   // Allocate |count| buffers for the current format of this queue, with a
   // specific |memory| allocation, and returns the number of buffers allocated
@@ -359,7 +401,8 @@ class MEDIA_GPU_EXPORT V4L2Queue
   ~V4L2Queue();
 
   // Called when clients request a buffer to be queued.
-  bool QueueBuffer(struct v4l2_buffer* v4l2_buffer);
+  bool QueueBuffer(struct v4l2_buffer* v4l2_buffer,
+                   scoped_refptr<VideoFrame> video_frame);
 
   const enum v4l2_buf_type type_;
   enum v4l2_memory memory_ = V4L2_MEMORY_MMAP;
@@ -375,8 +418,10 @@ class MEDIA_GPU_EXPORT V4L2Queue
   // Buffers that are available for client to get and submit.
   // Buffers in this list are not referenced by anyone else than ourselves.
   scoped_refptr<V4L2BuffersList> free_buffers_;
-  // Buffers that have been queued by the client, and not dequeued yet.
-  std::set<size_t> queued_buffers_;
+  // Buffers that have been queued by the client, and not dequeued yet. The
+  // value will be set to the VideoFrame that has been passed when we queued
+  // the buffer, if any.
+  std::map<size_t, scoped_refptr<VideoFrame>> queued_buffers_;
 
   scoped_refptr<V4L2Device> device_;
   // Callback to call in this queue's destructor.
@@ -608,7 +653,7 @@ class MEDIA_GPU_EXPORT V4L2Device
 
   // Return true if the given V4L2 pixfmt can be used in CreateEGLImage()
   // for the current platform.
-  virtual bool CanCreateEGLImageFrom(const Fourcc fourcc) = 0;
+  virtual bool CanCreateEGLImageFrom(const Fourcc fourcc) const = 0;
 
   // Create an EGLImage from provided |handle|, taking full ownership of it.
   // Some implementations may also require the V4L2 |buffer_index| of the buffer
@@ -620,28 +665,23 @@ class MEDIA_GPU_EXPORT V4L2Device
                                      const gfx::Size& size,
                                      unsigned int buffer_index,
                                      const Fourcc fourcc,
-                                     gfx::NativePixmapHandle handle) = 0;
+                                     gfx::NativePixmapHandle handle) const = 0;
 
   // Create a GLImage from provided |handle|, taking full ownership of it.
   virtual scoped_refptr<gl::GLImage> CreateGLImage(
       const gfx::Size& size,
       const Fourcc fourcc,
-      gfx::NativePixmapHandle handle) = 0;
+      gfx::NativePixmapHandle handle) const = 0;
 
   // Destroys the EGLImageKHR.
   virtual EGLBoolean DestroyEGLImage(EGLDisplay egl_display,
-                                     EGLImageKHR egl_image) = 0;
+                                     EGLImageKHR egl_image) const = 0;
 
   // Returns the supported texture target for the V4L2Device.
-  virtual GLenum GetTextureTarget() = 0;
+  virtual GLenum GetTextureTarget() const = 0;
 
   // Returns the preferred V4L2 input formats for |type| or empty if none.
-  virtual std::vector<uint32_t> PreferredInputFormat(Type type) = 0;
-
-  // NOTE: The below methods to query capabilities have a side effect of
-  // closing the previously-open device, if any, and should not be called after
-  // Open().
-  // TODO(posciak): fix this.
+  virtual std::vector<uint32_t> PreferredInputFormat(Type type) const = 0;
 
   // Get minimum and maximum resolution for fourcc |pixelformat| and store to
   // |min_resolution| and |max_resolution|.
@@ -650,6 +690,11 @@ class MEDIA_GPU_EXPORT V4L2Device
                               gfx::Size* max_resolution);
 
   std::vector<uint32_t> EnumerateSupportedPixelformats(v4l2_buf_type buf_type);
+
+  // NOTE: The below methods to query capabilities have a side effect of
+  // closing the previously-open device, if any, and should not be called after
+  // Open().
+  // TODO(b/150431552): fix this.
 
   // Return V4L2 pixelformats supported by the available image processor
   // devices for |buf_type|.
@@ -686,9 +731,22 @@ class MEDIA_GPU_EXPORT V4L2Device
   // to be called from V4L2Queue, clients should not need to call it directly.
   void SchedulePoll();
 
+  // Attempt to dequeue a V4L2 event and return it.
+  base::Optional<struct v4l2_event> DequeueEvent();
+
   // Returns requests queue to get free requests. A null pointer is returned if
   // the queue creation failed or if requests are not supported.
   V4L2RequestsQueue* GetRequestsQueue();
+
+  // Check whether the V4L2 control with specified |ctrl_id| is supported.
+  bool IsCtrlExposed(uint32_t ctrl_id);
+  // Set the specified list of |ctrls| for the specified |ctrl_class|, returns
+  // whether the operation succeeded.
+  bool SetExtCtrls(uint32_t ctrl_class, std::vector<V4L2ExtCtrl> ctrls);
+
+  // Get the value of a single control, or base::nullopt of the control is not
+  // exposed by the device.
+  base::Optional<struct v4l2_ext_control> GetCtrl(uint32_t ctrl_id);
 
  protected:
   friend class base::RefCountedThreadSafe<V4L2Device>;

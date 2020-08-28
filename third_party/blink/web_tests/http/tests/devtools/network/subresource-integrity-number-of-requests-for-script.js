@@ -20,10 +20,12 @@
   ConsoleTestRunner.addConsoleSniffer(step1);
   TestRunner.evaluateInPage('loadIFrame()');
 
-  function step1() {
-    var requests = NetworkTestRunner.findRequestsByURLPattern(/call-success.js/);
+  async function step1() {
+    const requests =
+        NetworkTestRunner.findRequestsByURLPattern(/call-success.js/)
+            .filter((e, i, a) => i % 2 == 0);
     TestRunner.assertTrue(requests.length === 1);
-    ConsoleTestRunner.dumpConsoleMessages();
+    await ConsoleTestRunner.dumpConsoleMessages();
     TestRunner.completeTest();
   }
 })();

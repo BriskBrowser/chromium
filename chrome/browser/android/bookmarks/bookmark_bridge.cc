@@ -7,19 +7,23 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include <memory>
+#include <algorithm>
+#include <queue>
+#include <string>
+#include <utility>
+#include <vector>
 
 #include "base/android/jni_array.h"
 #include "base/android/jni_string.h"
 #include "base/bind.h"
 #include "base/containers/adapters.h"
 #include "base/containers/stack.h"
-#include "base/containers/stack_container.h"
 #include "base/guid.h"
 #include "base/i18n/string_compare.h"
 #include "base/strings/string16.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/android/chrome_jni_headers/BookmarkBridge_jni.h"
+#include "chrome/browser/android/bookmarks/partner_bookmarks_reader.h"
 #include "chrome/browser/bookmarks/bookmark_model_factory.h"
 #include "chrome/browser/bookmarks/managed_bookmark_service_factory.h"
 #include "chrome/browser/profiles/incognito_helpers.h"
@@ -56,7 +60,6 @@ using bookmarks::android::JavaBookmarkIdGetId;
 using bookmarks::android::JavaBookmarkIdGetType;
 using bookmarks::BookmarkModel;
 using bookmarks::BookmarkNode;
-using bookmarks::BookmarkPermanentNode;
 using bookmarks::BookmarkType;
 using content::BrowserThread;
 
@@ -91,7 +94,7 @@ std::unique_ptr<icu::Collator> GetICUCollator() {
   std::unique_ptr<icu::Collator> collator_;
   collator_.reset(icu::Collator::createInstance(error));
   if (U_FAILURE(error))
-    collator_.reset(NULL);
+    collator_.reset(nullptr);
 
   return collator_;
 }
@@ -102,9 +105,9 @@ BookmarkBridge::BookmarkBridge(JNIEnv* env,
                                const JavaRef<jobject>& obj,
                                const JavaRef<jobject>& j_profile)
     : weak_java_ref_(env, obj),
-      bookmark_model_(NULL),
-      managed_bookmark_service_(NULL),
-      partner_bookmarks_shim_(NULL) {
+      bookmark_model_(nullptr),
+      managed_bookmark_service_(nullptr),
+      partner_bookmarks_shim_(nullptr) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   profile_ = ProfileAndroid::FromProfileAndroid(j_profile);
   bookmark_model_ = BookmarkModelFactory::GetForBrowserContext(profile_);
@@ -122,8 +125,8 @@ BookmarkBridge::BookmarkBridge(JNIEnv* env,
   pref_change_registrar_.Init(profile_->GetPrefs());
   pref_change_registrar_.Add(
       bookmarks::prefs::kEditBookmarksEnabled,
-      base::Bind(&BookmarkBridge::EditBookmarksEnabledChanged,
-                 base::Unretained(this)));
+      base::BindRepeating(&BookmarkBridge::EditBookmarksEnabledChanged,
+                          base::Unretained(this)));
 
   NotifyIfDoneLoading();
 
@@ -151,8 +154,9 @@ static jlong JNI_BookmarkBridge_Init(JNIEnv* env,
   return reinterpret_cast<intptr_t>(delegate);
 }
 
-static jlong JNI_BookmarkBridge_GetBookmarkIdForWebContents(
+jlong BookmarkBridge::GetBookmarkIdForWebContents(
     JNIEnv* env,
+    const JavaParamRef<jobject>& obj,
     const JavaParamRef<jobject>& jweb_contents,
     jboolean only_editable) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
@@ -161,17 +165,23 @@ static jlong JNI_BookmarkBridge_GetBookmarkIdForWebContents(
   if (!web_contents)
     return kInvalidId;
 
-  Profile* profile =
-      Profile::FromBrowserContext(web_contents->GetBrowserContext());
+  // TODO(https://crbug.com/1023759): We currently don't have a separate tab
+  // model for incognito CCTs and incognito Tabs. So for incognito CCTs, the
+  // incognito Tabs profile is passed to initialize BookmarkBridge, but here the
+  // incognito CCT profile is used.
+  // This DCHECK should be updated to compare profile objects instead of their
+  // OTR state.
+  DCHECK_EQ(profile_->IsOffTheRecord(),
+            Profile::FromBrowserContext(web_contents->GetBrowserContext())
+                ->IsOffTheRecord());
   GURL url = dom_distiller::url_utils::GetOriginalUrlFromDistillerUrl(
       web_contents->GetURL());
-
   // Get all the nodes for |url| and sort them by date added.
   std::vector<const bookmarks::BookmarkNode*> nodes;
   bookmarks::ManagedBookmarkService* managed =
-      ManagedBookmarkServiceFactory::GetForProfile(profile);
+      ManagedBookmarkServiceFactory::GetForProfile(profile_);
   bookmarks::BookmarkModel* model =
-      BookmarkModelFactory::GetForBrowserContext(profile);
+      BookmarkModelFactory::GetForBrowserContext(profile_);
 
   model->GetNodesByURL(url, &nodes);
   std::sort(nodes.begin(), nodes.end(), &bookmarks::MoreRecentlyAdded);
@@ -196,7 +206,7 @@ void BookmarkBridge::LoadEmptyPartnerBookmarkShimForTesting(
   if (partner_bookmarks_shim_->IsLoaded())
       return;
   partner_bookmarks_shim_->SetPartnerBookmarksRoot(
-      std::make_unique<BookmarkPermanentNode>(0, BookmarkNode::FOLDER));
+      PartnerBookmarksReader::CreatePartnerBookmarksRootForTesting());
   PartnerBookmarksShim::DisablePartnerBookmarksEditing();
   DCHECK(partner_bookmarks_shim_->IsLoaded());
 }
@@ -208,8 +218,8 @@ void BookmarkBridge::LoadFakePartnerBookmarkShimForTesting(
     const JavaParamRef<jobject>& obj) {
   if (partner_bookmarks_shim_->IsLoaded())
     return;
-  std::unique_ptr<BookmarkPermanentNode> root_partner_node =
-      std::make_unique<BookmarkPermanentNode>(0, BookmarkNode::FOLDER);
+  std::unique_ptr<BookmarkNode> root_partner_node =
+      PartnerBookmarksReader::CreatePartnerBookmarksRootForTesting();
   BookmarkNode* partner_bookmark_a =
       root_partner_node->Add(std::make_unique<BookmarkNode>(
           1, base::GenerateGUID(), GURL("http://www.a.com")));
@@ -240,36 +250,6 @@ bool BookmarkBridge::IsDoingExtensiveChanges(
     const JavaParamRef<jobject>& obj) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   return bookmark_model_->IsDoingExtensiveChanges();
-}
-
-void BookmarkBridge::GetPermanentNodeIDs(
-    JNIEnv* env,
-    const JavaParamRef<jobject>& obj,
-    const JavaParamRef<jobject>& j_result_obj) {
-  // TODO(kkimlabs): Remove this function.
-  DCHECK_CURRENTLY_ON(BrowserThread::UI);
-  DCHECK(IsLoaded());
-
-  base::StackVector<const BookmarkNode*, 8> permanent_nodes;
-
-  // Save all the permanent nodes.
-  const BookmarkNode* root_node = bookmark_model_->root_node();
-  permanent_nodes->push_back(root_node);
-  for (const auto& child : root_node->children())
-    permanent_nodes->push_back(child.get());
-  permanent_nodes->push_back(
-      partner_bookmarks_shim_->GetPartnerBookmarksRoot());
-
-  // Write the permanent nodes to |j_result_obj|.
-  for (base::StackVector<const BookmarkNode*, 8>::ContainerType::const_iterator
-           it = permanent_nodes->begin();
-       it != permanent_nodes->end();
-       ++it) {
-    if (*it != NULL) {
-      Java_BookmarkBridge_addToBookmarkIdList(
-          env, j_result_obj, (*it)->id(), GetBookmarkType(*it));
-    }
-  }
 }
 
 void BookmarkBridge::GetTopLevelFolderParentIDs(
@@ -455,8 +435,6 @@ void BookmarkBridge::GetChildIDs(JNIEnv* env,
                                   const JavaParamRef<jobject>& obj,
                                   jlong id,
                                   jint type,
-                                  jboolean get_folders,
-                                  jboolean get_bookmarks,
                                   const JavaParamRef<jobject>& j_result_obj) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   DCHECK(IsLoaded());
@@ -467,15 +445,14 @@ void BookmarkBridge::GetChildIDs(JNIEnv* env,
 
   // Get the folder contents
   for (const auto& child : parent->children()) {
-    if (IsFolderAvailable(child.get()) && IsReachable(child.get()) &&
-        (child->is_folder() ? get_folders : get_bookmarks)) {
+    if (IsFolderAvailable(child.get()) && IsReachable(child.get())) {
       Java_BookmarkBridge_addToBookmarkIdList(env, j_result_obj, child->id(),
                                               GetBookmarkType(child.get()));
     }
   }
 
   // Partner bookmark root node is under mobile node.
-  if (parent == bookmark_model_->mobile_node() && get_folders &&
+  if (parent == bookmark_model_->mobile_node() &&
       partner_bookmarks_shim_->HasPartnerBookmarks() &&
       IsReachable(partner_bookmarks_shim_->GetPartnerBookmarksRoot())) {
     Java_BookmarkBridge_addToBookmarkIdList(
@@ -1141,7 +1118,7 @@ void BookmarkBridge::PartnerShimLoaded(PartnerBookmarksShim* shim) {
 }
 
 void BookmarkBridge::ShimBeingDeleted(PartnerBookmarksShim* shim) {
-  partner_bookmarks_shim_ = NULL;
+  partner_bookmarks_shim_ = nullptr;
 }
 
 void BookmarkBridge::ReorderChildren(

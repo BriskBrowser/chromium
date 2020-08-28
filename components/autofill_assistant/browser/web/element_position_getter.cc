@@ -4,7 +4,6 @@
 
 #include "components/autofill_assistant/browser/web/element_position_getter.h"
 
-#include "base/task/post_task.h"
 #include "components/autofill_assistant/browser/devtools/devtools_client.h"
 #include "components/autofill_assistant/browser/service.pb.h"
 #include "components/autofill_assistant/browser/web/web_controller_util.h"
@@ -76,7 +75,7 @@ void ElementPositionGetter::OnGetBoxModelForStableCheck(
     const DevtoolsClient::ReplyStatus& reply_status,
     std::unique_ptr<dom::GetBoxModelResult> result) {
   if (!result || !result->GetModel() || !result->GetModel()->GetContent()) {
-    DVLOG(1) << __func__ << " Failed to get box model.";
+    VLOG(1) << __func__ << " Failed to get box model.";
     OnError();
     return;
   }
@@ -119,8 +118,7 @@ void ElementPositionGetter::OnGetBoxModelForStableCheck(
   // from the second round.
   if (!is_first_round) {
     std::vector<std::unique_ptr<runtime::CallArgument>> argument;
-    argument.emplace_back(
-        runtime::CallArgument::Builder().SetObjectId(object_id_).Build());
+    AddRuntimeCallArgumentObjectId(object_id_, &argument);
     devtools_client_->GetRuntime()->CallFunctionOn(
         runtime::CallFunctionOnParams::Builder()
             .SetObjectId(object_id_)
@@ -135,8 +133,8 @@ void ElementPositionGetter::OnGetBoxModelForStableCheck(
   }
 
   --remaining_rounds_;
-  base::PostDelayedTask(
-      FROM_HERE, {content::BrowserThread::UI},
+  content::GetUIThreadTaskRunner({})->PostDelayedTask(
+      FROM_HERE,
       base::BindOnce(&ElementPositionGetter::GetAndWaitBoxModelStable,
                      weak_ptr_factory_.GetWeakPtr()),
       check_interval_);
@@ -148,14 +146,14 @@ void ElementPositionGetter::OnScrollIntoView(
   ClientStatus status =
       CheckJavaScriptResult(reply_status, result.get(), __FILE__, __LINE__);
   if (!status.ok()) {
-    DVLOG(1) << __func__ << " Failed to scroll the element: " << status;
+    VLOG(1) << __func__ << " Failed to scroll the element: " << status;
     OnError();
     return;
   }
 
   --remaining_rounds_;
-  base::PostDelayedTask(
-      FROM_HERE, {content::BrowserThread::UI},
+  content::GetUIThreadTaskRunner({})->PostDelayedTask(
+      FROM_HERE,
       base::BindOnce(&ElementPositionGetter::GetAndWaitBoxModelStable,
                      weak_ptr_factory_.GetWeakPtr()),
       check_interval_);

@@ -2,16 +2,16 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "ash/components/shortcut_viewer/keyboard_shortcut_viewer_metadata.h"
+#include "ash/shortcut_viewer/keyboard_shortcut_viewer_metadata.h"
 
 #include <set>
 #include <string>
 #include <tuple>
 #include <vector>
 
-#include "ash/components/shortcut_viewer/keyboard_shortcut_item.h"
-#include "ash/components/strings/grit/ash_components_strings.h"
 #include "ash/public/cpp/accelerators.h"
+#include "ash/shortcut_viewer/keyboard_shortcut_item.h"
+#include "ash/shortcut_viewer/strings/grit/shortcut_viewer_strings.h"
 #include "base/hash/md5.h"
 #include "base/macros.h"
 #include "base/strings/string_util.h"
@@ -23,20 +23,20 @@
 namespace {
 
 // The total number of Ash accelerators.
-constexpr int kAshAcceleratorsTotalNum = 110;
+constexpr int kAshAcceleratorsTotalNum = 118;
 // The hash of Ash accelerators.
-constexpr char kAshAcceleratorsHash[] = "1287cacd678f63ab151fbf25383ac19c";
+constexpr char kAshAcceleratorsHash[] = "8c10cc51d4e84e4b94310bc91d15a0a8";
 #if BUILDFLAG(GOOGLE_CHROME_BRANDING)
 // Internal builds add an extra accelerator for the Feedback app.
 // The total number of Chrome accelerators (available on Chrome OS).
-constexpr int kChromeAcceleratorsTotalNum = 93;
+constexpr int kChromeAcceleratorsTotalNum = 97;
 // The hash of Chrome accelerators (available on Chrome OS).
-constexpr char kChromeAcceleratorsHash[] = "73c842a72d77e7b9e69e92a6ee7900d3";
+constexpr char kChromeAcceleratorsHash[] = "a5d5a245352c94b17618c6d9425a0a9b";
 #else
 // The total number of Chrome accelerators (available on Chrome OS).
-constexpr int kChromeAcceleratorsTotalNum = 92;
+constexpr int kChromeAcceleratorsTotalNum = 96;
 // The hash of Chrome accelerators (available on Chrome OS).
-constexpr char kChromeAcceleratorsHash[] = "7c45362e298cf77aae142dec7154adcf";
+constexpr char kChromeAcceleratorsHash[] = "1c6a632c57e6e1033e482fc6ffc2184e";
 #endif  // BUILDFLAG(GOOGLE_CHROME_BRANDING)
 
 const char* BooleanToString(bool value) {
@@ -232,6 +232,9 @@ TEST_F(KeyboardShortcutViewerMetadataTest,
   std::vector<AcceleratorMapping> chrome_accelerators;
   for (size_t i = 0; i < ash::kAcceleratorDataLength; ++i)
     ash_accelerators.emplace_back(ash::kAcceleratorData[i]);
+  for (size_t i = 0; i < ash::kDisableWithNewMappingAcceleratorDataLength; ++i)
+    ash_accelerators.emplace_back(
+        ash::kDisableWithNewMappingAcceleratorData[i]);
   for (const auto& accel_mapping : GetAcceleratorList())
     chrome_accelerators.emplace_back(accel_mapping);
 

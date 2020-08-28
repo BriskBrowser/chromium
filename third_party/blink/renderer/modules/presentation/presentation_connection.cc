@@ -7,13 +7,13 @@
 #include <memory>
 #include "third_party/blink/public/platform/task_type.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise_resolver.h"
-#include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/dom/events/event.h"
 #include "third_party/blink/renderer/core/events/message_event.h"
 #include "third_party/blink/renderer/core/fileapi/file_error.h"
 #include "third_party/blink/renderer/core/fileapi/file_reader_loader.h"
 #include "third_party/blink/renderer/core/fileapi/file_reader_loader_client.h"
 #include "third_party/blink/renderer/core/frame/deprecation.h"
+#include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/typed_arrays/dom_array_buffer.h"
 #include "third_party/blink/renderer/core/typed_arrays/dom_array_buffer_view.h"
@@ -111,7 +111,7 @@ class PresentationConnection::Message final
   Message(scoped_refptr<BlobDataHandle> blob_data_handle)
       : type(kMessageTypeBlob), blob_data_handle(std::move(blob_data_handle)) {}
 
-  void Trace(blink::Visitor* visitor) { visitor->Trace(array_buffer); }
+  void Trace(Visitor* visitor) const { visitor->Trace(array_buffer); }
 
   MessageType type;
   String text;
@@ -148,7 +148,7 @@ class PresentationConnection::BlobLoader final
 
   void Cancel() { loader_->Cancel(); }
 
-  void Trace(blink::Visitor* visitor) {
+  void Trace(Visitor* visitor) const {
     visitor->Trace(presentation_connection_);
   }
 
@@ -157,15 +157,17 @@ class PresentationConnection::BlobLoader final
   std::unique_ptr<FileReaderLoader> loader_;
 };
 
-PresentationConnection::PresentationConnection(LocalFrame& frame,
+PresentationConnection::PresentationConnection(LocalDOMWindow& window,
                                                const String& id,
                                                const KURL& url)
-    : ContextLifecycleStateObserver(frame.GetDocument()),
+    : ExecutionContextLifecycleStateObserver(&window),
       id_(id),
       url_(url),
       state_(mojom::blink::PresentationConnectionState::CONNECTING),
+      connection_receiver_(this, &window),
+      target_connection_(&window),
       binary_type_(kBinaryTypeArrayBuffer),
-      file_reading_task_runner_(frame.GetTaskRunner(TaskType::kFileReading)) {
+      file_reading_task_runner_(window.GetTaskRunner(TaskType::kFileReading)) {
   UpdateStateIfNeeded();
 }
 
@@ -221,12 +223,8 @@ ControllerPresentationConnection* ControllerPresentationConnection::Take(
   DCHECK(resolver);
   DCHECK(request);
 
-  Document* document = To<Document>(resolver->GetExecutionContext());
-  if (!document->GetFrame())
-    return nullptr;
-
   PresentationController* controller =
-      PresentationController::From(*document->GetFrame());
+      PresentationController::FromContext(resolver->GetExecutionContext());
   if (!controller)
     return nullptr;
 
@@ -242,7 +240,7 @@ ControllerPresentationConnection* ControllerPresentationConnection::Take(
   DCHECK(request);
 
   auto* connection = MakeGarbageCollected<ControllerPresentationConnection>(
-      *controller->GetFrame(), controller, presentation_info.id,
+      *controller->GetSupplementable(), controller, presentation_info.id,
       presentation_info.url);
   controller->RegisterConnection(connection);
 
@@ -259,15 +257,15 @@ ControllerPresentationConnection* ControllerPresentationConnection::Take(
 }
 
 ControllerPresentationConnection::ControllerPresentationConnection(
-    LocalFrame& frame,
+    LocalDOMWindow& window,
     PresentationController* controller,
     const String& id,
     const KURL& url)
-    : PresentationConnection(frame, id, url), controller_(controller) {}
+    : PresentationConnection(window, id, url), controller_(controller) {}
 
 ControllerPresentationConnection::~ControllerPresentationConnection() {}
 
-void ControllerPresentationConnection::Trace(blink::Visitor* visitor) {
+void ControllerPresentationConnection::Trace(Visitor* visitor) const {
   visitor->Trace(controller_);
   PresentationConnection::Trace(visitor);
 }
@@ -286,7 +284,9 @@ void ControllerPresentationConnection::Init(
   }
 
   DidChangeState(mojom::blink::PresentationConnectionState::CONNECTING);
-  target_connection_.Bind(std::move(connection_remote));
+  target_connection_.Bind(
+      std::move(connection_remote),
+      GetExecutionContext()->GetTaskRunner(blink::TaskType::kPresentation));
   connection_receiver_.Bind(
       std::move(connection_receiver),
       GetExecutionContext()->GetTaskRunner(blink::TaskType::kPresentation));
@@ -316,7 +316,7 @@ ReceiverPresentationConnection* ReceiverPresentationConnection::Take(
 
   ReceiverPresentationConnection* connection =
       MakeGarbageCollected<ReceiverPresentationConnection>(
-          *receiver->GetFrame(), receiver, presentation_info.id,
+          *receiver->GetWindow(), receiver, presentation_info.id,
           presentation_info.url);
   connection->Init(std::move(controller_connection),
                    std::move(receiver_connection_receiver));
@@ -326,11 +326,11 @@ ReceiverPresentationConnection* ReceiverPresentationConnection::Take(
 }
 
 ReceiverPresentationConnection::ReceiverPresentationConnection(
-    LocalFrame& frame,
+    LocalDOMWindow& window,
     PresentationReceiver* receiver,
     const String& id,
     const KURL& url)
-    : PresentationConnection(frame, id, url), receiver_(receiver) {}
+    : PresentationConnection(window, id, url), receiver_(receiver) {}
 
 ReceiverPresentationConnection::~ReceiverPresentationConnection() = default;
 
@@ -339,7 +339,9 @@ void ReceiverPresentationConnection::Init(
         controller_connection_remote,
     mojo::PendingReceiver<mojom::blink::PresentationConnection>
         receiver_connection_receiver) {
-  target_connection_.Bind(std::move(controller_connection_remote));
+  target_connection_.Bind(
+      std::move(controller_connection_remote),
+      GetExecutionContext()->GetTaskRunner(blink::TaskType::kPresentation));
   connection_receiver_.Bind(
       std::move(receiver_connection_receiver),
       GetExecutionContext()->GetTaskRunner(blink::TaskType::kPresentation));
@@ -373,11 +375,11 @@ void ReceiverPresentationConnection::TerminateInternal() {
   receiver_->Terminate();
 
   state_ = mojom::blink::PresentationConnectionState::TERMINATED;
-  if (target_connection_)
+  if (target_connection_.is_bound())
     target_connection_->DidChangeState(state_);
 }
 
-void ReceiverPresentationConnection::Trace(blink::Visitor* visitor) {
+void ReceiverPresentationConnection::Trace(Visitor* visitor) const {
   visitor->Trace(receiver_);
   PresentationConnection::Trace(visitor);
 }
@@ -387,9 +389,7 @@ const AtomicString& PresentationConnection::InterfaceName() const {
 }
 
 ExecutionContext* PresentationConnection::GetExecutionContext() const {
-  if (!GetFrame())
-    return nullptr;
-  return GetFrame()->GetDocument();
+  return ExecutionContextLifecycleObserver::GetExecutionContext();
 }
 
 void PresentationConnection::AddedEventListener(
@@ -413,7 +413,7 @@ void PresentationConnection::AddedEventListener(
   }
 }
 
-void PresentationConnection::ContextDestroyed(ExecutionContext*) {
+void PresentationConnection::ContextDestroyed() {
   CloseConnection();
 }
 
@@ -431,11 +431,13 @@ void PresentationConnection::CloseConnection() {
   connection_receiver_.reset();
 }
 
-void PresentationConnection::Trace(blink::Visitor* visitor) {
+void PresentationConnection::Trace(Visitor* visitor) const {
+  visitor->Trace(connection_receiver_);
+  visitor->Trace(target_connection_);
   visitor->Trace(blob_loader_);
   visitor->Trace(messages_);
   EventTargetWithInlineData::Trace(visitor);
-  ContextLifecycleStateObserver::Trace(visitor);
+  ExecutionContextLifecycleStateObserver::Trace(visitor);
 }
 
 const AtomicString& PresentationConnection::state() const {
@@ -454,7 +456,6 @@ void PresentationConnection::send(const String& message,
 void PresentationConnection::send(DOMArrayBuffer* array_buffer,
                                   ExceptionState& exception_state) {
   DCHECK(array_buffer);
-  DCHECK(array_buffer->Buffer());
   if (!CanSendMessage(exception_state))
     return;
   if (!base::CheckedNumeric<wtf_size_t>(array_buffer->ByteLengthAsSizeT())
@@ -509,7 +510,7 @@ void PresentationConnection::DoClose(
     return;
   }
 
-  if (target_connection_)
+  if (target_connection_.is_bound())
     target_connection_->DidClose(reason);
 
   DidClose(reason);
@@ -523,11 +524,11 @@ bool PresentationConnection::CanSendMessage(ExceptionState& exception_state) {
     return false;
   }
 
-  return !!target_connection_;
+  return !!target_connection_.is_bound();
 }
 
 void PresentationConnection::HandleMessageQueue() {
-  if (!target_connection_)
+  if (!target_connection_.is_bound())
     return;
 
   while (!messages_.IsEmpty() && !blob_loader_) {
@@ -575,7 +576,7 @@ void PresentationConnection::setBinaryType(const String& binary_type) {
 
 void PresentationConnection::SendMessageToTargetConnection(
     mojom::blink::PresentationConnectionMessagePtr message) {
-  if (target_connection_)
+  if (target_connection_.is_bound())
     target_connection_->OnMessage(std::move(message));
 }
 
@@ -647,7 +648,6 @@ void PresentationConnection::DidFinishLoadingBlob(DOMArrayBuffer* buffer) {
   DCHECK(!messages_.IsEmpty());
   DCHECK_EQ(messages_.front()->type, kMessageTypeBlob);
   DCHECK(buffer);
-  DCHECK(buffer->Buffer());
   if (!base::CheckedNumeric<wtf_size_t>(buffer->ByteLengthAsSizeT())
            .IsValid()) {
     // TODO(crbug.com/1036565): generate error message? The problem is that the

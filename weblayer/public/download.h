@@ -5,6 +5,8 @@
 #ifndef WEBLAYER_PUBLIC_DOWNLOAD_H_
 #define WEBLAYER_PUBLIC_DOWNLOAD_H_
 
+#include <string>
+
 namespace base {
 class FilePath;
 }
@@ -76,6 +78,13 @@ class Download {
   // target path hasn't been determined yet. The file it points to won't be
   // available until the download completes successfully.
   virtual base::FilePath GetLocation() = 0;
+
+  // Returns the file name for the download that should be displayed to the
+  // user.
+  virtual base::FilePath GetFileNameToReportToUser() = 0;
+
+  // Returns the effective MIME type of downloaded content.
+  virtual std::string GetMimeType() = 0;
 
   // Return information about the error, if any, that was encountered during the
   // download.

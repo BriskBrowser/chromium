@@ -7,21 +7,11 @@
 
 #import <UIKit/UIKit.h>
 
-#import "ios/chrome/app/application_delegate/tab_opening.h"
-#import "ios/chrome/browser/procedural_block_types.h"
-#import "ios/chrome/browser/url_loading/url_loading_params.h"
-
 @protocol SceneControllerGuts
 
-- (void)closeSettingsAnimated:(BOOL)animated
-                   completion:(ProceduralBlock)completion;
+#pragma mark - iOS 12 compat
 
-- (void)dismissModalDialogsWithCompletion:(ProceduralBlock)completion
-                           dismissOmnibox:(BOOL)dismissOmnibox;
-
-- (void)openSelectedTabInMode:(ApplicationModeForTabOpening)tabOpeningTargetMode
-            withUrlLoadParams:(const UrlLoadParams&)urlLoadParams
-                   completion:(ProceduralBlock)completion;
+- (void)startUpChromeUI;
 
 @end
 

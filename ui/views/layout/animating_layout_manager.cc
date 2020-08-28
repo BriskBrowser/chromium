@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "base/auto_reset.h"
+#include "base/stl_util.h"
 #include "ui/gfx/animation/animation_container.h"
 #include "ui/gfx/animation/slide_animation.h"
 #include "ui/views/animation/animation_delegate_views.h"
@@ -20,17 +21,6 @@
 namespace views {
 
 namespace {
-
-// Returns true if the specified |size| can fit in the specified |bounds|.
-// Returns false if either the width or height of |bounds| is specified and is
-// smaller than the corresponding element of |size|.
-bool CanFitInBounds(const gfx::Size& size, const SizeBounds& bounds) {
-  if (bounds.width() && *bounds.width() < size.width())
-    return false;
-  if (bounds.height() && *bounds.height() < size.height())
-    return false;
-  return true;
-}
 
 // Returns the ChildLayout data for the child view in the proposed layout, or
 // nullptr if not found.
@@ -48,8 +38,12 @@ const ChildLayout* FindChildViewInLayout(const ProposedLayout& layout,
   return nullptr;
 }
 
+ChildLayout* FindChildViewInLayout(ProposedLayout* layout, const View* view) {
+  return const_cast<ChildLayout*>(FindChildViewInLayout(*layout, view));
+}
+
 // Describes the type of fade, used by LayoutFadeInfo (see below).
-enum LayoutFadeType {
+enum class LayoutFadeType {
   // This view is fading in as part of the current animation.
   kFadingIn,
   // This view is fading out as part of the current animation.
@@ -60,12 +54,25 @@ enum LayoutFadeType {
   kContinuingFade
 };
 
-// Non-const version of above.
-ChildLayout* FindChildViewInLayout(ProposedLayout& layout, const View* view) {
-  // This const_cast is safe because we know we were passed in a non-const
-  // layout (also we don't want to duplicate the logic).
-  return const_cast<ChildLayout*>(
-      FindChildViewInLayout(const_cast<const ProposedLayout&>(layout), view));
+// Makes a copy of the given layout with only visible child views (non-visible
+// children are omitted).
+ProposedLayout WithOnlyVisibleViews(const ProposedLayout layout) {
+  ProposedLayout result;
+  result.host_size = layout.host_size;
+  std::copy_if(
+      layout.child_layouts.begin(), layout.child_layouts.end(),
+      std::back_inserter(result.child_layouts),
+      [](const ChildLayout& child_layout) { return child_layout.visible; });
+  return result;
+}
+
+// Returns true if the two proposed layouts have the same visible views, with
+// the same parameters, in the same order.
+bool HaveSameVisibleViews(const ProposedLayout& l1, const ProposedLayout& l2) {
+  // There is an approach that uses nested loops and dual iterators that is more
+  // efficient than copying, but since this method is only currently called when
+  // views are added to the layout, clarity is more important than speed.
+  return WithOnlyVisibleViews(l1) == WithOnlyVisibleViews(l2);
 }
 
 }  // namespace
@@ -120,6 +127,11 @@ class AnimatingLayoutManager::AnimationDelegate
   // ready-to-animate state, possibly resetting the current layout and
   // invalidating the host to make sure the layout is up to date.
   void MakeReadyForAnimation();
+
+  // Overrides the default animation container with |container|.
+  void SetAnimationContainerForTesting(gfx::AnimationContainer* container) {
+    animation_->SetContainer(container);
+  }
 
  private:
   // Observer used to watch for the host view being parented to a widget.
@@ -221,10 +233,10 @@ void AnimatingLayoutManager::AnimationDelegate::AnimationEnded(
 AnimatingLayoutManager::AnimatingLayoutManager() = default;
 AnimatingLayoutManager::~AnimatingLayoutManager() = default;
 
-AnimatingLayoutManager& AnimatingLayoutManager::SetShouldAnimateBounds(
-    bool should_animate_bounds) {
-  if (should_animate_bounds_ != should_animate_bounds) {
-    should_animate_bounds_ = should_animate_bounds;
+AnimatingLayoutManager& AnimatingLayoutManager::SetBoundsAnimationMode(
+    BoundsAnimationMode bounds_animation_mode) {
+  if (bounds_animation_mode_ != bounds_animation_mode) {
+    bounds_animation_mode_ = bounds_animation_mode;
     ResetLayout();
   }
   return *this;
@@ -287,6 +299,17 @@ void AnimatingLayoutManager::FadeOut(View* child_view) {
     return;
   }
 
+  // This handles a case where we are in the middle of an animation where we
+  // would have hidden the target view, but haven't hit Layout() yet, so haven't
+  // actually hidden it yet. Because we plan fade-outs off of the current layout
+  // if the view the child view is visible it will not get a proper fade-out and
+  // will remain visible but not properly laid out. We remedy this by hiding the
+  // view immediately.
+  const ChildLayout* const current_layout =
+      FindChildViewInLayout(current_layout_, child_view);
+  if ((!current_layout || !current_layout->visible) && child_view->GetVisible())
+    SetViewVisibility(child_view, false);
+
   // Indicate that the view should become hidden in the layout without
   // immediately changing its visibility. Instead, this triggers an animation
   // which results in the view being hidden.
@@ -343,9 +366,21 @@ gfx::Size AnimatingLayoutManager::GetPreferredSize(const View* host) const {
   if (!target_layout_manager())
     return gfx::Size();
 
-  return should_animate_bounds_
-             ? current_layout_.host_size
-             : target_layout_manager()->GetPreferredSize(host);
+  switch (bounds_animation_mode_) {
+    case BoundsAnimationMode::kUseHostBounds:
+      return target_layout_manager()->GetPreferredSize(host);
+    case BoundsAnimationMode::kAnimateMainAxis: {
+      // Animating only main axis, so cross axis is preferred size.
+      gfx::Size result = current_layout_.host_size;
+      SetCrossAxis(
+          &result, orientation(),
+          GetCrossAxis(orientation(),
+                       target_layout_manager()->GetPreferredSize(host)));
+      return result;
+    }
+    case BoundsAnimationMode::kAnimateBothAxes:
+      return current_layout_.host_size;
+  }
 }
 
 gfx::Size AnimatingLayoutManager::GetMinimumSize(const View* host) const {
@@ -354,8 +389,20 @@ gfx::Size AnimatingLayoutManager::GetMinimumSize(const View* host) const {
   // TODO(dfried): consider cases where the minimum size might not be just the
   // minimum size of the embedded layout.
   gfx::Size minimum_size = target_layout_manager()->GetMinimumSize(host);
-  if (should_animate_bounds_)
-    minimum_size.SetToMin(current_layout_.host_size);
+  switch (bounds_animation_mode_) {
+    case BoundsAnimationMode::kUseHostBounds:
+      // No modification required.
+      break;
+    case BoundsAnimationMode::kAnimateMainAxis:
+      SetMainAxis(
+          &minimum_size, orientation(),
+          std::min(GetMainAxis(orientation(), minimum_size),
+                   GetMainAxis(orientation(), current_layout_.host_size)));
+      break;
+    case BoundsAnimationMode::kAnimateBothAxes:
+      minimum_size.SetToMin(current_layout_.host_size);
+      break;
+  }
   return minimum_size;
 }
 
@@ -365,9 +412,12 @@ int AnimatingLayoutManager::GetPreferredHeightForWidth(const View* host,
     return 0;
 
   // TODO(dfried): revisit this computation.
-  return should_animate_bounds_
-             ? current_layout_.host_size.height()
-             : target_layout_manager()->GetPreferredHeightForWidth(host, width);
+  if (bounds_animation_mode_ == BoundsAnimationMode::kAnimateBothAxes ||
+      (bounds_animation_mode_ == BoundsAnimationMode::kAnimateMainAxis &&
+       orientation() == LayoutOrientation::kVertical)) {
+    return current_layout_.host_size.height();
+  }
+  return target_layout_manager()->GetPreferredHeightForWidth(host, width);
 }
 
 std::vector<View*> AnimatingLayoutManager::GetChildViewsInPaintOrder(
@@ -397,11 +447,16 @@ std::vector<View*> AnimatingLayoutManager::GetChildViewsInPaintOrder(
 
 bool AnimatingLayoutManager::OnViewRemoved(View* host, View* view) {
   // Remove any fade infos corresponding to the removed view.
-  fade_infos_.erase(std::remove_if(fade_infos_.begin(), fade_infos_.end(),
-                                   [view](const LayoutFadeInfo& fade_info) {
-                                     return fade_info.child_view == view;
-                                   }),
-                    fade_infos_.end());
+  base::EraseIf(fade_infos_, [view](const LayoutFadeInfo& fade_info) {
+    return fade_info.child_view == view;
+  });
+
+  // Remove any elements in the current layout corresponding to the removed
+  // view.
+  base::EraseIf(current_layout_.child_layouts,
+                [view](const ChildLayout& child_layout) {
+                  return child_layout.child_view == view;
+                });
 
   return LayoutManagerBase::OnViewRemoved(host, view);
 }
@@ -444,6 +499,24 @@ void AnimatingLayoutManager::OnInstalled(View* host) {
   animation_delegate_ = std::make_unique<AnimationDelegate>(this);
 }
 
+bool AnimatingLayoutManager::OnViewAdded(View* host, View* view) {
+  // Handle a case where we add a visible view that shouldn't be visible in the
+  // layout. In this case, there is no animation, no invalidation, and we just
+  // set the view to not be visible.
+  if (view->GetVisible() && cached_layout_size() && !is_animating_) {
+    const gfx::Size target_size = GetAvailableTargetLayoutSize();
+    ProposedLayout proposed_layout =
+        target_layout_manager()->GetProposedLayout(target_size);
+    if (HaveSameVisibleViews(current_layout_, proposed_layout)) {
+      SetViewVisibility(view, false);
+      current_layout_ = target_layout_ = proposed_layout;
+      return false;
+    }
+  }
+
+  return RecalculateTarget();
+}
+
 void AnimatingLayoutManager::OnLayoutChanged() {
   // This replaces the normal behavior of clearing cached layouts.
   RecalculateTarget();
@@ -454,32 +527,48 @@ void AnimatingLayoutManager::LayoutImpl() {
   // than an invalidation. This should reset the layout (but see the note in
   // RecalculateTarget() below).
   const gfx::Size host_size = host_view()->size();
-  if (should_animate_bounds_) {
-    // Reset the layout immediately if the current or target layout exceeds the
-    // host size or the available space.
+
+  if (bounds_animation_mode_ == BoundsAnimationMode::kUseHostBounds) {
+    if (!cached_layout_size() || host_size != *cached_layout_size()) {
+      // Host size changed, so reset the layout.
+      ResetLayoutToTargetSize();
+    }
+
+  } else {
     const SizeBounds available_size = GetAvailableHostSize();
-    const base::Optional<int> bounds_main =
-        GetMainAxis(orientation(), available_size);
-    const int host_main = GetMainAxis(orientation(), host_size);
-    const int current_main =
-        GetMainAxis(orientation(), current_layout_.host_size);
-    if (current_main > host_main ||
-        (bounds_main && current_main > *bounds_main)) {
-      DCHECK(!bounds_main || *bounds_main >= host_main);
+
+    if (bounds_animation_mode_ == BoundsAnimationMode::kAnimateMainAxis &&
+        (!cached_layout_size() ||
+         GetCrossAxis(orientation(), host_size) !=
+             GetCrossAxis(orientation(), *cached_layout_size()))) {
+      // If we're fixed to the cross-axis size of the host and that size
+      // changes, we need to reset the layout.
       last_available_host_size_ = available_size;
       ResetLayoutToSize(host_size);
-    } else if (available_size != last_available_host_size_) {
-      // May need to re-trigger animation if our bounds were relaxed; let us
-      // expand into the new available space.
-      RecalculateTarget();
+    } else {
+      // Either both axes are animating or only the main axis is animating or
+      // the cross axis hasn't changed (because otherwise the previous condition
+      // would have executed instead).
+      const base::Optional<int> bounds_main =
+          GetMainAxis(orientation(), available_size);
+      const int host_main = GetMainAxis(orientation(), host_size);
+      const int current_main =
+          GetMainAxis(orientation(), current_layout_.host_size);
+      if (current_main > host_main ||
+          (bounds_main && current_main > *bounds_main)) {
+        // Reset the layout immediately if the current or target layout exceeds
+        // the host size or the available space.
+        last_available_host_size_ = available_size;
+        ResetLayoutToSize(host_size);
+      } else if (available_size != last_available_host_size_) {
+        // May need to re-trigger animation if our bounds were relaxed; let us
+        // expand into the new available space.
+        RecalculateTarget();
+      }
     }
 
     // Verify that the last available size has been updated.
     DCHECK_EQ(available_size, last_available_host_size_);
-
-  } else if (!cached_layout_size() || host_size != *cached_layout_size()) {
-    // Host size changed, so reset the layout.
-    ResetLayoutToTargetSize();
   }
 
   ApplyLayout(current_layout_);
@@ -539,7 +628,8 @@ bool AnimatingLayoutManager::RecalculateTarget() {
   // space as adjacent child views appear/disappear. This will be useful in
   // animating tab titles, which currently slide over when the favicon
   // disappears.
-  if (!should_animate_bounds_ && *cached_layout_size() != target_size) {
+  if (bounds_animation_mode_ == BoundsAnimationMode::kUseHostBounds &&
+      *cached_layout_size() != target_size) {
     ResetLayoutToSize(target_size);
     return true;
   }
@@ -550,6 +640,7 @@ bool AnimatingLayoutManager::RecalculateTarget() {
   // start or update an animation.
   const ProposedLayout proposed_layout =
       target_layout_manager()->GetProposedLayout(target_size);
+
   if (target_layout_ == proposed_layout)
     return false;
 
@@ -570,6 +661,11 @@ bool AnimatingLayoutManager::RecalculateTarget() {
     // child views' visibility changing.)
     starting_layout_ = current_layout_;
     starting_offset_ = current_offset_;
+  } else if (starting_layout_ == target_layout_) {
+    // If we initiated but did not show any frames of an animation, and we are
+    // redirected to our starting layout then just reset the layout.
+    ResetLayoutToSize(target_size);
+    return false;
   }
   CalculateFadeInfos();
   UpdateCurrentLayout(0.0);
@@ -690,7 +786,7 @@ void AnimatingLayoutManager::UpdateCurrentLayout(double percent) {
     }
 
     ChildLayout* const to_overwrite =
-        FindChildViewInLayout(current_layout_, fade_info.child_view);
+        FindChildViewInLayout(&current_layout_, fade_info.child_view);
     if (to_overwrite)
       *to_overwrite = child_layout;
     else
@@ -990,32 +1086,41 @@ ChildLayout AnimatingLayoutManager::CalculateSlideFade(
   return child_layout;
 }
 
-SizeBounds AnimatingLayoutManager::GetAvailableHostSize() const {
-  if (!host_view() || !host_view()->parent())
-    return SizeBounds();
-  return host_view()->parent()->GetAvailableSize(host_view());
-}
-
 // Returns the space in which to calculate the target layout.
 gfx::Size AnimatingLayoutManager::GetAvailableTargetLayoutSize() {
-  if (!should_animate_bounds_)
+  if (bounds_animation_mode_ == BoundsAnimationMode::kUseHostBounds)
     return host_view()->size();
 
   const SizeBounds bounds = GetAvailableHostSize();
   last_available_host_size_ = bounds;
   const gfx::Size preferred_size =
       target_layout_manager()->GetPreferredSize(host_view());
-  if (!bounds.width() || *bounds.width() > preferred_size.width()) {
-    return {preferred_size.width(),
-            bounds.height()
-                ? std::min(preferred_size.height(), *bounds.height())
-                : preferred_size.height()};
+
+  int width = preferred_size.width();
+
+  if (orientation() == LayoutOrientation::kVertical &&
+      bounds_animation_mode_ == BoundsAnimationMode::kAnimateMainAxis) {
+    width = host_view()->width();
+  } else if (bounds.width()) {
+    width = std::min(width, *bounds.width());
   }
 
-  const int height = target_layout_manager()->GetPreferredHeightForWidth(
-      host_view(), *bounds.width());
-  return {*bounds.width(),
-          bounds.height() ? std::min(height, *bounds.height()) : height};
+  int height;
+
+  if (orientation() == LayoutOrientation::kHorizontal &&
+      bounds_animation_mode_ == BoundsAnimationMode::kAnimateMainAxis) {
+    height = host_view()->height();
+  } else {
+    height = width < preferred_size.width()
+                 ? target_layout_manager()->GetPreferredHeightForWidth(
+                       host_view(), width)
+                 : preferred_size.height();
+    if (bounds.height()) {
+      height = std::min(height, *bounds.height());
+    }
+  }
+
+  return gfx::Size(width, height);
 }
 
 // static
@@ -1034,12 +1139,11 @@ gfx::Size AnimatingLayoutManager::DefaultFlexRuleImpl(
   if (CanFitInBounds(preferred_size, size_bounds))
     return preferred_size;
 
-  const LayoutOrientation orientation = animating_layout->orientation();
-  const base::Optional<int> bounds_main = GetMainAxis(orientation, size_bounds);
-
   // Special case - if we're being asked for a zero-size layout we'll return the
   // minimum size of the layout. This is because we're being probed for how
   // small we can get, not being asked for an actual size.
+  const base::Optional<int> bounds_main =
+      GetMainAxis(animating_layout->orientation(), size_bounds);
   if (bounds_main && *bounds_main <= 0)
     return animating_layout->GetMinimumSize(view);
 
@@ -1060,22 +1164,25 @@ gfx::Size AnimatingLayoutManager::DefaultFlexRuleImpl(
   // provided.
   gfx::Size size;
   if (size_bounds.width() && size_bounds.height()) {
-    // If both width and height are specified, query the preferred layout in
-    // that space and return its size.
-    size = {*size_bounds.width(), *size_bounds.height()};
+    // Both width and height are specified.  Constraining the width may change
+    // the desired height, so we can't just blindly return the minimum in both
+    // dimensions.  Instead, query the target layout in the constrained space
+    // and return its size.
+    size = gfx::Size(*size_bounds.width(), *size_bounds.height());
   } else if (size_bounds.width()) {
-    // If only the width is specified and we are still constrained, use the
-    // height-for-width calculation.
+    // The width is specified and too small.  Use the height-for-width
+    // calculation.
     // TODO(dfried): This should be rare, but it is also inefficient. See if we
-    // can't add an alternative to GetPreferredHeightForWidth that actually
+    // can't add an alternative to GetPreferredHeightForWidth() that actually
     // calculates the layout in this space so we don't have to do it twice.
-    const int height =
-        target_layout->GetPreferredHeightForWidth(view, *size_bounds.width());
-    size = {*size_bounds.width(), height};
+    const int width = *size_bounds.width();
+    size = gfx::Size(width,
+                     target_layout->GetPreferredHeightForWidth(view, width));
   } else {
-    // We now know that only the height is constrained and it's too small.
-    // Fortunately the height of a layout can't (shouldn't?) affect its width.
-    size = {target_preferred.width(), *size_bounds.height()};
+    DCHECK(size_bounds.height());
+    // The height is specified and too small.  Fortunately the height of a
+    // layout can't (shouldn't?) affect its width.
+    size = gfx::Size(target_preferred.width(), *size_bounds.height());
   }
 
   return target_layout->GetProposedLayout(size).host_size;

@@ -10,6 +10,19 @@
 
 namespace chromeos {
 
+// Lists the priority of the OOBE screens with the highest priority at the top
+// and the lowest priority at the bottom. This is used to check if screen
+// transition is allowed as only higher or equal priority screen replaces the
+// current screen.
+enum OobeScreenPriority {
+  SCREEN_DEVICE_DISABLED = 1,
+  SCREEN_RESET,
+  SCREEN_HARDWARE_ERROR,
+  SCREEN_DEVICE_DEVELOPER_MODIFICATION,
+  SCREEN_UPDATE_REQUIRED,
+  DEFAULT
+};
+
 struct StaticOobeScreenId;
 
 // Identifiers an OOBE screen.
@@ -41,26 +54,11 @@ struct StaticOobeScreenId {
 struct OobeScreen {
   constexpr static StaticOobeScreenId SCREEN_ACCOUNT_PICKER{"account-picker"};
 
-  constexpr static StaticOobeScreenId SCREEN_TPM_ERROR{"tpm-error-message"};
-  constexpr static StaticOobeScreenId SCREEN_PASSWORD_CHANGED{
-      "password-changed"};
   constexpr static StaticOobeScreenId
       SCREEN_CREATE_SUPERVISED_USER_FLOW_DEPRECATED{"supervised-user-creation"};
   constexpr static StaticOobeScreenId SCREEN_CONFIRM_PASSWORD{
-      "confirm-password"};
+      "saml-confirm-password"};
   constexpr static StaticOobeScreenId SCREEN_FATAL_ERROR{"fatal-error"};
-  constexpr static StaticOobeScreenId SCREEN_ACTIVE_DIRECTORY_PASSWORD_CHANGE{
-      "ad-password-change"};
-
-  // Special "first screen" that initiates login flow.
-  constexpr static StaticOobeScreenId SCREEN_SPECIAL_LOGIN{"login"};
-  // Special "first screen" that initiates full OOBE flow.
-  constexpr static StaticOobeScreenId SCREEN_SPECIAL_OOBE{"oobe"};
-  // Special "first screen" that initiates enabling ARC adb sideloading flow.
-  constexpr static StaticOobeScreenId SCREEN_ENABLE_ADB_SIDELOADING{
-      "adb-sideloading"};
-  // Special test value that commands not to create any window yet.
-  constexpr static StaticOobeScreenId SCREEN_TEST_NO_WINDOW{"test:nowindow"};
 
   constexpr static StaticOobeScreenId SCREEN_UNKNOWN{"unknown"};
 };

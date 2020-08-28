@@ -7,40 +7,71 @@
  * credit cards for use in autofill and payments APIs.
  */
 
+import 'chrome://resources/cr_elements/cr_action_menu/cr_action_menu.m.js';
+import 'chrome://resources/cr_elements/cr_button/cr_button.m.js';
+import 'chrome://resources/cr_elements/cr_link_row/cr_link_row.m.js';
+import 'chrome://resources/cr_elements/shared_style_css.m.js';
+import 'chrome://resources/cr_elements/shared_vars_css.m.js';
+import 'chrome://resources/polymer/v3_0/iron-flex-layout/iron-flex-layout-classes.js';
+import '../settings_shared_css.m.js';
+import '../controls/settings_toggle_button.m.js';
+import '../prefs/prefs.m.js';
+import './credit_card_edit_dialog.js';
+import './passwords_shared_css.js';
+import './payments_list.js';
+
+import {assert} from 'chrome://resources/js/assert.m.js';
+import {addSingletonGetter} from 'chrome://resources/js/cr.m.js';
+import {focusWithoutInk} from 'chrome://resources/js/cr/ui/focus_without_ink.m.js';
+import {I18nBehavior} from 'chrome://resources/js/i18n_behavior.m.js';
+import {WebUIListenerBehavior} from 'chrome://resources/js/web_ui_listener_behavior.m.js';
+import {html, Polymer} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+
+import {loadTimeData} from '../i18n_setup.js';
+import {MetricsBrowserProxyImpl, PrivacyElementInteractions} from '../metrics_browser_proxy.js';
+
+import {AutofillManager} from './autofill_section.js';
+
+/** @typedef {chrome.autofillPrivate.CreditCardEntry} */
+let CreditCardEntry;
+
 /**
  * Interface for all callbacks to the payments autofill API.
  * @interface
  */
-class PaymentsManager {
+export class PaymentsManager {
   /**
    * Add an observer to the list of personal data.
    * @param {function(!Array<!AutofillManager.AddressEntry>,
-   *   !Array<!PaymentsManager.CreditCardEntry>):void} listener
+   *   !Array<!CreditCardEntry>):void} listener
    */
   setPersonalDataManagerListener(listener) {}
 
   /**
    * Remove an observer from the list of personal data.
    * @param {function(!Array<!AutofillManager.AddressEntry>,
-   *     !Array<!PaymentsManager.CreditCardEntry>):void} listener
+   *     !Array<!CreditCardEntry>):void} listener
    */
   removePersonalDataManagerListener(listener) {}
 
   /**
    * Request the list of credit cards.
-   * @param {function(!Array<!PaymentsManager.CreditCardEntry>):void} callback
+   * @param {function(!Array<!CreditCardEntry>):void}
+   *     callback
    */
   getCreditCardList(callback) {}
 
   /** @param {string} guid The GUID of the credit card to remove.  */
   removeCreditCard(guid) {}
 
-  /** @param {string} guid The GUID to credit card to remove from the cache. */
+  /**
+   * @param {string} guid The GUID to credit card to remove from the cache.
+   */
   clearCachedCreditCard(guid) {}
 
   /**
    * Saves the given credit card.
-   * @param {!PaymentsManager.CreditCardEntry} creditCard
+   * @param {!CreditCardEntry} creditCard
    */
   saveCreditCard(creditCard) {}
 
@@ -58,16 +89,19 @@ class PaymentsManager {
    * Enables FIDO authentication for card unmasking.
    */
   setCreditCardFIDOAuthEnabledState(enabled) {}
-}
 
-/** @typedef {chrome.autofillPrivate.CreditCardEntry} */
-PaymentsManager.CreditCardEntry;
+  /**
+   * Requests the list of UPI IDs from personal data.
+   * @param {function(!Array<!string>):void} callback
+   */
+  getUpiIdList(callback) {}
+}
 
 /**
  * Implementation that accesses the private API.
  * @implements {PaymentsManager}
  */
-class PaymentsManagerImpl {
+export class PaymentsManagerImpl {
   /** @override */
   setPersonalDataManagerListener(listener) {
     chrome.autofillPrivate.onPersonalDataChanged.addListener(listener);
@@ -112,15 +146,19 @@ class PaymentsManagerImpl {
   setCreditCardFIDOAuthEnabledState(enabled) {
     chrome.autofillPrivate.setCreditCardFIDOAuthEnabledState(enabled);
   }
+
+  /** @override */
+  getUpiIdList(callback) {
+    chrome.autofillPrivate.getUpiIdList(callback);
+  }
 }
 
-cr.addSingletonGetter(PaymentsManagerImpl);
-
-(function() {
-'use strict';
+addSingletonGetter(PaymentsManagerImpl);
 
 Polymer({
   is: 'settings-payments-section',
+
+  _template: html`{__html_template__}`,
 
   behaviors: [
     WebUIListenerBehavior,
@@ -130,9 +168,18 @@ Polymer({
   properties: {
     /**
      * An array of all saved credit cards.
-     * @type {!Array<!PaymentsManager.CreditCardEntry>}
+     * @type {!Array<!CreditCardEntry>}
      */
     creditCards: {
+      type: Array,
+      value: () => [],
+    },
+
+    /**
+     * An array of all saved UPI IDs.
+     * @type {!Array<!string>}
+     */
+    upiIds: {
       type: Array,
       value: () => [],
     },
@@ -195,7 +242,7 @@ Polymer({
 
   /**
    * @type {?function(!Array<!AutofillManager.AddressEntry>,
-   *     !Array<!PaymentsManager.CreditCardEntry>)}
+   *     !Array<!CreditCardEntry>)}
    * @private
    */
   setPersonalDataListener_: null,
@@ -203,7 +250,7 @@ Polymer({
   /** @override */
   attached() {
     // Create listener function.
-    /** @type {function(!Array<!PaymentsManager.CreditCardEntry>)} */
+    /** @type {function(!Array<!CreditCardEntry>)} */
     const setCreditCardsListener = cardList => {
       this.creditCards = cardList;
     };
@@ -219,10 +266,15 @@ Polymer({
 
     /**
      * @type {function(!Array<!AutofillManager.AddressEntry>,
-     *     !Array<!PaymentsManager.CreditCardEntry>)}
+     *     !Array<!CreditCardEntry>)}
      */
     const setPersonalDataListener = (addressList, cardList) => {
       this.creditCards = cardList;
+    };
+
+    /** @type {function(!Array<!string>)} */
+    const setUpiIdsListener = upiIdList => {
+      this.upiIds = upiIdList;
     };
 
     // Remember the bound reference in order to detach.
@@ -233,6 +285,7 @@ Polymer({
 
     // Request initial data.
     this.paymentsManager_.getCreditCardList(setCreditCardsListener);
+    this.paymentsManager_.getUpiIdList(setUpiIdsListener);
 
     // Listen for changes.
     this.paymentsManager_.setPersonalDataManagerListener(
@@ -247,15 +300,16 @@ Polymer({
     this.paymentsManager_.removePersonalDataManagerListener(
         /**
            @type {function(!Array<!AutofillManager.AddressEntry>,
-               !Array<!PaymentsManager.CreditCardEntry>)}
+               !Array<!CreditCardEntry>)}
          */
         (this.setPersonalDataListener_));
   },
 
   /**
    * Opens the credit card action menu.
-   * @param {!CustomEvent<{creditCard: !chrome.autofillPrivate.CreditCardEntry,
-   *     anchorElement: !HTMLElement}>} e
+   * @param {!CustomEvent<{creditCard:
+   *     !chrome.autofillPrivate.CreditCardEntry, anchorElement:
+   *     !HTMLElement}>} e
    * @private
    */
   onCreditCardDotsMenuTap_(e) {
@@ -281,13 +335,14 @@ Polymer({
       expirationYear: date.getFullYear().toString(),
     };
     this.showCreditCardDialog_ = true;
-    this.activeDialogAnchor_ = this.$.addCreditCard;
+    this.activeDialogAnchor_ =
+        /** @type {HTMLElement} */ (this.$.addCreditCard);
   },
 
   /** @private */
   onCreditCardDialogClose_() {
     this.showCreditCardDialog_ = false;
-    cr.ui.focusWithoutInk(assert(this.activeDialogAnchor_));
+    focusWithoutInk(assert(this.activeDialogAnchor_));
     this.activeDialogAnchor_ = null;
     this.activeCreditCard = null;
   },
@@ -347,6 +402,16 @@ Polymer({
   },
 
   /**
+   * Records changes made to the "Allow sites to check if you have payment
+   * methods saved" setting to a histogram.
+   * @private
+   */
+  onCanMakePaymentChange_() {
+    MetricsBrowserProxyImpl.getInstance().recordSettingsPageHistogram(
+        PrivacyElementInteractions.PAYMENT_METHOD);
+  },
+
+  /**
    * Listens for the save-credit-card event, and calls the private API.
    * @param {!Event} event
    * @private
@@ -375,7 +440,7 @@ Polymer({
   },
 
   /**
-   * @param {!Array<!PaymentsManager.CreditCardEntry>} creditCards
+   * @param {!Array<!CreditCardEntry>} creditCards
    * @param {boolean} creditCardEnabled
    * @return {boolean} Whether to show the migration button.
    * @private
@@ -394,13 +459,13 @@ Polymer({
     const numberOfMigratableCreditCard =
         creditCards.filter(card => card.metadata.isMigratable).length;
     // Check whether exist at least one local valid card for migration.
-    if (numberOfMigratableCreditCard == 0) {
+    if (numberOfMigratableCreditCard === 0) {
       return false;
     }
 
     // Update the display text depends on the number of migratable credit
     // cards.
-    this.migratableCreditCardsInfo_ = numberOfMigratableCreditCard == 1 ?
+    this.migratableCreditCardsInfo_ = numberOfMigratableCreditCard === 1 ?
         this.i18n('migratableCardsInfoSingle') :
         this.i18n('migratableCardsInfoMultiple');
 
@@ -408,4 +473,3 @@ Polymer({
   },
 
 });
-})();

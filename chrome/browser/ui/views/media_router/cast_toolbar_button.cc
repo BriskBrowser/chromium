@@ -15,8 +15,8 @@
 #include "chrome/grit/generated_resources.h"
 #include "components/vector_icons/vector_icons.h"
 #include "ui/base/l10n/l10n_util.h"
-#include "ui/base/material_design/material_design_controller.h"
 #include "ui/base/models/menu_model.h"
+#include "ui/base/pointer/touch_ui_controller.h"
 #include "ui/base/theme_provider.h"
 #include "ui/gfx/color_palette.h"
 #include "ui/gfx/paint_vector_icon.h"
@@ -47,7 +47,7 @@ CastToolbarButton::CastToolbarButton(
     MediaRouter* media_router,
     std::unique_ptr<MediaRouterContextualMenu> context_menu)
     : ToolbarButton(this,
-                    context_menu->TakeMenuModel(),
+                    context_menu->CreateMenuModel(),
                     /** tab_strip_model*/ nullptr,
                     /** trigger_menu_on_long_press */ false),
       IssuesObserver(media_router->GetIssueManager()),
@@ -61,7 +61,6 @@ CastToolbarButton::CastToolbarButton(
   EnableCanvasFlippingForRTLUI(false);
   SetTooltipText(l10n_util::GetStringUTF16(IDS_MEDIA_ROUTER_ICON_TOOLTIP_TEXT));
 
-  ToolbarButton::Init();
   IssuesObserver::Init();
 
   DCHECK(GetActionController());
@@ -72,24 +71,6 @@ CastToolbarButton::CastToolbarButton(
 CastToolbarButton::~CastToolbarButton() {
   if (GetActionController())
     GetActionController()->RemoveObserver(this);
-}
-
-const gfx::VectorIcon& CastToolbarButton::GetCurrentIcon() const {
-  // Highest priority is to indicate whether there's an issue.
-  if (current_issue_) {
-    media_router::IssueInfo::Severity severity = current_issue_->severity;
-    switch (severity) {
-      case media_router::IssueInfo::Severity::FATAL:
-        return ::vector_icons::kMediaRouterErrorIcon;
-      case media_router::IssueInfo::Severity::WARNING:
-        return ::vector_icons::kMediaRouterWarningIcon;
-      case media_router::IssueInfo::Severity::NOTIFICATION:
-        // There is no icon specific to notification issues.
-        break;
-    }
-  }
-  return has_local_display_route_ ? ::vector_icons::kMediaRouterActiveIcon
-                                  : ::vector_icons::kMediaRouterIdleIcon;
 }
 
 void CastToolbarButton::ShowIcon() {
@@ -174,44 +155,43 @@ void CastToolbarButton::ButtonPressed(views::Button* sender,
   }
 }
 
-void CastToolbarButton::AddedToWidget() {
-  ToolbarButton::AddedToWidget();
-  UpdateIcon();
-}
-
 void CastToolbarButton::UpdateIcon() {
-  // If widget isn't set, the button doesn't have access to the theme provider
-  // to set colors. Defer updating until AddedToWidget()
-  if (!GetWidget())
+  using Severity = media_router::IssueInfo::Severity;
+  const auto severity =
+      current_issue_ ? current_issue_->severity : Severity::NOTIFICATION;
+  if (severity == Severity::NOTIFICATION && !has_local_display_route_) {
+    UpdateIconsWithStandardColors(vector_icons::kMediaRouterIdleIcon);
+    UpdateLayoutInsetDelta();
     return;
-  const gfx::VectorIcon& icon = GetCurrentIcon();
-  SetImage(views::Button::STATE_NORMAL,
-           gfx::CreateVectorIcon(icon, GetIconColor(&icon)));
-  // This icon is smaller than the touchable-UI expected 24dp, so we need to pad
-  // the insets to match.
-  SetLayoutInsetDelta(
-      gfx::Insets(ui::MaterialDesignController::touch_ui() ? 4 : 0));
+  }
+
+  const gfx::VectorIcon* icon = &vector_icons::kMediaRouterActiveIcon;
+  SkColor icon_color = gfx::kGoogleBlue500;
+  // Highest priority is to indicate whether there's an issue.
+  if (severity == Severity::FATAL) {
+    icon = &vector_icons::kMediaRouterErrorIcon;
+    icon_color = GetNativeTheme()->GetSystemColor(
+        ui::NativeTheme::kColorId_AlertSeverityHigh);
+  } else if (severity == Severity::WARNING) {
+    icon = &vector_icons::kMediaRouterWarningIcon;
+    icon_color = GetNativeTheme()->GetSystemColor(
+        ui::NativeTheme::kColorId_AlertSeverityMedium);
+  }
+
+  for (auto state : kButtonStates)
+    SetImageModel(state, ui::ImageModel::FromVectorIcon(*icon, icon_color));
+  UpdateLayoutInsetDelta();
 }
 
 MediaRouterActionController* CastToolbarButton::GetActionController() const {
   return MediaRouterUIService::Get(profile_)->action_controller();
 }
 
-SkColor CastToolbarButton::GetIconColor(const gfx::VectorIcon* icon_id) const {
-  if (icon_id == &::vector_icons::kMediaRouterIdleIcon) {
-    return GetThemeProvider()->GetColor(
-        ThemeProperties::COLOR_TOOLBAR_BUTTON_ICON);
-  } else if (icon_id == &::vector_icons::kMediaRouterActiveIcon) {
-    return gfx::kGoogleBlue500;
-  } else if (icon_id == &::vector_icons::kMediaRouterWarningIcon) {
-    return GetNativeTheme()->GetSystemColor(
-        ui::NativeTheme::kColorId_AlertSeverityMedium);
-  } else if (icon_id == &::vector_icons::kMediaRouterErrorIcon) {
-    return GetNativeTheme()->GetSystemColor(
-        ui::NativeTheme::kColorId_AlertSeverityHigh);
-  }
-  NOTREACHED();
-  return gfx::kPlaceholderColor;
+void CastToolbarButton::UpdateLayoutInsetDelta() {
+  // This icon is smaller than the touchable-UI expected 24dp, so we need to pad
+  // the insets to match.
+  SetLayoutInsetDelta(
+      gfx::Insets(ui::TouchUiController::Get()->touch_ui() ? 4 : 0));
 }
 
 }  // namespace media_router

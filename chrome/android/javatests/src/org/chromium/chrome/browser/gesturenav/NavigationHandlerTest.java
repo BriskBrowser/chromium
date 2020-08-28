@@ -6,11 +6,12 @@ package org.chromium.chrome.browser.gesturenav;
 
 import android.app.Activity;
 import android.graphics.Point;
-import android.os.SystemClock;
 import android.support.test.InstrumentationRegistry;
-import android.support.test.filters.SmallTest;
 import android.util.DisplayMetrics;
 
+import androidx.test.filters.SmallTest;
+
+import org.hamcrest.Matchers;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -21,24 +22,29 @@ import org.junit.runner.RunWith;
 import org.chromium.base.ActivityState;
 import org.chromium.base.ApplicationStatus;
 import org.chromium.base.test.util.CommandLineFlags;
-import org.chromium.base.test.util.FlakyTest;
-import org.chromium.base.test.util.RetryOnFailure;
-import org.chromium.chrome.browser.ChromeSwitches;
+import org.chromium.base.test.util.Restriction;
 import org.chromium.chrome.browser.compositor.animation.CompositorAnimationHandler;
+import org.chromium.chrome.browser.compositor.layouts.OverviewModeController;
+import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.tab.Tab;
-import org.chromium.chrome.browser.util.UrlConstants;
+import org.chromium.chrome.browser.tab.TabLaunchType;
+import org.chromium.chrome.browser.tabbed_mode.TabbedRootUiCoordinator;
+import org.chromium.chrome.browser.tabmodel.TabCreator;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.chrome.test.ChromeTabbedActivityTestRule;
 import org.chromium.chrome.test.util.ChromeTabUtils;
+import org.chromium.components.embedder_support.util.UrlConstants;
+import org.chromium.content_public.browser.LoadUrlParams;
 import org.chromium.content_public.browser.test.util.Criteria;
 import org.chromium.content_public.browser.test.util.CriteriaHelper;
-import org.chromium.content_public.browser.test.util.TouchCommon;
+import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.content_public.common.ContentUrlConstants;
 import org.chromium.net.test.EmbeddedTestServer;
+import org.chromium.ui.base.PageTransition;
+import org.chromium.ui.test.util.UiRestriction;
 
 /**
  * Tests {@link NavigationHandler} navigating back/forward using overscroll history navigation.
- * TODO(jinsukkim): Add more tests (right swipe, tab switcher, etc).
  */
 @RunWith(ChromeJUnit4ClassRunner.class)
 @CommandLineFlags.
@@ -47,8 +53,11 @@ public class NavigationHandlerTest {
     private static final String RENDERED_PAGE = "/chrome/test/data/android/navigate/simple.html";
     private static final boolean LEFT_EDGE = true;
     private static final boolean RIGHT_EDGE = false;
+    private static final int PAGELOAD_TIMEOUT_MS = 4000;
 
     private EmbeddedTestServer mTestServer;
+    private HistoryNavigationLayout mNavigationLayout;
+    private NavigationHandler mNavigationHandler;
     private float mEdgeWidthPx;
 
     @Rule
@@ -62,6 +71,13 @@ public class NavigationHandlerTest {
         mActivityTestRule.getActivity().getWindowManager().getDefaultDisplay().getMetrics(
                 displayMetrics);
         mEdgeWidthPx = displayMetrics.density * NavigationHandler.EDGE_WIDTH_DP;
+        TabbedRootUiCoordinator uiCoordinator =
+                (TabbedRootUiCoordinator) mActivityTestRule.getActivity()
+                        .getRootUiCoordinatorForTesting();
+        HistoryNavigationCoordinator coordinator =
+                uiCoordinator.getHistoryNavigationCoordinatorForTesting();
+        mNavigationLayout = coordinator.getLayoutForTesting();
+        mNavigationHandler = coordinator.getNavigationHandlerForTesting();
     }
 
     @After
@@ -80,25 +96,59 @@ public class NavigationHandlerTest {
 
     private void assertNavigateOnSwipeFrom(boolean edge, String toUrl) {
         ChromeTabUtils.waitForTabPageLoaded(currentTab(), toUrl, () -> swipeFromEdge(edge), 10);
-        CriteriaHelper.pollUiThread(Criteria.equals(toUrl, () -> currentTab().getUrl()));
-        Assert.assertEquals("Didn't navigate back", toUrl, currentTab().getUrl());
+        CriteriaHelper.pollUiThread(
+                ()
+                        -> Criteria.checkThat(ChromeTabUtils.getUrlStringOnUiThread(currentTab()),
+                                Matchers.is(toUrl)));
+        Assert.assertEquals(
+                "Didn't navigate back", toUrl, ChromeTabUtils.getUrlStringOnUiThread(currentTab()));
     }
 
     private void swipeFromEdge(boolean leftEdge) {
         Point size = new Point();
         mActivityTestRule.getActivity().getWindowManager().getDefaultDisplay().getSize(size);
+        final float startx = leftEdge ? mEdgeWidthPx / 2 : size.x - mEdgeWidthPx / 2;
+        final float endx = size.x / 2;
+        final float yMiddle = size.y / 2;
+        swipe(leftEdge, startx, endx, yMiddle);
+    }
 
-        // Swipe from an edge toward the middle of the screen.
-        float dragStartX = leftEdge ? mEdgeWidthPx / 2 : size.x - mEdgeWidthPx / 2;
-        float dragEndX = size.x / 2;
-        float dragStartY = size.y / 2;
-        float dragEndY = size.y / 2;
-        long downTime = SystemClock.uptimeMillis();
+    // Make an edge swipe too short to trigger the navigation.
+    private void shortSwipeFromEdge(boolean leftEdge) {
+        Point size = new Point();
+        mActivityTestRule.getActivity().getWindowManager().getDefaultDisplay().getSize(size);
+        final float startx = leftEdge ? 0 : size.x;
+        final float endx = leftEdge ? mEdgeWidthPx : size.x - mEdgeWidthPx;
+        final float yMiddle = size.y / 2;
+        swipe(leftEdge, startx, endx, yMiddle);
+    }
 
-        TouchCommon.dragStart(mActivityTestRule.getActivity(), dragStartX, dragStartY, downTime);
-        TouchCommon.dragTo(mActivityTestRule.getActivity(), dragStartX, dragEndX, dragStartY,
-                dragEndY, /* stepCount= */ 100, downTime);
-        TouchCommon.dragEnd(mActivityTestRule.getActivity(), dragEndX, dragEndY, downTime);
+    private void swipe(boolean leftEdge, float startx, float endx, float y) {
+        // # of pixels (of reasonally small value) which a finger moves across
+        // per one motion event.
+        final float distancePx = 6.0f;
+        final float step = Math.signum(endx - startx) * distancePx;
+        final int eventCounts = (int) ((endx - startx) / step);
+
+        TestThreadUtils.runOnUiThreadBlocking(() -> {
+            mNavigationHandler.onDown();
+            float nextx = startx + step;
+            for (int i = 0; i < eventCounts; i++, nextx += step) {
+                mNavigationHandler.onScroll(startx, -step, 0, nextx, y);
+            }
+            mNavigationHandler.release(true);
+        });
+    }
+
+    @Test
+    @SmallTest
+    public void testShortSwipeDoesNotTriggerNavigation() {
+        mActivityTestRule.loadUrl(UrlConstants.NTP_URL);
+        shortSwipeFromEdge(LEFT_EDGE);
+        CriteriaHelper.pollUiThread(mNavigationLayout::isLayoutDetached,
+                "Navigation Layout should be detached after use");
+        Assert.assertEquals("Current page should not change", UrlConstants.NTP_URL,
+                ChromeTabUtils.getUrlStringOnUiThread(currentTab()));
     }
 
     @Test
@@ -115,44 +165,81 @@ public class NavigationHandlerTest {
 
     @Test
     @SmallTest
-    public void testLeftSwipeNavigateBackOnNativePage() {
-        ChromeTabUtils.fullyLoadUrlInNewTab(InstrumentationRegistry.getInstrumentation(),
-                mActivityTestRule.getActivity(), UrlConstants.RECENT_TABS_URL, false);
-
-        assertNavigateOnSwipeFrom(LEFT_EDGE, UrlConstants.NTP_URL);
+    public void testLayoutGetsDetachedAfterUse() {
+        mActivityTestRule.loadUrl(UrlConstants.NTP_URL);
+        mActivityTestRule.loadUrl(UrlConstants.RECENT_TABS_URL);
+        swipeFromEdge(LEFT_EDGE);
+        CriteriaHelper.pollUiThread(mNavigationLayout::isLayoutDetached,
+                "Navigation Layout should be detached after use");
+        Assert.assertNull(mNavigationLayout.getDetachLayoutRunnable());
     }
 
     @Test
     @SmallTest
-    public void testRightSwipeNavigateForwardOnNativePage() {
-        ChromeTabUtils.fullyLoadUrlInNewTab(InstrumentationRegistry.getInstrumentation(),
-                mActivityTestRule.getActivity(), UrlConstants.RECENT_TABS_URL, false);
-
+    public void testSwipeNavigateOnNativePage() {
+        mActivityTestRule.loadUrl(UrlConstants.NTP_URL);
+        mActivityTestRule.loadUrl(UrlConstants.RECENT_TABS_URL);
         assertNavigateOnSwipeFrom(LEFT_EDGE, UrlConstants.NTP_URL);
         assertNavigateOnSwipeFrom(RIGHT_EDGE, UrlConstants.RECENT_TABS_URL);
     }
 
     @Test
     @SmallTest
-    @RetryOnFailure
-    @FlakyTest(message = "crbug.com/1041233")
-    public void testLeftSwipeNavigateBackOnRenderedPage() {
-        mTestServer = EmbeddedTestServer.createAndStartServer(InstrumentationRegistry.getContext());
-        ChromeTabUtils.fullyLoadUrlInNewTab(InstrumentationRegistry.getInstrumentation(),
-                mActivityTestRule.getActivity(), mTestServer.getURL(RENDERED_PAGE), false);
-
-        assertNavigateOnSwipeFrom(LEFT_EDGE, UrlConstants.NTP_URL);
-    }
-
-    @Test
-    @SmallTest
-    public void testRightSwipeNavigateForwardOnRenderedPage() {
-        mTestServer = EmbeddedTestServer.createAndStartServer(InstrumentationRegistry.getContext());
-        ChromeTabUtils.fullyLoadUrlInNewTab(InstrumentationRegistry.getInstrumentation(),
-                mActivityTestRule.getActivity(), mTestServer.getURL(RENDERED_PAGE), false);
+    public void testSwipeNavigateOnRenderedPage() {
+        mTestServer = EmbeddedTestServer.createAndStartServer(
+                InstrumentationRegistry.getInstrumentation().getContext());
+        mActivityTestRule.loadUrl(mTestServer.getURL(RENDERED_PAGE));
         mActivityTestRule.loadUrl(ContentUrlConstants.ABOUT_BLANK_DISPLAY_URL);
 
         assertNavigateOnSwipeFrom(LEFT_EDGE, mTestServer.getURL(RENDERED_PAGE));
         assertNavigateOnSwipeFrom(RIGHT_EDGE, ContentUrlConstants.ABOUT_BLANK_DISPLAY_URL);
+    }
+
+    @Test
+    @SmallTest
+    public void testLeftEdgeSwipeClosesTabLaunchedFromLink() {
+        Tab oldTab = currentTab();
+        TabCreator tabCreator = mActivityTestRule.getActivity().getTabCreator(false);
+        Tab newTab = TestThreadUtils.runOnUiThreadBlockingNoException(() -> {
+            return tabCreator.createNewTab(
+                    new LoadUrlParams(UrlConstants.RECENT_TABS_URL, PageTransition.LINK),
+                    TabLaunchType.FROM_LINK, oldTab);
+        });
+        Assert.assertEquals(newTab, currentTab());
+        swipeFromEdge(LEFT_EDGE);
+
+        // Assert that the new tab was closed and the old tab is the current tab again.
+        CriteriaHelper.pollUiThread(() -> !newTab.isInitialized());
+        Assert.assertEquals(oldTab, currentTab());
+        Assert.assertEquals("Chrome should remain in foreground", ActivityState.RESUMED,
+                ApplicationStatus.getStateForActivity(mActivityTestRule.getActivity()));
+    }
+
+    @Test
+    @SmallTest
+    @Restriction(UiRestriction.RESTRICTION_TYPE_PHONE)
+    public void testEdgeSwipeIsNoopInTabSwitcher() {
+        mActivityTestRule.loadUrl(UrlConstants.NTP_URL);
+        mActivityTestRule.loadUrl(UrlConstants.RECENT_TABS_URL);
+        setTabSwitcherModeAndWait(true);
+        swipeFromEdge(LEFT_EDGE);
+        Assert.assertTrue("Chrome should stay in tab switcher",
+                mActivityTestRule.getActivity().isInOverviewMode());
+        setTabSwitcherModeAndWait(false);
+        Assert.assertEquals("Current page should not change", UrlConstants.RECENT_TABS_URL,
+                ChromeTabUtils.getUrlStringOnUiThread(currentTab()));
+    }
+
+    /**
+     * Enter or exit the tab switcher with animations and wait for the scene to change.
+     * @param inSwitcher Whether to enter or exit the tab switcher.
+     */
+    private void setTabSwitcherModeAndWait(boolean inSwitcher) {
+        OverviewModeController controller = mActivityTestRule.getActivity().getLayoutManager();
+        if (inSwitcher) {
+            TestThreadUtils.runOnUiThreadBlocking(() -> controller.showOverview(false));
+        } else {
+            TestThreadUtils.runOnUiThreadBlocking(() -> controller.hideOverview(false));
+        }
     }
 }

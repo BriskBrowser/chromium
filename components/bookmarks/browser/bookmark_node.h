@@ -7,13 +7,14 @@
 
 #include <stdint.h>
 
+#include <map>
 #include <memory>
+#include <string>
 
 #include "base/macros.h"
 #include "base/task/cancelable_task_tracker.h"
 #include "base/time/time.h"
 #include "components/bookmarks/browser/titled_url_node.h"
-#include "components/favicon_base/favicon_types.h"
 #include "ui/base/models/tree_node_model.h"
 #include "ui/gfx/image/image.h"
 #include "url/gurl.h"
@@ -44,7 +45,6 @@ class BookmarkNode : public ui::TreeNode<BookmarkNode>, public TitledUrlNode {
 
   typedef std::map<std::string, std::string> MetaInfoMap;
 
-  static const int64_t kInvalidSyncTransactionVersion;
   static const char kRootNodeGuid[];
   static const char kBookmarkBarNodeGuid[];
   static const char kOtherBookmarksNodeGuid[];
@@ -55,8 +55,6 @@ class BookmarkNode : public ui::TreeNode<BookmarkNode>, public TitledUrlNode {
   BookmarkNode(int64_t id, const std::string& guid, const GURL& url);
 
   ~BookmarkNode() override;
-
-  static std::string RootNodeGuid();
 
   // Returns true if the node is a BookmarkPermanentNode (which does not include
   // the root).
@@ -107,6 +105,7 @@ class BookmarkNode : public ui::TreeNode<BookmarkNode>, public TitledUrlNode {
   bool is_url() const { return type_ == URL; }
 
   bool is_favicon_loaded() const { return favicon_state_ == LOADED_FAVICON; }
+  bool is_favicon_loading() const { return favicon_state_ == LOADING_FAVICON; }
 
   // Accessor method for controlling the visibility of a bookmark node/sub-tree.
   // Note that visibility is not propagated down the tree hierarchy so if a
@@ -124,11 +123,6 @@ class BookmarkNode : public ui::TreeNode<BookmarkNode>, public TitledUrlNode {
   void SetMetaInfoMap(const MetaInfoMap& meta_info_map);
   // Returns NULL if there are no values in the map.
   const MetaInfoMap* GetMetaInfoMap() const;
-
-  void set_sync_transaction_version(int64_t sync_transaction_version) {
-    sync_transaction_version_ = sync_transaction_version;
-  }
-  int64_t sync_transaction_version() const { return sync_transaction_version_; }
 
   // TitledUrlNode interface methods.
   const base::string16& GetTitledUrlNodeTitle() const override;
@@ -160,9 +154,6 @@ class BookmarkNode : public ui::TreeNode<BookmarkNode>, public TitledUrlNode {
   // loading the favicon if it isn't already loaded.
   const gfx::Image& favicon() const { return favicon_; }
   void set_favicon(const gfx::Image& icon) { favicon_ = icon; }
-
-  favicon_base::IconType favicon_type() const { return favicon_type_; }
-  void set_favicon_type(favicon_base::IconType type) { favicon_type_ = type; }
 
   FaviconState favicon_state() const { return favicon_state_; }
   void set_favicon_state(FaviconState state) { favicon_state_ = state; }
@@ -200,9 +191,6 @@ class BookmarkNode : public ui::TreeNode<BookmarkNode>, public TitledUrlNode {
   // The favicon of this node.
   gfx::Image favicon_;
 
-  // The type of favicon currently loaded.
-  favicon_base::IconType favicon_type_;
-
   // The URL of the node's favicon.
   std::unique_ptr<GURL> icon_url_;
 
@@ -218,9 +206,6 @@ class BookmarkNode : public ui::TreeNode<BookmarkNode>, public TitledUrlNode {
   // A map that stores arbitrary meta information about the node.
   std::unique_ptr<MetaInfoMap> meta_info_map_;
 
-  // The sync transaction version.
-  int64_t sync_transaction_version_ = kInvalidSyncTransactionVersion;
-
   const bool is_permanent_node_;
 
   DISALLOW_COPY_AND_ASSIGN(BookmarkNode);
@@ -231,17 +216,38 @@ class BookmarkNode : public ui::TreeNode<BookmarkNode>, public TitledUrlNode {
 // Node used for the permanent folders (excluding the root).
 class BookmarkPermanentNode : public BookmarkNode {
  public:
-  BookmarkPermanentNode(int64_t id, Type type);
-  ~BookmarkPermanentNode() override;
+  // Permanent nodes are well-known, it's not allowed to create arbitrary ones.
+  static std::unique_ptr<BookmarkPermanentNode> CreateManagedBookmarks(
+      int64_t id);
 
-  // WARNING: this code is used for other projects. Contact noyau@ for details.
-  void set_visible(bool value) { visible_ = value; }
+  ~BookmarkPermanentNode() override;
 
   // BookmarkNode overrides:
   bool IsVisible() const override;
 
  private:
-  bool visible_ = false;
+  friend class BookmarkLoadDetails;
+
+  // Permanent nodes are well-known, it's not allowed to create arbitrary ones.
+  static std::unique_ptr<BookmarkPermanentNode> CreateBookmarkBar(
+      int64_t id,
+      bool visible_when_empty);
+  static std::unique_ptr<BookmarkPermanentNode> CreateOtherBookmarks(
+      int64_t id,
+      bool visible_when_empty);
+  static std::unique_ptr<BookmarkPermanentNode> CreateMobileBookmarks(
+      int64_t id,
+      bool visible_when_empty);
+
+  // Constructor is private to disallow the construction of permanent nodes
+  // other than the well-known ones, see factory methods.
+  BookmarkPermanentNode(int64_t id,
+                        Type type,
+                        const std::string& guid,
+                        const base::string16& title,
+                        bool visible_when_empty);
+
+  const bool visible_when_empty_;
 
   DISALLOW_COPY_AND_ASSIGN(BookmarkPermanentNode);
 };

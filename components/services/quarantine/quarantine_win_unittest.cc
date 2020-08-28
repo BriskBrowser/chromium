@@ -201,7 +201,7 @@ TEST_F(QuarantineWinTest, LocalFile_DependsOnLocalConfig) {
     // No zone identifier for local source.
     EXPECT_TRUE(zone_identifier.empty());
 
-    ASSERT_TRUE(base::DeleteFile(test_file, false));
+    ASSERT_TRUE(base::DeleteFile(test_file));
   }
 }
 
@@ -228,7 +228,7 @@ TEST_F(QuarantineWinTest, DownloadedFile_DependsOnLocalConfig) {
     // is a zone annotation.
     EXPECT_FALSE(zone_identifier.empty());
 
-    ASSERT_TRUE(base::DeleteFile(test_file, false));
+    ASSERT_TRUE(base::DeleteFile(test_file));
   }
 }
 
@@ -243,7 +243,7 @@ TEST_F(QuarantineWinTest, UnsafeReferrer_DependsOnLocalConfig) {
   huge_referrer.append(INTERNET_MAX_URL_LENGTH * 2, 'a');
   unsafe_referrers.push_back(huge_referrer);
 
-  for (const auto referrer_url : unsafe_referrers) {
+  for (const auto& referrer_url : unsafe_referrers) {
     SCOPED_TRACE(::testing::Message() << "Trying URL " << referrer_url);
 
     ASSERT_TRUE(CreateFile(test_file));
@@ -259,7 +259,7 @@ TEST_F(QuarantineWinTest, UnsafeReferrer_DependsOnLocalConfig) {
     // is a zone annotation.
     EXPECT_FALSE(zone_identifier.empty());
 
-    ASSERT_TRUE(base::DeleteFile(test_file, false));
+    ASSERT_TRUE(base::DeleteFile(test_file));
   }
 }
 

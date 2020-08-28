@@ -10,7 +10,7 @@
 #include "chrome/browser/ui/layout_constants.h"
 #include "chrome/browser/ui/views/tabs/tab.h"
 #include "components/vector_icons/vector_icons.h"
-#include "ui/base/material_design/material_design_controller.h"
+#include "ui/base/pointer/touch_ui_controller.h"
 #include "ui/gfx/animation/multi_animation.h"
 #include "ui/gfx/canvas.h"
 #include "ui/gfx/image/image.h"
@@ -81,7 +81,7 @@ gfx::Image GetTabAlertIndicatorImage(TabAlertState alert_state,
                                      SkColor button_color) {
   const gfx::VectorIcon* icon = nullptr;
   int image_width = GetLayoutConstant(TAB_ALERT_INDICATOR_ICON_WIDTH);
-  const bool touch_ui = ui::MaterialDesignController::touch_ui();
+  const bool touch_ui = ui::TouchUiController::Get()->touch_ui();
   switch (alert_state) {
     case TabAlertState::AUDIO_PLAYING:
       icon = touch_ui ? &kTabAudioRoundedIcon : &kTabAudioIcon;
@@ -103,6 +103,9 @@ gfx::Image GetTabAlertIndicatorImage(TabAlertState alert_state,
     case TabAlertState::BLUETOOTH_CONNECTED:
       icon = &kTabBluetoothConnectedIcon;
       break;
+    case TabAlertState::BLUETOOTH_SCAN_ACTIVE:
+      icon = &kTabBluetoothScanActiveIcon;
+      break;
     case TabAlertState::USB_CONNECTED:
       icon = &kTabUsbConnectedIcon;
       break;
@@ -118,7 +121,7 @@ gfx::Image GetTabAlertIndicatorImage(TabAlertState alert_state,
       icon = &kPictureInPictureAltIcon;
       break;
     case TabAlertState::VR_PRESENTING_IN_HEADSET:
-      icon = &kVrHeadsetIcon;
+      icon = &vector_icons::kVrHeadsetIcon;
       break;
   }
   DCHECK(icon);
@@ -157,7 +160,9 @@ class AlertIndicator::FadeAnimationDelegate
  public:
   explicit FadeAnimationDelegate(AlertIndicator* indicator)
       : AnimationDelegateViews(indicator), indicator_(indicator) {}
-  ~FadeAnimationDelegate() override {}
+  FadeAnimationDelegate(const FadeAnimationDelegate&) = delete;
+  FadeAnimationDelegate& operator=(const FadeAnimationDelegate&) = delete;
+  ~FadeAnimationDelegate() override = default;
 
  private:
   // views::AnimationDelegateViews
@@ -176,8 +181,6 @@ class AlertIndicator::FadeAnimationDelegate
   }
 
   AlertIndicator* const indicator_;
-
-  DISALLOW_COPY_AND_ASSIGN(FadeAnimationDelegate);
 };
 
 AlertIndicator::AlertIndicator(Tab* parent_tab)

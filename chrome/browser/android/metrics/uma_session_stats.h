@@ -36,9 +36,7 @@ class UmaSessionStats {
   static void RegisterSyntheticFieldTrial(const std::string& trial_name,
                                           const std::string& group_name);
 
-  static void RegisterSyntheticMultiGroupFieldTrial(
-      const std::string& trial_name,
-      const std::vector<uint32_t>& group_name_hashes);
+  static bool IsBackgroundSessionStartForTesting();
 
  private:
   friend class base::NoDestructor<UmaSessionStats>;
@@ -66,6 +64,9 @@ class UmaSessionStats {
     void BeginBackgroundSession();
 
     base::TimeTicks session_start_time() const { return session_start_time_; }
+    base::TimeTicks background_session_start_time() const {
+      return background_session_start_time_;
+    }
 
    private:
     // Start of the current session.

@@ -11,8 +11,10 @@
 #include <string>
 #include <unordered_set>
 
+#include "base/files/file_path.h"
 #include "build/build_config.h"
 #include "third_party/skia/include/core/SkColor.h"
+#include "ui/base/models/image_model.h"
 #include "ui/gfx/image/image_skia.h"
 
 namespace base {
@@ -39,8 +41,8 @@ const int kProfileAvatarBadgeSizeWin = kShortcutIconSizeWin / 2;
 #endif  // OS_WIN
 
 // Avatar access.
-extern const char kGAIAPictureFileName[];
-extern const char kHighResAvatarFolderName[];
+extern const base::FilePath::CharType kGAIAPictureFileName[];
+extern const base::FilePath::CharType kHighResAvatarFolderName[];
 
 // Avatar formatting.
 extern const int kAvatarIconSize;
@@ -57,7 +59,7 @@ enum AvatarShape {
 };
 
 // Returns the default guest avatar.
-gfx::ImageSkia GetGuestAvatar(int size = 256);
+ui::ImageModel GetGuestAvatar(int size = 256);
 
 // Returns a version of |image| of a specific size. Note that no checks are
 // done on the width/height so make sure they're reasonable values; in the
@@ -84,7 +86,7 @@ gfx::Image GetAvatarIconForTitleBar(const gfx::Image& image,
                                     int dst_width,
                                     int dst_height);
 
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
 // Returns the image for the profile at |profile_path| that is suitable for use
 // in the macOS menu bar.
 gfx::Image GetAvatarIconForNSMenu(const base::FilePath& profile_path);
@@ -115,6 +117,11 @@ int GetPlaceholderAvatarIconResourceID();
 
 // Returns a URL for the placeholder avatar icon.
 std::string GetPlaceholderAvatarIconUrl();
+
+// Returns colored generic avatar.
+gfx::Image GetPlaceholderAvatarIconWithColors(SkColor fill_color,
+                                              SkColor stroke_color,
+                                              int size);
 
 // Gets the resource ID of the default avatar icon at |index|.
 int GetDefaultAvatarIconResourceIDAtIndex(size_t index);

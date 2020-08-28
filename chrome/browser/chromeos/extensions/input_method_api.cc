@@ -37,11 +37,11 @@
 #include "extensions/browser/extension_function_registry.h"
 #include "extensions/browser/extension_system.h"
 #include "ui/base/ime/chromeos/extension_ime_util.h"
+#include "ui/base/ime/chromeos/ime_bridge.h"
 #include "ui/base/ime/chromeos/ime_keyboard.h"
 #include "ui/base/ime/chromeos/input_method_descriptor.h"
 #include "ui/base/ime/chromeos/input_method_manager.h"
 #include "ui/base/ime/chromeos/input_method_util.h"
-#include "ui/base/ime/ime_bridge.h"
 
 namespace input_method_private = extensions::api::input_method_private;
 namespace AddWordToDictionary =
@@ -64,16 +64,22 @@ namespace OnImeMenuItemsChanged =
     extensions::api::input_method_private::OnImeMenuItemsChanged;
 namespace GetSurroundingText =
     extensions::api::input_method_private::GetSurroundingText;
-namespace GetSetting = extensions::api::input_method_private::GetSetting;
-namespace SetSetting = extensions::api::input_method_private::SetSetting;
+namespace GetSettings = extensions::api::input_method_private::GetSettings;
+namespace SetSettings = extensions::api::input_method_private::SetSettings;
 namespace SetCompositionRange =
     extensions::api::input_method_private::SetCompositionRange;
+namespace GetAutocorrectRange =
+    extensions::api::input_method_private::GetAutocorrectRange;
+namespace GetAutocorrectCharacterBounds =
+    extensions::api::input_method_private::GetAutocorrectCharacterBounds;
+namespace SetAutocorrectRange =
+    extensions::api::input_method_private::SetAutocorrectRange;
 namespace SetSelectionRange =
     extensions::api::input_method_private::SetSelectionRange;
-namespace OnSettingsChanged =
-    extensions::api::input_method_private::OnSettingsChanged;
+namespace OnInputMethodOptionsChanged =
+    extensions::api::input_method_private::OnInputMethodOptionsChanged;
 
-using input_method::InputMethodEngineBase;
+using chromeos::InputMethodEngineBase;
 
 namespace {
 
@@ -81,6 +87,8 @@ namespace {
 const char kXkbPrefix[] = "xkb:";
 const char kErrorFailToShowInputView[] =
     "Unable to show the input view window because the keyboard is not enabled.";
+const char kErrorFailToHideInputView[] =
+    "Unable to hide the input view window because the keyboard is not enabled.";
 const char kErrorRouterNotAvailable[] = "The router is not available.";
 const char kErrorInvalidInputMethod[] = "Input method not found.";
 const char kErrorSpellCheckNotAvailable[] =
@@ -178,8 +186,8 @@ InputMethodPrivateGetInputMethodsFunction::Run() {
 
 ExtensionFunction::ResponseAction
 InputMethodPrivateFetchAllDictionaryWordsFunction::Run() {
-  SpellcheckService* spellcheck = SpellcheckServiceFactory::GetForContext(
-      context_);
+  SpellcheckService* spellcheck =
+      SpellcheckServiceFactory::GetForContext(browser_context());
   if (!spellcheck) {
     return RespondNow(
         Error(InformativeError(kErrorSpellCheckNotAvailable, function_name())));
@@ -203,8 +211,8 @@ InputMethodPrivateAddWordToDictionaryFunction::Run() {
   std::unique_ptr<AddWordToDictionary::Params> params(
       AddWordToDictionary::Params::Create(*args_));
   EXTENSION_FUNCTION_VALIDATE(params.get());
-  SpellcheckService* spellcheck = SpellcheckServiceFactory::GetForContext(
-      context_);
+  SpellcheckService* spellcheck =
+      SpellcheckServiceFactory::GetForContext(browser_context());
   if (!spellcheck) {
     return RespondNow(
         Error(InformativeError(kErrorSpellCheckNotAvailable, function_name())));
@@ -261,6 +269,17 @@ InputMethodPrivateShowInputViewFunction::Run() {
   }
 
   keyboard_client->ShowKeyboard();
+  return RespondNow(NoArguments());
+}
+
+ExtensionFunction::ResponseAction
+InputMethodPrivateHideInputViewFunction::Run() {
+  auto* keyboard_client = ChromeKeyboardControllerClient::Get();
+  if (!keyboard_client->is_keyboard_enabled()) {
+    return RespondNow(Error(kErrorFailToHideInputView));
+  }
+
+  keyboard_client->HideKeyboard(ash::HideReason::kUser);
   return RespondNow(NoArguments());
 }
 
@@ -347,40 +366,38 @@ InputMethodPrivateGetSurroundingTextFunction::Run() {
   return RespondNow(OneArgument(std::move(ret)));
 }
 
-ExtensionFunction::ResponseAction InputMethodPrivateGetSettingFunction::Run() {
-  const auto params = GetSetting::Params::Create(*args_);
+ExtensionFunction::ResponseAction InputMethodPrivateGetSettingsFunction::Run() {
+  const auto params = GetSettings::Params::Create(*args_);
   EXTENSION_FUNCTION_VALIDATE(params.get());
 
   const base::DictionaryValue* inputMethods =
       Profile::FromBrowserContext(browser_context())
           ->GetPrefs()
           ->GetDictionary(prefs::kLanguageInputMethodSpecificSettings);
-  const base::Value* result =
-      inputMethods->FindPath({params->engine_id, params->key});
+  const base::Value* result = inputMethods->FindPath(params->engine_id);
   return RespondNow(
       OneArgument(result ? std::make_unique<base::Value>(result->Clone())
                          : std::make_unique<base::Value>()));
 }
 
-ExtensionFunction::ResponseAction InputMethodPrivateSetSettingFunction::Run() {
-  const auto params = SetSetting::Params::Create(*args_);
+ExtensionFunction::ResponseAction InputMethodPrivateSetSettingsFunction::Run() {
+  const auto params = SetSettings::Params::Create(*args_);
   EXTENSION_FUNCTION_VALIDATE(params.get());
 
   DictionaryPrefUpdate update(
       Profile::FromBrowserContext(browser_context())->GetPrefs(),
       prefs::kLanguageInputMethodSpecificSettings);
-  update->SetPath({params->engine_id, params->key}, params->value->Clone());
+  update->SetPath(params->engine_id, params->settings.ToValue()->Clone());
 
   // The router will only send the event to extensions that are listening.
   extensions::EventRouter* router =
       extensions::EventRouter::Get(browser_context());
-  if (router->HasEventListener(OnSettingsChanged::kEventName)) {
+  if (router->HasEventListener(OnInputMethodOptionsChanged::kEventName)) {
     auto event = std::make_unique<extensions::Event>(
-        extensions::events::INPUT_METHOD_PRIVATE_ON_SETTINGS_CHANGED,
-        OnSettingsChanged::kEventName,
-        OnSettingsChanged::Create(params->engine_id, params->key,
-                                  params->value->Clone()),
-        context_);
+        extensions::events::INPUT_IME_ON_INPUT_METHOD_OPTIONS_CHANGED,
+        OnInputMethodOptionsChanged::kEventName,
+        OnInputMethodOptionsChanged::Create(params->engine_id),
+        browser_context());
     router->BroadcastEvent(std::move(event));
   }
 
@@ -432,12 +449,74 @@ InputMethodPrivateSetCompositionRangeFunction::Run() {
 
   if (!engine->SetCompositionRange(params.context_id, params.selection_before,
                                    params.selection_after, segments, &error)) {
+    return RespondNow(Error(InformativeError(error, function_name())));
+  }
+  return RespondNow(NoArguments());
+}
+
+ExtensionFunction::ResponseAction
+InputMethodPrivateGetAutocorrectRangeFunction::Run() {
+  std::string error;
+  InputMethodEngineBase* engine =
+      GetEngineIfActive(browser_context(), extension_id(), &error);
+  if (!engine)
+    return RespondNow(Error(InformativeError(error, function_name())));
+
+  const auto parent_params = GetAutocorrectRange::Params::Create(*args_);
+  const auto& params = parent_params->parameters;
+  const gfx::Range range =
+      engine->GetAutocorrectRange(params.context_id, &error);
+  if (range.is_empty()) {
+    return RespondNow(Error(InformativeError(error, function_name())));
+  }
+  auto ret = std::make_unique<base::DictionaryValue>();
+  ret->SetInteger("start", range.start());
+  ret->SetInteger("end", range.end());
+  return RespondNow(OneArgument(std::move(ret)));
+}
+
+ExtensionFunction::ResponseAction
+InputMethodPrivateGetAutocorrectCharacterBoundsFunction::Run() {
+  std::string error;
+  InputMethodEngineBase* engine =
+      GetEngineIfActive(browser_context(), extension_id(), &error);
+  if (!engine)
+    return RespondNow(Error(InformativeError(error, function_name())));
+
+  const auto parent_params =
+      GetAutocorrectCharacterBounds::Params::Create(*args_);
+  const auto& params = parent_params->parameters;
+  const gfx::Rect rect =
+      engine->GetAutocorrectCharacterBounds(params.context_id, &error);
+  if (rect.IsEmpty()) {
+    return RespondNow(Error(InformativeError(error, function_name())));
+  }
+  auto ret = std::make_unique<base::DictionaryValue>();
+  ret->SetInteger("x", rect.x());
+  ret->SetInteger("y", rect.y());
+  ret->SetInteger("width", rect.width());
+  ret->SetInteger("height", rect.height());
+  return RespondNow(OneArgument(std::move(ret)));
+}
+
+ExtensionFunction::ResponseAction
+InputMethodPrivateSetAutocorrectRangeFunction::Run() {
+  std::string error;
+  InputMethodEngineBase* engine =
+      GetEngineIfActive(browser_context(), extension_id(), &error);
+  if (!engine)
+    return RespondNow(Error(InformativeError(error, function_name())));
+
+  const auto parent_params = SetAutocorrectRange::Params::Create(*args_);
+  const auto& params = parent_params->parameters;
+  if (!engine->SetAutocorrectRange(
+          params.context_id, base::UTF8ToUTF16(params.autocorrect_string),
+          params.selection_start, params.selection_end, &error)) {
     auto results = std::make_unique<base::ListValue>();
     results->Append(std::make_unique<base::Value>(false));
-    return RespondNow(ErrorWithArguments(
-        std::move(results), InformativeError(error, function_name())));
+    return RespondNow(Error(InformativeError(error, function_name())));
   }
-  return RespondNow(OneArgument(std::make_unique<base::Value>(true)));
+  return RespondNow(NoArguments());
 }
 
 ExtensionFunction::ResponseAction

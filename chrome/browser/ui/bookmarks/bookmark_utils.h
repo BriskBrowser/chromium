@@ -9,6 +9,7 @@
 
 #include "base/strings/string16.h"
 #include "third_party/skia/include/core/SkColor.h"
+#include "ui/base/models/image_model.h"
 #include "ui/base/window_open_disposition.h"
 #include "ui/gfx/native_widget_types.h"
 
@@ -23,10 +24,6 @@ struct BookmarkNodeData;
 namespace content {
 class BrowserContext;
 class WebContents;
-}
-
-namespace gfx {
-class ImageSkia;
 }
 
 namespace ui {
@@ -64,14 +61,6 @@ bool IsAppsShortcutEnabled(Profile* profile);
 // Returns true if the Apps shortcut should be displayed in the bookmark bar.
 bool ShouldShowAppsShortcutInBookmarkBar(Profile* profile);
 
-// Whether the menu item and shortcut to bookmark a tab should be removed from
-// the user interface.
-bool ShouldRemoveBookmarkThisTabUI(Profile* profile);
-
-// Whether the menu item and shortcut to bookmark all tabs should be removed
-// from the user interface.
-bool ShouldRemoveBookmarkAllTabsUI(Profile* profile);
-
 // Returns the drag operations for the specified node.
 int GetBookmarkDragOperation(content::BrowserContext* browser_context,
                              const bookmarks::BookmarkNode* node);
@@ -103,8 +92,8 @@ bool IsValidBookmarkDropLocation(Profile* profile,
 #if defined(TOOLKIT_VIEWS)
 // |text_color| is the color of associated text and is used to derive the icon's
 // color.
-gfx::ImageSkia GetBookmarkFolderIcon(SkColor text_color);
-gfx::ImageSkia GetBookmarkManagedFolderIcon(SkColor text_color);
+ui::ImageModel GetBookmarkFolderIcon(SkColor text_color);
+ui::ImageModel GetBookmarkManagedFolderIcon(SkColor text_color);
 #endif
 
 }  // namespace chrome

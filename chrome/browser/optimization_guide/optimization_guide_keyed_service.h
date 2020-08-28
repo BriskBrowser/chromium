@@ -30,11 +30,16 @@ class ProtoDatabaseProvider;
 }  // namespace leveldb_proto
 
 namespace optimization_guide {
+namespace android {
+class OptimizationGuideBridge;
+}  // namespace android
 class OptimizationGuideService;
 class TopHostProvider;
 class PredictionManager;
+class PredictionManagerBrowserTestBase;
 }  // namespace optimization_guide
 
+class GURL;
 class OptimizationGuideHintsManager;
 
 class OptimizationGuideKeyedService
@@ -45,6 +50,54 @@ class OptimizationGuideKeyedService
       content::BrowserContext* browser_context);
   ~OptimizationGuideKeyedService() override;
 
+  // optimization_guide::OptimizationGuideDecider implementation:
+  void RegisterOptimizationTargets(
+      const std::vector<optimization_guide::proto::OptimizationTarget>&
+          optimization_targets) override;
+  void ShouldTargetNavigationAsync(
+      content::NavigationHandle* navigation_handle,
+      optimization_guide::proto::OptimizationTarget optimization_target,
+      const base::flat_map<optimization_guide::proto::ClientModelFeature,
+                           float>& client_model_feature_values,
+      optimization_guide::OptimizationGuideTargetDecisionCallback callback)
+      override;
+  void RegisterOptimizationTypes(
+      const std::vector<optimization_guide::proto::OptimizationType>&
+          optimization_types) override;
+  void CanApplyOptimizationAsync(
+      content::NavigationHandle* navigation_handle,
+      optimization_guide::proto::OptimizationType optimization_type,
+      optimization_guide::OptimizationGuideDecisionCallback callback) override;
+  optimization_guide::OptimizationGuideDecision CanApplyOptimization(
+      const GURL& url,
+      optimization_guide::proto::OptimizationType optimization_type,
+      optimization_guide::OptimizationMetadata* optimization_metadata) override;
+
+  // Adds hints for a URL with provided metadata to the optimization guide.
+  // For testing purposes only. This will flush any callbacks for |url| that
+  // were registered via |CanApplyOptimizationAsync|. If no applicable callbacks
+  // were registered, this will just add the hint for later use.
+  void AddHintForTesting(
+      const GURL& url,
+      optimization_guide::proto::OptimizationType optimization_type,
+      const base::Optional<optimization_guide::OptimizationMetadata>& metadata);
+
+  // Override the decision returned by |ShouldTargetNavigation|
+  // for |optimization_target|. For testing purposes only.
+  void OverrideTargetDecisionForTesting(
+      optimization_guide::proto::OptimizationTarget optimization_target,
+      optimization_guide::OptimizationGuideDecision
+          optimization_guide_decision);
+
+ private:
+  friend class ChromeBrowsingDataRemoverDelegate;
+  friend class HintsFetcherBrowserTest;
+  friend class OptimizationGuideKeyedServiceBrowserTest;
+  friend class OptimizationGuideWebContentsObserver;
+  friend class ProfileManager;
+  friend class optimization_guide::PredictionManagerBrowserTestBase;
+  friend class optimization_guide::android::OptimizationGuideBridge;
+
   // Initializes the service. |optimization_guide_service| is the
   // Optimization Guide Service that is being listened to and is guaranteed to
   // outlive |this|. |profile_path| is the path to user data on disk.
@@ -53,9 +106,8 @@ class OptimizationGuideKeyedService
       leveldb_proto::ProtoDatabaseProvider* database_provider,
       const base::FilePath& profile_path);
 
-  OptimizationGuideHintsManager* GetHintsManager() {
-    return hints_manager_.get();
-  }
+  // Virtualized for testing.
+  virtual OptimizationGuideHintsManager* GetHintsManager();
 
   optimization_guide::TopHostProvider* GetTopHostProvider() {
     return top_host_provider_.get();
@@ -65,35 +117,24 @@ class OptimizationGuideKeyedService
     return prediction_manager_.get();
   }
 
-  // Prompts the load of the hint for the navigation, if there is at least one
-  // optimization type registered and there is a hint available.
-  void MaybeLoadHintForNavigation(content::NavigationHandle* navigation_handle);
+  // Notifies |hints_manager_| that the navigation associated with
+  // |navigation_handle| has started or redirected.
+  void OnNavigationStartOrRedirect(
+      content::NavigationHandle* navigation_handle);
+
+  // Notifies |hints_manager_| that the navigation associated with
+  // |navigation_redirect_chain| has finished.
+  void OnNavigationFinish(const std::vector<GURL>& navigation_redirect_chain);
 
   // Clears data specific to the user.
   void ClearData();
 
-  // optimization_guide::OptimizationGuideDecider implementation:
-  void RegisterOptimizationTypesAndTargets(
-      const std::vector<optimization_guide::proto::OptimizationType>&
-          optimization_types,
-      const std::vector<optimization_guide::proto::OptimizationTarget>&
-          optimization_targets) override;
-  optimization_guide::OptimizationGuideDecision ShouldTargetNavigation(
-      content::NavigationHandle* navigation_handle,
-      optimization_guide::proto::OptimizationTarget optimization_target)
-      override;
-  optimization_guide::OptimizationGuideDecision CanApplyOptimization(
-      content::NavigationHandle* navigation_handle,
-      optimization_guide::proto::OptimizationType optimization_type,
-      optimization_guide::OptimizationMetadata* optimization_metadata) override;
+  // Updates |prediction_manager_| with the provided fcp value.
+  void UpdateSessionFCP(base::TimeDelta fcp);
 
   // KeyedService implementation:
   void Shutdown() override;
 
-  // Updates |prediction_manager_| with the provided fcp value.
-  void UpdateSessionFCP(base::TimeDelta fcp);
-
- private:
   content::BrowserContext* browser_context_;
 
   // The optimization types registered prior to initialization.

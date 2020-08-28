@@ -4,6 +4,7 @@
 
 #include "chrome/browser/signin/chrome_signin_url_loader_throttle.h"
 
+#include "base/memory/ptr_util.h"
 #include "chrome/browser/signin/chrome_signin_helper.h"
 #include "chrome/browser/signin/header_modification_delegate.h"
 #include "components/signin/core/browser/signin_header_helper.h"
@@ -17,10 +18,11 @@ class URLLoaderThrottle::ThrottleRequestAdapter : public ChromeRequestAdapter {
                          const net::HttpRequestHeaders& original_headers,
                          net::HttpRequestHeaders* modified_headers,
                          std::vector<std::string>* headers_to_remove)
-      : throttle_(throttle),
-        original_headers_(original_headers),
-        modified_headers_(modified_headers),
-        headers_to_remove_(headers_to_remove) {}
+      : ChromeRequestAdapter(throttle->request_url_,
+                             original_headers,
+                             modified_headers,
+                             headers_to_remove),
+        throttle_(throttle) {}
 
   ~ThrottleRequestAdapter() override = default;
 
@@ -29,7 +31,7 @@ class URLLoaderThrottle::ThrottleRequestAdapter : public ChromeRequestAdapter {
     return throttle_->web_contents_getter_;
   }
 
-  content::ResourceType GetResourceType() const override {
+  blink::mojom::ResourceType GetResourceType() const override {
     return throttle_->request_resource_type_;
   }
 
@@ -42,35 +44,8 @@ class URLLoaderThrottle::ThrottleRequestAdapter : public ChromeRequestAdapter {
       throttle_->destruction_callback_ = std::move(closure);
   }
 
-  // RequestAdapter
-  const GURL& GetUrl() override { return throttle_->request_url_; }
-
-  bool HasHeader(const std::string& name) override {
-    return (original_headers_.HasHeader(name) ||
-            modified_headers_->HasHeader(name)) &&
-           !base::Contains(*headers_to_remove_, name);
-  }
-
-  void RemoveRequestHeaderByName(const std::string& name) override {
-    if (!base::Contains(*headers_to_remove_, name))
-      headers_to_remove_->push_back(name);
-  }
-
-  void SetExtraHeaderByName(const std::string& name,
-                            const std::string& value) override {
-    modified_headers_->SetHeader(name, value);
-
-    auto it =
-        std::find(headers_to_remove_->begin(), headers_to_remove_->end(), name);
-    if (it != headers_to_remove_->end())
-      headers_to_remove_->erase(it);
-  }
-
  private:
   URLLoaderThrottle* const throttle_;
-  const net::HttpRequestHeaders& original_headers_;
-  net::HttpRequestHeaders* const modified_headers_;
-  std::vector<std::string>* const headers_to_remove_;
 
   DISALLOW_COPY_AND_ASSIGN(ThrottleRequestAdapter);
 };
@@ -90,7 +65,7 @@ class URLLoaderThrottle::ThrottleResponseAdapter : public ResponseAdapter {
 
   bool IsMainFrame() const override {
     return throttle_->request_resource_type_ ==
-           content::ResourceType::kMainFrame;
+           blink::mojom::ResourceType::kMainFrame;
   }
 
   GURL GetOrigin() const override {
@@ -125,9 +100,8 @@ class URLLoaderThrottle::ThrottleResponseAdapter : public ResponseAdapter {
 // static
 std::unique_ptr<URLLoaderThrottle> URLLoaderThrottle::MaybeCreate(
     std::unique_ptr<HeaderModificationDelegate> delegate,
-    content::NavigationUIData* navigation_ui_data,
     content::WebContents::Getter web_contents_getter) {
-  if (!delegate->ShouldInterceptNavigation(navigation_ui_data))
+  if (!delegate->ShouldInterceptNavigation(web_contents_getter.Run()))
     return nullptr;
 
   return base::WrapUnique(new URLLoaderThrottle(
@@ -144,7 +118,7 @@ void URLLoaderThrottle::WillStartRequest(network::ResourceRequest* request,
   request_url_ = request->url;
   request_referrer_ = request->referrer;
   request_resource_type_ =
-      static_cast<content::ResourceType>(request->resource_type);
+      static_cast<blink::mojom::ResourceType>(request->resource_type);
 
   net::HttpRequestHeaders modified_request_headers;
   std::vector<std::string> to_be_removed_request_headers;
@@ -162,6 +136,7 @@ void URLLoaderThrottle::WillStartRequest(network::ResourceRequest* request,
   // FixAccountConsistencyRequestHeader. Perhaps this could be replaced with
   // more specific per-request state.
   request_headers_.CopyFrom(request->headers);
+  request_cors_exempt_headers_.CopyFrom(request->cors_exempt_headers);
 }
 
 void URLLoaderThrottle::WillRedirectRequest(
@@ -169,7 +144,8 @@ void URLLoaderThrottle::WillRedirectRequest(
     const network::mojom::URLResponseHead& response_head,
     bool* /* defer */,
     std::vector<std::string>* to_be_removed_request_headers,
-    net::HttpRequestHeaders* modified_request_headers) {
+    net::HttpRequestHeaders* modified_request_headers,
+    net::HttpRequestHeaders* modified_cors_exempt_request_headers) {
   ThrottleRequestAdapter request_adapter(this, request_headers_,
                                          modified_request_headers,
                                          to_be_removed_request_headers);

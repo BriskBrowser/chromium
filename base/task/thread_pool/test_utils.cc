@@ -11,7 +11,7 @@
 #include "base/task/thread_pool/pooled_parallel_task_runner.h"
 #include "base/task/thread_pool/pooled_sequenced_task_runner.h"
 #include "base/test/bind_test_util.h"
-#include "base/threading/scoped_blocking_call.h"
+#include "base/threading/scoped_blocking_call_internal.h"
 #include "base/threading/thread_restrictions.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -109,16 +109,16 @@ scoped_refptr<Sequence> CreateSequenceWithTask(
   return sequence;
 }
 
-scoped_refptr<TaskRunner> CreateTaskRunnerWithExecutionMode(
+scoped_refptr<TaskRunner> CreatePooledTaskRunnerWithExecutionMode(
     TaskSourceExecutionMode execution_mode,
     MockPooledTaskRunnerDelegate* mock_pooled_task_runner_delegate,
     const TaskTraits& traits) {
   switch (execution_mode) {
     case TaskSourceExecutionMode::kParallel:
-      return CreateTaskRunner(traits, mock_pooled_task_runner_delegate);
+      return CreatePooledTaskRunner(traits, mock_pooled_task_runner_delegate);
     case TaskSourceExecutionMode::kSequenced:
-      return CreateSequencedTaskRunner(traits,
-                                       mock_pooled_task_runner_delegate);
+      return CreatePooledSequencedTaskRunner(traits,
+                                             mock_pooled_task_runner_delegate);
     case TaskSourceExecutionMode::kJob:
       return CreateJobTaskRunner(traits, mock_pooled_task_runner_delegate);
     default:
@@ -129,26 +129,18 @@ scoped_refptr<TaskRunner> CreateTaskRunnerWithExecutionMode(
   return nullptr;
 }
 
-scoped_refptr<TaskRunner> CreateTaskRunner(
+scoped_refptr<TaskRunner> CreatePooledTaskRunner(
     const TaskTraits& traits,
     MockPooledTaskRunnerDelegate* mock_pooled_task_runner_delegate) {
   return MakeRefCounted<PooledParallelTaskRunner>(
       traits, mock_pooled_task_runner_delegate);
 }
 
-scoped_refptr<SequencedTaskRunner> CreateSequencedTaskRunner(
+scoped_refptr<SequencedTaskRunner> CreatePooledSequencedTaskRunner(
     const TaskTraits& traits,
     MockPooledTaskRunnerDelegate* mock_pooled_task_runner_delegate) {
   return MakeRefCounted<PooledSequencedTaskRunner>(
       traits, mock_pooled_task_runner_delegate);
-}
-
-// Waits on |event| in a scope where the blocking observer is null, to avoid
-// affecting the max tasks in a thread group.
-void WaitWithoutBlockingObserver(WaitableEvent* event) {
-  internal::ScopedClearBlockingObserverForTesting clear_blocking_observer;
-  ScopedAllowBaseSyncPrimitivesForTesting allow_base_sync_primitives;
-  event->Wait();
 }
 
 MockPooledTaskRunnerDelegate::MockPooledTaskRunnerDelegate(
@@ -253,25 +245,24 @@ void MockPooledTaskRunnerDelegate::SetThreadGroup(ThreadGroup* thread_group) {
 MockJobTask::~MockJobTask() = default;
 
 MockJobTask::MockJobTask(
-    base::RepeatingCallback<void(experimental::JobDelegate*)> worker_task,
+    base::RepeatingCallback<void(JobDelegate*)> worker_task,
     size_t num_tasks_to_run)
     : worker_task_(std::move(worker_task)),
       remaining_num_tasks_to_run_(num_tasks_to_run) {}
 
 MockJobTask::MockJobTask(base::OnceClosure worker_task)
     : worker_task_(base::BindRepeating(
-          [](base::OnceClosure&& worker_task,
-             experimental::JobDelegate*) mutable {
+          [](base::OnceClosure&& worker_task, JobDelegate*) mutable {
             std::move(worker_task).Run();
           },
           base::Passed(std::move(worker_task)))),
       remaining_num_tasks_to_run_(1) {}
 
-size_t MockJobTask::GetMaxConcurrency() const {
+size_t MockJobTask::GetMaxConcurrency(size_t /* worker_count */) const {
   return remaining_num_tasks_to_run_.load();
 }
 
-void MockJobTask::Run(experimental::JobDelegate* delegate) {
+void MockJobTask::Run(JobDelegate* delegate) {
   worker_task_.Run(delegate);
   size_t before = remaining_num_tasks_to_run_.fetch_sub(1);
   DCHECK_GT(before, 0U);

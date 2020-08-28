@@ -23,6 +23,7 @@
 #include "net/base/ip_address.h"
 #include "net/base/net_errors.h"
 #include "net/base/registry_controlled_domains/registry_controlled_domain.h"
+#include "net/base/url_util.h"
 #include "net/log/net_log.h"
 #include "net/reporting/reporting_service.h"
 #include "url/gurl.h"
@@ -40,26 +41,6 @@ const char kMaxAgeKey[] = "max_age";
 const char kIncludeSubdomainsKey[] = "include_subdomains";
 const char kSuccessFractionKey[] = "success_fraction";
 const char kFailureFractionKey[] = "failure_fraction";
-
-// Returns the superdomain of a given domain, or the empty string if the given
-// domain is just a single label. Note that this does not take into account
-// anything like the Public Suffix List, so the superdomain may end up being a
-// bare TLD.
-//
-// Examples:
-//
-// GetSuperdomain("assets.example.com") -> "example.com"
-// GetSuperdomain("example.net") -> "net"
-// GetSuperdomain("littlebox") -> ""
-//
-// TODO(juliatuttle): Deduplicate from Reporting in //net.
-std::string GetSuperdomain(const std::string& domain) {
-  size_t dot_pos = domain.find('.');
-  if (dot_pos == std::string::npos)
-    return "";
-
-  return domain.substr(dot_pos + 1);
-}
 
 const char kApplicationPhase[] = "application";
 const char kConnectionPhase[] = "connection";
@@ -162,12 +143,6 @@ bool IsHttpError(const NetworkErrorLoggingService::RequestDetails& request) {
   return request.status_code >= 400 && request.status_code < 600;
 }
 
-void RecordHeaderOutcome(NetworkErrorLoggingService::HeaderOutcome outcome) {
-  UMA_HISTOGRAM_ENUMERATION(NetworkErrorLoggingService::kHeaderOutcomeHistogram,
-                            outcome,
-                            NetworkErrorLoggingService::HeaderOutcome::MAX);
-}
-
 void RecordSignedExchangeRequestOutcome(
     NetworkErrorLoggingService::RequestOutcome outcome) {
   UMA_HISTOGRAM_ENUMERATION(
@@ -195,10 +170,8 @@ class NetworkErrorLoggingServiceImpl : public NetworkErrorLoggingService {
                 const std::string& value) override {
     // NEL is only available to secure origins, so don't permit insecure origins
     // to set policies.
-    if (!origin.GetURL().SchemeIsCryptographic()) {
-      RecordHeaderOutcome(HeaderOutcome::DISCARDED_INSECURE_ORIGIN);
+    if (!origin.GetURL().SchemeIsCryptographic())
       return;
-    }
 
     base::Time header_received_time = clock_->Now();
     // base::Unretained is safe because the callback gets stored in
@@ -385,19 +358,18 @@ class NetworkErrorLoggingServiceImpl : public NetworkErrorLoggingService {
     policy.origin = origin;
     policy.received_ip_address = received_ip_address;
     policy.last_used = header_received_time;
-    HeaderOutcome outcome = ParseHeader(value, clock_->Now(), &policy);
+
+    if (!ParseHeader(value, clock_->Now(), &policy))
+      return;
+
     // Disallow eTLDs from setting include_subdomains policies.
-    if ((outcome == HeaderOutcome::SET || outcome == HeaderOutcome::REMOVED) &&
-        policy.include_subdomains &&
+    if (policy.include_subdomains &&
         registry_controlled_domains::GetRegistryLength(
             policy.origin.GetURL(),
             registry_controlled_domains::INCLUDE_UNKNOWN_REGISTRIES,
             registry_controlled_domains::INCLUDE_PRIVATE_REGISTRIES) == 0) {
-      outcome = HeaderOutcome::DISCARDED_INCLUDE_SUBDOMAINS_NOT_ALLOWED;
-    }
-    RecordHeaderOutcome(outcome);
-    if (outcome != HeaderOutcome::SET && outcome != HeaderOutcome::REMOVED)
       return;
+    }
 
     // If a policy for |origin| already existed, remove the old policy.
     auto it = policies_.find(origin);
@@ -570,37 +542,42 @@ class NetworkErrorLoggingServiceImpl : public NetworkErrorLoggingService {
     policies_.clear();
   }
 
-  HeaderOutcome ParseHeader(const std::string& json_value,
-                            base::Time now,
-                            NelPolicy* policy_out) const {
+  // Returns whether the |json_value| was parsed as a valid header that either
+  // sets a NEL policy (max age > 0) or removes an existing one (max age == 0).
+  bool ParseHeader(const std::string& json_value,
+                   base::Time now,
+                   NelPolicy* policy_out) const {
     DCHECK(policy_out);
 
+    // JSON is malformed (too large, syntax error, not a dictionary).
     if (json_value.size() > kMaxJsonSize)
-      return HeaderOutcome::DISCARDED_JSON_TOO_BIG;
+      return false;
 
     std::unique_ptr<base::Value> value = base::JSONReader::ReadDeprecated(
         json_value, base::JSON_PARSE_RFC, kMaxJsonDepth);
     if (!value)
-      return HeaderOutcome::DISCARDED_JSON_INVALID;
+      return false;
 
     const base::DictionaryValue* dict = nullptr;
     if (!value->GetAsDictionary(&dict))
-      return HeaderOutcome::DISCARDED_NOT_DICTIONARY;
+      return false;
 
+    // Max-Age property is missing or malformed.
     if (!dict->HasKey(kMaxAgeKey))
-      return HeaderOutcome::DISCARDED_TTL_MISSING;
+      return false;
     int max_age_sec;
     if (!dict->GetInteger(kMaxAgeKey, &max_age_sec))
-      return HeaderOutcome::DISCARDED_TTL_NOT_INTEGER;
+      return false;
     if (max_age_sec < 0)
-      return HeaderOutcome::DISCARDED_TTL_NEGATIVE;
+      return false;
 
+    // Report-To property is missing or malformed.
     std::string report_to;
     if (max_age_sec > 0) {
       if (!dict->HasKey(kReportToKey))
-        return HeaderOutcome::DISCARDED_REPORT_TO_MISSING;
+        return false;
       if (!dict->GetString(kReportToKey, &report_to))
-        return HeaderOutcome::DISCARDED_REPORT_TO_NOT_STRING;
+        return false;
     }
 
     bool include_subdomains = false;
@@ -624,13 +601,10 @@ class NetworkErrorLoggingServiceImpl : public NetworkErrorLoggingService {
     policy_out->include_subdomains = include_subdomains;
     policy_out->success_fraction = success_fraction;
     policy_out->failure_fraction = failure_fraction;
-    if (max_age_sec > 0) {
-      policy_out->expires = now + base::TimeDelta::FromSeconds(max_age_sec);
-      return HeaderOutcome::SET;
-    } else {
-      policy_out->expires = base::Time();
-      return HeaderOutcome::REMOVED;
-    }
+    policy_out->expires = max_age_sec > 0
+                              ? now + base::TimeDelta::FromSeconds(max_age_sec)
+                              : base::Time();
+    return true;
   }
 
   const NelPolicy* FindPolicyForOrigin(const url::Origin& origin) const {
@@ -904,9 +878,6 @@ const char NetworkErrorLoggingService::kHeaderName[] = "NEL";
 
 const char NetworkErrorLoggingService::kReportType[] = "network-error";
 
-const char NetworkErrorLoggingService::kHeaderOutcomeHistogram[] =
-    "Net.NetworkErrorLogging.HeaderOutcome";
-
 const char
     NetworkErrorLoggingService::kSignedExchangeRequestOutcomeHistogram[] =
         "Net.NetworkErrorLogging.SignedExchangeRequestOutcome";
@@ -938,29 +909,6 @@ const char NetworkErrorLoggingService::kCertUrlKey[] = "cert_url";
 
 // See also: max number of Reporting endpoints specified in ReportingPolicy.
 const size_t NetworkErrorLoggingService::kMaxPolicies = 1000u;
-
-// static
-void NetworkErrorLoggingService::
-    RecordHeaderDiscardedForNoNetworkErrorLoggingService() {
-  RecordHeaderOutcome(
-      HeaderOutcome::DISCARDED_NO_NETWORK_ERROR_LOGGING_SERVICE);
-}
-
-// static
-void NetworkErrorLoggingService::RecordHeaderDiscardedForInvalidSSLInfo() {
-  RecordHeaderOutcome(HeaderOutcome::DISCARDED_INVALID_SSL_INFO);
-}
-
-// static
-void NetworkErrorLoggingService::RecordHeaderDiscardedForCertStatusError() {
-  RecordHeaderOutcome(HeaderOutcome::DISCARDED_CERT_STATUS_ERROR);
-}
-
-// static
-void NetworkErrorLoggingService::
-    RecordHeaderDiscardedForMissingRemoteEndpoint() {
-  RecordHeaderOutcome(HeaderOutcome::DISCARDED_MISSING_REMOTE_ENDPOINT);
-}
 
 // static
 std::unique_ptr<NetworkErrorLoggingService> NetworkErrorLoggingService::Create(

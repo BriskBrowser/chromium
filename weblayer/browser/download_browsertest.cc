@@ -47,10 +47,10 @@ class DownloadBrowserTest : public WebLayerBrowserTest,
     failed_run_loop_ = std::make_unique<base::RunLoop>();
 
     Tab* tab = shell()->tab();
-
-    tab->SetDownloadDelegate(this);
-
     TabImpl* tab_impl = static_cast<TabImpl*>(tab);
+
+    tab_impl->profile()->SetDownloadDelegate(this);
+
     auto* browser_context = tab_impl->web_contents()->GetBrowserContext();
     auto* download_manager_delegate =
         content::BrowserContext::GetDownloadManager(browser_context)
@@ -80,13 +80,15 @@ class DownloadBrowserTest : public WebLayerBrowserTest,
   base::FilePath download_location() { return download_location_; }
   int64_t total_bytes() { return total_bytes_; }
   DownloadError download_state() { return download_state_; }
+  std::string mime_type() { return mime_type_; }
   int completed_count() { return completed_count_; }
   int failed_count() { return failed_count_; }
   int download_dropped_count() { return download_dropped_count_; }
 
  private:
   // DownloadDelegate implementation:
-  void AllowDownload(const GURL& url,
+  void AllowDownload(Tab* tab,
+                     const GURL& url,
                      const std::string& request_method,
                      base::Optional<url::Origin> request_initiator,
                      AllowDownloadCallback callback) override {
@@ -118,6 +120,7 @@ class DownloadBrowserTest : public WebLayerBrowserTest,
     download_location_ = download->GetLocation();
     total_bytes_ = download->GetTotalBytes();
     download_state_ = download->GetError();
+    mime_type_ = download->GetMimeType();
     CHECK_EQ(download->GetReceivedBytes(), total_bytes_);
     CHECK_EQ(download->GetState(), DownloadState::kComplete);
     completed_run_loop_->Quit();
@@ -142,6 +145,7 @@ class DownloadBrowserTest : public WebLayerBrowserTest,
   base::FilePath download_location_;
   int64_t total_bytes_ = 0;
   DownloadError download_state_ = DownloadError::kNoError;
+  std::string mime_type_;
   int completed_count_ = 0;
   int failed_count_ = 0;
   int download_dropped_count_ = 0;
@@ -163,7 +167,7 @@ IN_PROC_BROWSER_TEST_F(DownloadBrowserTest, DisallowNoDownload) {
 
   // Downloads always count as failed navigations.
   TestNavigationObserver observer(
-      url, TestNavigationObserver::NavigationEvent::Failure, shell());
+      url, TestNavigationObserver::NavigationEvent::kFailure, shell());
   shell()->tab()->GetNavigationController()->Navigate(url);
   observer.Wait();
 
@@ -204,6 +208,7 @@ IN_PROC_BROWSER_TEST_F(DownloadBrowserTest, Basic) {
   EXPECT_EQ(failed_count(), 0);
   EXPECT_EQ(download_dropped_count(), 0);
   EXPECT_EQ(download_state(), DownloadError::kNoError);
+  EXPECT_EQ(mime_type(), "text/html");
 
   // Check that the size on disk matches what's expected.
   {
@@ -322,6 +327,18 @@ IN_PROC_BROWSER_TEST_F(DownloadBrowserTest, NetworkError) {
   EXPECT_EQ(failed_count(), 1);
   EXPECT_EQ(download_dropped_count(), 0);
   EXPECT_EQ(download_state(), DownloadError::kConnectivityError);
+}
+
+IN_PROC_BROWSER_TEST_F(DownloadBrowserTest, PendingOnExist) {
+  // Create a request that doesn't complete right away.
+  GURL url(embedded_test_server()->GetURL(
+      content::SlowDownloadHttpResponse::kKnownSizeUrl));
+
+  shell()->tab()->GetNavigationController()->Navigate(url);
+
+  WaitForStarted();
+
+  // If this test crashes later then there'd be a regression.
 }
 
 }  // namespace weblayer

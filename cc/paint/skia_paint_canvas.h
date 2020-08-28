@@ -8,7 +8,6 @@
 #include <memory>
 
 #include "base/compiler_specific.h"
-#include "base/logging.h"
 #include "build/build_config.h"
 #include "cc/paint/paint_canvas.h"
 #include "cc/paint/paint_flags.h"
@@ -109,7 +108,7 @@ class CC_PAINT_EXPORT SkiaPaintCanvas final : public PaintCanvas {
                      const SkRect& src,
                      const SkRect& dst,
                      const PaintFlags* flags,
-                     SrcRectConstraint constraint) override;
+                     SkCanvas::SrcRectConstraint constraint) override;
   void drawSkottie(scoped_refptr<SkottieWrapper> skottie,
                    const SkRect& dst,
                    float t) override;
@@ -131,6 +130,8 @@ class CC_PAINT_EXPORT SkiaPaintCanvas final : public PaintCanvas {
   void Annotate(AnnotationType type,
                 const SkRect& rect,
                 sk_sp<SkData> data) override;
+
+  void setNodeId(int) override;
 
   // Don't shadow non-virtual helper functions.
   using PaintCanvas::clipPath;

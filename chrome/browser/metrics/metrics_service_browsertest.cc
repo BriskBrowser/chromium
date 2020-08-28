@@ -35,6 +35,7 @@
 #include "components/metrics/persistent_histograms.h"
 #include "components/prefs/json_pref_store.h"
 #include "components/prefs/pref_service.h"
+#include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
 #include "net/base/filename_util.h"
 #include "services/service_manager/embedder/switches.h"
@@ -51,7 +52,7 @@
 #include "sandbox/win/src/sandbox_types.h"
 #endif
 
-#if defined(OS_MACOSX) || defined(OS_LINUX)
+#if defined(OS_MAC) || defined(OS_LINUX) || defined(OS_CHROMEOS)
 namespace {
 
 // Check CrashExitCodes.Renderer histogram for a single bucket entry and then
@@ -69,7 +70,7 @@ void VerifyRendererExitCodeIsSignal(
 }
 
 }  // namespace
-#endif  // OS_MACOSX || OS_LINUX
+#endif  // defined(OS_MAC) || defined(OS_LINUX) || defined(OS_CHROMEOS)
 
 // This test class verifies that metrics reporting works correctly for various
 // renderer behaviors such as page loads, recording crashed tabs, and browser
@@ -130,7 +131,7 @@ class MetricsServiceBrowserTest : public InProcessBrowserTest {
   void OpenThreeTabs() {
     const int kBrowserTestFlags =
         ui_test_utils::BROWSER_TEST_WAIT_FOR_TAB |
-        ui_test_utils::BROWSER_TEST_WAIT_FOR_NAVIGATION;
+        ui_test_utils::BROWSER_TEST_WAIT_FOR_LOAD_STOP;
 
     base::FilePath test_directory;
     ASSERT_TRUE(base::PathService::Get(chrome::DIR_TEST_DATA, &test_directory));
@@ -166,7 +167,7 @@ IN_PROC_BROWSER_TEST_F(MetricsServiceBrowserTest, CloseRenderersNormally) {
 // Child crashes fail the process on ASan (see crbug.com/411251,
 // crbug.com/368525).
 // Flaky timeouts on Win7 Tests (dbg)(1); see https://crbug.com/985255.
-#if defined(OS_LINUX) || defined(ADDRESS_SANITIZER) || \
+#if defined(OS_LINUX) || defined(OS_CHROMEOS) || defined(ADDRESS_SANITIZER) || \
     (defined(OS_WIN) && !defined(NDEBUG))
 #define MAYBE_CrashRenderers DISABLED_CrashRenderers
 #define MAYBE_CheckCrashRenderers DISABLED_CheckCrashRenderers
@@ -193,14 +194,23 @@ IN_PROC_BROWSER_TEST_F(MetricsServiceBrowserTest, MAYBE_CrashRenderers) {
   histogram_tester.ExpectUniqueSample(
       "CrashExitCodes.Renderer",
       std::abs(static_cast<int32_t>(STATUS_ACCESS_VIOLATION)), 1);
-#elif defined(OS_MACOSX) || defined(OS_LINUX)
+#elif defined(OS_MAC) || defined(OS_LINUX) || defined(OS_CHROMEOS)
   VerifyRendererExitCodeIsSignal(histogram_tester, SIGSEGV);
 #endif
   histogram_tester.ExpectUniqueSample("Tabs.SadTab.CrashCreated", 1, 1);
 }
 
+// Test is disabled on Windows AMR64 because
+// TerminateWithHeapCorruption() isn't expected to work there.
+// See: https://crbug.com/1054423
 #if defined(OS_WIN)
-IN_PROC_BROWSER_TEST_F(MetricsServiceBrowserTest, HeapCorruptionInRenderer) {
+#if defined(ARCH_CPU_ARM64)
+#define MAYBE_HeapCorruptionInRenderer DISABLED_HeapCorruptionInRenderer
+#else
+#define MAYBE_HeapCorruptionInRenderer HeapCorruptionInRenderer
+#endif
+IN_PROC_BROWSER_TEST_F(MetricsServiceBrowserTest,
+                       MAYBE_HeapCorruptionInRenderer) {
   base::HistogramTester histogram_tester;
 
   OpenTabsAndNavigateToCrashyUrl(content::kChromeUIHeapCorruptionCrashURL);
@@ -239,7 +249,7 @@ IN_PROC_BROWSER_TEST_F(MetricsServiceBrowserTest, MAYBE_CheckCrashRenderers) {
   histogram_tester.ExpectUniqueSample(
       "CrashExitCodes.Renderer",
       std::abs(static_cast<int32_t>(STATUS_BREAKPOINT)), 1);
-#elif defined(OS_MACOSX) || defined(OS_LINUX)
+#elif defined(OS_MAC) || defined(OS_LINUX) || defined(OS_CHROMEOS)
   VerifyRendererExitCodeIsSignal(histogram_tester, SIGTRAP);
 #endif
   histogram_tester.ExpectUniqueSample("Tabs.SadTab.CrashCreated", 1, 1);

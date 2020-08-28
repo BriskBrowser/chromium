@@ -85,6 +85,8 @@ void WideFrameView::SetCaptionButtonModel(
 
 WideFrameView::WideFrameView(views::Widget* target)
     : target_(target), widget_(std::make_unique<views::Widget>()) {
+  // WideFrameView is owned by its client, not by Views.
+  SetOwnedByWidget(false);
   display::Screen::GetScreen()->AddObserver(this);
 
   aura::Window* target_window = target->GetNativeWindow();
@@ -100,7 +102,9 @@ WideFrameView::WideFrameView(views::Widget* target)
   params.name = "WideFrameView";
   params.parent = target->GetNativeWindow();
   params.ownership = views::Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
-  params.opacity = views::Widget::InitParams::WindowOpacity::kTranslucent;
+  // Setup Opacity Control.
+  // WideFrame should be used only when the rounded corner is not necessary.
+  params.opacity = views::Widget::InitParams::WindowOpacity::kOpaque;
 
   widget_->Init(std::move(params));
 
@@ -125,11 +129,6 @@ WideFrameView::~WideFrameView() {
     target_header_view->GetFrameHeader()->UpdateFrameHeaderKey();
     target_->GetNativeWindow()->RemoveObserver(this);
   }
-}
-
-void WideFrameView::DeleteDelegate() {
-  // WideFrameView is owned by a client, not its widget, so don't delete
-  // here.
 }
 
 void WideFrameView::Layout() {

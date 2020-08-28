@@ -62,7 +62,6 @@ class CC_EXPORT RenderSurfaceImpl {
   }
 
   SkBlendMode BlendMode() const;
-  bool UsesDefaultBlendMode() const;
 
   void SetNearestOcclusionImmuneAncestor(const RenderSurfaceImpl* surface) {
     nearest_occlusion_immune_ancestor_ = surface;
@@ -162,6 +161,7 @@ class CC_EXPORT RenderSurfaceImpl {
   }
 
   uint64_t id() const { return stable_id_; }
+  viz::RenderPassId render_pass_id() const { return viz::RenderPassId{id()}; }
 
   bool HasMaskingContributingSurface() const;
 
@@ -169,7 +169,6 @@ class CC_EXPORT RenderSurfaceImpl {
   const FilterOperations& BackdropFilters() const;
   base::Optional<gfx::RRectF> BackdropFilterBounds() const;
   LayerImpl* BackdropMaskLayer() const;
-  gfx::PointF FiltersOrigin() const;
   gfx::Transform SurfaceScale() const;
 
   bool TrilinearFiltering() const;

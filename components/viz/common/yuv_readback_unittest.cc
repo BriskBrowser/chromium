@@ -14,8 +14,8 @@
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/trace_event/trace_event.h"
 #include "build/build_config.h"
-#include "components/viz/common/gl_helper.h"
 #include "components/viz/test/test_gpu_service_holder.h"
+#include "gpu/command_buffer/client/gl_helper.h"
 #include "gpu/command_buffer/client/gles2_implementation.h"
 #include "gpu/command_buffer/client/shared_memory_limits.h"
 #include "gpu/ipc/common/surface_handle.h"
@@ -61,7 +61,7 @@ class YUVReadbackTest : public testing::Test {
     gl_ = context_->GetImplementation();
     gpu::ContextSupport* support = context_->GetImplementation();
 
-    helper_ = std::make_unique<GLHelper>(gl_, support);
+    helper_ = std::make_unique<gpu::GLHelper>(gl_, support);
   }
 
   void TearDown() override {
@@ -102,16 +102,15 @@ class YUVReadbackTest : public testing::Test {
     run_loop.Run();
     json_data.append("]");
 
-    std::string error_msg;
-    std::unique_ptr<base::Value> trace_data =
-        base::JSONReader::ReadAndReturnErrorDeprecated(json_data, 0, nullptr,
-                                                       &error_msg);
-    CHECK(trace_data) << "JSON parsing failed (" << error_msg
-                      << ") JSON data:" << std::endl
-                      << json_data;
+    base::JSONReader::ValueWithError parsed_json =
+        base::JSONReader::ReadAndReturnValueWithError(json_data);
+    CHECK(parsed_json.value)
+        << "JSON parsing failed (" << parsed_json.error_message
+        << ") JSON data:" << std::endl
+        << json_data;
 
     base::ListValue* list;
-    CHECK(trace_data->GetAsList(&list));
+    CHECK(parsed_json.value->GetAsList(&list));
     for (size_t i = 0; i < list->GetSize(); i++) {
       base::Value* item = nullptr;
       if (list->Get(i, &item)) {
@@ -319,7 +318,7 @@ class YUVReadbackTest : public testing::Test {
                        int test_pattern,
                        bool flip,
                        bool use_mrt,
-                       GLHelper::ScalerQuality quality) {
+                       gpu::GLHelper::ScalerQuality quality) {
     GLuint src_texture;
     gl_->GenTextures(1, &src_texture);
     SkBitmap input_pixels;
@@ -361,7 +360,7 @@ class YUVReadbackTest : public testing::Test {
         "pattern: %d %s %s",
         xsize, ysize, output_xsize, output_ysize, xmargin, ymargin,
         test_pattern, flip ? "flip" : "noflip", use_mrt ? "mrt" : "nomrt");
-    std::unique_ptr<ReadbackYUVInterface> yuv_reader =
+    std::unique_ptr<gpu::ReadbackYUVInterface> yuv_reader =
         helper_->CreateReadbackPipelineYUV(flip, use_mrt);
 
     scoped_refptr<media::VideoFrame> output_frame =
@@ -469,20 +468,20 @@ class YUVReadbackTest : public testing::Test {
 
   std::unique_ptr<gpu::GLInProcessContext> context_;
   gpu::gles2::GLES2Interface* gl_;
-  std::unique_ptr<GLHelper> helper_;
+  std::unique_ptr<gpu::GLHelper> helper_;
   gl::DisableNullDrawGLBindings enable_pixel_output_;
 };
 
 TEST_F(YUVReadbackTest, YUVReadbackOptTest) {
   for (int use_mrt = 0; use_mrt <= 1; ++use_mrt) {
-    // This test uses the gpu.service/gpu_decoder tracing events to detect how
+    // This test uses the gpu.service/gpu.decoder tracing events to detect how
     // many scaling passes are actually performed by the YUV readback pipeline.
     StartTracing(TRACE_DISABLED_BY_DEFAULT(
         "gpu.service") "," TRACE_DISABLED_BY_DEFAULT("gpu.decoder"));
 
     // Run a test with no size scaling, just planerization.
     TestYUVReadback(800, 400, 800, 400, 0, 0, 1, false, use_mrt == 1,
-                    GLHelper::SCALER_QUALITY_FAST);
+                    gpu::GLHelper::SCALER_QUALITY_FAST);
 
     std::map<std::string, int> event_counts;
     EndTracing(&event_counts);
@@ -533,7 +532,7 @@ TEST_P(YUVReadbackPixelTest, Test) {
                 kYUVReadbackSizes[ox], kYUVReadbackSizes[oy],
                 compute_margin(kYUVReadbackSizes[x], kYUVReadbackSizes[ox], xm),
                 compute_margin(kYUVReadbackSizes[y], kYUVReadbackSizes[oy], ym),
-                pattern, flip, use_mrt, GLHelper::SCALER_QUALITY_GOOD);
+                pattern, flip, use_mrt, gpu::GLHelper::SCALER_QUALITY_GOOD);
             if (HasFailure()) {
               return;
             }

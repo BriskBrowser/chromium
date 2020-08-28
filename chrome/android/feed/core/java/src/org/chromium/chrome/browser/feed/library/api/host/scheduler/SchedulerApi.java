@@ -4,9 +4,12 @@
 
 package org.chromium.chrome.browser.feed.library.api.host.scheduler;
 
-import android.support.annotation.IntDef;
+import androidx.annotation.IntDef;
+
+import org.chromium.base.annotations.MockedInTests;
 
 /** Allows host to change behavior based on Feed requests and their status */
+@MockedInTests
 public interface SchedulerApi {
     /**
      * Define the request behavior of when a new session is created.

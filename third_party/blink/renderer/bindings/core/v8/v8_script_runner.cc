@@ -25,7 +25,9 @@
 
 #include "third_party/blink/renderer/bindings/core/v8/v8_script_runner.h"
 
+#include "base/feature_list.h"
 #include "build/build_config.h"
+#include "third_party/blink/public/common/features.h"
 #include "third_party/blink/renderer/bindings/core/v8/binding_security.h"
 #include "third_party/blink/renderer/bindings/core/v8/referrer_script_info.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_source_code.h"
@@ -56,6 +58,11 @@ namespace {
 // Used to throw an exception before we exceed the C++ stack and crash.
 // This limit was arrived at arbitrarily. crbug.com/449744
 const int kMaxRecursionDepth = 44;
+
+bool InDiscardExperiment() {
+  return base::FeatureList::IsEnabled(
+      blink::features::kDiscardCodeCacheAfterFirstUse);
+}
 
 // In order to make sure all pending messages to be processed in
 // v8::Function::Call, we don't call throwStackOverflowException
@@ -111,7 +118,7 @@ v8::MaybeLocal<v8::Script> CompileScriptInternal(
     // Streaming compilation may involve use of code cache.
     // TODO(leszeks): Add compile timer to streaming compilation.
     DCHECK(streamer->IsFinished());
-    DCHECK(!streamer->StreamingSuppressed());
+    DCHECK(!streamer->IsStreamingSuppressed());
     return v8::ScriptCompiler::Compile(isolate->GetCurrentContext(),
                                        streamer->Source(), code, origin);
   }
@@ -148,7 +155,12 @@ v8::MaybeLocal<v8::Script> CompileScriptInternal(
 
       if (cached_data->rejected) {
         cache_handler->ClearCachedMetadata(
-            CachedMetadataHandler::kSendToPlatform);
+            CachedMetadataHandler::kClearPersistentStorage);
+      } else if (InDiscardExperiment()) {
+        // Experimentally free code cache from memory after first use. See
+        // http://crbug.com/1045052.
+        cache_handler->ClearCachedMetadata(
+            CachedMetadataHandler::kDiscardLocally);
       }
       if (cache_result) {
         cache_result->consume_result = base::make_optional(
@@ -281,7 +293,12 @@ v8::MaybeLocal<v8::Module> V8ScriptRunner::CompileModule(
           isolate, &source, compile_options, no_cache_reason);
       if (cached_data->rejected) {
         cache_handler->ClearCachedMetadata(
-            CachedMetadataHandler::kSendToPlatform);
+            CachedMetadataHandler::kClearPersistentStorage);
+      } else if (InDiscardExperiment()) {
+        // Experimentally free code cache from memory after first use. See
+        // http://crbug.com/1045052.
+        cache_handler->ClearCachedMetadata(
+            CachedMetadataHandler::kDiscardLocally);
       }
       cache_result.consume_result = base::make_optional(
           inspector_compile_script_event::V8CacheResult::ConsumeResult(
@@ -293,7 +310,7 @@ v8::MaybeLocal<v8::Module> V8ScriptRunner::CompileModule(
   TRACE_EVENT_END1(kTraceEventCategoryGroup, "v8.compileModule", "data",
                    inspector_compile_script_event::Data(
                        file_name, start_position, cache_result, false,
-                       ScriptStreamer::kModuleScript));
+                       ScriptStreamer::NotStreamingReason::kModuleScript));
 
   return script;
 }
@@ -303,8 +320,8 @@ v8::MaybeLocal<v8::Value> V8ScriptRunner::RunCompiledScript(
     v8::Local<v8::Script> script,
     ExecutionContext* context) {
   DCHECK(!script.IsEmpty());
-  ScopedFrameBlamer frame_blamer(
-      IsA<Document>(context) ? To<Document>(context)->GetFrame() : nullptr);
+  LocalDOMWindow* window = DynamicTo<LocalDOMWindow>(context);
+  ScopedFrameBlamer frame_blamer(window ? window->GetFrame() : nullptr);
 
   v8::Local<v8::Value> script_name =
       script->GetUnboundScript()->GetScriptName();
@@ -317,7 +334,7 @@ v8::MaybeLocal<v8::Value> V8ScriptRunner::RunCompiledScript(
   if (GetMicrotasksScopeDepth(isolate, microtask_queue) > kMaxRecursionDepth)
     return ThrowStackOverflowExceptionIfNeeded(isolate, microtask_queue);
 
-  CHECK(!context->IsIteratingOverObservers());
+  CHECK(!context->ContextLifecycleObserverSet().IsIteratingOverObservers());
 
   // Run the script and keep track of the current recursion depth.
   v8::MaybeLocal<v8::Value> result;
@@ -337,12 +354,72 @@ v8::MaybeLocal<v8::Value> V8ScriptRunner::RunCompiledScript(
 
     // ToCoreString here should be zero copy due to externalized string
     // unpacked.
-    probe::ExecuteScript probe(context, ToCoreString(script_url));
+    probe::ExecuteScript probe(context, ToCoreString(script_url),
+                               script->GetUnboundScript()->GetId());
     result = script->Run(isolate->GetCurrentContext());
   }
 
   CHECK(!isolate->IsDead());
   return result;
+}
+
+v8::MaybeLocal<v8::Value> V8ScriptRunner::CompileAndRunScript(
+    v8::Isolate* isolate,
+    ScriptState* script_state,
+    ExecutionContext* execution_context,
+    const ScriptSourceCode& source,
+    const KURL& base_url,
+    SanitizeScriptErrors sanitize_script_errors,
+    const ScriptFetchOptions& fetch_options,
+    V8CacheOptions v8_cache_options) {
+  DCHECK_EQ(isolate, script_state->GetIsolate());
+
+  // Omit storing base URL if it is same as source URL.
+  // Note: This improves chance of getting into a fast path in
+  //       ReferrerScriptInfo::ToV8HostDefinedOptions.
+  KURL stored_base_url = (base_url == source.Url()) ? KURL() : base_url;
+
+  // TODO(hiroshige): Remove this code and related use counters once the
+  // measurement is done.
+  ReferrerScriptInfo::BaseUrlSource base_url_source =
+      ReferrerScriptInfo::BaseUrlSource::kOther;
+  if (source.SourceLocationType() == ScriptSourceLocationType::kExternalFile &&
+      !base_url.IsNull()) {
+    switch (sanitize_script_errors) {
+      case SanitizeScriptErrors::kDoNotSanitize:
+        base_url_source =
+            ReferrerScriptInfo::BaseUrlSource::kClassicScriptCORSSameOrigin;
+        break;
+      case SanitizeScriptErrors::kSanitize:
+        base_url_source =
+            ReferrerScriptInfo::BaseUrlSource::kClassicScriptCORSCrossOrigin;
+        break;
+    }
+  }
+  const ReferrerScriptInfo referrer_info(stored_base_url, fetch_options,
+                                         base_url_source);
+
+  v8::Local<v8::Script> script;
+
+  v8::ScriptCompiler::CompileOptions compile_options;
+  V8CodeCache::ProduceCacheOptions produce_cache_options;
+  v8::ScriptCompiler::NoCacheReason no_cache_reason;
+  std::tie(compile_options, produce_cache_options, no_cache_reason) =
+      V8CodeCache::GetCompileOptions(v8_cache_options, source);
+
+  if (!V8ScriptRunner::CompileScript(script_state, source,
+                                     sanitize_script_errors, compile_options,
+                                     no_cache_reason, referrer_info)
+           .ToLocal(&script))
+    return v8::MaybeLocal<v8::Value>();
+
+  v8::MaybeLocal<v8::Value> maybe_result =
+      V8ScriptRunner::RunCompiledScript(isolate, script, execution_context);
+  probe::ProduceCompilationCache(probe::ToCoreProbeSink(execution_context),
+                                 source, script);
+  V8CodeCache::ProduceCache(isolate, script, source, produce_cache_options);
+
+  return maybe_result;
 }
 
 v8::MaybeLocal<v8::Value> V8ScriptRunner::CompileAndRunInternalScript(
@@ -396,7 +473,7 @@ v8::MaybeLocal<v8::Value> V8ScriptRunner::CallAsConstructor(
   if (depth >= kMaxRecursionDepth)
     return ThrowStackOverflowExceptionIfNeeded(isolate, microtask_queue);
 
-  CHECK(!context->IsIteratingOverObservers());
+  CHECK(!context->ContextLifecycleObserverSet().IsIteratingOverObservers());
 
   if (ScriptForbiddenScope::IsScriptForbidden()) {
     ThrowScriptForbiddenException(isolate);
@@ -437,8 +514,8 @@ v8::MaybeLocal<v8::Value> V8ScriptRunner::CallFunction(
     int argc,
     v8::Local<v8::Value> args[],
     v8::Isolate* isolate) {
-  LocalFrame* frame =
-      IsA<Document>(context) ? To<Document>(context)->GetFrame() : nullptr;
+  LocalDOMWindow* window = DynamicTo<LocalDOMWindow>(context);
+  LocalFrame* frame = window ? window->GetFrame() : nullptr;
   ScopedFrameBlamer frame_blamer(frame);
   TRACE_EVENT0("v8", "v8.callFunction");
   RuntimeCallStatsScopedTracer rcs_scoped_tracer(isolate);
@@ -449,7 +526,7 @@ v8::MaybeLocal<v8::Value> V8ScriptRunner::CallFunction(
   if (depth >= kMaxRecursionDepth)
     return ThrowStackOverflowExceptionIfNeeded(isolate, microtask_queue);
 
-  CHECK(!context->IsIteratingOverObservers());
+  CHECK(!context->ContextLifecycleObserverSet().IsIteratingOverObservers());
 
   if (ScriptForbiddenScope::IsScriptForbidden()) {
     ThrowScriptForbiddenException(isolate);

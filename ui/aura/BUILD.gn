@@ -2,11 +2,10 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-import("//build/config/jumbo.gni")
 import("//build/config/ui.gni")
 import("//testing/test.gni")
 
-jumbo_component("aura") {
+component("aura") {
   public = [
     "client/aura_constants.h",
     "client/capture_client.h",
@@ -77,6 +76,8 @@ jumbo_component("aura") {
     "input_state_lookup.cc",
     "input_state_lookup_win.cc",
     "layout_manager.cc",
+    "native_window_occlusion_tracker.cc",
+    "native_window_occlusion_tracker.h",
     "native_window_occlusion_tracker_win.cc",
     "native_window_occlusion_tracker_win.h",
     "null_window_targeter.cc",
@@ -111,13 +112,13 @@ jumbo_component("aura") {
     "//components/viz/client",
     "//components/viz/common",
     "//components/viz/host",
-    "//components/viz/service",
     "//gpu/ipc/client",
     "//mojo/public/cpp/system",
     "//services/service_manager/public/cpp",
     "//skia",
     "//ui/base",
     "//ui/base/clipboard",
+    "//ui/base/cursor/mojom:cursor_type",
     "//ui/base/ime/init",
     "//ui/display",
     "//ui/events",
@@ -125,6 +126,7 @@ jumbo_component("aura") {
     "//ui/events:events_base",
     "//ui/events/platform",
     "//ui/gfx",
+    "//ui/gfx:gfx_switches",
     "//ui/gfx/geometry",
     "//ui/gl",
     "//ui/platform_window",
@@ -132,11 +134,14 @@ jumbo_component("aura") {
   ]
 
   public_deps = [
+    "//ui/base/cursor:cursor_base",
+    "//ui/base/dragdrop/mojom:mojom_headers",
     "//ui/base/ime",
     "//ui/compositor",
   ]
 
   if (use_x11) {
+    public_deps += [ "//ui/base/x" ]
     deps += [
       "//ui/events/platform/x11",
       "//ui/platform_window/x11",
@@ -148,6 +153,7 @@ jumbo_component("aura") {
 
     deps += [
       "//ipc",
+      "//ui/base/cursor",
       "//ui/platform_window/win",
     ]
   }
@@ -168,13 +174,11 @@ jumbo_component("aura") {
   configs += [ "//build/config/compiler:noshadowing" ]
 }
 
-jumbo_static_library("test_support") {
+static_library("test_support") {
   testonly = true
   sources = [
     "test/aura_test_base.cc",
     "test/aura_test_base.h",
-    "test/aura_test_context_factory.cc",
-    "test/aura_test_context_factory.h",
     "test/aura_test_helper.cc",
     "test/aura_test_helper.h",
     "test/aura_test_utils.cc",
@@ -217,12 +221,15 @@ jumbo_static_library("test_support") {
     "//ui/base:buildflags",
   ]
   deps = [
+    "//base",
     "//base/test:test_support",
     "//cc:test_support",
     "//components/viz/test:test_support",
     "//skia",
     "//testing/gtest",
     "//ui/base:test_support",
+    "//ui/base/cursor:cursor_base",
+    "//ui/base/cursor/mojom:cursor_type",
     "//ui/base/ime/init",
     "//ui/compositor:test_support",
     "//ui/display",
@@ -240,24 +247,35 @@ jumbo_static_library("test_support") {
     sources += [ "test/ui_controls_factory_aurawin.cc" ]
   }
 
+  if (is_linux) {
+    sources += [ "test/ui_controls_factory_aura_linux.cc" ]
+  }
+
   if (use_x11) {
     sources += [
-      "test/ui_controls_factory_aurax11.cc",
+      "test/ui_controls_aurax11.cc",
+      "test/ui_controls_aurax11.h",
       "test/x11_event_sender.cc",
       "test/x11_event_sender.h",
     ]
 
-    deps += [ "//ui/gfx/x" ]
+    deps += [
+      "//ui/events/platform/x11",
+      "//ui/gfx/x",
+    ]
   }
 
   if (use_ozone) {
     if (is_fuchsia) {
       deps += [ "//ui/ozone" ]
     }
-    sources += [ "test/ui_controls_factory_ozone.cc" ]
+    sources += [
+      "test/ui_controls_ozone.cc",
+      "test/ui_controls_ozone.h",
+    ]
   }
 
-  if (is_linux) {
+  if (is_linux || is_chromeos) {
     deps += [ "//ui/platform_window/common" ]
   }
 }
@@ -296,6 +314,10 @@ executable("aura_demo") {
 }
 
 test("aura_unittests") {
+  if ((is_linux && !is_chromeos) || chromeos_is_browser_only) {
+    use_xvfb = true
+  }
+
   sources = [
     "../compositor_extra/shadow_unittest.cc",
     "gestures/gesture_recognizer_unittest.cc",
@@ -339,6 +361,10 @@ test("aura_unittests") {
     "//ui/platform_window/stub",
     "//ui/wm",
   ]
+
+  if (use_ozone) {
+    deps += [ "//ui/ozone" ]
+  }
 
   data_deps = [ "//third_party/mesa_headers" ]
 }

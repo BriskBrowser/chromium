@@ -11,7 +11,7 @@
 
 #include "base/macros.h"
 #include "base/threading/thread_checker.h"
-#include "mojo/public/cpp/system/handle.h"
+#include "mojo/public/cpp/platform/platform_handle.h"
 #include "ui/gfx/native_widget_types.h"
 #include "ui/ozone/public/platform_window_surface.h"
 
@@ -35,15 +35,16 @@ class ScenicSurface : public ui::PlatformWindowSurface {
   ~ScenicSurface() override;
 
   // Sets the texture of the surface to a new image pipe.
-  void SetTextureToNewImagePipe(
-      fidl::InterfaceRequest<fuchsia::images::ImagePipe2> image_pipe_request);
+  bool SetTextureToNewImagePipe(
+      fidl::InterfaceRequest<fuchsia::images::ImagePipe2> image_pipe_request)
+      override;
 
   // Sets the texture of the surface to an image resource.
   void SetTextureToImage(const scenic::Image& image);
 
   // Creates a View for this surface, and returns a ViewHolderToken handle
   // that can be used to attach it into a scene graph.
-  mojo::ScopedHandle CreateView();
+  mojo::PlatformHandle CreateView();
 
   void AssertBelongsToCurrentThread() {
     DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
@@ -58,7 +59,6 @@ class ScenicSurface : public ui::PlatformWindowSurface {
   scenic::Session scenic_session_;
   std::unique_ptr<scenic::View> parent_;
   scenic::ShapeNode shape_;
-  scenic::Material material_;
 
   ScenicSurfaceFactory* const scenic_surface_factory_;
   const gfx::AcceleratedWidget window_;

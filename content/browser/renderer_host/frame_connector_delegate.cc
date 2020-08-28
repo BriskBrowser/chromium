@@ -8,6 +8,7 @@
 #include "content/browser/renderer_host/render_widget_host_view_child_frame.h"
 #include "content/common/content_switches_internal.h"
 #include "content/common/frame_visual_properties.h"
+#include "third_party/blink/public/mojom/frame/intrinsic_sizing_info.mojom.h"
 
 namespace content {
 
@@ -24,6 +25,9 @@ RenderWidgetHostViewBase*
 FrameConnectorDelegate::GetRootRenderWidgetHostView() {
   return nullptr;
 }
+
+void FrameConnectorDelegate::SendIntrinsicSizingInfoToParent(
+    blink::mojom::IntrinsicSizingInfoPtr) {}
 
 void FrameConnectorDelegate::SynchronizeVisualProperties(
     const viz::FrameSinkId& frame_sink_id,
@@ -48,7 +52,9 @@ void FrameConnectorDelegate::SynchronizeVisualProperties(
   render_widget_host->SetVisualPropertiesFromParentFrame(
       visual_properties.page_scale_factor,
       visual_properties.is_pinch_gesture_active,
-      visual_properties.compositor_viewport);
+      visual_properties.visible_viewport_size,
+      visual_properties.compositor_viewport,
+      visual_properties.root_widget_window_segments);
 
   render_widget_host->SynchronizeVisualProperties();
 }
@@ -76,8 +82,16 @@ bool FrameConnectorDelegate::HasFocus() {
   return false;
 }
 
-bool FrameConnectorDelegate::LockMouse(bool request_unadjusted_movement) {
-  return false;
+blink::mojom::PointerLockResult FrameConnectorDelegate::LockMouse(
+    bool request_unadjusted_movement) {
+  NOTREACHED();
+  return blink::mojom::PointerLockResult::kUnknownError;
+}
+
+blink::mojom::PointerLockResult FrameConnectorDelegate::ChangeMouseLock(
+    bool request_unadjusted_movement) {
+  NOTREACHED();
+  return blink::mojom::PointerLockResult::kUnknownError;
 }
 
 void FrameConnectorDelegate::EnableAutoResize(const gfx::Size& min_size,

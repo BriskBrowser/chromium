@@ -9,7 +9,7 @@
 #include <string>
 
 #include "chrome/browser/chromeos/child_accounts/time_limits/app_activity_report_interface.h"
-#include "chrome/browser/chromeos/child_accounts/time_limits/web_time_limit_interface.h"
+#include "chrome/browser/chromeos/child_accounts/time_limits/app_time_limit_interface.h"
 #include "components/keyed_service/core/keyed_service.h"
 
 namespace base {
@@ -28,6 +28,7 @@ class GURL;
 
 namespace chromeos {
 namespace app_time {
+class AppId;
 class AppTimeController;
 class WebTimeLimitEnforcer;
 }  // namespace app_time
@@ -36,7 +37,7 @@ class WebTimeLimitEnforcer;
 // TODO(crbug.com/1022231): Migrate ConsumerStatusReportingService,
 // EventBasedStatusReporting and ScreenTimeController to ChildUserService.
 class ChildUserService : public KeyedService,
-                         public app_time::WebTimeLimitInterface,
+                         public app_time::AppTimeLimitInterface,
                          public app_time::AppActivityReportInterface {
  public:
   // Used for tests to get internal implementation details.
@@ -52,18 +53,26 @@ class ChildUserService : public KeyedService,
     ChildUserService* const service_;
   };
 
+  // Family Link helper(for child and teens) is an app available to supervised
+  // users and the companion app of Family Link app(for parents).
+  static const char kFamilyLinkHelperAppPackageName[];
+  static const char kFamilyLinkHelperAppPlayStoreURL[];
+
   explicit ChildUserService(content::BrowserContext* context);
   ChildUserService(const ChildUserService&) = delete;
   ChildUserService& operator=(const ChildUserService&) = delete;
   ~ChildUserService() override;
 
-  // app_time::WebTimeLimitInterface:
-  void PauseWebActivity(const std::string& app_id) override;
-  void ResumeWebActivity(const std::string& app_id) override;
+  // app_time::AppTimeLimitInterface:
+  void PauseWebActivity(const std::string& app_service_id) override;
+  void ResumeWebActivity(const std::string& app_service_id) override;
+  base::Optional<base::TimeDelta> GetTimeLimitForApp(
+      const std::string& app_service_id,
+      apps::mojom::AppType app_type) override;
 
   // app_time::AppActivityReportInterface:
   app_time::AppActivityReportInterface::ReportParams GenerateAppActivityReport(
-      enterprise_management::ChildStatusReportRequest* report) const override;
+      enterprise_management::ChildStatusReportRequest* report) override;
   void AppActivityReportSubmitted(
       base::Time report_generation_timestamp) override;
 
@@ -72,9 +81,13 @@ class ChildUserService : public KeyedService,
   bool WebTimeLimitReached() const;
 
   // Returns whether given |url| can be used without any time restrictions.
-  // Viewing of whitelisted |url| does not count towards usage web time.
+  // Viewing of allowlisted |url| does not count towards usage web time.
   // Always returns false if per-app times limits feature is disabled.
-  bool WebTimeLimitWhitelistedURL(const GURL& url) const;
+  bool WebTimeLimitAllowlistedURL(const GURL& url) const;
+
+  // Returns whether the application with id |app_id| can be used without any
+  // time restrictions.
+  bool AppTimeLimitAllowlistedApp(const app_time::AppId& app_id) const;
 
   // Returns time limit set for using the web on a given day.
   // Should only be called if |features::kPerAppTimeLimits| and

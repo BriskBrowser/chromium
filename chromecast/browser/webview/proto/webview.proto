@@ -95,6 +95,7 @@ message AsyncPageEvent {
   bool resource_load_failed = 3;
   bool did_first_visually_non_empty_paint = 4;
   string url = 5;
+  string stopped_error_description = 6;
 }
 
 message StopPageRequest {
@@ -142,6 +143,12 @@ message GoForwardRequest {}
 message ReloadRequest {}
 
 message ClearCacheRequest {}
+
+message ClearCookiesRequest {}
+
+message ClearCookiesResponse {
+  bool had_cookies = 1;
+}
 
 message UserAgent {
   oneof type {
@@ -284,6 +291,7 @@ message WebviewRequest {
     // This must be the first request for CreateCastAppWindowLink
     AssociateCastAppWindowRequest associate = 20;
     ResizeRequest resize = 21;
+    ClearCookiesRequest clear_cookies = 22;
   }
 }
 
@@ -305,14 +313,9 @@ message WebviewResponse {
     // Events sents from JS inside of Webviews to the embedder who added JS
     // channels via AddJavascriptChannelsRequest.
     JavascriptChannelMessage javascript_channel_message = 10;
+    ClearCookiesResponse clear_cookies = 11;
     AssociateCastAppWindowResponse associate = 20;
   }
-}
-
-// TODO(sagallea): Deprecate this after moving to new service.
-service WebviewService {
-  // Creates a webview. See the comment at the top of the file.
-  rpc CreateWebview(stream WebviewRequest) returns (stream WebviewResponse);
 }
 
 service PlatformViewsService {

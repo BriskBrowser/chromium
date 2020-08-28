@@ -61,6 +61,10 @@ struct GpuFenceHandle;
 class Size;
 }
 
+namespace ui {
+class PlatformWindowSurface;
+}
+
 namespace viz {
 class GpuTaskSchedulerHelper;
 }
@@ -71,8 +75,8 @@ class GpuChannelManagerDelegate;
 class GpuProcessActivityFlags;
 class GpuMemoryBufferManager;
 class ImageFactory;
-class SharedImageFactory;
 class SharedImageInterface;
+class SharedImageInterfaceInProcess;
 class SyncPointClientState;
 struct ContextCreationAttribs;
 struct SwapBuffersCompleteParams;
@@ -126,8 +130,11 @@ class GL_IN_PROCESS_CONTEXT_EXPORT InProcessCommandBuffer
                                 int32_t start,
                                 int32_t end) override;
   void SetGetBuffer(int32_t shm_id) override;
-  scoped_refptr<Buffer> CreateTransferBuffer(uint32_t size,
-                                             int32_t* id) override;
+  scoped_refptr<Buffer> CreateTransferBuffer(
+      uint32_t size,
+      int32_t* id,
+      TransferBufferAllocationOption option =
+          TransferBufferAllocationOption::kLoseContextOnOOM) override;
   void DestroyTransferBuffer(int32_t id) override;
 
   // GpuControl implementation (called on client thread):
@@ -155,6 +162,7 @@ class GL_IN_PROCESS_CONTEXT_EXPORT InProcessCommandBuffer
   void WaitSyncToken(const SyncToken& sync_token) override;
   bool CanWaitUnverifiedSyncToken(const SyncToken& sync_token) override;
   void SetDisplayTransform(gfx::OverlayTransform transform) override;
+  void SetFrameRate(float frame_rate) override;
 
   // CommandBufferServiceClient implementation (called on gpu thread):
   CommandBatchProcessedResult OnCommandBatchProcessed() override;
@@ -197,6 +205,7 @@ class GL_IN_PROCESS_CONTEXT_EXPORT InProcessCommandBuffer
   void SetGpuVSyncEnabled(bool enabled);
 
   void SetGpuVSyncEnabledOnThread(bool enabled);
+  void SetNeedsMeasureNextDrawLatency();
 
   gpu::ServiceTransferCache* GetTransferCacheForTest() const;
   int GetRasterDecoderIdForTest() const;
@@ -206,6 +215,22 @@ class GL_IN_PROCESS_CONTEXT_EXPORT InProcessCommandBuffer
   }
 
   gpu::SharedImageInterface* GetSharedImageInterface() const;
+
+  // This is wrapper for VizSharedImageInterface implementation that is only
+  // used in InProcessCommandBuffer.
+  class SharedImageInterfaceHelper {
+   public:
+    explicit SharedImageInterfaceHelper(InProcessCommandBuffer* command_buffer);
+    ~SharedImageInterfaceHelper() = default;
+
+    void SetError();
+    void WrapTaskWithGpuCheck(base::OnceClosure task);
+
+    bool EnableWrappedSkImage() const;
+
+   private:
+    InProcessCommandBuffer* command_buffer_;
+  };
 
   // Provides a callback that can be used to preserve the back buffer for the
   // GLSurface associated with the command buffer, even after the command buffer
@@ -219,9 +244,13 @@ class GL_IN_PROCESS_CONTEXT_EXPORT InProcessCommandBuffer
     return task_executor_->shared_image_manager();
   }
 
- private:
-  class SharedImageInterface;
+  gpu::MemoryTracker* GetMemoryTracker() {
+    // Should only be called after initialization.
+    DCHECK(context_group_);
+    return context_group_->memory_tracker();
+  }
 
+ private:
   struct InitializeOnGpuThreadParams {
     SurfaceHandle surface_handle;
     const ContextCreationAttribs& attribs;
@@ -254,7 +283,8 @@ class GL_IN_PROCESS_CONTEXT_EXPORT InProcessCommandBuffer
   // Flush up to put_offset. If execution is deferred either by yielding, or due
   // to a sync token wait, HasUnprocessedCommandsOnGpuThread() returns true.
   void FlushOnGpuThread(int32_t put_offset,
-                        const std::vector<SyncToken>& sync_token_fences);
+                        const std::vector<SyncToken>& sync_token_fences,
+                        base::TimeTicks flush_timestamp);
   bool HasUnprocessedCommandsOnGpuThread();
   void UpdateLastStateOnGpuThread();
 
@@ -297,31 +327,8 @@ class GL_IN_PROCESS_CONTEXT_EXPORT InProcessCommandBuffer
   void GetGpuFenceOnGpuThread(
       uint32_t gpu_fence_id,
       base::OnceCallback<void(std::unique_ptr<gfx::GpuFence>)> callback);
-  void LazyCreateSharedImageFactory();
-  void CreateSharedImageOnGpuThread(const Mailbox& mailbox,
-                                    viz::ResourceFormat format,
-                                    const gfx::Size& size,
-                                    const gfx::ColorSpace& color_space,
-                                    uint32_t usage,
-                                    const SyncToken& sync_token);
-  void CreateSharedImageWithDataOnGpuThread(const Mailbox& mailbox,
-                                            viz::ResourceFormat format,
-                                            const gfx::Size& size,
-                                            const gfx::ColorSpace& color_space,
-                                            uint32_t usage,
-                                            const SyncToken& sync_token,
-                                            std::vector<uint8_t> pixel_data);
-  void CreateGMBSharedImageOnGpuThread(const Mailbox& mailbox,
-                                       gfx::GpuMemoryBufferHandle handle,
-                                       gfx::BufferFormat format,
-                                       const gfx::Size& size,
-                                       const gfx::ColorSpace& color_space,
-                                       uint32_t usage,
-                                       const SyncToken& sync_token);
-  void UpdateSharedImageOnGpuThread(const Mailbox& mailbox,
-                                    const SyncToken& sync_token);
-  void DestroySharedImageOnGpuThread(const Mailbox& mailbox);
   void SetDisplayTransformOnGpuThread(gfx::OverlayTransform transform);
+  void SetFrameRateOnGpuThread(float frame_rate);
 
   // Sets |active_url_| as the active GPU process URL. Should be called on GPU
   // thread only.
@@ -346,6 +353,11 @@ class GL_IN_PROCESS_CONTEXT_EXPORT InProcessCommandBuffer
 
   bool is_offscreen_ = false;
 
+#if defined(USE_OZONE)
+  // Accessed on GPU thread. Should outlive |surface_|.
+  std::unique_ptr<ui::PlatformWindowSurface> window_surface_;
+#endif
+
   // Members accessed on the gpu thread (possibly with the exception of
   // creation):
   bool use_virtualized_gl_context_ = false;
@@ -357,8 +369,6 @@ class GL_IN_PROCESS_CONTEXT_EXPORT InProcessCommandBuffer
   scoped_refptr<gl::GLContext> context_;
   scoped_refptr<gl::GLSurface> surface_;
   scoped_refptr<SyncPointClientState> sync_point_client_state_;
-  scoped_refptr<SyncPointClientState> shared_image_client_state_;
-  std::unique_ptr<SharedImageFactory> shared_image_factory_;
 
   // Used to throttle PerformDelayedWorkOnGpuThread.
   bool delayed_work_pending_ = false;
@@ -393,7 +403,7 @@ class GL_IN_PROCESS_CONTEXT_EXPORT InProcessCommandBuffer
 
   // Pointer to the SingleTaskSequence that actually does the scheduling.
   SingleTaskSequence* task_sequence_;
-  std::unique_ptr<SharedImageInterface> shared_image_interface_;
+  std::unique_ptr<SharedImageInterfaceInProcess> shared_image_interface_;
 
   // The group of contexts that share namespaces with this context.
   scoped_refptr<gles2::ContextGroup> context_group_;
@@ -410,9 +420,14 @@ class GL_IN_PROCESS_CONTEXT_EXPORT InProcessCommandBuffer
   struct SwapBufferParams {
     uint64_t swap_id;
     uint32_t flags;
+    base::TimeTicks viz_scheduled_draw;
+    base::TimeTicks gpu_started_draw;
   };
   base::circular_deque<SwapBufferParams> pending_presented_params_;
   base::circular_deque<SwapBufferParams> pending_swap_completed_params_;
+  bool should_measure_next_flush_ = false;
+  base::TimeTicks viz_scheduled_draw_;
+  base::TimeTicks gpu_started_draw_;
 
   scoped_refptr<SharedContextState> context_state_;
 

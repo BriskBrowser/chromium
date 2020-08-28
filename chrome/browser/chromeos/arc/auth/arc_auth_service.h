@@ -15,7 +15,7 @@
 #include "base/memory/weak_ptr.h"
 #include "base/optional.h"
 #include "chrome/browser/chromeos/arc/auth/arc_active_directory_enrollment_token_fetcher.h"
-#include "chrome/browser/chromeos/arc/session/arc_session_manager.h"
+#include "chrome/browser/chromeos/arc/session/arc_session_manager_observer.h"
 #include "components/arc/mojom/auth.mojom.h"
 #include "components/arc/session/connection_observer.h"
 #include "components/keyed_service/core/keyed_service.h"
@@ -47,7 +47,7 @@ class ArcAuthService : public KeyedService,
                        public mojom::AuthHost,
                        public ConnectionObserver<mojom::AuthInstance>,
                        public signin::IdentityManager::Observer,
-                       public ArcSessionManager::Observer {
+                       public ArcSessionManagerObserver {
  public:
   using GetGoogleAccountsInArcCallback =
       base::OnceCallback<void(std::vector<mojom::ArcAccountInfoPtr>)>;
@@ -65,6 +65,8 @@ class ArcAuthService : public KeyedService,
   // OS Account Manager.
   void GetGoogleAccountsInArc(GetGoogleAccountsInArcCallback callback);
 
+  void RequestPrimaryAccount(RequestPrimaryAccountCallback callback) override;
+
   // For supporting ArcServiceManager::GetService<T>().
   static const char kArcServiceName[];
 
@@ -73,13 +75,14 @@ class ArcAuthService : public KeyedService,
   void OnConnectionClosed() override;
 
   // mojom::AuthHost:
-  void OnAuthorizationComplete(
+  void OnAuthorizationCompleteDeprecated(
       mojom::ArcSignInStatus status,
       bool initial_signin,
-      const base::Optional<std::string>& account_name) override;
-  void OnSignInCompleteDeprecated() override;
-  void OnSignInFailedDeprecated(mojom::ArcSignInStatus reason) override;
-  void RequestAccountInfoDeprecated(bool initial_signin) override;
+      const base::Optional<std::string>& account_name,
+      mojom::ArcSignInErrorPtr error) override;
+
+  void OnAuthorizationResult(mojom::ArcSignInResultPtr result,
+                             mojom::ArcSignInAccountPtr account) override;
   void ReportMetrics(mojom::MetricsType metrics_type, int32_t value) override;
   void ReportAccountCheckStatus(mojom::AccountCheckStatus status) override;
   void ReportSupervisionChangeStatus(
@@ -102,13 +105,11 @@ class ArcAuthService : public KeyedService,
       const CoreAccountInfo& account_info) override;
   void OnExtendedAccountInfoRemoved(const AccountInfo& account_info) override;
 
-  // ArcSessionManager::Observer:
+  // ArcSessionManagerObserver:
   void OnArcInitialStart() override;
 
   // KeyedService:
   void Shutdown() override;
-
-  void SkipMergeSessionForTesting();
 
  private:
   // Callback when Active Directory Enrollment Token is fetched.
@@ -141,10 +142,6 @@ class ArcAuthService : public KeyedService,
       RequestPrimaryAccountInfoCallback callback,
       bool success,
       const std::string& auth_code);
-
-  // Called to let ARC container know the account info.
-  void OnAccountInfoReadyDeprecated(mojom::ArcSignInStatus status,
-                                    mojom::AccountInfoPtr account_info);
 
   // Issues a request for fetching AccountInfo for a Secondary Account
   // represented by |account_name|. |account_name| is the account identifier
@@ -207,8 +204,6 @@ class ArcAuthService : public KeyedService,
   // Pending callback for |GetGoogleAccountsInArc| if ARC bridge is not yet
   // ready.
   GetGoogleAccountsInArcCallback pending_get_arc_accounts_callback_;
-
-  bool skip_merge_session_for_testing_ = false;
 
   base::WeakPtrFactory<ArcAuthService> weak_ptr_factory_{this};
 

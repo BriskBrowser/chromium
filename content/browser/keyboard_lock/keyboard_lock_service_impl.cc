@@ -9,8 +9,8 @@
 
 #include "base/bind.h"
 #include "base/callback.h"
+#include "base/check.h"
 #include "base/containers/flat_set.h"
-#include "base/logging.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/optional.h"
 #include "content/browser/frame_host/render_frame_host_impl.h"
@@ -106,6 +106,9 @@ void KeyboardLockServiceImpl::RequestKeyboardLock(
   if (render_frame_host_->GetRenderWidgetHost()->RequestKeyboardLock(
           std::move(dom_code_set))) {
     std::move(callback).Run(KeyboardLockRequestResult::kSuccess);
+    static_cast<RenderFrameHostImpl*>(render_frame_host_)
+        ->OnSchedulerTrackedFeatureUsed(
+            blink::scheduler::WebSchedulerTrackedFeature::kKeyboardLock);
   } else {
     std::move(callback).Run(KeyboardLockRequestResult::kRequestFailedError);
   }

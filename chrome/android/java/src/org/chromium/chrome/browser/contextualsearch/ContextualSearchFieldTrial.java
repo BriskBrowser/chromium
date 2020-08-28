@@ -11,8 +11,8 @@ import androidx.annotation.VisibleForTesting;
 
 import org.chromium.base.CommandLine;
 import org.chromium.base.SysUtils;
-import org.chromium.chrome.browser.ChromeFeatureList;
-import org.chromium.chrome.browser.ChromeSwitches;
+import org.chromium.chrome.browser.flags.ChromeFeatureList;
+import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.components.variations.VariationsAssociatedData;
 
 import java.lang.annotation.Retention;
@@ -24,6 +24,10 @@ import java.lang.annotation.RetentionPolicy;
 public class ContextualSearchFieldTrial {
     //==========================================================================================
     // Public settings synchronized with src/components/contextual_search/core/browser/public.cc
+    //==========================================================================================
+    public static final String LONGPRESS_RESOLVE_PARAM_NAME = "longpress_resolve_variation";
+    public static final String LONGPRESS_RESOLVE_PRESERVE_TAP = "1";
+
     //==========================================================================================
     private static final String FIELD_TRIAL_NAME = "ContextualSearch";
     private static final String DISABLED_PARAM = "disabled";
@@ -58,7 +62,8 @@ public class ContextualSearchFieldTrial {
             ContextualSearchSwitch.IS_UKM_RANKER_LOGGING_DISABLED,
             ContextualSearchSwitch.IS_CONTEXTUAL_SEARCH_ML_TAP_SUPPRESSION_ENABLED,
             ContextualSearchSwitch.IS_CONTEXTUAL_SEARCH_SECOND_TAP_ML_OVERRIDE_ENABLED,
-            ContextualSearchSwitch.IS_CONTEXTUAL_SEARCH_TAP_DISABLE_OVERRIDE_ENABLED})
+            ContextualSearchSwitch.IS_CONTEXTUAL_SEARCH_TAP_DISABLE_OVERRIDE_ENABLED,
+            ContextualSearchSwitch.IS_SEND_BASE_PAGE_URL_DISABLED})
     @Retention(RetentionPolicy.SOURCE)
     /**
      * Boolean Switch values that are backed by either a Feature or a Variations parameter.
@@ -132,8 +137,10 @@ public class ContextualSearchFieldTrial {
          * panel.
          */
         int IS_CONTEXTUAL_SEARCH_TAP_DISABLE_OVERRIDE_ENABLED = 20;
+        /** Whether sending the URL of the page viewed by the user is disabled. */
+        int IS_SEND_BASE_PAGE_URL_DISABLED = 21;
 
-        int NUM_ENTRIES = 21;
+        int NUM_ENTRIES = 22;
     }
 
     @VisibleForTesting
@@ -163,7 +170,8 @@ public class ContextualSearchFieldTrial {
             "disable_ukm_ranker_logging", // IS_UKM_RANKER_LOGGING_DISABLED
             ChromeFeatureList.CONTEXTUAL_SEARCH_ML_TAP_SUPPRESSION, // (related to Chrome Feature)
             ChromeFeatureList.CONTEXTUAL_SEARCH_SECOND_TAP, // (related to Chrome Feature)
-            ChromeFeatureList.CONTEXTUAL_SEARCH_TAP_DISABLE_OVERRIDE // (related to Chrome Feature)
+            ChromeFeatureList.CONTEXTUAL_SEARCH_TAP_DISABLE_OVERRIDE, // (related to Chrome Feature)
+            "disable_send_url" // IS_SEND_BASE_PAGE_URL_DISABLED
     };
 
     @IntDef({ContextualSearchSetting.MANDATORY_PROMO_LIMIT,

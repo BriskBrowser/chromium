@@ -23,7 +23,9 @@ class AccountIdentifier;
 class AddKeyRequest;
 class AuthorizationRequest;
 class BaseReply;
+class CheckHealthRequest;
 class CheckKeyRequest;
+class EndFingerprintAuthSessionRequest;
 class FlushAndSignBootAttributesRequest;
 class GetBootAttributeRequest;
 class GetKeyDataRequest;
@@ -39,6 +41,7 @@ class RemoveFirmwareManagementParametersRequest;
 class RemoveKeyRequest;
 class SetBootAttributeRequest;
 class SetFirmwareManagementParametersRequest;
+class StartFingerprintAuthSessionRequest;
 class UnmountRequest;
 class UpdateKeyRequest;
 
@@ -489,11 +492,21 @@ class COMPONENT_EXPORT(CRYPTOHOME_CLIENT) CryptohomeClient {
   // All keys where the key name has a prefix matching |key_prefix| will be
   // deleted.  All meta-data associated with the key, including certificates,
   // will also be deleted.
-  virtual void TpmAttestationDeleteKeys(
+  virtual void TpmAttestationDeleteKeysByPrefix(
       attestation::AttestationKeyType key_type,
       const cryptohome::AccountIdentifier& id,
       const std::string& key_prefix,
       DBusMethodCallback<bool> callback) = 0;
+
+  // Deletes certified keys as specified by |key_type| and |key_name|.  The
+  // |callback| will be called when the operation completes.  If the operation
+  // succeeds, the callback |result| parameter will be true.  If |key_type| is
+  // KEY_USER, a |id| must be provided.  Otherwise |id| is ignored.
+  // Note that if the key does not exist, the operation will still succeed.
+  virtual void TpmAttestationDeleteKey(attestation::AttestationKeyType key_type,
+                                       const cryptohome::AccountIdentifier& id,
+                                       const std::string& key_name,
+                                       DBusMethodCallback<bool> callback) = 0;
 
   // Asynchronously gets the underlying TPM version information and passes it to
   // the given callback.
@@ -584,6 +597,23 @@ class COMPONENT_EXPORT(CRYPTOHOME_CLIENT) CryptohomeClient {
       const cryptohome::MassRemoveKeysRequest& request,
       DBusMethodCallback<cryptohome::BaseReply> callback) = 0;
 
+  // Asynchronously calls StartFingerprintAuthSession method. |callback| is
+  // called after method call, and with reply protobuf.
+  // StartFingerprintAuthSession prepares biometrics daemon for upcoming
+  // fingerprint authentication.
+  virtual void StartFingerprintAuthSession(
+      const cryptohome::AccountIdentifier& id,
+      const cryptohome::StartFingerprintAuthSessionRequest& request,
+      DBusMethodCallback<cryptohome::BaseReply> callback) = 0;
+
+  // Asynchronously calls EndFingerprintAuthSession method. |callback| is
+  // called after method call, and with reply protobuf.
+  // EndFingerprintAuthSession sets biometrics daemon back to normal mode.
+  // If there is a reply, it is always an empty reply with no errors.
+  virtual void EndFingerprintAuthSession(
+      const cryptohome::EndFingerprintAuthSessionRequest& request,
+      DBusMethodCallback<cryptohome::BaseReply> callback) = 0;
+
   // Asynchronously calls GetBootAttribute method. |callback| is called after
   // method call, and with reply protobuf.
   // GetBootAttribute gets the value of the specified boot attribute.
@@ -663,6 +693,11 @@ class COMPONENT_EXPORT(CRYPTOHOME_CLIENT) CryptohomeClient {
   // gid (a shifted gid).
   virtual void GetCurrentSpaceForGid(const gid_t android_gid,
                                      DBusMethodCallback<int64_t> callback) = 0;
+
+  // Calls CheckHealth to get current health state.
+  virtual void CheckHealth(
+      const cryptohome::CheckHealthRequest& request,
+      DBusMethodCallback<cryptohome::BaseReply> callback) = 0;
 
  protected:
   // Initialize/Shutdown should be used instead.

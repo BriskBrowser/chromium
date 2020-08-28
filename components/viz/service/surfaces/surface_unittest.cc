@@ -2,8 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <utility>
+
 #include "components/viz/service/surfaces/surface.h"
 #include "base/bind.h"
+#include "base/run_loop.h"
 #include "cc/test/scheduler_test_common.h"
 #include "components/viz/common/frame_sinks/copy_output_result.h"
 #include "components/viz/common/surfaces/parent_local_surface_id_allocator.h"
@@ -76,8 +79,10 @@ TEST(SurfaceTest, SurfaceIds) {
 }
 
 void TestCopyResultCallback(bool* called,
+                            base::OnceClosure finished,
                             std::unique_ptr<CopyOutputResult> result) {
   *called = true;
+  std::move(finished).Run();
 }
 
 // Test that CopyOutputRequests can outlive the current frame and be
@@ -94,14 +99,16 @@ TEST(SurfaceTest, CopyRequestLifetime) {
   CompositorFrame frame = MakeDefaultCompositorFrame();
   support->SubmitCompositorFrame(local_surface_id, std::move(frame));
   Surface* surface = surface_manager->GetSurfaceForId(surface_id);
-  ASSERT_TRUE(!!surface);
+  ASSERT_TRUE(surface);
 
   bool copy_called = false;
+  base::RunLoop copy_runloop;
   support->RequestCopyOfOutput(
       local_surface_id,
       std::make_unique<CopyOutputRequest>(
           CopyOutputRequest::ResultFormat::RGBA_BITMAP,
-          base::BindOnce(&TestCopyResultCallback, &copy_called)));
+          base::BindOnce(&TestCopyResultCallback, &copy_called,
+                         copy_runloop.QuitClosure())));
   surface->TakeCopyOutputRequestsFromClient();
   EXPECT_TRUE(surface_manager->GetSurfaceForId(surface_id));
   EXPECT_FALSE(copy_called);
@@ -110,17 +117,17 @@ TEST(SurfaceTest, CopyRequestLifetime) {
   for (int i = 0; i < max_frame; ++i) {
     CompositorFrame frame = CompositorFrameBuilder().Build();
     frame.render_pass_list.push_back(RenderPass::Create());
-    frame.render_pass_list.back()->id = i * 3 + start_id;
+    frame.render_pass_list.back()->id = RenderPassId{i * 3 + start_id};
     frame.render_pass_list.push_back(RenderPass::Create());
-    frame.render_pass_list.back()->id = i * 3 + start_id + 1;
+    frame.render_pass_list.back()->id = RenderPassId{i * 3 + start_id + 1};
     frame.render_pass_list.push_back(RenderPass::Create());
-    frame.render_pass_list.back()->SetNew(i * 3 + start_id + 2,
+    frame.render_pass_list.back()->SetNew(RenderPassId{i * 3 + start_id + 2},
                                           gfx::Rect(0, 0, 20, 20), gfx::Rect(),
                                           gfx::Transform());
     support->SubmitCompositorFrame(local_surface_id, std::move(frame));
   }
 
-  int last_pass_id = (max_frame - 1) * 3 + start_id + 2;
+  RenderPassId last_pass_id{(max_frame - 1) * 3 + start_id + 2};
   // The copy request should stay on the Surface until TakeCopyOutputRequests
   // is called.
   EXPECT_FALSE(copy_called);
@@ -135,6 +142,7 @@ TEST(SurfaceTest, CopyRequestLifetime) {
   ASSERT_EQ(1u, copy_requests.count(last_pass_id));
   EXPECT_FALSE(copy_called);
   copy_requests.clear();  // Deleted requests will auto-send an empty result.
+  copy_runloop.Run();
   EXPECT_TRUE(copy_called);
 }
 

@@ -22,7 +22,6 @@
 #include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
-#include "base/task/post_task.h"
 #include "base/task/task_traits.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
@@ -62,8 +61,6 @@
 #include "content/public/common/content_features.h"
 #include "content/public/common/content_switches.h"
 #include "extensions/buildflags/buildflags.h"
-#include "net/ssl/client_cert_store.h"
-#include "services/network/ignore_errors_cert_verifier.h"
 #include "services/network/network_service.h"
 #include "services/network/public/cpp/features.h"
 #include "third_party/blink/public/public_buildflags.h"
@@ -88,8 +85,6 @@
 #include "components/user_manager/user_manager.h"
 #include "crypto/nss_util.h"
 #include "crypto/nss_util_internal.h"
-#include "services/network/cert_verifier_with_trust_anchors.h"
-#include "services/network/cert_verify_proc_chromeos.h"
 #endif  // defined(OS_CHROMEOS)
 
 using content::BrowserContext;
@@ -143,8 +138,8 @@ void DidGetTPMInfoForUserOnUIThread(
   if (token_info.has_value() && token_info->slot != -1) {
     DVLOG(1) << "Got TPM slot for " << username_hash << ": "
              << token_info->slot;
-    base::PostTask(FROM_HERE, {BrowserThread::IO},
-                   base::BindOnce(&crypto::InitializeTPMForChromeOSUser,
+    content::GetIOThreadTaskRunner({})->PostTask(
+        FROM_HERE, base::BindOnce(&crypto::InitializeTPMForChromeOSUser,
                                   username_hash, token_info->slot));
   } else {
     NOTREACHED() << "TPMTokenInfoGetter reported invalid token.";
@@ -176,9 +171,17 @@ void StartTPMSlotInitializationOnIOThread(const AccountId& account_id,
                                           const std::string& username_hash) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
 
-  base::PostTask(
-      FROM_HERE, {BrowserThread::UI},
+  content::GetUIThreadTaskRunner({})->PostTask(
+      FROM_HERE,
       base::BindOnce(&GetTPMInfoForUserOnUIThread, account_id, username_hash));
+}
+
+bool IsTPMTokenEnabledForNSS() {
+#if !defined(TPM_FALLBACK)
+  return crypto::IsTPMTokenEnabledForNSS();
+#else
+  return false;
+#endif
 }
 
 void StartNSSInitOnIOThread(const AccountId& account_id,
@@ -199,10 +202,10 @@ void StartNSSInitOnIOThread(const AccountId& account_id,
 
   crypto::WillInitializeTPMForChromeOSUser(username_hash);
 
-  if (crypto::IsTPMTokenEnabledForNSS()) {
+  if (IsTPMTokenEnabledForNSS()) {
     if (crypto::IsTPMTokenReady(
-            base::Bind(&StartTPMSlotInitializationOnIOThread, account_id,
-                       username_hash))) {
+            base::BindOnce(&StartTPMSlotInitializationOnIOThread, account_id,
+                           username_hash))) {
       StartTPMSlotInitializationOnIOThread(account_id, username_hash);
     } else {
       DVLOG(1) << "Waiting for tpm ready ...";
@@ -239,8 +242,8 @@ void ProfileIOData::InitializeOnUIThread(Profile* profile) {
   if (user && !user->username_hash().empty()) {
     params->username_hash = user->username_hash();
     DCHECK(!params->username_hash.empty());
-    base::PostTask(FROM_HERE, {BrowserThread::IO},
-                   base::BindOnce(&StartNSSInitOnIOThread, user->GetAccountId(),
+    content::GetIOThreadTaskRunner({})->PostTask(
+        FROM_HERE, base::BindOnce(&StartNSSInitOnIOThread, user->GetAccountId(),
                                   user->username_hash(), profile->GetPath()));
 
     if (user->IsAffiliated()) {
@@ -256,8 +259,8 @@ void ProfileIOData::InitializeOnUIThread(Profile* profile) {
   // object to the IO thread after this function.
   BrowserContext::EnsureResourceContextInitialized(profile);
 
-  base::PostTask(FROM_HERE, {BrowserThread::IO},
-                 base::BindOnce(&ProfileIOData::Init, base::Unretained(this)));
+  content::GetIOThreadTaskRunner({})->PostTask(
+      FROM_HERE, base::BindOnce(&ProfileIOData::Init, base::Unretained(this)));
 }
 
 ProfileIOData::ProfileParams::ProfileParams() = default;
@@ -395,7 +398,7 @@ void ProfileIOData::Init() const {
 void ProfileIOData::ShutdownOnUIThread() {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
-  bool posted = base::DeleteSoon(FROM_HERE, {BrowserThread::IO}, this);
+  bool posted = content::GetIOThreadTaskRunner({})->DeleteSoon(FROM_HERE, this);
   if (!posted)
     delete this;
 }

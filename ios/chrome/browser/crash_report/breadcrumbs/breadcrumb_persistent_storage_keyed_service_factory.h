@@ -10,16 +10,16 @@
 
 class BreadcrumbPersistentStorageKeyedService;
 
-namespace ios {
-class ChromeBrowserState;
-}
+namespace web {
+class BrowserState;
+}  // namespace web
 
 class BreadcrumbPersistentStorageKeyedServiceFactory
     : public BrowserStateKeyedServiceFactory {
  public:
   static BreadcrumbPersistentStorageKeyedServiceFactory* GetInstance();
   static BreadcrumbPersistentStorageKeyedService* GetForBrowserState(
-      ios::ChromeBrowserState* browser_state);
+      web::BrowserState* browser_state);
 
  private:
   friend class base::NoDestructor<

@@ -141,6 +141,10 @@ bool MessageCenterImpl::IsQuietMode() const {
   return notification_list_->quiet_mode();
 }
 
+bool MessageCenterImpl::IsSpokenFeedbackEnabled() const {
+  return spoken_feedback_enabled_;
+}
+
 Notification* MessageCenterImpl::FindVisibleNotificationById(
     const std::string& id) {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
@@ -243,10 +247,14 @@ void MessageCenterImpl::RemoveNotification(const std::string& id,
 
   scoped_refptr<NotificationDelegate> delegate =
       notification_list_->GetNotificationDelegate(copied_id);
+
+  // Remove notification before calling the Close method in case it calls
+  // RemoveNotification reentrantly.
+  notification_list_->RemoveNotification(copied_id);
+
   if (delegate.get())
     delegate->Close(by_user);
 
-  notification_list_->RemoveNotification(copied_id);
   visible_notifications_ =
       notification_list_->GetVisibleNotifications(blockers_);
   for (auto& observer : observer_list_)
@@ -411,8 +419,10 @@ void MessageCenterImpl::MarkSinglePopupAsShown(const std::string& id,
 
   if (HasMessageCenterView()) {
     notification_list_->MarkSinglePopupAsShown(id, mark_notification_as_read);
-    for (auto& observer : observer_list_)
+    for (auto& observer : observer_list_) {
       observer.OnNotificationUpdated(id);
+      observer.OnNotificationPopupShown(id, mark_notification_as_read);
+    }
   } else {
     RemoveNotification(id, false);
   }
@@ -445,6 +455,10 @@ void MessageCenterImpl::SetQuietMode(bool in_quiet_mode) {
       observer.OnQuietModeChanged(in_quiet_mode);
   }
   quiet_mode_timer_.reset();
+}
+
+void MessageCenterImpl::SetSpokenFeedbackEnabled(bool enabled) {
+  spoken_feedback_enabled_ = enabled;
 }
 
 void MessageCenterImpl::EnterQuietModeWithExpire(

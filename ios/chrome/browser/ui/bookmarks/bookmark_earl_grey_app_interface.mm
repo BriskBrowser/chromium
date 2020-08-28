@@ -30,7 +30,7 @@
 #pragma mark - Public Interface
 
 + (void)clearBookmarksPositionCache {
-  ios::ChromeBrowserState* browser_state =
+  ChromeBrowserState* browser_state =
       chrome_test_util::GetOriginalBrowserState();
   [BookmarkPathCache
       clearBookmarkTopMostRowCacheWithPrefService:browser_state->GetPrefs()];
@@ -144,6 +144,20 @@
   if (matches.size() != expectedCount)
     return testing::NSErrorWithLocalizedDescription(
         @"Unexpected number of bookmarks");
+
+  return nil;
+}
+
++ (NSError*)addBookmarkWithTitle:(NSString*)title URL:(NSString*)url {
+  if (![BookmarkEarlGreyAppInterface waitForBookmarkModelLoaded:YES])
+    return testing::NSErrorWithLocalizedDescription(
+        @"Bookmark model was not loaded");
+
+  GURL bookmarkURL = GURL(base::SysNSStringToUTF8(url));
+  bookmarks::BookmarkModel* bookmark_model =
+      [BookmarkEarlGreyAppInterface bookmarkModel];
+  bookmark_model->AddURL(bookmark_model->mobile_node(), 0,
+                         base::SysNSStringToUTF16(title), bookmarkURL);
 
   return nil;
 }
@@ -283,7 +297,7 @@
 }
 
 + (NSError*)verifyPromoAlreadySeen:(BOOL)seen {
-  ios::ChromeBrowserState* browserState =
+  ChromeBrowserState* browserState =
       chrome_test_util::GetOriginalBrowserState();
   PrefService* prefs = browserState->GetPrefs();
   if (prefs->GetBoolean(prefs::kIosBookmarkPromoAlreadySeen) == seen) {
@@ -308,16 +322,6 @@
 + (int)numberOfTimesPromoAlreadySeen {
   PrefService* prefs = chrome_test_util::GetOriginalBrowserState()->GetPrefs();
   return prefs->GetInteger(prefs::kIosBookmarkSigninPromoDisplayedCount);
-}
-
-+ (NSString*)setupFakeIdentity {
-  FakeChromeIdentity* identity =
-      [FakeChromeIdentity identityWithEmail:@"foo1@gmail.com"
-                                     gaiaID:@"foo1ID"
-                                       name:@"Fake Foo 1"];
-  ios::FakeChromeIdentityService::GetInstanceFromChromeProvider()->AddIdentity(
-      identity);
-  return identity.userEmail;
 }
 
 #pragma mark - Helpers

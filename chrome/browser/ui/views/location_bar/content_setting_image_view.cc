@@ -13,7 +13,9 @@
 #include "chrome/browser/ui/content_settings/content_setting_image_model.h"
 #include "chrome/browser/ui/view_ids.h"
 #include "chrome/browser/ui/views/content_setting_bubble_contents.h"
-#include "chrome/browser/ui/views/feature_promos/feature_promo_bubble_view.h"
+#include "chrome/browser/ui/views/in_product_help/feature_promo_bubble_params.h"
+#include "chrome/browser/ui/views/in_product_help/feature_promo_bubble_view.h"
+#include "chrome/grit/generated_resources.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/theme_provider.h"
 #include "ui/events/event_utils.h"
@@ -87,15 +89,15 @@ ContentSettingImageView::ContentSettingImageView(
     SetID(*view_id);
 }
 
-ContentSettingImageView::~ContentSettingImageView() {
-}
+ContentSettingImageView::~ContentSettingImageView() {}
 
 void ContentSettingImageView::Update() {
   content::WebContents* web_contents =
       delegate_->GetContentSettingWebContents();
-  // Note: We explicitly want to call this even if |web_contents| is NULL, so we
-  // get hidden properly while the user is editing the omnibox.
-  content_setting_image_model_->Update(web_contents);
+
+  // Calling Update() with a nullptr WebContents will hide the image.
+  content_setting_image_model_->Update(
+      delegate_->ShouldHideContentSettingImage() ? nullptr : web_contents);
   SetTooltipText(content_setting_image_model_->get_tooltip());
 
   if (!content_setting_image_model_->is_visible()) {
@@ -234,13 +236,19 @@ void ContentSettingImageView::AnimationEnded(const gfx::Animation* animation) {
 
   // The promo currently is only used for Notifications, and it is only shown
   // directly after the animation is shown.
-  if (content_setting_image_model_->ShouldShowPromo(web_contents)) {
+  if (web_contents &&
+      content_setting_image_model_->ShouldShowPromo(web_contents)) {
+    FeaturePromoBubbleParams bubble_params;
+    bubble_params.body_string_specifier =
+        IDS_NOTIFICATIONS_QUIET_PERMISSION_NEW_REQUEST_PROMO;
+    bubble_params.anchor_view = this;
+    bubble_params.arrow = views::BubbleBorder::TOP_RIGHT;
+    bubble_params.activation_action =
+        FeaturePromoBubbleParams::ActivationAction::ACTIVATE;
+    bubble_params.preferred_width = promo_width;
+
     // Owned by its native widget. Will be destroyed as its widget is destroyed.
-    indicator_promo_ = FeaturePromoBubbleView::CreateOwned(
-        this, views::BubbleBorder::TOP_RIGHT,
-        FeaturePromoBubbleView::ActivationAction::ACTIVATE,
-        IDS_NOTIFICATIONS_QUIET_PERMISSION_NEW_REQUEST_PROMO, promo_width,
-        base::nullopt, base::nullopt);
+    indicator_promo_ = FeaturePromoBubbleView::Create(std::move(bubble_params));
 
     SetHighlighted(true);
     observer_.Add(indicator_promo_->GetWidget());

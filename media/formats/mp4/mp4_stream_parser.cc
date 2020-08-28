@@ -60,22 +60,6 @@ EncryptionScheme GetEncryptionScheme(const ProtectionSchemeInfo& sinf) {
   return EncryptionScheme::kUnencrypted;
 }
 
-VideoColorSpace ConvertColorParameterInformationToColorSpace(
-    const ColorParameterInformation& info) {
-  auto primary_id =
-      static_cast<VideoColorSpace::PrimaryID>(info.colour_primaries);
-  auto transfer_id =
-      static_cast<VideoColorSpace::TransferID>(info.transfer_characteristics);
-  auto matrix_id =
-      static_cast<VideoColorSpace::MatrixID>(info.matrix_coefficients);
-
-  // Note that we don't check whether the embedded ids are valid.  We rely on
-  // the underlying video decoder to reject any ids that it doesn't support.
-  return VideoColorSpace(primary_id, transfer_id, matrix_id,
-                         info.full_range ? gfx::ColorSpace::RangeID::FULL
-                                         : gfx::ColorSpace::RangeID::LIMITED);
-}
-
 MasteringMetadata ConvertMdcvToMasteringMetadata(
     const MasteringDisplayColorVolume& mdcv) {
   MasteringMetadata mastering_metadata;
@@ -257,8 +241,7 @@ ParseResult MP4StreamParser::ParseBox() {
   } else {
     // TODO(wolenetz,chcunningham): Enforce more strict adherence to MSE byte
     // stream spec for ftyp and styp. See http://crbug.com/504514.
-    DVLOG(2) << "Skipping unrecognized top-level box: "
-             << FourCCToString(reader->type());
+    DVLOG(2) << "Skipping top-level box: " << FourCCToString(reader->type());
   }
 
   queue_.Pop(reader->box_size());
@@ -365,6 +348,7 @@ bool MP4StreamParser::ParseMoov(BoxReader* reader) {
       }
 
       AudioCodec codec = kUnknownAudioCodec;
+      AudioCodecProfile profile = AudioCodecProfile::kUnknown;
       ChannelLayout channel_layout = CHANNEL_LAYOUT_NONE;
       int sample_per_second = 0;
       int codec_delay_in_frames = 0;
@@ -423,6 +407,7 @@ bool MP4StreamParser::ParseMoov(BoxReader* reader) {
         if (ESDescriptor::IsAAC(audio_type)) {
           const AAC& aac = entry.esds.aac;
           codec = kCodecAAC;
+          profile = aac.GetProfile();
           channel_layout = aac.GetChannelLayout(has_sbr_);
           sample_per_second = aac.GetOutputSamplesPerSecond(has_sbr_);
 #if defined(OS_ANDROID)
@@ -478,8 +463,10 @@ bool MP4StreamParser::ParseMoov(BoxReader* reader) {
       audio_config.Initialize(codec, sample_format, channel_layout,
                               sample_per_second, extra_data, scheme,
                               seek_preroll, codec_delay_in_frames);
-      if (codec == kCodecAAC)
+      if (codec == kCodecAAC) {
         audio_config.disable_discard_decoder_delay();
+        audio_config.set_profile(profile);
+      }
 
       DVLOG(1) << "audio_track_id=" << audio_track_id
                << " config=" << audio_config.AsHumanReadableString();
@@ -554,28 +541,25 @@ bool MP4StreamParser::ParseMoov(BoxReader* reader) {
                               EmptyExtraData(), scheme);
       video_config.set_level(entry.video_codec_level);
 
-      if (entry.color_parameter_information) {
-        video_config.set_color_space_info(
-            ConvertColorParameterInformationToColorSpace(
-                *entry.color_parameter_information));
+      if (entry.video_color_space.IsSpecified())
+        video_config.set_color_space_info(entry.video_color_space);
 
-        if (entry.mastering_display_color_volume ||
-            entry.content_light_level_information) {
-          HDRMetadata hdr_metadata;
-          if (entry.mastering_display_color_volume) {
-            hdr_metadata.mastering_metadata = ConvertMdcvToMasteringMetadata(
-                *entry.mastering_display_color_volume);
-          }
-
-          if (entry.content_light_level_information) {
-            hdr_metadata.max_content_light_level =
-                entry.content_light_level_information->max_content_light_level;
-            hdr_metadata.max_frame_average_light_level =
-                entry.content_light_level_information
-                    ->max_pic_average_light_level;
-          }
-          video_config.set_hdr_metadata(hdr_metadata);
+      if (entry.mastering_display_color_volume ||
+          entry.content_light_level_information) {
+        HDRMetadata hdr_metadata;
+        if (entry.mastering_display_color_volume) {
+          hdr_metadata.mastering_metadata = ConvertMdcvToMasteringMetadata(
+              *entry.mastering_display_color_volume);
         }
+
+        if (entry.content_light_level_information) {
+          hdr_metadata.max_content_light_level =
+              entry.content_light_level_information->max_content_light_level;
+          hdr_metadata.max_frame_average_light_level =
+              entry.content_light_level_information
+                  ->max_pic_average_light_level;
+        }
+        video_config.set_hdr_metadata(hdr_metadata);
       }
 
       DVLOG(1) << "video_track_id=" << video_track_id

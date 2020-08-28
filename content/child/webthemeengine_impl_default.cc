@@ -107,6 +107,8 @@ static void GetNativeThemeExtraParams(
       native_theme_extra_params->slider.thumb_x = extra_params->slider.thumb_x;
       native_theme_extra_params->slider.thumb_y = extra_params->slider.thumb_y;
       native_theme_extra_params->slider.zoom = extra_params->slider.zoom;
+      native_theme_extra_params->slider.right_to_left =
+          extra_params->slider.right_to_left;
       FALLTHROUGH;
       // vertical and in_drag properties are used by both slider track and
       // slider thumb.
@@ -248,19 +250,6 @@ void WebThemeEngineDefault::SetForcedColors(
     const blink::ForcedColors forced_colors) {
   ui::NativeTheme::GetInstanceForWeb()->set_high_contrast(
       forced_colors == blink::ForcedColors::kActive);
-}
-
-blink::PreferredColorScheme WebThemeEngineDefault::PreferredColorScheme()
-    const {
-  ui::NativeTheme::PreferredColorScheme preferred_color_scheme =
-      ui::NativeTheme::GetInstanceForWeb()->GetPreferredColorScheme();
-  return WebPreferredColorScheme(preferred_color_scheme);
-}
-
-void WebThemeEngineDefault::SetPreferredColorScheme(
-    const blink::PreferredColorScheme preferred_color_scheme) {
-  ui::NativeTheme::GetInstanceForWeb()->set_preferred_color_scheme(
-      NativePreferredColorScheme(preferred_color_scheme));
 }
 
 }  // namespace content

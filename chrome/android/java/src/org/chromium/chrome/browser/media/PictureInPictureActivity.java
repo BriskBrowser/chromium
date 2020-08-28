@@ -28,10 +28,10 @@ import org.chromium.chrome.R;
 import org.chromium.chrome.browser.init.AsyncInitializationActivity;
 import org.chromium.chrome.browser.tab.EmptyTabObserver;
 import org.chromium.chrome.browser.tab.Tab;
-import org.chromium.chrome.browser.tab.TabImpl;
-import org.chromium.chrome.browser.thinwebview.CompositorView;
-import org.chromium.chrome.browser.thinwebview.CompositorViewFactory;
-import org.chromium.chrome.browser.thinwebview.ThinWebViewConstraints;
+import org.chromium.chrome.browser.tab.TabUtils;
+import org.chromium.components.thinwebview.CompositorView;
+import org.chromium.components.thinwebview.CompositorViewFactory;
+import org.chromium.components.thinwebview.ThinWebViewConstraints;
 import org.chromium.content_public.browser.MediaSession;
 import org.chromium.content_public.browser.MediaSessionObserver;
 import org.chromium.ui.base.ActivityWindowAndroid;
@@ -138,6 +138,7 @@ public class PictureInPictureActivity extends AsyncInitializationActivity {
     }
 
     @Override
+    @SuppressLint("NewAPI") // Picture-in-Picture API will not be enabled for oldver versions.
     public void onStart() {
         super.onStart();
 
@@ -265,7 +266,7 @@ public class PictureInPictureActivity extends AsyncInitializationActivity {
 
         sNativeOverlayWindowAndroid = nativeOverlayWindowAndroid;
         sInitiatorTab = (Tab) initiatorTab;
-        sInitiatorTabTaskID = ((TabImpl) sInitiatorTab).getActivity().getTaskId();
+        sInitiatorTabTaskID = TabUtils.getActivity(sInitiatorTab).getTaskId();
 
         sTabObserver = new InitiatorTabObserver();
         sInitiatorTab.addObserver(sTabObserver);

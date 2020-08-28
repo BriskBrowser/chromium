@@ -5,6 +5,7 @@
 #include "ui/views/bubble/bubble_frame_view.h"
 
 #include <memory>
+#include <utility>
 
 #include "base/macros.h"
 #include "base/strings/utf_string_conversions.h"
@@ -56,6 +57,8 @@ class TestBubbleFrameViewWidgetDelegate : public WidgetDelegate {
   ~TestBubbleFrameViewWidgetDelegate() override = default;
 
   // WidgetDelegate:
+  Widget* GetWidget() override { return widget_; }
+  const Widget* GetWidget() const override { return widget_; }
   View* GetContentsView() override {
     if (!contents_view_) {
       StaticSizedView* contents_view =
@@ -73,9 +76,6 @@ class TestBubbleFrameViewWidgetDelegate : public WidgetDelegate {
   }
 
  private:
-  // WidgetDelegate:
-  const Widget* GetWidgetImpl() const override { return widget_; }
-
   Widget* const widget_;
   View* contents_view_ = nullptr;  // Owned by |widget_|.
   bool should_show_close_ = false;
@@ -115,6 +115,10 @@ class TestBubbleFrameView : public BubbleFrameView {
   }
 
   // BubbleFrameView:
+  Widget* GetWidget() override { return widget_.get(); }
+
+  const Widget* GetWidget() const override { return widget_.get(); }
+
   gfx::Rect GetAvailableScreenBounds(const gfx::Rect& rect) const override {
     return available_bounds_;
   }
@@ -128,9 +132,6 @@ class TestBubbleFrameView : public BubbleFrameView {
   }
 
  private:
-  // BubbleFrameView:
-  const Widget* GetWidgetImpl() const override { return widget_.get(); }
-
   const gfx::Rect available_bounds_ = gfx::Rect(0, 0, 1000, 1000);
   gfx::Rect available_anchor_window_bounds_;
 
@@ -907,6 +908,7 @@ class TestBubbleDialogDelegateView : public BubbleDialogDelegateView {
       : BubbleDialogDelegateView(nullptr, BubbleBorder::NONE) {
     set_shadow(BubbleBorder::NO_ASSETS);
     SetAnchorRect(gfx::Rect());
+    DialogDelegate::SetButtons(ui::DIALOG_BUTTON_OK);
   }
   ~TestBubbleDialogDelegateView() override = default;
 
@@ -938,7 +940,6 @@ class TestBubbleDialogDelegateView : public BubbleDialogDelegateView {
     // itself here. But DialogDelegates shouldn't be reused, so check for that.
     destroyed_ = true;
   }
-  int GetDialogButtons() const override { return ui::DIALOG_BUTTON_OK; }
   gfx::Size CalculatePreferredSize() const override {
     return gfx::Size(200, 200);
   }
@@ -977,8 +978,9 @@ class TestAnchor {
 // BubbleDialogDelegate with no margins to test width snapping.
 class TestWidthSnapDelegate : public TestBubbleDialogDelegateView {
  public:
-  TestWidthSnapDelegate(TestAnchor* anchor, bool should_snap)
-      : should_snap_(should_snap) {
+  TestWidthSnapDelegate(TestAnchor* anchor, bool should_snap) {
+    DialogDelegate::SetButtons(should_snap ? ui::DIALOG_BUTTON_OK
+                                            : ui::DIALOG_BUTTON_NONE);
     SetAnchorView(anchor->widget().GetContentsView());
     set_margins(gfx::Insets());
     BubbleDialogDelegateView::CreateBubble(this);
@@ -987,15 +989,7 @@ class TestWidthSnapDelegate : public TestBubbleDialogDelegateView {
 
   ~TestWidthSnapDelegate() override { GetWidget()->CloseNow(); }
 
-  // TestBubbleDialogDelegateView:
-  int GetDialogButtons() const override {
-    // Only dialogs with buttons get snapped by BubbleFrameView.
-    return should_snap_ ? ui::DIALOG_BUTTON_OK : ui::DIALOG_BUTTON_NONE;
-  }
-
  private:
-  bool should_snap_;
-
   DISALLOW_COPY_AND_ASSIGN(TestWidthSnapDelegate);
 };
 
@@ -1243,10 +1237,11 @@ TEST_F(BubbleFrameViewTest, NoElideTitle) {
 }
 
 // Ensures that clicks are ignored for short time after view has been shown.
-TEST_F(BubbleFrameViewTest, IgnorePossiblyUnintendedClicks) {
+TEST_F(BubbleFrameViewTest, IgnorePossiblyUnintendedClicksClose) {
   TestBubbleDialogDelegateView delegate;
   TestAnchor anchor(CreateParams(Widget::InitParams::TYPE_WINDOW));
   delegate.SetAnchorView(anchor.widget().GetContentsView());
+  delegate.SetShouldShowCloseButton(true);
   Widget* bubble = BubbleDialogDelegateView::CreateBubble(&delegate);
   bubble->Show();
 
@@ -1264,6 +1259,31 @@ TEST_F(BubbleFrameViewTest, IgnorePossiblyUnintendedClicks) {
                                                  GetDoubleClickInterval()),
                      ui::EF_NONE, ui::EF_NONE));
   EXPECT_TRUE(bubble->IsClosed());
+}
+
+// Ensures that clicks are ignored for short time after view has been shown.
+TEST_F(BubbleFrameViewTest, IgnorePossiblyUnintendedClicksMinimize) {
+  TestBubbleDialogDelegateView delegate;
+  TestAnchor anchor(CreateParams(Widget::InitParams::TYPE_WINDOW));
+  delegate.SetAnchorView(anchor.widget().GetContentsView());
+  delegate.SetCanMinimize(true);
+  Widget* bubble = BubbleDialogDelegateView::CreateBubble(&delegate);
+  bubble->Show();
+
+  BubbleFrameView* frame = delegate.GetBubbleFrameView();
+  frame->ButtonPressed(
+      frame->minimize_,
+      ui::MouseEvent(ui::ET_MOUSE_PRESSED, gfx::Point(), gfx::Point(),
+                     ui::EventTimeForNow(), ui::EF_NONE, ui::EF_NONE));
+  EXPECT_FALSE(bubble->IsClosed());
+
+  frame->ButtonPressed(
+      frame->minimize_,
+      ui::MouseEvent(ui::ET_MOUSE_PRESSED, gfx::Point(), gfx::Point(),
+                     ui::EventTimeForNow() + base::TimeDelta::FromMilliseconds(
+                                                 GetDoubleClickInterval()),
+                     ui::EF_NONE, ui::EF_NONE));
+  EXPECT_TRUE(bubble->IsMinimized());
 }
 
 // Ensures that layout is correct when the progress indicator is visible.

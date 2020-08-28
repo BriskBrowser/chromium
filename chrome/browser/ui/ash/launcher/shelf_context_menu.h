@@ -8,7 +8,6 @@
 #include "ash/public/cpp/app_menu_constants.h"
 #include "ash/public/cpp/shelf_item.h"
 #include "base/macros.h"
-#include "chrome/browser/ui/app_list/extension_uninstaller.h"
 #include "ui/base/models/simple_menu_model.h"
 #include "ui/gfx/vector_icon_types.h"
 
@@ -36,6 +35,10 @@ class ShelfContextMenu : public ui::SimpleMenuModel::Delegate {
   bool IsCommandIdEnabled(int command_id) const override;
   void ExecuteCommand(int command_id, int event_flags) override;
 
+  // Helper method to get the gfx::VectorIcon for a |type|. Returns an empty
+  // gfx::VectorIcon if there is no icon for this |type|.
+  const gfx::VectorIcon& GetCommandIdVectorIcon(int type, int string_id) const;
+
  protected:
   ShelfContextMenu(ChromeLauncherController* controller,
                    const ash::ShelfItem* item,
@@ -54,11 +57,6 @@ class ShelfContextMenu : public ui::SimpleMenuModel::Delegate {
   void AddContextMenuOption(ui::SimpleMenuModel* menu_model,
                             ash::CommandId type,
                             int string_id);
-
-  // Helper method to get the gfx::VectorIcon for a |type|. Returns an empty
-  // gfx::VectorIcon if there is no icon for this |type|.
-  const gfx::VectorIcon& GetCommandIdVectorIcon(ash::CommandId type,
-                                                int string_id) const;
 
   int64_t display_id() const { return display_id_; }
 

@@ -10,6 +10,7 @@
 
 #include "base/debug/alias.h"
 #include "base/memory/ref_counted.h"
+#include "base/strings/strcat.h"
 #include "content/public/common/url_constants.h"
 #include "content/public/renderer/render_frame.h"
 #include "content/public/renderer/render_thread.h"
@@ -214,8 +215,9 @@ std::unique_ptr<ScriptInjection> UserScriptSet::GetInjectionForScript(
     injection_host.reset(new WebUIInjectionHost(host_id));
   }
 
-  GURL effective_document_url = ScriptContext::GetEffectiveDocumentURL(
-      web_frame, document_url, script->match_about_blank());
+  GURL effective_document_url =
+      ScriptContext::GetEffectiveDocumentURLForInjection(
+          web_frame, document_url, script->match_origin_as_fallback());
 
   bool is_subframe = web_frame->Parent();
   if (!script->MatchesDocument(effective_document_url, is_subframe))
@@ -254,12 +256,8 @@ blink::WebString UserScriptSet::GetJsSource(const UserScript::File& file,
     // We add this dumb function wrapper for user scripts to emulate what
     // Greasemonkey does. |script_content| becomes:
     // concat(kUserScriptHead, script_content, kUserScriptTail).
-    std::string content;
-    content.reserve(strlen(kUserScriptHead) + script_content.length() +
-                    strlen(kUserScriptTail));
-    content.append(kUserScriptHead);
-    script_content.AppendToString(&content);
-    content.append(kUserScriptTail);
+    std::string content =
+        base::StrCat({kUserScriptHead, script_content, kUserScriptTail});
     source = blink::WebString::FromUTF8(content);
   } else {
     source = blink::WebString::FromUTF8(script_content.data(),

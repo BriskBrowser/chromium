@@ -13,6 +13,7 @@
 #import "components/content_settings/core/common/content_settings.h"
 #include "components/sync/base/model_type.h"
 #import "ios/testing/earl_grey/base_eg_test_helper_impl.h"
+#include "third_party/metrics_proto/user_demographics.pb.h"
 #include "url/gurl.h"
 
 @class ElementSelector;
@@ -37,6 +38,11 @@ id ExecuteJavaScript(NSString* javascript, NSError* __autoreleasing* out_error);
 // Chrome's internal state programmatically or via the UI, but in both cases
 // will properly synchronize the UI for Earl Grey tests.
 @interface ChromeEarlGreyImpl : BaseEGTestHelperImpl
+
+#pragma mark - Test Utilities
+
+// Wait until |matcher| is accessible (not nil) on the device.
+- (void)waitForMatcher:(id<GREYMatcher>)matcher;
 
 #pragma mark - Device Utilities
 
@@ -74,6 +80,9 @@ id ExecuteJavaScript(NSString* javascript, NSError* __autoreleasing* out_error);
 // Clears browsing history. Raises an EarlGrey exception if history is not
 // cleared within a timeout.
 - (void)clearBrowsingHistory;
+
+// Gets the number of entries in the browsing history database.
+- (NSInteger)getBrowsingHistoryEntryCount;
 
 // Clears browsing cache. Raises an EarlGrey exception if history is not
 // cleared within a timeout.
@@ -133,6 +142,10 @@ id ExecuteJavaScript(NSString* javascript, NSError* __autoreleasing* out_error);
 // GREYAssert is induced.
 - (void)waitForIncognitoTabCount:(NSUInteger)count;
 
+// Waits for there to be |count| number of browsers within a timeout,
+// or a GREYAssert is induced.
+- (void)waitForBrowserCount:(NSUInteger)count;
+
 // Loads |URL| as if it was opened from an external application.
 - (void)openURLFromExternalApp:(const GURL&)URL;
 
@@ -155,14 +168,22 @@ id ExecuteJavaScript(NSString* javascript, NSError* __autoreleasing* out_error);
 // Stops the sync server. The server should be running when calling this.
 - (void)stopSync;
 
+// Injects user demographics into the fake sync server. |rawBirthYear| is the
+// true birth year, pre-noise, and the gender corresponds to the proto enum
+// UserDemographicsProto::Gender.
+- (void)
+    addUserDemographicsToSyncServerWithBirthYear:(int)rawBirthYear
+                                          gender:
+                                              (metrics::UserDemographicsProto::
+                                                   Gender)gender;
+
 // Clears the autofill profile for the given |GUID|.
 - (void)clearAutofillProfileWithGUID:(const std::string&)GUID;
 
 // Injects an autofill profile into the fake sync server with |GUID| and
 // |full_name|.
-- (void)injectAutofillProfileOnFakeSyncServerWithGUID:(const std::string&)GUID
-                                  autofillProfileName:
-                                      (const std::string&)fullName;
+- (void)addAutofillProfileToFakeSyncServerWithGUID:(const std::string&)GUID
+                               autofillProfileName:(const std::string&)fullName;
 
 // Returns YES if there is an autofilll profile with the corresponding |GUID|
 // and |full_name|.
@@ -190,6 +211,14 @@ id ExecuteJavaScript(NSString* javascript, NSError* __autoreleasing* out_error);
 - (void)addFakeSyncServerBookmarkWithURL:(const GURL&)URL
                                    title:(const std::string&)title;
 
+// Injects a legacy bookmark into the fake sync server. The legacy bookmark
+// means 2015 and earlier, prior to the adoption of GUIDs for originator client
+// item ID.
+- (void)addFakeSyncServerLegacyBookmarkWithURL:(const GURL&)URL
+                                         title:(const std::string&)title
+                     originator_client_item_id:
+                         (const std::string&)originator_client_item_id;
+
 // Injects typed URL to sync FakeServer.
 - (void)addFakeSyncServerTypedURL:(const GURL&)URL;
 
@@ -198,7 +227,8 @@ id ExecuteJavaScript(NSString* javascript, NSError* __autoreleasing* out_error);
 
 // Deletes an autofill profile from the fake sync server with |GUID|, if it
 // exists. If it doesn't exist, nothing is done.
-- (void)deleteAutofillProfileOnFakeSyncServerWithGUID:(const std::string&)GUID;
+- (void)deleteAutofillProfileFromFakeSyncServerWithGUID:
+    (const std::string&)GUID;
 
 // Verifies the sessions hierarchy on the Sync FakeServer. |URLs| is
 // the collection of URLs that are to be expected for a single window. A
@@ -228,6 +258,9 @@ id ExecuteJavaScript(NSString* javascript, NSError* __autoreleasing* out_error);
 
 // Simulates opening http://www.example.com/ from another application.
 - (void)simulateExternalAppURLOpening;
+
+// Simulates opening the add account sign-in flow from the web.
+- (void)simulateAddAccountFromWeb;
 
 // Closes the current tab and waits for the UI to complete.
 - (void)closeCurrentTab;
@@ -269,6 +302,9 @@ id ExecuteJavaScript(NSString* javascript, NSError* __autoreleasing* out_error);
 
 // Returns the number of incognito tabs.
 - (NSUInteger)incognitoTabCount WARN_UNUSED_RESULT;
+
+// Returns the number of browsers.
+- (NSUInteger)browserCount WARN_UNUSED_RESULT;
 
 // Returns the index of active tab in normal (non-incognito) mode.
 - (NSUInteger)indexOfActiveNormalTab;
@@ -315,7 +351,7 @@ id ExecuteJavaScript(NSString* javascript, NSError* __autoreleasing* out_error);
 // Signs the user out, clears the known accounts entirely and checks whether the
 // accounts were correctly removed from the keychain. Induces a GREYAssert if
 // the operation fails.
-- (void)signOutAndClearAccounts;
+- (void)signOutAndClearIdentities;
 
 #pragma mark - Sync Utilities (EG2)
 
@@ -327,6 +363,10 @@ id ExecuteJavaScript(NSString* javascript, NSError* __autoreleasing* out_error);
 // Returns the current sync cache GUID. The sync server must be running when
 // calling this.
 - (std::string)syncCacheGUID;
+
+// Adds a bookmark with a sync passphrase. The sync server will need the sync
+// passphrase to start.
+- (void)addBookmarkWithSyncPassphrase:(NSString*)syncPassphrase;
 
 #pragma mark - WebState Utilities (EG2)
 
@@ -351,6 +391,10 @@ id ExecuteJavaScript(NSString* javascript, NSError* __autoreleasing* out_error);
 // Waits for the current web state to contain |UTF8Text|. If the condition is
 // not met within a timeout a GREYAssert is induced.
 - (void)waitForWebStateContainingText:(const std::string&)UTF8Text;
+
+// Waits for the main frame or an iframe to contain |UTF8Text|. If the condition
+// is not met within a timeout a GREYAssert is induced.
+- (void)waitForWebStateFrameContainingText:(const std::string&)UTF8Text;
 
 // Waits for the current web state to contain |UTF8Text|. If the condition is
 // not met within the given |timeout| a GREYAssert is induced.
@@ -441,9 +485,6 @@ id ExecuteJavaScript(NSString* javascript, NSError* __autoreleasing* out_error);
 // Returns YES if BlockNewTabPagePendingLoad feature is enabled.
 - (BOOL)isBlockNewTabPagePendingLoadEnabled WARN_UNUSED_RESULT;
 
-// Returns YES if NewOmniboxPopupLayout feature is enabled.
-- (BOOL)isNewOmniboxPopupLayoutEnabled WARN_UNUSED_RESULT;
-
 // Returns YES if |variationID| is enabled.
 - (BOOL)isVariationEnabled:(int)variationID;
 
@@ -456,16 +497,31 @@ id ExecuteJavaScript(NSString* javascript, NSError* __autoreleasing* out_error);
 // Returns YES if UKM feature is enabled.
 - (BOOL)isUKMEnabled WARN_UNUSED_RESULT;
 
+// Returns YES if kTestFeature is enabled.
+- (BOOL)isTestFeatureEnabled;
+
 // Returns YES if CreditCardScanner feature is enabled.
 - (BOOL)isCreditCardScannerEnabled WARN_UNUSED_RESULT;
 
 // Returns YES if AutofillEnableCompanyName feature is enabled.
 - (BOOL)isAutofillCompanyNameEnabled WARN_UNUSED_RESULT;
 
+// Returns YES if kChangeTabSwitcherPosition feature is enabled.
+- (BOOL)isChangeTabSwitcherPositionEnabled WARN_UNUSED_RESULT;
+
+// Returns YES if DemographicMetricsReporting feature is enabled.
+- (BOOL)isDemographicMetricsReportingEnabled WARN_UNUSED_RESULT;
+
+// Returns YES if the |launchSwitch| is found in host app launch switches.
+- (BOOL)appHasLaunchSwitch:(const std::string&)launchSwitch;
+
 // Returns YES if custom WebKit frameworks were properly loaded, rather than
 // system frameworks. Always returns YES if the app was not requested to run
 // with custom WebKit frameworks.
 - (BOOL)isCustomWebKitLoadedIfRequested WARN_UNUSED_RESULT;
+
+// Returns whether the mobile version of the websites are requested by default.
+- (BOOL)isMobileModeByDefault WARN_UNUSED_RESULT;
 
 #pragma mark - Popup Blocking
 
@@ -492,12 +548,27 @@ id ExecuteJavaScript(NSString* javascript, NSError* __autoreleasing* out_error);
 
 #pragma mark - Pref Utilities (EG2)
 
+// Gets the value of a local state pref.
+- (bool)localStateBooleanPref:(const std::string&)prefName;
+- (int)localStateIntegerPref:(const std::string&)prefName;
+- (std::string)localStateStringPref:(const std::string&)prefName;
+
+// Gets the value of a user pref in the original browser state.
+- (bool)userBooleanPref:(const std::string&)prefName;
+- (int)userIntegerPref:(const std::string&)prefName;
+- (std::string)userStringPref:(const std::string&)prefName;
+
 // Sets the value of a boolean user pref in the original browser state.
 - (void)setBoolValue:(BOOL)value forUserPref:(const std::string&)UTF8PrefName;
 
 // Resets the BrowsingDataPrefs, which defines if its selected or not when
 // clearing Browsing data.
 - (void)resetBrowsingDataPrefs;
+
+#pragma mark - Unified Consent utilities
+
+// Enables or disables URL-keyed anonymized data collection.
+- (void)setURLKeyedAnonymizedDataCollectionEnabled:(BOOL)enabled;
 
 @end
 

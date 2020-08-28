@@ -6,23 +6,25 @@ package org.chromium.chrome.browser.contextmenu;
 
 import static org.hamcrest.CoreMatchers.equalTo;
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.greaterThan;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
 
 import android.graphics.Bitmap;
 import android.graphics.drawable.BitmapDrawable;
-import android.support.test.annotation.UiThreadTest;
-import android.support.test.filters.SmallTest;
 import android.text.TextUtils;
 import android.view.View;
 import android.widget.ImageView;
 import android.widget.TextView;
+
+import androidx.test.filters.SmallTest;
 
 import org.junit.BeforeClass;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
 import org.chromium.chrome.R;
+import org.chromium.chrome.browser.performance_hints.PerformanceHintsObserver.PerformanceClass;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.ui.modelutil.PropertyModel;
@@ -44,6 +46,7 @@ public class RevampedContextMenuHeaderViewTest extends DummyUiActivityTestCase {
     private View mTitleAndUrl;
     private ImageView mImage;
     private View mCircleBg;
+    private View mPerformanceInfo;
     private PropertyModel mModel;
     private PropertyModelChangeProcessor mMCP;
 
@@ -63,28 +66,31 @@ public class RevampedContextMenuHeaderViewTest extends DummyUiActivityTestCase {
             mTitleAndUrl = mHeaderView.findViewById(R.id.title_and_url);
             mImage = mHeaderView.findViewById(R.id.menu_header_image);
             mCircleBg = mHeaderView.findViewById(R.id.circle_background);
+            mPerformanceInfo = mHeaderView.findViewById(R.id.menu_header_performance_info);
+            mModel = new PropertyModel.Builder(RevampedContextMenuHeaderProperties.ALL_KEYS)
+                             .with(RevampedContextMenuHeaderProperties.TITLE, "")
+                             .with(RevampedContextMenuHeaderProperties.URL, "")
+                             .with(RevampedContextMenuHeaderProperties.TITLE_AND_URL_CLICK_LISTENER,
+                                     null)
+                             .with(RevampedContextMenuHeaderProperties.IMAGE, null)
+                             .with(RevampedContextMenuHeaderProperties.CIRCLE_BG_VISIBLE, false)
+                             .with(RevampedContextMenuHeaderProperties.URL_PERFORMANCE_CLASS,
+                                     PerformanceClass.PERFORMANCE_UNKNOWN)
+                             .build();
+
+            mMCP = PropertyModelChangeProcessor.create(
+                    mModel, mHeaderView, RevampedContextMenuHeaderViewBinder::bind);
         });
-        mModel = new PropertyModel.Builder(RevampedContextMenuHeaderProperties.ALL_KEYS)
-                         .with(RevampedContextMenuHeaderProperties.TITLE, "")
-                         .with(RevampedContextMenuHeaderProperties.URL, "")
-                         .with(RevampedContextMenuHeaderProperties.TITLE_AND_URL_CLICK_LISTENER,
-                                 null)
-                         .with(RevampedContextMenuHeaderProperties.IMAGE, null)
-                         .with(RevampedContextMenuHeaderProperties.CIRCLE_BG_VISIBLE, false)
-                         .build();
-        mMCP = PropertyModelChangeProcessor.create(
-                mModel, mHeaderView, RevampedContextMenuHeaderViewBinder::bind);
     }
 
     @Override
     public void tearDownTest() throws Exception {
-        mMCP.destroy();
+        TestThreadUtils.runOnUiThreadBlocking(mMCP::destroy);
         super.tearDownTest();
     }
 
     @Test
     @SmallTest
-    @UiThreadTest
     public void testTitle() {
         assertThat(
                 "Incorrect initial title visibility.", mTitle.getVisibility(), equalTo(View.GONE));
@@ -103,7 +109,6 @@ public class RevampedContextMenuHeaderViewTest extends DummyUiActivityTestCase {
 
     @Test
     @SmallTest
-    @UiThreadTest
     public void testUrl() {
         assertThat("Incorrect initial URL visibility.", mUrl.getVisibility(), equalTo(View.GONE));
 
@@ -129,7 +134,6 @@ public class RevampedContextMenuHeaderViewTest extends DummyUiActivityTestCase {
 
     @Test
     @SmallTest
-    @UiThreadTest
     public void testTitleAndUrlClick() {
         // Clicking on the title or the URL expands/shrinks both of them.
         assertFalse("Title and URL have onClickListeners when it shouldn't, yet, have.",
@@ -174,7 +178,6 @@ public class RevampedContextMenuHeaderViewTest extends DummyUiActivityTestCase {
 
     @Test
     @SmallTest
-    @UiThreadTest
     public void testImage() {
         assertThat("Incorrect initial circle background visibility.", mCircleBg.getVisibility(),
                 equalTo(View.INVISIBLE));
@@ -190,5 +193,32 @@ public class RevampedContextMenuHeaderViewTest extends DummyUiActivityTestCase {
                 () -> mModel.set(RevampedContextMenuHeaderProperties.IMAGE, bitmap));
         assertThat("Incorrect thumbnail bitmap.",
                 ((BitmapDrawable) mImage.getDrawable()).getBitmap(), equalTo(bitmap));
+    }
+
+    @Test
+    @SmallTest
+    public void testPerformanceInfo() {
+        assertThat("Incorrect initial performance info visibility.",
+                mPerformanceInfo.getVisibility(), equalTo(View.GONE));
+
+        TestThreadUtils.runOnUiThreadBlocking(() -> {
+            mModel.set(RevampedContextMenuHeaderProperties.URL_PERFORMANCE_CLASS,
+                    PerformanceClass.PERFORMANCE_FAST);
+        });
+
+        assertThat("Incorrect performance info visibility for FAST performance class.",
+                mPerformanceInfo.getVisibility(), equalTo(View.VISIBLE));
+
+        TextView performanceText = mHeaderView.findViewById(R.id.performance_info_text);
+        assertThat("Performance info text is empty.", performanceText.getText().length(),
+                greaterThan(0));
+
+        TestThreadUtils.runOnUiThreadBlocking(() -> {
+            mModel.set(RevampedContextMenuHeaderProperties.URL_PERFORMANCE_CLASS,
+                    PerformanceClass.PERFORMANCE_SLOW);
+        });
+
+        assertThat("Incorrect performance info visibility for SLOW performance class.",
+                mPerformanceInfo.getVisibility(), equalTo(View.GONE));
     }
 }

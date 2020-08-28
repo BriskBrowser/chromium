@@ -20,9 +20,9 @@ std::unique_ptr<views::View> CreateOriginLabel(int message_id,
       url_formatter::FormatOriginForSecurityDisplay(
           origin, url_formatter::SchemeDisplay::OMIT_CRYPTOGRAPHIC);
   size_t offset;
-  auto label = std::make_unique<views::StyledLabel>(
-      l10n_util::GetStringFUTF16(message_id, formatted_origin, &offset),
-      nullptr);
+  auto label = std::make_unique<views::StyledLabel>();
+  label->SetText(
+      l10n_util::GetStringFUTF16(message_id, formatted_origin, &offset));
   label->SetTextContext(text_context);
   label->SetDefaultTextStyle(show_emphasis ? views::style::STYLE_SECONDARY
                                            : views::style::STYLE_PRIMARY);
@@ -47,11 +47,10 @@ std::unique_ptr<views::View> CreateOriginPathLabel(int message_id,
           origin, url_formatter::SchemeDisplay::OMIT_CRYPTOGRAPHIC);
   base::string16 formatted_path = path.BaseName().LossyDisplayName();
   std::vector<size_t> offsets;
-  auto label = std::make_unique<views::StyledLabel>(
-      l10n_util::GetStringFUTF16(message_id, formatted_origin, formatted_path,
-                                 &offsets),
-      nullptr);
-  DCHECK_EQ(2U, offsets.size());
+  auto label = std::make_unique<views::StyledLabel>();
+  label->SetText(l10n_util::GetStringFUTF16(message_id, formatted_origin,
+                                            formatted_path, &offsets));
+  DCHECK_GE(offsets.size(), 2u);
 
   label->SetTextContext(text_context);
   label->SetDefaultTextStyle(show_emphasis ? views::style::STYLE_SECONDARY
@@ -61,9 +60,12 @@ std::unique_ptr<views::View> CreateOriginPathLabel(int message_id,
   if (show_emphasis) {
     views::StyledLabel::RangeStyleInfo origin_style;
     origin_style.text_style = STYLE_EMPHASIZED_SECONDARY;
-    label->AddStyleRange(
-        gfx::Range(offsets[0], offsets[0] + formatted_origin.length()),
-        origin_style);
+    // All but the last offset should be the origin.
+    for (size_t i = 0; i < offsets.size() - 1; ++i) {
+      label->AddStyleRange(
+          gfx::Range(offsets[i], offsets[i] + formatted_origin.length()),
+          origin_style);
+    }
   }
 
   views::StyledLabel::RangeStyleInfo path_style;
@@ -71,7 +73,8 @@ std::unique_ptr<views::View> CreateOriginPathLabel(int message_id,
     path_style.text_style = STYLE_EMPHASIZED_SECONDARY;
   path_style.tooltip = path.LossyDisplayName();
   label->AddStyleRange(
-      gfx::Range(offsets[1], offsets[1] + formatted_path.length()), path_style);
+      gfx::Range(offsets.back(), offsets.back() + formatted_path.length()),
+      path_style);
 
   return label;
 }

@@ -9,7 +9,6 @@
 #include "components/offline_pages/core/prefetch/prefetch_request_test_base.h"
 #include "components/offline_pages/core/prefetch/prefetch_types.h"
 #include "net/http/http_status_code.h"
-#include "net/url_request/url_request_status.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "url/gurl.h"
 
@@ -21,8 +20,13 @@ using testing::SaveArg;
 namespace offline_pages {
 
 namespace {
-const GURL kTestURL("http://exmaple.org");
 const char kTestMessage[] = "Testing";
+
+// TODO(https://crbug.com/1042727): Fix test GURL scoping and remove this getter
+// function.
+GURL TestURL() {
+  return GURL("http://example.org");
+}
 }  // namespace
 
 class PrefetchRequestFetcherTest : public PrefetchRequestTestBase {
@@ -90,7 +94,7 @@ PrefetchRequestStatus PrefetchRequestFetcherTest::RunFetcher(
   base::MockCallback<PrefetchRequestFetcher::FinishedCallback> callback;
   std::unique_ptr<PrefetchRequestFetcher> fetcher =
       PrefetchRequestFetcher::CreateForPost(
-          kTestURL, kTestMessage, /*testing_header_value=*/"", empty_request_,
+          TestURL(), kTestMessage, /*testing_header_value=*/"", empty_request_,
           shared_url_loader_factory(), callback.Get());
 
   PrefetchRequestStatus status;

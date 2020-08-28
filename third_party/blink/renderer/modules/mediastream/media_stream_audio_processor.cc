@@ -368,8 +368,7 @@ void MediaStreamAudioProcessor::OnStartDump(base::File dump_file) {
   } else {
     // Post the file close to avoid blocking the main thread.
     worker_pool::PostTask(
-        FROM_HERE,
-        {base::ThreadPool(), base::TaskPriority::LOWEST, base::MayBlock()},
+        FROM_HERE, {base::TaskPriority::LOWEST, base::MayBlock()},
         CrossThreadBindOnce([](base::File) {}, std::move(dump_file)));
   }
 }
@@ -604,6 +603,7 @@ void MediaStreamAudioProcessor::InitializeAudioProcessingModule(
     blink::EnableTypingDetection(&apm_config, typing_detector_.get());
   }
 
+  apm_config.residual_echo_detector.enabled = false;
   audio_processing_->ApplyConfig(apm_config);
 }
 

@@ -40,6 +40,7 @@
 #include "third_party/blink/renderer/core/paint/table_cell_paint_invalidator.h"
 #include "third_party/blink/renderer/core/paint/table_cell_painter.h"
 #include "third_party/blink/renderer/platform/geometry/float_quad.h"
+#include "third_party/blink/renderer/platform/wtf/size_assertions.h"
 
 namespace blink {
 
@@ -50,10 +51,13 @@ struct SameSizeAsLayoutTableCell : public LayoutBlockFlow,
   void* pointer1;
 };
 
-static_assert(sizeof(LayoutTableCell) == sizeof(SameSizeAsLayoutTableCell),
-              "LayoutTableCell should stay small");
-static_assert(sizeof(CollapsedBorderValue) == 8,
-              "CollapsedBorderValue should stay small");
+struct SameSizeAsCollapsedBorderValue {
+  Color color;
+  unsigned bitfields;
+};
+
+ASSERT_SIZE(LayoutTableCell, SameSizeAsLayoutTableCell);
+ASSERT_SIZE(CollapsedBorderValue, SameSizeAsCollapsedBorderValue);
 
 LayoutTableCell::LayoutTableCell(Element* element)
     : LayoutBlockFlow(element),
@@ -87,12 +91,12 @@ void LayoutTableCell::WillBeRemovedFromTree() {
     // remove-cell-with-border-box.html only passes with setNeedsLayout but
     // other places use setChildNeedsLayout.
     PreviousCell()->SetNeedsLayout(layout_invalidation_reason::kTableChanged);
-    PreviousCell()->SetPreferredLogicalWidthsDirty();
+    PreviousCell()->SetIntrinsicLogicalWidthsDirty();
   }
   if (NextCell()) {
     // TODO(dgrogan): Same as above re: setChildNeedsLayout vs setNeedsLayout.
     NextCell()->SetNeedsLayout(layout_invalidation_reason::kTableChanged);
-    NextCell()->SetPreferredLogicalWidthsDirty();
+    NextCell()->SetIntrinsicLogicalWidthsDirty();
   }
 }
 
@@ -125,7 +129,7 @@ void LayoutTableCell::ColSpanOrRowSpanChanged() {
 
   UpdateColAndRowSpanFlags();
 
-  SetNeedsLayoutAndPrefWidthsRecalcAndFullPaintInvalidation(
+  SetNeedsLayoutAndIntrinsicWidthsRecalcAndFullPaintInvalidation(
       layout_invalidation_reason::kAttributeChanged);
   if (Parent() && Section()) {
     Section()->SetNeedsCellRecalc();
@@ -175,7 +179,7 @@ Length LayoutTableCell::LogicalWidthFromColumns(
   return Length::Fixed(col_width_sum);
 }
 
-void LayoutTableCell::ComputePreferredLogicalWidths() {
+MinMaxSizes LayoutTableCell::PreferredLogicalWidths() const {
   // The child cells rely on the grids up in the sections to do their
   // computePreferredLogicalWidths work.  Normally the sections are set up
   // early, as table cells are added, but relayout can cause the cells to be
@@ -187,13 +191,14 @@ void LayoutTableCell::ComputePreferredLogicalWidths() {
   // notional height on the cell, such as can happen when a percent sized image
   // scales up its width to match the available height. Setting a zero override
   // height prevents this from happening.
+  auto* mutable_this = const_cast<LayoutTableCell*>(this);
   LayoutUnit logical_height =
       HasOverrideLogicalHeight() ? OverrideLogicalHeight() : LayoutUnit(-1);
   if (logical_height > -1)
-    SetOverrideLogicalHeight(LayoutUnit());
-  LayoutBlockFlow::ComputePreferredLogicalWidths();
+    mutable_this->SetOverrideLogicalHeight(LayoutUnit());
+  MinMaxSizes sizes = LayoutBlockFlow::PreferredLogicalWidths();
   if (logical_height > -1)
-    SetOverrideLogicalHeight(logical_height);
+    mutable_this->SetOverrideLogicalHeight(logical_height);
 
   if (GetNode() && StyleRef().AutoWrap()) {
     // See if nowrap was set.
@@ -205,10 +210,11 @@ void LayoutTableCell::ComputePreferredLogicalWidths() {
       // set on the cell. Even so, it is a WinIE/Moz trait to make the minwidth
       // of the cell into the fixed width. They do this even in strict mode, so
       // do not make this a quirk. Affected the top of hiptop.com.
-      min_preferred_logical_width_ =
-          std::max(LayoutUnit(w.Value()), min_preferred_logical_width_);
+      sizes.min_size = std::max(sizes.min_size, LayoutUnit(w.Value()));
     }
   }
+
+  return sizes;
 }
 
 void LayoutTableCell::ComputeIntrinsicPadding(int collapsed_height,
@@ -430,9 +436,27 @@ LayoutUnit LayoutTableCell::CellBaselinePosition() const {
   return BorderBefore() + PaddingBefore() + ContentLogicalHeight();
 }
 
+// Legacy code does not support orthogonal table cells, and must match
+// row's writing mode.
+void LayoutTableCell::UpdateStyleWritingModeFromRow(const LayoutObject* row) {
+  DCHECK_NE(StyleRef().GetWritingMode(), row->StyleRef().GetWritingMode());
+  scoped_refptr<ComputedStyle> new_style = ComputedStyle::Clone(StyleRef());
+  new_style->SetWritingMode(row->StyleRef().GetWritingMode());
+  new_style->UpdateFontOrientation();
+  SetModifiedStyleOutsideStyleRecalc(new_style,
+                                     LayoutObject::ApplyStyleChanges::kNo);
+  SetHorizontalWritingMode(StyleRef().IsHorizontalWritingMode());
+  UnmarkOrthogonalWritingModeRoot();
+}
+
 void LayoutTableCell::StyleDidChange(StyleDifference diff,
                                      const ComputedStyle* old_style) {
   DCHECK_EQ(StyleRef().Display(), EDisplay::kTableCell);
+
+  if (Parent() &&
+      StyleRef().GetWritingMode() != Parent()->StyleRef().GetWritingMode()) {
+    UpdateStyleWritingModeFromRow(Parent());
+  }
 
   LayoutBlockFlow::StyleDidChange(diff, old_style);
   SetHasBoxDecorationBackground(true);
@@ -474,13 +498,13 @@ void LayoutTableCell::StyleDidChange(StyleDifference diff,
       // TODO(dgrogan) Add a web test showing that SetChildNeedsLayout is
       // needed instead of SetNeedsLayout.
       PreviousCell()->SetChildNeedsLayout();
-      PreviousCell()->SetPreferredLogicalWidthsDirty(kMarkOnlyThis);
+      PreviousCell()->SetIntrinsicLogicalWidthsDirty(kMarkOnlyThis);
     }
     if (NextCell()) {
       // TODO(dgrogan) Add a web test showing that SetChildNeedsLayout is
       // needed instead of SetNeedsLayout.
       NextCell()->SetChildNeedsLayout();
-      NextCell()->SetPreferredLogicalWidthsDirty(kMarkOnlyThis);
+      NextCell()->SetIntrinsicLogicalWidthsDirty(kMarkOnlyThis);
     }
   }
 }
@@ -1152,23 +1176,16 @@ LayoutTableCell* LayoutTableCell::CreateAnonymous(
     Document* document,
     scoped_refptr<ComputedStyle> style,
     LegacyLayout legacy) {
-  LayoutTableCell* layout_object =
+  LayoutBlockFlow* layout_object =
       LayoutObjectFactory::CreateTableCell(*document, *style, legacy);
   layout_object->SetDocumentForAnonymous(document);
   layout_object->SetStyle(std::move(style));
-  return layout_object;
+  return To<LayoutTableCell>(layout_object);
 }
 
-LayoutTableCell* LayoutTableCell::CreateAnonymousWithParent(
-    const LayoutObject* parent) {
-  scoped_refptr<ComputedStyle> new_style =
-      ComputedStyle::CreateAnonymousStyleWithDisplay(parent->StyleRef(),
-                                                     EDisplay::kTableCell);
-  LegacyLayout legacy =
-      parent->ForceLegacyLayout() ? LegacyLayout::kForce : LegacyLayout::kAuto;
-  LayoutTableCell* new_cell = LayoutTableCell::CreateAnonymous(
-      &parent->GetDocument(), std::move(new_style), legacy);
-  return new_cell;
+LayoutBox* LayoutTableCell::CreateAnonymousBoxWithSameTypeAs(
+    const LayoutObject* parent) const {
+  return LayoutObjectFactory::CreateAnonymousTableCellWithParent(*parent);
 }
 
 bool LayoutTableCell::BackgroundIsKnownToBeOpaqueInRect(

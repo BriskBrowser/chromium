@@ -11,14 +11,15 @@ import android.util.AttributeSet;
 import android.view.View;
 
 import androidx.annotation.Nullable;
+import androidx.annotation.VisibleForTesting;
 
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.locale.LocaleManager;
 import org.chromium.chrome.browser.omnibox.LocationBarLayout;
-import org.chromium.chrome.browser.omnibox.LocationBarVoiceRecognitionHandler;
 import org.chromium.chrome.browser.omnibox.UrlBar;
 import org.chromium.chrome.browser.omnibox.UrlBarCoordinator.SelectionState;
 import org.chromium.chrome.browser.omnibox.UrlBarData;
+import org.chromium.chrome.browser.omnibox.voice.VoiceRecognitionHandler;
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.toolbar.top.ToolbarPhone;
 
@@ -27,7 +28,7 @@ public class SearchActivityLocationBarLayout extends LocationBarLayout {
     /** Delegates calls out to the containing Activity. */
     public static interface Delegate {
         /** Load a URL in the associated tab. */
-        void loadUrl(String url);
+        void loadUrl(String url, @Nullable String postDataType, @Nullable byte[] postData);
 
         /** The user hit the back button. */
         void backKeyPressed();
@@ -36,6 +37,9 @@ public class SearchActivityLocationBarLayout extends LocationBarLayout {
     private Delegate mDelegate;
     private boolean mPendingSearchPromoDecision;
     private boolean mPendingBeginQuery;
+    private boolean mNativeLibraryReady;
+    private boolean mHasWindowFocus;
+    private boolean mUrlBarFocusRequested;
 
     public SearchActivityLocationBarLayout(Context context, AttributeSet attrs) {
         super(context, attrs, R.layout.location_bar_base);
@@ -54,8 +58,9 @@ public class SearchActivityLocationBarLayout extends LocationBarLayout {
     }
 
     @Override
-    public void loadUrl(String url, int transition, long inputStart) {
-        mDelegate.loadUrl(url);
+    public void loadUrlWithPostData(String url, int transition, long inputStart,
+            @Nullable String postDataType, @Nullable byte[] postData) {
+        mDelegate.loadUrl(url, postDataType, postData);
         LocaleManager.getInstance().recordLocaleBasedSearchMetrics(true, url, transition);
     }
 
@@ -72,7 +77,9 @@ public class SearchActivityLocationBarLayout extends LocationBarLayout {
     @Override
     public void onNativeLibraryReady() {
         super.onNativeLibraryReady();
-        setAutocompleteProfile(Profile.getLastUsedProfile().getOriginalProfile());
+        mNativeLibraryReady = true;
+
+        setAutocompleteProfile(Profile.getLastUsedRegularProfile());
 
         mPendingSearchPromoDecision = LocaleManager.getInstance().needToCheckForSearchEnginePromo();
         getAutocompleteCoordinator().setShouldPreventOmniboxAutocomplete(
@@ -84,7 +91,7 @@ public class SearchActivityLocationBarLayout extends LocationBarLayout {
         getAutocompleteCoordinator().prefetchZeroSuggestResults();
 
         SearchWidgetProvider.updateCachedVoiceSearchAvailability(
-                getLocationBarVoiceRecognitionHandler().isVoiceSearchEnabled());
+                getVoiceRecognitionHandler().isVoiceSearchEnabled());
         if (isVoiceSearchIntent && mUrlBar.isFocused()) onUrlFocusChange(true);
 
         assert !LocaleManager.getInstance().needToCheckForSearchEnginePromo();
@@ -107,8 +114,9 @@ public class SearchActivityLocationBarLayout extends LocationBarLayout {
      * Begins a new query.
      * @param isVoiceSearchIntent Whether this is a voice search.
      * @param optionalText Prepopulate with a query, this may be null.
-     * */
-    void beginQuery(boolean isVoiceSearchIntent, @Nullable String optionalText) {
+     */
+    @VisibleForTesting
+    public void beginQuery(boolean isVoiceSearchIntent, @Nullable String optionalText) {
         // Clear the text regardless of the promo decision.  This allows the user to enter text
         // before native has been initialized and have it not be cleared one the delayed beginQuery
         // logic is performed.
@@ -116,7 +124,7 @@ public class SearchActivityLocationBarLayout extends LocationBarLayout {
                 UrlBarData.forNonUrlText(optionalText == null ? "" : optionalText),
                 UrlBar.ScrollType.NO_SCROLL, SelectionState.SELECT_ALL);
 
-        if (mPendingSearchPromoDecision) {
+        if (mPendingSearchPromoDecision || (isVoiceSearchIntent && !mNativeLibraryReady)) {
             mPendingBeginQuery = true;
             return;
         }
@@ -126,10 +134,11 @@ public class SearchActivityLocationBarLayout extends LocationBarLayout {
 
     private void beginQueryInternal(boolean isVoiceSearchIntent) {
         assert !mPendingSearchPromoDecision;
+        assert !isVoiceSearchIntent || mNativeLibraryReady;
 
-        if (getLocationBarVoiceRecognitionHandler().isVoiceSearchEnabled() && isVoiceSearchIntent) {
-            getLocationBarVoiceRecognitionHandler().startVoiceRecognition(
-                    LocationBarVoiceRecognitionHandler.VoiceInteractionSource.SEARCH_WIDGET);
+        if (getVoiceRecognitionHandler().isVoiceSearchEnabled() && isVoiceSearchIntent) {
+            getVoiceRecognitionHandler().startVoiceRecognition(
+                    VoiceRecognitionHandler.VoiceInteractionSource.SEARCH_WIDGET);
         } else {
             focusTextBox();
         }
@@ -152,8 +161,8 @@ public class SearchActivityLocationBarLayout extends LocationBarLayout {
     //                we don't start processing non-cached suggestion requests until that state
     //                is finalized after native has been initialized.
     private void focusTextBox() {
-        if (!mUrlBar.hasFocus()) mUrlBar.requestFocus();
-        getAutocompleteCoordinator().setShowCachedZeroSuggestResults(true);
+        mUrlBarFocusRequested |= !mUrlBar.hasFocus();
+        ensureUrlBarFocusedAndTriggerZeroSuggest();
 
         new Handler().post(new Runnable() {
             @Override
@@ -161,5 +170,31 @@ public class SearchActivityLocationBarLayout extends LocationBarLayout {
                 getWindowAndroid().getKeyboardDelegate().showKeyboard(mUrlBar);
             }
         });
+    }
+
+    @Override
+    public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        mHasWindowFocus = hasFocus;
+        if (hasFocus) {
+            ensureUrlBarFocusedAndTriggerZeroSuggest();
+        } else {
+            mUrlBar.clearFocus();
+        }
+    }
+
+    /**
+     * Since there is a race condition between {@link #focusTextBox()} and {@link
+     * #onWindowFocusChanged(boolean)}, if call mUrlBar.requestFocus() before onWindowFocusChanged
+     * is called, clipboard data will not been received since receive clipboard data needs focus
+     * (https://developer.android.com/reference/android/content/ClipboardManager#getPrimaryClip()).
+     */
+    private void ensureUrlBarFocusedAndTriggerZeroSuggest() {
+        if (mUrlBarFocusRequested && mHasWindowFocus) {
+            mUrlBar.requestFocus();
+            mUrlBarFocusRequested = false;
+        }
+        // Use cached suggestions only if native is not yet ready.
+        getAutocompleteCoordinator().setShowCachedZeroSuggestResults(!mNativeLibraryReady);
     }
 }

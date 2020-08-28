@@ -10,9 +10,10 @@
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/callback.h"
+#include "base/check.h"
 #include "base/guid.h"
-#include "base/logging.h"
 #include "base/memory/ptr_util.h"
+#include "base/notreached.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
 #include "components/bookmarks/browser/bookmark_model.h"
@@ -109,9 +110,6 @@ void ManagedBookmarksTracker::ReloadManagedBookmarks() {
   // Recursively update all the managed bookmarks and folders.
   const base::ListValue* list = prefs_->GetList(prefs::kManagedBookmarks);
   UpdateBookmarks(managed_node_, list);
-
-  // The managed bookmarks folder isn't visible when that pref isn't present.
-  managed_node_->set_visible(!managed_node_->children().empty());
 }
 
 void ManagedBookmarksTracker::UpdateBookmarks(const BookmarkNode* folder,

@@ -16,18 +16,16 @@ import android.webkit.GeolocationPermissions;
 import android.webkit.WebStorage;
 import android.webkit.WebViewDatabase;
 
-import com.android.webview.chromium.WebViewDelegateFactory.WebViewDelegate;
-
 import org.chromium.android_webview.AwBrowserContext;
 import org.chromium.android_webview.AwBrowserProcess;
 import org.chromium.android_webview.AwContents;
 import org.chromium.android_webview.AwContentsStatics;
 import org.chromium.android_webview.AwCookieManager;
-import org.chromium.android_webview.AwFirebaseConfig;
 import org.chromium.android_webview.AwLocaleConfig;
 import org.chromium.android_webview.AwNetworkChangeNotifierRegistrationPolicy;
 import org.chromium.android_webview.AwProxyController;
 import org.chromium.android_webview.AwServiceWorkerController;
+import org.chromium.android_webview.AwThreadUtils;
 import org.chromium.android_webview.AwTracingController;
 import org.chromium.android_webview.HttpAuthDatabase;
 import org.chromium.android_webview.ProductConfig;
@@ -35,13 +33,12 @@ import org.chromium.android_webview.R;
 import org.chromium.android_webview.VariationsSeedLoader;
 import org.chromium.android_webview.WebViewChromiumRunQueue;
 import org.chromium.android_webview.common.AwResource;
-import org.chromium.android_webview.common.DeveloperModeUtils;
-import org.chromium.android_webview.common.FlagOverrideHelper;
-import org.chromium.android_webview.common.ProductionSupportedFlagList;
+import org.chromium.android_webview.common.AwSwitches;
 import org.chromium.android_webview.gfx.AwDrawFnImpl;
 import org.chromium.base.BuildConfig;
 import org.chromium.base.BuildInfo;
 import org.chromium.base.BundleUtils;
+import org.chromium.base.CommandLine;
 import org.chromium.base.ContextUtils;
 import org.chromium.base.FieldTrialList;
 import org.chromium.base.JNIUtils;
@@ -49,11 +46,9 @@ import org.chromium.base.PathService;
 import org.chromium.base.ThreadUtils;
 import org.chromium.base.TraceEvent;
 import org.chromium.base.library_loader.LibraryLoader;
-import org.chromium.base.metrics.CachedMetrics;
 import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.base.metrics.ScopedSysTraceEvent;
 import org.chromium.base.task.PostTask;
-import org.chromium.base.task.TaskTraits;
 import org.chromium.content_public.browser.UiThreadTaskTraits;
 import org.chromium.net.NetworkChangeNotifier;
 import org.chromium.ui.base.ResourceBundle;
@@ -100,6 +95,8 @@ public class WebViewChromiumAwInit {
         mFactory = factory;
         // Do not make calls into 'factory' in this ctor - this ctor is called from the
         // WebViewChromiumFactoryProvider ctor, so 'factory' is not properly initialized yet.
+        TraceEvent.maybeEnableEarlyTracing(
+                TraceEvent.ATRACE_TAG_WEBVIEW, /*readCommandLine=*/false);
     }
 
     public AwTracingController getAwTracingController() {
@@ -129,7 +126,6 @@ public class WebViewChromiumAwInit {
     protected void startChromiumLocked() {
         try (ScopedSysTraceEvent event =
                         ScopedSysTraceEvent.scoped("WebViewChromiumAwInit.startChromiumLocked")) {
-            TraceEvent.setATraceEnabled(mFactory.getWebViewDelegate().isTraceTagEnabled());
             assert Thread.holdsLock(mLock) && ThreadUtils.runningOnUiThread();
 
             // The post-condition of this method is everything is ready, so notify now to cover all
@@ -141,8 +137,6 @@ public class WebViewChromiumAwInit {
             }
 
             final Context context = ContextUtils.getApplicationContext();
-
-            BuildInfo.setFirebaseAppId(AwFirebaseConfig.getFirebaseAppId());
 
             JNIUtils.setClassLoader(WebViewChromiumAwInit.class.getClassLoader());
 
@@ -175,13 +169,6 @@ public class WebViewChromiumAwInit {
             // available when AwFeatureListCreator::SetUpFieldTrials() runs.
             finishVariationsInitLocked();
 
-            String webViewPackageName = AwBrowserProcess.getWebViewPackageName();
-            if (DeveloperModeUtils.isDeveloperModeEnabled(webViewPackageName)) {
-                FlagOverrideHelper helper =
-                        new FlagOverrideHelper(ProductionSupportedFlagList.sFlagList);
-                helper.applyFlagOverrides(DeveloperModeUtils.getFlagOverrides(webViewPackageName));
-            }
-
             AwBrowserProcess.start();
             AwBrowserProcess.handleMinidumpsAndSetMetricsConsent(true /* updateMetricsConsent */);
 
@@ -190,19 +177,7 @@ public class WebViewChromiumAwInit {
                 mSharedStatics.setWebContentsDebuggingEnabledUnconditionally(true);
             }
 
-            mFactory.getWebViewDelegate().setOnTraceEnabledChangeListener(
-                    new WebViewDelegate.OnTraceEnabledChangeListener() {
-                        @Override
-                        public void onTraceEnabledChange(boolean enabled) {
-                            TraceEvent.setATraceEnabled(enabled);
-                        }
-                    });
-
             mStarted = true;
-
-            // Make sure to record any cached metrics, now that we know that the native
-            // library has been loaded and initialized.
-            CachedMetrics.commitCachedMetrics();
 
             RecordHistogram.recordSparseHistogram("Android.WebView.TargetSdkVersion",
                     context.getApplicationInfo().targetSdkVersion);
@@ -222,7 +197,9 @@ public class WebViewChromiumAwInit {
 
             mFactory.getRunQueue().drainQueue();
 
-            maybeLogActiveTrials(context);
+            if (CommandLine.getInstance().hasSwitch(AwSwitches.WEBVIEW_VERBOSE_LOGGING)) {
+                logCommandLineAndActiveTrials();
+            }
         }
     }
 
@@ -298,7 +275,7 @@ public class WebViewChromiumAwInit {
 
         // We must post to the UI thread to cover the case that the user has invoked Chromium
         // startup by using the (thread-safe) CookieManager rather than creating a WebView.
-        PostTask.postTask(UiThreadTaskTraits.DEFAULT, new Runnable() {
+        AwThreadUtils.postToUiThreadLooper(new Runnable() {
             @Override
             public void run() {
                 synchronized (mLock) {
@@ -468,27 +445,16 @@ public class WebViewChromiumAwInit {
         }
     }
 
-    // If a certain app is installed, log field trials as they become active, for debugging
-    // purposes. Check for the app asyncronously because PackageManager is slow.
-    private static void maybeLogActiveTrials(final Context ctx) {
-        PostTask.postTask(TaskTraits.BEST_EFFORT_MAY_BLOCK, () -> {
-            try {
-                // This must match the package name in:
-                // android_webview/tools/webview_log_verbosifier/AndroidManifest.xml
-                ctx.getPackageManager().getPackageInfo(
-                        "org.chromium.webview_log_verbosifier", /*flags=*/0);
-            } catch (PackageManager.NameNotFoundException e) {
-                return;
-            }
-
-            PostTask.postTask(UiThreadTaskTraits.BEST_EFFORT, () -> {
-                // TODO(ntfschr): CommandLine can change at any time. For simplicity, only log it
-                // once during startup.
-                AwContentsStatics.logCommandLineForDebugging();
-                // Field trials can be activated at any time. We'll continue logging them as they're
-                // activated.
-                FieldTrialList.logActiveTrials();
-            });
+    // Log extra information, for debugging purposes. Do the work asynchronously to avoid blocking
+    // startup.
+    private static void logCommandLineAndActiveTrials() {
+        PostTask.postTask(UiThreadTaskTraits.BEST_EFFORT, () -> {
+            // TODO(ntfschr): CommandLine can change at any time. For simplicity, only log it
+            // once during startup.
+            AwContentsStatics.logCommandLineForDebugging();
+            // Field trials can be activated at any time. We'll continue logging them as they're
+            // activated.
+            FieldTrialList.logActiveTrials();
         });
     }
 

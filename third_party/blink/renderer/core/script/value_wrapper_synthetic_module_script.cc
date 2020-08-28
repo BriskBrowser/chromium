@@ -6,10 +6,11 @@
 
 #include "third_party/blink/public/platform/web_vector.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_binding_for_core.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_css_style_sheet_init.h"
 #include "third_party/blink/renderer/core/css/css_style_sheet.h"
-#include "third_party/blink/renderer/core/css/css_style_sheet_init.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
+#include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/core/loader/modulescript/module_script_creation_params.h"
 #include "third_party/blink/renderer/core/script/modulator.h"
 #include "third_party/blink/renderer/core/script/module_record_resolver.h"
@@ -33,8 +34,8 @@ ValueWrapperSyntheticModuleScript::CreateCSSWrapperSyntheticModuleScript(
                                  "ModuleScriptLoader",
                                  "CreateCSSWrapperSyntheticModuleScript");
   ExecutionContext* execution_context = ExecutionContext::From(script_state);
-  Document* context_document = DynamicTo<Document>(execution_context);
-  if (!context_document) {
+  auto* context_window = DynamicTo<LocalDOMWindow>(execution_context);
+  if (!context_window) {
     v8::Local<v8::Value> error = V8ThrowException::CreateTypeError(
         isolate, "Cannot create CSS Module in non-document context");
     return ValueWrapperSyntheticModuleScript::CreateWithError(
@@ -43,7 +44,7 @@ ValueWrapperSyntheticModuleScript::CreateCSSWrapperSyntheticModuleScript(
   }
   CSSStyleSheetInit* init = CSSStyleSheetInit::Create();
   CSSStyleSheet* style_sheet =
-      CSSStyleSheet::Create(*context_document, init, exception_state);
+      CSSStyleSheet::Create(*context_window->document(), init, exception_state);
   if (exception_state.HadException()) {
     v8::Local<v8::Value> error = exception_state.GetException();
     exception_state.ClearException();
@@ -201,7 +202,7 @@ v8::MaybeLocal<v8::Value> ValueWrapperSyntheticModuleScript::EvaluationSteps(
   return v8::Undefined(reinterpret_cast<v8::Isolate*>(isolate));
 }
 
-void ValueWrapperSyntheticModuleScript::Trace(Visitor* visitor) {
+void ValueWrapperSyntheticModuleScript::Trace(Visitor* visitor) const {
   visitor->Trace(export_value_);
   ModuleScript::Trace(visitor);
 }

@@ -10,6 +10,7 @@
 #include "content/browser/media/session/media_session_player_observer.h"
 #include "content/public/browser/web_contents_observer.h"
 #include "content/public/common/content_switches.h"
+#include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/content_browser_test.h"
 #include "content/public/test/content_browser_test_utils.h"
@@ -51,11 +52,23 @@ class MockMediaSessionPlayerObserver : public MediaSessionPlayerObserver {
   void OnSeekBackward(int player_id, base::TimeDelta seek_time) override {}
   void OnSetVolumeMultiplier(int player_id, double volume_multiplier) override {
   }
+  void OnEnterPictureInPicture(int player_id) override {}
+  void OnExitPictureInPicture(int player_id) override {}
+  void OnSetAudioSinkId(int player_id,
+                        const std::string& raw_device_id) override {}
 
   base::Optional<media_session::MediaPosition> GetPosition(
       int player_id) const override {
     return base::nullopt;
   }
+
+  bool IsPictureInPictureAvailable(int player_id) const override {
+    return false;
+  }
+
+  bool HasVideo(int player_id) const override { return false; }
+
+  std::string GetAudioOutputSinkId(int player_id) const override { return ""; }
 
   RenderFrameHost* render_frame_host() const override {
     return render_frame_host_;
@@ -160,7 +173,8 @@ IN_PROC_BROWSER_TEST_F(MediaSessionServiceImplBrowserTest,
 // TODO(crbug.com/850870) Plug the leaks.
 #define MAYBE_ResetServiceWhenNavigatingAway \
   DISABLED_ResetServiceWhenNavigatingAway
-#elif defined(OS_CHROMEOS) || defined(OS_LINUX) || defined(OS_MACOSX) || defined(OS_ANDROID)
+#elif defined(OS_CHROMEOS) || defined(OS_LINUX) || defined(OS_MAC) || \
+    defined(OS_ANDROID)
 // crbug.com/927234.
 #define MAYBE_ResetServiceWhenNavigatingAway \
   DISABLED_ResetServiceWhenNavigatingAway

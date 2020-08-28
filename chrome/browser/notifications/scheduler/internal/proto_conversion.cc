@@ -7,7 +7,8 @@
 #include <memory>
 #include <utility>
 
-#include "base/logging.h"
+#include "base/check.h"
+#include "base/notreached.h"
 #include "base/strings/utf_string_conversions.h"
 
 namespace notifications {
@@ -54,6 +55,8 @@ proto::SchedulerClientType ToSchedulerClientType(SchedulerClientType type) {
       return proto::SchedulerClientType::WEBUI;
     case SchedulerClientType::kChromeUpdate:
       return proto::SchedulerClientType::CHROME_UPDATE;
+    case SchedulerClientType::kPrefetch:
+      return proto::SchedulerClientType::PREFETCH;
   }
   NOTREACHED();
 }
@@ -74,6 +77,8 @@ SchedulerClientType FromSchedulerClientType(
       return SchedulerClientType::kWebUI;
     case proto::SchedulerClientType::CHROME_UPDATE:
       return SchedulerClientType::kChromeUpdate;
+    case proto::SchedulerClientType::PREFETCH:
+      return SchedulerClientType::kPrefetch;
   }
   NOTREACHED();
 }
@@ -279,9 +284,9 @@ void ScheduleParamsToProto(ScheduleParams* params,
         TimeToMilliseconds(params->deliver_time_end.value()));
   }
 
-  if (params->custom_suppression_duration.has_value()) {
-    proto->set_custom_suppression_duration_ms(
-        TimeDeltaToMilliseconds(params->custom_suppression_duration.value()));
+  if (params->ignore_timeout_duration.has_value()) {
+    proto->set_ignore_timeout_duration(
+        TimeDeltaToMilliseconds(params->ignore_timeout_duration.value()));
   }
 }
 
@@ -305,9 +310,9 @@ void ScheduleParamsFromProto(proto::ScheduleParams* proto,
   if (proto->has_deliver_time_end()) {
     params->deliver_time_end = MillisecondsToTime(proto->deliver_time_end());
   }
-  if (proto->has_custom_suppression_duration_ms()) {
-    params->custom_suppression_duration =
-        MillisecondsToTimeDelta(proto->custom_suppression_duration_ms());
+  if (proto->has_ignore_timeout_duration()) {
+    params->ignore_timeout_duration =
+        MillisecondsToTimeDelta(proto->ignore_timeout_duration());
   }
 }
 
@@ -349,10 +354,9 @@ void ClientStateToProto(ClientState* client_state,
       data->set_value(pair.second);
     }
 
-    if (impression.custom_suppression_duration.has_value()) {
-      impression_ptr->set_custom_suppression_duration_ms(
-          TimeDeltaToMilliseconds(
-              impression.custom_suppression_duration.value()));
+    if (impression.ignore_timeout_duration.has_value()) {
+      impression_ptr->set_ignore_timeout_duration(
+          TimeDeltaToMilliseconds(impression.ignore_timeout_duration.value()));
     }
   }
 
@@ -364,6 +368,18 @@ void ClientStateToProto(ClientState* client_state,
     suppression_proto->set_duration_ms(
         TimeDeltaToMilliseconds(suppression.duration));
     suppression_proto->set_recover_goal(suppression.recover_goal);
+  }
+
+  proto->set_negative_events_count(client_state->negative_events_count);
+
+  if (client_state->last_negative_event_ts.has_value()) {
+    proto->set_last_negative_event_ts(
+        TimeToMilliseconds(client_state->last_negative_event_ts.value()));
+  }
+
+  if (client_state->last_shown_ts.has_value()) {
+    proto->set_last_shown_ts(
+        TimeToMilliseconds(client_state->last_shown_ts.value()));
   }
 }
 
@@ -384,6 +400,10 @@ void ClientStateFromProto(proto::ClientState* proto,
     impression.guid = proto_impression.guid();
     impression.type = client_state->type;
 
+    if (proto_impression.has_ignore_timeout_duration())
+      impression.ignore_timeout_duration =
+          MillisecondsToTimeDelta(proto_impression.ignore_timeout_duration());
+
     for (int i = 0; i < proto_impression.impression_mapping_size(); ++i) {
       const auto& proto_impression_mapping =
           proto_impression.impression_mapping(i);
@@ -397,11 +417,6 @@ void ClientStateFromProto(proto::ClientState* proto,
     for (int i = 0; i < proto_impression.custom_data_size(); ++i) {
       const auto& pair = proto_impression.custom_data(i);
       impression.custom_data.emplace(pair.key(), pair.value());
-    }
-
-    if (proto_impression.has_custom_suppression_duration_ms()) {
-      impression.custom_suppression_duration = MillisecondsToTimeDelta(
-          proto_impression.custom_suppression_duration_ms());
     }
 
     client_state->impressions.emplace_back(std::move(impression));
@@ -418,6 +433,17 @@ void ClientStateFromProto(proto::ClientState* proto,
         MillisecondsToTimeDelta(proto_suppression.duration_ms()));
     suppression_info.recover_goal = proto_suppression.recover_goal();
     client_state->suppression_info = std::move(suppression_info);
+  }
+
+  client_state->negative_events_count = proto->negative_events_count();
+
+  if (proto->has_last_shown_ts()) {
+    client_state->last_shown_ts = MillisecondsToTime(proto->last_shown_ts());
+  }
+
+  if (proto->has_last_negative_event_ts()) {
+    client_state->last_negative_event_ts =
+        MillisecondsToTime(proto->last_negative_event_ts());
   }
 }
 

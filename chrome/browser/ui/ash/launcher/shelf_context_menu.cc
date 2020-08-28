@@ -7,27 +7,28 @@
 #include <memory>
 #include <string>
 
+#include "ash/public/cpp/app_menu_constants.h"
 #include "ash/public/cpp/shelf_model.h"
 #include "ash/public/cpp/tablet_mode.h"
 #include "base/metrics/user_metrics.h"
+#include "chrome/app/vector_icons/vector_icons.h"
 #include "chrome/browser/apps/app_service/app_service_proxy.h"
 #include "chrome/browser/apps/app_service/app_service_proxy_factory.h"
 #include "chrome/browser/chromeos/accessibility/accessibility_manager.h"
-#include "chrome/browser/chromeos/crostini/crostini_registry_service.h"
-#include "chrome/browser/chromeos/crostini/crostini_registry_service_factory.h"
+#include "chrome/browser/chromeos/crostini/crostini_shelf_utils.h"
 #include "chrome/browser/chromeos/crostini/crostini_util.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/app_list/arc/arc_app_utils.h"
-#include "chrome/browser/ui/app_list/extension_uninstaller.h"
 #include "chrome/browser/ui/app_list/internal_app/internal_app_metadata.h"
-#include "chrome/browser/ui/ash/launcher/arc_shelf_context_menu.h"
+#include "chrome/browser/ui/ash/launcher/app_service/app_service_shelf_context_menu.h"
 #include "chrome/browser/ui/ash/launcher/chrome_launcher_controller.h"
 #include "chrome/browser/ui/ash/launcher/chrome_launcher_controller_util.h"
-#include "chrome/browser/ui/ash/launcher/crostini_shelf_context_menu.h"
 #include "chrome/browser/ui/ash/launcher/extension_shelf_context_menu.h"
-#include "chrome/browser/ui/ash/launcher/internal_app_shelf_context_menu.h"
+#include "chrome/browser/ui/ash/launcher/extension_uninstaller.h"
 #include "chrome/common/chrome_features.h"
 #include "chrome/grit/generated_resources.h"
+#include "components/vector_icons/vector_icons.h"
+#include "ui/base/models/image_model.h"
 #include "ui/display/types/display_constants.h"
 #include "ui/gfx/paint_vector_icon.h"
 #include "ui/views/vector_icons.h"
@@ -37,8 +38,17 @@ namespace {
 void UninstallApp(Profile* profile, const std::string& app_id) {
   apps::AppServiceProxy* proxy =
       apps::AppServiceProxyFactory::GetForProfile(profile);
-  DCHECK(proxy);
-  proxy->Uninstall(app_id, nullptr /* parent_window */);
+  if (proxy->AppRegistryCache().GetAppType(app_id) !=
+      apps::mojom::AppType::kUnknown) {
+    proxy->Uninstall(app_id, nullptr /* parent_window */);
+    return;
+  }
+
+  // Runs the extension uninstall flow for for extensions. ExtensionUninstall
+  // deletes itself when done or aborted.
+  ExtensionUninstaller* extension_uninstaller =
+      new ExtensionUninstaller(profile, app_id, nullptr /* parent_window */);
+  extension_uninstaller->Run();
   return;
 }
 
@@ -52,24 +62,18 @@ std::unique_ptr<ShelfContextMenu> ShelfContextMenu::Create(
   DCHECK(controller);
   DCHECK(item);
   DCHECK(!item->id.IsNull());
-  // Create an ArcShelfContextMenu if the item is an ARC app.
-  if (arc::IsArcItem(controller->profile(), item->id.app_id))
-    return std::make_unique<ArcShelfContextMenu>(controller, item, display_id);
 
-  // Use CrostiniShelfContextMenu for crostini apps and Terminal System App.
-  crostini::CrostiniRegistryService* crostini_registry_service =
-      crostini::CrostiniRegistryServiceFactory::GetForProfile(
-          controller->profile());
-  if ((crostini_registry_service &&
-       crostini_registry_service->IsCrostiniShelfAppId(item->id.app_id)) ||
-      item->id.app_id == crostini::kCrostiniTerminalSystemAppId) {
-    return std::make_unique<CrostiniShelfContextMenu>(controller, item,
-                                                      display_id);
-  }
+  apps::AppServiceProxy* proxy =
+      apps::AppServiceProxyFactory::GetForProfile(controller->profile());
 
-  if (app_list::IsInternalApp(item->id.app_id)) {
-    return std::make_unique<InternalAppShelfContextMenu>(controller, item,
-                                                         display_id);
+  // AppServiceShelfContextMenu supports context menus for apps registered in
+  // AppService, Arc shortcuts and Crostini apps with the prefix "crostini:".
+  if (proxy->AppRegistryCache().GetAppType(item->id.app_id) !=
+          apps::mojom::AppType::kUnknown ||
+      crostini::IsUnmatchedCrostiniShelfAppId(item->id.app_id) ||
+      arc::IsArcItem(controller->profile(), item->id.app_id)) {
+    return std::make_unique<AppServiceShelfContextMenu>(controller, item,
+                                                        display_id);
   }
 
   // Create an ExtensionShelfContextMenu for other items.
@@ -176,6 +180,61 @@ void ShelfContextMenu::ExecuteCommand(int command_id, int event_flags) {
   }
 }
 
+const gfx::VectorIcon& ShelfContextMenu::GetCommandIdVectorIcon(
+    int type,
+    int string_id) const {
+  switch (type) {
+    case ash::MENU_OPEN_NEW:
+      if (string_id == IDS_APP_LIST_CONTEXT_MENU_NEW_TAB)
+        return views::kNewTabIcon;
+      if (string_id == IDS_APP_LIST_CONTEXT_MENU_NEW_WINDOW)
+        return views::kNewWindowIcon;
+      return views::kOpenIcon;
+    case ash::MENU_CLOSE:
+      return views::kCloseIcon;
+    case ash::SHOW_APP_INFO:
+      return views::kInfoIcon;
+    case ash::UNINSTALL:
+      return views::kUninstallIcon;
+    case ash::SETTINGS:
+      return vector_icons::kSettingsIcon;
+    case ash::MENU_PIN:
+      return controller_->IsPinned(item_.id) ? views::kUnpinIcon
+                                             : views::kPinIcon;
+    case ash::MENU_NEW_WINDOW:
+      return views::kNewWindowIcon;
+    case ash::MENU_NEW_INCOGNITO_WINDOW:
+      return views::kNewIncognitoWindowIcon;
+    case ash::LAUNCH_TYPE_PINNED_TAB:
+    case ash::LAUNCH_TYPE_REGULAR_TAB:
+    case ash::LAUNCH_TYPE_FULLSCREEN:
+    case ash::LAUNCH_TYPE_WINDOW:
+      // Check items use a default icon in touchable and default context menus.
+      return gfx::kNoneIcon;
+    case ash::NOTIFICATION_CONTAINER:
+      NOTREACHED() << "NOTIFICATION_CONTAINER does not have an icon, and it is "
+                      "added to the model by NotificationMenuController.";
+      return gfx::kNoneIcon;
+    case ash::SHUTDOWN_GUEST_OS:
+      return kShutdownGuestOsIcon;
+    case ash::CROSTINI_USE_HIGH_DENSITY:
+      return views::kLinuxHighDensityIcon;
+    case ash::CROSTINI_USE_LOW_DENSITY:
+      return views::kLinuxLowDensityIcon;
+    case ash::SWAP_WITH_NEXT:
+    case ash::SWAP_WITH_PREVIOUS:
+      return gfx::kNoneIcon;
+    case ash::LAUNCH_APP_SHORTCUT_FIRST:
+    case ash::LAUNCH_APP_SHORTCUT_LAST:
+    case ash::COMMAND_ID_COUNT:
+      NOTREACHED();
+      return gfx::kNoneIcon;
+    default:
+      NOTREACHED();
+      return gfx::kNoneIcon;
+  }
+}
+
 void ShelfContextMenu::AddPinMenu(ui::SimpleMenuModel* menu_model) {
   // Expect a valid ShelfID to add pin/unpin menu item.
   DCHECK(!item_.id.IsNull());
@@ -222,7 +281,10 @@ void ShelfContextMenu::AddContextMenuOption(ui::SimpleMenuModel* menu_model,
 
   const gfx::VectorIcon& icon = GetCommandIdVectorIcon(type, string_id);
   if (!icon.is_empty()) {
-    menu_model->AddItemWithStringIdAndIcon(type, string_id, icon);
+    menu_model->AddItemWithStringIdAndIcon(
+        type, string_id,
+        ui::ImageModel::FromVectorIcon(icon, /*color_id=*/-1,
+                                       ash::kAppContextMenuIconSize));
     return;
   }
   // If the MenuType is a check item.
@@ -239,59 +301,4 @@ void ShelfContextMenu::AddContextMenuOption(ui::SimpleMenuModel* menu_model,
     return;
   }
   menu_model->AddItemWithStringId(type, string_id);
-}
-
-const gfx::VectorIcon& ShelfContextMenu::GetCommandIdVectorIcon(
-    ash::CommandId type,
-    int string_id) const {
-  switch (type) {
-    case ash::MENU_OPEN_NEW:
-      if (string_id == IDS_APP_LIST_CONTEXT_MENU_NEW_TAB)
-        return views::kNewTabIcon;
-      if (string_id == IDS_APP_LIST_CONTEXT_MENU_NEW_WINDOW)
-        return views::kNewWindowIcon;
-      return views::kOpenIcon;
-    case ash::MENU_CLOSE:
-      return views::kCloseIcon;
-    case ash::SHOW_APP_INFO:
-      return views::kInfoIcon;
-    case ash::UNINSTALL:
-      return views::kUninstallIcon;
-    case ash::MENU_PIN:
-      return controller_->IsPinned(item_.id) ? views::kUnpinIcon
-                                             : views::kPinIcon;
-    case ash::MENU_NEW_WINDOW:
-      return views::kNewWindowIcon;
-    case ash::MENU_NEW_INCOGNITO_WINDOW:
-      return views::kNewIncognitoWindowIcon;
-    case ash::LAUNCH_TYPE_PINNED_TAB:
-    case ash::LAUNCH_TYPE_REGULAR_TAB:
-    case ash::LAUNCH_TYPE_FULLSCREEN:
-    case ash::LAUNCH_TYPE_WINDOW:
-      // Check items use a default icon in touchable and default context menus.
-      return gfx::kNoneIcon;
-    case ash::NOTIFICATION_CONTAINER:
-      NOTREACHED() << "NOTIFICATION_CONTAINER does not have an icon, and it is "
-                      "added to the model by NotificationMenuController.";
-      return gfx::kNoneIcon;
-    case ash::STOP_APP:
-      if (string_id == IDS_CROSTINI_SHUT_DOWN_LINUX_MENU_ITEM)
-        return views::kLinuxShutdownIcon;
-      return gfx::kNoneIcon;
-    case ash::CROSTINI_USE_HIGH_DENSITY:
-      return views::kLinuxHighDensityIcon;
-    case ash::CROSTINI_USE_LOW_DENSITY:
-      return views::kLinuxLowDensityIcon;
-    case ash::SWAP_WITH_NEXT:
-    case ash::SWAP_WITH_PREVIOUS:
-      return gfx::kNoneIcon;
-    case ash::LAUNCH_APP_SHORTCUT_FIRST:
-    case ash::LAUNCH_APP_SHORTCUT_LAST:
-    case ash::COMMAND_ID_COUNT:
-      NOTREACHED();
-      return gfx::kNoneIcon;
-    default:
-      NOTREACHED();
-      return gfx::kNoneIcon;
-  }
 }

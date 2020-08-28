@@ -28,8 +28,8 @@ namespace {
 // This enum must match the numbering for NewTabPageVoiceAction in enums.xml.
 // Do not reorder or remove items, only add new items before VOICE_ACTION_MAX.
 enum VoiceAction {
-  // Activated by clicking on the fakebox icon.
-  VOICE_ACTION_ACTIVATE_FAKEBOX = 0,
+  // Activated by clicking on the fakebox or realbox icon.
+  VOICE_ACTION_ACTIVATE_SEARCH_BOX = 0,
   // Activated by keyboard shortcut.
   VOICE_ACTION_ACTIVATE_KEYBOARD = 1,
   // Close the voice overlay by a user's explicit action.
@@ -50,8 +50,8 @@ enum VoiceAction {
 // is an action value. Otherwise, |VOICE_ACTION_MAX| is returned.
 VoiceAction LoggingEventToVoiceAction(NTPLoggingEventType event) {
   switch (event) {
-    case NTP_VOICE_ACTION_ACTIVATE_FAKEBOX:
-      return VOICE_ACTION_ACTIVATE_FAKEBOX;
+    case NTP_VOICE_ACTION_ACTIVATE_SEARCH_BOX:
+      return VOICE_ACTION_ACTIVATE_SEARCH_BOX;
     case NTP_VOICE_ACTION_ACTIVATE_KEYBOARD:
       return VOICE_ACTION_ACTIVATE_KEYBOARD;
     case NTP_VOICE_ACTION_CLOSE_OVERLAY:
@@ -372,7 +372,9 @@ NTPUserDataLogger::~NTPUserDataLogger() {}
 // static
 NTPUserDataLogger* NTPUserDataLogger::GetOrCreateFromWebContents(
     content::WebContents* content) {
-  DCHECK(search::IsInstantNTP(content));
+  DCHECK(search::IsInstantNTP(content) ||
+         content->GetMainFrame()->GetSiteInstance()->GetSiteURL() ==
+             GURL(chrome::kChromeUINewTabPageURL));
 
   // Calling CreateForWebContents when an instance is already attached has no
   // effect, so we can do this.
@@ -399,6 +401,21 @@ NTPUserDataLogger* NTPUserDataLogger::GetOrCreateFromWebContents(
   return logger;
 }
 
+// static
+void NTPUserDataLogger::LogOneGoogleBarFetchDuration(
+    bool success,
+    const base::TimeDelta& duration) {
+  UMA_HISTOGRAM_MEDIUM_TIMES("NewTabPage.OneGoogleBar.RequestLatency",
+                             duration);
+  if (success) {
+    UMA_HISTOGRAM_MEDIUM_TIMES("NewTabPage.OneGoogleBar.RequestLatency.Success",
+                               duration);
+  } else {
+    UMA_HISTOGRAM_MEDIUM_TIMES("NewTabPage.OneGoogleBar.RequestLatency.Failure",
+                               duration);
+  }
+}
+
 void NTPUserDataLogger::LogEvent(NTPLoggingEventType event,
                                  base::TimeDelta time) {
   if (event == NTP_ALL_TILES_LOADED) {
@@ -414,7 +431,7 @@ void NTPUserDataLogger::LogEvent(NTPLoggingEventType event,
     case NTP_ALL_TILES_LOADED:
       // permitted above for non-Google search providers
       break;
-    case NTP_VOICE_ACTION_ACTIVATE_FAKEBOX:
+    case NTP_VOICE_ACTION_ACTIVATE_SEARCH_BOX:
     case NTP_VOICE_ACTION_ACTIVATE_KEYBOARD:
     case NTP_VOICE_ACTION_CLOSE_OVERLAY:
     case NTP_VOICE_ACTION_QUERY_SUBMITTED:
@@ -657,12 +674,12 @@ void NTPUserDataLogger::EmitNtpStatistics(base::TimeDelta load_time) {
   // handling.
   bool is_google = DefaultSearchProviderIsGoogle();
 
-  // Split between Web and Local.
+  // Split between NTP variants.
   if (ntp_url_.SchemeIsHTTPOrHTTPS()) {
     UMA_HISTOGRAM_LOAD_TIME("NewTabPage.LoadTime.Web", load_time);
     // Only third-party NTPs can be loaded from the web.
     UMA_HISTOGRAM_LOAD_TIME("NewTabPage.LoadTime.Web.Other", load_time);
-  } else {
+  } else if (ntp_url_ == GURL(chrome::kChromeSearchLocalNtpUrl)) {
     UMA_HISTOGRAM_LOAD_TIME("NewTabPage.LoadTime.LocalNTP", load_time);
     // Further split between Google and non-Google.
     if (is_google) {
@@ -670,6 +687,8 @@ void NTPUserDataLogger::EmitNtpStatistics(base::TimeDelta load_time) {
     } else {
       UMA_HISTOGRAM_LOAD_TIME("NewTabPage.LoadTime.LocalNTP.Other", load_time);
     }
+  } else if (ntp_url_ == GURL(chrome::kChromeUINewTabPageURL)) {
+    UMA_HISTOGRAM_LOAD_TIME("NewTabPage.LoadTime.WebUINTP", load_time);
   }
 
   // Split between Startup and non-startup.

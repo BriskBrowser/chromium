@@ -5,7 +5,6 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_INPUT_MOUSE_EVENT_MANAGER_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_INPUT_MOUSE_EVENT_MANAGER_H_
 
-#include "base/macros.h"
 #include "third_party/blink/public/common/input/web_mouse_event.h"
 #include "third_party/blink/public/platform/web_input_event_result.h"
 #include "third_party/blink/renderer/core/core_export.h"
@@ -34,14 +33,12 @@ enum class DragInitiator;
 class CORE_EXPORT MouseEventManager final
     : public GarbageCollected<MouseEventManager>,
       public SynchronousMutationObserver {
-  USING_GARBAGE_COLLECTED_MIXIN(MouseEventManager);
-
  public:
   MouseEventManager(LocalFrame&, ScrollManager&);
+  MouseEventManager(const MouseEventManager&) = delete;
+  MouseEventManager& operator=(const MouseEventManager&) = delete;
   virtual ~MouseEventManager();
-  void Trace(blink::Visitor*) override;
-
-  enum class UpdateHoverReason { kScrollOffsetChanged, kLayoutOrStyleChanged };
+  void Trace(Visitor*) const override;
 
   WebInputEventResult DispatchMouseEvent(EventTarget*,
                                          const AtomicString&,
@@ -89,13 +86,6 @@ class CORE_EXPORT MouseEventManager final
   WebInputEventResult HandleMouseFocus(
       const HitTestResult&,
       InputDeviceCapabilities* source_capabilities);
-
-  void FakeMouseMoveEventTimerFired(TimerBase*);
-
-  void CancelFakeMouseMoveEvent();
-  void MayUpdateHoverWhenContentUnderMouseChanged(
-      MouseEventManager::UpdateHoverReason);
-  void MayUpdateHoverAfterScroll(const FloatRect&);
 
   void SetLastKnownMousePosition(const WebMouseEvent&);
   void SetLastMousePositionAsUnknown();
@@ -155,8 +145,6 @@ class CORE_EXPORT MouseEventManager final
 
   bool MouseDownMayStartDrag();
 
-  bool FakeMouseMovePending() const;
-
   void RecomputeMouseHoverStateIfNeeded();
   void RecomputeMouseHoverState();
 
@@ -169,6 +157,10 @@ class CORE_EXPORT MouseEventManager final
                                       const WebMouseEvent*,
                                       EventTarget* exited_target,
                                       const String& canvas_region_id);
+    MouseEventBoundaryEventDispatcher(
+        const MouseEventBoundaryEventDispatcher&) = delete;
+    MouseEventBoundaryEventDispatcher& operator=(
+        const MouseEventBoundaryEventDispatcher&) = delete;
 
    protected:
     void DispatchOut(EventTarget*, EventTarget* related_target) override;
@@ -189,11 +181,10 @@ class CORE_EXPORT MouseEventManager final
                   const String& canvas_region_id,
                   const WebMouseEvent&,
                   bool check_for_listener);
-    Member<MouseEventManager> mouse_event_manager_;
+    MouseEventManager* mouse_event_manager_;
     const WebMouseEvent* web_mouse_event_;
-    Member<EventTarget> exited_target_;
+    EventTarget* exited_target_;
     String canvas_region_id_;
-    DISALLOW_COPY_AND_ASSIGN(MouseEventBoundaryEventDispatcher);
   };
 
   // If the given element is a shadow host and its root has delegatesFocus=false
@@ -259,10 +250,6 @@ class CORE_EXPORT MouseEventManager final
   // ends, and at each begin frame, we will dispatch a fake mouse move event to
   // update hover when this is true.
   bool hover_state_dirty_ = false;
-
-  TaskRunnerTimer<MouseEventManager> fake_mouse_move_event_timer_;
-
-  DISALLOW_COPY_AND_ASSIGN(MouseEventManager);
 };
 
 }  // namespace blink

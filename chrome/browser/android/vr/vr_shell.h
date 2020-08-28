@@ -11,22 +11,22 @@
 
 #include "base/android/scoped_java_ref.h"
 #include "base/callback.h"
+#include "base/cancelable_callback.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/single_thread_task_runner.h"
 #include "base/strings/string16.h"
 #include "base/timer/timer.h"
-#include "chrome/browser/ui/page_info/page_info_ui.h"
 #include "chrome/browser/ui/toolbar/chrome_location_bar_model_delegate.h"
 #include "chrome/browser/vr/assets_load_status.h"
 #include "chrome/browser/vr/exit_vr_prompt_choice.h"
-#include "chrome/browser/vr/metrics/session_metrics_helper.h"
 #include "chrome/browser/vr/model/capturing_state_model.h"
 #include "chrome/browser/vr/platform_ui_input_delegate.h"
 #include "chrome/browser/vr/speech_recognizer.h"
 #include "chrome/browser/vr/ui_browser_interface.h"
 #include "chrome/browser/vr/ui_initial_state.h"
 #include "chrome/browser/vr/ui_unsupported_mode.h"
+#include "components/page_info/page_info_ui.h"
 #include "content/public/browser/web_contents_observer.h"
 #include "device/vr/public/mojom/vr_service.mojom.h"
 #include "device/vr/vr_device.h"
@@ -151,10 +151,6 @@ class VrShell : VoiceResultDelegate,
   void RequestToExitVr(JNIEnv* env,
                        const base::android::JavaParamRef<jobject>& obj,
                        int reason);
-  void LogUnsupportedModeUserMetric(
-      JNIEnv* env,
-      const base::android::JavaParamRef<jobject>& obj,
-      int mode);
 
   void ShowSoftInput(JNIEnv* env,
                      const base::android::JavaParamRef<jobject>& obj,
@@ -177,7 +173,7 @@ class VrShell : VoiceResultDelegate,
   void ContentSurfaceCreated(jobject surface, gl::SurfaceTexture* texture);
   void ContentOverlaySurfaceCreated(jobject surface,
                                     gl::SurfaceTexture* texture);
-  void GvrDelegateReady(gvr::ViewerType viewer_type);
+  void GvrDelegateReady();
   void SendRequestPresentReply(device::mojom::XRSessionPtr);
 
   void DialogSurfaceCreated(jobject surface, gl::SurfaceTexture* texture);
@@ -192,13 +188,6 @@ class VrShell : VoiceResultDelegate,
   void ForceExitVr();
   void ExitPresent();
   void ExitFullscreen();
-  void LogUnsupportedModeUserMetric(UiUnsupportedMode mode);
-  void RecordVrStartAction(VrStartAction action);
-  // TODO(https://crbug.com/965744): Rename below method to better reflect its
-  // purpose (recording a start of immersive VR session).
-  void RecordPresentationStartAction(
-      PresentationStartAction action,
-      const device::mojom::XRRuntimeSessionOptions& options);
   void OnUnsupportedMode(UiUnsupportedMode mode);
   void OnExitVrPromptResult(UiUnsupportedMode reason,
                             ExitVrPromptChoice choice);

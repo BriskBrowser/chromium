@@ -29,7 +29,7 @@ public interface OfflineContentProvider {
     }
 
     /** See OfflineContentProvider::OpenItem(...). */
-    void openItem(@LaunchLocation int location, ContentId id);
+    void openItem(OpenParams openParams, ContentId id);
 
     /** See OfflineContentProvider::RemoveItem(...). */
     void removeItem(ContentId id);
@@ -42,6 +42,9 @@ public interface OfflineContentProvider {
 
     /** See OfflineContentProvider::ResumeDownload(...). */
     void resumeDownload(ContentId id, boolean hasUserGesture);
+
+    /** See OfflineContentProvider::ChangeSchedule(...). */
+    void changeSchedule(final ContentId id, final OfflineItemSchedule schedule);
 
     /** See OfflineContentProvider::GetItemById(...). */
     void getItemById(ContentId id, Callback<OfflineItem> callback);

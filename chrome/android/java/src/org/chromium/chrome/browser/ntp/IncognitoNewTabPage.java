@@ -7,22 +7,23 @@ package org.chromium.chrome.browser.ntp;
 import android.app.Activity;
 import android.graphics.Canvas;
 import android.os.Build;
-import android.support.v4.view.ViewCompat;
 import android.view.LayoutInflater;
 import android.widget.TextView;
 
 import androidx.annotation.VisibleForTesting;
+import androidx.core.view.ViewCompat;
 
 import org.chromium.base.ApiCompatibilityUtils;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.compositor.layouts.content.InvalidationAwareThumbnailProvider;
 import org.chromium.chrome.browser.help.HelpAndFeedback;
-import org.chromium.chrome.browser.native_page.BasicNativePage;
-import org.chromium.chrome.browser.native_page.NativePageHost;
 import org.chromium.chrome.browser.ntp.IncognitoNewTabPageView.IncognitoNewTabPageManager;
 import org.chromium.chrome.browser.profiles.Profile;
-import org.chromium.chrome.browser.util.UrlConstants;
+import org.chromium.chrome.browser.ui.native_page.BasicNativePage;
+import org.chromium.chrome.browser.ui.native_page.NativePageHost;
 import org.chromium.chrome.browser.vr.VrModuleProvider;
+import org.chromium.components.content_settings.CookieControlsEnforcement;
+import org.chromium.components.embedder_support.util.UrlConstants;
 
 /**
  * Provides functionality when the user interacts with the Incognito NTP.
@@ -37,13 +38,15 @@ public class IncognitoNewTabPage
     private boolean mIsLoaded;
 
     private IncognitoNewTabPageManager mIncognitoNewTabPageManager;
+    private IncognitoCookieControlsManager mCookieControlsManager;
+    private IncognitoCookieControlsManager.Observer mCookieControlsObserver;
 
     private final int mIncognitoNTPBackgroundColor;
 
     private void showIncognitoLearnMore() {
         HelpAndFeedback.getInstance().show(mActivity,
                 mActivity.getString(R.string.help_context_incognito_learn_more),
-                Profile.getLastUsedProfile(), null);
+                Profile.getLastUsedRegularProfile().getOffTheRecordProfile(), null);
     }
 
     /**
@@ -73,6 +76,41 @@ public class IncognitoNewTabPage
             }
 
             @Override
+            public void initCookieControlsManager() {
+                mCookieControlsManager = new IncognitoCookieControlsManager();
+                mCookieControlsManager.initialize();
+                mIncognitoNewTabPageView.setIncognitoCookieControlsCardVisibility(
+                        mCookieControlsManager.shouldShowCookieControlsCard());
+                mCookieControlsObserver = new IncognitoCookieControlsManager.Observer() {
+                    @Override
+                    public void onUpdate(
+                            boolean checked, @CookieControlsEnforcement int enforcement) {
+                        mIncognitoNewTabPageView.setIncognitoCookieControlsToggleEnforcement(
+                                enforcement);
+                        mIncognitoNewTabPageView.setIncognitoCookieControlsToggleChecked(checked);
+                    }
+                };
+                mCookieControlsManager.addObserver(mCookieControlsObserver);
+                mIncognitoNewTabPageView.setIncognitoCookieControlsToggleCheckedListener(
+                        mCookieControlsManager);
+                mIncognitoNewTabPageView.setIncognitoCookieControlsIconOnclickListener(
+                        mCookieControlsManager);
+                mCookieControlsManager.updateIfNecessary();
+            }
+
+            @Override
+            public boolean shouldCaptureThumbnail() {
+                return mCookieControlsManager.shouldCaptureThumbnail();
+            }
+
+            @Override
+            public void destroy() {
+                if (mCookieControlsManager != null) {
+                    mCookieControlsManager.removeObserver(mCookieControlsObserver);
+                }
+            }
+
+            @Override
             public void onLoadingComplete() {
                 mIsLoaded = true;
             }
@@ -84,7 +122,6 @@ public class IncognitoNewTabPage
         mIncognitoNewTabPageView =
                 (IncognitoNewTabPageView) inflater.inflate(R.layout.new_tab_page_incognito, null);
         mIncognitoNewTabPageView.initialize(mIncognitoNewTabPageManager);
-        mIncognitoNewTabPageView.setNavigationDelegate(host.createHistoryNavigationDelegate());
 
         TextView newTabIncognitoHeader =
                 mIncognitoNewTabPageView.findViewById(R.id.new_tab_incognito_title);
@@ -113,6 +150,7 @@ public class IncognitoNewTabPage
     public void destroy() {
         assert !ViewCompat
                 .isAttachedToWindow(getView()) : "Destroy called before removed from window";
+        mIncognitoNewTabPageManager.destroy();
         super.destroy();
     }
 

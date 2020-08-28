@@ -4,13 +4,17 @@
 
 #include "ui/base/ime/init/input_method_initializer.h"
 
+#include <ostream>
+
 #include "build/build_config.h"
 
 #if defined(OS_CHROMEOS)
-#include "ui/base/ime/ime_bridge.h"
+#include "ui/base/ime/chromeos/ime_bridge.h"
 #elif defined(USE_AURA) && defined(OS_LINUX)
-#include "base/logging.h"
-#include "ui/base/ime/linux/fake_input_method_context_factory.h"
+#include "base/check.h"
+// TODO(crbug.com/1085700): Remove nogncheck when we can build both Ozone
+// Wayland and X11 on Linux codesearch-gen bots.
+#include "ui/base/ime/linux/fake_input_method_context_factory.h"  // nogncheck
 #elif defined(OS_WIN)
 #include "ui/base/ime/init/input_method_factory.h"
 #include "ui/base/ime/win/tsf_bridge.h"
@@ -58,9 +62,7 @@ void InitializeInputMethodForTesting() {
   LinuxInputMethodContextFactory::SetInstance(
       g_linux_input_method_context_factory_for_testing);
 #elif defined(OS_WIN)
-  // Make sure COM is initialized because TSF depends on COM.
-  CoInitialize(nullptr);
-  TSFBridge::Initialize();
+  TSFBridge::InitializeForTesting();
 #endif
 }
 
@@ -72,12 +74,11 @@ void ShutdownInputMethodForTesting() {
       LinuxInputMethodContextFactory::instance();
   CHECK(!factory || factory == g_linux_input_method_context_factory_for_testing)
       << "An unknown LinuxInputMethodContextFactory was set.";
-  LinuxInputMethodContextFactory::SetInstance(NULL);
+  LinuxInputMethodContextFactory::SetInstance(nullptr);
   delete g_linux_input_method_context_factory_for_testing;
-  g_linux_input_method_context_factory_for_testing = NULL;
+  g_linux_input_method_context_factory_for_testing = nullptr;
 #elif defined(OS_WIN)
   TSFBridge::Shutdown();
-  CoUninitialize();
 #endif
 }
 

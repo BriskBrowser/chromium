@@ -6,26 +6,25 @@
 
 #include <stddef.h>
 
-#include "content/public/common/context_menu_params.h"
+#include "content/public/common/untrustworthy_context_menu_params.h"
 #include "content/public/renderer/content_renderer_client.h"
 #include "content/renderer/history_serialization.h"
+#include "content/renderer/impression_conversions.h"
 #include "content/renderer/menu_item_builder.h"
 
 namespace content {
 
 // static
-ContextMenuParams ContextMenuParamsBuilder::Build(
+UntrustworthyContextMenuParams ContextMenuParamsBuilder::Build(
     const blink::WebContextMenuData& data) {
-  ContextMenuParams params;
+  UntrustworthyContextMenuParams params;
   params.media_type = data.media_type;
-  params.x = data.mouse_position.x;
-  params.y = data.mouse_position.y;
+  params.x = data.mouse_position.x();
+  params.y = data.mouse_position.y();
   params.link_url = data.link_url;
   params.unfiltered_link_url = data.link_url;
   params.src_url = data.src_url;
   params.has_image_contents = data.has_image_contents;
-  params.page_url = data.page_url;
-  params.frame_url = data.frame_url;
   params.media_flags = data.media_flags;
   params.selection_text = data.selected_text.Utf16();
   params.selection_start_offset = data.selection_start_offset;
@@ -52,6 +51,10 @@ ContextMenuParams ContextMenuParamsBuilder::Build(
     params.custom_items.push_back(MenuItemBuilder::Build(data.custom_items[i]));
 
   params.link_text = data.link_text.Utf16();
+
+  if (data.impression)
+    params.impression = ConvertWebImpressionToImpression(*data.impression);
+
   params.source_type = static_cast<ui::MenuSourceType>(data.source_type);
 
   return params;

@@ -1,55 +1,133 @@
-<style>
-  ::part(dialog) {
+<style include="cr-hidden-style cr-icons">
+  cr-dialog::part(dialog) {
+    height: 100%;
+    max-height: 520px;
     min-width: 800px;
   }
 
-  div[slot=body] {
+  cr-dialog::part(wrapper) {
+    height: 100%;
+  }
+
+  cr-dialog::part(body-container) {
+    flex-grow: 1;
+  }
+
+  div[slot=title] {
+    align-items: center;
+    color: var(--cr-primary-text-color);
     display: flex;
     flex-direction: row;
-    min-height: 423px;
-    padding-inline-start: 0;
+    height: 64px;
+    margin-top: 16px;
+    padding: 0;
+  }
+
+  div[slot=body] {
+    color: var(--cr-primary-text-color);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    padding: 0;
+  }
+
+  #bodyContainer {
+    display: flex;
+    flex-direction: row;
+    overflow: hidden;
+  }
+
+  div[slot=button-container] {
+    padding-top: 16px;
+  }
+
+  #menuContainer,
+  #pagesContainer {
+    overflow: hidden;
+  }
+
+  #leftTitleSpacer,
+  #menuContainer {
+    flex-basis: 232px;
+  }
+
+  #title {
+    line-height: 1.5;
+    margin-bottom: -2px;
+    padding-inline-end: 24px;
+    user-select: none;
+  }
+
+  #title,
+  #pagesContainer {
+    flex-grow: 1;
+  }
+
+  #menu,
+  #pages {
+    height: 100%;
+    overflow: auto;
+  }
+
+  #pages > iron-pages {
+    /* Margin is for focus outline. */
+    margin: 2px;
+  }
+
+  div[scroll-border] {
+    border-bottom: 1px solid transparent;
+  }
+
+  div[scroll-border][show-1],
+  div[scroll-border][show-2] {
+    border-bottom-color: var(--ntp-border-color);
   }
 
   #menu {
     display: flex;
     flex-direction: column;
-    margin-inline-end: 40px;
   }
 
   .menu-item {
     align-items: center;
     border-radius: 0 16px 16px 0;
+    color: var(--cr-primary-text-color);
     cursor: pointer;
     display: flex;
     flex-direction: row;
+    flex-shrink: 0;
     font-size: 14px;
     height: 32px;
-    margin-bottom: 16px;
     outline: none;
     width: 192px;
+  }
+
+  .menu-item + .menu-item {
+    margin-top: 16px;
   }
 
   :host-context([dir=rtl]) .menu-item {
     border-radius: 16px 0 0 16px;
   }
 
-  .menu-item:hover {
-    background-color: rgba(var(--google-grey-900-rgb), .1);
+  .menu-item:hover,
+  .menu-item:focus {
+    background-color: var(--ntp-hover-background-color);
+  }
+
+  .menu-item:active {
+    background-color: var(--ntp-active-background-color);
   }
 
   .menu-item[selected] {
-    background-color: var(--google-blue-50);
-    color: var(--google-blue-refresh-700);
-  }
-
-  :host-context(.focus-outline-visible) .menu-item:focus {
-    background-color: rgba(var(--google-grey-900-rgb), .16);
+    background-color: var(--ntp-selected-background-color);
+    color: var(--ntp-selected-primary-text-color);
   }
 
   .menu-item-icon {
     -webkit-mask-repeat: no-repeat;
     -webkit-mask-size: 100%;
-    background-color: var(--cr-secondary-text-color);
+    background-color: var(--cr-primary-text-color);
     height: 20px;
     margin-inline-end: 16px;
     margin-inline-start: 24px;
@@ -57,7 +135,7 @@
   }
 
   .menu-item[selected] .menu-item-icon {
-    background-color: var(--google-blue-refresh-700);
+    background-color: var(--ntp-selected-primary-text-color);
   }
 
   #backgroundsIcon {
@@ -72,45 +150,86 @@
     -webkit-mask-image: url(icons/colors.svg);
   }
 
-  #pages {
+  #backButton {
+    --cr-icon-button-fill-color: var(--cr-primary-text-color);
+    margin-inline-end: 4px;
+    /* So that the arrow aligns with the grid. */
+    margin-inline-start: -12px;
+  }
+
+  #titleNavigation {
     align-items: center;
     display: flex;
-    flex-direction: column;
+    flex-direction: row;
+  }
+
+  cr-toggle {
+    margin-inline-end: 12px;
+  }
+
+  #collectionTitle {
     flex-grow: 1;
   }
 </style>
-<cr-dialog id="dialog" show-on-attach>
-  <!-- TODO(crbug.com/1040256): Currently, the sidebar scrolls in sync with the
-       page content area. Fix, so that the page content can scroll
-       separately. -->
+<cr-dialog id="dialog" on-cancel="onCancel_" show-on-attach>
+  <div slot="title">
+    <div id="leftTitleSpacer"></div>
+    <div id="title">
+      <div id="titleText" hidden="[[showTitleNavigation_]]">
+        $i18n{customizeThisPage}
+      </div>
+      <div id="titleNavigation" hidden="[[!showTitleNavigation_]]">
+        <cr-icon-button id="backButton" class="icon-arrow-back"
+            on-click="onBackClick_" title="$i18n{backButton}">
+        </cr-icon-button>
+        <div id="collectionTitle">[[selectedCollection_.label]]</div>
+        <cr-toggle id="refreshToggle" checked="[[isRefreshToggleChecked_]]"
+            on-change="onBackgroundDailyRefreshToggleChange_">
+        </cr-toggle>
+        $i18n{refreshDaily}
+      </div>
+    </div>
+  </div>
   <div slot="body">
-    <iron-selector id="menu" selected-attribute="selected"
-        attr-for-selected="page-name" selected="{{selectedPage_}}"
-        on-keydown="onMenuItemKeyDown_">
-      <div class="menu-item" page-name="backgrounds" tabindex="0">
-        <div id="backgroundsIcon" class="menu-item-icon"></div>
-        $i18n{backgroundsMenuItem}
+    <div id="topPageScrollBorder" scroll-border></div>
+    <div id="bodyContainer">
+      <div id="menuContainer">
+        <div id="menu">
+          <iron-selector selected-attribute="selected"
+              attr-for-selected="page-name" selected="{{selectedPage_}}"
+              on-keydown="onMenuItemKeyDown_">
+            <div class="menu-item" page-name="backgrounds" tabindex="0">
+              <div id="backgroundsIcon" class="menu-item-icon"></div>
+              $i18n{backgroundsMenuItem}
+            </div>
+            <div class="menu-item" page-name="shortcuts" tabindex="0">
+              <div id="shortcutsIcon" class="menu-item-icon"></div>
+              $i18n{shortcutsMenuItem}
+            </div>
+            <div class="menu-item" page-name="themes" tabindex="0">
+              <div id="themesIcon" class="menu-item-icon"></div>
+              $i18n{themesMenuItem}
+            </div>
+          </iron-selector>
+        </div>
       </div>
-      <div class="menu-item" page-name="shortcuts" tabindex="0">
-        <div id="shortcutsIcon" class="menu-item-icon"></div>
-        $i18n{shortcutsMenuItem}
+      <div id="pagesContainer">
+        <div id="pages">
+          <iron-pages selected="[[selectedPage_]]"
+              attr-for-selected="page-name">
+            <ntp-customize-backgrounds id="backgrounds" page-name="backgrounds"
+                selected-collection="{{selectedCollection_}}" theme="[[theme]]"
+                background-selection="{{backgroundSelection}}">
+            </ntp-customize-backgrounds>
+            <ntp-customize-shortcuts page-name="shortcuts">
+            </ntp-customize-shortcuts>
+            <ntp-customize-themes page-name="themes" theme="[[theme]]">
+            </ntp-customize-themes>
+          </iron-pages>
+        </div>
       </div>
-      <div class="menu-item" page-name="themes" tabindex="0">
-        <div id="themesIcon" class="menu-item-icon"></div>
-        $i18n{themesMenuItem}
-      </div>
-    </iron-selector>
-    <iron-pages id="pages" selected="[[selectedPage_]]"
-        attr-for-selected="page-name">
-      <!-- TODO(crbug.com/1032328): Add support for selecting background
-           image. -->
-      <div page-name="backgrounds">backgrounds</div>
-      <!-- TODO(crbug.com/1032333): Add support for selecting shortcuts vs most
-           visited. -->
-      <div page-name="shortcuts">shortcuts</div>
-      <ntp-customize-themes page-name="themes" theme="[[theme]]">
-      </ntp-customize-themes>
-    </iron-pages>
+    </div>
+    <div id="bottomPageScrollBorder" scroll-border></div>
   </div>
   <div slot="button-container">
     <cr-button class="cancel-button" on-click="onCancelClick_">

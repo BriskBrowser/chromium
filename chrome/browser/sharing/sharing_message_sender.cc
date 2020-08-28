@@ -6,20 +6,19 @@
 
 #include "base/guid.h"
 #include "base/stl_util.h"
-#include "base/task/post_task.h"
+#include "base/trace_event/trace_event.h"
 #include "chrome/browser/sharing/sharing_constants.h"
+#include "chrome/browser/sharing/sharing_fcm_sender.h"
 #include "chrome/browser/sharing/sharing_metrics.h"
-#include "chrome/browser/sharing/sharing_sync_preference.h"
 #include "chrome/browser/sharing/sharing_utils.h"
 #include "components/send_tab_to_self/target_device_info.h"
 #include "components/sync_device_info/local_device_info_provider.h"
 #include "content/public/browser/browser_task_traits.h"
+#include "content/public/browser/browser_thread.h"
 
 SharingMessageSender::SharingMessageSender(
-    SharingSyncPreference* sync_prefs,
     syncer::LocalDeviceInfoProvider* local_device_info_provider)
-    : sync_prefs_(sync_prefs),
-      local_device_info_provider_(local_device_info_provider) {}
+    : local_device_info_provider_(local_device_info_provider) {}
 
 SharingMessageSender::~SharingMessageSender() = default;
 
@@ -29,23 +28,29 @@ void SharingMessageSender::SendMessageToDevice(
     chrome_browser_sharing::SharingMessage message,
     DelegateType delegate_type,
     ResponseCallback callback) {
-  DCHECK_GE(response_timeout, kAckTimeToLive);
   DCHECK(message.payload_case() !=
          chrome_browser_sharing::SharingMessage::kAckMessage);
+
+  int trace_id = GenerateSharingTraceId();
+  TRACE_EVENT_NESTABLE_ASYNC_BEGIN1(
+      "sharing", "Sharing.SendMessage", TRACE_ID_LOCAL(trace_id),
+      "message_type",
+      SharingMessageTypeToString(
+          SharingPayloadCaseToMessageType(message.payload_case())));
 
   std::string message_guid = base::GenerateGUID();
   chrome_browser_sharing::MessageType message_type =
       SharingPayloadCaseToMessageType(message.payload_case());
-  SharingDevicePlatform receiver_device_platform =
-      sync_prefs_->GetDevicePlatform(device.guid());
+  SharingDevicePlatform receiver_device_platform = GetDevicePlatform(device);
   base::TimeDelta last_updated_age =
       base::Time::Now() - device.last_updated_timestamp();
 
   auto inserted = base::InsertOrAssign(
       message_metadata_, message_guid,
-      SentMessageMetadata(std::move(callback), base::TimeTicks::Now(),
-                          message_type, receiver_device_platform,
-                          last_updated_age));
+      SentMessageMetadata(
+          std::move(callback), base::TimeTicks::Now(), message_type,
+          receiver_device_platform, last_updated_age, trace_id,
+          SharingChannelType::kUnknown, device.pulse_interval()));
   DCHECK(inserted.second);
 
   auto delegate_iter = send_delegates_.find(delegate_type);
@@ -70,13 +75,14 @@ void SharingMessageSender::SendMessageToDevice(
     return;
   }
 
-  base::PostDelayedTask(
-      FROM_HERE, {base::TaskPriority::USER_VISIBLE, content::BrowserThread::UI},
-      base::BindOnce(&SharingMessageSender::InvokeSendMessageCallback,
-                     weak_ptr_factory_.GetWeakPtr(), message_guid,
-                     SharingSendMessageResult::kAckTimeout,
-                     /*response=*/nullptr),
-      response_timeout);
+  content::GetUIThreadTaskRunner({base::TaskPriority::USER_VISIBLE})
+      ->PostDelayedTask(
+          FROM_HERE,
+          base::BindOnce(&SharingMessageSender::InvokeSendMessageCallback,
+                         weak_ptr_factory_.GetWeakPtr(), message_guid,
+                         SharingSendMessageResult::kAckTimeout,
+                         /*response=*/nullptr),
+          response_timeout);
 
   LogSharingDeviceLastUpdatedAge(message_type, last_updated_age);
   LogSharingVersionComparison(message_type, device.chrome_version());
@@ -85,16 +91,25 @@ void SharingMessageSender::SendMessageToDevice(
   message.set_sender_device_name(
       send_tab_to_self::GetSharingDeviceNames(local_device_info).full_name);
 
+  TRACE_EVENT_NESTABLE_ASYNC_BEGIN0("sharing", "Sharing.DoSendMessage",
+                                    TRACE_ID_LOCAL(trace_id));
   delegate->DoSendMessageToDevice(
-      device, response_timeout - kAckTimeToLive, std::move(message),
+      device, response_timeout, std::move(message),
       base::BindOnce(&SharingMessageSender::OnMessageSent,
                      weak_ptr_factory_.GetWeakPtr(), message_guid));
 }
 
-void SharingMessageSender::OnMessageSent(
-    const std::string& message_guid,
-    SharingSendMessageResult result,
-    base::Optional<std::string> message_id) {
+void SharingMessageSender::OnMessageSent(const std::string& message_guid,
+                                         SharingSendMessageResult result,
+                                         base::Optional<std::string> message_id,
+                                         SharingChannelType channel_type) {
+  auto metadata_iter = message_metadata_.find(message_guid);
+  DCHECK(metadata_iter != message_metadata_.end());
+  TRACE_EVENT_NESTABLE_ASYNC_END1(
+      "sharing", "Sharing.DoSendMessage",
+      TRACE_ID_LOCAL(metadata_iter->second.trace_id), "result",
+      SharingSendMessageResultToString(result));
+  metadata_iter->second.channel_type = channel_type;
   if (result != SharingSendMessageResult::kSuccessful) {
     InvokeSendMessageCallback(message_guid, result,
                               /*response=*/nullptr);
@@ -115,6 +130,7 @@ void SharingMessageSender::OnMessageSent(
 void SharingMessageSender::OnAckReceived(
     const std::string& message_id,
     std::unique_ptr<chrome_browser_sharing::ResponseMessage> response) {
+  TRACE_EVENT0("sharing", "SharingMessageSender::OnAckReceived");
   auto guid_iter = message_guids_.find(message_id);
   if (guid_iter == message_guids_.end()) {
     // We don't have the guid yet, store the response until we receive it.
@@ -130,6 +146,7 @@ void SharingMessageSender::OnAckReceived(
   const SentMessageMetadata& metadata = metadata_iter->second;
 
   LogSharingMessageAckTime(metadata.type, metadata.receiver_device_platform,
+                           metadata.channel_type,
                            base::TimeTicks::Now() - metadata.timestamp);
 
   InvokeSendMessageCallback(message_guid, SharingSendMessageResult::kSuccessful,
@@ -145,6 +162,13 @@ void SharingMessageSender::RegisterSendDelegate(
   DCHECK(result.second) << "Delegate type already registered";
 }
 
+SharingFCMSender* SharingMessageSender::GetFCMSenderForTesting() const {
+  auto delegate_iter = send_delegates_.find(DelegateType::kFCM);
+  DCHECK(delegate_iter != send_delegates_.end());
+  DCHECK(delegate_iter->second);
+  return static_cast<SharingFCMSender*>(delegate_iter->second.get());
+}
+
 void SharingMessageSender::InvokeSendMessageCallback(
     const std::string& message_guid,
     SharingSendMessageResult result,
@@ -158,8 +182,12 @@ void SharingMessageSender::InvokeSendMessageCallback(
   std::move(metadata.callback).Run(result, std::move(response));
 
   LogSendSharingMessageResult(metadata.type, metadata.receiver_device_platform,
-                              result);
+                              metadata.channel_type,
+                              metadata.receiver_pulse_interval, result);
   LogSharingDeviceLastUpdatedAgeWithResult(result, metadata.last_updated_age);
+  TRACE_EVENT_NESTABLE_ASYNC_END1("sharing", "SharingMessageSender.SendMessage",
+                                  TRACE_ID_LOCAL(metadata.trace_id), "result",
+                                  SharingSendMessageResultToString(result));
 }
 
 SharingMessageSender::SentMessageMetadata::SentMessageMetadata(
@@ -167,12 +195,18 @@ SharingMessageSender::SentMessageMetadata::SentMessageMetadata(
     base::TimeTicks timestamp,
     chrome_browser_sharing::MessageType type,
     SharingDevicePlatform receiver_device_platform,
-    base::TimeDelta last_updated_age)
+    base::TimeDelta last_updated_age,
+    int trace_id,
+    SharingChannelType channel_type,
+    base::TimeDelta receiver_pulse_interval)
     : callback(std::move(callback)),
       timestamp(timestamp),
       type(type),
       receiver_device_platform(receiver_device_platform),
-      last_updated_age(last_updated_age) {}
+      last_updated_age(last_updated_age),
+      trace_id(trace_id),
+      channel_type(channel_type),
+      receiver_pulse_interval(receiver_pulse_interval) {}
 
 SharingMessageSender::SentMessageMetadata::SentMessageMetadata(
     SentMessageMetadata&& other) = default;

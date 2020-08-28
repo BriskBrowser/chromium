@@ -267,6 +267,26 @@ public final class RemoteObjectImplTest {
     }
 
     @Test
+    public void testGetMethodsWithDisallowedInspection() {
+        Object target = new Object() {
+            @TestJavascriptInterface
+            public void exposedMethod() {}
+
+            @TestJavascriptInterface
+            public void anotherExposedMethod() {}
+        };
+
+        RemoteObject remoteObject = newRemoteObjectImpl(
+                target, TestJavascriptInterface.class, /* allowInspection */ false);
+
+        // getMethods should be empty.
+        RemoteObject.GetMethodsResponse getMethodsResponse =
+                mock(RemoteObject.GetMethodsResponse.class);
+        remoteObject.getMethods(getMethodsResponse);
+        verify(getMethodsResponse).call(aryEq(new String[] {}));
+    }
+
+    @Test
     public void testObjectGetClassBlocked() {
         Object target = new Object();
         RemoteObject.InvokeMethodResponse response = mock(RemoteObject.InvokeMethodResponse.class);
@@ -750,6 +770,11 @@ public final class RemoteObjectImplTest {
             public Object getFoo() {
                 return foo;
             }
+
+            @TestJavascriptInterface
+            public Object getNull() {
+                return null;
+            }
         };
 
         when(mIdAllocator.getObjectId(foo)).thenReturn(42);
@@ -757,8 +782,10 @@ public final class RemoteObjectImplTest {
         RemoteObject remoteObject = newRemoteObjectImpl(target, TestJavascriptInterface.class);
         RemoteObject.InvokeMethodResponse response = mock(RemoteObject.InvokeMethodResponse.class);
         remoteObject.invokeMethod("getFoo", new RemoteInvocationArgument[] {}, response);
+        remoteObject.invokeMethod("getNull", new RemoteInvocationArgument[] {}, response);
 
         verify(response).call(resultIsObject(42));
+        verify(response).call(resultIsNull());
     }
 
     private RemoteInvocationResult resultHasError(final int error) {
@@ -774,6 +801,14 @@ public final class RemoteObjectImplTest {
             return result.value != null
                     && result.value.which() == RemoteInvocationResultValue.Tag.SingletonValue
                     && result.value.getSingletonValue() == SingletonJavaScriptValue.UNDEFINED;
+        }));
+    }
+
+    private RemoteInvocationResult resultIsNull() {
+        return and(resultIsOk(), ArgumentMatchers.argThat(result -> {
+            return result.value != null
+                    && result.value.which() == RemoteInvocationResultValue.Tag.SingletonValue
+                    && result.value.getSingletonValue() == SingletonJavaScriptValue.NULL;
         }));
     }
 
@@ -856,6 +891,11 @@ public final class RemoteObjectImplTest {
 
     private RemoteObjectImpl newRemoteObjectImpl(
             Object target, Class<? extends Annotation> annotation) {
-        return new RemoteObjectImpl(target, annotation, mAuditor, mIdAllocator);
+        return newRemoteObjectImpl(target, annotation, true);
+    }
+
+    private RemoteObjectImpl newRemoteObjectImpl(
+            Object target, Class<? extends Annotation> annotation, boolean allowInspection) {
+        return new RemoteObjectImpl(target, annotation, mAuditor, mIdAllocator, allowInspection);
     }
 }

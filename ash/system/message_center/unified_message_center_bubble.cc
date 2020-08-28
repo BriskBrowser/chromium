@@ -51,7 +51,7 @@ class UnifiedMessageCenterBubble::Border : public ui::LayerDelegate {
     // Draw a solid rounded rect as the inner border.
     cc::PaintFlags flags;
     flags.setColor(AshColorProvider::Get()->GetContentLayerColor(
-        AshColorProvider::ContentLayerType::kSeparator,
+        AshColorProvider::ContentLayerType::kSeparatorColor,
         AshColorProvider::AshColorMode::kLight));
     flags.setStyle(cc::PaintFlags::kStroke_Style);
     flags.setStrokeWidth(canvas->image_scale());
@@ -74,8 +74,7 @@ UnifiedMessageCenterBubble::UnifiedMessageCenterBubble(UnifiedSystemTray* tray)
   // Anchor within the overlay container.
   init_params.parent_window = tray->GetBubbleWindowContainer();
   init_params.anchor_mode = TrayBubbleView::AnchorMode::kRect;
-  init_params.min_width = kTrayMenuWidth;
-  init_params.max_width = kTrayMenuWidth;
+  init_params.preferred_width = kTrayMenuWidth;
   init_params.has_shadow = false;
   init_params.close_on_deactivate = false;
 
@@ -85,17 +84,8 @@ UnifiedMessageCenterBubble::UnifiedMessageCenterBubble(UnifiedSystemTray* tray)
       bubble_view_->AddChildView(std::make_unique<UnifiedMessageCenterView>(
           nullptr /* parent */, tray->model(), this));
 
-  // Check if the message center bubble should be collapsed or expanded
-  // when it is initially opened.
-  if (CalculateAvailableHeight() < kMessageCenterCollapseThreshold &&
-      message_center_view_->GetPreferredSize().height()) {
-    if (tray_->IsQuickSettingsExplicitlyExpanded()) {
-      message_center_view_->SetCollapsed(false /*animate*/);
-    } else {
-      message_center_view_->SetExpanded();
-      tray_->EnsureQuickSettingsCollapsed(false /*animate*/);
-    }
-  }
+  time_to_click_recorder_ =
+      std::make_unique<TimeToClickRecorder>(this, message_center_view_);
 
   message_center_view_->AddObserver(this);
 }
@@ -116,6 +106,18 @@ void UnifiedMessageCenterBubble::ShowBubble() {
 
   bubble_view_->InitializeAndShowBubble();
 
+  // Check if the message center bubble should be collapsed or expanded
+  // when it is initially opened.
+  if (CalculateAvailableHeight() < kMessageCenterCollapseThreshold &&
+      message_center_view_->GetPreferredSize().height()) {
+    if (tray_->IsQuickSettingsExplicitlyExpanded()) {
+      message_center_view_->SetCollapsed(false /*animate*/);
+    } else {
+      message_center_view_->SetExpanded();
+      tray_->EnsureQuickSettingsCollapsed(false /*animate*/);
+    }
+  }
+
   UpdatePosition();
 }
 
@@ -130,6 +132,7 @@ UnifiedMessageCenterBubble::~UnifiedMessageCenterBubble() {
     bubble_widget_->RemoveObserver(this);
     bubble_widget_->CloseNow();
   }
+  CHECK(!views::WidgetObserver::IsInObserverList());
 }
 
 int UnifiedMessageCenterBubble::CalculateAvailableHeight() {
@@ -167,7 +170,8 @@ void UnifiedMessageCenterBubble::UpdatePosition() {
   gfx::Rect anchor_rect = tray_->shelf()->GetSystemTrayAnchorRect();
 
   gfx::Insets tray_bubble_insets = GetTrayBubbleInsets();
-  int left_offset = tray_->shelf()->alignment() == ShelfAlignment::kLeft
+  int left_offset = (tray_->shelf()->alignment() == ShelfAlignment::kLeft ||
+                     base::i18n::IsRTL())
                         ? tray_bubble_insets.left()
                         : -tray_bubble_insets.right();
 
@@ -189,6 +193,10 @@ bool UnifiedMessageCenterBubble::FocusOut(bool reverse) {
   return tray_->FocusQuickSettings(reverse);
 }
 
+void UnifiedMessageCenterBubble::ActivateQuickSettingsBubble() {
+  tray_->ActivateBubble();
+}
+
 void UnifiedMessageCenterBubble::FocusFirstNotification() {
   // Move focus to first notification from notification bar if it is visible.
   if (message_center_view_->IsNotificationBarVisible())
@@ -197,6 +205,10 @@ void UnifiedMessageCenterBubble::FocusFirstNotification() {
 
 bool UnifiedMessageCenterBubble::IsMessageCenterVisible() {
   return !!bubble_widget_ && message_center_view_->GetVisible();
+}
+
+bool UnifiedMessageCenterBubble::IsMessageCenterCollapsed() {
+  return message_center_view_->collapsed();
 }
 
 TrayBackgroundView* UnifiedMessageCenterBubble::GetTray() const {
@@ -244,6 +256,15 @@ void UnifiedMessageCenterBubble::OnWidgetActivationChanged(
     bool active) {
   if (active)
     tray_->bubble()->OnMessageCenterActivated();
+}
+
+void UnifiedMessageCenterBubble::RecordTimeToClick() {
+  // TODO(tengs): We are currently only using this handler to record the first
+  // interaction (i.e. whether the message center or quick settings was clicked
+  // first). Maybe log the time to click if it is useful in the future.
+
+  tray_->MaybeRecordFirstInteraction(
+      UnifiedSystemTray::FirstInteractionType::kMessageCenter);
 }
 
 }  // namespace ash

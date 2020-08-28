@@ -12,10 +12,10 @@
 #include "base/json/json_writer.h"
 #include "base/memory/ptr_util.h"
 #include "base/strings/string_piece.h"
-#include "chrome/common/media_router/discovery/media_sink_internal.h"
-#include "chrome/common/media_router/providers/cast/cast_media_source.h"
 #include "components/cast_channel/cast_socket.h"
 #include "components/cast_channel/enum_table.h"
+#include "components/media_router/common/discovery/media_sink_internal.h"
+#include "components/media_router/common/providers/cast/cast_media_source.h"
 #include "net/base/escape.h"
 
 namespace cast_util {
@@ -391,6 +391,9 @@ std::unique_ptr<CastSession> CastSession::From(
   CopyValueWithDefault(app_value, "statusText", base::Value(), &session_value);
   CopyValueWithDefault(app_value, "appImages", base::ListValue(),
                        &session_value);
+  // Optional fields
+  CopyValue(app_value, "appType", &session_value);
+  CopyValue(app_value, "universalAppId", &session_value);
 
   const base::Value* namespaces_value =
       app_value.FindKeyOfType("namespaces", base::Value::Type::LIST);
@@ -517,16 +520,20 @@ blink::mojom::PresentationConnectionMessagePtr CreateErrorMessage(
                              std::move(error), client_id, sequence_number);
 }
 
-base::Value SupportedMediaRequestsToListValue(int media_requests) {
+base::Value SupportedMediaCommandsToListValue(int media_commands) {
   base::Value value(base::Value::Type::LIST);
-  if (media_requests & 1)
-    value.Append("pause");
-  if (media_requests & 2)
-    value.Append("seek");
-  if (media_requests & 4)
-    value.Append("stream_volume");
-  if (media_requests & 8)
-    value.Append("stream_mute");
+  if (media_commands & static_cast<int>(MediaCommand::kPause))
+    value.Append(kMediaCommandPause);
+  if (media_commands & static_cast<int>(MediaCommand::kSeek))
+    value.Append(kMediaCommandSeek);
+  if (media_commands & static_cast<int>(MediaCommand::kStreamVolume))
+    value.Append(kMediaCommandStreamVolume);
+  if (media_commands & static_cast<int>(MediaCommand::kStreamMute))
+    value.Append(kMediaCommandStreamMute);
+  if (media_commands & static_cast<int>(MediaCommand::kQueueNext))
+    value.Append(kMediaCommandQueueNext);
+  if (media_commands & static_cast<int>(MediaCommand::kQueuePrev))
+    value.Append(kMediaCommandQueuePrev);
   return value;
 }
 

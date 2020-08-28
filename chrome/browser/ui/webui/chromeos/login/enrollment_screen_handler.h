@@ -69,6 +69,10 @@ class EnrollmentScreenHandler
   // Implements EnrollmentScreenView:
   void SetEnrollmentConfig(Controller* controller,
                            const policy::EnrollmentConfig& config) override;
+
+  void SetEnterpriseDomainAndDeviceType(
+      const std::string& domain,
+      const base::string16& device_type) override;
   void Show() override;
   void Hide() override;
   void ShowSigninScreen() override;
@@ -78,8 +82,7 @@ class EnrollmentScreenHandler
                                  authpolicy::ErrorType error) override;
   void ShowAttributePromptScreen(const std::string& asset_id,
                                  const std::string& location) override;
-  void ShowAttestationBasedEnrollmentSuccessScreen(
-      const std::string& enterprise_domain) override;
+  void ShowEnrollmentSuccessScreen() override;
   void ShowEnrollmentSpinnerScreen() override;
   void ShowAuthError(const GoogleServiceAuthError& error) override;
   void ShowEnrollmentStatus(policy::EnrollmentStatus status) override;
@@ -102,8 +105,8 @@ class EnrollmentScreenHandler
   void HandleCompleteLogin(const std::string& user);
   void OnGetCookiesForCompleteLogin(
       const std::string& user,
-      const net::CookieStatusList& cookies,
-      const net::CookieStatusList& excluded_cookies);
+      const net::CookieAccessResultList& cookies,
+      const net::CookieAccessResultList& excluded_cookies);
   void HandleAdCompleteLogin(const std::string& machine_name,
                              const std::string& distinguished_name,
                              const std::string& encryption_types,

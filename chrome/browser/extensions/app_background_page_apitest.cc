@@ -29,6 +29,7 @@
 #include "components/nacl/common/buildflags.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/render_frame_host.h"
+#include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/test_utils.h"
 #include "extensions/browser/process_manager.h"
@@ -44,7 +45,7 @@
 #include "components/nacl/browser/nacl_process_host.h"
 #endif
 
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
 #include "base/mac/scoped_nsautorelease_pool.h"
 #endif
 
@@ -144,8 +145,7 @@ namespace {
 // Native Client embeds.
 class AppBackgroundPageNaClTest : public AppBackgroundPageApiTest {
  public:
-  AppBackgroundPageNaClTest()
-      : extension_(NULL) {}
+  AppBackgroundPageNaClTest() : extension_(nullptr) {}
   ~AppBackgroundPageNaClTest() override {}
 
   void SetUpOnMainThread() override {
@@ -173,8 +173,10 @@ class AppBackgroundPageNaClTest : public AppBackgroundPageApiTest {
 
 }  // namespace
 
-// Disable on Mac only.  http://crbug.com/95139
-#if defined(OS_MACOSX)
+// Flaky test disabled on Mac (http://crbug.com/95139), Windows
+// and Linux (http://crbug.com/1044265).
+#if defined(OS_MAC) || defined(OS_WIN) || defined(OS_LINUX) || \
+    defined(OS_CHROMEOS)
 #define MAYBE_Basic DISABLED_Basic
 #else
 #define MAYBE_Basic Basic

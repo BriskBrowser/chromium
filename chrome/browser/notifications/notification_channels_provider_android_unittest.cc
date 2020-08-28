@@ -47,6 +47,10 @@ class FakeNotificationChannelsBridge
     should_use_channels_ = should_use_channels;
   }
 
+  FakeNotificationChannelsBridge(const FakeNotificationChannelsBridge&) =
+      delete;
+  FakeNotificationChannelsBridge& operator=(
+      const FakeNotificationChannelsBridge&) = delete;
   ~FakeNotificationChannelsBridge() override = default;
 
   void SetChannelStatus(const std::string& origin,
@@ -105,8 +109,6 @@ class FakeNotificationChannelsBridge
 
   // Map from channel_id - channel.
   std::map<std::string, NotificationChannel> channels_;
-
-  DISALLOW_COPY_AND_ASSIGN(FakeNotificationChannelsBridge);
 };
 
 class NotificationChannelsProviderAndroidTest : public testing::Test {
@@ -131,18 +133,12 @@ class NotificationChannelsProviderAndroidTest : public testing::Test {
 
  protected:
   void InitChannelsProvider(bool should_use_channels) {
-    InitChannelsProviderWithClock(should_use_channels,
-                                  std::make_unique<base::DefaultClock>());
-  }
-
-  void InitChannelsProviderWithClock(bool should_use_channels,
-                                     std::unique_ptr<base::Clock> clock) {
     fake_bridge_ = new FakeNotificationChannelsBridge(should_use_channels);
 
     // Can't use std::make_unique because the provider's constructor is private.
     channels_provider_ =
         base::WrapUnique(new NotificationChannelsProviderAndroid(
-            base::WrapUnique(fake_bridge_), std::move(clock)));
+            base::WrapUnique(fake_bridge_)));
   }
 
   ContentSettingsPattern GetTestPattern() {
@@ -481,12 +477,11 @@ TEST_F(NotificationChannelsProviderAndroidTest,
 
 TEST_F(NotificationChannelsProviderAndroidTest,
        GetWebsiteSettingLastModifiedReturnsMostRecentTimestamp) {
-  auto test_clock = std::make_unique<base::SimpleTestClock>();
+  base::SimpleTestClock clock;
   base::Time t1 = base::Time::Now();
-  test_clock->SetNow(t1);
-  base::SimpleTestClock* clock = test_clock.get();
-  InitChannelsProviderWithClock(true /* should_use_channels */,
-                                std::move(test_clock));
+  clock.SetNow(t1);
+  InitChannelsProvider(true /* should_use_channels */);
+  channels_provider_->SetClockForTesting(&clock);
 
   // Create channel and check last-modified time is the creation time.
   std::string first_origin = "https://example.com";
@@ -494,7 +489,7 @@ TEST_F(NotificationChannelsProviderAndroidTest,
       ContentSettingsPattern::FromString(first_origin),
       ContentSettingsPattern(), ContentSettingsType::NOTIFICATIONS,
       std::string(), std::make_unique<base::Value>(CONTENT_SETTING_ALLOW));
-  clock->Advance(base::TimeDelta::FromSeconds(1));
+  clock.Advance(base::TimeDelta::FromSeconds(1));
 
   base::Time last_modified = channels_provider_->GetWebsiteSettingLastModified(
       ContentSettingsPattern::FromString(first_origin),
@@ -504,8 +499,8 @@ TEST_F(NotificationChannelsProviderAndroidTest,
 
   // Delete and recreate the same channel after some time has passed.
   // This simulates the user clearing data and regranting permisison.
-  clock->Advance(base::TimeDelta::FromSeconds(3));
-  base::Time t2 = clock->Now();
+  clock.Advance(base::TimeDelta::FromSeconds(3));
+  base::Time t2 = clock.Now();
   channels_provider_->SetWebsiteSetting(
       ContentSettingsPattern::FromString(first_origin),
       ContentSettingsPattern(), ContentSettingsType::NOTIFICATIONS,
@@ -523,7 +518,7 @@ TEST_F(NotificationChannelsProviderAndroidTest,
   EXPECT_EQ(last_modified, t2);
 
   // Create an unrelated channel after some more time has passed.
-  clock->Advance(base::TimeDelta::FromSeconds(5));
+  clock.Advance(base::TimeDelta::FromSeconds(5));
   std::string second_origin = "https://other.com";
   channels_provider_->SetWebsiteSetting(
       ContentSettingsPattern::FromString(second_origin),

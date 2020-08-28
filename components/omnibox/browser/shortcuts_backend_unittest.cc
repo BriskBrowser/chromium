@@ -28,6 +28,8 @@ class ShortcutsBackendTest : public testing::Test,
                              public ShortcutsBackend::ShortcutsBackendObserver {
  public:
   ShortcutsBackendTest();
+  ShortcutsBackendTest(const ShortcutsBackendTest&) = delete;
+  ShortcutsBackendTest& operator=(const ShortcutsBackendTest&) = delete;
 
   ShortcutsDatabase::Shortcut::MatchCore MatchCoreForTesting(
       const std::string& url,
@@ -69,8 +71,6 @@ class ShortcutsBackendTest : public testing::Test,
 
   bool load_notified_;
   bool changed_notified_;
-
-  DISALLOW_COPY_AND_ASSIGN(ShortcutsBackendTest);
 };
 
 ShortcutsBackendTest::ShortcutsBackendTest()
@@ -250,6 +250,47 @@ TEST_F(ShortcutsBackendTest, EntitySuggestionTest) {
   EXPECT_EQ("0,0", match_core.contents_class);
   EXPECT_EQ(base::string16(), match_core.description);
   EXPECT_TRUE(match_core.description_class.empty());
+}
+
+TEST_F(ShortcutsBackendTest, MatchCoreDescriptionTest) {
+  // When match.description_for_shortcuts is empty, match_core should use
+  // match.description.
+  {
+    AutocompleteMatch match;
+    match.description = base::UTF8ToUTF16("the cat");
+    match.description_class =
+        AutocompleteMatch::ClassificationsFromString("0,1");
+
+    SearchTermsData search_terms_data;
+    ShortcutsDatabase::Shortcut::MatchCore match_core =
+        ShortcutsBackend::MatchToMatchCore(match, GetTemplateURLService(),
+                                           &search_terms_data);
+    EXPECT_EQ(match_core.description, match.description);
+    EXPECT_EQ(
+        match_core.description_class,
+        AutocompleteMatch::ClassificationsToString(match.description_class));
+  }
+
+  // When match.description_for_shortcuts is set, match_core should use it
+  // instead of match.description.
+  {
+    AutocompleteMatch match;
+    match.description = base::UTF8ToUTF16("the cat");
+    match.description_class =
+        AutocompleteMatch::ClassificationsFromString("0,1");
+    match.description_for_shortcuts = base::UTF8ToUTF16("the elephant");
+    match.description_class_for_shortcuts =
+        AutocompleteMatch::ClassificationsFromString("0,4");
+
+    SearchTermsData search_terms_data;
+    ShortcutsDatabase::Shortcut::MatchCore match_core =
+        ShortcutsBackend::MatchToMatchCore(match, GetTemplateURLService(),
+                                           &search_terms_data);
+    EXPECT_EQ(match_core.description, match.description_for_shortcuts);
+    EXPECT_EQ(match_core.description_class,
+              AutocompleteMatch::ClassificationsToString(
+                  match.description_class_for_shortcuts));
+  }
 }
 
 TEST_F(ShortcutsBackendTest, AddAndUpdateShortcut) {

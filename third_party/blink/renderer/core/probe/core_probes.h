@@ -33,6 +33,7 @@
 
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/dom/document.h"
+#include "third_party/blink/renderer/core/execution_context/execution_context.h"
 #include "third_party/blink/renderer/core/frame/ad_tracker.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource.h"
@@ -68,11 +69,20 @@ class CORE_EXPORT ProbeBase {
   mutable base::TimeTicks end_time_;
 };
 
+// Tracks execution of a (previously scheduled) asynchronous task. An instance
+// should exist for the full duration of the task's execution.
 class CORE_EXPORT AsyncTask {
   STACK_ALLOCATED();
 
  public:
-  AsyncTask(ExecutionContext*,
+  // Args:
+  //   context: The ExecutionContext in which the task is executed.
+  //   task: An identifier for the AsyncTask.
+  //   step: A nullptr indicates a task that is not recurring. A non-null value
+  //     indicates a recurring task with the value used for tracing events.
+  //   enabled: Whether the task is asynchronous. If false, the task is not
+  //     reported to the debugger and AdTracker.
+  AsyncTask(ExecutionContext* context,
             AsyncTaskId* task,
             const char* step = nullptr,
             bool enabled = true);
@@ -92,20 +102,20 @@ inline CoreProbeSink* ToCoreProbeSink(LocalFrame* frame) {
   return frame ? frame->GetProbeSink() : nullptr;
 }
 
+inline CoreProbeSink* ToCoreProbeSink(ExecutionContext* context) {
+  return context ? context->GetProbeSink() : nullptr;
+}
+
 inline CoreProbeSink* ToCoreProbeSink(Document& document) {
-  return document.GetProbeSink();
+  return ToCoreProbeSink(document.GetExecutionContext());
 }
 
 inline CoreProbeSink* ToCoreProbeSink(Document* document) {
-  return document ? ToCoreProbeSink(*document) : nullptr;
+  return document ? ToCoreProbeSink(document->GetExecutionContext()) : nullptr;
 }
 
 inline CoreProbeSink* ToCoreProbeSink(CoreProbeSink* sink) {
   return sink;
-}
-
-inline CoreProbeSink* ToCoreProbeSink(ExecutionContext* context) {
-  return context ? context->GetProbeSink() : nullptr;
 }
 
 inline CoreProbeSink* ToCoreProbeSink(Node* node) {

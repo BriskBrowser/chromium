@@ -1,21 +1,19 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/chromeos/platform_keys/platform_keys.h"
 
 #include <map>
+#include <memory>
+#include <string>
 
-#include "base/bind.h"
-#include "base/bind_helpers.h"
-#include "base/location.h"
-#include "base/task/post_task.h"
+#include "base/callback.h"
+#include "base/task/task_traits.h"
+#include "base/task/thread_pool.h"
 #include "net/base/hash_value.h"
+#include "net/base/net_errors.h"
 #include "net/cert/x509_certificate.h"
-
-namespace chromeos {
-
-namespace platform_keys {
 
 namespace {
 
@@ -46,16 +44,37 @@ void IntersectOnWorkerThread(const net::CertificateList& certs1,
 
 }  // namespace
 
-const char kTokenIdUser[] = "user";
-const char kTokenIdSystem[] = "system";
+namespace chromeos {
+namespace platform_keys {
 
-ClientCertificateRequest::ClientCertificateRequest() {
-}
-
-ClientCertificateRequest::ClientCertificateRequest(
-    const ClientCertificateRequest& other) = default;
-
-ClientCertificateRequest::~ClientCertificateRequest() {
+std::string StatusToString(Status status) {
+  switch (status) {
+    case Status::kSuccess:
+      return "The operation was successfully executed.";
+    case Status::kErrorAlgorithmNotSupported:
+      return "Algorithm not supported.";
+    case Status::kErrorCertificateNotFound:
+      return "Certificate could not be found.";
+    case Status::kErrorInternal:
+      return "Internal Error.";
+    case Status::kErrorKeyAttributeRetrievalFailed:
+      return "Key attribute value retrieval failed.";
+    case Status::kErrorKeyAttributeSettingFailed:
+      return "Setting key attribute value failed.";
+    case Status::kErrorKeyNotAllowedForSigning:
+      return "This key is not allowed for signing. Either it was used for "
+             "signing before or it was not correctly generated.";
+    case Status::kErrorKeyNotFound:
+      return "Key not found.";
+    case Status::kErrorShutDown:
+      return "Delegate shut down.";
+    case Status::kNetErrorAddUserCertFailed:
+      return net::ErrorToString(net::ERR_ADD_USER_CERT_FAILED);
+    case Status::kNetErrorCertificateDateInvalid:
+      return net::ErrorToString(net::ERR_CERT_DATE_INVALID);
+    case Status::kNetErrorCertificateInvalid:
+      return net::ErrorToString(net::ERR_CERT_INVALID);
+  }
 }
 
 void IntersectCertificates(
@@ -69,14 +88,21 @@ void IntersectCertificates(
   // This is triggered by a call to the
   // chrome.platformKeys.selectClientCertificates extensions API. Completion
   // does not affect browser responsiveness, hence the BEST_EFFORT priority.
-  base::PostTaskAndReply(
+  base::ThreadPool::PostTaskAndReply(
       FROM_HERE,
-      {base::ThreadPool(), base::TaskPriority::BEST_EFFORT,
+      {base::TaskPriority::BEST_EFFORT,
        base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN},
-      base::Bind(&IntersectOnWorkerThread, certs1, certs2, intersection_ptr),
-      base::Bind(callback, base::Passed(&intersection)));
+      base::BindOnce(&IntersectOnWorkerThread, certs1, certs2,
+                     intersection_ptr),
+      base::BindOnce(callback, base::Passed(&intersection)));
 }
 
-}  // namespace platform_keys
+ClientCertificateRequest::ClientCertificateRequest() = default;
 
+ClientCertificateRequest::ClientCertificateRequest(
+    const ClientCertificateRequest& other) = default;
+
+ClientCertificateRequest::~ClientCertificateRequest() = default;
+
+}  // namespace platform_keys
 }  // namespace chromeos

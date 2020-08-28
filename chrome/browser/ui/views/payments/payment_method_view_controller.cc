@@ -17,9 +17,9 @@
 #include "chrome/browser/ui/views/payments/payment_request_dialog_view_ids.h"
 #include "chrome/browser/ui/views/payments/payment_request_row_view.h"
 #include "chrome/browser/ui/views/payments/payment_request_views_util.h"
+#include "components/payments/content/autofill_payment_app.h"
+#include "components/payments/content/payment_app.h"
 #include "components/payments/content/payment_request_state.h"
-#include "components/payments/core/autofill_payment_app.h"
-#include "components/payments/core/payment_app.h"
 #include "components/payments/core/strings_util.h"
 #include "components/strings/grit/components_strings.h"
 #include "third_party/skia/include/core/SkColor.h"
@@ -90,9 +90,14 @@ class PaymentMethodListItem : public PaymentRequestItemList::Item {
             base::OnceCallback<void(const autofill::CreditCard&)>(),
             static_cast<AutofillPaymentApp*>(app_)->credit_card());
         return;
+      case PaymentApp::Type::UNDEFINED:
+        // Intentionally fall through.
       case PaymentApp::Type::NATIVE_MOBILE_APP:
+        // Intentionally fall through.
       case PaymentApp::Type::SERVICE_WORKER_APP:
-        // We cannot edit a native mobile app and service worker app.
+        // Intentionally fall through.
+      case PaymentApp::Type::INTERNAL:
+        // We cannot edit these types of payment apps.
         return;
     }
     NOTREACHED();
@@ -101,7 +106,7 @@ class PaymentMethodListItem : public PaymentRequestItemList::Item {
   // PaymentRequestItemList::Item:
   std::unique_ptr<views::View> CreateExtraView() override {
     std::unique_ptr<views::ImageView> icon_view = CreateAppIconView(
-        app_->icon_resource_id(), app_->icon_image_skia(), app_->GetLabel());
+        app_->icon_resource_id(), app_->icon_bitmap(), app_->GetLabel());
     return icon_view;
   }
 
@@ -172,16 +177,6 @@ class PaymentMethodListItem : public PaymentRequestItemList::Item {
   DISALLOW_COPY_AND_ASSIGN(PaymentMethodListItem);
 };
 
-std::unique_ptr<views::View> CreateHeaderView(const base::string16& text) {
-  auto label = std::make_unique<views::Label>(text);
-  label->SetMultiLine(true);
-  label->SetHorizontalAlignment(gfx::ALIGN_LEFT);
-  label->SetBorder(views::CreateEmptyBorder(
-      kPaymentRequestRowVerticalInsets, kPaymentRequestRowHorizontalInsets, 0,
-      kPaymentRequestRowHorizontalInsets));
-  return label;
-}
-
 }  // namespace
 
 PaymentMethodViewController::PaymentMethodViewController(
@@ -189,7 +184,9 @@ PaymentMethodViewController::PaymentMethodViewController(
     PaymentRequestState* state,
     PaymentRequestDialogView* dialog)
     : PaymentRequestSheetController(spec, state, dialog),
-      payment_method_list_(dialog) {
+      payment_method_list_(dialog),
+      enable_add_card_(!state->is_retry_called() &&
+                       spec->supports_basic_card()) {
   const std::vector<std::unique_ptr<PaymentApp>>& available_apps =
       state->available_apps();
   for (const auto& app : available_apps) {
@@ -214,11 +211,6 @@ void PaymentMethodViewController::FillContentView(views::View* content_view) {
   layout->set_cross_axis_alignment(
       views::BoxLayout::CrossAxisAlignment::kStretch);
   content_view->SetLayoutManager(std::move(layout));
-
-  base::string16 sub_header =
-      GetCardTypesAreAcceptedText(spec()->supported_card_types_set());
-  if (!sub_header.empty())
-    content_view->AddChildView(CreateHeaderView(sub_header).release());
 
   std::unique_ptr<views::View> list_view =
       payment_method_list_.CreateListView();
@@ -255,6 +247,10 @@ int PaymentMethodViewController::GetSecondaryButtonTag() {
 
 int PaymentMethodViewController::GetSecondaryButtonId() {
   return static_cast<int>(DialogViewID::PAYMENT_METHOD_ADD_CARD_BUTTON);
+}
+
+bool PaymentMethodViewController::ShouldShowSecondaryButton() {
+  return enable_add_card_;
 }
 
 }  // namespace payments

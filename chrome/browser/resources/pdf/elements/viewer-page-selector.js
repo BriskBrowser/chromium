@@ -2,8 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import 'chrome://resources/cr_elements/cr_input/cr_input.m.js';
-
 import {html, Polymer} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
 Polymer({
@@ -26,13 +24,11 @@ Polymer({
       type: Number,
       value: 1,
     },
-
-    strings: Object,
   },
 
-  /** @return {!CrInputElement} */
+  /** @return {!HTMLInputElement} */
   get pageSelector() {
-    return /** @type {!CrInputElement} */ (this.$.pageselector);
+    return /** @type {!HTMLInputElement} */ (this.$.pageselector);
   },
 
   pageNoCommitted() {
@@ -60,14 +56,14 @@ Polymer({
    * @return {boolean} True if the selector input field is currently focused.
    */
   isActive() {
-    return this.shadowRoot.activeElement == this.pageSelector;
+    return this.shadowRoot.activeElement === this.pageSelector;
   },
 
   /**
    * Immediately remove any non-digit characters.
    * @private
    */
-  onInputValueChange_() {
+  onInput_() {
     this.pageSelector.value = this.pageSelector.value.replace(/[^\d]/, '');
   },
 });

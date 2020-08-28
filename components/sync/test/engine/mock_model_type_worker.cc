@@ -7,9 +7,10 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/logging.h"
+#include "base/callback.h"
+#include "base/check_op.h"
+#include "base/notreached.h"
 #include "components/sync/base/model_type.h"
-#include "components/sync/syncable/syncable_util.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace syncer {
@@ -210,7 +211,8 @@ syncer::UpdateResponseData MockModelTypeWorker::GenerateTypeRootUpdateData(
   return response_data;
 }
 
-void MockModelTypeWorker::TombstoneFromServer(const ClientTagHash& tag_hash) {
+syncer::UpdateResponseData MockModelTypeWorker::GenerateTombstoneUpdateData(
+    const ClientTagHash& tag_hash) {
   int64_t old_version = GetServerVersion(tag_hash);
   int64_t version = old_version + 1;
   SetServerVersion(tag_hash, version);
@@ -229,9 +231,12 @@ void MockModelTypeWorker::TombstoneFromServer(const ClientTagHash& tag_hash) {
   response_data.entity = std::move(data);
   response_data.response_version = version;
   response_data.encryption_key_name = model_type_state_.encryption_key_name();
+  return response_data;
+}
 
+void MockModelTypeWorker::TombstoneFromServer(const ClientTagHash& tag_hash) {
   UpdateResponseDataList list;
-  list.push_back(std::move(response_data));
+  list.push_back(GenerateTombstoneUpdateData(tag_hash));
   processor_->OnUpdateReceived(model_type_state_, std::move(list));
 }
 
@@ -247,13 +252,22 @@ void MockModelTypeWorker::AckOnePendingCommit(int64_t version_offset) {
     list.push_back(SuccessfulCommitResponse(*data, version_offset));
   }
   pending_commits_.pop_front();
-  processor_->OnCommitCompleted(model_type_state_, list);
+  processor_->OnCommitCompleted(
+      model_type_state_, list,
+      /*error_response_list=*/FailedCommitResponseDataList());
 }
 
 void MockModelTypeWorker::FailOneCommit() {
+  FailedCommitResponseDataList list;
   ASSERT_FALSE(pending_commits_.empty());
+  for (const std::unique_ptr<CommitRequestData>& data :
+       pending_commits_.front()) {
+    list.push_back(FailedCommitResponse(*data));
+  }
   pending_commits_.pop_front();
-  processor_->OnCommitCompleted(model_type_state_, CommitResponseDataList());
+  processor_->OnCommitCompleted(
+      model_type_state_,
+      /*committed_response_list=*/CommitResponseDataList(), list);
 }
 
 CommitResponseData MockModelTypeWorker::SuccessfulCommitResponse(
@@ -283,6 +297,19 @@ CommitResponseData MockModelTypeWorker::SuccessfulCommitResponse(
     SetServerVersion(client_tag_hash, new_version);
   }
   response_data.response_version = new_version;
+
+  return response_data;
+}
+
+FailedCommitResponseData MockModelTypeWorker::FailedCommitResponse(
+    const CommitRequestData& request_data) {
+  const EntityData& entity = *request_data.entity;
+
+  FailedCommitResponseData response_data;
+  // We reuse the |client_tag_hash| from the request.
+  response_data.client_tag_hash = entity.client_tag_hash;
+
+  response_data.response_type = sync_pb::CommitResponse::TRANSIENT_ERROR;
 
   return response_data;
 }

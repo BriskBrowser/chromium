@@ -27,6 +27,7 @@
 #include "chrome/test/base/ui_test_utils.h"
 #include "components/policy/core/browser/browser_policy_connector.h"
 #include "components/policy/core/common/mock_configuration_policy_provider.h"
+#include "content/public/test/browser_test.h"
 #include "content/public/test/test_utils.h"
 #include "extensions/browser/content_verifier.h"
 #include "extensions/browser/content_verifier/test_utils.h"
@@ -82,7 +83,7 @@ class ContentVerifierTest : public ExtensionBrowserTest {
     // Override content verification mode before ExtensionSystemImpl initializes
     // ChromeContentVerifierDelegate.
     ChromeContentVerifierDelegate::SetDefaultModeForTesting(
-        ChromeContentVerifierDelegate::ENFORCE);
+        ChromeContentVerifierDelegate::VerifyInfo::Mode::ENFORCE);
 
     ON_CALL(update_service_, StartUpdateCheck)
         .WillByDefault(Invoke(this, &ContentVerifierTest::OnUpdateCheck));
@@ -142,8 +143,7 @@ class ContentVerifierTest : public ExtensionBrowserTest {
     EXPECT_EQ(id, extension->id());
 
     // Wait for the content verification code to finish processing the hashes.
-    if (!base::Contains(verifier_observer.completed_fetches(), id))
-      verifier_observer.WaitForFetchComplete(id);
+    verifier_observer.EnsureFetchCompleted(id);
 
     // Now disable the extension, since content scripts are read at enable time,
     // set up our job observer, and re-enable, expecting a success this time.
@@ -224,8 +224,7 @@ IN_PROC_BROWSER_TEST_F(ContentVerifierTest, DotSlashPaths) {
   // The content scripts might fail verification the first time since the
   // one-time processing might not be finished yet - if that's the case then
   // we want to wait until that work is done.
-  if (!base::Contains(verifier_observer->completed_fetches(), id))
-    verifier_observer->WaitForFetchComplete(id);
+  verifier_observer->EnsureFetchCompleted(id);
 
   // It is important to destroy |verifier_observer| here so that it doesn't see
   // any fetch from EnableExtension call below (the observer pointer in
@@ -317,6 +316,71 @@ IN_PROC_BROWSER_TEST_F(ContentVerifierTest, PolicyCorrupted) {
 
   reasons = prefs->GetDisableReasons(kExtensionId);
   EXPECT_FALSE(reasons & disable_reason::DISABLE_CORRUPTED);
+}
+
+// Tests the case when an extension is first manually installed, then it gets
+// corrupted and then it is added to force installed list. The extension should
+// get reinstalled and should be enabled.
+IN_PROC_BROWSER_TEST_F(ContentVerifierTest,
+                       ManualInstalledExtensionGotCorruptedThenForceInstalled) {
+  ExtensionSystem* system = ExtensionSystem::Get(profile());
+  ExtensionService* service = system->extension_service();
+
+  ExtensionId kTestExtensionId("dkjgfphccejbobpbljnpjcmhmagkdoia");
+  base::FilePath crx_path =
+      test_data_dir_.AppendASCII("content_verifier/v1.crx");
+
+  const Extension* extension = InstallExtension(crx_path, 1);
+  ASSERT_TRUE(extension);
+
+  TestExtensionRegistryObserver registry_observer(
+      ExtensionRegistry::Get(profile()), kTestExtensionId);
+  // Explicitly corrupt the extension.
+  ContentVerifier* verifier = system->content_verifier();
+  verifier->VerifyFailedForTest(kTestExtensionId,
+                                ContentVerifyJob::HASH_MISMATCH);
+
+  // Make sure the extension first got disabled due to corruption.
+  EXPECT_TRUE(registry_observer.WaitForExtensionUnloaded());
+  ExtensionPrefs* prefs = ExtensionPrefs::Get(profile());
+  int reasons = prefs->GetDisableReasons(kTestExtensionId);
+  EXPECT_TRUE(reasons & disable_reason::DISABLE_CORRUPTED);
+
+  VerifierObserver verifier_observer;
+
+  // Setup fake policy and update check objects.
+  content_verifier_test::ForceInstallProvider policy(kTestExtensionId);
+  system->management_policy()->RegisterProvider(&policy);
+  auto external_provider = std::make_unique<MockExternalProvider>(
+      service, Manifest::EXTERNAL_POLICY_DOWNLOAD);
+
+  external_provider->UpdateOrAddExtension(
+      std::make_unique<ExternalInstallInfoUpdateUrl>(
+          kTestExtensionId, std::string() /* install_parameter */,
+          extension_urls::GetWebstoreUpdateUrl(),
+          Manifest::EXTERNAL_POLICY_DOWNLOAD, 0 /* creation_flags */,
+          true /* mark_acknowldged */));
+  service->AddProviderForTesting(std::move(external_provider));
+
+  service->CheckForExternalUpdates();
+  // Set our mock update client to check that the corrupt bit is set on the
+  // data structure it receives.
+  ON_CALL(update_service_, StartUpdateCheck)
+      .WillByDefault(Invoke(
+          this, &ContentVerifierTest::AssertIsCorruptBitSetOnUpdateCheck));
+
+  // Make sure the extension then got re-installed, and that after reinstall it
+  // is no longer disabled due to corruption.
+  EXPECT_TRUE(registry_observer.WaitForExtensionInstalled());
+
+  // Wait for the content verification code to finish processing the hashes.
+  verifier_observer.EnsureFetchCompleted(kTestExtensionId);
+
+  reasons = prefs->GetDisableReasons(kTestExtensionId);
+  EXPECT_FALSE(reasons & disable_reason::DISABLE_CORRUPTED);
+  EXPECT_TRUE(extensions::ExtensionRegistry::Get(profile())
+                  ->enabled_extensions()
+                  .GetByID(kTestExtensionId));
 }
 
 // Tests that verification failure during navigating to an extension resource
@@ -426,7 +490,7 @@ IN_PROC_BROWSER_TEST_F(ContentVerifierTest,
   GURL page_url = extension->GetResourceURL("page.html/");
   ui_test_utils::NavigateToURLWithDispositionBlockUntilNavigationsComplete(
       browser(), page_url, 1, WindowOpenDisposition::CURRENT_TAB,
-      ui_test_utils::BROWSER_TEST_WAIT_FOR_NAVIGATION);
+      ui_test_utils::BROWSER_TEST_WAIT_FOR_LOAD_STOP);
   ExtensionPrefs* prefs = ExtensionPrefs::Get(profile());
   int reasons = prefs->GetDisableReasons(kExtensionId);
   EXPECT_FALSE(reasons);
@@ -446,7 +510,7 @@ IN_PROC_BROWSER_TEST_F(ContentVerifierTest,
   GURL page_url = extension->GetResourceURL("page.html.");
   ui_test_utils::NavigateToURLWithDispositionBlockUntilNavigationsComplete(
       browser(), page_url, 1, WindowOpenDisposition::CURRENT_TAB,
-      ui_test_utils::BROWSER_TEST_WAIT_FOR_NAVIGATION);
+      ui_test_utils::BROWSER_TEST_WAIT_FOR_LOAD_STOP);
   ExtensionPrefs* prefs = ExtensionPrefs::Get(profile());
   int reasons = prefs->GetDisableReasons(kExtensionId);
   EXPECT_EQ(disable_reason::DISABLE_NONE, reasons);
@@ -472,7 +536,7 @@ IN_PROC_BROWSER_TEST_F(ContentVerifierTest,
   GURL page_url = extension->GetResourceURL(kIncorrectCasePath);
   ui_test_utils::NavigateToURLWithDispositionBlockUntilNavigationsComplete(
       browser(), page_url, 1, WindowOpenDisposition::CURRENT_TAB,
-      ui_test_utils::BROWSER_TEST_WAIT_FOR_NAVIGATION);
+      ui_test_utils::BROWSER_TEST_WAIT_FOR_LOAD_STOP);
 
   // Ensure that ContentVerifyJob has finished checking the resource.
   EXPECT_EQ(ContentVerifyJob::NONE, job_observer.WaitForJobFinished());
@@ -608,7 +672,6 @@ IN_PROC_BROWSER_TEST_F(ContentVerifierPolicyTest, Backoff) {
 IN_PROC_BROWSER_TEST_F(ContentVerifierPolicyTest, FailedUpdateRetries) {
   ExtensionRegistry* registry = ExtensionRegistry::Get(profile());
   ExtensionSystem* system = ExtensionSystem::Get(profile());
-  ExtensionService* service = system->extension_service();
   ContentVerifier* verifier = system->content_verifier();
 
   // Wait for the extension to be installed by the policy we set up in
@@ -619,21 +682,23 @@ IN_PROC_BROWSER_TEST_F(ContentVerifierPolicyTest, FailedUpdateRetries) {
   }
 
   content_verifier_test::DelayTracker delay_tracker;
-  service->set_external_updates_disabled_for_test(true);
   TestExtensionRegistryObserver registry_observer(registry, id_);
-  verifier->VerifyFailedForTest(id_, ContentVerifyJob::HASH_MISMATCH);
-  EXPECT_TRUE(registry_observer.WaitForExtensionUnloaded());
+  {
+    base::AutoReset<bool> disable_scope =
+        ExtensionService::DisableExternalUpdatesForTesting();
+    verifier->VerifyFailedForTest(id_, ContentVerifyJob::HASH_MISMATCH);
+    EXPECT_TRUE(registry_observer.WaitForExtensionUnloaded());
 
-  const std::vector<base::TimeDelta>& calls = delay_tracker.calls();
-  ASSERT_EQ(1u, calls.size());
-  EXPECT_EQ(base::TimeDelta(), delay_tracker.calls()[0]);
+    const std::vector<base::TimeDelta>& calls = delay_tracker.calls();
+    ASSERT_EQ(1u, calls.size());
+    EXPECT_EQ(base::TimeDelta(), delay_tracker.calls()[0]);
 
-  delay_tracker.Proceed();
+    delay_tracker.Proceed();
 
-  // Remove the override and set ExtensionService to update again. The extension
-  // should be now installed.
-  PolicyExtensionReinstaller::set_policy_reinstall_action_for_test(nullptr);
-  service->set_external_updates_disabled_for_test(false);
+    PolicyExtensionReinstaller::set_policy_reinstall_action_for_test(nullptr);
+  }
+  // Update ExtensionService again without disabling external updates.
+  // The extension should now get installed.
   delay_tracker.Proceed();
 
   EXPECT_TRUE(registry_observer.WaitForExtensionInstalled());

@@ -12,10 +12,10 @@ import android.graphics.Point;
 import android.graphics.Rect;
 import android.graphics.drawable.Drawable;
 import android.view.ContextThemeWrapper;
+import android.view.Display;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
-import android.view.WindowManager;
 import android.widget.PopupMenu;
 
 import androidx.annotation.VisibleForTesting;
@@ -26,7 +26,8 @@ import org.chromium.chrome.browser.lifecycle.ActivityLifecycleDispatcher;
 import org.chromium.chrome.browser.lifecycle.ConfigurationChangedObserver;
 import org.chromium.chrome.browser.lifecycle.StartStopWithNativeObserver;
 import org.chromium.chrome.browser.ui.appmenu.internal.R;
-import org.chromium.chrome.browser.ui.widget.textbubble.TextBubble;
+import org.chromium.components.browser_ui.widget.textbubble.TextBubble;
+import org.chromium.ui.display.DisplayAndroidManager;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -149,8 +150,8 @@ class AppMenuHandlerImpl
         boolean isByPermanentButton = false;
 
         Context context = mDecorView.getContext();
-        WindowManager wm = (WindowManager) context.getSystemService(Context.WINDOW_SERVICE);
-        int rotation = wm.getDefaultDisplay().getRotation();
+        Display display = DisplayAndroidManager.getDefaultDisplayForContext(context);
+        int rotation = display.getRotation();
         if (anchorView == null) {
             // This fixes the bug where the bottom of the menu starts at the top of
             // the keyboard, instead of overlapping the keyboard as it should.
@@ -162,6 +163,14 @@ class AppMenuHandlerImpl
 
             anchorView = mHardwareButtonMenuAnchor;
             isByPermanentButton = true;
+        }
+
+        // If the anchor view used to show the popup or the activity's decor view is not attached
+        // to window, we don't show the app menu because the window manager might have revoked
+        // the window token for this activity. See https://crbug.com/1105831.
+        if (!mDecorView.isAttachedToWindow() || !anchorView.isAttachedToWindow()
+                || !anchorView.getRootView().isAttachedToWindow()) {
+            return false;
         }
 
         assert !(isByPermanentButton && startDragging);
@@ -185,8 +194,8 @@ class AppMenuHandlerImpl
             Drawable itemDivider = a.getDrawable(1);
             int itemDividerHeight = itemDivider != null ? itemDivider.getIntrinsicHeight() : 0;
             a.recycle();
-            mAppMenu = new AppMenu(
-                    mMenu, itemRowHeight, itemDividerHeight, this, context.getResources());
+            mAppMenu = new AppMenu(mMenu, itemRowHeight, itemDividerHeight, this,
+                    context.getResources(), mDelegate.shouldShowIconBeforeItem());
             mAppMenuDragHelper = new AppMenuDragHelper(context, mAppMenu, itemRowHeight);
         }
 
@@ -202,7 +211,7 @@ class AppMenuHandlerImpl
             appRect.bottom = mDecorView.getHeight();
         }
         Point pt = new Point();
-        wm.getDefaultDisplay().getSize(pt);
+        display.getSize(pt);
 
         int footerResourceId = 0;
         if (mDelegate.shouldShowFooter(appRect.height())) {
@@ -213,8 +222,8 @@ class AppMenuHandlerImpl
             headerResourceId = mDelegate.getHeaderResourceId();
         }
         mAppMenu.show(wrapper, anchorView, isByPermanentButton, rotation, appRect, pt.y,
-                footerResourceId, headerResourceId, mHighlightMenuId, mCircleHighlight,
-                showFromBottom, mDelegate.getCustomViewBinders());
+                footerResourceId, headerResourceId, mDelegate.getGroupDividerId(), mHighlightMenuId,
+                mCircleHighlight, showFromBottom, mDelegate.getCustomViewBinders());
         mAppMenuDragHelper.onShow(startDragging);
         clearMenuHighlight();
         RecordUserAction.record("MobileMenuShow");

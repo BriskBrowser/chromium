@@ -9,8 +9,9 @@ import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
 import android.support.test.InstrumentationRegistry;
-import android.support.test.filters.SmallTest;
 import android.support.test.uiautomator.UiDevice;
+
+import androidx.test.filters.SmallTest;
 
 import org.junit.Before;
 import org.junit.Test;
@@ -55,7 +56,11 @@ public class ChromeSmokeTest {
         IUi2Locator locatorChrome = Ui2Locators.withPackageName(mPackageName);
 
         CriteriaHelper.pollInstrumentationThread(() -> {
-            return locatorChrome.locateOne(device) != null;
+            try {
+                return locatorChrome.locateOne(device) != null;
+            } catch (NullPointerException e) {
+                return false; // Throws an NPE on older Android versions.
+            }
         }, mPackageName + " should have loaded", TIMEOUT_MS, UI_CHECK_INTERVAL);
     }
 }

@@ -8,9 +8,11 @@
 
 #include "base/json/json_writer.h"
 #include "base/memory/weak_ptr.h"
+#include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chromecast/base/version.h"
 #include "chromecast/browser/cast_web_contents_impl.h"
+#include "chromecast/browser/cast_web_preferences.h"
 #include "chromecast/browser/webview/proto/webview.pb.h"
 #include "chromecast/browser/webview/webview_navigation_throttle.h"
 #include "content/public/browser/browser_context.h"
@@ -42,18 +44,39 @@ class WebviewUserData : public base::SupportsUserData::Data {
   WebviewController* controller_;
 };
 
+CastWebPreferences* GetCastPreferencesFor(content::WebContents* web_contents) {
+  return static_cast<CastWebPreferences*>(web_contents->GetUserData(
+      CastWebPreferences::kCastWebPreferencesDataKey));
+}
+
+void UpdateWebkitPreferences(content::WebContents* web_contents,
+                             CastWebPreferences* cast_prefs) {
+  content::WebPreferences prefs = web_contents->GetOrCreateWebPreferences();
+  cast_prefs->Update(&prefs);
+  web_contents->SetWebPreferences(prefs);
+}
+
 }  // namespace
 
 WebviewController::WebviewController(content::BrowserContext* browser_context,
-                                     Client* client)
-    : WebContentController(client) {
+                                     Client* client,
+                                     bool enabled_for_dev)
+    : WebContentController(client), enabled_for_dev_(enabled_for_dev) {
   content::WebContents::CreateParams create_params(browser_context, nullptr);
   contents_ = content::WebContents::Create(create_params);
   contents_->SetUserData(kWebviewResponseUserDataKey,
                          std::make_unique<WebviewUserData>(this));
+  contents_->SetUserData(CastWebPreferences::kCastWebPreferencesDataKey,
+                         std::make_unique<CastWebPreferences>());
+
+  // Allow Webviews to show scrollbars. These are globally disabled since Cast
+  // Apps are not expected to be scrollable.
+  GetCastPreferencesFor(contents_.get())->preferences()->hide_scrollbars =
+      false;
+
   CastWebContents::InitParams cast_contents_init;
   cast_contents_init.is_root_window = true;
-  cast_contents_init.enabled_for_dev = CAST_IS_DEBUG_BUILD();
+  cast_contents_init.enabled_for_dev = enabled_for_dev;
   cast_contents_init.delegate = weak_ptr_factory_.GetWeakPtr();
   cast_web_contents_ = std::make_unique<CastWebContentsImpl>(
       contents_.get(), cast_contents_init);
@@ -63,7 +86,12 @@ WebviewController::WebviewController(content::BrowserContext* browser_context,
 
   std::unique_ptr<webview::WebviewResponse> response =
       std::make_unique<webview::WebviewResponse>();
-  auto ax_id = contents_->GetMainFrame()->GetAXTreeID().ToString();
+  // For webviews, set the ax_id to be the cast_web_contents' id
+  // rather than the ax tree id for the main frame. The main frame can be
+  // replaced after we've set this from navigation. Prefix the string with
+  // "T:" to tell the ax bridge to find the cast_web_contents by id.
+  // Then it can find the current ax tree id from that.
+  std::string ax_id = "T:" + base::NumberToString(cast_web_contents_->id());
   response->mutable_create_response()
       ->mutable_accessibility_info()
       ->set_ax_tree_id(ax_id);
@@ -83,7 +111,8 @@ WebviewController::MaybeGetNavigationThrottle(
   if (webview_user_data &&
       webview_user_data->controller()->has_navigation_delegate_) {
     return std::make_unique<WebviewNavigationThrottle>(
-        handle, webview_user_data->controller());
+        handle,
+        webview_user_data->controller()->weak_ptr_factory_.GetWeakPtr());
   }
   return nullptr;
 }
@@ -116,9 +145,71 @@ void WebviewController::ProcessRequest(const webview::WebviewRequest& request) {
       }
       break;
 
+    case webview::WebviewRequest::kUpdateSettings:
+      if (request.has_update_settings()) {
+        HandleUpdateSettings(request.update_settings());
+      } else {
+        client_->OnError("update_settings() not supplied");
+      }
+      break;
+
+    case webview::WebviewRequest::kSetAutoMediaPlaybackPolicy:
+      if (request.has_set_auto_media_playback_policy()) {
+        HandleSetAutoMediaPlaybackPolicy(
+            request.set_auto_media_playback_policy());
+      } else {
+        client_->OnError("set_auto_media_playback_policy() not supplied");
+      }
+      break;
+
     default:
       WebContentController::ProcessRequest(request);
       break;
+  }
+}
+
+void WebviewController::HandleUpdateSettings(
+    const webview::UpdateSettingsRequest& request) {
+  content::WebContents* contents = GetWebContents();
+  CastWebPreferences* cast_prefs = GetCastPreferencesFor(contents);
+
+  cast_prefs->preferences()->javascript_enabled = request.javascript_enabled();
+  UpdateWebkitPreferences(contents, cast_prefs);
+
+  has_navigation_delegate_ = request.has_navigation_delegate();
+
+  CastWebContents::FromWebContents(contents)->SetEnabledForRemoteDebugging(
+      request.debugging_enabled() || enabled_for_dev_);
+
+  if (request.has_user_agent() &&
+      request.user_agent().type_case() == webview::UserAgent::kValue) {
+    contents->SetUserAgentOverride(
+        blink::UserAgentOverride::UserAgentOnly(request.user_agent().value()),
+        true);
+  }
+}
+
+void WebviewController::HandleSetAutoMediaPlaybackPolicy(
+    const webview::SetAutoMediaPlaybackPolicyRequest& request) {
+  content::WebContents* contents = GetWebContents();
+  CastWebPreferences* cast_prefs = GetCastPreferencesFor(contents);
+
+  cast_prefs->preferences()->autoplay_policy =
+      request.require_user_gesture()
+          ? content::AutoplayPolicy::kUserGestureRequired
+          : content::AutoplayPolicy::kNoUserGestureRequired;
+  UpdateWebkitPreferences(contents, cast_prefs);
+}
+
+void WebviewController::DidFirstVisuallyNonEmptyPaint() {
+  if (client_) {
+    std::unique_ptr<webview::WebviewResponse> response =
+        std::make_unique<webview::WebviewResponse>();
+    auto* event = response->mutable_page_event();
+    event->set_url(contents_->GetURL().spec());
+    event->set_current_page_state(current_state());
+    event->set_did_first_visually_non_empty_paint(true);
+    client_->EnqueueSend(std::move(response));
   }
 }
 
@@ -131,7 +222,7 @@ void WebviewController::SendNavigationEvent(
       std::make_unique<webview::WebviewResponse>();
   auto* navigation_event = response->mutable_navigation_event();
 
-  navigation_event->set_url(navigation_handle->GetURL().GetContent());
+  navigation_event->set_url(navigation_handle->GetURL().spec());
   navigation_event->set_is_for_main_frame(navigation_handle->IsInMainFrame());
   navigation_event->set_is_renderer_initiated(
       navigation_handle->IsRendererInitiated());
@@ -145,6 +236,12 @@ void WebviewController::SendNavigationEvent(
 
   current_navigation_throttle_ = throttle;
   client_->EnqueueSend(std::move(response));
+}
+
+void WebviewController::OnNavigationThrottleDestroyed(
+    WebviewNavigationThrottle* throttle) {
+  if (current_navigation_throttle_ == throttle)
+    current_navigation_throttle_ = nullptr;
 }
 
 void WebviewController::ClosePage() {
@@ -182,6 +279,7 @@ void WebviewController::OnPageStopped(CastWebContents* cast_web_contents,
     event->set_url(contents_->GetURL().spec());
     event->set_current_page_state(current_state());
     event->set_stopped_error_code(error_code);
+    event->set_stopped_error_description(net::ErrorToShortString(error_code));
     client_->EnqueueSend(std::move(response));
   } else {
     // Can't destroy in an observer callback, so post a task to do it.

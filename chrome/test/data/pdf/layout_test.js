@@ -3,13 +3,17 @@
 // found in the LICENSE file.
 
 import {PDFScriptingAPI} from 'chrome-extension://mhjfbmdgcfjbbpaeojofohoefgiehjai/pdf_scripting_api.js';
+import {PDFViewerElement} from 'chrome-extension://mhjfbmdgcfjbbpaeojofohoefgiehjai/pdf_viewer.js';
 
 // Tests common to all PDFs.
 const tests = [
   function testLayoutOptions() {
+    const viewer = /** @type {!PDFViewerElement} */ (
+        document.body.querySelector('#viewer'));
     chrome.test.assertEq(
         {
           defaultPageOrientation: 0,
+          twoUpViewEnabled: false,
         },
         viewer.viewport.getLayoutOptions());
     chrome.test.succeed();
@@ -20,6 +24,8 @@ const tests = [
 const perLayoutTests = {
   'test-layout3.pdf': [
     function testDimensions3() {
+      const viewer = /** @type {!PDFViewerElement} */ (
+          document.body.querySelector('#viewer'));
       chrome.test.assertEq(
           {
             width: 103,
@@ -32,6 +38,8 @@ const perLayoutTests = {
 
   'test-layout4.pdf': [
     function testDimensions4() {
+      const viewer = /** @type {!PDFViewerElement} */ (
+          document.body.querySelector('#viewer'));
       chrome.test.assertEq(
           {
             width: 143,
@@ -44,7 +52,7 @@ const perLayoutTests = {
 };
 
 const scriptingAPI = new PDFScriptingAPI(window, window);
-scriptingAPI.setLoadCallback((success) => {
+scriptingAPI.setLoadCompleteCallback((success) => {
   if (success && document.title in perLayoutTests) {
     chrome.test.runTests(tests.concat(perLayoutTests[document.title]));
   } else {

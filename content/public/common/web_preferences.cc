@@ -7,9 +7,22 @@
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
+#include "third_party/blink/public/common/features.h"
 #include "third_party/blink/public/web/web_settings.h"
+#include "ui/base/ui_base_switches_util.h"
 
 using blink::WebSettings;
+
+namespace {
+
+bool IsTouchDragDropEnabled() {
+  // Cache the enabled state so it isn't queried on every WebPreferences
+  // creation. Note that this means unit tests can't override the state.
+  static const bool enabled = switches::IsTouchDragDropEnabled();
+  return enabled;
+}
+
+}  // namespace
 
 namespace content {
 
@@ -25,6 +38,8 @@ STATIC_ASSERT_ENUM(EDITING_BEHAVIOR_WIN, WebSettings::EditingBehavior::kWin);
 STATIC_ASSERT_ENUM(EDITING_BEHAVIOR_UNIX, WebSettings::EditingBehavior::kUnix);
 STATIC_ASSERT_ENUM(EDITING_BEHAVIOR_ANDROID,
                    WebSettings::EditingBehavior::kAndroid);
+STATIC_ASSERT_ENUM(EDITING_BEHAVIOR_CHROMEOS,
+                   WebSettings::EditingBehavior::kChromeOS);
 
 STATIC_ASSERT_ENUM(blink::mojom::V8CacheOptions::kDefault,
                    WebSettings::V8CacheOptions::kDefault);
@@ -102,7 +117,6 @@ WebPreferences::WebPreferences()
       accelerated_2d_canvas_enabled(false),
       antialiased_2d_canvas_disabled(false),
       antialiased_clips_2d_canvas_enabled(true),
-      accelerated_2d_canvas_msaa_sample_count(0),
       accelerated_filters_enabled(false),
       deferred_filters_enabled(false),
       container_culling_enabled(false),
@@ -119,7 +133,6 @@ WebPreferences::WebPreferences()
       enable_scroll_animator(false),
       prefers_reduced_motion(false),
       touch_event_feature_detection_enabled(false),
-      touch_adjustment_enabled(true),
       pointer_events_max_touch_points(0),
       available_pointer_types(0),
       primary_pointer_type(ui::POINTER_TYPE_NONE),
@@ -127,14 +140,18 @@ WebPreferences::WebPreferences()
       primary_hover_type(ui::HOVER_TYPE_NONE),
       dont_send_key_events_to_javascript(false),
       sync_xhr_in_documents_enabled(true),
-      should_respect_image_orientation(false),
       number_of_cpu_cores(1),
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
       editing_behavior(EDITING_BEHAVIOR_MAC),
 #elif defined(OS_WIN)
       editing_behavior(EDITING_BEHAVIOR_WIN),
 #elif defined(OS_ANDROID)
       editing_behavior(EDITING_BEHAVIOR_ANDROID),
+#elif defined(OS_CHROMEOS)
+      editing_behavior(
+          base::FeatureList::IsEnabled(blink::features::kCrOSAutoSelect)
+              ? EDITING_BEHAVIOR_CHROMEOS
+              : EDITING_BEHAVIOR_UNIX),
 #elif defined(OS_POSIX)
       editing_behavior(EDITING_BEHAVIOR_UNIX),
 #else
@@ -157,13 +174,12 @@ WebPreferences::WebPreferences()
 #endif
       main_frame_resizes_are_orientation_changes(false),
       initialize_at_minimum_page_scale(true),
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
       smart_insert_delete_enabled(true),
 #else
       smart_insert_delete_enabled(false),
 #endif
       spatial_navigation_enabled(false),
-      caret_browsing_enabled(false),
       navigate_on_drag_drop(true),
       v8_cache_options(blink::mojom::V8CacheOptions::kDefault),
       record_whole_document(false),
@@ -171,9 +187,10 @@ WebPreferences::WebPreferences()
       accelerated_video_decode_enabled(false),
       animation_policy(IMAGE_ANIMATION_POLICY_ALLOWED),
       user_gesture_required_for_presentation(true),
+      text_tracks_enabled(false),
       text_track_margin_percentage(0.0f),
       immersive_mode_enabled(false),
-#if defined(OS_ANDROID) || defined(OS_MACOSX)
+#if defined(OS_ANDROID) || defined(OS_MAC)
       double_tap_to_zoom_enabled(true),
 #else
       double_tap_to_zoom_enabled(false),
@@ -201,7 +218,6 @@ WebPreferences::WebPreferences()
       spellcheck_enabled_by_default(true),
       video_fullscreen_orientation_lock_enabled(false),
       video_rotate_to_fullscreen_enabled(false),
-      video_fullscreen_detection_enabled(false),
       embedded_media_experience_enabled(false),
       css_hex_alpha_color_enabled(true),
       scroll_top_left_interop_enabled(true),
@@ -212,7 +228,7 @@ WebPreferences::WebPreferences()
 #if defined(OS_ANDROID)
       default_minimum_page_scale_factor(0.25f),
       default_maximum_page_scale_factor(5.f),
-#elif defined(OS_MACOSX)
+#elif defined(OS_MAC)
       default_minimum_page_scale_factor(1.f),
       default_maximum_page_scale_factor(3.f),
 #else
@@ -229,7 +245,9 @@ WebPreferences::WebPreferences()
       translate_service_available(false),
       network_quality_estimator_web_holdback(
           net::EFFECTIVE_CONNECTION_TYPE_UNKNOWN),
-      allow_mixed_content_upgrades(true) {
+      allow_mixed_content_upgrades(true),
+      always_show_focus(false),
+      touch_drag_drop_enabled(IsTouchDragDropEnabled()) {
   standard_font_family_map[kCommonScript] =
       base::ASCIIToUTF16("Times New Roman");
   fixed_font_family_map[kCommonScript] = base::ASCIIToUTF16("Courier New");

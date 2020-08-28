@@ -77,7 +77,7 @@ class PasswordFetcherTest : public PlatformTest {
 
   autofill::PasswordForm Form1() {
     autofill::PasswordForm form;
-    form.origin = GURL("http://www.example.com/accounts/LoginAuth");
+    form.url = GURL("http://www.example.com/accounts/LoginAuth");
     form.action = GURL("http://www.example.com/accounts/Login");
     form.username_element = base::ASCIIToUTF16("Email");
     form.username_value = base::ASCIIToUTF16("test@egmail.com");
@@ -86,7 +86,7 @@ class PasswordFetcherTest : public PlatformTest {
     form.submit_element = base::ASCIIToUTF16("signIn");
     form.signon_realm = "http://www.example.com/";
     form.scheme = autofill::PasswordForm::Scheme::kHtml;
-    form.blacklisted_by_user = false;
+    form.blocked_by_user = false;
     return form;
   }
 
@@ -96,7 +96,7 @@ class PasswordFetcherTest : public PlatformTest {
   // Creates and adds a saved password form.
   void AddSavedForm2() {
     auto form = std::make_unique<autofill::PasswordForm>();
-    form->origin = GURL("http://www.example2.com/accounts/LoginAuth");
+    form->url = GURL("http://www.example2.com/accounts/LoginAuth");
     form->action = GURL("http://www.example2.com/accounts/Login");
     form->username_element = base::ASCIIToUTF16("Email");
     form->username_value = base::ASCIIToUTF16("test@egmail.com");
@@ -105,7 +105,7 @@ class PasswordFetcherTest : public PlatformTest {
     form->submit_element = base::ASCIIToUTF16("signIn");
     form->signon_realm = "http://www.example2.com/";
     form->scheme = autofill::PasswordForm::Scheme::kHtml;
-    form->blacklisted_by_user = false;
+    form->blocked_by_user = false;
     GetPasswordStore()->AddLogin(*std::move(form));
   }
 
@@ -113,7 +113,7 @@ class PasswordFetcherTest : public PlatformTest {
   // user's password to those sites.
   void AddBlockedForm() {
     auto form = std::make_unique<autofill::PasswordForm>();
-    form->origin = GURL("http://www.secret.com/login");
+    form->url = GURL("http://www.secret.com/login");
     form->action = GURL("http://www.secret.com/action");
     form->username_element = base::ASCIIToUTF16("email");
     form->username_value = base::ASCIIToUTF16("test@secret.com");
@@ -122,7 +122,7 @@ class PasswordFetcherTest : public PlatformTest {
     form->submit_element = base::ASCIIToUTF16("signIn");
     form->signon_realm = "http://www.secret.test/";
     form->scheme = autofill::PasswordForm::Scheme::kHtml;
-    form->blacklisted_by_user = true;
+    form->blocked_by_user = true;
     GetPasswordStore()->AddLogin(*std::move(form));
   }
 

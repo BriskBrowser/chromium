@@ -8,10 +8,7 @@
 #include <vector>
 
 #include "components/invalidation/public/invalidation_export.h"
-
-namespace invalidation {
-class ObjectId;
-}  // namespace invalidation
+#include "components/invalidation/public/invalidation_util.h"
 
 namespace syncer {
 
@@ -23,16 +20,14 @@ class AckHandle;
 // but this interface is very useful for testing and implementation hiding.
 class INVALIDATION_EXPORT AckHandler {
  public:
-  AckHandler();
-  virtual ~AckHandler() = 0;
+  AckHandler() = default;
+  virtual ~AckHandler() = default;
 
   // Record the local acknowledgement of an invalidation identified by |handle|.
-  virtual void Acknowledge(const invalidation::ObjectId& id,
-                           const AckHandle& handle) = 0;
+  virtual void Acknowledge(const Topic& topic, const AckHandle& handle) = 0;
 
   // Record the drop of an invalidation identified by |handle|.
-  virtual void Drop(const invalidation::ObjectId& id,
-                    const AckHandle& handle) = 0;
+  virtual void Drop(const Topic& topic, const AckHandle& handle) = 0;
 };
 
 }  // namespace syncer

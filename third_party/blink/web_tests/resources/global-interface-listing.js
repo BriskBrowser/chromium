@@ -13,8 +13,9 @@ function globalInterfaceListing(globalObject, propertyNamesInGlobal, platformSpe
 // objects have, so exercising them in a Blink test doesn't make sense.
 //
 // If new builtins are added, please update this list along with the one in
-// LayoutTests/http/tests/worklet/webexposed/resources/global-interface-listing-worklet.js
+// web_tests/http/tests/worklet/webexposed/resources/global-interface-listing-worklet.js
 var jsBuiltins = new Set([
+    'AggregateError',
     'Array',
     'ArrayBuffer',
     'Atomics',
@@ -26,6 +27,7 @@ var jsBuiltins = new Set([
     'Date',
     'Error',
     'EvalError',
+    'FinalizationRegistry',
     'Float32Array',
     'Float64Array',
     'Function',
@@ -58,6 +60,7 @@ var jsBuiltins = new Set([
     'Uint8Array',
     'Uint8ClampedArray',
     'WeakMap',
+    'WeakRef',
     'WeakSet',
     'WebAssembly',
     'decodeURI',
@@ -84,6 +87,7 @@ function isWebIDLConstructor(propertyKey) {
 }
 
 var wellKnownSymbols = new Map([
+    [Symbol.asyncIterator, "@@asyncIterator"],
     [Symbol.hasInstance, "@@hasInstance"],
     [Symbol.isConcatSpreadable, "@@isConcatSpreadable"],
     [Symbol.iterator, "@@iterator"],

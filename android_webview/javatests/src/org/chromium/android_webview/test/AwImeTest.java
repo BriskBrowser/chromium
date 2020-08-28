@@ -6,10 +6,11 @@ package org.chromium.android_webview.test;
 
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.greaterThan;
+import static org.hamcrest.Matchers.is;
+import static org.hamcrest.Matchers.notNullValue;
 
 import android.content.Context;
 import android.graphics.Rect;
-import android.support.test.filters.SmallTest;
 import android.view.KeyEvent;
 import android.view.ViewGroup;
 import android.view.inputmethod.InputConnection;
@@ -18,6 +19,8 @@ import android.webkit.JavascriptInterface;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.LinearLayout.LayoutParams;
+
+import androidx.test.filters.SmallTest;
 
 import org.junit.Before;
 import org.junit.Rule;
@@ -152,12 +155,7 @@ public class AwImeTest {
     }
 
     private void waitForNonNullInputConnection() {
-        CriteriaHelper.pollUiThread(new Criteria() {
-            @Override
-            public boolean isSatisfied() {
-                return getInputConnection() != null;
-            }
-        });
+        CriteriaHelper.pollUiThread(() -> Criteria.checkThat(getInputConnection(), notNullValue()));
     }
 
     /**
@@ -189,11 +187,9 @@ public class AwImeTest {
         focusOnWebViewAndEnableEditing();
         waitForNonNullInputConnection();
 
-        CriteriaHelper.pollUiThread(new Criteria() {
-            @Override
-            public boolean isSatisfied() {
-                return mActivityTestRule.getActivity().getCurrentFocus() == mTestContainerView;
-            }
+        CriteriaHelper.pollUiThread(() -> {
+            Criteria.checkThat(
+                    mActivityTestRule.getActivity().getCurrentFocus(), is(mTestContainerView));
         });
 
         TestThreadUtils.runOnUiThreadBlocking((Runnable) () -> {
@@ -201,11 +197,8 @@ public class AwImeTest {
                     new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_UP));
         });
 
-        CriteriaHelper.pollUiThread(new Criteria() {
-            @Override
-            public boolean isSatisfied() {
-                return mActivityTestRule.getActivity().getCurrentFocus() == mEditText;
-            }
+        CriteriaHelper.pollUiThread(() -> {
+            Criteria.checkThat(mActivityTestRule.getActivity().getCurrentFocus(), is(mEditText));
         });
     }
 
@@ -221,11 +214,9 @@ public class AwImeTest {
         focusOnWebViewAndEnableEditing();
         waitForNonNullInputConnection();
 
-        CriteriaHelper.pollUiThread(new Criteria() {
-            @Override
-            public boolean isSatisfied() {
-                return mActivityTestRule.getActivity().getCurrentFocus() == mTestContainerView;
-            }
+        CriteriaHelper.pollUiThread(() -> {
+            Criteria.checkThat(
+                    mActivityTestRule.getActivity().getCurrentFocus(), is(mTestContainerView));
         });
 
         TestThreadUtils.runOnUiThreadBlocking(() -> {
@@ -233,11 +224,8 @@ public class AwImeTest {
                     new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_UP));
         });
 
-        CriteriaHelper.pollUiThread(new Criteria() {
-            @Override
-            public boolean isSatisfied() {
-                return mActivityTestRule.getActivity().getCurrentFocus() == mEditText;
-            }
+        CriteriaHelper.pollUiThread(() -> {
+            Criteria.checkThat(mActivityTestRule.getActivity().getCurrentFocus(), is(mEditText));
         });
     }
 
@@ -254,8 +242,10 @@ public class AwImeTest {
     }
 
     // https://crbug.com/920061
+    // Flaky! - https://crbug.com/1061218
     @Test
-    @SmallTest
+    // @SmallTest
+    @DisabledTest
     public void testFocusAndViewSizeChangeCausesScroll() throws Throwable {
         loadBottomInputHtml();
         Rect currentRect = new Rect();

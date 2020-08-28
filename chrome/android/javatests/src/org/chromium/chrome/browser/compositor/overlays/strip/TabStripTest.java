@@ -6,8 +6,10 @@ package org.chromium.chrome.browser.compositor.overlays.strip;
 
 import android.content.pm.ActivityInfo;
 import android.support.test.InstrumentationRegistry;
-import android.support.test.filters.LargeTest;
 
+import androidx.test.filters.LargeTest;
+
+import org.hamcrest.Matchers;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Rule;
@@ -17,10 +19,9 @@ import org.junit.runner.RunWith;
 import org.chromium.base.test.util.CallbackHelper;
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.Feature;
-import org.chromium.base.test.util.FlakyTest;
 import org.chromium.base.test.util.Restriction;
-import org.chromium.chrome.browser.ChromeSwitches;
 import org.chromium.chrome.browser.compositor.layouts.components.CompositorButton;
+import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tabmodel.EmptyTabModelSelectorObserver;
 import org.chromium.chrome.browser.tabmodel.TabModel;
@@ -101,7 +102,6 @@ public class TabStripTest {
     @LargeTest
     @Restriction(UiRestriction.RESTRICTION_TYPE_TABLET)
     @Feature({"TabStrip"})
-    @FlakyTest(message = "crbug.com/592961")
     public void testNewTabButtonWithManyTabs() throws Exception {
         ChromeTabUtils.newTabsFromMenu(
                 InstrumentationRegistry.getInstrumentation(), mActivityTestRule.getActivity(), 3);
@@ -1209,15 +1209,11 @@ public class TabStripTest {
      * @param expectsShown Whether shown status is expected.
      */
     private void assertWaitForKeyboardStatus(final boolean expectsShown) {
-        CriteriaHelper.pollInstrumentationThread(new Criteria() {
-            @Override
-            public boolean isSatisfied() {
-                updateFailureReason("expectsShown: " + expectsShown);
-                return expectsShown
-                        == mActivityTestRule.getKeyboardDelegate().isKeyboardShowing(
-                                   mActivityTestRule.getActivity(),
-                                   mActivityTestRule.getActivity().getActivityTab().getView());
-            }
+        CriteriaHelper.pollInstrumentationThread(() -> {
+            Criteria.checkThat(mActivityTestRule.getKeyboardDelegate().isKeyboardShowing(
+                                       mActivityTestRule.getActivity(),
+                                       mActivityTestRule.getActivity().getActivityTab().getView()),
+                    Matchers.is(expectsShown));
         });
     }
 }

@@ -4,41 +4,83 @@
 
 #include "chrome/test/payments/payment_request_test_controller.h"
 
+#include "base/check.h"
+#include "base/location.h"
+#include "base/sequenced_task_runner.h"
+#include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/payments/chrome_payment_request_delegate.h"
 #include "chrome/browser/payments/payment_request_factory.h"
+#include "components/autofill/content/browser/webauthn/internal_authenticator_impl.h"
+#include "components/autofill/core/browser/payments/internal_authenticator.h"
+#include "components/payments/content/android_app_communication.h"
 #include "components/payments/content/payment_request.h"
 #include "components/payments/content/payment_request_web_contents_manager.h"
 #include "components/payments/core/payment_prefs.h"
+#include "components/payments/core/payment_request_delegate.h"
 #include "components/sync_preferences/testing_pref_service_syncable.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
+#include "third_party/blink/public/mojom/webauthn/authenticator.mojom.h"
 
 namespace payments {
+namespace {
 
-class CanMakePaymentTestChromePaymentRequestDelegate
-    : public ChromePaymentRequestDelegate {
+class TestAuthenticator : public content::InternalAuthenticatorImpl {
  public:
-  CanMakePaymentTestChromePaymentRequestDelegate(
-      content::WebContents* web_contents,
-      bool is_incognito,
-      bool valid_ssl,
-      PrefService* prefs)
-      : ChromePaymentRequestDelegate(web_contents),
-        is_incognito_(is_incognito),
-        valid_ssl_(valid_ssl),
-        prefs_(prefs) {}
+  explicit TestAuthenticator(content::RenderFrameHost* rfh,
+                             bool has_authenticator)
+      : content::InternalAuthenticatorImpl(rfh),
+        has_authenticator_(has_authenticator) {}
 
-  bool IsIncognito() const override { return is_incognito_; }
+  ~TestAuthenticator() override = default;
+
+  // autofill::InternalAuthenticator
+  void IsUserVerifyingPlatformAuthenticatorAvailable(
+      blink::mojom::Authenticator::
+          IsUserVerifyingPlatformAuthenticatorAvailableCallback callback)
+      override {
+    std::move(callback).Run(has_authenticator_);
+  }
+
+ private:
+  const bool has_authenticator_;
+};
+
+class ChromePaymentRequestTestDelegate : public ChromePaymentRequestDelegate {
+ public:
+  ChromePaymentRequestTestDelegate(content::WebContents* web_contents,
+                                   bool is_off_the_record,
+                                   bool valid_ssl,
+                                   PrefService* prefs,
+                                   const std::string& twa_package_name,
+                                   bool has_authenticator)
+      : ChromePaymentRequestDelegate(web_contents),
+        is_off_the_record_(is_off_the_record),
+        valid_ssl_(valid_ssl),
+        prefs_(prefs),
+        twa_package_name_(twa_package_name),
+        has_authenticator_(has_authenticator) {}
+
+  bool IsOffTheRecord() const override { return is_off_the_record_; }
   std::string GetInvalidSslCertificateErrorMessage() override {
     return valid_ssl_ ? "" : "Invalid SSL certificate";
   }
   PrefService* GetPrefService() override { return prefs_; }
   bool IsBrowserWindowActive() const override { return true; }
+  std::string GetTwaPackageName() const override { return twa_package_name_; }
+  std::unique_ptr<autofill::InternalAuthenticator> CreateInternalAuthenticator(
+      content::RenderFrameHost* rfh) const override {
+    return std::make_unique<TestAuthenticator>(rfh, has_authenticator_);
+  }
 
  private:
-  const bool is_incognito_;
+  const bool is_off_the_record_;
   const bool valid_ssl_;
   PrefService* const prefs_;
+  const std::string twa_package_name_;
+  const bool has_authenticator_;
 };
+
+}  // namespace
 
 class PaymentRequestTestController::ObserverConverter
     : public PaymentRequest::ObserverForTest {
@@ -58,7 +100,23 @@ class PaymentRequestTestController::ObserverConverter
   void OnHasEnrolledInstrumentReturned() override {
     controller_->OnHasEnrolledInstrumentReturned();
   }
-  void OnShowAppsReady() override { controller_->OnShowAppsReady(); }
+  void OnAppListReady(base::WeakPtr<PaymentRequest> payment_request) override {
+    DCHECK(payment_request);
+    std::vector<AppDescription> descriptions(
+        payment_request->state()->available_apps().size());
+    size_t i = 0;
+    for (const auto& app : payment_request->state()->available_apps()) {
+      auto* description = &descriptions[i++];
+      description->label = base::UTF16ToUTF8(app->GetLabel());
+      description->sublabel = base::UTF16ToUTF8(app->GetSublabel());
+      auto* spec = payment_request->spec();
+      const auto& total = spec->GetTotal(app.get());
+      description->total = total->amount->currency + " " + total->amount->value;
+    }
+    controller_->set_app_descriptions(descriptions);
+
+    controller_->OnAppListReady();
+  }
   void OnNotSupportedError() override { controller_->OnNotSupportedError(); }
   void OnConnectionTerminated() override {
     controller_->OnConnectionTerminated();
@@ -76,6 +134,26 @@ PaymentRequestTestController::PaymentRequestTestController()
 
 PaymentRequestTestController::~PaymentRequestTestController() = default;
 
+content::WebContents*
+PaymentRequestTestController::GetPaymentHandlerWebContents() {
+  // Todo(1053722): return the invoked payment app's web contents for testing.
+  return nullptr;
+}
+
+bool PaymentRequestTestController::ConfirmMinimalUI() {
+  // Desktop does not have a minimal UI.
+  return true;
+}
+
+bool PaymentRequestTestController::DismissMinimalUI() {
+  // Desktop does not have a minimal UI.
+  return true;
+}
+
+bool PaymentRequestTestController::IsAndroidMarshmallowOrLollipop() {
+  return false;
+}
+
 void PaymentRequestTestController::SetUpOnMainThread() {
   // Register all prefs with our pref testing service, since we're not using the
   // one chrome sets up.
@@ -89,8 +167,8 @@ void PaymentRequestTestController::SetObserver(
   observer_ = observer;
 }
 
-void PaymentRequestTestController::SetIncognito(bool is_incognito) {
-  is_incognito_ = is_incognito;
+void PaymentRequestTestController::SetOffTheRecord(bool is_off_the_record) {
+  is_off_the_record_ = is_off_the_record;
   UpdateDelegateFactory();
 }
 
@@ -106,26 +184,56 @@ void PaymentRequestTestController::SetCanMakePaymentEnabledPref(
   UpdateDelegateFactory();
 }
 
+void PaymentRequestTestController::SetTwaPackageName(
+    const std::string& twa_package_name) {
+  twa_package_name_ = twa_package_name;
+  UpdateDelegateFactory();
+}
+
+void PaymentRequestTestController::SetHasAuthenticator(bool has_authenticator) {
+  has_authenticator_ = has_authenticator;
+  UpdateDelegateFactory();
+}
+
+void PaymentRequestTestController::SetTwaPaymentApp(
+    const std::string& method_name,
+    const std::string& response) {
+  twa_payment_app_method_name_ = method_name;
+  twa_payment_app_response_ = response;
+  UpdateDelegateFactory();
+}
+
 void PaymentRequestTestController::UpdateDelegateFactory() {
   SetPaymentRequestFactoryForTesting(base::BindRepeating(
-      [](PaymentRequest::ObserverForTest* observer_for_test, bool is_incognito,
-         bool valid_ssl, PrefService* prefs,
+      [](PaymentRequest::ObserverForTest* observer_for_test,
+         bool is_off_the_record, bool valid_ssl, PrefService* prefs,
+         const std::string& twa_package_name, bool has_authenticator,
+         const std::string& twa_payment_app_method_name,
+         const std::string& twa_payment_app_response,
          mojo::PendingReceiver<payments::mojom::PaymentRequest> receiver,
          content::RenderFrameHost* render_frame_host) {
         content::WebContents* web_contents =
             content::WebContents::FromRenderFrameHost(render_frame_host);
         DCHECK(web_contents);
-        auto delegate =
-            std::make_unique<CanMakePaymentTestChromePaymentRequestDelegate>(
-                web_contents, is_incognito, valid_ssl, prefs);
+        auto delegate = std::make_unique<ChromePaymentRequestTestDelegate>(
+            web_contents, is_off_the_record, valid_ssl, prefs, twa_package_name,
+            has_authenticator);
         PaymentRequestWebContentsManager* manager =
             PaymentRequestWebContentsManager::GetOrCreateForWebContents(
                 web_contents);
-        manager->CreatePaymentRequest(web_contents->GetMainFrame(),
-                                      web_contents, std::move(delegate),
-                                      std::move(receiver), observer_for_test);
+        if (!twa_payment_app_method_name.empty()) {
+          AndroidAppCommunication::GetForBrowserContext(
+              web_contents->GetBrowserContext())
+              ->SetAppForTesting(twa_package_name, twa_payment_app_method_name,
+                                 twa_payment_app_response);
+        }
+        manager->CreatePaymentRequest(render_frame_host, web_contents,
+                                      std::move(delegate), std::move(receiver),
+                                      observer_for_test);
       },
-      observer_converter_.get(), is_incognito_, valid_ssl_, prefs_.get()));
+      observer_converter_.get(), is_off_the_record_, valid_ssl_, prefs_.get(),
+      twa_package_name_, has_authenticator_, twa_payment_app_method_name_,
+      twa_payment_app_response_));
 }
 
 void PaymentRequestTestController::OnCanMakePaymentCalled() {
@@ -148,15 +256,19 @@ void PaymentRequestTestController::OnHasEnrolledInstrumentReturned() {
     observer_->OnHasEnrolledInstrumentReturned();
 }
 
-void PaymentRequestTestController::OnShowAppsReady() {
+void PaymentRequestTestController::OnAppListReady() {
   if (observer_)
-    observer_->OnShowAppsReady();
+    observer_->OnAppListReady();
 }
 
 void PaymentRequestTestController::OnCompleteCalled() {
   if (observer_) {
     observer_->OnCompleteCalled();
   }
+}
+
+void PaymentRequestTestController::OnMinimalUIReady() {
+  NOTREACHED();
 }
 
 void PaymentRequestTestController::OnNotSupportedError() {

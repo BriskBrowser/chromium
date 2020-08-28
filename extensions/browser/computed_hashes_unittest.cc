@@ -43,20 +43,22 @@ testing::AssertionResult WriteThenReadComputedHashes(
   base::FilePath computed_hashes_path =
       scoped_dir.GetPath().AppendASCII("computed_hashes.json");
   extensions::ComputedHashes::Data computed_hashes_data;
-  for (const auto& info : hash_infos) {
-    computed_hashes_data[info.path] =
-        extensions::ComputedHashes::HashInfo(info.block_size, info.hashes);
-  }
+  for (const auto& info : hash_infos)
+    computed_hashes_data.Add(info.path, info.block_size, info.hashes);
 
   if (!extensions::ComputedHashes(std::move(computed_hashes_data))
            .WriteToFile(computed_hashes_path)) {
     return testing::AssertionFailure()
            << "Failed to write computed_hashes.json";
   }
+  extensions::ComputedHashes::Status computed_hashes_status;
   base::Optional<extensions::ComputedHashes> computed_hashes =
-      extensions::ComputedHashes::CreateFromFile(computed_hashes_path);
+      extensions::ComputedHashes::CreateFromFile(computed_hashes_path,
+                                                 &computed_hashes_status);
   if (!computed_hashes)
-    return testing::AssertionFailure() << "Failed to read computed_hashes.json";
+    return testing::AssertionFailure()
+           << "Failed to read computed_hashes.json (status: "
+           << static_cast<int>(computed_hashes_status) << ")";
   *result = std::move(computed_hashes.value());
 
   return testing::AssertionSuccess();

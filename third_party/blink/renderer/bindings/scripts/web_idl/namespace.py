@@ -2,6 +2,8 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+import itertools
+
 from .attribute import Attribute
 from .code_generator_info import CodeGeneratorInfo
 from .composition_parts import WithCodeGeneratorInfo
@@ -65,16 +67,21 @@ class Namespace(UserDefinedType, WithExtendedAttributes, WithCodeGeneratorInfo,
             self.constants = list(constants)
             self.constructors = []
             self.constructor_groups = []
+            self.named_constructors = []
+            self.named_constructor_groups = []
             self.operations = list(operations)
             self.operation_groups = []
 
         def iter_all_members(self):
-            for attribute in self.attributes:
-                yield attribute
-            for constant in self.constants:
-                yield constant
-            for operation in self.operations:
-                yield operation
+            list_of_members = [
+                self.attributes,
+                self.constants,
+                self.operations,
+            ]
+            return itertools.chain(*list_of_members)
+
+        def iter_all_overload_groups(self):
+            return iter(self.operation_groups)
 
     def __init__(self, ir):
         assert isinstance(ir, Namespace.IR)
@@ -113,6 +120,11 @@ class Namespace(UserDefinedType, WithExtendedAttributes, WithCodeGeneratorInfo,
         return None
 
     @property
+    def deriveds(self):
+        """Returns the list of the derived namespaces."""
+        return ()
+
+    @property
     def attributes(self):
         """Returns attributes."""
         return self._attributes
@@ -130,6 +142,16 @@ class Namespace(UserDefinedType, WithExtendedAttributes, WithCodeGeneratorInfo,
     @property
     def constructor_groups(self):
         """Returns groups of constructors."""
+        return ()
+
+    @property
+    def named_constructors(self):
+        """Returns named constructors."""
+        return ()
+
+    @property
+    def named_constructor_groups(self):
+        """Returns groups of overloaded named constructors."""
         return ()
 
     @property

@@ -7,8 +7,8 @@
 #include <memory>
 
 #include "base/bind.h"
+#include "base/memory/ptr_util.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/no_destructor.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/time/default_clock.h"
 #include "chromeos/components/multidevice/logging/logging.h"
@@ -27,12 +27,12 @@ const int64_t kTimeBetweenEachCommandMs = 200;
 BleSynchronizer::Factory* BleSynchronizer::Factory::test_factory_ = nullptr;
 
 // static
-BleSynchronizer::Factory* BleSynchronizer::Factory::Get() {
+std::unique_ptr<BleSynchronizerBase> BleSynchronizer::Factory::Create(
+    scoped_refptr<device::BluetoothAdapter> bluetooth_adapter) {
   if (test_factory_)
-    return test_factory_;
+    return test_factory_->CreateInstance(std::move(bluetooth_adapter));
 
-  static base::NoDestructor<Factory> factory;
-  return factory.get();
+  return base::WrapUnique(new BleSynchronizer(std::move(bluetooth_adapter)));
 }
 
 // static
@@ -41,11 +41,6 @@ void BleSynchronizer::Factory::SetFactoryForTesting(Factory* test_factory) {
 }
 
 BleSynchronizer::Factory::~Factory() = default;
-
-std::unique_ptr<BleSynchronizerBase> BleSynchronizer::Factory::BuildInstance(
-    scoped_refptr<device::BluetoothAdapter> bluetooth_adapter) {
-  return base::WrapUnique(new BleSynchronizer(bluetooth_adapter));
-}
 
 BleSynchronizer::BleSynchronizer(
     scoped_refptr<device::BluetoothAdapter> bluetooth_adapter)
@@ -77,8 +72,8 @@ void BleSynchronizer::ProcessQueue() {
           base::TimeDelta::FromMilliseconds(kTimeBetweenEachCommandMs)) {
     timer_->Start(FROM_HERE,
                   base::TimeDelta::FromMilliseconds(kTimeBetweenEachCommandMs),
-                  base::Bind(&BleSynchronizer::ProcessQueue,
-                             weak_ptr_factory_.GetWeakPtr()));
+                  base::BindOnce(&BleSynchronizer::ProcessQueue,
+                                 weak_ptr_factory_.GetWeakPtr()));
     return;
   }
 
@@ -91,20 +86,20 @@ void BleSynchronizer::ProcessQueue() {
       DCHECK(register_args);
       bluetooth_adapter_->RegisterAdvertisement(
           std::move(register_args->advertisement_data),
-          base::Bind(&BleSynchronizer::OnAdvertisementRegistered,
-                     weak_ptr_factory_.GetWeakPtr()),
-          base::Bind(&BleSynchronizer::OnErrorRegisteringAdvertisement,
-                     weak_ptr_factory_.GetWeakPtr()));
+          base::BindOnce(&BleSynchronizer::OnAdvertisementRegistered,
+                         weak_ptr_factory_.GetWeakPtr()),
+          base::BindOnce(&BleSynchronizer::OnErrorRegisteringAdvertisement,
+                         weak_ptr_factory_.GetWeakPtr()));
       break;
     }
     case CommandType::UNREGISTER_ADVERTISEMENT: {
       UnregisterArgs* unregister_args = current_command_->unregister_args.get();
       DCHECK(unregister_args);
       unregister_args->advertisement->Unregister(
-          base::Bind(&BleSynchronizer::OnAdvertisementUnregistered,
-                     weak_ptr_factory_.GetWeakPtr()),
-          base::Bind(&BleSynchronizer::OnErrorUnregisteringAdvertisement,
-                     weak_ptr_factory_.GetWeakPtr()));
+          base::BindOnce(&BleSynchronizer::OnAdvertisementUnregistered,
+                         weak_ptr_factory_.GetWeakPtr()),
+          base::BindOnce(&BleSynchronizer::OnErrorUnregisteringAdvertisement,
+                         weak_ptr_factory_.GetWeakPtr()));
       break;
     }
     case CommandType::START_DISCOVERY: {
@@ -136,11 +131,8 @@ void BleSynchronizer::ProcessQueue() {
         break;
       }
 
-      stop_discovery_args->discovery_session->Stop(
-          base::Bind(&BleSynchronizer::OnDiscoverySessionStopped,
-                     weak_ptr_factory_.GetWeakPtr()),
-          base::Bind(&BleSynchronizer::OnErrorStoppingDiscoverySession,
-                     weak_ptr_factory_.GetWeakPtr()));
+      stop_discovery_args->discovery_session->Stop();
+      OnDiscoverySessionStopped();
       break;
     }
     default:
@@ -165,7 +157,7 @@ void BleSynchronizer::OnAdvertisementRegistered(
   ScheduleCommandCompletion();
   RegisterArgs* register_args = current_command_->register_args.get();
   DCHECK(register_args);
-  register_args->callback.Run(std::move(advertisement));
+  std::move(register_args->callback).Run(std::move(advertisement));
 }
 
 void BleSynchronizer::OnErrorRegisteringAdvertisement(
@@ -175,7 +167,7 @@ void BleSynchronizer::OnErrorRegisteringAdvertisement(
   ScheduleCommandCompletion();
   RegisterArgs* register_args = current_command_->register_args.get();
   DCHECK(register_args);
-  register_args->error_callback.Run(error_code);
+  std::move(register_args->error_callback).Run(error_code);
 }
 
 void BleSynchronizer::OnAdvertisementUnregistered() {
@@ -184,7 +176,7 @@ void BleSynchronizer::OnAdvertisementUnregistered() {
   ScheduleCommandCompletion();
   UnregisterArgs* unregister_args = current_command_->unregister_args.get();
   DCHECK(unregister_args);
-  unregister_args->callback.Run();
+  std::move(unregister_args->callback).Run();
 }
 
 void BleSynchronizer::OnErrorUnregisteringAdvertisement(
@@ -200,9 +192,9 @@ void BleSynchronizer::OnErrorUnregisteringAdvertisement(
     // should never happen since unregistration has not succeeded. Work around
     // this situation by simply invoking the success callback. See
     // https://crbug.com/738222 for details.
-    unregister_args->callback.Run();
+    std::move(unregister_args->callback).Run();
   } else {
-    unregister_args->error_callback.Run(error_code);
+    std::move(unregister_args->error_callback).Run(error_code);
   }
 }
 
@@ -231,16 +223,7 @@ void BleSynchronizer::OnDiscoverySessionStopped() {
   StopDiscoveryArgs* stop_discovery_args =
       current_command_->stop_discovery_args.get();
   DCHECK(stop_discovery_args);
-  stop_discovery_args->callback.Run();
-}
-
-void BleSynchronizer::OnErrorStoppingDiscoverySession() {
-  RecordDiscoverySessionStopped(false /* success */);
-  ScheduleCommandCompletion();
-  StopDiscoveryArgs* stop_discovery_args =
-      current_command_->stop_discovery_args.get();
-  DCHECK(stop_discovery_args);
-  stop_discovery_args->error_callback.Run();
+  std::move(stop_discovery_args->callback).Run();
 }
 
 void BleSynchronizer::ScheduleCommandCompletion() {

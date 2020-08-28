@@ -6,7 +6,6 @@
 #define WEBLAYER_BROWSER_SYSTEM_NETWORK_CONTEXT_MANAGER_H_
 
 #include "base/memory/scoped_refptr.h"
-#include "content/public/browser/cors_exempt_headers.h"
 #include "mojo/public/cpp/bindings/remote.h"
 #include "services/network/public/cpp/weak_wrapper_shared_url_loader_factory.h"
 #include "services/network/public/mojom/network_service.mojom.h"
@@ -27,13 +26,19 @@ class SystemNetworkContextManager {
   // Checks if the global SystemNetworkContextManager has been created.
   static bool HasInstance();
 
-  // Gets the global SystemNetworkContextManager instance. If it has not been
-  // created yet, NetworkService is called, which will cause the
-  // SystemNetworkContextManager to be created.
+  // Gets the global SystemNetworkContextManager instance or DCHECKs if there
+  // isn't one..
   static SystemNetworkContextManager* GetInstance();
 
   // Destroys the global SystemNetworkContextManager instance.
   static void DeleteInstance();
+
+  static network::mojom::NetworkContextParamsPtr
+  CreateDefaultNetworkContextParams(const std::string& user_agent);
+
+  static void ConfigureDefaultNetworkContextParams(
+      network::mojom::NetworkContextParams* network_context_params,
+      const std::string& user_agent);
 
   ~SystemNetworkContextManager();
 
@@ -47,6 +52,10 @@ class SystemNetworkContextManager {
 
   // Returns a SharedURLLoaderFactory owned by the SystemNetworkContextManager
   // that is backed by the SystemNetworkContext.
+  // NOTE: This factory assumes that the network service is running in the
+  // browser process, which is a valid assumption for Android. If WebLayer is
+  // productionized beyond Android, it will need to be extended to handle
+  // network service crashes.
   scoped_refptr<network::SharedURLLoaderFactory> GetSharedURLLoaderFactory();
 
  private:

@@ -4,7 +4,6 @@
 
 package org.chromium.content.browser.input;
 
-import android.support.test.filters.LargeTest;
 import android.text.SpannableString;
 import android.text.Spanned;
 import android.text.style.SuggestionSpan;
@@ -12,6 +11,9 @@ import android.view.View;
 import android.widget.ListView;
 import android.widget.TextView;
 
+import androidx.test.filters.LargeTest;
+
+import org.hamcrest.Matchers;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Rule;
@@ -24,6 +26,7 @@ import org.chromium.content_public.browser.WebContents;
 import org.chromium.content_public.browser.test.ContentJUnit4ClassRunner;
 import org.chromium.content_public.browser.test.util.Criteria;
 import org.chromium.content_public.browser.test.util.CriteriaHelper;
+import org.chromium.content_public.browser.test.util.CriteriaNotSatisfiedException;
 import org.chromium.content_public.browser.test.util.DOMUtils;
 import org.chromium.content_public.browser.test.util.JavaScriptUtils;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
@@ -68,14 +71,12 @@ public class TextSuggestionMenuTest {
 
         TouchCommon.singleClickView(getDeleteButton(webContents));
 
-        CriteriaHelper.pollInstrumentationThread(new Criteria() {
-            @Override
-            public boolean isSatisfied() {
-                try {
-                    return DOMUtils.getNodeContents(webContents, "div").equals("");
-                } catch (TimeoutException e) {
-                    return false;
-                }
+        CriteriaHelper.pollInstrumentationThread(() -> {
+            try {
+                Criteria.checkThat(
+                        DOMUtils.getNodeContents(webContents, "div"), Matchers.isEmptyString());
+            } catch (TimeoutException e) {
+                throw new CriteriaNotSatisfiedException(e);
             }
         });
 
@@ -97,14 +98,12 @@ public class TextSuggestionMenuTest {
         // and waits for the IME thread to finish, but the communication between the IME thread and
         // the renderer is asynchronous, so if we try to run JavaScript right away, the text won't
         // necessarily have been committed yet.
-        CriteriaHelper.pollInstrumentationThread(new Criteria() {
-            @Override
-            public boolean isSatisfied() {
-                try {
-                    return DOMUtils.getNodeContents(webContents, "div").equals("hello");
-                } catch (TimeoutException e) {
-                    return false;
-                }
+        CriteriaHelper.pollInstrumentationThread(() -> {
+            try {
+                Criteria.checkThat(
+                        DOMUtils.getNodeContents(webContents, "div"), Matchers.is("hello"));
+            } catch (TimeoutException e) {
+                throw new CriteriaNotSatisfiedException(e);
             }
         });
 
@@ -122,14 +121,12 @@ public class TextSuggestionMenuTest {
 
         TouchCommon.singleClickView(getDeleteButton(webContents));
 
-        CriteriaHelper.pollInstrumentationThread(new Criteria() {
-            @Override
-            public boolean isSatisfied() {
-                try {
-                    return DOMUtils.getNodeContents(mRule.getWebContents(), "div").equals("");
-                } catch (TimeoutException e) {
-                    return false;
-                }
+        CriteriaHelper.pollInstrumentationThread(() -> {
+            try {
+                Criteria.checkThat(DOMUtils.getNodeContents(mRule.getWebContents(), "div"),
+                        Matchers.isEmptyString());
+            } catch (TimeoutException e) {
+                throw new CriteriaNotSatisfiedException(e);
             }
         });
 
@@ -171,14 +168,12 @@ public class TextSuggestionMenuTest {
         mRule.commitText(textToCommit, 1);
 
         // Wait for renderer to acknowledge commitText().
-        CriteriaHelper.pollInstrumentationThread(new Criteria() {
-            @Override
-            public boolean isSatisfied() {
-                try {
-                    return DOMUtils.getNodeContents(webContents, "div").equals("hello world");
-                } catch (TimeoutException e) {
-                    return false;
-                }
+        CriteriaHelper.pollInstrumentationThread(() -> {
+            try {
+                Criteria.checkThat(
+                        DOMUtils.getNodeContents(webContents, "div"), Matchers.is("hello world"));
+            } catch (TimeoutException e) {
+                throw new CriteriaNotSatisfiedException(e);
             }
         });
 
@@ -199,15 +194,12 @@ public class TextSuggestionMenuTest {
 
         TouchCommon.singleClickView(getSuggestionButton(webContents, 2));
 
-        CriteriaHelper.pollInstrumentationThread(new Criteria() {
-            @Override
-            public boolean isSatisfied() {
-                try {
-                    return DOMUtils.getNodeContents(mRule.getWebContents(), "div")
-                            .equals("suggestion3");
-                } catch (TimeoutException e) {
-                    return false;
-                }
+        CriteriaHelper.pollInstrumentationThread(() -> {
+            try {
+                Criteria.checkThat(DOMUtils.getNodeContents(mRule.getWebContents(), "div"),
+                        Matchers.is("suggestion3"));
+            } catch (TimeoutException e) {
+                throw new CriteriaNotSatisfiedException(e);
             }
         });
 
@@ -242,15 +234,12 @@ public class TextSuggestionMenuTest {
 
         TouchCommon.singleClickView(getSuggestionButton(webContents, 0));
 
-        CriteriaHelper.pollInstrumentationThread(new Criteria() {
-            @Override
-            public boolean isSatisfied() {
-                try {
-                    return DOMUtils.getNodeContents(mRule.getWebContents(), "div")
-                            .equals("replacement");
-                } catch (TimeoutException e) {
-                    return false;
-                }
+        CriteriaHelper.pollInstrumentationThread(() -> {
+            try {
+                Criteria.checkThat(DOMUtils.getNodeContents(mRule.getWebContents(), "div"),
+                        Matchers.is("replacement"));
+            } catch (TimeoutException e) {
+                throw new CriteriaNotSatisfiedException(e);
             }
         });
 
@@ -412,36 +401,27 @@ public class TextSuggestionMenuTest {
     }
 
     private void waitForMenuToShow(WebContents webContents) {
-        CriteriaHelper.pollUiThread(new Criteria() {
-            @Override
-            public boolean isSatisfied() {
-                View deleteButton = getDeleteButton(webContents);
-                if (deleteButton == null) {
-                    return false;
-                }
+        CriteriaHelper.pollUiThread(() -> {
+            View deleteButton = getDeleteButton(webContents);
+            Criteria.checkThat(deleteButton, Matchers.notNullValue());
 
-                // suggestionsPopupWindow.isShowing() returns true, the delete button hasn't been
-                // measured yet and getWidth()/getHeight() return 0. This causes the menu button
-                // click to instead fall on the "Add to dictionary" button. So we have to check that
-                // this isn't happening.
-                return deleteButton.getWidth() != 0;
-            }
+            // suggestionsPopupWindow.isShowing() returns true, the delete button hasn't been
+            // measured yet and getWidth()/getHeight() return 0. This causes the menu button
+            // click to instead fall on the "Add to dictionary" button. So we have to check that
+            // this isn't happening.
+            Criteria.checkThat(deleteButton.getWidth(), Matchers.not(0));
         });
     }
 
     private void waitForMenuToHide(WebContents webContents) {
-        CriteriaHelper.pollUiThread(new Criteria() {
-            @Override
-            public boolean isSatisfied() {
-                SuggestionsPopupWindow suggestionsPopupWindow =
-                        getTextSuggestionHost(webContents)
-                                .getTextSuggestionsPopupWindowForTesting();
+        CriteriaHelper.pollUiThread(() -> {
+            SuggestionsPopupWindow suggestionsPopupWindow =
+                    getTextSuggestionHost(webContents).getTextSuggestionsPopupWindowForTesting();
+            Criteria.checkThat(suggestionsPopupWindow, Matchers.nullValue());
 
-                SuggestionsPopupWindow spellCheckPopupWindow =
-                        getTextSuggestionHost(webContents).getSpellCheckPopupWindowForTesting();
-
-                return suggestionsPopupWindow == null && spellCheckPopupWindow == null;
-            }
+            SuggestionsPopupWindow spellCheckPopupWindow =
+                    getTextSuggestionHost(webContents).getSpellCheckPopupWindowForTesting();
+            Criteria.checkThat(spellCheckPopupWindow, Matchers.nullValue());
         });
     }
 

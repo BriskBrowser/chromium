@@ -8,7 +8,6 @@
 #include <cstdlib>
 
 #include "ash/public/cpp/ash_pref_names.h"
-#include "ash/public/cpp/ash_prefs.h"
 #include "ash/public/cpp/ash_switches.h"
 #include "ash/public/cpp/shell_window_ids.h"
 #include "ash/public/cpp/test/shell_test_api.h"
@@ -23,13 +22,14 @@
 #include "ash/wallpaper/wallpaper_view.h"
 #include "ash/wallpaper/wallpaper_widget_controller.h"
 #include "ash/wm/overview/overview_controller.h"
+#include "ash/wm/window_cycle_controller.h"
 #include "ash/wm/window_state.h"
 #include "base/command_line.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
-#include "base/message_loop/message_loop_current.h"
 #include "base/run_loop.h"
 #include "base/strings/stringprintf.h"
+#include "base/task/current_thread.h"
 #include "base/task/post_task.h"
 #include "base/task/task_observer.h"
 #include "base/task/thread_pool/thread_pool_instance.h"
@@ -61,6 +61,8 @@ namespace {
 constexpr int kWallpaperId = kShellWindowId_WallpaperContainer;
 constexpr int kLockScreenWallpaperId =
     kShellWindowId_LockScreenWallpaperContainer;
+constexpr int kAlwaysOnTopWallpaperId =
+    kShellWindowId_AlwaysOnTopWallpaperContainer;
 
 constexpr char kDefaultSmallWallpaperName[] = "small.jpg";
 constexpr char kDefaultLargeWallpaperName[] = "large.jpg";
@@ -219,12 +221,12 @@ class TaskObserver : public base::TaskObserver {
 void RunAllTasksUntilIdle() {
   while (true) {
     TaskObserver task_observer;
-    base::MessageLoopCurrent::Get()->AddTaskObserver(&task_observer);
+    base::CurrentThread::Get()->AddTaskObserver(&task_observer);
     // May spin message loop.
     base::ThreadPoolInstance::Get()->FlushForTesting();
 
     base::RunLoop().RunUntilIdle();
-    base::MessageLoopCurrent::Get()->RemoveTaskObserver(&task_observer);
+    base::CurrentThread::Get()->RemoveTaskObserver(&task_observer);
 
     if (!task_observer.processed())
       break;
@@ -238,12 +240,15 @@ class TestWallpaperControllerClient : public WallpaperControllerClient {
   virtual ~TestWallpaperControllerClient() = default;
 
   size_t open_count() const { return open_count_; }
+  size_t close_preview_count() const { return close_preview_count_; }
 
   // WallpaperControllerClient:
   void OpenWallpaperPicker() override { open_count_++; }
+  void MaybeClosePreviewWallpaper() override { close_preview_count_++; }
 
  private:
   size_t open_count_ = 0;
+  size_t close_preview_count_ = 0;
 
   DISALLOW_COPY_AND_ASSIGN(TestWallpaperControllerClient);
 };
@@ -2088,6 +2093,116 @@ TEST_F(WallpaperControllerTest, ShouldNotShowInitialAnimationAfterSignOut) {
   EXPECT_EQ(1, GetWallpaperCount());
 }
 
+TEST_F(WallpaperControllerTest, ClosePreviewWallpaperOnOverviewStart) {
+  TestWallpaperControllerClient client;
+  controller_->SetClient(&client);
+
+  // Verify the user starts with a default wallpaper and the user wallpaper info
+  // is initialized with default values.
+  SimulateUserLogin(kUser1);
+  ClearWallpaperCount();
+  controller_->ShowUserWallpaper(account_id_1);
+  RunAllTasksUntilIdle();
+  EXPECT_EQ(1, GetWallpaperCount());
+  WallpaperInfo user_wallpaper_info;
+  WallpaperInfo default_wallpaper_info(std::string(),
+                                       WALLPAPER_LAYOUT_CENTER_CROPPED, DEFAULT,
+                                       base::Time::Now().LocalMidnight());
+  EXPECT_TRUE(
+      controller_->GetUserWallpaperInfo(account_id_1, &user_wallpaper_info));
+  EXPECT_EQ(user_wallpaper_info, default_wallpaper_info);
+
+  // Simulate opening the wallpaper picker window.
+  std::unique_ptr<aura::Window> wallpaper_picker_window(
+      CreateTestWindow(gfx::Rect(0, 0, 100, 100)));
+  WindowState::Get(wallpaper_picker_window.get())->Activate();
+
+  // Set a custom wallpaper for the user and enable preview. Verify that the
+  // wallpaper is changed to the expected color.
+  const WallpaperLayout layout = WALLPAPER_LAYOUT_CENTER;
+  gfx::ImageSkia custom_wallpaper = CreateImage(640, 480, kWallpaperColor);
+  EXPECT_NE(kWallpaperColor, GetWallpaperColor());
+  ClearWallpaperCount();
+  controller_->SetCustomWallpaper(account_id_1, wallpaper_files_id_1,
+                                  file_name_1, layout, custom_wallpaper,
+                                  true /*preview_mode=*/);
+  RunAllTasksUntilIdle();
+  EXPECT_EQ(1, GetWallpaperCount());
+  EXPECT_EQ(kWallpaperColor, GetWallpaperColor());
+  // Verify that the user wallpaper info remains unchanged during the preview.
+  EXPECT_TRUE(
+      controller_->GetUserWallpaperInfo(account_id_1, &user_wallpaper_info));
+  EXPECT_EQ(user_wallpaper_info, default_wallpaper_info);
+
+  // Now enter overview mode. Verify the wallpaper changes back to the default,
+  // the user wallpaper info remains unchanged, and enters overview mode
+  // properly.
+  ClearWallpaperCount();
+  Shell::Get()->overview_controller()->StartOverview();
+  RunAllTasksUntilIdle();
+  EXPECT_EQ(1, GetWallpaperCount());
+  EXPECT_NE(kWallpaperColor, GetWallpaperColor());
+  EXPECT_EQ(controller_->GetWallpaperType(), DEFAULT);
+  EXPECT_EQ(user_wallpaper_info, default_wallpaper_info);
+  EXPECT_TRUE(Shell::Get()->overview_controller()->InOverviewSession());
+  EXPECT_EQ(1u, client.close_preview_count());
+}
+
+TEST_F(WallpaperControllerTest, ClosePreviewWallpaperOnWindowCycleStart) {
+  TestWallpaperControllerClient client;
+  controller_->SetClient(&client);
+
+  // Verify the user starts with a default wallpaper and the user wallpaper info
+  // is initialized with default values.
+  SimulateUserLogin(kUser1);
+  ClearWallpaperCount();
+  controller_->ShowUserWallpaper(account_id_1);
+  RunAllTasksUntilIdle();
+  EXPECT_EQ(1, GetWallpaperCount());
+  WallpaperInfo user_wallpaper_info;
+  WallpaperInfo default_wallpaper_info(std::string(),
+                                       WALLPAPER_LAYOUT_CENTER_CROPPED, DEFAULT,
+                                       base::Time::Now().LocalMidnight());
+  EXPECT_TRUE(
+      controller_->GetUserWallpaperInfo(account_id_1, &user_wallpaper_info));
+  EXPECT_EQ(user_wallpaper_info, default_wallpaper_info);
+
+  // Simulate opening the wallpaper picker window.
+  std::unique_ptr<aura::Window> wallpaper_picker_window(
+      CreateTestWindow(gfx::Rect(0, 0, 100, 100)));
+  WindowState::Get(wallpaper_picker_window.get())->Activate();
+
+  // Set a custom wallpaper for the user and enable preview. Verify that the
+  // wallpaper is changed to the expected color.
+  const WallpaperLayout layout = WALLPAPER_LAYOUT_CENTER;
+  gfx::ImageSkia custom_wallpaper = CreateImage(640, 480, kWallpaperColor);
+  EXPECT_NE(kWallpaperColor, GetWallpaperColor());
+  ClearWallpaperCount();
+  controller_->SetCustomWallpaper(account_id_1, wallpaper_files_id_1,
+                                  file_name_1, layout, custom_wallpaper,
+                                  true /*preview_mode=*/);
+  RunAllTasksUntilIdle();
+  EXPECT_EQ(1, GetWallpaperCount());
+  EXPECT_EQ(kWallpaperColor, GetWallpaperColor());
+  // Verify that the user wallpaper info remains unchanged during the preview.
+  EXPECT_TRUE(
+      controller_->GetUserWallpaperInfo(account_id_1, &user_wallpaper_info));
+  EXPECT_EQ(user_wallpaper_info, default_wallpaper_info);
+
+  // Now start window cycle. Verify the wallpaper changes back to the default,
+  // the user wallpaper info remains unchanged, and enters window cycle.
+  ClearWallpaperCount();
+  Shell::Get()->window_cycle_controller()->HandleCycleWindow(
+      WindowCycleController::FORWARD);
+  RunAllTasksUntilIdle();
+  EXPECT_EQ(1, GetWallpaperCount());
+  EXPECT_NE(kWallpaperColor, GetWallpaperColor());
+  EXPECT_EQ(controller_->GetWallpaperType(), DEFAULT);
+  EXPECT_EQ(user_wallpaper_info, default_wallpaper_info);
+  EXPECT_TRUE(Shell::Get()->window_cycle_controller()->IsCycling());
+  EXPECT_EQ(1u, client.close_preview_count());
+}
+
 TEST_F(WallpaperControllerTest, ConfirmPreviewWallpaper) {
   // Verify the user starts with a default wallpaper and the user wallpaper info
   // is initialized with default values.
@@ -2488,6 +2603,16 @@ TEST_F(WallpaperControllerTest, ShowOneShotWallpaper) {
   EXPECT_FALSE(controller_->IsBlurAllowedForLockState());
   EXPECT_FALSE(controller_->ShouldApplyDimming());
 
+  // Verify that we can reload wallpaer without losing it.
+  // This is important for screen rotation.
+  controller_->ReloadWallpaperForTesting(/*clear_cache=*/false);
+  RunAllTasksUntilIdle();
+  EXPECT_EQ(2, GetWallpaperCount());  // Reload increments count.
+  EXPECT_EQ(kOneShotWallpaperColor, GetWallpaperColor());
+  EXPECT_EQ(WallpaperType::ONE_SHOT, controller_->GetWallpaperType());
+  EXPECT_FALSE(controller_->IsBlurAllowedForLockState());
+  EXPECT_FALSE(controller_->ShouldApplyDimming());
+
   // Verify the user wallpaper info is unaffected, and the one-shot wallpaper
   // can be replaced by the user wallpaper.
   EXPECT_TRUE(controller_->GetUserWallpaperInfo(account_id_1, &wallpaper_info));
@@ -2583,7 +2708,8 @@ TEST_F(WallpaperControllerTest, AlwaysOnTopWallpaper) {
   RunAllTasksUntilIdle();
   EXPECT_EQ(1, GetWallpaperCount());
   EXPECT_EQ(controller_->GetWallpaperType(), DEFAULT);
-  EXPECT_EQ(kShellWindowId_WallpaperContainer, GetWallpaperContainerId());
+  EXPECT_EQ(1, ChildCountForContainer(kWallpaperId));
+  EXPECT_EQ(0, ChildCountForContainer(kAlwaysOnTopWallpaperId));
 
   // Show an always-on-top wallpaper.
   const base::FilePath image_path =
@@ -2593,8 +2719,8 @@ TEST_F(WallpaperControllerTest, AlwaysOnTopWallpaper) {
   RunAllTasksUntilIdle();
   EXPECT_EQ(2, GetWallpaperCount());
   EXPECT_EQ(controller_->GetWallpaperType(), ONE_SHOT);
-  EXPECT_EQ(kShellWindowId_AlwaysOnTopWallpaperContainer,
-            GetWallpaperContainerId());
+  EXPECT_EQ(0, ChildCountForContainer(kWallpaperId));
+  EXPECT_EQ(1, ChildCountForContainer(kAlwaysOnTopWallpaperId));
 
   // Subsequent wallpaper requests are ignored when the current wallpaper is
   // always-on-top.
@@ -2602,8 +2728,8 @@ TEST_F(WallpaperControllerTest, AlwaysOnTopWallpaper) {
   RunAllTasksUntilIdle();
   EXPECT_EQ(2, GetWallpaperCount());
   EXPECT_EQ(controller_->GetWallpaperType(), ONE_SHOT);
-  EXPECT_EQ(kShellWindowId_AlwaysOnTopWallpaperContainer,
-            GetWallpaperContainerId());
+  EXPECT_EQ(0, ChildCountForContainer(kWallpaperId));
+  EXPECT_EQ(1, ChildCountForContainer(kAlwaysOnTopWallpaperId));
 
   // The wallpaper reverts to the default after the always-on-top wallpaper is
   // removed.
@@ -2611,7 +2737,8 @@ TEST_F(WallpaperControllerTest, AlwaysOnTopWallpaper) {
   RunAllTasksUntilIdle();
   EXPECT_EQ(3, GetWallpaperCount());
   EXPECT_EQ(controller_->GetWallpaperType(), DEFAULT);
-  EXPECT_EQ(kShellWindowId_WallpaperContainer, GetWallpaperContainerId());
+  EXPECT_EQ(1, ChildCountForContainer(kWallpaperId));
+  EXPECT_EQ(0, ChildCountForContainer(kAlwaysOnTopWallpaperId));
 
   // Calling |RemoveAlwaysOnTopWallpaper| is a no-op when the current wallpaper
   // is not always-on-top.
@@ -2619,34 +2746,26 @@ TEST_F(WallpaperControllerTest, AlwaysOnTopWallpaper) {
   RunAllTasksUntilIdle();
   EXPECT_EQ(3, GetWallpaperCount());
   EXPECT_EQ(controller_->GetWallpaperType(), DEFAULT);
-  EXPECT_EQ(kShellWindowId_WallpaperContainer, GetWallpaperContainerId());
+  EXPECT_EQ(1, ChildCountForContainer(kWallpaperId));
+  EXPECT_EQ(0, ChildCountForContainer(kAlwaysOnTopWallpaperId));
 }
 
 namespace {
 
 class WallpaperControllerPrefTest : public AshTestBase {
  public:
-  WallpaperControllerPrefTest() = default;
-  ~WallpaperControllerPrefTest() override = default;
+  WallpaperControllerPrefTest() {
+    auto property = std::make_unique<base::DictionaryValue>();
+    property->SetInteger("rotation",
+                         static_cast<int>(display::Display::ROTATE_90));
+    property->SetInteger("width", 800);
+    property->SetInteger("height", 600);
 
-  void SetUp() override {
-    {
-      RegisterLocalStatePrefs(local_state_->registry(), true);
-      register_local_state_ = false;
-      DictionaryPrefUpdate update(local_state_.get(),
-                                  prefs::kDisplayProperties);
-
-      base::DictionaryValue* pref_data = update.Get();
-
-      auto property = std::make_unique<base::DictionaryValue>();
-      property->SetInteger("rotation",
-                           static_cast<int>(display::Display::ROTATE_90));
-      property->SetInteger("width", 800);
-      property->SetInteger("height", 600);
-      pref_data->Set("2200000000", std::move(property));
-    }
-    AshTestBase::SetUp();
+    DictionaryPrefUpdate update(local_state(), prefs::kDisplayProperties);
+    update.Get()->Set("2200000000", std::move(property));
   }
+
+  ~WallpaperControllerPrefTest() override = default;
 };
 
 }  // namespace

@@ -12,6 +12,7 @@
 #include <utility>
 
 #include "base/logging.h"
+#include "base/notreached.h"
 #include "third_party/skia/include/core/SkColor.h"
 #include "third_party/skia/include/third_party/skcms/skcms.h"
 #include "ui/gfx/color_space.h"
@@ -170,9 +171,10 @@ Transform GetTransferMatrix(const gfx::ColorSpace& color_space) {
   return Transform(transfer_matrix);
 }
 
-Transform GetRangeAdjustMatrix(const gfx::ColorSpace& color_space) {
+Transform GetRangeAdjustMatrix(const gfx::ColorSpace& color_space,
+                               int bit_depth) {
   SkMatrix44 range_adjust_matrix;
-  color_space.GetRangeAdjustMatrix(&range_adjust_matrix);
+  color_space.GetRangeAdjustMatrix(bit_depth, &range_adjust_matrix);
   return Transform(range_adjust_matrix);
 }
 
@@ -224,7 +226,9 @@ class ColorTransformStep {
 class ColorTransformInternal : public ColorTransform {
  public:
   ColorTransformInternal(const ColorSpace& src,
+                         int src_bit_depth,
                          const ColorSpace& dst,
+                         int dst_bit_depth,
                          Intent intent);
   ~ColorTransformInternal() override;
 
@@ -243,7 +247,9 @@ class ColorTransformInternal : public ColorTransform {
 
  private:
   void AppendColorSpaceToColorSpaceTransform(const ColorSpace& src,
-                                             const ColorSpace& dst);
+                                             int src_bit_depth,
+                                             const ColorSpace& dst,
+                                             int dst_bit_depth);
   void Simplify();
 
   std::list<std::unique_ptr<ColorTransformStep>> steps_;
@@ -408,6 +414,116 @@ class ColorTransformPerChannelTransferFn : public ColorTransformStep {
   // True if the transfer function is extended to be defined for all real
   // values by point symmetry.
   bool extended_ = false;
+};
+
+// This class represents the piecewise-HDR function using three new parameters,
+// P, Q, and R. The function is defined as:
+//            0         : x < 0
+//     T(x) = sRGB(x/P) : x < P
+//            Q*x+R     : x >= P
+// This then expands to
+//            0                : x < 0
+//     T(x) = C*x/P+F          : x < P*D
+//            (A*x/P+B)**G + E : x < P
+//            Q*x+R            : else
+class ColorTransformPiecewiseHDR : public ColorTransformPerChannelTransferFn {
+ public:
+  static void GetParams(const gfx::ColorSpace color_space,
+                        skcms_TransferFunction* fn,
+                        float* p,
+                        float* q,
+                        float* r) {
+    float sdr_joint = 1;
+    float hdr_level = 1;
+    color_space.GetPiecewiseHDRParams(&sdr_joint, &hdr_level);
+
+    // P is exactly |sdr_joint|.
+    *p = sdr_joint;
+
+    if (sdr_joint < 1.f) {
+      // Q and R are computed such that |sdr_joint| maps to 1 and 1) maps to
+      // |hdr_level|.
+      *q = (hdr_level - 1.f) / (1.f - sdr_joint);
+      *r = (1.f - hdr_level * sdr_joint) / (1.f - sdr_joint);
+    } else {
+      // If |sdr_joint| is exactly 1, then just saturate at 1 (there is no HDR).
+      *q = 0;
+      *r = 1;
+    }
+
+    // Compute |fn| so that, at x, it evaluates to sRGB(x*P).
+    ColorSpace::CreateSRGB().GetTransferFunction(fn);
+    fn->d *= sdr_joint;
+    if (sdr_joint != 0) {
+      // If |sdr_joint| is 0, then we will never evaluate |fn| anyway.
+      fn->a /= sdr_joint;
+      fn->c /= sdr_joint;
+    }
+  }
+  static void InvertParams(skcms_TransferFunction* fn,
+                           float* p,
+                           float* q,
+                           float* r) {
+    *fn = SkTransferFnInverse(*fn);
+    float old_p = *p;
+    float old_q = *q;
+    float old_r = *r;
+    *p = old_q * old_p + old_r;
+    if (old_q != 0.f) {
+      *q = 1.f / old_q;
+      *r = -old_r / old_q;
+    } else {
+      *q = 0.f;
+      *r = 1.f;
+    }
+  }
+
+  ColorTransformPiecewiseHDR(const skcms_TransferFunction fn,
+                             float p,
+                             float q,
+                             float r)
+      : ColorTransformPerChannelTransferFn(false),
+        fn_(fn),
+        p_(p),
+        q_(q),
+        r_(r) {}
+
+  // ColorTransformPerChannelTransferFn implementation:
+  float Evaluate(float v) const override {
+    if (v < 0)
+      return 0;
+    else if (v < fn_.d)
+      return fn_.c * v + fn_.f;
+    else if (v < p_)
+      return std::pow(fn_.a * v + fn_.b, fn_.g) + fn_.e;
+    else
+      return q_ * v + r_;
+  }
+  void AppendTransferShaderSource(std::stringstream* result,
+                                  bool is_glsl) const override {
+    *result << "  if (v < 0.0) {\n";
+    *result << "    v = 0.0;\n";
+    *result << "  } else if (v < " << Str(fn_.d) << ") {\n";
+    *result << "    v = " << Str(fn_.c) << " * v + " << Str(fn_.f) << ";"
+            << endl;
+    *result << "  } else if (v < " << Str(p_) << ") {\n";
+    *result << "    v = pow(" << Str(fn_.a) << " * v + " << Str(fn_.b) << ", "
+            << Str(fn_.g) << ") + " << Str(fn_.e) << ";\n";
+    *result << "  } else {\n";
+    *result << "    v = " << Str(q_) << " * v + " << Str(r_) << ";\n";
+    *result << "  }\n";
+  }
+
+ private:
+  // Parameters of the SDR part.
+  const skcms_TransferFunction fn_;
+  // The SDR joint. Below this value in the domain, the function is defined by
+  // |fn_|.
+  const float p_;
+  // The slope of the linear HDR part.
+  const float q_;
+  // The intercept of the linear HDR part.
+  const float r_;
 };
 
 class ColorTransformSkTransferFn : public ColorTransformPerChannelTransferFn {
@@ -781,9 +897,11 @@ class ColorTransformFromBT2020CL : public ColorTransformStep {
 
 void ColorTransformInternal::AppendColorSpaceToColorSpaceTransform(
     const ColorSpace& src,
-    const ColorSpace& dst) {
-  steps_.push_back(
-      std::make_unique<ColorTransformMatrix>(GetRangeAdjustMatrix(src)));
+    int src_bit_depth,
+    const ColorSpace& dst,
+    int dst_bit_depth) {
+  steps_.push_back(std::make_unique<ColorTransformMatrix>(
+      GetRangeAdjustMatrix(src, src_bit_depth)));
 
   if (src.GetMatrixID() == ColorSpace::MatrixID::BT2020_CL) {
     // BT2020 CL is a special case.
@@ -808,6 +926,11 @@ void ColorTransformInternal::AppendColorSpaceToColorSpaceTransform(
     src.GetPQSDRWhiteLevel(&sdr_white_level);
     steps_.push_back(
         std::make_unique<ColorTransformPQToLinear>(sdr_white_level));
+  } else if (src.GetTransferID() == ColorSpace::TransferID::PIECEWISE_HDR) {
+    skcms_TransferFunction fn;
+    float p, q, r;
+    ColorTransformPiecewiseHDR::GetParams(src, &fn, &p, &q, &r);
+    steps_.push_back(std::make_unique<ColorTransformPiecewiseHDR>(fn, p, q, r));
   } else {
     steps_.push_back(
         std::make_unique<ColorTransformToLinear>(src.GetTransferID()));
@@ -838,6 +961,12 @@ void ColorTransformInternal::AppendColorSpaceToColorSpaceTransform(
     dst.GetPQSDRWhiteLevel(&sdr_white_level);
     steps_.push_back(
         std::make_unique<ColorTransformPQFromLinear>(sdr_white_level));
+  } else if (dst.GetTransferID() == ColorSpace::TransferID::PIECEWISE_HDR) {
+    skcms_TransferFunction fn;
+    float p, q, r;
+    ColorTransformPiecewiseHDR::GetParams(dst, &fn, &p, &q, &r);
+    ColorTransformPiecewiseHDR::InvertParams(&fn, &p, &q, &r);
+    steps_.push_back(std::make_unique<ColorTransformPiecewiseHDR>(fn, p, q, r));
   } else {
     steps_.push_back(
         std::make_unique<ColorTransformFromLinear>(dst.GetTransferID()));
@@ -851,18 +980,21 @@ void ColorTransformInternal::AppendColorSpaceToColorSpaceTransform(
   }
 
   steps_.push_back(std::make_unique<ColorTransformMatrix>(
-      Invert(GetRangeAdjustMatrix(dst))));
+      Invert(GetRangeAdjustMatrix(dst, dst_bit_depth))));
 }
 
 ColorTransformInternal::ColorTransformInternal(const ColorSpace& src,
+                                               int src_bit_depth,
                                                const ColorSpace& dst,
+                                               int dst_bit_depth,
                                                Intent intent)
     : src_(src), dst_(dst) {
   // If no source color space is specified, do no transformation.
   // TODO(ccameron): We may want dst assume sRGB at some point in the future.
   if (!src_.IsValid())
     return;
-  AppendColorSpaceToColorSpaceTransform(src_, dst_);
+  AppendColorSpaceToColorSpaceTransform(src_, src_bit_depth, dst_,
+                                        dst_bit_depth);
   if (intent != Intent::TEST_NO_OPT)
     Simplify();
 }
@@ -925,10 +1057,12 @@ void ColorTransformInternal::Simplify() {
 // static
 std::unique_ptr<ColorTransform> ColorTransform::NewColorTransform(
     const ColorSpace& src,
+    int src_bit_depth,
     const ColorSpace& dst,
+    int dst_bit_depth,
     Intent intent) {
-  return std::unique_ptr<ColorTransform>(
-      new ColorTransformInternal(src, dst, intent));
+  return std::make_unique<ColorTransformInternal>(src, src_bit_depth, dst,
+                                                  dst_bit_depth, intent);
 }
 
 ColorTransform::ColorTransform() {}

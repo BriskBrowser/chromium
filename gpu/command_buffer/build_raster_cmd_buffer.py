@@ -132,7 +132,7 @@ _NAMED_TYPE_INFO = {
       'viz::ResourceFormat::RGBX_8888',
       'viz::ResourceFormat::BGRX_8888',
       'viz::ResourceFormat::RGBA_1010102',
-      'viz::ResourceFormat::BGRX_1010102',
+      'viz::ResourceFormat::BGRA_1010102',
       'viz::ResourceFormat::YVU_420',
       'viz::ResourceFormat::YUV_420_BIPLANAR',
 
@@ -186,6 +186,30 @@ _FUNCTION_INFO = {
     'internal': True,
     'type': 'PUT',
     'count': 32,  # GL_MAILBOX_SIZE_CHROMIUM x2
+    'unit_test': False,
+    'trace_level': 2,
+  },
+  'WritePixelsINTERNAL': {
+    'decoder_func': 'DoWritePixelsINTERNAL',
+    'internal': True,
+    'type': 'PUT',
+    'count': 16,  # GL_MAILBOX_SIZE_CHROMIUM
+    'unit_test': False,
+    'trace_level': 2,
+  },
+  'ReadbackImagePixelsINTERNAL': {
+    'decoder_func': 'DoReadbackImagePixelsINTERNAL',
+    'internal': True,
+    'type': 'PUT',
+    'count': 16,  # GL_MAILBOX_SIZE_CHROMIUM
+    'unit_test': False,
+    'trace_level': 2,
+  },
+  'ConvertYUVMailboxesToRGBINTERNAL': {
+    'decoder_func': 'DoConvertYUVMailboxesToRGBINTERNAL',
+    'internal': True,
+    'type': 'PUT',
+    'count': 64, #GL_MAILBOX_SIZE_CHROMIUM x4
     'unit_test': False,
     'trace_level': 2,
   },

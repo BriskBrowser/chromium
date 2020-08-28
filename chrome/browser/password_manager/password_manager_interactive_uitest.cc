@@ -15,6 +15,7 @@
 #include "components/autofill/core/common/autofill_features.h"
 #include "components/password_manager/core/browser/password_form_manager.h"
 #include "components/password_manager/core/browser/test_password_store.h"
+#include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
 
 namespace password_manager {
@@ -47,7 +48,7 @@ IN_PROC_BROWSER_TEST_F(PasswordManagerInteractiveTest, UsernameChanged) {
               browser()->profile(), ServiceAccessType::IMPLICIT_ACCESS).get());
   autofill::PasswordForm signin_form;
   signin_form.signon_realm = embedded_test_server()->base_url().spec();
-  signin_form.origin = embedded_test_server()->base_url();
+  signin_form.url = embedded_test_server()->base_url();
   signin_form.username_value = base::ASCIIToUTF16("temp");
   signin_form.password_value = base::ASCIIToUTF16("random");
   password_store->AddLogin(signin_form);
@@ -157,7 +158,7 @@ IN_PROC_BROWSER_TEST_F(PasswordManagerInteractiveTest,
               .get());
   autofill::PasswordForm signin_form;
   signin_form.signon_realm = embedded_test_server()->base_url().spec();
-  signin_form.origin = embedded_test_server()->base_url();
+  signin_form.url = embedded_test_server()->base_url();
   signin_form.username_value = base::ASCIIToUTF16("temp");
   signin_form.password_value = base::ASCIIToUTF16("random");
   password_store->AddLogin(signin_form);

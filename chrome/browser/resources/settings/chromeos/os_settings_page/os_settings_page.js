@@ -9,28 +9,12 @@
 (function() {
 'use strict';
 
-const BROWSER_BANNER_INTERACTION_METRIC_NAME =
-    'ChromeOS.Settings.BrowserBannerInteraction';
-
-/**
- * These values are persisted to logs and should not be renumbered or re-used.
- * See tools/metrics/histograms/enums.xml.
- * @enum {number}
- */
-const CrosSettingsBrowserBannerInteraction = {
-  NotShown: 0,
-  Shown: 1,
-  Clicked: 2,
-  Closed: 3,
-};
-
 Polymer({
   is: 'os-settings-page',
 
   behaviors: [
     settings.MainPageBehavior,
     settings.RouteObserverBehavior,
-    PrefsBehavior,
     WebUIListenerBehavior,
   ],
 
@@ -43,11 +27,9 @@ Polymer({
 
     showAndroidApps: Boolean,
 
-    showAppManagement: Boolean,
-
-    showApps: Boolean,
-
     showCrostini: Boolean,
+
+    showPluginVm: Boolean,
 
     showReset: Boolean,
 
@@ -105,10 +87,14 @@ Polymer({
       computed: 'computeShowSecondaryUserBanner_(hasExpandedSection_)',
     },
 
-    showBrowserSettingsBanner_: {
+    /**
+     * Whether to show banner indicating the user to return this device as an
+     * update is required as per policy but the device has reached end of life.
+     * @private
+     */
+    showUpdateRequiredEolBanner_: {
       type: Boolean,
-      computed: 'computeShowBrowserSettingsBanner_(' +
-          'prefs.settings.cros.show_browser_banner.value, currentRoute_)',
+      value: !!loadTimeData.getString('updateRequiredEolBannerText'),
     },
 
     /** @private {!settings.Route|undefined} */
@@ -129,12 +115,9 @@ Polymer({
    */
   advancedTogglingInProgress_: false,
 
-  /** @private {boolean} */
-  browserBannerShowMetricRecorded_: false,
-
   /** @override */
-  attached() {
-    this.currentRoute_ = settings.getCurrentRoute();
+  attached: function() {
+    this.currentRoute_ = settings.Router.getInstance().getCurrentRoute();
 
     this.allowCrostini_ = loadTimeData.valueExists('allowCrostini') &&
         loadTimeData.getBoolean('allowCrostini');
@@ -228,34 +211,11 @@ Polymer({
   },
 
   /**
-   * @return {boolean|undefined}
+   * @return {boolean}
    * @private
    */
-  computeShowBrowserSettingsBanner_() {
-    // this.prefs is implicitly used by this.getPref() below, but may not be
-    // initialized yet.
-    if (!this.prefs || !this.currentRoute_) {
-      return;
-    }
-    const showPref = /** @type {boolean} */ (
-        this.getPref('settings.cros.show_browser_banner').value);
-
-    // Banner only shows on the main page because direct navigations to a
-    // sub-page (e.g. to the bluetooth section from the system tray) are
-    // unlikely to be due to a user looking for a browser setting.
-    const show = showPref && !this.currentRoute_.isSubpage();
-
-    // Record the show metric once. We can't record the metric in attached()
-    // because prefs might not be ready yet.
-    if (!this.browserBannerShowMetricRecorded_) {
-      chrome.metricsPrivate.recordEnumerationValue(
-          BROWSER_BANNER_INTERACTION_METRIC_NAME,
-          show ? CrosSettingsBrowserBannerInteraction.Shown :
-                 CrosSettingsBrowserBannerInteraction.NotShown,
-          Object.keys(CrosSettingsBrowserBannerInteraction).length);
-      this.browserBannerShowMetricRecorded_ = true;
-    }
-    return show;
+  computeShowUpdateRequiredEolBanner_() {
+    return !this.hasExpandedSection_ && this.showUpdateRequiredEolBanner_;
   },
 
   /**
@@ -267,36 +227,12 @@ Polymer({
   },
 
   /**
-   * Returns true in case Android apps settings should be shown. It is not
-   * shown in case we don't have the Play Store app and settings app is not
-   * yet available.
-   * @return {boolean}
+   * Hides the update required EOL banner. It is shown again when Settings is
+   * re-opened.
    * @private
    */
-  shouldShowAndroidAppsSection_() {
-    if (this.havePlayStoreApp ||
-        (this.androidAppsInfo && this.androidAppsInfo.settingsAppAvailable)) {
-      return true;
-    }
-    return false;
-  },
-
-  /** @private */
-  onBrowserSettingsClick_() {
-    // The label has a link that opens the page, so just record the metric.
-    chrome.metricsPrivate.recordEnumerationValue(
-        BROWSER_BANNER_INTERACTION_METRIC_NAME,
-        CrosSettingsBrowserBannerInteraction.Clicked,
-        Object.keys(CrosSettingsBrowserBannerInteraction).length);
-  },
-
-  /** @private */
-  onBrowserSettingsBannerClosed_() {
-    this.setPrefValue('settings.cros.show_browser_banner', false);
-    chrome.metricsPrivate.recordEnumerationValue(
-        BROWSER_BANNER_INTERACTION_METRIC_NAME,
-        CrosSettingsBrowserBannerInteraction.Closed,
-        Object.keys(CrosSettingsBrowserBannerInteraction).length);
+  onCloseEolBannerClicked_() {
+    this.showUpdateRequiredEolBanner_ = false;
   },
 
   /**

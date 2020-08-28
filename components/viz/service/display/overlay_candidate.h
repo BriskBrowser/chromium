@@ -10,7 +10,7 @@
 
 #include "base/containers/flat_map.h"
 #include "build/build_config.h"
-#include "components/viz/common/quads/render_pass.h"
+#include "components/viz/common/quads/aggregated_render_pass.h"
 #include "components/viz/common/resources/resource_id.h"
 #include "components/viz/service/viz_service_export.h"
 #include "gpu/command_buffer/common/mailbox.h"
@@ -29,7 +29,6 @@ namespace viz {
 class DisplayResourceProvider;
 class StreamVideoDrawQuad;
 class TextureDrawQuad;
-class TileDrawQuad;
 class VideoHoleDrawQuad;
 
 class VIZ_SERVICE_EXPORT OverlayCandidate {
@@ -56,7 +55,7 @@ class VIZ_SERVICE_EXPORT OverlayCandidate {
       const OverlayCandidate& candidate,
       QuadList::ConstIterator quad_list_begin,
       QuadList::ConstIterator quad_list_end,
-      const base::flat_map<RenderPassId, cc::FilterOperations*>&
+      const base::flat_map<AggregatedRenderPassId, cc::FilterOperations*>&
           render_pass_backdrop_filters);
 
   // Returns true if the |quad| cannot be displayed on the main plane. This is
@@ -129,9 +128,6 @@ class VIZ_SERVICE_EXPORT OverlayCandidate {
   static bool FromTextureQuad(DisplayResourceProvider* resource_provider,
                               const TextureDrawQuad* quad,
                               OverlayCandidate* candidate);
-  static bool FromTileQuad(DisplayResourceProvider* resource_provider,
-                           const TileDrawQuad* quad,
-                           OverlayCandidate* candidate);
   static bool FromStreamVideoQuad(DisplayResourceProvider* resource_provider,
                                   const StreamVideoDrawQuad* quad,
                                   OverlayCandidate* candidate);

@@ -17,9 +17,11 @@
 #include "components/autofill/core/browser/address_rewriter.h"
 #include "components/autofill/core/browser/autofill_data_util.h"
 #include "components/autofill/core/browser/autofill_metrics.h"
+#include "components/autofill/core/browser/data_model/autofill_structured_address_utils.h"
 #include "components/autofill/core/browser/geo/autofill_country.h"
 #include "components/autofill/core/browser/geo/state_names.h"
 #include "components/autofill/core/common/autofill_clock.h"
+#include "components/autofill/core/common/autofill_features.h"
 #include "third_party/libphonenumber/phonenumber_api.h"
 
 using base::UTF16ToUTF8;
@@ -186,28 +188,32 @@ int32_t NormalizingIterator::GetNextChar() {
   return iter_.get();
 }
 
+// Copies the address line information and structured tokens from |source| to
+// |target|.
+void CopyAddressLineInformationFromProfile(const AutofillProfile& source,
+                                           Address* target) {
+  ServerFieldTypeSet types_to_copy;
+  if (base::FeatureList::IsEnabled(
+          features::kAutofillAddressEnhancementVotes)) {
+    types_to_copy = {
+        ADDRESS_HOME_STREET_ADDRESS,        ADDRESS_HOME_STREET_NAME,
+        ADDRESS_HOME_DEPENDENT_STREET_NAME, ADDRESS_HOME_HOUSE_NUMBER,
+        ADDRESS_HOME_PREMISE_NAME,          ADDRESS_HOME_SUBPREMISE};
+  } else {
+    types_to_copy = {ADDRESS_HOME_STREET_ADDRESS};
+  }
+
+  for (const auto& type : types_to_copy)
+    target->SetRawInfo(type, source.GetRawInfo(type));
+}
+
 }  // namespace
 
 AutofillProfileComparator::AutofillProfileComparator(
     const base::StringPiece& app_locale)
-    : app_locale_(app_locale.data(), app_locale.size()) {
-  // Use ICU transliteration to remove diacritics and fold case.
-  // See http://userguide.icu-project.org/transforms/general
-  UErrorCode status = U_ZERO_ERROR;
-  std::unique_ptr<icu::Transliterator> transliterator(
-      icu::Transliterator::createInstance(
-          "NFD; [:Nonspacing Mark:] Remove; Lower; NFC", UTRANS_FORWARD,
-          status));
-  if (U_FAILURE(status) || transliterator == nullptr) {
-    // TODO(rogerm): Add a histogram to count how often this happens.
-    LOG(ERROR) << "Failed to create ICU Transliterator: "
-               << u_errorName(status);
-  }
+    : app_locale_(app_locale.data(), app_locale.size()) {}
 
-  transliterator_ = std::move(transliterator);
-}
-
-AutofillProfileComparator::~AutofillProfileComparator() {}
+AutofillProfileComparator::~AutofillProfileComparator() = default;
 
 bool AutofillProfileComparator::Compare(base::StringPiece16 text1,
                                         base::StringPiece16 text2,
@@ -219,22 +225,17 @@ bool AutofillProfileComparator::Compare(base::StringPiece16 text1,
   NormalizingIterator normalizing_iter1{text1, whitespace_spec};
   NormalizingIterator normalizing_iter2{text2, whitespace_spec};
 
+  BorrowedTransliterator transliterator;
   while (!normalizing_iter1.End() && !normalizing_iter2.End()) {
     icu::UnicodeString char1 =
         icu::UnicodeString(normalizing_iter1.GetNextChar());
     icu::UnicodeString char2 =
         icu::UnicodeString(normalizing_iter2.GetNextChar());
 
-    if (transliterator_ == nullptr) {
-      if (char1.toLower() != char2.toLower()) {
-        return false;
-      }
-    } else {
-      transliterator_->transliterate(char1);
-      transliterator_->transliterate(char2);
-      if (char1 != char2) {
-        return false;
-      }
+    transliterator.Transliterate(&char1);
+    transliterator.Transliterate(&char2);
+    if (char1 != char2) {
+      return false;
     }
     normalizing_iter1.Advance();
     normalizing_iter2.Advance();
@@ -298,12 +299,7 @@ base::string16 AutofillProfileComparator::NormalizeForComparison(
   if (previous_was_whitespace && !result.empty())
     result.resize(result.size() - 1);
 
-  if (transliterator_ == nullptr)
-    return result;
-
-  icu::UnicodeString value = icu::UnicodeString(result.data(), result.length());
-  transliterator_->transliterate(value);
-  return base::i18n::UnicodeStringToString16(value);
+  return RemoveDiacriticsAndConvertToLowerCase(result);
 }
 
 bool AutofillProfileComparator::AreMergeable(const AutofillProfile& p1,
@@ -347,9 +343,41 @@ bool AutofillProfileComparator::MergeNames(const AutofillProfile& p1,
   DCHECK(HaveMergeableNames(p1, p2));
 
   const AutofillType kFullName(NAME_FULL);
-  const base::string16& full_name_1 = p1.GetInfo(kFullName, app_locale_);
-  const base::string16& full_name_2 = p2.GetInfo(kFullName, app_locale_);
+  const base::string16 full_name_1 = p1.GetInfo(kFullName, app_locale_);
+  const base::string16 full_name_2 = p2.GetInfo(kFullName, app_locale_);
 
+  // At this state it is already determined that the two names are mergeable.
+  // This can mean of of the following things:
+  // * One name is empty. In this scenario the non-empty name is used.
+  // * The names are token equivalent: In this scenario a merge of the tree
+  // structure should be possible.
+  // * One name is a variant of the other. In this scenario, use the non-variant
+  // name. Note, p1 is the newer profile.
+  if (structured_address::StructuredNamesEnabled()) {
+    // First, set info to the original profile.
+    *name_info = p2.GetNameInfo();
+    // If the name of the |p1| is empty, just keep the state of p2.
+    if (HasOnlySkippableCharacters(full_name_1))
+      return true;
+    // Vice verse set name to the one of |p1| if |p2| has an empty name
+    if (HasOnlySkippableCharacters(full_name_2)) {
+      *name_info = p1.GetNameInfo();
+      return true;
+    }
+    // Try to apply a direct merging.
+    if (name_info->MergeStructuredName(p1.GetNameInfo()))
+      return true;
+    // If the name in |p2| is a variant of |p1| use the one in |p1|.
+    if (IsNameVariantOf(NormalizeForComparison(full_name_1),
+                        NormalizeForComparison(full_name_2))) {
+      *name_info = p1.GetNameInfo();
+      return true;
+    }
+    // The only left case is that |p1| is a variant of |p2|.
+    DCHECK(IsNameVariantOf(NormalizeForComparison(full_name_2),
+                           NormalizeForComparison(full_name_1)));
+    return true;
+  }
   const base::string16* best_name = nullptr;
   if (HasOnlySkippableCharacters(full_name_1)) {
     // p1 has no name, so use the name from p2.
@@ -782,17 +810,17 @@ bool AutofillProfileComparator::MergeAddresses(const AutofillProfile& p1,
   const base::string16& address2 = p2.GetInfo(kStreetAddress, app_locale_);
   // If one of the addresses is empty then use the other.
   if (address1.empty()) {
-    address->SetInfo(kStreetAddress, address2, app_locale_);
+    CopyAddressLineInformationFromProfile(p2, address);
   } else if (address2.empty()) {
-    address->SetInfo(kStreetAddress, address1, app_locale_);
+    CopyAddressLineInformationFromProfile(p1, address);
   } else {
     // Prefer the multi-line address if one is multi-line and the other isn't.
     bool address1_multiline = ContainsNewline(address1);
     bool address2_multiline = ContainsNewline(address2);
     if (address1_multiline && !address2_multiline) {
-      address->SetInfo(kStreetAddress, address1, app_locale_);
+      CopyAddressLineInformationFromProfile(p1, address);
     } else if (address2_multiline && !address1_multiline) {
-      address->SetInfo(kStreetAddress, address2, app_locale_);
+      CopyAddressLineInformationFromProfile(p2, address);
     } else {
       // Prefer the one with more tokens if they're both single-line or both
       // multi-line addresses, making sure to apply address normalization and
@@ -803,19 +831,20 @@ bool AutofillProfileComparator::MergeAddresses(const AutofillProfile& p1,
       switch (result) {
         case SAME_TOKENS:
           // They have the same set of unique tokens. Let's pick the one that's
-          // longer.
-          address->SetInfo(
-              kStreetAddress,
-              (p2.use_date() > p1.use_date() ? address2 : address1),
-              app_locale_);
+          // newer.
+          if (p2.use_date() > p1.use_date()) {
+            CopyAddressLineInformationFromProfile(p2, address);
+          } else {
+            CopyAddressLineInformationFromProfile(p1, address);
+          }
           break;
         case S1_CONTAINS_S2:
           // address1 has more unique tokens than address2.
-          address->SetInfo(kStreetAddress, address1, app_locale_);
+          CopyAddressLineInformationFromProfile(p1, address);
           break;
         case S2_CONTAINS_S1:
           // address2 has more unique tokens than address1.
-          address->SetInfo(kStreetAddress, address2, app_locale_);
+          CopyAddressLineInformationFromProfile(p2, address);
           break;
         case DIFFERENT_TOKENS:
         default:
@@ -833,10 +862,16 @@ bool AutofillProfileComparator::MergeAddresses(const AutofillProfile& p1,
 // static
 std::string AutofillProfileComparator::MergeProfile(
     const AutofillProfile& new_profile,
-    std::vector<std::unique_ptr<AutofillProfile>>* existing_profiles,
+    const std::vector<std::unique_ptr<AutofillProfile>>& existing_profiles,
     const std::string& app_locale,
     std::vector<AutofillProfile>* merged_profiles) {
   merged_profiles->clear();
+
+  // Create copies of |existing_profiles| that can be modified
+  std::vector<AutofillProfile> existing_profile_copies;
+  existing_profile_copies.reserve(existing_profiles.size());
+  for (const auto& profile : existing_profiles)
+    existing_profile_copies.push_back(*profile.get());
 
   // Sort the existing profiles in decreasing order of frecency, so the "best"
   // profiles are checked first. Put the verified profiles last so the non
@@ -844,15 +879,16 @@ std::string AutofillProfileComparator::MergeProfile(
   // profiles.
   // TODO(crbug.com/620521): Remove the check for verified from the sort.
   base::Time comparison_time = AutofillClock::Now();
-  std::sort(existing_profiles->begin(), existing_profiles->end(),
-            [comparison_time](const std::unique_ptr<AutofillProfile>& a,
-                              const std::unique_ptr<AutofillProfile>& b) {
-              if (a->IsVerified() != b->IsVerified())
-                return !a->IsVerified();
-              return a->HasGreaterFrecencyThan(b.get(), comparison_time);
-            });
+  std::sort(
+      existing_profile_copies.begin(), existing_profile_copies.end(),
+      [comparison_time](const AutofillProfile& a, const AutofillProfile& b) {
+        if (a.IsVerified() != b.IsVerified())
+          return !a.IsVerified();
+        return a.HasGreaterFrecencyThan(&b, comparison_time);
+      });
 
-  // Set to true if |existing_profiles| already contains an equivalent profile.
+  // Set to true if |existing_profile_copies| already contains an equivalent
+  // profile.
   bool matching_profile_found = false;
   std::string guid = new_profile.guid();
 
@@ -860,25 +896,25 @@ std::string AutofillProfileComparator::MergeProfile(
   // Only merge with the first match. Merging the new profile into the existing
   // one preserves the validity of credit card's billing address reference.
   AutofillProfileComparator comparator(app_locale);
-  for (const auto& existing_profile : *existing_profiles) {
+  for (auto& existing_profile : existing_profile_copies) {
     if (!matching_profile_found &&
-        comparator.AreMergeable(new_profile, *existing_profile) &&
-        existing_profile->SaveAdditionalInfo(new_profile, app_locale)) {
+        comparator.AreMergeable(new_profile, existing_profile) &&
+        existing_profile.SaveAdditionalInfo(new_profile, app_locale)) {
       // Unverified profiles should always be updated with the newer data,
       // whereas verified profiles should only ever be overwritten by verified
       // data.  If an automatically aggregated profile would overwrite a
       // verified profile, just drop it.
       matching_profile_found = true;
-      guid = existing_profile->guid();
+      guid = existing_profile.guid();
 
       // We set the modification date so that immediate requests for profiles
       // will properly reflect the fact that this profile has been modified
       // recently. After writing to the database and refreshing the local copies
       // the profile will have a very slightly newer time reflecting what's
       // actually stored in the database.
-      existing_profile->set_modification_date(AutofillClock::Now());
+      existing_profile.set_modification_date(AutofillClock::Now());
     }
-    merged_profiles->push_back(*existing_profile);
+    merged_profiles->push_back(existing_profile);
   }
 
   // If the new profile was not merged with an existing one, add it to the list.
@@ -991,12 +1027,19 @@ bool AutofillProfileComparator::HaveMergeableNames(
     return true;
   }
 
+  // If the two names are just a permutation of each other, they are mergeable
+  // for structured names.
+  if (structured_address::StructuredNamesEnabled() &&
+      structured_address::AreStringTokenEquivalent(full_name_1, full_name_2))
+    return true;
+
   base::string16 canon_full_name_1 = NormalizeForComparison(full_name_1);
   base::string16 canon_full_name_2 = NormalizeForComparison(full_name_2);
 
   // Is it reasonable to merge the names from p1 and p2.
-  return IsNameVariantOf(canon_full_name_1, canon_full_name_2) ||
-         IsNameVariantOf(canon_full_name_2, canon_full_name_1);
+  bool result = IsNameVariantOf(canon_full_name_1, canon_full_name_2) ||
+                IsNameVariantOf(canon_full_name_2, canon_full_name_1);
+  return result;
 }
 
 bool AutofillProfileComparator::HaveMergeableEmailAddresses(

@@ -10,6 +10,7 @@
 #include <utility>
 
 #include "base/command_line.h"
+#include "base/files/file.h"
 #include "base/files/file_util.h"
 #include "base/files/memory_mapped_file.h"
 #include "base/logging.h"
@@ -41,8 +42,11 @@ static const size_t kHeaderLengthV5 =
 // We're crashing when trying to load a pak file on Windows.  Add some error
 // codes for logging.
 // http://crbug.com/58056
+// These values are logged to UMA. Entries should not be renumbered and
+// numeric values should never be reused. Keep in sync with "DataPackLoadErrors"
+// in src/tools/metrics/histograms/enums.xml.
 enum LoadErrors {
-  INIT_FAILED = 1,
+  INIT_FAILED_OBSOLETE = 1,
   BAD_VERSION,
   INDEX_TRUNCATED,
   ENTRY_NOT_FOUND,
@@ -50,6 +54,8 @@ enum LoadErrors {
   WRONG_ENCODING,
   INIT_FAILED_FROM_FILE,
   UNZIP_FAILED,
+  OPEN_FAILED,
+  MAP_FAILED,
 
   LOAD_ERRORS_COUNT,
 };
@@ -274,9 +280,20 @@ DataPack::~DataPack() {
 bool DataPack::LoadFromPath(const base::FilePath& path) {
   std::unique_ptr<base::MemoryMappedFile> mmap =
       std::make_unique<base::MemoryMappedFile>();
-  if (!mmap->Initialize(path)) {
+  // Open the file for reading; allowing other consumers to also open it for
+  // reading and deleting. Do not allow others to write to it.
+  base::File data_file(path, base::File::FLAG_OPEN | base::File::FLAG_READ |
+                                 base::File::FLAG_EXCLUSIVE_WRITE |
+                                 base::File::FLAG_SHARE_DELETE);
+  if (!data_file.IsValid()) {
+    DLOG(ERROR) << "Failed to open datapack with base::File::Error "
+                << data_file.error_details();
+    LogDataPackError(OPEN_FAILED);
+    return false;
+  }
+  if (!mmap->Initialize(std::move(data_file))) {
     DLOG(ERROR) << "Failed to mmap datapack";
-    LogDataPackError(INIT_FAILED);
+    LogDataPackError(MAP_FAILED);
     return false;
   }
   if (MmapHasGzipHeader(mmap.get())) {
@@ -447,9 +464,9 @@ bool DataPack::GetStringPiece(uint16_t resource_id,
 
   MaybePrintResourceId(resource_id);
   size_t length = next_entry->file_offset - target->file_offset;
-  data->set(reinterpret_cast<const char*>(data_source_->GetData() +
-                                          target->file_offset),
-            length);
+  *data = base::StringPiece(reinterpret_cast<const char*>(
+                                data_source_->GetData() + target->file_offset),
+                            length);
   return true;
 }
 
@@ -567,7 +584,7 @@ bool DataPack::WritePack(const base::FilePath& path,
 
   // Write the aliases table, if any. Note: |aliases| is an std::map,
   // ensuring values are written in increasing order.
-  for (const std::pair<uint16_t, uint16_t>& alias : aliases) {
+  for (const std::pair<const uint16_t, uint16_t>& alias : aliases) {
     file.Write(&alias, sizeof(alias));
   }
 

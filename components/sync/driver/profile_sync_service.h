@@ -23,7 +23,6 @@
 #include "components/signin/public/identity_manager/identity_manager.h"
 #include "components/sync/base/model_type.h"
 #include "components/sync/base/sync_prefs.h"
-#include "components/sync/base/unrecoverable_error_handler.h"
 #include "components/sync/driver/data_type_controller.h"
 #include "components/sync/driver/data_type_manager.h"
 #include "components/sync/driver/data_type_manager_observer.h"
@@ -60,7 +59,6 @@ class TypeDebugInfoObserver;
 struct CommitCounters;
 struct StatusCounters;
 struct UpdateCounters;
-struct UserShare;
 
 // Look at the SyncService interface for information on how to use this class.
 // You should not need to know about ProfileSyncService directly.
@@ -68,7 +66,6 @@ class ProfileSyncService : public SyncService,
                            public SyncEngineHost,
                            public SyncPrefObserver,
                            public DataTypeManagerObserver,
-                           public UnrecoverableErrorHandler,
                            public signin::IdentityManager::Observer {
  public:
   // If AUTO_START, sync will set IsFirstSetupComplete() automatically and sync
@@ -88,9 +85,10 @@ class ProfileSyncService : public SyncService,
     ~InitParams();
 
     std::unique_ptr<SyncClient> sync_client;
+    // TODO(treib): Remove this and instead retrieve it via
+    // SyncClient::GetIdentityManager (but mind LocalSync).
     signin::IdentityManager* identity_manager = nullptr;
-    std::vector<invalidation::IdentityProvider*>
-        invalidations_identity_providers;
+    invalidation::IdentityProvider* invalidations_identity_provider = nullptr;
     StartBehavior start_behavior = MANUAL_START;
     NetworkTimeUpdateCallback network_time_update_callback;
     scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory;
@@ -126,12 +124,11 @@ class ProfileSyncService : public SyncService,
   bool RequiresClientUpgrade() const override;
   std::unique_ptr<SyncSetupInProgressHandle> GetSetupInProgressHandle()
       override;
-  std::unique_ptr<crypto::ECPrivateKey> GetExperimentalAuthenticationKey()
-      const override;
   bool IsSetupInProgress() const override;
   ModelTypeSet GetRegisteredDataTypes() const override;
   ModelTypeSet GetPreferredDataTypes() const override;
   ModelTypeSet GetActiveDataTypes() const override;
+  ModelTypeSet GetBackedOffDataTypes() const override;
   void StopAndClear() override;
   void OnDataTypeRequestsSyncStartup(ModelType type) override;
   void TriggerRefresh(const ModelTypeSet& types) override;
@@ -146,7 +143,6 @@ class ProfileSyncService : public SyncService,
   void AddObserver(SyncServiceObserver* observer) override;
   void RemoveObserver(SyncServiceObserver* observer) override;
   bool HasObserver(const SyncServiceObserver* observer) const override;
-  UserShare* GetUserShare() const override;
   SyncTokenStatus GetSyncTokenStatusForDebugging() const override;
   bool QueryDetailedSyncStatusForDebugging(SyncStatus* result) const override;
   base::Time GetLastSyncedTimeForDebugging() const override;
@@ -169,13 +165,10 @@ class ProfileSyncService : public SyncService,
       ModelTypeSet initial_types,
       const WeakHandle<JsBackend>& js_backend,
       const WeakHandle<DataTypeDebugInfoListener>& debug_info_listener,
-      const std::string& cache_guid,
       const std::string& birthday,
       const std::string& bag_of_chips,
-      const std::string& last_keystore_key,
       bool success) override;
-  void OnSyncCycleCompleted(const SyncCycleSnapshot& snapshot,
-                            const std::string& last_keystore_key) override;
+  void OnSyncCycleCompleted(const SyncCycleSnapshot& snapshot) override;
   void OnProtocolEvent(const ProtocolEvent& event) override;
   void OnDirectoryTypeCommitCounterUpdated(
       ModelType type,
@@ -188,6 +181,7 @@ class ProfileSyncService : public SyncService,
   void OnConnectionStatusChange(ConnectionStatus status) override;
   void OnMigrationNeededForTypes(ModelTypeSet types) override;
   void OnActionableError(const SyncProtocolError& error) override;
+  void OnBackedOffTypesChanged() override;
 
   // DataTypeManagerObserver implementation.
   void OnConfigureDone(const DataTypeManager::ConfigureResult& result) override;
@@ -197,6 +191,7 @@ class ProfileSyncService : public SyncService,
   void OnAccountsInCookieUpdated(
       const signin::AccountsInCookieJarInfo& accounts_in_cookie_jar_info,
       const GoogleServiceAuthError& error) override;
+  void OnAccountsCookieDeletedByUserAction() override;
 
   // Similar to above but with a callback that will be invoked on completion.
   void OnAccountsInCookieUpdatedWithCallback(
@@ -208,10 +203,6 @@ class ProfileSyncService : public SyncService,
   bool HasCookieJarMismatch(
       const std::vector<gaia::ListedAccount>& cookie_jar_accounts);
 
-  // UnrecoverableErrorHandler implementation.
-  void OnUnrecoverableError(const base::Location& from_here,
-                            const std::string& message) override;
-
   // SyncPrefObserver implementation.
   void OnSyncManagedPrefChange(bool is_sync_managed) override;
   void OnFirstSetupCompletePrefChange(bool is_first_setup_complete) override;
@@ -221,11 +212,6 @@ class ProfileSyncService : public SyncService,
   // KeyedService implementation.  This must be called exactly
   // once (before this object is destroyed).
   void Shutdown() override;
-
-  // This triggers a Directory::SaveChanges() call on the sync thread.
-  // It should be used to persist data to disk when the process might be
-  // killed in the near future.
-  void FlushDirectory() const;
 
   bool IsPassphrasePrompted() const;
   void SetPassphrasePrompted(bool prompted);
@@ -244,9 +230,6 @@ class ProfileSyncService : public SyncService,
   // Used by tests to inspect the OAuth2 access tokens used by PSS.
   std::string GetAccessTokenForTest() const;
 
-  // Returns true if the syncer is waiting for new datatypes to be encrypted.
-  bool IsEncryptionPendingForTest() const;
-
   // Overrides the callback used to create network connections.
   // TODO(crbug.com/949504): Inject this in the ctor instead. As it is, it's
   // possible that the real callback was already used before the test had a
@@ -256,22 +239,17 @@ class ProfileSyncService : public SyncService,
 
   bool IsDataTypeControllerRunningForTest(ModelType type) const;
 
-  // Sometimes we need to wait for tasks on the |backend_task_runner_| in tests.
-  void FlushBackendTaskRunnerForTest() const;
-
   // Some tests rely on injecting calls to the encryption observer.
   SyncEncryptionHandler::Observer* GetEncryptionObserverForTest();
 
   SyncClient* GetSyncClientForTest();
 
-  // Combines GAIA ID, sync birthday and keystore key with '|' sepearator to
-  // generate a secret. Returns empty string if keystore key is not available.
-  std::string GetExperimentalAuthenticationSecretForTest() const;
+  static std::string GenerateCacheGUIDForTest();
 
  private:
   // Passed as an argument to StopImpl to control whether or not the sync
-  // engine should clear its data directory when it shuts down. See StopImpl
-  // for more information.
+  // engine should clear its data when it shuts down. See StopImpl for more
+  // information.
   enum SyncStopDataFate {
     KEEP_DATA,
     CLEAR_DATA,
@@ -290,8 +268,6 @@ class ProfileSyncService : public SyncService,
   // Virtual for testing.
   virtual WeakHandle<JsEventHandler> GetJsEventHandler();
 
-  WeakHandle<UnrecoverableErrorHandler> GetUnrecoverableErrorHandler();
-
   // Callbacks for SyncAuthManager.
   void AccountStateChanged();
   void CredentialsChanged();
@@ -299,7 +275,11 @@ class ProfileSyncService : public SyncService,
   // Callbacks for SyncUserSettingsImpl.
   void SyncAllowedByPlatformChanged(bool allowed);
 
-  bool IsEngineAllowedToStart() const;
+  bool IsEngineAllowedToRun() const;
+
+  // Same as GetTransportState() returning PAUSED. In this state, the engine
+  // shouldn't run.
+  bool IsInPausedState() const;
 
   // Reconfigures the data type manager with the latest enabled types.
   // Note: Does not initialize the engine if it is not already initialized.
@@ -344,10 +324,6 @@ class ProfileSyncService : public SyncService,
 
   void ClearUnrecoverableError();
 
-  // Initializes |backend_task_runner_| which is backed by |sync_thread_| or the
-  // ThreadPool depending on the ProfileSyncServiceUsesThreadPool experiment.
-  void InitializeBackendTaskRunnerIfNeeded();
-
   // Kicks off asynchronous initialization of the SyncEngine.
   void StartUpSlowEngineComponents();
 
@@ -372,6 +348,9 @@ class ProfileSyncService : public SyncService,
   // Called by SyncServiceCrypto when a passphrase is required or accepted.
   void ReconfigureDueToPassphrase(ConfigureReason reason);
 
+  // Called by SyncServiceCrypto when its required user action changes.
+  void OnRequiredUserActionChanged();
+
   std::string GetExperimentalAuthenticationSecret() const;
 
   // This profile's SyncClient, which abstracts away non-Sync dependencies and
@@ -383,6 +362,7 @@ class ProfileSyncService : public SyncService,
 
   // Encapsulates user signin - used to set/get the user's authenticated
   // email address and sign-out upon error.
+  // May be null (if local Sync is enabled).
   signin::IdentityManager* const identity_manager_;
 
   // The user-configurable knobs. Non-null between Initialize() and Shutdown().
@@ -405,11 +385,6 @@ class ProfileSyncService : public SyncService,
 
   // A utility object containing logic and state relating to encryption.
   SyncServiceCrypto crypto_;
-
-  // Owns the sync thread and takes care of its destruction.
-  // TODO(https://crbug.com/1014464): Remove once we have switched to
-  // Threadpool.
-  base::OnceClosure sync_thread_stopper_;
 
   // TODO(crbug.com/923287): Move out of this class. Possibly to SyncEngineImpl.
   scoped_refptr<base::SequencedTaskRunner> backend_task_runner_;
@@ -438,11 +413,6 @@ class ProfileSyncService : public SyncService,
   // This is set to true if last synced time is not set at the time of
   // OnEngineInitialized().
   bool is_first_time_sync_configure_;
-
-  // Last known keystore key, populated after engine initialization.
-  // TODO(crbug.com/1012226): Remove |last_keystore_key_| when VAPID migration
-  // is over.
-  std::string last_keystore_key_;
 
   // Number of UIs currently configuring the Sync service. When this number
   // is decremented back to zero, Sync setup is marked no longer in progress.
@@ -484,11 +454,11 @@ class ProfileSyncService : public SyncService,
   // or must delay loading for some reason).
   DataTypeStatusTable::TypeErrorMap data_type_error_map_;
 
-  // This providers tells the invalidations code which identity to register for.
+  // This provider tells the invalidations code which identity to register for.
   // The account that it registers for should be the same as the currently
   // syncing account, so we'll need to update this whenever the account changes.
-  std::vector<invalidation::IdentityProvider*> const
-      invalidations_identity_providers_;
+  // May be null (if local Sync is enabled).
+  invalidation::IdentityProvider* const invalidations_identity_provider_;
 
   // List of available data type controllers.
   DataTypeController::TypeMap data_type_controllers_;
@@ -509,6 +479,11 @@ class ProfileSyncService : public SyncService,
   // Used by StopAndClear() to remember that clearing of data is needed (as
   // sync is stopped after a callback from |user_settings_|).
   bool is_stopping_and_clearing_;
+
+  // Used for UMA to determine whether TrustedVaultErrorShownOnStartup
+  // histogram needs to recorded. Set to false iff histogram was already
+  // recorded or trusted vault passphrase type wasn't used on startup.
+  bool should_record_trusted_vault_error_shown_on_startup_;
 
   // This weak factory invalidates its issued pointers when Sync is disabled.
   base::WeakPtrFactory<ProfileSyncService> sync_enabled_weak_factory_{this};

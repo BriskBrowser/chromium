@@ -46,6 +46,7 @@ const char kIPConfigs[] = "IPConfigs";
 const char kIPConfigTypeDHCP[] = "DHCP";
 const char kIPConfigTypeStatic[] = "Static";
 const char kMacAddress[] = "MacAddress";
+const char kMetered[] = "Metered";
 const char kNameServersConfigType[] = "NameServersConfigType";
 const char kName[] = "Name";
 const char kPriority[] = "Priority";
@@ -222,7 +223,6 @@ const char kBSSID[] = "BSSID";
 const char kEAP[] = "EAP";
 const char kFrequency[] = "Frequency";
 const char kFrequencyList[] = "FrequencyList";
-const char kFTEnabled[] = "FTEnabled";
 const char kHexSSID[] = "HexSSID";
 const char kHiddenSSID[] = "HiddenSSID";
 const char kPassphrase[] = "Passphrase";
@@ -379,6 +379,7 @@ const char kAuth[] = "Auth";
 const char kCipher[] = "Cipher";
 const char kCompLZO[] = "CompLZO";
 const char kCompNoAdapt[] = "CompNoAdapt";
+const char kCompressionAlgorithm[] = "CompressionAlgorithm";
 const char kExtraHosts[] = "ExtraHosts";
 const char kIgnoreDefaultRoute[] = "IgnoreDefaultRoute";
 const char kInteract[] = "interact";
@@ -412,6 +413,14 @@ const char kVerb[] = "Verb";
 const char kVerifyHash[] = "VerifyHash";
 const char kVerifyX509[] = "VerifyX509";
 }  // namespace openvpn
+
+namespace openvpn_compression_algorithm {
+const char kFramingOnly[] = "FramingOnly";
+const char kLz4[] = "LZ4";
+const char kLz4V2[] = "LZ4-V2";
+const char kLzo[] = "LZO";
+const char kNone[] = "None";
+}  // namespace openvpn_compression_algorithm
 
 namespace openvpn_user_auth_type {
 const char kNone[] = "None";
@@ -479,7 +488,8 @@ const char kAllowOnlyPolicyNetworksToConnect[] =
     "AllowOnlyPolicyNetworksToConnect";
 const char kAllowOnlyPolicyNetworksToConnectIfAvailable[] =
     "AllowOnlyPolicyNetworksToConnectIfAvailable";
-const char kBlacklistedHexSSIDs[] = "BlacklistedHexSSIDs";
+const char kBlacklistedHexSSIDs[] = "BlacklistedHexSSIDs";  // Deprecated
+const char kBlockedHexSSIDs[] = "BlockedHexSSIDs";
 const char kDisableNetworkTypes[] = "DisableNetworkTypes";
 }  // global_network_config
 

@@ -14,18 +14,14 @@
 #include "base/strings/string16.h"
 #include "build/build_config.h"
 #include "chrome/browser/profiles/profile_manager.h"
-#include "chrome/common/safe_browsing/download_file_types.pb.h"
 #include "components/download/public/common/download_item.h"
 #include "components/offline_items_collection/core/offline_item.h"
 #include "components/safe_browsing/buildflags.h"
+#include "components/safe_browsing/core/proto/download_file_types.pb.h"
 
 #if !defined(OS_ANDROID)
 #include "chrome/browser/download/download_commands.h"
 #endif
-
-namespace gfx {
-class FontList;
-}
 
 using offline_items_collection::ContentId;
 
@@ -76,18 +72,13 @@ class DownloadUIModel {
   // example:
   //    Report.pdf
   //    Network disconnected
-  // |font_list| and |max_width| are used to elide the filename and/or interrupt
-  // reason as necessary to keep the width of the tooltip text under
-  // |max_width|. The tooltip will be at most 2 lines.
-  base::string16 GetTooltipText(const gfx::FontList& font_list,
-                                int max_width) const;
+  base::string16 GetTooltipText() const;
 
-  // Get the warning text to display for a dangerous download. The |base_width|
-  // is the maximum width of an embedded filename (if there is one). The metrics
-  // for the filename will be based on |font_list|. Should only be called if
-  // IsDangerous() is true.
-  base::string16 GetWarningText(const gfx::FontList& font_list,
-                                int base_width) const;
+  // Get the warning text to display for a dangerous download. |filename| is the
+  // (possibly-elided) filename; if it is present in the resulting string,
+  // |offset| will be set to the starting position of the filename.
+  base::string16 GetWarningText(const base::string16& filename,
+                                size_t* offset) const;
 
   // Get the caption text for a button for confirming a dangerous download
   // warning.
@@ -122,6 +113,10 @@ class DownloadUIModel {
   // Is this considered a malicious download with very high confidence?
   // Implies IsDangerous() and MightBeMalicious().
   virtual bool IsMalicious() const;
+
+  // Is this download a mixed content download, but not something more severe?
+  // Implies IsDangerous() and !IsMalicious().
+  virtual bool IsMixedContent() const;
 
   // Is safe browsing download feedback feature available for this download?
   virtual bool ShouldAllowDownloadFeedback() const;
@@ -182,6 +177,11 @@ class DownloadUIModel {
   virtual void SetDangerLevel(
       safe_browsing::DownloadFileType::DangerLevel danger_level);
 
+  // Return the mixed content status determined during download target
+  // determination.
+  virtual download::DownloadItem::MixedContentStatus GetMixedContentStatus()
+      const;
+
   // Open the download using the platform handler for the download. The behavior
   // of this method will be different from DownloadItem::OpenDownload() if
   // ShouldPreferOpeningInBrowser().
@@ -219,6 +219,9 @@ class DownloadUIModel {
 
   // Returns true if the download will be auto-opened when complete.
   virtual bool GetOpenWhenComplete() const;
+
+  // Returns true if the download will be auto-opened when complete by policy.
+  virtual bool IsOpenWhenCompleteByPolicy() const;
 
   // Simple calculation of the amount of time remaining to completion. Fills
   // |*remaining| with the amount of time remaining if successful. Fails and
@@ -305,6 +308,9 @@ class DownloadUIModel {
   // Complete the Safe Browsing scan early.
   virtual void CompleteSafeBrowsingScan();
 #endif
+
+  // Whether the dropdown menu button should be shown or not.
+  virtual bool ShouldShowDropdown() const;
 
  protected:
   // Returns the MIME type of the download.

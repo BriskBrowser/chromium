@@ -20,22 +20,17 @@ namespace secure_channel {
 SecureChannel::Factory* SecureChannel::Factory::factory_instance_ = nullptr;
 
 // static
-std::unique_ptr<SecureChannel> SecureChannel::Factory::NewInstance(
+std::unique_ptr<SecureChannel> SecureChannel::Factory::Create(
     std::unique_ptr<Connection> connection) {
-  if (!factory_instance_) {
-    factory_instance_ = new Factory();
-  }
-  return factory_instance_->BuildInstance(std::move(connection));
+  if (factory_instance_)
+    return factory_instance_->CreateInstance(std::move(connection));
+
+  return base::WrapUnique(new SecureChannel(std::move(connection)));
 }
 
 // static
-void SecureChannel::Factory::SetInstanceForTesting(Factory* factory) {
+void SecureChannel::Factory::SetFactoryForTesting(Factory* factory) {
   factory_instance_ = factory;
-}
-
-std::unique_ptr<SecureChannel> SecureChannel::Factory::BuildInstance(
-    std::unique_ptr<Connection> connection) {
-  return base::WrapUnique(new SecureChannel(std::move(connection)));
 }
 
 // static
@@ -172,8 +167,8 @@ void SecureChannel::OnMessageReceived(const Connection& connection,
 
   secure_context_->Decode(
       wire_message.payload(),
-      base::Bind(&SecureChannel::OnMessageDecoded,
-                 weak_ptr_factory_.GetWeakPtr(), wire_message.feature()));
+      base::BindOnce(&SecureChannel::OnMessageDecoded,
+                     weak_ptr_factory_.GetWeakPtr(), wire_message.feature()));
 }
 
 void SecureChannel::OnSendCompleted(const Connection& connection,
@@ -245,10 +240,10 @@ void SecureChannel::Authenticate() {
   DCHECK(status_ == Status::CONNECTED);
   DCHECK(!authenticator_);
 
-  authenticator_ = DeviceToDeviceAuthenticator::Factory::NewInstance(
+  authenticator_ = DeviceToDeviceAuthenticator::Factory::Create(
       connection_.get(),
-      multidevice::SecureMessageDelegateImpl::Factory::NewInstance());
-  authenticator_->Authenticate(base::Bind(
+      multidevice::SecureMessageDelegateImpl::Factory::Create());
+  authenticator_->Authenticate(base::BindOnce(
       &SecureChannel::OnAuthenticationResult, weak_ptr_factory_.GetWeakPtr()));
 
   TransitionToStatus(Status::AUTHENTICATING);
@@ -272,9 +267,9 @@ void SecureChannel::ProcessMessageQueue() {
 
   secure_context_->Encode(
       pending_message_->payload,
-      base::Bind(&SecureChannel::OnMessageEncoded,
-                 weak_ptr_factory_.GetWeakPtr(), pending_message_->feature,
-                 pending_message_->sequence_number));
+      base::BindOnce(&SecureChannel::OnMessageEncoded,
+                     weak_ptr_factory_.GetWeakPtr(), pending_message_->feature,
+                     pending_message_->sequence_number));
 }
 
 void SecureChannel::OnMessageEncoded(const std::string& feature,

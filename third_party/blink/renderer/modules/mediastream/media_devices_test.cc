@@ -14,8 +14,8 @@
 #include "third_party/blink/renderer/bindings/core/v8/script_function.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_binding_for_testing.h"
+#include "third_party/blink/renderer/bindings/modules/v8/v8_media_stream_constraints.h"
 #include "third_party/blink/renderer/core/testing/null_execution_context.h"
-#include "third_party/blink/renderer/modules/mediastream/media_stream_constraints.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
 #include "third_party/blink/renderer/platform/testing/testing_platform_support.h"
 #include "third_party/blink/renderer/platform/wtf/functional.h"
@@ -43,49 +43,45 @@ class MockMediaDevicesDispatcherHost
                         bool request_video_input_capabilities,
                         bool request_audio_input_capabilities,
                         EnumerateDevicesCallback callback) override {
-    Vector<Vector<MediaDeviceInfoPtr>> enumeration(static_cast<size_t>(
+    Vector<Vector<WebMediaDeviceInfo>> enumeration(static_cast<size_t>(
         blink::mojom::blink::MediaDeviceType::NUM_MEDIA_DEVICE_TYPES));
     Vector<mojom::blink::VideoInputDeviceCapabilitiesPtr>
         video_input_capabilities;
     Vector<mojom::blink::AudioInputDeviceCapabilitiesPtr>
         audio_input_capabilities;
-    MediaDeviceInfoPtr device_info;
+    WebMediaDeviceInfo device_info;
     if (request_audio_input) {
-      device_info = mojom::blink::MediaDeviceInfo::New();
-      device_info->device_id = kFakeAudioInputDeviceId1;
-      device_info->label = "Fake Audio Input 1";
-      device_info->group_id = kFakeCommonGroupId1;
+      device_info.device_id = kFakeAudioInputDeviceId1;
+      device_info.label = "Fake Audio Input 1";
+      device_info.group_id = kFakeCommonGroupId1;
       enumeration[static_cast<size_t>(
                       blink::mojom::blink::MediaDeviceType::MEDIA_AUDIO_INPUT)]
-          .push_back(std::move(device_info));
+          .push_back(device_info);
 
-      device_info = mojom::blink::MediaDeviceInfo::New();
-      device_info->device_id = kFakeAudioInputDeviceId2;
-      device_info->label = "Fake Audio Input 2";
-      device_info->group_id = "fake_group 2";
+      device_info.device_id = kFakeAudioInputDeviceId2;
+      device_info.label = "Fake Audio Input 2";
+      device_info.group_id = "fake_group 2";
       enumeration[static_cast<size_t>(
                       blink::mojom::blink::MediaDeviceType::MEDIA_AUDIO_INPUT)]
-          .push_back(std::move(device_info));
+          .push_back(device_info);
 
       // TODO(crbug.com/935960): add missing mocked capabilities and related
       // tests when media::AudioParameters is visible in this context.
     }
     if (request_video_input) {
-      device_info = mojom::blink::MediaDeviceInfo::New();
-      device_info->device_id = kFakeVideoInputDeviceId1;
-      device_info->label = "Fake Video Input 1";
-      device_info->group_id = kFakeCommonGroupId1;
+      device_info.device_id = kFakeVideoInputDeviceId1;
+      device_info.label = "Fake Video Input 1";
+      device_info.group_id = kFakeCommonGroupId1;
       enumeration[static_cast<size_t>(
                       blink::mojom::blink::MediaDeviceType::MEDIA_VIDEO_INPUT)]
-          .push_back(std::move(device_info));
+          .push_back(device_info);
 
-      device_info = mojom::blink::MediaDeviceInfo::New();
-      device_info->device_id = kFakeVideoInputDeviceId2;
-      device_info->label = "Fake Video Input 2";
-      device_info->group_id = kFakeVideoInputGroupId2;
+      device_info.device_id = kFakeVideoInputDeviceId2;
+      device_info.label = "Fake Video Input 2";
+      device_info.group_id = kFakeVideoInputGroupId2;
       enumeration[static_cast<size_t>(
                       blink::mojom::blink::MediaDeviceType::MEDIA_VIDEO_INPUT)]
-          .push_back(std::move(device_info));
+          .push_back(device_info);
 
       if (request_video_input_capabilities) {
         mojom::blink::VideoInputDeviceCapabilitiesPtr capabilities =
@@ -103,13 +99,12 @@ class MockMediaDevicesDispatcherHost
       }
     }
     if (request_audio_output) {
-      device_info = mojom::blink::MediaDeviceInfo::New();
-      device_info->device_id = kFakeAudioOutputDeviceId1;
-      device_info->label = "Fake Audio Input 1";
-      device_info->group_id = kFakeCommonGroupId1;
+      device_info.device_id = kFakeAudioOutputDeviceId1;
+      device_info.label = "Fake Audio Input 1";
+      device_info.group_id = kFakeCommonGroupId1;
       enumeration[static_cast<size_t>(
                       blink::mojom::blink::MediaDeviceType::MEDIA_AUDIO_OUTPUT)]
-          .push_back(std::move(device_info));
+          .push_back(device_info);
     }
     std::move(callback).Run(std::move(enumeration),
                             std::move(video_input_capabilities),
@@ -184,9 +179,8 @@ class MediaDevicesTest : public testing::Test {
 
   void SimulateDeviceChange() {
     DCHECK(listener());
-    listener()->OnDevicesChanged(
-        mojom::blink::MediaDeviceType::MEDIA_AUDIO_INPUT,
-        Vector<MediaDeviceInfoPtr>());
+    listener()->OnDevicesChanged(MEDIA_DEVICE_TYPE_AUDIO_INPUT,
+                                 Vector<WebMediaDeviceInfo>());
   }
 
   void DevicesEnumerated(const MediaDeviceInfoVector& device_infos) {
@@ -248,11 +242,9 @@ TEST_F(MediaDevicesTest, GetUserMediaCanBeCalled) {
           ->getUserMedia(scope.GetScriptState(), constraints,
                          scope.GetExceptionState());
   ASSERT_TRUE(promise.IsEmpty());
-  // In the default test environment, we expect a DOM rejection because
-  // the script state's execution context's document's frame doesn't
-  // have an UserMediaController.
-  DCHECK_EQ(scope.GetExceptionState().Code(),
-            ToExceptionCode(DOMExceptionCode::kNotSupportedError));
+  // We expect a type error because the given constraints are empty.
+  EXPECT_EQ(scope.GetExceptionState().Code(),
+            ToExceptionCode(ESErrorType::kTypeError));
   VLOG(1) << "Exception message is" << scope.GetExceptionState().Message();
 }
 

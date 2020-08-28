@@ -102,6 +102,7 @@ for message parameters.
 | `handle<shared_buffer>`       | Shared buffer handle.
 | `handle<data_pipe_producer>`  | Data pipe producer handle.
 | `handle<data_pipe_consumer>`  | Data pipe consumer handle.
+| `handle<platform>`            | A native platform/OS handle.
 | *`pending_remote<InterfaceType>`*             | Any user-defined Mojom interface type. This is sugar for a strongly-typed message pipe handle which should eventually be used to make outgoing calls on the interface.
 | *`pending_receiver<InterfaceType>`*            | A pending receiver for any user-defined Mojom interface type. This is sugar for a more strongly-typed message pipe handle which is expected to receive request messages and should therefore eventually be bound to an implementation of the interface.
 | *`pending_associated_remote<InterfaceType>`*  | An associated interface handle. See [Associated Interfaces](#Associated-Interfaces)
@@ -383,8 +384,8 @@ interesting attributes supported today.
     a response. This makes it so that callers of the method can wait
     synchronously for a response. See
     [Synchronous Calls](/mojo/public/cpp/bindings/README.md#Synchronous-Calls)
-    in the C++ bindings documentation. Note that sync calls are not currently
-    supported in other target languages.
+    in the C++ bindings documentation. Note that sync methods are only actually
+    synchronous when called from C++.
 
 **`[Extensible]`**
 :   The `Extensible` attribute may be specified for any enum definition. This
@@ -405,6 +406,17 @@ interesting attributes supported today.
 :   The `MinVersion` attribute is used to specify the version at which a given
     field, enum value, interface method, or method parameter was introduced.
     See [Versioning](#Versioning) for more details.
+
+**`[Stable]`**
+:   The `Stable` attribute specifies that a given mojom type or interface
+    definition can be considered stable over time, meaning it is safe to use for
+    things like persistent storage or communication between independent
+    version-skewed binaries. Stable definitions may only depend on builtin mojom
+    types or other stable definitions, and changes to such definitions MUST
+    preserve backward-compatibility through appropriate use of versioning.
+    Backward-compatibility of changes is enforced in the Chromium tree using a
+    strict presubmit check. See [Versioning](#Versioning) for more details on
+    backward-compatibility constraints.
 
 **`[EnableIf=value]`**
 :   The `EnableIf` attribute is used to conditionally enable definitions when
@@ -577,7 +589,9 @@ the following hard constraints:
     an ordinal value, all fields or methods must explicitly specify an ordinal
     value.
 * For an *N*-field struct or *N*-method interface, the set of explicitly
-    assigned ordinal values must be limited to the range *[0, N-1]*.
+    assigned ordinal values must be limited to the range *[0, N-1]*. Interfaces
+    should include placeholder methods to fill the ordinal positions of removed
+    methods (for example "Unused_Message_7@7()" or "RemovedMessage@42()", etc).
 
 You may reorder fields, but you must ensure that the ordinal values of existing
 fields remain unchanged. For example, the following struct remains
@@ -751,6 +765,7 @@ SpecificHandleType = "message_pipe"
                    | "shared_buffer"
                    | "data_pipe_consumer"
                    | "data_pipe_producer"
+                   | "platform"
 Array = "array" "<" TypeSpec ">"
 FixedArray = "array" "<" TypeSpec "," IntConstDec ">"
 Map = "map" "<" Identifier "," TypeSpec ">"

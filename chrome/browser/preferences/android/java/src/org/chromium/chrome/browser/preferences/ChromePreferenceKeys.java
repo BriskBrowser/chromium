@@ -7,7 +7,6 @@ package org.chromium.chrome.browser.preferences;
 import org.chromium.base.annotations.CheckDiscard;
 
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.List;
 
 /**
@@ -18,22 +17,25 @@ import java.util.List;
  * To add a new key:
  * 1. Declare it as a String constant in this class. Its value should follow the format
  *    "Chrome.[Feature].[Key]" and the constants names should be in alphabetical order.
- * 2. Add it to {@link #createKeysInUse()}.
+ * 2. Add it to {@link #getKeysInUse()}.
  *
  * To deprecate a key that is not used anymore:
- * 1. Add its constant value to createDeprecatedKeysForTesting(), in alphabetical order by value.
- * 2. Remove the key from {@link #createKeysInUse()} or {@link #createGrandfatheredKeysInUse()}.
+ * 1. Add its constant value to {@link DeprecatedChromePreferenceKeys#getKeysForTesting()}, in
+ * alphabetical order by value.
+ * 2. Remove the key from {@link #getKeysInUse()} or {@link
+ * GrandfatheredChromePreferenceKeys#getKeysInUse()}.
  * 3. Delete the constant.
  *
  * To add a new KeyPrefix:
  * 1. Declare it as a KeyPrefix constant in this class. Its value should follow the format
  *    "Chrome.[Feature].[KeyPrefix].*" and the constants names should be in alphabetical order.
- * 2. Add PREFIX_CONSTANT.pattern() to {@link #createKeysInUse()}}.
+ * 2. Add PREFIX_CONSTANT.pattern() to {@link #getKeysInUse()}}.
  *
  * To deprecate a KeyPrefix that is not used anymore:
- * 1. Add its String value to {@link #createDeprecatedKeysForTesting()}, including the ".*", in
- *    alphabetical order by value.
- * 2. Remove it from {@link #createKeysInUse()}.
+ * 1. Add its String value to {@link DeprecatedChromePreferenceKeys#getPrefixesForTesting()},
+ * including the ".*", in alphabetical order by value.
+ * 2. Remove it from {@link #getKeysInUse()} or {@link
+ * GrandfatheredChromePreferenceKeys#getPrefixesInUse()}.
  * 3. Delete the KeyPrefix constant.
  *
  * Tests in ChromePreferenceKeysTest and checks in {@link ChromePreferenceKeyChecker} ensure the
@@ -54,12 +56,20 @@ public final class ChromePreferenceKeys {
     /** Whether the Autofill Assistant onboarding has been accepted. */
     public static final String AUTOFILL_ASSISTANT_ONBOARDING_ACCEPTED =
             "AUTOFILL_ASSISTANT_ONBOARDING_ACCEPTED";
+    /** Whether the user has seen a lite-script before or is a first-time user. */
+    public static final String AUTOFILL_ASSISTANT_FIRST_TIME_LITE_SCRIPT_USER =
+            "Chrome.AutofillAssistant.LiteScriptFirstTimeUser";
+    /** The number of times a user has explicitly canceled a lite script. */
+    public static final String AUTOFILL_ASSISTANT_NUMBER_OF_LITE_SCRIPTS_CANCELED =
+            "Chrome.AutofillAssistant.NumberOfLiteScriptsCanceled";
     /**
      * LEGACY preference indicating whether "do not show again" was checked in the autofill
      * assistant onboarding
      */
     public static final String AUTOFILL_ASSISTANT_SKIP_INIT_SCREEN =
             "AUTOFILL_ASSISTANT_SKIP_INIT_SCREEN";
+
+    public static final String BACKUP_FIRST_BACKUP_DONE = "first_backup_done";
 
     public static final String BOOKMARKS_LAST_MODIFIED_FOLDER_ID = "last_bookmark_folder_id";
     public static final String BOOKMARKS_LAST_USED_URL = "enhanced_bookmark_last_used_url";
@@ -71,6 +81,36 @@ public final class ChromePreferenceKeys {
      * Default value is false.
      */
     public static final String CHROME_DEFAULT_BROWSER = "applink.chrome_default_browser";
+
+    /**
+     * The URI of Chrome shared to Android system clibpoard, we only need this preference for the
+     * Android O and O_MR1 version.
+     */
+    public static final String CLIPBOARD_SHARED_URI = "Chrome.Clipboard.SharedUri";
+
+    /**
+     * Saves a counter of how many continuous feature sessions in which a user has dismissed
+     * conditional tab strip.
+     */
+    public static final String CONDITIONAL_TAB_STRIP_CONTINUOUS_DISMISS_COUNTER =
+            "Chrome.ConditionalTabStrip.ContinuousDismissCounter";
+
+    /**
+     * Saves the feature status of conditional tab strip.
+     */
+    public static final String CONDITIONAL_TAB_STRIP_FEATURE_STATUS =
+            "Chrome.ConditionalTabStrip.FeatureStatus";
+
+    /**
+     * Saves the timestamp of the last time that conditional tab strip shows.
+     */
+    public static final String CONDITIONAL_TAB_STRIP_LAST_SHOWN_TIMESTAMP =
+            "Chrome.ConditionalTabStrip.LastShownTimeStamp";
+
+    /**
+     * Saves whether a user has chosen to opt-out the conditional tab strip feature.
+     */
+    public static final String CONDITIONAL_TAB_STRIP_OPT_OUT = "Chrome.ConditionalTabStrip.OptOut";
 
     /**
      * Marks that the content suggestions surface has been shown.
@@ -90,11 +130,8 @@ public final class ChromePreferenceKeys {
      */
     public static final String CONTEXTUAL_SEARCH_ALL_TIME_TAP_QUICK_ANSWER_COUNT =
             "contextual_search_all_time_tap_quick_answer_count";
-    public static final String CONTEXTUAL_SEARCH_CLICKS_WEEK_0 = "contextual_search_clicks_week_0";
-    public static final String CONTEXTUAL_SEARCH_CLICKS_WEEK_1 = "contextual_search_clicks_week_1";
-    public static final String CONTEXTUAL_SEARCH_CLICKS_WEEK_2 = "contextual_search_clicks_week_2";
-    public static final String CONTEXTUAL_SEARCH_CLICKS_WEEK_3 = "contextual_search_clicks_week_3";
-    public static final String CONTEXTUAL_SEARCH_CLICKS_WEEK_4 = "contextual_search_clicks_week_4";
+    public static final KeyPrefix CONTEXTUAL_SEARCH_CLICKS_WEEK_PREFIX =
+            new KeyPrefix("contextual_search_clicks_week_*");
     public static final String CONTEXTUAL_SEARCH_CURRENT_WEEK_NUMBER =
             "contextual_search_current_week_number";
     /**
@@ -109,16 +146,8 @@ public final class ChromePreferenceKeys {
      */
     public static final String CONTEXTUAL_SEARCH_ENTITY_OPENS_COUNT =
             "contextual_search_entity_opens_count";
-    public static final String CONTEXTUAL_SEARCH_IMPRESSIONS_WEEK_0 =
-            "contextual_search_impressions_week_0";
-    public static final String CONTEXTUAL_SEARCH_IMPRESSIONS_WEEK_1 =
-            "contextual_search_impressions_week_1";
-    public static final String CONTEXTUAL_SEARCH_IMPRESSIONS_WEEK_2 =
-            "contextual_search_impressions_week_2";
-    public static final String CONTEXTUAL_SEARCH_IMPRESSIONS_WEEK_3 =
-            "contextual_search_impressions_week_3";
-    public static final String CONTEXTUAL_SEARCH_IMPRESSIONS_WEEK_4 =
-            "contextual_search_impressions_week_4";
+    public static final KeyPrefix CONTEXTUAL_SEARCH_IMPRESSIONS_WEEK_PREFIX =
+            new KeyPrefix("contextual_search_impressions_week_*");
     public static final String CONTEXTUAL_SEARCH_LAST_ANIMATION_TIME =
             "contextual_search_last_animation_time";
     public static final String CONTEXTUAL_SEARCH_NEWEST_WEEK = "contextual_search_newest_week";
@@ -188,6 +217,15 @@ public final class ChromePreferenceKeys {
     public static final String CONTEXT_MENU_SEARCH_WITH_GOOGLE_LENS_CLICKED =
             "Chrome.ContextMenu.SearchWithGoogleLensClicked";
 
+    public static final String CONTEXT_MENU_SHOP_SIMILAR_PRODUCTS_CLICKED =
+            "Chrome.ContextMenu.ShopSimilarProductsClicked";
+
+    public static final String CONTEXT_MENU_SHOP_IMAGE_WITH_GOOGLE_LENS_CLICKED =
+            "Chrome.ContextMenu.ShopImageWithGoogleLensClicked";
+
+    public static final String CONTEXT_MENU_SEARCH_SIMILAR_PRODUCTS_CLICKED =
+            "Chrome.ContextMenu.SearchSimilarProductsClicked";
+
     public static final String CRASH_UPLOAD_FAILURE_BROWSER = "browser_crash_failure_upload";
     public static final String CRASH_UPLOAD_FAILURE_GPU = "gpu_crash_failure_upload";
     public static final String CRASH_UPLOAD_FAILURE_OTHER = "other_crash_failure_upload";
@@ -196,6 +234,12 @@ public final class ChromePreferenceKeys {
     public static final String CRASH_UPLOAD_SUCCESS_GPU = "gpu_crash_success_upload";
     public static final String CRASH_UPLOAD_SUCCESS_OTHER = "other_crash_success_upload";
     public static final String CRASH_UPLOAD_SUCCESS_RENDERER = "renderer_crash_success_upload";
+
+    public static final String CRYPTID_LAST_RENDER_TIMESTAMP = "Chrome.Cryptid.LastRenderTimestamp";
+
+    public static final KeyPrefix CUSTOM_TABS_DEX_LAST_UPDATE_TIME_PREF_PREFIX =
+            new KeyPrefix("pref_local_custom_tabs_module_dex_last_update_time_*");
+    public static final String CUSTOM_TABS_LAST_URL = "pref_last_custom_tab_url";
 
     /**
      * Key used to save the time in milliseconds since epoch that the first run experience or second
@@ -250,8 +294,26 @@ public final class ChromePreferenceKeys {
     public static final String DATA_REDUCTION_SITE_BREAKDOWN_ALLOWED_DATE =
             "data_reduction_site_breakdown_allowed_date";
 
+    /**
+     * Keys used to save whether it is ready to promo.
+     */
+    public static final String DEFAULT_BROWSER_PROMO_SESSION_COUNT =
+            "Chrome.DefaultBrowserPromo.SessionCount";
+    public static final String DEFAULT_BROWSER_PROMO_PROMOED_COUNT =
+            "Chrome.DefaultBrowserPromo.PromoedCount";
+    public static final String DEFAULT_BROWSER_PROMO_LAST_DEFAULT_STATE =
+            "Chrome.DefaultBrowserPromo.LastDefaultState";
+    public static final String DEFAULT_BROWSER_PROMO_LAST_PROMO_TIME =
+            "Chrome.DefaultBrowserPromo.LastPromoTime";
+    public static final String DEFAULT_BROWSER_PROMO_PROMOED_BY_SYSTEM_SETTINGS =
+            "Chrome.DefaultBrowserPromo.PromoedBySystemSettings";
+
+    public static final String DOWNLOAD_AUTO_RESUMPTION_ATTEMPT_LEFT = "ResumptionAttemptLeft";
+    public static final String DOWNLOAD_FOREGROUND_SERVICE_OBSERVERS = "ForegroundServiceObservers";
     public static final String DOWNLOAD_IS_DOWNLOAD_HOME_ENABLED =
             "org.chromium.chrome.browser.download.IS_DOWNLOAD_HOME_ENABLED";
+    public static final String DOWNLOAD_NEXT_DOWNLOAD_NOTIFICATION_ID =
+            "NextDownloadNotificationId";
     public static final String DOWNLOAD_PENDING_DOWNLOAD_NOTIFICATIONS =
             "PendingDownloadNotifications";
     public static final String DOWNLOAD_PENDING_OMA_DOWNLOADS = "PendingOMADownloads";
@@ -263,6 +325,13 @@ public final class ChromePreferenceKeys {
     public static final String EXPLORE_OFFLINE_CONTENT_AVAILABILITY_STATUS =
             "Chrome.NTPExploreOfflineCard.HasExploreOfflineContent";
 
+    /**
+     * The Feed articles visibility. This value is used as a pre-native cache and should be kept
+     * consistent with {@link Pref.ARTICLES_LIST_VISIBLE}.
+     */
+    public static final String FEED_ARTICLES_LIST_VISIBLE = "Chrome.Feed.ArticlesListVisible";
+    public static final String FEED_PLACEHOLDER_DENSE = "Chrome.Feed.PlaceholderIsDense";
+
     public static final String FIRST_RUN_CACHED_TOS_ACCEPTED = "first_run_tos_accepted";
     public static final String FIRST_RUN_FLOW_COMPLETE = "first_run_flow";
     public static final String FIRST_RUN_FLOW_SIGNIN_ACCOUNT_NAME = "first_run_signin_account_name";
@@ -273,14 +342,22 @@ public final class ChromePreferenceKeys {
     public static final String FIRST_RUN_SKIP_WELCOME_PAGE = "skip_welcome_page";
 
     /**
-     * Cached feature flags generated by FeatureUtilities use this prefix.
+     * Cached feature flags generated by CachedFeatureFlags use this prefix.
      */
     public static final KeyPrefix FLAGS_CACHED = new KeyPrefix("Chrome.Flags.CachedFlag.*");
+
+    /**
+     * Cached field trial parameters generated by CachedFeatureFlags use this prefix.
+     */
+    public static final KeyPrefix FLAGS_FIELD_TRIAL_PARAM_CACHED =
+            new KeyPrefix("Chrome.Flags.FieldTrialParamCached.*");
+
     /**
      * Whether or not the adaptive toolbar is enabled.
      * Default value is true.
      */
     public static final String FLAGS_CACHED_ADAPTIVE_TOOLBAR_ENABLED = "adaptive_toolbar_enabled";
+
     /**
      * Whether or not the bottom toolbar is enabled.
      * Default value is false.
@@ -328,28 +405,6 @@ public final class ChromePreferenceKeys {
     public static final String FLAGS_CACHED_NETWORK_SERVICE_WARM_UP_ENABLED =
             "network_service_warm_up_enabled";
     /**
-     * Whether or not night mode is available.
-     * Default value is false.
-     */
-    public static final String FLAGS_CACHED_NIGHT_MODE_AVAILABLE = "night_mode_available";
-    /**
-     * Whether or not night mode is available for custom tabs.
-     * Default value is false.
-     */
-    public static final String FLAGS_CACHED_NIGHT_MODE_CCT_AVAILABLE = "night_mode_cct_available";
-    /**
-     * Whether or not night mode should set "light" as the default option.
-     * Default value is false.
-     */
-    public static final String FLAGS_CACHED_NIGHT_MODE_DEFAULT_TO_LIGHT =
-            "night_mode_default_to_light";
-    /**
-     * Whether the Paint Preview Capture menu item is enabled.
-     * Default value is false.
-     */
-    public static final String FLAGS_CACHED_PAINT_PREVIEW_TEST_ENABLED_KEY =
-            "Chrome.Flags.PaintPreviewTestEnabled";
-    /**
      * Whether or not bootstrap tasks should be prioritized (i.e. bootstrap task prioritization
      * experiment is enabled). Default value is true.
      */
@@ -375,13 +430,6 @@ public final class ChromePreferenceKeys {
     public static final String FLAGS_CACHED_START_SURFACE_ENABLED = "start_surface_enabled";
 
     /**
-     * Whether or not the start surface single pane is enabled.
-     * Default value is false.
-     */
-    public static final String START_SURFACE_SINGLE_PANE_ENABLED_KEY =
-            "start_surface_single_pane_enabled";
-
-    /**
      * Key to cache whether SWAP_PIXEL_FORMAT_TO_FIX_CONVERT_FROM_TRANSLUCENT is enabled.
      */
     public static final String FLAGS_CACHED_SWAP_PIXEL_FORMAT_TO_FIX_CONVERT_FROM_TRANSLUCENT =
@@ -393,9 +441,15 @@ public final class ChromePreferenceKeys {
     public static final String FLAGS_CACHED_TAB_GROUPS_ANDROID_ENABLED =
             "tab_group_android_enabled";
 
+    public static final String FONT_USER_FONT_SCALE_FACTOR = "user_font_scale_factor";
+    public static final String FONT_USER_SET_FORCE_ENABLE_ZOOM = "user_set_force_enable_zoom";
+
+    public static final String HISTORY_SHOW_HISTORY_INFO = "history_home_show_info";
+
     /** Keys used to save settings related to homepage. */
     public static final String HOMEPAGE_CUSTOM_URI = "homepage_custom_uri";
     public static final String HOMEPAGE_ENABLED = "homepage";
+    public static final String HOMEPAGE_USE_CHROME_NTP = "Chrome.Homepage.UseNTP";
     public static final String HOMEPAGE_USE_DEFAULT_URI = "homepage_partner_enabled";
 
     /**
@@ -404,11 +458,6 @@ public final class ChromePreferenceKeys {
     public static final String HOMEPAGE_LOCATION_POLICY = "Chrome.Policy.HomepageLocation";
 
     public static final String INCOGNITO_SHORTCUT_ADDED = "incognito-shortcut-added";
-
-    /**
-     * Key for UUID-based generator used for Chrome Invalidations (sync, etc.).
-     */
-    public static final String INVALIDATIONS_UUID_PREF_KEY = "chromium.invalidations.uuid";
 
     /**
      * When the user is shown a badge that the current Android OS version is unsupported, and they
@@ -425,10 +474,36 @@ public final class ChromePreferenceKeys {
     public static final String LOCALE_MANAGER_WAS_IN_SPECIAL_LOCALE =
             "LocaleManager_WAS_IN_SPECIAL_LOCALE";
 
+    public static final String MEDIA_WEBRTC_NOTIFICATION_IDS = "WebRTCNotificationIds";
+
+    public static final String METRICS_MAIN_INTENT_LAUNCH_COUNT = "MainIntent.LaunchCount";
+    public static final String METRICS_MAIN_INTENT_LAUNCH_TIMESTAMP = "MainIntent.LaunchTimestamp";
+
+    public static final String NOTIFICATIONS_CHANNELS_VERSION = "channels_version_key";
+    public static final String NOTIFICATIONS_LAST_SHOWN_NOTIFICATION_TYPE =
+            "NotificationUmaTracker.LastShownNotificationType";
+    public static final String NOTIFICATIONS_NEXT_TRIGGER =
+            "notification_trigger_scheduler.next_trigger";
+
+    public static final String NTP_SNIPPETS_IS_SCHEDULED = "ntp_snippets.is_scheduled";
+
+    // Name of an application preference variable used to track whether or not the in-progress
+    // notification is being shown. This is an alternative to
+    // NotificationManager.getActiveNotifications, which isn't available prior to API level 23.
+    public static final String OFFLINE_AUTO_FETCH_SHOWING_IN_PROGRESS =
+            "offline_auto_fetch_showing_in_progress";
+    // The application preference variable which is set to the NotificationAction that triggered the
+    // cancellation, when a cancellation is requested by the user.
+    public static final String OFFLINE_AUTO_FETCH_USER_CANCEL_ACTION_IN_PROGRESS =
+            "offline_auto_fetch_user_cancel_action_in_progress";
+
     /**
      * Key to cache whether offline indicator v2 (persistent offline indicator) is enabled.
      */
     public static final String OFFLINE_INDICATOR_V2_ENABLED = "offline_indicator_v2_enabled";
+
+    /** The shared preference for the 'save card to device' checkbox status. */
+    public static final String PAYMENTS_CHECK_SAVE_CARD_TO_DEVICE = "check_save_card_to_device";
 
     /** Prefix of the preferences to persist use count of the payment instruments. */
     public static final KeyPrefix PAYMENTS_PAYMENT_INSTRUMENT_USE_COUNT =
@@ -441,12 +516,31 @@ public final class ChromePreferenceKeys {
     /** Preference to indicate whether payment request has been completed successfully once.*/
     public static final String PAYMENTS_PAYMENT_COMPLETE_ONCE = "payment_complete_once";
 
+    public static final String PREFETCH_HAS_NEW_PAGES = "prefetch_notification_has_new_pages";
+    public static final String PREFETCH_IGNORED_NOTIFICATION_COUNTER =
+            "prefetch_notification_ignored_counter";
+    public static final String PREFETCH_NOTIFICATION_ENABLED = "prefetch_notification_enabled";
+    public static final String PREFETCH_NOTIFICATION_TIME = "prefetch_notification_shown_time";
+    public static final String PREFETCH_OFFLINE_COUNTER = "prefetch_notification_offline_counter";
+
     public static final String PRIVACY_METRICS_REPORTING = "metrics_reporting";
     public static final String PRIVACY_METRICS_IN_SAMPLE = "in_metrics_sample";
     public static final String PRIVACY_NETWORK_PREDICTIONS = "network_predictions";
     public static final String PRIVACY_BANDWIDTH_OLD = "prefetch_bandwidth";
     public static final String PRIVACY_BANDWIDTH_NO_CELLULAR_OLD = "prefetch_bandwidth_no_cellular";
     public static final String PRIVACY_ALLOW_PRERENDER_OLD = "allow_prefetch";
+
+    public static final String PROFILES_BOOT_TIMESTAMP =
+            "com.google.android.apps.chrome.ChromeMobileApplication.BOOT_TIMESTAMP";
+
+    /**
+     * Key prefix for base promo component. Used in {@link
+     * org.chromium.components.browser_ui.widget.promo.PromoCardCoordinator} to store related state
+     * or statistics.
+     */
+    public static final KeyPrefix PROMO_IS_DISMISSED =
+            new KeyPrefix("Chrome.PromoCard.IsDismissed.*");
+    public static final KeyPrefix PROMO_TIMES_SEEN = new KeyPrefix("Chrome.PromoCard.TimesSeen.*");
 
     /**
      * Key to cache the enabled bottom toolbar parameter.
@@ -477,8 +571,59 @@ public final class ChromePreferenceKeys {
     public static final String SEARCH_ENGINE_CHOICE_REQUESTED_TIMESTAMP =
             "search_engine_choice_requested_timestamp";
 
+    public static final String SEARCH_WIDGET_IS_VOICE_SEARCH_AVAILABLE =
+            "org.chromium.chrome.browser.searchwidget.IS_VOICE_SEARCH_AVAILABLE";
+    public static final String SEARCH_WIDGET_NUM_CONSECUTIVE_CRASHES =
+            "org.chromium.chrome.browser.searchwidget.NUM_CONSECUTIVE_CRASHES";
+    public static final String SEARCH_WIDGET_SEARCH_ENGINE_SHORTNAME =
+            "org.chromium.chrome.browser.searchwidget.SEARCH_ENGINE_SHORTNAME";
+
+    // Tracks which GUIDs there is an active notification for.
+    public static final String SEND_TAB_TO_SELF_ACTIVE_NOTIFICATIONS =
+            "send_tab_to_self.notification.active";
+    public static final String SEND_TAB_TO_SELF_NEXT_NOTIFICATION_ID =
+            "send_tab_to_self.notification.next_id";
+
+    public static final String SETTINGS_DEVELOPER_ENABLED = "developer";
+    public static final String SETTINGS_DEVELOPER_TRACING_CATEGORIES = "tracing_categories";
+    public static final String SETTINGS_DEVELOPER_TRACING_MODE = "tracing_mode";
+
+    /**
+     * SharedPreference name for the preference that disables signing out of Chrome.
+     * Signing out is forever disabled once Chrome signs the user in automatically
+     * if the device has a child account or if the device is an Android EDU device.
+     */
+    public static final String SETTINGS_SYNC_SIGN_OUT_ALLOWED = "auto_signed_in_school_account";
+
+    public static final String SETTINGS_PRIVACY_OTHER_FORMS_OF_HISTORY_DIALOG_SHOWN =
+            "org.chromium.chrome.browser.settings.privacy."
+            + "PREF_OTHER_FORMS_OF_HISTORY_DIALOG_SHOWN";
+
+    /** Stores the timestamp of the last performed Safety check. */
+    public static final String SETTINGS_SAFETY_CHECK_LAST_RUN_TIMESTAMP =
+            "Chrome.SafetyCheck.LastRunTimestamp";
+
+    /** Stores the number of times the user has performed Safety check. */
+    public static final String SETTINGS_SAFETY_CHECK_RUN_COUNTER = "Chrome.SafetyCheck.RunCounter";
+
+    public static final String SETTINGS_WEBSITE_FAILED_BUILD_VERSION =
+            "ManagedSpace.FailedBuildVersion";
+
     public static final String SHARING_LAST_SHARED_CLASS_NAME = "last_shared_class_name";
     public static final String SHARING_LAST_SHARED_PACKAGE_NAME = "last_shared_package_name";
+
+    public static final String SIGNIN_ACCOUNTS_CHANGED = "prefs_sync_accounts_changed";
+
+    /**
+     * Holds the new account's name if the currently signed in account has been renamed.
+     */
+    public static final String SIGNIN_ACCOUNT_RENAMED = "prefs_sync_account_renamed";
+
+    /**
+     * Holds the last read index of all the account changed events of the current signed in account.
+     */
+    public static final String SIGNIN_ACCOUNT_RENAME_EVENT_INDEX =
+            "prefs_sync_account_rename_event_index";
 
     /**
      * Generic signin and sync promo preferences.
@@ -514,15 +659,39 @@ public final class ChromePreferenceKeys {
     public static final String SIGNIN_PROMO_SETTINGS_PERSONALIZED_DISMISSED =
             "settings_personalized_signin_promo_dismissed";
 
+    // TODO(https://crbug.com/1091858): Remove this after migrating the legacy code that uses
+    //                                  the sync account before the native is loaded.
+    public static final String SIGNIN_LEGACY_SYNC_ACCOUNT_EMAIL = "google.services.username";
+
     public static final String SNAPSHOT_DATABASE_REMOVED = "snapshot_database_removed";
+
+    public static final String SURVEY_DATE_LAST_ROLLED = "last_rolled_for_chrome_survey_key";
+    /**
+     *  The survey questions for this survey are the same as those in the survey used for Chrome
+     *  Home, so we reuse the old infobar key to prevent the users from seeing the same survey more
+     *  than once.
+     */
+    public static final String SURVEY_INFO_BAR_DISPLAYED = "chrome_home_survey_info_bar_displayed";
 
     public static final String SYNC_SESSIONS_UUID = "chromium.sync.sessions.id";
 
     public static final String TABBED_ACTIVITY_LAST_BACKGROUNDED_TIME_MS_PREF =
             "ChromeTabbedActivity.BackgroundTimeMs";
 
+    public static final String TABMODEL_ACTIVE_TAB_ID =
+            "org.chromium.chrome.browser.tabmodel.TabPersistentStore.ACTIVE_TAB_ID";
+    public static final String TABMODEL_HAS_COMPUTED_MAX_ID =
+            "org.chromium.chrome.browser.tabmodel.TabPersistentStore.HAS_COMPUTED_MAX_ID";
+    public static final String TABMODEL_HAS_RUN_FILE_MIGRATION =
+            "org.chromium.chrome.browser.tabmodel.TabPersistentStore.HAS_RUN_FILE_MIGRATION";
+    public static final String TABMODEL_HAS_RUN_MULTI_INSTANCE_FILE_MIGRATION =
+            "org.chromium.chrome.browser.tabmodel.TabPersistentStore."
+            + "HAS_RUN_MULTI_INSTANCE_FILE_MIGRATION";
+
     public static final String TAB_ID_MANAGER_NEXT_ID =
             "org.chromium.chrome.browser.tab.TabIdManager.NEXT_ID";
+
+    public static final String TOS_ACKED_ACCOUNTS = "ToS acknowledged accounts";
 
     /**
      * Keys for deferred recording of the outcomes of showing the clear data dialog after
@@ -534,6 +703,8 @@ public final class ChromePreferenceKeys {
             "twa_dialog_number_of_dismissals_on_uninstall";
     public static final String TWA_DISCLOSURE_ACCEPTED_PACKAGES =
             "trusted_web_activity_disclosure_accepted_packages";
+    public static final String TWA_DISCLOSURE_SEEN_PACKAGES =
+            "Chrome.TrustedWebActivities.DisclosureAcceptedPackages";
 
     /**
      * Whether or not darken websites is enabled.
@@ -549,6 +720,9 @@ public final class ChromePreferenceKeys {
 
     public static final String VERIFIED_DIGITAL_ASSET_LINKS = "verified_digital_asset_links";
 
+    public static final String VR_EXIT_TO_2D_COUNT = "VR_EXIT_TO_2D_COUNT";
+    public static final String VR_FEEDBACK_OPT_OUT = "VR_FEEDBACK_OPT_OUT";
+
     /**
      * Whether VR assets component should be registered on startup.
      * Default value is false.
@@ -556,249 +730,99 @@ public final class ChromePreferenceKeys {
     public static final String VR_SHOULD_REGISTER_ASSETS_COMPONENT_ON_STARTUP =
             "should_register_vr_assets_component_on_startup";
 
+    /**
+     * Name of the shared preference for the version number of the dynamically loaded dex.
+     */
+    public static final String WEBAPK_EXTRACTED_DEX_VERSION =
+            "org.chromium.chrome.browser.webapps.extracted_dex_version";
+
+    /**
+     * Name of the shared preference for the Android OS version at the time that the dex was last
+     * extracted from Chrome's assets and optimized.
+     */
+    public static final String WEBAPK_LAST_SDK_VERSION =
+            "org.chromium.chrome.browser.webapps.last_sdk_version";
+
     /** Key for deferred recording of list of uninstalled WebAPK packages. */
     public static final String WEBAPK_UNINSTALLED_PACKAGES = "webapk_uninstalled_packages";
 
+    /** Cached Suggestions and Suggestion Headers. */
+    public static final String KEY_ZERO_SUGGEST_LIST_SIZE = "zero_suggest_list_size";
+    public static final KeyPrefix KEY_ZERO_SUGGEST_URL_PREFIX = new KeyPrefix("zero_suggest_url*");
+    public static final KeyPrefix KEY_ZERO_SUGGEST_DISPLAY_TEXT_PREFIX =
+            new KeyPrefix("zero_suggest_display_text*");
+    public static final KeyPrefix KEY_ZERO_SUGGEST_DESCRIPTION_PREFIX =
+            new KeyPrefix("zero_suggest_description*");
+    public static final KeyPrefix KEY_ZERO_SUGGEST_NATIVE_TYPE_PREFIX =
+            new KeyPrefix("zero_suggest_native_type*");
+    public static final KeyPrefix KEY_ZERO_SUGGEST_IS_SEARCH_TYPE_PREFIX =
+            new KeyPrefix("zero_suggest_is_search*");
+    public static final KeyPrefix KEY_ZERO_SUGGEST_ANSWER_TEXT_PREFIX =
+            new KeyPrefix("zero_suggest_answer_text*");
+    public static final KeyPrefix KEY_ZERO_SUGGEST_GROUP_ID_PREFIX =
+            new KeyPrefix("zero_suggest_group_id*");
+    @Deprecated
+    public static final KeyPrefix KEY_ZERO_SUGGEST_IS_DELETABLE_PREFIX =
+            new KeyPrefix("zero_suggest_is_deletable*");
+    public static final KeyPrefix KEY_ZERO_SUGGEST_IS_STARRED_PREFIX =
+            new KeyPrefix("zero_suggest_is_starred*");
+    public static final KeyPrefix KEY_ZERO_SUGGEST_POST_CONTENT_TYPE_PREFIX =
+            new KeyPrefix("zero_suggest_post_content_type*");
+    public static final KeyPrefix KEY_ZERO_SUGGEST_POST_CONTENT_DATA_PREFIX =
+            new KeyPrefix("zero_suggest_post_content_data*");
+    public static final String KEY_ZERO_SUGGEST_HEADER_LIST_SIZE = "zero_suggest_header_list_size";
+    public static final KeyPrefix KEY_ZERO_SUGGEST_HEADER_GROUP_ID_PREFIX =
+            new KeyPrefix("zero_suggest_header_group_id*");
+    public static final KeyPrefix KEY_ZERO_SUGGEST_HEADER_GROUP_TITLE_PREFIX =
+            new KeyPrefix("zero_suggest_header_group_title*");
+    public static final KeyPrefix KEY_ZERO_SUGGEST_HEADER_GROUP_COLLAPSED_BY_DEFAULT_PREFIX =
+            new KeyPrefix("zero_suggest_header_group_collapsed_by_default*");
+
     /**
      * These values are currently used as SharedPreferences keys, along with the keys in
-     * {@link #createGrandfatheredKeysInUse()}. Add new SharedPreferences keys here.
+     * {@link GrandfatheredChromePreferenceKeys#getKeysInUse()}. Add new SharedPreferences keys
+     * here.
      *
      * @return The list of [keys in use] conforming to the format.
      */
     @CheckDiscard("Validation is performed in tests and in debug builds.")
-    static List<String> createKeysInUse() {
+    static List<String> getKeysInUse() {
         // clang-format off
         return Arrays.asList(
+                AUTOFILL_ASSISTANT_FIRST_TIME_LITE_SCRIPT_USER,
+                AUTOFILL_ASSISTANT_NUMBER_OF_LITE_SCRIPTS_CANCELED,
+                CLIPBOARD_SHARED_URI,
+                CONDITIONAL_TAB_STRIP_CONTINUOUS_DISMISS_COUNTER,
+                CONDITIONAL_TAB_STRIP_FEATURE_STATUS,
+                CONDITIONAL_TAB_STRIP_LAST_SHOWN_TIMESTAMP,
+                CONDITIONAL_TAB_STRIP_OPT_OUT,
                 CONTEXT_MENU_OPEN_IMAGE_IN_EPHEMERAL_TAB_CLICKED,
                 CONTEXT_MENU_OPEN_IN_EPHEMERAL_TAB_CLICKED,
                 CONTEXT_MENU_SEARCH_WITH_GOOGLE_LENS_CLICKED,
+                CONTEXT_MENU_SHOP_IMAGE_WITH_GOOGLE_LENS_CLICKED,
+                CONTEXT_MENU_SHOP_SIMILAR_PRODUCTS_CLICKED,
+                CONTEXT_MENU_SEARCH_SIMILAR_PRODUCTS_CLICKED,
+                CRYPTID_LAST_RENDER_TIMESTAMP,
+                DEFAULT_BROWSER_PROMO_LAST_DEFAULT_STATE,
+                DEFAULT_BROWSER_PROMO_LAST_PROMO_TIME,
+                DEFAULT_BROWSER_PROMO_PROMOED_BY_SYSTEM_SETTINGS,
+                DEFAULT_BROWSER_PROMO_PROMOED_COUNT,
+                DEFAULT_BROWSER_PROMO_SESSION_COUNT,
                 EXPLORE_OFFLINE_CONTENT_AVAILABILITY_STATUS,
+                FEED_ARTICLES_LIST_VISIBLE,
+                FEED_PLACEHOLDER_DENSE,
                 FLAGS_CACHED.pattern(),
                 FLAGS_CACHED_DUET_TABSTRIP_INTEGRATION_ANDROID_ENABLED,
-                FLAGS_CACHED_PAINT_PREVIEW_TEST_ENABLED_KEY,
-                HOMEPAGE_LOCATION_POLICY
+                FLAGS_FIELD_TRIAL_PARAM_CACHED.pattern(),
+                HOMEPAGE_LOCATION_POLICY,
+                HOMEPAGE_USE_CHROME_NTP,
+                PROMO_IS_DISMISSED.pattern(),
+                PROMO_TIMES_SEEN.pattern(),
+                SETTINGS_SAFETY_CHECK_LAST_RUN_TIMESTAMP,
+                SETTINGS_SAFETY_CHECK_RUN_COUNTER,
+                TWA_DISCLOSURE_SEEN_PACKAGES
         );
         // clang-format on
-    }
-
-    /**
-     * These values have been used as SharedPreferences keys in the past and should not be reused
-     * reused. Do not remove values from this list.
-     *
-     * @return The list of [deprecated keys].
-     */
-    @CheckDiscard("Validation is performed in tests and in debug builds.")
-    static List<String> createDeprecatedKeysForTesting() {
-        // clang-format off
-        return Arrays.asList(
-                "PhysicalWeb.ActivityReferral",
-                "PhysicalWeb.HasDeferredMetrics",
-                "PhysicalWeb.OptIn.DeclineButtonPressed",
-                "PhysicalWeb.OptIn.EnableButtonPressed",
-                "PhysicalWeb.Prefs.FeatureDisabled",
-                "PhysicalWeb.Prefs.FeatureEnabled",
-                "PhysicalWeb.Prefs.LocationDenied",
-                "PhysicalWeb.Prefs.LocationGranted",
-                "PhysicalWeb.ResolveTime.Background",
-                "PhysicalWeb.ResolveTime.Foreground",
-                "PhysicalWeb.ResolveTime.Refresh",
-                "PhysicalWeb.State",
-                "PhysicalWeb.TotalUrls.OnInitialDisplay",
-                "PhysicalWeb.TotalUrls.OnRefresh",
-                "PhysicalWeb.UrlSelected",
-                "PrefMigrationVersion",
-                "ServiceManagerFeatures",
-                "allow_low_end_device_ui",
-                "allow_starting_service_manager_only",
-                "bookmark_search_history",
-                "cellular_experiment",
-                "chrome_home_enabled_date",
-                "chrome_home_info_promo_shown",
-                "chrome_home_opt_out_snackbar_shown",
-                "chrome_home_user_enabled",
-                "chrome_modern_design_enabled",
-                "click_to_call_open_dialer_directly",
-                "crash_dump_upload",
-                "crash_dump_upload_no_cellular",
-                "home_page_button_force_enabled",
-                "homepage_tile_enabled",
-                "inflate_toolbar_on_background_thread",
-                "ntp_button_enabled",
-                "ntp_button_variant",
-                "physical_web",
-                "physical_web_sharing",
-                "sole_integration_enabled",
-                "tab_persistent_store_task_runner_enabled",
-                "webapk_number_of_uninstalls",
-                "website_settings_filter"
-        );
-        // clang-format on
-    }
-
-    /**
-     * Do not add new constants to this list unless you are migrating old SharedPreferences keys.
-     * Instead, declare new keys in the format "Chrome.[Feature].[Key]", for example
-     * "Chrome.FooBar.FooEnabled", and add them to {@link #createKeysInUse()}.
-     *
-     * @return The list of [keys in use] that do not conform to the "Chrome.[Feature].[Key]"
-     *     format.
-     */
-    @CheckDiscard("Validation is performed in tests and in debug builds.")
-    static List<String> createGrandfatheredKeysInUse() {
-        // clang-format off
-        return Arrays.asList(
-                ACCESSIBILITY_TAB_SWITCHER,
-                APP_LOCALE,
-                AUTOFILL_ASSISTANT_ENABLED,
-                AUTOFILL_ASSISTANT_ONBOARDING_ACCEPTED,
-                AUTOFILL_ASSISTANT_SKIP_INIT_SCREEN,
-                BOOKMARKS_LAST_MODIFIED_FOLDER_ID,
-                BOOKMARKS_LAST_USED_URL,
-                BOOKMARKS_LAST_USED_PARENT,
-                CHROME_DEFAULT_BROWSER,
-                CONTENT_SUGGESTIONS_SHOWN,
-                CONTEXTUAL_SEARCH_ALL_TIME_OPEN_COUNT,
-                CONTEXTUAL_SEARCH_ALL_TIME_TAP_COUNT,
-                CONTEXTUAL_SEARCH_ALL_TIME_TAP_QUICK_ANSWER_COUNT,
-                CONTEXTUAL_SEARCH_CLICKS_WEEK_0,
-                CONTEXTUAL_SEARCH_CLICKS_WEEK_1,
-                CONTEXTUAL_SEARCH_CLICKS_WEEK_2,
-                CONTEXTUAL_SEARCH_CLICKS_WEEK_3,
-                CONTEXTUAL_SEARCH_CLICKS_WEEK_4,
-                CONTEXTUAL_SEARCH_CURRENT_WEEK_NUMBER,
-                CONTEXTUAL_SEARCH_ENTITY_IMPRESSIONS_COUNT,
-                CONTEXTUAL_SEARCH_ENTITY_OPENS_COUNT,
-                CONTEXTUAL_SEARCH_IMPRESSIONS_WEEK_0,
-                CONTEXTUAL_SEARCH_IMPRESSIONS_WEEK_1,
-                CONTEXTUAL_SEARCH_IMPRESSIONS_WEEK_2,
-                CONTEXTUAL_SEARCH_IMPRESSIONS_WEEK_3,
-                CONTEXTUAL_SEARCH_IMPRESSIONS_WEEK_4,
-                CONTEXTUAL_SEARCH_LAST_ANIMATION_TIME,
-                CONTEXTUAL_SEARCH_NEWEST_WEEK,
-                CONTEXTUAL_SEARCH_OLDEST_WEEK,
-                CONTEXTUAL_SEARCH_PREVIOUS_INTERACTION_ENCODED_OUTCOMES,
-                CONTEXTUAL_SEARCH_PREVIOUS_INTERACTION_EVENT_ID,
-                CONTEXTUAL_SEARCH_PREVIOUS_INTERACTION_TIMESTAMP,
-                CONTEXTUAL_SEARCH_PROMO_OPEN_COUNT,
-                CONTEXTUAL_SEARCH_QUICK_ACTIONS_IGNORED_COUNT,
-                CONTEXTUAL_SEARCH_QUICK_ACTIONS_TAKEN_COUNT,
-                CONTEXTUAL_SEARCH_QUICK_ACTION_IMPRESSIONS_COUNT,
-                CONTEXTUAL_SEARCH_TAP_SINCE_OPEN_COUNT,
-                CONTEXTUAL_SEARCH_TAP_SINCE_OPEN_QUICK_ANSWER_COUNT,
-                CONTEXTUAL_SEARCH_TAP_TRIGGERED_PROMO_COUNT,
-                CRASH_UPLOAD_FAILURE_BROWSER,
-                CRASH_UPLOAD_FAILURE_GPU,
-                CRASH_UPLOAD_FAILURE_OTHER,
-                CRASH_UPLOAD_FAILURE_RENDERER,
-                CRASH_UPLOAD_SUCCESS_BROWSER,
-                CRASH_UPLOAD_SUCCESS_GPU,
-                CRASH_UPLOAD_SUCCESS_OTHER,
-                CRASH_UPLOAD_SUCCESS_RENDERER,
-                DATA_REDUCTION_DISPLAYED_FRE_OR_SECOND_PROMO_TIME_MS,
-                DATA_REDUCTION_DISPLAYED_FRE_OR_SECOND_PROMO_VERSION,
-                DATA_REDUCTION_DISPLAYED_FRE_OR_SECOND_RUN_PROMO,
-                DATA_REDUCTION_DISPLAYED_INFOBAR_PROMO,
-                DATA_REDUCTION_DISPLAYED_INFOBAR_PROMO_VERSION,
-                DATA_REDUCTION_DISPLAYED_MILESTONE_PROMO_SAVED_BYTES,
-                DATA_REDUCTION_ENABLED,
-                DATA_REDUCTION_FIRST_ENABLED_TIME,
-                DATA_REDUCTION_FRE_PROMO_OPT_OUT,
-                DATA_REDUCTION_SITE_BREAKDOWN_ALLOWED_DATE,
-                DOWNLOAD_IS_DOWNLOAD_HOME_ENABLED,
-                DOWNLOAD_PENDING_DOWNLOAD_NOTIFICATIONS,
-                DOWNLOAD_PENDING_OMA_DOWNLOADS,
-                DOWNLOAD_UMA_ENTRY,
-                FIRST_RUN_CACHED_TOS_ACCEPTED,
-                FIRST_RUN_FLOW_COMPLETE,
-                FIRST_RUN_FLOW_SIGNIN_ACCOUNT_NAME,
-                FIRST_RUN_FLOW_SIGNIN_COMPLETE,
-                FIRST_RUN_FLOW_SIGNIN_SETUP,
-                FIRST_RUN_LIGHTWEIGHT_FLOW_COMPLETE,
-                FIRST_RUN_SKIP_WELCOME_PAGE,
-                FLAGS_CACHED_ADAPTIVE_TOOLBAR_ENABLED,
-                FLAGS_CACHED_BOTTOM_TOOLBAR_ENABLED,
-                FLAGS_CACHED_COMMAND_LINE_ON_NON_ROOTED_ENABLED,
-                FLAGS_CACHED_DOWNLOAD_AUTO_RESUMPTION_IN_NATIVE,
-                FLAGS_CACHED_GRID_TAB_SWITCHER_ENABLED,
-                FLAGS_CACHED_IMMERSIVE_UI_MODE_ENABLED,
-                FLAGS_CACHED_INTEREST_FEED_CONTENT_SUGGESTIONS,
-                FLAGS_CACHED_LABELED_BOTTOM_TOOLBAR_ENABLED,
-                FLAGS_CACHED_NETWORK_SERVICE_WARM_UP_ENABLED,
-                FLAGS_CACHED_NIGHT_MODE_AVAILABLE,
-                FLAGS_CACHED_NIGHT_MODE_CCT_AVAILABLE,
-                FLAGS_CACHED_NIGHT_MODE_DEFAULT_TO_LIGHT,
-                FLAGS_CACHED_PRIORITIZE_BOOTSTRAP_TASKS,
-                FLAGS_CACHED_SERVICE_MANAGER_FOR_BACKGROUND_PREFETCH,
-                FLAGS_CACHED_SERVICE_MANAGER_FOR_DOWNLOAD_RESUMPTION,
-                FLAGS_CACHED_START_SURFACE_ENABLED,
-                FLAGS_CACHED_SWAP_PIXEL_FORMAT_TO_FIX_CONVERT_FROM_TRANSLUCENT,
-                FLAGS_CACHED_TAB_GROUPS_ANDROID_ENABLED,
-                HOMEPAGE_CUSTOM_URI,
-                HOMEPAGE_ENABLED,
-                HOMEPAGE_USE_DEFAULT_URI,
-                INCOGNITO_SHORTCUT_ADDED,
-                INVALIDATIONS_UUID_PREF_KEY,
-                LATEST_UNSUPPORTED_VERSION,
-                LOCALE_MANAGER_AUTO_SWITCH,
-                LOCALE_MANAGER_PROMO_SHOWN,
-                LOCALE_MANAGER_SEARCH_ENGINE_PROMO_SHOW_STATE,
-                LOCALE_MANAGER_WAS_IN_SPECIAL_LOCALE,
-                OFFLINE_INDICATOR_V2_ENABLED,
-                PAYMENTS_PAYMENT_COMPLETE_ONCE,
-                PRIVACY_ALLOW_PRERENDER_OLD,
-                PRIVACY_BANDWIDTH_NO_CELLULAR_OLD,
-                PRIVACY_BANDWIDTH_OLD,
-                PRIVACY_METRICS_IN_SAMPLE,
-                PRIVACY_METRICS_REPORTING,
-                PRIVACY_NETWORK_PREDICTIONS,
-                PROMOS_SKIPPED_ON_FIRST_START,
-                REACHED_CODE_PROFILER_GROUP,
-                RLZ_NOTIFIED,
-                SEARCH_ENGINE_CHOICE_DEFAULT_TYPE_BEFORE,
-                SEARCH_ENGINE_CHOICE_PRESENTED_VERSION,
-                SEARCH_ENGINE_CHOICE_REQUESTED_TIMESTAMP,
-                SHARING_LAST_SHARED_CLASS_NAME,
-                SHARING_LAST_SHARED_PACKAGE_NAME,
-                SIGNIN_AND_SYNC_PROMO_SHOW_COUNT,
-                SIGNIN_PROMO_IMPRESSIONS_COUNT_BOOKMARKS,
-                SIGNIN_PROMO_IMPRESSIONS_COUNT_SETTINGS,
-                SIGNIN_PROMO_LAST_SHOWN_ACCOUNT_NAMES,
-                SIGNIN_PROMO_LAST_SHOWN_MAJOR_VERSION,
-                SIGNIN_PROMO_NTP_PROMO_DISMISSED,
-                SIGNIN_PROMO_NTP_PROMO_SUPPRESSION_PERIOD_START,
-                SIGNIN_PROMO_PERSONALIZED_DECLINED,
-                SIGNIN_PROMO_SETTINGS_PERSONALIZED_DISMISSED,
-                SNAPSHOT_DATABASE_REMOVED,
-                START_SURFACE_SINGLE_PANE_ENABLED_KEY,
-                SYNC_SESSIONS_UUID,
-                TABBED_ACTIVITY_LAST_BACKGROUNDED_TIME_MS_PREF,
-                TAB_ID_MANAGER_NEXT_ID,
-                TWA_DIALOG_NUMBER_OF_DISMISSALS_ON_CLEAR_DATA,
-                TWA_DIALOG_NUMBER_OF_DISMISSALS_ON_UNINSTALL,
-                TWA_DISCLOSURE_ACCEPTED_PACKAGES,
-                UI_THEME_DARKEN_WEBSITES_ENABLED,
-                UI_THEME_SETTING,
-                VARIATION_CACHED_BOTTOM_TOOLBAR,
-                VERIFIED_DIGITAL_ASSET_LINKS,
-                VR_SHOULD_REGISTER_ASSETS_COMPONENT_ON_STARTUP,
-                WEBAPK_UNINSTALLED_PACKAGES
-        );
-        // clang-format on
-    }
-
-    @CheckDiscard("Validation is performed in tests and in debug builds.")
-    static List<KeyPrefix> createGrandfatheredPrefixesInUse() {
-        // clang-format off
-        return Arrays.asList(
-                PAYMENTS_PAYMENT_INSTRUMENT_USE_COUNT,
-                PAYMENTS_PAYMENT_INSTRUMENT_USE_DATE
-        );
-        // clang-format on
-    }
-
-    @CheckDiscard("Validation is performed in tests and in debug builds.")
-    static List<KeyPrefix> createDeprecatedPrefixesForTesting() {
-        return Collections.EMPTY_LIST;
     }
 
     private ChromePreferenceKeys() {}

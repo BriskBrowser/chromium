@@ -2,6 +2,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+// clang-format off
+// #import {sendWithPromise, addSingletonGetter} from 'chrome://resources/js/cr.m.js';
+// clang-format on
+
 /**
  * @fileoverview A helper object used from the "CUPS printing" section to
  * interact with the browser. Used only on Chrome OS.
@@ -27,20 +31,21 @@
  *   printerProtocol: string,
  *   printerQueue: string,
  *   printerStatus: string,
+ *   printServerUri: string,
  * }}
  *
  * Note: |printerPPDPath| refers to a PPD retrieved from the user at the
  * add-printer-manufacturer-model-dialog. |printerPpdReference| refers to either
  * information retrieved from the printer or resolved via ppd_provider.
  */
-let CupsPrinterInfo;
+/* #export */ let CupsPrinterInfo;
 
 /**
  * @typedef {{
  *   printerList: !Array<!CupsPrinterInfo>,
  * }}
  */
-let CupsPrintersList;
+/* #export */ let CupsPrintersList;
 
 /**
  * @typedef {{
@@ -48,7 +53,7 @@ let CupsPrintersList;
  *   manufacturers: Array<string>
  * }}
  */
-let ManufacturersInfo;
+/* #export */ let ManufacturersInfo;
 
 /**
  * @typedef {{
@@ -56,7 +61,7 @@ let ManufacturersInfo;
  *   models: Array<string>
  * }}
  */
-let ModelsInfo;
+/* #export */ let ModelsInfo;
 
 /**
  * @typedef {{
@@ -69,7 +74,7 @@ let ModelsInfo;
  *   ppdReferenceResolved: boolean
  * }}
  */
-let PrinterMakeModel;
+/* #export */ let PrinterMakeModel;
 
 /**
  * @typedef {{
@@ -77,14 +82,14 @@ let PrinterMakeModel;
  *   ppdModel: string
  * }}
  */
-let PrinterPpdMakeModel;
+/* #export */ let PrinterPpdMakeModel;
 
 /**
  *  @enum {number}
  *  These values must be kept in sync with the PrinterSetupResult enum in
  *  chrome/browser/chromeos/printing/printer_configurer.h.
  */
-const PrinterSetupResult = {
+/* #export */ const PrinterSetupResult = {
   FATAL_ERROR: 0,
   SUCCESS: 1,
   PRINTER_UNREACHABLE: 2,
@@ -106,7 +111,7 @@ const PrinterSetupResult = {
  *  These values must be kept in sync with the PrintServerQueryResult enum in
  *  /chrome/browser/chromeos/printing/server_printers_fetcher.h
  */
-const PrintServerResult = {
+/* #export */ const PrintServerResult = {
   NO_ERRORS: 0,
   INCORRECT_URL: 1,
   CONNECTION_ERROR: 2,
@@ -123,7 +128,7 @@ let QueryFailure;
 
 cr.define('settings', function() {
   /** @interface */
-  class CupsPrintersBrowserProxy {
+  /* #export */ class CupsPrintersBrowserProxy {
     /**
      * @return {!Promise<!CupsPrintersList>}
      */
@@ -211,12 +216,17 @@ cr.define('settings', function() {
      * @return {!Promise<!CupsPrintersList>}
      */
     queryPrintServer(serverUrl) {}
+
+    /**
+     * Opens the print management app in its own window.
+     */
+    openPrintManagementApp() {}
   }
 
   /**
    * @implements {settings.CupsPrintersBrowserProxy}
    */
-  class CupsPrintersBrowserProxyImpl {
+  /* #export */ class CupsPrintersBrowserProxyImpl {
     /** @override */
     getCupsPrintersList() {
       return cr.sendWithPromise('getCupsPrintersList');
@@ -296,10 +306,16 @@ cr.define('settings', function() {
     queryPrintServer(serverUrl) {
       return cr.sendWithPromise('queryPrintServer', serverUrl);
     }
+
+    /** @override */
+    openPrintManagementApp() {
+      chrome.send('openPrintManagementApp');
+    }
   }
 
   cr.addSingletonGetter(CupsPrintersBrowserProxyImpl);
 
+  // #cr_define_end
   return {
     CupsPrintersBrowserProxy: CupsPrintersBrowserProxy,
     CupsPrintersBrowserProxyImpl: CupsPrintersBrowserProxyImpl,

@@ -10,7 +10,12 @@
 #include "base/macros.h"
 #include "base/strings/string16.h"
 #include "ui/views/controls/button/button.h"
+#include "ui/views/controls/button/image_button.h"
 #include "ui/views/view.h"
+
+namespace views {
+class Label;
+}  // namespace views
 
 class AuthenticatorRequestSheetModel;
 class NonAccessibleImageView;
@@ -22,9 +27,10 @@ class NonAccessibleImageView;
 //  -- an optional `back icon`,
 //  -- a pretty illustration in the top half of the dialog,
 //  -- the title of the current step,
-//  -- the description of the current step, and
+//  -- the description of the current step,
 //  -- an optional view with step-specific content, added by subclasses, filling
-//     the rest of the space.
+//     the rest of the space, and
+//  -- an optional contextual error.
 //
 // +-------------------------------------------------+
 // |*************************************************|
@@ -43,6 +49,7 @@ class NonAccessibleImageView;
 // | |                                             | |
 // | |                                             | |
 // | +---------------------------------------------+ |
+// |  optional contextual error                      |
 // +-------------------------------------------------+
 // |                                   OK   CANCEL   | <- Not part of this view.
 // +-------------------------------------------------+
@@ -66,7 +73,7 @@ class AuthenticatorRequestSheetView : public views::View,
   // Returns the control on this sheet that should initially have focus instead
   // of the OK/Cancel buttons on the dialog; or returns nullptr if the regular
   // dialog button should have focus.
-  views::View* GetInitiallyFocusedView();
+  virtual views::View* GetInitiallyFocusedView();
 
   AuthenticatorRequestSheetModel* model() { return model_.get(); }
 
@@ -90,13 +97,18 @@ class AuthenticatorRequestSheetView : public views::View,
   // Updates the illustration icon shown on the sheet.
   void UpdateIconImageFromModel();
 
+  // Updates the icon color.
+  void UpdateIconColors();
+
   // views::View:
   void OnThemeChanged() override;
 
   std::unique_ptr<AuthenticatorRequestSheetModel> model_;
   views::Button* back_arrow_button_ = nullptr;
+  views::ImageButton* back_arrow_ = nullptr;
   views::View* step_specific_content_ = nullptr;
   NonAccessibleImageView* step_illustration_ = nullptr;
+  views::Label* error_label_ = nullptr;
 
   DISALLOW_COPY_AND_ASSIGN(AuthenticatorRequestSheetView);
 };

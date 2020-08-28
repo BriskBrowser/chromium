@@ -110,6 +110,23 @@ std::unique_ptr<KeyedService> BuildTestHistoryService(
   return service;
 }
 
+// Blocks until the HistoryBackend is completely destroyed, to ensure the
+// destruction tasks do not interfere with a newer instance of
+// HistoryService/HistoryBackend.
+void BlockUntilHistoryBackendDestroyed(Profile* profile) {
+  history::HistoryService* history_service =
+      HistoryServiceFactory::GetForProfileWithoutCreating(profile);
+
+  // Nothing to destroy
+  if (!history_service)
+    return;
+
+  base::RunLoop run_loop;
+  history_service->SetOnBackendDestroyTask(run_loop.QuitClosure());
+  HistoryServiceFactory::ShutdownForProfile(profile);
+  run_loop.Run();
+}
+
 }  // namespace
 
 class MediaEngagementServiceTest : public ChromeRenderViewHostTestHarness,
@@ -122,7 +139,6 @@ class MediaEngagementServiceTest : public ChromeRenderViewHostTestHarness,
     if (GetParam()) {
       scoped_feature_list_.InitWithFeatures(
           {media::kRecordMediaEngagementScores,
-           history::HistoryService::kHistoryServiceUsesTaskScheduler,
            media::kMediaEngagementHTTPSOnly},
           {});
     } else {
@@ -162,7 +178,7 @@ class MediaEngagementServiceTest : public ChromeRenderViewHostTestHarness,
       scoped_refptr<base::SequencedTaskRunner> backend_runner) {
     // Triggers destruction of the existing HistoryService and waits for all
     // cleanup work to be done.
-    profile()->BlockUntilHistoryBackendDestroyed();
+    BlockUntilHistoryBackendDestroyed(profile());
 
     // Force the creation of a new HistoryService that runs its backend on
     // |backend_runner|.
@@ -362,7 +378,7 @@ TEST_P(MediaEngagementServiceTest, IncognitoEngagementService) {
   RecordVisitAndPlaybackAndAdvanceClock(origin2);
 
   MediaEngagementService* incognito_service =
-      MediaEngagementService::Get(profile()->GetOffTheRecordProfile());
+      MediaEngagementService::Get(profile()->GetPrimaryOTRProfile());
   ExpectScores(incognito_service, origin1, 0.05, 1, 1, origin1_time);
   ExpectScores(incognito_service, origin2, 0.05, 1, 1, Now());
   ExpectScores(incognito_service, origin3, 0.0, 0, 0, TimeNotSet());
@@ -397,7 +413,7 @@ TEST_P(MediaEngagementServiceTest, IncognitoOverrideRegularProfile) {
   ExpectScores(kOrigin2, 0.0, 1, 0, TimeNotSet());
 
   MediaEngagementService* incognito_service =
-      MediaEngagementService::Get(profile()->GetOffTheRecordProfile());
+      MediaEngagementService::Get(profile()->GetPrimaryOTRProfile());
   ExpectScores(incognito_service, kOrigin1, 0.05,
                MediaEngagementScore::GetScoreMinVisits(), 1, TimeNotSet());
   ExpectScores(incognito_service, kOrigin2, 0.0, 1, 0, TimeNotSet());
@@ -586,7 +602,15 @@ TEST_P(MediaEngagementServiceTest, CleanupOriginsOnHistoryDeletion) {
   }
 }
 
-TEST_P(MediaEngagementServiceTest, CleanUpDatabaseWhenHistoryIsExpired) {
+// The test is flaky: crbug.com/1042417.
+#if defined(OS_LINUX) || defined(OS_CHROMEOS) || defined(OS_ANDROID)
+#define MAYBE_CleanUpDatabaseWhenHistoryIsExpired \
+  DISABLED_CleanUpDatabaseWhenHistoryIsExpired
+#else
+#define MAYBE_CleanUpDatabaseWhenHistoryIsExpired \
+  CleanUpDatabaseWhenHistoryIsExpired
+#endif
+TEST_P(MediaEngagementServiceTest, MAYBE_CleanUpDatabaseWhenHistoryIsExpired) {
   // |origin1| will have history that is before the expiry threshold and should
   // not be deleted. |origin2| will have history either side of the threshold
   // and should also not be deleted. |origin3| will have history before the

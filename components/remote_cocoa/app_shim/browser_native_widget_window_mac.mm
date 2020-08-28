@@ -53,12 +53,6 @@
   return YES;
 }
 
-// The base implementation justs tests [self class] == [NSThemeFrame class].
-- (BOOL)_shouldFlipTrafficLightsForRTL API_AVAILABLE(macos(10.12)) {
-  return [[self window] windowTitlebarLayoutDirection] ==
-         NSUserInterfaceLayoutDirectionRightToLeft;
-}
-
 // On 10.10, this prevents the window server from treating the title bar as an
 // unconditionally-draggable region, and allows -[BridgedContentView hitTest:]
 // to choose case-by-case whether to take a mouse event or let it turn into a
@@ -70,6 +64,23 @@
 @end
 
 @implementation BrowserNativeWidgetWindow
+
+// Prevent detached tabs from glitching when the window is partially offscreen.
+// See https://crbug.com/1095717 for details.
+// This is easy to get wrong so scope very tightly to only disallow large
+// vertical jumps.
+- (NSRect)constrainFrameRect:(NSRect)rect toScreen:(NSScreen*)screen {
+  NSRect proposed = [super constrainFrameRect:rect toScreen:screen];
+  // This boils down to: use the small threshold when we're not avoiding a
+  // Dock on the bottom, and the big threshold otherwise.
+  static constexpr CGFloat kBigThreshold = 200;
+  static constexpr CGFloat kSmallThreshold = 50;
+  const CGFloat yDelta = NSMaxY(proposed) - NSMaxY(rect);
+  if (yDelta > kBigThreshold ||
+      (yDelta > kSmallThreshold && NSMinY(proposed) == 0))
+    return rect;
+  return proposed;
+}
 
 // NSWindow (PrivateAPI) overrides.
 

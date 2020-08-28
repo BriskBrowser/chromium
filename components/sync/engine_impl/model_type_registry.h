@@ -21,16 +21,12 @@
 #include "components/sync/engine/non_blocking_sync_common.h"
 #include "components/sync/engine/sync_encryption_handler.h"
 #include "components/sync/engine_impl/nudge_handler.h"
-#include "components/sync/engine_impl/uss_migrator.h"
-#include "components/sync/syncable/user_share.h"
 
 namespace syncer {
 
 class CancelationSignal;
 class CommitContributor;
 class DataTypeDebugInfoEmitter;
-class DirectoryCommitContributor;
-class DirectoryUpdateHandler;
 class KeystoreKeysHandler;
 class ModelTypeWorker;
 class UpdateHandler;
@@ -43,34 +39,18 @@ class ModelTypeRegistry : public ModelTypeConnector,
                           public SyncEncryptionHandler::Observer {
  public:
   ModelTypeRegistry(const std::vector<scoped_refptr<ModelSafeWorker>>& workers,
-                    UserShare* user_share,
                     NudgeHandler* nudge_handler,
-                    const UssMigrator& uss_migrator,
                     CancelationSignal* cancelation_signal,
                     KeystoreKeysHandler* keystore_keys_handler);
   ~ModelTypeRegistry() override;
 
-  // Enables an off-thread type for syncing.  Connects the given proxy
-  // and its task_runner to the newly created worker.
-  //
-  // Expects that the proxy's ModelType is not currently enabled.
+  // Implementation of ModelTypeConnector.
   void ConnectNonBlockingType(
       ModelType type,
       std::unique_ptr<DataTypeActivationResponse> activation_response) override;
-
-  // Disables the syncing of an off-thread type.
-  //
-  // Expects that the type is currently enabled.
-  // Deletes the worker associated with the type.
   void DisconnectNonBlockingType(ModelType type) override;
-
-  // Creates update handler and commit contributor objects for directory type.
-  // Expects that the type is not yet registered.
-  void RegisterDirectoryType(ModelType type, ModelSafeGroup group) override;
-
-  // Deletes objects related to directory type. Expects that the type is
-  // registered.
-  void UnregisterDirectoryType(ModelType type) override;
+  void ConnectProxyType(ModelType type) override;
+  void DisconnectProxyType(ModelType type) override;
 
   // Implementation of SyncEncryptionHandler::Observer.
   void OnPassphraseRequired(
@@ -126,17 +106,9 @@ class ModelTypeRegistry : public ModelTypeConnector,
   DataTypeDebugInfoEmitter* GetEmitter(ModelType type);
 
   ModelTypeSet GetEnabledNonBlockingTypes() const;
-  ModelTypeSet GetEnabledDirectoryTypes() const;
 
-  syncable::Directory* directory() const {
-    return user_share_->directory.get();
-  }
-
-  // Sets of handlers and contributors.
-  std::map<ModelType, std::unique_ptr<DirectoryCommitContributor>>
-      directory_commit_contributors_;
-  std::map<ModelType, std::unique_ptr<DirectoryUpdateHandler>>
-      directory_update_handlers_;
+  // Enabled proxy types, which don't have a worker.
+  ModelTypeSet enabled_proxy_types_;
 
   std::vector<std::unique_ptr<ModelTypeWorker>> model_type_workers_;
 
@@ -152,8 +124,6 @@ class ModelTypeRegistry : public ModelTypeConnector,
   // The known ModelSafeWorkers.
   std::map<ModelSafeGroup, scoped_refptr<ModelSafeWorker>> workers_map_;
 
-  UserShare* const user_share_;
-
   // A copy of the directory's most recent cryptographer.
   std::unique_ptr<Cryptographer> cryptographer_;
 
@@ -165,9 +135,6 @@ class ModelTypeRegistry : public ModelTypeConnector,
   ModelTypeSet encrypted_types_;
 
   NudgeHandler* const nudge_handler_;
-
-  // Function to call to migrate data from the directory to USS.
-  UssMigrator uss_migrator_;
 
   // CancelationSignal is signalled on engine shutdown. It is passed to
   // ModelTypeWorker to cancel blocking operation.

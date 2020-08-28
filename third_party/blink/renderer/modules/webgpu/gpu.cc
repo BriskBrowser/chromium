@@ -10,11 +10,11 @@
 #include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/public/platform/web_graphics_context_3d_provider.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise_resolver.h"
+#include "third_party/blink/renderer/bindings/modules/v8/v8_gpu_request_adapter_options.h"
 #include "third_party/blink/renderer/core/dom/dom_exception.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
 #include "third_party/blink/renderer/core/inspector/console_message.h"
 #include "third_party/blink/renderer/modules/webgpu/gpu_adapter.h"
-#include "third_party/blink/renderer/modules/webgpu/gpu_request_adapter_options.h"
 #include "third_party/blink/renderer/platform/graphics/gpu/dawn_control_client_holder.h"
 #include "third_party/blink/renderer/platform/heap/heap.h"
 #include "third_party/blink/renderer/platform/scheduler/public/post_cross_thread_task.h"
@@ -87,26 +87,29 @@ GPU* GPU::Create(ExecutionContext& execution_context) {
 
 GPU::GPU(ExecutionContext& execution_context,
          std::unique_ptr<WebGraphicsContext3DProvider> context_provider)
-    : ContextLifecycleObserver(&execution_context),
+    : ExecutionContextLifecycleObserver(&execution_context),
       dawn_control_client_(base::MakeRefCounted<DawnControlClientHolder>(
           std::move(context_provider))) {}
 
 GPU::~GPU() = default;
 
-void GPU::Trace(blink::Visitor* visitor) {
+void GPU::Trace(Visitor* visitor) const {
   ScriptWrappable::Trace(visitor);
-  ContextLifecycleObserver::Trace(visitor);
+  ExecutionContextLifecycleObserver::Trace(visitor);
 }
 
-void GPU::ContextDestroyed(ExecutionContext* execution_context) {
+void GPU::ContextDestroyed() {
   dawn_control_client_->Destroy();
 }
 
 void GPU::OnRequestAdapterCallback(ScriptPromiseResolver* resolver,
-                                   uint32_t adapter_server_id,
+                                   int32_t adapter_server_id,
                                    const WGPUDeviceProperties& properties) {
-  auto* adapter = MakeGarbageCollected<GPUAdapter>(
-      "Default", adapter_server_id, properties, dawn_control_client_);
+  GPUAdapter* adapter = nullptr;
+  if (adapter_server_id >= 0) {
+    adapter = MakeGarbageCollected<GPUAdapter>(
+        "Default", adapter_server_id, properties, dawn_control_client_);
+  }
   resolver->Resolve(adapter);
 }
 
@@ -118,7 +121,8 @@ ScriptPromise GPU::requestAdapter(ScriptState* script_state,
   // For now we choose kHighPerformance by default.
   gpu::webgpu::PowerPreference power_preference =
       gpu::webgpu::PowerPreference::kHighPerformance;
-  if (options->powerPreference() == "low-power") {
+  if (options->hasPowerPreference() &&
+      options->powerPreference() == "low-power") {
     power_preference = gpu::webgpu::PowerPreference::kLowPower;
   }
 

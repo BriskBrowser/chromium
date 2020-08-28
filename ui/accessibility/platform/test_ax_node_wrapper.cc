@@ -4,7 +4,7 @@
 
 #include "ui/accessibility/platform/test_ax_node_wrapper.h"
 
-#include <unordered_map>
+#include <map>
 #include <utility>
 
 #include "base/numerics/ranges.h"
@@ -21,7 +21,7 @@ namespace ui {
 namespace {
 
 // A global map from AXNodes to TestAXNodeWrappers.
-std::unordered_map<AXNode::AXID, TestAXNodeWrapper*> g_node_id_to_wrapper_map;
+std::map<AXNode::AXID, TestAXNodeWrapper*> g_node_id_to_wrapper_map;
 
 // A global coordinate offset.
 gfx::Vector2d g_offset;
@@ -34,7 +34,7 @@ float g_scale_factor = 1.0;
 //     map associated with such tree, i.e. a pair {tree, nullptr} is invalid.
 //   - For testing purposes, assume there is a single node being focused in the
 //     entire tree and if such node is deleted, focus is completely lost.
-std::unordered_map<AXTree*, AXNode*> g_focused_node_in_tree;
+std::map<AXTree*, AXNode*> g_focused_node_in_tree;
 
 // A global indicating the last node which ShowContextMenu was called from.
 AXNode* g_node_from_last_show_context_menu;
@@ -45,6 +45,10 @@ AXNode* g_node_from_last_default_action;
 
 // A global indicating that AXPlatformNodeDelegate objects are web content.
 bool g_is_web_content = false;
+
+// A map of hit test results - a map from source node ID to destination node
+// ID.
+std::map<AXNode::AXID, AXNode::AXID> g_hit_test_result;
 
 // A simple implementation of AXTreeObserver to catch when AXNodes are
 // deleted so we can delete their wrappers.
@@ -95,13 +99,25 @@ const AXNode* TestAXNodeWrapper::GetNodeFromLastDefaultAction() {
 }
 
 // static
+void TestAXNodeWrapper::SetNodeFromLastDefaultAction(AXNode* node) {
+  g_node_from_last_default_action = node;
+}
+
+// static
 std::unique_ptr<base::AutoReset<float>> TestAXNodeWrapper::SetScaleFactor(
     float value) {
   return std::make_unique<base::AutoReset<float>>(&g_scale_factor, value);
 }
 
+// static
 void TestAXNodeWrapper::SetGlobalIsWebContent(bool is_web_content) {
   g_is_web_content = is_web_content;
+}
+
+// static
+void TestAXNodeWrapper::SetHitTestResult(AXNode::AXID src_node_id,
+                                         AXNode::AXID dst_node_id) {
+  g_hit_test_result[src_node_id] = dst_node_id;
 }
 
 TestAXNodeWrapper::~TestAXNodeWrapper() {
@@ -139,7 +155,7 @@ gfx::NativeViewAccessible TestAXNodeWrapper::GetParent() {
       nullptr;
 }
 
-int TestAXNodeWrapper::GetChildCount() {
+int TestAXNodeWrapper::GetChildCount() const {
   return InternalChildCount();
 }
 
@@ -155,7 +171,10 @@ gfx::Rect TestAXNodeWrapper::GetBoundsRect(
     const AXClippingBehavior clipping_behavior,
     AXOffscreenResult* offscreen_result) const {
   switch (coordinate_system) {
-    case AXCoordinateSystem::kScreen: {
+    case AXCoordinateSystem::kScreenPhysicalPixels:
+      // For unit testing purposes, assume a device scale factor of 1 and fall
+      // through.
+    case AXCoordinateSystem::kScreenDIPs: {
       // We could optionally add clipping here if ever needed.
       gfx::RectF bounds = GetLocation();
       bounds.Offset(g_offset);
@@ -183,7 +202,10 @@ gfx::Rect TestAXNodeWrapper::GetInnerTextRangeBoundsRect(
     const AXClippingBehavior clipping_behavior,
     AXOffscreenResult* offscreen_result) const {
   switch (coordinate_system) {
-    case AXCoordinateSystem::kScreen: {
+    case AXCoordinateSystem::kScreenPhysicalPixels:
+    // For unit testing purposes, assume a device scale factor of 1 and fall
+    // through.
+    case AXCoordinateSystem::kScreenDIPs: {
       gfx::RectF bounds = GetLocation();
       // This implementation currently only deals with text node that has role
       // kInlineTextBox and kStaticText.
@@ -225,7 +247,10 @@ gfx::Rect TestAXNodeWrapper::GetHypertextRangeBoundsRect(
     const AXClippingBehavior clipping_behavior,
     AXOffscreenResult* offscreen_result) const {
   switch (coordinate_system) {
-    case AXCoordinateSystem::kScreen: {
+    case AXCoordinateSystem::kScreenPhysicalPixels:
+    // For unit testing purposes, assume a device scale factor of 1 and fall
+    // through.
+    case AXCoordinateSystem::kScreenDIPs: {
       // Ignoring start, len, and clipped, as there's no clean way to map these
       // via unit tests.
       gfx::RectF bounds = GetLocation();
@@ -240,8 +265,14 @@ gfx::Rect TestAXNodeWrapper::GetHypertextRangeBoundsRect(
 }
 
 TestAXNodeWrapper* TestAXNodeWrapper::HitTestSyncInternal(int x, int y) {
+  if (g_hit_test_result.find(node_->id()) != g_hit_test_result.end()) {
+    int result_id = g_hit_test_result[node_->id()];
+    AXNode* result_node = tree_->GetFromId(result_id);
+    return GetOrCreate(tree_, result_node);
+  }
+
   // Here we find the deepest child whose bounding box contains the given point.
-  // The assuptions are that there are no overlapping bounding rects and that
+  // The assumptions are that there are no overlapping bounding rects and that
   // all children have smaller bounding rects than their parents.
   if (!GetClippedScreenBoundsRect().Contains(gfx::Rect(x, y, 0, 0)))
     return nullptr;
@@ -259,9 +290,13 @@ TestAXNodeWrapper* TestAXNodeWrapper::HitTestSyncInternal(int x, int y) {
   return this;
 }
 
-gfx::NativeViewAccessible TestAXNodeWrapper::HitTestSync(int x, int y) {
-  TestAXNodeWrapper* wrapper =
-      HitTestSyncInternal(x / g_scale_factor, y / g_scale_factor);
+gfx::NativeViewAccessible TestAXNodeWrapper::HitTestSync(
+    int screen_physical_pixel_x,
+    int screen_physical_pixel_y) const {
+  const TestAXNodeWrapper* wrapper =
+      const_cast<TestAXNodeWrapper*>(this)->HitTestSyncInternal(
+          screen_physical_pixel_x / g_scale_factor,
+          screen_physical_pixel_y / g_scale_factor);
   return wrapper ? wrapper->ax_platform_node()->GetNativeViewAccessible()
                  : nullptr;
 }
@@ -318,7 +353,7 @@ AXPlatformNode* TestAXNodeWrapper::GetFromTreeIDAndNodeID(
 }
 
 int TestAXNodeWrapper::GetIndexInParent() {
-  return node_ ? int{node_->index_in_parent()} : -1;
+  return node_ ? int{node_->GetUnignoredIndexInParent()} : -1;
 }
 
 void TestAXNodeWrapper::ReplaceIntAttribute(int32_t node_id,
@@ -429,30 +464,22 @@ base::Optional<bool> TestAXNodeWrapper::GetTableHasColumnOrRowHeaderNode()
   return node_->GetTableHasColumnOrRowHeaderNode();
 }
 
-std::vector<int32_t> TestAXNodeWrapper::GetColHeaderNodeIds() const {
-  std::vector<int32_t> header_ids;
-  node_->GetTableCellColHeaderNodeIds(&header_ids);
-  return header_ids;
+std::vector<AXNode::AXID> TestAXNodeWrapper::GetColHeaderNodeIds() const {
+  return node_->GetTableColHeaderNodeIds();
 }
 
-std::vector<int32_t> TestAXNodeWrapper::GetColHeaderNodeIds(
+std::vector<AXNode::AXID> TestAXNodeWrapper::GetColHeaderNodeIds(
     int col_index) const {
-  std::vector<int32_t> header_ids;
-  node_->GetTableColHeaderNodeIds(col_index, &header_ids);
-  return header_ids;
+  return node_->GetTableColHeaderNodeIds(col_index);
 }
 
-std::vector<int32_t> TestAXNodeWrapper::GetRowHeaderNodeIds() const {
-  std::vector<int32_t> header_ids;
-  node_->GetTableCellRowHeaderNodeIds(&header_ids);
-  return header_ids;
+std::vector<AXNode::AXID> TestAXNodeWrapper::GetRowHeaderNodeIds() const {
+  return node_->GetTableCellRowHeaderNodeIds();
 }
 
-std::vector<int32_t> TestAXNodeWrapper::GetRowHeaderNodeIds(
+std::vector<AXNode::AXID> TestAXNodeWrapper::GetRowHeaderNodeIds(
     int row_index) const {
-  std::vector<int32_t> header_ids;
-  node_->GetTableRowHeaderNodeIds(row_index, &header_ids);
-  return header_ids;
+  return node_->GetTableRowHeaderNodeIds(row_index);
 }
 
 bool TestAXNodeWrapper::IsTableRow() const {
@@ -555,16 +582,44 @@ bool TestAXNodeWrapper::AccessibilityPerformAction(
       return true;
     }
 
-    case ax::mojom::Action::kDoDefault:
-      if (GetData().role == ax::mojom::Role::kListBoxOption ||
-          GetData().role == ax::mojom::Role::kCell) {
-        bool current_value =
-            GetData().GetBoolAttribute(ax::mojom::BoolAttribute::kSelected);
-        ReplaceBoolAttribute(ax::mojom::BoolAttribute::kSelected,
-                             !current_value);
+    case ax::mojom::Action::kDoDefault: {
+      // If a default action such as a click is performed on an element, it
+      // could result in a selected state change. In which case, the element's
+      // selected state no longer comes from focus action, so we should set
+      // |kSelectedFromFocus| to false.
+      if (GetData().HasBoolAttribute(
+              ax::mojom::BoolAttribute::kSelectedFromFocus))
+        ReplaceBoolAttribute(ax::mojom::BoolAttribute::kSelectedFromFocus,
+                             false);
+
+      switch (GetData().role) {
+        case ax::mojom::Role::kListBoxOption:
+        case ax::mojom::Role::kCell: {
+          bool current_value =
+              GetData().GetBoolAttribute(ax::mojom::BoolAttribute::kSelected);
+          ReplaceBoolAttribute(ax::mojom::BoolAttribute::kSelected,
+                               !current_value);
+          break;
+        }
+        case ax::mojom::Role::kRadioButton:
+        case ax::mojom::Role::kMenuItemRadio: {
+          if (GetData().GetCheckedState() == ax::mojom::CheckedState::kTrue)
+            ReplaceIntAttribute(
+                node_->id(), ax::mojom::IntAttribute::kCheckedState,
+                static_cast<int32_t>(ax::mojom::CheckedState::kFalse));
+          else if (GetData().GetCheckedState() ==
+                   ax::mojom::CheckedState::kFalse)
+            ReplaceIntAttribute(
+                node_->id(), ax::mojom::IntAttribute::kCheckedState,
+                static_cast<int32_t>(ax::mojom::CheckedState::kTrue));
+          break;
+        }
+        default:
+          break;
       }
-      g_node_from_last_default_action = node_;
+      SetNodeFromLastDefaultAction(node_);
       return true;
+    }
 
     case ax::mojom::Action::kSetValue:
       if (GetData().IsRangeValueSupported()) {
@@ -587,9 +642,21 @@ bool TestAXNodeWrapper::AccessibilityPerformAction(
       return true;
     }
 
-    case ax::mojom::Action::kFocus:
+    case ax::mojom::Action::kFocus: {
       g_focused_node_in_tree[tree_] = node_;
+
+      // The platform has select follows focus behavior:
+      // https://www.w3.org/TR/wai-aria-practices-1.1/#kbd_selection_follows_focus
+      // For test purpose, we support select follows focus for all elements, and
+      // not just single-selection container elements.
+      if (SupportsSelected(GetData().role)) {
+        ReplaceBoolAttribute(ax::mojom::BoolAttribute::kSelected, true);
+        ReplaceBoolAttribute(ax::mojom::BoolAttribute::kSelectedFromFocus,
+                             true);
+      }
+
       return true;
+    }
 
     case ax::mojom::Action::kShowContextMenu:
       g_node_from_last_show_context_menu = node_;
@@ -837,35 +904,58 @@ gfx::RectF TestAXNodeWrapper::GetLocation() const {
 }
 
 int TestAXNodeWrapper::InternalChildCount() const {
-  return int{node_->children().size()};
+  return int{node_->GetUnignoredChildCount()};
 }
 
 TestAXNodeWrapper* TestAXNodeWrapper::InternalGetChild(int index) const {
   CHECK_GE(index, 0);
   CHECK_LT(index, InternalChildCount());
-  return GetOrCreate(tree_, node_->children()[size_t{index}]);
+  return GetOrCreate(tree_, node_->GetUnignoredChildAtIndex(size_t{index}));
 }
 
-// Recursive helper function for GetDescendants. Aggregates all of the
+// Recursive helper function for GetUIADescendants. Aggregates all of the
 // descendants for a given node within the descendants vector.
-void TestAXNodeWrapper::Descendants(
+void TestAXNodeWrapper::UIADescendants(
     const AXNode* node,
     std::vector<gfx::NativeViewAccessible>* descendants) const {
+  if (ShouldHideChildrenForUIA(node))
+    return;
+
   for (auto it = node->UnignoredChildrenBegin();
        it != node->UnignoredChildrenEnd(); ++it) {
     descendants->emplace_back(ax_platform_node()
                                   ->GetDelegate()
                                   ->GetFromNodeID(it->id())
                                   ->GetNativeViewAccessible());
-    Descendants(it.get(), descendants);
+    UIADescendants(it.get(), descendants);
   }
 }
 
-const std::vector<gfx::NativeViewAccessible> TestAXNodeWrapper::GetDescendants()
-    const {
+const std::vector<gfx::NativeViewAccessible>
+TestAXNodeWrapper::GetUIADescendants() const {
   std::vector<gfx::NativeViewAccessible> descendants;
-  Descendants(node_, &descendants);
+  UIADescendants(node_, &descendants);
   return descendants;
+}
+
+// static
+// Needs to stay in sync with AXPlatformNodeWin::ShouldHideChildrenForUIA.
+bool TestAXNodeWrapper::ShouldHideChildrenForUIA(const AXNode* node) {
+  if (!node)
+    return false;
+
+  auto role = node->data().role;
+
+  if (ui::HasPresentationalChildren(role))
+    return true;
+
+  switch (role) {
+    case ax::mojom::Role::kLink:
+    case ax::mojom::Role::kTextField:
+      return true;
+    default:
+      return false;
+  }
 }
 
 gfx::RectF TestAXNodeWrapper::GetInlineTextRect(const int start_offset,
@@ -876,11 +966,11 @@ gfx::RectF TestAXNodeWrapper::GetInlineTextRect(const int start_offset,
   gfx::RectF location = GetLocation();
   gfx::RectF bounds;
 
-  switch (static_cast<ax::mojom::TextDirection>(
+  switch (static_cast<ax::mojom::WritingDirection>(
       GetData().GetIntAttribute(ax::mojom::IntAttribute::kTextDirection))) {
     // Currently only kNone and kLtr are supported text direction.
-    case ax::mojom::TextDirection::kNone:
-    case ax::mojom::TextDirection::kLtr: {
+    case ax::mojom::WritingDirection::kNone:
+    case ax::mojom::WritingDirection::kLtr: {
       int start_pixel_offset =
           start_offset > 0 ? character_offsets[start_offset - 1] : location.x();
       int end_pixel_offset =

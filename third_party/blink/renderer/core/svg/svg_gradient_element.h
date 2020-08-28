@@ -45,7 +45,6 @@ DECLARE_SVG_ENUM_MAP(SVGSpreadMethodType);
 
 class SVGGradientElement : public SVGElement, public SVGURIReference {
   DEFINE_WRAPPERTYPEINFO();
-  USING_GARBAGE_COLLECTED_MIXIN(SVGGradientElement);
 
  public:
   SVGAnimatedTransformList* gradientTransform() const {
@@ -64,7 +63,7 @@ class SVGGradientElement : public SVGElement, public SVGURIReference {
   const SVGGradientElement* ReferencedElement() const;
   void CollectCommonAttributes(GradientAttributes&) const;
 
-  void Trace(blink::Visitor*) override;
+  void Trace(Visitor*) const override;
 
  protected:
   SVGGradientElement(const QualifiedName&, Document&);

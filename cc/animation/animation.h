@@ -65,10 +65,6 @@ class CC_ANIMATION_EXPORT Animation : public base::RefCounted<Animation> {
   }
   void SetAnimationTimeline(AnimationTimeline* timeline);
 
-  // TODO(smcgruer): If/once ScrollTimeline is supported on normal Animations,
-  // we will need to move the promotion logic from WorkletAnimation to here.
-  virtual void PromoteScrollTimelinePendingToActive() {}
-
   scoped_refptr<ElementAnimations> element_animations() const;
 
   void set_animation_delegate(AnimationDelegate* delegate) {
@@ -96,7 +92,11 @@ class CC_ANIMATION_EXPORT Animation : public base::RefCounted<Animation> {
 
   virtual void UpdateState(bool start_ready_keyframe_models,
                            AnimationEvents* events);
-  virtual void Tick(base::TimeTicks monotonic_time);
+  // Adds TIME_UPDATED event generated in the current frame to the given
+  // animation events.
+  virtual void TakeTimeUpdatedEvent(AnimationEvents* events) {}
+  virtual void Tick(base::TimeTicks tick_time);
+  bool IsScrollLinkedAnimation() const;
 
   void AddToTicking();
   void RemoveFromTicking();
@@ -107,7 +107,6 @@ class CC_ANIMATION_EXPORT Animation : public base::RefCounted<Animation> {
   // to be dispatched.
   void DispatchAndDelegateAnimationEvent(const AnimationEvent& event);
 
-  size_t TickingKeyframeModelsCount() const;
   bool AffectsCustomProperty() const;
 
   void SetNeedsPushProperties();

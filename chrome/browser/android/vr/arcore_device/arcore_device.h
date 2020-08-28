@@ -57,7 +57,10 @@ class ArCoreDevice : public VRDeviceBase {
   void OnDrawingSurfaceReady(gfx::AcceleratedWidget window,
                              display::Display::Rotation rotation,
                              const gfx::Size& frame_size);
-  void OnDrawingSurfaceTouch(bool touching, const gfx::PointF& location);
+  void OnDrawingSurfaceTouch(bool is_primary,
+                             bool touching,
+                             int32_t pointer_id,
+                             const gfx::PointF& location);
   void OnDrawingSurfaceDestroyed();
   void OnSessionEnded();
 
@@ -126,6 +129,9 @@ class ArCoreDevice : public VRDeviceBase {
     // the callback for replying once that initialization completes. Only one
     // concurrent session is supported, other requests are rejected.
     mojom::XRRuntime::RequestSessionCallback pending_request_session_callback_;
+
+    // List of features that are enabled on the session.
+    std::vector<device::mojom::XRSessionFeature> enabled_features_;
   };
 
   // This object is reset to initial values when ending a session. This helps

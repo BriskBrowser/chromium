@@ -24,7 +24,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#include "base/clang_coverage_buildflags.h"
+#include "base/clang_profiling_buildflags.h"
 #include "base/files/scoped_file.h"
 #include "base/macros.h"
 #include "base/posix/eintr_wrapper.h"
@@ -165,6 +165,19 @@ BPF_TEST_C(BaselinePolicy, CreateThread, BaselinePolicy) {
   base::Thread thread("sandbox_tests");
   BPF_ASSERT(thread.Start());
 }
+
+// Rseq should be enabled if it exists (i.e. shouldn't receive EPERM).
+#if !defined(OS_ANDROID)
+BPF_TEST_C(BaselinePolicy, RseqEnabled, BaselinePolicy) {
+  errno = 0;
+  int res = syscall(__NR_rseq, 0, 0, 0, 0);
+
+  BPF_ASSERT_EQ(-1, res);
+  // The parameters above are invalid so the system call should fail with
+  // EINVAL, or ENOSYS if the kernel is too old to recognize the system call.
+  BPF_ASSERT(EINVAL == errno || ENOSYS == errno);
+}
+#endif  // !defined(OS_ANDROID)
 
 BPF_DEATH_TEST_C(BaselinePolicy,
                  DisallowedCloneFlagCrashes,
@@ -345,7 +358,7 @@ BPF_TEST_C(BaselinePolicy, PrctlDumpable, BaselinePolicy) {
 #define PR_CAPBSET_READ 23
 #endif
 
-#if !BUILDFLAG(CLANG_COVERAGE_INSIDE_SANDBOX)
+#if !BUILDFLAG(CLANG_PROFILING_INSIDE_SANDBOX)
 BPF_DEATH_TEST_C(BaselinePolicy,
                  PrctlSigsys,
                  DEATH_SEGV_MESSAGE(GetPrctlErrorMessageContentForTests()),

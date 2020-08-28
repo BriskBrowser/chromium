@@ -15,6 +15,7 @@
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/location.h"
+#include "base/logging.h"
 #include "base/macros.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
@@ -114,6 +115,8 @@ MountError CrosDisksMountErrorToChromeMountError(
     case cros_disks::MOUNT_ERROR_UNSUPPORTED_ARCHIVE:
       // TODO(amistry): Add MOUNT_ERROR_UNSUPPORTED_ARCHIVE.
       return MOUNT_ERROR_UNKNOWN;
+    case cros_disks::MOUNT_ERROR_NEED_PASSWORD:
+      return MOUNT_ERROR_NEED_PASSWORD;
     default:
       NOTREACHED() << "Unrecognised mount error code " << mount_error;
       return MOUNT_ERROR_UNKNOWN;

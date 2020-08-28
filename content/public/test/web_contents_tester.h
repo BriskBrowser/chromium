@@ -12,6 +12,7 @@
 #include "content/public/browser/site_instance.h"
 #include "content/public/browser/web_contents.h"
 #include "third_party/blink/public/common/input/web_input_event.h"
+#include "third_party/blink/public/common/tokens/tokens.h"
 #include "third_party/blink/public/mojom/loader/pause_subresource_loading_handle.mojom.h"
 #include "ui/base/page_transition_types.h"
 
@@ -56,6 +57,10 @@ class RenderFrameHost;
 // there is a fundamental assumption in content/ that a WebContents* can be
 // downcast to a WebContentsImpl*, and this wouldn't be true for TestWebContents
 // objects.
+//
+// Tests that use a TestWebContents must also use TestRenderViewHost and
+// TestRenderFrameHost. They can do so by instantiating a
+// RenderViewHostTestEnabler.
 class WebContentsTester {
  public:
   // Retrieves a WebContentsTester to drive tests of the specified WebContents.
@@ -154,16 +159,13 @@ class WebContentsTester {
   virtual void SetIsCurrentlyAudible(bool audible) = 0;
 
   // Simulates an input event from the user.
-  virtual void TestDidReceiveInputEvent(blink::WebInputEvent::Type type) = 0;
+  virtual void TestDidReceiveMouseDownEvent() = 0;
 
   // Simulates successfully finishing a load.
   virtual void TestDidFinishLoad(const GURL& url) = 0;
 
   // Simulates terminating an load with a network error.
-  virtual void TestDidFailLoadWithError(
-      const GURL& url,
-      int error_code,
-      const base::string16& error_description) = 0;
+  virtual void TestDidFailLoadWithError(const GURL& url, int error_code) = 0;
 
   // Returns whether PauseSubresourceLoading was called on this web contents.
   virtual bool GetPauseSubresourceLoadingCalled() = 0;
@@ -177,6 +179,12 @@ class WebContentsTester {
   // Increments/decrements the number of connected Bluetooth devices.
   virtual void TestIncrementBluetoothConnectedDeviceCount() = 0;
   virtual void TestDecrementBluetoothConnectedDeviceCount() = 0;
+
+  // Used to create portals and retrieve their WebContents.
+  virtual const blink::PortalToken& CreatePortal(
+      std::unique_ptr<WebContents> portal_web_contents) = 0;
+  virtual WebContents* GetPortalContents(
+      const blink::PortalToken& portal_token) = 0;
 };
 
 }  // namespace content

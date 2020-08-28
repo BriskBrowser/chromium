@@ -11,6 +11,7 @@
 #include <string>
 
 #include "base/callback.h"
+#include "base/callback_forward.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/synchronization/lock.h"
@@ -51,9 +52,14 @@ class BLINK_PLATFORM_EXPORT WebAudioSourceProviderImpl
                                    uint32_t frames_delayed,
                                    int sample_rate)>;
 
+  // Optionally provide a callback to be run the first time a
+  // WebAudioSourceProviderClient is attached via SetClient(). Note that the
+  // callback will be run once at most, however SetClient may be called any
+  // number of times.
   WebAudioSourceProviderImpl(
       scoped_refptr<media::SwitchableAudioRendererSink> sink,
-      media::MediaLog* media_log);
+      media::MediaLog* media_log,
+      base::OnceClosure on_set_client_callback = base::OnceClosure());
 
   // WebAudioSourceProvider implementation.
   void SetClient(WebAudioSourceProviderClient* client) override;
@@ -99,7 +105,8 @@ class BLINK_PLATFORM_EXPORT WebAudioSourceProviderImpl
   PlaybackState state_;
 
   // Closure that calls OnSetFormat() on |client_| on the renderer thread.
-  base::OnceClosure set_format_cb_;
+  base::RepeatingClosure set_format_cb_;
+
   // When set via setClient() it overrides |sink_| for consuming audio.
   WebAudioSourceProviderClient* client_;
 
@@ -114,6 +121,8 @@ class BLINK_PLATFORM_EXPORT WebAudioSourceProviderImpl
   const std::unique_ptr<TeeFilter> tee_filter_;
 
   media::MediaLog* const media_log_;
+
+  base::OnceClosure on_set_client_callback_;
 
   // NOTE: Weak pointers must be invalidated before all other member variables.
   base::WeakPtrFactory<WebAudioSourceProviderImpl> weak_factory_{this};

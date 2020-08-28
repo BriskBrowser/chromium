@@ -11,7 +11,7 @@
 #include "base/memory/weak_ptr.h"
 #include "chrome/browser/web_applications/components/externally_installed_web_app_prefs.h"
 #include "chrome/browser/web_applications/components/install_finalizer.h"
-#include "chrome/browser/web_applications/components/web_app_helpers.h"
+#include "chrome/browser/web_applications/components/web_app_id.h"
 #include "extensions/browser/install/crx_install_error.h"
 #include "extensions/common/constants.h"
 
@@ -35,9 +35,6 @@ class BookmarkAppInstallFinalizer : public web_app::InstallFinalizer {
   void FinalizeInstall(const WebApplicationInfo& web_app_info,
                        const FinalizeOptions& options,
                        InstallFinalizedCallback callback) override;
-  void FinalizeFallbackInstallAfterSync(
-      const web_app::AppId& app_id,
-      InstallFinalizedCallback callback) override;
   void FinalizeUninstallAfterSync(const web_app::AppId& app_id,
                                   UninstallWebAppCallback callback) override;
   void FinalizeUpdate(const WebApplicationInfo& web_app_info,
@@ -54,8 +51,6 @@ class BookmarkAppInstallFinalizer : public web_app::InstallFinalizer {
                                   UninstallWebAppCallback callback) override;
   bool WasExternalAppUninstalledByUser(
       const web_app::AppId& app_id) const override;
-  bool CanRevealAppShim() const override;
-  void RevealAppShim(const web_app::AppId& app_id) override;
 
   using CrxInstallerFactory =
       base::RepeatingCallback<scoped_refptr<CrxInstaller>(Profile*)>;
@@ -71,6 +66,7 @@ class BookmarkAppInstallFinalizer : public web_app::InstallFinalizer {
 
   void OnExtensionInstalled(const GURL& app_url,
                             LaunchType launch_type,
+                            bool enable_experimental_tabbed_window,
                             bool is_locally_installed,
                             bool is_system_app,
                             InstallFinalizedCallback callback,
@@ -78,6 +74,8 @@ class BookmarkAppInstallFinalizer : public web_app::InstallFinalizer {
                             const base::Optional<CrxInstallError>& error);
 
   void OnExtensionUpdated(const web_app::AppId& expected_app_id,
+                          const std::string& old_name,
+                          const WebApplicationInfo& web_app_info,
                           InstallFinalizedCallback callback,
                           scoped_refptr<CrxInstaller> crx_installer,
                           const base::Optional<CrxInstallError>& error);

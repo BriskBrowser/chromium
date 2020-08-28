@@ -8,23 +8,25 @@
 #include <memory>
 #include <string>
 
+#include "base/callback.h"
 #include "base/macros.h"
 #include "base/memory/scoped_refptr.h"
+#include "base/optional.h"
+#include "base/values.h"
 #include "content/public/browser/notification_observer.h"
 #include "content/public/browser/notification_registrar.h"
+#include "extensions/common/extension_id.h"
+#include "net/cert/x509_certificate.h"
 #include "third_party/boringssl/src/include/openssl/base.h"
 #include "third_party/boringssl/src/include/openssl/evp.h"
 
 namespace base {
+class FilePath;
 class Value;
 }
 
 namespace content {
 class BrowserContext;
-}
-
-namespace net {
-class X509Certificate;
 }
 
 // This class provides the C++ side of the test certificate provider extension's
@@ -39,12 +41,29 @@ class X509Certificate;
 class TestCertificateProviderExtension final
     : public content::NotificationObserver {
  public:
-  TestCertificateProviderExtension(content::BrowserContext* browser_context,
-                                   const std::string& extension_id);
+  static extensions::ExtensionId extension_id();
+  static base::FilePath GetExtensionSourcePath();
+  static base::FilePath GetExtensionPemPath();
+  // Returns the certificate provided by the extension.
+  static scoped_refptr<net::X509Certificate> GetCertificate();
+  static std::string GetCertificateSpki();
+
+  explicit TestCertificateProviderExtension(
+      content::BrowserContext* browser_context);
   ~TestCertificateProviderExtension() override;
 
-  const scoped_refptr<net::X509Certificate>& certificate() const {
-    return certificate_;
+  int certificate_request_count() const { return certificate_request_count_; }
+
+  // Sets the PIN that will be required when doing every signature request.
+  // (By default, no PIN is requested.)
+  void set_require_pin(const std::string& pin) { required_pin_ = pin; }
+
+  // Sets the number of remaining PIN attempts.
+  // Zero number means the lockout state, when no attempts are allowed anymore.
+  // A negative number denotes infinite number of attempts, which is the default
+  // behavior.
+  void set_remaining_pin_attempts(int remaining_pin_attempts) {
+    remaining_pin_attempts_ = remaining_pin_attempts;
   }
 
   // Sets whether the extension should respond with a failure to the
@@ -62,18 +81,31 @@ class TestCertificateProviderExtension final
   }
 
  private:
+  using ReplyToJsCallback =
+      base::OnceCallback<void(const base::Value& response)>;
+
   // content::NotificationObserver implementation:
   void Observe(int type,
                const content::NotificationSource& source,
                const content::NotificationDetails& details) override;
 
-  base::Value HandleCertificatesRequest();
-  base::Value HandleSignDigestRequest(const base::Value& sign_request);
+  void HandleCertificatesRequest(ReplyToJsCallback callback);
+  void HandleSignatureRequest(const base::Value& sign_request,
+                              const base::Value& pin_status,
+                              const base::Value& pin,
+                              ReplyToJsCallback callback);
 
   content::BrowserContext* const browser_context_;
-  const std::string extension_id_;
   const scoped_refptr<net::X509Certificate> certificate_;
   const bssl::UniquePtr<EVP_PKEY> private_key_;
+  int certificate_request_count_ = 0;
+  // When non-empty, contains the expected PIN; the implementation will request
+  // the PIN on every signature request in this case.
+  base::Optional<std::string> required_pin_;
+  // The number of remaining PIN attempts.
+  // When equal to zero, signature requests will be failed immediately; when is
+  // negative, infinite number of attempts is allowed.
+  int remaining_pin_attempts_ = -1;
   bool should_fail_certificate_requests_ = false;
   bool should_fail_sign_digest_requests_ = false;
   content::NotificationRegistrar notification_registrar_;

@@ -75,8 +75,6 @@ class TextTrack;
 // HTMLMediaElement.
 class MODULES_EXPORT MediaControlsImpl final : public HTMLDivElement,
                                                public MediaControls {
-  USING_GARBAGE_COLLECTED_MIXIN(MediaControlsImpl);
-
  public:
   static MediaControlsImpl* Create(HTMLMediaElement&, ShadowRoot&);
 
@@ -158,7 +156,7 @@ class MODULES_EXPORT MediaControlsImpl final : public HTMLDivElement,
   const MediaControlRemainingTimeDisplayElement& RemainingTimeDisplay() const;
   MediaControlToggleClosedCaptionsButtonElement& ToggleClosedCaptions();
 
-  void Trace(blink::Visitor*) override;
+  void Trace(Visitor*) const override;
 
   // Track the state of the controls.
   enum ControlsState {
@@ -280,7 +278,7 @@ class MODULES_EXPORT MediaControlsImpl final : public HTMLDivElement,
   void ElementSizeChangedTimerFired(TimerBase*);
 
   // Update any visible indicators of the current time.
-  void UpdateTimeIndicators();
+  void UpdateTimeIndicators(bool suppress_aria = false);
 
   // Hide elements that don't fit, and show those things that we want which
   // do fit.  This requires that m_effectiveWidth and m_effectiveHeight are

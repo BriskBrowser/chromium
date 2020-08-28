@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "chrome/browser/ui/cocoa/bookmarks/bookmark_menu_bridge.h"
+
 #import <AppKit/AppKit.h>
 
 #include "base/guid.h"
@@ -9,10 +11,13 @@
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/app/chrome_command_ids.h"
-#include "chrome/browser/ui/cocoa/bookmarks/bookmark_menu_bridge.h"
-#include "chrome/browser/ui/cocoa/test/cocoa_profile_test.h"
+#include "chrome/browser/bookmarks/bookmark_model_factory.h"
+#include "chrome/browser/bookmarks/managed_bookmark_service_factory.h"
+#include "chrome/browser/ui/cocoa/test/cocoa_test_helper.h"
+#include "chrome/test/base/browser_with_test_window_test.h"
 #include "chrome/test/base/testing_profile.h"
 #include "components/bookmarks/browser/bookmark_model.h"
+#include "components/bookmarks/test/bookmark_test_helpers.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #import "testing/gtest_mac.h"
 #include "testing/platform_test.h"
@@ -21,22 +26,30 @@ using base::ASCIIToUTF16;
 using bookmarks::BookmarkModel;
 using bookmarks::BookmarkNode;
 
-// TODO(jrg): see refactor comment in bookmark_bar_state_controller_unittest.mm
-class BookmarkMenuBridgeTest : public CocoaProfileTest {
+class BookmarkMenuBridgeTest : public BrowserWithTestWindowTest {
  public:
   BookmarkMenuBridgeTest() {}
 
   void SetUp() override {
-     CocoaProfileTest::SetUp();
-     ASSERT_TRUE(profile());
+    BrowserWithTestWindowTest::SetUp();
 
-     menu_.reset([[NSMenu alloc] initWithTitle:@"test"]);
-     bridge_ = std::make_unique<BookmarkMenuBridge>(profile(), menu_);
+    bookmarks::test::WaitForBookmarkModelToLoad(
+        BookmarkModelFactory::GetForBrowserContext(profile()));
+    menu_.reset([[NSMenu alloc] initWithTitle:@"test"]);
+
+    bridge_ = std::make_unique<BookmarkMenuBridge>(profile(), menu_);
   }
 
   void TearDown() override {
     bridge_ = nullptr;
-    CocoaProfileTest::TearDown();
+    BrowserWithTestWindowTest::TearDown();
+  }
+
+  TestingProfile::TestingFactories GetTestingFactories() override {
+    return {{BookmarkModelFactory::GetInstance(),
+             BookmarkModelFactory::GetDefaultFactory()},
+            {ManagedBookmarkServiceFactory::GetInstance(),
+             ManagedBookmarkServiceFactory::GetDefaultFactory()}};
   }
 
   void UpdateRootMenu() { bridge_->UpdateMenu(menu_, nullptr); }
@@ -76,6 +89,8 @@ class BookmarkMenuBridgeTest : public CocoaProfileTest {
   std::unique_ptr<BookmarkMenuBridge> bridge_;
 
  private:
+  CocoaTestHelper cocoa_test_helper_;
+
   DISALLOW_COPY_AND_ASSIGN(BookmarkMenuBridgeTest);
 };
 

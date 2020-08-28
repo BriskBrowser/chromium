@@ -34,6 +34,7 @@ class MediaStreamInterface;
 class RtpReceiverInterface;
 class SctpTransportInformation;
 class VideoTrackInterface;
+struct DataBuffer;
 }
 
 namespace blink {
@@ -165,8 +166,15 @@ struct CrossThreadCopier<blink::MediaStreamVideoTrack>
 };
 
 template <>
-struct CrossThreadCopier<webrtc::VideoTrackInterface>
-    : public CrossThreadCopierPassThrough<webrtc::VideoTrackInterface> {
+struct CrossThreadCopier<rtc::scoped_refptr<webrtc::VideoTrackInterface>>
+    : public CrossThreadCopierPassThrough<
+          rtc::scoped_refptr<webrtc::VideoTrackInterface>> {
+  STATIC_ONLY(CrossThreadCopier);
+};
+
+template <>
+struct CrossThreadCopier<webrtc::DataBuffer>
+    : public CrossThreadCopierPassThrough<webrtc::DataBuffer> {
   STATIC_ONLY(CrossThreadCopier);
 };
 

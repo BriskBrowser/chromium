@@ -12,8 +12,14 @@ import android.app.job.JobService;
 import android.content.ComponentName;
 import android.content.Context;
 import android.os.Build;
+import android.os.PersistableBundle;
 
+import androidx.annotation.VisibleForTesting;
+
+import org.chromium.android_webview.common.AwSwitches;
+import org.chromium.android_webview.common.variations.VariationsServiceMetricsHelper;
 import org.chromium.android_webview.common.variations.VariationsUtils;
+import org.chromium.base.CommandLine;
 import org.chromium.base.ContextUtils;
 import org.chromium.base.Log;
 import org.chromium.base.compat.ApiHelperForN;
@@ -21,12 +27,10 @@ import org.chromium.base.task.AsyncTask;
 import org.chromium.base.task.BackgroundOnlyAsyncTask;
 import org.chromium.components.background_task_scheduler.TaskIds;
 import org.chromium.components.variations.firstrun.VariationsSeedFetcher;
-import org.chromium.components.variations.firstrun.VariationsSeedFetcher.SeedInfo;
+import org.chromium.components.variations.firstrun.VariationsSeedFetcher.SeedFetchInfo;
 import org.chromium.components.version_info.Channel;
 import org.chromium.components.version_info.VersionConstants;
 
-import java.io.IOException;
-import java.util.Date;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -42,14 +46,32 @@ import java.util.concurrent.TimeUnit;
  */
 @TargetApi(Build.VERSION_CODES.LOLLIPOP) // for JobService
 public class AwVariationsSeedFetcher extends JobService {
+    @VisibleForTesting
+    public static final String JOB_REQUEST_COUNT_KEY = "RequestCount";
+    @VisibleForTesting
+    public static final int JOB_MAX_REQUEST_COUNT = 5;
+
     private static final String TAG = "AwVariationsSeedFet-";
     private static final int JOB_ID = TaskIds.WEBVIEW_VARIATIONS_SEED_FETCH_JOB_ID;
-    private static final long MIN_JOB_PERIOD_MILLIS = TimeUnit.DAYS.toMillis(1);
+    private static final long MIN_JOB_PERIOD_MILLIS = TimeUnit.HOURS.toMillis(12);
+    private static final int JOB_BACKOFF_POLICY = JobInfo.BACKOFF_POLICY_EXPONENTIAL;
+    private static final long JOB_INITIAL_BACKOFF_TIME_IN_MS = TimeUnit.MINUTES.toMillis(5);
+
+    /** Clock used to fake time in tests. */
+    public interface Clock { long currentTimeMillis(); }
 
     private static JobScheduler sMockJobScheduler;
     private static VariationsSeedFetcher sMockDownloader;
+    private static Clock sTestClock;
 
     private FetchTask mFetchTask;
+
+    private static long currentTimeMillis() {
+        if (sTestClock != null) {
+            return sTestClock.currentTimeMillis();
+        }
+        return System.currentTimeMillis();
+    }
 
     private static String getChannelStr() {
         switch (VersionConstants.CHANNEL) {
@@ -86,26 +108,44 @@ public class AwVariationsSeedFetcher extends JobService {
         if (scheduler == null) return;
 
         // Check if it's already scheduled.
-        if (getPendingJob(scheduler, JOB_ID) != null) {
+        if (!CommandLine.getInstance().hasSwitch(AwSwitches.FINCH_SEED_IGNORE_PENDING_DOWNLOAD)
+                && getPendingJob(scheduler, JOB_ID) != null) {
+            VariationsUtils.debugLog("Seed download job already scheduled");
             return;
         }
 
         // Check how long it's been since FetchTask last ran.
         long lastRequestTime = VariationsUtils.getStampTime();
         if (lastRequestTime != 0) {
-            long now = (new Date()).getTime();
-            if (now < lastRequestTime + MIN_JOB_PERIOD_MILLIS) {
+            long now = currentTimeMillis();
+            long minJobPeriodMillis = VariationsUtils.getDurationSwitchValueInMillis(
+                    AwSwitches.FINCH_SEED_MIN_DOWNLOAD_PERIOD, MIN_JOB_PERIOD_MILLIS);
+            if (now < lastRequestTime + minJobPeriodMillis) {
+                VariationsUtils.debugLog("Throttling seed download job");
                 return;
             }
         }
 
-        ComponentName thisComponent = new ComponentName(
-                ContextUtils.getApplicationContext(), AwVariationsSeedFetcher.class);
-        JobInfo job = new JobInfo.Builder(JOB_ID, thisComponent)
-                .setRequiredNetworkType(JobInfo.NETWORK_TYPE_ANY)
-                .setRequiresCharging(true)
-                .build();
-        if (scheduler.schedule(job) != JobScheduler.RESULT_SUCCESS) {
+        VariationsUtils.debugLog("Scheduling seed download job");
+        Context context = ContextUtils.getApplicationContext();
+        ComponentName thisComponent = new ComponentName(context, AwVariationsSeedFetcher.class);
+        PersistableBundle extras = new PersistableBundle(/*capacity=*/1);
+        extras.putInt(JOB_REQUEST_COUNT_KEY, 0);
+        JobInfo job =
+                new JobInfo.Builder(JOB_ID, thisComponent)
+                        .setRequiredNetworkType(JobInfo.NETWORK_TYPE_ANY)
+                        .setRequiresCharging(true)
+                        .setBackoffCriteria(JOB_INITIAL_BACKOFF_TIME_IN_MS, JOB_BACKOFF_POLICY)
+                        .setExtras(extras)
+                        .build();
+        if (scheduler.schedule(job) == JobScheduler.RESULT_SUCCESS) {
+            VariationsServiceMetricsHelper metrics =
+                    VariationsServiceMetricsHelper.fromVariationsSharedPreferences(context);
+            metrics.setLastEnqueueTime(currentTimeMillis());
+            if (!metrics.writeMetricsToVariationsSharedPreferences(context)) {
+                Log.e(TAG, "Failed to write variations SharedPreferences to disk");
+            }
+        } else {
             Log.e(TAG, "Failed to schedule job");
         }
     }
@@ -119,37 +159,66 @@ public class AwVariationsSeedFetcher extends JobService {
 
         @Override
         protected Void doInBackground() {
-            // Should we call jobFinished at the end of this task?
+            // Should we call onFinished at the end of this task?
             boolean shouldFinish = true;
+            // Should we retry the job?
+            boolean needsReschedule = false;
+            long startTime = currentTimeMillis();
 
             try {
                 VariationsUtils.updateStampTime();
 
+                VariationsUtils.debugLog("Downloading new seed");
                 VariationsSeedFetcher downloader =
                         sMockDownloader != null ? sMockDownloader : VariationsSeedFetcher.get();
                 String milestone = String.valueOf(VersionConstants.PRODUCT_MAJOR_VERSION);
-                SeedInfo newSeed = downloader.downloadContent(
+                SeedFetchInfo fetchInfo = downloader.downloadContent(
                         VariationsSeedFetcher.VariationsPlatform.ANDROID_WEBVIEW,
                         /*restrictMode=*/null, milestone, getChannelStr());
+
+                saveMetrics(fetchInfo.seedFetchResult, startTime, /*endTime=*/currentTimeMillis());
 
                 if (isCancelled()) {
                     return null;
                 }
 
-                if (newSeed != null) {
-                    VariationsSeedHolder.getInstance().updateSeed(
-                            newSeed, /*onFinished=*/() -> jobFinished(mParams));
+                // VariationsSeedFetcher returns a negative status code for IOExceptions or other
+                // failures that indicate the HTTP request didn't complete.
+                if (fetchInfo.seedFetchResult < 0) {
+                    int requestCount = mParams.getExtras().getInt(JOB_REQUEST_COUNT_KEY) + 1;
+                    mParams.getExtras().putInt(JOB_REQUEST_COUNT_KEY, requestCount);
+                    // Limit the retries to JOB_MAX_REQUEST_COUNT.
+                    needsReschedule = (requestCount <= JOB_MAX_REQUEST_COUNT);
+                }
+                if (fetchInfo.seedInfo != null) {
+                    VariationsSeedHolder.getInstance().updateSeed(fetchInfo.seedInfo,
+                            /*onFinished=*/() -> onFinished(mParams, /*needsReschedule=*/false));
                     shouldFinish = false; // jobFinished will be deferred until updateSeed is done.
                 }
-            } catch (IOException e) {
-                // downloadContent() logs and re-throws these exceptions, so there's no need to log
-                // here. IOException includes SocketTimeoutException and UnknownHostException,
-                // which may happen inside downloadContent().
             } finally {
-                if (shouldFinish) jobFinished(mParams);
+                if (shouldFinish) onFinished(mParams, needsReschedule);
             }
 
             return null;
+        }
+
+        private void saveMetrics(int seedFetchResult, long startTime, long endTime) {
+            Context context = ContextUtils.getApplicationContext();
+            VariationsServiceMetricsHelper metrics =
+                    VariationsServiceMetricsHelper.fromVariationsSharedPreferences(context);
+            metrics.setSeedFetchResult(seedFetchResult);
+            metrics.setSeedFetchTime(endTime - startTime);
+            if (metrics.hasLastEnqueueTime()) {
+                metrics.setJobQueueTime(startTime - metrics.getLastEnqueueTime());
+            }
+            if (metrics.hasLastJobStartTime()) {
+                metrics.setJobInterval(startTime - metrics.getLastJobStartTime());
+            }
+            metrics.clearLastEnqueueTime();
+            metrics.setLastJobStartTime(startTime);
+            if (!metrics.writeMetricsToVariationsSharedPreferences(context)) {
+                Log.e(TAG, "Failed to write variations SharedPreferences to disk");
+            }
         }
     }
 
@@ -171,13 +240,17 @@ public class AwVariationsSeedFetcher extends JobService {
         return false;
     }
 
-    protected void jobFinished(JobParameters params) {
+    protected void onFinished(JobParameters params, boolean needsReschedule) {
         assert params.getJobId() == JOB_ID;
-        jobFinished(params, /*needsReschedule=*/false);
+        jobFinished(params, needsReschedule);
     }
 
     public static void setMocks(JobScheduler scheduler, VariationsSeedFetcher fetcher) {
         sMockJobScheduler = scheduler;
         sMockDownloader = fetcher;
+    }
+
+    public static void setTestClock(Clock clock) {
+        sTestClock = clock;
     }
 }

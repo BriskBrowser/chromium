@@ -13,8 +13,8 @@
 #include "base/optional.h"
 #include "base/strings/nullable_string16.h"
 #include "base/strings/string16.h"
+#include "services/device/public/mojom/screen_orientation_lock_types.mojom-shared.h"
 #include "third_party/blink/public/common/common_export.h"
-#include "third_party/blink/public/common/screen_orientation/web_screen_orientation_lock_type.h"
 #include "third_party/blink/public/mojom/manifest/display_mode.mojom.h"
 #include "third_party/skia/include/core/SkColor.h"
 #include "ui/gfx/geometry/size.h"
@@ -31,7 +31,7 @@ struct BLINK_COMMON_EXPORT Manifest {
   struct BLINK_COMMON_EXPORT ImageResource {
     enum class Purpose {
       ANY = 0,
-      BADGE,
+      MONOCHROME,
       MASKABLE,
       IMAGE_RESOURCE_PURPOSE_LAST = MASKABLE,
     };
@@ -126,6 +126,12 @@ struct BLINK_COMMON_EXPORT Manifest {
     std::map<base::string16, std::vector<base::string16>> accept;
   };
 
+  // Structure representing a Protocol Handler.
+  struct BLINK_COMMON_EXPORT ProtocolHandler {
+    base::string16 protocol;
+    GURL url;
+  };
+
   // Structure representing a related application.
   struct BLINK_COMMON_EXPORT RelatedApplication {
     RelatedApplication();
@@ -165,11 +171,16 @@ struct BLINK_COMMON_EXPORT Manifest {
 
   // Set to DisplayMode::kUndefined if the parsing failed or the field was not
   // present.
-  blink::mojom::DisplayMode display;
+  blink::mojom::DisplayMode display = blink::mojom::DisplayMode::kUndefined;
 
-  // Set to blink::WebScreenOrientationLockDefault if the parsing failed or the
-  // field was not present.
-  blink::WebScreenOrientationLockType orientation;
+  // Empty if the parsing failed, the field was not present, or all the
+  // values inside the JSON array were invalid.
+  std::vector<blink::mojom::DisplayMode> display_override;
+
+  // Set to device::mojom::ScreenOrientationLockType::DEFAULT if the parsing
+  // failed or the field was not present.
+  device::mojom::ScreenOrientationLockType orientation =
+      device::mojom::ScreenOrientationLockType::DEFAULT;
 
   // Empty if the parsing failed, the field was not present, or all the
   // icons inside the JSON array were invalid.
@@ -183,10 +194,17 @@ struct BLINK_COMMON_EXPORT Manifest {
   base::Optional<ShareTarget> share_target;
 
   // Empty if parsing failed or the field was not present.
-  // TODO(harrisjay): This field is non-standard and part of a Chrome
+  // TODO(crbug.com/829689): This field is non-standard and part of a Chrome
   // experiment. See:
   // https://github.com/WICG/file-handling/blob/master/explainer.md
   std::vector<FileHandler> file_handlers;
+
+  // Empty if parsing failed or the field was not present.
+  // TODO(crbug.com/1019239): This is going into the mainline manifest spec,
+  // remove the TODO once that PR goes in.
+  // The URLProtocolHandler explainer can be found here:
+  // https://github.com/MicrosoftEdge/MSEdgeExplainers/blob/master/URLProtocolHandler/explainer.md
+  std::vector<ProtocolHandler> protocol_handlers;
 
   // Empty if the parsing failed, the field was not present, empty or all the
   // applications inside the array were invalid. The order of the array
@@ -196,7 +214,7 @@ struct BLINK_COMMON_EXPORT Manifest {
   // A boolean that is used as a hint for the user agent to say that related
   // applications should be preferred over the web application. False if missing
   // or there is a parsing failure.
-  bool prefer_related_applications;
+  bool prefer_related_applications = false;
 
   // Null if field is not present or parsing failed.
   base::Optional<SkColor> theme_color;

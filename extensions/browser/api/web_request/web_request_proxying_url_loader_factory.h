@@ -25,6 +25,7 @@
 #include "mojo/public/cpp/bindings/remote.h"
 #include "net/base/completion_once_callback.h"
 #include "net/traffic_annotation/network_traffic_annotation.h"
+#include "services/metrics/public/cpp/ukm_source_id.h"
 #include "services/network/public/cpp/resource_request.h"
 #include "services/network/public/mojom/network_context.mojom.h"
 #include "services/network/public/mojom/url_loader.mojom.h"
@@ -54,6 +55,7 @@ class WebRequestProxyingURLLoaderFactory
         int32_t routing_id,
         int32_t network_service_request_id,
         uint32_t options,
+        ukm::SourceId ukm_source_id,
         const network::ResourceRequest& request,
         const net::MutableNetworkTrafficAnnotationTag& traffic_annotation,
         mojo::PendingReceiver<network::mojom::URLLoader> loader_receiver,
@@ -67,9 +69,11 @@ class WebRequestProxyingURLLoaderFactory
     void Restart();
 
     // network::mojom::URLLoader:
-    void FollowRedirect(const std::vector<std::string>& removed_headers,
-                        const net::HttpRequestHeaders& modified_headers,
-                        const base::Optional<GURL>& new_url) override;
+    void FollowRedirect(
+        const std::vector<std::string>& removed_headers,
+        const net::HttpRequestHeaders& modified_headers,
+        const net::HttpRequestHeaders& modified_cors_exempt_headers,
+        const base::Optional<GURL>& new_url) override;
     void SetPriority(net::RequestPriority priority,
                      int32_t intra_priority_value) override;
     void PauseReadingBodyFromNet() override;
@@ -104,15 +108,41 @@ class WebRequestProxyingURLLoaderFactory
                            OnHeadersReceivedCallback callback) override;
 
    private:
+    // The state of an InprogressRequest. This is reported via UMA and UKM
+    // at the end of the request, so do not change enum values.
+    enum State {
+      kInProgress = 0,
+      kInProgressWithFinalResponseReceived,
+      kInvalid,  // This is an invalid state and must not be recorded.
+      kRedirectFollowedByAnotherInProgressRequest,
+      kRejectedByNetworkError,
+      kRejectedByNetworkErrorAfterReceivingFinalResponse,
+      kDetachedFromClient,
+      kDetachedFromClientAfterReceivingResponse,
+      kRejectedByOnBeforeRequest,
+      kRejectedByOnBeforeSendHeaders,
+      kRejectedByOnHeadersReceivedForFinalResponse,
+      kRejectedByOnHeadersReceivedForRedirect,
+      kRejectedByOnHeadersReceivedForAuth,
+      kRejectedByOnAuthRequired,
+      kCompleted,
+      kMaxValue = kCompleted,
+    };
     // These two methods combined form the implementation of Restart().
     void UpdateRequestInfo();
     void RestartInternal();
 
-    void ContinueToBeforeSendHeaders(int error_code);
-    void ContinueToSendHeaders(const std::set<std::string>& removed_headers,
+    void ContinueToBeforeSendHeaders(State state_on_error, int error_code);
+    void ContinueToBeforeSendHeadersWithOk();
+    void ContinueToSendHeaders(State state_on_error,
+                               const std::set<std::string>& removed_headers,
                                const std::set<std::string>& set_headers,
                                int error_code);
-    void ContinueToStartRequest(int error_code);
+    void ContinueToSendHeadersWithOk(
+        const std::set<std::string>& removed_headers,
+        const std::set<std::string>& set_headers);
+    void ContinueToStartRequest(State state_on_error, int error_code);
+    void ContinueToStartRequestWithOk();
     void ContinueToHandleOverrideHeaders(int error_code);
     void ContinueToResponseStarted(int error_code);
     void ContinueAuthRequest(const net::AuthChallengeInfo& auth_info,
@@ -125,7 +155,10 @@ class WebRequestProxyingURLLoaderFactory
                                   int error_code);
     void HandleResponseOrRedirectHeaders(
         net::CompletionOnceCallback continuation);
-    void OnRequestError(const network::URLLoaderCompletionStatus& status);
+    void OnRequestError(const network::URLLoaderCompletionStatus& status,
+                        State state);
+    void OnNetworkError(const network::URLLoaderCompletionStatus& status);
+    void OnClientDisconnected();
     void OnLoaderDisconnected(uint32_t custom_reason,
                               const std::string& description);
     bool IsRedirectSafe(const GURL& from_url,
@@ -140,6 +173,7 @@ class WebRequestProxyingURLLoaderFactory
     const int32_t network_service_request_id_ = 0;
     const int32_t routing_id_ = 0;
     const uint32_t options_ = 0;
+    const ukm::SourceId ukm_source_id_;
     const net::MutableNetworkTrafficAnnotationTag traffic_annotation_;
     mojo::Receiver<network::mojom::URLLoader> proxied_loader_receiver_;
     mojo::Remote<network::mojom::URLLoaderClient> target_client_;
@@ -177,6 +211,7 @@ class WebRequestProxyingURLLoaderFactory
     OnHeadersReceivedCallback on_headers_received_callback_;
     mojo::Receiver<network::mojom::TrustedHeaderClient> header_client_receiver_{
         this};
+    bool is_header_client_receiver_paused_ = false;
 
     // If |has_any_extra_headers_listeners_| is set to false and a redirect is
     // in progress, this stores the parameters to FollowRedirect that came from
@@ -187,11 +222,13 @@ class WebRequestProxyingURLLoaderFactory
       ~FollowRedirectParams();
       std::vector<std::string> removed_headers;
       net::HttpRequestHeaders modified_headers;
+      net::HttpRequestHeaders modified_cors_exempt_headers;
       base::Optional<GURL> new_url;
 
       DISALLOW_COPY_AND_ASSIGN(FollowRedirectParams);
     };
     std::unique_ptr<FollowRedirectParams> pending_follow_redirect_params_;
+    State state_ = State::kInProgress;
 
     base::WeakPtrFactory<InProgressRequest> weak_factory_{this};
 
@@ -201,6 +238,7 @@ class WebRequestProxyingURLLoaderFactory
   WebRequestProxyingURLLoaderFactory(
       content::BrowserContext* browser_context,
       int render_process_id,
+      int frame_id,
       WebRequestAPI::RequestIDGenerator* request_id_generator,
       std::unique_ptr<ExtensionNavigationUIData> navigation_ui_data,
       base::Optional<int64_t> navigation_id,
@@ -217,6 +255,7 @@ class WebRequestProxyingURLLoaderFactory
   static void StartProxying(
       content::BrowserContext* browser_context,
       int render_process_id,
+      int frame_id,
       WebRequestAPI::RequestIDGenerator* request_id_generator,
       std::unique_ptr<ExtensionNavigationUIData> navigation_ui_data,
       base::Optional<int64_t> navigation_id,
@@ -274,6 +313,7 @@ class WebRequestProxyingURLLoaderFactory
 
   content::BrowserContext* const browser_context_;
   const int render_process_id_;
+  const int frame_id_;
   WebRequestAPI::RequestIDGenerator* const request_id_generator_;
   std::unique_ptr<ExtensionNavigationUIData> navigation_ui_data_;
   base::Optional<int64_t> navigation_id_;
@@ -286,6 +326,13 @@ class WebRequestProxyingURLLoaderFactory
 
   const content::ContentBrowserClient::URLLoaderFactoryType
       loader_factory_type_;
+  // A UKM source ID associated with the initiator frame.
+  // This is non-const and optional, because at the construction timing the
+  // frame hasn't been fully committed yet. See
+  // https://groups.google.com/a/chromium.org/forum/#!msg/navigation-dev/zsEzPKm-COk/N7k58Fa8BgAJ.
+  // TODO(yhirano): Make this const non-optional when it is fixed.
+  // This is calculated correctly only for factories for subresource requests.
+  base::Optional<ukm::SourceId> ukm_source_id_;
 
   // Mapping from our own internally generated request ID to an
   // InProgressRequest instance.

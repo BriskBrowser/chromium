@@ -30,14 +30,14 @@ using ::testing::IsEmpty;
 using ::testing::NiceMock;
 using ::testing::Not;
 using ::testing::Return;
-using ::testing::ReturnArg;
 using ::testing::SaveArg;
 using ::testing::StrEq;
 using ::testing::StrictMock;
 
-// A callback that matches the signature of base::WriteFile
+// A callback that matches the signature of the StringPiece variant of
+// base::WriteFile().
 using WriteCallback =
-    base::RepeatingCallback<int(const base::FilePath&, const char*, int)>;
+    base::RepeatingCallback<bool(const base::FilePath&, base::StringPiece)>;
 using DeleteCallback =
     password_manager::PasswordManagerExporter::DeleteCallback;
 using SetPosixFilePermissionsCallback =
@@ -53,7 +53,7 @@ const base::FilePath::CharType kNullFileName[] = FILE_PATH_LITERAL("/dev/null");
 class FakeCredentialProvider
     : public password_manager::CredentialProviderInterface {
  public:
-  FakeCredentialProvider() {}
+  FakeCredentialProvider() = default;
 
   void SetPasswordList(
       const std::vector<std::unique_ptr<autofill::PasswordForm>>&
@@ -83,7 +83,7 @@ class FakeCredentialProvider
 // Creates a hardcoded set of credentials for tests.
 std::vector<std::unique_ptr<autofill::PasswordForm>> CreatePasswordList() {
   auto password_form = std::make_unique<autofill::PasswordForm>();
-  password_form->origin = GURL("http://accounts.google.com/a/LoginAuth");
+  password_form->url = GURL("http://accounts.google.com/a/LoginAuth");
   password_form->username_value = base::ASCIIToUTF16("test@gmail.com");
   password_form->password_value = base::ASCIIToUTF16("test1");
 
@@ -102,15 +102,12 @@ class PasswordManagerExporterTest : public testing::Test {
     exporter_.SetDeleteForTesting(mock_delete_file_.Get());
     exporter_.SetSetPosixFilePermissionsForTesting(
         mock_set_posix_file_permissions_.Get());
-    password_list_ = CreatePasswordList();
-    fake_credential_provider_.SetPasswordList(password_list_);
   }
 
   ~PasswordManagerExporterTest() override = default;
 
  protected:
   base::test::TaskEnvironment task_environment_;
-  std::vector<std::unique_ptr<autofill::PasswordForm>> password_list_;
   FakeCredentialProvider fake_credential_provider_;
   base::MockCallback<base::RepeatingCallback<
       void(password_manager::ExportProgressStatus, const std::string&)>>
@@ -128,12 +125,14 @@ class PasswordManagerExporterTest : public testing::Test {
 };
 
 TEST_F(PasswordManagerExporterTest, PasswordExportSetPasswordListFirst) {
+  std::vector<std::unique_ptr<autofill::PasswordForm>> password_list =
+      CreatePasswordList();
+  fake_credential_provider_.SetPasswordList(password_list);
   const std::string serialised(
-      password_manager::PasswordCSVWriter::SerializePasswords(password_list_));
+      password_manager::PasswordCSVWriter::SerializePasswords(password_list));
 
-  EXPECT_CALL(mock_write_file_,
-              Run(destination_path_, StrEq(serialised), serialised.size()))
-      .WillOnce(ReturnArg<2>());
+  EXPECT_CALL(mock_write_file_, Run(destination_path_, StrEq(serialised)))
+      .WillOnce(Return(true));
   EXPECT_CALL(
       mock_on_progress_,
       Run(password_manager::ExportProgressStatus::IN_PROGRESS, IsEmpty()));
@@ -150,34 +149,12 @@ TEST_F(PasswordManagerExporterTest, PasswordExportSetPasswordListFirst) {
 // When writing fails, we should notify the UI of the failure and try to cleanup
 // a possibly partial passwords file.
 TEST_F(PasswordManagerExporterTest, WriteFileFailed) {
+  fake_credential_provider_.SetPasswordList(CreatePasswordList());
   const std::string destination_folder_name(
       destination_path_.DirName().BaseName().AsUTF8Unsafe());
 
-  EXPECT_CALL(mock_write_file_, Run(_, _, _)).WillOnce(Return(-1));
-  EXPECT_CALL(mock_delete_file_, Run(destination_path_, false));
-  EXPECT_CALL(
-      mock_on_progress_,
-      Run(password_manager::ExportProgressStatus::IN_PROGRESS, IsEmpty()));
-  EXPECT_CALL(mock_on_progress_,
-              Run(password_manager::ExportProgressStatus::FAILED_WRITE_FAILED,
-                  StrEq(destination_folder_name)));
-
-  exporter_.PreparePasswordsForExport();
-  exporter_.SetDestination(destination_path_);
-
-  task_environment_.RunUntilIdle();
-}
-
-// A partial write should be considered a failure and be cleaned up.
-TEST_F(PasswordManagerExporterTest, WriteFileFailedHalfway) {
-  const std::string serialised(
-      password_manager::PasswordCSVWriter::SerializePasswords(password_list_));
-  const std::string destination_folder_name(
-      destination_path_.DirName().BaseName().AsUTF8Unsafe());
-
-  EXPECT_CALL(mock_write_file_, Run(_, _, _))
-      .WillOnce(Return(serialised.size() / 2));
-  EXPECT_CALL(mock_delete_file_, Run(destination_path_, false));
+  EXPECT_CALL(mock_write_file_, Run(_, _)).WillOnce(Return(false));
+  EXPECT_CALL(mock_delete_file_, Run(destination_path_));
   EXPECT_CALL(
       mock_on_progress_,
       Run(password_manager::ExportProgressStatus::IN_PROGRESS, IsEmpty()));
@@ -194,8 +171,11 @@ TEST_F(PasswordManagerExporterTest, WriteFileFailedHalfway) {
 // Test that GetProgressStatus() returns the last ExportProgressStatus sent
 // to the callback.
 TEST_F(PasswordManagerExporterTest, GetProgressReturnsLastCallbackStatus) {
+  std::vector<std::unique_ptr<autofill::PasswordForm>> password_list =
+      CreatePasswordList();
+  fake_credential_provider_.SetPasswordList(password_list);
   const std::string serialised(
-      password_manager::PasswordCSVWriter::SerializePasswords(password_list_));
+      password_manager::PasswordCSVWriter::SerializePasswords(password_list));
   const std::string destination_folder_name(
       destination_path_.DirName().BaseName().AsUTF8Unsafe());
 
@@ -203,7 +183,7 @@ TEST_F(PasswordManagerExporterTest, GetProgressReturnsLastCallbackStatus) {
   password_manager::ExportProgressStatus status =
       password_manager::ExportProgressStatus::NOT_STARTED;
 
-  EXPECT_CALL(mock_write_file_, Run(_, _, _)).WillOnce(ReturnArg<2>());
+  EXPECT_CALL(mock_write_file_, Run(_, _)).WillOnce(Return(true));
   EXPECT_CALL(mock_on_progress_, Run(_, _)).WillRepeatedly(SaveArg<0>(&status));
 
   ASSERT_EQ(exporter_.GetProgressStatus(), status);
@@ -216,7 +196,9 @@ TEST_F(PasswordManagerExporterTest, GetProgressReturnsLastCallbackStatus) {
 }
 
 TEST_F(PasswordManagerExporterTest, DontExportWithOnlyDestination) {
-  EXPECT_CALL(mock_write_file_, Run(_, _, _)).Times(0);
+  fake_credential_provider_.SetPasswordList(CreatePasswordList());
+
+  EXPECT_CALL(mock_write_file_, Run(_, _)).Times(0);
   EXPECT_CALL(
       mock_on_progress_,
       Run(password_manager::ExportProgressStatus::IN_PROGRESS, IsEmpty()));
@@ -227,7 +209,9 @@ TEST_F(PasswordManagerExporterTest, DontExportWithOnlyDestination) {
 }
 
 TEST_F(PasswordManagerExporterTest, CancelAfterPasswords) {
-  EXPECT_CALL(mock_write_file_, Run(_, _, _)).Times(0);
+  fake_credential_provider_.SetPasswordList(CreatePasswordList());
+
+  EXPECT_CALL(mock_write_file_, Run(_, _)).Times(0);
   EXPECT_CALL(
       mock_on_progress_,
       Run(password_manager::ExportProgressStatus::FAILED_CANCELLED, IsEmpty()));
@@ -239,8 +223,10 @@ TEST_F(PasswordManagerExporterTest, CancelAfterPasswords) {
 }
 
 TEST_F(PasswordManagerExporterTest, CancelWhileExporting) {
-  EXPECT_CALL(mock_write_file_, Run(_, _, _)).Times(0);
-  EXPECT_CALL(mock_delete_file_, Run(destination_path_, false));
+  fake_credential_provider_.SetPasswordList(CreatePasswordList());
+
+  EXPECT_CALL(mock_write_file_, Run(_, _)).Times(0);
+  EXPECT_CALL(mock_delete_file_, Run(destination_path_));
   EXPECT_CALL(
       mock_on_progress_,
       Run(password_manager::ExportProgressStatus::IN_PROGRESS, IsEmpty()));
@@ -258,8 +244,10 @@ TEST_F(PasswordManagerExporterTest, CancelWhileExporting) {
 // The "Cancel" button may still be visible on the UI after we've completed
 // exporting. If they choose to cancel, we should clear the file.
 TEST_F(PasswordManagerExporterTest, CancelAfterExporting) {
-  EXPECT_CALL(mock_write_file_, Run(_, _, _)).WillOnce(ReturnArg<2>());
-  EXPECT_CALL(mock_delete_file_, Run(destination_path_, false));
+  fake_credential_provider_.SetPasswordList(CreatePasswordList());
+
+  EXPECT_CALL(mock_write_file_, Run(_, _)).WillOnce(Return(true));
+  EXPECT_CALL(mock_delete_file_, Run(destination_path_));
   EXPECT_CALL(
       mock_on_progress_,
       Run(password_manager::ExportProgressStatus::IN_PROGRESS, IsEmpty()));
@@ -283,7 +271,9 @@ TEST_F(PasswordManagerExporterTest, CancelAfterExporting) {
 // Chrome creates files using the broadest permissions allowed. Passwords are
 // sensitive and should be explicitly limited to the owner.
 TEST_F(PasswordManagerExporterTest, OutputHasRestrictedPermissions) {
-  EXPECT_CALL(mock_write_file_, Run(_, _, _)).WillOnce(ReturnArg<2>());
+  fake_credential_provider_.SetPasswordList(CreatePasswordList());
+
+  EXPECT_CALL(mock_write_file_, Run(_, _)).WillOnce(Return(true));
   EXPECT_CALL(mock_set_posix_file_permissions_, Run(destination_path_, 0600))
       .WillOnce(Return(true));
   EXPECT_CALL(mock_on_progress_, Run(_, _)).Times(AnyNumber());
@@ -294,5 +284,40 @@ TEST_F(PasswordManagerExporterTest, OutputHasRestrictedPermissions) {
   task_environment_.RunUntilIdle();
 }
 #endif
+
+TEST_F(PasswordManagerExporterTest, DeduplicatesAcrossPasswordStores) {
+  auto password = std::make_unique<autofill::PasswordForm>();
+  password->in_store = autofill::PasswordForm::Store::kProfileStore;
+  password->url = GURL("http://g.com/auth");
+  password->username_value = base::ASCIIToUTF16("user");
+  password->password_value = base::ASCIIToUTF16("password");
+
+  auto password_duplicate = std::make_unique<autofill::PasswordForm>(*password);
+  password_duplicate->in_store = autofill::PasswordForm::Store::kAccountStore;
+
+  std::vector<std::unique_ptr<autofill::PasswordForm>> password_list;
+  password_list.push_back(std::move(password));
+  const std::string single_password_serialised(
+      password_manager::PasswordCSVWriter::SerializePasswords(password_list));
+  password_list.push_back(std::move(password_duplicate));
+  fake_credential_provider_.SetPasswordList(password_list);
+
+  // The content written to the file should be the same as what would be
+  // computed before the duplicated password was added.
+  EXPECT_CALL(mock_write_file_,
+              Run(destination_path_, StrEq(single_password_serialised)))
+      .WillOnce(Return(true));
+  EXPECT_CALL(
+      mock_on_progress_,
+      Run(password_manager::ExportProgressStatus::IN_PROGRESS, IsEmpty()));
+  EXPECT_CALL(
+      mock_on_progress_,
+      Run(password_manager::ExportProgressStatus::SUCCEEDED, IsEmpty()));
+
+  exporter_.PreparePasswordsForExport();
+  exporter_.SetDestination(destination_path_);
+
+  task_environment_.RunUntilIdle();
+}
 
 }  // namespace

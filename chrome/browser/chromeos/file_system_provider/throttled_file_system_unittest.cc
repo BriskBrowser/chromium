@@ -74,11 +74,11 @@ TEST_F(FileSystemProviderThrottledFileSystemTest, OpenFile_LimitedToOneAtOnce) {
 
   OpenLog first_open_log;
   file_system_->OpenFile(base::FilePath(kFakeFilePath), OPEN_FILE_MODE_READ,
-                         base::Bind(&LogOpen, &first_open_log));
+                         base::BindOnce(&LogOpen, &first_open_log));
 
   OpenLog second_open_log;
   file_system_->OpenFile(base::FilePath(kFakeFilePath), OPEN_FILE_MODE_READ,
-                         base::Bind(&LogOpen, &second_open_log));
+                         base::BindOnce(&LogOpen, &second_open_log));
 
   base::RunLoop().RunUntilIdle();
 
@@ -89,7 +89,7 @@ TEST_F(FileSystemProviderThrottledFileSystemTest, OpenFile_LimitedToOneAtOnce) {
   // Close the first file.
   StatusLog close_log;
   file_system_->CloseFile(first_open_log[0].first,
-                          base::Bind(&LogStatus, &close_log));
+                          base::BindOnce(&LogStatus, &close_log));
 
   base::RunLoop().RunUntilIdle();
   ASSERT_EQ(1u, close_log.size());
@@ -107,11 +107,11 @@ TEST_F(FileSystemProviderThrottledFileSystemTest, OpenFile_NoLimit) {
 
   OpenLog first_open_log;
   file_system_->OpenFile(base::FilePath(kFakeFilePath), OPEN_FILE_MODE_READ,
-                         base::Bind(&LogOpen, &first_open_log));
+                         base::BindOnce(&LogOpen, &first_open_log));
 
   OpenLog second_open_log;
   file_system_->OpenFile(base::FilePath(kFakeFilePath), OPEN_FILE_MODE_READ,
-                         base::Bind(&LogOpen, &second_open_log));
+                         base::BindOnce(&LogOpen, &second_open_log));
 
   base::RunLoop().RunUntilIdle();
 
@@ -123,11 +123,11 @@ TEST_F(FileSystemProviderThrottledFileSystemTest, OpenFile_NoLimit) {
   // Close files.
   StatusLog first_close_log;
   file_system_->CloseFile(first_open_log[0].first,
-                          base::Bind(&LogStatus, &first_close_log));
+                          base::BindOnce(&LogStatus, &first_close_log));
 
   StatusLog second_close_log;
   file_system_->CloseFile(second_open_log[0].first,
-                          base::Bind(&LogStatus, &second_close_log));
+                          base::BindOnce(&LogStatus, &second_close_log));
 
   base::RunLoop().RunUntilIdle();
   ASSERT_EQ(1u, first_close_log.size());
@@ -146,11 +146,11 @@ TEST_F(FileSystemProviderThrottledFileSystemTest, AbortAfterRun) {
   OpenLog first_open_log;
   AbortCallback abort_callback =
       file_system_->OpenFile(base::FilePath(kFakeFilePath), OPEN_FILE_MODE_READ,
-                             base::Bind(&LogOpen, &first_open_log));
+                             base::BindOnce(&LogOpen, &first_open_log));
 
   OpenLog second_open_log;
   file_system_->OpenFile(base::FilePath(kFakeFilePath), OPEN_FILE_MODE_READ,
-                         base::Bind(&LogOpen, &second_open_log));
+                         base::BindOnce(&LogOpen, &second_open_log));
 
   base::RunLoop().RunUntilIdle();
 

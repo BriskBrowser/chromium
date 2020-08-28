@@ -11,16 +11,18 @@
 
 #include "base/bind.h"
 #include "base/callback.h"
+#include "base/check.h"
 #include "base/command_line.h"
 #include "base/files/file_path.h"
 #include "base/files/scoped_temp_dir.h"
-#include "base/logging.h"
 #include "base/memory/scoped_refptr.h"
+#include "base/notreached.h"
 #include "base/strings/strcat.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/synchronization/waitable_event.h"
 #include "base/task/post_task.h"
 #include "base/task/task_traits.h"
+#include "base/task/thread_pool.h"
 #include "base/test/task_environment.h"
 #include "base/test/test_timeouts.h"
 #include "base/threading/thread_restrictions.h"
@@ -32,7 +34,7 @@
 #include "chrome/chrome_cleaner/ipc/mojo_task_runner.h"
 #include "chrome/chrome_cleaner/mojom/engine_file_requests.mojom.h"
 #include "chrome/chrome_cleaner/os/inheritable_event.h"
-#include "chrome/chrome_cleaner/strings/string16_embedded_nulls.h"
+#include "chrome/chrome_cleaner/strings/wstring_embedded_nulls.h"
 #include "chrome/chrome_cleaner/test/test_executables.h"
 #include "chrome/chrome_cleaner/test/test_native_reg_util.h"
 #include "chrome/chrome_cleaner/test/test_scoped_service_handle.h"
@@ -95,9 +97,8 @@ scoped_refptr<SandboxChildProcess> SetupSandboxedChildProcess() {
 // Execute |closure| on a different sequence since it could block and we don't
 // want to block on the Mojo thread.
 void InvokeOnOtherSequence(base::OnceClosure closure) {
-  base::PostTask(FROM_HERE,
-                 {base::ThreadPool(), base::WithBaseSyncPrimitives()},
-                 std::move(closure));
+  base::ThreadPool::PostTask(FROM_HERE, {base::WithBaseSyncPrimitives()},
+                             std::move(closure));
 }
 
 }  // namespace
@@ -106,7 +107,7 @@ class TestEngineRequestInvoker {
  public:
   TestEngineRequestInvoker(SandboxChildProcess* child_process,
                            const base::FilePath& test_file_path,
-                           const String16EmbeddedNulls& test_native_reg_key,
+                           const WStringEmbeddedNulls& test_native_reg_key,
                            base::ProcessId test_process_id)
       : file_requests_proxy_(child_process->GetFileRequestsProxy()),
         engine_requests_proxy_(child_process->GetEngineRequestsProxy()),
@@ -275,7 +276,7 @@ class TestEngineRequestInvoker {
     } else if (request_name == "DeleteService") {
       // The broker should reject the empty string so we won't risk deleting a
       // real service.
-      const base::string16 empty_service_name;
+      const std::wstring empty_service_name;
       cleaner_requests_proxy_->task_runner()->PostTask(
           FROM_HERE, BindOnce(IgnoreResult(&CleanerProxy::SandboxDeleteService),
                               cleaner_requests_proxy_, empty_service_name,
@@ -322,7 +323,7 @@ class TestEngineRequestInvoker {
   }
 
   static void OpenReadOnlyFileCallback(base::OnceClosure closure,
-                                       mojo::ScopedHandle /*handle*/) {
+                                       mojo::PlatformHandle /*handle*/) {
     InvokeOnOtherSequence(std::move(closure));
   }
 
@@ -360,14 +361,14 @@ class TestEngineRequestInvoker {
   static void GetLoadedModulesCallback(
       base::OnceClosure closure,
       bool /*result*/,
-      const std::vector<base::string16>& /*modules*/) {
+      const std::vector<std::wstring>& /*modules*/) {
     InvokeOnOtherSequence(std::move(closure));
   }
 
   static void GetProcessCommandLineCallback(
       base::OnceClosure closure,
       bool /*result*/,
-      const base::string16& /*command_line*/) {
+      const std::wstring& /*command_line*/) {
     InvokeOnOtherSequence(std::move(closure));
   }
 
@@ -432,7 +433,7 @@ class TestEngineRequestInvoker {
   scoped_refptr<CleanerEngineRequestsProxy> cleaner_requests_proxy_;
 
   base::FilePath test_file_path_;
-  String16EmbeddedNulls test_native_reg_key_;
+  WStringEmbeddedNulls test_native_reg_key_;
   base::ProcessId test_process_id_;
 };
 
@@ -449,11 +450,11 @@ MULTIPROCESS_TEST_MAIN(EngineRequestsNoBlocking) {
   std::string request_name =
       command_line->GetSwitchValueASCII(kTestRequestNameSwitch);
 
-  base::string16 test_native_reg_key_str =
+  std::wstring test_native_reg_key_str =
       command_line->GetSwitchValueNative(kTestRegKeySwitch);
   // Include the final null.
-  String16EmbeddedNulls test_native_reg_key(test_native_reg_key_str.data(),
-                                            test_native_reg_key_str.size() + 1);
+  WStringEmbeddedNulls test_native_reg_key(test_native_reg_key_str.data(),
+                                           test_native_reg_key_str.size() + 1);
 
   unsigned test_process_id;
   CHECK(base::StringToUint(
@@ -555,8 +556,8 @@ TEST_P(EngineRequestsNoBlockingTest, TestRequest) {
       base::StrCat({temp_reg_key.FullyQualifiedPath(), L"\\dummy-subkey"}));
 
   base::Process test_process = LongRunningProcess(/*command_line=*/nullptr);
-  parent_process->AppendSwitchNative(
-      kTestProcessIdSwitch, base::NumberToString16(test_process.Pid()));
+  parent_process->AppendSwitchNative(kTestProcessIdSwitch,
+                                     base::NumberToWString(test_process.Pid()));
 
   // Install a test task scheduler so we don't accidentally delete a real task
   // when servicing the DeleteTask request.

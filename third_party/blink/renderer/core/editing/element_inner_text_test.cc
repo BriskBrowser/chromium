@@ -4,6 +4,7 @@
 
 #include "third_party/blink/renderer/core/dom/element.h"
 
+#include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/editing/testing/editing_test_base.h"
 #include "third_party/blink/renderer/platform/testing/runtime_enabled_features_test_helpers.h"
 
@@ -15,7 +16,9 @@ class ElementInnerTest : public testing::WithParamInterface<bool>,
  protected:
   ElementInnerTest() : ScopedLayoutNGForTest(GetParam()) {}
 
-  bool LayoutNGEnabled() const { return GetParam(); }
+  bool LayoutNGEnabled() const {
+    return RuntimeEnabledFeatures::LayoutNGEnabled();
+  }
 };
 
 INSTANTIATE_TEST_SUITE_P(All, ElementInnerTest, testing::Bool());

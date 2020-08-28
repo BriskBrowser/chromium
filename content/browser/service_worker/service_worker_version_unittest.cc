@@ -14,6 +14,7 @@
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
 #include "base/run_loop.h"
+#include "base/test/bind_test_util.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/scoped_feature_list.h"
 #include "base/test/simple_test_tick_clock.h"
@@ -29,6 +30,7 @@
 #include "content/browser/service_worker/service_worker_registration.h"
 #include "content/browser/service_worker/service_worker_test_utils.h"
 #include "content/common/service_worker/service_worker_utils.h"
+#include "content/public/common/content_features.h"
 #include "content/public/test/browser_task_environment.h"
 #include "content/public/test/mock_render_process_host.h"
 #include "content/public/test/test_service.mojom.h"
@@ -81,32 +83,29 @@ class ServiceWorkerVersionTest : public testing::Test {
   };
 
   ServiceWorkerVersionTest()
-      : task_environment_(BrowserTaskEnvironment::IO_MAINLOOP) {}
+      : task_environment_(BrowserTaskEnvironment::IO_MAINLOOP,
+                          base::test::TaskEnvironment::TimeSource::MOCK_TIME) {}
 
   void SetUp() override {
     helper_ = GetHelper();
-    helper_->context()->storage()->LazyInitializeForTest();
 
     scope_ = GURL("https://www.example.com/test/");
     blink::mojom::ServiceWorkerRegistrationOptions options;
     options.scope = scope_;
-    registration_ = new ServiceWorkerRegistration(
-        options, helper_->context()->storage()->NewRegistrationId(),
-        helper_->context()->AsWeakPtr());
-    version_ = new ServiceWorkerVersion(
-        registration_.get(),
+    registration_ = CreateNewServiceWorkerRegistration(
+        helper_->context()->registry(), options);
+    version_ = CreateNewServiceWorkerVersion(
+        helper_->context()->registry(), registration_.get(),
         GURL("https://www.example.com/test/service_worker.js"),
-        blink::mojom::ScriptType::kClassic,
-        helper_->context()->storage()->NewVersionId(),
-        helper_->context()->AsWeakPtr());
+        blink::mojom::ScriptType::kClassic);
     EXPECT_EQ(url::Origin::Create(scope_), version_->script_origin());
-    std::vector<ServiceWorkerDatabase::ResourceRecord> records;
-    records.push_back(WriteToDiskCacheSync(
-        helper_->context()->storage(), version_->script_url(), 10,
+    std::vector<storage::mojom::ServiceWorkerResourceRecordPtr> records;
+    records.push_back(WriteToDiskCacheWithIdSync(
+        helper_->context()->GetStorageControl(), version_->script_url(), 10,
         {} /* headers */, "I'm a body", "I'm a meta data"));
     version_->script_cache_map()->SetResources(records);
-    version_->SetMainScriptHttpResponseInfo(
-        EmbeddedWorkerTestHelper::CreateHttpResponseInfo());
+    version_->SetMainScriptResponse(
+        EmbeddedWorkerTestHelper::CreateMainScriptResponse());
     if (GetFetchHandlerExistence() !=
         ServiceWorkerVersion::FetchHandlerExistence::UNKNOWN) {
       version_->set_fetch_handler_existence(GetFetchHandlerExistence());
@@ -115,7 +114,7 @@ class ServiceWorkerVersionTest : public testing::Test {
     // Make the registration findable via storage functions.
     base::Optional<blink::ServiceWorkerStatusCode> status;
     base::RunLoop run_loop;
-    helper_->context()->storage()->StoreRegistration(
+    helper_->context()->registry()->StoreRegistration(
         registration_.get(), version_.get(),
         ReceiveServiceWorkerStatus(&status, run_loop.QuitClosure()));
     run_loop.Run();
@@ -169,11 +168,11 @@ class ServiceWorkerVersionTest : public testing::Test {
     return ServiceWorkerVersion::FetchHandlerExistence::EXISTS;
   }
 
-  ServiceWorkerRemoteProviderEndpoint ActivateWithControllee(
+  ServiceWorkerRemoteContainerEndpoint ActivateWithControllee(
       int controllee_process_id = 33) {
     version_->SetStatus(ServiceWorkerVersion::ACTIVATED);
     registration_->SetActiveVersion(version_);
-    ServiceWorkerRemoteProviderEndpoint remote_endpoint;
+    ServiceWorkerRemoteContainerEndpoint remote_endpoint;
     base::WeakPtr<ServiceWorkerContainerHost> container_host =
         CreateContainerHostForWindow(
             controllee_process_id, true /* is_parent_frame_secure */,
@@ -345,7 +344,7 @@ TEST_F(ServiceWorkerVersionTest, StartUnregisteredButStillLiveWorker) {
   // Delete the registration.
   base::Optional<blink::ServiceWorkerStatusCode> status;
   base::RunLoop run_loop;
-  helper_->context()->storage()->DeleteRegistration(
+  helper_->context()->registry()->DeleteRegistration(
       registration_, registration_->scope().GetOrigin(),
       ReceiveServiceWorkerStatus(&status, run_loop.QuitClosure()));
   run_loop.Run();
@@ -426,7 +425,7 @@ TEST_F(ServiceWorkerVersionTest, Doom) {
   // Add a controllee.
   version_->SetStatus(ServiceWorkerVersion::ACTIVATED);
   registration_->SetActiveVersion(version_);
-  ServiceWorkerRemoteProviderEndpoint remote_endpoint;
+  ServiceWorkerRemoteContainerEndpoint remote_endpoint;
   base::WeakPtr<ServiceWorkerContainerHost> container_host =
       CreateContainerHostForWindow(
           33 /* dummy render process id */, true /* is_parent_frame_secure */,
@@ -1115,15 +1114,12 @@ TEST_F(ServiceWorkerVersionTest, BadOrigin) {
   const GURL scope("bad-origin://www.example.com/test/");
   blink::mojom::ServiceWorkerRegistrationOptions options;
   options.scope = scope;
-  auto registration = base::MakeRefCounted<ServiceWorkerRegistration>(
-      options, helper_->context()->storage()->NewRegistrationId(),
-      helper_->context()->AsWeakPtr());
-  auto version = base::MakeRefCounted<ServiceWorkerVersion>(
-      registration_.get(),
+  auto registration = CreateNewServiceWorkerRegistration(
+      helper_->context()->registry(), options);
+  auto version = CreateNewServiceWorkerVersion(
+      helper_->context()->registry(), registration_.get(),
       GURL("bad-origin://www.example.com/test/service_worker.js"),
-      blink::mojom::ScriptType::kClassic,
-      helper_->context()->storage()->NewVersionId(),
-      helper_->context()->AsWeakPtr());
+      blink::mojom::ScriptType::kClassic);
   ASSERT_EQ(blink::ServiceWorkerStatusCode::kErrorDisallowed,
             StartServiceWorker(version.get()));
 }
@@ -1193,7 +1189,7 @@ TEST_F(ServiceWorkerVersionTest,
   // Add a controllee, but don't begin the navigation commit yet.  This will
   // cause the client to have an invalid process id like we see in real
   // navigations.
-  ServiceWorkerRemoteProviderEndpoint remote_endpoint;
+  ServiceWorkerRemoteContainerEndpoint remote_endpoint;
   std::unique_ptr<ServiceWorkerContainerHostAndInfo> host_and_info =
       CreateContainerHostAndInfoForWindow(helper_->context()->AsWeakPtr(),
                                           /*are_ancestors_secure=*/true);
@@ -1218,13 +1214,18 @@ TEST_F(ServiceWorkerVersionTest,
   // This is necessary to make OnBeginNavigationCommit() work.
   auto remote_controller = container_host->GetRemoteControllerServiceWorker();
 
+  // Establish a dummy connection to allow sending messages without errors.
+  mojo::PendingRemote<network::mojom::CrossOriginEmbedderPolicyReporter>
+      reporter;
+  auto dummy = reporter.InitWithNewPipeAndPassReceiver();
+
   // Now begin the navigation commit with the same process id used by the
   // worker. This should cause the worker to stop being considered foreground
   // priority.
   container_host->OnBeginNavigationCommit(
       version_->embedded_worker()->process_id(),
-      /* render_frame_id = */ 1,
-      network::mojom::CrossOriginEmbedderPolicy::kNone);
+      /* render_frame_id = */ 1, network::CrossOriginEmbedderPolicy(),
+      std::move(reporter));
 
   // RenderProcessHost should be notified of foreground worker.
   base::RunLoop().RunUntilIdle();
@@ -1440,6 +1441,246 @@ TEST_F(ServiceWorkerVersionTest, AddMessageToConsole) {
   loop.Run();
   ASSERT_EQ(1UL, service_worker->console_messages().size());
   EXPECT_EQ(test_message, service_worker->console_messages()[0]);
+}
+
+class ServiceWorkerVersionTerminationOnNoControlleeTest
+    : public ServiceWorkerVersionTest,
+      public testing::WithParamInterface<bool> {
+ public:
+  ServiceWorkerVersionTerminationOnNoControlleeTest() {
+    if (IsTerminationEnabled()) {
+      // The value should be the same with |kTerminationDelay|.
+      feature_list_.InitAndEnableFeatureWithParameters(
+          features::kServiceWorkerTerminationOnNoControllee,
+          {{"termination_delay_in_ms", "5000"}});
+    } else {
+      feature_list_.InitAndDisableFeature(
+          features::kServiceWorkerTerminationOnNoControllee);
+    }
+  }
+
+  ServiceWorkerContainerHost* CreateControllee() {
+    remote_endpoints_.emplace_back();
+    base::WeakPtr<ServiceWorkerContainerHost> container_host =
+        CreateContainerHostForWindow(
+            33 /* dummy render process id */, true /* is_parent_frame_secure */,
+            helper_->context()->AsWeakPtr(), &remote_endpoints_.back());
+    return container_host.get();
+  }
+
+  static bool IsTerminationEnabled() { return GetParam(); }
+
+ protected:
+  // The value should be the same with the number set in the constructor.
+  static constexpr base::TimeDelta kTerminationDelay =
+      base::TimeDelta::FromMilliseconds(5000);
+
+  static constexpr base::TimeDelta kDefaultIdleDelay =
+      base::TimeDelta::FromSeconds(
+          blink::mojom::kServiceWorkerDefaultIdleDelayInSeconds);
+
+ private:
+  base::test::ScopedFeatureList feature_list_;
+  std::vector<ServiceWorkerRemoteContainerEndpoint> remote_endpoints_;
+};
+
+// static
+constexpr base::TimeDelta
+    ServiceWorkerVersionTerminationOnNoControlleeTest::kTerminationDelay;
+
+// static
+constexpr base::TimeDelta
+    ServiceWorkerVersionTerminationOnNoControlleeTest::kDefaultIdleDelay;
+
+INSTANTIATE_TEST_SUITE_P(All,
+                         ServiceWorkerVersionTerminationOnNoControlleeTest,
+                         testing::Bool());
+
+// Confirm if the idle delay is updated when all controllees are gone.
+TEST_P(ServiceWorkerVersionTerminationOnNoControlleeTest,
+       IdleDelayOnNoControllee) {
+  version_->SetStatus(ServiceWorkerVersion::ACTIVATED);
+  FakeServiceWorker* service_worker_in_renderer =
+      helper_->AddNewPendingServiceWorker<FakeServiceWorker>(helper_.get());
+
+  // Add a controllee before starting a worker.
+  ServiceWorkerContainerHost* controllee = CreateControllee();
+  version_->AddControllee(controllee);
+
+  // Start the worker.
+  EXPECT_EQ(blink::ServiceWorkerStatusCode::kOk,
+            StartServiceWorker(version_.get()));
+  EXPECT_EQ(EmbeddedWorkerStatus::RUNNING, version_->running_status());
+
+  // The idle delay is set to the default until all controllees are gone.
+  task_environment_.RunUntilIdle();
+  EXPECT_FALSE(service_worker_in_renderer->idle_delay().has_value());
+
+  // The idle delay is updated to |kTerminationDelay|, which is the same with
+  // when all controllees are gone.
+  version_->RemoveControllee(controllee->client_uuid());
+  task_environment_.RunUntilIdle();
+  if (IsTerminationEnabled()) {
+    EXPECT_EQ(kTerminationDelay,
+              service_worker_in_renderer->idle_delay().value());
+  } else {
+    EXPECT_FALSE(service_worker_in_renderer->idle_delay().has_value());
+  }
+}
+
+// Confirm if the idle timeout is not updated if a controllee still exists.
+TEST_P(ServiceWorkerVersionTerminationOnNoControlleeTest,
+       NoIdleDelayUntilAllControlleeAreGone) {
+  version_->SetStatus(ServiceWorkerVersion::ACTIVATED);
+  FakeServiceWorker* service_worker_in_renderer =
+      helper_->AddNewPendingServiceWorker<FakeServiceWorker>(helper_.get());
+
+  // Add controlees before starting a worker.
+  ServiceWorkerContainerHost* controllee1 = CreateControllee();
+  ServiceWorkerContainerHost* controllee2 = CreateControllee();
+  version_->AddControllee(controllee1);
+  version_->AddControllee(controllee2);
+
+  // Start the worker.
+  EXPECT_EQ(blink::ServiceWorkerStatusCode::kOk,
+            StartServiceWorker(version_.get()));
+  EXPECT_EQ(EmbeddedWorkerStatus::RUNNING, version_->running_status());
+
+  // The idle delay should not be updated until all controllees are gone.
+  version_->RemoveControllee(controllee1->client_uuid());
+  task_environment_.RunUntilIdle();
+  EXPECT_FALSE(service_worker_in_renderer->idle_delay().has_value());
+
+  // The idle delay is set to |kTerminationDelay| when all controllees are gone.
+  version_->RemoveControllee(controllee2->client_uuid());
+  task_environment_.RunUntilIdle();
+  if (IsTerminationEnabled()) {
+    EXPECT_EQ(kTerminationDelay,
+              service_worker_in_renderer->idle_delay().value());
+  } else {
+    EXPECT_FALSE(service_worker_in_renderer->idle_delay().has_value());
+  }
+}
+
+// Confirm the timeout is set back to the default when a new controllee is added
+// to the ServiceWorkerVersion before it's terminated.
+TEST_P(ServiceWorkerVersionTerminationOnNoControlleeTest,
+       AddControlleeAfterNoControllee) {
+  version_->SetStatus(ServiceWorkerVersion::ACTIVATED);
+  FakeServiceWorker* service_worker_in_renderer =
+      helper_->AddNewPendingServiceWorker<FakeServiceWorker>(helper_.get());
+  EXPECT_EQ(blink::ServiceWorkerStatusCode::kOk,
+            StartServiceWorker(version_.get()));
+  EXPECT_EQ(EmbeddedWorkerStatus::RUNNING, version_->running_status());
+
+  {
+    // The idle timeout is set to |kTerminationDelay| if all controllees are
+    // gone.
+    ServiceWorkerContainerHost* controllee = CreateControllee();
+    version_->AddControllee(controllee);
+    version_->RemoveControllee(controllee->client_uuid());
+    task_environment_.RunUntilIdle();
+    if (IsTerminationEnabled()) {
+      EXPECT_EQ(kTerminationDelay,
+                service_worker_in_renderer->idle_delay().value());
+    } else {
+      EXPECT_FALSE(service_worker_in_renderer->idle_delay().has_value());
+    }
+  }
+
+  {
+    // The idle timeout is set to the default again if a new client is started
+    // to be controlled by the service worker.
+    ServiceWorkerContainerHost* controllee = CreateControllee();
+    version_->AddControllee(controllee);
+    task_environment_.RunUntilIdle();
+    if (IsTerminationEnabled()) {
+      EXPECT_EQ(kDefaultIdleDelay,
+                service_worker_in_renderer->idle_delay().value());
+    } else {
+      EXPECT_FALSE(service_worker_in_renderer->idle_delay().has_value());
+    }
+
+    // The idle timeout is set to |kTerminationDelay| again when all controllees
+    // are gone.
+    version_->RemoveControllee(controllee->client_uuid());
+    task_environment_.RunUntilIdle();
+    if (IsTerminationEnabled()) {
+      EXPECT_EQ(kTerminationDelay,
+                service_worker_in_renderer->idle_delay().value());
+    } else {
+      EXPECT_FALSE(service_worker_in_renderer->idle_delay().has_value());
+    }
+  }
+}
+
+// Confirm no crash happens if the worker is stopped.
+TEST_P(ServiceWorkerVersionTerminationOnNoControlleeTest, StoppedWorker) {
+  version_->SetStatus(ServiceWorkerVersion::ACTIVATED);
+  EXPECT_EQ(EmbeddedWorkerStatus::STOPPED, version_->running_status());
+
+  ServiceWorkerContainerHost* controllee = CreateControllee();
+  version_->AddControllee(controllee);
+  version_->RemoveControllee(controllee->client_uuid());
+}
+
+// FakeEmbeddedWorkerInstanceClient which waits to call OnStarted() until
+// CallOnStarted() is called.
+class WaitToCallOnStartedEmbeddedWorkerInstanceClient
+    : public FakeEmbeddedWorkerInstanceClient {
+ public:
+  explicit WaitToCallOnStartedEmbeddedWorkerInstanceClient(
+      EmbeddedWorkerTestHelper* helper)
+      : FakeEmbeddedWorkerInstanceClient(helper) {}
+
+  void CallOnStarted() {
+    host()->OnStarted(blink::mojom::ServiceWorkerStartStatus::kNormalCompletion,
+                      true /* has_fetch_handler */, helper()->GetNextThreadId(),
+                      blink::mojom::EmbeddedWorkerStartTiming::New());
+  }
+
+ protected:
+  void EvaluateScript() override { host()->OnScriptEvaluationStart(); }
+};
+
+// Call AddControllee() and RemoveControllee() while starting a worker.
+// This is a regression test for https://crbug.com/1099744.
+TEST_P(ServiceWorkerVersionTerminationOnNoControlleeTest,
+       RemoveControlleeBeforeStarted) {
+  version_->SetStatus(ServiceWorkerVersion::ACTIVATED);
+  EXPECT_EQ(EmbeddedWorkerStatus::STOPPED, version_->running_status());
+  auto* embedded_worker_in_renderer = helper_->AddNewPendingInstanceClient<
+      WaitToCallOnStartedEmbeddedWorkerInstanceClient>(helper_.get());
+  auto* service_worker_in_renderer =
+      helper_->AddNewPendingServiceWorker<FakeServiceWorker>(helper_.get());
+  base::RunLoop loop;
+  version_->StartWorker(
+      ServiceWorkerMetrics::EventType::UNKNOWN,
+      base::BindLambdaForTesting(
+          [&](blink::ServiceWorkerStatusCode) { loop.Quit(); }));
+
+  // Add and remove controllee during starting the worker. This doesn't update
+  // the idle delay.
+  ServiceWorkerContainerHost* controllee = CreateControllee();
+  version_->AddControllee(controllee);
+  version_->RemoveControllee(controllee->client_uuid());
+  service_worker_in_renderer->RunUntilInitializeGlobalScope();
+  EXPECT_FALSE(service_worker_in_renderer->idle_delay().has_value());
+  EXPECT_EQ(EmbeddedWorkerStatus::STARTING, version_->running_status());
+
+  // Start the worker and make sure the fake service worker receives all the
+  // messages. At the OnStarted message, the browser sends the idle timeout
+  // because there's no controllee at this point.
+  embedded_worker_in_renderer->CallOnStarted();
+  loop.Run();
+  service_worker_in_renderer->FlushForTesting();
+  EXPECT_EQ(EmbeddedWorkerStatus::RUNNING, version_->running_status());
+  if (IsTerminationEnabled()) {
+    EXPECT_EQ(kTerminationDelay,
+              service_worker_in_renderer->idle_delay().value());
+  } else {
+    EXPECT_FALSE(service_worker_in_renderer->idle_delay().has_value());
+  }
 }
 
 }  // namespace service_worker_version_unittest

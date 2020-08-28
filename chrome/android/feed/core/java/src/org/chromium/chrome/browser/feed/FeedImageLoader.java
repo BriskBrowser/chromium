@@ -9,24 +9,25 @@ import android.graphics.Bitmap;
 import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.Drawable;
 import android.net.Uri;
-import android.support.v7.content.res.AppCompatResources;
 import android.text.TextUtils;
 
 import androidx.annotation.DrawableRes;
 import androidx.annotation.VisibleForTesting;
+import androidx.appcompat.content.res.AppCompatResources;
 
 import org.chromium.base.Callback;
 import org.chromium.base.Consumer;
 import org.chromium.base.DiscardableReferencePool;
 import org.chromium.base.SysUtils;
 import org.chromium.base.task.PostTask;
+import org.chromium.chrome.R;
 import org.chromium.chrome.browser.feed.library.api.host.imageloader.BundledAssets;
 import org.chromium.chrome.browser.feed.library.api.host.imageloader.ImageLoaderApi;
 import org.chromium.chrome.browser.image_fetcher.ImageFetcher;
 import org.chromium.chrome.browser.image_fetcher.ImageFetcherConfig;
 import org.chromium.chrome.browser.image_fetcher.ImageFetcherFactory;
+import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.suggestions.ThumbnailGradient;
-import org.chromium.chrome.feed.R;
 import org.chromium.content_public.browser.UiThreadTaskTraits;
 
 import java.util.Iterator;
@@ -56,7 +57,7 @@ public class FeedImageLoader implements ImageLoaderApi {
         mImageFetcher = ImageFetcherFactory.createImageFetcher(SysUtils.isLowEndDevice()
                         ? ImageFetcherConfig.DISK_CACHE_ONLY
                         : ImageFetcherConfig.IN_MEMORY_WITH_DISK_CACHE,
-                referencePool);
+                Profile.getLastUsedRegularProfile(), referencePool);
     }
 
     public void destroy() {
@@ -179,7 +180,9 @@ public class FeedImageLoader implements ImageLoaderApi {
 
     @VisibleForTesting
     protected void fetchImage(String url, int width, int height, Callback<Bitmap> callback) {
-        mImageFetcher.fetchImage(url, ImageFetcher.FEED_UMA_CLIENT_NAME, width, height, callback);
+        ImageFetcher.Params params =
+                ImageFetcher.Params.create(url, ImageFetcher.FEED_UMA_CLIENT_NAME, width, height);
+        mImageFetcher.fetchImage(params, callback);
     }
 
     @VisibleForTesting

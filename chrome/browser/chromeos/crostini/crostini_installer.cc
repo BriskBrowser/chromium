@@ -12,14 +12,15 @@
 #include "base/numerics/ranges.h"
 #include "base/strings/string16.h"
 #include "base/system/sys_info.h"
-#include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
 #include "base/time/time.h"
 #include "chrome/browser/chromeos/crostini/ansible/ansible_management_service_factory.h"
+#include "chrome/browser/chromeos/crostini/crostini_disk.h"
 #include "chrome/browser/chromeos/crostini/crostini_features.h"
-#include "chrome/browser/chromeos/crostini/crostini_installer_types.mojom.h"
 #include "chrome/browser/chromeos/crostini/crostini_manager_factory.h"
 #include "chrome/browser/chromeos/crostini/crostini_pref_names.h"
 #include "chrome/browser/chromeos/crostini/crostini_terminal.h"
+#include "chrome/browser/chromeos/crostini/crostini_types.mojom.h"
 #include "chrome/browser/chromeos/crostini/crostini_util.h"
 #include "chrome/browser/chromeos/login/startup_utils.h"
 #include "chrome/browser/chromeos/profiles/profile_helper.h"
@@ -33,6 +34,7 @@
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/network_service_instance.h"
+#include "ui/display/types/display_constants.h"
 
 using crostini::mojom::InstallerError;
 using crostini::mojom::InstallerState;
@@ -89,8 +91,8 @@ constexpr char kCrostiniAvailableDiskCancel[] = "Crostini.AvailableDiskCancel";
 constexpr char kCrostiniAvailableDiskError[] = "Crostini.AvailableDiskError";
 
 void RecordTimeFromDeviceSetupToInstallMetric() {
-  base::PostTaskAndReplyWithResult(
-      FROM_HERE, {base::ThreadPool(), base::MayBlock()},
+  base::ThreadPool::PostTaskAndReplyWithResult(
+      FROM_HERE, {base::MayBlock()},
       base::BindOnce(&chromeos::StartupUtils::GetTimeSinceOobeFlagFileCreation),
       base::BindOnce([](base::TimeDelta time_from_device_setup) {
         if (time_from_device_setup.is_zero())
@@ -227,8 +229,8 @@ void CrostiniInstaller::Install(CrostiniManager::RestartOptions options,
   container_download_percent_ = 0;
   UpdateState(State::INSTALLING);
 
-  base::PostTaskAndReplyWithResult(
-      FROM_HERE, {base::ThreadPool(), base::MayBlock()},
+  base::ThreadPool::PostTaskAndReplyWithResult(
+      FROM_HERE, {base::MayBlock()},
       base::BindOnce(&base::SysInfo::AmountOfFreeDiskSpace,
                      base::FilePath(crostini::kHomeDirectory)),
       base::BindOnce(&CrostiniInstaller::OnAvailableDiskSpace,
@@ -282,8 +284,8 @@ void CrostiniInstaller::Cancel(base::OnceClosure callback) {
 
   if (require_cleanup_) {
     // Remove anything that got installed
-    base::PostTask(
-        FROM_HERE, {content::BrowserThread::UI},
+    content::GetUIThreadTaskRunner({})->PostTask(
+        FROM_HERE,
         base::BindOnce(&crostini::CrostiniManager::RemoveCrostini,
                        base::Unretained(
                            crostini::CrostiniManager::GetForProfile(profile_)),
@@ -292,8 +294,8 @@ void CrostiniInstaller::Cancel(base::OnceClosure callback) {
                                       weak_ptr_factory_.GetWeakPtr())));
     UpdateState(State::CANCEL_CLEANUP);
   } else {
-    base::PostTask(FROM_HERE, {content::BrowserThread::UI},
-                   std::move(cancel_callback_));
+    content::GetUIThreadTaskRunner({})->PostTask(FROM_HERE,
+                                                 std::move(cancel_callback_));
     UpdateState(State::IDLE);
   }
 }
@@ -393,8 +395,10 @@ void CrostiniInstaller::OnContainerSetup(bool success) {
     return;
   }
   UpdateInstallingState(InstallerState::kStartContainer);
-  ansible_management_service_observer_.Add(
-      AnsibleManagementService::GetForProfile(profile_));
+  if (ShouldConfigureDefaultContainer(profile_)) {
+    ansible_management_service_observer_.Add(
+        AnsibleManagementService::GetForProfile(profile_));
+  }
 }
 
 void CrostiniInstaller::OnAnsibleSoftwareConfigurationStarted() {
@@ -483,7 +487,7 @@ void CrostiniInstaller::RunProgressCallback() {
 
   double state_start_mark = 0;
   double state_end_mark = 0;
-  int state_max_seconds = 1;
+  auto state_max_time = base::TimeDelta::FromSeconds(1);
 
   switch (installing_state_) {
     case InstallerState::kStart:
@@ -493,7 +497,7 @@ void CrostiniInstaller::RunProgressCallback() {
     case InstallerState::kInstallImageLoader:
       state_start_mark = 0.0;
       state_end_mark = 0.20;
-      state_max_seconds = 30;
+      state_max_time = base::TimeDelta::FromSeconds(30);
       break;
     case InstallerState::kStartConcierge:
       state_start_mark = 0.20;
@@ -506,28 +510,28 @@ void CrostiniInstaller::RunProgressCallback() {
     case InstallerState::kStartTerminaVm:
       state_start_mark = 0.22;
       state_end_mark = 0.28;
-      state_max_seconds = 8;
+      state_max_time = base::TimeDelta::FromSeconds(8);
       break;
     case InstallerState::kCreateContainer:
       state_start_mark = 0.28;
       state_end_mark = 0.72;
-      state_max_seconds = 180;
+      state_max_time = base::TimeDelta::FromSeconds(180);
       break;
     case InstallerState::kSetupContainer:
       state_start_mark = 0.72;
       state_end_mark = 0.76;
-      state_max_seconds = 8;
+      state_max_time = base::TimeDelta::FromSeconds(8);
       break;
     case InstallerState::kStartContainer:
       state_start_mark = 0.76;
       state_end_mark = 0.79;
-      state_max_seconds = 8;
+      state_max_time = base::TimeDelta::FromSeconds(8);
       break;
     case InstallerState::kConfigureContainer:
       state_start_mark = 0.79;
       state_end_mark = 0.99;
       // Ansible installation and playbook application.
-      state_max_seconds = 140 + 300;
+      state_max_time = base::TimeDelta::FromSeconds(140 + 300);
       break;
     case InstallerState::kFetchSshKeys:
       state_start_mark = 0.99;
@@ -541,7 +545,7 @@ void CrostiniInstaller::RunProgressCallback() {
       NOTREACHED();
   }
 
-  double state_fraction = time_in_state.InSecondsF() / state_max_seconds;
+  double state_fraction = time_in_state / state_max_time;
 
   if (installing_state_ == InstallerState::kCreateContainer) {
     // In CREATE_CONTAINER, consume half the progress bar with downloading,
@@ -628,7 +632,7 @@ void CrostiniInstaller::OnCrostiniRestartFinished(CrostiniResult result) {
   restart_id_ = CrostiniManager::kUninitializedRestartId;
 
   if (result != CrostiniResult::SUCCESS) {
-    if (state_ != State::ERROR) {
+    if (state_ != State::ERROR && result != CrostiniResult::RESTART_ABORTED) {
       DCHECK_EQ(state_, State::INSTALLING);
       LOG(ERROR) << "Failed to restart Crostini with error code: "
                  << static_cast<int>(result);
@@ -657,9 +661,9 @@ void CrostiniInstaller::OnCrostiniRestartFinished(CrostiniResult result) {
   progress_callback_.Reset();
 
   if (!skip_launching_terminal_for_testing_) {
-    crostini::LaunchContainerTerminal(
-        profile_, crostini::kCrostiniDefaultVmName,
-        crostini::kCrostiniDefaultContainerName, std::vector<std::string>());
+    // kInvalidDisplayId will launch terminal on the current active display.
+    crostini::LaunchTerminal(profile_, display::kInvalidDisplayId,
+                             crostini::ContainerId::GetDefault());
   }
 }
 
@@ -679,8 +683,10 @@ void CrostiniInstaller::OnAvailableDiskSpace(int64_t bytes) {
   free_disk_space_ = bytes;
   // Don't enforce minimum disk size on dev box or trybots because
   // base::SysInfo::AmountOfFreeDiskSpace returns zero in testing.
-  if (free_disk_space_ < kMinimumFreeDiskSpace &&
-      base::SysInfo::IsRunningOnChromeOS()) {
+  if (base::SysInfo::IsRunningOnChromeOS() &&
+      free_disk_space_ < restart_options_.disk_size_bytes.value_or(
+                             crostini::disk::kDiskHeadroomBytes +
+                             crostini::disk::kMinimumDiskSizeBytes)) {
     HandleError(InstallerError::kErrorInsufficientDiskSpace);
     return;
   }
@@ -696,9 +702,7 @@ void CrostiniInstaller::OnAvailableDiskSpace(int64_t bytes) {
   restart_id_ =
       crostini::CrostiniManager::GetForProfile(profile_)
           ->RestartCrostiniWithOptions(
-              crostini::kCrostiniDefaultVmName,
-              crostini::kCrostiniDefaultContainerName,
-              std::move(restart_options_),
+              crostini::ContainerId::GetDefault(), std::move(restart_options_),
               base::BindOnce(&CrostiniInstaller::OnCrostiniRestartFinished,
                              weak_ptr_factory_.GetWeakPtr()),
               this);

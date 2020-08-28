@@ -9,6 +9,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.ServiceConnection;
 import android.content.pm.PackageManager.NameNotFoundException;
+import android.os.Bundle;
 import android.os.IBinder;
 import android.os.ParcelFileDescriptor;
 import android.os.RemoteException;
@@ -17,16 +18,18 @@ import android.os.SystemClock;
 import androidx.annotation.IntDef;
 import androidx.annotation.VisibleForTesting;
 
+import org.chromium.android_webview.common.AwSwitches;
 import org.chromium.android_webview.common.services.IVariationsSeedServer;
+import org.chromium.android_webview.common.services.IVariationsSeedServerCallback;
 import org.chromium.android_webview.common.services.ServiceNames;
+import org.chromium.android_webview.common.variations.VariationsServiceMetricsHelper;
 import org.chromium.android_webview.common.variations.VariationsUtils;
 import org.chromium.base.ContextUtils;
 import org.chromium.base.Log;
-import org.chromium.base.metrics.CachedMetrics.CustomCountHistogramSample;
-import org.chromium.base.metrics.CachedMetrics.EnumeratedHistogramSample;
-import org.chromium.base.metrics.CachedMetrics.TimesHistogramSample;
+import org.chromium.base.annotations.JNINamespace;
+import org.chromium.base.annotations.NativeMethods;
+import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.components.variations.LoadSeedResult;
-import org.chromium.components.variations.firstrun.VariationsSeedFetcher.SeedInfo;
 
 import java.io.File;
 import java.io.FileNotFoundException;
@@ -68,6 +71,7 @@ import java.util.concurrent.TimeoutException;
  *    seed is loaded on time, variations will be initialized. finishVariationsInit() must be called
  *    before AwFeatureListCreator::SetUpFieldTrials() runs.
  */
+@JNINamespace("android_webview")
 public class VariationsSeedLoader {
     private static final String TAG = "VariationsSeedLoader";
 
@@ -89,12 +93,25 @@ public class VariationsSeedLoader {
     @VisibleForTesting
     public static final String APP_SEED_REQUEST_STATE_HISTOGRAM_NAME =
             "Variations.AppSeedRequestState";
+    @VisibleForTesting
+    public static final String DOWNLOAD_JOB_FETCH_RESULT_HISTOGRAM_NAME =
+            "Variations.WebViewDownloadJobFetchResult";
+    @VisibleForTesting
+    public static final String DOWNLOAD_JOB_FETCH_TIME_HISTOGRAM_NAME =
+            "Variations.WebViewDownloadJobFetchTime2";
+    @VisibleForTesting
+    public static final String DOWNLOAD_JOB_INTERVAL_HISTOGRAM_NAME =
+            "Variations.WebViewDownloadJobInterval";
+    @VisibleForTesting
+    public static final String DOWNLOAD_JOB_QUEUE_TIME_HISTOGRAM_NAME =
+            "Variations.WebViewDownloadJobQueueTime";
     private static final String SEED_LOAD_BLOCKING_TIME_HISTOGRAM_NAME =
             "Variations.SeedLoadBlockingTime";
     // This metric is also written by VariationsSeedStore::LoadSeed and is used by other platforms.
     private static final String SEED_LOAD_RESULT_HISTOGRAM_NAME = "Variations.SeedLoadResult";
 
     private SeedLoadAndUpdateRunnable mRunnable;
+    private SeedServerCallback mSeedServerCallback = new SeedServerCallback();
 
     // UMA histogram values for the result of checking if the app needs a new variations seed.
     // Keep in sync with AppSeedRequestState enum in enums.xml.
@@ -113,30 +130,31 @@ public class VariationsSeedLoader {
         int NUM_ENTRIES = 4;
     }
 
-    private static void recordLoadSeedResult(int result) {
-        EnumeratedHistogramSample histogram = new EnumeratedHistogramSample(
-                SEED_LOAD_RESULT_HISTOGRAM_NAME, LoadSeedResult.ENUM_SIZE);
-        histogram.record(result);
+    private static void recordLoadSeedResult(@LoadSeedResult int result) {
+        RecordHistogram.recordEnumeratedHistogram(
+                SEED_LOAD_RESULT_HISTOGRAM_NAME, result, LoadSeedResult.ENUM_SIZE);
     }
 
     private static void recordSeedLoadBlockingTime(long timeMs) {
-        TimesHistogramSample histogram =
-                new TimesHistogramSample(SEED_LOAD_BLOCKING_TIME_HISTOGRAM_NAME);
-        histogram.record(timeMs);
+        RecordHistogram.recordTimesHistogram(SEED_LOAD_BLOCKING_TIME_HISTOGRAM_NAME, timeMs);
     }
 
     private static void recordSeedRequestState(@AppSeedRequestState int state) {
-        EnumeratedHistogramSample histogram = new EnumeratedHistogramSample(
-                APP_SEED_REQUEST_STATE_HISTOGRAM_NAME, AppSeedRequestState.NUM_ENTRIES);
-        histogram.record(state);
+        RecordHistogram.recordEnumeratedHistogram(
+                APP_SEED_REQUEST_STATE_HISTOGRAM_NAME, state, AppSeedRequestState.NUM_ENTRIES);
     }
 
     private static void recordAppSeedFreshness(long freshnessMinutes) {
         // Bucket parameters should match Variations.SeedFreshness.
         // See variations::RecordSeedFreshness.
-        CustomCountHistogramSample histogram = new CustomCountHistogramSample(
-                APP_SEED_FRESHNESS_HISTOGRAM_NAME, 1, (int) TimeUnit.DAYS.toMinutes(30), 50);
-        histogram.record((int) freshnessMinutes);
+        RecordHistogram.recordCustomCountHistogram(APP_SEED_FRESHNESS_HISTOGRAM_NAME,
+                (int) freshnessMinutes, /*min=*/1, /*max=*/(int) TimeUnit.DAYS.toMinutes(30),
+                /*numBuckets=*/50);
+    }
+
+    private static void recordMinuteHistogram(String name, long value, long maxValue) {
+        // 50 buckets from 1min to maxValue minutes.
+        RecordHistogram.recordCustomCountHistogram(name, (int) value, 1, (int) maxValue, 50);
     }
 
     private static boolean shouldThrottleRequests(long now) {
@@ -144,12 +162,15 @@ public class VariationsSeedLoader {
         if (lastRequestTime == 0) {
             return false;
         }
-        return now < lastRequestTime + MAX_REQUEST_PERIOD_MILLIS;
+        long maxRequestPeriodMillis = VariationsUtils.getDurationSwitchValueInMillis(
+                AwSwitches.FINCH_SEED_MIN_UPDATE_PERIOD, MAX_REQUEST_PERIOD_MILLIS);
+        return now < lastRequestTime + maxRequestPeriodMillis;
     }
 
     private boolean isSeedExpired(long seedFileTime) {
-        long expirationTime = seedFileTime + SEED_EXPIRATION_MILLIS;
-        return getCurrentTimeMillis() > expirationTime;
+        long expirationDuration = VariationsUtils.getDurationSwitchValueInMillis(
+                AwSwitches.FINCH_SEED_EXPIRATION_AGE, SEED_EXPIRATION_MILLIS);
+        return getCurrentTimeMillis() > seedFileTime + expirationDuration;
     }
 
     // Loads our local copy of the seed, if any, and then renames our local copy and/or requests a
@@ -170,30 +191,35 @@ public class VariationsSeedLoader {
         private long mSeedFileTime;
         private int mSeedRequestState = AppSeedRequestState.UNKNOWN;
 
-        private FutureTask<SeedInfo> mLoadTask = new FutureTask<>(() -> {
+        private boolean parseSeedFile(File seedFile) {
+            if (!VariationsSeedLoaderJni.get().parseAndSaveSeedProto(seedFile.getPath())) {
+                VariationsUtils.debugLog("Failed reading seed file \"" + seedFile + '"');
+                return false;
+            }
+            return true;
+        }
+
+        private FutureTask<Boolean> mLoadTask = new FutureTask<>(() -> {
             File newSeedFile = VariationsUtils.getNewSeedFile();
             File oldSeedFile = VariationsUtils.getSeedFile();
 
             // First check for a new seed.
-            SeedInfo seed = VariationsUtils.readSeedFile(newSeedFile);
-            if (seed != null) {
+            boolean loadedSeed = false;
+            if (parseSeedFile(newSeedFile)) {
+                loadedSeed = true;
+                mSeedFileTime = newSeedFile.lastModified();
+
                 // If a valid new seed was found, make a note to replace the old seed with
                 // the new seed. (Don't do it now, to avoid delaying FutureTask.get().)
                 mFoundNewSeed = true;
-
-                mSeedFileTime = newSeedFile.lastModified();
-            } else {
-                // If there is no new seed, check for an old seed.
-                seed = VariationsUtils.readSeedFile(oldSeedFile);
-
-                if (seed != null) {
-                    mSeedFileTime = oldSeedFile.lastModified();
-                }
+            } else if (parseSeedFile(oldSeedFile)) { // If no new seed, check for an old one.
+                loadedSeed = true;
+                mSeedFileTime = oldSeedFile.lastModified();
             }
 
             // Make a note to request a new seed if necessary. (Don't request it now, to
             // avoid delaying FutureTask.get().)
-            if (seed == null || isSeedExpired(mSeedFileTime)) {
+            if (!loadedSeed || isSeedExpired(mSeedFileTime)) {
                 mNeedNewSeed = true;
                 mSeedRequestState = AppSeedRequestState.SEED_REQUESTED;
 
@@ -206,12 +232,11 @@ public class VariationsSeedLoader {
                 mSeedRequestState = AppSeedRequestState.SEED_FRESH;
             }
 
-            // Note the date field of whatever seed was loaded, if any.
-            if (seed != null) {
-                mCurrentSeedDate = seed.date;
+            // Save the date field of whatever seed was loaded, if any.
+            if (loadedSeed) {
+                mCurrentSeedDate = VariationsSeedLoaderJni.get().getSavedSeedDate();
             }
-
-            return seed;
+            return loadedSeed;
         });
 
         @Override
@@ -237,20 +262,20 @@ public class VariationsSeedLoader {
             onBackgroundWorkFinished();
         }
 
-        public SeedInfo get(long timeout, TimeUnit unit)
+        public boolean get(long timeout, TimeUnit unit)
                 throws InterruptedException, ExecutionException, TimeoutException {
-            SeedInfo info = mLoadTask.get(timeout, unit);
+            boolean success = mLoadTask.get(timeout, unit);
             recordSeedRequestState(mSeedRequestState);
             if (mSeedFileTime != 0) {
                 long freshnessMinutes =
                         TimeUnit.MILLISECONDS.toMinutes(getCurrentTimeMillis() - mSeedFileTime);
                 recordAppSeedFreshness(freshnessMinutes);
             }
-            return info;
+            return success;
         }
 
-        public boolean isLoadedSeedFresh() {
-            return mSeedRequestState == AppSeedRequestState.SEED_FRESH;
+        public long getLoadedSeedDate() {
+            return mCurrentSeedDate;
         }
     }
 
@@ -271,6 +296,9 @@ public class VariationsSeedLoader {
                         .bindService(getServerIntent(), this, Context.BIND_AUTO_CREATE)) {
                     Log.e(TAG, "Failed to bind to WebView service");
                 }
+                // Connect to nonembedded metrics Service at the same time we connect to variation
+                // service.
+                AwBrowserProcess.collectNonembeddedMetrics();
             } catch (NameNotFoundException e) {
                 Log.e(TAG, "WebView provider \"" + AwBrowserProcess.getWebViewPackageName() +
                         "\" not found!");
@@ -280,7 +308,10 @@ public class VariationsSeedLoader {
         @Override
         public void onServiceConnected(ComponentName name, IBinder service) {
             try {
-                IVariationsSeedServer.Stub.asInterface(service).getSeed(mNewSeedFd, mOldSeedDate);
+                if (mNewSeedFd.getFd() >= 0) {
+                    IVariationsSeedServer.Stub.asInterface(service).getSeed(
+                            mNewSeedFd, mOldSeedDate, mSeedServerCallback);
+                }
             } catch (RemoteException e) {
                 Log.e(TAG, "Faild requesting seed", e);
             } finally {
@@ -293,28 +324,37 @@ public class VariationsSeedLoader {
         public void onServiceDisconnected(ComponentName name) {}
     }
 
-    private SeedInfo getSeedBlockingAndLog() {
-        long start = SystemClock.elapsedRealtime();
-        try {
-            try {
-                return mRunnable.get(getSeedLoadTimeoutMillis(), TimeUnit.MILLISECONDS);
-            } finally {
-                long end = SystemClock.elapsedRealtime();
-                recordSeedLoadBlockingTime(end - start);
+    private class SeedServerCallback extends IVariationsSeedServerCallback.Stub {
+        @Override
+        public void reportVariationsServiceMetrics(Bundle metricsBundle) {
+            VariationsServiceMetricsHelper metrics =
+                    VariationsServiceMetricsHelper.fromBundle(metricsBundle);
+            if (metrics.hasJobInterval()) {
+                // Variations.DownloadJobInterval records time in minutes.
+                recordMinuteHistogram(DOWNLOAD_JOB_INTERVAL_HISTOGRAM_NAME,
+                        TimeUnit.MILLISECONDS.toMinutes(metrics.getJobInterval()),
+                        TimeUnit.DAYS.toMinutes(30));
             }
-        } catch (TimeoutException e) {
-            recordLoadSeedResult(LoadSeedResult.LOAD_TIMED_OUT);
-        } catch (InterruptedException e) {
-            recordLoadSeedResult(LoadSeedResult.LOAD_INTERRUPTED);
-        } catch (ExecutionException e) {
-            recordLoadSeedResult(LoadSeedResult.LOAD_OTHER_FAILURE);
+            if (metrics.hasJobQueueTime()) {
+                // Variations.DownloadJobQueueTime records time in minutes.
+                recordMinuteHistogram(DOWNLOAD_JOB_QUEUE_TIME_HISTOGRAM_NAME,
+                        TimeUnit.MILLISECONDS.toMinutes(metrics.getJobQueueTime()),
+                        TimeUnit.DAYS.toMinutes(30));
+            }
+            if (metrics.hasSeedFetchResult()) {
+                // This metric stores the same enum as Variations.FirstRun.SeedFetchResult, but is
+                // used for all WebView seed requests rather than just the first-run request.
+                RecordHistogram.recordSparseHistogram(
+                        DOWNLOAD_JOB_FETCH_RESULT_HISTOGRAM_NAME, metrics.getSeedFetchResult());
+            }
+            if (metrics.hasSeedFetchTime()) {
+                // Newer versions of Android limit job execution time to 10 minutes. Set the max
+                // histogram bucket to double that to have some wiggle room.
+                RecordHistogram.recordCustomTimesHistogram(DOWNLOAD_JOB_FETCH_TIME_HISTOGRAM_NAME,
+                        metrics.getSeedFetchTime(), 100, TimeUnit.MINUTES.toMillis(20),
+                        50); // 50 buckets from 100ms to 20min
+            }
         }
-        Log.e(TAG, "Failed loading variations seed. Variations disabled.");
-        return null;
-    }
-
-    private boolean isLoadedSeedFresh() {
-        return mRunnable.isLoadedSeedFresh();
     }
 
     @VisibleForTesting // Overridden by tests to wait until all work is done.
@@ -356,6 +396,7 @@ public class VariationsSeedLoader {
             return;
         }
 
+        VariationsUtils.debugLog("Requesting new seed from IVariationsSeedServer");
         SeedServerConnection connection = new SeedServerConnection(newSeedFd, oldSeedDate);
         connection.start();
     }
@@ -370,10 +411,40 @@ public class VariationsSeedLoader {
     // Block on loading the seed with a timeout. Then if a seed was successfully loaded, initialize
     // variations.
     public void finishVariationsInit() {
-        SeedInfo seed = getSeedBlockingAndLog();
-        if (seed != null) {
-            AwVariationsSeedBridge.setSeed(seed);
-            AwVariationsSeedBridge.setLoadedSeedFresh(isLoadedSeedFresh());
+        long start = SystemClock.elapsedRealtime();
+        try {
+            try {
+                boolean gotSeed = mRunnable.get(getSeedLoadTimeoutMillis(), TimeUnit.MILLISECONDS);
+                // Log the seed age to help with debugging.
+                long seedDate = mRunnable.getLoadedSeedDate();
+                if (gotSeed && seedDate > 0) {
+                    long seedAge = TimeUnit.MILLISECONDS.toSeconds(new Date().getTime() - seedDate);
+                    VariationsUtils.debugLog("Loaded seed with age " + seedAge + "s");
+                }
+                return;
+            } finally {
+                long end = SystemClock.elapsedRealtime();
+                recordSeedLoadBlockingTime(end - start);
+            }
+        } catch (TimeoutException e) {
+            recordLoadSeedResult(LoadSeedResult.LOAD_TIMED_OUT);
+        } catch (InterruptedException e) {
+            recordLoadSeedResult(LoadSeedResult.LOAD_INTERRUPTED);
+        } catch (ExecutionException e) {
+            recordLoadSeedResult(LoadSeedResult.LOAD_OTHER_FAILURE);
         }
+        Log.e(TAG, "Failed loading variations seed. Variations disabled.");
+    }
+
+    @NativeMethods
+    interface Natives {
+        // Parses the AwVariationsSeed proto stored in the file with the given path, saving it in
+        // memory for later use by native code if the parsing succeeded. Returns true if the loading
+        // and parsing were successful.
+        boolean parseAndSaveSeedProto(String path);
+
+        // Returns the timestamp in millis since unix epoch that the saved seed was generated on
+        // the server. This value corresponds to the |date| field in the AwVariationsSeed proto.
+        long getSavedSeedDate();
     }
 }

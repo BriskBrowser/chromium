@@ -41,16 +41,13 @@ class NativeFileSystemRestrictedDirectoryDialogView
   static views::Widget* ShowDialog(
       const url::Origin& origin,
       const base::FilePath& path,
-      bool is_directory,
+      content::NativeFileSystemPermissionContext::HandleType handle_type,
       base::OnceCallback<void(SensitiveDirectoryResult)> callback,
       content::WebContents* web_contents);
 
   // views::DialogDelegateView:
   base::string16 GetWindowTitle() const override;
-  int GetDialogButtons() const override;
   bool ShouldShowCloseButton() const override;
-  bool Accept() override;
-  bool Cancel() override;
   gfx::Size CalculatePreferredSize() const override;
   ui::ModalType GetModalType() const override;
 
@@ -58,10 +55,10 @@ class NativeFileSystemRestrictedDirectoryDialogView
   NativeFileSystemRestrictedDirectoryDialogView(
       const url::Origin& origin,
       const base::FilePath& path,
-      bool is_directory,
+      content::NativeFileSystemPermissionContext::HandleType handle_type,
       base::OnceCallback<void(SensitiveDirectoryResult)> callback);
 
-  const bool is_directory_;
+  const content::NativeFileSystemPermissionContext::HandleType handle_type_;
   base::OnceCallback<void(SensitiveDirectoryResult)> callback_;
 
   DISALLOW_COPY_AND_ASSIGN(NativeFileSystemRestrictedDirectoryDialogView);

@@ -40,10 +40,7 @@
 
 namespace blink {
 
-class Animation;
-class AnimationEffect;
 class DocumentTimelineOptions;
-class CompositorAnimationTimeline;
 
 // DocumentTimeline is constructed and owned by Document, and tied to its
 // lifecycle.
@@ -56,7 +53,7 @@ class CORE_EXPORT DocumentTimeline : public AnimationTimeline {
     // Calls DocumentTimeline's wake() method after duration seconds.
     virtual void WakeAfter(base::TimeDelta duration) = 0;
     virtual ~PlatformTiming() = default;
-    virtual void Trace(blink::Visitor* visitor) {}
+    virtual void Trace(Visitor* visitor) const {}
   };
 
   // Web Animations API IDL constructor
@@ -72,34 +69,36 @@ class CORE_EXPORT DocumentTimeline : public AnimationTimeline {
 
   void ScheduleNextService() override;
 
-  Animation* Play(AnimationEffect*);
-
   bool IsActive() const override;
   base::Optional<base::TimeDelta> InitialStartTimeForAnimations() override;
   bool HasPendingUpdates() const {
     return !animations_needing_update_.IsEmpty();
   }
 
+  // The zero time of DocumentTimeline is computed by adding a separate
+  // |origin_time_| from DocumentTimelineOptions.
+  // https://drafts.csswg.org/web-animations/#origin-time
   base::TimeTicks ZeroTime();
+  double ZeroTimeInSeconds() override {
+    return ZeroTime().since_origin().InSecondsF();
+  }
+
   void PauseAnimationsForTesting(double);
 
-  void SetAllCompositorPending(bool source_changed = false);
   void InvalidateKeyframeEffects(const TreeScope&);
 
   void SetPlaybackRate(double);
   double PlaybackRate() const;
 
-  CompositorAnimationTimeline* CompositorTimeline() const {
-    return compositor_timeline_.get();
-  }
-
   void ResetForTesting();
   void SetTimingForTesting(PlatformTiming* timing);
 
-  void Trace(blink::Visitor*) override;
+  CompositorAnimationTimeline* EnsureCompositorTimeline() override;
+
+  void Trace(Visitor*) const override;
 
  protected:
-  base::Optional<base::TimeDelta> CurrentTimeInternal() override;
+  PhaseAndTime CurrentPhaseAndTime() override;
 
  private:
   // Origin time for the timeline relative to the time origin of the document.
@@ -118,8 +117,6 @@ class CORE_EXPORT DocumentTimeline : public AnimationTimeline {
 
   Member<PlatformTiming> timing_;
 
-  std::unique_ptr<CompositorAnimationTimeline> compositor_timeline_;
-
   class DocumentTimelineTiming final : public PlatformTiming {
    public:
     DocumentTimelineTiming(DocumentTimeline* timeline)
@@ -135,7 +132,7 @@ class CORE_EXPORT DocumentTimeline : public AnimationTimeline {
 
     void TimerFired(TimerBase*) { timeline_->ScheduleServiceOnNextFrame(); }
 
-    void Trace(blink::Visitor*) override;
+    void Trace(Visitor*) const override;
 
    private:
     Member<DocumentTimeline> timeline_;

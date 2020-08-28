@@ -6,26 +6,26 @@
 
 #include <utility>
 
-#include "base/logging.h"
+#include "base/check_op.h"
 #include "components/performance_manager/graph/frame_node_impl.h"
 #include "components/performance_manager/graph/graph_impl.h"
 #include "components/performance_manager/graph/page_node_impl.h"
 
 namespace performance_manager {
 
-ProcessNodeImpl::ProcessNodeImpl(GraphImpl* graph,
+ProcessNodeImpl::ProcessNodeImpl(content::ProcessType process_type,
                                  RenderProcessHostProxy render_process_proxy)
-    : TypedNodeBase(graph),
+    : process_type_(process_type),
       render_process_host_proxy_(std::move(render_process_proxy)) {
   DETACH_FROM_SEQUENCE(sequence_checker_);
 }
 
 ProcessNodeImpl::~ProcessNodeImpl() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-}
-
-void ProcessNodeImpl::SetCPUUsage(double cpu_usage) {
-  cpu_usage_ = cpu_usage;
+  // Crash if this process node is destroyed while still hosting a worker node.
+  // TODO(https://crbug.com/1058705): Turn this into a DCHECK once the issue is
+  //                                  resolved.
+  CHECK(worker_nodes_.empty());
 }
 
 void ProcessNodeImpl::Bind(
@@ -34,11 +34,6 @@ void ProcessNodeImpl::Bind(
   // which case we will receive a new receiver from the newly spawned process.
   receiver_.reset();
   receiver_.Bind(std::move(receiver));
-}
-
-void ProcessNodeImpl::SetExpectedTaskQueueingDuration(
-    base::TimeDelta duration) {
-  expected_task_queueing_duration_.SetAndNotify(this, duration);
 }
 
 void ProcessNodeImpl::SetMainThreadTaskLoadIsLow(
@@ -89,9 +84,10 @@ PageNodeImpl* ProcessNodeImpl::GetPageNodeIfExclusive() const {
   return page_node;
 }
 
-int ProcessNodeImpl::GetRenderProcessId() const {
+RenderProcessHostId ProcessNodeImpl::GetRenderProcessId() const {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  return render_process_host_proxy_.render_process_host_id();
+  return RenderProcessHostId(
+      render_process_host_proxy_.render_process_host_id());
 }
 
 void ProcessNodeImpl::AddFrame(FrameNodeImpl* frame_node) {
@@ -136,13 +132,17 @@ void ProcessNodeImpl::SetProcessImpl(base::Process process,
   // process.
   private_footprint_kb_ = 0;
   resident_set_kb_ = 0;
-  cumulative_cpu_usage_ = base::TimeDelta();
 
   process_id_ = new_pid;
   launch_time_ = launch_time;
 
   // Set the process variable last, as it will fire the notification.
   process_.SetAndNotify(this, std::move(process));
+}
+
+content::ProcessType ProcessNodeImpl::GetProcessType() const {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  return process_type();
 }
 
 base::ProcessId ProcessNodeImpl::GetProcessId() const {
@@ -165,13 +165,14 @@ base::Optional<int32_t> ProcessNodeImpl::GetExitStatus() const {
   return exit_status();
 }
 
-void ProcessNodeImpl::VisitFrameNodes(const FrameNodeVisitor& visitor) const {
+bool ProcessNodeImpl::VisitFrameNodes(const FrameNodeVisitor& visitor) const {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   for (auto* frame_impl : frame_nodes()) {
     const FrameNode* frame = frame_impl;
     if (!visitor.Run(frame))
-      return;
+      return false;
   }
+  return true;
 }
 
 base::flat_set<const FrameNode*> ProcessNodeImpl::GetFrameNodes() const {
@@ -185,24 +186,9 @@ base::flat_set<const FrameNode*> ProcessNodeImpl::GetFrameNodes() const {
   return frames;
 }
 
-base::TimeDelta ProcessNodeImpl::GetExpectedTaskQueueingDuration() const {
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  return expected_task_queueing_duration();
-}
-
 bool ProcessNodeImpl::GetMainThreadTaskLoadIsLow() const {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   return main_thread_task_load_is_low();
-}
-
-double ProcessNodeImpl::GetCpuUsage() const {
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  return cpu_usage();
-}
-
-base::TimeDelta ProcessNodeImpl::GetCumulativeCpuUsage() const {
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  return cumulative_cpu_usage();
 }
 
 uint64_t ProcessNodeImpl::GetPrivateFootprintKb() const {
@@ -213,6 +199,11 @@ uint64_t ProcessNodeImpl::GetPrivateFootprintKb() const {
 uint64_t ProcessNodeImpl::GetResidentSetKb() const {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   return resident_set_kb();
+}
+
+RenderProcessHostId ProcessNodeImpl::GetRenderProcessHostId() const {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  return GetRenderProcessId();
 }
 
 const RenderProcessHostProxy& ProcessNodeImpl::GetRenderProcessHostProxy()
@@ -231,9 +222,8 @@ void ProcessNodeImpl::OnAllFramesInProcessFrozen() {
     observer->OnAllFramesInProcessFrozen(this);
 }
 
-void ProcessNodeImpl::LeaveGraph() {
+void ProcessNodeImpl::OnBeforeLeavingGraph() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  NodeBase::LeaveGraph();
 
   // Make as if we're transitioning to the null PID before we die to clear this
   // instance from the PID map.

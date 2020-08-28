@@ -90,21 +90,22 @@ String EmptyChromeClient::AcceptLanguages() {
 
 void EmptyLocalFrameClient::BeginNavigation(
     const ResourceRequest&,
-    network::mojom::RequestContextFrameType,
-    Document* origin_document,
+    mojom::RequestContextFrameType,
+    LocalDOMWindow*,
     DocumentLoader*,
     WebNavigationType,
     NavigationPolicy,
-    bool,
     WebFrameLoadType,
     bool,
     TriggeringEventInfo,
     HTMLFormElement*,
-    ContentSecurityPolicyDisposition,
+    network::mojom::CSPDisposition,
     mojo::PendingRemote<mojom::blink::BlobURLToken>,
     base::TimeTicks,
     const String&,
-    WebContentSecurityPolicyList,
+    const base::Optional<WebImpression>&,
+    WTF::Vector<network::mojom::blink::ContentSecurityPolicyPtr> initiator_csp,
+    network::mojom::blink::CSPSourcePtr initiator_csp_self,
     network::mojom::IPAddressSpace,
     mojo::PendingRemote<mojom::blink::NavigationInitiator>) {}
 
@@ -113,7 +114,7 @@ void EmptyLocalFrameClient::DispatchWillSendSubmitEvent(HTMLFormElement*) {}
 DocumentLoader* EmptyLocalFrameClient::CreateDocumentLoader(
     LocalFrame* frame,
     WebNavigationType navigation_type,
-    base::Optional<ContentSecurityPolicy*> content_security_policy,
+    ContentSecurityPolicy* content_security_policy,
     std::unique_ptr<WebNavigationParams> navigation_params,
     std::unique_ptr<WebDocumentLoader::ExtraData> extra_data) {
   DCHECK(frame);
@@ -127,13 +128,11 @@ LocalFrame* EmptyLocalFrameClient::CreateFrame(const AtomicString&,
   return nullptr;
 }
 
-std::pair<RemoteFrame*, base::UnguessableToken>
-EmptyLocalFrameClient::CreatePortal(
+std::pair<RemoteFrame*, PortalToken> EmptyLocalFrameClient::CreatePortal(
     HTMLPortalElement*,
     mojo::PendingAssociatedReceiver<mojom::blink::Portal>,
     mojo::PendingAssociatedRemote<mojom::blink::PortalClient>) {
-  return std::pair<RemoteFrame*, base::UnguessableToken>(
-      nullptr, base::UnguessableToken());
+  return std::pair<RemoteFrame*, PortalToken>(nullptr, PortalToken());
 }
 
 RemoteFrame* EmptyLocalFrameClient::AdoptPortal(HTMLPortalElement*) {

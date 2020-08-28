@@ -5,9 +5,11 @@
 #ifndef ASH_WM_DESKS_DESKS_UTIL_H_
 #define ASH_WM_DESKS_DESKS_UTIL_H_
 
+#include <array>
 #include <vector>
 
 #include "ash/ash_export.h"
+#include "ash/public/cpp/shell_window_ids.h"
 
 namespace aura {
 class Window;
@@ -19,7 +21,7 @@ namespace desks_util {
 
 constexpr size_t kMaxNumberOfDesks = 4;
 
-ASH_EXPORT std::vector<int> GetDesksContainersIds();
+ASH_EXPORT const std::array<int, kMaxNumberOfDesks>& GetDesksContainersIds();
 
 ASH_EXPORT std::vector<aura::Window*> GetDesksContainers(aura::Window* root);
 
@@ -28,6 +30,11 @@ ASH_EXPORT const char* GetDeskContainerName(int container_id);
 ASH_EXPORT bool IsDeskContainer(const aura::Window* container);
 
 ASH_EXPORT bool IsDeskContainerId(int id);
+
+// NOTE: The below *ActiveDesk* functions work with the currently active desk.
+// If they can be called during a desk-switch animation, you might be interested
+// in the soon-to-be active desk when the animation ends.
+// See `DesksController::GetTargetActiveDesk()`.
 
 ASH_EXPORT int GetActiveDeskContainerId();
 

@@ -31,6 +31,7 @@
 #include <memory>
 
 #include "base/macros.h"
+#include "third_party/blink/public/platform/web_color_scheme.h"
 #include "third_party/blink/renderer/platform/fonts/font.h"
 #include "third_party/blink/renderer/platform/graphics/dark_mode_filter.h"
 #include "third_party/blink/renderer/platform/graphics/dark_mode_settings.h"
@@ -70,14 +71,7 @@ class PLATFORM_EXPORT GraphicsContext {
   USING_FAST_MALLOC(GraphicsContext);
 
  public:
-  enum DisabledMode {
-    kNothingDisabled = 0,  // Run as normal.
-    kFullyDisabled = 1     // Do absolutely minimal work to remove the cost of
-                           // the context from performance tests.
-  };
-
   explicit GraphicsContext(PaintController&,
-                           DisabledMode = kNothingDisabled,
                            printing::MetafileSkia* = nullptr,
                            paint_preview::PaintPreviewTracker* = nullptr);
 
@@ -90,8 +84,6 @@ class PLATFORM_EXPORT GraphicsContext {
   const PaintController& GetPaintController() const {
     return paint_controller_;
   }
-
-  bool ContextDisabled() const { return disabled_state_; }
 
   const DarkModeSettings& dark_mode_settings() const {
     return dark_mode_filter_.settings();
@@ -192,7 +184,8 @@ class PLATFORM_EXPORT GraphicsContext {
   void DrawLine(const IntPoint&,
                 const IntPoint&,
                 const DarkModeFilter::ElementRole role =
-                    DarkModeFilter::ElementRole::kBackground);
+                    DarkModeFilter::ElementRole::kBackground,
+                bool is_text_line = false);
 
   void FillPath(const Path&);
 
@@ -374,7 +367,7 @@ class PLATFORM_EXPORT GraphicsContext {
                      float border_radius,
                      float min_border_width,
                      const Color&,
-                     bool is_outset);
+                     WebColorScheme color_scheme);
   void DrawFocusRing(const Path&, float width, int offset, const Color&);
 
   enum Edge {
@@ -430,14 +423,28 @@ class PLATFORM_EXPORT GraphicsContext {
                                           FloatPoint& p2,
                                           float stroke_width);
 
-  static int FocusRingOutsetExtent(int offset, int width, bool is_outset);
+  static Path GetPathForTextLine(const FloatPoint&,
+                                 float width,
+                                 float stroke_thickness,
+                                 StrokeStyle);
+  static bool ShouldUseStrokeForTextLine(StrokeStyle);
+
+  static int FocusRingOutsetExtent(int offset, int width);
 
   void SetInDrawingRecorder(bool);
   bool InDrawingRecorder() const { return in_drawing_recorder_; }
 
+  // Set the DOM Node Id on the canvas. This is used to associate
+  // the drawing commands with the structure tree for the page when
+  // creating a tagged PDF. Callers are responsible for restoring it.
+  void SetDOMNodeId(DOMNodeId);
+  DOMNodeId GetDOMNodeId() const;
+
   static sk_sp<SkColorFilter> WebCoreColorFilterToSkiaColorFilter(ColorFilter);
 
  private:
+  friend class ScopedDarkModeElementRoleOverride;
+
   const GraphicsContextState* ImmutableState() const { return paint_state_; }
 
   GraphicsContextState* MutableState() {
@@ -477,8 +484,7 @@ class PLATFORM_EXPORT GraphicsContext {
                              float width,
                              int offset,
                              float border_radius,
-                             const Color&,
-                             bool is_outset);
+                             const Color&);
 
   // SkCanvas wrappers.
   void ClipRRect(const SkRRect&,
@@ -488,9 +494,6 @@ class PLATFORM_EXPORT GraphicsContext {
 
   // Apply deferred paint state saves
   void RealizePaintSave() {
-    if (ContextDisabled())
-      return;
-
     if (paint_state_->SaveCount()) {
       paint_state_->DecrementSaveCount();
       ++paint_state_index_;
@@ -512,7 +515,9 @@ class PLATFORM_EXPORT GraphicsContext {
 
   class DarkModeFlags;
 
-  // null indicates painting is contextDisabled. Never delete this object.
+  // This is owned by paint_recorder_. Never delete this object.
+  // Drawing operations are allowed only after the first BeginRecording() which
+  // initializes this to not null.
   cc::PaintCanvas* canvas_;
 
   PaintController& paint_controller_;
@@ -538,8 +543,6 @@ class PLATFORM_EXPORT GraphicsContext {
   bool disable_destruction_checks_;
 #endif
 
-  const DisabledMode disabled_state_;
-
   float device_scale_factor_;
 
   // TODO(gilmanmh): Investigate making this base::Optional<DarkModeFilter>
@@ -548,6 +551,9 @@ class PLATFORM_EXPORT GraphicsContext {
   unsigned printing_ : 1;
   unsigned is_painting_preview_ : 1;
   unsigned in_drawing_recorder_ : 1;
+
+  // The current node ID, which is used for marked content in a tagged PDF.
+  DOMNodeId dom_node_id_ = kInvalidDOMNodeId;
 
   DISALLOW_COPY_AND_ASSIGN(GraphicsContext);
 };

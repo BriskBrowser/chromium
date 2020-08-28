@@ -18,6 +18,7 @@
 #include "base/macros.h"
 #include "base/observer_list.h"
 #include "base/optional.h"
+#include "base/sequence_checker.h"
 #include "base/time/time.h"
 #include "base/values.h"
 #include "components/policy/core/common/cloud/cloud_policy_constants.h"
@@ -73,6 +74,29 @@ class POLICY_EXPORT CloudPolicyClient {
   using DeviceDMTokenCallback = base::RepeatingCallback<std::string(
       const std::vector<std::string>& user_affiliation_ids)>;
 
+  using ClientCertProvisioningStartCsrCallback = base::OnceCallback<void(
+      DeviceManagementStatus,
+      base::Optional<
+          enterprise_management::ClientCertificateProvisioningResponse::Error>,
+      base::Optional<int64_t> try_later,
+      const std::string& invalidation_topic,
+      const std::string& va_challenge,
+      enterprise_management::HashingAlgorithm hash_algorithm,
+      const std::string& data_to_sign)>;
+
+  using ClientCertProvisioningFinishCsrCallback = base::OnceCallback<void(
+      DeviceManagementStatus,
+      base::Optional<
+          enterprise_management::ClientCertificateProvisioningResponse::Error>,
+      base::Optional<int64_t> try_later)>;
+
+  using ClientCertProvisioningDownloadCertCallback = base::OnceCallback<void(
+      DeviceManagementStatus,
+      base::Optional<
+          enterprise_management::ClientCertificateProvisioningResponse::Error>,
+      base::Optional<int64_t> try_later,
+      const std::string& pem_encoded_certificate)>;
+
   // Observer interface for state and policy changes.
   class POLICY_EXPORT Observer {
    public:
@@ -88,6 +112,12 @@ class POLICY_EXPORT CloudPolicyClient {
 
     // Indicates there's been an error in a previously-issued request.
     virtual void OnClientError(CloudPolicyClient* client) = 0;
+
+    // Called when the Service Account Identity is set on a policy data object
+    // after a policy fetch. |service_account_email()| will return the new
+    // account's email.
+    virtual void OnServiceAccountSet(CloudPolicyClient* client,
+                                     const std::string& account_email) {}
   };
 
   struct POLICY_EXPORT RegistrationParameters {
@@ -113,26 +143,34 @@ class POLICY_EXPORT CloudPolicyClient {
   };
 
   // If non-empty, |machine_id|, |machine_model|, |brand_code|,
-  // |ethernet_mac_address|, |dock_mac_address| and |manufacture_date| are
-  // passed to the server verbatim. As these reveal machine identity, they must
-  // only be used where this is appropriate (i.e. device policy, but not user
-  // policy). |service| and |signing_service| are weak pointers and it's the
-  // caller's responsibility to keep them valid for the lifetime of
-  // CloudPolicyClient. The |signing_service| is used to sign sensitive
-  // requests. |device_dm_token_callback| is used to retrieve device DMToken for
-  // affiliated users. Could be null if it's not possible to use
+  // |attested_device_id|, |ethernet_mac_address|, |dock_mac_address| and
+  // |manufacture_date| are passed to the server verbatim. As these reveal
+  // machine identity, they must only be used where this is appropriate (i.e.
+  // device policy, but not user policy). |service| and |signing_service| are
+  // weak pointers and it's the caller's responsibility to keep them valid for
+  // the lifetime of CloudPolicyClient. The |signing_service| is used to sign
+  // sensitive requests. |device_dm_token_callback| is used to retrieve device
+  // DMToken for affiliated users. Could be null if it's not possible to use
   // device DMToken for user policy fetches.
   CloudPolicyClient(
       const std::string& machine_id,
       const std::string& machine_model,
       const std::string& brand_code,
+      const std::string& attested_device_id,
       const std::string& ethernet_mac_address,
       const std::string& dock_mac_address,
       const std::string& manufacture_date,
+      SigningService* signing_service,
       DeviceManagementService* service,
       scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
-      SigningService* signing_service,
       DeviceDMTokenCallback device_dm_token_callback);
+  // A simpler constructor for those that do not need any of the identification
+  // strings of the full constructor or the signing service.
+  CloudPolicyClient(
+      DeviceManagementService* service,
+      scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
+      DeviceDMTokenCallback device_dm_token_callback);
+
   virtual ~CloudPolicyClient();
 
   // Sets the DMToken, thereby establishing a registration with the server. A
@@ -202,10 +240,16 @@ class POLICY_EXPORT CloudPolicyClient {
 
   // Requests OAuth2 auth codes for the device robot account. The client being
   // registered is a prerequisite to this operation and this call will CHECK if
-  // the client is not in registered state.
+  // the client is not in registered state. |oauth_scopes| is the scopes for
+  // which the robot auth codes will be valid, and |device_type| should match
+  // the type of the robot account associated with this request.
   // The |callback| will be called when the operation completes.
-  virtual void FetchRobotAuthCodes(std::unique_ptr<DMAuth> auth,
-                                   RobotAuthCodeCallback callback);
+  virtual void FetchRobotAuthCodes(
+      std::unique_ptr<DMAuth> auth,
+      enterprise_management::DeviceServiceApiAccessRequest::DeviceType
+          device_type,
+      const std::set<std::string>& oauth_scopes,
+      RobotAuthCodeCallback callback);
 
   // Sends an unregistration request to the server.
   virtual void Unregister();
@@ -258,21 +302,36 @@ class POLICY_EXPORT CloudPolicyClient {
           chrome_os_user_report,
       StatusCallback callback);
 
-  // Uploads |report| using the real-time reporting API.  As above, the client
-  // must be in a registered state.  The |callback| will be called when the
-  // operation completes.
+  // Uploads a report containing enterprise connectors real-time security
+  // events. As above, the client must be in a registered state.  The |callback|
+  // will be called when the operation completes.
+  // TODO(crbug.com/1098437): Pick a more specific name.
   virtual void UploadRealtimeReport(base::Value report,
                                     StatusCallback callback);
 
   // Uploads a report on the status of app push-installs. The client must be in
   // a registered state. The |callback| will be called when the operation
   // completes.
-  virtual void UploadAppInstallReport(
-      const enterprise_management::AppInstallReportRequest* app_install_report,
-      StatusCallback callback);
+  // Only one outstanding app push-install report upload is allowed.
+  // In case the new push-installs report upload is started, the previous one
+  // will be canceled.
+  virtual void UploadAppInstallReport(base::Value report,
+                                      StatusCallback callback);
 
-  // Cancels the pending app push-install status report upload, if an.
+  // Cancels the pending app push-install status report upload, if exists.
   virtual void CancelAppInstallReportUpload();
+
+  // Uploads a report on the status of extension installs. The client must be in
+  // a registered state. The |callback| will be called when the operation
+  // completes.
+  // Only one outstanding extension install report upload is allowed.
+  // In case the new installs report upload is started, the previous one
+  // will be canceled.
+  virtual void UploadExtensionInstallReport(base::Value report,
+                                            StatusCallback callback);
+
+  // Cancels the pending extension install status report upload, if exists.
+  virtual void CancelExtensionInstallReportUpload();
 
   // Attempts to fetch remote commands, with |last_command_id| being the ID of
   // the last command that finished execution and |command_results| being
@@ -307,33 +366,107 @@ class POLICY_EXPORT CloudPolicyClient {
   // |callback| will be called when the operation completes.
   virtual void UpdateGcmId(const std::string& gcm_id, StatusCallback callback);
 
+  // Sends certificate provisioning start csr request. It is Step 1 in the
+  // certificate provisioning flow. |cert_scope| defines if it is a user- or
+  // device-level request, |cert_profile_id| defines for which profile from
+  // policies the request applies, |public_key| is used to build the CSR.
+  // |callback| will be called when the operation completes. It is expected to
+  // receive the CSR and VA challenge.
+  virtual void ClientCertProvisioningStartCsr(
+      const std::string& cert_scope,
+      const std::string& cert_profile_id,
+      const std::string& cert_profile_version,
+      const std::string& public_key,
+      ClientCertProvisioningStartCsrCallback callback);
+
+  // Sends certificate provisioning finish csr request. It is Step 2 in the
+  // certificate provisioning flow. |cert_scope| defines if it is a user- or
+  // device-level request, |cert_profile_id| and |public_key| define the
+  // provisioning flow that should be continued. |va_challenge_response| is a
+  // challenge response to the challenge from the previous step. |signature| is
+  // cryptographic signature of the CSR from the previous step, the algorithm
+  // for it is defined in a corresponding certificate profile. |callback| will
+  // be called when the operation completes. It is expected to receive a
+  // confirmation that the request is accepted.
+  virtual void ClientCertProvisioningFinishCsr(
+      const std::string& cert_scope,
+      const std::string& cert_profile_id,
+      const std::string& cert_profile_version,
+      const std::string& public_key,
+      const std::string& va_challenge_response,
+      const std::string& signature,
+      ClientCertProvisioningFinishCsrCallback callback);
+
+  // Sends certificate provisioning download certificate request. It is Step 3
+  // (final) in the certificate provisioning flow. |cert_scope|,
+  // |cert_profile_id|, |public_key| are the same as for finish csr request.
+  // |callback| will be called when the operation completes. It is expected to
+  // receive a certificate that was issued according to the CSR that was
+  // generated during previous steps.
+  virtual void ClientCertProvisioningDownloadCert(
+      const std::string& cert_scope,
+      const std::string& cert_profile_id,
+      const std::string& cert_profile_version,
+      const std::string& public_key,
+      ClientCertProvisioningDownloadCertCallback callback);
+
+  // Used the update the current service account email associated with this
+  // policy client and notify observers.
+  void UpdateServiceAccount(const std::string& account_email);
+
   // Adds an observer to be called back upon policy and state changes.
   void AddObserver(Observer* observer);
 
   // Removes the specified observer.
   void RemoveObserver(Observer* observer);
 
-  const std::string& machine_id() const { return machine_id_; }
-  const std::string& machine_model() const { return machine_model_; }
-  const std::string& brand_code() const { return brand_code_; }
+  const std::string& machine_id() const {
+    DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+    return machine_id_;
+  }
+  const std::string& machine_model() const {
+    DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+    return machine_model_;
+  }
+  const std::string& brand_code() const {
+    DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+    return brand_code_;
+  }
+  const std::string& attested_device_id() const {
+    DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+    return attested_device_id_;
+  }
   const std::string& ethernet_mac_address() const {
+    DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
     return ethernet_mac_address_;
   }
-  const std::string& dock_mac_address() const { return dock_mac_address_; }
-  const std::string& manufacture_date() const { return manufacture_date_; }
+  const std::string& dock_mac_address() const {
+    DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+    return dock_mac_address_;
+  }
+  const std::string& manufacture_date() const {
+    DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+    return manufacture_date_;
+  }
 
   void set_last_policy_timestamp(const base::Time& timestamp) {
+    DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
     last_policy_timestamp_ = timestamp;
   }
 
-  const base::Time& last_policy_timestamp() { return last_policy_timestamp_; }
+  const base::Time& last_policy_timestamp() {
+    DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+    return last_policy_timestamp_;
+  }
 
   void set_public_key_version(int public_key_version) {
+    DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
     public_key_version_ = public_key_version;
     public_key_version_valid_ = true;
   }
 
   void clear_public_key_version() {
+    DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
     public_key_version_valid_ = false;
   }
 
@@ -354,29 +487,47 @@ class POLICY_EXPORT CloudPolicyClient {
   void SetStateKeysToUpload(const std::vector<std::string>& keys);
 
   // Whether the client is registered with the device management service.
-  bool is_registered() const { return !dm_token_.empty(); }
+  bool is_registered() const {
+    DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+    return !dm_token_.empty();
+  }
 
   // Whether the client requires reregistration with the device management
   // service.
   bool requires_reregistration() const {
+    DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
     return !reregistration_dm_token_.empty();
   }
 
-  DeviceManagementService* service() { return service_; }
-  const std::string& dm_token() const { return dm_token_; }
-  const std::string& client_id() const { return client_id_; }
+  DeviceManagementService* service() {
+    DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+    return service_;
+  }
+  const std::string& dm_token() const {
+    DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+    return dm_token_;
+  }
+  const std::string& client_id() const {
+    DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+    return client_id_;
+  }
   const base::DictionaryValue* configuration_seed() const {
+    DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
     return configuration_seed_.get();
   }
 
   // The device mode as received in the registration request.
-  DeviceMode device_mode() const { return device_mode_; }
+  DeviceMode device_mode() const {
+    DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+    return device_mode_;
+  }
 
   // The policy responses as obtained by the last request to the cloud. These
   // policies haven't gone through verification, so their contents cannot be
   // trusted. Use CloudPolicyStore::policy() and CloudPolicyStore::policy_map()
   // instead for making policy decisions.
   const ResponseMap& responses() const {
+    DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
     return responses_;
   }
 
@@ -387,6 +538,7 @@ class POLICY_EXPORT CloudPolicyClient {
       const std::string& settings_entity_id) const;
 
   DeviceManagementStatus status() const {
+    DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
     return status_;
   }
 
@@ -394,10 +546,15 @@ class POLICY_EXPORT CloudPolicyClient {
   // Observers can call this method from their OnPolicyFetched method to
   // determine which at which invalidation version the policy was fetched.
   int64_t fetched_invalidation_version() const {
+    DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
     return fetched_invalidation_version_;
   }
 
   scoped_refptr<network::SharedURLLoaderFactory> GetURLLoaderFactory();
+
+  void add_connector_url_params(bool value) {
+    add_connector_url_params_ = value;
+  }
 
   // Returns the number of active requests.
   int GetActiveRequestCountForTest() const;
@@ -509,6 +666,30 @@ class POLICY_EXPORT CloudPolicyClient {
       int net_error,
       const enterprise_management::DeviceManagementResponse& response);
 
+  // Callback for certificate provisioning start csr requests.
+  void OnClientCertProvisioningStartCsrResponse(
+      ClientCertProvisioningStartCsrCallback callback,
+      policy::DeviceManagementService::Job* job,
+      policy::DeviceManagementStatus status,
+      int net_error,
+      const enterprise_management::DeviceManagementResponse& response);
+
+  // Callback for certificate provisioning finish csr requests.
+  void OnClientCertProvisioningFinishCsrResponse(
+      ClientCertProvisioningFinishCsrCallback callback,
+      policy::DeviceManagementService::Job* job,
+      policy::DeviceManagementStatus status,
+      int net_error,
+      const enterprise_management::DeviceManagementResponse& response);
+
+  // Callback for certificate provisioning download cert requests.
+  void OnClientCertProvisioningDownloadCertResponse(
+      ClientCertProvisioningDownloadCertCallback callback,
+      policy::DeviceManagementService::Job* job,
+      policy::DeviceManagementStatus status,
+      int net_error,
+      const enterprise_management::DeviceManagementResponse& response);
+
   // Helper to remove a job from request_jobs_.
   void RemoveJob(DeviceManagementService::Job* job);
 
@@ -516,11 +697,16 @@ class POLICY_EXPORT CloudPolicyClient {
   void NotifyPolicyFetched();
   void NotifyRegistrationStateChanged();
   void NotifyClientError();
+  void NotifyServiceAccountSet(const std::string& account_email);
+
+  // Assert non-concurrent usage in debug builds.
+  SEQUENCE_CHECKER(sequence_checker_);
 
   // Data necessary for constructing policy requests.
   const std::string machine_id_;
   const std::string machine_model_;
   const std::string brand_code_;
+  const std::string attested_device_id_;
   const std::string ethernet_mac_address_;
   const std::string dock_mac_address_;
   const std::string manufacture_date_;
@@ -549,11 +735,11 @@ class POLICY_EXPORT CloudPolicyClient {
   // The invalidation version used for the most recent fetch operation.
   int64_t fetched_invalidation_version_ = 0;
 
-  // Used for issuing requests to the cloud.
-  DeviceManagementService* service_ = nullptr;
-
   // Used for signing requests.
   SigningService* signing_service_ = nullptr;
+
+  // Used for issuing requests to the cloud.
+  DeviceManagementService* service_ = nullptr;
 
   // Only one outstanding policy fetch is allowed, so this is tracked in
   // its own member variable.
@@ -567,6 +753,10 @@ class POLICY_EXPORT CloudPolicyClient {
   // be accessible so that it can be canceled.
   DeviceManagementService::Job* app_install_report_request_job_ = nullptr;
 
+  // Only one outstanding extension install report upload is allowed, and it
+  // must be accessible so that it can be canceled.
+  DeviceManagementService::Job* extension_install_report_request_job_ = nullptr;
+
   // The policy responses returned by the last policy fetch operation.
   ResponseMap responses_;
   DeviceManagementStatus status_ = DM_STATUS_SUCCESS;
@@ -578,6 +768,17 @@ class POLICY_EXPORT CloudPolicyClient {
   scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory_;
 
  private:
+  // Creates a new real-time reporting job and appends it to |request_jobs_|.
+  // The job will send its report to the |server_url| endpoint.  If
+  // |add_connector_url_params| is true then URL paramaters specific to
+  // enterprise connectors are added to the request uploading the report.
+  // |callback| is invoked once the report is uploaded.
+  DeviceManagementService::Job* CreateNewRealtimeReportingJob(
+      base::Value report,
+      const std::string& server_url,
+      bool add_connector_url_params,
+      StatusCallback callback);
+
   void SetClientId(const std::string& client_id);
   // Fills in the common fields of a DeviceRegisterRequest for |Register| and
   // |RegisterWithCertificate|.
@@ -605,6 +806,11 @@ class POLICY_EXPORT CloudPolicyClient {
   // during re-registration, which gets triggered by a failed policy fetch with
   // error |DM_STATUS_SERVICE_DEVICE_NOT_FOUND|.
   std::string reregistration_dm_token_;
+
+  // Whether extra enterprise connectors URL parameters should be included
+  // in real-time reports.  Only reports uploaded using UploadRealtimeReport()
+  // are affected.
+  bool add_connector_url_params_ = false;
 
   // Used to create tasks which run delayed on the UI thread.
   base::WeakPtrFactory<CloudPolicyClient> weak_ptr_factory_{this};

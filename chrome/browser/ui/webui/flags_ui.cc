@@ -33,19 +33,26 @@
 #include "content/public/browser/web_ui.h"
 #include "content/public/browser/web_ui_data_source.h"
 #include "content/public/browser/web_ui_message_handler.h"
+#include "services/network/public/mojom/content_security_policy.mojom.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
 
 #if defined(OS_CHROMEOS)
+#include "base/command_line.h"
 #include "base/system/sys_info.h"
 #include "chrome/browser/chromeos/login/session/user_session_manager.h"
 #include "chrome/browser/chromeos/ownership/owner_settings_service_chromeos.h"
 #include "chrome/browser/chromeos/ownership/owner_settings_service_chromeos_factory.h"
 #include "chrome/browser/chromeos/settings/cros_settings.h"
 #include "chrome/browser/chromeos/settings/owner_flags_storage.h"
+#include "chrome/browser/infobars/infobar_service.h"
+#include "chrome/grit/generated_resources.h"
+#include "chromeos/constants/chromeos_switches.h"
 #include "components/account_id/account_id.h"
+#include "components/infobars/core/simple_alert_infobar_delegate.h"
 #include "components/pref_registry/pref_registry_syncable.h"
 #include "components/user_manager/user_manager.h"
+#include "components/vector_icons/vector_icons.h"
 #endif
 
 using content::WebContents;
@@ -56,8 +63,12 @@ namespace {
 content::WebUIDataSource* CreateFlagsUIHTMLSource() {
   content::WebUIDataSource* source =
       content::WebUIDataSource::Create(chrome::kChromeUIFlagsHost);
-  source->OverrideContentSecurityPolicyScriptSrc(
+  source->OverrideContentSecurityPolicy(
+      network::mojom::CSPDirectiveName::ScriptSrc,
       "script-src chrome://resources 'self' 'unsafe-eval';");
+  source->OverrideContentSecurityPolicy(
+      network::mojom::CSPDirectiveName::TrustedTypes,
+      "trusted-types jstemplate;");
   source->AddString(flags_ui::kVersion, version_info::GetVersionNumber());
 
 #if defined(OS_CHROMEOS)
@@ -111,6 +122,17 @@ void FinishInitialization(base::WeakPtr<T> flags_ui,
     dom_handler->Init(
         new flags_ui::PrefServiceFlagsStorage(profile->GetPrefs()),
         flags_ui::kGeneralAccessFlagsOnly);
+  }
+
+  // Show a warning info bar when kSafeMode switch is present.
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          chromeos::switches::kSafeMode)) {
+    SimpleAlertInfoBarDelegate::Create(
+        InfoBarService::FromWebContents(flags_ui->web_ui()->GetWebContents()),
+        infobars::InfoBarDelegate::BAD_FLAGS_INFOBAR_DELEGATE,
+        &vector_icons::kWarningIcon,
+        l10n_util::GetStringUTF16(IDS_FLAGS_IGNORED_DUE_TO_CRASHY_CHROME),
+        /*auto_expire=*/false, /*should_animate=*/true);
   }
 }
 #endif
@@ -202,9 +224,9 @@ FlagsUIHandler* InitializeHandler(content::WebUI* web_ui,
     chromeos::OwnerSettingsServiceChromeOS* service =
         chromeos::OwnerSettingsServiceChromeOSFactory::GetForBrowserContext(
             original_profile);
-    service->IsOwnerAsync(base::Bind(&FinishInitialization<T>,
-                                     weak_factory.GetWeakPtr(),
-                                     original_profile, handler));
+    service->IsOwnerAsync(base::BindOnce(&FinishInitialization<T>,
+                                         weak_factory.GetWeakPtr(),
+                                         original_profile, handler));
   } else {
     FinishInitialization(weak_factory.GetWeakPtr(), original_profile, handler,
                          false /* current_user_is_owner */);

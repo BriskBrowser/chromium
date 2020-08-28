@@ -105,6 +105,11 @@ class MockModelTypeWorker : public CommitQueue {
   syncer::UpdateResponseData GenerateTypeRootUpdateData(
       const ModelType& model_type);
 
+  // Returns an UpdateResponseData representing an update received from
+  // the server for a deleted entity.
+  syncer::UpdateResponseData GenerateTombstoneUpdateData(
+      const ClientTagHash& tag_hash);
+
   // Triggers a server-side deletion of the entity with |tag_hash|; updates
   // server state accordingly.
   void TombstoneFromServer(const ClientTagHash& tag_hash);
@@ -140,6 +145,10 @@ class MockModelTypeWorker : public CommitQueue {
   CommitResponseData SuccessfulCommitResponse(
       const CommitRequestData& request_data,
       int64_t version_offset);
+  // Returns a commit response that indicates a failed commit of the
+  // given |request_data|.
+  FailedCommitResponseData FailedCommitResponse(
+      const CommitRequestData& request_data);
 
   // Retrieve or set the server version.
   int64_t GetServerVersion(const ClientTagHash& tag_hash);

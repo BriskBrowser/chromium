@@ -17,6 +17,7 @@
 #include <utility>
 
 #include "base/bind.h"
+#include "base/bind_helpers.h"
 #include "base/macros.h"
 #include "base/stl_util.h"
 #include "base/trace_event/trace_event.h"
@@ -143,7 +144,8 @@ struct VideoCaptureImpl::BufferContext
       buffer_context->gmb_resources_->mailbox = sii->CreateSharedImage(
           gpu_memory_buffer.get(),
           buffer_context->gpu_factories_->GpuMemoryBufferManager(),
-          *(info->color_space), usage);
+          *(info->color_space), kTopLeft_GrSurfaceOrigin, kPremul_SkAlphaType,
+          usage);
     } else {
       sii->UpdateSharedImage(buffer_context->gmb_resources_->release_sync_token,
                              buffer_context->gmb_resources_->mailbox);
@@ -160,10 +162,8 @@ struct VideoCaptureImpl::BufferContext
         mailbox_holder_array,
         base::BindOnce(&BufferContext::MailboxHolderReleased, buffer_context),
         info->timestamp);
-    frame->metadata()->SetBoolean(media::VideoFrameMetadata::ALLOW_OVERLAY,
-                                  true);
-    frame->metadata()->SetBoolean(
-        media::VideoFrameMetadata::READ_LOCK_FENCES_ENABLED, true);
+    frame->metadata()->allow_overlay = true;
+    frame->metadata()->read_lock_fences_enabled = true;
 
     std::move(on_texture_bound)
         .Run(std::move(info), std::move(frame), std::move(buffer_context));
@@ -505,16 +505,12 @@ void VideoCaptureImpl::OnBufferReady(
   if (!consume_buffer) {
     OnFrameDropped(
         media::VideoCaptureFrameDropReason::kVideoCaptureImplNotInStartedState);
-    GetVideoCaptureHost()->ReleaseBuffer(device_id_, buffer_id, -1.0);
+    GetVideoCaptureHost()->ReleaseBuffer(device_id_, buffer_id,
+                                         media::VideoFrameFeedback());
     return;
   }
 
-  base::TimeTicks reference_time;
-  media::VideoFrameMetadata frame_metadata;
-  frame_metadata.MergeInternalValuesFrom(info->metadata);
-  const bool success = frame_metadata.GetTimeTicks(
-      media::VideoFrameMetadata::REFERENCE_TIME, &reference_time);
-  DCHECK(success);
+  base::TimeTicks reference_time = *info->metadata.reference_time;
 
   if (first_frame_ref_time_.is_null()) {
     first_frame_ref_time_ = reference_time;
@@ -553,17 +549,16 @@ void VideoCaptureImpl::OnBufferReady(
         uint8_t* u_data =
             y_data + (media::VideoFrame::Rows(media::VideoFrame::kYPlane,
                                               info->pixel_format,
-                                              info->coded_size.height) *
+                                              info->coded_size.height()) *
                       info->strides->stride_by_plane[0]);
         uint8_t* v_data =
             u_data + (media::VideoFrame::Rows(media::VideoFrame::kUPlane,
                                               info->pixel_format,
-                                              info->coded_size.height) *
+                                              info->coded_size.height()) *
                       info->strides->stride_by_plane[1]);
         frame = media::VideoFrame::WrapExternalYuvData(
             info->pixel_format, gfx::Size(info->coded_size),
-            gfx::Rect(info->visible_rect),
-            gfx::Size(info->visible_rect.width, info->visible_rect.height),
+            gfx::Rect(info->visible_rect), info->visible_rect.size(),
             info->strides->stride_by_plane[0],
             info->strides->stride_by_plane[1],
             info->strides->stride_by_plane[2], y_data, u_data, v_data,
@@ -571,8 +566,7 @@ void VideoCaptureImpl::OnBufferReady(
       } else {
         frame = media::VideoFrame::WrapExternalData(
             info->pixel_format, gfx::Size(info->coded_size),
-            gfx::Rect(info->visible_rect),
-            gfx::Size(info->visible_rect.width, info->visible_rect.height),
+            gfx::Rect(info->visible_rect), info->visible_rect.size(),
             const_cast<uint8_t*>(buffer_context->data()),
             buffer_context->data_size(), info->timestamp);
       }
@@ -582,8 +576,7 @@ void VideoCaptureImpl::OnBufferReady(
       // the data without attaching the shared region to the frame.
       frame = media::VideoFrame::WrapExternalData(
           info->pixel_format, gfx::Size(info->coded_size),
-          gfx::Rect(info->visible_rect),
-          gfx::Size(info->visible_rect.width, info->visible_rect.height),
+          gfx::Rect(info->visible_rect), info->visible_rect.size(),
           const_cast<uint8_t*>(buffer_context->data()),
           buffer_context->data_size(), info->timestamp);
       break;
@@ -600,8 +593,7 @@ void VideoCaptureImpl::OnBufferReady(
       frame = media::VideoFrame::WrapNativeTextures(
           info->pixel_format, mailbox_holder_array,
           media::VideoFrame::ReleaseMailboxCB(), gfx::Size(info->coded_size),
-          gfx::Rect(info->visible_rect),
-          gfx::Size(info->visible_rect.width, info->visible_rect.height),
+          gfx::Rect(info->visible_rect), info->visible_rect.size(),
           info->timestamp);
       break;
     }
@@ -624,7 +616,8 @@ void VideoCaptureImpl::OnBufferReady(
             gpu_memory_buffer_support_->CreateGpuMemoryBufferImplFromHandle(
                 buffer_context->TakeGpuMemoryBufferHandle(),
                 gfx::Size(info->coded_size), gfx_format,
-                gfx::BufferUsage::SCANOUT_CAMERA_READ_WRITE, base::DoNothing());
+                gfx::BufferUsage::SCANOUT_VEA_READ_CAMERA_AND_CPU_READ_WRITE,
+                base::DoNothing());
         buffer_context->SetGpuMemoryBuffer(std::move(gmb));
       }
       CHECK(buffer_context->GetGpuMemoryBuffer());
@@ -635,14 +628,14 @@ void VideoCaptureImpl::OnBufferReady(
               buffer_context->GetGpuMemoryBuffer()->CloneHandle(),
               buffer_context->GetGpuMemoryBuffer()->GetSize(),
               buffer_context->GetGpuMemoryBuffer()->GetFormat(),
-              gfx::BufferUsage::SCANOUT_CAMERA_READ_WRITE, base::DoNothing());
+              gfx::BufferUsage::SCANOUT_VEA_READ_CAMERA_AND_CPU_READ_WRITE,
+              base::DoNothing());
 
       media_task_runner_->PostTask(
           FROM_HERE,
           base::BindOnce(
               &BufferContext::BindBufferToTextureOnMediaThread,
-              std::move(buffer_context), base::Passed(&info),
-              base::Passed(&gmb), frame,
+              std::move(buffer_context), std::move(info), std::move(gmb), frame,
               media::BindToCurrentLoop(base::BindOnce(
                   &VideoCaptureImpl::OnVideoFrameReady,
                   weak_factory_.GetWeakPtr(), buffer_id, reference_time))));
@@ -664,12 +657,13 @@ void VideoCaptureImpl::OnVideoFrameReady(
   if (!frame) {
     OnFrameDropped(media::VideoCaptureFrameDropReason::
                        kVideoCaptureImplFailedToWrapDataAsMediaVideoFrame);
-    GetVideoCaptureHost()->ReleaseBuffer(device_id_, buffer_id, -1.0);
+    GetVideoCaptureHost()->ReleaseBuffer(device_id_, buffer_id,
+                                         media::VideoFrameFeedback());
     return;
   }
 
   frame->AddDestructionObserver(base::BindOnce(
-      &VideoCaptureImpl::DidFinishConsumingFrame, frame->metadata(),
+      &VideoCaptureImpl::DidFinishConsumingFrame, frame->feedback(),
       media::BindToCurrentLoop(base::BindOnce(
           &VideoCaptureImpl::OnAllClientsFinishedConsumingFrame,
           weak_factory_.GetWeakPtr(), buffer_id, std::move(buffer_context)))));
@@ -677,7 +671,8 @@ void VideoCaptureImpl::OnVideoFrameReady(
   if (info->color_space.has_value() && info->color_space->IsValid())
     frame->set_color_space(info->color_space.value());
 
-  frame->metadata()->MergeInternalValuesFrom(info->metadata);
+  media::VideoFrameMetadata metadata = info->metadata;
+  frame->metadata()->MergeMetadataFrom(&metadata);
 
   // TODO(qiangchen): Dive into the full code path to let frame metadata hold
   // reference time rather than using an extra parameter.
@@ -699,7 +694,7 @@ void VideoCaptureImpl::OnBufferDestroyed(int32_t buffer_id) {
 void VideoCaptureImpl::OnAllClientsFinishedConsumingFrame(
     int buffer_id,
     scoped_refptr<BufferContext> buffer_context,
-    double consumer_resource_utilization) {
+    const media::VideoFrameFeedback feedback) {
   DCHECK_CALLED_ON_VALID_THREAD(io_thread_checker_);
 
 // Subtle race note: It's important that the |buffer_context| argument be
@@ -721,8 +716,7 @@ void VideoCaptureImpl::OnAllClientsFinishedConsumingFrame(
   buffer_context = nullptr;
 #endif
 
-  GetVideoCaptureHost()->ReleaseBuffer(device_id_, buffer_id,
-                                       consumer_resource_utilization);
+  GetVideoCaptureHost()->ReleaseBuffer(device_id_, buffer_id, feedback);
 }
 
 void VideoCaptureImpl::StopDevice() {
@@ -803,16 +797,11 @@ media::mojom::blink::VideoCaptureHost* VideoCaptureImpl::GetVideoCaptureHost() {
 
 // static
 void VideoCaptureImpl::DidFinishConsumingFrame(
-    const media::VideoFrameMetadata* metadata,
+    const media::VideoFrameFeedback* feedback,
     BufferFinishedCallback callback_to_io_thread) {
   // Note: This function may be called on any thread by the VideoFrame
   // destructor.  |metadata| is still valid for read-access at this point.
-  double consumer_resource_utilization = -1.0;
-  if (!metadata->GetDouble(media::VideoFrameMetadata::RESOURCE_UTILIZATION,
-                           &consumer_resource_utilization)) {
-    consumer_resource_utilization = -1.0;
-  }
-  std::move(callback_to_io_thread).Run(consumer_resource_utilization);
+  std::move(callback_to_io_thread).Run(*feedback);
 }
 
 }  // namespace blink

@@ -11,12 +11,12 @@
 #include <vector>
 
 #include "base/bind.h"
+#include "base/callback_helpers.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
 #include "base/sequenced_task_runner.h"
 #include "base/strings/stringprintf.h"
-#include "base/task/post_task.h"
 #include "base/task/task_traits.h"
 #include "build/build_config.h"
 #include "components/services/filesystem/public/mojom/types.mojom.h"
@@ -103,9 +103,11 @@ class FileSystemEntryURLLoader
       : params_(std::move(params)) {}
 
   // network::mojom::URLLoader:
-  void FollowRedirect(const std::vector<std::string>& removed_headers,
-                      const net::HttpRequestHeaders& modified_headers,
-                      const base::Optional<GURL>& new_url) override {}
+  void FollowRedirect(
+      const std::vector<std::string>& removed_headers,
+      const net::HttpRequestHeaders& modified_headers,
+      const net::HttpRequestHeaders& modified_cors_exempt_headers,
+      const base::Optional<GURL>& new_url) override {}
   void SetPriority(net::RequestPriority priority,
                    int32_t intra_priority_value) override {}
   void PauseReadingBodyFromNet() override {}
@@ -306,15 +308,15 @@ class FileSystemDirectoryURLLoader : public FileSystemEntryURLLoader {
     const DirectoryEntry& entry = entries_[index];
     const FileSystemURL entry_url =
         params_.file_system_context->CreateCrackedFileSystemURL(
-            url_.origin().GetURL(), url_.type(),
+            url_.origin(), url_.type(),
             url_.path().Append(base::FilePath(entry.name)));
     DCHECK(entry_url.is_valid());
     params_.file_system_context->operation_runner()->GetMetadata(
         entry_url,
         FileSystemOperation::GET_METADATA_FIELD_SIZE |
             FileSystemOperation::GET_METADATA_FIELD_LAST_MODIFIED,
-        base::BindRepeating(&FileSystemDirectoryURLLoader::DidGetMetadata,
-                            base::AsWeakPtr(this), index));
+        base::BindOnce(&FileSystemDirectoryURLLoader::DidGetMetadata,
+                       base::AsWeakPtr(this), index));
   }
 
   void DidGetMetadata(size_t index,
@@ -657,8 +659,7 @@ CreateFileSystemURLLoaderFactory(
   FactoryParams params = {render_process_host_id, frame_tree_node_id,
                           file_system_context, storage_domain};
   return std::make_unique<FileSystemURLLoaderFactory>(
-      std::move(params),
-      base::CreateSingleThreadTaskRunner({BrowserThread::IO}));
+      std::move(params), GetIOThreadTaskRunner({}));
 }
 
 }  // namespace content

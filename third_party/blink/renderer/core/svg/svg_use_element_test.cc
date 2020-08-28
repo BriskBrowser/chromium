@@ -6,18 +6,19 @@
 
 #include "third_party/blink/renderer/core/dom/dom_implementation.h"
 #include "third_party/blink/renderer/core/dom/shadow_root.h"
+#include "third_party/blink/renderer/core/frame/local_frame_view.h"
 #include "third_party/blink/renderer/core/html/html_element.h"
 #include "third_party/blink/renderer/core/svg/svg_use_element.h"
 #include "third_party/blink/renderer/core/testing/page_test_base.h"
 
 namespace blink {
 
-using LifecycleUpdateReason = DocumentLifecycle::LifecycleUpdateReason;
+using LifecycleUpdateReason = DocumentUpdateReason;
 
 class SVGUseElementTest : public PageTestBase {};
 
 TEST_F(SVGUseElementTest, InstanceInvalidatedWhenNonAttachedTargetRemoved) {
-  GetDocument().body()->SetInnerHTMLFromString(R"HTML(
+  GetDocument().body()->setInnerHTML(R"HTML(
     <style></style>
     <svg>
         <unknown>
@@ -47,7 +48,7 @@ TEST_F(SVGUseElementTest, InstanceInvalidatedWhenNonAttachedTargetRemoved) {
 
 TEST_F(SVGUseElementTest,
        InstanceInvalidatedWhenNonAttachedTargetMovedInDocument) {
-  GetDocument().body()->SetInnerHTMLFromString(R"HTML(
+  GetDocument().body()->setInnerHTML(R"HTML(
     <svg>
       <use id="use" href="#path"/>
       <textPath id="path">
@@ -76,7 +77,7 @@ TEST_F(SVGUseElementTest,
 }
 
 TEST_F(SVGUseElementTest, NullInstanceRootWhenNotConnectedToDocument) {
-  GetDocument().body()->SetInnerHTMLFromString(R"HTML(
+  GetDocument().body()->setInnerHTML(R"HTML(
     <svg>
       <defs>
         <rect id="r" width="100" height="100" fill="blue"/>
@@ -96,7 +97,7 @@ TEST_F(SVGUseElementTest, NullInstanceRootWhenNotConnectedToDocument) {
 }
 
 TEST_F(SVGUseElementTest, NullInstanceRootWhenConnectedToInactiveDocument) {
-  GetDocument().body()->SetInnerHTMLFromString(R"HTML(
+  GetDocument().body()->setInnerHTML(R"HTML(
     <svg>
       <defs>
         <rect id="r" width="100" height="100" fill="blue"/>
@@ -118,7 +119,7 @@ TEST_F(SVGUseElementTest, NullInstanceRootWhenConnectedToInactiveDocument) {
 }
 
 TEST_F(SVGUseElementTest, NullInstanceRootWhenShadowTreePendingRebuild) {
-  GetDocument().body()->SetInnerHTMLFromString(R"HTML(
+  GetDocument().body()->setInnerHTML(R"HTML(
     <svg>
       <defs>
         <rect id="r" width="100" height="100" fill="blue"/>

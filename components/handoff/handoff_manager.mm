@@ -4,9 +4,10 @@
 
 #include "components/handoff/handoff_manager.h"
 
-#include "base/logging.h"
+#include "base/check.h"
 #include "base/mac/objc_release_properties.h"
 #include "base/mac/scoped_nsobject.h"
+#include "base/notreached.h"
 #include "net/base/mac/url_conversions.h"
 
 #if defined(OS_IOS)
@@ -14,9 +15,8 @@
 #include "components/pref_registry/pref_registry_syncable.h"  // nogncheck
 #endif
 
-#if defined(OS_MACOSX) && !defined(OS_IOS)
+#if defined(OS_MAC)
 #include "base/mac/mac_util.h"
-#include "base/mac/sdk_forward_declarations.h"
 #endif
 
 @interface HandoffManager ()
@@ -51,7 +51,7 @@
 - (instancetype)init {
   self = [super init];
   if (self) {
-#if defined(OS_MACOSX) && !defined(OS_IOS)
+#if defined(OS_MAC)
     _origin = handoff::ORIGIN_MAC;
 #elif defined(OS_IOS)
     _origin = handoff::ORIGIN_IOS;

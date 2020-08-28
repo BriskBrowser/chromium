@@ -21,13 +21,14 @@
 #include "components/metrics/client_info.h"
 #include "components/metrics/metrics_service.h"
 #include "components/metrics/metrics_state_manager.h"
-#include "components/metrics/test_enabled_state_provider.h"
+#include "components/metrics/test/test_enabled_state_provider.h"
 #include "components/prefs/testing_pref_service.h"
 #include "extensions/browser/disable_reason.h"
 #include "extensions/browser/extension_prefs.h"
 #include "extensions/common/extension.h"
 #include "extensions/common/extension_builder.h"
 #include "extensions/common/extension_set.h"
+#include "extensions/common/scoped_worker_based_extensions_channel.h"
 #include "extensions/common/value_builder.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/metrics_proto/extension_install.pb.h"
@@ -97,7 +98,7 @@ class TestExtensionsMetricsProvider : public ExtensionsMetricsProvider {
 
   // Override GetClientID() to return a specific value on which test
   // expectations are based.
-  uint64_t GetClientID() override { return 0x3f1bfee9; }
+  uint64_t GetClientID() const override { return 0x3f1bfee9; }
 };
 
 }  // namespace
@@ -315,6 +316,17 @@ TEST_F(ExtensionMetricsProviderInstallsTest, TestProtoConstruction) {
       EXPECT_EQ(ExtensionInstallProto::CORRUPTED,
                 install.disable_reasons().Get(1));
     }
+    // Adding additional disable reasons should result in all reasons being
+    // reported.
+    prefs()->AddDisableReason(
+        extension->id(),
+        extensions::disable_reason::DISABLE_REMOTELY_FOR_MALWARE);
+    {
+      ExtensionInstallProto install = ConstructProto(*extension);
+      ASSERT_EQ(3, install.disable_reasons_size());
+      EXPECT_EQ(ExtensionInstallProto::DISABLE_REMOTELY_FOR_MALWARE,
+                install.disable_reasons().Get(2));
+    }
   }
 
   {
@@ -352,14 +364,27 @@ TEST_F(ExtensionMetricsProviderInstallsTest, TestProtoConstruction) {
     EXPECT_EQ(ExtensionInstallProto::PERSISTENT_BACKGROUND_PAGE,
               install.background_script_type());
   }
+  {
+    // Test that service worker scripts are reported correctly.
+    extensions::ScopedWorkerBasedExtensionsChannel worker_channel_override;
+    scoped_refptr<const Extension> extension =
+        ExtensionBuilder("service worker")
+            .SetBackgroundContext(
+                ExtensionBuilder::BackgroundContext::SERVICE_WORKER)
+            .Build();
+    add_extension(extension.get());
+    ExtensionInstallProto install = ConstructProto(*extension);
+    EXPECT_EQ(ExtensionInstallProto::SERVICE_WORKER,
+              install.background_script_type());
+  }
 
   {
     // Test changing the blacklist state.
     scoped_refptr<const Extension> extension =
         ExtensionBuilder("blacklist").SetLocation(Manifest::INTERNAL).Build();
     add_extension(extension.get());
-    prefs()->SetExtensionBlacklistState(
-        extension->id(), extensions::BLACKLISTED_SECURITY_VULNERABILITY);
+    prefs()->SetExtensionBlocklistState(
+        extension->id(), extensions::BLOCKLISTED_SECURITY_VULNERABILITY);
     ExtensionInstallProto install = ConstructProto(*extension);
     EXPECT_EQ(ExtensionInstallProto::BLACKLISTED_SECURITY_VULNERABILITY,
               install.blacklist_state());

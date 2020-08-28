@@ -5,18 +5,13 @@
 #include "third_party/blink/renderer/core/layout/ng/mathml/layout_ng_mathml_block.h"
 
 #include "third_party/blink/renderer/core/layout/layout_analyzer.h"
-#include "third_party/blink/renderer/core/layout/layout_view.h"
-#include "third_party/blink/renderer/core/layout/ng/ng_block_node.h"
-#include "third_party/blink/renderer/core/layout/ng/ng_constraint_space.h"
 #include "third_party/blink/renderer/core/layout/ng/ng_layout_result.h"
-#include "third_party/blink/renderer/core/layout/ng/ng_out_of_flow_positioned_node.h"
-#include "third_party/blink/renderer/core/layout/ng/ng_physical_box_fragment.h"
+#include "third_party/blink/renderer/core/mathml/mathml_element.h"
 
 namespace blink {
 
-LayoutNGMathMLBlock::LayoutNGMathMLBlock(MathMLElement* element)
+LayoutNGMathMLBlock::LayoutNGMathMLBlock(Element* element)
     : LayoutNGMixin<LayoutBlock>(element) {
-  DCHECK(element);
 }
 
 void LayoutNGMathMLBlock::UpdateBlockLayout(bool relayout_children) {
@@ -27,16 +22,7 @@ void LayoutNGMathMLBlock::UpdateBlockLayout(bool relayout_children) {
     return;
   }
 
-  NGConstraintSpace constraint_space =
-      NGConstraintSpace::CreateFromLayoutObject(
-          *this, !View()->GetLayoutState()->Next() /* is_layout_root */);
-
-  scoped_refptr<const NGLayoutResult> result =
-      NGBlockNode(this).Layout(constraint_space);
-
-  for (const auto& descendant :
-       result->PhysicalFragment().OutOfFlowPositionedDescendants())
-    descendant.node.UseLegacyOutOfFlowPositioning();
+  UpdateInFlowBlockLayout();
 }
 
 bool LayoutNGMathMLBlock::IsOfType(LayoutObjectType type) const {
@@ -48,7 +34,13 @@ bool LayoutNGMathMLBlock::IsOfType(LayoutObjectType type) const {
 
 bool LayoutNGMathMLBlock::IsChildAllowed(LayoutObject* child,
                                          const ComputedStyle&) const {
-  return child->GetNode() && child->GetNode()->IsMathMLElement();
+  return child->GetNode() && IsA<MathMLElement>(child->GetNode());
+}
+
+bool LayoutNGMathMLBlock::CanHaveChildren() const {
+  if (GetNode() && GetNode()->HasTagName(mathml_names::kMspaceTag))
+    return false;
+  return LayoutNGMixin<LayoutBlock>::CanHaveChildren();
 }
 
 }  // namespace blink

@@ -34,8 +34,10 @@ This file contains the strings for bluetooth.
       <output filename="bluetooth_strings_pa.pak" type="data_package" lang="pa" />
       <output filename="bluetooth_strings_si.pak" type="data_package" lang="si" />
       <output filename="bluetooth_strings_sq.pak" type="data_package" lang="sq" />
+      <output filename="bluetooth_strings_sr-Latn.pak" type="data_package" lang="sr-Latn" />
       <output filename="bluetooth_strings_ur.pak" type="data_package" lang="ur" />
       <output filename="bluetooth_strings_uz.pak" type="data_package" lang="uz" />
+      <output filename="bluetooth_strings_zh-HK.pak" type="data_package" lang="zh-HK" />
       <output filename="bluetooth_strings_zu.pak" type="data_package" lang="zu" />
     </if>
     <output filename="bluetooth_strings_am.pak" type="data_package" lang="am" />
@@ -174,6 +176,7 @@ This file contains the strings for bluetooth.
     <file path="strings/bluetooth_strings_sl.xtb" lang="sl" />
     <file path="strings/bluetooth_strings_sq.xtb" lang="sq" />
     <file path="strings/bluetooth_strings_sr.xtb" lang="sr" />
+    <file path="strings/bluetooth_strings_sr-Latn.xtb" lang="sr-Latn" />
     <file path="strings/bluetooth_strings_sv.xtb" lang="sv" />
     <file path="strings/bluetooth_strings_sw.xtb" lang="sw" />
     <file path="strings/bluetooth_strings_ta.xtb" lang="ta" />

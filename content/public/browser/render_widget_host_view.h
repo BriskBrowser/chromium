@@ -12,6 +12,9 @@
 #include "build/build_config.h"
 #include "content/common/content_export.h"
 #include "third_party/blink/public/common/input/web_input_event.h"
+#include "third_party/blink/public/common/widget/screen_info.h"
+#include "third_party/blink/public/mojom/input/pointer_lock_result.mojom.h"
+#include "third_party/blink/public/mojom/page/record_content_to_visible_time_request.mojom-forward.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "third_party/skia/include/core/SkColor.h"
 #include "ui/gfx/geometry/point_conversions.h"
@@ -38,7 +41,6 @@ namespace content {
 
 class RenderWidgetHost;
 class TouchSelectionControllerClientManager;
-struct ScreenInfo;
 
 // RenderWidgetHostView is an interface implemented by an object that acts as
 // the "View" portion of a RenderWidgetHost. The RenderWidgetHost and its
@@ -158,8 +160,14 @@ class CONTENT_EXPORT RenderWidgetHostView {
   // GetBackgroundColor returns the current background color of the view.
   virtual base::Optional<SkColor> GetBackgroundColor() = 0;
 
-  // Return value indicates whether the mouse is locked successfully or not.
-  virtual bool LockMouse(bool request_unadjusted_movement) = 0;
+  // Return value indicates whether the mouse is locked successfully or a
+  // reason why it failed.
+  virtual blink::mojom::PointerLockResult LockMouse(
+      bool request_unadjusted_movement) = 0;
+  // Return value indicates whether the MouseLock was changed successfully
+  // or a reason why the change failed.
+  virtual blink::mojom::PointerLockResult ChangeMouseLock(
+      bool request_unadjusted_movement) = 0;
   virtual void UnlockMouse() = 0;
   // Returns true if the mouse pointer is currently locked.
   virtual bool IsMouseLocked() = 0;
@@ -231,12 +239,12 @@ class CONTENT_EXPORT RenderWidgetHostView {
   // This method returns the ScreenInfo used by the view to render. If the
   // information is not knowable (e.g, because the view is not attached to a
   // screen yet), then a default best-guess will be used.
-  virtual void GetScreenInfo(ScreenInfo* screen_info) = 0;
+  virtual void GetScreenInfo(blink::ScreenInfo* screen_info) = 0;
 
   // This must always return the same device scale factor as GetScreenInfo.
   virtual float GetDeviceScaleFactor() = 0;
 
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
   // Set the view's active state (i.e., tint state of controls).
   virtual void SetActive(bool active) = 0;
 
@@ -245,17 +253,37 @@ class CONTENT_EXPORT RenderWidgetHostView {
 
   // Tells the view to speak the currently selected text.
   virtual void SpeakSelection() = 0;
-#endif  // defined(OS_MACOSX)
+
+  // Allows to update the widget's screen rects when it is not attached to
+  // a window (e.g. in headless mode).
+  virtual void SetWindowFrameInScreen(const gfx::Rect& rect) = 0;
+#endif  // defined(OS_MAC)
 
   // Indicates that this view should show the contents of |view| if it doesn't
   // have anything to show.
   virtual void TakeFallbackContentFrom(RenderWidgetHostView* view) = 0;
 
-  // Set the last time a tab change starts to be processed for this
-  // RenderWidgetHostView. Will overwrite any previously stored value.
-  virtual void SetRecordTabSwitchTimeRequest(base::TimeTicks start_time,
-                                             bool destination_is_loaded,
-                                             bool destination_is_frozen) = 0;
+  // Set the last time a content to visible event starts to be processed for
+  // this RenderWidgetHostView. Will merge with the previous value if exists
+  // (which means that several events may happen at the same time and must be
+  // induvidually reported).  |start_time| marks event start time to calculate
+  // the duration later.
+  //
+  // |destination_is_loaded| is true when
+  //   ResourceCoordinatorTabHelper::IsLoaded() is true for the new tab
+  //   contents.
+  // |show_reason_tab_switching| is true when tab switch event should be
+  //   reported.
+  // |show_reason_unoccluded| is true when "unoccluded" event should be
+  //   reported.
+  // |show_reason_bfcache_restore| is true when page restored from bfcache event
+  // should be reported.
+  virtual void SetRecordContentToVisibleTimeRequest(
+      base::TimeTicks start_time,
+      bool destination_is_loaded,
+      bool show_reason_tab_switching,
+      bool show_reason_unoccluded,
+      bool show_reason_bfcache_restore) = 0;
 };
 
 }  // namespace content

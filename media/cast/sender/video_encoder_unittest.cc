@@ -12,6 +12,7 @@
 
 #include "base/bind.h"
 #include "base/callback_helpers.h"
+#include "base/logging.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
@@ -27,7 +28,7 @@
 #include "media/cast/test/utility/video_utility.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
 #include "media/cast/sender/h264_vt_encoder.h"
 #endif
 
@@ -94,7 +95,7 @@ class VideoEncoderTest
 
   bool is_testing_video_toolbox_encoder() const {
     return
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
         (!video_config_.use_external_encoder &&
          H264VideoToolboxEncoder::IsSupported(video_config_)) ||
 #endif
@@ -124,7 +125,7 @@ class VideoEncoderTest
     DCHECK_GT(video_config_.max_frame_rate, 0);
     const base::TimeDelta frame_duration = base::TimeDelta::FromMicroseconds(
         1000000.0 / video_config_.max_frame_rate);
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
     if (is_testing_video_toolbox_encoder()) {
       // The H264VideoToolboxEncoder (on MAC_OSX and IOS) is not a faked
       // implementation in these tests, and performs its encoding asynchronously
@@ -255,7 +256,7 @@ TEST_P(VideoEncoderTest, MAYBE_EncodesVariedFrameSizes) {
       const base::TimeDelta timestamp = video_frame->timestamp();
       const bool accepted_request = video_encoder()->EncodeVideoFrame(
           std::move(video_frame), reference_time,
-          base::BindRepeating(
+          base::BindOnce(
               [](base::WeakPtr<EncodedFrames> encoded_frames,
                  RtpTimeTicks expected_rtp_timestamp,
                  base::TimeTicks expected_reference_time,
@@ -343,8 +344,7 @@ TEST_P(VideoEncoderTest, MAYBE_CanBeDestroyedBeforeVEAIsCreated) {
   // Send a frame to spawn creation of the ExternalVideoEncoder instance.
   video_encoder()->EncodeVideoFrame(
       CreateTestVideoFrame(gfx::Size(128, 72)), Now(),
-      base::BindRepeating(
-          [](std::unique_ptr<SenderEncodedFrame> encoded_frame) {}));
+      base::BindOnce([](std::unique_ptr<SenderEncodedFrame> encoded_frame) {}));
 
   // Destroy the encoder, and confirm the VEA Factory did not respond yet.
   DestroyEncoder();
@@ -367,7 +367,7 @@ std::vector<std::pair<Codec, bool>> DetermineEncodersToTest() {
   values.push_back(std::make_pair(CODEC_VIDEO_VP8, false));
   // Hardware-accelerated encoder (faked).
   values.push_back(std::make_pair(CODEC_VIDEO_VP8, true));
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
   // VideoToolbox encoder (when VideoToolbox is present).
   FrameSenderConfig video_config = GetDefaultVideoSenderConfig();
   video_config.use_external_encoder = false;

@@ -7,15 +7,17 @@ package org.chromium.chrome.browser.signin;
 import android.app.Dialog;
 import android.content.DialogInterface;
 import android.os.Bundle;
-import android.support.v4.app.DialogFragment;
-import android.support.v7.app.AlertDialog;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.widget.TextView;
 
+import androidx.appcompat.app.AlertDialog;
+import androidx.fragment.app.DialogFragment;
+
 import org.chromium.base.metrics.RecordUserAction;
 import org.chromium.chrome.R;
-import org.chromium.chrome.browser.settings.ManagedPreferencesUtils;
+import org.chromium.chrome.browser.profiles.Profile;
+import org.chromium.components.browser_ui.settings.ManagedPreferencesUtils;
 import org.chromium.components.browser_ui.widget.RadioButtonWithDescription;
 
 import java.util.Arrays;
@@ -52,7 +54,6 @@ public class ConfirmImportSyncDataDialog extends DialogFragment
     private RadioButtonWithDescription mKeepSeparateOption;
 
     private Listener mListener;
-    private boolean mListenerCalled;
 
     /**
      * Creates a new instance of ConfirmImportSyncDataDialog, a dialog that gives the
@@ -75,15 +76,13 @@ public class ConfirmImportSyncDataDialog extends DialogFragment
     }
 
     private void setListener(Listener listener) {
-        assert mListener == null;
+        assert listener != null;
         mListener = listener;
     }
 
     @Override
     public Dialog onCreateDialog(Bundle savedInstanceState) {
-        // If the dialog is being recreated it won't have the listener set and so won't be
-        // functional. Therefore we dismiss, and the user will need to open the dialog again.
-        if (savedInstanceState != null) {
+        if (mListener == null) {
             dismiss();
         }
         String oldAccountName = getArguments().getString(KEY_OLD_ACCOUNT_NAME);
@@ -108,8 +107,10 @@ public class ConfirmImportSyncDataDialog extends DialogFragment
         mConfirmImportOption.setRadioButtonGroup(radioGroup);
         mKeepSeparateOption.setRadioButtonGroup(radioGroup);
 
+        SigninManager signinManager = IdentityServicesProvider.get().getSigninManager(
+                Profile.getLastUsedRegularProfile());
         // If the account is managed, disallow merging information.
-        if (IdentityServicesProvider.get().getSigninManager().getManagementDomain() != null) {
+        if (signinManager.getManagementDomain() != null) {
             mKeepSeparateOption.setChecked(true);
             mConfirmImportOption.setOnClickListener(
                     view -> ManagedPreferencesUtils.showManagedByAdministratorToast(getActivity()));
@@ -126,8 +127,6 @@ public class ConfirmImportSyncDataDialog extends DialogFragment
 
     @Override
     public void onClick(DialogInterface dialog, int which) {
-        if (mListener == null) return;
-
         if (which == AlertDialog.BUTTON_POSITIVE) {
             assert mConfirmImportOption.isChecked() ^ mKeepSeparateOption.isChecked();
 
@@ -141,15 +140,12 @@ public class ConfirmImportSyncDataDialog extends DialogFragment
             RecordUserAction.record("Signin_ImportDataPrompt_Cancel");
             mListener.onCancel();
         }
-        mListenerCalled = true;
     }
 
     @Override
-    public void onDismiss(DialogInterface dialog) {
-        super.onDismiss(dialog);
-        if (mListener != null && !mListenerCalled) {
-            mListener.onCancel();
-        }
+    public void onCancel(DialogInterface dialog) {
+        super.onCancel(dialog);
+        mListener.onCancel();
     }
 }
 

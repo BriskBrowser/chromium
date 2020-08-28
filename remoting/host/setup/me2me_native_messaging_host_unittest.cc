@@ -177,13 +177,12 @@ class MockDaemonControllerDelegate : public DaemonController::Delegate {
   std::unique_ptr<base::DictionaryValue> GetConfig() override;
   void CheckPermission(bool it2me,
                        DaemonController::BoolCallback callback) override;
-  void SetConfigAndStart(
-      std::unique_ptr<base::DictionaryValue> config,
-      bool consent,
-      const DaemonController::CompletionCallback& done) override;
+  void SetConfigAndStart(std::unique_ptr<base::DictionaryValue> config,
+                         bool consent,
+                         DaemonController::CompletionCallback done) override;
   void UpdateConfig(std::unique_ptr<base::DictionaryValue> config,
-                    const DaemonController::CompletionCallback& done) override;
-  void Stop(const DaemonController::CompletionCallback& done) override;
+                    DaemonController::CompletionCallback done) override;
+  void Stop(DaemonController::CompletionCallback done) override;
   DaemonController::UsageStatsConsent GetUsageStatsConsent() override;
 
  private:
@@ -212,28 +211,28 @@ void MockDaemonControllerDelegate::CheckPermission(
 void MockDaemonControllerDelegate::SetConfigAndStart(
     std::unique_ptr<base::DictionaryValue> config,
     bool consent,
-    const DaemonController::CompletionCallback& done) {
+    DaemonController::CompletionCallback done) {
   // Verify parameters passed in.
   if (consent && config && config->HasKey("start")) {
-    done.Run(DaemonController::RESULT_OK);
+    std::move(done).Run(DaemonController::RESULT_OK);
   } else {
-    done.Run(DaemonController::RESULT_FAILED);
+    std::move(done).Run(DaemonController::RESULT_FAILED);
   }
 }
 
 void MockDaemonControllerDelegate::UpdateConfig(
     std::unique_ptr<base::DictionaryValue> config,
-    const DaemonController::CompletionCallback& done) {
+    DaemonController::CompletionCallback done) {
   if (config && config->HasKey("update")) {
-    done.Run(DaemonController::RESULT_OK);
+    std::move(done).Run(DaemonController::RESULT_OK);
   } else {
-    done.Run(DaemonController::RESULT_FAILED);
+    std::move(done).Run(DaemonController::RESULT_FAILED);
   }
 }
 
 void MockDaemonControllerDelegate::Stop(
-    const DaemonController::CompletionCallback& done) {
-  done.Run(DaemonController::RESULT_OK);
+    DaemonController::CompletionCallback done) {
+  std::move(done).Run(DaemonController::RESULT_OK);
 }
 
 DaemonController::UsageStatsConsent
@@ -317,8 +316,8 @@ void Me2MeNativeMessagingHostTest::SetUp() {
   // Arrange to run |task_environment_| until no components depend on it.
   host_task_runner_ = new AutoThreadTaskRunner(
       host_thread_->task_runner(),
-      base::Bind(&Me2MeNativeMessagingHostTest::ExitTest,
-                 base::Unretained(this)));
+      base::BindOnce(&Me2MeNativeMessagingHostTest::ExitTest,
+                     base::Unretained(this)));
 
   host_task_runner_->PostTask(
       FROM_HERE, base::BindOnce(&Me2MeNativeMessagingHostTest::StartHost,
@@ -356,8 +355,9 @@ void Me2MeNativeMessagingHostTest::StartHost() {
 
   std::unique_ptr<ChromotingHostContext> context =
       ChromotingHostContext::Create(new remoting::AutoThreadTaskRunner(
-          host_task_runner_, base::Bind(&Me2MeNativeMessagingHostTest::StopHost,
-                                        base::Unretained(this))));
+          host_task_runner_,
+          base::BindOnce(&Me2MeNativeMessagingHostTest::StopHost,
+                         base::Unretained(this))));
 
   std::unique_ptr<remoting::Me2MeNativeMessagingHost> host(
       new Me2MeNativeMessagingHost(false, 0, std::move(context),

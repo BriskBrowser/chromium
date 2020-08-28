@@ -26,6 +26,7 @@
 #include "media/audio/fake_audio_output_stream.h"
 #include "media/base/media_switches.h"
 
+#include "base/logging.h"
 #include "media/audio/audio_input_stream_data_interceptor.h"
 
 namespace media {
@@ -62,6 +63,18 @@ enum StreamFormat {
   STREAM_FORMAT_FAKE = 4,
   STREAM_FORMAT_MAX = 4,
 };
+
+PRINTF_FORMAT(2, 3)
+void SendLogMessage(const AudioManagerBase::LogCallback& callback,
+                    const char* format,
+                    ...) {
+  if (callback.is_null())
+    return;
+  va_list args;
+  va_start(args, format);
+  callback.Run("AMB::" + base::StringPrintV(format, args));
+  va_end(args);
+}
 
 }  // namespace
 
@@ -188,15 +201,17 @@ AudioOutputStream* AudioManagerBase::MakeAudioOutputStream(
     return nullptr;
   }
 
+  SendLogMessage(log_callback, "%s({device_id=%s}, {params=[%s]})", __func__,
+                 device_id.c_str(), params.AsHumanReadableString().c_str());
+
   // Limit the number of audio streams opened. This is to prevent using
   // excessive resources for a large number of audio streams. More
   // importantly it prevents instability on certain systems.
   // See bug: http://crbug.com/30242.
   if (num_output_streams_ >= max_num_output_streams_) {
-    DLOG(ERROR) << "Number of opened output audio streams "
-                << num_output_streams_
-                << " exceed the max allowed number "
-                << max_num_output_streams_;
+    LOG(ERROR) << "Number of opened output audio streams "
+               << num_output_streams_ << " exceed the max allowed number "
+               << max_num_output_streams_;
     return nullptr;
   }
 
@@ -224,6 +239,8 @@ AudioOutputStream* AudioManagerBase::MakeAudioOutputStream(
 
   if (stream) {
     ++num_output_streams_;
+    SendLogMessage(log_callback, "%s => (number of streams=%d)", __func__,
+                   output_stream_count());
   }
 
   return stream;
@@ -247,6 +264,9 @@ AudioInputStream* AudioManagerBase::MakeAudioInputStream(
     return nullptr;
   }
 
+  SendLogMessage(log_callback, "%s({device_id=%s}, {params=[%s]})", __func__,
+                 device_id.c_str(), params.AsHumanReadableString().c_str());
+
   if (!params.IsValid() || (params.channels() > kMaxInputChannels) ||
       device_id.empty()) {
     DLOG(ERROR) << "Audio parameters are invalid for device " << device_id;
@@ -255,9 +275,9 @@ AudioInputStream* AudioManagerBase::MakeAudioInputStream(
   }
 
   if (input_stream_count() >= kMaxInputStreams) {
-    DLOG(ERROR) << "Number of opened input audio streams "
-                << input_stream_count() << " exceed the max allowed number "
-                << kMaxInputStreams;
+    LOG(ERROR) << "Number of opened input audio streams "
+               << input_stream_count() << " exceed the max allowed number "
+               << kMaxInputStreams;
     return nullptr;
   }
 
@@ -283,9 +303,8 @@ AudioInputStream* AudioManagerBase::MakeAudioInputStream(
   if (stream) {
     input_streams_.insert(stream);
     if (!log_callback.is_null()) {
-      log_callback.Run(base::StringPrintf(
-          "AMB::MakeAudioInputStream => (number of streams=%d)",
-          input_stream_count()));
+      SendLogMessage(log_callback, "%s => (number of streams=%d)", __func__,
+                     input_stream_count());
     }
 
     if (!params.IsBitstreamFormat() && debug_recording_manager_) {

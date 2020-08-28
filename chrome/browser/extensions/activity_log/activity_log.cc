@@ -27,7 +27,6 @@
 #include "chrome/browser/extensions/activity_log/fullstream_ui_policy.h"
 #include "chrome/browser/extensions/api/activity_log_private/activity_log_private_api.h"
 #include "chrome/browser/extensions/extension_tab_util.h"
-#include "chrome/browser/prerender/prerender_manager.h"
 #include "chrome/browser/prerender/prerender_manager_factory.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
@@ -35,6 +34,7 @@
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
+#include "components/prerender/browser/prerender_manager.h"
 #include "components/sync_preferences/pref_service_syncable.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
@@ -460,7 +460,7 @@ ActivityLog* ActivityLog::GetInstance(content::BrowserContext* context) {
 
 // Use GetInstance instead of directly creating an ActivityLog.
 ActivityLog::ActivityLog(content::BrowserContext* context)
-    : database_policy_(NULL),
+    : database_policy_(nullptr),
       database_policy_type_(ActivityLogPolicy::POLICY_INVALID),
       profile_(Profile::FromBrowserContext(context)),
       extension_system_(ExtensionSystem::Get(context)),
@@ -615,7 +615,7 @@ void ActivityLog::RemoveObserver(ActivityLog::Observer* observer) {
 // static
 void ActivityLog::RegisterProfilePrefs(
     user_prefs::PrefRegistrySyncable* registry) {
-  registry->RegisterIntegerPref(prefs::kWatchdogExtensionActive, false);
+  registry->RegisterIntegerPref(prefs::kWatchdogExtensionActive, 0);
 }
 
 // LOG ACTIONS. ----------------------------------------------------------------
@@ -785,7 +785,7 @@ void ActivityLog::CheckActive(bool use_cached) {
            content::RenderProcessHost::AllHostsIterator());
        !iter.IsAtEnd(); iter.Advance()) {
     content::RenderProcessHost* host = iter.GetCurrentValue();
-    if (profile_->IsSameProfile(
+    if (profile_->IsSameOrParent(
             Profile::FromBrowserContext(host->GetBrowserContext()))) {
       host->Send(new ExtensionMsg_SetActivityLoggingEnabled(is_active_));
     }

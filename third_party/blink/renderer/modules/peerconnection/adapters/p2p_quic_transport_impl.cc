@@ -116,11 +116,11 @@ class P2PQuicPacketWriter : public quic::QuicPacketWriter,
     return false;
   }
 
-  char* GetNextWriteLocation(
+  quic::QuicPacketBuffer GetNextWriteLocation(
       const quic::QuicIpAddress& self_address,
       const quic::QuicSocketAddress& peer_address) override {
     DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
-    return nullptr;
+    return {nullptr, nullptr};
   }
 
   quic::WriteResult Flush() override {
@@ -171,7 +171,7 @@ std::unique_ptr<quic::QuicConnection> CreateQuicConnection(
 // A dummy helper for a server crypto stream that accepts all client hellos
 // and generates a random connection ID.
 class DummyCryptoServerStreamHelper
-    : public quic::QuicCryptoServerStream::Helper {
+    : public quic::QuicCryptoServerStreamBase::Helper {
  public:
   explicit DummyCryptoServerStreamHelper(quic::QuicRandom* random) {}
 
@@ -403,8 +403,7 @@ void P2PQuicTransportImpl::SendDatagram(Vector<uint8_t> datagram) {
 bool P2PQuicTransportImpl::CanSendDatagram() {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
   return IsEncryptionEstablished() &&
-         (connection()->transport_version() > quic::QUIC_VERSION_43) &&
-         !IsClosed();
+         (connection()->version().SupportsMessageFrames()) && !IsClosed();
 }
 
 P2PQuicStreamImpl* P2PQuicTransportImpl::CreateOutgoingBidirectionalStream() {
@@ -527,12 +526,13 @@ void P2PQuicTransportImpl::InitializeCryptoStream() {
   }
 }
 
-void P2PQuicTransportImpl::OnCryptoHandshakeEvent(CryptoHandshakeEvent event) {
+void P2PQuicTransportImpl::SetDefaultEncryptionLevel(
+    quic::EncryptionLevel level) {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
-  QuicSession::OnCryptoHandshakeEvent(event);
-  if (event == HANDSHAKE_CONFIRMED) {
+  QuicSession::SetDefaultEncryptionLevel(level);
+  if (level == quic::ENCRYPTION_FORWARD_SECURE) {
     DCHECK(IsEncryptionEstablished());
-    DCHECK(IsCryptoHandshakeConfirmed());
+    DCHECK(OneRttKeysAvailable());
     P2PQuicNegotiatedParams negotiated_params;
     // The guaranteed largest message payload will not change throughout the
     // connection.
@@ -546,24 +546,21 @@ void P2PQuicTransportImpl::OnCryptoHandshakeEvent(CryptoHandshakeEvent event) {
   }
 }
 
-void P2PQuicTransportImpl::SetDefaultEncryptionLevel(
-    quic::EncryptionLevel level) {
+void P2PQuicTransportImpl::OnTlsHandshakeComplete() {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
-  QuicSession::SetDefaultEncryptionLevel(level);
-  if (level == quic::ENCRYPTION_FORWARD_SECURE) {
-    DCHECK(IsEncryptionEstablished());
-    DCHECK(IsCryptoHandshakeConfirmed());
-    P2PQuicNegotiatedParams negotiated_params;
-    // The guaranteed largest message payload will not change throughout the
-    // connection.
-    uint16_t max_datagram_length =
-        quic::QuicSession::GetGuaranteedLargestMessagePayload();
-    if (max_datagram_length > 0) {
-      // Datagrams are supported in this case.
-      negotiated_params.set_max_datagram_length(max_datagram_length);
-    }
-    delegate_->OnConnected(negotiated_params);
+  QuicSession::OnTlsHandshakeComplete();
+  DCHECK(IsEncryptionEstablished());
+  DCHECK(OneRttKeysAvailable());
+  P2PQuicNegotiatedParams negotiated_params;
+  // The guaranteed largest message payload will not change throughout the
+  // connection.
+  uint16_t max_datagram_length =
+      quic::QuicSession::GetGuaranteedLargestMessagePayload();
+  if (max_datagram_length > 0) {
+    // Datagrams are supported in this case.
+    negotiated_params.set_max_datagram_length(max_datagram_length);
   }
+  delegate_->OnConnected(negotiated_params);
 }
 
 void P2PQuicTransportImpl::OnCanWrite() {
@@ -612,7 +609,7 @@ void P2PQuicTransportImpl::OnConnectionClosed(
 }
 
 bool P2PQuicTransportImpl::ShouldKeepConnectionAlive() const {
-  return GetNumOpenDynamicStreams() > 0;
+  return GetNumActiveStreams() > 0;
 }
 
 bool P2PQuicTransportImpl::IsClosed() {

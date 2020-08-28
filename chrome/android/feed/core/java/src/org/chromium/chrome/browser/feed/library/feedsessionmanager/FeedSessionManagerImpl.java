@@ -4,9 +4,8 @@
 
 package org.chromium.chrome.browser.feed.library.feedsessionmanager;
 
-import android.support.annotation.VisibleForTesting;
-
 import androidx.annotation.Nullable;
+import androidx.annotation.VisibleForTesting;
 
 import org.chromium.base.Consumer;
 import org.chromium.base.Function;
@@ -572,11 +571,7 @@ public final class FeedSessionManagerImpl
             consumer.accept(Result.success(token));
             return;
         }
-        Result<Set<StreamUploadableAction>> actionsResult = mStore.getAllUploadableActions();
-        if (actionsResult.isSuccessful()) {
-            mActionUploadRequestManager.triggerUploadActions(
-                    actionsResult.getValue(), token, consumer);
-        }
+        mActionUploadRequestManager.triggerUploadAllActions(token, consumer);
     }
 
     @Override

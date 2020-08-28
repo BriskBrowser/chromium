@@ -29,6 +29,7 @@
 #include "components/search_engines/template_url_service.h"
 #include "components/sessions/core/tab_restore_service.h"
 #include "components/sessions/core/tab_restore_service_observer.h"
+#include "content/public/test/browser_test.h"
 #include "content/public/test/test_utils.h"
 
 #if defined(OS_CHROMEOS)
@@ -137,19 +138,19 @@ IN_PROC_BROWSER_TEST_F(BrowserCommandControllerBrowserTest, LockedFullscreen) {
   // IDC_EXIT is not enabled in locked fullscreen.
   EXPECT_FALSE(command_updater->IsCommandEnabled(IDC_EXIT));
 
-  constexpr int kWhitelistedIds[] = {IDC_CUT, IDC_COPY, IDC_PASTE};
+  constexpr int kAllowlistedIds[] = {IDC_CUT, IDC_COPY, IDC_PASTE};
 
-  // Go through all the command ids and make sure all non-whitelisted commands
+  // Go through all the command ids and make sure all non-allowlisted commands
   // are disabled.
   for (int id : command_updater->GetAllIds()) {
-    if (base::Contains(kWhitelistedIds, id)) {
+    if (base::Contains(kAllowlistedIds, id)) {
       continue;
     }
     EXPECT_FALSE(command_updater->IsCommandEnabled(id));
   }
 
-  // Verify the set of whitelisted commands.
-  for (int id : kWhitelistedIds) {
+  // Verify the set of allowlisted commands.
+  for (int id : kAllowlistedIds) {
     EXPECT_TRUE(command_updater->IsCommandEnabled(id));
   }
 
@@ -173,7 +174,8 @@ IN_PROC_BROWSER_TEST_F(BrowserCommandControllerBrowserTest,
   // automatically upon launch.
   // Wait for robustness because InProcessBrowserTest::PreRunTestOnMainThread
   // does not flush the task scheduler.
-  TabRestoreServiceLoadWaiter waiter(browser());
+  TabRestoreServiceLoadWaiter waiter(
+      TabRestoreServiceFactory::GetForProfile(browser()->profile()));
   waiter.Wait();
 
   // After initialization, the command should become disabled because there's
@@ -187,7 +189,7 @@ IN_PROC_BROWSER_TEST_F(BrowserCommandControllerBrowserTest,
                        PRE_TestTabRestoreCommandEnabled) {
   ui_test_utils::NavigateToURLWithDisposition(
       browser(), GURL("about:"), WindowOpenDisposition::NEW_FOREGROUND_TAB,
-      ui_test_utils::BROWSER_TEST_WAIT_FOR_NAVIGATION);
+      ui_test_utils::BROWSER_TEST_WAIT_FOR_LOAD_STOP);
   ASSERT_EQ(2, browser()->tab_strip_model()->count());
   EXPECT_EQ(1, browser()->tab_strip_model()->active_index());
   content::WebContents* tab_to_close =
@@ -203,7 +205,8 @@ IN_PROC_BROWSER_TEST_F(BrowserCommandControllerBrowserTest,
   // automatically upon launch.
   // Wait for robustness because InProcessBrowserTest::PreRunTestOnMainThread
   // does not flush the task scheduler.
-  TabRestoreServiceLoadWaiter waiter(browser());
+  TabRestoreServiceLoadWaiter waiter(
+      TabRestoreServiceFactory::GetForProfile(browser()->profile()));
   waiter.Wait();
 
   // After initialization, the command should remain enabled because there's

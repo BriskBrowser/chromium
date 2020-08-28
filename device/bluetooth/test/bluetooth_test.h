@@ -13,6 +13,7 @@
 
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
+#include "base/optional.h"
 #include "base/test/task_environment.h"
 #include "device/bluetooth/bluetooth_adapter.h"
 #include "device/bluetooth/bluetooth_advertisement.h"
@@ -273,6 +274,10 @@ class BluetoothTestBase : public testing::Test {
 
   virtual BluetoothDevice* SimulateLowEnergyDevice(int device_ordinal);
 
+  // Simulates a signal by the OS that an ongoing discovery aborted because of
+  // some unexpected error.
+  virtual void SimulateLowEnergyDiscoveryFailure();
+
   // Simulates a connected low energy device. Used before starting a low energy
   // discovey session.
   virtual void SimulateConnectedLowEnergyDevice(
@@ -309,6 +314,23 @@ class BluetoothTestBase : public testing::Test {
   // enables tests where the platform attempts to reference device
   // objects after the Chrome objects have been deleted, e.g. with DeleteDevice.
   virtual void RememberDeviceForSubsequentAction(BluetoothDevice* device) {}
+
+  // Performs a GATT connection to the given device and returns whether it was
+  // successful. The |service_uuid| is passed to
+  // |BluetoothDevice::CreateGattConnection|; see the documentation for it
+  // there. The callback is called to complete the GATT connection. If not
+  // given, |SimulateGattConnection| is called but the callback argument lets
+  // one override that.
+  bool ConnectGatt(BluetoothDevice* device,
+                   base::Optional<BluetoothUUID> service_uuid = base::nullopt,
+                   base::Optional<base::OnceCallback<void(BluetoothDevice*)>> =
+                       base::nullopt);
+
+  // GetTargetGattService returns the specific GATT service, if any, that was
+  // targeted for discovery, i.e. via the |service_uuid| argument to
+  // |CreateGattConnection|.
+  virtual base::Optional<BluetoothUUID> GetTargetGattService(
+      BluetoothDevice* device);
 
   // Simulates success of implementation details of CreateGattConnection.
   virtual void SimulateGattConnection(BluetoothDevice* device) {}
@@ -610,8 +632,7 @@ class BluetoothTestBase : public testing::Test {
       BluetoothGattService::GattErrorCode error_code);
 
   // Accessors to get callbacks bound to this fixture:
-  base::Closure GetCallback(Call expected);
-  base::OnceClosure GetOnceCallback(Call expected);
+  base::OnceClosure GetCallback(Call expected);
   BluetoothAdapter::CreateAdvertisementCallback GetCreateAdvertisementCallback(
       Call expected);
   BluetoothAdapter::DiscoverySessionCallback GetDiscoverySessionCallback(
@@ -622,22 +643,22 @@ class BluetoothTestBase : public testing::Test {
       Call expected);
   BluetoothRemoteGattCharacteristic::NotifySessionCallback
   GetNotifyCheckForPrecedingCalls(int num_of_preceding_calls);
-  base::Closure GetStopNotifyCallback(Call expected);
-  base::Closure GetStopNotifyCheckForPrecedingCalls(int num_of_preceding_calls);
+  base::OnceClosure GetStopNotifyCallback(Call expected);
+  base::OnceClosure GetStopNotifyCheckForPrecedingCalls(
+      int num_of_preceding_calls);
   BluetoothRemoteGattCharacteristic::ValueCallback GetReadValueCallback(
       Call expected);
   BluetoothAdapter::ErrorCallback GetErrorCallback(Call expected);
-  BluetoothAdapter::ErrorOnceCallback GetErrorOnceCallback(Call expected);
   BluetoothAdapter::AdvertisementErrorCallback GetAdvertisementErrorCallback(
       Call expected);
   BluetoothDevice::ConnectErrorCallback GetConnectErrorCallback(Call expected);
-  base::Callback<void(BluetoothRemoteGattService::GattErrorCode)>
+  base::OnceCallback<void(BluetoothRemoteGattService::GattErrorCode)>
   GetGattErrorCallback(Call expected);
   BluetoothRemoteGattCharacteristic::NotifySessionCallback
   GetReentrantStartNotifySessionSuccessCallback(
       Call expected,
       BluetoothRemoteGattCharacteristic* characteristic);
-  base::Callback<void(BluetoothGattService::GattErrorCode)>
+  base::OnceCallback<void(BluetoothGattService::GattErrorCode)>
   GetReentrantStartNotifySessionErrorCallback(
       Call expected,
       BluetoothRemoteGattCharacteristic* characteristic,

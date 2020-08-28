@@ -12,7 +12,6 @@
 #include "content/public/test/browser_task_environment.h"
 #include "net/base/net_errors.h"
 #include "net/http/http_status_code.h"
-#include "net/url_request/url_request_status.h"
 #include "services/network/public/cpp/weak_wrapper_shared_url_loader_factory.h"
 #include "services/network/test/test_url_loader_factory.h"
 #include "services/network/test/test_utils.h"
@@ -98,9 +97,8 @@ class AttestationCAClientTest : public ::testing::Test {
 TEST_F(AttestationCAClientTest, EnrollRequest) {
   AttestationCAClient client;
   client.SendEnrollRequest(
-      "enroll",
-      base::Bind(&AttestationCAClientTest::DataCallback,
-                 base::Unretained(this)));
+      "enroll", base::BindOnce(&AttestationCAClientTest::DataCallback,
+                               base::Unretained(this)));
   CheckURLAndSendResponse(GURL("https://chromeos-ca.gstatic.com/enroll"),
                           net::OK, net::HTTP_OK);
 
@@ -112,9 +110,8 @@ TEST_F(AttestationCAClientTest, EnrollRequest) {
 TEST_F(AttestationCAClientTest, CertificateRequest) {
   AttestationCAClient client;
   client.SendCertificateRequest(
-      "certificate",
-      base::Bind(&AttestationCAClientTest::DataCallback,
-                 base::Unretained(this)));
+      "certificate", base::BindOnce(&AttestationCAClientTest::DataCallback,
+                                    base::Unretained(this)));
   CheckURLAndSendResponse(GURL("https://chromeos-ca.gstatic.com/sign"), net::OK,
                           net::HTTP_OK);
 
@@ -126,9 +123,8 @@ TEST_F(AttestationCAClientTest, CertificateRequest) {
 TEST_F(AttestationCAClientTest, CertificateRequestNetworkFailure) {
   AttestationCAClient client;
   client.SendCertificateRequest(
-      "certificate",
-      base::Bind(&AttestationCAClientTest::DataCallback,
-                 base::Unretained(this)));
+      "certificate", base::BindOnce(&AttestationCAClientTest::DataCallback,
+                                    base::Unretained(this)));
   SendResponse(net::ERR_FAILED, net::HTTP_OK);
 
   EXPECT_EQ(1, num_invocations_);
@@ -139,9 +135,8 @@ TEST_F(AttestationCAClientTest, CertificateRequestNetworkFailure) {
 TEST_F(AttestationCAClientTest, CertificateRequestHttpError) {
   AttestationCAClient client;
   client.SendCertificateRequest(
-      "certificate",
-      base::Bind(&AttestationCAClientTest::DataCallback,
-                 base::Unretained(this)));
+      "certificate", base::BindOnce(&AttestationCAClientTest::DataCallback,
+                                    base::Unretained(this)));
   SendResponse(net::OK, net::HTTP_NOT_FOUND);
 
   EXPECT_EQ(1, num_invocations_);
@@ -153,9 +148,8 @@ TEST_F(AttestationCAClientTest, DeleteOnCallback) {
   AttestationCAClient* client = new AttestationCAClient();
   client->SendCertificateRequest(
       "certificate",
-      base::Bind(&AttestationCAClientTest::DeleteClientDataCallback,
-                 base::Unretained(this),
-                 client));
+      base::BindOnce(&AttestationCAClientTest::DeleteClientDataCallback,
+                     base::Unretained(this), client));
   SendResponse(net::OK, net::HTTP_OK);
 
   EXPECT_EQ(1, num_invocations_);
@@ -170,9 +164,9 @@ TEST_F(AttestationCAClientAttestationServerTest, DefaultEnrollRequest) {
   base::CommandLine::ForCurrentProcess()->AppendSwitchASCII(
       chromeos::switches::kAttestationServer, "default");
   AttestationCAClient client;
-  client.SendEnrollRequest("enroll",
-                           base::Bind(&AttestationCAClientTest::DataCallback,
-                                      base::Unretained(this)));
+  client.SendEnrollRequest(
+      "enroll", base::BindOnce(&AttestationCAClientTest::DataCallback,
+                               base::Unretained(this)));
   CheckURLAndSendResponse(GURL("https://chromeos-ca.gstatic.com/enroll"),
                           net::OK, net::HTTP_OK);
 
@@ -186,8 +180,8 @@ TEST_F(AttestationCAClientAttestationServerTest, DefaultCertificateRequest) {
       chromeos::switches::kAttestationServer, "default");
   AttestationCAClient client;
   client.SendCertificateRequest(
-      "certificate", base::Bind(&AttestationCAClientTest::DataCallback,
-                                base::Unretained(this)));
+      "certificate", base::BindOnce(&AttestationCAClientTest::DataCallback,
+                                    base::Unretained(this)));
   CheckURLAndSendResponse(GURL("https://chromeos-ca.gstatic.com/sign"), net::OK,
                           net::HTTP_OK);
 
@@ -200,9 +194,9 @@ TEST_F(AttestationCAClientAttestationServerTest, TestEnrollRequest) {
   base::CommandLine::ForCurrentProcess()->AppendSwitchASCII(
       chromeos::switches::kAttestationServer, "test");
   AttestationCAClient client;
-  client.SendEnrollRequest("enroll",
-                           base::Bind(&AttestationCAClientTest::DataCallback,
-                                      base::Unretained(this)));
+  client.SendEnrollRequest(
+      "enroll", base::BindOnce(&AttestationCAClientTest::DataCallback,
+                               base::Unretained(this)));
   CheckURLAndSendResponse(GURL("https://asbestos-qa.corp.google.com/enroll"),
                           net::OK, net::HTTP_OK);
 
@@ -216,8 +210,8 @@ TEST_F(AttestationCAClientAttestationServerTest, TestCertificateRequest) {
       chromeos::switches::kAttestationServer, "test");
   AttestationCAClient client;
   client.SendCertificateRequest(
-      "certificate", base::Bind(&AttestationCAClientTest::DataCallback,
-                                base::Unretained(this)));
+      "certificate", base::BindOnce(&AttestationCAClientTest::DataCallback,
+                                    base::Unretained(this)));
   CheckURLAndSendResponse(GURL("https://asbestos-qa.corp.google.com/sign"),
                           net::OK, net::HTTP_OK);
 

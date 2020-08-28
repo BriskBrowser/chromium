@@ -76,6 +76,10 @@ void MemoryPurgeManager::OnPageDestroyed(PageLifecycleState state) {
   total_page_count_--;
   if (state == PageLifecycleState::kFrozen)
     frozen_page_count_--;
+
+  if (!CanPurge())
+    purge_timer_.Stop();
+
   DCHECK_LE(frozen_page_count_, total_page_count_);
 }
 
@@ -110,6 +114,10 @@ void MemoryPurgeManager::OnRendererBackgrounded() {
   if (!base::FeatureList::IsEnabled(
           features::kPurgeRendererMemoryWhenBackgrounded))
     return;
+  // A spare renderer has no pages. We would like to avoid purging memory
+  // on a spare renderer.
+  if (total_page_count_ == 0)
+    return;
 
   backgrounded_purge_pending_ = true;
   RequestMemoryPurgeWithDelay(GetTimeToPurgeAfterBackgrounded());
@@ -130,6 +138,7 @@ void MemoryPurgeManager::RequestMemoryPurgeWithDelay(base::TimeDelta delay) {
 }
 
 void MemoryPurgeManager::PerformMemoryPurge() {
+  TRACE_EVENT0("blink", "MemoryPurgeManager::PerformMemoryPurge()");
   DCHECK(CanPurge());
 
   base::MemoryPressureListener::NotifyMemoryPressure(
@@ -145,6 +154,9 @@ void MemoryPurgeManager::PerformMemoryPurge() {
 }
 
 bool MemoryPurgeManager::CanPurge() const {
+  if (total_page_count_ == 0)
+    return false;
+
   if (backgrounded_purge_pending_)
     return true;
 

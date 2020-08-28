@@ -19,7 +19,6 @@
 #include "components/keyed_service/core/keyed_service.h"
 #include "components/nacl/common/buildflags.h"
 #include "components/offline_pages/core/offline_page_model.h"
-#include "components/search_engines/template_url_service.h"
 #include "content/public/browser/browsing_data_remover.h"
 #include "content/public/browser/browsing_data_remover_delegate.h"
 #include "extensions/buildflags/buildflags.h"
@@ -57,9 +56,7 @@ class ChromeBrowsingDataRemoverDelegate
  public:
   // This is an extension of content::BrowsingDataRemover::RemoveDataMask which
   // includes all datatypes therefrom and adds additional Chrome-specific ones.
-  // TODO(crbug.com/668114): Extend this to uint64_t to ensure that we won't
-  // run out of space anytime soon.
-  enum DataType {
+  enum DataType : uint64_t {
     // Embedder can start adding datatypes after the last platform datatype.
     DATA_TYPE_EMBEDDER_BEGIN =
         content::BrowsingDataRemover::DATA_TYPE_CONTENT_END << 1,
@@ -93,7 +90,9 @@ class ChromeBrowsingDataRemoverDelegate
         DATA_TYPE_WEB_APP_DATA |
 #endif
         DATA_TYPE_SITE_USAGE_DATA | DATA_TYPE_DURABLE_PERMISSION |
-        DATA_TYPE_EXTERNAL_PROTOCOL_DATA | DATA_TYPE_ISOLATED_ORIGINS,
+        DATA_TYPE_EXTERNAL_PROTOCOL_DATA | DATA_TYPE_ISOLATED_ORIGINS |
+        content::BrowsingDataRemover::DATA_TYPE_TRUST_TOKENS |
+        content::BrowsingDataRemover::DATA_TYPE_CONVERSIONS,
 
     // Datatypes protected by Important Sites.
     IMPORTANT_SITES_DATA_TYPES =
@@ -104,6 +103,10 @@ class ChromeBrowsingDataRemoverDelegate
     FILTERABLE_DATA_TYPES = DATA_TYPE_SITE_DATA |
                             content::BrowsingDataRemover::DATA_TYPE_CACHE |
                             content::BrowsingDataRemover::DATA_TYPE_DOWNLOADS,
+
+    // Datatypes with account-scoped data that needs to be removed
+    // before Google cookies are deleted.
+    DEFERRED_COOKIE_DELETION_DATA_TYPES = DATA_TYPE_PASSWORDS,
 
     // Includes all the available remove options. Meant to be used by clients
     // that wish to wipe as much data as possible from a Profile, to make it
@@ -127,7 +130,7 @@ class ChromeBrowsingDataRemoverDelegate
   // This is an extension of content::BrowsingDataRemover::OriginType which
   // includes all origin types therefrom and adds additional Chrome-specific
   // ones.
-  enum OriginType {
+  enum OriginType : uint64_t {
     // Embedder can start adding origin types after the last
     // platform origin type.
     ORIGIN_TYPE_EMBEDDER_BEGIN =
@@ -153,7 +156,13 @@ class ChromeBrowsingDataRemoverDelegate
   static_assert((IMPORTANT_SITES_DATA_TYPES & ~FILTERABLE_DATA_TYPES) == 0,
                 "All important sites datatypes must be filterable.");
 
-  ChromeBrowsingDataRemoverDelegate(content::BrowserContext* browser_context);
+  static_assert((DEFERRED_COOKIE_DELETION_DATA_TYPES & FILTERABLE_DATA_TYPES) ==
+                    0,
+                "Deferred deletion is currently not implemented for filterable "
+                "data types");
+
+  explicit ChromeBrowsingDataRemoverDelegate(
+      content::BrowserContext* browser_context);
   ~ChromeBrowsingDataRemoverDelegate() override;
 
   // KeyedService:
@@ -163,12 +172,16 @@ class ChromeBrowsingDataRemoverDelegate
   content::BrowsingDataRemoverDelegate::EmbedderOriginTypeMatcher
   GetOriginTypeMatcher() override;
   bool MayRemoveDownloadHistory() override;
-  void RemoveEmbedderData(const base::Time& delete_begin,
-                          const base::Time& delete_end,
-                          int remove_mask,
-                          content::BrowsingDataFilterBuilder* filter_builder,
-                          int origin_type_mask,
-                          base::OnceClosure callback) override;
+  std::vector<std::string> GetDomainsForDeferredCookieDeletion(
+      uint64_t remove_mask) override;
+  void RemoveEmbedderData(
+      const base::Time& delete_begin,
+      const base::Time& delete_end,
+      uint64_t remove_mask,
+      content::BrowsingDataFilterBuilder* filter_builder,
+      uint64_t origin_type_mask,
+      base::OnceCallback<void(/*failed_data_types=*/uint64_t)> callback)
+      override;
 
 #if defined(OS_ANDROID)
   void OverrideWebappRegistryForTesting(
@@ -229,7 +242,12 @@ class ChromeBrowsingDataRemoverDelegate
     kLeakedCredentials = 32,  // deprecated
     kFieldInfo = 33,
     kCompromisedCredentials = 34,
-    kMaxValue = kCompromisedCredentials,
+    kUserDataSnapshot = 35,
+    kMediaFeeds = 36,
+    kAccountPasswords = 37,
+    kAccountPasswordsSynced = 38,
+    kAccountCompromisedCredentials = 39,
+    kMaxValue = kAccountCompromisedCredentials,
   };
 
   // Called by CreateTaskCompletionClosure().
@@ -237,12 +255,20 @@ class ChromeBrowsingDataRemoverDelegate
 
   // Called by the closures returned by CreateTaskCompletionClosure().
   // Checks if all tasks have completed, and if so, calls callback_.
-  void OnTaskComplete(TracingDataType data_type);
+  void OnTaskComplete(TracingDataType data_type,
+                      uint64_t data_type_mask,
+                      bool success);
 
   // Increments the number of pending tasks by one, and returns a OnceClosure
   // that calls OnTaskComplete(). The Remover is complete once all the closures
   // created by this method have been invoked.
   base::OnceClosure CreateTaskCompletionClosure(TracingDataType data_type);
+  // Like CreateTaskCompletionClosure(), but allows tracking success/failure of
+  // the task. If |success = false| is passed to the callback, |data_type_mask|
+  // will be added to |failed_data_types_|.
+  base::OnceCallback<void(bool /* success */)> CreateTaskCompletionCallback(
+      TracingDataType data_type,
+      uint64_t data_type_mask);
 
   // Same as CreateTaskCompletionClosure() but guarantees that
   // OnTaskComplete() is called if the task is dropped. That can typically
@@ -252,11 +278,6 @@ class ChromeBrowsingDataRemoverDelegate
 
   // Records unfinished tasks from |pending_sub_tasks_| after a delay.
   void RecordUnfinishedSubTasks();
-
-  // Callback for when TemplateURLService has finished loading. Clears the data,
-  // clears the respective waiting flag, and invokes NotifyIfDone.
-  void OnKeywordsLoaded(base::RepeatingCallback<bool(const GURL&)> url_filter,
-                        base::OnceClosure done);
 
   // A helper method that checks if time period is for "all time".
   bool IsForAllTime() const;
@@ -276,9 +297,6 @@ class ChromeBrowsingDataRemoverDelegate
       base::OnceClosure done,
       const std::vector<std::string>& sites);
 
-  // Indicates that LSO cookies for one website have been deleted.
-  void OnFlashDataDeleted();
-
   // PepperFlashSettingsManager::Client implementation.
   void OnDeauthorizeFlashContentLicensesCompleted(uint32_t request_id,
                                                   bool success) override;
@@ -294,10 +312,12 @@ class ChromeBrowsingDataRemoverDelegate
   base::Time delete_end_;
 
   // Completion callback to call when all data are deleted.
-  base::OnceClosure callback_;
+  base::OnceCallback<void(uint64_t)> callback_;
 
   // Records which tasks of a deletion are currently active.
   std::set<TracingDataType> pending_sub_tasks_;
+
+  uint64_t failed_data_types_ = 0;
 
   // Fires after some time to track slow tasks. Cancelled when all tasks
   // are finished.
@@ -322,13 +342,13 @@ class ChromeBrowsingDataRemoverDelegate
   // Used if we need to clear history.
   base::CancelableTaskTracker history_task_tracker_;
 
-  std::unique_ptr<TemplateURLService::Subscription> template_url_sub_;
-
 #if defined(OS_ANDROID)
   // WebappRegistry makes calls across the JNI. In unit tests, the Java side is
   // not initialised, so the registry must be mocked out.
   std::unique_ptr<WebappRegistry> webapp_registry_;
 #endif
+
+  bool should_clear_password_account_storage_settings_ = false;
 
   base::WeakPtrFactory<ChromeBrowsingDataRemoverDelegate> weak_ptr_factory_{
       this};

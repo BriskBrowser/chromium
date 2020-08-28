@@ -38,10 +38,6 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) NetworkServiceNetworkDelegate
   int OnBeforeURLRequest(net::URLRequest* request,
                          net::CompletionOnceCallback callback,
                          GURL* new_url) override;
-  void OnBeforeSendHeaders(net::URLRequest* request,
-                           const net::ProxyInfo& proxy_info,
-                           const net::ProxyRetryInfoMap& proxy_retry_info,
-                           net::HttpRequestHeaders* headers) override;
   int OnBeforeStartTransaction(net::URLRequest* request,
                                net::CompletionOnceCallback callback,
                                net::HttpRequestHeaders* headers) override;
@@ -60,7 +56,6 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) NetworkServiceNetworkDelegate
                    int net_error) override;
   void OnPACScriptError(int line_number, const base::string16& error) override;
   bool OnCanGetCookies(const net::URLRequest& request,
-                       const net::CookieList& cookie_list,
                        bool allowed_from_caller) override;
   bool OnCanSetCookie(const net::URLRequest& request,
                       const net::CanonicalCookie& cookie,

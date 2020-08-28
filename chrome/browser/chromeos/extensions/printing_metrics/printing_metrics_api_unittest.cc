@@ -4,6 +4,7 @@
 
 #include "chrome/browser/chromeos/extensions/printing_metrics/printing_metrics_api.h"
 
+#include "chrome/browser/chromeos/extensions/printing/printing_api.h"
 #include "chrome/browser/chromeos/printing/history/mock_print_job_history_service.h"
 #include "chrome/browser/chromeos/printing/history/print_job_history_service_factory.h"
 #include "chrome/browser/chromeos/printing/history/print_job_info.pb.h"
@@ -33,7 +34,7 @@ std::unique_ptr<KeyedService> BuildPrintJobHistoryService(
 
 void ReturnNoPrintJobs(
     chromeos::PrintJobDatabase::GetPrintJobsCallback callback) {
-  std::move(callback).Run(true, std::make_unique<std::vector<PrintJobInfo>>());
+  std::move(callback).Run(true, std::vector<PrintJobInfo>());
 }
 
 void ReturnOnePrintJob(
@@ -44,8 +45,7 @@ void ReturnOnePrintJob(
       chromeos::printing::proto::PrintJobInfo_PrintJobStatus_FAILED);
   print_job_info_proto.set_number_of_pages(kPagesNumber);
   std::move(callback).Run(true,
-                          std::make_unique<std::vector<PrintJobInfo>>(
-                              std::vector<PrintJobInfo>{print_job_info_proto}));
+                          std::vector<PrintJobInfo>{print_job_info_proto});
 }
 
 void ReturnTwoPrintJobs(
@@ -59,8 +59,7 @@ void ReturnTwoPrintJobs(
   print_job_info_proto2.set_title(kTitle2);
   std::move(callback).Run(
       true,
-      std::make_unique<std::vector<PrintJobInfo>>(std::vector<PrintJobInfo>{
-          print_job_info_proto1, print_job_info_proto2}));
+      std::vector<PrintJobInfo>{print_job_info_proto1, print_job_info_proto2});
 }
 
 }  // namespace

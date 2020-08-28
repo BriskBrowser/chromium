@@ -6,6 +6,7 @@
 
 #include "base/bind.h"
 #include "base/callback.h"
+#include "base/notreached.h"
 #include "components/download/public/common/download_danger_type.h"
 #include "net/http/http_response_headers.h"
 
@@ -197,6 +198,11 @@ FakeDownloadItem::GetDownloadCreationType() const {
   return download::DownloadItem::DownloadCreationType::TYPE_ACTIVE_DOWNLOAD;
 }
 
+const base::Optional<download::DownloadSchedule>&
+FakeDownloadItem::GetDownloadSchedule() const {
+  return download_schedule_;
+}
+
 void FakeDownloadItem::SetIsDone(bool is_done) {
   is_done_ = is_done;
 }
@@ -231,11 +237,14 @@ void FakeDownloadItem::ValidateDangerousDownload() {
   NOTREACHED();
 }
 
-void FakeDownloadItem::StealDangerousDownload(
-    bool delete_file_afterward,
-    const AcquireFileCallback& callback) {
+void FakeDownloadItem::ValidateMixedContentDownload() {
   NOTREACHED();
-  callback.Run(base::FilePath());
+}
+
+void FakeDownloadItem::StealDangerousDownload(bool delete_file_afterward,
+                                              AcquireFileCallback callback) {
+  NOTREACHED();
+  std::move(callback).Run(base::FilePath());
 }
 
 void FakeDownloadItem::Pause() {
@@ -269,6 +278,11 @@ void FakeDownloadItem::Rename(const base::FilePath& name,
 
 void FakeDownloadItem::OnAsyncScanningCompleted(
     download::DownloadDangerType danger_type) {
+  NOTREACHED();
+}
+
+void FakeDownloadItem::OnDownloadScheduleChanged(
+    base::Optional<download::DownloadSchedule> schedule) {
   NOTREACHED();
 }
 
@@ -325,12 +339,6 @@ const base::Optional<url::Origin>& FakeDownloadItem::GetRequestInitiator()
     const {
   NOTREACHED();
   return dummy_origin;
-}
-
-const net::NetworkIsolationKey& FakeDownloadItem::GetNetworkIsolationKey()
-    const {
-  NOTREACHED();
-  return dummy_network_isolation_key;
 }
 
 std::string FakeDownloadItem::GetSuggestedFilename() const {
@@ -414,9 +422,20 @@ bool FakeDownloadItem::IsDangerous() const {
   return false;
 }
 
+bool FakeDownloadItem::IsMixedContent() const {
+  NOTREACHED();
+  return false;
+}
+
 download::DownloadDangerType FakeDownloadItem::GetDangerType() const {
   NOTREACHED();
   return download::DownloadDangerType();
+}
+
+download::DownloadItem::MixedContentStatus
+FakeDownloadItem::GetMixedContentStatus() const {
+  NOTREACHED();
+  return download::DownloadItem::MixedContentStatus();
 }
 
 bool FakeDownloadItem::TimeRemaining(base::TimeDelta* remaining) const {
@@ -461,6 +480,11 @@ bool FakeDownloadItem::CanOpenDownload() {
 }
 
 bool FakeDownloadItem::ShouldOpenFileBasedOnExtension() {
+  NOTREACHED();
+  return true;
+}
+
+bool FakeDownloadItem::ShouldOpenFileByPolicyBasedOnExtension() {
   NOTREACHED();
   return true;
 }

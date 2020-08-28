@@ -89,8 +89,8 @@ class FrameScheduler : public FrameOrWorkerScheduler {
   // Set whether this frame is cross origin w.r.t. the top level frame. Cross
   // origin frames may use a different scheduling policy from same origin
   // frames.
-  virtual void SetCrossOrigin(bool) = 0;
-  virtual bool IsCrossOrigin() const = 0;
+  virtual void SetCrossOriginToMainFrame(bool) = 0;
+  virtual bool IsCrossOriginToMainFrame() const = 0;
 
   virtual void SetIsAdFrame() = 0;
   virtual bool IsAdFrame() const = 0;
@@ -154,6 +154,9 @@ class FrameScheduler : public FrameOrWorkerScheduler {
   // frame.
   virtual void OnFirstMeaningfulPaint() = 0;
 
+  // Tells the scheduler that the "onload" event has occurred for this frame.
+  virtual void OnLoad() = 0;
+
   // Returns true if this frame is should not throttled (e.g. due to an active
   // connection).
   // Note that this only applies to the current frame,
@@ -178,6 +181,10 @@ class FrameScheduler : public FrameOrWorkerScheduler {
 
   // TODO(altimin): Move FrameScheduler object to oilpan.
   virtual base::WeakPtr<FrameScheduler> GetWeakPtr() = 0;
+
+  // Notifies the delegate the list of active features for this frame if they
+  // have changed since the last notification.
+  virtual void ReportActiveSchedulerTrackedFeatures() = 0;
 };
 
 }  // namespace blink

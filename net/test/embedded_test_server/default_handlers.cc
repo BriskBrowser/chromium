@@ -4,8 +4,6 @@
 
 #include "net/test/embedded_test_server/default_handlers.h"
 
-#include <stdlib.h>
-
 #include <ctime>
 #include <map>
 #include <memory>
@@ -19,7 +17,6 @@
 #include "base/bind_helpers.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
-#include "base/format_macros.h"
 #include "base/hash/md5.h"
 #include "base/macros.h"
 #include "base/path_service.h"
@@ -223,27 +220,6 @@ std::unique_ptr<HttpResponse> HandleSetInvalidCookie(
   return http_response;
 }
 
-// /set-many-cookies?N
-// Sets N cookies in the response.
-std::unique_ptr<HttpResponse> HandleSetManyCookies(const HttpRequest& request) {
-  std::string content;
-
-  GURL request_url = request.GetURL();
-  size_t num = 0;
-  if (request_url.has_query())
-    num = std::atoi(request_url.query().c_str());
-
-  auto http_response = std::make_unique<BasicHttpResponse>();
-  http_response->set_content_type("text/html");
-  for (size_t i = 0; i < num; ++i) {
-    http_response->AddCustomHeader("Set-Cookie", "a=");
-  }
-
-  http_response->set_content(
-      base::StringPrintf("%" PRIuS " cookies were sent", num));
-  return http_response;
-}
-
 // /expect-and-set-cookie?expect=EXPECTED&set=SET&data=DATA
 // Verifies that the request cookies match EXPECTED and then returns cookies
 // that match SET and a content that matches DATA.
@@ -275,7 +251,7 @@ std::unique_ptr<HttpResponse> HandleExpectAndSetCookie(
   if (got_all_expected) {
     for (const auto& cookie : query_list.at("set")) {
       http_response->AddCustomHeader(
-          "Set-Cookie", UnescapeBinaryURLComponent(
+          "Set-Cookie", base::UnescapeBinaryURLComponent(
                             cookie, UnescapeRule::REPLACE_PLUS_WITH_SPACE));
     }
   }
@@ -326,7 +302,7 @@ std::unique_ptr<HttpResponse> HandleIframe(const HttpRequest& request) {
 
   GURL iframe_url("about:blank");
   if (request_url.has_query()) {
-    iframe_url = GURL(UnescapeBinaryURLComponent(request_url.query()));
+    iframe_url = GURL(base::UnescapeBinaryURLComponent(request_url.query()));
   }
 
   http_response->set_content(
@@ -549,12 +525,23 @@ std::unique_ptr<HttpResponse> HandleAuthDigest(const HttpRequest& request) {
 std::unique_ptr<HttpResponse> HandleServerRedirect(HttpStatusCode redirect_code,
                                                    const HttpRequest& request) {
   GURL request_url = request.GetURL();
-  std::string dest = UnescapeBinaryURLComponent(request_url.query_piece());
+  std::string dest =
+      base::UnescapeBinaryURLComponent(request_url.query_piece());
   RequestQuery query = ParseQuery(request_url);
+
+  if (request.method == METHOD_OPTIONS) {
+    auto http_response = std::make_unique<BasicHttpResponse>();
+    http_response->set_code(HTTP_OK);
+    http_response->AddCustomHeader("Access-Control-Allow-Origin", "*");
+    http_response->AddCustomHeader("Access-Control-Allow-Methods", "*");
+    http_response->AddCustomHeader("Access-Control-Allow-Headers", "*");
+    return http_response;
+  }
 
   auto http_response = std::make_unique<BasicHttpResponse>();
   http_response->set_code(redirect_code);
   http_response->AddCustomHeader("Location", dest);
+  http_response->AddCustomHeader("Access-Control-Allow-Origin", "*");
   http_response->set_content_type("text/html");
   http_response->set_content(base::StringPrintf(
       "<html><head></head><body>Redirecting to %s</body></html>",
@@ -567,7 +554,8 @@ std::unique_ptr<HttpResponse> HandleServerRedirectWithCookie(
     HttpStatusCode redirect_code,
     const HttpRequest& request) {
   GURL request_url = request.GetURL();
-  std::string dest = UnescapeBinaryURLComponent(request_url.query_piece());
+  std::string dest =
+      base::UnescapeBinaryURLComponent(request_url.query_piece());
   RequestQuery query = ParseQuery(request_url);
 
   auto http_response = std::make_unique<BasicHttpResponse>();
@@ -588,7 +576,8 @@ std::unique_ptr<HttpResponse> HandleServerRedirectWithSecureCookie(
     HttpStatusCode redirect_code,
     const HttpRequest& request) {
   GURL request_url = request.GetURL();
-  std::string dest = UnescapeBinaryURLComponent(request_url.query_piece());
+  std::string dest =
+      base::UnescapeBinaryURLComponent(request_url.query_piece());
   RequestQuery query = ParseQuery(request_url);
 
   auto http_response = std::make_unique<BasicHttpResponse>();
@@ -610,7 +599,7 @@ std::unique_ptr<HttpResponse> HandleCrossSiteRedirect(
   if (!ShouldHandle(request, "/cross-site"))
     return nullptr;
 
-  std::string dest_all = UnescapeBinaryURLComponent(
+  std::string dest_all = base::UnescapeBinaryURLComponent(
       request.relative_url.substr(std::string("/cross-site").size() + 1));
 
   std::string dest;
@@ -635,7 +624,8 @@ std::unique_ptr<HttpResponse> HandleCrossSiteRedirect(
 // Returns a meta redirect to URL.
 std::unique_ptr<HttpResponse> HandleClientRedirect(const HttpRequest& request) {
   GURL request_url = request.GetURL();
-  std::string dest = UnescapeBinaryURLComponent(request_url.query_piece());
+  std::string dest =
+      base::UnescapeBinaryURLComponent(request_url.query_piece());
 
   auto http_response = std::make_unique<BasicHttpResponse>();
   http_response->set_content_type("text/html");
@@ -812,8 +802,6 @@ void RegisterDefaultHandlers(EmbeddedTestServer* server) {
       PREFIXED_HANDLER("/set-cookie", &HandleSetCookie));
   server->RegisterDefaultHandler(
       PREFIXED_HANDLER("/set-invalid-cookie", &HandleSetInvalidCookie));
-  server->RegisterDefaultHandler(
-      PREFIXED_HANDLER("/set-many-cookies", &HandleSetManyCookies));
   server->RegisterDefaultHandler(
       PREFIXED_HANDLER("/expect-and-set-cookie", &HandleExpectAndSetCookie));
   server->RegisterDefaultHandler(

@@ -11,9 +11,11 @@
 #include "ash/public/cpp/shelf_types.h"
 #include "ash/shelf/shelf.h"
 #include "ash/shelf/shelf_focus_cycler.h"
+#include "ash/shelf/shelf_navigation_widget.h"
 #include "ash/shell.h"
+#include "ash/style/ash_color_provider.h"
 #include "ash/wm/tablet_mode/tablet_mode_controller.h"
-#include "base/logging.h"
+#include "base/check_op.h"
 #include "base/metrics/user_metrics.h"
 #include "base/metrics/user_metrics_action.h"
 #include "chromeos/strings/grit/chromeos_strings.h"
@@ -68,17 +70,14 @@ const char* HomeButton::GetClassName() const {
 void HomeButton::OnShelfButtonAboutToRequestFocusFromTabTraversal(
     ShelfButton* button,
     bool reverse) {
-  const bool tablet_mode =
-      Shell::Get()->tablet_mode_controller() &&
-      Shell::Get()->tablet_mode_controller()->InTabletMode();
   DCHECK_EQ(button, this);
-  // If the currently focused view is already this button, and we are not
-  // in tablet mode (meaning this is the only button in this widget), then we
-  // always want to focus out. We also want to focus out if we are in tablet
-  // mode and going in reverse (which means we're trying to loop back from
-  // the back button.
-  if ((!tablet_mode && GetFocusManager()->GetFocusedView() == this) ||
-      (reverse && tablet_mode)) {
+  // Focus out if:
+  // *   The currently focused view is already this button, which implies that
+  //     this is the only button in this widget.
+  // *   Going in reverse when the shelf has a back button, which implies that
+  //     the widget is trying to loop back from the back button.
+  if (GetFocusManager()->GetFocusedView() == this ||
+      (reverse && shelf()->navigation_widget()->GetBackButton())) {
     shelf()->shelf_focus_cycler()->FocusOut(reverse,
                                             SourceView::kShelfNavigationView);
   }
@@ -109,6 +108,15 @@ bool HomeButton::IsShowingAppList() const {
   return controller_.is_showing_app_list();
 }
 
+void HomeButton::HandleLocaleChange() {
+  SetAccessibleName(
+      l10n_util::GetStringUTF16(IDS_ASH_SHELF_APP_LIST_LAUNCHER_TITLE));
+  TooltipTextChanged();
+  // Reset the bounds rect so the child layer bounds get updated on next shelf
+  // layout if the RTL changed.
+  SetBoundsRect(gfx::Rect());
+}
+
 int64_t HomeButton::GetDisplayId() const {
   aura::Window* window = GetWidget()->GetNativeWindow();
   return display::Screen::GetScreen()->GetDisplayNearestWindow(window).id();
@@ -133,7 +141,9 @@ void HomeButton::PaintButtonContents(gfx::Canvas* canvas) {
     cc::PaintFlags fg_flags;
     fg_flags.setAntiAlias(true);
     fg_flags.setStyle(cc::PaintFlags::kStroke_Style);
-    fg_flags.setColor(ShelfConfig::Get()->shelf_icon_color());
+    fg_flags.setColor(AshColorProvider::Get()->GetContentLayerColor(
+        AshColorProvider::ContentLayerType::kButtonIconColor,
+        AshColorProvider::AshColorMode::kDark));
 
     if (controller_.IsAssistantAvailable()) {
       // active: 100% alpha, inactive: 54% alpha
@@ -164,8 +174,10 @@ bool HomeButton::DoesIntersectRect(const views::View* target,
   gfx::Rect button_bounds = target->GetLocalBounds();
   // Increase clickable area for the button to account for clicks around the
   // spacing. This will not intercept events outside of the parent widget.
-  button_bounds.Inset(
-      gfx::Insets(-ShelfConfig::Get()->home_button_edge_spacing()));
+  button_bounds.Inset(-ShelfConfig::Get()->control_button_edge_spacing(
+                          shelf()->IsHorizontalAlignment()),
+                      -ShelfConfig::Get()->control_button_edge_spacing(
+                          !shelf()->IsHorizontalAlignment()));
   return button_bounds.Intersects(rect);
 }
 

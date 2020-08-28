@@ -10,6 +10,7 @@
 #include "chrome/browser/chromeos/login/helper.h"
 #include "chrome/browser/chromeos/login/oobe_screen.h"
 #include "chrome/browser/chromeos/login/screen_manager.h"
+#include "chrome/browser/chromeos/login/wizard_context.h"
 #include "chrome/browser/chromeos/login/wizard_controller.h"
 #include "chrome/browser/ui/webui/chromeos/login/network_screen_handler.h"
 #include "chrome/grit/chromium_strings.h"
@@ -31,6 +32,18 @@ constexpr char kUserActionOfflineDemoSetup[] = "offline-demo-setup";
 namespace chromeos {
 
 // static
+std::string NetworkScreen::GetResultString(Result result) {
+  switch (result) {
+    case Result::CONNECTED:
+      return "Connected";
+    case Result::OFFLINE_DEMO_SETUP:
+      return "OfflineDemoSetup";
+    case Result::BACK:
+      return "Back";
+  }
+}
+
+// static
 NetworkScreen* NetworkScreen::Get(ScreenManager* manager) {
   return static_cast<NetworkScreen*>(
       manager->GetScreen(NetworkScreenView::kScreenId));
@@ -38,7 +51,7 @@ NetworkScreen* NetworkScreen::Get(ScreenManager* manager) {
 
 NetworkScreen::NetworkScreen(NetworkScreenView* view,
                              const ScreenExitCallback& exit_callback)
-    : BaseScreen(NetworkScreenView::kScreenId),
+    : BaseScreen(NetworkScreenView::kScreenId, OobeScreenPriority::DEFAULT),
       view_(view),
       exit_callback_(exit_callback),
       network_state_helper_(std::make_unique<login::NetworkStateHelper>()) {
@@ -62,7 +75,7 @@ void NetworkScreen::OnViewDestroyed(NetworkScreenView* view) {
   }
 }
 
-void NetworkScreen::Show() {
+void NetworkScreen::ShowImpl() {
   if (DemoSetupController::IsOobeDemoSetupFlowInProgress()) {
     // Check if preinstalled resources are available. If so, we can allow
     // offline Demo Mode during Demo Mode network selection.
@@ -78,7 +91,7 @@ void NetworkScreen::Show() {
     view_->Show();
 }
 
-void NetworkScreen::Hide() {
+void NetworkScreen::HideImpl() {
   if (view_)
     view_->Hide();
 }
@@ -93,6 +106,14 @@ void NetworkScreen::OnUserAction(const std::string& action_id) {
   } else {
     BaseScreen::OnUserAction(action_id);
   }
+}
+
+bool NetworkScreen::HandleAccelerator(ash::LoginAcceleratorAction action) {
+  if (action == ash::LoginAcceleratorAction::kStartEnrollment) {
+    context()->enrollment_triggered_early = true;
+    return true;
+  }
+  return false;
 }
 
 void NetworkScreen::NetworkConnectionStateChanged(const NetworkState* network) {

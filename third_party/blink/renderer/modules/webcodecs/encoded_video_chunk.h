@@ -12,34 +12,31 @@
 
 namespace blink {
 
-class ArrayBuffer;
 class DOMArrayBuffer;
+class EncodedVideoChunkInit;
 
 class MODULES_EXPORT EncodedVideoChunk final : public ScriptWrappable {
   DEFINE_WRAPPERTYPEINFO();
 
  public:
-  EncodedVideoChunk(EncodedVideoMetadata metadata,
-                    scoped_refptr<ArrayBuffer> buffer);
+  EncodedVideoChunk(EncodedVideoMetadata metadata, DOMArrayBuffer* buffer);
 
-  static EncodedVideoChunk* Create(String type,
-                                   uint64_t timestamp,
-                                   const DOMArrayPiece& data);
-  static EncodedVideoChunk* Create(String type,
-                                   uint64_t timestamp,
-                                   uint64_t duration,
-                                   const DOMArrayPiece& data);
+  static EncodedVideoChunk* Create(EncodedVideoChunkInit* init);
 
   // encoded_video_chunk.idl implementation.
   String type() const;
   uint64_t timestamp() const;
-  uint64_t duration(bool* is_null) const;
-  uint64_t duration(bool& is_null) const { return duration(&is_null); }
+  base::Optional<uint64_t> duration() const;
   DOMArrayBuffer* data() const;
+
+  void Trace(Visitor* visitor) const override {
+    visitor->Trace(buffer_);
+    ScriptWrappable::Trace(visitor);
+  }
 
  private:
   EncodedVideoMetadata metadata_;
-  scoped_refptr<ArrayBuffer> buffer_;
+  Member<DOMArrayBuffer> buffer_;
 };
 
 }  // namespace blink

@@ -163,6 +163,12 @@ class WebClient {
       int64_t navigation_id,
       const base::Callback<void(bool)>& callback);
 
+  // Allows the embedder to specify legacy TLS enforcement on a per-host basis,
+  // for example to allow users to bypass interstitial warnings on affected
+  // hosts.
+  virtual bool IsLegacyTLSAllowedForHost(WebState* web_state,
+                                         const std::string& hostname);
+
   // Calls the given |callback| with the contents of an error page to display
   // when a navigation error occurs. |error| is always a valid pointer. The
   // string passed to |callback| will be nil if no error page should be
@@ -183,6 +189,11 @@ class WebClient {
   // Instructs the embedder to return a container that is attached to a window.
   virtual UIView* GetWindowedContainer();
 
+  // Enables the logic to handle long press and force
+  // touch. Should return false to use the context menu API.
+  // Defaults to return true.
+  virtual bool EnableLongPressAndForceTouchHandling() const;
+
   // This method is used when the user didn't express any preference for the
   // version of |url|. Returning true allows to make sure that for |url|, the
   // mobile version will be used, unless the user explicitly requested the
@@ -191,8 +202,12 @@ class WebClient {
   virtual bool ForceMobileVersionByDefault(const GURL& url);
 
   // Returns the UserAgentType that should be used by default for the web
-  // content, based on the size class of |web_view|.
-  virtual UserAgentType GetDefaultUserAgent(UIView* web_view);
+  // content, based on the size class of |web_view| and the |url|.
+  virtual UserAgentType GetDefaultUserAgent(id<UITraitEnvironment> web_view,
+                                            const GURL& url);
+
+  // Returns whether the embedders could block restore urls.
+  virtual bool IsEmbedderBlockRestoreUrlEnabled();
 };
 
 }  // namespace web

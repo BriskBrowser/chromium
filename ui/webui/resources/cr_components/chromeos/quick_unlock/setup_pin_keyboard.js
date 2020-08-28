@@ -10,9 +10,6 @@
  *
  */
 
-(function() {
-'use strict';
-
 /**
  * Keep in sync with the string keys provided by settings.
  * @enum {string}
@@ -94,7 +91,7 @@ Polymer({
     /**
      * writeUma is a function that handles writing uma stats.
      *
-     * @type {function(LockScreenProgress)}
+     * @type {function(settings.LockScreenProgress)}
      */
     writeUma: {
       type: Object,
@@ -132,6 +129,13 @@ Polymer({
      * Enables pin placeholder.
      */
     enablePlaceholder: {
+      type: Boolean,
+      value: false,
+    },
+
+    /** @private {boolean} */
+    isSetModesCallPending_: {
+      notify: true,
       type: Boolean,
       value: false,
     },
@@ -308,8 +312,10 @@ Polymer({
    * @param {boolean} didSet
    */
   onSetModesCompleted_(didSet) {
+    this.isSetModesCallPending_ = false;
     if (!didSet) {
       console.error('Failed to update pin');
+      this.enableSubmit = true;
       return;
     }
 
@@ -329,7 +335,7 @@ Polymer({
       this.onPinChange_(new CustomEvent(
           'pin-change', {detail: {pin: this.pinKeyboardValue_}}));
       this.$.pinKeyboard.focusInput();
-      this.writeUma(LockScreenProgress.ENTER_PIN);
+      this.writeUma(settings.LockScreenProgress.ENTER_PIN);
       return;
     }
     // onPinSubmit gets called if the user hits enter on the PIN keyboard.
@@ -343,10 +349,12 @@ Polymer({
     }
 
     assert(this.setModes);
+    this.isSetModesCallPending_ = true;
+    this.enableSubmit = false;
     this.setModes.call(
         null, [chrome.quickUnlockPrivate.QuickUnlockMode.PIN],
         [this.pinKeyboardValue_], this.onSetModesCompleted_.bind(this));
-    this.writeUma(LockScreenProgress.CONFIRM_PIN);
+    this.writeUma(settings.LockScreenProgress.CONFIRM_PIN);
   },
 
   /**
@@ -372,5 +380,3 @@ Polymer({
                        '';
   },
 });
-
-})();

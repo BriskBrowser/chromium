@@ -34,11 +34,11 @@
 // Sets the leading button's image.
 - (void)setLeadingImage:(UIImage*)image;
 
-// Shows or hides the leading button.
-- (void)setLeadingImageHidden:(BOOL)hidden;
-
 // Sets the alpha level of the leading image view.
 - (void)setLeadingImageAlpha:(CGFloat)alpha;
+
+// Sets the scale of the leading image view.
+- (void)setLeadingImageScale:(CGFloat)scaleValue;
 
 // Asks the container view to attch any layout guides to its views.
 - (void)attachLayoutGuides;

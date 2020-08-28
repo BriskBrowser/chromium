@@ -12,10 +12,10 @@ import android.graphics.PorterDuff;
 import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.VectorDrawable;
-import android.os.Build;
-import android.support.annotation.DrawableRes;
-import android.support.graphics.drawable.VectorDrawableCompat;
-import android.support.v7.content.res.AppCompatResources;
+
+import androidx.annotation.DrawableRes;
+import androidx.appcompat.content.res.AppCompatResources;
+import androidx.vectordrawable.graphics.drawable.VectorDrawableCompat;
 
 import org.chromium.base.annotations.RemovableInRelease;
 
@@ -31,7 +31,7 @@ public class TintedDrawable extends BitmapDrawable {
 
     public TintedDrawable(Context context, Bitmap bitmap) {
         super(context.getResources(), bitmap);
-        mTint = AppCompatResources.getColorStateList(context, R.color.standard_mode_tint);
+        mTint = AppCompatResources.getColorStateList(context, R.color.default_icon_color_tint_list);
     }
 
     @Override
@@ -94,10 +94,6 @@ public class TintedDrawable extends BitmapDrawable {
     @RemovableInRelease
     private static boolean isVectorDrawable(Context context, @DrawableRes int drawableId) {
         Drawable drawable = AppCompatResources.getDrawable(context, drawableId);
-        if (drawable instanceof VectorDrawableCompat) return true;
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            return drawable instanceof VectorDrawable;
-        }
-        return false;
+        return drawable instanceof VectorDrawableCompat || drawable instanceof VectorDrawable;
     }
 }

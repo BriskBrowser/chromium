@@ -70,7 +70,7 @@ enum NotificationType {
   // are passed.
   NOTIFICATION_APP_TERMINATING,
 
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
   // This notification is sent when the app has no key window, such as when
   // all windows are closed but the app is still active. No source or details
   // are provided.
@@ -196,11 +196,6 @@ enum NotificationType {
   // Used for testing.
   NOTIFICATION_TAB_DRAG_LOOP_DONE,
 #endif
-
-  // Sent when the CaptivePortalService checks if we're behind a captive portal.
-  // The Source is the Profile the CaptivePortalService belongs to, and the
-  // Details are a Details<CaptivePortalService::CheckResults>.
-  NOTIFICATION_CAPTIVE_PORTAL_CHECK_RESULT,
 
   // Sent when the applications in the NTP app launcher have been reordered.
   // The details, if not NoDetails, is the std::string ID of the extension that

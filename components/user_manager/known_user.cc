@@ -11,7 +11,10 @@
 
 #include "base/logging.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/time/time.h"
+#include "base/util/values/values_util.h"
 #include "base/values.h"
+#include "components/account_id/account_id.h"
 #include "components/prefs/pref_registry_simple.h"
 #include "components/prefs/scoped_user_pref_update.h"
 #include "components/user_manager/user_manager.h"
@@ -72,6 +75,25 @@ const char kIsEphemeral[] = "is_ephemeral";
 // Key of the list value that stores challenge-response authentication keys.
 const char kChallengeResponseKeys[] = "challenge_response_keys";
 
+const char kLastOnlineSignin[] = "last_online_singin";
+const char kOfflineSigninLimit[] = "offline_signin_limit";
+
+// Key of the boolean flag telling if user is enterprise managed.
+const char kIsEnterpriseManaged[] = "is_enterprise_managed";
+
+// Key of the last input method user used which is suitable for login/lock
+// screen.
+const char kLastInputMethod[] = "last_input_method";
+
+// Key of the PIN auto submit length.
+const char kPinAutosubmitLength[] = "pin_autosubmit_length";
+
+// Key for the PIN auto submit backfill needed indicator.
+const char kPinAutosubmitBackfillNeeded[] = "pin_autosubmit_backfill_needed";
+
+// Sync token for SAML password multi-device sync
+const char kPasswordSyncToken[] = "password_sync_token";
+
 // List containing all the known user preferences keys.
 const char* kReservedKeys[] = {kCanonicalEmail,
                                kGAIAIdKey,
@@ -86,7 +108,14 @@ const char* kReservedKeys[] = {kCanonicalEmail,
                                kMinimalMigrationAttempted,
                                kProfileRequiresPolicy,
                                kIsEphemeral,
-                               kChallengeResponseKeys};
+                               kChallengeResponseKeys,
+                               kLastOnlineSignin,
+                               kOfflineSigninLimit,
+                               kIsEnterpriseManaged,
+                               kLastInputMethod,
+                               kPinAutosubmitLength,
+                               kPinAutosubmitBackfillNeeded,
+                               kPasswordSyncToken};
 
 PrefService* GetLocalState() {
   if (!UserManager::IsInitialized())
@@ -181,6 +210,9 @@ bool FindPrefs(const AccountId& account_id,
     return false;
   }
 
+  if (!account_id.is_valid())
+    return false;
+
   const base::ListValue* known_users = local_state->GetList(kKnownUsers);
   for (size_t i = 0; i < known_users->GetSize(); ++i) {
     const base::DictionaryValue* element = nullptr;
@@ -209,6 +241,9 @@ void UpdatePrefs(const AccountId& account_id,
       UserManager::Get()->IsUserNonCryptohomeDataEphemeral(account_id)) {
     return;
   }
+
+  if (!account_id.is_valid())
+    return;
 
   ListPrefUpdate update(local_state, kKnownUsers);
   for (size_t i = 0; i < update->GetSize(); ++i) {
@@ -602,11 +637,106 @@ base::Value GetChallengeResponseKeys(const AccountId& account_id) {
   return value->Clone();
 }
 
+void SetLastOnlineSignin(const AccountId& account_id, base::Time time) {
+  SetPref(account_id, kLastOnlineSignin, util::TimeToValue(time));
+}
+
+base::Time GetLastOnlineSignin(const AccountId& account_id) {
+  const base::Value* value = nullptr;
+  if (!GetPref(account_id, kLastOnlineSignin, &value))
+    return base::Time();
+  base::Optional<base::Time> time = util::ValueToTime(value);
+  if (!time)
+    return base::Time();
+  return *time;
+}
+
+void SetOfflineSigninLimit(const AccountId& account_id,
+                           base::TimeDelta time_delta) {
+  SetPref(account_id, kOfflineSigninLimit, util::TimeDeltaToValue(time_delta));
+}
+
+base::TimeDelta GetOfflineSigninLimit(const AccountId& account_id) {
+  const base::Value* value = nullptr;
+  if (!GetPref(account_id, kOfflineSigninLimit, &value))
+    return base::TimeDelta();
+  base::Optional<base::TimeDelta> time_delta = util::ValueToTimeDelta(value);
+  if (!time_delta)
+    return base::TimeDelta();
+  return *time_delta;
+}
+
+void SetIsEnterpriseManaged(const AccountId& account_id,
+                            bool is_enterprise_managed) {
+  SetBooleanPref(account_id, kIsEnterpriseManaged, is_enterprise_managed);
+}
+
+bool GetIsEnterpriseManaged(const AccountId& account_id) {
+  bool is_enterprise_managed;
+  if (GetBooleanPref(account_id, kIsEnterpriseManaged, &is_enterprise_managed))
+    return is_enterprise_managed;
+  return false;
+}
+
+void SetUserLastInputMethod(const AccountId& account_id,
+                            const std::string& input_method) {
+  SetStringPref(account_id, kLastInputMethod, input_method);
+}
+
+bool GetUserLastInputMethod(const AccountId& account_id,
+                            std::string* input_method) {
+  return GetStringPref(account_id, kLastInputMethod, input_method);
+}
+
+void SetUserPinLength(const AccountId& account_id, int pin_length) {
+  SetIntegerPref(account_id, kPinAutosubmitLength, pin_length);
+}
+
+int GetUserPinLength(const AccountId& account_id) {
+  int pin_length = 0;
+  if (GetIntegerPref(account_id, kPinAutosubmitLength, &pin_length))
+    return pin_length;
+  return 0;
+}
+
+bool PinAutosubmitIsBackfillNeeded(const AccountId& account_id) {
+  bool backfill_needed;
+  if (GetBooleanPref(account_id, kPinAutosubmitBackfillNeeded,
+                     &backfill_needed))
+    return backfill_needed;
+  // If the pref is not set, the pref needs to be backfilled.
+  return true;
+}
+
+void PinAutosubmitSetBackfillNotNeeded(const AccountId& account_id) {
+  SetBooleanPref(account_id, kPinAutosubmitBackfillNeeded, false);
+}
+
+void PinAutosubmitSetBackfillNeededForTests(const AccountId& account_id) {
+  SetBooleanPref(account_id, kPinAutosubmitBackfillNeeded, true);
+}
+
+void SetPasswordSyncToken(const AccountId& account_id,
+                          const std::string& token) {
+  SetStringPref(account_id, kPasswordSyncToken, token);
+}
+
+std::string GetPasswordSyncToken(const AccountId& account_id) {
+  std::string token;
+  if (GetStringPref(account_id, kPasswordSyncToken, &token))
+    return token;
+  // Return empty string if sync token was not set for the account yet.
+  return std::string();
+}
+
 void RemovePrefs(const AccountId& account_id) {
   PrefService* local_state = GetLocalState();
 
   // Local State may not be initialized in tests.
   if (!local_state)
+    return;
+
+  if (!account_id.is_valid())
     return;
 
   ListPrefUpdate update(local_state, kKnownUsers);
@@ -629,21 +759,13 @@ void CleanEphemeralUsers() {
     return;
 
   ListPrefUpdate update(local_state, kKnownUsers);
-  auto& list_storage = update->GetList();
-  for (auto it = list_storage.begin(); it < list_storage.end();) {
-    bool remove = false;
-    base::DictionaryValue* element = nullptr;
-    if (update->GetDictionary(std::distance(list_storage.begin(), it),
-                              &element)) {
-      base::Value* is_ephemeral = element->FindKey(kIsEphemeral);
-      if (is_ephemeral && is_ephemeral->GetBool())
-        remove = true;
-    }
-    if (remove)
-      it = list_storage.erase(it);
-    else
-      it++;
-  }
+  update->EraseListValueIf([](const auto& value) {
+    if (!value.is_dict())
+      return false;
+
+    base::Optional<bool> is_ephemeral = value.FindBoolKey(kIsEphemeral);
+    return is_ephemeral && *is_ephemeral;
+  });
 }
 
 void RegisterPrefs(PrefRegistrySimple* registry) {

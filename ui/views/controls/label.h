@@ -10,7 +10,9 @@
 #include "base/compiler_specific.h"
 #include "base/gtest_prod_util.h"
 #include "base/macros.h"
+#include "base/optional.h"
 #include "ui/base/models/simple_menu_model.h"
+#include "ui/gfx/color_palette.h"
 #include "ui/gfx/render_text.h"
 #include "ui/gfx/text_constants.h"
 #include "ui/views/context_menu_controller.h"
@@ -33,6 +35,12 @@ class VIEWS_EXPORT Label : public View,
                            public ui::SimpleMenuModel::Delegate {
  public:
   METADATA_HEADER(Label);
+
+  enum MenuCommands {
+    kCopy = 1,
+    kSelectAll,
+    kLastCommandId = kSelectAll,
+  };
 
   // Helper to construct a Label that doesn't use the views typography spec.
   // Using this causes Label to obtain colors from ui::NativeTheme and line
@@ -83,6 +91,11 @@ class VIEWS_EXPORT Label : public View,
   // Where the label appears in the UI. Passed in from the constructor. This is
   // a value from views::style::TextContext or an enum that extends it.
   int GetTextContext() const;
+
+  // The style of the label.  This is a value from views::style::TextStyle or an
+  // enum that extends it.
+  int GetTextStyle() const;
+  void SetTextStyle(int style);
 
   // Enables or disables auto-color-readability (enabled by default).  If this
   // is enabled, then calls to set any foreground or background color will
@@ -138,10 +151,9 @@ class VIEWS_EXPORT Label : public View,
   void SetVerticalAlignment(gfx::VerticalAlignment alignment);
 
   // Get or set the distance in pixels between baselines of multi-line text.
-  // Default is 0, indicating the distance between lines should be the standard
-  // one for the label's text, font list, and platform.
+  // Default is the height of the default font.
   int GetLineHeight() const;
-  void SetLineHeight(int height);
+  void SetLineHeight(int line_height);
 
   // Get or set if the label text can wrap on multiple lines; default is false.
   bool GetMultiLine() const;
@@ -169,6 +181,16 @@ class VIEWS_EXPORT Label : public View,
   // TODO(mukai): allow specifying WordWrapBehavior.
   bool GetAllowCharacterBreak() const;
   void SetAllowCharacterBreak(bool allow_character_break);
+
+  // For the provided line index, gets the corresponding rendered line and
+  // returns the text position of the first character of that line.
+  size_t GetTextIndexOfLine(size_t line) const;
+
+  // Set the truncate length of the |full_text_|.
+  // NOTE: This does not affect the |display_text_|, since right now the only
+  // consumer does not need that; if you need this function, you may need to
+  // implement this.
+  void SetTruncateLength(size_t truncate_length);
 
   // Gets/Sets the eliding or fading behavior, applied as necessary. The default
   // is to elide at the end. Eliding is not well-supported for multi-line
@@ -242,7 +264,7 @@ class VIEWS_EXPORT Label : public View,
   void SelectRange(const gfx::Range& range);
 
   views::PropertyChangedSubscription AddTextChangedCallback(
-      views::PropertyChangedCallback callback);
+      views::PropertyChangedCallback callback) WARN_UNUSED_RESULT;
 
   // View:
   int GetBaseline() const override;
@@ -254,14 +276,10 @@ class VIEWS_EXPORT Label : public View,
   WordLookupClient* GetWordLookupClient() override;
   void GetAccessibleNodeData(ui::AXNodeData* node_data) override;
   base::string16 GetTooltipText(const gfx::Point& p) const override;
-  void OnHandlePropertyChangeEffects(PropertyEffects property_effects) override;
 
  protected:
   // Create a single RenderText instance to actually be painted.
   virtual std::unique_ptr<gfx::RenderText> CreateRenderText() const;
-
-  // Draw a focus ring. The default implementation does nothing.
-  virtual void PaintFocusRing(gfx::Canvas* canvas) const;
 
   // Returns the preferred size and position of the text in local coordinates,
   // which may exceed the local bounds of the label.
@@ -337,8 +355,6 @@ class VIEWS_EXPORT Label : public View,
             const gfx::FontList& font_list,
             gfx::DirectionalityMode directionality_mode);
 
-  void ResetLayout();
-
   // Set up |display_text_| to actually be painted.
   void MaybeBuildDisplayText() const;
 
@@ -361,7 +377,10 @@ class VIEWS_EXPORT Label : public View,
   bool ShouldShowDefaultTooltip() const;
 
   // Clears |display_text_| and updates |stored_selection_range_|.
-  void ClearDisplayText() const;
+  // TODO(crbug.com/1103804) Most uses of this function are inefficient; either
+  // replace with setting attributes on both RenderTexts or collapse them to one
+  // RenderText.
+  void ClearDisplayText();
 
   // Returns the currently selected text.
   base::string16 GetSelectedText() const;
@@ -373,6 +392,8 @@ class VIEWS_EXPORT Label : public View,
   void BuildContextMenuContents();
 
   const int text_context_;
+  int text_style_;
+  base::Optional<int> line_height_;
 
   // An un-elided and single-line RenderText object used for preferred sizing.
   std::unique_ptr<gfx::RenderText> full_text_;
@@ -383,34 +404,34 @@ class VIEWS_EXPORT Label : public View,
   // Persists the current selection range between the calls to
   // ClearDisplayText() and MaybeBuildDisplayText(). Holds an InvalidRange when
   // not in use.
-  mutable gfx::Range stored_selection_range_;
+  mutable gfx::Range stored_selection_range_ = gfx::Range::InvalidRange();
 
-  SkColor requested_enabled_color_ = SK_ColorRED;
-  SkColor actual_enabled_color_ = SK_ColorRED;
-  SkColor background_color_ = SK_ColorRED;
-  SkColor requested_selection_text_color_ = SK_ColorRED;
-  SkColor actual_selection_text_color_ = SK_ColorRED;
-  SkColor selection_background_color_ = SK_ColorRED;
+  SkColor requested_enabled_color_ = gfx::kPlaceholderColor;
+  SkColor actual_enabled_color_ = gfx::kPlaceholderColor;
+  SkColor background_color_ = gfx::kPlaceholderColor;
+  SkColor requested_selection_text_color_ = gfx::kPlaceholderColor;
+  SkColor actual_selection_text_color_ = gfx::kPlaceholderColor;
+  SkColor selection_background_color_ = gfx::kPlaceholderColor;
 
   // Set to true once the corresponding setter is invoked.
-  bool enabled_color_set_;
-  bool background_color_set_;
-  bool selection_text_color_set_;
-  bool selection_background_color_set_;
+  bool enabled_color_set_ = false;
+  bool background_color_set_ = false;
+  bool selection_text_color_set_ = false;
+  bool selection_background_color_set_ = false;
 
-  gfx::ElideBehavior elide_behavior_;
+  gfx::ElideBehavior elide_behavior_ = gfx::ELIDE_TAIL;
 
-  bool subpixel_rendering_enabled_;
-  bool auto_color_readability_enabled_;
+  bool subpixel_rendering_enabled_ = true;
+  bool auto_color_readability_enabled_ = true;
   // TODO(mukai): remove |multi_line_| when all RenderText can render multiline.
-  bool multi_line_;
-  int max_lines_;
+  bool multi_line_ = false;
+  int max_lines_ = 0;
   base::string16 tooltip_text_;
-  bool handles_tooltips_;
+  bool handles_tooltips_ = true;
   // Whether to collapse the label when it's not visible.
-  bool collapse_when_hidden_;
-  int fixed_width_;
-  int max_width_;
+  bool collapse_when_hidden_ = false;
+  int fixed_width_ = 0;
+  int max_width_ = 0;
 
   std::unique_ptr<SelectionController> selection_controller_;
 

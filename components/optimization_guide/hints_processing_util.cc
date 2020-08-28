@@ -41,6 +41,14 @@ std::string GetStringNameForOptimizationType(
       return "LitePage";
     case proto::OptimizationType::COMPRESS_PUBLIC_IMAGES:
       return "CompressPublicImages";
+    case proto::OptimizationType::LOADING_PREDICTOR:
+      return "LoadingPredictor";
+    case proto::OptimizationType::FAST_HOST_HINTS:
+      return "FastHostHints";
+    case proto::OptimizationType::DELAY_ASYNC_SCRIPT_EXECUTION:
+      return "DelayAsyncScriptExecution";
+    case proto::OptimizationType::LITE_VIDEO:
+      return "LiteVideo";
   }
   NOTREACHED();
   return std::string();

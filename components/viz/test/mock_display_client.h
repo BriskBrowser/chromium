@@ -23,7 +23,7 @@ class MockDisplayClient : public mojom::DisplayClient {
   mojo::PendingRemote<mojom::DisplayClient> BindRemote();
 
   // mojom::DisplayClient implementation.
-#if defined(OS_MACOSX)
+#if defined(OS_APPLE)
   MOCK_METHOD1(OnDisplayReceivedCALayerParams, void(const gfx::CALayerParams&));
 #endif
 #if defined(OS_WIN)
@@ -33,6 +33,7 @@ class MockDisplayClient : public mojom::DisplayClient {
 #if defined(OS_ANDROID)
   MOCK_METHOD1(DidCompleteSwapWithSize, void(const gfx::Size&));
   MOCK_METHOD1(OnContextCreationResult, void(gpu::ContextResult));
+  MOCK_METHOD1(SetWideColorEnabled, void(bool enabled));
   MOCK_METHOD1(SetPreferredRefreshRate, void(float refresh_rate));
 #endif
 #if defined(OS_LINUX) && !defined(OS_CHROMEOS)

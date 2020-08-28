@@ -26,9 +26,10 @@
 #include "ui/gfx/switches.h"
 
 #if defined(USE_X11)
-#include <X11/extensions/scrnsaver.h>
-
-#include "ui/gfx/x/x11_types.h"  // nogncheck
+#include "ui/base/ui_base_features.h"  // nogncheck
+#include "ui/gfx/x/connection.h"       // nogncheck
+#include "ui/gfx/x/screensaver.h"      // nogncheck
+#include "ui/gfx/x/x11_types.h"        // nogncheck
 #endif
 
 namespace device {
@@ -138,18 +139,16 @@ bool X11ScreenSaverAvailable() {
   // X Screen Saver isn't accessible in headless mode.
   if (base::CommandLine::ForCurrentProcess()->HasSwitch(switches::kHeadless))
     return false;
-  XDisplay* display = gfx::GetXDisplay();
-  int dummy;
-  int major;
-  int minor;
+  auto* connection = x11::Connection::Get();
 
-  if (!XScreenSaverQueryExtension(display, &dummy, &dummy))
-    return false;
+  auto version = connection->screensaver()
+                     .QueryVersion({x11::ScreenSaver::major_version,
+                                    x11::ScreenSaver::minor_version})
+                     .Sync();
 
-  if (!XScreenSaverQueryVersion(display, &major, &minor))
-    return false;
-
-  return major > 1 || (major == 1 && minor >= 1);
+  return version && (version->server_major_version > 1 ||
+                     (version->server_major_version == 1 &&
+                      version->server_minor_version >= 1));
 }
 
 // Wrapper for XScreenSaverSuspend. Checks whether the X11 Screen Saver
@@ -159,8 +158,8 @@ void X11ScreenSaverSuspendSet(bool suspend) {
   if (!X11ScreenSaverAvailable())
     return;
 
-  XDisplay* display = gfx::GetXDisplay();
-  XScreenSaverSuspend(display, suspend);
+  auto* connection = x11::Connection::Get();
+  connection->screensaver().Suspend({suspend});
 }
 #endif
 
@@ -244,8 +243,10 @@ void PowerSaveBlocker::Delegate::Init() {
   }
 
 #if defined(USE_X11)
-  ui_task_runner_->PostTask(FROM_HERE,
-                            base::BindOnce(X11ScreenSaverSuspendSet, true));
+  if (!features::IsUsingOzonePlatform()) {
+    ui_task_runner_->PostTask(FROM_HERE,
+                              base::BindOnce(X11ScreenSaverSuspendSet, true));
+  }
 #endif
 }
 
@@ -256,8 +257,10 @@ void PowerSaveBlocker::Delegate::CleanUp() {
   }
 
 #if defined(USE_X11)
-  ui_task_runner_->PostTask(FROM_HERE,
-                            base::BindOnce(X11ScreenSaverSuspendSet, false));
+  if (!features::IsUsingOzonePlatform()) {
+    ui_task_runner_->PostTask(FROM_HERE,
+                              base::BindOnce(X11ScreenSaverSuspendSet, false));
+  }
 #endif
 }
 

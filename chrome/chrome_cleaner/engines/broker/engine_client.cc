@@ -9,6 +9,7 @@
 #include <stdint.h>
 #include <string.h>
 #include <memory>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -17,7 +18,6 @@
 #include "base/command_line.h"
 #include "base/logging.h"
 #include "base/memory/ptr_util.h"
-#include "base/strings/string16.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/synchronization/waitable_event.h"
 #include "chrome/chrome_cleaner/buildflags.h"
@@ -209,12 +209,10 @@ EngineClient::~EngineClient() {
             // sandbox_cleaner_requests in order to avoid invalid references.
             metadata_observer.reset();
           },
-          base::Passed(&engine_commands_), base::Passed(&scan_results_impl_),
-          base::Passed(&cleanup_results_impl_),
-          base::Passed(&sandbox_file_requests_),
-          base::Passed(&sandbox_requests_),
-          base::Passed(&sandbox_cleaner_requests_),
-          base::Passed(&interface_metadata_observer_)));
+          std::move(engine_commands_), std::move(scan_results_impl_),
+          std::move(cleanup_results_impl_), std::move(sandbox_file_requests_),
+          std::move(sandbox_requests_), std::move(sandbox_cleaner_requests_),
+          std::move(interface_metadata_observer_)));
 }
 
 uint32_t EngineClient::ScanningWatchdogTimeoutInSeconds() const {
@@ -328,7 +326,7 @@ uint32_t EngineClient::StartScan(
       base::BindOnce(
           &EngineClient::StartScanAsync, base::Unretained(this), enabled_uws,
           enabled_locations, include_details, found_callback,
-          base::Passed(&done_callback),
+          std::move(done_callback),
           base::BindOnce(&SaveResultCallback, &result_code, &event)));
   event.Wait();
   MaybeLogResultCode(Operation::StartScan, result_code);
@@ -393,7 +391,7 @@ uint32_t EngineClient::StartCleanup(const std::vector<UwSId>& enabled_uws,
       FROM_HERE,
       base::BindOnce(
           &EngineClient::StartCleanupAsync, base::Unretained(this), enabled_uws,
-          base::Passed(&done_callback),
+          std::move(done_callback),
           base::BindOnce(&SaveResultCallback, &result_code, &event)));
   event.Wait();
 

@@ -10,6 +10,7 @@
 #include <utility>
 
 #include "base/bind.h"
+#include "base/memory/ptr_util.h"
 #include "base/memory/ref_counted.h"
 #include "base/run_loop.h"
 #include "base/stl_util.h"
@@ -18,11 +19,11 @@
 #include "chromecast/common/mojom/constants.mojom.h"
 #include "chromecast/common/mojom/multiroom.mojom.h"
 #include "chromecast/common/mojom/service_connector.mojom.h"
+#include "chromecast/media/api/cma_backend.h"
+#include "chromecast/media/api/decoder_buffer_base.h"
 #include "chromecast/media/audio/cast_audio_manager.h"
 #include "chromecast/media/audio/cast_audio_mixer.h"
-#include "chromecast/media/base/monotonic_clock.h"
-#include "chromecast/media/cma/backend/cma_backend.h"
-#include "chromecast/media/cma/base/decoder_buffer_base.h"
+#include "chromecast/media/base/default_monotonic_clock.h"
 #include "chromecast/media/cma/test/mock_cma_backend_factory.h"
 #include "chromecast/media/cma/test/mock_multiroom_manager.h"
 #include "chromecast/public/task_runner.h"
@@ -42,7 +43,7 @@ using testing::NiceMock;
 
 namespace {
 
-std::string DummyGetSessionId(std::string /* audio_group_id */) {
+std::string DummyGetSessionId(const std::string& /* audio_group_id */) {
   return "AABBCCDDEE";
 }
 
@@ -134,6 +135,7 @@ class FakeAudioDecoder : public CmaBackend::AudioDecoder {
   }
   RenderingDelay GetRenderingDelay() override { return rendering_delay_; }
   bool RequiresDecryption() override { return false; }
+  void SetObserver(CmaBackend::AudioDecoder::Observer* observer) override {}
 
   const AudioConfig& config() const { return config_; }
   float volume() const { return volume_; }
@@ -298,7 +300,7 @@ class CastAudioOutputStreamTest : public ::testing::Test,
           return fake_cma_backend;
         }));
     EXPECT_EQ(mock_backend_factory_.get(),
-              audio_manager_->cma_backend_factory());
+              audio_manager_->helper_.GetCmaBackendFactory());
   }
 
   void RunThreadsUntilIdle() {

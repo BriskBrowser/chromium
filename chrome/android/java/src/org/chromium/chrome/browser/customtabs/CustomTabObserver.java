@@ -20,14 +20,12 @@ import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.browserservices.BrowserServicesIntentDataProvider;
 import org.chromium.chrome.browser.dependency_injection.ActivityScope;
-import org.chromium.chrome.browser.prerender.ExternalPrerenderHandler;
-import org.chromium.chrome.browser.share.ShareHelper;
 import org.chromium.chrome.browser.tab.EmptyTabObserver;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tab.TabHidingType;
-import org.chromium.chrome.browser.tab.TabImpl;
 import org.chromium.chrome.browser.tab.TabObserver;
-import org.chromium.components.security_state.ConnectionSecurityLevel;
+import org.chromium.chrome.browser.tab.TabUtils;
+import org.chromium.components.browser_ui.share.ShareImageFileUtils;
 import org.chromium.content_public.browser.LoadUrlParams;
 import org.chromium.content_public.browser.NavigationHandle;
 
@@ -76,7 +74,7 @@ public class CustomTabObserver extends EmptyTabObserver {
                     R.dimen.custom_tabs_screenshot_width);
             float desiredHeight = appContext.getResources().getDimensionPixelSize(
                     R.dimen.custom_tabs_screenshot_height);
-            Rect bounds = ExternalPrerenderHandler.estimateContentSize(appContext, false);
+            Rect bounds = TabUtils.estimateContentSize(appContext);
             if (bounds.width() == 0 || bounds.height() == 0) {
                 mContentBitmapWidth = Math.round(desiredWidth);
                 mContentBitmapHeight = Math.round(desiredHeight);
@@ -122,7 +120,7 @@ public class CustomTabObserver extends EmptyTabObserver {
         } else if (mCurrentState == State.WAITING_LOAD_FINISH) {
             if (mCustomTabsConnection != null) {
                 mCustomTabsConnection.sendNavigationInfo(
-                        mSession, tab.getUrl(), tab.getTitle(), (Uri) null);
+                        mSession, tab.getUrlString(), tab.getTitle(), (Uri) null);
             }
             mPageLoadStartedTimestamp = SystemClock.elapsedRealtime();
         }
@@ -179,12 +177,6 @@ public class CustomTabObserver extends EmptyTabObserver {
     }
 
     @Override
-    public void onDidAttachInterstitialPage(Tab tab) {
-        if (((TabImpl) tab).getSecurityLevel() != ConnectionSecurityLevel.DANGEROUS) return;
-        resetPageLoadTracking();
-    }
-
-    @Override
     public void onPageLoadFailed(Tab tab, int errorCode) {
         resetPageLoadTracking();
     }
@@ -212,11 +204,11 @@ public class CustomTabObserver extends EmptyTabObserver {
         if (!mCustomTabsConnection.shouldSendNavigationInfoForSession(mSession)) return;
         if (tab.getWebContents() == null) return;
 
-        ShareHelper.captureScreenshotForContents(tab.getWebContents(), mContentBitmapWidth,
+        ShareImageFileUtils.captureScreenshotForContents(tab.getWebContents(), mContentBitmapWidth,
                 mContentBitmapHeight, (Uri snapshotPath) -> {
                     if (TextUtils.isEmpty(tab.getTitle()) && snapshotPath == null) return;
                     mCustomTabsConnection.sendNavigationInfo(
-                            mSession, tab.getUrl(), tab.getTitle(), snapshotPath);
+                            mSession, tab.getUrlString(), tab.getTitle(), snapshotPath);
                 });
     }
 }

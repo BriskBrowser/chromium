@@ -6,8 +6,10 @@ package org.chromium.chrome.browser.download;
 
 import android.os.Handler;
 import android.os.Looper;
-import android.support.test.filters.SmallTest;
 
+import androidx.test.filters.SmallTest;
+
+import org.hamcrest.Matchers;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Rule;
@@ -52,12 +54,9 @@ public class SystemDownloadNotifierTest {
     }
 
     private void waitForNotifications(int numberOfNotifications) {
-        CriteriaHelper.pollUiThread(new Criteria() {
-            @Override
-            public boolean isSatisfied() {
-                return mMockDownloadNotificationService.getNumberOfNotifications()
-                        == numberOfNotifications;
-            }
+        CriteriaHelper.pollUiThread(() -> {
+            Criteria.checkThat(mMockDownloadNotificationService.getNumberOfNotifications(),
+                    Matchers.is(numberOfNotifications));
         });
     }
 

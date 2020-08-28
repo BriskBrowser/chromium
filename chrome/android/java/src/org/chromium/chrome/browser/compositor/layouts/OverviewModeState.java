@@ -15,9 +15,11 @@ import java.lang.annotation.RetentionPolicy;
  */
 @IntDef({OverviewModeState.NOT_SHOWN, OverviewModeState.SHOWN_HOMEPAGE,
         OverviewModeState.SHOWN_TABSWITCHER, OverviewModeState.SHOWN_TABSWITCHER_TWO_PANES,
-        OverviewModeState.SHOWN_TABSWITCHER_TASKS_ONLY, OverviewModeState.DISABLED,
+        OverviewModeState.SHOWN_TABSWITCHER_TASKS_ONLY,
+        OverviewModeState.SHOWN_TABSWITCHER_OMNIBOX_ONLY, OverviewModeState.DISABLED,
         OverviewModeState.SHOWING_TABSWITCHER, OverviewModeState.SHOWING_START,
-        OverviewModeState.SHOWING_HOMEPAGE, OverviewModeState.SHOWING_PREVIOUS})
+        OverviewModeState.SHOWING_HOMEPAGE, OverviewModeState.SHOWING_PREVIOUS,
+        OverviewModeState.SHOWN_TABSWITCHER_TRENDY_TERMS})
 @Retention(RetentionPolicy.SOURCE)
 public @interface OverviewModeState {
     int NOT_SHOWN = 0;
@@ -27,13 +29,15 @@ public @interface OverviewModeState {
     int SHOWN_TABSWITCHER = 2;
     int SHOWN_TABSWITCHER_TWO_PANES = 3;
     int SHOWN_TABSWITCHER_TASKS_ONLY = 4;
+    int SHOWN_TABSWITCHER_OMNIBOX_ONLY = 5;
+    int SHOWN_TABSWITCHER_TRENDY_TERMS = 6;
 
-    int DISABLED = 5;
+    int DISABLED = 7;
 
     // SHOWING states are intermediary states that will immediately transition
     // to one of the SHOWN states when overview is/becomes visible.
-    int SHOWING_TABSWITCHER = 6;
-    int SHOWING_START = 7;
-    int SHOWING_HOMEPAGE = 8;
-    int SHOWING_PREVIOUS = 9;
+    int SHOWING_TABSWITCHER = 8;
+    int SHOWING_START = 9;
+    int SHOWING_HOMEPAGE = 10;
+    int SHOWING_PREVIOUS = 11;
 }

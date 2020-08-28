@@ -4,13 +4,20 @@
 
 #import "ios/chrome/browser/ui/bookmarks/bookmark_home_mediator.h"
 
-#include "base/logging.h"
+#include "base/check.h"
 #include "base/mac/foundation_util.h"
 #include "base/strings/sys_string_conversions.h"
 #include "components/bookmarks/browser/bookmark_model.h"
 #include "components/bookmarks/browser/bookmark_utils.h"
 #include "components/bookmarks/browser/titled_url_match.h"
+#include "components/bookmarks/common/bookmark_pref_names.h"
+#include "components/bookmarks/managed/managed_bookmark_service.h"
+#import "components/prefs/ios/pref_observer_bridge.h"
+#include "components/prefs/pref_change_registrar.h"
+#include "components/prefs/pref_service.h"
+#import "ios/chrome/browser/bookmarks/managed_bookmark_service_factory.h"
 #include "ios/chrome/browser/browser_state/chrome_browser_state.h"
+#include "ios/chrome/browser/policy/policy_features.h"
 #import "ios/chrome/browser/ui/authentication/signin_promo_view_mediator.h"
 #import "ios/chrome/browser/ui/bookmarks/bookmark_home_consumer.h"
 #import "ios/chrome/browser/ui/bookmarks/bookmark_home_shared_state.h"
@@ -19,10 +26,11 @@
 #import "ios/chrome/browser/ui/bookmarks/cells/bookmark_home_node_item.h"
 #import "ios/chrome/browser/ui/bookmarks/cells/bookmark_home_promo_item.h"
 #import "ios/chrome/browser/ui/bookmarks/synced_bookmarks_bridge.h"
-#import "ios/chrome/browser/ui/signin_interaction/public/signin_presenter.h"
 #import "ios/chrome/browser/ui/table_view/cells/table_view_text_item.h"
 #import "ios/chrome/browser/ui/table_view/table_view_model.h"
-#import "ios/chrome/common/colors/UIColor+cr_semantic_colors.h"
+#import "ios/chrome/browser/ui/ui_feature_flags.h"
+#import "ios/chrome/common/ui/colors/UIColor+cr_semantic_colors.h"
+#import "ios/public/provider/chrome/browser/signin/signin_presenter.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -35,24 +43,30 @@ namespace {
 const int kMaxBookmarksSearchResults = 50;
 }  // namespace
 
-@interface BookmarkHomeMediator ()<BookmarkHomePromoItemDelegate,
-                                   BookmarkModelBridgeObserver,
-                                   BookmarkPromoControllerDelegate,
-                                   SigninPresenter,
-                                   SyncObserverModelBridge> {
+@interface BookmarkHomeMediator () <BookmarkHomePromoItemDelegate,
+                                    BookmarkModelBridgeObserver,
+                                    BookmarkPromoControllerDelegate,
+                                    PrefObserverDelegate,
+                                    SigninPresenter,
+                                    SyncObserverModelBridge> {
   // Bridge to register for bookmark changes.
   std::unique_ptr<bookmarks::BookmarkModelBridge> _modelBridge;
 
   // Observer to keep track of the signin and syncing status.
   std::unique_ptr<sync_bookmarks::SyncedBookmarksObserverBridge>
       _syncedBookmarksObserver;
+
+  // Pref observer to track changes to prefs.
+  std::unique_ptr<PrefObserverBridge> _prefObserverBridge;
+  // Registrar for pref changes notifications.
+  std::unique_ptr<PrefChangeRegistrar> _prefChangeRegistrar;
 }
 
 // Shared state between Bookmark home classes.
 @property(nonatomic, strong) BookmarkHomeSharedState* sharedState;
 
 // The browser state for this mediator.
-@property(nonatomic, assign) ios::ChromeBrowserState* browserState;
+@property(nonatomic, assign) ChromeBrowserState* browserState;
 
 // The controller managing the display of the promo cell and the promo view
 // controller.
@@ -67,7 +81,7 @@ const int kMaxBookmarksSearchResults = 50;
 @synthesize sharedState = _sharedState;
 
 - (instancetype)initWithSharedState:(BookmarkHomeSharedState*)sharedState
-                       browserState:(ios::ChromeBrowserState*)browserState {
+                       browserState:(ChromeBrowserState*)browserState {
   if ((self = [super init])) {
     _sharedState = sharedState;
     _browserState = browserState;
@@ -90,6 +104,20 @@ const int kMaxBookmarksSearchResults = 50;
                                                    delegate:self
                                                   presenter:self];
 
+  _prefChangeRegistrar = std::make_unique<PrefChangeRegistrar>();
+  _prefChangeRegistrar->Init(self.browserState->GetPrefs());
+  _prefObserverBridge.reset(new PrefObserverBridge(self));
+
+  if (IsEditBookmarksIOSEnabled()) {
+    _prefObserverBridge->ObserveChangesForPreference(
+        bookmarks::prefs::kEditBookmarksEnabled, _prefChangeRegistrar.get());
+  }
+
+  if (IsManagedBookmarksEnabled()) {
+    _prefObserverBridge->ObserveChangesForPreference(
+        bookmarks::prefs::kManagedBookmarks, _prefChangeRegistrar.get());
+  }
+
   [self computePromoTableViewData];
   [self computeBookmarkTableViewData];
 }
@@ -100,6 +128,8 @@ const int kMaxBookmarksSearchResults = 50;
   self.browserState = nullptr;
   self.consumer = nil;
   self.sharedState = nil;
+  _prefChangeRegistrar.reset();
+  _prefObserverBridge.reset();
 }
 
 #pragma mark - Initial Model Setup
@@ -148,6 +178,12 @@ const int kMaxBookmarksSearchResults = 50;
 // Generate the table view data when the current root node is the outermost
 // root.
 - (void)generateTableViewDataForRootNode {
+  // If all the permanent nodes are empty, do not create items for any of them.
+  if (base::FeatureList::IsEnabled(kIllustratedEmptyStates) &&
+      ![self hasBookmarksOrFolders]) {
+    return;
+  }
+
   // Add "Mobile Bookmarks" to the table.
   const BookmarkNode* mobileNode =
       self.sharedState.bookmarkModel->mobile_node();
@@ -179,6 +215,21 @@ const int kMaxBookmarksSearchResults = 50;
     [self.sharedState.tableViewModel
                         addItem:otherItem
         toSectionWithIdentifier:BookmarkHomeSectionIdentifierBookmarks];
+  }
+
+  if (IsManagedBookmarksEnabled()) {
+    // Add "Managed Bookmarks" to the table if it exists.
+    bookmarks::ManagedBookmarkService* managedBookmarkService =
+        ManagedBookmarkServiceFactory::GetForBrowserState(self.browserState);
+    const BookmarkNode* managedNode = managedBookmarkService->managed_node();
+    if (managedNode && managedNode->IsVisible()) {
+      BookmarkHomeNodeItem* managedItem = [[BookmarkHomeNodeItem alloc]
+          initWithType:BookmarkHomeItemTypeBookmark
+          bookmarkNode:managedNode];
+      [self.sharedState.tableViewModel
+                          addItem:managedItem
+          toSectionWithIdentifier:BookmarkHomeSectionIdentifierBookmarks];
+    }
   }
 }
 
@@ -232,6 +283,10 @@ const int kMaxBookmarksSearchResults = 50;
         _syncedBookmarksObserver->IsPerformingInitialSync()) {
       [self.consumer
           updateTableViewBackgroundStyle:BookmarkHomeBackgroundStyleLoading];
+    } else if (base::FeatureList::IsEnabled(kIllustratedEmptyStates) &&
+               ![self hasBookmarksOrFolders]) {
+      [self.consumer
+          updateTableViewBackgroundStyle:BookmarkHomeBackgroundStyleEmpty];
     } else {
       [self.consumer
           updateTableViewBackgroundStyle:BookmarkHomeBackgroundStyleDefault];
@@ -292,6 +347,11 @@ const int kMaxBookmarksSearchResults = 50;
         removeSectionWithIdentifier:BookmarkHomeSectionIdentifierPromo];
   }
   [self.sharedState.tableView reloadData];
+  // Update the TabelView background to make sure the new state of the promo
+  // does not affect the background.
+  if (base::FeatureList::IsEnabled(kIllustratedEmptyStates)) {
+    [self updateTableViewBackground];
+  }
 }
 
 #pragma mark - BookmarkModelBridgeObserver Callbacks
@@ -446,9 +506,34 @@ const int kMaxBookmarksSearchResults = 50;
   [self updateTableViewBackground];
 }
 
+#pragma mark - PrefObserverDelegate
+
+- (void)onPreferenceChanged:(const std::string&)preferenceName {
+  // Editing capability may need to be updated on the bookmarks UI.
+  // Or managed bookmarks contents may need to be updated. 
+  if (preferenceName == bookmarks::prefs::kEditBookmarksEnabled ||
+      preferenceName == bookmarks::prefs::kManagedBookmarks) {
+    [self.consumer refreshContents];
+  }
+}
+
 #pragma mark - Private Helpers
 
 - (BOOL)hasBookmarksOrFolders {
+  if (base::FeatureList::IsEnabled(kIllustratedEmptyStates) &&
+      self.sharedState.tableViewDisplayedRootNode ==
+          self.sharedState.bookmarkModel->root_node()) {
+    // The root node always has its permanent nodes. If all the permanent nodes
+    // are empty, we treat it as if the root itself is empty.
+    const auto& childrenOfRootNode =
+        self.sharedState.tableViewDisplayedRootNode->children();
+    for (const auto& child : childrenOfRootNode) {
+      if (!child->children().empty()) {
+        return YES;
+      }
+    }
+    return NO;
+  }
   return self.sharedState.tableViewDisplayedRootNode &&
          !self.sharedState.tableViewDisplayedRootNode->children().empty();
 }

@@ -42,6 +42,11 @@ class BackForwardCacheMetrics
   // tools/metrics/histograms/enums.xml. These values should not be renumbered.
   enum class NotRestoredReason : uint8_t {
     kNotMainFrame = 0,
+    // BackForwardCache is disabled due to low memory device, base::Feature or
+    // command line. Note that the more specific NotRestoredReasons
+    // kBackForwardCacheDisabledByLowMemory and
+    // kBackForwardCacheDisabledByCommandLine will also be set as other reasons
+    // along with this when appropriate.
     kBackForwardCacheDisabled = 1,
     kRelatedActiveContentsExist = 2,
     kHTTPStatusNotOK = 3,
@@ -72,7 +77,15 @@ class BackForwardCacheMetrics
     kRenderFrameHostReused_CrossSite = 28,
     kNotMostRecentNavigationEntry = 29,
     kServiceWorkerClaim = 30,
-    kMaxValue = kServiceWorkerClaim,
+    kIgnoreEventAndEvict = 31,
+    kHaveInnerContents = 32,
+    kTimeoutPuttingInCache = 33,
+    // BackForwardCache is disabled due to low memory device.
+    kBackForwardCacheDisabledByLowMemory = 34,
+    // BackForwardCache is disabled due to command-line switch (may include
+    // cases where the embedder disabled it due to, e.g., enterprise policy).
+    kBackForwardCacheDisabledByCommandLine = 35,
+    kMaxValue = kBackForwardCacheDisabledByCommandLine,
   };
 
   using NotRestoredReasons =
@@ -93,6 +106,24 @@ class BackForwardCacheMetrics
     kRestored = 0,
     kByJavaScript = 1,
     kMaxValue = kByJavaScript,
+  };
+
+  // Please keep in sync with BackForwardCacheReloadsAndHistoryNavigations
+  // in tools/metrics/histograms/enums.xml. These values should not be
+  // renumbered.
+  enum class ReloadsAndHistoryNavigations {
+    kHistoryNavigation = 0,
+    kReloadAfterHistoryNavigation = 1,
+    kMaxValue = kReloadAfterHistoryNavigation,
+  };
+
+  // Please keep in sync with BackForwardCacheReloadsAfterHistoryNavigation
+  // in tools/metrics/histograms/enums.xml. These values should not be
+  // renumbered.
+  enum class ReloadsAfterHistoryNavigation {
+    kNotServedFromBackForwardCache = 0,
+    kServedFromBackForwardCache = 1,
+    kMaxValue = kServedFromBackForwardCache,
   };
 
   // Creates a potential new metrics object for the navigation.
@@ -174,19 +205,31 @@ class BackForwardCacheMetrics
       NavigationRequest* navigation,
       bool back_forward_cache_allowed) const;
 
+  // Record metrics for the number of reloads after history navigation. In
+  // particular we are interested in number of reloads after a restore from
+  // the back-forward cache as a proxy for detecting whether the page was
+  // broken or not.
+  void RecordHistogramForReloadsAndHistoryNavigations(
+      bool is_reload,
+      bool back_forward_cache_allowed) const;
+
   // Record additional reason why navigation was not served from bfcache which
   // are known only at the commit time.
   void UpdateNotRestoredReasonsForNavigation(NavigationRequest* navigation);
 
   bool ShouldRecordBrowsingInstanceNotSwappedReason() const;
 
+  void RecordHistoryNavigationUkm(NavigationRequest* navigation);
+
   // Main frame document sequence number that identifies all NavigationEntries
   // this metrics object is associated with.
   const int64_t document_sequence_number_;
 
-  // NavigationHandle's ID for the last main frame navigation.
+  // NavigationHandle's ID for the last main frame navigation. This is updated
+  // for a main frame, not-same-document navigation.
+  //
   // Should not be confused with NavigationEntryId.
-  int64_t last_committed_main_frame_navigation_id_ = -1;
+  int64_t last_committed_cross_document_main_frame_navigation_id_ = -1;
 
   int64_t last_committed_navigation_entry_id_ = -1;
 
@@ -211,6 +254,13 @@ class BackForwardCacheMetrics
   // The reasons given at BackForwardCache::DisableForRenderFrameHost. These are
   // a further breakdown of NotRestoredReason::kDisableForRenderFrameHostCalled.
   std::set<std::string> disabled_reasons_;
+
+  // This value is updated only for navigations which are not same-document and
+  // main-frame navigations.
+  bool previous_navigation_is_history_ = false;
+  bool previous_navigation_is_served_from_bfcache_ = false;
+
+  base::Optional<base::TimeTicks> renderer_killed_timestamp_;
 
   DISALLOW_COPY_AND_ASSIGN(BackForwardCacheMetrics);
 };

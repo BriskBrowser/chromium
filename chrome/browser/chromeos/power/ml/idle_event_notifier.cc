@@ -4,7 +4,8 @@
 
 #include "chrome/browser/chromeos/power/ml/idle_event_notifier.h"
 
-#include "base/logging.h"
+#include "base/check.h"
+#include "base/notreached.h"
 #include "chrome/browser/chromeos/power/ml/recent_events_counter.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "chromeos/dbus/power_manager/idle.pb.h"
@@ -18,6 +19,7 @@ namespace ml {
 
 using TimeSinceBoot = base::TimeDelta;
 
+// static
 constexpr base::TimeDelta IdleEventNotifier::kIdleDelay;
 constexpr base::TimeDelta IdleEventNotifier::kUserInputEventsDuration;
 constexpr int IdleEventNotifier::kNumUserInputEventsBuckets;

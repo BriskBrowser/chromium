@@ -20,7 +20,7 @@
 #include "ui/compositor/scoped_layer_animation_settings.h"
 #include "ui/gfx/paint_vector_icon.h"
 #include "ui/gfx/vector_icon_types.h"
-#include "ui/views/animation/ink_drop_mask.h"
+#include "ui/views/controls/highlight_path_generator.h"
 #include "ui/views/masked_targeter_delegate.h"
 #include "ui/views/view.h"
 
@@ -57,11 +57,12 @@ class AutoclickScrollCloseButton : public TopShortcutButton,
     EnableCanvasFlippingForRTLUI(false);
     SetPreferredSize(
         gfx::Size(kScrollButtonCloseSizeDips, kScrollButtonCloseSizeDips));
-    SetImage(views::Button::STATE_NORMAL,
-             gfx::CreateVectorIcon(
-                 kAutoclickCloseIcon,
-                 AshColorProvider::Get()->GetContentLayerColor(
-                     ContentLayerType::kIconPrimary, AshColorMode::kDark)));
+    SetImage(
+        views::Button::STATE_NORMAL,
+        gfx::CreateVectorIcon(
+            kAutoclickCloseIcon,
+            AshColorProvider::Get()->GetContentLayerColor(
+                ContentLayerType::kIconColorPrimary, AshColorMode::kDark)));
   }
 
   ~AutoclickScrollCloseButton() override = default;
@@ -83,13 +84,6 @@ class AutoclickScrollCloseButton : public TopShortcutButton,
   void OnMouseExited(const ui::MouseEvent& event) override {
     hovered_ = false;
     SchedulePaint();
-  }
-
-  // views::ImageButton:
-  std::unique_ptr<views::InkDropMask> CreateInkDropMask() const override {
-    gfx::Rect bounds = GetContentsBounds();
-    return std::make_unique<views::CircleInkDropMask>(
-        size(), bounds.CenterPoint(), bounds.width() / 2);
   }
 
   // TopShortcutButton:
@@ -139,11 +133,11 @@ class AutoclickScrollButton : public CustomShapeButton,
             int64_t{AutoclickScrollView::kAutoclickScrollDelayMs}),
         base::BindRepeating(&AutoclickScrollButton::DoScrollAction,
                             base::Unretained(this)));
-    SetImage(
-        views::Button::STATE_NORMAL,
-        gfx::CreateVectorIcon(
-            icon, AshColorProvider::Get()->GetContentLayerColor(
-                      ContentLayerType::kIconPrimary, AshColorMode::kDark)));
+    SetImage(views::Button::STATE_NORMAL,
+             gfx::CreateVectorIcon(
+                 icon, AshColorProvider::Get()->GetContentLayerColor(
+                           ContentLayerType::kIconColorPrimary,
+                           AshColorMode::kDark)));
     if (action_ == AutoclickController::ScrollPadAction::kScrollLeft ||
         action_ == AutoclickController::ScrollPadAction::kScrollRight) {
       size_ = gfx::Size(kScrollPadButtonHypotenuseDips / 2,
@@ -155,8 +149,10 @@ class AutoclickScrollButton : public CustomShapeButton,
     }
     SetPreferredSize(size_);
 
-    set_clip_path(CreateCustomShapePath(gfx::Rect(GetPreferredSize())));
+    SetClipPath(CreateCustomShapePath(gfx::Rect(GetPreferredSize())));
     SetEventTargeter(std::make_unique<views::ViewTargeter>(this));
+
+    views::InstallRoundRectHighlightPathGenerator(this, gfx::Insets(), 0.f);
   }
 
   ~AutoclickScrollButton() override {
@@ -262,7 +258,7 @@ class AutoclickScrollButton : public CustomShapeButton,
     flags.setStyle(cc::PaintFlags::kStroke_Style);
     flags.setStrokeWidth(kScrollpadStrokeWidthDips);
     flags.setColor(AshColorProvider::Get()->GetContentLayerColor(
-        ContentLayerType::kSeparator, AshColorMode::kDark));
+        ContentLayerType::kSeparatorColor, AshColorMode::kDark));
     canvas->DrawPath(ComputePath(false /* only drawn edges */), flags);
 
     gfx::ImageSkia img = GetImageToPaint();

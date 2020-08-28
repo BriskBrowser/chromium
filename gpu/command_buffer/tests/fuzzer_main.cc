@@ -59,7 +59,8 @@ const uint32_t kTransferBufferSize = 16384;
 const uint32_t kSmallTransferBufferSize = 16;
 const uint32_t kTinyTransferBufferSize = 3;
 
-#if !defined(GPU_FUZZER_USE_ANGLE) && !defined(GPU_FUZZER_USE_SWIFTSHADER)
+#if !defined(GPU_FUZZER_USE_ANGLE) && !defined(GPU_FUZZER_USE_SWIFTSHADER) && \
+    !defined(GPU_FUZZER_USE_SWANGLE)
 #define GPU_FUZZER_USE_STUB
 #endif
 
@@ -137,6 +138,8 @@ constexpr const char* kExtensions[] = {
     "GL_EXT_shader_texture_lod",
     "GL_EXT_sRGB",
     "GL_EXT_sRGB_write_control",
+    "GL_EXT_texture_compression_bptc",
+    "GL_EXT_texture_compression_rgtc",
     "GL_EXT_texture_compression_dxt1",
     "GL_EXT_texture_compression_s3tc",
     "GL_EXT_texture_compression_s3tc_srgb",
@@ -168,6 +171,7 @@ constexpr const char* kExtensions[] = {
     "GL_OES_compressed_ETC1_RGB8_texture",
     "GL_OES_depth24",
     "GL_OES_depth_texture",
+    "GL_OES_draw_buffers_indexed",
     "GL_OES_EGL_image_external",
     "GL_OES_element_index_uint",
     "GL_OES_fbo_render_mipmap",
@@ -317,8 +321,13 @@ class CommandBufferSetup {
 #if defined(GPU_FUZZER_USE_ANGLE)
     command_line->AppendSwitchASCII(switches::kUseGL,
                                     gl::kGLImplementationANGLEName);
+#if defined(GPU_FUZZER_USE_SWANGLE)
+    command_line->AppendSwitchASCII(switches::kUseANGLE,
+                                    gl::kANGLEImplementationSwiftShaderName);
+#else
     command_line->AppendSwitchASCII(switches::kUseANGLE,
                                     gl::kANGLEImplementationNullName);
+#endif
 
     CHECK(gl::init::InitializeStaticGLBindingsImplementation(
         gl::kGLImplementationEGLANGLE, false));
@@ -410,7 +419,8 @@ class CommandBufferSetup {
       mailbox.SetName(name);
       shared_image_factory_->CreateSharedImage(
           mailbox, viz::RGBA_8888, gfx::Size(256, 256),
-          gfx::ColorSpace::CreateSRGB(), usage);
+          gfx::ColorSpace::CreateSRGB(), kTopLeft_GrSurfaceOrigin,
+          kPremul_SkAlphaType, gfx::kNullAcceleratedWidget, usage);
     }
 
 #if defined(GPU_FUZZER_USE_RASTER_DECODER)
@@ -420,7 +430,7 @@ class CommandBufferSetup {
     decoder_.reset(raster::RasterDecoder::Create(
         command_buffer_.get(), command_buffer_->service(), &outputter_,
         gpu_feature_info, gpu_preferences_, nullptr /* memory_tracker */,
-        shared_image_manager_.get(), context_state_));
+        shared_image_manager_.get(), context_state_, true /* is_privileged */));
 #else
     context_->MakeCurrent(surface_.get());
     // GLES2Decoder may Initialize feature_info differently than
@@ -454,7 +464,9 @@ class CommandBufferSetup {
 
     decoder_->set_max_bucket_size(8 << 20);
 #if !defined(GPU_FUZZER_USE_RASTER_DECODER)
-    context_group->buffer_manager()->set_max_buffer_size(8 << 20);
+    if (context_group->buffer_manager()) {
+        context_group->buffer_manager()->set_max_buffer_size(8 << 20);
+    }
 #endif
     return decoder_->MakeCurrent();
   }

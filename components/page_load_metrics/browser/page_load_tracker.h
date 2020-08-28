@@ -11,6 +11,7 @@
 #include "base/macros.h"
 #include "base/optional.h"
 #include "base/time/time.h"
+#include "components/page_load_metrics/browser/observers/largest_contentful_paint_handler.h"
 #include "components/page_load_metrics/browser/page_load_metrics_observer.h"
 #include "components/page_load_metrics/browser/page_load_metrics_observer_delegate.h"
 #include "components/page_load_metrics/browser/page_load_metrics_update_dispatcher.h"
@@ -188,9 +189,8 @@ class PageLoadTracker : public PageLoadMetricsUpdateDispatcher::Client,
       content::RenderFrameHost* rfh,
       const mojom::FrameRenderDataUpdate& render_data) override;
   void OnMainFrameMetadataChanged() override;
-  void OnSubframeMetadataChanged(
-      content::RenderFrameHost* rfh,
-      const mojom::PageLoadMetadata& metadata) override;
+  void OnSubframeMetadataChanged(content::RenderFrameHost* rfh,
+                                 const mojom::FrameMetadata& metadata) override;
   void UpdateFeaturesUsage(
       content::RenderFrameHost* rfh,
       const mojom::PageLoadFeatures& new_features) override;
@@ -201,14 +201,20 @@ class PageLoadTracker : public PageLoadMetricsUpdateDispatcher::Client,
       const mojom::DeferredResourceCounts& new_deferred_resource_data) override;
   void UpdateFrameCpuTiming(content::RenderFrameHost* rfh,
                             const mojom::CpuTiming& timing) override;
+  void OnFrameIntersectionUpdate(
+      content::RenderFrameHost* rfh,
+      const mojom::FrameIntersectionUpdate& frame_intersection_update) override;
+  void UpdateThroughput(mojom::ThroughputUkmDataPtr throughput_data) override;
 
-  // PageLoadMetricsDelegate implementation:
+  // PageLoadMetricsObserverDelegate implementation:
   content::WebContents* GetWebContents() const override;
   base::TimeTicks GetNavigationStart() const override;
   const base::Optional<base::TimeDelta>& GetFirstBackgroundTime()
       const override;
   const base::Optional<base::TimeDelta>& GetFirstForegroundTime()
       const override;
+  const BackForwardCacheRestore& GetBackForwardCacheRestore(
+      size_t index) const override;
   bool StartedInForeground() const override;
   const UserInitiatedInfo& GetUserInitiatedInfo() const override;
   const GURL& GetUrl() const override;
@@ -217,13 +223,18 @@ class PageLoadTracker : public PageLoadMetricsUpdateDispatcher::Client,
   PageEndReason GetPageEndReason() const override;
   const UserInitiatedInfo& GetPageEndUserInitiatedInfo() const override;
   base::Optional<base::TimeDelta> GetPageEndTime() const override;
-  const mojom::PageLoadMetadata& GetMainFrameMetadata() const override;
-  const mojom::PageLoadMetadata& GetSubframeMetadata() const override;
+  const mojom::FrameMetadata& GetMainFrameMetadata() const override;
+  const mojom::FrameMetadata& GetSubframeMetadata() const override;
   const PageRenderData& GetPageRenderData() const override;
+  const mojom::InputTiming& GetPageInputTiming() const override;
   const PageRenderData& GetMainFrameRenderData() const override;
   const ui::ScopedVisibilityTracker& GetVisibilityTracker() const override;
   const ResourceTracker& GetResourceTracker() const override;
-  ukm::SourceId GetSourceId() const override;
+  const LargestContentfulPaintHandler& GetLargestContentfulPaintHandler()
+      const override;
+  const LargestContentfulPaintHandler&
+  GetExperimentalLargestContentfulPaintHandler() const override;
+  ukm::SourceId GetPageUkmSourceId() const override;
   bool IsFirstNavigationInWebContents() const override;
 
   void Redirect(content::NavigationHandle* navigation_handle);
@@ -238,8 +249,8 @@ class PageLoadTracker : public PageLoadMetricsUpdateDispatcher::Client,
       content::NavigationHandle* navigation_handle);
   void FailedProvisionalLoad(content::NavigationHandle* navigation_handle,
                              base::TimeTicks failed_load_time);
-  void WebContentsHidden();
-  void WebContentsShown();
+  void PageHidden();
+  void PageShown();
   void FrameDeleted(content::RenderFrameHost* rfh);
 
   void OnInputEvent(const blink::WebInputEvent& event);
@@ -256,7 +267,7 @@ class PageLoadTracker : public PageLoadMetricsUpdateDispatcher::Client,
     visibility_tracker_ = tracker;
   }
 
-  void NotifyClientRedirectTo(const PageLoadTracker& destination);
+  void NotifyClientRedirectTo(content::NavigationHandle* destination);
 
   void OnLoadedResource(
       const ExtraRequestCompleteInfo& extra_request_complete_info);
@@ -277,10 +288,10 @@ class PageLoadTracker : public PageLoadMetricsUpdateDispatcher::Client,
                       const net::CanonicalCookie& cookie,
                       bool blocked_by_policy);
 
-  void OnDomStorageAccessed(const GURL& url,
-                            const GURL& first_party_url,
-                            bool local,
-                            bool blocked_by_policy);
+  void OnStorageAccessed(const GURL& url,
+                         const GURL& first_party_url,
+                         bool blocked_by_policy,
+                         StorageType access_type);
 
   // Signals that we should stop tracking metrics for the associated page load.
   // We may stop tracking a page load if it doesn't meet the criteria for
@@ -352,6 +363,14 @@ class PageLoadTracker : public PageLoadMetricsUpdateDispatcher::Client,
   // occurred.
   void BroadcastEventToObservers(const void* const event_key);
 
+  void OnEnterBackForwardCache();
+  void OnRestoreFromBackForwardCache(
+      content::NavigationHandle* navigation_handle);
+
+  // Called when the page tracked was just activated after being loaded inside a
+  // portal.
+  void DidActivatePortal(base::TimeTicks activation_time);
+
  private:
   // This function converts a TimeTicks value taken in the browser process
   // to navigation_start_ if:
@@ -382,6 +401,10 @@ class PageLoadTracker : public PageLoadMetricsUpdateDispatcher::Client,
 
   // The navigation start in TimeTicks, not the wall time reported by Blink.
   const base::TimeTicks navigation_start_;
+
+  // The navigation start after the last time when back-forward cache is
+  // restored.
+  base::TimeTicks navigation_start_after_back_forward_cache_restore_;
 
   // The most recent URL of this page load. Updated at navigation start, upon
   // redirection, and at commit time.
@@ -418,7 +441,8 @@ class PageLoadTracker : public PageLoadMetricsUpdateDispatcher::Client,
   // when they occur in the background.
   base::Optional<base::TimeDelta> first_background_time_;
   base::Optional<base::TimeDelta> first_foreground_time_;
-  bool started_in_foreground_;
+  std::vector<BackForwardCacheRestore> back_forward_cache_restores_;
+  const bool started_in_foreground_;
 
   mojom::PageLoadTimingPtr last_dispatched_merged_page_timing_;
 
@@ -456,6 +480,11 @@ class PageLoadTracker : public PageLoadMetricsUpdateDispatcher::Client,
   content::WebContents* const web_contents_;
 
   const bool is_first_navigation_in_web_contents_;
+
+  page_load_metrics::LargestContentfulPaintHandler
+      largest_contentful_paint_handler_;
+  page_load_metrics::LargestContentfulPaintHandler
+      experimental_largest_contentful_paint_handler_;
 
   DISALLOW_COPY_AND_ASSIGN(PageLoadTracker);
 };

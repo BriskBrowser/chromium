@@ -19,6 +19,7 @@
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/dom/dom_exception.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
+#include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/core/page/focus_controller.h"
 #include "third_party/blink/renderer/core/testing/page_test_base.h"
 #include "third_party/blink/renderer/modules/service_worker/navigator_service_worker.h"
@@ -46,7 +47,7 @@ struct StubScriptFunction {
 
   size_t CallCount() { return call_count_; }
   ScriptValue Arg() { return arg_; }
-  void Trace(blink::Visitor* visitor) { visitor->Trace(arg_); }
+  void Trace(Visitor* visitor) const { visitor->Trace(arg_); }
 
  private:
   size_t call_count_;
@@ -181,7 +182,7 @@ class ServiceWorkerContainerTest : public PageTestBase {
   void SetUp() override { PageTestBase::SetUp(IntSize()); }
 
   ~ServiceWorkerContainerTest() override {
-    V8GCController::CollectAllGarbageForTesting(GetIsolate());
+    ThreadState::Current()->CollectAllGarbageForTesting();
   }
 
   v8::Isolate* GetIsolate() { return v8::Isolate::GetCurrent(); }
@@ -191,11 +192,6 @@ class ServiceWorkerContainerTest : public PageTestBase {
 
   void SetPageURL(const String& url) {
     NavigateTo(KURL(NullURL(), url));
-
-    if (url.StartsWith("https://") || url.StartsWith("http://localhost/")) {
-      GetDocument().SetSecureContextModeForTesting(
-          SecureContextMode::kSecureContext);
-    }
   }
 
   void TestRegisterRejected(const String& script_url,
@@ -205,7 +201,7 @@ class ServiceWorkerContainerTest : public PageTestBase {
     // the provider.
     ServiceWorkerContainer* container =
         ServiceWorkerContainer::CreateForTesting(
-            &GetDocument(),
+            *GetFrame().DomWindow(),
             std::make_unique<NotReachedWebServiceWorkerProvider>());
     ScriptState::Scope script_scope(GetScriptState());
     RegistrationOptions* options = RegistrationOptions::Create();
@@ -219,7 +215,7 @@ class ServiceWorkerContainerTest : public PageTestBase {
                                    const ScriptValueTest& value_test) {
     ServiceWorkerContainer* container =
         ServiceWorkerContainer::CreateForTesting(
-            &GetDocument(),
+            *GetFrame().DomWindow(),
             std::make_unique<NotReachedWebServiceWorkerProvider>());
     ScriptState::Scope script_scope(GetScriptState());
     ScriptPromise promise =
@@ -364,7 +360,7 @@ TEST_F(ServiceWorkerContainerTest,
 
   StubWebServiceWorkerProvider stub_provider;
   ServiceWorkerContainer* container = ServiceWorkerContainer::CreateForTesting(
-      &GetDocument(), stub_provider.Provider());
+      *GetFrame().DomWindow(), stub_provider.Provider());
 
   // register
   {
@@ -391,7 +387,7 @@ TEST_F(ServiceWorkerContainerTest,
 
   StubWebServiceWorkerProvider stub_provider;
   ServiceWorkerContainer* container = ServiceWorkerContainer::CreateForTesting(
-      &GetDocument(), stub_provider.Provider());
+      *GetFrame().DomWindow(), stub_provider.Provider());
 
   {
     ScriptState::Scope script_scope(GetScriptState());
@@ -411,7 +407,7 @@ TEST_F(ServiceWorkerContainerTest,
 
   StubWebServiceWorkerProvider stub_provider;
   ServiceWorkerContainer* container = ServiceWorkerContainer::CreateForTesting(
-      &GetDocument(), stub_provider.Provider());
+      *GetFrame().DomWindow(), stub_provider.Provider());
 
   // register
   {
@@ -437,7 +433,7 @@ TEST_F(ServiceWorkerContainerTest, Register_TypeOptionDelegatesToProvider) {
 
   StubWebServiceWorkerProvider stub_provider;
   ServiceWorkerContainer* container = ServiceWorkerContainer::CreateForTesting(
-      &GetDocument(), stub_provider.Provider());
+      *GetFrame().DomWindow(), stub_provider.Provider());
 
   // register
   {

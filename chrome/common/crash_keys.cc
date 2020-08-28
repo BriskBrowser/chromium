@@ -6,7 +6,6 @@
 
 #include "base/base_switches.h"
 #include "base/command_line.h"
-#include "base/logging.h"
 #include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
@@ -20,7 +19,7 @@
 
 #if defined(OS_CHROMEOS)
 #include "chrome/common/chrome_switches.h"
-#include "components/crash/content/app/crash_switches.h"
+#include "components/crash/core/app/crash_switches.h"
 #include "gpu/command_buffer/service/gpu_switches.h"
 #include "ui/gl/gl_switches.h"
 #endif
@@ -37,7 +36,7 @@ static bool IsBoringSwitch(const std::string& flag) {
     switches::kProcessType,
     switches::kV,
     switches::kVModule,
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
     switches::kMetricsClientID,
 #elif defined(OS_CHROMEOS)
     // --crash-loop-before is a "boring" switch because it is redundant;

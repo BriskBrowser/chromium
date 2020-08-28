@@ -56,15 +56,31 @@ class AccessibilityTestExpectationsLocator {
 class CONTENT_EXPORT AccessibilityTreeFormatter
     : public AccessibilityTestExpectationsLocator {
  public:
-  // A single property filter specification. See GetAllowString() and
-  // GetDenyString() for more information.
-  struct PropertyFilter {
+  // A single property filter specification. Represents a parsed string of the
+  // filter_str;match_str format, where `filter_str` has
+  // :line_num_0,...:line_num_N format, `match_str` has format of
+  // property_str=value_str. For example, :1,:3;AXDOMClassList=*.
+  //
+  // Longer version: `filter_str` is a comma separated list of the line
+  // indexes from the output accessible tree, and serves to narrow down the
+  // property calls to the accessible object placed on those line indexes only;
+  // `match_str` is used to match properties by property name and value.
+  // For example, :1,:3;AXDOMClassList=*
+  // will query a AXDOMClassList attribute on accessible objects placed at 1st
+  // and 3rd lines in the output accessible tree.
+  // Also see
+  // DumpAccessibilityTestBase::ParseHtmlForExtraDirectives() for more
+  // information.
+  struct CONTENT_EXPORT PropertyFilter {
     enum Type { ALLOW, ALLOW_EMPTY, DENY };
-    base::string16 match_str;
+
+    std::string match_str;
+    std::string property_str;
+    std::string filter_str;
     Type type;
 
-    PropertyFilter(base::string16 match_str, Type type)
-        : match_str(match_str), type(type) {}
+    PropertyFilter(const std::string& str, Type type);
+    PropertyFilter(const PropertyFilter&);
   };
 
   // A single node filter specification  which will exclude any node where the
@@ -104,7 +120,7 @@ class CONTENT_EXPORT AccessibilityTreeFormatter
 
   static bool MatchesPropertyFilters(
       const std::vector<PropertyFilter>& property_filters,
-      const base::string16& text,
+      const std::string& text,
       bool default_result);
 
   // Check if the given dictionary matches any of the supplied NodeFilter(s).
@@ -170,6 +186,17 @@ class CONTENT_EXPORT AccessibilityTreeFormatter
   virtual const std::string GetAllowString() = 0;
   virtual const std::string GetDenyString() = 0;
   virtual const std::string GetDenyNodeString() = 0;
+
+  // A string that indicates event recording should continue at least until a
+  // specific event has been received.
+  // Overridden by each platform subclass.
+  // Example win value:
+  //   GetRunUntilEventString() -> "@WIN-RUN-UNTIL-EVENT"
+  // Example html:
+  // <!--
+  // @WIN-RUN-UNTIL-EVENT:IA2_EVENT_TEXT_CARET_MOVED
+  // -->
+  virtual const std::string GetRunUntilEventString() = 0;
 };
 
 }  // namespace content

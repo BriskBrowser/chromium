@@ -26,8 +26,15 @@ class SysmemBufferCollection;
 
 class SysmemBufferManager {
  public:
-  explicit SysmemBufferManager(fuchsia::sysmem::AllocatorSyncPtr allocator);
+  explicit SysmemBufferManager();
   ~SysmemBufferManager();
+
+  // Initializes the buffer manager with a connection to the sysmem service.
+  void Initialize(fuchsia::sysmem::AllocatorHandle allocator);
+
+  // Disconnects from the sysmem service. After disconnecting, it's safe to call
+  // Initialize() again.
+  void Shutdown();
 
   scoped_refptr<SysmemBufferCollection> CreateCollection(
       VkDevice vk_device,
@@ -39,7 +46,10 @@ class SysmemBufferManager {
   scoped_refptr<SysmemBufferCollection> ImportSysmemBufferCollection(
       VkDevice vk_device,
       gfx::SysmemBufferCollectionId id,
-      zx::channel token);
+      zx::channel token,
+      gfx::BufferFormat format,
+      gfx::BufferUsage usage,
+      bool force_protected);
 
   scoped_refptr<SysmemBufferCollection> GetCollectionById(
       gfx::SysmemBufferCollectionId id);

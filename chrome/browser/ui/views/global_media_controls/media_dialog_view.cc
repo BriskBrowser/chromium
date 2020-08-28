@@ -27,8 +27,8 @@ MediaDialogView* MediaDialogView::instance_ = nullptr;
 bool MediaDialogView::has_been_opened_ = false;
 
 // static
-void MediaDialogView::ShowDialog(views::View* anchor_view,
-                                 MediaNotificationService* service) {
+views::Widget* MediaDialogView::ShowDialog(views::View* anchor_view,
+                                           MediaNotificationService* service) {
   DCHECK(!instance_);
   DCHECK(service);
   instance_ = new MediaDialogView(anchor_view, service);
@@ -40,6 +40,8 @@ void MediaDialogView::ShowDialog(views::View* anchor_view,
   base::UmaHistogramBoolean("Media.GlobalMediaControls.RepeatUsage",
                             has_been_opened_);
   has_been_opened_ = true;
+
+  return widget;
 }
 
 // static
@@ -64,7 +66,7 @@ MediaNotificationContainerImpl* MediaDialogView::ShowMediaSession(
     const std::string& id,
     base::WeakPtr<media_message_center::MediaNotificationItem> item) {
   auto container =
-      std::make_unique<MediaNotificationContainerImplView>(id, item);
+      std::make_unique<MediaNotificationContainerImplView>(id, item, service_);
   MediaNotificationContainerImplView* container_ptr = container.get();
   container_ptr->AddObserver(this);
   observed_containers_[id] = container_ptr;
@@ -96,10 +98,6 @@ std::unique_ptr<OverlayMediaNotification> MediaDialogView::PopOut(
   return active_sessions_view_->PopOut(id, bounds);
 }
 
-bool MediaDialogView::Close() {
-  return Cancel();
-}
-
 void MediaDialogView::AddedToWidget() {
   int corner_radius =
       views::LayoutProvider::Get()->GetCornerRadiusMetric(views::EMPHASIS_HIGH);
@@ -126,13 +124,18 @@ gfx::Size MediaDialogView::CalculatePreferredSize() const {
   return gfx::Size(width, 1);
 }
 
-void MediaDialogView::OnContainerExpanded(bool expanded) {
+void MediaDialogView::OnContainerSizeChanged() {
   SizeToContents();
 }
 
 void MediaDialogView::OnContainerMetadataChanged() {
   for (auto& observer : observers_)
     observer.OnMediaSessionMetadataUpdated();
+}
+
+void MediaDialogView::OnContainerActionsChanged() {
+  for (auto& observer : observers_)
+    observer.OnMediaSessionActionsChanged();
 }
 
 void MediaDialogView::OnContainerDestroyed(const std::string& id) {
@@ -156,13 +159,18 @@ MediaDialogView::GetNotificationsForTesting() const {
   return active_sessions_view_->notifications_for_testing();
 }
 
+const MediaNotificationListView* MediaDialogView::GetListViewForTesting()
+    const {
+  return active_sessions_view_;
+}
+
 MediaDialogView::MediaDialogView(views::View* anchor_view,
                                  MediaNotificationService* service)
     : BubbleDialogDelegateView(anchor_view, views::BubbleBorder::TOP_RIGHT),
       service_(service),
       active_sessions_view_(
           AddChildView(std::make_unique<MediaNotificationListView>())) {
-  DialogDelegate::set_buttons(ui::DIALOG_BUTTON_NONE);
+  SetButtons(ui::DIALOG_BUTTON_NONE);
   DCHECK(service_);
 }
 

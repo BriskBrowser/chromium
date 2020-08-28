@@ -3,7 +3,6 @@
 # found in the LICENSE file.
 
 import("//base/allocator/allocator.gni")
-import("//build/config/allocator.gni")
 
 component("client") {
   output_name = "gwp_asan_client"
@@ -14,8 +13,6 @@ component("client") {
     "guarded_page_allocator_win.cc",
     "gwp_asan.cc",
     "gwp_asan.h",
-    "sampling_helpers.cc",
-    "sampling_helpers.h",
     "sampling_state.h",
   ]
 
@@ -47,7 +44,7 @@ component("client") {
   ]
 
   if (is_android) {
-    deps += [ "//components/crash/content/app" ]
+    deps += [ "//components/crash/core/app" ]
   }
 }
 
@@ -56,7 +53,6 @@ source_set("unit_tests") {
   sources = [
     "guarded_page_allocator_unittest.cc",
     "gwp_asan_unittest.cc",
-    "sampling_helpers_unittest.cc",
   ]
 
   if (use_allocator_shim) {

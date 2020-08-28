@@ -9,10 +9,12 @@
 #include "base/command_line.h"
 #include "base/run_loop.h"
 #include "base/strings/stringprintf.h"
+#include "base/test/metrics/histogram_tester.h"
 #include "base/test/scoped_feature_list.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/data_reduction_proxy/data_reduction_proxy_chrome_settings.h"
 #include "chrome/browser/data_reduction_proxy/data_reduction_proxy_chrome_settings_factory.h"
+#include "chrome/browser/previews/previews_test_util.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_commands.h"
@@ -33,9 +35,11 @@
 #include "components/previews/core/previews_switches.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/content_features.h"
+#include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_base.h"
 #include "content/public/test/browser_test_utils.h"
 #include "net/dns/mock_host_resolver.h"
+#include "net/nqe/effective_connection_type.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
 #include "net/test/embedded_test_server/http_request.h"
 #include "net/test/embedded_test_server/http_response.h"
@@ -120,7 +124,7 @@ class DataSaverSiteBreakdownMetricsObserverBrowserTest
   void SetUpCommandLine(base::CommandLine* command_line) override {
     command_line->AppendSwitch(
         data_reduction_proxy::switches::kEnableDataReductionProxy);
-    command_line->AppendSwitch(previews::switches::kIgnorePreviewsBlacklist);
+    command_line->AppendSwitch(previews::switches::kIgnorePreviewsBlocklist);
   }
 };
 
@@ -130,8 +134,14 @@ class LazyLoadWithoutLiteModeBrowserTest
     scoped_feature_list_.InitWithFeaturesAndParameters(
         {{features::kLazyImageLoading,
           {{"automatic-lazy-load-images-enabled", "true"},
-           {"enable-lazy-load-images-metadata-fetch", "true"},
-           {"lazy_image_first_k_fully_load", "4G:0"}}},
+           {"lazy_image_first_k_fully_load",
+            base::StringPrintf("%s:0,%s:0,%s:0,%s:0,%s:0,%s:0",
+                               net::kEffectiveConnectionTypeUnknown,
+                               net::kEffectiveConnectionTypeOffline,
+                               net::kEffectiveConnectionTypeSlow2G,
+                               net::kEffectiveConnectionType2G,
+                               net::kEffectiveConnectionType3G,
+                               net::kEffectiveConnectionType4G)}}},
          {features::kLazyFrameLoading,
           {{"automatic-lazy-load-frames-enabled", "true"}}}},
         {});
@@ -149,8 +159,14 @@ class LazyLoadWithLiteModeBrowserTest
     scoped_feature_list_.InitWithFeaturesAndParameters(
         {{features::kLazyImageLoading,
           {{"automatic-lazy-load-images-enabled", "true"},
-           {"enable-lazy-load-images-metadata-fetch", "true"},
-           {"lazy_image_first_k_fully_load", "4G:0"}}},
+           {"lazy_image_first_k_fully_load",
+            base::StringPrintf("%s:0,%s:0,%s:0,%s:0,%s:0,%s:0",
+                               net::kEffectiveConnectionTypeUnknown,
+                               net::kEffectiveConnectionTypeOffline,
+                               net::kEffectiveConnectionTypeSlow2G,
+                               net::kEffectiveConnectionType2G,
+                               net::kEffectiveConnectionType3G,
+                               net::kEffectiveConnectionType4G)}}},
          {features::kLazyFrameLoading,
           {{"automatic-lazy-load-frames-enabled", "true"}}}},
         {});
@@ -209,7 +225,9 @@ class LazyLoadWithLiteModeBrowserTest
     waiter->Wait();
 
     // Scroll to remove data savings by loading the images.
-    ScrollToAndWaitForScroll(10000);
+    EXPECT_EQ(nullptr, content::EvalJs(
+                           browser()->tab_strip_model()->GetActiveWebContents(),
+                           "document.body.scrollIntoView({block: 'end'});"));
 
     waiter->AddMinimumCompleteResourcesExpectation(
         expected_initial_resources + expected_resources_post_scroll);
@@ -223,15 +241,6 @@ class LazyLoadWithLiteModeBrowserTest
   }
 
  private:
-  void ScrollToAndWaitForScroll(unsigned int scroll_offset) {
-    ASSERT_TRUE(content::ExecuteScript(
-        browser()->tab_strip_model()->GetActiveWebContents(),
-        base::StringPrintf("window.scrollTo(0, %d);", scroll_offset)));
-    content::RenderFrameSubmissionObserver observer(
-        browser()->tab_strip_model()->GetActiveWebContents());
-    observer.WaitForScrollOffset(gfx::Vector2dF(0, scroll_offset));
-  }
-
   base::test::ScopedFeatureList scoped_feature_list_;
 };
 
@@ -239,6 +248,11 @@ struct SaveDataSavingsEstimate {
   std::string host;
   std::string data_savings_percent;
 };
+
+// Prints readable output on test failures.
+void PrintTo(const SaveDataSavingsEstimate& estimate, std::ostream* os) {
+  *os << "'" << estimate.host << "' : " << estimate.data_savings_percent;
+}
 
 struct SaveDataSingleTestCase {
   std::string test_host;
@@ -262,29 +276,49 @@ std::string ConvertSaveDataSavingsEstimateToJson(
 }
 
 struct SaveDataTestCase {
-  // One of the origin_savings_estimate fields will be populated.
+  // One of the origin_savings_estimate_* fields will be populated.
   std::string origin_savings_estimate_raw_json;
   std::vector<SaveDataSavingsEstimate> origin_savings_estimate_list;
-
+  bool is_valid_json;
   std::vector<SaveDataSingleTestCase> tests;
 } kSaveDataTestCases[] = {
     // No savings recorded without field trial config.
-    {"", {}, {{"foo.com", 0.0}}},
+    {"", {}, false, {{"foo.com", 0.0}}},
 
     // No savings recorded with invalid field trial parameter.
-    {"invalid json", {}, {{"foo.com", 0.0}}},
+    {"invalid json", {}, false, {{"foo.com", 0.0}}},
+
+    // JSON not a dictionary
+    {"[\"valid\", \"json\", \"but\", \"an\", \"array\", \"type\"]",
+     {},
+     false,
+     {{"foo.com", 0.0}}},
 
     {"",
      {{"saving.com", "10"}},
+     true,
      {{{"saving.com", 10.0}, {"notsaving.com", 0.0}}}},
 
     {"",
-     {{"saving.com", "20"}, {"savingfloatingpoint.edu", "15.7"}},
-     {{{"saving.com", 20.0},
-       {"savingfloatingpoint.edu", 15.7},
+     {{"www.saving.com", "20"}, {"m.savingfloatingpoint.edu", "15.7"}},
+     true,
+     {{{"www.saving.com", 20.0},
+       {"m.savingfloatingpoint.edu", 15.7},
        {"notsaving.com", 0.0}}}}
 
 };
+
+// Prints readable output on test failures.
+void PrintTo(const SaveDataTestCase& test, std::ostream* os) {
+  *os << "{ origin_savings_estimate_raw_json='"
+      << test.origin_savings_estimate_raw_json
+      << "', origin_savings_estimate_list={";
+  for (const auto& estimate : test.origin_savings_estimate_list) {
+    PrintTo(estimate, os);
+    *os << ", ";
+  }
+  *os << " }, is_valid_json=" << test.is_valid_json << " }";
+}
 
 // Browser tests with Lite mode not enabled.
 class SaveDataSavingsEstimateBrowserTest
@@ -308,18 +342,28 @@ class SaveDataSavingsEstimateBrowserTest
           {});
     }
     DataSaverSiteBreakdownMetricsObserverBrowserTest::SetUp();
+    if (!estimates_json.empty()) {
+      histogram_tester_.ExpectUniqueSample(
+          "DataReductionProxy.ReportSaveDataSavings.ParseResult",
+          GetParam().is_valid_json, 1);
+    } else {
+      histogram_tester_.ExpectTotalCount(
+          "DataReductionProxy.ReportSaveDataSavings.ParseResult", 0);
+    }
   }
 
  private:
   base::test::ScopedFeatureList scoped_feature_list_;
+  base::HistogramTester histogram_tester_;
 };
 
 INSTANTIATE_TEST_SUITE_P(SaveDataSavingsEstimateBrowserTest,
                          SaveDataSavingsEstimateBrowserTest,
                          ::testing::ValuesIn(kSaveDataTestCases));
 
+// Flaky on LINUX.  http://crbug.com/1091573
 IN_PROC_BROWSER_TEST_P(SaveDataSavingsEstimateBrowserTest,
-                       NavigateToSimplePage) {
+                       DISABLED_NavigateToSimplePage) {
   WaitForDBToInitialize();
 
   for (const auto& test : GetParam().tests) {
@@ -426,11 +470,9 @@ IN_PROC_BROWSER_TEST_F(LazyLoadWithLiteModeBrowserTest,
                        LazyLoadImagesImgElement) {
   // Choose reasonable minimum, any savings is indicative of the mechanism
   // working.
-  EXPECT_LE(
-      10000,
-      NavigateAndGetDataSavings(
-        "/lazyload/img.html",
-        10 /* main html, favicon, 8 images (2 eager, 4 placeholder, 2 full)*/));
+  EXPECT_LE(10000, NavigateAndGetDataSavings(
+                       "/lazyload/img.html",
+                       6 /* main html, favicon, 4 images (2 eager, 2 full)*/));
 }
 
 IN_PROC_BROWSER_TEST_F(LazyLoadWithLiteModeBrowserTest,
@@ -438,7 +480,7 @@ IN_PROC_BROWSER_TEST_F(LazyLoadWithLiteModeBrowserTest,
   // Choose reasonable minimum, any savings is indicative of the mechanism
   // working.
   // TODO(rajendrant): Check why sometimes data savings goes negative.
-  EXPECT_GE(0, NavigateAndGetDataSavingsAfterScroll("/lazyload/img.html", 10,
+  EXPECT_GE(0, NavigateAndGetDataSavingsAfterScroll("/lazyload/img.html", 6,
                                                     2 /* lazyloaded image */));
 }
 
@@ -553,9 +595,8 @@ IN_PROC_BROWSER_TEST_F(LazyLoadWithLiteModeBrowserTest,
   WaitForDBToInitialize();
   GURL test_url(embedded_test_server()->GetURL("foo.com", "/mainpage.html"));
   auto* web_contents = browser()->tab_strip_model()->GetActiveWebContents();
-  content::ConsoleObserverDelegate console_observer(
-      web_contents, "below-viewport iframe loaded");
-  web_contents->SetDelegate(&console_observer);
+  content::WebContentsConsoleObserver console_observer(web_contents);
+  console_observer.SetPattern("below-viewport iframe loaded");
 
   {
     uint64_t data_savings_before_navigation =
@@ -571,7 +612,7 @@ IN_PROC_BROWSER_TEST_F(LazyLoadWithLiteModeBrowserTest,
     waiter->Wait();
     EXPECT_EQ(50000U, GetDataSavings(test_url.HostNoBrackets()) -
                           data_savings_before_navigation);
-    EXPECT_EQ(std::string(), console_observer.message());
+    EXPECT_TRUE(console_observer.messages().empty());
   }
 
   // Reload will not have any savings.
@@ -590,6 +631,7 @@ IN_PROC_BROWSER_TEST_F(LazyLoadWithLiteModeBrowserTest,
     console_observer.Wait();
     EXPECT_EQ(0U, GetDataSavings(test_url.HostNoBrackets()) -
                       data_savings_before_navigation);
-    EXPECT_EQ("below-viewport iframe loaded", console_observer.message());
+    EXPECT_EQ("below-viewport iframe loaded",
+              console_observer.GetMessageAt(0u));
   }
 }

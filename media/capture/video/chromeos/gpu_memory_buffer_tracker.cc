@@ -4,7 +4,8 @@
 
 #include "media/capture/video/chromeos/gpu_memory_buffer_tracker.h"
 
-#include "base/logging.h"
+#include "base/check.h"
+#include "base/notreached.h"
 #include "media/capture/video/chromeos/pixel_format_utils.h"
 #include "media/capture/video/video_capture_buffer_handle.h"
 #include "ui/gfx/geometry/size.h"
@@ -24,7 +25,15 @@ bool GpuMemoryBufferTracker::Init(const gfx::Size& dimensions,
                  << VideoPixelFormatToString(format);
     return false;
   }
-  buffer_ = buffer_factory_.CreateGpuMemoryBuffer(dimensions, *gfx_format);
+  // There's no consumer information here to determine the precise buffer usage,
+  // so we try the usage flag that covers all use cases.
+  // JPEG capture buffer is backed by R8 pixel buffer.
+  const gfx::BufferUsage usage =
+      *gfx_format == gfx::BufferFormat::R_8
+          ? gfx::BufferUsage::CAMERA_AND_CPU_READ_WRITE
+          : gfx::BufferUsage::SCANOUT_VEA_READ_CAMERA_AND_CPU_READ_WRITE;
+  buffer_ =
+      buffer_factory_.CreateGpuMemoryBuffer(dimensions, *gfx_format, usage);
   if (!buffer_) {
     NOTREACHED() << "Failed to create GPU memory buffer";
     return false;

@@ -13,7 +13,6 @@
 #include <sstream>
 #include <utility>
 
-#include "ash/keyboard/ui/keyboard_ui_controller.h"
 #include "ash/public/cpp/ash_features.h"
 #include "base/bind.h"
 #include "base/feature_list.h"
@@ -29,8 +28,12 @@
 #include "base/time/time.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_process_platform_part_chromeos.h"
+#include "chrome/browser/chromeos/input_method/assistive_window_controller.h"
 #include "chrome/browser/chromeos/input_method/candidate_window_controller.h"
 #include "chrome/browser/chromeos/input_method/component_extension_ime_manager_impl.h"
+#include "chrome/browser/chromeos/input_method/ui/assistive_delegate.h"
+#include "chrome/browser/chromeos/input_method/ui/input_method_menu_item.h"
+#include "chrome/browser/chromeos/input_method/ui/input_method_menu_manager.h"
 #include "chrome/browser/chromeos/language_preferences.h"
 #include "chrome/browser/chromeos/login/session/user_session_manager.h"
 #include "chrome/browser/chromeos/profiles/profile_helper.h"
@@ -45,12 +48,10 @@
 #include "ui/base/ime/chromeos/component_extension_ime_manager.h"
 #include "ui/base/ime/chromeos/extension_ime_util.h"
 #include "ui/base/ime/chromeos/fake_ime_keyboard.h"
+#include "ui/base/ime/chromeos/ime_bridge.h"
 #include "ui/base/ime/chromeos/ime_keyboard.h"
 #include "ui/base/ime/chromeos/ime_keyboard_impl.h"
 #include "ui/base/ime/chromeos/input_method_delegate.h"
-#include "ui/base/ime/ime_bridge.h"
-#include "ui/chromeos/ime/input_method_menu_item.h"
-#include "ui/chromeos/ime/input_method_menu_manager.h"
 #include "ui/ozone/public/ozone_platform.h"
 
 namespace chromeos {
@@ -527,7 +528,7 @@ void InputMethodManagerImpl::StateImpl::ChangeInputMethod(
   }
 
   // Always change input method even if it is the same.
-  // TODO(komatsu): Revisit if this is neccessary.
+  // TODO(komatsu): Revisit if this is necessary.
   if (IsActive())
     manager_->ChangeInputMethodInternal(*descriptor, profile, show_message,
                                         notify_menu);
@@ -844,7 +845,9 @@ bool InputMethodManagerImpl::StateImpl::InputMethodIsActivated(
 }
 
 void InputMethodManagerImpl::StateImpl::EnableInputView() {
-  input_view_url = current_input_method.input_view_url();
+  if (!input_view_url_overridden) {
+    input_view_url = current_input_method.input_view_url();
+  }
 }
 
 void InputMethodManagerImpl::StateImpl::DisableInputView() {
@@ -853,6 +856,16 @@ void InputMethodManagerImpl::StateImpl::DisableInputView() {
 
 const GURL& InputMethodManagerImpl::StateImpl::GetInputViewUrl() const {
   return input_view_url;
+}
+
+void InputMethodManagerImpl::StateImpl::OverrideInputViewUrl(const GURL& url) {
+  input_view_url = url;
+  input_view_url_overridden = true;
+}
+
+void InputMethodManagerImpl::StateImpl::ResetInputViewUrl() {
+  input_view_url = current_input_method.input_view_url();
+  input_view_url_overridden = false;
 }
 
 void InputMethodManagerImpl::StateImpl::ConnectMojoManager(
@@ -882,8 +895,10 @@ void InputMethodManagerImpl::ReconfigureIMFramework(
   // Initialize candidate window controller and widgets such as
   // candidate window, infolist and mode indicator.  Note, mode
   // indicator is used by only keyboard layout input methods.
-  if (state_.get() == state)
+  if (state_.get() == state) {
     MaybeInitializeCandidateWindowController();
+    MaybeInitializeAssistiveWindowController();
+  }
 }
 
 void InputMethodManagerImpl::SetState(
@@ -899,6 +914,7 @@ void InputMethodManagerImpl::SetState(
     // candidate window, infolist and mode indicator.  Note, mode
     // indicator is used by only keyboard layout input methods.
     MaybeInitializeCandidateWindowController();
+    MaybeInitializeAssistiveWindowController();
 
     // Always call ChangeInputMethodInternal even when the input method id
     // remain unchanged, because onActivate event needs to be sent to IME
@@ -935,13 +951,11 @@ InputMethodManagerImpl::InputMethodManagerImpl(
   const InputMethodDescriptors& descriptors =
       component_extension_ime_manager_->GetAllIMEAsInputMethodDescriptor();
   util_.ResetInputMethods(descriptors);
-  chromeos::UserAddingScreen::Get()->AddObserver(this);
 }
 
 InputMethodManagerImpl::~InputMethodManagerImpl() {
   if (candidate_window_controller_.get())
     candidate_window_controller_->RemoveObserver(this);
-  chromeos::UserAddingScreen::Get()->RemoveObserver(this);
 }
 
 void InputMethodManagerImpl::RecordInputMethodUsage(
@@ -995,18 +1009,14 @@ InputMethodManager::UISessionState InputMethodManagerImpl::GetUISessionState() {
 
 void InputMethodManagerImpl::SetUISessionState(UISessionState new_ui_session) {
   ui_session_ = new_ui_session;
-  if (ui_session_ == STATE_TERMINATING && candidate_window_controller_.get())
-    candidate_window_controller_.reset();
-}
-
-void InputMethodManagerImpl::OnUserAddingStarted() {
-  if (ui_session_ == STATE_BROWSER_SCREEN)
-    SetUISessionState(STATE_SECONDARY_LOGIN_SCREEN);
-}
-
-void InputMethodManagerImpl::OnUserAddingFinished() {
-  if (ui_session_ == STATE_SECONDARY_LOGIN_SCREEN)
-    SetUISessionState(STATE_BROWSER_SCREEN);
+  if (ui_session_ == STATE_TERMINATING) {
+    if (candidate_window_controller_.get())
+      candidate_window_controller_.reset();
+    if (assistive_window_controller_.get()) {
+      assistive_window_controller_.reset();
+      ui::IMEBridge::Get()->SetAssistiveWindowHandler(nullptr);
+    }
+  }
 }
 
 std::unique_ptr<InputMethodDescriptors>
@@ -1253,6 +1263,14 @@ void InputMethodManagerImpl::CandidateWindowClosed() {
     observer.CandidateWindowClosed(this);
 }
 
+void InputMethodManagerImpl::AssistiveWindowButtonClicked(
+    const ui::ime::AssistiveWindowButton& button) const {
+  ui::IMEEngineHandlerInterface* engine =
+      ui::IMEBridge::Get()->GetCurrentEngineHandler();
+  if (engine)
+    engine->AssistiveWindowButtonClicked(button);
+}
+
 void InputMethodManagerImpl::ImeMenuActivationChanged(bool is_active) {
   // Saves the state that whether the expanded IME menu has been activated by
   // users. This method is only called when the preference is changing.
@@ -1284,6 +1302,16 @@ void InputMethodManagerImpl::MaybeInitializeCandidateWindowController() {
   candidate_window_controller_.reset(
       CandidateWindowController::CreateCandidateWindowController());
   candidate_window_controller_->AddObserver(this);
+}
+
+void InputMethodManagerImpl::MaybeInitializeAssistiveWindowController() {
+  if (assistive_window_controller_.get())
+    return;
+
+  assistive_window_controller_ =
+      std::make_unique<AssistiveWindowController>(this, state_->profile);
+  ui::IMEBridge::Get()->SetAssistiveWindowHandler(
+      assistive_window_controller_.get());
 }
 
 void InputMethodManagerImpl::NotifyImeMenuItemsChanged(
@@ -1322,7 +1350,7 @@ void InputMethodManagerImpl::OverrideKeyboardKeyset(
   if (keyset == chromeos::input_method::ImeKeyset::kNone) {
     // Resets the url as the input method default url and notify the hash
     // changed to VK.
-    state_->input_view_url = state_->current_input_method.input_view_url();
+    state_->ResetInputViewUrl();
     ReloadKeyboard();
     return;
   }
@@ -1366,8 +1394,7 @@ void InputMethodManagerImpl::OverrideKeyboardKeyset(
 
   GURL::Replacements replacements;
   replacements.SetRefStr(overridden_ref);
-  state_->input_view_url = url.ReplaceComponents(replacements);
-
+  state_->OverrideInputViewUrl(url.ReplaceComponents(replacements));
   ReloadKeyboard();
 }
 
@@ -1402,14 +1429,11 @@ void InputMethodManagerImpl::NotifyObserversImeExtraInputStateChange() {
 
 ui::InputMethodKeyboardController*
 InputMethodManagerImpl::GetInputMethodKeyboardController() {
-  // Callers expect a nullptr when the keyboard is disabled. See
-  // https://crbug.com/850020.
-  if (!keyboard::KeyboardUIController::HasInstance() ||
-      !keyboard::KeyboardUIController::Get()->IsEnabled()) {
+  ui::IMEEngineHandlerInterface* engine =
+      ui::IMEBridge::Get()->GetCurrentEngineHandler();
+  if (!engine)
     return nullptr;
-  }
-  return keyboard::KeyboardUIController::Get()
-      ->input_method_keyboard_controller();
+  return engine->GetInputMethodKeyboardController();
 }
 
 void InputMethodManagerImpl::ReloadKeyboard() {

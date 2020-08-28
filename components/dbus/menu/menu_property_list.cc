@@ -9,13 +9,14 @@
 #include "base/strings/utf_string_conversions.h"
 #include "ui/base/accelerators/accelerator.h"
 #include "ui/base/accelerators/menu_label_accelerator_util_linux.h"
+#include "ui/base/models/image_model.h"
 #include "ui/base/models/menu_model.h"
 #include "ui/gfx/image/image.h"
 
 #if defined(USE_X11)
-#include <X11/Xlib.h>
-
+#include "ui/base/ui_base_features.h"
 #include "ui/events/keycodes/keyboard_code_conversion_x.h"  // nogncheck
+#include "ui/gfx/x/x11.h"                                   // nogncheck
 #endif
 
 MenuItemProperties ComputeMenuPropertiesForMenuItem(ui::MenuModel* menu,
@@ -37,10 +38,10 @@ MenuItemProperties ComputeMenuPropertiesForMenuItem(ui::MenuModel* menu,
   if (!menu->IsVisibleAt(i))
     properties["visible"] = MakeDbusVariant(DbusBoolean(false));
 
-  gfx::Image icon;
-  if (menu->GetIconAt(i, &icon)) {
+  ui::ImageModel icon = menu->GetIconAt(i);
+  if (icon.IsImage()) {
     properties["icon-data"] =
-        MakeDbusVariant(DbusByteArray(icon.As1xPNGBytes()));
+        MakeDbusVariant(DbusByteArray(icon.GetImage().As1xPNGBytes()));
   }
 
   ui::Accelerator accelerator;
@@ -55,10 +56,12 @@ MenuItemProperties ComputeMenuPropertiesForMenuItem(ui::MenuModel* menu,
     if (accelerator.IsCmdDown())
       parts.push_back(DbusString("Super"));
 #if defined(USE_X11)
-    parts.push_back(DbusString(XKeysymToString(
-        XKeysymForWindowsKeyCode(accelerator.key_code(), false))));
-    properties["shortcut"] =
-        MakeDbusVariant(MakeDbusArray(DbusArray<DbusString>(std::move(parts))));
+    if (!features::IsUsingOzonePlatform()) {
+      parts.push_back(DbusString(XKeysymToString(
+          XKeysymForWindowsKeyCode(accelerator.key_code(), false))));
+      properties["shortcut"] = MakeDbusVariant(
+          MakeDbusArray(DbusArray<DbusString>(std::move(parts))));
+    }
 #else
     NOTIMPLEMENTED();
 #endif

@@ -2,9 +2,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+// #import {RouteObserverBehavior, Route, Router} from '../router.m.js';
+// #import {assert} from 'chrome://resources/js/assert.m.js';
+
 cr.define('settings', function() {
   /** @polymerBehavior */
-  const RouteOriginBehaviorImpl = {
+  /* #export */ const RouteOriginBehaviorImpl = {
     properties: {
       /**
        * A map whose values are query selectors of subpage buttons on the page
@@ -51,7 +54,7 @@ cr.define('settings', function() {
     currentRouteChanged(newRoute, oldRoute) {
       // Don't attempt to focus any anchor element, unless last navigation was a
       // 'pop' (backwards) navigation.
-      if (!settings.lastRouteChangeWasPopstate()) {
+      if (!settings.Router.getInstance().lastRouteChangeWasPopstate()) {
         return;
       }
       const focusSelector = this.focusConfig_.get(oldRoute.path);
@@ -64,9 +67,11 @@ cr.define('settings', function() {
     },
   };
 
-  return {RouteOriginBehaviorImpl: RouteOriginBehaviorImpl};
+  /** @polymerBehavior */
+  /* #export */ const RouteOriginBehavior =
+      [settings.RouteObserverBehavior, RouteOriginBehaviorImpl];
+
+  // #cr_define_end
+  return {RouteOriginBehaviorImpl, RouteOriginBehavior};
 });
 
-/** @polymerBehavior */
-settings.RouteOriginBehavior =
-    [settings.RouteObserverBehavior, settings.RouteOriginBehaviorImpl];

@@ -7,12 +7,13 @@
 #include <utility>
 
 #include "base/callback.h"
+#include "base/memory/ptr_util.h"
 #include "base/metrics/histogram_macros.h"
 #include "chrome/browser/autofill/address_accessory_controller.h"
 #include "chrome/browser/autofill/credit_card_accessory_controller.h"
+#include "chrome/browser/password_manager/android/password_accessory_controller.h"
+#include "chrome/browser/password_manager/android/password_accessory_metrics_util.h"
 #include "chrome/browser/password_manager/chrome_password_manager_client.h"
-#include "chrome/browser/password_manager/password_accessory_controller.h"
-#include "chrome/browser/password_manager/password_accessory_metrics_util.h"
 #include "chrome/browser/profiles/profile.h"
 #include "components/autofill/core/common/autofill_features.h"
 #include "components/autofill/core/common/autofill_util.h"
@@ -176,6 +177,15 @@ void ManualFillingControllerImpl::OnOptionSelected(
   controller->OnOptionSelected(selected_action);
 }
 
+void ManualFillingControllerImpl::OnToggleChanged(
+    AccessoryAction toggled_action,
+    bool enabled) const {
+  AccessoryController* controller = GetControllerForAction(toggled_action);
+  if (!controller)
+    return;  // Controller not available anymore.
+  controller->OnToggleChanged(toggled_action, enabled);
+}
+
 gfx::NativeView ManualFillingControllerImpl::container_view() const {
   return web_contents_->GetNativeView();
 }
@@ -287,7 +297,9 @@ AccessoryController* ManualFillingControllerImpl::GetControllerForAction(
   switch (action) {
     case AccessoryAction::GENERATE_PASSWORD_MANUAL:
     case AccessoryAction::MANAGE_PASSWORDS:
+    case AccessoryAction::USE_OTHER_PASSWORD:
     case AccessoryAction::GENERATE_PASSWORD_AUTOMATIC:
+    case AccessoryAction::TOGGLE_SAVE_PASSWORDS:
       return GetPasswordController();
     case AccessoryAction::MANAGE_ADDRESSES:
       return address_controller_.get();

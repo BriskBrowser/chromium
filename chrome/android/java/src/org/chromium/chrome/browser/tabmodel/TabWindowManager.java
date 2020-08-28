@@ -15,8 +15,11 @@ import org.chromium.base.ApplicationStatus;
 import org.chromium.base.ApplicationStatus.ActivityStateListener;
 import org.chromium.base.ThreadUtils;
 import org.chromium.base.annotations.VerifiesOnN;
-import org.chromium.chrome.browser.flags.FeatureUtilities;
+import org.chromium.chrome.browser.app.tabmodel.ChromeTabModelFilterFactory;
+import org.chromium.chrome.browser.multiwindow.MultiInstanceManager;
+import org.chromium.chrome.browser.multiwindow.MultiWindowUtils;
 import org.chromium.chrome.browser.tab.Tab;
+import org.chromium.chrome.browser.tabmodel.NextTabPolicy.NextTabPolicySupplier;
 import org.chromium.ui.base.WindowAndroid;
 
 import java.util.ArrayList;
@@ -45,15 +48,18 @@ public class TabWindowManager implements ActivityStateListener {
          *
          * @param activity An {@link Activity} instance.
          * @param tabCreatorManager A {@link TabCreatorManager} instance.
+         * @param nextTabPolicySupplier A {@link NextTabPolicySupplier} instance.
          * @param selectorIndex The index of the {@link TabModelSelector}.
          * @return A new {@link TabModelSelector} instance.
          */
         TabModelSelector buildSelector(Activity activity, TabCreatorManager tabCreatorManager,
-                int selectorIndex);
+                NextTabPolicySupplier nextTabPolicySupplier, int selectorIndex);
     }
 
     /** The singleton reference. */
     private static TabWindowManager sInstance;
+
+    private final AsyncTabParamsManager mAsyncTabParamsManager;
 
     private TabModelSelectorFactory mSelectorFactory = new DefaultTabModelSelectorFactory();
 
@@ -66,7 +72,9 @@ public class TabWindowManager implements ActivityStateListener {
      */
     public static TabWindowManager getInstance() {
         ThreadUtils.assertOnUiThread();
-        if (sInstance == null) sInstance = new TabWindowManager();
+        if (sInstance == null) {
+            sInstance = new TabWindowManager(AsyncTabParamsManager.getInstance());
+        }
         return sInstance;
     }
 
@@ -76,13 +84,14 @@ public class TabWindowManager implements ActivityStateListener {
      * {@link #getIndexForWindow(Activity)} should be called to grab the actual index if required.
      *
      * @param tabCreatorManager An instance of {@link TabCreatorManager}.
+     * @param nextTabPolicySupplier An instance of {@link NextTabPolicySupplier}.
      * @param index The index of the requested {@link TabModelSelector}. Not guaranteed to be the
      *              index of the {@link TabModelSelector} returned.
      * @return A {@link TabModelSelector} index, or {@code null} if there are too many
      *         {@link TabModelSelector}s already built.
      */
-    public TabModelSelector requestSelector(
-            Activity activity, TabCreatorManager tabCreatorManager, int index) {
+    public TabModelSelector requestSelector(Activity activity, TabCreatorManager tabCreatorManager,
+            NextTabPolicySupplier nextTabPolicySupplier, int index) {
         if (mAssignments.get(activity) != null) {
             return mAssignments.get(activity);
         }
@@ -102,7 +111,7 @@ public class TabWindowManager implements ActivityStateListener {
         if (mSelectors.get(index) != null) return null;
 
         TabModelSelector selector = mSelectorFactory.buildSelector(
-                activity, tabCreatorManager, index);
+                activity, tabCreatorManager, nextTabPolicySupplier, index);
         mSelectors.set(index, selector);
         mAssignments.put(activity, selector);
 
@@ -145,7 +154,7 @@ public class TabWindowManager implements ActivityStateListener {
 
         // Count tabs that are moving between activities (e.g. a tab that was recently reparented
         // and hasn't been attached to its new activity yet).
-        SparseArray<AsyncTabParams> asyncTabParams = AsyncTabParamsManager.getAsyncTabParams();
+        SparseArray<AsyncTabParams> asyncTabParams = mAsyncTabParamsManager.getAsyncTabParams();
         for (int i = 0; i < asyncTabParams.size(); i++) {
             Tab tab = asyncTabParams.valueAt(i).getTabToReparent();
             if (tab != null && tab.isIncognito()) count++;
@@ -174,8 +183,8 @@ public class TabWindowManager implements ActivityStateListener {
             }
         }
 
-        if (AsyncTabParamsManager.hasParamsForTabId(tabId)) {
-            return AsyncTabParamsManager.getAsyncTabParams().get(tabId).getTabToReparent();
+        if (mAsyncTabParamsManager.hasParamsForTabId(tabId)) {
+            return mAsyncTabParamsManager.getAsyncTabParams().get(tabId).getTabToReparent();
         }
 
         return null;
@@ -200,7 +209,8 @@ public class TabWindowManager implements ActivityStateListener {
         mSelectorFactory = factory;
     }
 
-    private TabWindowManager() {
+    private TabWindowManager(AsyncTabParamsManager asyncTabParamsManager) {
+        mAsyncTabParamsManager = asyncTabParamsManager;
         ApplicationStatus.registerStateListenerForAllActivities(this);
 
         for (int i = 0; i < MAX_SIMULTANEOUS_SELECTORS; i++) mSelectors.add(null);
@@ -211,19 +221,31 @@ public class TabWindowManager implements ActivityStateListener {
         // verification errors.
         @VerifiesOnN
         @Override
-        public TabModelSelector buildSelector(
-                Activity activity, TabCreatorManager tabCreatorManager, int selectorIndex) {
+        public TabModelSelector buildSelector(Activity activity,
+                TabCreatorManager tabCreatorManager, NextTabPolicySupplier nextTabPolicySupplier,
+                int selectorIndex) {
             // Merge tabs if this TabModelSelector is for a ChromeTabbedActivity created in
             // fullscreen mode and there are no TabModelSelector's currently alive. This indicates
             // that it is a cold start or process restart in fullscreen mode.
             boolean mergeTabs = Build.VERSION.SDK_INT > Build.VERSION_CODES.M
-                    && FeatureUtilities.isTabModelMergingEnabled()
-                    && !activity.isInMultiWindowMode()
-                    && getInstance().getNumberOfAssignedTabModelSelectors() == 0;
+                    && MultiInstanceManager.isTabModelMergingEnabled()
+                    && !activity.isInMultiWindowMode();
+            if (MultiInstanceManager.shouldMergeOnStartup(activity)) {
+                mergeTabs = mergeTabs
+                        && (!MultiWindowUtils.getInstance().isInMultiDisplayMode(activity)
+                                || getInstance().getNumberOfAssignedTabModelSelectors() == 0);
+            } else {
+                mergeTabs = mergeTabs && getInstance().getNumberOfAssignedTabModelSelectors() == 0;
+            }
+            if (mergeTabs) {
+                MultiInstanceManager.mergedOnStartup();
+            }
             TabPersistencePolicy persistencePolicy = new TabbedModeTabPersistencePolicy(
                     selectorIndex, mergeTabs);
-            return new TabModelSelectorImpl(
-                    activity, tabCreatorManager, persistencePolicy, true, true, false);
+            TabModelFilterFactory tabModelFilterFactory = new ChromeTabModelFilterFactory();
+            return new TabModelSelectorImpl(activity, tabCreatorManager, persistencePolicy,
+                    tabModelFilterFactory, nextTabPolicySupplier,
+                    AsyncTabParamsManager.getInstance(), true, true, false);
         }
     }
 }

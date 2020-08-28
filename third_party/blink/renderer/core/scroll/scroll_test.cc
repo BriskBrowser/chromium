@@ -10,6 +10,7 @@
 #include "third_party/blink/renderer/core/css/css_style_declaration.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/dom/element.h"
+#include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/frame/local_frame_view.h"
 #include "third_party/blink/renderer/core/frame/root_frame_viewport.h"
@@ -67,7 +68,8 @@ TEST_F(FractionalScrollSimTest, GetBoundingClientRectAtFractional) {
 
   // Scroll on the layout viewport.
   GetDocument().View()->GetScrollableArea()->SetScrollOffset(
-      FloatSize(700.5f, 500.6f), kProgrammaticScroll, kScrollBehaviorInstant);
+      FloatSize(700.5f, 500.6f), mojom::blink::ScrollType::kProgrammatic,
+      mojom::blink::ScrollBehavior::kInstant);
 
   Compositor().BeginFrame();
 
@@ -129,68 +131,14 @@ TEST_F(FractionalScrollSimTest, NoRepaintOnScrollFromSubpixel) {
 
   // Scroll on the layout viewport.
   GetDocument().View()->GetScrollableArea()->SetScrollOffset(
-      FloatSize(0.f, 100.5f), kProgrammaticScroll, kScrollBehaviorInstant);
+      FloatSize(0.f, 100.5f), mojom::blink::ScrollType::kProgrammatic,
+      mojom::blink::ScrollBehavior::kInstant);
 
   Compositor().BeginFrame();
   EXPECT_FALSE(
       container_layer->GetRasterInvalidationTracking()->HasInvalidations());
 
   GetDocument().View()->SetTracksRasterInvalidations(false);
-}
-
-// Verifies that the sticky constraints are correctly computed when the scroll
-// offset is fractional. Ensures any kind of layout unit snapping is
-// consistent.
-TEST_F(FractionalScrollSimTest, StickyDoesntOscillate) {
-  WebView().MainFrameWidget()->Resize(WebSize(800, 600));
-  SimRequest request("https://example.com/test.html", "text/html");
-  LoadURL("https://example.com/test.html");
-  request.Complete(R"HTML(
-    <!DOCTYPE html>
-    <style>
-      #sticky {
-        position: sticky; top: 0; width: 100px; height: 100px;
-      }
-      body {
-        margin: 0;
-        height: 300vh;
-      }
-      #padding {
-        height: 8px;
-        width: 100%;
-      }
-    </style>
-    <div id='padding'></div>
-    <div id='sticky'></div>
-  )HTML");
-  Compositor().BeginFrame();
-
-  const float kOneLayoutUnitF = LayoutUnit::Epsilon();
-  Element* sticky = GetDocument().getElementById("sticky");
-
-  // Try sub-layout-unit scroll offsets. The sticky box shouldn't move.
-  for (int i = 0; i < 3; ++i) {
-    GetDocument().View()->GetScrollableArea()->ScrollBy(
-        ScrollOffset(0.f, kOneLayoutUnitF / 4.f), kProgrammaticScroll);
-    Compositor().BeginFrame();
-    EXPECT_EQ(8, sticky->getBoundingClientRect()->top());
-  }
-
-  // This offset is specifically chosen since it doesn't land on a LayoutUnit
-  // boundary and reproduced https://crbug.com/1010961.
-  GetDocument().View()->GetScrollableArea()->SetScrollOffset(
-      FloatSize(0.f, 98.8675308f), kProgrammaticScroll, kScrollBehaviorInstant);
-  Compositor().BeginFrame();
-  EXPECT_EQ(0, sticky->getBoundingClientRect()->top());
-
-  // Incrementally scroll from here, making sure the sticky position remains
-  // fixed.
-  for (int i = 0; i < 4; ++i) {
-    GetDocument().View()->GetScrollableArea()->ScrollBy(
-        ScrollOffset(0.f, kOneLayoutUnitF / 3.f), kProgrammaticScroll);
-    Compositor().BeginFrame();
-    EXPECT_EQ(0, sticky->getBoundingClientRect()->top());
-  }
 }
 
 class ScrollAnimatorSimTest : public SimTest {};
@@ -322,7 +270,13 @@ TEST_F(ScrollAnimatorSimTest, TestRootFrameBothViewportsUserScrollCallBack) {
 
 // Test that the callback of user scroll will be executed when the animation
 // finishes at ScrollAnimator::TickAnimation for div user scroll.
-TEST_F(ScrollAnimatorSimTest, TestDivUserScrollCallBack) {
+#if defined(ADDRESS_SANITIZER) || defined(THREAD_SANITIZER)
+// Flaky under sanitizers, see http://crbug.com/1092550
+#define MAYBE_TestDivUserScrollCallBack DISABLED_TestDivUserScrollCallBack
+#else
+#define MAYBE_TestDivUserScrollCallBack TestDivUserScrollCallBack
+#endif
+TEST_F(ScrollAnimatorSimTest, MAYBE_TestDivUserScrollCallBack) {
   GetDocument().GetSettings()->SetScrollAnimatorEnabled(true);
   WebView().MainFrameWidget()->Resize(WebSize(800, 500));
   SimRequest request("https://example.com/test.html", "text/html");
@@ -437,8 +391,8 @@ TEST_F(ScrollAnimatorSimTest, TestRootFrameUserScrollCallBackCancelAnimation) {
   // Programmatic scroll will cancel the current user scroll animation and the
   // callback will be executed.
   GetDocument().View()->GetScrollableArea()->SetScrollOffset(
-      ScrollOffset(0, 300), kProgrammaticScroll, kScrollBehaviorSmooth,
-      ScrollableArea::ScrollCallback());
+      ScrollOffset(0, 300), mojom::blink::ScrollType::kProgrammatic,
+      mojom::blink::ScrollBehavior::kSmooth, ScrollableArea::ScrollCallback());
   Compositor().BeginFrame();
   ASSERT_TRUE(finished);
 }
@@ -467,9 +421,9 @@ class ScrollInfacesUseCounterSimTest : public SimTest {
         )HTML");
     auto& document = GetDocument();
     auto* style = document.getElementById("scroller")->style();
-    style->setProperty(&document, "direction", direction, String(),
+    style->setProperty(&Window(), "direction", direction, String(),
                        ASSERT_NO_EXCEPTION);
-    style->setProperty(&document, "writing-mode", writing_mode, String(),
+    style->setProperty(&Window(), "writing-mode", writing_mode, String(),
                        ASSERT_NO_EXCEPTION);
     Compositor().BeginFrame();
     EXPECT_FALSE(document.IsUseCounted(
@@ -564,7 +518,7 @@ TEST_F(ScrollInfacesUseCounterSimTest, ScrollTestAll) {
       {"rtl", "vertical-rl", true, true},
   };
 
-  for (const TestCase test_case : test_cases) {
+  for (const TestCase& test_case : test_cases) {
     Reset(test_case.direction, test_case.writingMode);
     CheckScrollLeftOrTop("scrollLeft", test_case.scrollLeftUseCounted);
 
@@ -588,6 +542,52 @@ TEST_F(ScrollInfacesUseCounterSimTest, ScrollTestAll) {
     Reset(test_case.direction, test_case.writingMode);
     CheckScrollTo("scrollBy", false);
   }
+}
+
+class ScrollPositionsInNonDefaultWritingModeSimTest : public SimTest {};
+
+// Verify that scrollIntoView() does not trigger the use counter
+// kElementWithLeftwardOrUpwardOverflowDirection_ScrollLeftOrTopSetPositive
+// and can be used to feature detect the convention of scroll coordinates.
+TEST_F(ScrollPositionsInNonDefaultWritingModeSimTest,
+       ScrollIntoViewAndCounters) {
+  SimRequest main_resource("https://example.com/", "text/html");
+  SimRequest child_frame_resource("https://example.com/subframe.html",
+                                  "text/html");
+  LoadURL("https://example.com/");
+  // Load a page that performs feature detection of scroll behavior by relying
+  // on scrollIntoView().
+  main_resource.Complete(
+      R"HTML(
+        <body>
+             <div style="direction: rtl; position: fixed; left: 0; top: 0; overflow: hidden; width: 1px; height: 1px;"><div style="width: 2px; height: 1px;"><div style="display: inline-block; width: 1px;"></div><div style="display: inline-block; width: 1px;"></div></div></div>
+             <script>
+               var scroller = document.body.firstElementChild;
+               scroller.firstElementChild.children[0].scrollIntoView();
+               var right = scroller.scrollLeft;
+               scroller.firstElementChild.children[1].scrollIntoView();
+               var left = scroller.scrollLeft;
+               if (left < right)
+                   console.log("decreasing");
+               if (left < 0)
+                   console.log("nonpositive");
+             </script>
+        </body>)HTML");
+  Compositor().BeginFrame();
+  test::RunPendingTasks();
+  // Per the CSSOM specification, the standard behavior is:
+  // - decreasing coordinates when scrolling leftward.
+  // - nonpositive coordinates for leftward scroller.
+  EXPECT_TRUE(ConsoleMessages().Contains("decreasing"));
+  EXPECT_TRUE(ConsoleMessages().Contains("nonpositive"));
+  // Reading scrollLeft triggers the first counter:
+  EXPECT_TRUE(GetDocument().IsUseCounted(
+      WebFeature::
+          kElementWithLeftwardOrUpwardOverflowDirection_ScrollLeftOrTop));
+  // However, calling scrollIntoView() should not trigger the second counter:
+  EXPECT_FALSE(GetDocument().IsUseCounted(
+      WebFeature::
+          kElementWithLeftwardOrUpwardOverflowDirection_ScrollLeftOrTopSetPositive));
 }
 
 }  // namespace blink

@@ -8,15 +8,12 @@
 #include <vector>
 
 #include "base/compiler_specific.h"
+#include "base/files/file_path.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/one_shot_event.h"
 #include "extensions/browser/extension_registrar.h"
 #include "extensions/browser/extension_system.h"
-
-namespace base {
-class FilePath;
-}
 
 namespace content {
 class BrowserContext;
@@ -37,6 +34,11 @@ class CastExtensionSystem : public ExtensionSystem,
   // Loads an unpacked extension from a directory. Returns the extension on
   // success, or nullptr otherwise.
   const Extension* LoadExtension(const base::FilePath& extension_dir);
+
+  // Loads an unpacked extension from a manifest file with the provided
+  // dir. Returns the extension on success, or nullptr otherwise.
+  const Extension* LoadExtension(const base::FilePath::CharType* manifest_file,
+                                 const base::FilePath& extension_dir);
 
   // Load an extension from the contents of a manifest file.
   const Extension* LoadExtensionByManifest(const std::string& manifest);
@@ -66,7 +68,7 @@ class CastExtensionSystem : public ExtensionSystem,
   RuntimeData* runtime_data() override;
   ManagementPolicy* management_policy() override;
   ServiceWorkerManager* service_worker_manager() override;
-  SharedUserScriptMaster* shared_user_script_master() override;
+  SharedUserScriptManager* shared_user_script_manager() override;
   StateStore* state_store() override;
   StateStore* rules_store() override;
   scoped_refptr<ValueStoreFactory> store_factory() override;
@@ -80,6 +82,7 @@ class CastExtensionSystem : public ExtensionSystem,
       const std::string& extension_id,
       const UnloadedExtensionReason reason) override;
   const base::OneShotEvent& ready() const override;
+  bool is_ready() const override;
   ContentVerifier* content_verifier() override;
   std::unique_ptr<ExtensionSet> GetDependentExtensions(
       const Extension* extension) override;
@@ -88,6 +91,9 @@ class CastExtensionSystem : public ExtensionSystem,
                      const base::FilePath& unpacked_dir,
                      bool install_immediately,
                      InstallUpdateCallback install_update_callback) override;
+  void PerformActionBasedOnOmahaAttributes(
+      const std::string& extension_id,
+      const base::Value& attributes) override;
   bool FinishDelayedInstallationIfReady(const std::string& extension_id,
                                         bool install_immediately) override;
 
@@ -118,7 +124,7 @@ class CastExtensionSystem : public ExtensionSystem,
   std::unique_ptr<RuntimeData> runtime_data_;
   std::unique_ptr<QuotaService> quota_service_;
   std::unique_ptr<AppSorting> app_sorting_;
-  std::unique_ptr<SharedUserScriptMaster> shared_user_script_master_;
+  std::unique_ptr<SharedUserScriptManager> shared_user_script_manager_;
   std::unique_ptr<ExtensionRegistrar> extension_registrar_;
 
   scoped_refptr<ValueStoreFactory> store_factory_;

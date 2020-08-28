@@ -11,6 +11,7 @@
 #include "base/callback.h"
 #include "base/containers/queue.h"
 #include "base/macros.h"
+#include "base/memory/scoped_refptr.h"
 #include "base/optional.h"
 #include "build/build_config.h"
 #include "components/viz/service/display/output_surface.h"
@@ -20,9 +21,13 @@
 #include "third_party/skia/include/core/SkRefCnt.h"
 #include "third_party/skia/src/gpu/GrSemaphore.h"
 #include "ui/gfx/swap_result.h"
-#include "ui/latency/latency_tracker.h"
 
+class GrContext;
 class SkSurface;
+
+namespace base {
+class SequencedTaskRunner;
+}
 
 namespace gfx {
 class ColorSpace;
@@ -31,11 +36,14 @@ class Size;
 struct PresentationFeedback;
 }  // namespace gfx
 
-
 namespace gpu {
 class MemoryTracker;
 class MemoryTypeTracker;
 }  // namespace gpu
+
+namespace ui {
+class LatencyTracker;
+}
 
 namespace viz {
 
@@ -44,22 +52,21 @@ class SkiaOutputDevice {
   // A helper class for defining a BeginPaint() and EndPaint() scope.
   class ScopedPaint {
    public:
-    explicit ScopedPaint(SkiaOutputDevice* device)
-        : device_(device), sk_surface_(device->BeginPaint()) {
-      DCHECK(sk_surface_);
-    }
-    ~ScopedPaint() { device_->EndPaint(semaphore_); }
+    explicit ScopedPaint(SkiaOutputDevice* device);
+    ~ScopedPaint();
 
     SkSurface* sk_surface() const { return sk_surface_; }
-    void set_semaphore(const GrBackendSemaphore& semaphore) {
-      DCHECK(!semaphore_.isInitialized());
-      semaphore_ = semaphore;
+
+    std::vector<GrBackendSemaphore> TakeEndPaintSemaphores() {
+      std::vector<GrBackendSemaphore> semaphores;
+      semaphores.swap(end_semaphores_);
+      return semaphores;
     }
 
    private:
+    std::vector<GrBackendSemaphore> end_semaphores_;
     SkiaOutputDevice* const device_;
     SkSurface* const sk_surface_;
-    GrBackendSemaphore semaphore_;
 
     DISALLOW_COPY_AND_ASSIGN(ScopedPaint);
   };
@@ -70,7 +77,7 @@ class SkiaOutputDevice {
       base::RepeatingCallback<void(gpu::SwapBuffersCompleteParams,
                                    const gfx::Size& pixel_size)>;
   SkiaOutputDevice(
-      bool need_swap_semaphore,
+      GrContext* gr_context,
       gpu::MemoryTracker* memory_tracker,
       DidSwapBufferCompleteCallback did_swap_buffer_complete_callback);
   virtual ~SkiaOutputDevice();
@@ -79,8 +86,12 @@ class SkiaOutputDevice {
   virtual bool Reshape(const gfx::Size& size,
                        float device_scale_factor,
                        const gfx::ColorSpace& color_space,
-                       bool has_alpha,
+                       gfx::BufferFormat format,
                        gfx::OverlayTransform transform) = 0;
+
+  // Call before GrContext::submit() for the current frame. The implementation
+  // can use this opportunity to insert some work into the GrContext.
+  virtual void PreGrContextSubmit();
 
   // Presents the back buffer.
   virtual void SwapBuffers(BufferPresentedCallback feedback,
@@ -88,25 +99,31 @@ class SkiaOutputDevice {
   virtual void PostSubBuffer(const gfx::Rect& rect,
                              BufferPresentedCallback feedback,
                              std::vector<ui::LatencyInfo> latency_info);
+  virtual void CommitOverlayPlanes(BufferPresentedCallback feedback,
+                                   std::vector<ui::LatencyInfo> latency_info);
 
   // Set the rectangle that will be drawn into on the surface.
-  virtual void SetDrawRectangle(const gfx::Rect& draw_rectangle);
+  virtual bool SetDrawRectangle(const gfx::Rect& draw_rectangle);
+
+  // Enable or disable DC layers. Must be called before DC layers are scheduled.
+  virtual void SetEnableDCLayers(bool enabled);
 
   virtual void SetGpuVSyncEnabled(bool enabled);
+
+  // Whether the output device's primary plane is an overlay. This returns true
+  // is the SchedulePrimaryPlane function is implemented.
+  virtual bool IsPrimaryPlaneOverlay() const;
 
   // Schedule the output device's back buffer as an overlay plane. The scheduled
   // primary plane will be on screen when SwapBuffers() or PostSubBuffer() is
   // called.
   virtual void SchedulePrimaryPlane(
-      const OverlayProcessorInterface::OutputSurfaceOverlayPlane& plane);
+      const base::Optional<
+          OverlayProcessorInterface::OutputSurfaceOverlayPlane>& plane);
 
   // Schedule overlays which will be on screen when SwapBuffers() or
   // PostSubBuffer() is called.
   virtual void ScheduleOverlays(SkiaOutputSurface::OverlayList overlays);
-
-#if defined(OS_WIN)
-  virtual void SetEnableDCLayers(bool enabled);
-#endif
 
   const OutputSurface::Capabilities& capabilities() const {
     return capabilities_;
@@ -118,17 +135,23 @@ class SkiaOutputDevice {
   virtual void EnsureBackbuffer();
   virtual void DiscardBackbuffer();
 
-  bool need_swap_semaphore() const { return need_swap_semaphore_; }
   bool is_emulated_rgbx() const { return is_emulated_rgbx_; }
+
+  void SetDrawTimings(base::TimeTicks submitted, base::TimeTicks started);
 
  protected:
   // Only valid between StartSwapBuffers and FinishSwapBuffers.
   class SwapInfo {
    public:
-    SwapInfo(uint64_t swap_id, BufferPresentedCallback feedback);
+    SwapInfo(uint64_t swap_id,
+             BufferPresentedCallback feedback,
+             base::TimeTicks viz_scheduled_draw,
+             base::TimeTicks gpu_started_draw);
     SwapInfo(SwapInfo&& other);
     ~SwapInfo();
-    const gpu::SwapBuffersCompleteParams& Complete(gfx::SwapResult result);
+    const gpu::SwapBuffersCompleteParams& Complete(
+        gfx::SwapCompletionResult result,
+        const base::Optional<gfx::Rect>& damage_area);
     void CallFeedback();
 
    private:
@@ -137,10 +160,11 @@ class SkiaOutputDevice {
   };
 
   // Begin paint the back buffer.
-  virtual SkSurface* BeginPaint() = 0;
+  virtual SkSurface* BeginPaint(
+      std::vector<GrBackendSemaphore>* end_semaphores) = 0;
 
   // End paint the back buffer.
-  virtual void EndPaint(const GrBackendSemaphore& semaphore) = 0;
+  virtual void EndPaint() = 0;
 
   // Helper method for SwapBuffers() and PostSubBuffer(). It should be called
   // at the beginning of SwapBuffers() and PostSubBuffer() implementations
@@ -148,24 +172,30 @@ class SkiaOutputDevice {
 
   // Helper method for SwapBuffers() and PostSubBuffer(). It should be called
   // at the end of SwapBuffers() and PostSubBuffer() implementations
-  void FinishSwapBuffers(gfx::SwapResult result,
-                         const gfx::Size& size,
-                         std::vector<ui::LatencyInfo> latency_info);
+  void FinishSwapBuffers(
+      gfx::SwapCompletionResult result,
+      const gfx::Size& size,
+      std::vector<ui::LatencyInfo> latency_info,
+      const base::Optional<gfx::Rect>& damage_area = base::nullopt);
 
   OutputSurface::Capabilities capabilities_;
 
-  const bool need_swap_semaphore_;
   uint64_t swap_id_ = 0;
   DidSwapBufferCompleteCallback did_swap_buffer_complete_callback_;
 
   base::queue<SwapInfo> pending_swaps_;
-
-  ui::LatencyTracker latency_tracker_;
+  base::TimeTicks viz_scheduled_draw_;
+  base::TimeTicks gpu_started_draw_;
 
   // RGBX format is emulated with RGBA.
   bool is_emulated_rgbx_ = false;
 
   std::unique_ptr<gpu::MemoryTypeTracker> memory_type_tracker_;
+
+ private:
+  std::unique_ptr<ui::LatencyTracker> latency_tracker_;
+  // task runner for latency tracker.
+  scoped_refptr<base::SequencedTaskRunner> latency_tracker_runner_;
 
   DISALLOW_COPY_AND_ASSIGN(SkiaOutputDevice);
 };

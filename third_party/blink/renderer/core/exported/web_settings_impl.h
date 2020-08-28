@@ -33,7 +33,7 @@
 
 #include "third_party/blink/public/web/web_settings.h"
 #include "third_party/blink/renderer/core/core_export.h"
-#include "third_party/blink/renderer/platform/heap/handle.h"
+#include "third_party/blink/renderer/platform/heap/persistent.h"
 
 namespace blink {
 
@@ -84,7 +84,6 @@ class CORE_EXPORT WebSettingsImpl final : public WebSettings {
   void SetEditingBehavior(EditingBehavior) override;
   void SetEnableScrollAnimator(bool) override;
   void SetPrefersReducedMotion(bool) override;
-  void SetEnableTouchAdjustment(bool) override;
   void SetWebGL1Enabled(bool) override;
   void SetWebGL2Enabled(bool) override;
   void SetFantasyFontFamily(const WebString&,
@@ -146,7 +145,6 @@ class CORE_EXPORT WebSettingsImpl final : public WebSettings {
                           UScriptCode = USCRIPT_COMMON) override;
   void SetShouldPrintBackgrounds(bool) override;
   void SetShouldClearDocumentBackground(bool) override;
-  void SetShouldRespectImageOrientation(bool) override;
   void SetShowContextMenuOnMouseUp(bool) override;
   void SetShrinksViewportContentToFit(bool) override;
   void SetSmartInsertDeleteEnabled(bool) override;
@@ -165,6 +163,7 @@ class CORE_EXPORT WebSettingsImpl final : public WebSettings {
   void SetTextAreasAreResizable(bool) override;
   void SetTextAutosizingEnabled(bool) override;
   void SetAccessibilityFontScaleFactor(float) override;
+  void SetAccessibilityAlwaysShowFocus(bool) override;
   void SetTextTrackKindUserPreference(TextTrackKindUserPreference) override;
   void SetTextTrackBackgroundColor(const WebString&) override;
   void SetTextTrackFontFamily(const WebString&) override;
@@ -220,7 +219,12 @@ class CORE_EXPORT WebSettingsImpl final : public WebSettings {
   void SetLazyImageFirstKFullyLoad4G(int) override;
 
   void SetForceDarkModeEnabled(bool) override;
+  void SetPreferredColorScheme(PreferredColorScheme) override;
   void SetNavigationControls(NavigationControls) override;
+
+  void SetAriaModalPrunesAXTree(bool) override;
+  void SetUseAXMenuList(bool) override;
+  void SetSelectionClipboardBufferAvailable(bool) override;
 
   bool RenderVSyncNotificationEnabled() const {
     return render_v_sync_notification_enabled_;
@@ -245,7 +249,7 @@ class CORE_EXPORT WebSettingsImpl final : public WebSettings {
 
  private:
   Settings* settings_;
-  UntracedMember<DevToolsEmulator> dev_tools_emulator_;
+  Persistent<DevToolsEmulator> dev_tools_emulator_;
   bool render_v_sync_notification_enabled_;
   bool auto_zoom_focused_node_to_legible_scale_;
   bool support_deprecated_target_density_dpi_;

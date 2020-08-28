@@ -8,10 +8,11 @@
 #include <stdint.h>
 
 #include <memory>
+#include <string>
 
 #include "base/macros.h"
 #include "chrome/browser/chromeos/policy/affiliated_invalidation_service_provider.h"
-#include "components/policy/proto/device_management_backend.pb.h"
+#include "components/policy/core/common/cloud/policy_invalidation_scope.h"
 
 namespace invalidation {
 class InvalidationService;
@@ -34,9 +35,15 @@ class AffiliatedCloudPolicyInvalidator
     : public AffiliatedInvalidationServiceProvider::Consumer {
  public:
   AffiliatedCloudPolicyInvalidator(
-      enterprise_management::DeviceRegisterRequest::Type type,
+      PolicyInvalidationScope scope,
       CloudPolicyCore* core,
       AffiliatedInvalidationServiceProvider* invalidation_service_provider);
+
+  AffiliatedCloudPolicyInvalidator(
+      PolicyInvalidationScope scope,
+      CloudPolicyCore* core,
+      AffiliatedInvalidationServiceProvider* invalidation_service_provider,
+      const std::string& device_local_account_id);
   ~AffiliatedCloudPolicyInvalidator() override;
 
   // AffiliatedInvalidationServiceProvider::Consumer:
@@ -53,7 +60,8 @@ class AffiliatedCloudPolicyInvalidator
   // Destroy the current |CloudPolicyInvalidator|, if any.
   void DestroyInvalidator();
 
-  const enterprise_management::DeviceRegisterRequest::Type type_;
+  const PolicyInvalidationScope scope_;
+  const std::string device_local_account_id_;
   CloudPolicyCore* const core_;
 
   AffiliatedInvalidationServiceProvider* const invalidation_service_provider_;

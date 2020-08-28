@@ -16,10 +16,14 @@ static_library("core") {
     "controller_client.h",
     "features.cc",
     "features.h",
+    "legacy_tls_ui.cc",
+    "legacy_tls_ui.h",
     "metrics_helper.cc",
     "metrics_helper.h",
     "mitm_software_ui.cc",
     "mitm_software_ui.h",
+    "pref_names.cc",
+    "pref_names.h",
     "safe_browsing_loud_error_ui.cc",
     "safe_browsing_loud_error_ui.h",
     "safe_browsing_quiet_error_ui.cc",
@@ -58,6 +62,21 @@ static_library("core") {
   ]
 
   public_deps = [ "//components/security_interstitials/core/common/mojom" ]
+}
+
+static_library("unsafe_resource") {
+  sources = [
+    "unsafe_resource.cc",
+    "unsafe_resource.h",
+  ]
+
+  deps = [
+    "//base",
+    "//components/safe_browsing/core/common:common",
+    "//components/safe_browsing/core/db:hit_report",
+    "//components/safe_browsing/core/db:util",
+    "//net",
+  ]
 }
 
 source_set("unit_tests") {

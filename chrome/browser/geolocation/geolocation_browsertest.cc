@@ -20,22 +20,23 @@
 #include "build/build_config.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/content_settings/host_content_settings_map_factory.h"
-#include "chrome/browser/content_settings/tab_specific_content_settings.h"
-#include "chrome/browser/permissions/permission_request_manager.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_commands.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
-#include "chrome/common/chrome_features.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/ui_test_utils.h"
-#include "components/content_settings/core/browser/content_settings_usages_state.h"
+#include "components/content_settings/browser/page_specific_content_settings.h"
 #include "components/content_settings/core/browser/host_content_settings_map.h"
+#include "components/permissions/features.h"
+#include "components/permissions/permission_request_manager.h"
+#include "components/permissions/test/permission_request_observer.h"
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/notification_details.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/web_contents.h"
+#include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
 #include "net/base/escape.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
@@ -134,43 +135,6 @@ void IFrameLoader::Observe(int type,
     base::RunLoop::QuitCurrentWhenIdleDeprecated();
 }
 
-// PermissionRequestObserver ---------------------------------------------------
-
-// Used to observe the creation of a single permission request without
-// responding.
-class PermissionRequestObserver : public PermissionRequestManager::Observer {
- public:
-  explicit PermissionRequestObserver(content::WebContents* web_contents)
-      : request_manager_(
-            PermissionRequestManager::FromWebContents(web_contents)),
-        request_shown_(false),
-        message_loop_runner_(new content::MessageLoopRunner) {
-    request_manager_->AddObserver(this);
-  }
-  ~PermissionRequestObserver() override {
-    // Safe to remove twice if it happens.
-    request_manager_->RemoveObserver(this);
-  }
-
-  void Wait() { message_loop_runner_->Run(); }
-
-  bool request_shown() { return request_shown_; }
-
- private:
-  // PermissionRequestManager::Observer
-  void OnBubbleAdded() override {
-    request_shown_ = true;
-    request_manager_->RemoveObserver(this);
-    message_loop_runner_->Quit();
-  }
-
-  PermissionRequestManager* request_manager_;
-  bool request_shown_;
-  scoped_refptr<content::MessageLoopRunner> message_loop_runner_;
-
-  DISALLOW_COPY_AND_ASSIGN(PermissionRequestObserver);
-};
-
 }  // namespace
 
 
@@ -258,7 +222,7 @@ class GeolocationBrowserTest : public InProcessBrowserTest {
   bool SetPositionAndWaitUntilUpdated(double latitude, double longitude);
 
   // Convenience method to look up the number of queued permission requests.
-  int GetRequestQueueSize(PermissionRequestManager* manager);
+  int GetRequestQueueSize(permissions::PermissionRequestManager* manager);
 
  protected:
   // The values used for the position override.
@@ -270,7 +234,7 @@ class GeolocationBrowserTest : public InProcessBrowserTest {
   // Calls watchPosition() in JavaScript and accepts or denies the resulting
   // permission request. Returns the JavaScript response.
   std::string WatchPositionAndRespondToPermissionRequest(
-      PermissionRequestManager::AutoResponseType request_response);
+      permissions::PermissionRequestManager::AutoResponseType request_response);
 
   // The current Browser as set in Initialize. May be for an incognito profile.
   Browser* current_browser_ = nullptr;
@@ -344,7 +308,8 @@ void GeolocationBrowserTest::SetFrameForScriptExecution(
     render_frame_host_ = web_contents->GetMainFrame();
   } else {
     render_frame_host_ = content::FrameMatchingPredicate(
-        web_contents, base::Bind(&content::FrameMatchesName, frame_name));
+        web_contents,
+        base::BindRepeating(&content::FrameMatchesName, frame_name));
   }
   DCHECK(render_frame_host_);
 }
@@ -356,19 +321,19 @@ HostContentSettingsMap* GeolocationBrowserTest::GetHostContentSettingsMap() {
 
 bool GeolocationBrowserTest::WatchPositionAndGrantPermission() {
   std::string result = WatchPositionAndRespondToPermissionRequest(
-      PermissionRequestManager::ACCEPT_ALL);
+      permissions::PermissionRequestManager::ACCEPT_ALL);
   return "request-callback-success" == result;
 }
 
 bool GeolocationBrowserTest::WatchPositionAndDenyPermission() {
   std::string result = WatchPositionAndRespondToPermissionRequest(
-      PermissionRequestManager::DENY_ALL);
+      permissions::PermissionRequestManager::DENY_ALL);
   return "request-callback-error" == result;
 }
 
 std::string GeolocationBrowserTest::WatchPositionAndRespondToPermissionRequest(
-    PermissionRequestManager::AutoResponseType request_response) {
-  PermissionRequestManager::FromWebContents(
+    permissions::PermissionRequestManager::AutoResponseType request_response) {
+  permissions::PermissionRequestManager::FromWebContents(
       current_browser_->tab_strip_model()->GetActiveWebContents())
       ->set_auto_response_for_test(request_response);
   return RunScript(render_frame_host_, "geoStartWithAsyncResponse()");
@@ -376,7 +341,7 @@ std::string GeolocationBrowserTest::WatchPositionAndRespondToPermissionRequest(
 
 void GeolocationBrowserTest::WatchPositionAndObservePermissionRequest(
     bool request_should_display) {
-  PermissionRequestObserver observer(
+  permissions::PermissionRequestObserver observer(
       current_browser_->tab_strip_model()->GetActiveWebContents());
   if (request_should_display) {
     // Control will return as soon as the API call is made, and then the
@@ -430,8 +395,8 @@ bool GeolocationBrowserTest::SetPositionAndWaitUntilUpdated(double latitude,
 }
 
 int GeolocationBrowserTest::GetRequestQueueSize(
-    PermissionRequestManager* manager) {
-  return static_cast<int>(manager->requests_.size());
+    permissions::PermissionRequestManager* manager) {
+  return static_cast<int>(manager->Requests().size());
 }
 
 // Tests ----------------------------------------------------------------------
@@ -545,52 +510,6 @@ IN_PROC_BROWSER_TEST_F(GeolocationBrowserTest, NoLeakFromOffTheRecord) {
   ExpectPosition(fake_latitude(), fake_longitude());
 }
 
-// When permission delegation is enabled, there isn't a way to have a pending
-// permission prompt when permission has already been granted in another frame
-// on the same page. That means that once the feature is enabled by default,
-// tests which use this fixture are no longer relevant and can be deleted.
-class GeolocationBrowserTestWithNoPermissionDelegation
-    : public GeolocationBrowserTest {
- public:
-  GeolocationBrowserTestWithNoPermissionDelegation() {
-    feature_list_.InitAndDisableFeature(features::kPermissionDelegation);
-  }
-
- private:
-  base::test::ScopedFeatureList feature_list_;
-};
-
-IN_PROC_BROWSER_TEST_F(GeolocationBrowserTestWithNoPermissionDelegation,
-                       IFramesWithFreshPosition) {
-  set_html_for_tests("/geolocation/two_iframes.html");
-  ASSERT_NO_FATAL_FAILURE(Initialize(INITIALIZATION_DEFAULT));
-  LoadIFrames();
-
-  // Grant permission in the first frame, the position gets to the script.
-  SetFrameForScriptExecution("iframe_0");
-  ASSERT_TRUE(WatchPositionAndGrantPermission());
-  ExpectPosition(fake_latitude(), fake_longitude());
-
-  // In a second iframe from a different origin with a cached position the
-  // user is prompted.
-  SetFrameForScriptExecution("iframe_1");
-  WatchPositionAndObservePermissionRequest(true);
-
-  // Back to the first frame, enable navigation and refresh geoposition.
-  SetFrameForScriptExecution("iframe_0");
-  double fresh_position_latitude = 3.17;
-  double fresh_position_longitude = 4.23;
-  ASSERT_TRUE(SetPositionAndWaitUntilUpdated(fresh_position_latitude,
-                                             fresh_position_longitude));
-  ExpectPosition(fresh_position_latitude, fresh_position_longitude);
-
-  // When permission is granted to the second iframe the fresh position gets
-  // to the script.
-  SetFrameForScriptExecution("iframe_1");
-  ASSERT_TRUE(WatchPositionAndGrantPermission());
-  ExpectPosition(fresh_position_latitude, fresh_position_longitude);
-}
-
 IN_PROC_BROWSER_TEST_F(GeolocationBrowserTest, IFramesWithCachedPosition) {
   set_html_for_tests("/geolocation/two_iframes.html");
   ASSERT_NO_FATAL_FAILURE(Initialize(INITIALIZATION_DEFAULT));
@@ -613,30 +532,6 @@ IN_PROC_BROWSER_TEST_F(GeolocationBrowserTest, IFramesWithCachedPosition) {
   SetFrameForScriptExecution("iframe_1");
   ASSERT_TRUE(WatchPositionAndGrantPermission());
   ExpectPosition(cached_position_latitude, cached_position_lognitude);
-}
-
-IN_PROC_BROWSER_TEST_F(GeolocationBrowserTestWithNoPermissionDelegation,
-                       CancelPermissionForFrame) {
-  set_html_for_tests("/geolocation/two_iframes.html");
-  ASSERT_NO_FATAL_FAILURE(Initialize(INITIALIZATION_DEFAULT));
-  LoadIFrames();
-
-  SetFrameForScriptExecution("iframe_0");
-  ASSERT_TRUE(WatchPositionAndGrantPermission());
-  ExpectPosition(fake_latitude(), fake_longitude());
-
-  // Test second iframe from a different origin with a cached position will
-  // create the prompt.
-  SetFrameForScriptExecution("iframe_1");
-  WatchPositionAndObservePermissionRequest(true);
-
-  // Navigate the iframe, and ensure the prompt is gone.
-  content::WebContents* web_contents =
-      current_browser()->tab_strip_model()->GetActiveWebContents();
-  IFrameLoader change_iframe_1(current_browser(), 1, current_url());
-  int num_requests_after_cancel = GetRequestQueueSize(
-      PermissionRequestManager::FromWebContents(web_contents));
-  EXPECT_EQ(0, num_requests_after_cancel);
 }
 
 IN_PROC_BROWSER_TEST_F(GeolocationBrowserTest, InvalidUrlRequest) {

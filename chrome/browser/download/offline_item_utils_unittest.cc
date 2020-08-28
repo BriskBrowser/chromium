@@ -4,6 +4,10 @@
 
 #include "chrome/browser/download/offline_item_utils.h"
 
+#include <memory>
+#include <utility>
+#include <vector>
+
 #include "components/download/public/common/download_utils.h"
 #include "components/download/public/common/mock_download_item.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -14,17 +18,28 @@ using OfflineItemFilter = offline_items_collection::OfflineItemFilter;
 using OfflineItemState = offline_items_collection::OfflineItemState;
 using OfflineItemProgressUnit =
     offline_items_collection::OfflineItemProgressUnit;
+using OfflineItemSchedule = offline_items_collection::OfflineItemSchedule;
 using FailState = offline_items_collection::FailState;
 using PendingState = offline_items_collection::PendingState;
 using DownloadItem = download::DownloadItem;
+using DownloadSchedule = download::DownloadSchedule;
+
 using ::testing::_;
 using ::testing::Return;
 using ::testing::ReturnRefOfCopy;
 
 namespace {
-const GURL kTestUrl("http://www.example.com");
-const GURL kTestOriginalUrl("http://www.exampleoriginalurl.com");
+
 const char kNameSpace[] = "LEGACY_DOWNLOAD";
+
+// TODO(https://crbug.com/1042727): Fix test GURL scoping and remove this getter
+// function.
+GURL TestUrl() {
+  return GURL("http://www.example.com");
+}
+GURL TestOriginalUrl() {
+  return GURL("http://www.exampleoriginalurl.com");
+}
 
 }  // namespace
 
@@ -75,10 +90,10 @@ OfflineItemUtilsTest::CreateDownloadItem(
     download::DownloadInterruptReason interrupt_reason) {
   std::unique_ptr<download::MockDownloadItem> item(
       new ::testing::NiceMock<download::MockDownloadItem>());
-  ON_CALL(*item, GetURL()).WillByDefault(ReturnRefOfCopy(kTestUrl));
-  ON_CALL(*item, GetTabUrl()).WillByDefault(ReturnRefOfCopy(kTestUrl));
+  ON_CALL(*item, GetURL()).WillByDefault(ReturnRefOfCopy(TestUrl()));
+  ON_CALL(*item, GetTabUrl()).WillByDefault(ReturnRefOfCopy(TestUrl()));
   ON_CALL(*item, GetOriginalUrl())
-      .WillByDefault(ReturnRefOfCopy(kTestOriginalUrl));
+      .WillByDefault(ReturnRefOfCopy(TestOriginalUrl()));
   ON_CALL(*item, GetDangerType())
       .WillByDefault(Return(download::DOWNLOAD_DANGER_TYPE_NOT_DANGEROUS));
   ON_CALL(*item, GetId()).WillByDefault(Return(0));
@@ -96,9 +111,9 @@ OfflineItemUtilsTest::CreateDownloadItem(
   ON_CALL(*item, GetLastAccessTime()).WillByDefault(Return(last_access_time));
   ON_CALL(*item, GetReceivedBytes()).WillByDefault(Return(received_bytes));
   ON_CALL(*item, GetTotalBytes()).WillByDefault(Return(total_bytes));
-
   ON_CALL(*item, IsDone()).WillByDefault(Return(IsDownloadDone(item.get())));
-
+  ON_CALL(*item, GetDownloadSchedule())
+      .WillByDefault(ReturnRefOfCopy(base::Optional<DownloadSchedule>()));
   return item;
 }
 
@@ -181,8 +196,8 @@ TEST_F(OfflineItemUtilsTest, BasicConversions) {
   EXPECT_EQ(file_path, offline_item.file_path);
   EXPECT_EQ(mime_type, offline_item.mime_type);
 
-  EXPECT_EQ(kTestUrl, offline_item.page_url);
-  EXPECT_EQ(kTestOriginalUrl, offline_item.original_url);
+  EXPECT_EQ(TestUrl(), offline_item.page_url);
+  EXPECT_EQ(TestOriginalUrl(), offline_item.original_url);
   EXPECT_FALSE(offline_item.is_off_the_record);
   EXPECT_EQ("", offline_item.attribution);
 
@@ -193,7 +208,7 @@ TEST_F(OfflineItemUtilsTest, BasicConversions) {
   EXPECT_EQ(allow_metered, offline_item.allow_metered);
   EXPECT_EQ(received_bytes, offline_item.received_bytes);
   EXPECT_EQ(received_bytes, offline_item.progress.value);
-  EXPECT_TRUE(offline_item.progress.max.has_value());
+  ASSERT_TRUE(offline_item.progress.max.has_value());
   EXPECT_EQ(total_bytes, offline_item.progress.max.value());
   EXPECT_EQ(OfflineItemProgressUnit::BYTES, offline_item.progress.unit);
   EXPECT_EQ(time_remaining_ms, offline_item.time_remaining_ms);
@@ -344,4 +359,24 @@ TEST_F(OfflineItemUtilsTest, PendingAndFailedStates) {
   EXPECT_EQ(OfflineItemState::INTERRUPTED, offline_item3.state);
   EXPECT_EQ(FailState::SERVER_NO_RANGE, offline_item3.fail_state);
   EXPECT_EQ(PendingState::NOT_PENDING, offline_item3.pending_state);
+}
+
+TEST_F(OfflineItemUtilsTest, OfflineItemSchedule) {
+  auto time = base::Time::Now();
+  std::vector<DownloadSchedule> download_schedules = {{false, time},
+                                                      {true, base::nullopt}};
+
+  for (const auto& download_schedule : download_schedules) {
+    auto download =
+        CreateDownloadItem(DownloadItem::IN_PROGRESS, false,
+                           download::DOWNLOAD_INTERRUPT_REASON_NONE);
+    base::Optional<DownloadSchedule> copy = download_schedule;
+    ON_CALL(*download, GetDownloadSchedule())
+        .WillByDefault(ReturnRefOfCopy(copy));
+    OfflineItem offline_item =
+        OfflineItemUtils::CreateOfflineItem(kNameSpace, download.get());
+    auto offline_item_schedule = base::make_optional<OfflineItemSchedule>(
+        download_schedule.only_on_wifi(), download_schedule.start_time());
+    EXPECT_EQ(offline_item.schedule, offline_item.schedule);
+  }
 }

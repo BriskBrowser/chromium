@@ -31,8 +31,26 @@ bool StructTraits<arc::mojom::IntentFilterDataView, arc::IntentFilter>::Read(
   if (!data.ReadDataSchemes(&schemes))
     return false;
 
-  *out = arc::IntentFilter(package_name, std::move(authorities),
-                           std::move(paths), std::move(schemes));
+  std::vector<std::string> actions;
+  if (!data.ReadActions(&actions))
+    return false;
+
+  std::vector<std::string> mime_types;
+  if (!data.ReadMimeTypes(&mime_types))
+    return false;
+
+  std::string activity_name;
+  if (!data.ReadActivityName(&activity_name))
+    return false;
+
+  std::string activity_label;
+  if (!data.ReadActivityLabel(&activity_label))
+    return false;
+
+  *out = arc::IntentFilter(package_name, activity_name, activity_label,
+                           std::move(actions), std::move(authorities),
+                           std::move(paths), std::move(schemes),
+                           std::move(mime_types));
   return true;
 }
 

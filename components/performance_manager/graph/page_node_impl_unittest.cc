@@ -23,6 +23,14 @@ using PageNodeImplTest = GraphTestHarness;
 const std::string kHtmlMimeType = "text/html";
 const std::string kPdfMimeType = "application/pdf";
 
+const PageNode* ToPublic(PageNodeImpl* page_node) {
+  return page_node;
+}
+
+const FrameNode* ToPublic(FrameNodeImpl* frame_node) {
+  return frame_node;
+}
+
 }  // namespace
 
 TEST_F(PageNodeImplTest, SafeDowncast) {
@@ -71,36 +79,6 @@ TEST_F(PageNodeImplTest, RemoveFrame) {
 
   // Parent-child relationships should no longer exist.
   EXPECT_EQ(0u, GraphImplOperations::GetFrameNodes(page_node.get()).size());
-}
-
-TEST_F(PageNodeImplTest, CalculatePageCPUUsageForSinglePageInSingleProcess) {
-  MockSinglePageInSingleProcessGraph mock_graph(graph());
-  mock_graph.process->SetCPUUsage(40);
-  EXPECT_EQ(40, mock_graph.page->GetCPUUsage());
-}
-
-TEST_F(PageNodeImplTest, CalculatePageCPUUsageForMultiplePagesInSingleProcess) {
-  MockMultiplePagesInSingleProcessGraph mock_graph(graph());
-  mock_graph.process->SetCPUUsage(40);
-  EXPECT_EQ(20, mock_graph.page->GetCPUUsage());
-  EXPECT_EQ(20, mock_graph.other_page->GetCPUUsage());
-}
-
-TEST_F(PageNodeImplTest,
-       CalculatePageCPUUsageForSinglePageWithMultipleProcesses) {
-  MockSinglePageWithMultipleProcessesGraph mock_graph(graph());
-  mock_graph.process->SetCPUUsage(40);
-  mock_graph.other_process->SetCPUUsage(30);
-  EXPECT_EQ(70, mock_graph.page->GetCPUUsage());
-}
-
-TEST_F(PageNodeImplTest,
-       CalculatePageCPUUsageForMultiplePagesWithMultipleProcesses) {
-  MockMultiplePagesWithMultipleProcessesGraph mock_graph(graph());
-  mock_graph.process->SetCPUUsage(40);
-  mock_graph.other_process->SetCPUUsage(30);
-  EXPECT_EQ(20, mock_graph.page->GetCPUUsage());
-  EXPECT_EQ(50, mock_graph.other_page->GetCPUUsage());
 }
 
 TEST_F(PageNodeImplTest, TimeSinceLastVisibilityChange) {
@@ -223,6 +201,10 @@ class LenientMockObserver : public PageNodeImpl::Observer {
 
   MOCK_METHOD1(OnPageNodeAdded, void(const PageNode*));
   MOCK_METHOD1(OnBeforePageNodeRemoved, void(const PageNode*));
+  // Note that opener functionality is actually tested in the FrameNodeImpl
+  // and GraphImpl unittests.
+  MOCK_METHOD3(OnOpenerFrameNodeChanged,
+               void(const PageNode*, const FrameNode*, OpenedType));
   MOCK_METHOD1(OnIsVisibleChanged, void(const PageNode*));
   MOCK_METHOD1(OnIsAudibleChanged, void(const PageNode*));
   MOCK_METHOD1(OnIsLoadingChanged, void(const PageNode*));
@@ -232,7 +214,6 @@ class LenientMockObserver : public PageNodeImpl::Observer {
   MOCK_METHOD1(OnPageIsHoldingWebLockChanged, void(const PageNode*));
   MOCK_METHOD1(OnPageIsHoldingIndexedDBLockChanged, void(const PageNode*));
   MOCK_METHOD1(OnMainFrameUrlChanged, void(const PageNode*));
-  MOCK_METHOD1(OnPageAlmostIdleChanged, void(const PageNode*));
   MOCK_METHOD1(OnMainFrameDocumentChanged, void(const PageNode*));
   MOCK_METHOD1(OnTitleUpdated, void(const PageNode*));
   MOCK_METHOD1(OnFaviconUpdated, void(const PageNode*));
@@ -297,11 +278,6 @@ TEST_F(PageNodeImplTest, ObserverWorks) {
   page_node->SetLifecycleStateForTesting(PageNodeImpl::LifecycleState::kFrozen);
   EXPECT_EQ(raw_page_node, obs.TakeNotifiedPageNode());
 
-  EXPECT_CALL(obs, OnPageAlmostIdleChanged(_))
-      .WillOnce(Invoke(&obs, &MockObserver::SetNotifiedPageNode));
-  page_node->SetPageAlmostIdleForTesting(true);
-  EXPECT_EQ(raw_page_node, obs.TakeNotifiedPageNode());
-
   const GURL kTestUrl = GURL("https://foo.com/");
   int64_t navigation_id = 0x1234;
   EXPECT_CALL(obs, OnMainFrameUrlChanged(_))
@@ -345,8 +321,6 @@ TEST_F(PageNodeImplTest, PublicInterface) {
 
   EXPECT_EQ(page_node->browser_context_id(),
             public_page_node->GetBrowserContextID());
-  EXPECT_EQ(page_node->page_almost_idle(),
-            public_page_node->IsPageAlmostIdle());
   EXPECT_EQ(page_node->is_visible(), public_page_node->IsVisible());
   EXPECT_EQ(page_node->is_audible(), public_page_node->IsAudible());
   EXPECT_EQ(page_node->is_loading(), public_page_node->IsLoading());
@@ -361,6 +335,48 @@ TEST_F(PageNodeImplTest, PublicInterface) {
   EXPECT_EQ(page_node->main_frame_url(), public_page_node->GetMainFrameUrl());
   EXPECT_EQ(page_node->contents_mime_type(),
             public_page_node->GetContentsMimeType());
+}
+
+TEST_F(PageNodeImplTest, GetMainFrameNodes) {
+  auto process = CreateNode<ProcessNodeImpl>();
+  auto page = CreateNode<PageNodeImpl>();
+  auto frame1 = CreateFrameNodeAutoId(process.get(), page.get());
+  auto frame2 = CreateFrameNodeAutoId(process.get(), page.get());
+
+  auto frames = ToPublic(page.get())->GetMainFrameNodes();
+  EXPECT_THAT(frames, testing::UnorderedElementsAre(ToPublic(frame1.get()),
+                                                    ToPublic(frame2.get())));
+}
+
+TEST_F(PageNodeImplTest, VisitMainFrameNodes) {
+  auto process = CreateNode<ProcessNodeImpl>();
+  auto page = CreateNode<PageNodeImpl>();
+  auto frame1 = CreateFrameNodeAutoId(process.get(), page.get());
+  auto frame2 = CreateFrameNodeAutoId(process.get(), page.get());
+
+  std::set<const FrameNode*> visited;
+  EXPECT_TRUE(
+      ToPublic(page.get())
+          ->VisitMainFrameNodes(base::BindRepeating(
+              [](std::set<const FrameNode*>* visited, const FrameNode* frame) {
+                EXPECT_TRUE(visited->insert(frame).second);
+                return true;
+              },
+              base::Unretained(&visited))));
+  EXPECT_THAT(visited, testing::UnorderedElementsAre(ToPublic(frame1.get()),
+                                                     ToPublic(frame2.get())));
+
+  // Do an aborted visit.
+  visited.clear();
+  EXPECT_FALSE(
+      ToPublic(page.get())
+          ->VisitMainFrameNodes(base::BindRepeating(
+              [](std::set<const FrameNode*>* visited, const FrameNode* frame) {
+                EXPECT_TRUE(visited->insert(frame).second);
+                return false;
+              },
+              base::Unretained(&visited))));
+  EXPECT_EQ(1u, visited.size());
 }
 
 }  // namespace performance_manager

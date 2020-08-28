@@ -5,7 +5,7 @@
 #ifndef CHROME_BROWSER_UI_ASH_ASSISTANT_ASSISTANT_WEB_VIEW_IMPL_H_
 #define CHROME_BROWSER_UI_ASH_ASSISTANT_ASSISTANT_WEB_VIEW_IMPL_H_
 
-#include "ash/public/cpp/assistant/assistant_web_view_2.h"
+#include "ash/public/cpp/assistant/assistant_web_view.h"
 #include "base/observer_list.h"
 #include "content/public/browser/web_contents_delegate.h"
 #include "content/public/browser/web_contents_observer.h"
@@ -20,18 +20,19 @@ namespace views {
 class WebView;
 }  // namespace views
 
-// Implements AssistantWebView2 used by Ash to work around dependency
+// Implements AssistantWebView used by Ash to work around dependency
 // restrictions.
-class AssistantWebViewImpl : public ash::AssistantWebView2,
+class AssistantWebViewImpl : public ash::AssistantWebView,
                              public content::WebContentsDelegate,
                              public content::WebContentsObserver {
  public:
   explicit AssistantWebViewImpl(Profile* profile, const InitParams& params);
-  AssistantWebViewImpl(AssistantWebViewImpl& copy) = delete;
-  AssistantWebViewImpl& operator=(AssistantWebViewImpl& assign) = delete;
   ~AssistantWebViewImpl() override;
 
-  // ash::AssistantWebView2:
+  AssistantWebViewImpl(AssistantWebViewImpl&) = delete;
+  AssistantWebViewImpl& operator=(AssistantWebViewImpl&) = delete;
+
+  // ash::AssistantWebView:
   const char* GetClassName() const override;
   gfx::NativeView GetNativeView() override;
   void ChildPreferredSizeChanged(views::View* child) override;
@@ -40,6 +41,7 @@ class AssistantWebViewImpl : public ash::AssistantWebView2,
   void RemoveObserver(Observer* observer) override;
   bool GoBack() override;
   void Navigate(const GURL& url) override;
+  void AddedToWidget() override;
 
   // content::WebContentsDelegate:
   bool IsWebContentsCreationOverridden(
@@ -63,24 +65,32 @@ class AssistantWebViewImpl : public ash::AssistantWebView2,
   void RenderViewHostChanged(content::RenderViewHost* old_host,
                              content::RenderViewHost* new_host) override;
   void NavigationEntriesDeleted() override;
-  void DidAttachInterstitialPage() override;
-  void DidDetachInterstitialPage() override;
 
  private:
   void InitWebContents(Profile* profile);
   void InitLayout(Profile* profile);
 
+  void NotifyDidSuppressNavigation(const GURL& url,
+                                   WindowOpenDisposition disposition,
+                                   bool from_user_gesture);
+
   void UpdateCanGoBack();
+
+  // Update the window property that stores whether we can minimize on a back
+  // event.
+  void UpdateMinimizeOnBackProperty();
 
   const InitParams params_;
 
   std::unique_ptr<content::WebContents> web_contents_;
-  std::unique_ptr<views::WebView> web_view_;
+  views::WebView* web_view_ = nullptr;
 
   // Whether or not the embedded |web_contents_| can go back.
   bool can_go_back_ = false;
 
   base::ObserverList<Observer> observers_;
+
+  base::WeakPtrFactory<AssistantWebViewImpl> weak_factory_{this};
 };
 
 #endif  // CHROME_BROWSER_UI_ASH_ASSISTANT_ASSISTANT_WEB_VIEW_IMPL_H_

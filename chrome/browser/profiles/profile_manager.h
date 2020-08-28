@@ -17,7 +17,6 @@
 
 #include "base/files/file_path.h"
 #include "base/gtest_prod_util.h"
-#include "base/macros.h"
 #include "base/observer_list.h"
 #include "base/threading/thread_checker.h"
 #include "build/build_config.h"
@@ -41,6 +40,8 @@ class ProfileManager : public content::NotificationObserver,
   using ProfileLoadedCallback = base::OnceCallback<void(Profile*)>;
 
   explicit ProfileManager(const base::FilePath& user_data_dir);
+  ProfileManager(const ProfileManager&) = delete;
+  ProfileManager& operator=(const ProfileManager&) = delete;
   ~ProfileManager() override;
 
 #if BUILDFLAG(ENABLE_SESSION_SERVICE)
@@ -102,6 +103,9 @@ class ProfileManager : public content::NotificationObserver,
   // TODO(bauerb): Migrate calls from other code to GetProfileByPath(), then
   // make this method private.
   Profile* GetProfile(const base::FilePath& profile_dir);
+
+  // Returns regular or off-the-record profile given its profile key.
+  static Profile* GetProfileFromProfileKey(ProfileKey* profile_key);
 
   // Returns total number of profiles available on this machine.
   size_t GetNumberOfProfiles();
@@ -234,11 +238,9 @@ class ProfileManager : public content::NotificationObserver,
   // Register and add testing profile to the ProfileManager. Use ONLY in tests.
   // This allows the creation of Profiles outside of the standard creation path
   // for testing. If |addToStorage|, adds to ProfileAttributesStorage as well.
-  // If |start_deferred_task_runners|, starts the deferred task runners.
   // Use ONLY in tests.
   void RegisterTestingProfile(std::unique_ptr<Profile> profile,
-                              bool addToStorage,
-                              bool start_deferred_task_runners);
+                              bool add_to_storage);
 
   const base::FilePath& user_data_dir() const { return user_data_dir_; }
 
@@ -279,7 +281,8 @@ class ProfileManager : public content::NotificationObserver,
   // were loaded.
   struct ProfileInfo {
     ProfileInfo(std::unique_ptr<Profile> profile, bool created);
-
+    ProfileInfo(const ProfileInfo&) = delete;
+    ProfileInfo& operator=(const ProfileInfo&) = delete;
     ~ProfileInfo();
 
     std::unique_ptr<Profile> profile;
@@ -288,9 +291,6 @@ class ProfileManager : public content::NotificationObserver,
     // List of callbacks to run when profile initialization is done. Note, when
     // profile is fully loaded this vector will be empty.
     std::vector<CreateCallback> callbacks;
-
-   private:
-    DISALLOW_COPY_AND_ASSIGN(ProfileInfo);
   };
 
   // Does final initial actions.
@@ -347,6 +347,9 @@ class ProfileManager : public content::NotificationObserver,
   // should be used carefully.
   Profile* GetProfileByPathInternal(const base::FilePath& path) const;
 
+  // Returns whether |path| is allowed for profile creation.
+  bool IsAllowedProfilePath(const base::FilePath& path) const;
+
   // Returns a ProfileInfoCache object which can be used to get information
   // about profiles without having to load them from disk.
   // Deprecated, use GetProfileAttributesStorage() instead.
@@ -382,6 +385,8 @@ class ProfileManager : public content::NotificationObserver,
   class BrowserListObserver : public ::BrowserListObserver {
    public:
     explicit BrowserListObserver(ProfileManager* manager);
+    BrowserListObserver(const BrowserListObserver&) = delete;
+    BrowserListObserver& operator=(const BrowserListObserver&) = delete;
     ~BrowserListObserver() override;
 
     // ::BrowserListObserver implementation.
@@ -391,7 +396,6 @@ class ProfileManager : public content::NotificationObserver,
 
    private:
     ProfileManager* profile_manager_;
-    DISALLOW_COPY_AND_ASSIGN(BrowserListObserver);
   };
 
   // If the |loaded_profile| has been loaded successfully (according to
@@ -463,8 +467,6 @@ class ProfileManager : public content::NotificationObserver,
   // enough to do as part of the mass refactor CL which introduced
   // |thread_checker_|, ref. https://codereview.chromium.org/2907253003/#msg37.
   THREAD_CHECKER(thread_checker_);
-
-  DISALLOW_COPY_AND_ASSIGN(ProfileManager);
 };
 
 // Same as the ProfileManager, but doesn't initialize some services of the
@@ -472,9 +474,9 @@ class ProfileManager : public content::NotificationObserver,
 class ProfileManagerWithoutInit : public ProfileManager {
  public:
   explicit ProfileManagerWithoutInit(const base::FilePath& user_data_dir);
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(ProfileManagerWithoutInit);
+  ProfileManagerWithoutInit(const ProfileManagerWithoutInit&) = delete;
+  ProfileManagerWithoutInit& operator=(const ProfileManagerWithoutInit&) =
+      delete;
 };
 
 #endif  // CHROME_BROWSER_PROFILES_PROFILE_MANAGER_H_

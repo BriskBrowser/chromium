@@ -26,13 +26,15 @@
 #include "components/version_info/version_info.h"
 
 #if defined(OS_ANDROID)
-#include "chrome/browser/android/feature_utilities.h"
 #include "chrome/browser/chrome_browser_field_trials_mobile.h"
+#include "chrome/browser/flags/android/cached_feature_flags.h"
 #else
 #include "chrome/browser/chrome_browser_field_trials_desktop.h"
 #endif
 
 #if defined(OS_CHROMEOS)
+#include "chrome/browser/chromeos/first_run/help_app_first_run_field_trial.h"
+#include "chrome/browser/chromeos/sync/split_settings_sync_field_trial.h"
 #include "chromeos/services/multidevice_setup/public/cpp/first_run_field_trial.h"
 #endif
 
@@ -90,6 +92,12 @@ void ChromeBrowserFieldTrials::SetupFeatureControllingFieldTrials(
     chromeos::multidevice_setup::CreateFirstRunFieldTrial(feature_list);
 #endif
   }
+#if defined(OS_CHROMEOS)
+  // These trials are fully client controlled and must be configured whether or
+  // not a seed is available.
+  split_settings_sync_field_trial::Create(feature_list, local_state_);
+  help_app_first_run_field_trial::Create(feature_list, local_state_);
+#endif
 }
 
 void ChromeBrowserFieldTrials::RegisterSyntheticTrials() {

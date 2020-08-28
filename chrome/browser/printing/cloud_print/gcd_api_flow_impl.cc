@@ -20,11 +20,12 @@
 #include "components/cloud_devices/common/cloud_devices_urls.h"
 #include "components/signin/public/identity_manager/identity_manager.h"
 #include "components/signin/public/identity_manager/primary_account_access_token_fetcher.h"
+#include "components/signin/public/identity_manager/scope_set.h"
 #include "google_apis/gaia/google_service_auth_error.h"
 #include "net/base/load_flags.h"
+#include "net/base/net_errors.h"
 #include "net/base/url_util.h"
 #include "net/http/http_status_code.h"
-#include "net/url_request/url_request_status.h"
 #include "services/network/public/cpp/resource_request.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
 #include "services/network/public/cpp/simple_url_loader.h"
@@ -100,7 +101,7 @@ GCDApiFlowImpl::~GCDApiFlowImpl() {}
 
 void GCDApiFlowImpl::Start(std::unique_ptr<Request> request) {
   request_ = std::move(request);
-  identity::ScopeSet oauth_scopes;
+  signin::ScopeSet oauth_scopes;
   oauth_scopes.insert(request_->GetOAuthScope());
   DCHECK(identity_manager_);
   token_fetcher_ = std::make_unique<signin::PrimaryAccountAccessTokenFetcher>(

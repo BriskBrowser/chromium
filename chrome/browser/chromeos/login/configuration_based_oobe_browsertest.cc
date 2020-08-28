@@ -6,6 +6,7 @@
 #include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_process_platform_part.h"
+#include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/chromeos/login/demo_mode/demo_setup_controller.h"
 #include "chrome/browser/chromeos/login/demo_mode/demo_setup_test_utils.h"
 #include "chrome/browser/chromeos/login/test/enrollment_helper_mixin.h"
@@ -18,7 +19,7 @@
 #include "chrome/browser/chromeos/login/test/oobe_configuration_waiter.h"
 #include "chrome/browser/chromeos/login/test/oobe_screen_waiter.h"
 #include "chrome/browser/chromeos/login/wizard_controller.h"
-#include "chrome/browser/chromeos/policy/browser_policy_connector_chromeos.h"
+#include "chrome/browser/chromeos/policy/enrollment_requisition_manager.h"
 #include "chrome/browser/ui/webui/chromeos/login/demo_preferences_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/demo_setup_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/eula_screen_handler.h"
@@ -32,9 +33,16 @@
 #include "chromeos/dbus/shill/shill_manager_client.h"
 #include "chromeos/network/network_state_handler.h"
 #include "chromeos/test/chromeos_test_utils.h"
+#include "chromeos/tpm/stub_install_attributes.h"
 #include "components/language/core/browser/pref_names.h"
 #include "components/prefs/pref_service.h"
+#include "content/public/browser/notification_registrar.h"
+#include "content/public/test/browser_test.h"
+#include "content/public/test/mock_notification_observer.h"
 #include "ui/base/ime/chromeos/input_method_util.h"
+
+using testing::_;
+using testing::Invoke;
 
 // Disabled due to flakiness: https://crbug.com/997685.
 #define MAYBE_TestDemoModeOfflineNetwork DISABLED_TestDemoModeOfflineNetwork
@@ -80,18 +88,6 @@ class OobeConfigurationTest : public OobeBaseTest {
         fake_policy_dir_.GetPath());
   }
 
-  void SetUpInProcessBrowserTestFixture() override {
-    OobeBaseTest::SetUpInProcessBrowserTestFixture();
-    OobeConfiguration::set_skip_check_for_testing(true);
-    std::unique_ptr<chromeos::DBusThreadManagerSetter> dbus_setter =
-        chromeos::DBusThreadManager::GetSetterForTesting();
-
-    fake_update_engine_client_ = new chromeos::FakeUpdateEngineClient();
-
-    dbus_setter->SetUpdateEngineClient(
-        std::unique_ptr<chromeos::UpdateEngineClient>(
-            fake_update_engine_client_));
-  }
 
   void SetUpCommandLine(base::CommandLine* command_line) override {
     // File name is based on the test name.
@@ -136,8 +132,6 @@ class OobeConfigurationTest : public OobeBaseTest {
   }
 
  protected:
-  // Owned by DBusThreadManagerSetter
-  chromeos::FakeUpdateEngineClient* fake_update_engine_client_;
   std::unique_ptr<base::AutoReset<bool>> branded_build_override_;
   base::ScopedTempDir fake_policy_dir_;
 
@@ -177,6 +171,22 @@ class OobeConfigurationEnrollmentTest : public OobeConfigurationTest {
 
  private:
   DISALLOW_COPY_AND_ASSIGN(OobeConfigurationEnrollmentTest);
+};
+
+class OobeConfigurationRollbackTest : public OobeConfigurationTest {
+ public:
+  OobeConfigurationRollbackTest() = default;
+  ~OobeConfigurationRollbackTest() override = default;
+
+ protected:
+  ScopedStubInstallAttributes test_install_attributes_{
+      StubInstallAttributes::CreateCloudManaged("example.com", "fake-id")};
+  content::MockNotificationObserver observer_;
+  content::NotificationRegistrar registrar_;
+  test::EnrollmentHelperMixin enrollment_helper_{&mixin_host_};
+
+ private:
+  DISALLOW_COPY_AND_ASSIGN(OobeConfigurationRollbackTest);
 };
 
 // Check that configuration lets correctly pass Welcome screen.
@@ -279,7 +289,7 @@ IN_PROC_BROWSER_TEST_F(OobeConfigurationTest, TestAcceptEula) {
   update_engine::StatusResult status;
   status.set_current_operation(update_engine::Operation::DOWNLOADING);
   status.set_progress(0.1);
-  fake_update_engine_client_->set_default_status(status);
+  update_engine_client()->set_default_status(status);
 
   LoadConfiguration();
   OobeScreenWaiter(UpdateView::kScreenId).Wait();
@@ -290,10 +300,8 @@ IN_PROC_BROWSER_TEST_F(OobeConfigurationTest, TestAcceptEula) {
 IN_PROC_BROWSER_TEST_F(OobeConfigurationTest, TestDeviceRequisition) {
   LoadConfiguration();
   OobeScreenWaiter(EulaView::kScreenId).Wait();
-  auto* policy_manager = g_browser_process->platform_part()
-                             ->browser_policy_connector_chromeos()
-                             ->GetDeviceCloudPolicyManager();
-  EXPECT_EQ(policy_manager->GetDeviceRequisition(), "some_requisition");
+  EXPECT_EQ(policy::EnrollmentRequisitionManager::GetDeviceRequisition(),
+            "some_requisition");
 }
 
 // Check that configuration allows to skip Update screen and get to Enrollment
@@ -328,6 +336,25 @@ IN_PROC_BROWSER_TEST_F(OobeConfigurationTestNoHID, TestShowHID) {
 IN_PROC_BROWSER_TEST_F(OobeConfigurationTestNoHID, TestSkipHIDDetection) {
   LoadConfiguration();
   OobeScreenWaiter(NetworkScreenView::kScreenId).Wait();
+}
+
+// Check that enrollment recovery is initiated and Chrome is restarted
+// afterwards.
+IN_PROC_BROWSER_TEST_F(OobeConfigurationRollbackTest,
+                       TestEnterpriseRollbackRecover) {
+  enrollment_helper_.ExpectEnrollmentMode(
+      policy::EnrollmentConfig::MODE_ENROLLED_ROLLBACK);
+  enrollment_helper_.ExpectRestoreAfterRollback();
+  enrollment_helper_.SetupClearAuth();
+
+  registrar_.Add(&observer_, chrome::NOTIFICATION_APP_TERMINATING,
+                 content::NotificationService::AllSources());
+  base::RunLoop run_loop;
+  EXPECT_CALL(observer_, Observe(chrome::NOTIFICATION_APP_TERMINATING, _, _))
+      .WillOnce(Invoke([&run_loop]() { run_loop.Quit(); }));
+
+  LoadConfiguration();
+  run_loop.Run();
 }
 
 }  // namespace chromeos

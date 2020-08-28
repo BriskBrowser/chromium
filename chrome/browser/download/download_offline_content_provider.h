@@ -20,6 +20,7 @@
 #include "components/offline_items_collection/core/offline_content_provider.h"
 #include "components/offline_items_collection/core/offline_item.h"
 
+// TODO(xingliu): Remove using in the header files.
 using DownloadItem = download::DownloadItem;
 using SimpleDownloadManagerCoordinator =
     download::SimpleDownloadManagerCoordinator;
@@ -29,7 +30,7 @@ using OfflineContentProvider = offline_items_collection::OfflineContentProvider;
 using OfflineContentAggregator =
     offline_items_collection::OfflineContentAggregator;
 using UpdateDelta = offline_items_collection::UpdateDelta;
-using LaunchLocation = offline_items_collection::LaunchLocation;
+using OpenParams = offline_items_collection::OpenParams;
 
 class Profile;
 class SkBitmap;
@@ -59,7 +60,7 @@ class DownloadOfflineContentProvider
   // full browser process to be started as mentioned below.
 
   // Methods that require full browser process.
-  void OpenItem(LaunchLocation location, const ContentId& id) override;
+  void OpenItem(const OpenParams& open_params, const ContentId& id) override;
   void RemoveItem(const ContentId& id) override;
   void GetItemById(
       const ContentId& id,
@@ -75,6 +76,10 @@ class DownloadOfflineContentProvider
   void RenameItem(const ContentId& id,
                   const std::string& name,
                   RenameCallback callback) override;
+  void ChangeSchedule(
+      const offline_items_collection::ContentId& id,
+      base::Optional<offline_items_collection::OfflineItemSchedule> schedule)
+      override;
 
   // Methods that can be run in reduced mode.
   void CancelDownload(const ContentId& id) override;

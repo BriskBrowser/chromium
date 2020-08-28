@@ -4,6 +4,7 @@
 
 #include "third_party/blink/renderer/core/fullscreen/element_fullscreen.h"
 
+#include "third_party/blink/renderer/bindings/core/v8/v8_fullscreen_options.h"
 #include "third_party/blink/renderer/core/frame/web_feature.h"
 #include "third_party/blink/renderer/core/fullscreen/fullscreen.h"
 #include "third_party/blink/renderer/platform/instrumentation/use_counter.h"
@@ -16,7 +17,7 @@ ScriptPromise ElementFullscreen::requestFullscreen(
     const FullscreenOptions* options,
     ExceptionState& exception_state) {
   return Fullscreen::RequestFullscreen(element, options,
-                                       Fullscreen::RequestType::kUnprefixed,
+                                       FullscreenRequestType::kUnprefixed,
                                        script_state, &exception_state);
 }
 
@@ -34,7 +35,7 @@ void ElementFullscreen::webkitRequestFullscreen(
                       WebFeature::kPrefixedElementRequestFullscreenInShadow);
   }
   Fullscreen::RequestFullscreen(element, options,
-                                Fullscreen::RequestType::kPrefixed);
+                                FullscreenRequestType::kPrefixed);
 }
 
 }  // namespace blink

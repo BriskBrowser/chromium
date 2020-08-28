@@ -18,6 +18,7 @@
 #import "ios/chrome/browser/ui/bubble/bubble_util.h"
 #import "ios/chrome/browser/ui/bubble/bubble_view_controller_presenter.h"
 #import "ios/chrome/browser/ui/commands/toolbar_commands.h"
+#import "ios/chrome/browser/ui/toolbar/public/features.h"
 #import "ios/chrome/browser/ui/util/named_guide.h"
 #import "ios/chrome/browser/ui/util/named_guide_util.h"
 #include "ios/chrome/browser/ui/util/ui_util.h"
@@ -57,8 +58,10 @@ const CGFloat kBubblePresentationDelay = 1;
     BubbleViewControllerPresenter* tabTipBubblePresenter;
 @property(nonatomic, strong, readwrite)
     BubbleViewControllerPresenter* incognitoTabTipBubblePresenter;
+@property(nonatomic, strong)
+    BubbleViewControllerPresenter* discoverFeedHeaderMenuTipBubblePresenter;
 
-@property(nonatomic, assign) ios::ChromeBrowserState* browserState;
+@property(nonatomic, assign) ChromeBrowserState* browserState;
 @property(nonatomic, weak) id<BubblePresenterDelegate> delegate;
 @property(nonatomic, weak) UIViewController* rootViewController;
 
@@ -66,19 +69,9 @@ const CGFloat kBubblePresentationDelay = 1;
 
 @implementation BubblePresenter
 
-@synthesize bottomToolbarTipBubblePresenter = _bottomToolbarTipBubblePresenter;
-@synthesize longPressToolbarTipBubblePresenter =
-    _longPressToolbarTipBubblePresenter;
-@synthesize tabTipBubblePresenter = _tabTipBubblePresenter;
-@synthesize incognitoTabTipBubblePresenter = _incognitoTabTipBubblePresenter;
-@synthesize browserState = _browserState;
-@synthesize delegate = _delegate;
-@synthesize dispatcher = _dispatcher;
-@synthesize rootViewController = _rootViewController;
-
 #pragma mark - Public
 
-- (instancetype)initWithBrowserState:(ios::ChromeBrowserState*)browserState
+- (instancetype)initWithBrowserState:(ChromeBrowserState*)browserState
                             delegate:(id<BubblePresenterDelegate>)delegate
                   rootViewController:(UIViewController*)rootViewController {
   self = [super init];
@@ -90,7 +83,7 @@ const CGFloat kBubblePresentationDelay = 1;
   return self;
 }
 
-- (void)presentBubblesIfEligible {
+- (void)showHelpBubbleIfEligible {
   DCHECK(self.browserState);
   // Waits to present the bubbles until the feature engagement tracker database
   // is fully initialized. This method requires that |self.browserState| is not
@@ -115,7 +108,7 @@ const CGFloat kBubblePresentationDelay = 1;
       ->AddOnInitializedCallback(base::BindRepeating(onInitializedBlock));
 }
 
-- (void)presentLongPressBubbleIfEligible {
+- (void)showLongPressHelpBubbleIfEligible {
   DCHECK(self.browserState);
   // Waits to present the bubble until the feature engagement tracker database
   // is fully initialized. This method requires that |self.browserState| is not
@@ -135,11 +128,12 @@ const CGFloat kBubblePresentationDelay = 1;
       ->AddOnInitializedCallback(base::BindRepeating(onInitializedBlock));
 }
 
-- (void)dismissBubbles {
+- (void)hideAllHelpBubbles {
   [self.tabTipBubblePresenter dismissAnimated:NO];
   [self.incognitoTabTipBubblePresenter dismissAnimated:NO];
   [self.bottomToolbarTipBubblePresenter dismissAnimated:NO];
   [self.longPressToolbarTipBubblePresenter dismissAnimated:NO];
+  [self.discoverFeedHeaderMenuTipBubblePresenter dismissAnimated:NO];
 }
 
 - (void)userEnteredTabSwitcher {
@@ -167,9 +161,10 @@ const CGFloat kBubblePresentationDelay = 1;
   if (!self.incognitoTabTipBubblePresenter.isUserEngaged)
     [self presentNewIncognitoTabTipBubble];
 
-  // The bottom toolbar doesn't use the isUserEngaged, so don't check if the
-  // user is engaged here.
+  // The bottom toolbar and Discover feed header menu don't use the
+  // isUserEngaged, so don't check if the user is engaged here.
   [self presentBottomToolbarTipBubble];
+  [self presentDiscoverFeedHeaderTipBubble];
 }
 
 - (void)presentLongPressBubble {
@@ -183,8 +178,9 @@ const CGFloat kBubblePresentationDelay = 1;
       IsSplitToolbarMode() ? BubbleArrowDirectionDown : BubbleArrowDirectionUp;
   NSString* text =
       l10n_util::GetNSString(IDS_IOS_LONG_PRESS_TOOLBAR_IPH_PROMOTION_TEXT);
-  CGPoint searchButtonAnchor =
-      IsRegularXRegularSizeClass()
+  CGPoint tabGridButtonAnchor =
+      IsRegularXRegularSizeClass() &&
+              !base::FeatureList::IsEnabled(kChangeTabSwitcherPosition)
           ? [self anchorPointToGuide:kTabStripTabSwitcherGuide
                            direction:arrowDirection]
           : [self anchorPointToGuide:kTabSwitcherGuide
@@ -201,7 +197,7 @@ const CGFloat kBubblePresentationDelay = 1;
         voiceOverAnnouncement:
             l10n_util::GetNSString(
                 IDS_IOS_LONG_PRESS_TOOLBAR_IPH_PROMOTION_VOICE_OVER)
-                  anchorPoint:searchButtonAnchor];
+                  anchorPoint:tabGridButtonAnchor];
   if (!presenter)
     return;
 
@@ -244,8 +240,8 @@ presentBubbleForFeature:(const base::Feature&)feature
   BubbleArrowDirection arrowDirection = BubbleArrowDirectionDown;
   NSString* text = l10n_util::GetNSStringWithFixup(
       IDS_IOS_BOTTOM_TOOLBAR_IPH_PROMOTION_TEXT);
-  CGPoint searchButtonAnchor =
-      [self anchorPointToGuide:kSearchButtonGuide direction:arrowDirection];
+  CGPoint newTabButtonAnchor = [self anchorPointToGuide:kNewTabButtonGuide
+                                              direction:arrowDirection];
 
   // If the feature engagement tracker does not consider it valid to display
   // the tip, then end early to prevent the potential reassignment of the
@@ -258,13 +254,41 @@ presentBubbleForFeature:(const base::Feature&)feature
         voiceOverAnnouncement:
             l10n_util::GetNSString(
                 IDS_IOS_BOTTOM_TOOLBAR_IPH_PROMOTION_VOICE_OVER)
-                  anchorPoint:searchButtonAnchor];
+                  anchorPoint:newTabButtonAnchor];
   if (!presenter)
     return;
 
   self.bottomToolbarTipBubblePresenter = presenter;
   feature_engagement::TrackerFactory::GetForBrowserState(self.browserState)
       ->NotifyEvent(feature_engagement::events::kBottomToolbarOpened);
+}
+
+// Presents a bubble associated with the Discover feed header's menu button.
+- (void)presentDiscoverFeedHeaderTipBubble {
+  if (![self canPresentBubble])
+    return;
+
+  BubbleArrowDirection arrowDirection = BubbleArrowDirectionDown;
+  NSString* text =
+      l10n_util::GetNSStringWithFixup(IDS_IOS_DISCOVER_FEED_HEADER_IPH);
+  CGPoint discoverFeedHeaderAnchor =
+      [self anchorPointToGuide:kDiscoverFeedHeaderMenuGuide
+                     direction:arrowDirection];
+
+  // If the feature engagement tracker does not consider it valid to display
+  // the new tab tip, then end early to prevent the potential reassignment
+  // of the existing |tabTipBubblePresenter| to nil.
+  BubbleViewControllerPresenter* presenter = [self
+      presentBubbleForFeature:feature_engagement::kIPHDiscoverFeedHeaderFeature
+                    direction:arrowDirection
+                    alignment:BubbleAlignmentTrailing
+                         text:text
+        voiceOverAnnouncement:nil
+                  anchorPoint:discoverFeedHeaderAnchor];
+  if (!presenter)
+    return;
+
+  self.discoverFeedHeaderMenuTipBubblePresenter = presenter;
 }
 
 // Optionally presents a bubble associated with the new tab tip in-product help
@@ -288,7 +312,8 @@ presentBubbleForFeature:(const base::Feature&)feature
   NSString* text =
       l10n_util::GetNSStringWithFixup(IDS_IOS_NEW_TAB_IPH_PROMOTION_TEXT);
   CGPoint tabSwitcherAnchor;
-  if (IsRegularXRegularSizeClass()) {
+  if (IsRegularXRegularSizeClass() &&
+      !base::FeatureList::IsEnabled(kChangeTabSwitcherPosition)) {
     tabSwitcherAnchor = [self anchorPointToGuide:kTabStripTabSwitcherGuide
                                        direction:arrowDirection];
   } else {
@@ -341,7 +366,7 @@ presentBubbleForFeature:(const base::Feature&)feature
 
   self.incognitoTabTipBubblePresenter = presenter;
 
-  [self.dispatcher triggerToolsMenuButtonAnimation];
+  [self.toolbarHandler triggerToolsMenuButtonAnimation];
 }
 
 #pragma mark - Private Utils

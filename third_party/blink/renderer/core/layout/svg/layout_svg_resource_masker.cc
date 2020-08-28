@@ -36,14 +36,11 @@ LayoutSVGResourceMasker::LayoutSVGResourceMasker(SVGMaskElement* node)
 
 LayoutSVGResourceMasker::~LayoutSVGResourceMasker() = default;
 
-void LayoutSVGResourceMasker::RemoveAllClientsFromCache(
-    bool mark_for_invalidation) {
+void LayoutSVGResourceMasker::RemoveAllClientsFromCache() {
   cached_paint_record_.reset();
   mask_content_boundaries_ = FloatRect();
-  MarkAllClientsForInvalidation(
-      mark_for_invalidation ? SVGResourceClient::kLayoutInvalidation |
-                                  SVGResourceClient::kBoundariesInvalidation
-                            : SVGResourceClient::kParentOnlyInvalidation);
+  MarkAllClientsForInvalidation(SVGResourceClient::kLayoutInvalidation |
+                                SVGResourceClient::kBoundariesInvalidation);
 }
 
 sk_sp<const PaintRecord> LayoutSVGResourceMasker::CreatePaintRecord(
@@ -96,17 +93,13 @@ void LayoutSVGResourceMasker::CalculateMaskContentVisualRect() {
 }
 
 SVGUnitTypes::SVGUnitType LayoutSVGResourceMasker::MaskUnits() const {
-  return To<SVGMaskElement>(GetElement())
-      ->maskUnits()
-      ->CurrentValue()
-      ->EnumValue();
+  return To<SVGMaskElement>(GetElement())->maskUnits()->CurrentEnumValue();
 }
 
 SVGUnitTypes::SVGUnitType LayoutSVGResourceMasker::MaskContentUnits() const {
   return To<SVGMaskElement>(GetElement())
       ->maskContentUnits()
-      ->CurrentValue()
-      ->EnumValue();
+      ->CurrentEnumValue();
 }
 
 FloatRect LayoutSVGResourceMasker::ResourceBoundingBox(

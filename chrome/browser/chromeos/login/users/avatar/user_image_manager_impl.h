@@ -76,7 +76,7 @@ class UserImageManagerImpl : public UserImageManager,
   static const char kImageURLNodeName[];
 
  private:
-  friend class UserImageManagerTest;
+  friend class UserImageManagerTestBase;
 
   // Every image load or update is encapsulated by a Job. Whenever an image load
   // or update is requested for a user, the Job currently running for that user
@@ -162,15 +162,6 @@ class UserImageManagerImpl : public UserImageManager,
   // currently logged-in user (and not just the full name). Only valid when a
   // download is currently in progress.
   bool downloading_profile_image_;
-
-  // Download reason given to DownloadProfileImage(), used for UMA histograms.
-  // Only valid when a download is currently in progress and
-  // |downloading_profile_image_| is true.
-  std::string profile_image_download_reason_;
-
-  // Time when the profile image download started. Only valid when a download is
-  // currently in progress and |downloading_profile_image_| is true.
-  base::TimeTicks profile_image_load_start_time_;
 
   // Downloader for the user's profile data. NULL when no download is
   // currently in progress.

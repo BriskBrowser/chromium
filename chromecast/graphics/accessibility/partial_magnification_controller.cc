@@ -11,7 +11,7 @@
 #include "ui/compositor/layer.h"
 #include "ui/compositor/paint_recorder.h"
 #include "ui/events/event.h"
-#include "ui/events/event_constants.h"
+#include "ui/events/types/event_type.h"
 #include "ui/gfx/shadow_value.h"
 #include "ui/gfx/skia_paint_util.h"
 #include "ui/views/widget/widget.h"
@@ -202,6 +202,7 @@ PartialMagnificationController::PartialMagnificationController(
 PartialMagnificationController::~PartialMagnificationController() {
   CloseMagnifierWindow();
   root_window_->RemovePreTargetHandler(this);
+  CHECK(!views::WidgetObserver::IsInObserverList());
 }
 
 void PartialMagnificationController::SetEnabled(bool enabled) {

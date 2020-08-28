@@ -8,9 +8,12 @@
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/callback_helpers.h"
+#include "base/feature_list.h"
+#include "base/logging.h"
 #include "base/numerics/safe_conversions.h"
 #include "base/optional.h"
 #include "base/stl_util.h"
+#include "media/base/media_switches.h"
 #include "media/gpu/h264_decoder.h"
 #include "media/video/h264_level_limits.h"
 
@@ -39,6 +42,8 @@ H264Decoder::H264Decoder(std::unique_ptr<H264Accelerator> accelerator,
       profile_(profile),
       accelerator_(std::move(accelerator)) {
   DCHECK(accelerator_);
+  decoder_buffer_is_complete_frame_ =
+      base::FeatureList::IsEnabled(media::kH264DecoderBufferIsCompleteFrame);
   Reset();
 }
 
@@ -437,7 +442,7 @@ void H264Decoder::ConstructReferencePicListsB(
   std::sort(ref_pic_list_b1_.begin(), iter, POCAscCompare());
 
   // Now add [3] and sort by ascending long_term_pic_num
-  dpb_.GetShortTermRefPicsAppending(&ref_pic_list_b1_);
+  dpb_.GetLongTermRefPicsAppending(&ref_pic_list_b1_);
   std::sort(ref_pic_list_b1_.begin() + num_short_refs, ref_pic_list_b1_.end(),
             LongTermPicNumAscCompare());
 
@@ -567,6 +572,13 @@ bool H264Decoder::ModifyReferencePicList(const H264SliceHeader* slice_hdr,
           DVLOG(1) << "Malformed stream, no pic num " << pic_num_lx;
           return false;
         }
+
+        if (ref_idx_lx > num_ref_idx_lX_active_minus1) {
+          DVLOG(1) << "Bounds mismatch: expected " << ref_idx_lx
+                   << " <= " << num_ref_idx_lX_active_minus1;
+          return false;
+        }
+
         ShiftRightAndInsert(ref_pic_listx, ref_idx_lx,
                             num_ref_idx_lX_active_minus1, pic);
         ref_idx_lx++;
@@ -1127,7 +1139,12 @@ bool H264Decoder::HandleFrameNumGap(int frame_num) {
 
   if (!sps->gaps_in_frame_num_value_allowed_flag) {
     DVLOG(1) << "Invalid frame_num: " << frame_num;
-    return false;
+    // TODO(b:129119729, b:146914440): Youtube android app sometimes sends an
+    // invalid frame number after a seek. The sequence goes like:
+    // Seek, SPS, PPS, IDR-frame, non-IDR, ... non-IDR with invalid number.
+    // The only way to work around this reliably is to ignore this error.
+    // Video playback is not affected, no artefacts are visible.
+    // return false;
   }
 
   DVLOG(2) << "Handling frame_num gap: " << prev_ref_frame_num_ << "->"
@@ -1292,10 +1309,14 @@ H264Decoder::DecodeResult H264Decoder::Decode() {
     if (!curr_nalu_) {
       curr_nalu_.reset(new H264NALU());
       par_res = parser_.AdvanceToNextNALU(curr_nalu_.get());
-      if (par_res == H264Parser::kEOStream)
+      if (par_res == H264Parser::kEOStream) {
+        if (decoder_buffer_is_complete_frame_)
+          CHECK_ACCELERATOR_RESULT(FinishPrevFrameIfPresent());
+
         return kRanOutOfStreamData;
-      else if (par_res != H264Parser::kOk)
+      } else if (par_res != H264Parser::kOk) {
         SET_ERROR_AND_RETURN();
+      }
 
       DVLOG(4) << "New NALU: " << static_cast<int>(curr_nalu_->nal_unit_type);
     }

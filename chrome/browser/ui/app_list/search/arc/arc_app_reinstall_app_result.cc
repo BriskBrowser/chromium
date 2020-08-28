@@ -32,9 +32,10 @@ ArcAppReinstallAppResult::ArcAppReinstallAppResult(
   set_id(kPlayStoreAppUrlPrefix + mojom_data->package_name);
   SetResultType(ash::AppListSearchResultType::kPlayStoreReinstallApp);
   SetTitle(base::UTF8ToUTF16(mojom_data->title));
-  SetDisplayType(ash::SearchResultDisplayType::kRecommendation);
-  SetDisplayLocation(ash::SearchResultDisplayLocation::kTileListContainer);
+  SetDisplayType(ash::SearchResultDisplayType::kTile);
+  SetMetricsType(ash::PLAY_STORE_REINSTALL_APP);
   SetDisplayIndex(ash::SearchResultDisplayIndex::kSixthIndex);
+  SetIsRecommendation(true);
   set_relevance(kAppReinstallRelevance);
   SetNotifyVisibilityChange(true);
   SetIcon(skia_icon);
@@ -57,10 +58,6 @@ void ArcAppReinstallAppResult::Open(int /*event_flags*/) {
 void ArcAppReinstallAppResult::OnVisibilityChanged(bool visibility) {
   ChromeSearchResult::OnVisibilityChanged(visibility);
   observer_->OnVisibilityChanged(package_name_, visibility);
-}
-
-ash::SearchResultType ArcAppReinstallAppResult::GetSearchResultType() const {
-  return ash::PLAY_STORE_REINSTALL_APP;
 }
 
 }  // namespace app_list

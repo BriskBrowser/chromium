@@ -13,8 +13,8 @@
 #include <utility>
 
 #include "base/format_macros.h"
-#include "base/fuchsia/default_context.h"
 #include "base/fuchsia/fuchsia_logging.h"
+#include "base/fuchsia/process_context.h"
 #include "base/strings/stringprintf.h"
 #include "net/base/ip_endpoint.h"
 #include "net/base/network_interfaces.h"
@@ -60,9 +60,11 @@ NetworkInterface NetworkInterfaceFromAddress(
 
 NetworkChangeNotifier::ConnectionType ConvertConnectionType(
     const fuchsia::netstack::NetInterface& iface) {
-  if (!(iface.flags & fuchsia::netstack::NetInterfaceFlagUp)) {
+  if ((iface.flags & fuchsia::netstack::Flags::UP) !=
+      fuchsia::netstack::Flags::UP) {
     return NetworkChangeNotifier::CONNECTION_NONE;
-  } else if (iface.features & fuchsia::hardware::ethernet::INFO_FEATURE_WLAN) {
+  } else if ((iface.features & fuchsia::hardware::ethernet::Features::WLAN) ==
+             fuchsia::hardware::ethernet::Features::WLAN) {
     return NetworkChangeNotifier::CONNECTION_WIFI;
   }
   return NetworkChangeNotifier::CONNECTION_UNKNOWN;
@@ -88,7 +90,10 @@ std::vector<NetworkInterface> NetInterfaceToNetworkInterfaces(
     return output;
   }
 
-  output.push_back(NetworkInterfaceFromAddress(iface_in, 0));
+  // It is possible for the interface not to have an IPv4 address.
+  NetworkInterface ipv4_interface = NetworkInterfaceFromAddress(iface_in, 0);
+  if (!ipv4_interface.address.IsZero())
+    output.push_back(std::move(ipv4_interface));
 
   // Append interface entries for all additional IPv6 addresses.
   for (size_t i = 0; i < iface_in.ipv6addrs.size(); ++i) {
@@ -104,8 +109,7 @@ bool GetNetworkList(NetworkInterfaceList* networks, int policy) {
   DCHECK(networks);
 
   fuchsia::netstack::NetstackSyncPtr netstack;
-  base::fuchsia::ComponentContextForCurrentProcess()->svc()->Connect(
-      netstack.NewRequest());
+  base::ComponentContextForProcess()->svc()->Connect(netstack.NewRequest());
 
   // TODO(kmarshall): Use NetworkChangeNotifier's cached interface list.
   std::vector<fuchsia::netstack::NetInterface> interfaces;
@@ -119,7 +123,8 @@ bool GetNetworkList(NetworkInterfaceList* networks, int policy) {
     if ((internal::ConvertConnectionType(interface) ==
          NetworkChangeNotifier::CONNECTION_NONE) ||
         (interface.features &
-         fuchsia::hardware::ethernet::INFO_FEATURE_LOOPBACK)) {
+         fuchsia::hardware::ethernet::Features::LOOPBACK) ==
+            fuchsia::hardware::ethernet::Features::LOOPBACK) {
       continue;
     }
 

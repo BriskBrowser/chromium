@@ -7,11 +7,11 @@ package org.chromium.chrome.browser.keyboard_accessory;
 import android.view.View;
 import android.view.ViewStub;
 
-import org.chromium.chrome.browser.compositor.CompositorViewResizer;
 import org.chromium.chrome.browser.keyboard_accessory.data.KeyboardAccessoryData;
 import org.chromium.chrome.browser.keyboard_accessory.data.PropertyProvider;
 import org.chromium.components.autofill.AutofillDelegate;
 import org.chromium.components.autofill.AutofillSuggestion;
+import org.chromium.components.browser_ui.bottomsheet.BottomSheetController;
 import org.chromium.ui.DropdownPopupWindow;
 import org.chromium.ui.base.WindowAndroid;
 
@@ -24,11 +24,13 @@ public interface ManualFillingComponent {
      * is called.
      * @param windowAndroid The window needed to listen to the keyboard and to connect to
      *         activity.
+     * @param sheetController A {@link BottomSheetController} to show the UI in.
      * @param barStub The {@link ViewStub} used to inflate the keyboard accessory bar.
      * @param sheetStub The {@link ViewStub} used to inflate the keyboard accessory bottom
      *         sheet.
      */
-    void initialize(WindowAndroid windowAndroid, ViewStub barStub, ViewStub sheetStub);
+    void initialize(WindowAndroid windowAndroid, BottomSheetController sheetController,
+            ViewStub barStub, ViewStub sheetStub);
 
     /**
      * Cleans up the manual UI by destroying the accessory bar and its bottom sheet.
@@ -107,14 +109,6 @@ public interface ManualFillingComponent {
      * Notifies the component that the activity it's living in was paused.
      */
     void onPause();
-
-    /**
-     * Returns a {@link CompositorViewResizer} that allows to access the combined height of
-     * KeyboardAccessoryCoordinator and AccessorySheetCoordinator, and to be
-     * notified when it changes.
-     * @return A {@link CompositorViewResizer}.
-     */
-    CompositorViewResizer getKeyboardExtensionViewResizer();
 
     /**
      * Returns whether the Keyboard is replaced by an accessory sheet or is about to do so.

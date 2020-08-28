@@ -68,7 +68,7 @@ Polymer({
     isScanOngoing_: {type: Boolean, value: false},
 
     /**
-     * Cached Cellular Device state or undefined if there is no Cellular device.
+     * The cellular DeviceState, or undefined if there is no Cellular device.
      * @private {!OncMojo.DeviceStateProperties|undefined} deviceState
      */
     cellularDeviceState_: Object,
@@ -95,10 +95,13 @@ Polymer({
     this.refreshNetworks();
 
     const INTERVAL_MS = 10 * 1000;
-    const kAll = chromeos.networkConfig.mojom.NetworkType.kAll;
-    this.networkConfig_.requestNetworkScan(kAll);
+    // Request only WiFi network scans. Tether and Cellular scans are not useful
+    // here. Cellular scans are disruptive and should only be triggered by
+    // explicit user action.
+    const kWiFi = chromeos.networkConfig.mojom.NetworkType.kWiFi;
+    this.networkConfig_.requestNetworkScan(kWiFi);
     this.scanIntervalId_ = window.setInterval(function() {
-      this.networkConfig_.requestNetworkScan(kAll);
+      this.networkConfig_.requestNetworkScan(kWiFi);
     }.bind(this), INTERVAL_MS);
   },
 
@@ -258,10 +261,6 @@ Polymer({
       return;  // No Cellular network
     }
 
-    const cellular =
-        OncMojo.getDefaultNetworkState(mojom.NetworkType.kCellular);
-    cellular.typeState.cellular.scanning = this.cellularDeviceState_.scanning;
-
     // Note: the default connectionState is kNotConnected.
     // TODO(khorimoto): Maybe set an 'initializing' CellularState property if
     // the device state is initializing, see TODO in network_list_item.js.
@@ -271,7 +270,8 @@ Polymer({
                  networkStates[0].type === mojom.NetworkType.kEthernet) ?
         1 :
         0;
-    networkStates.splice(idx, 0, cellular);
+    networkStates.splice(
+        idx, 0, OncMojo.getDefaultNetworkState(mojom.NetworkType.kCellular));
   },
 
   /**

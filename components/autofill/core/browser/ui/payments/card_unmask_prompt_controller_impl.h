@@ -10,6 +10,7 @@
 #include "base/callback.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
+#include "build/build_config.h"
 #include "components/autofill/core/browser/autofill_metrics.h"
 #include "components/autofill/core/browser/data_model/credit_card.h"
 #include "components/autofill/core/browser/payments/card_unmask_delegate.h"
@@ -21,8 +22,7 @@ class CardUnmaskPromptView;
 
 class CardUnmaskPromptControllerImpl : public CardUnmaskPromptController {
  public:
-  CardUnmaskPromptControllerImpl(PrefService* pref_service,
-                                 bool is_off_the_record);
+  explicit CardUnmaskPromptControllerImpl(PrefService* pref_service);
   virtual ~CardUnmaskPromptControllerImpl();
 
   // This should be OnceCallback<unique_ptr<CardUnmaskPromptView>> but there are
@@ -53,9 +53,13 @@ class CardUnmaskPromptControllerImpl : public CardUnmaskPromptController {
   base::string16 GetOkButtonLabel() const override;
   int GetCvcImageRid() const override;
   bool ShouldRequestExpirationDate() const override;
-  bool CanStoreLocally() const override;
   bool GetStoreLocallyStartState() const override;
+#if defined(OS_ANDROID)
+  int GetGooglePayImageRid() const override;
+  bool ShouldOfferWebauthn() const override;
   bool GetWebauthnOfferStartState() const override;
+  bool IsCardLocal() const override;
+#endif
   bool InputCvcIsValid(const base::string16& input_text) const override;
   bool InputExpirationIsValid(const base::string16& month,
                               const base::string16& year) const override;
@@ -66,7 +70,6 @@ class CardUnmaskPromptControllerImpl : public CardUnmaskPromptController {
  protected:
   // Exposed for testing.
   CardUnmaskPromptView* view() { return card_unmask_view_; }
-  void SetCreditCardForTesting(CreditCard test_card) { card_ = test_card; }
 
  private:
   bool AllowsRetry(AutofillClient::PaymentsRpcResult result);
@@ -75,7 +78,6 @@ class CardUnmaskPromptControllerImpl : public CardUnmaskPromptController {
 
   PrefService* pref_service_;
   bool new_card_link_clicked_ = false;
-  bool is_off_the_record_;
   CreditCard card_;
   AutofillClient::UnmaskCardReason reason_;
   base::WeakPtr<CardUnmaskDelegate> delegate_;

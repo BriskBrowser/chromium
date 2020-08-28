@@ -9,19 +9,26 @@
 #include "ios/chrome/browser/browser_state/chrome_browser_state.h"
 #include "ios/chrome/browser/infobars/infobar_badge_tab_helper.h"
 #include "ios/chrome/browser/infobars/infobar_badge_tab_helper_delegate.h"
+#include "ios/chrome/browser/infobars/infobar_ios.h"
+#include "ios/chrome/browser/infobars/infobar_manager_impl.h"
 #include "ios/chrome/browser/infobars/infobar_metrics_recorder.h"
 #import "ios/chrome/browser/infobars/infobar_type.h"
-#include "ios/chrome/browser/infobars/overlays/overlay_request_infobar_util.h"
+#import "ios/chrome/browser/infobars/overlays/infobar_overlay_request_inserter.h"
+#include "ios/chrome/browser/infobars/overlays/infobar_overlay_util.h"
 #include "ios/chrome/browser/main/browser.h"
 #import "ios/chrome/browser/overlays/public/overlay_presenter.h"
 #import "ios/chrome/browser/overlays/public/overlay_presenter_observer_bridge.h"
+#include "ios/chrome/browser/overlays/public/overlay_request_queue.h"
 #import "ios/chrome/browser/ui/badges/badge_button.h"
 #import "ios/chrome/browser/ui/badges/badge_consumer.h"
 #import "ios/chrome/browser/ui/badges/badge_item.h"
 #import "ios/chrome/browser/ui/badges/badge_static_item.h"
 #import "ios/chrome/browser/ui/badges/badge_tappable_item.h"
+#include "ios/chrome/browser/ui/badges/badge_type_util.h"
 #import "ios/chrome/browser/ui/commands/browser_coordinator_commands.h"
 #import "ios/chrome/browser/ui/commands/infobar_commands.h"
+#import "ios/chrome/browser/ui/infobars/infobar_feature.h"
+#import "ios/chrome/browser/ui/infobars/infobar_ui_delegate.h"
 #import "ios/chrome/browser/ui/list_model/list_model.h"
 #import "ios/chrome/browser/web_state_list/web_state_list.h"
 #import "ios/chrome/browser/web_state_list/web_state_list_observer_bridge.h"
@@ -31,11 +38,16 @@
 #endif
 
 namespace {
-// The number of Fullscreen badges
-const int kNumberOfFullScrenBadges = 1;
 // The minimum number of non-Fullscreen badges to display the overflow popup
 // menu.
 const int kMinimumNonFullScreenBadgesForOverflow = 2;
+// Historgram name for when an overflow badge was tapped.
+const char kInfobarOverflowBadgeTappedUserAction[] =
+    "MobileMessagesOverflowBadgeTapped";
+// Histogram name for when the overflow badge is shown
+const char kInfobarOverflowBadgeShownUserAction[] =
+    "MobileMessagesOverflowBadgeShown";
+
 }  // namespace
 
 @interface BadgeMediator () <InfobarBadgeTabHelperDelegate,
@@ -86,6 +98,9 @@ const int kMinimumNonFullScreenBadgesForOverflow = 2;
     // Set up the WebStateList and its observer.
     _webStateList = browser->GetWebStateList();
     _webState = _webStateList->GetActiveWebState();
+    if (_webState) {
+      InfobarBadgeTabHelper::FromWebState(_webState)->SetDelegate(self);
+    }
     _webStateListObserver = std::make_unique<WebStateListObserverBridge>(self);
     _webStateList->AddObserver(_webStateListObserver.get());
   }
@@ -152,8 +167,6 @@ const int kMinimumNonFullScreenBadgesForOverflow = 2;
 - (void)updateBadgesForActiveWebState {
   if (self.webState) {
     self.badges = [self.badgeTabHelper->GetInfobarBadgeItems() mutableCopy];
-    if (self.offTheRecordBadge)
-      [self.badges addObject:self.offTheRecordBadge];
   } else {
     self.badges = [NSMutableArray<id<BadgeItem>> array];
   }
@@ -168,18 +181,14 @@ const int kMinimumNonFullScreenBadgesForOverflow = 2;
   if (!self.badges)
     [self updateBadgesForActiveWebState];
 
-  // Show the overflow badge if there are multiple BadgeItems.  Otherwise, use
-  // the first badge if it's not fullscreen.
-  NSUInteger fullscreenBadgeCount = self.offTheRecordBadge ? 1U : 0U;
   BOOL shouldDisplayOverflowBadge =
-      self.badges.count - fullscreenBadgeCount > 1;
+      self.badges.count >= kMinimumNonFullScreenBadgesForOverflow;
   id<BadgeItem> displayedBadge = nil;
   if (shouldDisplayOverflowBadge) {
     displayedBadge = [[BadgeTappableItem alloc]
         initWithBadgeType:BadgeType::kBadgeTypeOverflow];
   } else {
-    id<BadgeItem> firstBadge = [self.badges firstObject];
-    displayedBadge = firstBadge.fullScreen ? nil : firstBadge;
+    displayedBadge = [self.badges firstObject];
   }
   // Update the consumer with the new badge items.
   [self.consumer setupWithDisplayedBadge:displayedBadge
@@ -193,34 +202,21 @@ const int kMinimumNonFullScreenBadgesForOverflow = 2;
   DCHECK(badgeButton.badgeType == BadgeType::kBadgeTypePasswordSave ||
          badgeButton.badgeType == BadgeType::kBadgeTypePasswordUpdate);
 
-  if (badgeButton.badgeType == BadgeType::kBadgeTypePasswordSave) {
-    [self.dispatcher displayModalInfobar:InfobarType::kInfobarTypePasswordSave];
-    [self recordMetricsForBadgeButton:badgeButton
-                          infobarType:InfobarType::kInfobarTypePasswordSave];
-  } else if (badgeButton.badgeType == BadgeType::kBadgeTypePasswordUpdate) {
-    [self.dispatcher
-        displayModalInfobar:InfobarType::kInfobarTypePasswordUpdate];
-    [self recordMetricsForBadgeButton:badgeButton
-                          infobarType:InfobarType::kInfobarTypePasswordUpdate];
-  }
+  [self handleTappedBadgeButton:badgeButton];
 }
 
 - (void)saveCardBadgeButtonTapped:(id)sender {
   BadgeButton* badgeButton = base::mac::ObjCCastStrict<BadgeButton>(sender);
   DCHECK_EQ(badgeButton.badgeType, BadgeType::kBadgeTypeSaveCard);
 
-  [self.dispatcher displayModalInfobar:InfobarType::kInfobarTypeSaveCard];
-  [self recordMetricsForBadgeButton:badgeButton
-                        infobarType:InfobarType::kInfobarTypeSaveCard];
+  [self handleTappedBadgeButton:badgeButton];
 }
 
 - (void)translateBadgeButtonTapped:(id)sender {
   BadgeButton* badgeButton = base::mac::ObjCCastStrict<BadgeButton>(sender);
   DCHECK_EQ(badgeButton.badgeType, BadgeType::kBadgeTypeTranslate);
 
-  [self.dispatcher displayModalInfobar:InfobarType::kInfobarTypeTranslate];
-  [self recordMetricsForBadgeButton:badgeButton
-                        infobarType:InfobarType::kInfobarTypeTranslate];
+  [self handleTappedBadgeButton:badgeButton];
 }
 
 - (void)overflowBadgeButtonTapped:(id)sender {
@@ -235,6 +231,9 @@ const int kMinimumNonFullScreenBadgesForOverflow = 2;
       [popupMenuBadges addObject:item];
     }
   }
+  // Log overflow badge tap.
+  base::RecordAction(
+      base::UserMetricsAction(kInfobarOverflowBadgeTappedUserAction));
   [self.dispatcher displayPopupMenuWithBadgeItems:popupMenuBadges];
   [self updateConsumerReadStatus];
   // TODO(crbug.com/976901): Add metric for this action.
@@ -327,12 +326,102 @@ const int kMinimumNonFullScreenBadgesForOverflow = 2;
     didChangeActiveWebState:(web::WebState*)newWebState
                 oldWebState:(web::WebState*)oldWebState
                     atIndex:(int)atIndex
-                     reason:(int)reason {
+                     reason:(ActiveWebStateChangeReason)reason {
   DCHECK_EQ(self.webStateList, webStateList);
   self.webState = newWebState;
 }
 
-#pragma mark - Helpers
+#pragma mark - Private
+
+// Directs consumer to update read status depending on the state of the
+// non-fullscreen badges.
+- (void)updateConsumerReadStatus {
+  for (id<BadgeItem> item in self.badges) {
+    if (!(item.badgeState & BadgeStateRead)) {
+      [self.consumer markDisplayedBadgeAsRead:NO];
+      return;
+    }
+  }
+  [self.consumer markDisplayedBadgeAsRead:YES];
+}
+
+// Gets the last fullscreen and non-fullscreen badges.
+// This assumes that there is only ever one fullscreen badge, so the last badge
+// in |badges| should be the only one.
+- (void)updateBadgesShown {
+  // The badge to be displayed alongside the fullscreen badge. Logic below
+  // currently assigns it to the last non-fullscreen badge in the list, since it
+  // works if there is only one non-fullscreen badge. Otherwise, where there are
+  // multiple non-fullscreen badges, additional logic below determines what
+  // badge will be shown.
+  id<BadgeItem> displayedBadge;
+  // The badge that is current displaying its banner. This will be set as the
+  // displayedBadge if there are multiple badges.
+  id<BadgeItem> presentingBadge;
+  for (id<BadgeItem> item in self.badges) {
+      if (item.badgeState & BadgeStatePresented) {
+        presentingBadge = item;
+      }
+      displayedBadge = item;
+  }
+
+  // Figure out what displayedBadge should be showing if there are multiple
+  // non-Fullscreen badges.
+  NSInteger count = [self.badges count];
+  if (count >= kMinimumNonFullScreenBadgesForOverflow) {
+    // If a badge's banner is being presented, then show that badge as the
+    // displayed badge. Otherwise, show the overflow badge.
+    displayedBadge = presentingBadge
+                         ? presentingBadge
+                         : [[BadgeTappableItem alloc]
+                               initWithBadgeType:BadgeType::kBadgeTypeOverflow];
+  } else {
+    // Since there is only one non-fullscreen badge, it will be fixed as the
+    // displayed badge, so mark it as read.
+    displayedBadge.badgeState |= BadgeStateRead;
+  }
+  if (displayedBadge.badgeType == BadgeType::kBadgeTypeOverflow) {
+    // Log that the overflow badge is being shown.
+    base::RecordAction(
+        base::UserMetricsAction(kInfobarOverflowBadgeShownUserAction));
+  }
+  [self.consumer updateDisplayedBadge:displayedBadge
+                      fullScreenBadge:self.offTheRecordBadge];
+  [self updateConsumerReadStatus];
+}
+
+// Shows the modal UI when |button| is tapped.
+- (void)handleTappedBadgeButton:(BadgeButton*)button {
+  InfobarType infobarType = InfobarTypeForBadgeType(button.badgeType);
+  if (base::FeatureList::IsEnabled(kInfobarOverlayUI)) {
+    DCHECK(self.webState);
+    InfoBarIOS* infobar = [self infobarWithType:infobarType];
+    DCHECK(infobar);
+    InfobarOverlayRequestInserter::CreateForWebState(self.webState);
+    InsertParams params(infobar);
+    params.overlay_type = InfobarOverlayType::kModal;
+    params.insertion_index = OverlayRequestQueue::FromWebState(
+                                 self.webState, OverlayModality::kInfobarModal)
+                                 ->size();
+    params.source = InfobarOverlayInsertionSource::kBadge;
+    InfobarOverlayRequestInserter::FromWebState(self.webState)
+        ->InsertOverlayRequest(params);
+  } else {
+    [self.dispatcher displayModalInfobar:infobarType];
+  }
+  [self recordMetricsForBadgeButton:button infobarType:infobarType];
+}
+
+// Returns the infobar in the active WebState's InfoBarManager with |type|.
+- (InfoBarIOS*)infobarWithType:(InfobarType)type {
+  InfoBarManagerImpl* manager = InfoBarManagerImpl::FromWebState(self.webState);
+  for (size_t index = 0; index < manager->infobar_count(); ++index) {
+    InfoBarIOS* infobar = static_cast<InfoBarIOS*>(manager->infobar_at(index));
+    if (infobar->infobar_type() == type)
+      return infobar;
+  }
+  return nullptr;
+}
 
 // Records Badge tap Histograms through the InfobarMetricsRecorder and then
 // records UserActions.
@@ -356,70 +445,6 @@ const int kMinimumNonFullScreenBadgesForOverflow = 2;
           base::UserMetricsAction("MobileMessagesBadgeNonAcceptedTapped"));
       break;
   }
-}
-
-#pragma mark - Private
-
-// Directs consumer to update read status depending on the state of the
-// non-fullscreen badges.
-- (void)updateConsumerReadStatus {
-  for (id<BadgeItem> item in self.badges) {
-    if (!item.fullScreen && !(item.badgeState & BadgeStateRead)) {
-      [self.consumer markDisplayedBadgeAsRead:NO];
-      return;
-    }
-  }
-  [self.consumer markDisplayedBadgeAsRead:YES];
-}
-
-// Gets the last fullscreen and non-fullscreen badges.
-// This assumes that there is only ever one fullscreen badge, so the last badge
-// in |badges| should be the only one.
-- (void)updateBadgesShown {
-  // The badge to be displayed alongside the fullscreen badge. Logic below
-  // currently assigns it to the last non-fullscreen badge in the list, since it
-  // works if there is only one non-fullscreen badge. Otherwise, where there are
-  // multiple non-fullscreen badges, additional logic below determines what
-  // badge will be shown.
-  id<BadgeItem> displayedBadge;
-  // The fullscreen badge to show. There currently should only be one fullscreen
-  // badge at a given time.
-  id<BadgeItem> fullScreenBadge;
-  // The badge that is current displaying its banner. This will be set as the
-  // displayedBadge if there are multiple badges.
-  id<BadgeItem> presentingBadge;
-  for (id<BadgeItem> item in self.badges) {
-    if (item.fullScreen) {
-      fullScreenBadge = item;
-    } else {
-      if (item.badgeState & BadgeStatePresented) {
-        presentingBadge = item;
-      }
-      displayedBadge = item;
-    }
-  }
-
-  // Figure out what displayedBadge should be showing if there are multiple
-  // non-Fullscreen badges.
-  NSInteger count = [self.badges count];
-  if (fullScreenBadge) {
-    count -= kNumberOfFullScrenBadges;
-  }
-  if (count >= kMinimumNonFullScreenBadgesForOverflow) {
-    // If a badge's banner is being presented, then show that badge as the
-    // displayed badge. Otherwise, show the overflow badge.
-    displayedBadge = presentingBadge
-                         ? presentingBadge
-                         : [[BadgeTappableItem alloc]
-                               initWithBadgeType:BadgeType::kBadgeTypeOverflow];
-  } else {
-    // Since there is only one non-fullscreen badge, it will be fixed as the
-    // displayed badge, so mark it as read.
-    displayedBadge.badgeState |= BadgeStateRead;
-  }
-  [self.consumer updateDisplayedBadge:displayedBadge
-                      fullScreenBadge:fullScreenBadge];
-  [self updateConsumerReadStatus];
 }
 
 @end

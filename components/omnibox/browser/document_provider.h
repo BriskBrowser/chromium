@@ -15,7 +15,6 @@
 #include "base/compiler_specific.h"
 #include "base/containers/mru_cache.h"
 #include "base/feature_list.h"
-#include "base/macros.h"
 #include "components/history/core/browser/history_types.h"
 #include "components/omnibox/browser/autocomplete_provider.h"
 #include "components/omnibox/browser/autocomplete_provider_debouncer.h"
@@ -94,6 +93,7 @@ class DocumentProvider : public AutocompleteProvider {
   FRIEND_TEST_ALL_PREFIXES(DocumentProviderTest, ParseDocumentSearchResults);
   FRIEND_TEST_ALL_PREFIXES(DocumentProviderTest,
                            ProductDescriptionStringsAndAccessibleLabels);
+  FRIEND_TEST_ALL_PREFIXES(DocumentProviderTest, MatchDescriptionString);
   FRIEND_TEST_ALL_PREFIXES(DocumentProviderTest,
                            ParseDocumentSearchResultsBreakTies);
   FRIEND_TEST_ALL_PREFIXES(DocumentProviderTest,
@@ -108,6 +108,7 @@ class DocumentProvider : public AutocompleteProvider {
   FRIEND_TEST_ALL_PREFIXES(DocumentProviderTest, Scoring);
   FRIEND_TEST_ALL_PREFIXES(DocumentProviderTest, Caching);
   FRIEND_TEST_ALL_PREFIXES(DocumentProviderTest, MinQueryLength);
+  FRIEND_TEST_ALL_PREFIXES(DocumentProviderTest, StartCallsStop);
 
   using MatchesCache = base::MRUCache<GURL, AutocompleteMatch>;
 
@@ -116,6 +117,9 @@ class DocumentProvider : public AutocompleteProvider {
                    size_t cache_size);
 
   ~DocumentProvider() override;
+
+  DocumentProvider(const DocumentProvider&) = delete;
+  DocumentProvider& operator=(const DocumentProvider&) = delete;
 
   // Determines whether the profile/session/window meet the feature
   // prerequisites.
@@ -161,6 +165,16 @@ class DocumentProvider : public AutocompleteProvider {
   static base::string16 GenerateLastModifiedString(
       const std::string& modified_timestamp_string,
       base::Time now);
+
+  // Convert mimetype (e.g. "application/vnd.google-apps.document") to a string
+  // that can be used in the match description (e.g. "Google Docs").
+  static base::string16 GetProductDescriptionString(
+      const std::string& mimetype);
+
+  // Construct match description; e.g. "Jan 12 - First Last - Google Docs".
+  static base::string16 GetMatchDescription(const std::string& update_time,
+                                            const std::string& mimetype,
+                                            const std::string& owner);
 
   // Don't request doc suggestions for inputs shorter than |min_query_length_|
   // or longer than |max_query_length_|. A value of -1 indicates no limit. These
@@ -220,8 +234,6 @@ class DocumentProvider : public AutocompleteProvider {
 
   // For callbacks that may be run after destruction. Must be declared last.
   base::WeakPtrFactory<DocumentProvider> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(DocumentProvider);
 };
 
 #endif  // COMPONENTS_OMNIBOX_BROWSER_DOCUMENT_PROVIDER_H_

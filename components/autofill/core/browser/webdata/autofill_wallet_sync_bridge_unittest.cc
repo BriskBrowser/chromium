@@ -13,6 +13,7 @@
 #include "base/bind_helpers.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/run_loop.h"
+#include "base/strings/utf_string_conversions.h"
 #include "base/test/bind_test_util.h"
 #include "base/test/mock_callback.h"
 #include "base/test/scoped_feature_list.h"
@@ -81,6 +82,8 @@ const char kCloudTokenDataClientTag[] = "token";
 const char kLocaleString[] = "en-US";
 const base::Time kJune2017 = base::Time::FromDoubleT(1497552271);
 
+const char kDefaultCacheGuid[] = "CacheGuid";
+
 void ExtractAutofillWalletSpecificsFromDataBatch(
     std::unique_ptr<DataBatch> batch,
     std::vector<AutofillWalletSpecifics>* output) {
@@ -102,8 +105,9 @@ std::string WalletMaskedCreditCardSpecificsAsDebugString(
          << ", exp_year: " << specifics.masked_card().exp_year()
          << ", billing_address_id: "
          << specifics.masked_card().billing_address_id()
-         << ", card_class: " << specifics.masked_card().card_class()
-         << ", bank_name: " << specifics.masked_card().bank_name() << "]";
+         << ", bank_name: " << specifics.masked_card().bank_name()
+         << ", instrument_id: " << specifics.masked_card().instrument_id()
+         << "]";
   return output.str();
 }
 
@@ -235,6 +239,7 @@ class AutofillWalletSyncBridgeTest : public testing::Test {
     model_type_state.set_initial_sync_done(initial_sync_done);
     model_type_state.mutable_progress_marker()->set_data_type_id(
         GetSpecificsFieldNumberFromModelType(syncer::AUTOFILL_WALLET_DATA));
+    model_type_state.set_cache_guid(kDefaultCacheGuid);
     EXPECT_TRUE(table()->UpdateModelTypeState(syncer::AUTOFILL_WALLET_DATA,
                                               model_type_state));
     bridge_ = std::make_unique<AutofillWalletSyncBridge>(
@@ -246,6 +251,7 @@ class AutofillWalletSyncBridgeTest : public testing::Test {
     base::RunLoop loop;
     syncer::DataTypeActivationRequest request;
     request.error_handler = base::DoNothing();
+    request.cache_guid = kDefaultCacheGuid;
     real_processor_->OnSyncStarting(
         request,
         base::BindLambdaForTesting(
@@ -394,12 +400,16 @@ TEST_F(AutofillWalletSyncBridgeTest, GetStorageKeyForCreditCardCloudTokenData) {
 
 TEST_F(AutofillWalletSyncBridgeTest,
        GetAllDataForDebugging_ShouldReturnAllData) {
+  // Create Wallet Data and store them to table.
   AutofillProfile address1 = test::GetServerProfile();
   AutofillProfile address2 = test::GetServerProfile2();
   table()->SetServerProfiles({address1, address2});
   CreditCard card1 = test::GetMaskedServerCard();
+  // Set the card issuer to Google.
+  card1.set_card_issuer(CreditCard::Issuer::GOOGLE);
   CreditCard card2 = test::GetMaskedServerCardAmex();
-  table()->SetServerCreditCards({card1, card2});
+  CreditCard card_with_nickname = test::GetMaskedServerCardWithNickname();
+  table()->SetServerCreditCards({card1, card2, card_with_nickname});
   PaymentsCustomerData customer_data{/*customer_id=*/kCustomerDataId};
   table()->SetPaymentsCustomerData(&customer_data);
   CreditCardCloudTokenData data1 = test::GetCreditCardCloudTokenData1();
@@ -414,6 +424,9 @@ TEST_F(AutofillWalletSyncBridgeTest,
   SetAutofillWalletSpecificsFromServerCard(card1, &card_specifics1);
   AutofillWalletSpecifics card_specifics2;
   SetAutofillWalletSpecificsFromServerCard(card2, &card_specifics2);
+  AutofillWalletSpecifics card_specifics_with_nickname;
+  SetAutofillWalletSpecificsFromServerCard(card_with_nickname,
+                                           &card_specifics_with_nickname);
   AutofillWalletSpecifics customer_data_specifics;
   SetAutofillWalletSpecificsFromPaymentsCustomerData(customer_data,
                                                      &customer_data_specifics);
@@ -424,12 +437,23 @@ TEST_F(AutofillWalletSyncBridgeTest,
   SetAutofillWalletSpecificsFromCreditCardCloudTokenData(
       data2, &cloud_token_data_specifics2);
 
+  // First ensure that specific fields in expected wallet specifics are set
+  // correctly before we compare with local table.
+  EXPECT_FALSE(card_specifics_with_nickname.masked_card().nickname().empty());
+  EXPECT_TRUE(card_specifics2.masked_card().nickname().empty());
+  EXPECT_EQ(sync_pb::CardIssuer::GOOGLE,
+            card_specifics1.masked_card().card_issuer().issuer());
+  EXPECT_EQ(sync_pb::CardIssuer::ISSUER_UNKNOWN,
+            card_specifics2.masked_card().card_issuer().issuer());
+  // Read local Wallet Data from Autofill table, and compare with expected
+  // wallet specifics.
   EXPECT_THAT(
       GetAllLocalData(),
       UnorderedElementsAre(EqualsSpecifics(profile_specifics1),
                            EqualsSpecifics(profile_specifics2),
                            EqualsSpecifics(card_specifics1),
                            EqualsSpecifics(card_specifics2),
+                           EqualsSpecifics(card_specifics_with_nickname),
                            EqualsSpecifics(customer_data_specifics),
                            EqualsSpecifics(cloud_token_data_specifics1),
                            EqualsSpecifics(cloud_token_data_specifics2)));
@@ -830,6 +854,9 @@ TEST_F(AutofillWalletSyncBridgeTest, MergeSyncData_SetsAllWalletAddressData) {
 TEST_F(AutofillWalletSyncBridgeTest, MergeSyncData_SetsAllWalletCardData) {
   // Create a card to be synced from the server.
   CreditCard card = test::GetMaskedServerCard();
+  card.SetNickname(base::ASCIIToUTF16("Grocery card"));
+  // Set the card issuer to Google.
+  card.set_card_issuer(CreditCard::Issuer::GOOGLE);
   AutofillWalletSpecifics card_specifics;
   SetAutofillWalletSpecificsFromServerCard(card, &card_specifics);
 
@@ -853,7 +880,8 @@ TEST_F(AutofillWalletSyncBridgeTest, MergeSyncData_SetsAllWalletCardData) {
   EXPECT_EQ(card.expiration_month(), cards[0]->expiration_month());
   EXPECT_EQ(card.expiration_year(), cards[0]->expiration_year());
   EXPECT_EQ(card.billing_address_id(), cards[0]->billing_address_id());
-  EXPECT_EQ(card.card_type(), cards[0]->card_type());
+  EXPECT_EQ(card.nickname(), cards[0]->nickname());
+  EXPECT_EQ(card.card_issuer(), cards[0]->card_issuer());
 
   // Also make sure that those types are not empty, to exercice all the code
   // paths.
@@ -861,7 +889,7 @@ TEST_F(AutofillWalletSyncBridgeTest, MergeSyncData_SetsAllWalletCardData) {
   EXPECT_FALSE(card.LastFourDigits().empty());
   EXPECT_NE(0, card.expiration_month());
   EXPECT_NE(0, card.expiration_year());
-  EXPECT_NE(CreditCard::CARD_TYPE_UNKNOWN, card.card_type());
+  EXPECT_FALSE(card.nickname().empty());
 }
 
 // Test that all field values for a cloud token data sent from the server are

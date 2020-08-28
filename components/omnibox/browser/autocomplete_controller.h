@@ -10,8 +10,9 @@
 
 #include "base/compiler_specific.h"
 #include "base/gtest_prod_util.h"
-#include "base/macros.h"
 #include "base/memory/ref_counted.h"
+#include "base/observer_list.h"
+#include "base/observer_list_types.h"
 #include "base/strings/string16.h"
 #include "base/time/time.h"
 #include "base/timer/timer.h"
@@ -23,7 +24,7 @@
 #include "components/omnibox/browser/autocomplete_provider_listener.h"
 #include "components/omnibox/browser/autocomplete_result.h"
 
-class AutocompleteControllerDelegate;
+class ClipboardProvider;
 class DocumentProvider;
 class HistoryURLProvider;
 class KeywordProvider;
@@ -57,17 +58,40 @@ class AutocompleteController : public AutocompleteProviderListener,
  public:
   typedef std::vector<scoped_refptr<AutocompleteProvider> > Providers;
 
+  class Observer : public base::CheckedObserver {
+   public:
+    // Invoked when the |controller| Start() is called with an |input| that
+    // wants asynchronous matches. This is meant to exclude text classification
+    // requests. The |controller| parameter is only useful for observers that
+    // are observing multiple AutocompleteController instances.
+    virtual void OnStart(AutocompleteController* controller,
+                         const AutocompleteInput& input) {}
+
+    // Invoked when the result set of |controller| changes. If
+    // |default_match_changed| is true, the default match of the result set has
+    // changed. The |controller| parameter is only useful for observers that
+    // are observing multiple AutocompleteController instances.
+    virtual void OnResultChanged(AutocompleteController* controller,
+                                 bool default_match_changed) {}
+  };
+
   // |provider_types| is a bitmap containing AutocompleteProvider::Type values
   // that will (potentially, depending on platform, flags, etc.) be
   // instantiated. |provider_client| is passed to all those providers, and
-  // is used to get access to the template URL service. |delegate| is a
+  // is used to get access to the template URL service. |observer| is a
   // proxy for UI elements which need to be notified when the results get
   // updated.
   AutocompleteController(
       std::unique_ptr<AutocompleteProviderClient> provider_client,
-      AutocompleteControllerDelegate* delegate,
       int provider_types);
   ~AutocompleteController() override;
+  AutocompleteController(const AutocompleteController&) = delete;
+  AutocompleteController& operator=(const AutocompleteController&) = delete;
+
+  // UI elements that need to be notified when the results get updated should
+  // be added as an |observer|. So far there is no need for a RemoveObserver
+  // method because all observers outlive the AutocompleteController.
+  void AddObserver(Observer* observer);
 
   // Starts an autocomplete query, which continues until all providers are
   // done or the query is Stop()ed.  It is safe to Start() a new query without
@@ -76,9 +100,9 @@ class AutocompleteController : public AutocompleteProviderListener,
   // See AutocompleteInput::AutocompleteInput(...) for more details regarding
   // |input| params.
   //
-  // The controller calls AutocompleteControllerDelegate::OnResultChanged() from
-  // inside this call at least once. If matches are available later on that
-  // result in changing the result set the delegate is notified again. When the
+  // The controller calls AutocompleteController::Observer::OnResultChanged()
+  // from inside this call at least once. If matches are available later on that
+  // result in changing the result set the observers is notified again. When the
   // controller is done the notification AUTOCOMPLETE_CONTROLLER_RESULT_READY is
   // sent.
   void Start(const AutocompleteInput& input);
@@ -137,6 +161,7 @@ class AutocompleteController : public AutocompleteProviderListener,
   }
   KeywordProvider* keyword_provider() const { return keyword_provider_; }
   SearchProvider* search_provider() const { return search_provider_; }
+  ClipboardProvider* clipboard_provider() const { return clipboard_provider_; }
 
   const AutocompleteInput& input() const { return input_; }
   const AutocompleteResult& result() const { return result_; }
@@ -153,7 +178,9 @@ class AutocompleteController : public AutocompleteProviderListener,
                            RedundantKeywordsIgnoredInResult);
   FRIEND_TEST_ALL_PREFIXES(AutocompleteProviderTest, UpdateAssistedQueryStats);
   FRIEND_TEST_ALL_PREFIXES(OmniboxPopupContentsViewTest,
-                           EmitTextChangedAccessibilityEvent);
+                           EmitAccessibilityEvents);
+  FRIEND_TEST_ALL_PREFIXES(OmniboxPopupContentsViewTest,
+                           EmitAccessibilityEventsOnButtonFocusHint);
   FRIEND_TEST_ALL_PREFIXES(OmniboxViewTest, DoesNotUpdateAutocompleteOnBlur);
   FRIEND_TEST_ALL_PREFIXES(OmniboxViewViewsTest, CloseOmniboxPopupOnTextDrag);
   FRIEND_TEST_ALL_PREFIXES(OmniboxViewViewsTest, FriendlyAccessibleLabel);
@@ -167,6 +194,15 @@ class AutocompleteController : public AutocompleteProviderListener,
                            SetSelectedLineWithNoDefaultMatches);
   FRIEND_TEST_ALL_PREFIXES(OmniboxPopupModelTest, TestFocusFixing);
   FRIEND_TEST_ALL_PREFIXES(OmniboxPopupModelTest, PopupPositionChanging);
+  FRIEND_TEST_ALL_PREFIXES(OmniboxPopupModelTest, PopupStepSelection);
+  FRIEND_TEST_ALL_PREFIXES(OmniboxPopupModelTest,
+                           PopupStepSelectionWithHiddenGroupIds);
+  FRIEND_TEST_ALL_PREFIXES(OmniboxPopupModelTest,
+                           PopupInlineAutocompleteAndTemporaryText);
+  FRIEND_TEST_ALL_PREFIXES(OmniboxPopupModelSuggestionButtonRowTest,
+                           PopupStepSelectionWithButtonRow);
+  FRIEND_TEST_ALL_PREFIXES(OmniboxPopupModelSuggestionButtonRowTest,
+                           PopupStepSelectionWithButtonRowAndKeywordButton);
   FRIEND_TEST_ALL_PREFIXES(OmniboxPopupContentsViewTest,
                            EmitSelectedChildrenChangedAccessibilityEvent);
 
@@ -192,6 +228,19 @@ class AutocompleteController : public AutocompleteProviderListener,
   // relevance before this is called.
   void UpdateAssociatedKeywords(AutocompleteResult* result);
 
+  // Called for zero-prefix suggestions only.
+  // - Updates |result| with suggestion group ID to header mapping information.
+  // - Ensures matches that belong to a group appear at the bottom.
+  // Remote zero-prefix suggestions may be backfilled with local zero-prefix
+  // suggestions if there are not enough of them to fill all the available
+  // slots. However this cannot be done when remote reactive zero-prefix
+  // suggestions (aka rZPS) are present (i.e., there are suggestions with a
+  // |suggestion_groupd_id|), as those must appear under a header for
+  // transparency reasons. Hence we demote grouped matches to the bottom here.
+  // This function makes an implicit assumption that remote non-rZPS are not
+  // grouped. Otherwise local ZPS would appear at the top of the list.
+  void UpdateHeaders(AutocompleteResult* result);
+
   // For each group of contiguous matches from the same TemplateURL, show the
   // provider name as a description on the first match in the group.
   void UpdateKeywordDescriptions(AutocompleteResult* result);
@@ -201,7 +250,7 @@ class AutocompleteController : public AutocompleteProviderListener,
   // stats.
   void UpdateAssistedQueryStats(AutocompleteResult* result);
 
-  // Calls AutocompleteControllerDelegate::OnResultChanged() and if done sends
+  // Calls AutocompleteController::Observer::OnResultChanged() and if done sends
   // AUTOCOMPLETE_CONTROLLER_RESULT_READY.
   void NotifyChanged(bool notify_default_match);
 
@@ -229,7 +278,7 @@ class AutocompleteController : public AutocompleteProviderListener,
       const base::trace_event::MemoryDumpArgs& args,
       base::trace_event::ProcessMemoryDump* process_memory_dump) override;
 
-  AutocompleteControllerDelegate* delegate_;
+  base::ObserverList<Observer> observers_;
 
   // The client passed to the providers.
   std::unique_ptr<AutocompleteProviderClient> provider_client_;
@@ -248,6 +297,8 @@ class AutocompleteController : public AutocompleteProviderListener,
   ZeroSuggestProvider* zero_suggest_provider_;
 
   OnDeviceHeadProvider* on_device_head_provider_;
+
+  ClipboardProvider* clipboard_provider_;
 
   // Input passed to Start.
   AutocompleteInput input_;
@@ -298,8 +349,6 @@ class AutocompleteController : public AutocompleteProviderListener,
   bool search_service_worker_signal_sent_;
 
   TemplateURLService* template_url_service_;
-
-  DISALLOW_COPY_AND_ASSIGN(AutocompleteController);
 };
 
 #endif  // COMPONENTS_OMNIBOX_BROWSER_AUTOCOMPLETE_CONTROLLER_H_

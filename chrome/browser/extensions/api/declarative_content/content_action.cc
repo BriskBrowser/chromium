@@ -13,8 +13,6 @@
 #include "base/strings/stringprintf.h"
 #include "base/values.h"
 #include "chrome/browser/extensions/api/extension_action/extension_action_api.h"
-#include "chrome/browser/extensions/extension_action.h"
-#include "chrome/browser/extensions/extension_action_manager.h"
 #include "chrome/browser/extensions/extension_tab_util.h"
 #include "chrome/browser/extensions/extension_ui_util.h"
 #include "chrome/browser/profiles/profile.h"
@@ -23,11 +21,14 @@
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/web_contents.h"
 #include "extensions/browser/declarative_user_script_manager.h"
+#include "extensions/browser/extension_action.h"
+#include "extensions/browser/extension_action_manager.h"
 #include "extensions/browser/extension_system.h"
 #include "extensions/common/api/declarative/declarative_constants.h"
 #include "extensions/common/extension.h"
 #include "extensions/common/extension_messages.h"
 #include "extensions/common/image_util.h"
+#include "extensions/common/script_constants.h"
 #include "ui/gfx/image/image.h"
 #include "ui/gfx/image/image_skia.h"
 
@@ -69,7 +70,7 @@ class ShowExtensionAction : public ContentAction {
     // TODO(devlin): We should probably throw an error if the extension has no
     // action specified in the manifest. Currently, this is allowed since
     // extensions will have a synthesized page action.
-    if (!ActionInfo::GetAnyActionInfo(extension)) {
+    if (!ActionInfo::GetExtensionActionInfo(extension)) {
       *error = kNoAction;
       return nullptr;
     }
@@ -235,7 +236,7 @@ std::unique_ptr<ContentAction> RequestContentScript::Create(
 
 // static
 std::unique_ptr<ContentAction> RequestContentScript::CreateForTest(
-    DeclarativeUserScriptMaster* master,
+    DeclarativeUserScriptSet* script_set,
     const Extension* extension,
     const base::Value& json_action,
     std::string* error) {
@@ -256,10 +257,10 @@ std::unique_ptr<ContentAction> RequestContentScript::CreateForTest(
   if (!InitScriptData(action_dict, error, &script_data))
     return std::unique_ptr<ContentAction>();
 
-  // Inject provided DeclarativeUserScriptMaster, rather than looking it up
+  // Inject provided DeclarativeUserScriptSet, rather than looking it up
   // using a BrowserContext.
   return base::WrapUnique(
-      new RequestContentScript(master, extension, script_data));
+      new RequestContentScript(script_set, extension, script_data));
 }
 
 // static
@@ -309,25 +310,24 @@ RequestContentScript::RequestContentScript(
   HostID host_id(HostID::EXTENSIONS, extension->id());
   InitScript(host_id, extension, script_data);
 
-  master_ = DeclarativeUserScriptManager::Get(browser_context)
-                ->GetDeclarativeUserScriptMasterByID(host_id);
+  script_set_ = DeclarativeUserScriptManager::Get(browser_context)
+                    ->GetDeclarativeUserScriptSetByID(host_id);
   AddScript();
 }
 
-RequestContentScript::RequestContentScript(
-    DeclarativeUserScriptMaster* master,
-    const Extension* extension,
-    const ScriptData& script_data) {
+RequestContentScript::RequestContentScript(DeclarativeUserScriptSet* script_set,
+                                           const Extension* extension,
+                                           const ScriptData& script_data) {
   HostID host_id(HostID::EXTENSIONS, extension->id());
   InitScript(host_id, extension, script_data);
 
-  master_ = master;
+  script_set_ = script_set;
   AddScript();
 }
 
 RequestContentScript::~RequestContentScript() {
-  DCHECK(master_);
-  master_->RemoveScript(UserScriptIDPair(script_.id(), script_.host_id()));
+  DCHECK(script_set_);
+  script_set_->RemoveScript(UserScriptIDPair(script_.id(), script_.host_id()));
 }
 
 void RequestContentScript::InitScript(const HostID& host_id,
@@ -337,7 +337,10 @@ void RequestContentScript::InitScript(const HostID& host_id,
   script_.set_host_id(host_id);
   script_.set_run_location(UserScript::BROWSER_DRIVEN);
   script_.set_match_all_frames(script_data.all_frames);
-  script_.set_match_about_blank(script_data.match_about_blank);
+  script_.set_match_origin_as_fallback(
+      script_data.match_about_blank
+          ? MatchOriginAsFallbackBehavior::kMatchForAboutSchemeAndClimbTree
+          : MatchOriginAsFallbackBehavior::kNever);
   for (auto it = script_data.css_file_names.cbegin();
        it != script_data.css_file_names.cend(); ++it) {
     GURL url = extension->GetResourceURL(*it);
@@ -355,8 +358,8 @@ void RequestContentScript::InitScript(const HostID& host_id,
 }
 
 void RequestContentScript::AddScript() {
-  DCHECK(master_);
-  master_->AddScript(UserScript::CopyMetadataFrom(script_));
+  DCHECK(script_set_);
+  script_set_->AddScript(UserScript::CopyMetadataFrom(script_));
 }
 
 void RequestContentScript::Apply(const ApplyInfo& apply_info) const {
@@ -386,7 +389,7 @@ std::unique_ptr<ContentAction> SetIcon::Create(
     const base::DictionaryValue* dict,
     std::string* error) {
   // We can't set a page or action's icon if the extension doesn't have one.
-  if (!ActionInfo::GetAnyActionInfo(extension)) {
+  if (!ActionInfo::GetExtensionActionInfo(extension)) {
     *error = kNoPageOrBrowserAction;
     return nullptr;
   }
@@ -394,7 +397,8 @@ std::unique_ptr<ContentAction> SetIcon::Create(
   gfx::ImageSkia icon;
   const base::DictionaryValue* canvas_set = NULL;
   if (dict->GetDictionary("imageData", &canvas_set) &&
-      !ExtensionAction::ParseIconFromCanvasDictionary(*canvas_set, &icon)) {
+      ExtensionAction::ParseIconFromCanvasDictionary(*canvas_set, &icon) !=
+          ExtensionAction::IconParseResult::kSuccess) {
     *error = kInvalidIconDictionary;
     return nullptr;
   }

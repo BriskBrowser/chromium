@@ -67,7 +67,7 @@ void DrawIcon(cc::PaintCanvas* canvas,
       icon_image->PaintImageForCurrentFrame(),
       IntRect(IntPoint::Zero(), icon_image->Size()),
       FloatRect(x, y, scale_factor * kIconWidth, scale_factor * kIconHeight),
-      &flags, cc::PaintCanvas::kFast_SrcRectConstraint);
+      &flags, SkCanvas::kFast_SrcRectConstraint);
 }
 
 void DrawCenteredIcon(cc::PaintCanvas* canvas,
@@ -177,7 +177,6 @@ class PlaceholderImage::SharedFont : public RefCounted<SharedFont> {
   explicit SharedFont(float scale_factor)
       : font_(CreatePlaceholderFontDescription(scale_factor)),
         scale_factor_(scale_factor) {
-    font_.Update(nullptr);
   }
 
   ~SharedFont() {
@@ -191,7 +190,6 @@ class PlaceholderImage::SharedFont : public RefCounted<SharedFont> {
 
     scale_factor_ = scale_factor;
     font_ = Font(CreatePlaceholderFontDescription(scale_factor_));
-    font_.Update(nullptr);
   }
 
   const Font& font() const { return font_; }
@@ -209,14 +207,12 @@ PlaceholderImage::SharedFont* PlaceholderImage::SharedFont::g_instance_ =
 
 PlaceholderImage::PlaceholderImage(ImageObserver* observer,
                                    const IntSize& size,
-                                   int64_t original_resource_size,
-                                   bool is_lazy_image)
+                                   int64_t original_resource_size)
     : Image(observer),
       size_(size),
       text_(original_resource_size <= 0
                 ? String()
                 : FormatOriginalResourceSizeBytes(original_resource_size)),
-      is_lazy_image_(is_lazy_image),
       paint_record_content_id_(-1) {}
 
 PlaceholderImage::~PlaceholderImage() = default;
@@ -282,10 +278,6 @@ void PlaceholderImage::Draw(cc::PaintCanvas* canvas,
   if (!src_rect.Intersects(FloatRect(0.0f, 0.0f,
                                      static_cast<float>(size_.Width()),
                                      static_cast<float>(size_.Height())))) {
-    return;
-  }
-  if (is_lazy_image_) {
-    // Keep the image without any color and text decorations.
     return;
   }
 

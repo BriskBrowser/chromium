@@ -26,11 +26,15 @@ ClipboardFormatType ClipboardFormatType::Deserialize(
   return ClipboardFormatType(serialization);
 }
 
+std::string ClipboardFormatType::GetName() const {
+  return Serialize();
+}
+
 bool ClipboardFormatType::operator<(const ClipboardFormatType& other) const {
   return data_ < other.data_;
 }
 
-bool ClipboardFormatType::Equals(const ClipboardFormatType& other) const {
+bool ClipboardFormatType::operator==(const ClipboardFormatType& other) const {
   return data_ == other.data_;
 }
 
@@ -43,19 +47,13 @@ ClipboardFormatType ClipboardFormatType::GetType(
 }
 
 // static
-const ClipboardFormatType& ClipboardFormatType::GetUrlWType() {
+const ClipboardFormatType& ClipboardFormatType::GetUrlType() {
   static base::NoDestructor<ClipboardFormatType> type(kMimeTypeURIList);
   return *type;
 }
 
 // static
 const ClipboardFormatType& ClipboardFormatType::GetPlainTextType() {
-  static base::NoDestructor<ClipboardFormatType> type(kMimeTypeText);
-  return *type;
-}
-
-// static
-const ClipboardFormatType& ClipboardFormatType::GetPlainTextWType() {
   static base::NoDestructor<ClipboardFormatType> type(kMimeTypeText);
   return *type;
 }
@@ -70,6 +68,12 @@ const ClipboardFormatType& ClipboardFormatType::GetWebKitSmartPasteType() {
 // static
 const ClipboardFormatType& ClipboardFormatType::GetHtmlType() {
   static base::NoDestructor<ClipboardFormatType> type(kMimeTypeHTML);
+  return *type;
+}
+
+// static
+const ClipboardFormatType& ClipboardFormatType::GetSvgType() {
+  static base::NoDestructor<ClipboardFormatType> type(kMimeTypeSvg);
   return *type;
 }
 

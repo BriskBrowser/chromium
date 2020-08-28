@@ -9,7 +9,7 @@
 #include <string>
 
 #include "components/safe_browsing/content/base_ui_manager.h"
-#include "components/security_interstitials/content/unsafe_resource.h"
+#include "components/security_interstitials/core/unsafe_resource.h"
 #include "content/public/browser/web_contents.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "mojo/public/cpp/bindings/remote.h"
@@ -54,7 +54,8 @@ class AwSafeBrowsingUIManager : public safe_browsing::BaseUIManager {
 
   // Called on the UI thread by the ThreatDetails with the serialized
   // protocol buffer, so the service can send it over.
-  void SendSerializedThreatDetails(const std::string& serialized) override;
+  void SendSerializedThreatDetails(content::BrowserContext* browser_context,
+                                   const std::string& serialized) override;
 
   // Called on the IO thread to get a SharedURLLoaderFactory that can be used on
   // the IO thread.
@@ -63,8 +64,6 @@ class AwSafeBrowsingUIManager : public safe_browsing::BaseUIManager {
 
  protected:
   ~AwSafeBrowsingUIManager() override;
-
-  void ShowBlockingPageForResource(const UnsafeResource& resource) override;
 
  private:
   safe_browsing::BaseBlockingPage* CreateBlockingPageForSubresource(

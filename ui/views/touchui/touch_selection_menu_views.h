@@ -24,6 +24,8 @@ class VIEWS_EXPORT TouchSelectionMenuViews : public BubbleDialogDelegateView,
  public:
   METADATA_HEADER(TouchSelectionMenuViews);
 
+  enum ButtonViewId : int { kEllipsisButton = 1 };
+
   TouchSelectionMenuViews(TouchSelectionMenuRunnerViews* owner,
                           ui::TouchSelectionMenuClient* client,
                           aura::Window* context);
@@ -45,7 +47,7 @@ class VIEWS_EXPORT TouchSelectionMenuViews : public BubbleDialogDelegateView,
   virtual void CreateButtons();
 
   // Helper method to create a single button.
-  LabelButton* CreateButton(const base::string16& title, int tag);
+  LabelButton* CreateButton(const base::string16& title);
 
   // ButtonListener:
   void ButtonPressed(Button* sender, const ui::Event& event) override;
@@ -59,7 +61,6 @@ class VIEWS_EXPORT TouchSelectionMenuViews : public BubbleDialogDelegateView,
   // BubbleDialogDelegateView:
   void OnPaint(gfx::Canvas* canvas) override;
   void WindowClosing() override;
-  int GetDialogButtons() const override;
 
   TouchSelectionMenuRunnerViews* owner_;
   ui::TouchSelectionMenuClient* const client_;

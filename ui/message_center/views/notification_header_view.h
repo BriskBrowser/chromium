@@ -41,27 +41,28 @@ class MESSAGE_CENTER_EXPORT NotificationHeaderView : public views::Button {
   void SetExpandButtonEnabled(bool enabled);
   void SetExpanded(bool expanded);
 
-  // Set the unified theme color used among the app icon, app name, and expand
-  // button.
-  void SetAccentColor(SkColor color);
+  // Calls UpdateColors() to set the unified theme color used among the app
+  // icon, app name, and expand button. If set to base::nullopt it will use the
+  // NotificationDefaultAccentColor from the native theme.
+  void SetAccentColor(base::Optional<SkColor> color);
 
   // Sets the background color of the notification. This is used to ensure that
   // the accent color has enough contrast against the background.
   void SetBackgroundColor(SkColor color);
 
   void ClearAppIcon();
-  void ClearProgress();
   void SetSubpixelRenderingEnabled(bool enabled);
 
-  // Completely hides the app icon.
-  void HideAppIcon();
+  // Shows or hides the app icon.
+  void SetAppIconVisible(bool visible);
 
   // views::View:
   void GetAccessibleNodeData(ui::AXNodeData* node_data) override;
+  void OnThemeChanged() override;
 
   views::ImageView* expand_button() { return expand_button_; }
 
-  SkColor accent_color_for_testing() { return accent_color_; }
+  base::Optional<SkColor> accent_color_for_testing() { return accent_color_; }
 
   const views::Label* summary_text_for_testing() const {
     return summary_text_view_;
@@ -71,11 +72,13 @@ class MESSAGE_CENTER_EXPORT NotificationHeaderView : public views::Button {
     return app_icon_view_;
   }
 
+  const views::Label* timestamp_view_for_testing() const {
+    return timestamp_view_;
+  }
+
   const base::string16& app_name_for_testing() const;
 
   const gfx::ImageSkia& app_icon_for_testing() const;
-
-  const base::string16& timestamp_for_testing() const;
 
  private:
   FRIEND_TEST_ALL_PREFIXES(NotificationHeaderViewTest, SettingsMode);
@@ -83,7 +86,9 @@ class MESSAGE_CENTER_EXPORT NotificationHeaderView : public views::Button {
   // Update visibility for both |summary_text_view_| and |timestamp_view_|.
   void UpdateSummaryTextVisibility();
 
-  SkColor accent_color_ = kNotificationDefaultAccentColor;
+  void UpdateColors();
+
+  base::Optional<SkColor> accent_color_;
 
   // Timer that updates the timestamp over time.
   base::OneShotTimer timestamp_update_timer_;

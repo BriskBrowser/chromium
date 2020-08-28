@@ -24,6 +24,16 @@
 namespace device {
 namespace pin {
 
+// Permission list flags. See
+// https://drafts.fidoalliance.org/fido-2/stable-links-to-latest/fido-client-to-authenticator-protocol.html#permissions
+enum class Permissions : uint8_t {
+  kMakeCredential = 0x01,
+  kGetAssertion = 0x02,
+  kCredentialManagement = 0x04,
+  kBioEnrollment = 0x08,
+  kPlatformConfiguration = 0x10,
+};
+
 // kProtocolVersion is the version of the PIN protocol that this code
 // implements.
 constexpr int kProtocolVersion = 1;
@@ -41,13 +51,25 @@ constexpr size_t kMinBytes = 4;
 // accept.
 constexpr size_t kMaxBytes = 63;
 
-// RetriesRequest asks an authenticator for the number of remaining PIN attempts
-// before the device is locked.
-struct RetriesRequest {};
+// EncodeCOSEPublicKey converts an X9.62 public key to a COSE structure.
+cbor::Value::MapValue EncodeCOSEPublicKey(
+    base::span<const uint8_t, kP256X962Length> x962);
 
-// RetriesResponse reflects an authenticator's response to a |RetriesRequest|.
+// PinRetriesRequest asks an authenticator for the number of remaining PIN
+// attempts before the device is locked.
+struct PinRetriesRequest {};
+
+// UVRetriesRequest asks an authenticator for the number of internal user
+// verification attempts before the feature is locked.
+struct UvRetriesRequest {};
+
+// RetriesResponse reflects an authenticator's response to a |PinRetriesRequest|
+// or a |UvRetriesRequest|.
 struct RetriesResponse {
-  static base::Optional<RetriesResponse> Parse(
+  static base::Optional<RetriesResponse> ParsePinRetries(
+      const base::Optional<cbor::Value>& cbor);
+
+  static base::Optional<RetriesResponse> ParseUvRetries(
       const base::Optional<cbor::Value>& cbor);
 
   // retries is the number of PIN attempts remaining before the authenticator
@@ -55,6 +77,10 @@ struct RetriesResponse {
   int retries;
 
  private:
+  static base::Optional<RetriesResponse> Parse(
+      const base::Optional<cbor::Value>& cbor,
+      const int retries_key);
+
   RetriesResponse();
 };
 
@@ -70,6 +96,9 @@ struct KeyAgreementResponse {
       const base::Optional<cbor::Value>& cbor);
   static base::Optional<KeyAgreementResponse> ParseFromCOSE(
       const cbor::Value::MapValue& cose_key);
+
+  // X962 returns the public key from the response in X9.62 form.
+  std::array<uint8_t, kP256X962Length> X962() const;
 
   // x and y contain the big-endian coordinates of a P-256 point. It is ensured
   // that this is a valid point on the curve.
@@ -141,7 +170,7 @@ class TokenRequest {
   explicit TokenRequest(const KeyAgreementResponse& peer_key);
   ~TokenRequest();
   std::array<uint8_t, 32> shared_key_;
-  cbor::Value::MapValue cose_key_;
+  std::array<uint8_t, kP256X962Length> public_key_;
 };
 
 class PinTokenRequest : public TokenRequest {
@@ -154,19 +183,63 @@ class PinTokenRequest : public TokenRequest {
   friend std::pair<CtapRequestCommand, base::Optional<cbor::Value>>
   AsCTAPRequestValuePair(const PinTokenRequest&);
 
- private:
+ protected:
   uint8_t pin_hash_[16];
+};
+
+class PinTokenWithPermissionsRequest : public PinTokenRequest {
+ public:
+  PinTokenWithPermissionsRequest(const std::string& pin,
+                                 const KeyAgreementResponse& peer_key,
+                                 const uint8_t permissions,
+                                 const base::Optional<std::string> rp_id);
+  PinTokenWithPermissionsRequest(PinTokenWithPermissionsRequest&&);
+  PinTokenWithPermissionsRequest(const PinTokenWithPermissionsRequest&) =
+      delete;
+  ~PinTokenWithPermissionsRequest() override;
+
+  friend std::pair<CtapRequestCommand, base::Optional<cbor::Value>>
+  AsCTAPRequestValuePair(const PinTokenWithPermissionsRequest&);
+
+ private:
+  uint8_t permissions_;
+  base::Optional<std::string> rp_id_;
 };
 
 class UvTokenRequest : public TokenRequest {
  public:
-  explicit UvTokenRequest(const KeyAgreementResponse& peer_key);
+  UvTokenRequest(const KeyAgreementResponse& peer_key,
+                 base::Optional<std::string> rp_id);
   UvTokenRequest(UvTokenRequest&&);
   UvTokenRequest(const UvTokenRequest&) = delete;
   virtual ~UvTokenRequest();
 
   friend std::pair<CtapRequestCommand, base::Optional<cbor::Value>>
   AsCTAPRequestValuePair(const UvTokenRequest&);
+
+ private:
+  base::Optional<std::string> rp_id_;
+};
+
+class HMACSecretRequest {
+ public:
+  HMACSecretRequest(const KeyAgreementResponse& peer_key,
+                    base::span<const uint8_t, 32> salt1,
+                    const base::Optional<std::array<uint8_t, 32>>& salt2);
+  HMACSecretRequest(const HMACSecretRequest&);
+  ~HMACSecretRequest();
+  HMACSecretRequest& operator=(const HMACSecretRequest&);
+
+  base::Optional<std::vector<uint8_t>> Decrypt(
+      base::span<const uint8_t> ciphertext);
+
+ private:
+  std::array<uint8_t, 32> shared_key_ = {};
+
+ public:
+  const std::array<uint8_t, kP256X962Length> public_key_x962;
+  const std::vector<uint8_t> encrypted_salts;
+  const std::vector<uint8_t> salts_auth;
 };
 
 // TokenResponse represents the response to a pin-token request. In order to
@@ -196,7 +269,10 @@ class TokenResponse {
 };
 
 std::pair<CtapRequestCommand, base::Optional<cbor::Value>>
-AsCTAPRequestValuePair(const RetriesRequest&);
+AsCTAPRequestValuePair(const PinRetriesRequest&);
+
+std::pair<CtapRequestCommand, base::Optional<cbor::Value>>
+AsCTAPRequestValuePair(const UvRetriesRequest&);
 
 std::pair<CtapRequestCommand, base::Optional<cbor::Value>>
 AsCTAPRequestValuePair(const KeyAgreementRequest&);

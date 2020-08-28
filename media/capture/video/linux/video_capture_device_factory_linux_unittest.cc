@@ -5,6 +5,7 @@
 #include "media/capture/video/linux/video_capture_device_factory_linux.h"
 
 #include "base/run_loop.h"
+#include "base/test/bind_test_util.h"
 #include "base/test/task_environment.h"
 #include "media/capture/video/linux/fake_v4l2_impl.h"
 #include "media/capture/video/mock_video_capture_device_client.h"
@@ -67,7 +68,8 @@ class DescriptorDeviceProvider
   std::vector<VideoCaptureDeviceDescriptor> descriptors_;
 };
 
-class VideoCaptureDeviceFactoryLinuxTest : public ::testing::Test {
+class VideoCaptureDeviceFactoryLinuxTest
+    : public ::testing::TestWithParam<VideoCaptureDeviceDescriptor> {
  public:
   VideoCaptureDeviceFactoryLinuxTest() {}
   ~VideoCaptureDeviceFactoryLinuxTest() override = default;
@@ -89,23 +91,44 @@ class VideoCaptureDeviceFactoryLinuxTest : public ::testing::Test {
   std::unique_ptr<VideoCaptureDeviceFactoryLinux> factory_;
 };
 
-TEST_F(VideoCaptureDeviceFactoryLinuxTest, EnumerateSingleFakeV4L2Device) {
+TEST_P(VideoCaptureDeviceFactoryLinuxTest, EnumerateSingleFakeV4L2DeviceUsing) {
   // Setup
-  const std::string stub_display_name = "Fake Device 0";
-  const std::string stub_device_id = "/dev/video0";
-  VideoCaptureDeviceDescriptor descriptor(stub_display_name, stub_device_id);
+  const VideoCaptureDeviceDescriptor& descriptor = GetParam();
   fake_device_provider_->AddDevice(descriptor);
-  fake_v4l2_->AddDevice(stub_device_id, FakeV4L2DeviceConfig(descriptor));
+  fake_v4l2_->AddDevice(descriptor.device_id, FakeV4L2DeviceConfig(descriptor));
 
   // Exercise
-  VideoCaptureDeviceDescriptors descriptors;
-  factory_->GetDeviceDescriptors(&descriptors);
+  std::vector<media::VideoCaptureDeviceInfo> devices_info;
+  base::RunLoop run_loop;
+  factory_->GetDevicesInfo(base::BindLambdaForTesting(
+      [&devices_info,
+       &run_loop](std::vector<media::VideoCaptureDeviceInfo> result) {
+        devices_info = std::move(result);
+        run_loop.Quit();
+      }));
+  run_loop.Run();
 
   // Verification
-  ASSERT_EQ(1u, descriptors.size());
-  ASSERT_EQ(stub_device_id, descriptors[0].device_id);
-  ASSERT_EQ(stub_display_name, descriptors[0].display_name());
+  ASSERT_EQ(1u, devices_info.size());
+  EXPECT_EQ(descriptor.device_id, devices_info[0].descriptor.device_id);
+  EXPECT_EQ(descriptor.display_name(),
+            devices_info[0].descriptor.display_name());
+  EXPECT_EQ(descriptor.pan_tilt_zoom_supported(),
+            devices_info[0].descriptor.pan_tilt_zoom_supported());
 }
+
+INSTANTIATE_TEST_SUITE_P(
+    All,
+    VideoCaptureDeviceFactoryLinuxTest,
+    ::testing::Values(
+        VideoCaptureDeviceDescriptor("Fake Device 0",
+                                     "/dev/video0",
+                                     VideoCaptureApi::UNKNOWN,
+                                     /*pan_tilt_zoom_supported=*/false),
+        VideoCaptureDeviceDescriptor("Fake Device 0",
+                                     "/dev/video0",
+                                     VideoCaptureApi::UNKNOWN,
+                                     /*pan_tilt_zoom_supported=*/true)));
 
 TEST_F(VideoCaptureDeviceFactoryLinuxTest,
        ReceiveFramesFromSinglePlaneFakeDevice) {

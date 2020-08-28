@@ -88,7 +88,8 @@ base::TimeTicks ImageElementTiming::GetBackgroundImageLoadTime(
 void ImageElementTiming::NotifyImagePainted(
     const LayoutObject* layout_object,
     const ImageResourceContent* cached_image,
-    const PropertyTreeState& current_paint_chunk_properties) {
+    const PropertyTreeStateOrAlias& current_paint_chunk_properties,
+    const IntRect& image_border) {
   DCHECK(layout_object);
 
   if (!internal::IsExplicitlyRegisteredForTiming(layout_object))
@@ -101,7 +102,7 @@ void ImageElementTiming::NotifyImagePainted(
     it->value.is_painted_ = true;
     NotifyImagePaintedInternal(layout_object->GetNode(), *layout_object,
                                *cached_image, current_paint_chunk_properties,
-                               it->value.load_time_);
+                               it->value.load_time_, image_border);
   }
 }
 
@@ -109,8 +110,9 @@ void ImageElementTiming::NotifyImagePaintedInternal(
     Node* node,
     const LayoutObject& layout_object,
     const ImageResourceContent& cached_image,
-    const PropertyTreeState& current_paint_chunk_properties,
-    base::TimeTicks load_time) {
+    const PropertyTreeStateOrAlias& current_paint_chunk_properties,
+    base::TimeTicks load_time,
+    const IntRect& image_border) {
   LocalFrame* frame = GetSupplementable()->GetFrame();
   DCHECK(frame == layout_object.GetDocument().GetFrame());
   DCHECK(node);
@@ -138,30 +140,46 @@ void ImageElementTiming::NotifyImagePaintedInternal(
       LayoutObject::ShouldRespectImageOrientation(&layout_object);
 
   FloatRect intersection_rect = ElementTimingUtils::ComputeIntersectionRect(
-      frame, layout_object.FirstFragment().VisualRect(),
-      current_paint_chunk_properties);
+      frame, image_border, current_paint_chunk_properties);
   const AtomicString attr =
       element->FastGetAttribute(html_names::kElementtimingAttr);
 
   const AtomicString& id = element->GetIdAttribute();
 
   const KURL& url = cached_image.Url();
+  ExecutionContext* context = layout_object.GetDocument().GetExecutionContext();
   DCHECK(GetSupplementable()->document() == &layout_object.GetDocument());
-  DCHECK(layout_object.GetDocument().GetSecurityOrigin());
+  DCHECK(context->GetSecurityOrigin());
   // It's ok to expose rendering timestamp for data URIs so exclude those from
   // the Timing-Allow-Origin check.
-  if (!url.ProtocolIsData() &&
-      !cached_image.GetResponse().TimingAllowPassed()) {
-    WindowPerformance* performance =
-        DOMWindowPerformance::performance(*GetSupplementable());
-    if (performance) {
-      // Create an entry with a |startTime| of 0.
-      performance->AddElementTiming(
-          ImagePaintString(), url.GetString(), intersection_rect,
-          base::TimeTicks(), load_time, attr,
-          cached_image.IntrinsicSize(respect_orientation), id, element);
+  if (!url.ProtocolIsData()) {
+    bool timing_allow_check = false;
+    // Use the TimingAllowPassed() check from the response if OutOfBlinkCors is
+    // enabled. If it is not enabled then that flag is not computed, so use to
+    // the single PassesTimingAllowCheck(), which is incorrect because it does
+    // not check the full redirect chain. See crbug.com/1003943.
+    if (RuntimeEnabledFeatures::OutOfBlinkCorsEnabled()) {
+      timing_allow_check = cached_image.GetResponse().TimingAllowPassed();
+    } else {
+      bool response_tainting_not_basic = false;
+      bool tainted_origin_flag = false;
+      timing_allow_check = Performance::PassesTimingAllowCheck(
+          cached_image.GetResponse(), cached_image.GetResponse(),
+          *context->GetSecurityOrigin(), context, &response_tainting_not_basic,
+          &tainted_origin_flag);
     }
-    return;
+    if (!timing_allow_check) {
+      WindowPerformance* performance =
+          DOMWindowPerformance::performance(*GetSupplementable());
+      if (performance) {
+        // Create an entry with a |startTime| of 0.
+        performance->AddElementTiming(
+            ImagePaintString(), url.GetString(), intersection_rect,
+            base::TimeTicks(), load_time, attr,
+            cached_image.IntrinsicSize(respect_orientation), id, element);
+      }
+      return;
+    }
   }
 
   // If the image URL is a data URL ("data:image/..."), then the |name| of the
@@ -188,7 +206,8 @@ void ImageElementTiming::NotifyImagePaintedInternal(
 void ImageElementTiming::NotifyBackgroundImagePainted(
     Node* node,
     const StyleFetchedImage* background_image,
-    const PropertyTreeState& current_paint_chunk_properties) {
+    const PropertyTreeStateOrAlias& current_paint_chunk_properties,
+    const IntRect& image_border) {
   DCHECK(node);
   DCHECK(background_image);
 
@@ -214,11 +233,11 @@ void ImageElementTiming::NotifyBackgroundImagePainted(
     info.is_painted_ = true;
     NotifyImagePaintedInternal(layout_object->GetNode(), *layout_object,
                                *cached_image, current_paint_chunk_properties,
-                               it->value);
+                               it->value, image_border);
   }
 }
 
-void ImageElementTiming::ReportImagePaintSwapTime(WebWidgetClient::SwapResult,
+void ImageElementTiming::ReportImagePaintSwapTime(WebSwapResult,
                                                   base::TimeTicks timestamp) {
   WindowPerformance* performance =
       DOMWindowPerformance::performance(*GetSupplementable());
@@ -239,7 +258,7 @@ void ImageElementTiming::NotifyImageRemoved(const LayoutObject* layout_object,
   images_notified_.erase(std::make_pair(layout_object, image));
 }
 
-void ImageElementTiming::Trace(blink::Visitor* visitor) {
+void ImageElementTiming::Trace(Visitor* visitor) const {
   visitor->Trace(element_timings_);
   visitor->Trace(background_image_timestamps_);
   Supplement<LocalDOMWindow>::Trace(visitor);

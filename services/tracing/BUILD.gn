@@ -7,6 +7,7 @@
 # Others modules should only need the public targets.
 
 import("//build/config/compiler/compiler.gni")
+import("//services/tracing/public/cpp/stack_sampling/loader_lock_sampling.gni")
 
 if (is_android) {
   import("//build/config/android/rules.gni")
@@ -47,7 +48,6 @@ source_set("privacy_check") {
   deps = [
     "//base",
     "//third_party/perfetto:libperfetto",
-    "//third_party/perfetto/src/protozero:protozero",
   ]
 }
 
@@ -66,13 +66,11 @@ source_set("test_utils") {
     "//third_party/perfetto/protos/perfetto/trace:lite",
   ]
 
-  if (is_android) {
+  if (is_posix) {
     sources += [
       "perfetto/system_test_utils.cc",
       "perfetto/system_test_utils.h",
     ]
-
-    deps += [ "//third_party/perfetto/src/tracing:ipc" ]
   }
 }
 
@@ -84,9 +82,13 @@ source_set("tests") {
     "perfetto/perfetto_integration_unittest.cc",
     "public/cpp/perfetto/java_heap_profiler/hprof_buffer_android_unittest.cc",
     "public/cpp/perfetto/java_heap_profiler/hprof_parser_android_unittest.cc",
+    "public/cpp/perfetto/producer_test_utils.cc",
+    "public/cpp/perfetto/producer_test_utils.h",
     "public/cpp/perfetto/task_runner_unittest.cc",
     "public/cpp/perfetto/trace_event_data_source_unittest.cc",
+    "public/cpp/perfetto/trace_packet_tokenizer_unittest.cc",
     "public/cpp/perfetto/traced_value_proto_writer_unittest.cc",
+    "public/cpp/stack_sampling/reached_code_data_source_android_unittest.cc",
     "public/cpp/stack_sampling/tracing_sampler_profiler_unittest.cc",
   ]
 
@@ -100,6 +102,8 @@ source_set("tests") {
     "//base",
     "//base/test:test_support",
     "//mojo/public/cpp/bindings",
+    "//services/tracing/public/cpp:buildflags",
+    "//services/tracing/public/cpp/background_tracing:unit_tests",
     "//testing/gmock",
     "//testing/gtest",
     "//third_party/perfetto/include/perfetto/protozero:protozero",
@@ -110,9 +114,8 @@ source_set("tests") {
     "//third_party/perfetto/protos/perfetto/trace/track_event:lite",
   ]
 
-  if (is_android) {
+  if (is_posix) {
     sources += [ "perfetto/system_perfetto_unittest.cc" ]
-    deps += [ "//third_party/perfetto/include/perfetto/ext/tracing/ipc" ]
 
     if (can_unwind_with_cfi_table && is_official_build) {
       sources +=
@@ -122,6 +125,14 @@ source_set("tests") {
         ":tracing_test_helper_java",
       ]
     }
+  }
+
+  if (enable_loader_lock_sampling) {
+    sources +=
+        [ "public/cpp/stack_sampling/loader_lock_sampler_win_unittest.cc" ]
+
+    deps += [ ":loader_lock_sampler_test_strings" ]
+    data_deps = [ ":loader_lock_sampler_test_dll" ]
   }
 }
 
@@ -135,5 +146,24 @@ if (is_android) {
     testonly = true
     deps = [ "//base:base_java" ]
     sources = [ "android/test/src/org/chromium/tracing/UnwindTestHelper.java" ]
+  }
+}
+
+if (enable_loader_lock_sampling) {
+  source_set("loader_lock_sampler_test_strings") {
+    testonly = true
+
+    sources = [
+      "public/cpp/stack_sampling/loader_lock_sampler_test_strings.cc",
+      "public/cpp/stack_sampling/loader_lock_sampler_test_strings.h",
+    ]
+  }
+
+  loadable_module("loader_lock_sampler_test_dll") {
+    testonly = true
+
+    sources = [ "public/cpp/stack_sampling/loader_lock_sampler_test_dll.cc" ]
+
+    deps = [ ":loader_lock_sampler_test_strings" ]
   }
 }

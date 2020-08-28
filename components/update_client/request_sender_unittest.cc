@@ -78,7 +78,7 @@ INSTANTIATE_TEST_SUITE_P(IsForeground, RequestSenderTest, ::testing::Bool());
 RequestSenderTest::RequestSenderTest()
     : task_environment_(base::test::TaskEnvironment::MainThreadType::IO) {}
 
-RequestSenderTest::~RequestSenderTest() {}
+RequestSenderTest::~RequestSenderTest() = default;
 
 void RequestSenderTest::SetUp() {
   config_ = base::MakeRefCounted<TestConfigurator>();
@@ -159,9 +159,12 @@ TEST_P(RequestSenderTest, RequestSendSuccess) {
   const auto extra_request_headers =
       std::get<1>(post_interceptor_->GetRequests()[0]);
   EXPECT_TRUE(extra_request_headers.HasHeader("X-Goog-Update-Interactivity"));
+  EXPECT_TRUE(extra_request_headers.HasHeader("Content-Type"));
   std::string header;
   extra_request_headers.GetHeader("X-Goog-Update-Interactivity", &header);
   EXPECT_STREQ(is_foreground ? "fg" : "bg", header.c_str());
+  extra_request_headers.GetHeader("Content-Type", &header);
+  EXPECT_STREQ("application/json", header.c_str());
 }
 
 // Tests that the request succeeds using the second url after the first url

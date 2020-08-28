@@ -28,11 +28,7 @@ namespace base {
 class DictionaryValue;
 class FilePath;
 class ListValue;
-}
-
-namespace content {
-class WebUIDataSource;
-}
+}  // namespace base
 
 class Profile;
 
@@ -42,11 +38,8 @@ namespace settings {
 class AboutHandler : public settings::SettingsPageUIHandler,
                      public UpgradeObserver {
  public:
-  AboutHandler();
+  explicit AboutHandler(Profile* profile);
   ~AboutHandler() override;
-
-  static AboutHandler* Create(content::WebUIDataSource* html_source,
-                              Profile* profile);
 
   // WebUIMessageHandler implementation.
   void RegisterMessages() override;
@@ -73,7 +66,7 @@ class AboutHandler : public settings::SettingsPageUIHandler,
   void HandleRefreshUpdateStatus(const base::ListValue* args);
   void RefreshUpdateStatus();
 
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
   // Promotes the updater for all users.
   void PromoteUpdater(const base::ListValue* args);
 #endif
@@ -106,8 +99,12 @@ class AboutHandler : public settings::SettingsPageUIHandler,
       std::string callback_id,
       std::unique_ptr<base::DictionaryValue> version_info);
 
-  // Retrieves combined channel info.
+  // Retrieves channel info.
   void HandleGetChannelInfo(const base::ListValue* args);
+
+  // Checks whether we can change the current channel.
+  void HandleCanChangeChannel(const base::ListValue* args);
+
   // Callbacks for version_updater_->GetChannel calls.
   void OnGetCurrentChannel(std::string callback_id,
                            const std::string& current_channel);
@@ -140,11 +137,12 @@ class AboutHandler : public settings::SettingsPageUIHandler,
   void SetUpdateStatus(VersionUpdater::Status status,
                        int progress,
                        bool rollback,
+                       bool powerwash,
                        const std::string& version,
                        int64_t size,
                        const base::string16& fail_message);
 
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
   // Callback method which forwards promotion state to the page.
   void SetPromotionState(VersionUpdater::PromotionState state);
 #endif
@@ -172,6 +170,8 @@ class AboutHandler : public settings::SettingsPageUIHandler,
   void OnGetEndOfLifeInfo(std::string callback_id,
                           chromeos::UpdateEngineClient::EolInfo eol_info);
 #endif
+
+  Profile* profile_;
 
   // Specialized instance of the VersionUpdater used to update the browser.
   std::unique_ptr<VersionUpdater> version_updater_;

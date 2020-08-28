@@ -27,9 +27,6 @@ extern const char kLaunchSourceAppListInfoDialog[];
 
 namespace extension_misc {
 
-// The extension id of the Calculator application.
-extern const char kCalculatorAppId[];
-
 // The extension id of the Calendar application.
 extern const char kCalendarAppId[];
 
@@ -90,20 +87,11 @@ extern const char kHTermDevAppId[];
 // The extension id of the Identity API UI application.
 extern const char kIdentityApiUiAppId[];
 
-// The extension id of the Crosh component app for ChromeOS.
-extern const char kCroshBuiltinAppId[];
-
 // The extension id of the Text Editor application.
 extern const char kTextEditorAppId[];
 
 // The extension id of the in-app payments support application.
 extern const char kInAppPaymentsSupportAppId[];
-
-// The extension id of the stable media router extension.
-extern const char kMediaRouterStableExtensionId[];
-
-// The extension id of the Chrome Reporting extension.
-extern const char kCloudReportingExtensionId[];
 
 // A list of all the first party extension IDs, last entry is null.
 extern const char* const kBuiltInFirstPartyExtensionIds[];
@@ -197,24 +185,40 @@ enum AppLaunchBucket {
 #if defined(OS_CHROMEOS)
 // The extension id of the Assessment Assistant extension.
 extern const char kAssessmentAssistantExtensionId[];
-// The extension id of the Automatic Clicks extension.
-extern const char kAutoclickExtensionId[];
-// Path to preinstalled Automatic Clicks extension (relative to
+// The extension id of the Accessibility Common extension.
+extern const char kAccessibilityCommonExtensionId[];
+// Path to preinstalled Accessibility Common extension (relative to
 // |chrome::DIR_RESOURCES|).
-extern const char kAutoclickExtensionPath[];
+extern const char kAccessibilityCommonExtensionPath[];
+// The manifest filename of the Accessibility Common extension.
+extern const char kAccessibilityCommonManifestFilename[];
+// The guest manifest filename of the Accessibility Common extension.
+extern const char kAccessibilityCommonGuestManifestFilename[];
 // Path to preinstalled ChromeVox screen reader extension (relative to
 // |chrome::DIR_RESOURCES|).
 extern const char kChromeVoxExtensionPath[];
+// The manifest filename of the ChromeVox extension.
+extern const char kChromeVoxManifestFilename[];
+// The guest manifest filename of the ChromeVox extension.
+extern const char kChromeVoxGuestManifestFilename[];
 // The extension id of the Select-to-speak extension.
 extern const char kSelectToSpeakExtensionId[];
 // Path to preinstalled Select-to-speak extension (relative to
 // |chrome::DIR_RESOURCES|).
 extern const char kSelectToSpeakExtensionPath[];
+// The manifest filename of the Select to Speak extension.
+extern const char kSelectToSpeakManifestFilename[];
+// The guest manifest filename of the Select to Speak extension.
+extern const char kSelectToSpeakGuestManifestFilename[];
 // The extension id of the Switch Access extension.
 extern const char kSwitchAccessExtensionId[];
 // Path to preinstalled Switch Access extension (relative to
 // |chrome::DIR_RESOURCES|).
 extern const char kSwitchAccessExtensionPath[];
+// The manifest filename of the Switch Access extension.
+extern const char kSwitchAccessManifestFilename[];
+// The guest manifest filename of the Switch Access extension.
+extern const char kSwitchAccessGuestManifestFilename[];
 // Name of the manifest file in an extension when a special manifest is used
 // for guest mode.
 extern const char kGuestManifestFilename[];

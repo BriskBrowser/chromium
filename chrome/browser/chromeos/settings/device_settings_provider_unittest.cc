@@ -9,11 +9,13 @@
 #include <utility>
 
 #include "base/bind.h"
+#include "base/bind_helpers.h"
 #include "base/callback.h"
 #include "base/files/file_util.h"
 #include "base/json/json_reader.h"
 #include "base/macros.h"
 #include "base/path_service.h"
+#include "base/test/metrics/histogram_tester.h"
 #include "base/test/scoped_path_override.h"
 #include "base/values.h"
 #include "chrome/browser/chromeos/policy/device_local_account.h"
@@ -94,11 +96,13 @@ class DeviceSettingsProviderTest : public DeviceSettingsTestBase {
     proto->set_report_hardware_status(enable_reporting);
     proto->set_report_session_status(enable_reporting);
     proto->set_report_graphics_status(enable_reporting);
+    proto->set_report_crash_report_info(enable_reporting);
     proto->set_report_os_update_status(enable_reporting);
     proto->set_report_running_kiosk_app(enable_reporting);
     proto->set_report_power_status(enable_reporting);
     proto->set_report_storage_status(enable_reporting);
     proto->set_report_board_status(enable_reporting);
+    proto->set_report_app_info(enable_reporting);
     proto->set_device_status_frequency(frequency);
     BuildAndInstallDevicePolicy();
   }
@@ -160,15 +164,24 @@ class DeviceSettingsProviderTest : public DeviceSettingsTestBase {
   void VerifyReportingSettings(bool expected_enable_state,
                                int expected_frequency) {
     const char* reporting_settings[] = {
-        kReportDeviceVersionInfo, kReportDeviceActivityTimes,
-        kReportDeviceBoardStatus, kReportDeviceBootMode,
+        kReportDeviceVersionInfo,
+        kReportDeviceActivityTimes,
+        kReportDeviceBoardStatus,
+        kReportDeviceBootMode,
         // Device location reporting is not currently supported.
         // kReportDeviceLocation,
-        kReportDeviceNetworkInterfaces, kReportDeviceUsers,
-        kReportDeviceHardwareStatus, kReportDevicePowerStatus,
-        kReportDeviceStorageStatus, kReportDeviceSessionStatus,
-        kReportDeviceGraphicsStatus, kReportOsUpdateStatus,
-        kReportRunningKioskApp};
+        kReportDeviceNetworkInterfaces,
+        kReportDeviceUsers,
+        kReportDeviceHardwareStatus,
+        kReportDevicePowerStatus,
+        kReportDeviceStorageStatus,
+        kReportDeviceSessionStatus,
+        kReportDeviceGraphicsStatus,
+        kReportDeviceCrashReportInfo,
+        kReportDeviceAppInfo,
+        kReportOsUpdateStatus,
+        kReportRunningKioskApp,
+    };
 
     const base::Value expected_enable_value(expected_enable_state);
     for (auto* setting : reporting_settings) {
@@ -328,6 +341,83 @@ class DeviceSettingsProviderTest : public DeviceSettingsTestBase {
             .mutable_device_show_numeric_keyboard_for_password();
     proto->set_value(show_numeric_keyboard);
     BuildAndInstallDevicePolicy();
+  }
+
+  void SetNativeDevicePrinterAccessMode(
+      em::DeviceNativePrintersAccessModeProto::AccessMode access_mode) {
+    em::DeviceNativePrintersAccessModeProto* proto =
+        device_policy_->payload().mutable_native_device_printers_access_mode();
+    proto->set_access_mode(access_mode);
+  }
+
+  void SetDevicePrinterAccessMode(
+      em::DevicePrintersAccessModeProto::AccessMode access_mode) {
+    em::DevicePrintersAccessModeProto* proto =
+        device_policy_->payload().mutable_device_printers_access_mode();
+    proto->set_access_mode(access_mode);
+  }
+
+  void SetNativeDevicePrintersBlacklist(std::vector<std::string>& values) {
+    em::DeviceNativePrintersBlacklistProto* proto =
+        device_policy_->payload().mutable_native_device_printers_blacklist();
+    for (auto const& value : values) {
+      proto->add_blacklist(value);
+    }
+  }
+
+  void SetDevicePrintersBlocklist(std::vector<std::string>& values) {
+    em::DevicePrintersBlocklistProto* proto =
+        device_policy_->payload().mutable_device_printers_blocklist();
+    for (auto const& value : values) {
+      proto->add_blocklist(value);
+    }
+  }
+
+  void SetNativeDevicePrintersWhitelist(std::vector<std::string>& values) {
+    em::DeviceNativePrintersWhitelistProto* proto =
+        device_policy_->payload().mutable_native_device_printers_whitelist();
+    for (auto const& value : values) {
+      proto->add_whitelist(value);
+    }
+  }
+
+  void SetDevicePrintersAllowlist(std::vector<std::string>& values) {
+    em::DevicePrintersAllowlistProto* proto =
+        device_policy_->payload().mutable_device_printers_allowlist();
+    for (auto const& value : values) {
+      proto->add_allowlist(value);
+    }
+  }
+
+  void VerifyDevicePrinterList(const char* policy_key,
+                               std::vector<std::string>& values) {
+    base::Value list(base::Value::Type::LIST);
+    for (auto const& value : values) {
+      list.Append(value);
+    }
+
+    VerifyPolicyValue(policy_key, &list);
+  }
+
+  // Helper routine clear the ShowLowDiskSpaceNotification policy.
+  void ClearDeviceShowLowDiskSpaceNotification() {
+    device_policy_->payload().clear_device_show_low_disk_space_notification();
+    BuildAndInstallDevicePolicy();
+  }
+
+  // Helper routine set the ShowLowDiskSpaceNotification policy.
+  void SetDeviceShowLowDiskSpaceNotification(bool show) {
+    em::DeviceShowLowDiskSpaceNotificationProto* proto =
+        device_policy_->payload()
+            .mutable_device_show_low_disk_space_notification();
+    proto->set_device_show_low_disk_space_notification(show);
+    BuildAndInstallDevicePolicy();
+  }
+
+  void VerifyDeviceShowLowDiskSpaceNotification(bool expected) {
+    const base::Value expected_value(expected);
+    EXPECT_EQ(expected_value,
+              *provider_->Get(kDeviceShowLowDiskSpaceNotification));
   }
 
   ScopedTestingLocalState local_state_;
@@ -505,6 +595,7 @@ TEST_F(DeviceSettingsProviderTest, SetPrefTwice) {
 }
 
 TEST_F(DeviceSettingsProviderTest, PolicyRetrievalFailedBadSignature) {
+  base::HistogramTester histogram_tester;
   owner_key_util_->SetPublicKeyFromPrivateKey(*device_policy_->GetSigningKey());
   device_policy_->policy().set_policy_data_signature("bad signature");
   session_manager_client_.set_device_policy(device_policy_->GetBlob());
@@ -517,9 +608,15 @@ TEST_F(DeviceSettingsProviderTest, PolicyRetrievalFailedBadSignature) {
   EXPECT_EQ(CrosSettingsProvider::PERMANENTLY_UNTRUSTED,
             provider_->PrepareTrustedValues(&closure));
   EXPECT_TRUE(closure);  // Ownership of |closure| was not taken.
+  histogram_tester.ExpectUniqueSample(
+      "Enterprise.DeviceSettings.UpdatedStatus",
+      DeviceSettingsService::STORE_VALIDATION_ERROR, /*amount=*/1);
+  histogram_tester.ExpectTotalCount(
+      "Enterprise.DeviceSettings.MissingPolicyMitigated", 0);
 }
 
 TEST_F(DeviceSettingsProviderTest, PolicyRetrievalNoPolicy) {
+  base::HistogramTester histogram_tester;
   owner_key_util_->SetPublicKeyFromPrivateKey(*device_policy_->GetSigningKey());
   session_manager_client_.set_device_policy(std::string());
   ReloadDeviceSettings();
@@ -531,9 +628,38 @@ TEST_F(DeviceSettingsProviderTest, PolicyRetrievalNoPolicy) {
   EXPECT_EQ(CrosSettingsProvider::PERMANENTLY_UNTRUSTED,
             provider_->PrepareTrustedValues(&closure));
   EXPECT_TRUE(closure);  // Ownership of |closure| was not taken.
+  histogram_tester.ExpectUniqueSample("Enterprise.DeviceSettings.UpdatedStatus",
+                                      DeviceSettingsService::STORE_NO_POLICY,
+                                      /*amount=*/1);
+  histogram_tester.ExpectTotalCount(
+      "Enterprise.DeviceSettings.MissingPolicyMitigated", 0);
+}
+
+TEST_F(DeviceSettingsProviderTest, PolicyRetrievalNoPolicyMitigated) {
+  base::HistogramTester histogram_tester;
+  profile_->ScopedCrosSettingsTestHelper()
+      ->InstallAttributes()
+      ->SetConsumerOwned();
+  owner_key_util_->SetPublicKeyFromPrivateKey(*device_policy_->GetSigningKey());
+  session_manager_client_.set_device_policy(std::string());
+  ReloadDeviceSettings();
+
+  // Verify that the cached settings blob is not "trusted".
+  EXPECT_EQ(DeviceSettingsService::STORE_NO_POLICY,
+            device_settings_service_->status());
+  base::OnceClosure closure = base::DoNothing();
+  EXPECT_EQ(CrosSettingsProvider::TRUSTED,
+            provider_->PrepareTrustedValues(&closure));
+  EXPECT_TRUE(closure);  // Ownership of |closure| was not taken.
+  histogram_tester.ExpectUniqueSample("Enterprise.DeviceSettings.UpdatedStatus",
+                                      DeviceSettingsService::STORE_NO_POLICY,
+                                      /*amount=*/1);
+  histogram_tester.ExpectTotalCount(
+      "Enterprise.DeviceSettings.MissingPolicyMitigated", 1);
 }
 
 TEST_F(DeviceSettingsProviderTest, PolicyFailedPermanentlyNotification) {
+  base::HistogramTester histogram_tester;
   session_manager_client_.set_device_policy(std::string());
 
   base::OnceClosure closure = base::BindOnce(
@@ -551,9 +677,15 @@ TEST_F(DeviceSettingsProviderTest, PolicyFailedPermanentlyNotification) {
   EXPECT_EQ(CrosSettingsProvider::PERMANENTLY_UNTRUSTED,
             provider_->PrepareTrustedValues(&closure));
   EXPECT_TRUE(closure);  // Ownership of |closure| was not taken.
+  histogram_tester.ExpectUniqueSample("Enterprise.DeviceSettings.UpdatedStatus",
+                                      DeviceSettingsService::STORE_NO_POLICY,
+                                      /*amount=*/1);
+  histogram_tester.ExpectTotalCount(
+      "Enterprise.DeviceSettings.MissingPolicyMitigated", 0);
 }
 
 TEST_F(DeviceSettingsProviderTest, PolicyLoadNotification) {
+  base::HistogramTester histogram_tester;
   EXPECT_CALL(*this, GetTrustedCallback());
 
   base::OnceClosure closure = base::BindOnce(
@@ -564,6 +696,11 @@ TEST_F(DeviceSettingsProviderTest, PolicyLoadNotification) {
 
   ReloadDeviceSettings();
   Mock::VerifyAndClearExpectations(this);
+  histogram_tester.ExpectUniqueSample("Enterprise.DeviceSettings.UpdatedStatus",
+                                      DeviceSettingsService::STORE_SUCCESS,
+                                      /*amount=*/1);
+  histogram_tester.ExpectTotalCount(
+      "Enterprise.DeviceSettings.MissingPolicyMitigated", 0);
 }
 
 TEST_F(DeviceSettingsProviderTest, LegacyDeviceLocalAccounts) {
@@ -900,6 +1037,137 @@ TEST_F(DeviceSettingsProviderTest, DeviceShowNumericKeyboardForPassword) {
   SetShowNumericKeyboardForPassword(false);
   EXPECT_EQ(base::Value(false),
             *provider_->Get(kDeviceShowNumericKeyboardForPassword));
+}
+
+TEST_F(DeviceSettingsProviderTest, DevicePrintersAccessMode_empty) {
+  // Policy should be ACCESS_MODE_ALL by default
+  base::Value default_value(em::DevicePrintersAccessModeProto::ACCESS_MODE_ALL);
+  VerifyPolicyValue(kDevicePrintersAccessMode, &default_value);
+}
+
+TEST_F(DeviceSettingsProviderTest, DevicePrintersAccessMode_native) {
+  // WHITELIST => ALLOWLIST
+  SetNativeDevicePrinterAccessMode(
+      em::DeviceNativePrintersAccessModeProto::ACCESS_MODE_WHITELIST);
+  BuildAndInstallDevicePolicy();
+  base::Value expected_value(
+      em::DevicePrintersAccessModeProto::ACCESS_MODE_ALLOWLIST);
+  VerifyPolicyValue(kDevicePrintersAccessMode, &expected_value);
+}
+
+TEST_F(DeviceSettingsProviderTest, DevicePrintersAccessMode_accessmode) {
+  SetDevicePrinterAccessMode(
+      em::DevicePrintersAccessModeProto::ACCESS_MODE_ALLOWLIST);
+  BuildAndInstallDevicePolicy();
+  base::Value expected_value(
+      em::DevicePrintersAccessModeProto::ACCESS_MODE_ALLOWLIST);
+  VerifyPolicyValue(kDevicePrintersAccessMode, &expected_value);
+}
+
+TEST_F(DeviceSettingsProviderTest, DevicePrintersAccessMode_both) {
+  // If both are set use the DevicePrintersAccessMode
+  SetNativeDevicePrinterAccessMode(
+      em::DeviceNativePrintersAccessModeProto::ACCESS_MODE_BLACKLIST);
+  SetDevicePrinterAccessMode(
+      em::DevicePrintersAccessModeProto::ACCESS_MODE_ALLOWLIST);
+  BuildAndInstallDevicePolicy();
+  base::Value expected_value(
+      em::DevicePrintersAccessModeProto::ACCESS_MODE_ALLOWLIST);
+  VerifyPolicyValue(kDevicePrintersAccessMode, &expected_value);
+}
+
+TEST_F(DeviceSettingsProviderTest, DevicePrintersBlocklist_empty) {
+  // Policy should not be set by default
+  VerifyPolicyValue(kDevicePrintersBlocklist, nullptr);
+}
+
+TEST_F(DeviceSettingsProviderTest, DevicePrintersBlocklist_blacklist) {
+  std::vector<std::string> values = {"foo", "bar"};
+
+  // If the blacklist only is set, use that.
+  SetNativeDevicePrintersBlacklist(values);
+  BuildAndInstallDevicePolicy();
+  VerifyDevicePrinterList(kDevicePrintersBlocklist, values);
+}
+
+TEST_F(DeviceSettingsProviderTest, DevicePrintersBlocklist_blocklist) {
+  std::vector<std::string> values = {"foo", "bar"};
+
+  // If the blocklist only is set, use that.
+  SetDevicePrintersBlocklist(values);
+  BuildAndInstallDevicePolicy();
+  VerifyDevicePrinterList(kDevicePrintersBlocklist, values);
+}
+
+TEST_F(DeviceSettingsProviderTest, DevicePrintersBlocklist_both) {
+  std::vector<std::string> values = {"foo", "bar"};
+  std::vector<std::string> other_values = {"baz"};
+
+  // If both are set use the blocklist
+  SetNativeDevicePrintersBlacklist(other_values);
+  SetDevicePrintersBlocklist(values);
+  BuildAndInstallDevicePolicy();
+  VerifyDevicePrinterList(kDevicePrintersBlocklist, values);
+}
+
+TEST_F(DeviceSettingsProviderTest, DevicePrintersAllowlist_empty) {
+  // Policy should not be set by default
+  VerifyPolicyValue(kDevicePrintersAllowlist, nullptr);
+}
+
+TEST_F(DeviceSettingsProviderTest, DevicePrintersAllowlist_whitelist) {
+  std::vector<std::string> values = {"foo", "bar"};
+
+  // If the blacklist only is set, use that.
+  SetNativeDevicePrintersWhitelist(values);
+  BuildAndInstallDevicePolicy();
+  VerifyDevicePrinterList(kDevicePrintersAllowlist, values);
+}
+
+TEST_F(DeviceSettingsProviderTest, DevicePrintersAllowlist_allowlist) {
+  std::vector<std::string> values = {"foo", "bar"};
+
+  // If the blocklist only is set, use that.
+  SetDevicePrintersAllowlist(values);
+  BuildAndInstallDevicePolicy();
+  VerifyDevicePrinterList(kDevicePrintersAllowlist, values);
+}
+
+TEST_F(DeviceSettingsProviderTest, DevicePrintersAllowlist_both) {
+  std::vector<std::string> values = {"foo", "bar"};
+  std::vector<std::string> other_values = {"baz"};
+
+  // If both are set use the blocklist
+  SetNativeDevicePrintersWhitelist(other_values);
+  SetDevicePrintersAllowlist(values);
+  BuildAndInstallDevicePolicy();
+  VerifyDevicePrinterList(kDevicePrintersAllowlist, values);
+}
+
+TEST_F(DeviceSettingsProviderTest,
+       DeviceShowLowDiskSpaceNotificationDefaultTrue) {
+  ClearDeviceShowLowDiskSpaceNotification();
+  // Missing policy should default to showing the low disk space
+  // notification for consumer devices.
+  VerifyDeviceShowLowDiskSpaceNotification(true);
+}
+
+TEST_F(DeviceSettingsProviderTestEnterprise,
+       DeviceShowLowDiskSpaceNotificationDefaultFalse) {
+  ClearDeviceShowLowDiskSpaceNotification();
+  // Missing policy should default to suppressing the low disk space
+  // notification for enrolled devices by default.
+  VerifyDeviceShowLowDiskSpaceNotification(false);
+}
+
+TEST_F(DeviceSettingsProviderTestEnterprise,
+       DeviceShowLowDiskSpaceNotification) {
+  // Showing the low disk space notification can be controlled by policy.
+  SetDeviceShowLowDiskSpaceNotification(true);
+  VerifyDeviceShowLowDiskSpaceNotification(true);
+
+  SetDeviceShowLowDiskSpaceNotification(false);
+  VerifyDeviceShowLowDiskSpaceNotification(false);
 }
 
 }  // namespace chromeos

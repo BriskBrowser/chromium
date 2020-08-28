@@ -25,6 +25,8 @@
 #include "components/signin/public/identity_manager/access_token_fetcher.h"
 #include "components/signin/public/identity_manager/access_token_info.h"
 #include "components/signin/public/identity_manager/account_info.h"
+#include "components/signin/public/identity_manager/consent_level.h"
+#include "components/signin/public/identity_manager/scope_set.h"
 #include "google_apis/gaia/gaia_constants.h"
 #include "net/base/load_flags.h"
 #include "net/http/http_status_code.h"
@@ -41,10 +43,8 @@ constexpr char kAuthorizationHeader[] = "Bearer %s";
 
 ProfileDownloader::ProfileDownloader(ProfileDownloaderDelegate* delegate)
     : delegate_(delegate),
-      picture_status_(PICTURE_FAILED),
       identity_manager_(delegate_->GetIdentityManager()),
-      identity_manager_observer_(this),
-      waiting_for_account_info_(false) {
+      identity_manager_observer_(this) {
   DCHECK(delegate_);
   identity_manager_observer_.Add(identity_manager_);
 }
@@ -65,9 +65,9 @@ void ProfileDownloader::StartForAccount(const CoreAccountId& account_id) {
     return;
   }
 
-  account_id_ = account_id.empty()
-                    ? identity_manager_->GetUnconsentedPrimaryAccountId()
-                    : account_id;
+  account_id_ = account_id.empty() ? identity_manager_->GetPrimaryAccountId(
+                                         signin::ConsentLevel::kNotRequired)
+                                   : account_id;
   StartFetchingOAuth2AccessToken();
 }
 
@@ -131,7 +131,7 @@ void ProfileDownloader::StartFetchingImage() {
 }
 
 void ProfileDownloader::StartFetchingOAuth2AccessToken() {
-  identity::ScopeSet scopes;
+  signin::ScopeSet scopes;
   scopes.insert(GaiaConstants::kGoogleUserInfoProfile);
   // Required to determine if lock should be enabled.
   scopes.insert(GaiaConstants::kGoogleUserInfoEmail);

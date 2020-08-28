@@ -12,10 +12,11 @@ import android.os.Bundle;
 import org.chromium.base.Log;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.settings.SettingsLauncher;
-import org.chromium.chrome.browser.settings.website.SettingsNavigationSource;
-import org.chromium.chrome.browser.settings.website.SingleCategorySettings;
-import org.chromium.chrome.browser.settings.website.SingleWebsiteSettings;
-import org.chromium.chrome.browser.settings.website.SiteSettingsCategory;
+import org.chromium.chrome.browser.settings.SettingsLauncherImpl;
+import org.chromium.components.browser_ui.site_settings.AllSiteSettings;
+import org.chromium.components.browser_ui.site_settings.SettingsNavigationSource;
+import org.chromium.components.browser_ui.site_settings.SingleWebsiteSettings;
+import org.chromium.components.browser_ui.site_settings.SiteSettingsCategory;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -75,16 +76,16 @@ public class TrustedWebActivitySettingsLauncher {
 
     private static void openFilteredAllSiteSettings(Context context, Collection<String> domains) {
         Bundle extras = new Bundle();
-        extras.putString(SingleCategorySettings.EXTRA_CATEGORY,
+        extras.putString(AllSiteSettings.EXTRA_CATEGORY,
                 SiteSettingsCategory.preferenceKey(SiteSettingsCategory.Type.ALL_SITES));
-        extras.putString(SingleCategorySettings.EXTRA_TITLE,
+        extras.putString(AllSiteSettings.EXTRA_TITLE,
                 context.getString(R.string.twa_clear_data_site_selection_title));
-        extras.putStringArrayList(
-                SingleCategorySettings.EXTRA_SELECTED_DOMAINS, new ArrayList<>(domains));
+        extras.putStringArrayList(AllSiteSettings.EXTRA_SELECTED_DOMAINS, new ArrayList<>(domains));
         extras.putInt(SettingsNavigationSource.EXTRA_KEY,
                 SettingsNavigationSource.TWA_CLEAR_DATA_DIALOG);
 
-        SettingsLauncher.launchSettingsPage(context, SingleCategorySettings.class, extras);
+        SettingsLauncher settingsLauncher = new SettingsLauncherImpl();
+        settingsLauncher.launchSettingsActivity(context, AllSiteSettings.class, extras);
     }
 
     /**
@@ -94,7 +95,8 @@ public class TrustedWebActivitySettingsLauncher {
             Context context, String url, @SettingsNavigationSource int navigationSource) {
         Bundle args = SingleWebsiteSettings.createFragmentArgsForSite(url);
         args.putInt(SettingsNavigationSource.EXTRA_KEY, navigationSource);
-        return SettingsLauncher.createIntentForSettingsPage(
+        SettingsLauncher settingsLauncher = new SettingsLauncherImpl();
+        return settingsLauncher.createSettingsActivityIntent(
                 context, SingleWebsiteSettings.class.getName(), args);
     }
 }

@@ -5,28 +5,30 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_NG_INLINE_NG_FRAGMENT_ITEM_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_NG_INLINE_NG_FRAGMENT_ITEM_H_
 
+#include "base/memory/scoped_refptr.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/layout/geometry/logical_offset.h"
 #include "third_party/blink/renderer/core/layout/layout_object.h"
 #include "third_party/blink/renderer/core/layout/ng/inline/ng_line_box_fragment_builder.h"
-#include "third_party/blink/renderer/core/layout/ng/inline/ng_line_height_metrics.h"
-#include "third_party/blink/renderer/core/layout/ng/inline/ng_physical_text_fragment.h"
 #include "third_party/blink/renderer/core/layout/ng/inline/ng_text_offset.h"
+#include "third_party/blink/renderer/core/layout/ng/inline/ng_text_type.h"
 #include "third_party/blink/renderer/core/layout/ng/ng_ink_overflow.h"
 #include "third_party/blink/renderer/platform/graphics/paint/display_item_client.h"
+#include "third_party/blink/renderer/platform/wtf/ref_counted.h"
 
 namespace blink {
 
 class NGFragmentItems;
 class NGInlineBreakToken;
-class NGInlineItem;
+class NGPhysicalTextFragment;
 struct NGTextFragmentPaintInfo;
+struct NGLogicalLineItem;
 
 // This class represents a text run or a box in an inline formatting context.
 //
 // This class consumes less memory than a full fragment, and can be stored in a
 // flat list (NGFragmentItems) for easier and faster traversal.
-class CORE_EXPORT NGFragmentItem : public DisplayItemClient {
+class CORE_EXPORT NGFragmentItem {
  public:
   // Represents regular text that exists in the DOM.
   struct TextItem {
@@ -54,22 +56,30 @@ class CORE_EXPORT NGFragmentItem : public DisplayItemClient {
     //
     // If this item is a root of another IFC/BFC, children are stored normally,
     // as children of |box_fragment|.
-    //
-    // Note:|box_fragment| can be null for <span>.
+    const NGPhysicalBoxFragment* PostLayout() const;
+
     scoped_refptr<const NGPhysicalBoxFragment> box_fragment;
     wtf_size_t descendants_count;
   };
 
   enum ItemType { kText, kGeneratedText, kLine, kBox };
 
+  // Create appropriate type for |line_item|.
+  NGFragmentItem(NGLogicalLineItem&& line_item, WritingMode writing_mode);
+  // Create a text item.
   // TODO(kojii): Should be able to create without once creating fragments.
-  NGFragmentItem(const NGPhysicalTextFragment& text);
+  explicit NGFragmentItem(const NGPhysicalTextFragment& text);
+  // Create a box item.
   NGFragmentItem(const NGPhysicalBoxFragment& box,
                  TextDirection resolved_direction);
-  NGFragmentItem(const NGInlineItem& inline_item, const PhysicalSize& size);
-  NGFragmentItem(const NGPhysicalLineBoxFragment& line, wtf_size_t item_count);
+  // Create a line item.
+  explicit NGFragmentItem(const NGPhysicalLineBoxFragment& line);
 
-  ~NGFragmentItem() final;
+  // The copy/move constructors.
+  NGFragmentItem(const NGFragmentItem&);
+  NGFragmentItem(NGFragmentItem&&);
+
+  ~NGFragmentItem();
 
   ItemType Type() const { return static_cast<ItemType>(type_); }
 
@@ -77,9 +87,39 @@ class CORE_EXPORT NGFragmentItem : public DisplayItemClient {
   bool IsContainer() const { return Type() == kBox || Type() == kLine; }
   bool IsInlineBox() const;
   bool IsAtomicInline() const;
+  bool IsFloating() const;
   bool IsEmptyLineBox() const;
   bool IsHiddenForPaint() const { return is_hidden_for_paint_; }
   bool IsListMarker() const;
+
+  // A sequence number of fragments generated from a |LayoutObject|.
+  // For line boxes, please see |kInitialLineFragmentId|.
+  wtf_size_t FragmentId() const {
+    DCHECK_NE(Type(), kLine);
+    return fragment_id_;
+  }
+  void SetFragmentId(wtf_size_t id) const {
+    DCHECK_NE(Type(), kLine);
+    fragment_id_ = id;
+  }
+  // The initial framgent_id for line boxes.
+  // TODO(kojii): This is to avoid conflict with multicol because line boxes use
+  // its |LayoutBlockFlow| as their |DisplayItemClient|, but multicol also uses
+  // fragment id for |LayoutBlockFlow| today. The plan is to make |FragmentData|
+  // a |DisplayItemClient| instead.
+  // TODO(kojii): The fragment id for line boxes must be unique across NG block
+  // fragmentation. This is not implemented yet.
+  static constexpr wtf_size_t kInitialLineFragmentId = 0x80000000;
+
+  // Return true if this is the first fragment generated from a node.
+  bool IsFirstForNode() const { return !FragmentId(); }
+
+  // Return true if this is the last fragment generated from a node.
+  bool IsLastForNode() const {
+    DCHECK(Type() != kLine);
+    return is_last_for_node_;
+  }
+  void SetIsLastForNode(bool is_last) const { is_last_for_node_ = is_last; }
 
   NGStyleVariant StyleVariant() const {
     return static_cast<NGStyleVariant>(style_variant_);
@@ -100,17 +140,24 @@ class CORE_EXPORT NGFragmentItem : public DisplayItemClient {
   LayoutObject* GetMutableLayoutObject() const {
     return const_cast<LayoutObject*>(layout_object_);
   }
+  bool IsLayoutObjectDestroyedOrMoved() const { return !layout_object_; }
+  void LayoutObjectWillBeDestroyed() const;
+  void LayoutObjectWillBeMoved() const;
   Node* GetNode() const { return layout_object_->GetNode(); }
   Node* NodeForHitTest() const { return layout_object_->NodeForHitTest(); }
-  bool HasSameParent(const NGFragmentItem& other) const;
+
+  // Use |LayoutObject|+|FragmentId()| for |DisplayItem::Id|.
+  const DisplayItemClient* GetDisplayItemClient() const {
+    return GetLayoutObject();
+  }
 
   wtf_size_t DeltaToNextForSameLayoutObject() const {
     return delta_to_next_for_same_layout_object_;
   }
-  void SetDeltaToNextForSameLayoutObject(wtf_size_t delta);
+  void SetDeltaToNextForSameLayoutObject(wtf_size_t delta) const;
 
-  const PhysicalRect& Rect() const { return rect_; }
-  const PhysicalOffset& Offset() const { return rect_.offset; }
+  const PhysicalRect& RectInContainerBlock() const { return rect_; }
+  const PhysicalOffset& OffsetInContainerBlock() const { return rect_.offset; }
   const PhysicalSize& Size() const { return rect_.size; }
   PhysicalRect LocalRect() const { return {PhysicalOffset(), Size()}; }
   void SetOffset(const PhysicalOffset& offset) { rect_.offset = offset; }
@@ -131,8 +178,15 @@ class CORE_EXPORT NGFragmentItem : public DisplayItemClient {
   }
   bool HasChildren() const { return DescendantsCount() > 1; }
   void SetDescendantsCount(wtf_size_t count) {
-    CHECK_EQ(Type(), kBox);
-    box_.descendants_count = count;
+    if (Type() == kBox) {
+      box_.descendants_count = count;
+      return;
+    }
+    if (Type() == kLine) {
+      line_.descendants_count = count;
+      return;
+    }
+    NOTREACHED();
   }
 
   // Returns |NGPhysicalBoxFragment| if one is associated with this item.
@@ -141,8 +195,13 @@ class CORE_EXPORT NGFragmentItem : public DisplayItemClient {
       return box_.box_fragment.get();
     return nullptr;
   }
+  const NGPhysicalBoxFragment* PostLayoutBoxFragment() const {
+    if (Type() == kBox)
+      return box_.PostLayout();
+    return nullptr;
+  }
 
-  bool HasOverflowClip() const;
+  bool HasNonVisibleOverflow() const;
   bool HasSelfPaintingLayer() const;
 
   // TODO(kojii): Avoid using this function in outside of this class as much as
@@ -164,65 +223,18 @@ class CORE_EXPORT NGFragmentItem : public DisplayItemClient {
     return nullptr;
   }
 
-  // DisplayItemClient overrides
-  String DebugName() const override;
-  IntRect VisualRect() const override;
+  using NGLineBoxType = NGPhysicalLineBoxFragment::NGLineBoxType;
+  NGLineBoxType LineBoxType() const {
+    if (Type() == kLine)
+      return static_cast<NGLineBoxType>(sub_type_);
+    NOTREACHED() << this;
+    return NGLineBoxType::kNormalLineBox;
+  }
 
-  // Find |NGFragmentItem|s that are associated with a |LayoutObject|.
-  class CORE_EXPORT ItemsForLayoutObject {
-    STACK_ALLOCATED();
-
-   public:
-    ItemsForLayoutObject() = default;
-    ItemsForLayoutObject(const Vector<std::unique_ptr<NGFragmentItem>>& items,
-                         unsigned first_index,
-                         const NGFragmentItem* first_item)
-        : items_(&items), first_item_(first_item), first_index_(first_index) {}
-
-    bool IsEmpty() const { return !items_; }
-
-    class CORE_EXPORT Iterator {
-     public:
-      Iterator(const Vector<std::unique_ptr<NGFragmentItem>>* items,
-               unsigned index,
-               const NGFragmentItem* item)
-          : current_(item), items_(items), index_(index) {}
-      const NGFragmentItem& operator*() const { return *current_; }
-      const NGFragmentItem& operator->() const { return *current_; }
-      Iterator& operator++();
-      bool operator==(const Iterator& other) const {
-        return current_ == other.current_;
-      }
-      bool operator!=(const Iterator& other) const {
-        return current_ != other.current_;
-      }
-
-     private:
-      const NGFragmentItem* current_;
-      const Vector<std::unique_ptr<NGFragmentItem>>* items_;
-      unsigned index_;
-    };
-    using iterator = Iterator;
-    iterator begin() const {
-      return Iterator(items_, first_index_, first_item_);
-    }
-    iterator end() const { return Iterator(nullptr, 0, nullptr); }
-
-   private:
-    const Vector<std::unique_ptr<NGFragmentItem>>* items_;
-    const NGFragmentItem* first_item_;
-    unsigned first_index_;
-  };
-  static ItemsForLayoutObject ItemsFor(const LayoutObject& layout_object);
   static PhysicalRect LocalVisualRectFor(const LayoutObject& layout_object);
 
   // Re-compute the ink overflow for the |cursor| until its end.
   static PhysicalRect RecalcInkOverflowForCursor(NGInlineCursor* cursor);
-
-  // Re-compute the ink overflow for this item. |cursor| should be at |this|,
-  // and is advanced to the next item on return.
-  void RecalcInkOverflow(NGInlineCursor* cursor,
-                         PhysicalRect* self_and_contents_rect_out);
 
   // Painters can use const methods only, except for these explicitly declared
   // methods.
@@ -255,14 +267,13 @@ class CORE_EXPORT NGFragmentItem : public DisplayItemClient {
   }
 
   // Functions for |TextItem| and |GeneratedTextItem|
-  using NGTextType = NGPhysicalTextFragment::NGTextType;
   NGTextType TextType() const {
     if (Type() == kText)
       return static_cast<NGTextType>(sub_type_);
     if (Type() == kGeneratedText)
-      return NGTextType::kGeneratedText;
+      return NGTextType::kLayoutGenerated;
     NOTREACHED() << this;
-    return NGTextType::kNormalText;
+    return NGTextType::kNormal;
   }
 
   // True if this is a forced line break.
@@ -294,6 +305,10 @@ class CORE_EXPORT NGFragmentItem : public DisplayItemClient {
 
   bool IsSymbolMarker() const {
     return TextType() == NGTextType::kSymbolMarker;
+  }
+
+  bool IsFormattingContextRoot() const {
+    return BoxFragment() && !IsInlineBox();
   }
 
   const ShapeResultView* TextShapeResult() const;
@@ -343,16 +358,56 @@ class CORE_EXPORT NGFragmentItem : public DisplayItemClient {
 
   // Converts the given point, relative to the fragment itself, into a position
   // in DOM tree.
-  PositionWithAffinity PositionForPoint(const PhysicalOffset&) const;
   PositionWithAffinity PositionForPointInText(
       const PhysicalOffset& point,
       const NGInlineCursor& cursor) const;
   unsigned TextOffsetForPoint(const PhysicalOffset& point,
                               const NGFragmentItems& items) const;
 
+  // Whether this item was marked dirty for reuse or not.
+  bool IsDirty() const { return is_dirty_; }
+  void SetDirty() const { is_dirty_ = true; }
+
+  // Returns true if this item is reusable.
+  bool CanReuse() const;
+
+  const NGFragmentItem* operator->() const { return this; }
+
+  // Get a description of |this| for the debug purposes.
+  String ToString() const;
+
  private:
+  FRIEND_TEST_ALL_PREFIXES(NGFragmentItemTest, CopyMove);
+
+  // Create a text item.
+  NGFragmentItem(const NGInlineItem& inline_item,
+                 scoped_refptr<const ShapeResultView> shape_result,
+                 const NGTextOffset& text_offset,
+                 const PhysicalSize& size,
+                 bool is_hidden_for_paint);
+  // Create a generated text item.
+  NGFragmentItem(const NGInlineItem& inline_item,
+                 scoped_refptr<const ShapeResultView> shape_result,
+                 const String& text_content,
+                 const PhysicalSize& size,
+                 bool is_hidden_for_paint);
+
+  NGInkOverflow::Type InkOverflowType() const {
+    return static_cast<NGInkOverflow::Type>(ink_overflow_type_);
+  }
+  bool IsInkOverflowComputed() const {
+    return InkOverflowType() != NGInkOverflow::kNotSet;
+  }
+  bool HasInkOverflow() const {
+    return InkOverflowType() != NGInkOverflow::kNone;
+  }
   const LayoutBox* InkOverflowOwnerBox() const;
   LayoutBox* MutableInkOverflowOwnerBox();
+
+  // Re-compute the ink overflow for this item. |cursor| should be at |this|,
+  // and is advanced to the next item on return.
+  void RecalcInkOverflow(NGInlineCursor* cursor,
+                         PhysicalRect* self_and_contents_rect_out);
 
   const LayoutObject* layout_object_;
 
@@ -368,27 +423,40 @@ class CORE_EXPORT NGFragmentItem : public DisplayItemClient {
 
   PhysicalRect rect_;
 
-  std::unique_ptr<NGInkOverflow> ink_overflow_;
+  NGInkOverflow ink_overflow_;
+
+  mutable wtf_size_t fragment_id_ = 0;
 
   // Item index delta to the next item for the same |LayoutObject|.
-  wtf_size_t delta_to_next_for_same_layout_object_ = 0;
+  mutable wtf_size_t delta_to_next_for_same_layout_object_ = 0;
 
   // Note: We should not add |bidi_level_| because it is used only for layout.
   unsigned type_ : 2;           // ItemType
-  unsigned sub_type_ : 3;       // NGTextType
+  unsigned sub_type_ : 3;       // NGTextType or NGLineBoxType
   unsigned style_variant_ : 2;  // NGStyleVariant
-  // TODO(yosin): We'll remove |is_generated_text_| field when we construct
-  // |NGFragmentItem| without |NGPhysicalTextFragment| because usage of this
-  // varaible, IsGeneratedText(), is not hot.
-  unsigned is_generated_text_ : 1;  // NGPhysicalTextFragment::IsGenerated()
   unsigned is_hidden_for_paint_ : 1;
   // Note: For |TextItem| and |GeneratedTextItem|, |text_direction_| equals to
   // |ShapeResult::Direction()|.
   unsigned text_direction_ : 1;  // TextDirection.
 
-  // Used only when |IsText()| to avoid re-computing ink overflow.
-  unsigned ink_overflow_computed_ : 1;
+  unsigned ink_overflow_type_ : 3;  // NGInkOverflow::Type
+
+  mutable unsigned is_dirty_ : 1;
+
+  mutable unsigned is_last_for_node_ : 1;
 };
+
+inline bool NGFragmentItem::CanReuse() const {
+  DCHECK_NE(Type(), kLine);
+  if (IsDirty())
+    return false;
+  if (const LayoutObject* layout_object = GetLayoutObject())
+    return !layout_object->SelfNeedsLayout();
+  return false;
+}
+
+CORE_EXPORT std::ostream& operator<<(std::ostream&, const NGFragmentItem*);
+CORE_EXPORT std::ostream& operator<<(std::ostream&, const NGFragmentItem&);
 
 }  // namespace blink
 

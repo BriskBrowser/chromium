@@ -16,11 +16,12 @@
 #include "chrome/common/url_constants.h"
 #include "chrome/test/base/ui_test_utils.h"
 #include "chrome/test/base/web_ui_browser_test.h"
+#include "content/public/browser/context_menu_params.h"
 #include "content/public/browser/render_view_host.h"
 #include "content/public/browser/render_widget_host.h"
 #include "content/public/browser/web_contents.h"
-#include "content/public/common/context_menu_params.h"
 #include "content/public/common/drop_data.h"
+#include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
 #include "extensions/test/extension_test_message_listener.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
@@ -28,7 +29,7 @@
 // Turn these tests off on Mac while we collect data on windows server crashes
 // on mac chromium builders.
 // http://crbug.com/653353
-#if !defined(OS_MACOSX)
+#if !defined(OS_MAC)
 
 #if !defined(OS_CHROMEOS) && defined(USE_AURA)
 #include "ui/aura/window.h"
@@ -422,4 +423,4 @@ IN_PROC_BROWSER_TEST_F(WebUIWebViewBrowserTest, DISABLED_DragAndDropToInput) {
 }
 #endif
 
-#endif  // !defined(OS_MACOSX)
+#endif  // !defined(OS_MAC)

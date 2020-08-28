@@ -16,6 +16,7 @@
 #include "base/sequenced_task_runner.h"
 #include "base/single_thread_task_runner.h"
 #include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chromeos/login/enrollment/auto_enrollment_controller.h"
@@ -23,9 +24,9 @@
 #include "chrome/browser/chromeos/policy/active_directory_join_delegate.h"
 #include "chrome/browser/chromeos/policy/device_cloud_policy_store_chromeos.h"
 #include "chrome/browser/chromeos/policy/dm_token_storage.h"
-#include "chrome/browser/chromeos/policy/enrollment_status_chromeos.h"
 #include "chrome/browser/chromeos/policy/server_backed_state_keys_broker.h"
 #include "chrome/browser/chromeos/profiles/profile_helper.h"
+#include "chrome/browser/policy/enrollment_status.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chromeos/attestation/attestation_flow.h"
 #include "chromeos/constants/chromeos_switches.h"
@@ -36,6 +37,7 @@
 #include "components/policy/core/common/cloud/dm_auth.h"
 #include "components/policy/proto/chrome_device_policy.pb.h"
 #include "google_apis/gaia/gaia_auth_util.h"
+#include "google_apis/gaia/gaia_constants.h"
 #include "google_apis/gaia/gaia_urls.h"
 #include "net/http/http_status_code.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
@@ -248,9 +250,10 @@ void EnrollmentHandlerChromeOS::StartEnrollment() {
     return;
   }
 
+  VLOG(1) << "Requesting state keys.";
   state_keys_broker_->RequestStateKeys(
-      base::Bind(&EnrollmentHandlerChromeOS::HandleStateKeysResult,
-                 weak_ptr_factory_.GetWeakPtr()));
+      base::BindOnce(&EnrollmentHandlerChromeOS::HandleStateKeysResult,
+                     weak_ptr_factory_.GetWeakPtr()));
 }
 
 std::unique_ptr<CloudPolicyClient> EnrollmentHandlerChromeOS::ReleaseClient() {
@@ -381,12 +384,14 @@ void EnrollmentHandlerChromeOS::HandleStateKeysResult(
     register_params_->current_state_key =
         state_keys_broker_->current_state_key();
     if (state_keys.empty() || register_params_->current_state_key.empty()) {
+      LOG(ERROR) << "State keys empty.";
       ReportResult(
           EnrollmentStatus::ForStatus(EnrollmentStatus::NO_STATE_KEYS));
       return;
     }
   }
 
+  VLOG(1) << "State keys generated.";
   SetStep(STEP_LOADING_STORE);
   StartRegistration();
 }
@@ -398,6 +403,7 @@ void EnrollmentHandlerChromeOS::StartRegistration() {
     // after the CloudPolicyStore has initialized.
     return;
   }
+  VLOG(1) << "Start registration, config mode = " << enrollment_config_.mode;
   SetStep(STEP_REGISTRATION);
   if (enrollment_config_.is_mode_attestation()) {
     StartAttestationBasedEnrollmentFlow();
@@ -441,10 +447,9 @@ void EnrollmentHandlerChromeOS::StartOfflineDemoEnrollmentFlow() {
   skip_robot_auth_ = true;
   SetStep(STEP_POLICY_FETCH);
 
-  base::PostTaskAndReplyWithResult(
+  base::ThreadPool::PostTaskAndReplyWithResult(
       FROM_HERE,
-      {base::ThreadPool(), base::MayBlock(),
-       base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN},
+      {base::MayBlock(), base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN},
       base::BindOnce(&ReadFileToOptionalString,
                      enrollment_config_.offline_policy_path),
       base::BindOnce(&EnrollmentHandlerChromeOS::OnOfflinePolicyBlobLoaded,
@@ -564,6 +569,20 @@ void EnrollmentHandlerChromeOS::OnDeviceAccountClientError(
   // Do nothing, it would be handled in OnClientError.
 }
 
+enterprise_management::DeviceServiceApiAccessRequest::DeviceType
+EnrollmentHandlerChromeOS::GetRobotAuthCodeDeviceType() {
+  return em::DeviceServiceApiAccessRequest::CHROME_OS;
+}
+
+std::set<std::string> EnrollmentHandlerChromeOS::GetRobotOAuthScopes() {
+  return {GaiaConstants::kAnyApiOAuth2Scope};
+}
+
+scoped_refptr<network::SharedURLLoaderFactory>
+EnrollmentHandlerChromeOS::GetURLLoaderFactory() {
+  return g_browser_process->shared_url_loader_factory();
+}
+
 void EnrollmentHandlerChromeOS::SetFirmwareManagementParametersData() {
   DCHECK_EQ(STEP_SET_FWMP_DATA, enrollment_step_);
 
@@ -623,8 +642,8 @@ void EnrollmentHandlerChromeOS::StartLockDevice() {
 
   install_attributes_->LockDevice(
       device_mode_, domain_, realm_, device_id_,
-      base::Bind(&EnrollmentHandlerChromeOS::HandleLockDeviceResult,
-                 weak_ptr_factory_.GetWeakPtr()));
+      base::BindOnce(&EnrollmentHandlerChromeOS::HandleLockDeviceResult,
+                     weak_ptr_factory_.GetWeakPtr()));
 }
 
 void EnrollmentHandlerChromeOS::HandleDMTokenStoreResult(bool success) {

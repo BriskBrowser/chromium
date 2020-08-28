@@ -7,7 +7,6 @@ package org.chromium.chrome.browser.autofill_assistant;
 import android.accounts.Account;
 import android.content.Context;
 import android.os.Build;
-import android.os.Bundle;
 import android.telephony.TelephonyManager;
 
 import androidx.annotation.Nullable;
@@ -19,7 +18,9 @@ import org.chromium.base.annotations.CalledByNative;
 import org.chromium.base.annotations.JNINamespace;
 import org.chromium.base.annotations.NativeMethods;
 import org.chromium.chrome.browser.signin.IdentityServicesProvider;
-import org.chromium.components.signin.AccountManagerFacade;
+import org.chromium.chrome.browser.util.ChromeAccessibilityUtil;
+import org.chromium.components.signin.AccessTokenData;
+import org.chromium.components.signin.AccountManagerFacadeProvider;
 import org.chromium.components.signin.identitymanager.IdentityManager;
 import org.chromium.content_public.browser.WebContents;
 
@@ -38,7 +39,6 @@ class AutofillAssistantClient {
     /** OAuth2 scope that RPCs require. */
     private static final String AUTH_TOKEN_TYPE =
             "oauth2:https://www.googleapis.com/auth/userinfo.profile";
-    private static final String PARAMETER_USER_EMAIL = "USER_EMAIL";
 
     /**
      * Pointer to the corresponding native autofill_assistant::ClientAndroid instance. Might be 0 if
@@ -93,9 +93,12 @@ class AutofillAssistantClient {
      *
      * @param initialUrl the original deep link, if known. When started from CCT, this
      * is the URL included into the intent
-     * @param parameters autobot parameters to set during the whole flow
+     * @param parameters Autofill Assistant parameters to set during the whole flow
      * @param experimentIds comma-separated set of experiments to use while running the flow
-     * @param intentExtras extras of the original intent
+     * @param callerAccount the account calling the flow
+     * @param userName the user name associated with this flow
+     * @param isChromeCustomTab whether this was started from a {@link CustomTabActivity} or a
+     *         normal Chrome tab.
      * @param onboardingCoordinator if non-null, reuse existing UI elements, usually created to show
      *         onboarding.
      *
@@ -104,15 +107,17 @@ class AutofillAssistantClient {
      * still fail after this method returns true; the failure will be displayed on the UI.
      */
     boolean start(String initialUrl, Map<String, String> parameters, String experimentIds,
-            Bundle intentExtras, @Nullable AssistantOnboardingCoordinator onboardingCoordinator) {
+            @Nullable String callerAccount, @Nullable String userName, boolean isChromeCustomTab,
+            @Nullable AssistantOnboardingCoordinator onboardingCoordinator) {
         if (mNativeClientAndroid == 0) return false;
 
         checkNativeClientIsAliveOrThrow();
-        chooseAccountAsyncIfNecessary(parameters.get(PARAMETER_USER_EMAIL), intentExtras);
+        chooseAccountAsyncIfNecessary(userName);
         return AutofillAssistantClientJni.get().start(mNativeClientAndroid,
-                AutofillAssistantClient.this, initialUrl, experimentIds,
+                AutofillAssistantClient.this, initialUrl, experimentIds, callerAccount,
                 parameters.keySet().toArray(new String[parameters.size()]),
-                parameters.values().toArray(new String[parameters.size()]), onboardingCoordinator,
+                parameters.values().toArray(new String[parameters.size()]), isChromeCustomTab,
+                onboardingCoordinator,
                 /* onboardingShown= */
                 onboardingCoordinator != null && onboardingCoordinator.getOnboardingShown(),
                 AutofillAssistantServiceInjector.getServiceToInject());
@@ -150,7 +155,7 @@ class AutofillAssistantClient {
             return;
         }
 
-        chooseAccountAsyncIfNecessary(userName.isEmpty() ? null : userName, null);
+        chooseAccountAsyncIfNecessary(userName.isEmpty() ? null : userName);
 
         // The native side calls sendDirectActionList() on the callback once the controller has
         // results.
@@ -186,8 +191,8 @@ class AutofillAssistantClient {
      *
      * @param actionId id of the action
      * @param experimentIds comma-separated set of experiments to use while running the flow
-     * @param arguments report these as autobot parameters while performing this specific action
-     * @param onboardingcoordinator if non-null, reuse existing UI elements, usually created to show
+     * @param arguments report these as script parameters while performing this specific action
+     * @param onboardingCoordinator if non-null, reuse existing UI elements, usually created to show
      *         onboarding.
      * @return true if the action was found started, false otherwise. The action can still fail
      * after this method returns true; the failure will be displayed on the UI.
@@ -210,12 +215,11 @@ class AutofillAssistantClient {
         return new AutofillAssistantClient(nativeClientAndroid);
     }
 
-    private void chooseAccountAsyncIfNecessary(
-            @Nullable String accountFromParameter, @Nullable Bundle extras) {
+    private void chooseAccountAsyncIfNecessary(@Nullable String userName) {
         if (mAccountInitializationStarted) return;
         mAccountInitializationStarted = true;
 
-        AccountManagerFacade.get().tryGetGoogleAccounts(accounts -> {
+        AccountManagerFacadeProvider.getInstance().tryGetGoogleAccounts(accounts -> {
             if (mNativeClientAndroid == 0) return;
             if (accounts.size() == 1) {
                 // If there's only one account, there aren't any doubts.
@@ -232,24 +236,11 @@ class AutofillAssistantClient {
                 return;
             }
 
-            if (accountFromParameter != null) {
-                Account account = findAccountByName(accounts, accountFromParameter);
+            if (userName != null) {
+                Account account = findAccountByName(accounts, userName);
                 if (account != null) {
                     onAccountChosen(account);
                     return;
-                }
-            }
-
-            if (extras != null) {
-                for (String extra : extras.keySet()) {
-                    // TODO(crbug.com/806868): Deprecate ACCOUNT_NAME.
-                    if (extra.endsWith("ACCOUNT_NAME")) {
-                        Account account = findAccountByName(accounts, extras.getString(extra));
-                        if (account != null) {
-                            onAccountChosen(account);
-                            return;
-                        }
-                    }
                 }
             }
             onAccountChosen(null);
@@ -293,13 +284,15 @@ class AutofillAssistantClient {
             return;
         }
 
-        IdentityServicesProvider.get().getIdentityManager().getAccessToken(
+        IdentityManager identityManager = IdentityServicesProvider.get().getIdentityManager(
+                AutofillAssistantUiController.getProfile());
+        identityManager.getAccessToken(
                 mAccount, AUTH_TOKEN_TYPE, new IdentityManager.GetAccessTokenCallback() {
                     @Override
-                    public void onGetTokenSuccess(String token) {
+                    public void onGetTokenSuccess(AccessTokenData token) {
                         if (mNativeClientAndroid != 0) {
                             AutofillAssistantClientJni.get().onAccessToken(mNativeClientAndroid,
-                                    AutofillAssistantClient.this, true, token);
+                                    AutofillAssistantClient.this, true, token.getToken());
                         }
                     }
 
@@ -319,12 +312,14 @@ class AutofillAssistantClient {
             return;
         }
 
-        IdentityServicesProvider.get().getIdentityManager().invalidateAccessToken(accessToken);
+        IdentityManager identityManager = IdentityServicesProvider.get().getIdentityManager(
+                AutofillAssistantUiController.getProfile());
+        identityManager.invalidateAccessToken(accessToken);
     }
 
     /** Returns the e-mail address that corresponds to the access token or an empty string. */
     @CalledByNative
-    private String getAccountEmailAddress() {
+    private String getEmailAddressForAccessTokenAccount() {
         return mAccount != null ? mAccount.name : "";
     }
 
@@ -334,6 +329,7 @@ class AutofillAssistantClient {
      * the LocationManager together with the Geocoder.
      */
     @CalledByNative
+    @Nullable
     private String getCountryCode() {
         TelephonyManager telephonyManager =
                 (TelephonyManager) ContextUtils.getApplicationContext().getSystemService(
@@ -366,6 +362,12 @@ class AutofillAssistantClient {
         return Build.MODEL;
     }
 
+    /** Returns whether a11y is enabled or not. */
+    @CalledByNative
+    private boolean isAccessibilityEnabled() {
+        return ChromeAccessibilityUtil.get().isAccessibilityEnabled();
+    }
+
     /** Adds a dynamic action to the given reporter. */
     @CalledByNative
     private void onFetchWebsiteActions(Callback<Boolean> callback, boolean success) {
@@ -381,7 +383,8 @@ class AutofillAssistantClient {
     interface Natives {
         AutofillAssistantClient fromWebContents(WebContents webContents);
         boolean start(long nativeClientAndroid, AutofillAssistantClient caller, String initialUrl,
-                String experimentIds, String[] parameterNames, String[] parameterValues,
+                String experimentIds, String callerAccount, String[] parameterNames,
+                String[] parameterValues, boolean isChromeCustomTab,
                 @Nullable AssistantOnboardingCoordinator onboardingCoordinator,
                 boolean onboardingShown, long nativeService);
         void onAccessToken(long nativeClientAndroid, AutofillAssistantClient caller,

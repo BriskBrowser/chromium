@@ -24,7 +24,8 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_toEndOf="@id/radio_button"
-        android:textAppearance="@style/TextAppearance.BlackTitle1"
+        android:cursorVisible="false"
+        android:textAppearance="@style/TextAppearance.TextLarge.Primary"
         android:inputType="text" />
 
     <!-- This TextView is hidden if it has no text, so the initial visibility should be "gone". -->
@@ -34,6 +35,6 @@
         android:layout_height="wrap_content"
         android:layout_alignStart="@id/edit_text"
         android:layout_below="@id/edit_text"
-        android:textAppearance="@style/TextAppearance.BlackHint2"
+        android:textAppearance="@style/TextAppearance.TextMedium.Secondary"
         android:visibility="gone" />
 </merge>

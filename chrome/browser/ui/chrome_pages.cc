@@ -19,12 +19,15 @@
 #include "base/system/sys_info.h"
 #include "build/branding_buildflags.h"
 #include "build/build_config.h"
-#include "chrome/browser/apps/launch_service/launch_service.h"
+#include "chrome/browser/apps/app_service/app_launch_params.h"
+#include "chrome/browser/apps/app_service/app_service_proxy.h"
+#include "chrome/browser/apps/app_service/app_service_proxy_factory.h"
+#include "chrome/browser/apps/app_service/browser_app_launcher.h"
+#include "chrome/browser/apps/app_service/launch_utils.h"
 #include "chrome/browser/bookmarks/bookmark_model_factory.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/chromeos/extensions/default_web_app_ids.h"
+#include "chrome/browser/chromeos/web_applications/default_web_app_ids.h"
 #include "chrome/browser/download/download_shelf.h"
-#include "chrome/browser/extensions/launch_util.h"
 #include "chrome/browser/policy/profile_policy_connector.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
@@ -33,13 +36,17 @@
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/browser_navigator_params.h"
 #include "chrome/browser/ui/browser_window.h"
-#include "chrome/browser/ui/extensions/app_launch_params.h"
 #include "chrome/browser/ui/scoped_tabbed_browser_displayer.h"
 #include "chrome/browser/ui/singleton_tabs.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
+#include "chrome/browser/ui/web_applications/system_web_app_ui_utils.h"
 #include "chrome/browser/ui/webui/bookmarks/bookmarks_ui.h"
-#include "chrome/browser/ui/webui/site_settings_helper.h"
-#include "chrome/browser/web_applications/components/web_app_helpers.h"
+#include "chrome/browser/ui/webui/settings/site_settings_helper.h"
+#include "chrome/browser/web_applications/components/app_registrar.h"
+#include "chrome/browser/web_applications/components/web_app_constants.h"
+#include "chrome/browser/web_applications/components/web_app_id.h"
+#include "chrome/browser/web_applications/components/web_app_provider_base.h"
+#include "chrome/browser/web_applications/system_web_app_manager.h"
 #include "chrome/common/channel_info.h"
 #include "chrome/common/chrome_features.h"
 #include "chrome/common/chrome_switches.h"
@@ -50,7 +57,6 @@
 #include "components/bookmarks/browser/bookmark_node.h"
 #include "content/public/browser/web_contents.h"
 #include "extensions/browser/extension_prefs.h"
-#include "extensions/browser/extension_registry.h"
 #include "extensions/common/constants.h"
 #include "google_apis/gaia/gaia_auth_util.h"
 #include "google_apis/gaia/gaia_urls.h"
@@ -60,11 +66,14 @@
 #include "url/url_util.h"
 
 #if defined(OS_CHROMEOS)
+#include "base/metrics/histogram_functions.h"
 #include "chrome/browser/ui/settings_window_manager_chromeos.h"
+#include "chrome/browser/ui/webui/settings/chromeos/app_management/app_management_uma.h"
+#include "chrome/browser/ui/webui/settings/chromeos/constants/routes.mojom.h"
+#include "chrome/browser/ui/webui/settings/chromeos/constants/routes_util.h"
 #include "chrome/common/webui_url_constants.h"
 #include "chromeos/constants/chromeos_features.h"
 #include "components/version_info/version_info.h"
-#include "extensions/browser/extension_registry.h"
 #else
 #include "chrome/browser/ui/signin_view_controller.h"
 #endif
@@ -132,6 +141,7 @@ const std::string BuildQueryString(Profile* profile) {
   const std::string query_string = base::StrCat(
       {kChromeReleaseNotesURL, "?version=", milestone, "&tags=", board_name,
        ",", region, ",", language, ",", channel_name, ",", user_type});
+  VLOG(0) << "Release Notes Query String: " << query_string;
   return query_string;
 }
 
@@ -141,18 +151,37 @@ void LaunchReleaseNotesInTab(Profile* profile) {
   ShowSingletonTab(displayer->browser(), url);
 }
 
-void LaunchReleaseNotesImpl(Profile* profile) {
+void LaunchReleaseNotesImpl(Profile* profile,
+                            apps::mojom::LaunchSource source) {
   base::RecordAction(UserMetricsAction("ReleaseNotes.ShowReleaseNotes"));
-  const extensions::Extension* extension =
-      extensions::ExtensionRegistry::Get(profile)->GetExtensionById(
-          chromeos::default_web_apps::kReleaseNotesAppId,
-          extensions::ExtensionRegistry::EVERYTHING);
-  if (extension) {
-    apps::AppLaunchParams params = CreateAppLaunchParamsWithEventFlags(
-        profile, extension, 0, apps::mojom::AppLaunchSource::kSourceUntracked,
-        -1);
+  // If the flag is enabled, launch the Help app and show the release notes.
+  if (base::FeatureList::IsEnabled(chromeos::features::kHelpAppReleaseNotes)) {
+    // Note that AppServiceProxy is null for off-the-record profiles. For more
+    // context, see https://crbug.com/1112197.
+    apps::AppServiceProxy* proxy = apps::AppServiceProxyFactory::GetForProfile(
+        profile->GetOriginalProfile());
+    proxy->LaunchAppWithUrl(
+        chromeos::default_web_apps::kHelpAppId, ui::EventFlags::EF_NONE,
+        GURL("chrome://help-app/updates"), source, display::kDefaultDisplayId);
+    return;
+  }
+
+  auto* provider = web_app::WebAppProviderBase::GetProviderBase(profile);
+  if (provider && provider->registrar().IsInstalled(
+                      chromeos::default_web_apps::kReleaseNotesAppId)) {
+    web_app::DisplayMode display_mode =
+        provider->registrar().GetAppEffectiveDisplayMode(
+            chromeos::default_web_apps::kReleaseNotesAppId);
+    apps::AppLaunchParams params = apps::CreateAppIdLaunchParamsWithEventFlags(
+        chromeos::default_web_apps::kReleaseNotesAppId,
+        /*event_flags=*/0, apps::mojom::AppLaunchSource::kSourceUntracked,
+        /*display_id=*/-1,
+        web_app::ConvertDisplayModeToAppLaunchContainer(display_mode));
+
     params.override_url = GURL(BuildQueryString(profile));
-    apps::LaunchService::Get(profile)->OpenApplication(params);
+    apps::AppServiceProxyFactory::GetForProfile(profile)
+        ->BrowserAppLauncher()
+        ->LaunchAppWithParams(params);
     return;
   }
   DVLOG(1) << "ReleaseNotes App Not Found";
@@ -168,36 +197,31 @@ void LaunchReleaseNotesImpl(Profile* profile) {
 void ShowHelpImpl(Browser* browser, Profile* profile, HelpSource source) {
   base::RecordAction(UserMetricsAction("ShowHelpTab"));
 #if defined(OS_CHROMEOS) && BUILDFLAG(GOOGLE_CHROME_BRANDING)
-  const extensions::Extension* extension =
-      extensions::ExtensionRegistry::Get(profile)->GetExtensionById(
-          extension_misc::kGeniusAppId,
-          extensions::ExtensionRegistry::EVERYTHING);
-  if (!extension) {
-    DCHECK(base::CommandLine::ForCurrentProcess()->HasSwitch(
-        switches::kDisableDefaultApps));
-    return;
-  }
-  extensions::AppLaunchSource app_launch_source(
-      extensions::AppLaunchSource::kSourceUntracked);
+  auto app_launch_source = apps::mojom::LaunchSource::kUnknown;
   switch (source) {
     case HELP_SOURCE_KEYBOARD:
-      app_launch_source = extensions::AppLaunchSource::kSourceKeyboard;
+      app_launch_source = apps::mojom::LaunchSource::kFromKeyboard;
       break;
     case HELP_SOURCE_MENU:
-      app_launch_source = extensions::AppLaunchSource::kSourceSystemTray;
+      app_launch_source = apps::mojom::LaunchSource::kFromMenu;
       break;
     case HELP_SOURCE_WEBUI:
     case HELP_SOURCE_WEBUI_CHROME_OS:
-      app_launch_source = extensions::AppLaunchSource::kSourceAboutPage;
+      app_launch_source = apps::mojom::LaunchSource::kFromOtherApp;
       break;
     default:
       NOTREACHED() << "Unhandled help source" << source;
   }
-  apps::LaunchService::Get(profile)->OpenApplication(apps::AppLaunchParams(
-      extension_misc::kGeniusAppId,
-      extensions::GetLaunchContainer(extensions::ExtensionPrefs::Get(profile),
-                                     extension),
-      WindowOpenDisposition::NEW_FOREGROUND_TAB, app_launch_source, true));
+  // Use the original profile here, which is the same profile unless this is an
+  // OffTheRecord profile. The help app is not installed into the incognito /
+  // OffTheRecord profile.
+  if (profile->IsOffTheRecord() && !profile->IsGuestSession()) {
+    profile = profile->GetOriginalProfile();
+  }
+  apps::AppServiceProxy* proxy =
+      apps::AppServiceProxyFactory::GetForProfile(profile);
+  proxy->Launch(chromeos::default_web_apps::kHelpAppId, ui::EventFlags::EF_NONE,
+                app_launch_source, display::kDefaultDisplayId);
 #else
   GURL url;
   switch (source) {
@@ -266,7 +290,7 @@ void ShowSiteSettingsImpl(Browser* browser, Profile* profile, const GURL& url) {
   url::Origin site_origin = url::Origin::Create(url);
   std::string link_destination(chrome::kChromeUIContentSettingsURL);
   // TODO(https://crbug.com/444047): Site Details should work with file:// urls
-  // when this bug is fixed, so add it to the whitelist when that happens.
+  // when this bug is fixed, so add it to the allowlist when that happens.
   if (!site_origin.opaque() && (url.SchemeIsHTTPOrHTTPS() ||
                                 url.SchemeIs(extensions::kExtensionScheme))) {
     std::string origin_string = site_origin.Serialize();
@@ -304,7 +328,7 @@ void ShowHistory(Browser* browser) {
 void ShowDownloads(Browser* browser) {
   base::RecordAction(UserMetricsAction("ShowDownloads"));
   if (browser->window() && browser->window()->IsDownloadShelfVisible())
-    browser->window()->GetDownloadShelf()->Close(DownloadShelf::USER_ACTION);
+    browser->window()->GetDownloadShelf()->Close();
 
   ShowSingletonTabOverwritingNTP(
       browser,
@@ -333,9 +357,9 @@ void ShowHelpForProfile(Profile* profile, HelpSource source) {
   ShowHelpImpl(NULL, profile, source);
 }
 
-void LaunchReleaseNotes(Profile* profile) {
+void LaunchReleaseNotes(Profile* profile, apps::mojom::LaunchSource source) {
 #if defined(OS_CHROMEOS) && BUILDFLAG(GOOGLE_CHROME_BRANDING)
-  LaunchReleaseNotesImpl(profile);
+  LaunchReleaseNotesImpl(profile, source);
 #endif
 }
 
@@ -386,14 +410,9 @@ void ShowSettingsSubPage(Browser* browser, const std::string& sub_page) {
 void ShowSettingsSubPageForProfile(Profile* profile,
                                    const std::string& sub_page) {
 #if defined(OS_CHROMEOS)
-  SettingsWindowManager* settings = SettingsWindowManager::GetInstance();
-  // TODO(jamescook): When SplitSettings is close to shipping, change this to
-  // a DCHECK that the |sub_page| is not an OS-specific setting.
-  if (chrome::IsOSSettingsSubPage(sub_page)) {
-    settings->ShowOSSettings(profile, sub_page);
-    return;
-  }
-  // Fall through and open browser settings in a tab.
+  // OS settings sub-pages are handled else where and should never be
+  // encountered here.
+  DCHECK(!chromeos::settings::IsOSSettingsSubPage(sub_page)) << sub_page;
 #endif
   Browser* browser = chrome::FindTabbedBrowser(profile, false);
   if (!browser)
@@ -452,6 +471,11 @@ void ShowPasswordManager(Browser* browser) {
   ShowSettingsSubPage(browser, kPasswordManagerSubPage);
 }
 
+void ShowPasswordCheck(Browser* browser) {
+  base::RecordAction(UserMetricsAction("Options_ShowPasswordCheck"));
+  ShowSettingsSubPage(browser, kPasswordCheckSubPage);
+}
+
 void ShowImportDialog(Browser* browser) {
   base::RecordAction(UserMetricsAction("Import_ShowDlg"));
   ShowSettingsSubPage(browser, kImportDataSubPage);
@@ -474,16 +498,38 @@ void ShowEnterpriseManagementPageInTabbedBrowser(Browser* browser) {
   ShowSingletonTabIgnorePathOverwriteNTP(browser, GURL(kChromeUIManagementURL));
 }
 
-void ShowAppManagementPage(Profile* profile, const std::string& app_id) {
-  DCHECK(base::FeatureList::IsEnabled(features::kAppManagement));
-  std::string sub_page =
-      base::StrCat({chrome::kAppManagementDetailSubPage, "?id=", app_id});
+void ShowAppManagementPage(Profile* profile,
+                           const std::string& app_id,
+                           AppManagementEntryPoint entry_point) {
+  // This histogram is also declared and used at chrome/browser/resources/
+  // settings/chrome_os/os_apps_page/app_management_page/constants.js.
+  constexpr char kAppManagementEntryPointsHistogramName[] =
+      "AppManagement.EntryPoints";
+
+  base::UmaHistogramEnumeration(kAppManagementEntryPointsHistogramName,
+                                entry_point);
+  std::string sub_page = base::StrCat(
+      {chromeos::settings::mojom::kAppDetailsSubpagePath, "?id=", app_id});
   chrome::SettingsWindowManager::GetInstance()->ShowOSSettings(profile,
                                                                sub_page);
 }
 
+void ShowPrintManagementApp(Profile* profile,
+                            PrintManagementAppEntryPoint entry_point) {
+  DCHECK(
+      base::FeatureList::IsEnabled(chromeos::features::kPrintJobManagementApp));
+  DCHECK(entry_point == PrintManagementAppEntryPoint::kSettings ||
+         entry_point == PrintManagementAppEntryPoint::kNotification);
+
+  base::UmaHistogramEnumeration("Printing.CUPS.PrintManagementAppEntryPoint",
+                                entry_point);
+  LaunchSystemWebApp(profile, web_app::SystemAppType::PRINT_MANAGEMENT,
+                     GURL(chrome::kChromeUIPrintManagementUrl));
+}
+
 GURL GetOSSettingsUrl(const std::string& sub_page) {
-  DCHECK(sub_page.empty() || chrome::IsOSSettingsSubPage(sub_page)) << sub_page;
+  DCHECK(sub_page.empty() || chromeos::settings::IsOSSettingsSubPage(sub_page))
+      << sub_page;
   std::string url = kChromeUIOSSettingsURL;
   return GURL(url + sub_page);
 }
@@ -507,8 +553,7 @@ void ShowBrowserSignin(Browser* browser,
               ->HasPrimaryAccount()
           ? profiles::BUBBLE_VIEW_MODE_GAIA_REAUTH
           : profiles::BUBBLE_VIEW_MODE_GAIA_SIGNIN;
-  browser->signin_view_controller()->ShowSignin(bubble_view_mode, browser,
-                                                access_point);
+  browser->signin_view_controller()->ShowSignin(bubble_view_mode, access_point);
 }
 
 void ShowBrowserSigninOrSettings(Browser* browser,

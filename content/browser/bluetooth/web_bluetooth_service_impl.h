@@ -7,8 +7,10 @@
 
 #include <memory>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
+#include "base/callback.h"
 #include "base/gtest_prod_util.h"
 #include "base/macros.h"
 #include "base/optional.h"
@@ -104,61 +106,24 @@ class CONTENT_EXPORT WebBluetoothServiceImpl
                            BluetoothScanningPermissionRevokedWhenTabOccluded);
   FRIEND_TEST_ALL_PREFIXES(WebBluetoothServiceImplTest,
                            BluetoothScanningPermissionRevokedWhenBlocked);
+  FRIEND_TEST_ALL_PREFIXES(WebBluetoothServiceImplTest,
+                           BluetoothScanningPermissionRevokedWhenFocusIsLost);
   friend class FrameConnectedBluetoothDevicesTest;
   friend class WebBluetoothServiceImplTest;
   using PrimaryServicesRequestCallback =
       base::OnceCallback<void(device::BluetoothDevice*)>;
   using ScanFilters = std::vector<blink::mojom::WebBluetoothLeScanFilterPtr>;
 
-  class ScanningClient {
-   public:
-    ScanningClient(
-        mojo::AssociatedRemote<blink::mojom::WebBluetoothScanClient> client,
-        blink::mojom::WebBluetoothRequestLEScanOptionsPtr options,
-        RequestScanningStartCallback callback,
-        BluetoothDeviceScanningPromptController* prompt_controller);
-    ~ScanningClient();
-    bool SendEvent(blink::mojom::WebBluetoothScanResultPtr result);
-
-    void set_prompt_controller(
-        BluetoothDeviceScanningPromptController* prompt_controller) {
-      prompt_controller_ = prompt_controller;
-    }
-
-    BluetoothDeviceScanningPromptController* prompt_controller() {
-      return prompt_controller_;
-    }
-
-    void set_allow_send_event(bool allow_send_event) {
-      allow_send_event_ = allow_send_event;
-    }
-
-    void RunRequestScanningStartCallback(
-        blink::mojom::WebBluetoothResult result);
-
-    const blink::mojom::WebBluetoothRequestLEScanOptions& scan_options() {
-      return *options_;
-    }
-
-   private:
-    void DisconnectionHandler();
-    void AddFilteredDeviceToPrompt(
-        const std::string& device_id,
-        const base::Optional<std::string>& device_name);
-
-    bool disconnected_ = false;
-    bool allow_send_event_ = false;
-    mojo::AssociatedRemote<blink::mojom::WebBluetoothScanClient> client_;
-    blink::mojom::WebBluetoothRequestLEScanOptionsPtr options_;
-    RequestScanningStartCallback callback_;
-    BluetoothDeviceScanningPromptController* prompt_controller_;
-  };
+  class AdvertisementClient;
+  class WatchAdvertisementsClient;
+  class ScanningClient;
 
   // WebContentsObserver:
   // These functions should always check that the affected RenderFrameHost
   // is this->render_frame_host_ and not some other frame in the same tab.
   void DidFinishNavigation(NavigationHandle* navigation_handle) override;
   void OnVisibilityChanged(Visibility visibility) override;
+  void OnWebContentsLostFocus(RenderWidgetHost* render_widget_host) override;
 
   // BluetoothAdapter::Observer:
   void AdapterPoweredChanged(device::BluetoothAdapter* adapter,
@@ -196,6 +161,7 @@ class CONTENT_EXPORT WebBluetoothServiceImpl
   void GetAvailability(GetAvailabilityCallback callback) override;
   void RequestDevice(blink::mojom::WebBluetoothRequestDeviceOptionsPtr options,
                      RequestDeviceCallback callback) override;
+  void GetDevices(GetDevicesCallback callback) override;
   void RemoteServerConnect(
       const blink::WebBluetoothDeviceId& device_id,
       mojo::PendingAssociatedRemote<blink::mojom::WebBluetoothServerClient>
@@ -219,6 +185,7 @@ class CONTENT_EXPORT WebBluetoothServiceImpl
   void RemoteCharacteristicWriteValue(
       const std::string& characteristic_instance_id,
       const std::vector<uint8_t>& value,
+      blink::mojom::WebBluetoothWriteType write_type,
       RemoteCharacteristicWriteValueCallback callback) override;
   void RemoteCharacteristicStartNotifications(
       const std::string& characteristic_instance_id,
@@ -241,28 +208,56 @@ class CONTENT_EXPORT WebBluetoothServiceImpl
       const std::vector<uint8_t>& value,
       RemoteDescriptorWriteValueCallback callback) override;
   void RequestScanningStart(
-      mojo::PendingAssociatedRemote<blink::mojom::WebBluetoothScanClient>
-          client,
+      mojo::PendingAssociatedRemote<
+          blink::mojom::WebBluetoothAdvertisementClient> client_info,
       blink::mojom::WebBluetoothRequestLEScanOptionsPtr options,
       RequestScanningStartCallback callback) override;
+  void WatchAdvertisementsForDevice(
+      const blink::WebBluetoothDeviceId& device_id,
+      mojo::PendingAssociatedRemote<
+          blink::mojom::WebBluetoothAdvertisementClient> client_info,
+      WatchAdvertisementsForDeviceCallback callback) override;
 
   void RequestDeviceImpl(
       blink::mojom::WebBluetoothRequestDeviceOptionsPtr options,
       RequestDeviceCallback callback,
       scoped_refptr<device::BluetoothAdapter> adapter);
 
+  void GetDevicesImpl(GetDevicesCallback callback,
+                      scoped_refptr<device::BluetoothAdapter> adapter);
+
+  // Callbacks for BLE scanning.
   void RequestScanningStartImpl(
-      mojo::AssociatedRemote<blink::mojom::WebBluetoothScanClient> client,
+      mojo::PendingAssociatedRemote<
+          blink::mojom::WebBluetoothAdvertisementClient> client_info,
       blink::mojom::WebBluetoothRequestLEScanOptionsPtr options,
       RequestScanningStartCallback callback,
       scoped_refptr<device::BluetoothAdapter> adapter);
-
-  void OnStartDiscoverySession(
-      mojo::AssociatedRemote<blink::mojom::WebBluetoothScanClient> client,
+  void OnStartDiscoverySessionForScanning(
+      mojo::PendingAssociatedRemote<
+          blink::mojom::WebBluetoothAdvertisementClient> client_info,
       blink::mojom::WebBluetoothRequestLEScanOptionsPtr options,
       std::unique_ptr<device::BluetoothDiscoverySession> session);
+  void OnDiscoverySessionErrorForScanning();
 
-  void OnDiscoverySessionError();
+  // Callbacks for watch advertisements for device.
+  void WatchAdvertisementsForDeviceImpl(
+      const blink::WebBluetoothDeviceId& device_id,
+      mojo::PendingAssociatedRemote<
+          blink::mojom::WebBluetoothAdvertisementClient> client_info,
+      WatchAdvertisementsForDeviceCallback callback,
+      scoped_refptr<device::BluetoothAdapter> adapter);
+  void OnStartDiscoverySessionForWatchAdvertisements(
+      std::unique_ptr<device::BluetoothDiscoverySession> session);
+  void OnDiscoverySessionErrorForWatchAdvertisements();
+
+  // Remove WatchAdvertisementsClients and ScanningClients with disconnected
+  // WebBluetoothAdvertisementClients from their respective containers.
+  void RemoveDisconnectedClients();
+
+  // Stop active discovery sessions and destroy them if there aren't any active
+  // AdvertisementClients.
+  void MaybeStopDiscovery();
 
   // Should only be run after the services have been discovered for
   // |device_address|.
@@ -380,6 +375,18 @@ class CONTENT_EXPORT WebBluetoothServiceImpl
   // Clears all state (maps, sets, etc).
   void ClearState();
 
+  // Clears state associated with Bluetooth LE Scanning.
+  void ClearAdvertisementClients();
+
+  bool IsAllowedToAccessAtLeastOneService(
+      const blink::WebBluetoothDeviceId& device_id);
+  bool IsAllowedToAccessService(const blink::WebBluetoothDeviceId& device_id,
+                                const device::BluetoothUUID& service);
+
+  // Returns true if at least |ble_scan_discovery_session_| or
+  // |watch_advertisements_discovery_session_| is active.
+  bool HasActiveDiscoverySession();
+
   // Used to open a BluetoothChooser and start a device discovery session.
   std::unique_ptr<BluetoothDeviceChooserController> device_chooser_controller_;
 
@@ -410,14 +417,30 @@ class CONTENT_EXPORT WebBluetoothServiceImpl
   RenderFrameHost* render_frame_host_;
 
   // Keeps track of our BLE scanning session.
-  std::unique_ptr<device::BluetoothDiscoverySession> discovery_session_;
+  std::unique_ptr<device::BluetoothDiscoverySession>
+      ble_scan_discovery_session_;
 
-  // This queues up start callback so that we only have one
-  // BluetoothDiscoverySession start request at a time.
-  RequestScanningStartCallback discovery_callback_;
+  // Keeps track of our watch advertisements discovery session.
+  std::unique_ptr<device::BluetoothDiscoverySession>
+      watch_advertisements_discovery_session_;
+
+  // This queues up a scanning start callback so that we only have one
+  // BluetoothDiscoverySession start request at a time for a BLE scan.
+  RequestScanningStartCallback request_scanning_start_callback_;
+
+  // This queues up pending watch advertisements callbacks and clients so that
+  // we only have one BluetoothDiscoverySession start request at a time for
+  // watching device advertisements.
+  using WatchAdvertisementsCallbackAndClient =
+      std::pair<WatchAdvertisementsForDeviceCallback,
+                std::unique_ptr<WatchAdvertisementsClient>>;
+  std::vector<WatchAdvertisementsCallbackAndClient>
+      watch_advertisements_callbacks_and_clients_;
 
   // List of clients that we must broadcast scan changes to.
   std::vector<std::unique_ptr<ScanningClient>> scanning_clients_;
+  std::vector<std::unique_ptr<WatchAdvertisementsClient>>
+      watch_advertisements_clients_;
 
   // Allowed Bluetooth scanning filters.
   ScanFilters allowed_scan_filters_;

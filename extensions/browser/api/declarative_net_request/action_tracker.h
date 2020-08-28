@@ -11,10 +11,12 @@
 
 #include "base/time/time.h"
 #include "extensions/common/api/declarative_net_request.h"
+#include "extensions/common/api/declarative_net_request/constants.h"
 #include "extensions/common/extension_id.h"
 
 namespace base {
 class Clock;
+class RetainingOneShotTimer;
 }
 
 namespace content {
@@ -23,6 +25,7 @@ class BrowserContext;
 
 namespace extensions {
 
+class Extension;
 class ExtensionPrefs;
 struct WebRequestInfo;
 
@@ -31,14 +34,27 @@ struct RequestAction;
 
 class ActionTracker {
  public:
+  // The lifespan of matched rules in |rules_matched_| not associated with an
+  // active document,
+  static constexpr base::TimeDelta kNonActiveTabRuleLifespan =
+      base::TimeDelta::FromMinutes(5);
+
   explicit ActionTracker(content::BrowserContext* browser_context);
   ~ActionTracker();
   ActionTracker(const ActionTracker& other) = delete;
   ActionTracker& operator=(const ActionTracker& other) = delete;
 
+  // TODO(crbug.com/1043367): Use a task environment to avoid having to set
+  // clocks just for tests.
+
   // Sets a custom Clock to use in tests. |clock| should be owned by the caller
   // of this function.
-  static void SetClockForTests(const base::Clock* clock);
+  void SetClockForTests(const base::Clock* clock);
+
+  // Sets a custom RetainingOneShotTimer to use in tests, which replaces
+  // |trim_rules_timer_|.
+  void SetTimerForTest(
+      std::unique_ptr<base::RetainingOneShotTimer> injected_trim_rules_timer);
 
   // Called whenever a request matches with a rule.
   void OnRuleMatched(const RequestAction& request_action,
@@ -65,16 +81,20 @@ class ActionTracker {
   // Updates the TrackedInfo for all extensions for the given |tab_id|.
   void ResetTrackedInfoForTab(int tab_id, int64_t navigation_id);
 
-  // Returns all matched rules for |extension_id|. If |tab_id| is provided, only
+  // Returns all matched rules for |extension|. If |tab_id| is provided, only
   // rules matched for |tab_id| will be returned.
   std::vector<api::declarative_net_request::MatchedRuleInfo> GetMatchedRules(
-      const ExtensionId& extension_id,
+      const Extension& extension,
       const base::Optional<int>& tab_id,
       const base::Time& min_time_stamp);
 
   // Returns the number of matched rules in |rules_tracked_| for the given
-  // |extension_id| and |tab_id|. Should only be used for tests.
-  int GetMatchedRuleCountForTest(const ExtensionId& extension_id, int tab_id);
+  // |extension_id| and |tab_id|. If |trim_non_active_rules| is true,
+  // TrimRulesFromNonActiveTabs is invoked before returning the matched rule
+  // count, similar to GetMatchedRules. Should only be used for tests.
+  int GetMatchedRuleCountForTest(const ExtensionId& extension_id,
+                                 int tab_id,
+                                 bool trim_non_active_rules);
 
   // Returns the number of matched rules in |pending_navigation_actions_| for
   // the given |extension_id| and |navigation_id|. Should only be used for
@@ -106,16 +126,14 @@ class ActionTracker {
   // Represents a matched rule. This is used as a lightweight version of
   // api::declarative_net_request::MatchedRuleInfo.
   struct TrackedRule {
-    TrackedRule(int rule_id,
-                api::declarative_net_request::SourceType source_type);
+    TrackedRule(int rule_id, RulesetID ruleset_id);
     TrackedRule(const TrackedRule& other) = delete;
     TrackedRule& operator=(const TrackedRule& other) = delete;
 
     const int rule_id;
-    const api::declarative_net_request::SourceType source_type;
+    const RulesetID ruleset_id;
 
-    // The timestamp for when the rule was matched. This is set in the
-    // constructor.
+    // The timestamp for when the rule was matched.
     const base::Time time_stamp;
   };
 
@@ -146,14 +164,29 @@ class ActionTracker {
   // unknown tab ID (-1). Called by ClearTabData and ResetActionCountForTab.
   void TransferRulesOnTabInvalid(int tab_id);
 
+  // Removes all rules in |rules_tracked_| older than
+  // |kNonActiveTabRuleLifespan| from non active tabs (i.e. |tab_id| = -1).
+  // Called periodically to ensure no rules attributed to the unknown tab ID in
+  // |rules_tracked_| are older than |kNonActiveTabRuleLifespan|.
+  void TrimRulesFromNonActiveTabs();
+
+  // Schedules TrimRulesFromNonActiveTabs to be run after
+  // |kNonActiveTabRuleLifespan|. Called in the constructor and whenever
+  // |trim_rules_timer_| gets set.
+  void StartTrimRulesTask();
+
   // Converts an internally represented |tracked_rule| to a MatchedRuleInfo.
   api::declarative_net_request::MatchedRuleInfo CreateMatchedRuleInfo(
+      const Extension& extension,
       const TrackedRule& tracked_rule,
       int tab_id) const;
 
+  // A timer to call TrimRulesFromNonActiveTabs with an interval of
+  // |kNonActiveTabRuleLifespan|.
+  std::unique_ptr<base::RetainingOneShotTimer> trim_rules_timer_ =
+      std::make_unique<base::RetainingOneShotTimer>();
+
   // Maps a pair of (extension ID, tab ID) to the TrackedInfo for that pair.
-  // TODO(crbug.com/1035106): Prune the rules for the invalid tab ID to prevent
-  // this from growing unbounded.
   std::map<ExtensionTabIdKey, TrackedInfo> rules_tracked_;
 
   // Maps a pair of (extension ID, navigation ID) to the TrackedInfo matched for

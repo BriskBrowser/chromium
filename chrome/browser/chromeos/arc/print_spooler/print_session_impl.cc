@@ -5,9 +5,9 @@
 #include "chrome/browser/chromeos/arc/print_spooler/print_session_impl.h"
 
 #include <limits>
+#include <string>
 #include <utility>
 
-#include "ash/public/cpp/arc_custom_tab.h"
 #include "base/bind.h"
 #include "base/containers/span.h"
 #include "base/files/file.h"
@@ -19,16 +19,18 @@
 #include "base/optional.h"
 #include "base/task/post_task.h"
 #include "base/task/task_traits.h"
+#include "base/task/thread_pool.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "chrome/browser/chromeos/arc/print_spooler/arc_print_spooler_util.h"
 #include "chrome/browser/printing/print_view_manager_common.h"
 #include "chrome/browser/printing/printing_service.h"
+#include "components/arc/intent_helper/custom_tab.h"
 #include "components/arc/mojom/print_common.mojom.h"
 #include "content/public/browser/web_contents.h"
 #include "mojo/public/c/system/types.h"
-#include "mojo/public/cpp/base/shared_memory_utils.h"
 #include "net/base/filename_util.h"
+#include "printing/mojom/print.mojom.h"
 #include "printing/page_range.h"
 #include "printing/print_job_constants.h"
 #include "printing/print_settings.h"
@@ -52,10 +54,12 @@ mojom::PrintColorMode ToArcColorMode(int color_mode) {
 
 // Converts a duplex mode to its Mojo type.
 mojom::PrintDuplexMode ToArcDuplexMode(int duplex_mode) {
-  switch (duplex_mode) {
-    case printing::LONG_EDGE:
+  printing::mojom::DuplexMode mode =
+      static_cast<printing::mojom::DuplexMode>(duplex_mode);
+  switch (mode) {
+    case printing::mojom::DuplexMode::kLongEdge:
       return mojom::PrintDuplexMode::LONG_EDGE;
-    case printing::SHORT_EDGE:
+    case printing::mojom::DuplexMode::kShortEdge:
       return mojom::PrintDuplexMode::SHORT_EDGE;
     default:
       return mojom::PrintDuplexMode::NONE;
@@ -155,7 +159,7 @@ base::ReadOnlySharedMemoryRegion ReadPreviewDocument(
   }
 
   base::MappedReadOnlyRegion region_mapping =
-      mojo::CreateReadOnlySharedMemoryRegion(data_size);
+      base::ReadOnlySharedMemoryRegion::Create(data_size);
   if (!region_mapping.IsValid())
     return std::move(region_mapping.region);
 
@@ -206,9 +210,10 @@ bool IsPdfPluginLoaded(content::WebContents* web_contents) {
 // static
 mojo::PendingRemote<mojom::PrintSessionHost> PrintSessionImpl::Create(
     std::unique_ptr<content::WebContents> web_contents,
-    std::unique_ptr<ash::ArcCustomTab> custom_tab,
-    mojom::PrintSessionInstancePtr instance) {
-  if (!custom_tab || !instance)
+    std::unique_ptr<CustomTab> custom_tab,
+    mojo::PendingRemote<mojom::PrintSessionInstance> instance) {
+  DCHECK(custom_tab);
+  if (!instance)
     return mojo::NullRemote();
 
   // This object will be deleted when the mojo connection is closed.
@@ -221,13 +226,13 @@ mojo::PendingRemote<mojom::PrintSessionHost> PrintSessionImpl::Create(
 
 PrintSessionImpl::PrintSessionImpl(
     std::unique_ptr<content::WebContents> web_contents,
-    std::unique_ptr<ash::ArcCustomTab> custom_tab,
-    mojom::PrintSessionInstancePtr instance,
+    std::unique_ptr<CustomTab> custom_tab,
+    mojo::PendingRemote<mojom::PrintSessionInstance> instance,
     mojo::PendingReceiver<mojom::PrintSessionHost> receiver)
-    : ArcCustomTabModalDialogHost(std::move(custom_tab),
-                                  std::move(web_contents)),
+    : ArcCustomTabModalDialogHost(std::move(custom_tab), web_contents.get()),
       instance_(std::move(instance)),
-      session_receiver_(this, std::move(receiver)) {
+      session_receiver_(this, std::move(receiver)),
+      web_contents_(std::move(web_contents)) {
   session_receiver_.set_disconnect_handler(
       base::BindOnce(&PrintSessionImpl::Close, weak_ptr_factory_.GetWeakPtr()));
   web_contents_->SetUserData(UserDataKey(), base::WrapUnique(this));
@@ -250,8 +255,8 @@ PrintSessionImpl::~PrintSessionImpl() {
     return;
   }
 
-  base::PostTask(FROM_HERE, {base::ThreadPool(), base::MayBlock()},
-                 base::BindOnce(&DeletePrintDocument, file_path));
+  base::ThreadPool::PostTask(FROM_HERE, {base::MayBlock()},
+                             base::BindOnce(&DeletePrintDocument, file_path));
 }
 
 void PrintSessionImpl::CreatePreviewDocument(
@@ -283,8 +288,8 @@ void PrintSessionImpl::OnPreviewDocumentCreated(
     return;
   }
 
-  base::PostTaskAndReplyWithResult(
-      FROM_HERE, {base::ThreadPool(), base::MayBlock()},
+  base::ThreadPool::PostTaskAndReplyWithResult(
+      FROM_HERE, {base::MayBlock()},
       base::BindOnce(&ReadPreviewDocument, std::move(preview_document),
                      static_cast<size_t>(data_size)),
       base::BindOnce(&PrintSessionImpl::OnPreviewDocumentRead,
@@ -309,9 +314,7 @@ void PrintSessionImpl::OnPreviewDocumentRead(
                        weak_ptr_factory_.GetWeakPtr()));
   }
 
-  bool inserted =
-      callbacks_.emplace(std::make_pair(request_id, std::move(callback)))
-          .second;
+  bool inserted = callbacks_.emplace(request_id, std::move(callback)).second;
   DCHECK(inserted);
 
   pdf_flattener_->FlattenPdf(
@@ -366,7 +369,7 @@ void PrintSessionImpl::StartPrintAfterPluginIsLoaded() {
       FROM_HERE,
       base::BindOnce(&PrintSessionImpl::StartPrintNow,
                      weak_ptr_factory_.GetWeakPtr()),
-      base::TimeDelta::FromMilliseconds(100));
+      base::TimeDelta::FromMilliseconds(500));
 }
 
 void PrintSessionImpl::StartPrintNow() {

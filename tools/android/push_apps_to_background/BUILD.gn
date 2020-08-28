@@ -16,6 +16,10 @@ android_apk("push_apps_to_background_apk") {
 }
 
 android_resources("push_apps_to_background_apk_resources") {
-  resource_dirs = [ "res" ]
-  custom_package = "org.chromium.push_apps_to_background"
+  sources = [
+    "res/drawable-mdpi/ic_launcher.png",
+    "res/layout/activity_push_apps_to_background.xml",
+    "res/values/strings.xml",
+  ]
+  create_srcjar = false
 }

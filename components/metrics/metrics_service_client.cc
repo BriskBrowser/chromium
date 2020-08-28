@@ -8,6 +8,7 @@
 #include <string>
 
 #include "base/command_line.h"
+#include "base/logging.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "components/metrics/metrics_switches.h"
@@ -28,18 +29,6 @@ MetricsServiceClient::~MetricsServiceClient() {}
 
 ukm::UkmService* MetricsServiceClient::GetUkmService() {
   return nullptr;
-}
-
-bool MetricsServiceClient::IsReportingPolicyManaged() {
-  return false;
-}
-
-EnableMetricsDefault MetricsServiceClient::GetMetricsReportingDefaultState() {
-  return EnableMetricsDefault::DEFAULT_UNKNOWN;
-}
-
-bool MetricsServiceClient::IsUMACellularUploadLogicEnabled() {
-  return false;
 }
 
 GURL MetricsServiceClient::GetMetricsServerUrl() {
@@ -73,6 +62,22 @@ bool MetricsServiceClient::ShouldStartUpFastForTesting() const {
   return false;
 }
 
+bool MetricsServiceClient::IsReportingPolicyManaged() {
+  return false;
+}
+
+EnableMetricsDefault MetricsServiceClient::GetMetricsReportingDefaultState() {
+  return EnableMetricsDefault::DEFAULT_UNKNOWN;
+}
+
+bool MetricsServiceClient::IsUMACellularUploadLogicEnabled() {
+  return false;
+}
+
+bool MetricsServiceClient::IsExternalExperimentAllowlistEnabled() {
+  return true;
+}
+
 bool MetricsServiceClient::IsUkmAllowedForAllProfiles() {
   return false;
 }
@@ -91,6 +96,10 @@ std::string MetricsServiceClient::GetAppPackageName() {
 
 std::string MetricsServiceClient::GetUploadSigningKey() {
   return std::string();
+}
+
+bool MetricsServiceClient::ShouldResetClientIdsOnClonedInstall() {
+  return false;
 }
 
 void MetricsServiceClient::SetUpdateRunningServicesCallback(

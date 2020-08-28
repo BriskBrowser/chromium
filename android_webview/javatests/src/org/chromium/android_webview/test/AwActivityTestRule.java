@@ -31,16 +31,20 @@ import org.chromium.base.Log;
 import org.chromium.base.test.util.CallbackHelper;
 import org.chromium.base.test.util.InMemorySharedPreferences;
 import org.chromium.content_public.browser.LoadUrlParams;
-import org.chromium.content_public.browser.test.util.Criteria;
 import org.chromium.content_public.browser.test.util.CriteriaHelper;
 import org.chromium.content_public.browser.test.util.TestCallbackHelperContainer.OnPageFinishedHelper;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.net.test.util.TestWebServer;
 
 import java.lang.annotation.Annotation;
+import java.lang.ref.WeakReference;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.regex.Matcher;
@@ -56,6 +60,8 @@ public class AwActivityTestRule extends ActivityTestRule<AwTestRunnerActivity> {
 
     private static final Pattern MAYBE_QUOTED_STRING = Pattern.compile("^(\"?)(.*)\\1$");
 
+    private static boolean sBrowserProcessStarted;
+
     /**
      * An interface to call onCreateWindow(AwContents).
      */
@@ -69,6 +75,8 @@ public class AwActivityTestRule extends ActivityTestRule<AwTestRunnerActivity> {
     // The browser context needs to be a process-wide singleton.
     private AwBrowserContext mBrowserContext;
 
+    private List<WeakReference<AwContents>> mAwContentsDestroyedInTearDown = new ArrayList<>();
+
     public AwActivityTestRule() {
         super(AwTestRunnerActivity.class, /* initialTouchMode */ false, /* launchActivity */ false);
     }
@@ -81,6 +89,7 @@ public class AwActivityTestRule extends ActivityTestRule<AwTestRunnerActivity> {
             public void evaluate() throws Throwable {
                 setUp();
                 base.evaluate();
+                tearDown();
             }
         }, description);
     }
@@ -91,7 +100,24 @@ public class AwActivityTestRule extends ActivityTestRule<AwTestRunnerActivity> {
         }
         if (needsBrowserProcessStarted()) {
             startBrowserProcess();
+        } else {
+            assert !sBrowserProcessStarted
+                : "needsBrowserProcessStarted false and @Batch are incompatible";
         }
+    }
+
+    public void tearDown() {
+        if (!needsAwContentsCleanup()) return;
+
+        TestThreadUtils.runOnUiThreadBlocking(() -> {
+            for (WeakReference<AwContents> awContentsRef : mAwContentsDestroyedInTearDown) {
+                AwContents awContents = awContentsRef.get();
+                if (awContents == null) continue;
+                awContents.destroy();
+            }
+        });
+        // Flush the UI queue since destroy posts again to UI thread.
+        TestThreadUtils.runOnUiThreadBlocking(() -> { mAwContentsDestroyedInTearDown.clear(); });
     }
 
     public AwTestRunnerActivity launchActivity() {
@@ -129,6 +155,14 @@ public class AwActivityTestRule extends ActivityTestRule<AwTestRunnerActivity> {
         return true;
     }
 
+    /**
+     * Override this to return false if test doesn't need all AwContents to be
+     * destroyed explicitly after the test.
+     */
+    public boolean needsAwContentsCleanup() {
+        return true;
+    }
+
     public void createAwBrowserContext() {
         if (mBrowserContext != null) {
             throw new AndroidRuntimeException("There should only be one browser context.");
@@ -142,7 +176,10 @@ public class AwActivityTestRule extends ActivityTestRule<AwTestRunnerActivity> {
     public void startBrowserProcess() {
         // The Activity must be launched in order for proper webview statics to be setup.
         launchActivity();
-        TestThreadUtils.runOnUiThreadBlocking(() -> AwBrowserProcess.start());
+        if (!sBrowserProcessStarted) {
+            sBrowserProcessStarted = true;
+            TestThreadUtils.runOnUiThreadBlocking(() -> AwBrowserProcess.start());
+        }
         if (mBrowserContext != null) {
             TestThreadUtils.runOnUiThreadBlocking(
                     () -> mBrowserContext.setNativePointer(
@@ -375,6 +412,7 @@ public class AwActivityTestRule extends ActivityTestRule<AwTestRunnerActivity> {
                 testContainerView.getNativeDrawFunctorFactory(), awContentsClient, awSettings,
                 testDependencyFactory);
         testContainerView.initialize(awContents);
+        mAwContentsDestroyedInTearDown.add(new WeakReference<>(awContents));
         return testContainerView;
     }
 
@@ -466,15 +504,12 @@ public class AwActivityTestRule extends ActivityTestRule<AwTestRunnerActivity> {
      * timeouts and treats timeouts and exceptions as test failures automatically.
      */
     public static void pollInstrumentationThread(final Callable<Boolean> callable) {
-        CriteriaHelper.pollInstrumentationThread(new Criteria() {
-            @Override
-            public boolean isSatisfied() {
-                try {
-                    return callable.call();
-                } catch (Throwable e) {
-                    Log.e(TAG, "Exception while polling.", e);
-                    return false;
-                }
+        CriteriaHelper.pollInstrumentationThread(() -> {
+            try {
+                return callable.call();
+            } catch (Throwable e) {
+                Log.e(TAG, "Exception while polling.", e);
+                return false;
             }
         }, WAIT_TIMEOUT_MS, CHECK_INTERVAL);
     }
@@ -485,6 +520,44 @@ public class AwActivityTestRule extends ActivityTestRule<AwTestRunnerActivity> {
      */
     public void pollUiThread(final Callable<Boolean> callable) {
         pollInstrumentationThread(() -> TestThreadUtils.runOnUiThreadBlocking(callable));
+    }
+
+    /**
+     * Waits for {@code future} and returns its value (or times out). If {@code future} has an
+     * associated Exception, this will re-throw that Exception on the instrumentation thread
+     * (wrapping with an unchecked Exception if necessary, to avoid requiring callers to declare
+     * checked Exceptions).
+     *
+     * @param future the {@link Future} representing a value of interest.
+     * @return the value {@code future} represents.
+     */
+    public static <T> T waitForFuture(Future<T> future) {
+        try {
+            return future.get(WAIT_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+        } catch (ExecutionException e) {
+            // ExecutionException means this Future has an associated Exception that we should
+            // re-throw on the current thread. We throw the cause instead of ExecutionException,
+            // since ExecutionException itself isn't interesting, and might mislead those debugging
+            // test failures to suspect this method is the culprit (whereas the root cause is from
+            // another thread).
+            Throwable cause = e.getCause();
+            // If the cause is an unchecked Throwable type, re-throw as-is.
+            if (cause instanceof Error) throw(Error) cause;
+            if (cause instanceof RuntimeException) throw(RuntimeException) cause;
+            // Otherwise, wrap this in an unchecked Exception so callers don't need to declare
+            // checked Exceptions.
+            throw new RuntimeException(cause);
+        } catch (InterruptedException | TimeoutException e) {
+            // Don't call e.getCause() for either of these. Unlike ExecutionException, these don't
+            // wrap the root cause, but rather are themselves interesting. Again, we wrap these
+            // checked Exceptions with an unchecked Exception for the caller's convenience.
+            //
+            // Although we might be tempted to handle InterruptedException by calling
+            // Thread.currentThread().interrupt(), this is not correct in this case. The interrupted
+            // thread was likely a different thread than the current thread, so there's nothing
+            // special we need to do.
+            throw new RuntimeException(e);
+        }
     }
 
     /**

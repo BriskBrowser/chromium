@@ -182,6 +182,7 @@ void HistoryTabHelper::DidFinishNavigation(
       last_committed_item->GetUniqueID(), referrer_url, redirects, transition,
       hidden, history::SOURCE_BROWSED,
       /*did_replace_entry=*/false, consider_for_ntp_most_visited,
+      /*publicly_routable=*/false,
       navigation_context->IsSameDocument() ? GetPageTitle(*last_committed_item)
                                            : base::nullopt);
 
@@ -237,8 +238,8 @@ void HistoryTabHelper::WebStateDestroyed(web::WebState* web_state) {
 }
 
 history::HistoryService* HistoryTabHelper::GetHistoryService() {
-  ios::ChromeBrowserState* browser_state =
-      ios::ChromeBrowserState::FromBrowserState(web_state_->GetBrowserState());
+  ChromeBrowserState* browser_state =
+      ChromeBrowserState::FromBrowserState(web_state_->GetBrowserState());
   if (browser_state->IsOffTheRecord())
     return nullptr;
 

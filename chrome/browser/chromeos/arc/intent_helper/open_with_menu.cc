@@ -11,8 +11,9 @@
 #include "chrome/grit/generated_resources.h"
 #include "components/renderer_context_menu/render_view_context_menu_proxy.h"
 #include "content/public/browser/browser_context.h"
-#include "content/public/common/context_menu_params.h"
+#include "content/public/browser/context_menu_params.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/base/models/image_model.h"
 
 namespace arc {
 
@@ -101,7 +102,8 @@ void OpenWithMenu::ModelChanged(const std::vector<LinkHandlerInfo>& handlers) {
           IDS_CONTENT_CONTEXT_OPEN_WITH_APP, it->second.name);
       proxy_->UpdateMenuItem(command_id, true, false, label);
       if (!it->second.icon.IsEmpty())
-        proxy_->UpdateMenuIcon(command_id, it->second.icon);
+        proxy_->UpdateMenuIcon(command_id,
+                               ui::ImageModel::FromImage(it->second.icon));
     }
   }
 }

@@ -5,12 +5,15 @@
 #import "ios/chrome/browser/ui/settings/bandwidth_management_table_view_controller.h"
 
 #include "base/mac/foundation_util.h"
+#include "base/metrics/user_metrics.h"
+#include "base/metrics/user_metrics_action.h"
 #import "components/prefs/ios/pref_observer_bridge.h"
 #include "components/prefs/pref_change_registrar.h"
 #include "components/prefs/pref_service.h"
 #include "ios/chrome/browser/browser_state/chrome_browser_state.h"
 #include "ios/chrome/browser/pref_names.h"
 #import "ios/chrome/browser/ui/settings/dataplan_usage_table_view_controller.h"
+#import "ios/chrome/browser/ui/settings/settings_table_view_controller_constants.h"
 #import "ios/chrome/browser/ui/settings/utils/settings_utils.h"
 #import "ios/chrome/browser/ui/table_view/cells/table_view_detail_icon_item.h"
 #import "ios/chrome/browser/ui/table_view/cells/table_view_link_header_footer_item.h"
@@ -43,7 +46,7 @@ typedef NS_ENUM(NSInteger, ItemType) {
 }  // namespace
 
 @interface BandwidthManagementTableViewController ()<PrefObserverDelegate> {
-  ios::ChromeBrowserState* _browserState;  // weak
+  ChromeBrowserState* _browserState;  // weak
 
   // Pref observer to track changes to prefs.
   std::unique_ptr<PrefObserverBridge> _prefObserverBridge;
@@ -58,7 +61,7 @@ typedef NS_ENUM(NSInteger, ItemType) {
 
 @implementation BandwidthManagementTableViewController
 
-- (instancetype)initWithBrowserState:(ios::ChromeBrowserState*)browserState {
+- (instancetype)initWithBrowserState:(ChromeBrowserState*)browserState {
   UITableViewStyle style = base::FeatureList::IsEnabled(kSettingsRefresh)
                                ? UITableViewStylePlain
                                : UITableViewStyleGrouped;
@@ -105,6 +108,16 @@ typedef NS_ENUM(NSInteger, ItemType) {
 
   [model setFooter:[self footerItem]
       forSectionWithIdentifier:SectionIdentifierActions];
+}
+
+#pragma mark - SettingsControllerProtocol
+
+- (void)reportDismissalUserAction {
+  base::RecordAction(base::UserMetricsAction("MobileBandwidthSettingsClose"));
+}
+
+- (void)reportBackUserAction {
+  base::RecordAction(base::UserMetricsAction("MobileBandwidthSettingsBack"));
 }
 
 #pragma mark - UITableViewDelegate
@@ -171,6 +184,7 @@ typedef NS_ENUM(NSInteger, ItemType) {
   _preloadWebpagesDetailItem.accessoryType =
       UITableViewCellAccessoryDisclosureIndicator;
   _preloadWebpagesDetailItem.accessibilityTraits |= UIAccessibilityTraitButton;
+  _preloadWebpagesDetailItem.accessibilityIdentifier = kSettingsPreloadCellId;
   return _preloadWebpagesDetailItem;
 }
 

@@ -26,14 +26,11 @@ class MockSyncEngine : public SyncEngine {
 
   // ModelTypeConfigurer:
   MOCK_METHOD1(ConfigureDataTypes, void(ConfigureParams));
-  MOCK_METHOD2(RegisterDirectoryDataType, void(ModelType, ModelSafeGroup));
-  MOCK_METHOD1(UnregisterDirectoryDataType, void(ModelType));
-  MOCK_METHOD3(ActivateDirectoryDataType,
-               void(ModelType, ModelSafeGroup, ChangeProcessor*));
-  MOCK_METHOD1(DeactivateDirectoryDataType, void(ModelType));
   MOCK_METHOD2(ActivateNonBlockingDataType,
                void(ModelType, std::unique_ptr<DataTypeActivationResponse>));
   MOCK_METHOD1(DeactivateNonBlockingDataType, void(ModelType));
+  MOCK_METHOD1(ActivateProxyDataType, void(ModelType));
+  MOCK_METHOD1(DeactivateProxyDataType, void(ModelType));
 
   // SyncEngine:
   MOCK_METHOD1(Initialize, void(InitParams));
@@ -51,12 +48,10 @@ class MockSyncEngine : public SyncEngine {
   MOCK_METHOD0(StopSyncingForShutdown, void());
   MOCK_METHOD1(Shutdown, void(ShutdownReason));
   MOCK_METHOD0(EnableEncryptEverything, void());
-  MOCK_CONST_METHOD0(GetUserShare, UserShare*());
-  MOCK_METHOD0(GetDetailedStatus, SyncStatus());
+  MOCK_CONST_METHOD0(GetDetailedStatus, const SyncStatus&());
   MOCK_CONST_METHOD1(HasUnsyncedItemsForTest,
                      void(base::OnceCallback<void(bool)>));
   MOCK_CONST_METHOD1(GetModelSafeRoutingInfo, void(ModelSafeRoutingInfo*));
-  MOCK_CONST_METHOD0(FlushDirectory, void());
   MOCK_METHOD0(RequestBufferedProtocolEventsAndEnableForwarding, void());
   MOCK_METHOD0(DisableProtocolEventForwarding, void());
   MOCK_METHOD0(EnableDirectoryTypeDebugInfoForwarding, void());

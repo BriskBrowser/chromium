@@ -5,6 +5,7 @@
 #ifndef CHROME_BROWSER_UI_ASH_LAUNCHER_CHROME_LAUNCHER_CONTROLLER_H_
 #define CHROME_BROWSER_UI_ASH_LAUNCHER_CHROME_LAUNCHER_CONTROLLER_H_
 
+#include <map>
 #include <memory>
 #include <string>
 #include <vector>
@@ -17,7 +18,6 @@
 #include "base/memory/weak_ptr.h"
 #include "chrome/browser/ui/app_icon_loader_delegate.h"
 #include "chrome/browser/ui/app_list/app_list_syncable_service.h"
-#include "chrome/browser/ui/ash/launcher/arc_app_window_launcher_controller.h"
 #include "chrome/browser/ui/ash/launcher/discover_window_observer.h"
 #include "chrome/browser/ui/ash/launcher/launcher_app_updater.h"
 #include "chrome/browser/ui/ash/launcher/settings_window_observer.h"
@@ -31,7 +31,6 @@ class AppWindowLauncherController;
 class BrowserShortcutLauncherItemController;
 class BrowserStatusMonitor;
 class ChromeLauncherControllerUserSwitchObserver;
-class CrostiniAppWindowShelfController;
 class GURL;
 class Profile;
 class LauncherControllerHelper;
@@ -82,11 +81,6 @@ class ChromeLauncherController
 
   AppServiceAppWindowLauncherController* app_service_app_window_controller() {
     return app_service_app_window_controller_;
-  }
-
-  CrostiniAppWindowShelfController* crostini_app_window_shelf_controller()
-      const {
-    return crostini_app_window_shelf_controller_;
   }
 
   // Initializes this ChromeLauncherController.
@@ -194,10 +188,6 @@ class ChromeLauncherController
   ash::ShelfItemDelegate::AppMenuItems GetAppMenuItemsForTesting(
       const ash::ShelfItem& item);
 
-  // Get the list of all tabs which belong to a certain application type.
-  std::vector<content::WebContents*> GetV1ApplicationsFromAppId(
-      const std::string& app_id);
-
   // Get the list of all ARC app windows.
   std::vector<aura::Window*> GetArcWindows();
 
@@ -277,11 +267,13 @@ class ChromeLauncherController
 
   // Show the dialog with the application's information. Call only if
   // CanDoShowAppInfoFlow() returns true.
-  void DoShowAppInfoFlow(Profile* profile, const std::string& extension_id);
+  void DoShowAppInfoFlow(Profile* profile, const std::string& app_id);
 
   // LauncherAppUpdater::Delegate:
   void OnAppInstalled(content::BrowserContext* browser_context,
                       const std::string& app_id) override;
+  void OnAppUpdated(content::BrowserContext* browser_context,
+                    const std::string& app_id) override;
   void OnAppUninstalledPrepared(content::BrowserContext* browser_context,
                                 const std::string& app_id) override;
 
@@ -354,6 +346,9 @@ class ChromeLauncherController
   // Create the Chrome browser shortcut ShelfItem.
   void CreateBrowserShortcutLauncherItem();
 
+  // Creates the Lacros browser shortcut ShelfItem.
+  void CreateLacrosBrowserShortcut();
+
   // Finds the index of where to insert the next item.
   int FindInsertionPoint();
 
@@ -361,6 +356,9 @@ class ChromeLauncherController
   // deleted.
   void CloseWindowedAppsFromRemovedExtension(const std::string& app_id,
                                              const Profile* profile);
+
+  // Add the app updater and the app icon loder for a specific profile.
+  void AddAppUpdaterAndIconLoader(Profile* profile);
 
   // Attach to a specific profile.
   void AttachProfile(Profile* profile_to_attach);
@@ -397,15 +395,16 @@ class ChromeLauncherController
   // multi-profile use cases this might change over time.
   Profile* profile_ = nullptr;
 
+  // The profile used to load icons and get the app update information. This is
+  // the latest active user's profile when switch users in multi-profile use
+  // cases.
+  Profile* latest_active_profile_ = nullptr;
+
   // The ShelfModel instance owned by ash::Shell's ShelfController.
   ash::ShelfModel* model_;
 
   // The AppService app window launcher controller.
   AppServiceAppWindowLauncherController* app_service_app_window_controller_ =
-      nullptr;
-
-  // The shelf controller for Crostini apps.
-  CrostiniAppWindowShelfController* crostini_app_window_shelf_controller_ =
       nullptr;
 
   // When true, changes to pinned shelf items should update the sync model.
@@ -426,7 +425,8 @@ class ChromeLauncherController
   std::unique_ptr<DiscoverWindowObserver> discover_window_observer_;
 
   // Used to load the images for app items.
-  std::vector<std::unique_ptr<AppIconLoader>> app_icon_loaders_;
+  std::map<Profile*, std::vector<std::unique_ptr<AppIconLoader>>>
+      app_icon_loaders_;
 
   // Direct access to app_id for a web contents.
   // NOTE: This tracks all WebContents, not just those associated with an app.
@@ -436,11 +436,9 @@ class ChromeLauncherController
   std::vector<std::unique_ptr<AppWindowLauncherController>>
       app_window_controllers_;
 
-  // Pointer to the ARC app window controller owned by app_window_controllers_.
-  ArcAppWindowLauncherController* arc_app_window_controller_ = nullptr;
-
   // Used to handle app load/unload events.
-  std::vector<std::unique_ptr<LauncherAppUpdater>> app_updaters_;
+  std::map<Profile*, std::vector<std::unique_ptr<LauncherAppUpdater>>>
+      app_updaters_;
 
   PrefChangeRegistrar pref_change_registrar_;
 

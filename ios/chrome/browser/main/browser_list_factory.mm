@@ -17,7 +17,7 @@
 
 // static
 BrowserList* BrowserListFactory::GetForBrowserState(
-    ios::ChromeBrowserState* browser_state) {
+    ChromeBrowserState* browser_state) {
   return static_cast<BrowserList*>(
       GetInstance()->GetServiceForBrowserState(browser_state, true));
 }
@@ -42,4 +42,20 @@ web::BrowserState* BrowserListFactory::GetBrowserStateToUse(
     web::BrowserState* context) const {
   // Incognito browser states use same service as regular browser states.
   return GetBrowserStateRedirectedInIncognito(context);
+}
+
+void BrowserListFactory::BrowserStateShutdown(web::BrowserState* context) {
+  ChromeBrowserState* browser_state =
+      ChromeBrowserState::FromBrowserState(context);
+  // Because there's a single service instance of the BrowserList for both
+  // regular and OTR browser states, |BrowserStateShutdown| will be called when
+  // OTR browser states are destroyed. Since this happens each time the last
+  // incognito tab is closed, avoid a shutdown of the browser list when an OTR
+  // browser state shuts down. Removing this early return will cause all browser
+  // list observers to stop working the first time the last incognito tab is
+  // closed.
+  if (browser_state->IsOffTheRecord()) {
+    return;
+  }
+  GetForBrowserState(browser_state)->Shutdown();
 }

@@ -4,20 +4,34 @@
 
 #include "chrome/browser/ui/global_media_controls/cast_media_notification_item.h"
 
+#include "base/i18n/rtl.h"
+#include "base/location.h"
+#include "base/metrics/histogram_functions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/global_media_controls/cast_media_session_controller.h"
 #include "components/media_message_center/media_notification_controller.h"
 #include "components/media_message_center/media_notification_view.h"
+#include "components/media_message_center/media_notification_view_impl.h"
+#include "components/vector_icons/vector_icons.h"
 #include "content/public/browser/browser_context.h"
+#include "content/public/browser/browser_task_traits.h"
+#include "content/public/browser/browser_thread.h"
 #include "content/public/browser/storage_partition.h"
-#include "mojo/public/cpp/bindings/interface_request.h"
 #include "net/base/load_flags.h"
 #include "net/traffic_annotation/network_traffic_annotation.h"
+#include "net/url_request/referrer_policy.h"
 #include "services/media_session/public/cpp/util.h"
 #include "services/media_session/public/mojom/media_session.mojom.h"
 
+using Metadata = media_message_center::MediaNotificationViewImpl::Metadata;
+
 namespace {
+
+constexpr char kArtworkHistogramName[] =
+    "Media.Notification.Cast.ArtworkPresent";
+constexpr char kMetadataHistogramName[] =
+    "Media.Notification.Cast.MetadataPresent";
 
 net::NetworkTrafficAnnotationTag GetTrafficAnnotationTag() {
   return net::DefineNetworkTrafficAnnotation(
@@ -111,6 +125,21 @@ media_session::mojom::MediaSessionInfo::SessionState ToSessionState(
   }
 }
 
+base::string16 GetSourceTitle(const media_router::MediaRoute& route) {
+  if (route.media_sink_name().empty())
+    return base::UTF8ToUTF16(route.description());
+
+  if (route.description().empty())
+    return base::UTF8ToUTF16(route.media_sink_name());
+
+  const char kSeparator[] = " \xC2\xB7 ";  // "Middle dot" character.
+  const std::string source_title =
+      base::i18n::IsRTL()
+          ? route.media_sink_name() + kSeparator + route.description()
+          : route.description() + kSeparator + route.media_sink_name();
+  return base::UTF8ToUTF16(source_title);
+}
+
 }  // namespace
 
 CastMediaNotificationItem::CastMediaNotificationItem(
@@ -126,9 +155,11 @@ CastMediaNotificationItem::CastMediaNotificationItem(
           base::BindRepeating(&CastMediaNotificationItem::ImageChanged,
                               base::Unretained(this))),
       session_info_(CreateSessionInfo()) {
-  metadata_.source_title = base::UTF8ToUTF16(route.media_sink_name());
-  metadata_.artist = base::UTF8ToUTF16(route.description());
+  metadata_.source_title = GetSourceTitle(route);
   notification_controller_->ShowNotification(media_route_id_);
+  base::UmaHistogramEnumeration(
+      kSourceHistogramName, route.is_local() ? Source::kLocalCastSession
+                                             : Source::kNonLocalCastSession);
 }
 
 CastMediaNotificationItem::~CastMediaNotificationItem() {
@@ -138,11 +169,30 @@ CastMediaNotificationItem::~CastMediaNotificationItem() {
 void CastMediaNotificationItem::SetView(
     media_message_center::MediaNotificationView* view) {
   view_ = view;
+  if (view_)
+    view_->UpdateWithVectorIcon(vector_icons::kMediaRouterIdleIcon);
+
   UpdateView();
+  if (view_ && !recorded_metadata_metrics_) {
+    recorded_metadata_metrics_ = true;
+    // We record the metadata shown after a delay because if the view is shown
+    // as soon as the Cast session is launched, it'd take some time for Chrome
+    // to receive status info and fetch the artwork. We need to use a fixed
+    // delay rather than waiting for OnMediaStatusUpdated(), because it could
+    // get called multiple times with increasing amounts of info, or not get
+    // called at all.
+    content::GetUIThreadTaskRunner({})->PostDelayedTask(
+        FROM_HERE,
+        base::BindOnce(&CastMediaNotificationItem::RecordMetadataMetrics,
+                       weak_ptr_factory_.GetWeakPtr()),
+        base::TimeDelta::FromSeconds(3));
+  }
 }
 
 void CastMediaNotificationItem::OnMediaSessionActionButtonPressed(
     media_session::mojom::MediaSessionAction action) {
+  base::UmaHistogramEnumeration(kUserActionHistogramName, action);
+  base::UmaHistogramEnumeration(kCastUserActionHistogramName, action);
   session_controller_->Send(action);
 }
 
@@ -150,9 +200,14 @@ void CastMediaNotificationItem::Dismiss() {
   notification_controller_->HideNotification(media_route_id_);
 }
 
+bool CastMediaNotificationItem::SourceIsCast() {
+  return true;
+}
+
 void CastMediaNotificationItem::OnMediaStatusUpdated(
     media_router::mojom::MediaStatusPtr status) {
   metadata_.title = base::UTF8ToUTF16(status->title);
+  metadata_.artist = base::UTF8ToUTF16(status->secondary_title);
   actions_ = ToMediaSessionActions(*status);
   session_info_->state = ToSessionState(status->play_state);
   session_info_->playback_state = ToPlaybackState(status->play_state);
@@ -171,8 +226,7 @@ void CastMediaNotificationItem::OnRouteUpdated(
     const media_router::MediaRoute& route) {
   DCHECK_EQ(route.media_route_id(), media_route_id_);
   bool updated = false;
-  const base::string16 new_source_title =
-      base::UTF8ToUTF16(route.media_sink_name());
+  const base::string16 new_source_title = GetSourceTitle(route);
   if (metadata_.source_title != new_source_title) {
     metadata_.source_title = new_source_title;
     updated = true;
@@ -220,7 +274,7 @@ void CastMediaNotificationItem::ImageDownloader::Download(const GURL& url) {
                         : std::make_unique<BitmapFetcher>(
                               url_, this, GetTrafficAnnotationTag());
   bitmap_fetcher_->Init(
-      /* referrer */ "", net::URLRequest::NEVER_CLEAR_REFERRER,
+      /* referrer */ "", net::ReferrerPolicy::NEVER_CLEAR,
       network::mojom::CredentialsMode::kOmit);
   bitmap_fetcher_->Start(url_loader_factory_.get());
 }
@@ -245,4 +299,19 @@ void CastMediaNotificationItem::UpdateView() {
 void CastMediaNotificationItem::ImageChanged(const SkBitmap& bitmap) {
   if (view_)
     view_->UpdateWithMediaArtwork(gfx::ImageSkia::CreateFrom1xBitmap(bitmap));
+}
+
+void CastMediaNotificationItem::RecordMetadataMetrics() const {
+  base::UmaHistogramBoolean(kArtworkHistogramName,
+                            !image_downloader_.bitmap().empty());
+
+  base::UmaHistogramEnumeration(kMetadataHistogramName, Metadata::kCount);
+  if (!metadata_.title.empty())
+    base::UmaHistogramEnumeration(kMetadataHistogramName, Metadata::kTitle);
+  if (!metadata_.artist.empty())
+    base::UmaHistogramEnumeration(kMetadataHistogramName, Metadata::kArtist);
+  if (!metadata_.album.empty())
+    base::UmaHistogramEnumeration(kMetadataHistogramName, Metadata::kAlbum);
+  if (!metadata_.source_title.empty())
+    base::UmaHistogramEnumeration(kMetadataHistogramName, Metadata::kSource);
 }

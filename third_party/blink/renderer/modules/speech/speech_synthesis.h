@@ -26,39 +26,43 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_MODULES_SPEECH_SPEECH_SYNTHESIS_H_
 #define THIRD_PARTY_BLINK_RENDERER_MODULES_SPEECH_SPEECH_SYNTHESIS_H_
 
-#include "mojo/public/cpp/bindings/receiver.h"
-#include "mojo/public/cpp/bindings/remote.h"
 #include "third_party/blink/public/mojom/speech/speech_synthesis.mojom-blink-forward.h"
-#include "third_party/blink/renderer/core/execution_context/context_lifecycle_observer.h"
+#include "third_party/blink/renderer/core/execution_context/execution_context_lifecycle_observer.h"
 #include "third_party/blink/renderer/modules/event_target_modules.h"
 #include "third_party/blink/renderer/modules/modules_export.h"
 #include "third_party/blink/renderer/modules/speech/speech_synthesis_utterance.h"
 #include "third_party/blink/renderer/modules/speech/speech_synthesis_voice.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
+#include "third_party/blink/renderer/platform/mojo/heap_mojo_receiver.h"
+#include "third_party/blink/renderer/platform/mojo/heap_mojo_remote.h"
+#include "third_party/blink/renderer/platform/supplementable.h"
 
 namespace blink {
 
+class LocalDOMWindow;
+
 class MODULES_EXPORT SpeechSynthesis final
     : public EventTargetWithInlineData,
-      public ContextClient,
+      public ExecutionContextClient,
+      public Supplement<LocalDOMWindow>,
       public mojom::blink::SpeechSynthesisVoiceListObserver {
   DEFINE_WRAPPERTYPEINFO();
-  USING_PRE_FINALIZER(SpeechSynthesis, Dispose);
-  USING_GARBAGE_COLLECTED_MIXIN(SpeechSynthesis);
 
  public:
-  static SpeechSynthesis* Create(ExecutionContext*);
-  static SpeechSynthesis* CreateForTesting(
-      ExecutionContext*,
+  static const char kSupplementName[];
+
+  static SpeechSynthesis* speechSynthesis(LocalDOMWindow&);
+  static void CreateForTesting(
+      LocalDOMWindow&,
       mojo::PendingRemote<mojom::blink::SpeechSynthesis>);
 
-  explicit SpeechSynthesis(ExecutionContext*);
+  explicit SpeechSynthesis(LocalDOMWindow&);
 
   bool pending() const;
   bool speaking() const;
   bool paused() const;
 
-  void speak(SpeechSynthesisUtterance*);
+  void speak(ScriptState*, SpeechSynthesisUtterance*);
   void cancel();
   void pause();
   void resume();
@@ -68,11 +72,11 @@ class MODULES_EXPORT SpeechSynthesis final
   DEFINE_ATTRIBUTE_EVENT_LISTENER(voiceschanged, kVoiceschanged)
 
   ExecutionContext* GetExecutionContext() const override {
-    return ContextClient::GetExecutionContext();
+    return ExecutionContextClient::GetExecutionContext();
   }
 
   // GarbageCollected
-  void Trace(blink::Visitor*) override;
+  void Trace(Visitor*) const override;
 
   // mojom::blink::SpeechSynthesisVoiceListObserver
   void OnSetVoiceList(
@@ -91,15 +95,11 @@ class MODULES_EXPORT SpeechSynthesis final
                                      unsigned char_index,
                                      unsigned char_length);
 
-  mojo::Remote<mojom::blink::SpeechSynthesis>& MojomSynthesis() {
-    return mojom_synthesis_;
+  mojom::blink::SpeechSynthesis* MojomSynthesis() {
+    return mojom_synthesis_.get();
   }
 
  private:
-  // USING_PRE_FINALIZER interface.
-  // Called before the object gets garbage collected.
-  void Dispose();
-
   void VoicesDidChange();
   void StartSpeakingImmediately();
   void HandleSpeakingCompleted(SpeechSynthesisUtterance*, bool error_occurred);
@@ -124,12 +124,12 @@ class MODULES_EXPORT SpeechSynthesis final
 
   void SetMojomSynthesisForTesting(
       mojo::PendingRemote<mojom::blink::SpeechSynthesis>);
-  void InitializeMojomSynthesis();
-  void InitializeMojomSynthesisIfNeeded();
+  mojom::blink::SpeechSynthesis* TryEnsureMojomSynthesis();
 
-  mojo::Receiver<mojom::blink::SpeechSynthesisVoiceListObserver> receiver_{
-      this};
-  mojo::Remote<mojom::blink::SpeechSynthesis> mojom_synthesis_;
+  HeapMojoReceiver<mojom::blink::SpeechSynthesisVoiceListObserver,
+                   SpeechSynthesis>
+      receiver_;
+  HeapMojoRemote<mojom::blink::SpeechSynthesis> mojom_synthesis_;
   HeapVector<Member<SpeechSynthesisVoice>> voice_list_;
   HeapDeque<Member<SpeechSynthesisUtterance>> utterance_queue_;
   bool is_paused_ = false;

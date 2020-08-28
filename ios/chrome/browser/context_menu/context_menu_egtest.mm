@@ -38,7 +38,7 @@ using chrome_test_util::WebViewMatcher;
 namespace {
 // Directory containing the |kLogoPagePath| and |kLogoPageImageSourcePath|
 // resources.
-const char kServerFilesDir[] = "ios/testing/data/http_server_files/";
+// const char kServerFilesDir[] = "ios/testing/data/http_server_files/";
 // Path to a page containing the chromium logo and the text |kLogoPageText|.
 const char kLogoPagePath[] = "/chromium_logo_page.html";
 // Path to the chromium logo.
@@ -101,22 +101,6 @@ std::unique_ptr<net::test_server::HttpResponse> StandardResponse(
   return std::move(http_response);
 }
 
-// Waits for the context menu item to disappear. TODO(crbug.com/682871): Remove
-// this once EarlGrey is synchronized with context menu.
-void WaitForContextMenuItemDisappeared(
-    id<GREYMatcher> context_menu_item_button) {
-  ConditionBlock condition = ^{
-    NSError* error = nil;
-    [[EarlGrey selectElementWithMatcher:context_menu_item_button]
-        assertWithMatcher:grey_nil()
-                    error:&error];
-    return error == nil;
-  };
-  GREYAssert(base::test::ios::WaitUntilConditionOrTimeout(
-                 base::test::ios::kWaitForUIElementTimeout, condition),
-             @"Waiting for matcher %@ failed.", context_menu_item_button);
-}
-
 // Long press on |element_id| to trigger context menu.
 void LongPressElement(const char* element_id) {
   [[EarlGrey selectElementWithMatcher:WebViewMatcher()]
@@ -131,7 +115,6 @@ void TapOnContextMenuButton(id<GREYMatcher> context_menu_item_button) {
       assertWithMatcher:grey_notNil()];
   [[EarlGrey selectElementWithMatcher:context_menu_item_button]
       performAction:grey_tap()];
-  WaitForContextMenuItemDisappeared(context_menu_item_button);
 }
 
 }  // namespace
@@ -156,8 +139,6 @@ void TapOnContextMenuButton(id<GREYMatcher> context_menu_item_button) {
   [super setUp];
   self.testServer->RegisterRequestHandler(
       base::BindRepeating(&StandardResponse));
-  self.testServer->ServeFilesFromSourceDirectory(
-      base::FilePath(kServerFilesDir));
   GREYAssertTrue(self.testServer->Start(), @"Server did not start.");
 }
 
@@ -200,6 +181,10 @@ void TapOnContextMenuButton(id<GREYMatcher> context_menu_item_button) {
 
 // Tests "Open in New Tab" on context menu.
 - (void)testContextMenuOpenInNewTab {
+  // TODO(crbug.com/1107513): Test fails in some iPads.
+  if ([ChromeEarlGrey isIPadIdiom]) {
+    EARL_GREY_TEST_SKIPPED(@"Test disabled on iPad.");
+  }
   const GURL initialURL = self.testServer->GetURL(kInitialPageUrl);
   [ChromeEarlGrey loadURL:initialURL];
   [ChromeEarlGrey

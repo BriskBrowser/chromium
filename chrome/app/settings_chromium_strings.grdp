@@ -16,7 +16,7 @@
       Updating Chromium (<ph name="PROGRESS_PERCENT">$1<ex>90%</ex></ph>)
     </message>
     <message name="IDS_SETTINGS_UPGRADE_SUCCESSFUL_RELAUNCH" desc="Status label: Successfully updated Chromium">
-      Nearly up to date! Relaunch Chromium to finish updating.
+      Nearly up to date! Relaunch Chromium to finish updating. Incognito windows won't reopen.
     </message>
     <message name="IDS_SETTINGS_UPGRADE_UP_TO_DATE" desc="Status label: Already up to date (Chromium)">
       Chromium is up to date
@@ -25,6 +25,9 @@
   <if expr="chromeos">
     <message name="IDS_SETTINGS_ABOUT_OS" desc="Menu title for the About Chromium OS page.">
       About Chromium OS
+    </message>
+    <message name="IDS_OS_SETTINGS_TAG_OS_VERSION" desc="Text for search result item which, when clicked, navigates the user to about Chrome OS settings, which gives information about the current Chrome OS version.">
+      Chromium OS version
     </message>
     <message name="IDS_SETTINGS_ABOUT_SEE_OS_SETTINGS_FOR_UPDATE_MESSAGE" desc="Message shown to users on Chromium browser settings which alerts the user that OS updates are shown in Chromium OS settings.">
       To see if your device is up to date, go to <ph name="LINK_BEGIN">&lt;a href="chrome://os-settings/help"&gt;</ph>Chromium OS Settings<ph name="LINK_END">&lt;/a&gt;</ph>
@@ -43,7 +46,30 @@
   <message name="IDS_SETTINGS_GOOGLE_PAYMENTS_CACHED" desc="Label that will be used to show that a credit card comes from Google Pay and is saved locally. This should follow the casing of the 'Google Pay' and 'Chrome' brands. 'Copied to Chromium' is short for 'The credit card is copied to Chromium'. 'Google Pay' should not be translated as it is the product name.">
     Google Pay (copied to Chromium)
   </message>
-
+  <message name="IDS_SETTINGS_CHECK_PASSWORDS_ERROR_OFFLINE" desc="Error message when the password check can't be completed because the user is offline.">
+    Chromium can't check your passwords. Try checking your internet connection.
+  </message>
+  <message name="IDS_SETTINGS_CHECK_PASSWORDS_ERROR_SIGNED_OUT" desc="Error message when the password check can't be completed because the user is not signed in.">
+    Chromium can check your passwords when you sign in with your Google Account
+  </message>
+  <message name="IDS_SETTINGS_CHECK_PASSWORDS_ERROR_NO_PASSWORDS" desc="Error message when the password check can't be completed since no passwords could be checked.">
+    No saved passwords. Chromium can check your passwords when you save them.
+  </message>
+  <message name="IDS_SETTINGS_CHECK_PASSWORDS_ERROR_QUOTA_LIMIT_GOOGLE_ACCOUNT" desc="Error message when the password check can't be completed since the user hit the quota limit, but the user is able to check their passwords in their Google account.">
+    Chromium can't check your passwords. Try again after 24 hours or <ph name="BEGIN_LINK">&lt;a href="$1" target="_blank"&gt;</ph>check passwords in your Google Account<ph name="END_LINK">&lt;/a&gt;</ph>.
+  </message>
+  <message name="IDS_SETTINGS_CHECK_PASSWORDS_ERROR_QUOTA_LIMIT" desc="Error message when the password check can't be completed since the user hit the quota limit.">
+    Chromium can't check your passwords. Try again after 24 hours.
+  </message>
+  <message name="IDS_SETTINGS_CHECK_PASSWORDS_ERROR_GENERIC" desc="Error message when the password check can't be completed for an unspecified reason.">
+    Chromium can't check your passwords. Try again later.
+  </message>
+  <message name="IDS_SETTINGS_NO_COMPROMISED_CREDENTIALS_LABEL" desc="Label which is shown when there were no compromised passwords detected.">
+    Chromium will notify you when you sign in with a compromised password
+  </message>
+  <message name="IDS_SETTINGS_COMPROMISED_EDIT_DISCLAIMER_DESCRIPTION" desc="A description for the dialog which tells the user to edit password in Chromium if it was changed already.">
+    If so, please edit your saved password in Chromium so it matches your new password.
+  </message>
   <!-- Default Browser Page -->
   <if expr="not chromeos">
     <message name="IDS_SETTINGS_DEFAULT_BROWSER_DEFAULT" desc="The text displayed when Chrome is the default browser">
@@ -62,10 +88,6 @@
 
   <!-- Main Page -->
   <if expr="chromeos">
-    <message name="IDS_SETTINGS_BROWSER_SETTINGS_BANNER" desc="Banner displayed in OS settings page that links to Browser settings.">
-      If a setting doesn't show on this page, look in your <ph name="LINK_BEGIN">&lt;a target="_blank" href="$1<ex>https://google.com/</ex>"&gt;</ph>
-      Chromium browser settings<ph name="LINK_END">&lt;/a&gt;</ph>
-    </message>
     <!-- No target="_blank" because OS settings opens its own window. -->
     <message name="IDS_SETTINGS_OS_SETTINGS_BANNER" desc="Banner displayed in browser settings page that links to OS settings.">
       If a setting doesn't show on this page, look in your <ph name="LINK_BEGIN">&lt;a href="$1<ex>https://google.com/</ex>"&gt;</ph>
@@ -85,6 +107,56 @@
   </message>
   <message name="IDS_SETTINGS_SIGNIN_ALLOWED_DESC" desc="The description of the preference to allow to sign-in to Chrome">
     By turning this off, you can sign in to Google sites like Gmail without signing in to Chromium
+  </message>
+
+  <!-- Safety check -->
+  <message name="IDS_SETTINGS_SAFETY_CHECK_PARENT_PRIMARY_LABEL_BEFORE" desc="This text describes what the safety check is. (It's an area of the Settings page where users can quickly check whether their safety-related settings are fully protecting them.)">
+    Chromium can help keep you safe from data breaches, bad extensions, and more
+  </message>
+  <message name="IDS_SETTINGS_SAFETY_CHECK_UPDATES_FAILED_OFFLINE" desc="This text describes that Chromium cannot check for updates because there currently is no internet connection.">
+    Chromium can't check for updates. Try checking your internet connection.
+  </message>
+  <message name="IDS_SETTINGS_SAFETY_CHECK_UPDATES_FAILED" desc="This text describes that Chromium cannot update due to an unknown error.">
+    Chromium didn't update, something went wrong. <ph name="BEGIN_LINK">&lt;a target="_blank" href="$1"&gt;</ph>Fix Chromium update problems and failed updates.<ph name="END_LINK">&lt;/a&gt;</ph>
+  </message>
+  <message name="IDS_SETTINGS_SAFETY_CHECK_UPDATES_UNKNOWN" desc="This text displays the installed version of Chromium when it is not possible to check for updates on non-Chrome branded browsers.">
+    Chromium version <ph name="PRODUCT_VERSION">$1<ex>15.0.865.0</ex></ph> is installed
+  </message>
+  <message name="IDS_SETTINGS_SAFETY_CHECK_PASSWORDS_SIGNED_OUT" desc="This text points out that the password check can only run when the user is signed in.">
+    Chromium can't check your passwords because you're not signed in
+  </message>
+  <message name="IDS_SETTINGS_SAFETY_CHECK_SAFE_BROWSING_DISABLED" desc="This text points out that Safe Browsing is disabled and that the user is not protected.">
+    Safe Browsing is off. Chromium recommends turning it on.
+  </message>
+  <message name="IDS_SETTINGS_SAFETY_CHECK_EXTENSIONS_ERROR" desc="This text describes that safety check could not check extensions for an unkown reason.">
+    Chromium can't check your extensions. Try again later.
+  </message>
+  <message name="IDS_SETTINGS_SAFETY_CHECK_CHROME_CLEANER_AFTER" desc="This text describes that Chrome automatically checks device software.">
+    Chromium checks for unwanted software once a week
+  </message>
+  <message name="IDS_SETTINGS_SAFETY_CHECK_CHROME_CLEANER_AFTER_SECONDS" desc="This text describes that Chrome automatically checks device software and that it last checked a moment ago.">
+    Chromium checks for unwanted software once a week. Last checked: a moment ago.
+  </message>
+  <message name="IDS_SETTINGS_SAFETY_CHECK_CHROME_CLEANER_AFTER_MINUTES" desc="This text describes that Chrome automatically checks device software and that it last checked minutes ago.">
+    {NUM_MINS, plural,
+     =1 {Chromium checks for unwanted software once a week. Last checked: 1 minute ago.}
+     other {Chromium checks for unwanted software once a week. Last checked: {NUM_MINS} minutes ago.}}
+  </message>
+  <message name="IDS_SETTINGS_SAFETY_CHECK_CHROME_CLEANER_AFTER_HOURS" desc="This text describes that Chrome automatically checks device software and that it last checked hours ago.">
+    {NUM_HOURS, plural,
+     =1 {Chromium checks for unwanted software once a week. Last checked: 1 hour ago.}
+     other {Chromium checks for unwanted software once a week. Last checked: {NUM_HOURS} hours ago.}}
+  </message>
+  <message name="IDS_SETTINGS_SAFETY_CHECK_CHROME_CLEANER_YESTERDAY" desc="This text describes that Chrome automatically checks device software and that it last checked yesterday.">
+    Chromium checks for unwanted software once a week. Last checked: yesterday.
+  </message>
+  <message name="IDS_SETTINGS_SAFETY_CHECK_CHROME_CLEANER_AFTER_DAYS" desc="This text describes that Chrome automatically checks device software and that it last checked days ago.">
+    {NUM_DAYS, plural,
+     =1 {Chromium checks for unwanted software once a week. Last checked: 1 day ago.}
+     other {Chromium checks for unwanted software once a week. Last checked: {NUM_DAYS} days ago.}}
+  </message>
+  <message name="IDS_SETTINGS_SAFETY_CHECK_CHROME_CLEANER_INFECTED" desc="This text describes that Chrome found harmful software on the computer.">
+    Chromium found harmful software on your computer
   </message>
 
   <!-- People Page -->
@@ -107,9 +179,6 @@
   </message>
 
   <!-- Sync Page -->
-  <message name="IDS_SETTINGS_SYNC_SIGNIN" desc="The label that appears on the sync button in the options dialog when sync has not been set up by the user.">
-    Sign in to Chromium
-  </message>
   <message name="IDS_SETTINGS_SYNC_DATA_ENCRYPTED_TEXT" desc="Text alerting the user that synced data is encrypted.">
     For added security, Chromium will encrypt your data.
   </message>
@@ -121,9 +190,6 @@
   </message>
   <message name="IDS_SETTINGS_SYNC_SIGN_IN_PROMPT_WITH_NO_ACCOUNT" desc="The text displayed to prompt users to sign in to Chromium.">
     Sign in to sync and personalize Chromium across your devices
-  </message>
-  <message name="IDS_SETTINGS_SYNC_SIGN_IN_PROMPT_WITH_ACCOUNT" desc="The text displayed to prompt users to enable sync for an account that is alredy present in Chromium.">
-    Sync and personalize Chromium across your devices
   </message>
 
   <!-- Languages Page -->

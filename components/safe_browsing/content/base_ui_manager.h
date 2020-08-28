@@ -12,13 +12,14 @@
 #include "base/bind_helpers.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
-#include "components/security_interstitials/content/unsafe_resource.h"
+#include "components/security_interstitials/core/unsafe_resource.h"
 
 class GURL;
 
 namespace content {
 class NavigationEntry;
 class WebContents;
+class BrowserContext;
 }  // namespace content
 
 namespace history {
@@ -39,12 +40,19 @@ class BaseUIManager
 
   // Called on the UI thread to display an interstitial page.
   // |resource| is the unsafe resource that triggered the interstitial.
+  // With committed interstitials:
+  // -For main frame navigations this will only cancel the load, the
+  // interstitial will then be shown from a navigation throttle.
+  // -For subresources this will cancel the load, then call
+  // LoadPostCommitErrorPage, which will show the interstitial.
   virtual void DisplayBlockingPage(const UnsafeResource& resource);
 
   // This is a no-op in the base class, but should be overridden to send threat
   // details. Called on the UI thread by the ThreatDetails with the serialized
   // protocol buffer.
-  virtual void SendSerializedThreatDetails(const std::string& serialized);
+  virtual void SendSerializedThreatDetails(
+      content::BrowserContext* browser_context,
+      const std::string& serialized);
 
   // Updates the whitelist URL set for |web_contents|. Called on the UI thread.
   void AddToWhitelistUrlSet(const GURL& whitelist_url,
@@ -89,11 +97,14 @@ class BaseUIManager
   // the blocking page. |main_frame_url| is the top-level URL on which
   // the blocking page was displayed. If |proceed| is true,
   // |main_frame_url| is whitelisted so that the user will not see
-  // another warning for that URL in this WebContents.
+  // another warning for that URL in this WebContents. |showed_interstitial|
+  // should be set to true if an interstitial was shown, or false if the action
+  // was decided without showing an interstitial.
   virtual void OnBlockingPageDone(const std::vector<UnsafeResource>& resources,
                                   bool proceed,
                                   content::WebContents* web_contents,
-                                  const GURL& main_frame_url);
+                                  const GURL& main_frame_url,
+                                  bool showed_interstitial);
 
   virtual const std::string app_locale() const;
 
@@ -139,15 +150,7 @@ class BaseUIManager
   // implement the reporting logic themselves if needed.
   virtual void CreateAndSendHitReport(const UnsafeResource& resource);
 
-  // Calls BaseBlockingPage::ShowBlockingPage(). Override this if using a
-  // different blocking page.
-  virtual void ShowBlockingPageForResource(const UnsafeResource& resource);
-
  private:
-  // When true, we immediately cancel navigations that have been blocked by Safe
-  // Browsing, otherwise we call show on the interstitial.
-  bool SafeBrowsingInterstitialsAreCommittedNavigations();
-
   friend class base::RefCountedThreadSafe<BaseUIManager>;
 
   // Creates a blocking page, used for interstitials triggered by subresources.

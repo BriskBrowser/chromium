@@ -22,6 +22,8 @@ enum class WebSchedulerTrackedFeature {
   kWebSocket = 0,
   kWebRTC = 1,
 
+  // TODO(rakina): Move tracking of cache-control usage from
+  // WebSchedulerTrackedFeature to RenderFrameHost.
   kMainResourceHasCacheControlNoCache = 2,
   kMainResourceHasCacheControlNoStore = 3,
   kSubresourceHasCacheControlNoCache = 4,
@@ -37,19 +39,16 @@ enum class WebSchedulerTrackedFeature {
   kContainsPlugins = 12,
   kDocumentLoaded = 13,
   kDedicatedWorkerOrWorklet = 14,
-  kOutstandingNetworkRequest = 15,
-  // TODO(altimin): This doesn't include service worker-controlled origins.
-  // We need to track them too.
-  kServiceWorkerControlledPage = 16,
+
+  // There are some other values defined for specific request context types
+  // (e.g., XHR). This value corresponds to a network requests not covered by
+  // specific context types down below.
+  kOutstandingNetworkRequestOthers = 15,
+
+  // kServiceWorkerControlledPage = 16. Removed after implementing ServiceWorker
+  // support.
 
   kOutstandingIndexedDBTransaction = 17,
-
-  // Whether there are other pages which can potentially synchronously script
-  // the current one (e.g. due to window.open being used).
-  // This is a conservative estimation which doesn't take into account the
-  // origin, so it may be true if the related page is cross-origin.
-  // Recorded only for the main frame.
-  kHasScriptableFramesInMultipleTabs = 18,
 
   // Whether the page tried to request a permission regardless of the outcome.
   // TODO(altimin): Track this more accurately depending on the data.
@@ -77,9 +76,30 @@ enum class WebSchedulerTrackedFeature {
   kWebLocks = 33,
   kWebHID = 34,
   kWakeLock = 35,
+  kWebShare = 36,
+
+  kRequestedStorageAccessGrant = 37,
+  kWebNfc = 38,
+  kWebFileSystem = 39,
+
+  kOutstandingNetworkRequestFetch = 40,
+  kOutstandingNetworkRequestXHR = 41,
+
+  kAppBanner = 42,
+  kPrinting = 43,
+  kWebDatabase = 44,
+  kPictureInPicture = 45,
+  kPortal = 46,
+  kSpeechRecognizer = 47,
+  kIdleManager = 48,
+  kPaymentManager = 49,
+  kSpeechSynthesis = 50,
+  kKeyboardLock = 51,
+  kSmsService = 52,
+  kOutstandingNetworkRequestDirectSocket = 53,
 
   // NB: This enum is used in a bitmask, so kMaxValue must be less than 64.
-  kMaxValue = kWakeLock
+  kMaxValue = kOutstandingNetworkRequestDirectSocket
 };
 
 static_assert(static_cast<uint32_t>(WebSchedulerTrackedFeature::kMaxValue) < 64,

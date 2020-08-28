@@ -36,7 +36,6 @@
 #include "net/test/cert_test_util.h"
 #include "net/test/gtest_util.h"
 #include "net/test/test_data_directory.h"
-#include "net/url_request/url_request_test_util.h"
 #include "services/network/public/cpp/features.h"
 #include "services/network/public/mojom/trial_comparison_cert_verifier.mojom.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -234,7 +233,7 @@ TEST_F(TrialComparisonCertVerifierControllerTest, NothingEnabled) {
 
   // Enable the SBER pref, shouldn't matter since it's a non-official build and
   // field trial isn't enabled.
-  safe_browsing::SetExtendedReportingPref(pref_service(), true);
+  safe_browsing::SetExtendedReportingPrefForTests(pref_service(), true);
 
   // Trial still not allowed, and OnTrialConfigUpdated should not be called
   // either.
@@ -242,8 +241,9 @@ TEST_F(TrialComparisonCertVerifierControllerTest, NothingEnabled) {
 
   // Attempting to send a report should also do nothing.
   report_client()->SendTrialReport(
-      "hostname", leaf_cert_1_, false, false, false, false, ok_result_,
-      ok_result_, network::mojom::CertVerifierDebugInfo::New());
+      "hostname", leaf_cert_1_, false, false, false, false,
+      std::vector<uint8_t>(), std::vector<uint8_t>(), ok_result_, ok_result_,
+      network::mojom::CertVerifierDebugInfo::New());
   // Ensure any in-flight mojo calls get run.
   base::RunLoop().RunUntilIdle();
   // Expect no report since the trial is not allowed.
@@ -256,7 +256,7 @@ TEST_F(TrialComparisonCertVerifierControllerTest,
   CreateController();
 
   EXPECT_FALSE(trial_controller().IsAllowed());
-  safe_browsing::SetExtendedReportingPref(pref_service(), true);
+  safe_browsing::SetExtendedReportingPrefForTests(pref_service(), true);
 
   // Trial still not allowed, and OnTrialConfigUpdated should not be called
   // either.
@@ -264,8 +264,9 @@ TEST_F(TrialComparisonCertVerifierControllerTest,
 
   // Attempting to send a report should do nothing.
   report_client()->SendTrialReport(
-      "hostname", leaf_cert_1_, false, false, false, false, ok_result_,
-      ok_result_, network::mojom::CertVerifierDebugInfo::New());
+      "hostname", leaf_cert_1_, false, false, false, false,
+      std::vector<uint8_t>(), std::vector<uint8_t>(), ok_result_, ok_result_,
+      network::mojom::CertVerifierDebugInfo::New());
 
   // Ensure any in-flight mojo calls get run.
   base::RunLoop().RunUntilIdle();
@@ -286,7 +287,7 @@ TEST_F(TrialComparisonCertVerifierControllerTest,
   // In a real official build, expect the trial config to be updated.
   EXPECT_CALL(mock_config_client(), OnTrialConfigUpdated(true)).Times(1);
 #endif
-  safe_browsing::SetExtendedReportingPref(pref_service(), true);
+  safe_browsing::SetExtendedReportingPrefForTests(pref_service(), true);
 
 #if defined(OFFICIAL_BUILD) && BUILDFLAG(GOOGLE_CHROME_BRANDING)
   // In a real official build, expect the trial to be allowed now.  (Don't
@@ -300,8 +301,9 @@ TEST_F(TrialComparisonCertVerifierControllerTest,
 
   // Attempting to send a report should do nothing.
   report_client()->SendTrialReport(
-      "hostname", leaf_cert_1_, false, false, false, false, ok_result_,
-      ok_result_, network::mojom::CertVerifierDebugInfo::New());
+      "hostname", leaf_cert_1_, false, false, false, false,
+      std::vector<uint8_t>(), std::vector<uint8_t>(), ok_result_, ok_result_,
+      network::mojom::CertVerifierDebugInfo::New());
 
   // Ensure any in-flight mojo calls get run.
   base::RunLoop().RunUntilIdle();
@@ -323,7 +325,7 @@ TEST_F(TrialComparisonCertVerifierControllerTest, OfficialBuildTrialEnabled) {
   // Enable the SBER pref, which should trigger the OnTrialConfigUpdated
   // callback.
   EXPECT_CALL(mock_config_client(), OnTrialConfigUpdated(true)).Times(1);
-  safe_browsing::SetExtendedReportingPref(pref_service(), true);
+  safe_browsing::SetExtendedReportingPrefForTests(pref_service(), true);
 
   // Trial should now be allowed.
   EXPECT_TRUE(trial_controller().IsAllowed());
@@ -334,7 +336,8 @@ TEST_F(TrialComparisonCertVerifierControllerTest, OfficialBuildTrialEnabled) {
 
   // Report should be sent.
   report_client()->SendTrialReport(
-      "127.0.0.1", leaf_cert_1_, false, false, false, false, ok_result_,
+      "127.0.0.1", leaf_cert_1_, false, false, false, false,
+      std::vector<uint8_t>{4, 5, 6}, std::vector<uint8_t>{7, 8, 9}, ok_result_,
       bad_result_, network::mojom::CertVerifierDebugInfo::New());
 
   // Ensure any in-flight mojo calls get run.
@@ -344,7 +347,7 @@ TEST_F(TrialComparisonCertVerifierControllerTest, OfficialBuildTrialEnabled) {
   std::vector<std::string> full_reports;
   reporting_service_test_helper()->WaitForRequestsDestroyed(
       ReportExpectation::Successful({{"127.0.0.1", RetryStatus::NOT_RETRIED}}),
-      &full_reports);
+      &full_reports, nullptr);
 
   ASSERT_EQ(1U, full_reports.size());
 
@@ -366,19 +369,24 @@ TEST_F(TrialComparisonCertVerifierControllerTest, OfficialBuildTrialEnabled) {
   EXPECT_THAT(report.unverified_cert_chain(), CertChainMatches(leaf_cert_1_));
   EXPECT_THAT(report.cert_chain(), CertChainMatches(cert_chain_1_));
   EXPECT_THAT(trial_info.cert_chain(), CertChainMatches(cert_chain_2_));
+  ASSERT_TRUE(trial_info.has_stapled_ocsp());
+  EXPECT_EQ("\x04\x05\x06", trial_info.stapled_ocsp());
+  ASSERT_TRUE(trial_info.has_sct_list());
+  EXPECT_EQ("\x07\x08\x09", trial_info.sct_list());
 
   // Disable the SBER pref again, which should trigger the OnTrialConfigUpdated
   // callback.
   EXPECT_CALL(mock_config_client(), OnTrialConfigUpdated(false)).Times(1);
-  safe_browsing::SetExtendedReportingPref(pref_service(), false);
+  safe_browsing::SetExtendedReportingPrefForTests(pref_service(), false);
 
   // Not allowed now.
   EXPECT_FALSE(trial_controller().IsAllowed());
 
   // Attempting to send a report should do nothing now.
   report_client()->SendTrialReport(
-      "hostname", leaf_cert_1_, false, false, false, false, ok_result_,
-      bad_result_, network::mojom::CertVerifierDebugInfo::New());
+      "hostname", leaf_cert_1_, false, false, false, false,
+      std::vector<uint8_t>(), std::vector<uint8_t>(), ok_result_, bad_result_,
+      network::mojom::CertVerifierDebugInfo::New());
   // Ensure any in-flight mojo calls get run.
   base::RunLoop().RunUntilIdle();
   // Expect no report since the trial is not allowed.
@@ -413,7 +421,7 @@ TEST_F(TrialComparisonCertVerifierControllerTest,
   // callback.
   EXPECT_CALL(mock_config_client(), OnTrialConfigUpdated(true)).Times(1);
   EXPECT_CALL(mock_config_client_2, OnTrialConfigUpdated(true)).Times(1);
-  safe_browsing::SetExtendedReportingPref(pref_service(), true);
+  safe_browsing::SetExtendedReportingPrefForTests(pref_service(), true);
 
   // Trial should now be allowed.
   EXPECT_TRUE(trial_controller().IsAllowed());
@@ -425,11 +433,13 @@ TEST_F(TrialComparisonCertVerifierControllerTest,
 
   // Report should be sent.
   report_client()->SendTrialReport(
-      "127.0.0.1", leaf_cert_1_, false, false, false, false, ok_result_,
-      bad_result_, network::mojom::CertVerifierDebugInfo::New());
+      "127.0.0.1", leaf_cert_1_, false, false, false, false,
+      std::vector<uint8_t>(), std::vector<uint8_t>(), ok_result_, bad_result_,
+      network::mojom::CertVerifierDebugInfo::New());
   report_client_2->SendTrialReport(
-      "127.0.0.2", leaf_cert_1_, false, false, false, false, ok_result_,
-      bad_result_, network::mojom::CertVerifierDebugInfo::New());
+      "127.0.0.2", leaf_cert_1_, false, false, false, false,
+      std::vector<uint8_t>(), std::vector<uint8_t>(), ok_result_, bad_result_,
+      network::mojom::CertVerifierDebugInfo::New());
 
   // Ensure any in-flight mojo calls get run.
   base::RunLoop().RunUntilIdle();
@@ -439,7 +449,7 @@ TEST_F(TrialComparisonCertVerifierControllerTest,
   reporting_service_test_helper()->WaitForRequestsDestroyed(
       ReportExpectation::Successful({{"127.0.0.1", RetryStatus::NOT_RETRIED},
                                      {"127.0.0.2", RetryStatus::NOT_RETRIED}}),
-      &full_reports);
+      &full_reports, nullptr);
 
   ASSERT_EQ(2U, full_reports.size());
 
@@ -462,24 +472,29 @@ TEST_F(TrialComparisonCertVerifierControllerTest,
     EXPECT_THAT(report.unverified_cert_chain(), CertChainMatches(leaf_cert_1_));
     EXPECT_THAT(report.cert_chain(), CertChainMatches(cert_chain_1_));
     EXPECT_THAT(trial_info.cert_chain(), CertChainMatches(cert_chain_2_));
+
+    EXPECT_FALSE(trial_info.has_stapled_ocsp());
+    EXPECT_FALSE(trial_info.has_sct_list());
   }
 
   // Disable the SBER pref again, which should trigger the OnTrialConfigUpdated
   // callback.
   EXPECT_CALL(mock_config_client(), OnTrialConfigUpdated(false)).Times(1);
   EXPECT_CALL(mock_config_client_2, OnTrialConfigUpdated(false)).Times(1);
-  safe_browsing::SetExtendedReportingPref(pref_service(), false);
+  safe_browsing::SetExtendedReportingPrefForTests(pref_service(), false);
 
   // Not allowed now.
   EXPECT_FALSE(trial_controller().IsAllowed());
 
   // Attempting to send a report should do nothing now.
   report_client()->SendTrialReport(
-      "hostname", leaf_cert_1_, false, false, false, false, ok_result_,
-      bad_result_, network::mojom::CertVerifierDebugInfo::New());
+      "hostname", leaf_cert_1_, false, false, false, false,
+      std::vector<uint8_t>(), std::vector<uint8_t>(), ok_result_, bad_result_,
+      network::mojom::CertVerifierDebugInfo::New());
   report_client_2->SendTrialReport(
-      "hostname2", leaf_cert_1_, false, false, false, false, ok_result_,
-      bad_result_, network::mojom::CertVerifierDebugInfo::New());
+      "hostname2", leaf_cert_1_, false, false, false, false,
+      std::vector<uint8_t>(), std::vector<uint8_t>(), ok_result_, bad_result_,
+      network::mojom::CertVerifierDebugInfo::New());
   // Ensure any in-flight mojo calls get run.
   base::RunLoop().RunUntilIdle();
   // Expect no report since the trial is not allowed.
@@ -499,7 +514,7 @@ TEST_F(TrialComparisonCertVerifierControllerTest,
   // Enable the SBER pref, which should trigger the OnTrialConfigUpdated
   // callback.
   EXPECT_CALL(mock_config_client(), OnTrialConfigUpdated(true)).Times(1);
-  safe_browsing::SetExtendedReportingPref(pref_service(), true);
+  safe_browsing::SetExtendedReportingPrefForTests(pref_service(), true);
 
   // Trial should now be allowed.
   EXPECT_TRUE(trial_controller().IsAllowed());
@@ -511,8 +526,9 @@ TEST_F(TrialComparisonCertVerifierControllerTest,
   // In uma_only mode, the network service will generate a report, but the
   // trial controller will not send it to the reporting service.
   report_client()->SendTrialReport(
-      "127.0.0.1", leaf_cert_1_, false, false, false, false, ok_result_,
-      bad_result_, network::mojom::CertVerifierDebugInfo::New());
+      "127.0.0.1", leaf_cert_1_, false, false, false, false,
+      std::vector<uint8_t>(), std::vector<uint8_t>(), ok_result_, bad_result_,
+      network::mojom::CertVerifierDebugInfo::New());
 
   // Ensure any in-flight mojo calls get run.
   base::RunLoop().RunUntilIdle();
@@ -527,12 +543,12 @@ TEST_F(TrialComparisonCertVerifierControllerTest,
   scoped_feature_ = std::make_unique<base::test::ScopedFeatureList>();
   scoped_feature_->InitAndEnableFeature(
       features::kCertDualVerificationTrialFeature);
-  CreateController(profile()->GetOffTheRecordProfile());
+  CreateController(profile()->GetPrimaryOTRProfile());
 
   EXPECT_FALSE(trial_controller().IsAllowed());
 
   // Enable the SBER pref, shouldn't matter since it's an incognito profile.
-  safe_browsing::SetExtendedReportingPref(pref_service(), true);
+  safe_browsing::SetExtendedReportingPrefForTests(pref_service(), true);
 
   // Trial still not allowed, and OnTrialConfigUpdated should not be called
   // either.
@@ -540,8 +556,9 @@ TEST_F(TrialComparisonCertVerifierControllerTest,
 
   // Attempting to send a report should also do nothing.
   report_client()->SendTrialReport(
-      "hostname", leaf_cert_1_, false, false, false, false, ok_result_,
-      ok_result_, network::mojom::CertVerifierDebugInfo::New());
+      "hostname", leaf_cert_1_, false, false, false, false,
+      std::vector<uint8_t>(), std::vector<uint8_t>(), ok_result_, ok_result_,
+      network::mojom::CertVerifierDebugInfo::New());
   // Ensure any in-flight mojo calls get run.
   base::RunLoop().RunUntilIdle();
   // Expect no report since the trial is not allowed.

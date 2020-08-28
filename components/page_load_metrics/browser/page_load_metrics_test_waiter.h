@@ -21,14 +21,19 @@ class PageLoadMetricsTestWaiter
  public:
   // A bitvector to express which timing fields to match on.
   enum class TimingField : int {
-    kFirstLayout = 1 << 0,
-    kFirstPaint = 1 << 1,
-    kFirstContentfulPaint = 1 << 2,
-    kFirstMeaningfulPaint = 1 << 3,
-    kDocumentWriteBlockReload = 1 << 4,
-    kLoadEvent = 1 << 5,
+    kFirstPaint = 1 << 0,
+    kFirstContentfulPaint = 1 << 1,
+    kFirstMeaningfulPaint = 1 << 2,
+    kDocumentWriteBlockReload = 1 << 3,
+    kLoadEvent = 1 << 4,
     // kLoadTimingInfo waits for main frame timing info only.
-    kLoadTimingInfo = 1 << 6,
+    kLoadTimingInfo = 1 << 5,
+    kLargestContentfulPaint = 1 << 6,
+    kFirstInputOrScroll = 1 << 7,
+    kFirstInputDelay = 1 << 8,
+    kFirstPaintAfterBackForwardCacheRestore = 1 << 9,
+    kFirstInputDelayAfterBackForwardCacheRestore = 1 << 10,
+    kLayoutShift = 1 << 11,
   };
   using FrameTreeNodeId =
       page_load_metrics::PageLoadMetricsObserver::FrameTreeNodeId;
@@ -47,11 +52,19 @@ class PageLoadMetricsTestWaiter
   // size update of |size|.
   void AddFrameSizeExpectation(const gfx::Size& size);
 
+  // Add a main frame intersection expectation. Expects that a frame
+  // receives an intersection update with a main frame intersection
+  // of |rect|. Subsequent calls overwrite unmet expectations.
+  void AddMainFrameIntersectionExpectation(const gfx::Rect& rect);
+
   // Add a single WebFeature expectation.
   void AddWebFeatureExpectation(blink::mojom::WebFeature web_feature);
 
   // Wait for the subframe to navigate at least once.
   void AddSubframeNavigationExpectation();
+
+  // Wait for the subframe to load at least one byte.
+  void AddSubframeDataExpectation();
 
   // Add a minimum completed resource expectation.
   void AddMinimumCompleteResourcesExpectation(
@@ -125,6 +138,10 @@ class PageLoadMetricsTestWaiter
         content::NavigationHandle* navigation_handle) override;
     void FrameSizeChanged(content::RenderFrameHost* render_frame_host,
                           const gfx::Size& frame_size) override;
+    void OnFrameIntersectionUpdate(
+        content::RenderFrameHost* rfh,
+        const page_load_metrics::mojom::FrameIntersectionUpdate&
+            frame_intersection_update) override;
 
    private:
     const base::WeakPtr<PageLoadMetricsTestWaiter> waiter_;
@@ -165,9 +182,10 @@ class PageLoadMetricsTestWaiter
     bool operator()(const gfx::Size a, const gfx::Size b) const;
   };
 
-  static TimingFieldBitSet GetMatchedBits(
+  TimingFieldBitSet GetMatchedBits(
       const page_load_metrics::mojom::PageLoadTiming& timing,
-      const page_load_metrics::mojom::PageLoadMetadata& metadata);
+      const page_load_metrics::mojom::FrameMetadata& metadata,
+      const PageRenderData* render_data);
 
   // Updates observed page fields when a timing update is received by the
   // MetricsWebContentsObserver. Stops waiting if expectations are satsfied
@@ -202,12 +220,20 @@ class PageLoadMetricsTestWaiter
   void FrameSizeChanged(content::RenderFrameHost* render_frame_host,
                         const gfx::Size& frame_size);
 
+  void OnFrameIntersectionUpdate(
+      content::RenderFrameHost* rfh,
+      const page_load_metrics::mojom::FrameIntersectionUpdate&
+          frame_intersection_update);
+
   void OnDidFinishSubFrameNavigation(
       content::NavigationHandle* navigation_handle);
 
   void OnTrackerCreated(page_load_metrics::PageLoadTracker* tracker) override;
 
   void OnCommit(page_load_metrics::PageLoadTracker* tracker) override;
+
+  void OnRestoredFromBackForwardCache(
+      page_load_metrics::PageLoadTracker* tracker) override;
 
   bool CpuTimeExpectationsSatisfied() const;
 
@@ -217,6 +243,10 @@ class PageLoadMetricsTestWaiter
 
   bool SubframeNavigationExpectationsSatisfied() const;
 
+  bool SubframeDataExpectationsSatisfied() const;
+
+  void AddObserver(page_load_metrics::PageLoadTracker* tracker);
+
   std::unique_ptr<base::RunLoop> run_loop_;
 
   TimingFieldBitSet page_expected_fields_;
@@ -224,6 +254,7 @@ class PageLoadMetricsTestWaiter
   std::bitset<static_cast<size_t>(blink::mojom::WebFeature::kNumberOfFeatures)>
       expected_web_features_;
   size_t expected_subframe_navigation_ = false;
+  bool expected_subframe_data_ = false;
 
   TimingFieldBitSet observed_page_fields_;
   std::bitset<static_cast<size_t>(blink::mojom::WebFeature::kNumberOfFeatures)>
@@ -231,6 +262,10 @@ class PageLoadMetricsTestWaiter
 
   std::set<gfx::Size, FrameSizeComparator> expected_frame_sizes_;
   std::set<gfx::Size, FrameSizeComparator> observed_frame_sizes_;
+
+  // Expectation for the main frame intersection. Has a value when
+  // an expectation has not been met.
+  base::Optional<gfx::Rect> expected_main_frame_intersection_;
 
   int current_complete_resources_ = 0;
   int64_t current_network_bytes_ = 0;
@@ -246,6 +281,8 @@ class PageLoadMetricsTestWaiter
 
   bool attach_on_tracker_creation_ = false;
   bool did_add_observer_ = false;
+
+  double last_main_frame_layout_shift_score_ = 0;
 
   base::WeakPtrFactory<PageLoadMetricsTestWaiter> weak_factory_{this};
 };

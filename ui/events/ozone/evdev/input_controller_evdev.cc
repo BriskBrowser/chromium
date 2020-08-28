@@ -124,6 +124,11 @@ void InputControllerEvdev::SetTouchpadSensitivity(int value) {
   ScheduleUpdateDeviceSettings();
 }
 
+void InputControllerEvdev::SetTouchpadScrollSensitivity(int value) {
+  input_device_settings_.touchpad_scroll_sensitivity = value;
+  ScheduleUpdateDeviceSettings();
+}
+
 void InputControllerEvdev::SetTapToClick(bool enabled) {
   input_device_settings_.tap_to_click_enabled = enabled;
   ScheduleUpdateDeviceSettings();
@@ -149,6 +154,11 @@ void InputControllerEvdev::SetMouseSensitivity(int value) {
   ScheduleUpdateDeviceSettings();
 }
 
+void InputControllerEvdev::SetMouseScrollSensitivity(int value) {
+  input_device_settings_.mouse_scroll_sensitivity = value;
+  ScheduleUpdateDeviceSettings();
+}
+
 void InputControllerEvdev::SetPrimaryButtonRight(bool right) {
   button_map_->SetPrimaryButtonRight(right);
 }
@@ -159,12 +169,41 @@ void InputControllerEvdev::SetMouseReverseScroll(bool enabled) {
 }
 
 void InputControllerEvdev::SetMouseAcceleration(bool enabled) {
+  if (mouse_acceleration_suspended_) {
+    stored_mouse_acceleration_setting_ = enabled;
+    return;
+  }
   input_device_settings_.mouse_acceleration_enabled = enabled;
+  ScheduleUpdateDeviceSettings();
+}
+
+void InputControllerEvdev::SuspendMouseAcceleration() {
+  // multiple calls to suspend are currently not supported.
+  DCHECK(!mouse_acceleration_suspended_);
+  stored_mouse_acceleration_setting_ =
+      input_device_settings_.mouse_acceleration_enabled;
+  mouse_acceleration_suspended_ = true;
+  input_device_settings_.mouse_acceleration_enabled = false;
+  ScheduleUpdateDeviceSettings();
+}
+
+void InputControllerEvdev::EndMouseAccelerationSuspension() {
+  mouse_acceleration_suspended_ = false;
+  SetMouseAcceleration(stored_mouse_acceleration_setting_);
+}
+
+void InputControllerEvdev::SetMouseScrollAcceleration(bool enabled) {
+  input_device_settings_.mouse_scroll_acceleration_enabled = enabled;
   ScheduleUpdateDeviceSettings();
 }
 
 void InputControllerEvdev::SetTouchpadAcceleration(bool enabled) {
   input_device_settings_.touchpad_acceleration_enabled = enabled;
+  ScheduleUpdateDeviceSettings();
+}
+
+void InputControllerEvdev::SetTouchpadScrollAcceleration(bool enabled) {
+  input_device_settings_.touchpad_scroll_acceleration_enabled = enabled;
   ScheduleUpdateDeviceSettings();
 }
 
@@ -216,6 +255,20 @@ void InputControllerEvdev::UpdateCapsLockLed() {
   if (caps_lock_state != caps_lock_led_state_)
     input_device_factory_->SetCapsLockLed(caps_lock_state);
   caps_lock_led_state_ = caps_lock_state;
+}
+
+void InputControllerEvdev::PlayVibrationEffect(int id,
+                                               uint8_t amplitude,
+                                               uint16_t duration_millis) {
+  if (!input_device_factory_)
+    return;
+  input_device_factory_->PlayVibrationEffect(id, amplitude, duration_millis);
+}
+
+void InputControllerEvdev::StopVibration(int id) {
+  if (!input_device_factory_)
+    return;
+  input_device_factory_->StopVibration(id);
 }
 
 }  // namespace ui

@@ -16,9 +16,9 @@
 #include <map>
 #include <memory>
 #include <utility>
-#include <vector>
 
 #include "base/bind.h"
+#include "base/callback_list.h"
 #include "base/debug/stack_trace.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
@@ -26,8 +26,10 @@
 #include "base/location.h"
 #include "base/logging.h"
 #include "base/path_service.h"
+#include "base/strings/string_piece.h"
 #include "base/strings/stringprintf.h"
 #include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
 #include "base/threading/scoped_blocking_call.h"
 #include "base/threading/thread_checker.h"
 #include "base/threading/thread_restrictions.h"
@@ -47,9 +49,11 @@ const char kChapsPath[] = "libchaps.so";
 
 class ChromeOSUserData {
  public:
+  using SlotReadyCallback = base::OnceCallback<void(ScopedPK11Slot)>;
+
   explicit ChromeOSUserData(ScopedPK11Slot public_slot)
-      : public_slot_(std::move(public_slot)),
-        private_slot_initialization_started_(false) {}
+      : public_slot_(std::move(public_slot)) {}
+
   ~ChromeOSUserData() {
     if (public_slot_) {
       SECStatus status = SECMOD_CloseUserDB(public_slot_.get());
@@ -63,26 +67,28 @@ class ChromeOSUserData {
                                        : nullptr);
   }
 
-  ScopedPK11Slot GetPrivateSlot(
-      base::OnceCallback<void(ScopedPK11Slot)> callback) {
+  ScopedPK11Slot GetPrivateSlot(SlotReadyCallback callback) {
     if (private_slot_)
       return ScopedPK11Slot(PK11_ReferenceSlot(private_slot_.get()));
-    if (!callback.is_null())
-      tpm_ready_callback_list_.push_back(std::move(callback));
+    if (!callback.is_null()) {
+      // Callback lists cannot hold callbacks that take move-only args, since
+      // Notify()ing such a list would move the arg into the first callback,
+      // leaving it null or unspecified for remaining callbacks.  Instead, adapt
+      // the provided callbacks to accept a raw pointer, which can be copied,
+      // and then wrap in a separate scoping object for each callback.
+      tpm_ready_callback_list_.AddUnsafe(base::BindOnce(
+          [](SlotReadyCallback callback, PK11SlotInfo* info) {
+            std::move(callback).Run(ScopedPK11Slot(PK11_ReferenceSlot(info)));
+          },
+          std::move(callback)));
+    }
     return ScopedPK11Slot();
   }
 
   void SetPrivateSlot(ScopedPK11Slot private_slot) {
     DCHECK(!private_slot_);
     private_slot_ = std::move(private_slot);
-
-    SlotReadyCallbackList callback_list;
-    callback_list.swap(tpm_ready_callback_list_);
-    for (SlotReadyCallbackList::iterator i = callback_list.begin();
-         i != callback_list.end(); ++i) {
-      std::move(*i).Run(
-          ScopedPK11Slot(PK11_ReferenceSlot(private_slot_.get())));
-    }
+    tpm_ready_callback_list_.Notify(private_slot_.get());
   }
 
   bool private_slot_initialization_started() const {
@@ -94,13 +100,13 @@ class ChromeOSUserData {
   }
 
  private:
+  using SlotReadyCallbackList = base::OnceCallbackList<void(PK11SlotInfo*)>;
+
   ScopedPK11Slot public_slot_;
   ScopedPK11Slot private_slot_;
 
-  bool private_slot_initialization_started_;
+  bool private_slot_initialization_started_ = false;
 
-  typedef std::vector<base::OnceCallback<void(ScopedPK11Slot)>>
-      SlotReadyCallbackList;
   SlotReadyCallbackList tpm_ready_callback_list_;
 };
 
@@ -205,10 +211,9 @@ class ChromeOSTokenManager {
     std::unique_ptr<TPMModuleAndSlot> tpm_args(
         new TPMModuleAndSlot(chaps_module_));
     TPMModuleAndSlot* tpm_args_ptr = tpm_args.get();
-    base::PostTaskAndReply(
+    base::ThreadPool::PostTaskAndReply(
         FROM_HERE,
-        {base::ThreadPool(), base::MayBlock(),
-         base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN},
+        {base::MayBlock(), base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN},
         base::BindOnce(&ChromeOSTokenManager::InitializeTPMTokenInThreadPool,
                        system_slot_id, tpm_args_ptr),
         base::BindOnce(
@@ -270,14 +275,7 @@ class ChromeOSTokenManager {
     std::move(callback).Run(!!tpm_slot_);
   }
 
-  void RunAndClearTPMReadyCallbackList() {
-    TPMReadyCallbackList callback_list;
-    callback_list.swap(tpm_ready_callback_list_);
-    for (TPMReadyCallbackList::iterator i = callback_list.begin();
-         i != callback_list.end(); ++i) {
-      std::move(*i).Run();
-    }
-  }
+  void RunAndClearTPMReadyCallbackList() { tpm_ready_callback_list_.Notify(); }
 
   bool IsTPMTokenReady(base::OnceClosure callback) {
     DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
@@ -285,7 +283,7 @@ class ChromeOSTokenManager {
       return true;
 
     if (!callback.is_null())
-      tpm_ready_callback_list_.push_back(std::move(callback));
+      tpm_ready_callback_list_.AddUnsafe(std::move(callback));
 
     return false;
   }
@@ -359,10 +357,9 @@ class ChromeOSTokenManager {
     std::unique_ptr<TPMModuleAndSlot> tpm_args(
         new TPMModuleAndSlot(chaps_module_));
     TPMModuleAndSlot* tpm_args_ptr = tpm_args.get();
-    base::PostTaskAndReply(
+    base::ThreadPool::PostTaskAndReply(
         FROM_HERE,
-        {base::ThreadPool(), base::MayBlock(),
-         base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN},
+        {base::MayBlock(), base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN},
         base::BindOnce(&ChromeOSTokenManager::InitializeTPMTokenInThreadPool,
                        slot_id, tpm_args_ptr),
         base::BindOnce(&ChromeOSTokenManager::OnInitializedTPMForChromeOSUser,
@@ -515,7 +512,7 @@ class ChromeOSTokenManager {
 
   bool tpm_token_enabled_for_nss_ = false;
   bool initializing_tpm_token_ = false;
-  using TPMReadyCallbackList = std::vector<base::OnceClosure>;
+  using TPMReadyCallbackList = base::OnceClosureList;
   TPMReadyCallbackList tpm_ready_callback_list_;
   SECMODModule* chaps_module_ = nullptr;
   crypto::ScopedPK11Slot tpm_slot_;
@@ -606,6 +603,15 @@ void CloseChromeOSUserForTesting(const std::string& username_hash) {
 void SetPrivateSoftwareSlotForChromeOSUserForTesting(ScopedPK11Slot slot) {
   g_token_manager.Get().SetPrivateSoftwareSlotForChromeOSUserForTesting(
       std::move(slot));
+}
+
+bool IsSlotProvidedByChaps(PK11SlotInfo* slot) {
+  if (!slot)
+    return false;
+
+  SECMODModule* pk11_module = PK11_GetModule(slot);
+  return pk11_module && base::StringPiece(pk11_module->commonName) ==
+                            base::StringPiece(kChapsModuleName);
 }
 
 }  // namespace crypto

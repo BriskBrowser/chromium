@@ -17,13 +17,17 @@
 namespace blink {
 
 scoped_refptr<UnacceleratedStaticBitmapImage>
-UnacceleratedStaticBitmapImage::Create(sk_sp<SkImage> image) {
+UnacceleratedStaticBitmapImage::Create(sk_sp<SkImage> image,
+                                       ImageOrientation orientation) {
   DCHECK(!image->isTextureBacked());
-  return base::AdoptRef(new UnacceleratedStaticBitmapImage(std::move(image)));
+  return base::AdoptRef(
+      new UnacceleratedStaticBitmapImage(std::move(image), orientation));
 }
 
 UnacceleratedStaticBitmapImage::UnacceleratedStaticBitmapImage(
-    sk_sp<SkImage> image) {
+    sk_sp<SkImage> image,
+    ImageOrientation orientation)
+    : StaticBitmapImage(orientation) {
   CHECK(image);
   DCHECK(!image->isLazyGenerated());
   paint_image_ =
@@ -33,13 +37,17 @@ UnacceleratedStaticBitmapImage::UnacceleratedStaticBitmapImage(
 }
 
 scoped_refptr<UnacceleratedStaticBitmapImage>
-UnacceleratedStaticBitmapImage::Create(PaintImage image) {
-  return base::AdoptRef(new UnacceleratedStaticBitmapImage(std::move(image)));
+UnacceleratedStaticBitmapImage::Create(PaintImage image,
+                                       ImageOrientation orientation) {
+  return base::AdoptRef(
+      new UnacceleratedStaticBitmapImage(std::move(image), orientation));
 }
 
-UnacceleratedStaticBitmapImage::UnacceleratedStaticBitmapImage(PaintImage image)
-    : paint_image_(std::move(image)) {
-  CHECK(paint_image_.GetSkImage());
+UnacceleratedStaticBitmapImage::UnacceleratedStaticBitmapImage(
+    PaintImage image,
+    ImageOrientation orientation)
+    : StaticBitmapImage(orientation), paint_image_(std::move(image)) {
+  DCHECK(paint_image_);
 }
 
 UnacceleratedStaticBitmapImage::~UnacceleratedStaticBitmapImage() {
@@ -62,23 +70,24 @@ IntSize UnacceleratedStaticBitmapImage::Size() const {
 }
 
 bool UnacceleratedStaticBitmapImage::IsPremultiplied() const {
-  return paint_image_.GetSkImage()->alphaType() ==
-         SkAlphaType::kPremul_SkAlphaType;
+  return paint_image_.GetAlphaType() == SkAlphaType::kPremul_SkAlphaType;
 }
 
 bool UnacceleratedStaticBitmapImage::CurrentFrameKnownToBeOpaque() {
-  return paint_image_.GetSkImage()->isOpaque();
+  return paint_image_.IsOpaque();
 }
 
-void UnacceleratedStaticBitmapImage::Draw(cc::PaintCanvas* canvas,
-                                          const cc::PaintFlags& flags,
-                                          const FloatRect& dst_rect,
-                                          const FloatRect& src_rect,
-                                          RespectImageOrientationEnum,
-                                          ImageClampingMode clamp_mode,
-                                          ImageDecodingMode) {
+void UnacceleratedStaticBitmapImage::Draw(
+    cc::PaintCanvas* canvas,
+    const cc::PaintFlags& flags,
+    const FloatRect& dst_rect,
+    const FloatRect& src_rect,
+    RespectImageOrientationEnum should_respect_image_orientation,
+    ImageClampingMode clamp_mode,
+    ImageDecodingMode) {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
   StaticBitmapImage::DrawHelper(canvas, flags, dst_rect, src_rect, clamp_mode,
+                                should_respect_image_orientation,
                                 PaintImageForCurrentFrame());
 }
 
@@ -89,7 +98,7 @@ PaintImage UnacceleratedStaticBitmapImage::PaintImageForCurrentFrame() {
 void UnacceleratedStaticBitmapImage::Transfer() {
   DETACH_FROM_THREAD(thread_checker_);
 
-  original_skia_image_ = paint_image_.GetSkImage();
+  original_skia_image_ = paint_image_.GetSwSkImage();
   original_skia_image_task_runner_ = Thread::Current()->GetTaskRunner();
 }
 
@@ -99,7 +108,7 @@ UnacceleratedStaticBitmapImage::ConvertToColorSpace(
     SkColorType color_type) {
   DCHECK(color_space);
 
-  sk_sp<SkImage> skia_image = PaintImageForCurrentFrame().GetSkImage();
+  sk_sp<SkImage> skia_image = PaintImageForCurrentFrame().GetSwSkImage();
   // If we don't need to change the color type, use SkImage::makeColorSpace()
   if (skia_image->colorType() == color_type) {
     skia_image = skia_image->makeColorSpace(color_space);
@@ -107,7 +116,7 @@ UnacceleratedStaticBitmapImage::ConvertToColorSpace(
     skia_image =
         skia_image->makeColorTypeAndColorSpace(color_type, color_space);
   }
-  return UnacceleratedStaticBitmapImage::Create(skia_image);
+  return UnacceleratedStaticBitmapImage::Create(skia_image, orientation_);
 }
 
 }  // namespace blink

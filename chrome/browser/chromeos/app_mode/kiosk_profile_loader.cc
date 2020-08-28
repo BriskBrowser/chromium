@@ -16,6 +16,7 @@
 #include "base/system/sys_info.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "chrome/browser/chromeos/app_mode/kiosk_app_manager.h"
+#include "chrome/browser/chromeos/app_mode/kiosk_app_types.h"
 #include "chrome/browser/chromeos/login/auth/chrome_login_performer.h"
 #include "chrome/browser/chromeos/login/demo_mode/demo_app_launcher.h"
 #include "chrome/browser/chromeos/settings/cros_settings.h"
@@ -65,13 +66,11 @@ class KioskProfileLoader::CryptohomedChecker
     : public base::SupportsWeakPtr<CryptohomedChecker> {
  public:
   explicit CryptohomedChecker(KioskProfileLoader* loader)
-      : loader_(loader),
-        retry_count_(0) {
-  }
+      : loader_(loader), retry_count_(0) {}
   ~CryptohomedChecker() {}
 
   void StartCheck() {
-    CryptohomeClient::Get()->WaitForServiceToBeAvailable(base::Bind(
+    CryptohomeClient::Get()->WaitForServiceToBeAvailable(base::BindOnce(
         &CryptohomedChecker::OnServiceAvailibityChecked, AsWeakPtr()));
   }
 
@@ -97,8 +96,8 @@ class KioskProfileLoader::CryptohomedChecker
       return;
     }
 
-    CryptohomeClient::Get()->IsMounted(
-        base::Bind(&CryptohomedChecker::OnCryptohomeIsMounted, AsWeakPtr()));
+    CryptohomeClient::Get()->IsMounted(base::BindOnce(
+        &CryptohomedChecker::OnCryptohomeIsMounted, AsWeakPtr()));
   }
 
   void OnCryptohomeIsMounted(base::Optional<bool> is_mounted) {
@@ -129,14 +128,15 @@ class KioskProfileLoader::CryptohomedChecker
   DISALLOW_COPY_AND_ASSIGN(CryptohomedChecker);
 };
 
-
 ////////////////////////////////////////////////////////////////////////////////
 // KioskProfileLoader
 
 KioskProfileLoader::KioskProfileLoader(const AccountId& app_account_id,
+                                       KioskAppType app_type,
                                        bool use_guest_mount,
                                        Delegate* delegate)
     : account_id_(app_account_id),
+      app_type_(app_type),
       use_guest_mount_(use_guest_mount),
       delegate_(delegate) {}
 
@@ -151,7 +151,21 @@ void KioskProfileLoader::Start() {
 
 void KioskProfileLoader::LoginAsKioskAccount() {
   login_performer_.reset(new ChromeLoginPerformer(this));
-  login_performer_->LoginAsKioskAccount(account_id_, use_guest_mount_);
+  switch (app_type_) {
+    case KioskAppType::ARC_APP:
+      // Arc kiosks do not support ephemeral mount.
+      DCHECK(!use_guest_mount_);
+      login_performer_->LoginAsArcKioskAccount(account_id_);
+      return;
+    case KioskAppType::CHROME_APP:
+      login_performer_->LoginAsKioskAccount(account_id_, use_guest_mount_);
+      return;
+    case KioskAppType::WEB_APP:
+      // Web kiosks do not support ephemeral mount.
+      DCHECK(!use_guest_mount_);
+      login_performer_->LoginAsWebKioskAccount(account_id_);
+      return;
+  }
 }
 
 void KioskProfileLoader::ReportLaunchResult(KioskAppLaunchError::Error error) {
@@ -188,7 +202,7 @@ void KioskProfileLoader::OnAuthFailure(const AuthFailure& error) {
   ReportLaunchResult(LoginFailureToKioskAppLaunchError(error));
 }
 
-void KioskProfileLoader::WhiteListCheckFailed(const std::string& email) {
+void KioskProfileLoader::AllowlistCheckFailed(const std::string& email) {
   NOTREACHED();
 }
 
@@ -198,6 +212,12 @@ void KioskProfileLoader::PolicyLoadFailed() {
 
 void KioskProfileLoader::SetAuthFlowOffline(bool offline) {
   NOTREACHED();
+}
+
+void KioskProfileLoader::OnOldEncryptionDetected(
+    const UserContext& user_context,
+    bool has_incomplete_migration) {
+  delegate_->OnOldEncryptionDetected(user_context);
 }
 
 void KioskProfileLoader::OnProfilePrepared(Profile* profile,

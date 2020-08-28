@@ -8,15 +8,16 @@
 #include <utility>
 
 #include "base/bind.h"
+#include "base/bind_helpers.h"
 #include "base/callback.h"
 #include "base/location.h"
 #include "base/optional.h"
-#include "base/task/post_task.h"
 #include "base/time/time.h"
 #include "chrome/browser/chromeos/attestation/attestation_ca_client.h"
 #include "chrome/browser/chromeos/attestation/attestation_key_payload.pb.h"
 #include "chrome/browser/chromeos/settings/cros_settings.h"
 #include "chromeos/attestation/attestation_flow.h"
+#include "chromeos/attestation/attestation_flow_integrated.h"
 #include "chromeos/cryptohome/async_method_caller.h"
 #include "chromeos/cryptohome/cryptohome_parameters.h"
 #include "chromeos/dbus/cryptohome/cryptohome_client.h"
@@ -163,11 +164,7 @@ void MachineCertificateUploaderImpl::Start() {
     cryptohome_client_ = CryptohomeClient::Get();
 
   if (!attestation_flow_) {
-    std::unique_ptr<ServerProxy> attestation_ca_client(
-        new AttestationCAClient());
-    default_attestation_flow_.reset(new AttestationFlow(
-        cryptohome::AsyncMethodCaller::GetInstance(), cryptohome_client_,
-        std::move(attestation_ca_client)));
+    default_attestation_flow_ = std::make_unique<AttestationFlowIntegrated>();
     attestation_flow_ = default_attestation_flow_.get();
   }
 
@@ -203,7 +200,7 @@ void MachineCertificateUploaderImpl::GetNewCertificate() {
       std::string(),     // Not used.
       true,              // Force a new key to be generated.
       std::string(),     // Leave key name empty to generate a default name.
-      base::BindRepeating(
+      base::BindOnce(
           [](const base::RepeatingCallback<void(const std::string&)> on_success,
              const base::RepeatingCallback<void(AttestationStatus)> on_failure,
              const base::Location& from_here, AttestationStatus status,
@@ -225,7 +222,7 @@ void MachineCertificateUploaderImpl::GetExistingCertificate() {
       KEY_DEVICE,
       cryptohome::AccountIdentifier(),  // Not used.
       kEnterpriseMachineKey,
-      base::BindRepeating(
+      base::BindOnce(
           DBusStringCallback,
           base::BindRepeating(
               &MachineCertificateUploaderImpl::CheckCertificateExpiry,
@@ -278,8 +275,8 @@ void MachineCertificateUploaderImpl::UploadCertificate(
     const std::string& pem_certificate_chain) {
   policy_client_->UploadEnterpriseMachineCertificate(
       pem_certificate_chain,
-      base::BindRepeating(&MachineCertificateUploaderImpl::OnUploadComplete,
-                          weak_factory_.GetWeakPtr()));
+      base::BindOnce(&MachineCertificateUploaderImpl::OnUploadComplete,
+                     weak_factory_.GetWeakPtr()));
 }
 
 void MachineCertificateUploaderImpl::CheckIfUploaded(
@@ -301,7 +298,7 @@ void MachineCertificateUploaderImpl::GetKeyPayload(
       KEY_DEVICE,
       cryptohome::AccountIdentifier(),  // Not used.
       kEnterpriseMachineKey,
-      base::BindRepeating(DBusStringCallback, callback, on_failure, FROM_HERE));
+      base::BindOnce(DBusStringCallback, callback, on_failure, FROM_HERE));
 }
 
 void MachineCertificateUploaderImpl::OnUploadComplete(bool status) {
@@ -330,9 +327,9 @@ void MachineCertificateUploaderImpl::MarkAsUploaded(
       KEY_DEVICE,
       cryptohome::AccountIdentifier(),  // Not used.
       kEnterpriseMachineKey, new_payload,
-      base::BindRepeating(DBusBoolRedirectCallback, base::RepeatingClosure(),
-                          base::RepeatingClosure(), base::RepeatingClosure(),
-                          FROM_HERE));
+      base::BindOnce(DBusBoolRedirectCallback, base::RepeatingClosure(),
+                     base::RepeatingClosure(), base::RepeatingClosure(),
+                     FROM_HERE));
 }
 
 void MachineCertificateUploaderImpl::HandleGetCertificateFailure(
@@ -345,10 +342,10 @@ void MachineCertificateUploaderImpl::HandleGetCertificateFailure(
 
 void MachineCertificateUploaderImpl::Reschedule() {
   if (++num_retries_ < retry_limit_) {
-    base::PostDelayedTask(
-        FROM_HERE, {content::BrowserThread::UI},
-        base::BindRepeating(&MachineCertificateUploaderImpl::Start,
-                            weak_factory_.GetWeakPtr()),
+    content::GetUIThreadTaskRunner({})->PostDelayedTask(
+        FROM_HERE,
+        base::BindOnce(&MachineCertificateUploaderImpl::Start,
+                       weak_factory_.GetWeakPtr()),
         base::TimeDelta::FromSeconds(retry_delay_));
   } else {
     LOG(WARNING) << "MachineCertificateUploaderImpl: Retry limit exceeded.";

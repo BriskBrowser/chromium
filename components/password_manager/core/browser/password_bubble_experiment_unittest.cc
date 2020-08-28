@@ -6,7 +6,10 @@
 
 #include <ostream>
 
+#include "base/feature_list.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/test/scoped_feature_list.h"
+#include "components/password_manager/core/common/password_manager_features.h"
 #include "components/password_manager/core/common/password_manager_pref_names.h"
 #include "components/prefs/pref_registry_simple.h"
 #include "components/prefs/pref_service.h"
@@ -56,6 +59,7 @@ TEST_F(PasswordManagerPasswordBubbleExperimentTest,
   // By default the promo is off.
   EXPECT_FALSE(ShouldShowChromeSignInPasswordPromo(prefs(), nullptr));
   constexpr struct {
+    bool account_storage_enabled;
     bool was_already_clicked;
     bool is_sync_allowed;
     bool is_first_setup_complete;
@@ -63,16 +67,21 @@ TEST_F(PasswordManagerPasswordBubbleExperimentTest,
     int current_shown_count;
     bool result;
   } kTestData[] = {
-      {false, true, false, true, 0, true},
-      {false, true, false, true, 5, false},
-      {true, true, false, true, 0, false},
-      {true, true, false, true, 10, false},
-      {false, false, false, true, 0, false},
-      {false, true, true, true, 0, false},
-      {false, true, false, false, 0, false},
+      {false, false, true, false, true, 0, true},
+      {true, false, true, false, true, 0, false},
+      {false, false, true, false, true, 5, false},
+      {false, true, true, false, true, 0, false},
+      {false, true, true, false, true, 10, false},
+      {false, false, false, false, true, 0, false},
+      {false, false, true, true, true, 0, false},
+      {false, false, true, false, false, 0, false},
   };
   for (const auto& test_case : kTestData) {
     SCOPED_TRACE(testing::Message("#test_case = ") << (&test_case - kTestData));
+    base::test::ScopedFeatureList account_storage_feature;
+    account_storage_feature.InitWithFeatureState(
+        password_manager::features::kEnablePasswordsAccountStorage,
+        test_case.account_storage_enabled);
     prefs()->SetBoolean(password_manager::prefs::kWasSignInPasswordPromoClicked,
                         test_case.was_already_clicked);
     prefs()->SetInteger(
@@ -100,6 +109,13 @@ TEST_F(PasswordManagerPasswordBubbleExperimentTest,
 
 #if !defined(OS_CHROMEOS)
 TEST_F(PasswordManagerPasswordBubbleExperimentTest, ReviveSignInPasswordPromo) {
+  // If kEnablePasswordsAccountStorage is enabled, then the password manager
+  // bubble never shows Sync promos, so this test doesn't apply.
+  if (base::FeatureList::IsEnabled(
+          password_manager::features::kEnablePasswordsAccountStorage)) {
+    return;
+  }
+
   sync_service()->SetDisableReasons(syncer::SyncService::DisableReasonSet());
   sync_service()->SetFirstSetupComplete(false);
   sync_service()->SetTransportState(

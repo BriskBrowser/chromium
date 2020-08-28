@@ -10,16 +10,17 @@
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/ui_test_utils.h"
+#include "content/public/test/browser_test.h"
 
 namespace chrome {
 
 using BrowserCommandsTest = InProcessBrowserTest;
 
-// Verify that calling BookmarkCurrentTabIgnoringExtensionOverrides() just
-// after closing all tabs doesn't cause a crash. https://crbug.com/799668
+// Verify that calling BookmarkCurrentTab() just after closing all tabs doesn't
+// cause a crash. https://crbug.com/799668
 IN_PROC_BROWSER_TEST_F(BrowserCommandsTest, BookmarkCurrentTabAfterCloseTabs) {
   browser()->tab_strip_model()->CloseAllTabs();
-  BookmarkCurrentTabIgnoringExtensionOverrides(browser());
+  BookmarkCurrentTab(browser());
 }
 
 class ReloadObserver : public content::WebContentsObserver {
@@ -65,6 +66,66 @@ IN_PROC_BROWSER_TEST_F(BrowserCommandsTest, ReloadSelectedTabs) {
   for (ReloadObserver& watcher : watcher_vec)
     load_sum += watcher.load_count();
   EXPECT_EQ(kTabCount, load_sum);
+}
+
+IN_PROC_BROWSER_TEST_F(BrowserCommandsTest, MoveTabsToNewWindow) {
+  auto AddTabs = [](Browser* browser, unsigned int num_tabs) {
+    for (unsigned int i = 0; i < num_tabs; ++i)
+      chrome::NewTab(browser);
+  };
+
+  // Single Tab Move to New Window.
+  // 1 (Current) + 1 (Added) = 2
+  AddTabs(browser(), 1);
+  std::vector<int> indices = {0};
+  // 2 (Current) - 1 (Moved) = 1
+  chrome::MoveTabsToNewWindow(browser(), indices);
+  ASSERT_TRUE(browser()->tab_strip_model()->count() == 1);
+
+  // Multi-Tab Move to New Window.
+  // 1 (Current) + 3 (Added) = 4
+  AddTabs(browser(), 3);
+  indices = {0, 1};
+  // 4 (Current) - 2 (Moved) = 2
+  chrome::MoveTabsToNewWindow(browser(), indices);
+  ASSERT_TRUE(browser()->tab_strip_model()->count() == 2);
+
+  // Check that the two additional windows have been created.
+  BrowserList* active_browser_list = BrowserList::GetInstance();
+  EXPECT_EQ(3u, active_browser_list->size());
+
+  // Check that the tabs made it to other windows.
+  Browser* browser = active_browser_list->get(1);
+  EXPECT_EQ(1, browser->tab_strip_model()->count());
+  browser = active_browser_list->get(2);
+  EXPECT_EQ(2, browser->tab_strip_model()->count());
+}
+
+IN_PROC_BROWSER_TEST_F(BrowserCommandsTest, MoveToExistingWindow) {
+  auto AddTabs = [](Browser* browser, unsigned int num_tabs) {
+    for (unsigned int i = 0; i < num_tabs; ++i)
+      chrome::NewTab(browser);
+  };
+
+  // Create another window, and add tabs.
+  chrome::NewEmptyWindow(browser()->profile());
+  Browser* second_window = BrowserList::GetInstance()->GetLastActive();
+  AddTabs(browser(), 2);
+  AddTabs(second_window, 1);
+  ASSERT_TRUE(browser()->tab_strip_model()->count() == 3);
+  ASSERT_TRUE(second_window->tab_strip_model()->count() == 2);
+
+  // Single tab move to an existing window.
+  std::vector<int> indices = {0};
+  chrome::MoveTabsToExistingWindow(browser(), second_window, indices);
+  ASSERT_TRUE(browser()->tab_strip_model()->count() == 2);
+  ASSERT_TRUE(second_window->tab_strip_model()->count() == 3);
+
+  // Multiple tab move to an existing window.
+  indices = {0, 2};
+  chrome::MoveTabsToExistingWindow(second_window, browser(), indices);
+  ASSERT_TRUE(browser()->tab_strip_model()->count() == 4);
+  ASSERT_TRUE(second_window->tab_strip_model()->count() == 1);
 }
 
 // Tests IDC_MOVE_TAB_TO_NEW_WINDOW. This is a browser test and not a unit test

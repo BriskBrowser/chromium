@@ -5,23 +5,46 @@
 #import "ios/chrome/browser/infobars/overlays/infobar_overlay_request_factory_impl.h"
 
 #import "ios/chrome/browser/infobars/infobar_ios.h"
+#import "ios/chrome/browser/overlays/public/infobar_banner/confirm_infobar_banner_overlay_request_config.h"
+#import "ios/chrome/browser/overlays/public/infobar_banner/save_card_infobar_banner_overlay_request_config.h"
 #import "ios/chrome/browser/overlays/public/infobar_banner/save_password_infobar_banner_overlay.h"
-#import "ios/chrome/browser/ui/infobars/infobar_ui_delegate.h"
+#import "ios/chrome/browser/overlays/public/infobar_banner/translate_infobar_banner_overlay_request_config.h"
+#import "ios/chrome/browser/overlays/public/infobar_modal/password_infobar_modal_overlay_request_config.h"
+#import "ios/chrome/browser/overlays/public/infobar_modal/save_card_infobar_modal_overlay_request_config.h"
+#import "ios/chrome/browser/overlays/public/infobar_modal/translate_infobar_modal_overlay_request_config.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
 #endif
 
 using infobars::InfoBar;
-using infobars::InfoBarDelegate;
+using translate_infobar_overlays::TranslateBannerRequestConfig;
+using translate_infobar_overlays::TranslateModalRequestConfig;
+using confirm_infobar_overlays::ConfirmBannerRequestConfig;
+using save_card_infobar_overlays::SaveCardBannerRequestConfig;
+using save_card_infobar_overlays::SaveCardModalRequestConfig;
 
 InfobarOverlayRequestFactoryImpl::InfobarOverlayRequestFactoryImpl() {
-  // Create the factory helpers for the supported infobar types.
-  // TODO(crbug.com/1030357): Add factory helpers for other infobar and overlay
-  // types.
   SetUpFactories(InfobarType::kInfobarTypePasswordSave,
                  CreateFactory<SavePasswordInfobarBannerOverlayRequestConfig>(),
-                 /*detail_sheet_factory=*/nullptr, /*modal_factory=*/nullptr);
+                 /*detail_sheet_factory=*/nullptr,
+                 CreateFactory<PasswordInfobarModalOverlayRequestConfig>());
+  SetUpFactories(InfobarType::kInfobarTypePasswordUpdate,
+                 CreateFactory<SavePasswordInfobarBannerOverlayRequestConfig>(),
+                 /*detail_sheet_factory=*/nullptr,
+                 CreateFactory<PasswordInfobarModalOverlayRequestConfig>());
+  SetUpFactories(InfobarType::kInfobarTypeTranslate,
+                 CreateFactory<TranslateBannerRequestConfig>(),
+                 /*detail_sheet_factory=*/nullptr,
+                 CreateFactory<TranslateModalRequestConfig>());
+  SetUpFactories(InfobarType::kInfobarTypeConfirm,
+                 CreateFactory<ConfirmBannerRequestConfig>(),
+                 /*detail_sheet_factory=*/nullptr,
+                 /*modal_factory=*/nullptr);
+  SetUpFactories(InfobarType::kInfobarTypeSaveCard,
+                 CreateFactory<SaveCardBannerRequestConfig>(),
+                 /*detail_sheet_factory=*/nullptr,
+                 CreateFactory<SaveCardModalRequestConfig>());
 }
 
 InfobarOverlayRequestFactoryImpl::~InfobarOverlayRequestFactoryImpl() = default;
@@ -32,10 +55,8 @@ InfobarOverlayRequestFactoryImpl::CreateInfobarRequest(
     InfobarOverlayType type) {
   DCHECK(infobar);
   InfoBarIOS* infobar_ios = static_cast<InfoBarIOS*>(infobar);
-  // It is an error to call this for an InfobarType/InfobarOverlayType combo
-  // that has not been added to the factory storages.
-  return factory_storages_[infobar_ios->InfobarUIDelegate().infobarType][type]
-      ->CreateInfobarRequest(infobar);
+  FactoryHelper* factory = factory_storages_[infobar_ios->infobar_type()][type];
+  return factory ? factory->CreateInfobarRequest(infobar_ios) : nullptr;
 }
 
 void InfobarOverlayRequestFactoryImpl::SetUpFactories(

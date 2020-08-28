@@ -7,14 +7,13 @@
 
 #include <stdint.h>
 
-#include <set>
 #include <string>
+#include <vector>
 
 #include "base/component_export.h"
 #include "base/files/file.h"
 #include "base/memory/scoped_refptr.h"
 #include "storage/common/file_system/file_system_types.h"
-#include "url/gurl.h"
 
 namespace url {
 class Origin;
@@ -32,31 +31,31 @@ class QuotaReservation;
 // the thread that the method name implies.
 class COMPONENT_EXPORT(STORAGE_BROWSER) FileSystemQuotaUtil {
  public:
-  virtual ~FileSystemQuotaUtil() {}
+  virtual ~FileSystemQuotaUtil() = default;
 
   // Deletes the data on the origin and reports the amount of deleted data
   // to the quota manager via |proxy|.
   virtual base::File::Error DeleteOriginDataOnFileTaskRunner(
       FileSystemContext* context,
       QuotaManagerProxy* proxy,
-      const GURL& origin_url,
+      const url::Origin& origin,
       FileSystemType type) = 0;
 
   virtual void PerformStorageCleanupOnFileTaskRunner(FileSystemContext* context,
                                                      QuotaManagerProxy* proxy,
                                                      FileSystemType type) = 0;
 
-  virtual void GetOriginsForTypeOnFileTaskRunner(FileSystemType type,
-                                                 std::set<GURL>* origins) = 0;
+  virtual std::vector<url::Origin> GetOriginsForTypeOnFileTaskRunner(
+      FileSystemType type) = 0;
 
-  virtual void GetOriginsForHostOnFileTaskRunner(FileSystemType type,
-                                                 const std::string& host,
-                                                 std::set<GURL>* origins) = 0;
+  virtual std::vector<url::Origin> GetOriginsForHostOnFileTaskRunner(
+      FileSystemType type,
+      const std::string& host) = 0;
 
   // Returns the amount of data used for the origin for usage tracking.
   virtual int64_t GetOriginUsageOnFileTaskRunner(
       FileSystemContext* file_system_context,
-      const GURL& origin_url,
+      const url::Origin& origin,
       FileSystemType type) = 0;
 
   // Creates new reservation object for the origin and the type.

@@ -10,18 +10,19 @@
 
 #include "base/bind.h"
 #include "base/callback.h"
-#include "base/logging.h"
+#include "base/check.h"
 #include "base/memory/ptr_util.h"
 #include "base/metrics/field_trial_params.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/notreached.h"
 #include "base/strings/stringprintf.h"
 #include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/content_settings/host_content_settings_map_factory.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/ui/blocked_content/list_item_position.h"
-#include "chrome/browser/ui/blocked_content/popup_opener_tab_helper.h"
 #include "chrome/common/pref_names.h"
+#include "components/blocked_content/list_item_position.h"
+#include "components/blocked_content/popup_opener_tab_helper.h"
 #include "components/content_settings/core/browser/host_content_settings_map.h"
 #include "components/content_settings/core/common/content_settings.h"
 #include "components/content_settings/core/common/content_settings_types.h"
@@ -75,8 +76,9 @@ void LogOutcome(InterventionOutcome outcome) {
 #else
 void OnListItemClicked(const GURL& url, size_t index, size_t total_size) {
   LogAction(TabUnderNavigationThrottle::Action::kClickedThrough);
-  UMA_HISTOGRAM_ENUMERATION("Tab.TabUnder.ClickThroughPosition",
-                            GetListItemPositionFromDistance(index, total_size));
+  UMA_HISTOGRAM_ENUMERATION(
+      "Tab.TabUnder.ClickThroughPosition",
+      blocked_content::GetListItemPositionFromDistance(index, total_size));
 }
 #endif
 
@@ -167,7 +169,8 @@ TabUnderNavigationThrottle::MaybeBlockNavigation() {
 
   seen_tab_under_ = true;
   content::WebContents* contents = navigation_handle()->GetWebContents();
-  auto* popup_opener = PopupOpenerTabHelper::FromWebContents(contents);
+  auto* popup_opener =
+      blocked_content::PopupOpenerTabHelper::FromWebContents(contents);
   DCHECK(popup_opener);
   popup_opener->OnDidTabUnder();
 
@@ -203,7 +206,8 @@ void TabUnderNavigationThrottle::ShowUI() {
 
 bool TabUnderNavigationThrottle::HasOpenedPopupSinceLastUserGesture() const {
   content::WebContents* contents = navigation_handle()->GetWebContents();
-  auto* popup_opener = PopupOpenerTabHelper::FromWebContents(contents);
+  auto* popup_opener =
+      blocked_content::PopupOpenerTabHelper::FromWebContents(contents);
   return popup_opener &&
          popup_opener->has_opened_popup_since_last_user_gesture();
 }

@@ -3,6 +3,9 @@
 // found in the LICENSE file.
 
 #include "chrome/browser/ui/views/location_bar/location_icon_view.h"
+
+#include <memory>
+
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/test/views/chrome_views_test_base.h"
 #include "components/omnibox/browser/location_bar_model.h"
@@ -60,23 +63,22 @@ class LocationIconViewTest : public ChromeViewsTestBase {
     ChromeViewsTestBase::SetUp();
     gfx::FontList font_list;
 
-    CreateWidget();
+    widget_ = CreateTestWidget();
 
     location_bar_model_ = std::make_unique<TestLocationBarModel>();
     delegate_ =
         std::make_unique<TestLocationIconDelegate>(location_bar_model());
 
-    view_ = new LocationIconView(font_list, delegate(), delegate());
-    view_->SetBoundsRect(gfx::Rect(0, 0, 24, 24));
-    widget_->SetContentsView(view_);
+    auto view =
+        std::make_unique<LocationIconView>(font_list, delegate(), delegate());
+    view->SetBoundsRect(gfx::Rect(0, 0, 24, 24));
+    view_ = widget_->SetContentsView(std::move(view));
 
     widget_->Show();
   }
 
   void TearDown() override {
-    if (widget_ && !widget_->IsClosed())
-      widget_->Close();
-
+    widget_.reset();
     ChromeViewsTestBase::TearDown();
   }
 
@@ -102,17 +104,7 @@ class LocationIconViewTest : public ChromeViewsTestBase {
   std::unique_ptr<TestLocationBarModel> location_bar_model_;
   std::unique_ptr<TestLocationIconDelegate> delegate_;
   LocationIconView* view_;
-  views::Widget* widget_ = nullptr;
-
-  void CreateWidget() {
-    DCHECK(!widget_);
-
-    widget_ = new views::Widget;
-    views::Widget::InitParams params =
-        CreateParams(views::Widget::InitParams::TYPE_WINDOW_FRAMELESS);
-    params.bounds = gfx::Rect(0, 0, 200, 200);
-    widget_->Init(std::move(params));
-  }
+  std::unique_ptr<views::Widget> widget_;
 };
 
 TEST_F(LocationIconViewTest, ShouldNotAnimateWhenSuppressingAnimations) {

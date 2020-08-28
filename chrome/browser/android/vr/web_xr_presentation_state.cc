@@ -4,6 +4,7 @@
 
 #include "chrome/browser/android/vr/web_xr_presentation_state.h"
 
+#include "base/logging.h"
 #include "base/trace_event/trace_event.h"
 #include "gpu/ipc/common/gpu_memory_buffer_impl_android_hardware_buffer.h"
 #include "ui/gl/gl_fence.h"
@@ -120,6 +121,8 @@ WebXrPresentationState::TakeSharedBuffers() {
   for (auto& frame : frames_storage_) {
     if (frame->shared_buffer)
       shared_buffers.emplace_back(std::move(frame->shared_buffer));
+    if (frame->camera_image_shared_buffer)
+      shared_buffers.emplace_back(std::move(frame->camera_image_shared_buffer));
   }
   return shared_buffers;
 }

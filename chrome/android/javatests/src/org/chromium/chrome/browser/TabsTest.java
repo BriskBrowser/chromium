@@ -4,9 +4,9 @@
 
 package org.chromium.chrome.browser;
 
-import static android.support.test.espresso.Espresso.onView;
-import static android.support.test.espresso.action.ViewActions.click;
-import static android.support.test.espresso.matcher.ViewMatchers.withId;
+import static androidx.test.espresso.Espresso.onView;
+import static androidx.test.espresso.action.ViewActions.click;
+import static androidx.test.espresso.matcher.ViewMatchers.withId;
 
 import static org.chromium.base.test.util.Restriction.RESTRICTION_TYPE_NON_LOW_END_DEVICE;
 
@@ -15,13 +15,15 @@ import android.graphics.Point;
 import android.os.Debug;
 import android.os.SystemClock;
 import android.support.test.InstrumentationRegistry;
-import android.support.test.filters.LargeTest;
-import android.support.test.filters.MediumTest;
-import android.support.test.filters.SmallTest;
 import android.util.DisplayMetrics;
 import android.util.Log;
 import android.view.View;
 
+import androidx.test.filters.LargeTest;
+import androidx.test.filters.MediumTest;
+import androidx.test.filters.SmallTest;
+
+import org.hamcrest.Matchers;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -37,7 +39,6 @@ import org.chromium.base.test.util.DisabledTest;
 import org.chromium.base.test.util.Feature;
 import org.chromium.base.test.util.FlakyTest;
 import org.chromium.base.test.util.Restriction;
-import org.chromium.base.test.util.RetryOnFailure;
 import org.chromium.base.test.util.UrlUtils;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.compositor.animation.CompositorAnimationHandler;
@@ -53,21 +54,20 @@ import org.chromium.chrome.browser.compositor.layouts.eventfilter.ScrollDirectio
 import org.chromium.chrome.browser.compositor.layouts.phone.StackLayout;
 import org.chromium.chrome.browser.compositor.layouts.phone.stack.Stack;
 import org.chromium.chrome.browser.compositor.layouts.phone.stack.StackTab;
-import org.chromium.chrome.browser.jsdialog.JavascriptTabModalDialog;
+import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.tab.EmptyTabObserver;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tab.TabLaunchType;
 import org.chromium.chrome.browser.tab.TabSelectionType;
-import org.chromium.chrome.browser.tab.TabState;
+import org.chromium.chrome.browser.tab.TabStateFileManager;
 import org.chromium.chrome.browser.tabmodel.EmptyTabModelSelectorObserver;
 import org.chromium.chrome.browser.tabmodel.TabModel;
 import org.chromium.chrome.browser.tabmodel.TabModelSelector;
 import org.chromium.chrome.browser.tabmodel.TabModelSelectorImpl;
 import org.chromium.chrome.browser.tabmodel.TabModelSelectorTabModelObserver;
 import org.chromium.chrome.browser.tabmodel.TabModelUtils;
-import org.chromium.chrome.browser.tabmodel.TabbedModeTabPersistencePolicy;
+import org.chromium.chrome.browser.tabpersistence.TabStateDirectory;
 import org.chromium.chrome.browser.toolbar.top.ToggleTabStackButton;
-import org.chromium.chrome.browser.util.UrlConstants;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.chrome.test.ChromeTabbedActivityTestRule;
 import org.chromium.chrome.test.util.ApplicationTestUtils;
@@ -75,6 +75,8 @@ import org.chromium.chrome.test.util.ChromeTabUtils;
 import org.chromium.chrome.test.util.MenuUtils;
 import org.chromium.chrome.test.util.NewTabPageTestUtils;
 import org.chromium.chrome.test.util.OverviewModeBehaviorWatcher;
+import org.chromium.components.embedder_support.util.UrlConstants;
+import org.chromium.components.javascript_dialogs.JavascriptTabModalDialog;
 import org.chromium.content_public.browser.SelectionPopupController;
 import org.chromium.content_public.browser.UiThreadTaskTraits;
 import org.chromium.content_public.browser.WebContents;
@@ -95,6 +97,7 @@ import org.chromium.ui.test.util.UiRestriction;
 import java.io.File;
 import java.util.Locale;
 import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -188,7 +191,6 @@ public class TabsTest {
     @Feature({"Navigation"})
     @Restriction(RESTRICTION_TYPE_NON_LOW_END_DEVICE)
     @CommandLineFlags.Add(ContentSwitches.DISABLE_POPUP_BLOCKING)
-    @RetryOnFailure
     public void testSpawnPopupOnBackgroundTab() {
         mTestServer = EmbeddedTestServer.createAndStartServer(InstrumentationRegistry.getContext());
         mActivityTestRule.loadUrl(mTestServer.getURL(TEST_FILE_PATH));
@@ -202,16 +204,17 @@ public class TabsTest {
                                         + "})()",
                                 null));
 
-        CriteriaHelper.pollUiThread(Criteria.equals(2,
-                () -> mActivityTestRule.getActivity()
+        CriteriaHelper.pollUiThread(() -> {
+            int tabCount = mActivityTestRule.getActivity()
                                    .getTabModelSelector()
                                    .getModel(false)
-                                   .getCount()));
+                                   .getCount();
+            Criteria.checkThat(tabCount, Matchers.is(2));
+        });
     }
 
     @Test
     @MediumTest
-    @RetryOnFailure
     public void testAlertDialogDoesNotChangeActiveModel() {
         mTestServer = EmbeddedTestServer.createAndStartServer(InstrumentationRegistry.getContext());
         mActivityTestRule.newIncognitoTabFromMenu();
@@ -225,25 +228,17 @@ public class TabsTest {
 
         final AtomicReference<JavascriptTabModalDialog> dialog = new AtomicReference<>();
 
-        CriteriaHelper.pollInstrumentationThread(new Criteria() {
-            @Override
-            public boolean isSatisfied() {
-                dialog.set(getCurrentAlertDialog());
-
-                return dialog.get() != null;
-            }
+        CriteriaHelper.pollInstrumentationThread(() -> {
+            dialog.set(getCurrentAlertDialog());
+            Criteria.checkThat(dialog.get(), Matchers.notNullValue());
         });
 
         onView(withId(R.id.positive_button)).perform(click());
 
         dialog.set(null);
 
-        CriteriaHelper.pollInstrumentationThread(new Criteria() {
-            @Override
-            public boolean isSatisfied() {
-                return getCurrentAlertDialog() == null;
-            }
-        });
+        CriteriaHelper.pollInstrumentationThread(
+                () -> Criteria.checkThat(getCurrentAlertDialog(), Matchers.nullValue()));
 
         Assert.assertTrue("Incognito model was not selected",
                 mActivityTestRule.getActivity().getTabModelSelector().isIncognitoSelected());
@@ -284,14 +279,11 @@ public class TabsTest {
                 () -> Assert.assertEquals("The tab count is wrong", tabCount + 1,
                                 mActivityTestRule.getActivity().getCurrentTabModel().getCount()));
 
-        CriteriaHelper.pollUiThread(new Criteria() {
-            @Override
-            public boolean isSatisfied() {
-                Tab tab = mActivityTestRule.getActivity().getCurrentTabModel().getTabAt(1);
-                String title = tab.getTitle().toLowerCase(Locale.US);
-                String expectedTitle = "new tab";
-                return title.startsWith(expectedTitle);
-            }
+        CriteriaHelper.pollUiThread(() -> {
+            Tab tab = mActivityTestRule.getActivity().getCurrentTabModel().getTabAt(1);
+            String title = tab.getTitle().toLowerCase(Locale.US);
+            String expectedTitle = "new tab";
+            Criteria.checkThat(title, Matchers.startsWith(expectedTitle));
         });
 
         ChromeTabUtils.closeCurrentTab(
@@ -302,15 +294,10 @@ public class TabsTest {
     }
 
     private void assertWaitForKeyboardStatus(final boolean show) {
-        CriteriaHelper.pollUiThread(new Criteria() {
-            @Override
-            public boolean isSatisfied() {
-                updateFailureReason("expected keyboard show: " + show);
-                return show
-                        == mActivityTestRule.getKeyboardDelegate().isKeyboardShowing(
-                                   mActivityTestRule.getActivity(),
-                                   mActivityTestRule.getActivity().getTabsView());
-            }
+        CriteriaHelper.pollUiThread(() -> {
+            boolean isKeyboardShowing = mActivityTestRule.getKeyboardDelegate().isKeyboardShowing(
+                    mActivityTestRule.getActivity(), mActivityTestRule.getActivity().getTabsView());
+            Criteria.checkThat(isKeyboardShowing, Matchers.is(show));
         });
     }
 
@@ -322,7 +309,6 @@ public class TabsTest {
     @LargeTest
     @Restriction(UiRestriction.RESTRICTION_TYPE_TABLET)
     @Feature({"Android-TabSwitcher"})
-    @RetryOnFailure
     public void testHideKeyboard() throws Exception {
         mTestServer = EmbeddedTestServer.createAndStartServer(InstrumentationRegistry.getContext());
 
@@ -363,7 +349,6 @@ public class TabsTest {
     @Test
     @MediumTest
     @Feature({"Android-TabSwitcher"})
-    @RetryOnFailure
     public void testHideKeyboardWhenOpeningWindow() throws Exception {
         mTestServer = EmbeddedTestServer.createAndStartServer(InstrumentationRegistry.getContext());
         // Open a new tab and click an editable node.
@@ -380,17 +365,12 @@ public class TabsTest {
     }
 
     private void assertWaitForSelectedText(final String text) {
-        CriteriaHelper.pollUiThread(new Criteria() {
-            @Override
-            public boolean isSatisfied() {
-                WebContents webContents = mActivityTestRule.getWebContents();
-                SelectionPopupController controller =
-                        SelectionPopupController.fromWebContents(webContents);
-                final String actualText = controller.getSelectedText();
-                updateFailureReason(
-                        "expected selected text: [" + text + "], but got: [" + actualText + "]");
-                return text.equals(actualText);
-            }
+        CriteriaHelper.pollUiThread(() -> {
+            WebContents webContents = mActivityTestRule.getWebContents();
+            SelectionPopupController controller =
+                    SelectionPopupController.fromWebContents(webContents);
+            final String actualText = controller.getSelectedText();
+            Criteria.checkThat(actualText, Matchers.is(text));
         });
     }
 
@@ -405,15 +385,12 @@ public class TabsTest {
         float dragEndX = size.x * endX;
         float dragStartY = size.y * startY;
         float dragEndY = size.y * endY;
-        long downTime = SystemClock.uptimeMillis();
-        TouchCommon.dragStart(mActivityTestRule.getActivity(), dragStartX, dragStartY, downTime);
-        TouchCommon.dragTo(mActivityTestRule.getActivity(), dragStartX, dragEndX, dragStartY,
-                dragEndY, stepCount, downTime);
-        TouchCommon.dragEnd(mActivityTestRule.getActivity(), dragEndX, dragEndY, downTime);
+        TouchCommon.performDrag(mActivityTestRule.getActivity(), dragStartX, dragEndX, dragStartY,
+                dragEndY, stepCount, 250);
     }
 
     private void scrollDown() {
-        fling(0.f, 0.5f, 0.f, 0.75f, 100);
+        fling(0.f, 0.9f, 0.f, 0.1f, 100);
     }
 
     /**
@@ -424,18 +401,15 @@ public class TabsTest {
     @MediumTest
     @Restriction(UiRestriction.RESTRICTION_TYPE_PHONE)
     @Feature({"Android-TabSwitcher"})
-    @RetryOnFailure
-    @DisabledTest(message = "crbug.com/799728")
     public void testTabSwitcherCollapseSelection() throws Exception {
         mTestServer = EmbeddedTestServer.createAndStartServer(InstrumentationRegistry.getContext());
-        ChromeTabUtils.fullyLoadUrlInNewTab(InstrumentationRegistry.getInstrumentation(),
-                mActivityTestRule.getActivity(), mTestServer.getURL(TEST_FILE_PATH), false);
+        mActivityTestRule.loadUrlInNewTab(mTestServer.getURL(TEST_FILE_PATH), false);
         DOMUtils.longPressNode(mActivityTestRule.getWebContents(), "textarea");
         assertWaitForSelectedText("helloworld");
 
         // Switch to tab-switcher mode, switch back, and scroll page.
-        showOverviewAndWaitForAnimation();
-        hideOverviewAndWaitForAnimation();
+        showOverviewWithNoAnimation();
+        hideOverviewWithNoAnimation();
         scrollDown();
         assertWaitForSelectedText("");
     }
@@ -447,7 +421,6 @@ public class TabsTest {
      */
     @Test
     @SmallTest
-    @RetryOnFailure
     public void testNewTabSetsContentViewSize() throws TimeoutException {
         ChromeTabUtils.newTabFromMenu(
                 InstrumentationRegistry.getInstrumentation(), mActivityTestRule.getActivity());
@@ -480,7 +453,10 @@ public class TabsTest {
         Assert.assertTrue("innerHeight was not set by page load time", innerHeight > 0);
     }
 
-    static class SimulateClickOnMainThread implements Runnable {
+    /**
+     * A Runnable to simulate a click on given coordinates.
+     */
+    public static class SimulateClickOnMainThread implements Runnable {
         private final LayoutManagerChrome mLayoutManager;
         private final float mX;
         private final float mY;
@@ -497,7 +473,10 @@ public class TabsTest {
         }
     }
 
-    static class SimulateTabSwipeOnMainThread implements Runnable {
+    /**
+     * A Runnable to simulate a swipe with specific coordinates and distance.
+     */
+    public static class SimulateTabSwipeOnMainThread implements Runnable {
         private final LayoutManagerChrome mLayoutManager;
         private final float mX;
         private final float mY;
@@ -521,29 +500,34 @@ public class TabsTest {
 
     /**
      * Verify that the provided click position closes a tab.
+     * TODO(yuezhanggg@): The hard-coded coordinates are not a good way to verify the position of
+     * the closing button. Should be replaced by render tests.
      */
     private void checkCloseTabAtPosition(final float x, final float y) {
-        mActivityTestRule.getActivity();
+        ChromeTabbedActivity cta = mActivityTestRule.getActivity();
 
-        int initialTabCount = mActivityTestRule.getActivity().getCurrentTabModel().getCount();
-        ChromeTabUtils.fullyLoadUrlInNewTab(InstrumentationRegistry.getInstrumentation(),
-                mActivityTestRule.getActivity(), UrlConstants.CHROME_BLANK_URL, false);
+        int initialTabCount = cta.getCurrentTabModel().getCount();
+        ChromeTabUtils.fullyLoadUrlInNewTab(InstrumentationRegistry.getInstrumentation(), cta,
+                UrlConstants.CHROME_BLANK_URL, false);
         TestThreadUtils.runOnUiThreadBlocking(
-                () -> { mActivityTestRule.getActivity().getLayoutManager().showOverview(false); });
+                () -> { cta.getLayoutManager().showOverview(false); });
 
-        Assert.assertTrue("Expected: " + (initialTabCount + 1) + " tab Got: "
-                        + mActivityTestRule.getActivity().getCurrentTabModel().getCount(),
-                (initialTabCount + 1)
-                        == mActivityTestRule.getActivity().getCurrentTabModel().getCount());
+        Assert.assertTrue("Expected: " + (initialTabCount + 1)
+                        + " tab Got: " + cta.getCurrentTabModel().getCount(),
+                (initialTabCount + 1) == cta.getCurrentTabModel().getCount());
         InstrumentationRegistry.getInstrumentation().waitForIdleSync();
         final LayoutManagerChrome layoutManager = updateTabsViewSize();
-        ChromeTabUtils.closeTabWithAction(InstrumentationRegistry.getInstrumentation(),
-                mActivityTestRule.getActivity(),
-                () -> InstrumentationRegistry.getInstrumentation().runOnMainSync(
+        StackLayout layout = (StackLayout) layoutManager.getOverviewLayout();
+        Stack stack = layout.getTabStackAtIndex(0);
+        Assert.assertTrue("Position is not in the active area of the close button",
+                stack.checkCloseHitTestOnLayoutTab(x, y, stack.getTabs()[0].getLayoutTab()));
+        ChromeTabUtils.closeTabWithAction(InstrumentationRegistry.getInstrumentation(), cta,
+                ()
+                        -> InstrumentationRegistry.getInstrumentation().runOnMainSync(
                                 new SimulateClickOnMainThread(layoutManager, x, y)));
-        Assert.assertTrue("Expected: " + initialTabCount + " tab Got: "
-                        + mActivityTestRule.getActivity().getCurrentTabModel().getCount(),
-                initialTabCount == mActivityTestRule.getActivity().getCurrentTabModel().getCount());
+        Assert.assertTrue(
+                "Expected: " + initialTabCount + " tab Got: " + cta.getCurrentTabModel().getCount(),
+                initialTabCount == cta.getCurrentTabModel().getCount());
     }
 
     /**
@@ -554,7 +538,6 @@ public class TabsTest {
     @LargeTest
     @Restriction({UiRestriction.RESTRICTION_TYPE_PHONE, RESTRICTION_TYPE_NON_LOW_END_DEVICE})
     @Feature({"Android-TabSwitcher"})
-    @RetryOnFailure
     public void testTabSwitcherPortraitCloseButton() {
         mActivityTestRule.getActivity().setRequestedOrientation(
                 ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
@@ -570,18 +553,17 @@ public class TabsTest {
     /**
      * Verify close button works in the TabSwitcher in landscape mode.
      * This code does not handle properly different screen densities.
-     * @Restriction({RESTRICTION_TYPE_PHONE, RESTRICTION_TYPE_NON_LOW_END_DEVICE})
-     * @LargeTest
-     * @Feature({"Android-TabSwitcher"})
      */
     @Test
-    @FlakyTest(message = "crbug.com/170179")
+    @LargeTest
+    @Restriction({UiRestriction.RESTRICTION_TYPE_PHONE, RESTRICTION_TYPE_NON_LOW_END_DEVICE})
+    @Feature({"Android-TabSwitcher"})
     public void testTabSwitcherLandscapeCloseButton() {
         mActivityTestRule.getActivity().setRequestedOrientation(
                 ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE);
         // Hard-coded coordinates of the close button on the bottom left of the screen.
         // If the coordinates need to be updated, the easiest is to take a screenshot and measure.
-        checkCloseTabAtPosition(31 * mPxToDp, 31 * mPxToDp);
+        checkCloseTabAtPosition(74 * mPxToDp, 216 * mPxToDp);
     }
 
     /**
@@ -691,28 +673,16 @@ public class TabsTest {
         }
     }
 
-    /**
-     * Displays the tabSwitcher mode and wait for it to settle.
-     */
-    private void showOverviewAndWaitForAnimation() {
-        OverviewModeBehaviorWatcher overviewModeWatcher = new OverviewModeBehaviorWatcher(
-                mActivityTestRule.getActivity().getLayoutManager(), true, false);
-        // For some unknown reasons calling clickById(R.id.tab_switcher_button) sometimes hang.
-        // The following is verbose but more reliable.
-        InstrumentationRegistry.getInstrumentation().runOnMainSync(
-                new ClickOptionButtonOnMainThread());
-        overviewModeWatcher.waitForBehavior();
+    /** Enters the tab switcher without animation.*/
+    private void showOverviewWithNoAnimation() {
+        ThreadUtils.runOnUiThreadBlocking(
+                () -> mActivityTestRule.getActivity().getLayoutManager().showOverview(false));
     }
 
-    /**
-     * Exits the tabSwitcher mode and wait for it to settle.
-     */
-    private void hideOverviewAndWaitForAnimation() {
-        OverviewModeBehaviorWatcher overviewModeWatcher = new OverviewModeBehaviorWatcher(
-                mActivityTestRule.getActivity().getLayoutManager(), false, true);
-        InstrumentationRegistry.getInstrumentation().runOnMainSync(
-                new ClickOptionButtonOnMainThread());
-        overviewModeWatcher.waitForBehavior();
+    /** Exits the tab switcher without animation. */
+    private void hideOverviewWithNoAnimation() {
+        ThreadUtils.runOnUiThreadBlocking(
+                () -> mActivityTestRule.getActivity().getLayoutManager().hideOverview(false));
     }
 
     /**
@@ -756,7 +726,7 @@ public class TabsTest {
         // Open one more tabs than maxTabsDrawn.
         final int maxTabsDrawn = 8;
         int tabCount = openTabs(maxTabsDrawn + 1, false);
-        showOverviewAndWaitForAnimation();
+        showOverviewWithNoAnimation();
 
         // Check counts.
         LayoutManagerChromePhone layoutManager =
@@ -804,15 +774,15 @@ public class TabsTest {
         // Selecting the first tab to scroll all the way to the top.
         InstrumentationRegistry.getInstrumentation().runOnMainSync(() -> TabModelUtils.setIndex(
                                 mActivityTestRule.getActivity().getCurrentTabModel(), 0));
-        showOverviewAndWaitForAnimation();
+        showOverviewWithNoAnimation();
         checkTabsStacking();
 
         // Selecting the last tab to scroll all the way to the bottom.
-        hideOverviewAndWaitForAnimation();
+        hideOverviewWithNoAnimation();
         InstrumentationRegistry.getInstrumentation().runOnMainSync(
                 () -> TabModelUtils.setIndex(
                                 mActivityTestRule.getActivity().getCurrentTabModel(), count - 1));
-        showOverviewAndWaitForAnimation();
+        showOverviewWithNoAnimation();
         checkTabsStacking();
     }
 
@@ -866,14 +836,14 @@ public class TabsTest {
         long lastAllocatedSize = 0;
         long currentAllocatedSize = 2 * threshold;
         while (tries < maxTries && (lastAllocatedSize + threshold) < currentAllocatedSize) {
-            showOverviewAndWaitForAnimation();
+            showOverviewWithNoAnimation();
 
             lastAllocatedSize = currentAllocatedSize;
             currentAllocatedSize = getStableAllocatedSize();
             //Log.w("MEMORY_TEST", "[" + tries + "/" + maxTries + "]" +
             //        "currentAllocatedSize " + currentAllocatedSize);
 
-            hideOverviewAndWaitForAnimation();
+            hideOverviewWithNoAnimation();
             tries++;
         }
 
@@ -889,7 +859,6 @@ public class TabsTest {
     @LargeTest
     @Restriction(UiRestriction.RESTRICTION_TYPE_PHONE)
     @Feature({"Android-TabSwitcher"})
-    @RetryOnFailure
     public void testTabSwitcherStability() throws InterruptedException {
         openTabs(8, true);
 
@@ -962,7 +931,6 @@ public class TabsTest {
     @SmallTest
     @Restriction(UiRestriction.RESTRICTION_TYPE_PHONE)
     @Feature({"Android-TabSwitcher"})
-    @RetryOnFailure
     public void testCloseLastTabFromMain() {
         OverviewModeBehaviorWatcher overviewModeWatcher = new OverviewModeBehaviorWatcher(
                 mActivityTestRule.getActivity().getLayoutManager(), true, false);
@@ -1065,7 +1033,7 @@ public class TabsTest {
         }
         Assert.assertEquals("Number of open tabs does not match", additionalTabsToOpen + 1,
                 mActivityTestRule.getActivity().getCurrentTabModel().getCount());
-        showOverviewAndWaitForAnimation();
+        showOverviewWithNoAnimation();
 
         float[] coordinates = getStackTabClickTarget(tabIndexToSelect, false, isLandscape);
         float clickX = coordinates[0];
@@ -1105,14 +1073,12 @@ public class TabsTest {
                     }
                 });
 
-        CriteriaHelper.pollUiThread(new Criteria("Did not finish animation") {
-            @Override
-            public boolean isSatisfied() {
-                Layout layout =
-                        mActivityTestRule.getActivity().getLayoutManager().getActiveLayout();
-                return !layout.isLayoutAnimating();
-            }
-        });
+        CriteriaHelper.pollUiThread(() -> {
+            return !mActivityTestRule.getActivity()
+                            .getLayoutManager()
+                            .getActiveLayout()
+                            .isLayoutAnimating();
+        }, "Did not finish animation");
     }
 
     private void swipeToCloseNTabs(
@@ -1129,7 +1095,6 @@ public class TabsTest {
     @MediumTest
     @Restriction({UiRestriction.RESTRICTION_TYPE_PHONE, RESTRICTION_TYPE_NON_LOW_END_DEVICE})
     @Feature({"Android-TabSwitcher", "Main"})
-    @RetryOnFailure
     public void testCloseTabPortrait() {
         mTestServer = EmbeddedTestServer.createAndStartServer(InstrumentationRegistry.getContext());
         mActivityTestRule.startMainActivityWithURL(
@@ -1144,7 +1109,7 @@ public class TabsTest {
         Assert.assertEquals("wrong count after new tabs", tabCount + 3,
                 mActivityTestRule.getActivity().getCurrentTabModel().getCount());
 
-        showOverviewAndWaitForAnimation();
+        showOverviewWithNoAnimation();
         swipeToCloseNTabs(3, false, false, SWIPE_TO_LEFT_DIRECTION);
 
         Assert.assertEquals("Wrong tab counts after closing a few of them", tabCount,
@@ -1158,7 +1123,6 @@ public class TabsTest {
     @MediumTest
     @Feature({"Android-TabSwitcher", "Main"})
     @Restriction({UiRestriction.RESTRICTION_TYPE_PHONE, RESTRICTION_TYPE_NON_LOW_END_DEVICE})
-    @RetryOnFailure
     public void testCloseTabLandscape() {
         mTestServer = EmbeddedTestServer.createAndStartServer(InstrumentationRegistry.getContext());
         mActivityTestRule.startMainActivityWithURL(
@@ -1173,7 +1137,7 @@ public class TabsTest {
         Assert.assertEquals("wrong count after new tabs", tabCount + 3,
                 mActivityTestRule.getActivity().getCurrentTabModel().getCount());
 
-        showOverviewAndWaitForAnimation();
+        showOverviewWithNoAnimation();
         swipeToCloseTab(0, true, false, SWIPE_TO_LEFT_DIRECTION);
         swipeToCloseTab(0, true, false, SWIPE_TO_LEFT_DIRECTION);
         swipeToCloseTab(0, true, false, SWIPE_TO_LEFT_DIRECTION);
@@ -1189,13 +1153,12 @@ public class TabsTest {
     @MediumTest
     @Feature({"Android-TabSwitcher"})
     @Restriction({UiRestriction.RESTRICTION_TYPE_PHONE, RESTRICTION_TYPE_NON_LOW_END_DEVICE})
-    @RetryOnFailure
     public void testCloseIncognitoTabPortrait() throws InterruptedException {
         mActivityTestRule.getActivity().setRequestedOrientation(
                 ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
         mActivityTestRule.newIncognitoTabsFromMenu(2);
 
-        showOverviewAndWaitForAnimation();
+        showOverviewWithNoAnimation();
         UiUtils.settleDownUI(InstrumentationRegistry.getInstrumentation());
         swipeToCloseNTabs(2, false, true, SWIPE_TO_LEFT_DIRECTION);
     }
@@ -1207,13 +1170,12 @@ public class TabsTest {
     @Feature({"Android-TabSwitcher"})
     @MediumTest
     @Restriction({UiRestriction.RESTRICTION_TYPE_PHONE, RESTRICTION_TYPE_NON_LOW_END_DEVICE})
-    @RetryOnFailure
     public void testCloseFiveIncognitoTabPortrait() throws InterruptedException {
         mActivityTestRule.getActivity().setRequestedOrientation(
                 ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
         mActivityTestRule.newIncognitoTabsFromMenu(5);
 
-        showOverviewAndWaitForAnimation();
+        showOverviewWithNoAnimation();
         UiUtils.settleDownUI(InstrumentationRegistry.getInstrumentation());
         swipeToCloseNTabs(5, false, true, SWIPE_TO_LEFT_DIRECTION);
     }
@@ -1226,97 +1188,72 @@ public class TabsTest {
     @Restriction({UiRestriction.RESTRICTION_TYPE_PHONE, RESTRICTION_TYPE_NON_LOW_END_DEVICE})
     @MediumTest
     @Feature({"Android-TabSwitcher"})
-    public void testSwitchTabStackWithoutClosingTabsInPortrait() throws InterruptedException {
+    public void testSwitchTabStackWithoutClosingTabsInPortrait() {
         mActivityTestRule.getActivity().setRequestedOrientation(
                 ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
-        mActivityTestRule.newIncognitoTabFromMenu();
-        ChromeTabUtils.newTabFromMenu(
-                InstrumentationRegistry.getInstrumentation(), mActivityTestRule.getActivity());
-
-        showOverviewAndWaitForAnimation();
-        UiUtils.settleDownUI(InstrumentationRegistry.getInstrumentation());
-        final int normalTabCount = getLayoutTabInStackCount(false);
-        final int incognitoTabCount = getLayoutTabInStackCount(true);
-
         LayoutManagerChrome layoutManager = updateTabsViewSize();
-
-        // Swipe to Incognito Tabs.
-        InstrumentationRegistry.getInstrumentation().runOnMainSync(
+        SimulateTabSwipeOnMainThread swipeToIncognito =
                 new SimulateTabSwipeOnMainThread(layoutManager, mTabsViewWidthDp - 20,
-                        mTabsViewHeightDp / 2, SWIPE_TO_LEFT_DIRECTION * mTabsViewWidthDp, 0));
-        UiUtils.settleDownUI(InstrumentationRegistry.getInstrumentation());
-        Assert.assertTrue("Tabs Stack should have been changed to incognito.",
-                mActivityTestRule.getActivity().getCurrentTabModel().isIncognito());
-        Assert.assertEquals(
-                "Normal tabs count should be unchanged while switching to incognito tabs.",
-                normalTabCount, getLayoutTabInStackCount(false));
-
-        // Swipe to regular Tabs.
-        InstrumentationRegistry.getInstrumentation().runOnMainSync(
-                new SimulateTabSwipeOnMainThread(layoutManager, 20, mTabsViewHeightDp / 2,
-                        SWIPE_TO_RIGHT_DIRECTION * mTabsViewWidthDp, 0));
-        UiUtils.settleDownUI(InstrumentationRegistry.getInstrumentation());
-        Assert.assertEquals(
-                "Incognito tabs count should be unchanged while switching back to normal "
-                        + "tab stack.",
-                incognitoTabCount, getLayoutTabInStackCount(true));
-        Assert.assertFalse("Tabs Stack should have been changed to regular tabs.",
-                mActivityTestRule.getActivity().getCurrentTabModel().isIncognito());
-        Assert.assertEquals(
-                "Normal tabs count should be unchanged while switching back to normal tabs.",
-                normalTabCount, getLayoutTabInStackCount(false));
+                        mTabsViewHeightDp / 2, SWIPE_TO_LEFT_DIRECTION * mTabsViewWidthDp, 0);
+        SimulateTabSwipeOnMainThread swipeToNormal = new SimulateTabSwipeOnMainThread(layoutManager,
+                20, mTabsViewHeightDp / 2, SWIPE_TO_RIGHT_DIRECTION * mTabsViewWidthDp, 0);
+        testSwitchTabStackWithoutClosingTabs(swipeToIncognito, swipeToNormal);
     }
 
     /**
      * Simple swipe gesture should not close tabs when two Tabstacks are open in Overview mode.
      * Test in Landscape Mode.
      */
-    /*
-        @MediumTest
-        @Feature({"Android-TabSwitcher"})
-     */
     @Test
     @Restriction({UiRestriction.RESTRICTION_TYPE_PHONE, RESTRICTION_TYPE_NON_LOW_END_DEVICE})
-    @DisabledTest(message = "crbug.com/157259")
-    public void testSwitchTabStackWithoutClosingTabsInLandscape() throws InterruptedException {
+    @MediumTest
+    @Feature({"Android-TabSwitcher"})
+    public void testSwitchTabStackWithoutClosingTabsInLandscape() {
         mActivityTestRule.getActivity().setRequestedOrientation(
                 ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE);
-        mActivityTestRule.newIncognitoTabFromMenu();
-        ChromeTabUtils.newTabFromMenu(
-                InstrumentationRegistry.getInstrumentation(), mActivityTestRule.getActivity());
+        LayoutManagerChrome layoutManager = updateTabsViewSize();
+        SimulateTabSwipeOnMainThread swipeToIncognito =
+                new SimulateTabSwipeOnMainThread(layoutManager, mTabsViewWidthDp / 2,
+                        mTabsViewHeightDp - 20, 0, SWIPE_TO_LEFT_DIRECTION * mTabsViewWidthDp);
+        SimulateTabSwipeOnMainThread swipeToNormal = new SimulateTabSwipeOnMainThread(layoutManager,
+                mTabsViewWidthDp / 2, 20, 0, SWIPE_TO_RIGHT_DIRECTION * mTabsViewWidthDp);
+        testSwitchTabStackWithoutClosingTabs(swipeToIncognito, swipeToNormal);
+    }
 
-        showOverviewAndWaitForAnimation();
-        UiUtils.settleDownUI(InstrumentationRegistry.getInstrumentation());
+    private void testSwitchTabStackWithoutClosingTabs(SimulateTabSwipeOnMainThread swipeToIncognito,
+            SimulateTabSwipeOnMainThread swipeToNormal) {
+        ChromeTabbedActivity cta = mActivityTestRule.getActivity();
+        final TabModelSelector tabModelSelector = cta.getTabModelSelector();
+        final StackLayout layout = (StackLayout) cta.getLayoutManager().getOverviewLayout();
+
+        mActivityTestRule.newIncognitoTabFromMenu();
+        ChromeTabUtils.newTabFromMenu(InstrumentationRegistry.getInstrumentation(), cta);
+        showOverviewWithNoAnimation();
         final int normalTabCount = getLayoutTabInStackCount(false);
         final int incognitoTabCount = getLayoutTabInStackCount(true);
+        Assert.assertEquals(2, normalTabCount);
+        Assert.assertEquals(1, incognitoTabCount);
 
-        LayoutManagerChrome layoutManager = updateTabsViewSize();
-
-        // Swipe to Incognito Tabs.
-        InstrumentationRegistry.getInstrumentation().runOnMainSync(
-                new SimulateTabSwipeOnMainThread(layoutManager, mTabsViewWidthDp / 2,
-                        mTabsViewHeightDp - 20, 0, SWIPE_TO_LEFT_DIRECTION * mTabsViewWidthDp));
-        UiUtils.settleDownUI(InstrumentationRegistry.getInstrumentation());
-        Assert.assertTrue("Tabs Stack should have been changed to incognito.",
-                mActivityTestRule.getActivity().getCurrentTabModel().isIncognito());
-        Assert.assertEquals(
-                "Normal tabs count should be unchanged while switching to incognito tabs.",
-                normalTabCount, getLayoutTabInStackCount(false));
-
-        // Swipe to regular Tabs.
-        InstrumentationRegistry.getInstrumentation().runOnMainSync(
-                new SimulateTabSwipeOnMainThread(layoutManager, mTabsViewWidthDp / 2, 20, 0,
-                        SWIPE_TO_RIGHT_DIRECTION * mTabsViewWidthDp));
-        UiUtils.settleDownUI(InstrumentationRegistry.getInstrumentation());
-        Assert.assertEquals(
-                "Incognito tabs count should be unchanged while switching back to normal "
-                        + "tab stack.",
-                incognitoTabCount, getLayoutTabInStackCount(true));
-        Assert.assertFalse("Tabs Stack should have been changed to regular tabs.",
-                mActivityTestRule.getActivity().getCurrentTabModel().isIncognito());
-        Assert.assertEquals(
-                "Normal tabs count should be unchanged while switching back to normal tabs.",
-                normalTabCount, getLayoutTabInStackCount(false));
+        // Swipe to switch between normal and incognito tab model for 20 times.
+        boolean shouldSwipeToIncognito = true;
+        for (int i = 0; i < 20; i++) {
+            SimulateTabSwipeOnMainThread swipe =
+                    shouldSwipeToIncognito ? swipeToIncognito : swipeToNormal;
+            int tabCount = shouldSwipeToIncognito ? incognitoTabCount : normalTabCount;
+            Assert.assertNotEquals("Tab model has not been changed before swipe",
+                    shouldSwipeToIncognito, tabModelSelector.isIncognitoSelected());
+            Assert.assertNotEquals("Tab count has not been changed before swipe", tabCount,
+                    tabModelSelector.getCurrentModel().getCount());
+            // Swipe to switch tab model.
+            TestThreadUtils.runOnUiThreadBlocking(swipe);
+            CriteriaHelper.pollUiThread(() -> !layout.isLayoutAnimating());
+            Assert.assertEquals("Tab model should be changed by swipe.", shouldSwipeToIncognito,
+                    tabModelSelector.isIncognitoSelected());
+            Assert.assertEquals("Tab count should be changed by swipe.", tabCount,
+                    tabModelSelector.getCurrentModel().getCount());
+            // Flip the swipe direction.
+            shouldSwipeToIncognito = !shouldSwipeToIncognito;
+        }
     }
 
     /**
@@ -1326,13 +1263,12 @@ public class TabsTest {
     @MediumTest
     @Feature({"Android-TabSwitcher"})
     @Restriction({UiRestriction.RESTRICTION_TYPE_PHONE, RESTRICTION_TYPE_NON_LOW_END_DEVICE})
-    @RetryOnFailure
     public void testCloseIncognitoTabLandscape() throws InterruptedException {
         mActivityTestRule.getActivity().setRequestedOrientation(
                 ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE);
         mActivityTestRule.newIncognitoTabFromMenu();
 
-        showOverviewAndWaitForAnimation();
+        showOverviewWithNoAnimation();
         UiUtils.settleDownUI(InstrumentationRegistry.getInstrumentation());
         swipeToCloseTab(0, true, true, SWIPE_TO_LEFT_DIRECTION);
     }
@@ -1344,13 +1280,12 @@ public class TabsTest {
     @MediumTest
     @Feature({"Android-TabSwitcher"})
     @Restriction({UiRestriction.RESTRICTION_TYPE_PHONE, RESTRICTION_TYPE_NON_LOW_END_DEVICE})
-    @RetryOnFailure
     public void testCloseFiveIncognitoTabLandscape() throws InterruptedException {
         mActivityTestRule.getActivity().setRequestedOrientation(
                 ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE);
         mActivityTestRule.newIncognitoTabsFromMenu(5);
 
-        showOverviewAndWaitForAnimation();
+        showOverviewWithNoAnimation();
         UiUtils.settleDownUI(InstrumentationRegistry.getInstrumentation());
         swipeToCloseNTabs(5, true, true, SWIPE_TO_LEFT_DIRECTION);
     }
@@ -1361,7 +1296,6 @@ public class TabsTest {
     @Test
     @SmallTest
     @Feature({"Android-TabSwitcher"})
-    @RetryOnFailure
     public void testCloseTabDuringFling() {
         mTestServer = EmbeddedTestServer.createAndStartServer(InstrumentationRegistry.getContext());
         mActivityTestRule.loadUrlInNewTab(
@@ -1405,7 +1339,8 @@ public class TabsTest {
             TouchCommon.singleClickView(button);
 
             Assert.assertEquals("URL mismatch after switching back to the tab from tab-switch mode",
-                    urls[lastUrlIndex], mActivityTestRule.getActivity().getActivityTab().getUrl());
+                    urls[lastUrlIndex],
+                    mActivityTestRule.getActivity().getActivityTab().getUrlString());
         }
     }
 
@@ -1415,7 +1350,6 @@ public class TabsTest {
     @Test
     @MediumTest
     @Feature({"Android-TabSwitcher"})
-    @RetryOnFailure
     public void testOpenIncognitoTab() {
         mActivityTestRule.newIncognitoTabFromMenu();
 
@@ -1431,37 +1365,29 @@ public class TabsTest {
     @MediumTest
     @Feature({"Android-TabSwitcher"})
     @Restriction(UiRestriction.RESTRICTION_TYPE_PHONE)
-    @RetryOnFailure
-    public void testNewTabButton() throws InterruptedException {
+    public void testNewTabButton() throws ExecutionException, InterruptedException {
         int initialTabCount = mActivityTestRule.getActivity().getCurrentTabModel().getCount();
-        showOverviewAndWaitForAnimation();
+        showOverviewWithNoAnimation();
 
-        ChromeTabUtils.clickNewTabButton(
-                InstrumentationRegistry.getInstrumentation(), mActivityTestRule.getActivity());
+        ThreadUtils.runOnUiThreadBlocking(
+                () -> mActivityTestRule.getActivity()
+                        .findViewById(R.id.new_tab_button)
+                        .performClick());
 
         int newTabCount = mActivityTestRule.getActivity().getCurrentTabModel().getCount();
         Assert.assertEquals("Tab count is expected to increment by 1 after clicking new tab button",
                 initialTabCount + 1, newTabCount);
         UiUtils.settleDownUI(InstrumentationRegistry.getInstrumentation());
-        CriteriaHelper.pollInstrumentationThread(new Criteria("Should not be in overview mode") {
-            @Override
-            public boolean isSatisfied() {
-                return !mActivityTestRule.getActivity().isInOverviewMode();
-            }
-        });
+        CriteriaHelper.pollInstrumentationThread(
+                () -> !mActivityTestRule.getActivity().isInOverviewMode());
     }
 
     @Test
     @MediumTest
     @Feature({"Android-TabSwitcher"})
     @Restriction(RESTRICTION_TYPE_NON_LOW_END_DEVICE)
-    @RetryOnFailure
-    @DisabledTest(message = "https://crbug.com/947694")
     public void testToolbarSwipeOnlyTab() throws TimeoutException {
-        final TabModel tabModel =
-                mActivityTestRule.getActivity().getTabModelSelector().getModel(false);
-
-        Assert.assertEquals("Incorrect starting index", 0, tabModel.index());
+        initToolbarSwipeTest(false, 0, false);
         runToolbarSideSwipeTestOnCurrentModel(ScrollDirection.RIGHT, 0, false);
         runToolbarSideSwipeTestOnCurrentModel(ScrollDirection.LEFT, 0, false);
     }
@@ -1470,17 +1396,8 @@ public class TabsTest {
     @MediumTest
     @Feature({"Android-TabSwitcher"})
     @Restriction(RESTRICTION_TYPE_NON_LOW_END_DEVICE)
-    @RetryOnFailure
-    @DisabledTest(message = "crbug.com/863676")
-    public void testToolbarSwipePrevTab() throws InterruptedException, TimeoutException {
-        ChromeTabUtils.newTabFromMenu(
-                InstrumentationRegistry.getInstrumentation(), mActivityTestRule.getActivity());
-        UiUtils.settleDownUI(InstrumentationRegistry.getInstrumentation());
-
-        final TabModel tabModel =
-                mActivityTestRule.getActivity().getTabModelSelector().getModel(false);
-
-        Assert.assertEquals("Incorrect starting index", 1, tabModel.index());
+    public void testToolbarSwipePrevTab() throws TimeoutException {
+        initToolbarSwipeTest(true, 1, false);
         runToolbarSideSwipeTestOnCurrentModel(ScrollDirection.RIGHT, 0, true);
     }
 
@@ -1488,18 +1405,8 @@ public class TabsTest {
     @MediumTest
     @Feature({"Android-TabSwitcher"})
     @Restriction(RESTRICTION_TYPE_NON_LOW_END_DEVICE)
-    @RetryOnFailure
-    @DisabledTest(message = "crbug.com/802183")
-    public void testToolbarSwipeNextTab() throws InterruptedException, TimeoutException {
-        ChromeTabUtils.newTabFromMenu(
-                InstrumentationRegistry.getInstrumentation(), mActivityTestRule.getActivity());
-        ChromeTabUtils.switchTabInCurrentTabModel(mActivityTestRule.getActivity(), 0);
-        UiUtils.settleDownUI(InstrumentationRegistry.getInstrumentation());
-
-        final TabModel tabModel =
-                mActivityTestRule.getActivity().getTabModelSelector().getModel(false);
-
-        Assert.assertEquals("Incorrect starting index", 0, tabModel.index());
+    public void testToolbarSwipeNextTab() throws TimeoutException {
+        initToolbarSwipeTest(true, 0, false);
         runToolbarSideSwipeTestOnCurrentModel(ScrollDirection.LEFT, 1, true);
     }
 
@@ -1507,17 +1414,8 @@ public class TabsTest {
     @MediumTest
     @Feature({"Android-TabSwitcher"})
     @Restriction(RESTRICTION_TYPE_NON_LOW_END_DEVICE)
-    @RetryOnFailure
-    public void testToolbarSwipePrevTabNone() throws InterruptedException, TimeoutException {
-        ChromeTabUtils.newTabFromMenu(
-                InstrumentationRegistry.getInstrumentation(), mActivityTestRule.getActivity());
-        ChromeTabUtils.switchTabInCurrentTabModel(mActivityTestRule.getActivity(), 0);
-        UiUtils.settleDownUI(InstrumentationRegistry.getInstrumentation());
-
-        final TabModel tabModel =
-                mActivityTestRule.getActivity().getTabModelSelector().getModel(false);
-
-        Assert.assertEquals("Incorrect starting index", 0, tabModel.index());
+    public void testToolbarSwipePrevTabNone() throws TimeoutException {
+        initToolbarSwipeTest(true, 0, false);
         runToolbarSideSwipeTestOnCurrentModel(ScrollDirection.RIGHT, 0, false);
     }
 
@@ -1525,17 +1423,8 @@ public class TabsTest {
     @MediumTest
     @Feature({"Android-TabSwitcher"})
     @Restriction(RESTRICTION_TYPE_NON_LOW_END_DEVICE)
-    @RetryOnFailure
-    @DisabledTest(message = "https://crbug.com/947694")
-    public void testToolbarSwipeNextTabNone() throws InterruptedException, TimeoutException {
-        ChromeTabUtils.newTabFromMenu(
-                InstrumentationRegistry.getInstrumentation(), mActivityTestRule.getActivity());
-        UiUtils.settleDownUI(InstrumentationRegistry.getInstrumentation());
-
-        final TabModel tabModel =
-                mActivityTestRule.getActivity().getTabModelSelector().getModel(false);
-
-        Assert.assertEquals("Incorrect starting index", 1, tabModel.index());
+    public void testToolbarSwipeNextTabNone() throws TimeoutException {
+        initToolbarSwipeTest(true, 1, false);
         runToolbarSideSwipeTestOnCurrentModel(ScrollDirection.LEFT, 1, false);
     }
 
@@ -1543,21 +1432,15 @@ public class TabsTest {
     @MediumTest
     @Feature({"Android-TabSwitcher"})
     @Restriction(RESTRICTION_TYPE_NON_LOW_END_DEVICE)
-    @RetryOnFailure
-    @DisabledTest(message = "crbug.com/882003")
-    public void testToolbarSwipeNextThenPrevTab() throws InterruptedException, TimeoutException {
-        ChromeTabUtils.fullyLoadUrlInNewTab(InstrumentationRegistry.getInstrumentation(),
-                mActivityTestRule.getActivity(), UrlConstants.CHROME_BLANK_URL, false);
-        ChromeTabUtils.switchTabInCurrentTabModel(mActivityTestRule.getActivity(), 0);
-        UiUtils.settleDownUI(InstrumentationRegistry.getInstrumentation());
+    public void testToolbarSwipeNextThenPrevTab() throws TimeoutException {
+        initToolbarSwipeTest(true, 0, false);
+
+        runToolbarSideSwipeTestOnCurrentModel(ScrollDirection.LEFT, 1, true);
 
         final TabModel tabModel =
                 mActivityTestRule.getActivity().getTabModelSelector().getModel(false);
+        Assert.assertEquals("Incorrect tab index after first swipe.", 1, tabModel.index());
 
-        Assert.assertEquals("Incorrect starting index", 0, tabModel.index());
-        runToolbarSideSwipeTestOnCurrentModel(ScrollDirection.LEFT, 1, true);
-
-        Assert.assertEquals("Incorrect starting index", 1, tabModel.index());
         runToolbarSideSwipeTestOnCurrentModel(ScrollDirection.RIGHT, 0, true);
     }
 
@@ -1565,26 +1448,50 @@ public class TabsTest {
     @MediumTest
     @Feature({"Android-TabSwitcher"})
     @Restriction(RESTRICTION_TYPE_NON_LOW_END_DEVICE)
-    @RetryOnFailure
-    @DisabledTest(message = "crbug.com/882003")
-    public void testToolbarSwipeNextThenPrevTabIncognito()
-            throws InterruptedException, TimeoutException {
-        ChromeTabUtils.fullyLoadUrlInNewTab(InstrumentationRegistry.getInstrumentation(),
-                mActivityTestRule.getActivity(), UrlConstants.CHROME_BLANK_URL, true);
-        ChromeTabUtils.fullyLoadUrlInNewTab(InstrumentationRegistry.getInstrumentation(),
-                mActivityTestRule.getActivity(), UrlConstants.CHROME_BLANK_URL, true);
-        mActivityTestRule.getActivity().getTabModelSelector().selectModel(true);
-        ChromeTabUtils.switchTabInCurrentTabModel(mActivityTestRule.getActivity(), 0);
-        UiUtils.settleDownUI(InstrumentationRegistry.getInstrumentation());
+    public void testToolbarSwipeNextThenPrevTabIncognito() throws TimeoutException {
+        initToolbarSwipeTest(true, 0, true);
+
+        runToolbarSideSwipeTestOnCurrentModel(ScrollDirection.LEFT, 1, true);
 
         final TabModel tabModel =
                 mActivityTestRule.getActivity().getTabModelSelector().getModel(true);
+        Assert.assertEquals("Incorrect tab index after first swipe.", 1, tabModel.index());
 
-        Assert.assertEquals("Incorrect starting index", 0, tabModel.index());
-        runToolbarSideSwipeTestOnCurrentModel(ScrollDirection.LEFT, 1, true);
-
-        Assert.assertEquals("Incorrect starting index", 1, tabModel.index());
         runToolbarSideSwipeTestOnCurrentModel(ScrollDirection.RIGHT, 0, true);
+    }
+
+    /**
+     * Initialize a test for the toolbar swipe behavior.
+     * @param useTwoTabs Whether the test should use two tabs. One tab is used if {@code false}.
+     * @param selectedTab The tab index in the current model to have selected after the tabs are
+     *                    loaded.
+     * @param incognito Whether the test should run on incognito tabs.
+     */
+    private void initToolbarSwipeTest(boolean useTwoTabs, int selectedTab, boolean incognito) {
+        if (incognito) {
+            // If incognito, there is no default tab, so open a new one and switch to it.
+            mActivityTestRule.loadUrlInNewTab(generateSolidColorUrl("#00ff00"), true);
+            mActivityTestRule.getActivity().getTabModelSelector().selectModel(true);
+        } else {
+            // If not incognito, use the tab the test started on.
+            mActivityTestRule.loadUrl(generateSolidColorUrl("#00ff00"));
+        }
+
+        if (useTwoTabs) {
+            mActivityTestRule.loadUrlInNewTab(generateSolidColorUrl("#0000ff"), incognito);
+        }
+
+        ChromeTabUtils.switchTabInCurrentTabModel(mActivityTestRule.getActivity(), selectedTab);
+        InstrumentationRegistry.getInstrumentation().waitForIdleSync();
+
+        final TabModelSelector tabModelSelector =
+                mActivityTestRule.getActivity().getTabModelSelector();
+        final TabModel tabModel = tabModelSelector.getModel(incognito);
+
+        Assert.assertEquals("Incorrect model selected.", incognito,
+                tabModelSelector.getCurrentModel().isIncognito());
+        Assert.assertEquals("Incorrect starting index.", selectedTab, tabModel.index());
+        Assert.assertEquals("Incorrect tab count.", useTwoTabs ? 2 : 1, tabModel.getCount());
     }
 
     private void runToolbarSideSwipeTestOnCurrentModel(@ScrollDirection int direction,
@@ -1617,9 +1524,9 @@ public class TabsTest {
                     }
                 });
 
-        int callLayouChangeCount = staticLayoutCallbackHelper.getCallCount();
+        int callLayoutChangeCount = staticLayoutCallbackHelper.getCallCount();
         performToolbarSideSwipe(direction);
-        staticLayoutCallbackHelper.waitForCallback(callLayouChangeCount, 1);
+        staticLayoutCallbackHelper.waitForCallback(callLayoutChangeCount, 1);
 
         if (expectsSelection) selectCallback.waitForCallback(tabSelectedCallCount, 1);
         TestThreadUtils.runOnUiThreadBlocking(() -> observer.destroy());
@@ -1632,6 +1539,7 @@ public class TabsTest {
         Assert.assertTrue("Unexpected direction for side swipe " + direction,
                 direction == ScrollDirection.LEFT || direction == ScrollDirection.RIGHT);
         final View toolbar = mActivityTestRule.getActivity().findViewById(R.id.toolbar);
+
         int[] toolbarPos = new int[2];
         toolbar.getLocationOnScreen(toolbarPos);
         final int width = toolbar.getWidth();
@@ -1640,12 +1548,14 @@ public class TabsTest {
         final int fromX = toolbarPos[0] + width / 2;
         final int toX = toolbarPos[0] + (direction == ScrollDirection.LEFT ? 0 : width);
         final int y = toolbarPos[1] + height / 2;
-        final int stepCount = 10;
+        final int stepCount = 25;
+        final long duration = 500;
 
-        long downTime = SystemClock.uptimeMillis();
-        TouchCommon.dragStart(mActivityTestRule.getActivity(), fromX, y, downTime);
-        TouchCommon.dragTo(mActivityTestRule.getActivity(), fromX, toX, y, y, stepCount, downTime);
-        TouchCommon.dragEnd(mActivityTestRule.getActivity(), toX, y, downTime);
+        View toolbarRoot = mActivityTestRule.getActivity()
+                                   .getRootUiCoordinatorForTesting()
+                                   .getToolbarManager()
+                                   .getContainerViewForTesting();
+        TouchCommon.performDrag(toolbarRoot, fromX, toX, y, y, stepCount, duration);
     }
 
     /**
@@ -1655,7 +1565,6 @@ public class TabsTest {
     @MediumTest
     @Restriction({UiRestriction.RESTRICTION_TYPE_PHONE, RESTRICTION_TYPE_NON_LOW_END_DEVICE})
     @Feature({"Android-TabSwitcher"})
-    @RetryOnFailure
     public void testOSKIsNotShownDuringSwipe() throws InterruptedException {
         final View urlBar = mActivityTestRule.getActivity().findViewById(R.id.url_bar);
         final LayoutManagerChrome layoutManager = updateTabsViewSize();
@@ -1682,14 +1591,12 @@ public class TabsTest {
                     swipeXChange, 0.f, swipeXChange, 0.f, swipeXChange, 0.f);
         });
 
-        CriteriaHelper.pollUiThread(
-                new Criteria("Layout still requesting Tab Android view be attached") {
-                    @Override
-                    public boolean isSatisfied() {
-                        LayoutManager driver = mActivityTestRule.getActivity().getLayoutManager();
-                        return !driver.getActiveLayout().shouldDisplayContentOverlay();
-                    }
-                });
+        CriteriaHelper.pollUiThread(() -> {
+            return !mActivityTestRule.getActivity()
+                            .getLayoutManager()
+                            .getActiveLayout()
+                            .shouldDisplayContentOverlay();
+        });
 
         PostTask.runOrPostTask(UiThreadTaskTraits.DEFAULT, () -> {
             Assert.assertFalse("Keyboard should be hidden while swiping",
@@ -1698,14 +1605,10 @@ public class TabsTest {
             edgeSwipeHandler.swipeFinished();
         });
 
-        CriteriaHelper.pollUiThread(
-                new Criteria("Layout not requesting Tab Android view be attached") {
-                    @Override
-                    public boolean isSatisfied() {
-                        LayoutManager driver = mActivityTestRule.getActivity().getLayoutManager();
-                        return driver.getActiveLayout().shouldDisplayContentOverlay();
-                    }
-                });
+        CriteriaHelper.pollUiThread(() -> {
+            LayoutManager driver = mActivityTestRule.getActivity().getLayoutManager();
+            return driver.getActiveLayout().shouldDisplayContentOverlay();
+        }, "Layout not requesting Tab Android view be attached");
 
         Assert.assertFalse("Keyboard should not be shown",
                 mActivityTestRule.getKeyboardDelegate().isKeyboardShowing(
@@ -1719,7 +1622,6 @@ public class TabsTest {
     @MediumTest
     @Feature({"Android-TabSwitcher"})
     @Restriction(RESTRICTION_TYPE_NON_LOW_END_DEVICE)
-    @RetryOnFailure
     public void testOrientationChangeCausesLiveTabReflowInNormalView()
             throws InterruptedException, TimeoutException {
         mActivityTestRule.getActivity().setRequestedOrientation(
@@ -1754,7 +1656,7 @@ public class TabsTest {
                 InstrumentationRegistry.getInstrumentation(), mActivityTestRule.getActivity());
         mActivityTestRule.loadUrl(RESIZE_TEST_URL);
 
-        showOverviewAndWaitForAnimation();
+        showOverviewWithNoAnimation();
         final WebContents webContents = mActivityTestRule.getWebContents();
         JavaScriptUtils.executeJavaScriptAndWaitForResult(webContents, "resizeHappened = false;");
         mActivityTestRule.getActivity().setRequestedOrientation(
@@ -1779,7 +1681,6 @@ public class TabsTest {
     @Test
     @MediumTest
     @Feature({"Android-TabSwitcher"})
-    @RetryOnFailure
     public void testLastClosedUndoableTabGetsHidden() {
         final TabModel model =
                 mActivityTestRule.getActivity().getTabModelSelector().getCurrentModel();
@@ -1799,7 +1700,6 @@ public class TabsTest {
     @Test
     @MediumTest
     @Feature({"Android-TabSwitcher"})
-    @RetryOnFailure
     public void testLastClosedTabTriggersNotifyChangedCall() {
         final TabModel model =
                 mActivityTestRule.getActivity().getTabModelSelector().getCurrentModel();
@@ -1827,7 +1727,6 @@ public class TabsTest {
     @DisabledTest
     @MediumTest
     @Feature({"Android-TabSwitcher"})
-    @RetryOnFailure
     public void testTabsAreDestroyedOnModelDestruction() throws InterruptedException {
         mActivityTestRule.startMainActivityOnBlankPage();
         final TabModelSelectorImpl selector =
@@ -1877,16 +1776,16 @@ public class TabsTest {
         // to be saved.
         mActivityTestRule.loadUrl(mTestServer.getURL(TEST_PAGE_FILE_PATH));
 
-        File tabStateDir = TabbedModeTabPersistencePolicy.getOrCreateTabbedModeStateDirectory();
+        File tabStateDir = TabStateDirectory.getOrCreateTabbedModeStateDirectory();
         TabModel normalModel =
                 mActivityTestRule.getActivity().getTabModelSelector().getModel(false);
         TabModel incognitoModel =
                 mActivityTestRule.getActivity().getTabModelSelector().getModel(true);
         File normalTabFile = new File(tabStateDir,
-                TabState.getTabStateFilename(
+                TabStateFileManager.getTabStateFilename(
                         normalModel.getTabAt(normalModel.getCount() - 1).getId(), false));
         File incognitoTabFile = new File(tabStateDir,
-                TabState.getTabStateFilename(incognitoModel.getTabAt(0).getId(), true));
+                TabStateFileManager.getTabStateFilename(incognitoModel.getTabAt(0).getId(), true));
 
         assertFileExists(normalTabFile, true);
         assertFileExists(incognitoTabFile, true);
@@ -1901,9 +1800,21 @@ public class TabsTest {
         assertFileExists(incognitoTabFile, false);
     }
 
+    /**
+     * Generate a URL that shows a web page with a solid color. This makes visual debugging easier.
+     * @param htmlColor The HTML/CSS color the page should display.
+     * @return A URL that shows the solid color when loaded.
+     */
+    private static String generateSolidColorUrl(String htmlColor) {
+        return UrlUtils.encodeHtmlDataUri("<html><head><style>"
+                + "  body { background-color: " + htmlColor + ";}"
+                + "</style></head>"
+                + "<body></body></html>");
+    }
+
     private void assertFileExists(final File fileToCheck, final boolean expected) {
         CriteriaHelper.pollInstrumentationThread(
-                Criteria.equals(expected, () -> fileToCheck.exists()));
+                () -> Criteria.checkThat(fileToCheck.exists(), Matchers.is(expected)));
     }
 
     /**

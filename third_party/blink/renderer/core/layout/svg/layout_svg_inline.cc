@@ -27,6 +27,7 @@
 #include "third_party/blink/renderer/core/layout/svg/svg_layout_support.h"
 #include "third_party/blink/renderer/core/layout/svg/svg_resources.h"
 #include "third_party/blink/renderer/core/layout/svg/svg_resources_cache.h"
+#include "third_party/blink/renderer/core/paint/compositing/compositing_reason_finder.h"
 #include "third_party/blink/renderer/core/svg/svg_a_element.h"
 
 namespace blink {
@@ -60,27 +61,27 @@ InlineFlowBox* LayoutSVGInline::CreateInlineFlowBox() {
 }
 
 FloatRect LayoutSVGInline::ObjectBoundingBox() const {
-  if (const LayoutSVGText* text_root =
-          LayoutSVGText::LocateLayoutSVGTextAncestor(this))
-    return text_root->ObjectBoundingBox();
-
-  return FloatRect();
+  FloatRect bounds;
+  for (InlineFlowBox* box : *LineBoxes())
+    bounds.Unite(FloatRect(box->FrameRect()));
+  return bounds;
 }
 
 FloatRect LayoutSVGInline::StrokeBoundingBox() const {
-  if (const LayoutSVGText* text_root =
-          LayoutSVGText::LocateLayoutSVGTextAncestor(this))
-    return text_root->StrokeBoundingBox();
-
-  return FloatRect();
+  if (!FirstLineBox())
+    return FloatRect();
+  return SVGLayoutSupport::ExtendTextBBoxWithStroke(*this, ObjectBoundingBox());
 }
 
 FloatRect LayoutSVGInline::VisualRectInLocalSVGCoordinates() const {
-  if (const LayoutSVGText* text_root =
-          LayoutSVGText::LocateLayoutSVGTextAncestor(this))
-    return text_root->VisualRectInLocalSVGCoordinates();
-
-  return FloatRect();
+  if (!FirstLineBox())
+    return FloatRect();
+  const LayoutSVGText* text_root =
+      LayoutSVGText::LocateLayoutSVGTextAncestor(this);
+  if (!text_root)
+    return FloatRect();
+  return SVGLayoutSupport::ComputeVisualRectForText(
+      *this, ObjectBoundingBox(), text_root->ObjectBoundingBox());
 }
 
 PhysicalRect LayoutSVGInline::VisualRectInDocument(
@@ -103,18 +104,10 @@ const LayoutObject* LayoutSVGInline::PushMappingToContainer(
 
 void LayoutSVGInline::AbsoluteQuads(Vector<FloatQuad>& quads,
                                     MapCoordinatesFlags mode) const {
-  const LayoutSVGText* text_root =
-      LayoutSVGText::LocateLayoutSVGTextAncestor(this);
-  if (!text_root)
-    return;
-
-  FloatRect text_bounding_box = text_root->StrokeBoundingBox();
   for (InlineFlowBox* box : *LineBoxes()) {
+    FloatRect box_rect(box->FrameRect());
     quads.push_back(LocalToAbsoluteQuad(
-        FloatRect(text_bounding_box.X() + box->X().ToFloat(),
-                  text_bounding_box.Y() + box->Y().ToFloat(),
-                  box->Width().ToFloat(), box->Height().ToFloat()),
-        mode));
+        SVGLayoutSupport::ExtendTextBBoxWithStroke(*this, box_rect), mode));
   }
 }
 
@@ -135,6 +128,9 @@ void LayoutSVGInline::StyleDidChange(StyleDifference diff,
   if (diff.NeedsFullLayout())
     SetNeedsBoundariesUpdate();
 
+  if (diff.CompositingReasonsChanged())
+    SVGLayoutSupport::NotifySVGRootOfChangedCompositingReasons(this);
+
   LayoutInline::StyleDidChange(diff, old_style);
   SVGResources::UpdateClipPathFilterMask(To<SVGElement>(*GetNode()), old_style,
                                          StyleRef());
@@ -145,20 +141,32 @@ void LayoutSVGInline::StyleDidChange(StyleDifference diff,
 void LayoutSVGInline::AddChild(LayoutObject* child,
                                LayoutObject* before_child) {
   LayoutInline::AddChild(child, before_child);
-  SVGResourcesCache::ClientWasAddedToTree(*child, child->StyleRef());
-
-  if (LayoutSVGText* text_layout_object =
-          LayoutSVGText::LocateLayoutSVGTextAncestor(this))
-    text_layout_object->SubtreeChildWasAdded();
+  SVGResourcesCache::ClientWasAddedToTree(*child);
+  LayoutSVGText::NotifySubtreeStructureChanged(
+      this, layout_invalidation_reason::kChildChanged);
 }
 
 void LayoutSVGInline::RemoveChild(LayoutObject* child) {
   SVGResourcesCache::ClientWillBeRemovedFromTree(*child);
-
-  if (LayoutSVGText* text_layout_object =
-          LayoutSVGText::LocateLayoutSVGTextAncestor(this))
-    text_layout_object->SubtreeChildWillBeRemoved();
+  LayoutSVGText::NotifySubtreeStructureChanged(
+      this, layout_invalidation_reason::kChildChanged);
   LayoutInline::RemoveChild(child);
+}
+
+void LayoutSVGInline::InsertedIntoTree() {
+  LayoutInline::InsertedIntoTree();
+  if (CompositingReasonFinder::DirectReasonsForSVGChildPaintProperties(*this) !=
+      CompositingReason::kNone) {
+    SVGLayoutSupport::NotifySVGRootOfChangedCompositingReasons(this);
+  }
+}
+
+void LayoutSVGInline::WillBeRemovedFromTree() {
+  LayoutInline::WillBeRemovedFromTree();
+  if (CompositingReasonFinder::DirectReasonsForSVGChildPaintProperties(*this) !=
+      CompositingReason::kNone) {
+    SVGLayoutSupport::NotifySVGRootOfChangedCompositingReasons(this);
+  }
 }
 
 }  // namespace blink

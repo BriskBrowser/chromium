@@ -6,7 +6,7 @@
 
 namespace security_interstitials {
 
-const base::Feature kSecurityInterstitialsDarkMode{
-    "SecurityInterstitialsDarkMode", base::FEATURE_DISABLED_BY_DEFAULT};
+const base::Feature kInsecureFormSubmissionInterstitial{
+    "InsecureFormSubmissionInterstitial", base::FEATURE_DISABLED_BY_DEFAULT};
 
 }  // namespace security_interstitials

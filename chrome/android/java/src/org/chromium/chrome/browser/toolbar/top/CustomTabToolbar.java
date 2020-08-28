@@ -8,7 +8,6 @@ import android.animation.Animator;
 import android.animation.AnimatorListenerAdapter;
 import android.animation.ValueAnimator;
 import android.animation.ValueAnimator.AnimatorUpdateListener;
-import android.app.Activity;
 import android.content.Context;
 import android.content.res.ColorStateList;
 import android.content.res.Configuration;
@@ -17,9 +16,6 @@ import android.graphics.Color;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.Drawable;
 import android.net.Uri;
-import android.support.v4.text.BidiFormatter;
-import android.support.v4.view.MarginLayoutParamsCompat;
-import android.support.v7.content.res.AppCompatResources;
 import android.text.SpannableString;
 import android.text.TextUtils;
 import android.text.style.ForegroundColorSpan;
@@ -37,47 +33,56 @@ import android.widget.TextView;
 
 import androidx.annotation.Nullable;
 import androidx.annotation.VisibleForTesting;
+import androidx.appcompat.content.res.AppCompatResources;
+import androidx.core.text.BidiFormatter;
+import androidx.core.view.MarginLayoutParamsCompat;
 
 import org.chromium.base.ApiCompatibilityUtils;
 import org.chromium.base.ThreadUtils;
 import org.chromium.base.library_loader.LibraryLoader;
 import org.chromium.base.metrics.RecordUserAction;
+import org.chromium.base.supplier.Supplier;
 import org.chromium.base.task.PostTask;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.ActivityTabProvider;
-import org.chromium.chrome.browser.ChromeActivity;
 import org.chromium.chrome.browser.WindowDelegate;
-import org.chromium.chrome.browser.native_page.NativePage;
+import org.chromium.chrome.browser.app.ChromeActivity;
 import org.chromium.chrome.browser.native_page.NativePageFactory;
 import org.chromium.chrome.browser.ntp.NewTabPage;
 import org.chromium.chrome.browser.offlinepages.OfflinePageUtils;
 import org.chromium.chrome.browser.omnibox.LocationBar;
-import org.chromium.chrome.browser.omnibox.LocationBarVoiceRecognitionHandler;
 import org.chromium.chrome.browser.omnibox.UrlBar;
 import org.chromium.chrome.browser.omnibox.UrlBarCoordinator;
 import org.chromium.chrome.browser.omnibox.UrlBarCoordinator.SelectionState;
 import org.chromium.chrome.browser.omnibox.UrlBarData;
-import org.chromium.chrome.browser.page_info.PageInfoController;
+import org.chromium.chrome.browser.omnibox.voice.VoiceRecognitionHandler;
+import org.chromium.chrome.browser.page_info.ChromePageInfoControllerDelegate;
+import org.chromium.chrome.browser.page_info.ChromePermissionParamsListBuilderDelegate;
 import org.chromium.chrome.browser.profiles.Profile;
+import org.chromium.chrome.browser.share.ShareDelegate;
 import org.chromium.chrome.browser.tab.Tab;
-import org.chromium.chrome.browser.tab.TabImpl;
 import org.chromium.chrome.browser.tab.TrustedCdn;
+import org.chromium.chrome.browser.toolbar.IncognitoStateProvider;
 import org.chromium.chrome.browser.toolbar.ToolbarColors;
 import org.chromium.chrome.browser.toolbar.ToolbarDataProvider;
 import org.chromium.chrome.browser.toolbar.ToolbarTabController;
-import org.chromium.chrome.browser.util.ColorUtils;
+import org.chromium.chrome.browser.ui.native_page.NativePage;
 import org.chromium.components.browser_ui.styles.ChromeColors;
 import org.chromium.components.browser_ui.widget.TintedDrawable;
+import org.chromium.components.page_info.PageInfoController;
 import org.chromium.components.url_formatter.UrlFormatter;
 import org.chromium.content_public.browser.UiThreadTaskTraits;
+import org.chromium.content_public.browser.WebContents;
 import org.chromium.content_public.common.ContentUrlConstants;
 import org.chromium.net.GURLUtils;
 import org.chromium.ui.base.Clipboard;
 import org.chromium.ui.base.DeviceFormFactor;
 import org.chromium.ui.base.WindowAndroid;
 import org.chromium.ui.interpolators.BakedBezierInterpolator;
+import org.chromium.ui.modaldialog.ModalDialogManager;
 import org.chromium.ui.text.SpanApplier;
 import org.chromium.ui.text.SpanApplier.SpanInfo;
+import org.chromium.ui.util.ColorUtils;
 import org.chromium.ui.widget.Toast;
 
 import java.util.List;
@@ -201,12 +206,14 @@ public class CustomTabToolbar extends ToolbarLayout implements View.OnLongClickL
         mCloseButton = findViewById(R.id.close_button);
         mCloseButton.setOnLongClickListener(this);
         mMenuButton = findViewById(R.id.menu_button);
-        mAnimDelegate = new CustomTabToolbarAnimationDelegate(mSecurityButton, mTitleUrlContainer);
+        mAnimDelegate = new CustomTabToolbarAnimationDelegate(
+                mSecurityButton, mTitleUrlContainer, R.dimen.location_bar_icon_width);
     }
 
     @Override
     void initialize(ToolbarDataProvider toolbarDataProvider, ToolbarTabController tabController) {
         super.initialize(toolbarDataProvider, tabController);
+        mLocationBar.setToolbarDataProvider(toolbarDataProvider);
         mLocationBar.updateVisualsForState();
     }
 
@@ -336,7 +343,7 @@ public class CustomTabToolbar extends ToolbarLayout implements View.OnLongClickL
         if (publisherUrl != null) return extractPublisherFromPublisherUrl(publisherUrl);
 
         // TODO(bauerb): Remove this once trusted CDN publisher URLs have rolled out completely.
-        if (mState == STATE_TITLE_ONLY) return parsePublisherNameFromUrl(tab.getUrl());
+        if (mState == STATE_TITLE_ONLY) return parsePublisherNameFromUrl(tab.getUrlString());
 
         return null;
     }
@@ -347,9 +354,9 @@ public class CustomTabToolbar extends ToolbarLayout implements View.OnLongClickL
         mLocationBar.setTitleToPageTitle();
         if (mState == STATE_TITLE_ONLY) {
             if (TextUtils.isEmpty(mFirstUrl)) {
-                mFirstUrl = getToolbarDataProvider().getTab().getUrl();
+                mFirstUrl = getToolbarDataProvider().getTab().getUrlString();
             } else {
-                if (mFirstUrl.equals(getToolbarDataProvider().getTab().getUrl())) return;
+                if (mFirstUrl.equals(getToolbarDataProvider().getTab().getUrlString())) return;
                 setUrlBarHidden(false);
             }
         }
@@ -535,7 +542,7 @@ public class CustomTabToolbar extends ToolbarLayout implements View.OnLongClickL
         if (v == mTitleUrlContainer) {
             Tab tab = getCurrentTab();
             if (tab == null) return false;
-            Clipboard.getInstance().copyUrlToClipboard(((TabImpl) tab).getOriginalUrl());
+            Clipboard.getInstance().copyUrlToClipboard(tab.getOriginalUrl());
             return true;
         }
         return false;
@@ -555,17 +562,6 @@ public class CustomTabToolbar extends ToolbarLayout implements View.OnLongClickL
     }
 
     @Override
-    void showAppMenuUpdateBadge(boolean animate) {}
-
-    @Override
-    boolean isShowingAppMenuUpdateBadge() {
-        return false;
-    }
-
-    @Override
-    void removeAppMenuUpdateBadge(boolean animate) {}
-
-    @Override
     View getMenuButtonWrapper() {
         // This class has no menu button wrapper, so return the menu button instead.
         return getMenuButton();
@@ -577,8 +573,8 @@ public class CustomTabToolbar extends ToolbarLayout implements View.OnLongClickL
     }
 
     @Override
-    void disableMenuButton() {
-        super.disableMenuButton();
+    void onMenuButtonDisabled() {
+        super.onMenuButtonDisabled();
         mMenuButton = null;
         // In addition to removing the menu button, we also need to remove the margin on the custom
         // action button.
@@ -593,13 +589,19 @@ public class CustomTabToolbar extends ToolbarLayout implements View.OnLongClickL
         public void onNativeLibraryReady() {
             mSecurityButton.setOnClickListener(v -> {
                 Tab currentTab = getToolbarDataProvider().getTab();
-                if (currentTab == null || currentTab.getWebContents() == null) return;
-                Activity activity = currentTab.getWindowAndroid().getActivity().get();
+                if (currentTab == null) return;
+                WebContents webContents = currentTab.getWebContents();
+                if (webContents == null) return;
+                ChromeActivity activity =
+                        (ChromeActivity) currentTab.getWindowAndroid().getActivity().get();
                 if (activity == null) return;
-                PageInfoController.show((ChromeActivity) activity, currentTab.getWebContents(),
-                        getContentPublisher(), PageInfoController.OpenedFromSource.TOOLBAR,
-                        /*offlinePageLoadUrlDelegate=*/
-                        new OfflinePageUtils.TabOfflinePageLoadUrlDelegate(currentTab));
+                PageInfoController.show(activity, webContents, getContentPublisher(),
+                        PageInfoController.OpenedFromSource.TOOLBAR,
+                        new ChromePageInfoControllerDelegate(activity, webContents,
+                                activity::getModalDialogManager,
+                                /*offlinePageLoadUrlDelegate=*/
+                                new OfflinePageUtils.TabOfflinePageLoadUrlDelegate(currentTab)),
+                        new ChromePermissionParamsListBuilderDelegate());
             });
         }
 
@@ -665,7 +667,7 @@ public class CustomTabToolbar extends ToolbarLayout implements View.OnLongClickL
             }
 
             String publisherUrl = TrustedCdn.getPublisherUrl(tab);
-            String url = publisherUrl != null ? publisherUrl : tab.getUrl().trim();
+            String url = publisherUrl != null ? publisherUrl : tab.getUrlString().trim();
             if (mState == STATE_TITLE_ONLY) {
                 if (!TextUtils.isEmpty(getToolbarDataProvider().getTitle())) setTitleToPageTitle();
             }
@@ -760,7 +762,10 @@ public class CustomTabToolbar extends ToolbarLayout implements View.OnLongClickL
 
         @Override
         public void initializeControls(WindowDelegate windowDelegate, WindowAndroid windowAndroid,
-                ActivityTabProvider provider) {}
+                ActivityTabProvider activityTabProvider,
+                Supplier<ModalDialogManager> modalDialogManager,
+                Supplier<ShareDelegate> shareDelegateSupplier,
+                IncognitoStateProvider incognitoStateProvider) {}
 
         @Override
         public void updateStatusIcon() {
@@ -768,20 +773,15 @@ public class CustomTabToolbar extends ToolbarLayout implements View.OnLongClickL
 
             int securityIconResource = getToolbarDataProvider().getSecurityIconResource(
                     DeviceFormFactor.isNonMultiDisplayContextOnTablet(getContext()));
-            if (securityIconResource == 0) {
-                // Hide the button if we don't have an actual icon to display.
-                mSecurityButton.setImageDrawable(null);
-                mAnimDelegate.hideSecurityButton();
-            } else {
-                // ImageView#setImageResource is no-op if given resource is the current one.
-                mSecurityButton.setImageResource(securityIconResource);
+            if (securityIconResource != 0) {
                 ColorStateList colorStateList = AppCompatResources.getColorStateList(
                         getContext(), getToolbarDataProvider().getSecurityIconColorStateList());
                 ApiCompatibilityUtils.setImageTintList(mSecurityButton, colorStateList);
-                mAnimDelegate.showSecurityButton();
             }
+            mAnimDelegate.updateSecurityButton(securityIconResource);
 
-            int contentDescriptionId = getToolbarDataProvider().getSecurityIconContentDescription();
+            int contentDescriptionId =
+                    getToolbarDataProvider().getSecurityIconContentDescriptionResourceId();
             String contentDescription = getContext().getString(contentDescriptionId);
             mSecurityButton.setContentDescription(contentDescription);
 
@@ -852,6 +852,9 @@ public class CustomTabToolbar extends ToolbarLayout implements View.OnLongClickL
         }
 
         @Override
+        public void performSearchQuery(String query, List<String> searchParams) {}
+
+        @Override
         public void setUrlBarFocus(boolean shouldBeFocused, @Nullable String pastedText,
                 @LocationBar.OmniboxFocusReason int reason) {}
 
@@ -861,7 +864,7 @@ public class CustomTabToolbar extends ToolbarLayout implements View.OnLongClickL
         }
 
         @Override
-        public LocationBarVoiceRecognitionHandler getLocationBarVoiceRecognitionHandler() {
+        public VoiceRecognitionHandler getVoiceRecognitionHandler() {
             return null;
         }
     }

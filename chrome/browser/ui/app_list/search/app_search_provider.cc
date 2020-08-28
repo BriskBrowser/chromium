@@ -18,9 +18,12 @@
 #include "ash/public/cpp/app_list/internal_app_id_constants.h"
 #include "base/bind.h"
 #include "base/callback_list.h"
+#include "base/containers/flat_set.h"
+#include "base/i18n/rtl.h"
 #include "base/macros.h"
 #include "base/metrics/field_trial_params.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/no_destructor.h"
 #include "base/single_thread_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/time/clock.h"
@@ -30,6 +33,7 @@
 #include "chrome/browser/chromeos/crostini/crostini_manager.h"
 #include "chrome/browser/chromeos/extensions/gfx_utils.h"
 #include "chrome/browser/chromeos/release_notes/release_notes_storage.h"
+#include "chrome/browser/chromeos/web_applications/default_web_app_ids.h"
 #include "chrome/browser/extensions/extension_util.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/sync/session_sync_service_factory.h"
@@ -39,11 +43,13 @@
 #include "chrome/browser/ui/app_list/search/app_service_app_result.h"
 #include "chrome/browser/ui/app_list/search/search_result_ranker/app_search_result_ranker.h"
 #include "chrome/browser/ui/app_list/search/search_result_ranker/ranking_item_util.h"
-#include "chrome/common/string_matching/fuzzy_tokenized_string_match.h"
-#include "chrome/common/string_matching/tokenized_string.h"
-#include "chrome/common/string_matching/tokenized_string_match.h"
+#include "chrome/grit/generated_resources.h"
+#include "chromeos/components/string_matching/fuzzy_tokenized_string_match.h"
+#include "chromeos/components/string_matching/tokenized_string.h"
+#include "chromeos/components/string_matching/tokenized_string_match.h"
 #include "components/sync/base/model_type.h"
 #include "components/sync_sessions/session_sync_service.h"
+#include "ui/chromeos/devicetype_utils.h"
 
 namespace {
 
@@ -54,6 +60,17 @@ constexpr size_t kMinimumReservedAppsContainerCapacity = 60U;
 // Relevance threshold to use when Crostini has not yet been enabled. This value
 // is somewhat arbitrary, but is roughly equivalent to the 'ter' in 'terminal'.
 constexpr double kCrostiniTerminalRelevanceThreshold = 0.8;
+
+// Parameters for FuzzyTokenizedStringMatch.
+constexpr bool kUsePrefixOnly = false;
+constexpr bool kUseWeightedRatio = false;
+constexpr bool kUseEditDistance = false;
+constexpr double kRelevanceThreshold = 0.32;
+constexpr double kPartialMatchPenaltyRate = 0.9;
+
+using chromeos::string_matching::FuzzyTokenizedStringMatch;
+using chromeos::string_matching::TokenizedString;
+using chromeos::string_matching::TokenizedStringMatch;
 
 // Adds |app_result| to |results| only in case no duplicate apps were already
 // added. Duplicate means the same app but for different domain, Chrome and
@@ -96,6 +113,19 @@ float ReRange(const float score, const float min, const float max) {
     return min;
 
   return min + score * (max - min);
+}
+
+// Checks if current locale is non Latin locales.
+bool IsNonLatinLocale(const std::string& locale) {
+  // A set of of non Latin locales. This set is used to select appropriate
+  // algorithm for app search.
+  static const base::NoDestructor<base::flat_set<std::string>>
+      non_latin_locales({"am", "ar", "be", "bg",    "bn",    "el",   "fa",
+                         "gu", "hi", "hy", "iw",    "ja",    "ka",   "kk",
+                         "km", "kn", "ko", "ky",    "lo",    "mk",   "ml",
+                         "mn", "mr", "my", "pa",    "ru",    "sr",   "ta",
+                         "te", "th", "uk", "zh-CN", "zh-HK", "zh-TW"});
+  return base::Contains(*non_latin_locales, locale);
 }
 
 }  // namespace
@@ -147,7 +177,7 @@ class AppSearchProvider::App {
     return base::Time();
   }
 
-  bool MatchSearchableText(const TokenizedString& query) {
+  bool MatchSearchableText(const TokenizedString& query, bool use_exact_match) {
     if (searchable_text_.empty())
       return false;
     if (tokenized_indexed_searchable_text_.empty()) {
@@ -156,11 +186,23 @@ class AppSearchProvider::App {
             std::make_unique<TokenizedString>(curr_text));
       }
     }
-    TokenizedStringMatch match;
-    for (auto& curr_text : tokenized_indexed_searchable_text_) {
-      match.Calculate(query, *curr_text);
-      if (match.relevance() > relevance_threshold())
-        return true;
+    if (use_exact_match) {
+      TokenizedStringMatch match;
+      for (auto& curr_text : tokenized_indexed_searchable_text_) {
+        match.Calculate(query, *curr_text);
+        if (match.relevance() > relevance_threshold())
+          return true;
+      }
+    } else {
+      FuzzyTokenizedStringMatch match;
+      for (auto& curr_text : tokenized_indexed_searchable_text_) {
+        if (match.IsRelevant(query, *curr_text, kRelevanceThreshold,
+                             kUsePrefixOnly, kUseWeightedRatio,
+                             kUseEditDistance, kPartialMatchPenaltyRate) &&
+            match.relevance() >= relevance_threshold()) {
+          return true;
+        }
+      }
     }
     return false;
   }
@@ -252,9 +294,7 @@ class AppServiceDataSource : public AppSearchProvider::DataSource,
                     apps::IconCache::GarbageCollectionPolicy::kExplicit) {
     apps::AppServiceProxy* proxy =
         apps::AppServiceProxyFactory::GetForProfile(profile);
-    if (proxy) {
-      Observe(&proxy->AppRegistryCache());
-    }
+    Observe(&proxy->AppRegistryCache());
 
     sync_sessions::SessionSyncService* service =
         SessionSyncServiceFactory::GetInstance()->GetForProfile(profile);
@@ -274,9 +314,6 @@ class AppServiceDataSource : public AppSearchProvider::DataSource,
   void AddApps(AppSearchProvider::Apps* apps_vector) override {
     apps::AppServiceProxy* proxy =
         apps::AppServiceProxyFactory::GetForProfile(profile());
-    if (!proxy) {
-      return;
-    }
     proxy->AppRegistryCache().ForEachApp([this, apps_vector](
                                              const apps::AppUpdate& update) {
       if ((update.Readiness() == apps::mojom::Readiness::kUninstalledByUser) ||
@@ -309,14 +346,16 @@ class AppServiceDataSource : public AppSearchProvider::DataSource,
           this, update.AppId(), update.ShortName(), update.LastLaunchTime(),
           update.InstallTime(),
           update.InstalledInternally() == apps::mojom::OptionalBool::kTrue));
-      apps_vector->back()->set_recommendable(update.Recommendable() ==
-                                             apps::mojom::OptionalBool::kTrue);
+      apps_vector->back()->set_recommendable(
+          update.Recommendable() == apps::mojom::OptionalBool::kTrue &&
+          update.Paused() != apps::mojom::OptionalBool::kTrue &&
+          update.Readiness() != apps::mojom::Readiness::kDisabledByPolicy);
       apps_vector->back()->set_searchable(update.Searchable() ==
                                           apps::mojom::OptionalBool::kTrue);
 
       // Until it's been installed, the Crostini Terminal is hidden and
       // requires a few characters before being shown in search results.
-      if (update.AppId() == crostini::GetTerminalId() &&
+      if (update.AppId() == crostini::kCrostiniTerminalSystemAppId &&
           !crostini::CrostiniFeatures::Get()->IsEnabled(profile())) {
         apps_vector->back()->set_recommendable(false);
         apps_vector->back()->set_relevance_threshold(
@@ -337,11 +376,14 @@ class AppServiceDataSource : public AppSearchProvider::DataSource,
         profile(), app_id, list_controller, is_recommended, &icon_cache_);
   }
 
-  void ViewClosing() override { icon_cache_.SweepReleasedIcons(); }
-
  private:
   // apps::AppRegistryCache::Observer overrides:
   void OnAppUpdate(const apps::AppUpdate& update) override {
+    if (update.Readiness() == apps::mojom::Readiness::kUninstalledByUser ||
+        update.IconKeyChanged()) {
+      icon_cache_.RemoveIcon(update.AppType(), update.AppId());
+    }
+
     if (update.Readiness() == apps::mojom::Readiness::kReady) {
       owner()->RefreshAppsAndUpdateResultsDeferred();
     } else {
@@ -411,6 +453,10 @@ void AppSearchProvider::ViewClosing() {
     data_source->ViewClosing();
 }
 
+ash::AppListSearchResultType AppSearchProvider::ResultType() {
+  return ash::AppListSearchResultType::kInstalledApp;
+}
+
 void AppSearchProvider::RefreshAppsAndUpdateResults() {
   // Clear any pending requests if any.
   refresh_apps_factory_.InvalidateWeakPtrs();
@@ -466,6 +512,18 @@ void AppSearchProvider::UpdateRecommendedResults(
         app->data_source()->CreateResult(app->id(), list_controller_, true);
     result->SetTitle(title);
 
+    if (app->id() == chromeos::default_web_apps::kHelpAppId) {
+      auto release_notes_storage =
+          std::make_unique<chromeos::ReleaseNotesStorage>(profile_);
+      // If we should show the release notes suggestion chip, change the title
+      // and url of the Help App. Otherwise leave as normal.
+      if (release_notes_storage->ShouldShowSuggestionChip()) {
+        result->SetTitle(ui::SubstituteChromeOSDeviceType(
+            IDS_RELEASE_NOTES_DEVICE_SPECIFIC_NOTIFICATION_TITLE));
+        result->SetQueryUrl(GURL("chrome://help-app/updates"));
+      }
+    }
+
     const auto find_in_app_list = id_to_app_list_index.find(app->id());
     const base::Time time = app->GetLastActivityTime();
 
@@ -498,22 +556,26 @@ void AppSearchProvider::UpdateQueriedResults() {
   new_results.reserve(apps_size);
 
   const TokenizedString query_terms(query_);
+  const bool use_exact_match =
+      (!app_list_features::IsFuzzyAppSearchEnabled()) ||
+      (app_list_features::IsExactMatchForNonLatinLocaleEnabled() &&
+       IsNonLatinLocale(base::i18n::GetConfiguredLocale()));
+
   for (auto& app : apps_) {
     if (!app->searchable())
       continue;
 
     TokenizedString* indexed_name = app->GetTokenizedIndexedName();
-    if (!app_list_features::IsFuzzyAppSearchEnabled()) {
+    if (use_exact_match) {
       TokenizedStringMatch match;
       if (match.Calculate(query_terms, *indexed_name)) {
         // Exact matches should be shown even if the threshold isn't reached,
         // e.g. due to a localized name being particularly short.
         if (match.relevance() <= app->relevance_threshold() &&
-            !base::EqualsCaseInsensitiveASCII(query_, app->name()) &&
-            !app->MatchSearchableText(query_terms)) {
+            !app->MatchSearchableText(query_terms, use_exact_match)) {
           continue;
         }
-      } else if (!app->MatchSearchableText(query_terms)) {
+      } else if (!app->MatchSearchableText(query_terms, use_exact_match)) {
         continue;
       }
       std::unique_ptr<AppResult> result =
@@ -522,29 +584,10 @@ void AppSearchProvider::UpdateQueriedResults() {
       MaybeAddResult(&new_results, std::move(result), &seen_or_filtered_apps);
     } else {
       FuzzyTokenizedStringMatch match;
-
-      // TODO(crbug.com/1018613): consolidate finch parameters.
-      const bool use_prefix_only = base::GetFieldTrialParamByFeatureAsBool(
-          app_list_features::kEnableFuzzyAppSearch, "use_prefix_only", false);
-      const bool use_weighted_ratio = base::GetFieldTrialParamByFeatureAsBool(
-          app_list_features::kEnableFuzzyAppSearch, "use_weighted_ratio", true);
-      const bool use_edit_distance = base::GetFieldTrialParamByFeatureAsBool(
-          app_list_features::kEnableFuzzyAppSearch, "use_edit_distance", false);
-
-      const double relevance_threshold =
-          base::GetFieldTrialParamByFeatureAsDouble(
-              app_list_features::kEnableFuzzyAppSearch, "relevance_threshold",
-              0.3);
-      const double partial_match_penalty_rate =
-          base::GetFieldTrialParamByFeatureAsDouble(
-              app_list_features::kEnableFuzzyAppSearch,
-              "partial_match_penalty_rate", 0.9);
-
-      if (match.IsRelevant(query_terms, *indexed_name, relevance_threshold,
-                           use_prefix_only, use_weighted_ratio,
-                           use_edit_distance, partial_match_penalty_rate) ||
-          app->MatchSearchableText(query_terms) ||
-          base::EqualsCaseInsensitiveASCII(query_, app->name())) {
+      if (match.IsRelevant(query_terms, *indexed_name, kRelevanceThreshold,
+                           kUsePrefixOnly, kUseWeightedRatio, kUseEditDistance,
+                           kPartialMatchPenaltyRate) ||
+          app->MatchSearchableText(query_terms, use_exact_match)) {
         std::unique_ptr<AppResult> result = app->data_source()->CreateResult(
             app->id(), list_controller_, false);
 

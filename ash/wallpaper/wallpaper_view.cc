@@ -36,12 +36,10 @@ namespace {
 class WallpaperWidgetDelegate : public views::WidgetDelegateView {
  public:
   explicit WallpaperWidgetDelegate(views::View* view) {
+    SetCanMaximize(true);
     AddChildView(view);
     view->SetPaintToLayer();
   }
-
-  // views::WidgetDelegateView:
-  bool CanMaximize() const override { return true; }
 
   // Overrides views::View.
   void Layout() override {
@@ -95,6 +93,7 @@ void WallpaperView::SetLockShieldEnabled(bool enabled) {
     shield_view_->SetPaintToLayer(ui::LAYER_SOLID_COLOR);
     shield_view_->layer()->SetColor(SK_ColorBLACK);
     shield_view_->layer()->SetName("WallpaperViewShield");
+    shield_view_->SetBoundsRect(parent()->GetLocalBounds());
   } else {
     DCHECK(shield_view_);
     parent()->RemoveChildView(shield_view_);
@@ -108,6 +107,11 @@ const char* WallpaperView::GetClassName() const {
 
 bool WallpaperView::OnMousePressed(const ui::MouseEvent& event) {
   return true;
+}
+
+void WallpaperView::OnBoundsChanged(const gfx::Rect& previous_bounds) {
+  if (shield_view_)
+    shield_view_->SetBoundsRect(parent()->GetLocalBounds());
 }
 
 void WallpaperView::ShowContextMenuForViewImpl(views::View* source,
@@ -215,8 +219,6 @@ std::unique_ptr<views::Widget> CreateWallpaperWidget(
   params.name = "WallpaperViewWidget";
   params.ownership = views::Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
   params.layer_type = ui::LAYER_NOT_DRAWN;
-  if (controller->GetWallpaper().isNull())
-    params.opacity = views::Widget::InitParams::WindowOpacity::kTranslucent;
   params.parent = root_window->GetChildById(container_id);
   WallpaperView* wallpaper_view = new WallpaperView(property);
   params.delegate = new WallpaperWidgetDelegate(wallpaper_view);

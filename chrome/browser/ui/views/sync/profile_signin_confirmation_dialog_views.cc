@@ -52,20 +52,36 @@ ProfileSigninConfirmationDialogViews::ProfileSigninConfirmationDialogViews(
       username_(username),
       delegate_(std::move(delegate)),
       prompt_for_new_profile_(prompt_for_new_profile) {
-  DialogDelegate::set_default_button(ui::DIALOG_BUTTON_NONE);
-  DialogDelegate::set_button_label(
+  SetTitle(IDS_ENTERPRISE_SIGNIN_TITLE);
+  SetDefaultButton(ui::DIALOG_BUTTON_NONE);
+  SetButtonLabel(
       ui::DIALOG_BUTTON_OK,
       l10n_util::GetStringUTF16(prompt_for_new_profile_
                                     ? IDS_ENTERPRISE_SIGNIN_CREATE_NEW_PROFILE
                                     : IDS_ENTERPRISE_SIGNIN_CONTINUE));
-  DialogDelegate::set_button_label(
-      ui::DIALOG_BUTTON_CANCEL,
-      l10n_util::GetStringUTF16(IDS_ENTERPRISE_SIGNIN_CANCEL));
+  SetButtonLabel(ui::DIALOG_BUTTON_CANCEL,
+                 l10n_util::GetStringUTF16(IDS_ENTERPRISE_SIGNIN_CANCEL));
 
   if (prompt_for_new_profile) {
-    DialogDelegate::SetExtraView(views::MdTextButton::CreateSecondaryUiButton(
+    SetExtraView(std::make_unique<views::MdTextButton>(
         this, l10n_util::GetStringUTF16(IDS_ENTERPRISE_SIGNIN_CONTINUE)));
   }
+
+  using Delegate = ui::ProfileSigninConfirmationDelegate;
+  using DelegateNotifyFn = void (Delegate::*)();
+  auto notify_delegate = [](ProfileSigninConfirmationDialogViews* dialog,
+                            DelegateNotifyFn fn) {
+    if (dialog->delegate_) {
+      (dialog->delegate_.get()->*fn)();
+      dialog->delegate_.reset();
+    }
+  };
+  SetAcceptCallback(base::BindOnce(notify_delegate, base::Unretained(this),
+                                   prompt_for_new_profile_
+                                       ? &Delegate::OnSigninWithNewProfile
+                                       : &Delegate::OnContinueSignin));
+  SetCancelCallback(base::BindOnce(notify_delegate, base::Unretained(this),
+                                   &Delegate::OnCancelSignin));
 
   chrome::RecordDialogCreation(
       chrome::DialogIdentifier::PROFILE_SIGNIN_CONFIRMATION);
@@ -109,30 +125,6 @@ void ProfileSigninConfirmationDialogViews::ShowDialog(
                      base::Unretained(browser), username, std::move(delegate)));
 }
 
-base::string16 ProfileSigninConfirmationDialogViews::GetWindowTitle() const {
-  return l10n_util::GetStringUTF16(
-      IDS_ENTERPRISE_SIGNIN_TITLE);
-}
-
-bool ProfileSigninConfirmationDialogViews::Accept() {
-  if (delegate_) {
-    if (prompt_for_new_profile_)
-      delegate_->OnSigninWithNewProfile();
-    else
-      delegate_->OnContinueSignin();
-    delegate_ = nullptr;
-  }
-  return true;
-}
-
-bool ProfileSigninConfirmationDialogViews::Cancel() {
-  if (delegate_) {
-    delegate_->OnCancelSignin();
-    delegate_ = nullptr;
-  }
-  return true;
-}
-
 ui::ModalType ProfileSigninConfirmationDialogViews::GetModalType() const {
   return ui::MODAL_TYPE_WINDOW;
 }
@@ -161,7 +153,8 @@ void ProfileSigninConfirmationDialogViews::ViewHierarchyChanged(
       l10n_util::GetStringFUTF16(
           IDS_ENTERPRISE_SIGNIN_ALERT,
           domain, &offset);
-  auto prompt_label = std::make_unique<views::StyledLabel>(prompt_text, this);
+  auto prompt_label = std::make_unique<views::StyledLabel>(this);
+  prompt_label->SetText(prompt_text);
   prompt_label->SetDisplayedOnBackgroundColor(kPromptBarBackgroundColor);
 
   views::StyledLabel::RangeStyleInfo bold_style;
@@ -186,8 +179,8 @@ void ProfileSigninConfirmationDialogViews::ViewHierarchyChanged(
           IDS_ENTERPRISE_SIGNIN_EXPLANATION_WITH_PROFILE_CREATION :
           IDS_ENTERPRISE_SIGNIN_EXPLANATION_WITHOUT_PROFILE_CREATION,
           username, learn_more_text, &offsets);
-  auto explanation_label =
-      std::make_unique<views::StyledLabel>(signin_explanation_text, this);
+  auto explanation_label = std::make_unique<views::StyledLabel>(this);
+  explanation_label->SetText(signin_explanation_text);
   explanation_label->AddStyleRange(
       gfx::Range(offsets[1], offsets[1] + learn_more_text.size()),
       views::StyledLabel::RangeStyleInfo::CreateForLink());
@@ -213,23 +206,24 @@ void ProfileSigninConfirmationDialogViews::ViewHierarchyChanged(
   auto* prompt_columnset = prompt_layout->AddColumnSet(kPromptBarColumnSetId);
   prompt_columnset->AddColumn(
       views::GridLayout::FILL, views::GridLayout::CENTER,
-      views::GridLayout::kFixedSize, views::GridLayout::USE_PREF, 0, 0);
+      views::GridLayout::kFixedSize,
+      views::GridLayout::ColumnSize::kUsePreferred, 0, 0);
   prompt_columnset->AddPaddingColumn(
       views::GridLayout::kFixedSize,
       ChromeLayoutProvider::Get()->GetDistanceMetric(
           views::DISTANCE_TEXTFIELD_HORIZONTAL_TEXT_PADDING));
-  prompt_columnset->AddColumn(views::GridLayout::FILL,
-                              views::GridLayout::CENTER, 1.0,
-                              views::GridLayout::USE_PREF, 0, 0);
+  prompt_columnset->AddColumn(
+      views::GridLayout::FILL, views::GridLayout::CENTER, 1.0,
+      views::GridLayout::ColumnSize::kUsePreferred, 0, 0);
 
   prompt_layout->StartRow(views::GridLayout::kFixedSize, kPromptBarColumnSetId);
   prompt_layout->AddView(std::move(business_icon));
   prompt_layout->AddView(std::move(prompt_label));
 
   // Use a column set with no padding.
-  dialog_layout->AddColumnSet(0)->AddColumn(views::GridLayout::FILL,
-                                            views::GridLayout::FILL, 1.0,
-                                            views::GridLayout::USE_PREF, 0, 0);
+  dialog_layout->AddColumnSet(0)->AddColumn(
+      views::GridLayout::FILL, views::GridLayout::FILL, 1.0,
+      views::GridLayout::ColumnSize::kUsePreferred, 0, 0);
   dialog_layout->StartRow(views::GridLayout::kFixedSize, 0);
   dialog_layout->AddView(std::move(prompt_bar), 1, 1, views::GridLayout::FILL,
                          views::GridLayout::FILL, 0, 0);
@@ -242,9 +236,9 @@ void ProfileSigninConfirmationDialogViews::ViewHierarchyChanged(
       dialog_layout->AddColumnSet(kExplanationColumnSetId);
   explanation_columns->AddPaddingColumn(views::GridLayout::kFixedSize,
                                         content_insets.left());
-  explanation_columns->AddColumn(views::GridLayout::FILL,
-                                 views::GridLayout::FILL, 1.0,
-                                 views::GridLayout::USE_PREF, 0, 0);
+  explanation_columns->AddColumn(
+      views::GridLayout::FILL, views::GridLayout::FILL, 1.0,
+      views::GridLayout::ColumnSize::kUsePreferred, 0, 0);
   explanation_columns->AddPaddingColumn(views::GridLayout::kFixedSize,
                                         content_insets.right());
   dialog_layout->StartRow(views::GridLayout::kFixedSize,
@@ -255,10 +249,6 @@ void ProfileSigninConfirmationDialogViews::ViewHierarchyChanged(
   dialog_layout->AddView(std::move(explanation_label), 1, 1,
                          views::GridLayout::FILL, views::GridLayout::FILL,
                          kPreferredWidth, explanation_label_height);
-}
-
-void ProfileSigninConfirmationDialogViews::WindowClosing() {
-  Cancel();
 }
 
 void ProfileSigninConfirmationDialogViews::StyledLabelLinkClicked(

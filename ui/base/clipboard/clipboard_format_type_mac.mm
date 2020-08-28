@@ -29,7 +29,7 @@ ClipboardFormatType& ClipboardFormatType::operator=(
   return *this;
 }
 
-bool ClipboardFormatType::Equals(const ClipboardFormatType& other) const {
+bool ClipboardFormatType::operator==(const ClipboardFormatType& other) const {
   return [data_ isEqualToString:other.data_];
 }
 
@@ -45,6 +45,10 @@ std::string ClipboardFormatType::Serialize() const {
 ClipboardFormatType ClipboardFormatType::Deserialize(
     const std::string& serialization) {
   return ClipboardFormatType(base::SysUTF8ToNSString(serialization));
+}
+
+std::string ClipboardFormatType::GetName() const {
+  return Serialize();
 }
 
 bool ClipboardFormatType::operator<(const ClipboardFormatType& other) const {
@@ -66,19 +70,9 @@ const ClipboardFormatType& ClipboardFormatType::GetUrlType() {
 }
 
 // static
-const ClipboardFormatType& ClipboardFormatType::GetUrlWType() {
-  return ClipboardFormatType::GetUrlType();
-}
-
-// static
 const ClipboardFormatType& ClipboardFormatType::GetPlainTextType() {
   static base::NoDestructor<ClipboardFormatType> type(NSPasteboardTypeString);
   return *type;
-}
-
-// static
-const ClipboardFormatType& ClipboardFormatType::GetPlainTextWType() {
-  return ClipboardFormatType::GetPlainTextType();
 }
 
 // static
@@ -88,13 +82,13 @@ const ClipboardFormatType& ClipboardFormatType::GetFilenameType() {
 }
 
 // static
-const ClipboardFormatType& ClipboardFormatType::GetFilenameWType() {
-  return ClipboardFormatType::GetFilenameType();
-}
-
-// static
 const ClipboardFormatType& ClipboardFormatType::GetHtmlType() {
   static base::NoDestructor<ClipboardFormatType> type(NSHTMLPboardType);
+  return *type;
+}
+
+const ClipboardFormatType& ClipboardFormatType::GetSvgType() {
+  static base::NoDestructor<ClipboardFormatType> type(kImageSvg);
   return *type;
 }
 

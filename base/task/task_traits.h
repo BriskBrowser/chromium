@@ -13,10 +13,15 @@
 #include <utility>
 
 #include "base/base_export.h"
-#include "base/logging.h"
+#include "base/check_op.h"
 #include "base/task/task_traits_extension.h"
 #include "base/traits_bag.h"
 #include "build/build_config.h"
+
+// TODO(gab): This is backwards, thread_pool.h should include task_traits.h
+// but it this is necessary to have it in this direction during the migration
+// from old code that used base::ThreadPool as a trait.
+#include "base/task/thread_pool.h"
 
 namespace base {
 
@@ -32,11 +37,12 @@ class PostTaskAndroid;
 enum class TaskPriority : uint8_t {
   // This will always be equal to the lowest priority available.
   LOWEST = 0,
-  // This task will only start running when machine resources are available. The
-  // application may preempt the task if it expects that resources will soon be
-  // needed by work of higher priority. Dependending on the ThreadPolicy, the
-  // task may run on a thread that is likely to be descheduled when higher
-  // priority work arrives (in this process or another).
+  // Best effort tasks will only start running when machine resources are
+  // available. The application may preempt best effort tasks if it expects that
+  // resources will soon be needed by work of higher priority. Dependending on
+  // the ThreadPolicy, best effort tasks may run on a thread that is likely to
+  // be descheduled when higher priority work arrives (in this process or
+  // another).
   //
   // Examples:
   // - Reporting metrics.
@@ -46,7 +52,7 @@ enum class TaskPriority : uint8_t {
   //   when that user interactions happens).
   BEST_EFFORT = LOWEST,
 
-  // The result of this task is visible to the user (in the UI or as a
+  // The result of user visible tasks is visible to the user (in the UI or as a
   // side-effect on the system) but it is not an immediate response to a user
   // interaction.
   //
@@ -56,11 +62,17 @@ enum class TaskPriority : uint8_t {
   // - Loading an image that is displayed in the UI but is non-critical.
   USER_VISIBLE,
 
-  // This task affects UI immediately after a user interaction.
+  // User blocking tasks affects UI immediately after a user interaction.
   //
   // Example:
   // - Loading and rendering a web page after the user clicks a link.
   // - Sorting suggestions after the user types a character in the omnibox.
+  //
+  // This is the default TaskPriority in order for tasks to run in order by
+  // default and avoid unintended consequences. The only way to get a task to
+  // run at a higher priority than USER_BLOCKING is to coordinate with a
+  // higher-level scheduler (contact scheduler-dev@chromium.org for such use
+  // cases).
   USER_BLOCKING,
 
   // This will always be equal to the highest priority available.
@@ -132,12 +144,16 @@ enum class TaskShutdownBehavior : uint8_t {
 //   thread priority in order to avoid priority inversions. Please consult with
 //   //base/task/OWNERS if you suspect a priority inversion.
 enum class ThreadPolicy : uint8_t {
-  // The task runs at background thread priority if:
+  // The task runs on a background priority thread if:
   // - The TaskPriority is BEST_EFFORT.
   // - Background thread priority is supported by the platform (see
   //   environment_config_unittest.cc).
   // - No extension trait (e.g. BrowserThread) is used.
-  // Otherwise, it runs at normal thread priority.
+  // - ThreadPoolInstance::Shutdown() hadn't been called when the task started running.
+  //       (Remaining TaskShutdownBehavior::BLOCK_SHUTDOWN tasks use foreground
+  //        threads during shutdown regardless of TaskPriority)
+  // Otherwise, it runs on a normal priority thread.
+  // This is the default.
   PREFER_BACKGROUND,
 
   // The task runs at normal thread priority, irrespective of its TaskPriority.
@@ -180,11 +196,6 @@ struct MayBlock {};
 // In doubt, consult with //base/task/OWNERS.
 struct WithBaseSyncPrimitives {};
 
-// Tasks and task runners with this trait will run in the thread pool,
-// concurrently with tasks on other task runners. If you need mutual exclusion
-// between tasks, see base::PostTask::CreateSequencedTaskRunner.
-struct ThreadPool {};
-
 // Describes metadata for a single task or a group of tasks.
 class BASE_EXPORT TaskTraits {
  public:
@@ -198,28 +209,32 @@ class BASE_EXPORT TaskTraits {
     ValidTrait(ThreadPool);
   };
 
-  // Invoking this constructor without arguments produces TaskTraits that are
-  // appropriate for tasks that
+  // Invoking this constructor without arguments produces default TaskTraits
+  // that are appropriate for tasks that
   //     (1) don't block (ref. MayBlock() and WithBaseSyncPrimitives()),
-  //     (2) prefer inheriting the current priority to specifying their own, and
+  //     (2) pertain to user-blocking activity,
+  //         (explicitly or implicitly by having an ordering dependency with a
+  //          component that does)
   //     (3) can either block shutdown or be skipped on shutdown
-  //         (ThreadPoolInstance implementation is free to choose a fitting
-  //         default).
+  //         (the task recipient is free to choose a fitting default).
   //
-  // To get TaskTraits for tasks that require stricter guarantees and/or know
-  // the specific TaskPriority appropriate for them, provide arguments of type
-  // TaskPriority, TaskShutdownBehavior, ThreadPolicy, MayBlock and/or
-  // WithBaseSyncPrimitives in any order to the constructor.
+  // To get TaskTraits for tasks that have more precise traits: provide any
+  // combination of ValidTrait's as arguments to this constructor.
+  //
+  // Note: When posting to well-known threads (e.g. UI/IO), default traits are
+  // almost always what you want unless you know for sure the task being posted
+  // has no explicit/implicit ordering dependency with anything else running at
+  // default (USER_BLOCKING) priority.
   //
   // E.g.
-  // constexpr base::TaskTraits default_traits = {base::ThreadPool()};
+  // constexpr base::TaskTraits default_traits = {};
   // constexpr base::TaskTraits user_visible_traits = {
-  //     base::ThreadPool(), base::TaskPriority::USER_VISIBLE};
+  //     base::TaskPriority::USER_VISIBLE};
   // constexpr base::TaskTraits user_visible_may_block_traits = {
-  //     base::ThreadPool(), base::TaskPriority::USER_VISIBLE, base::MayBlock()
+  //     base::TaskPriority::USER_VISIBLE, base::MayBlock()
   // };
   // constexpr base::TaskTraits other_user_visible_may_block_traits = {
-  //     base::ThreadPool(), base::MayBlock(), base::TaskPriority::USER_VISIBLE
+  //     base::MayBlock(), base::TaskPriority::USER_VISIBLE
   // };
   template <class... ArgTypes,
             class CheckArgumentsAreValid = std::enable_if_t<
@@ -230,12 +245,8 @@ class BASE_EXPORT TaskTraits {
             trait_helpers::AreValidTraits<ValidTrait, ArgTypes...>{},
             args...)),
         priority_(
-            static_cast<uint8_t>(
-                trait_helpers::GetEnum<TaskPriority,
-                                       TaskPriority::USER_BLOCKING>(args...)) |
-            (trait_helpers::HasTrait<TaskPriority, ArgTypes...>()
-                 ? kIsExplicitFlag
-                 : 0)),
+            trait_helpers::GetEnum<TaskPriority, TaskPriority::USER_BLOCKING>(
+                args...)),
         shutdown_behavior_(
             static_cast<uint8_t>(
                 trait_helpers::GetEnum<TaskShutdownBehavior,
@@ -273,22 +284,10 @@ class BASE_EXPORT TaskTraits {
   }
 
   // Sets the priority of tasks with these traits to |priority|.
-  void UpdatePriority(TaskPriority priority) {
-    priority_ = static_cast<uint8_t>(priority) | kIsExplicitFlag;
-  }
-
-  // Sets the priority to |priority| if it wasn't explicitly set before.
-  void InheritPriority(TaskPriority priority);
-
-  // Returns true if the priority was set explicitly.
-  constexpr bool priority_set_explicitly() const {
-    return priority_ & kIsExplicitFlag;
-  }
+  void UpdatePriority(TaskPriority priority) { priority_ = priority; }
 
   // Returns the priority of tasks with these traits.
-  constexpr TaskPriority priority() const {
-    return static_cast<TaskPriority>(priority_ & ~kIsExplicitFlag);
-  }
+  constexpr TaskPriority priority() const { return priority_; }
 
   // Returns true if the shutdown behavior was set explicitly.
   constexpr bool shutdown_behavior_set_explicitly() const {
@@ -336,14 +335,12 @@ class BASE_EXPORT TaskTraits {
   friend PostTaskAndroid;
 
   // For use by PostTaskAndroid.
-  TaskTraits(bool priority_set_explicitly,
-             TaskPriority priority,
+  TaskTraits(TaskPriority priority,
              bool may_block,
              bool use_thread_pool,
              TaskTraitsExtensionStorage extension)
       : extension_(extension),
-        priority_(static_cast<uint8_t>(priority) |
-                  (priority_set_explicitly ? kIsExplicitFlag : 0)),
+        priority_(priority),
         shutdown_behavior_(
             static_cast<uint8_t>(TaskShutdownBehavior::SKIP_ON_SHUTDOWN)),
         thread_policy_(static_cast<uint8_t>(ThreadPolicy::PREFER_BACKGROUND)),
@@ -368,7 +365,7 @@ class BASE_EXPORT TaskTraits {
 
   // Ordered for packing.
   TaskTraitsExtensionStorage extension_;
-  uint8_t priority_;
+  TaskPriority priority_;
   uint8_t shutdown_behavior_;
   uint8_t thread_policy_;
   bool may_block_;
@@ -389,13 +386,6 @@ BASE_EXPORT std::ostream& operator<<(std::ostream& os,
 BASE_EXPORT std::ostream& operator<<(
     std::ostream& os,
     const TaskShutdownBehavior& shutdown_behavior);
-
-namespace internal {
-// Enables the kNoPriorityInheritanceFromThreadPool experimental feature. Must
-// be done statically when the ThreadPoolImpl is initialized because it's racy
-// to check the state later.
-void SetNoPriorityInheritanceFromThreadPool();
-}  // namespace internal
 
 }  // namespace base
 

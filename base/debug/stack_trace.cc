@@ -9,22 +9,22 @@
 #include <algorithm>
 #include <sstream>
 
-#include "base/logging.h"
+#include "base/check_op.h"
 #include "base/stl_util.h"
 
 #if BUILDFLAG(CAN_UNWIND_WITH_FRAME_POINTERS)
 
-#if defined(OS_LINUX) || defined(OS_ANDROID)
+#if defined(OS_LINUX) || defined(OS_CHROMEOS) || defined(OS_ANDROID)
 #include <pthread.h>
 #include "base/process/process_handle.h"
 #include "base/threading/platform_thread.h"
 #endif
 
-#if defined(OS_MACOSX)
+#if defined(OS_APPLE)
 #include <pthread.h>
 #endif
 
-#if defined(OS_LINUX) && defined(__GLIBC__)
+#if (defined(OS_LINUX) || defined(OS_CHROMEOS)) && defined(__GLIBC__)
 extern "C" void* __libc_stack_end;
 #endif
 
@@ -105,7 +105,7 @@ bool IsStackFrameValid(uintptr_t fp, uintptr_t prev_fp, uintptr_t stack_end) {
 // ScanStackForNextFrame() returns 0 if it couldn't find a valid frame
 // (or if stack scanning is not supported on the current platform).
 uintptr_t ScanStackForNextFrame(uintptr_t fp, uintptr_t stack_end) {
-#if defined(OS_LINUX)
+#if defined(OS_LINUX) || defined(OS_CHROMEOS)
   // Enough to resume almost all prematurely terminated traces.
   constexpr size_t kMaxStackScanArea = 8192;
 
@@ -130,7 +130,7 @@ uintptr_t ScanStackForNextFrame(uintptr_t fp, uintptr_t stack_end) {
       }
     }
   }
-#endif  // defined(OS_LINUX)
+#endif  // defined(OS_LINUX) || defined(OS_CHROMEOS)
 
   return 0;
 }
@@ -182,7 +182,7 @@ uintptr_t GetStackEnd() {
   }
   return stack_end;  // 0 in case of error
 
-#elif defined(OS_LINUX) && defined(__GLIBC__)
+#elif (defined(OS_LINUX) || defined(OS_CHROMEOS)) && defined(__GLIBC__)
 
   if (GetCurrentProcId() == PlatformThread::CurrentId()) {
     // For the main thread we have a shortcut.
@@ -191,7 +191,7 @@ uintptr_t GetStackEnd() {
 
 // No easy way to get end of the stack for non-main threads,
 // see crbug.com/617730.
-#elif defined(OS_MACOSX)
+#elif defined(OS_APPLE)
   return reinterpret_cast<uintptr_t>(pthread_get_stackaddr_np(pthread_self()));
 #endif
 

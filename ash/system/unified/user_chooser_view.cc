@@ -92,14 +92,13 @@ AddUserButton::AddUserButton(UserChooserDetailedViewController* controller)
   icon->SetImage(gfx::CreateVectorIcon(
       kSystemMenuNewUserIcon,
       AshColorProvider::Get()->GetContentLayerColor(
-          ContentLayerType::kIconPrimary, AshColorMode::kDark)));
+          ContentLayerType::kIconColorPrimary, AshColorMode::kDark)));
   AddChildView(icon);
 
   auto* label = new views::Label(
       l10n_util::GetStringUTF16(IDS_ASH_STATUS_TRAY_SIGN_IN_ANOTHER_ACCOUNT));
-  label->SetEnabledColor(
-      AshColorProvider::Get()->DeprecatedGetContentLayerColor(
-          ContentLayerType::kTextPrimary, kUnifiedMenuTextColor));
+  label->SetEnabledColor(AshColorProvider::Get()->GetContentLayerColor(
+      ContentLayerType::kTextColorPrimary, AshColorMode::kDark));
   label->SetAutoColorReadabilityEnabled(false);
   label->SetSubpixelRenderingEnabled(false);
   AddChildView(label);
@@ -131,7 +130,7 @@ class Separator : public views::View {
     child->SetBorder(views::CreateSolidSidedBorder(
         0, 0, kUnifiedNotificationSeparatorThickness, 0,
         AshColorProvider::Get()->GetContentLayerColor(
-            ContentLayerType::kSeparator, AshColorMode::kDark)));
+            ContentLayerType::kSeparatorColor, AshColorMode::kDark)));
   }
 
   DISALLOW_COPY_AND_ASSIGN(Separator);
@@ -139,9 +138,8 @@ class Separator : public views::View {
 
 views::View* CreateAddUserErrorView(const base::string16& message) {
   auto* label = new views::Label(message);
-  label->SetEnabledColor(
-      AshColorProvider::Get()->DeprecatedGetContentLayerColor(
-          ContentLayerType::kTextPrimary, kUnifiedMenuTextColor));
+  label->SetEnabledColor(AshColorProvider::Get()->GetContentLayerColor(
+      ContentLayerType::kTextColorPrimary, AshColorMode::kDark));
   label->SetAutoColorReadabilityEnabled(false);
   label->SetSubpixelRenderingEnabled(false);
   label->SetBorder(
@@ -230,16 +228,15 @@ UserItemButton::UserItemButton(int user_index,
       Shell::Get()->session_controller()->GetUserSession(user_index);
 
   name_->SetText(base::UTF8ToUTF16(user_session->user_info.display_name));
-  name_->SetEnabledColor(
-      AshColorProvider::Get()->DeprecatedGetContentLayerColor(
-          ContentLayerType::kTextPrimary, kUnifiedMenuTextColor));
+  name_->SetEnabledColor(AshColorProvider::Get()->GetContentLayerColor(
+      ContentLayerType::kTextColorPrimary, AshColorMode::kDark));
   name_->SetAutoColorReadabilityEnabled(false);
   name_->SetSubpixelRenderingEnabled(false);
   vertical_labels->AddChildView(name_);
 
   email_->SetText(base::UTF8ToUTF16(user_session->user_info.display_email));
   email_->SetEnabledColor(AshColorProvider::Get()->GetContentLayerColor(
-      ContentLayerType::kTextSecondary, AshColorMode::kDark));
+      ContentLayerType::kTextColorSecondary, AshColorMode::kDark));
   email_->SetAutoColorReadabilityEnabled(false);
   email_->SetSubpixelRenderingEnabled(false);
   vertical_labels->AddChildView(email_);
@@ -249,8 +246,8 @@ UserItemButton::UserItemButton(int user_index,
 
   capture_icon_->SetImage(gfx::CreateVectorIcon(
       kSystemTrayRecordingIcon,
-      AshColorProvider::Get()->GetContentLayerColor(ContentLayerType::kIconRed,
-                                                    AshColorMode::kDark)));
+      AshColorProvider::Get()->GetContentLayerColor(
+          ContentLayerType::kIconColorAlert, AshColorMode::kDark)));
   if (!has_close_button) {
     // Add a padding with the same size as the close button,
     // so as to align all media indicators in a column.

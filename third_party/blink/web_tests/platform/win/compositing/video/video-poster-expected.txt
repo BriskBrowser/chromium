@@ -43,12 +43,18 @@ Case: Displaying movie
       "backgroundColor": "#FFFFFF"
     },
     {
+      "name": "LayoutVideo VIDEO",
+      "bounds": [352, 288],
+      "drawsContent": false,
+      "transform": 1
+    },
+    {
       "name": "ContentsLayer for LayoutVideo VIDEO",
       "bounds": [352, 288],
       "transform": 1
     },
     {
-      "name": "LayoutFlexibleBox (relative positioned) DIV class='sizing-small phase-ready state-scrubbing'",
+      "name": "LayoutNGFlexibleBox (relative positioned) DIV class='sizing-small phase-ready state-scrubbing'",
       "bounds": [352, 288],
       "transform": 1
     },

@@ -10,9 +10,9 @@
 #include "base/macros.h"
 #include "base/strings/string16.h"
 #include "base/strings/utf_string_conversions.h"
+#include "chrome/browser/android/bookmarks/partner_bookmarks_reader.h"
 #include "chrome/browser/bookmarks/bookmark_model_factory.h"
 #include "chrome/test/base/testing_profile.h"
-#include "components/bookmarks/browser/bookmark_model.h"
 #include "components/bookmarks/test/bookmark_test_helpers.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/test/browser_task_environment.h"
@@ -20,9 +20,7 @@
 #include "testing/gtest/include/gtest/gtest.h"
 #include "url/gurl.h"
 
-using bookmarks::BookmarkModel;
 using bookmarks::BookmarkNode;
-using bookmarks::BookmarkPermanentNode;
 using testing::_;
 
 class MockObserver : public PartnerBookmarksShim::Observer {
@@ -37,36 +35,20 @@ class MockObserver : public PartnerBookmarksShim::Observer {
 
 class PartnerBookmarksShimTest : public testing::Test {
  public:
-  PartnerBookmarksShimTest() : model_(nullptr) {}
+  PartnerBookmarksShimTest() = default;
 
-  TestingProfile* profile() const { return profile_.get(); }
   PartnerBookmarksShim* partner_bookmarks_shim() const {
     return PartnerBookmarksShim::BuildForBrowserContext(profile_.get());
-  }
-
-  const BookmarkNode* AddBookmark(const BookmarkNode* parent,
-                                  const GURL& url,
-                                  const base::string16& title) {
-    if (!parent)
-      parent = model_->bookmark_bar_node();
-    return model_->AddURL(parent, parent->children().size(), title, url);
-  }
-
-  const BookmarkNode* AddFolder(const BookmarkNode* parent,
-                                const base::string16& title) {
-    if (!parent)
-      parent = model_->bookmark_bar_node();
-    return model_->AddFolder(parent, parent->children().size(), title);
   }
 
  protected:
   // testing::Test
   void SetUp() override {
-    profile_.reset(new TestingProfile());
-    profile_->CreateBookmarkModel(true);
-
-    model_ = BookmarkModelFactory::GetForBrowserContext(profile_.get());
-    bookmarks::test::WaitForBookmarkModelToLoad(model_);
+    TestingProfile::Builder profile_builder;
+    profile_builder.AddTestingFactory(
+        BookmarkModelFactory::GetInstance(),
+        BookmarkModelFactory::GetDefaultFactory());
+    profile_ = profile_builder.Build();
   }
 
   void TearDown() override {
@@ -80,7 +62,6 @@ class PartnerBookmarksShimTest : public testing::Test {
 
   content::BrowserTaskEnvironment task_environment_;
 
-  BookmarkModel* model_;
   MockObserver observer_;
 
  private:
@@ -88,9 +69,9 @@ class PartnerBookmarksShimTest : public testing::Test {
 };
 
 TEST_F(PartnerBookmarksShimTest, GetNodeByID) {
-  std::unique_ptr<BookmarkPermanentNode> root_partner_node =
-      std::make_unique<BookmarkPermanentNode>(0, BookmarkNode::FOLDER);
-  BookmarkPermanentNode* root_partner_node_ptr = root_partner_node.get();
+  std::unique_ptr<BookmarkNode> root_partner_node =
+      PartnerBookmarksReader::CreatePartnerBookmarksRootForTesting();
+  BookmarkNode* root_partner_node_ptr = root_partner_node.get();
   BookmarkNode* partner_folder1 = root_partner_node->Add(
       std::make_unique<BookmarkNode>(1, base::GenerateGUID(), GURL()));
 
@@ -126,10 +107,10 @@ TEST_F(PartnerBookmarksShimTest, ObserverNotifiedOfLoadNoPartnerBookmarks) {
 
 TEST_F(PartnerBookmarksShimTest, ObserverNotifiedOfLoadWithPartnerBookmarks) {
   EXPECT_CALL(observer_, PartnerShimLoaded(_)).Times(0);
-  int64_t id = 5;
-  std::unique_ptr<BookmarkPermanentNode> root_partner_node =
-      std::make_unique<BookmarkPermanentNode>(id++, BookmarkNode::FOLDER);
+  std::unique_ptr<BookmarkNode> root_partner_node =
+      PartnerBookmarksReader::CreatePartnerBookmarksRootForTesting();
 
+  int64_t id = 5;
   root_partner_node->Add(std::make_unique<BookmarkNode>(
       id++, base::GenerateGUID(), GURL("http://www.a.com")));
 
@@ -147,9 +128,9 @@ TEST_F(PartnerBookmarksShimTest, RemoveBookmarks) {
   EXPECT_CALL(observer_, PartnerShimLoaded(shim)).Times(0);
   EXPECT_CALL(observer_, PartnerShimChanged(shim)).Times(0);
 
-  std::unique_ptr<BookmarkPermanentNode> root_partner_node =
-      std::make_unique<BookmarkPermanentNode>(0, BookmarkNode::FOLDER);
-  BookmarkPermanentNode* root_partner_node_ptr = root_partner_node.get();
+  std::unique_ptr<BookmarkNode> root_partner_node =
+      PartnerBookmarksReader::CreatePartnerBookmarksRootForTesting();
+  BookmarkNode* root_partner_node_ptr = root_partner_node.get();
   root_partner_node->SetTitle(base::ASCIIToUTF16("Partner bookmarks"));
 
   BookmarkNode* partner_folder1 = root_partner_node->Add(
@@ -238,9 +219,9 @@ TEST_F(PartnerBookmarksShimTest, RenameBookmarks) {
   EXPECT_CALL(observer_, PartnerShimLoaded(shim)).Times(0);
   EXPECT_CALL(observer_, PartnerShimChanged(shim)).Times(0);
 
-  std::unique_ptr<BookmarkPermanentNode> root_partner_node =
-      std::make_unique<BookmarkPermanentNode>(0, BookmarkNode::FOLDER);
-  BookmarkPermanentNode* root_partner_node_ptr = root_partner_node.get();
+  std::unique_ptr<BookmarkNode> root_partner_node =
+      PartnerBookmarksReader::CreatePartnerBookmarksRootForTesting();
+  BookmarkNode* root_partner_node_ptr = root_partner_node.get();
   root_partner_node->SetTitle(base::ASCIIToUTF16("Partner bookmarks"));
 
   BookmarkNode* partner_folder1 = root_partner_node->Add(
@@ -322,8 +303,8 @@ TEST_F(PartnerBookmarksShimTest, SaveLoadProfile) {
     EXPECT_CALL(observer_, PartnerShimLoaded(shim)).Times(0);
     EXPECT_CALL(observer_, PartnerShimChanged(shim)).Times(0);
 
-    std::unique_ptr<BookmarkPermanentNode> root_partner_node =
-        std::make_unique<BookmarkPermanentNode>(0, BookmarkNode::FOLDER);
+    std::unique_ptr<BookmarkNode> root_partner_node =
+        PartnerBookmarksReader::CreatePartnerBookmarksRootForTesting();
     root_partner_node->SetTitle(base::ASCIIToUTF16("Partner bookmarks"));
 
     BookmarkNode* partner_folder1 = root_partner_node->Add(
@@ -377,8 +358,8 @@ TEST_F(PartnerBookmarksShimTest, DisableEditing) {
   EXPECT_CALL(observer_, PartnerShimLoaded(shim)).Times(0);
   EXPECT_CALL(observer_, PartnerShimChanged(shim)).Times(0);
 
-  std::unique_ptr<BookmarkPermanentNode> root_partner_node =
-      std::make_unique<BookmarkPermanentNode>(0, BookmarkNode::FOLDER);
+  std::unique_ptr<BookmarkNode> root_partner_node =
+      PartnerBookmarksReader::CreatePartnerBookmarksRootForTesting();
   root_partner_node->SetTitle(base::ASCIIToUTF16("Partner bookmarks"));
 
   BookmarkNode* partner_bookmark1 =
@@ -410,8 +391,8 @@ TEST_F(PartnerBookmarksShimTest, DisableEditing) {
 }
 
 TEST_F(PartnerBookmarksShimTest, GetPartnerBookmarksMatchingProperties) {
-  std::unique_ptr<BookmarkPermanentNode> root_partner_node =
-      std::make_unique<BookmarkPermanentNode>(0, BookmarkNode::FOLDER);
+  std::unique_ptr<BookmarkNode> root_partner_node =
+      PartnerBookmarksReader::CreatePartnerBookmarksRootForTesting();
   BookmarkNode* partner_folder1 = root_partner_node->Add(
       std::make_unique<BookmarkNode>(1, base::GenerateGUID(), GURL()));
   partner_folder1->SetTitle(base::ASCIIToUTF16("Folder1"));

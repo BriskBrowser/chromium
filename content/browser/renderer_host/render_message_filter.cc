@@ -19,6 +19,7 @@
 #include "base/strings/sys_string_conversions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
 #include "base/threading/thread.h"
 #include "build/build_config.h"
 #include "components/download/public/common/download_stats.h"
@@ -45,7 +46,6 @@
 #include "content/public/browser/storage_partition.h"
 #include "content/public/common/content_features.h"
 #include "content/public/common/content_switches.h"
-#include "content/public/common/context_menu_params.h"
 #include "content/public/common/url_constants.h"
 #include "gpu/ipc/common/gpu_memory_buffer_impl.h"
 #include "ipc/ipc_channel_handle.h"
@@ -67,10 +67,10 @@
 #include "base/file_descriptor_posix.h"
 #endif
 
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
 #include "ui/accelerated_widget_mac/window_resize_helper_mac.h"
 #endif
-#if defined(OS_LINUX)
+#if defined(OS_LINUX) || defined(OS_CHROMEOS)
 #include "base/linux_util.h"
 #include "base/threading/platform_thread.h"
 #endif
@@ -104,13 +104,7 @@ RenderMessageFilter::~RenderMessageFilter() {
 }
 
 bool RenderMessageFilter::OnMessageReceived(const IPC::Message& message) {
-  bool handled = true;
-  IPC_BEGIN_MESSAGE_MAP(RenderMessageFilter, message)
-    IPC_MESSAGE_HANDLER(ViewHostMsg_MediaLogRecords, OnMediaLogRecords)
-    IPC_MESSAGE_UNHANDLED(handled = false)
-  IPC_END_MESSAGE_MAP()
-
-  return handled;
+  return false;
 }
 
 void RenderMessageFilter::OnDestruct() const {
@@ -118,38 +112,12 @@ void RenderMessageFilter::OnDestruct() const {
   BrowserThread::DeleteOnIOThread::Destruct(this);
 }
 
-void RenderMessageFilter::OverrideThreadForMessage(const IPC::Message& message,
-                                                   BrowserThread::ID* thread) {
-  if (message.type() == ViewHostMsg_MediaLogRecords::ID)
-    *thread = BrowserThread::UI;
-}
-
 void RenderMessageFilter::GenerateRoutingID(
     GenerateRoutingIDCallback callback) {
   std::move(callback).Run(render_widget_helper_->GetNextRoutingID());
 }
 
-void RenderMessageFilter::CreateNewWidget(
-    int32_t opener_id,
-    mojo::PendingRemote<mojom::Widget> widget,
-    CreateNewWidgetCallback callback) {
-  int route_id = MSG_ROUTING_NONE;
-  render_widget_helper_->CreateNewWidget(opener_id, std::move(widget),
-                                         &route_id);
-  std::move(callback).Run(route_id);
-}
-
-void RenderMessageFilter::CreateFullscreenWidget(
-    int opener_id,
-    mojo::PendingRemote<mojom::Widget> widget,
-    CreateFullscreenWidgetCallback callback) {
-  int route_id = 0;
-  render_widget_helper_->CreateNewFullscreenWidget(opener_id, std::move(widget),
-                                                   &route_id);
-  std::move(callback).Run(route_id);
-}
-
-#if defined(OS_LINUX)
+#if defined(OS_LINUX) || defined(OS_CHROMEOS)
 void RenderMessageFilter::SetThreadPriorityOnFileThread(
     base::PlatformThreadId ns_tid,
     base::ThreadPriority priority) {
@@ -170,13 +138,13 @@ void RenderMessageFilter::SetThreadPriorityOnFileThread(
 }
 #endif
 
-#if defined(OS_LINUX)
+#if defined(OS_LINUX) || defined(OS_CHROMEOS)
 void RenderMessageFilter::SetThreadPriority(int32_t ns_tid,
                                             base::ThreadPriority priority) {
   constexpr base::TaskTraits kTraits = {
-      base::ThreadPool(), base::MayBlock(), base::TaskPriority::USER_BLOCKING,
+      base::MayBlock(), base::TaskPriority::USER_BLOCKING,
       base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN};
-  base::PostTask(
+  base::ThreadPool::PostTask(
       FROM_HERE, kTraits,
       base::BindOnce(&RenderMessageFilter::SetThreadPriorityOnFileThread, this,
                      static_cast<base::PlatformThreadId>(ns_tid), priority));

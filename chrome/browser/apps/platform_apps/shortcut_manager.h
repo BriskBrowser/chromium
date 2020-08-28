@@ -20,7 +20,11 @@ namespace user_prefs {
 class PrefRegistrySyncable;
 }
 
-// This class manages the installation of shortcuts for platform apps.
+// This class manages the installation of shortcuts for any extension-based apps
+// (Chrome Apps). Bookmark apps OS shortcut management is handled in
+// web_app::AppShortcutManager and its subclasses.
+//
+// Long term, this class must be deleted together with all extension-based apps.
 class AppShortcutManager : public KeyedService,
                            public extensions::ExtensionRegistryObserver,
                            public ProfileAttributesStorage::Observer {
@@ -36,8 +40,6 @@ class AppShortcutManager : public KeyedService,
   void UpdateShortcutsForAllAppsIfNeeded();
 
   // extensions::ExtensionRegistryObserver.
-  void OnExtensionLoaded(content::BrowserContext* browser_context,
-                         const extensions::Extension* extension) override;
   void OnExtensionWillBeInstalled(content::BrowserContext* browser_context,
                                   const extensions::Extension* extension,
                                   bool is_update,
@@ -48,6 +50,8 @@ class AppShortcutManager : public KeyedService,
 
   // ProfileAttributesStorage::Observer.
   void OnProfileWillBeRemoved(const base::FilePath& profile_path) override;
+
+  static void SuppressShortcutsForTesting();
 
  private:
   void UpdateShortcutsForAllAppsNow();

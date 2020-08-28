@@ -24,6 +24,7 @@
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/common/network_service_util.h"
+#include "content/public/test/browser_test.h"
 #include "content/public/test/test_utils.h"
 #include "extensions/buildflags/buildflags.h"
 #include "net/dns/mock_host_resolver.h"
@@ -90,7 +91,7 @@ void OnStartTracingDoneCallback(
       ->RequestGlobalDumpAndAppendToTrace(
           MemoryDumpType::EXPLICITLY_TRIGGERED, explicit_dump_type,
           MemoryDumpDeterminism::NONE,
-          Bind(&RequestGlobalDumpCallback, quit_closure));
+          BindOnce(&RequestGlobalDumpCallback, quit_closure));
 }
 
 class ProcessMemoryMetricsEmitterFake : public ProcessMemoryMetricsEmitter {
@@ -208,7 +209,7 @@ void CheckStableMemoryMetrics(const base::HistogramTester& histogram_tester,
                               int number_of_renderer_processes,
                               int number_of_extension_processes) {
   const int count_for_resident_set =
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
       0;
 #else
       count;
@@ -387,7 +388,7 @@ class ProcessMemoryMetricsEmitterTest
     CheckMemoryMetricWithName(entry, UkmEntry::kMallocName,
                               ValueRestriction::ABOVE_ZERO);
 #endif
-#if !defined(OS_MACOSX)
+#if !defined(OS_MAC)
     CheckMemoryMetricWithName(entry, UkmEntry::kResidentName,
                               ValueRestriction::ABOVE_ZERO);
 #endif
@@ -417,7 +418,7 @@ class ProcessMemoryMetricsEmitterTest
     CheckMemoryMetricWithName(entry, UkmEntry::kMallocName,
                               ValueRestriction::ABOVE_ZERO);
 #endif
-#if !defined(OS_MACOSX)
+#if !defined(OS_MAC)
     CheckMemoryMetricWithName(entry, UkmEntry::kResidentName,
                               ValueRestriction::ABOVE_ZERO);
 #endif
@@ -526,7 +527,7 @@ IN_PROC_BROWSER_TEST_F(ProcessMemoryMetricsEmitterTest,
   const GURL url = embedded_test_server()->GetURL("foo.com", "/empty.html");
   ui_test_utils::NavigateToURLWithDisposition(
       browser(), url, WindowOpenDisposition::NEW_FOREGROUND_TAB,
-      ui_test_utils::BROWSER_TEST_WAIT_FOR_NAVIGATION);
+      ui_test_utils::BROWSER_TEST_WAIT_FOR_LOAD_STOP);
 
   base::HistogramTester histogram_tester;
   base::RunLoop run_loop;
@@ -576,7 +577,7 @@ IN_PROC_BROWSER_TEST_F(ProcessMemoryMetricsEmitterTest,
   const GURL url = embedded_test_server()->GetURL("foo.com", "/empty.html");
   ui_test_utils::NavigateToURLWithDisposition(
       browser(), url, WindowOpenDisposition::NEW_FOREGROUND_TAB,
-      ui_test_utils::BROWSER_TEST_WAIT_FOR_NAVIGATION);
+      ui_test_utils::BROWSER_TEST_WAIT_FOR_LOAD_STOP);
 
   base::HistogramTester histogram_tester;
   base::RunLoop run_loop;
@@ -625,7 +626,7 @@ IN_PROC_BROWSER_TEST_F(ProcessMemoryMetricsEmitterTest,
   const GURL url = embedded_test_server()->GetURL("foo.com", "/empty.html");
   ui_test_utils::NavigateToURLWithDisposition(
       browser(), url, WindowOpenDisposition::NEW_FOREGROUND_TAB,
-      ui_test_utils::BROWSER_TEST_WAIT_FOR_NAVIGATION);
+      ui_test_utils::BROWSER_TEST_WAIT_FOR_LOAD_STOP);
 
   base::HistogramTester histogram_tester;
   base::RunLoop run_loop;
@@ -673,7 +674,7 @@ IN_PROC_BROWSER_TEST_F(ProcessMemoryMetricsEmitterTest,
   const GURL url = embedded_test_server()->GetURL("foo.com", "/empty.html");
   ui_test_utils::NavigateToURLWithDisposition(
       browser(), url, WindowOpenDisposition::NEW_FOREGROUND_TAB,
-      ui_test_utils::BROWSER_TEST_WAIT_FOR_NAVIGATION);
+      ui_test_utils::BROWSER_TEST_WAIT_FOR_LOAD_STOP);
 
   base::HistogramTester histogram_tester;
   base::RunLoop run_loop;
@@ -709,7 +710,7 @@ IN_PROC_BROWSER_TEST_F(ProcessMemoryMetricsEmitterTest,
 
 // TODO(crbug.com/989810): Re-enable on Win and Mac once not flaky.
 #if defined(ADDRESS_SANITIZER) || defined(MEMORY_SANITIZER) || \
-    defined(OS_WIN) || defined(OS_MACOSX)
+    defined(OS_WIN) || defined(OS_MAC)
 #define MAYBE_FetchDuringTrace DISABLED_FetchDuringTrace
 #else
 #define MAYBE_FetchDuringTrace FetchDuringTrace
@@ -720,7 +721,7 @@ IN_PROC_BROWSER_TEST_F(ProcessMemoryMetricsEmitterTest,
   const GURL url = embedded_test_server()->GetURL("foo.com", "/empty.html");
   ui_test_utils::NavigateToURLWithDisposition(
       browser(), url, WindowOpenDisposition::NEW_FOREGROUND_TAB,
-      ui_test_utils::BROWSER_TEST_WAIT_FOR_NAVIGATION);
+      ui_test_utils::BROWSER_TEST_WAIT_FOR_LOAD_STOP);
 
   base::HistogramTester histogram_tester;
 
@@ -731,9 +732,10 @@ IN_PROC_BROWSER_TEST_F(ProcessMemoryMetricsEmitterTest,
         base::trace_event::TraceConfigMemoryTestUtil::
             GetTraceConfig_EmptyTriggers());
     ASSERT_TRUE(tracing::BeginTracingWithTraceConfig(
-        trace_config, Bind(&OnStartTracingDoneCallback,
-                           base::trace_event::MemoryDumpLevelOfDetail::DETAILED,
-                           run_loop.QuitClosure())));
+        trace_config,
+        BindOnce(&OnStartTracingDoneCallback,
+                 base::trace_event::MemoryDumpLevelOfDetail::DETAILED,
+                 run_loop.QuitClosure())));
     run_loop.Run();
   }
 
@@ -777,7 +779,7 @@ IN_PROC_BROWSER_TEST_F(ProcessMemoryMetricsEmitterTest,
   const GURL url = embedded_test_server()->GetURL("foo.com", "/empty.html");
   ui_test_utils::NavigateToURLWithDisposition(
       browser(), url, WindowOpenDisposition::NEW_FOREGROUND_TAB,
-      ui_test_utils::BROWSER_TEST_WAIT_FOR_NAVIGATION);
+      ui_test_utils::BROWSER_TEST_WAIT_FOR_LOAD_STOP);
 
   base::HistogramTester histogram_tester;
   base::RunLoop run_loop;
@@ -802,8 +804,8 @@ IN_PROC_BROWSER_TEST_F(ProcessMemoryMetricsEmitterTest,
 
 // Test is flaky on chromeos and linux. https://crbug.com/938054.
 // Test is flaky on mac and win: https://crbug.com/948674.
-#if defined(ADDRESS_SANITIZER) || defined(MEMORY_SANITIZER) ||         \
-    defined(OS_CHROMEOS) || defined(OS_LINUX) || defined(OS_MACOSX) || \
+#if defined(ADDRESS_SANITIZER) || defined(MEMORY_SANITIZER) ||        \
+    defined(OS_CHROMEOS) || defined(OS_LINUX) || defined(OS_MAC) || \
     defined(OS_WIN)
 #define MAYBE_ForegroundAndBackgroundPages DISABLED_ForegroundAndBackgroundPages
 #else
@@ -817,13 +819,13 @@ IN_PROC_BROWSER_TEST_F(ProcessMemoryMetricsEmitterTest,
   const GURL url2 = embedded_test_server()->GetURL("b.com", "/empty.html");
   ui_test_utils::NavigateToURLWithDisposition(
       browser(), url1, WindowOpenDisposition::NEW_FOREGROUND_TAB,
-      ui_test_utils::BROWSER_TEST_WAIT_FOR_NAVIGATION);
+      ui_test_utils::BROWSER_TEST_WAIT_FOR_LOAD_STOP);
   content::WebContents* tab1 = add_tab.Wait();
 
   ui_test_utils::AllBrowserTabAddedWaiter add_tab2;
   ui_test_utils::NavigateToURLWithDisposition(
       browser(), url2, WindowOpenDisposition::NEW_BACKGROUND_TAB,
-      ui_test_utils::BROWSER_TEST_WAIT_FOR_NAVIGATION);
+      ui_test_utils::BROWSER_TEST_WAIT_FOR_LOAD_STOP);
   content::WebContents* tab2 = add_tab2.Wait();
 
   base::HistogramTester histogram_tester;

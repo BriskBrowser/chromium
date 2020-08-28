@@ -12,6 +12,7 @@
 #include "base/no_destructor.h"
 #include "base/run_loop.h"
 #include "base/task/post_task.h"
+#include "base/task/task_traits_extension.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/trace_event/trace_event.h"
 #include "build/build_config.h"
@@ -24,46 +25,26 @@
 #include "base/android/task_scheduler/post_task_android.h"
 #endif
 
+using QueueType = content::BrowserTaskQueues::QueueType;
+
 namespace content {
 namespace {
 
-using QueueType = ::content::BrowserTaskQueues::QueueType;
+// Returns the BrowserThread::ID stored in |traits| which must be coming from a
+// call through BaseBrowserTaskExecutor and hence have the
+// BrowserTaskTraitsExtension.
+BrowserThread::ID ExtractBrowserThreadId(const base::TaskTraits& traits) {
+  DCHECK_EQ(BrowserTaskTraitsExtension::kExtensionId, traits.extension_id());
+  const BrowserTaskTraitsExtension extension =
+      traits.GetExtension<BrowserTaskTraitsExtension>();
+
+  const BrowserThread::ID thread_id = extension.browser_thread();
+  DCHECK_GE(thread_id, 0);
+  return thread_id;
+}
 
 // |g_browser_task_executor| is intentionally leaked on shutdown.
 BrowserTaskExecutor* g_browser_task_executor = nullptr;
-
-QueueType GetQueueType(const base::TaskTraits& traits,
-                       BrowserTaskType task_type) {
-  switch (task_type) {
-    case BrowserTaskType::kBootstrap:
-      // Note we currently ignore the priority for bootstrap tasks.
-      return QueueType::kBootstrap;
-
-    case BrowserTaskType::kNavigation:
-    case BrowserTaskType::kPreconnect:
-      // Note we currently ignore the priority for navigation and preconnection
-      // tasks.
-      return QueueType::kNavigationAndPreconnection;
-
-    case BrowserTaskType::kDefault:
-      // Defer to traits.priority() below.
-      break;
-
-    case BrowserTaskType::kBrowserTaskType_Last:
-      NOTREACHED();
-  }
-
-  switch (traits.priority()) {
-    case base::TaskPriority::BEST_EFFORT:
-      return QueueType::kBestEffort;
-
-    case base::TaskPriority::USER_VISIBLE:
-      return QueueType::kUserVisible;
-
-    case base::TaskPriority::USER_BLOCKING:
-      return QueueType::kUserBlocking;
-  }
-}
 
 }  // namespace
 
@@ -77,30 +58,30 @@ bool BaseBrowserTaskExecutor::PostDelayedTask(const base::Location& from_here,
                                               base::TimeDelta delay) {
   if (traits.extension_id() != BrowserTaskTraitsExtension::kExtensionId ||
       traits.GetExtension<BrowserTaskTraitsExtension>().nestable()) {
-    return GetTaskRunner(traits)->PostDelayedTask(from_here, std::move(task),
-                                                  delay);
+    return GetTaskRunner(ExtractBrowserThreadId(traits), traits)
+        ->PostDelayedTask(from_here, std::move(task), delay);
   } else {
-    return GetTaskRunner(traits)->PostNonNestableDelayedTask(
-        from_here, std::move(task), delay);
+    return GetTaskRunner(ExtractBrowserThreadId(traits), traits)
+        ->PostNonNestableDelayedTask(from_here, std::move(task), delay);
   }
 }
 
 scoped_refptr<base::TaskRunner> BaseBrowserTaskExecutor::CreateTaskRunner(
     const base::TaskTraits& traits) {
-  return GetTaskRunner(traits);
+  return GetTaskRunner(ExtractBrowserThreadId(traits), traits);
 }
 
 scoped_refptr<base::SequencedTaskRunner>
 BaseBrowserTaskExecutor::CreateSequencedTaskRunner(
     const base::TaskTraits& traits) {
-  return GetTaskRunner(traits);
+  return GetTaskRunner(ExtractBrowserThreadId(traits), traits);
 }
 
 scoped_refptr<base::SingleThreadTaskRunner>
 BaseBrowserTaskExecutor::CreateSingleThreadTaskRunner(
     const base::TaskTraits& traits,
     base::SingleThreadTaskRunnerThreadMode thread_mode) {
-  return GetTaskRunner(traits);
+  return GetTaskRunner(ExtractBrowserThreadId(traits), traits);
 }
 
 #if defined(OS_WIN)
@@ -108,42 +89,66 @@ scoped_refptr<base::SingleThreadTaskRunner>
 BaseBrowserTaskExecutor::CreateCOMSTATaskRunner(
     const base::TaskTraits& traits,
     base::SingleThreadTaskRunnerThreadMode thread_mode) {
-  return GetTaskRunner(traits);
+  return GetTaskRunner(ExtractBrowserThreadId(traits), traits);
 }
 #endif  // defined(OS_WIN)
 
 scoped_refptr<base::SingleThreadTaskRunner>
-BaseBrowserTaskExecutor::GetTaskRunner(const base::TaskTraits& traits) const {
-  auto id_and_queue = GetThreadIdAndQueueType(traits);
+BaseBrowserTaskExecutor::GetTaskRunner(BrowserThread::ID identifier,
+                                       const base::TaskTraits& traits) const {
+  const QueueType queue_type = GetQueueType(traits);
 
-  switch (id_and_queue.thread_id) {
+  switch (identifier) {
     case BrowserThread::UI: {
-      return browser_ui_thread_handle_->GetBrowserTaskRunner(
-          id_and_queue.queue_type);
+      return browser_ui_thread_handle_->GetBrowserTaskRunner(queue_type);
     }
     case BrowserThread::IO:
-      return browser_io_thread_handle_->GetBrowserTaskRunner(
-          id_and_queue.queue_type);
+      return browser_io_thread_handle_->GetBrowserTaskRunner(queue_type);
     case BrowserThread::ID_COUNT:
       NOTREACHED();
   }
   return nullptr;
 }
 
-BaseBrowserTaskExecutor::ThreadIdAndQueueType
-BaseBrowserTaskExecutor::GetThreadIdAndQueueType(
-    const base::TaskTraits& traits) const {
-  DCHECK_EQ(BrowserTaskTraitsExtension::kExtensionId, traits.extension_id());
-  const BrowserTaskTraitsExtension extension =
-      traits.GetExtension<BrowserTaskTraitsExtension>();
+// static
+QueueType BaseBrowserTaskExecutor::GetQueueType(
+    const base::TaskTraits& traits) {
+  if (traits.extension_id() == BrowserTaskTraitsExtension::kExtensionId) {
+    const BrowserTaskTraitsExtension extension =
+        traits.GetExtension<BrowserTaskTraitsExtension>();
 
-  const BrowserThread::ID thread_id = extension.browser_thread();
-  DCHECK_GE(thread_id, 0);
+    const BrowserTaskType task_type = extension.task_type();
+    DCHECK_LT(task_type, BrowserTaskType::kBrowserTaskType_Last);
 
-  const BrowserTaskType task_type = extension.task_type();
-  DCHECK_LT(task_type, BrowserTaskType::kBrowserTaskType_Last);
+    switch (task_type) {
+      case BrowserTaskType::kBootstrap:
+        // Note we currently ignore the priority for bootstrap tasks.
+        return QueueType::kBootstrap;
 
-  return {thread_id, GetQueueType(traits, task_type)};
+      case BrowserTaskType::kPreconnect:
+        // Note we currently ignore the priority for navigation and
+        // preconnection tasks.
+        return QueueType::kPreconnection;
+
+      case BrowserTaskType::kDefault:
+        // Defer to traits.priority() below.
+        break;
+
+      case BrowserTaskType::kBrowserTaskType_Last:
+        NOTREACHED();
+    }
+  }
+
+  switch (traits.priority()) {
+    case base::TaskPriority::BEST_EFFORT:
+      return QueueType::kBestEffort;
+
+    case base::TaskPriority::USER_VISIBLE:
+      return QueueType::kUserVisible;
+
+    case base::TaskPriority::USER_BLOCKING:
+      return QueueType::kUserBlocking;
+  }
 }
 
 BrowserTaskExecutor::BrowserTaskExecutor(
@@ -210,7 +215,7 @@ BrowserTaskExecutor* BrowserTaskExecutor::Get() {
 // static
 void BrowserTaskExecutor::ResetForTesting() {
 #if defined(OS_ANDROID)
-  base::PostTaskAndroid::SignalNativeSchedulerShutdown();
+  base::PostTaskAndroid::SignalNativeSchedulerShutdownForTesting();
 #endif
   if (g_browser_task_executor) {
     RunAllPendingTasksOnThreadForTesting(BrowserThread::UI);
@@ -283,6 +288,20 @@ void BrowserTaskExecutor::EnableAllQueues() {
 }
 
 // static
+scoped_refptr<base::SingleThreadTaskRunner>
+BrowserTaskExecutor::GetUIThreadTaskRunner(const BrowserTaskTraits& traits) {
+  DCHECK(g_browser_task_executor);
+  return g_browser_task_executor->GetTaskRunner(BrowserThread::UI, traits);
+}
+
+// static
+scoped_refptr<base::SingleThreadTaskRunner>
+BrowserTaskExecutor::GetIOThreadTaskRunner(const BrowserTaskTraits& traits) {
+  DCHECK(g_browser_task_executor);
+  return g_browser_task_executor->GetTaskRunner(BrowserThread::IO, traits);
+}
+
+// static
 void BrowserTaskExecutor::InitializeIOThread() {
   DCHECK(g_browser_task_executor);
   g_browser_task_executor->browser_io_thread_handle_
@@ -316,60 +335,6 @@ std::unique_ptr<BrowserProcessSubThread> BrowserTaskExecutor::CreateIOThread() {
     LOG(FATAL) << "Failed to start BrowserThread:IO";
   return io_thread;
 }
-
-#if DCHECK_IS_ON()
-
-// static
-void BrowserTaskExecutor::AddValidator(
-    const base::TaskTraits& traits,
-    BrowserTaskQueues::Validator* validator) {
-  if (!g_browser_task_executor)
-    return;
-
-  auto id_and_queue = g_browser_task_executor->GetThreadIdAndQueueType(traits);
-  switch (id_and_queue.thread_id) {
-    case BrowserThread::ID::IO:
-      g_browser_task_executor->browser_io_thread_handle_->AddValidator(
-          id_and_queue.queue_type, validator);
-      break;
-
-    case BrowserThread::ID::UI:
-      g_browser_task_executor->browser_ui_thread_handle_->AddValidator(
-          id_and_queue.queue_type, validator);
-      break;
-
-    case BrowserThread::ID::ID_COUNT:
-      NOTREACHED();
-      break;
-  }
-}
-
-// static
-void BrowserTaskExecutor::RemoveValidator(
-    const base::TaskTraits& traits,
-    BrowserTaskQueues::Validator* validator) {
-  if (!g_browser_task_executor)
-    return;
-
-  auto id_and_queue = g_browser_task_executor->GetThreadIdAndQueueType(traits);
-  switch (id_and_queue.thread_id) {
-    case BrowserThread::ID::IO:
-      g_browser_task_executor->browser_io_thread_handle_->RemoveValidator(
-          id_and_queue.queue_type, validator);
-      break;
-
-    case BrowserThread::ID::UI:
-      g_browser_task_executor->browser_ui_thread_handle_->RemoveValidator(
-          id_and_queue.queue_type, validator);
-      break;
-
-    case BrowserThread::ID::ID_COUNT:
-      NOTREACHED();
-      break;
-  }
-}
-
-#endif
 
 BrowserThread::ID BrowserTaskExecutor::GetCurrentThreadID() const {
   NOTREACHED()

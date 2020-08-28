@@ -11,7 +11,6 @@
 
 #include "base/macros.h"
 #include "mojo/public/cpp/bindings/receiver_set.h"
-#include "mojo/public/cpp/bindings/strong_binding_set.h"
 #include "mojo/public/cpp/bindings/unique_receiver_set.h"
 #include "services/tracing/perfetto/consumer_host.h"
 #include "services/tracing/public/cpp/perfetto/task_runner.h"
@@ -43,8 +42,9 @@ class PerfettoService : public mojom::PerfettoService {
   // mojom::PerfettoService implementation.
   void ConnectToProducerHost(
       mojo::PendingRemote<mojom::ProducerClient> producer_client,
-      mojo::PendingReceiver<mojom::ProducerHost> producer_host_receiver)
-      override;
+      mojo::PendingReceiver<mojom::ProducerHost> producer_host_receiver,
+      mojo::ScopedSharedBufferHandle shared_memory,
+      uint64_t shared_memory_buffer_page_size_bytes) override;
 
   perfetto::TracingService* GetService() const;
 
@@ -64,6 +64,7 @@ class PerfettoService : public mojom::PerfettoService {
   // actively running services (whenever a service starts or stops).
   void AddActiveServicePid(base::ProcessId pid);
   void RemoveActiveServicePid(base::ProcessId pid);
+  void RemoveActiveServicePidIfNoActiveConnections(base::ProcessId pid);
   void SetActiveServicePidsInitialized();
 
   std::set<base::ProcessId> active_service_pids() const {
@@ -73,6 +74,8 @@ class PerfettoService : public mojom::PerfettoService {
   bool active_service_pids_initialized() const {
     return active_service_pids_initialized_;
   }
+
+  PerfettoTaskRunner* perfetto_task_runner() { return &perfetto_task_runner_; }
 
  private:
   void BindOnSequence(mojo::PendingReceiver<mojom::PerfettoService> receiver);

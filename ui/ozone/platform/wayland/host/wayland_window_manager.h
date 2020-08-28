@@ -16,6 +16,7 @@
 namespace ui {
 
 class WaylandWindow;
+class WaylandSubsurface;
 
 // Stores and returns WaylandWindows. Clients that are interested in knowing
 // when a new window is added or removed, but set self as an observer.
@@ -26,6 +27,21 @@ class WaylandWindowManager {
 
   void AddObserver(WaylandWindowObserver* observer);
   void RemoveObserver(WaylandWindowObserver* observer);
+
+  // Notifies observers that the Window has been ack configured and
+  // WaylandBufferManagerHost can start attaching buffers to the |surface_|.
+  void NotifyWindowConfigured(WaylandWindow* window);
+
+  // Stores the window that should grab the located events.
+  void GrabLocatedEvents(WaylandWindow* event_grabber);
+
+  // Removes the window that should grab the located events.
+  void UngrabLocatedEvents(WaylandWindow* event_grabber);
+
+  // Returns current event grabber.
+  WaylandWindow* located_events_grabber() const {
+    return located_events_grabber_;
+  }
 
   // Returns a window found by |widget|.
   WaylandWindow* GetWindow(gfx::AcceleratedWidget widget) const;
@@ -48,11 +64,24 @@ class WaylandWindowManager {
 
   void AddWindow(gfx::AcceleratedWidget widget, WaylandWindow* window);
   void RemoveWindow(gfx::AcceleratedWidget widget);
+  void AddSubsurface(gfx::AcceleratedWidget widget,
+                     WaylandSubsurface* subsurface);
+  void RemoveSubsurface(gfx::AcceleratedWidget widget,
+                        WaylandSubsurface* subsurface);
+
+  // Creates a new unique gfx::AcceleratedWidget.
+  gfx::AcceleratedWidget AllocateAcceleratedWidget();
 
  private:
   base::ObserverList<WaylandWindowObserver> observers_;
 
   base::flat_map<gfx::AcceleratedWidget, WaylandWindow*> window_map_;
+
+  WaylandWindow* located_events_grabber_ = nullptr;
+
+  // Stores strictly monotonically increasing counter for allocating unique
+  // AccelerateWidgets.
+  gfx::AcceleratedWidget last_accelerated_widget_ = gfx::kNullAcceleratedWidget;
 
   DISALLOW_COPY_AND_ASSIGN(WaylandWindowManager);
 };

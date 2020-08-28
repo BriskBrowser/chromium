@@ -7,23 +7,24 @@
 #include <memory>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/feature_list.h"
-#include "base/lazy_instance.h"
+#include "base/no_destructor.h"
 #include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
 #include "base/task_runner_util.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
 #include "components/viz/common/features.h"
 #include "components/viz/common/gpu/metal_context_provider.h"
-#include "components/viz/common/gpu/vulkan_context_provider.h"
-#include "components/viz/common/gpu/vulkan_in_process_context_provider.h"
 #include "gpu/command_buffer/client/gpu_memory_buffer_manager.h"
 #include "gpu/command_buffer/service/gpu_switches.h"
 #include "gpu/command_buffer/service/scheduler.h"
 #include "gpu/command_buffer/service/shared_context_state.h"
+#include "gpu/command_buffer/service/skia_utils.h"
 #include "gpu/command_buffer/service/sync_point_manager.h"
 #include "gpu/config/dx_diag_node.h"
 #include "gpu/config/gpu_finch_features.h"
@@ -32,6 +33,7 @@
 #include "gpu/config/gpu_util.h"
 #include "gpu/ipc/common/gpu_client_ids.h"
 #include "gpu/ipc/common/gpu_memory_buffer_support.h"
+#include "gpu/ipc/common/gpu_peak_memory.h"
 #include "gpu/ipc/common/memory_stats.h"
 #include "gpu/ipc/in_process_command_buffer.h"
 #include "gpu/ipc/service/gpu_channel.h"
@@ -51,7 +53,7 @@
 #include "media/mojo/services/mojo_video_encode_accelerator_provider.h"
 #include "mojo/public/cpp/bindings/self_owned_receiver.h"
 #include "skia/buildflags.h"
-#include "third_party/skia/include/gpu/GrContext.h"
+#include "third_party/skia/include/gpu/GrDirectContext.h"
 #include "third_party/skia/include/gpu/gl/GrGLAssembleInterface.h"
 #include "third_party/skia/include/gpu/gl/GrGLInterface.h"
 #include "ui/gl/gl_context.h"
@@ -69,6 +71,7 @@
 
 #if defined(OS_ANDROID)
 #include "components/viz/service/gl/throw_uncaught_exception.h"
+#include "media/base/android/media_codec_util.h"
 #endif
 
 #if defined(OS_CHROMEOS)
@@ -86,7 +89,7 @@
 #include "ui/gl/direct_composition_surface_win.h"
 #endif
 
-#if defined(OS_MACOSX)
+#if defined(OS_APPLE)
 #include "ui/base/cocoa/quartz_util.h"
 #endif
 
@@ -94,13 +97,150 @@
 #include "components/viz/common/gpu/dawn_context_provider.h"
 #endif
 
+#if BUILDFLAG(CLANG_PROFILING_INSIDE_SANDBOX)
+#include "base/test/clang_profiling.h"
+#endif
+
+#if BUILDFLAG(ENABLE_VULKAN)
+#include "components/viz/common/gpu/vulkan_context_provider.h"
+#include "components/viz/common/gpu/vulkan_in_process_context_provider.h"
+#endif
+
 namespace viz {
 
 namespace {
 
-static base::LazyInstance<base::RepeatingCallback<
-    void(int severity, size_t message_start, const std::string& message)>>::
-    Leaky g_log_callback = LAZY_INSTANCE_INITIALIZER;
+using LogCallback = base::RepeatingCallback<
+    void(int severity, const std::string& header, const std::string& message)>;
+
+struct LogMessage {
+  LogMessage(int severity,
+             const std::string& header,
+             const std::string& message)
+      : severity(severity),
+        header(std::move(header)),
+        message(std::move(message)) {}
+  const int severity;
+  const std::string header;
+  const std::string message;
+};
+
+// Forward declare log handlers so they can be used within LogMessageManager.
+bool PreInitializeLogHandler(int severity,
+                             const char* file,
+                             int line,
+                             size_t message_start,
+                             const std::string& message);
+bool PostInitializeLogHandler(int severity,
+                              const char* file,
+                              int line,
+                              size_t message_start,
+                              const std::string& message);
+
+// Class which manages LOG() message forwarding before and after GpuServiceImpl
+// InitializeWithHost(). Prior to initialize, log messages are deferred and kept
+// within the class. During initialize, InstallPostInitializeLogHandler() will
+// be called to flush deferred messages and route new ones directly to GpuHost.
+class LogMessageManager {
+ public:
+  LogMessageManager() = default;
+  ~LogMessageManager() = delete;
+
+  // Queues a deferred LOG() message into |deferred_messages_| unless
+  // |log_callback_| has been set -- in which case RouteMessage() is called.
+  void AddDeferredMessage(int severity,
+                          const std::string& header,
+                          const std::string& message) {
+    base::AutoLock lock(message_lock_);
+    // During InstallPostInitializeLogHandler() there's a brief window where a
+    // call into this function may be waiting on |message_lock_|, so we need to
+    // check if |log_callback_| was set once we get the lock.
+    if (log_callback_) {
+      RouteMessage(severity, std::move(header), std::move(message));
+      return;
+    }
+
+    // Otherwise just queue the message for InstallPostInitializeLogHandler() to
+    // forward later.
+    deferred_messages_.emplace_back(severity, std::move(header),
+                                    std::move(message));
+  }
+
+  // Used after InstallPostInitializeLogHandler() to route messages directly to
+  // |log_callback_|; avoids the need for a global lock.
+  void RouteMessage(int severity,
+                    const std::string& header,
+                    const std::string& message) {
+    log_callback_.Run(severity, std::move(header), std::move(message));
+  }
+
+  // If InstallPostInitializeLogHandler() will never be called, this method is
+  // called prior to process exit to ensure logs are forwarded.
+  void FlushMessages(mojom::GpuHost* gpu_host) {
+    base::AutoLock lock(message_lock_);
+    for (auto& log : deferred_messages_) {
+      gpu_host->RecordLogMessage(log.severity, std::move(log.header),
+                                 std::move(log.message));
+    }
+    deferred_messages_.clear();
+  }
+
+  // Used prior to InitializeWithHost() during GpuMain startup to ensure logs
+  // aren't lost before initialize.
+  void InstallPreInitializeLogHandler() {
+    DCHECK(!log_callback_);
+    logging::SetLogMessageHandler(PreInitializeLogHandler);
+  }
+
+  // Called by InitializeWithHost() to take over logging from the
+  // PostInitializeLogHandler(). Flushes all deferred messages.
+  void InstallPostInitializeLogHandler(LogCallback log_callback) {
+    base::AutoLock lock(message_lock_);
+    DCHECK(!log_callback_);
+    log_callback_ = std::move(log_callback);
+    for (auto& log : deferred_messages_)
+      RouteMessage(log.severity, std::move(log.header), std::move(log.message));
+    deferred_messages_.clear();
+    logging::SetLogMessageHandler(PostInitializeLogHandler);
+  }
+
+  // Called when it's no longer safe to invoke |log_callback_|.
+  void ShutdownLogging() { logging::SetLogMessageHandler(nullptr); }
+
+ private:
+  base::Lock message_lock_;
+  std::vector<LogMessage> deferred_messages_ GUARDED_BY(message_lock_);
+
+  // Set once under |mesage_lock_|, but may be accessed without lock after that.
+  LogCallback log_callback_;
+};
+
+LogMessageManager* GetLogMessageManager() {
+  static base::NoDestructor<LogMessageManager> message_manager;
+  return message_manager.get();
+}
+
+bool PreInitializeLogHandler(int severity,
+                             const char* file,
+                             int line,
+                             size_t message_start,
+                             const std::string& message) {
+  GetLogMessageManager()->AddDeferredMessage(severity,
+                                             message.substr(0, message_start),
+                                             message.substr(message_start));
+  return false;
+}
+
+bool PostInitializeLogHandler(int severity,
+                              const char* file,
+                              int line,
+                              size_t message_start,
+                              const std::string& message) {
+  GetLogMessageManager()->RouteMessage(severity,
+                                       message.substr(0, message_start),
+                                       message.substr(message_start));
+  return false;
+}
 
 bool IsAcceleratedJpegDecodeSupported() {
 #if defined(OS_CHROMEOS)
@@ -111,13 +251,51 @@ bool IsAcceleratedJpegDecodeSupported() {
 #endif  // defined(OS_CHROMEOS)
 }
 
-bool GpuLogMessageHandler(int severity,
-                          const char* file,
-                          int line,
-                          size_t message_start,
-                          const std::string& message) {
-  g_log_callback.Get().Run(severity, message_start, message);
-  return false;
+void GetVideoCapabilities(const gpu::GpuPreferences& gpu_preferences,
+                          const gpu::GpuDriverBugWorkarounds& gpu_workarounds,
+                          gpu::GPUInfo* gpu_info) {
+  // Due to https://crbug.com/709631, we don't want to query Android video
+  // decode/encode capabilities during startup. The renderer needs this info
+  // though, so assume some baseline capabilities.
+#if defined(OS_ANDROID)
+  // Note: Video encoding on Android relies on MediaCodec, so all cases
+  // where it's disabled for decoding it is also disabled for encoding.
+  if (gpu_preferences.disable_accelerated_video_decode ||
+      gpu_preferences.disable_accelerated_video_encode) {
+    return;
+  }
+
+  auto& encoding_profiles =
+      gpu_info->video_encode_accelerator_supported_profiles;
+
+  gpu::VideoEncodeAcceleratorSupportedProfile vea_profile;
+  vea_profile.max_resolution = gfx::Size(1280, 720);
+  vea_profile.max_framerate_numerator = 30;
+  vea_profile.max_framerate_denominator = 1;
+
+  if (media::MediaCodecUtil::IsVp8EncoderAvailable()) {
+    vea_profile.profile = gpu::VP8PROFILE_ANY;
+    encoding_profiles.push_back(vea_profile);
+  }
+
+#if BUILDFLAG(USE_PROPRIETARY_CODECS)
+  if (media::MediaCodecUtil::IsH264EncoderAvailable(/*use_codec_list*/ false)) {
+    vea_profile.profile = gpu::H264PROFILE_BASELINE;
+    encoding_profiles.push_back(vea_profile);
+  }
+#endif
+
+  // Note: Since Android doesn't have to support PPAPI/Flash, we have not
+  // returned the decoder profiles here since https://crrev.com/665999.
+#else
+  gpu_info->video_decode_accelerator_capabilities =
+      media::GpuVideoDecodeAccelerator::GetCapabilities(gpu_preferences,
+                                                        gpu_workarounds);
+  gpu_info->video_encode_accelerator_supported_profiles =
+      media::GpuVideoAcceleratorUtil::ConvertMediaToGpuEncodeProfiles(
+          media::GpuVideoEncodeAcceleratorFactory::GetSupportedProfiles(
+              gpu_preferences));
+#endif
 }
 
 // Returns a callback which does a PostTask to run |callback| on the |runner|
@@ -149,7 +327,7 @@ GpuServiceImpl::GpuServiceImpl(
         gpu_feature_info_for_hardware_gpu,
     const gpu::GpuExtraInfo& gpu_extra_info,
     gpu::VulkanImplementation* vulkan_implementation,
-    base::OnceCallback<void(bool /*immediately*/)> exit_callback)
+    base::OnceCallback<void(base::Optional<ExitCode>)> exit_callback)
     : main_runner_(base::ThreadTaskRunnerHandle::Get()),
       io_runner_(std::move(io_runner)),
       watchdog_thread_(std::move(watchdog_thread)),
@@ -170,17 +348,35 @@ GpuServiceImpl::GpuServiceImpl(
   protected_buffer_manager_ = new arc::ProtectedBufferManager();
 #endif  // defined(OS_CHROMEOS)
 
+  GrContextOptions context_options =
+      GetDefaultGrContextOptions(gpu_preferences_.gr_context_type);
+  if (gpu_preferences_.force_max_texture_size) {
+    context_options.fMaxTextureSizeOverride =
+        gpu_preferences_.force_max_texture_size;
+  }
+
 #if BUILDFLAG(ENABLE_VULKAN)
   if (vulkan_implementation_) {
-    vulkan_context_provider_ =
-        VulkanInProcessContextProvider::Create(vulkan_implementation_);
+    bool is_native_vulkan =
+        gpu_preferences_.use_vulkan == gpu::VulkanImplementationName::kNative ||
+        gpu_preferences_.use_vulkan ==
+            gpu::VulkanImplementationName::kForcedNative;
+    // With swiftshader the vendor_id is 0xffff. For some tests gpu_info is not
+    // initialized, so the vendor_id is 0.
+    bool is_native_gl =
+        gpu_info_.gpu.vendor_id != 0xffff && gpu_info_.gpu.vendor_id != 0;
+    // If GL is using a real GPU, the gpu_info will be passed in and vulkan will
+    // use the same GPU.
+    vulkan_context_provider_ = VulkanInProcessContextProvider::Create(
+        vulkan_implementation_, context_options,
+        (is_native_vulkan && is_native_gl) ? &gpu_info : nullptr);
     if (vulkan_context_provider_) {
       // If Vulkan is supported, then OOP-R is supported.
       gpu_info_.oop_rasterization_supported = true;
       gpu_feature_info_.status_values[gpu::GPU_FEATURE_TYPE_OOP_RASTERIZATION] =
           gpu::kGpuFeatureStatusEnabled;
     } else {
-      DLOG(WARNING) << "Failed to create Vulkan context provider.";
+      DLOG(ERROR) << "Failed to create Vulkan context provider.";
     }
   }
 #endif
@@ -193,7 +389,7 @@ GpuServiceImpl::GpuServiceImpl(
       gpu_feature_info_.status_values[gpu::GPU_FEATURE_TYPE_OOP_RASTERIZATION] =
           gpu::kGpuFeatureStatusEnabled;
     } else {
-      DLOG(WARNING) << "Failed to create Dawn context provider.";
+      DLOG(ERROR) << "Failed to create Dawn context provider.";
     }
   }
 #endif
@@ -203,11 +399,18 @@ GpuServiceImpl::GpuServiceImpl(
       media::VaapiImageDecodeAcceleratorWorker::Create();
 #endif
 
-#if defined(OS_MACOSX)
+#if defined(OS_APPLE)
   if (gpu_feature_info_.status_values[gpu::GPU_FEATURE_TYPE_METAL] ==
       gpu::kGpuFeatureStatusEnabled) {
-    metal_context_provider_ = MetalContextProvider::Create();
+    metal_context_provider_ = MetalContextProvider::Create(context_options);
   }
+#endif
+
+#if defined(OS_WIN)
+  auto info_callback = base::BindRepeating(
+      &GpuServiceImpl::UpdateOverlayAndHDRInfo, weak_ptr_factory_.GetWeakPtr());
+  gl::DirectCompositionSurfaceWin::SetOverlayHDRGpuInfoUpdateCallback(
+      info_callback);
 #endif
 
   gpu_memory_buffer_factory_ =
@@ -223,8 +426,7 @@ GpuServiceImpl::~GpuServiceImpl() {
   is_exiting_.Set();
 
   bind_task_tracker_.TryCancelAll();
-  logging::SetLogMessageHandler(nullptr);
-  g_log_callback.Get().Reset();
+  GetLogMessageManager()->ShutdownLogging();
 
   // Destroy the receiver on the IO thread.
   base::WaitableEvent wait;
@@ -267,13 +469,9 @@ void GpuServiceImpl::UpdateGPUInfo() {
   DCHECK(!gpu_host_);
   gpu::GpuDriverBugWorkarounds gpu_workarounds(
       gpu_feature_info_.enabled_gpu_driver_bug_workarounds);
-  gpu_info_.video_decode_accelerator_capabilities =
-      media::GpuVideoDecodeAccelerator::GetCapabilities(gpu_preferences_,
-                                                        gpu_workarounds);
-  gpu_info_.video_encode_accelerator_supported_profiles =
-      media::GpuVideoAcceleratorUtil::ConvertMediaToGpuEncodeProfiles(
-          media::GpuVideoEncodeAcceleratorFactory::GetSupportedProfiles(
-              gpu_preferences_));
+
+  GetVideoCapabilities(gpu_preferences_, gpu_workarounds, &gpu_info_);
+
   gpu_info_.jpeg_decode_accelerator_supported =
       IsAcceleratedJpegDecodeSupported();
 
@@ -305,9 +503,8 @@ void GpuServiceImpl::InitializeWithHost(
     // The global callback is reset from the dtor. So Unretained() here is safe.
     // Note that the callback can be called from any thread. Consequently, the
     // callback cannot use a WeakPtr.
-    g_log_callback.Get() = base::BindRepeating(
-        &GpuServiceImpl::RecordLogMessage, base::Unretained(this));
-    logging::SetLogMessageHandler(GpuLogMessageHandler);
+    GetLogMessageManager()->InstallPostInitializeLogHandler(base::BindRepeating(
+        &GpuServiceImpl::RecordLogMessage, base::Unretained(this)));
   }
 
   if (!sync_point_manager) {
@@ -387,13 +584,21 @@ gpu::ImageFactory* GpuServiceImpl::gpu_image_factory() {
              : nullptr;
 }
 
+// static
+void GpuServiceImpl::InstallPreInitializeLogHandler() {
+  GetLogMessageManager()->InstallPreInitializeLogHandler();
+}
+
+// static
+void GpuServiceImpl::FlushPreInitializeLogMessages(mojom::GpuHost* gpu_host) {
+  GetLogMessageManager()->FlushMessages(gpu_host);
+}
+
 void GpuServiceImpl::RecordLogMessage(int severity,
-                                      size_t message_start,
-                                      const std::string& str) {
+                                      const std::string& header,
+                                      const std::string& message) {
   // This can be run from any thread.
-  std::string header = str.substr(0, message_start);
-  std::string message = str.substr(message_start);
-  gpu_host_->RecordLogMessage(severity, header, message);
+  gpu_host_->RecordLogMessage(severity, std::move(header), std::move(message));
 }
 
 #if defined(OS_CHROMEOS)
@@ -561,59 +766,6 @@ void GpuServiceImpl::GetPeakMemoryUsage(uint32_t sequence_num,
                                 weak_ptr_, sequence_num, std::move(callback)));
 }
 
-#if defined(OS_WIN)
-void GpuServiceImpl::GetGpuSupportedRuntimeVersion(
-    GetGpuSupportedRuntimeVersionCallback callback) {
-  if (io_runner_->BelongsToCurrentThread()) {
-    auto wrap_callback = WrapCallback(io_runner_, std::move(callback));
-    main_runner_->PostTask(
-        FROM_HERE,
-        base::BindOnce(&GpuServiceImpl::GetGpuSupportedRuntimeVersion,
-                       weak_ptr_, std::move(wrap_callback)));
-    return;
-  }
-  DCHECK(main_runner_->BelongsToCurrentThread());
-
-  // GPU full info collection should only happen on un-sandboxed GPU process
-  // or single process/in-process gpu mode on Windows.
-  base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
-  DCHECK(command_line->HasSwitch("disable-gpu-sandbox") || in_host_process());
-
-  gpu::RecordGpuSupportedRuntimeVersionHistograms(
-      &gpu_info_.dx12_vulkan_version_info);
-  std::move(callback).Run(gpu_info_.dx12_vulkan_version_info);
-
-  // The unsandboxed GPU process fulfilled its duty and Dxdiag task is not
-  // running. Bye bye.
-  if (!long_dx_task_different_thread_in_progress_)
-    MaybeExit(false);
-}
-
-void GpuServiceImpl::RequestCompleteGpuInfo(
-    RequestCompleteGpuInfoCallback callback) {
-  if (io_runner_->BelongsToCurrentThread()) {
-    auto wrap_callback = WrapCallback(io_runner_, std::move(callback));
-    main_runner_->PostTask(
-        FROM_HERE, base::BindOnce(&GpuServiceImpl::RequestCompleteGpuInfo,
-                                  weak_ptr_, std::move(wrap_callback)));
-    return;
-  }
-  DCHECK(main_runner_->BelongsToCurrentThread());
-
-  UpdateGpuInfoPlatform(base::BindOnce(
-      IgnoreResult(&base::TaskRunner::PostTask), main_runner_, FROM_HERE,
-      base::BindOnce(
-          [](GpuServiceImpl* gpu_service,
-             RequestCompleteGpuInfoCallback callback) {
-            std::move(callback).Run(gpu_service->gpu_info_.dx_diagnostics);
-            // The unsandboxed GPU process fulfilled its duty. Bye bye.
-            gpu_service->long_dx_task_different_thread_in_progress_ = false;
-            gpu_service->MaybeExit(false);
-          },
-          this, std::move(callback))));
-}
-#endif
-
 void GpuServiceImpl::RequestHDRStatus(RequestHDRStatusCallback callback) {
   DCHECK(io_runner_->BelongsToCurrentThread());
   main_runner_->PostTask(
@@ -624,50 +776,13 @@ void GpuServiceImpl::RequestHDRStatus(RequestHDRStatusCallback callback) {
 void GpuServiceImpl::RequestHDRStatusOnMainThread(
     RequestHDRStatusCallback callback) {
   DCHECK(main_runner_->BelongsToCurrentThread());
-  bool hdr_enabled = false;
+
 #if defined(OS_WIN)
-  hdr_enabled = gl::DirectCompositionSurfaceWin::IsHDRSupported();
+  hdr_enabled_ = gl::DirectCompositionSurfaceWin::IsHDRSupported();
 #endif
   io_runner_->PostTask(FROM_HERE,
-                       base::BindOnce(std::move(callback), hdr_enabled));
+                       base::BindOnce(std::move(callback), hdr_enabled_));
 }
-
-#if defined(OS_WIN)
-void GpuServiceImpl::UpdateGpuInfoPlatform(
-    base::OnceClosure on_gpu_info_updated) {
-  DCHECK(main_runner_->BelongsToCurrentThread());
-  // GPU full info collection should only happen on un-sandboxed GPU process
-  // or single process/in-process gpu mode on Windows.
-  base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
-  DCHECK(command_line->HasSwitch("disable-gpu-sandbox") || in_host_process());
-
-  // We can continue on shutdown here because we're not writing any critical
-  // state in this task.
-  long_dx_task_different_thread_in_progress_ = true;
-  base::PostTaskAndReplyWithResult(
-      base::CreateCOMSTATaskRunner(
-          {base::ThreadPool(), base::TaskPriority::USER_VISIBLE,
-           base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN})
-          .get(),
-      FROM_HERE, base::BindOnce([]() {
-        gpu::DxDiagNode dx_diag_node;
-        gpu::GetDxDiagnostics(&dx_diag_node);
-        return dx_diag_node;
-      }),
-      base::BindOnce(
-          [](GpuServiceImpl* gpu_service, base::OnceClosure on_gpu_info_updated,
-             const gpu::DxDiagNode& dx_diag_node) {
-            gpu_service->gpu_info_.dx_diagnostics = dx_diag_node;
-            std::move(on_gpu_info_updated).Run();
-          },
-          this, std::move(on_gpu_info_updated)));
-}
-#else
-void GpuServiceImpl::UpdateGpuInfoPlatform(
-    base::OnceClosure on_gpu_info_updated) {
-  std::move(on_gpu_info_updated).Run();
-}
-#endif
 
 void GpuServiceImpl::RegisterDisplayContext(
     gpu::DisplayContext* display_context) {
@@ -708,6 +823,11 @@ void GpuServiceImpl::DidDestroyChannel(int client_id) {
   gpu_host_->DidDestroyChannel(client_id);
 }
 
+void GpuServiceImpl::DidDestroyAllChannels() {
+  DCHECK(main_runner_->BelongsToCurrentThread());
+  gpu_host_->DidDestroyAllChannels();
+}
+
 void GpuServiceImpl::DidDestroyOffscreenContext(const GURL& active_url) {
   DCHECK(main_runner_->BelongsToCurrentThread());
   gpu_host_->DidDestroyOffscreenContext(active_url);
@@ -719,6 +839,17 @@ void GpuServiceImpl::DidLoseContext(bool offscreen,
   DCHECK(main_runner_->BelongsToCurrentThread());
   gpu_host_->DidLoseContext(offscreen, reason, active_url);
 }
+
+#if defined(OS_WIN)
+void GpuServiceImpl::DidUpdateOverlayInfo(
+    const gpu::OverlayInfo& overlay_info) {
+  gpu_host_->DidUpdateOverlayInfo(gpu_info_.overlay_info);
+}
+
+void GpuServiceImpl::DidUpdateHDRStatus(bool hdr_enabled) {
+  gpu_host_->DidUpdateHDRStatus(hdr_enabled);
+}
+#endif
 
 void GpuServiceImpl::StoreShaderToDisk(int client_id,
                                        const std::string& key,
@@ -839,6 +970,30 @@ void GpuServiceImpl::GpuSwitched(gl::GpuPreference active_gpu_heuristic) {
         active_gpu_heuristic);
 }
 
+void GpuServiceImpl::DisplayAdded() {
+  if (io_runner_->BelongsToCurrentThread()) {
+    main_runner_->PostTask(
+        FROM_HERE, base::BindOnce(&GpuServiceImpl::DisplayAdded, weak_ptr_));
+    return;
+  }
+  DVLOG(1) << "GPU: A monitor is plugged in";
+
+  if (!in_host_process())
+    ui::GpuSwitchingManager::GetInstance()->NotifyDisplayAdded();
+}
+
+void GpuServiceImpl::DisplayRemoved() {
+  if (io_runner_->BelongsToCurrentThread()) {
+    main_runner_->PostTask(
+        FROM_HERE, base::BindOnce(&GpuServiceImpl::DisplayRemoved, weak_ptr_));
+    return;
+  }
+  DVLOG(1) << "GPU: A monitor is unplugged ";
+
+  if (!in_host_process())
+    ui::GpuSwitchingManager::GetInstance()->NotifyDisplayRemoved();
+}
+
 void GpuServiceImpl::DestroyAllChannels() {
   if (io_runner_->BelongsToCurrentThread()) {
     main_runner_->PostTask(
@@ -893,7 +1048,7 @@ void GpuServiceImpl::OnMemoryPressure(
 }
 #endif
 
-#if defined(OS_MACOSX)
+#if defined(OS_APPLE)
 void GpuServiceImpl::BeginCATransaction() {
   DCHECK(io_runner_->BelongsToCurrentThread());
   main_runner_->PostTask(FROM_HERE, base::BindOnce(&ui::BeginCATransaction));
@@ -904,6 +1059,14 @@ void GpuServiceImpl::CommitCATransaction(CommitCATransactionCallback callback) {
   main_runner_->PostTaskAndReply(FROM_HERE,
                                  base::BindOnce(&ui::CommitCATransaction),
                                  WrapCallback(io_runner_, std::move(callback)));
+}
+#endif
+
+#if BUILDFLAG(CLANG_PROFILING_INSIDE_SANDBOX)
+void GpuServiceImpl::WriteClangProfilingProfile(
+    WriteClangProfilingProfileCallback callback) {
+  base::WriteClangProfilingProfile();
+  std::move(callback).Run();
 }
 #endif
 
@@ -940,9 +1103,12 @@ void GpuServiceImpl::StartPeakMemoryMonitorOnMainThread(uint32_t sequence_num) {
 void GpuServiceImpl::GetPeakMemoryUsageOnMainThread(
     uint32_t sequence_num,
     GetPeakMemoryUsageCallback callback) {
-  uint64_t peak_memory = gpu_channel_manager_->GetPeakMemoryUsage(sequence_num);
+  uint64_t peak_memory = 0u;
+  auto allocation_per_source =
+      gpu_channel_manager_->GetPeakMemoryUsage(sequence_num, &peak_memory);
   io_runner_->PostTask(FROM_HERE,
-                       base::BindOnce(std::move(callback), peak_memory));
+                       base::BindOnce(std::move(callback), peak_memory,
+                                      std::move(allocation_per_source)));
 }
 
 void GpuServiceImpl::MaybeExit(bool for_context_loss) {
@@ -960,14 +1126,36 @@ void GpuServiceImpl::MaybeExit(bool for_context_loss) {
                   "from errors. GPU process will restart shortly.";
   }
   is_exiting_.Set();
-  // For the unsandboxed GPU process used for info collection, if we exit
-  // immediately, then the reply message could be lost. That's why the
-  // |exit_callback_| takes the boolean argument.
-  std::move(exit_callback_).Run(/*immediately=*/for_context_loss);
+  // For the unsandboxed GPU info collection process used for info collection,
+  // if we exit immediately, then the reply message could be lost. That's why
+  // the |exit_callback_| takes the boolean argument.
+  if (for_context_loss)
+    std::move(exit_callback_)
+        .Run(ExitCode::RESULT_CODE_GPU_EXIT_ON_CONTEXT_LOST);
+  else
+    std::move(exit_callback_).Run(base::nullopt);
 }
 
 gpu::Scheduler* GpuServiceImpl::GetGpuScheduler() {
   return scheduler_.get();
 }
+
+#if defined(OS_WIN)
+void GpuServiceImpl::UpdateOverlayAndHDRInfo() {
+  gpu::OverlayInfo old_overlay_info = gpu_info_.overlay_info;
+  gpu::CollectHardwareOverlayInfo(&gpu_info_.overlay_info);
+
+  // Update overlay info in the GPU process and send the updated data back to
+  // the GPU host in the Browser process through mojom if the info has changed.
+  if (old_overlay_info != gpu_info_.overlay_info)
+    DidUpdateOverlayInfo(gpu_info_.overlay_info);
+
+  // Update HDR status in the GPU process through the GPU host mojom.
+  bool old_hdr_enabled_status = hdr_enabled_;
+  hdr_enabled_ = gl::DirectCompositionSurfaceWin::IsHDRSupported();
+  if (old_hdr_enabled_status != hdr_enabled_)
+    DidUpdateHDRStatus(hdr_enabled_);
+}
+#endif
 
 }  // namespace viz

@@ -81,6 +81,7 @@ class ExpandButton : public views::ImageView {
   void OnPaint(gfx::Canvas* canvas) override;
   void OnFocus() override;
   void OnBlur() override;
+  void OnThemeChanged() override;
   void GetAccessibleNodeData(ui::AXNodeData* node_data) override;
 
  private:
@@ -88,8 +89,6 @@ class ExpandButton : public views::ImageView {
 };
 
 ExpandButton::ExpandButton() {
-  focus_painter_ = views::Painter::CreateSolidFocusPainter(
-      kFocusBorderColor, gfx::Insets(0, 0, 1, 1));
   SetFocusBehavior(FocusBehavior::ALWAYS);
 }
 
@@ -110,6 +109,14 @@ void ExpandButton::OnFocus() {
 void ExpandButton::OnBlur() {
   views::ImageView::OnBlur();
   SchedulePaint();
+}
+
+void ExpandButton::OnThemeChanged() {
+  ImageView::OnThemeChanged();
+  focus_painter_ = views::Painter::CreateSolidFocusPainter(
+      GetNativeTheme()->GetSystemColor(
+          ui::NativeTheme::kColorId_FocusedBorderColor),
+      gfx::Insets(0, 0, 1, 1));
 }
 
 void ExpandButton::GetAccessibleNodeData(ui::AXNodeData* node_data) {
@@ -143,7 +150,6 @@ gfx::Insets CalculateTopPadding(int font_list_height) {
   }
 #endif
 
-  DCHECK_EQ(15, font_list_height);
   return kTextViewPaddingDefault;
 }
 
@@ -152,15 +158,13 @@ gfx::Insets CalculateTopPadding(int font_list_height) {
 NotificationHeaderView::NotificationHeaderView(views::ButtonListener* listener)
     : views::Button(listener) {
   const views::FlexSpecification kAppNameFlex =
-      views::FlexSpecification::ForSizeRule(
-          views::MinimumFlexSizeRule::kScaleToZero,
-          views::MaximumFlexSizeRule::kPreferred)
+      views::FlexSpecification(views::MinimumFlexSizeRule::kScaleToZero,
+                               views::MaximumFlexSizeRule::kPreferred)
           .WithOrder(1);
 
   const views::FlexSpecification kSpacerFlex =
-      views::FlexSpecification::ForSizeRule(
-          views::MinimumFlexSizeRule::kScaleToMinimum,
-          views::MaximumFlexSizeRule::kUnbounded)
+      views::FlexSpecification(views::MinimumFlexSizeRule::kScaleToMinimum,
+                               views::MaximumFlexSizeRule::kUnbounded)
           .WithOrder(2);
 
   auto* layout = SetLayoutManager(std::make_unique<views::FlexLayout>());
@@ -188,7 +192,6 @@ NotificationHeaderView::NotificationHeaderView(views::ButtonListener* listener)
     label->SetLineHeight(font_list_height);
     label->SetHorizontalAlignment(gfx::ALIGN_LEFT);
     label->SetBorder(views::CreateEmptyBorder(text_view_padding));
-    DCHECK_EQ(kInnerHeaderHeight, label->GetPreferredSize().height());
     return label;
   };
 
@@ -245,7 +248,6 @@ NotificationHeaderView::NotificationHeaderView(views::ButtonListener* listener)
   spacer->SetProperty(views::kFlexBehaviorKey, kSpacerFlex);
   AddChildView(spacer);
 
-  SetAccentColor(accent_color_);
   SetPreferredSize(gfx::Size(kNotificationWidth, kHeaderHeight));
 }
 
@@ -257,9 +259,8 @@ void NotificationHeaderView::SetAppIcon(const gfx::ImageSkia& img) {
 }
 
 void NotificationHeaderView::ClearAppIcon() {
-  app_icon_view_->SetImage(
-      gfx::CreateVectorIcon(kProductIcon, kSmallImageSizeMD, accent_color_));
   using_default_app_icon_ = true;
+  UpdateColors();
 }
 
 void NotificationHeaderView::SetAppName(const base::string16& name) {
@@ -279,25 +280,15 @@ void NotificationHeaderView::SetProgress(int progress) {
 }
 
 void NotificationHeaderView::SetSummaryText(const base::string16& text) {
-  DCHECK(!has_progress_);
   summary_text_view_->SetText(text);
-  UpdateSummaryTextVisibility();
-}
-
-void NotificationHeaderView::ClearProgress() {
-  summary_text_view_->SetText(base::string16());
   has_progress_ = false;
   UpdateSummaryTextVisibility();
 }
 
 void NotificationHeaderView::SetOverflowIndicator(int count) {
-  if (count > 0) {
-    summary_text_view_->SetText(l10n_util::GetStringFUTF16Int(
-        IDS_MESSAGE_CENTER_LIST_NOTIFICATION_HEADER_OVERFLOW_INDICATOR, count));
-  } else {
-    summary_text_view_->SetText(base::string16());
-  }
-
+  summary_text_view_->SetText(l10n_util::GetStringFUTF16Int(
+      IDS_MESSAGE_CENTER_LIST_NOTIFICATION_HEADER_OVERFLOW_INDICATOR, count));
+  has_progress_ = false;
   UpdateSummaryTextVisibility();
 }
 
@@ -312,6 +303,11 @@ void NotificationHeaderView::GetAccessibleNodeData(ui::AXNodeData* node_data) {
 
   if (is_expanded_)
     node_data->AddState(ax::mojom::State::kExpanded);
+}
+
+void NotificationHeaderView::OnThemeChanged() {
+  Button::OnThemeChanged();
+  UpdateColors();
 }
 
 void NotificationHeaderView::SetTimestamp(base::Time timestamp) {
@@ -348,26 +344,16 @@ void NotificationHeaderView::SetExpandButtonEnabled(bool enabled) {
 
 void NotificationHeaderView::SetExpanded(bool expanded) {
   is_expanded_ = expanded;
-  expand_button_->SetImage(gfx::CreateVectorIcon(
-      expanded ? kNotificationExpandLessIcon : kNotificationExpandMoreIcon,
-      kExpandIconSize, accent_color_));
+  UpdateColors();
   expand_button_->set_tooltip_text(l10n_util::GetStringUTF16(
       expanded ? IDS_MESSAGE_CENTER_COLLAPSE_NOTIFICATION
                : IDS_MESSAGE_CENTER_EXPAND_NOTIFICATION));
   NotifyAccessibilityEvent(ax::mojom::Event::kStateChanged, true);
 }
 
-void NotificationHeaderView::SetAccentColor(SkColor color) {
-  accent_color_ = color;
-  app_name_view_->SetEnabledColor(accent_color_);
-  summary_text_view_->SetEnabledColor(accent_color_);
-  summary_text_divider_->SetEnabledColor(accent_color_);
-  SetExpanded(is_expanded_);
-
-  // If we are using the default app icon we should clear it so we refresh it
-  // with the new accent color.
-  if (using_default_app_icon_)
-    ClearAppIcon();
+void NotificationHeaderView::SetAccentColor(base::Optional<SkColor> color) {
+  accent_color_ = std::move(color);
+  UpdateColors();
 }
 
 void NotificationHeaderView::SetBackgroundColor(SkColor color) {
@@ -386,8 +372,8 @@ void NotificationHeaderView::SetSubpixelRenderingEnabled(bool enabled) {
   timestamp_view_->SetSubpixelRenderingEnabled(enabled);
 }
 
-void NotificationHeaderView::HideAppIcon() {
-  app_icon_view_->SetVisible(false);
+void NotificationHeaderView::SetAppIconVisible(bool visible) {
+  app_icon_view_->SetVisible(visible);
 }
 
 const base::string16& NotificationHeaderView::app_name_for_testing() const {
@@ -396,10 +382,6 @@ const base::string16& NotificationHeaderView::app_name_for_testing() const {
 
 const gfx::ImageSkia& NotificationHeaderView::app_icon_for_testing() const {
   return app_icon_view_->GetImage();
-}
-
-const base::string16& NotificationHeaderView::timestamp_for_testing() const {
-  return timestamp_view_->GetText();
 }
 
 void NotificationHeaderView::UpdateSummaryTextVisibility() {
@@ -413,6 +395,23 @@ void NotificationHeaderView::UpdateSummaryTextVisibility() {
 
   // TODO(crbug.com/991492): this should not be necessary.
   detail_views_->InvalidateLayout();
+}
+
+void NotificationHeaderView::UpdateColors() {
+  SkColor color = accent_color_.value_or(GetNativeTheme()->GetSystemColor(
+      ui::NativeTheme::kColorId_NotificationDefaultAccentColor));
+  app_name_view_->SetEnabledColor(color);
+  summary_text_view_->SetEnabledColor(color);
+  summary_text_divider_->SetEnabledColor(color);
+
+  expand_button_->SetImage(gfx::CreateVectorIcon(
+      is_expanded_ ? kNotificationExpandLessIcon : kNotificationExpandMoreIcon,
+      kExpandIconSize, color));
+
+  if (using_default_app_icon_) {
+    app_icon_view_->SetImage(
+        gfx::CreateVectorIcon(kProductIcon, kSmallImageSizeMD, color));
+  }
 }
 
 }  // namespace message_center

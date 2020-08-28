@@ -7,8 +7,10 @@
 #include <memory>
 
 #include "base/bind.h"
+#include "base/check.h"
 #include "base/json/json_writer.h"
-#include "base/logging.h"
+#include "base/notreached.h"
+#include "base/strings/strcat.h"
 #include "base/strings/string_piece.h"
 #include "base/test/task_environment.h"
 #include "base/test/values_test_util.h"
@@ -17,6 +19,7 @@
 #include "net/base/host_port_pair.h"
 #include "net/base/http_user_agent_settings.h"
 #include "net/base/net_errors.h"
+#include "net/base/network_isolation_key.h"
 #include "net/cert/cert_verifier.h"
 #include "net/dns/host_resolver.h"
 #include "net/dns/host_resolver_manager.h"
@@ -38,12 +41,7 @@ namespace cronet {
 namespace {
 
 std::string WrapJsonHeader(base::StringPiece value) {
-  std::string result;
-  result.reserve(value.size() + 2);
-  result.push_back('[');
-  value.AppendToString(&result);
-  result.push_back(']');
-  return result;
+  return base::StrCat({"[", value, "]"});
 }
 
 // Returns whether two JSON-encoded headers contain the same content, ignoring
@@ -67,12 +65,11 @@ TEST(URLRequestContextConfigTest, TestExperimentalOptionParsing) {
   options.SetPath({"QUIC", "idle_connection_timeout_seconds"},
                   base::Value(300));
   options.SetPath({"QUIC", "close_sessions_on_ip_change"}, base::Value(true));
-  options.SetPath({"QUIC", "race_cert_verification"}, base::Value(true));
   options.SetPath({"QUIC", "connection_options"}, base::Value("TIME,TBBR,REJ"));
   options.SetPath(
       {"QUIC", "set_quic_flags"},
-      base::Value("FLAGS_quic_reloadable_flag_quic_enable_version_t050=true,"
-                  "FLAGS_quic_reloadable_flag_quic_enable_version_q099=true"));
+      base::Value("FLAGS_quic_reloadable_flag_quic_testonly_default_false=true,"
+                  "FLAGS_quic_restart_flag_quic_testonly_default_true=false"));
   options.SetPath({"AsyncDNS", "enable"}, base::Value(true));
   options.SetPath({"NetworkErrorLogging", "enable"}, base::Value(true));
   options.SetPath({"NetworkErrorLogging", "preloaded_report_to_headers"},
@@ -144,8 +141,8 @@ TEST(URLRequestContextConfigTest, TestExperimentalOptionParsing) {
   EXPECT_TRUE(base::JSONWriter::Write(options, &options_json));
 
   // Initialize QUIC flags set by the config.
-  FLAGS_quic_reloadable_flag_quic_enable_version_t050 = false;
-  FLAGS_quic_reloadable_flag_quic_enable_version_q099 = false;
+  FLAGS_quic_reloadable_flag_quic_testonly_default_false = false;
+  FLAGS_quic_restart_flag_quic_testonly_default_true = true;
 
   URLRequestContextConfig config(
       // Enable QUIC.
@@ -196,8 +193,9 @@ TEST(URLRequestContextConfigTest, TestExperimentalOptionParsing) {
   quic_connection_options.push_back(quic::kREJ);
   EXPECT_EQ(quic_connection_options, quic_params->connection_options);
 
-  EXPECT_TRUE(FLAGS_quic_reloadable_flag_quic_enable_version_t050);
-  EXPECT_TRUE(FLAGS_quic_reloadable_flag_quic_enable_version_q099);
+  // Check QUIC flags.
+  EXPECT_TRUE(FLAGS_quic_reloadable_flag_quic_testonly_default_false);
+  EXPECT_FALSE(FLAGS_quic_restart_flag_quic_testonly_default_true);
 
   // Check Custom QUIC User Agent Id.
   EXPECT_EQ("Custom QUIC UAID", quic_params->user_agent_id);
@@ -217,9 +215,6 @@ TEST(URLRequestContextConfigTest, TestExperimentalOptionParsing) {
   EXPECT_FALSE(quic_params->retry_on_alternate_network_before_handshake);
   EXPECT_FALSE(quic_params->race_stale_dns_on_connection);
   EXPECT_FALSE(quic_params->go_away_on_path_degrading);
-
-  // Check race_cert_verification.
-  EXPECT_TRUE(quic_params->race_cert_verification);
 
 #if defined(ENABLE_BUILT_IN_DNS)
   // Check AsyncDNS resolver is enabled (not supported on iOS).
@@ -288,9 +283,9 @@ TEST(URLRequestContextConfigTest, TestExperimentalOptionParsing) {
 
   // All host resolution expected to be mapped to an immediately-resolvable IP.
   std::unique_ptr<net::HostResolver::ResolveHostRequest> resolve_request =
-      context->host_resolver()->CreateRequest(net::HostPortPair("abcde", 80),
-                                              net::NetLogWithSource(),
-                                              base::nullopt);
+      context->host_resolver()->CreateRequest(
+          net::HostPortPair("abcde", 80), net::NetworkIsolationKey(),
+          net::NetLogWithSource(), base::nullopt);
   EXPECT_EQ(net::OK, resolve_request->Start(
                          base::BindOnce([](int error) { NOTREACHED(); })));
 
@@ -299,8 +294,16 @@ TEST(URLRequestContextConfigTest, TestExperimentalOptionParsing) {
 }
 
 TEST(URLRequestContextConfigTest, SetSupportedQuicVersion) {
+  // Note that this test covers the legacy mechanism which relies on
+  // QuicVersionToString. We should now be using ALPNs instead.
   base::test::TaskEnvironment task_environment_(
       base::test::TaskEnvironment::MainThreadType::IO);
+
+  quic::ParsedQuicVersion version =
+      quic::AllSupportedVersionsWithQuicCrypto().front();
+  std::string experimental_options =
+      "{\"QUIC\":{\"quic_version\":\"" +
+      quic::QuicVersionToString(version.transport_version) + "\"}}";
 
   URLRequestContextConfig config(
       // Enable QUIC.
@@ -325,7 +328,7 @@ TEST(URLRequestContextConfigTest, SetSupportedQuicVersion) {
       // User-Agent request header field.
       "fake agent",
       // JSON encoded experimental options.
-      "{\"QUIC\":{\"quic_version\":\"QUIC_VERSION_46\"}}",
+      experimental_options,
       // MockCertVerifier to use for testing purposes.
       std::unique_ptr<net::CertVerifier>(),
       // Enable network quality estimator.
@@ -344,9 +347,60 @@ TEST(URLRequestContextConfigTest, SetSupportedQuicVersion) {
   std::unique_ptr<net::URLRequestContext> context(builder.Build());
   const net::QuicParams* quic_params = context->quic_context()->params();
   EXPECT_EQ(quic_params->supported_versions.size(), 1u);
-  EXPECT_EQ(quic_params->supported_versions[0],
-            quic::ParsedQuicVersion(quic::PROTOCOL_QUIC_CRYPTO,
-                                    quic::QUIC_VERSION_46));
+  EXPECT_EQ(quic_params->supported_versions[0], version);
+}
+
+TEST(URLRequestContextConfigTest, SetSupportedQuicVersionByAlpn) {
+  base::test::TaskEnvironment task_environment_(
+      base::test::TaskEnvironment::MainThreadType::IO);
+
+  quic::ParsedQuicVersion version = quic::AllSupportedVersions().front();
+  std::string experimental_options =
+      "{\"QUIC\":{\"quic_version\":\"" + quic::AlpnForVersion(version) + "\"}}";
+
+  URLRequestContextConfig config(
+      // Enable QUIC.
+      true,
+      // QUIC User Agent ID.
+      "Default QUIC User Agent ID",
+      // Enable SPDY.
+      true,
+      // Enable Brotli.
+      false,
+      // Type of http cache.
+      URLRequestContextConfig::HttpCacheType::DISK,
+      // Max size of http cache in bytes.
+      1024000,
+      // Disable caching for HTTP responses. Other information may be stored in
+      // the cache.
+      false,
+      // Storage path for http cache and cookie storage.
+      "/data/data/org.chromium.net/app_cronet_test/test_storage",
+      // Accept-Language request header field.
+      "foreign-language",
+      // User-Agent request header field.
+      "fake agent",
+      // JSON encoded experimental options.
+      experimental_options,
+      // MockCertVerifier to use for testing purposes.
+      std::unique_ptr<net::CertVerifier>(),
+      // Enable network quality estimator.
+      false,
+      // Enable Public Key Pinning bypass for local trust anchors.
+      true,
+      // Optional network thread priority.
+      base::Optional<double>());
+
+  net::URLRequestContextBuilder builder;
+  config.ConfigureURLRequestContextBuilder(&builder);
+  // Set a ProxyConfigService to avoid DCHECK failure when building.
+  builder.set_proxy_config_service(
+      std::make_unique<net::ProxyConfigServiceFixed>(
+          net::ProxyConfigWithAnnotation::CreateDirect()));
+  std::unique_ptr<net::URLRequestContext> context(builder.Build());
+  const net::QuicParams* quic_params = context->quic_context()->params();
+  EXPECT_EQ(quic_params->supported_versions.size(), 1u);
+  EXPECT_EQ(quic_params->supported_versions[0], version);
 }
 
 TEST(URLRequestContextConfigTest, SetUnsupportedQuicVersion) {
@@ -376,7 +430,7 @@ TEST(URLRequestContextConfigTest, SetUnsupportedQuicVersion) {
       // User-Agent request header field.
       "fake agent",
       // JSON encoded experimental options.
-      "{\"QUIC\":{\"quic_version\":\"QUIC_VERSION_33\"}}",
+      "{\"QUIC\":{\"quic_version\":\"h3-Q047\"}}",
       // MockCertVerifier to use for testing purposes.
       std::unique_ptr<net::CertVerifier>(),
       // Enable network quality estimator.
@@ -396,8 +450,7 @@ TEST(URLRequestContextConfigTest, SetUnsupportedQuicVersion) {
   const net::QuicParams* quic_params = context->quic_context()->params();
   EXPECT_EQ(quic_params->supported_versions.size(), 1u);
   EXPECT_EQ(quic_params->supported_versions[0],
-            quic::ParsedQuicVersion(quic::PROTOCOL_QUIC_CRYPTO,
-                                    quic::QUIC_VERSION_46));
+            net::kDefaultSupportedQuicVersion);
 }
 
 TEST(URLRequestContextConfigTest, SetQuicServerMigrationOptions) {
@@ -1008,6 +1061,73 @@ TEST(URLURLRequestContextConfigTest, SetAcceptLanguageAndUserAgent) {
   EXPECT_EQ("foreign-language",
             context->http_user_agent_settings()->GetAcceptLanguage());
   EXPECT_EQ("fake agent", context->http_user_agent_settings()->GetUserAgent());
+}
+
+TEST(URLURLRequestContextConfigTest, TurningOffQuic) {
+  base::test::TaskEnvironment task_environment_(
+      base::test::TaskEnvironment::MainThreadType::IO);
+
+  URLRequestContextConfig config(
+      // Enable QUIC.
+      false,
+      // QUIC User Agent ID.
+      "Default QUIC User Agent ID",
+      // Enable SPDY.
+      true,
+      // Enable Brotli.
+      false,
+      // Type of http cache.
+      URLRequestContextConfig::HttpCacheType::DISK,
+      // Max size of http cache in bytes.
+      1024000,
+      // Disable caching for HTTP responses. Other information may be stored in
+      // the cache.
+      false,
+      // Storage path for http cache and cookie storage.
+      "/data/data/org.chromium.net/app_cronet_test/test_storage",
+      // Accept-Language request header field.
+      "foreign-language",
+      // User-Agent request header field.
+      "fake agent",
+      // JSON encoded experimental options.
+      "{}",
+      // MockCertVerifier to use for testing purposes.
+      std::unique_ptr<net::CertVerifier>(),
+      // Enable network quality estimator.
+      false,
+      // Enable Public Key Pinning bypass for local trust anchors.
+      true,
+      // Optional network thread priority.
+      base::Optional<double>());
+
+  net::URLRequestContextBuilder builder;
+  config.ConfigureURLRequestContextBuilder(&builder);
+  // Set a ProxyConfigService to avoid DCHECK failure when building.
+  builder.set_proxy_config_service(
+      std::make_unique<net::ProxyConfigServiceFixed>(
+          net::ProxyConfigWithAnnotation::CreateDirect()));
+  std::unique_ptr<net::URLRequestContext> context(builder.Build());
+  const net::HttpNetworkSession::Params* params =
+      context->GetNetworkSessionParams();
+  EXPECT_EQ(false, params->enable_quic);
+}
+
+TEST(URLURLRequestContextConfigTest, DefaultEnableQuic) {
+  base::test::TaskEnvironment task_environment_(
+      base::test::TaskEnvironment::MainThreadType::IO);
+
+  URLRequestContextConfigBuilder config_builder;
+  std::unique_ptr<URLRequestContextConfig> config = config_builder.Build();
+  net::URLRequestContextBuilder builder;
+  config->ConfigureURLRequestContextBuilder(&builder);
+  // Set a ProxyConfigService to avoid DCHECK failure when building.
+  builder.set_proxy_config_service(
+      std::make_unique<net::ProxyConfigServiceFixed>(
+          net::ProxyConfigWithAnnotation::CreateDirect()));
+  std::unique_ptr<net::URLRequestContext> context(builder.Build());
+  const net::HttpNetworkSession::Params* params =
+      context->GetNetworkSessionParams();
+  EXPECT_EQ(true, params->enable_quic);
 }
 
 // See stale_host_resolver_unittest.cc for test of StaleDNS options.

@@ -163,19 +163,21 @@ void TabsEventRouter::TabEntry::WebContentsDestroyed() {
 }
 
 TabsEventRouter::TabsEventRouter(Profile* profile)
-    : profile_(profile), browser_tab_strip_tracker_(this, this, this) {
+    : profile_(profile), browser_tab_strip_tracker_(this, this) {
   DCHECK(!profile->IsOffTheRecord());
 
+  BrowserList::AddObserver(this);
   browser_tab_strip_tracker_.Init();
 
   tab_manager_scoped_observer_.Add(g_browser_process->GetTabManager());
 }
 
 TabsEventRouter::~TabsEventRouter() {
+  BrowserList::RemoveObserver(this);
 }
 
 bool TabsEventRouter::ShouldTrackBrowser(Browser* browser) {
-  return profile_->IsSameProfile(browser->profile()) &&
+  return profile_->IsSameOrParent(browser->profile()) &&
          ExtensionTabUtil::BrowserSupportsTabs(browser);
 }
 
@@ -233,7 +235,7 @@ void TabsEventRouter::OnTabStripModelChanged(
 
   if (selection.active_tab_changed()) {
     DispatchActiveTabChanged(selection.old_contents, selection.new_contents,
-                             selection.new_model.active(), selection.reason);
+                             selection.new_model.active());
   }
 
   if (selection.selection_changed()) {
@@ -302,7 +304,13 @@ void TabsEventRouter::OnDiscardedStateChange(
     ::mojom::LifecycleUnitDiscardReason reason,
     bool is_discarded) {
   std::set<std::string> changed_property_names;
+  // If the "discarded" property changes, so does the "status" property:
+  // - a discarded tab has status "unloaded", and will transition to "loading"
+  //   on un-discarding; and,
+  // - a tab can only be discarded if its status is "complete" or "loading", in
+  //   which case it will transition to "unloaded".
   changed_property_names.insert(tabs_constants::kDiscardedKey);
+  changed_property_names.insert(tabs_constants::kStatusKey);
   DispatchTabUpdatedEvent(contents, std::move(changed_property_names));
 }
 
@@ -398,8 +406,7 @@ void TabsEventRouter::DispatchTabDetachedAt(WebContents* contents,
 
 void TabsEventRouter::DispatchActiveTabChanged(WebContents* old_contents,
                                                WebContents* new_contents,
-                                               int index,
-                                               int reason) {
+                                               int index) {
   auto args = std::make_unique<base::ListValue>();
   int tab_id = ExtensionTabUtil::GetTabId(new_contents);
   args->AppendInteger(tab_id);
@@ -414,24 +421,21 @@ void TabsEventRouter::DispatchActiveTabChanged(WebContents* old_contents,
   // deprecated events take two arguments: tabId, {windowId}.
   Profile* profile =
       Profile::FromBrowserContext(new_contents->GetBrowserContext());
-  EventRouter::UserGestureState gesture =
-      reason & CHANGE_REASON_USER_GESTURE
-      ? EventRouter::USER_GESTURE_ENABLED
-      : EventRouter::USER_GESTURE_NOT_ENABLED;
+
   DispatchEvent(profile, events::TABS_ON_SELECTION_CHANGED,
                 api::tabs::OnSelectionChanged::kEventName,
-                args->CreateDeepCopy(), gesture);
+                args->CreateDeepCopy(), EventRouter::USER_GESTURE_UNKNOWN);
   DispatchEvent(profile, events::TABS_ON_ACTIVE_CHANGED,
                 api::tabs::OnActiveChanged::kEventName, std::move(args),
-                gesture);
+                EventRouter::USER_GESTURE_UNKNOWN);
 
   // The onActivated event takes one argument: {windowId, tabId}.
   auto on_activated_args = std::make_unique<base::ListValue>();
   object_args->Set(tabs_constants::kTabIdKey, std::make_unique<Value>(tab_id));
   on_activated_args->Append(std::move(object_args));
-  DispatchEvent(profile, events::TABS_ON_ACTIVATED,
-                api::tabs::OnActivated::kEventName,
-                std::move(on_activated_args), gesture);
+  DispatchEvent(
+      profile, events::TABS_ON_ACTIVATED, api::tabs::OnActivated::kEventName,
+      std::move(on_activated_args), EventRouter::USER_GESTURE_UNKNOWN);
 }
 
 void TabsEventRouter::DispatchTabSelectionChanged(
@@ -567,7 +571,7 @@ void TabsEventRouter::DispatchEvent(
     std::unique_ptr<base::ListValue> args,
     EventRouter::UserGestureState user_gesture) {
   EventRouter* event_router = EventRouter::Get(profile);
-  if (!profile_->IsSameProfile(profile) || !event_router)
+  if (!profile_->IsSameOrParent(profile) || !event_router)
     return;
 
   auto event = std::make_unique<Event>(histogram_value, event_name,

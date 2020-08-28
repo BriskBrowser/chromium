@@ -129,8 +129,7 @@ class LayerWithRealCompositorTest : public testing::TestWithParam<bool> {
 
     const gfx::Rect host_bounds(10, 10, 500, 500);
     compositor_host_.reset(TestCompositorHost::Create(
-        host_bounds, context_factories_->GetContextFactory(),
-        context_factories_->GetContextFactoryPrivate()));
+        host_bounds, context_factories_->GetContextFactory()));
     compositor_host_->Show();
   }
 
@@ -308,9 +307,9 @@ class TestLayerDelegate : public LayerDelegate {
 // LayerDelegate that verifies that a layer was asked to update its canvas.
 class DrawTreeLayerDelegate : public LayerDelegate {
  public:
-  DrawTreeLayerDelegate(const gfx::Rect& layer_bounds)
+  explicit DrawTreeLayerDelegate(const gfx::Rect& layer_bounds)
       : painted_(false), layer_bounds_(layer_bounds) {}
-  ~DrawTreeLayerDelegate() override {}
+  ~DrawTreeLayerDelegate() override = default;
 
   void Reset() {
     painted_ = false;
@@ -492,8 +491,7 @@ class LayerWithDelegateTest : public testing::Test {
 
     const gfx::Rect host_bounds(1000, 1000);
     compositor_host_.reset(TestCompositorHost::Create(
-        host_bounds, context_factories_->GetContextFactory(),
-        context_factories_->GetContextFactoryPrivate()));
+        host_bounds, context_factories_->GetContextFactory()));
     compositor_host_->Show();
   }
 
@@ -748,11 +746,14 @@ TEST_F(LayerWithDelegateTest, Cloning) {
   transform.Scale(2, 1);
   transform.Translate(10, 5);
 
+  gfx::Rect clip_rect(1, 1, 2, 2);
+
   layer->SetTransform(transform);
   layer->SetColor(SK_ColorRED);
   layer->SetLayerInverted(true);
   layer->AddCacheRenderSurfaceRequest();
   layer->AddTrilinearFilteringRequest();
+  layer->SetClipRect(clip_rect);
   layer->SetRoundedCornerRadius({1, 2, 4, 5});
   layer->SetIsFastRoundedCorner(true);
 
@@ -769,12 +770,14 @@ TEST_F(LayerWithDelegateTest, Cloning) {
   // Cloning should not preserve trilinear_filtering flag.
   EXPECT_NE(layer->cc_layer_for_testing()->trilinear_filtering(),
             clone->cc_layer_for_testing()->trilinear_filtering());
+  EXPECT_EQ(clip_rect, clone->clip_rect());
   EXPECT_EQ(layer->rounded_corner_radii(), clone->rounded_corner_radii());
   EXPECT_EQ(layer->is_fast_rounded_corner(), clone->is_fast_rounded_corner());
 
   layer->SetTransform(gfx::Transform());
   layer->SetColor(SK_ColorGREEN);
   layer->SetLayerInverted(false);
+  layer->SetClipRect(gfx::Rect(10, 10, 10, 10));
   layer->SetIsFastRoundedCorner(false);
   layer->SetRoundedCornerRadius({3, 6, 9, 12});
 
@@ -783,6 +786,7 @@ TEST_F(LayerWithDelegateTest, Cloning) {
   EXPECT_EQ(SK_ColorRED, clone->background_color());
   EXPECT_EQ(SK_ColorRED, clone->GetTargetColor());
   EXPECT_TRUE(clone->layer_inverted());
+  EXPECT_EQ(clip_rect, clone->clip_rect());
   EXPECT_FALSE(layer->is_fast_rounded_corner());
   EXPECT_TRUE(clone->is_fast_rounded_corner());
   EXPECT_NE(layer->rounded_corner_radii(), clone->rounded_corner_radii());
@@ -792,7 +796,7 @@ TEST_F(LayerWithDelegateTest, Cloning) {
   layer->SetFillsBoundsOpaquely(false);
   // Color and opaqueness targets should be preserved during cloning, even after
   // switching away from solid color content.
-  layer->SwitchCCLayerForTest();
+  ASSERT_TRUE(layer->SwitchCCLayerForTest());
 
   clone = layer->Clone();
 
@@ -1711,7 +1715,7 @@ TEST_P(LayerWithRealCompositorTest, SetRootLayer) {
 // TODO(vollick): could be reorganized into compositor_unittest.cc
 // Flaky on Windows. See https://crbug.com/784563.
 // Flaky on Linux tsan. See https://crbug.com/834026.
-#if defined(OS_WIN) || defined(OS_LINUX)
+#if defined(OS_WIN) || defined(OS_LINUX) || defined(OS_CHROMEOS)
 #define MAYBE_CompositorObservers DISABLED_CompositorObservers
 #else
 #define MAYBE_CompositorObservers CompositorObservers
@@ -1973,7 +1977,7 @@ namespace {
 
 class SchedulePaintLayerDelegate : public LayerDelegate {
  public:
-  SchedulePaintLayerDelegate() : paint_count_(0), layer_(NULL) {}
+  SchedulePaintLayerDelegate() : paint_count_(0), layer_(nullptr) {}
 
   ~SchedulePaintLayerDelegate() override {}
 
@@ -2429,7 +2433,7 @@ TEST_P(LayerWithRealCompositorTest, SwitchCCLayerAnimations) {
   l1->SetOpacity(0.5f);
 
   // Change l1's cc::Layer.
-  l1->SwitchCCLayerForTest();
+  ASSERT_TRUE(l1->SwitchCCLayerForTest());
 
   // Ensure that the opacity animation completed.
   EXPECT_FLOAT_EQ(l1->opacity(), 0.5f);
@@ -2451,7 +2455,7 @@ TEST_P(LayerWithRealCompositorTest, SwitchCCLayerSolidColorNotAnimating) {
   EXPECT_EQ(transparent, root->GetTargetColor());
 
   // Changing the underlying layer should not affect targets.
-  root->SwitchCCLayerForTest();
+  ASSERT_TRUE(root->SwitchCCLayerForTest());
 
   EXPECT_FALSE(root->fills_bounds_opaquely());
   EXPECT_FALSE(
@@ -2489,7 +2493,7 @@ TEST_P(LayerWithRealCompositorTest, SwitchCCLayerSolidColorWhileAnimating) {
   EXPECT_EQ(transparent, root->GetTargetColor());
 
   // Changing the underlying layer should not affect targets.
-  root->SwitchCCLayerForTest();
+  ASSERT_TRUE(root->SwitchCCLayerForTest());
 
   EXPECT_TRUE(root->fills_bounds_opaquely());
   EXPECT_TRUE(
@@ -2517,7 +2521,7 @@ TEST_P(LayerWithRealCompositorTest, SwitchCCLayerCacheRenderSurface) {
   l1->AddCacheRenderSurfaceRequest();
 
   // Change l1's cc::Layer.
-  l1->SwitchCCLayerForTest();
+  ASSERT_TRUE(l1->SwitchCCLayerForTest());
 
   // Ensure that the cache_render_surface flag is maintained.
   EXPECT_TRUE(l1->cc_layer_for_testing()->cache_render_surface());
@@ -2534,7 +2538,7 @@ TEST_P(LayerWithRealCompositorTest, SwitchCCLayerTrilinearFiltering) {
   l1->AddTrilinearFilteringRequest();
 
   // Change l1's cc::Layer.
-  l1->SwitchCCLayerForTest();
+  ASSERT_TRUE(l1->SwitchCCLayerForTest());
 
   // Ensure that the trilinear_filtering flag is maintained.
   EXPECT_TRUE(l1->cc_layer_for_testing()->trilinear_filtering());
@@ -2552,10 +2556,36 @@ TEST_P(LayerWithRealCompositorTest, SwitchCCLayerMasksToBounds) {
   EXPECT_TRUE(l1->cc_layer_for_testing()->masks_to_bounds());
 
   // Change l1's cc::Layer.
-  l1->SwitchCCLayerForTest();
+  ASSERT_TRUE(l1->SwitchCCLayerForTest());
 
   // Ensure that the trilinear_filtering flag is maintained.
   EXPECT_TRUE(l1->cc_layer_for_testing()->masks_to_bounds());
+}
+
+// Tests that no crash happens when switching cc layer with an animation
+// observer that deletes the layer itself.
+TEST_P(LayerWithRealCompositorTest, SwitchCCLayerDeleteLayer) {
+  std::unique_ptr<Layer> root(CreateLayer(LAYER_TEXTURED));
+  std::unique_ptr<Layer> l1(CreateLayer(LAYER_TEXTURED));
+  GetCompositor()->SetRootLayer(root.get());
+  root->Add(l1.get());
+
+  TestCallbackAnimationObserver animation_observer;
+  animation_observer.SetCallback(
+      base::BindLambdaForTesting([&]() { l1.reset(); }));
+
+  auto long_duration_animation =
+      std::make_unique<ui::ScopedAnimationDurationScaleMode>(
+          ui::ScopedAnimationDurationScaleMode::SLOW_DURATION);
+  {
+    ui::ScopedLayerAnimationSettings animation(l1->GetAnimator());
+    animation.AddObserver(&animation_observer);
+    animation.SetTransitionDuration(base::TimeDelta::FromMilliseconds(1000));
+    l1->SetOpacity(0.f);
+  }
+
+  // Fails but no crash.
+  EXPECT_FALSE(l1->SwitchCCLayerForTest());
 }
 
 // Triggerring a OnDeviceScaleFactorChanged while a layer is undergoing
@@ -2606,9 +2636,6 @@ TEST_P(LayerWithRealCompositorTest, TreeMutationDuringScaleFactorChange) {
   root->Add(layer_to_delete.get());
   layer_to_delete->Add(child.get());
 
-  long_duration_animation =
-      std::make_unique<ui::ScopedAnimationDurationScaleMode>(
-          ui::ScopedAnimationDurationScaleMode::SLOW_DURATION);
   {
     ui::ScopedLayerAnimationSettings animation(layer_to_delete->GetAnimator());
     animation.AddObserver(&animation_observer);
@@ -2631,9 +2658,6 @@ TEST_P(LayerWithRealCompositorTest, TreeMutationDuringScaleFactorChange) {
   layer_to_delete->Add(child.get());
   layer_to_delete->Add(child2.get());
 
-  long_duration_animation =
-      std::make_unique<ui::ScopedAnimationDurationScaleMode>(
-          ui::ScopedAnimationDurationScaleMode::SLOW_DURATION);
   {
     ui::ScopedLayerAnimationSettings animation(child->GetAnimator());
     animation.AddObserver(&animation_observer);
@@ -2666,6 +2690,60 @@ TEST_P(LayerWithRealCompositorTest, TreeMutationDuringScaleFactorChange) {
 
   // This call should not crash.
   root->OnDeviceScaleFactorChanged(1.5f);
+}
+
+// Tests that no crash when parent/child layer is released by an animation
+// observer of the child layer bounds animation.
+TEST_P(LayerWithRealCompositorTest, ParentOrChildGoneDuringRemove) {
+  std::unique_ptr<Layer> root = CreateLayer(LAYER_SOLID_COLOR);
+  GetCompositor()->SetRootLayer(root.get());
+  root->SetBounds(gfx::Rect(0, 0, 100, 100));
+
+  // Actions to taken on animation ends.
+  enum class Action {
+    kReleaseParent,
+    kReleaseChild,
+  };
+
+  for (auto action : {Action::kReleaseParent, Action::kReleaseChild}) {
+    SCOPED_TRACE(::testing::Message() << "action=" << static_cast<int>(action));
+
+    std::unique_ptr<Layer> parent = CreateLayer(LAYER_SOLID_COLOR);
+    parent->SetBounds(gfx::Rect(0, 0, 100, 100));
+
+    std::unique_ptr<Layer> child = CreateLayer(LAYER_SOLID_COLOR);
+    child->SetBounds(gfx::Rect(0, 0, 100, 100));
+    parent->Add(child.get());
+
+    root->Add(parent.get());
+
+    // An animation observer that takes action on animation ends.
+    TestCallbackAnimationObserver animation_observer;
+    animation_observer.SetCallback(base::BindLambdaForTesting([&]() {
+      switch (action) {
+        case Action::kReleaseParent:
+          parent.reset();
+          break;
+        case Action::kReleaseChild:
+          child.reset();
+          break;
+      }
+    }));
+
+    // Schedule a bounds animation on |child|.
+    auto long_duration_animation =
+        std::make_unique<ui::ScopedAnimationDurationScaleMode>(
+            ui::ScopedAnimationDurationScaleMode::SLOW_DURATION);
+    {
+      ui::ScopedLayerAnimationSettings animation(child->GetAnimator());
+      animation.AddObserver(&animation_observer);
+      animation.SetTransitionDuration(base::TimeDelta::FromMilliseconds(1000));
+      child->SetBounds(gfx::Rect(10, 20, 100, 100));
+    }
+
+    // No crash should happen when removing |child| with a  bounds animation.
+    parent->Remove(child.get());
+  }
 }
 
 // Tests that the animators in the layer tree is added to the
@@ -2912,7 +2990,7 @@ TEST(LayerDelegateTest, OnLayerTransformed) {
     layer->SetTransform(target_transform1);
   }
   gfx::Transform target_transform2;
-  target_transform2.Skew(10.0f, 5.0f);
+  target_transform2.Skew(15.0f, 5.0f);
   EXPECT_CALL(delegate,
               OnLayerTransformed(target_transform1,
                                  PropertyChangeReason::NOT_FROM_ANIMATION))
@@ -2923,6 +3001,18 @@ TEST(LayerDelegateTest, OnLayerTransformed) {
             EXPECT_EQ(target_transform2, layer->transform());
           }));
   layer->SetTransform(target_transform2);
+}
+
+// Verify that LayerDelegate::OnLayerTransformed() is not called when the
+// transform isn't actually changed.
+TEST(LayerDelegateTest, OnLayerTransformedNotCalledWhenUnchanged) {
+  auto layer = std::make_unique<Layer>(LAYER_TEXTURED);
+  testing::StrictMock<TestLayerDelegate> delegate;
+  layer->set_delegate(&delegate);
+
+  gfx::Transform target_transform;
+  EXPECT_CALL(delegate, OnLayerTransformed).Times(0);
+  layer->SetTransform(target_transform);
 }
 
 // Verify that LayerDelegate::OnLayerTransformed() is called at every step of a
@@ -2998,8 +3088,8 @@ TEST(LayerDelegateTest, OnLayerTransformedNonThreadedAnimation) {
   testing::Mock::VerifyAndClear(&delegate);
 }
 
-// Verify that LayerDelegate::OnLayerTransformed() is called at the beginning
-// and at the end of a threaded transform transition.
+// Verify that LayerDelegate::OnLayerTransformed() is called at the end of a
+// threaded transform transition.
 TEST(LayerDelegateTest, OnLayerTransformedThreadedAnimation) {
   ScopedAnimationDurationScaleMode scoped_animation_duration_scale_mode(
       ScopedAnimationDurationScaleMode::NORMAL_DURATION);
@@ -3021,17 +3111,12 @@ TEST(LayerDelegateTest, OnLayerTransformedThreadedAnimation) {
           target_transform, base::TimeDelta::FromSeconds(1));
   ASSERT_TRUE(element->IsThreaded(layer.get()));
   LayerAnimationElement* element_raw = element.get();
+  // At the beginning, setting the transform actually does not change, so
+  // OnLayerTransformed isn't called.
   EXPECT_CALL(delegate,
               OnLayerTransformed(gfx::Transform(),
                                  PropertyChangeReason::FROM_ANIMATION))
-      .WillOnce(testing::Invoke([&](const gfx::Transform& old_transform,
-                                    PropertyChangeReason) {
-        // Verify that |layer->transform()| returns the correct value when the
-        // delegate is notified.
-        EXPECT_EQ(layer->transform(), initial_transform);
-        EXPECT_TRUE(
-            animator->IsAnimatingProperty(LayerAnimationElement::TRANSFORM));
-      }));
+      .Times(0);
   animator->StartAnimation(new LayerAnimationSequence(std::move(element)));
   testing::Mock::VerifyAndClear(&delegate);
   test_controller.StartThreadedAnimationsIfNeeded();

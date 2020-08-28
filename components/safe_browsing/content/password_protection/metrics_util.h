@@ -23,6 +23,7 @@ extern const char kEnterprisePasswordEntryVerdictHistogram[];
 extern const char kEnterprisePasswordInterstitialHistogram[];
 extern const char kEnterprisePasswordPageInfoHistogram[];
 extern const char kEnterprisePasswordWarningDialogHistogram[];
+extern const char kSavedPasswordPageInfoHistogram[];
 extern const char kGmailNonSyncPasswordInterstitialHistogram[];
 extern const char kGmailSyncPasswordPageInfoHistogram[];
 extern const char kGmailNonSyncPasswordPageInfoHistogram[];
@@ -93,7 +94,8 @@ enum class RequestOutcome {
   SERVICE_DESTROYED = 11,
   // No request sent because pinging feature is disable.
   DISABLED_DUE_TO_FEATURE_DISABLED = 12,
-  // No request sent because the user is not extended reporting user.
+  // No request sent because the user is not extended reporting or enhanced
+  // protection user.
   DISABLED_DUE_TO_USER_POPULATION = 13,
   // No request sent because the reputation of the URL is not computable.
   URL_NOT_VALID_FOR_REPUTATION_COMPUTING = 14,
@@ -112,7 +114,9 @@ enum class RequestOutcome {
   SAFE_BROWSING_DISABLED = 20,
   // No request sent because user is not signed-in.
   USER_NOT_SIGNED_IN = 21,
-  kMaxValue = USER_NOT_SIGNED_IN,
+  // The country is excluded from sending pings.
+  EXCLUDED_COUNTRY = 22,
+  kMaxValue = EXCLUDED_COUNTRY,
 };
 
 // Enum values indicates if a password protection warning is shown or
@@ -144,10 +148,8 @@ enum class WarningUIType {
   PAGE_INFO = 1,
   // Modal warning dialog.
   MODAL_DIALOG = 2,
-  // chrome://settings page.
-  CHROME_SETTINGS = 3,
   // chrome://reset-password interstitial.
-  INTERSTITIAL = 4
+  INTERSTITIAL = 3,
 };
 
 // Logs the |outcome| to several UMA metrics, depending on the value
@@ -202,6 +204,11 @@ void LogNumberOfReuseBeforeSyncPasswordChange(size_t reuse_count);
 void LogReferrerChainSize(
     LoginReputationClientResponse::VerdictType verdict_type,
     int referrer_chain_size);
+
+// Logs the interval between when the modal warning is constructed and when it
+// is destructed.
+void LogModalWarningDialogLifetime(
+    base::TimeTicks modal_construction_start_time);
 
 }  // namespace safe_browsing
 

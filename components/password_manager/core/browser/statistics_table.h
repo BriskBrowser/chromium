@@ -71,17 +71,9 @@ class StatisticsTable {
   // only statistics for matching origins are removed. Returns true if the SQL
   // completed successfully.
   bool RemoveStatsByOriginAndTime(
-      const base::Callback<bool(const GURL&)>& origin_filter,
+      const base::RepeatingCallback<bool(const GURL&)>& origin_filter,
       base::Time delete_begin,
       base::Time delete_end);
-
-  // Returns the number of distinct domains for which at least one account has
-  // |n| or more dismissals.
-  int GetNumDomainsWithAtLeastNDismissals(int64_t n);
-
-  // Returns the number of distinct accounts for which have at least |n| or more
-  // dismissals.
-  int GetNumAccountsWithAtLeastNDismissals(int64_t n);
 
   // Returns the number of rows (origin/username pairs) in the table.
   int GetNumAccounts();

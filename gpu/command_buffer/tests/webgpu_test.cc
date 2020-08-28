@@ -7,6 +7,7 @@
 #include <dawn/dawn_proc.h>
 #include <dawn/webgpu.h>
 
+#include "base/bind.h"
 #include "base/test/test_simple_task_runner.h"
 #include "build/build_config.h"
 #include "components/viz/test/test_gpu_service_holder.h"
@@ -21,12 +22,14 @@ namespace gpu {
 
 namespace {
 
-void OnRequestAdapterCallback(uint32_t adapter_server_id,
+void OnRequestAdapterCallback(int32_t adapter_service_id,
                               const WGPUDeviceProperties& properties) {}
 
-}  // anonymous namespace
+void CountCallback(int* count) {
+  (*count)++;
+}
 
-void OnRequestDeviceCallback(bool is_request_device_success) {}
+}  // anonymous namespace
 
 WebGPUTest::Options::Options() = default;
 
@@ -48,7 +51,8 @@ bool WebGPUTest::WebGPUSupported() const {
 
 bool WebGPUTest::WebGPUSharedImageSupported() const {
   // Currently WebGPUSharedImage is only implemented on Mac, Linux and Windows
-#if (defined(OS_MACOSX) || defined(OS_LINUX) || defined(OS_WIN)) && \
+#if (defined(OS_MAC) || defined(OS_LINUX) || defined(OS_CHROMEOS) || \
+     defined(OS_WIN)) &&                                             \
     BUILDFLAG(USE_DAWN)
   return true;
 #else
@@ -59,9 +63,12 @@ bool WebGPUTest::WebGPUSharedImageSupported() const {
 void WebGPUTest::SetUp() {
   gpu::GpuPreferences gpu_preferences;
   gpu_preferences.enable_webgpu = true;
-#if defined(OS_LINUX) && BUILDFLAG(USE_DAWN)
+#if (defined(OS_LINUX) || defined(OS_CHROMEOS)) && BUILDFLAG(USE_DAWN)
   gpu_preferences.use_vulkan = gpu::VulkanImplementationName::kNative;
   gpu_preferences.gr_context_type = gpu::GrContextType::kVulkan;
+#elif defined(OS_WIN)
+  // D3D shared images are only supported with passthrough command decoder.
+  gpu_preferences.use_passthrough_cmd_decoder = true;
 #endif
   gpu_service_holder_ =
       std::make_unique<viz::TestGpuServiceHolder>(gpu_preferences);
@@ -84,7 +91,11 @@ void WebGPUTest::Initialize(const Options& options) {
   attributes.context_type = CONTEXT_TYPE_WEBGPU;
 
   static constexpr GpuMemoryBufferManager* memory_buffer_manager = nullptr;
+#if defined(OS_MAC)
+  ImageFactory* image_factory = &image_factory_;
+#else
   static constexpr ImageFactory* image_factory = nullptr;
+#endif
   static constexpr GpuChannelManagerDelegate* channel_manager = nullptr;
   context_ = std::make_unique<WebGPUInProcessContext>();
   ContextResult result =
@@ -101,7 +112,7 @@ void WebGPUTest::Initialize(const Options& options) {
   dawnProcSetProcs(&procs);
 }
 
-webgpu::WebGPUInterface* WebGPUTest::webgpu() const {
+webgpu::WebGPUImplementation* WebGPUTest::webgpu() const {
   return context_->GetImplementation();
 }
 
@@ -117,7 +128,7 @@ void WebGPUTest::WaitForCompletion(wgpu::Device device) {
   // Insert a fence signal and wait for it to be signaled. The guarantees of
   // Dawn are that all previous operations will have been completed and more
   // importantly the callbacks will have been called.
-  wgpu::Queue queue = device.CreateQueue();
+  wgpu::Queue queue = device.GetDefaultQueue();
   wgpu::FenceDescriptor fence_desc{nullptr, 0};
   wgpu::Fence fence = queue.CreateFence(&fence_desc);
 
@@ -131,6 +142,26 @@ void WebGPUTest::WaitForCompletion(wgpu::Device device) {
   }
 }
 
+WebGPUTest::DeviceAndClientID WebGPUTest::GetNewDeviceAndClientID() {
+  DeviceAndClientID result;
+  result.client_id = next_device_client_id_;
+
+  webgpu()->RequestDeviceAsync(
+      kAdapterServiceID, {},
+      base::BindOnce(
+          [](webgpu::DawnDeviceClientID expected_client_id, bool success,
+             webgpu::DawnDeviceClientID assigned_client_id) {
+            ASSERT_TRUE(success);
+            ASSERT_EQ(expected_client_id, assigned_client_id);
+          },
+          result.client_id));
+
+  result.device = wgpu::Device::Acquire(webgpu()->GetDevice(result.client_id));
+
+  next_device_client_id_++;
+  return result;
+}
+
 TEST_F(WebGPUTest, FlushNoCommands) {
   Initialize(WebGPUTest::Options());
 
@@ -140,6 +171,75 @@ TEST_F(WebGPUTest, FlushNoCommands) {
   }
 
   webgpu()->FlushCommands();
+}
+
+// Referred from GLES2ImplementationTest/ReportLoss
+TEST_F(WebGPUTest, ReportLoss) {
+  Initialize(WebGPUTest::Options());
+
+  if (!WebGPUSupported()) {
+    LOG(ERROR) << "Test skipped because WebGPU isn't supported";
+    return;
+  }
+
+  GpuControlClient* webgpu_as_client = webgpu();
+  int lost_count = 0;
+  webgpu()->SetLostContextCallback(base::BindOnce(&CountCallback, &lost_count));
+  EXPECT_EQ(0, lost_count);
+
+  webgpu_as_client->OnGpuControlLostContext();
+  // The lost context callback should be run when WebGPUImplementation is
+  // notified of the loss.
+  EXPECT_EQ(1, lost_count);
+}
+
+// Referred from GLES2ImplementationTest/ReportLossReentrant
+TEST_F(WebGPUTest, ReportLossReentrant) {
+  Initialize(WebGPUTest::Options());
+
+  if (!WebGPUSupported()) {
+    LOG(ERROR) << "Test skipped because WebGPU isn't supported";
+    return;
+  }
+
+  GpuControlClient* webgpu_as_client = webgpu();
+  int lost_count = 0;
+  webgpu()->SetLostContextCallback(base::BindOnce(&CountCallback, &lost_count));
+  EXPECT_EQ(0, lost_count);
+
+  webgpu_as_client->OnGpuControlLostContextMaybeReentrant();
+  // The lost context callback should not be run yet to avoid calling back into
+  // clients re-entrantly, and having them re-enter WebGPUImplementation.
+  EXPECT_EQ(0, lost_count);
+}
+
+TEST_F(WebGPUTest, RequestAdapterAfterContextLost) {
+  Initialize(WebGPUTest::Options());
+
+  if (!WebGPUSupported()) {
+    LOG(ERROR) << "Test skipped because WebGPU isn't supported";
+    return;
+  }
+
+  webgpu()->OnGpuControlLostContext();
+  ASSERT_FALSE(
+      webgpu()->RequestAdapterAsync(webgpu::PowerPreference::kDefault,
+                                    base::BindOnce(&OnRequestAdapterCallback)));
+}
+
+TEST_F(WebGPUTest, RequestDeviceAfterContextLost) {
+  Initialize(WebGPUTest::Options());
+
+  if (!WebGPUSupported()) {
+    LOG(ERROR) << "Test skipped because WebGPU isn't supported";
+    return;
+  }
+
+  webgpu()->OnGpuControlLostContext();
+  ASSERT_FALSE(webgpu()->RequestDeviceAsync(
+      kAdapterServiceID, {},
+      base::BindOnce(
+          [](bool success, webgpu::DawnDeviceClientID assigned_client_id) {})));
 }
 
 }  // namespace gpu

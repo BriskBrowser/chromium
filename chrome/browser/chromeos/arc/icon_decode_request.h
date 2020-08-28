@@ -9,7 +9,7 @@
 
 #include "base/callback.h"
 #include "base/macros.h"
-#include "chrome/browser/image_decoder.h"
+#include "chrome/browser/image_decoder/image_decoder.h"
 
 namespace gfx {
 class ImageSkia;
@@ -27,7 +27,7 @@ class IconDecodeRequest : public ImageDecoder::ImageRequest {
   // Disables async safe decoding requests when unit tests are executed.
   // Icons are decoded at a separate process created by ImageDecoder. In unit
   // tests these tasks may not finish before the test exits, which causes a
-  // failure in the base::MessageLoopCurrent::Get()->IsIdleForTesting() check
+  // failure in the base::CurrentThread::Get()->IsIdleForTesting() check
   // in content::~BrowserTaskEnvironment().
   static void DisableSafeDecodingForTesting();
 

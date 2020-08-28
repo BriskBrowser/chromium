@@ -44,7 +44,8 @@ namespace views {
 //
 //   auto* animating_layout = button_container->SetLayoutManager(
 //       std::make_unique<AnimatingLayoutManager>());
-//   animating_layout->SetShouldAnimateBounds(true);
+//   animating_layout->SetBoundsAnimationMode(
+//       AnimatingLayoutManager::BoundsAnimationMode::kAnimateMainAxis);
 //   auto* flex_layout = animating_layout->SetTargetLayoutManager(
 //       std::make_unique<FlexLayout>());
 //   flex_layout->SetOrientation(LayoutOrientation::kHorizontal)
@@ -69,6 +70,26 @@ class VIEWS_EXPORT AnimatingLayoutManager : public LayoutManagerBase {
    public:
     virtual void OnLayoutIsAnimatingChanged(AnimatingLayoutManager* source,
                                             bool is_animating) = 0;
+  };
+
+  // Describes if and how the bounds of the host view can be animated as part of
+  // layout animations, if the preferred size of the layout changes.
+  enum BoundsAnimationMode {
+    // Default behavior: the host view will always take the space given to it by
+    // its parent view and child views will animate within those bounds. Useful
+    // for cases where the layout is in a fixed-size container or dialog, but
+    // we want child views to be able to animate.
+    kUseHostBounds,
+    // The host view will request more or less space within the available space
+    // offered by its parent view, allowing its main axis size to animate, but
+    // will use exactly the cross-axis space provided, as it would with
+    // kUseHostBounds. Useful if the host view is in a toolbar or a dialog with
+    // fixed width but variable height or vice-versa.
+    kAnimateMainAxis,
+    // The host view will request more space or less space in both axes within
+    // the available space offered by its parent view. Useful if the host view
+    // is in e.g. a dialog that can vary in size.
+    kAnimateBothAxes
   };
 
   // Describes how a view which is appearing or disappearing during an animation
@@ -96,8 +117,11 @@ class VIEWS_EXPORT AnimatingLayoutManager : public LayoutManagerBase {
   AnimatingLayoutManager();
   ~AnimatingLayoutManager() override;
 
-  bool should_animate_bounds() const { return should_animate_bounds_; }
-  AnimatingLayoutManager& SetShouldAnimateBounds(bool should_animate_bounds);
+  BoundsAnimationMode bounds_animation_mode() const {
+    return bounds_animation_mode_;
+  }
+  AnimatingLayoutManager& SetBoundsAnimationMode(
+      BoundsAnimationMode bounds_animation_mode);
 
   base::TimeDelta animation_duration() const { return animation_duration_; }
   AnimatingLayoutManager& SetAnimationDuration(
@@ -178,11 +202,20 @@ class VIEWS_EXPORT AnimatingLayoutManager : public LayoutManagerBase {
   // widget).
   void EnableAnimationForTesting();
 
+  const ProposedLayout& starting_layout_for_testing() const {
+    return starting_layout_;
+  }
+
+  const ProposedLayout& target_layout_for_testing() const {
+    return target_layout_;
+  }
+
  protected:
   // LayoutManagerBase:
   ProposedLayout CalculateProposedLayout(
       const SizeBounds& size_bounds) const override;
   void OnInstalled(View* host) override;
+  bool OnViewAdded(View* host, View* view) override;
   void OnLayoutChanged() override;
   void LayoutImpl() override;
 
@@ -243,9 +276,6 @@ class VIEWS_EXPORT AnimatingLayoutManager : public LayoutManagerBase {
                                  double scale_percent,
                                  bool slide_from_leading) const;
 
-  // Returns the size available to the host view from its parent.
-  SizeBounds GetAvailableHostSize() const;
-
   // Returns the space in which to calculate the target layout.
   gfx::Size GetAvailableTargetLayoutSize();
 
@@ -256,11 +286,10 @@ class VIEWS_EXPORT AnimatingLayoutManager : public LayoutManagerBase {
       const View* view,
       const SizeBounds& size_bounds);
 
-  // Whether or not to animate the bounds of the host view when the preferred
-  // size of the layout changes. If false, the size will have to be set
-  // explicitly by the host view's owner. Bounds animation is done by changing
-  // the preferred size and invalidating the layout.
-  bool should_animate_bounds_ = false;
+  // How to animate bounds of the host view when the preferred size of the
+  // layout changes.
+  BoundsAnimationMode bounds_animation_mode_ =
+      BoundsAnimationMode::kUseHostBounds;
 
   // How long each animation takes. Depending on how far along an animation is,
   // a new target layout will either cause the animation to restart or redirect.
@@ -285,7 +314,13 @@ class VIEWS_EXPORT AnimatingLayoutManager : public LayoutManagerBase {
   double current_offset_ = 1.0;
 
   // The restrictions on the layout's size the last time we recalculated our
-  // target layout.
+  // target layout. If they have changed, we may need to recalculate the target
+  // of the current animation.
+  //
+  // Contrast with LayoutManagerBase::cached_available_size_, which tracks
+  // changes from one layout application to the next and affects re-layout of
+  // children; this value tracks changes from one layout *calculation* to
+  // the next and affects recalculation of *this* layout.
   SizeBounds last_available_host_size_;
 
   // The layout being animated away from.

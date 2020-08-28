@@ -6,7 +6,7 @@
 
 #include <utility>
 
-#include "base/logging.h"
+#include "base/check_op.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 
 using content::WebContents;
@@ -137,6 +137,7 @@ void TabStripModelObserver::TabBlockedStateChanged(WebContents* contents,
 
 void TabStripModelObserver::TabGroupedStateChanged(
     base::Optional<tab_groups::TabGroupId> group,
+    content::WebContents* contents,
     int index) {}
 
 void TabStripModelObserver::TabStripEmpty() {

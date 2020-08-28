@@ -40,6 +40,7 @@
 #include "components/variations/variations_switches.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/content_switches.h"
+#include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/test_launcher.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -59,7 +60,7 @@ IN_PROC_BROWSER_TEST_F(FirstRunBrowserTest, SetShouldShowWelcomePage) {
 namespace {
 
 // A generic test class to be subclassed by test classes testing specific
-// master_preferences. All subclasses must call SetMasterPreferencesForTest()
+// master_preferences. All subclasses must call SetInitialPreferencesForTest()
 // from their SetUp() method before deferring the remainder of Setup() to this
 // class.
 class FirstRunMasterPrefsBrowserTestBase : public InProcessBrowserTest {
@@ -68,21 +69,20 @@ class FirstRunMasterPrefsBrowserTestBase : public InProcessBrowserTest {
 
  protected:
   void SetUp() override {
-    // All users of this test class need to call SetMasterPreferencesForTest()
+    // All users of this test class need to call SetInitialPreferencesForTest()
     // before this class' SetUp() is invoked.
     ASSERT_TRUE(text_.get());
 
     ASSERT_TRUE(base::CreateTemporaryFile(&prefs_file_));
-    EXPECT_EQ(static_cast<int>(text_->size()),
-              base::WriteFile(prefs_file_, text_->c_str(), text_->size()));
-    SetMasterPrefsPathForTesting(prefs_file_);
+    EXPECT_TRUE(base::WriteFile(prefs_file_, *text_));
+    SetInitialPrefsPathForTesting(prefs_file_);
 
     // This invokes BrowserMain, and does the import, so must be done last.
     InProcessBrowserTest::SetUp();
   }
 
   void TearDown() override {
-    EXPECT_TRUE(base::DeleteFile(prefs_file_, false));
+    EXPECT_TRUE(base::DeleteFile(prefs_file_));
     InProcessBrowserTest::TearDown();
   }
 
@@ -93,7 +93,7 @@ class FirstRunMasterPrefsBrowserTestBase : public InProcessBrowserTest {
     extensions::ComponentLoader::EnableBackgroundExtensionsForTesting();
   }
 
-#if defined(OS_MACOSX) || defined(OS_LINUX)
+#if defined(OS_MAC) || defined(OS_LINUX) || defined(OS_CHROMEOS)
   void SetUpInProcessBrowserTestFixture() override {
     InProcessBrowserTest::SetUpInProcessBrowserTestFixture();
     // Suppress first run dialog since it blocks test progress.
@@ -101,7 +101,7 @@ class FirstRunMasterPrefsBrowserTestBase : public InProcessBrowserTest {
   }
 #endif
 
-  void SetMasterPreferencesForTest(const char text[]) {
+  void SetInitialPreferencesForTest(const char text[]) {
     text_.reset(new std::string(text));
   }
 
@@ -120,7 +120,7 @@ class FirstRunMasterPrefsBrowserTestT
 
  protected:
   void SetUp() override {
-    SetMasterPreferencesForTest(Text);
+    SetInitialPreferencesForTest(Text);
     FirstRunMasterPrefsBrowserTestBase::SetUp();
   }
 
@@ -294,7 +294,7 @@ INSTANTIATE_TEST_SUITE_P(
 constexpr char kCompressedSeedTestValue[] = COMPRESSED_SEED_TEST_VALUE;
 constexpr char kSignatureValue[] = SEED_SIGNATURE_TEST_VALUE;
 
-extern const char kWithVariationsPrefs[] =
+const char kWithVariationsPrefs[] =
     "{\n"
     "  \"variations_compressed_seed\": \"" COMPRESSED_SEED_TEST_VALUE
     "\",\n"
@@ -331,10 +331,7 @@ class FirstRunMasterPrefsVariationsSeedTest
   // Writes the trial group to the temporary file.
   void WriteTrialGroupToTestFile(const std::string& trial_group) {
     base::ScopedAllowBlockingForTesting allow_blocking;
-    int bytes_to_write = base::checked_cast<int>(trial_group.length());
-    int bytes_written =
-        base::WriteFile(GetTestFilePath(), trial_group.c_str(), bytes_to_write);
-    EXPECT_EQ(bytes_to_write, bytes_written);
+    EXPECT_TRUE(base::WriteFile(GetTestFilePath(), trial_group));
   }
 
   // Reads the trial group from the temporary file.

@@ -25,15 +25,18 @@ struct VideoMemoryUsageStats;
 
 namespace content {
 enum GpuProcessKind {
-  GPU_PROCESS_KIND_UNSANDBOXED_NO_GL,  // Unsandboxed, no init GL bindings.
+  GPU_PROCESS_KIND_INFO_COLLECTION,  // Unsandboxed, no init GL bindings.
   GPU_PROCESS_KIND_SANDBOXED,
   GPU_PROCESS_KIND_COUNT
 };
 
 enum GpuInfoRequest {
   kGpuInfoRequestDxDiag = 1 << 0,
-  kGpuInfoRequestDx12Vulkan = 1 << 1,
-  kGpuInfoRequestAll = kGpuInfoRequestDxDiag | kGpuInfoRequestDx12Vulkan,
+  kGpuInfoRequestDx12 = 1 << 1,
+  kGpuInfoRequestVulkan = 1 << 2,
+  kGpuInfoRequestDx12Vulkan = kGpuInfoRequestVulkan | kGpuInfoRequestDx12,
+  kGpuInfoRequestAll =
+      kGpuInfoRequestDxDiag | kGpuInfoRequestDx12 | kGpuInfoRequestVulkan,
 };
 
 class GpuDataManagerObserver;
@@ -47,8 +50,10 @@ class GpuDataManager {
   // Getter for the singleton.
   CONTENT_EXPORT static GpuDataManager* GetInstance();
 
+  CONTENT_EXPORT static bool Initialized();
+
   // This is only called by extensions testing.
-  virtual void BlacklistWebGLForTesting() = 0;
+  virtual void BlocklistWebGLForTesting() = 0;
 
   virtual gpu::GPUInfo GetGPUInfo() = 0;
 

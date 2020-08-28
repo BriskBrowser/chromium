@@ -28,9 +28,10 @@
 #include "components/history/core/browser/history_service_observer.h"
 #include "components/history/core/browser/history_types.h"
 #include "components/keyed_service/core/keyed_service.h"
-#include "components/sqlite_proto/loading_predictor_key_value_data.h"
-#include "content/public/common/resource_type.h"
+#include "components/optimization_guide/optimization_guide_decider.h"
+#include "components/sqlite_proto/key_value_data.h"
 #include "net/base/network_isolation_key.h"
+#include "services/network/public/mojom/fetch_api.mojom-forward.h"
 #include "url/gurl.h"
 #include "url/origin.h"
 
@@ -65,6 +66,10 @@ struct PreconnectRequest {
   PreconnectRequest(const url::Origin& origin,
                     int num_sockets,
                     const net::NetworkIsolationKey& network_isolation_key);
+  PreconnectRequest(const PreconnectRequest&) = default;
+  PreconnectRequest(PreconnectRequest&&) = default;
+  PreconnectRequest& operator=(const PreconnectRequest&) = default;
+  PreconnectRequest& operator=(PreconnectRequest&&) = default;
 
   url::Origin origin;
   // A zero-value means that we need to preresolve a host only.
@@ -73,16 +78,49 @@ struct PreconnectRequest {
   net::NetworkIsolationKey network_isolation_key;
 };
 
-// Stores a result of preconnect prediction. The |requests| vector is the main
-// result of prediction and other fields are used for histograms reporting.
+struct PrefetchRequest {
+  PrefetchRequest(const GURL& url,
+                  const net::NetworkIsolationKey& network_isolation_key,
+                  network::mojom::RequestDestination destination);
+
+  PrefetchRequest(const PrefetchRequest&) = default;
+  PrefetchRequest(PrefetchRequest&&) = default;
+  PrefetchRequest& operator=(const PrefetchRequest&) = default;
+  PrefetchRequest& operator=(PrefetchRequest&&) = default;
+
+  GURL url;
+  net::NetworkIsolationKey network_isolation_key;
+  network::mojom::RequestDestination destination;
+};
+
+// Stores a result of pre* prediction. The |requests| vector is the main
+// result for preconnects, while the |prefetch_requests| vector is the main
+// result for prefetches. Other fields are used for metrics reporting.
 struct PreconnectPrediction {
   PreconnectPrediction();
   PreconnectPrediction(const PreconnectPrediction& other);
+  PreconnectPrediction(PreconnectPrediction&& other);
+
+  PreconnectPrediction& operator=(const PreconnectPrediction& other);
+  PreconnectPrediction& operator=(PreconnectPrediction&& other);
   ~PreconnectPrediction();
 
   bool is_redirected = false;
   std::string host;
   std::vector<PreconnectRequest> requests;
+  std::vector<PrefetchRequest> prefetch_requests;
+};
+
+// Stores a result of a prediction from the optimization guide.
+struct OptimizationGuidePrediction {
+  OptimizationGuidePrediction();
+  OptimizationGuidePrediction(const OptimizationGuidePrediction& other);
+  ~OptimizationGuidePrediction();
+
+  optimization_guide::OptimizationGuideDecision decision;
+  PreconnectPrediction preconnect_prediction;
+  std::vector<GURL> predicted_subresources;
+  base::Optional<base::TimeTicks> optimization_guide_prediction_arrived;
 };
 
 // Contains logic for learning what can be prefetched and for kicking off
@@ -121,10 +159,9 @@ class ResourcePrefetchPredictor : public history::HistoryServiceObserver {
   };
 
   using RedirectDataMap =
-      LoadingPredictorKeyValueData<RedirectData,
-                                   internal::LastVisitTimeCompare>;
+      sqlite_proto::KeyValueData<RedirectData, internal::LastVisitTimeCompare>;
   using OriginDataMap =
-      LoadingPredictorKeyValueData<OriginData, internal::LastVisitTimeCompare>;
+      sqlite_proto::KeyValueData<OriginData, internal::LastVisitTimeCompare>;
   using NavigationMap =
       std::map<NavigationID, std::unique_ptr<PageRequestSummary>>;
 

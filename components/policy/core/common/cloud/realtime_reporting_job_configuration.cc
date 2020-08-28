@@ -8,6 +8,7 @@
 #include "base/json/json_writer.h"
 #include "base/optional.h"
 #include "base/path_service.h"
+#include "components/enterprise/common/strings.h"
 #include "components/policy/core/common/cloud/cloud_policy_client.h"
 #include "components/policy/core/common/cloud/cloud_policy_util.h"
 #include "components/policy/core/common/cloud/dm_auth.h"
@@ -20,7 +21,7 @@ namespace em = enterprise_management;
 namespace policy {
 
 const char RealtimeReportingJobConfiguration::kContextKey[] = "context";
-const char RealtimeReportingJobConfiguration::kEventListKey[] = "eventList";
+const char RealtimeReportingJobConfiguration::kEventListKey[] = "events";
 
 const char RealtimeReportingJobConfiguration::kBrowserIdKey[] =
     "browser.browserId";
@@ -36,6 +37,14 @@ const char RealtimeReportingJobConfiguration::kOsPlatformKey[] =
     "device.osPlatform";
 const char RealtimeReportingJobConfiguration::kOsVersionKey[] =
     "device.osVersion";
+const char RealtimeReportingJobConfiguration::kUploadedEventsKey[] =
+    "uploadedEventIds";
+const char RealtimeReportingJobConfiguration::kFailedUploadsKey[] =
+    "failedUploads";
+const char RealtimeReportingJobConfiguration::kPermanentFailedUploadsKey[] =
+    "permanentFailedUploads";
+const char RealtimeReportingJobConfiguration::kEventIdKey[] = "eventId";
+const char RealtimeReportingJobConfiguration::kDeviceNameKey[] = "device.name";
 
 base::Value RealtimeReportingJobConfiguration::BuildReport(
     base::Value events,
@@ -49,17 +58,26 @@ base::Value RealtimeReportingJobConfiguration::BuildReport(
 RealtimeReportingJobConfiguration::RealtimeReportingJobConfiguration(
     CloudPolicyClient* client,
     std::unique_ptr<DMAuth> auth_data,
+    const std::string& server_url,
+    bool add_connector_url_params,
     Callback callback)
     : JobConfigurationBase(TYPE_UPLOAD_REAL_TIME_REPORT,
                            std::move(auth_data),
                            base::nullopt,
                            client->GetURLLoaderFactory()),
-      server_url_(client->service()->configuration()->GetReportingServerUrl()),
+      server_url_(server_url),
       payload_(base::Value::Type::DICTIONARY),
       callback_(std::move(callback)) {
   DCHECK(GetAuth().has_dm_token());
 
   AddParameter("key", google_apis::GetAPIKey());
+
+  // If specified add extra enterprise connector URL params.
+  if (add_connector_url_params) {
+    AddParameter(enterprise::kUrlParamConnector, "OnSecurityEvent");
+    AddParameter(enterprise::kUrlParamDeviceToken, client->dm_token());
+  }
+
   InitializePayload(client);
 }
 
@@ -79,10 +97,9 @@ bool RealtimeReportingJobConfiguration::AddReport(base::Value report) {
   payload_.MergeDictionary(&*context);
 
   // Append event_list to the payload.
-  base::Value::ListStorage& to = payload_.FindListKey(kEventsKey)->GetList();
-  base::Value::ListStorage& from = event_list->GetList();
-  to.insert(to.end(), std::make_move_iterator(from.begin()),
-            std::make_move_iterator(from.end()));
+  base::Value* to = payload_.FindListKey(kEventsKey);
+  for (auto& event : event_list->GetList())
+    to->Append(std::move(event));
   return true;
 }
 
@@ -98,6 +115,7 @@ void RealtimeReportingJobConfiguration::InitializePayload(
   payload_.SetStringPath(kChromeVersionKey, version_info::GetVersionNumber());
   payload_.SetStringPath(kOsPlatformKey, GetOSPlatform());
   payload_.SetStringPath(kOsVersionKey, GetOSVersion());
+  payload_.SetStringPath(kDeviceNameKey, GetDeviceName());
   payload_.SetPath(kEventsKey, base::Value(base::Value::Type::LIST));
 }
 
@@ -155,6 +173,54 @@ void RealtimeReportingJobConfiguration::OnURLLoadComplete(
 
 GURL RealtimeReportingJobConfiguration::GetURL(int last_error) {
   return GURL(server_url_);
+}
+
+DeviceManagementService::Job::RetryMethod
+RealtimeReportingJobConfiguration::ShouldRetry(
+    int response_code,
+    const std::string& response_body) {
+  if (response_code == DeviceManagementService::kSuccess) {
+    const auto failedIds = GetFailedUploadIds(response_body);
+    if (!failedIds.empty()) {
+      return DeviceManagementService::Job::RETRY_WITH_DELAY;
+    }
+  }
+
+  return JobConfigurationBase::ShouldRetry(response_code, response_body);
+}
+
+std::set<std::string> RealtimeReportingJobConfiguration::GetFailedUploadIds(
+    const std::string& response_body) {
+  std::set<std::string> failedIds;
+  base::Optional<base::Value> response = base::JSONReader::Read(response_body);
+  base::Value response_value = response ? std::move(*response) : base::Value();
+  base::Value* failedUploads = response_value.FindListKey(kFailedUploadsKey);
+  if (failedUploads) {
+    for (const auto& failedUpload : failedUploads->GetList()) {
+      auto* id = failedUpload.FindStringKey(kEventIdKey);
+      if (id) {
+        failedIds.insert(*id);
+      }
+    }
+  }
+  return failedIds;
+}
+
+void RealtimeReportingJobConfiguration::OnBeforeRetry(
+    int response_code,
+    const std::string& response_body) {
+  if (response_code != DeviceManagementService::kSuccess) {
+    return;
+  }
+  const auto& failedIds = GetFailedUploadIds(response_body);
+  if (!failedIds.empty()) {
+    auto* events = payload_.FindListKey(kEventsKey);
+    // Only keep the elements that temporarily failed their uploads.
+    events->EraseListValueIf([&failedIds](const base::Value& entry) {
+      auto* id = entry.FindStringKey(kEventIdKey);
+      return id && failedIds.find(*id) == failedIds.end();
+    });
+  }
 }
 
 }  // namespace policy

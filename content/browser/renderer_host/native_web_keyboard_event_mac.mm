@@ -53,9 +53,9 @@ NativeWebKeyboardEvent::NativeWebKeyboardEvent(
     : WebKeyboardEvent(web_event), os_event(nullptr), skip_in_browser(false) {
   NSEventType type = NSKeyUp;
   int flags = modifiersForEvent(web_event.GetModifiers());
-  if (web_event.GetType() == blink::WebInputEvent::kChar ||
-      web_event.GetType() == blink::WebInputEvent::kRawKeyDown ||
-      web_event.GetType() == blink::WebInputEvent::kKeyDown) {
+  if (web_event.GetType() == blink::WebInputEvent::Type::kChar ||
+      web_event.GetType() == blink::WebInputEvent::Type::kRawKeyDown ||
+      web_event.GetType() == blink::WebInputEvent::Type::kKeyDown) {
     type = NSKeyDown;
   }
   size_t text_length = WebKeyboardEventTextLength(web_event.text);
@@ -96,8 +96,23 @@ NativeWebKeyboardEvent::NativeWebKeyboardEvent(
   [os_event eventRef];
 }
 
+// static
+NativeWebKeyboardEvent NativeWebKeyboardEvent::CreateForRenderer(
+    gfx::NativeEvent native_event) {
+  return NativeWebKeyboardEvent(native_event, true);
+}
+
+NativeWebKeyboardEvent::NativeWebKeyboardEvent(gfx::NativeEvent native_event,
+                                               bool record_debug_uma)
+    : WebKeyboardEvent(
+          WebKeyboardEventBuilder::Build(native_event, record_debug_uma)),
+      os_event([native_event retain]),
+      skip_in_browser(false) {}
+
 NativeWebKeyboardEvent::NativeWebKeyboardEvent(gfx::NativeEvent native_event)
-    : WebKeyboardEvent(WebKeyboardEventBuilder::Build(native_event)),
+    : WebKeyboardEvent(
+          WebKeyboardEventBuilder::Build(native_event,
+                                         /*record_debug_uma=*/false)),
       os_event([native_event retain]),
       skip_in_browser(false) {}
 

@@ -40,6 +40,7 @@
 #include "chrome/credential_provider/common/gcp_strings.h"
 #include "chrome/credential_provider/gaiacp/gcp_utils.h"
 #include "chrome/credential_provider/gaiacp/logging.h"
+#include "chrome/credential_provider/gaiacp/scoped_handle.h"
 
 typedef NTSTATUS(FAR WINAPI* NtOpenDirectoryObjectPfn)(
     OUT PHANDLE DirectoryHandle,
@@ -51,7 +52,7 @@ namespace credential_provider {
 namespace {
 
 HRESULT GetTokenLogonSID(const base::win::ScopedHandle& token, PSID* sid) {
-  LOGFN(INFO);
+  LOGFN(VERBOSE);
   DCHECK(sid);
 
   // TODO: make more robust by asking for needed length first.
@@ -100,7 +101,7 @@ HRESULT AddAllowedACE(ACL* dacl,
                       DWORD access_mask,
                       PSID sid,
                       ACL** new_dacl) {
-  LOGFN(INFO);
+  LOGFN(VERBOSE);
   DCHECK(new_dacl);
 
   ACL_SIZE_INFORMATION si;
@@ -191,7 +192,7 @@ HRESULT AllowLogonSIDOnLocalBasedNamedObjects(PSID sid) {
     return hr;
   }
 
-  LOGFN(INFO) << "session=" << session_id;
+  LOGFN(VERBOSE) << "session=" << session_id;
 
   UNICODE_STRING name;
   wchar_t name_buffer[64];
@@ -259,7 +260,7 @@ HRESULT AllowLogonSIDOnLocalBasedNamedObjects(PSID sid) {
 }
 
 HRESULT AllowLogonSIDOnWinSta0(PSID sid) {
-  LOGFN(INFO);
+  LOGFN(VERBOSE);
 
   ScopedWindowStationHandle winsta0(
       ::OpenWindowStationW(L"WinSta0", FALSE, READ_CONTROL | WRITE_DAC));
@@ -320,7 +321,7 @@ HRESULT AllowLogonSIDOnWinSta0(PSID sid) {
 HDESK GetAndAllowLogonSIDOnDesktop(const wchar_t* desktop_name,
                                    PSID sid,
                                    DWORD desired_access) {
-  LOGFN(INFO);
+  LOGFN(VERBOSE);
 
   const DWORD kDesiredAccess =
       desired_access | READ_CONTROL | WRITE_DAC | DESKTOP_CREATEWINDOW;

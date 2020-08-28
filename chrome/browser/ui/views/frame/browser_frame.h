@@ -6,16 +6,14 @@
 #define CHROME_BROWSER_UI_VIEWS_FRAME_BROWSER_FRAME_H_
 
 #include "base/compiler_specific.h"
-#include "base/logging.h"
 #include "base/macros.h"
-#include "base/scoped_observer.h"
 #include "build/build_config.h"
 #include "content/public/browser/keyboard_event_processing_result.h"
-#include "ui/base/material_design/material_design_controller.h"
-#include "ui/base/material_design/material_design_controller_observer.h"
+#include "ui/base/pointer/touch_ui_controller.h"
 #include "ui/views/context_menu_controller.h"
 #include "ui/views/widget/widget.h"
 
+class BrowserDesktopWindowTreeHost;
 class BrowserNonClientFrameView;
 class BrowserRootView;
 class BrowserView;
@@ -40,10 +38,20 @@ class MenuRunner;
 class View;
 }
 
+enum class TabDragKind {
+  // No drag is active.
+  kNone,
+
+  // One or more (but not all) tabs within a window are being dragged.
+  kTab,
+
+  // All of the tabs in a window are being dragged, and the whole window is
+  // along for the ride.
+  kAllTabs,
+};
+
 // This is a virtual interface that allows system specific browser frames.
-class BrowserFrame : public views::Widget,
-                     public views::ContextMenuController,
-                     public ui::MaterialDesignControllerObserver {
+class BrowserFrame : public views::Widget, public views::ContextMenuController {
  public:
   explicit BrowserFrame(BrowserView* browser_view);
   ~BrowserFrame() override;
@@ -56,8 +64,9 @@ class BrowserFrame : public views::Widget,
   int GetMinimizeButtonOffset() const;
 
   // Retrieves the bounds in non-client view coordinates for the
-  // TabStripRegionView that contains the specified TabStrip view.
-  gfx::Rect GetBoundsForTabStripRegion(const views::View* tabstrip) const;
+  // TabStripRegionView that contains the TabStrip view.
+  gfx::Rect GetBoundsForTabStripRegion(
+      const gfx::Size& tabstrip_minimum_size) const;
 
   // Returns the inset of the topmost view in the client view from the top of
   // the non-client view. The topmost view depends on the window type. The
@@ -80,6 +89,9 @@ class BrowserFrame : public views::Widget,
   // Returns true when the window placement should be saved.
   bool ShouldSaveWindowPlacement() const;
 
+  // Returns true when a frame header should be drawn.
+  virtual bool ShouldDrawFrameHeader() const;
+
   // Retrieves the window placement (show state and bounds) for restoring.
   void GetWindowPlacement(gfx::Rect* bounds,
                           ui::WindowShowState* show_state) const;
@@ -99,12 +111,10 @@ class BrowserFrame : public views::Widget,
   // Called when BrowserView creates all it's child views.
   void OnBrowserViewInitViewsComplete();
 
-  // Returns whether this window should be themed with the user's theme or not.
-  bool ShouldUseTheme() const;
-
   // views::Widget:
   views::internal::RootView* CreateRootView() override;
-  views::NonClientFrameView* CreateNonClientFrameView() override;
+  std::unique_ptr<views::NonClientFrameView> CreateNonClientFrameView()
+      override;
   bool GetAccelerator(int command_id,
                       ui::Accelerator* accelerator) const override;
   const ui::ThemeProvider* GetThemeProvider() const override;
@@ -125,11 +135,17 @@ class BrowserFrame : public views::Widget,
     return native_browser_frame_;
   }
 
- protected:
-  // ui::MaterialDesignControllerObserver:
-  void OnTouchUiChanged() override;
+  void set_browser_desktop_window_tree_host(
+      BrowserDesktopWindowTreeHost* browser_desktop_window_tree_host) {
+    browser_desktop_window_tree_host_ = browser_desktop_window_tree_host;
+  }
+
+  void SetTabDragKind(TabDragKind tab_drag_kind);
+  TabDragKind tab_drag_kind() const { return tab_drag_kind_; }
 
  private:
+  void OnTouchUiChanged();
+
   // Callback for MenuRunner.
   void OnMenuClosed();
 
@@ -152,9 +168,20 @@ class BrowserFrame : public views::Widget,
   // NativeBrowserFrame::UsesNativeSystemMenu() returns false.
   std::unique_ptr<views::MenuRunner> menu_runner_;
 
-  ScopedObserver<ui::MaterialDesignController,
-                 ui::MaterialDesignControllerObserver>
-      md_observer_{this};
+  std::unique_ptr<ui::TouchUiController::Subscription> subscription_ =
+      ui::TouchUiController::Get()->RegisterCallback(
+          base::BindRepeating(&BrowserFrame::OnTouchUiChanged,
+                              base::Unretained(this)));
+
+  BrowserDesktopWindowTreeHost* browser_desktop_window_tree_host_ = nullptr;
+
+  // Indicates the drag state for this window. The value can be kWindowDrag
+  // if the accociated browser is the dragged browser or kTabDrag
+  // if this is the source browser that the drag window originates from. During
+  // tab dragging process, the dragged browser or the source browser's bounds
+  // may change, the fast resize strategy will be used to resize its web
+  // contents for smoother dragging.
+  TabDragKind tab_drag_kind_ = TabDragKind::kNone;
 
   DISALLOW_COPY_AND_ASSIGN(BrowserFrame);
 };

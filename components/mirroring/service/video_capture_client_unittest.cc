@@ -13,7 +13,6 @@
 #include "media/base/video_frame.h"
 #include "media/base/video_frame_metadata.h"
 #include "media/capture/mojom/video_capture_types.mojom.h"
-#include "mojo/public/cpp/base/shared_memory_utils.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -25,17 +24,15 @@ namespace mirroring {
 
 namespace {
 
-constexpr double kUtilization = 0.6;
+const media::VideoFrameFeedback kFeedback(0.6, 30.0, 1000);
 
 media::mojom::VideoFrameInfoPtr GetVideoFrameInfo(const gfx::Size& size) {
   media::VideoFrameMetadata metadata;
-  metadata.SetDouble(media::VideoFrameMetadata::FRAME_RATE, 30);
-  metadata.SetTimeTicks(media::VideoFrameMetadata::REFERENCE_TIME,
-                        base::TimeTicks());
+  metadata.frame_rate = 30;
+  metadata.reference_time = base::TimeTicks();
   return media::mojom::VideoFrameInfo::New(
-      base::TimeDelta(), metadata.GetInternalValues().Clone(),
-      media::PIXEL_FORMAT_I420, size, gfx::Rect(size),
-      gfx::ColorSpace::CreateREC709(), nullptr);
+      base::TimeDelta(), metadata, media::PIXEL_FORMAT_I420, size,
+      gfx::Rect(size), gfx::ColorSpace::CreateREC709(), nullptr);
 }
 
 }  // namespace
@@ -64,8 +61,7 @@ class VideoCaptureClientTest : public ::testing::Test,
 
   MOCK_METHOD1(OnFrameReceived, void(const gfx::Size&));
   void OnFrameReady(scoped_refptr<media::VideoFrame> video_frame) {
-    video_frame->metadata()->SetDouble(
-        media::VideoFrameMetadata::RESOURCE_UTILIZATION, kUtilization);
+    *video_frame->feedback() = kFeedback;
     OnFrameReceived(video_frame->coded_size());
   }
 
@@ -94,7 +90,7 @@ class VideoCaptureClientTest : public ::testing::Test,
       client_->OnNewBuffer(
           buffer_id,
           media::mojom::VideoBufferHandle::NewReadOnlyShmemRegion(
-              mojo::CreateReadOnlySharedMemoryRegion(buffer_size).region));
+              base::ReadOnlySharedMemoryRegion::Create(buffer_size).region));
     }
     task_environment_.RunUntilIdle();
   }
@@ -105,7 +101,7 @@ class VideoCaptureClientTest : public ::testing::Test,
     // Expects to receive one frame.
     EXPECT_CALL(*this, OnFrameReceived(frame_size)).Times(1);
     // Expects to return the buffer after the frame is consumed.
-    EXPECT_CALL(*host_impl_, ReleaseBuffer(_, 0, kUtilization))
+    EXPECT_CALL(*host_impl_, ReleaseBuffer(_, 0, kFeedback))
         .WillOnce(InvokeWithoutArgs(&run_loop, &base::RunLoop::Quit));
     client_->OnBufferReady(buffer_id, GetVideoFrameInfo(frame_size));
     run_loop.Run();

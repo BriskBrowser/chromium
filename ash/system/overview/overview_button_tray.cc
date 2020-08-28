@@ -10,6 +10,7 @@
 #include "ash/session/session_controller_impl.h"
 #include "ash/shell.h"
 #include "ash/strings/grit/ash_strings.h"
+#include "ash/style/ash_color_provider.h"
 #include "ash/system/tray/tray_constants.h"
 #include "ash/system/tray/tray_container.h"
 #include "ash/wm/mru_window_tracker.h"
@@ -36,7 +37,10 @@ OverviewButtonTray::OverviewButtonTray(Shelf* shelf)
       icon_(new views::ImageView()),
       scoped_session_observer_(this) {
   gfx::ImageSkia image = gfx::CreateVectorIcon(
-      kShelfOverviewIcon, ShelfConfig::Get()->shelf_icon_color());
+      kShelfOverviewIcon,
+      AshColorProvider::Get()->GetContentLayerColor(
+          AshColorProvider::ContentLayerType::kButtonIconColor,
+          AshColorProvider::AshColorMode::kDark));
   icon_->SetImage(image);
   const int vertical_padding = (kTrayItemSize - image.height()) / 2;
   const int horizontal_padding = (kTrayItemSize - image.width()) / 2;
@@ -50,6 +54,7 @@ OverviewButtonTray::OverviewButtonTray(Shelf* shelf)
 
   Shell::Get()->overview_controller()->AddObserver(this);
   Shell::Get()->tablet_mode_controller()->AddObserver(this);
+  Shell::Get()->shelf_config()->AddObserver(this);
 }
 
 OverviewButtonTray::~OverviewButtonTray() {
@@ -57,9 +62,10 @@ OverviewButtonTray::~OverviewButtonTray() {
     Shell::Get()->overview_controller()->RemoveObserver(this);
   if (Shell::Get()->tablet_mode_controller())
     Shell::Get()->tablet_mode_controller()->RemoveObserver(this);
+  Shell::Get()->shelf_config()->RemoveObserver(this);
 }
 
-void OverviewButtonTray::UpdateAfterLoginStatusChange(LoginStatus status) {
+void OverviewButtonTray::UpdateAfterLoginStatusChange() {
   UpdateIconVisibility();
 }
 
@@ -70,8 +76,10 @@ void OverviewButtonTray::SnapRippleToActivated() {
 void OverviewButtonTray::OnGestureEvent(ui::GestureEvent* event) {
   Button::OnGestureEvent(event);
   if (event->type() == ui::ET_GESTURE_LONG_PRESS) {
-    Shell::Get()->overview_controller()->OnOverviewButtonTrayLongPressed(
-        event->location());
+    // TODO(crbug.com/970013): Properly implement the multi-display behavior (in
+    // tablet position with an external pointing device).
+    SplitViewController::Get(Shell::GetPrimaryRootWindow())
+        ->OnOverviewButtonTrayLongPressed(event->location());
   }
 }
 
@@ -97,13 +105,11 @@ bool OverviewButtonTray::PerformAction(const ui::Event& event) {
     // Switch to the second most recently used window (most recent is the
     // current window) if it exists, unless splitview mode is active. Do not
     // switch if we entered overview mode with all windows minimized.
-    const OverviewSession::EnterExitOverviewType enter_exit_type =
+    const OverviewEnterExitType enter_exit_type =
         overview_controller->overview_session()->enter_exit_overview_type();
     if (mru_window_list.size() > 1u &&
-        enter_exit_type !=
-            OverviewSession::EnterExitOverviewType::kFadeInEnter &&
-        enter_exit_type !=
-            OverviewSession::EnterExitOverviewType::kSlideInEnter) {
+        enter_exit_type != OverviewEnterExitType::kFadeInEnter &&
+        enter_exit_type != OverviewEnterExitType::kSlideInEnter) {
       aura::Window* new_active_window = mru_window_list[1];
 
       // In tablet split view mode, quick switch will only affect the windows on
@@ -159,6 +165,10 @@ void OverviewButtonTray::OnTabletModeEventsBlockingChanged() {
   UpdateIconVisibility();
 }
 
+void OverviewButtonTray::OnShelfConfigUpdated() {
+  UpdateIconVisibility();
+}
+
 void OverviewButtonTray::OnOverviewModeStarting() {
   SetIsActive(true);
 }
@@ -172,6 +182,8 @@ void OverviewButtonTray::ClickedOutsideBubble() {}
 base::string16 OverviewButtonTray::GetAccessibleNameForTray() {
   return l10n_util::GetStringUTF16(IDS_ASH_OVERVIEW_BUTTON_ACCESSIBLE_NAME);
 }
+
+void OverviewButtonTray::HandleLocaleChange() {}
 
 void OverviewButtonTray::HideBubbleWithView(const TrayBubbleView* bubble_view) {
   // This class has no bubbles to hide.
@@ -195,7 +207,10 @@ void OverviewButtonTray::UpdateIconVisibility() {
   bool should_show =
       Shell::Get()->tablet_mode_controller()->ShouldShowOverviewButton();
 
-  SetVisiblePreferred(should_show && active_session && !app_mode);
+  bool shelf_controls_shown = ShelfConfig::Get()->shelf_controls_shown();
+
+  SetVisiblePreferred(should_show && active_session && shelf_controls_shown &&
+                      !app_mode);
 }
 
 }  // namespace ash

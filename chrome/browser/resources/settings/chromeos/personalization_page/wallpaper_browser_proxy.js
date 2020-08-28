@@ -2,9 +2,13 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+// clang-format off
+// #import {addSingletonGetter, sendWithPromise} from 'chrome://resources/js/cr.m.js';
+// clang-format on
+
 cr.define('settings', function() {
   /** @interface */
-  class WallpaperBrowserProxy {
+  /* #export */ class WallpaperBrowserProxy {
     /**
      * @return {!Promise<boolean>} Whether the wallpaper setting row should be
      *     visible.
@@ -22,7 +26,7 @@ cr.define('settings', function() {
   /**
    * @implements {settings.WallpaperBrowserProxy}
    */
-  class WallpaperBrowserProxyImpl {
+  /* #export */ class WallpaperBrowserProxyImpl {
     /** @override */
     isWallpaperSettingVisible() {
       return cr.sendWithPromise('isWallpaperSettingVisible');
@@ -41,6 +45,7 @@ cr.define('settings', function() {
 
   cr.addSingletonGetter(WallpaperBrowserProxyImpl);
 
+  // #cr_define_end
   return {
     WallpaperBrowserProxy: WallpaperBrowserProxy,
     WallpaperBrowserProxyImpl: WallpaperBrowserProxyImpl,

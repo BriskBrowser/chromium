@@ -529,6 +529,7 @@ bool HttpServerPropertiesManager::ParseAlternativeServiceInfoDictOfServer(
   }
 
   // Advertised versions list is optional.
+  // It is only used for versions that use the legacy Google AltSvc format.
   if (dict.HasKey(kAdvertisedVersionsKey)) {
     const base::ListValue* versions_list = nullptr;
     if (!dict.GetListWithoutPathExpansion(kAdvertisedVersionsKey,
@@ -545,10 +546,15 @@ bool HttpServerPropertiesManager::ParseAlternativeServiceInfoDictOfServer(
                  << server_str;
         return false;
       }
-      // TODO(nharper): Support ParsedQuicVersions (instead of
-      // QuicTransportVersions) in AlternativeServiceMap.
-      advertised_versions.push_back(quic::ParsedQuicVersion(
-          quic::PROTOCOL_QUIC_CRYPTO, quic::QuicTransportVersion(version)));
+      for (const quic::ParsedQuicVersion& supported :
+           quic::AllSupportedVersions()) {
+        if (supported.UsesQuicCrypto() &&
+            supported.SupportsGoogleAltSvcFormat() &&
+            static_cast<int>(supported.transport_version) == version) {
+          advertised_versions.push_back(supported);
+          break;
+        }
+      }
     }
     alternative_service_info->set_advertised_versions(advertised_versions);
   }
@@ -864,7 +870,7 @@ void HttpServerPropertiesManager::SaveQuicServerInfoMapToServerPrefs(
                                  std::move(network_isolation_key_value));
     quic_server_pref_dict.SetStringKey(kServerInfoKey, it->second);
 
-    quic_servers_list.GetList().emplace_back(std::move(quic_server_pref_dict));
+    quic_servers_list.Append(std::move(quic_server_pref_dict));
   }
   http_server_properties_dict->SetKey(kQuicServers,
                                       std::move(quic_servers_list));

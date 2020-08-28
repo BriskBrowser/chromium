@@ -6,10 +6,10 @@
 
 #include <utility>
 
+#include "base/check_op.h"
 #include "base/command_line.h"
 #include "base/files/file_util.h"
 #include "base/json/json_writer.h"
-#include "base/logging.h"
 #include "base/path_service.h"
 #include "base/strings/stringprintf.h"
 #include "base/system/sys_info.h"
@@ -18,7 +18,7 @@
 #include "chromeos/assistant/internal/internal_constants.h"
 #include "chromeos/constants/chromeos_switches.h"
 #include "chromeos/dbus/util/version_loader.h"
-#include "chromeos/services/assistant/public/features.h"
+#include "chromeos/services/assistant/public/cpp/features.h"
 
 namespace chromeos {
 namespace assistant {
@@ -49,6 +49,10 @@ base::FilePath GetRootPath() {
   // Ensures DIR_HOME is overridden after primary user sign-in.
   CHECK_NE(base::GetHomeDir(), home_dir);
   return home_dir;
+}
+
+base::FilePath GetBaseAssistantDir() {
+  return GetRootPath().Append(FILE_PATH_LITERAL("google-assistant-library"));
 }
 
 std::string CreateLibAssistantConfig(
@@ -109,6 +113,19 @@ std::string CreateLibAssistantConfig(
     // Print logs to console if running in desktop mode.
     internal.SetKey("disable_log_files", Value(true));
   }
+
+  // Enable logging.
+  internal.SetBoolKey("enable_logging", true);
+
+  // This only enables logging to local disk combined with the flag above. When
+  // user choose to file a Feedback report, user can examine the log and choose
+  // to upload the log with the report or not.
+  internal.SetBoolKey("logging_opt_in", true);
+
+  // Allows libassistant to automatically toggle signed-out mode depending on
+  // whether it has auth_tokens.
+  internal.SetBoolKey("enable_signed_out_mode", true);
+
   config.SetKey("internal", std::move(internal));
 
   Value audio_input(Type::DICTIONARY);
@@ -125,11 +142,23 @@ std::string CreateLibAssistantConfig(
 
   config.SetKey("audio_input", std::move(audio_input));
 
+  if (features::IsOnDeviceAssistantEnabled()) {
+    config.SetStringPath("internal.base_oda_resources_dir",
+                         GetBaseAssistantDir().AsUTF8Unsafe());
+  }
+
+  if (features::IsLibAssistantBetaBackendEnabled() ||
+      features::IsAssistantDebuggingEnabled()) {
+    config.SetStringPath("internal.backend_type", "BETA_DOGFOOD");
+  }
+
   // Use http unless we're using the fake s3 server, which requires grpc.
   if (s3_server_uri_override)
     config.SetStringPath("internal.transport_type", "GRPC");
   else
     config.SetStringPath("internal.transport_type", "HTTP");
+
+  config.SetBoolPath("internal.enable_on_device_assistant_tts_as_text", true);
 
   // Finally add in the server uri override.
   if (s3_server_uri_override) {

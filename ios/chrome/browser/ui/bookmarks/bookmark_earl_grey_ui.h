@@ -34,10 +34,6 @@ id<GREYMatcher> StarButton();
 // Matcher for the Delete button on the bookmarks UI.
 id<GREYMatcher> BookmarksDeleteSwipeButton();
 
-// Matcher for the Back button to |previousViewControllerLabel| on the bookmarks
-// UI.
-id<GREYMatcher> NavigateBackButtonTo(NSString* previousViewControllerLabel);
-
 // Matcher for the DONE button on the bookmarks UI.
 id<GREYMatcher> BookmarkHomeDoneButton();
 
@@ -98,7 +94,11 @@ id<GREYMatcher> SearchIconButton();
 // Must be called after previously calling [BookmarkEarlGreyUI openBookmarks].
 - (void)selectUrlsAndTapOnContextBarButtonWithLabelId:(int)buttonLabelId;
 
-- (void)verifyContextMenuForSingleURL;
+- (void)verifyContextMenuForSingleURLWithEditEnabled:(BOOL)editEnabled;
+
+- (void)verifyContextMenuForSingleFolderWithEditEnabled:(BOOL)editEnabled;
+
+- (void)dismissContextMenu;
 
 - (void)verifyContextBarInDefaultStateWithSelectEnabled:(BOOL)selectEnabled
                                        newFolderEnabled:(BOOL)newFolderEnabled;
@@ -108,6 +108,8 @@ id<GREYMatcher> SearchIconButton();
 - (void)verifyFolderFlowIsClosed;
 
 - (void)verifyEmptyBackgroundAppears;
+
+- (void)verifyEmptyState;
 
 - (void)verifyBookmarkFolderIsSeen:(NSString*)bookmarkFolder;
 

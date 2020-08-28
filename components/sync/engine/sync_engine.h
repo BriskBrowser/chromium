@@ -33,7 +33,6 @@ namespace syncer {
 
 class HttpPostProviderFactory;
 class SyncEngineHost;
-class UnrecoverableErrorHandler;
 
 // The interface into the sync engine, which is the part of sync that performs
 // communication between model types and the sync server. In prod the engine
@@ -68,8 +67,6 @@ class SyncEngine : public ModelTypeConfigurer {
     std::string restored_key_for_bootstrapping;
     std::string restored_keystore_key_for_bootstrapping;
     std::unique_ptr<EngineComponentsFactory> engine_components_factory;
-    WeakHandle<UnrecoverableErrorHandler> unrecoverable_error_handler;
-    base::RepeatingClosure report_unrecoverable_error_function;
     std::map<ModelType, int64_t> invalidation_versions;
 
     // Initial authoritative values (usually read from prefs).
@@ -151,13 +148,8 @@ class SyncEngine : public ModelTypeConfigurer {
   // Turns on encryption of all present and future sync data.
   virtual void EnableEncryptEverything() = 0;
 
-  // Obtain a handle to the UserShare needed for creating transactions. Should
-  // not be called before we signal initialization is complete with
-  // OnBackendInitialized().
-  virtual UserShare* GetUserShare() const = 0;
-
-  // Called from any thread to obtain current detailed status information.
-  virtual SyncStatus GetDetailedStatus() = 0;
+  // Returns current detailed status information.
+  virtual const SyncStatus& GetDetailedStatus() const = 0;
 
   // Determines if the underlying sync engine has made any local changes to
   // items that have not yet been synced with the server.
@@ -167,9 +159,6 @@ class SyncEngine : public ModelTypeConfigurer {
 
 
   virtual void GetModelSafeRoutingInfo(ModelSafeRoutingInfo* out) const = 0;
-
-  // Send a message to the sync thread to persist the Directory to disk.
-  virtual void FlushDirectory() const = 0;
 
   // Requests that the backend forward to the fronent any protocol events in
   // its buffer and begin forwarding automatically from now on.  Repeated calls

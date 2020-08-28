@@ -6,9 +6,9 @@
 
 #import <UIKit/UIKit.h>
 
+#include "base/check.h"
 #include "base/command_line.h"
 #include "base/debug/debugger.h"
-#include "base/logging.h"
 #include "base/mac/scoped_nsobject.h"
 #include "base/message_loop/message_pump.h"
 #include "base/message_loop/message_pump_mac.h"
@@ -49,6 +49,16 @@ static char** g_argv;
 - (void)setSoftwareKeyboardShownByTouch:(BOOL)enabled;
 @end
 #endif  // TARGET_IPHONE_SIMULATOR
+
+// No-op scene delegate for unit tests. Note that this is created along with
+// the application delegate, so they need to be separate objects (the same
+// object can't be both the app and scene delegate, since new scene delegates
+// are created for each scene).
+@interface ChromeUnitTestSceneDelegate : NSObject <UISceneDelegate>
+@end
+
+@implementation ChromeUnitTestSceneDelegate
+@end
 
 @interface ChromeUnitTestDelegate : NSObject <GoogleTestRunnerDelegate> {
   base::scoped_nsobject<UIWindow> _window;
@@ -110,8 +120,9 @@ static char** g_argv;
   // test result parser analyzes console output.
   return !base::ShouldRunIOSUnittestsWithXCTest() &&
          !base::debug::BeingDebugged();
-#endif  // TARGET_IPHONE_SIMULATOR
+#else
   return NO;
+#endif  // TARGET_IPHONE_SIMULATOR
 }
 
 // Returns the path to the directory to store gtest output files.

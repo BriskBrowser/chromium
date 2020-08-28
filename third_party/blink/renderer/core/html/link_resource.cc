@@ -47,7 +47,7 @@ bool LinkResource::ShouldLoadResource() const {
 }
 
 LocalFrame* LinkResource::LoadingFrame() const {
-  return owner_->GetDocument().MasterDocument().GetFrame();
+  return owner_->GetDocument().TreeRootDocument().GetFrame();
 }
 
 Document& LinkResource::GetDocument() {
@@ -65,7 +65,11 @@ WTF::TextEncoding LinkResource::GetCharset() const {
   return WTF::TextEncoding(charset);
 }
 
-void LinkResource::Trace(Visitor* visitor) {
+ExecutionContext* LinkResource::GetExecutionContext() {
+  return owner_->GetExecutionContext();
+}
+
+void LinkResource::Trace(Visitor* visitor) const {
   visitor->Trace(owner_);
 }
 

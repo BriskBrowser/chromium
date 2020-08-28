@@ -11,7 +11,7 @@
 #include "base/command_line.h"
 #include "base/debug/leak_annotations.h"
 #include "base/files/file_path.h"
-#include "base/logging.h"
+#include "base/notreached.h"
 #include "base/path_service.h"
 #include "base/strings/string16.h"
 #include "base/strings/utf_string_conversions.h"
@@ -22,7 +22,7 @@
 #include "chrome/installer/setup/installer_crash_reporter_client.h"
 #include "chrome/installer/setup/installer_state.h"
 #include "chrome/installer/util/google_update_settings.h"
-#include "components/crash/content/app/crashpad.h"
+#include "components/crash/core/app/crashpad.h"
 #include "components/crash/core/common/crash_key.h"
 #include "components/crash/core/common/crash_keys.h"
 
@@ -124,10 +124,10 @@ void SetCrashKeysFromCommandLine(const base::CommandLine& command_line) {
   crash_keys::SetSwitchesFromCommandLine(command_line, nullptr);
 }
 
-void SetCurrentVersionCrashKey(const base::Version* current_version) {
+void SetCurrentVersionCrashKey(const base::Version& current_version) {
   static crash_reporter::CrashKeyString<32> version_key("current-version");
-  if (current_version)
-    version_key.Set(current_version->GetString());
+  if (current_version.IsValid())
+    version_key.Set(current_version.GetString());
   else
     version_key.Clear();
 }

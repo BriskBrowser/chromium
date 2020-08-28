@@ -12,9 +12,9 @@
 #include "components/web_modal/web_contents_modal_dialog_manager_delegate.h"
 #include "ui/gfx/native_widget_types.h"
 
-namespace ash {
-class ArcCustomTab;
-}  // namespace ash
+namespace arc {
+class CustomTab;
+}  // namespace arc
 
 namespace contents {
 class WebContents;
@@ -31,13 +31,13 @@ class ModalDialogHostObserver;
 
 // Implements a WebContentsModalDialogHost for an ARC Custom Tab. This allows a
 // web contents modal dialog to be drawn in the ARC Custom Tab.
+// The WebContents hosted by this object must outlive it.
 class ArcCustomTabModalDialogHost
     : public web_modal::WebContentsModalDialogHost,
       public web_modal::WebContentsModalDialogManagerDelegate {
  public:
-  ArcCustomTabModalDialogHost(
-      std::unique_ptr<ash::ArcCustomTab> custom_tab,
-      std::unique_ptr<content::WebContents> web_contents);
+  ArcCustomTabModalDialogHost(std::unique_ptr<arc::CustomTab> custom_tab,
+                              content::WebContents* web_contents);
   ~ArcCustomTabModalDialogHost() override = 0;
 
   // web_modal::WebContentsModalDialogManagerDelegate:
@@ -52,8 +52,8 @@ class ArcCustomTabModalDialogHost
   void RemoveObserver(web_modal::ModalDialogHostObserver* observer) override;
 
  protected:
-  std::unique_ptr<ash::ArcCustomTab> custom_tab_;
-  std::unique_ptr<content::WebContents> web_contents_;
+  std::unique_ptr<arc::CustomTab> custom_tab_;
+  content::WebContents* web_contents_;
 
   DISALLOW_COPY_AND_ASSIGN(ArcCustomTabModalDialogHost);
 };

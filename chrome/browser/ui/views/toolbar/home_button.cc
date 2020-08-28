@@ -6,14 +6,17 @@
 
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
+#include "chrome/app/vector_icons/vector_icons.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_dialogs.h"
+#include "chrome/browser/ui/view_ids.h"
 #include "chrome/browser/ui/views/chrome_layout_provider.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/prefs/pref_service.h"
 #include "components/user_prefs/user_prefs.h"
+#include "ui/base/dragdrop/drag_drop_types.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/models/menu_model.h"
 #include "ui/views/bubble/bubble_dialog_delegate_view.h"
@@ -88,7 +91,7 @@ HomePageUndoBubble::HomePageUndoBubble(
       browser_(browser),
       undo_value_is_ntp_(undo_value_is_ntp),
       undo_url_(undo_url) {
-  DialogDelegate::set_buttons(ui::DIALOG_BUTTON_NONE);
+  SetButtons(ui::DIALOG_BUTTON_NONE);
   set_margins(
       ChromeLayoutProvider::Get()->GetInsetsMetric(views::INSETS_DIALOG));
   chrome::RecordDialogCreation(chrome::DialogIdentifier::HOME_PAGE_UNDO);
@@ -103,9 +106,10 @@ void HomePageUndoBubble::Init() {
       l10n_util::GetStringUTF16(IDS_ONE_CLICK_BUBBLE_UNDO);
   std::vector<base::string16> message = {
       l10n_util::GetStringUTF16(IDS_TOOLBAR_INFORM_SET_HOME_PAGE), undo_string};
-  views::StyledLabel* label = new views::StyledLabel(
-      base::JoinString(message, base::StringPiece16(base::ASCIIToUTF16(" "))),
-      this);
+  views::StyledLabel* label =
+      AddChildView(std::make_unique<views::StyledLabel>(this));
+  label->SetText(
+      base::JoinString(message, base::StringPiece16(base::ASCIIToUTF16(" "))));
 
   gfx::Range undo_range(label->GetText().length() - undo_string.length(),
                         label->GetText().length());
@@ -114,7 +118,6 @@ void HomePageUndoBubble::Init() {
 
   // Ensure StyledLabel has a cached size to return in GetPreferredSize().
   label->SizeToFit(0);
-  AddChildView(label);
 }
 
 void HomePageUndoBubble::StyledLabelLinkClicked(views::StyledLabel* label,
@@ -143,7 +146,14 @@ void HomePageUndoBubble::WindowClosing() {
 // HomeButton -----------------------------------------------------------
 
 HomeButton::HomeButton(views::ButtonListener* listener, Browser* browser)
-    : ToolbarButton(listener), browser_(browser) {}
+    : ToolbarButton(listener), browser_(browser) {
+  set_triggerable_event_flags(ui::EF_LEFT_MOUSE_BUTTON |
+                              ui::EF_MIDDLE_MOUSE_BUTTON);
+  SetTooltipText(l10n_util::GetStringUTF16(IDS_TOOLTIP_HOME));
+  SetAccessibleName(l10n_util::GetStringUTF16(IDS_ACCNAME_HOME));
+  SetID(VIEW_ID_HOME_BUTTON);
+  SizeToPreferredSize();
+}
 
 HomeButton::~HomeButton() {
 }
@@ -160,7 +170,7 @@ bool HomeButton::GetDropFormats(
 }
 
 bool HomeButton::CanDrop(const OSExchangeData& data) {
-  return data.HasURL(ui::OSExchangeData::CONVERT_FILENAMES);
+  return data.HasURL(ui::FilenameToURLPolicy::CONVERT_FILENAMES);
 }
 
 int HomeButton::OnDragUpdated(const ui::DropTargetEvent& event) {
@@ -170,8 +180,8 @@ int HomeButton::OnDragUpdated(const ui::DropTargetEvent& event) {
 int HomeButton::OnPerformDrop(const ui::DropTargetEvent& event) {
   GURL new_homepage_url;
   base::string16 title;
-  if (event.data().GetURLAndTitle(
-          ui::OSExchangeData::CONVERT_FILENAMES, &new_homepage_url, &title) &&
+  if (event.data().GetURLAndTitle(ui::FilenameToURLPolicy::CONVERT_FILENAMES,
+                                  &new_homepage_url, &title) &&
       new_homepage_url.is_valid()) {
     PrefService* prefs = browser_->profile()->GetPrefs();
     bool old_is_ntp = prefs->GetBoolean(prefs::kHomePageIsNewTabPage);
@@ -183,4 +193,11 @@ int HomeButton::OnPerformDrop(const ui::DropTargetEvent& event) {
     HomePageUndoBubble::ShowBubble(browser_, old_is_ntp, old_homepage, this);
   }
   return ui::DragDropTypes::DRAG_NONE;
+}
+
+void HomeButton::UpdateIcon() {
+  const gfx::VectorIcon& home_image = ui::TouchUiController::Get()->touch_ui()
+                                          ? kNavigateHomeTouchIcon
+                                          : kNavigateHomeIcon;
+  UpdateIconsWithStandardColors(home_image);
 }

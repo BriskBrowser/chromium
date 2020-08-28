@@ -49,7 +49,9 @@ class SyncUserSettingsMock : public SyncUserSettings {
   MOCK_CONST_METHOD0(GetEncryptedDataTypes, ModelTypeSet());
   MOCK_CONST_METHOD0(IsPassphraseRequired, bool());
   MOCK_CONST_METHOD0(IsPassphraseRequiredForPreferredDataTypes, bool());
+  MOCK_CONST_METHOD0(IsTrustedVaultKeyRequired, bool());
   MOCK_CONST_METHOD0(IsTrustedVaultKeyRequiredForPreferredDataTypes, bool());
+  MOCK_CONST_METHOD0(IsTrustedVaultRecoverabilityDegraded, bool());
   MOCK_CONST_METHOD0(IsUsingSecondaryPassphrase, bool());
   MOCK_CONST_METHOD0(GetExplicitPassphraseTime, base::Time());
   MOCK_CONST_METHOD0(GetPassphraseType, PassphraseType());

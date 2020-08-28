@@ -12,8 +12,8 @@
 #include <utility>
 #include <vector>
 
+#include "base/check_op.h"
 #include "base/command_line.h"
-#include "base/logging.h"
 #include "base/stl_util.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/user_activity/user_activity_detector.h"
@@ -47,12 +47,8 @@ struct DeviceScaleFactorDPIThreshold {
 // Update the list of zoom levels whenever a new device scale factor is added
 // here. See zoom level list in /ui/display/manager/display_util.cc
 const DeviceScaleFactorDPIThreshold kThresholdTableForInternal[] = {
-    {300.f, 2.6666667461395263671875f},
-    {270.0f, 2.25f},
-    {230.0f, 2.0f},
-    {220.0f, 1.77777779102325439453125f},
-    {180.0f, 1.6f},
-    {150.0f, 1.25f},
+    {300.f, kDsf_2_666},  {270.0f, kDsf_2_252}, {230.0f, 2.0f},
+    {220.0f, kDsf_1_777}, {180.0f, 1.6f},       {150.0f, 1.25f},
     {0.0f, 1.0f},
 };
 
@@ -80,6 +76,51 @@ ManagedDisplayInfo::ManagedDisplayModeList GetModeListWithAllRefreshRates(
 
   return display_mode_list;
 }
+
+#if defined(OS_CHROMEOS)
+// Constructs the raster DisplayColorSpaces out of |snapshot_color_space|,
+// including the HDR ones if present and |allow_high_bit_depth| is set.
+gfx::DisplayColorSpaces FillDisplayColorSpaces(
+    const gfx::ColorSpace& snapshot_color_space,
+    bool allow_high_bit_depth) {
+  // ChromeOS VMs (e.g. amd64-generic or betty) have INVALID Primaries; just
+  // pass the color space along.
+  if (!snapshot_color_space.IsValid()) {
+    return gfx::DisplayColorSpaces(snapshot_color_space,
+                                   DisplaySnapshot::PrimaryFormat());
+  }
+
+  // TODO(b/158126931): |snapshot_color_space| Primaries/Transfer function
+  // cannot be used directly, as users prefer saturated colors to accurate ones.
+  // Instead, clamp at DCI-P3 and clamp at that level or with a small overshoot.
+  gfx::DisplayColorSpaces display_color_spaces(
+      gfx::ColorSpace::CreateSRGB(), DisplaySnapshot::PrimaryFormat());
+
+  if (allow_high_bit_depth && snapshot_color_space.IsHDR()) {
+    constexpr float kSDRJoint = 0.75;
+    constexpr float kHDRLevel = 4.0;
+    const auto primary_id = snapshot_color_space.GetPrimaryID();
+    gfx::ColorSpace hdr_color_space;
+    if (primary_id == gfx::ColorSpace::PrimaryID::CUSTOM) {
+      skcms_Matrix3x3 primary_matrix{};
+      snapshot_color_space.GetPrimaryMatrix(&primary_matrix);
+      hdr_color_space = gfx::ColorSpace::CreatePiecewiseHDR(
+          primary_id, kSDRJoint, kHDRLevel, &primary_matrix);
+    } else {
+      hdr_color_space =
+          gfx::ColorSpace::CreatePiecewiseHDR(primary_id, kSDRJoint, kHDRLevel);
+    }
+
+    display_color_spaces.SetOutputColorSpaceAndBufferFormat(
+        gfx::ContentColorUsage::kHDR, false /* needs_alpha */, hdr_color_space,
+        gfx::BufferFormat::RGBA_1010102);
+    display_color_spaces.SetOutputColorSpaceAndBufferFormat(
+        gfx::ContentColorUsage::kHDR, true /* needs_alpha */, hdr_color_space,
+        gfx::BufferFormat::RGBA_1010102);
+  }
+  return display_color_spaces;
+}
+#endif
 
 }  // namespace
 
@@ -185,7 +226,8 @@ MultipleDisplayState DisplayChangeObserver::GetStateForDisplayIds(
                             [](const DisplaySnapshot* display_state) {
                               return display_state->display_id();
                             });
-  return display_manager_->ShouldSetMirrorModeOn(list)
+  return display_manager_->ShouldSetMirrorModeOn(
+             list, /*should_check_hardware_mirrorring=*/true)
              ? MULTIPLE_DISPLAY_STATE_MULTI_MIRROR
              : MULTIPLE_DISPLAY_STATE_MULTI_EXTENDED;
 }
@@ -308,11 +350,11 @@ ManagedDisplayInfo DisplayChangeObserver::CreateManagedDisplayInfo(
   new_info.set_from_native_platform(true);
 
   float device_scale_factor = 1.0f;
-  // Sets dpi only if the screen size is not blacklisted.
-  const float dpi = IsDisplaySizeBlackListed(snapshot->physical_size())
-                        ? 0
-                        : kInchInMm * mode_info->size().width() /
-                              snapshot->physical_size().width();
+  // Sets dpi only if the screen size is valid.
+  const float dpi = IsDisplaySizeValid(snapshot->physical_size())
+                        ? kInchInMm * mode_info->size().width() /
+                              snapshot->physical_size().width()
+                        : 0;
   constexpr gfx::Size k225DisplaySizeHack(3000, 2000);
 
   if (snapshot->type() == DISPLAY_CONNECTION_TYPE_INTERNAL) {
@@ -320,7 +362,7 @@ ManagedDisplayInfo DisplayChangeObserver::CreateManagedDisplayInfo(
     // This is a stopgap hack to deal with b/74845106. Unfortunately, some old
     // devices (like evt) does not have a firmware fix, so we need to keep this.
     if (mode_info->size() == k225DisplaySizeHack)
-      device_scale_factor = 2.25f;
+      device_scale_factor = kDsf_2_252;
     else if (dpi)
       device_scale_factor = FindDeviceScaleFactor(dpi);
   } else {
@@ -339,17 +381,23 @@ ManagedDisplayInfo DisplayChangeObserver::CreateManagedDisplayInfo(
       snapshot->is_aspect_preserving_scaling());
   if (dpi)
     new_info.set_device_dpi(dpi);
-  new_info.set_color_space(snapshot->color_space());
+
+#if !defined(OS_CHROMEOS)
+  // TODO(crbug.com/1012846): This should configure the HDR color spaces.
+  gfx::DisplayColorSpaces display_color_spaces(
+      snapshot->color_space(), DisplaySnapshot::PrimaryFormat());
+  new_info.set_display_color_spaces(display_color_spaces);
   new_info.set_bits_per_channel(snapshot->bits_per_channel());
-  // TODO(crbug.com/1012846): Remove this flag and provision when HDR is fully
-  // supported on ChromeOS.
-#if defined(OS_CHROMEOS)
+#else
+  // TODO(crbug.com/1012846): Remove kEnableUseHDRTransferFunction usage when
+  // HDR is fully supported on ChromeOS.
+  const bool allow_high_bit_depth =
+      base::FeatureList::IsEnabled(features::kUseHDRTransferFunction);
+  new_info.set_display_color_spaces(
+      FillDisplayColorSpaces(snapshot->color_space(), allow_high_bit_depth));
   constexpr int32_t kNormalBitDepth = 8;
-  if (new_info.bits_per_channel() > kNormalBitDepth &&
-      !base::CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kEnableUseHDRTransferFunction)) {
-    new_info.set_bits_per_channel(kNormalBitDepth);
-  }
+  new_info.set_bits_per_channel(
+      allow_high_bit_depth ? snapshot->bits_per_channel() : kNormalBitDepth);
 #endif
 
   new_info.set_refresh_rate(mode_info->refresh_rate());
@@ -368,7 +416,7 @@ ManagedDisplayInfo DisplayChangeObserver::CreateManagedDisplayInfo(
 // static
 float DisplayChangeObserver::FindDeviceScaleFactor(float dpi) {
   for (size_t i = 0; i < base::size(kThresholdTableForInternal); ++i) {
-    if (dpi > kThresholdTableForInternal[i].dpi)
+    if (dpi >= kThresholdTableForInternal[i].dpi)
       return kThresholdTableForInternal[i].device_scale_factor;
   }
   return 1.0f;

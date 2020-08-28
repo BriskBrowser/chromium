@@ -28,6 +28,11 @@
 #include "third_party/blink/renderer/core/svg/graphics/svg_image.h"
 
 #include "base/memory/scoped_refptr.h"
+#include "base/memory/weak_ptr.h"
+#include "third_party/blink/public/platform/web_url.h"
+#include "third_party/blink/public/platform/web_url_loader.h"
+#include "third_party/blink/public/platform/web_url_loader_client.h"
+#include "third_party/blink/public/platform/web_url_loader_factory.h"
 #include "third_party/blink/renderer/core/animation/document_animations.h"
 #include "third_party/blink/renderer/core/animation/document_timeline.h"
 #include "third_party/blink/renderer/core/dom/document_parser.h"
@@ -56,7 +61,6 @@
 #include "third_party/blink/renderer/platform/geometry/int_rect.h"
 #include "third_party/blink/renderer/platform/geometry/length_functions.h"
 #include "third_party/blink/renderer/platform/graphics/color.h"
-#include "third_party/blink/renderer/platform/graphics/dark_mode_image_classifier.h"
 #include "third_party/blink/renderer/platform/graphics/graphics_context.h"
 #include "third_party/blink/renderer/platform/graphics/image_observer.h"
 #include "third_party/blink/renderer/platform/graphics/paint/cull_rect.h"
@@ -68,6 +72,65 @@
 #include "third_party/blink/renderer/platform/instrumentation/tracing/trace_event.h"
 
 namespace blink {
+
+namespace {
+
+using TaskRunnerHandle = scheduler::WebResourceLoadingTaskRunnerHandle;
+
+class FailingLoader final : public WebURLLoader {
+ public:
+  explicit FailingLoader(std::unique_ptr<TaskRunnerHandle> task_runner_handle)
+      : task_runner_handle_(std::move(task_runner_handle)) {}
+  ~FailingLoader() override = default;
+
+  // WebURLLoader implementation:
+  void LoadSynchronously(
+      std::unique_ptr<network::ResourceRequest> request,
+      scoped_refptr<WebURLRequest::ExtraData> request_extra_data,
+      int requestor_id,
+      bool download_to_network_cache_only,
+      bool pass_response_pipe_to_client,
+      bool no_mime_sniffing,
+      base::TimeDelta timeout_interval,
+      WebURLLoaderClient*,
+      WebURLResponse&,
+      base::Optional<WebURLError>& error,
+      WebData&,
+      int64_t& encoded_data_length,
+      int64_t& encoded_body_length,
+      WebBlobInfo& downloaded_blob) override {
+    NOTREACHED();
+  }
+  void LoadAsynchronously(
+      std::unique_ptr<network::ResourceRequest> request,
+      scoped_refptr<WebURLRequest::ExtraData> request_extra_data,
+      int requestor_id,
+      bool download_to_network_cache_only,
+      bool no_mime_sniffing,
+      WebURLLoaderClient* client) override {
+    NOTREACHED();
+  }
+  void SetDefersLoading(bool) override {}
+  void DidChangePriority(WebURLRequest::Priority, int) override {}
+  scoped_refptr<base::SingleThreadTaskRunner> GetTaskRunner() override {
+    return task_runner_handle_->GetTaskRunner();
+  }
+
+ private:
+  const std::unique_ptr<TaskRunnerHandle> task_runner_handle_;
+};
+
+class FailingLoaderFactory final : public WebURLLoaderFactory {
+ public:
+  // WebURLLoaderFactory implementation:
+  std::unique_ptr<WebURLLoader> CreateURLLoader(
+      const WebURLRequest&,
+      std::unique_ptr<TaskRunnerHandle> task_runner_handle) override {
+    return std::make_unique<FailingLoader>(std::move(task_runner_handle));
+  }
+};
+
+}  // namespace
 
 // SVGImageLocalFrameClient is used to wait until SVG document's load event
 // in the case where there are subresources asynchronously loaded.
@@ -82,7 +145,9 @@ class SVGImage::SVGImageLocalFrameClient : public EmptyLocalFrameClient {
 
  private:
   std::unique_ptr<WebURLLoaderFactory> CreateURLLoaderFactory() override {
-    return Platform::Current()->CreateDefaultURLLoaderFactory();
+    // SVG Images have unique security rules that prevent all subresource
+    // requests except for data urls.
+    return std::make_unique<FailingLoaderFactory>();
   }
 
   void DispatchDidHandleOnloadEvents() override {
@@ -103,6 +168,8 @@ SVGImage::SVGImage(ImageObserver* observer, bool is_multipart)
       has_pending_timeline_rewind_(false) {}
 
 SVGImage::~SVGImage() {
+  AllowDestroyingLayoutObjectInFinalizerScope scope;
+
   if (frame_client_)
     frame_client_->ClearImage();
 
@@ -343,7 +410,7 @@ void SVGImage::DrawForContainer(cc::PaintCanvas* canvas,
 PaintImage SVGImage::PaintImageForCurrentFrame() {
   auto builder =
       CreatePaintImageBuilder().set_completion_state(completion_state());
-  PopulatePaintRecordForCurrentFrameForContainer(builder, NullURL(), Size());
+  PopulatePaintRecordForCurrentFrameForContainer(builder, Size(), 1, NullURL());
   return builder.TakePaintImage();
 }
 
@@ -400,38 +467,23 @@ void SVGImage::DrawPatternForContainer(GraphicsContext& context,
   StartAnimation();
 }
 
-sk_sp<PaintRecord> SVGImage::PaintRecordForContainer(
-    const KURL& url,
-    const IntSize& container_size,
-    const IntRect& draw_src_rect,
-    const IntRect& draw_dst_rect,
-    bool flip_y) {
-  if (!page_)
-    return nullptr;
-
-  PaintRecorder recorder;
-  cc::PaintCanvas* canvas = recorder.beginRecording(draw_src_rect);
-  if (flip_y) {
-    canvas->translate(0, draw_dst_rect.Height());
-    canvas->scale(1, -1);
-  }
-  DrawForContainer(canvas, PaintFlags(), FloatSize(container_size), 1,
-                   FloatRect(draw_dst_rect), FloatRect(draw_src_rect), url);
-  return recorder.finishRecordingAsPicture();
-}
-
 void SVGImage::PopulatePaintRecordForCurrentFrameForContainer(
     PaintImageBuilder& builder,
-    const KURL& url,
-    const IntSize& container_size) {
+    const IntSize& zoomed_container_size,
+    float zoom,
+    const KURL& url) {
   if (!page_)
     return;
 
-  const IntRect container_rect(IntPoint(), container_size);
+  const IntRect container_rect(IntPoint(), zoomed_container_size);
+  // Compute a new container size based on the zoomed (and potentially
+  // rounded) size.
+  FloatSize container_size(zoomed_container_size);
+  container_size.Scale(1 / zoom);
 
   PaintRecorder recorder;
   cc::PaintCanvas* canvas = recorder.beginRecording(container_rect);
-  DrawForContainer(canvas, PaintFlags(), FloatSize(container_rect.Size()), 1,
+  DrawForContainer(canvas, PaintFlags(), container_size, zoom,
                    FloatRect(container_rect), FloatRect(container_rect), url);
   builder.set_paint_record(recorder.finishRecordingAsPicture(), container_rect,
                            PaintImage::GetNextContentId());
@@ -524,12 +576,11 @@ sk_sp<PaintRecord> SVGImage::PaintRecordForCurrentFrame(const KURL& url) {
   FlushPendingTimelineRewind();
 
   if (RuntimeEnabledFeatures::CompositeAfterPaintEnabled()) {
-    view->UpdateAllLifecyclePhases(
-        DocumentLifecycle::LifecycleUpdateReason::kOther);
+    view->UpdateAllLifecyclePhases(DocumentUpdateReason::kSVGImage);
     return view->GetPaintRecord();
   }
 
-  view->UpdateAllLifecyclePhasesExceptPaint();
+  view->UpdateAllLifecyclePhasesExceptPaint(DocumentUpdateReason::kSVGImage);
   PaintRecordBuilder builder(nullptr, nullptr, paint_controller_.get());
   view->PaintOutsideOfLifecycle(builder.Context(), kGlobalPaintNormalPhase);
   return builder.EndRecording();
@@ -654,7 +705,8 @@ void SVGImage::ServiceAnimations(
   // but to preserve correct coherence of the cache of the output with
   // the needsRepaint bits of the PaintLayers in the image.
   LocalFrameView* frame_view = To<LocalFrame>(page_->MainFrame())->View();
-  frame_view->UpdateAllLifecyclePhasesExceptPaint();
+  frame_view->UpdateAllLifecyclePhasesExceptPaint(
+      DocumentUpdateReason::kSVGImage);
 
   // We run UpdateAnimations after the paint phase, but per the above comment,
   // we don't want to run lifecycle through to paint for SVG images. Since we
@@ -787,6 +839,11 @@ Image::SizeAvailability SVGImage::DataChanged(bool all_data_received) {
           default_settings.GetDefaultFontSize());
       page->GetSettings().SetDefaultFixedFontSize(
           default_settings.GetDefaultFixedFontSize());
+
+      // Also copy the preferred-color-scheme to ensure a responsiveness to
+      // dark/light color schemes.
+      page->GetSettings().SetPreferredColorScheme(
+          default_settings.GetPreferredColorScheme());
     }
   }
 
@@ -795,14 +852,16 @@ Image::SizeAvailability SVGImage::DataChanged(bool all_data_received) {
     TRACE_EVENT0("blink", "SVGImage::dataChanged::createFrame");
     DCHECK(!frame_client_);
     frame_client_ = MakeGarbageCollected<SVGImageLocalFrameClient>(this);
-    frame = MakeGarbageCollected<LocalFrame>(frame_client_, *page, nullptr,
-                                             nullptr, nullptr);
+    frame = MakeGarbageCollected<LocalFrame>(
+        frame_client_, *page, nullptr, nullptr, nullptr,
+        FrameInsertType::kInsertInConstructor, base::UnguessableToken::Create(),
+        nullptr, nullptr);
     frame->SetView(MakeGarbageCollected<LocalFrameView>(*frame));
-    frame->Init();
+    frame->Init(nullptr);
   }
 
   FrameLoader& loader = frame->Loader();
-  loader.ForceSandboxFlags(WebSandboxFlags::kAll);
+  loader.ForceSandboxFlags(network::mojom::blink::WebSandboxFlags::kAll);
 
   // SVG Images will always synthesize a viewBox, if it's not available, and
   // thus never see scrollbars.
@@ -851,13 +910,6 @@ bool SVGImage::IsSizeAvailable() {
 
 String SVGImage::FilenameExtension() const {
   return "svg";
-}
-
-DarkModeClassification SVGImage::CheckTypeSpecificConditionsForDarkMode(
-    const FloatRect& dest_rect,
-    DarkModeImageClassifier* classifier) {
-  classifier->SetImageType(DarkModeImageClassifier::ImageType::kSvg);
-  return DarkModeClassification::kNotClassified;
 }
 
 }  // namespace blink

@@ -7,8 +7,7 @@
 #include <algorithm>
 #include <cmath>
 
-#include "base/logging.h"
-#include "media/base/audio_bus.h"
+#include "base/check_op.h"
 
 namespace chromecast {
 namespace media {
@@ -23,7 +22,7 @@ AudioClockSimulator::AudioClockSimulator(AudioProvider* provider)
       sample_rate_(provider_->sample_rate()),
       num_channels_(provider_->num_channels()),
       scratch_buffer_(
-          ::media::AudioBus::Create(num_channels_, kInterpolateWindow + 1)) {
+          CastAudioBus::Create(num_channels_, kInterpolateWindow + 1)) {
   DCHECK(provider_);
   DCHECK_GT(sample_rate_, 0);
   DCHECK_GT(num_channels_, 0u);
@@ -152,6 +151,10 @@ AudioClockSimulator::FillResult AudioClockSimulator::FillDataLengthen(
   }
   int64_t timestamp = playout_timestamp + FramesToMicroseconds(offset);
   int provided = provider_->FillFrames(desired_fill, timestamp, channels);
+  if (provided == 0) {
+    return {false, 0};
+  }
+
   input_frames_ += provided;
   InterpolateLonger(provided, channel_data, offset);
 

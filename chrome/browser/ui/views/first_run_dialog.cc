@@ -17,7 +17,7 @@
 #include "chrome/common/url_constants.h"
 #include "chrome/grit/chromium_strings.h"
 #include "chrome/grit/generated_resources.h"
-#include "components/crash/content/app/crashpad.h"
+#include "components/crash/core/app/crashpad.h"
 #include "components/strings/grit/components_strings.h"
 #include "ui/aura/env.h"
 #include "ui/aura/window.h"
@@ -31,8 +31,8 @@
 
 #if defined(OS_WIN)
 #include "components/crash/content/app/breakpad_win.h"
-#elif defined(OS_LINUX)
-#include "components/crash/content/app/breakpad_linux.h"
+#elif defined(OS_LINUX) || defined(OS_CHROMEOS)
+#include "components/crash/core/app/breakpad_linux.h"
 #endif
 
 namespace {
@@ -41,7 +41,7 @@ void InitCrashReporterIfEnabled(bool enabled) {
 #if defined(OS_WIN)
   if (enabled)
     breakpad::InitCrashReporter(std::string());
-#elif defined(OS_LINUX)
+#elif defined(OS_LINUX) || defined(OS_CHROMEOS)
   if (!crash_reporter::IsCrashpadEnabled() && enabled)
     breakpad::InitCrashReporter(std::string());
 #endif
@@ -68,8 +68,8 @@ void FirstRunDialog::Show(Profile* profile) {
 }
 
 FirstRunDialog::FirstRunDialog(Profile* profile) {
-  DialogDelegate::set_buttons(ui::DIALOG_BUTTON_OK);
-  DialogDelegate::SetExtraView(
+  SetButtons(ui::DIALOG_BUTTON_OK);
+  SetExtraView(
       std::make_unique<views::Link>(l10n_util::GetStringUTF16(IDS_LEARN_MORE)))
       ->set_callback(base::BindRepeating(&platform_util::OpenExternal,
                                          base::Unretained(profile),
@@ -83,7 +83,7 @@ FirstRunDialog::FirstRunDialog(Profile* profile) {
   views::ColumnSet* column_set = layout->AddColumnSet(0);
   column_set->AddColumn(views::GridLayout::FILL, views::GridLayout::CENTER,
                         views::GridLayout::kFixedSize,
-                        views::GridLayout::USE_PREF, 0, 0);
+                        views::GridLayout::ColumnSize::kUsePreferred, 0, 0);
 
   layout->StartRow(views::GridLayout::kFixedSize, 0);
   auto make_default = std::make_unique<views::Checkbox>(
@@ -114,8 +114,9 @@ void FirstRunDialog::Done() {
 bool FirstRunDialog::Accept() {
   GetWidget()->Hide();
 
-  ChangeMetricsReportingStateWithReply(report_crashes_->GetChecked(),
-                                       base::Bind(&InitCrashReporterIfEnabled));
+  ChangeMetricsReportingStateWithReply(
+      report_crashes_->GetChecked(),
+      base::BindRepeating(&InitCrashReporterIfEnabled));
 
   if (make_default_->GetChecked())
     shell_integration::SetAsDefaultBrowser();

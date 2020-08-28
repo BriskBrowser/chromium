@@ -17,12 +17,14 @@
 #include "base/strings/string_number_conversions.h"
 #include "base/task/post_task.h"
 #include "base/task/task_traits.h"
+#include "base/task/thread_pool.h"
 #include "chrome/browser/chromeos/plugin_vm/plugin_vm_util.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/signin/identity_manager_factory.h"
 #include "components/download/public/background_service/download_metadata.h"
 #include "components/drive/service/drive_api_service.h"
 #include "components/drive/service/drive_service_interface.h"
+#include "components/signin/public/identity_manager/consent_level.h"
 #include "components/signin/public/identity_manager/identity_manager.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/browser_task_traits.h"
@@ -41,7 +43,7 @@ namespace {
 
 void CreateTemporaryDriveDownloadFile(const base::FilePath& drive_directory,
                                       base::FilePath* file_path) {
-  if (!base::DeleteFileRecursively(drive_directory)) {
+  if (!base::DeletePathRecursively(drive_directory)) {
     LOG(ERROR) << "PluginVM Drive download folder failed to be removed";
   }
 
@@ -127,9 +129,8 @@ PluginVmDriveImageDownloadService::PluginVmDriveImageDownloadService(
           ->GetURLLoaderFactoryForBrowserProcess();
 
   scoped_refptr<base::SequencedTaskRunner> blocking_task_runner =
-      base::CreateSequencedTaskRunner(
-          {base::ThreadPool(), base::MayBlock(),
-           base::TaskPriority::USER_VISIBLE,
+      base::ThreadPool::CreateSequencedTaskRunner(
+          {base::MayBlock(), base::TaskPriority::USER_VISIBLE,
            base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN});
 
   GURL base_url(google_apis::DriveApiUrlGenerator::kBaseUrlForProduction);
@@ -139,7 +140,8 @@ PluginVmDriveImageDownloadService::PluginVmDriveImageDownloadService(
       identity_manager, url_loader_factory, blocking_task_runner.get(),
       base_url, base_thumbnail_url, std::string{},
       kPluginVmNetworkTrafficAnnotation);
-  drive_service_->Initialize(identity_manager->GetPrimaryAccountId());
+  drive_service_->Initialize(identity_manager->GetPrimaryAccountId(
+      signin::ConsentLevel::kNotRequired));
 }
 
 void PluginVmDriveImageDownloadService::StartDownload(
@@ -149,9 +151,8 @@ void PluginVmDriveImageDownloadService::StartDownload(
   file_id_ = file_id;
   download_file_path_.clear();
 
-  base::PostTaskAndReply(
-      FROM_HERE,
-      {base::ThreadPool(), base::TaskPriority::USER_VISIBLE, base::MayBlock()},
+  base::ThreadPool::PostTaskAndReply(
+      FROM_HERE, {base::TaskPriority::USER_VISIBLE, base::MayBlock()},
       base::BindOnce(&CreateTemporaryDriveDownloadFile, download_directory_,
                      &download_file_path_),
       base::BindOnce(&PluginVmDriveImageDownloadService::DispatchDownloadFile,
@@ -183,7 +184,7 @@ void PluginVmDriveImageDownloadService::DispatchDownloadFile() {
 
 void PluginVmDriveImageDownloadService::CancelDownload() {
   DCHECK(cancel_callback_);
-  cancel_callback_.Run();
+  std::move(cancel_callback_).Run();
 }
 
 void PluginVmDriveImageDownloadService::ResetState() {
@@ -193,10 +194,9 @@ void PluginVmDriveImageDownloadService::ResetState() {
 
 void PluginVmDriveImageDownloadService::RemoveTemporaryArchive(
     OnFileDeletedCallback on_file_deleted_callback) {
-  base::PostTaskAndReplyWithResult(
-      FROM_HERE,
-      {base::ThreadPool(), base::TaskPriority::BEST_EFFORT, base::MayBlock()},
-      base::BindOnce(&base::DeleteFileRecursively, download_directory_),
+  base::ThreadPool::PostTaskAndReplyWithResult(
+      FROM_HERE, {base::TaskPriority::BEST_EFFORT, base::MayBlock()},
+      base::BindOnce(&base::DeletePathRecursively, download_directory_),
       std::move(on_file_deleted_callback));
 }
 

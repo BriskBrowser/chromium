@@ -15,9 +15,10 @@
 #include "base/path_service.h"
 #include "base/stl_util.h"
 #include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
 #include "base/time/time.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/chromeos/extensions/default_web_app_ids.h"
+#include "chrome/browser/chromeos/web_applications/default_web_app_ids.h"
 #include "chrome/browser/ui/app_list/arc/arc_app_utils.h"
 #include "chrome/browser/ui/app_list/page_break_constants.h"
 #include "chrome/common/extensions/extension_constants.h"
@@ -53,6 +54,8 @@ const char* const kDefaultAppOrder[] = {
     arc::kGoogleCalendarAppId,
     extension_misc::kYoutubeAppId,
     arc::kYoutubeAppId,
+    arc::kYoutubeMusicAppId,                 // Youtube Music ARC app
+    default_web_apps::kYoutubeMusicAppId,    // Youtube Music Web app
     arc::kPlayMoviesAppId,                   // Play Movies & TV ARC app
     extension_misc::kGooglePlayMoviesAppId,  // Play Movies & TV Chrome app
     arc::kPlayMusicAppId,                    // Play Music ARC app
@@ -73,7 +76,7 @@ const char* const kDefaultAppOrder[] = {
     default_web_apps::kSettingsAppId,
     default_web_apps::kOsSettingsAppId,
     ash::kInternalAppIdDiscover,
-    extension_misc::kGeniusAppId,
+    default_web_apps::kHelpAppId,
     extension_misc::kCalculatorAppId,
     default_web_apps::kCanvasAppId,
     extension_misc::kTextEditorAppId,
@@ -156,10 +159,8 @@ ExternalLoader::ExternalLoader(bool async)
   loader_instance = this;
 
   if (async) {
-    base::PostTask(
-        FROM_HERE,
-        {base::ThreadPool(), base::MayBlock(),
-         base::TaskPriority::USER_VISIBLE},
+    base::ThreadPool::PostTask(
+        FROM_HERE, {base::MayBlock(), base::TaskPriority::USER_VISIBLE},
         base::BindOnce(&ExternalLoader::Load, base::Unretained(this)));
   } else {
     Load();

@@ -8,7 +8,6 @@
 #include <set>
 #include <string>
 
-#include "base/logging.h"
 #include "base/strings/string16.h"
 #include "third_party/skia/include/core/SkColor.h"
 #include "ui/base/dragdrop/drag_drop_types.h"
@@ -24,12 +23,12 @@ using ui::OSExchangeData;
 namespace gfx {
 class FontList;
 class Point;
-}
+}  // namespace gfx
 
 namespace ui {
 class Accelerator;
 class DropTargetEvent;
-}
+}  // namespace ui
 
 namespace views {
 
@@ -108,8 +107,7 @@ class VIEWS_EXPORT MenuDelegate {
   virtual bool IsCommandEnabled(int id) const;
   virtual bool IsCommandVisible(int id) const;
   virtual bool GetContextualLabel(int id, base::string16* out) const;
-  virtual void ExecuteCommand(int id) {
-  }
+  virtual void ExecuteCommand(int id) {}
 
   // If nested menus are showing (nested menus occur when a menu shows a context
   // menu) this is invoked to determine if all the menus should be closed when

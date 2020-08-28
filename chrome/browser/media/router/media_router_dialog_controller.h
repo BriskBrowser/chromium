@@ -10,7 +10,7 @@
 
 #include "base/macros.h"
 #include "chrome/browser/media/router/presentation/presentation_service_delegate_impl.h"
-#include "chrome/common/media_router/mojom/media_router.mojom.h"
+#include "components/media_router/common/mojom/media_router.mojom.h"
 #include "content/public/browser/presentation_request.h"
 #include "content/public/browser/presentation_service_delegate.h"
 #include "content/public/browser/web_contents_observer.h"
@@ -47,7 +47,7 @@ class MediaRouterDialogController {
   // Returns true if the dialog is created as a result of this call.
   // If the dialog already exists, or dialog cannot be created, then false is
   // returned, and |error_cb| will be invoked.
-  bool ShowMediaRouterDialogForPresentation(
+  virtual bool ShowMediaRouterDialogForPresentation(
       std::unique_ptr<StartPresentationContext> context);
 
   // Shows the media router dialog modal to |initiator_|.

@@ -21,7 +21,6 @@ class BrowsingDataFlashLSOHelper;
 class HostContentSettingsMap;
 
 namespace content {
-struct SessionStorageUsageInfo;
 struct StorageUsageInfo;
 }
 
@@ -40,6 +39,7 @@ class SiteDataCountingHelper {
   explicit SiteDataCountingHelper(
       Profile* profile,
       base::Time begin,
+      base::Time end,
       base::OnceCallback<void(int)> completion_callback);
   ~SiteDataCountingHelper();
 
@@ -49,10 +49,6 @@ class SiteDataCountingHelper {
   void GetOriginsFromHostContentSettignsMap(HostContentSettingsMap* hcsm,
                                             ContentSettingsType type);
   void GetCookiesCallback(const net::CookieList& cookies);
-  void GetSessionStorageUsageInfoCallback(
-      const scoped_refptr<storage::SpecialStoragePolicy>&
-          special_storage_policy,
-      const std::vector<content::SessionStorageUsageInfo>& infos);
   void GetLocalStorageUsageInfoCallback(
       const scoped_refptr<storage::SpecialStoragePolicy>&
           special_storage_policy,
@@ -68,6 +64,7 @@ class SiteDataCountingHelper {
 
   Profile* profile_;
   base::Time begin_;
+  base::Time end_;
   base::OnceCallback<void(int)> completion_callback_;
   int tasks_;
   std::set<std::string> unique_hosts_;

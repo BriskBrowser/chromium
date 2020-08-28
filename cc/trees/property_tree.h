@@ -8,6 +8,7 @@
 #include <stddef.h>
 
 #include <memory>
+#include <string>
 #include <unordered_map>
 #include <vector>
 
@@ -42,7 +43,7 @@ class LayerTreeImpl;
 class RenderSurfaceImpl;
 struct ClipNode;
 struct EffectNode;
-struct ScrollAndScaleSet;
+struct CompositorCommitData;
 struct ScrollNode;
 struct TransformNode;
 struct TransformCachedNodeData;
@@ -147,6 +148,8 @@ class CC_EXPORT TransformTree final : public PropertyTree<TransformNode> {
   void UpdateNodeAndAncestorsAreAnimatedOrInvertible(
       TransformNode* node,
       TransformNode* parent_node);
+  void UpdateNodeOrAncestorsWillChangeTransform(TransformNode* node,
+                                                TransformNode* parent_node);
 
   void set_needs_update(bool needs_update) final;
 
@@ -304,6 +307,8 @@ class CC_EXPORT EffectTree final : public PropertyTree<EffectNode> {
 
   void UpdateEffectChanged(EffectNode* node, EffectNode* parent_node);
 
+  void UpdateHasFilters(EffectNode* node, EffectNode* parent_node);
+
   void AddCopyRequest(int node_id,
                       std::unique_ptr<viz::CopyOutputRequest> request);
   void PushCopyRequestsTo(EffectTree* other_tree);
@@ -356,6 +361,7 @@ class CC_EXPORT EffectTree final : public PropertyTree<EffectNode> {
   void UpdateIsDrawn(EffectNode* node, EffectNode* parent_node);
   void UpdateBackfaceVisibility(EffectNode* node, EffectNode* parent_node);
   void UpdateHasMaskingChild(EffectNode* node, EffectNode* parent_node);
+  void UpdateOnlyDrawsVisibleContent(EffectNode* node, EffectNode* parent_node);
 
   // Stores copy requests, keyed by node id.
   std::unordered_multimap<int, std::unique_ptr<viz::CopyOutputRequest>>
@@ -408,7 +414,8 @@ class CC_EXPORT ScrollTree final : public PropertyTree<ScrollNode> {
   int currently_scrolling_node() const { return currently_scrolling_node_id_; }
   gfx::Transform ScreenSpaceTransform(int scroll_node_id) const;
 
-  gfx::Vector2dF ClampScrollToMaxScrollOffset(ScrollNode* node, LayerTreeImpl*);
+  gfx::Vector2dF ClampScrollToMaxScrollOffset(const ScrollNode& node,
+                                              LayerTreeImpl*);
 
   // Returns the current scroll offset. On the main thread this would return the
   // value for the LayerTree while on the impl thread this is the current value
@@ -430,7 +437,7 @@ class CC_EXPORT ScrollTree final : public PropertyTree<ScrollNode> {
   // Collects deltas for scroll changes on the impl thread that need to be
   // reported to the main thread during the main frame. As such, should only be
   // called on the impl thread side PropertyTrees.
-  void CollectScrollDeltas(ScrollAndScaleSet* scroll_info,
+  void CollectScrollDeltas(CompositorCommitData* commit_data,
                            ElementId inner_viewport_scroll_element_id,
                            bool use_fractional_deltas,
                            const base::flat_set<ElementId>& snapped_elements);
@@ -451,6 +458,7 @@ class CC_EXPORT ScrollTree final : public PropertyTree<ScrollNode> {
 
   void SetBaseScrollOffset(ElementId id,
                            const gfx::ScrollOffset& scroll_offset);
+  // Returns true if the scroll offset is changed.
   bool SetScrollOffset(ElementId id, const gfx::ScrollOffset& scroll_offset);
   void SetScrollOffsetClobberActiveValue(ElementId id) {
     GetOrCreateSyncedScrollOffset(id)->set_clobber_active_value();
@@ -463,7 +471,7 @@ class CC_EXPORT ScrollTree final : public PropertyTree<ScrollNode> {
   const gfx::ScrollOffset GetScrollOffsetDeltaForTesting(ElementId id) const;
   void CollectScrollDeltasForTesting();
 
-  gfx::Vector2dF ScrollBy(ScrollNode* scroll_node,
+  gfx::Vector2dF ScrollBy(const ScrollNode& scroll_node,
                           const gfx::Vector2dF& scroll,
                           LayerTreeImpl* layer_tree_impl);
   gfx::ScrollOffset ClampScrollOffsetToLimits(
@@ -488,7 +496,16 @@ class CC_EXPORT ScrollTree final : public PropertyTree<ScrollNode> {
   void NotifyDidChangeScrollbarsHidden(ElementId scroll_element_id,
                                        bool hidden);
 
+  // A composited scroll node is a scroll node that has an associated composited
+  // layer, otherwise the scroll node corresponds to a scroller that requires
+  // repainting.
+  bool IsComposited(const ScrollNode& node) const;
+
  private:
+  // ScrollTree doesn't use the needs_update flag.
+  using PropertyTree::needs_update;
+  using PropertyTree::set_needs_update;
+
   using ScrollOffsetMap = base::flat_map<ElementId, gfx::ScrollOffset>;
   using SyncedScrollOffsetMap =
       base::flat_map<ElementId, scoped_refptr<SyncedScrollOffset>>;

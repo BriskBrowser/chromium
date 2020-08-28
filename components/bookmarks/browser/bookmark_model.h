@@ -11,8 +11,10 @@
 #include <map>
 #include <memory>
 #include <set>
+#include <string>
 #include <vector>
 
+#include "base/check_op.h"
 #include "base/compiler_specific.h"
 #include "base/macros.h"
 #include "base/memory/scoped_refptr.h"
@@ -31,7 +33,6 @@ class PrefService;
 
 namespace base {
 class FilePath;
-class SequencedTaskRunner;
 }
 
 namespace favicon_base {
@@ -75,13 +76,11 @@ class BookmarkModel : public BookmarkUndoProvider,
   explicit BookmarkModel(std::unique_ptr<BookmarkClient> client);
   ~BookmarkModel() override;
 
-  // Loads the bookmarks. This is called upon creation of the BookmarkModel. You
-  // need not invoke this directly. All load operations will be executed on
-  // |io_task_runner|. |ui_task_runner| is the task runner the model runs on.
-  void Load(PrefService* pref_service,
-            const base::FilePath& profile_path,
-            const scoped_refptr<base::SequencedTaskRunner>& io_task_runner,
-            const scoped_refptr<base::SequencedTaskRunner>& ui_task_runner);
+  // Triggers the loading of bookmarks, which is an asynchronous operation with
+  // most heavy-lifting taking place in a background sequence. Upon completion,
+  // loaded() will return true and observers will be notified via
+  // BookmarkModelLoaded().
+  void Load(PrefService* pref_service, const base::FilePath& profile_path);
 
   // Returns true if the model finished loading.
   bool loaded() const {
@@ -171,10 +170,6 @@ class BookmarkModel : public BookmarkUndoProvider,
   // either LOADED_FAVICON (if it was already loaded prior to the call) or
   // LOADING_FAVICON (with the exception of folders, where the call is a no-op).
   const gfx::Image& GetFavicon(const BookmarkNode* node);
-
-  // Returns the type of the favicon for |node|. If the favicon has not yet
-  // been loaded, it returns |favicon_base::IconType::kInvalid|.
-  favicon_base::IconType GetFaviconType(const BookmarkNode* node);
 
   // Sets the title of |node|.
   void SetTitle(const BookmarkNode* node, const base::string16& title);
@@ -276,14 +271,6 @@ class BookmarkModel : public BookmarkUndoProvider,
     return expanded_state_tracker_.get();
   }
 
-  // Sets the visibility of one of the permanent nodes (unless the node must
-  // always be visible, see |BookmarkClient::IsPermanentNodeVisible| for more
-  // details). This is set by sync.
-  void SetPermanentNodeVisible(BookmarkNode::Type type, bool value);
-
-  // Returns the permanent node of type |type|.
-  const BookmarkPermanentNode* PermanentNode(BookmarkNode::Type type);
-
   // Sets/deletes meta info of |node|.
   void SetNodeMetaInfo(const BookmarkNode* node,
                        const std::string& key,
@@ -302,10 +289,6 @@ class BookmarkModel : public BookmarkUndoProvider,
   const std::set<std::string>& non_cloned_keys() const {
     return non_cloned_keys_;
   }
-
-  // Sets the sync transaction version of |node|.
-  void SetNodeSyncTransactionVersion(const BookmarkNode* node,
-                                     int64_t sync_transaction_version);
 
   // Notify BookmarkModel that the favicons for the given page URLs (e.g.
   // http://www.google.com) and the given icon URL (e.g.
@@ -364,12 +347,11 @@ class BookmarkModel : public BookmarkUndoProvider,
   // favicon, FaviconLoaded is invoked.
   void OnFaviconDataAvailable(
       BookmarkNode* node,
-      favicon_base::IconType icon_type,
       const favicon_base::FaviconImageResult& image_result);
 
   // Invoked from the node to load the favicon. Requests the favicon from the
   // favicon service.
-  void LoadFavicon(BookmarkNode* node, favicon_base::IconType icon_type);
+  void LoadFavicon(BookmarkNode* node);
 
   // Called to notify the observers that the favicon has been loaded.
   void FaviconLoaded(const BookmarkNode* node);
@@ -420,10 +402,15 @@ class BookmarkModel : public BookmarkUndoProvider,
   // Used for loading favicons.
   base::CancelableTaskTracker cancelable_task_tracker_;
 
-  // Reads/writes bookmarks to disk.
+  // Writes bookmarks to disk.
   std::unique_ptr<BookmarkStorage> store_;
 
-  std::unique_ptr<TitledUrlIndex> index_;
+  std::unique_ptr<TitledUrlIndex> titled_url_index_;
+
+#if DCHECK_IS_ON()
+  // GUID index used to verify uniqueness in DCHECK-enabled builds.
+  std::set<std::string> guid_index_;
+#endif  // DCHECK_IS_ON()
 
   // Owned by |model_loader_|.
   // WARNING: in some tests this does *not* refer to

@@ -88,10 +88,9 @@ class ExternalCacheImpl : public ExternalCache,
   void OnExtensionDownloadFinished(const extensions::CRXFileInfo& file,
                                    bool file_ownership_passed,
                                    const GURL& download_url,
-                                   const std::string& version,
                                    const PingResult& ping_result,
                                    const std::set<int>& request_ids,
-                                   const InstallCallback& callback) override;
+                                   InstallCallback callback) override;
   bool IsExtensionPending(const std::string& id) override;
   bool GetExtensionExistingVersion(const std::string& id,
                                    std::string* version) override;

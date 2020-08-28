@@ -17,7 +17,6 @@
 #include "components/sync/protocol/sync.pb.h"
 #include "components/sync/protocol/sync_enums.pb.h"
 #include "components/sync/test/engine/mock_connection_manager.h"
-#include "components/sync/test/engine/test_directory_setter_upper.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 using ::testing::_;
@@ -111,21 +110,18 @@ TEST(SyncerProtoUtil, NameExtractionTwoNames) {
 class SyncerProtoUtilTest : public testing::Test {
  public:
   void SetUp() override {
-    dir_maker_.SetUp();
     context_ = std::make_unique<SyncCycleContext>(
         /*connection_manager=*/nullptr,
-        /*directory=*/dir_maker_.directory(),
         /*extensions_activity=*/nullptr,
         /*listeners=*/std::vector<SyncEngineEventListener*>(),
         /*debug_info_getter=*/nullptr,
         /*model_type_registry=*/nullptr,
         /*invalidator_client_id=*/"",
+        /*cache_guid=*/"",
         /*birthday=*/"",
         /*bag_of_chips=*/"",
         /*poll_internal=*/base::TimeDelta::FromSeconds(1));
   }
-
-  void TearDown() override { dir_maker_.TearDown(); }
 
   SyncCycleContext* context() { return context_.get(); }
 
@@ -139,7 +135,6 @@ class SyncerProtoUtilTest : public testing::Test {
 
  protected:
   base::test::SingleThreadTaskEnvironment task_environment_;
-  TestDirectorySetterUpper dir_maker_;
   std::unique_ptr<SyncCycleContext> context_;
 };
 
@@ -204,6 +199,17 @@ TEST_F(SyncerProtoUtilTest, VerifyDisabledByAdmin) {
   sync_protocol_error = CallGetProtocolErrorFromResponse(response, context());
   EXPECT_EQ(DISABLED_BY_ADMIN, sync_protocol_error.error_type);
   EXPECT_EQ(STOP_SYNC_FOR_DISABLED_ACCOUNT, sync_protocol_error.action);
+}
+
+TEST_F(SyncerProtoUtilTest, VerifyEncryptionObsolete) {
+  sync_pb::ClientToServerResponse response;
+  response.set_error_code(sync_pb::SyncEnums::ENCRYPTION_OBSOLETE);
+  response.set_store_birthday("flan");
+
+  SyncProtocolError sync_protocol_error =
+      CallGetProtocolErrorFromResponse(response, context());
+  EXPECT_EQ(ENCRYPTION_OBSOLETE, sync_protocol_error.error_type);
+  EXPECT_EQ(DISABLE_SYNC_ON_CLIENT, sync_protocol_error.action);
 }
 
 class DummyConnectionManager : public ServerConnectionManager {

@@ -8,8 +8,8 @@
 #include <utility>
 
 #include "base/bind.h"
+#include "base/check.h"
 #include "base/location.h"
-#include "base/logging.h"
 #include "base/memory/read_only_shared_memory_region.h"
 #include "base/numerics/checked_math.h"
 #include "base/single_thread_task_runner.h"
@@ -31,7 +31,7 @@
 #include "content/renderer/pepper/ppb_image_data_impl.h"
 #include "content/renderer/render_thread_impl.h"
 #include "gpu/GLES2/gl2extchromium.h"
-#include "gpu/command_buffer/client/gles2_interface.h"
+#include "gpu/command_buffer/client/raster_interface.h"
 #include "gpu/command_buffer/common/capabilities.h"
 #include "gpu/command_buffer/common/gpu_memory_buffer_support.h"
 #include "gpu/command_buffer/common/shared_image_usage.h"
@@ -48,6 +48,7 @@
 #include "ppapi/thunk/enter.h"
 #include "services/viz/public/cpp/gpu/context_provider_command_buffer.h"
 #include "skia/ext/platform_canvas.h"
+#include "third_party/blink/public/common/switches.h"
 #include "third_party/khronos/GLES2/gl2.h"
 #include "third_party/khronos/GLES2/gl2ext.h"
 #include "third_party/skia/include/core/SkBitmap.h"
@@ -60,7 +61,7 @@
 #include "ui/gfx/scoped_ns_graphics_context_save_gstate_mac.h"
 #include "ui/gfx/skia_util.h"
 
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
 #include "base/mac/scoped_cftyperef.h"
 #endif
 
@@ -199,7 +200,10 @@ PepperGraphics2DHost::PepperGraphics2DHost(RendererPpapiHost* host,
       offscreen_flush_pending_(false),
       is_always_opaque_(false),
       scale_(1.0f),
-      is_running_in_process_(host->IsRunningInProcess()) {}
+      is_running_in_process_(host->IsRunningInProcess()),
+      enable_gpu_memory_buffer_(
+          base::CommandLine::ForCurrentProcess()->HasSwitch(
+              blink::switches::kEnableGpuMemoryBufferCompositorResources)) {}
 
 PepperGraphics2DHost::~PepperGraphics2DHost() {
   // Delete textures owned by PepperGraphics2DHost, but not those sent to the
@@ -585,7 +589,7 @@ void PepperGraphics2DHost::ReleaseSoftwareCallback(
 // static
 void PepperGraphics2DHost::ReleaseTextureCallback(
     base::WeakPtr<PepperGraphics2DHost> host,
-    scoped_refptr<viz::ContextProvider> context,
+    scoped_refptr<viz::RasterContextProvider> context,
     const gfx::Size& size,
     const gpu::Mailbox& mailbox,
     const gpu::SyncToken& sync_token,
@@ -608,7 +612,7 @@ bool PepperGraphics2DHost::PrepareTransferableResource(
   // reuse the shared images, they are invalid. If the compositing mode changed,
   // the context will be lost also, so we get both together.
   if (!main_thread_context_ ||
-      main_thread_context_->ContextGL()->GetGraphicsResetStatusKHR() !=
+      main_thread_context_->RasterInterface()->GetGraphicsResetStatusKHR() !=
           GL_NO_ERROR) {
     recycled_shared_images_.clear();
     main_thread_context_ = nullptr;
@@ -639,7 +643,7 @@ bool PepperGraphics2DHost::PrepareTransferableResource(
   // When gpu compositing, the compositor expects gpu resources, so we copy the
   // |image_data_| into a texture.
   if (main_thread_context_) {
-    auto* gl = main_thread_context_->ContextGL();
+    auto* ri = main_thread_context_->RasterInterface();
     auto* sii = main_thread_context_->SharedImageInterface();
 
     // The bitmap in |image_data_| uses the skia N32 byte order.
@@ -650,9 +654,8 @@ bool PepperGraphics2DHost::PrepareTransferableResource(
     const viz::ResourceFormat format =
         upload_bgra ? viz::BGRA_8888 : viz::RGBA_8888;
 
-    RenderThreadImpl* rti = RenderThreadImpl::current();
     bool overlays_supported =
-        rti->IsGpuMemoryBufferCompositorResourcesEnabled() &&
+        enable_gpu_memory_buffer_ &&
         main_thread_context_->ContextCapabilities().texture_storage_image;
     uint32_t texture_target = GL_TEXTURE_2D;
     if (overlays_supported) {
@@ -682,8 +685,9 @@ bool PepperGraphics2DHost::PrepareTransferableResource(
           gpu::SHARED_IMAGE_USAGE_GLES2 | gpu::SHARED_IMAGE_USAGE_DISPLAY;
       if (overlays_supported)
         usage |= gpu::SHARED_IMAGE_USAGE_SCANOUT;
-      gpu_mailbox =
-          sii->CreateSharedImage(format, size, gfx::ColorSpace(), usage);
+      gpu_mailbox = sii->CreateSharedImage(
+          format, size, gfx::ColorSpace(), kTopLeft_GrSurfaceOrigin,
+          kPremul_SkAlphaType, usage, gpu::kNullSurfaceHandle);
       in_sync_token = sii->GenUnverifiedSyncToken();
     }
 
@@ -700,19 +704,16 @@ bool PepperGraphics2DHost::PrepareTransferableResource(
       src = swizzled.get();
     }
 
-    gl->WaitSyncTokenCHROMIUM(in_sync_token.GetConstData());
-    GLuint texture_id =
-        gl->CreateAndTexStorage2DSharedImageCHROMIUM(gpu_mailbox.name);
-    gl->BeginSharedImageAccessDirectCHROMIUM(
-        texture_id, GL_SHARED_IMAGE_ACCESS_MODE_READWRITE_CHROMIUM);
-    gl->BindTexture(texture_target, texture_id);
-    gl->TexSubImage2D(texture_target, 0, 0, 0, size.width(), size.height(),
-                      viz::GLDataFormat(format), viz::GLDataType(format), src);
-    gl->BindTexture(texture_target, 0);
-    gl->EndSharedImageAccessDirectCHROMIUM(texture_id);
-    gl->DeleteTextures(1, &texture_id);
+    SkImageInfo src_info =
+        SkImageInfo::Make(size.width(), size.height(),
+                          viz::ResourceFormatToClosestSkColorType(true, format),
+                          kUnknown_SkAlphaType);
+    ri->WaitSyncTokenCHROMIUM(in_sync_token.GetConstData());
+    ri->WritePixels(gpu_mailbox, 0, 0, texture_target, src_info.minRowBytes(),
+                    src_info, src);
+
     gpu::SyncToken out_sync_token;
-    gl->GenUnverifiedSyncTokenCHROMIUM(out_sync_token.GetData());
+    ri->GenUnverifiedSyncTokenCHROMIUM(out_sync_token.GetData());
 
     image_data_->Unmap();
     swizzled.reset();
@@ -835,15 +836,8 @@ int32_t PepperGraphics2DHost::Flush(PP_Resource* old_image_data) {
         no_update_visible = false;
       }
 
-      // Notify the plugin of the entire change (op_rect), even if it is
-      // partially or completely off-screen.
-      if (operation.type == QueuedOperation::SCROLL) {
-        bound_instance_->ScrollRect(
-            scroll_delta.x(), scroll_delta.y(), op_rect_in_viewport);
-      } else {
-        if (!op_rect_in_viewport.IsEmpty())
-          bound_instance_->InvalidateRect(op_rect_in_viewport);
-      }
+      if (!op_rect_in_viewport.IsEmpty())
+        bound_instance_->InvalidateRect(op_rect_in_viewport);
       composited_output_modified_ = true;
     }
   }

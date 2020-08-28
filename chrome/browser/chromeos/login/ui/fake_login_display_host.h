@@ -31,21 +31,18 @@ class FakeLoginDisplayHost : public LoginDisplayHost {
   WebUILoginView* GetWebUILoginView() const override;
   void BeforeSessionStart() override;
   void Finalize(base::OnceClosure) override;
+  void FinalizeImmediately() override;
   void SetStatusAreaVisible(bool visible) override;
   void StartWizard(chromeos::OobeScreenId first_screen) override;
   WizardController* GetWizardController() override;
-  AppLaunchController* GetAppLaunchController() override;
+  KioskLaunchController* GetKioskLaunchController() override;
   void StartUserAdding(base::OnceClosure completion_callback) override;
   void CancelUserAdding() override;
-  void StartSignInScreen(const LoginScreenContext& context) override;
+  void StartSignInScreen() override;
   void OnPreferencesChanged() override;
   void PrewarmAuthentication() override;
-  void StartAppLaunch(const std::string& app_id,
-                      bool diagnostic_mode,
-                      bool is_auto_launch) override;
   void StartDemoAppLaunch() override;
-  void StartArcKiosk(const AccountId& account_id) override;
-  void StartWebKiosk(const AccountId& account_id) override;
+  void StartKiosk(const KioskAppId& kiosk_app_id, bool is_auto_launch) override;
   void CompleteLogin(const chromeos::UserContext& user_context) override;
   void OnGaiaScreenReady() override;
   void SetDisplayEmail(const std::string& email) override;
@@ -53,17 +50,14 @@ class FakeLoginDisplayHost : public LoginDisplayHost {
                               const std::string& given_name) override;
   void LoadWallpaper(const AccountId& account_id) override;
   void LoadSigninWallpaper() override;
-  bool IsUserWhitelisted(const AccountId& account_id) override;
-  void ShowGaiaDialog(bool can_close,
-                      const AccountId& prefilled_account) override;
+  bool IsUserAllowlisted(const AccountId& account_id) override;
+  void ShowGaiaDialog(const AccountId& prefilled_account) override;
   void HideOobeDialog() override;
   void UpdateOobeDialogState(ash::OobeDialogState state) override;
-  const user_manager::UserList GetUsers() override;
   void CancelPasswordChangedFlow() override;
   void MigrateUserData(const std::string& old_password) override;
   void ResyncUserData() override;
-  void ShowFeedback() override;
-  void ShowResetScreen() override;
+  bool HandleAccelerator(ash::LoginAcceleratorAction action) override;
   void HandleDisplayCaptivePortal() override;
   void UpdateAddUserButtonStatus() override;
   void RequestSystemInfoUpdate() override;

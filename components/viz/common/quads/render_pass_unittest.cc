@@ -10,6 +10,7 @@
 
 #include "cc/test/geometry_test_utils.h"
 #include "components/viz/common/frame_sinks/copy_output_request.h"
+#include "components/viz/common/quads/aggregated_render_pass.h"
 #include "components/viz/common/quads/render_pass_draw_quad.h"
 #include "components/viz/common/quads/solid_color_draw_quad.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -30,8 +31,10 @@ struct RenderPassSize {
   cc::FilterOperations filters;
   cc::FilterOperations backdrop_filters;
   base::Optional<gfx::RRectF> backdrop_filter_bounds;
-  gfx::ColorSpace color_space;
+  gfx::ContentColorUsage content_color_usage;
   bool has_transparent_background;
+  bool cache_render_pass;
+  bool has_damage_from_contributing_component;
   bool generate_mipmap;
   std::vector<std::unique_ptr<CopyOutputRequest>> copy_callbacks;
   QuadList quad_list;
@@ -72,7 +75,7 @@ static void CompareRenderPassLists(const RenderPassList& expected_list,
 }
 
 TEST(RenderPassTest, CopyShouldBeIdenticalExceptIdAndQuads) {
-  RenderPassId render_pass_id = 3u;
+  AggregatedRenderPassId render_pass_id{3u};
   gfx::Rect output_rect(45, 22, 120, 13);
   gfx::Transform transform_to_root =
       gfx::Transform(1.0, 0.5, 0.5, -0.5, -1.0, 0.0);
@@ -83,17 +86,18 @@ TEST(RenderPassTest, CopyShouldBeIdenticalExceptIdAndQuads) {
   backdrop_filters.Append(cc::FilterOperation::CreateInvertFilter(1.0));
   base::Optional<gfx::RRectF> backdrop_filter_bounds(
       {10, 20, 130, 140, 1, 2, 3, 4, 5, 6, 7, 8});
-  gfx::ColorSpace color_space = gfx::ColorSpace::CreateSRGB();
+  gfx::ContentColorUsage content_color_usage = gfx::ContentColorUsage::kHDR;
   bool has_transparent_background = true;
   bool cache_render_pass = false;
   bool has_damage_from_contributing_content = false;
   bool generate_mipmap = false;
 
-  std::unique_ptr<RenderPass> pass = RenderPass::Create();
+  auto pass = std::make_unique<AggregatedRenderPass>();
   pass->SetAll(render_pass_id, output_rect, damage_rect, transform_to_root,
-               filters, backdrop_filters, backdrop_filter_bounds, color_space,
-               has_transparent_background, cache_render_pass,
-               has_damage_from_contributing_content, generate_mipmap);
+               filters, backdrop_filters, backdrop_filter_bounds,
+               content_color_usage, has_transparent_background,
+               cache_render_pass, has_damage_from_contributing_content,
+               generate_mipmap);
   pass->copy_requests.push_back(CopyOutputRequest::CreateStubForTesting());
 
   // Stick a quad in the pass, this should not get copied.
@@ -106,9 +110,9 @@ TEST(RenderPassTest, CopyShouldBeIdenticalExceptIdAndQuads) {
   color_quad->SetNew(pass->shared_quad_state_list.back(), gfx::Rect(),
                      gfx::Rect(), SkColor(), false);
 
-  RenderPassId new_render_pass_id = 63u;
+  AggregatedRenderPassId new_render_pass_id{63u};
 
-  std::unique_ptr<RenderPass> copy = pass->Copy(new_render_pass_id);
+  auto copy = pass->Copy(new_render_pass_id);
   EXPECT_EQ(new_render_pass_id, copy->id);
   EXPECT_EQ(pass->output_rect, copy->output_rect);
   EXPECT_EQ(pass->transform_to_root_target, copy->transform_to_root_target);
@@ -117,7 +121,11 @@ TEST(RenderPassTest, CopyShouldBeIdenticalExceptIdAndQuads) {
   EXPECT_EQ(pass->backdrop_filters, copy->backdrop_filters);
   EXPECT_TRUE(pass->backdrop_filter_bounds->ApproximatelyEqual(
       copy->backdrop_filter_bounds.value(), 0.001));
+  EXPECT_EQ(pass->content_color_usage, copy->content_color_usage);
   EXPECT_EQ(pass->has_transparent_background, copy->has_transparent_background);
+  EXPECT_EQ(pass->cache_render_pass, copy->cache_render_pass);
+  EXPECT_EQ(pass->has_damage_from_contributing_content,
+            copy->has_damage_from_contributing_content);
   EXPECT_EQ(pass->generate_mipmap, copy->generate_mipmap);
   EXPECT_EQ(0u, copy->quad_list.size());
 
@@ -131,7 +139,7 @@ TEST(RenderPassTest, CopyShouldBeIdenticalExceptIdAndQuads) {
 TEST(RenderPassTest, CopyAllShouldBeIdentical) {
   RenderPassList pass_list;
 
-  int id = 3;
+  RenderPassId id{3};
   gfx::Rect output_rect(45, 22, 120, 13);
   gfx::Transform transform_to_root =
       gfx::Transform(1.0, 0.5, 0.5, -0.5, -1.0, 0.0);
@@ -142,7 +150,7 @@ TEST(RenderPassTest, CopyAllShouldBeIdentical) {
   backdrop_filters.Append(cc::FilterOperation::CreateInvertFilter(1.0));
   base::Optional<gfx::RRectF> backdrop_filter_bounds(
       {10, 20, 130, 140, 1, 2, 3, 4, 5, 6, 7, 8});
-  gfx::ColorSpace color_space = gfx::ColorSpace::CreateXYZD50();
+  gfx::ContentColorUsage content_color_usage = gfx::ContentColorUsage::kHDR;
   bool has_transparent_background = true;
   bool cache_render_pass = false;
   bool has_damage_from_contributing_content = false;
@@ -150,7 +158,7 @@ TEST(RenderPassTest, CopyAllShouldBeIdentical) {
 
   std::unique_ptr<RenderPass> pass = RenderPass::Create();
   pass->SetAll(id, output_rect, damage_rect, transform_to_root, filters,
-               backdrop_filters, backdrop_filter_bounds, color_space,
+               backdrop_filters, backdrop_filter_bounds, content_color_usage,
                has_transparent_background, cache_render_pass,
                has_damage_from_contributing_content, generate_mipmap);
 
@@ -187,7 +195,7 @@ TEST(RenderPassTest, CopyAllShouldBeIdentical) {
                       false);
 
   // A second render pass with a quad.
-  int contrib_id = 4;
+  RenderPassId contrib_id{4};
   gfx::Rect contrib_output_rect(10, 15, 12, 17);
   gfx::Transform contrib_transform_to_root =
       gfx::Transform(1.0, 0.5, 0.5, -0.5, -1.0, 0.0);
@@ -198,7 +206,8 @@ TEST(RenderPassTest, CopyAllShouldBeIdentical) {
   contrib_backdrop_filters.Append(cc::FilterOperation::CreateSaturateFilter(1));
   base::Optional<gfx::RRectF> contrib_backdrop_filter_bounds(
       {20, 30, 140, 150, 1, 2, 3, 4, 5, 6, 7, 8});
-  gfx::ColorSpace contrib_color_space = gfx::ColorSpace::CreateSCRGBLinear();
+  gfx::ContentColorUsage contrib_content_color_usage =
+      gfx::ContentColorUsage::kHDR;
   bool contrib_has_transparent_background = true;
   bool contrib_cache_render_pass = false;
   bool contrib_has_damage_from_contributing_content = false;
@@ -208,7 +217,7 @@ TEST(RenderPassTest, CopyAllShouldBeIdentical) {
   contrib->SetAll(
       contrib_id, contrib_output_rect, contrib_damage_rect,
       contrib_transform_to_root, contrib_filters, contrib_backdrop_filters,
-      contrib_backdrop_filter_bounds, contrib_color_space,
+      contrib_backdrop_filter_bounds, contrib_content_color_usage,
       contrib_has_transparent_background, contrib_cache_render_pass,
       contrib_has_damage_from_contributing_content, contrib_generate_mipmap);
 
@@ -235,7 +244,7 @@ TEST(RenderPassTest, CopyAllShouldBeIdentical) {
 
   // Make a copy with CopyAll().
   RenderPassList copy_list;
-  RenderPass::CopyAll(pass_list, &copy_list);
+  RenderPass::CopyAllForTest(pass_list, &copy_list);
 
   CompareRenderPassLists(pass_list, copy_list);
 }
@@ -243,7 +252,7 @@ TEST(RenderPassTest, CopyAllShouldBeIdentical) {
 TEST(RenderPassTest, CopyAllWithCulledQuads) {
   RenderPassList pass_list;
 
-  int id = 3;
+  RenderPassId id{3};
   gfx::Rect output_rect(45, 22, 120, 13);
   gfx::Transform transform_to_root =
       gfx::Transform(1.0, 0.5, 0.5, -0.5, -1.0, 0.0);
@@ -254,7 +263,7 @@ TEST(RenderPassTest, CopyAllWithCulledQuads) {
   backdrop_filters.Append(cc::FilterOperation::CreateInvertFilter(1.0));
   base::Optional<gfx::RRectF> backdrop_filter_bounds(
       {10, 20, 130, 140, 1, 2, 3, 4, 5, 6, 7, 8});
-  gfx::ColorSpace color_space = gfx::ColorSpace::CreateSCRGBLinear();
+  gfx::ContentColorUsage content_color_usage = gfx::ContentColorUsage::kHDR;
   bool has_transparent_background = true;
   bool cache_render_pass = false;
   bool has_damage_from_contributing_content = false;
@@ -262,7 +271,7 @@ TEST(RenderPassTest, CopyAllWithCulledQuads) {
 
   std::unique_ptr<RenderPass> pass = RenderPass::Create();
   pass->SetAll(id, output_rect, damage_rect, transform_to_root, filters,
-               backdrop_filters, backdrop_filter_bounds, color_space,
+               backdrop_filters, backdrop_filter_bounds, content_color_usage,
                has_transparent_background, cache_render_pass,
                has_damage_from_contributing_content, generate_mipmap);
 
@@ -304,7 +313,7 @@ TEST(RenderPassTest, CopyAllWithCulledQuads) {
 
   // Make a copy with CopyAll().
   RenderPassList copy_list;
-  RenderPass::CopyAll(pass_list, &copy_list);
+  RenderPass::CopyAllForTest(pass_list, &copy_list);
 
   CompareRenderPassLists(pass_list, copy_list);
 }

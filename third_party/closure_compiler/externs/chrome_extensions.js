@@ -2340,6 +2340,62 @@ chrome.enterprise.reportingPrivate.uploadChromeDesktopReport = function(
 chrome.enterprise.reportingPrivate.getDeviceId = function(callback) {};
 
 /**
+ * Returns a random secret stored in a platform specific storage.
+ * @param {(function(!ArrayBuffer): void)=} callback Called with the result.
+ */
+chrome.enterprise.reportingPrivate.getPersistentSecret = function(callback) {};
+
+/**
+ * Returns byte string associated with the data item stored in a platform
+ * specific storage.
+ * @param {!string} item Item name (can have containers separated by '/').
+ * @param {(function(!ArrayBuffer): void)=} callback Called back with the
+ *     response.
+ */
+chrome.enterprise.reportingPrivate.getDeviceData = function(item, callback) {};
+
+/**
+ * Stores byte string associated with the data item in a platform
+ * specific storage.
+ * @param {!string} item Item name (can have containers separated by '/').
+ * @param {!ArrayBuffer} data Byte string to associate with the data item.
+ * @param {(function(): void)=} callback Called back with the response.
+ */
+chrome.enterprise.reportingPrivate.setDeviceData = function(
+    item, data, callback) {};
+
+/**
+ * Represents a device info property type.
+ * @enum {string}
+ */
+chrome.enterprise.reportingPrivate.SettingValue = {
+  UNKNOWN: '',
+  DISABLED: '',
+  ENABLED: '',
+};
+
+/**
+ * Type of the object returned by getDeviceInfo.
+ * @typedef {?{
+ *   osName: string,
+ *   osVersion: string,
+ *   deviceHostName: string,
+ *   deviceModel: string,
+ *   serialNumber: string,
+ *   screenLockSecured: chrome.enterprise.reportingPrivate.SettingValue,
+ *   diskEncrypted: chrome.enterprise.reportingPrivate.SettingValue,
+ * }}
+ */
+chrome.enterprise.reportingPrivate.DeviceInfo;
+
+/**
+ * Returns the device information object.
+ * @param {(function(!chrome.enterprise.reportingPrivate.DeviceInfo): void)=}
+ *     callback Called back with the response.
+ */
+chrome.enterprise.reportingPrivate.getDeviceInfo = function(callback) {};
+
+/**
  * @see https://developer.chrome.com/extensions/extension.html
  * @const
  */
@@ -2472,6 +2528,49 @@ chrome.extension.onRequest;
 /** @type {!ChromeEvent} */
 chrome.extension.onRequestExternal;
 
+/**
+ * @see https://developer.chrome.com/extensions/runtime.html
+ * @const
+ */
+chrome.runtime = {};
+
+
+/** @type {{message:(string|undefined)}|undefined} */
+chrome.runtime.lastError;
+
+
+/**
+ * @param {string|!Object=} opt_extensionIdOrConnectInfo Either the
+ *     extensionId to connect to, in which case connectInfo params can be
+ *     passed in the next optional argument, or the connectInfo params.
+ * @param {!Object=} opt_connectInfo The connectInfo object,
+ *     if arg1 was the extensionId to connect to.
+ * @return {!Port} New port.
+ */
+chrome.runtime.connect = function(
+    opt_extensionIdOrConnectInfo, opt_connectInfo) {};
+
+
+/**
+ * @param {string|*} extensionIdOrMessage Either the extensionId to send the
+ *     message to, in which case the message is passed as the next arg, or the
+ *     message itself.
+ * @param {(*|!Object|function(*): void)=} opt_messageOrOptsOrCallback
+ *     One of:
+ *     The message, if arg1 was the extensionId.
+ *     The options for message sending, if arg1 was the message and this
+ *     argument is not a function.
+ *     The callback, if arg1 was the message and this argument is a function.
+ * @param {(!Object|function(*): void)=} opt_optsOrCallback
+ *     Either the options for message sending, if arg2 was the message,
+ *     or the callback.
+ * @param {function(*): void=} opt_callback The callback function which
+ *     takes a JSON response object sent by the handler of the request.
+ * @return {undefined}
+ */
+chrome.runtime.sendMessage = function(
+    extensionIdOrMessage, opt_messageOrOptsOrCallback, opt_optsOrCallback,
+    opt_callback) {};
 
 
 /** @type {string} */
@@ -2515,6 +2614,10 @@ chrome.runtime.Manifest.prototype.name;
 
 /** @type {string} */
 chrome.runtime.Manifest.prototype.version;
+
+
+/** @type {string|undefined} */
+chrome.runtime.Manifest.prototype.version_name;
 
 
 /** @type {number|undefined} */
@@ -4040,7 +4143,7 @@ chrome.management.InstallOptions;
 /**
  * @param {function(!Array<!ExtensionInfo>): void=} opt_callback Optional
  *     callback function.
- * @return {!Array<!ExtensionInfo>}
+ * @return {undefined}
  */
 chrome.management.getAll = function(opt_callback) {};
 
@@ -7730,6 +7833,10 @@ ChromeKeyboardEvent.prototype.altKey;
 
 
 /** @type {boolean|undefined} */
+ChromeKeyboardEvent.prototype.altgrKey;
+
+
+/** @type {boolean|undefined} */
 ChromeKeyboardEvent.prototype.ctrlKey;
 
 
@@ -10562,6 +10669,24 @@ chrome.inputMethodPrivate.InputContext.prototype.focusReason;
 
 /** @type {boolean} */
 chrome.inputMethodPrivate.InputContext.prototype.hasBeenPassword;
+
+
+/**
+ * Commits the text currently being composed without moving the selected text
+ * range. This is a no-op if the context is incorrect.
+ * @param {{
+ *  contextID: number
+ * }} parameters Parameters for the finishComposingText API call.
+ * @param {function(): void=} callback Called when the operation completes.
+ */
+chrome.inputMethodPrivate.finishComposingText = function(
+    parameters, callback) {};
+
+
+/**
+ * Resets the current engine to its initial state. Fires an OnReset event.
+ */
+chrome.inputMethodPrivate.reset = function() {};
 
 
 /**

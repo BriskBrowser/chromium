@@ -5,8 +5,18 @@
 #include "third_party/blink/renderer/core/css/style_color.h"
 
 #include "third_party/blink/renderer/core/layout/layout_theme.h"
+#include "third_party/blink/renderer/platform/runtime_enabled_features.h"
 
 namespace blink {
+
+Color StyleColor::Resolve(Color current_color,
+                          WebColorScheme color_scheme) const {
+  if (IsCurrentColor())
+    return current_color;
+  if (EffectiveColorKeyword() != CSSValueID::kInvalid)
+    return ColorFromKeyword(color_keyword_, color_scheme);
+  return color_;
+}
 
 Color StyleColor::ColorFromKeyword(CSSValueID keyword,
                                    WebColorScheme color_scheme) {
@@ -40,9 +50,8 @@ bool StyleColor::IsColorKeyword(CSSValueID id) {
   //   '-internal-inactive-list-box-selection-text'
   //   '-webkit-focus-ring-color'
   //   '-internal-quirk-inherit'
-  //   '-internal-root-color'
   //
-  return (id >= CSSValueID::kAqua && id <= CSSValueID::kInternalRootColor) ||
+  return (id >= CSSValueID::kAqua && id <= CSSValueID::kInternalQuirkInherit) ||
          (id >= CSSValueID::kAliceblue && id <= CSSValueID::kYellowgreen) ||
          id == CSSValueID::kMenu;
 }
@@ -50,6 +59,14 @@ bool StyleColor::IsColorKeyword(CSSValueID id) {
 bool StyleColor::IsSystemColor(CSSValueID id) {
   return (id >= CSSValueID::kActiveborder && id <= CSSValueID::kWindowtext) ||
          id == CSSValueID::kMenu;
+}
+
+CSSValueID StyleColor::EffectiveColorKeyword() const {
+  if (!RuntimeEnabledFeatures::CSSSystemColorComputeToSelfEnabled()) {
+    return IsSystemColor(color_keyword_) ? CSSValueID::kInvalid
+                                         : color_keyword_;
+  }
+  return color_keyword_;
 }
 
 }  // namespace blink

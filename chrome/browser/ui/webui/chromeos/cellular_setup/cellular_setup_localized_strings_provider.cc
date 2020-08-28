@@ -9,6 +9,7 @@
 #include "components/login/localized_values_builder.h"
 #include "components/strings/grit/components_strings.h"
 #include "content/public/browser/web_ui_data_source.h"
+#include "ui/base/webui/web_ui_util.h"
 
 namespace chromeos {
 
@@ -17,8 +18,11 @@ namespace cellular_setup {
 namespace {
 
 constexpr webui::LocalizedString kLocalizedStringsWithoutPlaceholders[] = {
+    {"activationCode", IDS_CELLULAR_SETUP_ESIM_PAGE_ACTIVATION_CODE},
     {"cancel", IDS_CANCEL},
     {"back", IDS_CELLULAR_SETUP_BACK_LABEL},
+    {"eSimFlowSetup", IDS_CELLULAR_SETUP_CELLULAR_SETUP_PAGE_ESIM_LABEL},
+    {"next", IDS_CELLULAR_SETUP_NEXT_LABEL},
     {"finish", IDS_CELLULAR_SETUP_FINISH_LABEL},
     {"tryAgain", IDS_CELLULAR_SETUP_TRY_AGAIN_LABEL},
     {"simDetectPageTitle", IDS_CELLULAR_SETUP_SIM_DETECT_PAGE_TITLE},
@@ -33,11 +37,12 @@ constexpr webui::LocalizedString kLocalizedStringsWithoutPlaceholders[] = {
      IDS_CELLULAR_SETUP_PROVISIONING_PAGE_ERROR_TITLE},
     {"provisioningPageErrorMessage",
      IDS_CELLULAR_SETUP_PROVISIONING_PAGE_ERROR_MESSAGE},
+    {"pSimFlowSetup", IDS_CELLULAR_SETUP_CELLULAR_SETUP_PAGE_PSIM_LABEL},
     {"finalPageTitle", IDS_CELLULAR_SETUP_FINAL_PAGE_TITLE},
     {"finalPageMessage", IDS_CELLULAR_SETUP_FINAL_PAGE_MESSAGE},
     {"finalPageErrorTitle", IDS_CELLULAR_SETUP_FINAL_PAGE_ERROR_TITLE},
-    {"finalPageErrorMessage", IDS_CELLULAR_SETUP_FINAL_PAGE_ERROR_MESSAGE}};
-
+    {"finalPageErrorMessage", IDS_CELLULAR_SETUP_FINAL_PAGE_ERROR_MESSAGE},
+    {"scanQRCode", IDS_CELLULAR_SETUP_ESIM_PAGE_SCAN_QR_CODE}};
 }  //  namespace
 
 void AddLocalizedStrings(content::WebUIDataSource* html_source) {

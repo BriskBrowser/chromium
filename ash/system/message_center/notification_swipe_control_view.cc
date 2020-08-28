@@ -5,6 +5,7 @@
 #include "ash/system/message_center/notification_swipe_control_view.h"
 
 #include "ash/system/message_center/message_center_style.h"
+#include "ash/system/message_center/metrics_utils.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/events/event.h"
 #include "ui/gfx/color_palette.h"
@@ -184,10 +185,25 @@ const char* NotificationSwipeControlView::GetClassName() const {
 void NotificationSwipeControlView::ButtonPressed(views::Button* sender,
                                                  const ui::Event& event) {
   DCHECK(sender);
-  if (sender == settings_button_)
+  std::string notification_id = message_view_->notification_id();
+  auto weak_this = weak_factory_.GetWeakPtr();
+
+  if (sender == settings_button_) {
     message_view_->OnSettingsButtonPressed(event);
-  else if (sender == snooze_button_)
+    metrics_utils::LogSettingsShown(notification_id,
+                                    /*is_slide_controls=*/true,
+                                    /*is_popup=*/false);
+  } else if (sender == snooze_button_) {
     message_view_->OnSnoozeButtonPressed(event);
+    metrics_utils::LogSnoozed(notification_id,
+                              /*is_slide_controls=*/true,
+                              /*is_popup=*/false);
+  }
+
+  // Button handlers of |message_view_| may have closed |this|.
+  if (!weak_this)
+    return;
+
   HideButtons();
 
   // Closing the swipe control is done in these button pressed handlers.

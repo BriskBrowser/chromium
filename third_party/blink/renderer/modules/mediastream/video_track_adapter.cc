@@ -308,11 +308,8 @@ void VideoTrackAdapter::VideoFrameResolutionAdapter::DeliverFrame(
                    &source_format_settings_.prev_frame_timestamp);
   MaybeUpdateTracksFormat(*frame);
 
-  double frame_rate;
-  if (!frame->metadata()->GetDouble(media::VideoFrameMetadata::FRAME_RATE,
-                                    &frame_rate)) {
-    frame_rate = MediaStreamVideoSource::kUnknownFrameRate;
-  }
+  double frame_rate = frame->metadata()->frame_rate.value_or(
+      MediaStreamVideoSource::kUnknownFrameRate);
 
   auto frame_drop_reason = media::VideoCaptureFrameDropReason::kNone;
   if (MaybeDropFrame(*frame, frame_rate, &frame_drop_reason)) {
@@ -342,8 +339,16 @@ void VideoTrackAdapter::VideoFrameResolutionAdapter::DeliverFrame(
     // |desired_size| that fits entirely inside of |frame->visible_rect()|.
     // This will be the rect we need to crop the original frame to.
     // From this rect, the original frame can be scaled down to |desired_size|.
-    const gfx::Rect region_in_frame =
+    gfx::Rect region_in_frame =
         media::ComputeLetterboxRegion(frame->visible_rect(), desired_size);
+
+    if (frame->HasTextures() || frame->HasGpuMemoryBuffer()) {
+      // ComputeLetterboxRegion() produces in some cases odd dimensions due to
+      // internal rounding errors; |region_in_frame| is always smaller or equal
+      // to frame->visible_rect(), we can "grow it" if the dimensions are odd.
+      region_in_frame.set_width((region_in_frame.width() + 1) & ~1);
+      region_in_frame.set_height((region_in_frame.height() + 1) & ~1);
+    }
 
     video_frame = media::VideoFrame::WrapVideoFrame(
         frame, frame->format(), region_in_frame, desired_size);

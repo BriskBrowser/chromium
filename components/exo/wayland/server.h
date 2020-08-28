@@ -14,6 +14,9 @@
 #include "components/exo/wayland/scoped_wl.h"
 #include "ui/display/display_observer.h"
 
+struct wl_resource;
+struct wl_client;
+
 namespace exo {
 class Display;
 
@@ -25,6 +28,7 @@ class WaylandDisplayOutput;
 struct WaylandSeat;
 struct WaylandTextInputManager;
 struct WaylandXdgShell;
+struct WaylandZxdgShell;
 
 // This class is a thin wrapper around a Wayland display server. All Wayland
 // requests are dispatched into the given Exosphere display.
@@ -57,6 +61,10 @@ class Server : public display::DisplayObserver {
   void OnDisplayAdded(const display::Display& new_display) override;
   void OnDisplayRemoved(const display::Display& old_display) override;
 
+  wl_resource* GetOutputResource(wl_client* client, int64_t display_id);
+
+  Display* GetDisplay() { return display_; }
+
  private:
   Display* const display_;
   std::unique_ptr<wl_display, WlDisplayDeleter> wl_display_;
@@ -67,6 +75,7 @@ class Server : public display::DisplayObserver {
 
 #if defined(OS_CHROMEOS)
   std::unique_ptr<WaylandTextInputManager> zwp_text_manager_data_;
+  std::unique_ptr<WaylandZxdgShell> zxdg_shell_data_;
   std::unique_ptr<WaylandXdgShell> xdg_shell_data_;
 #endif
 

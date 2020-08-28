@@ -13,6 +13,12 @@
 #include "content/browser/devtools/protocol/fetch.h"
 #include "services/network/public/mojom/network_service.mojom.h"
 
+namespace network {
+namespace mojom {
+class URLLoaderFactoryOverride;
+}
+}  // namespace network
+
 namespace content {
 class DevToolsAgentHostImpl;
 class DevToolsIOContext;
@@ -38,8 +44,7 @@ class FetchHandler : public DevToolsDomainHandler, public Fetch::Backend {
       const base::UnguessableToken& frame_token,
       bool is_navigation,
       bool is_download,
-      mojo::PendingReceiver<network::mojom::URLLoaderFactory>*
-          target_factory_receiver);
+      network::mojom::URLLoaderFactoryOverride* intercepting_factory);
 
  private:
   // DevToolsDomainHandler
@@ -66,7 +71,7 @@ class FetchHandler : public DevToolsDomainHandler, public Fetch::Backend {
       const String& fetchId,
       Maybe<String> url,
       Maybe<String> method,
-      Maybe<String> postData,
+      Maybe<protocol::Binary> postData,
       Maybe<Array<Fetch::HeaderEntry>> headers,
       std::unique_ptr<ContinueRequestCallback> callback) override;
   void ContinueWithAuth(

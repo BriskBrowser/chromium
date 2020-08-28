@@ -8,8 +8,8 @@
 #include <memory>
 
 #include "base/atomic_ref_count.h"
+#include "base/check.h"
 #include "base/gtest_prod_util.h"
-#include "base/logging.h"
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
 #include "base/synchronization/waitable_event.h"
@@ -34,8 +34,7 @@ namespace internal {
 //
 // TrackedRefFactory only makes sense to use on types that are always leaked in
 // production but need to be torn down in tests (blocking destruction is
-// impractical in production -- ref. ScopedAllowBaseSyncPrimitivesForTesting
-// below).
+// impractical in production).
 //
 // Why would we ever need such a thing? In thread_pool there is a clear
 // ownership hierarchy with mostly single owners and little refcounting. In

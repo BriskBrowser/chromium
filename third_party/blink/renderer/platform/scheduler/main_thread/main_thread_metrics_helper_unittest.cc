@@ -191,38 +191,38 @@ class MainThreadMetricsHelperTest : public testing::Test {
         break;
       case FrameStatus::kCrossOriginVisible:
         builder.SetFrameType(FrameScheduler::FrameType::kSubframe)
-            .SetIsCrossOrigin(true)
+            .SetIsCrossOriginToMainFrame(true)
             .SetIsPageVisible(true)
             .SetIsFrameVisible(true);
         break;
       case FrameStatus::kCrossOriginVisibleService:
         builder.SetFrameType(FrameScheduler::FrameType::kSubframe)
-            .SetIsCrossOrigin(true)
+            .SetIsCrossOriginToMainFrame(true)
             .SetPageScheduler(playing_view_.get())
             .SetIsFrameVisible(true);
         break;
       case FrameStatus::kCrossOriginHidden:
         builder.SetFrameType(FrameScheduler::FrameType::kSubframe)
-            .SetIsCrossOrigin(true)
+            .SetIsCrossOriginToMainFrame(true)
             .SetIsPageVisible(true);
         break;
       case FrameStatus::kCrossOriginHiddenService:
         builder.SetFrameType(FrameScheduler::FrameType::kSubframe)
-            .SetIsCrossOrigin(true)
+            .SetIsCrossOriginToMainFrame(true)
             .SetPageScheduler(playing_view_.get());
         break;
       case FrameStatus::kCrossOriginBackground:
         builder.SetFrameType(FrameScheduler::FrameType::kSubframe)
-            .SetIsCrossOrigin(true);
+            .SetIsCrossOriginToMainFrame(true);
         break;
       case FrameStatus::kCrossOriginBackgroundExemptSelf:
         builder.SetFrameType(FrameScheduler::FrameType::kSubframe)
-            .SetIsCrossOrigin(true)
+            .SetIsCrossOriginToMainFrame(true)
             .SetIsExemptFromThrottling(true);
         break;
       case FrameStatus::kCrossOriginBackgroundExemptOther:
         builder.SetFrameType(FrameScheduler::FrameType::kSubframe)
-            .SetIsCrossOrigin(true)
+            .SetIsCrossOriginToMainFrame(true)
             .SetPageScheduler(throtting_exempt_view_.get());
         break;
       case FrameStatus::kCount:
@@ -284,9 +284,6 @@ TEST_F(MainThreadMetricsHelperTest, Metrics_PerQueueType) {
   RunTask(QueueType::kFrameThrottleable,
           start + base::TimeDelta::FromSeconds(28 + kCoolingOfTimeSeconds),
           base::TimeDelta::FromSeconds(8));
-  RunTask(QueueType::kUnthrottled,
-          start + base::TimeDelta::FromSeconds(38 + kCoolingOfTimeSeconds),
-          base::TimeDelta::FromSeconds(5));
   RunTask(QueueType::kFrameLoading,
           start + base::TimeDelta::FromSeconds(45 + kCoolingOfTimeSeconds),
           base::TimeDelta::FromSeconds(10));
@@ -322,7 +319,6 @@ TEST_F(MainThreadMetricsHelperTest, Metrics_PerQueueType) {
   std::vector<base::Bucket> expected_samples = {
       {static_cast<int>(QueueType::kControl), 11},
       {static_cast<int>(QueueType::kDefault), 2},
-      {static_cast<int>(QueueType::kUnthrottled), 5},
       {static_cast<int>(QueueType::kFrameLoading), 16},
       {static_cast<int>(QueueType::kCompositor), 22},
       {static_cast<int>(QueueType::kIdle), 20},
@@ -350,7 +346,6 @@ TEST_F(MainThreadMetricsHelperTest, Metrics_PerQueueType) {
                   "RendererScheduler.TaskDurationPerQueueType3.Background"),
               UnorderedElementsAre(
                   Bucket(static_cast<int>(QueueType::kControl), 8),
-                  Bucket(static_cast<int>(QueueType::kUnthrottled), 5),
                   Bucket(static_cast<int>(QueueType::kFrameLoading), 10),
                   Bucket(static_cast<int>(QueueType::kFrameThrottleable), 19),
                   Bucket(static_cast<int>(QueueType::kFramePausable), 17),

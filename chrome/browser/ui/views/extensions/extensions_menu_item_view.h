@@ -27,12 +27,16 @@ class ImageButton;
 class ExtensionsMenuItemView : public views::View,
                                public views::ButtonListener {
  public:
-  static constexpr int kSecondaryIconSizeDp = 16;
+  static constexpr int kMenuItemHeightDp = 40;
+  static constexpr gfx::Size kIconSize{28, 28};
   static constexpr const char kClassName[] = "ExtensionsMenuItemView";
 
   ExtensionsMenuItemView(
       Browser* browser,
-      std::unique_ptr<ToolbarActionViewController> controller);
+      std::unique_ptr<ToolbarActionViewController> controller,
+      bool allow_pinning);
+  ExtensionsMenuItemView(const ExtensionsMenuItemView&) = delete;
+  ExtensionsMenuItemView& operator=(const ExtensionsMenuItemView&) = delete;
   ~ExtensionsMenuItemView() override;
 
   // views::ButtonListener:
@@ -40,12 +44,13 @@ class ExtensionsMenuItemView : public views::View,
 
   // views::View:
   const char* GetClassName() const override;
+  void OnThemeChanged() override;
 
   void UpdatePinButton();
 
-  bool IsContextMenuRunning();
+  bool IsContextMenuRunning() const;
 
-  bool IsPinned();
+  bool IsPinned() const;
 
   ToolbarActionViewController* view_controller() { return controller_.get(); }
   const ToolbarActionViewController* view_controller() const {
@@ -53,9 +58,16 @@ class ExtensionsMenuItemView : public views::View,
   }
 
   ExtensionsMenuButton* primary_action_button_for_testing();
+  views::ImageButton* context_menu_button_for_testing() {
+    return context_menu_button_;
+  }
   views::ImageButton* pin_button_for_testing() { return pin_button_; }
 
  private:
+  // Maybe adjust |icon_color| to assure high enough contrast with the
+  // background.
+  SkColor GetAdjustedIconColor(SkColor icon_color) const;
+
   ExtensionsMenuButton* const primary_action_button_;
 
   std::unique_ptr<ToolbarActionViewController> controller_;
@@ -69,8 +81,6 @@ class ExtensionsMenuItemView : public views::View,
   // This controller is responsible for showing the context menu for an
   // extension.
   std::unique_ptr<ExtensionContextMenuController> context_menu_controller_;
-
-  DISALLOW_COPY_AND_ASSIGN(ExtensionsMenuItemView);
 };
 
 #endif  // CHROME_BROWSER_UI_VIEWS_EXTENSIONS_EXTENSIONS_MENU_ITEM_VIEW_H_

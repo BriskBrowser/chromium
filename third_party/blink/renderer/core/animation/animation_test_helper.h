@@ -14,6 +14,7 @@ namespace blink {
 
 class Document;
 class Element;
+class KeyframeEffect;
 
 void SetV8ObjectPropertyAsString(v8::Isolate*,
                                  v8::Local<v8::Object>,
@@ -24,14 +25,20 @@ void SetV8ObjectPropertyAsNumber(v8::Isolate*,
                                  const StringView& name,
                                  double value);
 
+// Creates a KeyframeEffect with two keyframes corresponding to
+// value_start (offset 0.0) and value_end (offset 1.0). Default blink::Timing
+// values are used, except for iteration_duration which is set to 1000ms.
+KeyframeEffect* CreateSimpleKeyframeEffectForTest(Element*,
+                                                  CSSPropertyID,
+                                                  String value_start,
+                                                  String value_end);
+
 // Ensures that a set of interpolations actually computes and caches their
 // internal interpolated value, so that tests can retrieve them.
 //
 // All members of the ActiveInterpolations must be instances of
 // InvalidatableInterpolation.
-void EnsureInterpolatedValueCached(const ActiveInterpolations&,
-                                   Document&,
-                                   Element*);
+void EnsureInterpolatedValueCached(ActiveInterpolations*, Document&, Element*);
 }  // namespace blink
 
 #endif  // THIRD_PARTY_BLINK_RENDERER_CORE_ANIMATION_ANIMATION_TEST_HELPER_H_

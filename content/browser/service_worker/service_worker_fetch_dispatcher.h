@@ -17,13 +17,13 @@
 #include "content/browser/service_worker/service_worker_metrics.h"
 #include "content/common/content_export.h"
 #include "content/public/browser/web_contents.h"
-#include "content/public/common/resource_type.h"
 #include "mojo/public/cpp/system/data_pipe.h"
 #include "services/network/public/mojom/url_loader.mojom.h"
 #include "services/network/public/mojom/url_loader_factory.mojom.h"
 #include "third_party/blink/public/common/service_worker/service_worker_status_code.h"
 #include "third_party/blink/public/mojom/fetch/fetch_api_request.mojom.h"
 #include "third_party/blink/public/mojom/fetch/fetch_api_response.mojom.h"
+#include "third_party/blink/public/mojom/loader/resource_load_info.mojom-shared.h"
 #include "third_party/blink/public/mojom/service_worker/service_worker_event_status.mojom.h"
 
 namespace content {
@@ -53,7 +53,7 @@ class CONTENT_EXPORT ServiceWorkerFetchDispatcher {
   using WebContentsGetter = base::RepeatingCallback<WebContents*()>;
 
   ServiceWorkerFetchDispatcher(blink::mojom::FetchAPIRequestPtr request,
-                               ResourceType resource_type,
+                               blink::mojom::ResourceType resource_type,
                                const std::string& client_id,
                                scoped_refptr<ServiceWorkerVersion> version,
                                base::OnceClosure prepare_callback,
@@ -91,11 +91,11 @@ class CONTENT_EXPORT ServiceWorkerFetchDispatcher {
                  blink::mojom::FetchAPIResponsePtr response,
                  blink::mojom::ServiceWorkerStreamHandlePtr body_as_stream,
                  blink::mojom::ServiceWorkerFetchEventTimingPtr timing);
-  void Complete(blink::ServiceWorkerStatusCode status,
-                FetchEventResult fetch_result,
-                blink::mojom::FetchAPIResponsePtr response,
-                blink::mojom::ServiceWorkerStreamHandlePtr body_as_stream,
-                blink::mojom::ServiceWorkerFetchEventTimingPtr timing);
+  void RunCallback(blink::ServiceWorkerStatusCode status,
+                   FetchEventResult fetch_result,
+                   blink::mojom::FetchAPIResponsePtr response,
+                   blink::mojom::ServiceWorkerStreamHandlePtr body_as_stream,
+                   blink::mojom::ServiceWorkerFetchEventTimingPtr timing);
 
   // The fetch event stays open until all respondWith() and waitUntil() promises
   // are settled. This function is called once the renderer signals that
@@ -109,10 +109,12 @@ class CONTENT_EXPORT ServiceWorkerFetchDispatcher {
 
   ServiceWorkerMetrics::EventType GetEventType() const;
 
+  bool IsEventDispatched() const;
+
   blink::mojom::FetchAPIRequestPtr request_;
   std::string client_id_;
   scoped_refptr<ServiceWorkerVersion> version_;
-  const ResourceType resource_type_;
+  const blink::mojom::ResourceType resource_type_;
   base::OnceClosure prepare_callback_;
   FetchCallback fetch_callback_;
 

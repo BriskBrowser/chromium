@@ -15,8 +15,6 @@ import android.graphics.Color;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.Drawable;
 import android.os.Handler;
-import android.support.v4.view.MarginLayoutParamsCompat;
-import android.support.v7.widget.Toolbar.OnMenuItemClickListener;
 import android.text.InputFilter;
 import android.text.Spanned;
 import android.text.TextWatcher;
@@ -39,13 +37,15 @@ import android.widget.TextView;
 
 import androidx.annotation.Nullable;
 import androidx.annotation.VisibleForTesting;
+import androidx.appcompat.widget.Toolbar.OnMenuItemClickListener;
+import androidx.core.view.MarginLayoutParamsCompat;
 
 import org.chromium.base.ApiCompatibilityUtils;
 import org.chromium.chrome.R;
+import org.chromium.chrome.browser.autofill.settings.CreditCardNumberFormattingTextWatcher;
 import org.chromium.chrome.browser.help.HelpAndFeedback;
 import org.chromium.chrome.browser.profiles.Profile;
-import org.chromium.chrome.browser.settings.SettingsUtils;
-import org.chromium.chrome.browser.settings.autofill.CreditCardNumberFormattingTextWatcher;
+import org.chromium.components.browser_ui.settings.SettingsUtils;
 import org.chromium.components.browser_ui.widget.AlwaysDismissedDialog;
 import org.chromium.components.browser_ui.widget.FadingEdgeScrollView;
 import org.chromium.components.browser_ui.widget.TintedDrawable;
@@ -104,13 +104,15 @@ public class EditorDialog
     @Nullable
     private Runnable mDeleteRunnable;
     private boolean mIsDismissed;
+    private Profile mProfile;
     /**
      * Builds the editor dialog.
      *
      * @param activity        The activity on top of which the UI should be displayed.
      * @param deleteRunnable  The runnable that when called will delete the profile.
+     * @param profile         The current profile that creates EditorDialog.
      */
-    public EditorDialog(Activity activity, Runnable deleteRunnable) {
+    public EditorDialog(Activity activity, Runnable deleteRunnable, Profile profile) {
         super(activity, R.style.Theme_Chromium_Fullscreen);
         // Sets transparent background for animating content view.
         getWindow().setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
@@ -163,6 +165,7 @@ public class EditorDialog
 
         mCardNumberFormatter = new CreditCardNumberFormattingTextWatcher();
         mDeleteRunnable = deleteRunnable;
+        mProfile = profile;
     }
 
     /** Prevents screenshots of this editor. */
@@ -172,11 +175,10 @@ public class EditorDialog
         getWindow().setAttributes(attributes);
     }
 
-    /** Launches the Autofill help page on top of the current Context. */
-    public static void launchAutofillHelpPage(Context context) {
+    /** Launches the Autofill help page on top of the current Context and current Profile. */
+    public static void launchAutofillHelpPage(Context context, Profile profile) {
         HelpAndFeedback.getInstance().show((Activity) context,
-                context.getString(R.string.help_context_autofill), Profile.getLastUsedProfile(),
-                null);
+                context.getString(R.string.help_context_autofill), profile, null);
     }
 
     /**
@@ -187,9 +189,10 @@ public class EditorDialog
      */
     private void prepareToolbar() {
         EditorDialogToolbar toolbar = (EditorDialogToolbar) mLayout.findViewById(R.id.action_bar);
-        toolbar.setBackgroundColor(ApiCompatibilityUtils.getColor(
-                toolbar.getResources(), R.color.modern_primary_color));
-        toolbar.setTitleTextAppearance(toolbar.getContext(), R.style.TextAppearance_BlackHeadline);
+        toolbar.setBackgroundColor(
+                ApiCompatibilityUtils.getColor(toolbar.getResources(), R.color.default_bg_color));
+        toolbar.setTitleTextAppearance(
+                toolbar.getContext(), R.style.TextAppearance_Headline_Primary);
         toolbar.setTitle(mEditorModel.getTitle());
         toolbar.setShowDeleteMenuItem(mDeleteRunnable != null);
 
@@ -202,7 +205,7 @@ public class EditorDialog
                     mDeleteRunnable.run();
                     animateOutDialog();
                 } else if (item.getItemId() == R.id.help_menu_id) {
-                    launchAutofillHelpPage(mContext);
+                    launchAutofillHelpPage(mContext, mProfile);
                 }
                 return true;
             }

@@ -7,6 +7,7 @@
 
 #include <stdint.h>
 
+#include <map>
 #include <memory>
 #include <string>
 
@@ -22,6 +23,7 @@
 namespace ash {
 
 class AppListController;
+class AppListNotifier;
 
 // A client interface implemented in Chrome to handle calls from Ash.
 // These include:
@@ -99,23 +101,22 @@ class ASH_PUBLIC_EXPORT AppListClient {
   virtual void GetContextMenuModel(int profile_id,
                                    const std::string& id,
                                    GetContextMenuModelCallback callback) = 0;
-  // Invoked when a folder is created in Ash (e.g. merge items into a folder).
-  virtual void OnFolderCreated(int profile_id,
-                               std::unique_ptr<AppListItemMetadata> folder) = 0;
-  // Invoked when a folder has only one item left and so gets removed.
-  virtual void OnFolderDeleted(int profile_id,
-                               std::unique_ptr<AppListItemMetadata> folder) = 0;
+  // Invoked when an item is added in Ash.
+  virtual void OnItemAdded(int profile_id,
+                           std::unique_ptr<AppListItemMetadata> item) = 0;
   // Invoked when user changes a folder's name or an item's position.
   virtual void OnItemUpdated(int profile_id,
                              std::unique_ptr<AppListItemMetadata> folder) = 0;
-  // Invoked when a "page break" item is added with |id| and |position|.
-  virtual void OnPageBreakItemAdded(int profile_id,
-                                    const std::string& id,
-                                    const syncer::StringOrdinal& position) = 0;
+  // Invoked when a folder has only one item left and so gets removed.
+  virtual void OnFolderDeleted(int profile_id,
+                               std::unique_ptr<AppListItemMetadata> folder) = 0;
   // Invoked when a "page break" item with |id| is deleted.
   virtual void OnPageBreakItemDeleted(int profile_id,
                                       const std::string& id) = 0;
-
+  // Invoked when a "quick setting" is changed.
+  virtual void OnQuickSettingsChanged(
+      const std::string& setting_name,
+      const std::map<std::string, int>& values) = 0;
   // Updated when item with |id| is set to |visible|. Only sent if
   // |notify_visibility_change| was set on the SearchResultMetadata.
   virtual void OnSearchResultVisibilityChanged(const std::string& id,
@@ -128,10 +129,17 @@ class ASH_PUBLIC_EXPORT AppListClient {
       mojo::PendingReceiver<content::mojom::NavigableContentsFactory>
           receiver) = 0;
 
+  // TODO(crbug.com/1076270): This method exists for chrome-side logging of UI
+  // actions, and can be folded into the AppListNotifier once it is
+  // complete.
   virtual void NotifySearchResultsForLogging(
       const base::string16& trimmed_query,
       const SearchResultIdWithPositionIndices& results,
       int position_index) = 0;
+
+  // Returns the AppListNotifier instance owned by this client. Depending on the
+  // implementation, this can return nullptr.
+  virtual AppListNotifier* GetNotifier() = 0;
 
  protected:
   virtual ~AppListClient() = default;

@@ -11,135 +11,120 @@
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/logging.h"
+#include "base/mac/bundle_locations.h"
 #include "base/mac/foundation_util.h"
 #include "base/mac/scoped_nsobject.h"
 #include "base/path_service.h"
+#include "base/strings/strcat.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/task/thread_pool/thread_pool_instance.h"
 #include "base/threading/scoped_blocking_call.h"
 #include "build/build_config.h"
 #include "chrome/common/mac/launchd.h"
+#include "chrome/updater/constants.h"
 #include "chrome/updater/crash_client.h"
 #include "chrome/updater/crash_reporter.h"
-#include "chrome/updater/updater_constants.h"
+#import "chrome/updater/mac/xpc_service_names.h"
 #include "chrome/updater/updater_version.h"
 #include "chrome/updater/util.h"
 #include "components/crash/core/common/crash_key.h"
 
 namespace updater {
 
-namespace setup {
-
 namespace {
 
-constexpr base::FilePath::CharType kUpdaterFolder[] =
-    FILE_PATH_LITERAL("Google/GoogleUpdate/");
-
-void ThreadPoolStart() {
-  base::ThreadPoolInstance::CreateAndStartWithDefaultParams("UpdaterSetup");
+#pragma mark Helpers
+const base::FilePath GetUpdateFolderName() {
+  return base::FilePath(COMPANY_SHORTNAME_STRING)
+      .AppendASCII(PRODUCT_FULLNAME_STRING);
 }
 
-void ThreadPoolStop() {
-  base::ThreadPoolInstance::Get()->Shutdown();
+const base::FilePath GetUpdaterAppName() {
+  return base::FilePath(PRODUCT_FULLNAME_STRING ".app");
 }
 
-// The log file is created in DIR_LOCAL_APP_DATA or DIR_APP_DATA.
-void InitLogging(const base::CommandLine& command_line) {
-  logging::LoggingSettings settings;
-  base::FilePath log_dir;
-  updater::GetProductDirectory(&log_dir);
-  const auto log_file = log_dir.Append(FILE_PATH_LITERAL("updater_setup.log"));
-  settings.log_file_path = log_file.value().c_str();
-  settings.logging_dest = logging::LOG_TO_ALL;
-  logging::InitLogging(settings);
-  logging::SetLogItems(true,    // enable_process_id
-                       true,    // enable_thread_id
-                       true,    // enable_timestamp
-                       false);  // enable_tickcount
-  VLOG(1) << "Log file " << settings.log_file_path;
+const base::FilePath GetUpdaterAppExecutablePath() {
+  return base::FilePath("Contents/MacOS").AppendASCII(PRODUCT_FULLNAME_STRING);
 }
 
-void InitializeUpdaterSetupMain() {
-  crash_reporter::InitializeCrashKeys();
-
-  static crash_reporter::CrashKeyString<16> crash_key_process_type(
-      "process_type");
-  crash_key_process_type.Set("updater_setup");
-
-  if (updater::CrashClient::GetInstance()->InitializeCrashReporting())
-    VLOG(1) << "Crash reporting initialized.";
-  else
-    VLOG(1) << "Crash reporting is not available.";
-
-  updater::StartCrashReporter(UPDATER_VERSION_STRING);
-
-  ThreadPoolStart();
+bool IsSystemInstall() {
+  return geteuid() == 0;
 }
 
-void TerminateUpdaterSetupMain() {
-  ThreadPoolStop();
+const base::FilePath GetLibraryFolderPath() {
+  // For user installations: the "~/Library" for the logged in user.
+  // For system installations: "/Library".
+  if (IsSystemInstall()) {
+    base::FilePath local_library_path;
+    if (!base::mac::GetLocalDirectory(NSLibraryDirectory,
+                                      &local_library_path)) {
+      VLOG(1) << "Could not get local library path";
+    }
+    return local_library_path;
+  }
+  return base::mac::GetUserLibraryPath();
 }
 
-bool CopyBundle() {
-  // Copy bundle to "~/Library/Google/GoogleUpdate".
-  const base::FilePath dest_path =
-      base::mac::GetUserLibraryPath().Append(kUpdaterFolder);
+const base::FilePath GetUpdaterFolderPath() {
+  // For user installations:
+  // ~/Library/COMPANY_SHORTNAME_STRING/PRODUCT_FULLNAME_STRING.
+  // e.g. ~/Library/Google/GoogleUpdater
+  // For system installations:
+  // /Library/COMPANY_SHORTNAME_STRING/PRODUCT_FULLNAME_STRING.
+  // e.g. /Library/Google/GoogleUpdater
+  return GetLibraryFolderPath().Append(GetUpdateFolderName());
+}
 
-  base::FilePath this_executable_path;
-  base::PathService::Get(base::FILE_EXE, &this_executable_path);
-  const base::FilePath src_path = this_executable_path.DirName().Append(
-      FILE_PATH_LITERAL("GoogleUpdate.app"));
+const base::FilePath GetVersionedUpdaterFolderPath() {
+  return GetUpdaterFolderPath().AppendASCII(UPDATER_VERSION_STRING);
+}
 
-  if (!base::CopyDirectory(src_path, dest_path, true)) {
-    LOG(ERROR) << "Copying app to ~/Library failed";
+Launchd::Domain LaunchdDomain() {
+  return IsSystemInstall() ? Launchd::Domain::Local : Launchd::Domain::User;
+}
+
+Launchd::Type ServiceLaunchdType() {
+  return IsSystemInstall() ? Launchd::Type::Daemon : Launchd::Type::Agent;
+}
+
+Launchd::Type ClientLaunchdType() {
+  return Launchd::Type::Agent;
+}
+
+#pragma mark Setup
+bool CopyBundle(const base::FilePath& dest_path) {
+  if (!base::PathExists(dest_path)) {
+    base::File::Error error;
+    if (!base::CreateDirectoryAndGetError(dest_path, &error)) {
+      LOG(ERROR) << "Failed to create '" << dest_path.value().c_str()
+                 << "' directory: " << base::File::ErrorToString(error);
+      return false;
+    }
+  }
+
+  if (!base::CopyDirectory(base::mac::OuterBundlePath(), dest_path, true)) {
+    LOG(ERROR) << "Copying app to '" << dest_path.value().c_str() << "' failed";
     return false;
   }
   return true;
 }
 
-bool DeleteInstallFolder() {
-  // Delete the install folder - "~/Library/Google/GoogleUpdate".
-  const base::FilePath dest_path =
-      base::mac::GetUserLibraryPath().Append(kUpdaterFolder);
-
-  if (!base::DeleteFileRecursively(dest_path)) {
-    LOG(ERROR) << "Deleting " << dest_path << " failed";
-    return false;
-  }
-  return true;
+NSString* MakeProgramArgument(const char* argument) {
+  return base::SysUTF8ToNSString(base::StrCat({"--", argument}));
 }
 
-base::ScopedCFTypeRef<CFStringRef> CopyGoogleUpdateCheckLaunchDName() {
-  return base::ScopedCFTypeRef<CFStringRef>(CFStringCreateCopy(
-      kCFAllocatorDefault, CFSTR("com.google.GoogleUpdate.check")));
-}
-
-base::scoped_nsobject<NSString> GetGoogleUpdateCheckLaunchDLabel() {
-  base::scoped_nsobject<NSString> label(
-      base::mac::CFToNSCast(CopyGoogleUpdateCheckLaunchDName()));
-  return label;
-}
-
-base::scoped_nsobject<NSString> GetGoogleUpdateCheckMachName() {
-  base::scoped_nsobject<NSString> name(
-      base::mac::CFToNSCast(CopyGoogleUpdateCheckLaunchDName()));
-  return base::scoped_nsobject<NSString>(
-      [name stringByAppendingFormat:@".%lu",
-                                    [GetGoogleUpdateCheckLaunchDLabel() hash]],
-      base::scoped_policy::RETAIN);
-}
-
-base::ScopedCFTypeRef<CFDictionaryRef> CreateGoogleUpdateCheckLaunchdPlist(
-    base::FilePath* updater_path) {
+base::ScopedCFTypeRef<CFDictionaryRef> CreateServiceLaunchdPlist(
+    const base::FilePath& updater_path) {
   // See the man page for launchd.plist.
-  NSDictionary* launchd_plist = @{
-    @LAUNCH_JOBKEY_LABEL : GetGoogleUpdateCheckLaunchDLabel(),
-    @LAUNCH_JOBKEY_PROGRAM : base::SysUTF8ToNSString(updater_path->value()),
-    @LAUNCH_JOBKEY_PROGRAMARGUMENTS : @[ @"--ua" ],
-    @LAUNCH_JOBKEY_MACHSERVICES : GetGoogleUpdateCheckMachName(),
-    @LAUNCH_JOBKEY_RUNATLOAD : @YES,
-    @LAUNCH_JOBKEY_STARTINTERVAL : @18000,
-    @LAUNCH_JOBKEY_KEEPALIVE : @{@LAUNCH_JOBKEY_KEEPALIVE_SUCCESSFULEXIT : @NO},
+  NSDictionary<NSString*, id>* launchd_plist = @{
+    @LAUNCH_JOBKEY_LABEL : GetServiceLaunchdLabel(),
+    @LAUNCH_JOBKEY_PROGRAMARGUMENTS : @[
+      base::SysUTF8ToNSString(updater_path.value()),
+      MakeProgramArgument(kServerSwitch),
+      @"--vmodule=*/updater/*=2",
+    ],
+    @LAUNCH_JOBKEY_MACHSERVICES : @{GetServiceMachName() : @YES},
+    @LAUNCH_JOBKEY_ABANDONPROCESSGROUP : @NO,
     @LAUNCH_JOBKEY_LIMITLOADTOSESSIONTYPE : @"Aqua"
   };
 
@@ -148,86 +133,224 @@ base::ScopedCFTypeRef<CFDictionaryRef> CreateGoogleUpdateCheckLaunchdPlist(
       base::scoped_policy::RETAIN);
 }
 
-bool CreateLaunchdItems() {
+base::ScopedCFTypeRef<CFDictionaryRef> CreateWakeLaunchdPlist(
+    const base::FilePath& updater_path) {
+  // See the man page for launchd.plist.
+  NSMutableArray<NSString*>* program_arguments =
+      [NSMutableArray<NSString*> array];
+  [program_arguments addObjectsFromArray:@[
+    base::SysUTF8ToNSString(updater_path.value()),
+    MakeProgramArgument(kWakeSwitch)
+  ]];
+  if (IsSystemInstall())
+    [program_arguments addObject:MakeProgramArgument(kSystemSwitch)];
+
+  NSDictionary<NSString*, id>* launchd_plist = @{
+    @LAUNCH_JOBKEY_LABEL : GetWakeLaunchdLabel(),
+    @LAUNCH_JOBKEY_PROGRAMARGUMENTS : program_arguments,
+    @LAUNCH_JOBKEY_STARTINTERVAL : @3600,
+    @LAUNCH_JOBKEY_ABANDONPROCESSGROUP : @NO,
+    @LAUNCH_JOBKEY_LIMITLOADTOSESSIONTYPE : @"Aqua"
+  };
+
+  return base::ScopedCFTypeRef<CFDictionaryRef>(
+      base::mac::CFCast<CFDictionaryRef>(launchd_plist),
+      base::scoped_policy::RETAIN);
+}
+
+base::ScopedCFTypeRef<CFDictionaryRef> CreateControlLaunchdPlist(
+    const base::FilePath& updater_path) {
+  // See the man page for launchd.plist.
+  NSDictionary<NSString*, id>* launchd_plist = @{
+    @LAUNCH_JOBKEY_LABEL : GetControlLaunchdLabel(),
+    @LAUNCH_JOBKEY_PROGRAMARGUMENTS : @[
+      base::SysUTF8ToNSString(updater_path.value()),
+      MakeProgramArgument(kServerSwitch),
+      @"--vmodule=*/updater/*=2",
+    ],
+    @LAUNCH_JOBKEY_MACHSERVICES : @{GetVersionedServiceMachName() : @YES},
+    @LAUNCH_JOBKEY_ABANDONPROCESSGROUP : @NO,
+    @LAUNCH_JOBKEY_LIMITLOADTOSESSIONTYPE : @"Aqua"
+  };
+
+  return base::ScopedCFTypeRef<CFDictionaryRef>(
+      base::mac::CFCast<CFDictionaryRef>(launchd_plist),
+      base::scoped_policy::RETAIN);
+}
+
+bool CreateUpdateServiceLaunchdJobPlist(const base::FilePath& updater_path) {
   // We're creating directories and writing a file.
   base::ScopedBlockingCall scoped_blocking_call(FROM_HERE,
                                                 base::BlockingType::MAY_BLOCK);
-  base::ScopedCFTypeRef<CFStringRef> name(CopyGoogleUpdateCheckLaunchDName());
-
-  base::FilePath updater_path =
-      base::mac::GetUserLibraryPath()
-          .Append(kUpdaterFolder)
-          .Append(FILE_PATH_LITERAL("GoogleUpdate.app"))
-          .Append(FILE_PATH_LITERAL("Contents/MacOS/GoogleUpdate"));
 
   base::ScopedCFTypeRef<CFDictionaryRef> plist(
-      CreateGoogleUpdateCheckLaunchdPlist(&updater_path));
-  return Launchd::GetInstance()->WritePlistToFile(Launchd::User, Launchd::Agent,
-                                                  name, plist);
+      CreateServiceLaunchdPlist(updater_path));
+  return Launchd::GetInstance()->WritePlistToFile(
+      LaunchdDomain(), ServiceLaunchdType(), CopyServiceLaunchdName(), plist);
 }
 
-bool RemoveFromLaunchd() {
+bool CreateWakeLaunchdJobPlist(const base::FilePath& updater_path) {
+  // We're creating directories and writing a file.
+  base::ScopedBlockingCall scoped_blocking_call(FROM_HERE,
+                                                base::BlockingType::MAY_BLOCK);
+  base::ScopedCFTypeRef<CFDictionaryRef> plist(
+      CreateWakeLaunchdPlist(updater_path));
+  return Launchd::GetInstance()->WritePlistToFile(
+      LaunchdDomain(), ServiceLaunchdType(), CopyWakeLaunchdName(), plist);
+}
+
+bool CreateControlLaunchdJobPlist(const base::FilePath& updater_path) {
+  // We're creating directories and writing a file.
+  base::ScopedBlockingCall scoped_blocking_call(FROM_HERE,
+                                                base::BlockingType::MAY_BLOCK);
+  base::ScopedCFTypeRef<CFDictionaryRef> plist(
+      CreateControlLaunchdPlist(updater_path));
+  return Launchd::GetInstance()->WritePlistToFile(
+      LaunchdDomain(), ServiceLaunchdType(), CopyControlLaunchdName(), plist);
+}
+
+bool StartUpdateServiceVersionedLaunchdJob(
+    const base::ScopedCFTypeRef<CFStringRef> name) {
+  return Launchd::GetInstance()->RestartJob(
+      LaunchdDomain(), ServiceLaunchdType(), name, CFSTR("Aqua"));
+}
+
+bool StartUpdateWakeVersionedLaunchdJob() {
+  return Launchd::GetInstance()->RestartJob(
+      LaunchdDomain(), ServiceLaunchdType(), CopyWakeLaunchdName(),
+      CFSTR("Aqua"));
+}
+
+bool StartUpdateControlVersionedLaunchdJob() {
+  return Launchd::GetInstance()->RestartJob(
+      LaunchdDomain(), ServiceLaunchdType(), CopyControlLaunchdName(),
+      CFSTR("Aqua"));
+}
+
+bool StartLaunchdServiceJob() {
+  return StartUpdateServiceVersionedLaunchdJob(CopyServiceLaunchdName());
+}
+
+bool RemoveJobFromLaunchd(Launchd::Domain domain,
+                          Launchd::Type type,
+                          base::ScopedCFTypeRef<CFStringRef> name) {
   // This may block while deleting the launchd plist file.
   base::ScopedBlockingCall scoped_blocking_call(FROM_HERE,
                                                 base::BlockingType::MAY_BLOCK);
-  base::ScopedCFTypeRef<CFStringRef> name(CopyGoogleUpdateCheckLaunchDName());
-  return Launchd::GetInstance()->DeletePlist(Launchd::User, Launchd::Agent,
-                                             name);
+  Launchd::GetInstance()->RemoveJob(base::SysCFStringRefToUTF8(name));
+  return Launchd::GetInstance()->DeletePlist(domain, type, name);
 }
 
-int SetupUpdater() {
-  if (!CopyBundle())
-    return -1;
+bool RemoveClientJobFromLaunchd(base::ScopedCFTypeRef<CFStringRef> name) {
+  return RemoveJobFromLaunchd(LaunchdDomain(), ClientLaunchdType(), name);
+}
 
-  if (!CreateLaunchdItems())
-    return -2;
+bool RemoveServiceJobFromLaunchd(base::ScopedCFTypeRef<CFStringRef> name) {
+  return RemoveJobFromLaunchd(LaunchdDomain(), ServiceLaunchdType(), name);
+}
 
-  return 0;
+bool RemoveUpdateServiceJobFromLaunchd(
+    base::ScopedCFTypeRef<CFStringRef> name) {
+  return RemoveServiceJobFromLaunchd(name);
+}
+
+bool RemoveUpdateServiceJobFromLaunchd() {
+  return RemoveUpdateServiceJobFromLaunchd(CopyServiceLaunchdName());
+}
+
+bool RemoveUpdateWakeJobFromLaunchd() {
+  return RemoveClientJobFromLaunchd(CopyWakeLaunchdName());
+}
+
+bool RemoveUpdateControlJobFromLaunchd() {
+  return RemoveClientJobFromLaunchd(CopyControlLaunchdName());
+}
+
+bool DeleteInstallFolder(const base::FilePath& installed_path) {
+  if (!base::DeletePathRecursively(installed_path)) {
+    LOG(ERROR) << "Deleting " << installed_path << " failed";
+    return false;
+  }
+  return true;
+}
+
+bool DeleteInstallFolder() {
+  return DeleteInstallFolder(GetUpdaterFolderPath());
+}
+
+bool DeleteDataFolder() {
+  base::FilePath data_path;
+  if (!GetBaseDirectory(&data_path))
+    return false;
+  return DeleteInstallFolder(data_path);
 }
 
 }  // namespace
 
-int HandleUpdaterSetupCommands(const base::CommandLine* command_line) {
-  DCHECK(!command_line->HasSwitch(updater::kCrashHandlerSwitch));
+int InstallCandidate() {
+  const base::FilePath dest_path = GetVersionedUpdaterFolderPath();
 
-  if (command_line->HasSwitch(updater::kCrashMeSwitch)) {
-    LOG(FATAL) << "Crashing deliberately.";
-    return -3;
-  }
+  if (!CopyBundle(dest_path))
+    return setup_exit_codes::kFailedToCopyBundle;
 
-  return SetupUpdater();
+  const base::FilePath updater_executable_path =
+      dest_path.Append(GetUpdaterAppName())
+          .Append(GetUpdaterAppExecutablePath());
+
+  if (!CreateWakeLaunchdJobPlist(updater_executable_path))
+    return setup_exit_codes::kFailedToCreateWakeLaunchdJobPlist;
+
+  if (!CreateControlLaunchdJobPlist(updater_executable_path))
+    return setup_exit_codes::kFailedToCreateControlLaunchdJobPlist;
+
+  if (!StartUpdateControlVersionedLaunchdJob())
+    return setup_exit_codes::kFailedToStartLaunchdControlJob;
+
+  if (!StartUpdateWakeVersionedLaunchdJob())
+    return setup_exit_codes::kFailedToStartLaunchdWakeJob;
+
+  return setup_exit_codes::kSuccess;
 }
 
-int UpdaterSetupMain(int argc, const char* const* argv) {
-  base::PlatformThread::SetName("UpdaterSetupMain");
-  base::AtExitManager exit_manager;
-
-  base::CommandLine::Init(argc, argv);
-  const auto* command_line = base::CommandLine::ForCurrentProcess();
-  if (command_line->HasSwitch(updater::kTestSwitch))
-    return 0;
-
-  InitLogging(*command_line);
-
-  if (command_line->HasSwitch(updater::kCrashHandlerSwitch))
-    return updater::CrashReporterMain();
-
-  InitializeUpdaterSetupMain();
-  const auto result = HandleUpdaterSetupCommands(command_line);
-  TerminateUpdaterSetupMain();
-  return result;
+int UninstallCandidate() {
+  RemoveUpdateControlJobFromLaunchd();
+  RemoveUpdateWakeJobFromLaunchd();
+  DeleteInstallFolder(GetVersionedUpdaterFolderPath());
+  return setup_exit_codes::kSuccess;
 }
 
-}  // namespace setup
+int PromoteCandidate() {
+  const base::FilePath dest_path = GetVersionedUpdaterFolderPath();
+  const base::FilePath updater_executable_path =
+      dest_path.Append(GetUpdaterAppName())
+          .Append(GetUpdaterAppExecutablePath());
 
-int Uninstall() {
-  if (!setup::RemoveFromLaunchd())
-    return -1;
+  if (!CreateUpdateServiceLaunchdJobPlist(updater_executable_path))
+    return setup_exit_codes::kFailedToCreateUpdateServiceLaunchdJobPlist;
 
-  if (!setup::DeleteInstallFolder())
-    return -2;
+  if (!StartLaunchdServiceJob())
+    return setup_exit_codes::kFailedToStartLaunchdActiveServiceJob;
 
-  return 0;
+  return setup_exit_codes::kSuccess;
+}
+
+#pragma mark Uninstall
+int Uninstall(bool is_machine) {
+  ALLOW_UNUSED_LOCAL(is_machine);
+  const int exit = UninstallCandidate();
+  if (exit != setup_exit_codes::kSuccess)
+    return exit;
+
+  if (!RemoveUpdateServiceJobFromLaunchd())
+    return setup_exit_codes::kFailedToRemoveActiveUpdateServiceJobFromLaunchd;
+
+  if (!DeleteDataFolder())
+    return setup_exit_codes::kFailedToDeleteDataFolder;
+
+  if (!DeleteInstallFolder())
+    return setup_exit_codes::kFailedToDeleteFolder;
+
+  return setup_exit_codes::kSuccess;
 }
 
 }  // namespace updater

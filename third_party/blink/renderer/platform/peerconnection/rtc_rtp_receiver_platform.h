@@ -18,8 +18,10 @@
 
 namespace blink {
 
+class RTCEncodedAudioStreamTransformer;
+class RTCEncodedVideoStreamTransformer;
 class RTCRtpSource;
-class WebMediaStreamTrack;
+class MediaStreamComponent;
 
 // Implementations of this interface keep the corresponding WebRTC-layer
 // receiver alive through reference counting. Multiple |RTCRtpReceiverPlatform|s
@@ -38,7 +40,7 @@ class PLATFORM_EXPORT RTCRtpReceiverPlatform {
   // Note: For convenience, DtlsTransportInformation always returns a value.
   // The information is only interesting if DtlsTransport() is non-null.
   virtual webrtc::DtlsTransportInformation DtlsTransportInformation() = 0;
-  virtual const WebMediaStreamTrack& Track() const = 0;
+  virtual MediaStreamComponent* Track() const = 0;
   virtual Vector<String> StreamIds() const = 0;
   virtual Vector<std::unique_ptr<RTCRtpSource>> GetSources() = 0;
   virtual void GetStats(RTCStatsReportCallback,
@@ -46,6 +48,14 @@ class PLATFORM_EXPORT RTCRtpReceiverPlatform {
   virtual std::unique_ptr<webrtc::RtpParameters> GetParameters() const = 0;
   virtual void SetJitterBufferMinimumDelay(
       base::Optional<double> delay_seconds) = 0;
+  virtual RTCEncodedAudioStreamTransformer* GetEncodedAudioStreamTransformer()
+      const {
+    return nullptr;
+  }
+  virtual RTCEncodedVideoStreamTransformer* GetEncodedVideoStreamTransformer()
+      const {
+    return nullptr;
+  }
 };
 
 }  // namespace blink

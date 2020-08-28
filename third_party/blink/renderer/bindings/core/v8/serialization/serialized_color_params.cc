@@ -4,6 +4,8 @@
 
 #include "third_party/blink/renderer/bindings/core/v8/serialization/serialized_color_params.h"
 
+#include "build/build_config.h"
+
 namespace blink {
 
 SerializedColorParams::SerializedColorParams()
@@ -16,9 +18,6 @@ SerializedColorParams::SerializedColorParams(CanvasColorParams color_params) {
   switch (color_params.ColorSpace()) {
     case CanvasColorSpace::kSRGB:
       color_space_ = SerializedColorSpace::kSRGB;
-      break;
-    case CanvasColorSpace::kLinearRGB:
-      color_space_ = SerializedColorSpace::kLinearRGB;
       break;
     case CanvasColorSpace::kRec2020:
       color_space_ = SerializedColorSpace::kRec2020;
@@ -81,9 +80,6 @@ CanvasColorParams SerializedColorParams::GetCanvasColorParams() const {
     case SerializedColorSpace::kSRGB:
       color_space = CanvasColorSpace::kSRGB;
       break;
-    case SerializedColorSpace::kLinearRGB:
-      color_space = CanvasColorSpace::kLinearRGB;
-      break;
     case SerializedColorSpace::kRec2020:
       color_space = CanvasColorSpace::kRec2020;
       break;
@@ -95,7 +91,11 @@ CanvasColorParams SerializedColorParams::GetCanvasColorParams() const {
   CanvasPixelFormat pixel_format = CanvasPixelFormat::kRGBA8;
   switch (pixel_format_) {
     case SerializedPixelFormat::kNative8_LegacyObsolete:
-      pixel_format = CanvasColorParams::GetNativeCanvasPixelFormat();
+#if defined(OS_ANDROID)
+      pixel_format = CanvasPixelFormat::kRGBA8;
+#else
+      pixel_format = CanvasPixelFormat::kBGRA8;
+#endif
       break;
     case SerializedPixelFormat::kRGBA8:
       pixel_format = CanvasPixelFormat::kRGBA8;

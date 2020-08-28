@@ -48,7 +48,7 @@ class ContentIndexProviderImpl
                         const std::string& description_id) override;
 
   // OfflineContentProvider implementation.
-  void OpenItem(offline_items_collection::LaunchLocation location,
+  void OpenItem(const offline_items_collection::OpenParams& open_params,
                 const offline_items_collection::ContentId& id) override;
   void RemoveItem(const offline_items_collection::ContentId& id) override;
   void CancelDownload(const offline_items_collection::ContentId& id) override;
@@ -66,6 +66,10 @@ class ContentIndexProviderImpl
   void RenameItem(const offline_items_collection::ContentId& id,
                   const std::string& name,
                   RenameCallback callback) override;
+  void ChangeSchedule(
+      const offline_items_collection::ContentId& id,
+      base::Optional<offline_items_collection::OfflineItemSchedule> schedule)
+      override;
   void AddObserver(Observer* observer) override;
   void RemoveObserver(Observer* observer) override;
 

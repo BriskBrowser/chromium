@@ -37,6 +37,12 @@ enum LoadingBehaviorFlag {
   kLoadingBehaviorSubresourceFilterMatch = 1 << 6,
   // Indicates that the page is an AMP document, with <html amp> tag.
   kLoadingBehaviorAmpDocumentLoaded = 1 << 7,
+  // Indicates that the page uses the Next.js JavaScript framework (via a
+  // window variable)
+  kLoadingBehaviorNextJSFrameworkUsed = 1 << 8,
+  // Indicates that an async script was ready to execute before the script
+  // element's node document has finished parsing.
+  kLoadingBehaviorAsyncScriptReadyBeforeDocumentFinishedParsing = 1 << 9,
 };
 
 }  // namespace blink

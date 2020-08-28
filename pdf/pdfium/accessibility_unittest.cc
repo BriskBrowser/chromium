@@ -10,6 +10,7 @@
 #include "pdf/test/test_utils.h"
 #include "ppapi/c/private/ppp_pdf.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "ui/gfx/geometry/vector2d.h"
 
 namespace chrome_pdf {
 
@@ -148,14 +149,14 @@ TEST_F(AccessibilityTest, GetUnderlyingTextRangeForRect) {
   std::unique_ptr<PDFiumEngine> engine =
       InitializeEngine(&client, FILE_PATH_LITERAL("hello_world2.pdf"));
   ASSERT_TRUE(engine);
+  ASSERT_EQ(2, engine->GetNumberOfPages());
 
-  PDFiumPage* page = GetPDFiumPageForTest(engine.get(), 0);
-  ASSERT_TRUE(page);
+  PDFiumPage& page = GetPDFiumPageForTest(*engine, 0);
 
   // The test rect spans across [0, 4] char indices.
   int start_index = -1;
   int char_count = 0;
-  EXPECT_TRUE(page->GetUnderlyingTextRangeForRect(
+  EXPECT_TRUE(page.GetUnderlyingTextRangeForRect(
       pp::FloatRect(20.0f, 50.0f, 26.0f, 8.0f), &start_index, &char_count));
   EXPECT_EQ(start_index, 0);
   EXPECT_EQ(char_count, 5);
@@ -165,7 +166,7 @@ TEST_F(AccessibilityTest, GetUnderlyingTextRangeForRect) {
   // of first line.
   start_index = -1;
   char_count = 0;
-  EXPECT_TRUE(page->GetUnderlyingTextRangeForRect(
+  EXPECT_TRUE(page.GetUnderlyingTextRangeForRect(
       pp::FloatRect(20.0f, 0.0f, 26.0f, 58.0f), &start_index, &char_count));
   EXPECT_EQ(start_index, 0);
   EXPECT_EQ(char_count, 5);
@@ -174,7 +175,7 @@ TEST_F(AccessibilityTest, GetUnderlyingTextRangeForRect) {
   // will return false and not change the dummy values set here.
   start_index = -9;
   char_count = -10;
-  EXPECT_FALSE(page->GetUnderlyingTextRangeForRect(
+  EXPECT_FALSE(page.GetUnderlyingTextRangeForRect(
       pp::FloatRect(10.0f, 10.0f, 0.0f, 0.0f), &start_index, &char_count));
   EXPECT_EQ(start_index, -9);
   EXPECT_EQ(char_count, -10);
@@ -187,14 +188,19 @@ class ScrollEnabledTestClient : public TestClient {
   ScrollEnabledTestClient() = default;
   ~ScrollEnabledTestClient() override = default;
 
-  // Records the point received in a ScrollBy action request from tests.
-  void ScrollBy(const pp::Point& point) override { received_point_ = point; }
+  // Records the scroll delta received in a ScrollBy action request from tests.
+  void ScrollBy(const gfx::Vector2d& scroll_delta) override {
+    received_scroll_delta_ = scroll_delta;
+  }
 
-  // Returns the point received in a ScrollBy action for validation in tests.
-  const pp::Point& GetScrollRequestPoints() const { return received_point_; }
+  // Returns the scroll delta received in a ScrollBy action for validation in
+  // tests.
+  const gfx::Vector2d& GetScrollRequestDelta() const {
+    return received_scroll_delta_;
+  }
 
  private:
-  pp::Point received_point_;
+  gfx::Vector2d received_scroll_delta_;
 };
 
 TEST_F(AccessibilityTest, TestScrollIntoViewActionHandling) {
@@ -215,42 +221,42 @@ TEST_F(AccessibilityTest, TestScrollIntoViewActionHandling) {
   action_data.vertical_scroll_alignment =
       PP_PdfAccessibilityScrollAlignment::PP_PDF_SCROLL_NONE;
   engine->HandleAccessibilityAction(action_data);
-  ComparePoint({0, 0}, client.GetScrollRequestPoints());
+  EXPECT_EQ(gfx::Vector2d(0, 0), client.GetScrollRequestDelta());
 
   action_data.horizontal_scroll_alignment =
       PP_PdfAccessibilityScrollAlignment::PP_PDF_SCROLL_ALIGNMENT_LEFT;
   action_data.vertical_scroll_alignment =
       PP_PdfAccessibilityScrollAlignment::PP_PDF_SCROLL_ALIGNMENT_TOP;
   engine->HandleAccessibilityAction(action_data);
-  ComparePoint({120, 0}, client.GetScrollRequestPoints());
+  EXPECT_EQ(gfx::Vector2d(120, 0), client.GetScrollRequestDelta());
 
   action_data.horizontal_scroll_alignment =
       PP_PdfAccessibilityScrollAlignment::PP_PDF_SCROLL_ALIGNMENT_LEFT;
   action_data.vertical_scroll_alignment =
       PP_PdfAccessibilityScrollAlignment::PP_PDF_SCROLL_ALIGNMENT_BOTTOM;
   engine->HandleAccessibilityAction(action_data);
-  ComparePoint({120, -400}, client.GetScrollRequestPoints());
+  EXPECT_EQ(gfx::Vector2d(120, -400), client.GetScrollRequestDelta());
 
   action_data.horizontal_scroll_alignment =
       PP_PdfAccessibilityScrollAlignment::PP_PDF_SCROLL_ALIGNMENT_RIGHT;
   action_data.vertical_scroll_alignment =
       PP_PdfAccessibilityScrollAlignment::PP_PDF_SCROLL_ALIGNMENT_TOP;
   engine->HandleAccessibilityAction(action_data);
-  ComparePoint({-280, 0}, client.GetScrollRequestPoints());
+  EXPECT_EQ(gfx::Vector2d(-280, 0), client.GetScrollRequestDelta());
 
   action_data.horizontal_scroll_alignment =
       PP_PdfAccessibilityScrollAlignment::PP_PDF_SCROLL_ALIGNMENT_RIGHT;
   action_data.vertical_scroll_alignment =
       PP_PdfAccessibilityScrollAlignment::PP_PDF_SCROLL_ALIGNMENT_BOTTOM;
   engine->HandleAccessibilityAction(action_data);
-  ComparePoint({-280, -400}, client.GetScrollRequestPoints());
+  EXPECT_EQ(gfx::Vector2d(-280, -400), client.GetScrollRequestDelta());
 
   action_data.horizontal_scroll_alignment =
       PP_PdfAccessibilityScrollAlignment::PP_PDF_SCROLL_ALIGNMENT_CENTER;
   action_data.vertical_scroll_alignment =
       PP_PdfAccessibilityScrollAlignment::PP_PDF_SCROLL_ALIGNMENT_CENTER;
   engine->HandleAccessibilityAction(action_data);
-  ComparePoint({-80, -200}, client.GetScrollRequestPoints());
+  EXPECT_EQ(gfx::Vector2d(-80, -200), client.GetScrollRequestDelta());
 
   // Simulate a 150% zoom update in the PDFiumEngine.
   engine->PluginSizeUpdated({600, 600});
@@ -260,42 +266,42 @@ TEST_F(AccessibilityTest, TestScrollIntoViewActionHandling) {
   action_data.vertical_scroll_alignment =
       PP_PdfAccessibilityScrollAlignment::PP_PDF_SCROLL_NONE;
   engine->HandleAccessibilityAction(action_data);
-  ComparePoint({0, 0}, client.GetScrollRequestPoints());
+  EXPECT_EQ(gfx::Vector2d(0, 0), client.GetScrollRequestDelta());
 
   action_data.horizontal_scroll_alignment =
       PP_PdfAccessibilityScrollAlignment::PP_PDF_SCROLL_ALIGNMENT_LEFT;
   action_data.vertical_scroll_alignment =
       PP_PdfAccessibilityScrollAlignment::PP_PDF_SCROLL_ALIGNMENT_TOP;
   engine->HandleAccessibilityAction(action_data);
-  ComparePoint({120, 0}, client.GetScrollRequestPoints());
+  EXPECT_EQ(gfx::Vector2d(120, 0), client.GetScrollRequestDelta());
 
   action_data.horizontal_scroll_alignment =
       PP_PdfAccessibilityScrollAlignment::PP_PDF_SCROLL_ALIGNMENT_LEFT;
   action_data.vertical_scroll_alignment =
       PP_PdfAccessibilityScrollAlignment::PP_PDF_SCROLL_ALIGNMENT_BOTTOM;
   engine->HandleAccessibilityAction(action_data);
-  ComparePoint({120, -600}, client.GetScrollRequestPoints());
+  EXPECT_EQ(gfx::Vector2d(120, -600), client.GetScrollRequestDelta());
 
   action_data.horizontal_scroll_alignment =
       PP_PdfAccessibilityScrollAlignment::PP_PDF_SCROLL_ALIGNMENT_RIGHT;
   action_data.vertical_scroll_alignment =
       PP_PdfAccessibilityScrollAlignment::PP_PDF_SCROLL_ALIGNMENT_TOP;
   engine->HandleAccessibilityAction(action_data);
-  ComparePoint({-480, 0}, client.GetScrollRequestPoints());
+  EXPECT_EQ(gfx::Vector2d(-480, 0), client.GetScrollRequestDelta());
 
   action_data.horizontal_scroll_alignment =
       PP_PdfAccessibilityScrollAlignment::PP_PDF_SCROLL_ALIGNMENT_RIGHT;
   action_data.vertical_scroll_alignment =
       PP_PdfAccessibilityScrollAlignment::PP_PDF_SCROLL_ALIGNMENT_BOTTOM;
   engine->HandleAccessibilityAction(action_data);
-  ComparePoint({-480, -600}, client.GetScrollRequestPoints());
+  EXPECT_EQ(gfx::Vector2d(-480, -600), client.GetScrollRequestDelta());
 
   action_data.horizontal_scroll_alignment =
       PP_PdfAccessibilityScrollAlignment::PP_PDF_SCROLL_ALIGNMENT_CENTER;
   action_data.vertical_scroll_alignment =
       PP_PdfAccessibilityScrollAlignment::PP_PDF_SCROLL_ALIGNMENT_CENTER;
   engine->HandleAccessibilityAction(action_data);
-  ComparePoint({-180, -300}, client.GetScrollRequestPoints());
+  EXPECT_EQ(gfx::Vector2d(-180, -300), client.GetScrollRequestDelta());
 }
 
 TEST_F(AccessibilityTest, TestScrollToNearestEdge) {
@@ -314,27 +320,27 @@ TEST_F(AccessibilityTest, TestScrollToNearestEdge) {
   // Point which is in the middle of the viewport.
   action_data.target_rect = {{200, 200}, {10, 10}};
   engine->HandleAccessibilityAction(action_data);
-  ComparePoint({200, 200}, client.GetScrollRequestPoints());
+  EXPECT_EQ(gfx::Vector2d(200, 200), client.GetScrollRequestDelta());
 
   // Point which is near the top left of the viewport.
   action_data.target_rect = {{199, 199}, {10, 10}};
   engine->HandleAccessibilityAction(action_data);
-  ComparePoint({199, 199}, client.GetScrollRequestPoints());
+  EXPECT_EQ(gfx::Vector2d(199, 199), client.GetScrollRequestDelta());
 
   // Point which is near the top right of the viewport
   action_data.target_rect = {{201, 199}, {10, 10}};
   engine->HandleAccessibilityAction(action_data);
-  ComparePoint({-199, 199}, client.GetScrollRequestPoints());
+  EXPECT_EQ(gfx::Vector2d(-199, 199), client.GetScrollRequestDelta());
 
   // Point which is near the bottom left of the viewport.
   action_data.target_rect = {{199, 201}, {10, 10}};
   engine->HandleAccessibilityAction(action_data);
-  ComparePoint({199, -199}, client.GetScrollRequestPoints());
+  EXPECT_EQ(gfx::Vector2d(199, -199), client.GetScrollRequestDelta());
 
   // Point which is near the bottom right of the viewport
   action_data.target_rect = {{201, 201}, {10, 10}};
   engine->HandleAccessibilityAction(action_data);
-  ComparePoint({-199, -199}, client.GetScrollRequestPoints());
+  EXPECT_EQ(gfx::Vector2d(-199, -199), client.GetScrollRequestDelta());
 }
 
 TEST_F(AccessibilityTest, TestScrollToGlobalPoint) {
@@ -350,13 +356,13 @@ TEST_F(AccessibilityTest, TestScrollToGlobalPoint) {
   action_data.target_rect = {{201, 201}, {10, 10}};
   action_data.target_point = {230, 230};
   engine->HandleAccessibilityAction(action_data);
-  ComparePoint({-29, -29}, client.GetScrollRequestPoints());
+  EXPECT_EQ(gfx::Vector2d(-29, -29), client.GetScrollRequestDelta());
 
   // Scroll down if global point is above the target rect
   action_data.target_rect = {{230, 230}, {10, 10}};
   action_data.target_point = {201, 201};
   engine->HandleAccessibilityAction(action_data);
-  ComparePoint({29, 29}, client.GetScrollRequestPoints());
+  EXPECT_EQ(gfx::Vector2d(29, 29), client.GetScrollRequestDelta());
 }
 
 // This class is required to just override the NavigateTo
@@ -480,10 +486,14 @@ TEST_F(AccessibilityTest, GetAccessibilityLinkInfo) {
 }
 
 TEST_F(AccessibilityTest, GetAccessibilityHighlightInfo) {
+  constexpr uint32_t kHighlightDefaultColor = MakeARGB(255, 255, 255, 0);
+  constexpr uint32_t kHighlightRedColor = MakeARGB(102, 230, 0, 0);
+  constexpr uint32_t kHighlightNoColor = MakeARGB(0, 0, 0, 0);
   static const pp::PDF::PrivateAccessibilityHighlightInfo
-      kExpectedHighlightInfo[] = {{"", 0, 0, 1, {{5, 196}, {49, 26}}},
-                                  {"", 1, 2, 1, {{110, 196}, {77, 26}}},
-                                  {"", 2, 3, 1, {{192, 196}, {13, 26}}}};
+      kExpectedHighlightInfo[] = {
+          {"Text Note", 0, 0, 1, {{5, 196}, {49, 26}}, kHighlightDefaultColor},
+          {"", 1, 2, 1, {{110, 196}, {77, 26}}, kHighlightRedColor},
+          {"", 2, 3, 1, {{192, 196}, {13, 26}}, kHighlightNoColor}};
 
   static const pp::Rect kExpectedPageRect = {{5, 3}, {533, 266}};
 
@@ -515,6 +525,70 @@ TEST_F(AccessibilityTest, GetAccessibilityHighlightInfo) {
               kExpectedHighlightInfo[i].text_run_index);
     EXPECT_EQ(highlight_info.text_run_count,
               kExpectedHighlightInfo[i].text_run_count);
+    EXPECT_EQ(highlight_info.color, kExpectedHighlightInfo[i].color);
+    EXPECT_EQ(highlight_info.note_text, kExpectedHighlightInfo[i].note_text);
+  }
+}
+
+TEST_F(AccessibilityTest, GetAccessibilityTextFieldInfo) {
+  static const pp::PDF::PrivateAccessibilityTextFieldInfo
+      kExpectedTextFieldInfo[] = {
+          {"Text Box", "Text", false, false, false, 0, 5, {138, 230, 135, 41}},
+          {"ReadOnly",
+           "Elephant",
+           true,
+           false,
+           false,
+           1,
+           5,
+           {138, 163, 135, 41}},
+          {"Required",
+           "Required Field",
+           false,
+           true,
+           false,
+           2,
+           5,
+           {138, 303, 135, 34}},
+          {"Password", "", false, false, true, 3, 5, {138, 356, 135, 35}}};
+
+  static const pp::Rect kExpectedPageRect = {{5, 3}, {400, 400}};
+
+  TestClient client;
+  std::unique_ptr<PDFiumEngine> engine =
+      InitializeEngine(&client, FILE_PATH_LITERAL("form_text_fields.pdf"));
+  ASSERT_TRUE(engine);
+  ASSERT_EQ(1, engine->GetNumberOfPages());
+
+  PP_PrivateAccessibilityPageInfo page_info;
+  std::vector<pp::PDF::PrivateAccessibilityTextRunInfo> text_runs;
+  std::vector<PP_PrivateAccessibilityCharInfo> chars;
+  pp::PDF::PrivateAccessibilityPageObjects page_objects;
+  ASSERT_TRUE(GetAccessibilityInfo(engine.get(), 0, &page_info, &text_runs,
+                                   &chars, &page_objects));
+  EXPECT_EQ(0u, page_info.page_index);
+  CompareRect(kExpectedPageRect, page_info.bounds);
+  EXPECT_EQ(text_runs.size(), page_info.text_run_count);
+  EXPECT_EQ(chars.size(), page_info.char_count);
+  ASSERT_EQ(page_objects.form_fields.text_fields.size(),
+            base::size(kExpectedTextFieldInfo));
+
+  for (size_t i = 0; i < page_objects.form_fields.text_fields.size(); ++i) {
+    const pp::PDF::PrivateAccessibilityTextFieldInfo& text_field_info =
+        page_objects.form_fields.text_fields[i];
+    EXPECT_EQ(kExpectedTextFieldInfo[i].name, text_field_info.name);
+    EXPECT_EQ(kExpectedTextFieldInfo[i].value, text_field_info.value);
+    EXPECT_EQ(kExpectedTextFieldInfo[i].is_read_only,
+              text_field_info.is_read_only);
+    EXPECT_EQ(kExpectedTextFieldInfo[i].is_required,
+              text_field_info.is_required);
+    EXPECT_EQ(kExpectedTextFieldInfo[i].is_password,
+              text_field_info.is_password);
+    EXPECT_EQ(kExpectedTextFieldInfo[i].index_in_page,
+              text_field_info.index_in_page);
+    EXPECT_EQ(kExpectedTextFieldInfo[i].text_run_index,
+              text_field_info.text_run_index);
+    CompareRect(kExpectedTextFieldInfo[i].bounds, text_field_info.bounds);
   }
 }
 

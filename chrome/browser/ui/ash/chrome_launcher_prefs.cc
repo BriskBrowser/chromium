@@ -23,7 +23,7 @@
 #include "chrome/browser/ui/ash/launcher/chrome_launcher_controller_util.h"
 #include "chrome/browser/ui/ash/launcher/launcher_controller_helper.h"
 #include "chrome/browser/web_applications/components/app_registrar.h"
-#include "chrome/browser/web_applications/components/web_app_helpers.h"
+#include "chrome/browser/web_applications/components/web_app_id.h"
 #include "chrome/browser/web_applications/web_app_provider.h"
 #include "chrome/common/extensions/extension_constants.h"
 #include "chrome/common/pref_names.h"
@@ -72,6 +72,8 @@ const char* kTabletFormFactorDefaultPinnedApps[] = {
 const char kDefaultPinnedAppsKey[] = "default";
 const char kDefaultPinnedApps7AppsKey[] = "7apps";
 const char kDefaultPinnedApps10AppsKey[] = "10apps";
+
+bool skip_pinned_apps_from_sync_for_test = false;
 
 bool IsLegacyCameraAppId(const std::string& app_id) {
   return app_id ==
@@ -186,7 +188,8 @@ bool IsSafeToApplyDefaultPinLayout(Profile* profile) {
   // apps is likely override it. There is a case when App sync is disabled and
   // in last case local cache is available immediately.
   if (chromeos::features::IsSplitSettingsSyncEnabled()) {
-    if (settings->GetSelectedOsTypes().Has(UserSelectableOsType::kOsApps) &&
+    if (settings->IsOsSyncFeatureEnabled() &&
+        settings->GetSelectedOsTypes().Has(UserSelectableOsType::kOsApps) &&
         !app_list::AppListSyncableServiceFactory::GetForProfile(profile)
              ->IsSyncing()) {
       return false;
@@ -202,9 +205,10 @@ bool IsSafeToApplyDefaultPinLayout(Profile* profile) {
   // If shelf pin layout rolls preference is not started yet then we cannot say
   // if we rolled layout or not.
   if (chromeos::features::IsSplitSettingsSyncEnabled()) {
-    if (settings->GetSelectedOsTypes().Has(
+    if (settings->IsOsSyncFeatureEnabled() &&
+        settings->GetSelectedOsTypes().Has(
             UserSelectableOsType::kOsPreferences) &&
-        !PrefServiceSyncableFromProfile(profile)->IsSyncing()) {
+        !PrefServiceSyncableFromProfile(profile)->AreOsPrefsSyncing()) {
       return false;
     }
   } else {
@@ -457,8 +461,10 @@ std::vector<ash::ShelfID> GetPinnedAppsFromSync(
   app_list::AppListSyncableService* const syncable_service =
       app_list::AppListSyncableServiceFactory::GetForProfile(helper->profile());
   // Some unit tests may not have it or service may not be initialized.
-  if (!syncable_service || !syncable_service->IsInitialized())
+  if (!syncable_service || !syncable_service->IsInitialized() ||
+      skip_pinned_apps_from_sync_for_test) {
     return std::vector<ash::ShelfID>();
+  }
 
   std::vector<PinInfo> pin_infos;
 
@@ -688,4 +694,8 @@ void SetPinPosition(Profile* profile,
   else
     pin_position = syncer::StringOrdinal::CreateInitialOrdinal();
   syncable_service->SetPinPosition(app_id, pin_position);
+}
+
+void SkipPinnedAppsFromSyncForTest() {
+  skip_pinned_apps_from_sync_for_test = true;
 }

@@ -5,7 +5,7 @@
 #import "ios/chrome/browser/ui/bookmarks/cells/bookmark_table_signin_promo_cell.h"
 
 #import "ios/chrome/browser/ui/authentication/cells/signin_promo_view.h"
-#import "ios/chrome/common/ui_util/constraints_ui_util.h"
+#import "ios/chrome/common/ui/util/constraints_ui_util.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -15,12 +15,7 @@ namespace {
 const NSInteger kSigninPromoMargin = 8;
 }
 
-@implementation BookmarkTableSigninPromoCell {
-  SigninPromoView* _signinPromoView;
-  UIButton* _closeButton;
-}
-
-@synthesize signinPromoView = _signinPromoView;
+@implementation BookmarkTableSigninPromoCell
 
 + (NSString*)reuseIdentifier {
   return @"BookmarkTableSigninPromoCell";
@@ -47,18 +42,6 @@ const NSInteger kSigninPromoMargin = 8;
     ApplyVisualConstraintsWithMetrics(visualConstraints, views, metrics);
   }
   return self;
-}
-
-- (void)layoutSubviews {
-  // Adjust the text label preferredMaxLayoutWidth according self.frame.width,
-  // so the text will adjust its height and not its width.
-  CGFloat parentWidth = CGRectGetWidth(self.bounds);
-  _signinPromoView.textLabel.preferredMaxLayoutWidth =
-      parentWidth - 2 * _signinPromoView.horizontalPadding;
-
-  // Re-layout with the new preferred width to allow the label to adjust its
-  // height.
-  [super layoutSubviews];
 }
 
 - (void)prepareForReuse {

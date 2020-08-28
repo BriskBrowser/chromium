@@ -25,7 +25,6 @@
 #include "ui/events/event.h"
 #include "ui/events/event_utils.h"
 #include "ui/views/controls/native/native_view_host.h"
-#include "ui/views/test/test_views_delegate.h"
 #include "ui/views/test/widget_test.h"
 
 #if defined(USE_AURA)
@@ -128,8 +127,9 @@ class WebViewTestWebContentsDelegate : public content::WebContentsDelegate {
 class WebViewUnitTest : public views::test::WidgetTest {
  public:
   WebViewUnitTest()
-      : views::test::WidgetTest(
-            views::ViewsTestBase::SubclassManagesTaskEnvironment()) {}
+      : views::test::WidgetTest(std::unique_ptr<base::test::TaskEnvironment>(
+            std::make_unique<content::BrowserTaskEnvironment>())) {}
+
   ~WebViewUnitTest() override = default;
 
   std::unique_ptr<content::WebContents> CreateWebContentsForWebView(
@@ -146,7 +146,6 @@ class WebViewUnitTest : public views::test::WidgetTest {
     scoped_web_contents_creator_ =
         std::make_unique<views::WebView::ScopedWebContentsCreatorForTesting>(
             creator);
-    set_views_delegate(base::WrapUnique(new views::TestViewsDelegate));
     browser_context_ = std::make_unique<content::TestBrowserContext>();
     WidgetTest::SetUp();
     // Set the test content browser client to avoid pulling in needless
@@ -160,8 +159,8 @@ class WebViewUnitTest : public views::test::WidgetTest {
     // child.
     top_level_widget_ = CreateTopLevelFramelessPlatformWidget();
     top_level_widget_->SetBounds(gfx::Rect(0, 10, 100, 100));
-    View* const contents_view = new View();
-    top_level_widget_->SetContentsView(contents_view);
+    View* const contents_view =
+        top_level_widget_->SetContentsView(std::make_unique<View>());
     web_view_ = new WebView(browser_context_.get());
     web_view_->SetBoundsRect(gfx::Rect(contents_view->size()));
     contents_view->AddChildView(web_view_);
@@ -194,8 +193,6 @@ class WebViewUnitTest : public views::test::WidgetTest {
   void SetFullscreenNativeView(WebView* web_view, gfx::NativeView native_view) {
     web_view->fullscreen_native_view_for_testing_ = native_view;
   }
-
-  content::BrowserTaskEnvironment task_environment_;
 
  private:
   std::unique_ptr<content::RenderViewHostTestEnabler> rvh_enabler_;
@@ -325,14 +322,14 @@ TEST_F(WebViewUnitTest, EmbeddedFullscreenDuringScreenCapture_Layout) {
   // active on the WebContents, the holder should still fill the entire
   // WebView like before.
   delegate.set_is_fullscreened(true);
-  static_cast<content::WebContentsObserver*>(web_view())->
-      DidToggleFullscreenModeForTab(true, false);
+  static_cast<content::WebContentsObserver*>(web_view())
+      ->DidToggleFullscreenModeForTab(true, false);
   EXPECT_EQ(gfx::Rect(0, 0, 100, 100), holder()->bounds());
 
   // ...and transition back out of fullscreen mode.
   delegate.set_is_fullscreened(false);
-  static_cast<content::WebContentsObserver*>(web_view())->
-      DidToggleFullscreenModeForTab(false, false);
+  static_cast<content::WebContentsObserver*>(web_view())
+      ->DidToggleFullscreenModeForTab(false, false);
   EXPECT_EQ(gfx::Rect(0, 0, 100, 100), holder()->bounds());
 
   // Now, begin screen capture of the WebContents and then enter fullscreen
@@ -341,8 +338,8 @@ TEST_F(WebViewUnitTest, EmbeddedFullscreenDuringScreenCapture_Layout) {
   const gfx::Size capture_size(64, 48);
   web_contents->IncrementCapturerCount(capture_size, /* stay_hidden */ false);
   delegate.set_is_fullscreened(true);
-  static_cast<content::WebContentsObserver*>(web_view())->
-      DidToggleFullscreenModeForTab(true, false);
+  static_cast<content::WebContentsObserver*>(web_view())
+      ->DidToggleFullscreenModeForTab(true, false);
 
   // The expected size should be scaled to whichever dimension matches the
   // holder first, with the other scaled from the capture size to match the
@@ -365,8 +362,8 @@ TEST_F(WebViewUnitTest, EmbeddedFullscreenDuringScreenCapture_Layout) {
   // Transition back out of fullscreen mode a final time and confirm the bounds
   // of the holder fill the entire WebView once again.
   delegate.set_is_fullscreened(false);
-  static_cast<content::WebContentsObserver*>(web_view())->
-      DidToggleFullscreenModeForTab(false, false);
+  static_cast<content::WebContentsObserver*>(web_view())
+      ->DidToggleFullscreenModeForTab(false, false);
   EXPECT_EQ(gfx::Rect(0, 0, 100, 24), holder()->bounds());
 }
 
@@ -398,8 +395,8 @@ TEST_F(WebViewUnitTest, EmbeddedFullscreenDuringScreenCapture_Switching) {
   const gfx::Size capture_size(64, 48);
   web_contents1->IncrementCapturerCount(capture_size, /* stay_hidden */ false);
   delegate1.set_is_fullscreened(true);
-  static_cast<content::WebContentsObserver*>(web_view())->
-      DidToggleFullscreenModeForTab(true, false);
+  static_cast<content::WebContentsObserver*>(web_view())
+      ->DidToggleFullscreenModeForTab(true, false);
   EXPECT_EQ(web_contents1->GetNativeView(), holder()->native_view());
   EXPECT_EQ(gfx::Rect(0, 12, 100, 75), holder()->bounds());
 
@@ -451,8 +448,8 @@ TEST_F(WebViewUnitTest, EmbeddedFullscreenDuringScreenCapture_ClickToFocus) {
   const gfx::Size capture_size(64, 48);
   web_contents->IncrementCapturerCount(capture_size, /* stay_hidden */ false);
   delegate.set_is_fullscreened(true);
-  static_cast<content::WebContentsObserver*>(web_view())->
-      DidToggleFullscreenModeForTab(true, false);
+  static_cast<content::WebContentsObserver*>(web_view())
+      ->DidToggleFullscreenModeForTab(true, false);
   EXPECT_EQ(gfx::Rect(0, 7, 100, 75), holder()->bounds());
 
   // Focus the other widget.
@@ -467,8 +464,8 @@ TEST_F(WebViewUnitTest, EmbeddedFullscreenDuringScreenCapture_ClickToFocus) {
       ui::ET_MOUSE_PRESSED, gfx::Point(1, 1),
       gfx::Point(),  // Immaterial.
       ui::EventTimeForNow(), ui::EF_LEFT_MOUSE_BUTTON, 0);
-  EXPECT_TRUE(static_cast<views::View*>(web_view())->
-                  OnMousePressed(click_outside_holder));
+  EXPECT_TRUE(static_cast<views::View*>(web_view())
+                  ->OnMousePressed(click_outside_holder));
   EXPECT_TRUE(web_view()->HasFocus());
   EXPECT_FALSE(holder()->HasFocus());
   EXPECT_FALSE(something_to_focus->HasFocus());
@@ -489,8 +486,8 @@ TEST_F(WebViewUnitTest, EmbeddedFullscreenDuringScreenCapture_ClickToFocus) {
       ui::ET_MOUSE_PRESSED, web_view()->bounds().CenterPoint(),
       gfx::Point(),  // Immaterial.
       ui::EventTimeForNow(), ui::EF_LEFT_MOUSE_BUTTON, 0);
-  EXPECT_FALSE(static_cast<views::View*>(web_view())->
-                  OnMousePressed(click_inside_holder));
+  EXPECT_FALSE(static_cast<views::View*>(web_view())
+                   ->OnMousePressed(click_inside_holder));
   EXPECT_FALSE(web_view()->HasFocus());
   EXPECT_FALSE(holder()->HasFocus());
   EXPECT_TRUE(something_to_focus->HasFocus());
@@ -567,6 +564,25 @@ TEST_F(WebViewUnitTest, CrashedOverlayViewOwnedbyClient) {
 
   // This shouldn't crash, we still own this.
   delete crashed_overlay_view;
+}
+
+// Tests to make sure we can default construct the WebView class and set the
+// BrowserContext after construction.
+TEST_F(WebViewUnitTest, DefaultConstructability) {
+  auto browser_context = std::make_unique<content::TestBrowserContext>();
+  auto web_view = std::make_unique<WebView>();
+
+  // Test to make sure the WebView returns a nullptr in the absence of an
+  // explicitly supplied WebContents and BrowserContext.
+  EXPECT_EQ(nullptr, web_view->GetWebContents());
+
+  web_view->SetBrowserContext(browser_context.get());
+
+  // WebView should be able to create a WebContents object from the previously
+  // set |browser_context|.
+  auto* web_contents = web_view->GetWebContents();
+  EXPECT_NE(nullptr, web_contents);
+  EXPECT_EQ(browser_context.get(), web_contents->GetBrowserContext());
 }
 
 #if defined(USE_AURA)

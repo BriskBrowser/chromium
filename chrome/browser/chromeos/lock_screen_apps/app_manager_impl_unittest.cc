@@ -19,6 +19,7 @@
 #include "base/test/simple_test_tick_clock.h"
 #include "base/values.h"
 #include "chrome/browser/chromeos/arc/session/arc_session_manager.h"
+#include "chrome/browser/chromeos/arc/test/test_arc_session_manager.h"
 #include "chrome/browser/chromeos/lock_screen_apps/fake_lock_screen_profile_creator.h"
 #include "chrome/browser/chromeos/login/users/scoped_test_user_manager.h"
 #include "chrome/browser/chromeos/note_taking_helper.h"
@@ -30,6 +31,7 @@
 #include "chrome/test/base/testing_browser_process.h"
 #include "chrome/test/base/testing_profile.h"
 #include "chrome/test/base/testing_profile_manager.h"
+#include "chromeos/dbus/dbus_thread_manager.h"
 #include "components/arc/arc_service_manager.h"
 #include "components/arc/session/arc_session.h"
 #include "content/public/test/browser_task_environment.h"
@@ -141,6 +143,9 @@ class LockScreenAppManagerImplTest
   ~LockScreenAppManagerImplTest() override = default;
 
   void SetUp() override {
+    // Need to initialize DBusThreadManager before ArcSessionManager's
+    // constructor calls DBusThreadManager::Get().
+    chromeos::DBusThreadManager::Initialize();
     // Initialize command line so chromeos::NoteTakingHelper thinks note taking
     // on lock screen is enabled.
     command_line_ = std::make_unique<base::test::ScopedCommandLine>();
@@ -154,7 +159,7 @@ class LockScreenAppManagerImplTest
     InitExtensionSystem(profile());
 
     // Initialize arc session manager - NoteTakingHelper expects it to be set.
-    arc_session_manager_ = std::make_unique<arc::ArcSessionManager>(
+    arc_session_manager_ = arc::CreateTestArcSessionManager(
         std::make_unique<arc::ArcSessionRunner>(
             base::BindRepeating(&ArcSessionFactory)));
 
@@ -176,8 +181,11 @@ class LockScreenAppManagerImplTest
     // destruction.
     app_manager_.reset();
 
+    lock_screen_profile_creator_.reset();
     chromeos::NoteTakingHelper::Shutdown();
+    arc_session_manager_.reset();
     extensions::ExtensionSystem::Get(profile())->Shutdown();
+    chromeos::DBusThreadManager::Shutdown();
   }
 
   void InitExtensionSystem(Profile* profile) {
@@ -330,7 +338,7 @@ class LockScreenAppManagerImplTest
       return nullptr;
     }
 
-    if (base::WriteFile(extension_path.Append("background.js"), "{}", 2) != 2) {
+    if (!base::WriteFile(extension_path.Append("background.js"), "{}")) {
       ADD_FAILURE() << "Failed to write background script file";
       return nullptr;
     }

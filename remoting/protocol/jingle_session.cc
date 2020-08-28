@@ -12,6 +12,7 @@
 
 #include "base/bind.h"
 #include "base/callback.h"
+#include "base/logging.h"
 #include "base/single_thread_task_runner.h"
 #include "base/stl_util.h"
 #include "base/strings/string_split.h"
@@ -279,9 +280,10 @@ void JingleSession::AcceptIncomingConnection(
 
   DCHECK_EQ(authenticator_->state(), Authenticator::WAITING_MESSAGE);
   // |authenticator_| is owned, so Unretained() is safe here.
-  authenticator_->ProcessMessage(first_auth_message, base::Bind(
-      &JingleSession::ContinueAcceptIncomingConnection,
-      base::Unretained(this)));
+  authenticator_->ProcessMessage(
+      first_auth_message,
+      base::BindOnce(&JingleSession::ContinueAcceptIncomingConnection,
+                     base::Unretained(this)));
 }
 
 void JingleSession::ContinueAcceptIncomingConnection() {
@@ -347,8 +349,8 @@ void JingleSession::SendTransportInfo(
   stanza->AddAttr(jingle_xmpp::QN_ID, GetNextOutgoingId());
 
   auto request = session_manager_->iq_sender()->SendIq(
-      std::move(stanza), base::Bind(&JingleSession::OnTransportInfoResponse,
-                                    base::Unretained(this)));
+      std::move(stanza), base::BindOnce(&JingleSession::OnTransportInfoResponse,
+                                        base::Unretained(this)));
   if (request) {
     request->SetTimeout(base::TimeDelta::FromSeconds(kTransportInfoTimeout));
     transport_info_requests_.push_back(std::move(request));
@@ -427,8 +429,9 @@ void JingleSession::SendMessage(std::unique_ptr<JingleMessage> message) {
   stanza->AddAttr(jingle_xmpp::QN_ID, GetNextOutgoingId());
 
   auto request = session_manager_->iq_sender()->SendIq(
-      std::move(stanza), base::Bind(&JingleSession::OnMessageResponse,
-                                    base::Unretained(this), message->action));
+      std::move(stanza),
+      base::BindOnce(&JingleSession::OnMessageResponse, base::Unretained(this),
+                     message->action));
 
   int timeout = kDefaultMessageTimeout;
   if (message->action == JingleMessage::SESSION_INITIATE ||
@@ -586,8 +589,8 @@ void JingleSession::OnAccept(std::unique_ptr<JingleMessage> message,
 
   DCHECK(authenticator_->state() == Authenticator::WAITING_MESSAGE);
   authenticator_->ProcessMessage(
-      auth_message, base::Bind(&JingleSession::ProcessAuthenticationStep,
-                               base::Unretained(this)));
+      auth_message, base::BindOnce(&JingleSession::ProcessAuthenticationStep,
+                                   base::Unretained(this)));
 }
 
 void JingleSession::OnSessionInfo(std::unique_ptr<JingleMessage> message,
@@ -610,8 +613,9 @@ void JingleSession::OnSessionInfo(std::unique_ptr<JingleMessage> message,
   reply_callback.Run(JingleMessageReply::NONE);
 
   authenticator_->ProcessMessage(
-      message->info.get(), base::Bind(&JingleSession::ProcessAuthenticationStep,
-                                      base::Unretained(this)));
+      message->info.get(),
+      base::BindOnce(&JingleSession::ProcessAuthenticationStep,
+                     base::Unretained(this)));
 }
 
 void JingleSession::OnTransportInfo(std::unique_ptr<JingleMessage> message,
@@ -746,8 +750,8 @@ void JingleSession::ProcessAuthenticationStep() {
 
 void JingleSession::OnAuthenticated() {
   transport_->Start(authenticator_.get(),
-                    base::Bind(&JingleSession::SendTransportInfo,
-                               weak_factory_.GetWeakPtr()));
+                    base::BindRepeating(&JingleSession::SendTransportInfo,
+                                        weak_factory_.GetWeakPtr()));
 
   base::WeakPtr<JingleSession> self = weak_factory_.GetWeakPtr();
   std::vector<PendingMessage> messages_to_process;

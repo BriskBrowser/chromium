@@ -6,6 +6,7 @@
 
 #include <utility>
 
+#include "ash/drag_drop/tab_drag_drop_delegate.h"
 #include "ash/public/cpp/ash_features.h"
 #include "ash/public/cpp/shell_window_ids.h"
 #include "ash/public/cpp/window_animation_types.h"
@@ -15,8 +16,8 @@
 #include "ash/shell.h"
 #include "ash/wm/desks/desks_controller.h"
 #include "ash/wm/mru_window_tracker.h"
+#include "ash/wm/overview/overview_controller.h"
 #include "ash/wm/screen_pinning_controller.h"
-#include "ash/wm/splitview/split_view_controller.h"
 #include "ash/wm/splitview/split_view_utils.h"
 #include "ash/wm/tablet_mode/tablet_mode_window_manager.h"
 #include "ash/wm/window_properties.h"
@@ -27,6 +28,7 @@
 #include "ui/aura/window_delegate.h"
 #include "ui/compositor/layer.h"
 #include "ui/gfx/geometry/rect.h"
+#include "ui/wm/core/ime_util_chromeos.h"
 #include "ui/wm/core/window_util.h"
 
 namespace ash {
@@ -154,12 +156,22 @@ bool IsTabDraggingSourceWindow(aura::Window* window) {
 // True if |window| is the top window in BuildWindowForCycleList.
 bool IsTopWindow(aura::Window* window) {
   DCHECK(window);
-  return window == TabletModeWindowManager::GetTopWindow();
+  return window == window_util::GetTopWindow();
 }
 
 bool IsSnapped(WindowStateType state) {
   return state == WindowStateType::kLeftSnapped ||
          state == WindowStateType::kRightSnapped;
+}
+
+// Returns true if the bounds change of |window| is from VK request and can be
+// allowed by the current window's state.
+bool BoundsChangeIsFromVKAndAllowed(aura::Window* window) {
+  if (!window->GetProperty(wm::kVirtualKeyboardRestoreBoundsKey))
+    return false;
+  WindowStateType state_type = WindowState::Get(window)->GetStateType();
+  return state_type == WindowStateType::kNormal ||
+         state_type == WindowStateType::kDefault;
 }
 
 }  // namespace
@@ -196,6 +208,7 @@ TabletModeWindowState::TabletModeWindowState(aura::Window* window,
       window, entering_tablet_mode && !IsTopWindow(window)
                   ? WindowState::BoundsChangeAnimationType::STEP_END
                   : WindowState::BoundsChangeAnimationType::DEFAULT);
+  old_window_bounds_in_screen_ = window->GetBoundsInScreen();
   old_state_.reset(
       state->SetStateObject(std::unique_ptr<State>(this)).release());
 }
@@ -225,6 +238,27 @@ void TabletModeWindowState::LeaveTabletMode(WindowState* window_state,
       window_state->window(), animation_type);
   std::unique_ptr<WindowState::State> our_reference =
       window_state->SetStateObject(std::move(old_state_));
+}
+
+void TabletModeWindowState::CycleTabletSnap(
+    WindowState* window_state,
+    SplitViewController::SnapPosition snap_position) {
+  aura::Window* window = window_state->window();
+  SplitViewController* split_view_controller = SplitViewController::Get(window);
+  // If |window| is already snapped in |snap_position|, then unsnap |window|.
+  if (window == split_view_controller->GetSnappedWindow(snap_position)) {
+    UpdateWindow(window_state, GetMaximizedOrCenteredWindowType(window_state),
+                 /*animated=*/true);
+    return;
+  }
+  // If |window| can snap in split view, then snap |window| in |snap_position|.
+  if (split_view_controller->CanSnapWindow(window)) {
+    split_view_controller->SnapWindow(window, snap_position);
+    Shell::Get()->overview_controller()->StartOverview();
+    return;
+  }
+  // Otherwise, show the cannot snap toast.
+  ShowAppCannotSnapToast();
 }
 
 void TabletModeWindowState::OnWMEvent(WindowState* window_state,
@@ -261,8 +295,6 @@ void TabletModeWindowState::OnWMEvent(WindowState* window_state,
     case WM_EVENT_TOGGLE_VERTICAL_MAXIMIZE:
     case WM_EVENT_TOGGLE_HORIZONTAL_MAXIMIZE:
     case WM_EVENT_TOGGLE_MAXIMIZE:
-    case WM_EVENT_CYCLE_SNAP_LEFT:
-    case WM_EVENT_CYCLE_SNAP_RIGHT:
     case WM_EVENT_CENTER:
     case WM_EVENT_NORMAL:
     case WM_EVENT_MAXIMIZE:
@@ -287,6 +319,12 @@ void TabletModeWindowState::OnWMEvent(WindowState* window_state,
                                              WindowStateType::kRightSnapped),
                    false /* animated */);
       return;
+    case WM_EVENT_CYCLE_SNAP_LEFT:
+      CycleTabletSnap(window_state, SplitViewController::LEFT);
+      return;
+    case WM_EVENT_CYCLE_SNAP_RIGHT:
+      CycleTabletSnap(window_state, SplitViewController::RIGHT);
+      return;
     case WM_EVENT_MINIMIZE:
       UpdateWindow(window_state, WindowStateType::kMinimized,
                    true /* animated */);
@@ -301,7 +339,9 @@ void TabletModeWindowState::OnWMEvent(WindowState* window_state,
         return;
 
       if (window_util::IsDraggingTabs(window_state->window()) ||
-          IsTabDraggingSourceWindow(window_state->window())) {
+          IsTabDraggingSourceWindow(window_state->window()) ||
+          TabDragDropDelegate::IsSourceWindowForDrag(window_state->window()) ||
+          BoundsChangeIsFromVKAndAllowed(window_state->window())) {
         // If the window is the current tab-dragged window or the current tab-
         // dragged window's source window, we may need to update its bounds
         // during dragging.

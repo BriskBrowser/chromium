@@ -66,11 +66,6 @@ class DownloadFeedbackImpl : public DownloadFeedback {
                       int response_code,
                       const std::string& response);
 
-  void RecordUploadResult(UploadResultType result);
-  void RecordErrorCodes(TwoPhaseUploader::State state,
-                        int net_error,
-                        int response_code);
-
   scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory_;
   scoped_refptr<base::TaskRunner> file_task_runner_;
   const base::FilePath file_path_;
@@ -111,14 +106,12 @@ DownloadFeedbackImpl::~DownloadFeedbackImpl() {
   DVLOG(1) << "DownloadFeedback destructed " << this;
 
   if (uploader_) {
-    RecordUploadResult(UPLOAD_CANCELLED);
     // Destroy the uploader before attempting to delete the file.
     uploader_.reset();
   }
 
   file_task_runner_->PostTask(
-      FROM_HERE,
-      base::BindOnce(base::IgnoreResult(&base::DeleteFile), file_path_, false));
+      FROM_HERE, base::BindOnce(base::GetDeleteFileCallback(), file_path_));
 }
 
 void DownloadFeedbackImpl::Start(const base::Closure& finish_callback) {
@@ -166,9 +159,9 @@ void DownloadFeedbackImpl::Start(const base::Closure& finish_callback) {
             "Chrome's settings under Advanced Settings, Privacy. The feature "
             "is disabled by default."
           chrome_policy {
-            SafeBrowsingExtendedReportingOptInAllowed {
+            SafeBrowsingExtendedReportingEnabled {
               policy_options {mode: MANDATORY}
-              SafeBrowsingExtendedReportingOptInAllowed: false
+              SafeBrowsingExtendedReportingEnabled: false
             }
           }
         })");
@@ -191,31 +184,6 @@ void DownloadFeedbackImpl::FinishedUpload(base::Closure finish_callback,
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   DVLOG(1) << __func__ << " " << state << " rlen=" << response_data.size();
 
-  switch (state) {
-    case TwoPhaseUploader::STATE_SUCCESS: {
-      ClientUploadResponse response;
-      if (!response.ParseFromString(response_data) ||
-          response.status() != ClientUploadResponse::SUCCESS) {
-        RecordUploadResult(UPLOAD_COMPLETE_RESPONSE_ERROR);
-      } else {
-        RecordUploadResult(UPLOAD_SUCCESS);
-      }
-      break;
-    }
-    case TwoPhaseUploader::UPLOAD_FILE:
-      RecordUploadResult(net_error != net::OK ? UPLOAD_FILE_NET_ERROR
-                                              : UPLOAD_FILE_RESPONSE_ERROR);
-      break;
-    case TwoPhaseUploader::UPLOAD_METADATA:
-      RecordUploadResult(net_error != net::OK ? UPLOAD_METADATA_NET_ERROR
-                                              : UPLOAD_METADATA_RESPONSE_ERROR);
-      break;
-    case TwoPhaseUploader::STATE_NONE:
-      NOTREACHED();
-      break;
-  }
-
-  RecordErrorCodes(state, net_error, response_code);
   UMA_HISTOGRAM_LONG_TIMES("SBDownloadFeedback.UploadDuration",
                            base::Time::Now() - uploader_start_time_);
 
@@ -223,30 +191,6 @@ void DownloadFeedbackImpl::FinishedUpload(base::Closure finish_callback,
 
   finish_callback.Run();
   // We may be deleted here.
-}
-
-void DownloadFeedbackImpl::RecordUploadResult(UploadResultType result) {
-  if (result == UPLOAD_SUCCESS) {
-    UMA_HISTOGRAM_CUSTOM_COUNTS("SBDownloadFeedback.SizeSuccess", file_size_, 1,
-                                kMaxUploadSize, 50);
-  } else {
-    UMA_HISTOGRAM_CUSTOM_COUNTS("SBDownloadFeedback.SizeFailure", file_size_, 1,
-                                kMaxUploadSize, 50);
-  }
-  UMA_HISTOGRAM_ENUMERATION("SBDownloadFeedback.UploadResult", result,
-                            UPLOAD_RESULT_MAX);
-}
-
-void DownloadFeedbackImpl::RecordErrorCodes(TwoPhaseUploader::State state,
-                                            int net_error,
-                                            int response_code) {
-  if (state == TwoPhaseUploader::UPLOAD_FILE) {
-    base::UmaHistogramSparse("SBDownloadFeedback.FileErrors",
-                             net_error == net::OK ? response_code : net_error);
-  } else if (state == TwoPhaseUploader::UPLOAD_METADATA) {
-    base::UmaHistogramSparse("SBDownloadFeedback.MetadataErrors",
-                             net_error == net::OK ? response_code : net_error);
-  }
 }
 
 }  // namespace

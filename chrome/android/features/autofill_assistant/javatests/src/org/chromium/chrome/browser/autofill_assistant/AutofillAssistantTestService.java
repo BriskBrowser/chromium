@@ -4,10 +4,12 @@
 
 package org.chromium.chrome.browser.autofill_assistant;
 
-import android.support.annotation.Nullable;
+import androidx.annotation.Nullable;
 
 import com.google.protobuf.ByteString;
 import com.google.protobuf.InvalidProtocolBufferException;
+
+import org.hamcrest.Matchers;
 
 import org.chromium.base.annotations.CalledByNative;
 import org.chromium.base.annotations.JNINamespace;
@@ -37,6 +39,7 @@ public class AutofillAssistantTestService
     /** The most recently received list of processed actions. */
     private @Nullable List<ProcessedActionProto> mProcessedActions;
     private int mNextActionsCounter;
+    private int mCurrentScriptIndex;
 
     /** Default constructor which disables animations. */
     AutofillAssistantTestService(List<AutofillAssistantTestScript> scripts) {
@@ -44,7 +47,8 @@ public class AutofillAssistantTestService
                 (ClientSettingsProto) ClientSettingsProto.newBuilder()
                         .setIntegrationTestSettings(
                                 ClientSettingsProto.IntegrationTestSettings.newBuilder()
-                                        .setDisableHeaderAnimations(true))
+                                        .setDisableHeaderAnimations(true)
+                                        .setDisableCarouselChangeAnimations(true))
                         .build());
     }
 
@@ -81,9 +85,11 @@ public class AutofillAssistantTestService
     /** @see AutofillAssistantService#getScriptsForUrl(String) */
     @Override
     public SupportsScriptResponseProto getScriptsForUrl(String url) {
+        // Return scripts one after the other. Note: Returning more than one script at once leads
+        // to a dropout with RENDER_PROCESS_GONE.
         SupportsScriptResponseProto.Builder builder = SupportsScriptResponseProto.newBuilder();
-        for (AutofillAssistantTestScript script : mScripts) {
-            builder.addScripts(script.getSupportedScript());
+        if (mCurrentScriptIndex < mScripts.size()) {
+            builder.addScripts(mScripts.get(mCurrentScriptIndex++).getSupportedScript());
         }
         builder.setClientSettings(mClientSettings);
         return builder.build();
@@ -137,13 +143,10 @@ public class AutofillAssistantTestService
      * AutofillAssistantTestService#getProcessedActions}.
      */
     public void waitUntilGetNextActions(int targetNextActionsCount) {
-        CriteriaHelper.pollInstrumentationThread(
-                new Criteria("Timeout while waiting for getNextActions") {
-                    @Override
-                    public boolean isSatisfied() {
-                        return mNextActionsCounter >= targetNextActionsCount;
-                    }
-                });
+        CriteriaHelper.pollInstrumentationThread(() -> {
+            Criteria.checkThat("Timeout while waiting for getNextActions", mNextActionsCounter,
+                    Matchers.greaterThanOrEqualTo(targetNextActionsCount));
+        });
     }
 
     /** Access to the most recently received list of processed actions. Is initially null. */

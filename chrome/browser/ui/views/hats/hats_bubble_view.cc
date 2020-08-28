@@ -13,7 +13,9 @@
 #include "chrome/browser/ui/views/frame/app_menu_button.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
 #include "chrome/browser/ui/views/frame/toolbar_button_provider.h"
+#include "chrome/browser/ui/views/hats/hats_next_web_dialog.h"
 #include "chrome/browser/ui/views/hats/hats_web_dialog.h"
+#include "chrome/common/chrome_features.h"
 #include "chrome/grit/chromium_strings.h"
 #include "chrome/grit/generated_resources.h"
 #include "chrome/grit/theme_resources.h"
@@ -70,7 +72,13 @@ void HatsBubbleView::ShowOnContentReady(Browser* browser,
   // The bubble will only show after the survey content is retrieved.
   // If it fails due to no internet connection or any other reason, the bubble
   // will not show.
-  HatsWebDialog::Create(browser, site_id);
+  if (base::FeatureList::IsEnabled(
+          features::kHappinessTrackingSurveysForDesktopMigration)) {
+    // Self deleting on close.
+    new HatsNextWebDialog(browser, site_id);
+  } else {
+    HatsWebDialog::Create(browser, site_id);
+  }
 }
 
 void HatsBubbleView::Show(Browser* browser,
@@ -101,13 +109,19 @@ HatsBubbleView::HatsBubbleView(Browser* browser,
       consent_callback_(std::move(consent_callback)) {
   chrome::RecordDialogCreation(chrome::DialogIdentifier::HATS_BUBBLE);
 
-  DialogDelegate::set_button_label(
-      ui::DIALOG_BUTTON_OK,
-      l10n_util::GetStringUTF16(IDS_HATS_BUBBLE_OK_LABEL));
-  DialogDelegate::set_button_label(ui::DIALOG_BUTTON_CANCEL,
-                                   l10n_util::GetStringUTF16(IDS_NO_THANKS));
+  SetButtonLabel(ui::DIALOG_BUTTON_OK,
+                 l10n_util::GetStringUTF16(IDS_HATS_BUBBLE_OK_LABEL));
+  SetButtonLabel(ui::DIALOG_BUTTON_CANCEL,
+                 l10n_util::GetStringUTF16(IDS_NO_THANKS));
   set_close_on_deactivate(false);
   set_parent_window(parent_view);
+
+  auto run_callback = [](HatsBubbleView* bubble, bool accept) {
+    std::move(bubble->consent_callback_).Run(accept);
+  };
+  SetAcceptCallback(base::BindOnce(run_callback, base::Unretained(this), true));
+  SetCancelCallback(
+      base::BindOnce(run_callback, base::Unretained(this), false));
 
   ChromeLayoutProvider* provider = ChromeLayoutProvider::Get();
   set_margins(
@@ -140,18 +154,6 @@ gfx::ImageSkia HatsBubbleView::GetWindowIcon() {
 }
 
 bool HatsBubbleView::ShouldShowWindowIcon() const {
-  return true;
-}
-
-bool HatsBubbleView::Cancel() {
-  if (consent_callback_)
-    std::move(consent_callback_).Run(false);
-  return true;
-}
-
-bool HatsBubbleView::Accept() {
-  if (consent_callback_)
-    std::move(consent_callback_).Run(true);
   return true;
 }
 

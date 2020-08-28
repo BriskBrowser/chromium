@@ -20,6 +20,7 @@
 #include "content/common/content_export.h"
 #include "content/public/browser/back_forward_cache.h"
 #include "content/public/browser/global_routing_id.h"
+#include "content/public/common/content_features.h"
 #include "url/gurl.h"
 
 namespace content {
@@ -29,6 +30,14 @@ class RenderFrameProxyHost;
 class RenderViewHostImpl;
 class SiteInstance;
 
+// This feature is used to limit the scope of back-forward cache experiment
+// without enabling it. To control the URLs list by using this feature by
+// generating the metrics only for "allowed_websites" param. Mainly, to ensure
+// that metrics from the control and experiment groups are consistent.
+constexpr base::Feature kRecordBackForwardCacheMetricsWithoutEnabling{
+    "RecordBackForwardCacheMetricsWithoutEnabling",
+    base::FEATURE_DISABLED_BY_DEFAULT};
+
 // BackForwardCache:
 //
 // After the user navigates away from a document, the old one goes into the
@@ -37,6 +46,16 @@ class SiteInstance;
 // the current_frame_host.
 class CONTENT_EXPORT BackForwardCacheImpl : public BackForwardCache {
  public:
+  enum MessageHandlingPolicyWhenCached {
+    kMessagePolicyNone,
+    kMessagePolicyLog,
+    kMessagePolicyDump,
+    kMessagePolicyKill,
+  };
+
+  static MessageHandlingPolicyWhenCached
+  GetChannelAssociatedMessageHandlingPolicy();
+
   struct Entry {
     using RenderFrameProxyHostMap =
         std::unordered_map<int32_t /* SiteInstance ID */,
@@ -78,10 +97,23 @@ class CONTENT_EXPORT BackForwardCacheImpl : public BackForwardCache {
   BackForwardCacheImpl();
   ~BackForwardCacheImpl();
 
-  // Returns whether a RenderFrameHost can be stored into the
-  // BackForwardCache. Depends on the |render_frame_host| and its children's
-  // state.
-  BackForwardCacheCanStoreDocumentResult CanStoreDocument(
+  // Returns whether a RenderFrameHost can be stored into the BackForwardCache
+  // right now. Depends on the |render_frame_host| and its children's state.
+  // Should only be called after we've navigated away from |render_frame_host|,
+  // which means nothing about the page can change (usage of blocklisted
+  // features, pending navigations, load state, etc.) anymore.
+  BackForwardCacheCanStoreDocumentResult CanStorePageNow(
+      RenderFrameHostImpl* render_frame_host);
+
+  // Whether a RenderFrameHost could be stored into the BackForwardCache at some
+  // point in the future. Different than CanStorePageNow() above, we won't check
+  // for properties of |render_frame_host| that might change in the future such
+  // as usage of certain APIs, loading state, existence of pending navigation
+  // requests, etc. This should be treated as a "best guess" on whether a page
+  // still has a chance to be stored in the back-forward cache later on, and
+  // should not be used as a final check before storing a page to the
+  // back-forward cache (for that, use CanStorePageNow() instead).
+  BackForwardCacheCanStoreDocumentResult CanPotentiallyStorePageLater(
       RenderFrameHostImpl* render_frame_host);
 
   // Moves the specified BackForwardCache entry into the BackForwardCache. It
@@ -101,8 +133,11 @@ class CONTENT_EXPORT BackForwardCacheImpl : public BackForwardCache {
   Entry* GetEntry(int navigation_entry_id);
 
   // During a history navigation, moves an entry out of the BackForwardCache
-  // knowing its |navigation_entry_id|. Returns nullptr when none is found.
-  std::unique_ptr<Entry> RestoreEntry(int navigation_entry_id);
+  // knowing its |navigation_entry_id|. Here |navigation_start| refers to the
+  // start time of navigation to restored entry in cache. Returns nullptr when
+  // none is found.
+  std::unique_ptr<Entry> RestoreEntry(int navigation_entry_id,
+                                      base::TimeTicks navigation_start);
 
   // Evict all entries from the BackForwardCache.
   void Flush();
@@ -125,9 +160,16 @@ class CONTENT_EXPORT BackForwardCacheImpl : public BackForwardCache {
   // via experiment.
   static base::TimeDelta GetTimeToLiveInBackForwardCache();
 
-  // Checks if the url's host and path matches with the |allowed_urls_| host and
-  // path. This is controlled by "allowed_websites" param on BackForwardCache
-  // feature and if the param is not set, it will allow all websites by default.
+  // The back-forward cache is experimented on a limited set of URLs. This
+  // method returns true if the |url| matches one of those. URL not matching
+  // this won't enter the back-forward cache.
+  // This is controlled by GetAllowedURLs method which depends on the
+  // following:
+  //  - feature::kBackForwardCache param -> allowed_websites.
+  //  - kRecordBackForwardCacheMetricsWithoutEnabling param -> allowed_websites.
+
+  // If no param is set all websites are allowed by default. This can still
+  // return true even when BackForwardCache is disabled for metrics purposes.
   bool IsAllowed(const GURL& current_url);
 
   // Returns the task runner that should be used by the eviction timer.
@@ -150,15 +192,22 @@ class CONTENT_EXPORT BackForwardCacheImpl : public BackForwardCache {
     cache_size_limit_for_testing_ = cache_size_limit_for_testing;
   }
 
+  const std::list<std::unique_ptr<Entry>>& GetEntries();
+
   void DisableForTesting(DisableForTestingReason reason) override;
 
  private:
   // Destroys all evicted frames in the BackForwardCache.
   void DestroyEvictedFrames();
 
-  // Helper for recursively checking each child.
-  void CanStoreRenderFrameHost(BackForwardCacheCanStoreDocumentResult* result,
-                               RenderFrameHostImpl* render_frame_host);
+  // Helper for recursively checking each child. See CanStorePageNow() and
+  // CanPotentiallyStorePageLater().
+  void CheckDynamicStatesOnSubtree(
+      BackForwardCacheCanStoreDocumentResult* result,
+      RenderFrameHostImpl* render_frame_host);
+  void CanStoreRenderFrameHostLater(
+      BackForwardCacheCanStoreDocumentResult* result,
+      RenderFrameHostImpl* render_frame_host);
 
   // Contains the set of stored Entries.
   // Invariant:

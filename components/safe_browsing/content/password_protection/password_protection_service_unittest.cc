@@ -6,6 +6,7 @@
 #include <memory>
 
 #include "base/bind.h"
+#include "base/memory/ptr_util.h"
 #include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
 #include "base/strings/string_number_conversions.h"
@@ -18,12 +19,12 @@
 #include "components/content_settings/core/browser/host_content_settings_map.h"
 #include "components/password_manager/core/browser/password_manager_metrics_util.h"
 #include "components/password_manager/core/browser/password_reuse_detector.h"
+#include "components/safe_browsing/content/common/safe_browsing.mojom-forward.h"
+#include "components/safe_browsing/content/common/safe_browsing.mojom.h"
 #include "components/safe_browsing/content/password_protection/metrics_util.h"
 #include "components/safe_browsing/content/password_protection/mock_password_protection_service.h"
 #include "components/safe_browsing/content/password_protection/password_protection_navigation_throttle.h"
 #include "components/safe_browsing/content/password_protection/password_protection_request.h"
-#include "components/safe_browsing/core/common/safe_browsing.mojom-forward.h"
-#include "components/safe_browsing/core/common/safe_browsing.mojom.h"
 #include "components/safe_browsing/core/db/test_database_manager.h"
 #include "components/safe_browsing/core/features.h"
 #include "components/safe_browsing/core/proto/csd.pb.h"
@@ -44,6 +45,7 @@
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
+using base::ASCIIToUTF16;
 using testing::_;
 using testing::AnyNumber;
 using testing::ElementsAre;
@@ -54,8 +56,8 @@ namespace {
 
 const char kFormActionUrl[] = "https://form_action.com/";
 const char kPasswordFrameUrl[] = "https://password_frame.com/";
-const char kSavedDomain[] = "saved_domain.com";
-const char kSavedDomain2[] = "saved_domain2.com";
+const char kSavedDomain[] = "http://saved_domain.com";
+const char kSavedDomain2[] = "http://saved_domain2.com";
 const char kTargetUrl[] = "http://foo.com/";
 const char kUserName[] = "username";
 
@@ -82,6 +84,8 @@ class MockSafeBrowsingDatabaseManager : public TestSafeBrowsingDatabaseManager {
   DISALLOW_COPY_AND_ASSIGN(MockSafeBrowsingDatabaseManager);
 };
 
+// PhishingDetector is not supported on Android.
+#if !defined(OS_ANDROID)
 class TestPhishingDetector : public mojom::PhishingDetector {
  public:
   TestPhishingDetector() : should_timeout_(false) {}
@@ -91,6 +95,8 @@ class TestPhishingDetector : public mojom::PhishingDetector {
     receiver_.Bind(
         mojo::PendingReceiver<mojom::PhishingDetector>(std::move(handle)));
   }
+
+  void SetPhishingModel(const std::string& model) override {}
 
   void StartPhishingDetection(
       const GURL& url,
@@ -119,6 +125,7 @@ class TestPhishingDetector : public mojom::PhishingDetector {
 
   DISALLOW_COPY_AND_ASSIGN(TestPhishingDetector);
 };
+#endif
 
 class TestPasswordProtectionService : public MockPasswordProtectionService {
  public:
@@ -156,6 +163,7 @@ class TestPasswordProtectionService : public MockPasswordProtectionService {
     return latest_request_ ? latest_request_->request_proto() : nullptr;
   }
 
+#if !defined(OS_ANDROID)
   void GetPhishingDetector(
       service_manager::InterfaceProvider* provider,
       mojo::Remote<mojom::PhishingDetector>* phishing_detector) override {
@@ -167,6 +175,7 @@ class TestPasswordProtectionService : public MockPasswordProtectionService {
     provider->GetInterface(phishing_detector->BindNewPipeAndPassReceiver());
     test_api.ClearBinderForName(mojom::PhishingDetector::Name_);
   }
+#endif
 
   void CacheVerdict(const GURL& url,
                     LoginReputationClientRequest::TriggerType trigger_type,
@@ -197,15 +206,19 @@ class TestPasswordProtectionService : public MockPasswordProtectionService {
     return cache_manager_->GetStoredPhishGuardVerdictCount(trigger_type);
   }
 
+#if !defined(OS_ANDROID)
   void SetDomFeatureCollectionTimeout(bool should_timeout) {
     test_phishing_detector_.set_should_timeout(should_timeout);
   }
+#endif
 
  private:
   PasswordProtectionRequest* latest_request_;
   base::RunLoop run_loop_;
   std::unique_ptr<LoginReputationClientResponse> latest_response_;
+#if !defined(OS_ANDROID)
   TestPhishingDetector test_phishing_detector_;
+#endif
 
   // The TestPasswordProtectionService manages its own cache, rather than using
   // the global one.
@@ -250,7 +263,8 @@ class PasswordProtectionServiceTest : public ::testing::TestWithParam<bool> {
     content_setting_map_ = new HostContentSettingsMap(
         &test_pref_service_, false /* is_off_the_record */,
         false /* store_last_modified */,
-        false /* migrate_requesting_and_top_level_origin_settings */);
+        false /* migrate_requesting_and_top_level_origin_settings */,
+        false /* restore_session*/);
     database_manager_ = new MockSafeBrowsingDatabaseManager();
     password_protection_service_ =
         std::make_unique<TestPasswordProtectionService>(
@@ -263,11 +277,13 @@ class PasswordProtectionServiceTest : public ::testing::TestWithParam<bool> {
     EXPECT_CALL(*password_protection_service_, IsIncognito())
         .WillRepeatedly(Return(false));
     EXPECT_CALL(*password_protection_service_,
-                IsURLWhitelistedForPasswordEntry(_, _))
+                IsURLWhitelistedForPasswordEntry(_))
         .WillRepeatedly(Return(false));
     EXPECT_CALL(*password_protection_service_,
                 GetPasswordProtectionWarningTriggerPref(_))
         .WillRepeatedly(Return(PASSWORD_PROTECTION_OFF));
+    EXPECT_CALL(*password_protection_service_, IsUserMBBOptedIn())
+        .WillRepeatedly(Return(true));
     url_ = PasswordProtectionService::GetPasswordProtectionRequestUrl();
   }
 
@@ -296,7 +312,8 @@ class PasswordProtectionServiceTest : public ::testing::TestWithParam<bool> {
 
   void InitializeAndStartPasswordEntryRequest(
       PasswordType type,
-      const std::vector<std::string>& matching_domains,
+      const std::vector<password_manager::MatchingReusedCredential>&
+          matching_reused_credentials,
       bool match_whitelist,
       int timeout_in_ms,
       content::WebContents* web_contents) {
@@ -307,8 +324,9 @@ class PasswordProtectionServiceTest : public ::testing::TestWithParam<bool> {
 
     request_ = new PasswordProtectionRequest(
         web_contents, target_url, GURL(), GURL(), kUserName, type,
-        matching_domains, LoginReputationClientRequest::PASSWORD_REUSE_EVENT,
-        true, password_protection_service_.get(), timeout_in_ms);
+        matching_reused_credentials,
+        LoginReputationClientRequest::PASSWORD_REUSE_EVENT, true,
+        password_protection_service_.get(), timeout_in_ms);
     request_->Start();
   }
 
@@ -364,6 +382,8 @@ class PasswordProtectionServiceTest : public ::testing::TestWithParam<bool> {
         content::WebContents::CreateParams(&browser_context_)));
   }
 
+// Visual features are not supported on Android.
+#if !defined(OS_ANDROID)
   void VerifyContentAreaSizeCollection(
       const LoginReputationClientRequest& request) {
     bool should_report_content_size =
@@ -372,6 +392,7 @@ class PasswordProtectionServiceTest : public ::testing::TestWithParam<bool> {
     EXPECT_EQ(should_report_content_size, request.has_content_area_height());
     EXPECT_EQ(should_report_content_size, request.has_content_area_width());
   }
+#endif
 
   size_t GetNumberOfNavigationThrottles() {
     return request_ ? request_->throttles_.size() : 0u;
@@ -911,7 +932,8 @@ TEST_P(PasswordProtectionServiceTest,
       .WillRepeatedly(Return(account_info));
 
   InitializeAndStartPasswordEntryRequest(
-      PasswordType::OTHER_GAIA_PASSWORD, {"gmail.com"},
+      PasswordType::OTHER_GAIA_PASSWORD,
+      {{"gmail.com", ASCIIToUTF16("username")}},
       /*match_whitelist=*/false,
       /*timeout_in_ms=*/10000, web_contents.get());
   password_protection_service_->WaitForResponse();
@@ -1022,7 +1044,9 @@ TEST_P(PasswordProtectionServiceTest, VerifyPasswordOnFocusRequestProto) {
   EXPECT_EQ(true, actual_request->frames(1).has_password_field());
   ASSERT_EQ(1, actual_request->frames(1).forms_size());
   EXPECT_EQ(kFormActionUrl, actual_request->frames(1).forms(0).action_url());
+#if !defined(OS_ANDROID)
   VerifyContentAreaSizeCollection(*actual_request);
+#endif
 }
 
 TEST_P(PasswordProtectionServiceTest,
@@ -1067,6 +1091,7 @@ TEST_P(PasswordProtectionServiceTest,
 
   const LoginReputationClientRequest* actual_request =
       password_protection_service_->GetLatestRequestProto();
+  EXPECT_TRUE(actual_request->population().is_mbb_enabled());
   EXPECT_EQ(kTargetUrl, actual_request->page_url());
   EXPECT_EQ(LoginReputationClientRequest::PASSWORD_REUSE_EVENT,
             actual_request->trigger_type());
@@ -1077,11 +1102,13 @@ TEST_P(PasswordProtectionServiceTest,
   const auto& reuse_event = actual_request->password_reuse_event();
   EXPECT_TRUE(reuse_event.is_chrome_signin_password());
   EXPECT_EQ(0, reuse_event.domains_matching_password_size());
+#if !defined(OS_ANDROID)
   VerifyContentAreaSizeCollection(*actual_request);
+#endif
 }
 
 TEST_P(PasswordProtectionServiceTest,
-       VerifyNonSyncPasswordProtectionRequestProto) {
+       VerifySavePasswordProtectionRequestProto) {
   // Set up valid response.
   LoginReputationClientResponse expected_response =
       CreateVerdictProto(LoginReputationClientResponse::PHISHING, 10 * kMinute,
@@ -1092,26 +1119,33 @@ TEST_P(PasswordProtectionServiceTest,
 
   // Initialize request triggered by saved password reuse.
   InitializeAndStartPasswordEntryRequest(
-      PasswordType::SAVED_PASSWORD, {kSavedDomain, kSavedDomain2},
+      PasswordType::SAVED_PASSWORD,
+      {{kSavedDomain, ASCIIToUTF16("username")},
+       {kSavedDomain2, ASCIIToUTF16("username")},
+       {"http://localhost:8080", ASCIIToUTF16("username")}},
       false /* match whitelist */, 100000 /* timeout in ms*/,
       web_contents.get());
   password_protection_service_->WaitForResponse();
 
   const LoginReputationClientRequest* actual_request =
       password_protection_service_->GetLatestRequestProto();
+  EXPECT_TRUE(actual_request->population().is_mbb_enabled());
   ASSERT_TRUE(actual_request->has_password_reuse_event());
   const auto& reuse_event = actual_request->password_reuse_event();
   EXPECT_FALSE(reuse_event.is_chrome_signin_password());
 
   if (password_protection_service_->IsExtendedReporting() &&
       !password_protection_service_->IsIncognito()) {
-    ASSERT_EQ(2, reuse_event.domains_matching_password_size());
-    EXPECT_EQ(kSavedDomain, reuse_event.domains_matching_password(0));
-    EXPECT_EQ(kSavedDomain2, reuse_event.domains_matching_password(1));
+    ASSERT_EQ(3, reuse_event.domains_matching_password_size());
+    EXPECT_EQ("localhost:8080", reuse_event.domains_matching_password(0));
+    EXPECT_EQ("saved_domain.com", reuse_event.domains_matching_password(1));
+    EXPECT_EQ("saved_domain2.com", reuse_event.domains_matching_password(2));
   } else {
     EXPECT_EQ(0, reuse_event.domains_matching_password_size());
   }
+#if !defined(OS_ANDROID)
   VerifyContentAreaSizeCollection(*actual_request);
+#endif
 }
 
 TEST_P(PasswordProtectionServiceTest, VerifyShouldShowModalWarning) {
@@ -1136,29 +1170,13 @@ TEST_P(PasswordProtectionServiceTest, VerifyShouldShowModalWarning) {
       LoginReputationClientRequest::UNFAMILIAR_LOGIN_PAGE,
       reused_password_account_type, LoginReputationClientResponse::PHISHING));
 
-  // Don't show modal warning if it is a saved password reuse and the experiment
-  // isn't on.
-  base::test::ScopedFeatureList feature_list;
-  feature_list.InitAndDisableFeature(
-      safe_browsing::kPasswordProtectionForSignedInUsers);
   reused_password_account_type.set_account_type(
       ReusedPasswordAccountType::SAVED_PASSWORD);
-  EXPECT_FALSE(password_protection_service_->ShouldShowModalWarning(
-      LoginReputationClientRequest::PASSWORD_REUSE_EVENT,
-      reused_password_account_type, LoginReputationClientResponse::PHISHING));
 
-  {
-    base::test::ScopedFeatureList feature_list;
-    feature_list.InitAndEnableFeature(
-        safe_browsing::kPasswordProtectionForSavedPasswords);
-    EXPECT_TRUE(password_protection_service_->ShouldShowModalWarning(
-        LoginReputationClientRequest::PASSWORD_REUSE_EVENT,
-        reused_password_account_type, LoginReputationClientResponse::PHISHING));
-    EXPECT_TRUE(password_protection_service_->ShouldShowModalWarning(
-        LoginReputationClientRequest::PASSWORD_REUSE_EVENT,
-        reused_password_account_type,
-        LoginReputationClientResponse::LOW_REPUTATION));
-  }
+  EXPECT_TRUE(password_protection_service_->ShouldShowModalWarning(
+      LoginReputationClientRequest::PASSWORD_REUSE_EVENT,
+      reused_password_account_type,
+      LoginReputationClientResponse::LOW_REPUTATION));
 
   {
     base::test::ScopedFeatureList feature_list;
@@ -1182,7 +1200,13 @@ TEST_P(PasswordProtectionServiceTest, VerifyShouldShowModalWarning) {
     reused_password_account_type.set_account_type(
         ReusedPasswordAccountType::GMAIL);
     reused_password_account_type.set_is_account_syncing(false);
+// Currently password reuse warnings are only supported for saved passwords on
+// Android.
+#if defined(OS_ANDROID)
+    EXPECT_FALSE(password_protection_service_->ShouldShowModalWarning(
+#else
     EXPECT_TRUE(password_protection_service_->ShouldShowModalWarning(
+#endif
         LoginReputationClientRequest::PASSWORD_REUSE_EVENT,
         reused_password_account_type, LoginReputationClientResponse::PHISHING));
   }
@@ -1197,7 +1221,13 @@ TEST_P(PasswordProtectionServiceTest, VerifyShouldShowModalWarning) {
   reused_password_account_type.set_account_type(
       ReusedPasswordAccountType::GMAIL);
   reused_password_account_type.set_is_account_syncing(true);
+// Currently password reuse warnings are only supported for saved passwords on
+// Android.
+#if defined(OS_ANDROID)
+  EXPECT_FALSE(password_protection_service_->ShouldShowModalWarning(
+#else
   EXPECT_TRUE(password_protection_service_->ShouldShowModalWarning(
+#endif
       LoginReputationClientRequest::PASSWORD_REUSE_EVENT,
       reused_password_account_type, LoginReputationClientResponse::PHISHING));
 
@@ -1221,12 +1251,24 @@ TEST_P(PasswordProtectionServiceTest, VerifyShouldShowModalWarning) {
       PHISHING_REUSE,
       password_protection_service_->GetPasswordProtectionWarningTriggerPref(
           reused_password_account_type));
+// Currently password reuse warnings are only supported for saved passwords on
+// Android.
+#if defined(OS_ANDROID)
+  EXPECT_FALSE(password_protection_service_->ShouldShowModalWarning(
+#else
   EXPECT_TRUE(password_protection_service_->ShouldShowModalWarning(
+#endif
       LoginReputationClientRequest::PASSWORD_REUSE_EVENT,
       reused_password_account_type, LoginReputationClientResponse::PHISHING));
 
   // Modal dialog warning is also shown on LOW_REPUTATION verdict.
+// Currently password reuse warnings are only supported for saved passwords on
+// Android.
+#if defined(OS_ANDROID)
+  EXPECT_FALSE(password_protection_service_->ShouldShowModalWarning(
+#else
   EXPECT_TRUE(password_protection_service_->ShouldShowModalWarning(
+#endif
       LoginReputationClientRequest::PASSWORD_REUSE_EVENT,
       reused_password_account_type,
       LoginReputationClientResponse::LOW_REPUTATION));
@@ -1247,7 +1289,13 @@ TEST_P(PasswordProtectionServiceTest, VerifyShouldShowModalWarning) {
   EXPECT_CALL(*password_protection_service_,
               GetPasswordProtectionWarningTriggerPref(_))
       .WillRepeatedly(Return(PHISHING_REUSE));
+// Currently password reuse warnings are only supported for saved passwords on
+// Android.
+#if defined(OS_ANDROID)
+  EXPECT_FALSE(password_protection_service_->ShouldShowModalWarning(
+#else
   EXPECT_TRUE(password_protection_service_->ShouldShowModalWarning(
+#endif
       LoginReputationClientRequest::PASSWORD_REUSE_EVENT,
       reused_password_account_type, LoginReputationClientResponse::PHISHING));
 }
@@ -1286,33 +1334,25 @@ TEST_P(PasswordProtectionServiceTest, VerifyIsSupportedPasswordTypeForPinging) {
       .WillRepeatedly(Return(account_info));
 
   EXPECT_TRUE(password_protection_service_->IsSupportedPasswordTypeForPinging(
-      PasswordType::SAVED_PASSWORD));
-  EXPECT_TRUE(password_protection_service_->IsSupportedPasswordTypeForPinging(
       PasswordType::PRIMARY_ACCOUNT_PASSWORD));
+#if defined(OS_ANDROID)
   EXPECT_FALSE(password_protection_service_->IsSupportedPasswordTypeForPinging(
       PasswordType::OTHER_GAIA_PASSWORD));
+#else
+  EXPECT_TRUE(password_protection_service_->IsSupportedPasswordTypeForPinging(
+      PasswordType::OTHER_GAIA_PASSWORD));
+#endif
   EXPECT_TRUE(password_protection_service_->IsSupportedPasswordTypeForPinging(
       PasswordType::ENTERPRISE_PASSWORD));
-
   EXPECT_TRUE(password_protection_service_->IsSupportedPasswordTypeForPinging(
       PasswordType::SAVED_PASSWORD));
-  EXPECT_TRUE(password_protection_service_->IsSupportedPasswordTypeForPinging(
-      PasswordType::ENTERPRISE_PASSWORD));
   {
     base::test::ScopedFeatureList feature_list;
     feature_list.InitAndDisableFeature(
         safe_browsing::kPasswordProtectionForSignedInUsers);
-    // Only ping for signed in, non-syncing users if the experiment is on.
     EXPECT_FALSE(
         password_protection_service_->IsSupportedPasswordTypeForPinging(
             PasswordType::OTHER_GAIA_PASSWORD));
-  }
-  {
-    base::test::ScopedFeatureList feature_list;
-    feature_list.InitAndEnableFeature(
-        safe_browsing::kPasswordProtectionForSignedInUsers);
-    EXPECT_TRUE(password_protection_service_->IsSupportedPasswordTypeForPinging(
-        PasswordType::OTHER_GAIA_PASSWORD));
   }
 }
 
@@ -1326,12 +1366,15 @@ TEST_P(PasswordProtectionServiceTest, TestPingsForAboutBlank) {
   std::unique_ptr<content::WebContents> web_contents = GetWebContents();
   password_protection_service_->StartRequest(
       web_contents.get(), GURL("about:blank"), GURL(), GURL(), "username",
-      PasswordType::SAVED_PASSWORD, {"example.com"},
+      PasswordType::SAVED_PASSWORD,
+      {{"example1.com", ASCIIToUTF16("username")}},
       LoginReputationClientRequest::UNFAMILIAR_LOGIN_PAGE, true);
   base::RunLoop().RunUntilIdle();
   histograms_.ExpectTotalCount(kPasswordOnFocusRequestOutcomeHistogram, 1);
 }
 
+// DOM features and visual features are not supported on Android.
+#if !defined(OS_ANDROID)
 TEST_P(PasswordProtectionServiceTest,
        TestVisualFeaturesPopulatedInOnFocusPing) {
   LoginReputationClientResponse expected_response =
@@ -1345,7 +1388,7 @@ TEST_P(PasswordProtectionServiceTest,
   std::unique_ptr<content::WebContents> web_contents = GetWebContents();
   password_protection_service_->StartRequest(
       web_contents.get(), GURL("about:blank"), GURL(), GURL(), kUserName,
-      PasswordType::SAVED_PASSWORD, {"example.com"},
+      PasswordType::SAVED_PASSWORD, {{"example.com", ASCIIToUTF16("username")}},
       LoginReputationClientRequest::UNFAMILIAR_LOGIN_PAGE, true);
   base::RunLoop().RunUntilIdle();
 
@@ -1370,7 +1413,7 @@ TEST_P(PasswordProtectionServiceTest, TestDomFeaturesPopulated) {
   std::unique_ptr<content::WebContents> web_contents = GetWebContents();
   password_protection_service_->StartRequest(
       web_contents.get(), GURL("about:blank"), GURL(), GURL(), kUserName,
-      PasswordType::SAVED_PASSWORD, {"example.com"},
+      PasswordType::SAVED_PASSWORD, {{"example.com", ASCIIToUTF16("username")}},
       LoginReputationClientRequest::UNFAMILIAR_LOGIN_PAGE, true);
   base::RunLoop().RunUntilIdle();
 
@@ -1393,7 +1436,7 @@ TEST_P(PasswordProtectionServiceTest, TestDomFeaturesTimeout) {
   std::unique_ptr<content::WebContents> web_contents = GetWebContents();
   password_protection_service_->StartRequest(
       web_contents.get(), GURL("about:blank"), GURL(), GURL(), kUserName,
-      PasswordType::SAVED_PASSWORD, {"example.com"},
+      PasswordType::SAVED_PASSWORD, {{"example.com", ASCIIToUTF16("username")}},
       LoginReputationClientRequest::UNFAMILIAR_LOGIN_PAGE, true);
   task_environment_.FastForwardUntilNoTasksRemain();
 
@@ -1402,6 +1445,7 @@ TEST_P(PasswordProtectionServiceTest, TestDomFeaturesTimeout) {
   EXPECT_FALSE(password_protection_service_->GetLatestRequestProto()
                    ->has_dom_features());
 }
+#endif
 
 TEST_P(PasswordProtectionServiceTest, TestRequestCancelOnTimeout) {
   std::unique_ptr<content::WebContents> web_contents = GetWebContents();
@@ -1442,5 +1486,4 @@ INSTANTIATE_TEST_SUITE_P(Regular,
 INSTANTIATE_TEST_SUITE_P(SBER,
                          PasswordProtectionServiceTest,
                          ::testing::Values(true));
-
 }  // namespace safe_browsing

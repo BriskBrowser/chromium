@@ -7,11 +7,13 @@
 #include "base/bind.h"
 #include "base/json/json_reader.h"
 #include "base/strings/stringprintf.h"
-#include "chrome/common/media_router/media_source.h"
+#include "components/media_router/common/media_source.h"
 #include "testing/gmock/include/gmock/gmock.h"
 
 #if !defined(OS_ANDROID)
 #include "base/json/json_reader.h"
+#include "content/public/browser/browser_task_traits.h"
+#include "content/public/browser/browser_thread.h"
 #include "services/network/public/cpp/simple_url_loader.h"
 #include "url/gurl.h"
 #endif
@@ -38,7 +40,7 @@ MockPresentationConnectionProxy::MockPresentationConnectionProxy() {}
 MockPresentationConnectionProxy::~MockPresentationConnectionProxy() {}
 
 #if !defined(OS_ANDROID)
-MockDialMediaSinkService::MockDialMediaSinkService() : DialMediaSinkService() {}
+MockDialMediaSinkService::MockDialMediaSinkService() = default;
 MockDialMediaSinkService::~MockDialMediaSinkService() = default;
 
 MockCastMediaSinkService::MockCastMediaSinkService() : CastMediaSinkService() {}
@@ -53,6 +55,10 @@ MockCastAppDiscoveryService::StartObservingMediaSinks(
     const CastAppDiscoveryService::SinkQueryCallback& callback) {
   DoStartObservingMediaSinks(source);
   return callbacks_.Add(callback);
+}
+scoped_refptr<base::SequencedTaskRunner>
+MockCastAppDiscoveryService::task_runner() {
+  return base::CreateSingleThreadTaskRunner({content::BrowserThread::IO});
 }
 
 MockDialAppDiscoveryService::MockDialAppDiscoveryService() = default;

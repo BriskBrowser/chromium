@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "base/macros.h"
+#include "base/numerics/safe_conversions.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/search_engines/template_url_service_factory.h"
 #include "chrome/browser/themes/theme_service.h"
@@ -64,7 +65,7 @@ KeywordHintView::KeywordHintView(LocationBarView* parent, Profile* profile)
   auto* layout = SetLayoutManager(std::make_unique<views::FlexLayout>());
   layout->SetCrossAxisAlignment(views::LayoutAlignment::kCenter)
       .SetDefault(views::kFlexBehaviorKey,
-                  views::FlexSpecification::ForSizeRule(
+                  views::FlexSpecification(
                       views::MinimumFlexSizeRule::kPreferredSnapToZero,
                       views::MaximumFlexSizeRule::kPreferred, true));
 
@@ -74,9 +75,8 @@ KeywordHintView::KeywordHintView(LocationBarView* parent, Profile* profile)
   chip_container->SetLayoutManager(std::make_unique<views::FillLayout>());
   chip_container->SetProperty(
       views::kFlexBehaviorKey,
-      views::FlexSpecification::ForSizeRule(
-          views::MinimumFlexSizeRule::kPreferred,
-          views::MaximumFlexSizeRule::kPreferred, true));
+      views::FlexSpecification(views::MinimumFlexSizeRule::kPreferred,
+                               views::MaximumFlexSizeRule::kPreferred, true));
   chip_container->SizeToPreferredSize();
   chip_container_ = AddChildView(std::move(chip_container));
 
@@ -164,7 +164,7 @@ gfx::Insets KeywordHintView::GetInsets() const {
       << "LOCATION_BAR_HEIGHT must be tall enough to contain the chip.";
   const float subsumed_width =
       std::sqrt(hypotenuse * hypotenuse - extent * extent);
-  const int horizontal_margin = gfx::ToCeiledInt(radius - subsumed_width);
+  const int horizontal_margin = base::ClampCeil(radius - subsumed_width);
   // This ensures the end of the KeywordHintView doesn't touch the edge of the
   // omnibox, but the padding should be symmetrical, so use it on both sides,
   // collapsing into the horizontal padding used by the previous View.
@@ -186,6 +186,7 @@ const char* KeywordHintView::GetClassName() const {
 }
 
 void KeywordHintView::OnThemeChanged() {
+  views::Button::OnThemeChanged();
   const ui::ThemeProvider* theme_provider = GetThemeProvider();
 
   const SkColor leading_label_text_color =

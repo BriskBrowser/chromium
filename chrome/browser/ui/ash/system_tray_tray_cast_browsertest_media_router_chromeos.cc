@@ -14,8 +14,9 @@
 #include "chrome/browser/media/router/media_sinks_observer.h"
 #include "chrome/browser/media/router/test/mock_media_router.h"
 #include "chrome/browser/ui/ash/cast_config_controller_media_router.h"
-#include "chrome/common/media_router/media_source.h"
 #include "chrome/test/base/in_process_browser_test.h"
+#include "components/media_router/common/media_source.h"
+#include "content/public/test/browser_test.h"
 #include "content/public/test/test_utils.h"
 #include "ui/message_center/message_center.h"
 #include "url/gurl.h"
@@ -37,8 +38,8 @@ media_router::MediaRoute MakeRoute(const std::string& route_id,
                                    const std::string& sink_id,
                                    bool is_local) {
   return media_router::MediaRoute(
-      route_id, media_router::MediaSource::ForDesktop(), sink_id, "description",
-      is_local, true /*for_display*/);
+      route_id, media_router::MediaSource::ForUnchosenDesktop(), sink_id,
+      "description", is_local, true /*for_display*/);
 }
 
 class SystemTrayTrayCastMediaRouterChromeOSTest : public InProcessBrowserTest {

@@ -4,7 +4,7 @@
 
 #include "content/renderer/pepper/ppb_audio_impl.h"
 
-#include "base/logging.h"
+#include "base/check.h"
 #include "content/renderer/pepper/pepper_audio_controller.h"
 #include "content/renderer/pepper/pepper_platform_audio_output.h"
 #include "content/renderer/pepper/pepper_plugin_instance_impl.h"
@@ -17,6 +17,7 @@
 #include "ppapi/thunk/enter.h"
 #include "ppapi/thunk/ppb_audio_config_api.h"
 #include "ppapi/thunk/thunk.h"
+#include "third_party/blink/public/web/web_local_frame.h"
 
 using ppapi::PpapiGlobals;
 using ppapi::thunk::EnterResourceNoLock;
@@ -134,8 +135,7 @@ int32_t PPB_Audio_Impl::Open(PP_Resource config,
   audio_ = PepperPlatformAudioOutput::Create(
       static_cast<int>(enter.object()->GetSampleRate()),
       static_cast<int>(enter.object()->GetSampleFrameCount()),
-      instance->render_frame()->GetRoutingID(),
-      this);
+      instance->render_frame()->GetWebFrame()->GetFrameToken(), this);
   if (!audio_)
     return PP_ERROR_FAILED;
 
@@ -157,10 +157,10 @@ int32_t PPB_Audio_Impl::GetSharedMemory(base::UnsafeSharedMemoryRegion** shm) {
 
 void PPB_Audio_Impl::OnSetStreamInfo(
     base::UnsafeSharedMemoryRegion shared_memory_region,
-    base::SyncSocket::Handle socket_handle) {
+    base::SyncSocket::ScopedHandle socket_handle) {
   EnterResourceNoLock<PPB_AudioConfig_API> enter(config_, true);
-  SetStreamInfo(pp_instance(), std::move(shared_memory_region), socket_handle,
-                enter.object()->GetSampleRate(),
+  SetStreamInfo(pp_instance(), std::move(shared_memory_region),
+                std::move(socket_handle), enter.object()->GetSampleRate(),
                 enter.object()->GetSampleFrameCount());
 }
 

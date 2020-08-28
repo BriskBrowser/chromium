@@ -216,6 +216,8 @@ const char kKCMY[] = "KCMY";
 const char kCMY_K[] = "CMY+K";
 const char kCMY[] = "CMY";
 const char kColor[] = "Color";
+const char kEpsonColor[] = "COLOR";
+const char kEpsonMono[] = "MONO";
 const char kFullColor[] = "FullColor";
 const char kGray[] = "Gray";
 const char kGrayscale[] = "Grayscale";
@@ -227,6 +229,10 @@ const char kNormalGray[] = "Normal.Gray";
 const char kRGB[] = "RGB";
 const char kRGBA[] = "RGBA";
 const char kRGB16[] = "RGB16";
+const char kSharpCMColor[] = "CMColor";
+const char kSharpCMBW[] = "CMBW";
+const char kXeroxAutomatic[] = "Automatic";
+const char kXeroxBW[] = "BW";
 #endif
 
 }  // namespace printing

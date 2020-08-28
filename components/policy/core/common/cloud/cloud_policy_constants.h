@@ -58,6 +58,7 @@ POLICY_EXPORT extern const char kValueRequestInitialEnrollmentStateRetrieval[];
 POLICY_EXPORT extern const char kValueRequestUploadPolicyValidationReport[];
 POLICY_EXPORT extern const char kValueRequestPublicSamlUser[];
 POLICY_EXPORT extern const char kValueRequestChromeOsUserReport[];
+POLICY_EXPORT extern const char kValueRequestCertProvisioningRequest[];
 
 // Policy type strings for the policy_type field in PolicyFetchRequest.
 POLICY_EXPORT extern const char kChromeDevicePolicyType[];
@@ -66,8 +67,11 @@ POLICY_EXPORT extern const char kChromePublicAccountPolicyType[];
 POLICY_EXPORT extern const char kChromeExtensionPolicyType[];
 POLICY_EXPORT extern const char kChromeSigninExtensionPolicyType[];
 POLICY_EXPORT extern const char kChromeMachineLevelUserCloudPolicyType[];
+POLICY_EXPORT extern const char kChromeMachineLevelUserCloudPolicyIOSType[];
 POLICY_EXPORT extern const char kChromeMachineLevelExtensionCloudPolicyType[];
 POLICY_EXPORT extern const char kChromeRemoteCommandPolicyType[];
+
+POLICY_EXPORT extern const char kChromeMachineLevelUserCloudPolicyTypeBase64[];
 
 // These codes are sent in the |error_code| field of PolicyFetchResponse.
 enum PolicyFetchStatus {
@@ -130,6 +134,10 @@ enum DeviceManagementStatus {
   DM_STATUS_SERVICE_ARC_DISABLED = 904,
   // Service error: Non-dasher account with packaged license can't enroll.
   DM_STATUS_SERVICE_CONSUMER_ACCOUNT_WITH_PACKAGED_LICENSE = 905,
+  // Service error: Not eligible enterprise account can't enroll.
+  DM_STATUS_SERVICE_ENTERPRISE_ACCOUNT_IS_NOT_ELIGIBLE_TO_ENROLL = 906,
+  // Service error: Enterprise TOS has not been accepted.
+  DM_STATUS_SERVICE_ENTERPRISE_TOS_HAS_NOT_BEEN_ACCEPTED = 907,
 };
 
 // List of modes that the device can be locked into.

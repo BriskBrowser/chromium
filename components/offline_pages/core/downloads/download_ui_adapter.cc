@@ -8,9 +8,10 @@
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
+#include "base/check.h"
 #include "base/guid.h"
-#include "base/logging.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/notreached.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/trace_event/trace_event.h"
 #include "components/offline_items_collection/core/fail_state.h"
@@ -260,6 +261,12 @@ void DownloadUIAdapter::RenameItem(const ContentId& id,
   NOTREACHED();
 }
 
+void DownloadUIAdapter::ChangeSchedule(
+    const ContentId& id,
+    base::Optional<OfflineItemSchedule> schedule) {
+  NOTREACHED();
+}
+
 void DownloadUIAdapter::OnPageGetForVisuals(
     const ContentId& id,
     GetVisualsOptions options,
@@ -410,17 +417,18 @@ void DownloadUIAdapter::OnAllRequestsGetForGetItem(
       FROM_HERE, base::BindOnce(std::move(callback), offline_item));
 }
 
-void DownloadUIAdapter::OpenItem(LaunchLocation location, const ContentId& id) {
+void DownloadUIAdapter::OpenItem(const OpenParams& open_params,
+                                 const ContentId& id) {
   PageCriteria criteria;
   criteria.guid = id.id;
   criteria.maximum_matches = 1;
   model_->GetPagesWithCriteria(
       criteria, base::BindOnce(&DownloadUIAdapter::OnPageGetForOpenItem,
-                               weak_ptr_factory_.GetWeakPtr(), location));
+                               weak_ptr_factory_.GetWeakPtr(), open_params));
 }
 
 void DownloadUIAdapter::OnPageGetForOpenItem(
-    LaunchLocation location,
+    const OpenParams& open_params,
     const std::vector<OfflinePageItem>& pages) {
   if (pages.empty())
     return;
@@ -428,7 +436,7 @@ void DownloadUIAdapter::OnPageGetForOpenItem(
   const bool is_suggested = GetPolicy(page->client_id.name_space).is_suggested;
   OfflineItem item =
       OfflineItemConversions::CreateOfflineItem(*page, is_suggested);
-  delegate_->OpenItem(item, page->offline_id, location);
+  delegate_->OpenItem(item, page->offline_id, open_params);
 }
 
 void DownloadUIAdapter::RemoveItem(const ContentId& id) {

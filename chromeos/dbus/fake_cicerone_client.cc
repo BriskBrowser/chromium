@@ -44,6 +44,15 @@ FakeCiceroneClient::FakeCiceroneClient() {
 
   cancel_upgrade_container_response_.set_status(
       vm_tools::cicerone::CancelUpgradeContainerResponse::CANCELLED);
+
+  start_lxd_response_.set_status(
+      vm_tools::cicerone::StartLxdResponse::ALREADY_RUNNING);
+
+  add_file_watch_response_.set_status(
+      vm_tools::cicerone::AddFileWatchResponse::SUCCEEDED);
+
+  remove_file_watch_response_.set_status(
+      vm_tools::cicerone::RemoveFileWatchResponse::SUCCEEDED);
 }
 
 FakeCiceroneClient::~FakeCiceroneClient() = default;
@@ -54,6 +63,17 @@ void FakeCiceroneClient::AddObserver(Observer* observer) {
 
 void FakeCiceroneClient::RemoveObserver(Observer* observer) {
   observer_list_.RemoveObserver(observer);
+}
+
+void FakeCiceroneClient::NotifyCiceroneStopped() {
+  for (auto& observer : observer_list_) {
+    observer.CiceroneServiceStopped();
+  }
+}
+void FakeCiceroneClient::NotifyCiceroneStarted() {
+  for (auto& observer : observer_list_) {
+    observer.CiceroneServiceStarted();
+  }
 }
 
 bool FakeCiceroneClient::IsContainerStartedSignalConnected() {
@@ -108,6 +128,14 @@ bool FakeCiceroneClient::IsUpgradeContainerProgressSignalConnected() {
   return is_upgrade_container_progress_signal_connected_;
 }
 
+bool FakeCiceroneClient::IsStartLxdProgressSignalConnected() {
+  return is_start_lxd_progress_signal_connected_;
+}
+
+bool FakeCiceroneClient::IsFileWatchTriggeredSignalConnected() {
+  return is_file_watch_triggered_signal_connected_;
+}
+
 // Currently no tests need to change the output of this method. If you want to
 // add one, make it return a variable like the above examples.
 bool FakeCiceroneClient::IsPendingAppListUpdatesSignalConnected() {
@@ -118,9 +146,13 @@ void FakeCiceroneClient::LaunchContainerApplication(
     const vm_tools::cicerone::LaunchContainerApplicationRequest& request,
     DBusMethodCallback<vm_tools::cicerone::LaunchContainerApplicationResponse>
         callback) {
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE, base::BindOnce(std::move(callback),
-                                launch_container_application_response_));
+  if (launch_container_application_callback_) {
+    launch_container_application_callback_.Run(request, std::move(callback));
+  } else {
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
+        FROM_HERE, base::BindOnce(std::move(callback),
+                                  launch_container_application_response_));
+  }
 }
 
 void FakeCiceroneClient::GetContainerAppIcons(
@@ -148,6 +180,11 @@ void FakeCiceroneClient::InstallLinuxPackage(
   base::ThreadTaskRunnerHandle::Get()->PostTask(
       FROM_HERE,
       base::BindOnce(std::move(callback), install_linux_package_response_));
+}
+
+void FakeCiceroneClient::SetOnLaunchContainerApplicationCallback(
+    LaunchContainerApplicationCallback callback) {
+  launch_container_application_callback_ = std::move(callback);
 }
 
 void FakeCiceroneClient::SetOnUninstallPackageOwningFileCallback(
@@ -190,7 +227,7 @@ void FakeCiceroneClient::CreateLxdContainer(
   signal.set_status(lxd_container_created_signal_status_);
   base::ThreadTaskRunnerHandle::Get()->PostTask(
       FROM_HERE, base::BindOnce(&FakeCiceroneClient::NotifyLxdContainerCreated,
-                                base::Unretained(this), std::move(signal)));
+                                weak_factory_.GetWeakPtr(), std::move(signal)));
 }
 
 void FakeCiceroneClient::DeleteLxdContainer(
@@ -221,7 +258,7 @@ void FakeCiceroneClient::StartLxdContainer(
   signal.mutable_os_release()->CopyFrom(lxd_container_os_release_);
   base::ThreadTaskRunnerHandle::Get()->PostTask(
       FROM_HERE, base::BindOnce(&FakeCiceroneClient::NotifyLxdContainerStarting,
-                                base::Unretained(this), std::move(signal)));
+                                weak_factory_.GetWeakPtr(), std::move(signal)));
 
   if (send_container_started_signal_) {
     // Trigger CiceroneClient::Observer::NotifyContainerStartedSignal.
@@ -231,8 +268,9 @@ void FakeCiceroneClient::StartLxdContainer(
     signal.set_container_name(request.container_name());
     signal.set_container_username(last_container_username_);
     base::ThreadTaskRunnerHandle::Get()->PostTask(
-        FROM_HERE, base::BindOnce(&FakeCiceroneClient::NotifyContainerStarted,
-                                  base::Unretained(this), std::move(signal)));
+        FROM_HERE,
+        base::BindOnce(&FakeCiceroneClient::NotifyContainerStarted,
+                       weak_factory_.GetWeakPtr(), std::move(signal)));
   }
 }
 
@@ -301,6 +339,16 @@ void FakeCiceroneClient::ApplyAnsiblePlaybook(
       base::BindOnce(std::move(callback), apply_ansible_playbook_response_));
 }
 
+void FakeCiceroneClient::ConfigureForArcSideload(
+    const vm_tools::cicerone::ConfigureForArcSideloadRequest& request,
+    DBusMethodCallback<vm_tools::cicerone::ConfigureForArcSideloadResponse>
+        callback) {
+  configure_for_arc_sideload_called_ = true;
+  base::ThreadTaskRunnerHandle::Get()->PostTask(
+      FROM_HERE,
+      base::BindOnce(std::move(callback), enable_arc_sideload_response_));
+}
+
 void FakeCiceroneClient::UpgradeContainer(
     const vm_tools::cicerone::UpgradeContainerRequest& request,
     DBusMethodCallback<vm_tools::cicerone::UpgradeContainerResponse> callback) {
@@ -316,6 +364,36 @@ void FakeCiceroneClient::CancelUpgradeContainer(
   base::ThreadTaskRunnerHandle::Get()->PostTask(
       FROM_HERE,
       base::BindOnce(std::move(callback), cancel_upgrade_container_response_));
+}
+
+void FakeCiceroneClient::StartLxd(
+    const vm_tools::cicerone::StartLxdRequest& request,
+    DBusMethodCallback<vm_tools::cicerone::StartLxdResponse> callback) {
+  base::ThreadTaskRunnerHandle::Get()->PostTask(
+      FROM_HERE, base::BindOnce(std::move(callback), start_lxd_response_));
+}
+
+void FakeCiceroneClient::AddFileWatch(
+    const vm_tools::cicerone::AddFileWatchRequest& request,
+    DBusMethodCallback<vm_tools::cicerone::AddFileWatchResponse> callback) {
+  base::ThreadTaskRunnerHandle::Get()->PostTask(
+      FROM_HERE, base::BindOnce(std::move(callback), add_file_watch_response_));
+}
+
+void FakeCiceroneClient::RemoveFileWatch(
+    const vm_tools::cicerone::RemoveFileWatchRequest& request,
+    DBusMethodCallback<vm_tools::cicerone::RemoveFileWatchResponse> callback) {
+  base::ThreadTaskRunnerHandle::Get()->PostTask(
+      FROM_HERE,
+      base::BindOnce(std::move(callback), remove_file_watch_response_));
+}
+
+void FakeCiceroneClient::GetVshSession(
+    const vm_tools::cicerone::GetVshSessionRequest& request,
+    DBusMethodCallback<vm_tools::cicerone::GetVshSessionResponse> callback) {
+  base::ThreadTaskRunnerHandle::Get()->PostTask(
+      FROM_HERE,
+      base::BindOnce(std::move(callback), get_vsh_session_response_));
 }
 
 void FakeCiceroneClient::NotifyLxdContainerCreated(
@@ -392,6 +470,20 @@ void FakeCiceroneClient::NotifyUpgradeContainerProgress(
     const vm_tools::cicerone::UpgradeContainerProgressSignal& signal) {
   for (auto& observer : observer_list_) {
     observer.OnUpgradeContainerProgress(signal);
+  }
+}
+
+void FakeCiceroneClient::NotifyStartLxdProgress(
+    const vm_tools::cicerone::StartLxdProgressSignal& signal) {
+  for (auto& observer : observer_list_) {
+    observer.OnStartLxdProgress(signal);
+  }
+}
+
+void FakeCiceroneClient::NotifyFileWatchTriggered(
+    const vm_tools::cicerone::FileWatchTriggeredSignal& signal) {
+  for (auto& observer : observer_list_) {
+    observer.OnFileWatchTriggered(signal);
   }
 }
 

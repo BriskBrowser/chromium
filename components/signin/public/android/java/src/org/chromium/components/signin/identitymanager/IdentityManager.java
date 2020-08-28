@@ -5,16 +5,15 @@
 package org.chromium.components.signin.identitymanager;
 
 import android.accounts.Account;
-import android.support.annotation.MainThread;
-import android.support.annotation.Nullable;
 
+import androidx.annotation.MainThread;
+import androidx.annotation.Nullable;
 import androidx.annotation.VisibleForTesting;
 
 import org.chromium.base.ObserverList;
 import org.chromium.base.annotations.CalledByNative;
 import org.chromium.base.annotations.NativeMethods;
 import org.chromium.components.signin.AccountManagerFacade;
-import org.chromium.components.signin.base.CoreAccountId;
 import org.chromium.components.signin.base.CoreAccountInfo;
 
 /**
@@ -116,7 +115,7 @@ public class IdentityManager {
      * Returns whether the user's primary account is available.
      */
     public boolean hasPrimaryAccount() {
-        return IdentityManagerJni.get().hasPrimaryAccount(mNativeIdentityManager);
+        return getPrimaryAccountInfo(ConsentLevel.SYNC) != null;
     }
 
     /**
@@ -127,21 +126,23 @@ public class IdentityManager {
         return IdentityManagerJni.get().getAccountsWithRefreshTokens(mNativeIdentityManager);
     }
 
-    /**
-     * Provides access to the core information of the user's primary account.
-     * Returns null if no such info is available, either because there
-     * is no primary account yet or because the user signed out.
-     */
+    // TODO(https://crbug.com/1046746): Remove this after migrating internal usages.
+    /** @deprecated Use {@link #getPrimaryAccountInfo(int)} instead. */
+    @Deprecated
     public @Nullable CoreAccountInfo getPrimaryAccountInfo() {
-        return IdentityManagerJni.get().getPrimaryAccountInfo(mNativeIdentityManager);
+        return getPrimaryAccountInfo(ConsentLevel.SYNC);
     }
 
     /**
-     * Provides access to the account ID of the user's primary account. Returns null if no such info
-     * is available.
+     * Provides access to the core information of the user's primary account.
+     * Returns non-null if the primary account was set AND the required consent level was granted,
+     * null otherwise.
+     *
+     * @param consentLevel {@link ConsentLevel} necessary for the caller. Most features should use
+     *         {@link ConsentLevel.SYNC}.
      */
-    public @Nullable CoreAccountId getPrimaryAccountId() {
-        return IdentityManagerJni.get().getPrimaryAccountId(mNativeIdentityManager);
+    public @Nullable CoreAccountInfo getPrimaryAccountInfo(@ConsentLevel int consentLevel) {
+        return IdentityManagerJni.get().getPrimaryAccountInfo(mNativeIdentityManager, consentLevel);
     }
 
     /**
@@ -223,13 +224,12 @@ public class IdentityManager {
     }
 
     @NativeMethods
-    interface Natives {
-        public @Nullable CoreAccountInfo getPrimaryAccountInfo(long nativeIdentityManager);
-        public @Nullable CoreAccountId getPrimaryAccountId(long nativeIdentityManager);
-        public boolean hasPrimaryAccount(long nativeIdentityManager);
-        public @Nullable CoreAccountInfo
-        findExtendedAccountInfoForAccountWithRefreshTokenByEmailAddress(
+    public interface Natives {
+        @Nullable
+        CoreAccountInfo getPrimaryAccountInfo(long nativeIdentityManager, int consentLevel);
+        @Nullable
+        CoreAccountInfo findExtendedAccountInfoForAccountWithRefreshTokenByEmailAddress(
                 long nativeIdentityManager, String email);
-        public CoreAccountInfo[] getAccountsWithRefreshTokens(long nativeIdentityManager);
+        CoreAccountInfo[] getAccountsWithRefreshTokens(long nativeIdentityManager);
     }
 }

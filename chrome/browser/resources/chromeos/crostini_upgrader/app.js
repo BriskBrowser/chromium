@@ -24,10 +24,15 @@ const State = {
   BACKUP_SUCCEEDED: 'backupSucceeded',
   PRECHECKS_FAILED: 'prechecksFailed',
   UPGRADING: 'upgrading',
+  OFFER_RESTORE: 'offerRestore',
+  RESTORE: 'restore',
+  RESTORE_SUCCEEDED: 'restoreSucceeded',
   ERROR: 'error',
   CANCELING: 'canceling',
   SUCCEEDED: 'succeeded',
 };
+
+const kMaxUpgradeAttempts = 3;
 
 
 Polymer({
@@ -54,13 +59,44 @@ Polymer({
     },
 
     /** @private */
-    upgraderProgress_: {
+    upgradeProgress_: {
+      type: Number,
+      value: 0,
+    },
+
+    /** @private */
+    restoreProgress_: {
       type: Number,
     },
 
     /** @private */
     progressMessages_: {
       type: Array,
+      value: [],
+    },
+
+    /** @private */
+    progressLineNumber_: {
+      type: Number,
+      value: 0,
+    },
+
+    /** @private */
+    lastProgressLine_: {
+      type: String,
+      value: '',
+    },
+
+    /** @private */
+    progressLineDisplayMs_: {
+      type: Number,
+      value: 300,
+    },
+
+    /** @private */
+    upgradeAttemptCount_: {
+      type: Number,
+      value: 0,
     },
 
     /**
@@ -79,16 +115,16 @@ Polymer({
 
     this.listenerIds_ = [
       callbackRouter.onBackupProgress.addListener((percent) => {
-        assert(this.state_ === State.BACKUP);
+        this.state_ = State.BACKUP;
         this.backupProgress_ = percent;
       }),
-      callbackRouter.onBackupSucceeded.addListener(() => {
+      callbackRouter.onBackupSucceeded.addListener((wasCancelled) => {
         assert(this.state_ === State.BACKUP);
         this.state_ = State.BACKUP_SUCCEEDED;
         // We do a short (2 second) interstitial display of the backup success
         // message before continuing the upgrade.
         var timeout = new Promise((resolve, reject) => {
-          setTimeout(resolve, 2000);
+          setTimeout(resolve, wasCancelled ? 0 : 2000);
         });
         // We also want to wait for the prechecks to finish.
         var callback = new Promise((resolve, reject) => {
@@ -115,6 +151,11 @@ Polymer({
       callbackRouter.onUpgradeProgress.addListener((progressMessages) => {
         assert(this.state_ === State.UPGRADING);
         this.progressMessages_.push(...progressMessages);
+        this.upgradeProgress_ = this.progressMessages_.length;
+
+        if (this.progressLineNumber_ < this.upgradeProgress_) {
+          this.updateProgressLine_();
+        }
       }),
       callbackRouter.onUpgradeSucceeded.addListener(() => {
         assert(this.state_ === State.UPGRADING);
@@ -122,15 +163,44 @@ Polymer({
       }),
       callbackRouter.onUpgradeFailed.addListener(() => {
         assert(this.state_ === State.UPGRADING);
+        if (this.upgradeAttemptCount_ < kMaxUpgradeAttempts) {
+          this.precheckThenUpgrade_();
+          return;
+        }
+        if (this.backupCheckboxChecked_) {
+          this.state_ = State.OFFER_RESTORE;
+        } else {
+          this.state_ = State.ERROR;
+        }
+      }),
+      callbackRouter.onRestoreProgress.addListener((percent) => {
+        assert(this.state_ === State.RESTORE);
+        this.restoreProgress_ = percent;
+      }),
+      callbackRouter.onRestoreSucceeded.addListener(() => {
+        assert(this.state_ === State.RESTORE);
+        this.state_ = State.RESTORE_SUCCEEDED;
+      }),
+      callbackRouter.onRestoreFailed.addListener(() => {
+        assert(this.state_ === State.RESTORE);
         this.state_ = State.ERROR;
       }),
       callbackRouter.onCanceled.addListener(() => {
-        this.closeDialog_();
+        if (this.state_ === State.RESTORE) {
+          this.state_ = State.ERROR;
+          return;
+        }
+        this.closePage_();
       }),
+      callbackRouter.requestClose.addListener(() => {
+        if (this.canCancel_(this.state_)) {
+          this.onCancelButtonClick_();
+        }
+      })
     ];
 
     document.addEventListener('keyup', event => {
-      if (event.key == 'Escape') {
+      if (event.key == 'Escape' && this.canCancel_(this.state_)) {
         this.onCancelButtonClick_();
         event.preventDefault();
       }
@@ -146,24 +216,32 @@ Polymer({
   },
 
   /** @private */
+  precheckThenUpgrade_() {
+    this.startPrechecks_(() => {
+      this.startUpgrade_();
+    }, () => {});
+  },
+
+  /** @private */
   onActionButtonClick_() {
     switch (this.state_) {
       case State.SUCCEEDED:
+      case State.RESTORE_SUCCEEDED:
         BrowserProxy.getInstance().handler.launch();
-        this.closeDialog_();
+        this.closePage_();
         break;
       case State.PRECHECKS_FAILED:
-        this.startPrechecks_(() => {
-          this.startUpgrade_();
-        }, () => {});
+        this.precheckThenUpgrade_();
+        break;
       case State.PROMPT:
         if (this.backupCheckboxChecked_) {
-          this.startBackup_();
+          this.startBackup_(/*showFileChooser=*/ false);
         } else {
-          this.startPrechecks_(() => {
-            this.startUpgrade_();
-          }, () => {});
+          this.precheckThenUpgrade_();
         }
+        break;
+      case State.OFFER_RESTORE:
+        this.startRestore_();
         break;
     }
   },
@@ -180,23 +258,28 @@ Polymer({
         break;
       case State.PRECHECKS_FAILED:
       case State.ERROR:
+      case State.OFFER_RESTORE:
       case State.SUCCEEDED:
-        this.closeDialog_();
+        this.closePage_();
         break;
       case State.CANCELING:
-        // Although cancel button has been disabled, we can reach here if users
-        // press <esc> key.
         break;
       default:
         assertNotReached();
     }
   },
 
-
   /** @private */
-  startBackup_() {
-    this.state_ = State.BACKUP;
-    BrowserProxy.getInstance().handler.backup();
+  onChangeLocationButtonClick_() {
+    this.startBackup_(/*showFileChooser=*/ true);
+  },
+
+  /**
+   * @param {boolean} showFileChooser
+   * @private
+   */
+  startBackup_(showFileChooser) {
+    BrowserProxy.getInstance().handler.backup(showFileChooser);
   },
 
   /** @private */
@@ -209,12 +292,19 @@ Polymer({
   /** @private */
   startUpgrade_() {
     this.state_ = State.UPGRADING;
+    this.upgradeAttemptCount_++;
     BrowserProxy.getInstance().handler.upgrade();
   },
 
   /** @private */
-  closeDialog_() {
-    BrowserProxy.getInstance().handler.close();
+  startRestore_() {
+    this.state_ = State.RESTORE;
+    BrowserProxy.getInstance().handler.restore();
+  },
+
+  /** @private */
+  closePage_() {
+    BrowserProxy.getInstance().handler.onPageClosed();
   },
 
   /**
@@ -232,11 +322,23 @@ Polymer({
    * @return {boolean}
    * @private
    */
+  isProgressMessageHidden_(state) {
+    return this.isState_(this.state_, State.PROMPT) ||
+        this.isState_(this.state_, State.ERROR);
+  },
+
+  /**
+   * @param {State} state
+   * @return {boolean}
+   * @private
+   */
   canDoAction_(state) {
     switch (state) {
       case State.PROMPT:
       case State.PRECHECKS_FAILED:
       case State.SUCCEEDED:
+      case State.OFFER_RESTORE:
+      case State.RESTORE_SUCCEEDED:
         return true;
     }
     return false;
@@ -250,8 +352,10 @@ Polymer({
   canCancel_(state) {
     switch (state) {
       case State.BACKUP:
+      case State.RESTORE:
       case State.BACKUP_SUCCEEDED:
       case State.CANCELING:
+      case State.SUCCEEDED:
         return false;
     }
     return true;
@@ -279,8 +383,15 @@ Polymer({
       case State.UPGRADING:
         titleId = 'upgradingTitle';
         break;
+      case State.OFFER_RESTORE:
       case State.ERROR:
         titleId = 'errorTitle';
+        break;
+      case State.RESTORE:
+        titleId = 'restoreTitle';
+        break;
+      case State.RESTORE_SUCCEEDED:
+        titleId = 'restoreSucceededTitle';
         break;
       case State.CANCELING:
         titleId = 'cancelingTitle';
@@ -308,7 +419,10 @@ Polymer({
       case State.ERROR:
         return loadTimeData.getString('cancel');
       case State.SUCCEEDED:
-        return loadTimeData.getString('launch');
+      case State.RESTORE_SUCCEEDED:
+        return loadTimeData.getString('done');
+      case State.OFFER_RESTORE:
+        return loadTimeData.getString('restore');
     }
     return '';
   },
@@ -321,7 +435,10 @@ Polymer({
   getCancelButtonLabel_(state) {
     switch (state) {
       case State.SUCCEEDED:
+      case State.RESTORE_SUCCEEDED:
         return loadTimeData.getString('close');
+      case State.PROMPT:
+        return loadTimeData.getString('notNow');
       default:
         return loadTimeData.getString('cancel');
     }
@@ -364,6 +481,12 @@ Polymer({
       case State.UPGRADING:
         messageId = 'upgradingMessage';
         break;
+      case State.RESTORE:
+        messageId = 'restoreMessage';
+        break;
+      case State.RESTORE_SUCCEEDED:
+        messageId = 'restoreSucceededMessage';
+        break;
       case State.SUCCEEDED:
         messageId = 'succeededMessage';
         break;
@@ -377,9 +500,7 @@ Polymer({
    * @private
    */
   getErrorMessage_(state) {
-    // TODO(nverne): Surface error messages once we have better details.
-    let messageId = null;
-    return messageId ? loadTimeData.getString(messageId) : '';
+    return this.progressMessages_.join('\n');
   },
 
   /**
@@ -390,9 +511,11 @@ Polymer({
   getIllustrationStyle_(state) {
     switch (state) {
       case State.BACKUP_SUCCEEDED:
+      case State.RESTORE_SUCCEEDED:
       case State.PRECHECKS_FAILED:
-      case State.ERROR:
         return 'img-square-illustration';
+      case State.ERROR:
+        return 'img-square-error-illustration';
     }
     return 'img-rect-illustration';
   },
@@ -405,7 +528,8 @@ Polymer({
   getIllustrationURI_(state) {
     switch (state) {
       case State.BACKUP_SUCCEEDED:
-        return 'images/success_illustration.png';
+      case State.RESTORE_SUCCEEDED:
+        return 'images/success_illustration.svg';
       case State.PRECHECKS_FAILED:
       case State.ERROR:
         return 'images/error_illustration.png';
@@ -413,4 +537,27 @@ Polymer({
     return 'images/linux_illustration.png';
   },
 
+  /**
+   * @param {State} state
+   * @return {boolean}
+   * @private
+   */
+  hideIllustration_(state) {
+    switch (state) {
+      case State.BACKUP:
+      case State.UPGRADING:
+        return true;
+    }
+    return false;
+  },
+
+  /** @private */
+  updateProgressLine_() {
+    if (this.progressLineNumber_ < this.upgradeProgress_) {
+      this.lastProgressLine_ =
+          this.progressMessages_[this.progressLineNumber_++];
+      var t = setTimeout(
+          this.updateProgressLine_.bind(this), this.progressLineDisplayMs_);
+    }
+  },
 });

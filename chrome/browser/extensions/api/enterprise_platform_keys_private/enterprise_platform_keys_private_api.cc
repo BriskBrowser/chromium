@@ -6,7 +6,6 @@
 
 #include "base/base64.h"
 #include "base/bind.h"
-#include "base/task/post_task.h"
 #include "base/values.h"
 #include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/extensions/chrome_extension_function_details.h"
@@ -97,9 +96,9 @@ EnterprisePlatformKeysPrivateChallengeMachineKeyFunction::Run() {
       api_epkp::ChallengeMachineKey::Params::Create(*args_));
   EXTENSION_FUNCTION_VALIDATE(params);
   chromeos::attestation::TpmChallengeKeyCallback callback =
-      base::Bind(&EnterprisePlatformKeysPrivateChallengeMachineKeyFunction::
-                     OnChallengedKey,
-                 this);
+      base::BindOnce(&EnterprisePlatformKeysPrivateChallengeMachineKeyFunction::
+                         OnChallengedKey,
+                     this);
 
   std::string challenge;
   if (!base::Base64Decode(params->challenge, &challenge)) {
@@ -116,7 +115,7 @@ EnterprisePlatformKeysPrivateChallengeMachineKeyFunction::Run() {
       chromeos::attestation::KEY_DEVICE, scoped_refptr<ExtensionFunction>(this),
       std::move(callback), challenge,
       /*register_key=*/false);
-  base::PostTask(FROM_HERE, {content::BrowserThread::UI}, std::move(task));
+  content::GetUIThreadTaskRunner({})->PostTask(FROM_HERE, std::move(task));
   return RespondLater();
 }
 
@@ -124,7 +123,7 @@ void EnterprisePlatformKeysPrivateChallengeMachineKeyFunction::OnChallengedKey(
     const chromeos::attestation::TpmChallengeKeyResult& result) {
   if (result.IsSuccess()) {
     std::string encoded_response;
-    base::Base64Encode(result.data, &encoded_response);
+    base::Base64Encode(result.challenge_response, &encoded_response);
     Respond(ArgumentList(
         api_epkp::ChallengeMachineKey::Results::Create(encoded_response)));
   } else {
@@ -143,7 +142,7 @@ EnterprisePlatformKeysPrivateChallengeUserKeyFunction::Run() {
   std::unique_ptr<api_epkp::ChallengeUserKey::Params> params(
       api_epkp::ChallengeUserKey::Params::Create(*args_));
   EXTENSION_FUNCTION_VALIDATE(params);
-  chromeos::attestation::TpmChallengeKeyCallback callback = base::Bind(
+  chromeos::attestation::TpmChallengeKeyCallback callback = base::BindOnce(
       &EnterprisePlatformKeysPrivateChallengeUserKeyFunction::OnChallengedKey,
       this);
 
@@ -161,7 +160,7 @@ EnterprisePlatformKeysPrivateChallengeUserKeyFunction::Run() {
       &EPKPChallengeKey::Run, base::Unretained(&impl_),
       chromeos::attestation::KEY_USER, scoped_refptr<ExtensionFunction>(this),
       std::move(callback), challenge, params->register_key);
-  base::PostTask(FROM_HERE, {content::BrowserThread::UI}, std::move(task));
+  content::GetUIThreadTaskRunner({})->PostTask(FROM_HERE, std::move(task));
   return RespondLater();
 }
 
@@ -169,7 +168,7 @@ void EnterprisePlatformKeysPrivateChallengeUserKeyFunction::OnChallengedKey(
     const chromeos::attestation::TpmChallengeKeyResult& result) {
   if (result.IsSuccess()) {
     std::string encoded_response;
-    base::Base64Encode(result.data, &encoded_response);
+    base::Base64Encode(result.challenge_response, &encoded_response);
     Respond(ArgumentList(
         api_epkp::ChallengeUserKey::Results::Create(encoded_response)));
   } else {

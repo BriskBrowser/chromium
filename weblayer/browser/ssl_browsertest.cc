@@ -7,11 +7,21 @@
 #include "base/files/file_path.h"
 #include "base/macros.h"
 #include "base/optional.h"
+#include "base/scoped_observer.h"
+#include "base/test/scoped_feature_list.h"
 #include "build/build_config.h"
 #include "components/network_time/network_time_tracker.h"
+#include "components/security_interstitials/content/insecure_form_blocking_page.h"
+#include "components/security_interstitials/content/ssl_error_handler.h"
+#include "components/security_interstitials/core/features.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
 #include "weblayer/browser/browser_process.h"
-#include "weblayer/browser/ssl_error_handler.h"
+#include "weblayer/browser/weblayer_security_blocking_page_factory.h"
+#include "weblayer/public/browser.h"
+#include "weblayer/public/browser_observer.h"
+#include "weblayer/public/error_page.h"
+#include "weblayer/public/error_page_delegate.h"
+#include "weblayer/public/tab.h"
 #include "weblayer/shell/browser/shell.h"
 #include "weblayer/test/interstitial_utils.h"
 #include "weblayer/test/load_completion_observer.h"
@@ -19,6 +29,55 @@
 #include "weblayer/test/weblayer_browser_test_utils.h"
 
 namespace weblayer {
+namespace {
+
+#if defined(OS_ANDROID)
+// Waits for a new tab to be created, and then load |url|.
+class NewTabWaiter : public BrowserObserver {
+ public:
+  NewTabWaiter(Browser* browser, const GURL& url) : url_(url) {
+    observer_.Add(browser);
+  }
+
+  void OnTabAdded(Tab* tab) override {
+    navigation_observer_ = std::make_unique<TestNavigationObserver>(
+        url_, TestNavigationObserver::NavigationEvent::kStart, tab);
+    run_loop_.Quit();
+  }
+
+  void Wait() {
+    if (!navigation_observer_)
+      run_loop_.Run();
+    navigation_observer_->Wait();
+  }
+
+ private:
+  GURL url_;
+  std::unique_ptr<TestNavigationObserver> navigation_observer_;
+  base::RunLoop run_loop_;
+  ScopedObserver<Browser, BrowserObserver> observer_{this};
+};
+#endif
+
+class TestErrorPageDelegate : public ErrorPageDelegate {
+ public:
+  bool was_get_error_page_content_called() const {
+    return was_get_error_page_content_called_;
+  }
+
+  // ErrorPageDelegate:
+  bool OnBackToSafety() override { return false; }
+  std::unique_ptr<ErrorPage> GetErrorPageContent(
+      Navigation* navigation) override {
+    was_get_error_page_content_called_ = true;
+    return std::make_unique<ErrorPage>();
+  }
+
+ private:
+  bool was_get_error_page_content_called_ = false;
+};
+
+}  // namespace
 
 class SSLBrowserTest : public WebLayerBrowserTest {
  public:
@@ -136,7 +195,7 @@ class SSLBrowserTest : public WebLayerBrowserTest {
     ASSERT_TRUE(IsShowingSSLInterstitial(shell()->tab()));
 
     TestNavigationObserver navigation_observer(
-        expected_url, TestNavigationObserver::NavigationEvent::Completion,
+        expected_url, TestNavigationObserver::NavigationEvent::kCompletion,
         shell());
     ExecuteScript(shell(),
                   "window.certificateErrorPageController." +
@@ -165,12 +224,12 @@ class SSLBrowserTest : public WebLayerBrowserTest {
 
     // Note: The embedded test server cannot actually load the captive portal
     // login URL, so simply detect the start of the navigation to the page.
-    TestNavigationObserver navigation_observer(
-        GetCaptivePortalLoginPageUrlForTesting(),
-        TestNavigationObserver::NavigationEvent::Start, shell());
+    NewTabWaiter waiter(shell()->browser(),
+                        WebLayerSecurityBlockingPageFactory::
+                            GetCaptivePortalLoginPageUrlForTesting());
     ExecuteScript(shell(), "window.certificateErrorPageController.openLogin();",
                   false /*use_separate_isolate*/);
-    navigation_observer.Wait();
+    waiter.Wait();
   }
 #endif
 
@@ -244,6 +303,11 @@ IN_PROC_BROWSER_TEST_F(SSLBrowserTest, Reload) {
 // Tests clicking proceed link on the interstitial page. This is a PRE_ test
 // because it also acts as setup for the test below which verifies the behavior
 // across restarts.
+// TODO(crbug.com/654704): Android does not support PRE_ tests. For Android just
+// run only the PRE_ version of this test.
+#if defined(OS_ANDROID)
+#define PRE_Proceed Proceed
+#endif
 IN_PROC_BROWSER_TEST_F(SSLBrowserTest, PRE_Proceed) {
   NavigateToOkPage();
   NavigateToPageWithMismatchedCertExpectSSLInterstitial();
@@ -255,12 +319,14 @@ IN_PROC_BROWSER_TEST_F(SSLBrowserTest, PRE_Proceed) {
   NavigateToPageWithMismatchedCertExpectNotBlocked();
 }
 
-// The proceed decision is not perpetuated across WebLayer sessions, i.e.
-// WebLayer will block again when navigating to the same bad page that was
-// previously proceeded through.
+#if !defined(OS_ANDROID)
+// The proceed decision is perpetuated across WebLayer sessions, i.e.  WebLayer
+// will not block again when navigating to the same bad page that was previously
+// proceeded through.
 IN_PROC_BROWSER_TEST_F(SSLBrowserTest, Proceed) {
-  NavigateToPageWithMismatchedCertExpectSSLInterstitial();
+  NavigateToPageWithMismatchedCertExpectNotBlocked();
 }
+#endif
 
 // Tests navigating away from the interstitial page.
 IN_PROC_BROWSER_TEST_F(SSLBrowserTest, NavigateAway) {
@@ -274,12 +340,12 @@ IN_PROC_BROWSER_TEST_F(SSLBrowserTest, NavigateAway) {
 // then switches OS captive portal status to false and reloads the page. This
 // time, a normal SSL interstitial should be displayed.
 IN_PROC_BROWSER_TEST_F(SSLBrowserTest, OSReportsCaptivePortal) {
-  SetDiagnoseSSLErrorsAsCaptivePortalForTesting(true);
+  SSLErrorHandler::SetOSReportsCaptivePortalForTesting(true);
 
   NavigateToPageWithMismatchedCertExpectCaptivePortalInterstitial();
 
   // Check that clearing the test setting causes behavior to revert to normal.
-  SetDiagnoseSSLErrorsAsCaptivePortalForTesting(false);
+  SSLErrorHandler::SetOSReportsCaptivePortalForTesting(false);
   NavigateToPageWithMismatchedCertExpectSSLInterstitial();
 }
 
@@ -287,7 +353,7 @@ IN_PROC_BROWSER_TEST_F(SSLBrowserTest, OSReportsCaptivePortal) {
 // Tests that after reaching a captive portal interstitial, clicking on the
 // connect link will cause a navigation to the login page.
 IN_PROC_BROWSER_TEST_F(SSLBrowserTest, CaptivePortalConnectToLoginPage) {
-  SetDiagnoseSSLErrorsAsCaptivePortalForTesting(true);
+  SSLErrorHandler::SetOSReportsCaptivePortalForTesting(true);
 
   NavigateToPageWithMismatchedCertExpectCaptivePortalInterstitial();
 
@@ -311,6 +377,77 @@ IN_PROC_BROWSER_TEST_F(SSLBrowserTest, BadClockInterstitial) {
   // Now navigating to a page with an expired cert should cause the bad clock
   // interstitial to appear.
   NavigateToPageWithExpiredCertExpectBadClockInterstitial();
+}
+
+// Verifies an error page is not requested for an ssl error.
+IN_PROC_BROWSER_TEST_F(SSLBrowserTest, ErrorPageNotCalledForMismatch) {
+  TestErrorPageDelegate error_page_delegate;
+  shell()->tab()->SetErrorPageDelegate(&error_page_delegate);
+  NavigateToOkPage();
+  EXPECT_FALSE(error_page_delegate.was_get_error_page_content_called());
+  NavigateToPageWithMismatchedCertExpectSSLInterstitial();
+  EXPECT_FALSE(error_page_delegate.was_get_error_page_content_called());
+}
+
+class SSLBrowserTestWithInsecureFormsWarningEnabled : public SSLBrowserTest {
+ public:
+  SSLBrowserTestWithInsecureFormsWarningEnabled() {
+    feature_list_.InitAndEnableFeature(
+        security_interstitials::kInsecureFormSubmissionInterstitial);
+  }
+
+ private:
+  base::test::ScopedFeatureList feature_list_;
+};
+
+// Visits a page that displays an insecure form, submits the form, and checks an
+// interstitial is shown.
+IN_PROC_BROWSER_TEST_F(SSLBrowserTestWithInsecureFormsWarningEnabled,
+                       TestDisplaysInsecureFormSubmissionWarning) {
+  GURL insecure_form_url = https_server_->GetURL("/insecure_form.html");
+  GURL form_target_url = GURL("http://does-not-exist.test/form_target.html?");
+  NavigateAndWaitForCompletion(insecure_form_url, shell());
+
+  // Submit the form and wait for the interstitial to load.
+  TestNavigationObserver navigation_observer(
+      form_target_url, TestNavigationObserver::NavigationEvent::kFailure,
+      shell());
+  ExecuteScript(shell(), "submitForm();", false /*use_separate_isolate*/);
+  navigation_observer.Wait();
+
+  // Check the correct interstitial loaded.
+  EXPECT_TRUE(IsShowingInsecureFormInterstitial(shell()->tab()));
+}
+
+class SSLBrowserTestWithInsecureFormsWarningDisabled : public SSLBrowserTest {
+ public:
+  SSLBrowserTestWithInsecureFormsWarningDisabled() {
+    feature_list_.InitAndDisableFeature(
+        security_interstitials::kInsecureFormSubmissionInterstitial);
+  }
+
+ private:
+  base::test::ScopedFeatureList feature_list_;
+};
+
+// Visits a page that displays an insecure form, submits the form, and checks no
+// interstitial is displayed with the feature off.
+IN_PROC_BROWSER_TEST_F(SSLBrowserTestWithInsecureFormsWarningDisabled,
+                       TestNoInsecureFormWarning) {
+  GURL insecure_form_url = https_server_->GetURL("/insecure_form.html");
+  GURL form_target_url = GURL("http://does-not-exist.test/form_target.html?");
+  NavigateAndWaitForCompletion(insecure_form_url, shell());
+
+  // Submit the form and wait for the form target to load. We wait for a
+  // failure since the target url is not served.
+  TestNavigationObserver navigation_observer(
+      form_target_url, TestNavigationObserver::NavigationEvent::kFailure,
+      shell());
+  ExecuteScript(shell(), "submitForm();", false /*use_separate_isolate*/);
+  navigation_observer.Wait();
+
+  // Check no interstitial loaded.
+  EXPECT_FALSE(IsShowingSecurityInterstitial(shell()->tab()));
 }
 
 }  // namespace weblayer

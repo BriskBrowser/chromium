@@ -20,7 +20,7 @@
 #import "ios/chrome/test/earl_grey/chrome_matchers.h"
 #import "ios/chrome/test/earl_grey/chrome_test_case.h"
 #import "ios/testing/earl_grey/earl_grey_test.h"
-#import "ios/web/public/test/http_server/http_server.h"
+#include "net/test/embedded_test_server/embedded_test_server.h"
 #include "ui/base/l10n/l10n_util.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
@@ -29,12 +29,12 @@
 
 using chrome_test_util::BookmarksDeleteSwipeButton;
 using chrome_test_util::BookmarkHomeDoneButton;
+using chrome_test_util::BookmarksNavigationBarBackButton;
 using chrome_test_util::BookmarksSaveEditDoneButton;
 using chrome_test_util::BookmarksSaveEditFolderButton;
 using chrome_test_util::ContextBarCenterButtonWithLabel;
 using chrome_test_util::ButtonWithAccessibilityLabelId;
 using chrome_test_util::ContextBarLeadingButtonWithLabel;
-using chrome_test_util::NavigateBackButtonTo;
 using chrome_test_util::OmniboxText;
 using chrome_test_util::ScrollToTop;
 using chrome_test_util::TappableBookmarkNodeWithLabel;
@@ -310,15 +310,7 @@ using chrome_test_util::TappableBookmarkNodeWithLabel;
 
 // Test when current navigating folder is deleted in background, empty
 // background should be shown with context bar buttons disabled.
-// TODO(crbug.com/1034183): Enable for EG2 once NavigateBackButtonTo() is fixed.
-#if defined(CHROME_EARL_GREY_2)
-#define MAYBE_testWhenCurrentFolderDeletedInBackground \
-  DISABLED_testWhenCurrentFolderDeletedInBackground
-#else
-#define MAYBE_testWhenCurrentFolderDeletedInBackground \
-  testWhenCurrentFolderDeletedInBackground
-#endif
-- (void)MAYBE_testWhenCurrentFolderDeletedInBackground {
+- (void)testWhenCurrentFolderDeletedInBackground {
   [BookmarkEarlGrey setupStandardBookmarks];
   [BookmarkEarlGreyUI openBookmarks];
   [BookmarkEarlGreyUI openMobileBookmarks];
@@ -350,7 +342,7 @@ using chrome_test_util::TappableBookmarkNodeWithLabel;
   [BookmarkEarlGreyUI verifyEmptyBackgroundAppears];
 
   // Come back to Folder 1 (which is also deleted).
-  [[EarlGrey selectElementWithMatcher:NavigateBackButtonTo(@"Folder 1")]
+  [[EarlGrey selectElementWithMatcher:BookmarksNavigationBarBackButton()]
       performAction:grey_tap()];
 
   // Verify both select and new folder button are disabled.
@@ -361,7 +353,7 @@ using chrome_test_util::TappableBookmarkNodeWithLabel;
   [BookmarkEarlGreyUI verifyEmptyBackgroundAppears];
 
   // Come back to Mobile Bookmarks.
-  [[EarlGrey selectElementWithMatcher:NavigateBackButtonTo(@"Mobile Bookmarks")]
+  [[EarlGrey selectElementWithMatcher:BookmarksNavigationBarBackButton()]
       performAction:grey_tap()];
 
   // Ensure Folder 1.1 is seen, that means it successfully comes back to Mobile
@@ -369,13 +361,7 @@ using chrome_test_util::TappableBookmarkNodeWithLabel;
   [BookmarkEarlGreyUI verifyBookmarkFolderIsSeen:@"Folder 1.1"];
 }
 
-// TODO(crbug.com/1034183): Enable for EG2 once NavigateBackButtonTo() is fixed.
-#if defined(CHROME_EARL_GREY_2)
-#define MAYBE_testLongPressOnSingleFolder DISABLED_testLongPressOnSingleFolder
-#else
-#define MAYBE_testLongPressOnSingleFolder testLongPressOnSingleFolder
-#endif
-- (void)MAYBE_testLongPressOnSingleFolder {
+- (void)testLongPressOnSingleFolder {
   [BookmarkEarlGrey setupStandardBookmarks];
   [BookmarkEarlGreyUI openBookmarks];
   [BookmarkEarlGreyUI openMobileBookmarks];
@@ -384,20 +370,7 @@ using chrome_test_util::TappableBookmarkNodeWithLabel;
       selectElementWithMatcher:TappableBookmarkNodeWithLabel(@"Folder 1")]
       performAction:grey_longPress()];
 
-  // Verify it shows the context menu.
-  [[EarlGrey
-      selectElementWithMatcher:grey_accessibilityID(@"bookmark_context_menu")]
-      assertWithMatcher:grey_sufficientlyVisible()];
-
-  // Verify options on context menu.
-  [[EarlGrey
-      selectElementWithMatcher:ButtonWithAccessibilityLabelId(
-                                   IDS_IOS_BOOKMARK_CONTEXT_MENU_EDIT_FOLDER)]
-      assertWithMatcher:grey_sufficientlyVisible()];
-
-  [[EarlGrey selectElementWithMatcher:ButtonWithAccessibilityLabelId(
-                                          IDS_IOS_BOOKMARK_CONTEXT_MENU_MOVE)]
-      assertWithMatcher:grey_sufficientlyVisible()];
+  [BookmarkEarlGreyUI verifyContextMenuForSingleFolderWithEditEnabled:YES];
 
   // Dismiss the context menu. On non compact width tap the Bookmarks TableView
   // to dismiss, since there might not be a cancel button.
@@ -412,7 +385,7 @@ using chrome_test_util::TappableBookmarkNodeWithLabel;
   }
 
   // Come back to the root.
-  [[EarlGrey selectElementWithMatcher:NavigateBackButtonTo(@"Bookmarks")]
+  [[EarlGrey selectElementWithMatcher:BookmarksNavigationBarBackButton()]
       performAction:grey_tap()];
 
   // Long press on Mobile Bookmarks.
@@ -422,8 +395,8 @@ using chrome_test_util::TappableBookmarkNodeWithLabel;
 
   // Verify it doesn't show the context menu. (long press is disabled on
   // permanent node.)
-  [[EarlGrey
-      selectElementWithMatcher:grey_accessibilityID(@"bookmark_context_menu")]
+  [[EarlGrey selectElementWithMatcher:grey_accessibilityID(
+                                          kBookmarkHomeContextMenuIdentifier)]
       assertWithMatcher:grey_nil()];
 }
 
@@ -817,8 +790,8 @@ using chrome_test_util::TappableBookmarkNodeWithLabel;
       performAction:grey_tap()];
 
   // Verify it shows the context menu.
-  [[EarlGrey
-      selectElementWithMatcher:grey_accessibilityID(@"bookmark_context_menu")]
+  [[EarlGrey selectElementWithMatcher:grey_accessibilityID(
+                                          kBookmarkHomeContextMenuIdentifier)]
       assertWithMatcher:grey_sufficientlyVisible()];
 
   // Verify options on context menu.
@@ -877,8 +850,8 @@ using chrome_test_util::TappableBookmarkNodeWithLabel;
 
   // Verify that the bookmark that is going to be added is not in the
   // BookmarkModel.
-  const GURL bookmarkedURL = web::test::HttpServer::MakeUrl(
-      "http://ios/testing/data/http_server_files/fullscreen.html");
+  GREYAssertTrue(self.testServer->Start(), @"Server did not start.");
+  const GURL bookmarkedURL = self.testServer->GetURL("/fullscreen.html");
   NSString* const bookmarkedURLString =
       base::SysUTF8ToNSString(bookmarkedURL.spec());
   [BookmarkEarlGrey verifyBookmarksWithTitle:bookmarkedURLString
@@ -910,15 +883,7 @@ using chrome_test_util::TappableBookmarkNodeWithLabel;
 
 // Tests the new folder name is committed when name editing is interrupted by
 // navigating away.
-// TODO(crbug.com/1034183): Enable for EG2 once NavigateBackButtonTo() is fixed.
-#if defined(CHROME_EARL_GREY_2)
-#define MAYBE_testNewFolderNameCommittedOnNavigatingAway \
-  DISABLED_testNewFolderNameCommittedOnNavigatingAway
-#else
-#define MAYBE_testNewFolderNameCommittedOnNavigatingAway \
-  testNewFolderNameCommittedOnNavigatingAway
-#endif
-- (void)MAYBE_testNewFolderNameCommittedOnNavigatingAway {
+- (void)testNewFolderNameCommittedOnNavigatingAway {
 #if defined(CHROME_EARL_GREY_1)
   // TODO(crbug.com/1035764): EG1 Test fails on iOS 12.
   if (!base::ios::IsRunningOnIOS13OrLater()) {
@@ -935,7 +900,7 @@ using chrome_test_util::TappableBookmarkNodeWithLabel;
                                                  pressReturn:NO];
 
   // Interrupt the folder name editing by tapping on back.
-  [[EarlGrey selectElementWithMatcher:NavigateBackButtonTo(@"Bookmarks")]
+  [[EarlGrey selectElementWithMatcher:BookmarksNavigationBarBackButton()]
       performAction:grey_tap()];
 
   // Come back to Mobile Bookmarks.
@@ -971,7 +936,7 @@ using chrome_test_util::TappableBookmarkNodeWithLabel;
   [[EarlGrey selectElementWithMatcher:grey_accessibilityID(@"Folder 1")]
       performAction:grey_tap()];
   // Come back to Mobile Bookmarks.
-  [[EarlGrey selectElementWithMatcher:NavigateBackButtonTo(@"Mobile Bookmarks")]
+  [[EarlGrey selectElementWithMatcher:BookmarksNavigationBarBackButton()]
       performAction:grey_tap()];
 
   // Verify folder name "New Folder 3" was committed.
@@ -1026,8 +991,8 @@ using chrome_test_util::TappableBookmarkNodeWithLabel;
 
 // Test the creation of a bookmark and new folder (by tapping on the star).
 - (void)testAddBookmarkInNewFolder {
-  const GURL bookmarkedURL = web::test::HttpServer::MakeUrl(
-      "http://ios/testing/data/http_server_files/pony.html");
+  GREYAssertTrue(self.testServer->Start(), @"Server did not start.");
+  const GURL bookmarkedURL = self.testServer->GetURL("/pony.html");
   std::string expectedURLContent = bookmarkedURL.GetContent();
 
   [ChromeEarlGrey loadURL:bookmarkedURL];

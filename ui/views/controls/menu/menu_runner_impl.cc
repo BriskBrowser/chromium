@@ -5,9 +5,13 @@
 #include "ui/views/controls/menu/menu_runner_impl.h"
 
 #include <memory>
+#include <utility>
 
 #include "build/build_config.h"
+#include "ui/accessibility/ax_enums.mojom.h"
+#include "ui/accessibility/platform/ax_platform_node_base.h"
 #include "ui/native_theme/native_theme.h"
+#include "ui/views/accessibility/view_accessibility.h"
 #include "ui/views/controls/button/menu_button_controller.h"
 #include "ui/views/controls/menu/menu_controller.h"
 #include "ui/views/controls/menu/menu_delegate.h"
@@ -23,10 +27,50 @@
 #include "ui/events/x/events_x_utils.h"  // nogncheck
 #endif
 
+#if defined(USE_OZONE)
+#include "ui/base/ui_base_features.h"
+#include "ui/events/event_constants.h"
+#include "ui/ozone/public/ozone_platform.h"
+#endif
+
 namespace views {
+
+namespace {
+
+// This should be called after the menu has closed, to fire a focus event on
+// the previously focused node in the parent widget, if one exists.
+void FireFocusAfterMenuClose(base::WeakPtr<Widget> widget) {
+  if (widget) {
+    FocusManager* focus_manager = widget->GetFocusManager();
+    if (focus_manager && focus_manager->GetFocusedView()) {
+      focus_manager->GetFocusedView()
+          ->GetViewAccessibility()
+          .FireFocusAfterMenuClose();
+    }
+  }
+}
+
+#if defined(USE_X11) || defined(USE_OZONE)
+bool IsAltPressed() {
+#if defined(USE_OZONE)
+  if (features::IsUsingOzonePlatform()) {
+    return (ui::OzonePlatform::GetInstance()->GetKeyModifiers() &
+            ui::EF_ALT_DOWN) != 0;
+  }
+#endif
+#if defined(USE_X11)
+  return ui::IsAltPressed();
+#else
+  return false;
+#endif
+}
+#endif  // defined(USE_X11) || degined(USE_OZONE)
+
+}  // namespace
+
 namespace internal {
 
-#if !defined(OS_MACOSX)
+#if !defined(OS_APPLE)
 MenuRunnerImplInterface* MenuRunnerImplInterface::Create(
     ui::MenuModel* menu_model,
     int32_t run_types,
@@ -162,8 +206,14 @@ base::TimeTicks MenuRunnerImpl::GetClosingEventTime() const {
 void MenuRunnerImpl::OnMenuClosed(NotifyType type,
                                   MenuItemView* menu,
                                   int mouse_event_flags) {
-  if (controller_)
+  base::WeakPtr<Widget> parent_widget;
+  if (controller_) {
     closing_event_time_ = controller_->closing_event_time();
+    // Get a pointer to the parent widget before destroying the menu.
+    if (controller_->owner())
+      parent_widget = controller_->owner()->GetWeakPtr();
+  }
+
   menu_->RemoveEmptyMenus();
   menu_->set_controller(nullptr);
 
@@ -177,6 +227,7 @@ void MenuRunnerImpl::OnMenuClosed(NotifyType type,
   // destroyed.
   menu_->DestroyAllMenuHosts();
   if (delete_after_run_) {
+    FireFocusAfterMenuClose(parent_widget);
     delete this;
     return;
   }
@@ -193,6 +244,7 @@ void MenuRunnerImpl::OnMenuClosed(NotifyType type,
     if (ref && type == NOTIFY_DELEGATE)
       menu_->GetDelegate()->OnMenuClosed(menu);
   }
+  FireFocusAfterMenuClose(parent_widget);
 }
 
 void MenuRunnerImpl::SiblingMenuCreated(MenuItemView* menu) {
@@ -211,9 +263,9 @@ bool MenuRunnerImpl::ShouldShowMnemonics(int32_t run_types) {
   // Show mnemonics if the button has focus or alt is pressed.
 #if defined(OS_WIN)
   show_mnemonics |= ui::win::IsAltPressed();
-#elif defined(USE_X11)
-  show_mnemonics |= ui::IsAltPressed();
-#elif defined(OS_MACOSX)
+#elif defined(USE_X11) || defined(USE_OZONE)
+  show_mnemonics |= IsAltPressed();
+#elif defined(OS_APPLE)
   show_mnemonics = false;
 #endif
   return show_mnemonics;

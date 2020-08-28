@@ -489,7 +489,6 @@ class GLES2_IMPL_EXPORT GLES2Implementation : public GLES2Interface,
   void DeleteBuffersStub(GLsizei n, const GLuint* buffers);
   void DeleteRenderbuffersStub(GLsizei n, const GLuint* renderbuffers);
   void DeleteTexturesStub(GLsizei n, const GLuint* textures);
-  void DeletePathsCHROMIUMStub(GLuint first_client_id, GLsizei range);
   void DeleteProgramStub(GLsizei n, const GLuint* programs);
   void DeleteShaderStub(GLsizei n, const GLuint* shaders);
   void DeleteSamplersStub(GLsizei n, const GLuint* samplers);
@@ -600,6 +599,7 @@ class GLES2_IMPL_EXPORT GLES2Implementation : public GLES2Interface,
   bool GetHelper(GLenum pname, GLint* params);
   GLuint GetBoundBufferHelper(GLenum target);
   bool GetBooleanvHelper(GLenum pname, GLboolean* params);
+  bool GetBooleani_vHelper(GLenum pname, GLuint index, GLboolean* data);
   bool GetBufferParameteri64vHelper(
       GLenum target, GLenum pname, GLint64* params);
   bool GetBufferParameterivHelper(GLenum target, GLenum pname, GLint* params);
@@ -670,18 +670,6 @@ class GLES2_IMPL_EXPORT GLES2Implementation : public GLES2Interface,
                            const char* func_name);
 
   const std::string& GetLogPrefix() const;
-
-  bool PrepareInstancedPathCommand(const char* function_name,
-                                   GLsizei num_paths,
-                                   GLenum path_name_type,
-                                   const void* paths,
-                                   GLenum transform_type,
-                                   const GLfloat* transform_values,
-                                   ScopedTransferBufferPtr* buffer,
-                                   uint32_t* out_paths_shm_id,
-                                   uint32_t* out_paths_offset,
-                                   uint32_t* out_transforms_shm_id,
-                                   uint32_t* out_transforms_offset);
 
 // Set to 1 to have the client fail when a GL error is generated.
 // This helps find bugs in the renderer since the debugger stops on the error.

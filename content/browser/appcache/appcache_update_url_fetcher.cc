@@ -10,6 +10,7 @@
 #include "base/command_line.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "components/network_session_configurator/common/network_switches.h"
+#include "content/browser/appcache/appcache_disk_cache_ops.h"
 #include "content/browser/appcache/appcache_update_job_state.h"
 #include "content/browser/appcache/appcache_update_url_loader_request.h"
 #include "net/base/load_flags.h"
@@ -146,6 +147,8 @@ void AppCacheUpdateJob::URLFetcher::AddConditionalHeaders(
     const net::HttpResponseHeaders* headers) {
   DCHECK(request_);
   DCHECK(headers);
+  DCHECK_NE(fetch_type_, FetchType::kNewMasterEntry);
+
   net::HttpRequestHeaders extra_headers;
 
   // Add If-Modified-Since header if response info has Last-Modified header.
@@ -179,12 +182,8 @@ void AppCacheUpdateJob::URLFetcher::OnWriteComplete(int result) {
 }
 
 void AppCacheUpdateJob::URLFetcher::ReadResponseData() {
-  AppCacheUpdateJobState state = job_->internal_state_;
-  if (state == AppCacheUpdateJobState::CACHE_FAILURE ||
-      state == AppCacheUpdateJobState::CANCELLED ||
-      state == AppCacheUpdateJobState::COMPLETED) {
+  if (job_->IsFinished())
     return;
-  }
   request_->Read();
 }
 

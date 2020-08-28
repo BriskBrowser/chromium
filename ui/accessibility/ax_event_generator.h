@@ -10,6 +10,8 @@
 #include <set>
 #include <vector>
 
+#include "base/scoped_observer.h"
+#include "ui/accessibility/ax_event_intent.h"
 #include "ui/accessibility/ax_export.h"
 #include "ui/accessibility/ax_tree.h"
 #include "ui/accessibility/ax_tree_observer.h"
@@ -26,6 +28,10 @@ class AX_EXPORT AXEventGenerator : public AXTreeObserver {
     ACCESS_KEY_CHANGED,
     ACTIVE_DESCENDANT_CHANGED,
     ALERT,
+    // ATK treats alignment, indentation, and other format-related attributes as
+    // text attributes even when they are only applicable to the entire object.
+    // And it lacks an event for object attributes changing.
+    ATK_TEXT_OBJECT_ATTRIBUTE_CHANGED,
     ATOMIC_CHANGED,
     AUTO_COMPLETE_CHANGED,
     BUSY_CHANGED,
@@ -65,8 +71,10 @@ class AX_EXPORT AXEventGenerator : public AXTreeObserver {
     MULTILINE_STATE_CHANGED,
     MULTISELECTABLE_STATE_CHANGED,
     NAME_CHANGED,
+    OBJECT_ATTRIBUTE_CHANGED,
     OTHER_ATTRIBUTE_CHANGED,
     PLACEHOLDER_CHANGED,
+    PORTAL_ACTIVATED,
     POSITION_IN_SET_CHANGED,
     RELATED_NODE_CHANGED,
     READONLY_CHANGED,
@@ -81,16 +89,30 @@ class AX_EXPORT AXEventGenerator : public AXTreeObserver {
     SORT_CHANGED,
     STATE_CHANGED,
     SUBTREE_CREATED,
+    TEXT_ATTRIBUTE_CHANGED,
     VALUE_CHANGED,
     VALUE_MAX_CHANGED,
     VALUE_MIN_CHANGED,
     VALUE_STEP_CHANGED,
+
+    // This event is for the exact set of attributes that affect
+    // the MSAA/IAccessible state on Windows. Not needed on other platforms,
+    // but very natural to compute here.
+    WIN_IACCESSIBLE_STATE_CHANGED,
   };
 
+  // For distinguishing between show and hide state when a node has
+  // IGNORED_CHANGED event.
+  enum class IgnoredChangedState : uint8_t { kShow, kHide, kCount = 2 };
+
   struct EventParams {
-    EventParams(Event event, ax::mojom::EventFrom event_from);
+    EventParams(Event event,
+                ax::mojom::EventFrom event_from,
+                const std::vector<AXEventIntent>& event_intents);
+    ~EventParams();
     Event event;
     ax::mojom::EventFrom event_from;
+    std::vector<AXEventIntent> event_intents;
 
     bool operator==(const EventParams& rhs);
     bool operator<(const EventParams& rhs) const;
@@ -122,6 +144,16 @@ class AX_EXPORT AXEventGenerator : public AXTreeObserver {
     std::set<EventParams>::const_iterator set_iter_;
   };
 
+  // For storing ignored changed states for a particular node. We use bitset as
+  // the underlying data structure to improve memory usage.
+  // We use the index of AXEventGenerator::IgnoredChangedState enum
+  // to access the bitset data.
+  // e.g. AXEventGenerator::IgnoredChangedState::kShow has index 0 in the
+  // IgnoredChangedState enum. If |IgnoredChangedStatesBitset[0]| is set, it
+  // means IgnoredChangedState::kShow is present. Similarly, kHide has index 1
+  // in the enum, and it corresponds to |IgnoredChangedStatesBitset[1]|.
+  using IgnoredChangedStatesBitset =
+      std::bitset<static_cast<size_t>(IgnoredChangedState::kCount)>;
   using const_iterator = Iterator;
   using iterator = Iterator;
   using value_type = TargetedEvent;
@@ -162,6 +194,10 @@ class AX_EXPORT AXEventGenerator : public AXTreeObserver {
   // efficiently remove duplicates, so events won't be retrieved in the
   // same order they were added.
   void AddEvent(ui::AXNode* node, Event event);
+
+  void set_always_fire_load_complete(bool val) {
+    always_fire_load_complete_ = val;
+  }
 
  protected:
   // AXTreeObserver overrides.
@@ -217,6 +253,25 @@ class AX_EXPORT AXEventGenerator : public AXTreeObserver {
   void FireActiveDescendantEvents();
   void FireRelationSourceEvents(AXTree* tree, AXNode* target_node);
   bool ShouldFireLoadEvents(AXNode* node);
+  // Remove excessive events for a tree update containing node.
+  // We remove certain events on a node when it flips its IGNORED state to
+  // either show/hide and one of the node's ancestor has also flipped its
+  // IGNORED state in the same way (show/hide) in the tree update.
+  // |ancestor_has_ignored_map| contains if a node's ancestor has changed to
+  // IGNORED state.
+  // Map's key is an AXNode.
+  // Map's value is a std::bitset containing IgnoredChangedStates(kShow/kHide).
+  // - Map's value IgnoredChangedStatesBitset contains kShow if an ancestor
+  //   of node removed its IGNORED state.
+  // - Map's value IgnoredChangedStatesBitset contains kHide if an ancestor
+  //   of node changed to IGNORED state.
+  // - When IgnoredChangedStatesBitset is not set, it means neither the
+  //   node nor its ancestor has IGNORED_CHANGED.
+  void TrimEventsDueToAncestorIgnoredChanged(
+      AXNode* node,
+      std::map<AXNode*, IgnoredChangedStatesBitset>&
+          ancestor_ignored_changed_map);
+  void PostprocessEvents();
   static void GetRestrictionStates(ax::mojom::Restriction restriction,
                                    bool* is_enabled,
                                    bool* is_readonly);
@@ -232,6 +287,12 @@ class AX_EXPORT AXEventGenerator : public AXTreeObserver {
   // Valid between the call to OnIntAttributeChanged and the call to
   // OnAtomicUpdateFinished. List of nodes whose active descendant changed.
   std::vector<AXNode*> active_descendant_changed_;
+
+  bool always_fire_load_complete_ = false;
+
+  // Please make sure that this ScopedObserver is always declared last in order
+  // to prevent any use-after-free.
+  ScopedObserver<AXTree, AXTreeObserver> tree_event_observer_{this};
 };
 
 AX_EXPORT std::ostream& operator<<(std::ostream& os,

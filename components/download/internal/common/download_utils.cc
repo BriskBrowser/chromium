@@ -23,10 +23,13 @@
 #include "components/download/public/common/download_stats.h"
 #include "components/download/public/common/download_task_runner.h"
 #include "components/download/public/common/download_url_parameters.h"
+#include "net/base/isolation_info.h"
 #include "net/base/load_flags.h"
+#include "net/cookies/site_for_cookies.h"
 #include "net/http/http_request_headers.h"
 #include "net/http/http_status_code.h"
 #include "services/network/public/cpp/resource_request.h"
+#include "url/origin.h"
 #if defined(OS_ANDROID)
 #include "base/android/content_uri_utils.h"
 #include "components/download/internal/common/android/download_collection_bridge.h"
@@ -262,11 +265,17 @@ std::unique_ptr<network::ResourceRequest> CreateResourceRequest(
   request->method = params->method();
   request->url = params->url();
   request->request_initiator = params->initiator();
-  if (!params->network_isolation_key().IsEmpty()) {
-    request->trusted_params = network::ResourceRequest::TrustedParams();
-    request->trusted_params->network_isolation_key =
-        params->network_isolation_key();
-  }
+  request->trusted_params = network::ResourceRequest::TrustedParams();
+
+  // Treat downloads like top-level frame navigations to be consistent with
+  // cookie behavior. Also, since web-initiated downloads bypass the disk cache,
+  // sites can't use download timing information to tell if a cross-site URL has
+  // been visited before.
+  url::Origin origin = url::Origin::Create(params->url());
+  request->trusted_params->isolation_info = net::IsolationInfo::Create(
+      net::IsolationInfo::RedirectMode::kUpdateTopFrame, origin, origin,
+      net::SiteForCookies::FromOrigin(origin));
+
   request->do_not_prompt_for_login = params->do_not_prompt_for_login();
   request->site_for_cookies = net::SiteForCookies::FromUrl(params->url());
   request->referrer = params->referrer();
@@ -419,6 +428,7 @@ DownloadDBEntry CreateDownloadDBEntryFromItem(const DownloadItemImpl& item) {
   in_progress_info.metered = item.AllowMetered();
   in_progress_info.bytes_wasted = item.GetBytesWasted();
   in_progress_info.auto_resume_count = item.GetAutoResumeCount();
+  in_progress_info.download_schedule = item.GetDownloadSchedule();
 
   download_info.in_progress_info = in_progress_info;
 
@@ -577,7 +587,7 @@ bool DeleteDownloadedFile(const base::FilePath& path) {
   // Make sure we only delete files.
   if (base::DirectoryExists(path))
     return true;
-  return base::DeleteFile(path, false);
+  return base::DeleteFile(path);
 }
 
 DownloadItem::DownloadRenameResult RenameDownloadedFile(

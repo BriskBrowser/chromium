@@ -13,7 +13,7 @@
 #include "base/memory/ref_counted_memory.h"
 #include "base/run_loop.h"
 #include "base/strings/pattern.h"
-#include "base/task/post_task.h"
+#include "base/task/task_traits.h"
 #include "base/threading/thread_restrictions.h"
 #include "base/values.h"
 #include "build/build_config.h"
@@ -22,6 +22,7 @@
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/trace_uploader.h"
+#include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/content_browser_test.h"
 #include "content/public/test/content_browser_test_utils.h"
@@ -79,8 +80,8 @@ class TracingControllerTestEndpoint
   }
 
   void ReceivedTraceFinalContents() override {
-    base::PostTask(
-        FROM_HERE, {BrowserThread::UI},
+    GetUIThreadTaskRunner({})->PostTask(
+        FROM_HERE,
         base::BindOnce(std::move(done_callback_),
                        std::make_unique<std::string>(std::move(trace_))));
   }
@@ -200,7 +201,7 @@ class TracingControllerTest : public ContentBrowserTest {
 
     {
       base::RunLoop run_loop;
-      TracingController::CompletionCallback callback = base::BindRepeating(
+      TracingController::CompletionCallback callback = base::BindOnce(
           &TracingControllerTest::StopTracingStringDoneCallbackTest,
           base::Unretained(this), run_loop.QuitClosure());
       bool result = controller->StopTracing(
@@ -234,7 +235,7 @@ class TracingControllerTest : public ContentBrowserTest {
 
     {
       base::RunLoop run_loop;
-      TracingController::CompletionCallback callback = base::BindRepeating(
+      TracingController::CompletionCallback callback = base::BindOnce(
           &TracingControllerTest::StopTracingStringDoneCallbackTest,
           base::Unretained(this), run_loop.QuitClosure());
 
@@ -315,7 +316,8 @@ class TracingControllerTest : public ContentBrowserTest {
           base::Unretained(this), run_loop.QuitClosure(), result_file_path);
       bool result =
           controller->StopTracing(TracingController::CreateFileEndpoint(
-              result_file_path, std::move(callback)));
+              result_file_path, std::move(callback),
+              base::TaskPriority::USER_BLOCKING));
       ASSERT_TRUE(result);
       run_loop.Run();
       EXPECT_EQ(disable_recording_done_callback_count(), 1);
@@ -336,6 +338,34 @@ class TracingControllerTest : public ContentBrowserTest {
   std::unique_ptr<std::string> last_data_;
 };
 
+// Consistent failures on Android Asan https://crbug.com/1045519
+#if defined(OS_ANDROID) && defined(ADDRESS_SANITIZER)
+#define MAYBE_EnableAndStopTracing DISABLED_EnableAndStopTracing
+#define MAYBE_DisableRecordingStoresMetadata \
+  DISABLED_DisableRecordingStoresMetadata
+#define MAYBE_NotWhitelistedMetadataStripped \
+  DISABLED_NotWhitelistedMetadataStripped
+#define MAYBE_EnableAndStopTracingWithFilePath \
+  DISABLED_EnableAndStopTracingWithFilePath
+#define MAYBE_EnableAndStopTracingWithCompression \
+  DISABLED_EnableAndStopTracingWithCompression
+#define MAYBE_EnableAndStopTracingWithEmptyFile \
+  DISABLED_EnableAndStopTracingWithEmptyFile
+#define MAYBE_DoubleStopTracing DISABLED_DoubleStopTracing
+#define MAYBE_ProcessesPresentInTrace DISABLED_ProcessesPresentInTrace
+#else
+#define MAYBE_EnableAndStopTracing EnableAndStopTracing
+#define MAYBE_DisableRecordingStoresMetadata DisableRecordingStoresMetadata
+#define MAYBE_NotWhitelistedMetadataStripped NotWhitelistedMetadataStripped
+#define MAYBE_EnableAndStopTracingWithFilePath EnableAndStopTracingWithFilePath
+#define MAYBE_EnableAndStopTracingWithCompression \
+  EnableAndStopTracingWithCompression
+#define MAYBE_EnableAndStopTracingWithEmptyFile \
+  EnableAndStopTracingWithEmptyFile
+#define MAYBE_DoubleStopTracing DoubleStopTracing
+#define MAYBE_ProcessesPresentInTrace ProcessesPresentInTrace
+#endif
+
 IN_PROC_BROWSER_TEST_F(TracingControllerTest, GetCategories) {
   Navigate(shell());
 
@@ -350,12 +380,12 @@ IN_PROC_BROWSER_TEST_F(TracingControllerTest, GetCategories) {
   EXPECT_EQ(get_categories_done_callback_count(), 1);
 }
 
-IN_PROC_BROWSER_TEST_F(TracingControllerTest, EnableAndStopTracing) {
+IN_PROC_BROWSER_TEST_F(TracingControllerTest, MAYBE_EnableAndStopTracing) {
   TestStartAndStopTracingString();
 }
 
 IN_PROC_BROWSER_TEST_F(TracingControllerTest,
-                       DisableRecordingStoresMetadata) {
+                       MAYBE_DisableRecordingStoresMetadata) {
   TestStartAndStopTracingString();
   // Check that a number of important keys exist in the metadata dictionary. The
   // values are not checked to ensure the test is robust.
@@ -387,7 +417,8 @@ IN_PROC_BROWSER_TEST_F(TracingControllerTest,
 #endif
 }
 
-IN_PROC_BROWSER_TEST_F(TracingControllerTest, NotWhitelistedMetadataStripped) {
+IN_PROC_BROWSER_TEST_F(TracingControllerTest,
+                       MAYBE_NotWhitelistedMetadataStripped) {
   TestStartAndStopTracingStringWithFilter();
   // Check that a number of important keys exist in the metadata dictionary.
   base::Optional<base::Value> trace_json = base::JSONReader::Read(last_data());
@@ -409,7 +440,7 @@ IN_PROC_BROWSER_TEST_F(TracingControllerTest, NotWhitelistedMetadataStripped) {
 }
 
 IN_PROC_BROWSER_TEST_F(TracingControllerTest,
-                       EnableAndStopTracingWithFilePath) {
+                       MAYBE_EnableAndStopTracingWithFilePath) {
   base::FilePath file_path;
   {
     base::ScopedAllowBlockingForTesting allow_blocking;
@@ -420,12 +451,12 @@ IN_PROC_BROWSER_TEST_F(TracingControllerTest,
 }
 
 IN_PROC_BROWSER_TEST_F(TracingControllerTest,
-                       EnableAndStopTracingWithCompression) {
+                       MAYBE_EnableAndStopTracingWithCompression) {
   TestStartAndStopTracingCompressed();
 }
 
 IN_PROC_BROWSER_TEST_F(TracingControllerTest,
-                       EnableAndStopTracingWithEmptyFile) {
+                       MAYBE_EnableAndStopTracingWithEmptyFile) {
   Navigate(shell());
 
   base::RunLoop run_loop;
@@ -434,7 +465,7 @@ IN_PROC_BROWSER_TEST_F(TracingControllerTest,
       TraceConfig(),
       TracingController::StartTracingDoneCallback()));
   EXPECT_TRUE(controller->StopTracing(
-      TracingControllerImpl::CreateCallbackEndpoint(base::BindRepeating(
+      TracingControllerImpl::CreateCallbackEndpoint(base::BindOnce(
           [](base::OnceClosure quit_closure,
              std::unique_ptr<std::string> trace_str) {
             std::move(quit_closure).Run();
@@ -443,7 +474,7 @@ IN_PROC_BROWSER_TEST_F(TracingControllerTest,
   run_loop.Run();
 }
 
-IN_PROC_BROWSER_TEST_F(TracingControllerTest, DoubleStopTracing) {
+IN_PROC_BROWSER_TEST_F(TracingControllerTest, MAYBE_DoubleStopTracing) {
   Navigate(shell());
 
   base::RunLoop run_loop;
@@ -472,7 +503,7 @@ IN_PROC_BROWSER_TEST_F(TracingControllerTest, MAYBE_SystemTraceEvents) {
   EXPECT_TRUE(last_data().find("systemTraceEvents") != std::string::npos);
 }
 
-IN_PROC_BROWSER_TEST_F(TracingControllerTest, ProcessesPresentInTrace) {
+IN_PROC_BROWSER_TEST_F(TracingControllerTest, MAYBE_ProcessesPresentInTrace) {
   TestStartAndStopTracingString();
   EXPECT_TRUE(last_data().find("CrBrowserMain") != std::string::npos);
   EXPECT_TRUE(last_data().find("CrRendererMain") != std::string::npos);

@@ -4,10 +4,11 @@
 
 package org.chromium.chrome.browser.media.router;
 
-import android.support.v7.media.MediaRouter;
+import android.annotation.SuppressLint;
 
 import androidx.annotation.Nullable;
 import androidx.annotation.VisibleForTesting;
+import androidx.mediarouter.media.MediaRouter;
 
 import com.google.android.gms.common.ConnectionResult;
 import com.google.android.gms.common.GoogleApiAvailability;
@@ -19,7 +20,6 @@ import org.chromium.base.SysUtils;
 import org.chromium.base.annotations.CalledByNative;
 import org.chromium.base.annotations.JNINamespace;
 import org.chromium.base.annotations.NativeMethods;
-import org.chromium.chrome.browser.AppHooks;
 import org.chromium.chrome.browser.media.router.caf.CafMediaRouteProvider;
 import org.chromium.chrome.browser.media.router.caf.remoting.CafRemotingMediaRouteProvider;
 
@@ -42,7 +42,8 @@ public class ChromeMediaRouter implements MediaRouteManager {
                 @Override
                 public void addProviders(MediaRouteManager manager) {
                     int googleApiAvailabilityResult =
-                            AppHooks.get().isGoogleApiAvailableWithMinApkVersion(
+                            GoogleApiAvailability.getInstance().isGooglePlayServicesAvailable(
+                                    ContextUtils.getApplicationContext(),
                                     MIN_GOOGLE_PLAY_SERVICES_APK_VERSION);
                     if (googleApiAvailabilityResult != ConnectionResult.SUCCESS) {
                         GoogleApiAvailability.getInstance().showErrorNotification(
@@ -68,6 +69,7 @@ public class ChromeMediaRouter implements MediaRouteManager {
     private final Map<String, List<MediaSink>> mSinksPerSource =
             new HashMap<String, List<MediaSink>>();
     private static boolean sAndroidMediaRouterSetForTest;
+    @SuppressLint("StaticFieldLeak") // This is for test only.
     private static MediaRouter sAndroidMediaRouterForTest;
 
     @VisibleForTesting
@@ -275,12 +277,12 @@ public class ChromeMediaRouter implements MediaRouteManager {
      * @param presentationId the id of the presentation to be used by the page.
      * @param origin the origin of the frame requesting a new route.
      * @param tabId the id of the tab the requesting frame belongs to.
-     * @param isIncognito whether the route is being requested from an Incognito profile.
+     * @param isOffTheRecord whether the route is being requested from an OffTheRecord profile.
      * @param requestId the id of the route creation request tracked by the native side.
      */
     @CalledByNative
     public void createRoute(String sourceId, String sinkId, String presentationId, String origin,
-            int tabId, boolean isIncognito, int requestId) {
+            int tabId, boolean isOffTheRecord, int requestId) {
         MediaRouteProvider provider = getProviderForSource(sourceId);
         if (provider == null) {
             onRouteRequestError("No provider supports createRoute with source: " + sourceId
@@ -290,7 +292,7 @@ public class ChromeMediaRouter implements MediaRouteManager {
         }
 
         provider.createRoute(
-                sourceId, sinkId, presentationId, origin, tabId, isIncognito, requestId);
+                sourceId, sinkId, presentationId, origin, tabId, isOffTheRecord, requestId);
     }
 
     /**

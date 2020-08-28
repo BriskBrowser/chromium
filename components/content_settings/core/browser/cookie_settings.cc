@@ -5,20 +5,26 @@
 #include "components/content_settings/core/browser/cookie_settings.h"
 
 #include "base/bind.h"
+#include "base/check.h"
 #include "base/feature_list.h"
-#include "base/logging.h"
+#include "build/build_config.h"
 #include "components/content_settings/core/browser/content_settings_utils.h"
 #include "components/content_settings/core/browser/host_content_settings_map.h"
 #include "components/content_settings/core/common/content_settings.h"
 #include "components/content_settings/core/common/content_settings_pattern.h"
 #include "components/content_settings/core/common/content_settings_utils.h"
-#include "components/content_settings/core/common/features.h"
 #include "components/content_settings/core/common/pref_names.h"
 #include "components/pref_registry/pref_registry_syncable.h"
 #include "components/prefs/pref_service.h"
 #include "extensions/buildflags/buildflags.h"
 #include "net/cookies/cookie_util.h"
 #include "url/gurl.h"
+
+#if defined(OS_IOS)
+#include "components/content_settings/core/common/features.h"
+#else
+#include "third_party/blink/public/common/features.h"
+#endif
 
 namespace content_settings {
 
@@ -33,10 +39,6 @@ CookieSettings::CookieSettings(
       block_third_party_cookies_(false) {
   content_settings_observer_.Add(host_content_settings_map_.get());
   pref_change_registrar_.Init(prefs);
-  pref_change_registrar_.Add(
-      prefs::kBlockThirdPartyCookies,
-      base::BindRepeating(&CookieSettings::OnCookiePreferencesChanged,
-                          base::Unretained(this)));
   pref_change_registrar_.Add(
       prefs::kCookieControlsMode,
       base::BindRepeating(&CookieSettings::OnCookiePreferencesChanged,
@@ -63,9 +65,7 @@ void CookieSettings::RegisterProfilePrefs(
       user_prefs::PrefRegistrySyncable::SYNCABLE_PREF);
   registry->RegisterIntegerPref(
       prefs::kCookieControlsMode,
-      static_cast<int>(kImprovedCookieControlsDefaultInIncognito.Get()
-                           ? CookieControlsMode::kIncognitoOnly
-                           : CookieControlsMode::kOff),
+      static_cast<int>(CookieControlsMode::kIncognitoOnly),
       user_prefs::PrefRegistrySyncable::SYNCABLE_PREF);
 }
 
@@ -89,10 +89,14 @@ void CookieSettings::ResetCookieSetting(const GURL& primary_url) {
       CONTENT_SETTING_DEFAULT);
 }
 
-bool CookieSettings::IsThirdPartyAccessAllowed(const GURL& first_party_url) {
+bool CookieSettings::IsThirdPartyAccessAllowed(
+    const GURL& first_party_url,
+    content_settings::SettingSource* source) {
   // Use GURL() as an opaque primary url to check if any site
   // could access cookies in a 3p context on |first_party_url|.
-  return IsCookieAccessAllowed(GURL(), first_party_url);
+  ContentSetting setting;
+  GetCookieSetting(GURL(), first_party_url, source, &setting);
+  return IsAllowed(setting);
 }
 
 void CookieSettings::SetThirdPartyCookieSetting(const GURL& first_party_url,
@@ -199,27 +203,54 @@ void CookieSettings::GetCookieSettingInternal(
   DCHECK(value);
   ContentSetting setting = ValueToContentSetting(value.get());
   bool block = block_third && is_third_party_request;
+
+  if (!block) {
+    FireStorageAccessHistogram(
+        net::cookie_util::StorageAccessResult::ACCESS_ALLOWED);
+  }
+
+#if !defined(OS_IOS)
+  // IOS doesn't use blink and as such cannot check our feature flag. Disabling
+  // by default there should be no-op as the lack of Blink also means no grants
+  // would be generated. Everywhere else we'll use |kStorageAccessAPI| to gate
+  // our checking logic.
+  // We'll perform this check after we know if we will |block| or not to avoid
+  // performing extra work in scenarios we already allow.
+  if (block &&
+      base::FeatureList::IsEnabled(blink::features::kStorageAccessAPI)) {
+    ContentSetting setting = host_content_settings_map_->GetContentSetting(
+        url, first_party_url, ContentSettingsType::STORAGE_ACCESS,
+        std::string());
+
+    if (setting == CONTENT_SETTING_ALLOW) {
+      block = false;
+      FireStorageAccessHistogram(net::cookie_util::StorageAccessResult::
+                                     ACCESS_ALLOWED_STORAGE_ACCESS_GRANT);
+    }
+  }
+#endif
+
+  if (block) {
+    FireStorageAccessHistogram(
+        net::cookie_util::StorageAccessResult::ACCESS_BLOCKED);
+  }
+
   *cookie_setting = block ? CONTENT_SETTING_BLOCK : setting;
 }
 
 CookieSettings::~CookieSettings() = default;
 
 bool CookieSettings::IsCookieControlsEnabled() {
-  if (base::FeatureList::IsEnabled(
-          kImprovedCookieControlsForThirdPartyCookieBlocking) &&
-      pref_change_registrar_.prefs()->GetBoolean(
-          prefs::kBlockThirdPartyCookies)) {
-    return true;
-  }
-
+#if defined(OS_IOS)
   if (!base::FeatureList::IsEnabled(kImprovedCookieControls))
     return false;
+#endif
 
   CookieControlsMode mode = static_cast<CookieControlsMode>(
       pref_change_registrar_.prefs()->GetInteger(prefs::kCookieControlsMode));
 
   switch (mode) {
-    case CookieControlsMode::kOn:
+    case CookieControlsMode::kBlockThirdParty:
       return true;
     case CookieControlsMode::kIncognitoOnly:
       return is_incognito_;
@@ -244,8 +275,6 @@ void CookieSettings::OnCookiePreferencesChanged() {
   DCHECK(thread_checker_.CalledOnValidThread());
 
   bool new_block_third_party_cookies =
-      pref_change_registrar_.prefs()->GetBoolean(
-          prefs::kBlockThirdPartyCookies) ||
       IsCookieControlsEnabled();
 
   // Safe to read |block_third_party_cookies_| without locking here because the

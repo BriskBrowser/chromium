@@ -15,7 +15,7 @@
 #include "base/optional.h"
 #include "chrome/browser/ui/app_list/arc/arc_app_list_prefs.h"
 #include "components/arc/metrics/arc_metrics_constants.h"
-#include "components/arc/mojom/app.mojom.h"
+#include "components/arc/mojom/app.mojom-forward.h"
 
 class Profile;
 
@@ -47,6 +47,7 @@ extern const char kPlayMusicAppId[];
 extern const char kPlayStoreAppId[];
 extern const char kSettingsAppId[];
 extern const char kYoutubeAppId[];
+extern const char kYoutubeMusicAppId[];
 
 // Represents unparsed intent.
 class Intent {
@@ -148,6 +149,9 @@ void SetTaskActive(int task_id);
 // Closes the task.
 void CloseTask(int task_id);
 
+// Sets TouchMode in Android. Returns true if the intent was sent.
+bool SetTouchMode(bool enable);
+
 // Gets user selected package names.
 std::vector<std::string> GetSelectedPackagesFromPrefs(
     content::BrowserContext* context);
@@ -206,16 +210,21 @@ std::string AppIdToArcPackageName(const std::string& app_id, Profile* profile);
 std::string ArcPackageNameToAppId(const std::string& package_name,
                                   Profile* profile);
 
-// Returns true if the ARC app is sticky (not uninstallable). This function
-// will DCHECK if app_id isn't installed. This functionality should eventually
-// move to the App Service: (https://crbug.com/948408).
-bool IsArcAppSticky(const std::string& app_id, Profile* profile);
-
 // Add/remove an observer to be notified of app launches.
 void AddAppLaunchObserver(content::BrowserContext* context,
                           AppLaunchObserver* observer);
 void RemoveAppLaunchObserver(content::BrowserContext* context,
                              AppLaunchObserver* observer);
+
+// Returns the app id from the app id or the shelf group id.
+const std::string GetAppFromAppOrGroupId(content::BrowserContext* context,
+                                         const std::string& app_or_group_id);
+
+// Executes an app Shortcut command.
+void ExecuteArcShortcutCommand(content::BrowserContext* context,
+                               const std::string& id,
+                               const std::string& shortcut_id,
+                               int64_t display_id);
 }  // namespace arc
 
 #endif  // CHROME_BROWSER_UI_APP_LIST_ARC_ARC_APP_UTILS_H_

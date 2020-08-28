@@ -5,6 +5,7 @@
 #include "chrome/browser/chromeos/printing/automatic_usb_printer_configurer.h"
 
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "base/containers/flat_set.h"
@@ -23,21 +24,21 @@ namespace {
 Printer CreateUsbPrinter(const std::string& id) {
   Printer printer;
   printer.set_id(id);
-  printer.set_uri("usb:printer");
+  printer.SetUri("usb://usb/printer");
   return printer;
 }
 
 Printer CreateIppUsbPrinter(const std::string& id) {
   Printer printer;
   printer.set_id(id);
-  printer.set_uri("ippusb:printer");
+  printer.SetUri("ippusb://usb/printer");
   return printer;
 }
 
 Printer CreateIppPrinter(const std::string& id) {
   Printer printer;
   printer.set_id(id);
-  printer.set_uri("ipp:printer");
+  printer.SetUri("ipp://usb/printer");
   return printer;
 }
 
@@ -95,9 +96,7 @@ class FakePrinterInstallationManager : public PrinterInstallationManager {
   ~FakePrinterInstallationManager() override = default;
 
   // CupsPrintersManager overrides
-  void PrinterInstalled(const Printer& printer,
-                        bool is_automatic,
-                        PrinterSetupSource source) override {
+  void PrinterInstalled(const Printer& printer, bool is_automatic) override {
     DCHECK(is_automatic);
 
     installed_printers_.insert(printer.id());

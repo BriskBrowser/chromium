@@ -5,12 +5,11 @@
 #include "chrome/browser/browsing_data/counters/site_data_counting_helper.h"
 
 #include "base/bind.h"
-#include "base/task/post_task.h"
 #include "build/build_config.h"
 #include "chrome/browser/browsing_data/browsing_data_flash_lso_helper.h"
-#include "chrome/browser/browsing_data/browsing_data_helper.h"
 #include "chrome/browser/content_settings/host_content_settings_map_factory.h"
 #include "chrome/browser/profiles/profile.h"
+#include "components/browsing_data/content/browsing_data_helper.h"
 #include "components/content_settings/core/browser/host_content_settings_map.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
@@ -20,8 +19,6 @@
 #include "content/public/browser/storage_usage_info.h"
 #include "media/media_buildflags.h"
 #include "net/cookies/cookie_util.h"
-#include "net/url_request/url_request_context.h"
-#include "net/url_request/url_request_context_getter.h"
 #include "ppapi/buildflags/buildflags.h"
 #include "services/network/public/mojom/cookie_manager.mojom.h"
 #include "storage/browser/file_system/file_system_context.h"
@@ -39,9 +36,11 @@ using content::BrowserThread;
 SiteDataCountingHelper::SiteDataCountingHelper(
     Profile* profile,
     base::Time begin,
+    base::Time end,
     base::OnceCallback<void(int)> completion_callback)
     : profile_(profile),
       begin_(begin),
+      end_(end),
       completion_callback_(std::move(completion_callback)),
       tasks_(0) {}
 
@@ -74,10 +73,10 @@ void SiteDataCountingHelper::CountAndDestroySelfWhenFinished() {
         blink::mojom::StorageType::kSyncable};
     for (auto type : types) {
       tasks_ += 1;
-      base::PostTask(
-          FROM_HERE, {BrowserThread::IO},
-          base::BindOnce(&storage::QuotaManager::GetOriginsModifiedSince,
-                         quota_manager, type, begin_, origins_callback));
+      content::GetIOThreadTaskRunner({})->PostTask(
+          FROM_HERE,
+          base::BindOnce(&storage::QuotaManager::GetOriginsModifiedBetween,
+                         quota_manager, type, begin_, end_, origins_callback));
     }
   }
 
@@ -106,8 +105,8 @@ void SiteDataCountingHelper::CountAndDestroySelfWhenFinished() {
 #if defined(OS_ANDROID)
   // Count origins with media licenses on Android.
   tasks_ += 1;
-  Done(cdm::MediaDrmStorageImpl::GetOriginsModifiedSince(profile_->GetPrefs(),
-                                                         begin_));
+  Done(cdm::MediaDrmStorageImpl::GetOriginsModifiedBetween(profile_->GetPrefs(),
+                                                           begin_, end_));
 #endif  // defined(OS_ANDROID)
 
 #if BUILDFLAG(ENABLE_LIBRARY_CDMS)
@@ -119,9 +118,9 @@ void SiteDataCountingHelper::CountAndDestroySelfWhenFinished() {
       BrowsingDataMediaLicenseHelper::Create(file_system_context);
   if (media_license_helper_) {
     tasks_ += 1;
-    media_license_helper_->StartFetching(base::BindRepeating(
-        &SiteDataCountingHelper::SitesWithMediaLicensesCallback,
-        base::Unretained(this)));
+    media_license_helper_->StartFetching(
+        base::BindOnce(&SiteDataCountingHelper::SitesWithMediaLicensesCallback,
+                       base::Unretained(this)));
   }
 #endif
 
@@ -159,14 +158,14 @@ void SiteDataCountingHelper::GetCookiesCallback(
     const net::CookieList& cookies) {
   std::vector<GURL> origins;
   for (const net::CanonicalCookie& cookie : cookies) {
-    if (cookie.CreationDate() >= begin_) {
+    if (cookie.CreationDate() >= begin_ && cookie.CreationDate() < end_) {
       GURL url = net::cookie_util::CookieOriginToURL(cookie.Domain(),
                                                      cookie.IsSecure());
       origins.push_back(url);
     }
   }
-  base::PostTask(FROM_HERE, {BrowserThread::UI},
-                 base::BindOnce(&SiteDataCountingHelper::Done,
+  content::GetUIThreadTaskRunner({})->PostTask(
+      FROM_HERE, base::BindOnce(&SiteDataCountingHelper::Done,
                                 base::Unretained(this), origins));
 }
 
@@ -178,8 +177,8 @@ void SiteDataCountingHelper::GetQuotaOriginsCallback(
   urls.resize(origins.size());
   for (const url::Origin& origin : origins)
     urls.push_back(origin.GetURL());
-  base::PostTask(FROM_HERE, {BrowserThread::UI},
-                 base::BindOnce(&SiteDataCountingHelper::Done,
+  content::GetUIThreadTaskRunner({})->PostTask(
+      FROM_HERE, base::BindOnce(&SiteDataCountingHelper::Done,
                                 base::Unretained(this), std::move(urls)));
 }
 
@@ -188,22 +187,9 @@ void SiteDataCountingHelper::GetLocalStorageUsageInfoCallback(
     const std::vector<content::StorageUsageInfo>& infos) {
   std::vector<GURL> origins;
   for (const auto& info : infos) {
-    if (info.last_modified >= begin_ &&
+    if (info.last_modified >= begin_ && info.last_modified < end_ &&
         (!policy || !policy->IsStorageProtected(info.origin.GetURL()))) {
       origins.push_back(info.origin.GetURL());
-    }
-  }
-  Done(origins);
-}
-
-void SiteDataCountingHelper::GetSessionStorageUsageInfoCallback(
-    const scoped_refptr<storage::SpecialStoragePolicy>& policy,
-    const std::vector<content::SessionStorageUsageInfo>& infos) {
-  std::vector<GURL> origins;
-  for (const auto& info : infos) {
-    // Session storage doesn't know about creation time.
-    if (!policy || !policy->IsStorageProtected(info.origin)) {
-      origins.push_back(info.origin);
     }
   }
   Done(origins);
@@ -223,7 +209,7 @@ void SiteDataCountingHelper::SitesWithMediaLicensesCallback(
         media_license_info_list) {
   std::vector<GURL> origins;
   for (const auto& info : media_license_info_list) {
-    if (info.last_modified_time >= begin_)
+    if (info.last_modified_time >= begin_ && info.last_modified_time < end_)
       origins.push_back(info.origin);
   }
   Done(origins);
@@ -233,7 +219,7 @@ void SiteDataCountingHelper::Done(const std::vector<GURL>& origins) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   DCHECK(tasks_ > 0);
   for (const GURL& origin : origins) {
-    if (BrowsingDataHelper::HasWebScheme(origin))
+    if (browsing_data::HasWebScheme(origin))
       unique_hosts_.insert(origin.host());
   }
   if (--tasks_ > 0)

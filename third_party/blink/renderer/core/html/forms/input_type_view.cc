@@ -28,6 +28,7 @@
 
 #include "third_party/blink/renderer/core/html/forms/input_type_view.h"
 
+#include "third_party/blink/renderer/core/dom/focus_params.h"
 #include "third_party/blink/renderer/core/dom/node_computed_style.h"
 #include "third_party/blink/renderer/core/dom/shadow_root.h"
 #include "third_party/blink/renderer/core/events/keyboard_event.h"
@@ -38,9 +39,13 @@
 
 namespace blink {
 
+void InputTypeView::WillBeDestroyed() {
+  will_be_destroyed_ = true;
+}
+
 InputTypeView::~InputTypeView() = default;
 
-void InputTypeView::Trace(Visitor* visitor) {
+void InputTypeView::Trace(Visitor* visitor) const {
   visitor->Trace(element_);
 }
 
@@ -74,13 +79,13 @@ void InputTypeView::DispatchSimulatedClickIfActive(KeyboardEvent& event) const {
 
 void InputTypeView::AccessKeyAction(bool) {
   GetElement().focus(FocusParams(SelectionBehaviorOnFocus::kReset,
-                                 kWebFocusTypeNone, nullptr));
+                                 mojom::blink::FocusType::kNone, nullptr));
 }
 
 bool InputTypeView::ShouldSubmitImplicitly(const Event& event) {
-  return event.IsKeyboardEvent() &&
-         event.type() == event_type_names::kKeypress &&
-         ToKeyboardEvent(event).charCode() == '\r';
+  auto* keyboard_event = DynamicTo<KeyboardEvent>(event);
+  return keyboard_event && event.type() == event_type_names::kKeypress &&
+         keyboard_event->charCode() == '\r';
 }
 
 HTMLFormElement* InputTypeView::FormForSubmission() const {
@@ -88,7 +93,7 @@ HTMLFormElement* InputTypeView::FormForSubmission() const {
 }
 
 bool InputTypeView::TypeShouldForceLegacyLayout() const {
-  return true;
+  return false;
 }
 
 LayoutObject* InputTypeView::CreateLayoutObject(const ComputedStyle& style,
@@ -96,10 +101,7 @@ LayoutObject* InputTypeView::CreateLayoutObject(const ComputedStyle& style,
   return LayoutObject::CreateObject(&GetElement(), style, legacy);
 }
 
-scoped_refptr<ComputedStyle> InputTypeView::CustomStyleForLayoutObject(
-    scoped_refptr<ComputedStyle> original_style) {
-  return original_style;
-}
+void InputTypeView::CustomStyleForLayoutObject(ComputedStyle&) {}
 
 TextDirection InputTypeView::ComputedTextDirection() {
   return GetElement().ComputedStyleRef().Direction();
@@ -115,11 +117,15 @@ bool InputTypeView::HasCustomFocusLogic() const {
 
 void InputTypeView::HandleBlurEvent() {}
 
-void InputTypeView::HandleFocusInEvent(Element*, WebFocusType) {}
+void InputTypeView::HandleFocusInEvent(Element*, mojom::blink::FocusType) {}
 
 void InputTypeView::StartResourceLoading() {}
 
 void InputTypeView::ClosePopupView() {}
+
+bool InputTypeView::HasOpenedPopup() const {
+  return false;
+}
 
 bool InputTypeView::NeedsShadowSubtree() const {
   return true;
@@ -134,6 +140,10 @@ void InputTypeView::DestroyShadowSubtree() {
 
 HTMLInputElement* InputTypeView::UploadButton() const {
   return nullptr;
+}
+
+String InputTypeView::FileStatusText() const {
+  return String();
 }
 
 void InputTypeView::AltAttributeChanged() {}
@@ -189,13 +199,21 @@ void InputTypeView::RestoreFormControlState(const FormControlState& state) {
   GetElement().setValue(state[0]);
 }
 
+bool InputTypeView::IsDraggedSlider() const {
+  return false;
+}
+
 bool InputTypeView::HasBadInput() const {
   return false;
 }
 
-void ClickHandlingState::Trace(Visitor* visitor) {
+void ClickHandlingState::Trace(Visitor* visitor) const {
   visitor->Trace(checked_radio_button);
   EventDispatchHandlingState::Trace(visitor);
+}
+
+String InputTypeView::RawValue() const {
+  return g_empty_string;
 }
 
 }  // namespace blink

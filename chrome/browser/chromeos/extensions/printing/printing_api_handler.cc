@@ -4,9 +4,12 @@
 
 #include "chrome/browser/chromeos/extensions/printing/printing_api_handler.h"
 
+#include <utility>
+
 #include "base/bind.h"
 #include "base/location.h"
 #include "base/memory/ptr_util.h"
+#include "base/no_destructor.h"
 #include "base/stl_util.h"
 #include "base/task/post_task.h"
 #include "base/threading/sequenced_task_runner_handle.h"
@@ -21,6 +24,7 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/pref_names.h"
 #include "chromeos/printing/printer_configuration.h"
+#include "components/prefs/pref_registry_simple.h"
 #include "components/prefs/pref_service.h"
 #include "components/printing/common/cloud_print_cdd_conversion.h"
 #include "content/public/browser/browser_context.h"
@@ -34,6 +38,8 @@ namespace extensions {
 namespace {
 
 constexpr char kInvalidPrinterIdError[] = "Invalid printer ID";
+constexpr char kNoActivePrintJobWithIdError[] =
+    "No active print job with given ID";
 
 }  // namespace
 
@@ -44,12 +50,13 @@ std::unique_ptr<PrintingAPIHandler> PrintingAPIHandler::CreateForTesting(
     ExtensionRegistry* extension_registry,
     chromeos::CupsPrintJobManager* print_job_manager,
     chromeos::CupsPrintersManager* printers_manager,
+    std::unique_ptr<PrintJobController> print_job_controller,
     std::unique_ptr<chromeos::PrinterConfigurer> printer_configurer,
     std::unique_ptr<chromeos::CupsWrapper> cups_wrapper) {
   return base::WrapUnique(new PrintingAPIHandler(
       browser_context, event_router, extension_registry, print_job_manager,
-      printers_manager, std::move(printer_configurer),
-      std::move(cups_wrapper)));
+      printers_manager, std::move(print_job_controller),
+      std::move(printer_configurer), std::move(cups_wrapper)));
 }
 
 PrintingAPIHandler::PrintingAPIHandler(content::BrowserContext* browser_context)
@@ -61,6 +68,9 @@ PrintingAPIHandler::PrintingAPIHandler(content::BrowserContext* browser_context)
               browser_context),
           chromeos::CupsPrintersManagerFactory::GetForBrowserContext(
               browser_context),
+          PrintJobController::Create(
+              chromeos::CupsPrintJobManagerFactory::GetForBrowserContext(
+                  browser_context)),
           chromeos::PrinterConfigurer::Create(
               Profile::FromBrowserContext(browser_context)),
           chromeos::CupsWrapper::Create()) {}
@@ -71,6 +81,7 @@ PrintingAPIHandler::PrintingAPIHandler(
     ExtensionRegistry* extension_registry,
     chromeos::CupsPrintJobManager* print_job_manager,
     chromeos::CupsPrintersManager* printers_manager,
+    std::unique_ptr<PrintJobController> print_job_controller,
     std::unique_ptr<chromeos::PrinterConfigurer> printer_configurer,
     std::unique_ptr<chromeos::CupsWrapper> cups_wrapper)
     : browser_context_(browser_context),
@@ -78,6 +89,7 @@ PrintingAPIHandler::PrintingAPIHandler(
       extension_registry_(extension_registry),
       print_job_manager_(print_job_manager),
       printers_manager_(printers_manager),
+      print_job_controller_(std::move(print_job_controller)),
       printer_capabilities_provider_(printers_manager,
                                      std::move(printer_configurer)),
       cups_wrapper_(std::move(cups_wrapper)),
@@ -100,6 +112,55 @@ PrintingAPIHandler* PrintingAPIHandler::Get(
     content::BrowserContext* browser_context) {
   return BrowserContextKeyedAPIFactory<PrintingAPIHandler>::Get(
       browser_context);
+}
+
+// static
+void PrintingAPIHandler::RegisterProfilePrefs(PrefRegistrySimple* registry) {
+  registry->RegisterListPref(prefs::kPrintingAPIExtensionsAllowlist);
+}
+
+void PrintingAPIHandler::SubmitJob(
+    gfx::NativeWindow native_window,
+    scoped_refptr<const extensions::Extension> extension,
+    std::unique_ptr<api::printing::SubmitJob::Params> params,
+    PrintJobSubmitter::SubmitJobCallback callback) {
+  auto print_job_submitter = std::make_unique<PrintJobSubmitter>(
+      native_window, browser_context_, printers_manager_,
+      &printer_capabilities_provider_, print_job_controller_.get(),
+      &pdf_flattener_, std::move(extension), std::move(params->request));
+  PrintJobSubmitter* print_job_submitter_ptr = print_job_submitter.get();
+  print_job_submitter_ptr->Start(base::BindOnce(
+      &PrintingAPIHandler::OnPrintJobSubmitted, weak_ptr_factory_.GetWeakPtr(),
+      std::move(print_job_submitter), std::move(callback)));
+}
+
+void PrintingAPIHandler::OnPrintJobSubmitted(
+    std::unique_ptr<PrintJobSubmitter> print_job_submitter,
+    PrintJobSubmitter::SubmitJobCallback callback,
+    base::Optional<api::printing::SubmitJobStatus> status,
+    std::unique_ptr<std::string> job_id,
+    base::Optional<std::string> error) {
+  base::SequencedTaskRunnerHandle::Get()->PostTask(
+      FROM_HERE,
+      base::BindOnce(std::move(callback), status, std::move(job_id), error));
+}
+
+base::Optional<std::string> PrintingAPIHandler::CancelJob(
+    const std::string& extension_id,
+    const std::string& job_id) {
+  auto it = print_jobs_extension_ids_.find(job_id);
+  // If there was no print job with specified id sent by the extension return
+  // an error.
+  if (it == print_jobs_extension_ids_.end() || it->second != extension_id)
+    return kNoActivePrintJobWithIdError;
+
+  // If we can't cancel the print job (e.g. it's in terminated state) return an
+  // error.
+  if (!print_job_controller_->CancelPrintJob(job_id))
+    return kNoActivePrintJobWithIdError;
+
+  // Return no error otherwise.
+  return base::nullopt;
 }
 
 std::vector<api::printing::Printer> PrintingAPIHandler::GetPrinters() {
@@ -188,9 +249,20 @@ void PrintingAPIHandler::OnPrinterStatusRetrieved(
           /*error=*/base::nullopt));
 }
 
+void PrintingAPIHandler::SetPrintJobControllerForTesting(
+    std::unique_ptr<PrintJobController> print_job_controller) {
+  print_job_controller_ = std::move(print_job_controller);
+}
+
 void PrintingAPIHandler::OnPrintJobCreated(
     base::WeakPtr<chromeos::CupsPrintJob> job) {
   DispatchJobStatusChangedEvent(api::printing::JOB_STATUS_PENDING, job);
+  if (!job || job->source() != printing::PrintJob::Source::EXTENSION)
+    return;
+  const std::string& extension_id = job->source_id();
+  const std::string& job_id = job->GetUniqueId();
+  print_jobs_extension_ids_[job_id] = extension_id;
+  print_job_controller_->OnPrintJobCreated(extension_id, job_id, job);
 }
 
 void PrintingAPIHandler::OnPrintJobStarted(
@@ -201,16 +273,19 @@ void PrintingAPIHandler::OnPrintJobStarted(
 void PrintingAPIHandler::OnPrintJobDone(
     base::WeakPtr<chromeos::CupsPrintJob> job) {
   DispatchJobStatusChangedEvent(api::printing::JOB_STATUS_PRINTED, job);
+  FinishJob(job);
 }
 
 void PrintingAPIHandler::OnPrintJobError(
     base::WeakPtr<chromeos::CupsPrintJob> job) {
   DispatchJobStatusChangedEvent(api::printing::JOB_STATUS_FAILED, job);
+  FinishJob(job);
 }
 
 void PrintingAPIHandler::OnPrintJobCancelled(
     base::WeakPtr<chromeos::CupsPrintJob> job) {
   DispatchJobStatusChangedEvent(api::printing::JOB_STATUS_CANCELED, job);
+  FinishJob(job);
 }
 
 void PrintingAPIHandler::DispatchJobStatusChangedEvent(
@@ -227,6 +302,14 @@ void PrintingAPIHandler::DispatchJobStatusChangedEvent(
 
   if (extension_registry_->enabled_extensions().Contains(job->source_id()))
     event_router_->DispatchEventToExtension(job->source_id(), std::move(event));
+}
+
+void PrintingAPIHandler::FinishJob(base::WeakPtr<chromeos::CupsPrintJob> job) {
+  if (!job || job->source() != printing::PrintJob::Source::EXTENSION)
+    return;
+  const std::string& job_id = job->GetUniqueId();
+  print_jobs_extension_ids_.erase(job_id);
+  print_job_controller_->OnPrintJobFinished(job_id);
 }
 
 template <>

@@ -13,6 +13,8 @@
 #include "ash/public/cpp/shelf_config.h"
 #include "ash/root_window_controller.h"
 #include "ash/screen_util.h"
+#include "ash/shelf/drag_handle.h"
+#include "ash/shelf/hotseat_transition_animator.h"
 #include "ash/shelf/login_shelf_view.h"
 #include "ash/shelf/shelf.h"
 #include "ash/shelf/shelf_layout_manager.h"
@@ -26,10 +28,11 @@
 #include "ash/test_shell_delegate.h"
 #include "ash/wm/window_util.h"
 #include "base/bind_helpers.h"
+#include "base/run_loop.h"
 #include "base/test/scoped_feature_list.h"
-#include "chromeos/constants/chromeos_features.h"
 #include "components/session_manager/session_manager_types.h"
 #include "ui/aura/window_event_dispatcher.h"
+#include "ui/compositor/scoped_animation_duration_scale_mode.h"
 #include "ui/display/display.h"
 #include "ui/events/event_utils.h"
 #include "ui/events/test/event_generator.h"
@@ -137,8 +140,36 @@ TEST_F(ShelfWidgetTest, TestAlignmentForMultipleDisplays) {
   }
 }
 
-// Makes sure the shelf is initially sized correctly.
-TEST_F(ShelfWidgetTest, LauncherInitiallySized) {
+class ShelfWidgetLayoutBasicsTest
+    : public ShelfWidgetTest,
+      public testing::WithParamInterface<std::tuple<bool, bool>> {
+ public:
+  ShelfWidgetLayoutBasicsTest() {
+    scoped_feature_list_.InitWithFeatureState(
+        features::kHideShelfControlsInTabletMode, std::get<1>(GetParam()));
+  }
+  ~ShelfWidgetLayoutBasicsTest() override = default;
+
+  void SetUp() override {
+    ShelfWidgetTest::SetUp();
+
+    Shell::Get()->tablet_mode_controller()->SetEnabledForTest(
+        std::get<0>(GetParam()));
+  }
+
+ private:
+  base::test::ScopedFeatureList scoped_feature_list_;
+};
+
+// First parameter - whether test should run in tablet mode.
+// Second parameter - whether shelf navigation buttons are enabled in tablet
+// mode.
+INSTANTIATE_TEST_SUITE_P(All,
+                         ShelfWidgetLayoutBasicsTest,
+                         testing::Combine(testing::Bool(), testing::Bool()));
+
+// Makes sure the shelf is initially sized correctly in clamshell/tablet.
+TEST_P(ShelfWidgetLayoutBasicsTest, LauncherInitiallySized) {
   ShelfWidget* shelf_widget = GetShelfWidget();
   ShelfLayoutManager* shelf_layout_manager = GetShelfLayoutManager();
   ASSERT_TRUE(shelf_layout_manager);
@@ -151,12 +182,26 @@ TEST_F(ShelfWidgetTest, LauncherInitiallySized) {
   const int total_width =
       screen_util::GetDisplayBoundsWithShelf(shelf_widget->GetNativeWindow())
           .width();
-  const int nav_width =
-      shelf_widget->navigation_widget()->GetWindowBoundsInScreen().width();
+
+  const gfx::Rect nav_widget_clip_rect =
+      shelf_widget->navigation_widget()->GetLayer()->clip_rect();
+  if (!nav_widget_clip_rect.IsEmpty())
+    EXPECT_EQ(gfx::Point(), nav_widget_clip_rect.origin());
+
+  int nav_width =
+      nav_widget_clip_rect.IsEmpty()
+          ? shelf_widget->navigation_widget()->GetWindowBoundsInScreen().width()
+          : nav_widget_clip_rect.width();
+  ASSERT_GE(nav_width, 0);
+  if (nav_width) {
+    nav_width -= ShelfConfig::Get()->control_button_edge_spacing(
+        true /* is_primary_axis_edge */);
+  }
+
   const int hotseat_width =
       shelf_widget->hotseat_widget()->GetWindowBoundsInScreen().width();
-  const int margins = ShelfConfig::Get()->home_button_edge_spacing() +
-                      ShelfConfig::Get()->app_icon_group_margin();
+  const int margins = 2 * ShelfConfig::Get()->GetAppIconGroupMargin();
+
   EXPECT_EQ(status_width, total_width - nav_width - hotseat_width - margins);
 }
 
@@ -165,7 +210,7 @@ TEST_F(ShelfWidgetTest, DontReferenceShelfAfterDeletion) {
   views::Widget* widget = new views::Widget;
   views::Widget::InitParams params(views::Widget::InitParams::TYPE_WINDOW);
   params.bounds = gfx::Rect(0, 0, 200, 200);
-  params.context = CurrentContext();
+  params.context = GetContext();
   // Widget is now owned by the parent window.
   widget->Init(std::move(params));
   widget->SetFullscreen(true);
@@ -198,17 +243,20 @@ TEST_F(ShelfWidgetTest, ShelfInitiallySizedAfterLogin) {
       screen_util::GetDisplayBoundsWithShelf(shelf_widget1->GetNativeWindow())
           .width();
   const int nav_width1 =
-      shelf_widget1->navigation_widget()->GetWindowBoundsInScreen().width();
+      shelf_widget1->navigation_widget()->GetWindowBoundsInScreen().width() -
+      ShelfConfig::Get()->control_button_edge_spacing(
+          true /* is_primary_axis_edge */);
   const int hotseat_width1 =
       shelf_widget1->hotseat_widget()->GetWindowBoundsInScreen().width();
-  const int margins = ShelfConfig::Get()->home_button_edge_spacing() +
-                      ShelfConfig::Get()->app_icon_group_margin();
+  const int margins = 2 * ShelfConfig::Get()->GetAppIconGroupMargin();
 
   const int total_width2 =
       screen_util::GetDisplayBoundsWithShelf(shelf_widget2->GetNativeWindow())
           .width();
   const int nav_width2 =
-      shelf_widget2->navigation_widget()->GetWindowBoundsInScreen().width();
+      shelf_widget2->navigation_widget()->GetWindowBoundsInScreen().width() -
+      ShelfConfig::Get()->control_button_edge_spacing(
+          true /* is_primary_axis_edge */);
   const int hotseat_width2 =
       shelf_widget2->hotseat_widget()->GetWindowBoundsInScreen().width();
 
@@ -242,7 +290,7 @@ TEST_F(ShelfWidgetTest, HiddenShelfHitTestTouch) {
   views::Widget* widget = new views::Widget;
   views::Widget::InitParams params(views::Widget::InitParams::TYPE_WINDOW);
   params.bounds = gfx::Rect(0, 0, 200, 200);
-  params.context = CurrentContext();
+  params.context = GetContext();
   // Widget is now owned by the parent window.
   widget->Init(std::move(params));
   widget->Show();
@@ -254,9 +302,9 @@ TEST_F(ShelfWidgetTest, HiddenShelfHitTestTouch) {
   // should not find the shelf as the target.
   {
     gfx::Point event_location(20, shelf_bounds.y() - 1);
-    ui::TouchEvent touch(
-        ui::ET_TOUCH_PRESSED, event_location, ui::EventTimeForNow(),
-        ui::PointerDetails(ui::EventPointerType::POINTER_TYPE_TOUCH, 0));
+    ui::TouchEvent touch(ui::ET_TOUCH_PRESSED, event_location,
+                         ui::EventTimeForNow(),
+                         ui::PointerDetails(ui::EventPointerType::kTouch, 0));
     EXPECT_NE(shelf_widget->GetNativeWindow(),
               targeter->FindTargetForEvent(root, &touch));
   }
@@ -273,9 +321,9 @@ TEST_F(ShelfWidgetTest, HiddenShelfHitTestTouch) {
   // shelf as the target.
   {
     gfx::Point event_location(20, shelf_bounds.y() - 1);
-    ui::TouchEvent touch(
-        ui::ET_TOUCH_PRESSED, event_location, ui::EventTimeForNow(),
-        ui::PointerDetails(ui::EventPointerType::POINTER_TYPE_TOUCH, 0));
+    ui::TouchEvent touch(ui::ET_TOUCH_PRESSED, event_location,
+                         ui::EventTimeForNow(),
+                         ui::PointerDetails(ui::EventPointerType::kTouch, 0));
     EXPECT_EQ(shelf_widget->GetNativeWindow(),
               targeter->FindTargetForEvent(root, &touch));
   }
@@ -304,7 +352,7 @@ TEST_F(ShelfWidgetTest, ShelfEdgeOverlappingWindowHitTestMouse) {
   params.bounds = gfx::Rect(shelf_bounds.height() - kOverlapSize,
                             shelf_bounds.y() - kWindowHeight + kOverlapSize,
                             kWindowWidth, kWindowHeight);
-  params.context = CurrentContext();
+  params.context = GetContext();
   // Widget is now owned by the parent window.
   widget->Init(std::move(params));
   // Explicitly set the bounds which will allow the widget to overlap the shelf.
@@ -367,6 +415,337 @@ TEST_F(ShelfWidgetTest, ShelfEdgeOverlappingWindowHitTestMouse) {
     ui::EventTarget* target = targeter->FindTargetForEvent(root, &mouse);
     EXPECT_EQ(shelf_widget->GetNativeWindow(), target);
   }
+}
+
+class TransitionAnimationWaiter
+    : public HotseatTransitionAnimator::TestObserver {
+ public:
+  explicit TransitionAnimationWaiter(
+      HotseatTransitionAnimator* hotseat_transition_animator)
+      : hotseat_transition_animator_(hotseat_transition_animator) {
+    hotseat_transition_animator_->SetTestObserver(this);
+  }
+  ~TransitionAnimationWaiter() override {
+    hotseat_transition_animator_->SetTestObserver(nullptr);
+  }
+
+  void Wait() {
+    run_loop_ = std::make_unique<base::RunLoop>();
+    run_loop_->Run();
+  }
+
+ private:
+  void OnTransitionTestAnimationEnded() override {
+    DCHECK(run_loop_.get());
+    run_loop_->Quit();
+  }
+
+  HotseatTransitionAnimator* hotseat_transition_animator_ = nullptr;
+  std::unique_ptr<base::RunLoop> run_loop_;
+};
+
+// Tests the drag handle bounds and visibility when the in-app shelf is shown.
+TEST_F(ShelfWidgetTest, OpaqueBackgroundAndDragHandleTransition) {
+  ui::ScopedAnimationDurationScaleMode non_zero_duration_mode(
+      ui::ScopedAnimationDurationScaleMode::NON_ZERO_DURATION);
+
+  Shell::Get()->tablet_mode_controller()->SetEnabledForTest(true);
+  UpdateDisplay("800x800");
+
+  ASSERT_FALSE(GetShelfWidget()->GetDragHandle()->GetVisible());
+  ASSERT_FALSE(GetShelfWidget()->GetOpaqueBackground()->visible());
+
+  // Create a window to transition to the in-app shelf.
+  auto window = AshTestBase::CreateTestWindow(gfx::Rect(0, 0, 800, 800));
+
+  {
+    TransitionAnimationWaiter waiter(
+        GetShelfWidget()->hotseat_transition_animator());
+    waiter.Wait();
+  }
+
+  // Ensure the ShelfWidget and drag handle have the correct bounds and
+  // visibility for in-app shelf.
+  EXPECT_EQ(GetShelfWidget()->GetWindowBoundsInScreen(),
+            gfx::Rect(0, 760, 800, 40));
+  EXPECT_EQ(GetShelfWidget()->GetDragHandle()->bounds(),
+            gfx::Rect(360, 18, 80, 4));
+  ASSERT_TRUE(GetShelfWidget()->GetDragHandle()->GetVisible());
+  ASSERT_TRUE(GetShelfWidget()->GetOpaqueBackground()->visible());
+
+  window->Hide();
+
+  ASSERT_FALSE(GetShelfWidget()->GetDragHandle()->GetVisible());
+  ASSERT_FALSE(GetShelfWidget()->GetOpaqueBackground()->visible());
+}
+
+// Tests the shelf widget does not animate for hotseat transitions during tablet
+// mode start.
+TEST_F(ShelfWidgetTest, NoAnimatingBackgroundDuringTabletModeStartToInApp) {
+  UpdateDisplay("800x800");
+  // Create a window so tablet mode uses in-app shelf.
+  auto window = AshTestBase::CreateTestWindow(gfx::Rect(0, 0, 800, 800));
+
+  EXPECT_TRUE(GetShelfWidget()->GetOpaqueBackground()->visible());
+  EXPECT_FALSE(GetShelfWidget()->GetDragHandle()->GetVisible());
+  ASSERT_FALSE(GetShelfWidget()->GetAnimatingBackground()->visible());
+  ASSERT_FALSE(GetShelfWidget()
+                   ->GetAnimatingBackground()
+                   ->GetAnimator()
+                   ->is_animating());
+  ui::ScopedAnimationDurationScaleMode non_zero_duration_mode(
+      ui::ScopedAnimationDurationScaleMode::NON_ZERO_DURATION);
+  Shell::Get()->tablet_mode_controller()->SetEnabledForTest(true);
+
+  EXPECT_TRUE(GetShelfWidget()->GetDragHandle()->GetVisible());
+  EXPECT_TRUE(GetShelfWidget()->GetOpaqueBackground()->visible());
+  EXPECT_FALSE(GetShelfWidget()->GetAnimatingBackground()->visible());
+  EXPECT_FALSE(GetShelfWidget()
+                   ->GetAnimatingBackground()
+                   ->GetAnimator()
+                   ->is_animating());
+}
+
+// Tests the shelf widget does not animate for hotseat transitions during tablet
+// mode end.
+TEST_F(ShelfWidgetTest, NoAnimatingBackgroundDuringTabletModeEndFromInApp) {
+  UpdateDisplay("800x800");
+  Shell::Get()->tablet_mode_controller()->SetEnabledForTest(true);
+
+  // Create a window so tablet mode uses in-app shelf.
+  auto window = AshTestBase::CreateTestWindow(gfx::Rect(0, 0, 800, 800));
+
+  EXPECT_TRUE(GetShelfWidget()->GetOpaqueBackground()->visible());
+  EXPECT_TRUE(GetShelfWidget()->GetDragHandle()->GetVisible());
+  ASSERT_FALSE(GetShelfWidget()->GetAnimatingBackground()->visible());
+  ASSERT_FALSE(GetShelfWidget()
+                   ->GetAnimatingBackground()
+                   ->GetAnimator()
+                   ->is_animating());
+
+  ui::ScopedAnimationDurationScaleMode non_zero_duration_mode(
+      ui::ScopedAnimationDurationScaleMode::NON_ZERO_DURATION);
+  Shell::Get()->tablet_mode_controller()->SetEnabledForTest(false);
+
+  EXPECT_TRUE(GetShelfWidget()->GetOpaqueBackground()->visible());
+  EXPECT_FALSE(GetShelfWidget()->GetDragHandle()->GetVisible());
+  EXPECT_FALSE(GetShelfWidget()->GetAnimatingBackground()->visible());
+  EXPECT_FALSE(GetShelfWidget()
+                   ->GetAnimatingBackground()
+                   ->GetAnimator()
+                   ->is_animating());
+}
+
+// Tests the shelf widget does not animate for hotseat transitions during tablet
+// mode start with no app windows.
+TEST_F(ShelfWidgetTest, NoAnimatingBackgroundDuringTabletModeStartToHome) {
+  UpdateDisplay("800x800");
+
+  EXPECT_TRUE(GetShelfWidget()->GetOpaqueBackground()->visible());
+  EXPECT_FALSE(GetShelfWidget()->GetDragHandle()->GetVisible());
+  ASSERT_FALSE(GetShelfWidget()->GetAnimatingBackground()->visible());
+  ASSERT_FALSE(GetShelfWidget()
+                   ->GetAnimatingBackground()
+                   ->GetAnimator()
+                   ->is_animating());
+
+  ui::ScopedAnimationDurationScaleMode non_zero_duration_mode(
+      ui::ScopedAnimationDurationScaleMode::NON_ZERO_DURATION);
+  Shell::Get()->tablet_mode_controller()->SetEnabledForTest(true);
+
+  EXPECT_FALSE(GetShelfWidget()->GetDragHandle()->GetVisible());
+  EXPECT_FALSE(GetShelfWidget()->GetOpaqueBackground()->visible());
+  EXPECT_FALSE(GetShelfWidget()->GetAnimatingBackground()->visible());
+  EXPECT_FALSE(GetShelfWidget()
+                   ->GetAnimatingBackground()
+                   ->GetAnimator()
+                   ->is_animating());
+}
+
+// Tests the shelf widget does not animate for hotseat transitions during tablet
+// mode end with no app windows.
+TEST_F(ShelfWidgetTest, NoAnimatingBackgroundDuringTabletModeEndFromHome) {
+  UpdateDisplay("800x800");
+  Shell::Get()->tablet_mode_controller()->SetEnabledForTest(true);
+
+  EXPECT_FALSE(GetShelfWidget()->GetOpaqueBackground()->visible());
+  EXPECT_FALSE(GetShelfWidget()->GetDragHandle()->GetVisible());
+  ASSERT_FALSE(GetShelfWidget()->GetAnimatingBackground()->visible());
+  ASSERT_FALSE(GetShelfWidget()
+                   ->GetAnimatingBackground()
+                   ->GetAnimator()
+                   ->is_animating());
+
+  ui::ScopedAnimationDurationScaleMode non_zero_duration_mode(
+      ui::ScopedAnimationDurationScaleMode::NON_ZERO_DURATION);
+  Shell::Get()->tablet_mode_controller()->SetEnabledForTest(false);
+
+  EXPECT_TRUE(GetShelfWidget()->GetOpaqueBackground()->visible());
+  EXPECT_FALSE(GetShelfWidget()->GetDragHandle()->GetVisible());
+  EXPECT_FALSE(GetShelfWidget()->GetAnimatingBackground()->visible());
+  EXPECT_FALSE(GetShelfWidget()
+                   ->GetAnimatingBackground()
+                   ->GetAnimator()
+                   ->is_animating());
+}
+
+// Tests the shelf widget does not animate for hotseat transitions if the screen
+// is locked.
+TEST_F(ShelfWidgetTest, NoAnimatingBackgroundOnLockScreen) {
+  Shell::Get()->tablet_mode_controller()->SetEnabledForTest(true);
+  UpdateDisplay("800x800");
+
+  ASSERT_FALSE(GetShelfWidget()->GetDragHandle()->GetVisible());
+  ASSERT_FALSE(GetShelfWidget()->GetOpaqueBackground()->visible());
+
+  // Create a window to transition to the in-app shelf.
+  auto window = AshTestBase::CreateTestWindow(gfx::Rect(0, 0, 800, 800));
+
+  // At this point animations have zero duration, so the transition happens
+  // immediately.
+  ASSERT_TRUE(GetShelfWidget()->GetDragHandle()->GetVisible());
+  ASSERT_TRUE(GetShelfWidget()->GetOpaqueBackground()->visible());
+  ASSERT_FALSE(GetShelfWidget()->GetAnimatingBackground()->visible());
+
+  GetSessionControllerClient()->SetSessionState(SessionState::LOCKED);
+
+  ASSERT_FALSE(GetShelfWidget()->GetDragHandle()->GetVisible());
+  ASSERT_FALSE(GetShelfWidget()->GetOpaqueBackground()->visible());
+  ASSERT_FALSE(GetShelfWidget()->GetAnimatingBackground()->visible());
+
+  ui::ScopedAnimationDurationScaleMode non_zero_duration_mode(
+      ui::ScopedAnimationDurationScaleMode::NON_ZERO_DURATION);
+
+  // Hide the test window, and verify that does not start shelf animation.
+  window->Hide();
+
+  ASSERT_FALSE(GetShelfWidget()->GetDragHandle()->GetVisible());
+  ASSERT_FALSE(GetShelfWidget()->GetOpaqueBackground()->visible());
+  ASSERT_FALSE(GetShelfWidget()->GetAnimatingBackground()->visible());
+  ASSERT_FALSE(GetShelfWidget()
+                   ->GetAnimatingBackground()
+                   ->GetAnimator()
+                   ->is_animating());
+
+  // Ensure the ShelfWidget and the drag handle are still hidden (i.e. in home
+  // screen state) when the screen is unlocked.
+  GetSessionControllerClient()->SetSessionState(SessionState::ACTIVE);
+  ASSERT_FALSE(GetShelfWidget()->GetDragHandle()->GetVisible());
+  ASSERT_FALSE(GetShelfWidget()->GetOpaqueBackground()->visible());
+  ASSERT_FALSE(GetShelfWidget()->GetAnimatingBackground()->visible());
+  ASSERT_FALSE(GetShelfWidget()
+                   ->GetAnimatingBackground()
+                   ->GetAnimator()
+                   ->is_animating());
+}
+
+// Tests the shelf widget animations for hotseat transitions are stopped when
+// the screen is locked.
+TEST_F(ShelfWidgetTest, ScreenLockStopsHotseatTransitionAnimation) {
+  Shell::Get()->tablet_mode_controller()->SetEnabledForTest(true);
+  UpdateDisplay("800x800");
+
+  ASSERT_FALSE(GetShelfWidget()->GetDragHandle()->GetVisible());
+  ASSERT_FALSE(GetShelfWidget()->GetOpaqueBackground()->visible());
+
+  ui::ScopedAnimationDurationScaleMode non_zero_duration_mode(
+      ui::ScopedAnimationDurationScaleMode::NON_ZERO_DURATION);
+
+  // Create a window to transition to the in-app shelf.
+  auto window = AshTestBase::CreateTestWindow(gfx::Rect(0, 0, 800, 800));
+
+  ASSERT_FALSE(GetShelfWidget()->GetDragHandle()->GetVisible());
+  ASSERT_FALSE(GetShelfWidget()->GetOpaqueBackground()->visible());
+  ASSERT_TRUE(GetShelfWidget()->GetAnimatingBackground()->visible());
+  ASSERT_TRUE(GetShelfWidget()
+                  ->GetAnimatingBackground()
+                  ->GetAnimator()
+                  ->is_animating());
+
+  GetSessionControllerClient()->SetSessionState(SessionState::LOCKED);
+
+  ASSERT_FALSE(GetShelfWidget()->GetDragHandle()->GetVisible());
+  ASSERT_FALSE(GetShelfWidget()->GetOpaqueBackground()->visible());
+  ASSERT_FALSE(GetShelfWidget()->GetAnimatingBackground()->visible());
+  ASSERT_FALSE(GetShelfWidget()
+                   ->GetAnimatingBackground()
+                   ->GetAnimator()
+                   ->is_animating());
+
+  GetSessionControllerClient()->SetSessionState(SessionState::ACTIVE);
+
+  // Ensure the ShelfWidget and the drag handle have the correct bounds and
+  // visibility for in-app shelf when the screen is unlocked.
+  ASSERT_TRUE(GetShelfWidget()->GetDragHandle()->GetVisible());
+  ASSERT_TRUE(GetShelfWidget()->GetOpaqueBackground()->visible());
+  ASSERT_FALSE(GetShelfWidget()->GetAnimatingBackground()->visible());
+  EXPECT_EQ(GetShelfWidget()->GetWindowBoundsInScreen(),
+            gfx::Rect(0, 760, 800, 40));
+  EXPECT_EQ(GetShelfWidget()->GetDragHandle()->bounds(),
+            gfx::Rect(360, 18, 80, 4));
+}
+
+// Tests the shelf widget's opaque background gets reshown if hotseat transition
+// from kShown state gets interrupted by a transition back to kShown state.
+TEST_F(ShelfWidgetTest,
+       OpaqueBackgroundReshownAfterTransitionFromHomeChangesBackToHome) {
+  Shell::Get()->tablet_mode_controller()->SetEnabledForTest(true);
+  UpdateDisplay("800x800");
+
+  ASSERT_FALSE(GetShelfWidget()->GetDragHandle()->GetVisible());
+  ASSERT_FALSE(GetShelfWidget()->GetOpaqueBackground()->visible());
+
+  ui::ScopedAnimationDurationScaleMode non_zero_duration_mode(
+      ui::ScopedAnimationDurationScaleMode::NON_ZERO_DURATION);
+
+  // Create a window to transition to the in-app shelf.
+  auto window = AshTestBase::CreateTestWindow(gfx::Rect(0, 0, 800, 800));
+
+  ASSERT_FALSE(GetShelfWidget()->GetDragHandle()->GetVisible());
+  ASSERT_FALSE(GetShelfWidget()->GetOpaqueBackground()->visible());
+  ASSERT_TRUE(GetShelfWidget()->GetAnimatingBackground()->visible());
+  ASSERT_TRUE(GetShelfWidget()
+                  ->GetAnimatingBackground()
+                  ->GetAnimator()
+                  ->is_animating());
+  const gfx::Rect animating_background_bounds =
+      GetShelfWidget()->GetAnimatingBackground()->bounds();
+  EXPECT_NE(GetShelfWidget()->GetAnimatingBackground()->transform(),
+            GetShelfWidget()->GetAnimatingBackground()->GetTargetTransform());
+
+  // Go back home before the transition to in-app shelf finishes.
+  window->Hide();
+
+  // The shelf background should still be animating at this point, but to
+  // different bounds.
+  ASSERT_FALSE(GetShelfWidget()->GetDragHandle()->GetVisible());
+  ASSERT_FALSE(GetShelfWidget()->GetOpaqueBackground()->visible());
+  ASSERT_TRUE(GetShelfWidget()->GetAnimatingBackground()->visible());
+  ASSERT_TRUE(GetShelfWidget()
+                  ->GetAnimatingBackground()
+                  ->GetAnimator()
+                  ->is_animating());
+  EXPECT_EQ(animating_background_bounds,
+            GetShelfWidget()->GetAnimatingBackground()->bounds());
+  // The original animation did not have a chance to update the transform yet,
+  // so the current transform matches the original state, that matches the new
+  // target state.
+  EXPECT_EQ(GetShelfWidget()->GetAnimatingBackground()->transform(),
+            GetShelfWidget()->GetAnimatingBackground()->GetTargetTransform());
+
+  // Run the current animation to the end, end verify the opaque background is
+  // reshown after ending tablet mode.
+  GetShelfWidget()->GetAnimatingBackground()->GetAnimator()->StopAnimating();
+
+  ASSERT_FALSE(GetShelfWidget()->GetDragHandle()->GetVisible());
+  ASSERT_FALSE(GetShelfWidget()->GetOpaqueBackground()->visible());
+  ASSERT_FALSE(GetShelfWidget()->GetAnimatingBackground()->visible());
+
+  Shell::Get()->tablet_mode_controller()->SetEnabledForTest(false);
+
+  EXPECT_FALSE(GetShelfWidget()->GetDragHandle()->GetVisible());
+  ASSERT_TRUE(GetShelfWidget()->GetOpaqueBackground()->visible());
+  ASSERT_FALSE(GetShelfWidget()->GetAnimatingBackground()->visible());
 }
 
 class ShelfWidgetAfterLoginTest : public AshTestBase {
@@ -502,33 +881,7 @@ class ShelfWidgetViewsVisibilityTest : public AshTestBase {
   DISALLOW_COPY_AND_ASSIGN(ShelfWidgetViewsVisibilityTest);
 };
 
-TEST_F(ShelfWidgetViewsVisibilityTest, LoginWebUiLockViews) {
-  // Enable web UI login.
-  base::CommandLine::ForCurrentProcess()->AppendSwitch(
-      switches::kShowWebUiLogin);
-  ASSERT_NO_FATAL_FAILURE(InitShelfVariables());
-
-  // Both shelf views are hidden when session state hasn't been initialized.
-  ExpectVisible(SessionState::UNKNOWN, kNone /*primary*/, kNone /*secondary*/);
-  // Web UI login is used, so views shelf is not visible during login.
-  ExpectVisible(SessionState::OOBE, kLoginShelf, kNone);
-  ExpectVisible(SessionState::LOGIN_PRIMARY, kLoginShelf, kNone);
-
-  SimulateUserLogin("user1@test.com");
-
-  ExpectVisible(SessionState::LOGGED_IN_NOT_ACTIVE, kNone, kNone);
-  ExpectVisible(SessionState::ACTIVE, kShelf, kShelf);
-  ExpectVisible(SessionState::LOCKED, kLoginShelf, kNone);
-  ExpectVisible(SessionState::ACTIVE, kShelf, kShelf);
-  ExpectVisible(SessionState::LOGIN_SECONDARY, kLoginShelf, kNone);
-  ExpectVisible(SessionState::ACTIVE, kShelf, kShelf);
-}
-
 TEST_F(ShelfWidgetViewsVisibilityTest, LoginViewsLockViews) {
-  // Enable views login. Views lock enabled by default.
-  base::test::ScopedFeatureList scoped_feature_list;
-  scoped_feature_list.InitAndEnableFeature(ash::features::kViewsLogin);
-
   ASSERT_NO_FATAL_FAILURE(InitShelfVariables());
 
   ExpectVisible(SessionState::UNKNOWN, kNone /*primary*/, kNone /*secondary*/);

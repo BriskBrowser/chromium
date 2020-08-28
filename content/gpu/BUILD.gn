@@ -2,7 +2,6 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-import("//build/config/jumbo.gni")
 import("//build/config/ui.gni")
 import("//gpu/vulkan/features.gni")
 import("//media/media_options.gni")
@@ -20,9 +19,9 @@ group("gpu") {
 }
 
 if (is_component_build) {
-  link_target_type = "jumbo_source_set"
+  link_target_type = "source_set"
 } else {
-  link_target_type = "jumbo_static_library"
+  link_target_type = "static_library"
 }
 
 target(link_target_type, "gpu_sources") {
@@ -52,7 +51,6 @@ target(link_target_type, "gpu_sources") {
   deps = [
     "//base",
     "//base/third_party/dynamic_annotations",
-    "//components/tracing",
     "//components/viz/service",
     "//content:export",
     "//content/child",
@@ -74,10 +72,10 @@ target(link_target_type, "gpu_sources") {
     "//components/viz/service/main",
     "//media/gpu/ipc/service",
     "//media/mojo/clients:clients",
+    "//sandbox/policy:chromecast_sandbox_allowlist_buildflags",
     "//services/service_manager/embedder",
     "//services/service_manager/public/cpp",
     "//services/service_manager/public/mojom",
-    "//services/service_manager/sandbox:chromecast_sandbox_whitelist_buildflags",
     "//services/shape_detection:lib",
     "//services/shape_detection/public/mojom",
     "//services/tracing/public/cpp",
@@ -91,18 +89,17 @@ target(link_target_type, "gpu_sources") {
   ]
 
   if (is_android) {
-    deps += [ "//media" ]
-  }
-
-  if (is_linux) {
-    deps += [ "//services/service_manager/zygote" ]
+    deps += [
+      "//components/tracing:graphics_provider",
+      "//media",
+    ]
   }
 
   if (mojo_media_host == "gpu") {
     deps += [ "//media/mojo/services" ]
   }
 
-  if (is_linux || is_mac || is_win) {
+  if (is_linux || is_chromeos || is_mac || is_win) {
     deps += [ "//sandbox" ]
   }
 
@@ -113,6 +110,7 @@ target(link_target_type, "gpu_sources") {
   if (use_x11) {
     deps += [
       "//ui/events/platform/x11",
+      "//ui/gfx/linux:gpu_memory_buffer_support_x11",
       "//ui/gfx/x",
     ]
   }

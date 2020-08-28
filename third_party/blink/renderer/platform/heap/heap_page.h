@@ -39,9 +39,12 @@
 #include "base/compiler_specific.h"
 #include "build/build_config.h"
 #include "third_party/blink/renderer/platform/heap/blink_gc.h"
+#include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/heap/gc_info.h"
+#include "third_party/blink/renderer/platform/heap/heap_buildflags.h"
 #include "third_party/blink/renderer/platform/heap/thread_state.h"
 #include "third_party/blink/renderer/platform/heap/thread_state_statistics.h"
+#include "third_party/blink/renderer/platform/heap/unsanitized_atomic.h"
 #include "third_party/blink/renderer/platform/heap/visitor.h"
 #include "third_party/blink/renderer/platform/platform_export.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
@@ -133,6 +136,7 @@ constexpr uint8_t kReuseForbiddenZapValue = 0x2c;
 class NormalPageArena;
 class PageMemory;
 class BaseArena;
+class ThreadHeap;
 
 // HeapObjectHeader is a 32-bit object that has the following layout:
 //
@@ -180,28 +184,6 @@ static_assert(
 
 namespace internal {
 
-// This is needed due to asan complaining deep from std::atomic<>::load/store
-// stacktraces.
-class AsanUnpoisonScope {
- public:
-  AsanUnpoisonScope(const void* addr, size_t size)
-      : addr_(addr), size_(size), was_poisoned_(false) {
-    if (!ASAN_REGION_IS_POISONED(const_cast<void*>(addr_), size_))
-      return;
-    ASAN_UNPOISON_MEMORY_REGION(addr_, size_);
-    was_poisoned_ = true;
-  }
-  ~AsanUnpoisonScope() {
-    if (was_poisoned_)
-      ASAN_POISON_MEMORY_REGION(addr_, size_);
-  }
-
- private:
-  const void* addr_;
-  size_t size_;
-  bool was_poisoned_;
-};
-
 NO_SANITIZE_ADDRESS constexpr uint16_t EncodeSize(size_t size) {
   // Essentially, gets optimized to >> 1.
   return static_cast<uint16_t>((size << kHeaderSizeShift) /
@@ -220,7 +202,6 @@ class PLATFORM_EXPORT HeapObjectHeader {
   DISALLOW_NEW();
 
  public:
-  enum HeaderLocation : uint8_t { kNormalPage, kLargePage };
   enum class AccessMode : uint8_t { kNonAtomic, kAtomic };
 
   static HeapObjectHeader* FromPayload(const void*);
@@ -231,7 +212,7 @@ class PLATFORM_EXPORT HeapObjectHeader {
   static void CheckFromPayload(const void*);
 
   // If |gc_info_index| is 0, this header is interpreted as a free list header.
-  HeapObjectHeader(size_t, size_t, HeaderLocation);
+  HeapObjectHeader(size_t, size_t);
 
   template <AccessMode mode = AccessMode::kNonAtomic>
   NO_SANITIZE_ADDRESS bool IsFree() const {
@@ -240,7 +221,8 @@ class PLATFORM_EXPORT HeapObjectHeader {
 
   template <AccessMode mode = AccessMode::kNonAtomic>
   NO_SANITIZE_ADDRESS uint32_t GcInfoIndex() const {
-    const uint16_t encoded = LoadEncoded<mode, EncodedHalf::kHigh>();
+    const uint16_t encoded =
+        LoadEncoded<mode, EncodedHalf::kHigh, std::memory_order_acquire>();
     return (encoded & kHeaderGCInfoIndexMask) >> kHeaderGCInfoIndexShift;
   }
 
@@ -254,11 +236,12 @@ class PLATFORM_EXPORT HeapObjectHeader {
   template <AccessMode = AccessMode::kNonAtomic>
   bool IsMarked() const;
   template <AccessMode = AccessMode::kNonAtomic>
-  void Mark();
-  template <AccessMode = AccessMode::kNonAtomic>
   void Unmark();
   template <AccessMode = AccessMode::kNonAtomic>
   bool TryMark();
+
+  template <AccessMode = AccessMode::kNonAtomic>
+  bool IsOld() const;
 
   template <AccessMode = AccessMode::kNonAtomic>
   bool IsInConstruction() const;
@@ -283,9 +266,13 @@ class PLATFORM_EXPORT HeapObjectHeader {
  private:
   enum class EncodedHalf : uint8_t { kLow, kHigh };
 
-  template <AccessMode, EncodedHalf>
+  template <AccessMode,
+            EncodedHalf part,
+            std::memory_order = std::memory_order_seq_cst>
   uint16_t LoadEncoded() const;
-  template <AccessMode mode, EncodedHalf>
+  template <AccessMode mode,
+            EncodedHalf part,
+            std::memory_order = std::memory_order_seq_cst>
   void StoreEncoded(uint16_t bits, uint16_t mask);
 
 #if defined(ARCH_CPU_64_BITS)
@@ -299,10 +286,7 @@ class FreeListEntry final : public HeapObjectHeader {
  public:
   NO_SANITIZE_ADDRESS
   explicit FreeListEntry(size_t size)
-      : HeapObjectHeader(size,
-                         kGcInfoIndexForFreeListHeader,
-                         HeapObjectHeader::kNormalPage),
-        next_(nullptr) {}
+      : HeapObjectHeader(size, kGcInfoIndexForFreeListHeader), next_(nullptr) {}
 
   Address GetAddress() { return reinterpret_cast<Address>(this); }
 
@@ -411,8 +395,8 @@ inline Address BlinkPageAddress(Address address) {
                                    kBlinkPageBaseMask);
 }
 
-inline bool VTableInitialized(void* object_pointer) {
-  return !!(*reinterpret_cast<Address*>(object_pointer));
+inline bool VTableInitialized(const void* object_pointer) {
+  return !!(*reinterpret_cast<const ConstAddress*>(object_pointer));
 }
 
 #if DCHECK_IS_ON()
@@ -466,6 +450,7 @@ class BasePage {
   // Does not create free list entries for empty pages.
   virtual bool Sweep(FinalizeType) = 0;
   virtual void MakeConsistentForMutator() = 0;
+  virtual void Unmark() = 0;
 
   // Calls finalizers after sweeping is done.
   virtual void FinalizeSweep(SweepResult) = 0;
@@ -478,9 +463,9 @@ class BasePage {
       ThreadState::Statistics::ArenaStatistics* arena_stats) = 0;
 
 #if DCHECK_IS_ON()
-  virtual bool Contains(Address) = 0;
+  virtual bool Contains(ConstAddress) const = 0;
 #endif
-  virtual size_t size() = 0;
+  virtual size_t size() const = 0;
 
   Address GetAddress() const {
     return reinterpret_cast<Address>(const_cast<BasePage*>(this));
@@ -508,9 +493,26 @@ class BasePage {
     return page_type_ == PageType::kLargeObjectPage;
   }
 
+  // Young pages are pages that contain at least a single young object.
+  bool IsYoung() const { return is_young_; }
+
+  void SetAsYoung(bool young) { is_young_ = young; }
+
   virtual void VerifyMarking() = 0;
 
  private:
+  void SynchronizedLoad() {
+#if defined(THREAD_SANITIZER)
+    WTF::AsAtomicPtr(&page_type_)->load(std::memory_order_acquire);
+#endif
+  }
+  void SynchronizedStore() {
+    std::atomic_thread_fence(std::memory_order_seq_cst);
+#if defined(THREAD_SANITIZER)
+    WTF::AsAtomicPtr(&page_type_)->store(page_type_, std::memory_order_release);
+#endif
+  }
+
   PageMemory* const storage_;
   BaseArena* const arena_;
   ThreadState* const thread_state_;
@@ -518,10 +520,12 @@ class BasePage {
   // Track the sweeping state of a page. Set to false at the start of a sweep,
   // true upon completion of sweeping that page.
   bool swept_ = true;
+  bool is_young_ = false;
 
   PageType page_type_;
 
   friend class BaseArena;
+  friend class ThreadHeap;
 };
 
 class PageStack : Vector<BasePage*> {
@@ -547,8 +551,11 @@ class PageStack : Vector<BasePage*> {
   }
 
   using Base::begin;
-  using Base::clear;
   using Base::end;
+
+  using Base::clear;
+  using Base::erase;
+
   using Base::IsEmpty;
   using Base::size;
 };
@@ -584,7 +591,7 @@ class PageStackThreadSafe : public PageStack {
 // - kBlinkPageSize
 // - kAllocationGranularity
 class PLATFORM_EXPORT ObjectStartBitmap {
-  DISALLOW_NEW();
+  USING_FAST_MALLOC(ObjectStartBitmap);
 
  public:
   // Granularity of addresses added to the bitmap.
@@ -600,11 +607,19 @@ class PLATFORM_EXPORT ObjectStartBitmap {
   // Finds an object header based on a
   // address_maybe_pointing_to_the_middle_of_object. Will search for an object
   // start in decreasing address order.
+  template <
+      HeapObjectHeader::AccessMode = HeapObjectHeader::AccessMode::kNonAtomic>
   Address FindHeader(
-      Address address_maybe_pointing_to_the_middle_of_object) const;
+      ConstAddress address_maybe_pointing_to_the_middle_of_object) const;
 
+  template <
+      HeapObjectHeader::AccessMode = HeapObjectHeader::AccessMode::kNonAtomic>
   inline void SetBit(Address);
+  template <
+      HeapObjectHeader::AccessMode = HeapObjectHeader::AccessMode::kNonAtomic>
   inline void ClearBit(Address);
+  template <
+      HeapObjectHeader::AccessMode = HeapObjectHeader::AccessMode::kNonAtomic>
   inline bool CheckBit(Address) const;
 
   // Iterates all object starts recorded in the bitmap.
@@ -619,6 +634,13 @@ class PLATFORM_EXPORT ObjectStartBitmap {
   void Clear();
 
  private:
+  template <
+      HeapObjectHeader::AccessMode = HeapObjectHeader::AccessMode::kNonAtomic>
+  void store(size_t cell_index, uint8_t value);
+  template <
+      HeapObjectHeader::AccessMode = HeapObjectHeader::AccessMode::kNonAtomic>
+  uint8_t load(size_t cell_index) const;
+
   static const size_t kCellSize = sizeof(uint8_t) * 8;
   static const size_t kCellMask = sizeof(uint8_t) * 8 - 1;
   static const size_t kBitmapSize =
@@ -629,10 +651,31 @@ class PLATFORM_EXPORT ObjectStartBitmap {
 
   inline void ObjectStartIndexAndBit(Address, size_t*, size_t*) const;
 
-  const Address offset_;
+  Address offset_;
   // The bitmap contains a bit for every kGranularity aligned address on a
   // a NormalPage, i.e., for a page of size kBlinkPageSize.
   uint8_t object_start_bit_map_[kReservedForBitmap];
+};
+
+// A platform aware version of ObjectStartBitmap to provide platform specific
+// optimizations (e.g. Use non-atomic stores on ARMv7 when not marking).
+class PLATFORM_EXPORT PlatformAwareObjectStartBitmap
+    : public ObjectStartBitmap {
+  USING_FAST_MALLOC(PlatformAwareObjectStartBitmap);
+
+ public:
+  explicit PlatformAwareObjectStartBitmap(Address offset);
+
+  template <
+      HeapObjectHeader::AccessMode = HeapObjectHeader::AccessMode::kNonAtomic>
+  inline void SetBit(Address);
+  template <
+      HeapObjectHeader::AccessMode = HeapObjectHeader::AccessMode::kNonAtomic>
+  inline void ClearBit(Address);
+
+ private:
+  template <HeapObjectHeader::AccessMode>
+  static bool ShouldForceNonAtomic();
 };
 
 class PLATFORM_EXPORT NormalPage final : public BasePage {
@@ -645,7 +688,7 @@ class PLATFORM_EXPORT NormalPage final : public BasePage {
     return (BlinkPagePayloadSize() - PageHeaderSize()) & ~kAllocationMask;
   }
   Address PayloadEnd() const { return Payload() + PayloadSize(); }
-  bool ContainedInObjectPayload(Address address) const {
+  bool ContainedInObjectPayload(ConstAddress address) const {
     return Payload() <= address && address < PayloadEnd();
   }
 
@@ -653,6 +696,7 @@ class PLATFORM_EXPORT NormalPage final : public BasePage {
   void RemoveFromHeap() override;
   bool Sweep(FinalizeType) override;
   void MakeConsistentForMutator() override;
+  void Unmark() override;
   void FinalizeSweep(SweepResult) override;
 #if defined(ADDRESS_SANITIZER)
   void PoisonUnmarkedObjects() override;
@@ -665,9 +709,9 @@ class PLATFORM_EXPORT NormalPage final : public BasePage {
   // Returns true for the whole |kBlinkPageSize| page that the page is on, even
   // for the header, and the unmapped guard page at the start. That ensures the
   // result can be used to populate the negative page cache.
-  bool Contains(Address) override;
+  bool Contains(ConstAddress) const override;
 #endif
-  size_t size() override { return kBlinkPageSize; }
+  size_t size() const override { return kBlinkPageSize; }
   static constexpr size_t PageHeaderSize() {
     // Compute the amount of padding we have to add to a header to make the size
     // of the header plus the padding a multiple of 8 bytes.
@@ -701,7 +745,12 @@ class PLATFORM_EXPORT NormalPage final : public BasePage {
   void SweepAndCompact(CompactionContext&);
 
   // Object start bitmap of this page.
-  ObjectStartBitmap* object_start_bit_map() { return &object_start_bit_map_; }
+  PlatformAwareObjectStartBitmap* object_start_bit_map() {
+    return &object_start_bit_map_;
+  }
+  const PlatformAwareObjectStartBitmap* object_start_bit_map() const {
+    return &object_start_bit_map_;
+  }
 
   // Verifies that the object start bitmap only contains a bit iff the object
   // is also reachable through iteration on the page.
@@ -710,14 +759,16 @@ class PLATFORM_EXPORT NormalPage final : public BasePage {
   // Uses the object_start_bit_map_ to find an object for a given address. The
   // returned header is either nullptr, indicating that no object could be
   // found, or it is pointing to valid object or free list entry.
-  HeapObjectHeader* ConservativelyFindHeaderFromAddress(Address);
+  // This method is called only during stack scanning when there are no
+  // concurrent markers, thus no atomics required.
+  HeapObjectHeader* ConservativelyFindHeaderFromAddress(ConstAddress) const;
 
   // Uses the object_start_bit_map_ to find an object for a given address. It is
   // assumed that the address points into a valid heap object. Use the
   // conservative version if that assumption does not hold.
   template <
       HeapObjectHeader::AccessMode = HeapObjectHeader::AccessMode::kNonAtomic>
-  HeapObjectHeader* FindHeaderFromAddress(Address);
+  HeapObjectHeader* FindHeaderFromAddress(ConstAddress) const;
 
   void VerifyMarking() override;
 
@@ -810,7 +861,10 @@ class PLATFORM_EXPORT NormalPage final : public BasePage {
                      bool found_finalizer);
 
   CardTable card_table_;
-  ObjectStartBitmap object_start_bit_map_;
+  PlatformAwareObjectStartBitmap object_start_bit_map_;
+#if BUILDFLAG(BLINK_HEAP_YOUNG_GENERATION)
+  std::unique_ptr<PlatformAwareObjectStartBitmap> cached_object_start_bit_map_;
+#endif
   Vector<ToBeFinalizedObject> to_be_finalized_objects_;
   FreeList cached_freelist_;
   Vector<FutureFreelistEntry> unfinalized_freelist_;
@@ -850,7 +904,7 @@ class PLATFORM_EXPORT LargeObjectPage final : public BasePage {
   //   ObjectSize(): PayloadSize() + sizeof(HeapObjectHeader)
   //   size():       ObjectSize() + PageHeaderSize()
 
-  HeapObjectHeader* ObjectHeader() {
+  HeapObjectHeader* ObjectHeader() const {
     Address header_address = GetAddress() + PageHeaderSize();
     return reinterpret_cast<HeapObjectHeader*>(header_address);
   }
@@ -860,18 +914,18 @@ class PLATFORM_EXPORT LargeObjectPage final : public BasePage {
   size_t ObjectSize() const { return object_size_; }
 
   // Returns the size of the page including the header.
-  size_t size() override { return PageHeaderSize() + object_size_; }
+  size_t size() const override { return PageHeaderSize() + object_size_; }
 
   // Returns the payload start of the underlying object.
-  Address Payload() { return ObjectHeader()->Payload(); }
+  Address Payload() const { return ObjectHeader()->Payload(); }
 
   // Returns the payload size of the underlying object.
-  size_t PayloadSize() { return object_size_ - sizeof(HeapObjectHeader); }
+  size_t PayloadSize() const { return object_size_ - sizeof(HeapObjectHeader); }
 
   // Points to the payload end of the underlying object.
-  Address PayloadEnd() { return Payload() + PayloadSize(); }
+  Address PayloadEnd() const { return Payload() + PayloadSize(); }
 
-  bool ContainedInObjectPayload(Address address) {
+  bool ContainedInObjectPayload(ConstAddress address) const {
     return Payload() <= address && address < PayloadEnd();
   }
 
@@ -879,6 +933,7 @@ class PLATFORM_EXPORT LargeObjectPage final : public BasePage {
   void RemoveFromHeap() override;
   bool Sweep(FinalizeType) override;
   void MakeConsistentForMutator() override;
+  void Unmark() override;
   void FinalizeSweep(SweepResult) override;
 
   void CollectStatistics(
@@ -894,7 +949,7 @@ class PLATFORM_EXPORT LargeObjectPage final : public BasePage {
   // Returns true for any address that is on one of the pages that this large
   // object uses. That ensures that we can use a negative result to populate the
   // negative page cache.
-  bool Contains(Address) override;
+  bool Contains(ConstAddress) const override;
 #endif
 
 #ifdef ANNOTATE_CONTIGUOUS_CONTAINER
@@ -904,7 +959,6 @@ class PLATFORM_EXPORT LargeObjectPage final : public BasePage {
 
   // Remembers the page as containing inter-generational pointers.
   void SetRemembered(bool remembered) {
-    DCHECK_NE(remembered, is_remembered_);
     is_remembered_ = remembered;
   }
   bool IsRemembered() const { return is_remembered_; }
@@ -939,17 +993,18 @@ class PLATFORM_EXPORT BaseArena {
       ThreadState::Statistics::FreeListStatistics*) {}
 
 #if DCHECK_IS_ON()
-  BasePage* FindPageFromAddress(Address);
+  BasePage* FindPageFromAddress(ConstAddress) const;
 #endif
   virtual void ClearFreeLists() {}
   virtual void MakeIterable() {}
   virtual void MakeConsistentForGC();
   void MakeConsistentForMutator();
+  void Unmark();
 #if DCHECK_IS_ON()
   virtual bool IsConsistentForGC() = 0;
 #endif
   size_t ObjectPayloadSizeForTesting();
-  void PrepareForSweep();
+  void PrepareForSweep(BlinkGC::CollectionType);
 #if defined(ADDRESS_SANITIZER)
   void PoisonUnmarkedObjects();
 #endif
@@ -959,7 +1014,8 @@ class PLATFORM_EXPORT BaseArena {
   // Returns true if we have swept all pages within the deadline. Returns false
   // otherwise.
   bool LazySweepWithDeadline(base::TimeTicks deadline);
-  bool ConcurrentSweepWithDeadline(base::TimeTicks deadline);
+  // Returns true if the arena has been fully swept.
+  bool ConcurrentSweepOnePage();
   void CompleteSweep();
   void InvokeFinalizersOnSweptPages();
 
@@ -991,6 +1047,9 @@ class PLATFORM_EXPORT BaseArena {
   // Pages that have been swept and need to be removed from the heap.
   PageStackThreadSafe swept_unfinalized_empty_pages_;
 
+ protected:
+  void SynchronizedStore(BasePage* page) { page->SynchronizedStore(); }
+
  private:
   virtual Address LazySweepPages(size_t, size_t gc_info_index) = 0;
 
@@ -1006,15 +1065,7 @@ class PLATFORM_EXPORT BaseArena {
 class PLATFORM_EXPORT NormalPageArena final : public BaseArena {
  public:
   NormalPageArena(ThreadState*, int index);
-  void AddToFreeList(Address address, size_t size) {
-#if DCHECK_IS_ON()
-    DCHECK(FindPageFromAddress(address));
-    // TODO(palmer): Do we need to handle about integer overflow here (and in
-    // similar expressions elsewhere)?
-    DCHECK(FindPageFromAddress(address + size - 1));
-#endif
-    free_list_.Add(address, size);
-  }
+  void AddToFreeList(Address address, size_t size);
   void AddToFreeList(FreeList* other) { free_list_.MoveFrom(other); }
   void ClearFreeLists() override;
   void CollectFreeListStatistics(
@@ -1023,7 +1074,7 @@ class PLATFORM_EXPORT NormalPageArena final : public BaseArena {
 
 #if DCHECK_IS_ON()
   bool IsConsistentForGC() override;
-  bool PagesToBeSweptContains(Address);
+  bool PagesToBeSweptContains(ConstAddress) const;
 #endif
 
   Address AllocateObject(size_t allocation_size, size_t gc_info_index);
@@ -1051,7 +1102,7 @@ class PLATFORM_EXPORT NormalPageArena final : public BaseArena {
 
   Address CurrentAllocationPoint() const { return current_allocation_point_; }
 
-  bool IsInCurrentAllocationPointRegion(Address address) const {
+  bool IsInCurrentAllocationPointRegion(ConstAddress address) const {
     return HasCurrentAllocationArea() &&
            (CurrentAllocationPoint() <= address) &&
            (address < (CurrentAllocationPoint() + RemainingAllocationSize()));
@@ -1082,14 +1133,9 @@ class PLATFORM_EXPORT NormalPageArena final : public BaseArena {
   }
   void SetAllocationPoint(Address, size_t);
 
-  // Only use when adjusting the area from allocation and free and not when
-  // returning it to free list.
-  void SetRemainingAllocationSize(size_t);
-
   FreeList free_list_;
   Address current_allocation_point_;
   size_t remaining_allocation_size_;
-  size_t last_remaining_allocation_size_;
 
   // The size of promptly freed objects in the heap. This counter is set to
   // zero before sweeping when clearing the free list and after coalescing.
@@ -1146,7 +1192,7 @@ inline HeapObjectHeader* HeapObjectHeader::FromInnerAddress(
   return page->IsLargeObjectPage()
              ? static_cast<LargeObjectPage*>(page)->ObjectHeader()
              : static_cast<NormalPage*>(page)->FindHeaderFromAddress<mode>(
-                   reinterpret_cast<Address>(const_cast<void*>(address)));
+                   reinterpret_cast<ConstAddress>(address));
 }
 
 inline void HeapObjectHeader::CheckFromPayload(const void* payload) {
@@ -1155,18 +1201,10 @@ inline void HeapObjectHeader::CheckFromPayload(const void* payload) {
 
 template <HeapObjectHeader::AccessMode mode>
 NO_SANITIZE_ADDRESS inline size_t HeapObjectHeader::size() const {
-  uint16_t encoded_low_value;
-  if (mode == AccessMode::kNonAtomic) {
-    encoded_low_value = encoded_low_;
-  } else {
-    // mode == AccessMode::kAtomic
-    // Relaxed load as size is immutable after construction while either
-    // marking or sweeping is running
-    internal::AsanUnpoisonScope unpoison_scope(
-        static_cast<const void*>(&encoded_low_), sizeof(encoded_low_));
-    encoded_low_value =
-        WTF::AsAtomicPtr(&encoded_low_)->load(std::memory_order_relaxed);
-  }
+  // Size is immutable after construction while either marking or sweeping
+  // is running so relaxed load (if mode == kAtomic) is enough.
+  uint16_t encoded_low_value =
+      LoadEncoded<mode, EncodedHalf::kLow, std::memory_order_relaxed>();
   const size_t result = internal::DecodeSize(encoded_low_value);
   // Large objects should not refer to header->size() but use
   // LargeObjectPage::PayloadSize().
@@ -1184,29 +1222,22 @@ NO_SANITIZE_ADDRESS inline void HeapObjectHeader::SetSize(size_t size) {
 
 template <HeapObjectHeader::AccessMode mode>
 NO_SANITIZE_ADDRESS inline bool HeapObjectHeader::IsLargeObject() const {
-  uint16_t encoded_low_value;
-  if (mode == AccessMode::kNonAtomic) {
-    encoded_low_value = encoded_low_;
-  } else {
-    internal::AsanUnpoisonScope unpoison_scope(
-        static_cast<const void*>(&encoded_low_), sizeof(encoded_low_));
-    encoded_low_value =
-        WTF::AsAtomicPtr(&encoded_low_)->load(std::memory_order_relaxed);
-  }
+  uint16_t encoded_low_value =
+      LoadEncoded<mode, EncodedHalf::kLow, std::memory_order_relaxed>();
   return internal::DecodeSize(encoded_low_value) == kLargeObjectSizeInHeader;
 }
 
 template <HeapObjectHeader::AccessMode mode>
 NO_SANITIZE_ADDRESS inline bool HeapObjectHeader::IsInConstruction() const {
-  return (LoadEncoded<mode, EncodedHalf::kHigh>() &
+  return (LoadEncoded<mode, EncodedHalf::kHigh, std::memory_order_acquire>() &
           kHeaderIsInConstructionMask) == 0;
 }
 
 template <HeapObjectHeader::AccessMode mode>
 NO_SANITIZE_ADDRESS inline void HeapObjectHeader::MarkFullyConstructed() {
   DCHECK(IsInConstruction());
-  StoreEncoded<mode, EncodedHalf::kHigh>(kHeaderIsInConstructionMask,
-                                         kHeaderIsInConstructionMask);
+  StoreEncoded<mode, EncodedHalf::kHigh, std::memory_order_release>(
+      kHeaderIsInConstructionMask, kHeaderIsInConstructionMask);
 }
 
 inline Address HeapObjectHeader::Payload() const {
@@ -1232,20 +1263,22 @@ NO_SANITIZE_ADDRESS inline size_t HeapObjectHeader::PayloadSize() const {
 
 template <HeapObjectHeader::AccessMode mode>
 NO_SANITIZE_ADDRESS inline bool HeapObjectHeader::IsMarked() const {
-  const uint16_t encoded = LoadEncoded<mode, EncodedHalf::kLow>();
+  const uint16_t encoded =
+      LoadEncoded<mode, EncodedHalf::kLow, std::memory_order_relaxed>();
   return encoded & kHeaderMarkBitMask;
 }
 
 template <HeapObjectHeader::AccessMode mode>
-NO_SANITIZE_ADDRESS inline void HeapObjectHeader::Mark() {
-  DCHECK(!IsMarked<mode>());
-  StoreEncoded<mode, EncodedHalf::kLow>(kHeaderMarkBitMask, kHeaderMarkBitMask);
+NO_SANITIZE_ADDRESS inline bool HeapObjectHeader::IsOld() const {
+  // Oilpan uses the sticky-mark-bits technique to encode old objects.
+  return IsMarked<mode>();
 }
 
 template <HeapObjectHeader::AccessMode mode>
 NO_SANITIZE_ADDRESS inline void HeapObjectHeader::Unmark() {
   DCHECK(IsMarked<mode>());
-  StoreEncoded<mode, EncodedHalf::kLow>(0u, kHeaderMarkBitMask);
+  StoreEncoded<mode, EncodedHalf::kLow, std::memory_order_relaxed>(
+      0u, kHeaderMarkBitMask);
 }
 
 // The function relies on size bits being unmodified when the function is
@@ -1258,15 +1291,12 @@ NO_SANITIZE_ADDRESS inline bool HeapObjectHeader::TryMark() {
     encoded_low_ |= kHeaderMarkBitMask;
     return true;
   }
-  internal::AsanUnpoisonScope unpoison_scope(
-      static_cast<const void*>(&encoded_low_), sizeof(encoded_low_));
-  auto* atomic_encoded = WTF::AsAtomicPtr(&encoded_low_);
+  auto* atomic_encoded = internal::AsUnsanitizedAtomic(&encoded_low_);
   uint16_t old_value = atomic_encoded->load(std::memory_order_relaxed);
   if (old_value & kHeaderMarkBitMask)
     return false;
   const uint16_t new_value = old_value | kHeaderMarkBitMask;
   return atomic_encoded->compare_exchange_strong(old_value, new_value,
-                                                 std::memory_order_acq_rel,
                                                  std::memory_order_relaxed);
 }
 
@@ -1277,8 +1307,12 @@ inline Address NormalPageArena::AllocateObject(size_t allocation_size,
     current_allocation_point_ += allocation_size;
     remaining_allocation_size_ -= allocation_size;
     DCHECK_GT(gc_info_index, 0u);
-    new (NotNull, header_address) HeapObjectHeader(
-        allocation_size, gc_info_index, HeapObjectHeader::kNormalPage);
+    new (NotNull, header_address)
+        HeapObjectHeader(allocation_size, gc_info_index);
+    DCHECK(!PageFromObject(header_address)->IsLargeObjectPage());
+    static_cast<NormalPage*>(PageFromObject(header_address))
+        ->object_start_bit_map()
+        ->SetBit<HeapObjectHeader::AccessMode::kAtomic>(header_address);
     Address result = header_address + sizeof(HeapObjectHeader);
     DCHECK(!(reinterpret_cast<uintptr_t>(result) & kAllocationMask));
 
@@ -1318,22 +1352,81 @@ inline void LargeObjectArena::IterateAndClearRememberedPages(
   }
 }
 
+// static
+template <HeapObjectHeader::AccessMode mode>
+bool PlatformAwareObjectStartBitmap::ShouldForceNonAtomic() {
+#if defined(ARCH_CPU_ARMEL)
+  // Use non-atomic accesses on ARMv7 when marking is not active.
+  if (mode == HeapObjectHeader::AccessMode::kAtomic) {
+    if (LIKELY(!ThreadState::Current()->IsAnyIncrementalMarking()))
+      return true;
+  }
+#endif  // defined(ARCH_CPU_ARMEL)
+  return false;
+}
+
+template <HeapObjectHeader::AccessMode mode>
+inline void PlatformAwareObjectStartBitmap::SetBit(Address header_address) {
+  if (ShouldForceNonAtomic<mode>()) {
+    ObjectStartBitmap::SetBit<HeapObjectHeader::AccessMode::kNonAtomic>(
+        header_address);
+    return;
+  }
+  ObjectStartBitmap::SetBit<mode>(header_address);
+}
+
+template <HeapObjectHeader::AccessMode mode>
+inline void PlatformAwareObjectStartBitmap::ClearBit(Address header_address) {
+  if (ShouldForceNonAtomic<mode>()) {
+    ObjectStartBitmap::ClearBit<HeapObjectHeader::AccessMode::kNonAtomic>(
+        header_address);
+    return;
+  }
+  ObjectStartBitmap::ClearBit<mode>(header_address);
+}
+
+template <HeapObjectHeader::AccessMode mode>
+inline void ObjectStartBitmap::store(size_t cell_index, uint8_t value) {
+  if (mode == HeapObjectHeader::AccessMode::kNonAtomic) {
+    object_start_bit_map_[cell_index] = value;
+    return;
+  }
+  WTF::AsAtomicPtr(&object_start_bit_map_[cell_index])
+      ->store(value, std::memory_order_release);
+}
+
+template <HeapObjectHeader::AccessMode mode>
+inline uint8_t ObjectStartBitmap::load(size_t cell_index) const {
+  if (mode == HeapObjectHeader::AccessMode::kNonAtomic) {
+    return object_start_bit_map_[cell_index];
+  }
+  return WTF::AsAtomicPtr(&object_start_bit_map_[cell_index])
+      ->load(std::memory_order_acquire);
+}
+
+template <HeapObjectHeader::AccessMode mode>
 inline void ObjectStartBitmap::SetBit(Address header_address) {
   size_t cell_index, object_bit;
   ObjectStartIndexAndBit(header_address, &cell_index, &object_bit);
-  object_start_bit_map_[cell_index] |= (1 << object_bit);
+  // Only the mutator thread writes to the bitmap during concurrent marking,
+  // so no need for CAS here.
+  store<mode>(cell_index,
+              static_cast<uint8_t>(load(cell_index) | (1 << object_bit)));
 }
 
+template <HeapObjectHeader::AccessMode mode>
 inline void ObjectStartBitmap::ClearBit(Address header_address) {
   size_t cell_index, object_bit;
   ObjectStartIndexAndBit(header_address, &cell_index, &object_bit);
-  object_start_bit_map_[cell_index] &= ~(1 << object_bit);
+  store<mode>(cell_index,
+              static_cast<uint8_t>(load(cell_index) & ~(1 << object_bit)));
 }
 
+template <HeapObjectHeader::AccessMode mode>
 inline bool ObjectStartBitmap::CheckBit(Address header_address) const {
   size_t cell_index, object_bit;
   ObjectStartIndexAndBit(header_address, &cell_index, &object_bit);
-  return object_start_bit_map_[cell_index] & (1 << object_bit);
+  return load<mode>(cell_index) & (1 << object_bit);
 }
 
 inline void ObjectStartBitmap::ObjectStartIndexAndBit(Address header_address,
@@ -1353,10 +1446,7 @@ inline void ObjectStartBitmap::ObjectStartIndexAndBit(Address header_address,
 template <typename Callback>
 inline void ObjectStartBitmap::Iterate(Callback callback) const {
   for (size_t cell_index = 0; cell_index < kReservedForBitmap; cell_index++) {
-    if (!object_start_bit_map_[cell_index])
-      continue;
-
-    uint8_t value = object_start_bit_map_[cell_index];
+    uint8_t value = load(cell_index);
     while (value) {
       const int trailing_zeroes = base::bits::CountTrailingZeroBits(value);
       const size_t object_start_number =
@@ -1370,10 +1460,33 @@ inline void ObjectStartBitmap::Iterate(Callback callback) const {
   }
 }
 
+template <HeapObjectHeader::AccessMode mode>
+Address ObjectStartBitmap::FindHeader(
+    ConstAddress address_maybe_pointing_to_the_middle_of_object) const {
+  size_t object_offset =
+      address_maybe_pointing_to_the_middle_of_object - offset_;
+  size_t object_start_number = object_offset / kAllocationGranularity;
+  size_t cell_index = object_start_number / kCellSize;
+#if DCHECK_IS_ON()
+  const size_t bitmap_size = kReservedForBitmap;
+  DCHECK_LT(cell_index, bitmap_size);
+#endif
+  size_t bit = object_start_number & kCellMask;
+  uint8_t byte = load<mode>(cell_index) & ((1 << (bit + 1)) - 1);
+  while (!byte) {
+    DCHECK_LT(0u, cell_index);
+    byte = load<mode>(--cell_index);
+  }
+  int leading_zeroes = base::bits::CountLeadingZeroBits(byte);
+  object_start_number =
+      (cell_index * kCellSize) + (kCellSize - 1) - leading_zeroes;
+  object_offset = object_start_number * kAllocationGranularity;
+  return object_offset + offset_;
+}
+
 NO_SANITIZE_ADDRESS inline HeapObjectHeader::HeapObjectHeader(
     size_t size,
-    size_t gc_info_index,
-    HeaderLocation header_location) {
+    size_t gc_info_index) {
   // sizeof(HeapObjectHeader) must be equal to or smaller than
   // |kAllocationGranularity|, because |HeapObjectHeader| is used as a header
   // for a freed entry. Given that the smallest entry size is
@@ -1385,60 +1498,58 @@ NO_SANITIZE_ADDRESS inline HeapObjectHeader::HeapObjectHeader(
   DCHECK_LT(gc_info_index, GCInfoTable::kMaxIndex);
   DCHECK_LT(size, kNonLargeObjectPageSizeMax);
   DCHECK_EQ(0u, size & kAllocationMask);
-  encoded_high_ =
-      static_cast<uint16_t>(gc_info_index << kHeaderGCInfoIndexShift);
+  // Relaxed memory order is enough as in construction is created/synchronized
+  // as follows:
+  // - Page allocator gets zeroed page and uses page initialization fence.
+  // - Sweeper zeroes memory and synchronizes via global lock.
+  internal::AsUnsanitizedAtomic(&encoded_high_)
+      ->store(static_cast<uint16_t>(gc_info_index << kHeaderGCInfoIndexShift),
+              std::memory_order_relaxed);
   encoded_low_ = internal::EncodeSize(size);
-  if (header_location == kNormalPage) {
-    DCHECK(!PageFromObject(this)->IsLargeObjectPage());
-    static_cast<NormalPage*>(PageFromObject(this))
-        ->object_start_bit_map()
-        ->SetBit(reinterpret_cast<Address>(this));
-  } else {
-    DCHECK(PageFromObject(this)->IsLargeObjectPage());
-  }
   DCHECK(IsInConstruction());
 }
 
-template <HeapObjectHeader::AccessMode mode, HeapObjectHeader::EncodedHalf part>
+template <HeapObjectHeader::AccessMode mode,
+          HeapObjectHeader::EncodedHalf part,
+          std::memory_order memory_order>
 NO_SANITIZE_ADDRESS inline uint16_t HeapObjectHeader::LoadEncoded() const {
   const uint16_t& half =
-      (part == EncodedHalf::kLow ? encoded_low_ : encoded_high_);
-  internal::AsanUnpoisonScope unpoison_scope(static_cast<const void*>(&half),
-                                             sizeof(half));
+      part == EncodedHalf::kLow ? encoded_low_ : encoded_high_;
   if (mode == AccessMode::kNonAtomic)
     return half;
-  return WTF::AsAtomicPtr(&half)->load(std::memory_order_acquire);
+  return internal::AsUnsanitizedAtomic(&half)->load(memory_order);
 }
 
 // Sets bits selected by the mask to the given value. Please note that atomicity
 // of the whole operation is not guaranteed.
-template <HeapObjectHeader::AccessMode mode, HeapObjectHeader::EncodedHalf part>
+template <HeapObjectHeader::AccessMode mode,
+          HeapObjectHeader::EncodedHalf part,
+          std::memory_order memory_order>
 NO_SANITIZE_ADDRESS inline void HeapObjectHeader::StoreEncoded(uint16_t bits,
                                                                uint16_t mask) {
   DCHECK_EQ(static_cast<uint16_t>(0u), bits & ~mask);
-  uint16_t* half = (part == EncodedHalf::kLow ? &encoded_low_ : &encoded_high_);
-  internal::AsanUnpoisonScope unpoison_scope(static_cast<void*>(half),
-                                             sizeof(&half));
+  uint16_t& half = part == EncodedHalf::kLow ? encoded_low_ : encoded_high_;
   if (mode == AccessMode::kNonAtomic) {
-    *half = (*half & ~mask) | bits;
+    half = (half & ~mask) | bits;
     return;
   }
   // We don't perform CAS loop here assuming that the data is constant and no
   // one except for us can change this half concurrently.
-  auto* atomic_encoded = WTF::AsAtomicPtr(half);
+  auto* atomic_encoded = internal::AsUnsanitizedAtomic(&half);
   uint16_t value = atomic_encoded->load(std::memory_order_relaxed);
   value = (value & ~mask) | bits;
-  atomic_encoded->store(value, std::memory_order_release);
+  atomic_encoded->store(value, memory_order);
 }
 
 template <HeapObjectHeader::AccessMode mode>
-HeapObjectHeader* NormalPage::FindHeaderFromAddress(Address address) {
+HeapObjectHeader* NormalPage::FindHeaderFromAddress(
+    ConstAddress address) const {
   DCHECK(ContainedInObjectPayload(address));
-  DCHECK(!ArenaForNormalPage()->IsInCurrentAllocationPointRegion(address));
   HeapObjectHeader* header = reinterpret_cast<HeapObjectHeader*>(
-      object_start_bit_map()->FindHeader(address));
-  DCHECK_LT(0u, header->GcInfoIndex());
-  DCHECK_GT(header->PayloadEnd<mode>(), address);
+      object_start_bit_map()->FindHeader<mode>(address));
+  DCHECK_LT(0u, header->GcInfoIndex<mode>());
+  DCHECK_GT(header->PayloadEnd<HeapObjectHeader::AccessMode::kAtomic>(),
+            address);
   return header;
 }
 
@@ -1448,7 +1559,7 @@ void NormalPage::IterateCardTable(Function function) const {
   // the loop (this may in turn pessimize barrier implementation).
   for (auto card : card_table_) {
     if (UNLIKELY(card.bit)) {
-      IterateOnCard(std::move(function), card.index);
+      IterateOnCard(function, card.index);
     }
   }
 }

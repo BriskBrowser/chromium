@@ -68,6 +68,15 @@ class CORE_EXPORT SVGLayoutSupport {
       const FloatRect& object_bounding_box,
       FloatRect&);
 
+  // Add any contribution from 'stroke' to a text content bounding rect.
+  static FloatRect ExtendTextBBoxWithStroke(const LayoutObject&,
+                                            const FloatRect& text_bounds);
+
+  // Compute the visual rect for the a text content LayoutObject.
+  static FloatRect ComputeVisualRectForText(const LayoutObject&,
+                                            const FloatRect& text_bounds,
+                                            const FloatRect& reference_box);
+
   // Determine if the LayoutObject references a filter resource object.
   static bool HasFilterResource(const LayoutObject&);
 
@@ -154,6 +163,8 @@ class CORE_EXPORT SVGLayoutSupport {
 
   static LayoutObject* FindClosestLayoutSVGText(const LayoutObject*,
                                                 const FloatPoint&);
+
+  static void NotifySVGRootOfChangedCompositingReasons(const LayoutObject*);
 
  private:
   static void UpdateObjectBoundingBox(FloatRect& object_bounding_box,

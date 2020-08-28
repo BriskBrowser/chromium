@@ -82,14 +82,15 @@ if (!is_nacl_nonsfi) {
 if (is_component_build) {
   component("content") {
     public_deps =
-        content_shared_components + [ "//content/public/app:both_sources" ]
+        content_shared_components + [ "//content/public/app:app_sources" ]
   }
 } else if (is_nacl_nonsfi) {
   source_set("content") {
     set_sources_assignment_filter([])
     sources = [
-      "//services/service_manager/sandbox/linux/sandbox_seccomp_bpf_linux.cc",
+      "//sandbox/policy/linux/sandbox_seccomp_bpf_linux.cc",
       "common/sandbox_init_linux.cc",
+      "common/zygote/send_zygote_child_ping_linux.cc",
       "public/common/content_switches.cc",
       "public/common/content_switches.h",
     ]
@@ -99,7 +100,7 @@ if (is_component_build) {
       "//media:media_buildflags",
       "//sandbox:sandbox_buildflags",
       "//sandbox/linux:sandbox",
-      "//services/service_manager/sandbox",
+      "//sandbox/policy",
     ]
   }
 } else {
@@ -108,11 +109,8 @@ if (is_component_build) {
   }
 }
 
-grit("resources") {
+grit("content_resources") {
   source = "content_resources.grd"
-
-  # The .grd contains references to generated files.
-  source_is_generated = true
 
   outputs = [
     "grit/content_resources.h",
@@ -125,9 +123,25 @@ grit("resources") {
     "root_gen_dir=" + rebase_path(root_gen_dir, root_build_dir),
   ]
   deps = [
-    "//content/browser/process_internals:mojo_bindings_js",
     "//gpu/ipc/common:vulkan_interface_js",
     "//url/mojom:url_mojom_origin_js",
+  ]
+}
+
+grit("dev_ui_content_resources") {
+  source = "dev_ui_content_resources.grd"
+
+  outputs = [
+    "grit/dev_ui_content_resources.h",
+    "dev_ui_content_resources.pak",
+  ]
+  grit_flags = [
+    "-E",
+    "root_gen_dir=" + rebase_path(root_gen_dir, root_build_dir),
+  ]
+  deps = [
+    "//content/browser/conversions:mojo_bindings_js",
+    "//content/browser/process_internals:mojo_bindings_js",
   ]
 }
 

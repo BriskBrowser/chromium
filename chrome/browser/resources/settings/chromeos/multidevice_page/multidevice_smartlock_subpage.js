@@ -2,21 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-cr.define('settings', function() {
-  /**
-   * The state of the preference controlling Smart Lock's ability to sign-in the
-   * user.
-   * @enum {string}
-   */
-  SignInEnabledState = {
-    ENABLED: 'enabled',
-    DISABLED: 'disabled',
-  };
-
-  return {
-    SignInEnabledState: SignInEnabledState,
-  };
-});
+// #import {OsSettingsRoutes} from './os_settings_routes.m.js'
 
 Polymer({
   is: 'settings-multidevice-smartlock-subpage',
@@ -27,7 +13,7 @@ Polymer({
   ],
 
   properties: {
-    /** @type {?SettingsRoutes} */
+    /** @type {?OsSettingsRoutes} */
     routes: {
       type: Object,
       value: settings.routes,
@@ -45,11 +31,11 @@ Polymer({
     /**
      * Whether Smart Lock may be used to sign-in the user (as opposed to only
      * being able to unlock the user's screen).
-     * @private {!settings.SignInEnabledState}
+     * @private {!settings.SmartLockSignInEnabledState}
      */
     smartLockSignInEnabled_: {
       type: Object,
-      value: settings.SignInEnabledState.DISABLED,
+      value: settings.SmartLockSignInEnabledState.DISABLED,
     },
 
     /**
@@ -69,11 +55,10 @@ Polymer({
 
     /**
      * Authentication token provided by password-prompt-dialog.
-     * @private {string}
+     * @private {!chrome.quickUnlockPrivate.TokenInfo|undefined}
      */
     authToken_: {
-      type: String,
-      value: '',
+      type: Object,
     },
   },
 
@@ -117,9 +102,9 @@ Polymer({
    * @private
    */
   updateSmartLockSignInEnabled_(enabled) {
-    this.smartLockSignInEnabled_ = enabled ?
-        settings.SignInEnabledState.ENABLED :
-        settings.SignInEnabledState.DISABLED;
+    this.smartLockSignInEnabled_ =
+        enabled ? settings.SmartLockSignInEnabledState.ENABLED :
+        settings.SmartLockSignInEnabledState.DISABLED;
   },
 
   /**
@@ -143,17 +128,18 @@ Polymer({
    */
   onSmartLockSignInEnabledChanged_() {
     const radioGroup = this.$$('cr-radio-group');
-    const enabled = radioGroup.selected == settings.SignInEnabledState.ENABLED;
+    const enabled = radioGroup.selected == settings.SmartLockSignInEnabledState.ENABLED;
 
     if (!enabled) {
       // No authentication check is required to disable.
       this.browserProxy_.setSmartLockSignInEnabled(false /* enabled */);
+      settings.recordSettingChange();
       return;
     }
 
     // Toggle the enabled state back to disabled, as authentication may not
     // succeed. The toggle state updates automatically by the pref listener.
-    radioGroup.selected = settings.SignInEnabledState.DISABLED;
+    radioGroup.selected = settings.SmartLockSignInEnabledState.DISABLED;
     this.openPasswordPromptDialog_();
   },
 
@@ -168,12 +154,22 @@ Polymer({
     // If |this.authToken_| is set when the dialog has been closed, this means
     // that the user entered the correct password into the dialog when
     // attempting to enable SignIn with Smart Lock.
-    if (this.authToken_ !== '') {
+    if (this.authToken_) {
       this.browserProxy_.setSmartLockSignInEnabled(
-          true /* enabled */, this.authToken_);
+          true /* enabled */, this.authToken_.token);
+      settings.recordSettingChange();
     }
 
     // Always require password entry if re-enabling SignIn with Smart Lock.
-    this.authToken_ = '';
+    this.authToken_ = undefined;
   },
+
+  /**
+   * @param {!CustomEvent<!chrome.quickUnlockPrivate.TokenInfo>} e
+   * @private
+   */
+  onTokenObtained_(e) {
+    this.authToken_ = e.detail;
+  },
+
 });

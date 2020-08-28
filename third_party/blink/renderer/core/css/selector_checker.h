@@ -30,7 +30,6 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_CSS_SELECTOR_CHECKER_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_CSS_SELECTOR_CHECKER_H_
 
-#include "base/macros.h"
 #include "third_party/blink/renderer/core/css/css_selector.h"
 #include "third_party/blink/renderer/core/dom/element.h"
 #include "third_party/blink/renderer/core/scroll/scroll_types.h"
@@ -86,7 +85,7 @@ class SelectorChecker {
     Mode mode = kResolvingStyle;
     bool is_ua_rule = false;
     ComputedStyle* element_style = nullptr;
-    Member<CustomScrollbar> scrollbar = nullptr;
+    CustomScrollbar* scrollbar = nullptr;
     ScrollbarPart scrollbar_part = kNoPart;
     PartNames* part_names = nullptr;
   };
@@ -101,6 +100,8 @@ class SelectorChecker {
     is_ua_rule_ = init.is_ua_rule;
 #endif
   }
+  SelectorChecker(const SelectorChecker&) = delete;
+  SelectorChecker& operator=(const SelectorChecker&) = delete;
 
   // Wraps the current element and a CSSSelector and stores some other state of
   // the selector matching process.
@@ -114,9 +115,9 @@ class SelectorChecker {
         : element(element), visited_match_type(visited_match_type) {}
 
     const CSSSelector* selector = nullptr;
-    Member<Element> element = nullptr;
-    Member<Element> previous_element = nullptr;
-    Member<const ContainerNode> scope = nullptr;
+    Element* element = nullptr;
+    Element* previous_element = nullptr;
+    const ContainerNode* scope = nullptr;
     VisitedMatchType visited_match_type;
     PseudoId pseudo_id = kPseudoIdNone;
     bool is_sub_selector = false;
@@ -211,7 +212,7 @@ class SelectorChecker {
   bool CheckPseudoNotForVTT(const SelectorCheckingContext&, MatchResult&) const;
 
   ComputedStyle* element_style_;
-  Member<CustomScrollbar> scrollbar_;
+  CustomScrollbar* scrollbar_;
   PartNames* part_names_;
   ScrollbarPart scrollbar_part_;
   Mode mode_;
@@ -220,7 +221,6 @@ class SelectorChecker {
 #else
   static constexpr bool is_ua_rule_ = true;
 #endif
-  DISALLOW_COPY_AND_ASSIGN(SelectorChecker);
 };
 
 }  // namespace blink

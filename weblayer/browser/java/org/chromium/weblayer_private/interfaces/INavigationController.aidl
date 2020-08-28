@@ -4,8 +4,10 @@
 
 package org.chromium.weblayer_private.interfaces;
 
+import org.chromium.weblayer_private.interfaces.NavigateParams;
+
 interface INavigationController {
-  void navigate(in String uri) = 0;
+  void navigate(in String uri, in NavigateParams params) = 0;
 
   void goBack() = 1;
 
@@ -28,4 +30,15 @@ interface INavigationController {
   void goToIndex(in int index) = 10;
 
   String getNavigationEntryTitle(in int index) = 11;
+
+  // Added in 82, removed in 83.
+  // void replace(in String uri) = 12;
+
+  // Added in 85.
+  boolean isNavigationEntrySkippable(int index) = 13;
+
+  // Added in 87.
+  void navigate2(in String uri,
+                 in boolean shouldReplaceEntry,
+                 in boolean disableIntentProcessing) = 14;
 }

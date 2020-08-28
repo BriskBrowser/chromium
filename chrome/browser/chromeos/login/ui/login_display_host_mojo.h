@@ -38,26 +38,24 @@ class LoginDisplayHostMojo : public LoginDisplayHostCommon,
                              public AuthStatusConsumer,
                              public OobeUI::Observer {
  public:
-  LoginDisplayHostMojo();
+  enum class DisplayedScreen { SIGN_IN_SCREEN, USER_ADDING_SCREEN };
+
+  explicit LoginDisplayHostMojo(DisplayedScreen displayed_screen);
   ~LoginDisplayHostMojo() override;
 
   // Called when the gaia dialog is destroyed.
   void OnDialogDestroyed(const OobeUIDialogDelegate* dialog);
 
-  // Set the users in the views login screen.
-  void SetUsers(const user_manager::UserList& users);
+  void SetUserCount(int user_count);
 
   // Show password changed dialog. If |show_password_error| is true, user
   // already tried to enter old password but it turned out to be incorrect.
   void ShowPasswordChangedDialog(bool show_password_error,
-                                 const std::string& email);
+                                 const AccountId& account_id);
 
   // Show whitelist check failed error. Happens after user completes online
   // signin but whitelist check fails.
   void ShowWhitelistCheckFailedError();
-
-  // Displays detailed error screen for error with ID |error_id|.
-  void ShowErrorScreen(LoginDisplay::SigninError error_id);
 
   // Shows signin UI with specified email.
   void ShowSigninUI(const std::string& email);
@@ -79,20 +77,14 @@ class LoginDisplayHostMojo : public LoginDisplayHostCommon,
   WizardController* GetWizardController() override;
   void OnStartUserAdding() override;
   void CancelUserAdding() override;
-  void OnStartSignInScreen(const LoginScreenContext& context) override;
+  void OnStartSignInScreen() override;
   void OnPreferencesChanged() override;
   void OnStartAppLaunch() override;
-  void OnStartArcKiosk() override;
-  void OnStartWebKiosk() override;
   void OnBrowserCreated() override;
-  void ShowGaiaDialog(bool can_close,
-                      const AccountId& prefilled_account) override;
+  void ShowGaiaDialog(const AccountId& prefilled_account) override;
   void HideOobeDialog() override;
   void UpdateOobeDialogState(ash::OobeDialogState state) override;
-  const user_manager::UserList GetUsers() override;
   void OnCancelPasswordChangedFlow() override;
-  void ShowFeedback() override;
-  void ShowResetScreen() override;
   void HandleDisplayCaptivePortal() override;
   void UpdateAddUserButtonStatus() override;
   void RequestSystemInfoUpdate() override;
@@ -102,11 +94,6 @@ class LoginDisplayHostMojo : public LoginDisplayHostCommon,
       const AccountId& account_id,
       const std::string& password,
       bool authenticated_by_pin,
-      base::OnceCallback<void(bool)> callback) override;
-  void HandleAuthenticateUserWithExternalBinary(
-      const AccountId& account_id,
-      base::OnceCallback<void(bool)> callback) override;
-  void HandleEnrollUserWithExternalBinary(
       base::OnceCallback<void(bool)> callback) override;
   void HandleAuthenticateUserWithEasyUnlock(
       const AccountId& account_id) override;
@@ -125,7 +112,7 @@ class LoginDisplayHostMojo : public LoginDisplayHostCommon,
   // AuthStatusConsumer:
   void OnAuthFailure(const AuthFailure& error) override;
   void OnAuthSuccess(const UserContext& user_context) override;
-  void OnPasswordChangeDetected() override;
+  void OnPasswordChangeDetected(const UserContext& user_context) override;
   void OnOldEncryptionDetected(const UserContext& user_context,
                                bool has_incomplete_migration) override;
 
@@ -133,6 +120,10 @@ class LoginDisplayHostMojo : public LoginDisplayHostCommon,
   void OnCurrentScreenChanged(OobeScreenId current_screen,
                               OobeScreenId new_screen) override;
   void OnDestroyingOobeUI() override;
+
+  // TODO(https://crbug.com/1103564) This function needed to isolate error
+  // messages on the Views and WebUI side. Consider removing.
+  bool IsOobeUIDialogVisible() const;
 
  private:
   void LoadOobeDialog();
@@ -156,6 +147,10 @@ class LoginDisplayHostMojo : public LoginDisplayHostCommon,
   // Removes this as a |OobeUI::Observer| if it has been added as an observer.
   void StopObservingOobeUI();
 
+  // Create ExistingUserController and link it to LoginDisplayHostMojo so we can
+  // consume auth status events.
+  void CreateExistingUserController();
+
   // State associated with a pending authentication attempt.
   struct AuthState {
     AuthState(AccountId account_id, base::OnceCallback<void(bool)> callback);
@@ -178,12 +173,10 @@ class LoginDisplayHostMojo : public LoginDisplayHostCommon,
   // Called after host deletion.
   std::vector<base::OnceClosure> completion_callbacks_;
   OobeUIDialogDelegate* dialog_ = nullptr;  // Not owned.
-  bool can_close_dialog_ = true;
   std::unique_ptr<WizardController> wizard_controller_;
 
-  // Users that are visible in the views login screen.
-  // TODO(crbug.com/808277): consider remove user case.
-  user_manager::UserList users_;
+  // Number of users that are visible in the views login screen.
+  int user_count_ = 0;
 
   // The account id of the user pod that's being focused.
   AccountId focused_pod_account_id_;
@@ -202,6 +195,12 @@ class LoginDisplayHostMojo : public LoginDisplayHostCommon,
 
   // Set if this has been added as a |OobeUI::Observer|.
   bool added_as_oobe_observer_ = false;
+
+  // Set if Gaia dialog is shown with prefilled email.
+  base::Optional<AccountId> gaia_reauth_account_id_;
+
+  // Store which screen is currently displayed.
+  DisplayedScreen displayed_screen_ = DisplayedScreen::SIGN_IN_SCREEN;
 
   base::WeakPtrFactory<LoginDisplayHostMojo> weak_factory_{this};
 

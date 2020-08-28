@@ -14,6 +14,7 @@ namespace blink {
 
 class LayoutObject;
 class LocalFrameView;
+class NGFragmentChildIterator;
 
 // This class walks the whole layout tree, beginning from the root
 // LocalFrameView, across frame boundaries. Helper classes are called for each
@@ -49,7 +50,12 @@ class CORE_EXPORT PrePaintTreeWalk {
               parent_context.inside_blocking_touch_event_handler),
           effective_allowed_touch_action_changed(
               parent_context.effective_allowed_touch_action_changed),
-          clip_changed(parent_context.clip_changed) {
+          clip_changed(parent_context.clip_changed),
+          paint_invalidation_container(
+              parent_context.paint_invalidation_container),
+          paint_invalidation_container_for_stacked_contents(
+              parent_context
+                  .paint_invalidation_container_for_stacked_contents) {
       if (needs_tree_builder_context || DCHECK_IS_ON()) {
         DCHECK(parent_context.tree_builder_context);
         tree_builder_context.emplace(*parent_context.tree_builder_context);
@@ -80,14 +86,19 @@ class CORE_EXPORT PrePaintTreeWalk {
     // true. It will be propagated to descendant contexts even if we don't
     // create tree_builder_context.
     bool clip_changed = false;
+
+    const LayoutBoxModelObject* paint_invalidation_container = nullptr;
+    const LayoutBoxModelObject*
+        paint_invalidation_container_for_stacked_contents = nullptr;
   };
 
   static bool ContextRequiresPrePaint(const PrePaintTreeWalkContext&);
-  static bool ContextRequiresTreeBuilderContext(const PrePaintTreeWalkContext&,
-                                                const LayoutObject&);
+  static bool ContextRequiresTreeBuilderContext(const PrePaintTreeWalkContext&);
 
+#if DCHECK_IS_ON()
   void CheckTreeBuilderContextState(const LayoutObject&,
                                     const PrePaintTreeWalkContext&);
+#endif
 
   const PrePaintTreeWalkContext& ContextAt(wtf_size_t index) {
     DCHECK_LT(index, context_storage_.size());
@@ -101,8 +112,13 @@ class CORE_EXPORT PrePaintTreeWalk {
   // very big stack frames. Splitting the heavy lifting to a separate function
   // makes sure the stack frame is freed prior to making a recursive call.
   // See https://crbug.com/781301 .
-  NOINLINE void WalkInternal(const LayoutObject&, PrePaintTreeWalkContext&);
-  void Walk(const LayoutObject&);
+  NOINLINE void WalkInternal(const LayoutObject&,
+                             const NGFragmentChildIterator*,
+                             PrePaintTreeWalkContext&);
+  void WalkNGChildren(const LayoutObject* parent, NGFragmentChildIterator*);
+  void WalkLegacyChildren(const LayoutObject&);
+  void WalkChildren(const LayoutObject*, const NGFragmentChildIterator*);
+  void Walk(const LayoutObject&, const NGFragmentChildIterator*);
 
   bool NeedsTreeBuilderContextUpdate(const LocalFrameView&,
                                      const PrePaintTreeWalkContext&);
@@ -120,6 +136,11 @@ class CORE_EXPORT PrePaintTreeWalk {
                                     PrePaintTreeWalkContext&);
 
   void ResizeContextStorageIfNeeded();
+
+  void UpdatePaintInvalidationContainer(const LayoutObject& object,
+                                        const PaintLayer* painting_layer,
+                                        PrePaintTreeWalkContext& context,
+                                        bool is_ng_painting);
 
   PaintInvalidator paint_invalidator_;
   Vector<PrePaintTreeWalkContext> context_storage_;

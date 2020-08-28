@@ -52,6 +52,7 @@ body.mainpage: [regular, 3:0-3:13] {
     ['text-decoration':'none'] @[4:4-4:26] 
     ['badproperty':'1badvalue1' non-parsed] @[5:5-5:29] 
     ['text-decoration-line':'none'] @[undefined-undefined] 
+    ['text-decoration-thickness':'initial'] @[undefined-undefined] 
     ['text-decoration-style':'initial'] @[undefined-undefined] 
     ['text-decoration-color':'initial'] @[undefined-undefined] 
 }
@@ -71,7 +72,6 @@ Level=1
 [NO STYLE]
 html: [user-agent] {
     ['display':'block'] @[undefined-undefined] 
-    ['color':'-internal-root-color'] @[undefined-undefined] 
 }
 html: [regular, 4:0-4:4] {
     ['font-weight':'400'] @[5:4-5:21] 
@@ -129,6 +129,7 @@ body.mainpage: [regular, 3:0-3:13] {
     ['text-decoration':'none'] @[4:4-4:26] 
     ['badproperty':'1badvalue1' non-parsed] @[5:5-5:29] 
     ['text-decoration-line':'none'] @[undefined-undefined] 
+    ['text-decoration-thickness':'initial'] @[undefined-undefined] 
     ['text-decoration-style':'initial'] @[undefined-undefined] 
     ['text-decoration-color':'initial'] @[undefined-undefined] 
 }
@@ -207,6 +208,7 @@ body.mainpage: [regular, 3:0-3:13] {
     ['text-decoration':'none'] @[4:4-4:26] 
     ['badproperty':'1badvalue1' non-parsed] @[5:5-5:29] 
     ['text-decoration-line':'none'] @[undefined-undefined] 
+    ['text-decoration-thickness':'initial'] @[undefined-undefined] 
     ['text-decoration-style':'initial'] @[undefined-undefined] 
     ['text-decoration-color':'initial'] @[undefined-undefined] 
 }

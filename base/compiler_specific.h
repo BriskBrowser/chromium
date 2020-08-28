@@ -7,57 +7,9 @@
 
 #include "build/build_config.h"
 
-#if defined(COMPILER_MSVC)
-
-#if !defined(__clang__)
+#if defined(COMPILER_MSVC) && !defined(__clang__)
 #error "Only clang-cl is supported on Windows, see https://crbug.com/988071"
 #endif
-
-// Macros for suppressing and disabling warnings on MSVC.
-//
-// Warning numbers are enumerated at:
-// http://msdn.microsoft.com/en-us/library/8x5x43k7(VS.80).aspx
-//
-// The warning pragma:
-// http://msdn.microsoft.com/en-us/library/2c8f766e(VS.80).aspx
-//
-// Using __pragma instead of #pragma inside macros:
-// http://msdn.microsoft.com/en-us/library/d9x1s805.aspx
-
-// MSVC_PUSH_DISABLE_WARNING pushes |n| onto a stack of warnings to be disabled.
-// The warning remains disabled until popped by MSVC_POP_WARNING.
-#define MSVC_PUSH_DISABLE_WARNING(n) \
-  __pragma(warning(push)) __pragma(warning(disable : n))
-
-// Pop effects of innermost MSVC_PUSH_* macro.
-#define MSVC_POP_WARNING() __pragma(warning(pop))
-
-#else  // Not MSVC
-
-#define MSVC_PUSH_DISABLE_WARNING(n)
-#define MSVC_POP_WARNING()
-#define MSVC_DISABLE_OPTIMIZE()
-#define MSVC_ENABLE_OPTIMIZE()
-
-#endif  // COMPILER_MSVC
-
-// These macros can be helpful when investigating compiler bugs or when
-// investigating issues in local optimized builds, by temporarily disabling
-// optimizations for a single function or file. These macros should never be
-// used to permanently work around compiler bugs or other mysteries, and should
-// not be used in landed changes.
-#if !defined(OFFICIAL_BUILD)
-#if defined(__clang__)
-#define DISABLE_OPTIMIZE() __pragma(clang optimize off)
-#define ENABLE_OPTIMIZE() __pragma(clang optimize on)
-#elif defined(COMPILER_MSVC)
-#define DISABLE_OPTIMIZE() __pragma(optimize("", off))
-#define ENABLE_OPTIMIZE() __pragma(optimize("", on))
-#else
-// These macros are not currently available for other compiler options.
-#endif
-// These macros are not available in official builds.
-#endif  // !defined(OFFICIAL_BUILD)
 
 // Annotate a variable indicating it's ok if the variable is not used.
 // (Typically used to silence a compiler warning when the assignment
@@ -93,6 +45,20 @@
 #define ALWAYS_INLINE __forceinline
 #else
 #define ALWAYS_INLINE inline
+#endif
+
+// Annotate a function indicating it should never be tail called. Useful to make
+// sure callers of the annotated function are never omitted from call-stacks.
+// To provide the complementary behavior (prevent the annotated function from
+// being omitted) look at NOINLINE. Also note that this doesn't prevent code
+// folding of multiple identical caller functions into a single signature. To
+// prevent code folding, see base::debug::Alias.
+// Use like:
+//   void NOT_TAIL_CALLED FooBar();
+#if defined(__clang__) && __has_attribute(not_tail_called)
+#define NOT_TAIL_CALLED __attribute__((not_tail_called))
+#else
+#define NOT_TAIL_CALLED
 #endif
 
 // Specify memory alignment for structs, classes, etc.
@@ -190,6 +156,19 @@
 #else
 #define DISABLE_CFI_PERF
 #endif
+#endif
+
+// DISABLE_CFI_ICALL -- Disable Control Flow Integrity indirect call checks.
+#if !defined(DISABLE_CFI_ICALL)
+#if defined(OS_WIN)
+// Windows also needs __declspec(guard(nocf)).
+#define DISABLE_CFI_ICALL NO_SANITIZE("cfi-icall") __declspec(guard(nocf))
+#else
+#define DISABLE_CFI_ICALL NO_SANITIZE("cfi-icall")
+#endif
+#endif
+#if !defined(DISABLE_CFI_ICALL)
+#define DISABLE_CFI_ICALL
 #endif
 
 // Macro useful for writing cross-platform function pointers.
@@ -294,5 +273,36 @@
 #else
 #define STACK_UNINITIALIZED
 #endif
+
+// The ANALYZER_ASSUME_TRUE(bool arg) macro adds compiler-specific hints
+// to Clang which control what code paths are statically analyzed,
+// and is meant to be used in conjunction with assert & assert-like functions.
+// The expression is passed straight through if analysis isn't enabled.
+//
+// ANALYZER_SKIP_THIS_PATH() suppresses static analysis for the current
+// codepath and any other branching codepaths that might follow.
+#if defined(__clang_analyzer__)
+
+inline constexpr bool AnalyzerNoReturn() __attribute__((analyzer_noreturn)) {
+  return false;
+}
+
+inline constexpr bool AnalyzerAssumeTrue(bool arg) {
+  // AnalyzerNoReturn() is invoked and analysis is terminated if |arg| is
+  // false.
+  return arg || AnalyzerNoReturn();
+}
+
+#define ANALYZER_ASSUME_TRUE(arg) ::AnalyzerAssumeTrue(!!(arg))
+#define ANALYZER_SKIP_THIS_PATH() static_cast<void>(::AnalyzerNoReturn())
+#define ANALYZER_ALLOW_UNUSED(var) static_cast<void>(var);
+
+#else  // !defined(__clang_analyzer__)
+
+#define ANALYZER_ASSUME_TRUE(arg) (arg)
+#define ANALYZER_SKIP_THIS_PATH()
+#define ANALYZER_ALLOW_UNUSED(var) static_cast<void>(var);
+
+#endif  // defined(__clang_analyzer__)
 
 #endif  // BASE_COMPILER_SPECIFIC_H_

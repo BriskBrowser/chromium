@@ -4,9 +4,8 @@
 
 #import "ios/chrome/browser/ui/send_tab_to_self/send_tab_to_self_table_view_controller.h"
 
-#include "base/logging.h"
+#include "base/check.h"
 #include "base/mac/foundation_util.h"
-#include "base/metrics/histogram_functions.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/sys_string_conversions.h"
 #include "components/send_tab_to_self/send_tab_to_self_model.h"
@@ -20,8 +19,8 @@
 #include "ios/chrome/browser/ui/table_view/cells/table_view_url_item.h"
 #import "ios/chrome/browser/ui/table_view/chrome_table_view_styler.h"
 #import "ios/chrome/browser/ui/util/uikit_ui_util.h"
-#import "ios/chrome/common/colors/UIColor+cr_semantic_colors.h"
-#import "ios/chrome/common/colors/semantic_color_names.h"
+#import "ios/chrome/common/ui/colors/UIColor+cr_semantic_colors.h"
+#import "ios/chrome/common/ui/colors/semantic_color_names.h"
 #include "ios/chrome/grit/ios_strings.h"
 #include "ui/base/l10n/l10n_util.h"
 
@@ -37,24 +36,6 @@ NSString* const kSendTabToSelfModalCancelButton =
 // Accessibility identifier of the Modal Cancel Button.
 NSString* const kSendTabToSelfModalSendButton =
     @"kSendTabToSelfModalSendButton";
-
-// Per histograms.xml this records whether the user has clicked the item when it
-// is shown.
-const char kClickResultHistogramName[] = "SendTabToSelf.ShareMenu.ClickResult";
-// Per histograms.xml this records how many valid devices are shown when user
-// trigger to see the device list.
-const char kDeviceCountHistogramName[] = "SendTabToSelf.ShareMenu.DeviceCount";
-
-// TODO(crbug.com/970886): Move to a directory accessible on all platforms.
-// State of the send tab to self option in the context menu.
-// These values are persisted to logs. Entries should not be renumbered and
-// numeric values should never be reused.
-enum class SendTabToSelfClickResult {
-  kShowItem = 0,
-  kClickItem = 1,
-  kShowDeviceList = 2,
-  kMaxValue = kShowDeviceList,
-};
 
 }  // namespace
 
@@ -182,14 +163,6 @@ typedef NS_ENUM(NSInteger, ItemType) {
       toSectionWithIdentifier:SectionIdentifierActionButton];
 }
 
-- (void)viewDidAppear:(BOOL)animated {
-  [super viewDidAppear:animated];
-  base::UmaHistogramEnumeration(kClickResultHistogramName,
-                                SendTabToSelfClickResult::kShowDeviceList);
-  base::UmaHistogramCounts100(kDeviceCountHistogramName,
-                              _target_device_list.size());
-}
-
 #pragma mark - UITableViewDataSource
 
 - (UITableViewCell*)tableView:(UITableView*)tableView
@@ -233,8 +206,6 @@ typedef NS_ENUM(NSInteger, ItemType) {
 #pragma mark - Helpers
 
 - (void)sendTabWhenPressed:(UIButton*)sender {
-  base::UmaHistogramEnumeration(kClickResultHistogramName,
-                                SendTabToSelfClickResult::kClickItem);
   [self.delegate sendTabToTargetDeviceCacheGUID:self.selectedItem.cacheGuid
                                targetDeviceName:self.selectedItem.text];
   [self.delegate dismissViewControllerAnimated:YES completion:nil];

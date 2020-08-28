@@ -11,9 +11,6 @@
 #include <unordered_set>
 #include <utility>
 
-#include <memory>
-#include <unordered_set>
-
 #include "base/base_paths.h"
 #include "base/command_line.h"
 #include "base/compiler_specific.h"
@@ -27,7 +24,6 @@
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/task_environment.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "components/bookmarks/browser/bookmark_model_observer.h"
 #include "components/bookmarks/browser/bookmark_undo_delegate.h"
@@ -37,6 +33,8 @@
 #include "components/bookmarks/test/bookmark_test_helpers.h"
 #include "components/bookmarks/test/test_bookmark_client.h"
 #include "components/favicon_base/favicon_callback.h"
+#include "components/favicon_base/favicon_types.h"
+#include "components/query_parser/query_parser.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "ui/base/models/tree_node_iterator.h"
@@ -432,12 +430,8 @@ class BookmarkModelTest : public testing::Test,
   BookmarkPermanentNode* ReloadModelWithManagedNode() {
     model_->RemoveObserver(this);
 
-    auto owned_managed_node =
-        std::make_unique<BookmarkPermanentNode>(100, BookmarkNode::FOLDER);
-    BookmarkPermanentNode* managed_node = owned_managed_node.get();
-
-    std::unique_ptr<TestBookmarkClient> client(new TestBookmarkClient);
-    client->SetManagedNodeToLoad(std::move(owned_managed_node));
+    auto client = std::make_unique<TestBookmarkClient>();
+    BookmarkPermanentNode* managed_node = client->EnableManagedNode();
 
     model_ = TestBookmarkClient::CreateModelWithClient(std::move(client));
     model_->AddObserver(this);
@@ -1124,17 +1118,6 @@ TEST_F(BookmarkModelTest, NodeVisibility) {
   EXPECT_TRUE(model_->other_node()->IsVisible());
   EXPECT_FALSE(model_->mobile_node()->IsVisible());
 
-  // Visibility of permanent node can only be changed if they are not
-  // forced to be visible by the client.
-  model_->SetPermanentNodeVisible(BookmarkNode::BOOKMARK_BAR, false);
-  EXPECT_TRUE(model_->bookmark_bar_node()->IsVisible());
-  model_->SetPermanentNodeVisible(BookmarkNode::OTHER_NODE, false);
-  EXPECT_TRUE(model_->other_node()->IsVisible());
-  model_->SetPermanentNodeVisible(BookmarkNode::MOBILE, true);
-  EXPECT_TRUE(model_->mobile_node()->IsVisible());
-  model_->SetPermanentNodeVisible(BookmarkNode::MOBILE, false);
-  EXPECT_FALSE(model_->mobile_node()->IsVisible());
-
   // Arbitrary node should be visible
   TestNode bbn;
   PopulateNodeFromString("B", &bbn);
@@ -1257,24 +1240,24 @@ TEST(BookmarkModelLoadTest, TitledUrlIndexPopulatedOnLoad) {
   // Create a model with a single url.
   base::ScopedTempDir tmp_dir;
   ASSERT_TRUE(tmp_dir.CreateUniqueTempDir());
-  base::test::TaskEnvironment task_environment;
+  base::test::TaskEnvironment task_environment{
+      base::test::TaskEnvironment::TimeSource::MOCK_TIME};
   std::unique_ptr<BookmarkModel> model =
       std::make_unique<BookmarkModel>(std::make_unique<TestBookmarkClient>());
-  model->Load(nullptr, tmp_dir.GetPath(), base::ThreadTaskRunnerHandle::Get(),
-              base::ThreadTaskRunnerHandle::Get());
+  model->Load(nullptr, tmp_dir.GetPath());
   test::WaitForBookmarkModelToLoad(model.get());
   const GURL node_url("http://google.com");
   model->AddURL(model->bookmark_bar_node(), 0, base::ASCIIToUTF16("User"),
                 node_url);
+
   // This is necessary to ensure the save completes.
-  base::RunLoop().RunUntilIdle();
+  task_environment.FastForwardUntilNoTasksRemain();
 
   // Recreate the model and ensure GetBookmarksMatching() returns the url that
   // was added.
   model =
       std::make_unique<BookmarkModel>(std::make_unique<TestBookmarkClient>());
-  model->Load(nullptr, tmp_dir.GetPath(), base::ThreadTaskRunnerHandle::Get(),
-              base::ThreadTaskRunnerHandle::Get());
+  model->Load(nullptr, tmp_dir.GetPath());
   test::WaitForBookmarkModelToLoad(model.get());
 
   std::vector<TitledUrlMatch> matches;
@@ -1380,8 +1363,7 @@ class BookmarkModelFaviconTest : public testing::Test,
       favicon_base::FaviconImageResult image_result;
       image_result.image = image;
       image_result.icon_url = icon_url;
-      model_->OnFaviconDataAvailable(node, favicon_base::IconType::kFavicon,
-                                     image_result);
+      model_->OnFaviconDataAvailable(node, image_result);
   }
 
   bool WasNodeUpdated(const BookmarkNode* node) {

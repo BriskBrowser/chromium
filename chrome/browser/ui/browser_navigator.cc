@@ -17,9 +17,7 @@
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/platform_util.h"
 #include "chrome/browser/prefs/incognito_mode_prefs.h"
-#include "chrome/browser/prerender/prerender_manager.h"
 #include "chrome/browser/prerender/prerender_manager_factory.h"
-#include "chrome/browser/previews/previews_lite_page_redirect_decider.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/renderer_host/chrome_navigation_ui_data.h"
 #include "chrome/browser/signin/signin_promo.h"
@@ -35,9 +33,13 @@
 #include "chrome/browser/ui/status_bubble.h"
 #include "chrome/browser/ui/tab_helpers.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
+#include "chrome/browser/ui/web_applications/system_web_app_ui_utils.h"
+#include "chrome/browser/web_applications/components/web_app_helpers.h"
 #include "chrome/common/chrome_features.h"
 #include "chrome/common/url_constants.h"
+#include "components/captive_portal/core/buildflags.h"
 #include "components/prefs/pref_service.h"
+#include "components/prerender/browser/prerender_manager.h"
 #include "content/public/browser/browser_url_handler.h"
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/notification_service.h"
@@ -59,13 +61,14 @@
 #include "ui/aura/window.h"
 #endif
 
+#if BUILDFLAG(ENABLE_CAPTIVE_PORTAL_DETECTION)
+#include "components/captive_portal/content/captive_portal_tab_helper.h"
+#endif
+
 #if BUILDFLAG(ENABLE_EXTENSIONS)
-#include "chrome/browser/extensions/extension_util.h"
-#include "chrome/browser/extensions/tab_helper.h"
+#include "chrome/browser/apps/app_service/launch_utils.h"
 #include "chrome/browser/web_applications/components/web_app_helpers.h"
-#include "extensions/browser/extension_registry.h"
 #include "extensions/common/extension.h"
-#include "extensions/common/extension_set.h"
 #endif
 
 using content::GlobalRequestID;
@@ -84,20 +87,31 @@ class BrowserNavigatorWebContentsAdoption {
 
 namespace {
 
-// Returns true if the specified Browser can open tabs. Not all Browsers support
-// multiple tabs, such as app frames and popups. This function returns false for
-// those types of Browser.
-bool WindowCanOpenTabs(Browser* browser) {
-  return browser->CanSupportWindowFeature(Browser::FEATURE_TABSTRIP) ||
-         browser->tab_strip_model()->empty();
+bool allow_os_settings_in_tab = false;
+
+// Returns true if |params.browser| exists and can open a new tab for
+// |params.url|. Not all browsers support multiple tabs, such as app frames and
+// popups. TYPE_APP will only open a new tab if the URL is within the app scope.
+bool WindowCanOpenTabs(const NavigateParams& params) {
+  if (!params.browser)
+    return false;
+
+  if (params.browser->app_controller() &&
+      !params.browser->app_controller()->IsUrlInAppScope(params.url)) {
+    return false;
+  }
+
+  return params.browser->CanSupportWindowFeature(Browser::FEATURE_TABSTRIP) ||
+         params.browser->tab_strip_model()->empty();
 }
 
 // Finds an existing Browser compatible with |profile|, making a new one if no
 // such Browser is located.
 Browser* GetOrCreateBrowser(Profile* profile, bool user_gesture) {
   Browser* browser = chrome::FindTabbedBrowser(profile, false);
-  return browser ? browser
-                 : new Browser(Browser::CreateParams(profile, user_gesture));
+  return browser
+             ? browser
+             : Browser::Create(Browser::CreateParams(profile, user_gesture));
 }
 
 // Change some of the navigation parameters based on the particular URL.
@@ -146,12 +160,11 @@ std::pair<Browser*, int> GetBrowserAndTabForDisposition(
 
 #if BUILDFLAG(ENABLE_EXTENSIONS)
   if (params.open_pwa_window_if_possible) {
-    const extensions::Extension* app = extensions::util::GetInstalledPwaForUrl(
-        profile, params.url,
-        extensions::LaunchContainer::kLaunchContainerWindow);
-    if (app) {
-      std::string app_name =
-          web_app::GenerateApplicationNameFromAppId(app->id());
+    base::Optional<web_app::AppId> app_id =
+        web_app::FindInstalledAppWithUrlInScope(profile, params.url,
+                                                /*window_only=*/true);
+    if (app_id) {
+      std::string app_name = web_app::GenerateApplicationNameFromAppId(*app_id);
       return {
           new Browser(Browser::CreateParams::CreateForApp(
               app_name,
@@ -180,13 +193,16 @@ std::pair<Browser*, int> GetBrowserAndTabForDisposition(
       // re-run with NEW_WINDOW.
       return {GetOrCreateBrowser(profile, params.user_gesture), -1};
     case WindowOpenDisposition::SINGLETON_TAB: {
-      int index = GetIndexOfExistingTab(params.browser, params);
-      if (index >= 0)
-        return {params.browser, index};
-      // If this window can't open tabs, then it would load in a random
-      // window, potentially opening a second copy. Instead, make an extra
-      // effort to see if there's an already open copy.
-      if (params.browser && !WindowCanOpenTabs(params.browser)) {
+      // If we have a browser window, check it first.
+      if (params.browser) {
+        int index = GetIndexOfExistingTab(params.browser, params);
+        if (index >= 0)
+          return {params.browser, index};
+      }
+      // If we don't have a a window, or if this window can't open tabs, then
+      // it would load in a random window, potentially opening a second copy.
+      // Instead, make an extra effort to see if there's an already open copy.
+      if (!WindowCanOpenTabs(params)) {
         std::pair<Browser*, int> index =
             GetIndexAndBrowserOfExistingTab(profile, params);
         if (index.first)
@@ -197,7 +213,7 @@ std::pair<Browser*, int> GetBrowserAndTabForDisposition(
     case WindowOpenDisposition::NEW_FOREGROUND_TAB:
     case WindowOpenDisposition::NEW_BACKGROUND_TAB:
       // See if we can open the tab in the window this navigator is bound to.
-      if (params.browser && WindowCanOpenTabs(params.browser))
+      if (WindowCanOpenTabs(params))
         return {params.browser, -1};
 
       // Find a compatible window and re-execute this command in it. Otherwise
@@ -213,13 +229,6 @@ std::pair<Browser*, int> GetBrowserAndTabForDisposition(
             web_app::GenerateApplicationNameFromAppId(params.extension_app_id);
       } else if (params.browser && !params.browser->app_name().empty()) {
         app_name = params.browser->app_name();
-      } else if (params.source_contents) {
-        extensions::TabHelper* extensions_tab_helper =
-            extensions::TabHelper::FromWebContents(params.source_contents);
-        if (extensions_tab_helper && extensions_tab_helper->is_app()) {
-          app_name = web_app::GenerateApplicationNameFromAppId(
-              extensions_tab_helper->GetAppId());
-        }
       }
 #endif
       if (app_name.empty()) {
@@ -229,7 +238,7 @@ std::pair<Browser*, int> GetBrowserAndTabForDisposition(
         browser_params.initial_bounds = params.window_bounds;
         return {new Browser(browser_params), -1};
       }
-      return {new Browser(Browser::CreateParams::CreateForApp(
+      return {new Browser(Browser::CreateParams::CreateForAppPopup(
                   app_name, params.trusted_source, params.window_bounds,
                   profile, params.user_gesture)),
               -1};
@@ -240,7 +249,7 @@ std::pair<Browser*, int> GetBrowserAndTabForDisposition(
               -1};
     case WindowOpenDisposition::OFF_THE_RECORD:
       // Make or find an incognito window.
-      return {GetOrCreateBrowser(profile->GetOffTheRecordProfile(),
+      return {GetOrCreateBrowser(profile->GetPrimaryOTRProfile(),
                                  params.user_gesture),
               -1};
     // The following types result in no navigation.
@@ -320,6 +329,7 @@ void LoadURLInContents(WebContents* target_contents,
                        const GURL& url,
                        NavigateParams* params) {
   NavigationController::LoadURLParams load_url_params(url);
+  load_url_params.initiator_routing_id = params->initiator_routing_id;
   load_url_params.initiator_origin = params->initiator_origin;
   load_url_params.source_site_instance = params->source_site_instance;
   load_url_params.referrer = params->referrer;
@@ -338,15 +348,14 @@ void LoadURLInContents(WebContents* target_contents,
   load_url_params.was_activated = params->was_activated;
   load_url_params.href_translate = params->href_translate;
   load_url_params.reload_type = params->reload_type;
+  load_url_params.impression = params->impression;
 
   // |frame_tree_node_id| is kNoFrameTreeNodeId for main frame navigations.
   if (params->frame_tree_node_id ==
       content::RenderFrameHost::kNoFrameTreeNodeId) {
     load_url_params.navigation_ui_data =
         ChromeNavigationUIData::CreateForMainFrameNavigation(
-            target_contents, params->disposition,
-            PreviewsLitePageRedirectDecider::GeneratePageIdForProfile(
-                GetSourceProfile(params)));
+            target_contents, params->disposition);
   }
 
   if (params->post_data) {
@@ -431,27 +440,20 @@ std::unique_ptr<content::WebContents> CreateTargetContents(
   // immediately.
   BrowserNavigatorWebContentsAdoption::AttachTabHelpers(target_contents.get());
 #if BUILDFLAG(ENABLE_EXTENSIONS)
-  extensions::TabHelper::FromWebContents(target_contents.get())
-      ->SetExtensionAppById(params.extension_app_id);
+  apps::SetAppIdForWebContents(params.browser->profile(), target_contents.get(),
+                               params.extension_app_id);
+#endif
+
+#if BUILDFLAG(ENABLE_CAPTIVE_PORTAL_DETECTION)
+  if (params.is_captive_portal_popup) {
+    DCHECK_EQ(WindowOpenDisposition::NEW_POPUP, params.disposition);
+    captive_portal::CaptivePortalTabHelper::FromWebContents(
+        target_contents.get())
+        ->set_is_captive_portal_window();
+  }
 #endif
 
   return target_contents;
-}
-
-// If a prerendered page exists for |url|, then replace
-// params.contents_being_navigated with it. When this occurs, the new page is
-// stored in params.replaced_contents.
-// This method updates the underlying storage mechanism as well. e.g. On
-// Desktop, |contents_being_navigated| is replaced in the tabstrip by
-// |replaced_contents|.
-bool SwapInPrerender(const GURL& url,
-                     prerender::PrerenderManager::Params* params) {
-  Profile* profile = Profile::FromBrowserContext(
-      params->contents_being_navigated->GetBrowserContext());
-  prerender::PrerenderManager* prerender_manager =
-      prerender::PrerenderManagerFactory::GetForBrowserContext(profile);
-  return prerender_manager &&
-         prerender_manager->MaybeUsePrerenderedPage(url, params);
 }
 
 }  // namespace
@@ -462,24 +464,39 @@ void Navigate(NavigateParams* params) {
     params->initiating_profile = source_browser->profile();
   DCHECK(params->initiating_profile);
 
-  if (!AdjustNavigateParamsForURL(params))
-    return;
-
-#if BUILDFLAG(ENABLE_EXTENSIONS)
-  const extensions::Extension* extension =
-      extensions::ExtensionRegistry::Get(params->initiating_profile)
-          ->enabled_extensions()
-          .GetExtensionOrAppByURL(params->url);
-  // Platform apps cannot navigate. Block the request.
-  if (extension && extension->is_platform_app())
-    params->url = GURL(chrome::kExtensionInvalidRequestURL);
-#endif
-
   if (source_browser &&
       platform_util::IsBrowserLockedFullscreen(source_browser)) {
     // Block any navigation requests in locked fullscreen mode.
     return;
   }
+
+  // Open System Apps in their standalone window if necessary.
+  // TODO(crbug.com/1096345): Remove this code after we integrate with intent
+  // handling.
+  const base::Optional<web_app::SystemAppType> capturing_system_app_type =
+      web_app::GetCapturingSystemAppForURL(params->initiating_profile,
+                                           params->url);
+  if (capturing_system_app_type &&
+      (!params->browser ||
+       !web_app::IsBrowserForSystemWebApp(params->browser,
+                                          capturing_system_app_type.value()))) {
+    params->browser = web_app::LaunchSystemWebApp(
+        params->initiating_profile, capturing_system_app_type.value(),
+        params->url);
+
+    // It's okay to early return here, because LaunchSystemWebApp uses a
+    // different logic to choose (and create if necessary) a browser window for
+    // system apps.
+    //
+    // It's okay to skip the checks and cleanups below. The link captured system
+    // app will either open in its own browser window, or navigate an existing
+    // browser window exclusively used by this app. For the initiating browser,
+    // the navigation should appear to be cancelled.
+    return;
+  }
+
+  if (!AdjustNavigateParamsForURL(params))
+    return;
 
   // Trying to open a background tab when in an app browser results in
   // focusing a regular browser window an opening a tab in the background
@@ -525,11 +542,10 @@ void Navigate(NavigateParams* params) {
   }
 #if defined(OS_CHROMEOS)
   if (source_browser) {
-    // If OS Settings is accessed in any means other than explicitly typing the
-    // URL into the URL bar, open OS Settings in its own standalone surface.
-    if (params->url.host() == chrome::kChromeUIOSSettingsHost &&
-        !PageTransitionCoreTypeIs(params->transition,
-                                  ui::PageTransition::PAGE_TRANSITION_TYPED)) {
+    // Open OS settings in PWA, even when user types in URL bar.
+    if (params->url.GetOrigin() ==
+            GURL(chrome::kChromeUIOSSettingsURL).GetOrigin() &&
+        !allow_os_settings_in_tab) {
       chrome::SettingsWindowManager* settings_window_manager =
           chrome::SettingsWindowManager::GetInstance();
       if (!settings_window_manager->IsSettingsBrowser(source_browser)) {
@@ -605,9 +621,6 @@ void Navigate(NavigateParams* params) {
       params->transition & ui::PAGE_TRANSITION_FROM_ADDRESS_BAR ||
       !ui::PageTransitionIsWebTriggerable(params->transition);
 
-  // Did we use a prerender?
-  bool swapped_in_prerender = false;
-
   // If no target WebContents was specified (and we didn't seek and find a
   // singleton), we need to construct one if we are supposed to target a new
   // tab.
@@ -621,26 +634,15 @@ void Navigate(NavigateParams* params) {
       // same as the source.
       DCHECK(params->source_contents);
       contents_to_navigate_or_insert = params->source_contents;
-
-      prerender::PrerenderManager::Params prerender_params(
-          params, params->source_contents);
-
-      // Prerender can only swap in CURRENT_TAB navigations; others have
-      // different sessionStorage namespaces.
-      swapped_in_prerender = SwapInPrerender(params->url, &prerender_params);
-      if (swapped_in_prerender)
-        contents_to_navigate_or_insert = prerender_params.replaced_contents;
     }
 
-    if (!swapped_in_prerender) {
-      // Try to handle non-navigational URLs that popup dialogs and such, these
-      // should not actually navigate.
-      if (!HandleNonNavigationAboutURL(params->url)) {
-        // Perform the actual navigation, tracking whether it came from the
-        // renderer.
+    // Try to handle non-navigational URLs that popup dialogs and such, these
+    // should not actually navigate.
+    if (!HandleNonNavigationAboutURL(params->url)) {
+      // Perform the actual navigation, tracking whether it came from the
+      // renderer.
 
-        LoadURLInContents(contents_to_navigate_or_insert, params->url, params);
-      }
+      LoadURLInContents(contents_to_navigate_or_insert, params->url, params);
     }
   } else {
     // |contents_to_navigate_or_insert| was specified non-NULL, and so we assume
@@ -657,14 +659,15 @@ void Navigate(NavigateParams* params) {
       (params->tabstrip_add_types & TabStripModel::ADD_INHERIT_OPENER))
     params->source_contents->Focus();
 
-  if (params->source_contents == contents_to_navigate_or_insert ||
-      (swapped_in_prerender &&
-       params->disposition == WindowOpenDisposition::CURRENT_TAB)) {
+  if (params->source_contents == contents_to_navigate_or_insert) {
     // The navigation occurred in the source tab.
     params->browser->UpdateUIForNavigationInTab(
         contents_to_navigate_or_insert, params->transition,
         params->window_action, user_initiated);
   } else if (singleton_index == -1) {
+    if (source_browser != params->browser)
+      params->tabstrip_index = params->browser->tab_strip_model()->count();
+
     // If some non-default value is set for the index, we should tell the
     // TabStripModel to respect it.
     if (params->tabstrip_index != -1)
@@ -786,4 +789,8 @@ bool IsURLAllowedInIncognito(const GURL& url,
   }
 
   return IsHostAllowedInIncognito(url);
+}
+
+void SetAllowOsSettingsInTabForTesting(bool is_allowed) {
+  allow_os_settings_in_tab = is_allowed;
 }

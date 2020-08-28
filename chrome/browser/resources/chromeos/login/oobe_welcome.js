@@ -80,6 +80,8 @@ Polymer({
   /** Overridden from LoginScreenBehavior. */
   EXTERNAL_API: [
     'onInputMethodIdSetFromBackend',
+    'refreshA11yInfo',
+    'showDemoModeConfirmationDialog',
   ],
 
   /**
@@ -92,10 +94,6 @@ Polymer({
   ready() {
     this.initializeLoginScreen('WelcomeScreen', {
       resetAllowed: true,
-      enableDebuggingAllowed: true,
-      enterDemoModeAllowed: true,
-      noAnimatedTransition: true,
-      postponeEnrollmentAllowed: true,
     });
     this.updateLocalizedContent();
   },
@@ -106,21 +104,10 @@ Polymer({
    * @param {Object} data Screen init payload.
    */
   onBeforeShow(data) {
-    this.behaviors.forEach((behavior) => {
-      if (behavior.onBeforeShow)
-        behavior.onBeforeShow.call(this);
-    });
-
     this.debuggingLinkVisible_ =
         data && 'isDeveloperMode' in data && data['isDeveloperMode'];
 
-    if (this.fullScreenDialog)
-      this.$.welcomeScreen.fullScreenDialog = true;
-
-    this.$.welcomeScreen.onBeforeShow();
-    let dialogs = Polymer.dom(this.root).querySelectorAll('oobe-dialog');
-    for (let dialog of dialogs)
-      dialog.onBeforeShow();
+    cr.ui.login.invokePolymerMethod(this.$.welcomeScreen, 'onBeforeShow');
 
     let activeScreen = this.getActiveScreen_();
     if (activeScreen.show)
@@ -195,8 +182,9 @@ Polymer({
     if (configuration.welcomeNext)
       this.onWelcomeNextButtonClicked_();
 
-    if (configuration.enableDemoMode)
-      Oobe.getInstance().startDemoModeFlow();
+    if (configuration.enableDemoMode) {
+      this.userActed('setupDemoModeGesture');
+    }
 
     this.configuration_applied_ = true;
   },
@@ -283,7 +271,7 @@ Polymer({
    * @private
    */
   onWelcomeNextButtonClicked_() {
-    chrome.send('login.WelcomeScreen.userActed', ['continue']);
+    this.userActed('continue');
   },
 
   /**
@@ -292,7 +280,7 @@ Polymer({
    * @private
    */
   onEnableDebuggingClicked_() {
-    cr.ui.Oobe.handleAccelerator(ACCELERATOR_ENABLE_DEBBUGING);
+    this.userActed('enableDebugging');
   },
 
   /**
@@ -400,6 +388,38 @@ Polymer({
     this.onKeyboardsChanged_();
   },
 
+  /**
+   * Refreshes a11y menu state.
+   * @param {!OobeTypes.A11yStatuses} data New dictionary with a11y features
+   *     state.
+   */
+  refreshA11yInfo(data) {
+    this.a11yStatus = data;
+  },
+
+  /**
+   * Shows confirmation dialog for starting Demo mode
+   */
+  showDemoModeConfirmationDialog() {
+    if (!this.enableDemoModeDialog_) {
+      this.enableDemoModeDialog_ =
+          new cr.ui.dialogs.ConfirmDialog(document.body);
+      this.enableDemoModeDialog_.setOkLabel(
+          loadTimeData.getString('enableDemoModeDialogConfirm'));
+      this.enableDemoModeDialog_.setCancelLabel(
+          loadTimeData.getString('enableDemoModeDialogCancel'));
+    }
+    this.enableDemoModeDialog_.showWithTitle(
+        loadTimeData.getString('enableDemoModeDialogTitle'),
+        loadTimeData.getString('enableDemoModeDialogText'), () => {
+          this.userActed('setupDemoMode');
+        });
+  },
+
+  onSetupDemoModeGesture() {
+    this.userActed('setupDemoModeGesture');
+  },
+
   onKeyboardsChanged_() {
     this.currentKeyboard = getSelectedTitle(this.keyboards);
   },
@@ -435,7 +455,11 @@ Polymer({
   onA11yOptionChanged_(event) {
     var a11ytarget = /** @type {{chromeMessage: string, checked: boolean}} */ (
         event.currentTarget);
-    chrome.send(a11ytarget.chromeMessage, [a11ytarget.checked]);
+    if (a11ytarget.checked) {
+      this.userActed(a11ytarget.id + '-enable');
+    } else {
+      this.userActed(a11ytarget.id + '-disable');
+    }
   },
 
   /** ******************** Timezone section ******************* */

@@ -6,6 +6,7 @@
 
 #include "ash/login/ui/lock_contents_view.h"
 #include "ash/login/ui/media_controls_header_view.h"
+#include "ash/login/ui/views_utils.h"
 #include "ash/media/media_controller_impl.h"
 #include "ash/resources/vector_icons/vector_icons.h"
 #include "ash/session/session_controller_impl.h"
@@ -15,6 +16,7 @@
 #include "ash/style/ash_color_provider.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/power_monitor/power_monitor.h"
+#include "base/threading/thread_task_runner_handle.h"
 #include "components/media_message_center/media_controls_progress_view.h"
 #include "components/media_message_center/media_notification_util.h"
 #include "components/vector_icons/vector_icons.h"
@@ -30,13 +32,15 @@
 #include "ui/gfx/paint_vector_icon.h"
 #include "ui/message_center/message_center.h"
 #include "ui/message_center/vector_icons.h"
-#include "ui/views/animation/ink_drop_mask.h"
+#include "ui/views/animation/ink_drop_highlight.h"
 #include "ui/views/background.h"
 #include "ui/views/controls/button/image_button_factory.h"
+#include "ui/views/controls/highlight_path_generator.h"
 #include "ui/views/controls/image_view.h"
 #include "ui/views/controls/label.h"
 #include "ui/views/layout/box_layout.h"
 #include "ui/views/layout/layout_provider.h"
+#include "ui/views/metadata/metadata_impl_macros.h"
 
 namespace ash {
 
@@ -84,9 +88,6 @@ constexpr base::TimeDelta kAnimationDuration =
 constexpr base::TimeDelta kNextMediaDelay =
     base::TimeDelta::FromMilliseconds(2500);
 
-constexpr const char kLockScreenMediaControlsViewName[] =
-    "LockScreenMediaControlsView";
-
 // Scales |size| to fit |view_size| while preserving proportions.
 gfx::Size ScaleSizeToFitView(const gfx::Size& size,
                              const gfx::Size& view_size) {
@@ -125,6 +126,8 @@ const gfx::VectorIcon& GetVectorIconForMediaAction(MediaSessionAction action) {
     case MediaSessionAction::kSkipAd:
     case MediaSessionAction::kSeekTo:
     case MediaSessionAction::kScrubTo:
+    case MediaSessionAction::kEnterPictureInPicture:
+    case MediaSessionAction::kExitPictureInPicture:
       NOTREACHED();
       break;
   }
@@ -140,10 +143,7 @@ class MediaActionButton : public views::ImageButton {
                     int icon_size,
                     MediaSessionAction action,
                     const base::string16& accessible_name)
-      : views::ImageButton(listener),
-        is_play_pause_(action == MediaSessionAction::kPause ||
-                       action == MediaSessionAction::kPlay),
-        icon_size_(icon_size) {
+      : views::ImageButton(listener), icon_size_(icon_size) {
     SetInkDropMode(views::Button::InkDropMode::ON);
     set_has_ink_drop_action_on_click(true);
     SetImageHorizontalAlignment(views::ImageButton::ALIGN_CENTER);
@@ -151,10 +151,17 @@ class MediaActionButton : public views::ImageButton {
     SetBorder(
         views::CreateEmptyBorder(views::LayoutProvider::Get()->GetInsetsMetric(
             views::INSETS_VECTOR_IMAGE_BUTTON)));
-    SetPreferredSize(is_play_pause_ ? kPlayPauseButtonSize
-                                    : kMediaControlsButtonSize);
+
+    const bool is_play_pause = action == MediaSessionAction::kPause ||
+                               action == MediaSessionAction::kPlay;
+    SetPreferredSize(is_play_pause ? kPlayPauseButtonSize
+                                   : kMediaControlsButtonSize);
     SetFocusBehavior(views::View::FocusBehavior::ALWAYS);
     SetAction(action, accessible_name);
+
+    SetInstallFocusRingOnFocus(true);
+    login_views_utils::ConfigureRectFocusRingCircleInkDrop(this, focus_ring(),
+                                                           base::nullopt);
   }
 
   ~MediaActionButton() override = default;
@@ -166,19 +173,17 @@ class MediaActionButton : public views::ImageButton {
     views::SetImageFromVectorIcon(
         this, GetVectorIconForMediaAction(action), icon_size_,
         AshColorProvider::Get()->GetContentLayerColor(
-            AshColorProvider::ContentLayerType::kIconPrimary,
+            AshColorProvider::ContentLayerType::kIconColorPrimary,
             AshColorProvider::AshColorMode::kDark));
   }
 
-  std::unique_ptr<views::InkDropMask> CreateInkDropMask() const override {
-    return std::make_unique<views::CircleInkDropMask>(
-        size(), GetLocalBounds().CenterPoint(),
-        is_play_pause_ ? kPlayPauseButtonSize.width() / 2
-                       : kMediaControlsButtonSize.width() / 2);
+  std::unique_ptr<views::InkDropHighlight> CreateInkDropHighlight()
+      const override {
+    return std::make_unique<views::InkDropHighlight>(gfx::SizeF(size()),
+                                                     GetInkDropBaseColor());
   }
 
  private:
-  const bool is_play_pause_;
   int const icon_size_;
 
   DISALLOW_COPY_AND_ASSIGN(MediaActionButton);
@@ -202,23 +207,25 @@ LockScreenMediaControlsView::Callbacks::~Callbacks() = default;
 
 LockScreenMediaControlsView::LockScreenMediaControlsView(
     const Callbacks& callbacks)
-    : hide_controls_timer_(new base::OneShotTimer()),
-      hide_artwork_timer_(new base::OneShotTimer()),
-      media_controls_enabled_(callbacks.media_controls_enabled),
+    : media_controls_enabled_(callbacks.media_controls_enabled),
       hide_media_controls_(callbacks.hide_media_controls),
       show_media_controls_(callbacks.show_media_controls) {
   DCHECK(callbacks.media_controls_enabled);
   DCHECK(callbacks.hide_media_controls);
   DCHECK(callbacks.show_media_controls);
 
-  // Media controls should observer power events.
+  // Media controls should observe power events and handle the case of being
+  // created in suspended state.
   base::PowerMonitor::AddObserver(this);
+  if (base::PowerMonitor::IsProcessSuspended()) {
+    // Post OnSuspend call to run after LockContentsView is initialized.
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
+        FROM_HERE, base::BindOnce(&LockScreenMediaControlsView::OnSuspend,
+                                  weak_ptr_factory_.GetWeakPtr()));
+  }
 
   // Media controls have not been dismissed initially.
   Shell::Get()->media_controller()->SetMediaControlsDismissed(false);
-
-  middle_spacing_ = std::make_unique<NonAccessibleView>();
-  middle_spacing_->set_owned_by_client();
 
   set_notify_enter_exit_on_child(true);
 
@@ -227,7 +234,7 @@ LockScreenMediaControlsView::LockScreenMediaControlsView(
       views::BoxLayout::Orientation::kVertical, kMediaControlsInsets));
   contents_view_->SetBackground(views::CreateRoundedRectBackground(
       AshColorProvider::Get()->GetBaseLayerColor(
-          AshColorProvider::BaseLayerType::kTransparent74,
+          AshColorProvider::BaseLayerType::kTransparent80,
           AshColorProvider::AshColorMode::kDark),
       kMediaControlsCornerRadius));
 
@@ -273,7 +280,7 @@ LockScreenMediaControlsView::LockScreenMediaControlsView(
   title_label->SetFontList(base_font_list.Derive(
       2, gfx::Font::FontStyle::NORMAL, gfx::Font::Weight::BOLD));
   title_label->SetEnabledColor(AshColorProvider::Get()->GetContentLayerColor(
-      AshColorProvider::ContentLayerType::kTextPrimary,
+      AshColorProvider::ContentLayerType::kTextColorPrimary,
       AshColorProvider::AshColorMode::kDark));
   title_label->SetAutoColorReadabilityEnabled(false);
   title_label->SetElideBehavior(gfx::ELIDE_TAIL);
@@ -284,7 +291,7 @@ LockScreenMediaControlsView::LockScreenMediaControlsView(
   artist_label->SetFontList(base_font_list.Derive(
       0, gfx::Font::FontStyle::NORMAL, gfx::Font::Weight::LIGHT));
   artist_label->SetEnabledColor(AshColorProvider::Get()->GetContentLayerColor(
-      AshColorProvider::ContentLayerType::kTextSecondary,
+      AshColorProvider::ContentLayerType::kTextColorSecondary,
       AshColorProvider::AshColorMode::kDark));
   artist_label->SetAutoColorReadabilityEnabled(false);
   artist_label->SetElideBehavior(gfx::ELIDE_TAIL);
@@ -435,10 +442,6 @@ LockScreenMediaControlsView::~LockScreenMediaControlsView() {
   base::PowerMonitor::RemoveObserver(this);
 }
 
-const char* LockScreenMediaControlsView::GetClassName() const {
-  return kLockScreenMediaControlsViewName;
-}
-
 gfx::Size LockScreenMediaControlsView::CalculatePreferredSize() const {
   return contents_view_->GetPreferredSize();
 }
@@ -471,10 +474,6 @@ void LockScreenMediaControlsView::OnMouseExited(const ui::MouseEvent& event) {
     return;
 
   header_row_->SetCloseButtonVisibility(false);
-}
-
-views::View* LockScreenMediaControlsView::GetMiddleSpacingView() {
-  return middle_spacing_.get();
 }
 
 void LockScreenMediaControlsView::MediaSessionInfoChanged(
@@ -798,7 +797,7 @@ void LockScreenMediaControlsView::SetArtwork(
   session_artwork_->SetImage(*img);
 
   Layout();
-  session_artwork_->set_clip_path(GetArtworkClipPath());
+  session_artwork_->SetClipPath(GetArtworkClipPath());
 }
 
 SkPath LockScreenMediaControlsView::GetArtworkClipPath() const {
@@ -872,5 +871,8 @@ void LockScreenMediaControlsView::RunResetControlsAnimation() {
   contents_view_->layer()->SetTransform(gfx::Transform());
   contents_view_->layer()->SetOpacity(1);
 }
+
+BEGIN_METADATA(LockScreenMediaControlsView, views::View)
+END_METADATA()
 
 }  // namespace ash

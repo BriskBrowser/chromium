@@ -8,11 +8,14 @@
 #include <string>
 #include <vector>
 
+#include "base/callback_forward.h"
 #include "base/memory/ref_counted.h"
 #include "chrome/browser/chromeos/printing/printer_installation_manager.h"
 #include "chromeos/printing/printer_configuration.h"
+#include "chromeos/printing/uri.h"
 #include "components/keyed_service/core/keyed_service.h"
 
+class PrefRegistrySimple;
 class PrefService;
 class Profile;
 
@@ -22,6 +25,7 @@ class PrefRegistrySyncable;
 
 namespace chromeos {
 
+class EnterprisePrintersProvider;
 class PpdProvider;
 class PrinterConfigurer;
 class PrinterDetector;
@@ -30,7 +34,8 @@ class ServerPrintersProvider;
 class SyncedPrintersManager;
 class UsbPrinterNotificationController;
 
-enum class PrinterSetupSource;
+// Returns true if |printer_uri| is an IPP uri.
+bool IsIppUri(const Uri& printer_uri);
 
 // Top level manager of available CUPS printers in ChromeOS.  All functions
 // in this class must be called from a sequenced context.
@@ -51,6 +56,9 @@ class CupsPrintersManager : public PrinterInstallationManager,
     virtual ~Observer() = default;
   };
 
+  using PrinterStatusCallback =
+      base::OnceCallback<void(const CupsPrinterStatus&)>;
+
   // Factory function.
   static std::unique_ptr<CupsPrintersManager> Create(Profile* profile);
 
@@ -64,12 +72,16 @@ class CupsPrintersManager : public PrinterInstallationManager,
       std::unique_ptr<PrinterConfigurer> printer_configurer,
       std::unique_ptr<UsbPrinterNotificationController>
           usb_notification_controller,
-      std::unique_ptr<ServerPrintersProvider> server_printers_provider,
+      ServerPrintersProvider* server_printers_provider,
+      std::unique_ptr<EnterprisePrintersProvider> enterprise_printers_provider,
       PrinterEventTracker* event_tracker,
       PrefService* pref_service);
 
-  // Register the printing preferences with the |registry|.
+  // Register the profile printing preferences with the |registry|.
   static void RegisterProfilePrefs(user_prefs::PrefRegistrySyncable* registry);
+
+  // Register the printing preferences with the |registry|.
+  static void RegisterLocalStatePrefs(PrefRegistrySimple* registry);
 
   ~CupsPrintersManager() override = default;
 
@@ -78,7 +90,7 @@ class CupsPrintersManager : public PrinterInstallationManager,
       PrinterClass printer_class) const = 0;
 
   // Saves |printer|. If |printer| already exists in the saved class, it will
-  // be overwritten.
+  // be overwritten. This is a NOP if |printer| is an enterprise or USB printer.
   virtual void SavePrinter(const Printer& printer) = 0;
 
   // Remove the saved printer with the given id.  This is a NOP if
@@ -95,9 +107,7 @@ class CupsPrintersManager : public PrinterInstallationManager,
   // Parameter |is_automatic| should be set to true if the printer was
   // saved automatically (without requesting additional information
   // from the user).
-  void PrinterInstalled(const Printer& printer,
-                        bool is_automatic,
-                        PrinterSetupSource source) override = 0;
+  void PrinterInstalled(const Printer& printer, bool is_automatic) override = 0;
 
   // Returns true if |printer| is currently installed in CUPS with this
   // configuration.
@@ -110,6 +120,15 @@ class CupsPrintersManager : public PrinterInstallationManager,
   // Log an event that the user started trying to set up the given printer,
   // but setup was not completed for some reason.
   virtual void RecordSetupAbandoned(const Printer& printer) = 0;
+
+  // Performs individual printer status requests for each printer provided.
+  // Passes retrieved printer status to the callbacks.
+  virtual void FetchPrinterStatus(const std::string& printer_id,
+                                  PrinterStatusCallback cb) = 0;
+
+  // Records the total number of detected network printers and the
+  // number of detected network printers that have not been saved.
+  virtual void RecordNearbyNetworkPrinterCounts() const = 0;
 };
 
 }  // namespace chromeos

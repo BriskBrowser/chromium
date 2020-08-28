@@ -3,8 +3,8 @@
 // found in the LICENSE file.
 package org.chromium.chrome.browser.omaha.notification;
 
-import org.chromium.chrome.browser.ChromeActivity;
-import org.chromium.chrome.browser.ChromeFeatureList;
+import org.chromium.chrome.browser.app.ChromeActivity;
+import org.chromium.chrome.browser.flags.ChromeFeatureList;
 
 /**
  * A factory that creates an {@link UpdateNotificationController} instance.

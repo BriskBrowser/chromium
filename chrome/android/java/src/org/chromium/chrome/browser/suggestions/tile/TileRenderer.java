@@ -10,13 +10,13 @@ import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Color;
 import android.graphics.drawable.BitmapDrawable;
-import android.support.graphics.drawable.VectorDrawableCompat;
-import android.support.v4.graphics.drawable.RoundedBitmapDrawable;
 import android.view.LayoutInflater;
 import android.view.ViewGroup;
 
 import androidx.annotation.LayoutRes;
 import androidx.annotation.VisibleForTesting;
+import androidx.core.graphics.drawable.RoundedBitmapDrawable;
+import androidx.vectordrawable.graphics.drawable.VectorDrawableCompat;
 
 import org.chromium.base.ApiCompatibilityUtils;
 import org.chromium.base.Log;
@@ -24,17 +24,17 @@ import org.chromium.base.task.AsyncTask;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.explore_sites.ExploreSitesBridge;
 import org.chromium.chrome.browser.explore_sites.ExploreSitesIPH;
-import org.chromium.chrome.browser.favicon.IconType;
-import org.chromium.chrome.browser.favicon.LargeIconBridge;
-import org.chromium.chrome.browser.favicon.RoundedIconGenerator;
 import org.chromium.chrome.browser.feature_engagement.TrackerFactory;
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.suggestions.ImageFetcher;
 import org.chromium.chrome.browser.suggestions.SiteSuggestion;
 import org.chromium.chrome.browser.suggestions.SuggestionsConfig.TileStyle;
-import org.chromium.chrome.browser.util.ViewUtils;
+import org.chromium.chrome.browser.ui.favicon.IconType;
+import org.chromium.chrome.browser.ui.favicon.LargeIconBridge;
+import org.chromium.components.browser_ui.widget.RoundedIconGenerator;
 import org.chromium.components.feature_engagement.EventConstants;
 import org.chromium.components.feature_engagement.Tracker;
+import org.chromium.ui.base.ViewUtils;
 
 import java.util.HashMap;
 import java.util.List;
@@ -125,7 +125,7 @@ public class TileRenderer {
      * Record that a tile was clicked for IPH reasons.
      */
     private void recordTileClickedForIPH(String eventName) {
-        Tracker tracker = TrackerFactory.getTrackerForProfile(Profile.getLastUsedProfile());
+        Tracker tracker = TrackerFactory.getTrackerForProfile(Profile.getLastUsedRegularProfile());
         tracker.notifyEvent(eventName);
     }
 
@@ -152,7 +152,8 @@ public class TileRenderer {
             // One task to load actual icon.
             LargeIconBridge.LargeIconCallback bridgeCallback =
                     setupDelegate.createIconLoadCallback(tile);
-            ExploreSitesBridge.getSummaryImage(Profile.getLastUsedProfile(), mDesiredIconSize,
+            ExploreSitesBridge.getSummaryImage(Profile.getLastUsedRegularProfile(),
+                    mDesiredIconSize,
                     (Bitmap img)
                             -> bridgeCallback.onLargeIconAvailable(
                                     img, Color.BLACK, false, IconType.FAVICON));
@@ -182,7 +183,7 @@ public class TileRenderer {
         tileView.setOnCreateContextMenuListener(delegate);
 
         if (tile.getSource() == TileSource.EXPLORE) {
-            ExploreSitesIPH.configureIPH(tileView, Profile.getLastUsedProfile());
+            ExploreSitesIPH.configureIPH(tileView, Profile.getLastUsedRegularProfile());
         }
 
         return tileView;

@@ -270,16 +270,18 @@ class MEDIA_GPU_EXPORT V4L2SliceVideoDecodeAccelerator
                                            VideoPixelFormat pixel_format,
                                            gfx::NativePixmapHandle handle);
 
-  // Create a GLImage for the buffer associated with V4L2 |buffer_index| and
-  // for |picture_buffer_id|, backed by dmabuf file descriptors in
-  // |dmabuf_fds|, taking ownership of them.
-  // The GLImage will be associated |client_texture_id| in gles2 decoder.
-  void CreateGLImageFor(size_t buffer_index,
+  // Create a GLImage on |gl_device| for the buffer associated with V4L2
+  // |buffer_index| and |picture_buffer_id|, backed by |handle|.
+  // The GLImage will be associated |client_texture_id| in gles2 decoder and is
+  // of format |fourcc|. |visible_size| is the size in pixels that the GL device
+  // will be able to see.
+  void CreateGLImageFor(scoped_refptr<V4L2Device> gl_device,
+                        size_t buffer_index,
                         int32_t picture_buffer_id,
                         gfx::NativePixmapHandle handle,
                         GLuint client_texture_id,
                         GLuint texture_id,
-                        const gfx::Size& size,
+                        const gfx::Size& visible_size,
                         const Fourcc fourcc);
 
   // Performed on decoder_thread_ as a consequence of poll() on decoder_thread_
@@ -289,7 +291,7 @@ class MEDIA_GPU_EXPORT V4L2SliceVideoDecodeAccelerator
   // using VIDIOC_DQEVENT, but this should never happen for the slice API.
   void ServiceDeviceTask(bool event);
 
-  // Attempt to start/stop device_poll_thread_.
+  // Attempt to start/stop the V4L2 device poller.
   bool StartDevicePoll();
   bool StopDevicePoll();
   void OnPollError();
@@ -353,6 +355,15 @@ class MEDIA_GPU_EXPORT V4L2SliceVideoDecodeAccelerator
 
   // Returns whether |profile| is supported by a v4l2 decoder driver.
   bool IsSupportedProfile(VideoCodecProfile profile);
+
+  // TODO(crbug.com/1109312): some pages with lots of small videos are causing
+  // crashes, so limit the number of simultaneous decoder instances for now.
+  // |num_instances_| tracks the number of simultaneous decoders.
+  // |can_use_decoder_| is true iff we haven't reached the maximum number of
+  // instances at the time this decoder is created.
+  static constexpr int kMaxNumOfInstances = 10;
+  static base::AtomicRefCount num_instances_;
+  const bool can_use_decoder_;
 
   // VideoCodecProfiles supported by a v4l2 decoder driver.
   std::vector<VideoCodecProfile> supported_profiles_;
@@ -489,8 +500,6 @@ class MEDIA_GPU_EXPORT V4L2SliceVideoDecodeAccelerator
   // Image processor. Accessed on |decoder_thread_|.
   std::unique_ptr<ImageProcessor> image_processor_;
 
-  // The V4L2Device GLImage is created from.
-  scoped_refptr<V4L2Device> gl_image_device_;
   // The format of GLImage.
   base::Optional<Fourcc> gl_image_format_fourcc_;
   // The logical dimensions of GLImage buffer in pixels.

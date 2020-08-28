@@ -9,13 +9,11 @@
 #include <string>
 #include <utility>
 
-#include "base/base64.h"
 #include "base/bind.h"
 #include "base/feature_list.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/stl_util.h"
 #include "base/time/time.h"
-#include "base/values.h"
 #include "build/build_config.h"
 #include "components/autofill/core/browser/logging/log_manager.h"
 #include "components/autofill/core/browser/ui/popup_item_ids.h"
@@ -25,20 +23,21 @@
 #include "components/password_manager/core/browser/credentials_cleaner.h"
 #include "components/password_manager/core/browser/credentials_cleaner_runner.h"
 #include "components/password_manager/core/browser/http_credentials_cleaner.h"
+#include "components/password_manager/core/browser/password_feature_manager.h"
 #include "components/password_manager/core/browser/password_generation_frame_helper.h"
 #include "components/password_manager/core/browser/password_manager.h"
 #include "components/password_manager/core/browser/password_manager_client.h"
 #include "components/password_manager/core/browser/password_manager_driver.h"
+#include "components/password_manager/core/browser/password_manager_features_util.h"
 #include "components/password_manager/core/browser/password_manager_metrics_util.h"
 #include "components/password_manager/core/browser/password_store_consumer.h"
 #include "components/password_manager/core/common/password_manager_features.h"
 #include "components/password_manager/core/common/password_manager_pref_names.h"
 #include "components/prefs/pref_service.h"
-#include "components/prefs/scoped_user_pref_update.h"
+#include "components/signin/public/base/signin_metrics.h"
+#include "components/signin/public/identity_manager/identity_manager.h"
 #include "components/sync/driver/sync_service.h"
 #include "components/sync/driver/sync_user_settings.h"
-#include "crypto/sha2.h"
-#include "google_apis/gaia/core_account_id.h"
 
 using autofill::PasswordForm;
 
@@ -51,13 +50,6 @@ namespace {
 bool IsBetterMatch(const PasswordForm* lhs, const PasswordForm* rhs) {
   return std::make_pair(!lhs->is_public_suffix_match, lhs->date_last_used) >
          std::make_pair(!rhs->is_public_suffix_match, rhs->date_last_used);
-}
-
-std::string GetAccountHash(const CoreAccountId& account_id) {
-  std::string account_hash;
-  base::Base64Encode(crypto::SHA256HashString(account_id.ToString()),
-                     &account_hash);
-  return account_hash;
 }
 
 }  // namespace
@@ -145,18 +137,34 @@ bool ShowAllSavedPasswordsContextMenuEnabled(
       !client->IsFillingFallbackEnabled(driver->GetLastCommittedURL()))
     return false;
 
-  LogContextOfShowAllSavedPasswordsShown(
-      password_manager::metrics_util::
-          SHOW_ALL_SAVED_PASSWORDS_CONTEXT_CONTEXT_MENU);
-
   return true;
 }
 
 void UserTriggeredManualGenerationFromContextMenu(
     password_manager::PasswordManagerClient* password_manager_client) {
-  password_manager_client->GeneratePassword();
-  LogPasswordGenerationEvent(
-      autofill::password_generation::PASSWORD_GENERATION_CONTEXT_MENU_PRESSED);
+  if (!password_manager_client->GetPasswordFeatureManager()
+           ->ShouldShowAccountStorageOptIn()) {
+    password_manager_client->GeneratePassword();
+    LogPasswordGenerationEvent(autofill::password_generation::
+                                   PASSWORD_GENERATION_CONTEXT_MENU_PRESSED);
+    return;
+  }
+  // The client ensures the callback won't be run if it is destroyed, so
+  // base::Unretained is safe.
+  password_manager_client->TriggerReauthForPrimaryAccount(
+      signin_metrics::ReauthAccessPoint::kGeneratePasswordContextMenu,
+      base::BindOnce(
+          [](password_manager::PasswordManagerClient* client,
+             password_manager::PasswordManagerClient::ReauthSucceeded
+                 succeeded) {
+            if (succeeded) {
+              client->GeneratePassword();
+              LogPasswordGenerationEvent(
+                  autofill::password_generation::
+                      PASSWORD_GENERATION_CONTEXT_MENU_PRESSED);
+            }
+          },
+          base::Unretained(password_manager_client)));
 }
 
 // TODO(http://crbug.com/890318): Add unitests to check cleaners are correctly
@@ -196,7 +204,7 @@ base::StringPiece GetSignonRealmWithProtocolExcluded(const PasswordForm& form) {
 
   // Find the web origin (with protocol excluded) in the signon_realm.
   const size_t after_protocol =
-      signon_realm_protocol_excluded.find(form.origin.host_piece());
+      signon_realm_protocol_excluded.find(form.url.host_piece());
   DCHECK_NE(after_protocol, base::StringPiece::npos);
 
   // Keep the string starting with position |after_protocol|.
@@ -213,7 +221,7 @@ void FindBestMatches(
     const PasswordForm** preferred_match) {
   DCHECK(std::all_of(
       non_federated_matches.begin(), non_federated_matches.end(),
-      [](const PasswordForm* match) { return !match->blacklisted_by_user; }));
+      [](const PasswordForm* match) { return !match->blocked_by_user; }));
   DCHECK(non_federated_same_scheme);
   DCHECK(best_matches);
   DCHECK(preferred_match);
@@ -233,12 +241,14 @@ void FindBestMatches(
   std::sort(non_federated_same_scheme->begin(),
             non_federated_same_scheme->end(), IsBetterMatch);
 
-  std::set<base::string16> usernames;
+  std::set<std::pair<PasswordForm::Store, base::string16>> store_usernames;
   for (const auto* match : *non_federated_same_scheme) {
-    const base::string16& username = match->username_value;
-    // The first match for |username| in the sorted array is best match.
-    if (!base::Contains(usernames, username)) {
-      usernames.insert(username);
+    auto store_username =
+        std::make_pair(match->in_store, match->username_value);
+    // The first match for |store_username| in the sorted array is best
+    // match.
+    if (!base::Contains(store_usernames, store_username)) {
+      store_usernames.insert(store_username);
       best_matches->push_back(match);
     }
   }
@@ -308,99 +318,22 @@ const PasswordForm* GetMatchForUpdating(
 autofill::PasswordForm MakeNormalizedBlacklistedForm(
     password_manager::PasswordStore::FormDigest digest) {
   autofill::PasswordForm result;
-  result.blacklisted_by_user = true;
+  result.blocked_by_user = true;
   result.scheme = std::move(digest.scheme);
   result.signon_realm = std::move(digest.signon_realm);
   // In case |digest| corresponds to an Android credential copy the origin as
   // is, otherwise clear out the path by calling GetOrigin().
-  if (password_manager::FacetURI::FromPotentiallyInvalidSpec(
-          digest.origin.spec())
+  if (password_manager::FacetURI::FromPotentiallyInvalidSpec(digest.url.spec())
           .IsValidAndroidFacetURI()) {
-    result.origin = std::move(digest.origin);
+    result.url = std::move(digest.url);
   } else {
     // GetOrigin() will return an empty GURL if the origin is not valid or
     // standard. DCHECK that this will not happen.
-    DCHECK(digest.origin.is_valid());
-    DCHECK(digest.origin.IsStandard());
-    result.origin = digest.origin.GetOrigin();
+    DCHECK(digest.url.is_valid());
+    DCHECK(digest.url.IsStandard());
+    result.url = digest.url.GetOrigin();
   }
   return result;
-}
-
-bool IsOptedInForAccountStorage(const PrefService* pref_service,
-                                const syncer::SyncService* sync_service) {
-  DCHECK(pref_service);
-
-  if (!base::FeatureList::IsEnabled(
-          password_manager::features::kEnablePasswordsAccountStorage)) {
-    return false;
-  }
-
-  // |sync_service| is null in incognito mode, or if --disable-sync was
-  // specified on the command-line.
-  if (!sync_service)
-    return false;
-
-  CoreAccountId account_id = sync_service->GetAuthenticatedAccountId();
-  if (account_id.empty())
-    return false;
-
-  const base::DictionaryValue* dict = pref_service->GetDictionary(
-      password_manager::prefs::kAccountStorageOptedInAccounts);
-  if (!dict)
-    return false;
-
-  base::Optional<bool> opted_in = dict->FindBoolKey(GetAccountHash(account_id));
-  return opted_in.value_or(false);
-}
-
-bool ShouldShowAccountStorageOptIn(const PrefService* pref_service,
-                                   const syncer::SyncService* sync_service) {
-  DCHECK(pref_service);
-
-  if (!base::FeatureList::IsEnabled(
-          password_manager::features::kEnablePasswordsAccountStorage)) {
-    return false;
-  }
-
-  // |sync_service| is null in incognito mode, or if --disable-sync was
-  // specified on the command-line.
-  if (!sync_service)
-    return false;
-
-  // Only show the opt-in if:
-  // - Sync transport is enabled (i.e. user is signed in, Sync is not disabled
-  //   by policy etc) - otherwise there's no point in asking.
-  // - There is no custom Sync passphrase (Sync transport offers no way to enter
-  //   the passphrase yet). Note that checking this requires the SyncEngine to
-  //   be initialized.
-  // - Sync feature is NOT enabled - Sync feature doesn't depend on this opt-in.
-  // - Not already opted in.
-  return sync_service->GetTransportState() !=
-             syncer::SyncService::TransportState::DISABLED &&
-         sync_service->IsEngineInitialized() &&
-         !sync_service->GetUserSettings()->IsUsingSecondaryPassphrase() &&
-         !sync_service->IsSyncFeatureEnabled() &&
-         !IsOptedInForAccountStorage(pref_service, sync_service);
-}
-
-void SetAccountStorageOptIn(PrefService* pref_service,
-                            const syncer::SyncService* sync_service,
-                            bool opt_in) {
-  DCHECK(pref_service);
-  DCHECK(sync_service);
-  DCHECK(base::FeatureList::IsEnabled(
-      password_manager::features::kEnablePasswordsAccountStorage));
-
-  CoreAccountId account_id = sync_service->GetAuthenticatedAccountId();
-  if (account_id.empty()) {
-    // Maybe the account went away since the opt-in UI was shown. This should be
-    // rare, but is ultimately harmless - just do nothing here.
-    return;
-  }
-  DictionaryPrefUpdate update(
-      pref_service, password_manager::prefs::kAccountStorageOptedInAccounts);
-  update->SetBoolean(GetAccountHash(account_id), opt_in);
 }
 
 }  // namespace password_manager_util

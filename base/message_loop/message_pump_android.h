@@ -58,6 +58,7 @@ class BASE_EXPORT MessagePumpForUI : public MessagePump {
 
  protected:
   void SetDelegate(Delegate* delegate) { delegate_ = delegate; }
+  void ResetShouldQuit() { quit_ = false; }
   virtual bool IsTestImplementation() const;
 
  private:
@@ -96,6 +97,9 @@ class BASE_EXPORT MessagePumpForUI : public MessagePump {
 
   // The Android Looper for this thread.
   ALooper* looper_ = nullptr;
+
+  // The JNIEnv* for this thread, used to check for pending exceptions.
+  JNIEnv* env_;
 
   DISALLOW_COPY_AND_ASSIGN(MessagePumpForUI);
 };

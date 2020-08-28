@@ -34,7 +34,8 @@
 #include "google_apis/gaia/gaia_auth_util.h"
 #include "ui/base/l10n/l10n_util.h"
 
-#if defined(OS_WIN) || defined(OS_LINUX) || defined(OS_MACOSX)
+#if defined(OS_WIN) || defined(OS_LINUX) || defined(OS_CHROMEOS) || \
+    defined(OS_MAC)
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/browser_list_observer.h"
@@ -88,8 +89,7 @@ class DeleteProfileDialogManager : public BrowserListObserver {
             IDS_PROFILE_WILL_BE_DELETED_DIALOG_DESCRIPTION,
             base::ASCIIToUTF16(primary_account_email_),
             base::ASCIIToUTF16(
-                gaia::ExtractDomainName(primary_account_email_))),
-        /*can_close=*/false);
+                gaia::ExtractDomainName(primary_account_email_))));
 
     webui::DeleteProfileAtPath(
         profile_->GetPath(),

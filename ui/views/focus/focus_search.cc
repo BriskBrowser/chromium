@@ -15,10 +15,8 @@
 namespace views {
 
 FocusSearch::FocusSearch(View* root, bool cycle, bool accessibility_mode)
-    : root_(root),
-      cycle_(cycle),
-      accessibility_mode_(accessibility_mode) {
-#if defined(OS_MACOSX)
+    : root_(root), cycle_(cycle), accessibility_mode_(accessibility_mode) {
+#if defined(OS_APPLE)
   // On Mac, only the keyboard accessibility mode defined in FocusManager is
   // used. No special accessibility mode should be applicable for a
   // FocusTraversable.
@@ -111,8 +109,8 @@ View* FocusSearch::FindNextFocusableView(
 
 bool FocusSearch::IsViewFocusableCandidate(View* v, int skip_group_id) {
   return IsFocusable(v) &&
-      (v->IsGroupFocusTraversable() || skip_group_id == -1 ||
-       v->GetGroup() != skip_group_id);
+         (v->IsGroupFocusTraversable() || skip_group_id == -1 ||
+          v->GetGroup() != skip_group_id);
 }
 
 bool FocusSearch::IsFocusable(View* v) {
@@ -205,7 +203,7 @@ View* FocusSearch::FindNextFocusableViewImpl(
     // Check to see if we should navigate into a dialog anchored at this view.
     if (can_go_into_anchored_dialog ==
         AnchoredDialogPolicy::kCanGoIntoAnchoredDialog) {
-      BubbleDialogDelegateView* bubble =
+      BubbleDialogDelegate* bubble =
           starting_view->GetProperty(kAnchoredDialogKey);
       if (bubble) {
         *focus_traversable = bubble->GetWidget()->GetFocusTraversable();
@@ -232,8 +230,7 @@ View* FocusSearch::FindNextFocusableViewImpl(
     while (parent && parent != root_) {
       if (can_go_into_anchored_dialog ==
           AnchoredDialogPolicy::kCanGoIntoAnchoredDialog) {
-        BubbleDialogDelegateView* bubble =
-            parent->GetProperty(kAnchoredDialogKey);
+        BubbleDialogDelegate* bubble = parent->GetProperty(kAnchoredDialogKey);
         if (bubble) {
           *focus_traversable = bubble->GetWidget()->GetFocusTraversable();
           *focus_traversable_view = starting_view;
@@ -304,7 +301,7 @@ View* FocusSearch::FindPreviousFocusableViewImpl(
     // Check to see if we should navigate into a dialog anchored at this view.
     if (can_go_into_anchored_dialog ==
         AnchoredDialogPolicy::kCanGoIntoAnchoredDialog) {
-      BubbleDialogDelegateView* bubble =
+      BubbleDialogDelegate* bubble =
           starting_view->GetProperty(kAnchoredDialogKey);
       if (bubble) {
         *focus_traversable = bubble->GetWidget()->GetFocusTraversable();

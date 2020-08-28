@@ -6,9 +6,9 @@
 
 #include <vector>
 
+#include "base/check_op.h"
 #include "base/command_line.h"
 #include "base/feature_list.h"
-#include "base/logging.h"
 #include "base/metrics/field_trial.h"
 #include "base/values.h"
 #include "build/build_config.h"
@@ -76,11 +76,21 @@ std::string ReloadExtensionIfEnabled(const std::string& extension_id,
 
 }  // namespace
 
-bool SiteHasIsolatedStorage(const GURL& extension_site_url,
-                            content::BrowserContext* context) {
-  const Extension* extension = ExtensionRegistry::Get(context)
-                                   ->enabled_extensions()
-                                   .GetExtensionOrAppByURL(extension_site_url);
+bool IsExtensionSiteWithIsolatedStorage(const GURL& site_url,
+                                        content::BrowserContext* context) {
+  if (!site_url.SchemeIs(extensions::kExtensionScheme))
+    return false;
+
+  // The host in an extension site URL is the extension_id.
+  DCHECK(site_url.has_host());
+  return HasIsolatedStorage(site_url.host(), context);
+}
+
+bool HasIsolatedStorage(const std::string& extension_id,
+                        content::BrowserContext* context) {
+  const Extension* extension =
+      ExtensionRegistry::Get(context)->enabled_extensions().GetByID(
+          extension_id);
 
 #if defined(OS_CHROMEOS)
   const bool is_policy_extension =
@@ -93,12 +103,6 @@ bool SiteHasIsolatedStorage(const GURL& extension_site_url,
 #endif
 
   return extension && AppIsolationInfo::HasIsolatedStorage(extension);
-}
-
-bool HasIsolatedStorage(const std::string& extension_id,
-                        content::BrowserContext* context) {
-  const GURL extension_site_url = GetSiteForExtensionId(extension_id, context);
-  return SiteHasIsolatedStorage(extension_site_url, context);
 }
 
 void SetIsIncognitoEnabled(const std::string& extension_id,
@@ -272,27 +276,6 @@ const gfx::ImageSkia& GetDefaultAppIcon() {
 const gfx::ImageSkia& GetDefaultExtensionIcon() {
   return *ui::ResourceBundle::GetSharedInstance().GetImageSkiaNamed(
       IDR_EXTENSION_DEFAULT_ICON);
-}
-
-const Extension* GetInstalledPwaForUrl(
-    content::BrowserContext* context,
-    const GURL& url,
-    base::Optional<LaunchContainer> launch_container_filter) {
-  const ExtensionPrefs* prefs = ExtensionPrefs::Get(context);
-  for (scoped_refptr<const Extension> app :
-       ExtensionRegistry::Get(context)->enabled_extensions()) {
-    if (!app->from_bookmark())
-      continue;
-    if (!BookmarkAppIsLocallyInstalled(prefs, app.get()))
-      continue;
-    if (launch_container_filter &&
-        GetLaunchContainer(prefs, app.get()) != *launch_container_filter) {
-      continue;
-    }
-    if (UrlHandlers::CanBookmarkAppHandleUrl(app.get(), url))
-      return app.get();
-  }
-  return nullptr;
 }
 
 std::unique_ptr<const PermissionSet> GetInstallPromptPermissionSetForExtension(

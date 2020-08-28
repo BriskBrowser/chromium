@@ -24,9 +24,9 @@
 #include "third_party/blink/renderer/bindings/core/v8/script_promise.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise_resolver.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_binding_for_core.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_css_style_sheet_init.h"
 #include "third_party/blink/renderer/core/css/css_import_rule.h"
 #include "third_party/blink/renderer/core/css/css_rule_list.h"
-#include "third_party/blink/renderer/core/css/css_style_sheet_init.h"
 #include "third_party/blink/renderer/core/css/media_list.h"
 #include "third_party/blink/renderer/core/css/parser/css_parser.h"
 #include "third_party/blink/renderer/core/css/parser/css_parser_context.h"
@@ -40,6 +40,7 @@
 #include "third_party/blink/renderer/core/html/html_link_element.h"
 #include "third_party/blink/renderer/core/html/html_style_element.h"
 #include "third_party/blink/renderer/core/html_names.h"
+#include "third_party/blink/renderer/core/inspector/console_message.h"
 #include "third_party/blink/renderer/core/probe/core_probes.h"
 #include "third_party/blink/renderer/core/svg/svg_style_element.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
@@ -55,7 +56,7 @@ class StyleSheetCSSRuleList final : public CSSRuleList {
  public:
   StyleSheetCSSRuleList(CSSStyleSheet* sheet) : style_sheet_(sheet) {}
 
-  void Trace(blink::Visitor* visitor) override {
+  void Trace(Visitor* visitor) const override {
     visitor->Trace(style_sheet_);
     CSSRuleList::Trace(visitor);
   }
@@ -94,22 +95,26 @@ const Document* CSSStyleSheet::SingleOwnerDocument(
 CSSStyleSheet* CSSStyleSheet::Create(Document& document,
                                      const CSSStyleSheetInit* options,
                                      ExceptionState& exception_state) {
-  // Folowing steps at spec draft
-  // https://wicg.github.io/construct-stylesheets/#dom-cssstylesheet-cssstylesheet
   auto* parser_context = MakeGarbageCollected<CSSParserContext>(document);
+  if (AdTracker::IsAdScriptExecutingInDocument(&document))
+    parser_context->SetIsAdRelated();
+
+  // Following steps at spec draft
+  // https://wicg.github.io/construct-stylesheets/#dom-cssstylesheet-cssstylesheet
   auto* contents = MakeGarbageCollected<StyleSheetContents>(parser_context);
   CSSStyleSheet* sheet = MakeGarbageCollected<CSSStyleSheet>(contents, nullptr);
-  sheet->SetAssociatedDocument(&document);
-  sheet->SetIsConstructed(true);
+  sheet->SetConstructorDocument(document);
   sheet->SetTitle(options->title());
   sheet->ClearOwnerNode();
   sheet->ClearOwnerRule();
   contents->RegisterClient(sheet);
   scoped_refptr<MediaQuerySet> media_query_set;
-  if (options->media().IsString())
-    media_query_set = MediaQuerySet::Create(options->media().GetAsString());
-  else
+  if (options->media().IsString()) {
+    media_query_set = MediaQuerySet::Create(options->media().GetAsString(),
+                                            document.GetExecutionContext());
+  } else {
     media_query_set = options->media().GetAsMediaList()->Queries()->Copy();
+  }
   auto* media_list = MakeGarbageCollected<MediaList>(
       media_query_set, const_cast<CSSStyleSheet*>(sheet));
   sheet->SetMedia(media_list);
@@ -136,6 +141,8 @@ CSSStyleSheet* CSSStyleSheet::CreateInline(Node& owner_node,
       owner_node.GetDocument(), owner_node.GetDocument().BaseURL(),
       true /* origin_clean */, owner_node.GetDocument().GetReferrerPolicy(),
       encoding);
+  if (AdTracker::IsAdScriptExecutingInDocument(&owner_node.GetDocument()))
+    parser_context->SetIsAdRelated();
   auto* sheet = MakeGarbageCollected<StyleSheetContents>(parser_context,
                                                          base_url.GetString());
   return MakeGarbageCollected<CSSStyleSheet>(sheet, owner_node, true,
@@ -189,44 +196,39 @@ void CSSStyleSheet::WillMutateRules() {
   ReattachChildRuleCSSOMWrappers();
 }
 
-void CSSStyleSheet::DidMutateRules() {
-  DCHECK(contents_->IsMutable());
-  DCHECK_LE(contents_->ClientSize(), 1u);
-
-  Document* owner = OwnerDocument();
-
-  if ((associated_document_ || owner) && !custom_element_tag_names_.IsEmpty()) {
-    Document* document =
-        associated_document_ ? associated_document_.Get() : owner;
+void CSSStyleSheet::DidMutate(Mutation mutation) {
+  if (mutation == Mutation::kRules) {
+    DCHECK(contents_->IsMutable());
+    DCHECK_LE(contents_->ClientSize(), 1u);
+  }
+  Document* document = OwnerDocument();
+  if (!document || !document->IsActive())
+    return;
+  if (!custom_element_tag_names_.IsEmpty()) {
     document->GetStyleEngine().ScheduleCustomElementInvalidations(
         custom_element_tag_names_);
   }
-
-  if (owner && ownerNode() && ownerNode()->isConnected()) {
-    owner->GetStyleEngine().SetNeedsActiveStyleUpdate(
+  bool invalidate_matched_properties_cache = false;
+  if (ownerNode() && ownerNode()->isConnected()) {
+    document->GetStyleEngine().SetNeedsActiveStyleUpdate(
         ownerNode()->GetTreeScope());
-    if (StyleResolver* resolver = owner->GetStyleEngine().Resolver())
-      resolver->InvalidateMatchedPropertiesCache();
+    invalidate_matched_properties_cache = true;
   } else if (!adopted_tree_scopes_.IsEmpty()) {
     for (auto tree_scope : adopted_tree_scopes_) {
+      // It is currently required that adopted sheets can not be moved between
+      // documents.
+      DCHECK(tree_scope->GetDocument() == document);
       if (!tree_scope->RootNode().isConnected())
         continue;
-      tree_scope->GetDocument().GetStyleEngine().SetNeedsActiveStyleUpdate(
-          *tree_scope);
-      if (StyleResolver* resolver =
-              tree_scope->GetDocument().GetStyleEngine().Resolver())
-        resolver->InvalidateMatchedPropertiesCache();
+      document->GetStyleEngine().SetNeedsActiveStyleUpdate(*tree_scope);
+      invalidate_matched_properties_cache = true;
     }
   }
-}
-
-void CSSStyleSheet::DidMutate() {
-  Document* owner = OwnerDocument();
-  if (!owner)
-    return;
-  if (ownerNode() && ownerNode()->isConnected())
-    owner->GetStyleEngine().SetNeedsActiveStyleUpdate(
-        ownerNode()->GetTreeScope());
+  if (mutation == Mutation::kRules) {
+    if (invalidate_matched_properties_cache)
+      document->GetStyleResolver().InvalidateMatchedPropertiesCache();
+    probe::DidMutateStyleSheet(document, this);
+  }
 }
 
 void CSSStyleSheet::EnableRuleAccessForInspector() {
@@ -259,7 +261,7 @@ void CSSStyleSheet::setDisabled(bool disabled) {
     return;
   is_disabled_ = disabled;
 
-  DidMutate();
+  DidMutate(Mutation::kSheet);
 }
 
 void CSSStyleSheet::SetMediaQueries(
@@ -300,7 +302,7 @@ CSSRule* CSSStyleSheet::item(unsigned index) {
 }
 
 void CSSStyleSheet::ClearOwnerNode() {
-  DidMutate();
+  DidMutate(Mutation::kSheet);
   if (owner_node_)
     contents_->UnregisterClient(this);
   owner_node_ = nullptr;
@@ -323,7 +325,7 @@ unsigned CSSStyleSheet::insertRule(const String& rule_string,
     return 0;
   }
 
-  if (is_constructed_ && resolver_) {
+  if (IsConstructed() && resolver_) {
     // We can't access rules on a constructed stylesheet if it's still waiting
     // for some imports to load (|resolver_| is still set).
     exception_state.ThrowDOMException(
@@ -354,10 +356,10 @@ unsigned CSSStyleSheet::insertRule(const String& rule_string,
     return 0;
   }
   RuleMutationScope mutation_scope(this);
-  if (rule->IsImportRule() && is_constructed_) {
+  if (rule->IsImportRule() && IsConstructed()) {
     exception_state.ThrowDOMException(
-        DOMExceptionCode::kNotAllowedError,
-        "Can't insert @import rules to a constructed stylesheet.");
+        DOMExceptionCode::kSyntaxError,
+        "Can't insert @import rules into a constructed stylesheet.");
     return 0;
   }
   bool success = contents_->WrapperInsertRule(rule, index);
@@ -385,7 +387,7 @@ void CSSStyleSheet::deleteRule(unsigned index,
     return;
   }
 
-  if (is_constructed_ && resolver_) {
+  if (IsConstructed() && resolver_) {
     // We can't access rules on a constructed stylesheet if it's still waiting
     // for some imports to load (|resolver_| is still set).
     exception_state.ThrowDOMException(
@@ -450,29 +452,29 @@ int CSSStyleSheet::addRule(const String& selector,
 }
 
 ScriptPromise CSSStyleSheet::replace(ScriptState* script_state,
-                                     const String& text,
-                                     ExceptionState& exception_state) {
-  if (!is_constructed_) {
-    exception_state.ThrowDOMException(
-        DOMExceptionCode::kNotAllowedError,
-        "Can't call replace on non-constructed CSSStyleSheets.");
+                                     const String& text) {
+  if (!IsConstructed()) {
+    return ScriptPromise::RejectWithDOMException(
+        script_state,
+        MakeGarbageCollected<DOMException>(
+            DOMExceptionCode::kNotAllowedError,
+            "Can't call replace on non-constructed CSSStyleSheets."));
   }
-  // Parses the text synchronously, loads import rules asynchronously.
-  SetText(text, true /* allow_import_rules */, exception_state);
-  if (!IsLoading())
-    return ScriptPromise::Cast(script_state, ToV8(this, script_state));
-  resolver_ = MakeGarbageCollected<ScriptPromiseResolver>(script_state);
-  return resolver_->Promise();
+  SetText(text, CSSImportRules::kIgnoreWithWarning);
+  // We currently parse synchronously, and since @import support was removed,
+  // nothing else happens asynchronously. This API is left as-is, so that future
+  // async parsing can still be supported here.
+  return ScriptPromise::Cast(script_state, ToV8(this, script_state));
 }
 
 void CSSStyleSheet::replaceSync(const String& text,
                                 ExceptionState& exception_state) {
-  if (!is_constructed_) {
-    exception_state.ThrowDOMException(
+  if (!IsConstructed()) {
+    return exception_state.ThrowDOMException(
         DOMExceptionCode::kNotAllowedError,
         "Can't call replaceSync on non-constructed CSSStyleSheets.");
   }
-  SetText(text, false /* allow_import_rules */, exception_state);
+  SetText(text, CSSImportRules::kIgnoreWithWarning);
 }
 
 void CSSStyleSheet::ResolveReplacePromiseIfNeeded(bool load_error_occured) {
@@ -485,7 +487,7 @@ void CSSStyleSheet::ResolveReplacePromiseIfNeeded(bool load_error_occured) {
     resolver_->Resolve(this);
   }
   resolver_ = nullptr;
-  DidMutateRules();
+  DidMutate(Mutation::kRules);
 }
 
 CSSRuleList* CSSStyleSheet::cssRules(ExceptionState& exception_state) {
@@ -532,12 +534,13 @@ CSSStyleSheet* CSSStyleSheet::parentStyleSheet() const {
 }
 
 Document* CSSStyleSheet::OwnerDocument() const {
-  if (is_constructed_)
-    return associated_document_;
-  const CSSStyleSheet* root = this;
-  while (root->parentStyleSheet())
-    root = root->parentStyleSheet();
-  return root->ownerNode() ? &root->ownerNode()->GetDocument() : nullptr;
+  if (CSSStyleSheet* parent = parentStyleSheet())
+    return parent->OwnerDocument();
+  if (IsConstructed()) {
+    DCHECK(!ownerNode());
+    return ConstructorDocument();
+  }
+  return ownerNode() ? &ownerNode()->GetDocument() : nullptr;
 }
 
 bool CSSStyleSheet::SheetLoaded() {
@@ -563,18 +566,21 @@ void CSSStyleSheet::SetLoadCompleted(bool completed) {
     contents_->ClientLoadStarted(this);
 }
 
-void CSSStyleSheet::SetText(const String& text,
-                            bool allow_import_rules,
-                            ExceptionState& exception_state) {
+void CSSStyleSheet::SetText(const String& text, CSSImportRules import_rules) {
   child_rule_cssom_wrappers_.clear();
 
   CSSStyleSheet::RuleMutationScope mutation_scope(this);
   contents_->ClearRules();
-  if (contents_->ParseString(text, allow_import_rules) ==
-      ParseSheetResult::kHasUnallowedImportRule) {
-    exception_state.ThrowDOMException(DOMExceptionCode::kNotAllowedError,
-                                      "@import rules are not allowed when "
-                                      "creating stylesheet synchronously.");
+  bool allow_imports = import_rules == CSSImportRules::kAllow;
+  if (contents_->ParseString(text, allow_imports) ==
+          ParseSheetResult::kHasUnallowedImportRule &&
+      import_rules == CSSImportRules::kIgnoreWithWarning) {
+    OwnerDocument()->AddConsoleMessage(MakeGarbageCollected<ConsoleMessage>(
+        mojom::blink::ConsoleMessageSource::kJavaScript,
+        mojom::blink::ConsoleMessageLevel::kWarning,
+        "@import rules are not allowed here. See "
+        "https://github.com/WICG/construct-stylesheets/issues/"
+        "119#issuecomment-588352418."));
   }
 }
 
@@ -621,7 +627,7 @@ bool CSSStyleSheet::CanBeActivated(
   return true;
 }
 
-void CSSStyleSheet::Trace(blink::Visitor* visitor) {
+void CSSStyleSheet::Trace(Visitor* visitor) const {
   visitor->Trace(contents_);
   visitor->Trace(owner_node_);
   visitor->Trace(owner_rule_);
@@ -629,7 +635,7 @@ void CSSStyleSheet::Trace(blink::Visitor* visitor) {
   visitor->Trace(child_rule_cssom_wrappers_);
   visitor->Trace(rule_list_cssom_wrapper_);
   visitor->Trace(adopted_tree_scopes_);
-  visitor->Trace(associated_document_);
+  visitor->Trace(constructor_document_);
   visitor->Trace(resolver_);
   StyleSheet::Trace(visitor);
 }

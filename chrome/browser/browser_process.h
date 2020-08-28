@@ -24,6 +24,7 @@
 
 class BackgroundModeManager;
 class BrowserProcessPlatformPart;
+class BuildState;
 class DownloadRequestLimiter;
 class DownloadStatusUpdater;
 class GpuModeManager;
@@ -51,6 +52,10 @@ class SafeBrowsingService;
 
 namespace subresource_filter {
 class RulesetService;
+}
+
+namespace federated_learning {
+class FlocBlocklistService;
 }
 
 namespace variations {
@@ -104,10 +109,6 @@ class RapporServiceImpl;
 namespace resource_coordinator {
 class ResourceCoordinatorParts;
 class TabManager;
-}
-
-namespace safe_browsing {
-class ClientSideDetectionService;
 }
 
 // NOT THREAD SAFE, call only from the main thread.
@@ -213,15 +214,14 @@ class BrowserProcess {
   // Returns the SafeBrowsing service.
   virtual safe_browsing::SafeBrowsingService* safe_browsing_service() = 0;
 
-  // Returns an object which handles communication with the SafeBrowsing
-  // client-side detection servers.
-  virtual safe_browsing::ClientSideDetectionService*
-      safe_browsing_detection_service() = 0;
-
   // Returns the service providing versioned storage for rules used by the Safe
   // Browsing subresource filter.
   virtual subresource_filter::RulesetService*
   subresource_filter_ruleset_service() = 0;
+
+  // Returns the service providing versioned storage for a blocklist of flocs.
+  virtual federated_learning::FlocBlocklistService*
+  floc_blocklist_service() = 0;
 
   // Returns the service used to provide hints for what optimizations can be
   // performed on slow page loads.
@@ -265,6 +265,8 @@ class BrowserProcess {
 
   virtual resource_coordinator::ResourceCoordinatorParts*
   resource_coordinator_parts() = 0;
+
+  virtual BuildState* GetBuildState() = 0;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(BrowserProcess);

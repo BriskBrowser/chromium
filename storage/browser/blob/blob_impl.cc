@@ -13,11 +13,13 @@
 #include "base/containers/span.h"
 #include "base/files/file_util.h"
 #include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
 #include "mojo/public/cpp/bindings/remote.h"
 #include "net/base/io_buffer.h"
 #include "storage/browser/blob/blob_data_handle.h"
 #include "storage/browser/blob/blob_data_item.h"
 #include "storage/browser/blob/blob_data_snapshot.h"
+#include "storage/browser/blob/blob_url_loader.h"
 #include "storage/browser/blob/mojo_blob_reader.h"
 
 namespace storage {
@@ -125,6 +127,16 @@ void BlobImpl::ReadAll(
                          std::move(handle));
 }
 
+void BlobImpl::Load(
+    mojo::PendingReceiver<network::mojom::URLLoader> loader,
+    const std::string& method,
+    const net::HttpRequestHeaders& headers,
+    mojo::PendingRemote<network::mojom::URLLoaderClient> client) {
+  BlobURLLoader::CreateAndStart(std::move(loader), method, headers,
+                                std::move(client),
+                                std::make_unique<BlobDataHandle>(*handle_));
+}
+
 void BlobImpl::ReadSideData(ReadSideDataCallback callback) {
   handle_->RunOnConstructionComplete(base::BindOnce(
       [](BlobDataHandle handle, ReadSideDataCallback callback,
@@ -212,10 +224,8 @@ void BlobImpl::CaptureSnapshot(CaptureSnapshotCallback callback) {
           uint64_t size;
           base::Optional<base::Time> time;
         };
-        base::PostTaskAndReplyWithResult(
-            FROM_HERE,
-            {base::ThreadPool(), base::MayBlock(),
-             base::TaskPriority::USER_VISIBLE},
+        base::ThreadPool::PostTaskAndReplyWithResult(
+            FROM_HERE, {base::MayBlock(), base::TaskPriority::USER_VISIBLE},
             base::BindOnce(
                 [](const base::FilePath& path) {
                   base::File::Info info;

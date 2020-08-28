@@ -5,11 +5,12 @@
 #include "chrome/browser/chromeos/login/screens/discover_screen.h"
 
 #include "ash/public/cpp/tablet_mode.h"
-#include "base/logging.h"
+#include "base/check.h"
 #include "chrome/browser/chromeos/login/quick_unlock/quick_unlock_utils.h"
 #include "chrome/browser/chromeos/login/users/chrome_user_manager_util.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/ui/webui/chromeos/login/discover_screen_handler.h"
+#include "chromeos/constants/chromeos_switches.h"
 #include "components/prefs/pref_service.h"
 
 namespace chromeos {
@@ -18,9 +19,37 @@ namespace {
 const char kFinished[] = "finished";
 }
 
+// static
+std::string DiscoverScreen::GetResultString(Result result) {
+  switch (result) {
+    case Result::NEXT:
+      return "Next";
+    case Result::NOT_APPLICABLE:
+      return BaseScreen::kNotApplicable;
+  }
+}
+
+bool DiscoverScreen::ShouldSkip() {
+  PrefService* prefs = ProfileManager::GetActiveUserProfile()->GetPrefs();
+  if (chrome_user_manager_util::IsPublicSessionOrEphemeralLogin() ||
+      !chromeos::quick_unlock::IsPinEnabled(prefs) ||
+      chromeos::quick_unlock::IsPinDisabledByPolicy(prefs)) {
+    return true;
+  }
+
+  // Skip the screen if the device is not in tablet mode, unless tablet mode
+  // first user run is forced on the device.
+  if (!ash::TabletMode::Get()->InTabletMode() &&
+      !chromeos::switches::ShouldOobeUseTabletModeFirstRun()) {
+    return true;
+  }
+
+  return false;
+}
+
 DiscoverScreen::DiscoverScreen(DiscoverScreenView* view,
-                               const base::RepeatingClosure& exit_callback)
-    : BaseScreen(DiscoverScreenView::kScreenId),
+                               const ScreenExitCallback& exit_callback)
+    : BaseScreen(DiscoverScreenView::kScreenId, OobeScreenPriority::DEFAULT),
       view_(view),
       exit_callback_(exit_callback) {
   DCHECK(view_);
@@ -31,28 +60,27 @@ DiscoverScreen::~DiscoverScreen() {
   view_->Bind(nullptr);
 }
 
-void DiscoverScreen::Show() {
-  PrefService* prefs = ProfileManager::GetActiveUserProfile()->GetPrefs();
-  if (chrome_user_manager_util::IsPublicSessionOrEphemeralLogin() ||
-      !ash::TabletMode::Get()->InTabletMode() ||
-      !chromeos::quick_unlock::IsPinEnabled(prefs) ||
-      chromeos::quick_unlock::IsPinDisabledByPolicy(prefs)) {
-    exit_callback_.Run();
-    return;
+bool DiscoverScreen::MaybeSkip(WizardContext* context) {
+  if (ShouldSkip()) {
+    exit_callback_.Run(Result::NOT_APPLICABLE);
+    return true;
   }
-  view_->Show();
-  is_shown_ = true;
+  return false;
 }
 
-void DiscoverScreen::Hide() {
+void DiscoverScreen::ShowImpl() {
+  if (view_)
+    view_->Show();
+}
+
+void DiscoverScreen::HideImpl() {
   view_->Hide();
-  is_shown_ = false;
 }
 
 void DiscoverScreen::OnUserAction(const std::string& action_id) {
   // Only honor finish if discover is currently being shown.
-  if (action_id == kFinished && is_shown_) {
-    exit_callback_.Run();
+  if (action_id == kFinished) {
+    exit_callback_.Run(Result::NEXT);
     return;
   }
   BaseScreen::OnUserAction(action_id);

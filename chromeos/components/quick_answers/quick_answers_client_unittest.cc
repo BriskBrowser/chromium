@@ -6,12 +6,13 @@
 
 #include <memory>
 #include <string>
+#include <utility>
 
 #include "ash/public/cpp/assistant/assistant_state.h"
-#include "ash/public/mojom/assistant_state_controller.mojom.h"
 #include "base/test/scoped_feature_list.h"
 #include "base/test/task_environment.h"
 #include "chromeos/components/quick_answers/quick_answers_model.h"
+#include "chromeos/components/quick_answers/test/test_helpers.h"
 #include "chromeos/constants/chromeos_features.h"
 #include "services/data_decoder/public/cpp/test_support/in_process_data_decoder.h"
 #include "services/network/test/test_url_loader_factory.h"
@@ -20,20 +21,55 @@
 
 namespace chromeos {
 namespace quick_answers {
+
 namespace {
 
-class MockQuickAnswersDelegate
-    : public QuickAnswersClient::QuickAnswersDelegate {
+class TestResultLoader : public ResultLoader {
  public:
-  MockQuickAnswersDelegate() = default;
+  TestResultLoader(network::mojom::URLLoaderFactory* url_loader_factory,
+                   ResultLoaderDelegate* delegate)
+      : ResultLoader(url_loader_factory, delegate) {}
+  // ResultLoader:
+  GURL BuildRequestUrl(const std::string& selected_text) const override {
+    return GURL();
+  }
+  void ProcessResponse(std::unique_ptr<std::string> response_body,
+                       ResponseParserCallback complete_callback) override {}
+};
 
-  MockQuickAnswersDelegate(const MockQuickAnswersDelegate&) = delete;
-  MockQuickAnswersDelegate& operator=(const MockQuickAnswersDelegate&) = delete;
+class MockResultLoader : public TestResultLoader {
+ public:
+  MockResultLoader(network::mojom::URLLoaderFactory* url_loader_factory,
+                   ResultLoaderDelegate* delegate)
+      : TestResultLoader(url_loader_factory, delegate) {}
 
-  // QuickAnswersClient::QuickAnswersDelegate:
-  MOCK_METHOD1(OnQuickAnswerReceived, void(std::unique_ptr<QuickAnswer>));
-  MOCK_METHOD1(OnRequestPreprocessFinish, void(const QuickAnswersRequest&));
-  MOCK_METHOD1(OnEligibilityChanged, void(bool));
+  MockResultLoader(const MockResultLoader&) = delete;
+  MockResultLoader& operator=(const MockResultLoader&) = delete;
+
+  // TestResultLoader:
+  MOCK_METHOD1(Fetch, void(const std::string&));
+};
+
+MATCHER_P(QuickAnswersRequestWithOutputEqual, quick_answers_request, "") {
+  return (arg.selected_text == quick_answers_request.selected_text &&
+          arg.preprocessed_output.intent_type ==
+              quick_answers_request.preprocessed_output.intent_type &&
+          arg.preprocessed_output.intent_text ==
+              quick_answers_request.preprocessed_output.intent_text &&
+          arg.preprocessed_output.query ==
+              quick_answers_request.preprocessed_output.query);
+}
+
+class MockIntentGenerator : public IntentGenerator {
+ public:
+  explicit MockIntentGenerator(IntentGeneratorCallback complete_callback)
+      : IntentGenerator(std::move(complete_callback)) {}
+
+  MockIntentGenerator(const MockIntentGenerator&) = delete;
+  MockIntentGenerator& operator=(const MockIntentGenerator&) = delete;
+
+  // IntentGenerator:
+  MOCK_METHOD1(GenerateIntent, void(const QuickAnswersRequest&));
 };
 
 }  // namespace
@@ -45,6 +81,7 @@ class QuickAnswersClientTest : public testing::Test {
   QuickAnswersClientTest(const QuickAnswersClientTest&) = delete;
   QuickAnswersClientTest& operator=(const QuickAnswersClientTest&) = delete;
 
+  // Testing::Test:
   void SetUp() override {
     assistant_state_ = std::make_unique<ash::AssistantState>();
     mock_delegate_ = std::make_unique<MockQuickAnswersDelegate>();
@@ -52,32 +89,68 @@ class QuickAnswersClientTest : public testing::Test {
     client_ = std::make_unique<QuickAnswersClient>(&test_url_loader_factory_,
                                                    assistant_state_.get(),
                                                    mock_delegate_.get());
+
+    result_loader_factory_callback_ = base::BindRepeating(
+        &QuickAnswersClientTest::CreateResultLoader, base::Unretained(this));
+
+    intent_generator_factory_callback_ = base::BindRepeating(
+        &QuickAnswersClientTest::CreateIntentGenerator, base::Unretained(this));
+
+    mock_intent_generator_ = std::make_unique<MockIntentGenerator>(
+        base::BindOnce(&QuickAnswersClientTest::IntentGeneratorTestCallback,
+                       base::Unretained(this)));
   }
 
-  void TearDown() override { client_.reset(); }
+  void TearDown() override {
+    QuickAnswersClient::SetResultLoaderFactoryForTesting(nullptr);
+    QuickAnswersClient::SetIntentGeneratorFactoryForTesting(nullptr);
+    client_.reset();
+  }
+
+  void IntentGeneratorTestCallback(const std::string& text, IntentType type) {}
 
  protected:
   void NotifyAssistantStateChange(
       bool setting_enabled,
       bool context_enabled,
-      ash::mojom::AssistantAllowedState assistant_state,
+      bool quick_answers_enabled,
+      chromeos::assistant::AssistantAllowedState assistant_state,
       const std::string& locale) {
     client_->OnAssistantSettingsEnabled(setting_enabled);
     client_->OnAssistantContextEnabled(context_enabled);
+    client_->OnAssistantQuickAnswersEnabled(quick_answers_enabled);
     client_->OnAssistantFeatureAllowedChanged(assistant_state);
     client_->OnLocaleChanged(locale);
   }
 
+  std::unique_ptr<ResultLoader> CreateResultLoader() {
+    return std::move(mock_result_loader_);
+  }
+
+  std::unique_ptr<IntentGenerator> CreateIntentGenerator() {
+    return std::move(mock_intent_generator_);
+  }
+
   std::unique_ptr<QuickAnswersClient> client_;
   std::unique_ptr<MockQuickAnswersDelegate> mock_delegate_;
+  std::unique_ptr<MockResultLoader> mock_result_loader_;
   std::unique_ptr<ash::AssistantState> assistant_state_;
+  std::unique_ptr<MockIntentGenerator> mock_intent_generator_;
   base::test::SingleThreadTaskEnvironment task_environment_;
   network::TestURLLoaderFactory test_url_loader_factory_;
+  QuickAnswersClient::ResultLoaderFactoryCallback
+      result_loader_factory_callback_;
+  QuickAnswersClient::IntentGeneratorFactoryCallback
+      intent_generator_factory_callback_;
+  IntentGenerator::IntentGeneratorCallback intent_generator_callback_;
 };
 
 TEST_F(QuickAnswersClientTest, FeatureEligible) {
   base::test::ScopedFeatureList scoped_feature_list;
-  scoped_feature_list.InitWithFeatures({chromeos::features::kQuickAnswers}, {});
+  scoped_feature_list.InitWithFeatures(
+      {chromeos::features::kQuickAnswers,
+       chromeos::features::kQuickAnswersSubToggle},
+      {});
 
   // Verify that OnEligibilityChanged is called.
   EXPECT_CALL(*mock_delegate_, OnEligibilityChanged(false)).Times(0);
@@ -86,7 +159,8 @@ TEST_F(QuickAnswersClientTest, FeatureEligible) {
   NotifyAssistantStateChange(
       /*setting_enabled=*/true,
       /*context_enabled=*/true,
-      /*assistant_state=*/ash::mojom::AssistantAllowedState::ALLOWED,
+      /*quick_answers_enabled=*/true,
+      /*assistant_state=*/chromeos::assistant::AssistantAllowedState::ALLOWED,
       /*locale=*/"en-US");
 }
 
@@ -101,13 +175,15 @@ TEST_F(QuickAnswersClientTest, FeatureIneligibleAfterContextDisabled) {
   NotifyAssistantStateChange(
       /*setting_enabled=*/true,
       /*context_enabled=*/true,
-      /*assistant_state=*/ash::mojom::AssistantAllowedState::ALLOWED,
+      /*quick_answers_enabled=*/true,
+      /*assistant_state=*/chromeos::assistant::AssistantAllowedState::ALLOWED,
       /*locale=*/"en-US");
 
   NotifyAssistantStateChange(
       /*setting_enabled=*/true,
       /*context_enabled=*/false,
-      /*assistant_state=*/ash::mojom::AssistantAllowedState::ALLOWED,
+      /*quick_answers_enabled=*/true,
+      /*assistant_state=*/chromeos::assistant::AssistantAllowedState::ALLOWED,
       /*locale=*/"en-US");
 }
 
@@ -117,11 +193,13 @@ TEST_F(QuickAnswersClientTest, FeatureDisabled) {
 
   // Verify that OnEligibilityChanged is called.
   EXPECT_CALL(*mock_delegate_, OnEligibilityChanged(false)).Times(0);
+  EXPECT_CALL(*mock_delegate_, OnEligibilityChanged(true)).Times(0);
 
   NotifyAssistantStateChange(
       /*setting_enabled=*/true,
       /*context_enabled=*/true,
-      /*assistant_state=*/ash::mojom::AssistantAllowedState::ALLOWED,
+      /*quick_answers_enabled=*/true,
+      /*assistant_state=*/chromeos::assistant::AssistantAllowedState::ALLOWED,
       /*locale=*/"en-US");
 }
 
@@ -131,11 +209,13 @@ TEST_F(QuickAnswersClientTest, AssistantSettingDisabled) {
 
   // Verify that OnEligibilityChanged is called.
   EXPECT_CALL(*mock_delegate_, OnEligibilityChanged(false)).Times(0);
+  EXPECT_CALL(*mock_delegate_, OnEligibilityChanged(true)).Times(0);
 
   NotifyAssistantStateChange(
       /*setting_enabled=*/false,
       /*context_enabled=*/true,
-      /*assistant_state=*/ash::mojom::AssistantAllowedState::ALLOWED,
+      /*quick_answers_enabled=*/true,
+      /*assistant_state=*/chromeos::assistant::AssistantAllowedState::ALLOWED,
       /*locale=*/"en-US");
 }
 
@@ -145,11 +225,13 @@ TEST_F(QuickAnswersClientTest, AssistantContextDisabled) {
 
   // Verify that OnEligibilityChanged is called.
   EXPECT_CALL(*mock_delegate_, OnEligibilityChanged(false)).Times(0);
+  EXPECT_CALL(*mock_delegate_, OnEligibilityChanged(true)).Times(0);
 
   NotifyAssistantStateChange(
       /*setting_enabled=*/true,
       /*context_enabled=*/false,
-      /*assistant_state=*/ash::mojom::AssistantAllowedState::ALLOWED,
+      /*quick_answers_enabled=*/true,
+      /*assistant_state=*/chromeos::assistant::AssistantAllowedState::ALLOWED,
       /*locale=*/"en-US");
 }
 
@@ -159,26 +241,201 @@ TEST_F(QuickAnswersClientTest, AssistantNotAllowed) {
 
   // Verify that OnEligibilityChanged is called.
   EXPECT_CALL(*mock_delegate_, OnEligibilityChanged(false)).Times(0);
+  EXPECT_CALL(*mock_delegate_, OnEligibilityChanged(true)).Times(0);
 
   NotifyAssistantStateChange(
       /*setting_enabled=*/true,
       /*context_enabled=*/true,
+      /*quick_answers_enabled=*/true,
       /*assistant_state=*/
-      ash::mojom::AssistantAllowedState::DISALLOWED_BY_POLICY,
+      chromeos::assistant::AssistantAllowedState::DISALLOWED_BY_POLICY,
       /*locale=*/"en-US");
 }
 
 TEST_F(QuickAnswersClientTest, UnsupportedLocale) {
   // Verify that OnEligibilityChanged is called.
   EXPECT_CALL(*mock_delegate_, OnEligibilityChanged(false)).Times(0);
+  EXPECT_CALL(*mock_delegate_, OnEligibilityChanged(true)).Times(0);
 
   NotifyAssistantStateChange(
       /*setting_enabled=*/true,
       /*context_enabled=*/true,
-      /*assistant_state=*/ash::mojom::AssistantAllowedState::ALLOWED,
+      /*quick_answers_enabled=*/true,
+      /*assistant_state=*/chromeos::assistant::AssistantAllowedState::ALLOWED,
       /*locale=*/"en-GB");
 }
-// TODO(b/144800297): Add more unit tests for sending request.
+
+TEST_F(QuickAnswersClientTest, SettingToggleDisabled) {
+  base::test::ScopedFeatureList scoped_feature_list;
+  scoped_feature_list.InitWithFeatures(
+      {chromeos::features::kQuickAnswersSubToggle}, {});
+
+  // Verify that OnEligibilityChanged is called.
+  EXPECT_CALL(*mock_delegate_, OnEligibilityChanged(false)).Times(0);
+  EXPECT_CALL(*mock_delegate_, OnEligibilityChanged(true)).Times(0);
+
+  NotifyAssistantStateChange(
+      /*setting_enabled=*/true,
+      /*context_enabled=*/true,
+      /*quick_answers_enabled=*/false,
+      /*assistant_state=*/chromeos::assistant::AssistantAllowedState::ALLOWED,
+      /*locale=*/"en-US");
+}
+
+TEST_F(QuickAnswersClientTest, NetworkError) {
+  // Verify that OnNetworkError is called.
+  EXPECT_CALL(*mock_delegate_, OnNetworkError());
+  EXPECT_CALL(*mock_delegate_, OnQuickAnswerReceived(::testing::_)).Times(0);
+
+  client_->OnNetworkError();
+}
+
+TEST_F(QuickAnswersClientTest, SendRequest) {
+  std::unique_ptr<QuickAnswersRequest> quick_answers_request =
+      std::make_unique<QuickAnswersRequest>();
+  quick_answers_request->selected_text = "sel";
+
+  // Verify that |GenerateIntent| is called.
+  EXPECT_CALL(*mock_intent_generator_,
+              GenerateIntent(QuickAnswersRequestEqual(*quick_answers_request)));
+  QuickAnswersClient::SetIntentGeneratorFactoryForTesting(
+      &intent_generator_factory_callback_);
+
+  mock_result_loader_ =
+      std::make_unique<MockResultLoader>(&test_url_loader_factory_, nullptr);
+  EXPECT_CALL(*mock_result_loader_, Fetch(::testing::Eq("Define:sel")));
+  QuickAnswersClient::SetResultLoaderFactoryForTesting(
+      &result_loader_factory_callback_);
+
+  client_->SendRequest(*quick_answers_request);
+  client_->IntentGeneratorCallback(*quick_answers_request, /*skip_fetch=*/false,
+                                   "sel", IntentType::kDictionary);
+
+  std::unique_ptr<QuickAnswer> quick_answer = std::make_unique<QuickAnswer>();
+  quick_answer->primary_answer = "answer";
+  EXPECT_CALL(*mock_delegate_,
+              OnQuickAnswerReceived(QuickAnswerEqual(&(*quick_answer))));
+  client_->OnQuickAnswerReceived(std::move(quick_answer));
+}
+
+TEST_F(QuickAnswersClientTest, SendRequestForPreprocessing) {
+  std::unique_ptr<QuickAnswersRequest> quick_answers_request =
+      std::make_unique<QuickAnswersRequest>();
+  quick_answers_request->selected_text = "sel";
+
+  // Verify that |GenerateIntent| is called.
+  EXPECT_CALL(*mock_intent_generator_,
+              GenerateIntent(QuickAnswersRequestEqual(*quick_answers_request)));
+  QuickAnswersClient::SetIntentGeneratorFactoryForTesting(
+      &intent_generator_factory_callback_);
+
+  mock_result_loader_ =
+      std::make_unique<MockResultLoader>(&test_url_loader_factory_, nullptr);
+  EXPECT_CALL(*mock_result_loader_, Fetch(::testing::_)).Times(0);
+  QuickAnswersClient::SetResultLoaderFactoryForTesting(
+      &result_loader_factory_callback_);
+
+  client_->SendRequestForPreprocessing(*quick_answers_request);
+}
+
+TEST_F(QuickAnswersClientTest, FetchQuickAnswers) {
+  std::unique_ptr<QuickAnswersRequest> quick_answers_request =
+      std::make_unique<QuickAnswersRequest>();
+  quick_answers_request->preprocessed_output.query = "Define:sel";
+
+  mock_result_loader_ =
+      std::make_unique<MockResultLoader>(&test_url_loader_factory_, nullptr);
+  EXPECT_CALL(*mock_result_loader_, Fetch(::testing::Eq("Define:sel")));
+  QuickAnswersClient::SetResultLoaderFactoryForTesting(
+      &result_loader_factory_callback_);
+
+  client_->FetchQuickAnswers(*quick_answers_request);
+}
+
+TEST_F(QuickAnswersClientTest, NotSendRequestForUnknownIntent) {
+  base::test::ScopedFeatureList scoped_feature_list;
+  scoped_feature_list.InitAndEnableFeature(
+      chromeos::features::kQuickAnswersTextAnnotator);
+
+  std::unique_ptr<QuickAnswersRequest> quick_answers_request =
+      std::make_unique<QuickAnswersRequest>();
+  quick_answers_request->selected_text = "sel";
+
+  mock_result_loader_ =
+      std::make_unique<MockResultLoader>(&test_url_loader_factory_, nullptr);
+  EXPECT_CALL(*mock_result_loader_, Fetch(::testing::_)).Times(0);
+  QuickAnswersClient::SetResultLoaderFactoryForTesting(
+      &result_loader_factory_callback_);
+
+  client_->IntentGeneratorCallback(*quick_answers_request, /*skip_fetch=*/false,
+                                   "sel", IntentType::kUnknown);
+}
+
+TEST_F(QuickAnswersClientTest, PreprocessDefinitionIntent) {
+  std::unique_ptr<QuickAnswersRequest> quick_answers_request =
+      std::make_unique<QuickAnswersRequest>();
+  quick_answers_request->selected_text = "unfathomable";
+
+  // Verify that |OnRequestPreprocessFinished| is called.
+  std::unique_ptr<QuickAnswersRequest> processed_request =
+      std::make_unique<QuickAnswersRequest>();
+  processed_request->selected_text = "unfathomable";
+  PreprocessedOutput expected_processed_output;
+  expected_processed_output.intent_text = "unfathomable";
+  expected_processed_output.query = "Define:unfathomable";
+  expected_processed_output.intent_type = IntentType::kDictionary;
+  processed_request->preprocessed_output = expected_processed_output;
+  EXPECT_CALL(*mock_delegate_,
+              OnRequestPreprocessFinished(
+                  QuickAnswersRequestWithOutputEqual(*processed_request)));
+
+  client_->IntentGeneratorCallback(*quick_answers_request, /*skip_fetch=*/false,
+                                   "unfathomable", IntentType::kDictionary);
+}
+
+TEST_F(QuickAnswersClientTest, PreprocessTranslationIntent) {
+  std::unique_ptr<QuickAnswersRequest> quick_answers_request =
+      std::make_unique<QuickAnswersRequest>();
+  quick_answers_request->selected_text = "sel";
+
+  // Verify that |OnRequestPreprocessFinished| is called.
+  std::unique_ptr<QuickAnswersRequest> processed_request =
+      std::make_unique<QuickAnswersRequest>();
+  processed_request->selected_text = "sel";
+  PreprocessedOutput expected_processed_output;
+  expected_processed_output.intent_text = "intent text";
+  expected_processed_output.query = "Translate:intent text";
+  expected_processed_output.intent_type = IntentType::kTranslation;
+  processed_request->preprocessed_output = expected_processed_output;
+  EXPECT_CALL(*mock_delegate_,
+              OnRequestPreprocessFinished(
+                  QuickAnswersRequestWithOutputEqual(*processed_request)));
+
+  client_->IntentGeneratorCallback(*quick_answers_request, /*skip_fetch=*/false,
+                                   "intent text", IntentType::kTranslation);
+}
+
+TEST_F(QuickAnswersClientTest, PreprocessUnitConversionIntent) {
+  std::unique_ptr<QuickAnswersRequest> quick_answers_request =
+      std::make_unique<QuickAnswersRequest>();
+  quick_answers_request->selected_text = "20ft";
+
+  // Verify that |OnRequestPreprocessFinished| is called.
+  std::unique_ptr<QuickAnswersRequest> processed_request =
+      std::make_unique<QuickAnswersRequest>();
+  processed_request->selected_text = "20ft";
+  PreprocessedOutput expected_processed_output;
+  expected_processed_output.intent_text = "20ft";
+  expected_processed_output.query = "Convert:20ft";
+  expected_processed_output.intent_type = IntentType::kUnit;
+  processed_request->preprocessed_output = expected_processed_output;
+  EXPECT_CALL(*mock_delegate_,
+              OnRequestPreprocessFinished(
+                  QuickAnswersRequestWithOutputEqual(*processed_request)));
+
+  client_->IntentGeneratorCallback(*quick_answers_request, /*skip_fetch=*/false,
+                                   "20ft", IntentType::kUnit);
+}
 
 }  // namespace quick_answers
 }  // namespace chromeos

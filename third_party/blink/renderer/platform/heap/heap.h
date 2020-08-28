@@ -56,29 +56,36 @@ namespace incremental_marking_test {
 class IncrementalMarkingScopeBase;
 }  // namespace incremental_marking_test
 
-namespace weakness_marking_test {
-class EphemeronCallbacksCounter;
-}  // namespace weakness_marking_test
-
 class ConcurrentMarkingVisitor;
 class ThreadHeapStatsCollector;
 class PageBloomFilter;
 class PagePool;
 class ProcessHeapReporter;
 class RegionTree;
+class MarkingSchedulingOracle;
 
 using MarkingItem = TraceDescriptor;
-using NotFullyConstructedItem = void*;
-using WeakTableItem = MarkingItem;
+using NotFullyConstructedItem = const void*;
+
+struct EphemeronPairItem {
+  const void* key;
+  const void* value;
+  TraceCallback value_trace_callback;
+};
 
 struct BackingStoreCallbackItem {
-  void* backing;
+  const void* backing;
   MovingObjectCallback callback;
 };
 
 struct CustomCallbackItem {
   WeakCallback callback;
-  void* parameter;
+  const void* parameter;
+};
+
+struct NotSafeToConcurrentlyTraceItem {
+  TraceDescriptor desc;
+  size_t bailout_size;
 };
 
 using V8Reference = const TraceWrapperV8Reference<v8::Value>*;
@@ -86,19 +93,22 @@ using V8Reference = const TraceWrapperV8Reference<v8::Value>*;
 // Segment size of 512 entries necessary to avoid throughput regressions. Since
 // the work list is currently a temporary object this is not a problem.
 using MarkingWorklist = Worklist<MarkingItem, 512 /* local entries */>;
-using WriteBarrierWorklist = Worklist<HeapObjectHeader*, 256>;
+using WriteBarrierWorklist = Worklist<HeapObjectHeader*, 64>;
 using NotFullyConstructedWorklist =
     Worklist<NotFullyConstructedItem, 16 /* local entries */>;
 using WeakCallbackWorklist =
-    Worklist<CustomCallbackItem, 256 /* local entries */>;
+    Worklist<CustomCallbackItem, 64 /* local entries */>;
 // Using large local segments here (sized 512 entries) to avoid throughput
 // regressions.
 using MovableReferenceWorklist =
-    Worklist<MovableReference*, 512 /* local entries */>;
-using WeakTableWorklist = Worklist<WeakTableItem, 16 /* local entries */>;
+    Worklist<const MovableReference*, 256 /* local entries */>;
+using EphemeronPairsWorklist =
+    Worklist<EphemeronPairItem, 64 /* local entries */>;
 using BackingStoreCallbackWorklist =
     Worklist<BackingStoreCallbackItem, 16 /* local entries */>;
 using V8ReferencesWorklist = Worklist<V8Reference, 16 /* local entries */>;
+using NotSafeToConcurrentlyTraceWorklist =
+    Worklist<NotSafeToConcurrentlyTraceItem, 64 /* local entries */>;
 
 class PLATFORM_EXPORT HeapAllocHooks {
   STATIC_ONLY(HeapAllocHooks);
@@ -149,6 +159,8 @@ class UntracedMember;
 
 namespace internal {
 
+class LivenessBrokerFactory;
+
 template <typename T, bool = NeedsAdjustPointer<T>::value>
 class ObjectAliveTrait;
 
@@ -171,11 +183,9 @@ class ObjectAliveTrait<T, true> {
   NO_SANITIZE_ADDRESS
   static bool IsHeapObjectAlive(const T* object) {
     static_assert(sizeof(T), "T must be fully defined");
-    const HeapObjectHeader* header = object->GetHeapObjectHeader();
-    if (header == BlinkGC::kNotFullyConstructedObject) {
-      // Objects under construction are always alive.
-      return true;
-    }
+    const HeapObjectHeader* header = HeapObjectHeader::FromPayload(
+        TraceTrait<T>::GetTraceDescriptor(object).base_object_payload);
+    DCHECK(!header->IsInConstruction() || header->IsMarked());
     return header->IsMarked();
   }
 };
@@ -193,40 +203,11 @@ struct IsGarbageCollectedContainer<
 class PLATFORM_EXPORT ThreadHeap {
   USING_FAST_MALLOC(ThreadHeap);
 
+  using EphemeronProcessing = ThreadState::EphemeronProcessing;
+
  public:
   explicit ThreadHeap(ThreadState*);
   ~ThreadHeap();
-
-  template <typename T>
-  static inline bool IsHeapObjectAlive(const T* object) {
-    static_assert(sizeof(T), "T must be fully defined");
-    // The strongification of collections relies on the fact that once a
-    // collection has been strongified, there is no way that it can contain
-    // non-live entries, so no entries will be removed. Since you can't set
-    // the mark bit on a null pointer, that means that null pointers are
-    // always 'alive'.
-    if (!object)
-      return true;
-    // TODO(keishi): some tests create CrossThreadPersistent on non attached
-    // threads.
-    if (!ThreadState::Current())
-      return true;
-    DCHECK(&ThreadState::Current()->Heap() ==
-           &PageFromObject(object)->Arena()->GetThreadState()->Heap());
-    return internal::ObjectAliveTrait<T>::IsHeapObjectAlive(object);
-  }
-  template <typename T>
-  static inline bool IsHeapObjectAlive(const Member<T>& member) {
-    return IsHeapObjectAlive(member.Get());
-  }
-  template <typename T>
-  static inline bool IsHeapObjectAlive(const WeakMember<T>& member) {
-    return IsHeapObjectAlive(member.Get());
-  }
-  template <typename T>
-  static inline bool IsHeapObjectAlive(const UntracedMember<T>& member) {
-    return IsHeapObjectAlive(member.Get());
-  }
 
   MarkingWorklist* GetMarkingWorklist() const {
     return marking_worklist_.get();
@@ -240,6 +221,11 @@ class PLATFORM_EXPORT ThreadHeap {
     return not_fully_constructed_worklist_.get();
   }
 
+  NotFullyConstructedWorklist* GetPreviouslyNotFullyConstructedWorklist()
+      const {
+    return previously_not_fully_constructed_worklist_.get();
+  }
+
   WeakCallbackWorklist* GetWeakCallbackWorklist() const {
     return weak_callback_worklist_.get();
   }
@@ -248,8 +234,12 @@ class PLATFORM_EXPORT ThreadHeap {
     return movable_reference_worklist_.get();
   }
 
-  WeakTableWorklist* GetWeakTableWorklist() const {
-    return weak_table_worklist_.get();
+  EphemeronPairsWorklist* GetDiscoveredEphemeronPairsWorklist() const {
+    return discovered_ephemeron_pairs_worklist_.get();
+  }
+
+  EphemeronPairsWorklist* GetEphemeronPairsToProcessWorklist() const {
+    return ephemeron_pairs_to_process_worklist_.get();
   }
 
   BackingStoreCallbackWorklist* GetBackingStoreCallbackWorklist() const {
@@ -260,6 +250,10 @@ class PLATFORM_EXPORT ThreadHeap {
     return v8_references_worklist_.get();
   }
 
+  NotSafeToConcurrentlyTraceWorklist* GetNotSafeToConcurrentlyTraceWorklist()
+      const {
+    return not_safe_to_concurrently_trace_worklist_.get();
+  }
   // Register an ephemeron table for fixed-point iteration.
   void RegisterWeakTable(void* container_object,
                          EphemeronCallback);
@@ -268,7 +262,7 @@ class PLATFORM_EXPORT ThreadHeap {
 
   // Checks whether we need to register |addr| as a backing store or a slot
   // containing reference to it.
-  bool ShouldRegisterMovingAddress(Address addr);
+  bool ShouldRegisterMovingAddress();
 
   RegionTree* GetRegionTree() { return region_tree_.get(); }
 
@@ -296,21 +290,32 @@ class PLATFORM_EXPORT ThreadHeap {
   // not need to rely on conservative handling.
   void FlushNotFullyConstructedObjects();
 
+  // Moves ephemeron pairs from |discovered_ephemeron_pairs_worklist_| to
+  // |ephemeron_pairs_to_process_worklist_|
+  void FlushEphemeronPairs(EphemeronProcessing);
+
   // Marks not fully constructed objects.
   void MarkNotFullyConstructedObjects(MarkingVisitor*);
   // Marks the transitive closure including ephemerons.
-  bool AdvanceMarking(MarkingVisitor*, base::TimeTicks deadline);
+  bool AdvanceMarking(MarkingVisitor*, base::TimeTicks, EphemeronProcessing);
   void VerifyMarking();
 
+  // Returns true if concurrent markers will have work to steal
+  bool HasWorkForConcurrentMarking() const;
+  // Returns the amount of work currently available for stealing (there could be
+  // work remaining even if this is 0).
+  size_t ConcurrentMarkingGlobalWorkSize() const;
   // Returns true if marker is done
-  bool AdvanceConcurrentMarking(ConcurrentMarkingVisitor*, base::TimeTicks);
+  bool AdvanceConcurrentMarking(ConcurrentMarkingVisitor*,
+                                base::JobDelegate*,
+                                MarkingSchedulingOracle* marking_scheduler);
 
   // Conservatively checks whether an address is a pointer in any of the
   // thread heaps.  If so marks the object pointed to as live.
   Address CheckAndMarkPointer(MarkingVisitor*, Address);
 
   // Visits remembered sets.
-  void MarkRememberedSets(MarkingVisitor*);
+  void VisitRememberedSets(MarkingVisitor*);
 
   size_t ObjectPayloadSizeForTesting();
   void ResetAllocationPointForTesting();
@@ -320,7 +325,7 @@ class PLATFORM_EXPORT ThreadHeap {
   // This look-up uses the region search tree and a negative contains cache to
   // provide an efficient mapping from arbitrary addresses to the containing
   // heap-page if one exists.
-  BasePage* LookupPageForAddress(Address);
+  BasePage* LookupPageForAddress(ConstAddress);
 
   HeapCompact* Compaction();
 
@@ -344,12 +349,16 @@ class PLATFORM_EXPORT ThreadHeap {
   // the executions of mutators.
   void MakeConsistentForMutator();
 
+  // Unmarks all objects in the entire heap. This is supposed to be called in
+  // the beginning of major GC.
+  void Unmark();
+
   void Compact();
 
-  enum class SweepingType : uint8_t { kMutator, kConcurrent };
-  bool AdvanceSweep(SweepingType sweeping_type, base::TimeTicks deadline);
+  bool AdvanceLazySweep(base::TimeTicks deadline);
+  bool AdvanceConcurrentSweep(base::JobDelegate*);
 
-  void PrepareForSweep();
+  void PrepareForSweep(BlinkGC::CollectionType);
   void RemoveAllPages();
   void InvokeFinalizersOnSweptPages();
   void CompleteSweep();
@@ -377,16 +386,26 @@ class PLATFORM_EXPORT ThreadHeap {
 
   PageBloomFilter* page_bloom_filter() { return page_bloom_filter_.get(); }
 
+  bool IsInLastAllocatedRegion(Address address) const;
+  void SetLastAllocatedRegion(Address start, size_t length);
+
  private:
+  struct LastAllocatedRegion {
+    Address start = nullptr;
+    size_t length = 0;
+  };
+
   static int ArenaIndexForObjectSize(size_t);
 
-  void SetupWorklists();
+  void SetupWorklists(bool);
   void DestroyMarkingWorklists(BlinkGC::StackState);
   void DestroyCompactionWorklists();
 
-  void InvokeEphemeronCallbacks(MarkingVisitor*);
+  bool InvokeEphemeronCallbacks(EphemeronProcessing,
+                                MarkingVisitor*,
+                                base::TimeTicks);
 
-  void FlushV8References();
+  bool FlushV8References(base::TimeTicks);
 
   ThreadState* thread_state_;
   std::unique_ptr<ThreadHeapStatsCollector> heap_stats_collector_;
@@ -429,7 +448,8 @@ class PLATFORM_EXPORT ThreadHeap {
 
   // Worklist of ephemeron callbacks. Used to pass new callbacks from
   // MarkingVisitor to ThreadHeap.
-  std::unique_ptr<WeakTableWorklist> weak_table_worklist_;
+  std::unique_ptr<EphemeronPairsWorklist> discovered_ephemeron_pairs_worklist_;
+  std::unique_ptr<EphemeronPairsWorklist> ephemeron_pairs_to_process_worklist_;
 
   // This worklist is used to passing backing store callback to HeapCompact.
   std::unique_ptr<BackingStoreCallbackWorklist>
@@ -439,51 +459,47 @@ class PLATFORM_EXPORT ThreadHeap {
   // to V8.
   std::unique_ptr<V8ReferencesWorklist> v8_references_worklist_;
 
-  // No duplicates allowed for ephemeron callbacks. Hence, we use a hashmap
-  // with the key being the HashTable.
-  WTF::HashMap<void*, EphemeronCallback> ephemeron_callbacks_;
+  std::unique_ptr<NotSafeToConcurrentlyTraceWorklist>
+      not_safe_to_concurrently_trace_worklist_;
 
   std::unique_ptr<HeapCompact> compaction_;
+
+  LastAllocatedRegion last_allocated_region_;
 
   BaseArena* arenas_[BlinkGC::kNumberOfArenas];
 
   static ThreadHeap* main_thread_heap_;
 
+  static constexpr size_t kStepsBeforeEphemeronPairsFlush = 4u;
+  size_t steps_since_last_ephemeron_pairs_flush_ = 0;
+  static constexpr size_t kStepsBeforeEphemeronProcessing = 16u;
+  size_t steps_since_last_ephemeron_processing_ = 0;
+
   friend class incremental_marking_test::IncrementalMarkingScopeBase;
   template <typename T>
   friend class Member;
   friend class ThreadState;
-  friend class weakness_marking_test::EphemeronCallbacksCounter;
 };
 
 template <typename T>
 class GarbageCollected {
   IS_GARBAGE_COLLECTED_TYPE();
 
-  // For now direct allocation of arrays on the heap is not allowed.
-  void* operator new[](size_t size);
-
-#if defined(OS_WIN) && defined(COMPILER_MSVC)
-  // Due to some quirkiness in the MSVC compiler we have to provide
-  // the delete[] operator in the GarbageCollected subclasses as it
-  // is called when a class is exported in a DLL.
- protected:
-  void operator delete[](void* p) { NOTREACHED(); }
-#else
-  void operator delete[](void* p);
-#endif
-
  public:
   using ParentMostGarbageCollectedType = T;
 
-  void* operator new(size_t size) = delete;  // Must use MakeGarbageCollected.
+  // Must use MakeGarbageCollected.
+  void* operator new(size_t) = delete;
+  void* operator new[](size_t) = delete;
+  // The garbage collector is taking care of reclaiming the object. Also,
+  // virtual destructor requires an unambiguous, accessible 'operator delete'.
+  void operator delete(void*) { NOTREACHED(); }
+  void operator delete[](void*) = delete;
 
   template <typename Derived>
   static void* AllocateObject(size_t size) {
     return ThreadHeap::Allocate<GCInfoFoldedType<Derived>>(size);
   }
-
-  void operator delete(void* p) { NOTREACHED(); }
 
  protected:
   // This trait in theory can be moved to gc_info.h, but that would cause
@@ -516,60 +532,83 @@ class GarbageCollected {
   DISALLOW_COPY_AND_ASSIGN(GarbageCollected);
 };
 
-// Default MakeGarbageCollected: Constructs an instance of T, which is a garbage
-// collected type.
-template <typename T, typename... Args>
-T* MakeGarbageCollected(Args&&... args) {
-  static_assert(WTF::IsGarbageCollectedType<T>::value,
-                "T needs to be a garbage collected object");
-  static_assert(std::is_trivially_destructible<T>::value ||
-                    std::has_virtual_destructor<T>::value ||
-                    std::is_final<T>::value ||
-                    internal::IsGarbageCollectedContainer<T>::value ||
-                    internal::HasFinalizeGarbageCollectedObject<T>::value,
-                "Finalized GarbageCollected class should either have a virtual "
-                "destructor or be marked as final");
-  static_assert(!IsGarbageCollectedMixin<T>::value ||
-                    sizeof(T) <= kLargeObjectSizeThreshold,
-                "GarbageCollectedMixin may not be a large object");
-  void* memory = T::template AllocateObject<T>(sizeof(T));
-  HeapObjectHeader* header = HeapObjectHeader::FromPayload(memory);
-  // Placement new as regular operator new() is deleted.
-  T* object = ::new (memory) T(std::forward<Args>(args)...);
-  header->MarkFullyConstructed<HeapObjectHeader::AccessMode::kAtomic>();
-  return object;
-}
-
 // Used for passing custom sizes to MakeGarbageCollected.
 struct AdditionalBytes {
   explicit AdditionalBytes(size_t bytes) : value(bytes) {}
   const size_t value;
 };
 
+template <typename T>
+struct MakeGarbageCollectedTrait {
+  template <typename... Args>
+  static T* Call(Args&&... args) {
+    static_assert(WTF::IsGarbageCollectedType<T>::value,
+                  "T needs to be a garbage collected object");
+    static_assert(
+        std::is_trivially_destructible<T>::value ||
+            std::has_virtual_destructor<T>::value || std::is_final<T>::value ||
+            internal::IsGarbageCollectedContainer<T>::value ||
+            internal::HasFinalizeGarbageCollectedObject<T>::value,
+        "Finalized GarbageCollected class should either have a virtual "
+        "destructor or be marked as final");
+    static_assert(!IsGarbageCollectedMixin<T>::value ||
+                      sizeof(T) <= kLargeObjectSizeThreshold,
+                  "GarbageCollectedMixin may not be a large object");
+    void* memory = T::template AllocateObject<T>(sizeof(T));
+    HeapObjectHeader* header = HeapObjectHeader::FromPayload(memory);
+    // Placement new as regular operator new() is deleted.
+    T* object = ::new (memory) T(std::forward<Args>(args)...);
+    header->MarkFullyConstructed<HeapObjectHeader::AccessMode::kAtomic>();
+    return object;
+  }
+
+  template <typename... Args>
+  static T* Call(AdditionalBytes additional_bytes, Args&&... args) {
+    static_assert(WTF::IsGarbageCollectedType<T>::value,
+                  "T needs to be a garbage collected object");
+    static_assert(
+        std::is_trivially_destructible<T>::value ||
+            std::has_virtual_destructor<T>::value || std::is_final<T>::value ||
+            internal::IsGarbageCollectedContainer<T>::value ||
+            internal::HasFinalizeGarbageCollectedObject<T>::value,
+        "Finalized GarbageCollected class should either have a virtual "
+        "destructor or be marked as final.");
+    const size_t size = sizeof(T) + additional_bytes.value;
+    if (IsGarbageCollectedMixin<T>::value) {
+      // Ban large mixin so we can use PageFromObject() on them.
+      CHECK_GE(kLargeObjectSizeThreshold, size)
+          << "GarbageCollectedMixin may not be a large object";
+    }
+    void* memory = T::template AllocateObject<T>(size);
+    HeapObjectHeader* header = HeapObjectHeader::FromPayload(memory);
+    // Placement new as regular operator new() is deleted.
+    T* object = ::new (memory) T(std::forward<Args>(args)...);
+    header->MarkFullyConstructed<HeapObjectHeader::AccessMode::kAtomic>();
+    return object;
+  }
+};
+
+template <typename T, typename = void>
+struct PostConstructionHookTrait {
+  static void Call(T*) {}
+};
+
+// Default MakeGarbageCollected: Constructs an instance of T, which is a garbage
+// collected type.
+template <typename T, typename... Args>
+T* MakeGarbageCollected(Args&&... args) {
+  T* object = MakeGarbageCollectedTrait<T>::Call(std::forward<Args>(args)...);
+  PostConstructionHookTrait<T>::Call(object);
+  return object;
+}
+
 // Constructs an instance of T, which is a garbage collected type. This special
 // version takes size which enables constructing inline objects.
 template <typename T, typename... Args>
 T* MakeGarbageCollected(AdditionalBytes additional_bytes, Args&&... args) {
-  static_assert(WTF::IsGarbageCollectedType<T>::value,
-                "T needs to be a garbage collected object");
-  static_assert(std::is_trivially_destructible<T>::value ||
-                    std::has_virtual_destructor<T>::value ||
-                    std::is_final<T>::value ||
-                    internal::IsGarbageCollectedContainer<T>::value ||
-                    internal::HasFinalizeGarbageCollectedObject<T>::value,
-                "Finalized GarbageCollected class should either have a virtual "
-                "destructor or be marked as final.");
-  const size_t size = sizeof(T) + additional_bytes.value;
-  if (IsGarbageCollectedMixin<T>::value) {
-    // Ban large mixin so we can use PageFromObject() on them.
-    CHECK_GE(kLargeObjectSizeThreshold, size)
-        << "GarbageCollectedMixin may not be a large object";
-  }
-  void* memory = T::template AllocateObject<T>(size);
-  HeapObjectHeader* header = HeapObjectHeader::FromPayload(memory);
-  // Placement new as regular operator new() is deleted.
-  T* object = ::new (memory) T(std::forward<Args>(args)...);
-  header->MarkFullyConstructed<HeapObjectHeader::AccessMode::kAtomic>();
+  T* object = MakeGarbageCollectedTrait<T>::Call(additional_bytes,
+                                                 std::forward<Args>(args)...);
+  PostConstructionHookTrait<T>::Call(object);
   return object;
 }
 
@@ -623,22 +662,18 @@ Address ThreadHeap::Allocate(size_t size) {
       GCInfoTrait<T>::Index(), type_name);
 }
 
-template <typename T>
-void Visitor::HandleWeakCell(const WeakCallbackInfo&, void* object) {
-  WeakMember<T>* weak_member = reinterpret_cast<WeakMember<T>*>(object);
-  if (weak_member->Get()) {
-    if (weak_member->IsHashTableDeletedValue()) {
-      // This can happen when weak fields are deleted while incremental marking
-      // is running. Deleted values need to be preserved to avoid reviving
-      // objects in containers.
-      return;
-    }
-    if (!ThreadHeap::IsHeapObjectAlive(weak_member->Get()))
-      weak_member->Clear();
-  }
+inline bool ThreadHeap::IsInLastAllocatedRegion(Address address) const {
+  return last_allocated_region_.start <= address &&
+         address <
+             (last_allocated_region_.start + last_allocated_region_.length);
 }
 
-class PLATFORM_EXPORT WeakCallbackInfo final {
+inline void ThreadHeap::SetLastAllocatedRegion(Address start, size_t length) {
+  last_allocated_region_.start = start;
+  last_allocated_region_.length = length;
+}
+
+class PLATFORM_EXPORT LivenessBroker final {
  public:
   template <typename T>
   bool IsHeapObjectAlive(const T*) const;
@@ -648,26 +683,64 @@ class PLATFORM_EXPORT WeakCallbackInfo final {
   bool IsHeapObjectAlive(const UntracedMember<T>&) const;
 
  private:
-  WeakCallbackInfo() = default;
-  friend class ThreadHeap;
+  LivenessBroker() = default;
+  friend class internal::LivenessBrokerFactory;
 };
 
 template <typename T>
-bool WeakCallbackInfo::IsHeapObjectAlive(const T* object) const {
-  return ThreadHeap::IsHeapObjectAlive(object);
+bool LivenessBroker::IsHeapObjectAlive(const T* object) const {
+  static_assert(sizeof(T), "T must be fully defined");
+  // The strongification of collections relies on the fact that once a
+  // collection has been strongified, there is no way that it can contain
+  // non-live entries, so no entries will be removed. Since you can't set
+  // the mark bit on a null pointer, that means that null pointers are
+  // always 'alive'.
+  if (!object)
+    return true;
+  // TODO(keishi): some tests create CrossThreadPersistent on non attached
+  // threads.
+  if (!ThreadState::Current())
+    return true;
+  DCHECK(&ThreadState::Current()->Heap() ==
+         &PageFromObject(object)->Arena()->GetThreadState()->Heap());
+  return internal::ObjectAliveTrait<T>::IsHeapObjectAlive(object);
 }
 
 template <typename T>
-bool WeakCallbackInfo::IsHeapObjectAlive(
-    const WeakMember<T>& weak_member) const {
-  return ThreadHeap::IsHeapObjectAlive(weak_member);
+bool LivenessBroker::IsHeapObjectAlive(const WeakMember<T>& weak_member) const {
+  return IsHeapObjectAlive(weak_member.Get());
 }
 
 template <typename T>
-bool WeakCallbackInfo::IsHeapObjectAlive(
+bool LivenessBroker::IsHeapObjectAlive(
     const UntracedMember<T>& untraced_member) const {
-  return ThreadHeap::IsHeapObjectAlive(untraced_member.Get());
+  return IsHeapObjectAlive(untraced_member.Get());
 }
+
+template <typename T>
+void Visitor::HandleWeakCell(const LivenessBroker& broker, const void* object) {
+  WeakMember<T>* weak_member =
+      reinterpret_cast<WeakMember<T>*>(const_cast<void*>(object));
+  if (weak_member->Get()) {
+    if (weak_member->IsHashTableDeletedValue()) {
+      // This can happen when weak fields are deleted while incremental marking
+      // is running. Deleted values need to be preserved to avoid reviving
+      // objects in containers.
+      return;
+    }
+    if (!broker.IsHeapObjectAlive(weak_member->Get()))
+      weak_member->Clear();
+  }
+}
+
+namespace internal {
+
+class LivenessBrokerFactory final {
+ public:
+  static LivenessBroker Create() { return LivenessBroker(); }
+};
+
+}  // namespace internal
 
 }  // namespace blink
 

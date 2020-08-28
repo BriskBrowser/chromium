@@ -118,6 +118,19 @@ std::string BackForwardCacheCanStoreDocumentResult::NotRestoredReasonToString(
       return "navigation entry is not the most recent one for this document";
     case Reason::kServiceWorkerClaim:
       return "service worker claim is called";
+    case Reason::kIgnoreEventAndEvict:
+      return "IsInactiveAndDisallowReactivation() was called for the frame in "
+             "bfcache";
+    case Reason::kHaveInnerContents:
+      return "RenderFrameHost has inner WebContents attached";
+    case Reason::kTimeoutPuttingInCache:
+      return "Timed out while waiting for page to acknowledge freezing";
+    case Reason::kBackForwardCacheDisabledByLowMemory:
+      return "BackForwardCache is disabled due to low memory of the device";
+    case Reason::kBackForwardCacheDisabledByCommandLine:
+      return "BackForwardCache is disabled through command line (may include "
+             "cases where the embedder disabled it due to, e.g., enterprise "
+             "policy)";
   }
 }
 

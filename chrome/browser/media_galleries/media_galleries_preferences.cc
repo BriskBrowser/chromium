@@ -147,7 +147,7 @@ bool GetType(const base::DictionaryValue& dict,
 }
 
 const char* TypeToStringValue(MediaGalleryPrefInfo::Type type) {
-  const char* result = NULL;
+  const char* result = nullptr;
   switch (type) {
     case MediaGalleryPrefInfo::kUserAdded:
       result = kMediaGalleriesTypeUserAddedValue;
@@ -195,7 +195,7 @@ MediaGalleryPrefInfo::DefaultGalleryType GetDefaultGalleryType(
 
 const char* DefaultGalleryTypeToStringValue(
     MediaGalleryPrefInfo::DefaultGalleryType default_gallery_type) {
-  const char* result = NULL;
+  const char* result = nullptr;
   switch (default_gallery_type) {
     case MediaGalleryPrefInfo::kNotDefault:
       result = kMediaGalleriesDefaultGalleryTypeNotDefaultValue;
@@ -462,16 +462,16 @@ MediaGalleriesPreferences::~MediaGalleriesPreferences() {
     StorageMonitor::GetInstance()->RemoveObserver(this);
 }
 
-void MediaGalleriesPreferences::EnsureInitialized(base::Closure callback) {
+void MediaGalleriesPreferences::EnsureInitialized(base::OnceClosure callback) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 
   if (IsInitialized()) {
-    if (!callback.is_null())
-      callback.Run();
+    if (callback)
+      std::move(callback).Run();
     return;
   }
 
-  on_initialize_callbacks_.push_back(callback);
+  on_initialize_callbacks_.push_back(std::move(callback));
   if (on_initialize_callbacks_.size() > 1)
     return;
 
@@ -486,9 +486,8 @@ void MediaGalleriesPreferences::EnsureInitialized(base::Closure callback) {
   // return and add media galleries to it (hence why the APIHasBeenUsed check
   // needs to happen here rather than inside OnStorageMonitorInit itself).
   StorageMonitor::GetInstance()->EnsureInitialized(
-      base::Bind(&MediaGalleriesPreferences::OnStorageMonitorInit,
-                 weak_factory_.GetWeakPtr(),
-                 APIHasBeenUsed(profile_)));
+      base::BindOnce(&MediaGalleriesPreferences::OnStorageMonitorInit,
+                     weak_factory_.GetWeakPtr(), APIHasBeenUsed(profile_)));
 }
 
 bool MediaGalleriesPreferences::IsInitialized() const { return initialized_; }
@@ -572,10 +571,8 @@ void MediaGalleriesPreferences::OnStorageMonitorInit(
         existing_devices[i].total_size_in_bytes(), base::Time::Now(), 0, 0, 0);
   }
 
-  for (auto iter = on_initialize_callbacks_.begin();
-       iter != on_initialize_callbacks_.end(); ++iter) {
-    iter->Run();
-  }
+  for (base::OnceClosure& callback : on_initialize_callbacks_)
+    std::move(callback).Run();
   on_initialize_callbacks_.clear();
 }
 
@@ -588,7 +585,7 @@ void MediaGalleriesPreferences::InitFromPrefs() {
       prefs::kMediaGalleriesRememberedGalleries);
   if (list) {
     for (auto it = list->begin(); it != list->end(); ++it) {
-      const base::DictionaryValue* dict = NULL;
+      const base::DictionaryValue* dict = nullptr;
       if (!it->GetAsDictionary(&dict))
         continue;
 
@@ -1030,9 +1027,9 @@ void MediaGalleriesPreferences::EraseOrBlacklistGalleryById(
           dict->SetInteger(kMediaGalleriesScanVideoCountKey, 0);
         }
       } else {
-        list->Erase(iter, NULL);
+        list->Erase(iter, nullptr);
       }
-      update.reset(NULL);  // commits the update.
+      update.reset();  // commits the update.
 
       InitFromPrefs();
       for (auto& observer : gallery_change_observers_)
@@ -1156,7 +1153,7 @@ const MediaGalleriesPrefInfoMap& MediaGalleriesPreferences::known_galleries()
 
 void MediaGalleriesPreferences::Shutdown() {
   weak_factory_.InvalidateWeakPtrs();
-  profile_ = NULL;
+  profile_ = nullptr;
 }
 
 // static
@@ -1188,7 +1185,7 @@ bool MediaGalleriesPreferences::SetGalleryPermissionInPrefs(
   } else {
     // If the gallery is already in the list, update the permission...
     for (auto iter = permissions->begin(); iter != permissions->end(); ++iter) {
-      base::DictionaryValue* dict = NULL;
+      base::DictionaryValue* dict = nullptr;
       if (!iter->GetAsDictionary(&dict))
         continue;
       MediaGalleryPermission perm;
@@ -1224,14 +1221,14 @@ bool MediaGalleriesPreferences::UnsetGalleryPermissionInPrefs(
     return false;
 
   for (auto iter = permissions->begin(); iter != permissions->end(); ++iter) {
-    const base::DictionaryValue* dict = NULL;
+    const base::DictionaryValue* dict = nullptr;
     if (!iter->GetAsDictionary(&dict))
       continue;
     MediaGalleryPermission perm;
     if (!GetMediaGalleryPermissionFromDictionary(dict, &perm))
       continue;
     if (perm.pref_id == gallery_id) {
-      permissions->Erase(iter, NULL);
+      permissions->Erase(iter, nullptr);
       return true;
     }
   }
@@ -1251,7 +1248,7 @@ MediaGalleriesPreferences::GetGalleryPermissionsFromPrefs(
   }
 
   for (auto iter = permissions->begin(); iter != permissions->end(); ++iter) {
-    const base::DictionaryValue* dict = NULL;
+    const base::DictionaryValue* dict = nullptr;
     if (!iter->GetAsDictionary(&dict))
       continue;
     MediaGalleryPermission perm;

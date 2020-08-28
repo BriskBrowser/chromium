@@ -367,7 +367,7 @@ void InlineSigninHelper::OnClientOAuthSuccessAndBrowserOpened(
     LocalAuth::SetLocalAuthCredentials(profile_, password_);
   }
 
-#if defined(SYNC_PASSWORD_REUSE_DETECTION_ENABLED)
+#if defined(PASSWORD_REUSE_DETECTION_ENABLED)
   if (!password_.empty()) {
     scoped_refptr<password_manager::PasswordStore> password_store =
         PasswordStoreFactory::GetForProfile(profile_,
@@ -380,8 +380,10 @@ void InlineSigninHelper::OnClientOAuthSuccessAndBrowserOpened(
     }
   }
 #endif
-
   if (reason == HandlerSigninReason::UNLOCK) {
+    DCHECK(!identity_manager->GetPrimaryAccountInfo(signin::ConsentLevel::kSync)
+                .IsEmpty());
+
     identity_manager->GetAccountsMutator()->AddOrUpdateAccount(
         gaia_id_, email_, result.refresh_token,
         result.is_under_advanced_protection,
@@ -396,11 +398,9 @@ void InlineSigninHelper::OnClientOAuthSuccessAndBrowserOpened(
           base::BindOnce(&InlineLoginHandlerImpl::CloseTab, handler_));
     }
 
-    if (identity_manager->HasPrimaryAccount()) {
-      identity_manager->GetAccountsCookieMutator()->AddAccountToCookie(
-          identity_manager->GetPrimaryAccountId(),
-          gaia::GaiaSource::kPrimaryAccountManager, {});
-    }
+    identity_manager->GetAccountsCookieMutator()->AddAccountToCookie(
+        identity_manager->GetPrimaryAccountId(),
+        gaia::GaiaSource::kPrimaryAccountManager, {});
 
     signin_metrics::LogSigninReason(
         GetSigninReasonFromHandlerSigninReason(reason));
@@ -519,6 +519,13 @@ void InlineLoginHandlerImpl::SetExtraInitParams(base::DictionaryValue& params) {
         params.SetString("emailDomain", all_email_domains[0]);
     }
 
+    std::string show_tos;
+    if (net::GetValueForKeyInQuery(
+            current_url, credential_provider::kShowTosSwitch, &show_tos)) {
+      if (!show_tos.empty())
+        params.SetString("showTos", show_tos);
+    }
+
     // Prevent opening a new window if the embedded page fails to load.
     // This will keep the user from being able to access a fully functional
     // Chrome window in incognito mode.
@@ -580,7 +587,8 @@ void InlineLoginHandlerImpl::CompleteLogin(const std::string& email,
                                            bool skip_for_now,
                                            bool trusted,
                                            bool trusted_found,
-                                           bool choose_what_to_sync) {
+                                           bool choose_what_to_sync,
+                                           base::Value edu_login_params) {
   content::WebContents* contents = web_ui()->GetWebContents();
   const GURL& current_url = contents->GetURL();
 
@@ -811,7 +819,7 @@ void InlineLoginHandlerImpl::HandleLoginError(const std::string& error_msg,
 void InlineLoginHandlerImpl::SendLSTFetchResultsMessage(
     const base::Value& arg) {
   if (IsJavascriptAllowed())
-    CallJavascriptFunction("inline.login.sendLSTFetchResults", arg);
+    FireWebUIListener("send-lst-fetch-results", arg);
 }
 
 Browser* InlineLoginHandlerImpl::GetDesktopBrowser() {

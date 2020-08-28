@@ -9,6 +9,8 @@
 #include <errno.h>
 #include <stddef.h>
 #include <string.h>
+#include <sys/sysctl.h>
+#include <sys/types.h>
 #include <sys/utsname.h>
 #include <sys/xattr.h>
 
@@ -20,63 +22,15 @@
 #include "base/mac/scoped_cftyperef.h"
 #include "base/mac/scoped_ioobject.h"
 #include "base/mac/scoped_nsobject.h"
-#include "base/mac/sdk_forward_declarations.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/sys_string_conversions.h"
+#include "build/build_config.h"
 
 namespace base {
 namespace mac {
 
 namespace {
-
-// The current count of outstanding requests for full screen mode from browser
-// windows, plugins, etc.
-int g_full_screen_requests[kNumFullScreenModes] = { 0 };
-
-// Sets the appropriate application presentation option based on the current
-// full screen requests.  Since only one presentation option can be active at a
-// given time, full screen requests are ordered by priority.  If there are no
-// outstanding full screen requests, reverts to normal mode.  If the correct
-// presentation option is already set, does nothing.
-void SetUIMode() {
-  NSApplicationPresentationOptions current_options =
-      [NSApp presentationOptions];
-
-  // Determine which mode should be active, based on which requests are
-  // currently outstanding.  More permissive requests take precedence.  For
-  // example, plugins request |kFullScreenModeAutoHideAll|, while browser
-  // windows request |kFullScreenModeHideDock| when the fullscreen overlay is
-  // down.  Precedence goes to plugins in this case, so AutoHideAll wins over
-  // HideDock.
-  NSApplicationPresentationOptions desired_options =
-      NSApplicationPresentationDefault;
-  if (g_full_screen_requests[kFullScreenModeAutoHideAll] > 0) {
-    desired_options = NSApplicationPresentationHideDock |
-                      NSApplicationPresentationAutoHideMenuBar;
-  } else if (g_full_screen_requests[kFullScreenModeHideDock] > 0) {
-    desired_options = NSApplicationPresentationHideDock;
-  } else if (g_full_screen_requests[kFullScreenModeHideAll] > 0) {
-    desired_options = NSApplicationPresentationHideDock |
-                      NSApplicationPresentationHideMenuBar;
-  }
-
-  // Mac OS X bug: if the window is fullscreened (Lion-style) and
-  // NSApplicationPresentationDefault is requested, the result is that the menu
-  // bar doesn't auto-hide. rdar://13576498 http://www.openradar.me/13576498
-  //
-  // As a workaround, in that case, explicitly set the presentation options to
-  // the ones that are set by the system as it fullscreens a window.
-  if (desired_options == NSApplicationPresentationDefault &&
-      current_options & NSApplicationPresentationFullScreen) {
-    desired_options |= NSApplicationPresentationFullScreen |
-                       NSApplicationPresentationAutoHideMenuBar |
-                       NSApplicationPresentationAutoHideDock;
-  }
-
-  if (current_options != desired_options)
-    [NSApp setPresentationOptions:desired_options];
-}
 
 // Looks into Shared File Lists corresponding to Login Items for the item
 // representing the current application.  If such an item is found, returns a
@@ -165,51 +119,6 @@ CGColorSpaceRef GetSystemColorSpace() {
   }
 
   return g_system_color_space;
-}
-
-// Add a request for full screen mode.  Must be called on the main thread.
-void RequestFullScreen(FullScreenMode mode) {
-  DCHECK_LT(mode, kNumFullScreenModes);
-  if (mode >= kNumFullScreenModes)
-    return;
-
-  DCHECK_GE(g_full_screen_requests[mode], 0);
-  if (mode < 0)
-    return;
-
-  g_full_screen_requests[mode] = std::max(g_full_screen_requests[mode] + 1, 1);
-  SetUIMode();
-}
-
-// Release a request for full screen mode.  Must be called on the main thread.
-void ReleaseFullScreen(FullScreenMode mode) {
-  DCHECK_LT(mode, kNumFullScreenModes);
-  if (mode >= kNumFullScreenModes)
-    return;
-
-  DCHECK_GE(g_full_screen_requests[mode], 0);
-  if (mode < 0)
-    return;
-
-  g_full_screen_requests[mode] = std::max(g_full_screen_requests[mode] - 1, 0);
-  SetUIMode();
-}
-
-// Switches full screen modes.  Releases a request for |from_mode| and adds a
-// new request for |to_mode|.  Must be called on the main thread.
-void SwitchFullScreenModes(FullScreenMode from_mode, FullScreenMode to_mode) {
-  DCHECK_LT(from_mode, kNumFullScreenModes);
-  DCHECK_LT(to_mode, kNumFullScreenModes);
-  if (from_mode >= kNumFullScreenModes || to_mode >= kNumFullScreenModes)
-    return;
-
-  DCHECK_GT(g_full_screen_requests[from_mode], 0);
-  DCHECK_GE(g_full_screen_requests[to_mode], 0);
-  g_full_screen_requests[from_mode] =
-      std::max(g_full_screen_requests[from_mode] - 1, 0);
-  g_full_screen_requests[to_mode] =
-      std::max(g_full_screen_requests[to_mode] + 1, 1);
-  SetUIMode();
 }
 
 bool GetFileBackupExclusion(const FilePath& file_path) {
@@ -365,16 +274,16 @@ bool RemoveQuarantineAttribute(const FilePath& file_path) {
 
 namespace {
 
-// Returns the running system's Darwin major version. Don't call this, it's
-// an implementation detail and its result is meant to be cached by
-// MacOSXMinorVersion.
+// Returns the running system's Darwin major version. Don't call this, it's an
+// implementation detail and its result is meant to be cached by
+// MacOSVersionInternal().
 int DarwinMajorVersionInternal() {
-  // base::OperatingSystemVersionNumbers calls Gestalt, which is a
-  // higher-level operation than is needed. It might perform unnecessary
-  // operations. On 10.6, it was observed to be able to spawn threads (see
-  // http://crbug.com/53200). It might also read files or perform other
-  // blocking operations. Actually, nobody really knows for sure just what
-  // Gestalt might do, or what it might be taught to do in the future.
+  // base::OperatingSystemVersionNumbers() at one time called Gestalt(), which
+  // was observed to be able to spawn threads (see https://crbug.com/53200).
+  // Nowadays that function calls -[NSProcessInfo operatingSystemVersion], whose
+  // current implementation does things like hit the file system, which is
+  // possibly a blocking operation. Either way, it's overkill for what needs to
+  // be done here.
   //
   // uname, on the other hand, is implemented as a simple series of sysctl
   // system calls to obtain the relevant data from the kernel. The data is
@@ -410,34 +319,62 @@ int DarwinMajorVersionInternal() {
   return darwin_major_version;
 }
 
-// Returns the running system's Mac OS X minor version. This is the |y| value
-// in 10.y or 10.y.z. Don't call this, it's an implementation detail and the
-// result is meant to be cached by MacOSXMinorVersion.
-int MacOSXMinorVersionInternal() {
+// The implementation of MacOSVersion() as defined in the header. Don't call
+// this, it's an implementation detail and the result is meant to be cached by
+// MacOSVersion().
+int MacOSVersionInternal() {
   int darwin_major_version = DarwinMajorVersionInternal();
 
-  // The Darwin major version is always 4 greater than the Mac OS X minor
-  // version for Darwin versions beginning with 6, corresponding to Mac OS X
-  // 10.2. Since this correspondence may change in the future, warn when
-  // encountering a version higher than anything seen before. Older Darwin
-  // versions, or versions that can't be determined, result in immediate death.
+  // Darwin major versions 6 through 19 corresponded to macOS versions 10.2
+  // through 10.15.
   CHECK(darwin_major_version >= 6);
-  int mac_os_x_minor_version = darwin_major_version - 4;
-  DLOG_IF(WARNING, darwin_major_version > 19)
-      << "Assuming Darwin " << base::NumberToString(darwin_major_version)
-      << " is macOS 10." << base::NumberToString(mac_os_x_minor_version);
+  if (darwin_major_version <= 19)
+    return 1000 + darwin_major_version - 4;
 
-  return mac_os_x_minor_version;
+  // Darwin major version 20 corresponds to macOS version 11.0. Assume a
+  // correspondence between Darwin's major version numbers and macOS major
+  // version numbers.
+  int macos_major_version = darwin_major_version - 9;
+  DLOG_IF(WARNING, darwin_major_version > 20)
+      << "Assuming Darwin " << base::NumberToString(darwin_major_version)
+      << " is macOS " << base::NumberToString(macos_major_version);
+
+  return macos_major_version * 100;
 }
 
 }  // namespace
 
 namespace internal {
-int MacOSXMinorVersion() {
-  static int mac_os_x_minor_version = MacOSXMinorVersionInternal();
-  return mac_os_x_minor_version;
+
+int MacOSVersion() {
+  static int macos_version = MacOSVersionInternal();
+  return macos_version;
 }
+
 }  // namespace internal
+
+#if defined(ARCH_CPU_X86_64)
+namespace {
+// https://developer.apple.com/documentation/apple_silicon/about_the_rosetta_translation_environment#3616845
+bool ProcessIsTranslated() {
+  int ret = 0;
+  size_t size = sizeof(ret);
+  if (sysctlbyname("sysctl.proc_translated", &ret, &size, nullptr, 0) == -1)
+    return false;
+  return ret;
+}
+}  // namespace
+#endif  // ARCH_CPU_X86_64
+
+CPUType GetCPUType() {
+#if defined(ARCH_CPU_ARM64)
+  return CPUType::kArm;
+#elif defined(ARCH_CPU_X86_64)
+  return ProcessIsTranslated() ? CPUType::kTranslatedIntel : CPUType::kIntel;
+#else
+#error Time for another chip transition?
+#endif  // ARCH_CPU_*
+}
 
 std::string GetModelIdentifier() {
   std::string return_string;

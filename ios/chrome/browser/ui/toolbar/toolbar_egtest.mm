@@ -15,6 +15,7 @@
 #import "ios/testing/earl_grey/earl_grey_test.h"
 #import "ios/web/public/test/http_server/http_server.h"
 #include "ios/web/public/test/http_server/http_server_util.h"
+#include "net/test/embedded_test_server/embedded_test_server.h"
 #include "ui/base/l10n/l10n_util_mac.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
@@ -36,9 +37,8 @@ using chrome_test_util::SystemSelectionCalloutCopyButton;
 // Verifies that entering a URL in the omnibox navigates to the correct URL and
 // displays content.
 - (void)testEnterURL {
-  web::test::SetUpFileBasedHttpServer();
-  const GURL URL = web::test::HttpServer::MakeUrl(
-      "http://ios/testing/data/http_server_files/destination.html");
+  GREYAssertTrue(self.testServer->Start(), @"Server did not start.");
+  const GURL URL = self.testServer->GetURL("/destination.html");
   [ChromeEarlGrey loadURL:URL];
   [[EarlGrey selectElementWithMatcher:OmniboxText(URL.GetContent())]
       assertWithMatcher:grey_notNil()];
@@ -133,15 +133,13 @@ using chrome_test_util::SystemSelectionCalloutCopyButton;
 // Tests whether input mode in an omnibox can be canceled via tapping the typing
 // shield and asserts it doesn't commit the omnibox contents if the input is
 // canceled.
-- (void)testToolbarOmniboxTypingShield {
+// TODO(crbug.com/753098): Re-enable this test on iPad once grey_typeText
+// works on iOS 11.
+- (void)DISABLED_testToolbarOmniboxTypingShield {
   // Tablet only (handset keyboard does not have "hide keyboard" button).
   if (![ChromeEarlGrey isIPadIdiom]) {
     EARL_GREY_TEST_SKIPPED(@"Test not support on iPhone");
   }
-
-  // TODO(crbug.com/753098): Re-enable this test on iPad once grey_typeText
-  // works on iOS 11.
-  EARL_GREY_TEST_DISABLED(@"Test disabled on iPad.");
 
   const GURL URL = web::test::HttpServer::MakeUrl("http://origin");
 
@@ -203,11 +201,9 @@ using chrome_test_util::SystemSelectionCalloutCopyButton;
 }
 
 // Verifies that copying and pasting a URL includes the hidden protocol prefix.
-- (void)testCopyPasteURL {
-  // TODO(crbug.com/834345): Enable this test when long press on the steady
-  // location bar is supported.
-  EARL_GREY_TEST_SKIPPED(@"Test not supported yet in UI Refresh.");
-
+// TODO(crbug.com/834345): Enable this test when long press on the steady
+// location bar is supported.
+- (void)DISABLED_testCopyPasteURL {
   // Clear generalPasteboard before and after the test.
   [UIPasteboard generalPasteboard].string = @"";
   [self setTearDownHandler:^{
@@ -296,6 +292,12 @@ using chrome_test_util::SystemSelectionCalloutCopyButton;
 
 // Types JavaScript into Omnibox and verify that an alert is displayed.
 - (void)testTypeJavaScriptIntoOmnibox {
+// TODO(crbug.com/1067819): Test won't pass on iPad devices.
+#if !TARGET_IPHONE_SIMULATOR
+  if ([ChromeEarlGrey isIPadIdiom]) {
+    EARL_GREY_TEST_SKIPPED(@"This test doesn't pass on iPad device.");
+  }
+#endif
   std::map<GURL, std::string> responses;
   GURL URL = web::test::HttpServer::MakeUrl("http://foo");
   responses[URL] = "bar";
@@ -312,6 +314,12 @@ using chrome_test_util::SystemSelectionCalloutCopyButton;
 // not displayed. WebUI pages have elevated privileges and should not allow
 // script execution.
 - (void)testTypeJavaScriptIntoOmniboxWithWebUIPage {
+// TODO(crbug.com/1067819): Test won't pass on iPad devices.
+#if !TARGET_IPHONE_SIMULATOR
+  if ([ChromeEarlGrey isIPadIdiom]) {
+    EARL_GREY_TEST_SKIPPED(@"This test doesn't pass on iPad device.");
+  }
+#endif
   [ChromeEarlGrey loadURL:GURL("chrome://version")];
   [ChromeEarlGreyUI focusOmniboxAndType:@"javascript:alert('Hello');\n"];
 

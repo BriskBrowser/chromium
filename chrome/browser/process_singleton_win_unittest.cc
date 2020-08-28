@@ -9,11 +9,12 @@
 #include <memory>
 
 #include "base/bind.h"
+#include "base/check.h"
 #include "base/command_line.h"
 #include "base/compiler_specific.h"
 #include "base/files/file_path.h"
 #include "base/files/scoped_temp_dir.h"
-#include "base/logging.h"
+#include "base/notreached.h"
 #include "base/process/launch.h"
 #include "base/process/process.h"
 #include "base/process/process_handle.h"
@@ -125,8 +126,8 @@ MULTIPROCESS_TEST_MAIN(ProcessSingletonTestProcessMain) {
   }
 
   // Instantiate the process singleton.
-  ProcessSingleton process_singleton(user_data_dir,
-                                     base::Bind(&NotificationCallback));
+  ProcessSingleton process_singleton(
+      user_data_dir, base::BindRepeating(&NotificationCallback));
 
   if (!process_singleton.Create())
     return kErrorResultCode;
@@ -222,11 +223,11 @@ class ProcessSingletonTest : public base::MultiProcessTest {
     // The ready event has been signalled - the process singleton is held by
     // the hung sub process.
     test_singleton_.reset(new ProcessSingleton(
-        user_data_dir(), base::Bind(&NotificationCallback)));
+        user_data_dir(), base::BindRepeating(&NotificationCallback)));
 
     test_singleton_->OverrideShouldKillRemoteProcessCallbackForTesting(
-        base::Bind(&ProcessSingletonTest::MockShouldKillRemoteProcess,
-                   base::Unretained(this), allow_kill));
+        base::BindRepeating(&ProcessSingletonTest::MockShouldKillRemoteProcess,
+                            base::Unretained(this), allow_kill));
   }
 
   base::Process* browser_victim() { return &browser_victim_; }

@@ -24,6 +24,7 @@
 #include "chrome/test/base/testing_browser_process.h"
 #include "chrome/test/base/ui_test_utils.h"
 #include "content/public/browser/notification_service.h"
+#include "content/public/test/browser_test.h"
 #include "content/public/test/test_utils.h"
 
 namespace {
@@ -54,9 +55,9 @@ class ProfileListDesktopBrowserTest : public InProcessBrowserTest {
   DISALLOW_COPY_AND_ASSIGN(ProfileListDesktopBrowserTest);
 };
 
-#if defined(OS_WIN) || (defined(OS_MACOSX) && defined(ADDRESS_SANITIZER))
-// SignOut is flaky on Windows, crbug.com/357329,
-// and Mac with ASAN, crbug.com/674497.
+#if defined(OS_WIN) || defined(OS_MAC)
+// SignOut is flaky on Windows (crbug.com/357329)
+// and Mac (crbug.com/674497, crbug.com/1110452).
 #define MAYBE_SignOut DISABLED_SignOut
 #elif defined(OS_CHROMEOS)
 // This test doesn't make sense for Chrome OS since it has a different
@@ -141,18 +142,18 @@ IN_PROC_BROWSER_TEST_F(ProfileListDesktopBrowserTest, MAYBE_SwitchToProfile) {
 
   // Open a browser window for the first profile.
   menu->SwitchToProfile(menu->GetIndexOfItemWithProfilePath(path_profile1),
-                        false, ProfileMetrics::SWITCH_PROFILE_ICON);
+                        false);
   EXPECT_EQ(1u, browser_list->size());
   EXPECT_EQ(path_profile1, browser_list->get(0)->profile()->GetPath());
 
   // Open a browser window for the second profile.
   menu->SwitchToProfile(menu->GetIndexOfItemWithProfilePath(path_profile2),
-                        false, ProfileMetrics::SWITCH_PROFILE_ICON);
+                        false);
   EXPECT_EQ(2u, browser_list->size());
 
   // Switch to the first profile without opening a new window.
   menu->SwitchToProfile(menu->GetIndexOfItemWithProfilePath(path_profile1),
-                        false, ProfileMetrics::SWITCH_PROFILE_ICON);
+                        false);
   EXPECT_EQ(2u, browser_list->size());
   EXPECT_EQ(path_profile1, browser_list->get(0)->profile()->GetPath());
   EXPECT_EQ(path_profile2, browser_list->get(1)->profile()->GetPath());

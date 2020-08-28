@@ -6,8 +6,6 @@
  * @fileoverview Polymer element for displaying the IP Config properties for
  * a network state.
  */
-(function() {
-'use strict';
 
 /**
  * Returns the routing prefix as a string for a given prefix length. If
@@ -49,11 +47,14 @@ const getRoutingPrefixAsNetmask = function(prefixLength) {
  */
 const getRoutingPrefixAsLength = function(netmask) {
   'use strict';
-  let prefixLength = 0;
+  if (!netmask) {
+    return chromeos.networkConfig.mojom.NO_ROUTING_PREFIX;
+  }
   const tokens = netmask.split('.');
   if (tokens.length !== 4) {
-    return -1;
+    return chromeos.networkConfig.mojom.NO_ROUTING_PREFIX;
   }
+  let prefixLength = 0;
   for (let i = 0; i < tokens.length; ++i) {
     const token = tokens[i];
     // If we already found the last mask and the current one is not
@@ -134,6 +135,14 @@ Polymer({
       },
       readOnly: true
     },
+  },
+
+  /**
+   * Returns the automatically configure IP CrToggleElement.
+   * @return {?CrToggleElement}
+   */
+  getAutoConfigIpToggle() {
+    return /** @type {?CrToggleElement} */ (this.$$('#autoConfigIpToggle'));
   },
 
   /**
@@ -235,19 +244,20 @@ Polymer({
     if (!ipconfig) {
       return undefined;
     }
-    const result = {};
-    for (const key in ipconfig) {
-      const value = ipconfig[key];
-      if (key === 'routingPrefix') {
-        const netmask = getRoutingPrefixAsNetmask(value);
-        if (netmask !== undefined) {
-          result.routingPrefix = netmask;
-        }
-      } else {
-        result[key] = value;
+
+    // Copy |ipconfig| into a new object, |newIpconfig|.
+    const newIpconfig = {};
+    Object.assign(newIpconfig, ipconfig);
+
+    if (ipconfig.routingPrefix !==
+        chromeos.networkConfig.mojom.NO_ROUTING_PREFIX) {
+      const netmask = getRoutingPrefixAsNetmask(ipconfig.routingPrefix);
+      if (netmask !== undefined) {
+        newIpconfig.routingPrefix = netmask;
       }
     }
-    return result;
+
+    return newIpconfig;
   },
 
   /**
@@ -262,10 +272,7 @@ Polymer({
     for (const key in ipconfig) {
       const value = ipconfig[key];
       if (key === 'routingPrefix') {
-        const routingPrefix = getRoutingPrefixAsLength(value);
-        if (routingPrefix !== chromeos.networkConfig.mojom.NO_ROUTING_PREFIX) {
-          result.routingPrefix = routingPrefix;
-        }
+        result.routingPrefix = getRoutingPrefixAsLength(value);
       } else {
         result[key] = value;
       }
@@ -278,11 +285,17 @@ Polymer({
    * @private
    */
   hasIpConfigFields_() {
-    if (!this.ipConfigFields_) {
+    if (!this.ipConfig_) {
       return false;
     }
     for (let i = 0; i < this.ipConfigFields_.length; ++i) {
-      if (this.get(this.ipConfigFields_[i], this.ipConfig_) !== undefined) {
+      const key = this.ipConfigFields_[i];
+      const value = this.get(key, this.ipConfig_);
+      if (key === 'ipv4.routingPrefix') {
+        if (value !== chromeos.networkConfig.mojom.NO_ROUTING_PREFIX) {
+          return true;
+        }
+      } else if (value !== undefined && value !== '') {
         return true;
       }
     }
@@ -290,19 +303,12 @@ Polymer({
   },
 
   /**
-   * @param {string} path path to a property inside of |managedProperties|.
-   * @return {string|undefined} Edit type to be used in network-property-list
-   *     for the given path.
+   * @param {?OncMojo.ManagedProperty|undefined} property
+   * @return {string|undefined} Edit type to be used in network-property-list.
    * @private
    */
-  getIPFieldEditType_(path) {
-    if (!this.managedProperties) {
-      return undefined;
-    }
-    const property = /** @type{!OncMojo.ManagedProperty|undefined}*/ (
-        this.get(path, this.managedProperties));
-    return (property && this.isNetworkPolicyEnforced(property)) ? undefined :
-                                                                  'String';
+  getIPFieldEditType_(property) {
+    return this.isNetworkPolicyEnforced(property) ? undefined : 'String';
   },
 
   /**
@@ -310,14 +316,16 @@ Polymer({
    * @private
    */
   getIPEditFields_() {
-    if (this.automatic_ || !this.managedProperties) {
+    const staticIpConfig =
+        this.managedProperties && this.managedProperties.staticIpConfig;
+    if (this.automatic_ || !staticIpConfig) {
       return {};
     }
     return {
-      'ipv4.ipAddress': this.getIPFieldEditType_('staticIpConfig.ipAddress'),
+      'ipv4.ipAddress': this.getIPFieldEditType_(staticIpConfig.ipAddress),
       'ipv4.routingPrefix':
-          this.getIPFieldEditType_('staticIpConfig.routingPrefix'),
-      'ipv4.gateway': this.getIPFieldEditType_('staticIpConfig.gateway')
+          this.getIPFieldEditType_(staticIpConfig.routingPrefix),
+      'ipv4.gateway': this.getIPFieldEditType_(staticIpConfig.gateway)
     };
   },
 
@@ -349,4 +357,3 @@ Polymer({
     });
   },
 });
-})();

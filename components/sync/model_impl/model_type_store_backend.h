@@ -26,32 +26,6 @@ class WriteBatch;
 
 namespace syncer {
 
-// Different reasons for ModelTypeStoreBackend initialization failure are mapped
-// to these values. The enum is used for recording UMA histogram. Don't reorder,
-// change or delete values.
-enum StoreInitResultForHistogram {
-  STORE_INIT_RESULT_SUCCESS = 0,
-
-  // Following values reflect leveldb initialization errors.
-  STORE_INIT_RESULT_NOT_FOUND,
-  STORE_INIT_RESULT_CORRUPTION,
-  STORE_INIT_RESULT_NOT_SUPPORTED,
-  STORE_INIT_RESULT_INVALID_ARGUMENT,
-  STORE_INIT_RESULT_IO_ERROR,
-
-  // Issues encountered when reading or parsing schema descriptor.
-  STORE_INIT_RESULT_SCHEMA_DESCRIPTOR_ISSUE,
-
-  // Database schema migration failed.
-  STORE_INIT_RESULT_MIGRATION,
-
-  STORE_INIT_RESULT_UNKNOWN,
-
-  // Database was reset after attempt to open failed with corruption.
-  STORE_INIT_RESULT_RECOVERED_AFTER_CORRUPTION,
-  STORE_INIT_RESULT_COUNT
-};
-
 // ModelTypeStoreBackend handles operations with leveldb. It is oblivious of the
 // fact that it is called from separate thread (with the exception of ctor),
 // meaning it shouldn't deal with callbacks and task_runners.
@@ -90,9 +64,11 @@ class ModelTypeStoreBackend
       const std::string& prefix,
       ModelTypeStore::RecordList* record_list);
 
-  // Writes modifications accumulated in |write_batch| to database.
+  // Writes modifications accumulated in |write_batch| to database. If |outcome|
+  // is not null, it will contain the leveldb::Status of this operation.
   base::Optional<ModelError> WriteModifications(
-      std::unique_ptr<leveldb::WriteBatch> write_batch);
+      std::unique_ptr<leveldb::WriteBatch> write_batch,
+      leveldb::Status* outcome = nullptr);
 
   base::Optional<ModelError> DeleteDataAndMetadataForPrefix(
       const std::string& prefix);
@@ -107,7 +83,6 @@ class ModelTypeStoreBackend
   // Some constants exposed for testing.
   static const int64_t kLatestSchemaVersion;
   static const char kDBSchemaDescriptorRecordId[];
-  static const char kStoreInitResultHistogramName[];
 
  private:
   friend class base::RefCountedThreadSafe<ModelTypeStoreBackend>;
@@ -141,9 +116,6 @@ class ModelTypeStoreBackend
   // Migrates from no version record at all (version 0) to version 1 of
   // the schema, returning true on success.
   bool Migrate0To1();
-
-  static void RecordStoreInitResultHistogram(
-      StoreInitResultForHistogram result);
 
   // In some scenarios ModelTypeStoreBackend holds ownership of env. Typical
   // example is when test creates in memory environment with CreateInMemoryEnv

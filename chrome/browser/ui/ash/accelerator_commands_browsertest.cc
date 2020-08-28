@@ -18,10 +18,9 @@
 #include "chrome/browser/ui/views/frame/browser_view.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/test/base/in_process_browser_test.h"
-#include "content/public/common/service_manager_connection.h"
+#include "content/public/test/browser_test.h"
 #include "extensions/browser/app_window/app_window.h"
 #include "extensions/browser/app_window/native_app_window.h"
-#include "services/service_manager/public/cpp/connector.h"
 #include "ui/aura/client/aura_constants.h"
 #include "ui/aura/window.h"
 #include "ui/aura/window_observer.h"
@@ -33,18 +32,6 @@ using testing::Values;
 using testing::WithParamInterface;
 
 namespace {
-
-// WidgetDelegateView which allows the widget to be maximized.
-class MaximizableWidgetDelegate : public views::WidgetDelegateView {
- public:
-  MaximizableWidgetDelegate() {}
-  ~MaximizableWidgetDelegate() override {}
-
-  bool CanMaximize() const override { return true; }
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(MaximizableWidgetDelegate);
-};
 
 bool IsInImmersive(aura::Window* window) {
   return window->GetProperty(ash::kImmersiveIsActive);
@@ -154,7 +141,8 @@ IN_PROC_BROWSER_TEST_P(AcceleratorCommandsFullscreenBrowserTest,
 
   // 5) Miscellaneous windows (e.g. task manager).
   views::Widget::InitParams params;
-  params.delegate = new MaximizableWidgetDelegate();
+  params.delegate = new views::WidgetDelegateView;
+  params.delegate->SetCanMaximize(true);
   params.ownership = views::Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
   views::Widget misc_widget;
   widget = &misc_widget;

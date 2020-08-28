@@ -16,6 +16,7 @@
 #include "ui/aura/window.h"
 #include "ui/aura/window_event_dispatcher.h"
 #include "ui/aura/window_tree_host_observer.h"
+#include "ui/base/cursor/mojom/cursor_type.mojom-shared.h"
 #include "ui/base/layout.h"
 #include "ui/compositor/compositor.h"
 #include "ui/display/display.h"
@@ -27,6 +28,8 @@
 #include "ui/platform_window/platform_window_init_properties.h"
 
 #if defined(USE_OZONE)
+#include "ui/base/ui_base_features.h"
+#include "ui/events/keycodes/dom/dom_keyboard_layout_map.h"
 #include "ui/ozone/public/ozone_platform.h"
 #endif
 
@@ -37,8 +40,6 @@
 
 #if defined(USE_X11)
 #include "ui/platform_window/x11/x11_window.h"  // nogncheck
-#else
-#include "ui/events/keycodes/dom/dom_keyboard_layout_map.h"
 #endif
 
 namespace aura {
@@ -53,33 +54,40 @@ std::unique_ptr<WindowTreeHost> WindowTreeHost::Create(
 
 WindowTreeHostPlatform::WindowTreeHostPlatform(
     ui::PlatformWindowInitProperties properties,
-    std::unique_ptr<Window> window,
-    const char* trace_environment_name,
-    bool use_external_begin_frame_control)
+    std::unique_ptr<Window> window)
     : WindowTreeHost(std::move(window)) {
   bounds_in_pixels_ = properties.bounds;
-  CreateCompositor(viz::FrameSinkId(),
-                   /* force_software_compositor */ false,
-                   use_external_begin_frame_control, trace_environment_name);
+  CreateCompositor();
   CreateAndSetPlatformWindow(std::move(properties));
 }
 
 WindowTreeHostPlatform::WindowTreeHostPlatform(std::unique_ptr<Window> window)
     : WindowTreeHost(std::move(window)),
       widget_(gfx::kNullAcceleratedWidget),
-      current_cursor_(ui::CursorType::kNull) {}
+      current_cursor_(ui::mojom::CursorType::kNull) {}
 
 void WindowTreeHostPlatform::CreateAndSetPlatformWindow(
     ui::PlatformWindowInitProperties properties) {
+#if defined(USE_OZONE) || defined(USE_X11)
 #if defined(USE_OZONE)
-  platform_window_ = ui::OzonePlatform::GetInstance()->CreatePlatformWindow(
-      this, std::move(properties));
+  if (features::IsUsingOzonePlatform()) {
+    platform_window_ = ui::OzonePlatform::GetInstance()->CreatePlatformWindow(
+        this, std::move(properties));
+    return;
+  }
+#endif
+#if defined(USE_X11)
+  auto platform_window = std::make_unique<ui::X11Window>(this);
+  auto* x11_window = platform_window.get();
+  // platform_window() may be called during Initialize(), so call
+  // SetPlatformWindow() now.
+  SetPlatformWindow(std::move(platform_window));
+  x11_window->Initialize(std::move(properties));
+  return;
+#endif
+  NOTREACHED();
 #elif defined(OS_WIN)
   platform_window_.reset(new ui::WinWindow(this, properties.bounds));
-#elif defined(USE_X11)
-  auto x11_window = std::make_unique<ui::X11Window>(this);
-  x11_window->Initialize(std::move(properties));
-  SetPlatformWindow(std::move(x11_window));
 #else
   NOTIMPLEMENTED();
 #endif
@@ -163,12 +171,13 @@ bool WindowTreeHostPlatform::IsKeyLocked(ui::DomCode dom_code) {
 
 base::flat_map<std::string, std::string>
 WindowTreeHostPlatform::GetKeyboardLayoutMap() {
-#if !defined(USE_X11)
-  return ui::GenerateDomKeyboardLayoutMap();
-#else
+#if defined(USE_OZONE)
+  // USE_X11 supports keyboard layout map through LinuxUI.
+  if (features::IsUsingOzonePlatform())
+    return ui::GenerateDomKeyboardLayoutMap();
+#endif
   NOTIMPLEMENTED();
   return {};
-#endif
 }
 
 void WindowTreeHostPlatform::SetCursorNative(gfx::NativeCursor cursor) {
@@ -251,6 +260,8 @@ void WindowTreeHostPlatform::OnAcceleratedWidgetAvailable(
   if (compositor())
     WindowTreeHost::OnAcceleratedWidgetAvailable();
 }
+
+void WindowTreeHostPlatform::OnWillDestroyAcceleratedWidget() {}
 
 void WindowTreeHostPlatform::OnAcceleratedWidgetDestroyed() {
   gfx::AcceleratedWidget widget = compositor()->ReleaseAcceleratedWidget();

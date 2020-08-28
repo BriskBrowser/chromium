@@ -4,14 +4,13 @@
 
 #include "base/macros.h"
 #include "base/run_loop.h"
+#include "base/sequence_checker.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/scoped_feature_list.h"
-#include "chrome/browser/metrics/subprocess_metrics_provider.h"
 #include "chrome/browser/navigation_predictor/navigation_predictor.h"
 #include "chrome/browser/navigation_predictor/navigation_predictor_keyed_service.h"
 #include "chrome/browser/navigation_predictor/navigation_predictor_keyed_service_factory.h"
-#include "chrome/browser/prerender/prerender_manager.h"
 #include "chrome/browser/prerender/prerender_manager_factory.h"
 #include "chrome/browser/search_engines/template_url_service_factory.h"
 #include "chrome/browser/subresource_filter/subresource_filter_browser_test_harness.h"
@@ -21,37 +20,21 @@
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/search_test_utils.h"
 #include "chrome/test/base/ui_test_utils.h"
+#include "components/prerender/browser/prerender_manager.h"
 #include "components/search_engines/template_url_service.h"
 #include "components/ukm/test_ukm_recorder.h"
+#include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
 #include "net/base/features.h"
 #include "net/dns/mock_host_resolver.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
 #include "net/test/embedded_test_server/embedded_test_server_connection_listener.h"
 #include "services/metrics/public/cpp/ukm_builders.h"
+#include "testing/gmock/include/gmock/gmock.h"
 #include "third_party/blink/public/common/features.h"
 #include "url/gurl.h"
 
 namespace {
-
-// Retries fetching |histogram_name| until it contains at least |count| samples.
-void RetryForHistogramUntilCountReached(base::HistogramTester* histogram_tester,
-                                        const std::string& histogram_name,
-                                        size_t count) {
-  base::RunLoop().RunUntilIdle();
-  for (size_t attempt = 0; attempt < 50; ++attempt) {
-    const std::vector<base::Bucket> buckets =
-        histogram_tester->GetAllSamples(histogram_name);
-    size_t total_count = 0;
-    for (const auto& bucket : buckets)
-      total_count += bucket.count;
-    if (total_count >= count)
-      return;
-    content::FetchHistogramsFromChildProcesses();
-    SubprocessMetricsProvider::MergeHistogramDeltasForTesting();
-    base::RunLoop().RunUntilIdle();
-  }
-}
 
 // Verifies that all URLs specified in |expected_urls| are present in
 // |urls_from_observed_prediction|. Ordering of URLs is NOT verified.
@@ -131,20 +114,27 @@ class NavigationPredictorBrowserTest
 class TestObserver : public NavigationPredictorKeyedService::Observer {
  public:
   TestObserver() {}
-  ~TestObserver() override {}
+  ~TestObserver() override {
+    DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  }
 
   base::Optional<NavigationPredictorKeyedService::Prediction> last_prediction()
       const {
+    DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
     return last_prediction_;
   }
 
-  size_t count_predictions() const { return count_predictions_; }
+  size_t count_predictions() const {
+    DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+    return count_predictions_;
+  }
 
   // Waits until the count if received notifications is at least
   // |expected_notifications_count|.
   void WaitUntilNotificationsCountReached(size_t expected_notifications_count) {
+    DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
     // Ensure that |wait_loop_| is null implying there is no ongoing wait.
-    ASSERT_FALSE(!!wait_loop_);
+    ASSERT_FALSE(wait_loop_);
 
     if (count_predictions_ >= expected_notifications_count)
       return;
@@ -156,8 +146,9 @@ class TestObserver : public NavigationPredictorKeyedService::Observer {
 
  private:
   void OnPredictionUpdated(
-      const base::Optional<NavigationPredictorKeyedService::Prediction>&
+      const base::Optional<NavigationPredictorKeyedService::Prediction>
           prediction) override {
+    DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
     ++count_predictions_;
     last_prediction_ = prediction;
     if (wait_loop_ && count_predictions_ >= expected_notifications_count_) {
@@ -176,6 +167,8 @@ class TestObserver : public NavigationPredictorKeyedService::Observer {
   std::unique_ptr<base::RunLoop> wait_loop_;
   base::Optional<size_t> expected_notifications_count_;
 
+  SEQUENCE_CHECKER(sequence_checker_);
+
   DISALLOW_COPY_AND_ASSIGN(TestObserver);
 };
 
@@ -186,8 +179,6 @@ IN_PROC_BROWSER_TEST_F(NavigationPredictorBrowserTest, Pipeline) {
   ui_test_utils::NavigateToURL(browser(), url);
   WaitForLayout();
 
-  histogram_tester.ExpectUniqueSample(
-      "AnchorElementMetrics.Visible.NumberOfAnchorElements", 5, 1);
   // Same document anchor element should be removed after merge.
   histogram_tester.ExpectUniqueSample(
       "AnchorElementMetrics.Visible.NumberOfAnchorElementsAfterMerge", 2, 1);
@@ -203,8 +194,6 @@ IN_PROC_BROWSER_TEST_F(NavigationPredictorBrowserTest, PipelineOffTheRecord) {
   base::RunLoop().RunUntilIdle();
 
   histogram_tester.ExpectTotalCount(
-      "AnchorElementMetrics.Visible.NumberOfAnchorElements", 0);
-  histogram_tester.ExpectTotalCount(
       "AnchorElementMetrics.Visible.NumberOfAnchorElementsAfterMerge", 0);
 }
 
@@ -218,73 +207,9 @@ IN_PROC_BROWSER_TEST_F(NavigationPredictorBrowserTest, PipelineHttp) {
   base::RunLoop().RunUntilIdle();
 
   histogram_tester.ExpectTotalCount(
-      "AnchorElementMetrics.Visible.NumberOfAnchorElements", 0);
-  histogram_tester.ExpectTotalCount(
       "AnchorElementMetrics.Visible.NumberOfAnchorElementsAfterMerge", 0);
 }
 
-// Test that anchor elements within an iframe tagged as an ad are discarded when
-// predicting next navigation.
-IN_PROC_BROWSER_TEST_F(NavigationPredictorBrowserTest, PipelineAdsFrameTagged) {
-  // iframe_ads_simple_page_with_anchors.html is an iframe referenced by
-  // page_with_ads_iframe.html.
-  ASSERT_NO_FATAL_FAILURE(SetRulesetToDisallowURLsWithPathSuffix(
-      "iframe_ads_simple_page_with_anchors.html"));
-
-  base::HistogramTester histogram_tester;
-
-  GURL url = GetTestURL("/page_with_ads_iframe.html");
-  ui_test_utils::NavigateToURL(browser(), url);
-  WaitForLayout();
-
-  histogram_tester.ExpectUniqueSample(
-      "AnchorElementMetrics.Visible.NumberOfAnchorElements", 5, 1);
-  histogram_tester.ExpectUniqueSample(
-      "AnchorElementMetrics.Visible.NumberOfAnchorElementsAfterMerge", 2, 1);
-
-  RetryForHistogramUntilCountReached(
-      &histogram_tester, "AnchorElementMetrics.IsAdFrameElement", 4);
-
-  histogram_tester.ExpectTotalCount("AnchorElementMetrics.IsAdFrameElement", 7);
-  histogram_tester.ExpectBucketCount("AnchorElementMetrics.IsAdFrameElement",
-                                     0 /* false */, 5);
-  histogram_tester.ExpectBucketCount("AnchorElementMetrics.IsAdFrameElement",
-                                     1 /* true */, 2);
-}
-
-// Test that anchor elements within an iframe not tagged as ad are not discarded
-// when predicting next navigation.
-IN_PROC_BROWSER_TEST_F(NavigationPredictorBrowserTest,
-                       PipelineAdsFrameNotTagged) {
-  base::HistogramTester histogram_tester;
-
-  GURL url = GetTestURL("/page_with_ads_iframe.html");
-  ui_test_utils::NavigateToURL(browser(), url);
-  WaitForLayout();
-
-  histogram_tester.ExpectUniqueSample(
-      "AnchorElementMetrics.Visible.NumberOfAnchorElements", 7, 1);
-  histogram_tester.ExpectUniqueSample(
-      "AnchorElementMetrics.Visible.NumberOfAnchorElementsAfterMerge", 2, 1);
-
-  RetryForHistogramUntilCountReached(
-      &histogram_tester, "AnchorElementMetrics.IsAdFrameElement", 7);
-
-  histogram_tester.ExpectUniqueSample("AnchorElementMetrics.IsAdFrameElement",
-                                      0 /* false */, 7);
-}
-
-// Test that navigation score of anchor elements can be calculated on page load.
-IN_PROC_BROWSER_TEST_F(NavigationPredictorBrowserTest, NavigationScore) {
-  base::HistogramTester histogram_tester;
-
-  const GURL& url = GetTestURL("/simple_page_with_anchors.html");
-  ui_test_utils::NavigateToURL(browser(), url);
-  WaitForLayout();
-
-  histogram_tester.ExpectTotalCount(
-      "AnchorElementMetrics.Visible.HighestNavigationScore", 1);
-}
 
 // Simulate a click at the anchor element.
 // Test that timing info (DurationLoadToFirstClick) can be recorded.
@@ -300,11 +225,6 @@ IN_PROC_BROWSER_TEST_F(NavigationPredictorBrowserTest, ClickAnchorElement) {
       browser()->tab_strip_model()->GetActiveWebContents(),
       "document.getElementById('google').click();"));
   base::RunLoop().RunUntilIdle();
-
-  histogram_tester.ExpectTotalCount(
-      "AnchorElementMetrics.Clicked.DurationLoadToFirstClick", 1);
-  histogram_tester.ExpectTotalCount(
-      "AnchorElementMetrics.Clicked.NavigationScore", 1);
 
   histogram_tester.ExpectUniqueSample(
       "NavigationPredictor.OnNonDSE.ActionTaken",
@@ -323,19 +243,17 @@ IN_PROC_BROWSER_TEST_F(NavigationPredictorBrowserTest,
   ui_test_utils::NavigateToURL(browser(), url);
   WaitForLayout();
 
-  EXPECT_TRUE(content::ExecuteScript(
-      browser()->tab_strip_model()->GetActiveWebContents(),
-      "document.getElementById('google').click();"));
-  base::RunLoop().RunUntilIdle();
-
-  histogram_tester.ExpectUniqueSample(
-      "AnchorElementMetrics.Visible.NumberOfAnchorElements", 2, 1);
   // Same document anchor element should be removed after merge.
   histogram_tester.ExpectUniqueSample(
       "AnchorElementMetrics.Visible.NumberOfAnchorElementsAfterMerge", 2, 1);
   histogram_tester.ExpectUniqueSample(
       "NavigationPredictor.OnNonDSE.ActionTaken",
       NavigationPredictor::Action::kPrefetch, 1);
+
+  EXPECT_TRUE(content::ExecuteScript(
+      browser()->tab_strip_model()->GetActiveWebContents(),
+      "document.getElementById('google').click();"));
+  base::RunLoop().RunUntilIdle();
 
   histogram_tester.ExpectUniqueSample(
       "NavigationPredictor.LinkClickedPrerenderResult",
@@ -369,8 +287,6 @@ IN_PROC_BROWSER_TEST_F(
       "document.getElementById('google').click();"));
   base::RunLoop().RunUntilIdle();
 
-  histogram_tester.ExpectUniqueSample(
-      "AnchorElementMetrics.Visible.NumberOfAnchorElements", 2, 1);
   // Same document anchor element should be removed after merge.
   histogram_tester.ExpectUniqueSample(
       "AnchorElementMetrics.Visible.NumberOfAnchorElementsAfterMerge", 2, 1);
@@ -408,15 +324,12 @@ IN_PROC_BROWSER_TEST_F(
   ui_test_utils::NavigateToURL(browser(), url);
   WaitForLayout();
 
-  histogram_tester.ExpectUniqueSample(
-      "AnchorElementMetrics.Visible.NumberOfAnchorElements", 2, 1);
   // Same document anchor element should be removed after merge.
   histogram_tester.ExpectUniqueSample(
       "AnchorElementMetrics.Visible.NumberOfAnchorElementsAfterMerge", 2, 1);
   histogram_tester.ExpectUniqueSample(
       "NavigationPredictor.OnNonDSE.ActionTaken",
       NavigationPredictor::Action::kPrefetch, 1);
-
 }
 
 IN_PROC_BROWSER_TEST_F(
@@ -466,8 +379,8 @@ IN_PROC_BROWSER_TEST_F(
   EXPECT_TRUE(content::ExecuteScript(
       browser()->tab_strip_model()->GetActiveWebContents(),
       "document.getElementById('example').click();"));
-  content::WaitForLoadStop(
-      browser()->tab_strip_model()->GetActiveWebContents());
+  EXPECT_TRUE(content::WaitForLoadStop(
+      browser()->tab_strip_model()->GetActiveWebContents()));
 
   histogram_tester.ExpectUniqueSample(
       "NavigationPredictor.OnNonDSE.ActionTaken",
@@ -497,42 +410,33 @@ IN_PROC_BROWSER_TEST_F(
 // Test that the action accuracy is properly recorded.
 // User clicks on an anchor element that points to same URL as the URL
 // prefetched.
-// https://crbug.com/1008307
-#if (defined(OS_LINUX) || defined(OS_MACOSX) || defined(OS_CHROMEOS))
-#define MAYBE_ActionAccuracy_SameOrigin DISABLED_ActionAccuracy_SameOrigin
-#else
-#define MAYBE_ActionAccuracy_SameOrigin ActionAccuracy_SameOrigin
-#endif
 IN_PROC_BROWSER_TEST_F(NavigationPredictorBrowserTest,
-                       MAYBE_ActionAccuracy_SameOrigin) {
+                       ActionAccuracy_SameOrigin) {
   base::HistogramTester histogram_tester;
 
   const GURL& url = GetTestURL("/page_with_same_host_anchor_element.html");
   ui_test_utils::NavigateToURL(browser(), url);
   WaitForLayout();
 
+  histogram_tester.ExpectUniqueSample(
+      "NavigationPredictor.OnNonDSE.ActionTaken",
+      NavigationPredictor::Action::kPrefetch, 1);
+
   EXPECT_TRUE(content::ExecuteScript(
       browser()->tab_strip_model()->GetActiveWebContents(),
       "document.getElementById('example').click();"));
   base::RunLoop().RunUntilIdle();
 
-  histogram_tester.ExpectUniqueSample(
-      "AnchorElementMetrics.Visible.NumberOfAnchorElements", 2, 1);
-  // Same document anchor element should be removed after merge.
-  histogram_tester.ExpectUniqueSample(
-      "AnchorElementMetrics.Visible.NumberOfAnchorElementsAfterMerge", 2, 1);
-  histogram_tester.ExpectUniqueSample(
-      "NavigationPredictor.OnNonDSE.ActionTaken",
-      NavigationPredictor::Action::kPrefetch, 1);
-
   histogram_tester.ExpectTotalCount(
       "NavigationPredictor.LinkClickedPrerenderResult", 1);
 }
 
-// Simulate a click at the anchor element in off-the-record profile. Metrics
-// should not be recorded.
+// Simulate a click at the anchor element in off-the-record profile.
 IN_PROC_BROWSER_TEST_F(NavigationPredictorBrowserTest,
                        ClickAnchorElementOffTheRecord) {
+  auto test_ukm_recorder = std::make_unique<ukm::TestAutoSetUkmRecorder>();
+  ResetUKM();
+
   base::HistogramTester histogram_tester;
 
   const GURL& url = GetTestURL("/simple_page_with_anchors.html");
@@ -544,79 +448,12 @@ IN_PROC_BROWSER_TEST_F(NavigationPredictorBrowserTest,
   EXPECT_TRUE(content::ExecuteScript(
       incognito->tab_strip_model()->GetActiveWebContents(),
       "document.getElementById('google').click();"));
-  histogram_tester.ExpectTotalCount(
-      "AnchorElementMetrics.Visible.HighestNavigationScore", 0);
-}
+  content::WaitForLoadStop(
+      incognito->tab_strip_model()->GetActiveWebContents());
 
-// Simulate click at the anchor element.
-// Test that correct area ranks are recorded.
-IN_PROC_BROWSER_TEST_F(NavigationPredictorBrowserTest, AreaRank) {
-  base::HistogramTester histogram_tester;
-
-  // This test file contains 5 anchors with different size.
-  const GURL& url = GetTestURL("/anchors_different_area.html");
-  ui_test_utils::NavigateToURL(browser(), url);
-  WaitForLayout();
-
-  EXPECT_TRUE(content::ExecuteScript(
-      browser()->tab_strip_model()->GetActiveWebContents(),
-      "document.getElementById('medium').click();"));
-  base::RunLoop().RunUntilIdle();
-
-  histogram_tester.ExpectUniqueSample("AnchorElementMetrics.Clicked.AreaRank",
-                                      2, 1);
-  histogram_tester.ExpectTotalCount("AnchorElementMetrics.Visible.RatioArea",
-                                    5);
-}
-
-// Test that MergeMetricsSameTargetUrl merges anchor elements having the same
-// href. The html file contains two anchor elements having the same href.
-IN_PROC_BROWSER_TEST_F(NavigationPredictorBrowserTest,
-                       MergeMetricsSameTargetUrl_ClickHrefWithNoMergedImage) {
-  base::HistogramTester histogram_tester;
-
-  const GURL& url = GetTestURL("/anchors_same_href.html");
-  ui_test_utils::NavigateToURL(browser(), url);
-  WaitForLayout();
-
-  histogram_tester.ExpectTotalCount("AnchorElementMetrics.Visible.RatioArea",
-                                    2);
-
-  EXPECT_TRUE(content::ExecuteScript(
-      browser()->tab_strip_model()->GetActiveWebContents(),
-      "document.getElementById('diffHref').click();"));
-  base::RunLoop().RunUntilIdle();
-
-  // Anchor element with id 'diffHref' points to an href. No image in the
-  // webpage also points to an image. So, clicking on this non-image anchor
-  // element, should not be recorded as "ContainsImage".
-  histogram_tester.ExpectTotalCount(
-      "AnchorElementMetrics.Clicked.RatioContainsImage_ContainsImage", 0);
-}
-
-// Test that MergeMetricsSameTargetUrl merges anchor elements having the same
-// href. The html file contains two anchor elements having the same href.
-IN_PROC_BROWSER_TEST_F(NavigationPredictorBrowserTest,
-                       MergeMetricsSameTargetUrl_ClickHrefWithMergedImage) {
-  base::HistogramTester histogram_tester;
-
-  const GURL& url = GetTestURL("/anchors_same_href.html");
-  ui_test_utils::NavigateToURL(browser(), url);
-  WaitForLayout();
-
-  histogram_tester.ExpectTotalCount("AnchorElementMetrics.Visible.RatioArea",
-                                    2);
-
-  EXPECT_TRUE(content::ExecuteScript(
-      browser()->tab_strip_model()->GetActiveWebContents(),
-      "document.getElementById('google').click();"));
-  base::RunLoop().RunUntilIdle();
-
-  // Anchor element with id 'google' points to an href. Another image in the
-  // webpage also points to an image. So, even though we clicked on a non-image
-  // anchor element, it should be recorded as "ContainsImage".
-    histogram_tester.ExpectTotalCount(
-        "AnchorElementMetrics.Clicked.RatioContainsImage_ContainsImage", 1);
+  auto entries = test_ukm_recorder->GetMergedEntriesByName(
+      ukm::builders::PageLoad::kEntryName);
+  EXPECT_EQ(1u, entries.size());
 }
 
 IN_PROC_BROWSER_TEST_F(NavigationPredictorBrowserTest,
@@ -651,8 +488,6 @@ IN_PROC_BROWSER_TEST_F(NavigationPredictorBrowserTest,
 
   // Anchor element with id 'google' points to an href that's on a different
   // host.
-  histogram_tester.ExpectTotalCount(
-      "AnchorElementMetrics.Clicked.RatioContainsImage_ContainsImage", 1);
   histogram_tester.ExpectUniqueSample(
       "AnchorElementMetrics.Clicked.OnDSE.SameHost", 0, 1);
 }
@@ -690,8 +525,6 @@ IN_PROC_BROWSER_TEST_F(NavigationPredictorBrowserTest,
 
   // Anchor element with id 'google' points to an href that's on a different
   // host.
-  histogram_tester.ExpectTotalCount(
-      "AnchorElementMetrics.Clicked.RatioContainsImage_ContainsImage", 1);
   histogram_tester.ExpectUniqueSample(
       "AnchorElementMetrics.Clicked.OnNonDSE.SameHost", 0, 1);
 }
@@ -704,8 +537,6 @@ IN_PROC_BROWSER_TEST_F(NavigationPredictorBrowserTest,
   ui_test_utils::NavigateToURL(browser(), url);
   WaitForLayout();
 
-  histogram_tester.ExpectUniqueSample(
-      "AnchorElementMetrics.Visible.NumberOfAnchorElements", 5, 1);
   // Same document anchor element should be removed after merge.
   histogram_tester.ExpectUniqueSample(
       "AnchorElementMetrics.Visible.NumberOfAnchorElementsAfterMerge", 2, 1);
@@ -722,8 +553,6 @@ IN_PROC_BROWSER_TEST_F(NavigationPredictorBrowserTest,
   ui_test_utils::NavigateToURL(browser(), url);
   WaitForLayout();
 
-  histogram_tester.ExpectUniqueSample(
-      "AnchorElementMetrics.Visible.NumberOfAnchorElements", 2, 1);
   // Same document anchor element should be removed after merge.
   histogram_tester.ExpectUniqueSample(
       "AnchorElementMetrics.Visible.NumberOfAnchorElementsAfterMerge", 2, 1);
@@ -741,8 +570,6 @@ IN_PROC_BROWSER_TEST_F(NavigationPredictorBrowserTest,
   ui_test_utils::NavigateToURL(browser(), url);
   WaitForLayout();
 
-  histogram_tester.ExpectUniqueSample(
-      "AnchorElementMetrics.Visible.NumberOfAnchorElements", 3, 1);
   histogram_tester.ExpectUniqueSample(
       "AnchorElementMetrics.Visible.NumberOfAnchorElementsAfterMerge", 3, 1);
 }
@@ -767,23 +594,13 @@ IN_PROC_BROWSER_TEST_F(NavigationPredictorBrowserTest,
   WaitForLayout();
   observer.WaitUntilNotificationsCountReached(1);
 
-  histogram_tester.ExpectTotalCount(
-      "AnchorElementMetrics.Visible.HighestNavigationScore", 1);
   service->RemoveObserver(&observer);
 
   EXPECT_EQ(1u, observer.count_predictions());
   EXPECT_EQ(url, observer.last_prediction()->source_document_url());
-  EXPECT_EQ(2u, observer.last_prediction()->sorted_predicted_urls().size());
-  EXPECT_NE(
-      observer.last_prediction()->sorted_predicted_urls().end(),
-      std::find(observer.last_prediction()->sorted_predicted_urls().begin(),
-                observer.last_prediction()->sorted_predicted_urls().end(),
-                "https://google.com/"));
-  EXPECT_NE(
-      observer.last_prediction()->sorted_predicted_urls().end(),
-      std::find(observer.last_prediction()->sorted_predicted_urls().begin(),
-                observer.last_prediction()->sorted_predicted_urls().end(),
-                "https://example.com/"));
+  EXPECT_THAT(observer.last_prediction()->sorted_predicted_urls(),
+              ::testing::UnorderedElementsAre("https://google.com/",
+                                              "https://example.com/"));
 
   // Doing another navigation after removing the observer should not cause a
   // crash.
@@ -812,8 +629,6 @@ IN_PROC_BROWSER_TEST_F(NavigationPredictorBrowserTest,
   observer_1.WaitUntilNotificationsCountReached(1);
   observer_2.WaitUntilNotificationsCountReached(1);
 
-  histogram_tester.ExpectTotalCount(
-      "AnchorElementMetrics.Visible.HighestNavigationScore", 1);
   service->RemoveObserver(&observer_1);
 
   EXPECT_EQ(1u, observer_1.count_predictions());

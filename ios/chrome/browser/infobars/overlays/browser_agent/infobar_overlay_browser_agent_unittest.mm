@@ -129,7 +129,7 @@ class InfobarOverlayBrowserAgentTest
   // that has the same InfobarOverlayType as the test fixture.
   std::unique_ptr<OverlayRequest> CreateRequest() {
     return OverlayRequest::CreateWithConfig<InfobarOverlayRequestConfig>(
-        &infobar_, GetParam());
+        &infobar_, GetParam(), false);
   }
 
   OverlayModality modality() {
@@ -157,7 +157,7 @@ class InfobarOverlayBrowserAgentTest
  protected:
   web::WebTaskEnvironment task_environment_;
   TestChromeBrowserState::Builder browser_state_builder_;
-  std::unique_ptr<ios::ChromeBrowserState> browser_state_;
+  std::unique_ptr<ChromeBrowserState> browser_state_;
   FakeWebStateListDelegate web_state_list_delegate_;
   WebStateList web_state_list_;
   web::WebState* web_state_ = nullptr;

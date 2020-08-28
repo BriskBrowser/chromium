@@ -17,6 +17,7 @@
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
 #include "base/observer_list_types.h"
+#include "base/optional.h"
 #include "components/prefs/pref_change_registrar.h"
 #include "components/session_manager/core/session_manager_observer.h"
 #include "url/gurl.h"
@@ -110,13 +111,15 @@ class ChromeKeyboardControllerClient
   void ShowKeyboard();
   void HideKeyboard(ash::HideReason reason);
   void SetContainerType(keyboard::ContainerType container_type,
-                        const base::Optional<gfx::Rect>& target_bounds,
+                        const gfx::Rect& target_bounds,
                         base::OnceCallback<void(bool)> callback);
   void SetKeyboardLocked(bool locked);
   void SetOccludedBounds(const std::vector<gfx::Rect>& bounds);
   void SetHitTestBounds(const std::vector<gfx::Rect>& bounds);
   bool SetAreaToRemainOnScreen(const gfx::Rect& bounds);
   void SetDraggableArea(const gfx::Rect& bounds);
+  bool SetWindowBoundsInScreen(const gfx::Rect& bounds_in_screen);
+  void SetKeyboardConfigFromPref(bool enabled);
 
   // Returns true if overscroll is enabled by the config or command line.
   bool IsKeyboardOverscrollEnabled();
@@ -131,6 +134,12 @@ class ChromeKeyboardControllerClient
   bool is_keyboard_loaded() { return is_keyboard_loaded_; }
   bool is_keyboard_visible() { return is_keyboard_visible_; }
 
+  void set_keyboard_enabled_for_test(bool enabled) {
+    is_keyboard_enabled_ = enabled;
+  }
+  void set_keyboard_visible_for_test(bool visible) {
+    is_keyboard_visible_ = visible;
+  }
   void set_profile_for_test(Profile* profile) { profile_for_test_ = profile; }
   void set_virtual_keyboard_url_for_test(const GURL& url) {
     virtual_keyboard_url_for_test_ = url;

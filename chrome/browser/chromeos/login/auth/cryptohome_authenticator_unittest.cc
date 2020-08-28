@@ -50,7 +50,6 @@
 #include "crypto/nss_util_internal.h"
 #include "crypto/scoped_test_nss_chromeos_user.h"
 #include "net/base/net_errors.h"
-#include "net/url_request/url_request_status.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/cros_system_api/dbus/service_constants.h"
@@ -323,10 +322,9 @@ class CryptohomeAuthenticatorTest : public testing::Test {
 
   base::FilePath PopulateTempFile(const char* data, int data_len) {
     base::FilePath out;
-    FILE* tmp_file = base::CreateAndOpenTemporaryFile(&out);
-    EXPECT_NE(tmp_file, static_cast<FILE*>(NULL));
+    base::ScopedFILE tmp_file = base::CreateAndOpenTemporaryStream(&out);
+    EXPECT_TRUE(tmp_file);
     EXPECT_EQ(base::WriteFile(out, data, data_len), data_len);
-    EXPECT_TRUE(base::CloseFile(tmp_file));
     return out;
   }
 
@@ -373,8 +371,8 @@ class CryptohomeAuthenticatorTest : public testing::Test {
         .RetiresOnSaturation();
   }
 
-  void ExpectPasswordChange() {
-    EXPECT_CALL(consumer_, OnPasswordChangeDetected())
+  void ExpectPasswordChange(const UserContext& user_context) {
+    EXPECT_CALL(consumer_, OnPasswordChangeDetected(user_context))
         .WillOnce(Invoke(&consumer_, &MockAuthStatusConsumer::OnMigrateQuit))
         .RetiresOnSaturation();
   }
@@ -492,7 +490,7 @@ TEST_F(CryptohomeAuthenticatorTest, OnAuthSuccess) {
 }
 
 TEST_F(CryptohomeAuthenticatorTest, OnPasswordChangeDetected) {
-  EXPECT_CALL(consumer_, OnPasswordChangeDetected())
+  EXPECT_CALL(consumer_, OnPasswordChangeDetected(user_context_))
       .Times(1)
       .RetiresOnSaturation();
   SetAttemptState(auth_.get(), state_.release());
@@ -714,7 +712,7 @@ TEST_F(CryptohomeAuthenticatorTest, DriveResyncFail) {
 
 TEST_F(CryptohomeAuthenticatorTest, DriveRequestOldPassword) {
   FailOnLoginSuccess();
-  ExpectPasswordChange();
+  ExpectPasswordChange(user_context_);
 
   state_->PresetCryptohomeStatus(cryptohome::MOUNT_ERROR_KEY_FAILURE);
   state_->PresetOnlineLoginStatus(AuthFailure::AuthFailureNone());
@@ -746,7 +744,7 @@ TEST_F(CryptohomeAuthenticatorTest, DriveDataRecover) {
 
 TEST_F(CryptohomeAuthenticatorTest, DriveDataRecoverButFail) {
   FailOnLoginSuccess();
-  ExpectPasswordChange();
+  ExpectPasswordChange(user_context_);
   ExpectMigrateKeyExCall(false /*should_succeed*/);
 
   SetAttemptState(auth_.get(), state_.release());

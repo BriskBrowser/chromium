@@ -29,8 +29,10 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_INSPECTOR_NETWORK_RESOURCES_DATA_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_INSPECTOR_NETWORK_RESOURCES_DATA_H_
 
+#include "third_party/blink/renderer/core/execution_context/execution_context.h"
 #include "third_party/blink/renderer/core/html/parser/text_resource_decoder.h"
 #include "third_party/blink/renderer/core/inspector/inspector_page_agent.h"
+#include "third_party/blink/renderer/core/loader/resource/font_resource.h"
 #include "third_party/blink/renderer/platform/blob/blob_data.h"
 #include "third_party/blink/renderer/platform/network/http_header_map.h"
 #include "third_party/blink/renderer/platform/weborigin/kurl.h"
@@ -44,7 +46,6 @@ namespace blink {
 
 class EncodedFormData;
 class ExecutionContext;
-class Resource;
 class ResourceResponse;
 class TextResourceDecoder;
 
@@ -54,7 +55,6 @@ class XHRReplayData final : public GarbageCollected<XHRReplayData> {
                 const AtomicString& method,
                 const KURL&,
                 bool async,
-                scoped_refptr<EncodedFormData>,
                 bool include_credentials);
 
   void AddHeader(const AtomicString& key, const AtomicString& value);
@@ -63,23 +63,18 @@ class XHRReplayData final : public GarbageCollected<XHRReplayData> {
   const AtomicString& Method() const { return method_; }
   const KURL& Url() const { return url_; }
   bool Async() const { return async_; }
-  EncodedFormData* FormData() const { return form_data_.get(); }
   const HTTPHeaderMap& Headers() const { return headers_; }
   bool IncludeCredentials() const { return include_credentials_; }
 
-  virtual void Trace(blink::Visitor* visitor) {
+  virtual void Trace(Visitor* visitor) const {
     visitor->Trace(execution_context_);
   }
-
-  void DeleteFormData() { form_data_ = nullptr; }
 
  private:
   WeakMember<ExecutionContext> execution_context_;
   AtomicString method_;
   KURL url_;
   bool async_;
-  // TODO(http://crbug.com/958524): Remove form_data_ after OutOfBlinkCORS is launched.
-  scoped_refptr<EncodedFormData> form_data_;
   HTTPHeaderMap headers_;
   bool include_credentials_;
 };
@@ -87,7 +82,8 @@ class XHRReplayData final : public GarbageCollected<XHRReplayData> {
 class NetworkResourcesData final
     : public GarbageCollected<NetworkResourcesData> {
  public:
-  class ResourceData final : public GarbageCollected<ResourceData> {
+  class ResourceData final : public GarbageCollected<ResourceData>,
+                             public FontResourceClearDataObserver {
     friend class NetworkResourcesData;
 
    public:
@@ -168,14 +164,18 @@ class NetworkResourcesData final
       post_data_ = post_data;
     }
     EncodedFormData* PostData() const { return post_data_.get(); }
-    void Trace(blink::Visitor*);
+
+    // FontResourceClearDataObserver implementation.
+    void FontResourceDataWillBeCleared() override;
+
+    void Trace(Visitor*) const override;
 
    private:
     bool HasData() const { return data_buffer_.get(); }
     uint64_t DataLength() const;
     void AppendData(const char* data, size_t data_length);
     size_t DecodeDataToContent();
-    void ProcessCustomWeakness(const WeakCallbackInfo&);
+    void ProcessCustomWeakness(const LivenessBroker&);
 
     Member<NetworkResourcesData> network_resources_data_;
     String request_id_;
@@ -196,7 +196,10 @@ class NetworkResourcesData final
     int64_t pending_encoded_data_length_;
 
     scoped_refptr<SharedBuffer> buffer_;
+
+    // We use UntracedMember<> here to do custom weak processing.
     UntracedMember<const Resource> cached_resource_;
+
     scoped_refptr<BlobDataHandle> downloaded_file_blob_;
     Vector<AtomicString> certificate_;
     scoped_refptr<EncodedFormData> post_data_;
@@ -238,7 +241,7 @@ class NetworkResourcesData final
   int64_t GetAndClearPendingEncodedDataLength(const String& request_id);
   void AddPendingEncodedDataLength(const String& request_id,
                                    size_t encoded_data_length);
-  void Trace(blink::Visitor*);
+  void Trace(Visitor*) const;
 
  private:
   ResourceData* ResourceDataForRequestId(const String& request_id) const;

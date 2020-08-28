@@ -7,7 +7,7 @@ package org.chromium.chrome.browser.partnercustomizations;
 import org.junit.runner.Description;
 import org.junit.runners.model.Statement;
 
-import org.chromium.chrome.browser.ChromeActivity;
+import org.chromium.chrome.browser.app.ChromeActivity;
 import org.chromium.chrome.test.ChromeActivityTestRule;
 import org.chromium.chrome.test.partnercustomizations.TestPartnerBrowserCustomizationsProvider;
 
@@ -16,7 +16,7 @@ import org.chromium.chrome.test.partnercustomizations.TestPartnerBrowserCustomiz
  */
 public class BasePartnerBrowserCustomizationIntegrationTestRule
         extends ChromeActivityTestRule<ChromeActivity> {
-    BasePartnerBrowserCustomizationIntegrationTestRule() {
+    public BasePartnerBrowserCustomizationIntegrationTestRule() {
         super(ChromeActivity.class);
     }
 

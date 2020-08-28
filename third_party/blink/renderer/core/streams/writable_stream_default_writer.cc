@@ -326,8 +326,8 @@ v8::Local<v8::Promise> WritableStreamDefaultWriter::CloseWithErrorPropagation(
   }
 
   //  6. Assert: state is "writable" or "erroring".
-  DCHECK(state == WritableStream::kWritable ||
-         state == WritableStream::kErroring);
+  CHECK(state == WritableStream::kWritable ||
+        state == WritableStream::kErroring);
 
   //  7. Return ! WritableStreamDefaultWriterClose(writer).
   return Close(script_state, writer);
@@ -472,7 +472,7 @@ void WritableStreamDefaultWriter::SetReadyPromise(
   ready_promise_ = ready_promise;
 }
 
-void WritableStreamDefaultWriter::Trace(Visitor* visitor) {
+void WritableStreamDefaultWriter::Trace(Visitor* visitor) const {
   visitor->Trace(closed_promise_);
   visitor->Trace(owner_writable_stream_);
   visitor->Trace(ready_promise_);

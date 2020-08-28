@@ -9,8 +9,8 @@
 
 namespace security_interstitials {
 
-// Controls whether dark mode themes are applied to security interstitials.
-extern const base::Feature kSecurityInterstitialsDarkMode;
+// Controls whether an interstitial is shown when submitting a mixed form.
+extern const base::Feature kInsecureFormSubmissionInterstitial;
 
 }  // namespace security_interstitials
 

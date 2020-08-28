@@ -3,6 +3,8 @@
 # found in the LICENSE file.
 
 from core import perf_benchmark
+from core import platforms
+
 from telemetry import benchmark
 from telemetry import story
 from telemetry.timeline import chrome_trace_config
@@ -20,6 +22,7 @@ def AugmentOptionsForV8BrowsingMetrics(options, enable_runtime_call_stats=True):
     # V8 categories.
     'disabled-by-default-v8.gc',
     'v8',
+    'v8.wasm',
     'v8.console',
     'webkit.console',
     # Blink categories.
@@ -47,6 +50,7 @@ def AugmentOptionsForV8BrowsingMetrics(options, enable_runtime_call_stats=True):
     'gcMetric',
     'memoryMetric',
     'reportedByPageMetric',
+    'wasmMetric',
   ]
   options.ExtendTimelineBasedMetric(metrics)
   if enable_runtime_call_stats:
@@ -69,12 +73,16 @@ class _V8BrowsingBenchmark(perf_benchmark.PerfBenchmark):
 
 
 @benchmark.Info(
-   emails=['mythria@chromium.org','ulan@chromium.org'],
-   component='Blink>JavaScript')
+    emails=['mythria@chromium.org', 'tmrts@chromium.org'],
+    component='Blink>JavaScript')
 class V8DesktopBrowsingBenchmark(
     _V8BrowsingBenchmark):
   PLATFORM = 'desktop'
+  # TODO(rmhasan): Remove the SUPPORTED_PLATFORMS lists.
+  # SUPPORTED_PLATFORMS is deprecated, please put system specifier tags
+  # from expectations.config in SUPPORTED_PLATFORM_TAGS.
   SUPPORTED_PLATFORMS = [story.expectations.ALL_DESKTOP]
+  SUPPORTED_PLATFORM_TAGS = [platforms.DESKTOP]
 
   def SetExtraBrowserOptions(self, options):
     options.AppendExtraBrowserArgs(
@@ -86,12 +94,16 @@ class V8DesktopBrowsingBenchmark(
 
 
 @benchmark.Info(
-   emails=['mythria@chromium.org','ulan@chromium.org'],
-   component='Blink>JavaScript')
+    emails=['mythria@chromium.org', 'tmrts@chromium.org'],
+    component='Blink>JavaScript')
 class V8MobileBrowsingBenchmark(
     _V8BrowsingBenchmark):
   PLATFORM = 'mobile'
+  # TODO(rmhasan): Remove the SUPPORTED_PLATFORMS lists.
+  # SUPPORTED_PLATFORMS is deprecated, please put system specifier tags
+  # from expectations.config in SUPPORTED_PLATFORM_TAGS.
   SUPPORTED_PLATFORMS = [story.expectations.ALL_MOBILE]
+  SUPPORTED_PLATFORM_TAGS = [platforms.MOBILE]
 
   def SetExtraBrowserOptions(self, options):
     options.AppendExtraBrowserArgs(
@@ -103,12 +115,16 @@ class V8MobileBrowsingBenchmark(
 
 
 @benchmark.Info(
-   emails=['mythria@chromium.org','ulan@chromium.org'],
-   component='Blink>JavaScript')
+    emails=['mythria@chromium.org', 'tmrts@chromium.org'],
+    component='Blink>JavaScript')
 class V8FutureDesktopBrowsingBenchmark(
     _V8BrowsingBenchmark):
   PLATFORM = 'desktop'
+  # TODO(rmhasan): Remove the SUPPORTED_PLATFORMS lists.
+  # SUPPORTED_PLATFORMS is deprecated, please put system specifier tags
+  # from expectations.config in SUPPORTED_PLATFORM_TAGS.
   SUPPORTED_PLATFORMS = [story.expectations.ALL_DESKTOP]
+  SUPPORTED_PLATFORM_TAGS = [platforms.DESKTOP]
 
   def SetExtraBrowserOptions(self, options):
     options.AppendExtraBrowserArgs(
@@ -121,12 +137,16 @@ class V8FutureDesktopBrowsingBenchmark(
 
 
 @benchmark.Info(
-   emails=['mythria@chromium.org','ulan@chromium.org'],
-   component='Blink>JavaScript')
+    emails=['mythria@chromium.org', 'tmrts@chromium.org'],
+    component='Blink>JavaScript')
 class V8FutureMobileBrowsingBenchmark(
     _V8BrowsingBenchmark):
   PLATFORM = 'mobile'
+  # TODO(rmhasan): Remove the SUPPORTED_PLATFORMS lists.
+  # SUPPORTED_PLATFORMS is deprecated, please put system specifier tags
+  # from expectations.config in SUPPORTED_PLATFORM_TAGS.
   SUPPORTED_PLATFORMS = [story.expectations.ALL_MOBILE]
+  SUPPORTED_PLATFORM_TAGS = [platforms.MOBILE]
 
   def SetExtraBrowserOptions(self, options):
     options.AppendExtraBrowserArgs(

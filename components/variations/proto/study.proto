@@ -5,6 +5,7 @@
 syntax = "proto2";
 
 option optimize_for = LITE_RUNTIME;
+option java_package = "org.chromium.components.variations";
 
 package variations;
 
@@ -44,9 +45,28 @@ message Study {
   // Ex: "default"
   optional string default_experiment_name = 8;
 
+  // Specifies under which conditions a |google_web_experiment_id| or
+  // |google_web_trigger_experiment_id| is visible to Google web properties.
+  enum GoogleWebVisibility {
+    // Eligible requests to Google web properties include the experiment ID. See
+    // AppendHeaderIfNeeded() in variations_http_headers.cc for eligibility
+    // details.
+    ANY = 0;
+
+    // Only eligible requests initiated from a first-party context include the
+    // experiment ID.
+    //
+    // The following requests are considered to be from a first-party context:
+    // requests initiated by (i) the browser, (ii) a Chrome internal page,
+    // (iii) a main frame with a Google-owned domain, and (iv) a subframe
+    // whose associated main frame has a Google-owned domain. See
+    // IsFirstPartyContext() in variations_http_headers.cc for more details.
+    FIRST_PARTY = 1;
+  }
+
   // An experiment within the study.
   //
-  // Next tag: 14
+  // Next tag: 17
   message Experiment {
     // A named parameter value for this experiment.
     //
@@ -75,8 +95,19 @@ message Study {
     // behavior on Google web properties.
     optional uint64 google_web_trigger_experiment_id = 8;
 
+    // Optional id that specifies under which conditions Google web and web
+    // trigger experiment ids are visible to Google web properties.
+    optional GoogleWebVisibility google_web_visibility = 16;
+
     // Optional id used to uniquely identify this experiment for Chrome Sync.
     optional uint64 chrome_sync_experiment_id = 10;
+
+    // Optional id used to uniquely identify this experiment when activating
+    // integrations with the Android Google App.
+    // IMPORTANT: This field is only approved for integrations with the Android
+    // Google App and must receive a privacy review before extending to other
+    // apps.
+    optional uint64 google_app_experiment_id = 15;
 
     // Specifies the feature association parameters for this experiment group.
     //
@@ -183,14 +214,15 @@ message Study {
   // Possible Chrome operating system platforms.
   // These names must match those in tools/variations/fieldtrial_to_struct.py.
   enum Platform {
-    PLATFORM_WINDOWS         = 0;
-    PLATFORM_MAC             = 1;
-    PLATFORM_LINUX           = 2;
-    PLATFORM_CHROMEOS        = 3;
-    PLATFORM_ANDROID         = 4;
-    PLATFORM_IOS             = 5;
+    PLATFORM_WINDOWS = 0;
+    PLATFORM_MAC = 1;
+    PLATFORM_LINUX = 2;
+    PLATFORM_CHROMEOS = 3;
+    PLATFORM_ANDROID = 4;
+    PLATFORM_IOS = 5;
     PLATFORM_ANDROID_WEBVIEW = 6;
-    PLATFORM_FUCHSIA         = 7;
+    PLATFORM_FUCHSIA = 7;
+    PLATFORM_ANDROID_WEBLAYER = 8;
   }
 
   // Possible form factors Chrome is running on.
@@ -215,10 +247,25 @@ message Study {
     OPTIONAL_BOOL_FALSE = 2;
   }
 
+  // Possible states of the severity filter.
+  enum PolicyRestriction {
+    // No restriction configs apply to clients that do not have a
+    // "ChromeVariations" policy set or if it is set to the variations enabled
+    // value.
+    NONE = 0;
+    // Critical studies apply to both clients that have all variations enabled
+    // or if the "ChromeVariations" policy is set to only allow critical
+    // variations.
+    CRITICAL = 1;
+    // Critical-only studies apply *only* to clients that have the
+    // "ChromeVariations" policy set to only allow critical variations.
+    CRITICAL_ONLY = 2;
+  }
+
   // Filtering criteria specifying whether this study is applicable to a given
   // Chrome instance.
   //
-  // Next tag: 19
+  // Next tag: 20
   message Filter {
     // The start date of the study in Unix time format. (Seconds since midnight
     // January 1, 1970 UTC). See: http://en.wikipedia.org/wiki/Unix_time
@@ -356,6 +403,10 @@ message Study {
     // - On chromeOS, registered mode determines enterprise status.
     // - Android, iOS, and linux consider all clients as non-enterprise.
     optional bool is_enterprise = 18;
+
+    // Specifies the restrictions applied by the "ChromeVariations" policy to
+    // the study. See the definition of the PolicyRestriction enum for details.
+    optional PolicyRestriction policy_restriction = 19 [default = NONE];
   }
 
   // Filtering criteria for this study. A study that is filtered out for a given

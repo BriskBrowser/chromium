@@ -9,7 +9,7 @@
 #include <string.h>
 #include <algorithm>
 
-#include "base/logging.h"
+#include "base/check_op.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "third_party/skia/include/core/SkCanvas.h"
 #include "third_party/skia/include/core/SkColorFilter.h"
@@ -628,11 +628,11 @@ SkBitmap SkBitmapOperations::DownsampleByTwo(const SkBitmap& bitmap) {
 SkBitmap SkBitmapOperations::UnPreMultiply(const SkBitmap& bitmap) {
   if (bitmap.isNull())
     return bitmap;
-  if (bitmap.isOpaque())
+  if (bitmap.alphaType() != kPremul_SkAlphaType)
     return bitmap;
 
   const SkImageInfo& opaque_info =
-      bitmap.info().makeAlphaType(kOpaque_SkAlphaType);
+      bitmap.info().makeAlphaType(kUnpremul_SkAlphaType);
   SkBitmap opaque_bitmap;
   opaque_bitmap.allocPixels(opaque_info);
 

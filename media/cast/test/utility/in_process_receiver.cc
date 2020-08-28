@@ -9,6 +9,7 @@
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
+#include "base/logging.h"
 #include "base/memory/ptr_util.h"
 #include "base/synchronization/waitable_event.h"
 #include "base/time/time.h"
@@ -56,10 +57,10 @@ InProcessReceiver::~InProcessReceiver() {
 }
 
 void InProcessReceiver::Start() {
-  cast_environment_->PostTask(CastEnvironment::MAIN,
-                              FROM_HERE,
-                              base::Bind(&InProcessReceiver::StartOnMainThread,
-                                         base::Unretained(this)));
+  cast_environment_->PostTask(
+      CastEnvironment::MAIN, FROM_HERE,
+      base::BindOnce(&InProcessReceiver::StartOnMainThread,
+                     base::Unretained(this)));
   stopped_ = false;
 }
 
@@ -72,11 +73,10 @@ void InProcessReceiver::Stop() {
   if (cast_environment_->CurrentlyOn(CastEnvironment::MAIN)) {
     StopOnMainThread(&event);
   } else {
-    cast_environment_->PostTask(CastEnvironment::MAIN,
-                                FROM_HERE,
-                                base::Bind(&InProcessReceiver::StopOnMainThread,
-                                           base::Unretained(this),
-                                           &event));
+    cast_environment_->PostTask(
+        CastEnvironment::MAIN, FROM_HERE,
+        base::BindOnce(&InProcessReceiver::StopOnMainThread,
+                       base::Unretained(this), &event));
     event.Wait();
   }
   stopped_ = true;

@@ -27,20 +27,67 @@ Polymer({
       type: Object,
       value() {
         const map = new Map();
-        if (settings.routes.LANGUAGES_DETAILS) {
+        if (settings.routes.OS_LANGUAGES_DETAILS) {
           map.set(
-              settings.routes.LANGUAGES_DETAILS.path,
+              settings.routes.OS_LANGUAGES_DETAILS.path,
               '#languagesSubpageTrigger');
         }
+        if (settings.routes.OS_LANGUAGES_SMART_INPUTS) {
+          map.set(
+              settings.routes.OS_LANGUAGES_SMART_INPUTS.path,
+              '#smartInputsSubpageTrigger');
+        }
         return map;
+      },
+    },
+
+    /**
+     * This is enabled when language settings update feature flag is enabled.
+     * @private
+     * */
+    languageSettingsV2Enabled_: {
+      type: Boolean,
+      value() {
+        return loadTimeData.getBoolean('enableLanguageSettingsV2');
+      },
+    },
+
+    /**
+     * This is enabled when any of the smart inputs features is allowed.
+     * @private
+     * */
+    smartInputsEnabled_: {
+      type: Boolean,
+      value() {
+        return loadTimeData.getBoolean('allowAssistivePersonalInfo') ||
+            loadTimeData.getBoolean('allowEmojiSuggestion');
       },
     }
   },
 
   /** @private */
+  onLanguagesV2Click_() {
+    settings.Router.getInstance().navigateTo(
+        settings.routes.OS_LANGUAGES_LANGUAGES);
+  },
+
+  /** @private */
+  onInputClick_() {
+    settings.Router.getInstance().navigateTo(
+        settings.routes.OS_LANGUAGES_INPUT);
+  },
+
+  /** @private */
   onLanguagesTap_() {
     // TODO(crbug.com/950007): Add UMA metric for opening language details.
-    settings.navigateTo(settings.routes.LANGUAGES_DETAILS);
+    settings.Router.getInstance().navigateTo(
+        settings.routes.OS_LANGUAGES_DETAILS);
+  },
+
+  /** @private */
+  onSmartInputsClick_() {
+    settings.Router.getInstance().navigateTo(
+        settings.routes.OS_LANGUAGES_SMART_INPUTS);
   },
 
   /**

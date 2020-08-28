@@ -11,8 +11,10 @@
 #include "net/third_party/quiche/src/quic/core/crypto/quic_decrypter.h"
 #include "net/third_party/quiche/src/quic/core/crypto/quic_encrypter.h"
 #include "net/third_party/quiche/src/quic/core/http/quic_spdy_client_session_base.h"
+#include "net/third_party/quiche/src/quic/core/quic_utils.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_ptr_util.h"
 #include "net/third_party/quiche/src/quic/test_tools/quic_config_peer.h"
+#include "net/third_party/quiche/src/quic/test_tools/quic_test_utils.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/boringssl/src/include/openssl/ssl.h"
 
@@ -26,14 +28,12 @@ using quic::ENCRYPTION_ZERO_RTT;
 using quic::kAESG;
 using quic::kC255;
 using quic::kDefaultMaxStreamsPerConnection;
-using quic::kMaximumIdleTimeoutSecs;
 using quic::kQBIC;
 using quic::NullDecrypter;
 using quic::NullEncrypter;
 using quic::PACKET_8BYTE_CONNECTION_ID;
 using quic::Perspective;
 using quic::ProofVerifyContext;
-using quic::PROTOCOL_TLS1_3;
 using quic::QUIC_CRYPTO_MESSAGE_AFTER_HANDSHAKE_COMPLETE;
 using quic::QUIC_NO_ERROR;
 using quic::QUIC_PROOF_INVALID;
@@ -65,7 +65,8 @@ MockCryptoClientStream::MockCryptoClientStream(
                              session,
                              std::move(verify_context),
                              crypto_config,
-                             session),
+                             session,
+                             /*has_application_state = */ true),
       QuicCryptoHandshaker(this, session),
       handshake_mode_(handshake_mode),
       encryption_established_(false),
@@ -84,8 +85,8 @@ MockCryptoClientStream::~MockCryptoClientStream() {}
 
 void MockCryptoClientStream::OnHandshakeMessage(
     const CryptoHandshakeMessage& message) {
-  CloseConnectionWithDetails(QUIC_CRYPTO_MESSAGE_AFTER_HANDSHAKE_COMPLETE,
-                             "Forced mock failure");
+  OnUnrecoverableError(QUIC_CRYPTO_MESSAGE_AFTER_HANDSHAKE_COMPLETE,
+                       "Forced mock failure");
 }
 
 bool MockCryptoClientStream::CryptoConnect() {
@@ -138,15 +139,28 @@ bool MockCryptoClientStream::CryptoConnect() {
               ENCRYPTION_ZERO_RTT,
               std::make_unique<NullDecrypter>(Perspective::IS_CLIENT));
         }
-        session()->connection()->SetEncrypter(
+        if (session()->version().UsesHttp3()) {
+          SetConfigNegotiated();
+        }
+        session()->OnNewEncryptionKeyAvailable(
             ENCRYPTION_ZERO_RTT,
             std::make_unique<NullEncrypter>(Perspective::IS_CLIENT));
       }
-      if (session()->use_handshake_delegate()) {
+      if (session()->version().UsesQuicCrypto()) {
         session()->SetDefaultEncryptionLevel(ENCRYPTION_ZERO_RTT);
       } else {
-        session()->connection()->SetDefaultEncryptionLevel(ENCRYPTION_ZERO_RTT);
-        session()->OnCryptoHandshakeEvent(QuicSession::ENCRYPTION_ESTABLISHED);
+        session()->DiscardOldEncryptionKey(ENCRYPTION_INITIAL);
+      }
+      break;
+    }
+
+    case ASYNC_ZERO_RTT: {
+      DCHECK(session()->version().UsesTls());
+      handshake_confirmed_ = false;
+      FillCryptoParams();
+      if (proof_verify_details_) {
+        reinterpret_cast<QuicSpdyClientSessionBase*>(session())
+            ->OnProofVerifyDetailsAvailable(*proof_verify_details_);
       }
       break;
     }
@@ -184,20 +198,17 @@ bool MockCryptoClientStream::CryptoConnect() {
               std::make_unique<NullDecrypter>(Perspective::IS_CLIENT));
         }
         session()->connection()->SetEncrypter(ENCRYPTION_INITIAL, nullptr);
-        session()->connection()->SetEncrypter(
-            ENCRYPTION_FORWARD_SECURE,
-            std::make_unique<NullEncrypter>(Perspective::IS_CLIENT));
       }
-      if (session()->use_handshake_delegate()) {
-        session()->SetDefaultEncryptionLevel(ENCRYPTION_FORWARD_SECURE);
-        session()->DiscardOldEncryptionKey(ENCRYPTION_INITIAL);
-        session()->NeuterHandshakeData();
+      session()->OnNewEncryptionKeyAvailable(
+          ENCRYPTION_FORWARD_SECURE,
+          std::make_unique<NullEncrypter>(Perspective::IS_CLIENT));
+      if (session()->version().UsesTls()) {
+        session()->OnTlsHandshakeComplete();
       } else {
-        session()->connection()->SetDefaultEncryptionLevel(
-            ENCRYPTION_FORWARD_SECURE);
-        session()->OnCryptoHandshakeEvent(QuicSession::HANDSHAKE_CONFIRMED);
-        session()->connection()->OnHandshakeComplete();
+        session()->SetDefaultEncryptionLevel(ENCRYPTION_FORWARD_SECURE);
       }
+      session()->DiscardOldEncryptionKey(ENCRYPTION_INITIAL);
+      session()->NeuterHandshakeData();
       break;
     }
 
@@ -222,8 +233,13 @@ bool MockCryptoClientStream::encryption_established() const {
   return encryption_established_;
 }
 
-bool MockCryptoClientStream::handshake_confirmed() const {
+bool MockCryptoClientStream::one_rtt_keys_available() const {
   return handshake_confirmed_;
+}
+
+bool MockCryptoClientStream::EarlyDataAccepted() const {
+  // This value is only used for logging. The return value doesn't matter.
+  return false;
 }
 
 const QuicCryptoNegotiatedParameters&
@@ -235,51 +251,72 @@ CryptoMessageParser* MockCryptoClientStream::crypto_message_parser() {
   return &crypto_framer_;
 }
 
-void MockCryptoClientStream::SendOnCryptoHandshakeEvent(
-    QuicSession::CryptoHandshakeEvent event) {
+// Tests using MockCryptoClientStream() do not care about the handshaker's
+// state.  Intercept and ignore OnOneRttPacketAcknowledged() calls to prevent
+// DCHECKs within the handshaker from failing.
+void MockCryptoClientStream::OnOneRttPacketAcknowledged() {}
+
+void MockCryptoClientStream::NotifySessionZeroRttComplete() {
+  DCHECK(session()->version().UsesTls());
   encryption_established_ = true;
-  if (event == QuicSession::HANDSHAKE_CONFIRMED) {
-    handshake_confirmed_ = true;
+  handshake_confirmed_ = false;
+  session()->connection()->InstallDecrypter(
+      ENCRYPTION_ZERO_RTT,
+      std::make_unique<NullDecrypter>(Perspective::IS_CLIENT));
+  if (session()->version().UsesHttp3()) {
     SetConfigNegotiated();
-    if (use_mock_crypter_) {
-      if (session()->connection()->version().KnowsWhichDecrypterToUse()) {
-        session()->connection()->InstallDecrypter(
-            ENCRYPTION_FORWARD_SECURE,
-            std::make_unique<MockDecrypter>(Perspective::IS_CLIENT));
-      } else {
-        session()->connection()->SetDecrypter(
-            ENCRYPTION_FORWARD_SECURE,
-            std::make_unique<MockDecrypter>(Perspective::IS_CLIENT));
-      }
-      session()->connection()->SetEncrypter(
-          ENCRYPTION_FORWARD_SECURE,
-          std::make_unique<MockEncrypter>(Perspective::IS_CLIENT));
-    } else {
-      if (session()->connection()->version().KnowsWhichDecrypterToUse()) {
-        session()->connection()->InstallDecrypter(
-            ENCRYPTION_FORWARD_SECURE,
-            std::make_unique<NullDecrypter>(Perspective::IS_CLIENT));
-      } else {
-        session()->connection()->SetDecrypter(
-            ENCRYPTION_FORWARD_SECURE,
-            std::make_unique<NullDecrypter>(Perspective::IS_CLIENT));
-      }
-      session()->connection()->SetEncrypter(ENCRYPTION_INITIAL, nullptr);
-      session()->connection()->SetEncrypter(
-          ENCRYPTION_FORWARD_SECURE,
-          std::make_unique<NullEncrypter>(Perspective::IS_CLIENT));
-    }
-    if (session()->use_handshake_delegate()) {
-      session()->SetDefaultEncryptionLevel(ENCRYPTION_FORWARD_SECURE);
-      session()->DiscardOldEncryptionKey(ENCRYPTION_INITIAL);
-    } else {
-      session()->connection()->SetDefaultEncryptionLevel(
-          ENCRYPTION_FORWARD_SECURE);
-    }
   }
-  if (!session()->use_handshake_delegate()) {
-    session()->OnCryptoHandshakeEvent(event);
+  session()->OnNewEncryptionKeyAvailable(
+      ENCRYPTION_ZERO_RTT,
+      std::make_unique<NullEncrypter>(Perspective::IS_CLIENT));
+
+  session()->DiscardOldEncryptionKey(ENCRYPTION_INITIAL);
+}
+
+void MockCryptoClientStream::NotifySessionOneRttKeyAvailable() {
+  encryption_established_ = true;
+  handshake_confirmed_ = true;
+  if (session()->version().UsesQuicCrypto())
+    SetConfigNegotiated();
+  if (use_mock_crypter_) {
+    if (session()->connection()->version().KnowsWhichDecrypterToUse()) {
+      session()->connection()->InstallDecrypter(
+          ENCRYPTION_FORWARD_SECURE,
+          std::make_unique<MockDecrypter>(Perspective::IS_CLIENT));
+    } else {
+      session()->connection()->SetDecrypter(
+          ENCRYPTION_FORWARD_SECURE,
+          std::make_unique<MockDecrypter>(Perspective::IS_CLIENT));
+    }
+    session()->connection()->SetEncrypter(
+        ENCRYPTION_FORWARD_SECURE,
+        std::make_unique<MockEncrypter>(Perspective::IS_CLIENT));
+  } else {
+    if (session()->connection()->version().KnowsWhichDecrypterToUse()) {
+      session()->connection()->InstallDecrypter(
+          ENCRYPTION_FORWARD_SECURE,
+          std::make_unique<NullDecrypter>(Perspective::IS_CLIENT));
+    } else {
+      session()->connection()->SetDecrypter(
+          ENCRYPTION_FORWARD_SECURE,
+          std::make_unique<NullDecrypter>(Perspective::IS_CLIENT));
+    }
+    session()->connection()->SetEncrypter(ENCRYPTION_INITIAL, nullptr);
+    session()->OnNewEncryptionKeyAvailable(
+        ENCRYPTION_FORWARD_SECURE,
+        std::make_unique<NullEncrypter>(Perspective::IS_CLIENT));
   }
+  if (session()->version().UsesTls()) {
+    SetConfigNegotiated();
+    session()->OnTlsHandshakeComplete();
+  } else {
+    session()->SetDefaultEncryptionLevel(ENCRYPTION_FORWARD_SECURE);
+  }
+  session()->DiscardOldEncryptionKey(ENCRYPTION_INITIAL);
+  if (session()->version().UsesTls()) {
+    session()->DiscardOldEncryptionKey(ENCRYPTION_ZERO_RTT);
+  }
+  session()->NeuterHandshakeData();
 }
 
 // static
@@ -290,7 +327,8 @@ CryptoHandshakeMessage MockCryptoClientStream::GetDummyCHLOMessage() {
 }
 
 void MockCryptoClientStream::SetConfigNegotiated() {
-  ASSERT_FALSE(session()->config()->negotiated());
+  if (!session()->version().UsesHttp3())
+    ASSERT_FALSE(session()->config()->negotiated());
   QuicTagVector cgst;
 // TODO(rtenneti): Enable the following code after BBR code is checked in.
 #if 0
@@ -298,9 +336,6 @@ void MockCryptoClientStream::SetConfigNegotiated() {
 #endif
   cgst.push_back(kQBIC);
   QuicConfig config(config_);
-  config.SetIdleNetworkTimeout(
-      QuicTime::Delta::FromSeconds(2 * kMaximumIdleTimeoutSecs),
-      QuicTime::Delta::FromSeconds(kMaximumIdleTimeoutSecs));
   config.SetBytesForConnectionIdToSend(PACKET_8BYTE_CONNECTION_ID);
   config.SetMaxBidirectionalStreamsToSend(kDefaultMaxStreamsPerConnection / 2);
   config.SetMaxUnidirectionalStreamsToSend(kDefaultMaxStreamsPerConnection / 2);
@@ -311,14 +346,31 @@ void MockCryptoClientStream::SetConfigNegotiated() {
   config.SetInitialMaxStreamDataBytesUnidirectionalToSend(
       quic::kMinimumFlowControlSendWindow);
 
+  if (quic::VersionHasIetfInvariantHeader(
+          session()->connection()->transport_version())) {
+    auto connection_id = quic::test::TestConnectionId();
+    config.SetStatelessResetTokenToSend(
+        quic::QuicUtils::GenerateStatelessResetToken(connection_id));
+  }
+  if (session()->version().AuthenticatesHandshakeConnectionIds()) {
+    if (session()->perspective() == Perspective::IS_CLIENT) {
+      config.SetOriginalConnectionIdToSend(
+          session()->connection()->connection_id());
+      config.SetInitialSourceConnectionIdToSend(
+          session()->connection()->connection_id());
+    } else {
+      config.SetInitialSourceConnectionIdToSend(
+          session()->connection()->client_connection_id());
+    }
+  }
+
   QuicErrorCode error;
   std::string error_details;
-  if (session()->connection()->version().handshake_protocol ==
-      PROTOCOL_TLS1_3) {
+  if (session()->version().UsesTls()) {
     TransportParameters params;
     ASSERT_TRUE(config.FillTransportParameters(&params));
-    error = session()->config()->ProcessTransportParameters(params, CLIENT,
-                                                            &error_details);
+    error = session()->config()->ProcessTransportParameters(
+        params, /*is_resumption=*/false, &error_details);
   } else {
     CryptoHandshakeMessage msg;
     config.ToHandshakeMessage(
@@ -331,8 +383,7 @@ void MockCryptoClientStream::SetConfigNegotiated() {
 }
 
 void MockCryptoClientStream::FillCryptoParams() {
-  if (session()->connection()->version().handshake_protocol ==
-      quic::PROTOCOL_QUIC_CRYPTO) {
+  if (session()->version().UsesQuicCrypto()) {
     crypto_negotiated_params_->key_exchange = kC255;
     crypto_negotiated_params_->aead = kAESG;
     return;

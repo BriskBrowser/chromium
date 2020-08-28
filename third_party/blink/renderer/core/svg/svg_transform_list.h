@@ -34,6 +34,7 @@
 #include "third_party/blink/renderer/core/svg/properties/svg_list_property_helper.h"
 #include "third_party/blink/renderer/core/svg/svg_parsing_error.h"
 #include "third_party/blink/renderer/core/svg/svg_transform.h"
+#include "third_party/blink/renderer/platform/wtf/casting.h"
 
 namespace blink {
 
@@ -49,13 +50,10 @@ class SVGTransformList final
   SVGTransformList(SVGTransformType, const String&);
   ~SVGTransformList() override;
 
-  SVGTransform* Consolidate();
-
-  bool Concatenate(AffineTransform& result) const;
+  AffineTransform Concatenate() const;
 
   // SVGPropertyBase:
   SVGPropertyBase* CloneForAnimation(const String&) const override;
-  String ValueAsString() const override;
   SVGParsingError SetValueAsString(const String&);
   bool Parse(const UChar*& ptr, const UChar* end);
   bool Parse(const LChar*& ptr, const LChar* end);
@@ -71,7 +69,6 @@ class SVGTransformList final
   float CalculateDistance(SVGPropertyBase* to, SVGElement*) override;
 
   static AnimatedPropertyType ClassType() { return kAnimatedTransformList; }
-  AnimatedPropertyType GetType() const override { return ClassType(); }
 
   const CSSValue* CssValue() const;
 
@@ -80,7 +77,12 @@ class SVGTransformList final
   SVGParsingError ParseInternal(const CharType*& ptr, const CharType* end);
 };
 
-DEFINE_SVG_PROPERTY_TYPE_CASTS(SVGTransformList);
+template <>
+struct DowncastTraits<SVGTransformList> {
+  static bool AllowFrom(const SVGPropertyBase& value) {
+    return value.GetType() == SVGTransformList::ClassType();
+  }
+};
 
 SVGTransformType ParseTransformType(const String&);
 

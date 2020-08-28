@@ -8,9 +8,22 @@
 
   data: [
     "definitionURL",
+    "depth",
+    "display",
+    "displaystyle",
     "encoding",
+    "height",
+    "linethickness",
+    "lspace",
     "mathbackground",
     "mathcolor",
     "mathsize",
+    "mathvariant",
+    "maxsize",
+    "minsize",
+    "rspace",
+    "scriptlevel",
+    "voffset",
+    "width",
   ],
 }

@@ -4,12 +4,12 @@
 
 #import "ios/chrome/browser/ui/text_zoom/text_zoom_view_controller.h"
 
-#include "base/logging.h"
 #include "components/strings/grit/components_strings.h"
-#import "ios/chrome/browser/ui/commands/browser_commands.h"
+#import "ios/chrome/browser/ui/commands/text_zoom_commands.h"
 #import "ios/chrome/browser/ui/text_zoom/text_zoom_constants.h"
-#import "ios/chrome/common/colors/dynamic_color_util.h"
-#import "ios/chrome/common/colors/semantic_color_names.h"
+#import "ios/chrome/browser/ui/util/uikit_ui_util.h"
+#import "ios/chrome/common/ui/colors/dynamic_color_util.h"
+#import "ios/chrome/common/ui/colors/semantic_color_names.h"
 #include "ios/chrome/grit/ios_strings.h"
 #include "ui/base/l10n/l10n_util_mac.h"
 
@@ -20,6 +20,9 @@
 namespace {
 // Horizontal padding between all elements (except the previous/next buttons).
 const CGFloat kPadding = 8;
+// Horizontal padding between buttons and an adjacent superview edge in a
+// Regular x Regular environment.
+const CGFloat kIPadButtonEdgeSpacing = 17;
 const CGFloat kButtonFontSize = 17;
 const CGFloat kButtonSize = 44;
 // Spacing between the increment/decrement buttons and the central divider.
@@ -41,8 +44,6 @@ const CGFloat kDividerWidth = 1;
 @property(nonatomic, strong) UIView* divider;
 @property(nonatomic, strong) UIButton* incrementButton;
 @property(nonatomic, strong) UIButton* decrementButton;
-
-@property(nonatomic, assign) int stepperValue;
 
 @end
 
@@ -66,13 +67,16 @@ const CGFloat kDividerWidth = 1;
   [self.view addSubview:self.centerItemsStackView];
   [self.view addSubview:self.closeButton];
 
+  const CGFloat buttonEdgeSpacing =
+      ShouldShowCompactToolbar() ? kPadding : kIPadButtonEdgeSpacing;
+
   [NSLayoutConstraint activateConstraints:@[
     // Reset button.
     [self.resetButton.centerYAnchor
         constraintEqualToAnchor:self.view.centerYAnchor],
     [self.resetButton.leadingAnchor
         constraintEqualToAnchor:self.view.safeAreaLayoutGuide.leadingAnchor
-                       constant:kPadding],
+                       constant:buttonEdgeSpacing],
     // Use button intrinsic width.
     [self.resetButton.heightAnchor constraintEqualToConstant:kButtonSize],
     // Center items stack view.
@@ -87,7 +91,7 @@ const CGFloat kDividerWidth = 1;
         constraintEqualToAnchor:self.view.centerYAnchor],
     [self.closeButton.trailingAnchor
         constraintEqualToAnchor:self.view.safeAreaLayoutGuide.trailingAnchor
-                       constant:-kPadding],
+                       constant:-buttonEdgeSpacing],
     // Use button intrinsic width.
     [self.closeButton.heightAnchor constraintEqualToConstant:kButtonSize],
   ]];
@@ -95,34 +99,6 @@ const CGFloat kDividerWidth = 1;
   [self.closeButton
       setContentCompressionResistancePriority:UILayoutPriorityDefaultHigh + 1
                                       forAxis:UILayoutConstraintAxisHorizontal];
-}
-
-#pragma mark - Private methods (control actions)
-
-- (void)closeButtonWasTapped:(id)sender {
-  [self.commandHandler hideTextZoom];
-}
-
-- (void)resetButtonWasTapped:(id)sender {
-  self.stepperValue = 0;
-}
-
-- (void)incrementButtonWasTapped:(id)sender {
-  self.stepperValue += 1;
-}
-
-- (void)decrementButtonWasTapped:(id)sender {
-  self.stepperValue -= 1;
-}
-
-- (void)updateStepperState {
-  self.incrementButton.enabled = self.stepperValue < 5;
-  self.decrementButton.enabled = self.stepperValue > -5;
-}
-
-- (void)setStepperValue:(int)stepperValue {
-  _stepperValue = stepperValue;
-  [self updateStepperState];
 }
 
 #pragma mark - Private property Accessors
@@ -134,8 +110,8 @@ const CGFloat kDividerWidth = 1;
     [_closeButton setTitle:l10n_util::GetNSString(IDS_DONE)
                   forState:UIControlStateNormal];
     _closeButton.accessibilityIdentifier = kTextZoomCloseButtonID;
-    [_closeButton addTarget:self
-                     action:@selector(closeButtonWasTapped:)
+    [_closeButton addTarget:self.commandHandler
+                     action:@selector(closeTextZoom)
            forControlEvents:UIControlEventTouchUpInside];
   }
   return _closeButton;
@@ -147,8 +123,8 @@ const CGFloat kDividerWidth = 1;
     _resetButton = [self newButtonWithDefaultStyling];
     [_resetButton setTitle:l10n_util::GetNSString(IDS_IOS_RESET_ZOOM)
                   forState:UIControlStateNormal];
-    [_resetButton addTarget:self
-                     action:@selector(resetButtonWasTapped:)
+    [_resetButton addTarget:self.zoomHandler
+                     action:@selector(resetZoom)
            forControlEvents:UIControlEventTouchUpInside];
   }
   return _resetButton;
@@ -159,9 +135,11 @@ const CGFloat kDividerWidth = 1;
   if (!_incrementButton) {
     _incrementButton = [self newButtonWithDefaultStyling];
     UIImage* image = [UIImage imageNamed:@"text_zoom_zoom_in"];
+    image.accessibilityLabel =
+        l10n_util::GetNSString(IDS_IOS_TEXT_ZOOM_ZOOM_IN);
     [_incrementButton setImage:image forState:UIControlStateNormal];
-    [_incrementButton addTarget:self
-                         action:@selector(incrementButtonWasTapped:)
+    [_incrementButton addTarget:self.zoomHandler
+                         action:@selector(zoomIn)
                forControlEvents:UIControlEventTouchUpInside];
     [NSLayoutConstraint activateConstraints:@[
       [_incrementButton.heightAnchor constraintEqualToConstant:kButtonSize],
@@ -177,9 +155,11 @@ const CGFloat kDividerWidth = 1;
   if (!_decrementButton) {
     _decrementButton = [self newButtonWithDefaultStyling];
     UIImage* image = [UIImage imageNamed:@"text_zoom_zoom_out"];
+    image.accessibilityLabel =
+        l10n_util::GetNSString(IDS_IOS_TEXT_ZOOM_ZOOM_OUT);
     [_decrementButton setImage:image forState:UIControlStateNormal];
-    [_decrementButton addTarget:self
-                         action:@selector(decrementButtonWasTapped:)
+    [_decrementButton addTarget:self.zoomHandler
+                         action:@selector(zoomOut)
                forControlEvents:UIControlEventTouchUpInside];
     [NSLayoutConstraint activateConstraints:@[
       [_decrementButton.heightAnchor constraintEqualToConstant:kButtonSize],
@@ -226,6 +206,20 @@ const CGFloat kDividerWidth = 1;
   button.translatesAutoresizingMaskIntoConstraints = NO;
   button.titleLabel.font = [UIFont systemFontOfSize:kButtonFontSize];
   return button;
+}
+
+#pragma mark - TextZoomConsumer
+
+- (void)setZoomInEnabled:(BOOL)enabled {
+  self.incrementButton.enabled = enabled;
+}
+
+- (void)setZoomOutEnabled:(BOOL)enabled {
+  self.decrementButton.enabled = enabled;
+}
+
+- (void)setResetZoomEnabled:(BOOL)enabled {
+  self.resetButton.enabled = enabled;
 }
 
 @end

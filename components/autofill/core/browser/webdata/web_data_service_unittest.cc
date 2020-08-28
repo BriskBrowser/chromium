@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "base/bind.h"
+#include "base/bind_helpers.h"
 #include "base/location.h"
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
@@ -16,6 +17,7 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/synchronization/waitable_event.h"
 #include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
 #include "base/task/thread_pool/thread_pool_instance.h"
 #include "base/test/task_environment.h"
 #include "base/threading/thread_task_runner_handle.h"
@@ -103,8 +105,8 @@ class WebDataServiceTest : public testing::Test {
     // TODO(pkasting): http://crbug.com/740773 This should likely be sequenced,
     // not single-threaded; it's also possible the various uses of this below
     // should each use their own sequences instead of sharing this one.
-    auto db_task_runner = base::CreateSingleThreadTaskRunner(
-        {base::ThreadPool(), base::MayBlock()});
+    auto db_task_runner =
+        base::ThreadPool::CreateSingleThreadTaskRunner({base::MayBlock()});
     wdbs_ = new WebDatabaseService(path, base::ThreadTaskRunnerHandle::Get(),
                                    db_task_runner);
     wdbs_->AddTable(std::make_unique<AutofillTable>());
@@ -331,9 +333,12 @@ TEST_F(WebDataServiceAutofillTest, ProfileUpdate) {
   AutofillProfile profile1("6141084B-72D7-4B73-90CF-3D6AC154673B",
                            std::string());
   profile1.SetRawInfo(NAME_FIRST, ASCIIToUTF16("Abe"));
+  profile1.FinalizeAfterImport();
+
   AutofillProfile profile2("087151C8-6AB1-487C-9095-28E80BE5DA15",
                            std::string());
   profile2.SetRawInfo(NAME_FIRST, ASCIIToUTF16("Alice"));
+  profile2.FinalizeAfterImport();
 
   EXPECT_CALL(observer_, AutofillProfileChanged(_))
       .WillOnce(DoDefault())

@@ -4,6 +4,7 @@
 
 #include "ui/views/animation/animation_delegate_views.h"
 
+#include "ui/compositor/animation_metrics_recorder.h"
 #include "ui/gfx/animation/animation_container.h"
 #include "ui/views/animation/compositor_animation_runner.h"
 #include "ui/views/widget/widget.h"
@@ -40,7 +41,7 @@ void AnimationDelegateViews::OnViewAddedToWidget(View* observed_view) {
 }
 
 void AnimationDelegateViews::OnViewRemovedFromWidget(View* observed_view) {
-  UpdateAnimationRunner();
+  ClearAnimationRunner();
 }
 
 void AnimationDelegateViews::OnViewIsDeleting(View* observed_view) {
@@ -52,24 +53,51 @@ void AnimationDelegateViews::OnViewIsDeleting(View* observed_view) {
 void AnimationDelegateViews::AnimationContainerShuttingDown(
     gfx::AnimationContainer* container) {
   container_ = nullptr;
+  ClearAnimationRunner();
+}
+
+base::TimeDelta AnimationDelegateViews::GetAnimationDurationForReporting()
+    const {
+  return base::TimeDelta();
+}
+
+void AnimationDelegateViews::SetAnimationMetricsReporter(
+    ui::AnimationMetricsReporter* animation_metrics_reporter) {
+  if (animation_metrics_reporter_ == animation_metrics_reporter)
+    return;
+
+  animation_metrics_reporter_ = animation_metrics_reporter;
+
+  if (!compositor_animation_runner_)
+    return;
+
+  compositor_animation_runner_->SetAnimationMetricsReporter(
+      animation_metrics_reporter_, GetAnimationDurationForReporting());
 }
 
 void AnimationDelegateViews::UpdateAnimationRunner() {
-  if (!container_)
-    return;
-
   if (!view_ || !view_->GetWidget() || !view_->GetWidget()->GetCompositor()) {
-    // TODO(https://crbug.com/960621): make sure the container has a correct
-    // compositor-assisted runner.
-    container_->SetAnimationRunner(nullptr);
+    ClearAnimationRunner();
     return;
   }
 
-  if (container_->has_custom_animation_runner())
+  if (!container_ || container_->has_custom_animation_runner())
     return;
 
-  container_->SetAnimationRunner(
-      std::make_unique<CompositorAnimationRunner>(view_->GetWidget()));
+  auto compositor_animation_runner =
+      std::make_unique<CompositorAnimationRunner>(view_->GetWidget());
+  compositor_animation_runner_ = compositor_animation_runner.get();
+  compositor_animation_runner_->SetAnimationMetricsReporter(
+      animation_metrics_reporter_, GetAnimationDurationForReporting());
+  container_->SetAnimationRunner(std::move(compositor_animation_runner));
+}
+
+void AnimationDelegateViews::ClearAnimationRunner() {
+  // TODO(https://crbug.com/960621): make sure the container has a correct
+  // compositor-assisted runner.
+  if (container_)
+    container_->SetAnimationRunner(nullptr);
+  compositor_animation_runner_ = nullptr;
 }
 
 }  // namespace views

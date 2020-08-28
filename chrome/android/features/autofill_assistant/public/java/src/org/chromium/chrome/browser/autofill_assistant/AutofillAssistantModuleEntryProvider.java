@@ -69,14 +69,11 @@ public class AutofillAssistantModuleEntryProvider {
     public static void maybeInstallDeferred() {
         boolean isNotBundle = !BundleUtils.isBundle();
         boolean isInstalled = AutofillAssistantModule.isInstalled();
-        boolean isVersionBeforeLollipop =
-                android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.LOLLIPOP;
         boolean isNotHighEndDiskDevice = !SysUtils.isHighEndDiskDevice();
-        if (isNotBundle || isInstalled || isVersionBeforeLollipop || isNotHighEndDiskDevice) {
+        if (isNotBundle || isInstalled || isNotHighEndDiskDevice) {
             Log.v(TAG,
                     "Deferred install not triggered: not_bundle=" + isNotBundle
                             + ", already_installed=" + isInstalled
-                            + ", before_lollipop=" + isVersionBeforeLollipop
                             + ", not_high_end_device=" + isNotHighEndDiskDevice);
             return;
         }
@@ -105,7 +102,7 @@ public class AutofillAssistantModuleEntryProvider {
         ui.showInstallStartUi();
         AutofillAssistantModule.install((success) -> {
             if (success) {
-                // Don't show success UI from DFM, transition to autobot UI directly.
+                // Don't show success UI from DFM, transition to Autofill Assistant UI directly.
                 AutofillAssistantMetrics.recordFeatureModuleInstallation(
                         FeatureModuleInstallation.DFM_FOREGROUND_INSTALLATION_SUCCEEDED);
                 callback.onResult(AutofillAssistantModule.getImpl());

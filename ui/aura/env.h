@@ -16,11 +16,15 @@
 #include "mojo/public/cpp/system/buffer.h"
 #include "ui/aura/aura_export.h"
 #include "ui/events/event_target.h"
+#include "ui/events/types/event_type.h"
 #include "ui/gfx/geometry/point.h"
+
+#if defined(USE_X11)
+#include "ui/base/x/x11_cursor_factory.h"  // nogncheck
+#endif
 
 namespace ui {
 class ContextFactory;
-class ContextFactoryPrivate;
 class EventObserver;
 class GestureRecognizer;
 class PlatformEventSource;
@@ -104,14 +108,6 @@ class AURA_EXPORT Env : public ui::EventTarget,
   }
   bool throttle_input_on_resize() const { return throttle_input_on_resize_; }
 
-  void set_context_factory_private(
-      ui::ContextFactoryPrivate* context_factory_private) {
-    context_factory_private_ = context_factory_private;
-  }
-  ui::ContextFactoryPrivate* context_factory_private() {
-    return context_factory_private_;
-  }
-
   ui::GestureRecognizer* gesture_recognizer() {
     return gesture_recognizer_.get();
   }
@@ -179,11 +175,14 @@ class AURA_EXPORT Env : public ui::EventTarget,
 
   std::unique_ptr<ui::GestureRecognizer> gesture_recognizer_;
 
+#if defined(USE_X11)
+  std::unique_ptr<ui::X11CursorFactory> cursor_factory_;
+#endif
+
   std::unique_ptr<InputStateLookup> input_state_lookup_;
   std::unique_ptr<ui::PlatformEventSource> event_source_;
 
   ui::ContextFactory* context_factory_ = nullptr;
-  ui::ContextFactoryPrivate* context_factory_private_ = nullptr;
 
   static bool initial_throttle_input_on_resize_;
   bool throttle_input_on_resize_ = initial_throttle_input_on_resize_;

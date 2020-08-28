@@ -1,6 +1,3 @@
-# crbug/1033877
--org.chromium.chrome.browser.autofill_assistant.AutofillAssistantDirectActionHandlerTest.testReportAvailableDirectActions
-
 # crbug/1036413
 -org.chromium.chrome.browser.banners.AppBannerManagerTest.testBlockedAmbientBadgeDoesNotAppearAgainForMonths
 
@@ -34,21 +31,15 @@
 -org.chromium.chrome.browser.push_messaging.PushMessagingTest.testPushAndShowNotification
 
 # crbug/836460
--org.chromium.chrome.browser.settings.autofill.AutofillProfilesFragmentTest.testKeyboardShownOnDpadCenter
+-org.chromium.chrome.browser.autofill.settings.AutofillProfilesFragmentTest.testKeyboardShownOnDpadCenter
 
 # crbug/1036545
 -org.chromium.chrome.browser.suggestions.tile.TileGroupTest.testDismissTileUndo
 -org.chromium.chrome.browser.suggestions.tile.TileGroupTest.testDismissTileWithContextMenu
 
-# crbug/1036551
--org.chromium.chrome.browser.tabmodel.TabModelMergingTest.testMergeOnColdStartIntoChromeTabbedActivity2
-
-# crbug/1017141
--org.chromium.chrome.browser.tasks.tab_management.TabSwitcherMultiWindowTest.testMoveTabsAcrossWindow_GTS_WithoutGroup
-
 # crbug/1036552
--org.chromium.chrome.browser.tasks.tab_management.TabGridDialogParentTest.testDialog_ZoomInFadeOut
--org.chromium.chrome.browser.tasks.tab_management.TabGridDialogParentTest.testDialog_ZoomInZoomOut
+-org.chromium.chrome.browser.tasks.tab_management.TabGridDialogViewTest.testDialog_ZoomInFadeOut
+-org.chromium.chrome.browser.tasks.tab_management.TabGridDialogViewTest.testDialog_ZoomInZoomOut
 
 # crbug/1036553
 -org.chromium.chrome.browser.translate.TranslateCompactInfoBarTest.testTabMenuDismissedOnOrientationChange
@@ -69,10 +60,6 @@
 -org.chromium.chrome.browser.usage_stats.TabSuspensionTest.testTabAddedInBackground
 -org.chromium.chrome.browser.usage_stats.TabSuspensionTest.testTabSwitchBackToSuspended
 -org.chromium.chrome.browser.usage_stats.TabSuspensionTest.testTabUnsuspendedInBackground
-
-# crbug/1023833
--org.chromium.chrome.features.start_surface.StartSurfaceLayoutTest.testRenderGrid_10WebTabs
--org.chromium.chrome.features.start_surface.StartSurfaceLayoutTest.testRenderGrid_Incognito
 
 # crbug/1036571
 -org.chromium.shape_detection.BarcodeDetectionImplTest.testDetectBarcodeWithHint

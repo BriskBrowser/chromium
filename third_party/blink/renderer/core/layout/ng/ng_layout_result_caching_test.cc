@@ -19,8 +19,6 @@ namespace {
 class NGLayoutResultCachingTest : public NGLayoutTest {};
 
 TEST_F(NGLayoutResultCachingTest, HitDifferentExclusionSpace) {
-  ScopedLayoutNGFragmentCachingForTest layout_ng_fragment_caching(true);
-
   // Same BFC offset, different exclusion space.
   SetBodyInnerHTML(R"HTML(
     <style>
@@ -58,8 +56,6 @@ TEST_F(NGLayoutResultCachingTest, HitDifferentExclusionSpace) {
 }
 
 TEST_F(NGLayoutResultCachingTest, HitDifferentBFCOffset) {
-  ScopedLayoutNGFragmentCachingForTest layout_ng_fragment_caching(true);
-
   // Different BFC offset, same exclusion space.
   SetBodyInnerHTML(R"HTML(
     <style>
@@ -123,8 +119,6 @@ TEST_F(NGLayoutResultCachingTest, HitDifferentBFCOffset) {
 }
 
 TEST_F(NGLayoutResultCachingTest, HitDifferentBFCOffsetSameMarginStrut) {
-  ScopedLayoutNGFragmentCachingForTest layout_ng_fragment_caching(true);
-
   // Different BFC offset, same margin-strut.
   SetBodyInnerHTML(R"HTML(
     <style>
@@ -155,8 +149,6 @@ TEST_F(NGLayoutResultCachingTest, HitDifferentBFCOffsetSameMarginStrut) {
 }
 
 TEST_F(NGLayoutResultCachingTest, MissDescendantAboveBlockStart1) {
-  ScopedLayoutNGFragmentCachingForTest layout_ng_fragment_caching(true);
-
   // Same BFC offset, different exclusion space, descendant above
   // block start.
   SetBodyInnerHTML(R"HTML(
@@ -195,8 +187,6 @@ TEST_F(NGLayoutResultCachingTest, MissDescendantAboveBlockStart1) {
 }
 
 TEST_F(NGLayoutResultCachingTest, MissDescendantAboveBlockStart2) {
-  ScopedLayoutNGFragmentCachingForTest layout_ng_fragment_caching(true);
-
   // Different BFC offset, same exclusion space, descendant above
   // block start.
   SetBodyInnerHTML(R"HTML(
@@ -235,8 +225,6 @@ TEST_F(NGLayoutResultCachingTest, MissDescendantAboveBlockStart2) {
 }
 
 TEST_F(NGLayoutResultCachingTest, HitOOFDescendantAboveBlockStart) {
-  ScopedLayoutNGFragmentCachingForTest layout_ng_fragment_caching(true);
-
   // Different BFC offset, same exclusion space, OOF-descendant above
   // block start.
   SetBodyInnerHTML(R"HTML(
@@ -275,8 +263,6 @@ TEST_F(NGLayoutResultCachingTest, HitOOFDescendantAboveBlockStart) {
 }
 
 TEST_F(NGLayoutResultCachingTest, HitLineBoxDescendantAboveBlockStart) {
-  ScopedLayoutNGFragmentCachingForTest layout_ng_fragment_caching(true);
-
   // Different BFC offset, same exclusion space, line-box descendant above
   // block start.
   SetBodyInnerHTML(R"HTML(
@@ -320,8 +306,6 @@ TEST_F(NGLayoutResultCachingTest, HitLineBoxDescendantAboveBlockStart) {
 }
 
 TEST_F(NGLayoutResultCachingTest, MissFloatInitiallyIntruding1) {
-  ScopedLayoutNGFragmentCachingForTest layout_ng_fragment_caching(true);
-
   // Same BFC offset, different exclusion space, float initially
   // intruding.
   SetBodyInnerHTML(R"HTML(
@@ -358,8 +342,6 @@ TEST_F(NGLayoutResultCachingTest, MissFloatInitiallyIntruding1) {
 }
 
 TEST_F(NGLayoutResultCachingTest, MissFloatInitiallyIntruding2) {
-  ScopedLayoutNGFragmentCachingForTest layout_ng_fragment_caching(true);
-
   // Different BFC offset, same exclusion space, float initially
   // intruding.
   SetBodyInnerHTML(R"HTML(
@@ -396,8 +378,6 @@ TEST_F(NGLayoutResultCachingTest, MissFloatInitiallyIntruding2) {
 }
 
 TEST_F(NGLayoutResultCachingTest, MissFloatWillIntrude1) {
-  ScopedLayoutNGFragmentCachingForTest layout_ng_fragment_caching(true);
-
   // Same BFC offset, different exclusion space, float will intrude.
   SetBodyInnerHTML(R"HTML(
     <style>
@@ -433,8 +413,6 @@ TEST_F(NGLayoutResultCachingTest, MissFloatWillIntrude1) {
 }
 
 TEST_F(NGLayoutResultCachingTest, MissFloatWillIntrude2) {
-  ScopedLayoutNGFragmentCachingForTest layout_ng_fragment_caching(true);
-
   // Different BFC offset, same exclusion space, float will intrude.
   SetBodyInnerHTML(R"HTML(
     <style>
@@ -470,8 +448,6 @@ TEST_F(NGLayoutResultCachingTest, MissFloatWillIntrude2) {
 }
 
 TEST_F(NGLayoutResultCachingTest, HitPushedByFloats1) {
-  ScopedLayoutNGFragmentCachingForTest layout_ng_fragment_caching(true);
-
   // Same BFC offset, different exclusion space, pushed by floats.
   SetBodyInnerHTML(R"HTML(
     <style>
@@ -507,8 +483,6 @@ TEST_F(NGLayoutResultCachingTest, HitPushedByFloats1) {
 }
 
 TEST_F(NGLayoutResultCachingTest, HitPushedByFloats2) {
-  ScopedLayoutNGFragmentCachingForTest layout_ng_fragment_caching(true);
-
   // Different BFC offset, same exclusion space, pushed by floats.
   SetBodyInnerHTML(R"HTML(
     <style>
@@ -544,8 +518,6 @@ TEST_F(NGLayoutResultCachingTest, HitPushedByFloats2) {
 }
 
 TEST_F(NGLayoutResultCachingTest, MissPushedByFloats1) {
-  ScopedLayoutNGFragmentCachingForTest layout_ng_fragment_caching(true);
-
   // Same BFC offset, different exclusion space, pushed by floats.
   // Miss due to shrinking offset.
   SetBodyInnerHTML(R"HTML(
@@ -582,8 +554,6 @@ TEST_F(NGLayoutResultCachingTest, MissPushedByFloats1) {
 }
 
 TEST_F(NGLayoutResultCachingTest, MissPushedByFloats2) {
-  ScopedLayoutNGFragmentCachingForTest layout_ng_fragment_caching(true);
-
   // Different BFC offset, same exclusion space, pushed by floats.
   // Miss due to shrinking offset.
   SetBodyInnerHTML(R"HTML(
@@ -620,8 +590,6 @@ TEST_F(NGLayoutResultCachingTest, MissPushedByFloats2) {
 }
 
 TEST_F(NGLayoutResultCachingTest, HitDifferentRareData) {
-  ScopedLayoutNGFragmentCachingForTest layout_ng_fragment_caching(true);
-
   // Same absolute fixed constraints.
   SetBodyInnerHTML(R"HTML(
     <style>
@@ -651,8 +619,6 @@ TEST_F(NGLayoutResultCachingTest, HitDifferentRareData) {
 }
 
 TEST_F(NGLayoutResultCachingTest, HitPercentageMinWidth) {
-  ScopedLayoutNGFragmentCachingForTest layout_ng_fragment_caching(true);
-
   // min-width calculates to different values, but doesn't change size.
   SetBodyInnerHTML(R"HTML(
     <style>
@@ -682,8 +648,6 @@ TEST_F(NGLayoutResultCachingTest, HitPercentageMinWidth) {
 }
 
 TEST_F(NGLayoutResultCachingTest, HitFixedMinWidth) {
-  ScopedLayoutNGFragmentCachingForTest layout_ng_fragment_caching(true);
-
   // min-width is always larger than the available size.
   SetBodyInnerHTML(R"HTML(
     <style>
@@ -713,8 +677,6 @@ TEST_F(NGLayoutResultCachingTest, HitFixedMinWidth) {
 }
 
 TEST_F(NGLayoutResultCachingTest, HitShrinkToFit) {
-  ScopedLayoutNGFragmentCachingForTest layout_ng_fragment_caching(true);
-
   SetBodyInnerHTML(R"HTML(
     <div style="display: flow-root; width: 300px; height: 100px;">
       <div id="test1" style="float: left;">
@@ -767,8 +729,6 @@ TEST_F(NGLayoutResultCachingTest, HitShrinkToFit) {
 }
 
 TEST_F(NGLayoutResultCachingTest, MissShrinkToFit) {
-  ScopedLayoutNGFragmentCachingForTest layout_ng_fragment_caching(true);
-
   SetBodyInnerHTML(R"HTML(
     <div style="display: flow-root; width: 300px; height: 100px;">
       <div id="test1" style="float: left;">
@@ -861,8 +821,6 @@ TEST_F(NGLayoutResultCachingTest, MissShrinkToFit) {
 }
 
 TEST_F(NGLayoutResultCachingTest, HitShrinkToFitSameIntrinsicSizes) {
-  ScopedLayoutNGFragmentCachingForTest layout_ng_fragment_caching(true);
-
   // We have a shrink-to-fit node, with the min, and max intrinsic sizes being
   // equal (the available size doesn't affect the final size).
   SetBodyInnerHTML(R"HTML(
@@ -898,8 +856,6 @@ TEST_F(NGLayoutResultCachingTest, HitShrinkToFitSameIntrinsicSizes) {
 }
 
 TEST_F(NGLayoutResultCachingTest, HitShrinkToFitDifferentParent) {
-  ScopedLayoutNGFragmentCachingForTest layout_ng_fragment_caching(true);
-
   // The parent "bfc" node changes from shrink-to-fit, to a fixed width. But
   // these calculate as the same available space to the "test" element.
   SetBodyInnerHTML(R"HTML(
@@ -934,8 +890,6 @@ TEST_F(NGLayoutResultCachingTest, HitShrinkToFitDifferentParent) {
 }
 
 TEST_F(NGLayoutResultCachingTest, MissQuirksModePercentageBasedChild) {
-  ScopedLayoutNGFragmentCachingForTest layout_ng_fragment_caching(true);
-
   // Quirks-mode %-block-size child.
   GetDocument().SetCompatibilityMode(Document::kQuirksMode);
   SetBodyInnerHTML(R"HTML(
@@ -970,8 +924,6 @@ TEST_F(NGLayoutResultCachingTest, MissQuirksModePercentageBasedChild) {
 }
 
 TEST_F(NGLayoutResultCachingTest, HitQuirksModePercentageBasedParentAndChild) {
-  ScopedLayoutNGFragmentCachingForTest layout_ng_fragment_caching(true);
-
   // Quirks-mode %-block-size parent *and* child. Here we mark the parent as
   // depending on %-block-size changes, however itself doesn't change in
   // height.
@@ -1011,8 +963,6 @@ TEST_F(NGLayoutResultCachingTest, HitQuirksModePercentageBasedParentAndChild) {
 }
 
 TEST_F(NGLayoutResultCachingTest, HitStandardsModePercentageBasedChild) {
-  ScopedLayoutNGFragmentCachingForTest layout_ng_fragment_caching(true);
-
   // Standards-mode %-block-size child.
   SetBodyInnerHTML(R"HTML(
     <style>
@@ -1046,8 +996,6 @@ TEST_F(NGLayoutResultCachingTest, HitStandardsModePercentageBasedChild) {
 }
 
 TEST_F(NGLayoutResultCachingTest, ChangeTableCellBlockSizeConstrainedness) {
-  ScopedLayoutNGFragmentCachingForTest layout_ng_fragment_caching(true);
-
   SetBodyInnerHTML(R"HTML(
     <style>
       .table { display: table; width: 300px; }
@@ -1112,12 +1060,9 @@ TEST_F(NGLayoutResultCachingTest, ChangeTableCellBlockSizeConstrainedness) {
   // height or not. We're only going to need simplified layout, though, since no
   // children will be affected by its height change.
   EXPECT_EQ(cache_status, NGLayoutCacheStatus::kNeedsSimplifiedLayout);
-  EXPECT_EQ(result.get(), nullptr);
 }
 
 TEST_F(NGLayoutResultCachingTest, OptimisticFloatPlacementNoRelayout) {
-  ScopedLayoutNGFragmentCachingForTest layout_ng_fragment_caching(true);
-
   SetBodyInnerHTML(R"HTML(
     <style>
       .root { display: flow-root; width: 300px; }
@@ -1142,8 +1087,6 @@ TEST_F(NGLayoutResultCachingTest, OptimisticFloatPlacementNoRelayout) {
 }
 
 TEST_F(NGLayoutResultCachingTest, SelfCollapsingShifting) {
-  ScopedLayoutNGFragmentCachingForTest layout_ng_fragment_caching(true);
-
   SetBodyInnerHTML(R"HTML(
     <style>
       .bfc { display: flow-root; width: 300px; height: 300px; }
@@ -1228,8 +1171,6 @@ TEST_F(NGLayoutResultCachingTest, SelfCollapsingShifting) {
 }
 
 TEST_F(NGLayoutResultCachingTest, ClearancePastAdjoiningFloatsMovement) {
-  ScopedLayoutNGFragmentCachingForTest layout_ng_fragment_caching(true);
-
   SetBodyInnerHTML(R"HTML(
     <style>
       .bfc { display: flow-root; width: 300px; height: 300px; }
@@ -1294,8 +1235,6 @@ TEST_F(NGLayoutResultCachingTest, ClearancePastAdjoiningFloatsMovement) {
 }
 
 TEST_F(NGLayoutResultCachingTest, MarginStrutMovementSelfCollapsing) {
-  ScopedLayoutNGFragmentCachingForTest layout_ng_fragment_caching(true);
-
   SetBodyInnerHTML(R"HTML(
     <style>
       .bfc { display: flow-root; width: 300px; height: 300px; }
@@ -1365,8 +1304,6 @@ TEST_F(NGLayoutResultCachingTest, MarginStrutMovementSelfCollapsing) {
 }
 
 TEST_F(NGLayoutResultCachingTest, MarginStrutMovementInFlow) {
-  ScopedLayoutNGFragmentCachingForTest layout_ng_fragment_caching(true);
-
   SetBodyInnerHTML(R"HTML(
     <style>
       .bfc { display: flow-root; width: 300px; height: 300px; }
@@ -1463,8 +1400,6 @@ TEST_F(NGLayoutResultCachingTest, MarginStrutMovementInFlow) {
 }
 
 TEST_F(NGLayoutResultCachingTest, MarginStrutMovementPercentage) {
-  ScopedLayoutNGFragmentCachingForTest layout_ng_fragment_caching(true);
-
   SetBodyInnerHTML(R"HTML(
     <style>
       .bfc { display: flow-root; width: 300px; height: 300px; }
@@ -1503,8 +1438,6 @@ TEST_F(NGLayoutResultCachingTest, MarginStrutMovementPercentage) {
 }
 
 TEST_F(NGLayoutResultCachingTest, HitIsFixedBlockSizeIndefinite) {
-  ScopedLayoutNGFragmentCachingForTest layout_ng_fragment_caching(true);
-
   SetBodyInnerHTML(R"HTML(
     <div style="display: flex; width: 100px; height: 100px;">
       <div id="test1" style="flex-grow: 1; min-height: 100px;">
@@ -1537,8 +1470,6 @@ TEST_F(NGLayoutResultCachingTest, HitIsFixedBlockSizeIndefinite) {
 }
 
 TEST_F(NGLayoutResultCachingTest, MissIsFixedBlockSizeIndefinite) {
-  ScopedLayoutNGFragmentCachingForTest layout_ng_fragment_caching(true);
-
   SetBodyInnerHTML(R"HTML(
     <!DOCTYPE html>
     <div style="display: flex; width: 100px; height: 100px; align-items: start;">
@@ -1569,6 +1500,207 @@ TEST_F(NGLayoutResultCachingTest, MissIsFixedBlockSizeIndefinite) {
   // cache.
   EXPECT_EQ(cache_status, NGLayoutCacheStatus::kNeedsLayout);
   EXPECT_EQ(result.get(), nullptr);
+}
+
+TEST_F(NGLayoutResultCachingTest, HitColumnFlexBoxMeasureAndLayout) {
+  ScopedLayoutNGFlexBoxForTest layout_ng_flex_box(true);
+
+  SetBodyInnerHTML(R"HTML(
+    <!DOCTYPE html>
+    <style>
+      .bfc { display: flex; flex-direction: column; width: 100px; height: 100px; }
+    </style>
+    <div class="bfc">
+      <div id="src1" style="flex-grow: 0;">
+        <div style="height: 50px;"></div>
+      </div>
+    </div>
+    <div class="bfc">
+      <div id="src2" style="flex-grow: 1;">
+        <div style="height: 50px;"></div>
+      </div>
+    </div>
+    <div class="bfc">
+      <div id="test1" style="flex-grow: 2;">
+        <div style="height: 50px;"></div>
+      </div>
+    </div>
+  )HTML");
+
+  auto* test1 = To<LayoutBlockFlow>(GetLayoutObjectByElementId("test1"));
+  auto* src1 = To<LayoutBlockFlow>(GetLayoutObjectByElementId("src1"));
+  auto* src2 = To<LayoutBlockFlow>(GetLayoutObjectByElementId("src2"));
+
+  NGLayoutCacheStatus cache_status;
+  base::Optional<NGFragmentGeometry> fragment_geometry;
+
+  // "src1" only had one "measure" pass performed, and should hit the "measure"
+  // cache-slot for "test1".
+  NGConstraintSpace space =
+      src1->GetCachedLayoutResult()->GetConstraintSpaceForCaching();
+  scoped_refptr<const NGLayoutResult> result = test1->CachedLayoutResult(
+      space, nullptr, nullptr, &fragment_geometry, &cache_status);
+
+  EXPECT_EQ(space.CacheSlot(), NGCacheSlot::kMeasure);
+  EXPECT_EQ(cache_status, NGLayoutCacheStatus::kHit);
+  EXPECT_NE(result.get(), nullptr);
+
+  // "src2" had both a "measure" and "layout" pass performed, and should hit
+  // the "layout" cache-slot for "test1".
+  space = src2->GetCachedLayoutResult()->GetConstraintSpaceForCaching();
+  result = test1->CachedLayoutResult(space, nullptr, nullptr,
+                                     &fragment_geometry, &cache_status);
+
+  EXPECT_EQ(space.CacheSlot(), NGCacheSlot::kLayout);
+  EXPECT_EQ(cache_status, NGLayoutCacheStatus::kHit);
+  EXPECT_NE(result.get(), nullptr);
+}
+
+TEST_F(NGLayoutResultCachingTest, HitRowFlexBoxMeasureAndLayout) {
+  ScopedLayoutNGFlexBoxForTest layout_ng_flex_box(true);
+
+  SetBodyInnerHTML(R"HTML(
+    <!DOCTYPE html>
+    <style>
+      .bfc { display: flex; width: 100px; }
+    </style>
+    <div class="bfc">
+      <div id="src1">
+        <div style="height: 50px;"></div>
+      </div>
+    </div>
+    <div class="bfc">
+      <div id="src2">
+        <div style="height: 70px;"></div>
+      </div>
+      <div style="width: 0px; height: 100px;"></div>
+    </div>
+    <div class="bfc">
+      <div id="test1">
+        <div style="height: 50px;"></div>
+      </div>
+      <div style="width: 0px; height: 100px;"></div>
+    </div>
+  )HTML");
+
+  auto* test1 = To<LayoutBlockFlow>(GetLayoutObjectByElementId("test1"));
+  auto* src1 = To<LayoutBlockFlow>(GetLayoutObjectByElementId("src1"));
+  auto* src2 = To<LayoutBlockFlow>(GetLayoutObjectByElementId("src2"));
+
+  NGLayoutCacheStatus cache_status;
+  base::Optional<NGFragmentGeometry> fragment_geometry;
+
+  // "src1" only had one "measure" pass performed, and should hit the "measure"
+  // cache-slot for "test1".
+  NGConstraintSpace space =
+      src1->GetCachedLayoutResult()->GetConstraintSpaceForCaching();
+  scoped_refptr<const NGLayoutResult> result = test1->CachedLayoutResult(
+      space, nullptr, nullptr, &fragment_geometry, &cache_status);
+
+  EXPECT_EQ(space.CacheSlot(), NGCacheSlot::kMeasure);
+  EXPECT_EQ(cache_status, NGLayoutCacheStatus::kHit);
+  EXPECT_NE(result.get(), nullptr);
+
+  // "src2" had both a "measure" and "layout" pass performed, and should hit
+  // the "layout" cache-slot for "test1".
+  space = src2->GetCachedLayoutResult()->GetConstraintSpaceForCaching();
+  result = test1->CachedLayoutResult(space, nullptr, nullptr,
+                                     &fragment_geometry, &cache_status);
+
+  EXPECT_EQ(space.CacheSlot(), NGCacheSlot::kLayout);
+  EXPECT_EQ(cache_status, NGLayoutCacheStatus::kHit);
+  EXPECT_NE(result.get(), nullptr);
+}
+
+TEST_F(NGLayoutResultCachingTest, HitFlexLegacyImg) {
+  SetBodyInnerHTML(R"HTML(
+    <style>
+      .bfc { display: flex; flex-direction: column; width: 300px; }
+      .bfc > * { display: flex; }
+    </style>
+    <div class="bfc">
+      <div id="test">
+        <img />
+      </div>
+    </div>
+    <div class="bfc" style="height: 200px;">
+      <div id="src">
+        <img />
+      </div>
+    </div>
+  )HTML");
+
+  auto* test = To<LayoutBlock>(GetLayoutObjectByElementId("test"));
+  auto* src = To<LayoutBlock>(GetLayoutObjectByElementId("src"));
+
+  NGLayoutCacheStatus cache_status;
+  base::Optional<NGFragmentGeometry> fragment_geometry;
+  const NGConstraintSpace& space =
+      src->GetCachedLayoutResult()->GetConstraintSpaceForCaching();
+  scoped_refptr<const NGLayoutResult> result = test->CachedLayoutResult(
+      space, nullptr, nullptr, &fragment_geometry, &cache_status);
+
+  EXPECT_EQ(cache_status, NGLayoutCacheStatus::kHit);
+  EXPECT_NE(result.get(), nullptr);
+}
+
+TEST_F(NGLayoutResultCachingTest, HitFlexLegacyGrid) {
+  SetBodyInnerHTML(R"HTML(
+    <style>
+      .bfc { display: flex; flex-direction: column; width: 300px; }
+      .bfc > * { display: flex; }
+      .grid { display: grid; }
+    </style>
+    <div class="bfc">
+      <div id="test">
+        <div class="grid"></div>
+      </div>
+    </div>
+    <div class="bfc" style="height: 200px;">
+      <div id="src">
+        <div class="grid"></div>
+      </div>
+    </div>
+  )HTML");
+
+  auto* test = To<LayoutBlock>(GetLayoutObjectByElementId("test"));
+  auto* src = To<LayoutBlock>(GetLayoutObjectByElementId("src"));
+
+  NGLayoutCacheStatus cache_status;
+  base::Optional<NGFragmentGeometry> fragment_geometry;
+  const NGConstraintSpace& space =
+      src->GetCachedLayoutResult()->GetConstraintSpaceForCaching();
+  scoped_refptr<const NGLayoutResult> result = test->CachedLayoutResult(
+      space, nullptr, nullptr, &fragment_geometry, &cache_status);
+
+  EXPECT_EQ(cache_status, NGLayoutCacheStatus::kHit);
+  EXPECT_NE(result.get(), nullptr);
+}
+
+TEST_F(NGLayoutResultCachingTest, HitOrthogonalRoot) {
+  SetBodyInnerHTML(R"HTML(
+    <style>
+      span { display: inline-block; width: 20px; height: 250px }
+    </style>
+    <div id="target" style="display: flex;">
+      <div style="writing-mode: vertical-rl; line-height: 0;">
+        <span></span><span></span>
+      </div>
+    </div>
+  )HTML");
+
+  auto* target = To<LayoutBlock>(GetLayoutObjectByElementId("target"));
+
+  NGLayoutCacheStatus cache_status;
+  base::Optional<NGFragmentGeometry> fragment_geometry;
+  const NGConstraintSpace& space =
+      target->GetCachedLayoutResult()->GetConstraintSpaceForCaching();
+  scoped_refptr<const NGLayoutResult> result = target->CachedLayoutResult(
+      space, nullptr, nullptr, &fragment_geometry, &cache_status);
+
+  // We should hit the cache using the same constraint space.
+  EXPECT_EQ(cache_status, NGLayoutCacheStatus::kHit);
+  EXPECT_NE(result.get(), nullptr);
 }
 
 }  // namespace

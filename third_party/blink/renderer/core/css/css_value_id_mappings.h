@@ -6,6 +6,7 @@
 #define THIRD_PARTY_BLINK_RENDERER_CORE_CSS_CSS_VALUE_ID_MAPPINGS_H_
 
 #include "third_party/blink/renderer/core/css/css_value_id_mappings_generated.h"
+#include "third_party/blink/renderer/core/style/computed_style_constants.h"
 
 namespace blink {
 
@@ -487,6 +488,36 @@ inline CSSValueID PlatformEnumToCSSValueID(EListStyleType v) {
 
   NOTREACHED();
   return CSSValueID::kDisc;
+}
+
+template <>
+inline PageOrientation CssValueIDToPlatformEnum(CSSValueID v) {
+  if (v == CSSValueID::kUpright)
+    return PageOrientation::kUpright;
+  if (v == CSSValueID::kRotateLeft)
+    return PageOrientation::kRotateLeft;
+  if (v == CSSValueID::kRotateRight)
+    return PageOrientation::kRotateRight;
+
+  NOTREACHED();
+  return PageOrientation::kUpright;
+}
+
+template <>
+inline ScrollbarGutter CssValueIDToPlatformEnum(CSSValueID v) {
+  if (v == CSSValueID::kAuto)
+    return kScrollbarGutterAuto;
+  if (v == CSSValueID::kStable)
+    return kScrollbarGutterStable;
+  if (v == CSSValueID::kAlways)
+    return kScrollbarGutterAlways;
+  if (v == CSSValueID::kBoth)
+    return kScrollbarGutterBoth;
+  if (v == CSSValueID::kForce)
+    return kScrollbarGutterForce;
+
+  NOTREACHED();
+  return kScrollbarGutterAuto;
 }
 
 }  // namespace blink

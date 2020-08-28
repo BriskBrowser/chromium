@@ -2,6 +2,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "build/build_config.h"
+// Disable all tests in this file on Mac for flake (crbug.com/1079249)
+#if !defined(OS_MAC)
+
 #include <string>
 #include <tuple>
 #include <utility>
@@ -29,7 +33,6 @@
 #include "build/build_config.h"
 #include "chrome/browser/autofill/autofill_uitest.h"
 #include "chrome/browser/autofill/autofill_uitest_util.h"
-#include "chrome/browser/metrics/subprocess_metrics_provider.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_io_data.h"
 #include "chrome/browser/translate/chrome_translate_client.h"
@@ -54,6 +57,7 @@
 #include "components/autofill/core/browser/validation.h"
 #include "components/autofill/core/common/autofill_features.h"
 #include "components/autofill/core/common/autofill_util.h"
+#include "components/metrics/content/subprocess_metrics_provider.h"
 #include "components/network_session_configurator/common/network_switches.h"
 #include "components/translate/core/browser/translate_manager.h"
 #include "components/translate/core/common/translate_switches.h"
@@ -65,6 +69,7 @@
 #include "content/public/browser/render_widget_host_view.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/content_switches.h"
+#include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/content_mock_cert_verifier.h"
 #include "content/public/test/test_renderer_host.h"
@@ -75,7 +80,6 @@
 #include "net/dns/mock_host_resolver.h"
 #include "net/test/embedded_test_server/controllable_http_response.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
-#include "net/url_request/url_request_status.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/events/base_event_utils.h"
@@ -389,7 +393,8 @@ class AutofillInteractiveTestBase : public AutofillUiTest {
     ASSERT_TRUE(content::ExecuteScriptAndExtractString(
         GetWebContents(),
         "window.domAutomationController.send("
-        "    document.getElementById('" + field_name + "').value);",
+        "    document.getElementById('" +
+            field_name + "').value);",
         &value));
     EXPECT_EQ(expected_value, value) << "for field " << field_name;
   }
@@ -412,7 +417,7 @@ class AutofillInteractiveTestBase : public AutofillUiTest {
         GetWebContents(),
         "window.domAutomationController.send("
         "    document.defaultView.getComputedStyle(document.getElementById('" +
-        field_name + "')).backgroundColor);",
+            field_name + "')).backgroundColor);",
         color));
   }
 
@@ -759,9 +764,15 @@ class AutofillInteractiveTestWithHistogramTester
   std::unique_ptr<URLLoaderInterceptor> url_loader_interceptor_;
 };
 
+// Test is flaky on Linux TSAN, see http://crbug.com/1045709.
+#if defined(THREAD_SANITIZER)
+#define MAYBE_BasicFormFill DISABLED_BasicFormFill
+#else
+#define MAYBE_BasicFormFill BasicFormFill
+#endif  // THREAD_SANITIZER
 // Test that basic form fill is working.
 IN_PROC_BROWSER_TEST_F(AutofillInteractiveTestWithHistogramTester,
-                       BasicFormFill) {
+                       MAYBE_BasicFormFill) {
   LOG(ERROR) << "crbug/967588: In case of flakes, report log statements to "
                 "crbug.com/967588";
   CreateTestProfile();
@@ -777,7 +788,7 @@ IN_PROC_BROWSER_TEST_F(AutofillInteractiveTestWithHistogramTester,
   TryBasicFormFill();
   LOG(ERROR) << "crbug/967588: Basic form filling completed";
 
-  SubprocessMetricsProvider::MergeHistogramDeltasForTesting();
+  metrics::SubprocessMetricsProvider::MergeHistogramDeltasForTesting();
   // Assert that the network isolation key is populated for 2 requests:
   // - Navigation: /internal/test_url_path
   // - Autofill query: https://clients1.google.com/tbproxy/af/query?...
@@ -1024,9 +1035,11 @@ IN_PROC_BROWSER_TEST_F(AutofillInteractiveTest,
   TryClearForm();
 }
 
+// TODO(crbug.com/967588): Disabled due to flakiness
 // Test that multiple autofillings work.
-IN_PROC_BROWSER_TEST_F(AutofillInteractiveTest,
-                       FillChangeSecondFieldRefillSecondFieldClearFirst) {
+IN_PROC_BROWSER_TEST_F(
+    AutofillInteractiveTest,
+    DISABLED_FillChangeSecondFieldRefillSecondFieldClearFirst) {
   CreateTestProfile();
 
   // Load the test page.
@@ -1242,6 +1255,35 @@ IN_PROC_BROWSER_TEST_F(AutofillInteractiveTest, DontAutofillForOutsideClick) {
   test_delegate()->SetExpectations({ObservedUiEvents::kSuggestionShown});
   ASSERT_NO_FATAL_FAILURE(ClickFirstNameField());
   EXPECT_TRUE(test_delegate()->Wait());
+}
+
+// Makes sure that clicking a field while there is no enough height in the
+// content area for at least one suggestion, won't show the autofill popup. This
+// is a regression test for crbug.com/1108181
+IN_PROC_BROWSER_TEST_F(AutofillInteractiveTest,
+                       DontAutofillShowPopupWhenNoEnoughHeightInContentArea) {
+  // This firstname field starts at y=-100px and has a height of 5120px. There
+  // is no enough space to show at least one row of the autofill popup and hence
+  // the autofill shouldn't be shown.
+  static const char kTestFormWithLargeInputField[] =
+      "<form action=\"http://www.example.com/\" method=\"POST\">"
+      "<label for=\"firstname\">First name:</label>"
+      " <input type=\"text\" id=\"firstname\" style=\"position:fixed; "
+      "top:-100px;height:5120px\"><br>"
+      "<label for=\"lastname\">Last name:</label>"
+      " <input type=\"text\" id=\"lastname\"><br>"
+      "<label for=\"city\">City:</label>"
+      " <input type=\"text\" id=\"city\"><br>"
+      "</form>";
+
+  CreateTestProfile();
+  SetTestUrlResponse(kTestFormWithLargeInputField);
+
+  ui_test_utils::NavigateToURL(browser(), GetTestUrl());
+
+  FocusFirstNameField();
+  SendKeyToPage(GetWebContents(), ui::DomKey::ARROW_DOWN);
+  ASSERT_NO_FATAL_FAILURE(MakeSurePopupDoesntAppear());
 }
 
 // Test that a field is still autofillable after the previously autofilled
@@ -1799,7 +1841,7 @@ IN_PROC_BROWSER_TEST_F(AutofillInteractiveTest, AutofillAfterReload) {
   // Reload the page.
   content::WebContents* web_contents = GetWebContents();
   web_contents->GetController().Reload(content::ReloadType::NORMAL, false);
-  content::WaitForLoadStop(web_contents);
+  EXPECT_TRUE(content::WaitForLoadStop(web_contents));
 
   // Invoke Autofill.
   TryBasicFormFill();
@@ -1956,7 +1998,7 @@ IN_PROC_BROWSER_TEST_F(AutofillInteractiveTest, MAYBE_AutofillAfterTranslate) {
       "利";
 
   // Set up an observer to be able to wait for the bubble to be shown.
-  translate::TranslateWaiter language_waiter(
+  auto language_waiter = translate::CreateTranslateWaiter(
       GetWebContents(),
       translate::TranslateWaiter::WaitEvent::kLanguageDetermined);
 
@@ -1964,7 +2006,7 @@ IN_PROC_BROWSER_TEST_F(AutofillInteractiveTest, MAYBE_AutofillAfterTranslate) {
   ASSERT_NO_FATAL_FAILURE(
       ui_test_utils::NavigateToURL(browser(), GetTestUrl()));
 
-  language_waiter.Wait();
+  language_waiter->Wait();
 
   // Verify current translate step.
   const TranslateBubbleModel* model =
@@ -1976,14 +2018,14 @@ IN_PROC_BROWSER_TEST_F(AutofillInteractiveTest, MAYBE_AutofillAfterTranslate) {
   translate::test_utils::PressTranslate(browser());
 
   // Wait for translation.
-  translate::TranslateWaiter translate_waiter(
+  auto translate_waiter = translate::CreateTranslateWaiter(
       GetWebContents(), translate::TranslateWaiter::WaitEvent::kPageTranslated);
 
   // Simulate the translate script being retrieved.
   // Pass fake google.translate lib as the translate script.
   SimulateURLFetch();
 
-  translate_waiter.Wait();
+  translate_waiter->Wait();
 
   TryBasicFormFill();
 }
@@ -2144,7 +2186,7 @@ IN_PROC_BROWSER_TEST_F(AutofillInteractiveTest, FormFillableOnReset) {
   PopulateForm("NAME_FIRST");
 
   ASSERT_TRUE(content::ExecuteScript(
-       GetWebContents(), "document.getElementById('testform').reset()"));
+      GetWebContents(), "document.getElementById('testform').reset()"));
 
   PopulateForm("NAME_FIRST");
 
@@ -2169,7 +2211,17 @@ IN_PROC_BROWSER_TEST_F(AutofillInteractiveTest,
   ui_test_utils::NavigateToURL(browser(), url);
   PopulateForm("NAME_FIRST");
 
-  ExpectFieldValue("NAME_MIDDLE", "C");
+  // In the legacy implementation for names, the initial is always created
+  // without a trailing dot even if the user explicitely used a dot.
+  // For structured names, we leave the choice to the user.
+  // TODO(crbug.com/1103421): Clean legacy implementation once structured names
+  // are fully launched.
+  if (base::FeatureList::IsEnabled(
+          features::kAutofillEnableSupportForMoreStructureInNames)) {
+    ExpectFieldValue("NAME_MIDDLE", "C.");
+  } else {
+    ExpectFieldValue("NAME_MIDDLE", "C");
+  }
 }
 
 // Test forms with multiple email addresses are filled properly.
@@ -2553,7 +2605,7 @@ IN_PROC_BROWSER_TEST_P(AutofillRestrictUnownedFieldsTest, NoAutocomplete) {
 
   // Of unowned forms are restricted, then there are no forms detected.
   if (restrict_unowned_fields_) {
-    SubprocessMetricsProvider::MergeHistogramDeltasForTesting();
+    metrics::SubprocessMetricsProvider::MergeHistogramDeltasForTesting();
     // We should only have samples saying that some elements were filtered.
     auto buckets =
         histogram.GetAllSamples("Autofill.UnownedFieldsWereFiltered");
@@ -2576,7 +2628,7 @@ IN_PROC_BROWSER_TEST_P(AutofillRestrictUnownedFieldsTest, NoAutocomplete) {
                                                    "hasFilled()", &has_filled));
   EXPECT_EQ(has_filled, !restrict_unowned_fields_);
 
-  SubprocessMetricsProvider::MergeHistogramDeltasForTesting();
+  metrics::SubprocessMetricsProvider::MergeHistogramDeltasForTesting();
 
   // If only some form fields are tagged with autocomplete types, then the
   // number of input elements will not match the number of fields when autofill
@@ -2618,7 +2670,7 @@ IN_PROC_BROWSER_TEST_P(AutofillRestrictUnownedFieldsTest, SomeAutocomplete) {
                                                    "hasFilled()", &has_filled));
   EXPECT_EQ(has_filled, !restrict_unowned_fields_);
 
-  SubprocessMetricsProvider::MergeHistogramDeltasForTesting();
+  metrics::SubprocessMetricsProvider::MergeHistogramDeltasForTesting();
 
   // If only some form fields are tagged with autocomplete types, then the
   // number of input elements will not match the number of fields when autofill
@@ -2658,7 +2710,8 @@ IN_PROC_BROWSER_TEST_P(AutofillRestrictUnownedFieldsTest, SomeAutocomplete) {
 
 // Test that we do not fill formless non-checkout forms when we enable the
 // formless form restrictions.
-IN_PROC_BROWSER_TEST_P(AutofillRestrictUnownedFieldsTest, AllAutocomplete) {
+IN_PROC_BROWSER_TEST_P(AutofillRestrictUnownedFieldsTest,
+                       DISABLED_AllAutocomplete) {
   SCOPED_TRACE(base::StringPrintf("restrict_unowned_fields_ = %d",
                                   restrict_unowned_fields_));
   CreateTestProfile();
@@ -2678,7 +2731,7 @@ IN_PROC_BROWSER_TEST_P(AutofillRestrictUnownedFieldsTest, AllAutocomplete) {
                                                    "hasFilled()", &has_filled));
   EXPECT_TRUE(has_filled);
 
-  SubprocessMetricsProvider::MergeHistogramDeltasForTesting();
+  metrics::SubprocessMetricsProvider::MergeHistogramDeltasForTesting();
 
   // If all form fields are tagged with autocomplete types, we make them all
   // available to be filled.
@@ -3286,9 +3339,9 @@ IN_PROC_BROWSER_TEST_P(AutofillDynamicFormInteractiveTest,
   ExpectFieldValue("phone", "15125551234");
 }
 
-// Test that credit card fields are never re-filled.
+// Test that credit card fields are re-filled.
 IN_PROC_BROWSER_TEST_P(AutofillDynamicFormInteractiveTest,
-                       DynamicChangingFormFill_NotForCreditCard) {
+                       DynamicChangingFormFill_AlsoForCreditCard) {
   CreateTestCreditCart();
 
   // Navigate to the page.
@@ -3308,13 +3361,13 @@ IN_PROC_BROWSER_TEST_P(AutofillDynamicFormInteractiveTest,
   bool has_refilled = false;
   ASSERT_TRUE(content::ExecuteScriptAndExtractBool(
       GetWebContents(), "hasRefilled()", &has_refilled));
-  ASSERT_FALSE(has_refilled);
+  ASSERT_TRUE(has_refilled);
 
   // There should be no values in the fields.
-  ExpectFieldValue("cc-name", "");
-  ExpectFieldValue("cc-num", "");
-  ExpectFieldValue("cc-exp-month", "01");   // Default value.
-  ExpectFieldValue("cc-exp-year", "2010");  // Default value.
+  ExpectFieldValue("cc-name", "Milton Waddams");
+  ExpectFieldValue("cc-num", "4111111111111111");
+  ExpectFieldValue("cc-exp-month", "09");
+  ExpectFieldValue("cc-exp-year", "2999");
   ExpectFieldValue("cc-csc", "");
 }
 
@@ -3367,7 +3420,7 @@ IN_PROC_BROWSER_TEST_P(AutofillDynamicFormInteractiveTest,
   // The fields that were initially filled and not reset should still be filled.
   ExpectFieldValue("firstname", "");  // That field value was reset dynamically.
   ExpectFieldValue("address1", "4120 Freidrich Lane");
-  ExpectFieldValue("state", "CA");   // Default value.
+  ExpectFieldValue("state", "CA");  // Default value.
   ExpectFieldValue("city", "Austin");
   ExpectFieldValue("company", company_name_enabled_ ? "Initech" : "");
   ExpectFieldValue("email", "red.swingline@initech.com");
@@ -3499,3 +3552,5 @@ INSTANTIATE_TEST_SUITE_P(All,
                          AutofillRestrictUnownedFieldsTest,
                          testing::Combine(testing::Bool(), testing::Bool()));
 }  // namespace autofill
+
+#endif  // !defined(OS_MAC)

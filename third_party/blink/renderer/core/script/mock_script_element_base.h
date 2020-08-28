@@ -14,8 +14,6 @@ namespace blink {
 
 class MockScriptElementBase : public GarbageCollected<MockScriptElementBase>,
                               public ScriptElementBase {
-  USING_GARBAGE_COLLECTED_MIXIN(MockScriptElementBase);
-
  public:
   static MockScriptElementBase* Create() {
     return MakeGarbageCollected<testing::StrictMock<MockScriptElementBase>>();
@@ -50,11 +48,17 @@ class MockScriptElementBase : public GarbageCollected<MockScriptElementBase>,
                     const WTF::OrdinalNumber&,
                     const String&));
   MOCK_CONST_METHOD0(GetDocument, Document&());
+  MOCK_CONST_METHOD0(GetExecutionContext, ExecutionContext*());
   MOCK_METHOD1(SetScriptElementForBinding,
                void(HTMLScriptElementOrSVGScriptElement&));
   MOCK_CONST_METHOD0(Loader, ScriptLoader*());
 
-  void Trace(Visitor* visitor) override { ScriptElementBase::Trace(visitor); }
+  ScriptElementBase::Type GetScriptElementType() override {
+    return ScriptElementBase::Type::kHTMLScriptElement;
+  }
+  void Trace(Visitor* visitor) const override {
+    ScriptElementBase::Trace(visitor);
+  }
 };
 
 }  // namespace blink

@@ -39,11 +39,11 @@ PageInfoHoverButton::PageInfoHoverButton(views::ButtonListener* listener,
   constexpr int kColumnSetId = 0;
   views::ColumnSet* columns = grid_layout->AddColumnSet(kColumnSetId);
   columns->AddColumn(views::GridLayout::CENTER, views::GridLayout::CENTER,
-                     views::GridLayout::kFixedSize, views::GridLayout::USE_PREF,
-                     0, 0);
+                     views::GridLayout::kFixedSize,
+                     views::GridLayout::ColumnSize::kUsePreferred, 0, 0);
   columns->AddPaddingColumn(views::GridLayout::kFixedSize, icon_label_spacing);
   columns->AddColumn(views::GridLayout::FILL, views::GridLayout::FILL, 1.0,
-                     views::GridLayout::USE_PREF, 0, 0);
+                     views::GridLayout::ColumnSize::kUsePreferred, 0, 0);
 
   // Make sure hovering over the icon also hovers the |PageInfoHoverButton|.
   icon->set_can_process_events_within_subtree(false);
@@ -59,15 +59,14 @@ PageInfoHoverButton::PageInfoHoverButton(views::ButtonListener* listener,
 
   icon_view_ = grid_layout->AddView(std::move(icon));
 
-  auto title_label =
-      std::make_unique<views::StyledLabel>(base::string16(), nullptr);
+  auto title_label = std::make_unique<views::StyledLabel>();
   title_label->SetTextContext(views::style::CONTEXT_LABEL);
-  // |views::StyledLabel|s are all multi-line. With a layout manager,
-  // |StyledLabel| will try use the available space to size itself, and long
-  // titles will wrap to the next line (for smaller |PageInfoHoverButton|s, this
-  // will also cover up |subtitle_|). Wrap it in a parent view with no layout
-  // manager to ensure it keeps its original size set by SizeToFit() above. Long
-  // titles will then be truncated.
+  // views::StyledLabels are all multi-line. With a layout manager, StyledLabel
+  // will try use the available space to size itself, and long titles will wrap
+  // to the next line (for smaller PageInfoHoverButtons, this will also cover up
+  // |subtitle_|). Wrap it in a parent view with no layout manager to ensure it
+  // keeps its original size set by SizeToFit() above. Long titles will then be
+  // truncated.
   auto title_wrapper = std::make_unique<views::View>();
   title_ = title_wrapper->AddChildView(std::move(title_label));
   SetTitleText(title_resource_id, secondary_text);
@@ -149,6 +148,5 @@ views::View* PageInfoHoverButton::GetTooltipHandlerForPoint(
   return Button::GetTooltipHandlerForPoint(point);
 }
 
-BEGIN_METADATA(PageInfoHoverButton)
-METADATA_PARENT_CLASS(HoverButton)
+BEGIN_METADATA(PageInfoHoverButton, HoverButton)
 END_METADATA()

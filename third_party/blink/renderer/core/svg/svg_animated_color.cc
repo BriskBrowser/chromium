@@ -21,7 +21,7 @@
 
 #include "third_party/blink/renderer/core/css/css_color_value.h"
 #include "third_party/blink/renderer/core/css/parser/css_parser.h"
-#include "third_party/blink/renderer/core/layout/layout_object.h"
+#include "third_party/blink/renderer/core/dom/node_computed_style.h"
 #include "third_party/blink/renderer/core/svg/color_distance.h"
 #include "third_party/blink/renderer/core/svg/svg_animate_element.h"
 
@@ -31,7 +31,7 @@ SVGColorProperty::SVGColorProperty(const String& color_string)
     : style_color_(StyleColor::CurrentColor()) {
   Color color;
   if (CSSParser::ParseColor(color, color_string.StripWhiteSpace()))
-    style_color_ = color;
+    style_color_ = StyleColor(color);
 }
 
 String SVGColorProperty::ValueAsString() const {
@@ -49,9 +49,17 @@ SVGPropertyBase* SVGColorProperty::CloneForAnimation(const String&) const {
 
 static inline Color FallbackColorForCurrentColor(SVGElement* target_element) {
   DCHECK(target_element);
-  if (LayoutObject* target_layout_object = target_element->GetLayoutObject())
-    return target_layout_object->ResolveColor(GetCSSPropertyColor());
+  if (const ComputedStyle* target_style = target_element->GetComputedStyle())
+    return target_style->VisitedDependentColor(GetCSSPropertyColor());
   return Color::kTransparent;
+}
+
+static inline WebColorScheme ColorSchemeForSVGElement(
+    SVGElement* target_element) {
+  DCHECK(target_element);
+  if (const ComputedStyle* target_style = target_element->GetComputedStyle())
+    return target_style->UsedColorScheme();
+  return WebColorScheme::kLight;
 }
 
 void SVGColorProperty::Add(SVGPropertyBase* other,
@@ -59,9 +67,10 @@ void SVGColorProperty::Add(SVGPropertyBase* other,
   DCHECK(context_element);
 
   Color fallback_color = FallbackColorForCurrentColor(context_element);
-  Color from_color =
-      ToSVGColorProperty(other)->style_color_.Resolve(fallback_color);
-  Color to_color = style_color_.Resolve(fallback_color);
+  WebColorScheme color_scheme = ColorSchemeForSVGElement(context_element);
+  Color from_color = To<SVGColorProperty>(other)->style_color_.Resolve(
+      fallback_color, color_scheme);
+  Color to_color = style_color_.Resolve(fallback_color, color_scheme);
   style_color_ = StyleColor(ColorDistance::AddColors(from_color, to_color));
 }
 
@@ -73,19 +82,20 @@ void SVGColorProperty::CalculateAnimatedValue(
     SVGPropertyBase* to_value,
     SVGPropertyBase* to_at_end_of_duration_value,
     SVGElement* context_element) {
-  StyleColor from_style_color = ToSVGColorProperty(from_value)->style_color_;
-  StyleColor to_style_color = ToSVGColorProperty(to_value)->style_color_;
+  StyleColor from_style_color = To<SVGColorProperty>(from_value)->style_color_;
+  StyleColor to_style_color = To<SVGColorProperty>(to_value)->style_color_;
   StyleColor to_at_end_of_duration_style_color =
-      ToSVGColorProperty(to_at_end_of_duration_value)->style_color_;
+      To<SVGColorProperty>(to_at_end_of_duration_value)->style_color_;
 
   // Apply currentColor rules.
   DCHECK(context_element);
   Color fallback_color = FallbackColorForCurrentColor(context_element);
-  Color from_color = from_style_color.Resolve(fallback_color);
-  Color to_color = to_style_color.Resolve(fallback_color);
+  WebColorScheme color_scheme = ColorSchemeForSVGElement(context_element);
+  Color from_color = from_style_color.Resolve(fallback_color, color_scheme);
+  Color to_color = to_style_color.Resolve(fallback_color, color_scheme);
   Color to_at_end_of_duration_color =
-      to_at_end_of_duration_style_color.Resolve(fallback_color);
-  Color animated_color = style_color_.Resolve(fallback_color);
+      to_at_end_of_duration_style_color.Resolve(fallback_color, color_scheme);
+  Color animated_color = style_color_.Resolve(fallback_color, color_scheme);
 
   float animated_red = animated_color.Red();
   animation_element.AnimateAdditiveNumber(
@@ -116,10 +126,11 @@ float SVGColorProperty::CalculateDistance(SVGPropertyBase* to_value,
                                           SVGElement* context_element) {
   DCHECK(context_element);
   Color fallback_color = FallbackColorForCurrentColor(context_element);
+  WebColorScheme color_scheme = ColorSchemeForSVGElement(context_element);
 
-  Color from_color = style_color_.Resolve(fallback_color);
-  Color to_color =
-      ToSVGColorProperty(to_value)->style_color_.Resolve(fallback_color);
+  Color from_color = style_color_.Resolve(fallback_color, color_scheme);
+  Color to_color = To<SVGColorProperty>(to_value)->style_color_.Resolve(
+      fallback_color, color_scheme);
   return ColorDistance::Distance(from_color, to_color);
 }
 

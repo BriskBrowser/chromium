@@ -4,10 +4,22 @@
 
 #include "chrome/browser/chromeos/attestation/tpm_challenge_key_result.h"
 
-#include "base/logging.h"
+#include <ostream>
+
+#include "base/base64.h"
+#include "base/check_op.h"
+#include "base/notreached.h"
+#include "base/values.h"
 
 namespace chromeos {
 namespace attestation {
+namespace {
+std::string Base64EncodeStr(const std::string& str) {
+  std::string result;
+  base::Base64Encode(str, &result);
+  return result;
+}
+}  // namespace
 
 // These messages are exposed to the extensions that using
 // chrome.enterprise.platformKeys API. Someone can rely on exectly these
@@ -48,20 +60,42 @@ const char TpmChallengeKeyResult::kChallengeBadBase64ErrorMsg[] =
     "Challenge is not base64 encoded.";
 const char TpmChallengeKeyResult::kDeviceWebBasedAttestationNotOobeErrorMsg[] =
     "Device web based attestation is only available on the OOBE screen.";
+const char TpmChallengeKeyResult::kGetPublicKeyFailedErrorMsg[] =
+    "Failed to get public key.";
 
 // static
-TpmChallengeKeyResult TpmChallengeKeyResult::MakeResult(
-    const std::string& success_result) {
+TpmChallengeKeyResult TpmChallengeKeyResult::MakeChallengeResponse(
+    const std::string& challenge_response) {
   return TpmChallengeKeyResult{
       /*result_code=*/TpmChallengeKeyResultCode::kSuccess,
-      /*data=*/success_result};
+      /*public_key=*/"",
+      /*challenge_response=*/challenge_response};
+}
+
+// static
+TpmChallengeKeyResult TpmChallengeKeyResult::MakePublicKey(
+    const std::string& public_key) {
+  return TpmChallengeKeyResult{
+      /*result_code=*/TpmChallengeKeyResultCode::kSuccess,
+      /*public_key=*/public_key,
+      /*challenge_response=*/""};
+}
+
+// static
+TpmChallengeKeyResult TpmChallengeKeyResult::MakeSuccess() {
+  return TpmChallengeKeyResult{
+      /*result_code=*/TpmChallengeKeyResultCode::kSuccess,
+      /*public_key=*/"",
+      /*challenge_response=*/""};
 }
 
 // static
 TpmChallengeKeyResult TpmChallengeKeyResult::MakeError(
     TpmChallengeKeyResultCode error_code) {
+  DCHECK_NE(error_code, TpmChallengeKeyResultCode::kSuccess);
   return TpmChallengeKeyResult{/*result_code=*/error_code,
-                               /*data=*/""};
+                               /*public_key=*/"",
+                               /*challenge_response=*/""};
 }
 
 const char* TpmChallengeKeyResult::GetErrorMessage() const {
@@ -100,6 +134,8 @@ const char* TpmChallengeKeyResult::GetErrorMessage() const {
       return kChallengeBadBase64ErrorMsg;
     case TpmChallengeKeyResultCode::kDeviceWebBasedAttestationNotOobeError:
       return kDeviceWebBasedAttestationNotOobeErrorMsg;
+    case TpmChallengeKeyResultCode::kGetPublicKeyFailedError:
+      return kGetPublicKeyFailedErrorMsg;
     case TpmChallengeKeyResultCode::kSuccess:
       // Not an error message.
       NOTREACHED();
@@ -110,6 +146,34 @@ const char* TpmChallengeKeyResult::GetErrorMessage() const {
 
 bool TpmChallengeKeyResult::IsSuccess() const {
   return result_code == TpmChallengeKeyResultCode::kSuccess;
+}
+
+bool TpmChallengeKeyResult::operator==(
+    const TpmChallengeKeyResult& other) const {
+  return ((result_code == other.result_code) &&
+          (public_key == other.public_key) &&
+          (challenge_response == other.challenge_response));
+}
+
+bool TpmChallengeKeyResult::operator!=(
+    const TpmChallengeKeyResult& other) const {
+  return !(*this == other);
+}
+
+std::ostream& operator<<(std::ostream& os,
+                         const TpmChallengeKeyResult& result) {
+  base::Value value(base::Value::Type::DICTIONARY);
+
+  value.SetIntKey("result_code", static_cast<int>(result.result_code));
+  if (!result.IsSuccess()) {
+    value.SetStringKey("error_message", result.GetErrorMessage());
+  }
+  value.SetStringKey("public_key", Base64EncodeStr(result.public_key));
+  value.SetStringKey("challenge_response",
+                     Base64EncodeStr(result.challenge_response));
+
+  os << value;
+  return os;
 }
 
 }  // namespace attestation

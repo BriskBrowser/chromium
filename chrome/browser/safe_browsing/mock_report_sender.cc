@@ -6,7 +6,6 @@
 
 #include "base/bind.h"
 #include "base/run_loop.h"
-#include "base/task/post_task.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "net/traffic_annotation/network_traffic_annotation_test_helper.h"
@@ -25,11 +24,11 @@ void MockReportSender::Send(
     const GURL& report_uri,
     base::StringPiece content_type,
     base::StringPiece report,
-    const base::Callback<void()>& success_callback,
-    const base::Callback<void(const GURL&, int, int)>& error_callback) {
+    base::OnceCallback<void()> success_callback,
+    base::OnceCallback<void(const GURL&, int, int)> error_callback) {
   latest_report_uri_ = report_uri;
-  report.CopyToString(&latest_report_);
-  content_type.CopyToString(&latest_content_type_);
+  latest_report_.assign(report.data(), report.size());
+  latest_content_type_.assign(content_type.data(), content_type.size());
   number_of_reports_++;
 
   // BrowserThreads aren't initialized in the unittest, so don't post tasks
@@ -37,8 +36,8 @@ void MockReportSender::Send(
   if (!content::BrowserThread::IsThreadInitialized(content::BrowserThread::UI))
     return;
 
-  base::PostTask(FROM_HERE, {content::BrowserThread::UI},
-                 base::BindOnce(&MockReportSender::NotifyReportSentOnUIThread,
+  content::GetUIThreadTaskRunner({})->PostTask(
+      FROM_HERE, base::BindOnce(&MockReportSender::NotifyReportSentOnUIThread,
                                 base::Unretained(this)));
 }
 

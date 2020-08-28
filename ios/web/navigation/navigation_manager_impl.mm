@@ -11,6 +11,7 @@
 #import "ios/web/navigation/navigation_manager_delegate.h"
 #import "ios/web/navigation/wk_navigation_util.h"
 #import "ios/web/public/web_client.h"
+#import "ios/web/public/web_state.h"
 #include "ui/base/page_transition_types.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
@@ -24,7 +25,6 @@ const char kRestoreNavigationItemCount[] = "IOS.RestoreNavigationItemCount";
 NavigationManager::WebLoadParams::WebLoadParams(const GURL& url)
     : url(url),
       transition_type(ui::PAGE_TRANSITION_LINK),
-      user_agent_override_option(UserAgentOverrideOption::INHERIT),
       is_renderer_initiated(false),
       post_data(nil) {}
 
@@ -35,7 +35,6 @@ NavigationManager::WebLoadParams::WebLoadParams(const WebLoadParams& other)
       virtual_url(other.virtual_url),
       referrer(other.referrer),
       transition_type(other.transition_type),
-      user_agent_override_option(other.user_agent_override_option),
       is_renderer_initiated(other.is_renderer_initiated),
       extra_headers([other.extra_headers copy]),
       post_data([other.post_data copy]) {}
@@ -47,7 +46,6 @@ NavigationManager::WebLoadParams& NavigationManager::WebLoadParams::operator=(
   referrer = other.referrer;
   is_renderer_initiated = other.is_renderer_initiated;
   transition_type = other.transition_type;
-  user_agent_override_option = other.user_agent_override_option;
   extra_headers = [other.extra_headers copy];
   post_data = [other.post_data copy];
 
@@ -70,51 +68,6 @@ NavigationItem* NavigationManagerImpl::GetLastCommittedNonRedirectedItem(
   }
 
   return nullptr;
-}
-
-/* static */
-void NavigationManagerImpl::UpdatePendingItemUserAgentType(
-    UserAgentOverrideOption user_agent_override_option,
-    const NavigationItem* inherit_from_item,
-    NavigationItem* pending_item) {
-  DCHECK(pending_item);
-
-  // |user_agent_override_option| must be INHERIT if |pending_item|'s
-  // UserAgentType is NONE, as requesting a desktop or mobile user agent should
-  // be disabled for app-specific URLs.
-  DCHECK(pending_item->GetUserAgentType() != UserAgentType::NONE ||
-         user_agent_override_option == UserAgentOverrideOption::INHERIT);
-
-  // Newly created pending items are created with UserAgentType::NONE for native
-  // pages or UserAgentType::MOBILE for non-native pages.  If the pending item's
-  // URL is non-native, check which user agent type it should be created with
-  // based on |user_agent_override_option|.
-  DCHECK_NE(UserAgentType::DESKTOP, pending_item->GetUserAgentType());
-  if (pending_item->GetUserAgentType() == UserAgentType::NONE)
-    return;
-
-  switch (user_agent_override_option) {
-    case UserAgentOverrideOption::DESKTOP:
-      pending_item->SetUserAgentType(UserAgentType::DESKTOP,
-                                     /*update_inherited_user_agent =*/true);
-      break;
-    case UserAgentOverrideOption::MOBILE:
-      pending_item->SetUserAgentType(UserAgentType::MOBILE,
-                                     /*update_inherited_user_agent =*/true);
-      break;
-    case UserAgentOverrideOption::INHERIT: {
-      // Propagate the last committed non-native item's UserAgentType if there
-      // is one, otherwise keep the default value, which is mobile.
-      DCHECK(!inherit_from_item ||
-             inherit_from_item->GetUserAgentType() != UserAgentType::NONE);
-      if (inherit_from_item) {
-        pending_item->SetUserAgentType(
-            inherit_from_item->GetUserAgentForInheritance(),
-            /*update_inherited_user_agent =*/true);
-      }
-      break;
-    }
-  }
 }
 
 NavigationManagerImpl::NavigationManagerImpl()
@@ -279,7 +232,7 @@ void NavigationManagerImpl::LoadURLWithParams(
           ? NavigationInitiationType::RENDERER_INITIATED
           : NavigationInitiationType::BROWSER_INITIATED;
   AddPendingItem(params.url, params.referrer, params.transition_type,
-                 initiation_type, params.user_agent_override_option);
+                 initiation_type);
 
   // Mark pending item as created from hash change if necessary. This is needed
   // because window.hashchange message may not arrive on time.
@@ -337,7 +290,12 @@ void NavigationManagerImpl::Reload(ReloadType reload_type,
     return;
   }
 
-  if (!GetTransientItem() && !GetPendingItem() && !GetLastCommittedItem())
+  // Use GetLastCommittedItemInCurrentOrRestoredSession() instead of
+  // GetLastCommittedItem() so restore session URL's aren't suppressed.
+  // Otherwise a cancelled/stopped navigation during the first post-restore
+  // navigation will always return early from Reload.
+  if (!GetTransientItem() && !GetPendingItem() &&
+      !GetLastCommittedItemInCurrentOrRestoredSession())
     return;
 
   delegate_->ClearDialogs();
@@ -357,7 +315,7 @@ void NavigationManagerImpl::Reload(ReloadType reload_type,
     else if (GetPendingItem())
       reload_item = GetPendingItem();
     else
-      reload_item = GetLastCommittedItem();
+      reload_item = GetLastCommittedItemInCurrentOrRestoredSession();
     DCHECK(reload_item);
 
     reload_item->SetURL(reload_item->GetOriginalRequestURL());
@@ -370,40 +328,38 @@ void NavigationManagerImpl::ReloadWithUserAgentType(
     UserAgentType user_agent_type) {
   DCHECK_NE(user_agent_type, UserAgentType::NONE);
 
-  NavigationItem* last_non_redirect_item = GetTransientItem();
-  if (!last_non_redirect_item ||
-      ui::PageTransitionIsRedirect(last_non_redirect_item->GetTransitionType()))
-    last_non_redirect_item = GetVisibleItem();
-  if (!last_non_redirect_item ||
-      ui::PageTransitionIsRedirect(last_non_redirect_item->GetTransitionType()))
-    last_non_redirect_item = GetLastCommittedNonRedirectedItem(this);
+  NavigationItem* item_to_reload = GetTransientItem();
+  if (!item_to_reload ||
+      ui::PageTransitionIsRedirect(item_to_reload->GetTransitionType()))
+    item_to_reload = GetVisibleItem();
+  if (!item_to_reload ||
+      ui::PageTransitionIsRedirect(item_to_reload->GetTransitionType())) {
+    NavigationItem* last_committed_before_redirect =
+        GetLastCommittedNonRedirectedItem(this);
+    if (last_committed_before_redirect) {
+      // When a tab is opened on a redirect, there is no last committed item
+      // before the redirect. In that case, take the last committed item.
+      item_to_reload = last_committed_before_redirect;
+    }
+  }
 
-  if (!last_non_redirect_item)
+  if (!item_to_reload)
     return;
 
   // |reloadURL| will be empty if a page was open by DOM.
-  GURL reload_url(last_non_redirect_item->GetOriginalRequestURL());
+  GURL reload_url(item_to_reload->GetOriginalRequestURL());
   if (reload_url.is_empty()) {
-    reload_url = last_non_redirect_item->GetVirtualURL();
+    reload_url = item_to_reload->GetVirtualURL();
   }
 
   WebLoadParams params(reload_url);
-  if (last_non_redirect_item->GetVirtualURL() != reload_url)
-    params.virtual_url = last_non_redirect_item->GetVirtualURL();
-  params.referrer = last_non_redirect_item->GetReferrer();
+  if (item_to_reload->GetVirtualURL() != reload_url)
+    params.virtual_url = item_to_reload->GetVirtualURL();
+  params.referrer = item_to_reload->GetReferrer();
   params.transition_type = ui::PAGE_TRANSITION_RELOAD;
 
-  switch (user_agent_type) {
-    case UserAgentType::DESKTOP:
-      params.user_agent_override_option = UserAgentOverrideOption::DESKTOP;
-      break;
-    case UserAgentType::MOBILE:
-      params.user_agent_override_option = UserAgentOverrideOption::MOBILE;
-      break;
-    case UserAgentType::AUTOMATIC:
-    case UserAgentType::NONE:
-      NOTREACHED();
-  }
+  delegate_->SetWebStateUserAgent(user_agent_type);
+  item_to_reload->SetUserAgentType(user_agent_type);
 
   LoadURLWithParams(params);
 }

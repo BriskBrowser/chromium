@@ -25,6 +25,7 @@
 #include "chrome/browser/chromeos/arc/arc_util.h"
 #include "chrome/browser/chromeos/arc/auth/arc_auth_service.h"
 #include "chrome/browser/chromeos/arc/session/arc_session_manager.h"
+#include "chrome/browser/chromeos/arc/session/arc_session_manager_observer.h"
 #include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/signin/account_reconcilor_factory.h"
@@ -96,9 +97,10 @@ class AccountMigrationBaseStep : public AccountMigrationRunner::Step {
   ~AccountMigrationBaseStep() override = default;
 
  protected:
-  bool IsAccountPresentInAccountManager(
+  bool IsAccountWithNonDummyTokenPresentInAccountManager(
       const AccountManager::AccountKey& account) const {
-    return base::Contains(account_manager_accounts_, account);
+    return base::Contains(account_manager_accounts_, account) &&
+           !account_manager_->HasDummyGaiaToken(account);
   }
 
   bool IsAccountManagerEmpty() const {
@@ -184,7 +186,7 @@ class DeviceAccountMigration : public AccountMigrationBaseStep,
 
  private:
   void StartMigration() override {
-    if (IsAccountPresentInAccountManager(device_account_)) {
+    if (IsAccountWithNonDummyTokenPresentInAccountManager(device_account_)) {
       FinishWithSuccess();
       return;
     }
@@ -347,7 +349,7 @@ class ContentAreaAccountsMigration : public AccountMigrationBaseStep,
 // potentially waiting forever to get a callback from ARC. If we do not have a
 // timeout, this |Step| can make the rest of migration |Step|s wait forever.
 class ArcAccountsMigration : public AccountMigrationBaseStep,
-                             public arc::ArcSessionManager::Observer {
+                             public arc::ArcSessionManagerObserver {
  public:
   ArcAccountsMigration(AccountManager* account_manager,
                        signin::IdentityManager* identity_manager,

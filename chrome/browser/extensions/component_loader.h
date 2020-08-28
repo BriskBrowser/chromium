@@ -27,13 +27,12 @@ class Profile;
 namespace extensions {
 
 class Extension;
-class ExtensionServiceInterface;
+class ExtensionSystem;
 
 // For registering, loading, and unloading component extensions.
 class ComponentLoader {
  public:
-  ComponentLoader(ExtensionServiceInterface* extension_service,
-                  Profile* browser_context);
+  ComponentLoader(ExtensionSystem* extension_system, Profile* browser_context);
   virtual ~ComponentLoader();
 
   size_t registered_extensions_count() const {
@@ -89,6 +88,9 @@ class ComponentLoader {
   // Reloads a registered component extension.
   void Reload(const std::string& extension_id);
 
+  // Return ids of all registered extensions.
+  std::vector<std::string> GetRegisteredComponentExtensionsIds() const;
+
 #if defined(OS_CHROMEOS)
   // Add a component extension from a specific directory. Assumes that the
   // extension uses a different manifest file when this is a guest session
@@ -97,6 +99,15 @@ class ComponentLoader {
   void AddComponentFromDir(
       const base::FilePath& root_directory,
       const char* extension_id,
+      const base::Closure& done_cb);
+
+  // Identical to above except allows for the caller to supply the name of the
+  // manifest file.
+  void AddComponentFromDirWithManifestFilename(
+      const base::FilePath& root_directory,
+      const char* extension_id,
+      const base::FilePath::CharType* manifest_file_name,
+      const base::FilePath::CharType* guest_manifest_file_name,
       const base::Closure& done_cb);
 
   // Add a component extension from a specific directory. Assumes that the
@@ -208,7 +219,7 @@ class ComponentLoader {
 
   Profile* profile_;
 
-  ExtensionServiceInterface* extension_service_;
+  ExtensionSystem* extension_system_;
 
   // List of registered component extensions (see Manifest::Location).
   typedef std::vector<ComponentExtensionInfo> RegisteredComponentExtensions;

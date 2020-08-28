@@ -4,6 +4,7 @@
 
 #include "weblayer/browser/autofill_client_impl.h"
 
+#include "components/autofill/core/browser/ui/suggestion.h"
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/ssl_status.h"
 #include "content/public/browser/web_contents.h"
@@ -48,11 +49,6 @@ autofill::payments::PaymentsClient* AutofillClientImpl::GetPaymentsClient() {
   return nullptr;
 }
 
-autofill::SmsClient* AutofillClientImpl::GetSmsClient() {
-  NOTREACHED();
-  return nullptr;
-}
-
 autofill::StrikeDatabase* AutofillClientImpl::GetStrikeDatabase() {
   NOTREACHED();
   return nullptr;
@@ -73,6 +69,11 @@ autofill::AddressNormalizer* AutofillClientImpl::GetAddressNormalizer() {
   return nullptr;
 }
 
+const GURL& AutofillClientImpl::GetLastCommittedURL() {
+  NOTREACHED();
+  return GURL::EmptyGURL();
+}
+
 security_state::SecurityLevel
 AutofillClientImpl::GetSecurityLevelForUmaHistograms() {
   NOTREACHED();
@@ -83,20 +84,6 @@ void AutofillClientImpl::ShowAutofillSettings(bool show_credit_card_settings) {
   NOTREACHED();
 }
 
-#if !defined(OS_ANDROID)
-std::vector<std::string>
-AutofillClientImpl::GetMerchantWhitelistForVirtualCards() {
-  NOTREACHED();
-  return std::vector<std::string>();
-}
-
-std::vector<std::string>
-AutofillClientImpl::GetBinRangeWhitelistForVirtualCards() {
-  NOTREACHED();
-  return std::vector<std::string>();
-}
-#endif
-
 void AutofillClientImpl::ShowUnmaskPrompt(
     const autofill::CreditCard& card,
     UnmaskCardReason reason,
@@ -106,6 +93,19 @@ void AutofillClientImpl::ShowUnmaskPrompt(
 
 void AutofillClientImpl::OnUnmaskVerificationResult(PaymentsRpcResult result) {
   NOTREACHED();
+}
+
+#if !defined(OS_ANDROID)
+std::vector<std::string>
+AutofillClientImpl::GetAllowedMerchantsForVirtualCards() {
+  NOTREACHED();
+  return std::vector<std::string>();
+}
+
+std::vector<std::string>
+AutofillClientImpl::GetAllowedBinRangesForVirtualCards() {
+  NOTREACHED();
+  return std::vector<std::string>();
 }
 
 void AutofillClientImpl::ShowLocalCardMigrationDialog(
@@ -129,7 +129,6 @@ void AutofillClientImpl::ShowLocalCardMigrationResults(
   NOTREACHED();
 }
 
-#if !defined(OS_ANDROID)
 void AutofillClientImpl::ShowWebauthnOfferDialog(
     WebauthnDialogCallback offer_dialog_callback) {
   NOTREACHED();
@@ -160,22 +159,8 @@ void AutofillClientImpl::OfferVirtualCardOptions(
     base::OnceCallback<void(const std::string&)> callback) {
   NOTREACHED();
 }
-#endif
 
-void AutofillClientImpl::ConfirmSaveAutofillProfile(
-    const autofill::AutofillProfile& profile,
-    base::OnceClosure callback) {
-  NOTREACHED();
-}
-
-void AutofillClientImpl::ConfirmSaveCreditCardLocally(
-    const autofill::CreditCard& card,
-    SaveCreditCardOptions options,
-    LocalSaveCardPromptCallback callback) {
-  NOTREACHED();
-}
-
-#if defined(OS_ANDROID)
+#else  // defined(OS_ANDROID)
 void AutofillClientImpl::ConfirmAccountNameFixFlow(
     base::OnceCallback<void(const base::string16&)> callback) {
   NOTREACHED();
@@ -188,6 +173,13 @@ void AutofillClientImpl::ConfirmExpirationDateFixFlow(
   NOTREACHED();
 }
 #endif
+
+void AutofillClientImpl::ConfirmSaveCreditCardLocally(
+    const autofill::CreditCard& card,
+    SaveCreditCardOptions options,
+    LocalSaveCardPromptCallback callback) {
+  NOTREACHED();
+}
 
 void AutofillClientImpl::ConfirmSaveCreditCardToCloud(
     const autofill::CreditCard& card,
@@ -217,11 +209,7 @@ void AutofillClientImpl::ScanCreditCard(CreditCardScanCallback callback) {
 }
 
 void AutofillClientImpl::ShowAutofillPopup(
-    const gfx::RectF& element_bounds,
-    base::i18n::TextDirection text_direction,
-    const std::vector<autofill::Suggestion>& suggestions,
-    bool /*unused_autoselect_first_suggestion*/,
-    autofill::PopupType popup_type,
+    const autofill::AutofillClient::PopupOpenArgs& open_args,
     base::WeakPtr<autofill::AutofillPopupDelegate> delegate) {
   NOTREACHED();
 }
@@ -232,11 +220,33 @@ void AutofillClientImpl::UpdateAutofillPopupDataListValues(
   NOTREACHED();
 }
 
-void AutofillClientImpl::HideAutofillPopup() {
+void AutofillClientImpl::HideAutofillPopup(autofill::PopupHidingReason reason) {
   // This is invoked on the user moving away from an autofill context (e.g., a
   // navigation finishing or a tab being hidden). As all showing/hiding of
   // autofill UI in WebLayer is driven by the system, there is no action to
   // take.
+}
+
+base::span<const autofill::Suggestion> AutofillClientImpl::GetPopupSuggestions()
+    const {
+  NOTIMPLEMENTED();
+  return base::span<const autofill::Suggestion>();
+}
+
+void AutofillClientImpl::PinPopupView() {
+  NOTIMPLEMENTED();
+}
+
+autofill::AutofillClient::PopupOpenArgs AutofillClientImpl::GetReopenPopupArgs()
+    const {
+  NOTIMPLEMENTED();
+  return {};
+}
+
+void AutofillClientImpl::UpdatePopup(
+    const std::vector<autofill::Suggestion>& suggestions,
+    autofill::PopupType popup_type) {
+  NOTREACHED();
 }
 
 bool AutofillClientImpl::IsAutocompleteEnabled() {

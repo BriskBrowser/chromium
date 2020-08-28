@@ -55,7 +55,7 @@ class VideoElementResizeDelegate final : public ResizeObserver::Delegate {
         entries[0]->target()->GetLayoutObject());
   }
 
-  void Trace(Visitor* visitor) override {
+  void Trace(Visitor* visitor) const override {
     visitor->Trace(text_track_container_);
     ResizeObserver::Delegate::Trace(visitor);
   }
@@ -75,7 +75,7 @@ TextTrackContainer::TextTrackContainer(HTMLMediaElement& media_element)
     ObserveSizeChanges(*media_element_);
 }
 
-void TextTrackContainer::Trace(Visitor* visitor) {
+void TextTrackContainer::Trace(Visitor* visitor) const {
   visitor->Trace(media_element_);
   visitor->Trace(video_size_observer_);
   HTMLDivElement::Trace(visitor);
@@ -114,13 +114,14 @@ LayoutObject* TextTrackContainer::CreateLayoutObject(const ComputedStyle&,
 
 void TextTrackContainer::ObserveSizeChanges(Element& element) {
   video_size_observer_ = ResizeObserver::Create(
-      GetDocument(), MakeGarbageCollected<VideoElementResizeDelegate>(*this));
+      GetDocument().domWindow(),
+      MakeGarbageCollected<VideoElementResizeDelegate>(*this));
   video_size_observer_->observe(&element);
 }
 
 void TextTrackContainer::UpdateDefaultFontSize(
     LayoutObject* media_layout_object) {
-  if (!media_layout_object || !media_layout_object->IsVideo())
+  if (!media_layout_object || !IsA<LayoutVideo>(media_layout_object))
     return;
   // FIXME: The video size is used to calculate the font size (a workaround
   // for lack of per-spec vh/vw support) but the whole media element is used

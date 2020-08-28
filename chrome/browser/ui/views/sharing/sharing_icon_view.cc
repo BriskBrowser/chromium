@@ -11,6 +11,7 @@
 #include "ui/gfx/scoped_canvas.h"
 #include "ui/strings/grit/ui_strings.h"
 #include "ui/views/animation/ink_drop.h"
+#include "ui/views/bubble/bubble_dialog_delegate_view.h"
 
 namespace {
 // Progress state when the full length of the animation text is visible.
@@ -144,7 +145,7 @@ bool SharingIconView::IsTriggerableEvent(const ui::Event& event) {
 }
 
 const gfx::VectorIcon& SharingIconView::GetVectorIconBadge() const {
-  return should_show_error_ ? kBlockedBadgeIcon : gfx::kNoneIcon;
+  return should_show_error_ ? vector_icons::kBlockedBadgeIcon : gfx::kNoneIcon;
 }
 
 void SharingIconView::OnExecuting(
@@ -154,7 +155,7 @@ bool SharingIconView::IsLoadingAnimationVisible() {
   return loading_animation_;
 }
 
-views::BubbleDialogDelegateView* SharingIconView::GetBubble() const {
+views::BubbleDialogDelegate* SharingIconView::GetBubble() const {
   auto* controller = GetController();
   return controller ? get_bubble_callback_.Run(controller->dialog()) : nullptr;
 }

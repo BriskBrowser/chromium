@@ -4,12 +4,18 @@
 
 #include "ash/wm/overview/overview_controller.h"
 
+#include <memory>
+
 #include "ash/app_list/test/app_list_test_helper.h"
+#include "ash/frame_throttler/mock_frame_throttling_observer.h"
 #include "ash/keyboard/ui/keyboard_ui_controller.h"
 #include "ash/keyboard/ui/keyboard_util.h"
 #include "ash/keyboard/ui/test/keyboard_test_util.h"
 #include "ash/public/cpp/ash_features.h"
 #include "ash/public/cpp/keyboard/keyboard_switches.h"
+#include "ash/public/cpp/overview_test_api.h"
+#include "ash/public/cpp/test/shell_test_api.h"
+#include "ash/public/cpp/window_properties.h"
 #include "ash/root_window_controller.h"
 #include "ash/shell.h"
 #include "ash/test/ash_test_base.h"
@@ -20,10 +26,13 @@
 #include "ash/wm/tablet_mode/tablet_mode_controller_test_api.h"
 #include "ash/wm/window_resizer.h"
 #include "ash/wm/window_util.h"
+#include "ash/wm/wm_event.h"
 #include "base/command_line.h"
 #include "base/feature_list.h"
+#include "base/run_loop.h"
 #include "base/test/scoped_feature_list.h"
 #include "chromeos/constants/chromeos_features.h"
+#include "ui/aura/client/window_types.h"
 #include "ui/base/hit_test.h"
 #include "ui/compositor/scoped_animation_duration_scale_mode.h"
 #include "ui/events/test/event_generator.h"
@@ -57,14 +66,14 @@ class TestOverviewObserver : public OverviewObserver {
   }
 
   // OverviewObserver:
+  void OnOverviewModeWillStart() override { ++observer_counts_.will_start; }
   void OnOverviewModeStarting() override {
+    ++observer_counts_.starting;
     UpdateLastAnimationStates(
         Shell::Get()->overview_controller()->overview_session());
   }
-  void OnOverviewModeEnding(OverviewSession* overview_session) override {
-    UpdateLastAnimationStates(overview_session);
-  }
   void OnOverviewModeStartingAnimationComplete(bool canceled) override {
+    ++observer_counts_.starting_animation_complete;
     if (!should_monitor_animation_state_)
       return;
 
@@ -73,7 +82,13 @@ class TestOverviewObserver : public OverviewObserver {
     if (run_loop_)
       run_loop_->Quit();
   }
+  void OnOverviewModeEnding(OverviewSession* overview_session) override {
+    ++observer_counts_.ending;
+    UpdateLastAnimationStates(overview_session);
+  }
+  void OnOverviewModeEnded() override { ++observer_counts_.ended; }
   void OnOverviewModeEndingAnimationComplete(bool canceled) override {
+    ++observer_counts_.ending_animation_complete;
     if (!should_monitor_animation_state_)
       return;
 
@@ -102,6 +117,23 @@ class TestOverviewObserver : public OverviewObserver {
     }
   }
 
+  // Checks if all the observed methods have fired the same amount of times.
+  bool ObserverCountsEqual() {
+    const int expected_count = observer_counts_.will_start;
+    DCHECK_GT(expected_count, 0);
+    if (observer_counts_.starting != expected_count)
+      return false;
+    if (observer_counts_.starting_animation_complete != expected_count)
+      return false;
+    if (observer_counts_.ending != expected_count)
+      return false;
+    if (observer_counts_.ended != expected_count)
+      return false;
+    if (observer_counts_.ending_animation_complete != expected_count)
+      return false;
+    return true;
+  }
+
   bool is_ended() const { return ending_animation_state_ != UNKNOWN; }
   bool is_started() const { return starting_animation_state_ != UNKNOWN; }
   AnimationState starting_animation_state() const {
@@ -116,20 +148,28 @@ class TestOverviewObserver : public OverviewObserver {
  private:
   void UpdateLastAnimationStates(OverviewSession* selector) {
     DCHECK(selector);
-    const OverviewSession::EnterExitOverviewType enter_exit_type =
+    const OverviewEnterExitType enter_exit_type =
         selector->enter_exit_overview_type();
 
     last_animation_was_slide_ =
-        enter_exit_type ==
-            OverviewSession::EnterExitOverviewType::kSlideInEnter ||
-        enter_exit_type ==
-            OverviewSession::EnterExitOverviewType::kSlideOutExit;
+        enter_exit_type == OverviewEnterExitType::kSlideInEnter ||
+        enter_exit_type == OverviewEnterExitType::kSlideOutExit;
 
     last_animation_was_fade_ =
-        enter_exit_type ==
-            OverviewSession::EnterExitOverviewType::kFadeInEnter ||
-        enter_exit_type == OverviewSession::EnterExitOverviewType::kFadeOutExit;
+        enter_exit_type == OverviewEnterExitType::kFadeInEnter ||
+        enter_exit_type == OverviewEnterExitType::kFadeOutExit;
   }
+
+  // Struct which keeps track of the counts a OverviewObserver method has fired.
+  // These are used to verify that certain methods have a one to one ratio.
+  struct ObserverCounts {
+    int will_start;
+    int starting;
+    int starting_animation_complete;
+    int ending;
+    int ended;
+    int ending_animation_complete;
+  } observer_counts_ = {0};
 
   AnimationState starting_animation_state_ = UNKNOWN;
   AnimationState ending_animation_state_ = UNKNOWN;
@@ -333,6 +373,23 @@ TEST_F(OverviewControllerTest, OcclusionTest) {
   EXPECT_EQ(OcclusionState::OCCLUDED, window2->occlusion_state());
 }
 
+// Tests that PIP windows are not shown in overview.
+TEST_F(OverviewControllerTest, PipMustNotInOverviewGridTest) {
+  gfx::Rect bounds{100, 100};
+  std::unique_ptr<aura::Window> window(
+      CreateTestWindowInShellWithBounds(bounds));
+  WaitForShowAnimation(window.get());
+  auto* controller = Shell::Get()->overview_controller();
+  controller->StartOverview();
+  // Ensure |window| is in overview with window state non-PIP.
+  EXPECT_TRUE(controller->overview_session()->IsWindowInOverview(window.get()));
+  WMEvent pip_event(WM_EVENT_PIP);
+  WindowState::Get(window.get())->OnWMEvent(&pip_event);
+  // Ensure |window| is not in overview with window state PIP.
+  EXPECT_FALSE(
+      controller->overview_session()->IsWindowInOverview(window.get()));
+}
+
 // Tests that beginning window selection hides the app list.
 TEST_F(OverviewControllerTest, SelectingHidesAppList) {
   std::unique_ptr<aura::Window> window(CreateTestWindow());
@@ -345,32 +402,121 @@ TEST_F(OverviewControllerTest, SelectingHidesAppList) {
   GetAppListTestHelper()->CheckVisibility(false);
 }
 
-// Parameterized test depending on whether kDragFromShelfToHomeOrOverview is
-// enabled.
-class OverviewControllerTestWithDragFromShelfToHomeOrOverview
-    : public OverviewControllerTest,
-      public testing::WithParamInterface<bool> {
- public:
-  OverviewControllerTestWithDragFromShelfToHomeOrOverview() {
-    if (GetParam()) {
-      scoped_feature_list_.InitAndEnableFeature(
-          features::kDragFromShelfToHomeOrOverview);
-    } else {
-      scoped_feature_list_.InitWithFeatures(
-          {}, {features::kDragFromShelfToHomeOrOverview,
-               chromeos::features::kShelfHotseat});
-    }
+// Tests that windows that are excluded from overview, are actually not shown in
+// overview.
+TEST_F(OverviewControllerTest, ExcludedWindowsHidden) {
+  // Create three windows, one normal, one which is not user positionable (and
+  // so should be hidden) and one specifically set to be hidden in overview.
+  std::unique_ptr<aura::Window> window1 = CreateTestWindow();
+  std::unique_ptr<aura::Window> window2 =
+      CreateTestWindow(gfx::Rect(), aura::client::WINDOW_TYPE_POPUP);
+  std::unique_ptr<aura::Window> window3 = CreateTestWindow();
+  window3->SetProperty(kHideInOverviewKey, true);
+
+  // After creation, all windows are visible.
+  ASSERT_TRUE(window1->IsVisible());
+  ASSERT_TRUE(window2->IsVisible());
+  ASSERT_TRUE(window3->IsVisible());
+
+  // Enter overview. Only one of the three windows is in overview, and visible.
+  auto* controller = Shell::Get()->overview_controller();
+  controller->StartOverview();
+  auto* session = controller->overview_session();
+  ASSERT_TRUE(session);
+  EXPECT_TRUE(session->IsWindowInOverview(window1.get()));
+  EXPECT_FALSE(session->IsWindowInOverview(window2.get()));
+  EXPECT_FALSE(session->IsWindowInOverview(window3.get()));
+  EXPECT_TRUE(window1->IsVisible());
+  EXPECT_FALSE(window2->IsVisible());
+  EXPECT_FALSE(window3->IsVisible());
+
+  // On exiting overview, the windows should all be visible. Use a run loop
+  // since |session| is destroyed in a post task, and the restoring windows'
+  // previous visibility happens in the destructor.
+  controller->EndOverview();
+  base::RunLoop().RunUntilIdle();
+  EXPECT_TRUE(window1->IsVisible());
+  EXPECT_TRUE(window2->IsVisible());
+  EXPECT_TRUE(window3->IsVisible());
+}
+
+// Some ash codes are reliant on some OverviewObserver calls matching (i.e. the
+// amount of starts should match the amount of ends). This test verifies that
+// behavior. Tests for both tablet and clamshell mode.
+TEST_F(OverviewControllerTest, ObserverCallsMatch) {
+  ui::ScopedAnimationDurationScaleMode non_zero(
+      ui::ScopedAnimationDurationScaleMode::NON_ZERO_DURATION);
+  TestOverviewObserver observer(/*should_monitor_animation_state=*/false);
+
+  // Helper which waits for an overview animation to finish.
+  auto wait_for_animation = [](bool enter) {
+    ShellTestApi().WaitForOverviewAnimationState(
+        enter ? OverviewAnimationState::kEnterAnimationComplete
+              : OverviewAnimationState::kExitAnimationComplete);
+  };
+
+  auto set_tablet_mode_enabled = [](bool enabled) {
+    TabletMode::Waiter waiter(enabled);
+    if (enabled)
+      TabletModeControllerTestApi().EnterTabletMode();
+    else
+      TabletModeControllerTestApi().LeaveTabletMode();
+    waiter.Wait();
+  };
+
+  // Tests the case where we enter without windows and do regular enter/exit
+  // (wait for enter animation to finish before exiting).
+  auto* overview_controller = Shell::Get()->overview_controller();
+
+  for (bool is_tablet_mode : {false, true}) {
+    SCOPED_TRACE(is_tablet_mode ? "Tablet Mode" : "Clamshell Mode");
+    set_tablet_mode_enabled(is_tablet_mode);
+
+    overview_controller->StartOverview();
+    wait_for_animation(/*enter=*/true);
+    overview_controller->EndOverview();
+    wait_for_animation(/*enter=*/false);
+    EXPECT_TRUE(observer.ObserverCountsEqual());
   }
 
- private:
-  base::test::ScopedFeatureList scoped_feature_list_;
-};
+  // Create one window for the next set of tests.
+  std::unique_ptr<aura::Window> window(CreateTestWindow());
+
+  for (bool is_tablet_mode : {false, true}) {
+    SCOPED_TRACE(is_tablet_mode ? "Tablet Mode" : "Clamshell Mode");
+    set_tablet_mode_enabled(is_tablet_mode);
+
+    // Tests the case where we enter with windows and do regular enter/exit
+    // (wait for enter animation to finish before exiting).
+    overview_controller->StartOverview();
+    wait_for_animation(/*enter=*/true);
+    overview_controller->EndOverview();
+    wait_for_animation(/*enter=*/false);
+    EXPECT_TRUE(observer.ObserverCountsEqual());
+
+    // Tests the case where we exit overview before the start animation has
+    // completed.
+    overview_controller->StartOverview();
+    overview_controller->EndOverview();
+    wait_for_animation(/*enter=*/false);
+    EXPECT_TRUE(observer.ObserverCountsEqual());
+
+    // Tests the case where we enter overview before the exit animation has
+    // completed.
+    overview_controller->StartOverview();
+    wait_for_animation(/*enter=*/true);
+    overview_controller->EndOverview();
+    overview_controller->StartOverview();
+    overview_controller->EndOverview();
+    wait_for_animation(/*enter=*/false);
+    EXPECT_TRUE(observer.ObserverCountsEqual());
+  }
+}
 
 // Tests which animation for overview is used in tablet if all windows
 // are minimized, and that if overview is exited from the home launcher all
 // windows are minimized.
-TEST_P(OverviewControllerTestWithDragFromShelfToHomeOrOverview,
-       OverviewEnterExitAnimationTablet) {
+TEST_F(OverviewControllerTest, OverviewEnterExitAnimationTablet) {
   TestOverviewObserver observer(/*should_monitor_animation_state = */ false);
 
   Shell::Get()->tablet_mode_controller()->SetEnabledForTest(true);
@@ -387,11 +533,11 @@ TEST_P(OverviewControllerTestWithDragFromShelfToHomeOrOverview,
 
   // Exit to home launcher using either fade out or slide out animation. This
   // should minimize all windows.
-  const bool is_homerview_enabled = GetParam();
+  const bool is_homerview_enabled =
+      ash::features::IsDragFromShelfToHomeOrOverviewEnabled();
   Shell::Get()->overview_controller()->EndOverview(
-      is_homerview_enabled
-          ? OverviewSession::EnterExitOverviewType::kFadeOutExit
-          : OverviewSession::EnterExitOverviewType::kSlideOutExit);
+      is_homerview_enabled ? OverviewEnterExitType::kFadeOutExit
+                           : OverviewEnterExitType::kSlideOutExit);
 
   EXPECT_EQ(is_homerview_enabled, observer.last_animation_was_fade());
   EXPECT_EQ(!is_homerview_enabled, observer.last_animation_was_slide());
@@ -408,8 +554,7 @@ TEST_P(OverviewControllerTestWithDragFromShelfToHomeOrOverview,
 
 // Tests that the slide and fade animations are not used to enter or exit
 // overview in clamshell.
-TEST_P(OverviewControllerTestWithDragFromShelfToHomeOrOverview,
-       OverviewEnterExitAnimationClamshell) {
+TEST_F(OverviewControllerTest, OverviewEnterExitAnimationClamshell) {
   TestOverviewObserver observer(/*should_monitor_animation_state = */ false);
 
   const gfx::Rect bounds(200, 200);
@@ -433,8 +578,7 @@ TEST_P(OverviewControllerTestWithDragFromShelfToHomeOrOverview,
   EXPECT_FALSE(observer.last_animation_was_fade());
 }
 
-TEST_P(OverviewControllerTestWithDragFromShelfToHomeOrOverview,
-       WallpaperAnimationTiming) {
+TEST_F(OverviewControllerTest, WallpaperAnimationTiming) {
   const gfx::Rect bounds(200, 200);
   std::unique_ptr<aura::Window> window(
       CreateTestWindowInShellWithBounds(bounds));
@@ -443,11 +587,11 @@ TEST_P(OverviewControllerTestWithDragFromShelfToHomeOrOverview,
   ui::ScopedAnimationDurationScaleMode non_zero(
       ui::ScopedAnimationDurationScaleMode::NON_ZERO_DURATION);
 
-  const bool is_homerview_enabled = GetParam();
+  const bool is_homerview_enabled =
+      ash::features::IsDragFromShelfToHomeOrOverviewEnabled();
   Shell::Get()->overview_controller()->StartOverview(
-      is_homerview_enabled
-          ? OverviewSession::EnterExitOverviewType::kFadeInEnter
-          : OverviewSession::EnterExitOverviewType::kSlideInEnter);
+      is_homerview_enabled ? OverviewEnterExitType::kFadeInEnter
+                           : OverviewEnterExitType::kSlideInEnter);
   auto* wallpaper_widget_controller =
       Shell::GetPrimaryRootWindowController()->wallpaper_widget_controller();
   EXPECT_EQ(is_homerview_enabled,
@@ -457,8 +601,7 @@ TEST_P(OverviewControllerTestWithDragFromShelfToHomeOrOverview,
 
 // Tests that overview session exits cleanly if exit is requested before
 // previous enter animations finish.
-TEST_P(OverviewControllerTestWithDragFromShelfToHomeOrOverview,
-       OverviewExitWhileStillEntering) {
+TEST_F(OverviewControllerTest, OverviewExitWhileStillEntering) {
   Shell::Get()->tablet_mode_controller()->SetEnabledForTest(true);
   // Ensure calls to SetEnabledForTest complete.
   base::RunLoop().RunUntilIdle();
@@ -476,12 +619,12 @@ TEST_P(OverviewControllerTestWithDragFromShelfToHomeOrOverview,
 
   // Exit to home launcher using either fade out or slide out animation. This
   // should minimize all windows.
-  const bool is_homerview_enabled = GetParam();
+  const bool is_homerview_enabled =
+      ash::features::IsDragFromShelfToHomeOrOverviewEnabled();
   TestOverviewObserver observer(/*should_monitor_animation_state = */ true);
   Shell::Get()->overview_controller()->EndOverview(
-      is_homerview_enabled
-          ? OverviewSession::EnterExitOverviewType::kFadeOutExit
-          : OverviewSession::EnterExitOverviewType::kSlideOutExit);
+      is_homerview_enabled ? OverviewEnterExitType::kFadeOutExit
+                           : OverviewEnterExitType::kSlideOutExit);
 
   EXPECT_EQ(is_homerview_enabled, observer.last_animation_was_fade());
   EXPECT_EQ(!is_homerview_enabled, observer.last_animation_was_slide());
@@ -492,11 +635,6 @@ TEST_P(OverviewControllerTestWithDragFromShelfToHomeOrOverview,
   EXPECT_FALSE(Shell::Get()->overview_controller()->InOverviewSession());
   EXPECT_TRUE(WindowState::Get(window.get())->IsMinimized());
 }
-
-INSTANTIATE_TEST_SUITE_P(
-    All,
-    OverviewControllerTestWithDragFromShelfToHomeOrOverview,
-    testing::Bool());
 
 class OverviewVirtualKeyboardTest : public OverviewControllerTest {
  protected:
@@ -539,6 +677,31 @@ TEST_F(OverviewVirtualKeyboardTest,
 
   Shell::Get()->overview_controller()->StartOverview();
   EXPECT_FALSE(keyboard::IsKeyboardHiding());
+}
+
+// Tests that frame throttling starts and ends accordingly when overview starts
+// and ends.
+TEST_F(OverviewControllerTest, FrameThrottling) {
+  MockFrameThrottlingObserver observer;
+  FrameThrottlingController* frame_throttling_controller =
+      Shell::Get()->frame_throttling_controller();
+  frame_throttling_controller->AddObserver(&observer);
+  const int window_count = 5;
+  std::unique_ptr<aura::Window> created_windows[window_count];
+  std::vector<aura::Window*> windows(window_count, nullptr);
+  for (int i = 0; i < window_count; ++i) {
+    created_windows[i] = CreateTestWindow();
+    windows[i] = created_windows[i].get();
+  }
+
+  auto* controller = Shell::Get()->overview_controller();
+  EXPECT_CALL(observer,
+              OnThrottlingStarted(testing::UnorderedElementsAreArray(windows)));
+  controller->StartOverview();
+
+  EXPECT_CALL(observer, OnThrottlingEnded());
+  controller->EndOverview();
+  frame_throttling_controller->RemoveObserver(&observer);
 }
 
 }  // namespace ash

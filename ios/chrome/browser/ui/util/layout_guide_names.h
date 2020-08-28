@@ -39,8 +39,8 @@ extern GuideName* const kOmniboxTextFieldGuide;
 extern GuideName* const kBackButtonGuide;
 // A guide that is constrained to match the frame of the forward button's image.
 extern GuideName* const kForwardButtonGuide;
-// A guide that is constrained to match the frame of the Search button.
-extern GuideName* const kSearchButtonGuide;
+// A guide that is constrained to match the frame of the NewTab button.
+extern GuideName* const kNewTabButtonGuide;
 // A guide that is constrained to match the frame of the TabSwitcher button's
 // image.
 extern GuideName* const kTabSwitcherGuide;
@@ -55,5 +55,8 @@ extern GuideName* const kTranslateInfobarOptionsGuide;
 // A guide that is constrained to match the frame of the last-tapped voice
 // search button.
 extern GuideName* const kVoiceSearchButtonGuide;
+// A guide that is constrained to match the frame of the Discover feed header's
+// top-level menu button.
+extern GuideName* const kDiscoverFeedHeaderMenuGuide;
 
 #endif  // IOS_CHROME_BROWSER_UI_UTIL_LAYOUT_GUIDE_NAMES_H_

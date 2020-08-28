@@ -150,7 +150,8 @@ PropertyHandleSet StringKeyframe::Properties() const {
   for (unsigned i = 0; i < css_property_map_->PropertyCount(); ++i) {
     CSSPropertyValueSet::PropertyReference property_reference =
         css_property_map_->PropertyAt(i);
-    const CSSProperty& property = property_reference.Property();
+    // TODO(crbug.com/980160): Remove access to static Variable instance.
+    const CSSProperty& property = CSSProperty::Get(property_reference.Id());
     DCHECK(!property.IsShorthand())
         << "Web Animations: Encountered unexpanded shorthand CSS property ("
         << static_cast<int>(property.PropertyID()) << ").";
@@ -159,7 +160,8 @@ PropertyHandleSet StringKeyframe::Properties() const {
 
   for (unsigned i = 0; i < presentation_attribute_map_->PropertyCount(); ++i) {
     properties.insert(PropertyHandle(
-        presentation_attribute_map_->PropertyAt(i).Property(), true));
+        CSSProperty::Get(presentation_attribute_map_->PropertyAt(i).Id()),
+        true));
   }
 
   for (auto* const key : svg_attribute_map_.Keys())
@@ -178,8 +180,9 @@ bool StringKeyframe::HasCssProperty() const {
 }
 
 void StringKeyframe::AddKeyframePropertiesToV8Object(
-    V8ObjectBuilder& object_builder) const {
-  Keyframe::AddKeyframePropertiesToV8Object(object_builder);
+    V8ObjectBuilder& object_builder,
+    Element* element) const {
+  Keyframe::AddKeyframePropertiesToV8Object(object_builder, element);
   for (const auto& entry : input_properties_) {
     const PropertyHandle& property_handle = entry.key;
     const CSSValue* property_value = entry.value;
@@ -213,7 +216,7 @@ void StringKeyframe::AddKeyframePropertiesToV8Object(
   }
 }
 
-void StringKeyframe::Trace(Visitor* visitor) {
+void StringKeyframe::Trace(Visitor* visitor) const {
   visitor->Trace(input_properties_);
   visitor->Trace(css_property_map_);
   visitor->Trace(presentation_attribute_map_);
@@ -259,6 +262,10 @@ bool StringKeyframe::CSSPropertySpecificKeyframe::
   return true;
 }
 
+bool StringKeyframe::CSSPropertySpecificKeyframe::IsRevert() const {
+  return value_ && value_->IsRevertValue();
+}
+
 Keyframe::PropertySpecificKeyframe*
 StringKeyframe::CSSPropertySpecificKeyframe::NeutralKeyframe(
     double offset,
@@ -267,7 +274,8 @@ StringKeyframe::CSSPropertySpecificKeyframe::NeutralKeyframe(
       offset, std::move(easing), nullptr, EffectModel::kCompositeAdd);
 }
 
-void StringKeyframe::CSSPropertySpecificKeyframe::Trace(Visitor* visitor) {
+void StringKeyframe::CSSPropertySpecificKeyframe::Trace(
+    Visitor* visitor) const {
   visitor->Trace(value_);
   visitor->Trace(compositor_keyframe_value_cache_);
   Keyframe::PropertySpecificKeyframe::Trace(visitor);

@@ -9,6 +9,7 @@
 
 #include "base/barrier_closure.h"
 #include "base/bind.h"
+#include "base/logging.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chromeos/app_mode/pref_names.h"
 #include "chrome/browser/lifetime/application_lifetime.h"
@@ -42,7 +43,7 @@ void UnscheduleDelayedCryptohomeRemoval(const cryptohome::Identification& id) {
   {
     DictionaryPrefUpdate dict_update(local_state,
                                      prefs::kAllKioskUsersToRemove);
-    dict_update->RemoveWithoutPathExpansion(id.id(), nullptr);
+    dict_update->RemoveKey(id.id());
   }
   local_state->CommitPendingWrite();
 }
@@ -137,7 +138,7 @@ void KioskCryptohomeRemover::RegisterPrefs(PrefRegistrySimple* registry) {
 void KioskCryptohomeRemover::RemoveObsoleteCryptohomes() {
   chromeos::CryptohomeClient* client = chromeos::CryptohomeClient::Get();
   client->WaitForServiceToBeAvailable(
-      base::Bind(&PerformDelayedCryptohomeRemovals));
+      base::BindOnce(&PerformDelayedCryptohomeRemovals));
 }
 
 void KioskCryptohomeRemover::CancelDelayedCryptohomeRemoval(

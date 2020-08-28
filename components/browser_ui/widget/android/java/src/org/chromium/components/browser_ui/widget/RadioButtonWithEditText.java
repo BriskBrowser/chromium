@@ -10,8 +10,13 @@ import android.text.Editable;
 import android.text.InputType;
 import android.text.TextWatcher;
 import android.util.AttributeSet;
+import android.view.accessibility.AccessibilityNodeInfo;
 import android.widget.EditText;
 import android.widget.TextView;
+
+import androidx.annotation.VisibleForTesting;
+
+import org.chromium.ui.KeyboardVisibilityDelegate;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -103,6 +108,24 @@ public class RadioButtonWithEditText extends RadioButtonWithDescription {
                 }
             }
         });
+
+        // Handles keyboard actions
+        mEditText.setOnEditorActionListener((v, actionId, event) -> {
+            mEditText.clearFocus();
+            return false;
+        });
+
+        // Handle touches beside the Edit text
+        mEditText.setOnFocusChangeListener((v, hasFocus) -> { onEditTextFocusChanged(hasFocus); });
+    }
+
+    @Override
+    public void onInitializeAccessibilityNodeInfo(AccessibilityNodeInfo info) {
+        // Fix the announcement for a11y as EditText cannot be correctly read out as a child
+        // of a ViewGroup. Setting EditText as the label for this custom view is a workaround
+        // as label will be announce at end of ViewGroup's readable a11y children.
+        super.onInitializeAccessibilityNodeInfo(info);
+        info.setLabeledBy(mEditText);
     }
 
     @Override
@@ -125,6 +148,25 @@ public class RadioButtonWithEditText extends RadioButtonWithDescription {
         setInputType(inputType);
 
         a.recycle();
+    }
+
+    /**
+     * Sets the checked status.
+     */
+    @Override
+    public void setChecked(boolean checked) {
+        super.setChecked(checked);
+        mEditText.clearFocus();
+    }
+
+    private void onEditTextFocusChanged(boolean hasFocus) {
+        if (hasFocus) {
+            setCheckedWithNoFocusChange(true);
+            mEditText.setCursorVisible(true);
+        } else {
+            mEditText.setCursorVisible(false);
+            KeyboardVisibilityDelegate.getInstance().hideKeyboard(mEditText);
+        }
     }
 
     /**
@@ -163,5 +205,13 @@ public class RadioButtonWithEditText extends RadioButtonWithDescription {
      */
     public void setHint(int hintId) {
         mEditText.setHint(hintId);
+    }
+
+    /**
+     * @return the EditText living inside this widget.
+     */
+    @VisibleForTesting
+    public EditText getEditTextForTests() {
+        return mEditText;
     }
 }

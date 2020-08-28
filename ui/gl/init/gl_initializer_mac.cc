@@ -177,7 +177,7 @@ bool InitializeGLOneOffPlatform() {
     case kGLImplementationEGLGLES2:
     case kGLImplementationEGLANGLE:
     case kGLImplementationSwiftShaderGL:
-      if (!GLSurfaceEGL::InitializeOneOff(0)) {
+      if (!GLSurfaceEGL::InitializeOneOff(EGLDisplayPlatform(0))) {
         LOG(ERROR) << "GLSurfaceEGL::InitializeOneOff failed.";
         return false;
       }
@@ -226,6 +226,7 @@ bool InitializeStaticGLBindings(GLImplementation implementation) {
 void ShutdownGLPlatform() {
   ClearBindingsGL();
 #if defined(USE_EGL)
+  GLSurfaceEGL::ShutdownOneOff();
   ClearBindingsEGL();
 #endif  // defined(USE_EGL)
 }

@@ -40,13 +40,9 @@ class TestChildModalParent : public views::WidgetDelegateView,
   aura::Window* ShowModalChild();
 
  private:
-  // Overridden from views::WidgetDelegate:
-  base::string16 GetWindowTitle() const override;
-
   // Overridden from views::View:
   void Layout() override;
-  void ViewHierarchyChanged(
-      const views::ViewHierarchyChangedDetails& details) override;
+  void AddedToWidget() override;
 
   // Overridden from ButtonListener:
   void ButtonPressed(views::Button* sender, const ui::Event& event) override;

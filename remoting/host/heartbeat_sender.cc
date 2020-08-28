@@ -13,25 +13,56 @@
 #include "base/rand_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/stringize_macros.h"
+#include "base/system/sys_info.h"
 #include "base/time/time.h"
+#include "build/build_config.h"
+#include "net/base/network_interfaces.h"
+#include "net/traffic_annotation/network_traffic_annotation.h"
 #include "remoting/base/constants.h"
-#include "remoting/base/grpc_support/grpc_async_unary_request.h"
-#include "remoting/base/grpc_support/grpc_authenticated_executor.h"
-#include "remoting/base/grpc_support/grpc_channel.h"
-#include "remoting/base/grpc_support/grpc_util.h"
 #include "remoting/base/logging.h"
+#include "remoting/base/protobuf_http_client.h"
+#include "remoting/base/protobuf_http_request.h"
+#include "remoting/base/protobuf_http_request_config.h"
+#include "remoting/base/protobuf_http_status.h"
 #include "remoting/base/service_urls.h"
+#include "remoting/host/host_config.h"
 #include "remoting/host/host_details.h"
 #include "remoting/host/server_log_entry_host.h"
-#include "remoting/proto/remoting/v1/directory_service.grpc.pb.h"
 #include "remoting/signaling/ftl_signal_strategy.h"
-#include "remoting/signaling/log_to_server.h"
-#include "remoting/signaling/server_log_entry.h"
 #include "remoting/signaling/signaling_address.h"
+#include "services/network/public/cpp/shared_url_loader_factory.h"
 
 namespace remoting {
 
 namespace {
+
+constexpr char kHeartbeatPath[] = "/v1/directory:heartbeat";
+
+constexpr net::NetworkTrafficAnnotationTag kTrafficAnnotation =
+    net::DefineNetworkTrafficAnnotation("heartbeat_sender",
+                                        R"(
+        semantics {
+          sender: "Chrome Remote Desktop"
+          description:
+            "Sends heartbeat data to the Chrome Remote Desktop backend so that "
+            "the client knows about the presence of the host."
+          trigger:
+            "Starting a Chrome Remote Desktop host."
+          data:
+            "Chrome Remote Desktop Host ID and some non-PII information about "
+            "the host system such as the Chrome Remote Desktop version and the "
+            "OS version."
+          destination: OTHER
+          destination_other: "Chrome Remote Desktop directory service"
+        }
+        policy {
+          cookies_allowed: NO
+          setting:
+            "This request cannot be stopped in settings, but will not be sent "
+            "if the user does not use Chrome Remote Desktop."
+          policy_exception_justification:
+            "Not implemented."
+        })");
 
 constexpr base::TimeDelta kMinimumHeartbeatInterval =
     base::TimeDelta::FromMinutes(3);
@@ -78,77 +109,76 @@ const net::BackoffEntry::Policy kBackoffPolicy = {
 class HeartbeatSender::HeartbeatClientImpl final
     : public HeartbeatSender::HeartbeatClient {
  public:
-  explicit HeartbeatClientImpl(OAuthTokenGetter* oauth_token_getter);
+  explicit HeartbeatClientImpl(
+      OAuthTokenGetter* oauth_token_getter,
+      scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory);
   ~HeartbeatClientImpl() override;
 
-  void Heartbeat(const apis::v1::HeartbeatRequest& request,
+  void Heartbeat(std::unique_ptr<apis::v1::HeartbeatRequest> request,
                  HeartbeatResponseCallback callback) override;
   void CancelPendingRequests() override;
 
  private:
-  using DirectoryService = apis::v1::RemotingDirectoryService;
-  std::unique_ptr<DirectoryService::Stub> directory_;
-  GrpcAuthenticatedExecutor executor_;
+  ProtobufHttpClient http_client_;
   DISALLOW_COPY_AND_ASSIGN(HeartbeatClientImpl);
 };
 
 HeartbeatSender::HeartbeatClientImpl::HeartbeatClientImpl(
-    OAuthTokenGetter* oauth_token_getter)
-    : executor_(oauth_token_getter) {
-  directory_ = DirectoryService::NewStub(CreateSslChannelForEndpoint(
-      ServiceUrls::GetInstance()->remoting_server_endpoint()));
-}
+    OAuthTokenGetter* oauth_token_getter,
+    scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory)
+    : http_client_(ServiceUrls::GetInstance()->remoting_server_endpoint(),
+                   oauth_token_getter,
+                   url_loader_factory) {}
 
 HeartbeatSender::HeartbeatClientImpl::~HeartbeatClientImpl() = default;
 
 void HeartbeatSender::HeartbeatClientImpl::Heartbeat(
-    const apis::v1::HeartbeatRequest& request,
+    std::unique_ptr<apis::v1::HeartbeatRequest> request,
     HeartbeatResponseCallback callback) {
   std::string host_offline_reason_or_empty_log =
-      request.has_host_offline_reason()
-          ? (", host_offline_reason: " + request.host_offline_reason())
+      request->has_host_offline_reason()
+          ? (", host_offline_reason: " + request->host_offline_reason())
           : "";
-  HOST_LOG << "Sending outgoing heartbeat. tachyon_id: " << request.tachyon_id()
-           << host_offline_reason_or_empty_log;
+  HOST_LOG << "Sending outgoing heartbeat. tachyon_id: "
+           << request->tachyon_id() << host_offline_reason_or_empty_log;
 
-  auto client_context = std::make_unique<grpc::ClientContext>();
-  auto async_request = CreateGrpcAsyncUnaryRequest(
-      base::BindOnce(&DirectoryService::Stub::AsyncHeartbeat,
-                     base::Unretained(directory_.get())),
-      request, std::move(callback));
-  SetDeadline(async_request->context(),
-              base::Time::Now() + kHeartbeatResponseTimeout);
-  executor_.ExecuteRpc(std::move(async_request));
+  auto request_config =
+      std::make_unique<ProtobufHttpRequestConfig>(kTrafficAnnotation);
+  request_config->path = kHeartbeatPath;
+  request_config->request_message = std::move(request);
+  auto http_request =
+      std::make_unique<ProtobufHttpRequest>(std::move(request_config));
+  http_request->SetTimeoutDuration(kHeartbeatResponseTimeout);
+  http_request->SetResponseCallback(std::move(callback));
+  http_client_.ExecuteRequest(std::move(http_request));
 }
 
 void HeartbeatSender::HeartbeatClientImpl::CancelPendingRequests() {
-  executor_.CancelPendingRequests();
+  http_client_.CancelPendingRequests();
 }
 
 // end of HeartbeatSender::HeartbeatClientImpl
 
 HeartbeatSender::HeartbeatSender(
-    base::OnceClosure on_heartbeat_successful_callback,
-    base::OnceClosure on_unknown_host_id_error,
-    base::OnceClosure on_auth_error,
+    Delegate* delegate,
     const std::string& host_id,
     SignalStrategy* signal_strategy,
     OAuthTokenGetter* oauth_token_getter,
-    LogToServer* log_to_server)
-    : on_heartbeat_successful_callback_(
-          std::move(on_heartbeat_successful_callback)),
-      on_unknown_host_id_error_(std::move(on_unknown_host_id_error)),
-      on_auth_error_(std::move(on_auth_error)),
+    scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
+    bool is_googler)
+    : delegate_(delegate),
       host_id_(host_id),
       signal_strategy_(signal_strategy),
-      client_(std::make_unique<HeartbeatClientImpl>(oauth_token_getter)),
-      log_to_server_(log_to_server),
+      client_(std::make_unique<HeartbeatClientImpl>(oauth_token_getter,
+                                                    url_loader_factory)),
       oauth_token_getter_(oauth_token_getter),
       backoff_(&kBackoffPolicy) {
-  DCHECK(log_to_server_);
+  DCHECK(delegate_);
+  DCHECK(signal_strategy_);
 
   signal_strategy_->AddListener(this);
   OnSignalStrategyStateChange(signal_strategy_->GetState());
+  is_googler_ = is_googler;
 }
 
 HeartbeatSender::~HeartbeatSender() {
@@ -222,6 +252,21 @@ void HeartbeatSender::SendHeartbeat() {
     return;
   }
 
+  base::TimeDelta last_reported_active_duration =
+      signal_strategy_->signaling_tracker()
+          .GetLastReportedChannelActiveDuration();
+  if (!signal_strategy_->signaling_tracker().IsChannelActive()) {
+    LOG(ERROR) << "Signaling channel appears to be inactive but it claims it's "
+                  "connected. Last reported active "
+               << last_reported_active_duration << " ago.";
+    signal_strategy_->Disconnect();
+    return;
+  } else {
+    VLOG(1)
+        << "About to send heartbeat. Signaling channel last reported active "
+        << last_reported_active_duration << " ago.";
+  }
+
   // Drop previous heartbeat and timer so that it doesn't interfere with the
   // current one.
   client_->CancelPendingRequests();
@@ -230,24 +275,20 @@ void HeartbeatSender::SendHeartbeat() {
   client_->Heartbeat(
       CreateHeartbeatRequest(),
       base::BindOnce(&HeartbeatSender::OnResponse, base::Unretained(this)));
-
-  // Send a heartbeat log
-  std::unique_ptr<ServerLogEntry> log_entry = MakeLogEntryForHeartbeat();
-  AddHostFieldsToLogEntry(log_entry.get());
-  log_to_server_->Log(*log_entry);
 }
 
-void HeartbeatSender::OnResponse(const grpc::Status& status,
-                                 const apis::v1::HeartbeatResponse& response) {
+void HeartbeatSender::OnResponse(
+    const ProtobufHttpStatus& status,
+    std::unique_ptr<apis::v1::HeartbeatResponse> response) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
   if (status.ok()) {
-    heartbeat_succeeded_ = true;
     backoff_.Reset();
 
     // Notify listener of the first successful heartbeat.
-    if (on_heartbeat_successful_callback_) {
-      std::move(on_heartbeat_successful_callback_).Run();
+    if (!initial_heartbeat_sent_) {
+      delegate_->OnFirstHeartbeatSuccessful();
+      initial_heartbeat_sent_ = true;
     }
 
     // Notify caller of SetHostOfflineReason that we got an ack and don't
@@ -256,11 +297,18 @@ void HeartbeatSender::OnResponse(const grpc::Status& status,
       OnHostOfflineReasonAck();
       return;
     }
+
+    if (response->has_remote_command()) {
+      OnRemoteCommand(response->remote_command());
+    }
   } else {
+    LOG(ERROR) << "Heartbeat failed. Error code: "
+               << static_cast<int>(status.error_code()) << ", "
+               << status.error_message();
     backoff_.InformOfRequest(false);
   }
 
-  if (status.error_code() == grpc::StatusCode::DEADLINE_EXCEEDED) {
+  if (status.error_code() == ProtobufHttpStatus::Code::DEADLINE_EXCEEDED) {
     LOG(ERROR) << "Heartbeat timed out.";
   }
 
@@ -269,21 +317,17 @@ void HeartbeatSender::OnResponse(const grpc::Status& status,
   // host ID in the heartbeat. So even if all of the first few heartbeats
   // get a "host ID not found" error, that's not a good enough reason to
   // exit.
-  if (status.error_code() == grpc::StatusCode::NOT_FOUND &&
-      (heartbeat_succeeded_ ||
+  if (status.error_code() == ProtobufHttpStatus::Code::NOT_FOUND &&
+      (initial_heartbeat_sent_ ||
        (backoff_.failure_count() > kMaxResendOnHostNotFoundCount))) {
-    if (on_unknown_host_id_error_) {
-      std::move(on_unknown_host_id_error_).Run();
-    }
+    delegate_->OnHostNotFound();
     return;
   }
 
-  if (status.error_code() == grpc::StatusCode::UNAUTHENTICATED) {
+  if (status.error_code() == ProtobufHttpStatus::Code::UNAUTHENTICATED) {
     oauth_token_getter_->InvalidateCache();
     if (backoff_.failure_count() > kMaxResendOnUnauthenticatedCount) {
-      if (on_auth_error_) {
-        std::move(on_auth_error_).Run();
-      }
+      delegate_->OnAuthFailed();
       return;
     }
   }
@@ -292,8 +336,8 @@ void HeartbeatSender::OnResponse(const grpc::Status& status,
   base::TimeDelta delay;
   // See CoreErrorDomainTranslator.java for the mapping
   switch (status.error_code()) {
-    case grpc::StatusCode::OK:
-      delay = base::TimeDelta::FromSeconds(response.set_interval_seconds());
+    case ProtobufHttpStatus::Code::OK:
+      delay = base::TimeDelta::FromSeconds(response->set_interval_seconds());
       if (delay < kMinimumHeartbeatInterval) {
         LOG(WARNING) << "Received suspicious set_interval_seconds: " << delay
                      << ". Using minimum interval: "
@@ -301,17 +345,16 @@ void HeartbeatSender::OnResponse(const grpc::Status& status,
         delay = kMinimumHeartbeatInterval;
       }
       break;
-    case grpc::StatusCode::NOT_FOUND:
+    case ProtobufHttpStatus::Code::NOT_FOUND:
       delay = kResendDelayOnHostNotFound;
       break;
-    case grpc::StatusCode::UNAUTHENTICATED:
+    case ProtobufHttpStatus::Code::UNAUTHENTICATED:
       delay = kResendDelayOnUnauthenticated;
       break;
     default:
       delay = backoff_.GetTimeUntilRelease();
-      LOG(ERROR) << "Heartbeat failed due to unexpected error: "
-                 << status.error_code() << ", " << status.error_message()
-                 << ". Will retry in " << delay;
+      LOG(ERROR) << "Heartbeat failed due to unexpected error. Will retry in "
+                 << delay;
       break;
   }
 
@@ -319,25 +362,43 @@ void HeartbeatSender::OnResponse(const grpc::Status& status,
                          &HeartbeatSender::SendHeartbeat);
 }
 
-apis::v1::HeartbeatRequest HeartbeatSender::CreateHeartbeatRequest() {
+void HeartbeatSender::OnRemoteCommand(
+    apis::v1::HeartbeatResponse::RemoteCommand remote_command) {
+  HOST_LOG << "Received remote command: "
+           << apis::v1::HeartbeatResponse::RemoteCommand_Name(remote_command)
+           << "(" << remote_command << ")";
+  switch (remote_command) {
+    case apis::v1::HeartbeatResponse::RESTART_HOST:
+      delegate_->OnRemoteRestartHost();
+      break;
+    default:
+      LOG(WARNING) << "Unknown remote command: " << remote_command;
+      break;
+  }
+}
+
+std::unique_ptr<apis::v1::HeartbeatRequest>
+HeartbeatSender::CreateHeartbeatRequest() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
-  apis::v1::HeartbeatRequest heartbeat;
-  std::string signaling_id;
-  heartbeat.set_tachyon_id(signal_strategy_->GetLocalAddress().id());
-  heartbeat.set_host_id(host_id_);
+  auto heartbeat = std::make_unique<apis::v1::HeartbeatRequest>();
+  heartbeat->set_tachyon_id(signal_strategy_->GetLocalAddress().id());
+  heartbeat->set_host_id(host_id_);
   if (!host_offline_reason_.empty()) {
-    heartbeat.set_host_offline_reason(host_offline_reason_);
+    heartbeat->set_host_offline_reason(host_offline_reason_);
   }
-  // Append host version.
-  heartbeat.set_host_version(STRINGIZE(VERSION));
-  // If we have not recorded a heartbeat success, continue sending host OS info.
-  if (!heartbeat_succeeded_) {
-    // Append host OS name.
-    heartbeat.set_host_os_name(GetHostOperatingSystemName());
-    // Append host OS version.
-    heartbeat.set_host_os_version(GetHostOperatingSystemVersion());
+  heartbeat->set_host_version(STRINGIZE(VERSION));
+  heartbeat->set_host_os_name(GetHostOperatingSystemName());
+  heartbeat->set_host_os_version(GetHostOperatingSystemVersion());
+  heartbeat->set_host_cpu_type(base::SysInfo::OperatingSystemArchitecture());
+  heartbeat->set_is_initial_heartbeat(!initial_heartbeat_sent_);
+  // Only set the hostname if the user's email is @google.com and they are using
+  // a Linux OS.
+#if defined(OS_LINUX) && !defined(OS_CHROMEOS)
+  if (is_googler_) {
+    heartbeat->set_hostname(net::GetHostName());
   }
+#endif
   return heartbeat;
 }
 

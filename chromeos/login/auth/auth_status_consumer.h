@@ -9,6 +9,8 @@
 
 #include "base/component_export.h"
 #include "base/logging.h"
+#include "base/notreached.h"
+#include "base/observer_list_types.h"
 #include "google_apis/gaia/gaia_auth_consumer.h"
 #include "google_apis/gaia/google_service_auth_error.h"
 #include "net/base/net_errors.h"
@@ -40,6 +42,7 @@ class COMPONENT_EXPORT(CHROMEOS_LOGIN_AUTH) AuthFailure {
     FAILED_TO_INITIALIZE_TOKEN = 12,  // Could not get OAuth2 Token,
     MISSING_CRYPTOHOME = 13,          // cryptohome missing from disk.
     AUTH_DISABLED = 14,               // Authentication disabled for user.
+    TPM_UPDATE_REQUIRED = 15,         // TPM firmware update is required.
     NUM_FAILURE_REASONS,              // This has to be the last item.
   };
 
@@ -96,6 +99,8 @@ class COMPONENT_EXPORT(CHROMEOS_LOGIN_AUTH) AuthFailure {
         return "Auth disabled for user.";
       case TPM_ERROR:
         return "Critical TPM error encountered.";
+      case TPM_UPDATE_REQUIRED:
+        return "TPM firmware update required.";
       default:
         NOTREACHED();
         return std::string();
@@ -124,9 +129,10 @@ enum SuccessReason {
 // An interface that defines the callbacks for objects that the
 // Authenticator class will call to report the success/failure of
 // authentication for Chromium OS.
-class COMPONENT_EXPORT(CHROMEOS_LOGIN_AUTH) AuthStatusConsumer {
+class COMPONENT_EXPORT(CHROMEOS_LOGIN_AUTH) AuthStatusConsumer
+    : public base::CheckedObserver {
  public:
-  virtual ~AuthStatusConsumer() {}
+  ~AuthStatusConsumer() override = default;
   // The current login attempt has ended in failure, with error |error|.
   virtual void OnAuthFailure(const AuthFailure& error) = 0;
 
@@ -135,7 +141,7 @@ class COMPONENT_EXPORT(CHROMEOS_LOGIN_AUTH) AuthStatusConsumer {
   // The current guest login attempt has succeeded.
   virtual void OnOffTheRecordAuthSuccess() {}
   // The same password didn't work both online and offline.
-  virtual void OnPasswordChangeDetected();
+  virtual void OnPasswordChangeDetected(const UserContext& user_context);
   // The cryptohome is encrypted in old format and needs migration.
   virtual void OnOldEncryptionDetected(const UserContext& user_context,
                                        bool has_incomplete_migration);

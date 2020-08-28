@@ -165,6 +165,7 @@ class TestLauncher {
   bool Init(CommandLine* command_line) WARN_UNUSED_RESULT;
 
   // Gets tests from the delegate, and converts to TestInfo objects.
+  // Catches and logs uninstantiated parameterized tests.
   // Returns false if delegate fails to return tests.
   bool InitTests();
 
@@ -185,6 +186,9 @@ class TestLauncher {
 
   // Runs all tests in current iteration.
   void RunTests();
+
+  // Print test names that almost match a filter (matches *<filter>*).
+  void PrintFuzzyMatchingTestNames();
 
   // Retry to run tests that failed during RunTests.
   // Returns false if retry still fails or unable to start.
@@ -311,7 +315,7 @@ class TestLauncher {
 };
 
 // Return the number of parallel jobs to use, or 0U in case of error.
-size_t NumParallelJobs();
+size_t NumParallelJobs(unsigned int cores_per_job);
 
 // Extract part from |full_output| that applies to |result|.
 std::string GetTestOutputSnippet(const TestResult& result,

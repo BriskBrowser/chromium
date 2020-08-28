@@ -10,14 +10,12 @@ import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doReturn;
-import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import android.widget.FrameLayout;
 
-import org.junit.After;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
@@ -29,13 +27,14 @@ import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 import org.robolectric.annotation.Config;
 
-import org.chromium.base.metrics.RecordHistogram;
-import org.chromium.base.metrics.RecordUserAction;
+import org.chromium.base.supplier.ObservableSupplierImpl;
+import org.chromium.chrome.browser.browser_controls.BrowserControlsStateProvider;
 import org.chromium.chrome.browser.compositor.layouts.OverviewModeBehavior;
-import org.chromium.chrome.browser.fullscreen.ChromeFullscreenManager;
 import org.chromium.chrome.browser.tab.Tab;
+import org.chromium.chrome.browser.tab.TabCreationState;
 import org.chromium.chrome.browser.tab.TabImpl;
 import org.chromium.chrome.browser.tab.TabLaunchType;
+import org.chromium.chrome.browser.tab.state.CriticalPersistedTabData;
 import org.chromium.chrome.browser.tabmodel.TabModelFilterProvider;
 import org.chromium.chrome.browser.tabmodel.TabModelObserver;
 import org.chromium.chrome.browser.tabmodel.TabModelSelectorImpl;
@@ -43,6 +42,8 @@ import org.chromium.chrome.browser.tasks.tab_groups.TabGroupModelFilter;
 import org.chromium.chrome.browser.toolbar.top.ToolbarPhone;
 import org.chromium.chrome.tab_ui.R;
 import org.chromium.chrome.test.util.browser.Features;
+import org.chromium.components.browser_ui.bottomsheet.BottomSheetController;
+import org.chromium.components.browser_ui.bottomsheet.BottomSheetObserver;
 import org.chromium.testing.local.LocalRobolectricTestRunner;
 import org.chromium.ui.KeyboardVisibilityDelegate;
 import org.chromium.ui.modelutil.PropertyModel;
@@ -54,6 +55,7 @@ import java.util.List;
 /**
  * Tests for {@link TabGroupPopupUiMediator}.
  */
+@SuppressWarnings({"ResultOfMethodCallIgnored", "ArraysAsListWithZeroOrOneArgument"})
 @RunWith(LocalRobolectricTestRunner.class)
 @Config(manifest = Config.NONE)
 public class TabGroupPopupUiMediatorUnitTest {
@@ -63,16 +65,18 @@ public class TabGroupPopupUiMediatorUnitTest {
     private static final String TAB1_TITLE = "Tab1";
     private static final String TAB2_TITLE = "Tab2";
     private static final String TAB3_TITLE = "Tab3";
+    private static final String TAB4_TITLE = "Tab4";
     private static final int TAB1_ID = 456;
     private static final int TAB2_ID = 789;
     private static final int TAB3_ID = 123;
+    private static final int TAB4_ID = 357;
 
     @Mock
     TabModelSelectorImpl mTabModelSelector;
     @Mock
     OverviewModeBehavior mOverviewModeBehavior;
     @Mock
-    ChromeFullscreenManager mChromeFullscreenManager;
+    BrowserControlsStateProvider mBrowserControlsStateProvider;
     @Mock
     TabGroupPopupUiMediator.TabGroupPopUiUpdater mUpdater;
     @Mock
@@ -87,26 +91,31 @@ public class TabGroupPopupUiMediatorUnitTest {
     ToolbarPhone mTopAnchorView;
     @Mock
     FrameLayout mBottomAnchorView;
+    @Mock
+    BottomSheetController mBottomSheetController;
     @Captor
     ArgumentCaptor<TabModelObserver> mTabModelObserverCaptor;
     @Captor
-    ArgumentCaptor<ChromeFullscreenManager.FullscreenListener> mFullScreenListenerCaptor;
+    private ArgumentCaptor<BrowserControlsStateProvider.Observer>
+            mBrowserControlsStateProviderObserverCaptor;
     @Captor
     ArgumentCaptor<OverviewModeBehavior.OverviewModeObserver> mOverviewModeObserverCaptor;
     @Captor
     ArgumentCaptor<KeyboardVisibilityDelegate.KeyboardVisibilityListener>
             mKeyboardVisibilityListenerCaptor;
+    @Captor
+    ArgumentCaptor<BottomSheetObserver> mBottomSheetObserver;
 
     private TabImpl mTab1;
     private TabImpl mTab2;
     private TabImpl mTab3;
     private PropertyModel mModel;
     private TabGroupPopupUiMediator mMediator;
+    private ObservableSupplierImpl<OverviewModeBehavior> mOverviewModeBehaviorSupplier =
+            new ObservableSupplierImpl<>();
 
     @Before
     public void setUp() {
-        RecordUserAction.setDisabledForTests(true);
-        RecordHistogram.setDisabledForTests(true);
 
         MockitoAnnotations.initMocks(this);
 
@@ -120,24 +129,23 @@ public class TabGroupPopupUiMediatorUnitTest {
         doNothing()
                 .when(mTabModelFilterProvider)
                 .addTabModelFilterObserver(mTabModelObserverCaptor.capture());
-        doNothing().when(mChromeFullscreenManager).addListener(mFullScreenListenerCaptor.capture());
+        doNothing()
+                .when(mBrowserControlsStateProvider)
+                .addObserver(mBrowserControlsStateProviderObserverCaptor.capture());
         doNothing()
                 .when(mOverviewModeBehavior)
                 .addOverviewModeObserver(mOverviewModeObserverCaptor.capture());
         doNothing()
                 .when(mKeyboardVisibilityDelegate)
                 .addKeyboardVisibilityListener(mKeyboardVisibilityListenerCaptor.capture());
+        doNothing().when(mBottomSheetController).addObserver(mBottomSheetObserver.capture());
 
+        mOverviewModeBehaviorSupplier.set(mOverviewModeBehavior);
         KeyboardVisibilityDelegate.setInstance(mKeyboardVisibilityDelegate);
         mModel = new PropertyModel(TabGroupPopupUiProperties.ALL_KEYS);
-        mMediator = new TabGroupPopupUiMediator(mModel, mTabModelSelector, mOverviewModeBehavior,
-                mChromeFullscreenManager, mUpdater, mTabGroupUiController);
-    }
-
-    @After
-    public void tearDown() {
-        RecordUserAction.setDisabledForTests(false);
-        RecordHistogram.setDisabledForTests(false);
+        mMediator = new TabGroupPopupUiMediator(mModel, mTabModelSelector,
+                mOverviewModeBehaviorSupplier, mBrowserControlsStateProvider, mUpdater,
+                mTabGroupUiController, mBottomSheetController);
     }
 
     @Test
@@ -146,19 +154,85 @@ public class TabGroupPopupUiMediatorUnitTest {
 
         // Mock that the hidden ratio of browser control is 0.8765.
         float hiddenRatio = 0.8765f;
-        doReturn(hiddenRatio).when(mChromeFullscreenManager).getBrowserControlHiddenRatio();
-        mFullScreenListenerCaptor.getValue().onControlsOffsetChanged(0, 0, false);
+        doReturn(hiddenRatio).when(mBrowserControlsStateProvider).getBrowserControlHiddenRatio();
+        mBrowserControlsStateProviderObserverCaptor.getValue().onControlsOffsetChanged(
+                0, 0, 0, 0, false);
 
         assertThat(
                 mModel.get(TabGroupPopupUiProperties.CONTENT_VIEW_ALPHA), equalTo(1 - hiddenRatio));
 
         // Mock that the hidden ratio of browser control is 0.12345.
         hiddenRatio = 0.1234f;
-        doReturn(hiddenRatio).when(mChromeFullscreenManager).getBrowserControlHiddenRatio();
-        mFullScreenListenerCaptor.getValue().onControlsOffsetChanged(0, 0, false);
+        doReturn(hiddenRatio).when(mBrowserControlsStateProvider).getBrowserControlHiddenRatio();
+        mBrowserControlsStateProviderObserverCaptor.getValue().onControlsOffsetChanged(
+                0, 0, 0, 0, false);
 
         assertThat(
                 mModel.get(TabGroupPopupUiProperties.CONTENT_VIEW_ALPHA), equalTo(1 - hiddenRatio));
+    }
+
+    @Test
+    public void tabSelection_Show() {
+        // Mock that the strip is hidden.
+        mModel.set(TabGroupPopupUiProperties.IS_VISIBLE, false);
+        // Mock that tab1 and tab2 are in the same group, and tab 3 is a single tab.
+        createTabGroup(new ArrayList<>(Arrays.asList(mTab1, mTab2)), TAB1_ID);
+        createTabGroup(new ArrayList<>(Arrays.asList(mTab3)), TAB3_ID);
+
+        doReturn(mTab2).when(mTabModelSelector).getCurrentTab();
+        mTabModelObserverCaptor.getValue().didSelectTab(
+                mTab2, TabLaunchType.FROM_CHROME_UI, TAB3_ID);
+
+        assertThat(mModel.get(TabGroupPopupUiProperties.IS_VISIBLE), equalTo(true));
+        verify(mUpdater, never()).updateTabGroupPopUi();
+    }
+
+    @Test
+    public void tabSelection_Hide() {
+        // Mock that the strip is showing.
+        mModel.set(TabGroupPopupUiProperties.IS_VISIBLE, true);
+        // Mock that tab1 and tab2 are in the same group, and tab 3 is a single tab.
+        createTabGroup(new ArrayList<>(Arrays.asList(mTab1, mTab2)), TAB1_ID);
+        createTabGroup(new ArrayList<>(Arrays.asList(mTab3)), TAB3_ID);
+
+        doReturn(mTab3).when(mTabModelSelector).getCurrentTab();
+        mTabModelObserverCaptor.getValue().didSelectTab(
+                mTab3, TabLaunchType.FROM_CHROME_UI, TAB1_ID);
+
+        assertThat(mModel.get(TabGroupPopupUiProperties.IS_VISIBLE), equalTo(false));
+        verify(mUpdater, never()).updateTabGroupPopUi();
+    }
+
+    @Test
+    public void tabSelection_Update() {
+        // Mock that the strip is showing.
+        mModel.set(TabGroupPopupUiProperties.IS_VISIBLE, true);
+        // Mock that tab1 and tab2 are in the same group, tab3 and new tab are in the same group.
+        createTabGroup(new ArrayList<>(Arrays.asList(mTab1, mTab2)), TAB1_ID);
+        createTabGroup(
+                new ArrayList<>(Arrays.asList(mTab3, prepareTab(TAB4_ID, TAB4_TITLE))), TAB3_ID);
+
+        doReturn(mTab1).when(mTabModelSelector).getCurrentTab();
+        mTabModelObserverCaptor.getValue().didSelectTab(
+                mTab1, TabLaunchType.FROM_CHROME_UI, TAB3_ID);
+
+        assertThat(mModel.get(TabGroupPopupUiProperties.IS_VISIBLE), equalTo(true));
+        verify(mUpdater).updateTabGroupPopUi();
+    }
+
+    @Test
+    public void tabSelection_SameGroup() {
+        // Mock that the strip is showing.
+        mModel.set(TabGroupPopupUiProperties.IS_VISIBLE, true);
+        // Mock that tab1 and tab2 are in the same group.
+        createTabGroup(new ArrayList<>(Arrays.asList(mTab1, mTab2)), TAB1_ID);
+
+        doReturn(mTab1).when(mTabModelSelector).getCurrentTab();
+        mTabModelObserverCaptor.getValue().didSelectTab(
+                mTab1, TabLaunchType.FROM_CHROME_UI, TAB2_ID);
+
+        assertThat(mModel.get(TabGroupPopupUiProperties.IS_VISIBLE), equalTo(true));
+        verify(mUpdater, never()).updateTabGroupPopUi();
     }
 
     @Test
@@ -200,7 +274,8 @@ public class TabGroupPopupUiMediatorUnitTest {
         List<Tab> tabGroup = new ArrayList<>(Arrays.asList(mTab1, mTab2));
         createTabGroup(tabGroup, TAB1_ID);
 
-        mTabModelObserverCaptor.getValue().didAddTab(mTab2, TabLaunchType.FROM_CHROME_UI);
+        mTabModelObserverCaptor.getValue().didAddTab(
+                mTab2, TabLaunchType.FROM_CHROME_UI, TabCreationState.LIVE_IN_FOREGROUND);
 
         assertThat(mModel.get(TabGroupPopupUiProperties.IS_VISIBLE), equalTo(true));
         verify(mUpdater, never()).updateTabGroupPopUi();
@@ -214,7 +289,8 @@ public class TabGroupPopupUiMediatorUnitTest {
         List<Tab> tabGroup = new ArrayList<>(Arrays.asList(mTab1, mTab2, mTab3));
         createTabGroup(tabGroup, TAB1_ID);
 
-        mTabModelObserverCaptor.getValue().didAddTab(mTab3, TabLaunchType.FROM_CHROME_UI);
+        mTabModelObserverCaptor.getValue().didAddTab(
+                mTab3, TabLaunchType.FROM_CHROME_UI, TabCreationState.LIVE_IN_FOREGROUND);
 
         assertThat(mModel.get(TabGroupPopupUiProperties.IS_VISIBLE), equalTo(true));
         verify(mUpdater).updateTabGroupPopUi();
@@ -228,7 +304,8 @@ public class TabGroupPopupUiMediatorUnitTest {
         List<Tab> tabGroup = new ArrayList<>(Arrays.asList(mTab1, mTab2));
         createTabGroup(tabGroup, TAB1_ID);
 
-        mTabModelObserverCaptor.getValue().didAddTab(mTab2, TabLaunchType.FROM_RESTORE);
+        mTabModelObserverCaptor.getValue().didAddTab(
+                mTab2, TabLaunchType.FROM_RESTORE, TabCreationState.FROZEN_ON_RESTORE);
 
         assertThat(mModel.get(TabGroupPopupUiProperties.IS_VISIBLE), equalTo(false));
         verify(mUpdater, never()).updateTabGroupPopUi();
@@ -405,6 +482,53 @@ public class TabGroupPopupUiMediatorUnitTest {
     }
 
     @Test
+    public void testShowBottomSheet_HideStrip() {
+        // Mock that the strip is showing.
+        mModel.set(TabGroupPopupUiProperties.IS_VISIBLE, true);
+
+        // Show bottom sheet.
+        mBottomSheetObserver.getValue().onSheetStateChanged(BottomSheetController.SheetState.PEEK);
+
+        assertThat(mModel.get(TabGroupPopupUiProperties.IS_VISIBLE), equalTo(false));
+    }
+
+    @Test
+    public void testHideBottomSheet_ShowStrip() {
+        // Mock that the strip is showing before showing the bottom sheet. tab1 and tab2 are in the
+        // same group, and tab1 is the current tab.
+        mModel.set(TabGroupPopupUiProperties.IS_VISIBLE, true);
+        List<Tab> tabGroup = new ArrayList<>(Arrays.asList(mTab1, mTab2));
+        createTabGroup(tabGroup, TAB1_ID);
+        doReturn(mTab1).when(mTabModelSelector).getCurrentTab();
+
+        // Hide the bottom sheet after showing it.
+        mBottomSheetObserver.getValue().onSheetStateChanged(BottomSheetController.SheetState.PEEK);
+        assertThat(mModel.get(TabGroupPopupUiProperties.IS_VISIBLE), equalTo(false));
+        mBottomSheetObserver.getValue().onSheetStateChanged(
+                BottomSheetController.SheetState.HIDDEN);
+
+        assertThat(mModel.get(TabGroupPopupUiProperties.IS_VISIBLE), equalTo(true));
+    }
+
+    @Test
+    public void testHideBottomSheet_NotReshowStrip() {
+        // Mock that the strip is hidden before showing the bottom sheet. tab1 and tab2 are in the
+        // same group, and tab1 is the current tab.
+        mModel.set(TabGroupPopupUiProperties.IS_VISIBLE, false);
+        List<Tab> tabGroup = new ArrayList<>(Arrays.asList(mTab1, mTab2));
+        createTabGroup(tabGroup, TAB1_ID);
+        doReturn(mTab1).when(mTabModelSelector).getCurrentTab();
+
+        // Hide the bottom sheet after showing it.
+        mBottomSheetObserver.getValue().onSheetStateChanged(BottomSheetController.SheetState.PEEK);
+        assertThat(mModel.get(TabGroupPopupUiProperties.IS_VISIBLE), equalTo(false));
+        mBottomSheetObserver.getValue().onSheetStateChanged(
+                BottomSheetController.SheetState.HIDDEN);
+
+        assertThat(mModel.get(TabGroupPopupUiProperties.IS_VISIBLE), equalTo(false));
+    }
+
+    @Test
     public void testAnchorViewChange_TopToolbar() {
         mMediator.onAnchorViewChanged(mTopAnchorView, R.id.toolbar);
 
@@ -436,6 +560,19 @@ public class TabGroupPopupUiMediatorUnitTest {
     }
 
     @Test
+    public void testNoCurrentTab_NotShow() {
+        // Mock overview mode is hiding, and current tab is null.
+        doReturn(null).when(mTabModelSelector).getCurrentTab();
+        mOverviewModeObserverCaptor.getValue().onOverviewModeFinishedHiding();
+        assertThat(mMediator.getIsOverviewModeVisibleForTesting(), equalTo(false));
+        assertThat(mModel.get(TabGroupPopupUiProperties.IS_VISIBLE), equalTo(false));
+
+        mMediator.maybeShowTabStrip();
+
+        assertThat(mModel.get(TabGroupPopupUiProperties.IS_VISIBLE), equalTo(false));
+    }
+
+    @Test
     public void testDestroy() {
         mMediator.destroy();
         verify(mKeyboardVisibilityDelegate)
@@ -444,16 +581,13 @@ public class TabGroupPopupUiMediatorUnitTest {
                 .removeOverviewModeObserver(mOverviewModeObserverCaptor.capture());
         verify(mTabModelFilterProvider)
                 .removeTabModelFilterObserver(mTabModelObserverCaptor.capture());
-        verify(mChromeFullscreenManager).removeListener(mFullScreenListenerCaptor.capture());
+        verify(mBrowserControlsStateProvider)
+                .removeObserver(mBrowserControlsStateProviderObserverCaptor.capture());
     }
 
     // TODO(yuezhanggg): Pull methods below to a utility class.
     private TabImpl prepareTab(int id, String title) {
-        TabImpl tab = mock(TabImpl.class);
-        doReturn(id).when(tab).getId();
-        doReturn(id).when(tab).getRootId();
-        doReturn("").when(tab).getUrl();
-        doReturn(title).when(tab).getTitle();
+        TabImpl tab = TabUiUnitTestUtils.prepareTab(id, title, "");
         doReturn(true).when(tab).isIncognito();
         return tab;
     }
@@ -461,7 +595,8 @@ public class TabGroupPopupUiMediatorUnitTest {
     private void createTabGroup(List<Tab> tabs, int rootId) {
         for (Tab tab : tabs) {
             when(mTabGroupModelFilter.getRelatedTabList(tab.getId())).thenReturn(tabs);
-            doReturn(rootId).when(((TabImpl) tab)).getRootId();
+            CriticalPersistedTabData criticalPersistedTabData = CriticalPersistedTabData.from(tab);
+            doReturn(rootId).when(criticalPersistedTabData).getRootId();
         }
     }
 }

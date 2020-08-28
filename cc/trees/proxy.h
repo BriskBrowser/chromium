@@ -8,7 +8,6 @@
 #include <memory>
 #include <string>
 
-#include "base/logging.h"
 #include "base/memory/ref_counted.h"
 #include "base/threading/platform_thread.h"
 #include "base/time/time.h"
@@ -97,6 +96,9 @@ class CC_EXPORT Proxy {
 
   virtual void SetRenderFrameObserver(
       std::unique_ptr<RenderFrameMetadataObserver> observer) = 0;
+
+  virtual void SetEnableFrameRateThrottling(
+      bool enable_frame_rate_throttling) = 0;
 };
 
 }  // namespace cc

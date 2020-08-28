@@ -39,14 +39,11 @@ class ModelTypeConnector {
   // abort any in-progress commit requests.
   virtual void DisconnectNonBlockingType(ModelType type) = 0;
 
-  // Registers directory based type with sync engine. Sync engine will create
-  // update handler and commit contributor objects for this type. It will start
-  // including the type in GetUpdates and commit requests.
-  virtual void RegisterDirectoryType(ModelType type, ModelSafeGroup group) = 0;
+  // Marks a proxy type as connected.
+  virtual void ConnectProxyType(ModelType type) = 0;
 
-  // Unregisters directory based type from sync engine. Type will no longer be
-  // included in communications with server.
-  virtual void UnregisterDirectoryType(ModelType type) = 0;
+  // Marks a proxy type as disconnected.
+  virtual void DisconnectProxyType(ModelType type) = 0;
 };
 
 }  // namespace syncer

@@ -33,6 +33,7 @@ class WebAppShortcutManager : public AppShortcutManager {
   ~WebAppShortcutManager() override;
 
   // AppShortcutManager:
+  std::unique_ptr<ShortcutInfo> BuildShortcutInfo(const AppId& app_id) override;
   void GetShortcutInfoForApp(const AppId& app_id,
                              GetShortcutInfoCallback callback) override;
 

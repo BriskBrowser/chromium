@@ -10,6 +10,7 @@
 #include "base/callback.h"
 #include "base/macros.h"
 #include "base/strings/string16.h"
+#include "build/build_config.h"
 #include "components/autofill/core/browser/autofill_client.h"
 #include "components/autofill/core/browser/autofill_metrics.h"
 #include "components/autofill/core/browser/payments/legal_message_line.h"
@@ -34,10 +35,14 @@ class AutofillSaveCardInfoBarDelegateMobile : public ConfirmInfoBarDelegate {
           upload_save_card_prompt_callback,
       AutofillClient::LocalSaveCardPromptCallback
           local_save_card_prompt_callback,
-      PrefService* pref_service,
-      bool is_off_the_record);
+      PrefService* pref_service);
 
   ~AutofillSaveCardInfoBarDelegateMobile() override;
+
+  // Returns |delegate| as an AutofillSaveCardInfoBarDelegateMobile, or nullptr
+  // if it is of another type.
+  static AutofillSaveCardInfoBarDelegateMobile* FromInfobarDelegate(
+      infobars::InfoBarDelegate* delegate);
 
   bool upload() const { return upload_; }
   int issuer_icon_id() const { return issuer_icon_id_; }
@@ -58,7 +63,7 @@ class AutofillSaveCardInfoBarDelegateMobile : public ConfirmInfoBarDelegate {
   }
 
   // Called when a link in the legal message text was clicked.
-  void OnLegalMessageLinkClicked(GURL url);
+  virtual void OnLegalMessageLinkClicked(GURL url);
 
   // Google Pay branding is enabled with a flag and only for cards upstreamed
   // to Google.
@@ -78,11 +83,25 @@ class AutofillSaveCardInfoBarDelegateMobile : public ConfirmInfoBarDelegate {
   bool Accept() override;
   bool Cancel() override;
 
+#if defined(OS_IOS)
+  // Updates and then saves the card using |cardholder_name|,
+  // |expiration_date_month| and |expiration_date_year|, which were provided
+  // as part of the iOS save card Infobar dialog.
+  virtual bool UpdateAndAccept(base::string16 cardholder_name,
+                               base::string16 expiration_date_month,
+                               base::string16 expiration_date_year);
+#endif  // defined(OS_IOS)
+
  private:
   // Runs the appropriate local or upload save callback with the given
-  // |user_decision|.
-  void RunSaveCardPromptCallbackWithUserDecision(
-      AutofillClient::SaveCardOfferUserDecision user_decision);
+  // |user_decision|, using the |user_provided_details|. If
+  // |user_provided_details| is empty then the current Card values will be used.
+  // The  cardholder name and expiration date portions of
+  // |user_provided_details| are handled separately, so if either of them are
+  // empty the current Card values will be used.
+  void RunSaveCardPromptCallback(
+      AutofillClient::SaveCardOfferUserDecision user_decision,
+      AutofillClient::UserProvidedCardDetails user_provided_details);
 
   void LogUserAction(AutofillMetrics::InfoBarMetric user_action);
 
@@ -132,9 +151,6 @@ class AutofillSaveCardInfoBarDelegateMobile : public ConfirmInfoBarDelegate {
 
   // The legal message lines to show in the content of the infobar.
   const LegalMessageLines& legal_message_lines_;
-
-  // Whether the save is offered while off the record
-  bool is_off_the_record_;
 
   DISALLOW_COPY_AND_ASSIGN(AutofillSaveCardInfoBarDelegateMobile);
 };

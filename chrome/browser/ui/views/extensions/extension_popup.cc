@@ -8,12 +8,14 @@
 #include "chrome/browser/devtools/devtools_window.h"
 #include "chrome/browser/extensions/extension_view_host.h"
 #include "chrome/browser/ui/browser.h"
+#include "content/public/browser/browser_context.h"
 #include "content/public/browser/devtools_agent_host.h"
 #include "content/public/browser/notification_details.h"
 #include "content/public/browser/notification_source.h"
 #include "content/public/browser/render_view_host.h"
 #include "content/public/browser/web_contents.h"
 #include "ui/gfx/geometry/insets.h"
+#include "ui/gfx/geometry/rounded_corners_f.h"
 #include "ui/views/bubble/bubble_frame_view.h"
 #include "ui/views/controls/native/native_view_host.h"
 #include "ui/views/layout/fill_layout.h"
@@ -68,7 +70,7 @@ void ExtensionPopup::AddedToWidget() {
   BubbleDialogDelegateView::AddedToWidget();
   const int radius = GetBubbleFrameView()->corner_radius();
   const bool contents_has_rounded_corners =
-      GetExtensionView()->holder()->SetCornerRadius(radius);
+      extension_view_->holder()->SetCornerRadii(gfx::RoundedCornersF(radius));
   SetBorder(views::CreateEmptyBorder(
       gfx::Insets(contents_has_rounded_corners ? 0 : radius, 0)));
 }
@@ -123,11 +125,30 @@ void ExtensionPopup::OnExtensionSizeChanged(ExtensionViewViews* view) {
   SizeToContents();
 }
 
+void ExtensionPopup::OnExtensionUnloaded(
+    content::BrowserContext* browser_context,
+    const extensions::Extension* extension,
+    extensions::UnloadedExtensionReason reason) {
+  CHECK(host_);
+  if (extension->id() == host_->extension_id()) {
+    // To ensure |extension_view_| cannot receive any messages that cause it to
+    // try to access the host during Widget closure, destroy it immediately.
+    RemoveChildViewT(extension_view_);
+
+    host_.reset();
+    // Stop observing the registry immediately to prevent any subsequent
+    // notifications, since Widget::Close is asynchronous.
+    extension_registry_observer_.RemoveAll();
+
+    GetWidget()->Close();
+  }
+}
+
 void ExtensionPopup::Observe(int type,
                              const content::NotificationSource& source,
                              const content::NotificationDetails& details) {
   if (type == content::NOTIFICATION_LOAD_COMPLETED_MAIN_FRAME) {
-    DCHECK_EQ(host()->host_contents(),
+    DCHECK_EQ(host_->host_contents(),
               content::Source<content::WebContents>(source).ptr());
     // Show when the content finishes loading and its width is computed.
     ShowBubble();
@@ -136,7 +157,7 @@ void ExtensionPopup::Observe(int type,
 
   DCHECK_EQ(extensions::NOTIFICATION_EXTENSION_HOST_VIEW_SHOULD_CLOSE, type);
   // If we aren't the host of the popup, then disregard the notification.
-  if (content::Details<extensions::ExtensionHost>(host()) == details)
+  if (content::Details<extensions::ExtensionHost>(host_.get()) == details)
     GetWidget()->Close();
 }
 
@@ -150,13 +171,19 @@ void ExtensionPopup::OnTabStripModelChanged(
 
 void ExtensionPopup::DevToolsAgentHostAttached(
     content::DevToolsAgentHost* agent_host) {
-  if (host()->host_contents() == agent_host->GetWebContents())
+  if (host_->host_contents() == agent_host->GetWebContents())
     show_action_ = SHOW_AND_INSPECT;
 }
 
 void ExtensionPopup::DevToolsAgentHostDetached(
     content::DevToolsAgentHost* agent_host) {
-  if (host()->host_contents() == agent_host->GetWebContents())
+  // If the extension's page is open it will be closed when the extension
+  // is uninstalled, and if DevTools are attached, we will be notified here.
+  // But because OnExtensionUnloaded was already called, |host_| is
+  // no longer valid.
+  if (!host_)
+    return;
+  if (host_->host_contents() == agent_host->GetWebContents())
     show_action_ = SHOW;
 }
 
@@ -169,14 +196,17 @@ ExtensionPopup::ExtensionPopup(
                                arrow,
                                views::BubbleBorder::SMALL_SHADOW),
       host_(std::move(host)),
+      extension_registry_observer_(this),
       show_action_(show_action) {
-  DialogDelegate::set_buttons(ui::DIALOG_BUTTON_NONE);
-  DialogDelegate::set_use_round_corners(false);
+  SetButtons(ui::DIALOG_BUTTON_NONE);
+  set_use_round_corners(false);
 
   set_margins(gfx::Insets());
   SetLayoutManager(std::make_unique<views::FillLayout>());
-  AddChildView(GetExtensionView());
-  GetExtensionView()->set_container(this);
+
+  extension_view_ =
+      AddChildView(std::make_unique<ExtensionViewViews>(host_.get()));
+  extension_view_->set_container(this);
 
   // See comments in OnWidgetActivationChanged().
   set_close_on_deactivate(false);
@@ -187,6 +217,9 @@ ExtensionPopup::ExtensionPopup(
       content::Source<content::BrowserContext>(host_->browser_context()));
   content::DevToolsAgentHost::AddObserver(this);
   host_->browser()->tab_strip_model()->AddObserver(this);
+
+  extension_registry_observer_.Add(
+      extensions::ExtensionRegistry::Get(host_->browser_context()));
 
   // If the host had somehow finished loading, then we'd miss the notification
   // and not show.  This seems to happen in single-process mode.
@@ -204,19 +237,15 @@ void ExtensionPopup::ShowBubble() {
   GetWidget()->Show();
 
   // Focus on the host contents when the bubble is first shown.
-  host()->host_contents()->Focus();
+  host_->host_contents()->Focus();
 
   if (show_action_ == SHOW_AND_INSPECT) {
     DevToolsWindow::OpenDevToolsWindow(
-        host()->host_contents(), DevToolsToggleAction::ShowConsolePanel());
+        host_->host_contents(), DevToolsToggleAction::ShowConsolePanel());
   }
 }
 
 void ExtensionPopup::CloseUnlessUnderInspection() {
   if (show_action_ != SHOW_AND_INSPECT)
     GetWidget()->CloseWithReason(views::Widget::ClosedReason::kLostFocus);
-}
-
-ExtensionViewViews* ExtensionPopup::GetExtensionView() {
-  return static_cast<ExtensionViewViews*>(host_.get()->view());
 }

@@ -8,6 +8,7 @@
 <translation id="1046068652463704410">Japanese input (para sa US keyboard)</translation>
 <translation id="1047956942837015229">Nagtatanggal ng <ph name="COUNT" /> (na) item...</translation>
 <translation id="1049926623896334335">Dokumento ng Word</translation>
+<translation id="1060368002126861100">Para makapagbukas ng mga file gamit ang <ph name="APP_NAME" />, ilipat muna ang mga ito sa folder ng mga Windows file.</translation>
 <translation id="1062407476771304334">Palitan</translation>
 <translation id="1065449928621190041">Canadian French na keyboard</translation>
 <translation id="1119069657431255176">Archive na tar na Bzip2 compressed</translation>
@@ -20,6 +21,7 @@
 <translation id="1150565364351027703">Sunglasses</translation>
 <translation id="115443833402798225">Hangul Ahnmatae</translation>
 <translation id="1155759005174418845">Catalan</translation>
+<translation id="1172970565351728681">Humigit-kumulang <ph name="REMAINING_TIME" /> ang natitira</translation>
 <translation id="1173894706177603556">Pangalanang muli</translation>
 <translation id="117624967391683467">Kinokopya ang <ph name="FILE_NAME" />...</translation>
 <translation id="1178581264944972037">I-pause</translation>
@@ -29,6 +31,7 @@
 <translation id="1243314992276662751">I-upload</translation>
 <translation id="1249250836236328755">Genre</translation>
 <translation id="1278813325885878377">Hungarian na QWERTY keyboard</translation>
+<translation id="1293556467332435079">Mga File</translation>
 <translation id="1297922636971898492">Hindi available sa ngayon ang Google Drive. Awtomatikong magre-restart ang pag-a-upload sa sandaling bumalik na ang Google Drive.</translation>
 <translation id="1307931752636661898">Hindi matingnan ang mga Linux file</translation>
 <translation id="1310751437842832374">Transliteration (mausam → ନମସ୍ତେ)</translation>
@@ -44,6 +47,8 @@
 <translation id="1395262318152388157">Slider ng seek bar</translation>
 <translation id="1399648040768741453">Telugu keyboard (Phonetic)</translation>
 <translation id="1430915738399379752">I-print</translation>
+<translation id="1433600251059882049">Nakabahagi sa Linux at Windows ang folder na ito</translation>
+<translation id="1435838927755162558">Ibahagi ang folder sa Parallels Desktop</translation>
 <translation id="1439494416798956626">Inilipat sa <ph name="FOLDER_NAME" />.</translation>
 <translation id="1441841714100794440">Vietnamese keyboard (Telex)</translation>
 <translation id="1455548678241328678">Norwegian na keyboard</translation>
@@ -78,6 +83,7 @@
 <translation id="1844692022597038441">Hindi available offline ang file na ito.</translation>
 <translation id="184633654410729720">Thai keyboard (Kedmanee)</translation>
 <translation id="1847880352285315359">Na-save</translation>
+<translation id="1853795129690976061">Nakabahagi ang folder na ito sa Linux</translation>
 <translation id="1864756863218646478">Hindi mahanap ang file.</translation>
 <translation id="1921986354447415460">Turkish-F na keyboard</translation>
 <translation id="1924372192547904021">Na-format ang <ph name="DRIVE_NAME" /></translation>
@@ -89,6 +95,7 @@
 <translation id="1947424002851288782">German na keyboard</translation>
 <translation id="1972984168337863910">I-expand ang mga panel ng feedback ng mga file</translation>
 <translation id="1984603991036629094">Armenian na Phonetic keyboard</translation>
+<translation id="1995337122023280937">Pumunta sa lokasyon ng file</translation>
 <translation id="2001796770603320721">Pamahalaan sa Drive</translation>
 <translation id="2009067268969781306">Kapag nag-format ng drive, made-delete ang lahat ng data na naka-store doon. Hindi puwedeng i-undo ang pagkilos na ito.</translation>
 <translation id="2028997212275086731">Archive na RAR</translation>
@@ -100,7 +107,6 @@
 <translation id="2085470240340828803">Umiiral na ang isang file na may pangalang "<ph name="FILENAME" />". Ano ang gusto mong gawin?</translation>
 <translation id="2121825465123208577">Baguhin ang laki</translation>
 <translation id="2136953289241069843">Transliteration (namaste → नमस्कार)</translation>
-<translation id="2138867954865495510">Hindi mabuksan ang "<ph name="PATH" />": <ph name="ERROR_MESSAGE" /></translation>
 <translation id="2163152940313951844">Invalid na character: <ph name="CHARACTER_NAME" /></translation>
 <translation id="2164862903024139959">Vietnamese keyboard (TCVN)</translation>
 <translation id="2168214441502403371">Persian keyboard</translation>
@@ -122,6 +128,7 @@
 <translation id="2384596874640104496">Sinhala keyboard</translation>
 <translation id="240770291734945588"><ph name="SPACE_AVAILABLE" /> ang available</translation>
 <translation id="2425665904502185219">Kabuuang laki ng file</translation>
+<translation id="2428749644083375155">Kinokopya ang <ph name="NUMBER_OF_ITEMS" /> (na) item sa <ph name="FOLDER_NAME" /></translation>
 <translation id="2448312741937722512">Uri</translation>
 <translation id="2453576648990281505">Umiiral na ang file</translation>
 <translation id="2464079411014186876">Ice cream</translation>
@@ -140,6 +147,7 @@
 <translation id="2638942478653899953">Hindi maabot ang Google Drive. Mangyaring <ph name="BEGIN_LINK" />mag-log out<ph name="END_LINK" /> at mag-log in muli.</translation>
 <translation id="2649120831653069427">Rainbowfish</translation>
 <translation id="2661146741306740526">16x9</translation>
+<translation id="2664412712123763093">Lokasyon ng file</translation>
 <translation id="2672394958563893062">May naganap na error. I-click upang magsimulang muli.</translation>
 <translation id="2676946222714718093">Nagpe-play sa</translation>
 <translation id="2735698359135166290">Romanian standard keyboard</translation>
@@ -175,6 +183,7 @@
 <translation id="303198083543495566">Heograpiya</translation>
 <translation id="3057861065630527966">I-back up ang iyong mga larawan at video</translation>
 <translation id="3064388234319122767">Transliteration (zdravo → здраво)</translation>
+<translation id="3067790092342515856">Mga Windows file</translation>
 <translation id="3078461028045006476">Ibahagi sa <ph name="EXTENSION_NAME" /></translation>
 <translation id="3088034400796962477">Transliteration (salam ← سلام)</translation>
 <translation id="3116361045094675131">UK keyboard</translation>
@@ -189,6 +198,7 @@
 <translation id="3236289833370040187">Ililipat ang pagmamay-ari sa <ph name="DESTINATION_DOMAIN" />.</translation>
 <translation id="3241720467332021590">Irish</translation>
 <translation id="3245321423178950146">Hindi Kilalang Artist</translation>
+<translation id="3248185426436836442">Nakabinbin</translation>
 <translation id="3252266817569339921">Pranses</translation>
 <translation id="3254434849914415189">Piliin ang default na app para sa mga <ph name="FILE_TYPE" /> na file:</translation>
 <translation id="3264582393905923483">Konteksto</translation>
@@ -199,6 +209,7 @@
 <translation id="3335337277364016868">Taon kung kailan na-record</translation>
 <translation id="3338239663705455570">Slovenian na keyboard</translation>
 <translation id="3353984535370177728">Pumili ng folder na i-a-upload</translation>
+<translation id="3356580349448036450">Kumpleto na</translation>
 <translation id="3399597614303179694">Macedonian keyboard</translation>
 <translation id="3414856743105198592">Buburahin ng pag-format sa naaalis na media ang lahat ng data. Nais mo bang magpatuloy?</translation>
 <translation id="3437801641691368414">Oras ng pagkakagawa</translation>
@@ -210,8 +221,10 @@
 <translation id="3495304270784461826"><ph name="COUNT" /> (na) error.</translation>
 <translation id="3519867315646775981">Transliteration (shalom ← שלום)</translation>
 <translation id="3522708245912499433">Portuguese</translation>
+<translation id="3524311639100184459">Mag-ingat: Ang mga file na ito ay pansamantala lang at puwedeng awtomatikong ma-delete para magbakante ng espasyo sa disk.  <ph name="BEGIN_LINK" />Matuto Pa<ph name="END_LINK" /></translation>
 <translation id="3527085408025491307">Folder</translation>
 <translation id="3549797760399244642">Pumunta sa drive.google.com...</translation>
+<translation id="3553048479571901246">Para makapagbukas ng mga file gamit ang <ph name="APP_NAME" />, kopyahin muna ang mga ito sa folder ng mga Windows file.</translation>
 <translation id="357479282490346887">Lithuanian</translation>
 <translation id="3583509704582854624">Alphanumeric input (para sa Japanese keyboard)</translation>
 <translation id="3603385196401704894">Canadian French</translation>
@@ -232,9 +245,11 @@
 <translation id="3780536599611287598">Wala kang pahintulot na maglipat ng mga file sa '<ph name="FOLDER_NAME" />'.</translation>
 <translation id="3786301125658655746">Naka-offline ka</translation>
 <translation id="3789841737615482174">Mag-install</translation>
+<translation id="3793469551756281394">Humigit-kumulang <ph name="REMAINING_TIME_HOUR" /> <ph name="REMAINING_TIME_MINUTE" /> ang natitira</translation>
 <translation id="3798449238516105146">Bersyon</translation>
 <translation id="3801082500826908679">Faroese</translation>
 <translation id="3809272675881623365">Kuneho</translation>
+<translation id="3810973564298564668">Mamahala</translation>
 <translation id="3811494700605067549">1 file ang napili</translation>
 <translation id="3815016854028376614">Zhuyin na paraan ng pag-input</translation>
 <translation id="3825863595139017598">Mongolian na keyboard</translation>
@@ -255,6 +270,7 @@
 <translation id="3943857333388298514">Paste</translation>
 <translation id="3958548648197196644">Kiwi</translation>
 <translation id="3966388904776714213">Audio Player</translation>
+<translation id="3984317463833596033">Bigyan ng pahintulot ang Parallels Desktop na baguhin ang mga file sa folder na <ph name="FOLDER_NAME" /></translation>
 <translation id="4002066346123236978">Pamagat</translation>
 <translation id="4070370845051020638">Cantonese na pamamaraan ng pag-input</translation>
 <translation id="4072248638558688893">Tamil keyboard (Phonetic)</translation>
@@ -283,8 +299,10 @@
 <translation id="4470564870223067757">Hangul 2 Set</translation>
 <translation id="4477219268485577442">Bulgarian phonetic</translation>
 <translation id="4479812471636796472">US Dvorak na keyboard</translation>
+<translation id="4481711095103932593">Nakabahagi ang folder na ito sa Windows</translation>
 <translation id="4487088045714738411">Belgian na keyboard</translation>
 <translation id="4522570452068850558">Mga Detalye</translation>
+<translation id="4542387084127299777">Hindi mabuksan ang "<ph name="PATH" />"</translation>
 <translation id="4552678318981539154">Bumili ng higit pang storage</translation>
 <translation id="4559767610552730302">Bokeh</translation>
 <translation id="4572815280350369984"><ph name="FILE_TYPE" /> na file</translation>
@@ -292,6 +310,7 @@
 <translation id="4579744207439506346">Idinagdag ang <ph name="ENTRY_NAME" /> sa pagpipilian.</translation>
 <translation id="4582497162516204941">I-install gamit ang Linux (Beta)</translation>
 <translation id="4594543368593301662">Ipinapakita ang mga resulta para sa <ph name="SEARCH_TERM" />.</translation>
+<translation id="4603392156942865207">Kinokopya ang <ph name="FILE_NAME" /> sa <ph name="FOLDER_NAME" /></translation>
 <translation id="4631887759990505102">Artist</translation>
 <translation id="4656293982926141856">Sa computer na ito</translation>
 <translation id="4669606053856530811">Mawawalan ng access ang mga miyembro ng '<ph name="SOURCE_NAME" />' maliban na lang kung ibinahagi sa kanila ang mga item na ito.</translation>
@@ -325,10 +344,12 @@
 <translation id="4880520557730313061">Auto-fix</translation>
 <translation id="4881695831933465202">Buksan</translation>
 <translation id="4886021172213954916">Tamil keyboard (Typewriter)</translation>
+<translation id="4900532980794411603">Ibahagi sa Parallels Desktop</translation>
 <translation id="4905417359854579806">Handa nang i-back up ang <ph name="FILE_COUNT" /></translation>
 <translation id="4924638091161556692">Naayos</translation>
 <translation id="4935975195727477204">Bulaklak</translation>
 <translation id="4943368462779413526">Football</translation>
+<translation id="4961158930123534723">1 folder ang ibinahagi sa Parallels Desktop</translation>
 <translation id="4969785127455456148">Album</translation>
 <translation id="497244430928947428">Malayalam keyboard (Phonetic)</translation>
 <translation id="4973523518332075481">Gumamit ng pangalang may <ph name="MAX_LENGTH" /> (na) character o mas kaunti</translation>
@@ -340,10 +361,12 @@
 <translation id="5010406651457630570">Mga Computer</translation>
 <translation id="5011233892417813670">Chromebook</translation>
 <translation id="5024856940085636730">Mas matagal kaysa sa inaasahan ang isang pagpapatakbo. Gusto mo ba itong i-abort?</translation>
+<translation id="5036159836254554629">Pamahalaan ang pagbabahagi sa Parallels Desktop</translation>
 <translation id="5038625366300922036">Tingnan ang higit pa...</translation>
 <translation id="5061708541166515394">Contrast</translation>
 <translation id="5068919226082848014">Pizza</translation>
 <translation id="5081517858322016911">Ide-delete ang <ph name="TOTAL_FILE_SIZE" /> ng mga file</translation>
+<translation id="508423945471810158">Inililipat ang <ph name="NUMBER_OF_ITEMS" /> (na) item sa <ph name="FOLDER_NAME" /></translation>
 <translation id="509429900233858213">May naganap na error.</translation>
 <translation id="5098629044894065541">Hebrew</translation>
 <translation id="5123433949759960244">Basketball</translation>
@@ -362,7 +385,7 @@
 <translation id="5177526793333269655">View na thumbnail</translation>
 <translation id="5194713942430106590">I-click para pagbukud-bukurin ang column sa pataas na pagkakasunud-sunod.</translation>
 <translation id="5218183485292899140">Swiss French</translation>
-<translation id="5234764350956374838">Balewalain</translation>
+<translation id="5234764350956374838">Huwag pansinin</translation>
 <translation id="5241298539944515331">Vietnamese keyboard (VIQR)</translation>
 <translation id="5253070652067921974">Ginawa ni</translation>
 <translation id="5257456363153333584">Tutubi</translation>
@@ -389,6 +412,7 @@
 <translation id="5418923334382419584">Myanmar keyboard</translation>
 <translation id="5428105026674456456">Spanish</translation>
 <translation id="5438282218546237410">Walang resulta para sa <ph name="SEARCH_TERM" />.</translation>
+<translation id="5449551289610225147">Di-wastong password</translation>
 <translation id="5464696796438641524">Polish na keyboard</translation>
 <translation id="5465122519792752163">Nepali keyboard (InScript)</translation>
 <translation id="5469868506864199649">Italyano</translation>
@@ -447,6 +471,7 @@
 <translation id="6054173164583630569">French na keyboard</translation>
 <translation id="6074825444536523002">Form ng Google</translation>
 <translation id="6096979789310008754">Na-clear ang text para sa paghahanap, ipinapakita ang lahat ng file at folder.</translation>
+<translation id="610101264611565198">Inililipat ang <ph name="FILE_NAME" /> sa <ph name="FOLDER_NAME" /></translation>
 <translation id="6111770213269631447">Transliteration (namaskar → নমস্কার)</translation>
 <translation id="6129953537138746214">Puwang</translation>
 <translation id="6133173853026656527">Inililipat ang <ph name="FILE_NAME" />...</translation>
@@ -487,10 +512,12 @@
 <translation id="656398493051028875">Tinatanggal ang "<ph name="FILENAME" />"...</translation>
 <translation id="6581162200855843583">link ng Google Drive</translation>
 <translation id="6607272825297743757">Impormasyon ng file</translation>
+<translation id="6609332149380188670"><ph name="NUMBER_OF_ITEMS" /> (na) folder ang ibinahagi sa Parallels Desktop</translation>
 <translation id="6629841649550503054">Naka-back up na ang lahat sa <ph name="BEGIN_LINK" />Google Drive!<ph name="END_LINK" /></translation>
 <translation id="6643016212128521049">I-clear</translation>
 <translation id="6650726141019353908">Pink na paru-paro</translation>
-<translation id="6710213216561001401">Nakaraan</translation>
+<translation id="6657585470893396449">Password</translation>
+<translation id="6710213216561001401">Nauna</translation>
 <translation id="6718273304615422081">Nagzi-zip...</translation>
 <translation id="6751256176799620176">1 folder ang napili</translation>
 <translation id="6760765581316020278">Vietnamese keyboard (VNI)</translation>
@@ -499,6 +526,7 @@
 <translation id="6806699711453372963">Pamahalaan ang pagbabahagi ng Linux</translation>
 <translation id="6808193438228982088">Fox</translation>
 <translation id="6820687829547641339">Archive na tar na Gzip compressed</translation>
+<translation id="6823166707458800069">Awtomatikong na-back up online ang lahat ng file na na-save sa folder na ito.</translation>
 <translation id="6825883775269213504">Russian</translation>
 <translation id="6827236167376090743">Magpe-play ang video na ito nang paulit-ulit sa napakahabang panahon.</translation>
 <translation id="6847101934483209767">Inalis ang <ph name="ENTRY_NAME" /> sa pagpipilian.</translation>
@@ -508,6 +536,7 @@
 <translation id="6878261347041253038">Devanagari keyboard (Phonetic)</translation>
 <translation id="6885780034956018177">Suso</translation>
 <translation id="6896758677409633944">Copy</translation>
+<translation id="6898028766943174120">Higit pang sub-folder...</translation>
 <translation id="691516599546977041">Hindi maaaring mag-save sa <ph name="FOLDER_NAME" />. Mase-save sa folder na Mga Download ang mga na-edit na larawan.</translation>
 <translation id="6915678159055240887">Chromebox</translation>
 <translation id="6918340160281024199">US Workman</translation>
@@ -520,6 +549,7 @@
 <translation id="696203921837389374">I-enable ang pagsi-sync gamit ang mobile data</translation>
 <translation id="6965382102122355670">OK</translation>
 <translation id="6970230597523682626">Bulgarian</translation>
+<translation id="6973630695168034713">Mga Folder</translation>
 <translation id="6978611942794658017">Idinisenyo ang file na ito para sa isang PC na gumagamit ng Windows software. Hindi ito tugma sa iyong device na nagpapatakbo ng Chrome OS. Mangyaring maghanap sa Chrome Web Store ng naaangkop na pamalit na app.</translation>
 <translation id="6979158407327259162">Google Drive</translation>
 <translation id="6990081529015358884">Naubusan ka na ng espasyo</translation>
@@ -553,6 +583,7 @@
 <translation id="7417705661718309329">Google map</translation>
 <translation id="7419631653042041064">Catalan na keyboard</translation>
 <translation id="7434823369735508263">UK Dvorak na keyboard</translation>
+<translation id="7447678886297481665">Read only ang mga file sa folder na ito. Hindi sinusuportahan ang ilang aktibidad.</translation>
 <translation id="7460898608667578234">Ukrainian</translation>
 <translation id="7474889694310679759">Canadian English na keyboard</translation>
 <translation id="7489215562877293245"><ph name="FILE_COUNT" /> ang nakita
@@ -662,6 +693,7 @@
 <translation id="8475647382427415476">Hindi na-sync ng Google Drive ang "<ph name="FILENAME" />" sa ngayon. Susubukang muli ng Google Drive sa ibang pagkakataon.</translation>
 <translation id="8477649328507734757">Spin</translation>
 <translation id="8487700953926739672">Available sa offline</translation>
+<translation id="8490342535582768689">Bigyan ng pahintulot ang Parallels Desktop na baguhin ang mga file sa iyong Google Drive. Masi-sync sa iba mo pang device ang mga pagbabago.</translation>
 <translation id="8521441079177373948">UK</translation>
 <translation id="8525306231823319788">Buong screen</translation>
 <translation id="8551494947769799688">Latvian</translation>
@@ -697,6 +729,7 @@
 <translation id="9065203028668620118">I-edit</translation>
 <translation id="9099674669267916096">Bilang ng page</translation>
 <translation id="9110990317705400362">Patuloy kaming naghahanap ng mga paraan upang gawing mas ligtas ang iyong pagba-browse. Noong nakaraan, maaari kang i-prompt ng anumang website na magdagdag ng extension sa iyong browser. Sa mga pinakabagong bersyon ng Google Chrome, dapat na tahasan mong sabihin sa Chrome na gusto mong i-install ang mga extension na ito sa pamamagitan ng pagdaragdag sa mga ito sa page ng Mga Extension. <ph name="BEGIN_LINK" />Matuto pa<ph name="END_LINK" /></translation>
+<translation id="9111102763498581341">I-unlock</translation>
 <translation id="912419004897138677">Codec</translation>
 <translation id="9129931661813833980">I-pin ang folder</translation>
 <translation id="9130775360844693113">Magkakaroon ng access ang mga miyembro ng '<ph name="DESTINATION_NAME" />' sa mga item na ito.</translation>
@@ -714,7 +747,7 @@
 <translation id="939736085109172342">Bagong folder</translation>
 <translation id="942954117721265519">Walang mga larawan sa direktoryong ito.</translation>
 <translation id="943972244133411984">Binago ni</translation>
-<translation id="945522503751344254">Magpadala ng feedback...</translation>
+<translation id="945522503751344254">Magpadala ng feedback</translation>
 <translation id="947144732524271678">Pumili ng hanay ng <ph name="ENTRY_COUNT" /> (na) entry mula sa <ph name="FROM_ENTRY_NAME" /> hanggang <ph name="TO_ENTRY_NAME" />.</translation>
 <translation id="981121421437150478">Offline</translation>
 <translation id="988685240266037636">Mayroon nang file na may pangalang "<ph name="FILE_NAME" />." Gusto mo ba itong palitan?</translation>

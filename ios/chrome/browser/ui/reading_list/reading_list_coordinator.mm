@@ -19,25 +19,33 @@
 #import "ios/chrome/browser/metrics/new_tab_page_uma.h"
 #include "ios/chrome/browser/reading_list/offline_url_utils.h"
 #include "ios/chrome/browser/reading_list/reading_list_model_factory.h"
-#import "ios/chrome/browser/ui/commands/open_new_tab_command.h"
-#import "ios/chrome/browser/ui/reading_list/context_menu/reading_list_context_menu_commands.h"
+#import "ios/chrome/browser/ui/activity_services/activity_params.h"
+#import "ios/chrome/browser/ui/commands/application_commands.h"
+#import "ios/chrome/browser/ui/commands/command_dispatcher.h"
+#import "ios/chrome/browser/ui/menu/action_factory.h"
+#import "ios/chrome/browser/ui/menu/menu_histograms.h"
 #import "ios/chrome/browser/ui/reading_list/context_menu/reading_list_context_menu_coordinator.h"
+#import "ios/chrome/browser/ui/reading_list/context_menu/reading_list_context_menu_delegate.h"
 #import "ios/chrome/browser/ui/reading_list/context_menu/reading_list_context_menu_params.h"
+#import "ios/chrome/browser/ui/reading_list/reading_list_list_item.h"
 #import "ios/chrome/browser/ui/reading_list/reading_list_list_item_factory.h"
 #import "ios/chrome/browser/ui/reading_list/reading_list_list_view_controller_audience.h"
 #import "ios/chrome/browser/ui/reading_list/reading_list_list_view_controller_delegate.h"
 #import "ios/chrome/browser/ui/reading_list/reading_list_mediator.h"
+#import "ios/chrome/browser/ui/reading_list/reading_list_menu_provider.h"
 #import "ios/chrome/browser/ui/reading_list/reading_list_table_view_controller.h"
+#import "ios/chrome/browser/ui/sharing/sharing_coordinator.h"
 #import "ios/chrome/browser/ui/table_view/feature_flags.h"
 #import "ios/chrome/browser/ui/table_view/table_view_animator.h"
 #import "ios/chrome/browser/ui/table_view/table_view_navigation_controller.h"
 #import "ios/chrome/browser/ui/table_view/table_view_navigation_controller_constants.h"
 #import "ios/chrome/browser/ui/table_view/table_view_presentation_controller.h"
+#import "ios/chrome/browser/ui/util/multi_window_support.h"
 #import "ios/chrome/browser/ui/util/pasteboard_util.h"
+#import "ios/chrome/browser/url_loading/url_loading_browser_agent.h"
 #import "ios/chrome/browser/url_loading/url_loading_params.h"
-#import "ios/chrome/browser/url_loading/url_loading_service.h"
-#import "ios/chrome/browser/url_loading/url_loading_service_factory.h"
 #include "ios/chrome/browser/web_state_list/web_state_list.h"
+#import "ios/chrome/browser/window_activities/window_activity_helpers.h"
 #include "ios/chrome/grit/ios_strings.h"
 #include "ios/web/public/navigation/referrer.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -48,10 +56,11 @@
 #error "This file requires ARC support."
 #endif
 
-@interface ReadingListCoordinator ()<ReadingListContextMenuCommands,
-                                     ReadingListListViewControllerAudience,
-                                     ReadingListListViewControllerDelegate,
-                                     UIViewControllerTransitioningDelegate>
+@interface ReadingListCoordinator () <ReadingListContextMenuDelegate,
+                                      ReadingListMenuProvider,
+                                      ReadingListListViewControllerAudience,
+                                      ReadingListListViewControllerDelegate,
+                                      UIViewControllerTransitioningDelegate>
 
 // Whether the coordinator is started.
 @property(nonatomic, assign, getter=isStarted) BOOL started;
@@ -67,14 +76,12 @@
 @property(nonatomic, strong)
     ReadingListContextMenuCoordinator* contextMenuCoordinator;
 
+// Coordinator in charge of handling sharing use cases.
+@property(nonatomic, strong) SharingCoordinator* sharingCoordinator;
+
 @end
 
 @implementation ReadingListCoordinator
-@synthesize started = _started;
-@synthesize mediator = _mediator;
-@synthesize navigationController = _navigationController;
-@synthesize tableViewController = _tableViewController;
-@synthesize contextMenuCoordinator = _contextMenuCoordinator;
 
 #pragma mark - Accessors
 
@@ -95,11 +102,12 @@
   // Create the mediator.
   ReadingListModel* model =
       ReadingListModelFactory::GetInstance()->GetForBrowserState(
-          self.browserState);
+          self.browser->GetBrowserState());
   ReadingListListItemFactory* itemFactory =
       [[ReadingListListItemFactory alloc] init];
   FaviconLoader* faviconLoader =
-      IOSChromeFaviconLoaderFactory::GetForBrowserState(self.browserState);
+      IOSChromeFaviconLoaderFactory::GetForBrowserState(
+          self.browser->GetBrowserState());
   self.mediator = [[ReadingListMediator alloc] initWithModel:model
                                                faviconLoader:faviconLoader
                                              listItemFactory:itemFactory];
@@ -109,13 +117,19 @@
   self.tableViewController.delegate = self;
   self.tableViewController.audience = self;
   self.tableViewController.dataSource = self.mediator;
+  self.tableViewController.browser = self.browser;
+
+  if (@available(iOS 13.0, *)) {
+    self.tableViewController.menuProvider = self;
+  }
+
   itemFactory.accessibilityDelegate = self.tableViewController;
 
   // Add the "Done" button and hook it up to |stop|.
   UIBarButtonItem* dismissButton = [[UIBarButtonItem alloc]
       initWithBarButtonSystemItem:UIBarButtonSystemItemDone
                            target:self
-                           action:@selector(stop)];
+                           action:@selector(dismissButtonTapped)];
   [dismissButton
       setAccessibilityIdentifier:kTableViewNavigationDismissButtonId];
   self.tableViewController.navigationItem.rightBarButtonItem = dismissButton;
@@ -150,11 +164,17 @@
 
   // Send the "Viewed Reading List" event to the feature_engagement::Tracker
   // when the user opens their reading list.
-  feature_engagement::TrackerFactory::GetForBrowserState(self.browserState)
+  feature_engagement::TrackerFactory::GetForBrowserState(
+      self.browser->GetBrowserState())
       ->NotifyEvent(feature_engagement::events::kViewedReadingList);
 
   [super start];
   self.started = YES;
+}
+
+- (void)dismissButtonTapped {
+  base::RecordAction(base::UserMetricsAction("MobileReadingListClose"));
+  [self stop];
 }
 
 - (void)stop {
@@ -167,6 +187,10 @@
                          completion:nil];
   self.tableViewController = nil;
   self.navigationController = nil;
+
+  [self.sharingCoordinator stop];
+  self.sharingCoordinator = nil;
+
   [super stop];
   self.started = NO;
 }
@@ -177,7 +201,7 @@
   self.navigationController.toolbarHidden = !hasItems;
 }
 
-#pragma mark - ReadingListContextMenuCommands
+#pragma mark - ReadingListContextMenuDelegate
 
 - (void)openURLInNewTabForContextMenuWithParams:
     (ReadingListContextMenuParams*)params {
@@ -195,6 +219,15 @@
            incognito:YES];
 }
 
+- (void)openURLInNewWindowForContextMenuWithParams:
+    (ReadingListContextMenuParams*)params {
+  id<ApplicationCommands> windowOpener = HandlerForProtocol(
+      self.browser->GetCommandDispatcher(), ApplicationCommands);
+  [windowOpener openNewWindowWithActivity:ActivityToLoadURL(
+                                              WindowActivityReadingListOrigin,
+                                              params.entryURL)];
+}
+
 - (void)copyURLForContextMenuWithParams:(ReadingListContextMenuParams*)params {
   StoreURLInPasteboard(params.entryURL);
   self.contextMenuCoordinator = nil;
@@ -206,11 +239,6 @@
       withOfflineURL:params.offlineURL
             inNewTab:YES
            incognito:NO];
-}
-
-- (void)cancelReadingListContextMenuWithParams:
-    (ReadingListContextMenuParams*)params {
-  self.contextMenuCoordinator = nil;
 }
 
 #pragma mark - ReadingListTableViewControllerDelegate
@@ -249,8 +277,9 @@
 
   self.contextMenuCoordinator = [[ReadingListContextMenuCoordinator alloc]
       initWithBaseViewController:self.navigationController
+                         browser:self.browser
                           params:params];
-  self.contextMenuCoordinator.commandHandler = self;
+  self.contextMenuCoordinator.delegate = self;
   [self.contextMenuCoordinator start];
 }
 
@@ -357,7 +386,7 @@ animationControllerForDismissedController:(UIViewController*)dismissed {
   web::WebState* activeWebState =
       self.browser->GetWebStateList()->GetActiveWebState();
   new_tab_page_uma::RecordAction(
-      self.browserState, activeWebState,
+      self.browser->GetBrowserState(), activeWebState,
       new_tab_page_uma::ACTION_OPENED_READING_LIST_ENTRY);
 
   // Load the offline URL if available.
@@ -380,18 +409,109 @@ animationControllerForDismissedController:(UIViewController*)dismissed {
     params.in_incognito = incognito;
     params.web_params.referrer = web::Referrer(GURL(kReadingListReferrerURL),
                                                web::ReferrerPolicyDefault);
-    UrlLoadingServiceFactory::GetForBrowserState(self.browserState)
-        ->Load(params);
+    UrlLoadingBrowserAgent::FromBrowser(self.browser)->Load(params);
   } else {
     UrlLoadParams params = UrlLoadParams::InCurrentTab(loadURL);
     params.web_params.transition_type = ui::PAGE_TRANSITION_AUTO_BOOKMARK;
     params.web_params.referrer = web::Referrer(GURL(kReadingListReferrerURL),
                                                web::ReferrerPolicyDefault);
-    UrlLoadingServiceFactory::GetForBrowserState(self.browserState)
-        ->Load(params);
+    UrlLoadingBrowserAgent::FromBrowser(self.browser)->Load(params);
   }
 
   [self stop];
+}
+
+#pragma mark - ReadingListMenuProvider
+
+- (UIContextMenuConfiguration*)contextMenuConfigurationForItem:
+                                   (id<ReadingListListItem>)item
+                                                      withView:(UIView*)view
+    API_AVAILABLE(ios(13.0)) {
+  __weak id<ReadingListListItemAccessibilityDelegate> accessibilityDelegate =
+      self.tableViewController;
+  __weak __typeof(self) weakSelf = self;
+
+  UIContextMenuActionProvider actionProvider =
+      ^(NSArray<UIMenuElement*>* suggestedActions) {
+        if (!weakSelf) {
+          // Return an empty menu.
+          return [UIMenu menuWithTitle:@"" children:@[]];
+        }
+
+        ReadingListCoordinator* strongSelf = weakSelf;
+
+        // Record that this context menu was shown to the user.
+        RecordMenuShown(MenuScenario::kReadingListEntry);
+
+        ActionFactory* actionFactory = [[ActionFactory alloc]
+            initWithBrowser:strongSelf.browser
+                   scenario:MenuScenario::kReadingListEntry];
+
+        NSMutableArray<UIMenuElement*>* menuElements =
+            [[NSMutableArray alloc] init];
+
+        [menuElements addObject:[actionFactory actionToOpenInNewTabWithBlock:^{
+                        [weakSelf loadEntryURL:item.entryURL
+                                withOfflineURL:GURL::EmptyGURL()
+                                      inNewTab:YES
+                                     incognito:NO];
+                      }]];
+
+        [menuElements
+            addObject:[actionFactory actionToOpenInNewIncognitoTabWithBlock:^{
+              [weakSelf loadEntryURL:item.entryURL
+                      withOfflineURL:GURL::EmptyGURL()
+                            inNewTab:YES
+                           incognito:YES];
+            }]];
+
+        if (IsMultipleScenesSupported()) {
+          [menuElements
+              addObject:[actionFactory
+                            actionToOpenInNewWindowWithURL:item.entryURL
+                                            activityOrigin:
+                                                WindowActivityReadingListOrigin
+                                                completion:nil]];
+        }
+
+        [menuElements addObject:[actionFactory actionToCopyURL:item.entryURL]];
+
+        [menuElements addObject:[actionFactory actionToShareWithBlock:^{
+                        [weakSelf shareURL:item.entryURL
+                                     title:item.title
+                                  fromView:view];
+                      }]];
+
+        [menuElements addObject:[actionFactory actionToDeleteWithBlock:^{
+                        [accessibilityDelegate deleteItem:item];
+                      }]];
+
+        return [UIMenu menuWithTitle:@"" children:menuElements];
+      };
+
+  return
+      [UIContextMenuConfiguration configurationWithIdentifier:nil
+                                              previewProvider:nil
+                                               actionProvider:actionProvider];
+}
+
+#pragma mark - Private
+
+// Triggers the URL sharing flow for the given |URL| and |title|, with the
+// origin |view| representing the UI component for that URL.
+- (void)shareURL:(const GURL&)URL
+           title:(NSString*)title
+        fromView:(UIView*)view {
+  ActivityParams* params =
+      [[ActivityParams alloc] initWithURL:URL
+                                    title:title
+                                 scenario:ActivityScenario::ReadingListEntry];
+  self.sharingCoordinator = [[SharingCoordinator alloc]
+      initWithBaseViewController:self.tableViewController
+                         browser:self.browser
+                          params:params
+                      originView:view];
+  [self.sharingCoordinator start];
 }
 
 @end

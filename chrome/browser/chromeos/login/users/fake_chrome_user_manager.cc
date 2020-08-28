@@ -182,6 +182,15 @@ user_manager::User* FakeChromeUserManager::AddPublicAccountUser(
   return user;
 }
 
+user_manager::User* FakeChromeUserManager::AddActiveDirectoryUser(
+    const AccountId& account_id) {
+  DCHECK(account_id.GetAccountType() == AccountType::ACTIVE_DIRECTORY);
+  return AddUserWithAffiliationAndTypeAndProfile(
+      account_id, /*is_affiliated=*/false,
+      user_manager::USER_TYPE_ACTIVE_DIRECTORY,
+      /*profile=*/nullptr);
+}
+
 bool FakeChromeUserManager::AreEphemeralUsersEnabled() const {
   return fake_ephemeral_users_enabled_;
 }
@@ -403,11 +412,11 @@ const user_manager::UserList& FakeChromeUserManager::GetLoggedInUsers() const {
 
 const user_manager::UserList& FakeChromeUserManager::GetLRULoggedInUsers()
     const {
-  return users_;
+  return logged_in_users_;
 }
 
 user_manager::UserList FakeChromeUserManager::GetUnlockUsers() const {
-  return users_;
+  return logged_in_users_;
 }
 
 void FakeChromeUserManager::UserLoggedIn(const AccountId& account_id,
@@ -474,10 +483,16 @@ void FakeChromeUserManager::SaveUserOAuthStatus(
 
 void FakeChromeUserManager::SaveForceOnlineSignin(const AccountId& account_id,
                                                   bool force_online_signin) {
-  if (!active_user_ || active_user_->GetAccountId() != account_id)
-    NOTREACHED() << account_id;
-
-  active_user_->set_force_online_signin(force_online_signin);
+  if (!active_user_ || active_user_->GetAccountId() != account_id) {
+    // On the login screen we can update force_online_signin flag for
+    // an arbitrary user.
+    user_manager::User* const user = FindUserAndModify(account_id);
+    if (user) {
+      user->set_force_online_signin(force_online_signin);
+    }
+  } else {
+    active_user_->set_force_online_signin(force_online_signin);
+  }
 }
 
 void FakeChromeUserManager::SaveUserDisplayName(
@@ -607,7 +622,7 @@ bool FakeChromeUserManager::IsGuestSessionAllowed() const {
 bool FakeChromeUserManager::IsGaiaUserAllowed(
     const user_manager::User& user) const {
   DCHECK(user.HasGaiaAccount());
-  return CrosSettings::Get()->IsUserWhitelisted(
+  return CrosSettings::Get()->IsUserAllowlisted(
       user.GetAccountId().GetUserEmail(), nullptr);
 }
 
@@ -699,10 +714,6 @@ void FakeChromeUserManager::DemoAccountLoggedIn() {
 }
 
 void FakeChromeUserManager::KioskAppLoggedIn(user_manager::User* user) {}
-
-void FakeChromeUserManager::ArcKioskAppLoggedIn(user_manager::User* user) {}
-
-void FakeChromeUserManager::WebKioskAppLoggedIn(user_manager::User* user) {}
 
 void FakeChromeUserManager::PublicAccountUserLoggedIn(
     user_manager::User* user) {

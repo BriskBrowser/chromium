@@ -105,9 +105,6 @@ id<GREYMatcher> ToolsMenuButton();
 // Matcher for the Share menu button.
 id<GREYMatcher> ShareButton();
 
-// Returns the GREYMatcher for the button that opens the tab switcher.
-id<GREYMatcher> TabletTabSwitcherOpenButton();
-
 // Matcher for show tabs button.
 id<GREYMatcher> ShowTabsButton();
 
@@ -128,17 +125,18 @@ id<GREYMatcher> SyncSwitchCell(NSString* accessibility_label,
 // a link.
 id<GREYMatcher> OpenLinkInNewTabButton();
 
+// Matcher for the Open in New Window option in the context menu when long
+// pressing a link.
+id<GREYMatcher> OpenLinkInNewWindowButton();
+
 // Matcher for the done button on the navigation bar.
 id<GREYMatcher> NavigationBarDoneButton();
 
 // Matcher for the done button on the Bookmarks navigation bar.
 id<GREYMatcher> BookmarksNavigationBarDoneButton();
 
-// Returns matcher for the account consistency confirmation button.
-id<GREYMatcher> AccountConsistencyConfirmationOkButton();
-
-// Returns matcher for "ADD ACCOUNT" button in unified consent dialog.
-id<GREYMatcher> UnifiedConsentAddAccountButton();
+// Matcher for the back button on the Bookmarks navigation bar.
+id<GREYMatcher> BookmarksNavigationBarBackButton();
 
 // Returns matcher for the add account accounts button.
 id<GREYMatcher> AddAccountButton();
@@ -331,9 +329,6 @@ id<GREYMatcher> HistoryClearBrowsingDataButton();
 // Returns a matcher for "Open In..." button.
 id<GREYMatcher> OpenInButton();
 
-// Returns the GREYMatcher for the button that opens the tab grid.
-id<GREYMatcher> TabGridOpenButton();
-
 // Returns the GREYMatcher for the cell at |index| in the tab grid.
 id<GREYMatcher> TabGridCellAtIndex(unsigned int index);
 
@@ -393,6 +388,9 @@ id<GREYMatcher> SettingsCreditCardMatcher();
 // Returns a matcher for the delete button at the bottom of settings collection
 // views.
 id<GREYMatcher> SettingsBottomToolbarDeleteButton();
+
+// Returns a matcher for the search engine button in the main settings view.
+id<GREYMatcher> SettingsSearchEngineButton();
 
 // Returns a matcher for an autofill suggestion view.
 id<GREYMatcher> AutofillSuggestionViewMatcher();

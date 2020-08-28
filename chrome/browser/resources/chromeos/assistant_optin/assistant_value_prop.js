@@ -11,6 +11,12 @@
  * Event 'loaded' will be fired when the page has been successfully loaded.
  */
 
+/**
+ * Name of the screen.
+ * @type {string}
+ */
+const VALUE_PROP_SCREEN_ID = 'ValuePropScreen';
+
 Polymer({
   is: 'assistant-value-prop',
 
@@ -23,13 +29,6 @@ Polymer({
     buttonsDisabled: {
       type: Boolean,
       value: true,
-    },
-
-    /**
-     * System locale.
-     */
-    locale: {
-      type: String,
     },
 
     /**
@@ -125,6 +124,9 @@ Polymer({
    */
   sanitizer_: new HtmlSanitizer(),
 
+  /** @private {?assistant.BrowserProxy} */
+  browserProxy_: null,
+
   /**
    * On-tap event handler for skip button.
    *
@@ -135,9 +137,7 @@ Polymer({
       return;
     }
     this.buttonsDisabled = true;
-    chrome.send(
-        'login.AssistantOptInFlowScreen.ValuePropScreen.userActed',
-        ['skip-pressed']);
+    this.browserProxy_.userActed(VALUE_PROP_SCREEN_ID, ['skip-pressed']);
   },
 
   /**
@@ -150,9 +150,12 @@ Polymer({
       return;
     }
     this.buttonsDisabled = true;
-    chrome.send(
-        'login.AssistantOptInFlowScreen.ValuePropScreen.userActed',
-        ['next-pressed']);
+    this.browserProxy_.userActed(VALUE_PROP_SCREEN_ID, ['next-pressed']);
+  },
+
+  /** @override */
+  created() {
+    this.browserProxy_ = assistant.BrowserProxyImpl.getInstance();
   },
 
   /**
@@ -188,16 +191,15 @@ Polymer({
     this.fire('loading');
 
     if (this.initialized_) {
-      chrome.send(
-          'login.AssistantOptInFlowScreen.ValuePropScreen.userActed',
-          ['reload-requested']);
+      this.browserProxy_.userActed(VALUE_PROP_SCREEN_ID, ['reload-requested']);
       this.settingZippyLoaded_ = false;
       this.consentStringLoaded_ = false;
     }
 
     this.loadingError_ = false;
     this.headerReceived_ = false;
-    this.valuePropView_.src = this.urlTemplate_.replace('$', this.locale);
+    let locale = this.locale.replace('-', '_').toLowerCase();
+    this.valuePropView_.src = this.urlTemplate_.replace('$', locale);
 
     this.buttonsDisabled = true;
   },
@@ -297,17 +299,17 @@ Polymer({
       zippy.setAttribute('popup-style', true);
 
       var title = document.createElement('div');
-      title.className = 'zippy-title';
+      title.slot = 'title';
       title.innerHTML = this.sanitizer_.sanitizeHtml(data['title']);
       zippy.appendChild(title);
 
       var description = document.createElement('div');
-      description.className = 'zippy-description';
+      description.slot = 'content';
       description.innerHTML = this.sanitizer_.sanitizeHtml(data['description']);
       description.innerHTML += '&ensp;';
 
       var learnMoreLink = document.createElement('a');
-      learnMoreLink.className = 'learn-more-link';
+      learnMoreLink.slot = 'content';
       learnMoreLink.textContent = data['popupLink'];
       learnMoreLink.setAttribute('href', 'javascript:void(0)');
       learnMoreLink.onclick = function(title, additionalInfo, focus) {
@@ -337,7 +339,7 @@ Polymer({
     this.$['next-button'].focus();
 
     if (!this.hidden && !this.screenShown_) {
-      chrome.send('login.AssistantOptInFlowScreen.ValuePropScreen.screenShown');
+      this.browserProxy_.screenShown(VALUE_PROP_SCREEN_ID);
       this.screenShown_ = true;
     }
   },
@@ -351,8 +353,6 @@ Polymer({
     this.$['overlay-close-button'].addEventListener(
         'click', this.hideOverlay.bind(this));
     this.valuePropView_ = this.$['value-prop-view'];
-    this.locale =
-        loadTimeData.getString('locale').replace('-', '_').toLowerCase();
 
     if (!this.initialized_) {
       this.valuePropView_.request.onErrorOccurred.addListener(

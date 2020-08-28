@@ -30,7 +30,7 @@
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/dom/shadow_root.h"
 #include "third_party/blink/renderer/core/editing/frame_selection.h"
-#include "third_party/blink/renderer/core/fileapi/file_list.h"
+#include "third_party/blink/renderer/core/fileapi/file.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/frame/settings.h"
 #include "third_party/blink/renderer/core/html/forms/html_data_list_element.h"
@@ -47,18 +47,16 @@
 #include "third_party/blink/renderer/core/html_names.h"
 #include "third_party/blink/renderer/core/input_type_names.h"
 #include "third_party/blink/renderer/core/layout/layout_box.h"
+#include "third_party/blink/renderer/core/layout/layout_theme_font_provider.h"
 #include "third_party/blink/renderer/core/layout/layout_theme_mobile.h"
 #include "third_party/blink/renderer/core/page/focus_controller.h"
 #include "third_party/blink/renderer/core/page/page.h"
-#include "third_party/blink/renderer/core/paint/fallback_theme.h"
 #include "third_party/blink/renderer/core/style/computed_style.h"
 #include "third_party/blink/renderer/core/style/computed_style_initial_values.h"
 #include "third_party/blink/renderer/platform/file_metadata.h"
 #include "third_party/blink/renderer/platform/fonts/font_selector.h"
-#include "third_party/blink/renderer/platform/fonts/string_truncator.h"
 #include "third_party/blink/renderer/platform/graphics/touch_action.h"
 #include "third_party/blink/renderer/platform/runtime_enabled_features.h"
-#include "third_party/blink/renderer/platform/text/platform_locale.h"
 #include "third_party/blink/renderer/platform/web_test_support.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_builder.h"
 #include "ui/base/ui_base_features.h"
@@ -165,9 +163,6 @@ ControlPart LayoutTheme::AdjustAppearanceWithElementType(
     const ComputedStyle& style,
     const Element* element) {
   ControlPart part = style.EffectiveAppearance();
-  if (!RuntimeEnabledFeatures::RestrictedWebkitAppearanceEnabled())
-    return part;
-
   if (!element)
     return kNoControlPart;
 
@@ -187,6 +182,7 @@ ControlPart LayoutTheme::AdjustAppearanceWithElementType(
 
     // Aliases of 'auto'.
     // https://drafts.csswg.org/css-ui-4/#typedef-appearance-compat-auto
+    case kAutoPart:
     case kCheckboxPart:
     case kRadioPart:
     case kPushButtonPart:
@@ -263,13 +259,9 @@ void LayoutTheme::AdjustStyle(ComputedStyle& style, Element* e) {
   ControlPart part = AdjustAppearanceWithAuthorStyle(
       AdjustAppearanceWithElementType(style, e), style);
   style.SetEffectiveAppearance(part);
+  DCHECK_NE(part, kAutoPart);
   if (part == kNoControlPart)
     return;
-
-  if (ShouldUseFallbackTheme(style)) {
-    AdjustStyleUsingFallbackTheme(style);
-    return;
-  }
 
   AdjustControlPartStyle(style);
 
@@ -407,17 +399,6 @@ Color LayoutTheme::PlatformInactiveListBoxSelectionForegroundColor(
   return PlatformInactiveSelectionForegroundColor(color_scheme);
 }
 
-LayoutUnit LayoutTheme::BaselinePositionAdjustment(
-    const ComputedStyle& style) const {
-  return LayoutUnit();
-}
-
-bool LayoutTheme::IsControlContainer(ControlPart appearance) const {
-  // There are more leaves than this, but we'll patch this function as we add
-  // support for more controls.
-  return appearance != kCheckboxPart && appearance != kRadioPart;
-}
-
 bool LayoutTheme::IsControlStyled(ControlPart part,
                                   const ComputedStyle& style) const {
   switch (part) {
@@ -441,8 +422,6 @@ bool LayoutTheme::IsControlStyled(ControlPart part,
 
 bool LayoutTheme::ShouldDrawDefaultFocusRing(const Node* node,
                                              const ComputedStyle& style) const {
-  if (ThemeDrawsFocusRing(style))
-    return false;
   if (!node)
     return true;
   if (!style.HasEffectiveAppearance() && !node->IsLink())
@@ -460,55 +439,11 @@ bool LayoutTheme::ControlStateChanged(const Node* node,
   if (!style.HasEffectiveAppearance())
     return false;
 
-  // Default implementation assumes the controls don't respond to changes in
-  // :hover state
-  if (state == kHoverControlState && !SupportsHover(style))
-    return false;
-
   // Assume pressed state is only responded to if the control is enabled.
   if (state == kPressedControlState && !IsEnabled(node))
     return false;
 
   return true;
-}
-
-ControlStates LayoutTheme::ControlStatesForNode(const Node* node,
-                                                const ComputedStyle& style) {
-  ControlStates result = 0;
-  if (IsHovered(node)) {
-    result |= kHoverControlState;
-    if (IsSpinUpButtonPartHovered(node))
-      result |= kSpinUpControlState;
-  }
-  if (IsPressed(node)) {
-    result |= kPressedControlState;
-    if (IsSpinUpButtonPartPressed(node))
-      result |= kSpinUpControlState;
-  }
-  if (IsFocused(node) && style.OutlineStyleIsAuto())
-    result |= kFocusControlState;
-  if (IsEnabled(node))
-    result |= kEnabledControlState;
-  if (IsChecked(node))
-    result |= kCheckedControlState;
-  if (IsReadOnlyControl(node))
-    result |= kReadOnlyControlState;
-  if (!IsActive(node))
-    result |= kWindowInactiveControlState;
-  if (IsIndeterminate(node))
-    result |= kIndeterminateControlState;
-  return result;
-}
-
-bool LayoutTheme::IsActive(const Node* node) {
-  if (!node)
-    return false;
-
-  Page* page = node->GetDocument().GetPage();
-  if (!page)
-    return false;
-
-  return page->GetFocusController().IsActive();
 }
 
 bool LayoutTheme::IsChecked(const Node* node) {
@@ -530,29 +465,10 @@ bool LayoutTheme::IsEnabled(const Node* node) {
   return !element->IsDisabledFormControl();
 }
 
-bool LayoutTheme::IsFocused(const Node* node) {
-  if (!node)
-    return false;
-
-  node = node->FocusDelegate();
-  Document& document = node->GetDocument();
-  LocalFrame* frame = document.GetFrame();
-  return node == document.FocusedElement() && node->IsFocused() &&
-         node->ShouldHaveFocusAppearance() && frame &&
-         frame->Selection().FrameIsFocusedAndActive();
-}
-
 bool LayoutTheme::IsPressed(const Node* node) {
   if (!node)
     return false;
   return node->IsActive();
-}
-
-bool LayoutTheme::IsSpinUpButtonPartPressed(const Node* node) {
-  const auto* element = DynamicTo<SpinButtonElement>(node);
-  if (!element || !element->IsActive())
-    return false;
-  return element->GetUpDownState() == SpinButtonElement::kUp;
 }
 
 bool LayoutTheme::IsReadOnlyControl(const Node* node) {
@@ -563,18 +479,7 @@ bool LayoutTheme::IsReadOnlyControl(const Node* node) {
 bool LayoutTheme::IsHovered(const Node* node) {
   if (!node)
     return false;
-  const auto* element = DynamicTo<SpinButtonElement>(node);
-  if (!element)
-    return node->IsHovered();
-  return element->IsHovered() &&
-         element->GetUpDownState() != SpinButtonElement::kIndeterminate;
-}
-
-bool LayoutTheme::IsSpinUpButtonPartHovered(const Node* node) {
-  const auto* element = DynamicTo<SpinButtonElement>(node);
-  if (!element)
-    return false;
-  return element->GetUpDownState() == SpinButtonElement::kUp;
+  return node->IsHovered();
 }
 
 void LayoutTheme::AdjustCheckboxStyle(ComputedStyle& style) const {
@@ -613,19 +518,11 @@ void LayoutTheme::AdjustButtonStyle(ComputedStyle& style) const {}
 
 void LayoutTheme::AdjustInnerSpinButtonStyle(ComputedStyle&) const {}
 
-void LayoutTheme::AdjustMenuListStyle(ComputedStyle&, Element*) const {}
-
-base::TimeDelta LayoutTheme::AnimationRepeatIntervalForProgressBar() const {
-  return base::TimeDelta();
-}
-
-base::TimeDelta LayoutTheme::AnimationDurationForProgressBar() const {
-  return base::TimeDelta();
-}
-
-bool LayoutTheme::ShouldHaveSpinButton(HTMLInputElement* input_element) const {
-  return input_element->IsSteppable() &&
-         input_element->type() != input_type_names::kRange;
+void LayoutTheme::AdjustMenuListStyle(ComputedStyle& style, Element*) const {
+  // Menulists should have visible overflow
+  // https://bugs.webkit.org/show_bug.cgi?id=21287
+  style.SetOverflowX(EOverflow::kVisible);
+  style.SetOverflowY(EOverflow::kVisible);
 }
 
 void LayoutTheme::AdjustMenuListButtonStyle(ComputedStyle&, Element*) const {}
@@ -637,9 +534,13 @@ void LayoutTheme::AdjustSliderContainerStyle(ComputedStyle& style,
     if (style.EffectiveAppearance() == kSliderVerticalPart) {
       style.SetTouchAction(TouchAction::kPanX);
       style.SetEffectiveAppearance(kNoControlPart);
+      style.SetWritingMode(WritingMode::kVerticalRl);
+      // It's always in RTL because the slider value increases up even in LTR.
+      style.SetDirection(TextDirection::kRtl);
     } else {
       style.SetTouchAction(TouchAction::kPanY);
       style.SetEffectiveAppearance(kNoControlPart);
+      style.SetWritingMode(WritingMode::kHorizontalTb);
     }
   }
 }
@@ -721,7 +622,8 @@ void LayoutTheme::SystemFont(CSSValueID system_font_id,
   FontSelectionValue font_weight = NormalWeightValue();
   float font_size = 0;
   AtomicString font_family;
-  SystemFont(system_font_id, font_slope, font_weight, font_size, font_family);
+  LayoutThemeFontProvider::SystemFont(system_font_id, font_slope, font_weight,
+                                      font_size, font_family);
   font_description.SetStyle(font_slope);
   font_description.SetWeight(font_weight);
   font_description.SetSpecifiedSize(font_size);
@@ -744,13 +646,13 @@ Color LayoutTheme::SystemColor(CSSValueID css_value_id,
     case CSSValueID::kBackground:
       return 0xFF6363CE;
     case CSSValueID::kButtonface:
-      return color_scheme == WebColorScheme::kDark ? 0xFF404040 : 0xFFC0C0C0;
+      return color_scheme == WebColorScheme::kDark ? 0xFF444444 : 0xFFDDDDDD;
     case CSSValueID::kButtonhighlight:
       return 0xFFDDDDDD;
     case CSSValueID::kButtonshadow:
       return 0xFF888888;
     case CSSValueID::kButtontext:
-      return color_scheme == WebColorScheme::kDark ? 0xFFFFFFFF : 0xFF000000;
+      return color_scheme == WebColorScheme::kDark ? 0xFFAAAAAA : 0xFF000000;
     case CSSValueID::kCaptiontext:
       return color_scheme == WebColorScheme::kDark ? 0xFFFFFFFF : 0xFF000000;
     case CSSValueID::kField:
@@ -776,7 +678,7 @@ Color LayoutTheme::SystemColor(CSSValueID css_value_id,
     case CSSValueID::kLinktext:
       return 0xFF0000EE;
     case CSSValueID::kMenu:
-      return color_scheme == WebColorScheme::kDark ? 0xFF404040 : 0xFFC0C0C0;
+      return color_scheme == WebColorScheme::kDark ? 0xFF404040 : 0xFFF7F7F7;
     case CSSValueID::kMenutext:
       return color_scheme == WebColorScheme::kDark ? 0xFFFFFFFF : 0xFF000000;
     case CSSValueID::kScrollbar:
@@ -847,40 +749,21 @@ void LayoutTheme::SetCustomFocusRingColor(const Color& c) {
   has_custom_focus_ring_color_ = true;
 }
 
-bool LayoutTheme::IsFocusRingOutset() const {
-  return false;
-}
-
 Color LayoutTheme::FocusRingColor() const {
   return has_custom_focus_ring_color_ ? custom_focus_ring_color_
                                       : GetTheme().PlatformFocusRingColor();
 }
 
-String LayoutTheme::FileListNameForWidth(Locale& locale,
-                                         const FileList* file_list,
-                                         const Font& font,
-                                         int width) const {
-  if (width <= 0)
-    return String();
-
-  String string;
-  if (file_list->IsEmpty()) {
-    string = locale.QueryString(IDS_FORM_FILE_NO_FILE_LABEL);
-  } else if (file_list->length() == 1) {
-    string = file_list->item(0)->name();
-  } else {
-    return StringTruncator::RightTruncate(
-        locale.QueryString(IDS_FORM_FILE_MULTIPLE_UPLOAD,
-                           locale.ConvertToLocalizedNumber(
-                               String::Number(file_list->length()))),
-        width, font);
-  }
-
-  return StringTruncator::CenterTruncate(string, width, font);
+bool LayoutTheme::DelegatesMenuListRendering() const {
+  return delegates_menu_list_rendering_;
 }
 
-bool LayoutTheme::ShouldOpenPickerWithF4Key() const {
-  return false;
+void LayoutTheme::SetDelegatesMenuListRenderingForTesting(bool flag) {
+  delegates_menu_list_rendering_ = flag;
+}
+
+String LayoutTheme::DisplayNameForFile(const File& file) const {
+  return file.name();
 }
 
 bool LayoutTheme::SupportsCalendarPicker(const AtomicString& type) const {
@@ -893,146 +776,6 @@ bool LayoutTheme::SupportsCalendarPicker(const AtomicString& type) const {
          type == input_type_names::kDatetime ||
          type == input_type_names::kDatetimeLocal ||
          type == input_type_names::kMonth || type == input_type_names::kWeek;
-}
-
-bool LayoutTheme::ShouldUseFallbackTheme(const ComputedStyle&) const {
-  return false;
-}
-
-void LayoutTheme::AdjustStyleUsingFallbackTheme(ComputedStyle& style) {
-  ControlPart part = style.EffectiveAppearance();
-  switch (part) {
-    case kCheckboxPart:
-      return AdjustCheckboxStyleUsingFallbackTheme(style);
-    case kRadioPart:
-      return AdjustRadioStyleUsingFallbackTheme(style);
-    default:
-      break;
-  }
-}
-
-// static
-void LayoutTheme::SetSizeIfAuto(ComputedStyle& style, const IntSize& size) {
-  if (style.Width().IsIntrinsicOrAuto())
-    style.SetWidth(Length::Fixed(size.Width()));
-  if (style.Height().IsIntrinsicOrAuto())
-    style.SetHeight(Length::Fixed(size.Height()));
-}
-
-// static
-void LayoutTheme::SetMinimumSize(ComputedStyle& style,
-                                 const LengthSize* part_size,
-                                 const LengthSize* min_part_size) {
-  DCHECK(part_size || min_part_size);
-  // We only want to set a minimum size if no explicit size is specified, to
-  // avoid overriding author intentions.
-  if (part_size && style.MinWidth().IsIntrinsicOrAuto() &&
-      style.Width().IsIntrinsicOrAuto())
-    style.SetMinWidth(part_size->Width());
-  else if (min_part_size && min_part_size->Width() != style.MinWidth())
-    style.SetMinWidth(min_part_size->Width());
-  if (part_size && style.MinHeight().IsIntrinsicOrAuto() &&
-      style.Height().IsIntrinsicOrAuto())
-    style.SetMinHeight(part_size->Height());
-  else if (min_part_size && min_part_size->Height() != style.MinHeight())
-    style.SetMinHeight(min_part_size->Height());
-}
-
-// static
-void LayoutTheme::SetMinimumSizeIfAuto(ComputedStyle& style,
-                                       const IntSize& size) {
-  LengthSize length_size(Length::Fixed(size.Width()),
-                         Length::Fixed(size.Height()));
-  SetMinimumSize(style, &length_size);
-}
-
-void LayoutTheme::AdjustCheckboxStyleUsingFallbackTheme(
-    ComputedStyle& style) const {
-  // If the width and height are both specified, then we have nothing to do.
-  if (!style.Width().IsIntrinsicOrAuto() && !style.Height().IsAuto())
-    return;
-
-  IntSize size(GetFallbackTheme().GetPartSize(ui::NativeTheme::kCheckbox,
-                                              ui::NativeTheme::kNormal,
-                                              ui::NativeTheme::ExtraParams()));
-  float zoom_level = style.EffectiveZoom();
-  size.SetWidth(size.Width() * zoom_level);
-  size.SetHeight(size.Height() * zoom_level);
-  SetMinimumSizeIfAuto(style, size);
-  SetSizeIfAuto(style, size);
-
-  // padding - not honored by WinIE, needs to be removed.
-  style.ResetPadding();
-
-  // border - honored by WinIE, but looks terrible (just paints in the control
-  // box and turns off the Windows XP theme)
-  // for now, we will not honor it.
-  style.ResetBorder();
-}
-
-void LayoutTheme::AdjustRadioStyleUsingFallbackTheme(
-    ComputedStyle& style) const {
-  // If the width and height are both specified, then we have nothing to do.
-  if (!style.Width().IsIntrinsicOrAuto() && !style.Height().IsAuto())
-    return;
-
-  IntSize size(GetFallbackTheme().GetPartSize(ui::NativeTheme::kRadio,
-                                              ui::NativeTheme::kNormal,
-                                              ui::NativeTheme::ExtraParams()));
-  float zoom_level = style.EffectiveZoom();
-  size.SetWidth(size.Width() * zoom_level);
-  size.SetHeight(size.Height() * zoom_level);
-  SetMinimumSizeIfAuto(style, size);
-  SetSizeIfAuto(style, size);
-
-  // padding - not honored by WinIE, needs to be removed.
-  style.ResetPadding();
-
-  // border - honored by WinIE, but looks terrible (just paints in the control
-  // box and turns off the Windows XP theme)
-  // for now, we will not honor it.
-  style.ResetBorder();
-}
-
-Color LayoutTheme::RootElementColor(WebColorScheme color_scheme) const {
-  if (color_scheme == WebColorScheme::kDark)
-    return Color::kWhite;
-  return ComputedStyleInitialValues::InitialColor();
-}
-
-LengthBox LayoutTheme::ControlPadding(ControlPart part,
-                                      const FontDescription&,
-                                      const Length& zoomed_box_top,
-                                      const Length& zoomed_box_right,
-                                      const Length& zoomed_box_bottom,
-                                      const Length& zoomed_box_left,
-                                      float) const {
-  switch (part) {
-    case kMenulistPart:
-    case kMenulistButtonPart:
-    case kCheckboxPart:
-    case kRadioPart:
-      return LengthBox(0);
-    default:
-      return LengthBox(zoomed_box_top, zoomed_box_right, zoomed_box_bottom,
-                       zoomed_box_left);
-  }
-}
-
-LengthBox LayoutTheme::ControlBorder(ControlPart part,
-                                     const FontDescription&,
-                                     const LengthBox& zoomed_box,
-                                     float) const {
-  switch (part) {
-    case kPushButtonPart:
-    case kMenulistPart:
-    case kSearchFieldPart:
-    case kCheckboxPart:
-    case kRadioPart:
-      return LengthBox(0);
-    default:
-      return zoomed_box;
-  }
 }
 
 void LayoutTheme::AdjustControlPartStyle(ComputedStyle& style) {
@@ -1052,6 +795,14 @@ void LayoutTheme::AdjustControlPartStyle(ComputedStyle& style) {
     default:
       break;
   }
+}
+
+bool LayoutTheme::HasCustomFocusRingColor() const {
+  return has_custom_focus_ring_color_;
+}
+
+Color LayoutTheme::GetCustomFocusRingColor() const {
+  return custom_focus_ring_color_;
 }
 
 }  // namespace blink

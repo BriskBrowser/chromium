@@ -11,7 +11,7 @@
 #include "base/trace_event/process_memory_dump.h"
 #include "build/build_config.h"
 #include "third_party/skia/include/core/SkTraceMemoryDump.h"
-#include "third_party/skia/include/gpu/GrContext.h"
+#include "third_party/skia/include/gpu/GrDirectContext.h"
 #include "ui/gl/trace_util.h"
 
 namespace gpu {
@@ -40,6 +40,12 @@ class SkiaGpuTraceMemoryDump : public SkTraceMemoryDump {
                         uint64_t value) override {
     auto* dump = GetOrCreateAllocatorDump(dump_name);
     dump->AddScalar(value_name, units, value);
+  }
+  void dumpStringValue(const char* dump_name,
+                       const char* value_name,
+                       const char* value) override {
+    auto* dump = GetOrCreateAllocatorDump(dump_name);
+    dump->AddString(value_name, "", value);
   }
 
   void setMemoryBacking(const char* dump_name,
@@ -129,7 +135,7 @@ class SkiaGpuTraceMemoryDump : public SkTraceMemoryDump {
 
 }  // namespace
 
-void DumpGrMemoryStatistics(const GrContext* context,
+void DumpGrMemoryStatistics(const GrDirectContext* context,
                             base::trace_event::ProcessMemoryDump* pmd,
                             base::Optional<uint64_t> tracing_guid) {
   SkiaGpuTraceMemoryDump trace_memory_dump(pmd, tracing_guid);
@@ -137,7 +143,7 @@ void DumpGrMemoryStatistics(const GrContext* context,
 }
 
 void DumpBackgroundGrMemoryStatistics(
-    const GrContext* context,
+    const GrDirectContext* context,
     base::trace_event::ProcessMemoryDump* pmd) {
   using base::trace_event::MemoryAllocatorDump;
 

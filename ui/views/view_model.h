@@ -7,7 +7,7 @@
 
 #include <vector>
 
-#include "base/logging.h"
+#include "base/check_op.h"
 #include "base/macros.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/views/views_export.h"
@@ -88,7 +88,6 @@ class VIEWS_EXPORT ViewModelBase {
  private:
   // For access to ViewAtBase().
   friend class ViewModelUtils;
-
 
 #if !defined(NDEBUG)
   void check_index(int index) const {

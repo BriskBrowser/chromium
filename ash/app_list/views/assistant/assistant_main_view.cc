@@ -9,12 +9,14 @@
 
 #include "ash/app_list/views/assistant/assistant_dialog_plate.h"
 #include "ash/app_list/views/assistant/assistant_main_stage.h"
+#include "ash/assistant/model/assistant_ui_model.h"
 #include "ash/assistant/ui/assistant_ui_constants.h"
 #include "ash/assistant/ui/assistant_view_delegate.h"
 #include "ash/assistant/ui/assistant_view_ids.h"
 #include "ash/assistant/util/animation_util.h"
 #include "ash/assistant/util/assistant_util.h"
 #include "ash/public/cpp/app_list/app_list_features.h"
+#include "ash/public/cpp/assistant/controller/assistant_ui_controller.h"
 #include "ui/chromeos/search_box/search_box_constants.h"
 #include "ui/views/layout/box_layout.h"
 
@@ -35,14 +37,13 @@ AssistantMainView::AssistantMainView(AssistantViewDelegate* delegate)
   SetID(AssistantViewID::kMainView);
   InitLayout();
 
-  // The view hierarchy will be destructed before AssistantController in Shell,
-  // which owns AssistantViewDelegate, so AssistantViewDelegate is guaranteed to
-  // outlive the AppListAssistantMainStage.
-  delegate_->AddUiModelObserver(this);
+  assistant_controller_observer_.Add(AssistantController::Get());
+  AssistantUiController::Get()->GetModel()->AddObserver(this);
 }
 
 AssistantMainView::~AssistantMainView() {
-  delegate_->RemoveUiModelObserver(this);
+  if (AssistantUiController::Get())
+    AssistantUiController::Get()->GetModel()->RemoveObserver(this);
 }
 
 const char* AssistantMainView::GetClassName() const {
@@ -74,6 +75,11 @@ views::View* AssistantMainView::FindFirstFocusableView() {
 
 void AssistantMainView::RequestFocus() {
   dialog_plate_->RequestFocus();
+}
+
+void AssistantMainView::OnAssistantControllerDestroying() {
+  AssistantUiController::Get()->GetModel()->RemoveObserver(this);
+  assistant_controller_observer_.Remove(AssistantController::Get());
 }
 
 void AssistantMainView::OnUiVisibilityChanged(
@@ -114,14 +120,14 @@ void AssistantMainView::InitLayout() {
       views::BoxLayout::CrossAxisAlignment::kCenter);
 
   // Dialog plate, which will be animated on its own layer.
-  dialog_plate_ = new AssistantDialogPlate(delegate_);
+  dialog_plate_ =
+      AddChildView(std::make_unique<AssistantDialogPlate>(delegate_));
   dialog_plate_->SetPaintToLayer();
   dialog_plate_->layer()->SetFillsBoundsOpaquely(false);
-  AddChildView(dialog_plate_);
 
   // Main stage.
-  main_stage_ = new AppListAssistantMainStage(delegate_);
-  AddChildView(main_stage_);
+  main_stage_ =
+      AddChildView(std::make_unique<AppListAssistantMainStage>(delegate_));
 
   layout->SetFlexForView(main_stage_, 1);
 }

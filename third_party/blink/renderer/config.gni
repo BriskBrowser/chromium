@@ -39,6 +39,14 @@ declare_args() {
 
   # If true, webgl2-compute context will be supported.
   support_webgl2_compute_context = !is_android
+
+  # If true, the new implementation (experimental) of Blink-V8 bindings
+  # (of IDL dictionary) is used.
+  use_blink_v8_binding_new_idl_dictionary = false
+
+  # If true, the new implementation (experimental) of Blink-V8 bindings
+  # (of IDL interface) is used.
+  use_blink_v8_binding_new_idl_interface = true
 }
 
 # feature_defines_list ---------------------------------------------------------
@@ -61,14 +69,12 @@ if (use_webaudio_pffft) {
   feature_defines_list += [ "WTF_USE_WEBAUDIO_PFFFT=1" ]
 }
 
-if (blink_symbol_level == 0 && is_win && symbol_level != 0) {
-  # If we use no_symbols on Windows when symbol_level is not zero then no
-  # PDB will be generated but ninja will be expecting one. This would mean
-  # that the build would always be dirty. Using minimal_symbols in this
-  # situation keeps the build times fast (roughly identical to no_symbols)
-  # while still generating a PDB to keep ninja happy (and it gives us proper
-  # call stacks).
-  blink_symbol_level = 1
+if (use_blink_v8_binding_new_idl_dictionary) {
+  feature_defines_list += [ "USE_BLINK_V8_BINDING_NEW_IDL_DICTIONARY" ]
+}
+
+if (use_blink_v8_binding_new_idl_interface) {
+  feature_defines_list += [ "USE_BLINK_V8_BINDING_NEW_IDL_INTERFACE" ]
 }
 
 if (blink_symbol_level == 2) {

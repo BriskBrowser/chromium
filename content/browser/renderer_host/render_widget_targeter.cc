@@ -24,7 +24,7 @@ namespace {
 
 gfx::PointF ComputeEventLocation(const blink::WebInputEvent& event) {
   if (blink::WebInputEvent::IsMouseEventType(event.GetType()) ||
-      event.GetType() == blink::WebInputEvent::kMouseWheel) {
+      event.GetType() == blink::WebInputEvent::Type::kMouseWheel) {
     return static_cast<const blink::WebMouseEvent&>(event).PositionInWidget();
   }
   if (blink::WebInputEvent::IsTouchEventType(event.GetType())) {
@@ -45,6 +45,9 @@ bool IsMouseMiddleClick(const blink::WebInputEvent& event) {
 }
 
 constexpr const char kTracingCategory[] = "input,latency";
+
+constexpr base::TimeDelta kAsyncHitTestTimeout =
+    base::TimeDelta::FromSeconds(5);
 
 }  // namespace
 
@@ -139,8 +142,8 @@ bool RenderWidgetTargeter::TargetingRequest::MergeEventIfPossible(
     const blink::WebInputEvent& new_event) {
   if (event && !blink::WebInputEvent::IsTouchEventType(new_event.GetType()) &&
       !blink::WebInputEvent::IsGestureEventType(new_event.GetType()) &&
-      ui::CanCoalesce(new_event, *event.get())) {
-    ui::Coalesce(new_event, event.get());
+      event->CanCoalesce(new_event)) {
+    event->Coalesce(new_event);
     return true;
   }
   return false;
@@ -169,7 +172,8 @@ const ui::LatencyInfo& RenderWidgetTargeter::TargetingRequest::GetLatency()
 }
 
 RenderWidgetTargeter::RenderWidgetTargeter(Delegate* delegate)
-    : trace_id_(base::RandUint64()),
+    : async_hit_test_timeout_delay_(kAsyncHitTestTimeout),
+      trace_id_(base::RandUint64()),
       is_viz_hit_testing_debug_enabled_(
           features::IsVizHitTestingDebugEnabled()),
       delegate_(delegate) {
@@ -183,7 +187,7 @@ void RenderWidgetTargeter::FindTargetAndDispatch(
     const blink::WebInputEvent& event,
     const ui::LatencyInfo& latency) {
   DCHECK(blink::WebInputEvent::IsMouseEventType(event.GetType()) ||
-         event.GetType() == blink::WebInputEvent::kMouseWheel ||
+         event.GetType() == blink::WebInputEvent::Type::kMouseWheel ||
          blink::WebInputEvent::IsTouchEventType(event.GetType()) ||
          (blink::WebInputEvent::IsGestureEventType(event.GetType()) &&
           (static_cast<const blink::WebGestureEvent&>(event).SourceDevice() ==
@@ -226,6 +230,13 @@ void RenderWidgetTargeter::ResolveTargetingRequest(TargetingRequest request) {
                  ? middle_click_result_
                  : delegate_->FindTargetSynchronously(request_target,
                                                       *request.GetEvent());
+    // |result.target_location| is utilized to update the position in widget for
+    // an event. If we are in autoscroll mode, we used cached data. So we need
+    // to update the target location of the |result|.
+    if (is_autoscroll_in_progress_) {
+      result.target_location = request_target_location;
+    }
+
     if (!is_autoscroll_in_progress_ &&
         IsMouseMiddleClick(*request.GetEvent())) {
       if (!result.should_query_view)
@@ -286,11 +297,11 @@ void RenderWidgetTargeter::QueryClient(
     RenderWidgetHostViewBase* last_request_target,
     const gfx::PointF& last_target_location,
     TargetingRequest request) {
-  auto* target_client = target->host()->input_target_client();
+  auto& target_client = target->host()->input_target_client();
   // |target_client| may not be set yet for this |target| on Mac, need to
   // understand why this happens. https://crbug.com/859492.
   // We do not verify hit testing result under this circumstance.
-  if (!target_client) {
+  if (!target_client.get() || !target_client.is_connected()) {
     FoundTarget(target, target_location, false, &request);
     return;
   }
@@ -306,6 +317,10 @@ void RenderWidgetTargeter::QueryClient(
           last_request_target ? last_request_target->GetWeakPtr() : nullptr,
           last_target_location),
       async_hit_test_timeout_delay_));
+
+  target_client.set_disconnect_handler(base::BindOnce(
+      &RenderWidgetTargeter::OnInputTargetDisconnect,
+      weak_ptr_factory_.GetWeakPtr(), target->GetWeakPtr(), target_location));
 
   TRACE_EVENT_WITH_FLOW2(
       "viz,benchmark", "Event.Pipeline", TRACE_ID_GLOBAL(trace_id_),
@@ -347,6 +362,9 @@ void RenderWidgetTargeter::FoundFrameSinkId(
     TracingUmaTracker tracker,
     const viz::FrameSinkId& frame_sink_id,
     const gfx::PointF& transformed_location) {
+  if (!target)
+    return;
+
   tracker.StopAndRecord();
 
   uint32_t last_id = last_request_id_;
@@ -363,6 +381,8 @@ void RenderWidgetTargeter::FoundFrameSinkId(
 
   request_in_flight_.reset();
   async_hit_test_timeout_.reset(nullptr);
+  target->host()->input_target_client().set_disconnect_handler(
+      base::OnceClosure());
 
   if (is_viz_hit_testing_debug_enabled_ && request.IsWebInputEventRequest() &&
       request.GetEvent()->GetType() == blink::WebInputEvent::Type::kMouseDown) {
@@ -448,9 +468,15 @@ void RenderWidgetTargeter::AsyncHitTestTimedOut(
   if (!request.GetRootView())
     return;
 
-  // Mark view as unresponsive so further events will not be sent to it.
-  if (current_request_target)
+  if (current_request_target) {
+    // Mark view as unresponsive so further events will not be sent to it.
     unresponsive_views_.insert(current_request_target.get());
+
+    // Reset disconnect handler for view.
+    current_request_target->host()
+        ->input_target_client()
+        .set_disconnect_handler(base::OnceClosure());
+  }
 
   if (request.GetRootView() == current_request_target.get()) {
     // When a request to the top-level frame times out then the event gets
@@ -462,6 +488,21 @@ void RenderWidgetTargeter::AsyncHitTestTimedOut(
     FoundTarget(last_request_target.get(), last_target_location, false,
                 &request);
   }
+}
+
+void RenderWidgetTargeter::OnInputTargetDisconnect(
+    base::WeakPtr<RenderWidgetHostViewBase> target,
+    const gfx::PointF& location) {
+  if (!async_hit_test_timeout_)
+    return;
+
+  async_hit_test_timeout_.reset(nullptr);
+  TargetingRequest request = std::move(request_in_flight_.value());
+  request_in_flight_.reset();
+
+  // Since we couldn't find the target frame among the child-frames
+  // we process the event in the current frame.
+  FoundTarget(target.get(), location, false, &request);
 }
 
 }  // namespace content

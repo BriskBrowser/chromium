@@ -13,26 +13,26 @@
 #include "content/common/frame_messages.h"
 #include "content/common/frame_proxy.mojom.h"
 #include "content/common/frame_visual_properties.h"
-#include "content/public/common/screen_info.h"
 #include "content/renderer/child_frame_compositor.h"
 #include "ipc/ipc_listener.h"
 #include "ipc/ipc_sender.h"
+#include "mojo/public/cpp/bindings/associated_receiver.h"
 #include "mojo/public/cpp/bindings/associated_remote.h"
 #include "services/service_manager/public/cpp/binder_registry.h"
 #include "third_party/blink/public/common/associated_interfaces/associated_interface_provider.h"
 #include "third_party/blink/public/common/associated_interfaces/associated_interface_registry.h"
 #include "third_party/blink/public/common/feature_policy/feature_policy.h"
-#include "third_party/blink/public/common/frame/user_activation_update_type.h"
-#include "third_party/blink/public/platform/web_focus_type.h"
-#include "third_party/blink/public/platform/web_insecure_request_policy.h"
+#include "third_party/blink/public/common/widget/screen_info.h"
+#include "third_party/blink/public/mojom/frame/frame.mojom.h"
+#include "third_party/blink/public/mojom/frame/user_activation_update_types.mojom.h"
+#include "third_party/blink/public/mojom/input/focus_type.mojom-forward.h"
+#include "third_party/blink/public/mojom/security_context/insecure_request_policy.mojom-forward.h"
 #include "third_party/blink/public/web/web_remote_frame.h"
 #include "third_party/blink/public/web/web_remote_frame_client.h"
 #include "url/origin.h"
 
 namespace blink {
-struct FramePolicy;
 struct WebRect;
-struct WebScrollIntoViewParams;
 }
 
 namespace content {
@@ -42,9 +42,7 @@ class ChildFrameCompositingHelper;
 class RenderFrameImpl;
 class RenderViewImpl;
 class RenderWidget;
-struct FrameOwnerProperties;
 struct FrameReplicationState;
-struct ResourceTimingInfo;
 
 // When a page's frames are rendered by multiple processes, each renderer has a
 // full copy of the frame tree. It has full RenderFrames for the frames it is
@@ -69,7 +67,8 @@ struct ResourceTimingInfo;
 class CONTENT_EXPORT RenderFrameProxy : public IPC::Listener,
                                         public IPC::Sender,
                                         public ChildFrameCompositor,
-                                        public blink::WebRemoteFrameClient {
+                                        public blink::WebRemoteFrameClient,
+                                        public mojom::RenderFrameProxy {
  public:
   // This method should be used to create a RenderFrameProxy, which will replace
   // an existing RenderFrame during its cross-process navigation from the
@@ -79,7 +78,8 @@ class CONTENT_EXPORT RenderFrameProxy : public IPC::Listener,
   static RenderFrameProxy* CreateProxyToReplaceFrame(
       RenderFrameImpl* frame_to_replace,
       int routing_id,
-      blink::WebTreeScopeType scope);
+      blink::mojom::TreeScopeType scope,
+      const base::UnguessableToken& proxy_frame_token);
 
   // This method should be used to create a RenderFrameProxy, when there isn't
   // an existing RenderFrame. It should be called to construct a local
@@ -97,9 +97,10 @@ class CONTENT_EXPORT RenderFrameProxy : public IPC::Listener,
   static RenderFrameProxy* CreateFrameProxy(
       int routing_id,
       int render_view_routing_id,
-      blink::WebFrame* opener,
+      const base::UnguessableToken& opener_frame_token,
       int parent_routing_id,
       const FrameReplicationState& replicated_state,
+      const base::UnguessableToken& frame_token,
       const base::UnguessableToken& devtools_frame_token);
 
   // Creates a RenderFrameProxy to be used with a portal owned by |parent|.
@@ -107,6 +108,7 @@ class CONTENT_EXPORT RenderFrameProxy : public IPC::Listener,
   static RenderFrameProxy* CreateProxyForPortal(
       RenderFrameImpl* parent,
       int proxy_routing_id,
+      const base::UnguessableToken& frame_token,
       const base::UnguessableToken& devtools_frame_token,
       const blink::WebElement& portal_element);
 
@@ -135,11 +137,11 @@ class CONTENT_EXPORT RenderFrameProxy : public IPC::Listener,
   // would only get one update per UpdateVisualProperties IPC received in the
   // RenderWidget, and we would only need to send one update to the browser as
   // a result.
-  void OnScreenInfoChanged(const ScreenInfo& screen_info);
-  void OnZoomLevelChanged(double zoom_level);
-  void OnPageScaleFactorChanged(float page_scale_factor,
-                                bool is_pinch_gesture_active);
-  void UpdateCaptureSequenceNumber(uint32_t capture_sequence_number);
+  void DidChangeScreenInfo(const blink::ScreenInfo& screen_info) override;
+  void DidChangeRootWindowSegments(
+      const std::vector<gfx::Rect>& root_widget_window_segments) override;
+  void DidChangeVisibleViewportSize(
+      const gfx::Size& visible_viewport_size) override;
 
   // Pass replicated information, such as security origin, to this
   // RenderFrameProxy's WebRemoteFrame.
@@ -148,7 +150,7 @@ class CONTENT_EXPORT RenderFrameProxy : public IPC::Listener,
   int routing_id() { return routing_id_; }
   RenderViewImpl* render_view() { return render_view_; }
   blink::WebRemoteFrame* web_frame() { return web_frame_; }
-  const std::string& unique_name() const { return unique_name_; }
+  std::string unique_name() const;
 
   void set_provisional_frame_routing_id(int routing_id) {
     provisional_frame_routing_id_ = routing_id;
@@ -166,7 +168,7 @@ class CONTENT_EXPORT RenderFrameProxy : public IPC::Listener,
     return pending_visual_properties_.local_frame_size;
   }
 
-  const ScreenInfo& screen_info() const {
+  const blink::ScreenInfo& screen_info() const {
     return pending_visual_properties_.screen_info;
   }
 
@@ -174,32 +176,30 @@ class CONTENT_EXPORT RenderFrameProxy : public IPC::Listener,
 
   // blink::WebRemoteFrameClient implementation:
   void FrameDetached(DetachType type) override;
-  void ForwardPostMessage(blink::WebLocalFrame* sourceFrame,
-                          blink::WebRemoteFrame* targetFrame,
-                          blink::WebSecurityOrigin target,
-                          blink::WebDOMMessageEvent event) override;
-  void Navigate(const blink::WebURLRequest& request,
-                bool should_replace_current_entry,
-                bool is_opener_navigation,
-                bool has_download_sandbox_flag,
-                bool blocking_downloads_in_sandbox_enabled,
-                bool initiator_frame_is_ad,
-                mojo::ScopedMessagePipeHandle blob_url_token) override;
+  blink::AssociatedInterfaceProvider* GetRemoteAssociatedInterfaces() override;
+
+  void Navigate(
+      const blink::WebURLRequest& request,
+      blink::WebLocalFrame* initiator_frame,
+      bool should_replace_current_entry,
+      bool is_opener_navigation,
+      bool initiator_frame_has_download_sandbox_flag,
+      bool blocking_downloads_in_sandbox_enabled,
+      bool initiator_frame_is_ad,
+      blink::CrossVariantMojoRemote<blink::mojom::BlobURLTokenInterfaceBase>
+          blob_url_token,
+      const base::Optional<blink::WebImpression>& impression) override;
   void FrameRectsChanged(const blink::WebRect& local_frame_rect,
                          const blink::WebRect& screen_space_rect) override;
   void UpdateRemoteViewportIntersection(
       const blink::ViewportIntersectionState& intersection_state) override;
-  void SetIsInert(bool) override;
-  void UpdateRenderThrottlingStatus(bool is_throttled,
-                                    bool subtree_throttled) override;
-  void DidChangeOpener(blink::WebFrame* opener) override;
-  void AdvanceFocus(blink::WebFocusType type,
-                    blink::WebLocalFrame* source) override;
   base::UnguessableToken GetDevToolsFrameToken() override;
-  uint32_t Print(const blink::WebRect& rect, cc::PaintCanvas* canvas) override;
+  void ZoomLevelChanged(double zoom_level) override;
+  void UpdateCaptureSequenceNumber(uint32_t capture_sequence_number) override;
+  void PageScaleFactorChanged(float page_scale_factor,
+                              bool is_pinch_gesture_active) override;
 
-  // IPC handlers
-  void OnDidStartLoading();
+  void DidStartLoading();
 
   void WasEvicted();
 
@@ -221,36 +221,21 @@ class CONTENT_EXPORT RenderFrameProxy : public IPC::Listener,
   void ResendVisualProperties();
 
   mojom::RenderFrameProxyHost* GetFrameProxyHost();
-  blink::AssociatedInterfaceProvider* GetRemoteAssociatedInterfaces();
 
   // IPC handlers
   void OnDeleteProxy();
-  void OnChildFrameProcessGone();
   void OnCompositorFrameSwapped(const IPC::Message& message);
-  void OnIntrinsicSizingInfoOfChildChanged(
-      blink::WebIntrinsicSizingInfo sizing_info);
-  void OnUpdateOpener(int opener_routing_id);
-  void OnViewChanged(const FrameMsg_ViewChanged_Params& params);
-  void OnDidStopLoading();
-  void OnDidUpdateFramePolicy(const blink::FramePolicy& frame_policy);
-  void OnDidSetFramePolicyHeaders(
-      blink::WebSandboxFlags active_sandbox_flags,
-      blink::ParsedFeaturePolicy parsed_feature_policy);
-  void OnForwardResourceTimingToParent(
-      const ResourceTimingInfo& resource_timing);
-  void OnSetNeedsOcclusionTracking(bool);
-  void OnDidUpdateName(const std::string& name, const std::string& unique_name);
-  void OnEnforceInsecureRequestPolicy(blink::WebInsecureRequestPolicy policy);
-  void OnSetFrameOwnerProperties(const FrameOwnerProperties& properties);
-  void OnSetPageFocus(bool is_focused);
-  void OnUpdateUserActivationState(blink::UserActivationUpdateType update_type);
-  void OnTransferUserActivationFrom(int32_t source_routing_id);
-  void OnScrollRectToVisible(const gfx::Rect& rect_to_scroll,
-                             const blink::WebScrollIntoViewParams& params);
-  void OnDidUpdateVisualProperties(const cc::RenderFrameMetadata& metadata);
-  void OnEnableAutoResize(const gfx::Size& min_size, const gfx::Size& max_size);
-  void OnDisableAutoResize();
-  void OnRenderFallbackContent() const;
+  void OnEnforceInsecureRequestPolicy(
+      blink::mojom::InsecureRequestPolicy policy);
+
+  // mojom::RenderFrameProxy implementation:
+  void EnableAutoResize(const gfx::Size& min_size,
+                        const gfx::Size& max_size) override;
+  void DisableAutoResize() override;
+  void DidUpdateVisualProperties(
+      const cc::RenderFrameMetadata& metadata) override;
+  void ChildProcessGone() override;
+  void SetFrameSinkId(const viz::FrameSinkId& frame_sink_id) override;
 
   // ChildFrameCompositor:
   cc::Layer* GetLayer() override;
@@ -270,13 +255,16 @@ class CONTENT_EXPORT RenderFrameProxy : public IPC::Listener,
 
   // Stores the WebRemoteFrame we are associated with.
   blink::WebRemoteFrame* web_frame_ = nullptr;
-  std::string unique_name_;
 
   // Provides the mojo interface to this RenderFrameProxy's
   // RenderFrameProxyHost.
   mojo::AssociatedRemote<mojom::RenderFrameProxyHost> frame_proxy_host_remote_;
   std::unique_ptr<blink::AssociatedInterfaceProvider>
       remote_associated_interfaces_;
+
+  // Mojo receiver to this content::mojom::RenderFrameProxy.
+  mojo::AssociatedReceiver<mojom::RenderFrameProxy>
+      render_frame_proxy_receiver_{this};
 
   // Can be nullptr when this RenderFrameProxy's parent is not a RenderFrame.
   std::unique_ptr<ChildFrameCompositingHelper> compositing_helper_;

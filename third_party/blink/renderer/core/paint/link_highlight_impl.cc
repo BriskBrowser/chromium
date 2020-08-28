@@ -46,6 +46,8 @@
 #include "third_party/blink/renderer/core/frame/web_local_frame_impl.h"
 #include "third_party/blink/renderer/core/layout/layout_box_model_object.h"
 #include "third_party/blink/renderer/core/layout/layout_object.h"
+#include "third_party/blink/renderer/core/layout/ng/inline/ng_fragment_item.h"
+#include "third_party/blink/renderer/core/layout/ng/inline/ng_inline_cursor.h"
 #include "third_party/blink/renderer/core/paint/compositing/composited_layer_mapping.h"
 #include "third_party/blink/renderer/core/paint/paint_layer.h"
 #include "third_party/blink/renderer/core/paint/paint_layer_scrollable_area.h"
@@ -58,6 +60,7 @@
 #include "third_party/blink/renderer/platform/graphics/paint/foreign_layer_display_item.h"
 #include "third_party/blink/renderer/platform/graphics/paint/paint_canvas.h"
 #include "third_party/blink/renderer/platform/graphics/paint/paint_recorder.h"
+#include "third_party/blink/renderer/platform/graphics/paint/scoped_display_item_fragment.h"
 #include "third_party/blink/renderer/platform/graphics/paint/transform_paint_property_node.h"
 #include "third_party/blink/renderer/platform/web_test_support.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
@@ -111,6 +114,8 @@ LinkHighlightImpl::LinkHighlightImpl(Node* node)
       EffectPaintPropertyNode::Root(),
       LinkHighlightEffectNodeState(kStartOpacity, element_id_));
 
+  DCHECK(GetLayoutObject());
+  GetLayoutObject()->SetNeedsPaintPropertyUpdate();
   SetPaintArtifactCompositorNeedsUpdate();
 
 #if DCHECK_IS_ON()
@@ -131,7 +136,7 @@ void LinkHighlightImpl::ReleaseResources() {
   if (!node_)
     return;
 
-  if (auto* layout_object = node_->GetLayoutObject())
+  if (auto* layout_object = GetLayoutObject())
     layout_object->SetNeedsPaintPropertyUpdate();
 
   SetPaintArtifactCompositorNeedsUpdate();
@@ -231,17 +236,15 @@ void LinkHighlightImpl::NotifyAnimationFinished(double, int) {
 }
 
 void LinkHighlightImpl::UpdateBeforePrePaint() {
-  if (!node_ || !node_->GetLayoutObject() ||
-      node_->GetLayoutObject()->GetFrameView()->ShouldThrottleRendering())
+  auto* object = GetLayoutObject();
+  if (!object || object->GetFrameView()->ShouldThrottleRendering())
     ReleaseResources();
 }
 
 void LinkHighlightImpl::UpdateAfterPrePaint() {
-  if (!node_)
+  auto* object = GetLayoutObject();
+  if (!object)
     return;
-
-  const auto* object = node_->GetLayoutObject();
-  DCHECK(object);
   DCHECK(!object->GetFrameView()->ShouldThrottleRendering());
 
   size_t fragment_count = 0;
@@ -260,36 +263,49 @@ CompositorAnimation* LinkHighlightImpl::GetCompositorAnimation() const {
 }
 
 void LinkHighlightImpl::Paint(GraphicsContext& context) {
-  if (!node_)
+  auto* object = GetLayoutObject();
+  if (!object)
     return;
 
-  const auto* object = node_->GetLayoutObject();
-  // TODO(crbug.com/1016587): Change the CHECKs to DCHECKs after we address
-  // the cause of the bug.
-  CHECK(object);
-  CHECK(object->GetFrameView());
-  CHECK(!object->GetFrameView()->ShouldThrottleRendering());
+  DCHECK(object->GetFrameView());
+  DCHECK(!object->GetFrameView()->ShouldThrottleRendering());
 
   static const FloatSize rect_rounding_radii(3, 3);
-  auto color = object->StyleRef().TapHighlightColor();
+  auto color = object->StyleRef().VisitedDependentColor(
+      GetCSSPropertyWebkitTapHighlightColor());
 
   // For now, we'll only use rounded rects if we have a single rect because
   // otherwise we may sometimes get a chain of adjacent boxes (e.g. for text
   // nodes) which end up looking like sausage links: these should ideally be
   // merged into a single rect before creating the path.
-  CHECK(node_->GetDocument().GetSettings());
   bool use_rounded_rects = !node_->GetDocument()
                                 .GetSettings()
                                 ->GetMockGestureTapHighlightsEnabled() &&
                            !object->FirstFragment().NextFragment();
 
-  size_t index = 0;
+  wtf_size_t index = 0;
   for (const auto* fragment = &object->FirstFragment(); fragment;
        fragment = fragment->NextFragment(), ++index) {
+    ScopedDisplayItemFragment scoped_fragment(context, index);
     auto rects = object->OutlineRects(
         fragment->PaintOffset(), NGOutlineType::kIncludeBlockVisualOverflow);
     if (rects.size() > 1)
       use_rounded_rects = false;
+
+    // TODO(yosin): We should remove following if-statement once we release
+    // NGFragmentItem to renderer rounded rect even if nested inline, e.g.
+    // <a>ABC<b>DEF</b>GHI</a>.
+    // See gesture-tapHighlight-simple-nested.html
+    if (RuntimeEnabledFeatures::LayoutNGFragmentItemEnabled() &&
+        use_rounded_rects && object->IsLayoutInline() &&
+        object->IsInLayoutNGInlineFormattingContext()) {
+      NGInlineCursor cursor;
+      cursor.MoveTo(*object);
+      // When |LayoutInline| has more than one children, we render square
+      // rectangle as |NGPaintFragment|.
+      if (cursor && cursor.CurrentItem()->DescendantsCount() > 2)
+        use_rounded_rects = false;
+    }
 
     Path new_path;
     for (auto& rect : rects) {
@@ -300,29 +316,29 @@ void LinkHighlightImpl::Paint(GraphicsContext& context) {
         new_path.AddRect(snapped_rect);
     }
 
-    CHECK_LT(index, fragments_.size());
+    DCHECK_LT(index, fragments_.size());
     auto& link_highlight_fragment = fragments_[index];
     link_highlight_fragment.SetColor(color);
 
-    auto bounding_rect = new_path.BoundingRect();
-    new_path.Translate(-ToFloatSize(bounding_rect.Location()));
+    auto bounding_rect = EnclosingIntRect(new_path.BoundingRect());
+    new_path.Translate(-FloatSize(ToIntSize(bounding_rect.Location())));
 
     auto* layer = link_highlight_fragment.Layer();
-    CHECK(layer);
+    DCHECK(layer);
     if (link_highlight_fragment.GetPath() != new_path) {
       link_highlight_fragment.SetPath(new_path);
-      layer->SetBounds(gfx::Size(EnclosingIntRect(bounding_rect).Size()));
+      layer->SetBounds(gfx::Size(bounding_rect.Size()));
       layer->SetNeedsDisplay();
     }
 
     DEFINE_STATIC_LOCAL(LiteralDebugNameClient, debug_name_client,
                         ("LinkHighlight"));
 
-    auto property_tree_state = fragment->LocalBorderBoxProperties();
+    auto property_tree_state = fragment->LocalBorderBoxProperties().Unalias();
     property_tree_state.SetEffect(Effect());
     RecordForeignLayer(context, debug_name_client,
                        DisplayItem::kForeignLayerLinkHighlight, layer,
-                       bounding_rect.Location(), property_tree_state);
+                       bounding_rect.Location(), &property_tree_state);
   }
 
   DCHECK_EQ(index, fragments_.size());

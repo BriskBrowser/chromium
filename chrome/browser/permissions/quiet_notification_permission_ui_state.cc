@@ -6,6 +6,7 @@
 
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/pref_names.h"
+#include "components/content_settings/core/common/pref_names.h"
 #include "components/pref_registry/pref_registry_syncable.h"
 #include "components/prefs/pref_service.h"
 
@@ -23,26 +24,9 @@ void QuietNotificationPermissionUiState::RegisterProfilePrefs(
   registry->RegisterBooleanPref(
       prefs::kQuietNotificationPermissionPromoWasShown,
       false /* default_value */);
-}
-
-// static
-bool QuietNotificationPermissionUiState::IsQuietUiEnabledInPrefs(
-    Profile* profile) {
-  return profile->GetPrefs()->GetBoolean(
-      prefs::kEnableQuietNotificationPermissionUi);
-}
-
-// static
-void QuietNotificationPermissionUiState::EnableQuietUiInPrefs(
-    Profile* profile) {
-  profile->GetPrefs()->SetBoolean(prefs::kEnableQuietNotificationPermissionUi,
-                                  true /* value */);
-}
-
-// static
-void QuietNotificationPermissionUiState::DisableQuietUiInPrefs(
-    Profile* profile) {
-  profile->GetPrefs()->ClearPref(prefs::kEnableQuietNotificationPermissionUi);
+  registry->RegisterBooleanPref(
+      prefs::kHadThreeConsecutiveNotificationPermissionDenies,
+      false /* default_value */);
 }
 
 // static

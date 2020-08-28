@@ -30,6 +30,7 @@
 #include "chrome/common/chrome_switches.h"
 #include "chrome/test/base/tracing.h"
 #include "content/public/common/content_switches.h"
+#include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
 #include "media/base/audio_bus.h"
 #include "media/base/video_frame.h"
@@ -741,9 +742,14 @@ IN_PROC_BROWSER_TEST_P(CastV2PerformanceTest, DISABLED_Performance) {
 
   // Load the extension and test page, and tell the extension to start tab
   // capture + Cast Streaming.
-  LoadExtension(GetApiTestDataDir()
-                    .AppendASCII("cast_streaming")
-                    .AppendASCII("perftest_extension"));
+
+  // TODO(https://crbug.com/974427): Update test to no longer require
+  // extension APIs.
+
+  // LoadExtension(GetApiTestDataDir()
+  //                   .AppendASCII("cast_streaming")
+  //                  .AppendASCII("perftest_extension"));
+
   NavigateToTestPage(test_page_html_);
   const base::Value response = SendMessageToExtension(base::StringPrintf(
       "{start:true, enableAutoThrottling:%s, maxFrameRate:%d, recvPort:%d,"

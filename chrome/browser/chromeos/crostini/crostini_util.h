@@ -9,20 +9,17 @@
 #include <utility>
 #include <vector>
 
+#include "base/bind_helpers.h"
 #include "base/callback.h"
 #include "base/files/file_path.h"
 #include "base/optional.h"
+#include "base/values.h"
+#include "chrome/browser/chromeos/crostini/crostini_simple_types.h"
 #include "storage/browser/file_system/file_system_url.h"
-#include "ui/base/resource/scale_factor.h"
 
 namespace base {
 class FilePath;
-class TimeDelta;
 }  // namespace base
-
-namespace gfx {
-class ImageSkia;
-}  // namespace gfx
 
 namespace views {
 class Widget;
@@ -30,15 +27,36 @@ class Widget;
 
 class Profile;
 
-// TODO(crbug.com/1004708): Move Is*[Enabled|Allowed] functions to
-// CrostiniFeatures.
 namespace crostini {
+
+// TODO(crbug.com/1092657): kCrostiniDeletedTerminalId can be removed after M86.
+// We use an arbitrary well-formed extension id for the Terminal app, this
+// is equal to GenerateId("Terminal").
+extern const char kCrostiniDeletedTerminalId[];
+// web_app::GenerateAppIdFromURL(
+//     GURL("chrome-untrusted://terminal/html/terminal.html"))
+extern const char kCrostiniTerminalSystemAppId[];
+
+extern const char kCrostiniDefaultVmName[];
+extern const char kCrostiniDefaultContainerName[];
+extern const char kCrostiniDefaultUsername[];
+// In order to be compatible with sync folder id must match standard.
+// Generated using crx_file::id_util::GenerateId("LinuxAppsFolder")
+extern const char kCrostiniFolderId[];
+extern const char kCrostiniDefaultImageServerUrl[];
+extern const char kCrostiniStretchImageAlias[];
+extern const char kCrostiniBusterImageAlias[];
+extern const char kCrostiniDlcName[];
+
+extern const base::FilePath::CharType kHomeDirectory[];
 
 struct LinuxPackageInfo;
 
 // A unique identifier for our containers.
 struct ContainerId {
   ContainerId(std::string vm_name, std::string container_name) noexcept;
+
+  static ContainerId GetDefault();
 
   std::string vm_name;
   std::string container_name;
@@ -54,9 +72,6 @@ inline bool operator!=(const ContainerId& lhs,
 std::ostream& operator<<(std::ostream& ostream,
                          const ContainerId& container_id);
 
-using LaunchCrostiniAppCallback =
-    base::OnceCallback<void(bool success, const std::string& failure_reason)>;
-
 // Checks if user profile is able to a crostini app with a given app_id.
 bool IsUninstallable(Profile* profile, const std::string& app_id);
 
@@ -64,17 +79,15 @@ bool IsUninstallable(Profile* profile, const std::string& app_id);
 bool IsCrostiniRunning(Profile* profile);
 
 // Whether the user is able to perform a container upgrade.
-bool ShouldAllowContainerUpgrade();
+bool ShouldAllowContainerUpgrade(Profile* profile);
 
 // Returns whether default Crostini container should be configured according to
 // the configuration specified by CrostiniAnsiblePlaybook user policy.
 bool ShouldConfigureDefaultContainer(Profile* profile);
 
-// Launches the Crostini app with ID of |app_id| on the display with ID of
-// |display_id|. |app_id| should be a valid Crostini app list id.
-void LaunchCrostiniApp(Profile* profile,
-                       const std::string& app_id,
-                       int64_t display_id);
+// Returns whether a dialog from Crostini is blocking the immediate launch.
+bool MaybeShowCrostiniDialogBeforeLaunch(Profile* profile,
+                                         CrostiniResult result);
 
 // Launch a Crostini App with a given set of files, given as absolute paths in
 // the container. For apps which can only be launched with a single file,
@@ -82,19 +95,8 @@ void LaunchCrostiniApp(Profile* profile,
 void LaunchCrostiniApp(Profile* profile,
                        const std::string& app_id,
                        int64_t display_id,
-                       const std::vector<storage::FileSystemURL>& files,
-                       LaunchCrostiniAppCallback callback);
-
-// Convenience wrapper around CrostiniAppIconLoader. As requesting icons from
-// the container can be slow, we just use the default (penguin) icons after the
-// timeout elapses. Subsequent calls would get the correct icons once loaded.
-void LoadIcons(Profile* profile,
-               const std::vector<std::string>& app_ids,
-               int resource_size_in_dip,
-               ui::ScaleFactor scale_factor,
-               base::TimeDelta timeout,
-               base::OnceCallback<void(const std::vector<gfx::ImageSkia>&)>
-                   icons_loaded_callback);
+                       const std::vector<storage::FileSystemURL>& files = {},
+                       CrostiniSuccessCallback callback = base::DoNothing());
 
 // Retrieves cryptohome_id from profile.
 std::string CryptohomeIdForProfile(Profile* profile);
@@ -115,6 +117,10 @@ std::string AppNameFromCrostiniAppId(const std::string& id);
 base::Optional<std::string> CrostiniAppIdFromAppName(
     const std::string& app_name);
 
+// Returns a list of ports currently being forwarded in Crostini as a JSON
+// object.
+std::string GetActivePortListAsJSON(Profile* profile);
+
 // These values are persisted to logs. Entries should not be renumbered and
 // numeric values should never be reused.
 enum class CrostiniUISurface { kSettings = 0, kAppList = 1, kCount };
@@ -125,12 +131,11 @@ enum class CrostiniUISurface { kSettings = 0, kAppList = 1, kCount };
 // Shows the Crostini Uninstaller dialog.
 void ShowCrostiniUninstallerView(Profile* profile,
                                  CrostiniUISurface ui_surface);
+bool IsCrostiniRecoveryViewShowing();
+
 // Shows the Crostini App installer dialog.
 void ShowCrostiniAppInstallerView(Profile* profile,
                                   const LinuxPackageInfo& package_info);
-// Shows the Crostini App Uninstaller dialog.
-void ShowCrostiniAppUninstallerView(Profile* profile,
-                                    const std::string& app_id);
 // Shows the Crostini force-close dialog. If |app_name| is nonempty, the dialog
 // will include the window's name as text. Returns a handle to that dialog, so
 // that we can add observers to the dialog itself.
@@ -161,51 +166,41 @@ void CloseCrostiniUpdateFilesystemView();
 // applying an Ansible playbook in the container).
 void ShowCrostiniAnsibleSoftwareConfigView(Profile* profile);
 
-// Returns App ID of the terminal app which is either the older crosh-based
-// terminal, or the new Terminal System App if the TerminalSystemApp feature
-// is enabled.
-const std::string& GetTerminalId();
-
-// Returns the alternative terminal ID to |GetTerminalId|.  This is used when
-// migrating terminals when TerminalSystemApp feature changes.
-const std::string& GetDeletedTerminalId();
-
-// We use an arbitrary well-formed extension id for the Terminal app, this
-// is equal to GenerateId("Terminal").
-constexpr char kCrostiniTerminalId[] = "oajcgpnkmhaalajejhlfpacbiokdnnfe";
-// web_app::GenerateAppIdFromURL("chrome://terminal/html/terminal.html")
-constexpr char kCrostiniTerminalSystemAppId[] =
-    "oapmgeobaaddjmlgbbjbdhapidbomlgg";
-
-constexpr char kCrostiniDefaultVmName[] = "termina";
-constexpr char kCrostiniDefaultContainerName[] = "penguin";
-constexpr char kCrostiniDefaultUsername[] = "emperor";
-// In order to be compatible with sync folder id must match standard.
-// Generated using crx_file::id_util::GenerateId("LinuxAppsFolder")
-constexpr char kCrostiniFolderId[] = "ddolnhmblagmcagkedkbfejapapdimlk";
-constexpr char kCrostiniDefaultImageServerUrl[] =
-    "https://storage.googleapis.com/cros-containers/%d";
-constexpr char kCrostiniStretchImageAlias[] = "debian/stretch";
-constexpr char kCrostiniBusterImageAlias[] = "debian/buster";
-
-constexpr base::FilePath::CharType kHomeDirectory[] =
-    FILE_PATH_LITERAL("/home");
+// Show the Crostini Recovery dialog when Crostini is still running after a
+// Chrome crash. The user must either restart the VM, or launch a terminal.
+void ShowCrostiniRecoveryView(Profile* profile,
+                              CrostiniUISurface ui_surface,
+                              const std::string& app_id,
+                              int64_t display_id,
+                              const std::vector<storage::FileSystemURL>& files,
+                              CrostiniSuccessCallback callback);
 
 // Add a newly created LXD container to the kCrostiniContainers pref
 void AddNewLxdContainerToPrefs(Profile* profile,
-                               std::string vm_name,
-                               std::string container_name);
+                               const ContainerId& container_id);
 
 // Remove a newly deleted LXD container from the kCrostiniContainers pref, and
 // deregister its apps and mime types.
 void RemoveLxdContainerFromPrefs(Profile* profile,
-                                 std::string vm_name,
-                                 std::string container_name);
+                                 const ContainerId& container_id);
 
 // Returns a string to be displayed in a notification with the estimated time
 // left for an operation to run which started and time |start| and is current
 // at |percent| way through.
 base::string16 GetTimeRemainingMessage(base::TimeTicks start, int percent);
+
+// Returns a pref value stored for a specific container.
+const base::Value* GetContainerPrefValue(Profile* profile,
+                                         const ContainerId& container_id,
+                                         const std::string& key);
+
+// Sets a pref value for a specific container.
+void UpdateContainerPref(Profile* profile,
+                         const ContainerId& container_id,
+                         const std::string& key,
+                         base::Value value);
+
+const ContainerId& DefaultContainerId();
 
 }  // namespace crostini
 

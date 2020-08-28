@@ -260,9 +260,12 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
       }
 
       function onRequestSession() {
-        let sessionInit = {};
+        let sessionInit = {
+          requiredFeatures: ['anchors', 'plane-detection'],
+          optionalFeatures: [],
+        };
         if (useDomOverlay.checked) {
-          sessionInit.optionalFeatures = ['dom-overlay'];
+          sessionInit.optionalFeatures.push('dom-overlay');
           sessionInit.domOverlay = {root: document.body};
         }
         navigator.xr.requestSession('immersive-ar', sessionInit).then((session) => {
@@ -293,10 +296,6 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
         session.updateRenderState({
             baseLayer: new XRWebGLLayer(session, gl)
-        });
-
-        session.updateWorldTrackingState({
-          "planeDetectionState" : { "enabled" : true}
         });
 
         session.requestReferenceSpace('local').then((refSpace) => {
@@ -341,18 +340,18 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
         // from growing too much.
         if (flowers.length > MAX_FLOWERS) {
           let oldFlower = flowers.shift();
-          oldFlower.anchor.detach();
+          oldFlower.anchor.delete();
           scene.removeNode(oldFlower);
         }
       }
 
       // Creates new anchor for object and places it there.
-      function addARObjectAt(session, frame, plane, pose, space) {
+      function addARObjectAt(frame, plane, pose, space) {
         console.debug("Creating anchor", pose, space);
         if(plane != null) {
           plane.createAnchor(pose, space).then(onCreateAnchor);
         } else {
-          session.createAnchor(pose, space).then(onCreateAnchor);
+          frame.createAnchor(pose, space).then(onCreateAnchor);
         }
       }
 
@@ -361,16 +360,14 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
           // If we're using the reticle then we've already got a mesh positioned
           // at the latest hit point and we should just use it's matrix to save
           // an unnecessary requestHitTest call.
-          addARObjectAt(event.frame.session,
-                        event.frame,
+          addARObjectAt(event.frame,
                         arObject.plane,
                         new XRRigidTransform(arObject.hitPoint),
                         arObject.space);
         } else {
           if(!event.frame.worldInformation.detectedPlanes) {
             console.log("No planes detected, placing an anchor at origin.");
-            addARObjectAt(event.frame.session,
-                          event.frame,
+            addARObjectAt(event.frame,
                           null,
                           new XRRigidTransform({x : 0, y : 0, z : 0, w : 1}),
                           xrRefSpace);
@@ -392,15 +389,13 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
             if (hitTestFiltered.length) {
               let hitResult = hitTestFiltered[0];
-              addARObjectAt(event.frame.session,
-                            event.frame,
+              addARObjectAt(event.frame,
                             hitResult.plane,
                             new XRRigidTransform(hitResult.point_on_plane),
                             hitResult.plane.planeSpace);
             } else {
               console.log("Missed everything, placing an anchor at origin.");
-              addARObjectAt(event.frame.session,
-                            event.frame,
+              addARObjectAt(event.frame,
                             null,
                             new XRRigidTransform({x : 0, y : 0, z : 0, w: 1}),
                             xrRefSpace);
@@ -449,10 +444,15 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
           planeFrameOfReference.addNode(zRay);
 
           plane_node.addNode(planeFrameOfReference);
-
           plane.scene_node = plane_node;
-          plane.scene_node.matrix = frame.getPose(plane.planeSpace, xrRefSpace).transform.matrix;
 
+          const planePose = frame.getPose(plane.planeSpace, xrRefSpace);
+          if (planePose) {
+            plane.scene_node.matrix = planePose.transform.matrix;
+            plane.scene_node.visible = true;
+          } else {
+            plane.scene_node.visible = false;
+          }
           plane.extended_polygon = extendPolygon(plane.polygon);
           plane.extended_polygon_node = new PlaneNode({
             polygon : plane.extended_polygon,
@@ -468,7 +468,13 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
         {
           // old plane that was updated in current frame
           plane.scene_node.onPlaneChanged(plane.polygon);
-          plane.scene_node.matrix = frame.getPose(plane.planeSpace, xrRefSpace).transform.matrix;
+          const planePose = frame.getPose(plane.planeSpace, xrRefSpace);
+          if (planePose) {
+            plane.scene_node.matrix = planePose.transform.matrix;
+            plane.scene_node.visible = true;
+          } else {
+            plane.scene_node.visible = false;
+          }
           plane.extended_polygon = extendPolygon(plane.polygon);
           plane.extended_polygon_node.onPlaneChanged(plane.extended_polygon);
         }
@@ -482,7 +488,6 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
       // Called every time a XRSession requests that a new frame be drawn.
       async function onXRFrame(t, frame) {
         let session = frame.session;
-
         session.requestAnimationFrame(onXRFrame);
 
         if (debugSources) debugSources.update(frame, xrRefSpace);
@@ -531,9 +536,12 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
           });
 
           tracked_anchors.forEach(anchor => {
-            if(t == anchor.lastChangedTime) {
-              anchor.context.sceneObject.matrix = frame.getPose(anchor.anchorSpace, xrRefSpace).transform.matrix;
+            const anchorPose = frame.getPose(anchor.anchorSpace, xrRefSpace);
+            if (anchorPose) {
+              anchor.context.sceneObject.matrix = anchorPose.transform.matrix;
               anchor.context.sceneObject.visible = true;
+            } else {
+              anchor.context.sceneObject.visible = false;
             }
           });
 

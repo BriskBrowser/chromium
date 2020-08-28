@@ -22,7 +22,6 @@ class WebFakeThreadScheduler : public WebThreadScheduler {
   std::unique_ptr<Thread> CreateMainThread() override;
   scoped_refptr<base::SingleThreadTaskRunner> DefaultTaskRunner() override;
   scoped_refptr<base::SingleThreadTaskRunner> CompositorTaskRunner() override;
-  scoped_refptr<base::SingleThreadTaskRunner> IPCTaskRunner() override;
   std::unique_ptr<WebWidgetScheduler> CreateWidgetScheduler() override;
   std::unique_ptr<WebRenderWidgetSchedulingState>
   NewRenderWidgetSchedulingState() override;
@@ -34,9 +33,11 @@ class WebFakeThreadScheduler : public WebThreadScheduler {
       const WebInputEvent& web_input_event,
       InputEventState event_state) override;
   void WillPostInputEventToMainThread(
-      WebInputEvent::Type web_input_event_type) override;
+      WebInputEvent::Type web_input_event_type,
+      const WebInputEventAttribution& attribution) override;
   void WillHandleInputEventOnMainThread(
-      WebInputEvent::Type web_input_event_type) override;
+      WebInputEvent::Type web_input_event_type,
+      const WebInputEventAttribution& attribution) override;
   void DidHandleInputEventOnMainThread(const WebInputEvent& web_input_event,
                                        WebInputEventResult result) override;
   void DidAnimateForInputOnCompositorThread() override;

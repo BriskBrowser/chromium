@@ -12,7 +12,7 @@
     "extension_types": ["shared_module"]
   },
   "action": {
-    "channel": "trunk",
+    "channel": "canary",
     "extension_types": ["extension"]
   },
   "app.icon_color": {
@@ -57,10 +57,6 @@
     "channel": "stable",
     "extension_types": ["extension"],
     "platforms": ["win", "mac"]
-  },
-  "chrome_ui_overrides": {
-    "channel": "dev",
-    "extension_types": ["extension"]
   },
   "chrome_url_overrides": {
     "channel": "stable",

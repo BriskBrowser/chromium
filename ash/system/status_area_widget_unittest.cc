@@ -100,9 +100,6 @@ class StatusAreaWidgetFocusTest : public AshTestBase {
 
   // AshTestBase:
   void SetUp() override {
-    base::CommandLine::ForCurrentProcess()->AppendSwitch(
-        switches::kShowWebUiLock);
-
     AshTestBase::SetUp();
     test_observer_.reset(new SystemTrayFocusTestObserver);
     Shell::Get()->system_tray_notifier()->AddSystemTrayFocusObserver(
@@ -441,7 +438,7 @@ TEST_F(StatusAreaWidgetCollapseStateTest, ImeMenuShownWithVirtualKeyboard) {
   Shell::Get()
       ->system_tray_model()
       ->virtual_keyboard()
-      ->OnArcInputMethodSurfaceBoundsChanged(gfx::Rect(0, 0, 100, 100));
+      ->OnArcInputMethodBoundsChanged(gfx::Rect(0, 0, 100, 100));
   EXPECT_TRUE(ime_menu_->GetVisible());
   EXPECT_FALSE(palette_->GetVisible());
   EXPECT_FALSE(virtual_keyboard_->GetVisible());

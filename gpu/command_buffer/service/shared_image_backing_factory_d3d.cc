@@ -79,9 +79,8 @@ base::Optional<DXGI_FORMAT> VizFormatToDXGIFormat(
 
 }  // anonymous namespace
 
-SharedImageBackingFactoryD3D::SharedImageBackingFactoryD3D(bool use_passthrough)
-    : use_passthrough_(use_passthrough),
-      d3d11_device_(gl::QueryD3D11DeviceObjectFromANGLE()) {}
+SharedImageBackingFactoryD3D::SharedImageBackingFactoryD3D()
+    : d3d11_device_(gl::QueryD3D11DeviceObjectFromANGLE()) {}
 
 SharedImageBackingFactoryD3D::~SharedImageBackingFactoryD3D() = default;
 
@@ -111,6 +110,8 @@ std::unique_ptr<SharedImageBacking> SharedImageBackingFactoryD3D::MakeBacking(
     viz::ResourceFormat format,
     const gfx::Size& size,
     const gfx::ColorSpace& color_space,
+    GrSurfaceOrigin surface_origin,
+    SkAlphaType alpha_type,
     uint32_t usage,
     Microsoft::WRL::ComPtr<IDXGISwapChain1> swap_chain,
     size_t buffer_index,
@@ -167,36 +168,17 @@ std::unique_ptr<SharedImageBacking> SharedImageBackingFactoryD3D::MakeBacking(
     return nullptr;
   }
 
-  gles2::Texture* texture = nullptr;
-  scoped_refptr<gles2::TexturePassthrough> texture_passthrough;
-
-  if (use_passthrough_) {
-    texture_passthrough =
-        base::MakeRefCounted<gles2::TexturePassthrough>(service_id, target);
-    texture_passthrough->SetLevelImage(target, 0, image.get());
-    GLint texture_memory_size = 0;
-    api->glGetTexParameterivFn(target, GL_MEMORY_SIZE_ANGLE,
-                               &texture_memory_size);
-    texture_passthrough->SetEstimatedSize(texture_memory_size);
-  } else {
-    texture = new gles2::Texture(service_id);
-    texture->SetLightweightRef();
-    texture->SetTarget(target, 1);
-    texture->sampler_state_.min_filter = GL_LINEAR;
-    texture->sampler_state_.mag_filter = GL_LINEAR;
-    texture->sampler_state_.wrap_s = GL_CLAMP_TO_EDGE;
-    texture->sampler_state_.wrap_t = GL_CLAMP_TO_EDGE;
-    texture->SetLevelInfo(target, 0 /* level */, internal_format, size.width(),
-                          size.height(), 1 /* depth */, 0 /* border */,
-                          data_format, data_type, gfx::Rect(size));
-    texture->SetLevelImage(target, 0 /* level */, image.get(),
-                           gles2::Texture::BOUND);
-    texture->SetImmutable(true, false);
-  }
+  scoped_refptr<gles2::TexturePassthrough> texture =
+      base::MakeRefCounted<gles2::TexturePassthrough>(service_id, target);
+  texture->SetLevelImage(target, 0, image.get());
+  GLint texture_memory_size = 0;
+  api->glGetTexParameterivFn(target, GL_MEMORY_SIZE_ANGLE,
+                             &texture_memory_size);
+  texture->SetEstimatedSize(texture_memory_size);
 
   return std::make_unique<SharedImageBackingD3D>(
-      mailbox, format, size, color_space, usage, std::move(swap_chain), texture,
-      std::move(texture_passthrough), std::move(image), buffer_index,
+      mailbox, format, size, color_space, surface_origin, alpha_type, usage,
+      std::move(swap_chain), std::move(texture), std::move(image), buffer_index,
       std::move(d3d11_texture), std::move(shared_handle),
       std::move(dxgi_keyed_mutex));
 }
@@ -208,6 +190,8 @@ SharedImageBackingFactoryD3D::CreateSwapChain(
     viz::ResourceFormat format,
     const gfx::Size& size,
     const gfx::ColorSpace& color_space,
+    GrSurfaceOrigin surface_origin,
+    SkAlphaType alpha_type,
     uint32_t usage) {
   if (!SharedImageBackingFactoryD3D::IsSwapChainSupported())
     return {nullptr, nullptr};
@@ -280,17 +264,17 @@ SharedImageBackingFactoryD3D::CreateSwapChain(
   if (!ClearBackBuffer(swap_chain, d3d11_device_))
     return {nullptr, nullptr};
 
-  auto back_buffer_backing =
-      MakeBacking(back_buffer_mailbox, format, size, color_space, usage,
-                  swap_chain, 0 /* buffer_index */, nullptr /* d3d11_texture */,
-                  base::win::ScopedHandle());
+  auto back_buffer_backing = MakeBacking(
+      back_buffer_mailbox, format, size, color_space, surface_origin,
+      alpha_type, usage, swap_chain, 0 /* buffer_index */,
+      nullptr /* d3d11_texture */, base::win::ScopedHandle());
   if (!back_buffer_backing)
     return {nullptr, nullptr};
 
-  auto front_buffer_backing =
-      MakeBacking(front_buffer_mailbox, format, size, color_space, usage,
-                  swap_chain, 1 /* buffer_index */, nullptr /* d3d11_texture */,
-                  base::win::ScopedHandle());
+  auto front_buffer_backing = MakeBacking(
+      front_buffer_mailbox, format, size, color_space, surface_origin,
+      alpha_type, usage, swap_chain, 1 /* buffer_index */,
+      nullptr /* d3d11_texture */, base::win::ScopedHandle());
   if (!front_buffer_backing)
     return {nullptr, nullptr};
 
@@ -301,8 +285,11 @@ std::unique_ptr<SharedImageBacking>
 SharedImageBackingFactoryD3D::CreateSharedImage(
     const Mailbox& mailbox,
     viz::ResourceFormat format,
+    SurfaceHandle surface_handle,
     const gfx::Size& size,
     const gfx::ColorSpace& color_space,
+    GrSurfaceOrigin surface_origin,
+    SkAlphaType alpha_type,
     uint32_t usage,
     bool is_thread_safe) {
   DCHECK(!is_thread_safe);
@@ -362,8 +349,9 @@ SharedImageBackingFactoryD3D::CreateSharedImage(
   // ensure we do not leak it.
   base::win::ScopedHandle scoped_shared_handle(shared_handle);
 
-  return MakeBacking(mailbox, format, size, color_space, usage, nullptr, 0,
-                     std::move(d3d11_texture), std::move(scoped_shared_handle));
+  return MakeBacking(mailbox, format, size, color_space, surface_origin,
+                     alpha_type, usage, nullptr, 0, std::move(d3d11_texture),
+                     std::move(scoped_shared_handle));
 }
 
 std::unique_ptr<SharedImageBacking>
@@ -372,6 +360,8 @@ SharedImageBackingFactoryD3D::CreateSharedImage(
     viz::ResourceFormat format,
     const gfx::Size& size,
     const gfx::ColorSpace& color_space,
+    GrSurfaceOrigin surface_origin,
+    SkAlphaType alpha_type,
     uint32_t usage,
     base::span<const uint8_t> pixel_data) {
   NOTIMPLEMENTED();
@@ -387,6 +377,8 @@ SharedImageBackingFactoryD3D::CreateSharedImage(
     SurfaceHandle surface_handle,
     const gfx::Size& size,
     const gfx::ColorSpace& color_space,
+    GrSurfaceOrigin surface_origin,
+    SkAlphaType alpha_type,
     uint32_t usage) {
   NOTIMPLEMENTED();
   return nullptr;

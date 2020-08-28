@@ -23,7 +23,6 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_CSS_ELEMENT_RULE_COLLECTOR_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_CSS_ELEMENT_RULE_COLLECTOR_H_
 
-#include "base/macros.h"
 #include "base/memory/scoped_refptr.h"
 #include "third_party/blink/renderer/core/css/css_rule_list.h"
 #include "third_party/blink/renderer/core/css/pseudo_style_request.h"
@@ -31,6 +30,7 @@
 #include "third_party/blink/renderer/core/css/resolver/match_request.h"
 #include "third_party/blink/renderer/core/css/resolver/match_result.h"
 #include "third_party/blink/renderer/core/css/selector_checker.h"
+#include "third_party/blink/renderer/core/style/computed_style_base_constants.h"
 #include "third_party/blink/renderer/platform/wtf/ref_counted.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
 
@@ -75,7 +75,7 @@ class MatchedRule {
     return GetRuleData()->Specificity() + specificity_;
   }
   const CSSStyleSheet* ParentStyleSheet() const { return parent_style_sheet_; }
-  void Trace(blink::Visitor* visitor) {
+  void Trace(Visitor* visitor) const {
     visitor->Trace(parent_style_sheet_);
     visitor->Trace(rule_data_);
   }
@@ -109,7 +109,11 @@ class ElementRuleCollector {
  public:
   ElementRuleCollector(const ElementResolveContext&,
                        const SelectorFilter&,
-                       ComputedStyle* = nullptr);
+                       MatchResult&,
+                       ComputedStyle*,
+                       EInsideLink);
+  ElementRuleCollector(const ElementRuleCollector&) = delete;
+  ElementRuleCollector& operator=(const ElementRuleCollector&) = delete;
   ~ElementRuleCollector();
 
   void SetMode(SelectorChecker::Mode mode) { mode_ = mode; }
@@ -188,14 +192,14 @@ class ElementRuleCollector {
   bool same_origin_only_;
   bool matching_ua_rules_;
   bool include_empty_rules_;
+  EInsideLink inside_link_;
 
   HeapVector<MatchedRule, 32> matched_rules_;
 
   // Output.
   Member<RuleIndexList> css_rule_list_;
   Member<StyleRuleList> style_rule_list_;
-  MatchResult result_;
-  DISALLOW_COPY_AND_ASSIGN(ElementRuleCollector);
+  MatchResult& result_;
 };
 
 }  // namespace blink

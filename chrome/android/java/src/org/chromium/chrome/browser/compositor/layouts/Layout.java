@@ -13,6 +13,7 @@ import android.view.ViewGroup;
 import androidx.annotation.IntDef;
 import androidx.annotation.VisibleForTesting;
 
+import org.chromium.chrome.browser.browser_controls.BrowserControlsStateProvider;
 import org.chromium.chrome.browser.compositor.LayerTitleCache;
 import org.chromium.chrome.browser.compositor.animation.CompositorAnimationHandler;
 import org.chromium.chrome.browser.compositor.layouts.components.LayoutTab;
@@ -22,12 +23,11 @@ import org.chromium.chrome.browser.compositor.layouts.eventfilter.EventFilter;
 import org.chromium.chrome.browser.compositor.overlays.SceneOverlay;
 import org.chromium.chrome.browser.compositor.scene_layer.SceneLayer;
 import org.chromium.chrome.browser.compositor.scene_layer.SceneOverlayLayer;
-import org.chromium.chrome.browser.fullscreen.ChromeFullscreenManager;
 import org.chromium.chrome.browser.tab.Tab;
-import org.chromium.chrome.browser.tab.TabImpl;
 import org.chromium.chrome.browser.tabmodel.TabModel;
 import org.chromium.chrome.browser.tabmodel.TabModelSelector;
 import org.chromium.chrome.browser.tabmodel.TabModelUtils;
+import org.chromium.ui.modelutil.PropertyModel;
 import org.chromium.ui.resources.ResourceManager;
 
 import java.lang.annotation.Retention;
@@ -78,6 +78,8 @@ public abstract class Layout implements TabContentManager.ThumbnailChangeListene
     /** Length of the unstalling animation. **/
     public static final long UNSTALLED_ANIMATION_DURATION_MS = 500;
 
+    private static final float SNAP_SPEED = 1.0f; // dp per second
+
     // Drawing area properties.
     private float mWidthDp;
     private float mHeightDp;
@@ -113,6 +115,7 @@ public abstract class Layout implements TabContentManager.ThumbnailChangeListene
 
     // The ratio of dp to px.
     protected final float mDpToPx;
+    protected final float mPxToDp;
 
     /**
      * The {@link Layout} is not usable until sizeChanged is called.
@@ -134,6 +137,7 @@ public abstract class Layout implements TabContentManager.ThumbnailChangeListene
 
         mCurrentOrientation = Orientation.UNSET;
         mDpToPx = context.getResources().getDisplayMetrics().density;
+        mPxToDp = 1 / mDpToPx;
     }
 
     /**
@@ -142,6 +146,11 @@ public abstract class Layout implements TabContentManager.ThumbnailChangeListene
     public CompositorAnimationHandler getAnimationHandler() {
         return mUpdateHost.getAnimationHandler();
     }
+
+    /**
+     * Called when native initialization is completed.
+     */
+    public void onFinishNativeInitialization() {}
 
     /**
      * Adds a {@link SceneOverlay} that can be shown in this layout to the first position in the
@@ -273,6 +282,41 @@ public abstract class Layout implements TabContentManager.ThumbnailChangeListene
     }
 
     /**
+     * Update snapping to pixel. To be called once every frame.
+     *
+     * TODO(crbug.com/1070281): Temporary placement. This is some Mediator logic and should move to
+     * the appropriate location when doing MVC. Maybe move to {@link LayoutMediator}.
+     *
+     * @param dt The delta time between update frames in ms.
+     * @param layoutTab The {@link LayoutTab} that needs to be updating.
+     * @return   True if the snapping requests to render at least one more frame.
+     */
+    protected boolean updateSnap(long dt, PropertyModel layoutTab) {
+        final float step = dt * SNAP_SPEED / 1000.0f;
+        final float renderX = layoutTab.get(LayoutTab.RENDER_X);
+        final float renderY = layoutTab.get(LayoutTab.RENDER_Y);
+        final float x = updateSnap(step, renderX, layoutTab.get(LayoutTab.X));
+        final float y = updateSnap(step, renderY, layoutTab.get(LayoutTab.Y));
+        final boolean change = x != renderX || y != renderY;
+        layoutTab.set(LayoutTab.RENDER_X, x);
+        layoutTab.set(LayoutTab.RENDER_Y, y);
+        return change;
+    }
+
+    private float updateSnap(float step, float current, float ref) {
+        if (Math.abs(current - ref) > mPxToDp) return ref;
+        final float refRounded = Math.round(ref * mDpToPx) * mPxToDp;
+        if (refRounded < ref) {
+            current -= step;
+            current = Math.max(refRounded, current);
+        } else {
+            current += step;
+            current = Math.min(refRounded, current);
+        }
+        return current;
+    }
+
+    /**
      * Request that the renderer render a frame (after the current frame). This
      * should be called whenever a new frame should be rendered.
      */
@@ -300,18 +344,17 @@ public abstract class Layout implements TabContentManager.ThumbnailChangeListene
 
     /**
      * Called when the size of the viewport has changed.
-     * @param visibleViewport        The visible viewport that represents the area on the screen
-     *                               this {@link Layout} gets to draw to in px (potentially takes
-     *                               into account browser controls).
-     * @param screenViewport         The viewport of the screen in px.
-     * @param heightMinusBrowserControls The height the {@link Layout} gets excluding the height of
-     *                               the browser controls in px. TODO(dtrainor): Look at getting rid
-     *                               of this.
-     * @param orientation            The new orientation.  Valid values are defined by
-     *                               {@link Orientation}.
+     * @param visibleViewportPx             The visible viewport that represents the area on the
+     *                                      screen this {@link Layout} gets to draw to in px
+     *                                      (potentially takes into account browser controls).
+     * @param screenViewportPx              The viewport of the screen in px.
+     * @param topBrowserControlsHeightPx    The top browser controls height in px.
+     * @param bottomBrowserControlsHeightPx The bottom browser controls height in px.
+     * @param orientation                   The new orientation.  Valid values are defined by
+     *                                      {@link Orientation}.
      */
-    public final void sizeChanged(RectF visibleViewportPx, RectF screenViewportPx,
-            float topBrowserControlsHeightPx, float bottomBrowserControlsHeightPx,
+    final void sizeChanged(RectF visibleViewportPx, RectF screenViewportPx,
+            int topBrowserControlsHeightPx, int bottomBrowserControlsHeightPx,
             @Orientation int orientation) {
         // 1. Pull out this Layout's width and height properties based on the viewport.
         float width = screenViewportPx.width() / mDpToPx;
@@ -352,18 +395,6 @@ public abstract class Layout implements TabContentManager.ThumbnailChangeListene
      * @param orientation The new orientation.
      */
     protected void notifySizeChanged(float width, float height, @Orientation int orientation) {}
-
-    /**
-     * Notify the a title has changed.
-     *
-     * @param tabId The id of the tab that has changed.
-     * @param title The new title.
-     */
-    public void tabTitleChanged(int tabId, String title) {
-        for (int i = 0; i < mSceneOverlays.size(); i++) {
-            mSceneOverlays.get(i).tabTitleChanged(tabId, title);
-        }
-    }
 
     /**
      * Sets the managers needed to for the layout to get information from outside. The managers
@@ -413,9 +444,6 @@ public abstract class Layout implements TabContentManager.ThumbnailChangeListene
         mUpdateHost.startHiding(nextTabId, hintAtTabSelection);
         mIsHiding = true;
         mNextTabId = nextTabId;
-        for (int i = 0; i < mSceneOverlays.size(); i++) {
-            mSceneOverlays.get(i).onHideLayout();
-        }
     }
 
     /**
@@ -508,24 +536,10 @@ public abstract class Layout implements TabContentManager.ThumbnailChangeListene
     }
 
     /**
-     * @return The height of the top browser controls in dp.
-     */
-    public float getTopBrowserControlsHeight() {
-        return mTopBrowserControlsHeightDp;
-    }
-
-    /**
      * @return The height of the bottom browser controls in dp.
      */
     public float getBottomBrowserControlsHeight() {
         return mBottomBrowserControlsHeightDp;
-    }
-
-    /**
-     * @return The height of the drawing area minus the browser controls in dp.
-     */
-    public float getHeightMinusBrowserControls() {
-        return getHeight() - (getTopBrowserControlsHeight() + getBottomBrowserControlsHeight());
     }
 
     /**
@@ -639,9 +653,6 @@ public abstract class Layout implements TabContentManager.ThumbnailChangeListene
      */
     public void onTabCreated(long time, int tabId, int tabIndex, int sourceTabId,
             boolean newIsIncognito, boolean background, float originX, float originY) {
-        for (int i = 0; i < mSceneOverlays.size(); i++) {
-            mSceneOverlays.get(i).tabCreated(time, newIsIncognito, tabId, sourceTabId, !background);
-        }
     }
 
     /**
@@ -652,23 +663,11 @@ public abstract class Layout implements TabContentManager.ThumbnailChangeListene
     public void onTabRestored(long time, int tabId) { }
 
     /**
-     * Called when the TabModelSelector has been initialized with an accurate tab count.
-     */
-    public void onTabStateInitialized() {
-        for (int i = 0; i < mSceneOverlays.size(); i++) {
-            mSceneOverlays.get(i).tabStateInitialized();
-        }
-    }
-
-    /**
      * Called when the current tabModel switched (e.g. standard -> incognito).
      *
      * @param incognito True if the new model is incognito.
      */
     public void onTabModelSwitched(boolean incognito) {
-        for (int i = 0; i < mSceneOverlays.size(); i++) {
-            mSceneOverlays.get(i).tabModelSwitched(incognito);
-        }
     }
 
     /**
@@ -813,17 +812,17 @@ public abstract class Layout implements TabContentManager.ThumbnailChangeListene
      * @param layerTitleCache   A layer title cache.
      * @param tabContentManager A tab content manager.
      * @param resourceManager   A resource manager.
-     * @param fullscreenManager A fullscreen manager.
+     * @param browserControls   A browser controls state provider.
      * @return                  A {@link SceneLayer} that represents the content for this
      *                          {@link Layout}.
      */
     public final SceneLayer getUpdatedSceneLayer(RectF viewport, RectF visibleViewport,
             LayerTitleCache layerTitleCache, TabContentManager tabContentManager,
-            ResourceManager resourceManager, ChromeFullscreenManager fullscreenManager) {
+            ResourceManager resourceManager, BrowserControlsStateProvider browserControls) {
         updateSceneLayer(viewport, visibleViewport, layerTitleCache, tabContentManager,
-                resourceManager, fullscreenManager);
+                resourceManager, browserControls);
 
-        float offsetPx = fullscreenManager != null ? fullscreenManager.getTopControlOffset() : 0.f;
+        float offsetPx = browserControls != null ? browserControls.getTopControlOffset() : 0.f;
         float dpToPx = getContext().getResources().getDisplayMetrics().density;
         float offsetDp = offsetPx / dpToPx;
 
@@ -879,17 +878,5 @@ public abstract class Layout implements TabContentManager.ThumbnailChangeListene
      */
     protected void updateSceneLayer(RectF viewport, RectF contentViewport,
             LayerTitleCache layerTitleCache, TabContentManager tabContentManager,
-            ResourceManager resourceManager, ChromeFullscreenManager fullscreenManager) {}
-
-    /**
-     * Gets the full screen manager.
-     * @return The {@link ChromeFullscreenManager} manager, possibly null
-     */
-    public ChromeFullscreenManager getFullscreenManager() {
-        if (mTabModelSelector == null) return null;
-        Tab tab = mTabModelSelector.getCurrentTab();
-        if (tab == null) return null;
-        if (((TabImpl) tab).getActivity() == null) return null;
-        return ((TabImpl) tab).getActivity().getFullscreenManager();
-    }
+            ResourceManager resourceManager, BrowserControlsStateProvider browserControls) {}
 }

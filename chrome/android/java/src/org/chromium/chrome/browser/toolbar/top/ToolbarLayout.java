@@ -19,12 +19,13 @@ import android.widget.FrameLayout;
 import android.widget.ImageButton;
 import android.widget.ProgressBar;
 
+import androidx.annotation.CallSuper;
 import androidx.annotation.ColorRes;
 import androidx.annotation.Nullable;
-import androidx.annotation.StringRes;
 import androidx.annotation.VisibleForTesting;
 
 import org.chromium.base.ObserverList;
+import org.chromium.base.TraceEvent;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.ThemeColorProvider;
 import org.chromium.chrome.browser.ThemeColorProvider.ThemeColorObserver;
@@ -39,19 +40,20 @@ import org.chromium.chrome.browser.omnibox.UrlBarData;
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tabmodel.TabModelSelector;
+import org.chromium.chrome.browser.toolbar.ButtonData;
 import org.chromium.chrome.browser.toolbar.HomeButton;
-import org.chromium.chrome.browser.toolbar.MenuButton;
 import org.chromium.chrome.browser.toolbar.TabCountProvider;
 import org.chromium.chrome.browser.toolbar.ToolbarColors;
 import org.chromium.chrome.browser.toolbar.ToolbarDataProvider;
 import org.chromium.chrome.browser.toolbar.ToolbarProgressBar;
 import org.chromium.chrome.browser.toolbar.ToolbarTabController;
+import org.chromium.chrome.browser.toolbar.menu_button.MenuButton;
+import org.chromium.chrome.browser.toolbar.menu_button.MenuButtonCoordinator;
 import org.chromium.chrome.browser.toolbar.top.TopToolbarCoordinator.UrlExpansionObserver;
 import org.chromium.chrome.browser.ui.appmenu.AppMenuButtonHelper;
-import org.chromium.chrome.browser.ui.widget.textbubble.TextBubble;
-import org.chromium.chrome.browser.util.ViewUtils;
 import org.chromium.components.security_state.ConnectionSecurityLevel;
 import org.chromium.ui.UiUtils;
+import org.chromium.ui.base.ViewUtils;
 
 /**
  * Layout class that contains the base shared logic for manipulating the toolbar component. For
@@ -213,17 +215,10 @@ public abstract class ToolbarLayout
     void onBottomToolbarVisibilityChanged(boolean isVisible) {}
 
     /**
-     * Disable the menu button. This removes the view from the hierarchy and nulls the related
-     * instance vars.
+     * TODO comment
      */
-    void disableMenuButton() {
-        UiUtils.removeViewFromParent(getMenuButtonWrapper());
-
-        if (mMenuButtonWrapper != null) {
-            mMenuButtonWrapper.destroy();
-            mMenuButtonWrapper = null;
-        }
-    }
+    @CallSuper
+    void onMenuButtonDisabled() {}
 
     @Override
     protected void onFinishInflate() {
@@ -326,6 +321,27 @@ public abstract class ToolbarLayout
         }
     }
 
+    @Override
+    protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+        try (TraceEvent e = TraceEvent.scoped("ToolbarLayout.onMeasure")) {
+            super.onMeasure(widthMeasureSpec, heightMeasureSpec);
+        }
+    }
+
+    @Override
+    protected void onLayout(boolean changed, int left, int top, int right, int bottom) {
+        try (TraceEvent e = TraceEvent.scoped("ToolbarLayout.onLayout")) {
+            super.onLayout(changed, left, top, right, bottom);
+        }
+    }
+
+    @Override
+    public void draw(Canvas canvas) {
+        try (TraceEvent e = TraceEvent.scoped("ToolbarLayout.draw")) {
+            super.draw(canvas);
+        }
+    }
+
     /**
      * Quick getter for LayoutParams for a View inside a FrameLayout.
      * @param view {@link View} to fetch the layout params for.
@@ -334,9 +350,6 @@ public abstract class ToolbarLayout
     FrameLayout.LayoutParams getFrameLayoutParams(View view) {
         return ((FrameLayout.LayoutParams) view.getLayoutParams());
     }
-
-    /** Notified that the menu was shown. */
-    void onMenuShown() {}
 
     /**
      *  This function handles native dependent initialization for this class.
@@ -349,7 +362,10 @@ public abstract class ToolbarLayout
     @Override
     protected void onAttachedToWindow() {
         super.onAttachedToWindow();
-        addProgressBarToHierarchy();
+        // TODO(crbug.com/1021877): lazy initialize progress bar.
+        // Posting adding progress bar can prevent parent view group from using a stale children
+        // count, which can cause a crash in rare cases.
+        post(this::addProgressBarToHierarchy);
     }
 
     /**
@@ -357,6 +373,11 @@ public abstract class ToolbarLayout
      */
     View getMenuButtonWrapper() {
         return mMenuButtonWrapper;
+    }
+
+    @VisibleForTesting
+    void setMenuButtonWrapperForTesting(MenuButton menuButton) {
+        mMenuButtonWrapper = menuButton;
     }
 
     /**
@@ -421,7 +442,6 @@ public abstract class ToolbarLayout
     /**
      * @return The provider for toolbar related data.
      */
-    @VisibleForTesting
     public ToolbarDataProvider getToolbarDataProvider() {
         return mToolbarDataProvider;
     }
@@ -641,8 +661,8 @@ public abstract class ToolbarLayout
      *                       finished (which can be detected by a call to
      *                       {@link #onTabSwitcherTransitionFinished()}).
      */
-    void setTabSwitcherMode(
-            boolean inTabSwitcherMode, boolean showToolbar, boolean delayAnimation) {}
+    void setTabSwitcherMode(boolean inTabSwitcherMode, boolean showToolbar, boolean delayAnimation,
+            MenuButtonCoordinator menuButtonCoordinator) {}
 
     /**
      * Gives inheriting classes the chance to update their state when the TabSwitcher transition has
@@ -834,73 +854,23 @@ public abstract class ToolbarLayout
         if (mToolbarTabController != null) mToolbarTabController.openHomepage();
     }
 
-    void setMenuButtonHighlight(boolean highlight) {
-        if (mMenuButtonWrapper == null) return;
-        mMenuButtonWrapper.setMenuButtonHighlight(highlight);
-    }
-
-    void showAppMenuUpdateBadge(boolean animate) {
-        if (mMenuButtonWrapper == null) return;
-        mMenuButtonWrapper.showAppMenuUpdateBadgeIfAvailable(animate);
-    }
-
-    void setAppMenuUpdateBadgeSuppressed(boolean suppress) {
-        if (mMenuButtonWrapper == null) return;
-        mMenuButtonWrapper.setAppMenuUpdateBadgeSuppressed(suppress);
-    }
-
-    boolean isShowingAppMenuUpdateBadge() {
-        if (mMenuButtonWrapper == null) return false;
-        return mMenuButtonWrapper.isShowingAppMenuUpdateBadge();
-    }
-
-    void removeAppMenuUpdateBadge(boolean animate) {
-        if (mMenuButtonWrapper == null) return;
-        mMenuButtonWrapper.removeAppMenuUpdateBadge(animate);
-    }
+    /**
+     * Update the optional toolbar button, showing it if currently hidden.
+     * @param buttonData Display data for the button, e.g. the Drawable and content description.
+     */
+    void updateOptionalButton(ButtonData buttonData) {}
 
     /**
-     * Enable the experimental toolbar button.
-     * @param onClickListener The {@link OnClickListener} to be called when the button is clicked.
-     * @param image The drawable to display for the button.
-     * @param contentDescriptionResId The resource id of the content description for the button.
+     * Hide the optional toolbar button.
      */
-    void enableExperimentalButton(OnClickListener onClickListener, Drawable image,
-            @StringRes int contentDescriptionResId) {}
+    void hideOptionalButton() {}
 
     /**
-     * Updates image displayed on experimental button.
+     * @return Optional button view.
      */
-    void updateExperimentalButtonImage(Drawable image) {}
-
-    /**
-     * Disable the experimental toolbar button.
-     */
-    void disableExperimentalButton() {}
-
-    /**
-     * @return Experimental button view.
-     */
-    View getExperimentalButtonView() {
+    @VisibleForTesting
+    public View getOptionalButtonView() {
         return null;
-    }
-
-    /**
-     * Displays in-product help for experimental button.
-     * @param stringId The id of the string resource for the text that should be shown.
-     * @param accessibilityStringId The id of the string resource of the accessibility text.
-     * @param dismissedCallback The callback that will be called when in-product help is dismissed.
-     */
-    void showIPHOnExperimentalButton(@StringRes int stringId, @StringRes int accessibilityStringId,
-            Runnable dismissedCallback) {
-        View experimentalButton = getExperimentalButtonView();
-        TextBubble textBubble = new TextBubble(getContext(), experimentalButton, stringId,
-                accessibilityStringId, experimentalButton);
-        textBubble.setDismissOnTouchInteraction(true);
-        textBubble.addOnDismissListener(() -> {
-            dismissedCallback.run();
-        });
-        textBubble.show();
     }
 
     /**

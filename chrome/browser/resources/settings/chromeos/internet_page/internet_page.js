@@ -16,6 +16,7 @@ Polymer({
 
   behaviors: [
     NetworkListenerBehavior,
+    DeepLinkingBehavior,
     I18nBehavior,
     settings.RouteObserverBehavior,
     WebUIListenerBehavior,
@@ -79,6 +80,15 @@ Polymer({
       value: false,
     },
 
+    /**
+     * False if VPN is disabled by policy.
+     * @private {boolean}
+     */
+    vpnIsEnabled_: {
+      type: Boolean,
+      value: false,
+    },
+
     /** @private {!chromeos.networkConfig.mojom.GlobalPolicy|undefined} */
     globalPolicy_: Object,
 
@@ -109,12 +119,30 @@ Polymer({
       value: false,
     },
 
+    /** @private {boolean} */
+    showCellularSetupDialog_: {
+      type: Boolean,
+      value: false,
+    },
+
     /** @private {!Map<string, Element>} */
     focusConfig_: {
       type: Object,
       value() {
         return new Map();
       },
+    },
+
+    /**
+     * Used by DeepLinkingBehavior to focus this page's deep links.
+     * @type {!Set<!chromeos.settings.mojom.Setting>}
+     */
+    supportedSettingIds: {
+      type: Object,
+      value: () => new Set([
+        chromeos.settings.mojom.Setting.kWifiOnOff,
+        chromeos.settings.mojom.Setting.kMobileOnOff,
+      ]),
     },
   },
 
@@ -128,6 +156,7 @@ Polymer({
   listeners: {
     'device-enabled-toggled': 'onDeviceEnabledToggled_',
     'network-connect': 'onNetworkConnect_',
+    'show-cellular-setup': 'onShowCellularSetupDialog_',
     'show-config': 'onShowConfig_',
     'show-detail': 'onShowDetail_',
     'show-known-networks': 'onShowKnownNetworks_',
@@ -156,6 +185,32 @@ Polymer({
   },
 
   /**
+   * Overridden from DeepLinkingBehavior.
+   * @param {!chromeos.settings.mojom.Setting} settingId
+   * @return {boolean}
+   */
+  beforeDeepLinkAttempt(settingId) {
+    // Manually show the deep links for settings nested within elements.
+    let networkType = null;
+    if (settingId === chromeos.settings.mojom.Setting.kWifiOnOff) {
+      networkType = mojom.NetworkType.kWiFi;
+    } else if (settingId === chromeos.settings.mojom.Setting.kMobileOnOff) {
+      networkType = mojom.NetworkType.kCellular;
+    }
+
+    Polymer.RenderStatus.afterNextRender(this, () => {
+      const networkRow = this.$$('network-summary').getNetworkRow(networkType);
+      if (networkRow && networkRow.getDeviceEnabledToggle()) {
+        this.showDeepLinkElement(networkRow.getDeviceEnabledToggle());
+        return;
+      }
+      console.warn(`Element with deep link id ${settingId} not focusable.`);
+    });
+    // Stop deep link attempt since we completed it manually.
+    return false;
+  },
+
+  /**
    * settings.RouteObserverBehavior
    * @param {!settings.Route} route
    * @param {!settings.Route} oldRoute
@@ -165,7 +220,7 @@ Polymer({
     if (route == settings.routes.INTERNET_NETWORKS) {
       // Handle direct navigation to the networks page,
       // e.g. chrome://settings/internet/networks?type=WiFi
-      const queryParams = settings.getQueryParameters();
+      const queryParams = settings.Router.getInstance().getQueryParameters();
       const type = queryParams.get('type');
       if (type) {
         this.subpageType_ = OncMojo.getNetworkTypeFromString(type);
@@ -173,13 +228,15 @@ Polymer({
     } else if (route == settings.routes.KNOWN_NETWORKS) {
       // Handle direct navigation to the known networks page,
       // e.g. chrome://settings/internet/knownNetworks?type=WiFi
-      const queryParams = settings.getQueryParameters();
+      const queryParams = settings.Router.getInstance().getQueryParameters();
       const type = queryParams.get('type');
       if (type) {
         this.knownNetworksType_ = OncMojo.getNetworkTypeFromString(type);
       }
-    } else if (
-        route != settings.routes.INTERNET && route != settings.routes.BASIC) {
+    } else if (route == settings.routes.INTERNET) {
+      // Show deep links for the internet page.
+      this.attemptDeepLink();
+    } else if (route != settings.routes.BASIC) {
       // If we are navigating to a non internet section, do not set focus.
       return;
     }
@@ -200,8 +257,8 @@ Polymer({
         element = subPage.$$('#networkList');
       }
     } else if (this.detailType_ !== undefined) {
-      const oncType = OncMojo.getNetworkTypeString(this.detailType_);
-      const rowForDetailType = this.$$('network-summary').$$(`#${oncType}`);
+      const rowForDetailType =
+          this.$$('network-summary').getNetworkRow(this.detailType_);
 
       // Note: It is possible that the row is no longer present in the DOM
       // (e.g., when a Cellular dongle is unplugged or when Instant Tethering
@@ -237,6 +294,7 @@ Polymer({
   onDeviceEnabledToggled_(event) {
     this.networkConfig_.setNetworkTypeEnabledState(
         event.detail.type, event.detail.enabled);
+    settings.recordSettingChange();
   },
 
   /**
@@ -253,6 +311,16 @@ Polymer({
           false /* configAndConnect */, type, event.detail.guid,
           event.detail.name);
     }
+  },
+
+  /** @private */
+  onShowCellularSetupDialog_() {
+    this.showCellularSetupDialog_ = true;
+  },
+
+  /** @private */
+  onCloseCellularSetupDialog_() {
+    this.showCellularSetupDialog_ = false;
   },
 
   /**
@@ -299,7 +367,8 @@ Polymer({
     params.append('guid', networkState.guid);
     params.append('type', OncMojo.getNetworkTypeString(networkState.type));
     params.append('name', OncMojo.getNetworkStateDisplayName(networkState));
-    settings.navigateTo(settings.routes.NETWORK_DETAIL, params);
+    settings.Router.getInstance().navigateTo(
+        settings.routes.NETWORK_DETAIL, params);
   },
 
   /**
@@ -371,6 +440,11 @@ Polymer({
       this.managedNetworkAvailable = managedNetworkAvailable;
     }
 
+    const vpn = this.deviceStates[mojom.NetworkType.kVPN];
+    this.vpnIsEnabled_ = !!vpn &&
+        vpn.deviceState ===
+            chromeos.networkConfig.mojom.DeviceStateType.kEnabled;
+
     if (this.detailType_ && !this.deviceStates[this.detailType_]) {
       // If the device type associated with the current network has been
       // removed (e.g., due to unplugging a Cellular dongle), the details page,
@@ -393,7 +467,8 @@ Polymer({
     this.knownNetworksType_ = type;
     const params = new URLSearchParams;
     params.append('type', OncMojo.getNetworkTypeString(type));
-    settings.navigateTo(settings.routes.KNOWN_NETWORKS, params);
+    settings.Router.getInstance().navigateTo(
+        settings.routes.KNOWN_NETWORKS, params);
   },
 
   /** @private */
@@ -405,9 +480,11 @@ Polymer({
 
   /** @private */
   onAddVPNTap_() {
-    this.showConfig_(
-        true /* configAndConnect */,
-        chromeos.networkConfig.mojom.NetworkType.kVPN);
+    if (this.vpnIsEnabled_) {
+      this.showConfig_(
+          true /* configAndConnect */,
+          chromeos.networkConfig.mojom.NetworkType.kVPN);
+    }
   },
 
   /**
@@ -417,6 +494,7 @@ Polymer({
   onAddThirdPartyVpnTap_(event) {
     const provider = event.model.item;
     this.browserProxy_.addThirdPartyVpn(provider.appId);
+    settings.recordSettingChange();
   },
 
   /**
@@ -428,7 +506,8 @@ Polymer({
     const params = new URLSearchParams;
     params.append('type', OncMojo.getNetworkTypeString(type));
     this.subpageType_ = type;
-    settings.navigateTo(settings.routes.INTERNET_NETWORKS, params);
+    settings.Router.getInstance().navigateTo(
+        settings.routes.INTERNET_NETWORKS, params);
   },
 
   /**
@@ -514,7 +593,8 @@ Polymer({
       params.append('name', displayName);
       params.append('showConfigure', true.toString());
 
-      settings.navigateTo(settings.routes.NETWORK_DETAIL, params);
+      settings.Router.getInstance().navigateTo(
+          settings.routes.NETWORK_DETAIL, params);
       return;
     }
 

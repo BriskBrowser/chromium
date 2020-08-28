@@ -20,6 +20,10 @@
 #include "content/public/test/navigation_simulator.h"
 #include "content/public/test/web_contents_tester.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/blink/public/common/input/web_gesture_event.h"
+#include "third_party/blink/public/common/input/web_keyboard_event.h"
+#include "third_party/blink/public/common/input/web_mouse_event.h"
+#include "third_party/blink/public/common/input/web_touch_event.h"
 
 using content::NavigationSimulator;
 
@@ -47,14 +51,32 @@ class SiteEngagementHelperTest : public ChromeRenderViewHostTestHarness {
   // Simulate a user interaction event and handle it.
   void HandleUserInput(SiteEngagementService::Helper* helper,
                        blink::WebInputEvent::Type type) {
-    helper->input_tracker_.DidGetUserInteraction(type);
+    std::unique_ptr<blink::WebInputEvent> event;
+    switch (type) {
+      case blink::WebInputEvent::Type::kRawKeyDown:
+        event = std::make_unique<blink::WebKeyboardEvent>();
+        break;
+      case blink::WebInputEvent::Type::kGestureScrollBegin:
+        event = std::make_unique<blink::WebGestureEvent>();
+        break;
+      case blink::WebInputEvent::Type::kMouseDown:
+        event = std::make_unique<blink::WebMouseEvent>();
+        break;
+      case blink::WebInputEvent::Type::kTouchStart:
+        event = std::make_unique<blink::WebTouchEvent>();
+        break;
+      default:
+        NOTREACHED();
+    }
+    event->SetType(type);
+    helper->input_tracker_.DidGetUserInteraction(*event);
   }
 
   // Simulate a user interaction event and handle it. Reactivates tracking
   // immediately.
   void HandleUserInputAndRestartTracking(SiteEngagementService::Helper* helper,
                                          blink::WebInputEvent::Type type) {
-    helper->input_tracker_.DidGetUserInteraction(type);
+    HandleUserInput(helper, type);
     helper->input_tracker_.TrackingStarted();
   }
 
@@ -138,19 +160,19 @@ class SiteEngagementHelperTest : public ChromeRenderViewHostTestHarness {
 };
 
 TEST_F(SiteEngagementHelperTest, KeyPressEngagementAccumulation) {
-  UserInputAccumulation(blink::WebInputEvent::kRawKeyDown);
+  UserInputAccumulation(blink::WebInputEvent::Type::kRawKeyDown);
 }
 
 TEST_F(SiteEngagementHelperTest, MouseDownEventEngagementAccumulation) {
-  UserInputAccumulation(blink::WebInputEvent::kMouseDown);
+  UserInputAccumulation(blink::WebInputEvent::Type::kMouseDown);
 }
 
 TEST_F(SiteEngagementHelperTest, ScrollEventEngagementAccumulation) {
-  UserInputAccumulation(blink::WebInputEvent::kGestureScrollBegin);
+  UserInputAccumulation(blink::WebInputEvent::Type::kGestureScrollBegin);
 }
 
 TEST_F(SiteEngagementHelperTest, TouchEngagementAccumulation) {
-  UserInputAccumulation(blink::WebInputEvent::kTouchStart);
+  UserInputAccumulation(blink::WebInputEvent::Type::kTouchStart);
 }
 
 TEST_F(SiteEngagementHelperTest, MediaEngagementAccumulation) {
@@ -304,11 +326,16 @@ TEST_F(SiteEngagementHelperTest, MixedInputEngagementAccumulation) {
       SiteEngagementMetrics::kEngagementTypeHistogram,
       SiteEngagementService::ENGAGEMENT_FIRST_DAILY_ENGAGEMENT, 1);
 
-  HandleUserInputAndRestartTracking(helper, blink::WebInputEvent::kRawKeyDown);
-  HandleUserInputAndRestartTracking(helper, blink::WebInputEvent::kTouchStart);
-  HandleUserInputAndRestartTracking(helper, blink::WebInputEvent::kTouchStart);
-  HandleUserInputAndRestartTracking(helper, blink::WebInputEvent::kRawKeyDown);
-  HandleUserInputAndRestartTracking(helper, blink::WebInputEvent::kMouseDown);
+  HandleUserInputAndRestartTracking(helper,
+                                    blink::WebInputEvent::Type::kRawKeyDown);
+  HandleUserInputAndRestartTracking(helper,
+                                    blink::WebInputEvent::Type::kTouchStart);
+  HandleUserInputAndRestartTracking(helper,
+                                    blink::WebInputEvent::Type::kTouchStart);
+  HandleUserInputAndRestartTracking(helper,
+                                    blink::WebInputEvent::Type::kRawKeyDown);
+  HandleUserInputAndRestartTracking(helper,
+                                    blink::WebInputEvent::Type::kMouseDown);
 
   EXPECT_DOUBLE_EQ(0.75, service->GetScore(url1));
   EXPECT_EQ(0, service->GetScore(url2));
@@ -327,11 +354,13 @@ TEST_F(SiteEngagementHelperTest, MixedInputEngagementAccumulation) {
       SiteEngagementMetrics::kEngagementTypeHistogram,
       SiteEngagementService::ENGAGEMENT_FIRST_DAILY_ENGAGEMENT, 1);
 
+  HandleUserInputAndRestartTracking(
+      helper, blink::WebInputEvent::Type::kGestureScrollBegin);
   HandleUserInputAndRestartTracking(helper,
-                                    blink::WebInputEvent::kGestureScrollBegin);
-  HandleUserInputAndRestartTracking(helper, blink::WebInputEvent::kMouseDown);
+                                    blink::WebInputEvent::Type::kMouseDown);
   HandleMediaPlaying(helper, true);
-  HandleUserInputAndRestartTracking(helper, blink::WebInputEvent::kTouchStart);
+  HandleUserInputAndRestartTracking(helper,
+                                    blink::WebInputEvent::Type::kTouchStart);
   HandleMediaPlaying(helper, false);
 
   EXPECT_DOUBLE_EQ(0.93, service->GetScore(url1));
@@ -362,8 +391,10 @@ TEST_F(SiteEngagementHelperTest, MixedInputEngagementAccumulation) {
   EXPECT_DOUBLE_EQ(0.5, service->GetScore(url2));
   EXPECT_DOUBLE_EQ(1.43, service->GetTotalEngagementPoints());
 
-  HandleUserInputAndRestartTracking(helper, blink::WebInputEvent::kTouchStart);
-  HandleUserInputAndRestartTracking(helper, blink::WebInputEvent::kRawKeyDown);
+  HandleUserInputAndRestartTracking(helper,
+                                    blink::WebInputEvent::Type::kTouchStart);
+  HandleUserInputAndRestartTracking(helper,
+                                    blink::WebInputEvent::Type::kRawKeyDown);
 
   EXPECT_DOUBLE_EQ(0.93, service->GetScore(url1));
   EXPECT_DOUBLE_EQ(0.6, service->GetScore(url2));
@@ -421,7 +452,7 @@ TEST_F(SiteEngagementHelperTest, CheckTimerAndCallbacks) {
   EXPECT_TRUE(IsTrackingInput(helper));
   EXPECT_TRUE(media_tracker_timer->IsRunning());
 
-  HandleUserInput(helper, blink::WebInputEvent::kRawKeyDown);
+  HandleUserInput(helper, blink::WebInputEvent::Type::kRawKeyDown);
   EXPECT_TRUE(input_tracker_timer->IsRunning());
   EXPECT_FALSE(IsTrackingInput(helper));
   EXPECT_TRUE(media_tracker_timer->IsRunning());
@@ -435,7 +466,7 @@ TEST_F(SiteEngagementHelperTest, CheckTimerAndCallbacks) {
   EXPECT_TRUE(media_tracker_timer->IsRunning());
 
   // Timer should start running again after input.
-  HandleUserInput(helper, blink::WebInputEvent::kTouchStart);
+  HandleUserInput(helper, blink::WebInputEvent::Type::kTouchStart);
   EXPECT_TRUE(input_tracker_timer->IsRunning());
   EXPECT_FALSE(IsTrackingInput(helper));
   EXPECT_TRUE(media_tracker_timer->IsRunning());
@@ -467,7 +498,7 @@ TEST_F(SiteEngagementHelperTest, CheckTimerAndCallbacks) {
   EXPECT_TRUE(IsTrackingInput(helper));
   EXPECT_FALSE(media_tracker_timer->IsRunning());
 
-  HandleUserInput(helper, blink::WebInputEvent::kMouseDown);
+  HandleUserInput(helper, blink::WebInputEvent::Type::kMouseDown);
   EXPECT_TRUE(input_tracker_timer->IsRunning());
   EXPECT_FALSE(IsTrackingInput(helper));
   EXPECT_FALSE(media_tracker_timer->IsRunning());

@@ -6,6 +6,7 @@
 
 #include "base/bind.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/strings/string_util.h"
 #include "build/branding_buildflags.h"
 #include "chrome/browser/signin/account_consistency_mode_manager.h"
 #include "chrome/browser/ui/webui/webui_util.h"
@@ -25,6 +26,7 @@
 #include "components/signin/public/base/signin_pref_names.h"
 #include "components/strings/grit/components_strings.h"
 #include "net/base/url_util.h"
+#include "ui/base/webui/web_ui_util.h"
 
 #if defined(OS_WIN)
 #include "base/win/windows_version.h"
@@ -80,6 +82,7 @@ void AddStrings(content::WebUIDataSource* html_source) {
       {"next", IDS_WELCOME_NEXT},
       {"noThanks", IDS_NO_THANKS},
       {"skip", IDS_WELCOME_SKIP},
+      {"stepsLabel", IDS_WELCOME_STEPS},
 
       // Sign-in view strings.
       {"signInHeader", IDS_WELCOME_SIGNIN_VIEW_HEADER},

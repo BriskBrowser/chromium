@@ -32,8 +32,8 @@
 #include "components/download/public/common/download_danger_type.h"
 #include "components/download/public/common/download_export.h"
 #include "components/download/public/common/download_interrupt_reasons.h"
+#include "components/download/public/common/download_schedule.h"
 #include "components/download/public/common/download_source.h"
-#include "net/base/network_isolation_key.h"
 #include "ui/base/page_transition_types.h"
 #include "url/origin.h"
 
@@ -101,8 +101,24 @@ class COMPONENTS_DOWNLOAD_EXPORT DownloadItem : public base::SupportsUserData {
     RESULT_MAX = FAILURE_UNKNOWN
   };
 
+  // The mixed content status for a download item.
+  enum MixedContentStatus {
+    // Target not yet determined, so status not yet available.
+    UNKNOWN = 0,
+    // Download is not mixed content.
+    SAFE = 1,
+    // Download has been explicitly OK'd by the user. Only used on Desktop.
+    VALIDATED = 2,
+    // Download is mixed content, and the user should be warned.
+    WARN = 3,
+    // Download is mixed content, and the user should see an error.
+    BLOCK = 4,
+    // Download is mixed content, and it should be silently dropped.
+    SILENT_BLOCK = 5,
+  };
+
   // Callback used with AcquireFileAndDeleteDownload().
-  typedef base::Callback<void(const base::FilePath&)> AcquireFileCallback;
+  using AcquireFileCallback = base::OnceCallback<void(const base::FilePath&)>;
   using RenameDownloadCallback = base::OnceCallback<void(DownloadRenameResult)>;
   // Used to represent an invalid download ID.
   static const uint32_t kInvalidId;
@@ -159,6 +175,9 @@ class COMPONENTS_DOWNLOAD_EXPORT DownloadItem : public base::SupportsUserData {
   // Called when the user has validated the download of a dangerous file.
   virtual void ValidateDangerousDownload() = 0;
 
+  // Called when the user has validated the download of a mixed content file.
+  virtual void ValidateMixedContentDownload() = 0;
+
   // Called to acquire a dangerous download. If |delete_file_afterward| is true,
   // invokes |callback| on the UI thread with the path to the downloaded file,
   // and removes the DownloadItem from views and history if appropriate.
@@ -167,7 +186,7 @@ class COMPONENTS_DOWNLOAD_EXPORT DownloadItem : public base::SupportsUserData {
   // Note: It is important for |callback| to be valid since the downloaded file
   // will not be cleaned up if the callback fails.
   virtual void StealDangerousDownload(bool delete_file_afterward,
-                                      const AcquireFileCallback& callback) = 0;
+                                      AcquireFileCallback callback) = 0;
 
   // Pause a download.  Will have no effect if the download is already
   // paused.
@@ -289,10 +308,6 @@ class COMPONENTS_DOWNLOAD_EXPORT DownloadItem : public base::SupportsUserData {
   // Origin of the original originator of this download, before redirects, etc.
   virtual const base::Optional<url::Origin>& GetRequestInitiator() const = 0;
 
-  // The key used to isolate requests from different contexts in accessing
-  // shared network resources like the cache.
-  virtual const net::NetworkIsolationKey& GetNetworkIsolationKey() const = 0;
-
   // For downloads initiated via <a download>, this is the suggested download
   // filename from the download attribute.
   virtual std::string GetSuggestedFilename() const = 0;
@@ -401,8 +416,18 @@ class COMPONENTS_DOWNLOAD_EXPORT DownloadItem : public base::SupportsUserData {
   // False if the download is safe or that function has been called.
   virtual bool IsDangerous() const = 0;
 
+  // True if the file that will be written by the download is mixed content
+  // and we will require a call to ValidateMixedContentDownload() to complete.
+  // False if not mixed content or that function has been called.
+  virtual bool IsMixedContent() const = 0;
+
   // Why |safety_state_| is not SAFE.
   virtual DownloadDangerType GetDangerType() const = 0;
+
+  // Returns the mixed content status of the download, indicating whether the
+  // download should be blocked or the user warned. This may be UNKNOWN if the
+  // download target hasn't been determined.
+  virtual MixedContentStatus GetMixedContentStatus() const = 0;
 
   // Gets the pointer to the DownloadFile owned by this object.
   virtual DownloadFile* GetDownloadFile() = 0;
@@ -459,6 +484,9 @@ class COMPONENTS_DOWNLOAD_EXPORT DownloadItem : public base::SupportsUserData {
   // Tests if a file type should be opened automatically.
   virtual bool ShouldOpenFileBasedOnExtension() = 0;
 
+  // Tests if a file type should be opened automatically by policy.
+  virtual bool ShouldOpenFileByPolicyBasedOnExtension() = 0;
+
   // Returns true if the download will be auto-opened when complete.
   virtual bool GetOpenWhenComplete() const = 0;
 
@@ -485,6 +513,10 @@ class COMPONENTS_DOWNLOAD_EXPORT DownloadItem : public base::SupportsUserData {
   // Gets the DownloadCreationType of this item.
   virtual DownloadCreationType GetDownloadCreationType() const = 0;
 
+  // Gets the download schedule to start the time at particular time.
+  virtual const base::Optional<DownloadSchedule>& GetDownloadSchedule()
+      const = 0;
+
   // External state transitions/setters ----------------------------------------
 
   // TODO(rdsmith): These should all be removed; the download item should
@@ -502,6 +534,10 @@ class COMPONENTS_DOWNLOAD_EXPORT DownloadItem : public base::SupportsUserData {
 
   // Called when async scanning completes with the given |danger_type|.
   virtual void OnAsyncScanningCompleted(DownloadDangerType danger_type) = 0;
+
+  // Called when the user changes the download schedule options.
+  virtual void OnDownloadScheduleChanged(
+      base::Optional<DownloadSchedule> schedule) = 0;
 
   // Mark the download to be auto-opened when completed.
   virtual void SetOpenWhenComplete(bool open) = 0;

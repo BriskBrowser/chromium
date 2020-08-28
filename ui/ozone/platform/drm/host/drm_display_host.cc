@@ -9,6 +9,7 @@
 
 #include "base/bind.h"
 #include "base/location.h"
+#include "base/logging.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "ui/display/types/display_mode.h"
 #include "ui/display/types/display_snapshot.h"
@@ -32,39 +33,6 @@ DrmDisplayHost::~DrmDisplayHost() {
 void DrmDisplayHost::UpdateDisplaySnapshot(
     std::unique_ptr<display::DisplaySnapshot> params) {
   snapshot_ = std::move(params);
-}
-
-void DrmDisplayHost::Configure(const display::DisplayMode* mode,
-                               const gfx::Point& origin,
-                               display::ConfigureCallback callback) {
-  if (is_dummy_) {
-    std::move(callback).Run(true);
-    return;
-  }
-
-  configure_callback_ = std::move(callback);
-  bool status = false;
-  if (mode) {
-    status = sender_->GpuConfigureNativeDisplay(
-        snapshot_->display_id(), GetDisplayModeParams(*mode), origin);
-  } else {
-    status = sender_->GpuDisableNativeDisplay(snapshot_->display_id());
-  }
-
-  if (!status)
-    OnDisplayConfigured(false);
-}
-
-void DrmDisplayHost::OnDisplayConfigured(bool status) {
-  if (!configure_callback_.is_null()) {
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
-        FROM_HERE, base::BindOnce(std::move(configure_callback_), status));
-  } else {
-    LOG(ERROR) << "Got unexpected event for display "
-               << snapshot_->display_id();
-  }
-
-  configure_callback_.Reset();
 }
 
 void DrmDisplayHost::GetHDCPState(display::GetHDCPStateCallback callback) {
@@ -117,6 +85,10 @@ void DrmDisplayHost::SetGammaCorrection(
                                  gamma_lut);
 }
 
+void DrmDisplayHost::SetPrivacyScreen(bool enabled) {
+  sender_->GpuSetPrivacyScreen(snapshot_->display_id(), enabled);
+}
+
 void DrmDisplayHost::OnGpuProcessLaunched() {}
 
 void DrmDisplayHost::OnGpuThreadReady() {
@@ -130,8 +102,6 @@ void DrmDisplayHost::OnGpuThreadReady() {
 void DrmDisplayHost::OnGpuThreadRetired() {}
 
 void DrmDisplayHost::ClearCallbacks() {
-  if (!configure_callback_.is_null())
-    OnDisplayConfigured(false);
   if (!get_hdcp_callback_.is_null())
     OnHDCPStateReceived(false, display::HDCP_STATE_UNDESIRED);
   if (!set_hdcp_callback_.is_null())

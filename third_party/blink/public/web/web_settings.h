@@ -34,6 +34,7 @@
 #include <unicode/uscript.h>
 
 #include "third_party/blink/public/common/css/navigation_controls.h"
+#include "third_party/blink/public/common/css/preferred_color_scheme.h"
 #include "third_party/blink/public/platform/pointer_properties.h"
 #include "third_party/blink/public/platform/web_common.h"
 #include "third_party/blink/public/platform/web_effective_connection_type.h"
@@ -52,7 +53,7 @@ class WebSettings {
  public:
   enum class ImageAnimationPolicy { kAllowed, kAnimateOnce, kNoAnimation };
 
-  enum class EditingBehavior { kMac, kWin, kUnix, kAndroid };
+  enum class EditingBehavior { kMac, kWin, kUnix, kAndroid, kChromeOS };
 
   enum class V8CacheOptions {
     kDefault,
@@ -155,7 +156,6 @@ class WebSettings {
   virtual void SetEditingBehavior(EditingBehavior) = 0;
   virtual void SetEnableScrollAnimator(bool) = 0;
   virtual void SetPrefersReducedMotion(bool) = 0;
-  virtual void SetEnableTouchAdjustment(bool) = 0;
   virtual void SetSmoothScrollForFindEnabled(bool) = 0;
   virtual void SetWebGL1Enabled(bool) = 0;
   virtual void SetWebGL2Enabled(bool) = 0;
@@ -218,7 +218,6 @@ class WebSettings {
                                   UScriptCode = USCRIPT_COMMON) = 0;
   virtual void SetShouldPrintBackgrounds(bool) = 0;
   virtual void SetShouldClearDocumentBackground(bool) = 0;
-  virtual void SetShouldRespectImageOrientation(bool) = 0;
   virtual void SetShowContextMenuOnMouseUp(bool) = 0;
   virtual void SetShrinksViewportContentToFit(bool) = 0;
   virtual void SetSmartInsertDeleteEnabled(bool) = 0;
@@ -243,6 +242,7 @@ class WebSettings {
   virtual void SetTextAreasAreResizable(bool) = 0;
   virtual void SetTextAutosizingEnabled(bool) = 0;
   virtual void SetAccessibilityFontScaleFactor(float) = 0;
+  virtual void SetAccessibilityAlwaysShowFocus(bool) = 0;
   virtual void SetTextTrackKindUserPreference(TextTrackKindUserPreference) = 0;
   virtual void SetTextTrackBackgroundColor(const WebString&) = 0;
   virtual void SetTextTrackFontFamily(const WebString&) = 0;
@@ -293,7 +293,11 @@ class WebSettings {
   virtual void SetLazyImageFirstKFullyLoad3G(int) = 0;
   virtual void SetLazyImageFirstKFullyLoad4G(int) = 0;
   virtual void SetForceDarkModeEnabled(bool) = 0;
+  virtual void SetPreferredColorScheme(PreferredColorScheme) = 0;
   virtual void SetNavigationControls(NavigationControls) = 0;
+  virtual void SetAriaModalPrunesAXTree(bool) = 0;
+  virtual void SetUseAXMenuList(bool) = 0;
+  virtual void SetSelectionClipboardBufferAvailable(bool) = 0;
 
  protected:
   ~WebSettings() = default;

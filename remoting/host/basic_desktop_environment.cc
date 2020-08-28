@@ -7,7 +7,7 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/logging.h"
+#include "base/check.h"
 #include "base/single_thread_task_runner.h"
 #include "build/build_config.h"
 #include "remoting/host/action_executor.h"
@@ -30,6 +30,7 @@
 
 #if defined(USE_X11)
 #include "remoting/host/linux/x11_util.h"
+#include "ui/base/ui_base_features.h"
 #endif
 
 namespace remoting {
@@ -94,6 +95,17 @@ uint32_t BasicDesktopEnvironment::GetDesktopSessionId() const {
   return UINT32_MAX;
 }
 
+std::unique_ptr<DesktopAndCursorConditionalComposer>
+BasicDesktopEnvironment::CreateComposingVideoCapturer() {
+#if defined(OS_APPLE)
+  // Mac includes the mouse cursor in the captured image in curtain mode.
+  if (options_.enable_curtaining())
+    return nullptr;
+#endif
+  return std::make_unique<DesktopAndCursorConditionalComposer>(
+      CreateVideoCapturer());
+}
+
 std::unique_ptr<webrtc::DesktopCapturer>
 BasicDesktopEnvironment::CreateVideoCapturer() {
   DCHECK(caller_task_runner_->BelongsToCurrentThread());
@@ -119,7 +131,8 @@ BasicDesktopEnvironment::BasicDesktopEnvironment(
       options_(options) {
   DCHECK(caller_task_runner_->BelongsToCurrentThread());
 #if defined(USE_X11)
-  IgnoreXServerGrabs(desktop_capture_options().x_display()->display(), true);
+  if (!features::IsUsingOzonePlatform())
+    desktop_capture_options().x_display()->IgnoreXServerGrabs();
 #elif defined(OS_WIN)
   // The options passed to this instance are determined by a process running in
   // Session 0.  Access to DirectX functions in Session 0 is limited so the

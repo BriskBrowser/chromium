@@ -4,7 +4,6 @@
 
 package org.chromium.chrome.browser.incognito;
 
-import android.annotation.TargetApi;
 import android.app.Activity;
 import android.app.ActivityManager;
 import android.app.ActivityManager.AppTask;
@@ -13,7 +12,6 @@ import android.app.IntentService;
 import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
-import android.os.Build;
 import android.text.TextUtils;
 
 import androidx.annotation.VisibleForTesting;
@@ -21,13 +19,12 @@ import androidx.annotation.VisibleForTesting;
 import org.chromium.base.ActivityState;
 import org.chromium.base.ApplicationStatus;
 import org.chromium.base.ContextUtils;
-import org.chromium.base.library_loader.LibraryProcessType;
 import org.chromium.base.task.PostTask;
 import org.chromium.chrome.browser.ChromeTabbedActivity;
 import org.chromium.chrome.browser.document.ChromeLauncherActivity;
-import org.chromium.chrome.browser.notifications.PendingIntentProvider;
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.util.AndroidTaskUtils;
+import org.chromium.components.browser_ui.notifications.PendingIntentProvider;
 import org.chromium.content_public.browser.BrowserStartupController;
 import org.chromium.content_public.browser.UiThreadTaskTraits;
 
@@ -74,10 +71,11 @@ public class IncognitoNotificationService extends IntentService {
             }
             IncognitoNotificationManager.dismissIncognitoNotification();
 
-            if (BrowserStartupController.get(LibraryProcessType.PROCESS_BROWSER)
-                            .isFullBrowserStarted()) {
-                if (Profile.getLastUsedProfile().hasOffTheRecordProfile()) {
-                    Profile.getLastUsedProfile().getOffTheRecordProfile().destroyWhenAppropriate();
+            if (BrowserStartupController.getInstance().isFullBrowserStarted()) {
+                if (Profile.getLastUsedRegularProfile().hasOffTheRecordProfile()) {
+                    Profile.getLastUsedRegularProfile()
+                            .getOffTheRecordProfile()
+                            .destroyWhenAppropriate();
                 }
             }
         });
@@ -85,11 +83,7 @@ public class IncognitoNotificationService extends IntentService {
         PostTask.runSynchronously(UiThreadTaskTraits.DEFAULT, () -> {
             // Now ensure that the snapshots in recents are all cleared for Tabbed activities
             // to remove any trace of incognito mode.
-            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) {
-                focusChromeIfNecessary();
-            } else {
-                removeNonVisibleChromeTabbedRecentEntries();
-            }
+            removeNonVisibleChromeTabbedRecentEntries();
         });
     }
 
@@ -115,7 +109,6 @@ public class IncognitoNotificationService extends IntentService {
         context.startActivity(startIntent);
     }
 
-    @TargetApi(Build.VERSION_CODES.LOLLIPOP)
     private void removeNonVisibleChromeTabbedRecentEntries() {
         Set<Integer> visibleTaskIds = getTaskIdsForVisibleActivities();
 

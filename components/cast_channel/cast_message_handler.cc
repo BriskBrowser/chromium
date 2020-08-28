@@ -21,6 +21,9 @@ namespace {
 // The max launch timeout amount for session launch requests.
 constexpr base::TimeDelta kLaunchMaxTimeout = base::TimeDelta::FromMinutes(2);
 
+// The max size of Cast Message is 64KB.
+constexpr int kMaxCastMessagePayload = 64 * 1024;
+
 void ReportParseError(const std::string& error) {
   DVLOG(1) << "Error parsing JSON message: " << error;
 }
@@ -94,6 +97,33 @@ void CastMessageHandler::EnsureConnection(int channel_id,
   DoEnsureConnection(socket, source_id, destination_id);
 }
 
+void CastMessageHandler::CloseConnection(int channel_id,
+                                         const std::string& source_id,
+                                         const std::string& destination_id) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  CastSocket* socket = socket_service_->GetSocket(channel_id);
+  if (!socket) {
+    return;
+  }
+
+  VirtualConnection connection(socket->id(), source_id, destination_id);
+  if (virtual_connections_.find(connection) == virtual_connections_.end())
+    return;
+
+  VLOG(1) << "Closing VC for channel: " << connection.channel_id
+          << ", source: " << connection.source_id
+          << ", dest: " << connection.destination_id;
+  socket->transport()->SendMessage(
+      CreateVirtualConnectionClose(connection.source_id,
+                                   connection.destination_id),
+      base::BindOnce(&CastMessageHandler::OnMessageSent,
+                     weak_ptr_factory_.GetWeakPtr()));
+
+  // Assume the virtual connection close will succeed.  Eventually the receiver
+  // will remove the connection even if it doesn't.
+  virtual_connections_.erase(connection);
+}
+
 CastMessageHandler::PendingRequests*
 CastMessageHandler::GetOrCreatePendingRequests(int channel_id) {
   CastMessageHandler::PendingRequests* requests = nullptr;
@@ -142,7 +172,7 @@ void CastMessageHandler::RequestReceiverStatus(int channel_id) {
                           CreateReceiverStatusRequest(sender_id_, request_id));
 }
 
-void CastMessageHandler::SendBroadcastMessage(
+Result CastMessageHandler::SendBroadcastMessage(
     int channel_id,
     const std::vector<std::string>& app_ids,
     const BroadcastRequest& request) {
@@ -151,7 +181,7 @@ void CastMessageHandler::SendBroadcastMessage(
   CastSocket* socket = socket_service_->GetSocket(channel_id);
   if (!socket) {
     DVLOG(2) << __func__ << ": socket not found: " << channel_id;
-    return;
+    return Result::kFailed;
   }
 
   int request_id = NextRequestId();
@@ -162,18 +192,25 @@ void CastMessageHandler::SendBroadcastMessage(
   // about the response, as broadcasts are fire-and-forget.
   CastMessage message =
       CreateBroadcastRequest(sender_id_, request_id, app_ids, request);
+  if (message.ByteSizeLong() > kMaxCastMessagePayload) {
+    return Result::kFailed;
+  }
   SendCastMessageToSocket(socket, message);
+  return Result::kOk;
 }
 
-void CastMessageHandler::LaunchSession(int channel_id,
-                                       const std::string& app_id,
-                                       base::TimeDelta launch_timeout,
-                                       LaunchSessionCallback callback) {
+void CastMessageHandler::LaunchSession(
+    int channel_id,
+    const std::string& app_id,
+    base::TimeDelta launch_timeout,
+    const std::vector<std::string>& supported_app_types,
+    const base::Optional<base::Value>& app_params,
+    LaunchSessionCallback callback) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   CastSocket* socket = socket_service_->GetSocket(channel_id);
   if (!socket) {
-    DVLOG(2) << __func__ << ": socket not found: " << channel_id;
-    std::move(callback).Run(LaunchSessionResponse());
+    std::move(callback).Run(GetLaunchSessionResponseError(
+        base::StringPrintf("Socket not found: %d.", channel_id)));
     return;
   }
 
@@ -183,11 +220,17 @@ void CastMessageHandler::LaunchSession(int channel_id,
   launch_timeout = std::min(launch_timeout, kLaunchMaxTimeout);
   DVLOG(2) << __func__ << ", channel_id: " << channel_id
            << ", request_id: " << request_id;
+  CastMessage message = CreateLaunchRequest(
+      sender_id_, request_id, app_id, locale_, supported_app_types, app_params);
+  if (message.ByteSizeLong() > kMaxCastMessagePayload) {
+    std::move(callback).Run(GetLaunchSessionResponseError(
+        "Message size exceeds maximum cast channel message payload."));
+    return;
+  }
   if (requests->AddLaunchRequest(std::make_unique<LaunchSessionRequest>(
                                      request_id, std::move(callback), clock_),
                                  launch_timeout)) {
-    SendCastMessageToSocket(
-        socket, CreateLaunchRequest(sender_id_, request_id, app_id, locale_));
+    SendCastMessageToSocket(socket, message);
   }
 }
 
@@ -233,6 +276,9 @@ Result CastMessageHandler::SendAppMessage(int channel_id,
                                           const CastMessage& message) {
   DCHECK(!IsCastInternalNamespace(message.namespace_()))
       << ": unexpected app message namespace: " << message.namespace_();
+  if (message.ByteSizeLong() > kMaxCastMessagePayload) {
+    return Result::kFailed;
+  }
   return SendCastMessage(channel_id, message);
 }
 
@@ -300,9 +346,6 @@ void CastMessageHandler::OnError(const CastSocket& socket,
 void CastMessageHandler::OnMessage(const CastSocket& socket,
                                    const CastMessage& message) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  DVLOG(2) << __func__ << ", channel_id: " << socket.id()
-           << ", message: " << message;
-
   // TODO(jrw): Splitting internal messages into a separate code path with a
   // separate data type is pretty questionable, because it causes duplicated
   // code paths in the downstream logic (manifested as separate OnAppMessage and
@@ -310,6 +353,8 @@ void CastMessageHandler::OnMessage(const CastSocket& socket,
   if (IsCastInternalNamespace(message.namespace_())) {
     if (message.payload_type() ==
         cast::channel::CastMessage_PayloadType_STRING) {
+      VLOG(1) << __func__ << ": channel_id: " << socket.id()
+              << ", message: " << message;
       parse_json_.Run(
           message.payload_utf8(),
           base::BindOnce(&CastMessageHandler::HandleCastInternalMessage,
@@ -390,6 +435,8 @@ void CastMessageHandler::SendCastMessageToSocket(CastSocket* socket,
   // A virtual connection must be opened to the receiver before other messages
   // can be sent.
   DoEnsureConnection(socket, message.source_id(), message.destination_id());
+  VLOG(1) << __func__ << ": channel_id: " << socket->id()
+          << ", message: " << message;
   socket->transport()->SendMessage(
       message, base::BindOnce(&CastMessageHandler::OnMessageSent,
                               weak_ptr_factory_.GetWeakPtr()));
@@ -404,9 +451,9 @@ void CastMessageHandler::DoEnsureConnection(CastSocket* socket,
   if (virtual_connections_.find(connection) != virtual_connections_.end())
     return;
 
-  DVLOG(1) << "Creating VC for channel: " << connection.channel_id
-           << ", source: " << connection.source_id
-           << ", dest: " << connection.destination_id;
+  VLOG(1) << "Creating VC for channel: " << connection.channel_id
+          << ", source: " << connection.source_id
+          << ", dest: " << connection.destination_id;
   CastMessage virtual_connection_request = CreateVirtualConnectionRequest(
       connection.source_id, connection.destination_id,
       connection.destination_id == kPlatformReceiverId

@@ -98,7 +98,8 @@ void RecordDismissalMetrics(
     password_manager::metrics_util::LogUpdateUIDismissalReason(
         infobar_response);
   } else {
-    password_manager::metrics_util::LogSaveUIDismissalReason(infobar_response);
+    password_manager::metrics_util::LogSaveUIDismissalReason(
+        infobar_response, /*user_state=*/base::nullopt);
   }
 }
 
@@ -202,7 +203,7 @@ base::string16 IOSChromeSavePasswordInfoBarDelegate::GetButtonLabel(
 bool IOSChromeSavePasswordInfoBarDelegate::Accept() {
   DCHECK(form_to_save());
   form_to_save()->Save();
-  set_infobar_response(password_manager::metrics_util::CLICKED_SAVE);
+  set_infobar_response(password_manager::metrics_util::CLICKED_ACCEPT);
   password_update_ = true;
   current_password_saved_ = true;
   return true;
@@ -223,7 +224,8 @@ void IOSChromeSavePasswordInfoBarDelegate::InfoBarDismissed() {
 
 bool IOSChromeSavePasswordInfoBarDelegate::ShouldExpire(
     const NavigationDetails& details) const {
-  return !details.is_redirect && ConfirmInfoBarDelegate::ShouldExpire(details);
+  return !details.is_form_submission && !details.is_redirect &&
+         ConfirmInfoBarDelegate::ShouldExpire(details);
 }
 
 void IOSChromeSavePasswordInfoBarDelegate::UpdateCredentials(
@@ -238,7 +240,8 @@ void IOSChromeSavePasswordInfoBarDelegate::UpdateCredentials(
 
 void IOSChromeSavePasswordInfoBarDelegate::InfobarPresenting(bool automatic) {
   DCHECK(IsInfobarUIRebootEnabled());
-  DCHECK(!infobar_presenting_);
+  if (infobar_presenting_)
+    return;
 
   RecordPresentationMetrics(form_to_save(), current_password_saved_,
                             IsUpdateInfobar(infobar_type_), automatic);
@@ -247,7 +250,8 @@ void IOSChromeSavePasswordInfoBarDelegate::InfobarPresenting(bool automatic) {
 
 void IOSChromeSavePasswordInfoBarDelegate::InfobarDismissed() {
   DCHECK(IsInfobarUIRebootEnabled());
-  DCHECK(infobar_presenting_);
+  if (!infobar_presenting_)
+    return;
 
   RecordDismissalMetrics(form_to_save(), infobar_response(),
                          IsUpdateInfobar(infobar_type_));

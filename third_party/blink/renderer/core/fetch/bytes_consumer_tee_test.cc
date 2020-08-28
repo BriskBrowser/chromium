@@ -7,6 +7,7 @@
 #include "base/memory/scoped_refptr.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/renderer/core/fetch/bytes_consumer_test_util.h"
+#include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/core/testing/page_test_base.h"
 #include "third_party/blink/renderer/platform/blob/blob_data.h"
 #include "third_party/blink/renderer/platform/loader/testing/bytes_consumer_test_reader.h"
@@ -23,8 +24,6 @@ using Result = BytesConsumer::Result;
 class BytesConsumerTestClient final
     : public GarbageCollected<BytesConsumerTestClient>,
       public BytesConsumer::Client {
-  USING_GARBAGE_COLLECTED_MIXIN(BytesConsumerTestClient);
-
  public:
   void OnStateChange() override { ++num_on_state_change_called_; }
   String DebugName() const override { return "BytesConsumerTestClient"; }
@@ -131,7 +130,7 @@ TEST_F(BytesConsumerTeeTest, CreateDone) {
 
   BytesConsumer* dest1 = nullptr;
   BytesConsumer* dest2 = nullptr;
-  BytesConsumerTee(&GetDocument(), src, &dest1, &dest2);
+  BytesConsumerTee(GetFrame().DomWindow(), src, &dest1, &dest2);
 
   auto result1 = (MakeGarbageCollected<BytesConsumerTestReader>(dest1))->Run();
   auto result2 = (MakeGarbageCollected<BytesConsumerTestReader>(dest2))->Run();
@@ -166,7 +165,7 @@ TEST_F(BytesConsumerTeeTest, TwoPhaseRead) {
 
   BytesConsumer* dest1 = nullptr;
   BytesConsumer* dest2 = nullptr;
-  BytesConsumerTee(&GetDocument(), src, &dest1, &dest2);
+  BytesConsumerTee(GetFrame().DomWindow(), src, &dest1, &dest2);
 
   EXPECT_EQ(BytesConsumer::PublicState::kReadableOrWaiting,
             dest1->GetPublicState());
@@ -198,7 +197,7 @@ TEST_F(BytesConsumerTeeTest, TwoPhaseReadWithDataAndDone) {
 
   BytesConsumer* dest1 = nullptr;
   BytesConsumer* dest2 = nullptr;
-  BytesConsumerTee(&GetDocument(), src, &dest1, &dest2);
+  BytesConsumerTee(GetFrame().DomWindow(), src, &dest1, &dest2);
 
   EXPECT_EQ(BytesConsumer::PublicState::kReadableOrWaiting,
             dest1->GetPublicState());
@@ -229,7 +228,7 @@ TEST_F(BytesConsumerTeeTest, Error) {
 
   BytesConsumer* dest1 = nullptr;
   BytesConsumer* dest2 = nullptr;
-  BytesConsumerTee(&GetDocument(), src, &dest1, &dest2);
+  BytesConsumerTee(GetFrame().DomWindow(), src, &dest1, &dest2);
 
   EXPECT_EQ(BytesConsumer::PublicState::kErrored, dest1->GetPublicState());
   EXPECT_EQ(BytesConsumer::PublicState::kErrored, dest2->GetPublicState());
@@ -262,7 +261,7 @@ TEST_F(BytesConsumerTeeTest, Cancel) {
 
   BytesConsumer* dest1 = nullptr;
   BytesConsumer* dest2 = nullptr;
-  BytesConsumerTee(&GetDocument(), src, &dest1, &dest2);
+  BytesConsumerTee(GetFrame().DomWindow(), src, &dest1, &dest2);
 
   EXPECT_EQ(BytesConsumer::PublicState::kReadableOrWaiting,
             dest1->GetPublicState());
@@ -292,7 +291,7 @@ TEST_F(BytesConsumerTeeTest, CancelShouldNotAffectTheOtherDestination) {
 
   BytesConsumer* dest1 = nullptr;
   BytesConsumer* dest2 = nullptr;
-  BytesConsumerTee(&GetDocument(), src, &dest1, &dest2);
+  BytesConsumerTee(GetFrame().DomWindow(), src, &dest1, &dest2);
 
   EXPECT_EQ(BytesConsumer::PublicState::kReadableOrWaiting,
             dest1->GetPublicState());
@@ -327,7 +326,7 @@ TEST_F(BytesConsumerTeeTest, CancelShouldNotAffectTheOtherDestination2) {
 
   BytesConsumer* dest1 = nullptr;
   BytesConsumer* dest2 = nullptr;
-  BytesConsumerTee(&GetDocument(), src, &dest1, &dest2);
+  BytesConsumerTee(GetFrame().DomWindow(), src, &dest1, &dest2);
 
   EXPECT_EQ(BytesConsumer::PublicState::kReadableOrWaiting,
             dest1->GetPublicState());
@@ -357,7 +356,7 @@ TEST_F(BytesConsumerTeeTest, BlobHandle) {
 
   BytesConsumer* dest1 = nullptr;
   BytesConsumer* dest2 = nullptr;
-  BytesConsumerTee(&GetDocument(), src, &dest1, &dest2);
+  BytesConsumerTee(GetFrame().DomWindow(), src, &dest1, &dest2);
 
   scoped_refptr<BlobDataHandle> dest_blob_data_handle1 =
       dest1->DrainAsBlobDataHandle(
@@ -379,7 +378,7 @@ TEST_F(BytesConsumerTeeTest, BlobHandleWithInvalidSize) {
 
   BytesConsumer* dest1 = nullptr;
   BytesConsumer* dest2 = nullptr;
-  BytesConsumerTee(&GetDocument(), src, &dest1, &dest2);
+  BytesConsumerTee(GetFrame().DomWindow(), src, &dest1, &dest2);
 
   scoped_refptr<BlobDataHandle> dest_blob_data_handle1 =
       dest1->DrainAsBlobDataHandle(
@@ -399,7 +398,7 @@ TEST_F(BytesConsumerTeeTest, FormData) {
 
   BytesConsumer* dest1 = nullptr;
   BytesConsumer* dest2 = nullptr;
-  BytesConsumerTee(&GetDocument(), src, &dest1, &dest2);
+  BytesConsumerTee(GetFrame().DomWindow(), src, &dest1, &dest2);
 
   scoped_refptr<EncodedFormData> dest_form_data1 = dest1->DrainAsFormData();
   scoped_refptr<EncodedFormData> dest_form_data2 = dest2->DrainAsFormData();
@@ -416,7 +415,7 @@ TEST_F(BytesConsumerTeeTest, ConsumerCanBeErroredInTwoPhaseRead) {
 
   BytesConsumer* dest1 = nullptr;
   BytesConsumer* dest2 = nullptr;
-  BytesConsumerTee(&GetDocument(), src, &dest1, &dest2);
+  BytesConsumerTee(GetFrame().DomWindow(), src, &dest1, &dest2);
   BytesConsumerTestClient* client =
       MakeGarbageCollected<BytesConsumerTestClient>();
   dest1->SetClient(client);
@@ -450,7 +449,7 @@ TEST_F(BytesConsumerTeeTest,
 
   BytesConsumer* dest1 = nullptr;
   BytesConsumer* dest2 = nullptr;
-  BytesConsumerTee(&GetDocument(), src, &dest1, &dest2);
+  BytesConsumerTee(GetFrame().DomWindow(), src, &dest1, &dest2);
 
   dest1->SetClient(client);
 
@@ -487,7 +486,7 @@ TEST_F(BytesConsumerTeeTest,
 
   BytesConsumer* dest1 = nullptr;
   BytesConsumer* dest2 = nullptr;
-  BytesConsumerTee(&GetDocument(), src, &dest1, &dest2);
+  BytesConsumerTee(GetFrame().DomWindow(), src, &dest1, &dest2);
 
   dest1->SetClient(client);
 

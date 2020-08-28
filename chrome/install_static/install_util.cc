@@ -16,6 +16,7 @@
 
 #include "build/branding_buildflags.h"
 #include "chrome/chrome_elf/nt_registry/nt_registry.h"
+#include "chrome/install_static/buildflags.h"
 #include "chrome/install_static/install_details.h"
 #include "chrome/install_static/install_modes.h"
 #include "chrome/install_static/policy_path_parser.h"
@@ -60,6 +61,7 @@ const wchar_t kUtilityProcess[] = L"utility";
 
 namespace {
 
+#if BUILDFLAG(USE_GOOGLE_UPDATE_INTEGRATION)
 // TODO(ananta)
 // http://crbug.com/604923
 // The constants defined in this file are also defined in chrome/installer and
@@ -68,13 +70,16 @@ namespace {
 constexpr wchar_t kChromeChannelDev[] = L"dev";
 constexpr wchar_t kChromeChannelBeta[] = L"beta";
 constexpr wchar_t kChromeChannelStableExplicit[] = L"stable";
+#endif
 
 // TODO(ananta)
 // http://crbug.com/604923
 // These constants are defined in the chrome/installer directory as well. We
 // need to unify them.
+#if BUILDFLAG(USE_GOOGLE_UPDATE_INTEGRATION)
 constexpr wchar_t kRegValueAp[] = L"ap";
 constexpr wchar_t kRegValueName[] = L"name";
+#endif
 constexpr wchar_t kRegValueUsageStats[] = L"usagestats";
 constexpr wchar_t kMetricsReportingEnabled[] = L"MetricsReportingEnabled";
 
@@ -273,12 +278,11 @@ std::vector<StringType> TokenizeStringT(
   return tokens;
 }
 
+#if BUILDFLAG(USE_GOOGLE_UPDATE_INTEGRATION)
 // Returns Chrome's update channel name based on the contents of the given "ap"
 // value from Chrome's ClientState key.
 std::wstring ChannelFromAdditionalParameters(const InstallConstants& mode,
                                              const std::wstring& ap_value) {
-  assert(kUseGoogleUpdateIntegration);
-
   static constexpr wchar_t kChromeChannelBetaPattern[] = L"1?1-*";
   static constexpr wchar_t kChromeChannelBetaX64Pattern[] = L"*x64-beta*";
   static constexpr wchar_t kChromeChannelDevPattern[] = L"2?0-d*";
@@ -307,6 +311,23 @@ std::wstring ChannelFromAdditionalParameters(const InstallConstants& mode,
   // rules in the update configs.
   return std::wstring();
 }
+
+bool GetChromeChannelNameFromString(const wchar_t* channel_test,
+                                    std::wstring& channel) {
+  if (!channel_test)
+    return false;
+  if (!*channel_test || !lstrcmpiW(channel_test, kChromeChannelStableExplicit))
+    channel = std::wstring();
+  else if (!lstrcmpiW(channel_test, kChromeChannelBeta))
+    channel = kChromeChannelBeta;
+  else if (!lstrcmpiW(channel_test, kChromeChannelDev))
+    channel = kChromeChannelDev;
+  else
+    return false;
+  return true;
+}
+
+#endif  // BUILDFLAG(USE_GOOGLE_UPDATE_INTEGRATION)
 
 // Converts a process type specified as a string to the ProcessType enum.
 ProcessType GetProcessType(const std::wstring& process_type) {
@@ -380,14 +401,6 @@ std::wstring GetClientStateKeyPath() {
 
 std::wstring GetClientStateMediumKeyPath() {
   return GetClientStateMediumKeyPath(GetAppGuid());
-}
-
-std::wstring GetClientStateKeyPathForBinaries() {
-  return GetBinariesClientStateKeyPath();
-}
-
-std::wstring GetClientStateMediumKeyPathForBinaries() {
-  return GetBinariesClientStateMediumKeyPath();
 }
 
 std::wstring GetUninstallRegistryPath() {
@@ -921,18 +934,16 @@ bool RecursiveDirectoryCreate(const std::wstring& full_path) {
 
 // This function takes these inputs rather than accessing the module's
 // InstallDetails instance since it is used to bootstrap InstallDetails.
-std::wstring DetermineChannel(const InstallConstants& mode,
-                              bool system_level,
-                              bool from_binaries,
-                              std::wstring* update_ap,
-                              std::wstring* update_cohort_name) {
-  if (!kUseGoogleUpdateIntegration)
-    return std::wstring();
-
+DetermineChannelResult DetermineChannel(const InstallConstants& mode,
+                                        bool system_level,
+                                        const wchar_t* channel_override,
+                                        std::wstring* update_ap,
+                                        std::wstring* update_cohort_name) {
+#if !BUILDFLAG(USE_GOOGLE_UPDATE_INTEGRATION)
+  return {std::wstring(), ChannelOrigin::kInstallMode};
+#else
   // Read the "ap" value and cache it if requested.
-  std::wstring client_state(from_binaries
-                                ? GetBinariesClientStateKeyPath()
-                                : GetClientStateKeyPath(mode.app_guid));
+  std::wstring client_state(GetClientStateKeyPath(mode.app_guid));
   std::wstring ap_value;
   // An empty |ap_value| is used in case of error.
   nt::QueryRegValueSZ(system_level ? nt::HKLM : nt::HKCU, nt::WOW6432,
@@ -951,13 +962,20 @@ std::wstring DetermineChannel(const InstallConstants& mode,
     case ChannelStrategy::UNSUPPORTED:
       assert(false);
       break;
-    case ChannelStrategy::ADDITIONAL_PARAMETERS:
-      return ChannelFromAdditionalParameters(mode, ap_value);
+    case ChannelStrategy::ADDITIONAL_PARAMETERS: {
+      std::wstring channel_override_value;
+      if (channel_override && GetChromeChannelNameFromString(
+                                  channel_override, channel_override_value)) {
+        return {std::move(channel_override_value), ChannelOrigin::kPolicy};
+      }
+      return {ChannelFromAdditionalParameters(mode, ap_value),
+              ChannelOrigin::kAdditionalParameters};
+    }
     case ChannelStrategy::FIXED:
-      return mode.default_channel_name;
+      return {mode.default_channel_name, ChannelOrigin::kInstallMode};
   }
-
-  return std::wstring();
+  return {std::wstring(), ChannelOrigin::kInstallMode};
+#endif
 }
 
 }  // namespace install_static

@@ -8,7 +8,6 @@
 #include <memory>
 
 #include "base/callback_forward.h"
-#include "base/containers/queue.h"
 #include "base/memory/weak_ptr.h"
 #include "base/optional.h"
 #include "base/sequence_checker.h"
@@ -24,13 +23,10 @@ namespace base {
 class SequencedTaskRunner;
 }
 
-namespace gpu {
-class GpuMemoryBufferFactory;
-}  // namespace gpu
-
 namespace media {
 
 class DmabufVideoFramePool;
+class MediaLog;
 
 // An interface that defines methods to operate on video decoder components
 // inside the VideoDecoderPipeline. The interface is similar to
@@ -42,7 +38,7 @@ class DmabufVideoFramePool;
 // Note: All methods and callbacks should be called on the same sequence.
 class MEDIA_GPU_EXPORT DecoderInterface {
  public:
-  using InitCB = base::OnceCallback<void(bool success)>;
+  using InitCB = base::OnceCallback<void(Status status)>;
   // TODO(crbug.com/998413): Replace VideoFrame to GpuMemoryBuffer-based
   // instance.
   using OutputCB = base::RepeatingCallback<void(scoped_refptr<VideoFrame>)>;
@@ -59,7 +55,7 @@ class MEDIA_GPU_EXPORT DecoderInterface {
     virtual DmabufVideoFramePool* GetVideoFramePool() const = 0;
 
     // After this method is called from |decoder_|, the client needs to call
-    // DecoderInterface::OnPipelineFlushed() when all pending frames are
+    // DecoderInterface::ApplyResolutionChange() when all pending frames are
     // flushed.
     virtual void PrepareChangeResolution() = 0;
 
@@ -114,7 +110,7 @@ class MEDIA_GPU_EXPORT DecoderInterface {
   // After DecoderInterface calls |prepare_change_resolution_cb| passed
   // from the constructor, this method is called when the pipeline flushes
   // pending frames.
-  virtual void OnPipelineFlushed() = 0;
+  virtual void ApplyResolutionChange() = 0;
 
  protected:
   // Decoder task runner. All public methods of
@@ -130,21 +126,22 @@ class MEDIA_GPU_EXPORT DecoderInterface {
 class MEDIA_GPU_EXPORT VideoDecoderPipeline : public VideoDecoder,
                                               public DecoderInterface::Client {
  public:
-  // Function signature for creating VideoDecoder.
-  using CreateVDFunc = std::unique_ptr<DecoderInterface> (*)(
+  using CreateDecoderFunction = std::unique_ptr<DecoderInterface> (*)(
       scoped_refptr<base::SequencedTaskRunner>,
       base::WeakPtr<DecoderInterface::Client>);
-  using GetCreateVDFunctionsCB =
-      base::RepeatingCallback<base::queue<CreateVDFunc>(CreateVDFunc)>;
+  using CreateDecoderFunctions = std::list<CreateDecoderFunction>;
+  using GetCreateDecoderFunctionsCB =
+      base::RepeatingCallback<CreateDecoderFunctions()>;
 
   static std::unique_ptr<VideoDecoder> Create(
       scoped_refptr<base::SequencedTaskRunner> client_task_runner,
       std::unique_ptr<DmabufVideoFramePool> frame_pool,
       std::unique_ptr<VideoFrameConverter> frame_converter,
-      gpu::GpuMemoryBufferFactory* const gpu_memory_buffer_factory,
-      GetCreateVDFunctionsCB get_create_vd_functions_cb);
+      std::unique_ptr<MediaLog> media_log,
+      GetCreateDecoderFunctionsCB get_create_decoder_functions_cb);
 
   ~VideoDecoderPipeline() override;
+  static void DestroyAsync(std::unique_ptr<VideoDecoderPipeline>);
 
   // VideoDecoder implementation
   std::string GetDisplayName() const override;
@@ -152,7 +149,6 @@ class MEDIA_GPU_EXPORT VideoDecoderPipeline : public VideoDecoder,
   int GetMaxDecodeRequests() const override;
   bool NeedsBitstreamConversion() const override;
   bool CanReadWithoutStalling() const override;
-
   void Initialize(const VideoDecoderConfig& config,
                   bool low_delay,
                   CdmContext* cdm_context,
@@ -173,19 +169,13 @@ class MEDIA_GPU_EXPORT VideoDecoderPipeline : public VideoDecoder,
       const gfx::Rect& visible_rect) override;
 
  private:
-  // Get a list of the available functions for creating VideoDeocoder except
-  // |current_func| one.
-  static base::queue<CreateVDFunc> GetCreateVDFunctions(
-      CreateVDFunc current_func);
+  friend class VideoDecoderPipelineTest;
 
   VideoDecoderPipeline(
       scoped_refptr<base::SequencedTaskRunner> client_task_runner,
       std::unique_ptr<DmabufVideoFramePool> frame_pool,
       std::unique_ptr<VideoFrameConverter> frame_converter,
-      gpu::GpuMemoryBufferFactory* const gpu_memory_buffer_factory,
-      GetCreateVDFunctionsCB get_create_vd_functions_cb);
-  void Destroy() override;
-  void DestroyTask();
+      GetCreateDecoderFunctionsCB get_create_decoder_functions_cb);
 
   void InitializeTask(const VideoDecoderConfig& config,
                       InitCB init_cb,
@@ -193,11 +183,10 @@ class MEDIA_GPU_EXPORT VideoDecoderPipeline : public VideoDecoder,
   void ResetTask(base::OnceClosure closure);
   void DecodeTask(scoped_refptr<DecoderBuffer> buffer, DecodeCB decode_cb);
 
-  void CreateAndInitializeVD(base::queue<CreateVDFunc> create_vd_funcs,
-                             VideoDecoderConfig config);
-  void OnInitializeDone(base::queue<CreateVDFunc> create_vd_funcs,
-                        VideoDecoderConfig config,
-                        bool success);
+  void CreateAndInitializeVD(VideoDecoderConfig config, Status parent_error);
+  void OnInitializeDone(VideoDecoderConfig config,
+                        Status parent_error,
+                        Status status);
 
   void OnDecodeDone(bool eos_buffer, DecodeCB decode_cb, DecodeStatus status);
   void OnResetDone();
@@ -215,8 +204,8 @@ class MEDIA_GPU_EXPORT VideoDecoderPipeline : public VideoDecoder,
   // i.e. |image_processor_| or |frame_converter_| has pending frames.
   bool HasPendingFrames() const;
 
-  // Call DecoderInterface::OnPipelineFlushed() when we need to.
-  void CallOnPipelineFlushedIfNeeded();
+  // Call DecoderInterface::ApplyResolutionChange() when we need to.
+  void CallApplyResolutionChangeIfNeeded();
 
   // Call |client_flush_cb_| with |status|.
   void CallFlushCbIfNeeded(DecodeStatus status);
@@ -239,10 +228,6 @@ class MEDIA_GPU_EXPORT VideoDecoderPipeline : public VideoDecoder,
   // the client should be created using this pool.
   // Used on |decoder_task_runner_|.
   std::unique_ptr<DmabufVideoFramePool> main_frame_pool_;
-  // Used to generate additional frame pools for intermediate results if
-  // required. The instance is indirectly owned by GpuChildThread, therefore
-  // alive as long as the GPU process is.
-  gpu::GpuMemoryBufferFactory* const gpu_memory_buffer_factory_;
 
   // The image processor is only created when the decoder cannot output frames
   // with renderable format.
@@ -252,14 +237,14 @@ class MEDIA_GPU_EXPORT VideoDecoderPipeline : public VideoDecoder,
   // |client_task_runner_|.
   std::unique_ptr<VideoFrameConverter> frame_converter_;
 
-  // The callback to get a list of function for creating DecoderInterface.
-  GetCreateVDFunctionsCB get_create_vd_functions_cb_;
-
   // The current video decoder implementation. Valid after initialization is
   // successfully done.
   std::unique_ptr<DecoderInterface> decoder_;
-  // The create function of |decoder_|. nullptr iff |decoder_| is nullptr.
-  CreateVDFunc used_create_vd_func_ = nullptr;
+
+  // |remaining_create_decoder_functions_| holds all the potential video decoder
+  // creation functions. We try them all in the given order until one succeeds.
+  // Only used after initialization on |decoder_sequence_checker_|.
+  CreateDecoderFunctions remaining_create_decoder_functions_;
 
   // Callback from the client. These callback are called on
   // |client_task_runner_|.
@@ -269,8 +254,8 @@ class MEDIA_GPU_EXPORT VideoDecoderPipeline : public VideoDecoder,
   base::OnceClosure client_reset_cb_;
 
   // True if we need to notify |decoder_| that the pipeline is flushed via
-  // DecoderInterface::OnPipelineFlushed().
-  bool need_notify_decoder_flushed_ = false;
+  // DecoderInterface::ApplyResolutionChange().
+  bool need_apply_new_resolution = false;
 
   // True if the decoder needs bitstream conversion before decoding.
   bool needs_bitstream_conversion_ = false;

@@ -8,10 +8,9 @@
 
 #include <utility>
 
-#include "base/logging.h"
-#include "base/macros.h"
-#include "pdf/out_of_process_instance.h"
-#include "pdf/pdf_ppapi.h"
+#include "pdf/pdf_engine.h"
+#include "pdf/pdf_init.h"
+#include "ui/gfx/geometry/rect.h"
 
 namespace chrome_pdf {
 
@@ -23,13 +22,14 @@ class ScopedSdkInitializer {
     if (!IsSDKInitializedViaPepper())
       InitializeSDK(enable_v8);
   }
+
+  ScopedSdkInitializer(const ScopedSdkInitializer&) = delete;
+  ScopedSdkInitializer& operator=(const ScopedSdkInitializer&) = delete;
+
   ~ScopedSdkInitializer() {
     if (!IsSDKInitializedViaPepper())
       ShutdownSDK();
   }
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(ScopedSdkInitializer);
 };
 
 }  // namespace
@@ -62,7 +62,7 @@ bool RenderPDFPageToDC(base::span<const uint8_t> pdf_buffer,
   PDFEngineExports* engine_exports = PDFEngineExports::Get();
   PDFEngineExports::RenderingSettings settings(
       dpi_x, dpi_y,
-      pp::Rect(bounds_origin_x, bounds_origin_y, bounds_width, bounds_height),
+      gfx::Rect(bounds_origin_x, bounds_origin_y, bounds_width, bounds_height),
       fit_to_bounds, stretch_to_bounds, keep_aspect_ratio, center_in_bounds,
       autorotate, use_color);
   return engine_exports->RenderPDFPageToDC(pdf_buffer, page_number, settings,
@@ -97,6 +97,13 @@ base::Optional<bool> IsPDFDocTagged(base::span<const uint8_t> pdf_buffer) {
   return engine_exports->IsPDFDocTagged(pdf_buffer);
 }
 
+base::Value GetPDFStructTreeForPage(base::span<const uint8_t> pdf_buffer,
+                                    int page_index) {
+  ScopedSdkInitializer scoped_sdk_initializer(/*enable_v8=*/true);
+  PDFEngineExports* engine_exports = PDFEngineExports::Get();
+  return engine_exports->GetPDFStructTreeForPage(pdf_buffer, page_index);
+}
+
 bool GetPDFPageSizeByIndex(base::span<const uint8_t> pdf_buffer,
                            int page_number,
                            double* width,
@@ -115,13 +122,16 @@ bool RenderPDFPageToBitmap(base::span<const uint8_t> pdf_buffer,
                            int bitmap_height,
                            int dpi_x,
                            int dpi_y,
+                           bool stretch_to_bounds,
+                           bool keep_aspect_ratio,
                            bool autorotate,
                            bool use_color) {
   ScopedSdkInitializer scoped_sdk_initializer(/*enable_v8=*/true);
   PDFEngineExports* engine_exports = PDFEngineExports::Get();
   PDFEngineExports::RenderingSettings settings(
-      dpi_x, dpi_y, pp::Rect(bitmap_width, bitmap_height), true, false, true,
-      true, autorotate, use_color);
+      dpi_x, dpi_y, gfx::Rect(bitmap_width, bitmap_height),
+      /*fit_to_bounds=*/true, stretch_to_bounds, keep_aspect_ratio,
+      /*center_in_bounds=*/true, autorotate, use_color);
   return engine_exports->RenderPDFPageToBitmap(pdf_buffer, page_number,
                                                settings, bitmap_buffer);
 }

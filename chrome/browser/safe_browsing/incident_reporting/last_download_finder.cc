@@ -23,11 +23,11 @@
 #include "chrome/browser/safe_browsing/incident_reporting/incident_reporting_service.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/safe_browsing/download_type_util.h"
-#include "chrome/common/safe_browsing/file_type_policies.h"
 #include "components/history/core/browser/download_constants.h"
 #include "components/language/core/browser/pref_names.h"
 #include "components/language/core/common/locale_util.h"
 #include "components/prefs/pref_service.h"
+#include "components/safe_browsing/core/file_type_policies.h"
 #include "components/safe_browsing/core/proto/csd.pb.h"
 #include "crypto/sha2.h"
 #include "extensions/buildflags/buildflags.h"
@@ -61,7 +61,7 @@ bool IsBinaryDownloadForCurrentOS(
                 "Update logic below");
 
 // Platform-specific types are relevant only for their own platforms.
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
   if (download_type == ClientDownloadRequest::MAC_EXECUTABLE ||
       download_type == ClientDownloadRequest::MAC_ARCHIVE_FAILED_PARSING)
     return true;

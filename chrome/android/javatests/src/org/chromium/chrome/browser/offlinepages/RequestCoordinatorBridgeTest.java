@@ -4,7 +4,7 @@
 
 package org.chromium.chrome.browser.offlinepages;
 
-import android.support.test.filters.MediumTest;
+import androidx.test.filters.MediumTest;
 
 import org.junit.Assert;
 import org.junit.Before;
@@ -15,9 +15,8 @@ import org.junit.runner.RunWith;
 import org.chromium.base.Callback;
 import org.chromium.base.task.PostTask;
 import org.chromium.base.test.util.CommandLineFlags;
-import org.chromium.base.test.util.RetryOnFailure;
-import org.chromium.chrome.browser.ChromeActivity;
-import org.chromium.chrome.browser.ChromeSwitches;
+import org.chromium.chrome.browser.app.ChromeActivity;
+import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.test.ChromeActivityTestRule;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
@@ -49,7 +48,7 @@ public class RequestCoordinatorBridgeTest {
             throws InterruptedException {
         final Semaphore semaphore = new Semaphore(0);
         PostTask.runOrPostTask(UiThreadTaskTraits.DEFAULT, () -> {
-            Profile profile = Profile.getLastUsedProfile();
+            Profile profile = Profile.getLastUsedRegularProfile();
             if (incognitoProfile) {
                 profile = profile.getOffTheRecordProfile();
             }
@@ -76,7 +75,6 @@ public class RequestCoordinatorBridgeTest {
 
     @Test
     @MediumTest
-    @RetryOnFailure
     public void testGetRequestsInQueue() throws Exception {
         String url = "https://www.google.com/";
         String namespace = "custom_tabs";
@@ -110,7 +108,6 @@ public class RequestCoordinatorBridgeTest {
 
     @Test
     @MediumTest
-    @RetryOnFailure
     public void testRequestCoordinatorBridgeDisabledInIncognito() throws Exception {
         initializeBridgeForProfile(true);
         Assert.assertEquals(null, mRequestCoordinatorBridge);
@@ -118,7 +115,6 @@ public class RequestCoordinatorBridgeTest {
 
     @Test
     @MediumTest
-    @RetryOnFailure
     public void testRemoveRequestsFromQueue() throws Exception {
         String url = "https://www.google.com/";
         String namespace = "custom_tabs";

@@ -17,7 +17,6 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import org.junit.Before;
-import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.Mock;
@@ -28,11 +27,13 @@ import org.robolectric.ParameterizedRobolectricTestRunner.Parameter;
 import org.robolectric.ParameterizedRobolectricTestRunner.Parameters;
 import org.robolectric.annotation.Config;
 
-import org.chromium.base.metrics.test.DisableHistogramsRule;
 import org.chromium.chrome.browser.browserservices.BrowserServicesIntentDataProvider;
 import org.chromium.chrome.browser.customtabs.content.CustomTabActivityTabController;
 import org.chromium.chrome.browser.customtabs.content.CustomTabActivityTabProvider;
+import org.chromium.chrome.browser.flags.ActivityType;
 import org.chromium.chrome.browser.tab.Tab;
+import org.chromium.chrome.browser.tab.state.CriticalPersistedTabData;
+import org.chromium.chrome.browser.tasks.tab_management.TabUiUnitTestUtils;
 import org.chromium.chrome.browser.webapps.WebappExtras;
 import org.chromium.content_public.browser.NavigationController;
 import org.chromium.content_public.browser.NavigationEntry;
@@ -49,8 +50,6 @@ import java.util.Stack;
 @RunWith(ParameterizedRobolectricTestRunner.class)
 @Config(sdk = 21, manifest = Config.NONE)
 public class CloseButtonNavigatorTest {
-    @Rule
-    public DisableHistogramsRule mDisableHistogramsRule = new DisableHistogramsRule();
 
     @Parameters
     public static Collection<Object[]> data() {
@@ -78,6 +77,9 @@ public class CloseButtonNavigatorTest {
             mWebappExtras = null;
         }
         doReturn(mWebappExtras).when(mIntentDataProvider).getWebappExtras();
+        doReturn(mIsWebapp ? ActivityType.WEBAPP : ActivityType.CUSTOM_TAB)
+                .when(mIntentDataProvider)
+                .getActivityType();
 
         mCloseButtonNavigator =
                 new CloseButtonNavigator(mTabController, mTabProvider, mIntentDataProvider);
@@ -109,8 +111,9 @@ public class CloseButtonNavigatorTest {
         WebContents webContents = mock(WebContents.class);
         NavigationController navigationController = mock(NavigationController.class);
 
-        when(tab.getUrl()).thenAnswer(invocation ->
-            history.getEntryAtIndex(history.getCurrentEntryIndex()).getUrl());
+        when(tab.getUrlString())
+                .thenAnswer(invocation
+                        -> history.getEntryAtIndex(history.getCurrentEntryIndex()).getUrl());
         when(tab.getWebContents()).thenReturn(webContents);
         when(webContents.getNavigationController()).thenReturn(navigationController);
         when(navigationController.getNavigationHistory()).thenReturn(history);
@@ -120,7 +123,11 @@ public class CloseButtonNavigatorTest {
     }
 
     private void setParentTabId(Tab childTab, int parentTabId) {
-        when(childTab.getParentId()).thenReturn(parentTabId);
+        CriticalPersistedTabData criticalPersistedTabData =
+                CriticalPersistedTabData.build(childTab);
+        criticalPersistedTabData.setParentId(parentTabId);
+        TabUiUnitTestUtils.prepareTab(
+                childTab, CriticalPersistedTabData.class, criticalPersistedTabData);
     }
 
     private NavigationController currentTabsNavigationController() {

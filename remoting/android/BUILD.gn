@@ -33,16 +33,14 @@ remoting_credits("credits_resources_raw") {
 }
 
 remoting_localize("remoting_apk_manifest") {
-  sources = [
-    "java/AndroidManifest.xml.jinja2",
-  ]
+  sources = [ "java/AndroidManifest.xml.jinja2" ]
   locales = [ "en" ]
   variables = [ rebase_path(branding_path) ]
   output = "$root_gen_dir/remoting/android/{{source_name_part}}"
 }
 
 android_resources("remoting_android_client_java_resources") {
-  custom_package = "org.chromium.chromoting"
+  create_srcjar = false
   sources = [
     "java/res/drawable-hdpi/empty_host_list.png",
     "java/res/drawable-hdpi/ic_action_full_screen.png",
@@ -148,10 +146,12 @@ remoting_android_client_java_tmpl("remoting_android_client_java") {
 }
 
 remoting_apk_tmpl("remoting_apk") {
+  enable_lint = true
+  lint_baseline_file = "lint-baseline.xml"
+  lint_suppressions_file = "lint-suppressions.xml"
+
   apk_name = "Chromoting"
-  sources = [
-    "//remoting/android/apk/src/org/chromium/chromoting/RemotingApplication.java",
-  ]
+  sources = [ "//remoting/android/apk/src/org/chromium/chromoting/RemotingApplication.java" ]
   deps = [
     ":remoting_android_client_java",
     "//base:base_java",
@@ -160,9 +160,7 @@ remoting_apk_tmpl("remoting_apk") {
 }
 
 remoting_localize("remoting_test_apk_manifest") {
-  sources = [
-    "javatests/AndroidManifest.xml.jinja2",
-  ]
+  sources = [ "javatests/AndroidManifest.xml.jinja2" ]
   locales = [ "en" ]
   variables = [ rebase_path(branding_path) ]
   output = "$root_gen_dir/remoting/android_test/{{source_name_part}}"
@@ -171,7 +169,6 @@ remoting_localize("remoting_test_apk_manifest") {
 instrumentation_test_apk("remoting_test_apk") {
   android_manifest = "$root_gen_dir/remoting/android_test/AndroidManifest.xml"
   android_manifest_dep = ":remoting_test_apk_manifest"
-  target_sdk_version = 23
   apk_name = "ChromotingTest"
   apk_under_test = ":remoting_apk"
   sources = [
@@ -188,6 +185,7 @@ instrumentation_test_apk("remoting_test_apk") {
     ":remoting_android_client_java",
     "//base:base_java",
     "//base:base_java_test_support",
+    "//third_party/android_deps:androidx_test_runner_java",
     "//third_party/android_support_test_runner:runner_java",
     "//third_party/junit:junit",
   ]

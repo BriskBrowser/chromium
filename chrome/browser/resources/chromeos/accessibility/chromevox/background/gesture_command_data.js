@@ -11,9 +11,8 @@ goog.provide('GestureGranularity');
  * @type {!Object<string,
  *     {
  *     msgId: string,
- *     command: string,
- *     menuKeyOverride: (boolean|undefined),
- *     keyOverride: ({keyCode: number, modifiers: ({ctrl:
+ *     command: (string|undefined),
+ *     menuKeyOverride: ({keyCode: number, modifiers: ({ctrl:
  * boolean}|undefined)}|undefined)
  *    }>}
  * @const
@@ -21,45 +20,35 @@ goog.provide('GestureGranularity');
 GestureCommandData.GESTURE_COMMAND_MAP = {
   'click': {command: 'forceClickOnCurrentItem', msgId: 'click_gesture'},
   'swipeUp1': {
-    msgId: 'swipeUp1_gesture',
+    msgId: 'swipeup1_gesture',
     command: 'previousAtGranularity',
-    menuKeyOverride: true,
-    keyOverride: {keyCode: 38 /* up */, skipStart: true, multiline: true}
+    menuKeyOverride: {keyCode: 38 /* up */}
   },
   'swipeDown1': {
-    msgId: 'swipeDown1_gesture',
+    msgId: 'swipedown1_gesture',
     command: 'nextAtGranularity',
-    menuKeyOverride: true,
-    keyOverride: {keyCode: 40 /* Down */, skipEnd: true, multiline: true}
+    menuKeyOverride: {keyCode: 40 /* Down */}
   },
   'swipeLeft1': {
-    msgId: 'swipeLeft1_gesture',
+    msgId: 'swipeleft1_gesture',
     command: 'previousObject',
-    menuKeyOverride: true,
-    keyOverride: {keyCode: 37 /* left */}
+    menuKeyOverride: {keyCode: 37 /* left */}
   },
   'swipeRight1': {
-    msgId: 'swipeRight1_gesture',
+    msgId: 'swiperight1_gesture',
     command: 'nextObject',
-    menuKeyOverride: true,
-    keyOverride: {keyCode: 39 /* right */}
+    menuKeyOverride: {keyCode: 39 /* right */}
   },
-  'swipeUp2': {msgId: 'swipeUp2_gesture', command: 'jumpToTop'},
-  'swipeDown2': {msgId: 'swipeDown2_gesture', command: 'readFromHere'},
-  'swipeLeft2': {
-    msgId: 'swipeLeft2_gesture',
-    command: 'previousWord',
-    keyOverride: {keyCode: 37 /* left */, modifiers: {ctrl: true}}
-  },
-  'swipeRight2': {
-    msgId: 'swipeRight2_gesture',
-    command: 'nextWord',
-    keyOverride: {keyCode: 40 /* right */, modifiers: {ctrl: true}}
-  },
-  'swipeUp3': {msgId: 'swipeUp3_gesture', command: 'scrollForward'},
-  'swipeDown3': {msgId: 'swipeDown3_gesture', command: 'scrollBackward'},
-  'swipeLeft3': {msgId: 'swipeLeft3_gesture', command: 'previousGranularity'},
-  'swipeRight3': {msgId: 'swipeRight3_gesture', command: 'nextGranularity'},
+  'swipeUp2': {msgId: 'swipeup2_gesture', command: 'jumpToTop'},
+  'swipeDown2': {msgId: 'swipedown2_gesture', command: 'readFromHere'},
+  'swipeLeft2': {msgId: 'swipeleft2_gesture', command: 'previousWord'},
+  'swipeRight2': {msgId: 'swiperight2_gesture', command: 'nextWord'},
+  'swipeUp3': {msgId: 'swipeup3_gesture', command: 'nextPage'},
+  'swipeDown3': {msgId: 'swipedown3_gesture', command: 'previousPage'},
+  'swipeLeft3': {msgId: 'swipeleft3_gesture', command: 'previousGranularity'},
+  'swipeRight3': {msgId: 'swiperight3_gesture', command: 'nextGranularity'},
+
+  'touchExplore': {msgId: 'touch_explore_gesture'},
 
   'tap2': {msgId: 'tap2_gesture', command: 'stopSpeech'},
   'tap4': {msgId: 'tap4_gesture', command: 'showPanelMenuMostRecent'},
@@ -73,5 +62,8 @@ GestureGranularity = {
   CHARACTER: 0,
   WORD: 1,
   LINE: 2,
-  COUNT: 3
+  HEADING: 3,
+  LINK: 4,
+  FORM_FIELD_CONTROL: 5,
+  COUNT: 6
 };

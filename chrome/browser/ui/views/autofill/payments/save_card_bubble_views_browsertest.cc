@@ -14,6 +14,7 @@
 #include "base/test/metrics/user_action_tester.h"
 #include "base/test/scoped_feature_list.h"
 #include "build/build_config.h"
+#include "chrome/browser/autofill/autofill_uitest_util.h"
 #include "chrome/browser/autofill/personal_data_manager_factory.h"
 #include "chrome/browser/signin/identity_manager_factory.h"
 #include "chrome/browser/sync/profile_sync_service_factory.h"
@@ -29,7 +30,7 @@
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/views/autofill/payments/dialog_view_ids.h"
 #include "chrome/browser/ui/views/autofill/payments/save_card_bubble_views.h"
-#include "chrome/browser/ui/views/autofill/payments/save_card_icon_view.h"
+#include "chrome/browser/ui/views/autofill/payments/save_payment_icon_view.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
 #include "chrome/browser/ui/views/location_bar/location_bar_view.h"
 #include "chrome/browser/ui/views/page_action/page_action_icon_container.h"
@@ -63,6 +64,7 @@
 #include "components/sync/test/fake_server/fake_server_network_resources.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/web_contents_observer.h"
+#include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/test_navigation_observer.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
@@ -325,10 +327,9 @@ class SaveCardBubbleViewsFullFormBrowserTest
   void SetAccountFullName(const std::string& full_name) {
     signin::IdentityManager* identity_manager =
         IdentityManagerFactory::GetForProfile(browser()->profile());
-    PersonalDataManager* personal_data_manager =
-        PersonalDataManagerFactory::GetForProfile(browser()->profile());
     CoreAccountInfo core_info =
-        personal_data_manager->GetAccountInfoForPaymentsServer();
+        PersonalDataManagerFactory::GetForProfile(browser()->profile())
+            ->GetAccountInfoForPaymentsServer();
 
     AccountInfo account_info;
     account_info.account_id = core_info.account_id;
@@ -610,8 +611,7 @@ class SaveCardBubbleViewsFullFormBrowserTest
   }
 
   void ClickOnDialogView(views::View* view) {
-    GetSaveCardBubbleViews()
-        ->ResetViewShownTimeStampForTesting();
+    GetSaveCardBubbleViews()->ResetViewShownTimeStampForTesting();
     views::BubbleFrameView* bubble_frame_view =
         static_cast<views::BubbleFrameView*>(GetSaveCardBubbleViews()
                                                  ->GetWidget()
@@ -701,7 +701,7 @@ class SaveCardBubbleViewsFullFormBrowserTest
     return static_cast<SaveCardBubbleViews*>(save_card_bubble_view);
   }
 
-  SaveCardIconView* GetSaveCardIconView() {
+  SavePaymentIconView* GetSaveCardIconView() {
     BrowserView* browser_view =
         BrowserView::GetBrowserViewForBrowser(browser());
     PageActionIconView* icon =
@@ -715,7 +715,7 @@ class SaveCardBubbleViewsFullFormBrowserTest
     } else {
       DCHECK(browser_view->GetLocationBarView()->Contains(icon));
     }
-    return static_cast<SaveCardIconView*>(icon);
+    return static_cast<SavePaymentIconView*>(icon);
   }
 
   void OpenSettingsFromManageCardsPrompt() {
@@ -815,23 +815,6 @@ class SaveCardBubbleViewsFullFormBrowserTest
   std::unique_ptr<device::ScopedGeolocationOverrider> geolocation_overrider_;
 
   DISALLOW_COPY_AND_ASSIGN(SaveCardBubbleViewsFullFormBrowserTest);
-};
-
-class SaveCardBubbleViewsFullFormBrowserTestWithEditableExpirationDate
-    : public SaveCardBubbleViewsFullFormBrowserTest {
- public:
-  SaveCardBubbleViewsFullFormBrowserTestWithEditableExpirationDate() {
-    // Enable the EditableExpirationDate experiment.
-    feature_list_.InitWithFeatures(
-        // Enabled
-        {features::kAutofillUpstreamEditableExpirationDate,
-         features::kAutofillUpstream},
-        // Disabled
-        {});
-  }
-
- private:
-  base::test::ScopedFeatureList feature_list_;
 };
 
 // TODO(crbug.com/932818): Remove this class after experiment flag is cleaned
@@ -1201,46 +1184,11 @@ IN_PROC_BROWSER_TEST_F(SaveCardBubbleViewsSyncTransportFullFormBrowserTest,
   EXPECT_FALSE(FindViewInBubbleById(DialogViewId::UPLOAD_EXPLANATION_TOOLTIP));
 }
 
-// Sets up Chrome with Sync-the-transport mode enabled, with the Wallet datatype
-// as enabled type as well as editable cardholder name enabled.
-class
-    SaveCardBubbleViewsSyncTransportWithEditableCardholderNameFullFormBrowserTest
-    : public SaveCardBubbleViewsFullFormBrowserTest {
- protected:
-  SaveCardBubbleViewsSyncTransportWithEditableCardholderNameFullFormBrowserTest() {
-    // Set up Sync the transport mode, so that sync starts on content-area
-    // signins. Also add wallet data type to the list of enabled types and
-    // enable EditableCardholderName experiment.
-    feature_list_.InitWithFeatures(
-        // Enabled
-        {features::kAutofillUpstream,
-         features::kAutofillUpstreamEditableCardholderName,
-         features::kAutofillEnableAccountWalletStorage},
-        // Disabled
-        {});
-  }
-
-  void SetUpInProcessBrowserTestFixture() override {
-    test_signin_client_factory_ =
-        secondary_account_helper::SetUpSigninClient(test_url_loader_factory());
-
-    SaveCardBubbleViewsFullFormBrowserTest::SetUpInProcessBrowserTestFixture();
-  }
-
- private:
-  base::test::ScopedFeatureList feature_list_;
-  secondary_account_helper::ScopedSigninClientFactory
-      test_signin_client_factory_;
-
-  DISALLOW_COPY_AND_ASSIGN(
-      SaveCardBubbleViewsSyncTransportWithEditableCardholderNameFullFormBrowserTest);
-};
-
 // Tests the upload save bubble when sync transport for Wallet data is active.
 // Ensures that if cardholder name is explicitly requested, it is prefilled with
 // the name from the user's Google Account.
 IN_PROC_BROWSER_TEST_F(
-    SaveCardBubbleViewsSyncTransportWithEditableCardholderNameFullFormBrowserTest,
+    SaveCardBubbleViewsSyncTransportFullFormBrowserTest,
     Upload_TransportMode_RequestedCardholderNameTextfieldIsPrefilledWithFocusName) {
   // Signing in (without making the account Chrome's primary one or explicitly
   // setting up Sync) causes the Sync machinery to start up in standalone
@@ -1323,27 +1271,10 @@ IN_PROC_BROWSER_TEST_F(
   ClickOnCloseButton();
 }
 
-class SaveCardBubbleViewsFullFormBrowserTestWithEditableCardholderName
-    : public SaveCardBubbleViewsFullFormBrowserTest {
- public:
-  SaveCardBubbleViewsFullFormBrowserTestWithEditableCardholderName() {
-    // Enable the EditableCardholderName experiment.
-    feature_list_.InitWithFeatures(
-        // Enabled
-        {features::kAutofillUpstream,
-         features::kAutofillUpstreamEditableCardholderName},
-        // Disabled
-        {});
-  }
-
- private:
-  base::test::ScopedFeatureList feature_list_;
-};
-
 // Tests the upload save bubble. Ensures that the bubble does not surface the
 // cardholder name textfield if it is not needed.
 IN_PROC_BROWSER_TEST_F(
-    SaveCardBubbleViewsFullFormBrowserTestWithEditableCardholderName,
+    SaveCardBubbleViewsFullFormBrowserTestWithAutofillUpstream,
     Upload_ShouldNotRequestCardholderNameInHappyPath) {
   // Start sync.
   harness_->SetupSync();
@@ -1358,7 +1289,7 @@ IN_PROC_BROWSER_TEST_F(
 // Tests the upload save bubble. Ensures that the bubble surfaces a textfield
 // requesting cardholder name if cardholder name is missing.
 IN_PROC_BROWSER_TEST_F(
-    SaveCardBubbleViewsFullFormBrowserTestWithEditableCardholderName,
+    SaveCardBubbleViewsFullFormBrowserTestWithAutofillUpstream,
     Upload_SubmittingFormWithMissingNamesRequestsCardholderNameIfExpOn) {
   // Start sync.
   harness_->SetupSync();
@@ -1372,7 +1303,7 @@ IN_PROC_BROWSER_TEST_F(
 // Tests the upload save bubble. Ensures that the bubble surfaces a textfield
 // requesting cardholder name if cardholder name is conflicting.
 IN_PROC_BROWSER_TEST_F(
-    SaveCardBubbleViewsFullFormBrowserTestWithEditableCardholderName,
+    SaveCardBubbleViewsFullFormBrowserTestWithAutofillUpstream,
     Upload_SubmittingFormWithConflictingNamesRequestsCardholderNameIfExpOn) {
   // Start sync.
   harness_->SetupSync();
@@ -1391,7 +1322,7 @@ IN_PROC_BROWSER_TEST_F(
 // Tests the upload save bubble. Ensures that if the cardholder name textfield
 // is empty, the user is not allowed to click [Save] and close the dialog.
 IN_PROC_BROWSER_TEST_F(
-    SaveCardBubbleViewsFullFormBrowserTestWithEditableCardholderName,
+    SaveCardBubbleViewsFullFormBrowserTestWithAutofillUpstream,
     Upload_SaveButtonIsDisabledIfNoCardholderNameAndCardholderNameRequested) {
   // Start sync.
   harness_->SetupSync();
@@ -1410,19 +1341,19 @@ IN_PROC_BROWSER_TEST_F(
   cardholder_name_textfield->InsertOrReplaceText(base::ASCIIToUTF16(""));
   views::LabelButton* save_button = static_cast<views::LabelButton*>(
       FindViewInBubbleById(DialogViewId::OK_BUTTON));
-  EXPECT_EQ(save_button->state(),
+  EXPECT_EQ(save_button->GetState(),
             views::LabelButton::ButtonState::STATE_DISABLED);
   // Setting a cardholder name should enable the [Save] button.
   cardholder_name_textfield->InsertOrReplaceText(
       base::ASCIIToUTF16("John Smith"));
-  EXPECT_EQ(save_button->state(),
+  EXPECT_EQ(save_button->GetState(),
             views::LabelButton::ButtonState::STATE_NORMAL);
 }
 
 // Tests the upload save bubble. Ensures that if cardholder name is explicitly
 // requested, filling it and clicking [Save] closes the dialog.
 IN_PROC_BROWSER_TEST_F(
-    SaveCardBubbleViewsFullFormBrowserTestWithEditableCardholderName,
+    SaveCardBubbleViewsFullFormBrowserTestWithAutofillUpstream,
     Upload_EnteringCardholderNameAndClickingSaveClosesBubbleIfCardholderNameRequested) {
   // Start sync.
   harness_->SetupSync();
@@ -1455,7 +1386,7 @@ IN_PROC_BROWSER_TEST_F(
 // Tests the upload save bubble. Ensures that if cardholder name is explicitly
 // requested, it is prefilled with the name from the user's Google Account.
 IN_PROC_BROWSER_TEST_F(
-    SaveCardBubbleViewsFullFormBrowserTestWithEditableCardholderName,
+    SaveCardBubbleViewsFullFormBrowserTestWithAutofillUpstream,
     Upload_RequestedCardholderNameTextfieldIsPrefilledWithFocusName) {
   base::HistogramTester histogram_tester;
 
@@ -1487,9 +1418,8 @@ IN_PROC_BROWSER_TEST_F(
 // requested but the name on the user's Google Account is unable to be fetched
 // for any reason, the textfield is left blank.
 IN_PROC_BROWSER_TEST_F(
-    SaveCardBubbleViewsFullFormBrowserTestWithEditableCardholderName,
+    SaveCardBubbleViewsFullFormBrowserTestWithAutofillUpstream,
     Upload_RequestedCardholderNameTextfieldIsNotPrefilledWithFocusNameIfMissing) {
-  // Enable the EditableCardholderName experiment.
   base::HistogramTester histogram_tester;
 
   // Start sync.
@@ -1516,7 +1446,7 @@ IN_PROC_BROWSER_TEST_F(
 // requested and the user accepts the dialog without changing it, the correct
 // metric is logged.
 IN_PROC_BROWSER_TEST_F(
-    SaveCardBubbleViewsFullFormBrowserTestWithEditableCardholderName,
+    SaveCardBubbleViewsFullFormBrowserTestWithAutofillUpstream,
     Upload_CardholderNameRequested_SubmittingPrefilledValueLogsUneditedMetric) {
   // Start sync.
   harness_->SetupSync();
@@ -1542,7 +1472,7 @@ IN_PROC_BROWSER_TEST_F(
 // requested and the user accepts the dialog after changing it, the correct
 // metric is logged.
 IN_PROC_BROWSER_TEST_F(
-    SaveCardBubbleViewsFullFormBrowserTestWithEditableCardholderName,
+    SaveCardBubbleViewsFullFormBrowserTestWithAutofillUpstream,
     Upload_CardholderNameRequested_SubmittingChangedValueLogsEditedMetric) {
   // Start sync.
   harness_->SetupSync();
@@ -1829,7 +1759,7 @@ IN_PROC_BROWSER_TEST_F(
 // Tests the upload save bubble. Ensures that the bubble surfaces a pair of
 // dropdowns requesting expiration date if expiration date is missing.
 IN_PROC_BROWSER_TEST_F(
-    SaveCardBubbleViewsFullFormBrowserTestWithEditableExpirationDate,
+    SaveCardBubbleViewsFullFormBrowserTestWithAutofillUpstream,
     Upload_SubmittingFormWithMissingExpirationDateRequestsExpirationDate) {
   SetUpForEditableExpirationDate();
   FillFormWithoutExpirationDate();
@@ -1840,7 +1770,7 @@ IN_PROC_BROWSER_TEST_F(
 // Tests the upload save bubble. Ensures that the bubble surfaces a pair of
 // dropdowns requesting expiration date if expiration date is expired.
 IN_PROC_BROWSER_TEST_F(
-    SaveCardBubbleViewsFullFormBrowserTestWithEditableExpirationDate,
+    SaveCardBubbleViewsFullFormBrowserTestWithAutofillUpstream,
     Upload_SubmittingFormWithExpiredExpirationDateRequestsExpirationDate) {
   SetUpForEditableExpirationDate();
   FillFormWithSpecificExpirationDate("08", "2000");
@@ -1848,51 +1778,10 @@ IN_PROC_BROWSER_TEST_F(
   VerifyExpirationDateDropdownsAreVisible();
 }
 
-class
-    SaveCardBubbleViewsFullFormBrowserTestWithAutofillUpstreamAndNoEditableExpirationDate
-    : public SaveCardBubbleViewsFullFormBrowserTest {
- public:
-  SaveCardBubbleViewsFullFormBrowserTestWithAutofillUpstreamAndNoEditableExpirationDate() {
-    // Disable the EditableExpirationDate experiment.
-    feature_list_.InitWithFeatures(
-        // Enabled
-        {features::kAutofillUpstream},
-        // Disabled
-        {features::kAutofillUpstreamEditableExpirationDate});
-  }
-
- private:
-  base::test::ScopedFeatureList feature_list_;
-};
-
-// Tests the upload save bubble. Ensures that the bubble is not shown when
-// expiration date is passed, but the flag is disabled.
-IN_PROC_BROWSER_TEST_F(
-    SaveCardBubbleViewsFullFormBrowserTestWithAutofillUpstreamAndNoEditableExpirationDate,
-    Logic_ShouldNotOfferToSaveIfSubmittingExpiredExpirationDateAndExpOff) {
-  // The credit card will not be imported if the expiration date is expired and
-  // experiment is off.
-  FillFormWithSpecificExpirationDate("08", "2000");
-  SubmitForm();
-  EXPECT_FALSE(GetSaveCardBubbleViews());
-}
-
-// Tests the upload save bubble. Ensures that the bubble is not shown when
-// expiration date is missing, but the flag is disabled.
-IN_PROC_BROWSER_TEST_F(
-    SaveCardBubbleViewsFullFormBrowserTestWithAutofillUpstreamAndNoEditableExpirationDate,
-    Logic_ShouldNotOfferToSaveIfMissingExpirationDateAndExpOff) {
-  // The credit card will not be imported if there is no expiration date and
-  // experiment is off.
-  FillFormWithoutExpirationDate();
-  SubmitForm();
-  EXPECT_FALSE(GetSaveCardBubbleViews());
-}
-
 // Tests the upload save bubble. Ensures that the bubble does not surface the
 // expiration date dropdowns if it is not needed.
 IN_PROC_BROWSER_TEST_F(
-    SaveCardBubbleViewsFullFormBrowserTestWithEditableExpirationDate,
+    SaveCardBubbleViewsFullFormBrowserTestWithAutofillUpstream,
     Upload_ShouldNotRequestExpirationDateInHappyPath) {
   SetUpForEditableExpirationDate();
   FillForm();
@@ -1911,7 +1800,7 @@ IN_PROC_BROWSER_TEST_F(
 // Tests the upload save bubble. Ensures that if the expiration date drop down
 // box is changing, [Save] button will change status correctly.
 IN_PROC_BROWSER_TEST_F(
-    SaveCardBubbleViewsFullFormBrowserTestWithEditableExpirationDate,
+    SaveCardBubbleViewsFullFormBrowserTestWithAutofillUpstream,
     Upload_SaveButtonStatusResetBetweenExpirationDateSelectionChanges) {
   SetUpForEditableExpirationDate();
   FillFormWithoutExpirationDate();
@@ -1922,28 +1811,28 @@ IN_PROC_BROWSER_TEST_F(
   // because there are no preselected values in the dropdown lists.
   views::LabelButton* save_button = static_cast<views::LabelButton*>(
       FindViewInBubbleById(DialogViewId::OK_BUTTON));
-  EXPECT_EQ(save_button->state(),
+  EXPECT_EQ(save_button->GetState(),
             views::LabelButton::ButtonState::STATE_DISABLED);
   // Selecting only month or year will disable [Save] button.
   year_input()->SetSelectedRow(2);
-  EXPECT_EQ(save_button->state(),
+  EXPECT_EQ(save_button->GetState(),
             views::LabelButton::ButtonState::STATE_DISABLED);
   year_input()->SetSelectedRow(0);
   month_input()->SetSelectedRow(2);
-  EXPECT_EQ(save_button->state(),
+  EXPECT_EQ(save_button->GetState(),
             views::LabelButton::ButtonState::STATE_DISABLED);
 
   // Selecting both month and year will enable [Save] button.
   month_input()->SetSelectedRow(2);
   year_input()->SetSelectedRow(2);
-  EXPECT_EQ(save_button->state(),
+  EXPECT_EQ(save_button->GetState(),
             views::LabelButton::ButtonState::STATE_NORMAL);
 }
 
 // Tests the upload save bubble. Ensures that if the user is selecting an
 // expired expiration date, it is not allowed to click [Save].
 IN_PROC_BROWSER_TEST_F(
-    SaveCardBubbleViewsFullFormBrowserTestWithEditableExpirationDate,
+    SaveCardBubbleViewsFullFormBrowserTestWithAutofillUpstream,
     Upload_SaveButtonIsDisabledIfExpiredExpirationDateAndExpirationDateRequested) {
   SetUpForEditableExpirationDate();
   FillFormWithoutExpirationDate();
@@ -1961,7 +1850,7 @@ IN_PROC_BROWSER_TEST_F(
   // Selecting expired date will disable [Save] button.
   month_input()->SetSelectedRow(1);
   year_input()->SetSelectedRow(1);
-  EXPECT_EQ(save_button->state(),
+  EXPECT_EQ(save_button->GetState(),
             views::LabelButton::ButtonState::STATE_DISABLED);
 }
 
@@ -1969,7 +1858,7 @@ IN_PROC_BROWSER_TEST_F(
 // dropdowns requesting expiration date with year pre-populated if year is valid
 // but month is missing.
 IN_PROC_BROWSER_TEST_F(
-    SaveCardBubbleViewsFullFormBrowserTestWithEditableExpirationDate,
+    SaveCardBubbleViewsFullFormBrowserTestWithAutofillUpstream,
     Upload_SubmittingFormWithMissingExpirationDateMonthAndWithValidYear) {
   SetUpForEditableExpirationDate();
   // Submit the form with a year value, but not a month value.
@@ -1987,7 +1876,7 @@ IN_PROC_BROWSER_TEST_F(
 // dropdowns requesting expiration date with month pre-populated if month is
 // detected but year is missing.
 IN_PROC_BROWSER_TEST_F(
-    SaveCardBubbleViewsFullFormBrowserTestWithEditableExpirationDate,
+    SaveCardBubbleViewsFullFormBrowserTestWithAutofillUpstream,
     Upload_SubmittingFormWithMissingExpirationDateYearAndWithMonth) {
   SetUpForEditableExpirationDate();
   // Submit the form with a month value, but not a year value.
@@ -2005,7 +1894,7 @@ IN_PROC_BROWSER_TEST_F(
 // dropdowns requesting expiration date if month is missing and year is detected
 // but out of the range of dropdown.
 IN_PROC_BROWSER_TEST_F(
-    SaveCardBubbleViewsFullFormBrowserTestWithEditableExpirationDate,
+    SaveCardBubbleViewsFullFormBrowserTestWithAutofillUpstream,
     Upload_SubmittingFormWithExpirationDateMonthAndWithYearIsOutOfRange) {
   SetUpForEditableExpirationDate();
   // Fill form but with an expiration year ten years in the future which is out
@@ -2023,7 +1912,7 @@ IN_PROC_BROWSER_TEST_F(
 // dropdowns requesting expiration date if expiration date month is missing and
 // year is detected but passed.
 IN_PROC_BROWSER_TEST_F(
-    SaveCardBubbleViewsFullFormBrowserTestWithEditableExpirationDate,
+    SaveCardBubbleViewsFullFormBrowserTestWithAutofillUpstream,
     Upload_SubmittingFormWithExpirationDateMonthAndYearExpired) {
   SetUpForEditableExpirationDate();
   // Fill form with a valid month but a passed year.
@@ -2041,7 +1930,7 @@ IN_PROC_BROWSER_TEST_F(
 // dropdowns requesting expiration date if expiration date is expired but is
 // current year.
 IN_PROC_BROWSER_TEST_F(
-    SaveCardBubbleViewsFullFormBrowserTestWithEditableExpirationDate,
+    SaveCardBubbleViewsFullFormBrowserTestWithAutofillUpstream,
     Upload_SubmittingFormWithExpirationDateMonthAndCurrentYear) {
   SetUpForEditableExpirationDate();
   const base::Time kJune2017 = base::Time::FromDoubleT(1497552271);
@@ -2319,6 +2208,76 @@ IN_PROC_BROWSER_TEST_F(
       AutofillMetrics::SAVE_CARD_ICON_SHOWN_WITHOUT_PROMPT, 1);
 }
 
+// Tests to ensure the card nickname is shown correctly in the Upstream bubble.
+// The param indicates whether the experiment is enabled.
+class SaveCardBubbleViewsFullFormBrowserTestWithUpstreamForNickname
+    : public SaveCardBubbleViewsFullFormBrowserTest,
+      public ::testing::WithParamInterface<bool> {
+ protected:
+  SaveCardBubbleViewsFullFormBrowserTestWithUpstreamForNickname() {
+    if (GetParam()) {
+      feature_list_.InitWithFeatures(
+          /*enabled_features=*/{features::
+                                    kAutofillEnableSurfacingServerCardNickname,
+                                features::kAutofillUpstream},
+          /*disabled_features=*/{});
+    } else {
+      feature_list_.InitWithFeatures(
+          /*enabled_features=*/{features::kAutofillUpstream},
+          /*disabled_features=*/{
+              features::kAutofillEnableSurfacingServerCardNickname});
+    }
+  }
+
+ private:
+  base::test::ScopedFeatureList scoped_feature_list_;
+};
+
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    SaveCardBubbleViewsFullFormBrowserTestWithUpstreamForNickname,
+    testing::Bool());
+
+IN_PROC_BROWSER_TEST_P(
+    SaveCardBubbleViewsFullFormBrowserTestWithUpstreamForNickname,
+    LocalCardHasNickname) {
+  base::HistogramTester histogram_tester;
+  CreditCard card = test::GetCreditCard();
+  // Set card number to match the number to be filled in the form.
+  card.SetNumber(base::ASCIIToUTF16("5454545454545454"));
+  card.SetNickname(base::ASCIIToUTF16("nickname"));
+  AddTestCreditCard(browser(), card);
+
+  // Start sync.
+  harness_->SetupSync();
+
+  FillForm();
+  SubmitFormAndWaitForCardUploadSaveBubble();
+
+  EXPECT_EQ(GetSaveCardBubbleViews()->GetCardIdentifierString(),
+            (GetParam() ? card.NicknameAndLastFourDigitsForTesting()
+                        : card.NetworkAndLastFourDigits()));
+}
+
+IN_PROC_BROWSER_TEST_P(
+    SaveCardBubbleViewsFullFormBrowserTestWithUpstreamForNickname,
+    LocalCardHasNoNickname) {
+  base::HistogramTester histogram_tester;
+  CreditCard card = test::GetCreditCard();
+  // Set card number to match the number to be filled in the form.
+  card.SetNumber(base::ASCIIToUTF16("5454545454545454"));
+  AddTestCreditCard(browser(), card);
+
+  // Start sync.
+  harness_->SetupSync();
+
+  FillForm();
+  SubmitFormAndWaitForCardUploadSaveBubble();
+
+  EXPECT_EQ(GetSaveCardBubbleViews()->GetCardIdentifierString(),
+            card.NetworkAndLastFourDigits());
+}
+
 // TODO(crbug.com/932818): Remove the condition once the experiment is enabled
 // on ChromeOS.
 #if !defined(OS_CHROMEOS)
@@ -2346,7 +2305,7 @@ IN_PROC_BROWSER_TEST_F(SaveCardBubbleViewsFullFormBrowserTestForStatusChip,
   EXPECT_TRUE(GetSaveCardBubbleViews()->GetVisible());
 }
 
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
 // TODO(crbug.com/823543): Widget activation doesn't work on Mac.
 #define MAYBE_ActivateFirstInactiveBubbleForAccessibility \
   DISABLED_ActivateFirstInactiveBubbleForAccessibility

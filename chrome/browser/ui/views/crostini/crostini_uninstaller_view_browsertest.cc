@@ -4,6 +4,7 @@
 
 #include "chrome/browser/ui/views/crostini/crostini_uninstaller_view.h"
 
+#include "base/memory/ptr_util.h"
 #include "base/metrics/histogram_base.h"
 #include "base/run_loop.h"
 #include "base/test/metrics/histogram_tester.h"
@@ -21,6 +22,7 @@
 #include "chromeos/dbus/fake_concierge_client.h"
 #include "components/crx_file/id_util.h"
 #include "components/prefs/pref_service.h"
+#include "content/public/test/browser_test.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 class CrostiniUninstallerViewBrowserTest : public CrostiniDialogBrowserTest {
@@ -74,7 +76,9 @@ class CrostiniUninstallerViewBrowserTest : public CrostiniDialogBrowserTest {
   bool HasCancelButton() { return ActiveView()->GetCancelButton() != nullptr; }
 
   void WaitForViewDestroyed() {
-    base::RunLoop().RunUntilIdle();
+    base::RunLoop run_loop;
+    ActiveView()->set_destructor_callback_for_testing(run_loop.QuitClosure());
+    run_loop.Run();
     EXPECT_EQ(nullptr, ActiveView());
   }
 

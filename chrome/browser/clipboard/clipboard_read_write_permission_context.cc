@@ -4,27 +4,28 @@
 
 #include "chrome/browser/clipboard/clipboard_read_write_permission_context.h"
 
-#include "chrome/browser/content_settings/tab_specific_content_settings.h"
-#include "chrome/browser/permissions/permission_request_id.h"
 #include "chrome/common/chrome_features.h"
+#include "components/content_settings/browser/page_specific_content_settings.h"
 #include "components/content_settings/core/common/content_settings_types.h"
+#include "components/permissions/permission_request_id.h"
 #include "third_party/blink/public/mojom/feature_policy/feature_policy.mojom.h"
 
 ClipboardReadWritePermissionContext::ClipboardReadWritePermissionContext(
-    Profile* profile)
-    : PermissionContextBase(profile,
-                            ContentSettingsType::CLIPBOARD_READ_WRITE,
-                            blink::mojom::FeaturePolicyFeature::kClipboard) {}
+    content::BrowserContext* browser_context)
+    : PermissionContextBase(
+          browser_context,
+          ContentSettingsType::CLIPBOARD_READ_WRITE,
+          blink::mojom::FeaturePolicyFeature::kClipboardRead) {}
 
 ClipboardReadWritePermissionContext::~ClipboardReadWritePermissionContext() {}
 
 void ClipboardReadWritePermissionContext::UpdateTabContext(
-    const PermissionRequestID& id,
+    const permissions::PermissionRequestID& id,
     const GURL& requesting_frame,
     bool allowed) {
-  TabSpecificContentSettings* content_settings =
-      TabSpecificContentSettings::GetForFrame(id.render_process_id(),
-                                              id.render_frame_id());
+  content_settings::PageSpecificContentSettings* content_settings =
+      content_settings::PageSpecificContentSettings::GetForFrame(
+          id.render_process_id(), id.render_frame_id());
   if (!content_settings)
     return;
 

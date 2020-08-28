@@ -82,8 +82,6 @@ namespace web_modal {
 class WebContentsModalDialogHost;
 }
 
-enum class ImeWarningBubblePermissionStatus;
-
 enum class ShowTranslateBubbleResult {
   // The translate bubble was successfully shown.
   SUCCESS,
@@ -96,7 +94,14 @@ enum class ShowTranslateBubbleResult {
   EDITABLE_FIELD_IS_ACTIVE,
 };
 
-enum class BrowserThemeChangeType { kBrowserTheme, kNativeTheme };
+enum class BrowserThemeChangeType {
+  // User changes the browser theme.
+  kBrowserTheme,
+  // User changes the OS native theme.
+  kNativeTheme,
+  // A web app sets a theme color at launch, or changes theme color.
+  kWebAppTheme
+};
 
 ////////////////////////////////////////////////////////////////////////////////
 // BrowserWindow interface
@@ -296,7 +301,7 @@ class BrowserWindow : public ui::BaseWindow {
   // Called from toolbar subviews during their show/hide animations.
   virtual void ToolbarSizeChanged(bool is_animating) = 0;
 
-  // Called when the accociated window's tab dragging status changed.
+  // Called when the associated window's tab dragging status changed.
   virtual void TabDraggingStatusChanged(bool is_dragging) = 0;
 
   // Focuses the app menu like it was a menu bar.
@@ -440,7 +445,8 @@ class BrowserWindow : public ui::BaseWindow {
 
   // Construct a BrowserWindow implementation for the specified |browser|.
   static BrowserWindow* CreateBrowserWindow(std::unique_ptr<Browser> browser,
-                                            bool user_gesture);
+                                            bool user_gesture,
+                                            bool in_tab_dragging);
 
   // Shows the avatar bubble on the window frame off of the avatar button with
   // the given mode. The Service Type specified by GAIA is provided as well.
@@ -470,12 +476,6 @@ class BrowserWindow : public ui::BaseWindow {
   // Returns object implementing ExclusiveAccessContext interface.
   virtual ExclusiveAccessContext* GetExclusiveAccessContext() = 0;
 
-  // Shows the IME warning bubble.
-  virtual void ShowImeWarningBubble(
-      const extensions::Extension* extension,
-      const base::Callback<void(ImeWarningBubblePermissionStatus status)>&
-          callback) = 0;
-
   // Shows in-product help for the given feature.
   virtual void ShowInProductHelpPromo(InProductHelpFeature iph_feature) = 0;
 
@@ -486,6 +486,17 @@ class BrowserWindow : public ui::BaseWindow {
 
   // Shows the platform specific emoji picker.
   virtual void ShowEmojiPanel() = 0;
+
+  // Opens the eye dropper.
+  virtual std::unique_ptr<content::EyeDropper> OpenEyeDropper(
+      content::RenderFrameHost* frame,
+      content::EyeDropperListener* listener) = 0;
+
+  // Shows a confirmation dialog about enabling caret browsing.
+  virtual void ShowCaretBrowsingDialog() = 0;
+
+  // Create and open the tab search bubble.
+  virtual void CreateTabSearchBubble() = 0;
 
  protected:
   friend class BrowserCloseManager;

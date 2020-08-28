@@ -7,10 +7,21 @@
 
 namespace switches {
 
+// Scale factor to apply to every animation duration. Must be >= 0.0. This will
+// only apply to LinearAnimation and its subclasses.
+const char kAnimationDurationScale[] = "animation-duration-scale";
+
 // Force disables font subpixel positioning. This affects the character glyph
 // sharpness, kerning, hinting and layout.
 const char kDisableFontSubpixelPositioning[] =
     "disable-font-subpixel-positioning";
+
+// Disable a NV12 format buffer allocation with
+// gfx::BufferUsage::SCANOUT_CPU_READ_WRITE usage.
+const char kDisableYuv420Biplanar[] = "disable-yuv420-biplanar";
+
+// Enable native CPU-mappable GPU memory buffer support on Linux.
+const char kEnableNativeGpuMemoryBuffers[] = "enable-native-gpu-memory-buffers";
 
 // Forces whether the user desires reduced motion, regardless of system
 // settings.
@@ -18,8 +29,5 @@ const char kForcePrefersReducedMotion[] = "force-prefers-reduced-motion";
 
 // Run in headless mode, i.e., without a UI or display server dependencies.
 const char kHeadless[] = "headless";
-
-// Enable native CPU-mappable GPU memory buffer support on Linux.
-const char kEnableNativeGpuMemoryBuffers[] = "enable-native-gpu-memory-buffers";
 
 }  // namespace switches

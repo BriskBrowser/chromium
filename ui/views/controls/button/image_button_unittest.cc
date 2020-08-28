@@ -2,11 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "ui/views/controls/button/image_button.h"
 #include "base/macros.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/base/layout.h"
 #include "ui/views/border.h"
-#include "ui/views/controls/button/image_button.h"
 #include "ui/views/test/views_test_base.h"
 
 namespace {
@@ -25,9 +25,7 @@ class Parent : public views::View {
     pref_size_changed_calls_++;
   }
 
-  int pref_size_changed_calls() const {
-    return pref_size_changed_calls_;
-  }
+  int pref_size_changed_calls() const { return pref_size_changed_calls_; }
 
  private:
   int pref_size_changed_calls_ = 0;
@@ -42,7 +40,7 @@ namespace views {
 using ImageButtonTest = ViewsTestBase;
 
 TEST_F(ImageButtonTest, Basics) {
-  ImageButton button(nullptr);
+  ImageButton button;
 
   // Our image to paint starts empty.
   EXPECT_TRUE(button.GetImageToPaint().isNull());
@@ -90,7 +88,7 @@ TEST_F(ImageButtonTest, Basics) {
 }
 
 TEST_F(ImageButtonTest, SetAndGetImage) {
-  ImageButton button(nullptr);
+  ImageButton button;
 
   // Images start as null.
   EXPECT_TRUE(button.GetImage(Button::STATE_NORMAL).isNull());
@@ -116,7 +114,7 @@ TEST_F(ImageButtonTest, SetAndGetImage) {
 }
 
 TEST_F(ImageButtonTest, ImagePositionWithBorder) {
-  ImageButton button(nullptr);
+  ImageButton button;
   gfx::ImageSkia image = CreateTestImage(20, 30);
   button.SetImage(Button::STATE_NORMAL, &image);
 
@@ -145,7 +143,7 @@ TEST_F(ImageButtonTest, ImagePositionWithBorder) {
 }
 
 TEST_F(ImageButtonTest, LeftAlignedMirrored) {
-  ImageButton button(nullptr);
+  ImageButton button;
   gfx::ImageSkia image = CreateTestImage(20, 30);
   button.SetImage(Button::STATE_NORMAL, &image);
   button.SetBounds(0, 0, 50, 30);
@@ -158,7 +156,7 @@ TEST_F(ImageButtonTest, LeftAlignedMirrored) {
 }
 
 TEST_F(ImageButtonTest, RightAlignedMirrored) {
-  ImageButton button(nullptr);
+  ImageButton button;
   gfx::ImageSkia image = CreateTestImage(20, 30);
   button.SetImage(Button::STATE_NORMAL, &image);
   button.SetBounds(0, 0, 50, 30);
@@ -173,7 +171,7 @@ TEST_F(ImageButtonTest, RightAlignedMirrored) {
 
 TEST_F(ImageButtonTest, PreferredSizeInvalidation) {
   Parent parent;
-  ImageButton button(nullptr);
+  ImageButton button;
   gfx::ImageSkia first_image = CreateTestImage(20, 30);
   gfx::ImageSkia second_image = CreateTestImage(50, 50);
   button.SetImage(Button::STATE_NORMAL, &first_image);

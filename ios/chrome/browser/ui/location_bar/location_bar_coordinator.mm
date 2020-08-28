@@ -9,7 +9,6 @@
 #include "base/memory/ptr_util.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/sys_string_conversions.h"
-#include "components/google/core/common/google_util.h"
 #include "components/omnibox/browser/omnibox_edit_model.h"
 #include "components/omnibox/browser/omnibox_view.h"
 #include "components/search_engines/util.h"
@@ -17,6 +16,9 @@
 #include "components/variations/net/variations_http_headers.h"
 #include "ios/chrome/browser/autocomplete/autocomplete_scheme_classifier_impl.h"
 #include "ios/chrome/browser/browser_state/chrome_browser_state.h"
+#include "ios/chrome/browser/drag_and_drop/drag_and_drop_flag.h"
+#import "ios/chrome/browser/drag_and_drop/drag_item_util.h"
+#import "ios/chrome/browser/drag_and_drop/url_drag_drop_handler.h"
 #import "ios/chrome/browser/geolocation/omnibox_geolocation_controller.h"
 #include "ios/chrome/browser/infobars/infobar_metrics_recorder.h"
 #import "ios/chrome/browser/main/browser.h"
@@ -31,7 +33,7 @@
 #import "ios/chrome/browser/ui/commands/command_dispatcher.h"
 #import "ios/chrome/browser/ui/commands/load_query_commands.h"
 #import "ios/chrome/browser/ui/fullscreen/fullscreen_controller.h"
-#import "ios/chrome/browser/ui/fullscreen/fullscreen_controller_factory.h"
+#import "ios/chrome/browser/ui/fullscreen/fullscreen_features.h"
 #import "ios/chrome/browser/ui/fullscreen/fullscreen_ui_updater.h"
 #import "ios/chrome/browser/ui/infobars/infobar_feature.h"
 #import "ios/chrome/browser/ui/location_bar/location_bar_constants.h"
@@ -46,9 +48,8 @@
 #include "ios/chrome/browser/ui/omnibox/web_omnibox_edit_controller_impl.h"
 #import "ios/chrome/browser/ui/toolbar/toolbar_coordinator_delegate.h"
 #import "ios/chrome/browser/ui/util/pasteboard_util.h"
+#import "ios/chrome/browser/url_loading/url_loading_browser_agent.h"
 #import "ios/chrome/browser/url_loading/url_loading_params.h"
-#import "ios/chrome/browser/url_loading/url_loading_service.h"
-#import "ios/chrome/browser/url_loading/url_loading_service_factory.h"
 #import "ios/chrome/browser/url_loading/url_loading_util.h"
 #import "ios/chrome/browser/web/web_navigation_util.h"
 #import "ios/chrome/browser/web_state_list/web_state_list.h"
@@ -64,18 +65,11 @@
 #error "This file requires ARC support."
 #endif
 
-namespace {
-// The histogram recording CLAuthorizationStatus for omnibox queries.
-const char* const kOmniboxQueryLocationAuthorizationStatusHistogram =
-    "Omnibox.QueryIosLocationAuthorizationStatus";
-// The number of possible CLAuthorizationStatus values to report.
-const int kLocationAuthorizationStatusCount = 5;
-}  // namespace
-
 @interface LocationBarCoordinator () <LoadQueryCommands,
                                       LocationBarDelegate,
                                       LocationBarViewControllerDelegate,
-                                      LocationBarConsumer> {
+                                      LocationBarConsumer,
+                                      URLDragDataSource> {
   // API endpoint for omnibox.
   std::unique_ptr<WebOmniboxEditControllerImpl> _editController;
   // Observer that updates |viewController| for fullscreen events.
@@ -95,7 +89,7 @@ const int kLocationAuthorizationStatusCount = 5;
 @property(nonatomic, strong) OmniboxCoordinator* omniboxCoordinator;
 @property(nonatomic, strong) LocationBarMediator* mediator;
 @property(nonatomic, strong) LocationBarViewController* viewController;
-@property(nonatomic, readonly) ios::ChromeBrowserState* browserState;
+@property(nonatomic, readonly) ChromeBrowserState* browserState;
 @property(nonatomic, readonly) WebStateList* webStateList;
 
 // Tracks calls in progress to -cancelOmniboxEdit to avoid calling it from
@@ -103,13 +97,15 @@ const int kLocationAuthorizationStatusCount = 5;
 // delegate call.
 @property(nonatomic, assign) BOOL isCancellingOmniboxEdit;
 
+// Handler for URL drag interactions.
+@property(nonatomic, strong) URLDragDropHandler* dragDropHandler;
 @end
 
 @implementation LocationBarCoordinator
 
 #pragma mark - Accessors
 
-- (ios::ChromeBrowserState*)browserState {
+- (ChromeBrowserState*)browserState {
   return self.browser ? self.browser->GetBrowserState() : nullptr;
 }
 
@@ -124,15 +120,15 @@ const int kLocationAuthorizationStatusCount = 5;
 }
 
 - (void)start {
-  DCHECK(self.commandDispatcher);
   DCHECK(self.browser);
 
   if (self.started)
     return;
 
-  [self.commandDispatcher startDispatchingToTarget:self
-                                       forProtocol:@protocol(OmniboxFocuser)];
-  [self.commandDispatcher
+  [self.browser->GetCommandDispatcher()
+      startDispatchingToTarget:self
+                   forProtocol:@protocol(OmniboxCommands)];
+  [self.browser->GetCommandDispatcher()
       startDispatchingToTarget:self
                    forProtocol:@protocol(LoadQueryCommands)];
 
@@ -141,9 +137,12 @@ const int kLocationAuthorizationStatusCount = 5;
   self.viewController = [[LocationBarViewController alloc] init];
   self.viewController.incognito = isIncognito;
   self.viewController.delegate = self;
+  // TODO(crbug.com/1045047): Use HandlerForProtocol after commands protocol
+  // clean up.
   self.viewController.dispatcher =
       static_cast<id<ActivityServiceCommands, BrowserCommands,
-                     ApplicationCommands, LoadQueryCommands>>(self.dispatcher);
+                     ApplicationCommands, LoadQueryCommands, OmniboxCommands>>(
+          self.browser->GetCommandDispatcher());
   self.viewController.voiceSearchEnabled = ios::GetChromeBrowserProvider()
                                                ->GetVoiceSearchProvider()
                                                ->IsVoiceSearchEnabled();
@@ -151,10 +150,10 @@ const int kLocationAuthorizationStatusCount = 5;
   _editController = std::make_unique<WebOmniboxEditControllerImpl>(self);
   _editController->SetURLLoader(self);
 
-  self.omniboxCoordinator = [[OmniboxCoordinator alloc] init];
+  self.omniboxCoordinator =
+      [[OmniboxCoordinator alloc] initWithBaseViewController:nil
+                                                     browser:self.browser];
   self.omniboxCoordinator.editController = _editController.get();
-  self.omniboxCoordinator.browserState = self.browserState;
-  self.omniboxCoordinator.dispatcher = self.dispatcher;
   [self.omniboxCoordinator start];
 
   [self.omniboxCoordinator.managedViewController
@@ -169,8 +168,6 @@ const int kLocationAuthorizationStatusCount = 5;
 
   self.omniboxPopupCoordinator = [self.omniboxCoordinator
       createPopupCoordinator:self.popupPresenterDelegate];
-  self.omniboxPopupCoordinator.dispatcher = self.dispatcher;
-  self.omniboxPopupCoordinator.webStateList = self.webStateList;
   [self.omniboxPopupCoordinator start];
 
   // Create button factory that wil be used by the ViewController to get
@@ -185,12 +182,19 @@ const int kLocationAuthorizationStatusCount = 5;
   // Create BadgeMediator and set the viewController as its consumer.
   self.badgeMediator = [[BadgeMediator alloc] initWithBrowser:self.browser];
   self.badgeMediator.consumer = self.badgeViewController;
+  // TODO(crbug.com/1045047): Use HandlerForProtocol after commands protocol
+  // clean up.
   self.badgeMediator.dispatcher =
       static_cast<id<InfobarCommands, BrowserCoordinatorCommands>>(
-          self.dispatcher);
+          self.browser->GetCommandDispatcher());
   buttonFactory.delegate = self.badgeMediator;
-  FullscreenController* fullscreenController =
-      FullscreenControllerFactory::GetForBrowserState(self.browserState);
+  FullscreenController* fullscreenController;
+  if (fullscreen::features::ShouldScopeFullscreenControllerToBrowser()) {
+    fullscreenController = FullscreenController::FromBrowser(self.browser);
+  } else {
+    fullscreenController =
+        FullscreenController::FromBrowserState(self.browserState);
+  }
   _badgeFullscreenUIUpdater = std::make_unique<FullscreenUIUpdater>(
       fullscreenController, self.badgeViewController);
 
@@ -207,12 +211,21 @@ const int kLocationAuthorizationStatusCount = 5;
       fullscreenController, self.viewController);
 
   self.started = YES;
+
+  if (DragAndDropIsEnabled()) {
+    self.dragDropHandler = [[URLDragDropHandler alloc] init];
+    self.dragDropHandler.origin = WindowActivityLocationBarSteadyViewOrigin;
+    self.dragDropHandler.dragDataSource = self;
+    [self.viewController.view
+        addInteraction:[[UIDragInteraction alloc]
+                           initWithDelegate:self.dragDropHandler]];
+  }
 }
 
 - (void)stop {
   if (!self.started)
     return;
-  [self.commandDispatcher stopDispatchingToTarget:self];
+  [self.browser->GetCommandDispatcher() stopDispatchingToTarget:self];
   // The popup has to be destroyed before the location bar.
   [self.omniboxPopupCoordinator stop];
   [self.omniboxCoordinator stop];
@@ -247,6 +260,10 @@ const int kLocationAuthorizationStatusCount = 5;
 
 - (id<EditViewAnimatee>)editViewAnimatee {
   return self.omniboxCoordinator.animatee;
+}
+
+- (UIResponder<UITextInput>*)omniboxScribbleForwardingTarget {
+  return self.omniboxCoordinator.scribbleInput;
 }
 
 #pragma mark - LoadQueryCommands
@@ -291,34 +308,12 @@ const int kLocationAuthorizationStatusCount = 5;
     web_params.extra_headers = [combinedExtraHeaders copy];
     UrlLoadParams params = UrlLoadParams::InCurrentTab(web_params);
     params.disposition = disposition;
-    UrlLoadingServiceFactory::GetForBrowserState(self.browserState)
-        ->Load(params);
-
-    if (google_util::IsGoogleSearchUrl(url)) {
-      UMA_HISTOGRAM_ENUMERATION(
-          kOmniboxQueryLocationAuthorizationStatusHistogram,
-          [CLLocationManager authorizationStatus],
-          kLocationAuthorizationStatusCount);
-    }
+    UrlLoadingBrowserAgent::FromBrowser(self.browser)->Load(params);
   }
   [self cancelOmniboxEdit];
 }
 
-#pragma mark - OmniboxFocuser
-
-- (void)focusOmniboxFromSearchButton {
-  // TODO(crbug.com/931284): Temporary workaround for intermediate broken state
-  // in the NTP.  Remove this once crbug.com/899827 is fixed.
-  if (self.webState) {
-    NewTabPageTabHelper* NTPHelper =
-        NewTabPageTabHelper::FromWebState(self.webState);
-    if (NTPHelper && NTPHelper->IsActive() && NTPHelper->IgnoreLoadRequests()) {
-      return;
-    }
-  }
-  [self.omniboxCoordinator setNextFocusSourceAsSearchButton];
-  [self focusOmnibox];
-}
+#pragma mark - OmniboxCommands
 
 - (void)focusOmniboxFromFakebox {
   [self.omniboxCoordinator focusOmnibox];
@@ -335,7 +330,11 @@ const int kLocationAuthorizationStatusCount = 5;
     }
   }
   // Dismiss the edit menu.
-  [[UIMenuController sharedMenuController] setMenuVisible:NO animated:NO];
+  if (@available(iOS 13, *)) {
+    [[UIMenuController sharedMenuController] hideMenu];
+  } else {
+    [[UIMenuController sharedMenuController] setMenuVisible:NO animated:NO];
+  }
 
   // When the NTP and fakebox are visible, make the fakebox animates into place
   // before focusing the omnibox.
@@ -378,6 +377,10 @@ const int kLocationAuthorizationStatusCount = 5;
   return [self.delegate locationBarModel];
 }
 
+- (void)locationBarRequestScribbleTargetFocus {
+  [self.omniboxCoordinator focusOmniboxForScribble];
+}
+
 #pragma mark - LocationBarViewControllerDelegate
 
 - (void)locationBarSteadyViewTapped {
@@ -415,6 +418,19 @@ const int kLocationAuthorizationStatusCount = 5;
 
 - (void)updateSearchByImageSupported:(BOOL)searchByImageSupported {
   self.viewController.searchByImageEnabled = searchByImageSupported;
+}
+
+#pragma mark - URLDragDataSource
+
+- (URLInfo*)URLInfoForView:(UIView*)view {
+  return [[URLInfo alloc]
+      initWithURL:self.webState->GetVisibleURL()
+            title:base::SysUTF16ToNSString(self.webState->GetTitle())];
+}
+
+- (UIBezierPath*)visiblePathForView:(UIView*)view {
+  return [UIBezierPath bezierPathWithRoundedRect:view.bounds
+                                    cornerRadius:view.bounds.size.height / 2];
 }
 
 #pragma mark - private
@@ -458,8 +474,7 @@ const int kLocationAuthorizationStatusCount = 5;
     UrlLoadParams params = UrlLoadParams::InCurrentTab(searchURL);
     params.web_params.transition_type = ui::PageTransitionFromInt(
         ui::PAGE_TRANSITION_LINK | ui::PAGE_TRANSITION_FROM_ADDRESS_BAR);
-    UrlLoadingServiceFactory::GetForBrowserState(self.browserState)
-        ->Load(params);
+    UrlLoadingBrowserAgent::FromBrowser(self.browser)->Load(params);
   }
 }
 

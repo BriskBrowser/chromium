@@ -78,8 +78,8 @@ Mutex& CreationMutex() {
 LocalFrame* ToFrame(ExecutionContext* context) {
   if (!context)
     return nullptr;
-  if (auto* document = DynamicTo<Document>(context))
-    return document->GetFrame();
+  if (auto* window = DynamicTo<LocalDOMWindow>(context))
+    return window->GetFrame();
   if (context->IsMainThreadWorkletGlobalScope())
     return To<WorkletGlobalScope>(context)->GetFrame();
   return nullptr;
@@ -157,9 +157,7 @@ void MainThreadDebugger::ContextCreated(ScriptState* script_state,
       ToV8InspectorStringView(human_readable_name));
   context_info.origin = ToV8InspectorStringView(origin_string);
   context_info.auxData = ToV8InspectorStringView(aux_data);
-  context_info.hasMemoryOnConsole =
-      ExecutionContext::From(script_state) &&
-      ExecutionContext::From(script_state)->IsDocument();
+  context_info.hasMemoryOnConsole = LocalDOMWindow::From(script_state);
   GetV8Inspector()->contextCreated(context_info);
 }
 
@@ -172,8 +170,8 @@ void MainThreadDebugger::ExceptionThrown(ExecutionContext* context,
                                          ErrorEvent* event) {
   LocalFrame* frame = nullptr;
   ScriptState* script_state = nullptr;
-  if (auto* document = DynamicTo<Document>(context)) {
-    frame = document->GetFrame();
+  if (auto* window = DynamicTo<LocalDOMWindow>(context)) {
+    frame = window->GetFrame();
     if (!frame)
       return;
     script_state =
@@ -310,7 +308,7 @@ void MainThreadDebugger::endEnsureAllContextsInGroup(int context_group_id) {
 
 bool MainThreadDebugger::canExecuteScripts(int context_group_id) {
   LocalFrame* frame = WeakIdentifierMap<LocalFrame>::Lookup(context_group_id);
-  return frame->GetDocument()->CanExecuteScripts(kNotAboutToExecuteScript);
+  return frame->DomWindow()->CanExecuteScripts(kNotAboutToExecuteScript);
 }
 
 void MainThreadDebugger::runIfWaitingForDebugger(int context_group_id) {
@@ -352,9 +350,7 @@ void MainThreadDebugger::consoleClear(int context_group_id) {
 v8::MaybeLocal<v8::Value> MainThreadDebugger::memoryInfo(
     v8::Isolate* isolate,
     v8::Local<v8::Context> context) {
-  ExecutionContext* execution_context = ToExecutionContext(context);
-  DCHECK(execution_context);
-  DCHECK(execution_context->IsDocument());
+  DCHECK(ToLocalDOMWindow(context));
   return ToV8(
       MakeGarbageCollected<MemoryInfo>(MemoryInfo::Precision::Bucketized),
       context->Global(), isolate);
@@ -384,9 +380,8 @@ static Node* SecondArgumentAsNode(
     if (Node* node = V8Node::ToImplWithTypeCheck(info.GetIsolate(), info[1]))
       return node;
   }
-  ExecutionContext* execution_context =
-      ToExecutionContext(info.GetIsolate()->GetCurrentContext());
-  return DynamicTo<Document>(execution_context);
+  auto* window = CurrentDOMWindow(info.GetIsolate());
+  return window ? window->document() : nullptr;
 }
 
 void MainThreadDebugger::QuerySelectorCallback(

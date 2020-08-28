@@ -16,11 +16,9 @@
 #include "content/browser/service_worker/embedded_worker_test_helper.h"
 #include "content/browser/service_worker/service_worker_consts.h"
 #include "content/browser/service_worker/service_worker_context_core.h"
-#include "content/browser/service_worker/service_worker_disk_cache.h"
 #include "content/browser/service_worker/service_worker_test_utils.h"
 #include "content/browser/url_loader_factory_getter.h"
 #include "content/public/test/browser_task_environment.h"
-#include "mojo/public/cpp/bindings/strong_binding.h"
 #include "mojo/public/cpp/system/data_pipe_utils.h"
 #include "net/base/load_flags.h"
 #include "net/base/test_completion_callback.h"
@@ -80,12 +78,12 @@ class ServiceWorkerUpdatedScriptLoaderTest : public testing::Test {
 
   void SetUp() override {
     helper_ = std::make_unique<EmbeddedWorkerTestHelper>(base::FilePath());
-    context()->storage()->LazyInitializeForTest();
     SetUpRegistration(kScriptURL);
 
     // Create the old script resource in storage.
-    WriteToDiskCacheSync(context()->storage(), kScriptURL, kOldResourceId,
-                         kOldHeaders, kOldData, std::string());
+    WriteToDiskCacheWithIdSync(context()->GetStorageControl(), kScriptURL,
+                               kOldResourceId, kOldHeaders, kOldData,
+                               std::string());
   }
 
   // Sets up ServiceWorkerRegistration and ServiceWorkerVersion. This should be
@@ -98,9 +96,8 @@ class ServiceWorkerUpdatedScriptLoaderTest : public testing::Test {
   void SetUpRegistrationWithOptions(
       const GURL& script_url,
       blink::mojom::ServiceWorkerRegistrationOptions options) {
-    registration_ = base::MakeRefCounted<ServiceWorkerRegistration>(
-        options, context()->storage()->NewRegistrationId(),
-        context()->AsWeakPtr());
+    registration_ =
+        CreateNewServiceWorkerRegistration(context()->registry(), options);
     SetUpVersion(script_url);
   }
 
@@ -108,9 +105,9 @@ class ServiceWorkerUpdatedScriptLoaderTest : public testing::Test {
   // next time DoRequest() is called, |version_| will attempt to install,
   // possibly updating if registration has an installed worker.
   void SetUpVersion(const GURL& script_url) {
-    version_ = base::MakeRefCounted<ServiceWorkerVersion>(
-        registration_.get(), script_url, blink::mojom::ScriptType::kClassic,
-        context()->storage()->NewVersionId(), context()->AsWeakPtr());
+    version_ = CreateNewServiceWorkerVersion(
+        context()->registry(), registration_.get(), script_url,
+        blink::mojom::ScriptType::kClassic);
     version_->SetStatus(ServiceWorkerVersion::NEW);
   }
 
@@ -127,9 +124,10 @@ class ServiceWorkerUpdatedScriptLoaderTest : public testing::Test {
     network::ResourceRequest request;
     request.url = url;
     request.method = "GET";
-    request.resource_type = static_cast<int>((url == version_->script_url())
-                                                 ? ResourceType::kServiceWorker
-                                                 : ResourceType::kScript);
+    request.destination =
+        url == version_->script_url()
+            ? network::mojom::RequestDestination::kServiceWorker
+            : network::mojom::RequestDestination::kScript;
 
     *out_client = std::make_unique<network::TestURLLoaderClient>();
     *out_loader = ServiceWorkerUpdatedScriptLoader::CreateAndStart(
@@ -167,7 +165,8 @@ class ServiceWorkerUpdatedScriptLoaderTest : public testing::Test {
 
     // The response should also be stored in the storage.
     EXPECT_TRUE(ServiceWorkerUpdateCheckTestUtils::VerifyStoredResponse(
-        LookupResourceId(kScriptURL), context()->storage(), expected_body));
+        LookupResourceId(kScriptURL), context()->GetStorageControl(),
+        expected_body));
 
     std::string response;
     EXPECT_TRUE(mojo::BlockingCopyToString(client_->response_body_release(),
@@ -337,7 +336,7 @@ TEST_F(ServiceWorkerUpdatedScriptLoaderTest, NewScriptLargerThanOld) {
 TEST_F(ServiceWorkerUpdatedScriptLoaderTest, NewScriptEmptyBody) {
   const std::string kNewHeaders =
       "HTTP/1.0 200 OK\0Content-Type: text/javascript\0Content-Length: 0\0\0";
-  const std::string kNewData = "";
+  const std::string kNewData;
 
   SetUpComparedScriptInfo(
       0, kNewHeaders, kNewData,
@@ -377,7 +376,7 @@ TEST_F(ServiceWorkerUpdatedScriptLoaderTest, CompleteFailed) {
   client_->RunUntilComplete();
 
   EXPECT_EQ(net::ERR_FAILED, client_->completion_status().error_code);
-  EXPECT_EQ(ServiceWorkerConsts::kInvalidServiceWorkerResourceId,
+  EXPECT_EQ(blink::mojom::kInvalidServiceWorkerResourceId,
             LookupResourceId(kScriptURL));
 }
 

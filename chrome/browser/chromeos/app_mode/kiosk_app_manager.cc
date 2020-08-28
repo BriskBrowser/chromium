@@ -19,6 +19,7 @@
 #include "base/strings/stringprintf.h"
 #include "base/system/sys_info.h"
 #include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
 #include "base/version.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_process_platform_part.h"
@@ -100,8 +101,8 @@ scoped_refptr<base::SequencedTaskRunner> GetBackgroundTaskRunner() {
   // TODO(eseckler): The ExternalCacheImpl that uses this TaskRunner seems to be
   // important during startup, which is why we cannot currently use the
   // BEST_EFFORT TaskPriority here.
-  return base::CreateSequencedTaskRunner(
-      {base::ThreadPool(), base::MayBlock(), base::TaskPriority::USER_VISIBLE,
+  return base::ThreadPool::CreateSequencedTaskRunner(
+      {base::MayBlock(), base::TaskPriority::USER_VISIBLE,
        base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN});
 }
 
@@ -276,6 +277,14 @@ bool KioskAppManager::GetSwitchesForSessionRestore(
   return true;
 }
 
+void KioskAppManager::OnExternalCacheDamaged(const std::string& app_id) {
+  CHECK(external_cache_);
+  base::FilePath crx_path;
+  std::string version;
+  GetCachedCrx(app_id, &crx_path, &version);
+  external_cache_->OnDamagedFileDetected(crx_path);
+}
+
 void KioskAppManager::AddAppForTest(
     const std::string& app_id,
     const AccountId& account_id,
@@ -375,10 +384,8 @@ void KioskAppManager::OnReadImmutableAttributes(
         status = CONSUMER_KIOSK_AUTO_LAUNCH_CONFIGURABLE;
       } else if (!ownership_established_) {
         bool* owner_present = new bool(false);
-        base::PostTaskAndReply(
-            FROM_HERE,
-            {base::ThreadPool(), base::MayBlock(),
-             base::TaskPriority::BEST_EFFORT},
+        base::ThreadPool::PostTaskAndReply(
+            FROM_HERE, {base::MayBlock(), base::TaskPriority::BEST_EFFORT},
             base::BindOnce(&CheckOwnerFilePresence, owner_present),
             base::BindOnce(&KioskAppManager::OnOwnerFileChecked,
                            base::Unretained(this), std::move(callback),
@@ -802,11 +809,8 @@ void KioskAppManager::UpdateExternalCachePrefs() {
   external_cache_->UpdateExtensionsList(std::move(prefs));
 }
 
-void KioskAppManager::OnExtensionListsUpdated(
-    const base::DictionaryValue* prefs) {
-}
-
-void KioskAppManager::OnExtensionLoadedInCache(const std::string& id) {
+void KioskAppManager::OnExtensionLoadedInCache(
+    const extensions::ExtensionId& id) {
   KioskAppData* app_data = GetAppDataMutable(id);
   if (!app_data)
     return;
@@ -820,17 +824,13 @@ void KioskAppManager::OnExtensionLoadedInCache(const std::string& id) {
     observer.OnKioskExtensionLoadedInCache(id);
 }
 
-void KioskAppManager::OnExtensionDownloadFailed(const std::string& id) {
+void KioskAppManager::OnExtensionDownloadFailed(
+    const extensions::ExtensionId& id) {
   KioskAppData* app_data = GetAppDataMutable(id);
   if (!app_data)
     return;
   for (auto& observer : observers_)
     observer.OnKioskExtensionDownloadFailed(id);
-}
-
-std::string KioskAppManager::GetInstalledExtensionVersion(
-    const std::string& id) {
-  return std::string();
 }
 
 KioskAppManager::AutoLoginState KioskAppManager::GetAutoLoginState() const {

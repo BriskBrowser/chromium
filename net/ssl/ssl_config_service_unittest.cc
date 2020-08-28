@@ -27,6 +27,10 @@ class MockSSLConfigService : public SSLConfigService {
     return false;
   }
 
+  bool ShouldSuppressLegacyTLSWarning(const std::string& host) const override {
+    return false;
+  }
+
   // Sets the SSLContextConfig to be returned by GetSSLContextConfig and
   // processes any updates.
   void SetSSLContextConfig(const SSLContextConfig& config) {
@@ -119,12 +123,6 @@ TEST(SSLConfigServiceTest, ConfigUpdatesNotifyObservers) {
   // cipher suites disabled, triggers an update.
   disabled_ciphers.pop_back();
   initial_config.disabled_cipher_suites = disabled_ciphers;
-  EXPECT_CALL(observer, OnSSLContextConfigChanged()).Times(1);
-  mock_service.SetSSLContextConfig(initial_config);
-
-  // Ensure that toggling TLS 1.3 hardening triggers an update.
-  initial_config.tls13_hardening_for_local_anchors_enabled =
-      !initial_config.tls13_hardening_for_local_anchors_enabled;
   EXPECT_CALL(observer, OnSSLContextConfigChanged()).Times(1);
   mock_service.SetSSLContextConfig(initial_config);
 

@@ -165,11 +165,10 @@ DownloadUIControllerTest::TestingDownloadCoreServiceFactory(
 }
 
 DownloadUIControllerTest::DownloadUIControllerTest()
-    : download_history_manager_observer_(NULL),
-      manager_observer_(NULL),
-      notified_item_(NULL),
-      notified_item_receiver_factory_(&notified_item_) {
-}
+    : download_history_manager_observer_(nullptr),
+      manager_observer_(nullptr),
+      notified_item_(nullptr),
+      notified_item_receiver_factory_(&notified_item_) {}
 
 void DownloadUIControllerTest::SetUp() {
   ChromeRenderViewHostTestHarness::SetUp();
@@ -397,7 +396,7 @@ TEST_F(DownloadUIControllerTest, LegacyTLSMetrics) {
   InitializeEmptyLegacyTLSConfig();
 
   auto navigation =
-      CreateLegacyTLSNavigation(GURL(kLegacyTLSDefaultURL), web_contents());
+      CreateLegacyTLSNavigation(GURL(kLegacyTLSURL), web_contents());
   navigation->Commit();
 
   // Start a download from the same page, setting up the mock item to correctly
@@ -423,7 +422,7 @@ TEST_F(DownloadUIControllerTest, LegacyTLSControlSiteMetrics) {
   InitializeLegacyTLSConfigWithControl();
 
   auto navigation =
-      CreateLegacyTLSNavigation(GURL(kLegacyTLSControlURL), web_contents());
+      CreateLegacyTLSNavigation(GURL(kLegacyTLSURL), web_contents());
   navigation->Commit();
 
   // Start a download from the same page, setting up the mock item to correctly

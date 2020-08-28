@@ -30,6 +30,7 @@
 #include "third_party/blink/renderer/core/css/selector_checker.h"
 
 #include "base/auto_reset.h"
+#include "third_party/blink/public/mojom/input/focus_type.mojom-blink.h"
 #include "third_party/blink/renderer/core/css/css_selector_list.h"
 #include "third_party/blink/renderer/core/css/part_names.h"
 #include "third_party/blink/renderer/core/css/style_engine.h"
@@ -45,6 +46,7 @@
 #include "third_party/blink/renderer/core/editing/frame_selection.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/frame/picture_in_picture_controller.h"
+#include "third_party/blink/renderer/core/frame/settings.h"
 #include "third_party/blink/renderer/core/fullscreen/fullscreen.h"
 #include "third_party/blink/renderer/core/html/custom/element_internals.h"
 #include "third_party/blink/renderer/core/html/forms/html_form_control_element.h"
@@ -56,6 +58,7 @@
 #include "third_party/blink/renderer/core/html/html_slot_element.h"
 #include "third_party/blink/renderer/core/html/media/html_video_element.h"
 #include "third_party/blink/renderer/core/html/parser/html_parser_idioms.h"
+#include "third_party/blink/renderer/core/html/shadow/shadow_element_names.h"
 #include "third_party/blink/renderer/core/html/track/vtt/vtt_element.h"
 #include "third_party/blink/renderer/core/html_names.h"
 #include "third_party/blink/renderer/core/page/focus_controller.h"
@@ -434,7 +437,7 @@ SelectorChecker::MatchStatus SelectorChecker::MatchForRelation(
 
   switch (relation) {
     case CSSSelector::kShadowDeepAsDescendant:
-      Deprecation::CountDeprecation(context.element->GetDocument(),
+      Deprecation::CountDeprecation(context.element->GetExecutionContext(),
                                     WebFeature::kCSSDeepCombinator);
       FALLTHROUGH;
     case CSSSelector::kDescendant:
@@ -619,7 +622,6 @@ SelectorChecker::MatchStatus SelectorChecker::MatchForRelation(
           return MatchSelector(next_context, result);
       }
       return kSelectorFailsCompletely;
-      break;
     case CSSSelector::kSubSelector:
       break;
   }
@@ -1249,11 +1251,12 @@ bool SelectorChecker::CheckPseudoClass(const SelectorCheckingContext& context,
     case CSSSelector::kPseudoVideoPersistentAncestor:
       DCHECK(is_ua_rule_);
       return element.ContainsPersistentVideo();
-    case CSSSelector::kPseudoXrImmersiveDomOverlay:
-      DCHECK(is_ua_rule_);
-      // In immersive AR overlay mode, apply a pseudostyle to the root element.
-      return element.GetDocument().IsImmersiveArOverlay() &&
-             element == element.GetDocument().documentElement();
+    case CSSSelector::kPseudoXrOverlay:
+      // In immersive AR overlay mode, apply a pseudostyle to the DOM Overlay
+      // element. This is the same as the fullscreen element in the current
+      // implementation, but could be different for AR headsets.
+      return element.GetDocument().IsXrOverlay() &&
+             Fullscreen::IsFullscreenElement(element);
     case CSSSelector::kPseudoInRange:
       return element.IsInRange();
     case CSSSelector::kPseudoOutOfRange:
@@ -1271,7 +1274,7 @@ bool SelectorChecker::CheckPseudoClass(const SelectorCheckingContext& context,
         return false;
       if (context.scope == &element.GetDocument())
         return element == element.GetDocument().documentElement();
-      if (auto* shadow_root = DynamicTo<ShadowRoot>(context.scope.Get()))
+      if (auto* shadow_root = DynamicTo<ShadowRoot>(context.scope))
         return element == shadow_root->host();
       return context.scope == &element;
     case CSSSelector::kPseudoUnresolved:
@@ -1366,7 +1369,6 @@ bool SelectorChecker::CheckPseudoClassForVTT(
       return false;
     default:
       return CheckPseudoClass(context, result);
-      break;
   }
   return false;
 }
@@ -1406,9 +1408,18 @@ bool SelectorChecker::CheckPseudoElement(const SelectorCheckingContext& context,
       }
       return false;
     case CSSSelector::kPseudoWebKitCustomElement: {
-      if (ShadowRoot* root = element.ContainingShadowRoot())
-        return root->IsUserAgent() &&
-               element.ShadowPseudoId() == selector.Value();
+      if (ShadowRoot* root = element.ContainingShadowRoot()) {
+        if (!root->IsUserAgent())
+          return false;
+        if (element.ShadowPseudoId() != selector.Value())
+          return false;
+        if (!is_ua_rule_ &&
+            selector.Value() == shadow_element_names::WebKitDetailsMarker()) {
+          UseCounter::Count(element.GetDocument(),
+                            WebFeature::kCSSSelectorPseudoWebKitDetailsMarker);
+        }
+        return true;
+      }
       return false;
     }
     case CSSSelector::kPseudoBlinkInternalElement:
@@ -1659,15 +1670,17 @@ bool SelectorChecker::MatchesFocusVisiblePseudoClass(const Element& element) {
     return false;
 
   const Document& document = element.GetDocument();
-  bool always_show_focus_ring = element.MayTriggerVirtualKeyboard();
+  const Settings* settings = document.GetSettings();
+  bool always_show_focus = settings->GetAccessibilityAlwaysShowFocus();
+  bool is_text_input = element.MayTriggerVirtualKeyboard();
   bool last_focus_from_mouse =
       document.GetFrame() &&
       document.GetFrame()->Selection().FrameIsFocusedAndActive() &&
-      document.LastFocusType() == kWebFocusTypeMouse;
+      document.LastFocusType() == mojom::blink::FocusType::kMouse;
   bool had_keyboard_event = document.HadKeyboardEvent();
 
-  return (!last_focus_from_mouse || had_keyboard_event ||
-          always_show_focus_ring);
+  return (always_show_focus || is_text_input || !last_focus_from_mouse ||
+          had_keyboard_event);
 }
 
 // static

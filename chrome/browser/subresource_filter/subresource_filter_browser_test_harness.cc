@@ -7,9 +7,9 @@
 #include <utility>
 
 #include "base/bind.h"
+#include "base/check.h"
 #include "base/files/file_path.h"
 #include "base/location.h"
-#include "base/logging.h"
 #include "base/path_service.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/string_util.h"
@@ -20,11 +20,10 @@
 #include "chrome/browser/subresource_filter/subresource_filter_profile_context.h"
 #include "chrome/browser/subresource_filter/subresource_filter_profile_context_factory.h"
 #include "chrome/browser/subresource_filter/test_ruleset_publisher.h"
-#include "chrome/browser/ui/blocked_content/safe_browsing_triggered_popup_blocker.h"
 #include "chrome/browser/ui/browser.h"
-#include "chrome/browser/ui/navigation_correction_tab_observer.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/common/chrome_paths.h"
+#include "components/blocked_content/safe_browsing_triggered_popup_blocker.h"
 #include "components/safe_browsing/core/db/v4_protocol_manager_util.h"
 #include "components/safe_browsing/core/db/v4_test_util.h"
 #include "components/safe_browsing/core/features.h"
@@ -42,15 +41,9 @@ namespace subresource_filter {
 
 SubresourceFilterBrowserTest::SubresourceFilterBrowserTest() {
   scoped_feature_list_.InitAndEnableFeature(kAdTagging);
-  // Needed by SubresourceFilterBrowserTest.FailedProvisionalLoadInMainframe,
-  // which expects the extra commit present in the case of errors handled by
-  // Link Doctor.
-  NavigationCorrectionTabObserver::SetAllowEnableCorrectionsForTesting(true);
 }
 
-SubresourceFilterBrowserTest::~SubresourceFilterBrowserTest() {
-  NavigationCorrectionTabObserver::SetAllowEnableCorrectionsForTesting(false);
-}
+SubresourceFilterBrowserTest::~SubresourceFilterBrowserTest() = default;
 
 void SubresourceFilterBrowserTest::SetUp() {
   database_helper_ = CreateTestDatabase();

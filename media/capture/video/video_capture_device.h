@@ -21,7 +21,6 @@
 
 #include "base/callback.h"
 #include "base/files/file.h"
-#include "base/logging.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/unsafe_shared_memory_region.h"
 #include "base/single_thread_task_runner.h"
@@ -63,9 +62,8 @@ class CAPTURE_EXPORT VideoFrameConsumerFeedbackObserver {
   // previously sent out by the VideoCaptureDevice we are giving feedback about.
   // It is used to indicate which particular frame the reported utilization
   // corresponds to.
-  virtual void OnUtilizationReport(int frame_feedback_id, double utilization) {}
-
-  static constexpr double kNoUtilizationRecorded = -1.0;
+  virtual void OnUtilizationReport(int frame_feedback_id,
+                                   media::VideoFrameFeedback feedback) {}
 };
 
 class CAPTURE_EXPORT VideoCaptureDevice

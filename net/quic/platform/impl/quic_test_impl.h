@@ -5,7 +5,7 @@
 #ifndef NET_QUIC_PLATFORM_IMPL_QUIC_TEST_IMPL_H_
 #define NET_QUIC_PLATFORM_IMPL_QUIC_TEST_IMPL_H_
 
-#include "base/logging.h"
+#include "base/check_op.h"
 #include "net/test/test_with_task_environment.h"
 #include "net/third_party/quiche/src/quic/core/quic_versions.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_flags.h"
@@ -65,16 +65,6 @@ class ScopedEnvironmentForThreadsImpl {
 #define QUIC_TEST_DISABLED_IN_CHROME_IMPL(name) DISABLED_##name
 
 std::string QuicGetTestMemoryCachePathImpl();
-
-namespace quic {
-// A utility function that returns all versions except v99.  Intended to be a
-// drop-in replacement for quic::AllSupportedVersion() when disabling v99 in a
-// large test file is required.
-//
-// TODO(vasilvv): all of the tests should be fixed for v99, so that this
-// function can be removed.
-ParsedQuicVersionVector AllVersionsExcept99();
-}  // namespace quic
 
 #if GTEST_HAS_DEATH_TEST && !defined(NDEBUG)
 #define EXPECT_QUIC_DEBUG_DEATH_IMPL(condition, message) \

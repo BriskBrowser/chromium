@@ -25,7 +25,7 @@
 #include "third_party/blink/renderer/platform/graphics/unaccelerated_static_bitmap_image.h"
 #include "third_party/blink/renderer/platform/heap/heap.h"
 #include "third_party/blink/renderer/platform/runtime_enabled_features.h"
-#include "third_party/blink/renderer/platform/testing/runtime_enabled_features_test_helpers.h"
+#include "third_party/blink/renderer/platform/testing/paint_test_configurations.h"
 #include "third_party/blink/renderer/platform/testing/unit_test_helpers.h"
 #include "third_party/blink/renderer/platform/testing/url_test_helpers.h"
 #include "third_party/skia/include/core/SkImage.h"
@@ -33,7 +33,25 @@
 
 namespace blink {
 
-class ImagePaintTimingDetectorTest : public testing::Test {
+#define SIMPLE_IMAGE       \
+  "data:image/gif;base64," \
+  "R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw=="
+
+#define LARGE_IMAGE                                                            \
+  "data:image/gif;base64,"                                                     \
+  "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAABHNCSVQICAgIfAhkiAAAAAlwSF" \
+  "lzAAAN1wAADdcBQiibeAAAAb5JREFUOMulkr1KA0EQgGdvTwwnYmER0gQsrFKmSy+pLESw9Qm0" \
+  "F/ICNnba+h6iEOuAEWslKJKTOyJJvIT72d1xZuOFC0giOLA77O7Mt/PnNptN+I+49Xr9GhH3f3" \
+  "mb0v1ht9vtLAUYYw5ItkgDL3KyD8PhcLvdbl/WarXT3DjLMnAcR/f7/YfxeKwtgC5RKQVhGILW" \
+  "eg4hQ6hUKjWyucmhLFEUuWR3QYBWAZABQ9i5CCmXy16pVALP80BKaaG+70MQBLvzFMjRKKXh8j" \
+  "6FSYKF7ITdEWLa4/ktokN74wiqjSMpnVcbQZqmEJHz+ckeCPFjWKwULpyspAqhdXVXdcnZcPjs" \
+  "Ign+2BsVA8jVYuWlgJ3yBj0icgq2uoK+lg4t+ZvLomSKamSQ4AI5BcMADtMhyNoSgNIISUaFNt" \
+  "wlazcDcBc4gjjVwCWid2usCWroYEhnaqbzFJLUzAHIXRDChXCcQP8zhkSZ5eNLgHAUzwDcRu4C" \
+  "oIRn/wsGUQIIy4Vr9TH6SYFCNzw4nALn5627K4vIttOUOwfa5YnrDYzt/9OLv9I5l8kk5hZ3XL" \
+  "O20b7tbR7zHLy/BX8G0IeBEM7ZN1NGIaFUaKLgAAAAAElFTkSuQmCC"
+
+class ImagePaintTimingDetectorTest : public testing::Test,
+                                     public PaintTestConfigurations {
  public:
   ImagePaintTimingDetectorTest()
       : test_task_runner_(
@@ -140,8 +158,20 @@ class ImagePaintTimingDetectorTest : public testing::Test {
     GetPaintTimingDetector().GetImagePaintTimingDetector()->UpdateCandidate();
   }
 
-  base::TimeTicks LargestPaintStoredResult() {
+  base::TimeTicks LargestPaintTime() {
     return GetPaintTimingDetector().largest_image_paint_time_;
+  }
+
+  uint64_t LargestPaintSize() {
+    return GetPaintTimingDetector().largest_image_paint_size_;
+  }
+
+  base::TimeTicks ExperimentalLargestPaintTime() {
+    return GetPaintTimingDetector().experimental_largest_image_paint_time_;
+  }
+
+  uint64_t ExperimentalLargestPaintSize() {
+    return GetPaintTimingDetector().experimental_largest_image_paint_size_;
   }
 
   static constexpr base::TimeDelta kQuantumOfTime =
@@ -152,8 +182,7 @@ class ImagePaintTimingDetectorTest : public testing::Test {
   }
 
   void UpdateAllLifecyclePhases() {
-    GetDocument().View()->UpdateAllLifecyclePhases(
-        DocumentLifecycle::LifecycleUpdateReason::kTest);
+    GetDocument().View()->UpdateAllLifecyclePhases(DocumentUpdateReason::kTest);
   }
 
   void UpdateAllLifecyclePhasesAndInvokeCallbackIfAny() {
@@ -177,8 +206,7 @@ class ImagePaintTimingDetectorTest : public testing::Test {
 
   void SetChildBodyInnerHTML(const String& content) {
     GetChildDocument()->SetBaseURLOverride(KURL("http://test.com"));
-    GetChildDocument()->body()->SetInnerHTMLFromString(content,
-                                                       ASSERT_NO_EXCEPTION);
+    GetChildDocument()->body()->setInnerHTML(content, ASSERT_NO_EXCEPTION);
     child_mock_callback_manager_ =
         MakeGarbageCollected<MockPaintTimingCallbackManager>();
     GetChildPaintTimingDetector()
@@ -220,14 +248,6 @@ class ImagePaintTimingDetectorTest : public testing::Test {
     To<HTMLImageElement>(element)->SetImageForTest(content);
   }
 
-  void SetVideoImageAndPaint(AtomicString id, int width, int height) {
-    Element* element = GetDocument().getElementById(id);
-    DCHECK(element);
-    // Set image and make it loaded.
-    ImageResourceContent* content = CreateImageForTest(width, height);
-    To<HTMLVideoElement>(element)->SetImageForTest(content);
-  }
-
   void SetSVGImageAndPaint(AtomicString id, int width, int height) {
     Element* element = GetDocument().getElementById(id);
     // Set image and make it loaded.
@@ -235,10 +255,12 @@ class ImagePaintTimingDetectorTest : public testing::Test {
     To<SVGImageElement>(element)->SetImageForTest(content);
   }
 
-  void SimulateScroll() { GetPaintTimingDetector().NotifyScroll(kUserScroll); }
+  void SimulateScroll() {
+    GetPaintTimingDetector().NotifyScroll(mojom::blink::ScrollType::kUser);
+  }
 
   void SimulateKeyUp() {
-    GetPaintTimingDetector().NotifyInputEvent(WebInputEvent::kKeyUp);
+    GetPaintTimingDetector().NotifyInputEvent(WebInputEvent::Type::kKeyUp);
   }
 
   scoped_refptr<base::TestMockTimeTaskRunner> test_task_runner_;
@@ -257,10 +279,10 @@ class ImagePaintTimingDetectorTest : public testing::Test {
         SkImageInfo::MakeN32Premul(width, height, src_rgb_color_space);
     sk_sp<SkSurface> surface(SkSurface::MakeRaster(raster_image_info));
     sk_sp<SkImage> image = surface->makeImageSnapshot();
-    ImageResourceContent* original_image_resource =
+    ImageResourceContent* original_image_content =
         ImageResourceContent::CreateLoaded(
             UnacceleratedStaticBitmapImage::Create(image).get());
-    return original_image_resource;
+    return original_image_content;
   }
 
   PaintTimingCallbackManager::CallbackQueue callback_queue_;
@@ -270,15 +292,19 @@ class ImagePaintTimingDetectorTest : public testing::Test {
 
 constexpr base::TimeDelta ImagePaintTimingDetectorTest::kQuantumOfTime;
 
-TEST_F(ImagePaintTimingDetectorTest, LargestImagePaint_NoImage) {
+INSTANTIATE_PAINT_TEST_SUITE_P(ImagePaintTimingDetectorTest);
+
+TEST_P(ImagePaintTimingDetectorTest, LargestImagePaint_NoImage) {
   SetBodyInnerHTML(R"HTML(
     <div></div>
   )HTML");
   ImageRecord* record = FindLargestPaintCandidate();
   EXPECT_FALSE(record);
+  EXPECT_EQ(ExperimentalLargestPaintTime(), base::TimeTicks());
+  EXPECT_EQ(ExperimentalLargestPaintSize(), 0ul);
 }
 
-TEST_F(ImagePaintTimingDetectorTest, LargestImagePaint_OneImage) {
+TEST_P(ImagePaintTimingDetectorTest, LargestImagePaint_OneImage) {
   SetBodyInnerHTML(R"HTML(
     <img id="target"></img>
   )HTML");
@@ -288,9 +314,10 @@ TEST_F(ImagePaintTimingDetectorTest, LargestImagePaint_OneImage) {
   EXPECT_TRUE(record);
   EXPECT_EQ(record->first_size, 25ul);
   EXPECT_TRUE(record->loaded);
+  EXPECT_EQ(ExperimentalLargestPaintSize(), 25ul);
 }
 
-TEST_F(ImagePaintTimingDetectorTest, InsertionOrderIsSecondaryRankingKey) {
+TEST_P(ImagePaintTimingDetectorTest, InsertionOrderIsSecondaryRankingKey) {
   SetBodyInnerHTML(R"HTML(
   )HTML");
 
@@ -313,9 +340,10 @@ TEST_F(ImagePaintTimingDetectorTest, InsertionOrderIsSecondaryRankingKey) {
 
   EXPECT_EQ(FindLargestPaintCandidate()->node_id,
             DOMNodeIds::ExistingIdForNode(image1));
+  EXPECT_EQ(ExperimentalLargestPaintSize(), 25ul);
 }
 
-TEST_F(ImagePaintTimingDetectorTest, LargestImagePaint_TraceEvent_Candidate) {
+TEST_P(ImagePaintTimingDetectorTest, LargestImagePaint_TraceEvent_Candidate) {
   using trace_analyzer::Query;
   trace_analyzer::Start("loading");
   {
@@ -356,7 +384,7 @@ TEST_F(ImagePaintTimingDetectorTest, LargestImagePaint_TraceEvent_Candidate) {
   EXPECT_EQ(false, isOOPIF);
 }
 
-TEST_F(ImagePaintTimingDetectorTest, LargestImagePaint_TraceEvent_NoCandidate) {
+TEST_P(ImagePaintTimingDetectorTest, LargestImagePaint_TraceEvent_NoCandidate) {
   using trace_analyzer::Query;
   trace_analyzer::Start("*");
   {
@@ -367,6 +395,8 @@ TEST_F(ImagePaintTimingDetectorTest, LargestImagePaint_TraceEvent_NoCandidate) {
     UpdateAllLifecyclePhasesAndInvokeCallbackIfAny();
     GetDocument().getElementById("target")->remove();
     UpdateAllLifecyclePhases();
+    // Experimental size still 25, not affected by removal.
+    EXPECT_EQ(ExperimentalLargestPaintSize(), 25ul);
   }
   auto analyzer = trace_analyzer::Stop();
   trace_analyzer::TraceEventVector events;
@@ -406,9 +436,11 @@ TEST_F(ImagePaintTimingDetectorTest, LargestImagePaint_TraceEvent_NoCandidate) {
   }
 }
 
-TEST_F(ImagePaintTimingDetectorTest, UpdatePerformanceTiming) {
+TEST_P(ImagePaintTimingDetectorTest, UpdatePerformanceTiming) {
   EXPECT_EQ(GetPerformanceTiming().LargestImagePaintSize(), 0u);
   EXPECT_EQ(GetPerformanceTiming().LargestImagePaint(), 0u);
+  EXPECT_EQ(GetPerformanceTiming().ExperimentalLargestImagePaintSize(), 0u);
+  EXPECT_EQ(GetPerformanceTiming().ExperimentalLargestImagePaint(), 0u);
   SetBodyInnerHTML(R"HTML(
     <img id="target"></img>
   )HTML");
@@ -416,12 +448,16 @@ TEST_F(ImagePaintTimingDetectorTest, UpdatePerformanceTiming) {
   UpdateAllLifecyclePhasesAndInvokeCallbackIfAny();
   EXPECT_EQ(GetPerformanceTiming().LargestImagePaintSize(), 25u);
   EXPECT_GT(GetPerformanceTiming().LargestImagePaint(), 0u);
+  EXPECT_EQ(GetPerformanceTiming().ExperimentalLargestImagePaintSize(), 25u);
+  EXPECT_GT(GetPerformanceTiming().ExperimentalLargestImagePaint(), 0u);
 }
 
-TEST_F(ImagePaintTimingDetectorTest,
+TEST_P(ImagePaintTimingDetectorTest,
        PerformanceTimingHasZeroTimeNonZeroSizeWhenTheLargestIsNotPainted) {
   EXPECT_EQ(GetPerformanceTiming().LargestImagePaintSize(), 0u);
   EXPECT_EQ(GetPerformanceTiming().LargestImagePaint(), 0u);
+  EXPECT_EQ(GetPerformanceTiming().ExperimentalLargestImagePaintSize(), 0u);
+  EXPECT_EQ(GetPerformanceTiming().ExperimentalLargestImagePaint(), 0u);
   SetBodyInnerHTML(R"HTML(
     <img id="target"></img>
   )HTML");
@@ -429,9 +465,11 @@ TEST_F(ImagePaintTimingDetectorTest,
   UpdateAllLifecyclePhases();
   EXPECT_EQ(GetPerformanceTiming().LargestImagePaintSize(), 25u);
   EXPECT_EQ(GetPerformanceTiming().LargestImagePaint(), 0u);
+  EXPECT_EQ(GetPerformanceTiming().ExperimentalLargestImagePaintSize(), 25u);
+  EXPECT_EQ(GetPerformanceTiming().ExperimentalLargestImagePaint(), 0u);
 }
 
-TEST_F(ImagePaintTimingDetectorTest, UpdatePerformanceTimingToZero) {
+TEST_P(ImagePaintTimingDetectorTest, UpdatePerformanceTimingToZero) {
   SetBodyInnerHTML(R"HTML(
     <img id="target"></img>
   )HTML");
@@ -439,13 +477,18 @@ TEST_F(ImagePaintTimingDetectorTest, UpdatePerformanceTimingToZero) {
   UpdateAllLifecyclePhasesAndInvokeCallbackIfAny();
   EXPECT_EQ(GetPerformanceTiming().LargestImagePaintSize(), 25u);
   EXPECT_GT(GetPerformanceTiming().LargestImagePaint(), 0u);
+  EXPECT_EQ(GetPerformanceTiming().ExperimentalLargestImagePaintSize(), 25u);
+  EXPECT_GT(GetPerformanceTiming().ExperimentalLargestImagePaint(), 0u);
   GetDocument().body()->RemoveChild(GetDocument().getElementById("target"));
   UpdateAllLifecyclePhasesAndInvokeCallbackIfAny();
   EXPECT_EQ(GetPerformanceTiming().LargestImagePaintSize(), 0u);
   EXPECT_EQ(GetPerformanceTiming().LargestImagePaint(), 0u);
+  // Experimental values are not reset.
+  EXPECT_EQ(GetPerformanceTiming().ExperimentalLargestImagePaintSize(), 25u);
+  EXPECT_GT(GetPerformanceTiming().ExperimentalLargestImagePaint(), 0u);
 }
 
-TEST_F(ImagePaintTimingDetectorTest, LargestImagePaint_OpacityZero) {
+TEST_P(ImagePaintTimingDetectorTest, LargestImagePaint_OpacityZero) {
   SetBodyInnerHTML(R"HTML(
     <style>
     img {
@@ -461,7 +504,7 @@ TEST_F(ImagePaintTimingDetectorTest, LargestImagePaint_OpacityZero) {
   EXPECT_FALSE(record);
 }
 
-TEST_F(ImagePaintTimingDetectorTest, LargestImagePaint_VisibilityHidden) {
+TEST_P(ImagePaintTimingDetectorTest, LargestImagePaint_VisibilityHidden) {
   SetBodyInnerHTML(R"HTML(
     <style>
     img {
@@ -477,7 +520,7 @@ TEST_F(ImagePaintTimingDetectorTest, LargestImagePaint_VisibilityHidden) {
   EXPECT_FALSE(record);
 }
 
-TEST_F(ImagePaintTimingDetectorTest, LargestImagePaint_DisplayNone) {
+TEST_P(ImagePaintTimingDetectorTest, LargestImagePaint_DisplayNone) {
   SetBodyInnerHTML(R"HTML(
     <style>
     img {
@@ -493,7 +536,7 @@ TEST_F(ImagePaintTimingDetectorTest, LargestImagePaint_DisplayNone) {
   EXPECT_FALSE(record);
 }
 
-TEST_F(ImagePaintTimingDetectorTest, LargestImagePaint_OpacityNonZero) {
+TEST_P(ImagePaintTimingDetectorTest, LargestImagePaint_OpacityNonZero) {
   SetBodyInnerHTML(R"HTML(
     <style>
     img {
@@ -509,7 +552,7 @@ TEST_F(ImagePaintTimingDetectorTest, LargestImagePaint_OpacityNonZero) {
   EXPECT_TRUE(record);
 }
 
-TEST_F(ImagePaintTimingDetectorTest,
+TEST_P(ImagePaintTimingDetectorTest,
        IgnoreImageUntilInvalidatedRectSizeNonZero) {
   SetBodyInnerHTML(R"HTML(
     <img id="target"></img>
@@ -523,7 +566,7 @@ TEST_F(ImagePaintTimingDetectorTest,
   EXPECT_EQ(CountVisibleImageRecords(), 1u);
 }
 
-TEST_F(ImagePaintTimingDetectorTest, LargestImagePaint_Largest) {
+TEST_P(ImagePaintTimingDetectorTest, LargestImagePaint_Largest) {
   SetBodyInnerHTML(R"HTML(
     <style>img { display:block }</style>
     <img id="smaller"></img>
@@ -539,9 +582,11 @@ TEST_F(ImagePaintTimingDetectorTest, LargestImagePaint_Largest) {
 
   SetImageAndPaint("larger", 9, 9);
   UpdateAllLifecyclePhasesAndInvokeCallbackIfAny();
+  EXPECT_EQ(LargestPaintSize(), 81ul);
+  EXPECT_EQ(ExperimentalLargestPaintSize(), 81ul);
 }
 
-TEST_F(ImagePaintTimingDetectorTest,
+TEST_P(ImagePaintTimingDetectorTest,
        LargestImagePaint_IgnoreThoseOutsideViewport) {
   SetBodyInnerHTML(R"HTML(
     <style>
@@ -558,7 +603,7 @@ TEST_F(ImagePaintTimingDetectorTest,
   EXPECT_FALSE(record);
 }
 
-TEST_F(ImagePaintTimingDetectorTest,
+TEST_P(ImagePaintTimingDetectorTest,
        LargestImagePaint_UpdateOnRemovingTheLastImage) {
   SetBodyInnerHTML(R"HTML(
     <div id="parent">
@@ -570,17 +615,24 @@ TEST_F(ImagePaintTimingDetectorTest,
   ImageRecord* record;
   record = FindLargestPaintCandidate();
   EXPECT_TRUE(record);
-  EXPECT_NE(LargestPaintStoredResult(), base::TimeTicks());
+  EXPECT_NE(LargestPaintTime(), base::TimeTicks());
+  EXPECT_EQ(LargestPaintSize(), 25ul);
+  EXPECT_NE(ExperimentalLargestPaintTime(), base::TimeTicks());
+  EXPECT_EQ(ExperimentalLargestPaintSize(), 25ul);
 
   GetDocument().getElementById("parent")->RemoveChild(
       GetDocument().getElementById("target"));
   UpdateAllLifecyclePhasesAndInvokeCallbackIfAny();
   record = FindLargestPaintCandidate();
   EXPECT_FALSE(record);
-  EXPECT_EQ(LargestPaintStoredResult(), base::TimeTicks());
+  EXPECT_EQ(LargestPaintTime(), base::TimeTicks());
+  EXPECT_EQ(LargestPaintSize(), 0u);
+  // Experimental values not reset after removal.
+  EXPECT_NE(ExperimentalLargestPaintTime(), base::TimeTicks());
+  EXPECT_EQ(ExperimentalLargestPaintSize(), 25ul);
 }
 
-TEST_F(ImagePaintTimingDetectorTest, LargestImagePaint_UpdateOnRemoving) {
+TEST_P(ImagePaintTimingDetectorTest, LargestImagePaint_UpdateOnRemoving) {
   SetBodyInnerHTML(R"HTML(
     <div id="parent">
       <img id="target1"></img>
@@ -591,15 +643,15 @@ TEST_F(ImagePaintTimingDetectorTest, LargestImagePaint_UpdateOnRemoving) {
   UpdateAllLifecyclePhasesAndInvokeCallbackIfAny();
   ImageRecord* record1 = FindLargestPaintCandidate();
   EXPECT_TRUE(record1);
-  EXPECT_NE(LargestPaintStoredResult(), base::TimeTicks());
-  base::TimeTicks first_largest_image_paint = LargestPaintStoredResult();
+  EXPECT_NE(LargestPaintTime(), base::TimeTicks());
+  base::TimeTicks first_largest_image_paint = LargestPaintTime();
 
   SetImageAndPaint("target2", 10, 10);
   UpdateAllLifecyclePhasesAndInvokeCallbackIfAny();
   ImageRecord* record2 = FindLargestPaintCandidate();
   EXPECT_TRUE(record2);
-  EXPECT_NE(LargestPaintStoredResult(), base::TimeTicks());
-  base::TimeTicks second_largest_image_paint = LargestPaintStoredResult();
+  EXPECT_NE(LargestPaintTime(), base::TimeTicks());
+  base::TimeTicks second_largest_image_paint = LargestPaintTime();
 
   EXPECT_NE(record1, record2);
   EXPECT_NE(first_largest_image_paint, second_largest_image_paint);
@@ -609,10 +661,13 @@ TEST_F(ImagePaintTimingDetectorTest, LargestImagePaint_UpdateOnRemoving) {
   UpdateAllLifecyclePhasesAndInvokeCallbackIfAny();
   ImageRecord* record1_2 = FindLargestPaintCandidate();
   EXPECT_EQ(record1, record1_2);
-  EXPECT_EQ(first_largest_image_paint, LargestPaintStoredResult());
+  EXPECT_EQ(first_largest_image_paint, LargestPaintTime());
+  EXPECT_EQ(LargestPaintSize(), 25u);
+  EXPECT_EQ(second_largest_image_paint, ExperimentalLargestPaintTime());
+  EXPECT_EQ(ExperimentalLargestPaintSize(), 100u);
 }
 
-TEST_F(ImagePaintTimingDetectorTest,
+TEST_P(ImagePaintTimingDetectorTest,
        LargestImagePaint_NodeRemovedBetweenRegistrationAndInvocation) {
   SetBodyInnerHTML(R"HTML(
     <div id="parent">
@@ -632,7 +687,7 @@ TEST_F(ImagePaintTimingDetectorTest,
   EXPECT_FALSE(record);
 }
 
-TEST_F(ImagePaintTimingDetectorTest,
+TEST_P(ImagePaintTimingDetectorTest,
        RemoveRecordFromAllContainersAfterImageRemoval) {
   SetBodyInnerHTML(R"HTML(
     <div id="parent">
@@ -648,8 +703,12 @@ TEST_F(ImagePaintTimingDetectorTest,
   EXPECT_EQ(ContainerTotalSize(), 0u);
 }
 
-TEST_F(ImagePaintTimingDetectorTest,
+TEST_P(ImagePaintTimingDetectorTest,
        RemoveRecordFromAllContainersAfterInvisibleImageRemoved) {
+  // TODO(wangxianzhu): Fix this test for CompositeAfterPaint.
+  if (RuntimeEnabledFeatures::CompositeAfterPaintEnabled())
+    return;
+
   SetBodyInnerHTML(R"HTML(
     <style>
       #target {
@@ -677,12 +736,12 @@ TEST_F(ImagePaintTimingDetectorTest,
   EXPECT_EQ(CountInvisibleRecords(), 0u);
 }
 
-TEST_F(ImagePaintTimingDetectorTest,
+TEST_P(ImagePaintTimingDetectorTest,
        RemoveRecordFromAllContainersAfterBackgroundImageRemoval) {
   SetBodyInnerHTML(R"HTML(
     <style>
       #target {
-        background-image: url(data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==);
+        background-image: url()HTML" SIMPLE_IMAGE R"HTML();
       }
     </style>
     <div id="parent">
@@ -699,7 +758,7 @@ TEST_F(ImagePaintTimingDetectorTest,
   EXPECT_EQ(ContainerTotalSize(), 0u);
 }
 
-TEST_F(ImagePaintTimingDetectorTest,
+TEST_P(ImagePaintTimingDetectorTest,
        RemoveRecordFromAllContainersAfterImageRemovedAndCallbackInvoked) {
   SetBodyInnerHTML(R"HTML(
     <div id="parent">
@@ -717,7 +776,7 @@ TEST_F(ImagePaintTimingDetectorTest,
   EXPECT_EQ(ContainerTotalSize(), 0u);
 }
 
-TEST_F(ImagePaintTimingDetectorTest,
+TEST_P(ImagePaintTimingDetectorTest,
        LargestImagePaint_ReattachedNodeTreatedAsNew) {
   SetBodyInnerHTML(R"HTML(
     <div id="parent">
@@ -760,7 +819,7 @@ TEST_F(ImagePaintTimingDetectorTest,
 // This is to prove that a swap time is assigned only to nodes of the frame who
 // register the swap time. In other words, swap time A should match frame A;
 // swap time B should match frame B.
-TEST_F(ImagePaintTimingDetectorTest, MatchSwapTimeToNodesOfDifferentFrames) {
+TEST_P(ImagePaintTimingDetectorTest, MatchSwapTimeToNodesOfDifferentFrames) {
   SetBodyInnerHTML(R"HTML(
     <div id="parent">
       <img height="5" width="5" id="smaller"></img>
@@ -788,7 +847,7 @@ TEST_F(ImagePaintTimingDetectorTest, MatchSwapTimeToNodesOfDifferentFrames) {
   EXPECT_NE(record1Time, record2->paint_time);
 }
 
-TEST_F(ImagePaintTimingDetectorTest,
+TEST_P(ImagePaintTimingDetectorTest,
        LargestImagePaint_UpdateResultWhenLargestChanged) {
   base::TimeTicks time1 = test_task_runner_->NowTicks();
   SetBodyInnerHTML(R"HTML(
@@ -800,19 +859,21 @@ TEST_F(ImagePaintTimingDetectorTest,
   SetImageAndPaint("target1", 5, 5);
   UpdateAllLifecyclePhasesAndInvokeCallbackIfAny();
   base::TimeTicks time2 = test_task_runner_->NowTicks();
-  base::TimeTicks result1 = LargestPaintStoredResult();
+  base::TimeTicks result1 = LargestPaintTime();
   EXPECT_GE(result1, time1);
   EXPECT_GE(time2, result1);
+  EXPECT_EQ(result1, ExperimentalLargestPaintTime());
 
   SetImageAndPaint("target2", 10, 10);
   UpdateAllLifecyclePhasesAndInvokeCallbackIfAny();
   base::TimeTicks time3 = test_task_runner_->NowTicks();
-  base::TimeTicks result2 = LargestPaintStoredResult();
+  base::TimeTicks result2 = LargestPaintTime();
   EXPECT_GE(result2, time2);
   EXPECT_GE(time3, result2);
+  EXPECT_EQ(result2, ExperimentalLargestPaintTime());
 }
 
-TEST_F(ImagePaintTimingDetectorTest, OneSwapPromiseForOneFrame) {
+TEST_P(ImagePaintTimingDetectorTest, OneSwapPromiseForOneFrame) {
   SetBodyInnerHTML(R"HTML(
     <style>img { display:block }</style>
     <div id="parent">
@@ -844,12 +905,10 @@ TEST_F(ImagePaintTimingDetectorTest, OneSwapPromiseForOneFrame) {
   EXPECT_FALSE(record->paint_time.is_null());
 }
 
-TEST_F(ImagePaintTimingDetectorTest, VideoImage) {
+TEST_P(ImagePaintTimingDetectorTest, VideoImage) {
   SetBodyInnerHTML(R"HTML(
-    <video id="target"></video>
+    <video id="target" poster=")HTML" LARGE_IMAGE R"HTML("></video>
   )HTML");
-
-  SetVideoImageAndPaint("target", 5, 5);
 
   UpdateAllLifecyclePhasesAndInvokeCallbackIfAny();
   ImageRecord* record = FindLargestPaintCandidate();
@@ -858,17 +917,15 @@ TEST_F(ImagePaintTimingDetectorTest, VideoImage) {
   EXPECT_TRUE(record->loaded);
 }
 
-TEST_F(ImagePaintTimingDetectorTest, VideoImage_ImageNotLoaded) {
-  SetBodyInnerHTML(R"HTML(
-    <video id="target"></video>
-  )HTML");
+TEST_P(ImagePaintTimingDetectorTest, VideoImage_ImageNotLoaded) {
+  SetBodyInnerHTML("<video id='target'></video>");
 
   UpdateAllLifecyclePhasesAndInvokeCallbackIfAny();
   ImageRecord* record = FindLargestPaintCandidate();
   EXPECT_FALSE(record);
 }
 
-TEST_F(ImagePaintTimingDetectorTest, SVGImage) {
+TEST_P(ImagePaintTimingDetectorTest, SVGImage) {
   SetBodyInnerHTML(R"HTML(
     <svg>
       <image id="target" width="10" height="10"/>
@@ -884,28 +941,26 @@ TEST_F(ImagePaintTimingDetectorTest, SVGImage) {
   EXPECT_TRUE(record->loaded);
 }
 
-TEST_F(ImagePaintTimingDetectorTest, BackgroundImage) {
+TEST_P(ImagePaintTimingDetectorTest, BackgroundImage) {
   SetBodyInnerHTML(R"HTML(
     <style>
       div {
-        background-image: url(data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==);
+        background-image: url()HTML" SIMPLE_IMAGE R"HTML();
       }
     </style>
-    <div>
-      place-holder
-    </div>
+    <div>place-holder</div>
   )HTML");
   ImageRecord* record = FindLargestPaintCandidate();
   EXPECT_TRUE(record);
   EXPECT_EQ(CountVisibleImageRecords(), 1u);
 }
 
-TEST_F(ImagePaintTimingDetectorTest,
+TEST_P(ImagePaintTimingDetectorTest,
        BackgroundImageAndLayoutImageTrackedDifferently) {
   SetBodyInnerHTML(R"HTML(
     <style>
       img {
-        background-image: url(data:image/gif;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAABHNCSVQICAgIfAhkiAAAAAlwSFlzAAAN1wAADdcBQiibeAAAAb5JREFUOMulkr1KA0EQgGdvTwwnYmER0gQsrFKmSy+pLESw9Qm0F/ICNnba+h6iEOuAEWslKJKTOyJJvIT72d1xZuOFC0giOLA77O7Mt/PnNptN+I+49Xr9GhH3f3mb0v1ht9vtLAUYYw5ItkgDL3KyD8PhcLvdbl/WarXT3DjLMnAcR/f7/YfxeKwtgC5RKQVhGILWeg4hQ6hUKjWyucmhLFEUuWR3QYBWAZABQ9i5CCmXy16pVALP80BKaaG+70MQBLvzFMjRKKXh8j6FSYKF7ITdEWLa4/ktokN74wiqjSMpnVcbQZqmEJHz+ckeCPFjWKwULpyspAqhdXVXdcnZcPjsIgn+2BsVA8jVYuWlgJ3yBj0icgq2uoK+lg4t+ZvLomSKamSQ4AI5BcMADtMhyNoSgNIISUaFNtwlazcDcBc4gjjVwCWid2usCWroYEhnaqbzFJLUzAHIXRDChXCcQP8zhkSZ5eNLgHAUzwDcRu4CoIRn/wsGUQIIy4Vr9TH6SYFCNzw4nALn5627K4vIttOUOwfa5YnrDYzt/9OLv9I5l8kk5hZ3XLO20b7tbR7zHLy/BX8G0IeBEM7ZN1NGIaFUaKLgAAAAAElFTkSuQmCC);
+        background-image: url()HTML" LARGE_IMAGE R"HTML();
       }
     </style>
     <img id="target">
@@ -920,31 +975,19 @@ TEST_F(ImagePaintTimingDetectorTest,
   EXPECT_EQ(record->first_size, 1u);
 }
 
-TEST_F(ImagePaintTimingDetectorTest, BackgroundImage_IgnoreBody) {
-  SetBodyInnerHTML(R"HTML(
-    <style>
-      body {
-        background-image: url(data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==);
-      }
-    </style>
-  )HTML");
+TEST_P(ImagePaintTimingDetectorTest, BackgroundImage_IgnoreBody) {
+  SetBodyInnerHTML("<style>body { background-image: url(" SIMPLE_IMAGE
+                   ")}</style>");
   EXPECT_EQ(CountVisibleImageRecords(), 0u);
 }
 
-TEST_F(ImagePaintTimingDetectorTest, BackgroundImage_IgnoreHtml) {
-  SetBodyInnerHTML(R"HTML(
-    <html>
-    <style>
-      html {
-        background-image: url(data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==);
-      }
-    </style>
-    </html>
-  )HTML");
+TEST_P(ImagePaintTimingDetectorTest, BackgroundImage_IgnoreHtml) {
+  SetBodyInnerHTML("<style>html { background-image: url(" SIMPLE_IMAGE
+                   ")}</style>");
   EXPECT_EQ(CountVisibleImageRecords(), 0u);
 }
 
-TEST_F(ImagePaintTimingDetectorTest, BackgroundImage_IgnoreGradient) {
+TEST_P(ImagePaintTimingDetectorTest, BackgroundImage_IgnoreGradient) {
   SetBodyInnerHTML(R"HTML(
     <style>
       div {
@@ -960,15 +1003,14 @@ TEST_F(ImagePaintTimingDetectorTest, BackgroundImage_IgnoreGradient) {
 
 // We put two background images in the same object, and test whether FCP++ can
 // find two different images.
-TEST_F(ImagePaintTimingDetectorTest, BackgroundImageTrackedDifferently) {
+TEST_P(ImagePaintTimingDetectorTest, BackgroundImageTrackedDifferently) {
   SetBodyInnerHTML(R"HTML(
     <style>
       #d {
         width: 50px;
         height: 50px;
         background-image:
-          url("data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw=="),
-          url("data:image/gif;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAABHNCSVQICAgIfAhkiAAAAAlwSFlzAAAN1wAADdcBQiibeAAAAb5JREFUOMulkr1KA0EQgGdvTwwnYmER0gQsrFKmSy+pLESw9Qm0F/ICNnba+h6iEOuAEWslKJKTOyJJvIT72d1xZuOFC0giOLA77O7Mt/PnNptN+I+49Xr9GhH3f3mb0v1ht9vtLAUYYw5ItkgDL3KyD8PhcLvdbl/WarXT3DjLMnAcR/f7/YfxeKwtgC5RKQVhGILWeg4hQ6hUKjWyucmhLFEUuWR3QYBWAZABQ9i5CCmXy16pVALP80BKaaG+70MQBLvzFMjRKKXh8j6FSYKF7ITdEWLa4/ktokN74wiqjSMpnVcbQZqmEJHz+ckeCPFjWKwULpyspAqhdXVXdcnZcPjsIgn+2BsVA8jVYuWlgJ3yBj0icgq2uoK+lg4t+ZvLomSKamSQ4AI5BcMADtMhyNoSgNIISUaFNtwlazcDcBc4gjjVwCWid2usCWroYEhnaqbzFJLUzAHIXRDChXCcQP8zhkSZ5eNLgHAUzwDcRu4CoIRn/wsGUQIIy4Vr9TH6SYFCNzw4nALn5627K4vIttOUOwfa5YnrDYzt/9OLv9I5l8kk5hZ3XLO20b7tbR7zHLy/BX8G0IeBEM7ZN1NGIaFUaKLgAAAAAElFTkSuQmCC");
+          url()HTML" SIMPLE_IMAGE "), url(" LARGE_IMAGE R"HTML();
       }
     </style>
     <div id="d"></div>
@@ -976,7 +1018,7 @@ TEST_F(ImagePaintTimingDetectorTest, BackgroundImageTrackedDifferently) {
   EXPECT_EQ(CountVisibleImageRecords(), 2u);
 }
 
-TEST_F(ImagePaintTimingDetectorTest, DeactivateAfterUserInput) {
+TEST_P(ImagePaintTimingDetectorTest, DeactivateAfterUserInput) {
   SetBodyInnerHTML(R"HTML(
     <div id="parent">
       <img id="target"></img>
@@ -988,7 +1030,7 @@ TEST_F(ImagePaintTimingDetectorTest, DeactivateAfterUserInput) {
   EXPECT_FALSE(GetPaintTimingDetector().GetImagePaintTimingDetector());
 }
 
-TEST_F(ImagePaintTimingDetectorTest, ContinueAfterKeyUp) {
+TEST_P(ImagePaintTimingDetectorTest, ContinueAfterKeyUp) {
   SetBodyInnerHTML(R"HTML(
     <div id="parent">
       <img id="target"></img>
@@ -1000,7 +1042,7 @@ TEST_F(ImagePaintTimingDetectorTest, ContinueAfterKeyUp) {
   EXPECT_TRUE(GetPaintTimingDetector().GetImagePaintTimingDetector());
 }
 
-TEST_F(ImagePaintTimingDetectorTest, NullTimeNoCrash) {
+TEST_P(ImagePaintTimingDetectorTest, NullTimeNoCrash) {
   SetBodyInnerHTML(R"HTML(
     <img id="target"></img>
   )HTML");
@@ -1009,7 +1051,7 @@ TEST_F(ImagePaintTimingDetectorTest, NullTimeNoCrash) {
   UpdateCandidate();
 }
 
-TEST_F(ImagePaintTimingDetectorTest, Iframe) {
+TEST_P(ImagePaintTimingDetectorTest, Iframe) {
   SetBodyInnerHTML(R"HTML(
     <iframe width=100px height=100px></iframe>
   )HTML");
@@ -1029,7 +1071,7 @@ TEST_F(ImagePaintTimingDetectorTest, Iframe) {
   EXPECT_EQ(image->first_size, 25ul);
 }
 
-TEST_F(ImagePaintTimingDetectorTest, Iframe_ClippedByMainFrameViewport) {
+TEST_P(ImagePaintTimingDetectorTest, Iframe_ClippedByMainFrameViewport) {
   SetBodyInnerHTML(R"HTML(
     <style>
       #f { margin-top: 1234567px }
@@ -1047,7 +1089,7 @@ TEST_F(ImagePaintTimingDetectorTest, Iframe_ClippedByMainFrameViewport) {
   EXPECT_EQ(CountVisibleImageRecords(), 0u);
 }
 
-TEST_F(ImagePaintTimingDetectorTest, Iframe_HalfClippedByMainFrameViewport) {
+TEST_P(ImagePaintTimingDetectorTest, Iframe_HalfClippedByMainFrameViewport) {
   SetBodyInnerHTML(R"HTML(
     <style>
       #f { margin-left: -5px; }
@@ -1068,7 +1110,7 @@ TEST_F(ImagePaintTimingDetectorTest, Iframe_HalfClippedByMainFrameViewport) {
   EXPECT_LT(image->first_size, 100ul);
 }
 
-TEST_F(ImagePaintTimingDetectorTest, SameSizeShouldNotBeIgnored) {
+TEST_P(ImagePaintTimingDetectorTest, SameSizeShouldNotBeIgnored) {
   SetBodyInnerHTML(R"HTML(
     <style>img { display:block }</style>
     <img id='1'></img>
@@ -1082,7 +1124,7 @@ TEST_F(ImagePaintTimingDetectorTest, SameSizeShouldNotBeIgnored) {
   EXPECT_EQ(CountRankingSetRecords(), 3u);
 }
 
-TEST_F(ImagePaintTimingDetectorTest, UseIntrinsicSizeIfSmaller_Image) {
+TEST_P(ImagePaintTimingDetectorTest, UseIntrinsicSizeIfSmaller_Image) {
   SetBodyInnerHTML(R"HTML(
     <img height="300" width="300" display="block" id="target">
     </img>
@@ -1094,7 +1136,7 @@ TEST_F(ImagePaintTimingDetectorTest, UseIntrinsicSizeIfSmaller_Image) {
   EXPECT_EQ(record->first_size, 25u);
 }
 
-TEST_F(ImagePaintTimingDetectorTest, NotUseIntrinsicSizeIfLarger_Image) {
+TEST_P(ImagePaintTimingDetectorTest, NotUseIntrinsicSizeIfLarger_Image) {
   SetBodyInnerHTML(R"HTML(
     <img height="1" width="1" display="block" id="target">
     </img>
@@ -1106,14 +1148,14 @@ TEST_F(ImagePaintTimingDetectorTest, NotUseIntrinsicSizeIfLarger_Image) {
   EXPECT_EQ(record->first_size, 1u);
 }
 
-TEST_F(ImagePaintTimingDetectorTest,
+TEST_P(ImagePaintTimingDetectorTest,
        UseIntrinsicSizeIfSmaller_BackgroundImage) {
   SetBodyInnerHTML(R"HTML(
     <style>
       #d {
         width: 50px;
         height: 50px;
-        background-image: url("data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==");
+        background-image: url()HTML" SIMPLE_IMAGE R"HTML();
       }
     </style>
     <div id="d"></div>
@@ -1123,7 +1165,7 @@ TEST_F(ImagePaintTimingDetectorTest,
   EXPECT_EQ(record->first_size, 1u);
 }
 
-TEST_F(ImagePaintTimingDetectorTest,
+TEST_P(ImagePaintTimingDetectorTest,
        NotUseIntrinsicSizeIfLarger_BackgroundImage) {
   // The image is in 16x16.
   SetBodyInnerHTML(R"HTML(
@@ -1131,7 +1173,7 @@ TEST_F(ImagePaintTimingDetectorTest,
       #d {
         width: 5px;
         height: 5px;
-        background-image: url("data:image/gif;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAABHNCSVQICAgIfAhkiAAAAAlwSFlzAAAN1wAADdcBQiibeAAAAb5JREFUOMulkr1KA0EQgGdvTwwnYmER0gQsrFKmSy+pLESw9Qm0F/ICNnba+h6iEOuAEWslKJKTOyJJvIT72d1xZuOFC0giOLA77O7Mt/PnNptN+I+49Xr9GhH3f3mb0v1ht9vtLAUYYw5ItkgDL3KyD8PhcLvdbl/WarXT3DjLMnAcR/f7/YfxeKwtgC5RKQVhGILWeg4hQ6hUKjWyucmhLFEUuWR3QYBWAZABQ9i5CCmXy16pVALP80BKaaG+70MQBLvzFMjRKKXh8j6FSYKF7ITdEWLa4/ktokN74wiqjSMpnVcbQZqmEJHz+ckeCPFjWKwULpyspAqhdXVXdcnZcPjsIgn+2BsVA8jVYuWlgJ3yBj0icgq2uoK+lg4t+ZvLomSKamSQ4AI5BcMADtMhyNoSgNIISUaFNtwlazcDcBc4gjjVwCWid2usCWroYEhnaqbzFJLUzAHIXRDChXCcQP8zhkSZ5eNLgHAUzwDcRu4CoIRn/wsGUQIIy4Vr9TH6SYFCNzw4nALn5627K4vIttOUOwfa5YnrDYzt/9OLv9I5l8kk5hZ3XLO20b7tbR7zHLy/BX8G0IeBEM7ZN1NGIaFUaKLgAAAAAElFTkSuQmCC");
+        background-image: url()HTML" LARGE_IMAGE R"HTML();
       }
     </style>
     <div id="d"></div>
@@ -1139,6 +1181,57 @@ TEST_F(ImagePaintTimingDetectorTest,
   ImageRecord* record = FindLargestPaintCandidate();
   EXPECT_TRUE(record);
   EXPECT_EQ(record->first_size, 25u);
+}
+
+TEST_P(ImagePaintTimingDetectorTest, OpacityZeroHTML) {
+  SetBodyInnerHTML(R"HTML(
+    <style>
+      :root {
+        opacity: 0;
+        will-change: opacity;
+      }
+    </style>
+    <img id="target"></img>
+  )HTML");
+  SetImageAndPaint("target", 5, 5);
+  UpdateAllLifecyclePhasesAndInvokeCallbackIfAny();
+  EXPECT_EQ(CountVisibleImageRecords(), 0u);
+
+  // Change the opacity of documentElement, now the img should be a candidate.
+  GetDocument().documentElement()->setAttribute(html_names::kStyleAttr,
+                                                "opacity: 1");
+  UpdateAllLifecyclePhasesAndInvokeCallbackIfAny();
+  EXPECT_EQ(CountVisibleImageRecords(), 1u);
+  EXPECT_EQ(GetPerformanceTiming().LargestImagePaintSize(), 25u);
+  EXPECT_GT(GetPerformanceTiming().LargestImagePaint(), 0u);
+  EXPECT_EQ(GetPerformanceTiming().LargestImagePaintSize(),
+            GetPerformanceTiming().ExperimentalLargestImagePaintSize());
+  EXPECT_EQ(GetPerformanceTiming().LargestImagePaint(),
+            GetPerformanceTiming().ExperimentalLargestImagePaint());
+}
+
+TEST_P(ImagePaintTimingDetectorTest, OpacityZeroHTML2) {
+  SetBodyInnerHTML(R"HTML(
+    <style>
+      #target {
+        opacity: 0;
+      }
+    </style>
+    <img id="target"></img>
+  )HTML");
+  SetImageAndPaint("target", 5, 5);
+  UpdateAllLifecyclePhasesAndInvokeCallbackIfAny();
+  EXPECT_EQ(CountVisibleImageRecords(), 0u);
+
+  GetDocument().documentElement()->setAttribute(html_names::kStyleAttr,
+                                                "opacity: 0");
+  UpdateAllLifecyclePhasesAndInvokeCallbackIfAny();
+  EXPECT_EQ(CountVisibleImageRecords(), 0u);
+
+  GetDocument().documentElement()->setAttribute(html_names::kStyleAttr,
+                                                "opacity: 1");
+  UpdateAllLifecyclePhasesAndInvokeCallbackIfAny();
+  EXPECT_EQ(CountVisibleImageRecords(), 0u);
 }
 
 }  // namespace blink

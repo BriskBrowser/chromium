@@ -10,6 +10,7 @@
 #include "base/callback.h"
 #include "base/containers/flat_map.h"
 #include "base/memory/scoped_refptr.h"
+#include "base/memory/weak_ptr.h"
 #include "base/single_thread_task_runner.h"
 #include "base/unguessable_token.h"
 #include "build/build_config.h"
@@ -19,7 +20,7 @@
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "mojo/public/cpp/bindings/receiver.h"
 
-#if defined(OS_LINUX)
+#if defined(OS_LINUX) || defined(OS_CHROMEOS)
 #include "components/services/font/public/cpp/font_loader.h"
 #include "third_party/skia/include/core/SkRefCnt.h"
 #endif
@@ -42,6 +43,11 @@ class PaintPreviewCompositorCollectionImpl
       bool initialize_environment,
       scoped_refptr<base::SingleThreadTaskRunner> io_task_runner);
   ~PaintPreviewCompositorCollectionImpl() override;
+
+  PaintPreviewCompositorCollectionImpl(
+      const PaintPreviewCompositorCollectionImpl&) = delete;
+  PaintPreviewCompositorCollectionImpl& operator=(
+      const PaintPreviewCompositorCollectionImpl&) = delete;
 
   // PaintPreviewCompositorCollection implementation.
   void SetDiscardableSharedMemoryManager(
@@ -68,14 +74,12 @@ class PaintPreviewCompositorCollectionImpl
                  std::unique_ptr<PaintPreviewCompositorImpl>>
       compositors_;
 
-#if defined(OS_LINUX)
+#if defined(OS_LINUX) || defined(OS_CHROMEOS)
   sk_sp<font_service::FontLoader> font_loader_;
 #endif
 
-  PaintPreviewCompositorCollectionImpl(
-      const PaintPreviewCompositorCollectionImpl&) = delete;
-  PaintPreviewCompositorCollectionImpl& operator=(
-      const PaintPreviewCompositorCollectionImpl&) = delete;
+  base::WeakPtrFactory<PaintPreviewCompositorCollectionImpl> weak_ptr_factory_{
+      this};
 };
 
 }  // namespace paint_preview

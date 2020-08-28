@@ -10,12 +10,12 @@ import android.app.PendingIntent.CanceledException;
 import android.content.Intent;
 import android.os.Bundle;
 
+import org.chromium.base.IntentUtils;
 import org.chromium.base.Log;
 import org.chromium.chrome.browser.customtabs.CustomTabsConnection;
 import org.chromium.chrome.browser.init.AsyncInitializationActivity;
 import org.chromium.chrome.browser.metrics.UmaUtils;
 import org.chromium.chrome.browser.profiles.ProfileManagerUtils;
-import org.chromium.chrome.browser.util.IntentUtils;
 
 /** Base class for First Run Experience. */
 public abstract class FirstRunActivityBase extends AsyncInitializationActivity {
@@ -24,6 +24,8 @@ public abstract class FirstRunActivityBase extends AsyncInitializationActivity {
     public static final String EXTRA_COMING_FROM_CHROME_ICON = "Extra.ComingFromChromeIcon";
     public static final String EXTRA_CHROME_LAUNCH_INTENT_IS_CCT =
             "Extra.FreChromeLaunchIntentIsCct";
+    public static final String EXTRA_FRE_INTENT_CREATION_ELAPSED_REALTIME_MS =
+            "Extra.FreIntentCreationElapsedRealtimeMs";
 
     // The intent to send once the FRE completes.
     public static final String EXTRA_FRE_COMPLETE_LAUNCH_INTENT = "Extra.FreChromeLaunchIntent";
@@ -32,8 +34,6 @@ public abstract class FirstRunActivityBase extends AsyncInitializationActivity {
     // received by ChromeLauncherActivity.)
     public static final String EXTRA_CHROME_LAUNCH_INTENT_EXTRAS =
             "Extra.FreChromeLaunchIntentExtras";
-
-    static final String SHOW_WELCOME_PAGE = "ShowWelcome";
     static final String SHOW_DATA_REDUCTION_PAGE = "ShowDataReduction";
     static final String SHOW_SEARCH_ENGINE_PAGE = "ShowSearchEnginePage";
     static final String SHOW_SIGNIN_PAGE = "ShowSignIn";

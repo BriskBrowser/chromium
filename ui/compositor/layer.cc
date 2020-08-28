@@ -5,14 +5,15 @@
 #include "ui/compositor/layer.h"
 
 #include <algorithm>
+#include <cmath>
 #include <memory>
 #include <utility>
 
 #include "base/auto_reset.h"
 #include "base/bind.h"
+#include "base/check_op.h"
 #include "base/command_line.h"
 #include "base/json/json_writer.h"
-#include "base/logging.h"
 #include "base/memory/ptr_util.h"
 #include "base/numerics/ranges.h"
 #include "base/trace_event/trace_event.h"
@@ -59,7 +60,7 @@ void CheckSnapped(float snapped_position) {
   // artifacts as well as large enough to not cause false crashes when an
   // uncommon device scale factor is applied.
   const float kEplison = 0.003f;
-  float diff = std::abs(snapped_position - gfx::ToRoundedInt(snapped_position));
+  float diff = std::abs(snapped_position - std::round(snapped_position));
   DCHECK_LT(diff, kEplison);
 }
 #endif
@@ -272,6 +273,7 @@ std::unique_ptr<Layer> Layer::Clone() const {
   clone->SetMasksToBounds(GetMasksToBounds());
   clone->SetOpacity(GetTargetOpacity());
   clone->SetVisible(GetTargetVisibility());
+  clone->SetClipRect(GetTargetClipRect());
   clone->SetAcceptEvents(accept_events());
   clone->SetFillsBoundsOpaquely(fills_bounds_opaquely_);
   clone->SetFillsBoundsCompletely(fills_bounds_completely_);
@@ -308,7 +310,9 @@ void Layer::SetShowReflectedLayerSubtree(Layer* subtree_reflected_layer) {
 
   scoped_refptr<cc::MirrorLayer> new_layer =
       cc::MirrorLayer::Create(subtree_reflected_layer->cc_layer_);
-  SwitchToLayer(new_layer);
+  if (!SwitchToLayer(new_layer))
+    return;
+
   mirror_layer_ = std::move(new_layer);
 
   subtree_reflected_layer_ = subtree_reflected_layer;
@@ -375,11 +379,19 @@ void Layer::Add(Layer* child) {
 }
 
 void Layer::Remove(Layer* child) {
+  base::WeakPtr<Layer> weak_this = weak_ptr_factory_.GetWeakPtr();
+  base::WeakPtr<Layer> weak_child = child->weak_ptr_factory_.GetWeakPtr();
+
   // Current bounds are used to calculate offsets when layers are reparented.
   // Stop (and complete) an ongoing animation to update the bounds immediately.
   LayerAnimator* child_animator = child->animator_.get();
   if (child_animator)
     child_animator->StopAnimatingProperty(ui::LayerAnimationElement::BOUNDS);
+
+  // Do not proceed if |this| or |child| is released by an animation observer
+  // of |child|'s bounds animation.
+  if (!weak_this || !weak_child)
+    return;
 
   Compositor* compositor = GetCompositor();
   if (compositor)
@@ -484,6 +496,14 @@ void Layer::SetMasksToBounds(bool masks_to_bounds) {
 
 bool Layer::GetMasksToBounds() const {
   return cc_layer_->masks_to_bounds();
+}
+
+gfx::Rect Layer::GetTargetClipRect() const {
+  if (animator_ &&
+      animator_->IsAnimatingProperty(LayerAnimationElement::CLIP)) {
+    return animator_->GetTargetClipRect();
+  }
+  return clip_rect();
 }
 
 void Layer::SetClipRect(const gfx::Rect& clip_rect) {
@@ -712,15 +732,8 @@ bool Layer::GetTargetTransformRelativeTo(const Layer* ancestor,
 }
 
 void Layer::SetFillsBoundsOpaquely(bool fills_bounds_opaquely) {
-  if (fills_bounds_opaquely_ == fills_bounds_opaquely)
-    return;
-
-  fills_bounds_opaquely_ = fills_bounds_opaquely;
-
-  cc_layer_->SetContentsOpaque(fills_bounds_opaquely);
-
-  if (delegate_)
-    delegate_->OnLayerFillsBoundsOpaquelyChanged();
+  SetFillsBoundsOpaquelyWithReason(fills_bounds_opaquely,
+                                   PropertyChangeReason::NOT_FROM_ANIMATION);
 }
 
 void Layer::SetFillsBoundsCompletely(bool fills_bounds_completely) {
@@ -732,11 +745,19 @@ void Layer::SetName(const std::string& name) {
   cc_layer_->SetDebugName(name);
 }
 
-void Layer::SwitchToLayer(scoped_refptr<cc::Layer> new_layer) {
+bool Layer::SwitchToLayer(scoped_refptr<cc::Layer> new_layer) {
   // Finish animations being handled by cc_layer_.
   if (animator_) {
+    base::WeakPtr<Layer> weak_this = weak_ptr_factory_.GetWeakPtr();
+
     animator_->StopAnimatingProperty(LayerAnimationElement::TRANSFORM);
+    if (!weak_this)
+      return false;
+
     animator_->StopAnimatingProperty(LayerAnimationElement::OPACITY);
+    if (!weak_this)
+      return false;
+
     animator_->SwitchToLayer(new_layer);
   }
 
@@ -788,12 +809,16 @@ void Layer::SwitchToLayer(scoped_refptr<cc::Layer> new_layer) {
 
   SetLayerFilters();
   SetLayerBackgroundFilters();
+  return true;
 }
 
-void Layer::SwitchCCLayerForTest() {
+bool Layer::SwitchCCLayerForTest() {
   scoped_refptr<cc::PictureLayer> new_layer = cc::PictureLayer::Create(this);
-  SwitchToLayer(new_layer);
+  if (!SwitchToLayer(new_layer))
+    return false;
+
   content_layer_ = std::move(new_layer);
+  return true;
 }
 
 // Note: The code that sets this flag would be responsible to unset it on that
@@ -896,7 +921,9 @@ void Layer::SetTransferableResource(
     scoped_refptr<cc::TextureLayer> new_layer =
         cc::TextureLayer::CreateForMailbox(this);
     new_layer->SetFlipped(true);
-    SwitchToLayer(new_layer);
+    if (!SwitchToLayer(new_layer))
+      return;
+
     texture_layer_ = new_layer;
     // Reset the frame_size_in_dip_ so that SetTextureSize() will not early out,
     // the frame_size_in_dip_ was for a previous (different) |texture_layer_|.
@@ -979,7 +1006,9 @@ void Layer::SetShowReflectedSurface(const viz::SurfaceId& surface_id,
 
   if (!surface_layer_) {
     scoped_refptr<cc::SurfaceLayer> new_layer = cc::SurfaceLayer::Create();
-    SwitchToLayer(new_layer);
+    if (!SwitchToLayer(new_layer))
+      return;
+
     surface_layer_ = new_layer;
   }
 
@@ -1014,7 +1043,9 @@ void Layer::SetShowSolidColorContent() {
     return;
 
   scoped_refptr<cc::SolidColorLayer> new_layer = cc::SolidColorLayer::Create();
-  SwitchToLayer(new_layer);
+  if (!SwitchToLayer(new_layer))
+    return;
+
   solid_color_layer_ = new_layer;
 
   transfer_resource_ = viz::TransferableResource();
@@ -1242,7 +1273,7 @@ gfx::ScrollOffset Layer::CurrentScrollOffset() const {
   if (compositor &&
       compositor->GetScrollOffsetForLayer(cc_layer_->element_id(), &offset))
     return offset;
-  return cc_layer_->CurrentScrollOffset();
+  return cc_layer_->scroll_offset();
 }
 
 void Layer::SetScrollOffset(const gfx::ScrollOffset& offset) {
@@ -1392,10 +1423,12 @@ void Layer::SetBoundsFromAnimation(const gfx::Rect& bounds,
     reflecting_layer->MatchLayerSize(this);
 }
 
-void Layer::SetTransformFromAnimation(const gfx::Transform& transform,
+void Layer::SetTransformFromAnimation(const gfx::Transform& new_transform,
                                       PropertyChangeReason reason) {
-  const gfx::Transform old_transform = this->transform();
-  cc_layer_->SetTransform(transform);
+  const gfx::Transform old_transform = transform();
+  if (old_transform == new_transform)
+    return;
+  cc_layer_->SetTransform(new_transform);
 
   // Skip recomputing position if the subpixel offset does not need updating
   // which is the case if an explicit offset is set.
@@ -1446,7 +1479,7 @@ void Layer::SetColorFromAnimation(SkColor color, PropertyChangeReason reason) {
   DCHECK_EQ(type_, LAYER_SOLID_COLOR);
   cc_layer_->SetBackgroundColor(color);
   cc_layer_->SetSafeOpaqueBackgroundColor(color);
-  SetFillsBoundsOpaquely(SkColorGetA(color) == 0xFF);
+  SetFillsBoundsOpaquelyWithReason(SkColorGetA(color) == 0xFF, reason);
 }
 
 void Layer::SetClipRectFromAnimation(const gfx::Rect& clip_rect,
@@ -1517,9 +1550,12 @@ LayerAnimatorCollection* Layer::GetLayerAnimatorCollection() {
   return compositor ? compositor->layer_animator_collection() : nullptr;
 }
 
-int Layer::GetFrameNumber() const {
-  const Compositor* compositor = GetCompositor();
-  return compositor ? compositor->activated_frame_count() : 0;
+base::Optional<int> Layer::GetFrameNumber() const {
+  if (const Compositor* compositor = GetCompositor()) {
+    return compositor->activated_frame_count();
+  }
+
+  return base::nullopt;
 }
 
 float Layer::GetRefreshRate() const {
@@ -1622,7 +1658,9 @@ void Layer::CreateSurfaceLayerIfNecessary() {
     return;
   scoped_refptr<cc::SurfaceLayer> new_layer = cc::SurfaceLayer::Create();
   new_layer->SetSurfaceHitTestable(true);
-  SwitchToLayer(new_layer);
+  if (!SwitchToLayer(new_layer))
+    return;
+
   surface_layer_ = new_layer;
 }
 
@@ -1651,6 +1689,19 @@ void Layer::GetFlattenedWeakList(
 
   for (auto* child : children_)
     child->GetFlattenedWeakList(flattened_list);
+}
+
+void Layer::SetFillsBoundsOpaquelyWithReason(bool fills_bounds_opaquely,
+                                             PropertyChangeReason reason) {
+  if (fills_bounds_opaquely_ == fills_bounds_opaquely)
+    return;
+
+  fills_bounds_opaquely_ = fills_bounds_opaquely;
+
+  cc_layer_->SetContentsOpaque(fills_bounds_opaquely);
+
+  if (delegate_)
+    delegate_->OnLayerFillsBoundsOpaquelyChanged(reason);
 }
 
 }  // namespace ui

@@ -11,10 +11,11 @@
 #include <string>
 #include <vector>
 
+#include "base/callback_helpers.h"
+#include "base/check.h"
 #include "base/containers/flat_map.h"
 #include "base/containers/flat_set.h"
 #include "base/containers/unique_ptr_adapters.h"
-#include "base/logging.h"
 #include "base/macros.h"
 #include "base/optional.h"
 #include "base/single_thread_task_runner.h"
@@ -72,6 +73,8 @@ class VIZ_SERVICE_EXPORT FrameSinkManagerImpl
     OutputSurfaceProvider* output_surface_provider = nullptr;
     uint32_t restart_id = BeginFrameSource::kNotRestartableId;
     bool run_all_compositor_stages_before_draw = false;
+    bool log_capture_pipeline_in_webrtc = false;
+    DebugRendererSettings debug_renderer_settings;
   };
   explicit FrameSinkManagerImpl(const InitParams& params);
   // TODO(kylechar): Cleanup tests and remove this constructor.
@@ -101,9 +104,6 @@ class VIZ_SERVICE_EXPORT FrameSinkManagerImpl
   void RegisterFrameSinkId(const FrameSinkId& frame_sink_id,
                            bool report_activation) override;
   void InvalidateFrameSinkId(const FrameSinkId& frame_sink_id) override;
-  void EnableSynchronizationReporting(
-      const FrameSinkId& frame_sink_id,
-      const std::string& reporting_label) override;
   void SetFrameSinkDebugLabel(const FrameSinkId& frame_sink_id,
                               const std::string& debug_label) override;
   void CreateRootCompositorFrameSink(
@@ -136,17 +136,14 @@ class VIZ_SERVICE_EXPORT FrameSinkManagerImpl
                        const FrameSinkId& root_frame_sink_id) override;
   void EvictBackBuffer(uint32_t cache_id,
                        EvictBackBufferCallback callback) override;
+  void UpdateDebugRendererSettings(
+      const DebugRendererSettings& debug_settings) override;
+  void StartThrottling(const std::vector<FrameSinkId>& frame_sink_ids,
+                       base::TimeDelta interval) override;
+  void EndThrottling() override;
 
   // SurfaceObserver implementation.
   void OnFirstSurfaceActivation(const SurfaceInfo& surface_info) override;
-  void OnSurfaceActivated(const SurfaceId& surface_id,
-                          base::Optional<base::TimeDelta> duration) override;
-  bool OnSurfaceDamaged(const SurfaceId& surface_id,
-                        const BeginFrameAck& ack) override;
-  void OnSurfaceDestroyed(const SurfaceId& surface_id) override;
-  void OnSurfaceMarkedForDestruction(const SurfaceId& surface_id) override;
-  void OnSurfaceDamageExpected(const SurfaceId& surface_id,
-                               const BeginFrameArgs& args) override;
 
   // HitTestAggregatorDelegate implementation:
   void OnAggregatedHitTestRegionListUpdated(
@@ -156,6 +153,7 @@ class VIZ_SERVICE_EXPORT FrameSinkManagerImpl
   // SurfaceManagerDelegate implementation:
   base::StringPiece GetFrameSinkDebugLabel(
       const FrameSinkId& frame_sink_id) const override;
+  void AggregatedFrameSinksChanged() override;
 
   // CompositorFrameSinkSupport, hierarchy, and BeginFrameSource can be
   // registered and unregistered in any order with respect to each other.
@@ -220,10 +218,9 @@ class VIZ_SERVICE_EXPORT FrameSinkManagerImpl
   const CompositorFrameSinkSupport* GetFrameSinkForId(
       const FrameSinkId& frame_sink_id) const;
 
-  void SetPreferredFrameIntervalForFrameSinkId(const FrameSinkId& id,
-                                               base::TimeDelta interval);
   base::TimeDelta GetPreferredFrameIntervalForFrameSinkId(
-      const FrameSinkId& id) const;
+      const FrameSinkId& id,
+      mojom::CompositorFrameSinkType* type) const;
 
   // This cancels pending output requests owned by the frame sinks associated
   // with the specified BeginFrameSource.
@@ -245,14 +242,9 @@ class VIZ_SERVICE_EXPORT FrameSinkManagerImpl
     // A label to identify frame sink.
     std::string debug_label;
 
-    // Record synchronization events for this FrameSinkId if not empty.
-    std::string synchronization_label;
-
     // Indicates whether the client wishes to receive FirstSurfaceActivation
     // notification.
     bool report_activation;
-
-    base::TimeDelta preferred_frame_interval = BeginFrameArgs::MinInterval();
 
    private:
     DISALLOW_COPY_AND_ASSIGN(FrameSinkData);
@@ -289,6 +281,11 @@ class VIZ_SERVICE_EXPORT FrameSinkManagerImpl
   bool ChildContains(const FrameSinkId& child_frame_sink_id,
                      const FrameSinkId& search_frame_sink_id) const;
 
+  // Updates throttling recursively on a frame sink specified by its |id|
+  // and all its descendants to send BeginFrames at |interval|.
+  void UpdateThrottlingRecursively(const FrameSinkId& id,
+                                   base::TimeDelta interval);
+
   // SharedBitmapManager for the viz display service for receiving software
   // resources in CompositorFrameSinks.
   SharedBitmapManager* const shared_bitmap_manager_;
@@ -307,6 +304,12 @@ class VIZ_SERVICE_EXPORT FrameSinkManagerImpl
 
   // Whether display scheduler should wait for all pipeline stages before draw.
   const bool run_all_compositor_stages_before_draw_;
+
+  // Whether capture pipeline should emit log messages to webrtc log.
+  const bool log_capture_pipeline_in_webrtc_;
+
+  // This is viz-global instance of DebugRendererSettings.
+  DebugRendererSettings debug_settings_;
 
   // Contains registered frame sink ids, debug labels and synchronization
   // labels. Map entries will be created when frame sink is registered and
@@ -336,6 +339,9 @@ class VIZ_SERVICE_EXPORT FrameSinkManagerImpl
       video_capturers_;
 
   base::flat_map<uint32_t, base::ScopedClosureRunner> cached_back_buffers_;
+
+  // This tells if any frame sinks are currently throttled.
+  bool frame_sinks_throttled = false;
 
   THREAD_CHECKER(thread_checker_);
 

@@ -2,12 +2,16 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/logging.h"
+#include <string>
+
+#include "base/check.h"
+#include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
 #include "content/browser/accessibility/browser_accessibility.h"
 #include "content/browser/accessibility/browser_accessibility_manager.h"
 #include "content/browser/web_contents/web_contents_impl.h"
 #include "content/public/test/accessibility_notification_waiter.h"
+#include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/content_browser_test.h"
 #include "content/public/test/content_browser_test_utils.h"
@@ -15,6 +19,7 @@
 #include "content/shell/browser/shell.h"
 #include "net/base/data_url.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "ui/accessibility/accessibility_switches.h"
 #include "ui/accessibility/ax_enums.mojom.h"
 #include "ui/gfx/codec/png_codec.h"
 #include "url/gurl.h"
@@ -104,10 +109,16 @@ class AccessibilityActionBrowserTest : public ContentBrowserTest {
   BrowserAccessibility* FindNodeInSubtree(BrowserAccessibility& node,
                                           ax::mojom::Role role,
                                           const std::string& name_or_value) {
-    const auto& name =
+    const std::string& name =
         node.GetStringAttribute(ax::mojom::StringAttribute::kName);
-    const auto& value =
-        node.GetStringAttribute(ax::mojom::StringAttribute::kValue);
+    // Note that in the case of a text field, "BrowserAccessibility::GetValue"
+    // has the added functionality of computing the value of an ARIA text box
+    // from its inner text.
+    //
+    // <div contenteditable="true" role="textbox">Hello world.</div>
+    // Will expose no HTML value attribute, but some screen readers, such as
+    // Jaws, VoiceOver and Talkback, require one to be computed.
+    const std::string& value = base::UTF16ToUTF8(node.GetValue());
     if (node.GetRole() == role &&
         (name == name_or_value || value == name_or_value)) {
       return &node;
@@ -516,7 +527,8 @@ IN_PROC_BROWSER_TEST_F(AccessibilityActionBrowserTest, ShowContextMenu) {
   target_node->AccessibilityPerformAction(context_menu_action);
   context_menu_filter->Wait();
 
-  ContextMenuParams context_menu_params = context_menu_filter->get_params();
+  UntrustworthyContextMenuParams context_menu_params =
+      context_menu_filter->get_params();
   EXPECT_EQ(base::ASCIIToUTF16("2"), context_menu_params.link_text);
   EXPECT_EQ(ui::MenuSourceType::MENU_SOURCE_NONE,
             context_menu_params.source_type);
@@ -865,5 +877,49 @@ IN_PROC_BROWSER_TEST_F(AccessibilityActionBrowserTest, ClickSVG) {
                                                 "SVG link was clicked!");
 #endif  // !defined(OS_ANDROID)
 }
+
+// This test ony makes sense on platforms where the popup menu is implemented
+// internally as an HTML page in a popup, not where it's a native popup.
+#if defined(OS_WIN) || defined(OS_CHROMEOS) || defined(USE_ATK)
+IN_PROC_BROWSER_TEST_F(AccessibilityActionBrowserTest,
+                       OpenSelectPopupWithNoAXMenuList) {
+  base::CommandLine::ForCurrentProcess()->AppendSwitch(
+      ::switches::kDisableAXMenuList);
+
+  LoadInitialAccessibilityTreeFromHtml(R"HTML(
+      <head><title>No AXMenuList</title></head>
+      <body>
+        <select>
+          <option selected>One</option>
+          <option>Two</option>
+          <option>Three</option>
+        </select>
+      </body>
+      )HTML");
+
+  BrowserAccessibility* target = FindNode(ax::mojom::Role::kPopUpButton, "One");
+  ASSERT_NE(nullptr, target);
+
+  EXPECT_EQ(0U, target->PlatformChildCount());
+  EXPECT_EQ(nullptr, FindNode(ax::mojom::Role::kListBox, ""));
+
+  // Call DoDefaultAction.
+  AccessibilityNotificationWaiter waiter2(
+      shell()->web_contents(), ui::kAXModeComplete, ax::mojom::Event::kClicked);
+  GetManager()->DoDefaultAction(*target);
+  waiter2.WaitForNotification();
+
+  WaitForAccessibilityTreeToContainNodeWithName(shell()->web_contents(),
+                                                "Three");
+
+  ASSERT_EQ(1U, target->PlatformChildCount());
+  BrowserAccessibility* popup_web_area = target->PlatformGetChild(0);
+  EXPECT_EQ(ax::mojom::Role::kRootWebArea, popup_web_area->GetRole());
+
+  BrowserAccessibility* listbox = FindNode(ax::mojom::Role::kListBox, "");
+  ASSERT_TRUE(listbox);
+  EXPECT_EQ(3U, listbox->PlatformChildCount());
+}
+#endif  // defined(OS_WIN) || defined(OS_CHROMEOS) || defined(USE_ATK)
 
 }  // namespace content

@@ -27,16 +27,16 @@
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
 #include "base/system/sys_info.h"
-#include "base/task/post_task.h"
 #include "base/task/task_traits.h"
+#include "base/task/thread_pool.h"
 #include "base/task/thread_pool/thread_pool_instance.h"
 #include "build/branding_buildflags.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_process_platform_part_chromeos.h"
 #include "chrome/browser/chrome_notification_types.h"
+#include "chrome/browser/chromeos/accessibility/accessibility_event_rewriter_delegate.h"
 #include "chrome/browser/chromeos/accessibility/accessibility_manager.h"
 #include "chrome/browser/chromeos/accessibility/magnification_manager.h"
-#include "chrome/browser/chromeos/accessibility/spoken_feedback_event_rewriter_delegate.h"
 #include "chrome/browser/chromeos/app_mode/arc/arc_kiosk_app_manager.h"
 #include "chrome/browser/chromeos/app_mode/kiosk_app_launch_error.h"
 #include "chrome/browser/chromeos/app_mode/kiosk_app_manager.h"
@@ -44,6 +44,7 @@
 #include "chrome/browser/chromeos/app_mode/web_app/web_kiosk_app_manager.h"
 #include "chrome/browser/chromeos/arc/session/arc_service_launcher.h"
 #include "chrome/browser/chromeos/boot_times_recorder.h"
+#include "chrome/browser/chromeos/crosapi/browser_manager.h"
 #include "chrome/browser/chromeos/crostini/crostini_unsupported_action_notifier.h"
 #include "chrome/browser/chromeos/crostini/crosvm_metrics.h"
 #include "chrome/browser/chromeos/dbus/chrome_features_service_provider.h"
@@ -57,10 +58,12 @@
 #include "chrome/browser/chromeos/dbus/machine_learning_decision_service_provider.h"
 #include "chrome/browser/chromeos/dbus/metrics_event_service_provider.h"
 #include "chrome/browser/chromeos/dbus/plugin_vm_service_provider.h"
+#include "chrome/browser/chromeos/dbus/printers_service_provider.h"
 #include "chrome/browser/chromeos/dbus/proxy_resolution_service_provider.h"
 #include "chrome/browser/chromeos/dbus/screen_lock_service_provider.h"
 #include "chrome/browser/chromeos/dbus/smb_fs_service_provider.h"
 #include "chrome/browser/chromeos/dbus/virtual_file_request_service_provider.h"
+#include "chrome/browser/chromeos/dbus/vm/vm_permission_service_provider.h"
 #include "chrome/browser/chromeos/dbus/vm_applications_service_provider.h"
 #include "chrome/browser/chromeos/display/quirks_manager_delegate_impl.h"
 #include "chrome/browser/chromeos/events/event_rewriter_delegate_impl.h"
@@ -83,10 +86,10 @@
 #include "chrome/browser/chromeos/login/startup_utils.h"
 #include "chrome/browser/chromeos/login/users/chrome_user_manager.h"
 #include "chrome/browser/chromeos/login/wizard_controller.h"
+#include "chrome/browser/chromeos/net/network_health/network_health_service.h"
 #include "chrome/browser/chromeos/net/network_portal_detector_impl.h"
 #include "chrome/browser/chromeos/net/network_pref_state_observer.h"
 #include "chrome/browser/chromeos/net/network_throttling_observer.h"
-#include "chrome/browser/chromeos/net/wake_on_wifi_manager.h"
 #include "chrome/browser/chromeos/network_change_manager_client.h"
 #include "chrome/browser/chromeos/note_taking_helper.h"
 #include "chrome/browser/chromeos/ownership/owner_settings_service_chromeos_factory.h"
@@ -104,12 +107,11 @@
 #include "chrome/browser/chromeos/power/smart_charging/smart_charging_manager.h"
 #include "chrome/browser/chromeos/printing/bulk_printers_calculator_factory.h"
 #include "chrome/browser/chromeos/profiles/profile_helper.h"
-#include "chrome/browser/chromeos/resource_reporter/resource_reporter.h"
 #include "chrome/browser/chromeos/scheduler_configuration_manager.h"
-#include "chrome/browser/chromeos/settings/device_oauth2_token_service_factory.h"
 #include "chrome/browser/chromeos/settings/device_settings_service.h"
 #include "chrome/browser/chromeos/settings/shutdown_policy_forwarder.h"
 #include "chrome/browser/chromeos/startup_settings_cache.h"
+#include "chrome/browser/chromeos/system/breakpad_consent_watcher.h"
 #include "chrome/browser/chromeos/system/input_device_settings.h"
 #include "chrome/browser/chromeos/system/user_removal_manager.h"
 #include "chrome/browser/chromeos/system_token_cert_db_initializer.h"
@@ -119,17 +121,18 @@
 #include "chrome/browser/chromeos/wilco_dtc_supportd/wilco_dtc_supportd_manager.h"
 #include "chrome/browser/component_updater/cros_component_installer_chromeos.h"
 #include "chrome/browser/defaults.h"
+#include "chrome/browser/device_identity/device_oauth2_token_service_factory.h"
 #include "chrome/browser/lifetime/application_lifetime.h"
 #include "chrome/browser/net/chrome_network_delegate.h"
 #include "chrome/browser/net/system_network_context_manager.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/task_manager/task_manager_interface.h"
-#include "chrome/browser/ui/ash/assistant/assistant_client.h"
+#include "chrome/browser/ui/ash/assistant/assistant_client_impl.h"
 #include "chrome/browser/ui/ash/assistant/assistant_state_client.h"
+#include "chrome/browser/ui/ash/image_downloader_impl.h"
 #include "chrome/browser/ui/ash/keyboard/chrome_keyboard_controller_client.h"
 #include "chrome/browser/ui/webui/chromeos/login/discover/discover_manager.h"
-#include "chrome/browser/upgrade_detector/upgrade_detector_chromeos.h"
 #include "chrome/common/channel_info.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_features.h"
@@ -162,6 +165,7 @@
 #include "chromeos/network/network_cert_loader.h"
 #include "chromeos/network/network_handler.h"
 #include "chromeos/network/portal_detector/network_portal_detector_stub.h"
+#include "chromeos/services/cros_healthd/public/cpp/service_connection.h"
 #include "chromeos/system/statistics_provider.h"
 #include "chromeos/tpm/install_attributes.h"
 #include "chromeos/tpm/tpm_token_loader.h"
@@ -219,9 +223,11 @@ void ChromeOSVersionCallback(const std::string& version) {
 bool ShouldAutoLaunchKioskApp(const base::CommandLine& command_line) {
   KioskAppManager* app_manager = KioskAppManager::Get();
   WebKioskAppManager* web_app_manager = WebKioskAppManager::Get();
+  ArcKioskAppManager* arc_app_manager = ArcKioskAppManager::Get();
   return command_line.HasSwitch(switches::kLoginManager) &&
          (app_manager->IsAutoLaunchEnabled() ||
-          web_app_manager->GetAutoLaunchAccountId().is_valid()) &&
+          web_app_manager->GetAutoLaunchAccountId().is_valid() ||
+          arc_app_manager->GetAutoLaunchAccountId().is_valid()) &&
          KioskAppLaunchError::Get() == KioskAppLaunchError::NONE;
 }
 
@@ -297,7 +303,9 @@ class DBusServices {
         dbus::ObjectPath(kComponentUpdaterServicePath),
         CrosDBusService::CreateServiceProviderList(
             std::make_unique<ComponentUpdaterServiceProvider>(
-                g_browser_process->platform_part()->cros_component_manager())));
+                g_browser_process->platform_part()
+                    ->cros_component_manager()
+                    .get())));
 
     chrome_features_service_ = CrosDBusService::Create(
         system_bus, kChromeFeaturesServiceName,
@@ -305,11 +313,23 @@ class DBusServices {
         CrosDBusService::CreateServiceProviderList(
             std::make_unique<ChromeFeaturesServiceProvider>()));
 
+    printers_service_ = CrosDBusService::Create(
+        system_bus, kPrintersServiceName,
+        dbus::ObjectPath(kPrintersServicePath),
+        CrosDBusService::CreateServiceProviderList(
+            std::make_unique<PrintersServiceProvider>()));
+
     vm_applications_service_ = CrosDBusService::Create(
         system_bus, vm_tools::apps::kVmApplicationsServiceName,
         dbus::ObjectPath(vm_tools::apps::kVmApplicationsServicePath),
         CrosDBusService::CreateServiceProviderList(
             std::make_unique<VmApplicationsServiceProvider>()));
+
+    vm_permission_service_ = CrosDBusService::Create(
+        system_bus, kVmPermissionServiceName,
+        dbus::ObjectPath(kVmPermissionServicePath),
+        CrosDBusService::CreateServiceProviderList(
+            std::make_unique<VmPermissionServiceProvider>()));
 
     drive_file_stream_service_ = CrosDBusService::Create(
         system_bus, drivefs::kDriveFileStreamServiceName,
@@ -356,10 +376,6 @@ class DBusServices {
 
     NetworkHandler::Initialize();
 
-    // Likewise, initialize the upgrade detector for Chrome OS. The upgrade
-    // detector starts to monitor changes from the update engine.
-    UpgradeDetectorChromeos::GetInstance()->Init();
-
     DeviceSettingsService::Get()->SetSessionManager(
         SessionManagerClient::Get(),
         OwnerSettingsServiceChromeOSFactory::GetInstance()->GetOwnerKeyUtil());
@@ -372,8 +388,8 @@ class DBusServices {
     // TODO(alanlxl): update Ml here to MachineLearning after powerd is
     // uprevved.
     machine_learning_decision_service_ = CrosDBusService::Create(
-        system_bus, machine_learning::kMlDecisionServiceName,
-        dbus::ObjectPath(machine_learning::kMlDecisionServicePath),
+        system_bus, kMlDecisionServiceName,
+        dbus::ObjectPath(kMlDecisionServicePath),
         CrosDBusService::CreateServiceProviderList(
             std::make_unique<MachineLearningDecisionServiceProvider>()));
   }
@@ -389,10 +405,12 @@ class DBusServices {
     kiosk_info_service_.reset();
     metrics_event_service_.reset();
     plugin_vm_service_.reset();
+    printers_service_.reset();
     virtual_file_request_service_.reset();
     component_updater_service_.reset();
     chrome_features_service_.reset();
     vm_applications_service_.reset();
+    vm_permission_service_.reset();
     drive_file_stream_service_.reset();
     cryptohome_key_delegate_service_.reset();
     lock_to_single_user_service_.reset();
@@ -412,11 +430,13 @@ class DBusServices {
   std::unique_ptr<CrosDBusService> kiosk_info_service_;
   std::unique_ptr<CrosDBusService> metrics_event_service_;
   std::unique_ptr<CrosDBusService> plugin_vm_service_;
+  std::unique_ptr<CrosDBusService> printers_service_;
   std::unique_ptr<CrosDBusService> screen_lock_service_;
   std::unique_ptr<CrosDBusService> virtual_file_request_service_;
   std::unique_ptr<CrosDBusService> component_updater_service_;
   std::unique_ptr<CrosDBusService> chrome_features_service_;
   std::unique_ptr<CrosDBusService> vm_applications_service_;
+  std::unique_ptr<CrosDBusService> vm_permission_service_;
   std::unique_ptr<CrosDBusService> drive_file_stream_service_;
   std::unique_ptr<CrosDBusService> cryptohome_key_delegate_service_;
   std::unique_ptr<CrosDBusService> libvda_service_;
@@ -479,6 +499,7 @@ int ChromeBrowserMainPartsChromeos::PreEarlyInitialization() {
   // DBus is initialized in ChromeMainDelegate::PostEarlyInitialization().
   CHECK(DBusThreadManager::IsInitialized());
 
+#if !defined(USE_REAL_DBUS_CLIENTS)
   if (!base::SysInfo::IsRunningOnChromeOS() &&
       parsed_command_line().HasSwitch(
           switches::kFakeDriveFsLauncherChrootPath) &&
@@ -490,6 +511,7 @@ int ChromeBrowserMainPartsChromeos::PreEarlyInitialization() {
         parsed_command_line().GetSwitchValuePath(
             switches::kFakeDriveFsLauncherSocketPath));
   }
+#endif  // !defined(USE_REAL_DBUS_CLIENTS)
 
   return ChromeBrowserMainPartsLinux::PreEarlyInitialization();
 }
@@ -527,7 +549,7 @@ void ChromeBrowserMainPartsChromeos::PreMainMessageLoopRun() {
 
   // Set the crypto thread after the IO thread has been created/started.
   TPMTokenLoader::Get()->SetCryptoTaskRunner(
-      base::CreateSingleThreadTaskRunner({content::BrowserThread::IO}));
+      content::GetIOThreadTaskRunner({}));
 
   // Initialize NSS database for system token.
   system_token_certdb_initializer_ =
@@ -566,14 +588,10 @@ void ChromeBrowserMainPartsChromeos::PreMainMessageLoopRun() {
           ->GetSharedURLLoaderFactory(),
       g_browser_process->local_state());
 
-  wake_on_wifi_manager_.reset(new WakeOnWifiManager());
   fast_transition_observer_.reset(
       new FastTransitionObserver(g_browser_process->local_state()));
   network_throttling_observer_.reset(
       new NetworkThrottlingObserver(g_browser_process->local_state()));
-
-  ResourceReporter::GetInstance()->StartMonitoring(
-      task_manager::TaskManagerInterface::GetTaskManager());
 
   discover_manager_ = std::make_unique<DiscoverManager>();
 
@@ -588,6 +606,19 @@ void ChromeBrowserMainPartsChromeos::PreMainMessageLoopRun() {
   // policy connector is started.
   bulk_printers_calculator_factory_ =
       std::make_unique<BulkPrintersCalculatorFactory>();
+
+  // StatsReportingController is created in
+  // ChromeBrowserMainParts::PreCreateThreads, so this must come afterwards.
+  chromeos::StatsReportingController* stats_controller =
+      chromeos::StatsReportingController::Get();
+  // |stats_controller| can be nullptr if ChromeBrowserMainParts's
+  // browser_process_->GetApplicationLocale() returns empty. We're trying to
+  // show an error message in that case, so don't just crash. (See
+  // ChromeBrowserMainParts::PreCreateThreadsImpl()).
+  if (stats_controller != nullptr) {
+    breakpad_consent_watcher_ =
+        system::BreakpadConsentWatcher::Initialize(stats_controller);
+  }
 
   ChromeBrowserMainPartsLinux::PreMainMessageLoopRun();
 }
@@ -664,6 +695,9 @@ void ChromeBrowserMainPartsChromeos::PreProfileInit() {
   // must be placed after UserManager initialization.
   MagnificationManager::Initialize();
 
+  // Has to be initialized before |assistant_client_|;
+  image_downloader_ = std::make_unique<ImageDownloaderImpl>();
+
   // Requires UserManager.
   assistant_state_client_ = std::make_unique<AssistantStateClient>();
 
@@ -671,13 +705,12 @@ void ChromeBrowserMainPartsChromeos::PreProfileInit() {
   // ChromeBrowserMainExtraPartsAsh::session_controller_client_ to avoid race of
   // SessionChanged event and assistant_client initialization. It must come
   // after AssistantStateClient.
-  assistant_client_ = std::make_unique<AssistantClient>();
+  assistant_client_ = std::make_unique<AssistantClientImpl>();
 
-  base::PostTaskAndReplyWithResult(
-      FROM_HERE,
-      {base::ThreadPool(), base::MayBlock(), base::TaskPriority::BEST_EFFORT},
-      base::Bind(&version_loader::GetVersion, version_loader::VERSION_FULL),
-      base::Bind(&ChromeOSVersionCallback));
+  base::ThreadPool::PostTaskAndReplyWithResult(
+      FROM_HERE, {base::MayBlock(), base::TaskPriority::BEST_EFFORT},
+      base::BindOnce(&version_loader::GetVersion, version_loader::VERSION_FULL),
+      base::BindOnce(&ChromeOSVersionCallback));
 
   arc_kiosk_app_manager_.reset(new ArcKioskAppManager());
   web_kiosk_app_manager_.reset(new WebKioskAppManager());
@@ -719,6 +752,12 @@ void ChromeBrowserMainPartsChromeos::PreProfileInit() {
   lock_screen_apps_state_controller_ =
       std::make_unique<lock_screen_apps::StateController>();
   lock_screen_apps_state_controller_->Initialize();
+
+  // Always construct BrowserManager, even if the lacros flag is disabled, so
+  // it can do cleanup work if needed. Initialized in PreProfileInit because the
+  // profile-keyed service AppService can call into it.
+  browser_manager_ = std::make_unique<crosapi::BrowserManager>(
+      g_browser_process->platform_part()->cros_component_manager());
 
   if (immediate_login) {
     const std::string cryptohome_id =
@@ -860,6 +899,27 @@ void ChromeBrowserMainPartsChromeos::PostProfileInit() {
   // Initialize an observer to update NetworkHandler's pref based services.
   network_pref_state_observer_ = std::make_unique<NetworkPrefStateObserver>();
 
+  // Initialize the NetworkHealth aggregator.
+  network_health::NetworkHealthService::GetInstance();
+
+  // Create the service connection to CrosHealthd platform service instance.
+  auto* cros_healthd = cros_healthd::ServiceConnection::GetInstance();
+
+  // Pass a callback to the CrosHealthd service connection that binds a pending
+  // remote to service.
+  cros_healthd->SetBindNetworkHealthServiceCallback(base::BindRepeating([] {
+    return network_health::NetworkHealthService::GetInstance()
+        ->GetHealthRemoteAndBindReceiver();
+  }));
+
+  // Pass a callback to the CrosHealthd service connection that binds a pending
+  // remote to the interface.
+  cros_healthd->SetBindNetworkDiagnosticsRoutinesCallback(
+      base::BindRepeating([] {
+        return network_health::NetworkHealthService::GetInstance()
+            ->GetDiagnosticsRemoteAndBindReceiver();
+      }));
+
   // Initialize input methods.
   input_method::InputMethodManager* manager =
       input_method::InputMethodManager::Get();
@@ -933,9 +993,10 @@ void ChromeBrowserMainPartsChromeos::PreBrowserStart() {
 }
 
 void ChromeBrowserMainPartsChromeos::PostBrowserStart() {
-  // Construct a delegate to connect ChromeVox and SpokenFeedbackEventRewriter.
-  spoken_feedback_event_rewriter_delegate_ =
-      std::make_unique<SpokenFeedbackEventRewriterDelegate>();
+  // Construct a delegate to connect the accessibility component extensions and
+  // AccessibilityEventRewriter.
+  accessibility_event_rewriter_delegate_ =
+      std::make_unique<AccessibilityEventRewriterDelegate>();
 
   event_rewriter_delegate_ = std::make_unique<EventRewriterDelegateImpl>(
       ash::Shell::Get()->activation_client());
@@ -945,7 +1006,7 @@ void ChromeBrowserMainPartsChromeos::PostBrowserStart() {
   auto* event_rewriter_controller = ash::EventRewriterController::Get();
   event_rewriter_controller->Initialize(
       event_rewriter_delegate_.get(),
-      spoken_feedback_event_rewriter_delegate_.get());
+      accessibility_event_rewriter_delegate_.get());
 
   // Enable the KeyboardDrivenEventRewriter if the OEM manifest flag is on.
   if (system::InputDeviceSettings::Get()->ForceKeyboardDrivenUINavigation())
@@ -997,9 +1058,9 @@ void ChromeBrowserMainPartsChromeos::PostBrowserStart() {
 void ChromeBrowserMainPartsChromeos::PostMainMessageLoopRun() {
   crostini_unsupported_action_notifier_.reset();
 
-  ResourceReporter::GetInstance()->StopMonitoring();
-
   BootTimesRecorder::Get()->AddLogoutTimeMarker("UIMessageLoopEnded", true);
+
+  browser_manager_.reset();
 
   if (lock_screen_apps_state_controller_)
     lock_screen_apps_state_controller_->Shutdown();
@@ -1023,11 +1084,6 @@ void ChromeBrowserMainPartsChromeos::PostMainMessageLoopRun() {
   if (pre_profile_init_called_)
     KioskModeIdleAppNameNotification::Shutdown();
 
-  // Shutdown the upgrade detector for Chrome OS. The upgrade detector
-  // stops monitoring changes from the update engine.
-  if (UpgradeDetectorChromeos::GetInstance())
-    UpgradeDetectorChromeos::GetInstance()->Shutdown();
-
   // Tell DeviceSettingsService to stop talking to session_manager. Do not
   // shutdown DeviceSettingsService yet, it might still be accessed by
   // BrowserPolicyConnector (owned by g_browser_process).
@@ -1042,7 +1098,6 @@ void ChromeBrowserMainPartsChromeos::PostMainMessageLoopRun() {
   network_pref_state_observer_.reset();
   power_metrics_reporter_.reset();
   renderer_freezer_.reset();
-  wake_on_wifi_manager_.reset();
   fast_transition_observer_.reset();
   network_throttling_observer_.reset();
   if (pre_profile_init_called_)

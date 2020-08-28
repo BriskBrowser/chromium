@@ -8,6 +8,7 @@
 #include <memory>
 #include <string>
 
+#include "ash/public/cpp/login_accelerators.h"
 #include "base/callback_forward.h"
 #include "base/memory/weak_ptr.h"
 #include "base/optional.h"
@@ -29,12 +30,12 @@ class WebContents;
 
 namespace chromeos {
 
-class AppLaunchController;
+class KioskLaunchController;
 class ExistingUserController;
-class LoginScreenContext;
 class OobeUI;
 class WebUILoginView;
 class WizardController;
+class KioskAppId;
 
 // An interface that defines an out-of-box-experience (OOBE) or login screen
 // host. It contains code specific to the login UI implementation.
@@ -86,6 +87,10 @@ class LoginDisplayHost {
   // instance is gone.
   virtual void Finalize(base::OnceClosure completion_callback) = 0;
 
+  // Called when current instance should be replaced with another one. After the
+  // call the instance will be gone.
+  virtual void FinalizeImmediately() = 0;
+
   // Toggles status area visibility.
   virtual void SetStatusAreaVisible(bool visible) = 0;
 
@@ -98,9 +103,9 @@ class LoginDisplayHost {
   // Result should not be stored.
   virtual WizardController* GetWizardController() = 0;
 
-  // Returns current AppLaunchController, if it exists.
+  // Returns current KioskLaunchController, if it exists.
   // Result should not be stored.
-  virtual AppLaunchController* GetAppLaunchController() = 0;
+  virtual KioskLaunchController* GetKioskLaunchController() = 0;
 
   // Starts screen for adding user into session.
   // |completion_callback| is invoked after login display host shutdown.
@@ -111,7 +116,7 @@ class LoginDisplayHost {
   virtual void CancelUserAdding() = 0;
 
   // Starts sign in screen.
-  virtual void StartSignInScreen(const LoginScreenContext& context) = 0;
+  virtual void StartSignInScreen() = 0;
 
   // Invoked when system preferences that affect the signin screen have changed.
   virtual void OnPreferencesChanged() = 0;
@@ -119,38 +124,23 @@ class LoginDisplayHost {
   // Initiates authentication network prewarming.
   virtual void PrewarmAuthentication() = 0;
 
-  // Starts app launch splash screen. If |is_auto_launch| is true, the app is
-  // being auto-launched with no delay.
-  virtual void StartAppLaunch(const std::string& app_id,
-                              bool diagnostic_mode,
-                              bool is_auto_launch) = 0;
-
   // Starts the demo app launch.
   virtual void StartDemoAppLaunch() = 0;
 
-  // Starts ARC kiosk splash screen.
-  virtual void StartArcKiosk(const AccountId& account_id) = 0;
+  // Start kiosk identified by |kiosk_app-id| splash screen. if |is_auto_launch| is
+  // true, the app is being auto-launched with no delay.
+  virtual void StartKiosk(const KioskAppId& kiosk_app_id,
+                          bool is_auto_launch) = 0;
 
-  // Starts web kiosk splash screen.
-  virtual void StartWebKiosk(const AccountId& account_id) = 0;
-
-  // Show the gaia dialog. |can_close| determines if the user is allowed to
-  // close the dialog. If available, |account| is preloaded in the gaia dialog.
-  virtual void ShowGaiaDialog(bool can_close,
-                              const AccountId& prefilled_account) = 0;
+  // Show the gaia dialog. If available, |account| is preloaded in the gaia
+  // dialog.
+  virtual void ShowGaiaDialog(const AccountId& prefilled_account) = 0;
 
   // Hide any visible oobe dialog.
   virtual void HideOobeDialog() = 0;
 
   // Update the state of the oobe dialog.
   virtual void UpdateOobeDialogState(ash::OobeDialogState state) = 0;
-
-  // Get users that are visible in the login screen UI.
-  // This is mainly used by views login screen. WebUI login screen will
-  // return an empty list.
-  // TODO(crbug.com/808271): WebUI and views implementation should return the
-  // same user list.
-  virtual const user_manager::UserList GetUsers() = 0;
 
   // Confirms sign in by provided credentials in |user_context|.
   // Used for new user login via GAIA extension.
@@ -176,7 +166,7 @@ class LoginDisplayHost {
   virtual void LoadSigninWallpaper() = 0;
 
   // Returns true if user is allowed to log in by domain policy.
-  virtual bool IsUserWhitelisted(const AccountId& account_id) = 0;
+  virtual bool IsUserAllowlisted(const AccountId& account_id) = 0;
 
   // ----- Password change flow methods -----
   // Cancels current password changed flow.
@@ -190,11 +180,9 @@ class LoginDisplayHost {
   // user data.
   virtual void ResyncUserData() = 0;
 
-  // Shows a feedback report dialog.
-  virtual void ShowFeedback() = 0;
-
-  // Shows the powerwash dialog.
-  virtual void ShowResetScreen() = 0;
+  // Handles an accelerator action.
+  // Returns |true| if the accelerator was handled.
+  virtual bool HandleAccelerator(ash::LoginAcceleratorAction action) = 0;
 
   // Handles a request to show the captive portal web dialog. For webui, the
   // dialog is displayed immediately. For views, the dialog is displayed as soon

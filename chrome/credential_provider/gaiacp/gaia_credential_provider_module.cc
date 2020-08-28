@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/credential_provider/gaiacp/dllmain.h"
+#include "chrome/credential_provider/gaiacp/gaia_credential_provider_module.h"
 
 #include "base/command_line.h"
 #include "base/files/file_path.h"
@@ -22,7 +22,7 @@
 #include "chrome/credential_provider/gaiacp/logging.h"
 #include "chrome/credential_provider/gaiacp/mdm_utils.h"
 #include "chrome/credential_provider/gaiacp/reg_utils.h"
-#include "components/crash/content/app/crash_switches.h"
+#include "components/crash/core/app/crash_switches.h"
 #include "content/public/common/content_switches.h"
 
 namespace credential_provider {
@@ -60,10 +60,10 @@ CGaiaCredentialProviderModule::UpdateRegistryAppId(BOOL do_register) throw() {
       eventlog_path.Append(FILE_PATH_LITERAL("gcp_eventlog_provider.dll"));
 
   auto provider_guid_string =
-      base::win::String16FromGUID(CLSID_GaiaCredentialProvider);
+      base::win::WStringFromGUID(CLSID_GaiaCredentialProvider);
 
   auto filter_guid_string =
-      base::win::String16FromGUID(CLSID_CGaiaCredentialProviderFilter);
+      base::win::WStringFromGUID(CLSID_CGaiaCredentialProviderFilter);
 
   ATL::_ATL_REGMAP_ENTRY regmap[] = {
       {L"CP_CLASS_GUID", base::as_wcstr(provider_guid_string.c_str())},
@@ -99,7 +99,7 @@ void CGaiaCredentialProviderModule::InitializeCrashReporting() {
             crash_reporter::switches::kCrashpadHandler &&
         ::InterlockedCompareExchange(&crashpad_initialized_, 1, 0) == 0) {
       ConfigureGcpCrashReporting(*cmd_line);
-      LOGFN(INFO) << "Crash reporting was initialized.";
+      LOGFN(VERBOSE) << "Crash reporting was initialized.";
     }
   }
 }
@@ -125,14 +125,12 @@ BOOL CGaiaCredentialProviderModule::DllMain(HINSTANCE /*hinstance*/,
                            true,    // Enable timestamp.
                            false);  // Enable tickcount.
       logging::SetEventSource("GCPW", GCPW_CATEGORY, MSG_LOG_MESSAGE);
-
-      LOGFN(INFO) << "DllMain(DLL_PROCESS_ATTACH) Build: "
-                  << base::win::OSInfo::GetInstance()->Kernel32BaseVersion()
-                  << " Version:" << GetWindowsVersion();
+      if (GetGlobalFlagOrDefault(kRegEnableVerboseLogging, 0))
+        logging::SetMinLogLevel(logging::LOG_VERBOSE);
       break;
     }
     case DLL_PROCESS_DETACH:
-      LOGFN(INFO) << "DllMain(DLL_PROCESS_DETACH)";
+      LOGFN(VERBOSE) << "DllMain(DLL_PROCESS_DETACH)";
 
       // When this DLL is loaded for testing, don't reset the command line
       // since it causes tests to crash.

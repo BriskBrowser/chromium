@@ -135,6 +135,23 @@ let kRTCInboundRtpStreamStats = new RTCStats(kRTCReceivedRtpStreamStats, {
   firCount: 'number',
   pliCount: 'number',
   sliCount: 'number',
+  frameWidth: 'number',
+  frameHeight: 'number',
+  frameBitDepth: 'number',
+  framesPerSecond: 'number',
+  jitterBufferDelay: 'number',
+  jitterBufferEmittedCount: 'number',
+  totalSamplesReceived: 'number',
+  concealedSamples: 'number',
+  silentConcealedSamples: 'number',
+  concealmentEvents: 'number',
+  insertedSamplesForDeceleration: 'number',
+  removedSamplesForAcceleration: 'number',
+  audioLevel: 'number',
+  totalAudioEnergy: 'number',
+  totalSamplesDuration: 'number',
+  framesReceived: 'number',
+  framesDropped: 'number',
   estimatedPlayoutTimestamp: 'number',
   fractionLost: 'number',  // Obsolete, moved to RTCRemoteInboundRtpStreamStats.
   decoderImplementation: 'string',
@@ -204,6 +221,12 @@ let kRTCOutboundRtpStreamStats = new RTCStats(kRTCSentRtpStreamStats, {
   pliCount: 'number',
   sliCount: 'number',
   encoderImplementation: 'string',
+  rid: 'string',
+  frameWidth: 'number',
+  frameHeight: 'number',
+  framesPerSecond: 'number',
+  framesSent: 'number',
+  hugeFramesSent: 'number',
 });
 addRTCStatsToWhitelist(
     Presence.MANDATORY, 'outbound-rtp', kRTCOutboundRtpStreamStats);
@@ -471,7 +494,7 @@ addRTCStatsToWhitelist(
 let kRTCDataChannelStats = new RTCStats(null, {
   label: 'string',
   protocol: 'string',
-  datachannelid: 'number',
+  dataChannelIdentifier: 'number',
   state: 'string',
   messagesSent: 'number',
   bytesSent: 'number',
@@ -488,7 +511,9 @@ addRTCStatsToWhitelist(
  */
 let kRTCTransportStats = new RTCStats(null, {
   bytesSent: 'number',
+  packetsSent: 'number',
   bytesReceived: 'number',
+  packetsReceived: 'number',
   rtcpTransportStatsId: 'string',
   dtlsState: 'string',
   selectedCandidatePairId: 'string',

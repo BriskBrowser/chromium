@@ -13,6 +13,7 @@
 #include "components/tracing/common/tracing_switches.h"
 #include "content/browser/tracing/perfetto_file_tracer.h"
 #include "content/browser/tracing/tracing_controller_impl.h"
+#include "content/public/test/browser_test.h"
 #include "content/public/test/content_browser_test.h"
 #include "content/public/test/content_browser_test_utils.h"
 #include "services/tracing/perfetto/privacy_filtering_check.h"
@@ -51,14 +52,6 @@ class CommandlineStartupTracingTest : public ContentBrowserTest {
     command_line->AppendSwitchASCII(switches::kTraceStartupDuration, "3");
     command_line->AppendSwitchASCII(switches::kTraceStartupFile,
                                     temp_file_path_.AsUTF8Unsafe());
-
-#if defined(OS_ANDROID)
-    // On Android the startup tracing is initialized as soon as library load
-    // time, earlier than this point. So, reset the config and enable startup
-    // tracing here.
-    tracing::TraceStartupConfig::GetInstance()->EnableFromCommandLine();
-    tracing::EnableStartupTracingIfNeeded();
-#endif
   }
 
  protected:
@@ -68,8 +61,10 @@ class CommandlineStartupTracingTest : public ContentBrowserTest {
   DISALLOW_COPY_AND_ASSIGN(CommandlineStartupTracingTest);
 };
 
-// Failing on Android ASAN. crbug.com/1041392
-#if defined(OS_ANDROID) && defined(ADDRESS_SANITIZER)
+// Failing on Android/Win ASAN, Linux TSAN. crbug.com/1041392
+#if (defined(OS_ANDROID) && defined(ADDRESS_SANITIZER)) || \
+    (defined(OS_WIN) && defined(ADDRESS_SANITIZER)) ||     \
+    ((defined(OS_LINUX) || defined(OS_CHROMEOS)) && defined(THREAD_SANITIZER))
 #define MAYBE_TestStartupTracing DISABLED_TestStartupTracing
 #else
 #define MAYBE_TestStartupTracing TestStartupTracing
@@ -131,15 +126,14 @@ class LargeTraceEventData : public base::trace_event::ConvertableToTraceFormat {
 // the SMB once the full tracing service starts up. This is to catch common
 // deadlocks.
 IN_PROC_BROWSER_TEST_F(StartupTracingInProcessTest, TestFilledStartupBuffer) {
-  tracing::TraceEventDataSource::GetInstance()->SetupStartupTracing(
-      /*privacy_filtering_enabled=*/false);
-
   auto config = tracing::TraceStartupConfig::GetInstance()
                     ->GetDefaultBrowserStartupConfig();
   config.SetTraceBufferSizeInEvents(0);
   config.SetTraceBufferSizeInKb(0);
-  uint8_t modes = base::trace_event::TraceLog::RECORDING_MODE;
-  base::trace_event::TraceLog::GetInstance()->SetEnabled(config, modes);
+
+  CHECK(tracing::EnableStartupTracingForProcess(
+      config,
+      /*privacy_filtering_enabled=*/false));
 
   for (int i = 0; i < 1024; ++i) {
     auto data = std::make_unique<LargeTraceEventData>();
@@ -176,7 +170,6 @@ class BackgroundStartupTracingTest : public ContentBrowserTest {
     startup_config->enable_background_tracing_for_testing_ = true;
     startup_config->EnableFromBackgroundTracing();
     startup_config->startup_duration_in_seconds_ = 3;
-    tracing::EnableStartupTracingIfNeeded();
     command_line->AppendSwitchASCII(switches::kPerfettoOutputFile,
                                     temp_file_path_.AsUTF8Unsafe());
   }

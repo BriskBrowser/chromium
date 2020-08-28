@@ -7,6 +7,7 @@
 
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
+#include "base/power_monitor/power_observer.h"
 #include "base/threading/thread_checker.h"
 #include "mojo/public/cpp/bindings/receiver.h"
 #include "mojo/public/cpp/bindings/remote.h"
@@ -29,8 +30,8 @@ class RTCAnswerOptionsPlatform;
 class RTCIceCandidatePlatform;
 class RTCOfferOptionsPlatform;
 class RTCPeerConnectionHandler;
+class UserMediaRequest;
 class WebLocalFrame;
-class WebUserMediaRequest;
 
 // This class collects data about each peer connection,
 // sends it to the browser process, and handles messages
@@ -120,6 +121,8 @@ class MODULES_EXPORT PeerConnectionTracker
                                     bool succeeded);
   // Sends an update when an Ice candidate error is receiver.
   virtual void TrackIceCandidateError(RTCPeerConnectionHandler* pc_handler,
+                                      const String& address,
+                                      base::Optional<uint16_t> port,
                                       const String& host_candidate,
                                       const String& url,
                                       int error_code,
@@ -210,8 +213,7 @@ class MODULES_EXPORT PeerConnectionTracker
   virtual void TrackOnRenegotiationNeeded(RTCPeerConnectionHandler* pc_handler);
 
   // Sends an update when getUserMedia is called.
-  virtual void TrackGetUserMedia(
-      const blink::WebUserMediaRequest& user_media_request);
+  virtual void TrackGetUserMedia(UserMediaRequest* user_media_request);
 
   // Sends a new fragment on an RtcEventLog.
   virtual void TrackRtcEventLogWrite(RTCPeerConnectionHandler* pc_handler,
@@ -224,6 +226,9 @@ class MODULES_EXPORT PeerConnectionTracker
 
   FRIEND_TEST_ALL_PREFIXES(PeerConnectionTrackerTest, CreatingObject);
   FRIEND_TEST_ALL_PREFIXES(PeerConnectionTrackerTest, OnSuspend);
+  FRIEND_TEST_ALL_PREFIXES(PeerConnectionTrackerTest, OnThermalStateChange);
+  FRIEND_TEST_ALL_PREFIXES(PeerConnectionTrackerTest,
+                           ReportInitialThermalState);
 
   explicit PeerConnectionTracker(
       scoped_refptr<base::SingleThreadTaskRunner> main_thread_task_runner);
@@ -248,6 +253,8 @@ class MODULES_EXPORT PeerConnectionTracker
 
   // PeerConnectionTracker implementation.
   void OnSuspend() override;
+  void OnThermalStateChange(
+      mojom::blink::DeviceThermalState thermal_state) override;
   void StartEventLog(int peer_connection_local_id,
                      int output_period_ms) override;
   void StopEventLog(int peer_connection_local_id) override;
@@ -275,6 +282,8 @@ class MODULES_EXPORT PeerConnectionTracker
   // This map stores the local ID assigned to each RTCPeerConnectionHandler.
   typedef WTF::HashMap<RTCPeerConnectionHandler*, int> PeerConnectionLocalIdMap;
   PeerConnectionLocalIdMap peer_connection_local_id_map_;
+  base::PowerObserver::DeviceThermalState current_thermal_state_ =
+      base::PowerObserver::DeviceThermalState::kUnknown;
 
   // This keeps track of the next available local ID.
   int next_local_id_;

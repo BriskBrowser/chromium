@@ -50,7 +50,7 @@
 #include "net/http/http_auth_preferences.h"
 #include "net/http/http_auth_scheme.h"
 #include "net/log/file_net_log_observer.h"
-#include "net/proxy_resolution/proxy_resolution_service.h"
+#include "net/proxy_resolution/configured_proxy_resolution_service.h"
 #include "net/url_request/url_request_context.h"
 #include "net/url_request/url_request_context_builder.h"
 #include "net/url_request/url_request_test_util.h"
@@ -61,7 +61,7 @@
 #include "services/network/public/mojom/url_loader_factory.mojom.h"
 #include "services/network/test/test_network_connection_tracker.h"
 
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
 #include "base/mac/scoped_nsautorelease_pool.h"
 #endif
 
@@ -352,7 +352,7 @@ void MCSProbe::InitializeNetworkState() {
       &http_auth_preferences_,
       std::vector<std::string>{net::kBasicAuthScheme}));
   builder.set_proxy_resolution_service(
-      net::ProxyResolutionService::CreateDirect());
+      net::ConfiguredProxyResolutionService::CreateDirect());
 
   if (command_line_.HasSwitch(kIgnoreCertSwitch))
     builder.SetCertVerifier(std::make_unique<MyTestCertVerifier>());

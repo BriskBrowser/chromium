@@ -61,13 +61,15 @@ void ExternalProtocolHandler::RunExternalProtocolDialog(
 ExternalProtocolDialog::ExternalProtocolDialog(WebContents* web_contents,
                                                const GURL& url)
     : creation_time_(base::TimeTicks::Now()), scheme_(url.scheme()) {
-  views::DialogDelegate::set_button_label(
+  SetOwnedByWidget(true);
+
+  views::DialogDelegate::SetButtons(ui::DIALOG_BUTTON_OK);
+  views::DialogDelegate::SetButtonLabel(
       ui::DIALOG_BUTTON_OK,
       l10n_util::GetStringUTF16(IDS_EXTERNAL_PROTOCOL_OK_BUTTON_TEXT));
 
-  views::MessageBoxView::InitParams params((base::string16()));
-  params.message_width = kMessageWidth;
-  message_box_view_ = new views::MessageBoxView(params);
+  message_box_view_ = new views::MessageBoxView();
+  message_box_view_->SetMessageWidth(kMessageWidth);
 
   gfx::NativeWindow parent_window;
   if (web_contents) {
@@ -84,10 +86,6 @@ ExternalProtocolDialog::ExternalProtocolDialog(WebContents* web_contents,
 
 ExternalProtocolDialog::~ExternalProtocolDialog() = default;
 
-int ExternalProtocolDialog::GetDialogButtons() const {
-  return ui::DIALOG_BUTTON_OK;
-}
-
 base::string16 ExternalProtocolDialog::GetWindowTitle() const {
   // If click to call feature is available, we display a message to the user on
   // how to use the feature.
@@ -103,14 +101,14 @@ base::string16 ExternalProtocolDialog::GetWindowTitle() const {
   return l10n_util::GetStringUTF16(IDS_EXTERNAL_PROTOCOL_TITLE);
 }
 
-void ExternalProtocolDialog::DeleteDelegate() {
-  delete this;
-}
-
 views::View* ExternalProtocolDialog::GetContentsView() {
   return message_box_view_;
 }
 
-const views::Widget* ExternalProtocolDialog::GetWidgetImpl() const {
+const views::Widget* ExternalProtocolDialog::GetWidget() const {
+  return message_box_view_->GetWidget();
+}
+
+views::Widget* ExternalProtocolDialog::GetWidget() {
   return message_box_view_->GetWidget();
 }

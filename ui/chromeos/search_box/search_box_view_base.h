@@ -12,7 +12,7 @@
 #include "base/strings/string16.h"
 #include "ui/chromeos/search_box/search_box_constants.h"
 #include "ui/chromeos/search_box/search_box_export.h"
-#include "ui/events/event_constants.h"
+#include "ui/events/types/event_type.h"
 #include "ui/views/background.h"
 #include "ui/views/controls/button/image_button.h"
 #include "ui/views/controls/textfield/textfield_controller.h"
@@ -96,13 +96,9 @@ class SEARCH_BOX_EXPORT SearchBoxViewBase : public views::WidgetDelegateView,
 
   // Overridden from views::WidgetDelegate:
   ax::mojom::Role GetAccessibleWindowRole() override;
-  bool ShouldAdvanceFocusToTopLevelWidget() const override;
 
   // Overridden from views::ButtonListener:
   void ButtonPressed(views::Button* sender, const ui::Event& event) override;
-
-  // Called when tablet mode starts and ends.
-  void OnTabletModeChanged(bool started);
 
   // Used only in the tests to get the current search icon.
   views::ImageView* get_search_icon_for_test() { return search_icon_; }
@@ -149,11 +145,6 @@ class SEARCH_BOX_EXPORT SearchBoxViewBase : public views::WidgetDelegateView,
                           const ui::GestureEvent& gesture_event) override;
 
   views::BoxLayout* box_layout() { return box_layout_; }
-
-  void set_is_tablet_mode(bool is_tablet_mode) {
-    is_tablet_mode_ = is_tablet_mode;
-  }
-  bool is_tablet_mode() const { return is_tablet_mode_; }
 
   void SetSearchBoxBackgroundCornerRadius(int corner_radius);
 
@@ -216,8 +207,6 @@ class SEARCH_BOX_EXPORT SearchBoxViewBase : public views::WidgetDelegateView,
   bool show_close_button_when_active_ = false;
   // Whether to show assistant button.
   bool show_assistant_button_ = false;
-  // Whether tablet mode is active.
-  bool is_tablet_mode_ = false;
   // The current search box color.
   SkColor search_box_color_ = kDefaultSearchboxColor;
 

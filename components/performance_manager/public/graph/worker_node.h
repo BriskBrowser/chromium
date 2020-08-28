@@ -9,13 +9,11 @@
 
 #include "base/containers/flat_set.h"
 #include "base/macros.h"
+#include "base/util/type_safety/token_type.h"
 #include "components/performance_manager/public/graph/node.h"
+#include "third_party/blink/public/common/tokens/tokens.h"
 
 class GURL;
-
-namespace base {
-class UnguessableToken;
-}
 
 namespace performance_manager {
 
@@ -70,11 +68,12 @@ class WorkerNode : public Node {
   // over the lifetime of the frame.
   virtual const ProcessNode* GetProcessNode() const = 0;
 
-  // Returns the URL of the worker script.
-  virtual const GURL& GetURL() const = 0;
+  // Returns the unique token identifying this worker.
+  virtual const blink::WorkerToken& GetWorkerToken() const = 0;
 
-  // Returns the dev tools token for this worker.
-  virtual const base::UnguessableToken& GetDevToolsToken() const = 0;
+  // Returns the URL of the worker script. This is the final response URL which
+  // takes into account redirections.
+  virtual const GURL& GetURL() const = 0;
 
   // Returns the frames that are clients of this worker.
   virtual const base::flat_set<const FrameNode*> GetClientFrames() const = 0;
@@ -116,6 +115,10 @@ class WorkerNodeObserver {
 
   // Notifications of property changes.
 
+  // Invoked when the final url of the worker script has been determined, which
+  // happens when the script has finished loading.
+  virtual void OnFinalResponseURLDetermined(const WorkerNode* worker_node) = 0;
+
   // Invoked when |client_frame_node| becomes a client of |worker_node|.
   virtual void OnClientFrameAdded(const WorkerNode* worker_node,
                                   const FrameNode* client_frame_node) = 0;
@@ -151,6 +154,7 @@ class WorkerNode::ObserverDefaultImpl : public WorkerNodeObserver {
   // Called when a |worker_node| is added to the graph.
   void OnWorkerNodeAdded(const WorkerNode* worker_node) override {}
   void OnBeforeWorkerNodeRemoved(const WorkerNode* worker_node) override {}
+  void OnFinalResponseURLDetermined(const WorkerNode* worker_node) override {}
   void OnClientFrameAdded(const WorkerNode* worker_node,
                           const FrameNode* client_frame_node) override {}
   void OnBeforeClientFrameRemoved(const WorkerNode* worker_node,

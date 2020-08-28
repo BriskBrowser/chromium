@@ -7,7 +7,7 @@
 #include <string>
 #include <utility>
 
-#include "ash/public/cpp/ash_switches.h"
+#include "ash/public/cpp/login_screen_test_api.h"
 #include "base/bind.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
@@ -16,7 +16,6 @@
 #include "base/single_thread_task_runner.h"
 #include "base/strings/stringprintf.h"
 #include "base/synchronization/waitable_event.h"
-#include "base/task/post_task.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/chromeos/login/existing_user_controller.h"
@@ -37,7 +36,6 @@
 #include "chrome/browser/signin/identity_manager_factory.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_tabstrip.h"
-#include "chrome/browser/ui/javascript_dialogs/javascript_dialog_tab_helper.h"
 #include "chrome/browser/ui/scoped_tabbed_browser_displayer.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/webui/chromeos/login/gaia_screen_handler.h"
@@ -48,6 +46,7 @@
 #include "chromeos/login/auth/key.h"
 #include "chromeos/login/auth/user_context.h"
 #include "components/account_id/account_id.h"
+#include "components/javascript_dialogs/tab_modal_dialog_manager.h"
 #include "components/prefs/pref_service.h"
 #include "components/signin/public/identity_manager/identity_manager.h"
 #include "components/signin/public/identity_manager/identity_test_utils.h"
@@ -58,17 +57,15 @@
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/storage_partition.h"
+#include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
 #include "extensions/browser/extension_host.h"
 #include "extensions/browser/process_manager.h"
 #include "extensions/test/extension_test_message_listener.h"
 #include "extensions/test/result_catcher.h"
 #include "net/cookies/canonical_cookie.h"
-#include "net/cookies/cookie_store.h"
 #include "net/test/embedded_test_server/http_request.h"
 #include "net/test/embedded_test_server/http_response.h"
-#include "net/url_request/url_request_context.h"
-#include "net/url_request/url_request_context_getter.h"
 
 using net::test_server::BasicHttpResponse;
 using net::test_server::HttpRequest;
@@ -215,8 +212,8 @@ class RequestDeferrer {
 
   void InterceptRequest(const HttpRequest& request) {
     start_event_.Signal();
-    base::PostTask(FROM_HERE, {content::BrowserThread::UI},
-                   base::BindOnce(&RequestDeferrer::QuitRunnerOnUIThread,
+    content::GetUIThreadTaskRunner({})->PostTask(
+        FROM_HERE, base::BindOnce(&RequestDeferrer::QuitRunnerOnUIThread,
                                   base::Unretained(this)));
     blocking_event_.Wait();
   }
@@ -244,7 +241,6 @@ class OAuth2Test : public OobeBaseTest {
   // OobeBaseTest overrides.
   void SetUpCommandLine(base::CommandLine* command_line) override {
     OobeBaseTest::SetUpCommandLine(command_line);
-    command_line->AppendSwitch(ash::switches::kShowWebUiLogin);
 
     base::PathService::Get(chrome::DIR_TEST_DATA, &test_data_dir_);
 
@@ -304,9 +300,6 @@ class OAuth2Test : public OobeBaseTest {
   }
 
   void LoginAsExistingUser() {
-    test::OobeJS().ExpectTrue("!!document.querySelector('#account-picker')");
-    test::OobeJS().ExpectTrue("!!document.querySelector('#pod-row')");
-
     // PickAccountId does not work at this point as the primary user profile has
     // not yet been created.
     const std::string email = kTestEmail;
@@ -314,9 +307,10 @@ class OAuth2Test : public OobeBaseTest {
               user_manager::User::OAUTH2_TOKEN_STATUS_VALID);
 
     // Try login.  Primary profile has changed.
-    EXPECT_TRUE(
-        TryToLogin(AccountId::FromUserEmailGaiaId(kTestEmail, kTestGaiaId),
-                   kTestAccountPassword));
+    ash::LoginScreenTestApi::SubmitPassword(
+        AccountId::FromUserEmailGaiaId(kTestEmail, kTestGaiaId),
+        kTestAccountPassword, true /*check_if_submittable */);
+    test::WaitForPrimaryUserSessionStart();
     Profile* profile = ProfileManager::GetPrimaryUserProfile();
     CoreAccountId account_id = PickAccountId(profile, kTestGaiaId, kTestEmail);
     ASSERT_EQ(email, account_id.ToString());
@@ -568,8 +562,7 @@ IN_PROC_BROWSER_TEST_F(OAuth2Test, PRE_MergeSession) {
 IN_PROC_BROWSER_TEST_F(OAuth2Test, MergeSession) {
   SimulateNetworkOnline();
 
-  test::OobeJS().ExpectTrue("!!document.querySelector('#account-picker')");
-  test::OobeJS().ExpectTrue("!!document.querySelector('#pod-row')");
+  EXPECT_EQ(1, ash::LoginScreenTestApi::GetUsersCount());
 
   // PickAccountId does not work at this point as the primary user profile has
   // not yet been created.
@@ -781,8 +774,8 @@ class FakeGoogle {
     std::unique_ptr<BasicHttpResponse> http_response(new BasicHttpResponse());
     if (request_path == kHelloPagePath) {  // Serving "google" page.
       start_event_.Signal();
-      base::PostTask(FROM_HERE, {content::BrowserThread::UI},
-                     base::BindOnce(&FakeGoogle::QuitRunnerOnUIThread,
+      content::GetUIThreadTaskRunner({})->PostTask(
+          FROM_HERE, base::BindOnce(&FakeGoogle::QuitRunnerOnUIThread,
                                     base::Unretained(this)));
 
       http_response->set_code(net::HTTP_OK);
@@ -794,8 +787,8 @@ class FakeGoogle {
       http_response->set_content(kRandomPageContent);
     } else if (hang_merge_session_ && request_path == kMergeSessionPath) {
       merge_session_event_.Signal();
-      base::PostTask(FROM_HERE, {content::BrowserThread::UI},
-                     base::BindOnce(&FakeGoogle::QuitMergeRunnerOnUIThread,
+      content::GetUIThreadTaskRunner({})->PostTask(
+          FROM_HERE, base::BindOnce(&FakeGoogle::QuitMergeRunnerOnUIThread,
                                     base::Unretained(this)));
       return std::make_unique<HungResponse>();
     } else {
@@ -975,10 +968,11 @@ IN_PROC_BROWSER_TEST_P(MergeSessionTest, PageThrottle) {
   // JavaScript dialog wait setup.
   content::WebContents* tab =
       browser->tab_strip_model()->GetActiveWebContents();
-  JavaScriptDialogTabHelper* js_helper =
-      JavaScriptDialogTabHelper::FromWebContents(tab);
+  auto* js_dialog_manager =
+      javascript_dialogs::TabModalDialogManager::FromWebContents(tab);
   base::RunLoop dialog_wait;
-  js_helper->SetDialogShownCallbackForTesting(dialog_wait.QuitClosure());
+  js_dialog_manager->SetDialogShownCallbackForTesting(
+      dialog_wait.QuitClosure());
 
   // Wait until we get send merge session request.
   WaitForMergeSessionToStart();
@@ -1003,7 +997,7 @@ IN_PROC_BROWSER_TEST_P(MergeSessionTest, PageThrottle) {
   // Check that real page is no longer blocked by the throttle and that the
   // real page pops up JS dialog.
   dialog_wait.Run();
-  js_helper->HandleJavaScriptDialog(tab, true, nullptr);
+  js_dialog_manager->HandleJavaScriptDialog(tab, true, nullptr);
 
   ui_test_utils::GetCurrentTabTitle(browser, &title);
   DVLOG(1) << "Loaded page at the end : " << title;
@@ -1066,8 +1060,13 @@ IN_PROC_BROWSER_TEST_P(MergeSessionTest, Throttle) {
   EXPECT_TRUE(fake_google_.IsPageRequested());
 }
 
-// TODO(https://crbug.com/990844): Re-enable once flakiness is fixed.
-IN_PROC_BROWSER_TEST_P(MergeSessionTest, DISABLED_XHRNotThrottled) {
+// The test is too slow for the MSan configuration.
+#if defined(MEMORY_SANITIZER)
+#define MAYBE_XHRNotThrottled DISABLED_XHRNotThrottled
+#else
+#define MAYBE_XHRNotThrottled XHRNotThrottled
+#endif
+IN_PROC_BROWSER_TEST_P(MergeSessionTest, MAYBE_XHRNotThrottled) {
   StartNewUserSession(/*wait_for_merge=*/false,
                       /*is_under_advanced_protection=*/false);
 
@@ -1102,8 +1101,7 @@ IN_PROC_BROWSER_TEST_P(MergeSessionTest, DISABLED_XHRNotThrottled) {
 
   if (do_async_xhr()) {
     // Verify that we've sent XHR request from the extension side...
-    JsExpectOnBackgroundPage(ext->id(),
-                             "googleRequestSent && !googleResponseReceived");
+    JsExpectOnBackgroundPage(ext->id(), "googleRequestSent");
 
     // Wait until non-google XHR content to load.
     ASSERT_TRUE(non_google_xhr_listener->WaitUntilSatisfied());

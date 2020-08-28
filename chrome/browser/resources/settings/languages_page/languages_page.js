@@ -6,15 +6,59 @@
  * @fileoverview 'settings-languages-page' is the settings page
  * for language and input method settings.
  */
-cr.define('settings', function() {
-  /**
-   * @type {number} Millisecond delay that can be used when closing an action
-   *      menu to keep it briefly on-screen.
-   */
-  const kMenuCloseDelay = 100;
+import 'chrome://resources/cr_elements/cr_action_menu/cr_action_menu.m.js';
+import 'chrome://resources/cr_elements/cr_button/cr_button.m.js';
+import 'chrome://resources/cr_elements/cr_checkbox/cr_checkbox.m.js';
+import 'chrome://resources/cr_elements/cr_expand_button/cr_expand_button.m.js';
+import 'chrome://resources/cr_elements/cr_icon_button/cr_icon_button.m.js';
+import 'chrome://resources/cr_elements/cr_lazy_render/cr_lazy_render.m.js';
+import 'chrome://resources/cr_elements/cr_link_row/cr_link_row.m.js';
+import 'chrome://resources/cr_elements/cr_toggle/cr_toggle.m.js';
+import 'chrome://resources/cr_elements/icons.m.js';
+import 'chrome://resources/cr_elements/policy/cr_policy_pref_indicator.m.js';
+import 'chrome://resources/cr_elements/shared_style_css.m.js';
+import 'chrome://resources/cr_elements/shared_vars_css.m.js';
+import 'chrome://resources/js/action_link.js';
+import 'chrome://resources/cr_elements/action_link_css.m.js';
+import 'chrome://resources/polymer/v3_0/iron-collapse/iron-collapse.js';
+import 'chrome://resources/polymer/v3_0/iron-flex-layout/iron-flex-layout-classes.js';
+import 'chrome://resources/polymer/v3_0/iron-icon/iron-icon.js';
+import './add_languages_dialog.js';
+import './languages.m.js';
+import '../controls/controlled_radio_button.m.js';
+import '../controls/settings_radio_group.m.js';
+import '../controls/settings_toggle_button.m.js';
+import '../icons.m.js';
+import '../settings_page/settings_animated_pages.m.js';
+import '../settings_page/settings_subpage.m.js';
+import '../settings_shared_css.m.js';
+import '../settings_vars_css.m.js';
 
-  return {kMenuCloseDelay};
-});
+// <if expr="not is_macosx">
+import './edit_dictionary_page.js';
+// </if>
+
+import {assert} from 'chrome://resources/js/assert.m.js';
+import {isChromeOS, isWindows} from 'chrome://resources/js/cr.m.js';
+import {focusWithoutInk} from 'chrome://resources/js/cr/ui/focus_without_ink.m.js';
+import {I18nBehavior} from 'chrome://resources/js/i18n_behavior.m.js';
+import {flush, html, Polymer} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+
+import {loadTimeData} from '../i18n_setup.js';
+import {LifetimeBrowserProxyImpl} from '../lifetime_browser_proxy.m.js';
+import {PrefsBehavior} from '../prefs/prefs_behavior.m.js';
+import {routes} from '../route.js';
+import {Route, Router} from '../router.m.js';
+
+// <if expr="chromeos">
+import {LanguagesMetricsProxy, LanguagesMetricsProxyImpl, LanguagesPageInteraction} from './languages_metrics_proxy.js';
+// </if>
+
+/**
+ * @type {number} Millisecond delay that can be used when closing an action
+ *      menu to keep it briefly on-screen.
+ */
+export const kMenuCloseDelay = 100;
 
 /**
  * Name of the language setting is shown uma histogram.
@@ -22,11 +66,10 @@ cr.define('settings', function() {
  */
 const LANGUAGE_SETTING_IS_SHOWN_UMA_NAME = 'Translate.LanguageSettingsIsShown';
 
-(function() {
-'use strict';
-
 Polymer({
   is: 'settings-languages-page',
+
+  _template: html`{__html_template__}`,
 
   behaviors: [
     I18nBehavior,
@@ -99,10 +142,8 @@ Polymer({
       value() {
         const map = new Map();
         // <if expr="not is_macosx">
-        if (settings.routes.EDIT_DICTIONARY) {
-          map.set(
-              settings.routes.EDIT_DICTIONARY.path,
-              '#spellCheckSubpageTrigger');
+        if (routes.EDIT_DICTIONARY) {
+          map.set(routes.EDIT_DICTIONARY.path, '#spellCheckSubpageTrigger');
         }
         // </if>
         return map;
@@ -120,6 +161,16 @@ Polymer({
     // </if>
   },
 
+  // <if expr="chromeos">
+  /** @private {?LanguagesMetricsProxy} */
+  languagesMetricsProxy_: null,
+
+  /** @override */
+  created() {
+    this.languagesMetricsProxy_ = LanguagesMetricsProxyImpl.getInstance();
+  },
+  // </if>
+
   // <if expr="not is_macosx">
   observers: [
     'updateSpellcheckLanguages_(languages.enabled.*, ' +
@@ -135,9 +186,9 @@ Polymer({
 
   // <if expr="not is_macosx">
   /**
-   * Checks if there are any errors downloading the spell check dictionary. This
-   * is used for showing/hiding error messages, spell check toggle and retry.
-   * button.
+   * Checks if there are any errors downloading the spell check dictionary.
+   * This is used for showing/hiding error messages, spell check toggle and
+   * retry. button.
    * @param {number} downloadDictionaryFailureCount
    * @param {number} threshold
    * @return {boolean}
@@ -156,13 +207,16 @@ Polymer({
    */
   onAddLanguagesTap_(e) {
     e.preventDefault();
+    // <if expr="chromeos">
+    this.languagesMetricsProxy_.recordAddLanguages();
+    // </if>
     this.showAddLanguagesDialog_ = true;
   },
 
   /** @private */
   onAddLanguagesDialogClose_() {
     this.showAddLanguagesDialog_ = false;
-    cr.ui.focusWithoutInk(assert(this.$.addLanguages));
+    focusWithoutInk(assert(this.$.addLanguages));
   },
 
   /**
@@ -173,7 +227,7 @@ Polymer({
    * @private
    */
   canEnableSomeSupportedLanguage_(languages) {
-    return languages == undefined || languages.supported.some(language => {
+    return languages === undefined || languages.supported.some(language => {
       return this.languageHelper.canEnableLanguage(language);
     });
   },
@@ -191,7 +245,7 @@ Polymer({
       return false;
     }
     // </if>
-    return this.languages != undefined && this.languages.enabled.length > 1;
+    return this.languages !== undefined && this.languages.enabled.length > 1;
   },
 
   /**
@@ -203,7 +257,7 @@ Polymer({
    * @private
    */
   isNthLanguage_(n) {
-    if (this.languages == undefined || this.detailLanguage_ == undefined) {
+    if (this.languages === undefined || this.detailLanguage_ === undefined) {
       return false;
     }
 
@@ -212,12 +266,12 @@ Polymer({
     }
 
     const compareLanguage = assert(this.languages.enabled[n]);
-    return this.detailLanguage_.language == compareLanguage.language;
+    return this.detailLanguage_.language === compareLanguage.language;
   },
 
   /**
-   * @return {boolean} True if the "Move to top" option for |language| should be
-   *     visible.
+   * @return {boolean} True if the "Move to top" option for |language| should
+   *     be visible.
    * @private
    */
   showMoveUp_() {
@@ -232,7 +286,7 @@ Polymer({
    * @private
    */
   showMoveDown_() {
-    return this.languages != undefined &&
+    return this.languages !== undefined &&
         !this.isNthLanguage_(this.languages.enabled.length - 1);
   },
 
@@ -241,7 +295,7 @@ Polymer({
    * @return {boolean} True if there are less than 2 languages.
    */
   isHelpTextHidden_(change) {
-    return this.languages != undefined && this.languages.enabled.length <= 1;
+    return this.languages !== undefined && this.languages.enabled.length <= 1;
   },
 
   /**
@@ -251,7 +305,7 @@ Polymer({
    'non-target' otherwise.
    */
   isTranslationTarget_(languageCode, translateTarget) {
-    if (this.languageHelper.convertLanguageCodeForTranslate(languageCode) ==
+    if (this.languageHelper.convertLanguageCodeForTranslate(languageCode) ===
         translateTarget) {
       return 'target';
     } else {
@@ -266,9 +320,10 @@ Polymer({
    * @private
    */
   tweakMenuForCrOS_(menu) {
-    // In a CrOS multi-user session, the primary user controls the UI language.
-    // TODO(michaelpg): The language selection should not be hidden, but should
-    // show a policy indicator. crbug.com/648498
+    // In a CrOS multi-user session, the primary user controls the UI
+    // language.
+    // TODO(michaelpg): The language selection should not be hidden, but
+    // should show a policy indicator. crbug.com/648498
     if (this.isSecondaryUser_()) {
       menu.querySelector('#uiLanguageItem').hidden = true;
     }
@@ -278,6 +333,22 @@ Polymer({
       menu.querySelector('#uiLanguageItem').hidden = true;
     }
   },
+
+  /**
+   * @param {!Event} e
+   * @private
+   */
+  onTranslateToggleChange_(e) {
+    this.languagesMetricsProxy_.recordToggleTranslate(e.target.checked);
+  },
+
+  /**
+   * @param {!Event} e
+   * @private
+   */
+  onSpellcheckToggleChange_(e) {
+    this.languagesMetricsProxy_.recordToggleSpellCheck(e.target.checked);
+  },
   // </if>
 
   // <if expr="chromeos or is_win">
@@ -286,7 +357,7 @@ Polymer({
    * @private
    */
   isSecondaryUser_() {
-    return cr.isChromeOS && loadTimeData.getBoolean('isSecondaryUser');
+    return isChromeOS && loadTimeData.getBoolean('isSecondaryUser');
   },
 
   /**
@@ -297,7 +368,7 @@ Polymer({
    * @private
    */
   isRestartRequired_(languageCode, prospectiveUILanguage) {
-    return prospectiveUILanguage == languageCode &&
+    return prospectiveUILanguage === languageCode &&
         this.languageHelper.requiresRestart();
   },
 
@@ -306,13 +377,13 @@ Polymer({
     if (!this.isChangeInProgress_) {
       return;
     }
-    Polymer.dom.flush();
+    flush();
     this.isChangeInProgress_ = false;
     const restartButton = this.$$('#restartButton');
     if (!restartButton) {
       return;
     }
-    cr.ui.focusWithoutInk(restartButton);
+    focusWithoutInk(restartButton);
   },
 
   /**
@@ -339,7 +410,7 @@ Polymer({
     }
 
     // Unchecking the currently chosen language doesn't make much sense.
-    if (languageState.language.code == prospectiveUILanguage) {
+    if (languageState.language.code === prospectiveUILanguage) {
       return true;
     }
 
@@ -362,6 +433,10 @@ Polymer({
     // We don't support unchecking this checkbox. TODO(michaelpg): Ask for a
     // simpler widget.
     assert(e.target.checked);
+    // <if expr="chromeos">
+    this.languagesMetricsProxy_.recordInteraction(
+        LanguagesPageInteraction.SWITCH_SYSTEM_LANGUAGE);
+    // </if>
     this.isChangeInProgress_ = true;
     this.languageHelper.setProspectiveUILanguage(
         this.detailLanguage_.language.code);
@@ -372,8 +447,9 @@ Polymer({
 
   /**
    * Checks whether the prospective UI language (the pref that indicates what
-   * language to use in Chrome) matches the current language. This pref is used
-   * only on Chrome OS and Windows; we don't control the UI language elsewhere.
+   * language to use in Chrome) matches the current language. This pref is
+   * used only on Chrome OS and Windows; we don't control the UI language
+   * elsewhere.
    * @param {string} languageCode The language code identifying a language.
    * @param {string} prospectiveUILanguage The prospective UI language.
    * @return {boolean} True if the given language matches the prospective UI
@@ -381,7 +457,7 @@ Polymer({
    * @private
    */
   isProspectiveUILanguage_(languageCode, prospectiveUILanguage) {
-    return languageCode == prospectiveUILanguage;
+    return languageCode === prospectiveUILanguage;
   },
 
   /**
@@ -399,10 +475,12 @@ Polymer({
    */
   onRestartTap_() {
     // <if expr="chromeos">
-    settings.LifetimeBrowserProxyImpl.getInstance().signOutAndRestart();
+    this.languagesMetricsProxy_.recordInteraction(
+        LanguagesPageInteraction.RESTART);
+    LifetimeBrowserProxyImpl.getInstance().signOutAndRestart();
     // </if>
     // <if expr="is_win">
-    settings.LifetimeBrowserProxyImpl.getInstance().restart();
+    LifetimeBrowserProxyImpl.getInstance().restart();
     // </if>
   },
   // </if>
@@ -414,7 +492,7 @@ Polymer({
    * @private
    */
   disableTranslateCheckbox_(languageState, targetLanguageCode) {
-    if (languageState == undefined || languageState.language == undefined ||
+    if (languageState === undefined || languageState.language === undefined ||
         !languageState.language.supportsTranslate) {
       return true;
     }
@@ -424,7 +502,7 @@ Polymer({
     }
 
     return this.languageHelper.convertLanguageCodeForTranslate(
-               languageState.language.code) == targetLanguageCode;
+               languageState.language.code) === targetLanguageCode;
   },
 
   /**
@@ -444,13 +522,13 @@ Polymer({
   },
 
   /**
-   * Returns "complex" if the menu includes checkboxes, which should change the
-   * spacing of items and show a separator in the menu.
+   * Returns "complex" if the menu includes checkboxes, which should change
+   * the spacing of items and show a separator in the menu.
    * @param {boolean} translateEnabled
    * @return {string}
    */
   getMenuClass_(translateEnabled) {
-    if (translateEnabled || cr.isChromeOS || cr.isWindows) {
+    if (translateEnabled || isChromeOS || isWindows) {
       return 'complex';
     }
     return '';
@@ -494,14 +572,6 @@ Polymer({
     this.languageHelper.disableLanguage(this.detailLanguage_.language.code);
   },
 
-  /**
-   * @return {string}
-   * @private
-   */
-  getLanguageListTwoLine_() {
-    return cr.isChromeOS || cr.isWindows ? 'two-line' : '';
-  },
-
   // <if expr="not is_macosx">
   /**
    * Returns the value to use as the |pref| attribute for the policy indicator
@@ -539,7 +609,7 @@ Polymer({
 
   /** @private */
   updateSpellcheckLanguages_() {
-    if (this.languages == undefined) {
+    if (this.languages === undefined) {
       return;
     }
 
@@ -550,8 +620,9 @@ Polymer({
     // would otherwise not notice the changes in the subproperties, as some of
     // them are references to those from |this.languages.enabled|. It would be
     // possible to |this.linkPaths()| objects from |this.languages.enabled| to
-    // |this.spellCheckLanguages_|, but that would require complex housekeeping
-    // to |this.unlinkPaths()| as |this.languages.enabled| changes.
+    // |this.spellCheckLanguages_|, but that would require complex
+    // housekeeping to |this.unlinkPaths()| as |this.languages.enabled|
+    // changes.
     for (let i = 0; i < this.spellCheckLanguages_.length; i++) {
       this.notifyPath(`spellCheckLanguages_.${i}.isManaged`);
       this.notifyPath(`spellCheckLanguages_.${i}.spellCheckEnabled`);
@@ -573,7 +644,8 @@ Polymer({
       this.hideSpellCheckLanguages_ = !singleLanguage.isManaged &&
           singleLanguage.downloadDictionaryFailureCount === 0;
 
-      // Turn off spell check if spell check for the 1 remaining language is off
+      // Turn off spell check if spell check for the 1 remaining language is
+      // off
       if (!singleLanguage.spellCheckEnabled) {
         this.setPrefValue('browser.enable_spellchecking', false);
         this.languageSyncedWithBrowserEnableSpellchecking_ =
@@ -597,14 +669,15 @@ Polymer({
 
   /** @private */
   updateSpellcheckEnabled_() {
-    if (this.prefs == undefined) {
+    if (this.prefs === undefined) {
       return;
     }
 
     // If there is only 1 language, we hide the list of languages so users
-    // are unable to toggle on/off spell check specifically for the 1 language.
-    // Therefore, we need to treat the toggle for `browser.enable_spellchecking`
-    // as the toggle for the 1 language as well.
+    // are unable to toggle on/off spell check specifically for the 1
+    // language. Therefore, we need to treat the toggle for
+    // `browser.enable_spellchecking` as the toggle for the 1 language as
+    // well.
     if (this.spellCheckLanguages_.length === 1) {
       this.languageHelper.toggleSpellCheck(
           this.spellCheckLanguages_[0].language.code,
@@ -628,7 +701,12 @@ Polymer({
    * @private
    */
   onEditDictionaryTap_() {
-    settings.navigateTo(settings.routes.EDIT_DICTIONARY);
+    // <if expr="chromeos">
+    this.languagesMetricsProxy_.recordInteraction(
+        LanguagesPageInteraction.OPEN_CUSTOM_SPELL_CHECK);
+    // </if>
+    Router.getInstance().navigateTo(
+        /** @type {!Route} */ (routes.EDIT_DICTIONARY));
   },
 
   /**
@@ -689,8 +767,7 @@ Polymer({
    * @private
    */
   getLanguageItemClass_(languageCode, prospectiveUILanguage) {
-    if ((cr.isChromeOS || cr.isWindows) &&
-        languageCode == prospectiveUILanguage) {
+    if ((isChromeOS || isWindows) && languageCode === prospectiveUILanguage) {
       return 'selected';
     }
     return '';
@@ -715,14 +792,15 @@ Polymer({
    * @private
    */
   onDotsTap_(e) {
-    // Set a copy of the LanguageState object since it is not data-bound to the
-    // languages model directly.
+    // Set a copy of the LanguageState object since it is not data-bound to
+    // the languages model directly.
     this.detailLanguage_ = /** @type {!LanguageState} */ (Object.assign(
         {},
         /** @type {!{model: !{item: !LanguageState}}} */ (e).model.item));
 
     // Ensure the template has been stamped.
-    let menu = /** @type {?CrActionMenuElement} */ (this.$.menu.getIfExists());
+    let menu =
+        /** @type {?CrActionMenuElement} */ (this.$.menu.getIfExists());
     if (!menu) {
       menu = /** @type {!CrActionMenuElement} */ (this.$.menu.get());
       // <if expr="chromeos">
@@ -757,7 +835,7 @@ Polymer({
       if (menu.open) {
         menu.close();
       }
-    }, settings.kMenuCloseDelay);
+    }, kMenuCloseDelay);
   },
 
   /**
@@ -768,7 +846,7 @@ Polymer({
   toggleExpandButton_(e) {
     // The expand button handles toggling itself.
     const expandButtonTag = 'CR-EXPAND-BUTTON';
-    if (e.target.tagName == expandButtonTag) {
+    if (e.target.tagName === expandButtonTag) {
       return;
     }
 
@@ -780,7 +858,6 @@ Polymer({
     const expandButton = e.currentTarget.querySelector(expandButtonTag);
     assert(expandButton);
     expandButton.expanded = !expandButton.expanded;
-    cr.ui.focusWithoutInk(expandButton);
+    focusWithoutInk(expandButton);
   },
 });
-})();

@@ -13,12 +13,17 @@ import android.provider.Settings;
 
 import androidx.annotation.Nullable;
 
+import org.chromium.base.IntentUtils;
 import org.chromium.base.ThreadUtils;
 import org.chromium.base.annotations.CalledByNative;
 import org.chromium.base.annotations.NativeMethods;
-import org.chromium.chrome.browser.settings.ManagedPreferencesUtils;
-import org.chromium.chrome.browser.settings.sync.AccountManagementFragment;
-import org.chromium.chrome.browser.util.IntentUtils;
+import org.chromium.chrome.browser.app.ChromeActivity;
+import org.chromium.chrome.browser.profiles.Profile;
+import org.chromium.chrome.browser.signin.account_picker.AccountPickerBottomSheetCoordinator;
+import org.chromium.chrome.browser.signin.account_picker.AccountPickerDelegate;
+import org.chromium.chrome.browser.sync.settings.AccountManagementFragment;
+import org.chromium.components.browser_ui.bottomsheet.BottomSheetControllerProvider;
+import org.chromium.components.browser_ui.settings.ManagedPreferencesUtils;
 import org.chromium.components.signin.GAIAServiceType;
 import org.chromium.components.signin.metrics.SigninAccessPoint;
 import org.chromium.ui.base.WindowAndroid;
@@ -67,6 +72,22 @@ public class SigninUtils {
         AccountManagementFragment.openAccountManagementScreen(gaiaServiceType);
     }
 
+    @CalledByNative
+    private static void openAccountPickerBottomSheet(
+            WindowAndroid windowAndroid, String continueUrl) {
+        ThreadUtils.assertOnUiThread();
+        SigninManager signinManager = IdentityServicesProvider.get().getSigninManager(
+                Profile.getLastUsedRegularProfile());
+        if (signinManager.isSignInAllowed()) {
+            ChromeActivity activity = (ChromeActivity) windowAndroid.getActivity().get();
+            AccountPickerBottomSheetCoordinator coordinator =
+                    new AccountPickerBottomSheetCoordinator(activity,
+                            BottomSheetControllerProvider.from(activity.getWindowAndroid()),
+                            new AccountPickerDelegate(
+                                    windowAndroid, new WebSigninBridge.Factory(), continueUrl));
+        }
+    }
+
     /**
      * Launches the {@link SigninActivity} if signin is allowed.
      * @param accessPoint {@link SigninAccessPoint} for starting sign-in flow.
@@ -74,9 +95,10 @@ public class SigninUtils {
      */
     public static boolean startSigninActivityIfAllowed(
             Context context, @SigninAccessPoint int accessPoint) {
-        SigninManager signinManager = IdentityServicesProvider.get().getSigninManager();
+        SigninManager signinManager = IdentityServicesProvider.get().getSigninManager(
+                Profile.getLastUsedRegularProfile());
         if (signinManager.isSignInAllowed()) {
-            SigninActivityLauncher.get().launchActivity(context, accessPoint);
+            SigninActivityLauncherImpl.get().launchActivity(context, accessPoint);
             return true;
         }
         if (signinManager.isSigninDisabledByPolicy()) {

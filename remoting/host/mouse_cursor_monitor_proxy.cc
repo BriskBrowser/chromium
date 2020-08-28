@@ -6,6 +6,7 @@
 
 #include "base/bind.h"
 #include "base/location.h"
+#include "base/logging.h"
 #include "base/macros.h"
 #include "base/single_thread_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
@@ -37,8 +38,7 @@ class MouseCursorMonitorProxy::Core
  private:
   // webrtc::MouseCursorMonitor::Callback implementation.
   void OnMouseCursor(webrtc::MouseCursor* mouse_cursor) override;
-  void OnMouseCursorPosition(webrtc::MouseCursorMonitor::CursorState state,
-                             const webrtc::DesktopVector& position) override;
+  void OnMouseCursorPosition(const webrtc::DesktopVector& position) override;
 
   base::ThreadChecker thread_checker_;
 
@@ -103,13 +103,12 @@ void MouseCursorMonitorProxy::Core::OnMouseCursor(webrtc::MouseCursor* cursor) {
 }
 
 void MouseCursorMonitorProxy::Core::OnMouseCursorPosition(
-    webrtc::MouseCursorMonitor::CursorState state,
     const webrtc::DesktopVector& position) {
   DCHECK(thread_checker_.CalledOnValidThread());
 
   caller_task_runner_->PostTask(
       FROM_HERE, base::BindOnce(&MouseCursorMonitorProxy::OnMouseCursorPosition,
-                                proxy_, state, position));
+                                proxy_, position));
 }
 
 MouseCursorMonitorProxy::MouseCursorMonitorProxy(
@@ -155,10 +154,9 @@ void MouseCursorMonitorProxy::OnMouseCursor(
 }
 
 void MouseCursorMonitorProxy::OnMouseCursorPosition(
-    CursorState state,
     const webrtc::DesktopVector& position) {
   DCHECK(thread_checker_.CalledOnValidThread());
-  callback_->OnMouseCursorPosition(state, position);
+  callback_->OnMouseCursorPosition(position);
 }
 
 }  // namespace remoting

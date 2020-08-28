@@ -40,7 +40,6 @@ namespace blink {
 class Element;
 class GraphicsContext;
 class IntRect;
-class ChromeClient;
 class ScrollableArea;
 class ScrollbarTheme;
 class WebGestureEvent;
@@ -53,17 +52,14 @@ class CORE_EXPORT Scrollbar : public GarbageCollected<Scrollbar>,
   // scrollbar.
   static Scrollbar* CreateForTesting(ScrollableArea* scrollable_area,
                                      ScrollbarOrientation orientation,
-                                     ScrollbarControlSize size,
                                      ScrollbarTheme* theme) {
-    return MakeGarbageCollected<Scrollbar>(scrollable_area, orientation, size,
-                                           nullptr, nullptr, theme);
+    return MakeGarbageCollected<Scrollbar>(scrollable_area, orientation,
+                                           nullptr, theme);
   }
 
   Scrollbar(ScrollableArea*,
             ScrollbarOrientation,
-            ScrollbarControlSize,
             Element* style_source,
-            ChromeClient* = nullptr,
             ScrollbarTheme* = nullptr);
   ~Scrollbar() override;
 
@@ -93,25 +89,20 @@ class CORE_EXPORT Scrollbar : public GarbageCollected<Scrollbar>,
   int VisibleSize() const { return visible_size_; }
   int TotalSize() const { return total_size_; }
   int Maximum() const;
-  ScrollbarControlSize GetControlSize() const { return control_size_; }
 
   ScrollbarPart PressedPart() const { return pressed_part_; }
   ScrollbarPart HoveredPart() const { return hovered_part_; }
 
   virtual void StyleChanged() {}
-  void SetScrollbarsHiddenIfOverlay(bool);
+  void SetScrollbarsHiddenFromExternalAnimator(bool);
   bool Enabled() const { return enabled_; }
   virtual void SetEnabled(bool);
 
-  // This returns device-scale-factor-aware pixel value.
-  // e.g. 15 in dsf=1.0, 30 in dsf=2.0.
-  // This returns 0 for overlay scrollbars.
-  // See also ScrolbarTheme::scrollbatThickness().
   int ScrollbarThickness() const;
 
   // Called by the ScrollableArea when the scroll offset changes.
   // Will trigger paint invalidation if required.
-  void OffsetDidChange();
+  virtual void OffsetDidChange(mojom::blink::ScrollType scroll_type);
 
   virtual void DisconnectFromScrollableArea();
   ScrollableArea* GetScrollableArea() const { return scrollable_area_; }
@@ -124,10 +115,16 @@ class CORE_EXPORT Scrollbar : public GarbageCollected<Scrollbar>,
   void SetProportion(int visible_size, int total_size);
   void SetPressedPos(int p) { pressed_pos_ = p; }
 
-  void Paint(GraphicsContext&) const;
+  void Paint(GraphicsContext&, const IntPoint& paint_offset) const;
 
   virtual bool IsSolidColor() const;
+
+  // Returns true if the scrollbar is a overlay scrollbar. This doesn't include
+  // overflow:overlay scrollbars. Probably this should be renamed to
+  // IsPlatformOverlayScrollbar() but we don't bother it because
+  // overflow:overlay might be deprecated soon.
   virtual bool IsOverlayScrollbar() const;
+
   bool ShouldParticipateInHitTesting();
 
   bool IsWindowActive() const;
@@ -170,14 +167,11 @@ class CORE_EXPORT Scrollbar : public GarbageCollected<Scrollbar>,
   bool ThumbNeedsRepaint() const { return thumb_needs_repaint_; }
   void ClearThumbNeedsRepaint() { thumb_needs_repaint_ = false; }
 
-  // DisplayItemClient methods.
+  // DisplayItemClient.
   String DebugName() const final {
     return orientation_ == kHorizontalScrollbar ? "HorizontalScrollbar"
                                                 : "VerticalScrollbar";
   }
-  IntRect VisualRect() const final { return visual_rect_; }
-
-  virtual void SetVisualRect(const IntRect& r) { visual_rect_ = r; }
 
   // Marks the scrollbar as needing to be redrawn.
   //
@@ -192,7 +186,10 @@ class CORE_EXPORT Scrollbar : public GarbageCollected<Scrollbar>,
   // part.
   void SetNeedsPaintInvalidation(ScrollbarPart invalid_parts);
 
-  CompositorElementId GetElementId();
+  CompositorElementId GetElementId() const;
+
+  // Used to scale a length in dip units into a length in layout/paint units.
+  float ScaleFromDIP() const;
 
   float EffectiveZoom() const;
   bool ContainerIsRightToLeft() const;
@@ -204,7 +201,7 @@ class CORE_EXPORT Scrollbar : public GarbageCollected<Scrollbar>,
 
   WebColorScheme UsedColorScheme() const;
 
-  virtual void Trace(blink::Visitor*);
+  virtual void Trace(Visitor*) const;
 
  protected:
   void AutoscrollTimerFired(TimerBase*);
@@ -222,9 +219,7 @@ class CORE_EXPORT Scrollbar : public GarbageCollected<Scrollbar>,
 
   Member<ScrollableArea> scrollable_area_;
   ScrollbarOrientation orientation_;
-  ScrollbarControlSize control_size_;
   ScrollbarTheme& theme_;
-  Member<ChromeClient> chrome_client_;
 
   int visible_size_;
   int total_size_;
@@ -250,11 +245,18 @@ class CORE_EXPORT Scrollbar : public GarbageCollected<Scrollbar>,
   bool ThumbWillBeUnderMouse() const;
   bool DeltaWillScroll(ScrollOffset delta) const;
 
-  int theme_scrollbar_thickness_;
   bool track_needs_repaint_;
   bool thumb_needs_repaint_;
   bool injected_gesture_scroll_begin_;
-  IntRect visual_rect_;
+
+  // This is set based on the event modifiers. In scenarios like scrolling or
+  // layout, the element that the cursor is over can change without the cursor
+  // itself moving. In these cases, a "fake" mouse move may be dispatched (see
+  // MouseEventManager::RecomputeMouseHoverState) in order to apply hover etc.
+  // Such mouse events do not have the modifier set and hence, maintaining this
+  // additional state is necessary.
+  bool scrollbar_manipulation_in_progress_on_cc_thread_;
+
   IntRect frame_rect_;
   Member<Element> style_source_;
 };

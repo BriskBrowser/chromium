@@ -4,6 +4,8 @@
 
 #import "ios/chrome/browser/ui/bookmarks/bookmark_mediator.h"
 
+#import <MaterialComponents/MaterialSnackbar.h>
+
 #include "base/metrics/user_metrics.h"
 #include "base/metrics/user_metrics_action.h"
 #include "base/strings/sys_string_conversions.h"
@@ -20,7 +22,6 @@
 #import "ios/chrome/browser/ui/bookmarks/bookmark_utils_ios.h"
 #include "ios/chrome/browser/ui/util/uikit_ui_util.h"
 #include "ios/chrome/grit/ios_strings.h"
-#import "ios/third_party/material_components_ios/src/components/Snackbar/src/MaterialSnackbar.h"
 #include "ui/base/l10n/l10n_util.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
@@ -37,7 +38,7 @@ const int64_t kLastUsedFolderNone = -1;
 @interface BookmarkMediator ()
 
 // BrowserState for this mediator.
-@property(nonatomic, assign) ios::ChromeBrowserState* browserState;
+@property(nonatomic, assign) ChromeBrowserState* browserState;
 
 @end
 
@@ -51,7 +52,7 @@ const int64_t kLastUsedFolderNone = -1;
 }
 
 + (const BookmarkNode*)folderForNewBookmarksInBrowserState:
-    (ios::ChromeBrowserState*)browserState {
+    (ChromeBrowserState*)browserState {
   bookmarks::BookmarkModel* bookmarks =
       ios::BookmarkModelFactory::GetForBrowserState(browserState);
   const BookmarkNode* defaultFolder = bookmarks->mobile_node();
@@ -70,13 +71,13 @@ const int64_t kLastUsedFolderNone = -1;
 }
 
 + (void)setFolderForNewBookmarks:(const BookmarkNode*)folder
-                  inBrowserState:(ios::ChromeBrowserState*)browserState {
+                  inBrowserState:(ChromeBrowserState*)browserState {
   DCHECK(folder && folder->is_folder());
   browserState->GetPrefs()->SetInt64(prefs::kIosBookmarkFolderDefault,
                                      folder->id());
 }
 
-- (instancetype)initWithBrowserState:(ios::ChromeBrowserState*)browserState {
+- (instancetype)initWithBrowserState:(ChromeBrowserState*)browserState {
   self = [super init];
   if (self) {
     _browserState = browserState;

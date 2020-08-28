@@ -34,11 +34,13 @@
 #include "third_party/blink/renderer/core/css/css_selector_list.h"
 #include "third_party/blink/renderer/core/css/parser/css_parser_context.h"
 #include "third_party/blink/renderer/core/dom/document.h"
+#include "third_party/blink/renderer/core/dom/pseudo_element.h"
 #include "third_party/blink/renderer/core/html_names.h"
 #include "third_party/blink/renderer/core/origin_trials/origin_trials.h"
 #include "third_party/blink/renderer/platform/runtime_enabled_features.h"
 #include "third_party/blink/renderer/platform/wtf/assertions.h"
 #include "third_party/blink/renderer/platform/wtf/hash_map.h"
+#include "third_party/blink/renderer/platform/wtf/size_assertions.h"
 #include "third_party/blink/renderer/platform/wtf/std_lib_extras.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_builder.h"
 
@@ -53,8 +55,7 @@ struct SameSizeAsCSSSelector {
   void* pointers[1];
 };
 
-static_assert(sizeof(CSSSelector) == sizeof(SameSizeAsCSSSelector),
-              "CSSSelector should stay small");
+ASSERT_SIZE(CSSSelector, SameSizeAsCSSSelector);
 
 void CSSSelector::CreateRareData() {
   DCHECK_NE(Match(), kTag);
@@ -189,9 +190,7 @@ PseudoId CSSSelector::GetPseudoId(PseudoType type) {
     case kPseudoAfter:
       return kPseudoIdAfter;
     case kPseudoMarker:
-      return RuntimeEnabledFeatures::CSSMarkerPseudoElementEnabled()
-                 ? kPseudoIdMarker
-                 : kPseudoIdNone;
+      return kPseudoIdMarker;
     case kPseudoBackdrop:
       return kPseudoIdBackdrop;
     case kPseudoScrollbar:
@@ -297,7 +296,7 @@ PseudoId CSSSelector::GetPseudoId(PseudoType type) {
     case kPseudoSlotted:
     case kPseudoVideoPersistent:
     case kPseudoVideoPersistentAncestor:
-    case kPseudoXrImmersiveDomOverlay:
+    case kPseudoXrOverlay:
       return kPseudoIdNone;
   }
 
@@ -331,8 +330,6 @@ const static NameToPseudoStruct kPseudoTypeWithoutArgumentsMap[] = {
     {"-internal-video-persistent", CSSSelector::kPseudoVideoPersistent},
     {"-internal-video-persistent-ancestor",
      CSSSelector::kPseudoVideoPersistentAncestor},
-    {"-internal-xr-immersive-dom-overlay",
-     CSSSelector::kPseudoXrImmersiveDomOverlay},
     {"-webkit-any-link", CSSSelector::kPseudoWebkitAnyLink},
     {"-webkit-autofill", CSSSelector::kPseudoAutofill},
     {"-webkit-drag", CSSSelector::kPseudoDrag},
@@ -410,6 +407,7 @@ const static NameToPseudoStruct kPseudoTypeWithoutArgumentsMap[] = {
     {"vertical", CSSSelector::kPseudoVertical},
     {"visited", CSSSelector::kPseudoVisited},
     {"window-inactive", CSSSelector::kPseudoWindowInactive},
+    {"xr-overlay", CSSSelector::kPseudoXrOverlay},
 };
 
 const static NameToPseudoStruct kPseudoTypeWithArgumentsMap[] = {
@@ -524,11 +522,14 @@ CSSSelector::PseudoType CSSSelector::ParsePseudoType(const AtomicString& name,
   return kPseudoUnknown;
 }
 
-PseudoId CSSSelector::ParsePseudoId(const String& name) {
+PseudoId CSSSelector::ParsePseudoId(const String& name, const Node* parent) {
   unsigned name_without_colons_start =
       name[0] == ':' ? (name[1] == ':' ? 2 : 1) : 0;
-  return GetPseudoId(ParsePseudoType(
+  PseudoId pseudo_id = GetPseudoId(ParsePseudoType(
       AtomicString(name.Substring(name_without_colons_start)), false));
+  if (!PseudoElement::IsWebExposed(pseudo_id, parent))
+    return kPseudoIdNone;
+  return pseudo_id;
 }
 
 void CSSSelector::UpdatePseudoPage(const AtomicString& value) {
@@ -597,7 +598,6 @@ void CSSSelector::UpdatePseudoType(const AtomicString& value,
     case kPseudoSpatialNavigationInterest:
     case kPseudoVideoPersistent:
     case kPseudoVideoPersistentAncestor:
-    case kPseudoXrImmersiveDomOverlay:
       if (mode != kUASheetMode) {
         pseudo_type_ = kPseudoUnknown;
         break;
@@ -673,6 +673,7 @@ void CSSSelector::UpdatePseudoType(const AtomicString& value,
     case kPseudoVisited:
     case kPseudoWebkitAnyLink:
     case kPseudoWindowInactive:
+    case kPseudoXrOverlay:
       if (match_ != kPseudoClass)
         pseudo_type_ = kPseudoUnknown;
       break;
@@ -1093,7 +1094,7 @@ bool CSSSelector::IsAllowedAfterPart() const {
   if (Match() != CSSSelector::kPseudoElement) {
     return false;
   }
-  // Everything that makes sense should work following ::part. This whitelist
+  // Everything that makes sense should work following ::part. This list
   // restricts it to what has been tested.
   switch (GetPseudoType()) {
     case kPseudoBefore:

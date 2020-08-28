@@ -26,9 +26,6 @@
 #include "components/history/core/browser/history_database.h"
 #include "components/history/core/browser/history_db_task.h"
 #include "components/history/core/browser/history_service.h"
-#include "components/sync/syncable/read_node.h"
-#include "components/sync/syncable/read_transaction.h"
-#include "components/sync/syncable/user_share.h"
 
 using sync_datatype_helper::test;
 
@@ -195,11 +192,10 @@ void AddToHistory(history::HistoryService* service,
                   ui::PageTransition transition,
                   history::VisitSource source,
                   const base::Time& timestamp) {
-  service->AddPage(url, timestamp,
-                   nullptr,  // scope
-                   1234,     // nav_entry_id
-                   GURL(),   // referrer
-                   history::RedirectList(), transition, source, false);
+  service->AddPage(url, timestamp, /*scope=*/nullptr, /*nav_entry_id=*/1234,
+                   /*referrer=*/GURL(), history::RedirectList(), transition,
+                   source, /*did_replace_entry=*/false,
+                   /*publicly_routable=*/false);
 }
 
 history::URLRows GetTypedUrlsFromHistoryService(

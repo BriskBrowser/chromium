@@ -7,6 +7,7 @@
 #include <utility>
 
 #include "base/bind.h"
+#include "base/logging.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/single_thread_task_runner.h"
@@ -23,8 +24,6 @@ TaskQueue::~TaskQueue() {}
 
 void TaskQueue::AddTask(std::unique_ptr<Task> task) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  task->SetTaskCompletionCallback(base::BindOnce(
-      &TaskCompletedCallback, task_runner_, weak_ptr_factory_.GetWeakPtr()));
   tasks_.push(std::move(task));
   StartTaskIfAvailable();
 }
@@ -61,7 +60,9 @@ void TaskQueue::StartTaskIfAvailable() {
 }
 
 void TaskQueue::RunCurrentTask() {
-  current_task_->Run();
+  current_task_->Execute(base::BindOnce(&TaskCompletedCallback, task_runner_,
+                                        weak_ptr_factory_.GetWeakPtr(),
+                                        current_task_.get()));
 }
 
 // static

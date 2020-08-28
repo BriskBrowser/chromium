@@ -7,6 +7,7 @@ import codecs
 import datetime
 import fnmatch
 import glob
+import json
 import os
 import plistlib
 import shutil
@@ -96,12 +97,20 @@ class ProvisioningProfile(object):
     return self._path
 
   @property
+  def team_identifier(self):
+    return self._data.get('TeamIdentifier', [''])[0]
+
+  @property
+  def name(self):
+    return self._data.get('Name', '')
+
+  @property
   def application_identifier_pattern(self):
     return self._data.get('Entitlements', {}).get('application-identifier', '')
 
   @property
-  def team_identifier(self):
-    return self._data.get('TeamIdentifier', [''])[0]
+  def application_identifier_prefix(self):
+    return self._data.get('ApplicationIdentifierPrefix', [''])[0]
 
   @property
   def entitlements(self):
@@ -122,7 +131,7 @@ class ProvisioningProfile(object):
       with the corresponding bundle_identifier, False otherwise.
     """
     return fnmatch.fnmatch(
-        '%s.%s' % (self.team_identifier, bundle_identifier),
+        '%s.%s' % (self.application_identifier_prefix, bundle_identifier),
         self.application_identifier_pattern)
 
   def Install(self, installation_path):
@@ -266,7 +275,8 @@ def GenerateEntitlements(path, provisioning_profile, bundle_identifier):
   entitlements = Entitlements(path)
   if provisioning_profile:
     entitlements.LoadDefaults(provisioning_profile.entitlements)
-    app_identifier_prefix = provisioning_profile.team_identifier + '.'
+    app_identifier_prefix = \
+      provisioning_profile.application_identifier_prefix + '.'
   else:
     app_identifier_prefix = '*.'
   entitlements.ExpandVariables({
@@ -510,6 +520,31 @@ class GenerateEntitlementsAction(Action):
     entitlements.WriteTo(args.path)
 
 
+class FindProvisioningProfileAction(Action):
+  """Class implementing the find-codesign-identity action."""
+
+  name = 'find-provisioning-profile'
+  help = 'find provisioning profile for use by Xcode project generator'
+
+  @staticmethod
+  def _Register(parser):
+    parser.add_argument('--bundle-id',
+                        '-b',
+                        required=True,
+                        help='bundle identifier')
+
+  @staticmethod
+  def _Execute(args):
+    provisioning_profile_info = {}
+    provisioning_profile = FindProvisioningProfile(args.bundle_id, False)
+    for key in ('team_identifier', 'name'):
+      if provisioning_profile:
+        provisioning_profile_info[key] = getattr(provisioning_profile, key)
+      else:
+        provisioning_profile_info[key] = ''
+    print(json.dumps(provisioning_profile_info))
+
+
 def Main():
   # Cache this codec so that plistlib can find it. See
   # https://crbug.com/999461#c12 for more details.
@@ -522,6 +557,7 @@ def Main():
       CodeSignBundleAction,
       CodeSignFileAction,
       GenerateEntitlementsAction,
+      FindProvisioningProfileAction,
   ]
 
   for action in actions:

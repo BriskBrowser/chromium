@@ -7,6 +7,7 @@ import subprocess
 import unittest
 
 from . import notarize, test_common, test_config
+from .model import CodeSignedProduct, Paths
 
 mock = test_common.import_mock()
 
@@ -178,11 +179,9 @@ class TestWaitForResults(unittest.TestCase):
     @mock.patch('signing.commands.run_command_output')
     def test_bad_notarization_info(self, run_command_output, **kwargs):
         run_command_output.side_effect = subprocess.CalledProcessError(
-            239, 'altool', _make_plist({
-                'product-errors': [{
-                    'code': 9595
-                }]
-            }))
+            239, 'altool', _make_plist({'product-errors': [{
+                'code': 9595
+            }]}))
 
         with self.assertRaises(subprocess.CalledProcessError):
             uuids = ['77c0ad17-479e-4b82-946a-73739cf6ca16']
@@ -192,19 +191,21 @@ class TestWaitForResults(unittest.TestCase):
     @mock.patch.multiple('signing.commands',
                          **{'run_command_output': mock.DEFAULT})
     def test_timeout(self, **kwargs):
-        kwargs['run_command_output'].return_value = _make_plist({
-            'notarization-info': {
+        kwargs['run_command_output'].return_value = _make_plist(
+            {'notarization-info': {
                 'Status': 'in progress'
-            }
-        })
+            }})
         uuid = '0c652bb4-7d44-4904-8c59-1ee86a376ece'
         uuids = [uuid]
         with self.assertRaises(notarize.NotarizationError) as cm:
             list(notarize.wait_for_results(uuids, test_config.TestConfig()))
 
-        self.assertEqual(
-            "Timed out waiting for notarization requests: set(['0c652bb4-7d44-4904-8c59-1ee86a376ece'])",
-            str(cm.exception))
+        # Python 2 and 3 stringify set() differently.
+        self.assertIn(
+            str(cm.exception), [
+                "Timed out waiting for notarization requests: set(['0c652bb4-7d44-4904-8c59-1ee86a376ece'])",
+                "Timed out waiting for notarization requests: {'0c652bb4-7d44-4904-8c59-1ee86a376ece'}"
+            ])
 
         for call in kwargs['run_command_output'].mock_calls:
             self.assertEqual(
@@ -226,3 +227,24 @@ class TestStaple(unittest.TestCase):
         notarize.staple('/tmp/file.dmg')
         run_command.assert_called_once_with(
             ['xcrun', 'stapler', 'staple', '--verbose', '/tmp/file.dmg'])
+
+    @mock.patch('signing.notarize.staple')
+    def test_staple_bundled_parts(self, staple):
+        notarize.staple_bundled_parts([
+            CodeSignedProduct('Foo.app/Contents/Helpers/Helper.app', ''),
+            CodeSignedProduct('Foo.app/Contents/Helpers/loose_exectuable', ''),
+            CodeSignedProduct('Foo.app/Contents/XPCServices/Service1.xpc', ''),
+            CodeSignedProduct(
+                'Foo.app/Contents/Helpers/Helper.app/Contents/Helpers/Bar.app',
+                ''),
+            CodeSignedProduct(
+                'Foo.app/Contents/Helpers/Helper.app/Contents/XPCServices/'
+                'Service2.xpc', ''),
+            CodeSignedProduct('Foo.app', '')
+        ], Paths('/in', '/out', '/work'))
+        staple.assert_has_calls([
+            mock.call('/work/Foo.app/Contents/Helpers/Helper.app/Contents'
+                      '/Helpers/Bar.app'),
+            mock.call('/work/Foo.app/Contents/Helpers/Helper.app'),
+            mock.call('/work/Foo.app')
+        ])

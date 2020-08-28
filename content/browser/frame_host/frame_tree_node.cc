@@ -17,10 +17,10 @@
 #include "base/stl_util.h"
 #include "base/strings/string_util.h"
 #include "content/browser/devtools/devtools_instrumentation.h"
-#include "content/browser/frame_host/frame_tree.h"
 #include "content/browser/frame_host/navigation_controller_impl.h"
 #include "content/browser/frame_host/navigation_request.h"
 #include "content/browser/frame_host/navigator.h"
+#include "content/browser/frame_host/navigator_delegate.h"
 #include "content/browser/frame_host/render_frame_host_impl.h"
 #include "content/browser/renderer_host/render_view_host_impl.h"
 #include "content/common/frame_messages.h"
@@ -29,8 +29,10 @@
 #include "content/public/browser/browser_thread.h"
 #include "content/public/common/content_features.h"
 #include "content/public/common/navigation_policy.h"
-#include "third_party/blink/public/common/frame/sandbox_flags.h"
-#include "third_party/blink/public/common/frame/user_activation_update_type.h"
+#include "services/network/public/cpp/web_sandbox_flags.h"
+#include "services/network/public/mojom/web_sandbox_flags.mojom-shared.h"
+#include "third_party/blink/public/mojom/frame/user_activation_update_types.mojom.h"
+#include "third_party/blink/public/mojom/security_context/insecure_request_policy.mojom.h"
 
 namespace content {
 
@@ -94,22 +96,28 @@ FrameTreeNode* FrameTreeNode::GloballyFindByID(int frame_tree_node_id) {
   return it == nodes->end() ? nullptr : it->second;
 }
 
-FrameTreeNode::FrameTreeNode(FrameTree* frame_tree,
-                             Navigator* navigator,
-                             FrameTreeNode* parent,
-                             blink::WebTreeScopeType scope,
-                             const std::string& name,
-                             const std::string& unique_name,
-                             bool is_created_by_script,
-                             const base::UnguessableToken& devtools_frame_token,
-                             const FrameOwnerProperties& frame_owner_properties,
-                             blink::FrameOwnerElementType owner_type)
+// static
+FrameTreeNode* FrameTreeNode::From(RenderFrameHost* rfh) {
+  if (!rfh)
+    return nullptr;
+  return static_cast<RenderFrameHostImpl*>(rfh)->frame_tree_node();
+}
+
+FrameTreeNode::FrameTreeNode(
+    FrameTree* frame_tree,
+    RenderFrameHostImpl* parent,
+    blink::mojom::TreeScopeType scope,
+    const std::string& name,
+    const std::string& unique_name,
+    bool is_created_by_script,
+    const base::UnguessableToken& devtools_frame_token,
+    const blink::mojom::FrameOwnerProperties& frame_owner_properties,
+    blink::mojom::FrameOwnerElementType owner_type)
     : frame_tree_(frame_tree),
-      navigator_(navigator),
       render_manager_(this, frame_tree->manager_delegate()),
       frame_tree_node_id_(next_frame_tree_node_id_++),
       parent_(parent),
-      depth_(parent ? parent->depth_ + 1 : 0u),
+      depth_(parent ? parent->frame_tree_node()->depth_ + 1 : 0u),
       opener_(nullptr),
       original_opener_(nullptr),
       has_committed_real_load_(false),
@@ -118,18 +126,21 @@ FrameTreeNode::FrameTreeNode(FrameTree* frame_tree,
           scope,
           name,
           unique_name,
-          false /* should enforce strict mixed content checking */,
+          blink::mojom::InsecureRequestPolicy::
+              kLeaveInsecureRequestsAlone /* should enforce strict mixed content
+                                             checking */
+          ,
           std::vector<uint32_t>()
           /* hashes of hosts for insecure request upgrades */,
           false /* is a potentially trustworthy unique origin */,
-          false /* has received a user gesture */,
+          false /* has an active user gesture */,
           false /* has received a user gesture before nav */,
           owner_type),
       is_created_by_script_(is_created_by_script),
       devtools_frame_token_(devtools_frame_token),
       frame_owner_properties_(frame_owner_properties),
       was_discarded_(false),
-      blame_context_(frame_tree_node_id_, parent) {
+      blame_context_(frame_tree_node_id_, FrameTreeNode::From(parent)) {
   std::pair<FrameTreeNodeIdMap::iterator, bool> result =
       g_frame_tree_node_id_map.Get().insert(
           std::make_pair(frame_tree_node_id_, this));
@@ -150,7 +161,7 @@ FrameTreeNode::~FrameTreeNode() {
   // See also https://crbug.com/784356.
   if (is_created_by_script_ && parent_) {
     NavigationEntryImpl* nav_entry = static_cast<NavigationEntryImpl*>(
-        navigator()->GetController()->GetLastCommittedEntry());
+        navigator().GetController()->GetLastCommittedEntry());
     if (nav_entry) {
       nav_entry->RemoveEntryForFrame(this,
                                      /* only_if_different_position = */ false);
@@ -226,12 +237,14 @@ void FrameTreeNode::ResetForNavigation() {
 
   // Clear any CSP-set sandbox flags, and the declared feature policy for the
   // frame.
-  UpdateFramePolicyHeaders(blink::WebSandboxFlags::kNone, {});
+  UpdateFramePolicyHeaders(network::mojom::WebSandboxFlags::kNone, {});
 
   // This frame has had its user activation bits cleared in the renderer
   // before arriving here. We just need to clear them here and in the other
   // renderer processes that may have a reference to this frame.
-  UpdateUserActivationState(blink::UserActivationUpdateType::kClearActivation);
+  UpdateUserActivationState(
+      blink::mojom::UserActivationUpdateType::kClearActivation,
+      blink::mojom::UserActivationNotificationType::kNone);
 }
 
 size_t FrameTreeNode::GetFrameTreeSize() const {
@@ -341,7 +354,7 @@ void FrameTreeNode::AddContentSecurityPolicies(
 }
 
 void FrameTreeNode::SetInsecureRequestPolicy(
-    blink::WebInsecureRequestPolicy policy) {
+    blink::mojom::InsecureRequestPolicy policy) {
   if (policy == replication_state_.insecure_request_policy)
     return;
   render_manager_.OnEnforceInsecureRequestPolicy(policy);
@@ -360,10 +373,13 @@ void FrameTreeNode::SetInsecureNavigationsSet(
 
 void FrameTreeNode::SetPendingFramePolicy(blink::FramePolicy frame_policy) {
   pending_frame_policy_.sandbox_flags = frame_policy.sandbox_flags;
+  pending_frame_policy_.disallow_document_access =
+      frame_policy.disallow_document_access;
 
   if (parent()) {
     // Subframes should always inherit their parent's sandbox flags.
-    pending_frame_policy_.sandbox_flags |= parent()->active_sandbox_flags();
+    pending_frame_policy_.sandbox_flags |=
+        parent()->frame_tree_node()->active_sandbox_flags();
     // This is only applied on subframes; container policy and required document
     // policy are not mutable on main frame.
     pending_frame_policy_.container_policy = frame_policy.container_policy;
@@ -406,6 +422,9 @@ bool FrameTreeNode::CommitFramePolicy(
   bool did_change_required_document_policy =
       pending_frame_policy_.required_document_policy !=
       replication_state_.frame_policy.required_document_policy;
+  bool did_change_document_access =
+      new_frame_policy.disallow_document_access !=
+      replication_state_.frame_policy.disallow_document_access;
   if (did_change_flags)
     replication_state_.frame_policy.sandbox_flags =
         new_frame_policy.sandbox_flags;
@@ -415,11 +434,14 @@ bool FrameTreeNode::CommitFramePolicy(
   if (did_change_required_document_policy)
     replication_state_.frame_policy.required_document_policy =
         new_frame_policy.required_document_policy;
+  if (did_change_document_access)
+    replication_state_.frame_policy.disallow_document_access =
+        new_frame_policy.disallow_document_access;
 
   UpdateFramePolicyHeaders(new_frame_policy.sandbox_flags,
                            replication_state_.feature_policy_header);
   return did_change_flags || did_change_container_policy ||
-         did_change_required_document_policy;
+         did_change_required_document_policy || did_change_document_access;
 }
 
 void FrameTreeNode::TransferNavigationRequestOwnership(
@@ -491,7 +513,7 @@ void FrameTreeNode::DidStartLoading(bool to_different_document,
 
   // Notify the WebContents.
   if (!was_previously_loading)
-    navigator()->GetDelegate()->DidStartLoading(this, to_different_document);
+    navigator().GetDelegate()->DidStartLoading(this, to_different_document);
 
   // Set initial load progress and update overall progress. This will notify
   // the WebContents of the load progress change.
@@ -513,7 +535,7 @@ void FrameTreeNode::DidStopLoading() {
 
   // Notify the WebContents.
   if (!frame_tree_->IsLoading())
-    navigator()->GetDelegate()->DidStopLoading();
+    navigator().GetDelegate()->DidStopLoading();
 }
 
 void FrameTreeNode::DidChangeLoadProgress(double load_progress) {
@@ -559,19 +581,20 @@ void FrameTreeNode::BeforeUnloadCanceled() {
     speculative_frame_host->ResetLoadingState();
   // Note: there is no need to set an error code on the NavigationHandle here
   // as it has not been created yet. It is only created when the
-  // BeforeUnloadACK is received.
+  // BeforeUnloadCompleted callback is invoked.
   if (navigation_request_)
     ResetNavigationRequest(false);
 }
 
-bool FrameTreeNode::NotifyUserActivation() {
-  for (FrameTreeNode* node = this; node; node = node->parent()) {
-    if (!node->user_activation_state_.HasBeenActive() &&
-        node->current_frame_host())
-      node->current_frame_host()->DidReceiveFirstUserActivation();
-    node->user_activation_state_.Activate();
+bool FrameTreeNode::NotifyUserActivation(
+    blink::mojom::UserActivationNotificationType notification_type) {
+  for (RenderFrameHostImpl* rfh = current_frame_host(); rfh;
+       rfh = rfh->GetParent()) {
+    if (!rfh->frame_tree_node()->user_activation_state_.HasBeenActive())
+      rfh->DidReceiveFirstUserActivation();
+    rfh->frame_tree_node()->user_activation_state_.Activate(notification_type);
   }
-  replication_state_.has_received_user_gesture = true;
+  replication_state_.has_active_user_gesture = true;
 
   // See the "Same-origin Visibility" section in |UserActivationState| class
   // doc.
@@ -582,13 +605,13 @@ bool FrameTreeNode::NotifyUserActivation() {
     for (FrameTreeNode* node : frame_tree()->Nodes()) {
       if (node->current_frame_host()->GetLastCommittedOrigin().IsSameOriginWith(
               current_origin)) {
-        node->user_activation_state_.Activate();
+        node->user_activation_state_.Activate(notification_type);
       }
     }
   }
 
   NavigationControllerImpl* controller =
-      static_cast<NavigationControllerImpl*>(navigator()->GetController());
+      static_cast<NavigationControllerImpl*>(navigator().GetController());
   if (controller)
     controller->NotifyUserActivation();
 
@@ -599,12 +622,14 @@ bool FrameTreeNode::ConsumeTransientUserActivation() {
   bool was_active = user_activation_state_.IsActive();
   for (FrameTreeNode* node : frame_tree()->Nodes())
     node->user_activation_state_.ConsumeIfActive();
+  replication_state_.has_active_user_gesture = false;
   return was_active;
 }
 
 bool FrameTreeNode::ClearUserActivation() {
   for (FrameTreeNode* node : frame_tree()->SubtreeNodes(this))
     node->user_activation_state_.Clear();
+  replication_state_.has_active_user_gesture = false;
   return true;
 }
 
@@ -620,20 +645,22 @@ bool FrameTreeNode::VerifyUserActivation() {
 }
 
 bool FrameTreeNode::UpdateUserActivationState(
-    blink::UserActivationUpdateType update_type) {
+    blink::mojom::UserActivationUpdateType update_type,
+    blink::mojom::UserActivationNotificationType notification_type) {
   bool update_result = false;
   switch (update_type) {
-    case blink::UserActivationUpdateType::kConsumeTransientActivation:
+    case blink::mojom::UserActivationUpdateType::kConsumeTransientActivation:
       update_result = ConsumeTransientUserActivation();
       break;
-    case blink::UserActivationUpdateType::kNotifyActivation:
-      update_result = NotifyUserActivation();
+    case blink::mojom::UserActivationUpdateType::kNotifyActivation:
+      update_result = NotifyUserActivation(notification_type);
       break;
-    case blink::UserActivationUpdateType::
+    case blink::mojom::UserActivationUpdateType::
         kNotifyActivationPendingBrowserVerification:
       if (VerifyUserActivation()) {
-        update_result = NotifyUserActivation();
-        update_type = blink::UserActivationUpdateType::kNotifyActivation;
+        update_result = NotifyUserActivation(
+            blink::mojom::UserActivationNotificationType::kNone);
+        update_type = blink::mojom::UserActivationUpdateType::kNotifyActivation;
       } else {
         // TODO(crbug.com/848778): We need to decide what to do when user
         // activation verification failed. NOTREACHED here will make all
@@ -641,11 +668,11 @@ bool FrameTreeNode::UpdateUserActivationState(
         return false;
       }
       break;
-    case blink::UserActivationUpdateType::kClearActivation:
+    case blink::mojom::UserActivationUpdateType::kClearActivation:
       update_result = ClearUserActivation();
       break;
   }
-  render_manager_.UpdateUserActivationState(update_type);
+  render_manager_.UpdateUserActivationState(update_type, notification_type);
   return update_result;
 }
 
@@ -673,7 +700,7 @@ FrameTreeNode* FrameTreeNode::GetSibling(int relative_offset) const {
 }
 
 void FrameTreeNode::UpdateFramePolicyHeaders(
-    blink::WebSandboxFlags sandbox_flags,
+    network::mojom::WebSandboxFlags sandbox_flags,
     const blink::ParsedFeaturePolicy& parsed_header) {
   bool changed = false;
   if (replication_state_.feature_policy_header != parsed_header) {
@@ -682,7 +709,7 @@ void FrameTreeNode::UpdateFramePolicyHeaders(
   }
   // TODO(iclelland): Kill the renderer if sandbox flags is not a subset of the
   // currently effective sandbox flags from the frame. https://crbug.com/740556
-  blink::WebSandboxFlags updated_flags =
+  network::mojom::WebSandboxFlags updated_flags =
       sandbox_flags | effective_frame_policy().sandbox_flags;
   if (replication_state_.active_sandbox_flags != updated_flags) {
     replication_state_.active_sandbox_flags = updated_flags;
@@ -691,18 +718,6 @@ void FrameTreeNode::UpdateFramePolicyHeaders(
   // Notify any proxies if the policies have been changed.
   if (changed)
     render_manager()->OnDidSetFramePolicyHeaders();
-}
-
-void FrameTreeNode::TransferUserActivationFrom(
-    RenderFrameHostImpl* source_rfh) {
-  user_activation_state_.TransferFrom(
-      source_rfh->frame_tree_node()->user_activation_state_);
-
-  // Notify proxies in non-source and non-target renderer processes to
-  // transfer the activation state from the source proxy to the target
-  // so the user activation state of those proxies matches the source
-  // renderer and the target renderer (which are separately updated).
-  render_manager_.TransferUserActivationFrom(source_rfh);
 }
 
 void FrameTreeNode::PruneChildFrameNavigationEntries(
@@ -719,10 +734,20 @@ void FrameTreeNode::PruneChildFrameNavigationEntries(
 }
 
 void FrameTreeNode::SetOpenerFeaturePolicyState(
-    const blink::FeaturePolicy::FeatureState& feature_state) {
+    const blink::FeaturePolicyFeatureState& feature_state) {
   DCHECK(IsMainFrame());
   if (base::FeatureList::IsEnabled(features::kFeaturePolicyForSandbox)) {
     replication_state_.opener_feature_state = feature_state;
+  }
+}
+
+void FrameTreeNode::SetAdFrameType(blink::mojom::AdFrameType ad_frame_type) {
+  DCHECK_NE(ad_frame_type, blink::mojom::AdFrameType::kNonAd);
+  if (replication_state_.ad_frame_type == blink::mojom::AdFrameType::kNonAd) {
+    replication_state_.ad_frame_type = ad_frame_type;
+    render_manager()->OnDidSetAdFrameType(ad_frame_type);
+  } else {
+    DCHECK_EQ(ad_frame_type, replication_state_.ad_frame_type);
   }
 }
 

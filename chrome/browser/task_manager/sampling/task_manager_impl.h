@@ -97,7 +97,6 @@ class TaskManagerImpl : public TaskManagerInterface,
   int GetOpenFdCount(TaskId task_id) const override;
   bool IsTaskOnBackgroundedProcess(TaskId task_id) const override;
   const base::string16& GetTitle(TaskId task_id) const override;
-  const std::string& GetTaskNameForRappor(TaskId task_id) const override;
   base::string16 GetProfileName(TaskId task_id) const override;
   const gfx::ImageSkia& GetIcon(TaskId task_id) const override;
   const base::ProcessHandle& GetProcessHandle(TaskId task_id) const override;
@@ -174,7 +173,7 @@ class TaskManagerImpl : public TaskManagerInterface,
   // background thread has completed.
   void OnTaskGroupBackgroundCalculationsDone();
 
-  const base::Closure on_background_data_ready_callback_;
+  const base::RepeatingClosure on_background_data_ready_callback_;
 
   // Map TaskGroups by the IDs of the processes they represent.
   PidToTaskGroupMap task_groups_by_proc_id_;

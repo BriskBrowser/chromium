@@ -10,10 +10,11 @@ import android.view.View;
 
 import androidx.annotation.Nullable;
 
+import org.chromium.base.TraceEvent;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.toolbar.TabCountProvider;
 import org.chromium.chrome.browser.toolbar.TabSwitcherDrawable;
-import org.chromium.chrome.browser.ui.widget.listmenu.ListMenuButton;
+import org.chromium.components.browser_ui.widget.listmenu.ListMenuButton;
 import org.chromium.ui.widget.Toast;
 
 /**
@@ -115,6 +116,20 @@ public class ToggleTabStackButton
             CharSequence description =
                     getResources().getString(org.chromium.chrome.R.string.open_tabs);
             return Toast.showAnchoredToast(getContext(), v, description);
+        }
+    }
+
+    @Override
+    protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+        try (TraceEvent e = TraceEvent.scoped("ToggleTabStackButton.onMeasure")) {
+            super.onMeasure(widthMeasureSpec, heightMeasureSpec);
+        }
+    }
+
+    @Override
+    protected void onLayout(boolean changed, int left, int top, int right, int bottom) {
+        try (TraceEvent e = TraceEvent.scoped("ToggleTabStackButton.onLayout")) {
+            super.onLayout(changed, left, top, right, bottom);
         }
     }
 }

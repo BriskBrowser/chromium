@@ -7,7 +7,7 @@ package org.chromium.chrome.browser.browserservices.trustedwebactivityui;
 import android.os.Build;
 import android.os.Bundle;
 
-import org.chromium.chrome.browser.ChromeActivity;
+import org.chromium.chrome.browser.app.ChromeActivity;
 import org.chromium.chrome.browser.browserservices.BrowserServicesIntentDataProvider;
 import org.chromium.chrome.browser.customtabs.CustomTabsConnection;
 import org.chromium.chrome.browser.dependency_injection.ActivityScope;
@@ -24,14 +24,14 @@ public class TwaFinishHandler {
     private static final String FINISH_TASK_COMMAND_NAME = "finishAndRemoveTask";
     private static final String SUCCESS_KEY = "success";
 
-    private final ChromeActivity mActivity;
+    private final ChromeActivity<?> mActivity;
     private final BrowserServicesIntentDataProvider mIntentDataProvider;
     private final CustomTabsConnection mConnection;
 
     private boolean mShouldAttemptFinishingTask;
 
     @Inject
-    public TwaFinishHandler(ChromeActivity activity,
+    public TwaFinishHandler(ChromeActivity<?> activity,
             BrowserServicesIntentDataProvider intentDataProvider, CustomTabsConnection connection) {
         mActivity = activity;
         mIntentDataProvider = intentDataProvider;

@@ -20,7 +20,6 @@
 #include "ash/wm/work_area_insets.h"
 #include "base/metrics/histogram_macros.h"
 #include "ui/aura/window.h"
-#include "ui/native_theme/native_theme_dark_aura.h"
 #include "ui/wm/core/window_util.h"
 #include "ui/wm/public/activation_client.h"
 
@@ -51,10 +50,7 @@ class ContainerView : public views::View {
     // Note that transforms are currently only supported when there are not
     // notifications, so we only consider the system tray height (excluding the
     // message center) for now.
-    return gfx::Size(kTrayMenuWidth,
-                     unified_view_->IsTransformEnabled()
-                         ? unified_view_->GetExpandedSystemTrayHeight()
-                         : unified_view_->GetCurrentHeight());
+    return gfx::Size(kTrayMenuWidth, unified_view_->GetCurrentHeight());
   }
 
   void ChildPreferredSizeChanged(views::View* child) override {
@@ -80,8 +76,7 @@ UnifiedSystemTrayBubble::UnifiedSystemTrayBubble(UnifiedSystemTray* tray,
 
   TrayBubbleView::InitParams init_params;
   init_params.shelf_alignment = tray_->shelf()->alignment();
-  init_params.min_width = kTrayMenuWidth;
-  init_params.max_width = kTrayMenuWidth;
+  init_params.preferred_width = kTrayMenuWidth;
   init_params.delegate = tray;
   init_params.parent_window = tray->GetBubbleWindowContainer();
   init_params.anchor_view = nullptr;
@@ -103,13 +98,16 @@ UnifiedSystemTrayBubble::UnifiedSystemTrayBubble(UnifiedSystemTray* tray,
   unified_view_->SetMaxHeight(max_height);
   bubble_view_->SetMaxHeight(max_height);
   controller_->ResetToCollapsedIfRequired();
-  bubble_view_->AddChildView(new ContainerView(unified_view_));
+  bubble_view_->AddChildView(unified_view_);
 
   bubble_widget_ = views::BubbleDialogDelegateView::CreateBubble(bubble_view_);
   bubble_widget_->AddObserver(this);
 
   TrayBackgroundView::InitializeBubbleAnimations(bubble_widget_);
   bubble_view_->InitializeAndShowBubble();
+
+  // Notify accessibility features that the status tray has opened.
+  NotifyAccessibilityEvent(ax::mojom::Event::kShow, true);
 
   tray->tray_event_filter()->AddBubble(this);
   tray->shelf()->AddObserver(this);
@@ -127,6 +125,7 @@ UnifiedSystemTrayBubble::~UnifiedSystemTrayBubble() {
     bubble_widget_->RemoveObserver(this);
     bubble_widget_->Close();
   }
+  CHECK(!IsInObserverList());
 }
 
 gfx::Rect UnifiedSystemTrayBubble::GetBoundsInScreen() const {
@@ -219,36 +218,6 @@ void UnifiedSystemTrayBubble::UpdateBubble() {
   bubble_view_->UpdateBubble();
 }
 
-void UnifiedSystemTrayBubble::UpdateTransform() {
-  if (!bubble_widget_)
-    return;
-
-  DCHECK(unified_view_);
-
-  if (!unified_view_->IsTransformEnabled()) {
-    unified_view_->SetTransform(gfx::Transform());
-    OnAnimationFinished();
-    SetFrameVisible(true);
-    return;
-  }
-
-  SetFrameVisible(false);
-
-  // Note: currently transforms are only enabled when there are no
-  // notifications, so we can consider only the system tray height (excluding
-  // the message center) for now.
-  const int y_offset = unified_view_->GetExpandedSystemTrayHeight() -
-                       unified_view_->GetCurrentHeight();
-
-  gfx::Transform transform;
-  transform.Translate(0, y_offset);
-  unified_view_->SetTransform(transform);
-
-  gfx::Rect blur_bounds = bubble_view_->bounds();
-  blur_bounds.Inset(gfx::Insets(y_offset, 0, 0, 0));
-  bubble_view_->layer()->SetClipRect(blur_bounds);
-}
-
 TrayBackgroundView* UnifiedSystemTrayBubble::GetTray() const {
   return tray_;
 }
@@ -319,25 +288,29 @@ void UnifiedSystemTrayBubble::OnWindowActivated(ActivationReason reason,
     return;
   }
 
-  // Don't close the bubble if the message center is gaining or losing
-  // activation.
-  if (features::IsUnifiedMessageCenterRefactorEnabled() &&
-      tray_->IsMessageCenterBubbleShown()) {
+  // Don't close the bubble if the message center is gaining activation.
+  if (tray_->IsMessageCenterBubbleShown()) {
     views::Widget* message_center_widget =
         tray_->message_center_bubble()->GetBubbleWidget();
     if (message_center_widget ==
-            views::Widget::GetWidgetForNativeView(gained_active) ||
-        (lost_active &&
-         message_center_widget ==
-             views::Widget::GetWidgetForNativeView(lost_active))) {
+        views::Widget::GetWidgetForNativeView(gained_active)) {
       return;
     }
+
+    // If the message center is not visible, ignore activation changes.
+    // Otherwise, this may cause a crash when closing the dialog via
+    // accelerator. See crbug.com/1041174.
+    if (!message_center_widget->IsVisible())
+      return;
   }
 
   tray_->CloseBubble();
 }
 
 void UnifiedSystemTrayBubble::RecordTimeToClick() {
+  tray_->MaybeRecordFirstInteraction(
+      UnifiedSystemTray::FirstInteractionType::kQuickSettings);
+
   // Ignore if the tray bubble is not opened by click.
   if (!time_shown_by_click_)
     return;
@@ -379,6 +352,11 @@ void UnifiedSystemTrayBubble::OnAnimationFinished() {
 void UnifiedSystemTrayBubble::SetFrameVisible(bool visible) {
   DCHECK(bubble_widget_);
   bubble_widget_->non_client_view()->frame_view()->SetVisible(visible);
+}
+
+void UnifiedSystemTrayBubble::NotifyAccessibilityEvent(ax::mojom::Event event,
+                                                       bool send_native_event) {
+  bubble_view_->NotifyAccessibilityEvent(event, send_native_event);
 }
 
 }  // namespace ash

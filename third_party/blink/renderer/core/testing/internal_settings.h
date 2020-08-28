@@ -45,7 +45,6 @@ class Settings;
 
 class InternalSettings final : public InternalSettingsGenerated,
                                public InternalSettingsPageSupplementBase {
-  USING_GARBAGE_COLLECTED_MIXIN(InternalSettings);
   DEFINE_WRAPPERTYPEINFO();
 
  public:
@@ -131,7 +130,7 @@ class InternalSettings final : public InternalSettingsGenerated,
   void setImageAnimationPolicy(const String&, ExceptionState&);
   void setScrollTopLeftInteropEnabled(bool);
 
-  void Trace(blink::Visitor*) override;
+  void Trace(Visitor*) const override;
 
   void setAvailablePointerTypes(const String&, ExceptionState&);
   void setPrimaryPointerType(const String&, ExceptionState&);

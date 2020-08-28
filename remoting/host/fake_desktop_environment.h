@@ -86,7 +86,7 @@ class FakeDesktopEnvironment : public DesktopEnvironment {
   // by FakeDesktopEnvironment.
   void set_frame_generator(
       protocol::FakeDesktopCapturer::FrameGenerator frame_generator) {
-    frame_generator_ = frame_generator;
+    frame_generator_ = std::move(frame_generator);
   }
 
   const DesktopEnvironmentOptions& options() const;
@@ -106,6 +106,8 @@ class FakeDesktopEnvironment : public DesktopEnvironment {
   std::string GetCapabilities() const override;
   void SetCapabilities(const std::string& capabilities) override;
   uint32_t GetDesktopSessionId() const override;
+  std::unique_ptr<DesktopAndCursorConditionalComposer>
+  CreateComposingVideoCapturer() override;
 
   base::WeakPtr<FakeInputInjector> last_input_injector() {
     return last_input_injector_;
@@ -136,7 +138,7 @@ class FakeDesktopEnvironmentFactory : public DesktopEnvironmentFactory {
   // by FakeDesktopEnvironment.
   void set_frame_generator(
       protocol::FakeDesktopCapturer::FrameGenerator frame_generator) {
-    frame_generator_ = frame_generator;
+    frame_generator_ = std::move(frame_generator);
   }
 
   // DesktopEnvironmentFactory implementation.

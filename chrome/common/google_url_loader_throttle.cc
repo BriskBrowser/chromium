@@ -4,33 +4,60 @@
 
 #include "chrome/common/google_url_loader_throttle.h"
 
+#include "base/feature_list.h"
+#include "base/metrics/histogram_functions.h"
+#include "build/build_config.h"
+#include "chrome/common/chrome_features.h"
 #include "chrome/common/net/safe_search_util.h"
-#include "components/variations/net/variations_http_headers.h"
+#include "components/google/core/common/google_util.h"
+#include "net/base/url_util.h"
 #include "services/network/public/mojom/url_response_head.mojom.h"
 
 #if BUILDFLAG(ENABLE_EXTENSIONS)
 #include "extensions/common/extension_urls.h"
 #endif
 
-GoogleURLLoaderThrottle::GoogleURLLoaderThrottle(
-    bool is_off_the_record,
-    chrome::mojom::DynamicParams dynamic_params)
-    : is_off_the_record_(is_off_the_record),
-      dynamic_params_(std::move(dynamic_params)) {}
+namespace {
 
-GoogleURLLoaderThrottle::~GoogleURLLoaderThrottle() {}
+#if defined(OS_ANDROID)
+const char kCCTClientDataHeader[] = "X-CCT-Client-Data";
+#endif
+
+}  // namespace
+
+// static
+void GoogleURLLoaderThrottle::UpdateCorsExemptHeader(
+    network::mojom::NetworkContextParams* params) {
+  params->cors_exempt_header_list.push_back(
+      safe_search_util::kGoogleAppsAllowedDomains);
+  params->cors_exempt_header_list.push_back(
+      safe_search_util::kYouTubeRestrictHeaderName);
+#if defined(OS_ANDROID)
+  params->cors_exempt_header_list.push_back(kCCTClientDataHeader);
+#endif
+}
+
+GoogleURLLoaderThrottle::GoogleURLLoaderThrottle(
+#if defined(OS_ANDROID)
+    const std::string& client_data_header,
+    bool night_mode_enabled,
+#endif
+    chrome::mojom::DynamicParams dynamic_params)
+    :
+#if defined(OS_ANDROID)
+      client_data_header_(client_data_header),
+      night_mode_enabled_(night_mode_enabled),
+#endif
+      dynamic_params_(std::move(dynamic_params)) {
+}
+
+GoogleURLLoaderThrottle::~GoogleURLLoaderThrottle() = default;
 
 void GoogleURLLoaderThrottle::DetachFromCurrentSequence() {}
 
 void GoogleURLLoaderThrottle::WillStartRequest(
     network::ResourceRequest* request,
     bool* defer) {
-  variations::AppendVariationsHeaderWithCustomValue(
-      request->url,
-      is_off_the_record_ ? variations::InIncognito::kYes
-                         : variations::InIncognito::kNo,
-      dynamic_params_.variation_ids_header, request);
-
   if (dynamic_params_.force_safe_search) {
     GURL new_url;
     safe_search_util::ForceGoogleSafeSearch(request->url, &new_url);
@@ -45,16 +72,39 @@ void GoogleURLLoaderThrottle::WillStartRequest(
       dynamic_params_.youtube_restrict <
           safe_search_util::YOUTUBE_RESTRICT_COUNT) {
     safe_search_util::ForceYouTubeRestrict(
-        request->url, &request->headers,
+        request->url, &request->cors_exempt_headers,
         static_cast<safe_search_util::YouTubeRestrictMode>(
             dynamic_params_.youtube_restrict));
   }
 
   if (!dynamic_params_.allowed_domains_for_apps.empty() &&
       request->url.DomainIs("google.com")) {
-    request->headers.SetHeader(safe_search_util::kGoogleAppsAllowedDomains,
-                               dynamic_params_.allowed_domains_for_apps);
+    request->cors_exempt_headers.SetHeader(
+        safe_search_util::kGoogleAppsAllowedDomains,
+        dynamic_params_.allowed_domains_for_apps);
   }
+
+#if defined(OS_ANDROID)
+  if (!client_data_header_.empty() &&
+      google_util::IsGoogleAssociatedDomainUrl(request->url)) {
+    request->cors_exempt_headers.SetHeader(kCCTClientDataHeader,
+                                           client_data_header_);
+  }
+
+  bool is_google_homepage_or_search =
+      google_util::IsGoogleHomePageUrl(request->url) ||
+      google_util::IsGoogleSearchUrl(request->url);
+  if (is_google_homepage_or_search) {
+    // TODO (crbug.com/1081510): Remove this experimental code once a final
+    // solution is agreed upon.
+    if (base::FeatureList::IsEnabled(features::kAndroidDarkSearch)) {
+      request->url = net::AppendOrReplaceQueryParameter(
+          request->url, "cs", night_mode_enabled_ ? "1" : "0");
+    }
+    base::UmaHistogramBoolean("Android.DarkTheme.DarkSearchRequested",
+                              night_mode_enabled_);
+  }
+#endif
 }
 
 void GoogleURLLoaderThrottle::WillRedirectRequest(
@@ -62,10 +112,8 @@ void GoogleURLLoaderThrottle::WillRedirectRequest(
     const network::mojom::URLResponseHead& response_head,
     bool* /* defer */,
     std::vector<std::string>* to_be_removed_headers,
-    net::HttpRequestHeaders* modified_headers) {
-  variations::RemoveVariationsHeaderIfNeeded(*redirect_info, response_head,
-                                             to_be_removed_headers);
-
+    net::HttpRequestHeaders* modified_headers,
+    net::HttpRequestHeaders* modified_cors_exempt_headers) {
   // URLLoaderThrottles can only change the redirect URL when the network
   // service is enabled. The non-network service path handles this in
   // ChromeNetworkDelegate.
@@ -79,16 +127,24 @@ void GoogleURLLoaderThrottle::WillRedirectRequest(
       dynamic_params_.youtube_restrict <
           safe_search_util::YOUTUBE_RESTRICT_COUNT) {
     safe_search_util::ForceYouTubeRestrict(
-        redirect_info->new_url, modified_headers,
+        redirect_info->new_url, modified_cors_exempt_headers,
         static_cast<safe_search_util::YouTubeRestrictMode>(
             dynamic_params_.youtube_restrict));
   }
 
   if (!dynamic_params_.allowed_domains_for_apps.empty() &&
       redirect_info->new_url.DomainIs("google.com")) {
-    modified_headers->SetHeader(safe_search_util::kGoogleAppsAllowedDomains,
-                                dynamic_params_.allowed_domains_for_apps);
+    modified_cors_exempt_headers->SetHeader(
+        safe_search_util::kGoogleAppsAllowedDomains,
+        dynamic_params_.allowed_domains_for_apps);
   }
+
+#if defined(OS_ANDROID)
+  if (!client_data_header_.empty() &&
+      !google_util::IsGoogleAssociatedDomainUrl(redirect_info->new_url)) {
+    to_be_removed_headers->push_back(kCCTClientDataHeader);
+  }
+#endif
 }
 
 #if BUILDFLAG(ENABLE_EXTENSIONS)
@@ -104,8 +160,7 @@ void GoogleURLLoaderThrottle::WillProcessResponse(
         !response_head->headers->HasHeaderValue("x-frame-options", "deny") &&
         !response_head->headers->HasHeaderValue("x-frame-options",
                                                 "sameorigin")) {
-      response_head->headers->RemoveHeader("x-frame-options");
-      response_head->headers->AddHeader("x-frame-options: sameorigin");
+      response_head->headers->AddHeader("x-frame-options", "sameorigin");
     }
   }
 }

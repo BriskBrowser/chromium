@@ -15,8 +15,9 @@
 #include "base/macros.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
 #include "base/threading/sequenced_task_runner_handle.h"
-#include "base/value_conversions.h"
+#include "base/util/values/values_util.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/devtools/devtools_file_watcher.h"
 #include "chrome/browser/download/download_prefs.h"
@@ -54,6 +55,7 @@ namespace {
 
 static const char kRootName[] = "<root>";
 static const char kPermissionDenied[] = "<permission denied>";
+static const char kSelectionCancelled[] = "<selection cancelled>";
 
 base::LazyInstance<base::FilePath>::Leaky
     g_last_save_path = LAZY_INSTANCE_INITIALIZER;
@@ -219,8 +221,8 @@ DevToolsFileHelper::DevToolsFileHelper(WebContents* web_contents,
     : web_contents_(web_contents),
       profile_(profile),
       delegate_(delegate),
-      file_task_runner_(base::CreateSequencedTaskRunner(
-          {base::ThreadPool(), base::MayBlock()})) {
+      file_task_runner_(
+          base::ThreadPool::CreateSequencedTaskRunner({base::MayBlock()})) {
   pref_change_registrar_.Init(profile_->GetPrefs());
 }
 
@@ -243,9 +245,9 @@ void DevToolsFileHelper::Save(const std::string& url,
 
   const base::Value* path_value;
   if (file_map->Get(base::MD5String(url), &path_value)) {
-    // Ignore base::GetValueAsFilePath() failure since we handle empty
-    // |initial_path| below.
-    ignore_result(base::GetValueAsFilePath(*path_value, &initial_path));
+    base::Optional<base::FilePath> path = util::ValueToFilePath(*path_value);
+    if (path)
+      initial_path = std::move(*path);
   }
 
   if (initial_path.empty()) {
@@ -299,7 +301,7 @@ void DevToolsFileHelper::SaveAsFileSelected(const std::string& url,
   DictionaryPrefUpdate update(profile_->GetPrefs(),
                               prefs::kDevToolsEditedFiles);
   base::DictionaryValue* files_map = update.Get();
-  files_map->SetKey(base::MD5String(url), base::CreateFilePathValue(path));
+  files_map->SetKey(base::MD5String(url), util::FilePathToValue(path));
   std::string file_system_path = path.AsUTF8Unsafe();
   callback.Run(file_system_path);
   file_task_runner_->PostTask(FROM_HERE, BindOnce(&WriteToFile, path, content));
@@ -312,7 +314,7 @@ void DevToolsFileHelper::AddFileSystem(
       Bind(&DevToolsFileHelper::InnerAddFileSystem, weak_factory_.GetWeakPtr(),
            show_info_bar_callback, type),
       Bind(&DevToolsFileHelper::FailedToAddFileSystem,
-           weak_factory_.GetWeakPtr(), kPermissionDenied),
+           weak_factory_.GetWeakPtr(), kSelectionCancelled),
       web_contents_);
   select_file_dialog->Show(ui::SelectFileDialog::SELECT_FOLDER,
                            base::FilePath());
@@ -411,7 +413,7 @@ void DevToolsFileHelper::RemoveFileSystem(const std::string& file_system_path) {
   DictionaryPrefUpdate update(profile_->GetPrefs(),
                               prefs::kDevToolsFileSystemPaths);
   base::DictionaryValue* file_systems_paths_value = update.Get();
-  file_systems_paths_value->RemoveWithoutPathExpansion(file_system_path, NULL);
+  file_systems_paths_value->RemoveKey(file_system_path);
 }
 
 bool DevToolsFileHelper::IsFileSystemAdded(

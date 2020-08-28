@@ -8,6 +8,7 @@
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
+#include "base/command_line.h"
 #include "base/strings/stringprintf.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "google_apis/google_api_keys.h"
@@ -165,7 +166,7 @@ std::unique_ptr<OAuthTokenGetter> TestOAuthTokenGetter::CreateWithRefreshToken(
           email, refresh_token, is_service_account);
 
   return std::make_unique<OAuthTokenGetterImpl>(
-      std::move(oauth_credentials), base::DoNothing(),
+      std::move(oauth_credentials),
       url_loader_factory_owner_->GetURLLoaderFactory(),
       /*auto_refresh=*/true);
 }

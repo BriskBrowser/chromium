@@ -15,9 +15,11 @@
 #include "cc/input/scroll_state.h"
 #include "cc/input/scrollbar.h"
 #include "cc/input/touch_action.h"
+#include "cc/metrics/events_metrics_manager.h"
 #include "cc/paint/element_id.h"
 #include "cc/trees/swap_promise_monitor.h"
 #include "components/viz/common/frame_sinks/begin_frame_args.h"
+#include "ui/events/types/scroll_input_type.h"
 #include "ui/events/types/scroll_types.h"
 
 namespace gfx {
@@ -33,18 +35,29 @@ class LatencyInfo;
 
 namespace cc {
 
+class EventMetrics;
 class ScrollElasticityHelper;
 
-enum PointerResultType { kUnhandled = 0, kScrollbarScroll };
+enum class PointerResultType { kUnhandled = 0, kScrollbarScroll };
+
+// These enum values are reported in UMA. So these values should never be
+// removed or changed.
+enum class ScrollBeginThreadState {
+  kScrollingOnCompositor = 0,
+  kScrollingOnCompositorBlockedOnMain = 1,
+  kScrollingOnMain = 2,
+  kMaxValue = kScrollingOnMain,
+};
 
 struct CC_EXPORT InputHandlerPointerResult {
-  InputHandlerPointerResult();
+  InputHandlerPointerResult() = default;
   // Tells what type of processing occurred in the input handler as a result of
   // the pointer event.
-  PointerResultType type;
+  PointerResultType type = PointerResultType::kUnhandled;
 
   // Tells what scroll_units should be used.
-  ui::input_types::ScrollGranularity scroll_units;
+  ui::ScrollGranularity scroll_units =
+      ui::ScrollGranularity::kScrollByPrecisePixel;
 
   // If the input handler processed the event as a scrollbar scroll, it will
   // return a gfx::ScrollOffset that produces the necessary scroll. However,
@@ -61,11 +74,11 @@ struct CC_EXPORT InputHandlerPointerResult {
 };
 
 struct CC_EXPORT InputHandlerScrollResult {
-  InputHandlerScrollResult();
+  InputHandlerScrollResult() = default;
   // Did any layer scroll as a result this ScrollUpdate call?
-  bool did_scroll;
+  bool did_scroll = false;
   // Was any of the scroll delta argument to this ScrollUpdate call not used?
-  bool did_overscroll_root;
+  bool did_overscroll_root = false;
   // The total overscroll that has been accumulated by all ScrollUpdate calls
   // that have had overscroll since the last ScrollBegin call. This resets upon
   // a ScrollUpdate with no overscroll.
@@ -107,6 +120,36 @@ class CC_EXPORT InputHandlerClient {
   InputHandlerClient() = default;
 };
 
+// Data passed from the input handler to the main thread.  Used to notify the
+// main thread about changes that have occurred as a result of input since the
+// last commit.
+struct InputHandlerCommitData {
+  // Defined in threaded_input_handler.cc to avoid inlining since flat_set has
+  // non-trivial size destructor.
+  InputHandlerCommitData();
+  ~InputHandlerCommitData();
+
+  // Unconsumed scroll delta since the last commit.
+  gfx::Vector2dF overscroll_delta;
+
+  // Elements that have scroll snapped to a new target since the last commit.
+  base::flat_set<ElementId> updated_snapped_elements;
+
+  // If a scroll was active at any point since the last commit, this will
+  // identify the scroller (even if it has since ended).
+  ElementId last_latched_scroller;
+
+  // True if a scroll gesture has ended since the last commit.
+  bool scroll_gesture_did_end = false;
+
+  // The following bits are set if a gesture of any type was started since
+  // the last commit.
+  bool has_pinch_zoomed = false;
+  bool has_scrolled_by_wheel = false;
+  bool has_scrolled_by_touch = false;
+  bool has_scrolled_by_precisiontouchpad = false;
+};
+
 // The InputHandler is a way for the embedders to interact with the impl thread
 // side of the compositor implementation. There is one InputHandler per
 // LayerTreeHost. To use the input handler, implement the InputHanderClient
@@ -115,7 +158,7 @@ class CC_EXPORT InputHandler {
  public:
   // Note these are used in a histogram. Do not reorder or delete existing
   // entries.
-  enum ScrollThread {
+  enum class ScrollThread {
     SCROLL_ON_MAIN_THREAD = 0,
     SCROLL_ON_IMPL_THREAD,
     SCROLL_IGNORED,
@@ -127,25 +170,25 @@ class CC_EXPORT InputHandler {
   InputHandler& operator=(const InputHandler&) = delete;
 
   struct ScrollStatus {
-    ScrollStatus()
-        : thread(SCROLL_ON_IMPL_THREAD),
-          main_thread_scrolling_reasons(
-              MainThreadScrollingReason::kNotScrollingOnMain),
-          bubble(false) {}
+    ScrollStatus() = default;
     ScrollStatus(ScrollThread thread, uint32_t main_thread_scrolling_reasons)
         : thread(thread),
           main_thread_scrolling_reasons(main_thread_scrolling_reasons) {}
-    ScrollThread thread;
-    uint32_t main_thread_scrolling_reasons;
-    bool bubble;
-  };
+    ScrollStatus(ScrollThread thread,
+                 uint32_t main_thread_scrolling_reasons,
+                 bool needs_main_thread_hit_test)
+        : thread(thread),
+          main_thread_scrolling_reasons(main_thread_scrolling_reasons),
+          needs_main_thread_hit_test(needs_main_thread_hit_test) {}
+    ScrollThread thread = ScrollThread::SCROLL_ON_IMPL_THREAD;
+    uint32_t main_thread_scrolling_reasons =
+        MainThreadScrollingReason::kNotScrollingOnMain;
+    bool bubble = false;
 
-  enum ScrollInputType {
-    TOUCHSCREEN,
-    WHEEL,
-    AUTOSCROLL,
-    SCROLLBAR,
-    SCROLL_INPUT_UNKNOWN
+    // Used only in scroll unification. Tells the caller that the input handler
+    // detected a case where it cannot reliably target a scroll node and needs
+    // the main thread to perform a hit test.
+    bool needs_main_thread_hit_test = false;
   };
 
   enum class TouchStartOrMoveEventListenerType {
@@ -167,12 +210,12 @@ class CC_EXPORT InputHandler {
   // SCROLL_IGNORED if there is nothing to be scrolled at the given
   // coordinates.
   virtual ScrollStatus ScrollBegin(ScrollState* scroll_state,
-                                   ScrollInputType type) = 0;
+                                   ui::ScrollInputType type) = 0;
 
   // Similar to ScrollBegin, except the hit test is skipped and scroll always
   // targets at the root layer.
   virtual ScrollStatus RootScrollBegin(ScrollState* scroll_state,
-                                       ScrollInputType type) = 0;
+                                       ui::ScrollInputType type) = 0;
 
   // Scroll the layer selected by |ScrollBegin| by given |scroll_state| delta.
   // Internally, the delta is transformed to local layer's coordinate space for
@@ -181,15 +224,27 @@ class CC_EXPORT InputHandler {
   // accumulated within this ScrollBegin() scope is reported in the return
   // value's |accumulated_overscroll| field. Should only be called if
   // ScrollBegin() returned SCROLL_STARTED.
+  //
+  // Is a no-op if no scroller was latched to in ScrollBegin and returns an
+  // empty-initialized InputHandlerScrollResult.
+  //
   // |delayed_by| is the delay from the event that caused the scroll. This is
   // taken into account when determining the duration of the animation if one
   // is created.
   virtual InputHandlerScrollResult ScrollUpdate(ScrollState* scroll_state,
                                                 base::TimeDelta delayed_by) = 0;
 
-  // Stop scrolling the selected layer. Should only be called if ScrollBegin()
-  // returned SCROLL_STARTED. Snap to a snap position if |should_snap| is true.
+  // Stop scrolling the selected layer. Must be called only if ScrollBegin()
+  // returned SCROLL_STARTED. No-op if ScrollBegin wasn't called or didn't
+  // result in a successful scroll latch. Snap to a snap position if
+  // |should_snap| is true.
   virtual void ScrollEnd(bool should_snap) = 0;
+
+  // Called to notify every time scroll-begin/end is attempted by an input
+  // event.
+  virtual void RecordScrollBegin(ui::ScrollInputType input_type,
+                                 ScrollBeginThreadState scroll_start_state) = 0;
+  virtual void RecordScrollEnd(ui::ScrollInputType input_type) = 0;
 
   virtual InputHandlerPointerResult MouseMoveAt(
       const gfx::Point& mouse_position) = 0;
@@ -200,6 +255,11 @@ class CC_EXPORT InputHandler {
   virtual InputHandlerPointerResult MouseUp(
       const gfx::PointF& mouse_position) = 0;
   virtual void MouseLeave() = 0;
+
+  // Returns visible_frame_element_id from the layer hit by the given point.
+  // If the hit test failed, an invalid element ID is returned.
+  virtual ElementId FindFrameElementIdAtPoint(
+      const gfx::PointF& mouse_position) = 0;
 
   // Requests a callback to UpdateRootLayerStateForSynchronousInputHandler()
   // giving the current root scroll and page scale information.
@@ -222,10 +282,6 @@ class CC_EXPORT InputHandler {
   // Returns true if there is an active scroll on the viewport.
   virtual bool IsCurrentlyScrollingViewport() const = 0;
 
-  // Whether the layer under |viewport_point| is the currently scrolling layer.
-  virtual bool IsCurrentlyScrollingLayerAt(
-      const gfx::Point& viewport_point) const = 0;
-
   virtual EventListenerProperties GetEventListenerProperties(
       EventListenerClass event_class) const = 0;
 
@@ -239,7 +295,7 @@ class CC_EXPORT InputHandler {
   // suppress scrolling by consuming touch events that started at
   // |viewport_point|, and whether |viewport_point| is on the currently
   // scrolling layer.
-  // |out_touch_action| is assigned the whitelisted touch action for the
+  // |out_touch_action| is assigned the allowed touch action for the
   // |viewport_point|. In the case there are no touch handlers or touch action
   // regions, |out_touch_action| is assigned TouchAction::kAuto since the
   // default touch action is auto.
@@ -254,6 +310,14 @@ class CC_EXPORT InputHandler {
   // into a LatencyInfoSwapPromise.
   virtual std::unique_ptr<SwapPromiseMonitor>
   CreateLatencyInfoSwapPromiseMonitor(ui::LatencyInfo* latency) = 0;
+
+  // During the lifetime of the returned EventsMetricsManager::ScopedMonitor, if
+  // SetNeedsOneBeginImplFrame() or SetNeedsRedraw() are called on
+  // LayerTreeHostImpl or a scroll animation is updated, |event_metrics| will be
+  // saved for reporting event latency metrics. It is allowed to pass nullptr as
+  // |event_metrics| in which case the return value would also be nullptr.
+  virtual std::unique_ptr<EventsMetricsManager::ScopedMonitor>
+  GetScopedEventMetricsMonitor(std::unique_ptr<EventMetrics> event_metrics) = 0;
 
   virtual ScrollElasticityHelper* CreateScrollElasticityHelper() = 0;
 
@@ -280,6 +344,10 @@ class CC_EXPORT InputHandler {
   // |did_finish| is true if the animation reached its target position (i.e.
   // it wasn't aborted).
   virtual void ScrollEndForSnapFling(bool did_finish) = 0;
+
+  // Notifies when any input event is received, irrespective of whether it is
+  // being handled by the InputHandler or not.
+  virtual void NotifyInputEvent() = 0;
 
  protected:
   InputHandler() = default;

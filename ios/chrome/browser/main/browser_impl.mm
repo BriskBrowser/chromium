@@ -4,7 +4,7 @@
 
 #import "ios/chrome/browser/main/browser_impl.h"
 
-#include "base/logging.h"
+#include "base/check.h"
 #include "base/memory/ptr_util.h"
 #include "ios/chrome/browser/browser_state/chrome_browser_state.h"
 #import "ios/chrome/browser/main/browser_agent_util.h"
@@ -20,7 +20,7 @@
 #error "This file requires ARC support."
 #endif
 
-BrowserImpl::BrowserImpl(ios::ChromeBrowserState* browser_state)
+BrowserImpl::BrowserImpl(ChromeBrowserState* browser_state)
     : browser_state_(browser_state),
       command_dispatcher_([[CommandDispatcher alloc] init]) {
   DCHECK(browser_state_);
@@ -34,14 +34,11 @@ void BrowserImpl::CreateTabModel() {
   tab_model_ = [[TabModel alloc] initWithBrowser:this];
 }
 
-BrowserImpl::BrowserImpl(ios::ChromeBrowserState* browser_state,
-                         TabModel* tab_model,
+BrowserImpl::BrowserImpl(ChromeBrowserState* browser_state,
                          std::unique_ptr<WebStateList> web_state_list)
     : browser_state_(browser_state),
-      tab_model_(tab_model),
       web_state_list_(std::move(web_state_list)) {
   DCHECK(browser_state_);
-  DCHECK(tab_model.webStateList == web_state_list_.get());
 }
 
 BrowserImpl::~BrowserImpl() {
@@ -50,7 +47,7 @@ BrowserImpl::~BrowserImpl() {
   }
 }
 
-ios::ChromeBrowserState* BrowserImpl::GetBrowserState() const {
+ChromeBrowserState* BrowserImpl::GetBrowserState() const {
   return browser_state_;
 }
 
@@ -75,8 +72,7 @@ void BrowserImpl::RemoveObserver(BrowserObserver* observer) {
 }
 
 // static
-std::unique_ptr<Browser> Browser::Create(
-    ios::ChromeBrowserState* browser_state) {
+std::unique_ptr<Browser> Browser::Create(ChromeBrowserState* browser_state) {
   std::unique_ptr<BrowserImpl> browser =
       std::make_unique<BrowserImpl>(browser_state);
   AttachBrowserAgents(browser.get());

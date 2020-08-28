@@ -33,8 +33,10 @@
 #include "content/public/test/browser_task_environment.h"
 #include "content/public/test/test_browser_context.h"
 #include "content/test/test_navigation_url_loader_delegate.h"
+#include "ipc/ipc_message.h"
 #include "net/base/load_flags.h"
 #include "net/base/mock_network_change_notifier.h"
+#include "net/proxy_resolution/configured_proxy_resolution_service.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
 #include "net/traffic_annotation/network_traffic_annotation_test_helper.h"
 #include "net/url_request/url_request_context.h"
@@ -57,7 +59,7 @@ class TestNavigationLoaderInterceptor : public NavigationLoaderInterceptor {
       : most_recent_resource_request_(most_recent_resource_request) {
     net::URLRequestContextBuilder context_builder;
     context_builder.set_proxy_resolution_service(
-        net::ProxyResolutionService::CreateDirect());
+        net::ConfiguredProxyResolutionService::CreateDirect());
     context_ = context_builder.Build();
     constexpr int child_id = 4;
     constexpr int route_id = 8;
@@ -95,12 +97,14 @@ class TestNavigationLoaderInterceptor : public NavigationLoaderInterceptor {
         base::BindOnce(&TestNavigationLoaderInterceptor::DeleteURLLoader,
                        base::Unretained(this)),
         std::move(receiver), 0 /* options */, resource_request,
-        std::move(client), TRAFFIC_ANNOTATION_FOR_TESTS, &params,
-        0, /* request_id */
+        std::move(client), /*reponse_body_use_tracker=*/base::nullopt,
+        TRAFFIC_ANNOTATION_FOR_TESTS, &params,
+        /*coep_reporter=*/nullptr, 0, /* request_id */
         0 /* keepalive_request_size */, resource_scheduler_client_,
         nullptr /* keepalive_statistics_recorder */,
         nullptr /* network_usage_accumulator */, nullptr /* header_client */,
-        nullptr /* origin_policy_manager */);
+        nullptr /* origin_policy_manager */, nullptr /* trust_token_helper */,
+        mojo::NullRemote() /* cookie_observer */);
   }
 
   bool MaybeCreateLoaderForResponse(
@@ -134,9 +138,10 @@ class TestNavigationLoaderInterceptor : public NavigationLoaderInterceptor {
 class NavigationURLLoaderImplTest : public testing::Test {
  public:
   NavigationURLLoaderImplTest()
-      : network_change_notifier_(
-            net::test::MockNetworkChangeNotifier::Create()),
-        task_environment_(BrowserTaskEnvironment::IO_MAINLOOP) {
+      : task_environment_(std::make_unique<BrowserTaskEnvironment>(
+            base::test::TaskEnvironment::MainThreadType::IO)),
+        network_change_notifier_(
+            net::test::MockNetworkChangeNotifier::Create()) {
     // Because the network service is enabled we need a system Connector or
     // BrowserContext::GetDefaultStoragePartition will segfault when
     // ContentBrowserClient::CreateNetworkContext tries to call
@@ -157,6 +162,11 @@ class NavigationURLLoaderImplTest : public testing::Test {
   ~NavigationURLLoaderImplTest() override {
     browser_context_.reset();
     SetSystemConnectorForTesting(nullptr);
+    // Reset the BrowserTaskEnvironment to force destruction of the local
+    // NetworkService, which is held in SequenceLocalStorage. This must happen
+    // before destruction of |network_change_notifier_|, to allow observers to
+    // be unregistered.
+    task_environment_.reset();
   }
 
   std::unique_ptr<NavigationURLLoader> CreateTestLoader(
@@ -169,8 +179,10 @@ class NavigationURLLoaderImplTest : public testing::Test {
       bool upgrade_if_insecure = false) {
     mojom::BeginNavigationParamsPtr begin_params =
         mojom::BeginNavigationParams::New(
-            headers, net::LOAD_NORMAL, false /* skip_service_worker */,
+            MSG_ROUTING_NONE /* initiator_routing_id */, headers,
+            net::LOAD_NORMAL, false /* skip_service_worker */,
             blink::mojom::RequestContextType::LOCATION,
+            network::mojom::RequestDestination::kDocument,
             blink::WebMixedContentContextType::kBlockable,
             false /* is_form_submission */,
             false /* was_initiated_by_link_click */,
@@ -178,7 +190,10 @@ class NavigationURLLoaderImplTest : public testing::Test {
             std::string() /* searchable_form_encoding */,
             GURL() /* client_side_redirect_url */,
             base::nullopt /* devtools_initiator_info */,
-            false /* attach_same_site_cookie */);
+            false /* attach_same_site_cookie */,
+            nullptr /* trust_token_params */, base::nullopt /* impression */,
+            base::TimeTicks() /* renderer_before_unload_start */,
+            base::TimeTicks() /* renderer_before_unload_end */);
 
     auto common_params = CreateCommonNavigationParams();
     common_params->url = url;
@@ -190,16 +205,18 @@ class NavigationURLLoaderImplTest : public testing::Test {
     std::unique_ptr<NavigationRequestInfo> request_info(
         new NavigationRequestInfo(
             std::move(common_params), std::move(begin_params),
-            net::SiteForCookies::FromUrl(url),
-            net::NetworkIsolationKey(origin, origin), is_main_frame,
-            false /* parent_is_main_frame */, false /* are_ancestors_secure */,
-            -1 /* frame_tree_node_id */, false /* is_for_guests_only */,
-            false /* report_raw_headers */, false /* is_prerenering */,
+            net::IsolationInfo::Create(
+                net::IsolationInfo::RedirectMode::kUpdateTopFrame, origin,
+                origin, net::SiteForCookies::FromUrl(url)),
+            is_main_frame, false /* parent_is_main_frame */,
+            false /* are_ancestors_secure */, -1 /* frame_tree_node_id */,
+            false /* is_for_guests_only */, false /* report_raw_headers */,
+            false /* is_prerenering */,
             upgrade_if_insecure /* upgrade_if_insecure */,
             nullptr /* blob_url_loader_factory */,
             base::UnguessableToken::Create() /* devtools_navigation_token */,
             base::UnguessableToken::Create() /* devtools_frame_token */,
-            false /* obey_origin_policy */));
+            false /* obey_origin_policy */, {} /* cors_exempt_headers */));
     std::vector<std::unique_ptr<NavigationLoaderInterceptor>> interceptors;
     most_recent_resource_request_ = base::nullopt;
     interceptors.push_back(std::make_unique<TestNavigationLoaderInterceptor>(
@@ -211,6 +228,7 @@ class NavigationURLLoaderImplTest : public testing::Test {
         std::move(request_info), nullptr /* navigation_ui_data */,
         nullptr /* service_worker_handle */, nullptr /* appcache_handle */,
         nullptr /* prefetched_signed_exchange_cache */, delegate,
+        mojo::NullRemote() /* cookie_access_obsever */,
         std::move(interceptors));
   }
 
@@ -233,7 +251,7 @@ class NavigationURLLoaderImplTest : public testing::Test {
                            redirect_url.GetOrigin().spec().c_str()),
         request_method, &delegate);
     delegate.WaitForRequestRedirected();
-    loader->FollowRedirect({}, {}, PREVIEWS_OFF);
+    loader->FollowRedirect({}, {}, {}, blink::PreviewsTypes::PREVIEWS_OFF);
 
     EXPECT_EQ(expected_redirect_method, delegate.redirect_info().new_method);
 
@@ -274,7 +292,7 @@ class NavigationURLLoaderImplTest : public testing::Test {
                            url.GetOrigin().spec().c_str()),
         "GET", &delegate, NavigationDownloadPolicy(), is_main_frame);
     delegate.WaitForRequestRedirected();
-    loader->FollowRedirect({}, {}, PREVIEWS_OFF);
+    loader->FollowRedirect({}, {}, {}, blink::PreviewsTypes::PREVIEWS_OFF);
     delegate.WaitForResponseStarted();
 
     return most_recent_resource_request_.value().priority;
@@ -291,7 +309,7 @@ class NavigationURLLoaderImplTest : public testing::Test {
         "GET", &delegate, NavigationDownloadPolicy(), true /*is_main_frame*/,
         upgrade_if_insecure);
     delegate.WaitForRequestRedirected();
-    loader->FollowRedirect({}, {}, PREVIEWS_OFF);
+    loader->FollowRedirect({}, {}, {}, blink::PreviewsTypes::PREVIEWS_OFF);
     if (expect_request_fail) {
       delegate.WaitForRequestFailed();
     } else {
@@ -301,9 +319,9 @@ class NavigationURLLoaderImplTest : public testing::Test {
   }
 
  protected:
+  std::unique_ptr<BrowserTaskEnvironment> task_environment_;
   std::unique_ptr<net::test::MockNetworkChangeNotifier>
       network_change_notifier_;
-  BrowserTaskEnvironment task_environment_;
   std::unique_ptr<TestBrowserContext> browser_context_;
   net::EmbeddedTestServer http_test_server_;
   base::Optional<network::ResourceRequest> most_recent_resource_request_;
@@ -319,7 +337,7 @@ TEST_F(NavigationURLLoaderImplTest, RequestPriority) {
             NavigateAndReturnRequestPriority(url, false /* is_main_frame */));
 }
 
-TEST_F(NavigationURLLoaderImplTest, NetworkIsolationKeyOfMainFrameNavigation) {
+TEST_F(NavigationURLLoaderImplTest, IsolationInfoOfMainFrameNavigation) {
   ASSERT_TRUE(http_test_server_.Start());
 
   const GURL url = http_test_server_.GetURL("/foo");
@@ -336,13 +354,16 @@ TEST_F(NavigationURLLoaderImplTest, NetworkIsolationKeyOfMainFrameNavigation) {
 
   ASSERT_TRUE(most_recent_resource_request_);
   ASSERT_TRUE(most_recent_resource_request_->trusted_params);
-  EXPECT_EQ(
-      net::NetworkIsolationKey(origin, origin),
-      most_recent_resource_request_->trusted_params->network_isolation_key);
+  EXPECT_TRUE(
+      net::IsolationInfo::Create(
+          net::IsolationInfo::RedirectMode::kUpdateTopFrame, origin, origin,
+          net::SiteForCookies::FromOrigin(origin))
+          .IsEqualForTesting(
+              most_recent_resource_request_->trusted_params->isolation_info));
 }
 
 TEST_F(NavigationURLLoaderImplTest,
-       NetworkIsolationKeyOfRedirectedMainFrameNavigation) {
+       IsolationInfoOfRedirectedMainFrameNavigation) {
   ASSERT_TRUE(http_test_server_.Start());
 
   const GURL url = http_test_server_.GetURL("/redirect301-to-echo");
@@ -352,9 +373,12 @@ TEST_F(NavigationURLLoaderImplTest,
   HTTPRedirectOriginHeaderTest(url, "GET", "GET", url.GetOrigin().spec());
 
   ASSERT_TRUE(most_recent_resource_request_->trusted_params);
-  EXPECT_EQ(
-      net::NetworkIsolationKey(origin, origin),
-      most_recent_resource_request_->trusted_params->network_isolation_key);
+  EXPECT_TRUE(
+      net::IsolationInfo::Create(
+          net::IsolationInfo::RedirectMode::kUpdateTopFrame, origin, origin,
+          net::SiteForCookies::FromOrigin(origin))
+          .IsEqualForTesting(
+              most_recent_resource_request_->trusted_params->isolation_info));
 }
 
 TEST_F(NavigationURLLoaderImplTest, Redirect301Tests) {
@@ -453,7 +477,8 @@ TEST_F(NavigationURLLoaderImplTest, RedirectModifiedHeaders) {
   net::HttpRequestHeaders redirect_headers;
   redirect_headers.SetHeader("Header2", "");
   redirect_headers.SetHeader("Header3", "Value3");
-  loader->FollowRedirect({}, redirect_headers, PREVIEWS_OFF);
+  loader->FollowRedirect({}, redirect_headers, {},
+                         blink::PreviewsTypes::PREVIEWS_OFF);
   delegate.WaitForResponseStarted();
 
   // Redirected request should also have modified headers.

@@ -15,9 +15,9 @@
 #include "ash/public/cpp/test/shell_test_api.h"
 #include "ash/public/cpp/window_pin_type.h"
 #include "ash/public/cpp/window_properties.h"
-#include "ash/shell.h"                                  // mash-ok
-#include "ash/wm/overview/overview_controller.h"        // mash-ok
-#include "ash/wm/tablet_mode/tablet_mode_controller.h"  // mash-ok
+#include "ash/shell.h"
+#include "ash/wm/overview/overview_controller.h"
+#include "ash/wm/tablet_mode/tablet_mode_controller.h"
 #include "base/bind_helpers.h"
 #include "base/run_loop.h"
 #include "base/scoped_observer.h"
@@ -39,18 +39,22 @@
 #include "chrome/browser/ui/browser_command_controller.h"
 #include "chrome/browser/ui/browser_commands.h"
 #include "chrome/browser/ui/browser_list.h"
+#include "chrome/browser/ui/browser_navigator.h"
+#include "chrome/browser/ui/browser_navigator_params.h"
 #include "chrome/browser/ui/browser_tabstrip.h"
+#include "chrome/browser/ui/exclusive_access/exclusive_access_test.h"
 #include "chrome/browser/ui/exclusive_access/fullscreen_controller.h"
-#include "chrome/browser/ui/exclusive_access/fullscreen_controller_test.h"
 #include "chrome/browser/ui/passwords/passwords_client_ui_delegate.h"
 #include "chrome/browser/ui/settings_window_manager_chromeos.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/toolbar/browser_actions_bar_browsertest.h"
+#include "chrome/browser/ui/ui_features.h"
 #include "chrome/browser/ui/views/bookmarks/bookmark_bar_view.h"
 #include "chrome/browser/ui/views/frame/browser_non_client_frame_view_ash.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
 #include "chrome/browser/ui/views/frame/immersive_mode_controller.h"
 #include "chrome/browser/ui/views/frame/immersive_mode_controller_ash.h"
+#include "chrome/browser/ui/views/frame/tab_strip_region_view.h"
 #include "chrome/browser/ui/views/fullscreen_control/fullscreen_control_host.h"
 #include "chrome/browser/ui/views/location_bar/content_setting_image_view.h"
 #include "chrome/browser/ui/views/location_bar/custom_tab_bar_view.h"
@@ -76,18 +80,19 @@
 #include "components/keep_alive_registry/scoped_keep_alive.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_process_host.h"
-#include "content/public/common/service_manager_connection.h"
 #include "content/public/common/service_names.mojom.h"
+#include "content/public/test/browser_test.h"
 #include "content/public/test/content_mock_cert_verifier.h"
 #include "content/public/test/test_navigation_observer.h"
 #include "net/dns/mock_host_resolver.h"
-#include "services/service_manager/public/cpp/connector.h"
 #include "third_party/blink/public/common/page/page_zoom.h"
 #include "ui/aura/client/aura_constants.h"
 #include "ui/aura/test/env_test_helper.h"
 #include "ui/base/class_property.h"
 #include "ui/base/hit_test.h"
-#include "ui/base/test/material_design_controller_test_api.h"
+#include "ui/base/page_transition_types.h"
+#include "ui/base/pointer/touch_ui_controller.h"
+#include "ui/base/window_open_disposition.h"
 #include "ui/compositor/scoped_animation_duration_scale_mode.h"
 #include "ui/events/base_event_utils.h"
 #include "ui/events/event.h"
@@ -112,9 +117,8 @@ void ToggleFullscreenModeAndWait(Browser* browser) {
 void EnterFullscreenModeForTabAndWait(Browser* browser,
                                       content::WebContents* web_contents) {
   FullscreenNotificationObserver waiter(browser);
-  browser->exclusive_access_manager()
-      ->fullscreen_controller()
-      ->EnterFullscreenModeForTab(web_contents, GURL());
+  static_cast<content::WebContentsDelegate*>(browser)
+      ->EnterFullscreenModeForTab(web_contents->GetMainFrame(), {});
   waiter.Wait();
 }
 
@@ -137,7 +141,7 @@ void EndOverview() {
 }
 
 bool IsShelfVisible() {
-  return ash::ShelfTestApi::Create()->IsVisible();
+  return ash::ShelfTestApi().IsVisible();
 }
 
 BrowserNonClientFrameViewAsh* GetFrameViewAsh(BrowserView* browser_view) {
@@ -154,13 +158,27 @@ template <class BaseTest>
 class TopChromeMdParamTest : public BaseTest,
                              public ::testing::WithParamInterface<bool> {
  public:
-  TopChromeMdParamTest() : test_api_(GetParam()) {}
+  TopChromeMdParamTest() : touch_ui_scoper_(GetParam()) {}
   ~TopChromeMdParamTest() override = default;
 
  private:
-  ui::test::MaterialDesignControllerTestAPI test_api_;
+  ui::TouchUiController::TouchUiScoperForTesting touch_ui_scoper_;
+};
 
-  DISALLOW_COPY_AND_ASSIGN(TopChromeMdParamTest);
+// Template to be used when a test does not work with the webUI tabstrip.
+template <bool kEnabled, class BaseTest>
+class WebUiTabStripOverrideTest : public BaseTest {
+ public:
+  WebUiTabStripOverrideTest() {
+    if (kEnabled)
+      feature_override_.InitAndEnableFeature(features::kWebUITabStrip);
+    else
+      feature_override_.InitAndDisableFeature(features::kWebUITabStrip);
+  }
+  ~WebUiTabStripOverrideTest() override = default;
+
+ private:
+  base::test::ScopedFeatureList feature_override_;
 };
 
 // A helper class for immersive mode tests.
@@ -200,7 +218,7 @@ class ImmersiveModeTester : public ImmersiveModeController::Observer {
       fullscreen_loop_ = std::make_unique<base::RunLoop>();
       fullscreen_loop_->Run();
     }
-    EXPECT_FALSE(GetBrowserView()->immersive_mode_controller()->IsEnabled());
+    ASSERT_FALSE(GetBrowserView()->immersive_mode_controller()->IsEnabled());
   }
 
   // ImmersiveModeController::Observer:
@@ -248,8 +266,15 @@ using views::Widget;
 
 using BrowserNonClientFrameViewAshTest =
     TopChromeMdParamTest<InProcessBrowserTest>;
+using BrowserNonClientFrameViewAshTestNoWebUiTabStrip =
+    WebUiTabStripOverrideTest<false, BrowserNonClientFrameViewAshTest>;
+using BrowserNonClientFrameViewAshTestWithWebUiTabStrip =
+    WebUiTabStripOverrideTest<true, BrowserNonClientFrameViewAshTest>;
 
-IN_PROC_BROWSER_TEST_P(BrowserNonClientFrameViewAshTest, NonClientHitTest) {
+// This test does not make sense for the webUI tabstrip, since the window layout
+// is different in that case.
+IN_PROC_BROWSER_TEST_P(BrowserNonClientFrameViewAshTestNoWebUiTabStrip,
+                       NonClientHitTest) {
   BrowserView* browser_view = BrowserView::GetBrowserViewForBrowser(browser());
   Widget* widget = browser_view->GetWidget();
   BrowserNonClientFrameViewAsh* frame_view = GetFrameViewAsh(browser_view);
@@ -274,7 +299,9 @@ IN_PROC_BROWSER_TEST_P(BrowserNonClientFrameViewAshTest, NonClientHitTest) {
 
 // Test that the frame view does not do any painting in non-immersive
 // fullscreen.
-IN_PROC_BROWSER_TEST_P(BrowserNonClientFrameViewAshTest,
+// This test does not make sense for the webUI tabstrip, since the frame is not
+// painted in that case.
+IN_PROC_BROWSER_TEST_P(BrowserNonClientFrameViewAshTestNoWebUiTabStrip,
                        NonImmersiveFullscreen) {
   BrowserView* browser_view = BrowserView::GetBrowserViewForBrowser(browser());
   content::WebContents* web_contents = browser_view->GetActiveWebContents();
@@ -300,7 +327,9 @@ IN_PROC_BROWSER_TEST_P(BrowserNonClientFrameViewAshTest,
 
 // Tests that Avatar icon should show on the top left corner of the teleported
 // browser window on ChromeOS.
-IN_PROC_BROWSER_TEST_P(BrowserNonClientFrameViewAshTest,
+// TODO(http://crbug.com/1059514): This test should be made to work with the
+// webUI tabstrip.
+IN_PROC_BROWSER_TEST_P(BrowserNonClientFrameViewAshTestNoWebUiTabStrip,
                        AvatarDisplayOnTeleportedWindow) {
   BrowserView* browser_view = BrowserView::GetBrowserViewForBrowser(browser());
   BrowserNonClientFrameViewAsh* frame_view = GetFrameViewAsh(browser_view);
@@ -326,6 +355,26 @@ IN_PROC_BROWSER_TEST_P(BrowserNonClientFrameViewAshTest,
   EXPECT_FALSE(frame_view->profile_indicator_icon_);
 }
 
+// There should be no top inset when using the WebUI tab strip since the frame
+// is invisible. Regression test for crbug.com/1076675
+IN_PROC_BROWSER_TEST_P(BrowserNonClientFrameViewAshTestWithWebUiTabStrip,
+                       TopInset) {
+  // This test doesn't make sense in non-touch mode since it expects the WebUI
+  // tab strip to be active. This test is instantiated with and without touch
+  // mode.
+  if (!ui::TouchUiController::Get()->touch_ui())
+    return;
+
+  BrowserView* const browser_view =
+      BrowserView::GetBrowserViewForBrowser(browser());
+
+  StartOverview();
+  EXPECT_EQ(0, GetFrameViewAsh(browser_view)->GetTopInset(false));
+
+  EndOverview();
+  EXPECT_EQ(0, GetFrameViewAsh(browser_view)->GetTopInset(false));
+}
+
 IN_PROC_BROWSER_TEST_P(BrowserNonClientFrameViewAshTest,
                        IncognitoMarkedAsAssistantBlocked) {
   Browser* incognito_browser = CreateIncognitoBrowser();
@@ -347,6 +396,7 @@ IN_PROC_BROWSER_TEST_P(BrowserNonClientFrameViewAshTest,
   // Setting non-zero bookmark bar preferred size forces it to be visible and
   // triggers BrowserView layout update.
   bookmark_bar->SetPreferredSize(gfx::Size(50, 5));
+  browser_view->GetWidget()->LayoutRootViewIfNecessary();
   EXPECT_TRUE(bookmark_bar->GetVisible());
 
   // Minimum window size should grow with the bookmark bar shown.
@@ -445,7 +495,13 @@ class ImmersiveModeBrowserViewTest
 
 }  // namespace
 
-IN_PROC_BROWSER_TEST_P(ImmersiveModeBrowserViewTest, ImmersiveFullscreen) {
+using ImmersiveModeBrowserViewTestNoWebUiTabStrip =
+    WebUiTabStripOverrideTest<false, ImmersiveModeBrowserViewTest>;
+
+// This test does not make sense for the webUI tabstrip, since the frame is not
+// painted in that case.
+IN_PROC_BROWSER_TEST_P(ImmersiveModeBrowserViewTestNoWebUiTabStrip,
+                       ImmersiveFullscreen) {
   BrowserView* browser_view = BrowserView::GetBrowserViewForBrowser(browser());
   content::WebContents* web_contents = browser_view->GetActiveWebContents();
   BrowserNonClientFrameViewAsh* frame_view = GetFrameViewAsh(browser_view);
@@ -459,7 +515,9 @@ IN_PROC_BROWSER_TEST_P(ImmersiveModeBrowserViewTest, ImmersiveFullscreen) {
 
   // Frame paints by default.
   EXPECT_TRUE(frame_view->ShouldPaint());
-  EXPECT_LT(0, frame_view->GetBoundsForTabStripRegion(browser_view->tabstrip())
+  EXPECT_LT(0, frame_view
+                   ->GetBoundsForTabStripRegion(
+                       browser_view->tab_strip_region_view()->GetMinimumSize())
                    .bottom());
 
   // Enter both browser fullscreen and tab fullscreen. Entering browser
@@ -480,7 +538,9 @@ IN_PROC_BROWSER_TEST_P(ImmersiveModeBrowserViewTest, ImmersiveFullscreen) {
   revealed_lock.reset();
   EXPECT_FALSE(immersive_mode_controller->IsRevealed());
   EXPECT_FALSE(frame_view->ShouldPaint());
-  EXPECT_EQ(0, frame_view->GetBoundsForTabStripRegion(browser_view->tabstrip())
+  EXPECT_EQ(0, frame_view
+                   ->GetBoundsForTabStripRegion(
+                       browser_view->tab_strip_region_view()->GetMinimumSize())
                    .bottom());
 
   // Repeat test but without tab fullscreen.
@@ -491,14 +551,18 @@ IN_PROC_BROWSER_TEST_P(ImmersiveModeBrowserViewTest, ImmersiveFullscreen) {
       ImmersiveModeController::ANIMATE_REVEAL_NO));
   EXPECT_TRUE(immersive_mode_controller->IsRevealed());
   EXPECT_TRUE(frame_view->ShouldPaint());
-  EXPECT_LT(0, frame_view->GetBoundsForTabStripRegion(browser_view->tabstrip())
+  EXPECT_LT(0, frame_view
+                   ->GetBoundsForTabStripRegion(
+                       browser_view->tab_strip_region_view()->GetMinimumSize())
                    .bottom());
 
   // Ending the reveal. Immersive browser should have the same behavior as full
   // screen, i.e., having an origin of (0,0).
   revealed_lock.reset();
   EXPECT_FALSE(frame_view->ShouldPaint());
-  EXPECT_EQ(0, frame_view->GetBoundsForTabStripRegion(browser_view->tabstrip())
+  EXPECT_EQ(0, frame_view
+                   ->GetBoundsForTabStripRegion(
+                       browser_view->tab_strip_region_view()->GetMinimumSize())
                    .bottom());
 
   // Exiting immersive fullscreen should make the caption buttons and the frame
@@ -510,7 +574,9 @@ IN_PROC_BROWSER_TEST_P(ImmersiveModeBrowserViewTest, ImmersiveFullscreen) {
   }
   EXPECT_FALSE(immersive_mode_controller->IsEnabled());
   EXPECT_TRUE(frame_view->ShouldPaint());
-  EXPECT_LT(0, frame_view->GetBoundsForTabStripRegion(browser_view->tabstrip())
+  EXPECT_LT(0, frame_view
+                   ->GetBoundsForTabStripRegion(
+                       browser_view->tab_strip_region_view()->GetMinimumSize())
                    .bottom());
 }
 
@@ -556,7 +622,9 @@ IN_PROC_BROWSER_TEST_P(ImmersiveModeBrowserViewTest,
     tester.RunCommand(datum.command, datum.expected_index);
 }
 
-IN_PROC_BROWSER_TEST_P(ImmersiveModeBrowserViewTest,
+// This test does not make sense for the webUI tabstrip, since the window layout
+// is different in that case.
+IN_PROC_BROWSER_TEST_P(ImmersiveModeBrowserViewTestNoWebUiTabStrip,
                        TestCaptionButtonsReceiveEventsInBrowserImmersiveMode) {
   BrowserView* browser_view = BrowserView::GetBrowserViewForBrowser(browser());
 
@@ -587,7 +655,7 @@ IN_PROC_BROWSER_TEST_P(ImmersiveModeBrowserViewTest,
   gfx::Size button_size = views::GetCaptionButtonLayoutSize(
       views::CaptionButtonLayoutSize::kBrowserCaptionMaximized);
   gfx::Point point_in_restore_button(window->GetBoundsInScreen().top_right());
-  point_in_restore_button.Offset(-2 * button_size.width(),
+  point_in_restore_button.Offset(-button_size.width() * 3 / 2,
                                  button_size.height() / 2);
 
   event_generator.MoveMouseTo(point_in_restore_button);
@@ -805,6 +873,7 @@ class WebAppNonClientFrameViewAshTest
     auto web_app_info = std::make_unique<WebApplicationInfo>();
     web_app_info->app_url = GetAppURL();
     web_app_info->scope = GetAppURL().GetWithoutFilename();
+    web_app_info->display_mode = blink::mojom::DisplayMode::kStandalone;
     web_app_info->theme_color = GetThemeColor();
 
     web_app::AppId app_id =
@@ -841,17 +910,17 @@ class WebAppNonClientFrameViewAshTest
   }
 
   PageActionIconView* GetPageActionIcon(PageActionIconType type) {
-    return browser_view_->toolbar_button_provider()
-        ->GetPageActionIconView(type);
+    return browser_view_->toolbar_button_provider()->GetPageActionIconView(
+        type);
   }
 
   ContentSettingImageView* GrantGeolocationPermission() {
     content::RenderFrameHost* frame =
         app_browser_->tab_strip_model()->GetActiveWebContents()->GetMainFrame();
-    TabSpecificContentSettings* content_settings =
-        TabSpecificContentSettings::GetForFrame(frame->GetProcess()->GetID(),
-                                                frame->GetRoutingID());
-    content_settings->OnGeolocationPermissionSet(GetAppURL().GetOrigin(), true);
+    content_settings::PageSpecificContentSettings* content_settings =
+        content_settings::PageSpecificContentSettings::GetForFrame(
+            frame->GetProcess()->GetID(), frame->GetRoutingID());
+    content_settings->OnContentAllowed(ContentSettingsType::GEOLOCATION);
 
     return *std::find_if(
         content_setting_views_->begin(), content_setting_views_->end(),
@@ -970,9 +1039,10 @@ IN_PROC_BROWSER_TEST_P(WebAppNonClientFrameViewAshTest,
 
   autofill::PasswordForm password_form;
   password_form.username_value = base::ASCIIToUTF16("test");
-  password_form.origin = GetAppURL().GetOrigin();
+  password_form.url = GetAppURL().GetOrigin();
   PasswordsClientUIDelegateFromWebContents(web_contents)
-      ->OnPasswordAutofilled({&password_form}, password_form.origin, nullptr);
+      ->OnPasswordAutofilled({&password_form},
+                             url::Origin::Create(password_form.url), nullptr);
   chrome::ManagePasswordsForPage(app_browser_);
   base::RunLoop().RunUntilIdle();
 
@@ -1037,12 +1107,24 @@ IN_PROC_BROWSER_TEST_P(WebAppNonClientFrameViewAshTest,
   EXPECT_TRUE(web_app_menu_button_->HasFocus());
 }
 
+// TODO(): Flaky crash on Chrome OS debug.
+#if defined(OS_CHROMEOS)
+#define MAYBE_BrowserCommandFocusToolbarGeolocation \
+  DISABLED_BrowserCommandFocusToolbarGeolocation
+#else
+#define MAYBE_BrowserCommandFocusToolbarGeolocation \
+  BrowserCommandFocusToolbarGeolocation
+#endif
 // Tests that the focus toolbar command focuses content settings icons before
 // the app menu button when present in web-app windows.
 IN_PROC_BROWSER_TEST_P(WebAppNonClientFrameViewAshTest,
-                       BrowserCommandFocusToolbarGeolocation) {
+                       MAYBE_BrowserCommandFocusToolbarGeolocation) {
   SetUpWebApp();
   ContentSettingImageView* geolocation_icon = GrantGeolocationPermission();
+
+  // In order to receive focus, the geo icon must be laid out (and be both
+  // visible and nonzero size).
+  web_app_frame_toolbar_->Layout();
 
   EXPECT_FALSE(web_app_menu_button_->HasFocus());
   EXPECT_FALSE(geolocation_icon->HasFocus());
@@ -1168,6 +1250,26 @@ IN_PROC_BROWSER_TEST_P(WebAppNonClientFrameViewAshTest,
   browser_view_->GetWidget()->Deactivate();
   EXPECT_FALSE(test.size_button()->paint_as_active());
   EXPECT_FALSE(GetPaintingAsActive());
+}
+
+IN_PROC_BROWSER_TEST_P(WebAppNonClientFrameViewAshTest, PopupHasNoToolbar) {
+  SetUpWebApp();
+  {
+    NavigateParams navigate_params(app_browser_, GetAppURL(),
+                                   ui::PAGE_TRANSITION_LINK);
+    navigate_params.disposition = WindowOpenDisposition::NEW_POPUP;
+
+    content::TestNavigationObserver navigation_observer(GetAppURL());
+    navigation_observer.StartWatchingNewWebContents();
+    Navigate(&navigate_params);
+    navigation_observer.WaitForNavigationFinished();
+  }
+
+  Browser* popup_browser = BrowserList::GetInstance()->GetLastActive();
+  BrowserView* browser_view =
+      BrowserView::GetBrowserViewForBrowser(popup_browser);
+  BrowserNonClientFrameViewAsh* frame_view = GetFrameViewAsh(browser_view);
+  EXPECT_FALSE(frame_view->web_app_frame_toolbar_for_testing());
 }
 
 namespace {
@@ -1479,7 +1581,10 @@ IN_PROC_BROWSER_TEST_P(HomeLauncherBrowserNonClientFrameViewAshTest,
   INSTANTIATE_TEST_SUITE_P(All, name, ::testing::Values(false, true))
 
 INSTANTIATE_TEST_SUITE(BrowserNonClientFrameViewAshTest);
+INSTANTIATE_TEST_SUITE(BrowserNonClientFrameViewAshTestNoWebUiTabStrip);
+INSTANTIATE_TEST_SUITE(BrowserNonClientFrameViewAshTestWithWebUiTabStrip);
 INSTANTIATE_TEST_SUITE(ImmersiveModeBrowserViewTest);
+INSTANTIATE_TEST_SUITE(ImmersiveModeBrowserViewTestNoWebUiTabStrip);
 INSTANTIATE_TEST_SUITE(WebAppNonClientFrameViewAshTest);
 INSTANTIATE_TEST_SUITE(BrowserNonClientFrameViewAshBackButtonTest);
 INSTANTIATE_TEST_SUITE(HomeLauncherBrowserNonClientFrameViewAshTest);

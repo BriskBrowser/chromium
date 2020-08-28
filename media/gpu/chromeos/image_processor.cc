@@ -10,8 +10,10 @@
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
+#include "base/memory/ptr_util.h"
 #include "base/task/post_task.h"
 #include "base/task/task_traits.h"
+#include "base/task/thread_pool.h"
 #include "media/base/video_types.h"
 #include "media/gpu/macros.h"
 
@@ -68,16 +70,17 @@ std::unique_ptr<ImageProcessor> ImageProcessor::Create(
     const PortConfig& input_config,
     const PortConfig& output_config,
     const std::vector<OutputMode>& preferred_output_modes,
+    VideoRotation relative_rotation,
     ErrorCB error_cb,
     scoped_refptr<base::SequencedTaskRunner> client_task_runner) {
   scoped_refptr<base::SequencedTaskRunner> backend_task_runner =
-      base::CreateSequencedTaskRunner({base::ThreadPool()});
+      base::ThreadPool::CreateSequencedTaskRunner({});
   auto wrapped_error_cb = base::BindRepeating(
       base::IgnoreResult(&base::SequencedTaskRunner::PostTask),
       client_task_runner, FROM_HERE, std::move(error_cb));
-  std::unique_ptr<ImageProcessorBackend> backend =
-      create_backend_cb.Run(input_config, output_config, preferred_output_modes,
-                            std::move(wrapped_error_cb), backend_task_runner);
+  std::unique_ptr<ImageProcessorBackend> backend = create_backend_cb.Run(
+      input_config, output_config, preferred_output_modes, relative_rotation,
+      std::move(wrapped_error_cb), backend_task_runner);
   if (!backend)
     return nullptr;
 

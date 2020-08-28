@@ -7,7 +7,8 @@
 #include <utility>
 
 #include "base/android/jni_android.h"
-#include "base/logging.h"
+#include "base/check_op.h"
+#include "base/notreached.h"
 #include "chrome/android/chrome_jni_headers/TrustedVaultClient_jni.h"
 #include "content/public/browser/browser_thread.h"
 
@@ -103,6 +104,10 @@ void TrustedVaultClientAndroid::StoreKeys(
   NOTREACHED();
 }
 
+void TrustedVaultClientAndroid::RemoveAllStoredKeys() {
+  // StoreKeys() not supported on Android, nothing to remove.
+}
+
 void TrustedVaultClientAndroid::MarkKeysAsStale(
     const CoreAccountInfo& account_info,
     base::OnceCallback<void(bool)> cb) {
@@ -123,4 +128,12 @@ void TrustedVaultClientAndroid::MarkKeysAsStale(
   // The Java implementation will eventually call MarkKeysAsStaleCompleted().
   Java_TrustedVaultClient_markKeysAsStale(env, reinterpret_cast<intptr_t>(this),
                                           java_account_info);
+}
+
+void TrustedVaultClientAndroid::GetIsRecoverabilityDegraded(
+    const CoreAccountInfo& account_info,
+    base::OnceCallback<void(bool)> cb) {
+  // TODO(crbug.com/1100279): Needs implementation.
+  NOTIMPLEMENTED();
+  std::move(cb).Run(false);
 }

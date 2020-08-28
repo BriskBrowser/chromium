@@ -8,7 +8,6 @@
 #include "third_party/blink/renderer/core/animation/css_interpolation_environment.h"
 #include "third_party/blink/renderer/core/animation/css_interpolation_types_map.h"
 #include "third_party/blink/renderer/core/animation/invalidatable_interpolation.h"
-#include "third_party/blink/renderer/core/css/css_pending_interpolation_value.h"
 #include "third_party/blink/renderer/core/css/resolver/style_cascade.h"
 #include "third_party/blink/renderer/core/css/resolver/style_resolver_state.h"
 #include "third_party/blink/renderer/core/dom/document.h"
@@ -16,39 +15,6 @@
 #include "third_party/blink/renderer/core/style/computed_style.h"
 
 namespace blink {
-
-namespace {
-
-class TestAnimator : public StyleCascade::Animator {
-  STACK_ALLOCATED();
-
- public:
-  TestAnimator(StyleResolverState& state,
-               StyleCascade& cascade,
-               CSSInterpolationTypesMap& map,
-               const ActiveInterpolations& interpolations)
-      : state_(state),
-        cascade_(cascade),
-        map_(map),
-        interpolations_(interpolations) {}
-
-  void Apply(const CSSProperty&,
-             const cssvalue::CSSPendingInterpolationValue& value,
-             StyleCascade::Resolver& resolver) override {
-    // Ignore CSSProperty here. We assume this function is only called once
-    // for each invocation of EnsureInterpolatedValueCached.
-    CSSInterpolationEnvironment environment(map_, state_, &cascade_, &resolver);
-    InvalidatableInterpolation::ApplyStack(interpolations_, environment);
-  }
-
- private:
-  StyleResolverState& state_;
-  StyleCascade& cascade_;
-  CSSInterpolationTypesMap& map_;
-  const ActiveInterpolations& interpolations_;
-};
-
-}  // namespace
 
 void SetV8ObjectPropertyAsString(v8::Isolate* isolate,
                                  v8::Local<v8::Object> object,
@@ -70,34 +36,48 @@ void SetV8ObjectPropertyAsNumber(v8::Isolate* isolate,
       .ToChecked();
 }
 
-void EnsureInterpolatedValueCached(const ActiveInterpolations& interpolations,
+KeyframeEffect* CreateSimpleKeyframeEffectForTest(Element* target,
+                                                  CSSPropertyID property,
+                                                  String value_start,
+                                                  String value_end) {
+  Timing timing;
+  timing.iteration_duration = AnimationTimeDelta::FromSecondsD(1000);
+
+  StringKeyframe* start_keyframe = MakeGarbageCollected<StringKeyframe>();
+  start_keyframe->SetOffset(0.0);
+  start_keyframe->SetCSSPropertyValue(
+      property, value_start, SecureContextMode::kSecureContext, nullptr);
+
+  StringKeyframe* end_keyframe = MakeGarbageCollected<StringKeyframe>();
+  end_keyframe->SetOffset(1.0);
+  end_keyframe->SetCSSPropertyValue(property, value_end,
+                                    SecureContextMode::kSecureContext, nullptr);
+
+  StringKeyframeVector keyframes;
+  keyframes.push_back(start_keyframe);
+  keyframes.push_back(end_keyframe);
+
+  auto* model = MakeGarbageCollected<StringKeyframeEffectModel>(keyframes);
+  return MakeGarbageCollected<KeyframeEffect>(target, model, timing);
+}
+
+void EnsureInterpolatedValueCached(ActiveInterpolations* interpolations,
                                    Document& document,
                                    Element* element) {
   // TODO(smcgruer): We should be able to use a saner API approach like
-  // document.EnsureStyleResolver().StyleForElement(element). However that would
-  // require our callers to propertly register every animation they pass in
+  // document.GetStyleResolver().StyleForElement(element). However that would
+  // require our callers to properly register every animation they pass in
   // here, which the current tests do not do.
   auto style = ComputedStyle::Create();
   StyleResolverState state(document, *element, style.get(), style.get());
   state.SetStyle(style);
-  CSSInterpolationTypesMap map(state.GetDocument().GetPropertyRegistry(),
-                               state.GetDocument());
-  if (RuntimeEnabledFeatures::CSSCascadeEnabled()) {
-    // We must apply the animation effects via StyleCascade when the cascade
-    // is enabled.
-    StyleCascade cascade(state);
-    auto type = cssvalue::CSSPendingInterpolationValue::Type::kCSSProperty;
-    auto* pending = cssvalue::CSSPendingInterpolationValue::Create(type);
-    auto origin = StyleCascade::Origin::kAuthor;
-    cascade.Add(*CSSPropertyName::From(&state.GetDocument(), "--unused"),
-                pending, origin);
 
-    TestAnimator animator(state, cascade, map, interpolations);
-    cascade.Apply(animator);
-  } else {
-    CSSInterpolationEnvironment environment(map, state, nullptr);
-    InvalidatableInterpolation::ApplyStack(interpolations, environment);
-  }
+  ActiveInterpolationsMap map;
+  map.Set(PropertyHandle("--unused"), interpolations);
+
+  StyleCascade cascade(state);
+  cascade.AddInterpolations(&map, CascadeOrigin::kAnimation);
+  cascade.Apply();
 }
 
 }  // namespace blink

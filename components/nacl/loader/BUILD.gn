@@ -43,10 +43,6 @@ source_set("minimal") {
     "//sandbox",
     "//services/service_manager/public/cpp",
   ]
-
-  if (is_linux) {
-    deps += [ "//services/service_manager/zygote" ]
-  }
 }
 
 # This exists just to make 'gn check' happy with :minimal and
@@ -56,9 +52,9 @@ source_set("minimal") {
 source_set("minimal_content_dummy") {
   check_includes = false
   sources = [
-    "//content/public/common/common_sandbox_support_linux.h",
     "//content/public/common/main_function_params.h",
     "//content/public/common/sandbox_init.h",
+    "//content/public/common/zygote/sandbox_support_linux.h",
   ]
 
   # Deps required by the above headers.
@@ -110,7 +106,7 @@ test("nacl_loader_unittests") {
   }
 }
 
-if (is_linux) {
+if (is_linux || is_chromeos) {
   executable("nacl_helper") {
     sources = [
       "nacl_helper_linux.cc",
@@ -127,8 +123,7 @@ if (is_linux) {
       "//ipc",
       "//mojo/core/embedder",
       "//sandbox/linux:sandbox_services",
-      "//services/service_manager/sandbox",
-      "//services/service_manager/zygote",
+      "//sandbox/policy",
       "//url/ipc:url_ipc",
     ]
 
@@ -200,7 +195,7 @@ if (is_win && target_cpu == "x86" && current_cpu == "x64") {
       "//content/public/common:static_switches",
       "//mojo/core/embedder",
       "//sandbox",
-      "//services/service_manager/sandbox:sandbox",
+      "//sandbox/policy",
     ]
   }
 }
@@ -225,7 +220,6 @@ if (is_nacl_nonsfi) {
       "//components/nacl/common:minimal",
       "//components/nacl/common:mojo_bindings",
       "//components/nacl/common:switches",
-      "//components/tracing",
       "//content",
       "//ipc",
       "//mojo/core/embedder",
@@ -240,9 +234,8 @@ if (is_nacl_nonsfi) {
       "//native_client/src/untrusted/nacl",
       "//ppapi/proxy",
       "//sandbox/linux:sandbox",
+      "//sandbox/policy",
       "//services/service_manager/public/cpp",
-      "//services/service_manager/sandbox",
-      "//services/service_manager/zygote:zygote_util",
     ]
   }
 

@@ -44,11 +44,11 @@ static int GetVpxVideoDecoderThreadCount(const VideoDecoderConfig& config) {
   // maximum number of tiles possible for higher resolution streams.
   if (config.codec() == kCodecVP9) {
     const int width = config.coded_size().width();
-    if (width >= 4096)
+    if (width >= 3840)
       desired_threads = 16;
-    else if (width >= 2048)
+    else if (width >= 2560)
       desired_threads = 8;
-    else if (width >= 1024)
+    else if (width >= 1280)
       desired_threads = 4;
   }
 
@@ -126,8 +126,13 @@ void VpxVideoDecoder::Initialize(const VideoDecoderConfig& config,
 
   InitCB bound_init_cb = bind_callbacks_ ? BindToCurrentLoop(std::move(init_cb))
                                          : std::move(init_cb);
-  if (config.is_encrypted() || !ConfigureDecoder(config)) {
-    std::move(bound_init_cb).Run(false);
+  if (config.is_encrypted()) {
+    std::move(bound_init_cb).Run(StatusCode::kEncryptedContentUnsupported);
+    return;
+  }
+
+  if (!ConfigureDecoder(config)) {
+    std::move(bound_init_cb).Run(StatusCode::kDecoderFailedInitialization);
     return;
   }
 
@@ -135,7 +140,7 @@ void VpxVideoDecoder::Initialize(const VideoDecoderConfig& config,
   config_ = config;
   state_ = kNormal;
   output_cb_ = output_cb;
-  std::move(bound_init_cb).Run(true);
+  std::move(bound_init_cb).Run(OkStatus());
 }
 
 void VpxVideoDecoder::Decode(scoped_refptr<DecoderBuffer> buffer,
@@ -177,8 +182,7 @@ void VpxVideoDecoder::Decode(scoped_refptr<DecoderBuffer> buffer,
   // We might get a successful VpxDecode but not a frame if only a partial
   // decode happened.
   if (video_frame) {
-    video_frame->metadata()->SetBoolean(VideoFrameMetadata::POWER_EFFICIENT,
-                                        false);
+    video_frame->metadata()->power_efficient = false;
     output_cb_.Run(video_frame);
   }
 
@@ -234,6 +238,14 @@ bool VpxVideoDecoder::ConfigureDecoder(const VideoDecoderConfig& config) {
             vpx_codec_.get(), &GetVP9FrameBuffer, &ReleaseVP9FrameBuffer,
             memory_pool_.get())) {
       DLOG(ERROR) << "Failed to configure external buffers. "
+                  << vpx_codec_error(vpx_codec_.get());
+      return false;
+    }
+
+    vpx_codec_err_t status =
+        vpx_codec_control(vpx_codec_.get(), VP9D_SET_LOOP_FILTER_OPT, 1);
+    if (status != VPX_CODEC_OK) {
+      DLOG(ERROR) << "Failed to enable VP9D_SET_LOOP_FILTER_OPT. "
                   << vpx_codec_error(vpx_codec_.get());
       return false;
     }

@@ -15,7 +15,7 @@
 
 namespace WTF {
 template <typename P, typename Traits, typename Allocator>
-class ConstructTraits;
+class MemberConstructTraits;
 }  // namespace WTF
 
 namespace blink {
@@ -195,12 +195,34 @@ class MemberBase {
     return result;
   }
 
+  static bool IsMemberHashTableDeletedValue(const T* t) {
+    return t == reinterpret_cast<T*>(kHashTableDeletedRawValue);
+  }
+
   bool IsHashTableDeletedValue() const {
-    return GetRaw() == reinterpret_cast<T*>(kHashTableDeletedRawValue);
+    return IsMemberHashTableDeletedValue(GetRaw());
   }
 
  protected:
   static constexpr intptr_t kHashTableDeletedRawValue = -1;
+
+  enum class AtomicCtorTag { Atomic };
+
+  // MemberBase ctors that use atomic write to set raw_.
+
+  MemberBase(AtomicCtorTag, T* raw) {
+    SetRaw(raw);
+    SaveCreationThreadState();
+    CheckPointer();
+    // No write barrier for initializing stores.
+  }
+
+  MemberBase(AtomicCtorTag, T& raw) {
+    SetRaw(&raw);
+    SaveCreationThreadState();
+    CheckPointer();
+    // No write barrier for initializing stores.
+  }
 
   void WriteBarrier() const {
     MarkingVisitor::WriteBarrier(const_cast<std::remove_const_t<T>**>(&raw_));
@@ -223,7 +245,10 @@ class MemberBase {
   }
 
   ALWAYS_INLINE void SetRaw(T* raw) {
-    WTF::AsAtomicPtr(&raw_)->store(raw, std::memory_order_relaxed);
+    if (tracenessConfiguration == TracenessMemberConfiguration::kUntraced)
+      raw_ = raw;
+    else
+      WTF::AsAtomicPtr(&raw_)->store(raw, std::memory_order_relaxed);
   }
   ALWAYS_INLINE T* GetRaw() const { return raw_; }
 
@@ -231,15 +256,10 @@ class MemberBase {
   // Thread safe version of Get() for marking visitors.
   // This is used to prevent data races between concurrent marking visitors
   // and writes on the main thread.
-  T* GetSafe() const {
+  const T* GetSafe() const {
     // TOOD(omerkatz): replace this cast with std::atomic_ref (C++20) once it
     // becomes available
     return WTF::AsAtomicPtr(&raw_)->load(std::memory_order_relaxed);
-  }
-
-  // Thread safe version of IsHashTableDeletedValue for use while tracing.
-  bool IsHashTableDeletedValueSafe() const {
-    return GetSafe() == reinterpret_cast<T*>(kHashTableDeletedRawValue);
   }
 
   T* raw_;
@@ -315,9 +335,13 @@ class Member : public MemberBase<T, TracenessMemberConfiguration::kTraced> {
     return *this;
   }
 
- protected:
+ private:
+  using typename Parent::AtomicCtorTag;
+  Member(AtomicCtorTag atomic, T* raw) : Parent(atomic, raw) {}
+  Member(AtomicCtorTag atomic, T& raw) : Parent(atomic, raw) {}
+
   template <typename P, typename Traits, typename Allocator>
-  friend class WTF::ConstructTraits;
+  friend class WTF::MemberConstructTraits;
 };
 
 // WeakMember is similar to Member in that it is used to point to other oilpan
@@ -368,6 +392,14 @@ class WeakMember : public MemberBase<T, TracenessMemberConfiguration::kTraced> {
     this->SetRaw(nullptr);
     return *this;
   }
+
+ private:
+  using typename Parent::AtomicCtorTag;
+  WeakMember(AtomicCtorTag atomic, T* raw) : Parent(atomic, raw) {}
+  WeakMember(AtomicCtorTag atomic, T& raw) : Parent(atomic, raw) {}
+
+  template <typename P, typename Traits, typename Allocator>
+  friend class WTF::MemberConstructTraits;
 };
 
 // UntracedMember is a pointer to an on-heap object that is not traced for some
@@ -483,35 +515,43 @@ struct IsTraceable<blink::WeakMember<T>> {
 };
 
 template <typename T, typename Traits, typename Allocator>
-class ConstructTraits<blink::Member<T>, Traits, Allocator> {
-  STATIC_ONLY(ConstructTraits);
+class MemberConstructTraits {
+  STATIC_ONLY(MemberConstructTraits);
 
  public:
   template <typename... Args>
-  static blink::Member<T>* Construct(void* location, Args&&... args) {
-    return new (NotNull, location)
-        blink::Member<T>(std::forward<Args>(args)...);
+  static T* Construct(void* location, Args&&... args) {
+    return new (NotNull, location) T(std::forward<Args>(args)...);
   }
 
-  static void NotifyNewElement(blink::Member<T>* element) {
-    element->WriteBarrier();
-  }
+  static void NotifyNewElement(T* element) { element->WriteBarrier(); }
 
   template <typename... Args>
-  static blink::Member<T>* ConstructAndNotifyElement(void* location,
-                                                     Args&&... args) {
-    blink::Member<T>* object = Construct(location, std::forward<Args>(args)...);
+  static T* ConstructAndNotifyElement(void* location, Args&&... args) {
+    // ConstructAndNotifyElement updates an existing Member which might
+    // also be comncurrently traced while we update it. The regular ctors
+    // for Member don't use an atomic write which can lead to data races.
+    T* object = Construct(location, T::AtomicCtorTag::Atomic,
+                          std::forward<Args>(args)...);
     NotifyNewElement(object);
     return object;
   }
 
-  static void NotifyNewElements(blink::Member<T>* array, size_t len) {
+  static void NotifyNewElements(T* array, size_t len) {
     while (len-- > 0) {
       array->WriteBarrier();
       array++;
     }
   }
 };
+
+template <typename T, typename Traits, typename Allocator>
+class ConstructTraits<blink::Member<T>, Traits, Allocator>
+    : public MemberConstructTraits<blink::Member<T>, Traits, Allocator> {};
+
+template <typename T, typename Traits, typename Allocator>
+class ConstructTraits<blink::WeakMember<T>, Traits, Allocator>
+    : public MemberConstructTraits<blink::WeakMember<T>, Traits, Allocator> {};
 
 }  // namespace WTF
 

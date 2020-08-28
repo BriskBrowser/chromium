@@ -6,8 +6,9 @@
 #define ASH_SYSTEM_OVERVIEW_OVERVIEW_BUTTON_TRAY_H_
 
 #include "ash/ash_export.h"
+#include "ash/public/cpp/session/session_observer.h"
+#include "ash/public/cpp/shelf_config.h"
 #include "ash/public/cpp/tablet_mode_observer.h"
-#include "ash/session/session_observer.h"
 #include "ash/system/tray/tray_background_view.h"
 #include "ash/wm/overview/overview_observer.h"
 #include "base/macros.h"
@@ -27,7 +28,8 @@ namespace ash {
 class ASH_EXPORT OverviewButtonTray : public TrayBackgroundView,
                                       public SessionObserver,
                                       public OverviewObserver,
-                                      public TabletModeObserver {
+                                      public TabletModeObserver,
+                                      public ShelfConfig::Observer {
  public:
   // Second taps within this time will be counted as double taps. Use this
   // instead of ui::Event's click_count and tap_count as those have a minimum
@@ -62,10 +64,14 @@ class ASH_EXPORT OverviewButtonTray : public TrayBackgroundView,
   // TabletModeObserver:
   void OnTabletModeEventsBlockingChanged() override;
 
+  // ShelfConfigObserver:
+  void OnShelfConfigUpdated() override;
+
   // TrayBackgroundView:
-  void UpdateAfterLoginStatusChange(LoginStatus status) override;
+  void UpdateAfterLoginStatusChange() override;
   void ClickedOutsideBubble() override;
   base::string16 GetAccessibleNameForTray() override;
+  void HandleLocaleChange() override;
   void HideBubbleWithView(const TrayBubbleView* bubble_view) override;
 
   // views::View:

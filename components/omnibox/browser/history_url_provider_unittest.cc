@@ -28,6 +28,7 @@
 #include "components/omnibox/browser/history_quick_provider.h"
 #include "components/prefs/pref_service.h"
 #include "components/search_engines/default_search_manager.h"
+#include "components/search_engines/omnibox_focus_type.h"
 #include "components/search_engines/template_url.h"
 #include "components/search_engines/template_url_service.h"
 #include "components/url_formatter/url_fixer.h"
@@ -193,6 +194,9 @@ class HistoryURLProviderTest : public testing::Test,
     HistoryQuickProvider::set_disabled(false);
   }
 
+  HistoryURLProviderTest(const HistoryURLProviderTest&) = delete;
+  HistoryURLProviderTest& operator=(const HistoryURLProviderTest&) = delete;
+
   // AutocompleteProviderListener:
   void OnProviderUpdate(bool updated_matches) override;
 
@@ -242,9 +246,6 @@ class HistoryURLProviderTest : public testing::Test,
   scoped_refptr<HistoryURLProvider> autocomplete_;
   // Should the matches be sorted and duplicates removed?
   bool sort_matches_;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(HistoryURLProviderTest);
 };
 
 class HistoryURLProviderTestNoDB : public HistoryURLProviderTest {
@@ -554,7 +555,7 @@ TEST_F(HistoryURLProviderTest, CullRedirects) {
   redirects_to_a.push_back(GURL(test_cases[0].url));
   client_->GetHistoryService()->AddPage(
       GURL(test_cases[0].url), Time::Now(), nullptr, 0, GURL(), redirects_to_a,
-      ui::PAGE_TRANSITION_TYPED, history::SOURCE_BROWSED, true);
+      ui::PAGE_TRANSITION_TYPED, history::SOURCE_BROWSED, true, false);
 
   // Because all the results are part of a redirect chain with other results,
   // all but the first one (A) should be culled. We should get the default
@@ -970,7 +971,7 @@ TEST_F(HistoryURLProviderTest, DoesNotProvideMatchesOnFocus) {
   AutocompleteInput input(ASCIIToUTF16("foo"),
                           metrics::OmniboxEventProto::OTHER,
                           TestSchemeClassifier());
-  input.set_from_omnibox_focus(true);
+  input.set_focus_type(OmniboxFocusType::ON_FOCUS);
   autocomplete_->Start(input, false);
   EXPECT_TRUE(autocomplete_->matches().empty());
 }

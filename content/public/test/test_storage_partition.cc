@@ -41,16 +41,10 @@ TestStoragePartition::GetCookieManagerForBrowserProcess() {
   return cookie_manager_for_browser_process_;
 }
 
-void TestStoragePartition::CreateRestrictedCookieManager(
-    network::mojom::RestrictedCookieManagerRole role,
-    const url::Origin& origin,
-    const net::SiteForCookies& site_for_cookies,
-    const url::Origin& top_frame_origin,
-    bool is_service_worker,
-    int process_id,
-    int routing_id,
-    mojo::PendingReceiver<network::mojom::RestrictedCookieManager> receiver) {
-  NOTREACHED();
+void TestStoragePartition::CreateHasTrustTokensAnswerer(
+    mojo::PendingReceiver<network::mojom::HasTrustTokensAnswerer> receiver,
+    const url::Origin& top_frame_origin) {
+  NOTREACHED() << "Not implemented.";
 }
 
 storage::QuotaManager* TestStoragePartition::GetQuotaManager() {
@@ -85,10 +79,6 @@ storage::mojom::IndexedDBControl& TestStoragePartition::GetIndexedDBControl() {
   return *indexed_db_control_;
 }
 
-IndexedDBContext* TestStoragePartition::GetIndexedDBContext() {
-  return indexed_db_context_;
-}
-
 NativeFileSystemEntryFactory*
 TestStoragePartition::GetNativeFileSystemEntryFactory() {
   return nullptr;
@@ -96,6 +86,10 @@ TestStoragePartition::GetNativeFileSystemEntryFactory() {
 
 ServiceWorkerContext* TestStoragePartition::GetServiceWorkerContext() {
   return service_worker_context_;
+}
+
+DedicatedWorkerService* TestStoragePartition::GetDedicatedWorkerService() {
+  return dedicated_worker_service_;
 }
 
 SharedWorkerService* TestStoragePartition::GetSharedWorkerService() {
@@ -180,6 +174,18 @@ void TestStoragePartition::Flush() {}
 
 void TestStoragePartition::ResetURLLoaderFactories() {}
 
+void TestStoragePartition::AddObserver(DataRemovalObserver* observer) {
+  data_removal_observer_count_++;
+}
+
+void TestStoragePartition::RemoveObserver(DataRemovalObserver* observer) {
+  data_removal_observer_count_--;
+}
+
+int TestStoragePartition::GetDataRemovalObserverCount() {
+  return data_removal_observer_count_;
+}
+
 void TestStoragePartition::ClearBluetoothAllowedDevicesMapForTesting() {}
 
 void TestStoragePartition::FlushNetworkInterfaceForTesting() {}
@@ -187,5 +193,9 @@ void TestStoragePartition::FlushNetworkInterfaceForTesting() {}
 void TestStoragePartition::WaitForDeletionTasksForTesting() {}
 
 void TestStoragePartition::WaitForCodeCacheShutdownForTesting() {}
+
+void TestStoragePartition::SetNetworkContextForTesting(
+    mojo::PendingRemote<network::mojom::NetworkContext>
+        network_context_remote) {}
 
 }  // namespace content

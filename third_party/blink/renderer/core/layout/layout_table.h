@@ -31,7 +31,7 @@
 #include "third_party/blink/renderer/core/css/css_property_names.h"
 #include "third_party/blink/renderer/core/layout/layout_block.h"
 #include "third_party/blink/renderer/core/layout/ng/table/layout_ng_table_interface.h"
-#include "third_party/blink/renderer/platform/graphics/scroll_types.h"
+#include "third_party/blink/renderer/platform/graphics/overlay_scrollbar_clip_behavior.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
 
 namespace blink {
@@ -48,11 +48,11 @@ enum TableHeightChangingValue { kTableHeightNotChanging, kTableHeightChanging };
 // LayoutTable is the LayoutObject associated with
 // display: table or inline-table.
 //
-// LayoutTable is the master coordinator for determining the overall table
-// structure. The reason is that LayoutTableSection children have a local
-// view over what their structure is but don't account for other
-// LayoutTableSection. Thus LayoutTable helps keep consistency across
-// LayoutTableSection. See e.g. |m_effectiveColumns| below.
+// LayoutTable is the coordinator for determining the overall table structure.
+// The reason is that LayoutTableSection children have a local view over what
+// their structure is but don't account for other LayoutTableSection. Thus
+// LayoutTable helps keep consistency across LayoutTableSection. See e.g.
+// |m_effectiveColumns| below.
 //
 // LayoutTable expects only 3 types of children:
 // - zero or more LayoutTableCol
@@ -359,18 +359,6 @@ class CORE_EXPORT LayoutTable final : public LayoutBlock,
     return needs_adjust_collapsed_border_joints_;
   }
 
-  // Returns true if the table has collapsed borders and any row doesn't paint
-  // onto the same compositing layer as the table (which is rare), and the table
-  // will create one display item for all collapsed borders. Otherwise each row
-  // will create one display item for collapsed borders.
-  // It always returns false for CAP.
-  bool ShouldPaintAllCollapsedBorders() const {
-    DCHECK(collapsed_borders_valid_);
-    if (RuntimeEnabledFeatures::CompositeAfterPaintEnabled())
-      DCHECK(!should_paint_all_collapsed_borders_);
-    return should_paint_all_collapsed_borders_;
-  }
-
   bool HasSections() const { return Header() || Footer() || FirstBody(); }
 
   void RecalcSectionsIfNeeded() const final {
@@ -378,11 +366,8 @@ class CORE_EXPORT LayoutTable final : public LayoutBlock,
       RecalcSections();
   }
 
-  static LayoutTable* CreateAnonymousWithParent(const LayoutObject*);
   LayoutBox* CreateAnonymousBoxWithSameTypeAs(
-      const LayoutObject* parent) const override {
-    return CreateAnonymousWithParent(parent);
-  }
+      const LayoutObject* parent) const override;
 
   void AddCaption(const LayoutTableCaption*);
   void RemoveCaption(const LayoutTableCaption*);
@@ -427,7 +412,6 @@ class CORE_EXPORT LayoutTable final : public LayoutBlock,
 
   void EnsureIsReadyForPaintInvalidation() override;
   void InvalidatePaint(const PaintInvalidatorContext&) const override;
-  bool PaintedOutputOfObjectHasNoEffectRegardlessOfSize() const override;
   void ColumnStructureChanged();
 
   // LayoutNGTableInterface methods start.
@@ -460,9 +444,8 @@ class CORE_EXPORT LayoutTable final : public LayoutBlock,
   void PaintObject(const PaintInfo&,
                    const PhysicalOffset& paint_offset) const override;
   void UpdateLayout() override;
-  void ComputeIntrinsicLogicalWidths(LayoutUnit& min_width,
-                                     LayoutUnit& max_width) const override;
-  void ComputePreferredLogicalWidths() override;
+  MinMaxSizes ComputeIntrinsicLogicalWidths() const override;
+  MinMaxSizes PreferredLogicalWidths() const override;
   bool NodeAtPoint(HitTestResult&,
                    const HitTestLocation&,
                    const PhysicalOffset& accumulated_offset,
@@ -489,10 +472,9 @@ class CORE_EXPORT LayoutTable final : public LayoutBlock,
   LayoutUnit ConvertStyleLogicalHeightToComputedHeight(
       const Length& style_logical_height) const;
 
-  PhysicalRect OverflowClipRect(
-      const PhysicalOffset& location,
-      OverlayScrollbarClipBehavior =
-          kIgnorePlatformOverlayScrollbarSize) const override;
+  PhysicalRect OverflowClipRect(const PhysicalOffset& location,
+                                OverlayScrollbarClipBehavior =
+                                    kIgnoreOverlayScrollbarSize) const override;
 
   void ComputeVisualOverflow(bool recompute_floats) final;
 
@@ -575,8 +557,6 @@ class CORE_EXPORT LayoutTable final : public LayoutBlock,
   bool needs_adjust_collapsed_border_joints_ : 1;
   bool needs_invalidate_collapsed_borders_for_all_cells_ : 1;
   mutable bool collapsed_outer_borders_valid_ : 1;
-
-  bool should_paint_all_collapsed_borders_ : 1;
 
   // Whether any column in the table section is or has been collapsed.
   bool is_any_column_ever_collapsed_ : 1;

@@ -74,7 +74,7 @@ void OfflineContentAggregator::UnregisterProvider(
   }
 }
 
-void OfflineContentAggregator::OpenItem(LaunchLocation location,
+void OfflineContentAggregator::OpenItem(const OpenParams& open_params,
                                         const ContentId& id) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   auto it = providers_.find(id.name_space);
@@ -82,7 +82,7 @@ void OfflineContentAggregator::OpenItem(LaunchLocation location,
   if (it == providers_.end())
     return;
 
-  it->second->OpenItem(location, id);
+  it->second->OpenItem(open_params, id);
 }
 
 void OfflineContentAggregator::RemoveItem(const ContentId& id) {
@@ -232,6 +232,16 @@ void OfflineContentAggregator::RenameItem(const ContentId& id,
     return;
   }
   it->second->RenameItem(id, name, std::move(callback));
+}
+
+void OfflineContentAggregator::ChangeSchedule(
+    const ContentId& id,
+    base::Optional<OfflineItemSchedule> schedule) {
+  auto it = providers_.find(id.name_space);
+  if (it == providers_.end())
+    return;
+
+  it->second->ChangeSchedule(id, std::move(schedule));
 }
 
 void OfflineContentAggregator::AddObserver(

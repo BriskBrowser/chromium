@@ -7,7 +7,7 @@
 
 #include "mojo/public/cpp/bindings/struct_traits.h"
 #include "net/base/load_timing_info.h"
-#include "services/network/public/mojom/load_timing_info.mojom.h"
+#include "services/network/public/mojom/load_timing_info.mojom-shared.h"
 
 namespace mojo {
 
@@ -96,6 +96,11 @@ struct StructTraits<network::mojom::LoadTimingInfoDataView,
     return obj.receive_headers_end;
   }
 
+  static base::TimeTicks first_early_hints_time(
+      const net::LoadTimingInfo& obj) {
+    return obj.first_early_hints_time;
+  }
+
   static base::TimeTicks push_start(const net::LoadTimingInfo& obj) {
     return obj.push_start;
   }
@@ -112,6 +117,16 @@ struct StructTraits<network::mojom::LoadTimingInfoDataView,
   static base::TimeTicks service_worker_ready_time(
       const net::LoadTimingInfo& obj) {
     return obj.service_worker_ready_time;
+  }
+
+  static base::TimeTicks service_worker_fetch_start(
+      const net::LoadTimingInfo& obj) {
+    return obj.service_worker_fetch_start;
+  }
+
+  static base::TimeTicks service_worker_respond_with_settled(
+      const net::LoadTimingInfo& obj) {
+    return obj.service_worker_respond_with_settled;
   }
 
   static bool Read(network::mojom::LoadTimingInfoDataView obj,

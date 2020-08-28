@@ -9,8 +9,10 @@
 #include <vector>
 
 #include "base/bind.h"
+#include "base/bind_helpers.h"
 #include "base/callback_helpers.h"
 #include "base/containers/circular_deque.h"
+#include "base/logging.h"
 #include "base/test/simple_test_tick_clock.h"
 #include "media/base/fake_single_thread_task_runner.h"
 #include "media/base/test_random.h"
@@ -261,8 +263,7 @@ TEST_F(MultiBufferTest, ReadAll) {
   size_t end = 10000;
   multibuffer_.SetFileSize(10000);
   multibuffer_.SetMustReadWholeFile(true);
-  MultiBufferReader reader(&multibuffer_, pos, end,
-                           base::Callback<void(int64_t, int64_t)>());
+  MultiBufferReader reader(&multibuffer_, pos, end, base::NullCallback());
   reader.SetPinRange(2000, 5000);
   reader.SetPreload(1000, 1000);
   while (pos < end) {
@@ -289,8 +290,7 @@ TEST_F(MultiBufferTest, ReadAllAdvanceFirst) {
   size_t end = 10000;
   multibuffer_.SetFileSize(10000);
   multibuffer_.SetMustReadWholeFile(true);
-  MultiBufferReader reader(&multibuffer_, pos, end,
-                           base::Callback<void(int64_t, int64_t)>());
+  MultiBufferReader reader(&multibuffer_, pos, end, base::NullCallback());
   reader.SetPinRange(2000, 5000);
   reader.SetPreload(1000, 1000);
   while (pos < end) {
@@ -319,8 +319,7 @@ TEST_F(MultiBufferTest, ReadAllAdvanceFirst_NeverDefer) {
   multibuffer_.SetFileSize(10000);
   multibuffer_.SetMaxBlocksAfterDefer(-10000);
   multibuffer_.SetRangeSupported(true);
-  MultiBufferReader reader(&multibuffer_, pos, end,
-                           base::Callback<void(int64_t, int64_t)>());
+  MultiBufferReader reader(&multibuffer_, pos, end, base::NullCallback());
   reader.SetPinRange(2000, 5000);
   reader.SetPreload(1000, 1000);
   while (pos < end) {
@@ -350,8 +349,7 @@ TEST_F(MultiBufferTest, ReadAllAdvanceFirst_NeverDefer2) {
   multibuffer_.SetFileSize(10000);
   multibuffer_.SetMustReadWholeFile(true);
   multibuffer_.SetMaxBlocksAfterDefer(-10000);
-  MultiBufferReader reader(&multibuffer_, pos, end,
-                           base::Callback<void(int64_t, int64_t)>());
+  MultiBufferReader reader(&multibuffer_, pos, end, base::NullCallback());
   reader.SetPinRange(2000, 5000);
   reader.SetPreload(1000, 1000);
   while (pos < end) {
@@ -380,8 +378,7 @@ TEST_F(MultiBufferTest, LRUTest) {
   size_t pos = 0;
   size_t end = 10000;
   multibuffer_.SetFileSize(10000);
-  MultiBufferReader reader(&multibuffer_, pos, end,
-                           base::Callback<void(int64_t, int64_t)>());
+  MultiBufferReader reader(&multibuffer_, pos, end, base::NullCallback());
   reader.SetPreload(10000, 10000);
   // Note, no pinning, all data should end up in LRU.
   EXPECT_EQ(current_size, lru_->Size());
@@ -409,8 +406,7 @@ TEST_F(MultiBufferTest, LRUTest2) {
   size_t pos = 0;
   size_t end = 10000;
   multibuffer_.SetFileSize(10000);
-  MultiBufferReader reader(&multibuffer_, pos, end,
-                           base::Callback<void(int64_t, int64_t)>());
+  MultiBufferReader reader(&multibuffer_, pos, end, base::NullCallback());
   reader.SetPreload(10000, 10000);
   // Note, no pinning, all data should end up in LRU.
   EXPECT_EQ(current_size, lru_->Size());
@@ -439,8 +435,7 @@ TEST_F(MultiBufferTest, LRUTestExpirationTest) {
   size_t pos = 0;
   size_t end = 10000;
   multibuffer_.SetFileSize(10000);
-  MultiBufferReader reader(&multibuffer_, pos, end,
-                           base::Callback<void(int64_t, int64_t)>());
+  MultiBufferReader reader(&multibuffer_, pos, end, base::NullCallback());
   reader.SetPreload(10000, 10000);
   // Note, no pinning, all data should end up in LRU.
   EXPECT_EQ(current_size, lru_->Size());
@@ -485,10 +480,7 @@ class ReadHelper {
         max_read_size_(max_read_size),
         read_size_(0),
         rnd_(rnd),
-        reader_(multibuffer,
-                pos_,
-                end_,
-                base::Callback<void(int64_t, int64_t)>()) {
+        reader_(multibuffer, pos_, end_, base::NullCallback()) {
     reader_.SetPinRange(2000, 5000);
     reader_.SetPreload(1000, 1000);
   }

@@ -63,6 +63,11 @@ PlatformKeysCertificateSelector::PlatformKeysCertificateSelector(
       extension_name_(extension_name),
       callback_(callback) {
   DCHECK(!callback_.is_null());
+  SetCancelCallback(base::BindOnce(
+      [](PlatformKeysCertificateSelector* dialog) {
+        std::move(dialog->callback_).Run(nullptr);
+      },
+      base::Unretained(this)));
   chrome::RecordDialogCreation(
       chrome::DialogIdentifier::PLATFORM_KEYS_CERTIFICATE_SELECTOR);
 }
@@ -77,23 +82,15 @@ PlatformKeysCertificateSelector::~PlatformKeysCertificateSelector() {
 void PlatformKeysCertificateSelector::Init() {
   const base::string16 name = base::ASCIIToUTF16(extension_name_);
 
+  auto label = std::make_unique<views::StyledLabel>();
   size_t offset;
-  const base::string16 text = l10n_util::GetStringFUTF16(
-      IDS_PLATFORM_KEYS_SELECT_CERT_DIALOG_TEXT, name, &offset);
-
-  std::unique_ptr<views::StyledLabel> label(
-      new views::StyledLabel(text, nullptr /* no listener */));
+  label->SetText(l10n_util::GetStringFUTF16(
+      IDS_PLATFORM_KEYS_SELECT_CERT_DIALOG_TEXT, name, &offset));
 
   views::StyledLabel::RangeStyleInfo bold_style;
   bold_style.text_style = STYLE_EMPHASIZED;
   label->AddStyleRange(gfx::Range(offset, offset + name.size()), bold_style);
   CertificateSelector::InitWithText(std::move(label));
-}
-
-bool PlatformKeysCertificateSelector::Cancel() {
-  DCHECK(!callback_.is_null());
-  std::move(callback_).Run(nullptr);
-  return true;
 }
 
 void PlatformKeysCertificateSelector::AcceptCertificate(

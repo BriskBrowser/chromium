@@ -11,6 +11,8 @@
 
 #include "base/feature_list.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/power_monitor/power_monitor.h"
+#include "components/page_load_metrics/browser/observers/largest_contentful_paint_handler.h"
 #include "components/page_load_metrics/browser/page_load_metrics_util.h"
 #include "content/public/common/process_type.h"
 #include "net/http/http_response_headers.h"
@@ -20,6 +22,16 @@
 #include "ui/events/blink/blink_features.h"
 
 namespace {
+
+// Used to generate a unique id when emitting the "Long Navigation to First
+// Contentful Paint" trace event.
+int g_num_trace_events_in_process = 0;
+
+// The threshold to emit a trace event is the 99th percentile
+// of the histogram on Windows Stable as of Feb 26th, 2020.
+constexpr base::TimeDelta kFirstContentfulPaintTraceThreshold =
+    base::TimeDelta::FromMilliseconds(12388);
+
 // TODO(bmcquade): If other observers want to log histograms based on load type,
 // promote this enum to page_load_metrics_observer.h.
 enum PageLoadType {
@@ -50,6 +62,43 @@ void RecordFirstMeaningfulPaintStatus(
                             internal::FIRST_MEANINGFUL_PAINT_LAST_ENTRY);
 }
 
+std::unique_ptr<base::trace_event::TracedValue> FirstInputDelayTraceData(
+    const page_load_metrics::mojom::PageLoadTiming& timing) {
+  std::unique_ptr<base::trace_event::TracedValue> data =
+      std::make_unique<base::trace_event::TracedValue>();
+  data->SetDouble(
+      "firstInputDelayInMilliseconds",
+      timing.interactive_timing->first_input_delay->InMillisecondsF());
+  data->SetDouble(
+      "navStartToFirstInputTimestampInMilliseconds",
+      timing.interactive_timing->first_input_timestamp->InMillisecondsF());
+  return data;
+}
+
+// TODO(crbug/1097328): Remove collecting visits to support.google.com after
+// language settings update fully launches.
+#if defined(OS_CHROMEOS)
+void RecordVisitToLanguageSettingsSupportPage(const GURL& url) {
+  if (url.is_empty() || !url.DomainIs("support.google.com"))
+    return;
+
+  // Keep these pages in order with SettingsLanguagesSupportPage in enums.xml
+  std::vector<std::string> kSupportPages = {
+      "chrome/answer/173424?co=GENIE.Platform%3DDesktop",
+      "chromebook/answer/1059490",
+      "chromebook/answer/1059492",
+  };
+  const size_t num_pages = 3;
+  for (size_t i = 0; i < num_pages; ++i) {
+    if (url.spec().find(kSupportPages[i]) != std::string::npos) {
+      UMA_HISTOGRAM_ENUMERATION("ChromeOS.Settings.Languages.SupportPageVisits",
+                                i, num_pages);
+      return;
+    }
+  }
+}
+#endif  // defined(OS_CHROMEOS)
+
 }  // namespace
 
 namespace internal {
@@ -62,10 +111,6 @@ const char kHistogramLoad[] =
     "PageLoad.DocumentTiming.NavigationToLoadEventFired";
 const char kBackgroundHistogramLoad[] =
     "PageLoad.DocumentTiming.NavigationToLoadEventFired.Background";
-const char kHistogramFirstLayout[] =
-    "PageLoad.DocumentTiming.NavigationToFirstLayout";
-const char kBackgroundHistogramFirstLayout[] =
-    "PageLoad.DocumentTiming.NavigationToFirstLayout.Background";
 const char kHistogramFirstPaint[] =
     "PageLoad.PaintTiming.NavigationToFirstPaint";
 const char kBackgroundHistogramFirstPaint[] =
@@ -83,10 +128,6 @@ const char kHistogramFirstContentfulPaintInitiatingProcess[] =
     "InitiatingProcess";
 const char kHistogramFirstMeaningfulPaint[] =
     "PageLoad.Experimental.PaintTiming.NavigationToFirstMeaningfulPaint";
-const char kHistogramLargestImagePaint[] =
-    "PageLoad.Experimental.PaintTiming.NavigationToLargestImagePaint";
-const char kHistogramLargestTextPaint[] =
-    "PageLoad.Experimental.PaintTiming.NavigationToLargestTextPaint";
 const char kHistogramLargestContentfulPaint[] =
     "PageLoad.PaintTiming.NavigationToLargestContentfulPaint";
 const char kHistogramLargestContentfulPaintContentType[] =
@@ -96,18 +137,22 @@ const char kHistogramLargestContentfulPaintMainFrame[] =
 const char kHistogramLargestContentfulPaintMainFrameContentType[] =
     "PageLoad.Internal.PaintTiming.LargestContentfulPaint.MainFrame."
     "ContentType";
+const char kHistogramExperimentalLargestContentfulPaint[] =
+    "PageLoad.PaintTiming.NavigationToExperimentalLargestContentfulPaint";
+const char kHistogramExperimentalLargestContentfulPaintContentType[] =
+    "PageLoad.Internal.PaintTiming.ExperimentalLargestContentfulPaint."
+    "ContentType";
+const char kHistogramExperimentalLargestContentfulPaintMainFrame[] =
+    "PageLoad.PaintTiming.NavigationToExperimentalLargestContentfulPaint."
+    "MainFrame";
+const char kHistogramExperimentalLargestContentfulPaintMainFrameContentType[] =
+    "PageLoad.Internal.PaintTiming.ExperimentalLargestContentfulPaint."
+    "MainFrame."
+    "ContentType";
 const char kHistogramFirstInputDelay[] =
-    "PageLoad.InteractiveTiming.FirstInputDelay3";
-const char kHistogramFirstInputTimestamp[] =
-    "PageLoad.InteractiveTiming.FirstInputTimestamp3";
-const char kHistogramFirstInputDelay4[] =
     "PageLoad.InteractiveTiming.FirstInputDelay4";
-const char kHistogramFirstInputTimestamp4[] =
+const char kHistogramFirstInputTimestamp[] =
     "PageLoad.InteractiveTiming.FirstInputTimestamp4";
-const char kHistogramFirstInputDelaySkipFilteringComparison[] =
-    "PageLoad.InteractiveTiming.FirstInputDelay.SkipFilteringComparison";
-const char kHistogramFirstInputTimestampSkipFilteringComparison[] =
-    "PageLoad.InteractiveTiming.FirstInputTimestamp.SkipFilteringComparison";
 const char kHistogramLongestInputDelay[] =
     "PageLoad.InteractiveTiming.LongestInputDelay4";
 const char kHistogramLongestInputTimestamp[] =
@@ -141,6 +186,14 @@ const char kHistogramParseBlockedOnScriptExecutionDocumentWrite[] =
 
 const char kHistogramFirstContentfulPaintNoStore[] =
     "PageLoad.PaintTiming.NavigationToFirstContentfulPaint.NoStore";
+
+const char kHistogramFirstContentfulPaintOnBattery[] =
+    "PageLoad.PaintTiming.NavigationToFirstContentfulPaint.OnBattery";
+const char kHistogramFirstContentfulPaintNotOnBattery[] =
+    "PageLoad.PaintTiming.NavigationToFirstContentfulPaint.NotOnBattery";
+
+const char kHistogramFirstContentfulPaintHiddenWhileFlushing[] =
+    "PageLoad.PaintTiming.NavigationToFirstContentfulPaint.HiddenWhileFlushing";
 
 const char kHistogramLoadTypeFirstContentfulPaintReload[] =
     "PageLoad.PaintTiming.NavigationToFirstContentfulPaint.LoadType."
@@ -268,6 +321,56 @@ const char kHistogramInputToFirstContentfulPaint[] =
 const char kBackgroundHistogramInputToFirstContentfulPaint[] =
     "PageLoad.Experimental.PaintTiming.InputToFirstContentfulPaint.Background";
 
+const char kHistogramBackForwardCacheEvent[] =
+    "PageLoad.BackForwardCache.Event";
+
+// Navigation metrics from the navigation start.
+const char kHistogramNavigationTimingNavigationStartToFirstRequestStart[] =
+    "PageLoad.Experimental.NavigationTiming.NavigationStartToFirstRequestStart";
+const char kHistogramNavigationTimingNavigationStartToFirstResponseStart[] =
+    "PageLoad.Experimental.NavigationTiming."
+    "NavigationStartToFirstResponseStart";
+const char kHistogramNavigationTimingNavigationStartToFirstLoaderCallback[] =
+    "PageLoad.Experimental.NavigationTiming."
+    "NavigationStartToFirstLoaderCallback";
+const char kHistogramNavigationTimingNavigationStartToFinalRequestStart[] =
+    "PageLoad.Experimental.NavigationTiming.NavigationStartToFinalRequestStart";
+const char kHistogramNavigationTimingNavigationStartToFinalResponseStart[] =
+    "PageLoad.Experimental.NavigationTiming."
+    "NavigationStartToFinalResponseStart";
+const char kHistogramNavigationTimingNavigationStartToFinalLoaderCallback[] =
+    "PageLoad.Experimental.NavigationTiming."
+    "NavigationStartToFinalLoaderCallback";
+const char kHistogramNavigationTimingNavigationStartToNavigationCommitSent[] =
+    "PageLoad.Experimental.NavigationTiming."
+    "NavigationStartToNavigationCommitSent";
+
+// Navigation metrics between milestones.
+const char kHistogramNavigationTimingFirstRequestStartToFirstResponseStart[] =
+    "PageLoad.Experimental.NavigationTiming."
+    "FirstRequestStartToFirstResponseStart";
+const char kHistogramNavigationTimingFirstResponseStartToFirstLoaderCallback[] =
+    "PageLoad.Experimental.NavigationTiming."
+    "FirstResponseStartToFirstLoaderCallback";
+const char kHistogramNavigationTimingFinalRequestStartToFinalResponseStart[] =
+    "PageLoad.Experimental.NavigationTiming."
+    "FinalRequestStartToFinalResponseStart";
+const char kHistogramNavigationTimingFinalResponseStartToFinalLoaderCallback[] =
+    "PageLoad.Experimental.NavigationTiming."
+    "FinalResponseStartToFinalLoaderCallback";
+const char
+    kHistogramNavigationTimingFinalLoaderCallbackToNavigationCommitSent[] =
+        "PageLoad.Experimental.NavigationTiming."
+        "FinalLoaderCallbackToNavigationCommitSent";
+
+// 103 Early Hints metrics for experiment (https://crbug.com/1093693).
+const char kHistogramEarlyHintsFirstRequestStartToEarlyHints[] =
+    "PageLoad.Experimental.EarlyHints.FirstRequestStartToEarlyHints";
+const char kHistogramEarlyHintsFinalRequestStartToEarlyHints[] =
+    "PageLoad.Experimental.EarlyHints.FinalRequestStartToEarlyHints";
+const char kHistogramEarlyHintsEarlyHintsToFinalResponseStart[] =
+    "PageLoad.Experimental.EarlyHints.EarlyHintsToFinalResponseStart";
+
 }  // namespace internal
 
 CorePageLoadMetricsObserver::CorePageLoadMetricsObserver()
@@ -278,8 +381,7 @@ CorePageLoadMetricsObserver::CorePageLoadMetricsObserver()
       cache_bytes_(0),
       network_bytes_(0),
       network_bytes_including_headers_(0),
-      redirect_chain_size_(0),
-      largest_contentful_paint_handler_() {}
+      redirect_chain_size_(0) {}
 
 CorePageLoadMetricsObserver::~CorePageLoadMetricsObserver() {}
 
@@ -303,6 +405,13 @@ CorePageLoadMetricsObserver::OnCommit(
   }
   UMA_HISTOGRAM_COUNTS_100("PageLoad.Navigation.RedirectChainLength",
                            redirect_chain_size_);
+  navigation_handle_timing_ = navigation_handle->GetNavigationHandleTiming();
+
+  // TODO(crbug/1097328): Remove collecting visits to support.google.com after
+  // language settings update fully launches.
+#if defined(OS_CHROMEOS)
+  RecordVisitToLanguageSettingsSupportPage(navigation_handle->GetURL());
+#endif  // defined(OS_CHROMEOS)
   return CONTINUE_OBSERVING;
 }
 
@@ -333,18 +442,6 @@ void CorePageLoadMetricsObserver::OnLoadEventStart(
   }
 }
 
-void CorePageLoadMetricsObserver::OnFirstLayout(
-    const page_load_metrics::mojom::PageLoadTiming& timing) {
-  if (page_load_metrics::WasStartedInForegroundOptionalEventInForeground(
-          timing.document_timing->first_layout, GetDelegate())) {
-    PAGE_LOAD_HISTOGRAM(internal::kHistogramFirstLayout,
-                        timing.document_timing->first_layout.value());
-  } else {
-    PAGE_LOAD_HISTOGRAM(internal::kBackgroundHistogramFirstLayout,
-                        timing.document_timing->first_layout.value());
-  }
-}
-
 void CorePageLoadMetricsObserver::OnFirstPaintInPage(
     const page_load_metrics::mojom::PageLoadTiming& timing) {
   first_paint_ = GetDelegate().GetNavigationStart() +
@@ -353,6 +450,7 @@ void CorePageLoadMetricsObserver::OnFirstPaintInPage(
           timing.paint_timing->first_paint, GetDelegate())) {
     PAGE_LOAD_HISTOGRAM(internal::kHistogramFirstPaint,
                         timing.paint_timing->first_paint.value());
+
     if (timing.input_to_navigation_start) {
       PAGE_LOAD_HISTOGRAM(internal::kHistogramInputToFirstPaint,
                           timing.input_to_navigation_start.value() +
@@ -397,6 +495,23 @@ void CorePageLoadMetricsObserver::OnFirstContentfulPaintInPage(
     PAGE_LOAD_HISTOGRAM(internal::kHistogramParseStartToFirstContentfulPaint,
                         timing.paint_timing->first_contentful_paint.value() -
                             timing.parse_timing->parse_start.value());
+
+    // Emit a trace event to highlight a long navigation to first contentful
+    // paint.
+    if (timing.paint_timing->first_contentful_paint >
+        kFirstContentfulPaintTraceThreshold) {
+      base::TimeTicks navigation_start = GetDelegate().GetNavigationStart();
+      TRACE_EVENT_ASYNC_BEGIN_WITH_TIMESTAMP0(
+          "latency", "Long Navigation to First Contentful Paint",
+          TRACE_ID_LOCAL(g_num_trace_events_in_process), navigation_start);
+      TRACE_EVENT_ASYNC_END_WITH_TIMESTAMP0(
+          "latency", "Long Navigation to First Contentful Paint",
+          TRACE_ID_LOCAL(g_num_trace_events_in_process),
+          navigation_start +
+              timing.paint_timing->first_contentful_paint.value());
+      g_num_trace_events_in_process++;
+    }
+
     UMA_HISTOGRAM_ENUMERATION(
         internal::kHistogramFirstContentfulPaintInitiatingProcess,
         GetDelegate().GetUserInitiatedInfo().browser_initiated
@@ -406,6 +521,14 @@ void CorePageLoadMetricsObserver::OnFirstContentfulPaintInPage(
 
     if (was_no_store_main_resource_) {
       PAGE_LOAD_HISTOGRAM(internal::kHistogramFirstContentfulPaintNoStore,
+                          timing.paint_timing->first_contentful_paint.value());
+    }
+
+    if (base::PowerMonitor::IsOnBatteryPower()) {
+      PAGE_LOAD_HISTOGRAM(internal::kHistogramFirstContentfulPaintOnBattery,
+                          timing.paint_timing->first_contentful_paint.value());
+    } else {
+      PAGE_LOAD_HISTOGRAM(internal::kHistogramFirstContentfulPaintNotOnBattery,
                           timing.paint_timing->first_contentful_paint.value());
     }
 
@@ -435,6 +558,16 @@ void CorePageLoadMetricsObserver::OnFirstContentfulPaintInPage(
         PAGE_LOAD_HISTOGRAM(internal::kHistogramInputToNavigationOmnibox,
                             timing.input_to_navigation_start.value());
       }
+    }
+
+    if (GetDelegate().GetFirstBackgroundTime()) {
+      // We were started in the foreground, and got FCP while in foreground, but
+      // became hidden while propagating the FCP value from Blink into the PLM
+      // observer. In this case, we will have missed the FCP UKM value, since it
+      // is logged in UkmPageLoadMetricsObserver::OnHidden.
+      PAGE_LOAD_HISTOGRAM(
+          internal::kHistogramFirstContentfulPaintHiddenWhileFlushing,
+          timing.paint_timing->first_contentful_paint.value());
     }
 
     switch (GetPageLoadType(transition_)) {
@@ -525,45 +658,18 @@ void CorePageLoadMetricsObserver::OnFirstInputInPage(
           timing.interactive_timing->first_input_timestamp, GetDelegate())) {
     return;
   }
-
-  // Input delay will often be ~0, and will only be > 10 seconds very
-  // rarely. Capture the range from 1ms to 60s.
-  // While the SkipTouchEventFilter experiment is running, always record
-  // first input metrics with the name "SkipFilteringComparison" so that
-  // we can compare with it on/off.
   UMA_HISTOGRAM_CUSTOM_TIMES(
-      internal::kHistogramFirstInputDelaySkipFilteringComparison,
+      internal::kHistogramFirstInputDelay,
       timing.interactive_timing->first_input_delay.value(),
       base::TimeDelta::FromMilliseconds(1), base::TimeDelta::FromSeconds(60),
       50);
-  PAGE_LOAD_HISTOGRAM(
-      internal::kHistogramFirstInputTimestampSkipFilteringComparison,
-      timing.interactive_timing->first_input_timestamp.value());
-  if (base::FeatureList::IsEnabled(features::kSkipTouchEventFilter)) {
-    // This experiment will change the FID and first input metric by
-    // changing the timestamp on pointerdown events on mobile pages with no
-    // pointer event handlers. If it is ramped up to 100% to launch, we need
-    // to update the metric name (v3->v4).
-    UMA_HISTOGRAM_CUSTOM_TIMES(
-        internal::kHistogramFirstInputDelay4,
-        timing.interactive_timing->first_input_delay.value(),
-        base::TimeDelta::FromMilliseconds(1), base::TimeDelta::FromSeconds(60),
-        50);
-    PAGE_LOAD_HISTOGRAM(
-        internal::kHistogramFirstInputTimestamp4,
-        timing.interactive_timing->first_input_timestamp.value());
-  } else {
-    // If the SkipTouchEventFilter experiment does not launch, we want to
-    // continue reporting first input events under the current name.
-    UMA_HISTOGRAM_CUSTOM_TIMES(
-        internal::kHistogramFirstInputDelay,
-        timing.interactive_timing->first_input_delay.value(),
-        base::TimeDelta::FromMilliseconds(1), base::TimeDelta::FromSeconds(60),
-        50);
-    PAGE_LOAD_HISTOGRAM(
-        internal::kHistogramFirstInputTimestamp,
-        timing.interactive_timing->first_input_timestamp.value());
-  }
+  PAGE_LOAD_HISTOGRAM(internal::kHistogramFirstInputTimestamp,
+                      timing.interactive_timing->first_input_timestamp.value());
+  TRACE_EVENT_MARK_WITH_TIMESTAMP1(
+      "loading", "FirstInputDelay::AllFrames::UMA",
+      GetDelegate().GetNavigationStart() +
+          timing.interactive_timing->first_input_timestamp.value(),
+      "data", FirstInputDelayTraceData(timing));
 }
 
 void CorePageLoadMetricsObserver::OnParseStart(
@@ -641,6 +747,7 @@ void CorePageLoadMetricsObserver::OnParseStop(
 
 void CorePageLoadMetricsObserver::OnComplete(
     const page_load_metrics::mojom::PageLoadTiming& timing) {
+  RecordNavigationTimingHistograms();
   RecordTimingHistograms(timing);
   RecordByteAndResourceHistograms(timing);
   RecordCpuUsageHistograms();
@@ -655,6 +762,7 @@ CorePageLoadMetricsObserver::FlushMetricsOnAppEnterBackground(
   // flow. After this method is invoked, Chrome may be killed without further
   // notification, so we record final metrics collected up to this point.
   if (GetDelegate().DidCommit()) {
+    RecordNavigationTimingHistograms();
     RecordTimingHistograms(timing);
     RecordByteAndResourceHistograms(timing);
     RecordCpuUsageHistograms();
@@ -694,8 +802,8 @@ void CorePageLoadMetricsObserver::OnUserInput(
   click_tracker_.OnUserInput(event);
 
   if (!received_non_scroll_input_after_first_paint_) {
-    if (event.GetType() == blink::WebInputEvent::kGestureTap ||
-        event.GetType() == blink::WebInputEvent::kMouseUp) {
+    if (event.GetType() == blink::WebInputEvent::Type::kGestureTap ||
+        event.GetType() == blink::WebInputEvent::Type::kMouseUp) {
       received_non_scroll_input_after_first_paint_ = true;
       if (now.is_null())
         now = base::TimeTicks::Now();
@@ -705,7 +813,7 @@ void CorePageLoadMetricsObserver::OnUserInput(
     }
   }
   if (!received_scroll_input_after_first_paint_ &&
-      event.GetType() == blink::WebInputEvent::kGestureScrollBegin) {
+      event.GetType() == blink::WebInputEvent::Type::kGestureScrollBegin) {
     received_scroll_input_after_first_paint_ = true;
     if (now.is_null())
       now = base::TimeTicks::Now();
@@ -733,6 +841,115 @@ void CorePageLoadMetricsObserver::OnResourceDataUseObserved(
   }
 }
 
+void CorePageLoadMetricsObserver::RecordNavigationTimingHistograms() {
+  const base::TimeTicks navigation_start_time =
+      GetDelegate().GetNavigationStart();
+  const content::NavigationHandleTiming& timing = navigation_handle_timing_;
+
+  // Record metrics for navigation only when all relevant milestones are
+  // recorded and in the expected order. It is allowed that they have the same
+  // value for some cases (e.g., internal redirection for HSTS).
+  if (navigation_start_time.is_null() ||
+      timing.first_request_start_time.is_null() ||
+      timing.first_response_start_time.is_null() ||
+      timing.first_loader_callback_time.is_null() ||
+      timing.final_request_start_time.is_null() ||
+      timing.final_response_start_time.is_null() ||
+      timing.final_loader_callback_time.is_null() ||
+      timing.navigation_commit_sent_time.is_null()) {
+    return;
+  }
+  // TODO(https://crbug.com/1076710): Change these early-returns to DCHECKs
+  // after the issue 1076710 is fixed.
+  if (navigation_start_time > timing.first_request_start_time ||
+      timing.first_request_start_time > timing.first_response_start_time ||
+      timing.first_response_start_time > timing.first_loader_callback_time ||
+      timing.first_loader_callback_time > timing.navigation_commit_sent_time) {
+    return;
+  }
+  if (navigation_start_time > timing.final_request_start_time ||
+      timing.final_request_start_time > timing.final_response_start_time ||
+      timing.final_response_start_time > timing.final_loader_callback_time ||
+      timing.final_loader_callback_time > timing.navigation_commit_sent_time) {
+    return;
+  }
+  DCHECK_LE(timing.first_request_start_time, timing.final_request_start_time);
+  DCHECK_LE(timing.first_response_start_time, timing.final_response_start_time);
+  DCHECK_LE(timing.first_loader_callback_time,
+            timing.final_loader_callback_time);
+
+  // Record the elapsed time from the navigation start milestone.
+  PAGE_LOAD_HISTOGRAM(
+      internal::kHistogramNavigationTimingNavigationStartToFirstRequestStart,
+      timing.first_request_start_time - navigation_start_time);
+  PAGE_LOAD_HISTOGRAM(
+      internal::kHistogramNavigationTimingNavigationStartToFirstResponseStart,
+      timing.first_response_start_time - navigation_start_time);
+  PAGE_LOAD_HISTOGRAM(
+      internal::kHistogramNavigationTimingNavigationStartToFirstLoaderCallback,
+      timing.first_loader_callback_time - navigation_start_time);
+
+  PAGE_LOAD_HISTOGRAM(
+      internal::kHistogramNavigationTimingNavigationStartToFinalRequestStart,
+      timing.final_request_start_time - navigation_start_time);
+  PAGE_LOAD_HISTOGRAM(
+      internal::kHistogramNavigationTimingNavigationStartToFinalResponseStart,
+      timing.final_response_start_time - navigation_start_time);
+  PAGE_LOAD_HISTOGRAM(
+      internal::kHistogramNavigationTimingNavigationStartToFinalLoaderCallback,
+      timing.final_loader_callback_time - navigation_start_time);
+
+  PAGE_LOAD_HISTOGRAM(
+      internal::kHistogramNavigationTimingNavigationStartToNavigationCommitSent,
+      timing.navigation_commit_sent_time - navigation_start_time);
+
+  // Record the intervals between milestones.
+  PAGE_LOAD_HISTOGRAM(
+      internal::kHistogramNavigationTimingFirstRequestStartToFirstResponseStart,
+      timing.first_response_start_time - timing.first_request_start_time);
+  PAGE_LOAD_HISTOGRAM(
+      internal::
+          kHistogramNavigationTimingFirstResponseStartToFirstLoaderCallback,
+      timing.first_loader_callback_time - timing.first_response_start_time);
+
+  PAGE_LOAD_HISTOGRAM(
+      internal::kHistogramNavigationTimingFinalRequestStartToFinalResponseStart,
+      timing.final_response_start_time - timing.final_request_start_time);
+  PAGE_LOAD_HISTOGRAM(
+      internal::
+          kHistogramNavigationTimingFinalResponseStartToFinalLoaderCallback,
+      timing.final_loader_callback_time - timing.final_response_start_time);
+
+  PAGE_LOAD_HISTOGRAM(
+      internal::
+          kHistogramNavigationTimingFinalLoaderCallbackToNavigationCommitSent,
+      timing.navigation_commit_sent_time - timing.final_loader_callback_time);
+
+  // Record the following intervals for the 103 Early Hints experiment
+  // (https://crbug.com/1093693).
+  // - The first request start to the 103 response,
+  // - The final request start to the 103 response, and the 103 response to the
+  //   final response,
+  // Note that multiple 103 responses can be served per request. These metrics
+  // use the first 103 response as the timing.
+  if (!timing.early_hints_for_first_request_time.is_null()) {
+    PAGE_LOAD_HISTOGRAM(
+        internal::kHistogramEarlyHintsFirstRequestStartToEarlyHints,
+        timing.first_request_start_time -
+            timing.early_hints_for_first_request_time);
+  }
+  if (!timing.early_hints_for_final_request_time.is_null()) {
+    PAGE_LOAD_HISTOGRAM(
+        internal::kHistogramEarlyHintsFinalRequestStartToEarlyHints,
+        timing.final_request_start_time -
+            timing.early_hints_for_final_request_time);
+    PAGE_LOAD_HISTOGRAM(
+        internal::kHistogramEarlyHintsEarlyHintsToFinalResponseStart,
+        timing.early_hints_for_final_request_time -
+            timing.final_response_start_time);
+  }
+}
+
 // This method records values for metrics that were not recorded during any
 // other event, or records failure status for metrics that have not been
 // collected yet. This is meant to be called at the end of a page lifetime, for
@@ -748,28 +965,10 @@ void CorePageLoadMetricsObserver::RecordTimingHistograms(
   }
 
   const page_load_metrics::ContentfulPaintTimingInfo&
-      main_frame_largest_image_paint =
-          largest_contentful_paint_handler_.MainFrameLargestImagePaint();
-  if (main_frame_largest_image_paint.ContainsValidTime() &&
-      WasStartedInForegroundOptionalEventInForeground(
-          main_frame_largest_image_paint.Time(), GetDelegate())) {
-    PAGE_LOAD_HISTOGRAM(internal::kHistogramLargestImagePaint,
-                        main_frame_largest_image_paint.Time().value());
-  }
-
-  const page_load_metrics::ContentfulPaintTimingInfo&
-      main_frame_largest_text_paint =
-          largest_contentful_paint_handler_.MainFrameLargestTextPaint();
-  if (main_frame_largest_text_paint.ContainsValidTime() &&
-      WasStartedInForegroundOptionalEventInForeground(
-          main_frame_largest_text_paint.Time(), GetDelegate())) {
-    PAGE_LOAD_HISTOGRAM(internal::kHistogramLargestTextPaint,
-                        main_frame_largest_text_paint.Time().value());
-  }
-
-  const page_load_metrics::ContentfulPaintTimingInfo&
       main_frame_largest_contentful_paint =
-          largest_contentful_paint_handler_.MainFrameLargestContentfulPaint();
+          GetDelegate()
+              .GetLargestContentfulPaintHandler()
+              .MainFrameLargestContentfulPaint();
   if (main_frame_largest_contentful_paint.ContainsValidTime() &&
       WasStartedInForegroundOptionalEventInForeground(
           main_frame_largest_contentful_paint.Time(), GetDelegate())) {
@@ -782,7 +981,9 @@ void CorePageLoadMetricsObserver::RecordTimingHistograms(
 
   const page_load_metrics::ContentfulPaintTimingInfo&
       all_frames_largest_contentful_paint =
-          largest_contentful_paint_handler_.MergeMainFrameAndSubframes();
+          GetDelegate()
+              .GetLargestContentfulPaintHandler()
+              .MergeMainFrameAndSubframes();
   if (all_frames_largest_contentful_paint.ContainsValidTime() &&
       WasStartedInForegroundOptionalEventInForeground(
           all_frames_largest_contentful_paint.Time(), GetDelegate())) {
@@ -791,6 +992,53 @@ void CorePageLoadMetricsObserver::RecordTimingHistograms(
     UMA_HISTOGRAM_ENUMERATION(
         internal::kHistogramLargestContentfulPaintContentType,
         all_frames_largest_contentful_paint.Type());
+    TRACE_EVENT_MARK_WITH_TIMESTAMP1(
+        "loading", "NavStartToLargestContentfulPaint::AllFrames::UMA",
+        GetDelegate().GetNavigationStart() +
+            all_frames_largest_contentful_paint.Time().value(),
+        "data", all_frames_largest_contentful_paint.DataAsTraceValue());
+  }
+
+  const page_load_metrics::ContentfulPaintTimingInfo&
+      main_frame_experimental_largest_contentful_paint =
+          GetDelegate()
+              .GetExperimentalLargestContentfulPaintHandler()
+              .MainFrameLargestContentfulPaint();
+  if (main_frame_experimental_largest_contentful_paint.ContainsValidTime() &&
+      WasStartedInForegroundOptionalEventInForeground(
+          main_frame_experimental_largest_contentful_paint.Time(),
+          GetDelegate())) {
+    PAGE_LOAD_HISTOGRAM(
+        internal::kHistogramExperimentalLargestContentfulPaintMainFrame,
+        main_frame_experimental_largest_contentful_paint.Time().value());
+    UMA_HISTOGRAM_ENUMERATION(
+        internal::
+            kHistogramExperimentalLargestContentfulPaintMainFrameContentType,
+        main_frame_experimental_largest_contentful_paint.Type());
+  }
+
+  const page_load_metrics::ContentfulPaintTimingInfo&
+      all_frames_experimental_largest_contentful_paint =
+          GetDelegate()
+              .GetExperimentalLargestContentfulPaintHandler()
+              .MergeMainFrameAndSubframes();
+  if (all_frames_experimental_largest_contentful_paint.ContainsValidTime() &&
+      WasStartedInForegroundOptionalEventInForeground(
+          all_frames_experimental_largest_contentful_paint.Time(),
+          GetDelegate())) {
+    PAGE_LOAD_HISTOGRAM(
+        internal::kHistogramExperimentalLargestContentfulPaint,
+        all_frames_experimental_largest_contentful_paint.Time().value());
+    UMA_HISTOGRAM_ENUMERATION(
+        internal::kHistogramExperimentalLargestContentfulPaintContentType,
+        all_frames_experimental_largest_contentful_paint.Type());
+    TRACE_EVENT_MARK_WITH_TIMESTAMP1(
+        "loading",
+        "NavStartToExperimentalLargestContentfulPaint::AllFrames::UMA",
+        GetDelegate().GetNavigationStart() +
+            all_frames_experimental_largest_contentful_paint.Time().value(),
+        "data",
+        all_frames_experimental_largest_contentful_paint.DataAsTraceValue());
   }
 
   if (main_frame_timing.paint_timing->first_paint &&
@@ -924,7 +1172,7 @@ void CorePageLoadMetricsObserver::RecordByteAndResourceHistograms(
   PAGE_RESOURCE_COUNT_HISTOGRAM(internal::kHistogramTotalCompletedResources,
                                 num_cache_resources_ + num_network_resources_);
 
-  click_tracker_.RecordClickBurst(GetDelegate().GetSourceId());
+  click_tracker_.RecordClickBurst(GetDelegate().GetPageUkmSourceId());
 }
 
 void CorePageLoadMetricsObserver::RecordCpuUsageHistograms() {
@@ -934,15 +1182,23 @@ void CorePageLoadMetricsObserver::RecordCpuUsageHistograms() {
                       foreground_cpu_usage_);
 }
 
-void CorePageLoadMetricsObserver::OnTimingUpdate(
-    content::RenderFrameHost* subframe_rfh,
+page_load_metrics::PageLoadMetricsObserver::ObservePolicy
+CorePageLoadMetricsObserver::OnEnterBackForwardCache(
     const page_load_metrics::mojom::PageLoadTiming& timing) {
-  largest_contentful_paint_handler_.RecordTiming(timing.paint_timing,
-                                                 subframe_rfh);
+  UMA_HISTOGRAM_ENUMERATION(
+      internal::kHistogramBackForwardCacheEvent,
+      internal::PageLoadBackForwardCacheEvent::kEnterBackForwardCache);
+  return PageLoadMetricsObserver::OnEnterBackForwardCache(timing);
 }
 
-void CorePageLoadMetricsObserver::OnDidFinishSubFrameNavigation(
+void CorePageLoadMetricsObserver::OnRestoreFromBackForwardCache(
+    const page_load_metrics::mojom::PageLoadTiming& timing,
     content::NavigationHandle* navigation_handle) {
-  largest_contentful_paint_handler_.OnDidFinishSubFrameNavigation(
-      navigation_handle, GetDelegate());
+  // This never reaches yet because OnEnterBackForwardCache returns
+  // STOP_OBSERVING.
+  // TODO(hajimehoshi): After changing OnEnterBackForwardCache to continue
+  // observation, remove the above comment.
+  UMA_HISTOGRAM_ENUMERATION(
+      internal::kHistogramBackForwardCacheEvent,
+      internal::PageLoadBackForwardCacheEvent::kRestoreFromBackForwardCache);
 }

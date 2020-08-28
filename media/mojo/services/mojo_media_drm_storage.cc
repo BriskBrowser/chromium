@@ -11,6 +11,7 @@
 #include "base/bind_helpers.h"
 #include "base/optional.h"
 #include "base/unguessable_token.h"
+#include "media/mojo/mojom/media_drm_storage.mojom.h"
 #include "mojo/public/cpp/bindings/callback_helpers.h"
 
 namespace media {
@@ -58,7 +59,7 @@ void MojoMediaDrmStorage::LoadPersistentSession(
       mojo::WrapCallbackWithDefaultInvokeIfNotRun(
           base::BindOnce(&MojoMediaDrmStorage::OnPersistentSessionLoaded,
                          weak_factory_.GetWeakPtr(),
-                         base::Passed(&load_persistent_session_cb)),
+                         std::move(load_persistent_session_cb)),
           nullptr));
 }
 

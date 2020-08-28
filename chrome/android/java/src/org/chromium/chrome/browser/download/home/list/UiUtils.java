@@ -14,16 +14,19 @@ import androidx.annotation.DrawableRes;
 import org.chromium.base.ContextUtils;
 import org.chromium.base.MathUtils;
 import org.chromium.chrome.R;
-import org.chromium.chrome.browser.download.DownloadUtils;
+import org.chromium.chrome.browser.download.StringUtils;
 import org.chromium.chrome.browser.download.home.filter.Filters;
 import org.chromium.chrome.browser.download.home.list.view.CircularProgressView;
 import org.chromium.chrome.browser.download.home.list.view.CircularProgressView.UiState;
+import org.chromium.components.browser_ui.util.date.CalendarFactory;
+import org.chromium.components.browser_ui.util.date.CalendarUtils;
 import org.chromium.components.offline_items_collection.LegacyHelpers;
 import org.chromium.components.offline_items_collection.OfflineItem;
 import org.chromium.components.offline_items_collection.OfflineItem.Progress;
 import org.chromium.components.offline_items_collection.OfflineItemFilter;
 import org.chromium.components.offline_items_collection.OfflineItemProgressUnit;
 import org.chromium.components.offline_items_collection.OfflineItemState;
+import org.chromium.components.url_formatter.SchemeDisplay;
 import org.chromium.components.url_formatter.UrlFormatter;
 
 import java.util.Calendar;
@@ -68,37 +71,6 @@ public final class UiUtils {
     }
 
     /**
-     * Converts {@code date} into a string meant to be used as a list header.
-     * @param date The {@link Date} to convert.
-     * @return     The {@link CharSequence} representing the header.
-     */
-    public static CharSequence dateToHeaderString(Date date) {
-        Context context = ContextUtils.getApplicationContext();
-
-        Calendar calendar1 = CalendarFactory.get();
-        Calendar calendar2 = CalendarFactory.get();
-
-        calendar1.setTimeInMillis(System.currentTimeMillis());
-        calendar2.setTime(date);
-
-        StringBuilder builder = new StringBuilder();
-        if (CalendarUtils.isSameDay(calendar1, calendar2)) {
-            builder.append(context.getString(R.string.today)).append(" - ");
-        } else {
-            calendar1.add(Calendar.DATE, -1);
-            if (CalendarUtils.isSameDay(calendar1, calendar2)) {
-                builder.append(context.getString(R.string.yesterday)).append(" - ");
-            }
-        }
-
-        builder.append(DateUtils.formatDateTime(context, date.getTime(),
-                DateUtils.FORMAT_ABBREV_WEEKDAY | DateUtils.FORMAT_ABBREV_MONTH
-                        | DateUtils.FORMAT_SHOW_YEAR));
-
-        return builder;
-    }
-
-    /**
      * Converts {@code date} to a string meant to be used as a prefetched item timestamp.
      * @param date The {@link Date} to convert.
      * @return     The {@link CharSequence} representing the timestamp.
@@ -132,7 +104,8 @@ public final class UiUtils {
     public static CharSequence generatePrefetchCaption(OfflineItem item) {
         Context context = ContextUtils.getApplicationContext();
         String displaySize = Formatter.formatFileSize(context, item.totalSizeBytes);
-        String displayUrl = UrlFormatter.formatUrlForSecurityDisplayOmitScheme(item.pageUrl);
+        String displayUrl = UrlFormatter.formatUrlForSecurityDisplay(
+                item.pageUrl, SchemeDisplay.OMIT_HTTP_AND_HTTPS);
         return context.getString(
                 R.string.download_manager_prefetch_caption, displayUrl, displaySize);
     }
@@ -144,7 +117,8 @@ public final class UiUtils {
      */
     public static CharSequence generateGenericCaption(OfflineItem item) {
         Context context = ContextUtils.getApplicationContext();
-        String displayUrl = UrlFormatter.formatUrlForSecurityDisplayOmitScheme(item.pageUrl);
+        String displayUrl = UrlFormatter.formatUrlForSecurityDisplay(
+                item.pageUrl, SchemeDisplay.OMIT_HTTP_AND_HTTPS);
 
         if (item.totalSizeBytes == 0) {
             return context.getString(
@@ -309,25 +283,25 @@ public final class UiUtils {
             }
         }
 
-        CharSequence progressString = DownloadUtils.getProgressTextForNotification(progress);
+        CharSequence progressString = StringUtils.getProgressTextForUi(progress);
         CharSequence statusString = null;
 
         switch (item.state) {
             case OfflineItemState.PENDING:
                 // TODO(crbug.com/891421): Add detailed pending state string from
-                // DownloadUtils.getPendingStatusString().
+                // StringUtils.getPendingStatusForUi().
                 statusString = context.getString(R.string.download_manager_pending);
                 break;
             case OfflineItemState.IN_PROGRESS:
                 if (item.timeRemainingMs > 0) {
-                    statusString = DownloadUtils.formatRemainingTime(context, item.timeRemainingMs);
+                    statusString = StringUtils.timeLeftForUi(context, item.timeRemainingMs);
                 }
                 break;
             case OfflineItemState.FAILED: // Intentional fallthrough.
             case OfflineItemState.CANCELLED: // Intentional fallthrough.
             case OfflineItemState.INTERRUPTED:
                 // TODO(crbug.com/891421): Add detailed failure state string from
-                // DownloadUtils.getFailStatusString().
+                // StringUtils.getFailStatusForUi().
                 statusString = context.getString(R.string.download_manager_failed);
                 break;
             case OfflineItemState.PAUSED:
@@ -357,9 +331,9 @@ public final class UiUtils {
                 return context.getString(R.string.download_manager_pending);
             case OfflineItemState.IN_PROGRESS:
                 if (item.timeRemainingMs > 0) {
-                    return DownloadUtils.formatRemainingTime(context, item.timeRemainingMs);
+                    return StringUtils.timeLeftForUi(context, item.timeRemainingMs);
                 } else {
-                    return DownloadUtils.getProgressTextForNotification(item.progress);
+                    return StringUtils.getProgressTextForUi(item.progress);
                 }
             case OfflineItemState.FAILED: // Intentional fallthrough.
             case OfflineItemState.CANCELLED: // Intentional fallthrough.
@@ -376,14 +350,15 @@ public final class UiUtils {
 
     /** @return Whether the given {@link OfflineItem} can be shared. */
     public static boolean canShare(OfflineItem item) {
-        return LegacyHelpers.isLegacyDownload(item.id)
-                || LegacyHelpers.isLegacyOfflinePage(item.id);
+        return (item.state == OfflineItemState.COMPLETE)
+                && (LegacyHelpers.isLegacyDownload(item.id)
+                        || LegacyHelpers.isLegacyOfflinePage(item.id));
     }
 
     /** @return The domain associated with the given {@link OfflineItem}. */
     public static String getDomainForItem(OfflineItem offlineItem) {
-        String formattedUrl =
-                UrlFormatter.formatUrlForSecurityDisplayOmitScheme(offlineItem.pageUrl);
+        String formattedUrl = UrlFormatter.formatUrlForSecurityDisplay(
+                offlineItem.pageUrl, SchemeDisplay.OMIT_HTTP_AND_HTTPS);
         return formattedUrl;
     }
 }

@@ -17,6 +17,10 @@ namespace aura {
 class Window;
 }
 
+namespace display {
+class DisplayManager;
+}
+
 namespace ash {
 enum class AppListViewState;
 class DragDropController;
@@ -47,6 +51,7 @@ class ASH_EXPORT ShellTestApi {
   NativeCursorManagerAsh* native_cursor_manager_ash();
   DragDropController* drag_drop_controller();
   PowerPrefs* power_prefs();
+  display::DisplayManager* display_manager();
 
   // Resets |shell_->power_button_controller_| to hold a new object to simulate
   // Chrome starting.
@@ -98,6 +103,19 @@ class ASH_EXPORT ShellTestApi {
   void WaitForLauncherAnimationState(AppListViewState state);
 
   void WaitForWindowFinishAnimating(aura::Window* window);
+
+  // Creates a closure that, when run, starts waiter for the window's current
+  // animator to finish animating.
+  // It can be used to wait for window animations when the window layer is
+  // recreated while the animation is set up (as is the case for window hide
+  // animations).
+  // Example usage:
+  //   base::OnceClosure waiter =
+  //   CreateWaiterForFinishingWindowAnimation(window);
+  //   aura::WindowState::Get(window)->Minimize();
+  //   std::move(waiter).Run();
+  base::OnceClosure CreateWaiterForFinishingWindowAnimation(
+      aura::Window* window);
 
   // Returns the pagination model of the currently visible app-list view.
   // It returns nullptr when app-list is not shown.

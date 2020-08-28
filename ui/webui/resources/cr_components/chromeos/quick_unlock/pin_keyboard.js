@@ -215,18 +215,28 @@ Polymer({
   },
 
   /**
+   * Schedules a call to focusInputSynchronously().
+   * @param {number=} opt_selectionStart
+   * @param {number=} opt_selectionEnd
+   */
+  focusInput(opt_selectionStart, opt_selectionEnd) {
+    setTimeout(
+        () =>
+            this.focusInputSynchronously(opt_selectionStart, opt_selectionEnd),
+        0);
+  },
+
+  /**
    * Transfers focus to the input element. This should not bring up the virtual
    * keyboard, if it is enabled. After focus, moves the caret to the correct
    * location if specified.
    * @param {number=} opt_selectionStart
    * @param {number=} opt_selectionEnd
    */
-  focusInput(opt_selectionStart, opt_selectionEnd) {
-    setTimeout(function() {
-      this.passwordElement_().focus();
-      this.selectionStart_ = opt_selectionStart || 0;
-      this.selectionEnd_ = opt_selectionEnd || 0;
-    }.bind(this), 0);
+  focusInputSynchronously(opt_selectionStart, opt_selectionEnd) {
+    this.passwordElement_().focus();
+    this.selectionStart_ = opt_selectionStart || 0;
+    this.selectionEnd_ = opt_selectionEnd || 0;
   },
 
   /**
@@ -421,17 +431,6 @@ Polymer({
 
     // The rest of the keys are invalid.
     return false;
-  },
-
-  /**
-   * Called when the row container is pressed while the input element has focus.
-   * @param {Event} event The event object.
-   * @private
-   */
-  onRowContainerMousedown_(event) {
-    // Prevent the pin input from losing focus when extraneous areas of the
-    // row container are clicked.
-    event.preventDefault();
   },
 
   /**

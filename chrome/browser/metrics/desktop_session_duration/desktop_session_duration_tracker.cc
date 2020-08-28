@@ -5,6 +5,7 @@
 #include "chrome/browser/metrics/desktop_session_duration/desktop_session_duration_tracker.h"
 
 #include "base/bind.h"
+#include "base/logging.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/string_number_conversions.h"
 #include "components/variations/variations_associated_data.h"
@@ -38,8 +39,8 @@ DesktopSessionDurationTracker* DesktopSessionDurationTracker::Get() {
 
 void DesktopSessionDurationTracker::StartTimer(base::TimeDelta duration) {
   timer_.Start(FROM_HERE, duration,
-               base::Bind(&DesktopSessionDurationTracker::OnTimerFired,
-                          weak_factory_.GetWeakPtr()));
+               base::BindOnce(&DesktopSessionDurationTracker::OnTimerFired,
+                              weak_factory_.GetWeakPtr()));
 }
 
 void DesktopSessionDurationTracker::OnVisibilityChanged(

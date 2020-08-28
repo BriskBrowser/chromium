@@ -4,22 +4,13 @@
 
 GEN_INCLUDE(['switch_access_e2e_test_base.js']);
 
-/**
- * @constructor
- * @extends {SwitchAccessE2ETest}
- */
-function SwitchAccessTextNavigationManagerTest() {
-  SwitchAccessE2ETest.call(this);
-}
-
-SwitchAccessTextNavigationManagerTest.prototype = {
-  __proto__: SwitchAccessE2ETest.prototype,
-
+/** Text fixture for the text navigation manager. */
+SwitchAccessTextNavigationManagerTest = class extends SwitchAccessE2ETest {
   /** @override */
   setUp() {
-    this.textNavigationManager =
-        switchAccess.navigationManager_.menuManager_.textNavigationManager_;
-    this.navigationManager = switchAccess.navigationManager_;
+    TextNavigationManager.initialize();
+    this.textNavigationManager = TextNavigationManager.instance;
+    this.navigationManager = NavigationManager.instance;
   }
 };
 
@@ -55,7 +46,7 @@ function runTextNavigationTest(testHelper, textParams) {
       textId, textContent, initialTextIndex, textCols, textWrap);
 
   testHelper.runWithLoadedTree(website, function(desktop) {
-    const inputNode = findNodeById(desktop, textId);
+    const inputNode = this.findNodeById(textId);
     assertNotEquals(inputNode, null);
 
     setUpCursorChangeListener(
@@ -114,10 +105,10 @@ function runTextSelectionTest(testHelper, textParams) {
   }
 
   testHelper.runWithLoadedTree(website, function(desktop) {
-    const inputNode = findNodeById(desktop, textId, testHelper);
+    const inputNode = this.findNodeById(textId);
     assertNotEquals(inputNode, null);
     checkNodeIsFocused(inputNode);
-    let callback = testHelper.newCallback(function() {
+    const callback = testHelper.newCallback(function() {
       setUpCursorChangeListener(
           testHelper, inputNode, targetTextEndIndex, targetTextStartIndex,
           targetTextEndIndex);
@@ -157,30 +148,10 @@ function generateWebsiteWithTextArea(id, contents, textIndex, cols, wrap) {
 }
 
 /**
- * Given the desktop node, returns the node with the given
- * id.
- * @param {!chrome.automation.AutomationNode} desktop
- * @param {string} id
- * @return {!chrome.automation.AutomationNode}
- */
-function findNodeById(desktop, id) {
-  // The loop ensures that the page has loaded before trying to find the node.
-  let inputNode;
-  while (inputNode == null) {
-    inputNode = new AutomationTreeWalker(
-                    desktop, constants.Dir.FORWARD,
-                    {visit: (node) => node.htmlAttributes.id === id})
-                    .next()
-                    .node;
-  }
-  return inputNode;
-}
-
-/**
  * Check that the node in the JS file matches the node in the test.
  * The nodes can be assumed to be the same if their roles match as there is only
  * one text input node on the generated webpage.
- * @param {!chrome.automation.AutomationNode} inputNode
+ * @param {!AutomationNode} inputNode
  */
 function checkNodeIsFocused(inputNode) {
   chrome.automation.getFocus((focusedNode) => {
@@ -198,7 +169,7 @@ function checkNodeIsFocused(inputNode) {
  * the text navigation and selection actions directly changes the text caret
  * to the correct index (with no intermediate movements).
  * @param {!SwitchAccessE2ETest} testHelper
- * @param {!chrome.automation.AutomationNode} inputNode
+ * @param {!AutomationNode} inputNode
  * @param {number} initialTextIndex
  * @param {number} targetTextStartIndex
  * @param {number} targetTextEndIndex
@@ -242,7 +213,7 @@ TEST_F('SwitchAccessTextNavigationManagerTest', 'JumpToBeginning', function() {
     initialIndex: 6,
     targetIndex: 0,
     navigationAction: () => {
-      this.textNavigationManager.jumpToBeginning();
+      TextNavigationManager.jumpToBeginning();
     }
   });
 });
@@ -253,7 +224,7 @@ TEST_F('SwitchAccessTextNavigationManagerTest', 'JumpToEnd', function() {
     initialIndex: 3,
     targetIndex: 8,
     navigationAction: () => {
-      this.textNavigationManager.jumpToEnd();
+      TextNavigationManager.jumpToEnd();
     }
   });
 });
@@ -265,7 +236,7 @@ TEST_F(
         initialIndex: 7,
         targetIndex: 6,
         navigationAction: () => {
-          this.textNavigationManager.moveBackwardOneChar();
+          TextNavigationManager.moveBackwardOneChar();
         }
       });
     });
@@ -277,7 +248,7 @@ TEST_F(
         initialIndex: 5,
         targetIndex: 0,
         navigationAction: () => {
-          this.textNavigationManager.moveBackwardOneWord();
+          TextNavigationManager.moveBackwardOneWord();
         }
       });
     });
@@ -289,7 +260,7 @@ TEST_F(
         initialIndex: 0,
         targetIndex: 1,
         navigationAction: () => {
-          this.textNavigationManager.moveForwardOneChar();
+          TextNavigationManager.moveForwardOneChar();
         }
       });
     });
@@ -301,7 +272,7 @@ TEST_F(
         initialIndex: 4,
         targetIndex: 12,
         navigationAction: () => {
-          this.textNavigationManager.moveForwardOneWord();
+          TextNavigationManager.moveForwardOneWord();
         }
       });
     });
@@ -314,7 +285,7 @@ TEST_F('SwitchAccessTextNavigationManagerTest', 'MoveUpOneLine', function() {
     cols: 8,
     wrap: 'hard',
     navigationAction: () => {
-      this.textNavigationManager.moveUpOneLine();
+      TextNavigationManager.moveUpOneLine();
     }
   });
 });
@@ -327,7 +298,7 @@ TEST_F('SwitchAccessTextNavigationManagerTest', 'MoveDownOneLine', function() {
     cols: 8,
     wrap: 'hard',
     navigationAction: () => {
-      this.textNavigationManager.moveDownOneLine();
+      TextNavigationManager.moveDownOneLine();
     }
   });
 });
@@ -344,12 +315,12 @@ TEST_F(
           generateWebsiteWithTextArea('test', 'test123', 3, 20, 'hard');
 
       this.runWithLoadedTree(website, function(desktop) {
-        const inputNode = findNodeById(desktop, 'test', this);
+        const inputNode = this.findNodeById('test');
         assertNotEquals(inputNode, null);
         checkNodeIsFocused(inputNode);
 
         this.textNavigationManager.saveSelectStart();
-        let startIndex = this.textNavigationManager.getSelStartIndex();
+        const startIndex = this.textNavigationManager.selectionStartIndex_;
         assertEquals(startIndex, 3);
       });
     });
@@ -365,16 +336,16 @@ TEST_F(
           generateWebsiteWithTextArea('test', 'test 123', 6, 20, 'hard');
 
       this.runWithLoadedTree(website, function(desktop) {
-        const inputNode = findNodeById(desktop, 'test', this);
+        const inputNode = this.findNodeById('test');
         assertNotEquals(inputNode, null);
         checkNodeIsFocused(inputNode);
 
 
-        let startIndex = 3;
-        this.textNavigationManager.setSelStartIndexAndNode(
-            startIndex, inputNode);
+        const startIndex = 3;
+        this.textNavigationManager.selectionStartIndex_ = startIndex;
+        this.textNavigationManager.selectionStartObject_ = inputNode;
         this.textNavigationManager.saveSelectEnd();
-        let endIndex = inputNode.textSelEnd;
+        const endIndex = inputNode.textSelEnd;
         assertEquals(6, endIndex);
       });
     });
@@ -394,7 +365,7 @@ TEST_F(
         cols: 8,
         wrap: 'hard',
         navigationAction: () => {
-          this.textNavigationManager.moveForwardOneChar();
+          TextNavigationManager.moveForwardOneChar();
         }
       });
     });
@@ -414,7 +385,7 @@ TEST_F(
         cols: 8,
         wrap: 'hard',
         navigationAction: () => {
-          this.textNavigationManager.moveBackwardOneWord();
+          TextNavigationManager.moveBackwardOneWord();
         },
         backward: true
       });

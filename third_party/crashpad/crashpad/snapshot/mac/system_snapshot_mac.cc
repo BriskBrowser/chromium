@@ -14,6 +14,7 @@
 
 #include "snapshot/mac/system_snapshot_mac.h"
 
+#include <AvailabilityMacros.h>
 #include <stddef.h>
 #include <sys/sysctl.h>
 #include <sys/types.h>
@@ -22,6 +23,8 @@
 #include <algorithm>
 
 #include "base/logging.h"
+#include "base/notreached.h"
+#include "base/scoped_clear_last_error.h"
 #include "base/strings/stringprintf.h"
 #include "build/build_config.h"
 #include "snapshot/cpu_context.h"
@@ -35,10 +38,15 @@ namespace crashpad {
 namespace {
 
 template <typename T>
+int ReadIntSysctlByName_NoLog(const char* name, T* value) {
+  size_t value_len = sizeof(*value);
+  return sysctlbyname(name, value, &value_len, nullptr, 0);
+}
+
+template <typename T>
 T ReadIntSysctlByName(const char* name, T default_value) {
   T value;
-  size_t value_len = sizeof(value);
-  if (sysctlbyname(name, &value, &value_len, nullptr, 0) != 0) {
+  if (ReadIntSysctlByName_NoLog(name, &value) != 0) {
     PLOG(WARNING) << "sysctlbyname " << name;
     return default_value;
   }
@@ -150,6 +158,8 @@ CPUArchitecture SystemSnapshotMac::GetCPUArchitecture() const {
 #if defined(ARCH_CPU_X86_FAMILY)
   return process_reader_->Is64Bit() ? kCPUArchitectureX86_64
                                     : kCPUArchitectureX86;
+#elif defined(ARCH_CPU_ARM64)
+  return kCPUArchitectureARM64;
 #else
 #error port to your architecture
 #endif
@@ -167,6 +177,9 @@ uint32_t SystemSnapshotMac::CPURevision() const {
   uint8_t stepping = CastIntSysctlByName<uint8_t>("machdep.cpu.stepping", 0);
 
   return (family << 16) | (model << 8) | stepping;
+#elif defined(ARCH_CPU_ARM64)
+  // TODO(macos_arm64): Verify and test.
+  return CastIntSysctlByName<uint32_t>("hw.cpufamily", 0);
 #else
 #error port to your architecture
 #endif
@@ -182,6 +195,8 @@ std::string SystemSnapshotMac::CPUVendor() const {
 
 #if defined(ARCH_CPU_X86_FAMILY)
   return ReadStringSysctlByName("machdep.cpu.vendor");
+#elif defined(ARCH_CPU_ARM64)
+  return ReadStringSysctlByName("machdep.cpu.brand_string");
 #else
 #error port to your architecture
 #endif
@@ -338,7 +353,35 @@ std::string SystemSnapshotMac::MachineDescription() const {
 
 bool SystemSnapshotMac::NXEnabled() const {
   INITIALIZATION_STATE_DCHECK_VALID(initialized_);
-  return ReadIntSysctlByName<int>("kern.nx", 0);
+
+  int value;
+  if (ReadIntSysctlByName_NoLog("kern.nx", &value) != 0) {
+    {
+      // Support for the kern.nx sysctlbyname is compiled out of production
+      // kernels on macOS 10.14.5 and later, although it’s available in
+      // development and debug kernels. Compare 10.14.3
+      // xnu-4903.241.1/bsd/kern/kern_sysctl.c to 10.15.0
+      // xnu-6153.11.26/bsd/kern/kern_sysctl.c (10.14.4 and 10.14.5 xnu source
+      // are not yet available). In newer production kernels, NX is always
+      // enabled. See 10.15.0 xnu-6153.11.26/osfmk/x86_64/pmap.c nx_enabled.
+#if MAC_OS_X_VERSION_MIN_REQUIRED >= MAC_OS_X_VERSION_10_14
+      const bool nx_always_enabled = true;
+#else  // DT >= 10.14
+      base::ScopedClearLastError reset_errno;
+      const bool nx_always_enabled = MacOSXMinorVersion() >= 14;
+#endif  // DT >= 10.14
+      if (nx_always_enabled) {
+        return true;
+      }
+    }
+
+    // Even if sysctlbyname should have worked, NX is enabled by default in all
+    // supported configurations, so return true even while warning.
+    PLOG(WARNING) << "sysctlbyname kern.nx";
+    return true;
+  }
+
+  return value;
 }
 
 void SystemSnapshotMac::TimeZone(DaylightSavingTimeStatus* dst_status,

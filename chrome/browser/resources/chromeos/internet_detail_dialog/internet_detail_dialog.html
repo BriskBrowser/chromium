@@ -8,6 +8,8 @@
 
 <link rel="import" href="chrome://resources/html/polymer.html">
 
+<link rel="import" href="chrome://resources/cr_components/chromeos/network/cr_policy_network_behavior_mojo.html">
+<link rel="import" href="chrome://resources/cr_components/chromeos/network/cr_policy_network_indicator_mojo.html">
 <link rel="import" href="chrome://resources/cr_components/chromeos/network/network_apnlist.html">
 <link rel="import" href="chrome://resources/cr_components/chromeos/network/network_choose_mobile.html">
 <link rel="import" href="chrome://resources/cr_components/chromeos/network/network_icon.html">
@@ -21,8 +23,6 @@
 <link rel="import" href="chrome://resources/cr_elements/cr_button/cr_button.html">
 <link rel="import" href="chrome://resources/cr_elements/cr_page_host_style_css.html">
 <link rel="import" href="chrome://resources/cr_elements/icons.html">
-<link rel="import" href="chrome://resources/cr_elements/policy/cr_policy_network_behavior_mojo.html">
-<link rel="import" href="chrome://resources/cr_elements/policy/cr_policy_network_indicator_mojo.html">
 <link rel="import" href="chrome://resources/cr_elements/shared_style_css.html">
 <link rel="import" href="chrome://resources/html/i18n_behavior.html">
 <link rel="import" href="chrome://resources/html/load_time_data.html">
@@ -58,27 +58,7 @@
         margin-inline-end: 10px;
       }
 
-      .section {
-        @apply --cr-section;
-        margin-bottom: 10px;
-      }
-
-      .section.first {
-        border-top: none;
-      }
-
-      .section.single-column {
-        align-items: stretch;
-        flex-direction: column;
-        justify-content: center;
-      }
-
-      .section > .start {
-        align-items: center;
-        flex: auto;
-      }
-
-      .section cr-button + cr-button {
+      .cr-row cr-button + cr-button {
         margin-inline-start: 8px;
       }
 
@@ -94,19 +74,17 @@
     </style>
 
     <!-- Title section: Icon + name + connection state. -->
-    <div id="title" class="section first">
-      <div class="start layout horizontal center">
-        <network-icon
-            show-technology-badge="[[showTechnologyBadge_]]"
-            network-state="[[getNetworkState_(managedProperties_)]]">
-        </network-icon>
-        <div id="networkName" class="title">
-          [[getNameText_(managedProperties_)]]
-        </div>
-        <div id="networkState" class="title"
-            connected$="[[isConnectedState_(managedProperties_)]]">
-          [[getStateText_(managedProperties_)]]
-        </div>
+    <div id="title" class="cr-row first">
+      <network-icon
+          show-technology-badge="[[showTechnologyBadge_]]"
+          network-state="[[getNetworkState_(managedProperties_)]]">
+      </network-icon>
+      <div id="networkName" class="title">
+        [[getNameText_(managedProperties_)]]
+      </div>
+      <div id="networkState" class="title flex"
+          connected$="[[isConnectedState_(managedProperties_)]]">
+        [[getStateText_(managedProperties_)]]
       </div>
       <cr-button on-click="onForgetTap_"
           hidden$="[[!showForget_(managedProperties_)]]">
@@ -122,17 +100,17 @@
     <!-- SIM Info (Cellular only). -->
     <template is="dom-if" if="[[showCellularSim_(managedProperties_)]]"
         restamp>
-      <div class="section single-column">
-        <network-siminfo device-state="[[deviceState_]]">
+      <div class="cr-row">
+        <network-siminfo class="flex" device-state="[[deviceState_]]">
         </network-siminfo>
-      <div>
+      </div>
     </template>
 
     <!-- Choose Mobile Network (Cellular only) -->
     <template is="dom-if"
         if="[[showCellularChooseNetwork_(managedProperties_)]]">
-      <div class="section single-column">
-        <network-choose-mobile device-state="[[deviceState_]]"
+      <div class="cr-row">
+        <network-choose-mobile class="flex" device-state="[[deviceState_]]"
             managed-properties="[[managedProperties_]]">
         </network-choose-mobile>
       </div>
@@ -140,64 +118,68 @@
 
     <!-- APN (Cellular only) -->
     <template is="dom-if" if="[[isCellular_(managedProperties_)]]">
-      <div class="section single-column">
-        <network-apnlist editable on-apn-change="onApnChange_"
+      <div class="cr-row">
+        <network-apnlist class="flex" editable on-apn-change="onApnChange_"
             managed-properties="[[managedProperties_]]">
         </network-apnlist>
       </div>
     </template>
 
     <!-- Proxy -->
-    <div class="section single-column">
+    <div class="hr">
       <template is="dom-if"
           if="[[shouldShowProxyPolicyIndicator_(managedProperties_)]]">
-        <div class="property-box">
+        <div class="cr-row continuation">
           <cr-policy-network-indicator-mojo
               property="[[managedProperties_.proxySettings.type]]">
           </cr-policy-network-indicator-mojo>
           <div>$i18n{networkProxyEnforcedPolicy}</div>
         </div>
       </template>
-      <network-proxy editable use-shared-proxies
-          on-proxy-change="onProxyChange_"
-          managed-properties="[[managedProperties_]]">
-      </network-proxy>
+      <div class="cr-row continuation">
+        <network-proxy class="flex" editable use-shared-proxies
+            on-proxy-change="onProxyChange_"
+            managed-properties="[[managedProperties_]]">
+        </network-proxy>
+      </div>
     </div>
 
     <template is="dom-if" if="[[isRememberedOrConnected_(managedProperties_)]]">
       <!-- IP Config -->
-      <div class="section single-column">
-        <network-ip-config editable on-ip-change="onIPConfigChange_"
+      <div class="cr-row">
+        <network-ip-config class="flex"
+            editable on-ip-change="onIPConfigChange_"
             managed-properties="[[managedProperties_]]">
         </network-ip-config>
       </div>
 
       <!-- Nameservers -->
-      <div class="section single-column">
-        <network-nameservers editable
+      <div class="cr-row">
+        <network-nameservers class="flex" editable
             on-nameservers-change="onIPConfigChange_"
             managed-properties="[[managedProperties_]]">
         </network-nameservers>
       </div>
     </template>
 
-    <div class="section single-column indented">
+    <div class="cr-row">
       <!-- MAC Address. -->
       <div class="property-box single-column two-line"
           hidden$="[[!deviceState_.macAddress]]">
         <div>$i18n{OncMacAddress}</div>
         <div class="secondary">[[deviceState_.macAddress]]</div>
       </div>
+    </div>
 
-      <!-- Other properties to show if present. -->
-      <template is="dom-if" if="[[hasInfoFields_(managedProperties_)]]">
-        <network-property-list-mojo
+    <!-- Other properties to show if present. -->
+    <template is="dom-if" if="[[hasInfoFields_(managedProperties_)]]">
+      <div class="cr-row continuation">
+        <network-property-list-mojo class="flex"
             fields="[[getInfoFields_(managedProperties_)]]"
             property-dict="[[managedProperties_]]">
         </network-property-list-mojo>
-      </template>
-    </div>
-
+      </div>
+    </template>
   </template>
   <script src="internet_detail_dialog.js"></script>
 </dom-module>

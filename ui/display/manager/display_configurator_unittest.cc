@@ -59,18 +59,24 @@ class TestObserver : public DisplayConfigurator::Observer {
 
   int num_changes() const { return num_changes_; }
   int num_failures() const { return num_failures_; }
+  int num_power_state_changes() const { return num_power_state_changes_; }
   const DisplayConfigurator::DisplayStateList& latest_outputs() const {
     return latest_outputs_;
   }
   MultipleDisplayState latest_failed_state() const {
     return latest_failed_state_;
   }
+  chromeos::DisplayPowerState latest_power_state() const {
+    return latest_power_state_;
+  }
 
   void Reset() {
     num_changes_ = 0;
     num_failures_ = 0;
+    num_power_state_changes_ = 0;
     latest_outputs_.clear();
     latest_failed_state_ = MULTIPLE_DISPLAY_STATE_INVALID;
+    latest_power_state_ = chromeos::DISPLAY_POWER_ALL_OFF;
   }
 
   // DisplayConfigurator::Observer overrides:
@@ -87,16 +93,25 @@ class TestObserver : public DisplayConfigurator::Observer {
     latest_failed_state_ = failed_new_state;
   }
 
+  void OnPowerStateChanged(chromeos::DisplayPowerState power_state) override {
+    num_power_state_changes_++;
+    latest_power_state_ = power_state;
+  }
+
  private:
   DisplayConfigurator* configurator_;  // Not owned.
 
   // Number of times that OnDisplayMode*() has been called.
   int num_changes_;
   int num_failures_;
+  // Number of times that OnPowerStateChanged() has been called.
+  int num_power_state_changes_;
 
   // Parameters most recently passed to OnDisplayMode*().
   DisplayConfigurator::DisplayStateList latest_outputs_;
   MultipleDisplayState latest_failed_state_;
+  // Value most recently passed to OnPowerStateChanged().
+  chromeos::DisplayPowerState latest_power_state_;
 
   DISALLOW_COPY_AND_ASSIGN(TestObserver);
 };
@@ -104,7 +119,7 @@ class TestObserver : public DisplayConfigurator::Observer {
 class TestStateController : public DisplayConfigurator::StateController {
  public:
   TestStateController() : state_(MULTIPLE_DISPLAY_STATE_MULTI_EXTENDED) {}
-  ~TestStateController() override {}
+  ~TestStateController() override = default;
 
   void set_state(MultipleDisplayState state) { state_ = state; }
 
@@ -129,7 +144,7 @@ class TestMirroringController
     : public DisplayConfigurator::SoftwareMirroringController {
  public:
   TestMirroringController() : software_mirroring_enabled_(false) {}
-  ~TestMirroringController() override {}
+  ~TestMirroringController() override = default;
 
   void SetSoftwareMirroring(bool enabled) override {
     software_mirroring_enabled_ = enabled;
@@ -334,8 +349,9 @@ class DisplayConfiguratorTest : public testing::Test {
                               Modes... modes) {
     static_assert(I < kNumOutputs, "More expected modes than outputs");
 
-    std::string action = GetCrtcAction(
-        *outputs_[I], config == DisplayConfig::kOff ? nullptr : mode, origin);
+    std::string action =
+        GetCrtcAction({outputs_[I]->display_id(), origin,
+                       config == DisplayConfig::kOff ? nullptr : mode});
 
     if (mode && config != DisplayConfig::kMirror)
       origin += {0, mode->size().height() + DisplayConfigurator::kVerticalGap};
@@ -932,13 +948,17 @@ TEST_F(DisplayConfiguratorTest, HandleConfigureCrtcFailure) {
   state_controller_.set_state(MULTIPLE_DISPLAY_STATE_SINGLE);
   UpdateOutputs(1, true);
 
-  EXPECT_EQ(
-      JoinActions(
-          GetCrtcAction(*outputs_[0], modes[0].get(), gfx::Point(0, 0)).c_str(),
-          GetCrtcAction(*outputs_[0], modes[3].get(), gfx::Point(0, 0)).c_str(),
-          GetCrtcAction(*outputs_[0], modes[2].get(), gfx::Point(0, 0)).c_str(),
-          nullptr),
-      log_->GetActionsAndClear());
+  EXPECT_EQ(JoinActions(GetCrtcAction({outputs_[0]->display_id(),
+                                       gfx::Point(0, 0), modes[0].get()})
+                            .c_str(),
+                        GetCrtcAction({outputs_[0]->display_id(),
+                                       gfx::Point(0, 0), modes[3].get()})
+                            .c_str(),
+                        GetCrtcAction({outputs_[0]->display_id(),
+                                       gfx::Point(0, 0), modes[2].get()})
+                            .c_str(),
+                        nullptr),
+            log_->GetActionsAndClear());
 
   outputs_[1] = FakeDisplaySnapshot::Builder()
                     .SetId(kDisplayIds[1])
@@ -961,26 +981,40 @@ TEST_F(DisplayConfiguratorTest, HandleConfigureCrtcFailure) {
 
   EXPECT_EQ(
       JoinActions(
-          GetCrtcAction(*outputs_[0], modes[0].get(), gfx::Point(0, 0)).c_str(),
+          GetCrtcAction(
+              {outputs_[0]->display_id(), gfx::Point(0, 0), modes[0].get()})
+              .c_str(),
           // Then attempt to configure crtc1 with the first mode.
-          GetCrtcAction(*outputs_[1], modes[0].get(), gfx::Point(0, 0)).c_str(),
+          GetCrtcAction(
+              {outputs_[1]->display_id(), gfx::Point(0, 0), modes[0].get()})
+              .c_str(),
           // First mode tried is expected to fail and it will
           // retry wil the 4th mode in the list.
-          GetCrtcAction(*outputs_[0], modes[3].get(), gfx::Point(0, 0)).c_str(),
-          GetCrtcAction(*outputs_[1], modes[3].get(), gfx::Point(0, 0)).c_str(),
+          GetCrtcAction(
+              {outputs_[0]->display_id(), gfx::Point(0, 0), modes[3].get()})
+              .c_str(),
+          GetCrtcAction(
+              {outputs_[1]->display_id(), gfx::Point(0, 0), modes[3].get()})
+              .c_str(),
           // Since it was requested to go into mirror mode
           // and the configured modes were different, it
           // should now try and setup a valid configurable
           // extended mode.
-          GetCrtcAction(*outputs_[0], modes[0].get(), gfx::Point(0, 0)).c_str(),
-          GetCrtcAction(*outputs_[1], modes[0].get(),
-                        gfx::Point(0, modes[0]->size().height() +
-                                          DisplayConfigurator::kVerticalGap))
+          GetCrtcAction(
+              {outputs_[0]->display_id(), gfx::Point(0, 0), modes[0].get()})
               .c_str(),
-          GetCrtcAction(*outputs_[0], modes[3].get(), gfx::Point(0, 0)).c_str(),
-          GetCrtcAction(*outputs_[1], modes[3].get(),
-                        gfx::Point(0, modes[0]->size().height() +
-                                          DisplayConfigurator::kVerticalGap))
+          GetCrtcAction({outputs_[1]->display_id(),
+                         gfx::Point(0, modes[0]->size().height() +
+                                           DisplayConfigurator::kVerticalGap),
+                         modes[0].get()})
+              .c_str(),
+          GetCrtcAction(
+              {outputs_[0]->display_id(), gfx::Point(0, 0), modes[3].get()})
+              .c_str(),
+          GetCrtcAction({outputs_[1]->display_id(),
+                         gfx::Point(0, modes[0]->size().height() +
+                                           DisplayConfigurator::kVerticalGap),
+                         modes[3].get()})
               .c_str(),
           nullptr),
       log_->GetActionsAndClear());
@@ -1198,9 +1232,10 @@ TEST_F(DisplayConfiguratorTest,
   EXPECT_EQ(
       JoinActions(
           GetCrtcActions(&small_mode_, &big_mode_).c_str(),
-          GetCrtcAction(*outputs_[1], &small_mode_,
-                        gfx::Point(0, small_mode_.size().height() +
-                                          DisplayConfigurator::kVerticalGap))
+          GetCrtcAction({outputs_[1]->display_id(),
+                         gfx::Point(0, small_mode_.size().height() +
+                                           DisplayConfigurator::kVerticalGap),
+                         &small_mode_})
               .c_str(),
           nullptr),
       log_->GetActionsAndClear());
@@ -1359,6 +1394,61 @@ TEST_F(DisplayConfiguratorTest, SuspendResumeWithMultipleDisplays) {
             configurator_.current_power_state());
   EXPECT_EQ(MULTIPLE_DISPLAY_STATE_MULTI_EXTENDED,
             configurator_.display_state());
+}
+
+TEST_F(DisplayConfiguratorTest, PowerStateChange) {
+  InitWithOutputs(&small_mode_);
+
+  native_display_delegate_->set_run_async(true);
+
+  // Set the initial power state and verify that it is restored on resume.
+  config_waiter_.Reset();
+  configurator_.SetDisplayPower(chromeos::DISPLAY_POWER_ALL_ON,
+                                DisplayConfigurator::kSetDisplayPowerNoFlags,
+                                config_waiter_.on_configuration_callback());
+
+  // SuspendDisplays causes notifying the DISPLAY_POWER_ALL_OFF state to the
+  // observer.
+  config_waiter_.Reset();
+  observer_.Reset();
+  configurator_.SuspendDisplays(config_waiter_.on_configuration_callback());
+  EXPECT_EQ(kNoDelay, config_waiter_.Wait());
+  EXPECT_EQ(CALLBACK_SUCCESS, config_waiter_.callback_result());
+  EXPECT_EQ(1, observer_.num_power_state_changes());
+  EXPECT_EQ(chromeos::DISPLAY_POWER_ALL_OFF, observer_.latest_power_state());
+
+  // ResumeDisplays causes notifying the DISPLAY_POWER_ALL_ON state to the
+  // observer.
+  config_waiter_.Reset();
+  configurator_.ResumeDisplays();
+  EXPECT_EQ(base::TimeDelta::Max(), config_waiter_.Wait());
+  EXPECT_EQ(CALLBACK_NOT_CALLED, config_waiter_.callback_result());
+  EXPECT_EQ(2, observer_.num_power_state_changes());
+  EXPECT_EQ(chromeos::DISPLAY_POWER_ALL_ON, observer_.latest_power_state());
+
+  // SuspendDisplays and ResumeDisplays before running the configuration task
+  // causes notifying only one power state change to the observer.
+  config_waiter_.Reset();
+  observer_.Reset();
+  configurator_.SuspendDisplays(config_waiter_.on_configuration_callback());
+  EXPECT_EQ(0, observer_.num_power_state_changes());
+  configurator_.ResumeDisplays();
+  // Run the task posted by TestNativeDisplayDelegate::GetDisplays() which is
+  // called by SuspendDisplays().
+  EXPECT_EQ(kNoDelay, config_waiter_.Wait());
+  EXPECT_EQ(CALLBACK_SUCCESS, config_waiter_.callback_result());
+  config_waiter_.Reset();
+  // Run the task posted by OnConfigured().
+  EXPECT_EQ(
+      base::TimeDelta::FromMilliseconds(DisplayConfigurator::kConfigureDelayMs),
+      config_waiter_.Wait());
+  EXPECT_EQ(CALLBACK_NOT_CALLED, config_waiter_.callback_result());
+  config_waiter_.Reset();
+  // Run the task posted by TestNativeDisplayDelegate::GetDisplays().
+  EXPECT_EQ(base::TimeDelta::Max(), config_waiter_.Wait());
+  EXPECT_EQ(CALLBACK_NOT_CALLED, config_waiter_.callback_result());
+  EXPECT_EQ(1, observer_.num_power_state_changes());
+  EXPECT_EQ(chromeos::DISPLAY_POWER_ALL_ON, observer_.latest_power_state());
 }
 
 class DisplayConfiguratorMultiMirroringTest : public DisplayConfiguratorTest {

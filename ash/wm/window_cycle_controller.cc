@@ -7,15 +7,19 @@
 #include "ash/metrics/task_switch_metrics_recorder.h"
 #include "ash/metrics/task_switch_source.h"
 #include "ash/metrics/user_metrics_recorder.h"
+#include "ash/public/cpp/ash_features.h"
 #include "ash/public/cpp/shell_window_ids.h"
 #include "ash/session/session_controller_impl.h"
 #include "ash/shell.h"
+#include "ash/wallpaper/wallpaper_controller_impl.h"
+#include "ash/wm/desks/desk.h"
 #include "ash/wm/desks/desks_controller.h"
 #include "ash/wm/desks/desks_util.h"
 #include "ash/wm/mru_window_tracker.h"
 #include "ash/wm/screen_pinning_controller.h"
 #include "ash/wm/window_cycle_event_filter.h"
 #include "ash/wm/window_cycle_list.h"
+#include "ash/wm/window_state.h"
 #include "ash/wm/window_util.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/metrics/user_metrics.h"
@@ -33,11 +37,18 @@ aura::Window* GetActiveWindow(const WindowCycleList::WindowList& window_list) {
 void ReportPossibleDesksSwitchStats(int active_desk_container_id_before_cycle) {
   // Report only for users who have 2 or more desks, since we're only interested
   // in seeing how users of Virtual Desks use window cycling.
-  if (DesksController::Get()->desks().size() < 2)
+  auto* desks_controller = DesksController::Get();
+  if (!desks_controller)
     return;
 
+  if (desks_controller->desks().size() < 2)
+    return;
+
+  // Note that this functions is called while a potential desk switch animation
+  // is starting, in this case we want the target active desk (i.e. the soon-to-
+  // be active desk after the animation finishes).
   const int active_desk_container_id_after_cycle =
-      desks_util::GetActiveDeskContainerId();
+      desks_controller->GetTargetActiveDesk()->container_id();
   DCHECK_NE(active_desk_container_id_before_cycle, kShellWindowId_Invalid);
   DCHECK_NE(active_desk_container_id_after_cycle, kShellWindowId_Invalid);
 
@@ -62,10 +73,10 @@ WindowCycleController::~WindowCycleController() = default;
 
 // static
 bool WindowCycleController::CanCycle() {
-  // Prevent window cycling if the screen is locked or a modal dialog is open.
   return !Shell::Get()->session_controller()->IsScreenLocked() &&
          !Shell::IsSystemModalWindowOpen() &&
-         !Shell::Get()->screen_pinning_controller()->IsPinned();
+         !Shell::Get()->screen_pinning_controller()->IsPinned() &&
+         !window_util::IsAnyWindowDragged();
 }
 
 void WindowCycleController::HandleCycleWindow(Direction direction) {
@@ -79,9 +90,14 @@ void WindowCycleController::HandleCycleWindow(Direction direction) {
 }
 
 void WindowCycleController::StartCycling() {
+  // Close the wallpaper preview if it is open to prevent visual glitches where
+  // the window view item for the preview is transparent
+  // (http://crbug.com/895265).
+  Shell::Get()->wallpaper_controller()->MaybeClosePreviewWallpaper();
+
   WindowCycleList::WindowList window_list =
       Shell::Get()->mru_window_tracker()->BuildWindowForCycleWithPipList(
-          kAllDesks);
+          features::IsAltTabLimitedToActiveDesk() ? kActiveDesk : kAllDesks);
   // Window cycle list windows will handle showing their transient related
   // windows, so if a window in |window_list| has a transient root also in
   // |window_list|, we can remove it as the transient root will handle showing
@@ -108,19 +124,32 @@ void WindowCycleController::CancelCycling() {
   StopCycling();
 }
 
+void WindowCycleController::StepToWindow(aura::Window* window) {
+  DCHECK(window_cycle_list_);
+  window_cycle_list_->StepToWindow(window);
+}
+
+bool WindowCycleController::IsEventInCycleView(ui::LocatedEvent* event) {
+  return window_cycle_list_ && window_cycle_list_->IsEventInCycleView(event);
+}
+
 //////////////////////////////////////////////////////////////////////////////
 // WindowCycleController, private:
 
 void WindowCycleController::Step(Direction direction) {
-  DCHECK(window_cycle_list_.get());
+  DCHECK(window_cycle_list_);
   window_cycle_list_->Step(direction);
 }
 
 void WindowCycleController::StopCycling() {
   window_cycle_list_.reset();
 
-  aura::Window* active_window_after_window_cycle = GetActiveWindow(
-      Shell::Get()->mru_window_tracker()->BuildMruWindowList(kActiveDesk));
+  // We can't use the MRU window list here to get the active window, since
+  // cycling can activate a window on a different desk, leading to a desk-switch
+  // animation launching. Getting the MRU window list for the active desk now
+  // will always be for the current active desk, not the target active desk.
+  aura::Window* active_window_after_window_cycle =
+      window_util::GetActiveWindow();
 
   // Remove our key event filter.
   event_filter_.reset();

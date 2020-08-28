@@ -11,20 +11,20 @@
 #include "ash/public/cpp/notifier_settings_observer.h"
 #include "base/bind.h"
 #include "base/command_line.h"
-#include "base/macros.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
 #include "chrome/browser/chromeos/login/users/fake_chrome_user_manager.h"
 #include "chrome/browser/content_settings/host_content_settings_map_factory.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/test_extension_system.h"
-#include "chrome/browser/permissions/permission_manager.h"
-#include "chrome/browser/permissions/permission_result.h"
+#include "chrome/browser/permissions/permission_manager_factory.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/test/base/testing_browser_process.h"
 #include "chrome/test/base/testing_profile_manager.h"
 #include "components/content_settings/core/browser/host_content_settings_map.h"
 #include "components/content_settings/core/common/content_settings_types.h"
+#include "components/permissions/permission_manager.h"
+#include "components/permissions/permission_result.h"
 #include "components/user_manager/scoped_user_manager.h"
 #include "content/public/test/browser_task_environment.h"
 #include "extensions/common/extension.h"
@@ -37,6 +37,12 @@ namespace {
 
 class ChromeAshMessageCenterClientTest : public testing::Test,
                                          public ash::NotifierSettingsObserver {
+ public:
+  ChromeAshMessageCenterClientTest(const ChromeAshMessageCenterClientTest&) =
+      delete;
+  ChromeAshMessageCenterClientTest& operator=(
+      const ChromeAshMessageCenterClientTest&) = delete;
+
  protected:
   ChromeAshMessageCenterClientTest()
       : testing_profile_manager_(TestingBrowserProcess::GetGlobal()) {}
@@ -107,8 +113,6 @@ class ChromeAshMessageCenterClientTest : public testing::Test,
   TestingProfileManager testing_profile_manager_;
   std::unique_ptr<ChromeAshMessageCenterClient> client_;
   std::unique_ptr<user_manager::ScopedUserManager> user_manager_enabler_;
-
-  DISALLOW_COPY_AND_ASSIGN(ChromeAshMessageCenterClientTest);
 };
 
 // TODO(mukai): write a test case to reproduce the actual guest session scenario
@@ -241,7 +245,8 @@ TEST_F(ChromeAshMessageCenterClientTest, SetWebPageNotifierEnabled) {
           ->GetDefaultContentSetting(ContentSettingsType::NOTIFICATIONS, NULL);
   ASSERT_EQ(CONTENT_SETTING_ASK, default_setting);
 
-  PermissionManager* permission_manager = PermissionManager::Get(profile);
+  permissions::PermissionManager* permission_manager =
+      PermissionManagerFactory::GetForProfile(profile);
 
   // (1) Enable the permission when the default is to ask (expected to set).
   message_center_client()->SetNotifierEnabled(notifier_id, true);

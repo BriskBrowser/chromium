@@ -5,9 +5,10 @@
 package org.chromium.chrome.browser.webapps;
 
 import android.graphics.drawable.BitmapDrawable;
-import android.support.test.filters.SmallTest;
 import android.view.ViewGroup;
 import android.widget.ImageView;
+
+import androidx.test.filters.SmallTest;
 
 import org.junit.Assert;
 import org.junit.Before;
@@ -18,8 +19,8 @@ import org.junit.runner.RunWith;
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.Feature;
 import org.chromium.chrome.R;
-import org.chromium.chrome.browser.ChromeSwitches;
 import org.chromium.chrome.browser.ShortcutHelper;
+import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 
 /**

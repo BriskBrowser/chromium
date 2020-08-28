@@ -4,9 +4,10 @@
 
 #include "ios/web/public/test/web_test_suite.h"
 
-#include "base/logging.h"
+#include "base/check.h"
 #include "base/memory/ptr_util.h"
 #include "base/path_service.h"
+#include "components/crash/core/common/objc_zombie.h"
 #include "ios/testing/verify_custom_webkit.h"
 #include "ios/web/public/navigation/url_schemes.h"
 #import "ios/web/public/test/fakes/test_web_client.h"
@@ -23,6 +24,9 @@ WebTestSuite::WebTestSuite(int argc, char** argv)
     : base::TestSuite(argc, argv),
       web_client_(base::WrapUnique(new TestWebClient)) {
   CHECK(IsCustomWebKitLoadedIfRequested());
+#if TARGET_IPHONE_SIMULATOR
+  DCHECK(ObjcEvilDoers::ZombieEnable(true, 10000));
+#endif
 }
 
 WebTestSuite::~WebTestSuite() {
@@ -34,7 +38,7 @@ WebTestSuite::~WebTestSuite() {
 void WebTestSuite::Initialize() {
   base::TestSuite::Initialize();
 
-  RegisterWebSchemes(false);
+  RegisterWebSchemes();
 
   // Force unittests to run using en-US so if testing string output will work
   // regardless of the system language.

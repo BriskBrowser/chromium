@@ -8,9 +8,11 @@
 #include <map>
 #include <string>
 
-#include "chrome/services/app_service/public/mojom/types.mojom.h"
+#include "components/services/app_service/public/mojom/types.mojom.h"
 
 namespace apps {
+
+class AppUpdate;
 
 // The built-in app's histogram name. This is used for logging so do not change
 // the order of this enum.
@@ -29,6 +31,10 @@ void RecordAppLaunch(const std::string& app_id,
                      apps::mojom::LaunchSource launch_source);
 
 void RecordBuiltInAppSearchResult(const std::string& app_id);
+
+void RecordAppBounce(const apps::AppUpdate& app);
+
+void RecordAppsPerNotification(int count);
 
 }  // namespace apps
 

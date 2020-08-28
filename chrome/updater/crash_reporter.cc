@@ -17,7 +17,7 @@
 #include "base/strings/string16.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
-#include "chrome/updater/updater_constants.h"
+#include "chrome/updater/constants.h"
 #include "chrome/updater/updater_version.h"
 #include "chrome/updater/util.h"
 #include "third_party/crashpad/crashpad/client/crashpad_client.h"
@@ -61,7 +61,7 @@ void StartCrashReporter(const std::string& version) {
   base::PathService::Get(base::FILE_EXE, &handler_path);
 
   base::FilePath database_path;
-  if (!GetProductDirectory(&database_path)) {
+  if (!GetVersionedDirectory(&database_path)) {
     LOG(DFATAL) << "Failed to get the database path.";
     return;
   }

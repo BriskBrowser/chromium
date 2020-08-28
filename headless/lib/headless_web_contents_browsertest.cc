@@ -7,10 +7,11 @@
 #include <vector>
 
 #include "base/bind.h"
+#include "base/check_op.h"
 #include "base/command_line.h"
 #include "base/json/json_writer.h"
-#include "base/logging.h"
 #include "base/run_loop.h"
+#include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "build/build_config.h"
 #include "cc/base/switches.h"
@@ -19,6 +20,7 @@
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/test/browser_test.h"
+#include "headless/app/headless_shell_switches.h"
 #include "headless/lib/browser/headless_web_contents_impl.h"
 #include "headless/public/devtools/domains/browser.h"
 #include "headless/public/devtools/domains/dom_snapshot.h"
@@ -59,7 +61,13 @@ using testing::UnorderedElementsAreArray;
 namespace headless {
 class HeadlessWebContentsTest : public HeadlessBrowserTest {};
 
-IN_PROC_BROWSER_TEST_F(HeadlessWebContentsTest, Navigation) {
+#if defined(OS_WIN)
+// TODO(crbug.com/1045980): Disabled due to flakiness.
+#define MAYBE_Navigation DISABLED_Navigation
+#else
+#define MAYBE_Navigation Navigation
+#endif
+IN_PROC_BROWSER_TEST_F(HeadlessWebContentsTest, MAYBE_Navigation) {
   EXPECT_TRUE(embedded_test_server()->Start());
 
   HeadlessBrowserContext* browser_context =
@@ -75,7 +83,13 @@ IN_PROC_BROWSER_TEST_F(HeadlessWebContentsTest, Navigation) {
               UnorderedElementsAre(web_contents));
 }
 
-IN_PROC_BROWSER_TEST_F(HeadlessWebContentsTest, WindowOpen) {
+#if defined(OS_WIN)
+// TODO(crbug.com/1045980): Disabled due to flakiness.
+#define MAYBE_WindowOpen DISABLED_WindowOpen
+#else
+#define MAYBE_WindowOpen WindowOpen
+#endif
+IN_PROC_BROWSER_TEST_F(HeadlessWebContentsTest, MAYBE_WindowOpen) {
   EXPECT_TRUE(embedded_test_server()->Start());
 
   HeadlessBrowserContext* browser_context =
@@ -108,18 +122,26 @@ IN_PROC_BROWSER_TEST_F(HeadlessWebContentsTest, WindowOpen) {
     EXPECT_NE(parent->window_tree_host(), child->window_tree_host());
 
   gfx::Rect expected_bounds(0, 0, 200, 100);
-#if !defined(OS_MACOSX)
+#if !defined(OS_MAC)
   EXPECT_EQ(expected_bounds, child->web_contents()->GetViewBounds());
   EXPECT_EQ(expected_bounds, child->web_contents()->GetContainerBounds());
-#else   // !defined(OS_MACOSX)
+#else   // !defined(OS_MAC)
   // Mac does not support GetViewBounds() and view positions are random.
   EXPECT_EQ(expected_bounds.size(),
             child->web_contents()->GetContainerBounds().size());
-#endif  // !defined(OS_MACOSX)
+#endif  // !defined(OS_MAC)
 }
 
+#if defined(OS_WIN)
+// TODO(crbug.com/1045980): Disabled due to flakiness.
+#define MAYBE_FocusOfHeadlessWebContents_IsIndependent \
+  DISABLED_FocusOfHeadlessWebContents_IsIndependent
+#else
+#define MAYBE_FocusOfHeadlessWebContents_IsIndependent \
+  FocusOfHeadlessWebContents_IsIndependent
+#endif
 IN_PROC_BROWSER_TEST_F(HeadlessWebContentsTest,
-                       FocusOfHeadlessWebContents_IsIndependent) {
+                       MAYBE_FocusOfHeadlessWebContents_IsIndependent) {
   EXPECT_TRUE(embedded_test_server()->Start());
 
   HeadlessBrowserContext* browser_context =
@@ -149,7 +171,13 @@ IN_PROC_BROWSER_TEST_F(HeadlessWebContentsTest,
   EXPECT_TRUE(has_focus->GetResult()->GetValue()->GetBool());
 }
 
-IN_PROC_BROWSER_TEST_F(HeadlessWebContentsTest, HandleSSLError) {
+#if defined(OS_WIN)
+// TODO(crbug.com/1045980): Disabled due to flakiness.
+#define MAYBE_HandleSSLError DISABLED_HandleSSLError
+#else
+#define MAYBE_HandleSSLError HandleSSLError
+#endif
+IN_PROC_BROWSER_TEST_F(HeadlessWebContentsTest, MAYBE_HandleSSLError) {
   net::EmbeddedTestServer https_server(net::EmbeddedTestServer::TYPE_HTTPS);
   https_server.SetSSLConfig(net::EmbeddedTestServer::CERT_EXPIRED);
   ASSERT_TRUE(https_server.Start());
@@ -223,9 +251,12 @@ class HeadlessWebContentsScreenshotTest
 HEADLESS_ASYNC_DEVTOOLED_TEST_P(HeadlessWebContentsScreenshotTest);
 
 // Instantiate test case for both software and gpu compositing modes.
+#if !defined(OS_WIN)
+// TODO(crbug.com/1045980): Disabled on Windows due to flakiness.
 INSTANTIATE_TEST_SUITE_P(HeadlessWebContentsScreenshotTests,
                          HeadlessWebContentsScreenshotTest,
                          ::testing::Bool());
+#endif
 
 // Regression test for crbug.com/832138.
 class HeadlessWebContentsScreenshotWindowPositionTest
@@ -255,13 +286,23 @@ class HeadlessWebContentsScreenshotWindowPositionTest
   }
 };
 
+// Flaky on Windows Debug https://crbug.com/1090801
+#if defined(OS_WIN) && !defined(NDEBUG)
+DISABLED_HEADLESS_ASYNC_DEVTOOLED_TEST_P(
+    HeadlessWebContentsScreenshotWindowPositionTest);
+#else
 HEADLESS_ASYNC_DEVTOOLED_TEST_P(
     HeadlessWebContentsScreenshotWindowPositionTest);
+#endif
 
 // Instantiate test case for both software and gpu compositing modes.
+#if defined(OS_WIN) || (defined(OS_MAC) && defined(ADDRESS_SANITIZER))
+// TODO(crbug.com/1045980): Disabled on Windows due to flakiness.
+// TODO(crbug.com/1086872): Disabled due to flakiness on Mac ASAN.
 INSTANTIATE_TEST_SUITE_P(HeadlessWebContentsScreenshotWindowPositionTests,
                          HeadlessWebContentsScreenshotWindowPositionTest,
                          ::testing::Bool());
+#endif
 
 #if BUILDFLAG(ENABLE_PRINTING)
 class HeadlessWebContentsPDFTest : public HeadlessAsyncDevTooledBrowserTest {
@@ -329,7 +370,8 @@ class HeadlessWebContentsPDFTest : public HeadlessAsyncDevTooledBrowserTest {
       EXPECT_TRUE(chrome_pdf::RenderPDFPageToBitmap(
           pdf_span, i, page_bitmap_data.data(), settings.area.size().width(),
           settings.area.size().height(), settings.dpi.width(),
-          settings.dpi.height(), settings.autorotate, settings.use_color));
+          settings.dpi.height(), /*stretch_to_bounds=*/false,
+          /*keep_aspect_ratio=*/true, settings.autorotate, settings.use_color));
       EXPECT_EQ(0x56, page_bitmap_data[0]);  // B
       EXPECT_EQ(0x34, page_bitmap_data[1]);  // G
       EXPECT_EQ(0x12, page_bitmap_data[2]);  // R
@@ -338,7 +380,12 @@ class HeadlessWebContentsPDFTest : public HeadlessAsyncDevTooledBrowserTest {
   }
 };
 
+#if defined(OS_WIN)
+// TODO(crbug.com/1045980): Disabled due to flakiness.
+DISABLED_HEADLESS_ASYNC_DEVTOOLED_TEST_F(HeadlessWebContentsPDFTest);
+#else
 HEADLESS_ASYNC_DEVTOOLED_TEST_F(HeadlessWebContentsPDFTest);
+#endif
 
 class HeadlessWebContentsPDFStreamTest
     : public HeadlessAsyncDevTooledBrowserTest {
@@ -420,7 +467,12 @@ class HeadlessWebContentsPDFStreamTest
   std::string base64_data_;
 };
 
+#if defined(OS_WIN)
+// TODO(crbug.com/1045980): Disabled due to flakiness.
+DISABLED_HEADLESS_ASYNC_DEVTOOLED_TEST_F(HeadlessWebContentsPDFStreamTest);
+#else
 HEADLESS_ASYNC_DEVTOOLED_TEST_F(HeadlessWebContentsPDFStreamTest);
+#endif
 
 class HeadlessWebContentsPDFPageSizeRoundingTest
     : public HeadlessAsyncDevTooledBrowserTest,
@@ -467,6 +519,164 @@ class HeadlessWebContentsPDFPageSizeRoundingTest
 };
 
 HEADLESS_ASYNC_DEVTOOLED_TEST_F(HeadlessWebContentsPDFPageSizeRoundingTest);
+
+const char kExpectedStructTreeJSON[] = R"({
+   "lang": "en",
+   "type": "Document",
+   "~children": [ {
+      "type": "H1",
+      "~children": [ {
+         "type": "NonStruct"
+      } ]
+   }, {
+      "type": "P",
+      "~children": [ {
+         "type": "NonStruct"
+      } ]
+   }, {
+      "type": "L",
+      "~children": [ {
+         "type": "LI",
+         "~children": [ {
+            "type": "NonStruct"
+         } ]
+      }, {
+         "type": "LI",
+         "~children": [ {
+            "type": "NonStruct"
+         } ]
+      } ]
+   }, {
+      "type": "Div",
+      "~children": [ {
+         "type": "Link",
+         "~children": [ {
+            "type": "NonStruct"
+         } ]
+      } ]
+   }, {
+      "type": "Table",
+      "~children": [ {
+         "type": "TR",
+         "~children": [ {
+            "type": "TH",
+            "~children": [ {
+               "type": "NonStruct"
+            } ]
+         }, {
+            "type": "TH",
+            "~children": [ {
+               "type": "NonStruct"
+            } ]
+         } ]
+      }, {
+         "type": "TR",
+         "~children": [ {
+            "type": "TD",
+            "~children": [ {
+               "type": "NonStruct"
+            } ]
+         }, {
+            "type": "TD",
+            "~children": [ {
+               "type": "NonStruct"
+            } ]
+         } ]
+      } ]
+   }, {
+      "type": "H2",
+      "~children": [ {
+         "type": "NonStruct"
+      } ]
+   }, {
+      "type": "Div",
+      "~children": [ {
+         "alt": "Car at the beach",
+         "type": "Figure"
+      } ]
+   }, {
+      "lang": "fr",
+      "type": "P",
+      "~children": [ {
+         "type": "NonStruct"
+      } ]
+   } ]
+}
+)";
+
+class HeadlessWebContentsTaggedPDFTest
+    : public HeadlessAsyncDevTooledBrowserTest,
+      public page::Observer {
+ public:
+  void SetUpCommandLine(base::CommandLine* command_line) override {
+    // Specifically request a tagged (accessible) PDF. Maybe someday
+    // we can enable this by default.
+    HeadlessAsyncDevTooledBrowserTest::SetUpCommandLine(command_line);
+    command_line->AppendSwitch(switches::kExportTaggedPDF);
+  }
+
+  void RunDevTooledTest() override {
+    EXPECT_TRUE(embedded_test_server()->Start());
+
+    devtools_client_->GetPage()->AddObserver(this);
+
+    base::RunLoop run_loop(base::RunLoop::Type::kNestableTasksAllowed);
+    devtools_client_->GetPage()->Enable(run_loop.QuitClosure());
+    run_loop.Run();
+
+    devtools_client_->GetPage()->Navigate(
+        embedded_test_server()->GetURL("/structured_doc.html").spec());
+  }
+
+  void OnLoadEventFired(const page::LoadEventFiredParams&) override {
+    devtools_client_->GetPage()->GetExperimental()->PrintToPDF(
+        page::PrintToPDFParams::Builder()
+            .SetPrintBackground(true)
+            .SetPaperHeight(41)
+            .SetPaperWidth(41)
+            .SetMarginTop(0)
+            .SetMarginBottom(0)
+            .SetMarginLeft(0)
+            .SetMarginRight(0)
+            .Build(),
+        base::BindOnce(&HeadlessWebContentsTaggedPDFTest::OnPDFCreated,
+                       base::Unretained(this)));
+  }
+
+  void OnPDFCreated(std::unique_ptr<page::PrintToPDFResult> result) {
+    ASSERT_TRUE(result);
+    protocol::Binary pdf_data = result->GetData();
+    EXPECT_GT(pdf_data.size(), 0U);
+    auto pdf_span = base::make_span(pdf_data.data(), pdf_data.size());
+    int num_pages;
+    EXPECT_TRUE(chrome_pdf::GetPDFDocInfo(pdf_span, &num_pages, nullptr));
+    EXPECT_EQ(1, num_pages);
+
+    base::Optional<bool> tagged = chrome_pdf::IsPDFDocTagged(pdf_span);
+    ASSERT_TRUE(tagged.has_value());
+    EXPECT_TRUE(tagged.value());
+
+    constexpr int kFirstPage = 0;
+    base::Value struct_tree =
+        chrome_pdf::GetPDFStructTreeForPage(pdf_span, kFirstPage);
+    std::string json;
+    base::JSONWriter::WriteWithOptions(
+        struct_tree, base::JSONWriter::OPTIONS_PRETTY_PRINT, &json);
+    // Map Windows line endings to Unix by removing '\r'.
+    base::RemoveChars(json, "\r", &json);
+
+    EXPECT_EQ(kExpectedStructTreeJSON, json);
+
+    FinishAsynchronousTest();
+  }
+};
+
+// Flaky on Windows Debug https://crbug.com/1090801
+#if defined(OS_WIN) && !defined(NDEBUG)
+DISABLED_HEADLESS_ASYNC_DEVTOOLED_TEST_F(HeadlessWebContentsTaggedPDFTest);
+#else
+HEADLESS_ASYNC_DEVTOOLED_TEST_F(HeadlessWebContentsTaggedPDFTest);
+#endif
 
 #endif  // BUILDFLAG(ENABLE_PRINTING)
 
@@ -515,9 +725,21 @@ class HeadlessWebContentsRequestStorageQuotaTest
   }
 };
 
+#if defined(OS_WIN)
+// TODO(crbug.com/1045980): Disabled due to flakiness.
+DISABLED_HEADLESS_ASYNC_DEVTOOLED_TEST_F(
+    HeadlessWebContentsRequestStorageQuotaTest);
+#else
 HEADLESS_ASYNC_DEVTOOLED_TEST_F(HeadlessWebContentsRequestStorageQuotaTest);
+#endif
 
-IN_PROC_BROWSER_TEST_F(HeadlessWebContentsTest, BrowserTabChangeContent) {
+#if defined(OS_WIN)
+// TODO(crbug.com/1045980): Disabled due to flakiness.
+#define MAYBE_BrowserTabChangeContent DISABLED_BrowserTabChangeContent
+#else
+#define MAYBE_BrowserTabChangeContent BrowserTabChangeContent
+#endif
+IN_PROC_BROWSER_TEST_F(HeadlessWebContentsTest, MAYBE_BrowserTabChangeContent) {
   EXPECT_TRUE(embedded_test_server()->Start());
 
   HeadlessBrowserContext* browser_context =
@@ -536,7 +758,13 @@ IN_PROC_BROWSER_TEST_F(HeadlessWebContentsTest, BrowserTabChangeContent) {
   EXPECT_TRUE(WaitForLoad(web_contents));
 }
 
-IN_PROC_BROWSER_TEST_F(HeadlessWebContentsTest, BrowserOpenInTab) {
+#if defined(OS_WIN)
+// TODO(crbug.com/1045980): Disabled due to flakiness.
+#define MAYBE_BrowserOpenInTab DISABLED_BrowserOpenInTab
+#else
+#define MAYBE_BrowserOpenInTab BrowserOpenInTab
+#endif
+IN_PROC_BROWSER_TEST_F(HeadlessWebContentsTest, MAYBE_BrowserOpenInTab) {
   EXPECT_TRUE(embedded_test_server()->Start());
 
   HeadlessBrowserContext* browser_context =
@@ -561,7 +789,7 @@ IN_PROC_BROWSER_TEST_F(HeadlessWebContentsTest, BrowserOpenInTab) {
 }
 
 // BeginFrameControl is not supported on MacOS.
-#if !defined(OS_MACOSX)
+#if !defined(OS_MAC)
 
 class HeadlessWebContentsBeginFrameControlTest
     : public HeadlessBrowserTest,
@@ -611,11 +839,11 @@ class HeadlessWebContentsBeginFrameControlTest
   void SetUpCommandLine(base::CommandLine* command_line) override {
     HeadlessBrowserTest::SetUpCommandLine(command_line);
     // See bit.ly/headless-rendering for why we use these flags.
-    command_line->AppendSwitch(switches::kRunAllCompositorStagesBeforeDraw);
-    command_line->AppendSwitch(switches::kDisableNewContentRenderingTimeout);
+    command_line->AppendSwitch(::switches::kRunAllCompositorStagesBeforeDraw);
+    command_line->AppendSwitch(::switches::kDisableNewContentRenderingTimeout);
     command_line->AppendSwitch(cc::switches::kDisableCheckerImaging);
     command_line->AppendSwitch(cc::switches::kDisableThreadedAnimation);
-    command_line->AppendSwitch(switches::kDisableThreadedScrolling);
+    command_line->AppendSwitch(::switches::kDisableThreadedScrolling);
   }
 
   void OnCreateTargetResult(
@@ -793,7 +1021,13 @@ class HeadlessWebContentsBeginFrameControlBasicTest
   }
 };
 
+#if defined(OS_WIN)
+// TODO(crbug.com/1045980): Disabled due to flakiness.
+DISABLED_HEADLESS_ASYNC_DEVTOOLED_TEST_F(
+    HeadlessWebContentsBeginFrameControlBasicTest);
+#else
 HEADLESS_ASYNC_DEVTOOLED_TEST_F(HeadlessWebContentsBeginFrameControlBasicTest);
+#endif
 
 class HeadlessWebContentsBeginFrameControlViewportTest
     : public HeadlessWebContentsBeginFrameControlTest {
@@ -876,10 +1110,16 @@ class HeadlessWebContentsBeginFrameControlViewportTest
   }
 };
 
+#if defined(OS_WIN)
+// TODO(crbug.com/1045980): Disabled due to flakiness.
+DISABLED_HEADLESS_ASYNC_DEVTOOLED_TEST_F(
+    HeadlessWebContentsBeginFrameControlViewportTest);
+#else
 HEADLESS_ASYNC_DEVTOOLED_TEST_F(
     HeadlessWebContentsBeginFrameControlViewportTest);
+#endif
 
-#endif  // !defined(OS_MACOSX)
+#endif  // !defined(OS_MAC)
 
 class CookiesEnabled : public HeadlessAsyncDevTooledBrowserTest,
                        page::Observer {
@@ -909,7 +1149,12 @@ class CookiesEnabled : public HeadlessAsyncDevTooledBrowserTest,
   }
 };
 
+#if defined(OS_WIN)
+// TODO(crbug.com/1045980): Disabled due to flakiness.
+DISABLED_HEADLESS_ASYNC_DEVTOOLED_TEST_F(CookiesEnabled);
+#else
 HEADLESS_ASYNC_DEVTOOLED_TEST_F(CookiesEnabled);
+#endif
 
 namespace {
 const char* kPageWhichOpensAWindow = R"(
@@ -964,7 +1209,15 @@ class DontBlockWebContentsOpenTest : public WebContentsOpenTest {
   }
 };
 
+#if defined(OS_WIN) || defined(OS_LINUX) || defined(OS_CHROMEOS) || \
+    defined(OS_FUCHSIA)
+// TODO(crbug.com/1045980): Disabled due to flakiness.
+// TODO(crbug.com/1078405): Disabled due to flakiness.
+// TODO(crbug.com/1090936): Disabled due to flakiness.
+DISABLED_HEADLESS_ASYNC_DEVTOOLED_TEST_F(DontBlockWebContentsOpenTest);
+#else
 HEADLESS_ASYNC_DEVTOOLED_TEST_F(DontBlockWebContentsOpenTest);
+#endif
 
 class BlockWebContentsOpenTest : public WebContentsOpenTest {
  public:
@@ -980,6 +1233,11 @@ class BlockWebContentsOpenTest : public WebContentsOpenTest {
   }
 };
 
+#if defined(OS_WIN)
+// TODO(crbug.com/1045980): Disabled due to flakiness.
+DISABLED_HEADLESS_ASYNC_DEVTOOLED_TEST_F(BlockWebContentsOpenTest);
+#else
 HEADLESS_ASYNC_DEVTOOLED_TEST_F(BlockWebContentsOpenTest);
+#endif
 
 }  // namespace headless

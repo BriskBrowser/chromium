@@ -6,6 +6,7 @@
 
 #include <drm_fourcc.h>
 #include <stdint.h>
+#include <xf86drm.h>
 #include <memory>
 #include <utility>
 #include <vector>
@@ -21,21 +22,21 @@
 #include "third_party/skia/include/core/SkSurface.h"
 #include "ui/gfx/gpu_fence.h"
 #include "ui/gfx/linux/gbm_buffer.h"
+#include "ui/gfx/linux/test/mock_gbm_device.h"
 #include "ui/gfx/presentation_feedback.h"
 #include "ui/ozone/platform/drm/gpu/drm_device_generator.h"
 #include "ui/ozone/platform/drm/gpu/drm_device_manager.h"
 #include "ui/ozone/platform/drm/gpu/drm_framebuffer.h"
 #include "ui/ozone/platform/drm/gpu/hardware_display_controller.h"
 #include "ui/ozone/platform/drm/gpu/mock_drm_device.h"
-#include "ui/ozone/platform/drm/gpu/mock_gbm_device.h"
 #include "ui/ozone/platform/drm/gpu/screen_manager.h"
 #include "ui/ozone/public/surface_ozone_canvas.h"
 
 namespace {
 
 // Mode of size 6x4.
-const drmModeModeInfo kDefaultMode =
-    {0, 6, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, {'\0'}};
+const drmModeModeInfo kDefaultMode = {0, 6, 0, 0, 0, 0, 4,     0,
+                                      0, 0, 0, 0, 0, 0, {'\0'}};
 
 const gfx::AcceleratedWidget kDefaultWidgetHandle = 1;
 const uint32_t kDefaultCrtc = 1;
@@ -68,7 +69,7 @@ SkBitmap AllocateBitmap(const gfx::Size& size) {
 
 class DrmWindowTest : public testing::Test {
  public:
-  DrmWindowTest() {}
+  DrmWindowTest() = default;
 
   void SetUp() override;
   void TearDown() override;
@@ -105,9 +106,13 @@ void DrmWindowTest::SetUp() {
   auto gbm_device = std::make_unique<ui::MockGbmDevice>();
   drm_ = new ui::MockDrmDevice(std::move(gbm_device));
   screen_manager_ = std::make_unique<ui::ScreenManager>();
+
   screen_manager_->AddDisplayController(drm_, kDefaultCrtc, kDefaultConnector);
-  screen_manager_->ConfigureDisplayController(
-      drm_, kDefaultCrtc, kDefaultConnector, gfx::Point(), kDefaultMode);
+  std::vector<ui::ScreenManager::ControllerConfigParams> controllers_to_enable;
+  controllers_to_enable.push_back(
+      {1 /*display_id*/, drm_, kDefaultCrtc, kDefaultConnector, gfx::Point(),
+       std::make_unique<drmModeModeInfo>(kDefaultMode)});
+  screen_manager_->ConfigureDisplayControllers(controllers_to_enable);
 
   drm_device_manager_ = std::make_unique<ui::DrmDeviceManager>(nullptr);
 
@@ -161,10 +166,15 @@ TEST_F(DrmWindowTest, CheckCursorSurfaceAfterChangingDevice) {
   auto gbm_device = std::make_unique<ui::MockGbmDevice>();
   scoped_refptr<ui::MockDrmDevice> drm =
       new ui::MockDrmDevice(std::move(gbm_device));
+
   screen_manager_->AddDisplayController(drm, kDefaultCrtc, kDefaultConnector);
-  screen_manager_->ConfigureDisplayController(
-      drm, kDefaultCrtc, kDefaultConnector,
-      gfx::Point(0, kDefaultMode.vdisplay), kDefaultMode);
+
+  std::vector<ui::ScreenManager::ControllerConfigParams> controllers_to_enable;
+  controllers_to_enable.push_back(
+      {2 /*display_id*/, drm, kDefaultCrtc, kDefaultConnector,
+       gfx::Point(0, kDefaultMode.vdisplay),
+       std::make_unique<drmModeModeInfo>(kDefaultMode)});
+  screen_manager_->ConfigureDisplayControllers(controllers_to_enable);
 
   // Move window to the display on the new device.
   screen_manager_->GetWindow(kDefaultWidgetHandle)
@@ -182,8 +192,9 @@ TEST_F(DrmWindowTest, CheckDeathOnFailedSwap) {
 
   std::unique_ptr<ui::GbmBuffer> buffer = drm_->gbm_device()->CreateBuffer(
       DRM_FORMAT_XRGB8888, window_size, GBM_BO_USE_SCANOUT);
+  ASSERT_TRUE(buffer);
   scoped_refptr<ui::DrmFramebuffer> framebuffer =
-      ui::DrmFramebuffer::AddFramebuffer(drm_, buffer.get());
+      ui::DrmFramebuffer::AddFramebuffer(drm_, buffer.get(), window_size);
   ui::DrmOverlayPlane plane(framebuffer, nullptr);
 
   drm_->set_page_flip_expectation(false);

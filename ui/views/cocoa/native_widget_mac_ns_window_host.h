@@ -5,7 +5,9 @@
 #ifndef UI_VIEWS_COCOA_NATIVE_WIDGET_MAC_NS_WINDOW_HOST_H_
 #define UI_VIEWS_COCOA_NATIVE_WIDGET_MAC_NS_WINDOW_HOST_H_
 
+#include <map>
 #include <memory>
+#include <string>
 #include <vector>
 
 #include "base/mac/scoped_nsobject.h"
@@ -297,7 +299,7 @@ class VIEWS_EXPORT NativeWidgetMacNSWindowHost
   bool GetShouldShowWindowTitle(bool* should_show_window_title) override;
   bool GetCanWindowBecomeKey(bool* can_window_become_key) override;
   bool GetAlwaysRenderWindowAsKey(bool* always_render_as_key) override;
-  bool GetCanWindowClose(bool* can_window_close) override;
+  bool OnWindowCloseRequested(bool* can_window_close) override;
   bool GetWindowFrameTitlebarHeight(bool* override_titlebar_height,
                                     float* titlebar_height) override;
   void OnFocusWindowToolbar() override;
@@ -343,7 +345,7 @@ class VIEWS_EXPORT NativeWidgetMacNSWindowHost
   void GetCanWindowBecomeKey(GetCanWindowBecomeKeyCallback callback) override;
   void GetAlwaysRenderWindowAsKey(
       GetAlwaysRenderWindowAsKeyCallback callback) override;
-  void GetCanWindowClose(GetCanWindowCloseCallback callback) override;
+  void OnWindowCloseRequested(OnWindowCloseRequestedCallback callback) override;
   void GetWindowFrameTitlebarHeight(
       GetWindowFrameTitlebarHeightCallback callback) override;
   void GetRootViewAccessibilityToken(

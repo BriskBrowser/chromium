@@ -3,8 +3,10 @@
 // found in the LICENSE file.
 
 #include <memory>
+#include <utility>
 #include <vector>
 
+#include "ash/accessibility/accessibility_controller_impl.h"
 #include "ash/app_list/app_list_controller_impl.h"
 #include "ash/app_list/app_list_metrics.h"
 #include "ash/app_list/model/search/search_model.h"
@@ -25,6 +27,7 @@
 #include "ash/public/cpp/shelf_model.h"
 #include "ash/shelf/home_button.h"
 #include "ash/shelf/shelf.h"
+#include "ash/shelf/shelf_navigation_widget.h"
 #include "ash/shelf/shelf_view.h"
 #include "ash/shelf/shelf_view_test_api.h"
 #include "ash/shelf/shelf_widget.h"
@@ -51,7 +54,8 @@ class TestShelfItemDelegate : public ShelfItemDelegate {
   void ItemSelected(std::unique_ptr<ui::Event> event,
                     int64_t display_id,
                     ash::ShelfLaunchSource source,
-                    ItemSelectedCallback callback) override {
+                    ItemSelectedCallback callback,
+                    const ItemFilterPredicate& filter_predicate) override {
     std::move(callback).Run(SHELF_ACTION_WINDOW_ACTIVATED, {});
   }
   void ExecuteCommand(bool from_context_menu,
@@ -141,7 +145,7 @@ class AppListAppLaunchedMetricTest : public AshTestBase {
             ->app_list_main_view()
             ->contents_view()
             ->search_results_page_view()
-            ->result_container_views()[1];
+            ->result_container_views()[0];
 
     // Request focus on the first tile item view.
     search_result_container_view->GetFirstResultView()->RequestFocus();
@@ -154,8 +158,8 @@ class AppListAppLaunchedMetricTest : public AshTestBase {
     // Populate 4 suggestion chips.
     for (size_t i = 0; i < 4; i++) {
       auto search_result_chip = std::make_unique<SearchResult>();
-      search_result_chip->set_display_type(
-          SearchResultDisplayType::kRecommendation);
+      search_result_chip->set_display_type(SearchResultDisplayType::kTile);
+      search_result_chip->set_is_recommendation(true);
       search_model_->results()->Add(std::move(search_result_chip));
     }
     GetAppListTestHelper()->WaitUntilIdle();
@@ -167,7 +171,7 @@ class AppListAppLaunchedMetricTest : public AshTestBase {
             ->GetView()
             ->app_list_main_view()
             ->contents_view()
-            ->GetAppsContainerView()
+            ->apps_container_view()
             ->suggestion_chip_container_view_for_test();
 
     // Get focus on the first chip.
@@ -505,7 +509,7 @@ class AppListShowSourceMetricTest : public AshTestBase {
  protected:
   void ClickHomeButton() {
     HomeButton* home_button =
-        GetPrimaryShelf()->shelf_widget()->GetHomeButton();
+        GetPrimaryShelf()->navigation_widget()->GetHomeButton();
     gfx::Point center = home_button->GetCenterPoint();
     views::View::ConvertPointToScreen(home_button, &center);
     GetEventGenerator()->MoveMouseTo(center);
@@ -520,6 +524,12 @@ class AppListShowSourceMetricTest : public AshTestBase {
 // when already home should do nothing.
 TEST_F(AppListShowSourceMetricTest, TabletInAppToHome) {
   base::HistogramTester histogram_tester;
+
+  // Enable accessibility feature that forces home button to be shown even with
+  // kHideShelfControlsInTabletMode enabled.
+  // TODO(https://crbug.com/1050544) Use the a11y feature specific to showing
+  // navigation buttons in tablet mode once it lands.
+  Shell::Get()->accessibility_controller()->SetAutoclickEnabled(true);
 
   std::unique_ptr<views::Widget> widget = CreateTestWidget();
   Shell::Get()->tablet_mode_controller()->SetEnabledForTest(true);

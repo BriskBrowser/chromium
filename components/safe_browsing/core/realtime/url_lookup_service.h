@@ -11,110 +11,106 @@
 #include "base/callback.h"
 #include "base/containers/flat_map.h"
 #include "base/memory/weak_ptr.h"
+#include "base/optional.h"
 #include "base/time/time.h"
 #include "base/timer/timer.h"
 #include "components/safe_browsing/core/db/v4_protocol_manager_util.h"
+#include "components/safe_browsing/core/proto/csd.pb.h"
 #include "components/safe_browsing/core/proto/realtimeapi.pb.h"
+#include "components/safe_browsing/core/realtime/url_lookup_service_base.h"
+#include "components/signin/public/identity_manager/access_token_info.h"
 #include "url/gurl.h"
 
+namespace net {
+struct NetworkTrafficAnnotationTag;
+}
+
 namespace network {
-class SimpleURLLoader;
 class SharedURLLoaderFactory;
 }  // namespace network
 
+namespace signin {
+class IdentityManager;
+}
+
+namespace syncer {
+class SyncService;
+}
+
+namespace variations {
+class VariationsService;
+}
+
+class PrefService;
+
 namespace safe_browsing {
 
-using RTLookupRequestCallback =
-    base::OnceCallback<void(std::unique_ptr<RTLookupRequest>)>;
+class SafeBrowsingTokenFetcher;
 
-using RTLookupResponseCallback =
-    base::OnceCallback<void(std::unique_ptr<RTLookupResponse>)>;
-
-// This class implements the logic to decide whether the real time lookup
-// feature is enabled for a given user/profile.
-class RealTimeUrlLookupService {
+// This class implements the real time lookup feature for a given user/profile.
+// It is separated from the base class for logic that is related to consumer
+// users.(See: go/chrome-protego-enterprise-dd)
+class RealTimeUrlLookupService : public RealTimeUrlLookupServiceBase {
  public:
-  explicit RealTimeUrlLookupService(
-      scoped_refptr<network::SharedURLLoaderFactory>);
-  ~RealTimeUrlLookupService();
+  // |cache_manager|, |identity_manager|, |sync_service| and |pref_service| may
+  // be null in tests.
+  RealTimeUrlLookupService(
+      scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
+      VerdictCacheManager* cache_manager,
+      signin::IdentityManager* identity_manager,
+      syncer::SyncService* sync_service,
+      PrefService* pref_service,
+      const ChromeUserPopulation::ProfileManagementStatus&
+          profile_management_status,
+      bool is_under_advanced_protection,
+      bool is_off_the_record,
+      variations::VariationsService* variations_service);
+  ~RealTimeUrlLookupService() override;
 
-  // Returns true if |url|'s scheme can be checked.
-  bool CanCheckUrl(const GURL& url) const;
-
-  // Returns true if the real time lookups are currently in backoff mode due to
-  // too many prior errors. If this happens, the checking falls back to
-  // local hash-based method.
-  bool IsInBackoffMode() const;
-
-  // Start the full URL lookup for |url|, call |request_callback| on the same
-  // thread when request is sent, call |response_callback| on the same thread
-  // when response is received.
-  void StartLookup(const GURL& url,
-                   RTLookupRequestCallback request_callback,
-                   RTLookupResponseCallback response_callback);
-
-  // Returns the SBThreatType for a given
-  // RTLookupResponse::ThreatInfo::ThreatType
-  static SBThreatType GetSBThreatTypeForRTThreatType(
-      RTLookupResponse::ThreatInfo::ThreatType rt_threat_type);
+  // RealTimeUrlLookupServiceBase:
+  bool CanPerformFullURLLookup() const override;
+  bool CanCheckSubresourceURL() const override;
+  bool CanCheckSafeBrowsingDb() const override;
 
  private:
-  using PendingRTLookupRequests =
-      base::flat_map<network::SimpleURLLoader*, RTLookupResponseCallback>;
+  // RealTimeUrlLookupServiceBase:
+  net::NetworkTrafficAnnotationTag GetTrafficAnnotationTag() const override;
+  bool CanPerformFullURLLookupWithToken() const override;
+  void GetAccessToken(const GURL& url,
+                      RTLookupRequestCallback request_callback,
+                      RTLookupResponseCallback response_callback) override;
+  base::Optional<std::string> GetDMTokenString() const override;
+  std::string GetMetricSuffix() const override;
+  bool ShouldIncludeCredentials() const override;
 
-  // Returns the duration of the next backoff. Starts at
-  // |kMinBackOffResetDurationInSeconds| and increases exponentially until it
-  // reaches |kMaxBackOffResetDurationInSeconds|.
-  size_t GetBackoffDurationInSeconds() const;
+  // Called when the access token is obtained from |token_fetcher_|.
+  void OnGetAccessToken(
+      const GURL& url,
+      RTLookupRequestCallback request_callback,
+      RTLookupResponseCallback response_callback,
+      base::TimeTicks get_token_start_time,
+      base::Optional<signin::AccessTokenInfo> access_token_info);
 
-  // Called when the request to remote endpoint fails. May initiate or extend
-  // backoff.
-  void HandleLookupError();
+  // Unowned object used for getting access token when real time url check with
+  // token is enabled.
+  signin::IdentityManager* identity_manager_;
 
-  // Called when the request to remote endpoint succeeds. Resets error count and
-  // ends backoff.
-  void HandleLookupSuccess();
+  // Unowned object used for checking sync status of the profile.
+  syncer::SyncService* sync_service_;
 
-  // Resets the error count and ends backoff mode. Functionally same as
-  // |HandleLookupSuccess| for now.
-  void ResetFailures();
+  // Unowned object used for getting preference settings.
+  PrefService* pref_service_;
 
-  // Called when the response from the real-time lookup remote endpoint is
-  // received. |url_loader| is the unowned loader that was used to send the
-  // request. |request_start_time| is the time when the request was sent.
-  // |response_body| is the response received.
-  void OnURLLoaderComplete(network::SimpleURLLoader* url_loader,
-                           base::TimeTicks request_start_time,
-                           std::unique_ptr<std::string> response_body);
+  // The token fetcher used for getting access token.
+  std::unique_ptr<SafeBrowsingTokenFetcher> token_fetcher_;
 
-  std::unique_ptr<RTLookupRequest> FillRequestProto(const GURL& url);
+  // A boolean indicates whether the profile associated with this
+  // |url_lookup_service| is an off the record profile.
+  bool is_off_the_record_;
 
-  // Helper function to return a weak pointer.
-  base::WeakPtr<RealTimeUrlLookupService> GetWeakPtr();
-
-  PendingRTLookupRequests pending_requests_;
-
-  // Count of consecutive failures to complete URL lookup requests. When it
-  // reaches |kMaxFailuresToEnforceBackoff|, we enter the backoff mode. It gets
-  // reset when we complete a lookup successfully or when the backoff reset
-  // timer fires.
-  size_t consecutive_failures_ = 0;
-
-  // If true, represents that one or more real time lookups did complete
-  // successfully since the last backoff or Chrome never entered the breakoff;
-  // if false and Chrome re-enters backoff period, the backoff duration is
-  // increased exponentially (capped at |kMaxBackOffResetDurationInSeconds|).
-  bool did_successful_lookup_since_last_backoff_ = true;
-
-  // The current duration of backoff. Increases exponentially until it reaches
-  // |kMaxBackOffResetDurationInSeconds|.
-  size_t next_backoff_duration_secs_ = 0;
-
-  // If this timer is running, backoff is in effect.
-  base::OneShotTimer backoff_timer_;
-
-  // The URLLoaderFactory we use to issue network requests.
-  scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory_;
+  // Unowned. For checking whether real-time checks can be enabled in a given
+  // location.
+  variations::VariationsService* variations_;
 
   friend class RealTimeUrlLookupServiceTest;
 

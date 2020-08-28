@@ -26,16 +26,16 @@
 #include "third_party/blink/renderer/bindings/core/v8/script_value.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_binding_for_core.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_request.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_request_init.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_response.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_response_init.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
 #include "third_party/blink/renderer/core/fetch/body_stream_buffer.h"
 #include "third_party/blink/renderer/core/fetch/form_data_bytes_consumer.h"
 #include "third_party/blink/renderer/core/fetch/global_fetch.h"
 #include "third_party/blink/renderer/core/fetch/request.h"
-#include "third_party/blink/renderer/core/fetch/request_init.h"
 #include "third_party/blink/renderer/core/fetch/response.h"
-#include "third_party/blink/renderer/core/fetch/response_init.h"
 #include "third_party/blink/renderer/core/frame/frame.h"
 #include "third_party/blink/renderer/core/testing/page_test_base.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
@@ -54,8 +54,6 @@ const char kNotImplementedString[] =
 class ScopedFetcherForTests final
     : public GarbageCollected<ScopedFetcherForTests>,
       public GlobalFetch::ScopedFetcher {
-  USING_GARBAGE_COLLECTED_MIXIN(ScopedFetcherForTests);
-
  public:
   ScopedFetcherForTests() : fetch_count_(0), expected_url_(nullptr) {}
 
@@ -94,7 +92,7 @@ class ScopedFetcherForTests final
 
   int FetchCount() const { return fetch_count_; }
 
-  void Trace(blink::Visitor* visitor) override {
+  void Trace(Visitor* visitor) const override {
     visitor->Trace(response_);
     GlobalFetch::ScopedFetcher::Trace(visitor);
   }

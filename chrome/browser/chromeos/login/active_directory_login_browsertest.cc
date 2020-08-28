@@ -4,7 +4,6 @@
 
 #include <string>
 
-#include "ash/public/cpp/ash_switches.h"
 #include "base/base_paths.h"
 #include "base/environment.h"
 #include "base/path_service.h"
@@ -14,12 +13,14 @@
 #include "chrome/browser/chromeos/login/test/active_directory_login_mixin.h"
 #include "chrome/browser/chromeos/login/test/device_state_mixin.h"
 #include "chrome/browser/chromeos/login/test/oobe_base_test.h"
+#include "chrome/browser/chromeos/login/test/oobe_screens_utils.h"
 #include "chrome/browser/chromeos/login/test/session_manager_state_waiter.h"
 #include "chrome/browser/chromeos/login/wizard_controller.h"
 #include "chromeos/dbus/authpolicy/fake_authpolicy_client.h"
 #include "components/user_manager/user_names.h"
 #include "content/public/browser/network_service_instance.h"
 #include "content/public/common/network_service_util.h"
+#include "content/public/test/browser_test.h"
 #include "mojo/public/cpp/bindings/remote.h"
 #include "mojo/public/cpp/bindings/sync_call_restrictions.h"
 #include "services/network/public/mojom/network_service_test.mojom.h"
@@ -101,34 +102,22 @@ class ActiveDirectoryLoginAutocompleteTest : public ActiveDirectoryLoginTest {
 }  // namespace
 
 // Test successful Active Directory login.
-// TODO(https://crbug.com/1034481) Flaky on MSAN bots.
-#if defined(MEMORY_SANITIZER)
-#define MAYBE_LoginSuccess DISABLED_LoginSuccess
-#else
-#define MAYBE_LoginSuccess LoginSuccess
-#endif
-IN_PROC_BROWSER_TEST_F(ActiveDirectoryLoginTest, MAYBE_LoginSuccess) {
-  OobeBaseTest::WaitForSigninScreen();
+IN_PROC_BROWSER_TEST_F(ActiveDirectoryLoginTest, LoginSuccess) {
   ASSERT_TRUE(InstallAttributes::Get()->IsActiveDirectoryManaged());
   ad_login_.TestNoError();
   ad_login_.TestDomainHidden();
   ad_login_.SubmitActiveDirectoryCredentials(test_user_, kPassword);
+  test::WaitForLastScreenAndTapGetStarted();
   test::WaitForPrimaryUserSessionStart();
 }
 
 // Tests that the Kerberos SSO environment variables are set correctly after
 // an Active Directory log in.
-// TODO(https://crbug.com/1034481) Flaky on MSAN bots.
-#if defined(MEMORY_SANITIZER)
-#define MAYBE_KerberosVarsCopied DISABLED_KerberosVarsCopied
-#else
-#define MAYBE_KerberosVarsCopied KerberosVarsCopied
-#endif
-IN_PROC_BROWSER_TEST_F(ActiveDirectoryLoginTest, MAYBE_KerberosVarsCopied) {
-  OobeBaseTest::WaitForSigninScreen();
+IN_PROC_BROWSER_TEST_F(ActiveDirectoryLoginTest, KerberosVarsCopied) {
   ad_login_.TestNoError();
   ad_login_.TestDomainHidden();
   ad_login_.SubmitActiveDirectoryCredentials(test_user_, kPassword);
+  test::WaitForLastScreenAndTapGetStarted();
   test::WaitForPrimaryUserSessionStart();
 
   base::FilePath dir;
@@ -143,7 +132,6 @@ IN_PROC_BROWSER_TEST_F(ActiveDirectoryLoginTest, MAYBE_KerberosVarsCopied) {
 
 // Test different UI errors for Active Directory login.
 IN_PROC_BROWSER_TEST_F(ActiveDirectoryLoginTest, LoginErrors) {
-  OobeBaseTest::WaitForSigninScreen();
   ASSERT_TRUE(InstallAttributes::Get()->IsActiveDirectoryManaged());
   ad_login_.TestNoError();
   ad_login_.TestDomainHidden();
@@ -184,7 +172,6 @@ IN_PROC_BROWSER_TEST_F(ActiveDirectoryLoginTest, LoginErrors) {
 
 // Test successful Active Directory login from the password change screen.
 IN_PROC_BROWSER_TEST_F(ActiveDirectoryLoginTest, PasswordChange_LoginSuccess) {
-  OobeBaseTest::WaitForSigninScreen();
   ASSERT_TRUE(InstallAttributes::Get()->IsActiveDirectoryManaged());
   ad_login_.TestLoginVisible();
   ad_login_.TestDomainHidden();
@@ -195,12 +182,12 @@ IN_PROC_BROWSER_TEST_F(ActiveDirectoryLoginTest, PasswordChange_LoginSuccess) {
   fake_authpolicy_client()->set_auth_error(authpolicy::ERROR_NONE);
   ad_login_.SubmitActiveDirectoryPasswordChangeCredentials(
       kPassword, kNewPassword, kNewPassword);
+  test::WaitForLastScreenAndTapGetStarted();
   test::WaitForPrimaryUserSessionStart();
 }
 
 // Test different UI errors for Active Directory password change screen.
 IN_PROC_BROWSER_TEST_F(ActiveDirectoryLoginTest, PasswordChange_UIErrors) {
-  OobeBaseTest::WaitForSigninScreen();
   ASSERT_TRUE(InstallAttributes::Get()->IsActiveDirectoryManaged());
   ad_login_.TestLoginVisible();
   ad_login_.TestDomainHidden();
@@ -232,25 +219,9 @@ IN_PROC_BROWSER_TEST_F(ActiveDirectoryLoginTest, PasswordChange_UIErrors) {
   ad_login_.TestPasswordChangeOldPasswordError();
 }
 
-class ActiveDirectoryWebUILoginTest : public ActiveDirectoryLoginTest {
- public:
-  ActiveDirectoryWebUILoginTest() = default;
-  ~ActiveDirectoryWebUILoginTest() override = default;
-
-  // chromeos::ActiveDirectoryLoginTest:
-  void SetUpCommandLine(base::CommandLine* command_line) override {
-    command_line->AppendSwitch(ash::switches::kShowWebUiLogin);
-    chromeos::ActiveDirectoryLoginTest::SetUpCommandLine(command_line);
-  }
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(ActiveDirectoryWebUILoginTest);
-};
-
 // Test reopening Active Directory password change screen clears errors.
-IN_PROC_BROWSER_TEST_F(ActiveDirectoryWebUILoginTest,
+IN_PROC_BROWSER_TEST_F(ActiveDirectoryLoginTest,
                        PasswordChange_ReopenClearErrors) {
-  OobeBaseTest::WaitForSigninScreen();
   ASSERT_TRUE(InstallAttributes::Get()->IsActiveDirectoryManaged());
   ad_login_.TestLoginVisible();
   ad_login_.TestDomainHidden();
@@ -269,19 +240,18 @@ IN_PROC_BROWSER_TEST_F(ActiveDirectoryWebUILoginTest,
 
 // Tests that autocomplete works. Submits username without domain.
 IN_PROC_BROWSER_TEST_F(ActiveDirectoryLoginAutocompleteTest, LoginSuccess) {
-  OobeBaseTest::WaitForSigninScreen();
   ASSERT_TRUE(InstallAttributes::Get()->IsActiveDirectoryManaged());
   ad_login_.TestNoError();
   ad_login_.TestDomainVisible();
 
   ad_login_.SubmitActiveDirectoryCredentials(kTestActiveDirectoryUser,
                                              kPassword);
+  test::WaitForLastScreenAndTapGetStarted();
   test::WaitForPrimaryUserSessionStart();
 }
 
 // Tests that user could override autocomplete domain.
 IN_PROC_BROWSER_TEST_F(ActiveDirectoryLoginAutocompleteTest, TestAutocomplete) {
-  OobeBaseTest::WaitForSigninScreen();
   ASSERT_TRUE(InstallAttributes::Get()->IsActiveDirectoryManaged());
 
   ad_login_.TestLoginVisible();

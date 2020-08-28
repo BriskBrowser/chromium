@@ -11,7 +11,6 @@
 
 #include "base/feature_list.h"
 #include "base/mac/bundle_locations.h"
-#import "base/mac/sdk_forward_declarations.h"
 #include "base/macros.h"
 #include "base/strings/sys_string_conversions.h"
 #include "build/buildflag.h"
@@ -39,10 +38,6 @@ namespace {
 
 NSString* ColumnIdentifier(int id) {
   return [NSString stringWithFormat:@"%d", id];
-}
-
-bool ShouldUseViewsTaskManager() {
-  return base::FeatureList::IsEnabled(features::kViewsTaskManager);
 }
 
 }  // namespace
@@ -294,7 +289,7 @@ bool ShouldUseViewsTaskManager() {
   [tableView setAllowsMultipleSelection:YES];
   [tableView setAutosaveTableColumns:NO];
   [tableView
-      setColumnAutoresizingStyle:NSTableViewUniformColumnAutoresizingStyle];
+      setColumnAutoresizingStyle:NSTableViewSequentialColumnAutoresizingStyle];
   [tableView setDoubleAction:@selector(tableWasDoubleClicked:)];
   [tableView setFocusRingType:NSFocusRingTypeNone];
   [tableView setIntercellSpacing:NSMakeSize(0, 0)];
@@ -342,10 +337,8 @@ bool ShouldUseViewsTaskManager() {
   [column.get() setSortDescriptorPrototype:sortDescriptor.get()];
 
   [column.get() setMinWidth:columnData.min_width];
-  int maxWidth = columnData.max_width;
-  if (maxWidth < 0)
-    maxWidth = 3 * columnData.min_width / 2;  // *1.5 for ints.
-  [column.get() setMaxWidth:maxWidth];
+  if (columnData.max_width > 0)
+    [column.get() setMaxWidth:columnData.max_width];
   [column.get() setResizingMask:NSTableColumnAutoresizingMask |
                                 NSTableColumnUserResizingMask];
 
@@ -743,14 +736,10 @@ namespace chrome {
 
 // Declared in browser_dialogs.h.
 task_manager::TaskManagerTableModel* ShowTaskManager(Browser* browser) {
-  if (ShouldUseViewsTaskManager())
-    return chrome::ShowTaskManagerViews(browser);
   return task_manager::TaskManagerMac::Show();
 }
 
 void HideTaskManager() {
-  if (ShouldUseViewsTaskManager())
-    return chrome::HideTaskManagerViews();
   task_manager::TaskManagerMac::Hide();
 }
 

@@ -6,6 +6,7 @@
 
 #include <wrl/client.h>
 
+#include "base/logging.h"
 #include "base/strings/string_piece.h"
 #include "base/win/scoped_hstring.h"
 
@@ -21,8 +22,8 @@ HRESULT FakeIToastNotification::get_Content(winxml::Dom::IXmlDocument** value) {
   mswr::ComPtr<winxml::Dom::IXmlDocumentIO> xml_document_io;
   base::win::ScopedHString id = base::win::ScopedHString::Create(
       RuntimeClass_Windows_Data_Xml_Dom_XmlDocument);
-  HRESULT hr = Windows::Foundation::ActivateInstance(
-      id.get(), xml_document_io.GetAddressOf());
+  HRESULT hr =
+      Windows::Foundation::ActivateInstance(id.get(), &xml_document_io);
   if (FAILED(hr)) {
     LOG(ERROR) << "Unable to instantiate XMLDocumentIO " << hr;
     return hr;
@@ -36,7 +37,7 @@ HRESULT FakeIToastNotification::get_Content(winxml::Dom::IXmlDocument** value) {
   }
 
   mswr::ComPtr<winxml::Dom::IXmlDocument> xml_document;
-  hr = xml_document_io.CopyTo(xml_document.GetAddressOf());
+  hr = xml_document_io.As(&xml_document);
   if (FAILED(hr)) {
     LOG(ERROR) << "Unable to copy to XMLDoc " << hr;
     return hr;

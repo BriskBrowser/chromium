@@ -172,7 +172,7 @@ ResultCode SandboxTargetHooks::TargetStartedWithHighPrivileges() {
 
 SandboxType SandboxProcessType() {
   // This should only be called by children processes.
-  DCHECK(sandbox::SandboxFactory::GetTargetServices() != nullptr);
+  DCHECK(sandbox::SandboxFactory::GetTargetServices());
 
   base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
   int val = -1;
@@ -258,7 +258,7 @@ ResultCode StartSandboxTarget(const base::CommandLine& sandbox_command_line,
           base::WaitableEvent::InitialState::NOT_SIGNALED);
   command_line.AppendSwitchNative(
       chrome_cleaner::kInitDoneNotifierSwitch,
-      base::NumberToString16(
+      base::NumberToWString(
           base::win::HandleToUint32(init_done_event->handle())));
   policy->AddHandleToShare(init_done_event->handle());
 

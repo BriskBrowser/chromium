@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "base/bind.h"
+#include "base/bind_helpers.h"
 #include "base/location.h"
 #include "base/macros.h"
 #include "base/metrics/histogram_macros.h"
@@ -92,7 +93,7 @@ struct RecentTabHelper::SnapshotProgressInfo {
 
   // The app that created the tab - either a package name of the CCT origin
   // or empty, meaning chrome.
-  std::string origin = "";
+  std::string origin;
 };
 
 RecentTabHelper::RecentTabHelper(content::WebContents* web_contents)
@@ -341,9 +342,9 @@ void RecentTabHelper::WebContentsWasHidden() {
   // Remove previously captured pages for this tab.
   page_model_->GetOfflineIdsForClientId(
       GetRecentPagesClientId(),
-      base::Bind(&RecentTabHelper::ContinueSnapshotWithIdsToPurge,
-                 weak_ptr_factory_.GetWeakPtr(),
-                 last_n_ongoing_snapshot_info_.get()));
+      base::BindOnce(&RecentTabHelper::ContinueSnapshotWithIdsToPurge,
+                     weak_ptr_factory_.GetWeakPtr(),
+                     last_n_ongoing_snapshot_info_.get()));
 
   IsSavingSamePageEnum saving_same_page_value = IsSavingSamePageEnum::kNewPage;
   if (last_n_latest_saved_snapshot_info_) {
@@ -479,8 +480,8 @@ void RecentTabHelper::ContinueSnapshotAfterPurge(
   page_model_->SavePage(
       save_page_params, delegate_->CreatePageArchiver(web_contents()),
       web_contents(),
-      base::Bind(&RecentTabHelper::SavePageCallback,
-                 weak_ptr_factory_.GetWeakPtr(), snapshot_info));
+      base::BindOnce(&RecentTabHelper::SavePageCallback,
+                     weak_ptr_factory_.GetWeakPtr(), snapshot_info));
 }
 
 void RecentTabHelper::SavePageCallback(SnapshotProgressInfo* snapshot_info,
@@ -488,6 +489,7 @@ void RecentTabHelper::SavePageCallback(SnapshotProgressInfo* snapshot_info,
                                        int64_t offline_id) {
   DCHECK((snapshot_info->IsForLastN() &&
           snapshot_info->request_id == OfflinePageModel::kInvalidOfflineId) ||
+         result != SavePageResult::SUCCESS ||
          snapshot_info->request_id == offline_id)
       << "SnapshotProgressInfo(client_id=" << snapshot_info->client_id
       << ", request_id=" << snapshot_info->request_id

@@ -43,6 +43,7 @@
 #include "components/sync_sessions/session_sync_service.h"
 #include "components/sync_sessions/session_sync_test_helper.h"
 #include "components/sync_sessions/synced_session_tracker.h"
+#include "content/public/test/browser_test.h"
 #include "google_apis/gaia/gaia_auth_util.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
 #include "net/test/embedded_test_server/http_request.h"
@@ -235,8 +236,8 @@ class FaviconForPageUrlAvailableChecker : public StatusChangeChecker {
   Profile* const profile_;
   const GURL page_url_;
   const bool should_be_available_;
-  std::unique_ptr<base::CallbackList<void(const std::set<GURL>&,
-                                          const GURL&)>::Subscription>
+  std::unique_ptr<
+      history::HistoryService::FaviconsChangedCallbackList::Subscription>
       callback_subscription_;
   bool exit_condition_satisfied_ = false;
   base::CancelableTaskTracker tracker_;

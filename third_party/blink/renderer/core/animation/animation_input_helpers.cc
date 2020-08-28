@@ -79,7 +79,7 @@ CSSPropertyID AnimationInputHelpers::KeyframeAttributeToCSSProperty(
       builder.Append('-');
     builder.Append(property[i]);
   }
-  return cssPropertyID(&document, builder.ToString());
+  return cssPropertyID(document.GetExecutionContext(), builder.ToString());
 }
 
 CSSPropertyID AnimationInputHelpers::KeyframeAttributeToPresentationAttribute(
@@ -91,9 +91,9 @@ CSSPropertyID AnimationInputHelpers::KeyframeAttributeToPresentationAttribute(
 
   String unprefixed_property = RemoveSVGPrefix(property);
   if (SVGElement::IsAnimatableCSSProperty(QualifiedName(
-          g_null_atom, AtomicString(unprefixed_property), g_null_atom)))
-    return cssPropertyID(&element->GetDocument(), unprefixed_property);
-
+          g_null_atom, AtomicString(unprefixed_property), g_null_atom))) {
+    return cssPropertyID(element->GetExecutionContext(), unprefixed_property);
+  }
   return CSSPropertyID::kInvalid;
 }
 
@@ -248,8 +248,9 @@ scoped_refptr<TimingFunction> AnimationInputHelpers::ParseTimingFunction(
   // Fallback to an insecure parsing mode if we weren't provided with a
   // document.
   SecureContextMode secure_context_mode =
-      document ? document->GetSecureContextMode()
-               : SecureContextMode::kInsecureContext;
+      document && document->GetExecutionContext()
+          ? document->GetExecutionContext()->GetSecureContextMode()
+          : SecureContextMode::kInsecureContext;
   const CSSValue* value = CSSParser::ParseSingleValue(
       CSSPropertyID::kTransitionTimingFunction, string,
       StrictCSSParserContext(secure_context_mode));

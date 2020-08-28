@@ -19,8 +19,8 @@
 #include "components/arc/mojom/input_method_manager.mojom-forward.h"
 #include "components/keyed_service/content/browser_context_keyed_service_factory.h"
 #include "components/keyed_service/core/keyed_service.h"
+#include "ui/base/ime/chromeos/ime_bridge_observer.h"
 #include "ui/base/ime/chromeos/input_method_manager.h"
-#include "ui/base/ime/ime_bridge_observer.h"
 
 namespace content {
 class BrowserContext;
@@ -94,9 +94,12 @@ class ArcInputMethodManagerService
   void OnAccessibilityStatusChanged(
       const chromeos::AccessibilityStatusEventDetails& event_details);
 
+  void OnArcInputMethodBoundsChanged(const gfx::Rect& bounds);
+
   InputConnectionImpl* GetInputConnectionForTesting();
 
  private:
+  class ArcInputMethodBoundsObserver;
   class InputMethodEngineObserver;
   class InputMethodObserver;
   class TabletModeObserver;
@@ -158,6 +161,8 @@ class ArcInputMethodManagerService
   std::unique_ptr<TabletModeObserver> tablet_mode_observer_;
 
   std::unique_ptr<InputMethodObserver> input_method_observer_;
+
+  std::unique_ptr<ArcInputMethodBoundsObserver> input_method_bounds_observer_;
 
   std::unique_ptr<chromeos::AccessibilityStatusSubscription>
       accessibility_status_subscription_;

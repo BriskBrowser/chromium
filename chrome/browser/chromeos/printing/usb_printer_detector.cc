@@ -28,6 +28,7 @@
 #include "chromeos/dbus/debug_daemon/debug_daemon_client.h"
 #include "chromeos/printing/ppd_provider.h"
 #include "chromeos/printing/usb_printer_id.h"
+#include "components/device_event_log/device_event_log.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/device_service.h"
@@ -42,12 +43,6 @@ namespace chromeos {
 namespace {
 
 // Given a usb device, guesses the make and model for a driver lookup.
-//
-// TODO(https://crbug.com/895037): Possibly go deeper and query the IEEE1284
-// fields for make and model if we determine those are more likely to contain
-// what we want.  Strings currently come from udev.
-// TODO(https://crbug.com/895037): When above is added, parse out document
-// formats and add to DetectedPrinter
 std::string GuessEffectiveMakeAndModel(
     const device::mojom::UsbDeviceInfo& device) {
   return base::UTF16ToUTF8(GetManufacturerName(device)) + " " +
@@ -120,14 +115,16 @@ class UsbPrinterDetectorImpl : public UsbPrinterDetector,
     std::unique_ptr<Printer> converted = UsbDeviceToPrinter(device_info);
     if (!converted.get()) {
       // An error will already have been logged if we failed to convert.
+      PRINTER_LOG(EVENT) << "USB printer was detected but not recognized";
       return;
     }
+    std::string make_and_model = GuessEffectiveMakeAndModel(device_info);
+    PRINTER_LOG(EVENT) << "USB printer was detected: " << make_and_model;
     DetectedPrinter entry;
     entry.printer = *converted;
     entry.ppd_search_data.usb_vendor_id = device_info.vendor_id;
     entry.ppd_search_data.usb_product_id = device_info.product_id;
-    entry.ppd_search_data.make_and_model.push_back(
-        GuessEffectiveMakeAndModel(device_info));
+    entry.ppd_search_data.make_and_model.push_back(std::move(make_and_model));
     entry.ppd_search_data.discovery_type =
         PrinterSearchData::PrinterDiscoveryType::kUsb;
 
@@ -145,6 +142,8 @@ class UsbPrinterDetectorImpl : public UsbPrinterDetector,
   void OnGetDeviceId(DetectedPrinter entry,
                      std::string guid,
                      UsbPrinterId printer_id) {
+    PRINTER_LOG(EVENT) << "USB printer returned ID: " << printer_id.make()
+                       << " " << printer_id.model();
     entry.ppd_search_data.printer_id = std::move(printer_id);
 
     // Add detected printer.

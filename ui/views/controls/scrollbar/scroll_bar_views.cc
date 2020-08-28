@@ -4,7 +4,12 @@
 
 #include "ui/views/controls/scrollbar/scroll_bar_views.h"
 
-#include "base/logging.h"
+#include <algorithm>
+#include <memory>
+#include <utility>
+
+#include "base/check.h"
+#include "base/notreached.h"
 #include "ui/events/keycodes/keyboard_codes.h"
 #include "ui/gfx/canvas.h"
 #include "ui/views/controls/button/button.h"
@@ -90,7 +95,7 @@ void ScrollBarButton::PaintButtonContents(gfx::Canvas* canvas) {
 ui::NativeTheme::ExtraParams ScrollBarButton::GetNativeThemeParams() const {
   ui::NativeTheme::ExtraParams params;
 
-  switch (state()) {
+  switch (GetState()) {
     case Button::STATE_HOVERED:
       params.scrollbar_arrow.is_hovering = true;
       break;
@@ -119,7 +124,7 @@ ui::NativeTheme::Part ScrollBarButton::GetNativeThemePart() const {
 }
 
 ui::NativeTheme::State ScrollBarButton::GetNativeThemeState() const {
-  switch (state()) {
+  switch (GetState()) {
     case Button::STATE_HOVERED:
       return ui::NativeTheme::kHovered;
     case Button::STATE_PRESSED:
@@ -227,10 +232,10 @@ ScrollBarViews::ScrollBarViews(bool horizontal) : ScrollBar(horizontal) {
   // Allow the thumb to take up the whole size of the scrollbar, save for the
   // prev/next buttons.  Layout need only set the thumb cross-axis coordinate;
   // ScrollBar::Update() will set the thumb size/offset.
-  GetThumb()->SetProperty(views::kFlexBehaviorKey,
-                          views::FlexSpecification::ForSizeRule(
-                              views::MinimumFlexSizeRule::kPreferred,
-                              views::MaximumFlexSizeRule::kUnbounded));
+  GetThumb()->SetProperty(
+      views::kFlexBehaviorKey,
+      views::FlexSpecification(views::MinimumFlexSizeRule::kPreferred,
+                               views::MaximumFlexSizeRule::kUnbounded));
   next_button_ = AddChildView(std::move(next_button));
 }
 
@@ -326,8 +331,7 @@ gfx::Rect ScrollBarViews::GetTrackBounds() const {
   return bounds;
 }
 
-BEGIN_METADATA(ScrollBarViews)
-METADATA_PARENT_CLASS(ScrollBar)
+BEGIN_METADATA(ScrollBarViews, ScrollBar)
 END_METADATA()
 
 }  // namespace views

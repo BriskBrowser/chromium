@@ -14,9 +14,7 @@ buildflag_header("buildflags") {
 
 proto_library("proto") {
   proto_out_dir = "chromecast/media/audio/mixer_service"
-  sources = [
-    "mixer_service.proto",
-  ]
+  sources = [ "mixer_service.proto" ]
 }
 
 cast_source_set("common") {
@@ -112,9 +110,7 @@ cast_source_set("loopback_connection") {
     "loopback_connection.h",
   ]
 
-  public_deps = [
-    ":common",
-  ]
+  public_deps = [ ":common" ]
 
   deps = [
     ":connection",
@@ -139,6 +135,7 @@ cast_source_set("redirected_audio_connection") {
     "//base",
     "//chromecast/net:io_buffer_pool",
     "//chromecast/public",
+    "//chromecast/public/media",
     "//net",
   ]
 }
@@ -149,9 +146,14 @@ cast_source_set("audio_socket_service") {
     "audio_socket_service.h",
   ]
 
+  if (use_unix_sockets) {
+    sources += [ "audio_socket_service_uds.cc" ]
+  } else {
+    sources += [ "audio_socket_service_tcp.cc" ]
+  }
+
   deps = [
     "//base",
-    "//chromecast/media/audio:audio_buildflags",
     "//net",
   ]
 }

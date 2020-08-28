@@ -5,6 +5,7 @@
 #ifndef IOS_CHROME_BROWSER_OVERLAYS_PUBLIC_COMMON_INFOBARS_INFOBAR_OVERLAY_REQUEST_CONFIG_H_
 #define IOS_CHROME_BROWSER_OVERLAYS_PUBLIC_COMMON_INFOBARS_INFOBAR_OVERLAY_REQUEST_CONFIG_H_
 
+#include "base/memory/weak_ptr.h"
 #import "ios/chrome/browser/infobars/infobar_type.h"
 #import "ios/chrome/browser/infobars/overlays/infobar_overlay_type.h"
 #include "ios/chrome/browser/overlays/public/overlay_request_config.h"
@@ -19,22 +20,26 @@ class InfobarOverlayRequestConfig
   ~InfobarOverlayRequestConfig() override;
 
   // The infobar that triggered this OverlayRequest.
-  InfoBarIOS* infobar() const { return infobar_; }
+  InfoBarIOS* infobar() const { return infobar_.get(); }
   // |infobar_|'s type.
   InfobarType infobar_type() const { return infobar_type_; }
   // Whether |infobar_| has a badge.
   bool has_badge() const { return has_badge_; }
+  // Whether the |infobar_| banner should be presented for a longer time.
+  bool is_high_priority() const { return is_high_priority_; }
   // The overlay type for this infobar OverlayRequest.
   InfobarOverlayType overlay_type() const { return overlay_type_; }
 
  private:
   OVERLAY_USER_DATA_SETUP(InfobarOverlayRequestConfig);
   explicit InfobarOverlayRequestConfig(InfoBarIOS* infobar,
-                                       InfobarOverlayType overlay_type);
+                                       InfobarOverlayType overlay_type,
+                                       bool is_high_priority);
 
-  InfoBarIOS* infobar_ = nullptr;
+  base::WeakPtr<InfoBarIOS> infobar_ = nullptr;
   InfobarType infobar_type_;
   bool has_badge_ = false;
+  bool is_high_priority_ = false;
   InfobarOverlayType overlay_type_;
 };
 

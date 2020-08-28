@@ -43,6 +43,7 @@
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/common/content_features.h"
 #include "content/public/common/content_switches.h"
+#include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/content_browser_test_utils.h"
 #include "content/public/test/no_renderer_crashes_assertion.h"
@@ -82,8 +83,8 @@ const base::FilePath::CharType* kTitle1File = FILE_PATH_LITERAL("title1.html");
 
 class TaskManagerBrowserTest : public extensions::ExtensionBrowserTest {
  public:
-  TaskManagerBrowserTest() {}
-  ~TaskManagerBrowserTest() override {}
+  TaskManagerBrowserTest() = default;
+  ~TaskManagerBrowserTest() override = default;
 
   task_manager::TaskManagerTester* model() { return model_.get(); }
 
@@ -91,9 +92,9 @@ class TaskManagerBrowserTest : public extensions::ExtensionBrowserTest {
     // Show the task manager. This populates the model, and helps with debugging
     // (you see the task manager).
     chrome::ShowTaskManager(browser());
-    model_ = task_manager::TaskManagerTester::Create(
-        base::Bind(&TaskManagerBrowserTest::TaskManagerTableModelSanityCheck,
-                   base::Unretained(this)));
+    model_ = task_manager::TaskManagerTester::Create(base::BindRepeating(
+        &TaskManagerBrowserTest::TaskManagerTableModelSanityCheck,
+        base::Unretained(this)));
   }
 
   void HideTaskManager() {
@@ -119,13 +120,6 @@ class TaskManagerBrowserTest : public extensions::ExtensionBrowserTest {
   }
 
  protected:
-  void SetUpCommandLine(base::CommandLine* command_line) override {
-    extensions::ExtensionBrowserTest::SetUpCommandLine(command_line);
-
-    // Do not launch device discovery process.
-    command_line->AppendSwitch(switches::kDisableDeviceDiscoveryNotifications);
-  }
-
   void TearDownOnMainThread() override {
     model_.reset();
     extensions::ExtensionBrowserTest::TearDownOnMainThread();
@@ -212,7 +206,7 @@ INSTANTIATE_TEST_SUITE_P(SitePerProcess,
                          TaskManagerOOPIFBrowserTest,
                          ::testing::Values(true));
 
-#if defined(OS_MACOSX) || defined(OS_LINUX)
+#if defined(OS_MAC) || defined(OS_LINUX) || defined(OS_CHROMEOS)
 #define MAYBE_ShutdownWhileOpen DISABLED_ShutdownWhileOpen
 #else
 #define MAYBE_ShutdownWhileOpen ShutdownWhileOpen
@@ -600,9 +594,15 @@ IN_PROC_BROWSER_TEST_F(TaskManagerBrowserTest, ReloadExtension) {
 // Checks that task manager counts a worker thread JS heap size.
 // http://crbug.com/241066
 IN_PROC_BROWSER_TEST_F(TaskManagerBrowserTest, WebWorkerJSHeapMemory) {
+  // Workers require a trustworthy (e.g. https) context.
+  net::EmbeddedTestServer https_server(net::EmbeddedTestServer::TYPE_HTTPS);
+  https_server.ServeFilesFromSourceDirectory("chrome/test/data");
+  ASSERT_TRUE(https_server.Start());
+  GURL test_url = https_server.GetURL("/title1.html");
+
   ShowTaskManager();
   model()->ToggleColumnVisibility(ColumnSpecifier::V8_MEMORY);
-  ui_test_utils::NavigateToURL(browser(), GetTestURL());
+  ui_test_utils::NavigateToURL(browser(), test_url);
   size_t minimal_heap_size = 4 * 1024 * 1024 * sizeof(void*);
   std::string test_js = base::StringPrintf(
       "var blob = new Blob([\n"
@@ -624,16 +624,17 @@ IN_PROC_BROWSER_TEST_F(TaskManagerBrowserTest, WebWorkerJSHeapMemory) {
 
   // The worker has allocated objects of at least |minimal_heap_size| bytes.
   // Wait for the heap stats to reflect this.
+  const char kTabWildcard[] = "https://127.0.0.1:*/title1.html";
   ASSERT_NO_FATAL_FAILURE(WaitForTaskManagerStatToExceed(
-      MatchTab("title1.html"), ColumnSpecifier::V8_MEMORY, minimal_heap_size));
+      MatchTab(kTabWildcard), ColumnSpecifier::V8_MEMORY, minimal_heap_size));
   ASSERT_NO_FATAL_FAILURE(WaitForTaskManagerStatToExceed(
-      MatchTab("title1.html"), ColumnSpecifier::V8_MEMORY_USED,
+      MatchTab(kTabWildcard), ColumnSpecifier::V8_MEMORY_USED,
       minimal_heap_size));
   ASSERT_NO_FATAL_FAILURE(WaitForTaskManagerStatToExceed(
-      MatchTab("title1.html"), ColumnSpecifier::MEMORY_FOOTPRINT,
+      MatchTab(kTabWildcard), ColumnSpecifier::MEMORY_FOOTPRINT,
       minimal_heap_size));
   ASSERT_NO_FATAL_FAILURE(WaitForTaskManagerRows(1, MatchAnyTab()));
-  ASSERT_NO_FATAL_FAILURE(WaitForTaskManagerRows(1, MatchTab("title1.html")));
+  ASSERT_NO_FATAL_FAILURE(WaitForTaskManagerRows(1, MatchTab(kTabWildcard)));
 }
 
 // Checks that task manager counts renderer JS heap size.
@@ -665,7 +666,7 @@ IN_PROC_BROWSER_TEST_F(TaskManagerBrowserTest, JSHeapMemory) {
   ASSERT_NO_FATAL_FAILURE(WaitForTaskManagerRows(1, MatchTab("title1.html")));
 }
 
-#if defined(MEMORY_SANITIZER) || defined(OS_LINUX)
+#if defined(MEMORY_SANITIZER) || defined(OS_LINUX) || defined(OS_CHROMEOS)
 // This tests times out when MSan is enabled. See https://crbug.com/890313.
 // Failing on Linux CFI. See https://crbug.com/995132.
 #define MAYBE_SentDataObserved DISABLED_SentDataObserved
@@ -705,7 +706,7 @@ IN_PROC_BROWSER_TEST_F(TaskManagerBrowserTest, MAYBE_SentDataObserved) {
             model()->GetColumnValue(ColumnSpecifier::TOTAL_NETWORK_USE, 0));
 }
 
-#if defined(MEMORY_SANITIZER) || defined(OS_LINUX)
+#if defined(MEMORY_SANITIZER) || defined(OS_LINUX) || defined(OS_CHROMEOS)
 // This tests times out when MSan is enabled. See https://crbug.com/890313.
 // Failing on Linux CFI. See https://crbug.com/995132.
 #define MAYBE_TotalSentDataObserved DISABLED_TotalSentDataObserved
@@ -784,11 +785,11 @@ IN_PROC_BROWSER_TEST_F(TaskManagerBrowserTest, IdleWakeups) {
 // The script above should trigger a lot of idle wakeups - up to 1000 per
 // second. Let's make sure we get at least 100 (in case the test runs slow).
 // On Mac, set a lower threshold because Chrome Mac generates fewer wakes.
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
   const int kMinExpectedWakeCount = 50;
 #else
   const int kMinExpectedWakeCount = 100;
-#endif  // defined(OS_MACOSX)
+#endif  // defined(OS_MAC)
   ASSERT_NO_FATAL_FAILURE(WaitForTaskManagerStatToExceed(
       MatchTab("title1.html"), ColumnSpecifier::IDLE_WAKEUPS,
       kMinExpectedWakeCount));
@@ -1268,7 +1269,9 @@ IN_PROC_BROWSER_TEST_P(TaskManagerOOPIFBrowserTest,
   ASSERT_NO_FATAL_FAILURE(WaitForTaskManagerRows(0, MatchAnySubframe()));
 }
 
-IN_PROC_BROWSER_TEST_P(TaskManagerOOPIFBrowserTest, OrderingOfDependentRows) {
+// TODO(https://crbug.com/1113972): disabled as test is flaky.
+IN_PROC_BROWSER_TEST_P(TaskManagerOOPIFBrowserTest,
+                       DISABLED_OrderingOfDependentRows) {
   ShowTaskManager();
 
   GURL a_with_frames(embedded_test_server()->GetURL(

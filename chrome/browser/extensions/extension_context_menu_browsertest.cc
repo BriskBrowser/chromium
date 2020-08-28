@@ -21,8 +21,9 @@
 #include "chrome/common/channel_info.h"
 #include "chrome/test/base/ui_test_utils.h"
 #include "components/version_info/channel.h"
+#include "content/public/browser/context_menu_params.h"
 #include "content/public/browser/render_frame_host.h"
-#include "content/public/common/context_menu_params.h"
+#include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
 #include "extensions/browser/extension_api_frame_id_map.h"
 #include "extensions/browser/extension_registry.h"
@@ -197,8 +198,7 @@ class ExtensionContextMenuLazyTest
     : public ExtensionContextMenuBrowserTest,
       public testing::WithParamInterface<ContextType> {
  public:
-  void SetUp() override {
-    ExtensionContextMenuBrowserTest::SetUp();
+  ExtensionContextMenuLazyTest() {
     // Service Workers are currently only available on certain channels, so set
     // the channel for those tests.
     if (GetParam() == ContextType::kServiceWorker) {
@@ -537,16 +537,10 @@ IN_PROC_BROWSER_TEST_P(ExtensionContextMenuLazyTest, LongTitle) {
   ASSERT_TRUE(label.size() <= limit);
 }
 
-// Flaky on Windows debug bots. http://crbug.com/251590
-#if defined(OS_WIN)
-#define MAYBE_TopLevel DISABLED_TopLevel
-#else
-#define MAYBE_TopLevel TopLevel
-#endif
 // Checks that Context Menus are ordered alphabetically by their name when
 // extensions have only one single Context Menu item and by the extension name
 // when multiples Context Menu items are created.
-IN_PROC_BROWSER_TEST_P(ExtensionContextMenuLazyTest, MAYBE_TopLevel) {
+IN_PROC_BROWSER_TEST_P(ExtensionContextMenuLazyTest, TopLevel) {
   // We expect to see the following items in the menu:
   //   An Extension with multiple Context Menus
   //     Context Menu #1
@@ -739,7 +733,8 @@ IN_PROC_BROWSER_TEST_P(ExtensionContextMenuLazyTest, TargetURLs) {
                                     std::string("item1")));
 }
 
-#if defined(OS_LINUX) || defined(OS_WIN) || defined(OS_MACOSX)
+#if defined(OS_LINUX) || defined(OS_CHROMEOS) || defined(OS_WIN) || \
+    defined(OS_MAC)
 // Flakily hangs on Linux/CrOS/Windows/Mac - http://crbug.com/1035062
 #define MAYBE_IncognitoSplit DISABLED_IncognitoSplit
 #else
@@ -893,7 +888,7 @@ IN_PROC_BROWSER_TEST_P(ExtensionContextMenuLazyTest, EventPage) {
 }
 
 // Flaky on Mac and Windows. https://crbug.com/1035062
-#if defined(OS_MACOSX) || defined(OS_WIN)
+#if defined(OS_MAC) || defined(OS_WIN)
 #define MAYBE_IncognitoSplitContextMenuCount \
   DISABLED_IncognitoSplitContextMenuCount
 #else
@@ -909,7 +904,8 @@ IN_PROC_BROWSER_TEST_P(ExtensionContextMenuLazyTest,
                                                  false);
 
   // Create an incognito profile.
-  ASSERT_TRUE(browser()->profile()->GetOffTheRecordProfile());
+  Profile* incognito = browser()->profile()->GetPrimaryOTRProfile();
+  ASSERT_TRUE(incognito);
   ASSERT_TRUE(LoadContextMenuExtensionWithIncognitoFlags("incognito"));
 
   // Wait for the extension's processes to tell us they've created an item.
@@ -917,7 +913,7 @@ IN_PROC_BROWSER_TEST_P(ExtensionContextMenuLazyTest,
   ASSERT_TRUE(created_incognito.WaitUntilSatisfied());
   ASSERT_EQ(2u, GetItems().size());
 
-  browser()->profile()->DestroyOffTheRecordProfile();
+  browser()->profile()->DestroyOffTheRecordProfile(incognito);
   ASSERT_EQ(1u, GetItems().size());
 }
 

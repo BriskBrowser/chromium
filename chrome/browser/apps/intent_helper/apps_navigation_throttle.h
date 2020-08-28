@@ -14,7 +14,7 @@
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "chrome/browser/apps/intent_helper/apps_navigation_types.h"
-#include "chrome/services/app_service/public/mojom/types.mojom.h"
+#include "components/services/app_service/public/mojom/types.mojom.h"
 #include "content/public/browser/navigation_throttle.h"
 #include "url/gurl.h"
 
@@ -37,9 +37,12 @@ namespace apps {
 // any handling apps.
 class AppsNavigationThrottle : public content::NavigationThrottle {
  public:
+  using ThrottleCheckResult = content::NavigationThrottle::ThrottleCheckResult;
   // Restricts the amount of apps displayed to the user without the need of a
   // ScrollView.
   enum { kMaxAppResults = 3 };
+
+  static const char kUseBrowserForLink[];
 
   // Possibly creates a navigation throttle that checks if any installed apps
   // can handle the URL being navigated to. The user is prompted if they wish to
@@ -86,11 +89,9 @@ class AppsNavigationThrottle : public content::NavigationThrottle {
 
   // content::NavigationHandle overrides
   const char* GetNameForLogging() override;
-  content::NavigationThrottle::ThrottleCheckResult WillStartRequest() override;
-  content::NavigationThrottle::ThrottleCheckResult WillRedirectRequest()
-      override;
+  ThrottleCheckResult WillStartRequest() override;
+  ThrottleCheckResult WillRedirectRequest() override;
 
- protected:
   // These enums are used to define the buckets for an enumerated UMA histogram
   // and need to be synced with the ArcIntentHandlerAction enum in enums.xml.
   // This enum class should also be treated as append-only.
@@ -137,24 +138,7 @@ class AppsNavigationThrottle : public content::NavigationThrottle {
     kMaxValue = MAC_NATIVE,
   };
 
-  // These enums are used to define the intent picker show state, whether the
-  // picker is popped out or just displayed as a clickable omnibox icon.
-  enum class PickerShowState {
-    kOmnibox = 1,  // Only show the intent icon in the omnibox
-    kPopOut = 2,   // show the intent picker icon and pop out bubble
-  };
-
-  // Checks whether we can create the apps_navigation_throttle.
-  static bool CanCreate(content::WebContents* web_contents);
-
-  static void RecordUma(const std::string& selected_app_package,
-                        PickerEntryType entry_type,
-                        IntentPickerCloseReason close_reason,
-                        Source source,
-                        bool should_persist,
-                        PickerAction action,
-                        Platform platform);
-
+  // TODO(ajlinker): move these two functions below to IntentHandlingMetrics.
   // Determines the destination of the current navigation. We know that if the
   // |picker_action| is either ERROR or DIALOG_DEACTIVATED the navigation MUST
   // stay in Chrome, and when |picker_action| is PWA_APP_PRESSED the navigation
@@ -169,6 +153,17 @@ class AppsNavigationThrottle : public content::NavigationThrottle {
   static PickerAction GetPickerAction(PickerEntryType entry_type,
                                       IntentPickerCloseReason close_reason,
                                       bool should_persist);
+
+ protected:
+  // These enums are used to define the intent picker show state, whether the
+  // picker is popped out or just displayed as a clickable omnibox icon.
+  enum class PickerShowState {
+    kOmnibox = 1,  // Only show the intent icon in the omnibox
+    kPopOut = 2,   // show the intent picker icon and pop out bubble
+  };
+
+  // Checks whether we can create the apps_navigation_throttle.
+  static bool CanCreate(content::WebContents* web_contents);
 
   // This is a wrapper method for querying apps for a URL. Normally this
   // method will simply querying PWAs that can handle the URL from. If we are
@@ -202,7 +197,9 @@ class AppsNavigationThrottle : public content::NavigationThrottle {
 
   virtual bool ShouldDeferNavigation(content::NavigationHandle* handle);
 
-  void ShowIntentPickerForApps(
+  virtual bool ShouldCancelNavigation(content::NavigationHandle* handle);
+
+  virtual void ShowIntentPickerForApps(
       content::WebContents* web_contents,
       IntentPickerAutoDisplayService* ui_auto_display_service,
       const GURL& url,
@@ -219,7 +216,7 @@ class AppsNavigationThrottle : public content::NavigationThrottle {
       IntentPickerAutoDisplayService* ui_auto_display_service,
       const GURL& url);
 
-  bool navigate_from_link();
+  bool navigate_from_link() const;
 
   // Keeps track of whether we already shown the UI or preferred app. Since
   // AppsNavigationThrottle cannot wait for the user (due to the non-blocking
@@ -239,7 +236,14 @@ class AppsNavigationThrottle : public content::NavigationThrottle {
   FRIEND_TEST_ALL_PREFIXES(chromeos::ChromeOsAppsNavigationThrottleTest,
                            TestGetDestinationPlatform);
 
-  content::NavigationThrottle::ThrottleCheckResult HandleRequest();
+  // Returns whether navigation to |url| was captured by a web app and what to
+  // do next if so.
+  base::Optional<ThrottleCheckResult>
+  CaptureExperimentalTabStripWebAppScopeNavigations(
+      content::WebContents* web_contents,
+      content::NavigationHandle* handle) const;
+
+  ThrottleCheckResult HandleRequest();
 
   // A reference to the starting GURL.
   GURL starting_url_;

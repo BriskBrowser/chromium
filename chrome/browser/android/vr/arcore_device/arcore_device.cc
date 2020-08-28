@@ -15,13 +15,12 @@
 #include "chrome/browser/android/vr/arcore_device/ar_image_transport.h"
 #include "chrome/browser/android/vr/arcore_device/arcore_gl.h"
 #include "chrome/browser/android/vr/arcore_device/arcore_gl_thread.h"
-#include "chrome/browser/android/vr/arcore_device/arcore_impl.h"
 #include "chrome/browser/android/vr/arcore_device/arcore_java_utils.h"
 #include "chrome/browser/android/vr/arcore_device/arcore_session_utils.h"
 #include "chrome/browser/android/vr/mailbox_to_surface_bridge.h"
-#include "chrome/browser/permissions/permission_manager.h"
-#include "chrome/browser/permissions/permission_result.h"
 #include "chrome/browser/permissions/permission_update_infobar_delegate_android.h"
+#include "content/public/browser/render_frame_host.h"
+#include "device/vr/android/arcore/arcore_impl.h"
 #include "ui/display/display.h"
 
 using base::android::JavaRef;
@@ -127,9 +126,20 @@ void ArCoreDevice::RequestSession(
 
   DCHECK(!session_state_->pending_request_session_callback_);
   session_state_->pending_request_session_callback_ = std::move(callback);
+  session_state_->enabled_features_ = options->enabled_features;
 
   bool use_dom_overlay = base::Contains(
       options->enabled_features, device::mojom::XRSessionFeature::DOM_OVERLAY);
+
+  if (use_dom_overlay) {
+    // Tell RenderFrameHostImpl that we're setting up the WebXR DOM Overlay,
+    // it checks for this in EnterFullscreen via HasSeenRecentXrOverlaySetup().
+    content::RenderFrameHost* render_frame_host =
+        content::RenderFrameHost::FromID(options->render_process_id,
+                                         options->render_frame_id);
+    DCHECK(render_frame_host);
+    render_frame_host->SetIsXrOverlaySetup();
+  }
 
   // mailbox_bridge_ is either supplied from the constructor, or recreated in
   // OnSessionEnded().
@@ -173,9 +183,12 @@ void ArCoreDevice::OnDrawingSurfaceReady(gfx::AcceleratedWidget window,
   RequestArCoreGlInitialization(window, rotation, frame_size);
 }
 
-void ArCoreDevice::OnDrawingSurfaceTouch(bool touching,
+void ArCoreDevice::OnDrawingSurfaceTouch(bool is_primary,
+                                         bool touching,
+                                         int32_t pointer_id,
                                          const gfx::PointF& location) {
-  DVLOG(2) << __func__ << ": touching=" << touching;
+  DVLOG(2) << __func__ << ": pointer_id=" << pointer_id
+           << " is_primary=" << is_primary << " touching=" << touching;
 
   if (!session_state_->is_arcore_gl_initialized_ ||
       !session_state_->arcore_gl_thread_)
@@ -183,8 +196,8 @@ void ArCoreDevice::OnDrawingSurfaceTouch(bool touching,
 
   PostTaskToGlThread(base::BindOnce(
       &ArCoreGl::OnScreenTouch,
-      session_state_->arcore_gl_thread_->GetArCoreGl()->GetWeakPtr(), touching,
-      location));
+      session_state_->arcore_gl_thread_->GetArCoreGl()->GetWeakPtr(),
+      is_primary, touching, pointer_id, location));
 }
 
 void ArCoreDevice::OnDrawingSurfaceDestroyed() {
@@ -323,7 +336,7 @@ void ArCoreDevice::RequestArCoreGlInitialization(
         &ArCoreGl::Initialize,
         session_state_->arcore_gl_thread_->GetArCoreGl()->GetWeakPtr(),
         arcore_session_utils_.get(), arcore_factory_.get(), drawing_widget,
-        frame_size, rotation,
+        frame_size, rotation, session_state_->enabled_features_,
         CreateMainThreadCallback(base::BindOnce(
             &ArCoreDevice::OnArCoreGlInitializationComplete, GetWeakPtr()))));
     return;

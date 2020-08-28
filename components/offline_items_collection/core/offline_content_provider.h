@@ -12,6 +12,7 @@
 #include "base/macros.h"
 #include "base/optional.h"
 #include "components/offline_items_collection/core/launch_location.h"
+#include "components/offline_items_collection/core/open_params.h"
 #include "components/offline_items_collection/core/rename_result.h"
 #include "components/offline_items_collection/core/update_delta.h"
 #include "url/gurl.h"
@@ -20,6 +21,7 @@ namespace offline_items_collection {
 
 struct ContentId;
 struct OfflineItem;
+struct OfflineItemSchedule;
 struct OfflineItemShareInfo;
 struct OfflineItemVisuals;
 
@@ -99,9 +101,8 @@ class OfflineContentProvider {
     virtual ~Observer() = default;
   };
 
-  // Called to trigger opening an OfflineItem represented by |id|. |location|
-  // denotes where it is opened and is used for logging purpose.
-  virtual void OpenItem(LaunchLocation location, const ContentId& id) = 0;
+  // Called to trigger opening an OfflineItem represented by |id|.
+  virtual void OpenItem(const OpenParams& open_params, const ContentId& id) = 0;
 
   // Called to trigger removal of an OfflineItem represented by |id|.
   virtual void RemoveItem(const ContentId& id) = 0;
@@ -153,6 +154,10 @@ class OfflineContentProvider {
   virtual void RenameItem(const ContentId& id,
                           const std::string& name,
                           RenameCallback callback) = 0;
+
+  // Called to change when to start the OfflineItem represented by |id|.
+  virtual void ChangeSchedule(const ContentId& id,
+                              base::Optional<OfflineItemSchedule> schedule) = 0;
 
   // Adds an observer that should be notified of OfflineItem list modifications.
   virtual void AddObserver(Observer* observer) = 0;

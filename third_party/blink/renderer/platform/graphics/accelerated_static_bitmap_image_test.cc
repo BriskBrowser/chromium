@@ -6,6 +6,7 @@
 
 #include "base/test/null_task_runner.h"
 #include "base/test/task_environment.h"
+#include "components/viz/common/resources/single_release_callback.h"
 #include "components/viz/test/test_gles2_interface.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -77,18 +78,12 @@ class AcceleratedStaticBitmapImageTest : public Test {
   scoped_refptr<viz::TestContextProvider> context_provider_;
 };
 
-TEST_F(AcceleratedStaticBitmapImageTest, NoTextureHolderThrashing) {
+TEST_F(AcceleratedStaticBitmapImageTest, SkImageCached) {
   auto bitmap = CreateBitmap();
 
-  sk_sp<SkImage> stored_image =
-      bitmap->PaintImageForCurrentFrame().GetSkImage();
-  bitmap->EnsureMailbox(kUnverifiedSyncToken, GL_LINEAR);
-
-  // Verify that calling PaintImageForCurrentFrame does not swap out of mailbox
-  // mode. It should use the cached original image instead.
-  auto stored_image2 = bitmap->PaintImageForCurrentFrame().GetSkImage();
-
-  EXPECT_EQ(stored_image.get(), stored_image2.get());
+  cc::PaintImage stored_image = bitmap->PaintImageForCurrentFrame();
+  auto stored_image2 = bitmap->PaintImageForCurrentFrame();
+  EXPECT_EQ(stored_image, stored_image2);
 }
 
 TEST_F(AcceleratedStaticBitmapImageTest, CopyToTextureSynchronization) {
@@ -103,9 +98,8 @@ TEST_F(AcceleratedStaticBitmapImageTest, CopyToTextureSynchronization) {
 
   // Anterior synchronization. Wait on the sync token for the mailbox on the
   // dest context.
-  EXPECT_CALL(
-      destination_gl,
-      WaitSyncTokenCHROMIUM(Pointee(SyncTokenMatcher(bitmap->GetSyncToken()))));
+  EXPECT_CALL(destination_gl, WaitSyncTokenCHROMIUM(Pointee(SyncTokenMatcher(
+                                  bitmap->GetMailboxHolder().sync_token))));
 
   // Posterior synchronization. Generate a sync token on the destination context
   // to ensure mailbox is destroyed after the copy.
@@ -126,7 +120,7 @@ TEST_F(AcceleratedStaticBitmapImageTest, CopyToTextureSynchronization) {
   testing::Mock::VerifyAndClearExpectations(&destination_gl);
 
   // Final wait is postponed until destruction.
-  EXPECT_EQ(bitmap->GetSyncToken(), sync_token2);
+  EXPECT_EQ(bitmap->GetMailboxHolder().sync_token, sync_token2);
 }
 
 }  // namespace

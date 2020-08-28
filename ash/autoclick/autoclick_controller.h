@@ -13,6 +13,7 @@
 #include "ui/aura/window_observer.h"
 #include "ui/events/event_handler.h"
 #include "ui/gfx/geometry/point.h"
+#include "ui/gfx/native_widget_types.h"
 
 namespace base {
 class RetainingOneShotTimer;
@@ -74,7 +75,7 @@ class ASH_EXPORT AutoclickController
   void SetMovementThreshold(int movement_threshold);
 
   // Sets the menu position and updates the UI.
-  void SetMenuPosition(AutoclickMenuPosition menu_position);
+  void SetMenuPosition(FloatingMenuPosition menu_position);
 
   // Performs the given ScrollPadAction at the current scrolling point.
   void DoScrollAction(ScrollPadAction action);
@@ -85,8 +86,8 @@ class ASH_EXPORT AutoclickController
   // The cursor has exited a scroll (up/down/left/right) button.
   void OnExitedScrollButton();
 
-  // The Autoclick extension has found scrollble bounds at the current scroll
-  // point.
+  // The Accessibility Common extension has found scrollble bounds at the
+  // current scroll point.
   void OnAutoclickScrollableBoundsFound(gfx::Rect& bounds_in_screen);
 
   // Update the bubble menu bounds if necessary to avoid system UI.
@@ -119,19 +120,17 @@ class ASH_EXPORT AutoclickController
 
  private:
   void SetTapDownTarget(aura::Window* target);
-  void CreateAutoclickRingWidget(const gfx::Point& point_in_screen);
-  void CreateAutoclickScrollPositionWidget(const gfx::Point& point_in_screen);
-  void UpdateAutoclickWidgetPosition(views::Widget* widget,
-                                     const gfx::Point& point_in_screen);
+  void UpdateAutoclickWidgetPosition(gfx::NativeView native_view,
+                                     aura::Window* root_window);
   void DoAutoclickAction();
   void StartAutoclickGesture();
   void CancelAutoclickAction();
   void OnActionCompleted(AutoclickEventType event_type);
   void InitClickTimers();
-  void UpdateRingWidget(const gfx::Point& mouse_location);
+  void UpdateRingWidget();
   void UpdateRingSize();
   void InitializeScrollLocation();
-  void UpdateScrollPosition(const gfx::Point& point_in_screen);
+  void UpdateScrollPosition();
   void HideScrollPosition();
   void RecordUserAction(AutoclickEventType event_type) const;
   bool DragInProgress() const;
@@ -166,7 +165,7 @@ class ASH_EXPORT AutoclickController
   // manually, the position will be fixed regardless of language direction and
   // shelf position. This probably means adding a new AutoclickMenuPostion
   // enum for "system default".
-  AutoclickMenuPosition menu_position_ = kDefaultAutoclickMenuPosition;
+  FloatingMenuPosition menu_position_ = kDefaultAutoclickMenuPosition;
   int mouse_event_flags_ = ui::EF_NONE;
   // The target window is observed by AutoclickController for the duration
   // of a autoclick gesture.
@@ -200,8 +199,6 @@ class ASH_EXPORT AutoclickController
 
   // The widget containing the autoclick ring.
   std::unique_ptr<views::Widget> ring_widget_;
-  // The widget containing the autoclick scroll position indiciator.
-  std::unique_ptr<views::Widget> scroll_position_widget_;
   base::TimeDelta delay_;
   // The timer that counts down from the beginning of a gesture until a click.
   std::unique_ptr<base::RetainingOneShotTimer> autoclick_timer_;

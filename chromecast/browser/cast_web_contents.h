@@ -12,11 +12,13 @@
 #include "base/containers/flat_set.h"
 #include "base/observer_list.h"
 #include "base/optional.h"
+#include "base/process/process.h"
 #include "base/strings/string16.h"
-#include "base/strings/string_piece_forward.h"
 #include "chromecast/common/mojom/feature_manager.mojom.h"
+#include "content/public/common/media_playback_renderer_type.mojom.h"
 #include "services/service_manager/public/cpp/binder_registry.h"
 #include "services/service_manager/public/cpp/interface_provider.h"
+#include "third_party/blink/public/common/messaging/web_message_port.h"
 #include "ui/gfx/geometry/rect.h"
 #include "url/gurl.h"
 
@@ -27,6 +29,11 @@ class AssociatedInterfaceProvider;
 namespace content {
 class WebContents;
 }  // namespace content
+
+namespace on_load_script_injector {
+template <typename>
+class OnLoadScriptInjectorHost;
+}  // namespace on_load_script_injector
 
 namespace chromecast {
 
@@ -163,6 +170,13 @@ class CastWebContents {
     // Notifies that a resource for the main frame failed to load.
     virtual void ResourceLoadFailed(CastWebContents* cast_web_contents) {}
 
+    // Propagates the process information via observer, in particular to
+    // the underlying OnRendererProcessStarted() method.
+    virtual void OnRenderProcessReady(const base::Process& process) {}
+
+    // Notify media playback state changes for the underlying WebContents.
+    virtual void MediaPlaybackChanged(bool media_playing) {}
+
     // Adds |this| to the ObserverList in the implementation of
     // |cast_web_contents|.
     void Observe(CastWebContents* cast_web_contents);
@@ -198,7 +212,8 @@ class CastWebContents {
     // debugging interfaces.
     bool enabled_for_dev = false;
     // Chooses a media renderer for the WebContents.
-    bool use_cma_renderer = false;
+    content::mojom::RendererType renderer_type =
+        content::mojom::RendererType::DEFAULT_RENDERER;
     // Whether the WebContents is a root native window, or if it is embedded in
     // another WebContents (see Delegate::InnerContentsCreated()).
     bool is_root_window = false;
@@ -219,6 +234,10 @@ class CastWebContents {
     // Clients can use it to send queryable values to the render frames.
     // queryable_data_host() will return a nullptr if this is false.
     bool enable_queryable_data_host = false;
+    // Whether to provide a URL filter applied to network requests for the
+    // activity hosted by this CastWebContents.
+    // No filters implies no restrictions.
+    base::Optional<std::vector<std::string>> url_filters = base::nullopt;
 
     InitParams();
     InitParams(const InitParams& other);
@@ -248,6 +267,10 @@ class CastWebContents {
   // Tab IDs may be re-used, but no two live CastWebContents should have the
   // same tab ID at any given time.
   virtual int tab_id() const = 0;
+
+  // An identifier for the WebContents, mainly used by platform views service.
+  // IDs may be re-used but are unique among all live CastWebContents.
+  virtual int id() const = 0;
 
   // TODO(seantopping): Hide this, clients shouldn't use WebContents directly.
   virtual content::WebContents* web_contents() const = 0;
@@ -290,6 +313,18 @@ class CastWebContents {
   virtual void Stop(int error_code) = 0;
 
   // ===========================================================================
+  // Visibility
+  // ===========================================================================
+
+  // Specify if the WebContents should be treated as visible. This triggers a
+  // document "visibilitychange" change event, and will paint the WebContents
+  // quad if |visible| is true (otherwise it will be blank). Note that this does
+  // *not* guarantee the page is visible on the screen, as that depends on if
+  // the WebContents quad is present in the screen layout and isn't obscured by
+  // another window.
+  virtual void SetWebVisibilityAndPaint(bool visible) = 0;
+
+  // ===========================================================================
   // Media Management
   // ===========================================================================
 
@@ -305,29 +340,13 @@ class CastWebContents {
   // Page Communication
   // ===========================================================================
 
-  // Executes a UTF-8 encoded |script| for every subsequent page load where
-  // the frame's URL has an origin reflected in |origins|. The script is
-  // executed early, prior to the execution of the document's scripts.
-  //
-  // Scripts are identified by a string-based client-managed |id|. Any
-  // script previously injected using the same |id| will be replaced.
-  //
-  // The order in which multiple bindings are executed is the same as the
-  // order in which the bindings were Added. If a script is added which
-  // clobbers an existing script of the same |id|, the previous script's
-  // precedence in the injection order will be preserved.
-  // |script| and |id| must be non-empty string.
-  //
-  // At least one |origins| entry must be specified.
-  // If a wildcard "*" is specified in |origins|, then the script will be
-  // evaluated for all documents.
-  virtual void AddBeforeLoadJavaScript(base::StringPiece id,
-                                       const std::vector<std::string>& origins,
-                                       base::StringPiece script) = 0;
+  // Returns the script injector instance, which injects scripts at page load
+  // time.
+  virtual on_load_script_injector::OnLoadScriptInjectorHost<std::string>*
+  script_injector() = 0;
 
-  // Removes a previously added JavaScript snippet identified by |id|.
-  // This is a no-op if there is no JavaScript snippet identified by |id|.
-  virtual void RemoveBeforeLoadJavaScript(base::StringPiece id) = 0;
+  // Injects on-load scripts into the WebContents' main frame.
+  virtual void InjectScriptsIntoMainFrame() = 0;
 
   // Posts a message to the frame's onMessage handler.
   //
@@ -340,7 +359,17 @@ class CastWebContents {
   virtual void PostMessageToMainFrame(
       const std::string& target_origin,
       const std::string& data,
-      std::vector<mojo::ScopedMessagePipeHandle> channels) = 0;
+      std::vector<blink::WebMessagePort> ports) = 0;
+
+  // Executes a string of JavaScript in the main frame's context.
+  // This is no-op if the main frame is not available.
+  // Pass in a callback to receive a result when it is available.
+  // If there is no need to receive the result, pass in a
+  // default-constructed callback. If provided, the callback
+  // will be invoked on the UI thread.
+  virtual void ExecuteJavaScript(
+      const base::string16& javascript,
+      base::OnceCallback<void(base::Value)> callback) = 0;
 
   // ===========================================================================
   // Utility Methods
@@ -351,6 +380,10 @@ class CastWebContents {
   // valid sequence, enforced via SequenceChecker.
   virtual void AddObserver(Observer* observer) = 0;
   virtual void RemoveObserver(Observer* observer) = 0;
+
+  // Enable or disable devtools remote debugging for this WebContents and any
+  // inner WebContents that are spawned from it.
+  virtual void SetEnabledForRemoteDebugging(bool enabled) = 0;
 
   // Used to expose CastWebContents's |binder_registry_| to Delegate.
   // Delegate should register its mojo interface binders via this function
@@ -371,6 +404,10 @@ class CastWebContents {
 
   // Returns true if mixer audio is enabled.
   virtual bool is_mixer_audio_enabled() = 0;
+
+  // Returns whether or not CastWebContents binder_registry() is valid for
+  // binding interfaces.
+  virtual bool can_bind_interfaces() = 0;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(CastWebContents);

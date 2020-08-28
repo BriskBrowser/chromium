@@ -132,18 +132,6 @@ class UserSessionManager
     kPolicyAndFlagsAndKioskControl
   };
 
-  // Parameters to use when initializing the RLZ library.  These fields need
-  // to be retrieved from a blocking task and this structure is used to pass
-  // the data.
-  struct RlzInitParams {
-    // Set to true if RLZ is disabled.
-    bool disabled;
-
-    // The elapsed time since the device went through the OOBE.  This can
-    // be a very long time.
-    base::TimeDelta time_since_oobe_completion;
-  };
-
   // To keep track of which systems need the login password to be stored in the
   // kernel keyring.
   enum class PasswordConsumingService {
@@ -219,19 +207,19 @@ class UserSessionManager
   // user sessions restoration is in progress.
   bool UserSessionsRestoreInProgress() const;
 
-  // Initialize RLZ.
-  void InitRlz(Profile* profile);
+  // Send the notification before creating the browser so additional objects
+  // that need the profile (e.g. the launcher) can be created first.
+  void NotifyUserProfileLoaded(Profile* profile,
+                               const user_manager::User* user);
 
-  // Get the NSS cert database for the user represented with |profile|
-  // and start certificate loader with it.
-  void InitializeCerts(Profile* profile);
+  // Start the Tether service if it is ready.
+  void StartTetherServiceIfPossible(Profile* profile);
 
-  // Starts loading CRL set.
-  void InitializeCRLSetFetcher(const user_manager::User* user);
+  // Show various notifications if applicable.
+  void ShowNotificationsIfNeeded(Profile* profile);
 
-  // Initializes Certificate Transparency-related components.
-  void InitializeCertificateTransparencyComponents(
-      const user_manager::User* user);
+  // Launch various setting pages (or dialogs) if applicable.
+  void MaybeLaunchSettings(Profile* profile);
 
   // Invoked when the user is logging in for the first time, or is logging in to
   // an ephemeral session type, such as guest or a public session.
@@ -341,6 +329,10 @@ class UserSessionManager
 
   UserContext* mutable_user_context_for_testing() { return &user_context_; }
 
+  bool token_handle_backfill_tried_for_testing() {
+    return token_handle_backfill_tried_for_testing_;
+  }
+
   // Shows U2F notification if necessary.
   void MaybeShowU2FNotification();
 
@@ -441,14 +433,11 @@ class UserSessionManager
   // profile is ready.
   void InitializeBrowser(Profile* profile);
 
-  // Initialize child user profile services that depend on the policy.
-  void InitializeChildUserServices(Profile* profile);
-
   // Starts out-of-box flow with the specified screen.
   void ActivateWizard(OobeScreenId screen);
 
-  // Adds first-time login URLs.
-  void InitializeStartUrls() const;
+  // Launches the Help App depending on flags / prefs / user.
+  void MaybeLaunchHelpApp(Profile* profile) const;
 
   // Perform session initialization and either move to additional login flows
   // such as TOS (public sessions), priority pref sync UI (new users) or
@@ -462,9 +451,6 @@ class UserSessionManager
 
   // Restores GAIA auth cookies for the created user profile from OAuth2 token.
   void RestoreAuthSessionImpl(Profile* profile, bool restore_from_auth_cookies);
-
-  // Initializes RLZ. If |disabled| is true, RLZ pings are disabled.
-  void InitRlzImpl(Profile* profile, const RlzInitParams& params);
 
   // If |user| is not a kiosk app, sets session type as seen by extensions
   // feature system according to |user|'s type.
@@ -533,23 +519,6 @@ class UserSessionManager
   // Sets the function which is used to request a chrome restart.
   void SetAttemptRestartClosureInTests(
       const base::RepeatingClosure& attempt_restart_closure);
-
-  // The user pods display type for histogram.
-  enum UserPodsDisplay {
-    // User pods enabling or disabling is possible either via local settings or
-    // via domain policy. The former method only applies to regular devices,
-    // whereas the latter is for enterprise-managed devices. Therefore, we have
-    // four possible combiations.
-    USER_PODS_DISPLAY_ENABLED_REGULAR = 0,
-    USER_PODS_DISPLAY_ENABLED_MANAGED = 1,
-    USER_PODS_DISPLAY_DISABLED_REGULAR = 2,
-    USER_PODS_DISPLAY_DISABLED_MANAGED = 3,
-    // Maximum histogram value.
-    NUM_USER_PODS_DISPLAY = 4
-  };
-
-  // Sends metrics for user pods display when existing user has logged in.
-  void SendUserPodsMetrics();
 
   void NotifyEasyUnlockKeyOpsFinished();
 
@@ -662,6 +631,8 @@ class UserSessionManager
   std::unique_ptr<ReleaseNotesNotification> release_notes_notification_;
 
   std::unique_ptr<TurnSyncOnHelper> turn_sync_on_helper_;
+
+  bool token_handle_backfill_tried_for_testing_ = false;
 
   base::WeakPtrFactory<UserSessionManager> weak_factory_{this};
 

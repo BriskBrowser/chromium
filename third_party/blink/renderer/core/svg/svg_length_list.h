@@ -34,6 +34,7 @@
 #include "third_party/blink/renderer/core/svg/properties/svg_list_property_helper.h"
 #include "third_party/blink/renderer/core/svg/svg_length.h"
 #include "third_party/blink/renderer/core/svg/svg_parsing_error.h"
+#include "third_party/blink/renderer/platform/wtf/casting.h"
 
 namespace blink {
 
@@ -52,7 +53,6 @@ class SVGLengthList final
   // SVGPropertyBase:
   SVGPropertyBase* CloneForAnimation(const String&) const override;
   SVGLengthList* Clone() override;
-  String ValueAsString() const override;
   SVGLengthMode UnitMode() const { return mode_; }
 
   void Add(SVGPropertyBase*, SVGElement*) override;
@@ -66,7 +66,6 @@ class SVGLengthList final
   float CalculateDistance(SVGPropertyBase* to, SVGElement*) override;
 
   static AnimatedPropertyType ClassType() { return kAnimatedLengthList; }
-  AnimatedPropertyType GetType() const override { return ClassType(); }
 
  private:
   // Create SVGLength items used to adjust the list length
@@ -79,7 +78,12 @@ class SVGLengthList final
   SVGLengthMode mode_;
 };
 
-DEFINE_SVG_PROPERTY_TYPE_CASTS(SVGLengthList);
+template <>
+struct DowncastTraits<SVGLengthList> {
+  static bool AllowFrom(const SVGPropertyBase& value) {
+    return value.GetType() == SVGLengthList::ClassType();
+  }
+};
 
 }  // namespace blink
 

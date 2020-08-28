@@ -10,6 +10,7 @@
 #include <string>
 #include <utility>
 
+#include "base/bind_helpers.h"
 #include "base/stl_util.h"
 #include "base/test/scoped_feature_list.h"
 #include "build/build_config.h"
@@ -213,7 +214,23 @@ class MediaStreamConstraintsUtilAudioTestBase {
     }
     if (!Contains(exclude_audio_properties,
                   &AudioProcessingProperties::goog_auto_gain_control)) {
-      EXPECT_TRUE(properties.goog_auto_gain_control);
+      EXPECT_EQ(properties.goog_auto_gain_control,
+                properties.goog_experimental_auto_gain_control);
+      if (!Contains(exclude_audio_properties,
+                    &AudioProcessingProperties::
+                        goog_experimental_auto_gain_control)) {
+        EXPECT_TRUE(properties.goog_auto_gain_control);
+      }
+    }
+    if (!Contains(
+            exclude_audio_properties,
+            &AudioProcessingProperties::goog_experimental_auto_gain_control)) {
+      EXPECT_EQ(properties.goog_auto_gain_control,
+                properties.goog_experimental_auto_gain_control);
+      if (!Contains(exclude_audio_properties,
+                    &AudioProcessingProperties::goog_auto_gain_control)) {
+        EXPECT_TRUE(properties.goog_experimental_auto_gain_control);
+      }
     }
     if (!Contains(
             exclude_audio_properties,
@@ -232,11 +249,6 @@ class MediaStreamConstraintsUtilAudioTestBase {
     if (!Contains(exclude_audio_properties,
                   &AudioProcessingProperties::goog_highpass_filter)) {
       EXPECT_TRUE(properties.goog_highpass_filter);
-    }
-    if (!Contains(
-            exclude_audio_properties,
-            &AudioProcessingProperties::goog_experimental_auto_gain_control)) {
-      EXPECT_TRUE(properties.goog_experimental_auto_gain_control);
     }
   }
 
@@ -261,7 +273,23 @@ class MediaStreamConstraintsUtilAudioTestBase {
     }
     if (!Contains(exclude_audio_properties,
                   &AudioProcessingProperties::goog_auto_gain_control)) {
-      EXPECT_FALSE(properties.goog_auto_gain_control);
+      EXPECT_EQ(properties.goog_auto_gain_control,
+                properties.goog_experimental_auto_gain_control);
+      if (!Contains(exclude_audio_properties,
+                    &AudioProcessingProperties::
+                        goog_experimental_auto_gain_control)) {
+        EXPECT_FALSE(properties.goog_auto_gain_control);
+      }
+    }
+    if (!Contains(
+            exclude_audio_properties,
+            &AudioProcessingProperties::goog_experimental_auto_gain_control)) {
+      EXPECT_EQ(properties.goog_auto_gain_control,
+                properties.goog_experimental_auto_gain_control);
+      if (!Contains(exclude_audio_properties,
+                    &AudioProcessingProperties::goog_auto_gain_control)) {
+        EXPECT_FALSE(properties.goog_experimental_auto_gain_control);
+      }
     }
     if (!Contains(
             exclude_audio_properties,
@@ -280,11 +308,6 @@ class MediaStreamConstraintsUtilAudioTestBase {
     if (!Contains(exclude_audio_properties,
                   &AudioProcessingProperties::goog_highpass_filter)) {
       EXPECT_FALSE(properties.goog_highpass_filter);
-    }
-    if (!Contains(
-            exclude_audio_properties,
-            &AudioProcessingProperties::goog_experimental_auto_gain_control)) {
-      EXPECT_FALSE(properties.goog_experimental_auto_gain_control);
     }
   }
 
@@ -525,37 +548,6 @@ class MediaStreamConstraintsUtilAudioTest
   }
 
   std::string GetMediaStreamSource() override { return GetParam(); }
-};
-
-class MediaStreamConstraintsRemoteAPMTest
-    : public MediaStreamConstraintsUtilAudioTestBase,
-      public testing::TestWithParam<bool> {
-  void SetUp() override {
-    if (UseRemoteAPMFlag()) {
-      scoped_feature_list_.InitAndEnableFeature(
-          features::kWebRtcApmInAudioService);
-    } else {
-      scoped_feature_list_.InitAndDisableFeature(
-          features::kWebRtcApmInAudioService);
-    }
-
-    // Setup the capabilities.
-    ResetFactory();
-    if (IsDeviceCapture()) {
-      capabilities_.emplace_back(
-          "default_device", "fake_group1",
-          media::AudioParameters(media::AudioParameters::AUDIO_PCM_LOW_LATENCY,
-                                 media::CHANNEL_LAYOUT_STEREO,
-                                 media::AudioParameters::kAudioCDSampleRate,
-                                 1000));
-      default_device_ = &capabilities_[0];
-    }
-  }
-
-  bool UseRemoteAPMFlag() { return GetParam(); }
-
- private:
-  base::test::ScopedFeatureList scoped_feature_list_;
 };
 
 // The Unconstrained test checks the default selection criteria.
@@ -1446,6 +1438,23 @@ TEST_P(MediaStreamConstraintsUtilAudioTest, ContradictoryEchoCancellation) {
   }
 }
 
+// Test that having differing mandatory values for googAutoGainControl and
+// googAutoGainControl2 fails. This test is valid to correctly support the
+// old syntax.
+TEST_P(MediaStreamConstraintsUtilAudioTest, ContradictoryAutoGainControl) {
+  // TODO(armax): fix this.
+  for (bool value : kBoolValues) {
+    constraint_factory_.basic().goog_auto_gain_control.SetExact(value);
+    constraint_factory_.basic().goog_experimental_auto_gain_control.SetExact(
+        !value);
+    auto result = SelectSettings();
+    EXPECT_FALSE(result.HasValue());
+    EXPECT_EQ(result.failed_constraint_name(),
+              constraint_factory_.basic()
+                  .goog_experimental_auto_gain_control.GetName());
+  }
+}
+
 // Tests that individual boolean audio-processing constraints override the
 // default value set by the echoCancellation constraint.
 TEST_P(MediaStreamConstraintsUtilAudioTest,
@@ -1488,6 +1497,15 @@ TEST_P(MediaStreamConstraintsUtilAudioTest,
         for (size_t j = 0; j < kAudioProcessingProperties.size(); ++j) {
           if (i == j)
             continue;
+          // goog_auto_gain_control and goog_experimental_auto_gain_control
+          // should always match in value.
+          if ((i == 1 && j == 6) || (i == 6 && j == 1)) {
+            EXPECT_EQ(result.audio_processing_properties().*
+                          kAudioProcessingProperties[i],
+                      result.audio_processing_properties().*
+                          kAudioProcessingProperties[j]);
+            continue;
+          }
           EXPECT_FALSE(result.audio_processing_properties().*
                        kAudioProcessingProperties[j]);
         }
@@ -1891,39 +1909,6 @@ TEST_P(MediaStreamConstraintsUtilAudioTest, ExperimetanlEcWithSource) {
   EXPECT_TRUE(result.HasValue());
 }
 
-TEST_P(MediaStreamConstraintsRemoteAPMTest, Channels) {
-  if (!IsDeviceCapture())
-    return;
-
-  AudioCaptureSettings result;
-  ResetFactory();
-  constraint_factory_.basic().channel_count.SetExact(1);
-  constraint_factory_.basic().echo_cancellation.SetExact(true);
-  result = SelectSettings();
-
-  if (media::IsWebRtcApmInAudioServiceEnabled() && GetParam())
-    EXPECT_FALSE(result.HasValue());
-  else
-    EXPECT_TRUE(result.HasValue());
-}
-
-TEST_P(MediaStreamConstraintsRemoteAPMTest, SampleRate) {
-  if (!IsDeviceCapture())
-    return;
-
-  AudioCaptureSettings result;
-  ResetFactory();
-  constraint_factory_.basic().sample_rate.SetExact(
-      media::AudioParameters::kAudioCDSampleRate);
-  constraint_factory_.basic().echo_cancellation.SetExact(true);
-  result = SelectSettings();
-
-  if (media::IsWebRtcApmInAudioServiceEnabled() && GetParam())
-    EXPECT_TRUE(result.HasValue());
-  else
-    EXPECT_FALSE(result.HasValue());
-}
-
 TEST_P(MediaStreamConstraintsUtilAudioTest, LatencyConstraint) {
   if (!IsDeviceCapture())
     return;
@@ -1977,8 +1962,4 @@ INSTANTIATE_TEST_SUITE_P(All,
                                          blink::kMediaStreamSourceTab,
                                          blink::kMediaStreamSourceSystem,
                                          blink::kMediaStreamSourceDesktop));
-INSTANTIATE_TEST_SUITE_P(All,
-                         MediaStreamConstraintsRemoteAPMTest,
-                         testing::Bool());
-
 }  // namespace blink

@@ -7,7 +7,7 @@
 #include <algorithm>
 
 #include "base/metrics/histogram_macros.h"
-#include "components/viz/common/quads/render_pass_draw_quad.h"
+#include "components/viz/common/quads/aggregated_render_pass_draw_quad.h"
 #include "components/viz/common/quads/solid_color_draw_quad.h"
 #include "components/viz/common/quads/stream_video_draw_quad.h"
 #include "components/viz/common/quads/texture_draw_quad.h"
@@ -85,10 +85,10 @@ bool FilterOperationSupported(const cc::FilterOperation& operation) {
 
 CALayerResult FromRenderPassQuad(
     DisplayResourceProvider* resource_provider,
-    const RenderPassDrawQuad* quad,
-    const base::flat_map<RenderPassId, cc::FilterOperations*>&
+    const AggregatedRenderPassDrawQuad* quad,
+    const base::flat_map<AggregatedRenderPassId, cc::FilterOperations*>&
         render_pass_filters,
-    const base::flat_map<RenderPassId, cc::FilterOperations*>&
+    const base::flat_map<AggregatedRenderPassId, cc::FilterOperations*>&
         render_pass_backdrop_filters,
     CALayerOverlay* ca_layer_overlay) {
   if (render_pass_backdrop_filters.count(quad->render_pass_id)) {
@@ -185,9 +185,9 @@ class CALayerOverlayProcessorInternal {
       DisplayResourceProvider* resource_provider,
       const gfx::RectF& display_rect,
       const DrawQuad* quad,
-      const base::flat_map<RenderPassId, cc::FilterOperations*>&
+      const base::flat_map<AggregatedRenderPassId, cc::FilterOperations*>&
           render_pass_filters,
-      const base::flat_map<RenderPassId, cc::FilterOperations*>&
+      const base::flat_map<AggregatedRenderPassId, cc::FilterOperations*>&
           render_pass_backdrop_filters,
       CALayerOverlay* ca_layer_overlay,
       bool* skip,
@@ -196,7 +196,8 @@ class CALayerOverlayProcessorInternal {
       return CA_LAYER_FAILED_QUAD_BLEND_MODE;
 
     // Early-out for invisible quads.
-    if (quad->shared_quad_state->opacity == 0.f) {
+    if (quad->shared_quad_state->opacity == 0.f ||
+        quad->visible_rect.IsEmpty()) {
       *skip = true;
       return CA_LAYER_SUCCESS;
     }
@@ -247,7 +248,8 @@ class CALayerOverlayProcessorInternal {
 
     ca_layer_overlay->bounds_rect = gfx::RectF(quad->rect);
 
-    *render_pass_draw_quad = quad->material == DrawQuad::Material::kRenderPass;
+    *render_pass_draw_quad =
+        quad->material == DrawQuad::Material::kAggregatedRenderPass;
     switch (quad->material) {
       case DrawQuad::Material::kTextureContent:
         return FromTextureQuad(resource_provider,
@@ -267,9 +269,9 @@ class CALayerOverlayProcessorInternal {
         return CA_LAYER_FAILED_DEBUG_BORDER;
       case DrawQuad::Material::kPictureContent:
         return CA_LAYER_FAILED_PICTURE_CONTENT;
-      case DrawQuad::Material::kRenderPass:
+      case DrawQuad::Material::kAggregatedRenderPass:
         return FromRenderPassQuad(
-            resource_provider, RenderPassDrawQuad::MaterialCast(quad),
+            resource_provider, AggregatedRenderPassDrawQuad::MaterialCast(quad),
             render_pass_filters, render_pass_backdrop_filters,
             ca_layer_overlay);
       case DrawQuad::Material::kSurfaceContent:
@@ -300,15 +302,22 @@ bool CALayerOverlayProcessor::ProcessForCALayerOverlays(
     DisplayResourceProvider* resource_provider,
     const gfx::RectF& display_rect,
     const QuadList& quad_list,
-    const base::flat_map<RenderPassId, cc::FilterOperations*>&
+    const base::flat_map<AggregatedRenderPassId, cc::FilterOperations*>&
         render_pass_filters,
-    const base::flat_map<RenderPassId, cc::FilterOperations*>&
+    const base::flat_map<AggregatedRenderPassId, cc::FilterOperations*>&
         render_pass_backdrop_filters,
     CALayerOverlayList* ca_layer_overlays) const {
   CALayerResult result = CA_LAYER_SUCCESS;
 
-  if (quad_list.size() < kTooManyQuads)
-    ca_layer_overlays->reserve(quad_list.size());
+  size_t num_visible_quads = quad_list.size();
+  for (const auto* quad : quad_list) {
+    if (quad->shared_quad_state->opacity == 0.f ||
+        quad->visible_rect.IsEmpty()) {
+      num_visible_quads--;
+    }
+  }
+  if (num_visible_quads < kTooManyQuads)
+    ca_layer_overlays->reserve(num_visible_quads);
   else
     result = CA_LAYER_FAILED_TOO_MANY_QUADS;
 

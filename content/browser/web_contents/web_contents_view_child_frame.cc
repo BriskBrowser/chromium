@@ -10,6 +10,7 @@
 #include "content/browser/renderer_host/render_widget_host_view_child_frame.h"
 #include "content/browser/web_contents/web_contents_impl.h"
 #include "content/public/browser/web_contents_view_delegate.h"
+#include "third_party/blink/public/mojom/input/focus_type.mojom.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/size.h"
 
@@ -56,16 +57,11 @@ gfx::NativeWindow WebContentsViewChildFrame::GetTopLevelNativeWindow() const {
   return GetOuterView()->GetTopLevelNativeWindow();
 }
 
-void WebContentsViewChildFrame::GetContainerBounds(gfx::Rect* out) const {
-  RenderWidgetHostView* view = web_contents_->GetRenderWidgetHostView();
-  if (view)
-    *out = view->GetViewBounds();
-  else
-    *out = gfx::Rect();
-}
+gfx::Rect WebContentsViewChildFrame::GetContainerBounds() const {
+  if (RenderWidgetHostView* view = web_contents_->GetRenderWidgetHostView())
+    return view->GetViewBounds();
 
-void WebContentsViewChildFrame::SizeContents(const gfx::Size& size) {
-  // The RenderWidgetHostViewChildFrame is responsible for sizing the contents.
+  return gfx::Rect();
 }
 
 void WebContentsViewChildFrame::SetInitialFocus() {
@@ -83,7 +79,13 @@ void WebContentsViewChildFrame::CreateView(gfx::NativeView context) {
 
 RenderWidgetHostViewBase* WebContentsViewChildFrame::CreateViewForWidget(
     RenderWidgetHost* render_widget_host) {
-  return RenderWidgetHostViewChildFrame::Create(render_widget_host);
+  blink::ScreenInfo screen_info;
+  if (auto* view = web_contents_->GetRenderWidgetHostView())
+    view->GetScreenInfo(&screen_info);
+  else
+    DisplayUtil::GetDefaultScreenInfo(&screen_info);
+  return RenderWidgetHostViewChildFrame::Create(render_widget_host,
+                                                screen_info);
 }
 
 RenderWidgetHostViewBase* WebContentsViewChildFrame::CreateViewForChildWidget(
@@ -95,8 +97,6 @@ void WebContentsViewChildFrame::SetPageTitle(const base::string16& title) {
   // The title is ignored for the WebContentsViewChildFrame.
 }
 
-void WebContentsViewChildFrame::RenderViewCreated(RenderViewHost* host) {}
-
 void WebContentsViewChildFrame::RenderViewReady() {}
 
 void WebContentsViewChildFrame::RenderViewHostChanged(
@@ -107,7 +107,7 @@ void WebContentsViewChildFrame::SetOverscrollControllerEnabled(bool enabled) {
   // This is managed by the outer view.
 }
 
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
 bool WebContentsViewChildFrame::CloseTabAfterEventTrackingIfNeeded() {
   return false;
 }
@@ -151,12 +151,11 @@ void WebContentsViewChildFrame::TakeFocus(bool reverse) {
                                   ->GetProxyToOuterDelegate();
   FrameTreeNode* outer_node = FrameTreeNode::GloballyFindByID(
       web_contents_->GetOuterDelegateFrameTreeNodeId());
-  RenderFrameHostImpl* rfhi =
-      outer_node->parent()->render_manager()->current_frame_host();
+  RenderFrameHostImpl* rfhi = outer_node->parent();
 
-  rfhi->AdvanceFocus(
-      reverse ? blink::kWebFocusTypeBackward : blink::kWebFocusTypeForward,
-      rfp);
+  rfhi->AdvanceFocus(reverse ? blink::mojom::FocusType::kBackward
+                             : blink::mojom::FocusType::kForward,
+                     rfp);
 }
 
 void WebContentsViewChildFrame::ShowContextMenu(

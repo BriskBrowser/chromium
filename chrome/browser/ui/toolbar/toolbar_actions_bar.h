@@ -234,6 +234,8 @@ class ToolbarActionsBar : public ExtensionsContainer,
   ToolbarActionViewController* GetPoppedOutAction() const override;
   bool IsActionVisibleOnToolbar(
       const ToolbarActionViewController* action) const override;
+  extensions::ExtensionContextMenuModel::ButtonVisibility GetActionVisibility(
+      const ToolbarActionViewController* action) const override;
   void UndoPopOut() override;
   void SetPopupOwner(ToolbarActionViewController* popup_owner) override;
   void HideActivePopup() override;
@@ -241,8 +243,7 @@ class ToolbarActionsBar : public ExtensionsContainer,
   void PopOutAction(ToolbarActionViewController* action,
                     bool is_sticky,
                     const base::Closure& closure) override;
-  bool ShowToolbarActionPopup(const std::string& id,
-                              bool grant_active_tab) override;
+  bool ShowToolbarActionPopupForAPICall(const std::string& id) override;
   void ShowToolbarActionBubble(
       std::unique_ptr<ToolbarActionsBarBubbleDelegate> bubble) override;
   void ShowToolbarActionBubbleAsync(

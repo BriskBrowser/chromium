@@ -7,8 +7,9 @@
 #include <stddef.h>
 
 #include "base/bind.h"
+#include "base/check_op.h"
 #include "base/command_line.h"
-#include "base/logging.h"
+#include "base/notreached.h"
 #include "base/strings/string_util.h"
 #include "base/values.h"
 #include "chrome/browser/chromeos/settings/device_settings_provider.h"
@@ -75,9 +76,9 @@ void CrosSettings::ShutdownForTesting() {
   g_using_cros_settings_for_testing = false;
 }
 
-bool CrosSettings::IsUserWhitelisted(const std::string& username,
+bool CrosSettings::IsUserAllowlisted(const std::string& username,
                                      bool* wildcard_match) const {
-  // Skip whitelist check for tests.
+  // Skip allowlist check for tests.
   if (chromeos::switches::ShouldSkipOobePostLogin()) {
     return true;
   }

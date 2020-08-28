@@ -14,7 +14,9 @@ Polymer({
   is: 'settings-kerberos-accounts',
 
   behaviors: [
+    DeepLinkingBehavior,
     I18nBehavior,
+    settings.RouteObserverBehavior,
     WebUIListenerBehavior,
   ],
 
@@ -52,6 +54,19 @@ Polymer({
       type: String,
       value: '',
     },
+
+    /**
+     * Used by DeepLinkingBehavior to focus this page's deep links.
+     * @type {!Set<!chromeos.settings.mojom.Setting>}
+     */
+    supportedSettingIds: {
+      type: Object,
+      value: () => new Set([
+        chromeos.settings.mojom.Setting.kAddKerberosTicket,
+        chromeos.settings.mojom.Setting.kRemoveKerberosTicket,
+        chromeos.settings.mojom.Setting.kSetActiveKerberosTicket,
+      ]),
+    },
   },
 
   /** @private {?settings.KerberosAccountsBrowserProxy} */
@@ -71,7 +86,7 @@ Polymer({
     // Grab account list and - when done - pop up the reauthentication dialog if
     // there is a kerberos_reauth param.
     this.refreshAccounts_().then(() => {
-      const queryParams = settings.getQueryParameters();
+      const queryParams = settings.Router.getInstance().getQueryParameters();
       const reauthPrincipal = queryParams.get('kerberos_reauth');
       const reauthAccount = this.accounts_.find(account => {
         return account.principalName == reauthPrincipal;
@@ -81,6 +96,21 @@ Polymer({
         this.showAddAccountDialog_ = true;
       }
     });
+  },
+
+  /**
+   * settings.RouteObserverBehavior
+   * @param {!settings.Route} route
+   * @param {!settings.Route} oldRoute
+   * @protected
+   */
+  currentRouteChanged(route, oldRoute) {
+    // Does not apply to this page.
+    if (route !== settings.routes.KERBEROS_ACCOUNTS) {
+      return;
+    }
+
+    this.attemptDeepLink();
   },
 
   /**
@@ -168,6 +198,7 @@ Polymer({
             console.error('Unexpected error removing account: ' + error);
           }
         });
+    settings.recordSettingChange();
     this.closeActionMenu_();
   },
 
@@ -178,6 +209,7 @@ Polymer({
   onSetAsActiveAccountClick_() {
     this.browserProxy_.setAsActiveAccount(
         /** @type {!settings.KerberosAccount} */ (this.selectedAccount_));
+    settings.recordSettingChange();
     this.closeActionMenu_();
   },
 

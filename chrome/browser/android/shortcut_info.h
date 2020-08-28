@@ -11,8 +11,8 @@
 
 #include "base/optional.h"
 #include "base/strings/string16.h"
+#include "services/device/public/mojom/screen_orientation_lock_types.mojom-shared.h"
 #include "third_party/blink/public/common/manifest/manifest.h"
-#include "third_party/blink/public/common/screen_orientation/web_screen_orientation_lock_type.h"
 #include "third_party/skia/include/core/SkColor.h"
 #include "url/gurl.h"
 
@@ -119,7 +119,7 @@ struct ShortcutInfo {
   base::string16 name;
   base::string16 short_name;
   blink::mojom::DisplayMode display;
-  blink::WebScreenOrientationLockType orientation;
+  device::mojom::ScreenOrientationLockType orientation;
   Source source;
   base::Optional<SkColor> theme_color;
   base::Optional<SkColor> background_color;
@@ -127,9 +127,12 @@ struct ShortcutInfo {
   int minimum_splash_image_size_in_px;
   GURL splash_image_url;
   GURL best_primary_icon_url;
-  GURL best_badge_icon_url;
   std::vector<std::string> icon_urls;
   base::Optional<ShareTarget> share_target;
+
+  // Both shortcut item related vectors have the same size.
+  std::vector<blink::Manifest::ShortcutItem> shortcut_items;
+  std::vector<GURL> best_shortcut_icon_urls;
 };
 
 #endif  // CHROME_BROWSER_ANDROID_SHORTCUT_INFO_H_

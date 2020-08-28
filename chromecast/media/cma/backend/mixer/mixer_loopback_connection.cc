@@ -6,7 +6,7 @@
 
 #include <utility>
 
-#include "base/logging.h"
+#include "base/check.h"
 #include "chromecast/media/audio/mixer_service/conversions.h"
 #include "chromecast/media/audio/mixer_service/loopback_interrupt_reason.h"
 #include "chromecast/media/audio/mixer_service/mixer_service.pb.h"
@@ -67,7 +67,7 @@ bool MixerLoopbackConnection::HandleMetadata(
 }
 
 bool MixerLoopbackConnection::HandleAudioData(char* data,
-                                              int size,
+                                              size_t size,
                                               int64_t timestamp) {
   return true;
 }

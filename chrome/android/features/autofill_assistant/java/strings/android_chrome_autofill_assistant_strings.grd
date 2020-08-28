@@ -68,6 +68,7 @@
     <output filename="values-sl/android_chrome_autofill_assistant_strings.xml" lang="sl" type="android" />
     <output filename="values-sq/android_chrome_autofill_assistant_strings.xml" lang="sq" type="android" />
     <output filename="values-sr/android_chrome_autofill_assistant_strings.xml" lang="sr" type="android" />
+    <output filename="values-b+sr+Latn/android_chrome_autofill_assistant_strings.xml" lang="sr-Latn" type="android" />
     <output filename="values-sv/android_chrome_autofill_assistant_strings.xml" lang="sv" type="android" />
     <output filename="values-sw/android_chrome_autofill_assistant_strings.xml" lang="sw" type="android" />
     <output filename="values-ta/android_chrome_autofill_assistant_strings.xml" lang="ta" type="android" />
@@ -79,6 +80,7 @@
     <output filename="values-uz/android_chrome_autofill_assistant_strings.xml" lang="uz" type="android" />
     <output filename="values-vi/android_chrome_autofill_assistant_strings.xml" lang="vi" type="android" />
     <output filename="values-zh-rCN/android_chrome_autofill_assistant_strings.xml" lang="zh-CN" type="android" />
+    <output filename="values-zh-rHK/android_chrome_autofill_assistant_strings.xml" lang="zh-HK" type="android" />
     <output filename="values-zh-rTW/android_chrome_autofill_assistant_strings.xml" lang="zh-TW" type="android" />
     <output filename="values-zu/android_chrome_autofill_assistant_strings.xml" lang="zu" type="android" />
   </outputs>
@@ -148,6 +150,7 @@
     <file lang="sl" path="translations/android_chrome_autofill_assistant_strings_sl.xtb" />
     <file lang="sq" path="translations/android_chrome_autofill_assistant_strings_sq.xtb" />
     <file lang="sr" path="translations/android_chrome_autofill_assistant_strings_sr.xtb" />
+    <file lang="sr-Latn" path="translations/android_chrome_autofill_assistant_strings_sr-Latn.xtb" />
     <file lang="sv" path="translations/android_chrome_autofill_assistant_strings_sv.xtb" />
     <file lang="sw" path="translations/android_chrome_autofill_assistant_strings_sw.xtb" />
     <file lang="ta" path="translations/android_chrome_autofill_assistant_strings_ta.xtb" />
@@ -168,11 +171,38 @@
       <message name="IDS_INIT_OK" desc="Init screen confirmation text.">
         I agree
       </message>
+      <message name="IDS_AUTOFILL_ASSISTANT_INIT_TITLE" desc="The title of the onboarding screen.">
+        Try Google Assistant\nin Chrome
+      </message>
+      <message name="IDS_AUTOFILL_ASSISTANT_INIT_MESSAGE_RENT_CAR" desc="Onboarding message describing autofill assistant's capability for car rentals.">
+        Rent a car\nin just a few taps
+      </message>
+      <message name="IDS_AUTOFILL_ASSISTANT_INIT_MESSAGE_PASSWORD_CHANGE" desc="Onboarding message describing autofill assistant's capability for password change.">
+        Let Google Assistant help you\nchange your password
+      </message>
+      <message name="IDS_AUTOFILL_ASSISTANT_INIT_MESSAGE_BUY_MOVIE_TICKETS" desc="Onboarding message describing autofill assistant's capability for movie tickets.">
+        Buy movie tickets\nin just a few taps
+      </message>
+      <message name="IDS_AUTOFILL_ASSISTANT_INIT_MESSAGE_FOOD_ORDERING" desc="Onboarding message describing autofill assistant's capability for food ordering.">
+        Order food\nin just a few taps
+      </message>
+      <message name="IDS_AUTOFILL_ASSISTANT_INIT_MESSAGE_FLIGHTS_CHECKIN" desc="Onboarding message describing autofill assistant's capability for flights.">
+        Check in to your flight\nin just a few taps
+      </message>
+      <message name="IDS_AUTOFILL_ASSISTANT_INIT_MESSAGE_VOICE_SEARCH" desc="Onboarding message describing autofill assistant's capability for voice search.">
+        Try voice actions\non websites
+      </message>
+      <message name="IDS_AUTOFILL_ASSISTANT_INIT_MESSAGE_SHOPPING" desc="Onboarding message describing autofill assistant's capability for shopping.">
+        Fast checkout\nin just a few taps
+      </message>
       <message name="IDS_AUTOFILL_ASSISTANT_INIT_MESSAGE" desc="Onboarding message describing autofill assistant's capability.">
         Google Assistant saves you time by helping you complete actions on the web, like search and checkout.
       </message>
+      <message name="IDS_AUTOFILL_ASSISTANT_INIT_MESSAGE_SHORT" desc="Short onboarding message describing autofill assistant's capability.">
+        Google Assistant in Chrome can complete actions across websites for you
+      </message>
       <message name="IDS_AUTOFILL_ASSISTANT_GOOGLE_TERMS_DESCRIPTION" desc="Message linking to the Google terms and conditions for Google Assistant in Chrome.">
-        Google Assistant sends queries (text and voice) to Chrome. Chrome will send the site's URL and content as well as relevant personal information to Google. Depending on the query this can include email and credit card type. You can turn this off in Chrome settings. <ph name="BEGIN_LINK">&lt;link&gt;</ph>Learn&#xA0;more<ph name="END_LINK">&lt;/link&gt;</ph>
+        To help you complete tasks, Google will receive the URLs and contents of sites on which you use Assistant, as well as information you submit through Assistant. This information may be stored in your Google account. You can turn off Assistant in Chrome settings. <ph name="BEGIN_LINK">&lt;link&gt;</ph>Learn&#xA0;more<ph name="END_LINK">&lt;/link&gt;</ph>
       </message>
       <message name="IDS_AUTOFILL_ASSISTANT_GOOGLE_TERMS_URL" desc="URL for Google Autofill Assistant Terms of Service" translateable="false">
         http://support.google.com/assistant?p=fast_checkout

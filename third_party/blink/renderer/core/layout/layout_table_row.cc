@@ -29,10 +29,13 @@
 #include "third_party/blink/renderer/core/html_names.h"
 #include "third_party/blink/renderer/core/layout/hit_test_result.h"
 #include "third_party/blink/renderer/core/layout/layout_analyzer.h"
+#include "third_party/blink/renderer/core/layout/layout_object_factory.h"
 #include "third_party/blink/renderer/core/layout/layout_state.h"
 #include "third_party/blink/renderer/core/layout/layout_table_cell.h"
 #include "third_party/blink/renderer/core/layout/layout_view.h"
 #include "third_party/blink/renderer/core/layout/subtree_layout_scope.h"
+#include "third_party/blink/renderer/core/paint/paint_invalidator.h"
+#include "third_party/blink/renderer/core/paint/paint_layer.h"
 #include "third_party/blink/renderer/core/paint/table_row_painter.h"
 
 namespace blink {
@@ -60,6 +63,14 @@ LayoutNGTableCellInterface* LayoutTableRow::LastCellInterface() const {
 void LayoutTableRow::StyleDidChange(StyleDifference diff,
                                     const ComputedStyle* old_style) {
   DCHECK_EQ(StyleRef().Display(), EDisplay::kTableRow);
+
+  // Legacy tables cannont handle relative/fixed rows.
+  if (StyleRef().HasInFlowPosition()) {
+    scoped_refptr<ComputedStyle> new_style = ComputedStyle::Clone(StyleRef());
+    new_style->SetPosition(EPosition::kStatic);
+    SetModifiedStyleOutsideStyleRecalc(new_style,
+                                       LayoutObject::ApplyStyleChanges::kNo);
+  }
 
   LayoutTableBoxComponent::StyleDidChange(diff, old_style);
   PropagateStyleToAnonymousChildren();
@@ -92,7 +103,7 @@ void LayoutTableRow::StyleDidChange(StyleDifference diff,
       // TODO(dgrogan) Add a web test showing that SetChildNeedsLayout is
       // needed instead of SetNeedsLayout.
       child_box->SetChildNeedsLayout();
-      child_box->SetPreferredLogicalWidthsDirty(kMarkOnlyThis);
+      child_box->SetIntrinsicLogicalWidthsDirty(kMarkOnlyThis);
     }
     // Most table componenents can rely on LayoutObject::styleDidChange
     // to mark the container chain dirty. But LayoutTableSection seems
@@ -100,7 +111,7 @@ void LayoutTableRow::StyleDidChange(StyleDifference diff,
     // anything under LayoutTableSection has to restart the propagation
     // at the table.
     // TODO(dgrogan): Make LayoutTableSection clear its dirty bit.
-    table->SetPreferredLogicalWidthsDirty();
+    table->SetIntrinsicLogicalWidthsDirty();
   }
 
   // When a row gets collapsed or uncollapsed, it's necessary to check all the
@@ -120,6 +131,17 @@ void LayoutTableRow::StyleDidChange(StyleDifference diff,
           cell->SetCellChildrenNeedLayout();
       }
     }
+  }
+}
+
+void LayoutTableRow::InvalidatePaint(
+    const PaintInvalidatorContext& context) const {
+  LayoutTableBoxComponent::InvalidatePaint(context);
+  if (Table()->HasCollapsedBorders()) {
+    // Repaint the painting layer of the table. The table's composited backing
+    // always paints collapsed borders (even though it uses the row as a
+    // DisplayItemClient).
+    context.ParentContext()->ParentContext()->painting_layer->SetNeedsRepaint();
   }
 }
 
@@ -154,7 +176,8 @@ void LayoutTableRow::AddChild(LayoutObject* child, LayoutObject* before_child) {
       return;
     }
 
-    LayoutTableCell* cell = LayoutTableCell::CreateAnonymousWithParent(this);
+    LayoutBlockFlow* cell =
+        LayoutObjectFactory::CreateAnonymousTableCellWithParent(*this);
     AddChild(cell, before_child);
     cell->AddChild(child);
     return;
@@ -165,6 +188,12 @@ void LayoutTableRow::AddChild(LayoutObject* child, LayoutObject* before_child) {
 
   LayoutTableCell* cell = To<LayoutTableCell>(child);
 
+  // In Legacy tables, cell writing mode must match row writing mode.
+  // This adjustment is performed here because is LayoutObject type is
+  // unknown in style_adjuster.cc::AdjustStyleForDisplay
+  if (cell->StyleRef().GetWritingMode() != StyleRef().GetWritingMode()) {
+    cell->UpdateStyleWritingModeFromRow(this);
+  }
   DCHECK(!before_child || before_child->IsTableCell());
   LayoutTableBoxComponent::AddChild(cell, before_child);
 
@@ -178,11 +207,11 @@ void LayoutTableRow::AddChild(LayoutObject* child, LayoutObject* before_child) {
     if (enclosing_table && enclosing_table->ShouldCollapseBorders()) {
       enclosing_table->InvalidateCollapsedBorders();
       if (LayoutTableCell* previous_cell = cell->PreviousCell()) {
-        previous_cell->SetNeedsLayoutAndPrefWidthsRecalc(
+        previous_cell->SetNeedsLayoutAndIntrinsicWidthsRecalc(
             layout_invalidation_reason::kTableChanged);
       }
       if (LayoutTableCell* next_cell = cell->NextCell()) {
-        next_cell->SetNeedsLayoutAndPrefWidthsRecalc(
+        next_cell->SetNeedsLayoutAndIntrinsicWidthsRecalc(
             layout_invalidation_reason::kTableChanged);
       }
     }
@@ -284,15 +313,9 @@ LayoutTableRow* LayoutTableRow::CreateAnonymous(Document* document) {
   return layout_object;
 }
 
-LayoutTableRow* LayoutTableRow::CreateAnonymousWithParent(
-    const LayoutObject* parent) {
-  LayoutTableRow* new_row =
-      LayoutTableRow::CreateAnonymous(&parent->GetDocument());
-  scoped_refptr<ComputedStyle> new_style =
-      ComputedStyle::CreateAnonymousStyleWithDisplay(parent->StyleRef(),
-                                                     EDisplay::kTableRow);
-  new_row->SetStyle(std::move(new_style));
-  return new_row;
+LayoutBox* LayoutTableRow::CreateAnonymousBoxWithSameTypeAs(
+    const LayoutObject* parent) const {
+  return LayoutObjectFactory::CreateAnonymousTableRowWithParent(*parent);
 }
 
 void LayoutTableRow::ComputeLayoutOverflow() {
@@ -374,13 +397,6 @@ void LayoutTableRow::AddVisualOverflowFromCell(const LayoutTableCell* cell) {
       cell->VisualOverflowRectForPropagation();
   cell_visual_overflow_rect.Move(cell_row_offset);
   AddContentsVisualOverflow(cell_visual_overflow_rect);
-}
-
-bool LayoutTableRow::PaintedOutputOfObjectHasNoEffectRegardlessOfSize() const {
-  return LayoutTableBoxComponent::
-             PaintedOutputOfObjectHasNoEffectRegardlessOfSize() &&
-         // Row paints collapsed borders.
-         !Table()->HasCollapsedBorders();
 }
 
 }  // namespace blink

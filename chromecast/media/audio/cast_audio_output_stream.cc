@@ -20,11 +20,11 @@
 #include "chromecast/base/bind_to_task_runner.h"
 #include "chromecast/base/metrics/cast_metrics_helper.h"
 #include "chromecast/common/mojom/constants.mojom.h"
+#include "chromecast/media/api/cma_backend_factory.h"
 #include "chromecast/media/audio/cast_audio_manager.h"
 #include "chromecast/media/audio/cma_audio_output_stream.h"
 #include "chromecast/media/audio/mixer_service/mixer_service.pb.h"
 #include "chromecast/media/audio/mixer_service/output_stream_connection.h"
-#include "chromecast/media/cma/backend/cma_backend_factory.h"
 #include "chromecast/public/cast_media_shlib.h"
 #include "chromecast/public/media/decoder_config.h"
 #include "chromecast/public/media/media_pipeline_device_params.h"
@@ -80,15 +80,9 @@ mixer_service::ContentType ConvertContentType(AudioContentType content_type) {
   }
 }
 
-bool IsValidDeviceId(CastAudioManager* manager, const std::string& device_id) {
-  ::media::AudioDeviceNames valid_names;
-  manager->GetAudioOutputDeviceNames(&valid_names);
-  for (const auto& v : valid_names) {
-    if (v.unique_id == device_id) {
-      return true;
-    }
-  }
-  return false;
+bool IsValidDeviceId(const std::string& device_id) {
+  return device_id == ::media::AudioDeviceDescription::kDefaultDeviceId ||
+         device_id == ::media::AudioDeviceDescription::kCommunicationsDeviceId;
 }
 
 }  // namespace
@@ -165,7 +159,8 @@ void CastAudioOutputStream::MixerServiceWrapper::Start(
   DCHECK_CALLED_ON_VALID_THREAD(io_thread_checker_);
 
   mixer_service::OutputStreamParams params;
-  params.set_content_type(ConvertContentType(GetContentType(device_id_)));
+  params.set_content_type(mixer_service::CONTENT_TYPE_MEDIA);
+  params.set_focus_type(ConvertContentType(GetContentType(device_id_)));
   params.set_device_id(device_id_);
   params.set_stream_type(
       mixer_service::OutputStreamParams::STREAM_TYPE_DEFAULT);
@@ -177,7 +172,6 @@ void CastAudioOutputStream::MixerServiceWrapper::Start(
   params.set_start_threshold_frames(start_threshold_frames);
 
   params.set_fill_size_frames(audio_params_.frames_per_buffer());
-  params.set_use_fader(true);
   params.set_fade_frames(::media::AudioTimestampHelper::TimeToFrames(
       kFadeTime, audio_params_.sample_rate()));
   params.set_use_start_timestamp(false);
@@ -264,22 +258,20 @@ void CastAudioOutputStream::MixerServiceWrapper::FillNextBuffer(
 }
 
 CastAudioOutputStream::CastAudioOutputStream(
-    CastAudioManager* audio_manager,
-    chromecast::mojom::ServiceConnector* connector,
+    CastAudioManagerHelper* audio_manager,
     const ::media::AudioParameters& audio_params,
     const std::string& device_id_or_group_id,
     bool use_mixer_service)
     : volume_(1.0),
       audio_thread_state_(AudioOutputState::kClosed),
       audio_manager_(audio_manager),
-      connector_(connector),
+      connector_(audio_manager_->GetConnector()),
       audio_params_(audio_params),
-      device_id_(IsValidDeviceId(audio_manager, device_id_or_group_id)
+      device_id_(IsValidDeviceId(device_id_or_group_id)
                      ? device_id_or_group_id
                      : ::media::AudioDeviceDescription::kDefaultDeviceId),
-      group_id_(IsValidDeviceId(audio_manager, device_id_or_group_id)
-                    ? ""
-                    : device_id_or_group_id),
+      group_id_(IsValidDeviceId(device_id_or_group_id) ? ""
+                                                       : device_id_or_group_id),
       use_mixer_service_(use_mixer_service),
       audio_weak_factory_(this) {
   DCHECK(audio_manager_);
@@ -354,8 +346,9 @@ void CastAudioOutputStream::Close() {
     // AudioSourceCallback::OnMoreData() will not be called anymore.
     mixer_service_wrapper_->SetRunning(false);
     POST_TO_MIXER_SERVICE_WRAPPER(
-        Close, BindToTaskRunner(audio_manager_->GetTaskRunner(),
-                                std::move(finish_callback)));
+        Close,
+        BindToTaskRunner(audio_manager_->audio_manager()->GetTaskRunner(),
+                         std::move(finish_callback)));
   } else if (cma_wrapper_) {
     // Synchronously set running to false to guarantee that
     // AudioSourceCallback::OnMoreData() will not be called anymore.
@@ -370,7 +363,7 @@ void CastAudioOutputStream::FinishClose() {
   DCHECK_CALLED_ON_VALID_THREAD(audio_thread_checker_);
   // Signal to the manager that we're closed and can be removed.
   // This should be the last call during the close process as it deletes "this".
-  audio_manager_->ReleaseOutputStream(this);
+  audio_manager_->audio_manager()->ReleaseOutputStream(this);
 }
 
 void CastAudioOutputStream::Start(AudioSourceCallback* source_callback) {
@@ -487,7 +480,7 @@ void CastAudioOutputStream::OnGetMultiroomInfo(
   if (!use_mixer_service_) {
     cma_wrapper_ = std::make_unique<CmaAudioOutputStream>(
         audio_params_, audio_params_.GetBufferDuration(), device_id_,
-        audio_manager_->cma_backend_factory());
+        audio_manager_->GetCmaBackendFactory());
     POST_TO_CMA_WRAPPER(Initialize, application_session_id,
                         std::move(multiroom_info));
   } else {

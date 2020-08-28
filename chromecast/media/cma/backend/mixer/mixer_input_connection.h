@@ -5,6 +5,7 @@
 #ifndef CHROMECAST_MEDIA_CMA_BACKEND_MIXER_MIXER_INPUT_CONNECTION_H_
 #define CHROMECAST_MEDIA_CMA_BACKEND_MIXER_MIXER_INPUT_CONNECTION_H_
 
+#include <atomic>
 #include <memory>
 #include <string>
 
@@ -24,6 +25,7 @@
 #include "chromecast/media/cma/backend/mixer/mixer_input.h"
 #include "chromecast/public/media/media_pipeline_backend.h"
 #include "chromecast/public/volume_control.h"
+#include "media/base/channel_layout.h"
 #include "media/base/media_util.h"
 
 namespace base {
@@ -81,10 +83,10 @@ class MixerInputConnection : public mixer_service::MixerSocket::Delegate,
 
   // mixer_service::MixerSocket::Delegate implementation:
   bool HandleMetadata(const mixer_service::Generic& message) override;
-  bool HandleAudioData(char* data, int size, int64_t timestamp) override;
+  bool HandleAudioData(char* data, size_t size, int64_t timestamp) override;
   bool HandleAudioBuffer(scoped_refptr<net::IOBuffer> buffer,
                          char* data,
-                         int size,
+                         size_t size,
                          int64_t timestamp) override;
   void OnConnectionError() override;
 
@@ -97,10 +99,12 @@ class MixerInputConnection : public mixer_service::MixerSocket::Delegate,
 
   // MixerInput::Source implementation:
   size_t num_channels() const override;
+  ::media::ChannelLayout channel_layout() const override;
   int sample_rate() const override;
   bool primary() override;
   const std::string& device_id() override;
   AudioContentType content_type() override;
+  AudioContentType focus_type() override;
   int desired_read_size() override;
   int playout_channel() override;
   bool active() override;
@@ -111,6 +115,7 @@ class MixerInputConnection : public mixer_service::MixerSocket::Delegate,
                               RenderingDelay rendering_delay,
                               ::media::AudioBus* buffer) override;
   void OnAudioPlaybackError(MixerError error) override;
+  void OnOutputUnderrun() override;
   void FinalizeAudioPlayback() override;
 
   // AudioProvider implementation:
@@ -131,6 +136,8 @@ class MixerInputConnection : public mixer_service::MixerSocket::Delegate,
   void PostPcmCompletion();
   void PostEos();
   void PostError(MixerError error);
+  void PostStreamUnderrun();
+  void PostOutputUnderrun();
   void PostAudioReadyForPlayback();
   void DropAudio(int64_t frames) EXCLUSIVE_LOCKS_REQUIRED(lock_);
   void CheckAndStartPlaybackIfNecessary(int num_frames,
@@ -144,12 +151,16 @@ class MixerInputConnection : public mixer_service::MixerSocket::Delegate,
   const int fill_size_;
   const int algorithm_fill_size_;
   const int num_channels_;
+  const ::media::ChannelLayout channel_layout_;
   const int input_samples_per_second_;
   const mixer_service::SampleFormat sample_format_;
   const bool primary_;
   const std::string device_id_;
   const AudioContentType content_type_;
+  const AudioContentType focus_type_;
   const int playout_channel_;
+
+  std::atomic<int> effective_playout_channel_;
 
   const scoped_refptr<base::SequencedTaskRunner> io_task_runner_;
   int max_queued_frames_;
@@ -194,6 +205,7 @@ class MixerInputConnection : public mixer_service::MixerSocket::Delegate,
   // to us.
   int64_t playback_start_pts_ GUARDED_BY(lock_) = INT64_MIN;
   int remaining_silence_frames_ GUARDED_BY(lock_) = 0;
+  bool fed_one_silence_buffer_after_removal_ GUARDED_BY(lock_) = false;
   ::media::NullMediaLog media_log_;
   std::unique_ptr<::media::AudioRendererAlgorithm> rate_shifter_
       GUARDED_BY(lock_);
@@ -208,6 +220,7 @@ class MixerInputConnection : public mixer_service::MixerSocket::Delegate,
   base::RepeatingClosure pcm_completion_task_;
   base::RepeatingClosure eos_task_;
   base::RepeatingClosure ready_for_playback_task_;
+  base::RepeatingClosure post_stream_underrun_task_;
 
   base::WeakPtr<MixerInputConnection> weak_this_;
   base::WeakPtrFactory<MixerInputConnection> weak_factory_;

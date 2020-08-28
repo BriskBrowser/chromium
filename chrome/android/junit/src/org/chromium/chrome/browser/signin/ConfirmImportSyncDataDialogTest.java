@@ -3,19 +3,19 @@
 // found in the LICENSE file.
 package org.chromium.chrome.browser.signin;
 
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.mockito.MockitoAnnotations.initMocks;
 
-import android.support.v4.app.FragmentActivity;
-import android.support.v4.app.FragmentManager;
-import android.support.v7.app.AlertDialog;
+import androidx.appcompat.app.AlertDialog;
+import androidx.fragment.app.FragmentActivity;
+import androidx.fragment.app.FragmentManager;
 
 import org.junit.Assert;
 import org.junit.Before;
-import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.Mock;
@@ -24,22 +24,23 @@ import org.robolectric.shadows.ShadowAlertDialog;
 import org.robolectric.shadows.ShadowToast;
 
 import org.chromium.base.test.BaseRobolectricTestRunner;
-import org.chromium.base.test.DisableNativeTestRule;
 import org.chromium.chrome.R;
+import org.chromium.chrome.browser.profiles.Profile;
 
 /** Tests for {@link ConfirmImportSyncDataDialog}. */
 @RunWith(BaseRobolectricTestRunner.class)
 public class ConfirmImportSyncDataDialogTest {
     private static final String TEST_DOMAIN = "test.domain.example.com";
 
-    @Rule
-    public final DisableNativeTestRule mDisableNative = new DisableNativeTestRule();
 
     @Mock
     private ConfirmImportSyncDataDialog.Listener mMockListener;
 
     @Mock
     private SigninManager mSigninManagerMock;
+
+    @Mock
+    private Profile mProfile;
 
     private FragmentManager mFragmentManager;
 
@@ -49,7 +50,8 @@ public class ConfirmImportSyncDataDialogTest {
     public void setUp() {
         initMocks(this);
         IdentityServicesProvider.setInstanceForTests(mock(IdentityServicesProvider.class));
-        when(IdentityServicesProvider.get().getSigninManager()).thenReturn(mSigninManagerMock);
+        Profile.setLastUsedProfileForTesting(mProfile);
+        when(IdentityServicesProvider.get().getSigninManager(any())).thenReturn(mSigninManagerMock);
         mFragmentManager =
                 Robolectric.setupActivity(FragmentActivity.class).getSupportFragmentManager();
         mStateMachineDelegate = new ConfirmSyncDataStateMachineDelegate(mFragmentManager);
@@ -78,12 +80,12 @@ public class ConfirmImportSyncDataDialogTest {
     }
 
     @Test
-    public void testListenerCancelledWhenDialogDismissed() {
+    public void testListenerOnCancelNotCalledWhenDialogDismissed() {
         getConfirmImportSyncDataDialog();
         Assert.assertEquals(1, mFragmentManager.getFragments().size());
         mStateMachineDelegate.dismissAllDialogs();
         Assert.assertEquals(0, mFragmentManager.getFragments().size());
-        verify(mMockListener).onCancel();
+        verify(mMockListener, never()).onCancel();
     }
 
     @Test

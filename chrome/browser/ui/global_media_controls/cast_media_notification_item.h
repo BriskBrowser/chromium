@@ -8,9 +8,9 @@
 #include "base/memory/weak_ptr.h"
 #include "chrome/browser/bitmap_fetcher/bitmap_fetcher.h"
 #include "chrome/browser/ui/global_media_controls/cast_media_session_controller.h"
-#include "chrome/common/media_router/media_route.h"
-#include "chrome/common/media_router/mojom/media_status.mojom.h"
 #include "components/media_message_center/media_notification_item.h"
+#include "components/media_router/common/media_route.h"
+#include "components/media_router/common/mojom/media_status.mojom.h"
 #include "services/media_session/public/cpp/media_metadata.h"
 
 class Profile;
@@ -52,6 +52,7 @@ class CastMediaNotificationItem
   void OnMediaSessionActionButtonPressed(
       media_session::mojom::MediaSessionAction action) override;
   void Dismiss() override;
+  bool SourceIsCast() override;
 
   // media_router::mojom::MediaStatusObserver:
   void OnMediaStatusUpdated(
@@ -110,8 +111,10 @@ class CastMediaNotificationItem
   };
 
   void UpdateView();
-
   void ImageChanged(const SkBitmap& bitmap);
+  void RecordMetadataMetrics() const;
+
+  bool recorded_metadata_metrics_ = false;
 
   media_message_center::MediaNotificationController* const
       notification_controller_;

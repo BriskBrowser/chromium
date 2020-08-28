@@ -18,8 +18,10 @@ import org.chromium.base.Callback;
 import org.chromium.base.Log;
 import org.chromium.base.ObserverList;
 import org.chromium.base.ThreadUtils;
+import org.chromium.components.signin.AccessTokenData;
 import org.chromium.components.signin.AccountManagerDelegate;
-import org.chromium.components.signin.AccountManagerFacade;
+import org.chromium.components.signin.AccountManagerFacadeProvider;
+import org.chromium.components.signin.AccountUtils;
 import org.chromium.components.signin.AccountsChangeObserver;
 import org.chromium.components.signin.AuthException;
 import org.chromium.components.signin.ProfileDataSource;
@@ -50,20 +52,10 @@ import java.util.concurrent.CountDownLatch;
 public class FakeAccountManagerDelegate implements AccountManagerDelegate {
     private static final String TAG = "FakeAccountManager";
 
-    /** Controls whether FakeAccountManagerDelegate should provide a ProfileDataSource. */
-    @IntDef({DISABLE_PROFILE_DATA_SOURCE, ENABLE_PROFILE_DATA_SOURCE})
-    @Retention(RetentionPolicy.SOURCE)
-    public @interface ProfileDataSourceFlag {}
-
-    /** Disables ProfileDataSource: {@link #getProfileDataSource} will return null. */
-    public static final int DISABLE_PROFILE_DATA_SOURCE = 0;
-    /** Use {@link FakeProfileDataSource}. */
-    public static final int ENABLE_PROFILE_DATA_SOURCE = 1;
-
     /** Controls whether FakeAccountManagerDelegate should block get accounts. */
     @IntDef({ENABLE_BLOCK_GET_ACCOUNTS, DISABLE_BLOCK_GET_ACCOUNTS})
     @Retention(RetentionPolicy.SOURCE)
-    public @interface BlockGetAccountsFlag {}
+    @interface BlockGetAccountsFlag {}
 
     /** Disables block get accounts: {@link #getAccountsSync()} will return immediately. */
     public static final int DISABLE_BLOCK_GET_ACCOUNTS = 0;
@@ -72,44 +64,37 @@ public class FakeAccountManagerDelegate implements AccountManagerDelegate {
 
     private final Set<AccountHolder> mAccounts = new LinkedHashSet<>();
     private final ObserverList<AccountsChangeObserver> mObservers = new ObserverList<>();
-    private boolean mRegisterObserversCalled;
-    private FakeProfileDataSource mFakeProfileDataSource;
     private final CountDownLatch mBlockGetAccounts = new CountDownLatch(1);
 
-    public FakeAccountManagerDelegate(@ProfileDataSourceFlag int profileDataSourceFlag) {
-        this(profileDataSourceFlag, DISABLE_BLOCK_GET_ACCOUNTS);
+    public FakeAccountManagerDelegate() {
+        this(DISABLE_BLOCK_GET_ACCOUNTS);
     }
 
-    public FakeAccountManagerDelegate(@ProfileDataSourceFlag int profileDataSourceFlag,
-            @BlockGetAccountsFlag int blockGetAccountsFlag) {
-        if (profileDataSourceFlag == ENABLE_PROFILE_DATA_SOURCE) {
-            mFakeProfileDataSource = new FakeProfileDataSource();
-        }
+    public FakeAccountManagerDelegate(@BlockGetAccountsFlag int blockGetAccountsFlag) {
         if (blockGetAccountsFlag == DISABLE_BLOCK_GET_ACCOUNTS) {
             mBlockGetAccounts.countDown();
         }
     }
 
-    public void setProfileData(
-            String accountId, @Nullable ProfileDataSource.ProfileData profileData) {
-        assert mFakeProfileDataSource != null : "ProfileDataSource was disabled!";
-        mFakeProfileDataSource.setProfileData(accountId, profileData);
+    @Nullable
+    @Override
+    public ProfileDataSource getProfileDataSource() {
+        return null;
     }
 
     @Nullable
     @Override
-    public ProfileDataSource getProfileDataSource() {
-        return mFakeProfileDataSource;
+    public String getAccountGaiaId(String accountEmail) {
+        return "gaia-id-" + accountEmail.replace("@", "_at_");
     }
 
     @Override
-    public void registerObservers() {
-        mRegisterObserversCalled = true;
+    public boolean isGooglePlayServicesAvailable() {
+        return true;
     }
 
-    public boolean isRegisterObserversCalled() {
-        return mRegisterObserversCalled;
-    }
+    @Override
+    public void registerObservers() {}
 
     @Override
     public void addObserver(AccountsChangeObserver observer) {
@@ -133,7 +118,7 @@ public class FakeAccountManagerDelegate implements AccountManagerDelegate {
         return getAccountsSyncNoThrow();
     }
 
-    public Account[] getAccountsSyncNoThrow() {
+    private Account[] getAccountsSyncNoThrow() {
         ArrayList<Account> result = new ArrayList<>();
         synchronized (mAccounts) {
             for (AccountHolder ah : mAccounts) {
@@ -171,8 +156,7 @@ public class FakeAccountManagerDelegate implements AccountManagerDelegate {
     /**
      * Remove an AccountHolder.
      *
-     * WARNING: this method will not wait for the cache in AccountManagerFacade to be updated. Tests
-     * that get accounts from AccountManagerFacade should use {@link #removeAccountHolderBlocking}.
+     * WARNING: This method will not wait for the cache in AccountManagerFacade to be updated.
      *
      * @param accountHolder the account holder to remove
      */
@@ -202,29 +186,8 @@ public class FakeAccountManagerDelegate implements AccountManagerDelegate {
         try {
             ThreadUtils.runOnUiThreadBlocking(() -> {
                 addAccountHolderExplicitly(accountHolder);
-                AccountManagerFacade.get().waitForPendingUpdates(cacheUpdated::countDown);
-            });
-
-            cacheUpdated.await();
-        } catch (InterruptedException e) {
-            throw new RuntimeException("Exception occurred while waiting for updates", e);
-        }
-    }
-
-    /**
-     * Removes an AccountHolder and waits for AccountManagerFacade to update its cache. Requires
-     * AccountManagerFacade to be initialized with this delegate.
-     *
-     * @param accountHolder the account holder to remove
-     */
-    public void removeAccountHolderBlocking(AccountHolder accountHolder) {
-        ThreadUtils.assertOnBackgroundThread();
-
-        CountDownLatch cacheUpdated = new CountDownLatch(1);
-        try {
-            ThreadUtils.runOnUiThreadBlocking(() -> {
-                removeAccountHolderExplicitly(accountHolder);
-                AccountManagerFacade.get().waitForPendingUpdates(cacheUpdated::countDown);
+                AccountManagerFacadeProvider.getInstance().waitForPendingUpdates(
+                        cacheUpdated::countDown);
             });
 
             cacheUpdated.await();
@@ -234,7 +197,8 @@ public class FakeAccountManagerDelegate implements AccountManagerDelegate {
     }
 
     @Override
-    public String getAuthToken(Account account, String authTokenScope) throws AuthException {
+    public AccessTokenData getAuthToken(Account account, String authTokenScope)
+            throws AuthException {
         AccountHolder ah = tryGetAccountHolder(account);
         if (ah == null) {
             throw new AuthException(AuthException.NONTRANSIENT,
@@ -273,8 +237,8 @@ public class FakeAccountManagerDelegate implements AccountManagerDelegate {
 
     @Override
     public AuthenticatorDescription[] getAuthenticatorTypes() {
-        AuthenticatorDescription googleAuthenticator = new AuthenticatorDescription(
-                AccountManagerFacade.GOOGLE_ACCOUNT_TYPE, "p1", 0, 0, 0, 0);
+        AuthenticatorDescription googleAuthenticator =
+                new AuthenticatorDescription(AccountUtils.GOOGLE_ACCOUNT_TYPE, "p1", 0, 0, 0, 0);
 
         return new AuthenticatorDescription[] {googleAuthenticator};
     }
@@ -301,7 +265,7 @@ public class FakeAccountManagerDelegate implements AccountManagerDelegate {
     @Override
     public void createAddAccountIntent(Callback<Intent> callback) {
         ThreadUtils.assertOnUiThread();
-        ThreadUtils.postOnUiThread(() -> callback.onResult(null));
+        ThreadUtils.postOnUiThread(callback.bind(null));
     }
 
     @Override
@@ -312,7 +276,7 @@ public class FakeAccountManagerDelegate implements AccountManagerDelegate {
             return;
         }
 
-        ThreadUtils.postOnUiThread(() -> callback.onResult(true));
+        ThreadUtils.postOnUiThread(callback.bind(true));
     }
 
     private AccountHolder tryGetAccountHolder(Account account) {
@@ -327,13 +291,5 @@ public class FakeAccountManagerDelegate implements AccountManagerDelegate {
             }
         }
         return null;
-    }
-
-    private AccountHolder getAccountHolder(Account account) {
-        AccountHolder ah = tryGetAccountHolder(account);
-        if (ah == null) {
-            throw new IllegalArgumentException("Can not find AccountHolder for account " + account);
-        }
-        return ah;
     }
 }

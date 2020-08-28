@@ -32,18 +32,6 @@ TEST(ServerLogEntryHostTest, MakeForSessionStateChange) {
       << error;
 }
 
-TEST(ServerLogEntryHostTest, MakeForHeartbeat) {
-  std::unique_ptr<ServerLogEntry> entry(MakeLogEntryForHeartbeat());
-  std::unique_ptr<XmlElement> stanza = entry->ToStanza();
-  std::string error;
-  std::map<std::string, std::string> key_value_pairs;
-  key_value_pairs["role"] = "host";
-  key_value_pairs["event-name"] = "heartbeat";
-  std::set<std::string> keys;
-  ASSERT_TRUE(VerifyStanza(key_value_pairs, keys, stanza.get(), &error))
-      << error;
-}
-
 TEST(ServerLogEntryHostTest, AddHostFields) {
   std::unique_ptr<ServerLogEntry> entry(
       MakeLogEntryForSessionStateChange(true));
@@ -59,7 +47,7 @@ TEST(ServerLogEntryHostTest, AddHostFields) {
 #if defined(OS_WIN)
   key_value_pairs["os-name"] = "Windows";
   keys.insert("os-version");
-#elif defined(OS_MACOSX)
+#elif defined(OS_APPLE)
   key_value_pairs["os-name"] = "Mac";
   keys.insert("os-version");
 #elif defined(OS_CHROMEOS)

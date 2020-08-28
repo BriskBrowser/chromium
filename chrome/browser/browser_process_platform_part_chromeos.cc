@@ -7,7 +7,7 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/logging.h"
+#include "base/check_op.h"
 #include "base/memory/singleton.h"
 #include "base/time/default_tick_clock.h"
 #include "base/time/tick_clock.h"
@@ -17,6 +17,7 @@
 #include "chrome/browser/chromeos/login/users/chrome_user_manager_impl.h"
 #include "chrome/browser/chromeos/net/delay_network_call.h"
 #include "chrome/browser/chromeos/policy/browser_policy_connector_chromeos.h"
+#include "chrome/browser/chromeos/policy/system_proxy_manager.h"
 #include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/chromeos/scheduler_configuration_manager.h"
 #include "chrome/browser/chromeos/settings/cros_settings.h"
@@ -26,7 +27,6 @@
 #include "chrome/browser/chromeos/system/system_clock.h"
 #include "chrome/browser/chromeos/system/timezone_resolver_manager.h"
 #include "chrome/browser/chromeos/system/timezone_util.h"
-#include "chrome/browser/component_updater/cros_component_installer_chromeos.h"
 #include "chrome/browser/component_updater/metadata_table_chromeos.h"
 #include "chrome/common/chrome_features.h"
 #include "chrome/common/chrome_switches.h"
@@ -39,7 +39,6 @@
 #include "components/keyed_service/content/browser_context_keyed_service_shutdown_notifier_factory.h"
 #include "components/session_manager/core/session_manager.h"
 #include "components/user_manager/user_manager.h"
-#include "content/public/common/service_manager_connection.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
 #include "services/preferences/public/mojom/preferences.mojom.h"
 #include "services/service_manager/public/cpp/binder_registry.h"
@@ -133,7 +132,7 @@ void BrowserProcessPlatformPart::InitializeCrosComponentManager() {
 
   DCHECK(!cros_component_manager_);
   cros_component_manager_ =
-      std::make_unique<component_updater::CrOSComponentInstaller>(
+      base::MakeRefCounted<component_updater::CrOSComponentInstaller>(
           std::make_unique<component_updater::MetadataTable>(
               g_browser_process->local_state()),
           g_browser_process->component_updater());
@@ -173,12 +172,18 @@ void BrowserProcessPlatformPart::InitializePrimaryProfileServices(
   primary_profile_shutdown_subscription_ =
       PrimaryProfileServicesShutdownNotifierFactory::GetInstance()
           ->Get(primary_profile)
-          ->Subscribe(base::Bind(
+          ->Subscribe(base::BindRepeating(
               &BrowserProcessPlatformPart::ShutdownPrimaryProfileServices,
               base::Unretained(this)));
+  browser_policy_connector_chromeos()
+      ->GetSystemProxyManager()
+      ->StartObservingPrimaryProfilePrefs(primary_profile);
 }
 
 void BrowserProcessPlatformPart::ShutdownPrimaryProfileServices() {
+  browser_policy_connector_chromeos()
+      ->GetSystemProxyManager()
+      ->StopObservingPrimaryProfilePrefs();
   in_session_password_change_manager_.reset();
 }
 
@@ -221,10 +226,10 @@ chromeos::TimeZoneResolver* BrowserProcessPlatformPart::GetTimezoneResolver() {
         GetTimezoneResolverManager(),
         g_browser_process->shared_url_loader_factory(),
         chromeos::SimpleGeolocationProvider::DefaultGeolocationProviderURL(),
-        base::Bind(&chromeos::system::ApplyTimeZone),
-        base::Bind(&chromeos::DelayNetworkCall,
-                   base::TimeDelta::FromMilliseconds(
-                       chromeos::kDefaultNetworkRetryDelayMS)),
+        base::BindRepeating(&chromeos::system::ApplyTimeZone),
+        base::BindRepeating(&chromeos::DelayNetworkCall,
+                            base::TimeDelta::FromMilliseconds(
+                                chromeos::kDefaultNetworkRetryDelayMS)),
         g_browser_process->local_state()));
   }
   return timezone_resolver_.get();
@@ -235,12 +240,6 @@ void BrowserProcessPlatformPart::StartTearDown() {
   // destroyed.  So we need to destroy |timezone_resolver_| here.
   timezone_resolver_.reset();
   profile_helper_.reset();
-}
-
-std::unique_ptr<policy::ChromeBrowserPolicyConnector>
-BrowserProcessPlatformPart::CreateBrowserPolicyConnector() {
-  return std::unique_ptr<policy::ChromeBrowserPolicyConnector>(
-      new policy::BrowserPolicyConnectorChromeOS());
 }
 
 chromeos::system::SystemClock* BrowserProcessPlatformPart::GetSystemClock() {

@@ -9,7 +9,7 @@ for more details about the presubmit API built into depot_tools.
 
 This presubmit checks for the following:
   - No new calls to Notification.Builder or NotificationCompat.Builder
-    constructors. Callers should use ChromeNotificationBuilder instead.
+    constructors. Callers should use NotificationWrapperBuilder instead.
   - No new calls to AlertDialog.Builder. Callers should use ModalDialogView
     instead.
 """
@@ -52,12 +52,11 @@ def _CommonChecks(input_api, output_api):
 
 
 def _CheckNotificationConstructors(input_api, output_api):
-  # "Blacklist" because the following files are excluded from the check.
-  blacklist = (
+  files_to_skip = (
       'chrome/android/java/src/org/chromium/chrome/browser/notifications/'
-      'NotificationBuilder.java',
+      'ChromeNotificationWrapperBuilder.java',
       'chrome/android/java/src/org/chromium/chrome/browser/notifications/'
-      'NotificationCompatBuilder.java'
+      'ChromeNotificationWrapperCompatBuilder.java'
   )
   error_msg = '''
   Android Notification Construction Check failed:
@@ -65,23 +64,25 @@ def _CheckNotificationConstructors(input_api, output_api):
   NotificationCompat.Builder constructors, listed below.
 
   This is banned, please construct notifications using
-  NotificationBuilderFactory.createChromeNotificationBuilder instead,
+  NotificationWrapperBuilderFactory.createNotificationWrapperBuilder instead,
   specifying a channel for use on Android O.
 
   See https://crbug.com/678670 for more information.
   '''
-  return _CheckReIgnoreComment(input_api, output_api, error_msg, blacklist,
+  return _CheckReIgnoreComment(input_api, output_api, error_msg, files_to_skip,
                                NEW_NOTIFICATION_BUILDER_RE)
 
 
 def _CheckAlertDialogBuilder(input_api, output_api):
-  # "Blacklist" because the following files are excluded from the check. In
-  # general, preference and FRE related UIs are not relevant to VR mode.
-  blacklist = (
+  # In general, preference and FRE related UIs are not relevant to VR mode.
+  files_to_skip = (
       BROWSER_ROOT + 'browserservices/ClearDataDialogActivity.java',
+      BROWSER_ROOT + 'browsing_data/ConfirmImportantSitesDialogFragment.java',
+      BROWSER_ROOT + 'browsing_data/OtherFormsOfHistoryDialogFragment.java',
+      BROWSER_ROOT + 'datareduction/settings/DataReductionStatsPreference.java',
       BROWSER_ROOT + 'password_manager/AccountChooserDialog.java',
       BROWSER_ROOT + 'password_manager/AutoSigninFirstRunDialog.java',
-      BROWSER_ROOT + r'preferences[\\\/].*',
+      BROWSER_ROOT + r'settings[\\\/].*',
       BROWSER_ROOT + 'signin/AccountPickerDialogFragment.java',
       BROWSER_ROOT + 'signin/AccountSigninView.java',
       BROWSER_ROOT + 'signin/ConfirmImportSyncDataDialog.java',
@@ -89,6 +90,14 @@ def _CheckAlertDialogBuilder(input_api, output_api):
       BROWSER_ROOT + 'signin/ConfirmSyncDataStateMachineDelegate.java',
       BROWSER_ROOT + 'signin/SigninFragmentBase.java',
       BROWSER_ROOT + 'signin/SignOutDialogFragment.java',
+      BROWSER_ROOT + 'site_settings/AddExceptionPreference.java',
+      BROWSER_ROOT + 'site_settings/ChosenObjectSettings.java',
+      BROWSER_ROOT + 'site_settings/ManageSpaceActivity.java',
+      BROWSER_ROOT + 'site_settings/ManageSpaceActivity.java',
+      BROWSER_ROOT + 'site_settings/SingleCategorySettings.java',
+      BROWSER_ROOT + 'site_settings/SingleWebsiteSettings.java',
+      BROWSER_ROOT + 'sync/settings/ManageSyncSettings.java',
+      BROWSER_ROOT + 'sync/settings/SyncAndServicesSettings.java',
       BROWSER_ROOT + 'sync/ui/PassphraseCreationDialogFragment.java',
       BROWSER_ROOT + 'sync/ui/PassphraseDialogFragment.java',
       BROWSER_ROOT + 'sync/ui/PassphraseTypeDialogFragment.java',
@@ -106,7 +115,7 @@ def _CheckAlertDialogBuilder(input_api, output_api):
   //src/chrome/android/java/src/org/chromium/chrome/browser/vr/VR_JAVA_OWNERS
   '''
   error_files = []
-  result = _CheckReIgnoreComment(input_api, output_api, error_msg, blacklist,
+  result = _CheckReIgnoreComment(input_api, output_api, error_msg, files_to_skip,
                                  NEW_ALERTDIALOG_BUILDER_RE, error_files)
 
   wrong_builder_errors = []
@@ -131,10 +140,7 @@ def _CheckAlertDialogBuilder(input_api, output_api):
 
 
 def _CheckCompatibleAlertDialogBuilder(input_api, output_api):
-  # "Blacklist" because the following files are excluded from the check.
-  blacklist = (
-      BROWSER_ROOT + 'LoginPrompt.java',
-      BROWSER_ROOT + 'SSLClientCertificateRequest.java',
+  files_to_skip = (
       BROWSER_ROOT + 'autofill/AutofillPopupBridge.java',
       BROWSER_ROOT + 'autofill/keyboard_accessory/'
                      'AutofillKeyboardAccessoryBridge.java',
@@ -162,11 +168,11 @@ def _CheckCompatibleAlertDialogBuilder(input_api, output_api):
   If you are in doubt, contact
   //src/chrome/android/java/src/org/chromium/chrome/browser/vr/VR_JAVA_OWNERS
   '''
-  return _CheckReIgnoreComment(input_api, output_api, error_msg, blacklist,
+  return _CheckReIgnoreComment(input_api, output_api, error_msg, files_to_skip,
                                NEW_COMPATIBLE_ALERTDIALOG_BUILDER_RE)
 
 
-def _CheckReIgnoreComment(input_api, output_api, error_msg, blacklist,
+def _CheckReIgnoreComment(input_api, output_api, error_msg, files_to_skip,
                           regular_expression, error_files=None):
 
   def CheckLine(current_file, line_number, line, problems, error_files):
@@ -182,7 +188,7 @@ def _CheckReIgnoreComment(input_api, output_api, error_msg, blacklist,
 
   problems = []
   sources = lambda x: input_api.FilterSourceFile(
-      x, white_list=(r'.*\.java$',), black_list=blacklist)
+      x, files_to_check=(r'.*\.java$',), files_to_skip=files_to_skip)
   for f in input_api.AffectedFiles(include_deletes=False,
                                    file_filter=sources):
     previous_line = ''

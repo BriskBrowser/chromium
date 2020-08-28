@@ -29,7 +29,9 @@ class EmptyWebMediaPlayer : public WebMediaPlayer {
   void SetRate(double) override {}
   void SetVolume(double) override {}
   void SetLatencyHint(double) override {}
+  void SetPreservesPitch(bool) override {}
   void OnRequestPictureInPicture() override {}
+  void OnPictureInPictureAvailabilityChanged(bool available) override {}
   SurfaceLayerMode GetVideoSurfaceLayerMode() const override {
     return SurfaceLayerMode::kNever;
   }
@@ -39,12 +41,13 @@ class EmptyWebMediaPlayer : public WebMediaPlayer {
                  WebSetSinkIdCompleteCallback) override {}
   bool HasVideo() const override { return false; }
   bool HasAudio() const override { return false; }
-  WebSize NaturalSize() const override;
-  WebSize VisibleRect() const override;
+  gfx::Size NaturalSize() const override;
+  gfx::Size VisibleSize() const override;
   bool Paused() const override { return false; }
   bool Seeking() const override { return false; }
   double Duration() const override { return 0.0; }
   double CurrentTime() const override { return 0.0; }
+  bool IsEnded() const override { return false; }
   NetworkState GetNetworkState() const override { return kNetworkStateIdle; }
   ReadyState GetReadyState() const override { return kReadyStateHaveNothing; }
   WebString GetErrorMessage() const override;

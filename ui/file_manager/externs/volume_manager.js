@@ -37,10 +37,11 @@ class VolumeManager {
 
   /**
    * @param {string} fileUrl File url to the archive file.
+   * @param {string=} password Password to decrypt archive file.
    * @return {!Promise<!VolumeInfo>} Fulfilled on success, otherwise rejected
    *     with a VolumeManagerCommon.VolumeError.
    */
-  mountArchive(fileUrl) {}
+  mountArchive(fileUrl, password) {}
 
   /**
    * Unmounts a volume.
@@ -71,7 +72,7 @@ class VolumeManager {
    *
    * @param {!Entry|!FilesAppEntry} entry File or directory entry. It
    *     can be a fake entry.
-   * @return {EntryLocation} Location information.
+   * @return {?EntryLocation} Location information.
    */
   getLocationInfo(entry) {}
 

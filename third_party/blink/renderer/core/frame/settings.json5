@@ -65,12 +65,17 @@
       type: "int",
     },
 
+    // Sets the minimum font-size in CSS px. That means the minimum font-size is
+    // applied before applying the device scale factor or page zoom.
     {
       name: "minimumFontSize",
       initial: 0,
       invalidate: "Style",
       type: "int",
     },
+
+    // Sets the minimum font-size in CSS px, but only applies to relative font
+    // units like 'small', em, and percentage sizes.
     {
       name: "minimumLogicalFontSize",
       initial: 0,
@@ -251,11 +256,6 @@
       initial: false,
     },
 
-    {
-      name: "shouldRespectImageOrientation",
-      initial: false,
-    },
-
     // This value indicates the number of simultaneous multi-touch points supported
     // by the currently connected screen/digitizer that supports the most points.
     // From Pointer Events spec:
@@ -264,15 +264,6 @@
       name: "maxTouchPoints",
       initial: 0,
       type: "int",
-    },
-
-    // Whether touch gestures should be "fuzzed" to nearest touch targets.
-    // It's expected that this is enabled everywhere by default, but it may be
-    // disabled for testing purposes as the algorithm is not yet perfect.
-    // crbug.com/304895 tracks removal once we're satisfied with the algorithm.
-    {
-      name: "touchAdjustmentEnabled",
-      initial: true,
     },
 
     // Determines whether WebViewClient::didTapMultipleTargets will be used for
@@ -463,6 +454,7 @@
     {
       name: "caretBrowsingEnabled",
       initial: false,
+      invalidate: "Style",
     },
 
     // Font scale factor for accessibility, applied as part of text autosizing.
@@ -550,6 +542,12 @@
     {
       name: "scriptEnabled",
       initial: false,
+    },
+
+    {
+      name: "parserScriptingFlagPolicy",
+      initial: "ParserScriptingFlagPolicy::kOnlyIfScriptIsEnabled",
+      type: "ParserScriptingFlagPolicy"
     },
 
     // Forces Android Overlay Scrollbar for mobile emulator.
@@ -877,62 +875,50 @@
     // Dark mode
     //
     {
-      name: "darkModeEnabled",
+      name: "forceDarkModeEnabled",
       initial: false,
-      invalidate: "Paint",
+      invalidate: "ForceDark",
     },
     {
-      name: "darkModeInversionAlgorithm",
+      name: "forceDarkModeInversionAlgorithm",
       initial: "DarkModeInversionAlgorithm::kInvertLightnessLAB",
       type: "DarkModeInversionAlgorithm",
-      invalidate: "Paint",
+      invalidate: "ForceDark",
     },
     {
-      name: "darkModeGrayscale",
+      name: "forceDarkModeGrayscale",
       initial: false,
-      invalidate: "Paint",
+      invalidate: "ForceDark",
     },
     {
-      name: "darkModeContrast",
+      name: "forceDarkModeContrast",
       initial: 0,
       type: "double",
-      invalidate: "Paint",
+      invalidate: "ForceDark",
     },
     {
-      name: "darkModeClassifierType",
-      initial: "DarkModeClassifierType::kGeneric",
-      type: "DarkModeClassifierType",
-      invalidate: "Paint",
-    },
-    {
-      name: "darkModeImagePolicy",
+      name: "forceDarkModeImagePolicy",
       initial: "DarkModeImagePolicy::kFilterNone",
       type: "DarkModeImagePolicy",
-      invalidate: "Paint",
+      invalidate: "ForceDark",
     },
     {
-      name: "darkModePagePolicy",
-      initial: "DarkModePagePolicy::kFilterByBackground",
-      type: "DarkModePagePolicy",
-      invalidate: "Paint",
-    },
-    {
-      name: "darkModeTextBrightnessThreshold",
+      name: "forceDarkModeTextBrightnessThreshold",
       initial: "150",
       type: "int",
-      invalidate: "Paint",
+      invalidate: "ForceDark",
     },
     {
-      name: "darkModeBackgroundBrightnessThreshold",
+      name: "forceDarkModeBackgroundBrightnessThreshold",
       initial: "205",
       type: "int",
-      invalidate: "Paint",
+      invalidate: "ForceDark",
     },
     {
-      name: "darkModeImageGrayscale",
+      name: "forceDarkModeImageGrayscale",
       initial: "0.0",
       type: "float",
-      invalidate: "Paint",
+      invalidate: "ForceDark",
     },
     {
       name: "navigatorPlatformOverride",
@@ -977,12 +963,12 @@
     },
     {
       name: "lazyFrameLoadingDistanceThresholdPx3G",
-      initial: 5000,
+      initial: 3500,
       type: "int",
     },
     {
       name: "lazyFrameLoadingDistanceThresholdPx4G",
-      initial: 4000,
+      initial: 2500,
       type: "int",
     },
 
@@ -1011,12 +997,12 @@
     },
     {
       name: "lazyImageLoadingDistanceThresholdPx3G",
-      initial: 4000,
+      initial: 2500,
       type: "int",
     },
     {
       name: "lazyImageLoadingDistanceThresholdPx4G",
-      initial: 3000,
+      initial: 1250,
       type: "int",
     },
     //
@@ -1029,23 +1015,32 @@
     },
     {
       name: "lazyImageFirstKFullyLoadSlow2G",
-      initial: 12,
+      initial: 0,
       type: "int",
     },
     {
       name: "lazyImageFirstKFullyLoad2G",
-      initial: 10,
+      initial: 0,
       type: "int",
     },
     {
       name: "lazyImageFirstKFullyLoad3G",
-      initial: 8,
+      initial: 0,
       type: "int",
     },
     {
       name: "lazyImageFirstKFullyLoad4G",
-      initial: 6,
+      initial: 0,
       type: "int",
+    },
+
+    // Preferred color scheme from the OS/application passed to the renderer for
+    // evaluating the prefers-color-scheme media query.
+    {
+      name: "preferredColorScheme",
+      initial: "PreferredColorScheme::kLight",
+      invalidate: "ColorScheme",
+      type: "PreferredColorScheme",
     },
 
     // Preferred motion-reduction setting from the OS/application passed to the
@@ -1066,6 +1061,35 @@
       initial: "NavigationControls::kNone",
       invalidate: "MediaQuery",
       type: "NavigationControls",
+    },
+    {
+      name: "accessibilityAlwaysShowFocus",
+      initial: false,
+      invalidate: "Style",
+      type: "bool"
+    },
+    // aria-modal="true" on some platforms requires the accessibility tree to
+    // be pruned so no other background content is exposed to assistive
+    // technology.
+    // https://www.w3.org/TR/core-aam-1.1/#ariaModalTrue
+    {
+      name: "ariaModalPrunesAXTree",
+      initial: false,
+      type: "bool",
+    },
+    // The AXMenuList class provides a fake implementation of the
+    // select element pop-up menu, which is required on platforms like
+    // Mac and Android that use a native pop-up. On other platforms you
+    // can set this flag to false and expose the actual pop-up menu
+    // instead of letting AXMenuList handle it.
+    {
+      name: "useAXMenuList",
+      initial: true,
+    },
+    {
+      name: "selectionClipboardBufferAvailable",
+      initial: false,
+      type: "bool",
     },
   ],
 }

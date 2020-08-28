@@ -8,15 +8,12 @@
 #include "components/signin/public/identity_manager/account_info.h"
 #include "components/sync/driver/sync_token_status.h"
 #include "components/sync/engine/cycle/sync_cycle_snapshot.h"
-#include "components/sync/syncable/user_share.h"
-#include "crypto/ec_private_key.h"
 
 namespace syncer {
 
 // Dummy methods
 
-FakeSyncService::FakeSyncService()
-    : user_share_(std::make_unique<UserShare>()) {}
+FakeSyncService::FakeSyncService() = default;
 
 FakeSyncService::~FakeSyncService() = default;
 
@@ -52,6 +49,10 @@ bool FakeSyncService::IsLocalSyncEnabled() const {
 void FakeSyncService::TriggerRefresh(const ModelTypeSet& types) {}
 
 ModelTypeSet FakeSyncService::GetActiveDataTypes() const {
+  return ModelTypeSet();
+}
+
+ModelTypeSet FakeSyncService::GetBackedOffDataTypes() const {
   return ModelTypeSet();
 }
 
@@ -94,15 +95,6 @@ base::Time FakeSyncService::GetAuthErrorTime() const {
 
 bool FakeSyncService::RequiresClientUpgrade() const {
   return false;
-}
-
-std::unique_ptr<crypto::ECPrivateKey>
-FakeSyncService::GetExperimentalAuthenticationKey() const {
-  return nullptr;
-}
-
-UserShare* FakeSyncService::GetUserShare() const {
-  return user_share_.get();
 }
 
 void FakeSyncService::DataTypePreconditionChanged(ModelType type) {}

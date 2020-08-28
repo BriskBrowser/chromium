@@ -7,6 +7,7 @@
 #include <utility>
 
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/search_engines/ui_thread_search_terms_data.h"
 #include "chrome/browser/signin/identity_manager_factory.h"
 #include "chrome/browser/signin/signin_util.h"
 #include "chrome/browser/sync/profile_sync_service_factory.h"
@@ -20,6 +21,7 @@
 #include "components/sync/driver/sync_user_settings.h"
 #include "google_apis/gaia/gaia_urls.h"
 #include "google_apis/gaia/google_service_auth_error.h"
+#include "net/base/url_util.h"
 
 #if defined(OS_CHROMEOS)
 #include "chromeos/constants/chromeos_features.h"
@@ -177,8 +179,9 @@ void OpenTabForSyncKeyRetrievalWithURL(Browser* browser, const GURL& url) {
   FocusWebContents(browser);
 
   NavigateParams params(GetSingletonTabNavigateParams(browser, url));
-  params.path_behavior = NavigateParams::IGNORE_AND_NAVIGATE;
-  ShowSingletonTabOverwritingNTP(browser, std::move(params));
+  // Allow the window to close itself.
+  params.created_with_opener = true;
+  Navigate(&params);
 }
 
 // Returns true if the user has consented to browser sync-the-feature or
@@ -224,11 +227,7 @@ MessageType GetStatus(Profile* profile) {
   return GetStatusLabels(profile).message_type;
 }
 
-#if !defined(OS_CHROMEOS)
-AvatarSyncErrorType GetMessagesForAvatarSyncError(
-    Profile* profile,
-    int* content_string_id,
-    int* button_string_id) {
+AvatarSyncErrorType GetAvatarSyncErrorType(Profile* profile) {
   const syncer::SyncService* service =
       ProfileSyncServiceFactory::GetForProfile(profile);
 
@@ -244,16 +243,8 @@ AvatarSyncErrorType GetMessagesForAvatarSyncError(
   if (service->HasUnrecoverableError() && !service->RequiresClientUpgrade()) {
     // Display different messages and buttons for managed accounts.
     if (!signin_util::IsUserSignoutAllowedForProfile(profile)) {
-      // For a managed user, the user is directed to the signout
-      // confirmation dialogue in the settings page.
-      *content_string_id = IDS_SYNC_ERROR_USER_MENU_SIGNOUT_MESSAGE;
-      *button_string_id = IDS_SYNC_ERROR_USER_MENU_SIGNOUT_BUTTON;
       return MANAGED_USER_UNRECOVERABLE_ERROR;
     }
-    // For a non-managed user, we sign out on the user's behalf and prompt
-    // the user to sign in again.
-    *content_string_id = IDS_SYNC_ERROR_USER_MENU_SIGNIN_AGAIN_MESSAGE;
-    *button_string_id = IDS_SYNC_ERROR_USER_MENU_SIGNIN_AGAIN_BUTTON;
     return UNRECOVERABLE_ERROR;
   }
 
@@ -264,37 +255,26 @@ AvatarSyncErrorType GetMessagesForAvatarSyncError(
           ->GetErrorStateOfRefreshTokenForAccount(account_info.account_id);
 
   if (auth_error.state() != GoogleServiceAuthError::State::NONE) {
-    // The user can reauth to resolve the signin error.
-    *content_string_id = IDS_SYNC_ERROR_USER_MENU_SIGNIN_MESSAGE;
-    *button_string_id = IDS_SYNC_ERROR_USER_MENU_SIGNIN_BUTTON;
     return AUTH_ERROR;
   }
 
   // Check if the Chrome client needs to be updated.
   if (service->RequiresClientUpgrade()) {
-    *content_string_id = IDS_SYNC_ERROR_USER_MENU_UPGRADE_MESSAGE;
-    *button_string_id = IDS_SYNC_ERROR_USER_MENU_UPGRADE_BUTTON;
     return UPGRADE_CLIENT_ERROR;
   }
 
   // Check for a sync passphrase error.
   if (ShouldShowPassphraseError(service)) {
-    *content_string_id = IDS_SYNC_ERROR_USER_MENU_PASSPHRASE_MESSAGE;
-    *button_string_id = IDS_SYNC_ERROR_USER_MENU_PASSPHRASE_BUTTON;
     return PASSPHRASE_ERROR;
   }
 
   // Check for a sync confirmation error.
   if (ShouldRequestSyncConfirmation(service)) {
-    *content_string_id = IDS_SYNC_SETTINGS_NOT_CONFIRMED;
-    *button_string_id = IDS_SYNC_ERROR_USER_MENU_CONFIRM_SYNC_SETTINGS_BUTTON;
     return SETTINGS_UNCONFIRMED_ERROR;
   }
 
   // Check for sync encryption keys missing.
   if (ShouldShowSyncKeysMissingError(service)) {
-    *content_string_id = IDS_SYNC_ERROR_USER_MENU_RETRIEVE_KEYS_MESSAGE;
-    *button_string_id = IDS_SYNC_ERROR_USER_MENU_RETRIEVE_KEYS_BUTTON;
     return service->GetUserSettings()->IsEncryptEverythingEnabled()
                ? TRUSTED_VAULT_KEY_MISSING_FOR_EVERYTHING_ERROR
                : TRUSTED_VAULT_KEY_MISSING_FOR_PASSWORDS_ERROR;
@@ -303,7 +283,6 @@ AvatarSyncErrorType GetMessagesForAvatarSyncError(
   // There is no error.
   return NO_SYNC_ERROR;
 }
-#endif  // !defined(OS_CHROMEOS)
 
 bool ShouldRequestSyncConfirmation(const syncer::SyncService* service) {
   // This method mostly handles two situations:
@@ -335,9 +314,18 @@ bool ShouldShowSyncKeysMissingError(const syncer::SyncService* service) {
          settings->IsTrustedVaultKeyRequiredForPreferredDataTypes();
 }
 
-void OpenTabForSyncKeyRetrieval(Browser* browser) {
-  OpenTabForSyncKeyRetrievalWithURL(
-      browser, GaiaUrls::GetInstance()->signin_chrome_sync_keys_url());
+void OpenTabForSyncKeyRetrieval(
+    Browser* browser,
+    syncer::KeyRetrievalTriggerForUMA key_retrieval_trigger) {
+  RecordKeyRetrievalTrigger(key_retrieval_trigger);
+  const GURL continue_url =
+      GURL(UIThreadSearchTermsData().GoogleBaseURLValue());
+  GURL retrieval_url = GaiaUrls::GetInstance()->signin_chrome_sync_keys_url();
+  if (continue_url.is_valid()) {
+    retrieval_url = net::AppendQueryParameter(retrieval_url, "continue",
+                                              continue_url.spec());
+  }
+  OpenTabForSyncKeyRetrievalWithURL(browser, retrieval_url);
 }
 
 void OpenTabForSyncKeyRetrievalWithURLForTesting(Browser* browser,

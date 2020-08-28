@@ -35,12 +35,10 @@ class TestScreen : public display::ScreenBase {
 
   void AddDisplay(const gfx::Rect& bounds,
                   const gfx::Rect& work_area) {
-    display::Display display(display_list().displays().size(), bounds);
+    const int num_displays = GetNumDisplays();
+    display::Display display(num_displays, bounds);
     display.set_work_area(work_area);
-    display_list().AddDisplay(display,
-                              display_list().displays().empty()
-                                  ? display::DisplayList::Type::PRIMARY
-                                  : display::DisplayList::Type::NOT_PRIMARY);
+    ProcessDisplayChanged(display, num_displays == 0);
   }
 
  private:
@@ -117,11 +115,11 @@ void WindowSizerTestUtil::GetWindowBounds(const gfx::Rect& monitor1_bounds,
     provider->SetLastActiveState(bounds, ui::SHOW_STATE_DEFAULT);
 
   ui::WindowShowState ignored;
-  WindowSizer sizer(std::move(provider), browser);
-  sizer.DetermineWindowBoundsAndShowState(passed_in, out_bounds, &ignored);
+  WindowSizer::GetBrowserWindowBoundsAndShowState(
+      std::move(provider), passed_in, browser, out_bounds, &ignored);
 }
 
-#if !defined(OS_MACOSX)
+#if !defined(OS_MAC)
 
 #if !defined(OS_CHROMEOS)
 // Passing null for the browser parameter of GetWindowBounds makes the test skip
@@ -333,4 +331,4 @@ TEST(WindowSizerTestCommon, AdjustFitSize) {
   }
 }
 
-#endif // defined(OS_MACOSX)
+#endif  // defined(OS_MAC)

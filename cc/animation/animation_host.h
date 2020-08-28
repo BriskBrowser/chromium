@@ -119,6 +119,9 @@ class CC_ANIMATION_EXPORT AnimationHost : public MutatorHost,
   void TickWorkletAnimations() override;
   bool UpdateAnimationState(bool start_ready_animations,
                             MutatorEvents* events) override;
+  void TakeTimeUpdatedEvents(MutatorEvents* events) override;
+  // Should be called when the pending tree is promoted to active, as this may
+  // require updating the ElementId for the ScrollTimeline scroll source.
   void PromoteScrollTimelinesPendingToActive() override;
 
   std::unique_ptr<MutatorEvents> CreateEvents() override;
@@ -184,7 +187,7 @@ class CC_ANIMATION_EXPORT AnimationHost : public MutatorHost,
 
   void ScrollAnimationAbort() override;
 
-  bool IsImplOnlyScrollAnimating() const override;
+  ElementId ImplOnlyScrollAnimatingElement() const override;
 
   // This should only be called from the main thread.
   ScrollOffsetAnimations& scroll_offset_animations() const;
@@ -204,11 +207,16 @@ class CC_ANIMATION_EXPORT AnimationHost : public MutatorHost,
   void SetMutationUpdate(
       std::unique_ptr<MutatorOutputState> output_state) override;
 
-  size_t CompositedAnimationsCount() const override;
   size_t MainThreadAnimationsCount() const override;
   bool HasCustomPropertyAnimations() const override;
   bool CurrentFrameHadRAF() const override;
   bool NextFrameHasPendingRAF() const override;
+  PendingThroughputTrackerInfos TakePendingThroughputTrackerInfos() override;
+
+  // Starts/stops throughput tracking represented by |sequence_id|.
+  void StartThroughputTracking(TrackedAnimationSequenceId sequence_id);
+  void StopThroughputTracking(TrackedAnimationSequenceId sequnece_id);
+
   void SetAnimationCounts(size_t total_animations_count,
                           bool current_frame_had_raf,
                           bool next_frame_has_pending_raf);
@@ -264,6 +272,8 @@ class CC_ANIMATION_EXPORT AnimationHost : public MutatorHost,
   size_t main_thread_animations_count_ = 0;
   bool current_frame_had_raf_ = false;
   bool next_frame_has_pending_raf_ = false;
+
+  PendingThroughputTrackerInfos pending_throughput_tracker_infos_;
 
   base::WeakPtrFactory<AnimationHost> weak_factory_{this};
 };

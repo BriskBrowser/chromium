@@ -11,7 +11,6 @@
 #include "build/build_config.h"
 #include "gpu/command_buffer/common/discardable_handle.h"
 #include "gpu/command_buffer/service/decoder_client.h"
-#include "gpu/command_buffer/service/gl_stream_texture_image.h"
 #include "gpu/command_buffer/service/gpu_fence_manager.h"
 #include "gpu/command_buffer/service/gpu_tracer.h"
 #include "gpu/command_buffer/service/image_factory.h"
@@ -26,6 +25,42 @@
 
 namespace gpu {
 namespace gles2 {
+
+// Temporarily allows compilation of shaders that use the
+// ARB_texture_rectangle/ANGLE_texture_rectangle extension. We don't want to
+// expose the extension to WebGL user shaders but we still need to use it for
+// parts of the implementation on macOS. Note that the extension is always
+// enabled on macOS and this only controls shader compilation.
+class GLES2DecoderPassthroughImpl::
+    ScopedEnableTextureRectangleInShaderCompiler {
+ public:
+  ScopedEnableTextureRectangleInShaderCompiler(
+      const ScopedEnableTextureRectangleInShaderCompiler&) = delete;
+  ScopedEnableTextureRectangleInShaderCompiler& operator=(
+      const ScopedEnableTextureRectangleInShaderCompiler&) = delete;
+
+  // This class is a no-op except on macOS.
+#if !defined(OS_MAC)
+  explicit ScopedEnableTextureRectangleInShaderCompiler(
+      GLES2DecoderPassthroughImpl* decoder) {}
+
+ private:
+#else
+  explicit ScopedEnableTextureRectangleInShaderCompiler(
+      GLES2DecoderPassthroughImpl* decoder)
+      : decoder_(decoder) {
+    if (decoder_->feature_info_->IsWebGLContext())
+      decoder_->api_->glEnableFn(GL_TEXTURE_RECTANGLE_ANGLE);
+  }
+  ~ScopedEnableTextureRectangleInShaderCompiler() {
+    if (decoder_->feature_info_->IsWebGLContext())
+      decoder_->api_->glDisableFn(GL_TEXTURE_RECTANGLE_ANGLE);
+  }
+
+ private:
+  GLES2DecoderPassthroughImpl* decoder_;
+#endif
+};
 
 namespace {
 
@@ -579,10 +614,24 @@ error::Error GLES2DecoderPassthroughImpl::DoBlendEquation(GLenum mode) {
   return error::kNoError;
 }
 
+error::Error GLES2DecoderPassthroughImpl::DoBlendEquationiOES(GLuint buf,
+                                                              GLenum mode) {
+  api()->glBlendEquationiOESFn(buf, mode);
+  return error::kNoError;
+}
+
 error::Error GLES2DecoderPassthroughImpl::DoBlendEquationSeparate(
     GLenum modeRGB,
     GLenum modeAlpha) {
   api()->glBlendEquationSeparateFn(modeRGB, modeAlpha);
+  return error::kNoError;
+}
+
+error::Error GLES2DecoderPassthroughImpl::DoBlendEquationSeparateiOES(
+    GLuint buf,
+    GLenum modeRGB,
+    GLenum modeAlpha) {
+  api()->glBlendEquationSeparateiOESFn(buf, modeRGB, modeAlpha);
   return error::kNoError;
 }
 
@@ -592,11 +641,28 @@ error::Error GLES2DecoderPassthroughImpl::DoBlendFunc(GLenum sfactor,
   return error::kNoError;
 }
 
+error::Error GLES2DecoderPassthroughImpl::DoBlendFunciOES(GLuint buf,
+                                                          GLenum sfactor,
+                                                          GLenum dfactor) {
+  api()->glBlendFunciOESFn(buf, sfactor, dfactor);
+  return error::kNoError;
+}
+
 error::Error GLES2DecoderPassthroughImpl::DoBlendFuncSeparate(GLenum srcRGB,
                                                               GLenum dstRGB,
                                                               GLenum srcAlpha,
                                                               GLenum dstAlpha) {
   api()->glBlendFuncSeparateFn(srcRGB, dstRGB, srcAlpha, dstAlpha);
+  return error::kNoError;
+}
+
+error::Error GLES2DecoderPassthroughImpl::DoBlendFuncSeparateiOES(
+    GLuint buf,
+    GLenum srcRGB,
+    GLenum dstRGB,
+    GLenum srcAlpha,
+    GLenum dstAlpha) {
+  api()->glBlendFuncSeparateiOESFn(buf, srcRGB, dstRGB, srcAlpha, dstAlpha);
   return error::kNoError;
 }
 
@@ -708,19 +774,17 @@ error::Error GLES2DecoderPassthroughImpl::DoColorMask(GLboolean red,
   return error::kNoError;
 }
 
+error::Error GLES2DecoderPassthroughImpl::DoColorMaskiOES(GLuint buf,
+                                                          GLboolean red,
+                                                          GLboolean green,
+                                                          GLboolean blue,
+                                                          GLboolean alpha) {
+  api()->glColorMaskiOESFn(buf, red, green, blue, alpha);
+  return error::kNoError;
+}
+
 error::Error GLES2DecoderPassthroughImpl::DoCompileShader(GLuint shader) {
-#if defined(OS_MACOSX)
-  // On mac we need this extension to support IOSurface backbuffers, but we
-  // don't want it exposed to WebGL user shaders. Temporarily disable it during
-  // shader compilation.
-  if (feature_info_->IsWebGLContext())
-    api()->glDisableExtensionANGLEFn("GL_ANGLE_texture_rectangle");
-#endif
   api()->glCompileShaderFn(GetShaderServiceID(shader, resources_));
-#if defined(OS_MACOSX)
-  if (feature_info_->IsWebGLContext())
-    api()->glRequestExtensionANGLEFn("GL_ANGLE_texture_rectangle");
-#endif
   return error::kNoError;
 }
 
@@ -1566,6 +1630,15 @@ error::Error GLES2DecoderPassthroughImpl::DoGetBooleanv(GLenum pname,
                           });
 }
 
+error::Error GLES2DecoderPassthroughImpl::DoGetBooleani_v(GLenum pname,
+                                                          GLuint index,
+                                                          GLsizei bufsize,
+                                                          GLsizei* length,
+                                                          GLboolean* data) {
+  glGetBooleani_vRobustANGLE(pname, index, bufsize, length, data);
+  return error::kNoError;
+}
+
 error::Error GLES2DecoderPassthroughImpl::DoGetBufferParameteri64v(
     GLenum target,
     GLenum pname,
@@ -1655,10 +1728,8 @@ error::Error GLES2DecoderPassthroughImpl::DoGetFramebufferAttachmentParameteriv(
 
   CheckErrorCallbackState();
 
-  // Get a scratch buffer to hold the result of the query
-  GLint* scratch_params = GetTypedScratchMemory<GLint>(bufsize);
   api()->glGetFramebufferAttachmentParameterivRobustANGLEFn(
-      target, updated_attachment, pname, bufsize, length, scratch_params);
+      target, updated_attachment, pname, bufsize, length, params);
 
   if (CheckErrorCallbackState()) {
     DCHECK(*length == 0);
@@ -1666,16 +1737,12 @@ error::Error GLES2DecoderPassthroughImpl::DoGetFramebufferAttachmentParameteriv(
   }
 
   // Update the results of the query, if needed
-  error::Error error = PatchGetFramebufferAttachmentParameter(
-      target, updated_attachment, pname, *length, scratch_params);
+  const error::Error error = PatchGetFramebufferAttachmentParameter(
+      target, updated_attachment, pname, *length, params);
   if (error != error::kNoError) {
     *length = 0;
     return error;
   }
-
-  // Copy into the destination
-  DCHECK(*length < bufsize);
-  std::copy(scratch_params, scratch_params + *length, params);
 
   return error::kNoError;
 }
@@ -2216,6 +2283,13 @@ error::Error GLES2DecoderPassthroughImpl::DoIsBuffer(GLuint buffer,
 error::Error GLES2DecoderPassthroughImpl::DoIsEnabled(GLenum cap,
                                                       uint32_t* result) {
   *result = api()->glIsEnabledFn(cap);
+  return error::kNoError;
+}
+
+error::Error GLES2DecoderPassthroughImpl::DoIsEnablediOES(GLenum target,
+                                                          GLuint index,
+                                                          uint32_t* result) {
+  *result = api()->glIsEnablediOESFn(target, index);
   return error::kNoError;
 }
 
@@ -3363,7 +3437,8 @@ error::Error GLES2DecoderPassthroughImpl::DoTexStorage2DImageCHROMIUM(
   bool is_cleared;
   scoped_refptr<gl::GLImage> image =
       GetContextGroup()->image_factory()->CreateAnonymousImage(
-          gfx::Size(width, height), buffer_format, buffer_usage, &is_cleared);
+          gfx::Size(width, height), buffer_format, buffer_usage,
+          gpu::kNullSurfaceHandle, &is_cleared);
   if (!image || !image->BindTexImage(target)) {
     InsertError(GL_INVALID_OPERATION, "Failed to create or bind GL Image");
     return error::kNoError;
@@ -3734,7 +3809,7 @@ error::Error GLES2DecoderPassthroughImpl::DoSwapBuffers(uint64_t swap_id,
       }
     }
 
-    DCHECK(emulated_front_buffer_->size == emulated_back_buffer_->size);
+    DCHECK_EQ(emulated_front_buffer_->size, emulated_back_buffer_->size);
 
     if (emulated_default_framebuffer_format_.samples > 0) {
       // Resolve the multisampled renderbuffer into the emulated_front_buffer_
@@ -4387,6 +4462,7 @@ error::Error GLES2DecoderPassthroughImpl::DoCopyTextureCHROMIUM(
     GLboolean unpack_flip_y,
     GLboolean unpack_premultiply_alpha,
     GLboolean unpack_unmultiply_alpha) {
+  ScopedEnableTextureRectangleInShaderCompiler enable(this);
   BindPendingImageForClientIDIfNeeded(source_id);
   api()->glCopyTextureCHROMIUMFn(
       GetTextureServiceID(api(), source_id, resources_, false), source_level,
@@ -4414,6 +4490,7 @@ error::Error GLES2DecoderPassthroughImpl::DoCopySubTextureCHROMIUM(
     GLboolean unpack_flip_y,
     GLboolean unpack_premultiply_alpha,
     GLboolean unpack_unmultiply_alpha) {
+  ScopedEnableTextureRectangleInShaderCompiler enable(this);
   BindPendingImageForClientIDIfNeeded(source_id);
   api()->glCopySubTextureCHROMIUMFn(
       GetTextureServiceID(api(), source_id, resources_, false), source_level,
@@ -4663,6 +4740,11 @@ error::Error GLES2DecoderPassthroughImpl::DoDescheduleUntilFinishedCHROMIUM() {
 error::Error GLES2DecoderPassthroughImpl::DoDrawBuffersEXT(
     GLsizei count,
     const volatile GLenum* bufs) {
+  if (!feature_info_->feature_flags().ext_draw_buffers &&
+      !feature_info_->gl_version_info().is_es3) {
+    return error::kUnknownCommand;
+  }
+
   // Validate that count is non-negative before allocating a vector
   if (count < 0) {
     InsertError(GL_INVALID_VALUE, "count cannot be negative.");
@@ -4981,232 +5063,6 @@ error::Error GLES2DecoderPassthroughImpl::DoFlushDriverCachesCHROMIUM() {
   return error::kNoError;
 }
 
-error::Error GLES2DecoderPassthroughImpl::DoMatrixLoadfCHROMIUM(
-    GLenum matrixMode,
-    const volatile GLfloat* m) {
-  NOTIMPLEMENTED();
-  return error::kNoError;
-}
-
-error::Error GLES2DecoderPassthroughImpl::DoMatrixLoadIdentityCHROMIUM(
-    GLenum matrixMode) {
-  NOTIMPLEMENTED();
-  return error::kNoError;
-}
-
-error::Error GLES2DecoderPassthroughImpl::DoGenPathsCHROMIUM(GLuint path,
-                                                             GLsizei range) {
-  NOTIMPLEMENTED();
-  return error::kNoError;
-}
-
-error::Error GLES2DecoderPassthroughImpl::DoDeletePathsCHROMIUM(GLuint path,
-                                                                GLsizei range) {
-  NOTIMPLEMENTED();
-  return error::kNoError;
-}
-
-error::Error GLES2DecoderPassthroughImpl::DoIsPathCHROMIUM(GLuint path,
-                                                           uint32_t* result) {
-  NOTIMPLEMENTED();
-  return error::kNoError;
-}
-
-error::Error GLES2DecoderPassthroughImpl::DoPathCommandsCHROMIUM(
-    GLuint path,
-    GLsizei numCommands,
-    const GLubyte* commands,
-    GLsizei numCoords,
-    GLenum coordType,
-    const GLvoid* coords,
-    GLsizei coords_bufsize) {
-  NOTIMPLEMENTED();
-  return error::kNoError;
-}
-
-error::Error GLES2DecoderPassthroughImpl::DoPathParameterfCHROMIUM(
-    GLuint path,
-    GLenum pname,
-    GLfloat value) {
-  NOTIMPLEMENTED();
-  return error::kNoError;
-}
-
-error::Error GLES2DecoderPassthroughImpl::DoPathParameteriCHROMIUM(
-    GLuint path,
-    GLenum pname,
-    GLint value) {
-  NOTIMPLEMENTED();
-  return error::kNoError;
-}
-
-error::Error GLES2DecoderPassthroughImpl::DoPathStencilFuncCHROMIUM(
-    GLenum func,
-    GLint ref,
-    GLuint mask) {
-  NOTIMPLEMENTED();
-  return error::kNoError;
-}
-
-error::Error GLES2DecoderPassthroughImpl::DoStencilFillPathCHROMIUM(
-    GLuint path,
-    GLenum fillMode,
-    GLuint mask) {
-  NOTIMPLEMENTED();
-  return error::kNoError;
-}
-
-error::Error GLES2DecoderPassthroughImpl::DoStencilStrokePathCHROMIUM(
-    GLuint path,
-    GLint reference,
-    GLuint mask) {
-  NOTIMPLEMENTED();
-  return error::kNoError;
-}
-
-error::Error GLES2DecoderPassthroughImpl::DoCoverFillPathCHROMIUM(
-    GLuint path,
-    GLenum coverMode) {
-  NOTIMPLEMENTED();
-  return error::kNoError;
-}
-
-error::Error GLES2DecoderPassthroughImpl::DoCoverStrokePathCHROMIUM(
-    GLuint path,
-    GLenum coverMode) {
-  NOTIMPLEMENTED();
-  return error::kNoError;
-}
-
-error::Error GLES2DecoderPassthroughImpl::DoStencilThenCoverFillPathCHROMIUM(
-    GLuint path,
-    GLenum fillMode,
-    GLuint mask,
-    GLenum coverMode) {
-  NOTIMPLEMENTED();
-  return error::kNoError;
-}
-
-error::Error GLES2DecoderPassthroughImpl::DoStencilThenCoverStrokePathCHROMIUM(
-    GLuint path,
-    GLint reference,
-    GLuint mask,
-    GLenum coverMode) {
-  NOTIMPLEMENTED();
-  return error::kNoError;
-}
-
-error::Error GLES2DecoderPassthroughImpl::DoStencilFillPathInstancedCHROMIUM(
-    GLsizei numPaths,
-    GLenum pathNameType,
-    const GLvoid* paths,
-    GLsizei pathsBufsize,
-    GLuint pathBase,
-    GLenum fillMode,
-    GLuint mask,
-    GLenum transformType,
-    const GLfloat* transformValues,
-    GLsizei transformValuesBufsize) {
-  NOTIMPLEMENTED();
-  return error::kNoError;
-}
-
-error::Error GLES2DecoderPassthroughImpl::DoStencilStrokePathInstancedCHROMIUM(
-    GLsizei numPaths,
-    GLenum pathNameType,
-    const GLvoid* paths,
-    GLsizei pathsBufsize,
-    GLuint pathBase,
-    GLint reference,
-    GLuint mask,
-    GLenum transformType,
-    const GLfloat* transformValues,
-    GLsizei transformValuesBufsize) {
-  NOTIMPLEMENTED();
-  return error::kNoError;
-}
-
-error::Error GLES2DecoderPassthroughImpl::DoCoverFillPathInstancedCHROMIUM(
-    GLsizei numPaths,
-    GLenum pathNameType,
-    const GLvoid* paths,
-    GLsizei pathsBufsize,
-    GLuint pathBase,
-    GLenum coverMode,
-    GLenum transformType,
-    const GLfloat* transformValues,
-    GLsizei transformValuesBufsize) {
-  NOTIMPLEMENTED();
-  return error::kNoError;
-}
-
-error::Error GLES2DecoderPassthroughImpl::DoCoverStrokePathInstancedCHROMIUM(
-    GLsizei numPaths,
-    GLenum pathNameType,
-    const GLvoid* paths,
-    GLsizei pathsBufsize,
-    GLuint pathBase,
-    GLenum coverMode,
-    GLenum transformType,
-    const GLfloat* transformValues,
-    GLsizei transformValuesBufsize) {
-  NOTIMPLEMENTED();
-  return error::kNoError;
-}
-
-error::Error
-GLES2DecoderPassthroughImpl::DoStencilThenCoverFillPathInstancedCHROMIUM(
-    GLsizei numPaths,
-    GLenum pathNameType,
-    const GLvoid* paths,
-    GLsizei pathsBufsize,
-    GLuint pathBase,
-    GLenum fillMode,
-    GLuint mask,
-    GLenum coverMode,
-    GLenum transformType,
-    const GLfloat* transformValues,
-    GLsizei transformValuesBufsize) {
-  NOTIMPLEMENTED();
-  return error::kNoError;
-}
-
-error::Error
-GLES2DecoderPassthroughImpl::DoStencilThenCoverStrokePathInstancedCHROMIUM(
-    GLsizei numPaths,
-    GLenum pathNameType,
-    const GLvoid* paths,
-    GLsizei pathsBufsize,
-    GLuint pathBase,
-    GLint reference,
-    GLuint mask,
-    GLenum coverMode,
-    GLenum transformType,
-    const GLfloat* transformValues,
-    GLsizei transformValuesBufsize) {
-  NOTIMPLEMENTED();
-  return error::kNoError;
-}
-
-error::Error GLES2DecoderPassthroughImpl::DoBindFragmentInputLocationCHROMIUM(
-    GLuint program,
-    GLint location,
-    const char* name) {
-  NOTIMPLEMENTED();
-  return error::kNoError;
-}
-
-error::Error GLES2DecoderPassthroughImpl::DoProgramPathFragmentInputGenCHROMIUM(
-    GLuint program,
-    GLint location,
-    GLenum genMode,
-    GLint components,
-    const GLfloat* coeffs,
-    GLsizei coeffsBufsize) {
-  NOTIMPLEMENTED();
-  return error::kNoError;
-}
-
 error::Error GLES2DecoderPassthroughImpl::DoCoverageModulationCHROMIUM(
     GLenum components) {
   NOTIMPLEMENTED();
@@ -5243,77 +5099,6 @@ error::Error GLES2DecoderPassthroughImpl::DoGetFragDataIndexEXT(
     GLint* index) {
   *index = api()->glGetFragDataIndexFn(GetProgramServiceID(program, resources_),
                                        name);
-  return error::kNoError;
-}
-
-error::Error
-GLES2DecoderPassthroughImpl::DoUniformMatrix4fvStreamTextureMatrixCHROMIUM(
-    GLint location,
-    GLboolean transpose,
-    const volatile GLfloat* transform) {
-  constexpr GLenum kTextureTarget = GL_TEXTURE_EXTERNAL_OES;
-  scoped_refptr<TexturePassthrough> bound_texture =
-      bound_textures_[static_cast<size_t>(
-          GLenumToTextureTarget(kTextureTarget))][active_texture_unit_]
-          .texture;
-  if (!bound_texture) {
-    InsertError(GL_INVALID_OPERATION, "no texture bound");
-    return error::kNoError;
-  }
-
-  float gl_matrix[16] = {};
-
-  GLStreamTextureImage* image =
-      bound_texture->GetStreamLevelImage(kTextureTarget, 0);
-  if (image) {
-    gfx::Transform st_transform(gfx::Transform::kSkipInitialization);
-    gfx::Transform pre_transform(gfx::Transform::kSkipInitialization);
-    image->GetTextureMatrix(gl_matrix);
-    st_transform.matrix().setColMajorf(gl_matrix);
-    // const_cast is safe, because setColMajorf only does a memcpy.
-    // TODO(piman): can we remove this assumption without having to introduce
-    // an extra copy?
-    pre_transform.matrix().setColMajorf(const_cast<const GLfloat*>(transform));
-    gfx::Transform(pre_transform, st_transform).matrix().asColMajorf(gl_matrix);
-  } else {
-    // Missing stream texture. Treat matrix as identity.
-    memcpy(gl_matrix, const_cast<const GLfloat*>(transform), sizeof(gl_matrix));
-  }
-
-  api()->glUniformMatrix4fvFn(location, 1, transpose, gl_matrix);
-
-  return error::kNoError;
-}
-
-error::Error GLES2DecoderPassthroughImpl::DoOverlayPromotionHintCHROMIUM(
-    GLuint texture,
-    GLboolean promotion_hint,
-    GLint display_x,
-    GLint display_y,
-    GLint display_width,
-    GLint display_height) {
-  if (texture == 0) {
-    return error::kNoError;
-  }
-
-  scoped_refptr<TexturePassthrough> passthrough_texture = nullptr;
-  if (!resources_->texture_object_map.GetServiceID(texture,
-                                                   &passthrough_texture) ||
-      passthrough_texture == nullptr) {
-    InsertError(GL_INVALID_VALUE, "invalid texture id");
-    return error::kNoError;
-  }
-
-  GLStreamTextureImage* image =
-      passthrough_texture->GetStreamLevelImage(GL_TEXTURE_EXTERNAL_OES, 0);
-  if (!image) {
-    InsertError(GL_INVALID_OPERATION, "texture has no StreamTextureImage");
-    return error::kNoError;
-  }
-
-  image->NotifyPromotionHint(promotion_hint != GL_FALSE, display_x, display_y,
-                             display_width, display_height);
-
   return error::kNoError;
 }
 
@@ -5605,7 +5390,8 @@ error::Error
 GLES2DecoderPassthroughImpl::DoBeginSharedImageAccessDirectCHROMIUM(
     GLuint client_id,
     GLenum mode) {
-  if (mode != GL_SHARED_IMAGE_ACCESS_MODE_READWRITE_CHROMIUM &&
+  if (mode != GL_SHARED_IMAGE_ACCESS_MODE_OVERLAY_CHROMIUM &&
+      mode != GL_SHARED_IMAGE_ACCESS_MODE_READWRITE_CHROMIUM &&
       mode != GL_SHARED_IMAGE_ACCESS_MODE_READ_CHROMIUM) {
     InsertError(GL_INVALID_ENUM, "unrecognized access mode");
     return error::kNoError;
@@ -5642,6 +5428,32 @@ error::Error GLES2DecoderPassthroughImpl::DoEndSharedImageAccessDirectCHROMIUM(
     return error::kNoError;
   }
   found->second.EndAccess();
+  return error::kNoError;
+}
+
+error::Error
+GLES2DecoderPassthroughImpl::DoBeginBatchReadAccessSharedImageCHROMIUM() {
+  DCHECK(group_->shared_image_manager());
+  group_->shared_image_manager()->BeginBatchReadAccess();
+  return error::kNoError;
+}
+
+error::Error
+GLES2DecoderPassthroughImpl::DoEndBatchReadAccessSharedImageCHROMIUM() {
+  DCHECK(group_->shared_image_manager());
+  group_->shared_image_manager()->EndBatchReadAccess();
+  return error::kNoError;
+}
+
+error::Error GLES2DecoderPassthroughImpl::DoEnableiOES(GLenum target,
+                                                       GLuint index) {
+  api()->glEnableiOESFn(target, index);
+  return error::kNoError;
+}
+
+error::Error GLES2DecoderPassthroughImpl::DoDisableiOES(GLenum target,
+                                                        GLuint index) {
+  api()->glDisableiOESFn(target, index);
   return error::kNoError;
 }
 

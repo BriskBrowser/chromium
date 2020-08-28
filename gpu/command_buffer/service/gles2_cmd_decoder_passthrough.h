@@ -35,6 +35,7 @@
 #include "ui/gl/gl_fence.h"
 #include "ui/gl/gl_image.h"
 #include "ui/gl/gl_surface.h"
+#include "ui/gl/gpu_switching_observer.h"
 
 namespace gl {
 class GLFence;
@@ -139,7 +140,9 @@ struct PassthroughResources {
   std::unordered_map<GLuint, MappedBuffer> mapped_buffer_map;
 };
 
-class GPU_GLES2_EXPORT GLES2DecoderPassthroughImpl : public GLES2Decoder {
+class GPU_GLES2_EXPORT GLES2DecoderPassthroughImpl
+    : public GLES2Decoder,
+      public ui::GpuSwitchingObserver {
  public:
   GLES2DecoderPassthroughImpl(DecoderClient* client,
                               CommandBufferServiceBase* command_buffer_service,
@@ -294,6 +297,16 @@ class GPU_GLES2_EXPORT GLES2DecoderPassthroughImpl : public GLES2Decoder {
                                    int width,
                                    int height) override;
 
+  // Clears a level sub area of a compressed 3D texture.
+  // Returns false if a GL error should be generated.
+  bool ClearCompressedTextureLevel3D(Texture* texture,
+                                     unsigned target,
+                                     int level,
+                                     unsigned format,
+                                     int width,
+                                     int height,
+                                     int depth) override;
+
   // Indicates whether a given internal format is one for a compressed
   // texture.
   bool IsCompressedTextureFormat(unsigned format) override;
@@ -337,6 +350,9 @@ class GPU_GLES2_EXPORT GLES2DecoderPassthroughImpl : public GLES2Decoder {
   // directly, and needing to know if they failed due to loss.
   bool CheckResetStatus() override;
 
+  // Implement GpuSwitchingObserver.
+  void OnGpuSwitched(gl::GpuPreference active_gpu_heuristic) override;
+
   Logger* GetLogger() override;
 
   void BeginDecoding() override;
@@ -378,33 +394,20 @@ class GPU_GLES2_EXPORT GLES2DecoderPassthroughImpl : public GLES2Decoder {
                              const DisallowedFeatures& disallowed_features,
                              bool force_reinitialize);
 
-  void* GetScratchMemory(size_t size);
-
-  template <typename T>
-  T* GetTypedScratchMemory(size_t count) {
-    return reinterpret_cast<T*>(GetScratchMemory(count * sizeof(T)));
-  }
-
   template <typename T, typename GLGetFunction>
   error::Error GetNumericHelper(GLenum pname,
                                 GLsizei bufsize,
                                 GLsizei* length,
                                 T* params,
                                 GLGetFunction get_call) {
-    // Get a scratch buffer to hold the result of the query
-    T* scratch_params = GetTypedScratchMemory<T>(bufsize);
-    get_call(pname, bufsize, length, scratch_params);
+    get_call(pname, bufsize, length, params);
 
     // Update the results of the query, if needed
-    error::Error error = PatchGetNumericResults(pname, *length, scratch_params);
+    const error::Error error = PatchGetNumericResults(pname, *length, params);
     if (error != error::kNoError) {
       *length = 0;
       return error;
     }
-
-    // Copy into the destination
-    DCHECK(*length <= bufsize);
-    std::copy(scratch_params, scratch_params + *length, params);
 
     return error::kNoError;
   }
@@ -468,8 +471,7 @@ class GPU_GLES2_EXPORT GLES2DecoderPassthroughImpl : public GLES2Decoder {
 
   void CheckSwapBuffersAsyncResult(const char* function_name,
                                    uint64_t swap_id,
-                                   gfx::SwapResult result,
-                                   std::unique_ptr<gfx::GpuFence> gpu_fence);
+                                   gfx::SwapCompletionResult result);
   error::Error CheckSwapBuffersResult(gfx::SwapResult result,
                                       const char* function_name);
 
@@ -855,9 +857,6 @@ class GPU_GLES2_EXPORT GLES2DecoderPassthroughImpl : public GLES2Decoder {
   bool reset_by_robustness_extension_;
   bool lose_context_when_out_of_memory_;
 
-  // Cache of scratch memory
-  std::vector<uint8_t> scratch_memory_;
-
   // After a second fence is inserted, both the GpuChannelMessageQueue and
   // CommandExecutor are descheduled. Once the first fence has completed, both
   // get rescheduled.
@@ -869,6 +868,8 @@ class GPU_GLES2_EXPORT GLES2DecoderPassthroughImpl : public GLES2Decoder {
   std::unique_ptr<CALayerSharedState> ca_layer_shared_state_;
 
   base::WeakPtrFactory<GLES2DecoderPassthroughImpl> weak_ptr_factory_{this};
+
+  class ScopedEnableTextureRectangleInShaderCompiler;
 
 // Include the prototypes of all the doer functions from a separate header to
 // keep this file clean.

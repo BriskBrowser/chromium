@@ -73,10 +73,12 @@ class COMPONENT_EXPORT(NETWORK_CPP) SimpleURLLoader {
     RETRY_ON_5XX = 0x1,
     // Retries on net::ERR_NETWORK_CHANGED.
     RETRY_ON_NETWORK_CHANGE = 0x2,
+    // Retries on net::ERR_NAME_NOT_RESOLVED.
+    RETRY_ON_NAME_NOT_RESOLVED = 0x4,
   };
 
   // The maximum size DownloadToString will accept.
-  static const size_t kMaxBoundedStringDownloadSize;
+  static constexpr size_t kMaxBoundedStringDownloadSize = 5 * 1024 * 1024;
 
   // Maximum upload body size to send as a block to the URLLoaderFactory. This
   // data may appear in memory twice for a while, in the retry case, and there
@@ -86,7 +88,7 @@ class COMPONENT_EXPORT(NETWORK_CPP) SimpleURLLoader {
   // service's copy.
   //
   // Only exposed for tests.
-  static const size_t kMaxUploadStringSizeToCopy;
+  static constexpr size_t kMaxUploadStringSizeToCopy = 256 * 1024;
 
   // Callback used when downloading the response body as a std::string.
   // |response_body| is the body of the response, or nullptr on failure. Note
@@ -154,9 +156,9 @@ class COMPONENT_EXPORT(NETWORK_CPP) SimpleURLLoader {
   // Starts the request using |url_loader_factory|. The SimpleURLLoader will
   // accumulate all downloaded data in an in-memory string of bounded size. If
   // |max_body_size| is exceeded, the request will fail with
-  // net::ERR_INSUFFICIENT_RESOURCES. |max_body_size| must be no greater than 5
-  // MiB. For anything larger, it's recommended to either save to a temp file,
-  // or consume the data as it is received.
+  // net::ERR_INSUFFICIENT_RESOURCES. |max_body_size| must be no greater than
+  // |kMaxBoundedStringDownloadSize|. For anything larger, it's recommended to
+  // either save to a temp file, or consume the data as it is received.
   //
   // Whether the request succeeds or fails, the URLLoaderFactory pipe is closed,
   // or the body exceeds |max_body_size|, |body_as_string_callback| will be
@@ -213,11 +215,11 @@ class COMPONENT_EXPORT(NETWORK_CPP) SimpleURLLoader {
   // SimpleURLLoader will stream the response body to
   // SimpleURLLoaderStreamConsumer on the current thread. Destroying the
   // SimpleURLLoader will cancel the request, and prevent any subsequent
-  // methods from being invoked on the Handler. The SimpleURLLoader may also be
-  // destroyed in any of the Handler's callbacks.
+  // methods from being invoked on the Consumer. The SimpleURLLoader may also be
+  // destroyed in any of the Consumer's callbacks.
   //
-  // |stream_handler| must remain valid until either the SimpleURLLoader is
-  // deleted, or the handler's OnComplete() method has been invoked by the
+  // |stream_consumer| must remain valid until either the SimpleURLLoader is
+  // deleted, or the consumer's OnComplete() method has been invoked by the
   // SimpleURLLoader.
   virtual void DownloadAsStream(
       mojom::URLLoaderFactory* url_loader_factory,

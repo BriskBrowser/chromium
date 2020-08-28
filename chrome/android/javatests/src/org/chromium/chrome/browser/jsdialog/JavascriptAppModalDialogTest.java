@@ -4,34 +4,34 @@
 
 package org.chromium.chrome.browser.jsdialog;
 
-import static android.support.test.espresso.Espresso.onView;
-import static android.support.test.espresso.action.ViewActions.click;
-import static android.support.test.espresso.assertion.ViewAssertions.matches;
-import static android.support.test.espresso.matcher.ViewMatchers.isChecked;
-import static android.support.test.espresso.matcher.ViewMatchers.isDisplayed;
-import static android.support.test.espresso.matcher.ViewMatchers.withId;
-import static android.support.test.espresso.matcher.ViewMatchers.withText;
+import static androidx.test.espresso.Espresso.onView;
+import static androidx.test.espresso.action.ViewActions.click;
+import static androidx.test.espresso.assertion.ViewAssertions.matches;
+import static androidx.test.espresso.matcher.ViewMatchers.isChecked;
+import static androidx.test.espresso.matcher.ViewMatchers.isDisplayed;
+import static androidx.test.espresso.matcher.ViewMatchers.withId;
+import static androidx.test.espresso.matcher.ViewMatchers.withText;
 
-import android.support.test.filters.MediumTest;
+import androidx.test.filters.MediumTest;
 
+import org.hamcrest.Matchers;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
-import org.chromium.base.Log;
 import org.chromium.base.test.util.CallbackHelper;
 import org.chromium.base.test.util.CommandLineFlags.Add;
 import org.chromium.base.test.util.Feature;
-import org.chromium.base.test.util.RetryOnFailure;
 import org.chromium.base.test.util.UrlUtils;
 import org.chromium.chrome.R;
-import org.chromium.chrome.browser.ChromeActivity;
-import org.chromium.chrome.browser.ChromeSwitches;
-import org.chromium.chrome.test.ChromeActivityTestRule;
+import org.chromium.chrome.browser.ChromeTabbedActivity;
+import org.chromium.chrome.browser.flags.ChromeSwitches;
+import org.chromium.chrome.browser.tasks.tab_management.TabUiTestHelper;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
-import org.chromium.components.app_modal.JavascriptAppModalDialog;
+import org.chromium.chrome.test.ChromeTabbedActivityTestRule;
+import org.chromium.components.javascript_dialogs.JavascriptAppModalDialog;
 import org.chromium.content_public.browser.GestureStateListener;
 import org.chromium.content_public.browser.test.util.Criteria;
 import org.chromium.content_public.browser.test.util.CriteriaHelper;
@@ -48,12 +48,10 @@ import java.util.concurrent.TimeoutException;
  * Test suite for displaying and functioning of app modal JavaScript onbeforeunload dialogs.
  */
 @RunWith(ChromeJUnit4ClassRunner.class)
-@RetryOnFailure
 @Add({ChromeSwitches.DISABLE_FIRST_RUN_EXPERIENCE})
 public class JavascriptAppModalDialogTest {
     @Rule
-    public ChromeActivityTestRule<ChromeActivity> mActivityTestRule =
-            new ChromeActivityTestRule<>(ChromeActivity.class);
+    public ChromeTabbedActivityTestRule mActivityTestRule = new ChromeTabbedActivityTestRule();
 
     private static final String TAG = "JSAppModalDialogTest";
     private static final String EMPTY_PAGE = UrlUtils.encodeHtmlDataUri(
@@ -101,6 +99,32 @@ public class JavascriptAppModalDialogTest {
         onPageLoaded.waitForCallback(callCount);
         Assert.assertEquals(EMPTY_PAGE,
                 mActivityTestRule.getActivity().getCurrentWebContents().getLastCommittedUrl());
+    }
+
+    /**
+     * Verifies behavior when the tab that has an onBeforeUnload handler has no history stack
+     * (pressing back should still show the dialog).
+     *
+     * Regression test for https://crbug.com/1055540
+     */
+    @Test
+    @MediumTest
+    @Feature({"Browser", "Main"})
+    public void testBeforeUnloadDialogWithNoHistory() throws TimeoutException, ExecutionException {
+        ChromeTabbedActivity activity = mActivityTestRule.getActivity();
+        TabUiTestHelper.verifyTabModelTabCount(activity, 1, 0);
+        mActivityTestRule.loadUrlInNewTab(BEFORE_UNLOAD_URL);
+        TabUiTestHelper.verifyTabModelTabCount(activity, 2, 0);
+        // JavaScript onbeforeunload dialogs require a user gesture.
+        tapViewAndWait();
+        TestThreadUtils.runOnUiThreadBlocking(() -> { activity.onBackPressed(); });
+        assertJavascriptAppModalDialogShownState(true);
+
+        // Click leave and verify that the tab is closed.
+        JavascriptAppModalDialog jsDialog = getCurrentDialog();
+        Assert.assertNotNull("No dialog showing.", jsDialog);
+        onView(withText(R.string.leave)).perform(click());
+        TabUiTestHelper.verifyTabModelTabCount(activity, 1, 0);
     }
 
     /**
@@ -178,13 +202,12 @@ public class JavascriptAppModalDialogTest {
         executeJavaScriptAndWaitForDialog("history.back();");
 
         TestThreadUtils.runOnUiThreadBlocking(() -> {
-            ChromeActivity activity = mActivityTestRule.getActivity();
+            ChromeTabbedActivity activity = mActivityTestRule.getActivity();
             activity.getCurrentTabModel().closeTab(activity.getActivityTab());
         });
 
         // Closing the tab should have dismissed the dialog.
-        CriteriaHelper.pollInstrumentationThread(new JavascriptAppModalDialogShownCriteria(
-                "The dialog should have been dismissed when its tab was closed.", false));
+        assertJavascriptAppModalDialogShownState(false);
     }
 
     /**
@@ -216,8 +239,7 @@ public class JavascriptAppModalDialogTest {
             final OnEvaluateJavaScriptResultHelper helper, String script) {
         helper.evaluateJavaScriptForTests(
                 mActivityTestRule.getActivity().getCurrentWebContents(), script);
-        CriteriaHelper.pollInstrumentationThread(new JavascriptAppModalDialogShownCriteria(
-                "Could not spawn or locate a modal dialog.", true));
+        assertJavascriptAppModalDialogShownState(true);
         return helper;
     }
 
@@ -247,27 +269,16 @@ public class JavascriptAppModalDialogTest {
         }
     }
 
-    private static class JavascriptAppModalDialogShownCriteria extends Criteria {
-        private final boolean mShouldBeShown;
-
-        public JavascriptAppModalDialogShownCriteria(String error, boolean shouldBeShown) {
-            super(error);
-            mShouldBeShown = shouldBeShown;
-        }
-
-        @Override
-        public boolean isSatisfied() {
-            try {
-                return TestThreadUtils.runOnUiThreadBlocking(() -> {
-                    final boolean isShown =
-                            JavascriptAppModalDialog.getCurrentDialogForTest() != null;
-                    return mShouldBeShown == isShown;
-                });
-            } catch (ExecutionException e) {
-                Log.e(TAG, "Failed to getCurrentDialog", e);
-                return false;
+    private void assertJavascriptAppModalDialogShownState(boolean shouldBeShown) {
+        CriteriaHelper.pollUiThread(() -> {
+            JavascriptAppModalDialog dialog = JavascriptAppModalDialog.getCurrentDialogForTest();
+            if (shouldBeShown) {
+                Criteria.checkThat("Could not spawn or locate a modal dialog.", dialog,
+                        Matchers.notNullValue());
+            } else {
+                Criteria.checkThat("No dialog should be shown.", dialog, Matchers.nullValue());
             }
-        }
+        });
     }
 
     private TestCallbackHelperContainer getActiveTabTestCallbackHelperContainer() {

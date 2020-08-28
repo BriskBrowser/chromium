@@ -10,13 +10,14 @@
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
+#include "base/feature_list.h"
 #include "base/stl_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "components/payments/content/payment_event_response_util.h"
+#include "components/payments/content/payment_handler_host.h"
 #include "components/payments/content/payment_request_converter.h"
+#include "components/payments/core/features.h"
 #include "components/payments/core/method_strings.h"
-#include "components/payments/core/payment_request_delegate.h"
-#include "content/public/browser/browser_context.h"
 #include "content/public/browser/payment_app_provider.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/content_features.h"
@@ -28,41 +29,32 @@ namespace payments {
 // Service worker payment app provides icon through bitmap, so set 0 as invalid
 // resource Id.
 ServiceWorkerPaymentApp::ServiceWorkerPaymentApp(
-    content::BrowserContext* browser_context,
+    content::WebContents* web_contents,
     const GURL& top_origin,
     const GURL& frame_origin,
     const PaymentRequestSpec* spec,
     std::unique_ptr<content::StoredPaymentApp> stored_payment_app_info,
-    PaymentRequestDelegate* payment_request_delegate,
-    const IdentityCallback& identity_callback)
+    bool is_incognito,
+    const base::RepeatingClosure& show_processing_spinner)
     : PaymentApp(0, PaymentApp::Type::SERVICE_WORKER_APP),
-      browser_context_(browser_context),
+      content::WebContentsObserver(web_contents),
       top_origin_(top_origin),
       frame_origin_(frame_origin),
       spec_(spec),
       stored_payment_app_info_(std::move(stored_payment_app_info)),
       delegate_(nullptr),
-      payment_request_delegate_(payment_request_delegate),
-      identity_callback_(identity_callback),
+      is_incognito_(is_incognito),
+      show_processing_spinner_(show_processing_spinner),
       can_make_payment_result_(false),
       has_enrolled_instrument_result_(false),
       needs_installation_(false) {
-  DCHECK(browser_context_);
+  DCHECK(web_contents);
   DCHECK(top_origin_.is_valid());
   DCHECK(frame_origin_.is_valid());
   DCHECK(spec_);
 
   app_method_names_.insert(stored_payment_app_info_->enabled_methods.begin(),
                            stored_payment_app_info_->enabled_methods.end());
-
-  if (stored_payment_app_info_->icon) {
-    icon_image_ =
-        gfx::ImageSkia::CreateFrom1xBitmap(*(stored_payment_app_info_->icon))
-            .DeepCopy();
-  } else {
-    // Create an empty icon image to avoid using invalid icon resource id.
-    icon_image_ = gfx::ImageSkia::CreateFrom1xBitmap(SkBitmap()).DeepCopy();
-  }
 }
 
 // Service worker payment app provides icon through bitmap, so set 0 as invalid
@@ -74,47 +66,35 @@ ServiceWorkerPaymentApp::ServiceWorkerPaymentApp(
     const PaymentRequestSpec* spec,
     std::unique_ptr<WebAppInstallationInfo> installable_payment_app_info,
     const std::string& enabled_method,
-    PaymentRequestDelegate* payment_request_delegate,
-    const IdentityCallback& identity_callback)
+    bool is_incognito,
+    const base::RepeatingClosure& show_processing_spinner)
     : PaymentApp(0, PaymentApp::Type::SERVICE_WORKER_APP),
+      content::WebContentsObserver(web_contents),
       top_origin_(top_origin),
       frame_origin_(frame_origin),
       spec_(spec),
       delegate_(nullptr),
-      payment_request_delegate_(payment_request_delegate),
-      identity_callback_(identity_callback),
+      is_incognito_(is_incognito),
+      show_processing_spinner_(show_processing_spinner),
       can_make_payment_result_(false),
       has_enrolled_instrument_result_(false),
       needs_installation_(true),
-      web_contents_(web_contents),
       installable_web_app_info_(std::move(installable_payment_app_info)),
       installable_enabled_method_(enabled_method) {
-  DCHECK(web_contents_);
+  DCHECK(web_contents);
   DCHECK(top_origin_.is_valid());
   DCHECK(frame_origin_.is_valid());
   DCHECK(spec_);
 
   app_method_names_.insert(installable_enabled_method_);
-
-  if (installable_web_app_info_->icon) {
-    icon_image_ =
-        gfx::ImageSkia::CreateFrom1xBitmap(*(installable_web_app_info_->icon))
-            .DeepCopy();
-  } else {
-    // Create an empty icon image to avoid using invalid icon resource id.
-    icon_image_ = gfx::ImageSkia::CreateFrom1xBitmap(SkBitmap()).DeepCopy();
-  }
 }
 
 ServiceWorkerPaymentApp::~ServiceWorkerPaymentApp() {
-  if (delegate_ && !needs_installation_) {
+  if (delegate_) {
     // If there's a payment in progress, abort it before destroying this so that
     // it can update its internal state. Since the PaymentRequest will be
     // destroyed, pass an empty callback to the payment app.
-    content::PaymentAppProvider::GetInstance()->AbortPayment(
-        browser_context_, stored_payment_app_info_->registration_id,
-        url::Origin::Create(stored_payment_app_info_->scope),
-        *spec_->details().id, base::DoNothing());
+    AbortPaymentApp(/*abort_callback=*/base::DoNothing());
   }
 }
 
@@ -128,7 +108,7 @@ void ServiceWorkerPaymentApp::ValidateCanMakePayment(
 
   // Returns true if we are in incognito (avoiding sending the event to the
   // payment handler).
-  if (payment_request_delegate_->IsIncognito()) {
+  if (is_incognito_) {
     OnCanMakePaymentEventSkipped(std::move(callback));
     return;
   }
@@ -151,7 +131,7 @@ void ServiceWorkerPaymentApp::ValidateCanMakePayment(
   }
 
   content::PaymentAppProvider::GetInstance()->CanMakePayment(
-      browser_context_, stored_payment_app_info_->registration_id,
+      web_contents(), stored_payment_app_info_->registration_id,
       url::Origin::Create(stored_payment_app_info_->scope),
       *spec_->details().id, std::move(event_data),
       base::BindOnce(&ServiceWorkerPaymentApp::OnCanMakePaymentEventResponded,
@@ -180,6 +160,8 @@ ServiceWorkerPaymentApp::CreateCanMakePaymentEventData() {
 
   event_data->top_origin = top_origin_;
   event_data->payment_request_origin = frame_origin_;
+  if (base::FeatureList::IsEnabled(::features::kWebPaymentsMinimalUI))
+    event_data->currency = spec_->details().total->amount->currency;
 
   DCHECK(spec_->details().modifiers);
   for (const auto& modifier : *spec_->details().modifiers) {
@@ -210,10 +192,13 @@ void ServiceWorkerPaymentApp::OnCanMakePaymentEventSkipped(
 
 void ServiceWorkerPaymentApp::OnCanMakePaymentEventResponded(
     ValidateCanMakePaymentCallback callback,
-    bool result) {
+    mojom::CanMakePaymentResponsePtr response) {
   // |can_make_payment| is true as long as there is a matching payment handler.
   can_make_payment_result_ = true;
-  has_enrolled_instrument_result_ = result;
+  has_enrolled_instrument_result_ = response->can_make_payment;
+  is_ready_for_minimal_ui_ = response->ready_for_minimal_ui;
+  if (response->account_balance)
+    account_balance_ = *response->account_balance;
   base::ThreadTaskRunnerHandle::Get()->PostTask(
       FROM_HERE,
       base::BindOnce(std::move(callback), this, can_make_payment_result_));
@@ -224,13 +209,13 @@ void ServiceWorkerPaymentApp::InvokePaymentApp(Delegate* delegate) {
 
   if (needs_installation_) {
     content::PaymentAppProvider::GetInstance()->InstallAndInvokePaymentApp(
-        web_contents_, CreatePaymentRequestEventData(),
+        web_contents(), CreatePaymentRequestEventData(),
         installable_web_app_info_->name,
         installable_web_app_info_->icon == nullptr
             ? SkBitmap()
             : *(installable_web_app_info_->icon),
-        installable_web_app_info_->sw_js_url,
-        installable_web_app_info_->sw_scope,
+        GURL(installable_web_app_info_->sw_js_url),
+        GURL(installable_web_app_info_->sw_scope),
         installable_web_app_info_->sw_use_cache, installable_enabled_method_,
         installable_web_app_info_->supported_delegations,
         base::BindOnce(
@@ -244,19 +229,19 @@ void ServiceWorkerPaymentApp::InvokePaymentApp(Delegate* delegate) {
         url::Origin::Create(stored_payment_app_info_->scope);
     OnPaymentAppIdentity(sw_origin, stored_payment_app_info_->registration_id);
     content::PaymentAppProvider::GetInstance()->InvokePaymentApp(
-        browser_context_, stored_payment_app_info_->registration_id, sw_origin,
+        web_contents(), stored_payment_app_info_->registration_id, sw_origin,
         CreatePaymentRequestEventData(),
         base::BindOnce(&ServiceWorkerPaymentApp::OnPaymentAppInvoked,
                        weak_ptr_factory_.GetWeakPtr()));
   }
 
-  payment_request_delegate_->ShowProcessingSpinner();
+  show_processing_spinner_.Run();
 }
 
 void ServiceWorkerPaymentApp::OnPaymentAppWindowClosed() {
   delegate_ = nullptr;
   content::PaymentAppProvider::GetInstance()->OnClosingOpenedWindow(
-      browser_context_,
+      web_contents(),
       mojom::PaymentEventResponseType::PAYMENT_HANDLER_WINDOW_CLOSING);
 }
 
@@ -338,7 +323,7 @@ ServiceWorkerPaymentApp::CreatePaymentRequestEventData() {
     }
   }
 
-  event_data->payment_handler_host = std::move(payment_handler_host_);
+  event_data->payment_handler_host = std::move(payment_handler_host_remote_);
 
   return event_data;
 }
@@ -386,11 +371,7 @@ uint32_t ServiceWorkerPaymentApp::GetCompletenessScore() const {
 
 bool ServiceWorkerPaymentApp::CanPreselect() const {
   // Do not preselect the payment app when the name and/or icon is missing.
-  return !GetLabel().empty() && !icon_image_.size().IsEmpty();
-}
-
-bool ServiceWorkerPaymentApp::IsExactlyMatchingMerchantRequest() const {
-  return true;
+  return !GetLabel().empty() && icon_bitmap() && !icon_bitmap()->drawsNothing();
 }
 
 base::string16 ServiceWorkerPaymentApp::GetMissingInfoLabel() const {
@@ -398,7 +379,7 @@ base::string16 ServiceWorkerPaymentApp::GetMissingInfoLabel() const {
   return base::string16();
 }
 
-bool ServiceWorkerPaymentApp::IsValidForCanMakePayment() const {
+bool ServiceWorkerPaymentApp::HasEnrolledInstrument() const {
   // This app should not be used when can_make_payment_result_ is false, so this
   // interface should not be invoked.
   DCHECK(can_make_payment_result_);
@@ -407,6 +388,15 @@ bool ServiceWorkerPaymentApp::IsValidForCanMakePayment() const {
 
 void ServiceWorkerPaymentApp::RecordUse() {
   NOTIMPLEMENTED();
+}
+
+bool ServiceWorkerPaymentApp::NeedsInstallation() const {
+  return needs_installation_;
+}
+
+std::string ServiceWorkerPaymentApp::GetId() const {
+  return needs_installation_ ? installable_web_app_info_->sw_scope
+                             : stored_payment_app_info_->scope.spec();
 }
 
 base::string16 ServiceWorkerPaymentApp::GetLabel() const {
@@ -428,9 +418,7 @@ base::string16 ServiceWorkerPaymentApp::GetSublabel() const {
 bool ServiceWorkerPaymentApp::IsValidForModifier(
     const std::string& method,
     bool supported_networks_specified,
-    const std::set<std::string>& supported_networks,
-    bool supported_types_specified,
-    const std::set<autofill::CreditCard::CardType>& supported_types) const {
+    const std::set<std::string>& supported_networks) const {
   // Payment app that needs installation only supports url based payment
   // methods.
   if (needs_installation_)
@@ -447,9 +435,8 @@ bool ServiceWorkerPaymentApp::IsValidForModifier(
     return true;
 
   // Checking the capabilities of this app against the modifier.
-  // Return true if both card networks and types are not specified in the
-  // modifier.
-  if (!supported_networks_specified && !supported_types_specified)
+  // Return true if card networks are not specified in the  modifier.
+  if (!supported_networks_specified)
     return true;
 
   // Return false if no capabilities for this app.
@@ -473,21 +460,6 @@ bool ServiceWorkerPaymentApp::IsValidForModifier(
       }
     }
 
-    if (supported_types_specified) {
-      std::set<autofill::CreditCard::CardType> app_supported_types;
-      for (const auto& type :
-           stored_payment_app_info_->capabilities[i].supported_card_types) {
-        app_supported_types.insert(
-            GetBasicCardType(static_cast<mojom::BasicCardType>(type)));
-      }
-
-      if (base::STLSetIntersection<std::set<autofill::CreditCard::CardType>>(
-              app_supported_types, supported_types)
-              .empty()) {
-        continue;
-      }
-    }
-
     break;
   }
 
@@ -500,8 +472,40 @@ base::WeakPtr<PaymentApp> ServiceWorkerPaymentApp::AsWeakPtr() {
   return weak_ptr_factory_.GetWeakPtr();
 }
 
-gfx::ImageSkia ServiceWorkerPaymentApp::icon_image_skia() const {
-  return icon_image_;
+const SkBitmap* ServiceWorkerPaymentApp::icon_bitmap() const {
+  return needs_installation_ ? installable_web_app_info_->icon.get()
+                             : stored_payment_app_info_->icon.get();
+}
+
+std::set<std::string>
+ServiceWorkerPaymentApp::GetApplicationIdentifiersThatHideThisApp() const {
+  if (needs_installation_) {
+    return std::set<std::string>(
+        installable_web_app_info_->preferred_app_ids.begin(),
+        installable_web_app_info_->preferred_app_ids.end());
+  }
+
+  std::set<std::string> result;
+  if (!stored_payment_app_info_->prefer_related_applications)
+    return result;
+
+  for (const auto& related : stored_payment_app_info_->related_applications) {
+    result.insert(related.id);
+  }
+
+  return result;
+}
+
+bool ServiceWorkerPaymentApp::IsReadyForMinimalUI() const {
+  return is_ready_for_minimal_ui_;
+}
+
+std::string ServiceWorkerPaymentApp::GetAccountBalance() const {
+  return account_balance_;
+}
+
+void ServiceWorkerPaymentApp::DisableShowingOwnUI() {
+  can_show_own_ui_ = false;
 }
 
 bool ServiceWorkerPaymentApp::HandlesShippingAddress() const {
@@ -542,7 +546,58 @@ bool ServiceWorkerPaymentApp::HandlesPayerPhone() const {
 
 void ServiceWorkerPaymentApp::OnPaymentAppIdentity(const url::Origin& origin,
                                                    int64_t registration_id) {
-  identity_callback_.Run(origin, registration_id);
+  registration_id_ = registration_id;
+  if (payment_handler_host_) {
+    payment_handler_host_->set_sw_origin_for_logs(origin);
+    payment_handler_host_->set_registration_id_for_logs(registration_id_);
+  }
+}
+
+ukm::SourceId ServiceWorkerPaymentApp::UkmSourceId() {
+  if (ukm_source_id_ == ukm::kInvalidSourceId) {
+    GURL sw_scope = needs_installation_
+                        ? GURL(installable_web_app_info_->sw_scope)
+                        : stored_payment_app_info_->scope;
+    // At this point we know that the payment handler window is open for this
+    // app since this getter is called for the invoked app inside the
+    // PaymentRequest::OnPaymentHandlerOpenWindowCalled function.
+    ukm_source_id_ =
+        content::PaymentAppProvider::GetInstance()
+            ->GetSourceIdForPaymentAppFromScope(sw_scope.GetOrigin());
+  }
+  return ukm_source_id_;
+}
+
+void ServiceWorkerPaymentApp::SetPaymentHandlerHost(
+    base::WeakPtr<PaymentHandlerHost> payment_handler_host) {
+  payment_handler_host_ = payment_handler_host;
+  payment_handler_host_remote_ = payment_handler_host_->Bind();
+}
+
+bool ServiceWorkerPaymentApp::IsWaitingForPaymentDetailsUpdate() const {
+  return payment_handler_host_ &&
+         payment_handler_host_->is_waiting_for_payment_details_update();
+}
+
+void ServiceWorkerPaymentApp::UpdateWith(
+    mojom::PaymentRequestDetailsUpdatePtr details_update) {
+  if (payment_handler_host_)
+    payment_handler_host_->UpdateWith(std::move(details_update));
+}
+
+void ServiceWorkerPaymentApp::OnPaymentDetailsNotUpdated() {
+  if (payment_handler_host_)
+    payment_handler_host_->OnPaymentDetailsNotUpdated();
+}
+
+void ServiceWorkerPaymentApp::AbortPaymentApp(
+    base::OnceCallback<void(bool)> abort_callback) {
+  content::PaymentAppProvider::GetInstance()->AbortPayment(
+      web_contents(), registration_id_,
+      stored_payment_app_info_
+          ? url::Origin::Create(stored_payment_app_info_->scope)
+          : url::Origin::Create(GURL(installable_web_app_info_->sw_scope)),
+      *spec_->details().id, std::move(abort_callback));
 }
 
 }  // namespace payments

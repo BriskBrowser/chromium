@@ -7,10 +7,14 @@
 
 #include "base/macros.h"
 #include "base/optional.h"
-#include "chrome/browser/ui/cookie_controls/cookie_controls_controller.h"
-#include "chrome/browser/ui/cookie_controls/cookie_controls_view.h"
+#include "chrome/browser/ui/cookie_controls/cookie_controls_service.h"
 #include "chrome/browser/ui/views/location_bar/location_bar_bubble_delegate_view.h"
+#include "components/content_settings/browser/ui/cookie_controls_controller.h"
+#include "components/content_settings/browser/ui/cookie_controls_view.h"
 #include "components/content_settings/core/browser/cookie_settings.h"
+#include "components/content_settings/core/common/cookie_controls_enforcement.h"
+#include "components/content_settings/core/common/cookie_controls_status.h"
+#include "ui/views/bubble/tooltip_icon.h"
 #include "ui/views/controls/button/button.h"
 
 namespace content {
@@ -24,20 +28,23 @@ class Label;
 
 // View used to display the cookie controls ui.
 class CookieControlsBubbleView : public LocationBarBubbleDelegateView,
-                                 public CookieControlsView {
+                                 public views::TooltipIcon::Observer,
+                                 public content_settings::CookieControlsView {
  public:
   static void ShowBubble(views::View* anchor_view,
                          views::Button* highlighted_button,
                          content::WebContents* web_contents,
-                         CookieControlsController* controller,
-                         CookieControlsController::Status status);
+                         content_settings::CookieControlsController* controller,
+                         CookieControlsStatus status);
 
   static CookieControlsBubbleView* GetCookieBubble();
 
-  // CookieControlsView:
-  void OnStatusChanged(CookieControlsController::Status status,
+  // content_settings::CookieControlsView:
+  void OnStatusChanged(CookieControlsStatus status,
+                       CookieControlsEnforcement enforcement,
+                       int allowed_cookies,
                        int blocked_cookies) override;
-  void OnBlockedCookiesCountChanged(int blocked_cookies) override;
+  void OnCookiesCountChanged(int allowed_cookies, int blocked_cookies) override;
 
  private:
   enum class IntermediateStep {
@@ -46,9 +53,10 @@ class CookieControlsBubbleView : public LocationBarBubbleDelegateView,
     kTurnOffButton,
   };
 
-  CookieControlsBubbleView(views::View* anchor_view,
-                           content::WebContents* web_contents,
-                           CookieControlsController* cookie_contols);
+  CookieControlsBubbleView(
+      views::View* anchor_view,
+      content::WebContents* web_contents,
+      content_settings::CookieControlsController* cookie_contols);
   ~CookieControlsBubbleView() override;
 
   void UpdateUi();
@@ -60,18 +68,23 @@ class CookieControlsBubbleView : public LocationBarBubbleDelegateView,
   bool ShouldShowWindowTitle() const override;
   bool ShouldShowCloseButton() const override;
   void WindowClosing() override;
-  bool Accept() override;
-  bool Close() override;
   gfx::Size CalculatePreferredSize() const override;
   void AddedToWidget() override;
 
   void ShowCookiesLinkClicked();
   void NotWorkingLinkClicked();
+  void OnDialogAccepted();
 
-  CookieControlsController* controller_ = nullptr;
+  // views::TooltipIcon::Observer:
+  void OnTooltipBubbleShown(views::TooltipIcon* icon) override;
+  void OnTooltipIconDestroying(views::TooltipIcon* icon) override;
 
-  CookieControlsController::Status status_ =
-      CookieControlsController::Status::kUninitialized;
+  content_settings::CookieControlsController* controller_ = nullptr;
+
+  CookieControlsStatus status_ = CookieControlsStatus::kUninitialized;
+
+  CookieControlsEnforcement enforcement_ =
+      CookieControlsEnforcement::kNoEnforcement;
 
   IntermediateStep intermediate_step_ = IntermediateStep::kNone;
 
@@ -82,7 +95,11 @@ class CookieControlsBubbleView : public LocationBarBubbleDelegateView,
   views::View* extra_view_ = nullptr;
   views::View* show_cookies_link_ = nullptr;
 
-  ScopedObserver<CookieControlsController, CookieControlsView> observer_{this};
+  ScopedObserver<content_settings::CookieControlsController,
+                 content_settings::CookieControlsView>
+      controller_observer_{this};
+  ScopedObserver<views::TooltipIcon, views::TooltipIcon::Observer>
+      tooltip_observer_{this};
 
   DISALLOW_COPY_AND_ASSIGN(CookieControlsBubbleView);
 };

@@ -9,7 +9,6 @@
 
 #include "base/bind.h"
 #include "base/memory/ptr_util.h"
-#include "base/no_destructor.h"
 #include "base/stl_util.h"
 #include "chromeos/components/multidevice/logging/logging.h"
 #include "chromeos/components/multidevice/software_feature.h"
@@ -43,17 +42,6 @@ const int kNumMinutesBetweenRetries = 5;
 
 const char kNoHostForLogging[] = "[no host]";
 
-std::string GenerateDeviceIdString(multidevice::RemoteDeviceRef device) {
-  std::stringstream ss;
-  ss << "  Instance ID: "
-     << (device.instance_id().empty() ? "[empty]" : device.instance_id())
-     << "\n  Device ID: "
-     << (device.GetTruncatedDeviceIdForLogs().empty()
-             ? "[empty]"
-             : device.GetTruncatedDeviceIdForLogs());
-  return ss.str();
-}
-
 }  // namespace
 
 // static
@@ -61,12 +49,20 @@ HostBackendDelegateImpl::Factory*
     HostBackendDelegateImpl::Factory::test_factory_ = nullptr;
 
 // static
-HostBackendDelegateImpl::Factory* HostBackendDelegateImpl::Factory::Get() {
-  if (test_factory_)
-    return test_factory_;
+std::unique_ptr<HostBackendDelegate> HostBackendDelegateImpl::Factory::Create(
+    EligibleHostDevicesProvider* eligible_host_devices_provider,
+    PrefService* pref_service,
+    device_sync::DeviceSyncClient* device_sync_client,
+    std::unique_ptr<base::OneShotTimer> timer) {
+  if (test_factory_) {
+    return test_factory_->CreateInstance(eligible_host_devices_provider,
+                                         pref_service, device_sync_client,
+                                         std::move(timer));
+  }
 
-  static base::NoDestructor<Factory> factory;
-  return factory.get();
+  return base::WrapUnique(
+      new HostBackendDelegateImpl(eligible_host_devices_provider, pref_service,
+                                  device_sync_client, std::move(timer)));
 }
 
 // static
@@ -76,17 +72,6 @@ void HostBackendDelegateImpl::Factory::SetFactoryForTesting(
 }
 
 HostBackendDelegateImpl::Factory::~Factory() = default;
-
-std::unique_ptr<HostBackendDelegate>
-HostBackendDelegateImpl::Factory::BuildInstance(
-    EligibleHostDevicesProvider* eligible_host_devices_provider,
-    PrefService* pref_service,
-    device_sync::DeviceSyncClient* device_sync_client,
-    std::unique_ptr<base::OneShotTimer> timer) {
-  return base::WrapUnique(
-      new HostBackendDelegateImpl(eligible_host_devices_provider, pref_service,
-                                  device_sync_client, std::move(timer)));
-}
 
 // static
 void HostBackendDelegateImpl::RegisterPrefs(PrefRegistrySimple* registry) {
@@ -122,8 +107,7 @@ void HostBackendDelegateImpl::AttemptToSetMultiDeviceHostOnBackend(
     PA_LOG(WARNING) << "HostBackendDelegateImpl::"
                     << "AttemptToSetMultiDeviceHostOnBackend(): Tried to set a "
                     << "device as host, but that device is not an eligible "
-                    << "host.\n"
-                    << GenerateDeviceIdString(*host_device);
+                    << "host: " << host_device->GetInstanceIdDeviceIdForLogs();
     return;
   }
 
@@ -138,13 +122,12 @@ void HostBackendDelegateImpl::AttemptToSetMultiDeviceHostOnBackend(
   timer_->Stop();
 
   if (host_device) {
-    // If an Instance ID is available, use that to identify the device;
-    // otherwise, use the encoded public key.
-    // TODO(https://crbug.com/1019206): When v1 DeviceSync is disabled, only
-    // use Instance IDs since all devices are guaranteed to have one.
-    SetPendingHostRequest(host_device->instance_id().empty()
-                              ? host_device->GetDeviceId()
-                              : host_device->instance_id());
+    if (features::ShouldUseV1DeviceSync()) {
+      SetPendingHostRequest(host_device->GetDeviceId());
+    } else {
+      DCHECK(!host_device->instance_id().empty());
+      SetPendingHostRequest(host_device->instance_id());
+    }
   } else {
     SetPendingHostRequest(kPendingRemovalOfCurrentHost);
   }
@@ -184,12 +167,10 @@ bool HostBackendDelegateImpl::HasPendingHostRequest() {
   // the persisted host ID will not be recognized, and the user will need to go
   // through setup again:
   //  * The device was actually removed from the user's account.
-  //  * Instance ID is persisted and v2 DeviceSync is rolled back.
   //  * A public key is persisted, v1 DeviceSync is disabled, and the v2 device
   //    data hasn't been decrypted.
-  //  * v1 and v2 DeviceSync are running in parallel, an Instance ID is
-  //    persisted, the device metadata is encrypted with a new group key,
-  //    resulting in v1 device data being used.
+  //  * Instance ID is persisted, v1 DeviceSync in re-enabled and the Instance
+  //    ID cannot be found in the device list.
   // We expect all of these scenarios to be very rare.
   SetPendingHostRequest(kNoPendingRequest);
   return false;
@@ -244,10 +225,13 @@ base::Optional<multidevice::RemoteDeviceRef>
 HostBackendDelegateImpl::FindDeviceById(const std::string& id) const {
   DCHECK(!id.empty());
   for (const auto& remote_device : device_sync_client_->GetSyncedDevices()) {
-    // TODO(https://crbug.com/1019206): When v1 DeviceSync is disabled,
-    // only look up by Instance ID since all devices are guaranteed to have one.
-    if (id == remote_device.instance_id() || id == remote_device.GetDeviceId())
-      return remote_device;
+    if (features::ShouldUseV1DeviceSync()) {
+      if (id == remote_device.GetDeviceId())
+        return remote_device;
+    } else {
+      if (id == remote_device.instance_id())
+        return remote_device;
+    }
   }
 
   return base::nullopt;
@@ -272,32 +256,32 @@ void HostBackendDelegateImpl::AttemptNetworkRequest(bool is_retry) {
 
   PA_LOG(INFO) << "HostBackendDelegateImpl::AttemptNetworkRequest(): "
                << (is_retry ? "Retrying attempt" : "Attempting") << " to "
-               << (should_enable ? "enable" : "disable") << " the host.\n"
-               << GenerateDeviceIdString(device_to_set);
+               << (should_enable ? "enable" : "disable")
+               << " the host: " << device_to_set.GetInstanceIdDeviceIdForLogs();
 
-  // In order to avoid a race condition in mutating the BetterTogether host
-  // state on the CryptAuth backend, we are assuming that all SetFeatureStatus()
-  // and SetSoftwareFeatureState() requests are added to the same queue and
-  // processed in order. The DeviceSync service implementation guarantees this
-  // ordering.
-  // TODO(https://crbug.com/1019206): When v1 DeviceSync is disabled, only use
-  // SetFeatureStatus since all devices are guaranteed to have an Instance ID.
-  if (!device_to_set.instance_id().empty()) {
-    device_sync_client_->SetFeatureStatus(
-        device_to_set.instance_id(),
-        multidevice::SoftwareFeature::kBetterTogetherHost,
-        should_enable ? device_sync::FeatureStatusChange::kEnableExclusively
-                      : device_sync::FeatureStatusChange::kDisable,
-        base::BindOnce(
-            &HostBackendDelegateImpl::OnSetHostNetworkRequestFinished,
-            weak_ptr_factory_.GetWeakPtr(), device_to_set, should_enable));
-
-  } else {
+  if (features::ShouldUseV1DeviceSync()) {
+    // Even if the |device_to_set| has a non-trivial Instance ID, we still
+    // invoke the v1 DeviceSync RPC to set the feature state. This ensures that
+    // GmsCore will be notified of the change regardless of what version of
+    // DeviceSync it is running. The v1 and v2 RPCs to change feature states
+    // ultimately update the same backend database entry. Note: The
+    // RemoteDeviceProvider guarantees that every device will have a public key
+    // while v1 DeviceSync is enabled.
     DCHECK(!device_to_set.public_key().empty());
     device_sync_client_->SetSoftwareFeatureState(
         device_to_set.public_key(),
         multidevice::SoftwareFeature::kBetterTogetherHost,
         should_enable /* enabled */, should_enable /* is_exclusive */,
+        base::BindOnce(
+            &HostBackendDelegateImpl::OnSetHostNetworkRequestFinished,
+            weak_ptr_factory_.GetWeakPtr(), device_to_set, should_enable));
+  } else {
+    DCHECK(!device_to_set.instance_id().empty());
+    device_sync_client_->SetFeatureStatus(
+        device_to_set.instance_id(),
+        multidevice::SoftwareFeature::kBetterTogetherHost,
+        should_enable ? device_sync::FeatureStatusChange::kEnableExclusively
+                      : device_sync::FeatureStatusChange::kDisable,
         base::BindOnce(
             &HostBackendDelegateImpl::OnSetHostNetworkRequestFinished,
             weak_ptr_factory_.GetWeakPtr(), device_to_set, should_enable));
@@ -310,19 +294,18 @@ void HostBackendDelegateImpl::OnNewDevicesSynced() {
   if (host_from_last_sync_ == host_from_sync)
     return;
 
-  std::string old_host_ids =
-      host_from_last_sync_
-          ? ('\n' + GenerateDeviceIdString(*host_from_last_sync_))
-          : kNoHostForLogging;
-  std::string new_host_ids =
-      host_from_sync ? ('\n' + GenerateDeviceIdString(*host_from_sync))
-                     : kNoHostForLogging;
-
-  host_from_last_sync_ = host_from_sync;
   PA_LOG(VERBOSE) << "HostBackendDelegateImpl::OnNewDevicesSynced(): New host "
                   << "device has been set."
-                  << "\nOld host IDs: " << old_host_ids
-                  << "\nNew host IDs: " << new_host_ids;
+                  << "\n  Old host: "
+                  << (host_from_last_sync_
+                          ? host_from_last_sync_->GetInstanceIdDeviceIdForLogs()
+                          : kNoHostForLogging)
+                  << "\n  New host: "
+                  << (host_from_sync
+                          ? host_from_sync->GetInstanceIdDeviceIdForLogs()
+                          : kNoHostForLogging);
+
+  host_from_last_sync_ = host_from_sync;
 
   // If there is a pending request and the new host fulfills that pending
   // request, there is no longer a pending request.
@@ -363,9 +346,8 @@ void HostBackendDelegateImpl::OnSetHostNetworkRequestFinished(
   std::stringstream ss;
   ss << "HostBackendDelegateImpl::OnSetHostNetworkRequestFinished(): "
      << (success ? "Completed successful" : "Failure requesting") << " "
-     << "host change.\n"
-     << GenerateDeviceIdString(device_for_request)
-     << "\nAttempted to enable: " << (attempted_to_enable ? "true" : "false");
+     << "host change for " << device_for_request.GetInstanceIdDeviceIdForLogs()
+     << ". Attempted to enable: " << (attempted_to_enable ? "true" : "false");
 
   if (success) {
     PA_LOG(VERBOSE) << ss.str();
@@ -395,10 +377,10 @@ void HostBackendDelegateImpl::OnSetHostNetworkRequestFinished(
   if (failed_request_was_to_set_pending_host ||
       failed_request_was_to_remove_pending_host) {
     NotifyBackendRequestFailed();
-    timer_->Start(FROM_HERE,
-                  base::TimeDelta::FromMinutes(kNumMinutesBetweenRetries),
-                  base::Bind(&HostBackendDelegateImpl::AttemptNetworkRequest,
-                             base::Unretained(this), true /* is_retry */));
+    timer_->Start(
+        FROM_HERE, base::TimeDelta::FromMinutes(kNumMinutesBetweenRetries),
+        base::BindOnce(&HostBackendDelegateImpl::AttemptNetworkRequest,
+                       base::Unretained(this), true /* is_retry */));
   }
 }
 

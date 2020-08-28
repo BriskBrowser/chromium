@@ -11,17 +11,15 @@
 #include <vector>
 
 #include "base/strings/stringprintf.h"
-#include "content/public/common/content_features.h"
-#include "content/public/common/resource_type.h"
 #include "mojo/public/cpp/bindings/self_owned_receiver.h"
 #include "net/http/http_util.h"
+#include "net/url_request/redirect_info.h"
 #include "net/url_request/redirect_util.h"
-#include "services/network/loader_util.h"
-#include "services/network/public/cpp/content_security_policy.h"
 #include "services/network/public/cpp/resource_request.h"
 #include "services/network/public/cpp/resource_request_body.h"
 #include "services/network/public/mojom/url_response_head.mojom.h"
 #include "third_party/blink/public/common/blob/blob_utils.h"
+#include "third_party/blink/public/mojom/loader/resource_load_info.mojom-shared.h"
 #include "ui/base/page_transition_types.h"
 
 namespace content {
@@ -99,18 +97,30 @@ void ServiceWorkerLoaderHelpers::SaveResponseInfo(
   out_head->was_fallback_required_by_service_worker = false;
   out_head->url_list_via_service_worker = response.url_list;
   out_head->response_type = response.response_type;
+  if (response.mime_type.has_value()) {
+    std::string charset;
+    bool had_charset = false;
+    // The mime type set on |response| may have a charset included.  The
+    // loading stack, however, expects the charset to already have been
+    // stripped.  Parse out the mime type essence without any charset and
+    // store the result on |out_head|.
+    net::HttpUtil::ParseContentType(response.mime_type.value(),
+                                    &out_head->mime_type, &charset,
+                                    &had_charset, nullptr);
+  }
   out_head->response_time = response.response_time;
-  out_head->is_in_cache_storage =
-      response.response_source ==
-      network::mojom::FetchResponseSource::kCacheStorage;
+  out_head->service_worker_response_source = response.response_source;
   if (response.cache_storage_cache_name)
     out_head->cache_storage_cache_name = *(response.cache_storage_cache_name);
   else
     out_head->cache_storage_cache_name.clear();
   out_head->cors_exposed_header_names = response.cors_exposed_header_names;
   out_head->did_service_worker_navigation_preload = false;
-  out_head->content_security_policy =
-      mojo::Clone(response.content_security_policy);
+  out_head->parsed_headers = mojo::Clone(response.parsed_headers);
+  out_head->connection_info = response.connection_info;
+  out_head->alpn_negotiated_protocol = response.alpn_negotiated_protocol;
+  out_head->was_fetched_via_spdy = response.was_fetched_via_spdy;
+  out_head->has_range_requested = response.has_range_requested;
 }
 
 // static
@@ -124,11 +134,11 @@ ServiceWorkerLoaderHelpers::ComputeRedirectInfo(
 
   // If the request is a MAIN_FRAME request, the first-party URL gets
   // updated on redirects.
-  const net::URLRequest::FirstPartyURLPolicy first_party_url_policy =
+  const net::RedirectInfo::FirstPartyURLPolicy first_party_url_policy =
       original_request.resource_type ==
-              static_cast<int>(ResourceType::kMainFrame)
-          ? net::URLRequest::UPDATE_FIRST_PARTY_URL_ON_REDIRECT
-          : net::URLRequest::NEVER_CHANGE_FIRST_PARTY_URL;
+              static_cast<int>(blink::mojom::ResourceType::kMainFrame)
+          ? net::RedirectInfo::FirstPartyURLPolicy::UPDATE_URL_ON_REDIRECT
+          : net::RedirectInfo::FirstPartyURLPolicy::NEVER_CHANGE_URL;
   return net::RedirectInfo::ComputeRedirectInfo(
       original_request.method, original_request.url,
       original_request.site_for_cookies, first_party_url_policy,

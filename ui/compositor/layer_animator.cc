@@ -8,7 +8,7 @@
 
 #include <memory>
 
-#include "base/logging.h"
+#include "base/check_op.h"
 #include "base/stl_util.h"
 #include "base/trace_event/trace_event.h"
 #include "cc/animation/animation.h"
@@ -31,10 +31,9 @@
     ((running_anim.is_sequence_alive()) \
         ? function(running_anim.sequence()) \
         : false)
-#define SAFE_INVOKE_PTR(function, running_anim) \
-    ((running_anim.is_sequence_alive()) \
-        ? function(running_anim.sequence()) \
-        : NULL)
+#define SAFE_INVOKE_PTR(function, running_anim)                           \
+  ((running_anim.is_sequence_alive()) ? function(running_anim.sequence()) \
+                                      : nullptr)
 
 namespace ui {
 
@@ -47,7 +46,7 @@ const int kLayerAnimatorDefaultTransitionDurationMs = 120;
 // LayerAnimator public --------------------------------------------------------
 
 LayerAnimator::LayerAnimator(base::TimeDelta transition_duration)
-    : delegate_(NULL),
+    : delegate_(nullptr),
       preemption_strategy_(IMMEDIATELY_SET_NEW_TARGET),
       is_transition_duration_locked_(false),
       transition_duration_(transition_duration),
@@ -66,7 +65,7 @@ LayerAnimator::~LayerAnimator() {
       running_animations_[i].sequence()->OnAnimatorDestroyed();
   }
   ClearAnimationsInternal();
-  delegate_ = NULL;
+  delegate_ = nullptr;
   DCHECK(!animation_->animation_timeline());
 }
 
@@ -164,6 +163,9 @@ void LayerAnimator::AttachLayerAndTimeline(Compositor* compositor) {
 
   DCHECK(delegate_->GetCcLayer());
   AttachLayerToAnimation(delegate_->GetCcLayer()->id());
+
+  for (auto& layer_animation_sequence : animation_queue_)
+    layer_animation_sequence->OnAnimatorAttached(delegate());
 }
 
 void LayerAnimator::DetachLayerAndTimeline(Compositor* compositor) {
@@ -174,6 +176,9 @@ void LayerAnimator::DetachLayerAndTimeline(Compositor* compositor) {
 
   DetachLayerFromAnimation();
   timeline->DetachAnimation(animation_);
+
+  for (auto& layer_animation_sequence : animation_queue_)
+    layer_animation_sequence->OnAnimatorDetached();
 }
 
 void LayerAnimator::AttachLayerToAnimation(int layer_id) {
@@ -654,7 +659,7 @@ LayerAnimator::RunningAnimation* LayerAnimator::GetRunningAnimation(
     if ((*iter).sequence()->properties() & property)
       return &(*iter);
   }
-  return NULL;
+  return nullptr;
 }
 
 void LayerAnimator::AddToQueueIfNotPresent(LayerAnimationSequence* animation) {
@@ -729,7 +734,7 @@ void LayerAnimator::ImmediatelySetNewTarget(LayerAnimationSequence* sequence) {
     return;
 
   LayerAnimationSequence* removed = RemoveAnimation(sequence);
-  DCHECK(removed == NULL || removed == sequence);
+  DCHECK(removed == nullptr || removed == sequence);
   if (!weak_sequence_ptr.get())
     return;
 
@@ -944,7 +949,7 @@ void LayerAnimator::PurgeDeletedAnimations() {
 }
 
 LayerAnimatorCollection* LayerAnimator::GetLayerAnimatorCollection() {
-  return delegate_ ? delegate_->GetLayerAnimatorCollection() : NULL;
+  return delegate_ ? delegate_->GetLayerAnimatorCollection() : nullptr;
 }
 
 void LayerAnimator::NotifyAnimationStarted(base::TimeTicks monotonic_time,

@@ -6,15 +6,25 @@
 
 #include <stddef.h>
 
-#include "base/logging.h"
+#include "base/check.h"
 #include "base/trace_event/traced_value.h"
-#include "base/values.h"
 #include "cc/base/math_util.h"
+#include "ui/gfx/color_utils.h"
 #include "ui/gfx/geometry/vector2d_f.h"
 
 namespace viz {
 
-TextureDrawQuad::TextureDrawQuad() = default;
+TextureDrawQuad::TextureDrawQuad()
+    : y_flipped(false),
+      nearest_neighbor(false),
+      premultiplied_alpha(false),
+      secure_output_only(false),
+      is_video_frame(false),
+      protected_video_type(gfx::ProtectedVideoType::kClear) {
+  static_assert(static_cast<int>(gfx::ProtectedVideoType::kMaxValue) < 4,
+                "protected_video_type needs more bits in order to represent "
+                "all the enum values");
+}
 
 TextureDrawQuad::TextureDrawQuad(const TextureDrawQuad& other) = default;
 
@@ -71,7 +81,7 @@ void TextureDrawQuad::SetAll(const SharedQuadState* shared_quad_state,
   DrawQuad::SetAll(shared_quad_state, DrawQuad::Material::kTextureContent, rect,
                    visible_rect, needs_blending);
   resources.ids[kResourceIdIndex] = resource_id;
-  overlay_resources.size_in_pixels[kResourceIdIndex] = resource_size_in_pixels;
+  overlay_resources.size_in_pixels = resource_size_in_pixels;
   resources.count = 1;
   this->premultiplied_alpha = premultiplied_alpha;
   this->uv_top_left = uv_top_left;
@@ -99,7 +109,8 @@ void TextureDrawQuad::ExtendValue(base::trace_event::TracedValue* value) const {
   cc::MathUtil::AddToTracedValue("uv_top_left", uv_top_left, value);
   cc::MathUtil::AddToTracedValue("uv_bottom_right", uv_bottom_right, value);
 
-  value->SetInteger("background_color", background_color);
+  value->SetString("background_color",
+                   color_utils::SkColorToRgbaString(background_color));
 
   value->BeginArray("vertex_opacity");
   for (size_t i = 0; i < 4; ++i)
@@ -108,6 +119,7 @@ void TextureDrawQuad::ExtendValue(base::trace_event::TracedValue* value) const {
 
   value->SetBoolean("y_flipped", y_flipped);
   value->SetBoolean("nearest_neighbor", nearest_neighbor);
+  value->SetBoolean("is_video_frame", is_video_frame);
   value->SetInteger("protected_video_type",
                     static_cast<int>(protected_video_type));
 }

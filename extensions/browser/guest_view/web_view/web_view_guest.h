@@ -23,6 +23,10 @@
 #include "extensions/browser/script_executor.h"
 #include "third_party/blink/public/mojom/frame/find_in_page.mojom.h"
 
+namespace content {
+class StoragePartitionConfig;
+}  // namespace content
+
 namespace extensions {
 
 class WebViewInternalFindFunction;
@@ -50,18 +54,15 @@ class WebViewGuest : public guest_view::GuestView<WebViewGuest> {
   // a specially formatted URL, based on the application it is hosted by and
   // the partition requested by it. The format for that URL is:
   // chrome-guest://partition_domain/persist?partition_name
-  static bool GetGuestPartitionConfigForSite(const GURL& site,
-                                             std::string* partition_domain,
-                                             std::string* partition_name,
-                                             bool* in_memory);
+  static bool GetGuestPartitionConfigForSite(
+      const GURL& site,
+      content::StoragePartitionConfig* storage_partition_config);
 
   // Opposite of GetGuestPartitionConfigForSite: Creates a specially formatted
   // URL used by the SiteInstance associated with the WebViewGuest. See
   // GetGuestPartitionConfigForSite for the URL format.
   static GURL GetSiteForGuestPartitionConfig(
-      const std::string& partition_domain,
-      const std::string& partition_name,
-      bool in_memory);
+      const content::StoragePartitionConfig& storage_partition_config);
 
   // Returns the WebView partition ID associated with the render process
   // represented by |render_process_host|, if any. Otherwise, an empty string is
@@ -178,6 +179,10 @@ class WebViewGuest : public guest_view::GuestView<WebViewGuest> {
   bool GuestMadeEmbedderFullscreen() const;
   void SetFullscreenState(bool is_fullscreen);
 
+  void RequestPointerLockPermission(bool user_gesture,
+                                    bool last_unlocked_by_target,
+                                    base::OnceCallback<void(bool)> callback);
+
   // GuestViewBase implementation.
   void CreateWebContents(const base::DictionaryValue& create_params,
                          WebContentsCreatedCallback callback) final;
@@ -223,10 +228,6 @@ class WebViewGuest : public guest_view::GuestView<WebViewGuest> {
       content::WebContents* source,
       const content::MediaStreamRequest& request,
       content::MediaResponseCallback callback) final;
-  void RequestPointerLockPermission(
-      bool user_gesture,
-      bool last_unlocked_by_target,
-      base::OnceCallback<void(bool)> callback) final;
   bool CheckMediaAccessPermission(content::RenderFrameHost* render_frame_host,
                                   const GURL& security_origin,
                                   blink::mojom::MediaStreamType type) final;
@@ -237,6 +238,7 @@ class WebViewGuest : public guest_view::GuestView<WebViewGuest> {
       content::WebContents* source) final;
   void AddNewContents(content::WebContents* source,
                       std::unique_ptr<content::WebContents> new_contents,
+                      const GURL& target_url,
                       WindowOpenDisposition disposition,
                       const gfx::Rect& initial_rect,
                       bool user_gesture,
@@ -251,8 +253,7 @@ class WebViewGuest : public guest_view::GuestView<WebViewGuest> {
                           const GURL& target_url,
                           content::WebContents* new_contents) final;
   void EnterFullscreenModeForTab(
-      content::WebContents* web_contents,
-      const GURL& origin,
+      content::RenderFrameHost* requesting_frame,
       const blink::mojom::FullscreenOptions& options) final;
   void ExitFullscreenModeForTab(content::WebContents* web_contents) final;
   bool IsFullscreenForTabOrPending(
@@ -271,7 +272,7 @@ class WebViewGuest : public guest_view::GuestView<WebViewGuest> {
   void LoadProgressChanged(double progress) final;
   void DocumentOnLoadCompletedInMainFrame() final;
   void RenderProcessGone(base::TerminationStatus status) final;
-  void UserAgentOverrideSet(const std::string& user_agent) final;
+  void UserAgentOverrideSet(const blink::UserAgentOverride& ua_override) final;
   void FrameNameChanged(content::RenderFrameHost* render_frame_host,
                         const std::string& name) final;
   void OnAudioStateChanged(bool audible) final;
@@ -296,7 +297,6 @@ class WebViewGuest : public guest_view::GuestView<WebViewGuest> {
   void RequestNewWindowPermission(
       WindowOpenDisposition disposition,
       const gfx::Rect& initial_bounds,
-      bool user_gesture,
       content::WebContents* new_contents);
 
   // Requests resolution of a potentially relative URL.

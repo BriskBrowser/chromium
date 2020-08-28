@@ -8,7 +8,6 @@
 #include <memory>
 
 #include "base/files/file_path.h"
-#include "base/logging.h"
 #include "base/macros.h"
 #include "base/strings/string16.h"
 #include "base/version.h"
@@ -31,17 +30,9 @@ class MasterPreferences;
 // the operations to be performed.
 class InstallerState {
  public:
-  enum Level {
-    UNKNOWN_LEVEL,
-    USER_LEVEL,
-    SYSTEM_LEVEL
-  };
+  enum Level { UNKNOWN_LEVEL, USER_LEVEL, SYSTEM_LEVEL };
 
-  enum Operation {
-    UNINITIALIZED,
-    SINGLE_INSTALL_OR_UPDATE,
-    UNINSTALL
-  };
+  enum Operation { UNINITIALIZED, SINGLE_INSTALL_OR_UPDATE, UNINSTALL };
 
   // Constructs an uninitialized instance; see Initialize().
   InstallerState();
@@ -86,22 +77,17 @@ class InstallerState {
   // The ClientState key by which we interact with Google Update.
   const base::string16& state_key() const { return state_key_; }
 
-  // Returns true if this is an update of multi-install Chrome to
-  // single-install.
-  bool is_migrating_to_single() const { return is_migrating_to_single_; }
-
-  // Returns the currently installed version in |target_path|, or NULL if no
-  // products are installed. Ownership is passed to the caller.
-  base::Version* GetCurrentVersion(
-      const InstallationState& machine_state) const;
+  // Returns the currently installed version in |target_path|.
+  // Use IsValid() predicate to detect if product not installed.
+  base::Version GetCurrentVersion(const InstallationState& machine_state) const;
 
   // Returns the critical update version if all of the following are true:
   // * --critical-update-version=CUV was specified on the command-line.
-  // * current_version == NULL or current_version < CUV.
+  // * !current_version.IsValid() or current_version < CUV.
   // * new_version >= CUV.
   // Otherwise, returns an invalid version.
   base::Version DetermineCriticalVersion(
-      const base::Version* current_version,
+      const base::Version& current_version,
       const base::Version& new_version) const;
 
   // Returns the path to the installer under Chrome version folder
@@ -112,16 +98,13 @@ class InstallerState {
   // Google Update for presentation to a user.
   void SetStage(InstallerStage stage) const;
 
-  // Strips all evidence of multi-install from Chrome's "ap" value.
-  void UpdateChannels() const;
-
   // Sets installer result information in the registry for consumption by Google
   // Update. The InstallerResult value is set to 0 (SUCCESS) or 1
   // (FAILED_CUSTOM_ERROR) depending on whether |status| maps to success or not.
   // |status| itself is written to the InstallerError value.
   // |string_resource_id|, if non-zero, identifies a localized string written to
-  // the InstallerResultUIString value. |launch_cmd|, if non-NULL and non-empty,
-  // is written to the InstallerSuccessLaunchCmdLine value.
+  // the InstallerResultUIString value. |launch_cmd|, if non-nullptr and
+  // non-empty, is written to the InstallerSuccessLaunchCmdLine value.
   void WriteInstallerResult(InstallStatus status,
                             int string_resource_id,
                             const base::string16* launch_cmd) const;
@@ -145,7 +128,6 @@ class InstallerState {
   HKEY root_key_;
   bool msi_;
   bool verbose_logging_;
-  bool is_migrating_to_single_;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(InstallerState);

@@ -87,13 +87,9 @@ class CanvasResourceDispatcherTest
 
   void CreateCanvasResourceDispatcher() {
     dispatcher_ = std::make_unique<MockCanvasResourceDispatcher>();
-    resource_provider_ = CanvasResourceProvider::Create(
-        IntSize(kWidth, kHeight),
-        CanvasResourceProvider::ResourceUsage::kSoftwareCompositedResourceUsage,
-        nullptr,  // context_provider_wrapper
-        0,        // msaa_sample_count
-        kLow_SkFilterQuality, CanvasColorParams(),
-        CanvasResourceProvider::kDefaultPresentationMode,
+    resource_provider_ = CanvasResourceProvider::CreateSharedBitmapProvider(
+        IntSize(kWidth, kHeight), kLow_SkFilterQuality, CanvasColorParams(),
+        CanvasResourceProvider::ShouldInitialize::kCallClear,
         dispatcher_->GetWeakPtr());
   }
 

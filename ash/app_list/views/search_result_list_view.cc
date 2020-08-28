@@ -19,7 +19,9 @@
 #include "ash/public/cpp/app_list/app_list_config.h"
 #include "ash/public/cpp/app_list/app_list_features.h"
 #include "ash/public/cpp/app_list/app_list_metrics.h"
+#include "ash/public/cpp/app_list/app_list_notifier.h"
 #include "ash/public/cpp/app_list/vector_icons/vector_icons.h"
+#include "ash/public/cpp/vector_icons/vector_icons.h"
 #include "ash/resources/vector_icons/vector_icons.h"
 #include "ash/strings/grit/ash_strings.h"
 #include "base/bind.h"
@@ -145,24 +147,6 @@ void LogFileImpressions(SearchResultType result_type) {
                             result_type, SEARCH_RESULT_TYPE_BOUNDARY);
 }
 
-void LogDriveQuickAccessResultsPresent(
-    const std::vector<SearchResult*>& results) {
-  DriveQuickAccessResultPresence value =
-      DriveQuickAccessResultPresence::kAbsent;
-  for (size_t i = 0; i < results.size(); ++i) {
-    if (!IsDriveQuickAccess(*results[i]))
-      continue;
-    if (i < AppListConfig::instance().max_search_result_list_items()) {
-      value = DriveQuickAccessResultPresence::kPresentAndShown;
-    } else {
-      value = DriveQuickAccessResultPresence::kPresentAndNotShown;
-    }
-    break;
-  }
-
-  UMA_HISTOGRAM_ENUMERATION(kDriveQuickAccessResultPresence, value);
-}
-
 }  // namespace
 
 SearchResultListView::SearchResultListView(AppListMainView* main_view,
@@ -200,20 +184,6 @@ SearchResultView* SearchResultListView::GetResultViewAt(size_t index) {
   return search_result_views_[index];
 }
 
-void SearchResultListView::NotifyFirstResultYIndex(int y_index) {
-  for (size_t i = 0; i < static_cast<size_t>(num_results()); ++i)
-    GetResultViewAt(i)->result()->set_distance_from_origin(i + y_index);
-}
-
-int SearchResultListView::GetYSize() {
-  return num_results();
-}
-
-SearchResultBaseView* SearchResultListView::GetFirstResultView() {
-  DCHECK(!results_container_->children().empty());
-  return num_results() <= 0 ? nullptr : search_result_views_[0];
-}
-
 int SearchResultListView::DoUpdate() {
   if (!GetWidget() || !GetWidget()->IsVisible()) {
     for (size_t i = 0; i < results_container_->children().size(); ++i) {
@@ -229,25 +199,15 @@ int SearchResultListView::DoUpdate() {
           results(), SearchResultDisplayType::kList, /*excludes=*/{},
           results_container_->children().size());
 
-  // TODO(crbug.com/1011221): This must be removed before M80 stable, as it is
-  // expensive and may introduce UI jank.
-  if (view_delegate_->GetSearchModel()->search_box()->text().empty()) {
-    // We need to get more items than are displayed here in order to see whether
-    // there are Drive QuickAccess results present in the list but not
-    // displayed. 20 items is the maximum number that can exist for zero state:
-    // 5 recent queries, 5 Driive QuickAccess files, and 10 local files. This is
-    // too expensive to run on stable, as it may introduce UI jank.
-    LogDriveQuickAccessResultsPresent(
-        SearchModel::FilterSearchResultsByDisplayType(
-            results(), SearchResultDisplayType::kList, /*excludes=*/{}, 20));
-  }
-
   const size_t display_size = display_results.size();
   std::vector<const gfx::VectorIcon*> assistant_item_icons(display_size,
                                                            nullptr);
   if (IsAssistantSearchEnabled(view_delegate_))
     CalculateDisplayIcons(display_results, &assistant_item_icons);
 
+  // TODO(crbug.com/1076270): The logic for zero state and Drive quick access
+  // files below exists only for metrics, and can be folded into the
+  // AppListNotifier and done in chrome.
   bool found_zero_state_file = false;
   bool found_drive_quick_access = false;
 
@@ -286,6 +246,15 @@ int SearchResultListView::DoUpdate() {
     }
   }
 
+  auto* notifier = view_delegate_->GetNotifier();
+  if (notifier) {
+    std::vector<AppListNotifier::Result> notifier_results;
+    for (const auto* result : display_results)
+      notifier_results.emplace_back(result->id(), result->metrics_type());
+    notifier->NotifyResultsUpdated(SearchResultDisplayType::kList,
+                                   notifier_results);
+  }
+
   // Logic for logging impression of items that were shown to user.
   // Each time DoUpdate() called, start a timer that will be fired after a
   // certain amount of time |kImpressionThreshold|. If during the waiting time,
@@ -317,7 +286,9 @@ int SearchResultListView::DoUpdate() {
   previous_found_drive_quick_access_ = found_drive_quick_access;
 
   set_container_score(
-      display_results.empty() ? 0 : display_results.front()->display_score());
+      display_results.empty()
+          ? -1.0
+          : AppListConfig::instance().results_list_container_score());
 
   return display_results.size();
 }
@@ -389,41 +360,6 @@ void SearchResultListView::SearchResultActionActivated(SearchResultView* view,
 void SearchResultListView::OnSearchResultInstalled(SearchResultView* view) {
   if (main_view_ && view->result())
     main_view_->OnResultInstalled(view->result());
-}
-
-bool SearchResultListView::HandleVerticalFocusMovement(SearchResultView* view,
-                                                       bool arrow_up) {
-  int view_index = -1;
-  for (int i = 0; i < num_results(); ++i) {
-    if (view == GetResultViewAt(i)) {
-      view_index = i;
-      break;
-    }
-  }
-
-  if (view_index == -1) {
-    // Not found in the result list.
-    NOTREACHED();
-    return false;
-  }
-
-  if (arrow_up) {  // VKEY_UP
-    if (view_index > 0) {
-      // Move to the previous result if the current one is not the first result.
-      GetResultViewAt(view_index - 1)->RequestFocus();
-      return true;
-    }
-  } else {  // VKEY_DOWN
-    // Move down to the next result if the currernt one is not the last result;
-    // otherwise, move focus to search box.
-    if (view_index == num_results() - 1)
-      main_view_->search_box_view()->search_box()->RequestFocus();
-    else
-      GetResultViewAt(view_index + 1)->RequestFocus();
-    return true;
-  }
-
-  return false;
 }
 
 void SearchResultListView::VisibilityChanged(View* starting_from,

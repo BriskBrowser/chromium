@@ -13,12 +13,12 @@
 #include "base/test/mock_callback.h"
 #include "base/test/task_environment.h"
 #include "components/sync/base/client_tag_hash.h"
+#include "components/sync/model/conflict_resolution.h"
 #include "components/sync/model/mock_model_type_change_processor.h"
 #include "components/sync/model/model_error.h"
 #include "components/sync/model/model_type_store_test_util.h"
 #include "components/sync/model/sync_change.h"
 #include "components/sync/model/sync_error_factory.h"
-#include "components/sync/model/sync_merge_result.h"
 #include "components/sync/model/syncable_service.h"
 #include "components/sync/model_impl/client_tag_based_model_type_processor.h"
 #include "components/sync/protocol/persisted_entity_data.pb.h"
@@ -32,6 +32,7 @@ namespace {
 
 using testing::_;
 using testing::ElementsAre;
+using testing::Eq;
 using testing::Invoke;
 using testing::IsEmpty;
 using testing::NotNull;
@@ -65,16 +66,16 @@ MATCHER_P(HasName, name, "") {
 class MockSyncableService : public SyncableService {
  public:
   MOCK_METHOD1(WaitUntilReadyToSync, void(base::OnceClosure done));
-  MOCK_METHOD4(
-      MergeDataAndStartSyncing,
-      SyncMergeResult(ModelType type,
-                      const SyncDataList& initial_sync_data,
-                      std::unique_ptr<SyncChangeProcessor> sync_processor,
-                      std::unique_ptr<SyncErrorFactory> sync_error_factory));
+  MOCK_METHOD4(MergeDataAndStartSyncing,
+               base::Optional<syncer::ModelError>(
+                   ModelType type,
+                   const SyncDataList& initial_sync_data,
+                   std::unique_ptr<SyncChangeProcessor> sync_processor,
+                   std::unique_ptr<SyncErrorFactory> sync_error_factory));
   MOCK_METHOD1(StopSyncing, void(ModelType type));
   MOCK_METHOD2(ProcessSyncChanges,
-               SyncError(const base::Location& from_here,
-                         const SyncChangeList& change_list));
+               base::Optional<ModelError>(const base::Location& from_here,
+                                          const SyncChangeList& change_list));
   MOCK_CONST_METHOD1(GetAllSyncData, SyncDataList(ModelType type));
 };
 
@@ -91,20 +92,20 @@ class SyncableServiceBasedBridgeTest : public ::testing::Test {
                 std::unique_ptr<SyncChangeProcessor> sync_processor,
                 std::unique_ptr<SyncErrorFactory> sync_error_factory) {
               start_syncing_sync_processor_ = std::move(sync_processor);
-              return SyncMergeResult(kModelType);
+              return base::nullopt;
             });
   }
 
   ~SyncableServiceBasedBridgeTest() override {}
 
-  void InitializeBridge() {
+  void InitializeBridge(ModelType model_type = kModelType) {
     real_processor_ =
         std::make_unique<syncer::ClientTagBasedModelTypeProcessor>(
-            kModelType, /*dump_stack=*/base::DoNothing(),
+            model_type, /*dump_stack=*/base::DoNothing(),
             /*commit_only=*/false);
     mock_processor_.DelegateCallsByDefaultTo(real_processor_.get());
     bridge_ = std::make_unique<SyncableServiceBasedBridge>(
-        kModelType,
+        model_type,
         ModelTypeStoreTestUtil::FactoryForForwardingStore(store_.get()),
         mock_processor_.CreateForwardingProcessor(), &syncable_service_);
   }
@@ -282,11 +283,8 @@ TEST_F(SyncableServiceBasedBridgeTest,
 
 TEST_F(SyncableServiceBasedBridgeTest, ShouldPropagateErrorDuringStart) {
   // Instrument MergeDataAndStartSyncing() to return an error.
-  SyncMergeResult merge_result(kModelType);
-  merge_result.set_error(SyncError(FROM_HERE, SyncError::PERSISTENCE_ERROR,
-                                   "Test error", kModelType));
   ON_CALL(syncable_service_, MergeDataAndStartSyncing(_, _, _, _))
-      .WillByDefault(Return(merge_result));
+      .WillByDefault(Return(ModelError(FROM_HERE, "Test error")));
 
   EXPECT_CALL(mock_error_handler_, Run(_));
 
@@ -366,10 +364,10 @@ TEST_F(SyncableServiceBasedBridgeTest,
         change_list.emplace_back(
             FROM_HERE, SyncChange::ACTION_ADD,
             SyncData::CreateLocalData(kClientTag, "title", GetTestSpecifics()));
-        const SyncError error =
+        const base::Optional<ModelError> error =
             sync_processor->ProcessSyncChanges(FROM_HERE, change_list);
-        EXPECT_FALSE(error.IsSet());
-        return SyncMergeResult(kModelType);
+        EXPECT_FALSE(error.has_value());
+        return base::nullopt;
       });
 
   InitializeBridge();
@@ -395,9 +393,9 @@ TEST_F(SyncableServiceBasedBridgeTest, ShouldPropagateLocalCreation) {
   change_list.emplace_back(
       FROM_HERE, SyncChange::ACTION_ADD,
       SyncData::CreateLocalData(kClientTag, "title", GetTestSpecifics()));
-  const SyncError error =
+  const base::Optional<ModelError> error =
       start_syncing_sync_processor_->ProcessSyncChanges(FROM_HERE, change_list);
-  EXPECT_FALSE(error.IsSet());
+  EXPECT_FALSE(error.has_value());
   EXPECT_THAT(GetAllData(), ElementsAre(Pair(kClientTagHash.value(), _)));
 }
 
@@ -416,9 +414,9 @@ TEST_F(SyncableServiceBasedBridgeTest, ShouldPropagateLocalUpdate) {
   change_list.emplace_back(FROM_HERE, SyncChange::ACTION_UPDATE,
                            SyncData::CreateLocalData(
                                kClientTag, "title", GetTestSpecifics("name2")));
-  const SyncError error =
+  const base::Optional<ModelError> error =
       start_syncing_sync_processor_->ProcessSyncChanges(FROM_HERE, change_list);
-  EXPECT_FALSE(error.IsSet());
+  EXPECT_FALSE(error.has_value());
   EXPECT_THAT(GetAllData(),
               ElementsAre(Pair(kClientTagHash.value(), HasName("name2"))));
 }
@@ -437,9 +435,9 @@ TEST_F(SyncableServiceBasedBridgeTest, ShouldPropagateLocalDeletion) {
   change_list.emplace_back(FROM_HERE, SyncChange::ACTION_DELETE,
                            SyncData::CreateLocalDelete(kClientTag, kModelType));
 
-  const SyncError error =
+  const base::Optional<ModelError> error =
       start_syncing_sync_processor_->ProcessSyncChanges(FROM_HERE, change_list);
-  EXPECT_FALSE(error.IsSet());
+  EXPECT_FALSE(error.has_value());
   EXPECT_THAT(GetAllData(), IsEmpty());
 }
 
@@ -463,9 +461,9 @@ TEST_F(SyncableServiceBasedBridgeTest,
   change_list.emplace_back(
       FROM_HERE, SyncChange::ACTION_ADD,
       SyncData::CreateLocalData(kClientTag, "title", GetTestSpecifics()));
-  const SyncError error =
+  const base::Optional<ModelError> error =
       start_syncing_sync_processor_->ProcessSyncChanges(FROM_HERE, change_list);
-  EXPECT_TRUE(error.IsSet());
+  EXPECT_TRUE(error.has_value());
   EXPECT_THAT(GetAllData(), IsEmpty());
 }
 
@@ -550,7 +548,7 @@ TEST(SyncableServiceBasedBridgeLocalChangeProcessorTest,
   SyncChangeList change_list;
   change_list.push_back(SyncChange(
       FROM_HERE, SyncChange::ACTION_DELETE,
-      SyncData::CreateRemoteData(/*id=*/1, specifics,
+      SyncData::CreateRemoteData(specifics,
                                  /*client_tag_hash=*/kClientTagHash)));
 
   sync_change_processor->ProcessSyncChanges(FROM_HERE, change_list);
@@ -585,12 +583,63 @@ TEST(SyncableServiceBasedBridgeLocalChangeProcessorTest,
   SyncChangeList change_list;
   change_list.push_back(SyncChange(
       FROM_HERE, SyncChange::ACTION_DELETE,
-      SyncData::CreateRemoteData(/*id=*/1, specifics,
+      SyncData::CreateRemoteData(specifics,
                                  /*client_tag_hash=*/kClientTagHash)));
 
   sync_change_processor->ProcessSyncChanges(FROM_HERE, change_list);
 
   EXPECT_EQ(1U, in_memory_store.count(kClientTagHash));
+}
+
+TEST_F(SyncableServiceBasedBridgeTest, ConflictShouldUseRemote) {
+  InitializeBridge();
+
+  EntityData remote_data;
+  remote_data.client_tag_hash = kClientTagHash;
+  remote_data.specifics = GetTestSpecifics();
+  ASSERT_FALSE(remote_data.is_deleted());
+
+  EXPECT_THAT(bridge_->ResolveConflict("storagekey1", remote_data),
+              Eq(ConflictResolution::kUseRemote));
+}
+
+TEST_F(SyncableServiceBasedBridgeTest,
+       ConflictWithRemoteDeletionShouldUseLocal) {
+  InitializeBridge();
+
+  EntityData remote_data;
+  remote_data.client_tag_hash = kClientTagHash;
+  ASSERT_TRUE(remote_data.is_deleted());
+
+  EXPECT_THAT(bridge_->ResolveConflict("storagekey1", remote_data),
+              Eq(ConflictResolution::kUseLocal));
+}
+
+// This ensures that for extensions, the conflict is resolved in favor of the
+// server, to prevent extensions from being reinstalled after uninstall.
+TEST_F(SyncableServiceBasedBridgeTest,
+       ConflictWithRemoteExtensionUninstallShouldUseRemote) {
+  InitializeBridge(EXTENSIONS);
+
+  EntityData remote_data;
+  remote_data.client_tag_hash = kClientTagHash;
+  ASSERT_TRUE(remote_data.is_deleted());
+
+  EXPECT_THAT(bridge_->ResolveConflict("storagekey1", remote_data),
+              Eq(ConflictResolution::kUseRemote));
+}
+
+// Same as above but for APPS.
+TEST_F(SyncableServiceBasedBridgeTest,
+       ConflictWithRemoteAppUninstallShouldUseRemote) {
+  InitializeBridge(APPS);
+
+  EntityData remote_data;
+  remote_data.client_tag_hash = kClientTagHash;
+  ASSERT_TRUE(remote_data.is_deleted());
+
+  EXPECT_THAT(bridge_->ResolveConflict("storagekey1", remote_data),
+              Eq(ConflictResolution::kUseRemote));
 }
 
 }  // namespace

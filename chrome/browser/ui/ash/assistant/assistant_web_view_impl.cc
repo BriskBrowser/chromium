@@ -4,16 +4,19 @@
 
 #include "chrome/browser/ui/ash/assistant/assistant_web_view_impl.h"
 
+#include "ash/public/cpp/window_properties.h"
 #include "chrome/browser/profiles/profile.h"
 #include "content/public/browser/focused_node_details.h"
 #include "content/public/browser/render_widget_host_view.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_contents_delegate.h"
 #include "third_party/blink/public/mojom/renderer_preferences.mojom.h"
+#include "ui/aura/window.h"
 #include "ui/views/controls/webview/web_contents_set_background_color.h"
 #include "ui/views/controls/webview/webview.h"
 #include "ui/views/focus/focus_manager.h"
 #include "ui/views/view.h"
+#include "ui/views/widget/widget.h"
 
 AssistantWebViewImpl::AssistantWebViewImpl(Profile* profile,
                                            const InitParams& params)
@@ -36,7 +39,7 @@ gfx::NativeView AssistantWebViewImpl::GetNativeView() {
 }
 
 void AssistantWebViewImpl::ChildPreferredSizeChanged(views::View* child) {
-  DCHECK_EQ(web_view_.get(), child);
+  DCHECK_EQ(web_view_, child);
   SetPreferredSize(web_view_->GetPreferredSize());
 }
 
@@ -65,6 +68,11 @@ void AssistantWebViewImpl::Navigate(const GURL& url) {
   web_contents_->GetController().LoadURLWithParams(params);
 }
 
+void AssistantWebViewImpl::AddedToWidget() {
+  UpdateMinimizeOnBackProperty();
+  AssistantWebView::AddedToWidget();
+}
+
 bool AssistantWebViewImpl::IsWebContentsCreationOverridden(
     content::SiteInstance* source_site_instance,
     content::mojom::WindowContainerType window_container_type,
@@ -72,11 +80,9 @@ bool AssistantWebViewImpl::IsWebContentsCreationOverridden(
     const std::string& frame_name,
     const GURL& target_url) {
   if (params_.suppress_navigation) {
-    for (auto& observer : observers_) {
-      observer.DidSuppressNavigation(target_url,
-                                     WindowOpenDisposition::NEW_FOREGROUND_TAB,
-                                     /*from_user_gesture=*/true);
-    }
+    NotifyDidSuppressNavigation(target_url,
+                                WindowOpenDisposition::NEW_FOREGROUND_TAB,
+                                /*from_user_gesture=*/true);
     return true;
   }
   return content::WebContentsDelegate::IsWebContentsCreationOverridden(
@@ -88,10 +94,8 @@ content::WebContents* AssistantWebViewImpl::OpenURLFromTab(
     content::WebContents* source,
     const content::OpenURLParams& params) {
   if (params_.suppress_navigation) {
-    for (auto& observer : observers_) {
-      observer.DidSuppressNavigation(params.url, params.disposition,
-                                     /*from_user_gesture=*/true);
-    }
+    NotifyDidSuppressNavigation(params.url, params.disposition,
+                                params.user_gesture);
     return nullptr;
   }
   return content::WebContentsDelegate::OpenURLFromTab(source, params);
@@ -156,14 +160,6 @@ void AssistantWebViewImpl::NavigationEntriesDeleted() {
   UpdateCanGoBack();
 }
 
-void AssistantWebViewImpl::DidAttachInterstitialPage() {
-  UpdateCanGoBack();
-}
-
-void AssistantWebViewImpl::DidDetachInterstitialPage() {
-  UpdateCanGoBack();
-}
-
 void AssistantWebViewImpl::InitWebContents(Profile* profile) {
   web_contents_ =
       content::WebContents::Create(content::WebContents::CreateParams(
@@ -185,11 +181,35 @@ void AssistantWebViewImpl::InitWebContents(Profile* profile) {
 }
 
 void AssistantWebViewImpl::InitLayout(Profile* profile) {
-  // Web view.
-  web_view_ = std::make_unique<views::WebView>(profile);
-  web_view_->set_owned_by_client();
+  web_view_ = AddChildView(std::make_unique<views::WebView>(profile));
   web_view_->SetWebContents(web_contents_.get());
-  AddChildView(web_view_.get());
+}
+
+void AssistantWebViewImpl::NotifyDidSuppressNavigation(
+    const GURL& url,
+    WindowOpenDisposition disposition,
+    bool from_user_gesture) {
+  // Note that we post notification to |observers_| as an observer may cause
+  // |this| to be deleted during handling of the event which is unsafe to do
+  // until the original navigation sequence has been completed.
+  base::SequencedTaskRunnerHandle::Get()->PostTask(
+      FROM_HERE,
+      base::BindOnce(
+          [](const base::WeakPtr<AssistantWebViewImpl>& self, GURL url,
+             WindowOpenDisposition disposition, bool from_user_gesture) {
+            if (self) {
+              for (auto& observer : self->observers_) {
+                observer.DidSuppressNavigation(url, disposition,
+                                               from_user_gesture);
+
+                // We need to check |self| to confirm that |observer| did not
+                // delete |this|. If |this| is deleted, we quit.
+                if (!self)
+                  return;
+              }
+            }
+          },
+          weak_factory_.GetWeakPtr(), url, disposition, from_user_gesture));
 }
 
 void AssistantWebViewImpl::UpdateCanGoBack() {
@@ -199,6 +219,17 @@ void AssistantWebViewImpl::UpdateCanGoBack() {
 
   can_go_back_ = can_go_back;
 
+  UpdateMinimizeOnBackProperty();
+
   for (auto& observer : observers_)
     observer.DidChangeCanGoBack(can_go_back_);
+}
+
+void AssistantWebViewImpl::UpdateMinimizeOnBackProperty() {
+  const bool minimize_on_back = params_.minimize_on_back_key && !can_go_back_;
+  views::Widget* widget = GetWidget();
+  if (widget) {
+    widget->GetNativeWindow()->SetProperty(ash::kMinimizeOnBackKey,
+                                           minimize_on_back);
+  }
 }

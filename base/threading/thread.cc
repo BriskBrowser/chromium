@@ -13,10 +13,10 @@
 #include "base/logging.h"
 #include "base/memory/ptr_util.h"
 #include "base/memory/scoped_refptr.h"
-#include "base/message_loop/message_loop_current.h"
 #include "base/message_loop/message_pump.h"
 #include "base/run_loop.h"
 #include "base/synchronization/waitable_event.h"
+#include "base/task/current_thread.h"
 #include "base/task/sequence_manager/sequence_manager_impl.h"
 #include "base/task/sequence_manager/task_queue.h"
 #include "base/task/simple_task_executor.h"
@@ -50,14 +50,16 @@ class SequenceManagerThreadDelegate : public Thread::Delegate {
  public:
   explicit SequenceManagerThreadDelegate(
       MessagePumpType message_pump_type,
-      OnceCallback<std::unique_ptr<MessagePump>()> message_pump_factory)
+      OnceCallback<std::unique_ptr<MessagePump>()> message_pump_factory,
+      sequence_manager::TimeDomain* time_domain)
       : sequence_manager_(
             sequence_manager::internal::SequenceManagerImpl::CreateUnbound(
                 sequence_manager::SequenceManager::Settings::Builder()
                     .SetMessagePumpType(message_pump_type)
                     .Build())),
         default_task_queue_(sequence_manager_->CreateTaskQueue(
-            sequence_manager::TaskQueue::Spec("default_tq"))),
+            sequence_manager::TaskQueue::Spec("default_tq")
+                .SetTimeDomain(time_domain))),
         message_pump_factory_(std::move(message_pump_factory)) {
     sequence_manager_->SetDefaultTaskRunner(default_task_queue_->task_runner());
   }
@@ -158,15 +160,18 @@ bool Thread::StartWithOptions(const Options& options) {
 
   if (options.delegate) {
     DCHECK(!options.message_pump_factory);
+    DCHECK(!options.task_queue_time_domain);
     delegate_ = WrapUnique(options.delegate);
   } else if (options.message_pump_factory) {
     delegate_ = std::make_unique<SequenceManagerThreadDelegate>(
-        MessagePumpType::CUSTOM, options.message_pump_factory);
+        MessagePumpType::CUSTOM, options.message_pump_factory,
+        options.task_queue_time_domain);
   } else {
     delegate_ = std::make_unique<SequenceManagerThreadDelegate>(
         options.message_pump_type,
         BindOnce([](MessagePumpType type) { return MessagePump::Create(type); },
-                 options.message_pump_type));
+                 options.message_pump_type),
+        options.task_queue_time_domain);
   }
 
   start_event_.Reset();
@@ -273,9 +278,11 @@ void Thread::DetachFromSequence() {
 }
 
 PlatformThreadId Thread::GetThreadId() const {
-  // If the thread is created but not started yet, wait for |id_| being ready.
-  base::ScopedAllowBaseSyncPrimitivesOutsideBlockingScope allow_wait;
-  id_event_.Wait();
+  if (!id_event_.IsSignaled()) {
+    // If the thread is created but not started yet, wait for |id_| being ready.
+    base::ScopedAllowBaseSyncPrimitivesOutsideBlockingScope allow_wait;
+    id_event_.Wait();
+  }
   return id_;
 }
 
@@ -336,15 +343,15 @@ void Thread::ThreadMain() {
 
   // Lazily initialize the |message_loop| so that it can run on this thread.
   DCHECK(delegate_);
-  // This binds MessageLoopCurrent and ThreadTaskRunnerHandle.
+  // This binds CurrentThread and ThreadTaskRunnerHandle.
   delegate_->BindToCurrentThread(timer_slack_);
-  DCHECK(MessageLoopCurrent::Get());
+  DCHECK(CurrentThread::Get());
   DCHECK(ThreadTaskRunnerHandle::IsSet());
 
 #if defined(OS_POSIX) && !defined(OS_NACL)
   // Allow threads running a MessageLoopForIO to use FileDescriptorWatcher API.
   std::unique_ptr<FileDescriptorWatcher> file_descriptor_watcher;
-  if (MessageLoopCurrentForIO::IsSet()) {
+  if (CurrentIOThread::IsSet()) {
     file_descriptor_watcher.reset(
         new FileDescriptorWatcher(delegate_->GetDefaultTaskRunner()));
   }

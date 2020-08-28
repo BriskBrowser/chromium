@@ -7,9 +7,11 @@ package org.chromium.android_webview.test;
 import static org.chromium.android_webview.test.OnlyRunIn.ProcessMode.SINGLE_PROCESS;
 
 import android.content.Intent;
+import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
-import android.support.test.filters.MediumTest;
+
+import androidx.test.filters.MediumTest;
 
 import org.junit.After;
 import org.junit.Assert;
@@ -19,12 +21,15 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 
 import org.chromium.android_webview.VariationsSeedLoader;
+import org.chromium.android_webview.common.AwSwitches;
+import org.chromium.android_webview.common.variations.VariationsServiceMetricsHelper;
 import org.chromium.android_webview.common.variations.VariationsUtils;
 import org.chromium.android_webview.test.services.MockVariationsSeedServer;
 import org.chromium.android_webview.test.util.VariationsTestUtils;
 import org.chromium.base.ContextUtils;
 import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.base.test.util.CallbackHelper;
+import org.chromium.base.test.util.CommandLineFlags;
 
 import java.io.File;
 import java.io.IOException;
@@ -141,14 +146,22 @@ public class VariationsSeedLoaderTest {
     @Before
     public void setUp() throws IOException {
         mMainHandler = new Handler(Looper.getMainLooper());
-        RecordHistogram.setDisabledForTests(true);
         VariationsTestUtils.deleteSeeds();
     }
 
     @After
     public void tearDown() throws IOException {
-        RecordHistogram.setDisabledForTests(false);
         VariationsTestUtils.deleteSeeds();
+    }
+
+    private void assertSingleRecordInHistogram(String histogramName, int expectedValue) {
+        Assert.assertEquals(1, RecordHistogram.getHistogramTotalCountForTesting(histogramName));
+        Assert.assertEquals(
+                1, RecordHistogram.getHistogramValueCountForTesting(histogramName, expectedValue));
+        // Check that the value didn't get recorded in the highest bucket. If expectedValue and
+        // expectedValue*2 are in the same bucket, we probably messed up the bucket configuration.
+        Assert.assertEquals(0,
+                RecordHistogram.getHistogramValueCountForTesting(histogramName, expectedValue * 2));
     }
 
     private void assertNoAppSeedRequestStateValues() {
@@ -159,12 +172,8 @@ public class VariationsSeedLoaderTest {
 
     private void assertSingleAppSeedRequestStateValue(
             @VariationsSeedLoader.AppSeedRequestState int state) {
-        Assert.assertEquals(1,
-                RecordHistogram.getHistogramTotalCountForTesting(
-                        VariationsSeedLoader.APP_SEED_REQUEST_STATE_HISTOGRAM_NAME));
-        Assert.assertEquals(1,
-                RecordHistogram.getHistogramValueCountForTesting(
-                        VariationsSeedLoader.APP_SEED_REQUEST_STATE_HISTOGRAM_NAME, state));
+        assertSingleRecordInHistogram(
+                VariationsSeedLoader.APP_SEED_REQUEST_STATE_HISTOGRAM_NAME, state);
     }
 
     // Test the case that:
@@ -280,6 +289,31 @@ public class VariationsSeedLoaderTest {
     }
 
     // Test the case that:
+    // VariationsUtils.getSeedFile() - doesn't exist
+    // VariationsUtils.getNewSeedFile() - exists, empty
+    @Test
+    @MediumTest
+    public void testHaveEmptyNewSeed() throws Exception {
+        try {
+            File oldFile = VariationsUtils.getSeedFile();
+            File newFile = VariationsUtils.getNewSeedFile();
+            Assert.assertTrue("Seed file should not already exist", newFile.createNewFile());
+
+            boolean seedRequested = runTestLoaderBlocking();
+
+            // Neither file should have been touched.
+            Assert.assertFalse("Old seed file should not exist", oldFile.exists());
+            Assert.assertTrue("New seed file not found", newFile.exists());
+            Assert.assertEquals("New seed file is not empty", 0L, newFile.length());
+
+            // Since the "new" seed was empty/invalid, another seed should be requested.
+            Assert.assertTrue("No seed requested", seedRequested);
+        } finally {
+            VariationsTestUtils.deleteSeeds();
+        }
+    }
+
+    // Test the case that:
     // VariationsUtils.getSeedFile() - exists, timestamp = epoch
     // VariationsUtils.getNewSeedFile() - exists, timestamp = epoch + 1 day
     @Test
@@ -334,7 +368,6 @@ public class VariationsSeedLoaderTest {
     @Test
     @MediumTest
     public void testRecordSeedFresh() throws Exception {
-        RecordHistogram.setDisabledForTests(false);
         File oldFile = VariationsUtils.getSeedFile();
         Assert.assertTrue("Expected seed file to not already exist", oldFile.createNewFile());
         VariationsTestUtils.writeMockSeed(oldFile);
@@ -350,7 +383,6 @@ public class VariationsSeedLoaderTest {
     @Test
     @MediumTest
     public void testRecordSeedRequested() throws Exception {
-        RecordHistogram.setDisabledForTests(false);
         File oldFile = VariationsUtils.getSeedFile();
         Assert.assertTrue("Expected seed file to not already exist", oldFile.createNewFile());
         VariationsTestUtils.writeMockSeed(oldFile);
@@ -367,7 +399,6 @@ public class VariationsSeedLoaderTest {
     @Test
     @MediumTest
     public void testRecordSeedRequestThrottled() throws Exception {
-        RecordHistogram.setDisabledForTests(false);
         File oldFile = VariationsUtils.getSeedFile();
         Assert.assertTrue("Expected seed file to not already exist", oldFile.createNewFile());
         VariationsTestUtils.writeMockSeed(oldFile);
@@ -388,7 +419,6 @@ public class VariationsSeedLoaderTest {
     @MediumTest
     public void testRecordAppSeedFreshness() throws Exception {
         long seedAgeHours = 2;
-        RecordHistogram.setDisabledForTests(false);
         File oldFile = VariationsUtils.getSeedFile();
         Assert.assertTrue("Expected seed file to not already exist", oldFile.createNewFile());
         VariationsTestUtils.writeMockSeed(oldFile);
@@ -400,5 +430,77 @@ public class VariationsSeedLoaderTest {
                 RecordHistogram.getHistogramValueCountForTesting(
                         VariationsSeedLoader.APP_SEED_FRESHNESS_HISTOGRAM_NAME,
                         (int) TimeUnit.HOURS.toMinutes(seedAgeHours)));
+    }
+
+    // Tests that the finch-seed-expiration-age flag works.
+    @Test
+    @MediumTest
+    @CommandLineFlags.Add(AwSwitches.FINCH_SEED_EXPIRATION_AGE + "=0")
+    public void testFinchSeedExpirationAgeFlag() throws Exception {
+        try {
+            // Create a new seed file with a recent timestamp.
+            File oldFile = VariationsUtils.getSeedFile();
+            VariationsTestUtils.writeMockSeed(oldFile);
+            oldFile.setLastModified(CURRENT_TIME_MILLIS);
+
+            boolean seedRequested = runTestLoaderBlocking();
+
+            Assert.assertTrue("Seed file should be requested", seedRequested);
+        } finally {
+            VariationsTestUtils.deleteSeeds();
+        }
+    }
+
+    // Tests that the finch-seed-min-update-period flag overrides the seed request throttling.
+    @Test
+    @MediumTest
+    @CommandLineFlags.Add(AwSwitches.FINCH_SEED_MIN_UPDATE_PERIOD + "=0")
+    public void testFinchSeedMinUpdatePeriodFlag() throws Exception {
+        try {
+            // Update the last modified time of the stamp file to simulate having just requested a
+            // new seed from the service.
+            VariationsUtils.getStampFile().createNewFile();
+            VariationsUtils.updateStampTime(CURRENT_TIME_MILLIS);
+
+            boolean seedRequested = runTestLoaderBlocking();
+
+            Assert.assertTrue("Seed file should be requested", seedRequested);
+        } finally {
+            VariationsTestUtils.deleteSeeds();
+        }
+    }
+
+    // Tests that metrics passed from the service get recorded to histograms.
+    @Test
+    @MediumTest
+    public void testRecordMetricsFromService() throws Exception {
+        try {
+            long nineMinutesMs = TimeUnit.MINUTES.toMillis(9);
+            long twoWeeksMs = TimeUnit.DAYS.toMillis(14);
+            long threeWeeksMs = TimeUnit.DAYS.toMillis(21);
+
+            VariationsServiceMetricsHelper metrics =
+                    VariationsServiceMetricsHelper.fromBundle(new Bundle());
+            metrics.setJobInterval(threeWeeksMs);
+            metrics.setJobQueueTime(twoWeeksMs);
+            metrics.setSeedFetchResult(200);
+            metrics.setSeedFetchTime(nineMinutesMs);
+            MockVariationsSeedServer.setMetricsBundle(metrics.toBundle());
+
+            runTestLoaderBlocking();
+
+            assertSingleRecordInHistogram(VariationsSeedLoader.DOWNLOAD_JOB_INTERVAL_HISTOGRAM_NAME,
+                    (int) TimeUnit.MILLISECONDS.toMinutes(threeWeeksMs));
+            assertSingleRecordInHistogram(
+                    VariationsSeedLoader.DOWNLOAD_JOB_QUEUE_TIME_HISTOGRAM_NAME,
+                    (int) TimeUnit.MILLISECONDS.toMinutes(twoWeeksMs));
+            assertSingleRecordInHistogram(
+                    VariationsSeedLoader.DOWNLOAD_JOB_FETCH_RESULT_HISTOGRAM_NAME, 200);
+            assertSingleRecordInHistogram(
+                    VariationsSeedLoader.DOWNLOAD_JOB_FETCH_TIME_HISTOGRAM_NAME,
+                    (int) nineMinutesMs);
+        } finally {
+            MockVariationsSeedServer.setMetricsBundle(null);
+        }
     }
 }

@@ -6,9 +6,11 @@
 
 #include <iomanip>
 #include <iostream>
+#include <sstream>
 
 #include "base/strings/stringprintf.h"
 #include "base/values.h"
+#include "third_party/skia/include/core/SkMatrix.h"
 
 namespace gfx {
 
@@ -126,7 +128,7 @@ void RRectF::Scale(float x_scale, float y_scale) {
     skrrect_ = SkRRect::MakeEmpty();
     return;
   }
-  SkMatrix scale = SkMatrix::MakeScale(x_scale, y_scale);
+  SkMatrix scale = SkMatrix::Scale(x_scale, y_scale);
   SkRRect result;
   bool success = skrrect_.transform(scale, &result);
   DCHECK(success);

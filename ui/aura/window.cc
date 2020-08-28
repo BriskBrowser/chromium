@@ -117,6 +117,7 @@ Window::Window(WindowDelegate* delegate, client::WindowType type)
 }
 
 Window::~Window() {
+  is_destroying_ = true;
   WindowOcclusionTracker::ScopedPause pause_occlusion_tracking;
 
   if (layer()->owner() == this)
@@ -174,16 +175,14 @@ Window::~Window() {
 
   // The layer will either be destroyed by |layer_owner_|'s dtor, or by whoever
   // acquired it.
-  layer()->set_delegate(NULL);
+  layer()->set_delegate(nullptr);
   DestroyLayer();
 
   // If SetEmbedFrameSinkId() was called by client code, then we assume client
   // code is taking care of invalidating.
   if (frame_sink_id_.is_valid() && !embeds_external_client_) {
-    auto* context_factory_private =
-        Env::GetInstance()->context_factory_private();
-    auto* host_frame_sink_manager =
-        context_factory_private->GetHostFrameSinkManager();
+    auto* context_factory = Env::GetInstance()->context_factory();
+    auto* host_frame_sink_manager = context_factory->GetHostFrameSinkManager();
     host_frame_sink_manager->InvalidateFrameSinkId(frame_sink_id_);
   }
 }
@@ -249,7 +248,7 @@ Window* Window::GetRootWindow() {
 }
 
 const Window* Window::GetRootWindow() const {
-  return IsRootWindow() ? this : parent_ ? parent_->GetRootWindow() : NULL;
+  return IsRootWindow() ? this : parent_ ? parent_->GetRootWindow() : nullptr;
 }
 
 WindowTreeHost* Window::GetHost() {
@@ -259,7 +258,7 @@ WindowTreeHost* Window::GetHost() {
 
 const WindowTreeHost* Window::GetHost() const {
   const Window* root_window = GetRootWindow();
-  return root_window ? root_window->host_ : NULL;
+  return root_window ? root_window->host_ : nullptr;
 }
 
 void Window::Show() {
@@ -445,12 +444,12 @@ void Window::RemoveChild(Window* child) {
 
   WindowObserver::HierarchyChangeParams params;
   params.target = child;
-  params.new_parent = NULL;
+  params.new_parent = nullptr;
   params.old_parent = this;
   params.phase = WindowObserver::HierarchyChangeParams::HIERARCHY_CHANGING;
   NotifyWindowHierarchyChange(params);
 
-  RemoveChildImpl(child, NULL);
+  RemoveChildImpl(child, nullptr);
 
   params.phase = WindowObserver::HierarchyChangeParams::HIERARCHY_CHANGED;
   NotifyWindowHierarchyChange(params);
@@ -477,7 +476,7 @@ const Window* Window::GetChildById(int id) const {
     if (result)
       return result;
   }
-  return NULL;
+  return nullptr;
 }
 
 // static
@@ -489,13 +488,13 @@ void Window::ConvertPointToTarget(const Window* source,
   if (source->GetRootWindow() != target->GetRootWindow()) {
     client::ScreenPositionClient* source_client =
         client::GetScreenPositionClient(source->GetRootWindow());
-    // |source_client| can be NULL in tests.
+    // |source_client| can be nullptr in tests.
     if (source_client)
       source_client->ConvertPointToScreen(source, point);
 
     client::ScreenPositionClient* target_client =
         client::GetScreenPositionClient(target->GetRootWindow());
-    // |target_client| can be NULL in tests.
+    // |target_client| can be nullptr in tests.
     if (target_client)
       target_client->ConvertPointFromScreen(target, point);
   } else {
@@ -661,8 +660,9 @@ Window* Window::GetEventHandlerForPoint(const gfx::Point& local_point) {
 }
 
 Window* Window::GetToplevelWindow() {
-  Window* topmost_window_with_delegate = NULL;
-  for (aura::Window* window = this; window != NULL; window = window->parent()) {
+  Window* topmost_window_with_delegate = nullptr;
+  for (aura::Window* window = this; window != nullptr;
+       window = window->parent()) {
     if (window->delegate())
       topmost_window_with_delegate = window;
   }
@@ -746,7 +746,7 @@ std::unique_ptr<ScopedKeyboardHook> Window::CaptureSystemKeyEvents(
 // {Set,Get,Clear}Property are implemented in class_property.h.
 
 void Window::SetNativeWindowProperty(const char* key, void* value) {
-  SetPropertyInternal(key, key, NULL, reinterpret_cast<int64_t>(value), 0);
+  SetPropertyInternal(key, key, nullptr, reinterpret_cast<int64_t>(value), 0);
 }
 
 void* Window::GetNativeWindowProperty(const char* key) const {
@@ -777,29 +777,34 @@ void Window::UpdateVisualState() {
     delegate_->UpdateVisualState();
 }
 
-#if !defined(NDEBUG)
+#if DCHECK_IS_ON()
 std::string Window::GetDebugInfo() const {
+  std::string name = GetName();
+  if (name.empty())
+    name = "Unknown";
+  std::string layer_state = "NoLayer";
+  if (layer()) {
+    layer_state = base::StringPrintf(
+        "%s opacity=%.1f",
+        layer()->GetTargetVisibility() ? "LayerVisible" : "LayerHidden",
+        layer()->opacity());
+  }
   return base::StringPrintf(
-      "%s<%d> bounds(%d, %d, %d, %d) %s %s opacity=%.1f "
-      "occlusion_state=%s",
-      GetName().empty() ? "Unknown" : GetName().c_str(), id(), bounds().x(),
-      bounds().y(), bounds().width(), bounds().height(),
-      visible_ ? "WindowVisible" : "WindowHidden",
-      layer()
-          ? (layer()->GetTargetVisibility() ? "LayerVisible" : "LayerHidden")
-          : "NoLayer",
-      layer() ? layer()->opacity() : 1.0f,
-      OcclusionStateToString(occlusion_state_));
+      "%s<%d> bounds=%s %s %s occlusion_state=%s", name.c_str(), id(),
+      bounds().ToString().c_str(), visible_ ? "WindowVisible" : "WindowHidden",
+      layer_state.c_str(), OcclusionStateToString(occlusion_state_));
+}
+
+std::string Window::GetWindowHierarchy(int depth) const {
+  std::string hierarchy =
+      base::StringPrintf("%*s%s\n", depth * 2, "", GetDebugInfo().c_str());
+  for (Window* child : children_)
+    hierarchy += child->GetWindowHierarchy(depth + 1);
+  return hierarchy;
 }
 
 void Window::PrintWindowHierarchy(int depth) const {
-  VLOG(0) << base::StringPrintf(
-      "%*s%s", depth * 2, "", GetDebugInfo().c_str());
-  for (Windows::const_iterator it = children_.begin();
-       it != children_.end(); ++it) {
-    Window* child = *it;
-    child->PrintWindowHierarchy(depth + 1);
-  }
+  VLOG(0) << GetWindowHierarchy(depth);
 }
 #endif
 
@@ -895,16 +900,17 @@ void Window::SetVisible(bool visible) {
 
 void Window::SetOcclusionInfo(OcclusionState occlusion_state,
                               const SkRegion& occluded_region) {
-  if (occlusion_state != occlusion_state_ ||
-      occluded_region_ != occluded_region) {
-    occlusion_state_ = occlusion_state;
-    occluded_region_ = occluded_region;
-    if (delegate_)
-      delegate_->OnWindowOcclusionChanged(occlusion_state, occluded_region);
-
-    for (WindowObserver& observer : observers_)
-      observer.OnWindowOcclusionChanged(this);
+  if (occlusion_state == occlusion_state_ &&
+      occluded_region_in_root_ == occluded_region) {
+    return;
   }
+  occlusion_state_ = occlusion_state;
+  occluded_region_in_root_ = occluded_region;
+  if (delegate_)
+    delegate_->OnWindowOcclusionChanged(occlusion_state);
+
+  for (WindowObserver& observer : observers_)
+    observer.OnWindowOcclusionChanged(this);
 }
 
 void Window::SchedulePaint() {
@@ -922,13 +928,13 @@ void Window::RemoveChildImpl(Window* child, Window* new_parent) {
   for (WindowObserver& observer : observers_)
     observer.OnWillRemoveWindow(child);
   Window* root_window = child->GetRootWindow();
-  Window* new_root_window = new_parent ? new_parent->GetRootWindow() : NULL;
+  Window* new_root_window = new_parent ? new_parent->GetRootWindow() : nullptr;
   if (root_window && root_window != new_root_window)
     child->NotifyRemovingFromRootWindow(new_root_window);
 
   if (child->OwnsLayer())
     layer()->Remove(child->layer());
-  child->parent_ = NULL;
+  child->parent_ = nullptr;
   auto i = std::find(children_.begin(), children_.end(), child);
   DCHECK(i != children_.end());
   children_.erase(i);
@@ -1146,12 +1152,11 @@ std::unique_ptr<cc::LayerTreeFrameSink> Window::CreateLayerTreeFrameSink() {
   // this function be called.
   DCHECK(!embeds_external_client_);
 
-  auto* context_factory_private = Env::GetInstance()->context_factory_private();
-  auto* host_frame_sink_manager =
-      context_factory_private->GetHostFrameSinkManager();
+  auto* context_factory = Env::GetInstance()->context_factory();
+  auto* host_frame_sink_manager = context_factory->GetHostFrameSinkManager();
 
   if (!frame_sink_id_.is_valid()) {
-    auto frame_sink_id = context_factory_private->AllocateFrameSinkId();
+    auto frame_sink_id = context_factory->AllocateFrameSinkId();
     host_frame_sink_manager->RegisterFrameSinkId(
         frame_sink_id, this, viz::ReportFirstSurfaceActivation::kYes);
     SetEmbedFrameSinkIdImpl(frame_sink_id);
@@ -1275,7 +1280,7 @@ const char* Window::OcclusionStateToString(OcclusionState state) {
 void Window::SetOpaqueRegionsForOcclusion(
     const std::vector<gfx::Rect>& opaque_regions_for_occlusion) {
   // Only transparent windows should try to set opaque regions for occlusion.
-  DCHECK(transparent());
+  DCHECK(transparent() || opaque_regions_for_occlusion.empty());
   if (opaque_regions_for_occlusion == opaque_regions_for_occlusion_)
     return;
   opaque_regions_for_occlusion_ = opaque_regions_for_occlusion;
@@ -1332,7 +1337,8 @@ void Window::OnLayerAlphaShapeChanged() {
     observer.OnWindowAlphaShapeSet(this);
 }
 
-void Window::OnLayerFillsBoundsOpaquelyChanged() {
+void Window::OnLayerFillsBoundsOpaquelyChanged(
+    ui::PropertyChangeReason reason) {
   // Let observers know that this window's transparent status has changed.
   // Transparent status can affect the occlusion computed for windows.
   WindowOcclusionTracker::ScopedPause pause_occlusion_tracking;
@@ -1342,7 +1348,7 @@ void Window::OnLayerFillsBoundsOpaquelyChanged() {
     DCHECK(opaque_regions_for_occlusion_.empty());
 
   for (WindowObserver& observer : observers_)
-    observer.OnWindowTransparentChanged(this);
+    observer.OnWindowTransparentChanged(this, reason);
 }
 
 void Window::OnLayerTransformed(const gfx::Transform& old_transform,

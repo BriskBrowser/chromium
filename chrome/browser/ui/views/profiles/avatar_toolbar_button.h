@@ -11,15 +11,12 @@
 #include "base/scoped_observer.h"
 #include "chrome/browser/ui/views/toolbar/toolbar_button.h"
 #include "chrome/browser/ui/views/toolbar/toolbar_icon_container_view.h"
-#include "ui/base/material_design/material_design_controller.h"
-#include "ui/base/material_design/material_design_controller_observer.h"
 #include "ui/events/event.h"
 
 class AvatarToolbarButtonDelegate;
 class Browser;
 
 class AvatarToolbarButton : public ToolbarButton,
-                            public ui::MaterialDesignControllerObserver,
                             ToolbarIconContainerView::Observer {
  public:
   // States of the button ordered in priority of getting displayed.
@@ -47,7 +44,6 @@ class AvatarToolbarButton : public ToolbarButton,
   AvatarToolbarButton(Browser* browser, ToolbarIconContainerView* parent);
   ~AvatarToolbarButton() override;
 
-  void UpdateIcon();
   void UpdateText();
   void ShowAvatarHighlightAnimation();
   bool IsParentHighlighted() const;
@@ -57,30 +53,30 @@ class AvatarToolbarButton : public ToolbarButton,
 
   void NotifyHighlightAnimationFinished();
 
-  // views::View:
+  // ToolbarButton:
   const char* GetClassName() const override;
+  void OnMouseExited(const ui::MouseEvent& event) override;
+  void OnBlur() override;
+  void OnThemeChanged() override;
+  void UpdateIcon() override;
+  void Layout() override;
+
+  // ToolbarIconContainerView::Observer:
+  void OnHighlightChanged() override;
 
   static const char kAvatarToolbarButtonClassName[];
+
+ protected:
+  // ToolbarButton:
+  void NotifyClick(const ui::Event& event) override;
 
  private:
   FRIEND_TEST_ALL_PREFIXES(AvatarToolbarButtonTest,
                            HighlightMeetsMinimumContrast);
 
-  // ToolbarButton:
-  void NotifyClick(const ui::Event& event) override;
-  void OnMouseExited(const ui::MouseEvent& event) override;
-  void OnBlur() override;
-  void OnThemeChanged() override;
-  void AddedToWidget() override;
-
-  // ui::MaterialDesignControllerObserver:
-  void OnTouchUiChanged() override;
-
-  // ToolbarIconContainerView::Observer:
-  void OnHighlightChanged() override;
-
   base::string16 GetAvatarTooltipText() const;
-  gfx::ImageSkia GetAvatarIcon(const gfx::Image& profile_identity_image) const;
+  ui::ImageModel GetAvatarIcon(ButtonState state,
+                               const gfx::Image& profile_identity_image) const;
 
   void SetInsets();
 
@@ -88,10 +84,6 @@ class AvatarToolbarButton : public ToolbarButton,
 
   Browser* const browser_;
   ToolbarIconContainerView* const parent_;
-
-  ScopedObserver<ui::MaterialDesignController,
-                 ui::MaterialDesignControllerObserver>
-      md_observer_{this};
 
   base::ObserverList<Observer>::Unchecked observer_list_;
 

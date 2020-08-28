@@ -16,9 +16,13 @@ namespace device {
 
 OpenXrRenderLoop::OpenXrRenderLoop(
     base::RepeatingCallback<void(mojom::VRDisplayInfoPtr)>
-        on_display_info_changed)
+        on_display_info_changed,
+    XrInstance instance)
     : XRCompositorCommon(),
-      on_display_info_changed_(std::move(on_display_info_changed)) {}
+      instance_(instance),
+      on_display_info_changed_(std::move(on_display_info_changed)) {
+  DCHECK(instance_ != XR_NULL_HANDLE);
+}
 
 OpenXrRenderLoop::~OpenXrRenderLoop() {
   Stop();
@@ -78,6 +82,7 @@ mojom::XRFrameDataPtr OpenXrRenderLoop::GetNextFrameData() {
 }
 
 bool OpenXrRenderLoop::StartRuntime() {
+  DCHECK(instance_ != XR_NULL_HANDLE);
   DCHECK(!openxr_);
   DCHECK(!input_helper_);
   DCHECK(!current_display_info_);
@@ -86,7 +91,8 @@ bool OpenXrRenderLoop::StartRuntime() {
   // openxr_ so that the local unique_ptr cleans up the object if starting
   // a session fails. openxr_ is set later in this method once we know
   // starting the session succeeds.
-  std::unique_ptr<OpenXrApiWrapper> openxr = OpenXrApiWrapper::Create();
+  std::unique_ptr<OpenXrApiWrapper> openxr =
+      OpenXrApiWrapper::Create(instance_);
   if (!openxr)
     return false;
 
@@ -135,11 +141,23 @@ bool OpenXrRenderLoop::PreComposite() {
 }
 
 bool OpenXrRenderLoop::HasSessionEnded() {
-  return openxr_->session_ended();
+  return openxr_ && openxr_->UpdateAndGetSessionEnded();
 }
 
 bool OpenXrRenderLoop::SubmitCompositedFrame() {
   return XR_SUCCEEDED(openxr_->EndFrame());
+}
+
+void OpenXrRenderLoop::ClearPendingFrameInternal() {
+  // Complete the frame if OpenXR has started one with BeginFrame. This also
+  // releases the swapchain image that was acquired in BeginFrame so that the
+  // next frame can acquire it.
+  if (openxr_->HasPendingFrame() && XR_FAILED(openxr_->EndFrame())) {
+    // The start of the next frame will detect that the session has ended via
+    // HasSessionEnded and will exit presentation.
+    StopRuntime();
+    return;
+  }
 }
 
 // Return true if display info has changed.
@@ -243,9 +261,11 @@ bool OpenXrRenderLoop::UpdateStageParameters() {
       changed = true;
     }
 
-    if (current_display_info_->stage_parameters->standing_transform !=
+    // mojo_from_local is identity, as is stage_from_floor, so we can directly
+    // compare and assign local_from_stage and mojo_from_floor.
+    if (current_display_info_->stage_parameters->mojo_from_floor !=
         local_from_stage) {
-      current_display_info_->stage_parameters->standing_transform =
+      current_display_info_->stage_parameters->mojo_from_floor =
           local_from_stage;
       changed = true;
     }

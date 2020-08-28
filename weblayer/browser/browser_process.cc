@@ -4,38 +4,30 @@
 
 #include "weblayer/browser/browser_process.h"
 
+#include "base/memory/ptr_util.h"
 #include "base/memory/ref_counted.h"
 #include "base/time/default_clock.h"
 #include "base/time/default_tick_clock.h"
 #include "components/network_time/network_time_tracker.h"
-#include "components/prefs/in_memory_pref_store.h"
-#include "components/prefs/pref_registry_simple.h"
 #include "components/prefs/pref_service.h"
-#include "components/prefs/pref_service_factory.h"
+#include "content/public/browser/network_quality_observer_factory.h"
+#include "content/public/browser/network_service_instance.h"
+#include "services/network/public/cpp/network_quality_tracker.h"
 #include "weblayer/browser/system_network_context_manager.h"
+
+#if defined(OS_ANDROID)
+#include "weblayer/browser/safe_browsing/safe_browsing_service.h"
+#include "weblayer/browser/url_bar/page_info_client_impl.h"
+#endif
 
 namespace weblayer {
 
 namespace {
 BrowserProcess* g_browser_process = nullptr;
-
-// Creates the PrefService that will be used as the browser process's local
-// state.
-std::unique_ptr<PrefService> CreatePrefService() {
-  auto pref_registry = base::MakeRefCounted<PrefRegistrySimple>();
-
-  network_time::NetworkTimeTracker::RegisterPrefs(pref_registry.get());
-
-  PrefServiceFactory pref_service_factory;
-  pref_service_factory.set_user_prefs(
-      base::MakeRefCounted<InMemoryPrefStore>());
-
-  return pref_service_factory.Create(pref_registry);
-}
-
 }  // namespace
 
-BrowserProcess::BrowserProcess() {
+BrowserProcess::BrowserProcess(std::unique_ptr<PrefService> local_state)
+    : local_state_(std::move(local_state)) {
   g_browser_process = this;
 }
 
@@ -52,12 +44,21 @@ BrowserProcess* BrowserProcess::GetInstance() {
   return g_browser_process;
 }
 
+void BrowserProcess::PreMainMessageLoopRun() {
+  CreateNetworkQualityObserver();
+
+#if defined(OS_ANDROID)
+  page_info::SetPageInfoClient(PageInfoClientImpl::GetInstance());
+#endif
+}
+
+void BrowserProcess::StartTearDown() {
+  if (local_state_)
+    local_state_->CommitPendingWrite();
+}
+
 PrefService* BrowserProcess::GetLocalState() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-
-  if (!local_state_)
-    local_state_ = CreatePrefService();
-
   return local_state_.get();
 }
 
@@ -80,5 +81,40 @@ network_time::NetworkTimeTracker* BrowserProcess::GetNetworkTimeTracker() {
   }
   return network_time_tracker_.get();
 }
+
+network::NetworkQualityTracker* BrowserProcess::GetNetworkQualityTracker() {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  if (!network_quality_tracker_) {
+    network_quality_tracker_ = std::make_unique<network::NetworkQualityTracker>(
+        base::BindRepeating(&content::GetNetworkService));
+  }
+  return network_quality_tracker_.get();
+}
+
+void BrowserProcess::CreateNetworkQualityObserver() {
+  DCHECK(!network_quality_observer_);
+  network_quality_observer_ =
+      content::CreateNetworkQualityObserver(GetNetworkQualityTracker());
+  DCHECK(network_quality_observer_);
+}
+
+#if defined(OS_ANDROID)
+SafeBrowsingService* BrowserProcess::GetSafeBrowsingService(
+    std::string user_agent) {
+  if (!safe_browsing_service_) {
+    // Create and initialize safe_browsing_service on first get.
+    // Note: Initialize() needs to happen on UI thread.
+    safe_browsing_service_ = std::make_unique<SafeBrowsingService>(user_agent);
+    safe_browsing_service_->Initialize();
+  }
+  return safe_browsing_service_.get();
+}
+
+void BrowserProcess::StopSafeBrowsingService() {
+  if (safe_browsing_service_) {
+    safe_browsing_service_->StopDBManager();
+  }
+}
+#endif
 
 }  // namespace weblayer

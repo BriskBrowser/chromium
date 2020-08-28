@@ -9,10 +9,12 @@
 #include "third_party/blink/renderer/core/layout/svg/layout_svg_image.h"
 #include "third_party/blink/renderer/core/paint/image_element_timing.h"
 #include "third_party/blink/renderer/core/paint/paint_info.h"
+#include "third_party/blink/renderer/core/paint/paint_timing.h"
 #include "third_party/blink/renderer/core/paint/paint_timing_detector.h"
 #include "third_party/blink/renderer/core/paint/scoped_svg_paint_state.h"
 #include "third_party/blink/renderer/core/paint/svg_model_object_painter.h"
 #include "third_party/blink/renderer/core/svg/graphics/svg_image.h"
+#include "third_party/blink/renderer/core/svg/svg_element.h"
 #include "third_party/blink/renderer/core/svg/svg_image_element.h"
 #include "third_party/blink/renderer/platform/graphics/graphics_context.h"
 #include "third_party/blink/renderer/platform/graphics/paint/drawing_recorder.h"
@@ -27,34 +29,31 @@ void SVGImagePainter::Paint(const PaintInfo& paint_info) {
       !layout_svg_image_.ImageResource()->HasImage())
     return;
 
-  PaintInfo paint_info_before_filtering(paint_info);
-
   if (SVGModelObjectPainter(layout_svg_image_)
-          .CullRectSkipsPainting(paint_info_before_filtering)) {
+          .CullRectSkipsPainting(paint_info)) {
     return;
   }
   // Images cannot have children so do not call TransformCullRect.
 
   ScopedSVGTransformState transform_state(
-      paint_info_before_filtering, layout_svg_image_,
+      paint_info, layout_svg_image_,
       layout_svg_image_.LocalToSVGParentTransform());
   {
-    ScopedSVGPaintState paint_state(layout_svg_image_,
-                                    paint_info_before_filtering);
-    if (paint_state.ApplyClipMaskAndFilterIfNecessary() &&
+    ScopedSVGPaintState paint_state(layout_svg_image_, paint_info);
+    if (paint_state.ApplyEffects() &&
         !DrawingRecorder::UseCachedDrawingIfPossible(
             paint_state.GetPaintInfo().context, layout_svg_image_,
             paint_state.GetPaintInfo().phase)) {
-      SVGModelObjectPainter::RecordHitTestData(layout_svg_image_, paint_info);
-      DrawingRecorder recorder(paint_state.GetPaintInfo().context,
-                               layout_svg_image_,
-                               paint_state.GetPaintInfo().phase);
+      SVGModelObjectPainter::RecordHitTestData(layout_svg_image_,
+                                               paint_state.GetPaintInfo());
+      SVGDrawingRecorder recorder(paint_state.GetPaintInfo().context,
+                                  layout_svg_image_,
+                                  paint_state.GetPaintInfo().phase);
       PaintForeground(paint_state.GetPaintInfo());
     }
   }
 
-  SVGModelObjectPainter(layout_svg_image_)
-      .PaintOutline(paint_info_before_filtering);
+  SVGModelObjectPainter(layout_svg_image_).PaintOutline(paint_info);
 }
 
 void SVGImagePainter::PaintForeground(const PaintInfo& paint_info) {
@@ -66,11 +65,25 @@ void SVGImagePainter::PaintForeground(const PaintInfo& paint_info) {
 
   scoped_refptr<Image> image = image_resource->GetImage(image_viewport_size);
   FloatRect dest_rect = layout_svg_image_.ObjectBoundingBox();
-  FloatRect src_rect(FloatPoint(), image->SizeAsFloat());
 
   auto* image_element = To<SVGImageElement>(layout_svg_image_.GetElement());
-  image_element->preserveAspectRatio()->CurrentValue()->TransformRect(dest_rect,
-                                                                      src_rect);
+  RespectImageOrientationEnum respect_orientation =
+      LayoutObject::ShouldRespectImageOrientation(&layout_svg_image_);
+  FloatRect src_rect(FloatPoint(), image->SizeAsFloat(respect_orientation));
+  if (respect_orientation && !image->HasDefaultOrientation()) {
+    // We need the oriented source rect for adjusting the aspect ratio
+    FloatSize unadjusted_size(src_rect.Size());
+    image_element->preserveAspectRatio()->CurrentValue()->TransformRect(
+        dest_rect, src_rect);
+
+    // Map the oriented_src_rect back into the src_rect space
+    src_rect =
+        image->CorrectSrcRectForImageOrientation(unadjusted_size, src_rect);
+  } else {
+    image_element->preserveAspectRatio()->CurrentValue()->TransformRect(
+        dest_rect, src_rect);
+  }
+
   ScopedInterpolationQuality interpolation_quality_scope(
       paint_info.context,
       layout_svg_image_.StyleRef().GetInterpolationQuality());
@@ -78,20 +91,26 @@ void SVGImagePainter::PaintForeground(const PaintInfo& paint_info) {
       image_element->GetDecodingModeForPainting(image->paint_image_id());
   paint_info.context.DrawImage(
       image.get(), decode_mode, dest_rect, &src_rect,
-      layout_svg_image_.StyleRef().HasFilterInducingProperty());
-  if (!paint_info.context.ContextDisabled() && image_resource->CachedImage() &&
+      layout_svg_image_.StyleRef().HasFilterInducingProperty(),
+      SkBlendMode::kSrcOver, respect_orientation);
+  if (image_resource->CachedImage() &&
       image_resource->CachedImage()->IsLoaded()) {
     LocalDOMWindow* window = layout_svg_image_.GetDocument().domWindow();
     DCHECK(window);
     DCHECK(paint_info.PaintContainer());
     ImageElementTiming::From(*window).NotifyImagePainted(
         &layout_svg_image_, image_resource->CachedImage(),
-        paint_info.context.GetPaintController().CurrentPaintChunkProperties());
+        paint_info.context.GetPaintController().CurrentPaintChunkProperties(),
+        EnclosingIntRect(dest_rect));
   }
 
   PaintTimingDetector::NotifyImagePaint(
       layout_svg_image_, image->Size(), image_resource->CachedImage(),
-      paint_info.context.GetPaintController().CurrentPaintChunkProperties());
+      paint_info.context.GetPaintController().CurrentPaintChunkProperties(),
+      EnclosingIntRect(dest_rect));
+  PaintTiming& timing = PaintTiming::From(
+      layout_svg_image_.GetElement()->GetDocument().TopDocument());
+  timing.MarkFirstContentfulPaint();
 }
 
 FloatSize SVGImagePainter::ComputeImageViewportSize() const {
@@ -116,11 +135,12 @@ FloatSize SVGImagePainter::ComputeImageViewportSize() const {
   if (cached_image->ErrorOccurred())
     return FloatSize();
   Image* image = cached_image->GetImage();
-  if (image->IsSVGImage()) {
-    return ToSVGImage(image)->ConcreteObjectSize(
+  if (auto* svg_image = DynamicTo<SVGImage>(image)) {
+    return svg_image->ConcreteObjectSize(
         layout_svg_image_.ObjectBoundingBox().Size());
   }
-  return image->SizeAsFloat();
+  // The orientation here does not matter. Just use kRespectImageOrientation.
+  return image->SizeAsFloat(kRespectImageOrientation);
 }
 
 }  // namespace blink

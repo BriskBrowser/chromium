@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <limits>
 #include <memory>
+#include <string>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -17,10 +18,11 @@
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/cancelable_callback.h"
+#include "base/check.h"
 #include "base/location.h"
-#include "base/logging.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/metrics/histogram_base.h"
+#include "base/notreached.h"
 #include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
 #include "base/test/metrics/histogram_tester.h"
@@ -79,7 +81,9 @@ class TestRasterTaskImpl : public TileTask {
                      unsigned id,
                      std::unique_ptr<RasterBuffer> raster_buffer,
                      TileTask::Vector* dependencies)
-      : TileTask(true, dependencies),
+      : TileTask(TileTask::SupportsConcurrentExecution::kYes,
+                 TileTask::SupportsBackgroundThreadPriority::kYes,
+                 dependencies),
         completion_handler_(completion_handler),
         id_(id),
         raster_buffer_(std::move(raster_buffer)),
@@ -147,8 +151,9 @@ class BlockingTestRasterTaskImpl : public TestRasterTaskImpl {
 class RasterImplementationForOOPR
     : public gpu::raster::RasterImplementationGLES {
  public:
-  explicit RasterImplementationForOOPR(gpu::gles2::GLES2Interface* gl)
-      : gpu::raster::RasterImplementationGLES(gl) {}
+  explicit RasterImplementationForOOPR(gpu::gles2::GLES2Interface* gl,
+                                       gpu::ContextSupport* support)
+      : gpu::raster::RasterImplementationGLES(gl, support) {}
   ~RasterImplementationForOOPR() override = default;
 
   void GetQueryObjectui64vEXT(GLuint id,
@@ -377,11 +382,12 @@ class RasterBufferProviderTest
 
     if (GetParam() == RASTER_BUFFER_PROVIDER_TYPE_GPU_OOPR) {
       auto worker_gl_owned = std::make_unique<viz::TestGLES2Interface>();
-      auto worker_ri_owned =
-          std::make_unique<RasterImplementationForOOPR>(worker_gl_owned.get());
+      auto worker_support_owned = std::make_unique<viz::TestContextSupport>();
+      auto worker_ri_owned = std::make_unique<RasterImplementationForOOPR>(
+          worker_gl_owned.get(), worker_support_owned.get());
       worker_context_provider_ = base::MakeRefCounted<viz::TestContextProvider>(
-          std::make_unique<viz::TestContextSupport>(),
-          std::move(worker_gl_owned), std::move(worker_ri_owned),
+          std::move(worker_support_owned), std::move(worker_gl_owned),
+          std::move(worker_ri_owned), nullptr /* sii */,
           true /* support_locking */);
       worker_context_provider_->BindToCurrentThread();
     } else {

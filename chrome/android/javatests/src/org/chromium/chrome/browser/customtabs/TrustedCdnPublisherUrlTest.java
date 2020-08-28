@@ -12,7 +12,6 @@ import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.drawable.BitmapDrawable;
 import android.support.test.InstrumentationRegistry;
-import android.support.test.filters.SmallTest;
 import android.util.Pair;
 import android.view.View;
 import android.widget.ImageView;
@@ -20,7 +19,9 @@ import android.widget.ImageView;
 import androidx.annotation.Nullable;
 import androidx.browser.customtabs.CustomTabsIntent;
 import androidx.browser.customtabs.CustomTabsSessionToken;
+import androidx.test.filters.SmallTest;
 
+import org.hamcrest.Matchers;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -37,11 +38,11 @@ import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.DisabledTest;
 import org.chromium.base.test.util.Feature;
 import org.chromium.chrome.R;
-import org.chromium.chrome.browser.ChromeActivity;
-import org.chromium.chrome.browser.ChromeFeatureList;
-import org.chromium.chrome.browser.ChromeSwitches;
 import org.chromium.chrome.browser.ChromeTabbedActivity;
+import org.chromium.chrome.browser.app.ChromeActivity;
 import org.chromium.chrome.browser.firstrun.FirstRunStatus;
+import org.chromium.chrome.browser.flags.ChromeFeatureList;
+import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.offlinepages.ClientId;
 import org.chromium.chrome.browser.offlinepages.OfflinePageBridge;
 import org.chromium.chrome.browser.omnibox.UrlBar;
@@ -52,6 +53,7 @@ import org.chromium.chrome.browser.test.ScreenShooter;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.chrome.test.util.browser.Features;
 import org.chromium.components.offlinepages.SavePageResult;
+import org.chromium.components.url_formatter.SchemeDisplay;
 import org.chromium.components.url_formatter.UrlFormatter;
 import org.chromium.content_public.browser.UiThreadTaskTraits;
 import org.chromium.content_public.browser.test.util.Criteria;
@@ -256,7 +258,8 @@ public class TrustedCdnPublisherUrlTest {
         String otherTestUrl = mWebServer.setResponse("/other.html", PAGE_WITH_TITLE, null);
         mCustomTabActivityTestRule.loadUrl(otherTestUrl);
 
-        verifyUrl(UrlFormatter.formatUrlForSecurityDisplayOmitScheme(otherTestUrl));
+        verifyUrl(UrlFormatter.formatUrlForSecurityDisplay(
+                otherTestUrl, SchemeDisplay.OMIT_HTTP_AND_HTTPS));
         // TODO(bauerb): The security icon is updated via an animation. Find a way to reliably
         // disable animations and verify the icon.
     }
@@ -301,10 +304,10 @@ public class TrustedCdnPublisherUrlTest {
         String testUrl = mWebServer.getResponseUrl("/test.html");
         String expectedUrl = UrlFormatter.formatUrlForDisplayOmitScheme(testUrl);
 
-        CriteriaHelper.pollUiThread(Criteria.equals(expectedUrl, () -> {
+        CriteriaHelper.pollUiThread(() -> {
             UrlBar urlBar = newActivity.findViewById(R.id.url_bar);
-            return urlBar.getText().toString();
-        }));
+            Criteria.checkThat(urlBar.getText().toString(), Matchers.is(expectedUrl));
+        });
 
         verifySecurityIcon(getDefaultSecurityIcon());
     }
@@ -319,9 +322,10 @@ public class TrustedCdnPublisherUrlTest {
         runTrustedCdnPublisherUrlTest(
                 publisherUrl, "com.example.test", "example.com", R.drawable.omnibox_https_valid);
 
+        // TODO (https://crbug.com/1063807):  Add incognito mode tests.
         OfflinePageBridge offlinePageBridge =
                 TestThreadUtils.runOnUiThreadBlockingNoException(() -> {
-                    Profile profile = Profile.getLastUsedProfile();
+                    Profile profile = Profile.getLastUsedRegularProfile();
                     return OfflinePageBridge.getForProfile(profile);
                 });
 
@@ -346,7 +350,7 @@ public class TrustedCdnPublisherUrlTest {
         PostTask.runOrPostTask(UiThreadTaskTraits.DEFAULT, () -> {
             CustomTabActivity customTabActivity = mCustomTabActivityTestRule.getActivity();
             Tab tab = customTabActivity.getActivityTab();
-            String pageUrl = tab.getUrl();
+            String pageUrl = tab.getUrlString();
             offlinePageBridge.savePage(tab.getWebContents(),
                     new ClientId(OfflinePageBridge.DOWNLOAD_NAMESPACE, "1234"),
                     (savePageResult, url, offlineId) -> {
@@ -365,7 +369,8 @@ public class TrustedCdnPublisherUrlTest {
         // succeed, but not show a publisher URL.
         String testUrl = mWebServer.getResponseUrl("/test.html");
         mCustomTabActivityTestRule.loadUrl(testUrl);
-        verifyUrl(UrlFormatter.formatUrlForSecurityDisplayOmitScheme(testUrl));
+        verifyUrl(UrlFormatter.formatUrlForSecurityDisplay(
+                testUrl, SchemeDisplay.OMIT_HTTP_AND_HTTPS));
         verifySecurityIcon(R.drawable.ic_offline_pin_24dp);
     }
 
@@ -392,7 +397,8 @@ public class TrustedCdnPublisherUrlTest {
 
         final String expectedUrl;
         if (expectedPublisher == null) {
-            expectedUrl = UrlFormatter.formatUrlForSecurityDisplayOmitScheme(testUrl);
+            expectedUrl = UrlFormatter.formatUrlForSecurityDisplay(
+                    testUrl, SchemeDisplay.OMIT_HTTP_AND_HTTPS);
         } else {
             expectedUrl =
                     String.format(Locale.US, "From %s – delivered by Google", expectedPublisher);

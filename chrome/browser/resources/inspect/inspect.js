@@ -161,6 +161,8 @@ function populateLocalTargets(data) {
   removeChildren('service-workers-list');
   removeChildrenExceptAdditional('others-list');
 
+  data.sort((a, b) => a.name.localeCompare(b.name));
+
   for (let i = 0; i < data.length; i++) {
     if (data[i].type === 'page') {
       addToPagesList(data[i]);
@@ -572,6 +574,9 @@ function addWebViewDescription(row, webview) {
     viewStatus.size = 'size ' + webview.width + ' \u00d7 ' + webview.height;
   } else {
     viewStatus.visibility = 'empty';
+  }
+  if (webview.never_attached) {
+    viewStatus.visibility += ' never-attached';
   }
   if (webview.attached) {
     viewStatus.position =

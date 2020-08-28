@@ -8,12 +8,15 @@
 #include <string>
 #include <utility>
 
+#include "third_party/blink/renderer/bindings/core/v8/native_value_traits_impl.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise_resolver.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_array_buffer.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_binding_for_core.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_throw_dom_exception.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_websocket_close_info.h"
+#include "third_party/blink/renderer/bindings/modules/v8/v8_websocket_connection.h"
+#include "third_party/blink/renderer/bindings/modules/v8/v8_websocket_stream_options.h"
 #include "third_party/blink/renderer/core/dom/abort_signal.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
 #include "third_party/blink/renderer/core/streams/readable_stream.h"
@@ -25,9 +28,6 @@
 #include "third_party/blink/renderer/core/typed_arrays/dom_array_buffer.h"
 #include "third_party/blink/renderer/core/typed_arrays/dom_array_buffer_view.h"
 #include "third_party/blink/renderer/modules/websockets/websocket_channel_impl.h"
-#include "third_party/blink/renderer/modules/websockets/websocket_close_info.h"
-#include "third_party/blink/renderer/modules/websockets/websocket_connection.h"
-#include "third_party/blink/renderer/modules/websockets/websocket_stream_options.h"
 #include "third_party/blink/renderer/platform/bindings/exception_code.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
 #include "third_party/blink/renderer/platform/bindings/script_state.h"
@@ -53,7 +53,7 @@ class WebSocketStream::UnderlyingSource final : public UnderlyingSourceBase {
   void DidStartClosingHandshake();
   void DidClose(bool was_clean, uint16_t code, const String& reason);
 
-  void Trace(Visitor* visitor) override {
+  void Trace(Visitor* visitor) const override {
     visitor->Trace(creator_);
     UnderlyingSourceBase::Trace(visitor);
   }
@@ -85,7 +85,7 @@ class WebSocketStream::UnderlyingSink final : public UnderlyingSinkBase {
   void DidClose(bool was_clean, uint16_t code, const String& reason);
   bool AllDataHasBeenConsumed() { return !is_writing_; }
 
-  void Trace(Visitor* visitor) override {
+  void Trace(Visitor* visitor) const override {
     visitor->Trace(creator_);
     visitor->Trace(close_resolver_);
     UnderlyingSinkBase::Trace(visitor);
@@ -430,7 +430,7 @@ WebSocketStream* WebSocketStream::CreateInternal(
 
 WebSocketStream::WebSocketStream(ExecutionContext* execution_context,
                                  ScriptState* script_state)
-    : ContextLifecycleObserver(execution_context),
+    : ExecutionContextLifecycleObserver(execution_context),
       script_state_(script_state),
       connection_resolver_(
           MakeGarbageCollected<ScriptPromiseResolver>(script_state)),
@@ -485,7 +485,7 @@ void WebSocketStream::DidConnect(const String& subprotocol,
   connection->setExtensions(extensions);
   source_ = MakeGarbageCollected<UnderlyingSource>(script_state_, this);
   auto* readable = ReadableStream::CreateWithCountQueueingStrategy(
-      script_state_, source_, 0);
+      script_state_, source_, 1);
   sink_ = MakeGarbageCollected<UnderlyingSink>(this);
   auto* writable =
       WritableStream::CreateWithCountQueueingStrategy(script_state_, sink_, 1);
@@ -570,12 +570,9 @@ void WebSocketStream::DidClose(
   }
 }
 
-void WebSocketStream::ContextDestroyed(ExecutionContext*) {
+void WebSocketStream::ContextDestroyed() {
   DVLOG(1) << "WebSocketStream " << this << " ContextDestroyed()";
   if (channel_) {
-    if (common_.GetState() == WebSocketCommon::kOpen) {
-      channel_->Close(WebSocketChannel::kCloseEventCodeGoingAway, String());
-    }
     channel_ = nullptr;
   }
   if (common_.GetState() != WebSocketCommon::kClosed) {
@@ -587,7 +584,7 @@ bool WebSocketStream::HasPendingActivity() const {
   return channel_;
 }
 
-void WebSocketStream::Trace(Visitor* visitor) {
+void WebSocketStream::Trace(Visitor* visitor) const {
   visitor->Trace(script_state_);
   visitor->Trace(connection_resolver_);
   visitor->Trace(closed_resolver_);
@@ -597,7 +594,7 @@ void WebSocketStream::Trace(Visitor* visitor) {
   visitor->Trace(source_);
   visitor->Trace(sink_);
   ScriptWrappable::Trace(visitor);
-  ContextLifecycleObserver::Trace(visitor);
+  ExecutionContextLifecycleObserver::Trace(visitor);
   WebSocketChannelClient::Trace(visitor);
 }
 
@@ -611,17 +608,17 @@ void WebSocketStream::Connect(ScriptState* script_state,
   // Don't read all of a huge initial message before read() has been called.
   channel_->ApplyBackpressure();
 
-  auto* signal = options->signal();
-  if (signal && signal->aborted()) {
-    auto exception = V8ThrowDOMException::CreateOrEmpty(
-        script_state->GetIsolate(), DOMExceptionCode::kAbortError,
-        "WebSocket handshake was aborted");
-    connection_resolver_->Reject(exception);
-    closed_resolver_->Reject(exception);
-    return;
-  }
+  if (options->hasSignal()) {
+    auto* signal = options->signal();
+    if (signal->aborted()) {
+      auto exception = V8ThrowDOMException::CreateOrEmpty(
+          script_state->GetIsolate(), DOMExceptionCode::kAbortError,
+          "WebSocket handshake was aborted");
+      connection_resolver_->Reject(exception);
+      closed_resolver_->Reject(exception);
+      return;
+    }
 
-  if (signal) {
     signal->AddAlgorithm(
         WTF::Bind(&WebSocketStream::OnAbort, WrapWeakPersistent(this)));
   }
@@ -666,10 +663,9 @@ void WebSocketStream::CloseMaybeWithReason(ScriptValue maybe_reason) {
   // Exceptions thrown here are ignored.
   ExceptionState exception_state(script_state_->GetIsolate(),
                                  ExceptionState::kUnknownContext, "", "");
-  WebSocketCloseInfo* info = MakeGarbageCollected<WebSocketCloseInfo>();
-  V8WebSocketCloseInfo::ToImpl(script_state_->GetIsolate(),
-                               maybe_reason.V8Value(), info, exception_state);
-  if (info->hasCode() && !exception_state.HadException()) {
+  WebSocketCloseInfo* info = NativeValueTraits<WebSocketCloseInfo>::NativeValue(
+      script_state_->GetIsolate(), maybe_reason.V8Value(), exception_state);
+  if (!exception_state.HadException() && info->hasCode()) {
     CloseInternal(info->code(), info->reason(), exception_state);
     if (!exception_state.HadException())
       return;

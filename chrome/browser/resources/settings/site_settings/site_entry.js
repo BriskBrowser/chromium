@@ -6,10 +6,33 @@
  * @fileoverview
  * 'site-entry' is an element representing a single eTLD+1 site entity.
  */
+import 'chrome://resources/cr_elements/cr_action_menu/cr_action_menu.m.js';
+import 'chrome://resources/cr_elements/cr_icon_button/cr_icon_button.m.js';
+import 'chrome://resources/cr_elements/cr_lazy_render/cr_lazy_render.m.js';
+import 'chrome://resources/cr_elements/shared_style_css.m.js';
+import 'chrome://resources/polymer/v3_0/iron-collapse/iron-collapse.js';
+import '../settings_shared_css.m.js';
+import '../site_favicon.js';
+
+import {assert} from 'chrome://resources/js/assert.m.js';
+import {FocusRowBehavior} from 'chrome://resources/js/cr/ui/focus_row_behavior.m.js';
+import {html, Polymer} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+
+import {loadTimeData} from '../i18n_setup.js';
+import {routes} from '../route.js';
+import {Router} from '../router.m.js';
+
+import {AllSitesAction2, SortMethod} from './constants.js';
+import {LocalDataBrowserProxy, LocalDataBrowserProxyImpl} from './local_data_browser_proxy.js';
+import {SiteSettingsBehavior} from './site_settings_behavior.js';
+import {OriginInfo, SiteGroup} from './site_settings_prefs_browser_proxy.js';
+
 Polymer({
   is: 'site-entry',
 
-  behaviors: [SiteSettingsBehavior, cr.ui.FocusRowBehavior],
+  _template: html`{__html_template__}`,
+
+  behaviors: [SiteSettingsBehavior, FocusRowBehavior],
 
   properties: {
     /**
@@ -76,12 +99,22 @@ Polymer({
 
     /**
      * The selected sort method.
-     * @type {!settings.SortMethod|undefined}
+     * @type {!SortMethod|undefined}
      */
     sortMethod: {type: String, observer: 'updateOrigins_'},
+
+    /**
+     * Represents whether or not the storage pressure UI flag is enabled
+     * @type {boolean}
+     * @private
+     */
+    storagePressureUIEnabled_: {
+      type: Boolean,
+      value: loadTimeData.getBoolean('enableStoragePressureUI'),
+    },
   },
 
-  /** @private {?settings.LocalDataBrowserProxy} */
+  /** @private {?LocalDataBrowserProxy} */
   localDataBrowserProxy_: null,
 
   /** @private {?Element} */
@@ -89,8 +122,7 @@ Polymer({
 
   /** @override */
   created() {
-    this.localDataBrowserProxy_ =
-        settings.LocalDataBrowserProxyImpl.getInstance();
+    this.localDataBrowserProxy_ = LocalDataBrowserProxyImpl.getInstance();
   },
 
   /** @override */
@@ -149,24 +181,13 @@ Polymer({
       return '';
     }
     if (this.grouped_(siteGroup)) {
-      if (siteGroup.etldPlus1 != '') {
+      if (siteGroup.etldPlus1 !== '') {
         return siteGroup.etldPlus1;
       }
       // Fall back onto using the host of the first origin, if no eTLD+1 name
       // was computed.
     }
-    return this.originRepresentation_(siteGroup.origins[0]);
-  },
-
-  /**
-   * Returns a user-friendly name for the origin.
-   * @param {OriginInfo} origin
-   * @return {string} The user-friendly name.
-   * @private
-   */
-  originRepresentation_(origin) {
-    const url = this.toUrl(origin.origin);
-    return url.host;
+    return this.originRepresentation(siteGroup.origins[0].origin);
   },
 
   /**
@@ -225,7 +246,7 @@ Polymer({
     const url = this.toUrl(origin.origin);
     const scheme = url.protocol.replace(new RegExp(':*$'), '');
     /** @type{string} */ const HTTPS_SCHEME = 'https';
-    if (scheme == HTTPS_SCHEME) {
+    if (scheme === HTTPS_SCHEME) {
       return '';
     }
     return scheme;
@@ -242,21 +263,21 @@ Polymer({
     const origins = siteGroup.origins;
     assert(origins);
     assert(origins.length >= 1);
-    if (origins.length == 1) {
+    if (origins.length === 1) {
       return origins[0].origin;
     }
     // If we can find a origin with format "www.etld+1", use the favicon of this
     // origin. Otherwise find the origin with largest storage, and use the
     // number of cookies as a tie breaker.
     for (const originInfo of origins) {
-      if (this.toUrl(originInfo.origin).host == 'www.' + siteGroup.etldPlus1) {
+      if (this.toUrl(originInfo.origin).host === 'www.' + siteGroup.etldPlus1) {
         return originInfo.origin;
       }
     }
     const getMaxStorage = (max, originInfo) => {
       return (
           max.usage > originInfo.usage ||
-                  (max.usage == originInfo.usage &&
+                  (max.usage === originInfo.usage &&
                    max.numCookies > originInfo.numCookies) ?
               max :
               originInfo);
@@ -286,7 +307,7 @@ Polymer({
    * @private
    */
   getCookieNumString_(numCookies) {
-    if (numCookies == 0) {
+    if (numCookies === 0) {
       return Promise.resolve('');
     }
     return this.localDataBrowserProxy_.getNumCookiesString(numCookies);
@@ -323,8 +344,8 @@ Polymer({
   navigateToSiteDetails_(origin) {
     this.fire(
         'site-entry-selected', {item: this.siteGroup, index: this.listIndex});
-    settings.navigateTo(
-        settings.routes.SITE_SETTINGS_SITE_DETAILS,
+    Router.getInstance().navigateTo(
+        routes.SITE_SETTINGS_SITE_DETAILS,
         new URLSearchParams('site=' + origin));
   },
 
@@ -335,7 +356,8 @@ Polymer({
    */
   onOriginTap_(e) {
     this.navigateToSiteDetails_(this.siteGroup.origins[e.model.index].origin);
-    this.browserProxy.recordAction(settings.AllSitesAction.ENTER_SITE_DETAILS);
+    this.browserProxy.recordAction(AllSitesAction2.ENTER_SITE_DETAILS);
+    chrome.metricsPrivate.recordUserAction('AllSites_EnterSiteDetails');
   },
 
   /**
@@ -347,8 +369,8 @@ Polymer({
     // Individual origins don't expand - just go straight to Site Details.
     if (!this.grouped_(this.siteGroup)) {
       this.navigateToSiteDetails_(this.siteGroup.origins[0].origin);
-      this.browserProxy.recordAction(
-          settings.AllSitesAction.ENTER_SITE_DETAILS);
+      this.browserProxy.recordAction(AllSitesAction2.ENTER_SITE_DETAILS);
+      chrome.metricsPrivate.recordUserAction('AllSites_EnterSiteDetails');
       return;
     }
     this.toggleCollapsible_();
@@ -383,6 +405,8 @@ Polymer({
       target: e.target,
       index: this.listIndex,
       item: this.siteGroup,
+      origin: e.target.dataset.origin,
+      actionScope: e.target.dataset.context,
     });
   },
 
@@ -406,15 +430,12 @@ Polymer({
    * @private
    */
   getClassForIndex_(index) {
-    if (index == 0) {
-      return 'first';
-    }
-    return '';
+    return index > 0 ? 'hr' : '';
   },
 
   /**
    * Update the order and data display text for origins.
-   * @param {!settings.SortMethod|undefined} sortMethod
+   * @param {!SortMethod|undefined} sortMethod
    * @private
    */
   updateOrigins_(sortMethod) {
@@ -443,20 +464,20 @@ Polymer({
 
   /**
    * Sort functions for sorting origins based on selected method.
-   * @param {!settings.SortMethod|undefined} sortMethod
+   * @param {!SortMethod|undefined} sortMethod
    * @private
    */
   sortFunction_(sortMethod) {
-    if (sortMethod == settings.SortMethod.MOST_VISITED) {
+    if (sortMethod === SortMethod.MOST_VISITED) {
       return (origin1, origin2) => {
         return origin2.engagement - origin1.engagement;
       };
-    } else if (sortMethod == settings.SortMethod.STORAGE) {
+    } else if (sortMethod === SortMethod.STORAGE) {
       return (origin1, origin2) => {
         return origin2.usage - origin1.usage ||
             origin2.numCookies - origin1.numCookies;
       };
-    } else if (sortMethod == settings.SortMethod.NAME) {
+    } else if (sortMethod === SortMethod.NAME) {
       return (origin1, origin2) => {
         return origin1.origin.localeCompare(origin2.origin);
       };

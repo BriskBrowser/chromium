@@ -170,7 +170,7 @@ class TrialComparisonCertVerifier::Job {
   // Called when the initial trial comparison is completed.
   void OnTrialJobCompleted(int result);
 
-#if defined(OS_MACOSX)
+#if defined(OS_APPLE)
   // On some versions of macOS, revocation checking is always force-enabled
   // for the system. For comparing with the built-in verifier to rule out
   // "expected" differences, it's necessary to retry verification with
@@ -300,7 +300,7 @@ int TrialComparisonCertVerifier::Job::Start(
   // callback on destruction.
   primary_error_ = parent_->primary_verifier()->Verify(
       params_, &primary_result_,
-      base::Bind(&Job::OnPrimaryJobCompleted, base::Unretained(this)),
+      base::BindOnce(&Job::OnPrimaryJobCompleted, base::Unretained(this)),
       &primary_request_, net_log_);
 
   if (primary_error_ != ERR_IO_PENDING) {
@@ -362,7 +362,8 @@ void TrialComparisonCertVerifier::Job::Finish(
         params_.hostname(), params_.certificate(), config_.enable_rev_checking,
         config_.require_rev_checking_local_anchors,
         config_.enable_sha1_local_anchors, config_.disable_symantec_enforcement,
-        primary_result_, trial_result_);
+        params_.ocsp_response(), params_.sct_list(), primary_result_,
+        trial_result_);
   }
 
   if (weak_this) {
@@ -461,7 +462,7 @@ void TrialComparisonCertVerifier::Job::OnTrialJobCompleted(int result) {
     return;
   }
 
-#if defined(OS_MACOSX)
+#if defined(OS_APPLE)
   if (primary_error_ == ERR_CERT_REVOKED && !config_.enable_rev_checking &&
       !(primary_result_.cert_status & CERT_STATUS_REV_CHECKING_ENABLED) &&
       !(trial_result_.cert_status &
@@ -527,7 +528,7 @@ void TrialComparisonCertVerifier::Job::OnTrialJobCompleted(int result) {
   FinishWithError();  // Note: Will delete |this|.
 }
 
-#if defined(OS_MACOSX)
+#if defined(OS_APPLE)
 void TrialComparisonCertVerifier::Job::
     OnMacRevCheckingReverificationJobCompleted(int result) {
   if (result == ERR_CERT_REVOKED) {

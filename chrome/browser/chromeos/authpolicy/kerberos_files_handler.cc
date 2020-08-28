@@ -16,6 +16,7 @@
 #include "base/path_service.h"
 #include "base/strings/stringprintf.h"
 #include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/common/pref_names.h"
 #include "content/public/browser/network_service_instance.h"
@@ -43,7 +44,7 @@ void WriteFile(const base::FilePath& path, base::Optional<std::string> blob) {
 
 // Deletes file at |path|. Prints an error or failure.
 void RemoveFile(const base::FilePath& path) {
-  if (!base::DeleteFile(path, false /* recursive */))
+  if (!base::DeleteFile(path))
     LOG(ERROR) << "Failed to delete file " << path.value();
 }
 
@@ -137,9 +138,9 @@ void KerberosFilesHandler::SetFiles(base::Optional<std::string> krb5cc,
                                     base::Optional<std::string> krb5conf) {
   krb5conf =
       MaybeAdjustConfig(krb5conf, !negotiate_disable_cname_lookup_.GetValue());
-  base::PostTaskAndReply(
+  base::ThreadPool::PostTaskAndReply(
       FROM_HERE,
-      {base::ThreadPool(), base::MayBlock(), base::TaskPriority::BEST_EFFORT,
+      {base::MayBlock(), base::TaskPriority::BEST_EFFORT,
        base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN},
       base::BindOnce(&WriteFiles, std::move(krb5cc), std::move(krb5conf)),
       base::BindOnce(&KerberosFilesHandler::OnFilesChanged,
@@ -149,9 +150,9 @@ void KerberosFilesHandler::SetFiles(base::Optional<std::string> krb5cc,
 void KerberosFilesHandler::DeleteFiles() {
   // These files contain user credentials, so use BLOCK_SHUTDOWN here to make
   // sure they do get deleted.
-  base::PostTaskAndReply(
+  base::ThreadPool::PostTaskAndReply(
       FROM_HERE,
-      {base::ThreadPool(), base::MayBlock(), base::TaskPriority::BEST_EFFORT,
+      {base::MayBlock(), base::TaskPriority::BEST_EFFORT,
        base::TaskShutdownBehavior::BLOCK_SHUTDOWN},
       base::BindOnce(&RemoveFiles),
       base::BindOnce(&KerberosFilesHandler::OnFilesChanged,

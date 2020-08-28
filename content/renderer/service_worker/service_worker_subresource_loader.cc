@@ -226,10 +226,6 @@ void ServiceWorkerSubresourceLoader::StartRequest(
 }
 
 void ServiceWorkerSubresourceLoader::DispatchFetchEvent() {
-  mojo::PendingRemote<blink::mojom::ServiceWorkerFetchResponseCallback>
-      response_callback;
-  response_callback_receiver_.Bind(
-      response_callback.InitWithNewPipeAndPassReceiver());
   blink::mojom::ControllerServiceWorker* controller =
       controller_connector_->GetControllerServiceWorker(
           blink::mojom::ControllerServiceWorkerPurpose::FETCH_SUB_RESOURCE);
@@ -258,6 +254,38 @@ void ServiceWorkerSubresourceLoader::DispatchFetchEvent() {
     // to return an error as the client must be shutting down.
     DCHECK_EQ(ControllerServiceWorkerConnector::State::kNoContainerHost,
               controller_state);
+    SettleFetchEventDispatch(base::nullopt);
+    return;
+  }
+
+  // Enable the service worker to access the files to be uploaded before
+  // dispatching a fetch event.
+  if (resource_request_.request_body) {
+    const auto& files = resource_request_.request_body->GetReferencedFiles();
+    if (!files.empty()) {
+      controller_connector_->EnsureFileAccess(
+          files,
+          base::BindOnce(
+              &ServiceWorkerSubresourceLoader::DispatchFetchEventForSubresource,
+              weak_factory_.GetWeakPtr()));
+      return;
+    }
+  }
+
+  DispatchFetchEventForSubresource();
+}
+
+void ServiceWorkerSubresourceLoader::DispatchFetchEventForSubresource() {
+  mojo::PendingRemote<blink::mojom::ServiceWorkerFetchResponseCallback>
+      response_callback;
+  response_callback_receiver_.Bind(
+      response_callback.InitWithNewPipeAndPassReceiver());
+
+  blink::mojom::ControllerServiceWorker* controller =
+      controller_connector_->GetControllerServiceWorker(
+          blink::mojom::ControllerServiceWorkerPurpose::FETCH_SUB_RESOURCE);
+
+  if (!controller) {
     SettleFetchEventDispatch(base::nullopt);
     return;
   }
@@ -452,6 +480,10 @@ void ServiceWorkerSubresourceLoader::UpdateResponseTiming(
   // dispatching the fetch event, so set it to |dispatch_event_time|.
   response_head_->load_timing.service_worker_ready_time =
       timing->dispatch_event_time;
+  response_head_->load_timing.service_worker_fetch_start =
+      timing->dispatch_event_time;
+  response_head_->load_timing.service_worker_respond_with_settled =
+      timing->respond_with_settled_time;
   fetch_event_timing_ = std::move(timing);
 }
 
@@ -538,10 +570,9 @@ void ServiceWorkerSubresourceLoader::StartResponse(
   // Read side data if necessary.  We only do this if both the
   // |side_data_blob| is available to read and the request is destined
   // for a script.
-  auto resource_type =
-      static_cast<content::ResourceType>(resource_request_.resource_type);
+  auto request_destination = resource_request_.destination;
   if (response->side_data_blob &&
-      resource_type == content::ResourceType::kScript) {
+      request_destination == network::mojom::RequestDestination::kScript) {
     side_data_as_blob_.Bind(std::move(response->side_data_blob->blob));
     side_data_as_blob_->ReadSideData(base::BindOnce(
         &ServiceWorkerSubresourceLoader::OnSideDataReadingComplete,
@@ -677,6 +708,7 @@ void ServiceWorkerSubresourceLoader::RecordTimingMetrics(bool handled) {
 void ServiceWorkerSubresourceLoader::FollowRedirect(
     const std::vector<std::string>& removed_headers,
     const net::HttpRequestHeaders& modified_headers,
+    const net::HttpRequestHeaders& modified_cors_exempt_headers,
     const base::Optional<GURL>& new_url) {
   TRACE_EVENT_WITH_FLOW1(
       "ServiceWorker", "ServiceWorkerSubresourceLoader::FollowRedirect",
@@ -687,8 +719,8 @@ void ServiceWorkerSubresourceLoader::FollowRedirect(
   // TODO(arthursonzogni, juncai): This seems to be correctly implemented, but
   // not used so far. Add tests and remove this DCHECK to support this feature
   // if needed. See https://crbug.com/845683.
-  DCHECK(removed_headers.empty() && modified_headers.IsEmpty())
-      << "Redirect with removed or modified headers is not supported yet. See "
+  DCHECK(modified_headers.IsEmpty() && modified_cors_exempt_headers.IsEmpty())
+      << "Redirect with modified headers is not supported yet. See "
          "https://crbug.com/845683";
   DCHECK(!new_url.has_value()) << "Redirect with modified url was not "
                                   "supported yet. crbug.com/845683";
@@ -699,6 +731,10 @@ void ServiceWorkerSubresourceLoader::FollowRedirect(
       resource_request_.url, resource_request_.method, *redirect_info_,
       removed_headers, modified_headers, &resource_request_.headers,
       &should_clear_upload);
+  resource_request_.cors_exempt_headers.MergeFrom(modified_cors_exempt_headers);
+  for (const std::string& name : removed_headers)
+    resource_request_.cors_exempt_headers.RemoveHeader(name);
+
   if (should_clear_upload)
     resource_request_.request_body = nullptr;
 

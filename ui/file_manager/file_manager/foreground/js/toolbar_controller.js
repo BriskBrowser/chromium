@@ -91,6 +91,15 @@ class ToolbarController {
         cr.ui.Command);
 
     /**
+     * @private {!cr.ui.Command}
+     * @const
+     */
+    this.invokeSharesheetCommand_ = assertInstanceof(
+        queryRequiredElement(
+            '#invoke-sharesheet', assert(this.toolbar_.ownerDocument.body)),
+        cr.ui.Command);
+
+    /**
      * @private {!HTMLElement}
      * @const
      */
@@ -136,14 +145,28 @@ class ToolbarController {
         FileSelectionHandler.EventType.CHANGE,
         this.onSelectionChanged_.bind(this));
 
+    // Using CHANGE_THROTTLED because updateSharesheetCommand_() uses async
+    // API and can update the state out-of-order specially when updating to
+    // an empty selection.
+    this.selectionHandler_.addEventListener(
+        FileSelectionHandler.EventType.CHANGE_THROTTLED,
+        this.updateSharesheetCommand_.bind(this));
+
+    chrome.fileManagerPrivate.onAppsUpdated.addListener(
+        this.updateSharesheetCommand_.bind(this));
+
     this.cancelSelectionButton_.addEventListener(
         'click', this.onCancelSelectionButtonClicked_.bind(this));
 
     this.deleteButton_.addEventListener(
         'click', this.onDeleteButtonClicked_.bind(this));
 
-    this.navigationList_.addEventListener(
-        'relayout', this.onNavigationListRelayout_.bind(this));
+    // The old layout needed the cancel selection button to resize every
+    // time the splitter was moved. Not needed for files-ng.
+    if (!util.isFilesNg()) {
+      this.navigationList_.addEventListener(
+          'relayout', this.onNavigationListRelayout_.bind(this));
+    }
 
     this.directoryModel_.addEventListener(
         'directory-changed', this.updateCurrentDirectoryButtons_.bind(this));
@@ -261,7 +284,6 @@ class ToolbarController {
    * @private
    */
   onDeleteButtonClicked_() {
-    this.deleteButton_.blur();
     this.deleteCommand_.canExecuteChange(this.listContainer_.currentList);
     this.deleteCommand_.execute(this.listContainer_.currentList);
   }
@@ -271,10 +293,13 @@ class ToolbarController {
    * @private
    */
   onNavigationListRelayout_() {
-    // Make the width of spacer same as the width of navigation list.
-    const navWidth =
-        parseFloat(window.getComputedStyle(this.navigationList_).width);
-    this.cancelSelectionButtonWrapper_.style.width = navWidth + 'px';
+    // Not needed for files-ng, see comment above where this function is used.
+    if (!util.isFilesNg()) {
+      // Make the width of spacer same as the width of navigation list.
+      const navWidth =
+          parseFloat(window.getComputedStyle(this.navigationList_).width);
+      this.cancelSelectionButtonWrapper_.style.width = navWidth + 'px';
+    }
   }
 
   /**
@@ -285,5 +310,11 @@ class ToolbarController {
    */
   onToolbarButtonsMutated_() {
     this.locationLine_.truncate();
+  }
+
+  /** @private */
+  updateSharesheetCommand_() {
+    this.invokeSharesheetCommand_.canExecuteChange(
+        this.listContainer_.currentList);
   }
 }

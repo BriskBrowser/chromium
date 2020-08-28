@@ -70,6 +70,8 @@ const IDNTestCase kIdnCases[] = {
     {"www.google.com.", L"www.google.com.", kSafe},
     {".", L".", kSafe},
     {"", L"", kSafe},
+    // Invalid IDN
+    {"xn--example-.com", L"xn--example-.com", kInvalid},
     // IDN
     // Hanzi (Traditional Chinese)
     {"xn--1lq90ic7f1rc.cn", L"\x5317\x4eac\x5927\x5b78.cn", kSafe},
@@ -151,6 +153,8 @@ const IDNTestCase kIdnCases[] = {
     {"xn--0-6ee.com", L"੨0.com", kUnsafe},
     // Block fully numeric lookalikes (৪੨.com using U+09EA and U+0A68).
     {"xn--47b6w.com", L"৪੨.com", kUnsafe},
+    // Block single script digit lookalikes (using three U+0A68 characters).
+    {"xn--qccaa.com", L"੨੨੨.com", kUnsafe},
 
     // URL test with mostly numbers and one confusable character
     // Georgian 'd' 4000.com
@@ -874,7 +878,7 @@ const IDNTestCase kIdnCases[] = {
      kInvalid},
     // Hebrew Gershayim with Arabic is disallowed.
     {"xn--5eb7h.eg", L"\x0628\x05f4.eg", kUnsafe},
-#if defined(OS_MACOSX)
+#if defined(OS_APPLE)
     // These characters are blocked due to a font issue on Mac.
     // Tibetan transliteration characters.
     {"xn--com-lum.test.pl", L"com\u0f8c.test.pl", kUnsafe},
@@ -1201,44 +1205,75 @@ const IDNTestCase kIdnCases[] = {
     {"xn--googlecom-g040a.com", L"google讠com.com", kUnsafe},  // (U+8BA0)
     {"xn--googlecom-b85n.com", L"google丁com.com", kUnsafe},   // (U+4E01)
 
-    {"xn--7dbh4a.com", L"חסד.com", kUnsafe},
-    {"xn--7dbh4a.il", L"חסד.il", kSafe},
-
-    // Whole-script-confusable in Ethiopic.
-    {"xn--6xd66aa62c.com", L"ሠዐዐፐ.com", kUnsafe},
-    {"xn--6xd66aa62c.et", L"ሠዐዐፐ.et", kSafe},
-
-    // Whole-script-confusable in Greek.
-    {"xn--mxapd.com", L"ικα.com", kUnsafe},
-    {"xn--mxapd.gr", L"ικα.gr", kSafe},
-    {"xn--mxapd.xn--qxam", L"ικα.ελ", kSafe},
-
-    // Whole-script-confusable in Armenian.
+    // Whole-script-confusables. Cyrillic is sufficiently handled in cases above
+    // so it's not included here.
+    // Armenian:
     {"xn--mbbkpm.com", L"ոսւօ.com", kUnsafe},
     {"xn--mbbkpm.am", L"ոսւօ.am", kSafe},
     {"xn--mbbkpm.xn--y9a3aq", L"ոսւօ.հայ", kSafe},
+    // Ethiopic:
+    {"xn--6xd66aa62c.com", L"ሠዐዐፐ.com", kUnsafe},
+    {"xn--6xd66aa62c.et", L"ሠዐዐፐ.et", kSafe},
+    {"xn--6xd66aa62c.xn--m0d3gwjla96a", L"ሠዐዐፐ.ኢትዮጵያ", kSafe},
+    // Greek:
+    {"xn--mxapd.com", L"ικα.com", kUnsafe},
+    {"xn--mxapd.gr", L"ικα.gr", kSafe},
+    {"xn--mxapd.xn--qxam", L"ικα.ελ", kSafe},
+    // Georgian:
+    {"xn--gpd3ag.com", L"ჽჿხ.com", kUnsafe},
+    {"xn--gpd3ag.ge", L"ჽჿხ.ge", kSafe},
+    {"xn--gpd3ag.xn--node", L"ჽჿხ.გე", kSafe},
+    // Hebrew:
+    {"xn--7dbh4a.com", L"חסד.com", kUnsafe},
+    {"xn--7dbh4a.il", L"חסד.il", kSafe},
+    {"xn--9dbq2a.xn--7dbh4a", L"קום.חסד", kSafe},
+    // Myanmar:
+    {"xn--oidbbf41a.com", L"င၀ဂခဂ.com", kUnsafe},
+    {"xn--oidbbf41a.mm", L"င၀ဂခဂ.mm", kSafe},
+    {"xn--oidbbf41a.xn--7idjb0f4ck", L"င၀ဂခဂ.မြန်မာ", kSafe},
+    // Myanmar Shan digits:
+    {"xn--rmdcmef.com", L"႐႑႕႖႗.com", kUnsafe},
+    {"xn--rmdcmef.mm", L"႐႑႕႖႗.mm", kSafe},
+    {"xn--rmdcmef.xn--7idjb0f4ck", L"႐႑႕႖႗.မြန်မာ", kSafe},
+// Thai:
+#if defined(OS_LINUX) || defined(OS_CHROMEOS)
+    {"xn--o3cedqz2c.com", L"ทนบพรห.com", kUnsafe},
+    {"xn--o3cedqz2c.th", L"ทนบพรห.th", kSafe},
+    {"xn--o3cedqz2c.xn--o3cw4h", L"ทนบพรห.ไทย", kSafe},
+#else
+    {"xn--r3ch7hsc.com", L"พบเ๐.com", kUnsafe},
+    {"xn--r3ch7hsc.th", L"พบเ๐.th", kSafe},
+    {"xn--r3ch7hsc.xn--o3cw4h", L"พบเ๐.ไทย", kSafe},
+#endif
 
-    // Whole-script-confusable in Bengali:
+    // Indic scripts:
+    // Bengali:
     {"xn--07baub.com", L"০৭০৭.com", kUnsafe},
-    // Whole-script-confusable in Devanagari:
+    // Devanagari:
     {"xn--62ba6j.com", L"ऽ०ऽ.com", kUnsafe},
-    // Whole-script-confusable in Gujarati:
+    // Gujarati:
     {"xn--becd.com", L"ડટ.com", kUnsafe},
-    // Whole-script-confusable in Gurmukhi:
+    // Gurmukhi:
     {"xn--occacb.com", L"੦੧੦੧.com", kUnsafe},
-    // Whole-script-confusable in Kannada:
+    // Kannada:
     {"xn--stca6jf.com", L"ಽ೦ಽ೧.com", kUnsafe},
-    // Whole-script-confusable in Malayalam:
+    // Malayalam:
     {"xn--lwccv.com", L"ടഠധ.com", kUnsafe},
-    // Whole-script-confusable in Oriya:
+    // Oriya:
     {"xn--zhca6ub.com", L"୮ଠ୮ଠ.com", kUnsafe},
-    // Whole-script-confusable in Tamil:
+    // Tamil:
     {"xn--mlca6ab.com", L"டபடப.com", kUnsafe},
-    // Whole-script-confusable in Telugu:
+    // Telugu:
     {"xn--brcaabbb.com", L"౧౦౧౦౧౦.com", kUnsafe},
 
     // IDN domain matching an IDN top-domain (fóó.com)
     {"xn--fo-5ja.com", L"fóo.com", kUnsafe},
+
+    // crbug.com/769547: Subdomains of top domains should be allowed.
+    {"xn--xample-9ua.test.net", L"éxample.test.net", kSafe},
+    // Skeleton of the eTLD+1 matches a top domain, but the eTLD+1 itself is
+    // not a top domain. Should not be decoded to unicode.
+    {"xn--xample-9ua.test.xn--nt-bja", L"éxample.test.nét", kUnsafe},
 };
 
 namespace test {
@@ -1307,18 +1342,50 @@ TEST_F(IDNSpoofCheckerTest, IDNToUnicode) {
   }
 }
 
+TEST_F(IDNSpoofCheckerTest, GetSimilarTopDomain) {
+  struct TestCase {
+    const wchar_t* const hostname;
+    const char* const expected_top_domain;
+  } kTestCases[] = {
+      {L"tést.net", "test.net"},
+      {L"subdomain.tést.net", "test.net"},
+      // A top domain should not return a similar top domain result.
+      {L"test.net", ""},
+      // A subdomain of a top domain should not return a similar top domain
+      // result.
+      {L"subdomain.test.net", ""},
+      // An IDN subdomain of a top domain should not return a similar top domain
+      // result.
+      {L"subdómain.test.net", ""}};
+  for (const TestCase& test_case : kTestCases) {
+    const TopDomainEntry entry = IDNSpoofChecker().GetSimilarTopDomain(
+        base::WideToUTF16(test_case.hostname));
+    EXPECT_EQ(test_case.expected_top_domain, entry.domain);
+    EXPECT_FALSE(entry.is_top_500);
+  }
+}
+
 TEST_F(IDNSpoofCheckerTest, LookupSkeletonInTopDomains) {
   {
     TopDomainEntry entry =
         IDNSpoofChecker().LookupSkeletonInTopDomains("d4OOO.corn");
     EXPECT_EQ("d4000.com", entry.domain);
     EXPECT_TRUE(entry.is_top_500);
+    EXPECT_EQ(entry.skeleton_type, SkeletonType::kFull);
+  }
+  {
+    TopDomainEntry entry = IDNSpoofChecker().LookupSkeletonInTopDomains(
+        "d4OOOcorn", SkeletonType::kSeparatorsRemoved);
+    EXPECT_EQ("d4000.com", entry.domain);
+    EXPECT_TRUE(entry.is_top_500);
+    EXPECT_EQ(entry.skeleton_type, SkeletonType::kSeparatorsRemoved);
   }
   {
     TopDomainEntry entry =
         IDNSpoofChecker().LookupSkeletonInTopDomains("digklrno68.corn");
     EXPECT_EQ("digklmo68.com", entry.domain);
     EXPECT_FALSE(entry.is_top_500);
+    EXPECT_EQ(entry.skeleton_type, SkeletonType::kFull);
   }
 }
 
@@ -1329,6 +1396,14 @@ TEST(IDNSpoofCheckerNoFixtureTest, LookupSkeletonInTopDomains) {
         IDNSpoofChecker().LookupSkeletonInTopDomains("google.corn");
     EXPECT_EQ("google.com", entry.domain);
     EXPECT_TRUE(entry.is_top_500);
+    EXPECT_EQ(entry.skeleton_type, SkeletonType::kFull);
+  }
+  {
+    TopDomainEntry entry = IDNSpoofChecker().LookupSkeletonInTopDomains(
+        "googlecorn", SkeletonType::kSeparatorsRemoved);
+    EXPECT_EQ("google.com", entry.domain);
+    EXPECT_TRUE(entry.is_top_500);
+    EXPECT_EQ(entry.skeleton_type, SkeletonType::kSeparatorsRemoved);
   }
   {
     // This is data dependent, must be updated when the top domain list
@@ -1337,6 +1412,7 @@ TEST(IDNSpoofCheckerNoFixtureTest, LookupSkeletonInTopDomains) {
         IDNSpoofChecker().LookupSkeletonInTopDomains("google.sk");
     EXPECT_EQ("google.sk", entry.domain);
     EXPECT_FALSE(entry.is_top_500);
+    EXPECT_EQ(entry.skeleton_type, SkeletonType::kFull);
   }
 }
 
@@ -1354,6 +1430,7 @@ TEST(IDNSpoofCheckerNoFixtureTest, UnsafeIDNToUnicodeWithDetails) {
     const char* const expected_matching_domain;
     // If true, the matching top domain is expected to be in top 500.
     const bool expected_is_top_500;
+    const IDNSpoofChecker::Result expected_spoof_check_result;
   } kTestCases[] = {
       {// An ASCII, top domain.
        "google.com", L"google.com", false,
@@ -1361,22 +1438,25 @@ TEST(IDNSpoofCheckerNoFixtureTest, UnsafeIDNToUnicodeWithDetails) {
        "",
        // ...And since we don't match it to a top domain, we don't know if it's
        // a top 500 domain.
-       false},
+       false, IDNSpoofChecker::Result::kNone},
       {// An ASCII domain that's not a top domain.
-       "not-top-domain.com", L"not-top-domain.com", false, "", false},
+       "not-top-domain.com", L"not-top-domain.com", false, "", false,
+       IDNSpoofChecker::Result::kNone},
       {// A unicode domain that's valid according to all of the rules in IDN
        // spoof checker except that it matches a top domain. Should be
-       // converted to punycode.
-       "xn--googl-fsa.com", L"googlé.com", true, "google.com", true},
+       // converted to punycode. Spoof check result is kSafe because top domain
+       // similarity isn't included in IDNSpoofChecker::Result.
+       "xn--googl-fsa.com", L"googlé.com", true, "google.com", true,
+       IDNSpoofChecker::Result::kSafe},
       {// A unicode domain that's not valid according to the rules in IDN spoof
-       // checker (mixed script) and it matches a top domain. Should be
-       // converted to punycode.
-       "xn--80ak6aa92e.com", L"аррӏе.com", true, "apple.com", true},
+       // checker (whole script confusable in Cyrillic) and it matches a top
+       // domain. Should be converted to punycode.
+       "xn--80ak6aa92e.com", L"аррӏе.com", true, "apple.com", true,
+       IDNSpoofChecker::Result::kWholeScriptConfusable},
       {// A unicode domain that's not valid according to the rules in IDN spoof
        // checker (mixed script) but it doesn't match a top domain.
        "xn--o-o-oai-26a223aia177a7ab7649d.com", L"ɴoτ-τoρ-ďoᛖaiɴ.com", true, "",
-       false},
-  };
+       false, IDNSpoofChecker::Result::kICUSpoofChecks}};
 
   for (const TestCase& test_case : kTestCases) {
     const url_formatter::IDNConversionResult result =
@@ -1387,6 +1467,7 @@ TEST(IDNSpoofCheckerNoFixtureTest, UnsafeIDNToUnicodeWithDetails) {
               result.matching_top_domain.domain);
     EXPECT_EQ(test_case.expected_is_top_500,
               result.matching_top_domain.is_top_500);
+    EXPECT_EQ(test_case.expected_spoof_check_result, result.spoof_check_result);
   }
 }
 
@@ -1426,6 +1507,16 @@ TEST(IDNSpoofCheckerNoFixtureTest, Skeletons) {
     EXPECT_EQ(1u, skeletons.size());
     EXPECT_EQ(test_case.expected_skeleton, *skeletons.begin());
   }
+}
+
+TEST(IDNSpoofCheckerNoFixtureTest, MultipleSkeletons) {
+  IDNSpoofChecker checker;
+  // apple with U+04CF (ӏ)
+  const GURL url("http://appӏe.com");
+  const url_formatter::IDNConversionResult result =
+      UnsafeIDNToUnicodeWithDetails(url.host());
+  Skeletons skeletons = checker.GetSkeletons(result.result);
+  EXPECT_EQ(Skeletons({"apple.corn", "appie.corn"}), skeletons);
 }
 
 }  // namespace url_formatter

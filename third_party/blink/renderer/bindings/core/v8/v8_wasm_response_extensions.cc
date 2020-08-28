@@ -39,7 +39,6 @@ static const int kWasmModuleTag = 1;
 // received bytes get forwarded to the V8 API class |WasmStreaming|.
 class FetchDataLoaderForWasmStreaming final : public FetchDataLoader,
                                               public BytesConsumer::Client {
-  USING_GARBAGE_COLLECTED_MIXIN(FetchDataLoaderForWasmStreaming);
 
  public:
   FetchDataLoaderForWasmStreaming(std::shared_ptr<v8::WasmStreaming> streaming,
@@ -104,7 +103,7 @@ class FetchDataLoaderForWasmStreaming final : public FetchDataLoader,
     return AbortCompilation();
   }
 
-  void Trace(Visitor* visitor) override {
+  void Trace(Visitor* visitor) const override {
     visitor->Trace(consumer_);
     visitor->Trace(client_);
     visitor->Trace(script_state_);
@@ -161,7 +160,6 @@ class FetchDataLoaderForWasmStreaming final : public FetchDataLoader,
 class WasmDataLoaderClient final
     : public GarbageCollected<WasmDataLoaderClient>,
       public FetchDataLoader::Client {
-  USING_GARBAGE_COLLECTED_MIXIN(WasmDataLoaderClient);
 
  public:
   explicit WasmDataLoaderClient(FetchDataLoaderForWasmStreaming* loader)
@@ -170,7 +168,7 @@ class WasmDataLoaderClient final
   void DidFetchDataLoadFailed() override { NOTREACHED(); }
   void Abort() override { loader_->AbortFromClient(); }
 
-  void Trace(Visitor* visitor) override {
+  void Trace(Visitor* visitor) const override {
     visitor->Trace(loader_);
     FetchDataLoader::Client::Trace(visitor);
   }
@@ -211,8 +209,6 @@ class ExceptionToAbortStreamingScope {
 
 RawResource* GetRawResource(ScriptState* script_state,
                             const String& url_string) {
-  if (!RuntimeEnabledFeatures::WasmCodeCacheEnabled())
-    return nullptr;
   ExecutionContext* execution_context = ExecutionContext::From(script_state);
   if (!execution_context)
     return nullptr;
@@ -324,33 +320,31 @@ void StreamFromResponseCallback(
     return;
   }
 
-  if (response->MimeType() != "application/wasm") {
+  // The spec explicitly disallows any extras on the Content-Type header,
+  // so we check against ContentType() rather than MimeType(), which
+  // implicitly strips extras.
+  if (response->ContentType().LowerASCII() != "application/wasm") {
     exception_state.ThrowTypeError(
         "Incorrect response MIME type. Expected 'application/wasm'.");
     return;
   }
 
-  Body::BodyLocked body_locked = response->IsBodyLocked(exception_state);
-  if (body_locked == Body::BodyLocked::kBroken)
-    return;
-
-  if (body_locked == Body::BodyLocked::kLocked ||
-      response->IsBodyUsed(exception_state) == Body::BodyUsed::kUsed) {
-    DCHECK(!exception_state.HadException());
+  if (response->IsBodyLocked() || response->IsBodyUsed()) {
     exception_state.ThrowTypeError(
         "Cannot compile WebAssembly.Module from an already read Response");
     return;
   }
 
-  if (exception_state.HadException())
-    return;
-
   if (!response->BodyBuffer()) {
-    exception_state.ThrowTypeError("Response object has a null body.");
+    // Since the status is 2xx (ok), this must be status 204 (No Content),
+    // status 205 (Reset Content) or a malformed status 200 (OK).
+    exception_state.ThrowWasmCompileError("Empty WebAssembly module");
     return;
   }
 
   String url = response->url();
+  const std::string& url_utf8 = url.Utf8();
+  streaming->SetUrl(url_utf8.c_str(), url_utf8.size());
   RawResource* raw_resource = GetRawResource(script_state, url);
   if (raw_resource) {
     SingleCachedMetadataHandler* cache_handler =
@@ -359,8 +353,6 @@ void StreamFromResponseCallback(
       auto client = std::make_shared<WasmStreamingClient>(
           url, raw_resource->GetResponse().ResponseTime());
       streaming->SetClient(client);
-      const std::string& url_utf8 = url.Utf8();
-      streaming->SetUrl(url_utf8.c_str(), url_utf8.size());
       scoped_refptr<CachedMetadata> cached_module =
           cache_handler->GetCachedMetadata(kWasmModuleTag);
       if (cached_module) {
@@ -381,7 +373,7 @@ void StreamFromResponseCallback(
                                "v8.wasm.moduleCacheInvalid",
                                TRACE_EVENT_SCOPE_THREAD);
           cache_handler->ClearCachedMetadata(
-              CachedMetadataHandler::kSendToPlatform);
+              CachedMetadataHandler::kClearPersistentStorage);
         }
       }
     }

@@ -20,6 +20,10 @@ class NGPhysicalFragmentCollectorBase {
 
  public:
   virtual Vector<Result> CollectFrom(const NGPhysicalFragment&) = 0;
+  NGPhysicalFragmentCollectorBase(const NGPhysicalFragmentCollectorBase&) =
+      delete;
+  NGPhysicalFragmentCollectorBase& operator=(
+      const NGPhysicalFragmentCollectorBase&) = delete;
 
  protected:
   explicit NGPhysicalFragmentCollectorBase() = default;
@@ -62,13 +66,13 @@ class NGPhysicalFragmentCollectorBase {
 
     // Traverse descendants unless the fragment is laid out separately from the
     // inline layout algorithm.
-    if (&fragment != root_fragment_ && fragment.IsBlockFormattingContextRoot())
+    if (&fragment != root_fragment_ && fragment.IsFormattingContextRoot())
       return;
 
     DCHECK(fragment.IsContainer());
     DCHECK(fragment.IsInline() || fragment.IsLineBox() ||
            (fragment.IsBlockFlow() &&
-            To<NGPhysicalBoxFragment>(fragment).ChildrenInline()));
+            To<NGPhysicalBoxFragment>(fragment).IsInlineFormattingContext()));
 
     for (const auto& child :
          To<NGPhysicalContainerFragment>(fragment).Children()) {
@@ -89,8 +93,6 @@ class NGPhysicalFragmentCollectorBase {
   PhysicalOffset current_offset_to_root_;
   Vector<Result> results_;
   bool should_stop_traversing_ = false;
-
-  DISALLOW_COPY_AND_ASSIGN(NGPhysicalFragmentCollectorBase);
 };
 
 // The visitor emitting all visited fragments.
@@ -99,6 +101,8 @@ class DescendantCollector final : public NGPhysicalFragmentCollectorBase {
 
  public:
   DescendantCollector() = default;
+  DescendantCollector(const DescendantCollector&) = delete;
+  DescendantCollector& operator=(const DescendantCollector&) = delete;
 
   Vector<Result> CollectFrom(const NGPhysicalFragment& fragment) final {
     return CollectExclusivelyFrom(fragment);
@@ -109,8 +113,6 @@ class DescendantCollector final : public NGPhysicalFragmentCollectorBase {
     Emit();
     VisitChildren();
   }
-
-  DISALLOW_COPY_AND_ASSIGN(DescendantCollector);
 };
 
 // The visitor emitting fragments generated from the given LayoutInline,
@@ -125,6 +127,8 @@ class LayoutInlineCollector final : public NGPhysicalFragmentCollectorBase {
   explicit LayoutInlineCollector(const LayoutInline& container) {
     CollectInclusiveDescendants(container);
   }
+  LayoutInlineCollector(const LayoutInlineCollector&) = delete;
+  LayoutInlineCollector& operator=(const LayoutInlineCollector&) = delete;
 
   Vector<Result> CollectFrom(const NGPhysicalFragment& fragment) final {
     return CollectExclusivelyFrom(fragment);
@@ -157,8 +161,6 @@ class LayoutInlineCollector final : public NGPhysicalFragmentCollectorBase {
   }
 
   HashSet<const LayoutObject*> inclusive_descendants_;
-
-  DISALLOW_COPY_AND_ASSIGN(LayoutInlineCollector);
 };
 
 }  // namespace
@@ -179,7 +181,7 @@ Vector<Result> NGInlineFragmentTraversal::SelfFragmentsOf(
   for (const NGPaintFragment* fragment :
        NGPaintFragment::InlineFragmentsFor(layout_object)) {
     result.push_back(Result{&fragment->PhysicalFragment(),
-                            fragment->InlineOffsetToContainerBox()});
+                            fragment->OffsetInContainerBlock()});
   }
   return result;
 }

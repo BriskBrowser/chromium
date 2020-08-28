@@ -8,6 +8,7 @@
 #include <linux/input.h>
 #include <stddef.h>
 
+#include "base/logging.h"
 #include "base/trace_event/trace_event.h"
 #include "ui/events/event.h"
 #include "ui/events/ozone/evdev/device_event_dispatcher_evdev.h"
@@ -23,8 +24,8 @@ float ScaleTilt(int value, int min_value, int num_values) {
 
 EventPointerType GetToolType(int button_tool) {
   if (button_tool == BTN_TOOL_RUBBER)
-    return EventPointerType::POINTER_TYPE_ERASER;
-  return EventPointerType::POINTER_TYPE_PEN;
+    return EventPointerType::kEraser;
+  return EventPointerType::kPen;
 }
 
 }  // namespace

@@ -8,12 +8,11 @@
 #include <memory>
 #include <utility>
 
-#include "base/test/scoped_feature_list.h"
 #include "base/test/task_environment.h"
 #include "gpu/command_buffer/service/abstract_texture.h"
 #include "gpu/command_buffer/service/image_reader_gl_owner.h"
 #include "gpu/command_buffer/service/mock_abstract_texture.h"
-#include "media/base/media_switches.h"
+#include "media/base/android/media_codec_util.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/gl/gl_bindings.h"
 #include "ui/gl/gl_context_egl.h"
@@ -31,8 +30,6 @@ class ImageReaderGLOwnerTest : public testing::Test {
   void SetUp() override {
     if (!IsImageReaderSupported())
       return;
-
-    scoped_feature_list_.InitAndEnableFeature(media::kAImageReaderVideoOutput);
 
     gl::init::InitializeStaticGLBindingsImplementation(
         gl::kGLImplementationEGLGLES2, false);
@@ -73,7 +70,6 @@ class ImageReaderGLOwnerTest : public testing::Test {
     return base::android::AndroidImageReader::GetInstance().IsSupported();
   }
 
-  base::test::ScopedFeatureList scoped_feature_list_;
   scoped_refptr<TextureOwner> image_reader_;
   GLuint texture_id_ = 0;
 
@@ -147,13 +143,13 @@ TEST_F(ImageReaderGLOwnerTest, DestructionWorksWithWrongContext) {
 }
 
 // The max number of images used by the ImageReader must be 2 for non-Surface
-// control.
+// control except for certain devices for which it is limited to 1.
 TEST_F(ImageReaderGLOwnerTest, MaxImageExpectation) {
   if (!IsImageReaderSupported())
     return;
   EXPECT_EQ(static_cast<ImageReaderGLOwner*>(image_reader_.get())
                 ->max_images_for_testing(),
-            2);
+            media::MediaCodecUtil::LimitAImageReaderMaxSizeToOne() ? 1 : 2);
 }
 
 class ImageReaderGLOwnerSecureSurfaceControlTest

@@ -11,7 +11,10 @@
 #include "base/memory/weak_ptr.h"
 #include "base/sequenced_task_runner_helpers.h"
 #include "content/public/renderer/render_view_observer.h"
-#include "third_party/blink/public/platform/web_cursor_info.h"
+#include "mojo/public/cpp/bindings/associated_receiver.h"
+#include "mojo/public/cpp/bindings/associated_remote.h"
+#include "third_party/blink/public/mojom/input/focus_type.mojom-forward.h"
+#include "third_party/blink/public/mojom/page/widget.mojom.h"
 #include "third_party/blink/public/platform/web_string.h"
 #include "third_party/blink/public/platform/web_url_response.h"
 #include "third_party/blink/public/web/blink.h"
@@ -20,6 +23,8 @@
 #include "third_party/blink/public/web/web_plugin.h"
 #include "third_party/blink/public/web/web_view_client.h"
 #include "third_party/blink/public/web/web_widget_client.h"
+#include "ui/base/cursor/cursor.h"
+#include "ui/base/ime/mojom/text_input_state.mojom.h"
 
 namespace blink {
 class WebLocalFrame;
@@ -91,8 +96,7 @@ class WebViewPlugin : public blink::WebPlugin,
 
   bool IsErrorPlaceholder() override;
 
-  void UpdateAllLifecyclePhases(
-      blink::WebWidget::LifecycleUpdateReason reason) override;
+  void UpdateAllLifecyclePhases(blink::DocumentUpdateReason reason) override;
   void Paint(cc::PaintCanvas* canvas, const blink::WebRect& rect) override;
 
   // Coordinates are relative to the containing window.
@@ -101,12 +105,12 @@ class WebViewPlugin : public blink::WebPlugin,
                       const blink::WebRect& unobscured_rect,
                       bool is_visible) override;
 
-  void UpdateFocus(bool foucsed, blink::WebFocusType focus_type) override;
+  void UpdateFocus(bool foucsed, blink::mojom::FocusType focus_type) override;
   void UpdateVisibility(bool) override {}
 
   blink::WebInputEventResult HandleInputEvent(
       const blink::WebCoalescedInputEvent& event,
-      blink::WebCursorInfo& cursor_info) override;
+      ui::Cursor* cursor) override;
 
   void DidReceiveResponse(const blink::WebURLResponse& response) override;
   void DidReceiveData(const char* data, size_t data_length) override;
@@ -135,7 +139,7 @@ class WebViewPlugin : public blink::WebPlugin,
   // Manages its own lifetime.
   Delegate* delegate_;
 
-  blink::WebCursorInfo current_cursor_;
+  ui::Cursor current_cursor_;
 
   // Owns us.
   blink::WebPluginContainer* container_;
@@ -154,7 +158,8 @@ class WebViewPlugin : public blink::WebPlugin,
   // A helper that handles interaction from WebViewPlugin's internal WebView.
   class WebViewHelper : public blink::WebViewClient,
                         public blink::WebWidgetClient,
-                        public blink::WebLocalFrameClient {
+                        public blink::WebLocalFrameClient,
+                        public blink::mojom::WidgetHost {
    public:
     WebViewHelper(WebViewPlugin* plugin,
                   const content::WebPreferences& preferences);
@@ -167,26 +172,33 @@ class WebViewPlugin : public blink::WebPlugin,
     bool AcceptsLoadDrops() override;
     bool CanHandleGestureEvent() override;
     bool CanUpdateLayout() override;
-    blink::WebScreenInfo GetScreenInfo() override;
     void DidInvalidateRect(const blink::WebRect&) override;
 
     // WebWidgetClient methods:
-    void SetToolTipText(const blink::WebString&,
-                        blink::WebTextDirection) override;
-    void StartDragging(network::mojom::ReferrerPolicy,
-                       const blink::WebDragData&,
+    void StartDragging(const blink::WebDragData&,
                        blink::WebDragOperationsMask,
                        const SkBitmap&,
                        const gfx::Point&) override;
-    void DidChangeCursor(const blink::WebCursorInfo& cursor) override;
+    void DidChangeCursor(const ui::Cursor& cursor) override;
     void ScheduleAnimation() override;
 
     // WebLocalFrameClient methods:
     void BindToFrame(blink::WebNavigationControl* frame) override;
     void DidClearWindowObject() override;
-    void FrameDetached(DetachType) override;
+    void FrameDetached() override;
     std::unique_ptr<blink::WebURLLoaderFactory> CreateURLLoaderFactory()
         override;
+
+    // blink::mojom::WidgetHost implementation.
+    void SetCursor(const ui::Cursor& cursor) override {}
+    void SetToolTipText(const base::string16& tooltip_text,
+                        base::i18n::TextDirection hint) override;
+    void TextInputStateChanged(ui::mojom::TextInputStatePtr state) override {}
+    void SelectionBoundsChanged(const gfx::Rect& anchor_rect,
+                                base::i18n::TextDirection anchor_dir,
+                                const gfx::Rect& focus_rect,
+                                base::i18n::TextDirection focus_dir,
+                                bool is_anchor_first) override {}
 
    private:
     WebViewPlugin* plugin_;
@@ -194,6 +206,10 @@ class WebViewPlugin : public blink::WebPlugin,
 
     // Owned by us, deleted via |close()|.
     blink::WebView* web_view_;
+
+    mojo::AssociatedReceiver<blink::mojom::WidgetHost>
+        blink_widget_host_receiver_{this};
+    mojo::AssociatedRemote<blink::mojom::Widget> blink_widget_;
   };
   WebViewHelper web_view_helper_;
 

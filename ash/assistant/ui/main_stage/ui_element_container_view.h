@@ -18,8 +18,6 @@
 
 namespace ash {
 
-class AssistantResponse;
-class AssistantCardElement;
 class AssistantUiElementViewFactory;
 class AssistantViewDelegate;
 
@@ -37,6 +35,7 @@ class COMPONENT_EXPORT(ASSISTANT_UI) UiElementContainerView
   gfx::Size CalculatePreferredSize() const override;
   int GetHeightForWidth(int width) const override;
   gfx::Size GetMinimumSize() const override;
+  void Layout() override;
   void OnContentsPreferredSizeChanged(views::View* content_view) override;
   void OnCommittedQueryChanged(const AssistantQuery& query) override;
 
@@ -44,18 +43,22 @@ class COMPONENT_EXPORT(ASSISTANT_UI) UiElementContainerView
   void InitLayout();
 
   // AnimatedContainerView:
-  void HandleResponse(const AssistantResponse& response) override;
-  void OnAllViewsRemoved() override;
+  std::unique_ptr<ElementAnimator> HandleUiElement(
+      const AssistantUiElement* ui_element) override;
   void OnAllViewsAnimatedIn() override;
+  void OnScrollBarUpdated(views::ScrollBar* scroll_bar,
+                          int viewport_size,
+                          int content_size,
+                          int content_scroll_offset) override;
+  void OnScrollBarVisibilityChanged(views::ScrollBar* scroll_bar,
+                                    bool is_visible) override;
 
-  void OnCardElementAdded(const AssistantCardElement* card_element);
+  void UpdateScrollIndicator(bool can_scroll);
+
+  views::View* scroll_indicator_ = nullptr;  // Owned by view hierarchy.
 
   // Factory instance used to construct views for modeled UI elements.
   std::unique_ptr<AssistantUiElementViewFactory> view_factory_;
-
-  // Whether or not the card we are adding is the first card for the current
-  // Assistant response. The first card requires the addition of a top margin.
-  bool is_first_card_ = true;
 
   DISALLOW_COPY_AND_ASSIGN(UiElementContainerView);
 };

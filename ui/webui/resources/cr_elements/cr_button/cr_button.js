@@ -23,6 +23,14 @@ Polymer({
     },
 
     /**
+     * Use this property in order to configure the "tabindex" attribute.
+     */
+    customTabIndex: {
+      type: Number,
+      observer: 'applyTabIndex_',
+    },
+
+    /**
      * Flag used for formatting ripples on circle shaped cr-buttons.
      * @private
      */
@@ -39,12 +47,24 @@ Polymer({
   },
 
   listeners: {
+    blur: 'onBlur_',
     click: 'onClick_',
     keydown: 'onKeyDown_',
     keyup: 'onKeyUp_',
     pointerdown: 'onPointerDown_',
     tap: 'onTap_',
   },
+
+  /**
+   * It is possible to activate a tab when the space key is pressed down. When
+   * this element has focus, the keyup event for the space key should not
+   * perform a 'click'. |spaceKeyDown_| tracks when a space pressed and handled
+   * by this element. Space keyup will only result in a 'click' when
+   * |spaceKeyDown_| is true. |spaceKeyDown_| is set to false when element loses
+   * focus.
+   * @private {boolean}
+   */
+  spaceKeyDown_: false,
 
   /** @private {Set<number>} */
   timeoutIds_: null,
@@ -79,7 +99,7 @@ Polymer({
 
   /**
    * @param {boolean} newValue
-   * @param {boolean} oldValue
+   * @param {boolean|undefined} oldValue
    * @private
    */
   disabledChanged_(newValue, oldValue) {
@@ -90,7 +110,24 @@ Polymer({
       this.blur();
     }
     this.setAttribute('aria-disabled', Boolean(this.disabled));
-    this.setAttribute('tabindex', this.disabled ? -1 : 0);
+    this.applyTabIndex_();
+  },
+
+  /**
+   * Updates the tabindex HTML attribute to the actual value.
+   * @private
+   */
+  applyTabIndex_() {
+    let value = this.customTabIndex;
+    if (value === undefined) {
+      value = this.disabled ? -1 : 0;
+    }
+    this.setAttribute('tabindex', value);
+  },
+
+  /** @private */
+  onBlur_() {
+    this.spaceKeyDown_ = false;
   },
 
   /**
@@ -116,6 +153,7 @@ Polymer({
     e.stopPropagation();
 
     if (e.repeat) {
+      this.lastKeyDownKey_ = null;
       return;
     }
 
@@ -125,6 +163,8 @@ Polymer({
       // Delay was chosen manually as a good time period for the ripple to be
       // visible.
       this.setTimeout_(() => this.getRipple().uiUpAction(), 100);
+    } else if (e.key === ' ') {
+      this.spaceKeyDown_ = true;
     }
   },
 
@@ -140,7 +180,8 @@ Polymer({
     e.preventDefault();
     e.stopPropagation();
 
-    if (e.key === ' ') {
+    if (this.spaceKeyDown_ && e.key === ' ') {
+      this.spaceKeyDown_ = false;
       this.click();
       this.getRipple().uiUpAction();
     }

@@ -5,8 +5,6 @@
 package org.chromium.chrome.browser.omnibox.suggestions.base;
 
 import android.content.Context;
-import android.support.annotation.DrawableRes;
-import android.support.annotation.IdRes;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.ImageView;
@@ -17,20 +15,18 @@ import org.chromium.components.browser_ui.widget.RoundedCornerImageView;
 /**
  * Container view for omnibox suggestions supplying icon decoration.
  */
-class DecoratedSuggestionView extends SimpleHorizontalLayoutView {
+class DecoratedSuggestionView<T extends View> extends SimpleHorizontalLayoutView {
     private final RoundedCornerImageView mSuggestionIcon;
-    private View mContentView;
+    private T mContentView;
 
     /**
      * Constructs a new suggestion view.
      *
      * @param context The context used to construct the suggestion view.
-     * @param background Selectable background resource ID.
      */
-    DecoratedSuggestionView(Context context, @DrawableRes int background) {
+    DecoratedSuggestionView(Context context) {
         super(context);
 
-        setBackgroundResource(background);
         setClickable(true);
         setFocusable(true);
 
@@ -44,7 +40,7 @@ class DecoratedSuggestionView extends SimpleHorizontalLayoutView {
     }
 
     /** Specify content view (suggestion body).  */
-    void setContentView(View view) {
+    void setContentView(T view) {
         if (mContentView != null) removeView(view);
         mContentView = view;
         mContentView.setLayoutParams(LayoutParams.forDynamicView());
@@ -52,7 +48,7 @@ class DecoratedSuggestionView extends SimpleHorizontalLayoutView {
     }
 
     /** @return Embedded suggestion content view.  */
-    View getContentView() {
+    T getContentView() {
         return mContentView;
     }
 
@@ -64,12 +60,5 @@ class DecoratedSuggestionView extends SimpleHorizontalLayoutView {
     @Override
     public boolean isFocused() {
         return super.isFocused() || (isSelected() && !isInTouchMode());
-    }
-
-    <ViewType extends View> ViewType findContentView(@IdRes int id) {
-        if (mContentView == null) {
-            return null;
-        }
-        return mContentView.findViewById(id);
     }
 }

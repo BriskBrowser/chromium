@@ -17,9 +17,9 @@
 #include "media/renderers/paint_canvas_video_renderer.h"
 #include "media/video/gpu_video_accelerator_factories.h"
 #include "third_party/blink/public/platform/media/webmediaplayer_delegate.h"
+#include "third_party/blink/public/platform/modules/mediastream/web_media_stream.h"
 #include "third_party/blink/public/platform/web_common.h"
 #include "third_party/blink/public/platform/web_media_player.h"
-#include "third_party/blink/public/platform/web_media_stream.h"
 #include "third_party/blink/public/platform/web_surface_layer_bridge.h"
 
 namespace media {
@@ -44,11 +44,14 @@ using CreateSurfaceLayerBridgeCB =
         cc::UpdateSubmissionStateCB)>;
 
 class MediaStreamInternalFrameWrapper;
+template <typename TimerFiredClass, bool>
+class TaskRunnerTimer;
+class TimerBase;
 class WebLocalFrame;
 class WebMediaPlayerClient;
 class WebMediaStreamAudioRenderer;
 class WebMediaPlayerMSCompositor;
-class WebMediaStreamRendererFactory;
+class MediaStreamRendererFactory;
 class WebMediaStreamVideoRenderer;
 class WebString;
 class WebVideoFrameSubmitter;
@@ -80,7 +83,6 @@ class BLINK_MODULES_EXPORT WebMediaPlayerMS
       WebMediaPlayerClient* client,
       WebMediaPlayerDelegate* delegate,
       std::unique_ptr<media::MediaLog> media_log,
-      std::unique_ptr<WebMediaStreamRendererFactory> factory,
       scoped_refptr<base::SingleThreadTaskRunner> main_render_task_runner,
       scoped_refptr<base::SingleThreadTaskRunner> io_task_runner,
       scoped_refptr<base::SingleThreadTaskRunner> compositor_task_runner,
@@ -111,7 +113,9 @@ class BLINK_MODULES_EXPORT WebMediaPlayerMS
   void SetRate(double rate) override;
   void SetVolume(double volume) override;
   void SetLatencyHint(double seconds) override;
+  void SetPreservesPitch(bool preserves_pitch) override;
   void OnRequestPictureInPicture() override;
+  void OnPictureInPictureAvailabilityChanged(bool available) override;
   void SetSinkId(const WebString& sink_id,
                  WebSetSinkIdCompleteCallback completion_callback) override;
   void SetPreload(WebMediaPlayer::Preload preload) override;
@@ -135,15 +139,16 @@ class BLINK_MODULES_EXPORT WebMediaPlayerMS
   bool HasAudio() const override;
 
   // Dimensions of the video.
-  WebSize NaturalSize() const override;
+  gfx::Size NaturalSize() const override;
 
-  WebSize VisibleRect() const override;
+  gfx::Size VisibleSize() const override;
 
   // Getters of playback state.
   bool Paused() const override;
   bool Seeking() const override;
   double Duration() const override;
   double CurrentTime() const override;
+  bool IsEnded() const override;
 
   // Internal states of loading and network.
   WebMediaPlayer::NetworkState GetNetworkState() const override;
@@ -175,6 +180,9 @@ class BLINK_MODULES_EXPORT WebMediaPlayerMS
   void OnMuted(bool muted) override;
   void OnSeekForward(double seconds) override;
   void OnSeekBackward(double seconds) override;
+  void OnEnterPictureInPicture() override;
+  void OnExitPictureInPicture() override;
+  void OnSetAudioSink(const std::string& sink_id) override;
   void OnVolumeMultiplierUpdate(double multiplier) override;
   void OnBecamePersistentVideo(bool value) override;
 
@@ -224,8 +232,8 @@ class BLINK_MODULES_EXPORT WebMediaPlayerMS
                     bool premultiply_alpha) override;
 
   // WebMediaStreamObserver implementation
-  void TrackAdded(const WebMediaStreamTrack& track) override;
-  void TrackRemoved(const WebMediaStreamTrack& track) override;
+  void TrackAdded(const WebString& track_id) override;
+  void TrackRemoved(const WebString& track_id) override;
   void ActiveStateChanged(bool is_active) override;
   int GetDelegateId() override;
   base::Optional<viz::SurfaceId> GetSurfaceId() override;
@@ -233,6 +241,10 @@ class BLINK_MODULES_EXPORT WebMediaPlayerMS
   base::WeakPtr<WebMediaPlayer> AsWeakPtr() override;
 
   void OnDisplayTypeChanged(WebMediaPlayer::DisplayType) override;
+
+  void RequestVideoFrameCallback() override;
+  std::unique_ptr<WebMediaPlayer::VideoFramePresentationMetadata>
+  GetVideoFramePresentationMetadata() override;
 
  private:
   friend class WebMediaPlayerMSTest;
@@ -265,6 +277,18 @@ class BLINK_MODULES_EXPORT WebMediaPlayerMS
   // Helper method used for testing.
   void SetGpuMemoryBufferVideoForTesting(
       media::GpuMemoryBufferVideoFramePool* gpu_memory_buffer_pool);
+  void SetMediaStreamRendererFactoryForTesting(
+      std::unique_ptr<MediaStreamRendererFactory>);
+
+  // Callback used to fulfill video.requestVideoFrameCallback() requests.
+  void OnNewFramePresentedCallback();
+
+  // Callback used to detect and propagate a render error.
+  void OnAudioRenderErrorCallback();
+
+  void SendLogMessage(const WTF::String& message) const;
+
+  void StopForceBeginFrames(TimerBase*);
 
   std::unique_ptr<MediaStreamInternalFrameWrapper> internal_frame_;
 
@@ -301,12 +325,17 @@ class BLINK_MODULES_EXPORT WebMediaPlayerMS
   scoped_refptr<WebMediaStreamAudioRenderer> audio_renderer_;  // Weak
   media::PaintCanvasVideoRenderer video_renderer_;
 
+  // Indicated whether an outstanding VideoFrameCallback request needs to be
+  // forwarded to |compositor_|. Set when RequestVideoFrameCallback() is called
+  // before Load().
+  bool pending_rvfc_request_ = false;
+
   bool paused_;
   media::VideoTransformation video_transformation_;
 
   std::unique_ptr<media::MediaLog> media_log_;
 
-  std::unique_ptr<WebMediaStreamRendererFactory> renderer_factory_;
+  std::unique_ptr<MediaStreamRendererFactory> renderer_factory_;
 
   const scoped_refptr<base::SingleThreadTaskRunner> main_render_task_runner_;
   const scoped_refptr<base::SingleThreadTaskRunner> io_task_runner_;
@@ -340,6 +369,11 @@ class BLINK_MODULES_EXPORT WebMediaPlayerMS
   WebString current_audio_track_id_;
 
   CreateSurfaceLayerBridgeCB create_bridge_callback_;
+
+  // Resets the ForceBeginFrames flag once we stop receiving calls to
+  // requestVideoFrameCallback().
+  std::unique_ptr<TaskRunnerTimer<WebMediaPlayerMS, false>>
+      stop_force_begin_frames_timer_;
 
   std::unique_ptr<WebVideoFrameSubmitter> submitter_;
 

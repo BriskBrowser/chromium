@@ -129,7 +129,7 @@ class CORE_EXPORT LayoutBlock : public LayoutBox {
   LayoutUnit LineHeight(
       bool first_line,
       LineDirectionMode,
-      LinePositionMode = kPositionOnContainingLine) const final;
+      LinePositionMode = kPositionOnContainingLine) const override;
   LayoutUnit BaselinePosition(
       FontBaseline,
       bool first_line,
@@ -399,6 +399,13 @@ class CORE_EXPORT LayoutBlock : public LayoutBox {
   virtual void PaintChildren(const PaintInfo&,
                              const PhysicalOffset& paint_offset) const;
   void UpdateAfterLayout() override;
+  MinMaxSizes PreferredLogicalWidths() const override;
+
+  virtual bool HasLineIfEmpty() const;
+  // Returns baseline offset if we can get |SimpleFontData| from primary font.
+  // Or returns no value if we can't get font data.
+  base::Optional<LayoutUnit> BaselineForEmptyLine(
+      LineDirectionMode line_direction) const;
 
  protected:
   virtual void AdjustInlineDirectionLineBounds(
@@ -406,10 +413,7 @@ class CORE_EXPORT LayoutBlock : public LayoutBox {
       LayoutUnit& /* logicalLeft */,
       LayoutUnit& /* logicalWidth */) const {}
 
-  void ComputeIntrinsicLogicalWidths(
-      LayoutUnit& min_logical_width,
-      LayoutUnit& max_logical_width) const override;
-  void ComputePreferredLogicalWidths() override;
+  MinMaxSizes ComputeIntrinsicLogicalWidths() const override;
   void ComputeChildPreferredLogicalWidths(
       LayoutObject& child,
       LayoutUnit& min_preferred_logical_width,
@@ -418,17 +422,10 @@ class CORE_EXPORT LayoutBlock : public LayoutBox {
   LayoutUnit FirstLineBoxBaseline() const override;
   LayoutUnit InlineBlockBaseline(LineDirectionMode) const override;
 
-  // This function disables the 'overflow' check in inlineBlockBaseline.
-  // For 'inline-block', CSS says that the baseline is the bottom margin edge
-  // if 'overflow' is not visible. But some descendant classes want to ignore
-  // this condition.
-  virtual bool ShouldIgnoreOverflowPropertyForInlineBlockBaseline() const {
-    return false;
-  }
-
-  bool HitTestOverflowControl(HitTestResult&,
-                              const HitTestLocation&,
-                              const PhysicalOffset& adjusted_location) override;
+  bool HitTestOverflowControl(
+      HitTestResult&,
+      const HitTestLocation&,
+      const PhysicalOffset& adjusted_location) const override;
   bool HitTestChildren(HitTestResult&,
                        const HitTestLocation&,
                        const PhysicalOffset& accumulated_offset,
@@ -440,11 +437,9 @@ class CORE_EXPORT LayoutBlock : public LayoutBox {
   void UpdateFromStyle() override;
 
   // Returns true if non-visible overflow should be respected. Otherwise
-  // hasOverflowClip() will be false and we won't create scrollable area for
-  // this object even if overflow is non-visible.
-  virtual bool AllowsOverflowClip() const;
-
-  virtual bool HasLineIfEmpty() const;
+  // HasNonVisibleOverflow() will be false and we won't create scrollable area
+  // for this object even if overflow is non-visible.
+  virtual bool AllowsNonVisibleOverflow() const;
 
   bool SimplifiedLayout();
   virtual void SimplifiedNormalFlowLayout();
@@ -455,7 +450,6 @@ class CORE_EXPORT LayoutBlock : public LayoutBox {
   void AddLayoutOverflowFromBlockChildren();
 
  protected:
-  void AddVisualOverflowFromTheme();
   virtual void ComputeVisualOverflow(
       bool recompute_floats);
   virtual void ComputeLayoutOverflow(LayoutUnit old_client_after_edge,
@@ -485,6 +479,11 @@ class CORE_EXPORT LayoutBlock : public LayoutBox {
     return hit_test_action == kHitTestBlockBackground ||
            hit_test_action == kHitTestChildBlockBackground;
   }
+
+  // Returns baseline offset of this block if is empty editable or having
+  // CSS property "--internal-empty-line-height"fabricated", otherwise
+  // returns |LayoutUnit(-1)|.
+  LayoutUnit EmptyLineBaseline(LineDirectionMode line_direction) const;
 
  private:
   LayoutObjectChildList* VirtualChildren() final { return Children(); }
@@ -518,7 +517,6 @@ class CORE_EXPORT LayoutBlock : public LayoutBox {
 
  protected:
   void InvalidatePaint(const PaintInvalidatorContext&) const override;
-  void ClearPreviousVisualRects() override;
 
   void ImageChanged(WrappedImagePtr, CanDeferInvalidation) override;
 
@@ -562,7 +560,6 @@ class CORE_EXPORT LayoutBlock : public LayoutBox {
                                      // in LayoutBlockRareData since they are
                                      // set too frequently.
   unsigned has_margin_after_quirk_ : 1;
-  unsigned being_destroyed_ : 1;
   unsigned has_markup_truncation_ : 1;
   unsigned width_available_to_children_changed_ : 1;
   unsigned height_available_to_children_changed_ : 1;

@@ -17,7 +17,7 @@
 #include "components/metrics/file_metrics_provider.h"
 #include "components/metrics/metrics_service.h"
 #include "components/metrics/metrics_state_manager.h"
-#include "components/metrics/test_enabled_state_provider.h"
+#include "components/metrics/test/test_enabled_state_provider.h"
 #include "components/prefs/testing_pref_service.h"
 #include "components/ukm/ukm_service.h"
 #include "content/public/test/browser_task_environment.h"
@@ -66,6 +66,10 @@ class ChromeMetricsServiceClientTest : public testing::Test {
     chromeos::LoginState::Shutdown();
     chromeos::PowerManagerClient::Shutdown();
 #endif  // defined(OS_CHROMEOS)
+    // ChromeMetricsServiceClient::Initialize() initializes
+    // IdentifiabilityStudySettings as part of creating the
+    // PrivacyBudgetUkmEntryFilter. Reset them after the test.
+    blink::IdentifiabilityStudySettings::ResetStateForTesting();
   }
 
  protected:
@@ -144,13 +148,12 @@ TEST_F(ChromeMetricsServiceClientTest, TestRegisterUKMProviders) {
 }
 
 TEST_F(ChromeMetricsServiceClientTest, TestRegisterMetricsServiceProviders) {
-  // This is the metrics provider added in MetricsService constructor.
-  // StabilityMetricsProvider, FieldTrialsProvider and
-  // MetricsStateMetricsProvider.
-  size_t expected_providers = 3;
+  // This is for the two metrics providers added in the MetricsService
+  // constructor: StabilityMetricsProvider and MetricsStateMetricsProvider.
+  size_t expected_providers = 2;
 
   // This is the number of metrics providers that are outside any #if macros.
-  expected_providers += 19;
+  expected_providers += 21;
 
 #if BUILDFLAG(ENABLE_EXTENSIONS)
   expected_providers++;  // ExtensionsMetricsProvider.
@@ -163,9 +166,8 @@ TEST_F(ChromeMetricsServiceClientTest, TestRegisterMetricsServiceProviders) {
 #endif  // defined(OS_ANDROID)
 
 #if defined(OS_WIN)
-  // GoogleUpdateMetricsProviderWin, WatcherMetricsProviderWin and
-  // AntiVirusMetricsProvider.
-  expected_providers += 3;
+  // GoogleUpdateMetricsProviderWin and AntiVirusMetricsProvider.
+  expected_providers += 2;
 #endif  // defined(OS_WIN)
 
 #if BUILDFLAG(ENABLE_PLUGINS)
@@ -174,10 +176,11 @@ TEST_F(ChromeMetricsServiceClientTest, TestRegisterMetricsServiceProviders) {
 #endif  // BUILDFLAG(ENABLE_PLUGINS)
 
 #if defined(OS_CHROMEOS)
-  // AssistantServiceMetricsProvider,
-  // ChromeOSMetricsProvider, SigninStatusMetricsProviderChromeOS,
-  // PrinterMetricsProvider, and HashedLoggingMetricsProvider.
-  expected_providers += 5;
+  // AmbientModeMetricsProvider, AssistantServiceMetricsProvider,
+  // CrosHealthdMetricsProvider, ChromeOSMetricsProvider,
+  // SigninStatusMetricsProviderChromeOS, PrinterMetricsProvider, and
+  // HashedLoggingMetricsProvider.
+  expected_providers += 7;
 #endif  // defined(OS_CHROMEOS)
 
 #if !defined(OS_CHROMEOS)
@@ -190,14 +193,14 @@ TEST_F(ChromeMetricsServiceClientTest, TestRegisterMetricsServiceProviders) {
   expected_providers++;  // UpgradeMetricsProvider
 #endif                   //! defined(OS_ANDROID) && !defined(OS_CHROMEOS)
 
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
   expected_providers++;  // PowerMetricsProvider
-#endif                   // defined(OS_MACOSX)
+#endif                   // defined(OS_MAC)
 
-#if defined(OS_WIN) || defined(OS_MACOSX) || \
+#if defined(OS_WIN) || defined(OS_MAC) || \
     (defined(OS_LINUX) && !defined(OS_CHROMEOS))
   expected_providers++;  // DesktopPlatformFeaturesMetricsProvider
-#endif                   //  defined(OS_WIN) || defined(OS_MACOSX) || \
+#endif                   //  defined(OS_WIN) || defined(OS_MAC) || \
                          // (defined(OS_LINUX) && !defined(OS_CHROMEOS))
 
   std::unique_ptr<ChromeMetricsServiceClient> chrome_metrics_service_client =

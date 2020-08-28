@@ -39,9 +39,11 @@
 #include "chrome/browser/ui/ui_features.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
 #include "chrome/browser/ui/views/frame/native_browser_frame_factory.h"
+#include "chrome/browser/ui/views/frame/tab_strip_region_view.h"
 #include "chrome/browser/ui/views/tabs/tab.h"
 #include "chrome/browser/ui/views/tabs/tab_drag_controller.h"
 #include "chrome/browser/ui/views/tabs/tab_strip.h"
+#include "chrome/browser/ui/views/tabs/tab_strip_controller.h"
 #include "chrome/browser/ui/views/tabs/window_finder.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/interactive_test_utils.h"
@@ -55,6 +57,7 @@
 #include "content/public/browser/notification_source.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/content_switches.h"
+#include "content/public/test/browser_test.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "ui/aura/env.h"
 #include "ui/base/test/ui_controls.h"
@@ -90,9 +93,7 @@
 #include "chrome/browser/ui/views/frame/immersive_mode_controller_ash.h"
 #include "chrome/browser/ui/web_applications/test/web_app_browsertest_util.h"
 #include "chrome/browser/web_applications/test/test_system_web_app_installation.h"
-#include "content/public/common/service_manager_connection.h"
 #include "content/public/common/service_names.mojom.h"
-#include "services/service_manager/public/cpp/connector.h"
 #include "ui/aura/client/cursor_client.h"
 #include "ui/aura/client/screen_position_client.h"
 #include "ui/aura/window_event_dispatcher.h"
@@ -102,8 +103,15 @@
 #include "ui/events/gesture_detection/gesture_configuration.h"
 #endif
 
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
 #include "base/mac/mac_util.h"
+#endif
+
+#if defined(OS_LINUX) && !defined(OS_CHROMEOS)
+#include "chrome/browser/ui/views/frame/desktop_browser_frame_aura_linux.h"
+#define DESKTOP_BROWSER_FRAME_AURA DesktopBrowserFrameAuraLinux
+#else
+#define DESKTOP_BROWSER_FRAME_AURA DesktopBrowserFrameAura
 #endif
 
 using content::WebContents;
@@ -141,6 +149,13 @@ gfx::Point GetLeftCenterInScreenCoordinates(const views::View* view) {
   return center;
 }
 
+gfx::Point GetRightCenterInScreenCoordinates(const views::View* view) {
+  gfx::Point center = view->GetLocalBounds().CenterPoint();
+  center.set_x(center.x() + view->GetLocalBounds().width() / 4);
+  views::View::ConvertPointToScreen(view, &center);
+  return center;
+}
+
 }  // namespace
 
 class QuitDraggingObserver : public content::NotificationObserver {
@@ -149,7 +164,9 @@ class QuitDraggingObserver : public content::NotificationObserver {
     registrar_.Add(this, chrome::NOTIFICATION_TAB_DRAG_LOOP_DONE,
                    content::NotificationService::AllSources());
   }
-  ~QuitDraggingObserver() override {}
+  QuitDraggingObserver(const QuitDraggingObserver&) = delete;
+  QuitDraggingObserver& operator=(const QuitDraggingObserver&) = delete;
+  ~QuitDraggingObserver() override = default;
 
   void Observe(int type,
                const content::NotificationSource& source,
@@ -165,8 +182,6 @@ class QuitDraggingObserver : public content::NotificationObserver {
  private:
   content::NotificationRegistrar registrar_;
   base::RunLoop run_loop_;
-
-  DISALLOW_COPY_AND_ASSIGN(QuitDraggingObserver);
 };
 
 void SetID(WebContents* web_contents, int id) {
@@ -227,9 +242,17 @@ void TabDragControllerTest::StopAnimating(TabStrip* tab_strip) {
 }
 
 void TabDragControllerTest::AddTabsAndResetBrowser(Browser* browser,
-                                                   int additional_tabs) {
-  for (int i = 0; i < additional_tabs; i++)
-    AddBlankTabAndShow(browser);
+                                                   int additional_tabs,
+                                                   const GURL& url) {
+  for (int i = 0; i < additional_tabs; i++) {
+    content::WindowedNotificationObserver observer(
+        content::NOTIFICATION_LOAD_STOP,
+        content::NotificationService::AllSources());
+    chrome::AddSelectedTabWithURL(browser, url,
+                                  ui::PAGE_TRANSITION_AUTO_TOPLEVEL);
+    observer.Wait();
+  }
+  browser->window()->Show();
   StopAnimating(GetTabStripForBrowser(browser));
   ResetIDs(browser->tab_strip_model(), 0);
 }
@@ -311,14 +334,16 @@ bool GetIsDragged(Browser* browser) {
 // synthesize this scenario.
 
 // Allows making ClearNativeFocus() invoke ReleaseCapture().
-class TestDesktopBrowserFrameAura : public DesktopBrowserFrameAura {
+class TestDesktopBrowserFrameAura : public DESKTOP_BROWSER_FRAME_AURA {
  public:
-  TestDesktopBrowserFrameAura(
-      BrowserFrame* browser_frame,
-      BrowserView* browser_view)
-      : DesktopBrowserFrameAura(browser_frame, browser_view),
+  TestDesktopBrowserFrameAura(BrowserFrame* browser_frame,
+                              BrowserView* browser_view)
+      : DESKTOP_BROWSER_FRAME_AURA(browser_frame, browser_view),
         release_capture_(false) {}
-  ~TestDesktopBrowserFrameAura() override {}
+  TestDesktopBrowserFrameAura(const TestDesktopBrowserFrameAura&) = delete;
+  TestDesktopBrowserFrameAura& operator=(const TestDesktopBrowserFrameAura&) =
+      delete;
+  ~TestDesktopBrowserFrameAura() override = default;
 
   void ReleaseCaptureOnNextClear() {
     release_capture_ = true;
@@ -335,23 +360,21 @@ class TestDesktopBrowserFrameAura : public DesktopBrowserFrameAura {
  private:
   // If true ReleaseCapture() is invoked in ClearNativeFocus().
   bool release_capture_;
-
-  DISALLOW_COPY_AND_ASSIGN(TestDesktopBrowserFrameAura);
 };
 
 // Factory for creating a TestDesktopBrowserFrameAura.
 class TestNativeBrowserFrameFactory : public NativeBrowserFrameFactory {
  public:
-  TestNativeBrowserFrameFactory() {}
-  ~TestNativeBrowserFrameFactory() override {}
+  TestNativeBrowserFrameFactory() = default;
+  TestNativeBrowserFrameFactory(const TestNativeBrowserFrameFactory&) = delete;
+  TestNativeBrowserFrameFactory& operator=(
+      const TestNativeBrowserFrameFactory&) = delete;
+  ~TestNativeBrowserFrameFactory() override = default;
 
   NativeBrowserFrame* Create(BrowserFrame* browser_frame,
                              BrowserView* browser_view) override {
     return new TestDesktopBrowserFrameAura(browser_frame, browser_view);
   }
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(TestNativeBrowserFrameFactory);
 };
 
 class TabDragCaptureLostTest : public TabDragControllerTest {
@@ -359,9 +382,8 @@ class TabDragCaptureLostTest : public TabDragControllerTest {
   TabDragCaptureLostTest() {
     NativeBrowserFrameFactory::Set(new TestNativeBrowserFrameFactory);
   }
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(TabDragCaptureLostTest);
+  TabDragCaptureLostTest(const TabDragCaptureLostTest&) = delete;
+  TabDragCaptureLostTest& operator=(const TabDragCaptureLostTest&) = delete;
 };
 
 // See description above for details.
@@ -415,10 +437,12 @@ class DetachToBrowserTabDragControllerTest
       public ::testing::WithParamInterface<const char*> {
  public:
   DetachToBrowserTabDragControllerTest() {
-    scoped_feature_list_.InitWithFeatures(
-        {features::kMixBrowserTypeTabs} /* enabled_features */,
-        {features::kWebUITabStrip} /* disabled_features */);
+    scoped_feature_list_.InitAndDisableFeature(features::kWebUITabStrip);
   }
+  DetachToBrowserTabDragControllerTest(
+      const DetachToBrowserTabDragControllerTest&) = delete;
+  DetachToBrowserTabDragControllerTest& operator=(
+      const DetachToBrowserTabDragControllerTest&) = delete;
 
   void SetUpOnMainThread() override {
 #if defined(OS_CHROMEOS)
@@ -428,12 +452,12 @@ class DetachToBrowserTabDragControllerTest
     ui::GestureConfiguration::GetInstance()->set_min_fling_velocity(
         std::numeric_limits<float>::max());
 #endif
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
     // Currently MacViews' browser windows are shown in the background and could
     // be obscured by other windows if there are any. This should be fixed in
     // order to be consistent with other platforms.
     EXPECT_TRUE(ui_test_utils::BringBrowserWindowToFront(browser()));
-#endif  // OS_MACOSX
+#endif  // OS_MAC
   }
 
   InputSource input_source() const {
@@ -625,6 +649,14 @@ class DetachToBrowserTabDragControllerTest
     observer.Wait();
   }
 
+  // Helper method to click the first tab. Used to ensure no additional widgets
+  // are in focus. For example, the tab editor bubble  is automatically opened
+  // upon creating a new group.
+  void EnsureFocusToTabStrip(TabStrip* tab_strip) {
+    ASSERT_TRUE(PressInput(GetCenterInScreenCoordinates(tab_strip->tab_at(0))));
+    ASSERT_TRUE(ReleaseInput());
+  }
+
   Browser* browser() const { return InProcessBrowserTest::browser(); }
 
  private:
@@ -634,8 +666,6 @@ class DetachToBrowserTabDragControllerTest
 #endif
   base::test::ScopedFeatureList scoped_feature_list_;
   base::Optional<web_app::AppId> tabbed_app_id_;
-
-  DISALLOW_COPY_AND_ASSIGN(DetachToBrowserTabDragControllerTest);
 };
 
 class DetachToBrowserTabDragControllerTestWithTabGroupsEnabled
@@ -648,29 +678,6 @@ class DetachToBrowserTabDragControllerTestWithTabGroupsEnabled
  private:
   base::test::ScopedFeatureList scoped_feature_list_;
 };
-
-// Creates a browser with two tabs, drags the second to the first.
-IN_PROC_BROWSER_TEST_P(DetachToBrowserTabDragControllerTest, DragInSameWindow) {
-  AddTabsAndResetBrowser(browser(), 1);
-
-  TabStrip* tab_strip = GetTabStripForBrowser(browser());
-  TabStripModel* model = browser()->tab_strip_model();
-
-  ASSERT_TRUE(PressInput(GetCenterInScreenCoordinates(tab_strip->tab_at(1))));
-  ASSERT_TRUE(DragInputTo(GetCenterInScreenCoordinates(tab_strip->tab_at(0))));
-  // Test that the dragging info is correctly set on |tab_strip|.
-  EXPECT_TRUE(IsTabDraggingInfoSet(tab_strip, tab_strip));
-  ASSERT_TRUE(ReleaseInput());
-  EXPECT_EQ("1 0", IDString(model));
-  EXPECT_FALSE(TabDragController::IsActive());
-  EXPECT_FALSE(tab_strip->GetDragContext()->IsDragSessionActive());
-  // Test that the dragging info is properly cleared after dragging.
-  EXPECT_TRUE(IsTabDraggingInfoCleared(tab_strip));
-
-  // The tab strip should no longer have capture because the drag was ended and
-  // mouse/touch was released.
-  EXPECT_FALSE(tab_strip->GetWidget()->HasCapture());
-}
 
 // Creates a browser with four tabs. The first three belong in the same Tab
 // Group. Dragging the third tab to after the fourth tab will result in a
@@ -840,6 +847,7 @@ IN_PROC_BROWSER_TEST_P(DetachToBrowserTabDragControllerTestWithTabGroupsEnabled,
   tab_groups::TabGroupId group1 = model->AddToNewGroup({0});
   model->AddToNewGroup({2});
   StopAnimating(tab_strip);
+  EnsureFocusToTabStrip(tab_strip);
 
   // Dragging the tab in the first index toward the tab in the zero-th index
   // switches the tabs and adds the dragged tab to the group.
@@ -898,6 +906,7 @@ IN_PROC_BROWSER_TEST_P(DetachToBrowserTabDragControllerTestWithTabGroupsEnabled,
   tab_groups::TabGroupId group1 = model->AddToNewGroup({3});
   model->AddToNewGroup({1});
   StopAnimating(tab_strip);
+  EnsureFocusToTabStrip(tab_strip);
 
   // Dragging the tab in the second index to the tab in the third index switches
   // the tabs and adds the dragged tab to the group.
@@ -950,6 +959,7 @@ IN_PROC_BROWSER_TEST_P(DetachToBrowserTabDragControllerTestWithTabGroupsEnabled,
   model->AddToNewGroup({2});
   tab_groups::TabGroupId group4 = model->AddToNewGroup({3});
   StopAnimating(tab_strip);
+  EnsureFocusToTabStrip(tab_strip);
 
   // Click the first tab and select third tab so both first and third tabs are
   // selected.
@@ -1004,6 +1014,7 @@ IN_PROC_BROWSER_TEST_P(DetachToBrowserTabDragControllerTestWithTabGroupsEnabled,
   tab_groups::TabGroupId group3 = model->AddToNewGroup({2});
   model->AddToNewGroup({3});
   StopAnimating(tab_strip);
+  EnsureFocusToTabStrip(tab_strip);
 
   // Click the second tab and select fourth tab so both second and fourth tabs
   // are selected.
@@ -1116,6 +1127,7 @@ IN_PROC_BROWSER_TEST_P(DetachToBrowserTabDragControllerTestWithTabGroupsEnabled,
   AddTabsAndResetBrowser(browser(), 3);
   tab_groups::TabGroupId group = model->AddToNewGroup({1, 2});
   StopAnimating(tab_strip);
+  EnsureFocusToTabStrip(tab_strip);
 
   ASSERT_EQ(4, model->count());
   ASSERT_EQ(2u, group_model->GetTabGroup(group)->ListTabs().size());
@@ -1241,6 +1253,35 @@ IN_PROC_BROWSER_TEST_P(DetachToBrowserTabDragControllerTestWithTabGroupsEnabled,
               testing::ElementsAre(2, 3));
   EXPECT_THAT(group_model->GetTabGroup(group2)->ListTabs(),
               testing::ElementsAre(0, 1));
+}
+
+// Creates a browser with four tabs. The first tab is pinned, and the last
+// three belong in the same Tab Group. Dragging the pinned tab to the middle
+// of the group will not result in the pinned tab getting grouped or moving
+// into the group.
+IN_PROC_BROWSER_TEST_P(DetachToBrowserTabDragControllerTestWithTabGroupsEnabled,
+                       DragPinnedTabDoesNotGroup) {
+  TabStrip* tab_strip = GetTabStripForBrowser(browser());
+  TabStripModel* model = browser()->tab_strip_model();
+
+  AddTabsAndResetBrowser(browser(), 3);
+  model->SetTabPinned(0, true);
+  tab_groups::TabGroupId group = model->AddToNewGroup({1, 2, 3});
+  StopAnimating(tab_strip);
+
+  ASSERT_EQ(4, model->count());
+  ASSERT_EQ(3u, model->group_model()->GetTabGroup(group)->ListTabs().size());
+
+  ASSERT_TRUE(PressInput(GetCenterInScreenCoordinates(tab_strip->tab_at(0))));
+  ASSERT_TRUE(DragInputTo(GetCenterInScreenCoordinates(tab_strip->tab_at(2))));
+  ASSERT_TRUE(ReleaseInput());
+  StopAnimating(tab_strip);
+
+  // The pinned tab should not have moved or joined the group.
+  EXPECT_EQ("0 1 2 3", IDString(model));
+  EXPECT_THAT(model->group_model()->GetTabGroup(group)->ListTabs(),
+              testing::ElementsAre(1, 2, 3));
+  EXPECT_EQ(base::nullopt, model->GetTabGroupForTab(0));
 }
 
 // Drags a tab within the window (without dragging the whole window) then
@@ -1403,7 +1444,9 @@ class CaptureLoseWindowFinder : public WindowFinder {
  public:
   explicit CaptureLoseWindowFinder(TabStrip* tab_strip)
       : tab_strip_(tab_strip) {}
-  ~CaptureLoseWindowFinder() override {}
+  CaptureLoseWindowFinder(const CaptureLoseWindowFinder&) = delete;
+  CaptureLoseWindowFinder& operator=(const CaptureLoseWindowFinder&) = delete;
+  ~CaptureLoseWindowFinder() override = default;
 
   // WindowFinder:
   gfx::NativeWindow GetLocalProcessWindowAtPoint(
@@ -1415,8 +1458,6 @@ class CaptureLoseWindowFinder : public WindowFinder {
 
  private:
   TabStrip* tab_strip_;
-
-  DISALLOW_COPY_AND_ASSIGN(CaptureLoseWindowFinder);
 };
 
 }  // namespace
@@ -1465,6 +1506,9 @@ class MaximizedBrowserWindowWaiter {
  public:
   explicit MaximizedBrowserWindowWaiter(BrowserWindow* window)
       : window_(window) {}
+  MaximizedBrowserWindowWaiter(const MaximizedBrowserWindowWaiter&) = delete;
+  MaximizedBrowserWindowWaiter& operator=(const MaximizedBrowserWindowWaiter&) =
+      delete;
   ~MaximizedBrowserWindowWaiter() = default;
 
   // Blocks until the browser window becomes maximized.
@@ -1499,8 +1543,6 @@ class MaximizedBrowserWindowWaiter {
 
   // The waiter's RunLoop quit closure.
   base::Closure quit_;
-
-  DISALLOW_COPY_AND_ASSIGN(MaximizedBrowserWindowWaiter);
 };
 
 }  // namespace
@@ -1527,7 +1569,7 @@ IN_PROC_BROWSER_TEST_P(DetachToBrowserTabDragControllerTest,
   Browser* new_browser = browser_list->get(1);
 
   bool check_new_window_active = true;
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
   // AppKit 10.10 asynchronously reactivates the first
   // window. This behavior is non-deterministic, and appears to be a test-only
   // issue. Thus, we just skip the test check. https://crbug.com/862859.
@@ -1616,7 +1658,7 @@ IN_PROC_BROWSER_TEST_P(DetachToBrowserTabDragControllerTest,
 }
 
 // This test doesn't make sense on Mac, since it has no concept of "maximized".
-#if !defined(OS_MACOSX)
+#if !defined(OS_MAC)
 // Drags from browser to a separate window and releases mouse.
 IN_PROC_BROWSER_TEST_P(DetachToBrowserTabDragControllerTest,
                        DetachToOwnWindowFromMaximizedWindow) {
@@ -1820,8 +1862,14 @@ void CloseTabsWhileDetachedStep2(const BrowserList* browser_list) {
 
 // Selects 2 tabs out of 4, drags them out and closes the new browser window
 // while dragging tabs.
+#if (defined(OS_WIN) || defined(OS_MAC))
+// TODO(crbug.com/1031801) Test is flaky on Windows and Mac.
+#define MAYBE_DeleteTabsWhileDetached DISABLED_DeleteTabsWhileDetached
+#else
+#define MAYBE_DeleteTabsWhileDetached DeleteTabsWhileDetached
+#endif
 IN_PROC_BROWSER_TEST_P(DetachToBrowserTabDragControllerTest,
-                       DeleteTabsWhileDetached) {
+                       MAYBE_DeleteTabsWhileDetached) {
   AddTabsAndResetBrowser(browser(), 3);
   TabStrip* tab_strip = GetTabStripForBrowser(browser());
   EXPECT_EQ("0 1 2 3", IDString(browser()->tab_strip_model()));
@@ -1860,7 +1908,7 @@ void PressEscapeWhileDetachedStep2(const BrowserList* browser_list) {
 
 // Detaches a tab and while detached presses escape to revert the drag.
 IN_PROC_BROWSER_TEST_P(DetachToBrowserTabDragControllerTest,
-                       PressEscapeWhileDetached) {
+                       RevertDragWhileDetached) {
   AddTabsAndResetBrowser(browser(), 1);
   TabStrip* tab_strip = GetTabStripForBrowser(browser());
 
@@ -1879,6 +1927,29 @@ IN_PROC_BROWSER_TEST_P(DetachToBrowserTabDragControllerTest,
 
   // Remaining browser window should not be maximized
   EXPECT_FALSE(browser()->window()->IsMaximized());
+
+  // The tab strip should no longer have capture because the drag was ended and
+  // mouse/touch was released.
+  EXPECT_FALSE(tab_strip->GetWidget()->HasCapture());
+}
+
+// Creates a browser with two tabs, drags the second to the first.
+IN_PROC_BROWSER_TEST_P(DetachToBrowserTabDragControllerTest, DragInSameWindow) {
+  AddTabsAndResetBrowser(browser(), 1);
+
+  TabStrip* tab_strip = GetTabStripForBrowser(browser());
+  TabStripModel* model = browser()->tab_strip_model();
+
+  ASSERT_TRUE(PressInput(GetCenterInScreenCoordinates(tab_strip->tab_at(1))));
+  ASSERT_TRUE(DragInputTo(GetCenterInScreenCoordinates(tab_strip->tab_at(0))));
+  // Test that the dragging info is correctly set on |tab_strip|.
+  EXPECT_TRUE(IsTabDraggingInfoSet(tab_strip, tab_strip));
+  ASSERT_TRUE(ReleaseInput());
+  EXPECT_EQ("1 0", IDString(model));
+  EXPECT_FALSE(TabDragController::IsActive());
+  EXPECT_FALSE(tab_strip->GetDragContext()->IsDragSessionActive());
+  // Test that the dragging info is properly cleared after dragging.
+  EXPECT_TRUE(IsTabDraggingInfoCleared(tab_strip));
 
   // The tab strip should no longer have capture because the drag was ended and
   // mouse/touch was released.
@@ -2057,8 +2128,386 @@ IN_PROC_BROWSER_TEST_P(DetachToBrowserTabDragControllerTestWithTabGroupsEnabled,
   EXPECT_EQ(1u, groups2.size());
   EXPECT_THAT(model2->group_model()->GetTabGroup(groups2[0])->ListTabs(),
               testing::ElementsAre(1, 2));
-  EXPECT_NE(groups2[0], group);
+  EXPECT_EQ(groups2[0], group);
   EXPECT_EQ(tab_strip2->GetGroupColorId(groups2[0]), group_color);
+}
+
+// Drags a tab group by the header to a new position toward the right and
+// presses escape to revert the drag.
+IN_PROC_BROWSER_TEST_P(DetachToBrowserTabDragControllerTestWithTabGroupsEnabled,
+                       RevertHeaderDragRight) {
+  TabStrip* tab_strip = GetTabStripForBrowser(browser());
+  TabStripModel* model = browser()->tab_strip_model();
+  AddTabsAndResetBrowser(browser(), 3);
+  tab_groups::TabGroupId group = model->AddToNewGroup({0, 1});
+  StopAnimating(tab_strip);
+  EnsureFocusToTabStrip(tab_strip);
+
+  TabGroupHeader* group_header = tab_strip->group_header(group);
+  EXPECT_FALSE(group_header->dragging());
+  ASSERT_TRUE(PressInput(GetCenterInScreenCoordinates(group_header)));
+  ASSERT_TRUE(DragInputTo(GetCenterInScreenCoordinates(tab_strip->tab_at(2))));
+  ASSERT_TRUE(group_header->dragging());
+
+  ASSERT_TRUE(ui_test_utils::SendKeyPressToWindowSync(
+      browser()->window()->GetNativeWindow(), ui::VKEY_ESCAPE, false, false,
+      false, false));
+
+  EXPECT_EQ(1u, browser_list->size());
+  EXPECT_FALSE(group_header->dragging());
+  EXPECT_EQ("0 1 2 3", IDString(browser()->tab_strip_model()));
+  std::vector<tab_groups::TabGroupId> groups =
+      model->group_model()->ListTabGroups();
+  EXPECT_EQ(1u, groups.size());
+  EXPECT_THAT(model->group_model()->GetTabGroup(groups[0])->ListTabs(),
+              testing::ElementsAre(0, 1));
+}
+
+// Drags a tab group by the header to a new position toward the left and presses
+// escape to revert the drag.
+IN_PROC_BROWSER_TEST_P(DetachToBrowserTabDragControllerTestWithTabGroupsEnabled,
+                       RevertHeaderDragLeft) {
+  TabStrip* tab_strip = GetTabStripForBrowser(browser());
+  TabStripModel* model = browser()->tab_strip_model();
+  AddTabsAndResetBrowser(browser(), 3);
+  tab_groups::TabGroupId group = model->AddToNewGroup({2, 3});
+  StopAnimating(tab_strip);
+  EnsureFocusToTabStrip(tab_strip);
+
+  TabGroupHeader* group_header = tab_strip->group_header(group);
+  EXPECT_FALSE(group_header->dragging());
+  ASSERT_TRUE(PressInput(GetCenterInScreenCoordinates(group_header)));
+  ASSERT_TRUE(DragInputTo(GetCenterInScreenCoordinates(tab_strip->tab_at(0))));
+  ASSERT_TRUE(group_header->dragging());
+
+  ASSERT_TRUE(ui_test_utils::SendKeyPressToWindowSync(
+      browser()->window()->GetNativeWindow(), ui::VKEY_ESCAPE, false, false,
+      false, false));
+
+  EXPECT_EQ(1u, browser_list->size());
+  EXPECT_FALSE(group_header->dragging());
+  EXPECT_EQ("0 1 2 3", IDString(browser()->tab_strip_model()));
+  std::vector<tab_groups::TabGroupId> groups =
+      model->group_model()->ListTabGroups();
+  EXPECT_EQ(1u, groups.size());
+  EXPECT_THAT(model->group_model()->GetTabGroup(groups[0])->ListTabs(),
+              testing::ElementsAre(2, 3));
+}
+
+namespace {
+
+void PressEscapeWhileDetachedHeaderStep2(
+    DetachToBrowserTabDragControllerTest* test) {
+  // At this moment there should be a new browser window for the dragged tabs.
+  EXPECT_EQ(2u, test->browser_list->size());
+  Browser* new_browser = test->browser_list->get(1);
+  std::vector<tab_groups::TabGroupId> new_browser_groups =
+      new_browser->tab_strip_model()->group_model()->ListTabGroups();
+  EXPECT_EQ(1u, new_browser_groups.size());
+  EXPECT_EQ(0u, test->browser()
+                    ->tab_strip_model()
+                    ->group_model()
+                    ->ListTabGroups()
+                    .size());
+
+  TabGroupHeader* new_group_header =
+      GetTabStripForBrowser(new_browser)->group_header(new_browser_groups[0]);
+  EXPECT_TRUE(new_group_header->dragging());
+
+  ASSERT_TRUE(ui_test_utils::SendKeyPressToWindowSync(
+      new_browser->window()->GetNativeWindow(), ui::VKEY_ESCAPE, false, false,
+      false, false));
+}
+
+}  // namespace
+
+// Drags a tab group by the header and while detached presses escape to revert
+// the drag.
+IN_PROC_BROWSER_TEST_P(DetachToBrowserTabDragControllerTestWithTabGroupsEnabled,
+                       RevertHeaderDragWhileDetached) {
+  TabStrip* tab_strip = GetTabStripForBrowser(browser());
+  TabStripModel* model = browser()->tab_strip_model();
+  AddTabsAndResetBrowser(browser(), 1);
+  tab_groups::TabGroupId group = model->AddToNewGroup({0});
+  StopAnimating(tab_strip);
+  EnsureFocusToTabStrip(tab_strip);
+
+  DragGroupAndNotify(tab_strip,
+                     base::BindOnce(&PressEscapeWhileDetachedHeaderStep2, this),
+                     group);
+
+  EXPECT_FALSE(tab_strip->group_header(group)->dragging());
+
+  ASSERT_FALSE(tab_strip->GetDragContext()->IsDragSessionActive());
+  ASSERT_FALSE(TabDragController::IsActive());
+  EXPECT_EQ(1u, browser_list->size());
+  EXPECT_EQ("0 1", IDString(browser()->tab_strip_model()));
+  std::vector<tab_groups::TabGroupId> groups =
+      model->group_model()->ListTabGroups();
+  EXPECT_EQ(1u, groups.size());
+  EXPECT_THAT(model->group_model()->GetTabGroup(groups[0])->ListTabs(),
+              testing::ElementsAre(0));
+}
+
+class DetachToBrowserTabDragControllerTestWithTabGroupsCollapseEnabled
+    : public DetachToBrowserTabDragControllerTest {
+ public:
+  DetachToBrowserTabDragControllerTestWithTabGroupsCollapseEnabled() {
+    scoped_feature_list_.InitWithFeatures(
+        {features::kTabGroups, features::kTabGroupsCollapse}, {});
+  }
+
+ private:
+  base::test::ScopedFeatureList scoped_feature_list_;
+};
+
+// Creates a browser with four tabs where the second and third tab is in a
+// collapsed group. Drag the fourth tab to the left past the group header. The
+// fourth tab should swap places with the collapsed group header.
+IN_PROC_BROWSER_TEST_P(
+    DetachToBrowserTabDragControllerTestWithTabGroupsCollapseEnabled,
+    DragTabLeftPastCollapsedGroupHeader) {
+  TabStrip* tab_strip = GetTabStripForBrowser(browser());
+  TabStripModel* model = browser()->tab_strip_model();
+
+  AddTabsAndResetBrowser(browser(), 3);
+  tab_groups::TabGroupId group = model->AddToNewGroup({1, 2});
+  StopAnimating(tab_strip);
+
+  EXPECT_EQ(4, model->count());
+  EXPECT_THAT(model->group_model()->GetTabGroup(group)->ListTabs(),
+              testing::ElementsAre(1, 2));
+  EXPECT_FALSE(model->IsGroupCollapsed(group));
+  tab_strip->controller()->ToggleTabGroupCollapsedState(group);
+  StopAnimating(tab_strip);
+  EXPECT_TRUE(model->IsGroupCollapsed(group));
+
+  // Dragging the last tab to the left should cause it to swap places with the
+  // collapsed group header.
+  ASSERT_TRUE(PressInput(GetCenterInScreenCoordinates(tab_strip->tab_at(3))));
+  ASSERT_TRUE(DragInputTo(
+      test::GetLeftCenterInScreenCoordinates(tab_strip->tab_at(3))));
+  ASSERT_TRUE(ReleaseInput());
+  StopAnimating(tab_strip);
+
+  EXPECT_EQ("0 3 1 2", IDString(model));
+  EXPECT_THAT(model->group_model()->GetTabGroup(group)->ListTabs(),
+              testing::ElementsAre(2, 3));
+  EXPECT_TRUE(model->IsGroupCollapsed(group));
+}
+
+// Creates a browser with four tabs where the second and third tab is in a
+// collapsed group. Drag the first tab to the right past the group header. The
+// first tab should swap places with the collapsed group header.
+IN_PROC_BROWSER_TEST_P(
+    DetachToBrowserTabDragControllerTestWithTabGroupsCollapseEnabled,
+    DragTabRightPastCollapsedGroupHeader) {
+  TabStrip* tab_strip = GetTabStripForBrowser(browser());
+  TabStripModel* model = browser()->tab_strip_model();
+
+  AddTabsAndResetBrowser(browser(), 3);
+  tab_groups::TabGroupId group = model->AddToNewGroup({1, 2});
+  StopAnimating(tab_strip);
+
+  EXPECT_EQ(4, model->count());
+  EXPECT_THAT(model->group_model()->GetTabGroup(group)->ListTabs(),
+              testing::ElementsAre(1, 2));
+  EXPECT_FALSE(model->IsGroupCollapsed(group));
+  tab_strip->controller()->ToggleTabGroupCollapsedState(group);
+  StopAnimating(tab_strip);
+  EXPECT_TRUE(model->IsGroupCollapsed(group));
+
+  // Dragging the first tab to the right should cause it to swap places with the
+  // collapsed group header.
+  ASSERT_TRUE(
+      PressInput(test::GetLeftCenterInScreenCoordinates(tab_strip->tab_at(0))));
+  ASSERT_TRUE(DragInputTo(
+      test::GetRightCenterInScreenCoordinates(tab_strip->tab_at(0))));
+  ASSERT_TRUE(ReleaseInput());
+  StopAnimating(tab_strip);
+
+  EXPECT_EQ("1 2 0 3", IDString(model));
+  EXPECT_THAT(model->group_model()->GetTabGroup(group)->ListTabs(),
+              testing::ElementsAre(0, 1));
+  EXPECT_TRUE(model->IsGroupCollapsed(group));
+}
+
+// Drags a tab group by the header and while detached presses escape to revert
+// the drag.
+IN_PROC_BROWSER_TEST_P(
+    DetachToBrowserTabDragControllerTestWithTabGroupsCollapseEnabled,
+    RevertCollapsedHeaderDragWhileDetached) {
+  TabStrip* tab_strip = GetTabStripForBrowser(browser());
+  TabStripModel* model = browser()->tab_strip_model();
+  AddTabsAndResetBrowser(browser(), 1);
+  tab_groups::TabGroupId group = model->AddToNewGroup({0});
+  EXPECT_FALSE(model->IsGroupCollapsed(group));
+  EnsureFocusToTabStrip(tab_strip);
+
+  tab_strip->controller()->ToggleTabGroupCollapsedState(group);
+  StopAnimating(tab_strip);
+  EXPECT_TRUE(model->IsGroupCollapsed(group));
+
+  DragGroupAndNotify(tab_strip,
+                     base::BindOnce(&PressEscapeWhileDetachedHeaderStep2, this),
+                     group);
+
+  EXPECT_FALSE(tab_strip->group_header(group)->dragging());
+  ASSERT_FALSE(tab_strip->GetDragContext()->IsDragSessionActive());
+  ASSERT_FALSE(TabDragController::IsActive());
+  EXPECT_EQ(1u, browser_list->size());
+  EXPECT_EQ("0 1", IDString(browser()->tab_strip_model()));
+  std::vector<tab_groups::TabGroupId> groups =
+      model->group_model()->ListTabGroups();
+  EXPECT_EQ(1u, groups.size());
+  EXPECT_THAT(model->group_model()->GetTabGroup(groups[0])->ListTabs(),
+              testing::ElementsAre(0));
+  EXPECT_TRUE(tab_strip->controller()->IsGroupCollapsed(group));
+}
+
+// Creates a browser with four tabs. The first two belong in Tab Group 1, and
+// the last two belong in Tab Group 2. Dragging the collapsed group header of
+// Tab Group 1 right will result in Tab Group 1 moving but avoiding Tab Group 2.
+IN_PROC_BROWSER_TEST_P(
+    DetachToBrowserTabDragControllerTestWithTabGroupsCollapseEnabled,
+    DragCollapsedGroupHeaderRightAvoidsOtherGroups) {
+  TabStrip* tab_strip = GetTabStripForBrowser(browser());
+  TabStripModel* model = browser()->tab_strip_model();
+  TabGroupModel* group_model = model->group_model();
+
+  AddTabsAndResetBrowser(browser(), 3);
+  tab_groups::TabGroupId group1 = model->AddToNewGroup({0, 1});
+  EXPECT_FALSE(model->IsGroupCollapsed(group1));
+  tab_strip->controller()->ToggleTabGroupCollapsedState(group1);
+  StopAnimating(tab_strip);
+  EXPECT_TRUE(model->IsGroupCollapsed(group1));
+  tab_groups::TabGroupId group2 = model->AddToNewGroup({2, 3});
+  StopAnimating(tab_strip);
+
+  ASSERT_EQ(4, model->count());
+  ASSERT_EQ(2u, group_model->GetTabGroup(group1)->ListTabs().size());
+  ASSERT_EQ(2u, group_model->GetTabGroup(group2)->ListTabs().size());
+
+  // Drag group1 right, but not far enough to get to the other side of group2.
+  ASSERT_TRUE(PressInput(
+      GetCenterInScreenCoordinates(tab_strip->group_header(group1))));
+  ASSERT_TRUE(DragInputTo(GetCenterInScreenCoordinates(tab_strip->tab_at(0))));
+  ASSERT_TRUE(ReleaseInput());
+  StopAnimating(tab_strip);
+
+  // Expect group1 to "snap back" to its current position, avoiding group2.
+  EXPECT_EQ("0 1 2 3", IDString(model));
+  EXPECT_THAT(group_model->GetTabGroup(group1)->ListTabs(),
+              testing::ElementsAre(0, 1));
+  EXPECT_THAT(group_model->GetTabGroup(group2)->ListTabs(),
+              testing::ElementsAre(2, 3));
+
+  // Drag group1 right, far enough to get to the other side of group2.
+  ASSERT_TRUE(PressInput(
+      GetCenterInScreenCoordinates(tab_strip->group_header(group1))));
+  ASSERT_TRUE(DragInputTo(GetCenterInScreenCoordinates(tab_strip->tab_at(1))));
+  ASSERT_TRUE(ReleaseInput());
+  StopAnimating(tab_strip);
+
+  // Expect group1 to "snap to" the other side of group2 and not land in the
+  // middle.
+  EXPECT_EQ("2 3 0 1", IDString(model));
+  EXPECT_THAT(group_model->GetTabGroup(group1)->ListTabs(),
+              testing::ElementsAre(2, 3));
+  EXPECT_THAT(group_model->GetTabGroup(group2)->ListTabs(),
+              testing::ElementsAre(0, 1));
+}
+
+// Creates a browser with four tabs. The first two belong in Tab Group 1, and
+// the last two belong in Tab Group 2. Dragging the collapsed group header of
+// Tab Group 2 left will result in Tab Group 2 moving but avoiding Tab Group 1.
+IN_PROC_BROWSER_TEST_P(
+    DetachToBrowserTabDragControllerTestWithTabGroupsCollapseEnabled,
+    DragCollapsedGroupHeaderLeftAvoidsOtherGroups) {
+  TabStrip* tab_strip = GetTabStripForBrowser(browser());
+  TabStripModel* model = browser()->tab_strip_model();
+  TabGroupModel* group_model = model->group_model();
+
+  AddTabsAndResetBrowser(browser(), 3);
+  tab_groups::TabGroupId group1 = model->AddToNewGroup({0, 1});
+  tab_groups::TabGroupId group2 = model->AddToNewGroup({2, 3});
+
+  EXPECT_FALSE(model->IsGroupCollapsed(group2));
+  tab_strip->controller()->ToggleTabGroupCollapsedState(group2);
+  StopAnimating(tab_strip);
+  EXPECT_TRUE(model->IsGroupCollapsed(group2));
+
+  ASSERT_EQ(4, model->count());
+  ASSERT_EQ(2u, group_model->GetTabGroup(group1)->ListTabs().size());
+  ASSERT_EQ(2u, group_model->GetTabGroup(group2)->ListTabs().size());
+
+  // Drag group2 left, but not far enough to get to the other side of group1.
+  ASSERT_TRUE(PressInput(
+      GetCenterInScreenCoordinates(tab_strip->group_header(group2))));
+  ASSERT_TRUE(DragInputTo(GetCenterInScreenCoordinates(tab_strip->tab_at(1))));
+  ASSERT_TRUE(ReleaseInput());
+  StopAnimating(tab_strip);
+
+  // Expect group2 to "snap back" to its current position, avoiding group1.
+  EXPECT_EQ("0 1 2 3", IDString(model));
+  EXPECT_THAT(group_model->GetTabGroup(group1)->ListTabs(),
+              testing::ElementsAre(0, 1));
+  EXPECT_THAT(group_model->GetTabGroup(group2)->ListTabs(),
+              testing::ElementsAre(2, 3));
+
+  // Drag group2 left, far enough to get to the other side of group1.
+  ASSERT_TRUE(PressInput(
+      GetCenterInScreenCoordinates(tab_strip->group_header(group2))));
+  ASSERT_TRUE(DragInputTo(GetCenterInScreenCoordinates(tab_strip->tab_at(0))));
+  ASSERT_TRUE(ReleaseInput());
+  StopAnimating(tab_strip);
+
+  // Expect group2 to "snap to" the other side of group1 and not land in the
+  // middle.
+  EXPECT_EQ("2 3 0 1", IDString(model));
+  EXPECT_THAT(group_model->GetTabGroup(group1)->ListTabs(),
+              testing::ElementsAre(2, 3));
+  EXPECT_THAT(group_model->GetTabGroup(group2)->ListTabs(),
+              testing::ElementsAre(0, 1));
+}
+
+// Creates two browsers, then drags a collapsed group from one to the other.
+IN_PROC_BROWSER_TEST_P(
+    DetachToBrowserTabDragControllerTestWithTabGroupsCollapseEnabled,
+    DragCollapsedGroupHeaderToSeparateWindow) {
+  TabStrip* tab_strip = GetTabStripForBrowser(browser());
+  TabStripModel* model = browser()->tab_strip_model();
+  AddTabsAndResetBrowser(browser(), 2);
+  tab_groups::TabGroupId group = model->AddToNewGroup({0, 1});
+  EXPECT_FALSE(model->IsGroupCollapsed(group));
+  tab_strip->controller()->ToggleTabGroupCollapsedState(group);
+  StopAnimating(tab_strip);
+  EXPECT_TRUE(model->IsGroupCollapsed(group));
+
+  // Create another browser.
+  Browser* browser2 = CreateAnotherBrowserAndResize();
+  TabStrip* tab_strip2 = GetTabStripForBrowser(browser2);
+  TabStripModel* model2 = browser2->tab_strip_model();
+  StopAnimating(tab_strip2);
+
+  // Drag the group by its header into the second browser.
+  DragGroupAndNotify(
+      tab_strip,
+      base::BindOnce(&DragToSeparateWindowStep2, this, tab_strip, tab_strip2),
+      group);
+  ASSERT_TRUE(ReleaseInput());
+
+  // Expect the group to be in browser2, but with a new tab_groups::TabGroupId
+  // and not collapsed.
+  EXPECT_EQ("100 0 1", IDString(model2));
+  std::vector<tab_groups::TabGroupId> browser2_groups =
+      model2->group_model()->ListTabGroups();
+  EXPECT_EQ(1u, browser2_groups.size());
+  EXPECT_THAT(
+      model2->group_model()->GetTabGroup(browser2_groups[0])->ListTabs(),
+      testing::ElementsAre(1, 2));
+  ASSERT_FALSE(tab_strip->controller()->IsGroupCollapsed(browser2_groups[0]));
+  EXPECT_EQ(browser2_groups[0], group);
 }
 
 namespace {
@@ -2150,7 +2599,7 @@ IN_PROC_BROWSER_TEST_P(DetachToBrowserTabDragControllerTest,
       BrowserView::GetBrowserViewForBrowser(browser2);
   const gfx::Rect tabstrip_region2_bounds =
       browser_view2->frame()->GetBoundsForTabStripRegion(
-          browser_view2->tabstrip());
+          browser_view2->tab_strip_region_view()->GetMinimumSize());
   gfx::Rect bounds = initial_bounds;
   bounds.Offset(0, tabstrip_region2_bounds.bottom());
   browser()->window()->SetBounds(bounds);
@@ -2226,6 +2675,7 @@ IN_PROC_BROWSER_TEST_P(DetachToBrowserTabDragControllerTest,
   EXPECT_FALSE(browser2->window()->IsMaximized());
 }
 
+#if !defined(OS_MAC)
 namespace {
 
 // Invoked from the nested run loop.
@@ -2275,6 +2725,7 @@ IN_PROC_BROWSER_TEST_P(DetachToBrowserTabDragControllerTest,
     EXPECT_FALSE(browser->window()->IsMaximized());
   }
 }
+#endif
 
 namespace {
 
@@ -2611,7 +3062,8 @@ class DraggedWindowObserver : public aura::WindowObserver {
                         const gfx::Rect& bounds,
                         const gfx::Point& end_point)
       : test_(test), end_bounds_(bounds), end_point_(end_point) {}
-
+  DraggedWindowObserver(const DraggedWindowObserver&) = delete;
+  DraggedWindowObserver& operator=(const DraggedWindowObserver&) = delete;
   ~DraggedWindowObserver() override {
     if (window_)
       window_->RemoveObserver(this);
@@ -2663,8 +3115,6 @@ class DraggedWindowObserver : public aura::WindowObserver {
   gfx::Rect end_bounds_;
   // The position that the mouse/touch event will move to when the drag ends.
   gfx::Point end_point_;
-
-  DISALLOW_COPY_AND_ASSIGN(DraggedWindowObserver);
 };
 
 void DoNotObserveDraggedWidgetAfterDragEndsStep2(
@@ -2838,11 +3288,15 @@ void FastResizeDuringDraggingStep2(DetachToBrowserTabDragControllerTest* test,
   // the dragged tab.
   EXPECT_EQ(3u, test->browser_list->size());
 
+  // TODO(crbug.com/1110266): Remove explicit OS_CHROMEOS check once OS_LINUX
+  // CrOS cleanup is done.
+#if !defined(OS_LINUX) || defined(OS_CHROMEOS)
   // Get this new created window for the drag. It should have fast resize set.
   Browser* new_browser = test->browser_list->get(2);
   EXPECT_TRUE(WebContentsIsFastResized(new_browser));
   // The source window should also have fast resize set.
   EXPECT_TRUE(WebContentsIsFastResized(test->browser()));
+#endif
 
   // Now drag to target_tab_strip.
   ASSERT_TRUE(
@@ -2996,7 +3450,7 @@ class DetachToBrowserTabDragControllerTestWithTabbedSystemApp
   DetachToBrowserTabDragControllerTestWithTabbedSystemApp()
       : test_system_web_app_installation_(
             web_app::TestSystemWebAppInstallation::
-                SetUpTabbedMultiWindowApp()) {}
+                SetUpTabbedMultiWindowApp(false)) {}
 
   web_app::AppId InstallMockApp() {
     test_system_web_app_installation_->WaitForAppInstall();
@@ -3005,6 +3459,10 @@ class DetachToBrowserTabDragControllerTestWithTabbedSystemApp
 
   Browser* LaunchWebAppBrowser(web_app::AppId app_id) {
     return web_app::LaunchWebAppBrowser(browser()->profile(), app_id);
+  }
+
+  const GURL& GetAppUrl() {
+    return test_system_web_app_installation_->GetAppUrl();
   }
 
  private:
@@ -3026,7 +3484,7 @@ IN_PROC_BROWSER_TEST_P(DetachToBrowserTabDragControllerTestWithTabbedSystemApp,
   SelectFirstBrowser();
   ASSERT_EQ(app_browser, browser());
   EXPECT_EQ(Browser::Type::TYPE_APP, browser_list->get(0)->type());
-  AddTabsAndResetBrowser(browser(), 1);
+  AddTabsAndResetBrowser(browser(), 1, GetAppUrl());
   TabStrip* tab_strip = GetTabStripForBrowser(browser());
 
   // Drag tab to create a new browser.
@@ -3057,7 +3515,7 @@ IN_PROC_BROWSER_TEST_P(DetachToBrowserTabDragControllerTestWithTabbedSystemApp,
   SelectFirstBrowser();
   ASSERT_EQ(app_browser1, browser());
 
-  AddTabsAndResetBrowser(browser(), 1);
+  AddTabsAndResetBrowser(browser(), 1, GetAppUrl());
   TabStrip* tab_strip1 = GetTabStripForBrowser(app_browser1);
   TabStrip* tab_strip2 = GetTabStripForBrowser(app_browser2);
 
@@ -3073,44 +3531,16 @@ IN_PROC_BROWSER_TEST_P(DetachToBrowserTabDragControllerTestWithTabbedSystemApp,
   EXPECT_EQ("1", IDString(app_browser1->tab_strip_model()));
 }
 
-// Move tab from TYPE_APP Browser to TYPE_NORMAL Browser.
-// Only allowed with feature MixBrowserTypeTabs.
-IN_PROC_BROWSER_TEST_P(DetachToBrowserTabDragControllerTestWithTabbedSystemApp,
-                       DragAppToNormalWindow) {
-  // Install and get a tabbed system app.
-  web_app::AppId tabbed_app_id = InstallMockApp();
-  Browser* app_browser = LaunchWebAppBrowser(tabbed_app_id);
-  ASSERT_EQ(2u, browser_list->size());
-  // Close normal browser since other code expects only 1 browser to start.
-  CloseBrowserSynchronously(browser());
-  ASSERT_EQ(1u, browser_list->size());
-  SelectFirstBrowser();
-
-  Browser* browser2 = CreateAnotherBrowserAndResize();
-  ResetIDs(browser2->tab_strip_model(), 100);
-
-  AddTabsAndResetBrowser(browser(), 1);
-  TabStrip* tab_strip1 = GetTabStripForBrowser(app_browser);
-  TabStrip* tab_strip2 = GetTabStripForBrowser(browser2);
-
-  // Move to the first tab and drag it enough so that it detaches, but not
-  // enough that it attaches to browser2.
-  DragTabAndNotify(tab_strip1, base::BindOnce(&DragToSeparateWindowStep2, this,
-                                              tab_strip1, tab_strip2));
-
-  // Should now be attached to tab_strip2.
-  // Release mouse or touch, stopping the drag session.
-  ASSERT_TRUE(ReleaseInput());
-  EXPECT_EQ("100 0", IDString(browser2->tab_strip_model()));
-  EXPECT_EQ("1", IDString(app_browser->tab_strip_model()));
-}
-
 // Subclass of DetachToBrowserTabDragControllerTest that
 // creates multiple displays.
 class DetachToBrowserInSeparateDisplayTabDragControllerTest
     : public DetachToBrowserTabDragControllerTest {
  public:
   DetachToBrowserInSeparateDisplayTabDragControllerTest() {}
+  DetachToBrowserInSeparateDisplayTabDragControllerTest(
+      const DetachToBrowserInSeparateDisplayTabDragControllerTest&) = delete;
+  DetachToBrowserInSeparateDisplayTabDragControllerTest& operator=(
+      const DetachToBrowserInSeparateDisplayTabDragControllerTest&) = delete;
   virtual ~DetachToBrowserInSeparateDisplayTabDragControllerTest() {}
 
   void SetUpCommandLine(base::CommandLine* command_line) override {
@@ -3119,10 +3549,6 @@ class DetachToBrowserInSeparateDisplayTabDragControllerTest
     command_line->AppendSwitchASCII("ash-host-window-bounds",
                                     "0+0-800x600,800+0-800x600");
   }
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(
-      DetachToBrowserInSeparateDisplayTabDragControllerTest);
 };
 
 namespace {
@@ -3544,6 +3970,10 @@ class DifferentDeviceScaleFactorDisplayTabDragControllerTest
     : public DetachToBrowserTabDragControllerTest {
  public:
   DifferentDeviceScaleFactorDisplayTabDragControllerTest() {}
+  DifferentDeviceScaleFactorDisplayTabDragControllerTest(
+      const DifferentDeviceScaleFactorDisplayTabDragControllerTest&) = delete;
+  DifferentDeviceScaleFactorDisplayTabDragControllerTest& operator=(
+      const DifferentDeviceScaleFactorDisplayTabDragControllerTest&) = delete;
   virtual ~DifferentDeviceScaleFactorDisplayTabDragControllerTest() {}
 
   void SetUpCommandLine(base::CommandLine* command_line) override {
@@ -3556,12 +3986,8 @@ class DifferentDeviceScaleFactorDisplayTabDragControllerTest
     return aura::client::GetCursorClient(
                browser()->window()->GetNativeWindow()->GetRootWindow())
         ->GetCursor()
-        .device_scale_factor();
+        .image_scale_factor();
   }
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(
-      DifferentDeviceScaleFactorDisplayTabDragControllerTest);
 };
 
 namespace {
@@ -3636,16 +4062,18 @@ class DetachToBrowserInSeparateDisplayAndCancelTabDragControllerTest
     : public DetachToBrowserTabDragControllerTest {
  public:
   DetachToBrowserInSeparateDisplayAndCancelTabDragControllerTest() {}
+  DetachToBrowserInSeparateDisplayAndCancelTabDragControllerTest(
+      const DetachToBrowserInSeparateDisplayAndCancelTabDragControllerTest&) =
+      delete;
+  DetachToBrowserInSeparateDisplayAndCancelTabDragControllerTest& operator=(
+      const DetachToBrowserInSeparateDisplayAndCancelTabDragControllerTest&) =
+      delete;
 
   void SetUpCommandLine(base::CommandLine* command_line) override {
     DetachToBrowserTabDragControllerTest::SetUpCommandLine(command_line);
     command_line->AppendSwitchASCII("ash-host-window-bounds",
                                     "0+0-800x600,800+0-800x600");
   }
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(
-      DetachToBrowserInSeparateDisplayAndCancelTabDragControllerTest);
 };
 
 namespace {
@@ -3767,12 +4195,13 @@ class DetachToBrowserTabDragControllerTestTouch
     : public DetachToBrowserTabDragControllerTest {
  public:
   DetachToBrowserTabDragControllerTestTouch() {}
+  DetachToBrowserTabDragControllerTestTouch(
+      const DetachToBrowserTabDragControllerTestTouch&) = delete;
+  DetachToBrowserTabDragControllerTestTouch& operator=(
+      const DetachToBrowserTabDragControllerTestTouch&) = delete;
   virtual ~DetachToBrowserTabDragControllerTestTouch() {}
 
   void TearDown() override { ui::SetEventTickClockForTesting(nullptr); }
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(DetachToBrowserTabDragControllerTestTouch);
 };
 
 namespace {
@@ -4000,6 +4429,10 @@ INSTANTIATE_TEST_SUITE_P(
     TabDragging,
     DetachToBrowserTabDragControllerTestWithTabGroupsEnabled,
     ::testing::Values("mouse", "touch"));
+INSTANTIATE_TEST_SUITE_P(
+    TabDragging,
+    DetachToBrowserTabDragControllerTestWithTabGroupsCollapseEnabled,
+    ::testing::Values("mouse", "touch"));
 INSTANTIATE_TEST_SUITE_P(TabDragging,
                          DetachToBrowserInSeparateDisplayTabDragControllerTest,
                          ::testing::Values("mouse"));
@@ -4024,5 +4457,9 @@ INSTANTIATE_TEST_SUITE_P(TabDragging,
 INSTANTIATE_TEST_SUITE_P(
     TabDragging,
     DetachToBrowserTabDragControllerTestWithTabGroupsEnabled,
+    ::testing::Values("mouse"));
+INSTANTIATE_TEST_SUITE_P(
+    TabDragging,
+    DetachToBrowserTabDragControllerTestWithTabGroupsCollapseEnabled,
     ::testing::Values("mouse"));
 #endif

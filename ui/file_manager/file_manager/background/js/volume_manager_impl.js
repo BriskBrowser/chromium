@@ -193,6 +193,12 @@ class VolumeManagerImpl extends cr.EventTarget {
               return;
             }
 
+            case VolumeManagerCommon.VolumeError.NEED_PASSWORD: {
+              console.warn(`'Cannot mount ${sourcePath}': ${status}`);
+              this.finishRequest_(requestKey, status);
+              return;
+            }
+
             default:
               console.error(`Cannot mount '${sourcePath}': ${status}`);
               this.finishRequest_(requestKey, status);
@@ -249,9 +255,9 @@ class VolumeManagerImpl extends cr.EventTarget {
   }
 
   /** @override */
-  async mountArchive(fileUrl) {
+  async mountArchive(fileUrl, password) {
     const path = await new Promise(resolve => {
-      chrome.fileManagerPrivate.addMount(fileUrl, resolve);
+      chrome.fileManagerPrivate.addMount(fileUrl, password, resolve);
     });
     console.debug(`Mounting '${path}'`);
     const key = this.makeRequestKey_('mount', path);
@@ -400,6 +406,15 @@ class VolumeManagerImpl extends cr.EventTarget {
         // read-write.
         isReadOnly = entry.fullPath.split('/').length < 4;
         isRootEntry = entry.fullPath === '/.files-by-id';
+      } else if (
+          entry.fullPath === '/.shortcut-targets-by-id' ||
+          entry.fullPath.indexOf('/.shortcut-targets-by-id/') === 0) {
+        rootType = VolumeManagerCommon.RootType.DRIVE_OTHER;
+
+        // /.shortcut-targets-by-id/<id> is read-only, but
+        // /.shortcut-targets-by-id/<id>/foo is read-write.
+        isReadOnly = entry.fullPath.split('/').length < 4;
+        isRootEntry = entry.fullPath === '/.shortcut-targets-by-id';
       } else {
         // Accessing Drive files outside of /drive/root and /drive/other is not
         // allowed, but can happen. Therefore returning null.

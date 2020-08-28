@@ -17,10 +17,13 @@
 #include "ash/strings/grit/ash_strings.h"
 #include "ash/style/ash_color_provider.h"
 #include "ash/style/default_color_constants.h"
+#include "ash/system/machine_learning/user_settings_event_logger.h"
 #include "ash/system/message_center/message_center_controller.h"
 #include "ash/system/message_center/message_center_style.h"
 #include "ash/system/tray/tray_popup_utils.h"
 #include "base/macros.h"
+#include "base/memory/ptr_util.h"
+#include "base/optional.h"
 #include "base/strings/string16.h"
 #include "base/strings/utf_string_conversions.h"
 #include "skia/ext/image_operations.h"
@@ -28,6 +31,7 @@
 #include "ui/accessibility/ax_enums.mojom.h"
 #include "ui/accessibility/ax_node_data.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/base/ui_base_features.h"
 #include "ui/compositor/paint_recorder.h"
 #include "ui/events/event_utils.h"
 #include "ui/events/keycodes/keyboard_codes.h"
@@ -50,6 +54,7 @@
 #include "ui/views/controls/link.h"
 #include "ui/views/controls/scroll_view.h"
 #include "ui/views/controls/scrollbar/overlay_scroll_bar.h"
+#include "ui/views/controls/separator.h"
 #include "ui/views/layout/box_layout.h"
 #include "ui/views/layout/fill_layout.h"
 #include "ui/views/layout/grid_layout.h"
@@ -87,16 +92,21 @@ const int kInnateCheckboxRightPadding = 2;
 constexpr int kComputedCheckboxSize =
     kCheckboxSizeWithPadding - kInnateCheckboxRightPadding;
 
-// TODO(tetsui): Give more general names and remove kEntryHeight, etc.
 constexpr gfx::Insets kTopLabelPadding(16, 18, 15, 18);
-const int kQuietModeViewSpacing = 18;
+const int kToggleButtonRowViewSpacing = 18;
 
 constexpr gfx::Insets kHeaderViewPadding(4, 0);
-constexpr gfx::Insets kQuietModeViewPadding(0, 18, 0, 0);
-constexpr gfx::Insets kQuietModeLabelPadding(16, 0, 15, 0);
-constexpr gfx::Insets kQuietModeTogglePadding(0, 14);
+constexpr gfx::Insets kToggleButtonRowViewPadding(0, 18, 0, 0);
+constexpr gfx::Insets kToggleButtonRowLabelPadding(16, 0, 15, 0);
 constexpr SkColor kTopBorderColor = SkColorSetA(SK_ColorBLACK, 0x1F);
 const int kLabelFontSizeDelta = 1;
+
+void LogUserQuietModeEvent(const bool enabled) {
+  auto* logger = ml::UserSettingsEventLogger::Get();
+  if (logger) {
+    logger->LogQuietModeUkmEvent(enabled);
+  }
+}
 
 // NotifierButtonWrapperView ---------------------------------------------------
 
@@ -240,9 +250,8 @@ class ScrollContentsView : public views::View {
 class EmptyNotifierView : public views::View {
  public:
   EmptyNotifierView() {
-    const SkColor text_color =
-        AshColorProvider::Get()->DeprecatedGetContentLayerColor(
-            ContentLayerType::kTextPrimary, kUnifiedMenuTextColor);
+    const SkColor text_color = AshColorProvider::Get()->GetContentLayerColor(
+        ContentLayerType::kTextColorPrimary, AshColorMode::kDark);
     auto layout = std::make_unique<views::BoxLayout>(
         views::BoxLayout::Orientation::kVertical, gfx::Insets(), 0);
     layout->set_main_axis_alignment(
@@ -277,6 +286,21 @@ class EmptyNotifierView : public views::View {
   DISALLOW_COPY_AND_ASSIGN(EmptyNotifierView);
 };
 
+class NotifierViewCheckbox : public views::Checkbox {
+ public:
+  using views::Checkbox::Checkbox;
+
+ private:
+  // views::Checkbox:
+  SkColor GetIconImageColor(int icon_state) const override {
+    if (icon_state & IconState::CHECKED) {
+      return AshColorProvider::Get()->GetContentLayerColor(
+          ContentLayerType::kIconColorProminent, AshColorMode::kDark);
+    }
+    return views::Checkbox::GetIconImageColor(icon_state);
+  }
+};
+
 }  // namespace
 
 // NotifierSettingsView::NotifierButton ---------------------------------------
@@ -289,12 +313,11 @@ NotifierSettingsView::NotifierButton::NotifierButton(
     : views::Button(listener), notifier_id_(notifier.notifier_id) {
   auto icon_view = std::make_unique<views::ImageView>();
   auto name_view = std::make_unique<views::Label>(notifier.name);
-  auto checkbox =
-      std::make_unique<views::Checkbox>(base::string16(), this /* listener */);
+  auto checkbox = std::make_unique<NotifierViewCheckbox>(base::string16(),
+                                                         this /* listener */);
   name_view->SetAutoColorReadabilityEnabled(false);
-  name_view->SetEnabledColor(
-      AshColorProvider::Get()->DeprecatedGetContentLayerColor(
-          ContentLayerType::kTextPrimary, kUnifiedMenuTextColor));
+  name_view->SetEnabledColor(AshColorProvider::Get()->GetContentLayerColor(
+      ContentLayerType::kTextColorPrimary, AshColorMode::kDark));
   name_view->SetSubpixelRenderingEnabled(false);
   // "Roboto-Regular, 13sp" is specified in the mock.
   name_view->SetFontList(
@@ -332,7 +355,7 @@ void NotifierSettingsView::NotifierButton::UpdateIconImage(
     icon_view_->SetImage(gfx::CreateVectorIcon(
         message_center::kProductIcon, kEntryIconSize,
         AshColorProvider::Get()->GetContentLayerColor(
-            ContentLayerType::kIconPrimary, AshColorMode::kDark)));
+            ContentLayerType::kIconColorPrimary, AshColorMode::kDark)));
   } else {
     icon_view_->SetImage(icon);
     icon_view_->SetImageSize(gfx::Size(kEntryIconSize, kEntryIconSize));
@@ -376,18 +399,18 @@ void NotifierSettingsView::NotifierButton::GridChanged() {
   ColumnSet* cs = layout->AddColumnSet(0);
   // Add a column for the checkbox.
   cs->AddPaddingColumn(0, kInnateCheckboxRightPadding);
-  cs->AddColumn(GridLayout::CENTER, GridLayout::CENTER, 0, GridLayout::FIXED,
-                kComputedCheckboxSize, 0);
+  cs->AddColumn(GridLayout::CENTER, GridLayout::CENTER, 0,
+                GridLayout::ColumnSize::kFixed, kComputedCheckboxSize, 0);
   cs->AddPaddingColumn(0, kInternalHorizontalSpacing);
 
   // Add a column for the icon.
-  cs->AddColumn(GridLayout::CENTER, GridLayout::CENTER, 0, GridLayout::FIXED,
-                kEntryIconSize, 0);
+  cs->AddColumn(GridLayout::CENTER, GridLayout::CENTER, 0,
+                GridLayout::ColumnSize::kFixed, kEntryIconSize, 0);
   cs->AddPaddingColumn(0, kSmallerInternalHorizontalSpacing);
 
   // Add a column for the name.
   cs->AddColumn(GridLayout::LEADING, GridLayout::CENTER, 0,
-                GridLayout::USE_PREF, 0, 0);
+                GridLayout::ColumnSize::kUsePreferred, 0, 0);
 
   // Add a padding column which contains expandable blank space.
   cs->AddPaddingColumn(1, 0);
@@ -402,9 +425,9 @@ void NotifierSettingsView::NotifierButton::GridChanged() {
     policy_enforced_icon->SetImage(gfx::CreateVectorIcon(
         kSystemMenuBusinessIcon, kEntryIconSize,
         AshColorProvider::Get()->GetContentLayerColor(
-            ContentLayerType::kIconPrimary, AshColorMode::kDark)));
-    cs->AddColumn(GridLayout::CENTER, GridLayout::CENTER, 0, GridLayout::FIXED,
-                  kEntryIconSize, 0);
+            ContentLayerType::kIconColorPrimary, AshColorMode::kDark)));
+    cs->AddColumn(GridLayout::CENTER, GridLayout::CENTER, 0,
+                  GridLayout::ColumnSize::kFixed, kEntryIconSize, 0);
     layout->AddView(std::move(policy_enforced_icon));
   }
 
@@ -424,43 +447,52 @@ NotifierSettingsView::NotifierSettingsView() {
   header_view->SetBorder(
       views::CreateSolidSidedBorder(1, 0, 0, 0, kTopBorderColor));
 
-  auto quiet_mode_view = std::make_unique<views::View>();
+  const SkColor text_color = AshColorProvider::Get()->GetContentLayerColor(
+      ContentLayerType::kTextColorPrimary, AshColorMode::kDark);
+  const SkColor icon_color = AshColorProvider::Get()->GetContentLayerColor(
+      ContentLayerType::kIconColorPrimary, AshColorMode::kDark);
+  const SkColor separator_color = AshColorProvider::Get()->GetContentLayerColor(
+      ContentLayerType::kSeparatorColor, AshColorMode::kDark);
 
-  auto* quiet_mode_layout =
-      quiet_mode_view->SetLayoutManager(std::make_unique<views::BoxLayout>(
-          views::BoxLayout::Orientation::kHorizontal, kQuietModeViewPadding,
-          kQuietModeViewSpacing));
+  if (features::IsNotificationIndicatorEnabled()) {
+    // Row for the app badging toggle button.
+    auto app_badging_icon = std::make_unique<views::ImageView>();
+    app_badging_icon->SetImage(gfx::CreateVectorIcon(
+        kSystemTrayAppBadgingIcon, kMenuIconSize, icon_color));
+    auto app_badging_label =
+        std::make_unique<views::Label>(l10n_util::GetStringUTF16(
+            IDS_ASH_MESSAGE_CENTER_APP_BADGING_BUTTON_TOOLTIP));
+    auto app_badging_toggle = base::WrapUnique<views::ToggleButton>(
+        TrayPopupUtils::CreateToggleButton(
+            this, IDS_ASH_MESSAGE_CENTER_APP_BADGING_BUTTON_TOOLTIP));
+    app_badging_toggle_ = app_badging_toggle.get();
+    auto app_badging_view = CreateToggleButtonRow(
+        std::move(app_badging_icon), std::move(app_badging_label),
+        std::move(app_badging_toggle));
+    app_badging_view->SetBorder(
+        views::CreateSolidSidedBorder(0, 0, 0, 1, kTopBorderColor));
+    header_view->AddChildView(std::move(app_badging_view));
+  }
 
+  // Separator between toggle button rows.
+  auto separator = std::make_unique<views::Separator>();
+  separator->SetColor(separator_color);
+  header_view->AddChildView(std::move(separator));
+
+  // Row for the quiet mode toggle button.
   auto quiet_mode_icon = std::make_unique<views::ImageView>();
-  quiet_mode_icon->SetBorder(views::CreateEmptyBorder(kQuietModeLabelPadding));
-  quiet_mode_icon_ = quiet_mode_view->AddChildView(std::move(quiet_mode_icon));
-
+  quiet_mode_icon_ = quiet_mode_icon.get();
   auto quiet_mode_label =
       std::make_unique<views::Label>(l10n_util::GetStringUTF16(
           IDS_ASH_MESSAGE_CENTER_QUIET_MODE_BUTTON_TOOLTIP));
-  const SkColor text_color =
-      AshColorProvider::Get()->DeprecatedGetContentLayerColor(
-          ContentLayerType::kTextPrimary, kUnifiedMenuTextColor);
-  quiet_mode_label->SetHorizontalAlignment(gfx::ALIGN_LEFT);
-  // "Roboto-Regular, 13sp" is specified in the mock.
-  quiet_mode_label->SetFontList(
-      gfx::FontList().DeriveWithSizeDelta(kLabelFontSizeDelta));
-  quiet_mode_label->SetAutoColorReadabilityEnabled(false);
-  quiet_mode_label->SetEnabledColor(text_color);
-  quiet_mode_label->SetSubpixelRenderingEnabled(false);
-  quiet_mode_label->SetBorder(views::CreateEmptyBorder(kQuietModeLabelPadding));
-  auto* quiet_mode_label_ptr =
-      quiet_mode_view->AddChildView(std::move(quiet_mode_label));
-  quiet_mode_layout->SetFlexForView(quiet_mode_label_ptr, 1);
+  auto quiet_mode_toggle =
+      base::WrapUnique<views::ToggleButton>(TrayPopupUtils::CreateToggleButton(
+          this, IDS_ASH_MESSAGE_CENTER_QUIET_MODE_BUTTON_TOOLTIP));
+  quiet_mode_toggle_ = quiet_mode_toggle.get();
+  auto quiet_mode_view = CreateToggleButtonRow(std::move(quiet_mode_icon),
+                                               std::move(quiet_mode_label),
+                                               std::move(quiet_mode_toggle));
 
-  auto quiet_mode_toggle = std::make_unique<views::ToggleButton>(this);
-  quiet_mode_toggle->SetAccessibleName(l10n_util::GetStringUTF16(
-      IDS_ASH_MESSAGE_CENTER_QUIET_MODE_BUTTON_TOOLTIP));
-  quiet_mode_toggle->SetBorder(
-      views::CreateEmptyBorder(kQuietModeTogglePadding));
-  quiet_mode_toggle->EnableCanvasFlippingForRTLUI(true);
-  quiet_mode_toggle_ =
-      quiet_mode_view->AddChildView(std::move(quiet_mode_toggle));
   SetQuietModeState(MessageCenter::Get()->IsQuietMode());
   header_view->AddChildView(std::move(quiet_mode_view));
 
@@ -480,7 +512,7 @@ NotifierSettingsView::NotifierSettingsView() {
   header_view_ = AddChildView(std::move(header_view));
 
   auto scroller = std::make_unique<views::ScrollView>();
-  scroller->SetBackgroundColor(SK_ColorTRANSPARENT);
+  scroller->SetBackgroundColor(base::nullopt);
   scroll_bar_ = scroller->SetVerticalScrollBar(
       std::make_unique<views::OverlayScrollBar>(/*horizontal=*/false));
   scroller->SetDrawOverflowIndicator(false);
@@ -504,7 +536,7 @@ bool NotifierSettingsView::IsScrollable() {
 void NotifierSettingsView::SetQuietModeState(bool is_quiet_mode) {
   quiet_mode_toggle_->SetIsOn(is_quiet_mode);
   const SkColor icon_color = AshColorProvider::Get()->GetContentLayerColor(
-      ContentLayerType::kIconPrimary, AshColorMode::kDark);
+      ContentLayerType::kIconColorPrimary, AshColorMode::kDark);
   if (is_quiet_mode) {
     quiet_mode_icon_->SetImage(gfx::CreateVectorIcon(
         kNotificationCenterDoNotDisturbOnIcon, kMenuIconSize, icon_color));
@@ -626,7 +658,14 @@ bool NotifierSettingsView::OnMouseWheel(const ui::MouseWheelEvent& event) {
 
 void NotifierSettingsView::ButtonPressed(views::Button* sender,
                                          const ui::Event& event) {
+  if (sender == app_badging_toggle_) {
+    // TODO(tengs): Call the appropriate controller to toggle app badging once
+    // it is available.
+    return;
+  }
+
   if (sender == quiet_mode_toggle_) {
+    LogUserQuietModeEvent(quiet_mode_toggle_->GetIsOn());
     MessageCenter::Get()->SetQuietMode(quiet_mode_toggle_->GetIsOn());
     return;
   }
@@ -640,6 +679,38 @@ void NotifierSettingsView::ButtonPressed(views::Button* sender,
   NotifierSettingsController::Get()->SetNotifierEnabled(button->notifier_id(),
                                                         button->GetChecked());
   NotifierSettingsController::Get()->GetNotifiers();
+}
+
+std::unique_ptr<views::View> NotifierSettingsView::CreateToggleButtonRow(
+    std::unique_ptr<views::ImageView> icon,
+    std::unique_ptr<views::Label> label,
+    std::unique_ptr<views::ToggleButton> toggle_button) {
+  auto row_view = std::make_unique<views::View>();
+
+  auto* row_layout =
+      row_view->SetLayoutManager(std::make_unique<views::BoxLayout>(
+          views::BoxLayout::Orientation::kHorizontal,
+          kToggleButtonRowViewPadding, kToggleButtonRowViewSpacing));
+
+  icon->SetBorder(views::CreateEmptyBorder(kToggleButtonRowLabelPadding));
+  row_view->AddChildView(std::move(icon));
+
+  const SkColor text_color = AshColorProvider::Get()->GetContentLayerColor(
+      ContentLayerType::kTextColorPrimary, AshColorMode::kDark);
+  label->SetHorizontalAlignment(gfx::ALIGN_LEFT);
+  // "Roboto-Regular, 13sp" is specified in the mock.
+  label->SetFontList(gfx::FontList().DeriveWithSizeDelta(kLabelFontSizeDelta));
+  label->SetAutoColorReadabilityEnabled(false);
+  label->SetEnabledColor(text_color);
+  label->SetSubpixelRenderingEnabled(false);
+  label->SetBorder(views::CreateEmptyBorder(kToggleButtonRowLabelPadding));
+  auto* label_ptr = row_view->AddChildView(std::move(label));
+  row_layout->SetFlexForView(label_ptr, 1);
+
+  toggle_button->EnableCanvasFlippingForRTLUI(true);
+  row_view->AddChildView(std::move(toggle_button));
+
+  return row_view;
 }
 
 }  // namespace ash

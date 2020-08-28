@@ -8,6 +8,7 @@
 #include <string>
 #include <vector>
 
+#include "base/optional.h"
 #include "media/base/video_facing.h"
 #include "media/capture/capture_export.h"
 
@@ -26,6 +27,7 @@ enum class VideoCaptureApi {
   ANDROID_API2_LEGACY,
   ANDROID_API2_FULL,
   ANDROID_API2_LIMITED,
+  FUCHSIA_CAMERA3,
   VIRTUAL_DEVICE,
   UNKNOWN
 };
@@ -53,6 +55,7 @@ struct CAPTURE_EXPORT VideoCaptureDeviceDescriptor {
       const std::string& display_name,
       const std::string& device_id,
       VideoCaptureApi capture_api = VideoCaptureApi::UNKNOWN,
+      bool pan_tilt_zoom_supported = false,
       VideoCaptureTransportType transport_type =
           VideoCaptureTransportType::OTHER_TRANSPORT);
   VideoCaptureDeviceDescriptor(
@@ -60,6 +63,7 @@ struct CAPTURE_EXPORT VideoCaptureDeviceDescriptor {
       const std::string& device_id,
       const std::string& model_id,
       VideoCaptureApi capture_api,
+      bool pan_tilt_zoom_supported,
       VideoCaptureTransportType transport_type =
           VideoCaptureTransportType::OTHER_TRANSPORT,
       VideoFacingMode facing = VideoFacingMode::MEDIA_VIDEO_FACING_NONE);
@@ -82,6 +86,11 @@ struct CAPTURE_EXPORT VideoCaptureDeviceDescriptor {
   const std::string& display_name() const { return display_name_; }
   void set_display_name(const std::string& name);
 
+  bool pan_tilt_zoom_supported() const { return pan_tilt_zoom_supported_; }
+  void set_pan_tilt_zoom_supported(bool supported) {
+    pan_tilt_zoom_supported_ = supported;
+  }
+
   std::string device_id;
   // A unique hardware identifier of the capture device.
   // It is of the form "[vid]:[pid]" when a USB device is detected, and empty
@@ -95,6 +104,7 @@ struct CAPTURE_EXPORT VideoCaptureDeviceDescriptor {
 
  private:
   std::string display_name_;  // Name that is intended for display in the UI
+  bool pan_tilt_zoom_supported_ = false;
 };
 
 using VideoCaptureDeviceDescriptors = std::vector<VideoCaptureDeviceDescriptor>;

@@ -5,6 +5,7 @@
 #include "base/command_line.h"
 #include "base/files/file_util.h"
 #include "base/path_service.h"
+#include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/threading/thread_restrictions.h"
 #include "build/build_config.h"
@@ -19,6 +20,7 @@
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/content_paths.h"
 #include "content/public/common/content_switches.h"
+#include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/find_test_utils.h"
 #include "content/public/test/test_navigation_observer.h"
@@ -101,10 +103,15 @@ IN_PROC_BROWSER_TEST_F(ChromeFindRequestManagerTest, MAYBE_FindInPDF) {
   ASSERT_TRUE(pdf_extension_test_util::EnsurePDFHasLoaded(contents()));
 
   auto options = blink::mojom::FindOptions::New();
-  options->run_synchronously_for_testing = true;
   Find("result", options.Clone());
-  options->find_next = true;
+  delegate()->MarkNextReply();
+  delegate()->WaitForNextReply();
+
+  options->new_session = false;
   Find("result", options.Clone());
+  delegate()->MarkNextReply();
+  delegate()->WaitForNextReply();
+
   Find("result", options.Clone());
   delegate()->WaitForFinalReply();
 
@@ -123,7 +130,7 @@ void SendRangeResponse(net::test_server::ControllableHttpResponse* response,
     ASSERT_NE(response->http_request()->headers.end(), it);
     base::StringPiece range_header = it->second;
     base::StringPiece kBytesPrefix = "bytes=";
-    ASSERT_TRUE(range_header.starts_with(kBytesPrefix));
+    ASSERT_TRUE(base::StartsWith(range_header, kBytesPrefix));
     range_header.remove_prefix(kBytesPrefix.size());
     auto dash_pos = range_header.find('-');
     ASSERT_NE(std::string::npos, dash_pos);
@@ -227,9 +234,8 @@ IN_PROC_BROWSER_TEST_F(ChromeFindRequestManagerTest, FindInChunkedPDF) {
 
   // Verify that find-in-page works fine.
   auto options = blink::mojom::FindOptions::New();
-  options->run_synchronously_for_testing = true;
   Find("FXCMAP_CMap", options.Clone());
-  options->find_next = true;
+  options->new_session = false;
   Find("FXCMAP_CMap", options.Clone());
   Find("FXCMAP_CMap", options.Clone());
   delegate()->WaitForFinalReply();
@@ -254,7 +260,7 @@ IN_PROC_BROWSER_TEST_F(ChromeFindRequestManagerTest,
   ASSERT_TRUE(pdf_extension_test_util::EnsurePDFHasLoaded(contents()));
 
   auto options = blink::mojom::FindOptions::New();
-  options->find_next = true;
+  options->new_session = false;
   Find("result", options.Clone());
   options->forward = false;
   Find("result", options.Clone());
@@ -274,7 +280,6 @@ IN_PROC_BROWSER_TEST_F(ChromeFindRequestManagerTest, FindMissingStringInPDF) {
   ASSERT_TRUE(pdf_extension_test_util::EnsurePDFHasLoaded(contents()));
 
   auto options = blink::mojom::FindOptions::New();
-  options->run_synchronously_for_testing = true;
   Find("missing", options.Clone());
   delegate()->WaitForFinalReply();
 
@@ -293,7 +298,6 @@ IN_PROC_BROWSER_TEST_F(ChromeFindRequestManagerTest,
   ASSERT_TRUE(pdf_extension_test_util::EnsurePDFHasLoaded(contents()));
 
   auto options = blink::mojom::FindOptions::New();
-  options->run_synchronously_for_testing = true;
   Find("r", options.Clone());
   delegate()->MarkNextReply();
   delegate()->WaitForNextReply();

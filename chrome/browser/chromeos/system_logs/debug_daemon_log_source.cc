@@ -13,13 +13,18 @@
 #include "base/files/file_util.h"
 #include "base/logging.h"
 #include "base/memory/weak_ptr.h"
+#include "base/no_destructor.h"
+#include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
 #include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/common/chrome_switches.h"
+#include "chromeos/cryptohome/cryptohome_parameters.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "chromeos/dbus/debug_daemon/debug_daemon_client.h"
+#include "components/feedback/feedback_util.h"
 #include "components/user_manager/user.h"
 #include "components/user_manager/user_manager.h"
 #include "content/public/browser/browser_thread.h"
@@ -30,7 +35,7 @@ namespace {
 
 constexpr char kNotAvailable[] = "<not available>";
 constexpr char kRoutesKeyName[] = "routes";
-constexpr char kNetworkStatusKeyName[] = "network-status";
+constexpr char kLogTruncated[] = "<earlier logs truncated>\n";
 
 // List of user log files that Chrome reads directly as these logs are generated
 // by Chrome itself.
@@ -48,6 +53,22 @@ constexpr struct UserLogs {
     {"logout-times", "logout-times"},
 };
 
+// List of debugd entries to exclude from the results.
+constexpr std::array<const char*, 2> kExcludeList = {
+    // Shill device and service properties are retrieved by ShillLogSource.
+    // TODO(https://crbug.com/967800): Modify debugd to omit these for
+    // feedback report gathering and remove these entries.
+    "network-devices",
+    "network-services",
+};
+
+// Buffer size for user logs in bytes. Given that maximum feedback report size
+// is ~7M and that majority of log files are under 1M, we set a per-file limit
+// of 1MiB.
+const int64_t kMaxLogSize = 1024 * 1024;
+
+}  // namespace
+
 // Reads the contents of the user log files listed in |kUserLogs| and adds them
 // to the |response| parameter.
 void ReadUserLogFiles(const std::vector<base::FilePath>& profile_dirs,
@@ -56,8 +77,16 @@ void ReadUserLogFiles(const std::vector<base::FilePath>& profile_dirs,
     std::string profile_prefix = "Profile[" + base::NumberToString(i) + "] ";
     for (const auto& log : kUserLogs) {
       std::string value;
-      const bool read_success = base::ReadFileToString(
-          profile_dirs[i].Append(log.log_file_relative_path), &value);
+      const bool read_success = feedback_util::ReadEndOfFile(
+          profile_dirs[i].Append(log.log_file_relative_path), kMaxLogSize,
+          &value);
+
+      if (read_success && value.length() == kMaxLogSize) {
+        value.replace(0, strlen(kLogTruncated), kLogTruncated);
+
+        LOG(WARNING) << "Large log file was likely truncated: "
+                     << log.log_file_relative_path;
+      }
 
       response->emplace(
           profile_prefix + log.log_key,
@@ -65,8 +94,6 @@ void ReadUserLogFiles(const std::vector<base::FilePath>& profile_dirs,
     }
   }
 }
-
-}  // namespace
 
 DebugDaemonLogSource::DebugDaemonLogSource(bool scrub)
     : SystemLogsSource("DebugDemon"),
@@ -91,14 +118,14 @@ void DebugDaemonLogSource::Fetch(SysLogsSourceCallback callback) {
                                    weak_ptr_factory_.GetWeakPtr()));
   ++num_pending_requests_;
 
-  client->GetNetworkStatus(base::BindOnce(&DebugDaemonLogSource::OnGetOneLog,
-                                          weak_ptr_factory_.GetWeakPtr(),
-                                          kNetworkStatusKeyName));
-  ++num_pending_requests_;
-
   if (scrub_) {
-    client->GetScrubbedBigLogs(base::BindOnce(&DebugDaemonLogSource::OnGetLogs,
-                                              weak_ptr_factory_.GetWeakPtr()));
+    const user_manager::User* user =
+        user_manager::UserManager::Get()->GetActiveUser();
+    client->GetScrubbedBigLogs(
+        cryptohome::CreateAccountIdentifierFromAccountId(
+            user ? user->GetAccountId() : EmptyAccountId()),
+        base::BindOnce(&DebugDaemonLogSource::OnGetLogs,
+                       weak_ptr_factory_.GetWeakPtr()));
   } else {
     client->GetAllLogs(base::BindOnce(&DebugDaemonLogSource::OnGetLogs,
                                       weak_ptr_factory_.GetWeakPtr()));
@@ -131,7 +158,11 @@ void DebugDaemonLogSource::OnGetLogs(bool /* succeeded */,
   // We ignore 'succeeded' for this callback - we want to display as much of the
   // debug info as we can even if we failed partway through parsing, and if we
   // couldn't fetch any of it, none of the fields will even appear.
-  response_->insert(logs.begin(), logs.end());
+  for (const auto& log : logs) {
+    if (base::Contains(kExcludeList, log.first))
+      continue;
+    response_->insert(log);
+  }
   RequestCompleted();
 }
 
@@ -153,9 +184,8 @@ void DebugDaemonLogSource::GetLoggedInUsersLogFiles() {
 
   auto response = std::make_unique<SystemLogsResponse>();
   SystemLogsResponse* response_ptr = response.get();
-  base::PostTaskAndReply(
-      FROM_HERE,
-      {base::ThreadPool(), base::MayBlock(), base::TaskPriority::BEST_EFFORT},
+  base::ThreadPool::PostTaskAndReply(
+      FROM_HERE, {base::MayBlock(), base::TaskPriority::BEST_EFFORT},
       base::BindOnce(&ReadUserLogFiles, profile_dirs, response_ptr),
       base::BindOnce(&DebugDaemonLogSource::MergeUserLogFilesResponse,
                      weak_ptr_factory_.GetWeakPtr(), std::move(response)));

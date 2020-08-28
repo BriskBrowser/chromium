@@ -15,6 +15,7 @@
 #include "ash/session/test_session_controller_client.h"
 #include "ash/shell.h"
 #include "ash/test/ash_test_base.h"
+#include "base/bind_helpers.h"
 #include "base/json/json_reader.h"
 #include "base/macros.h"
 #include "base/test/simple_test_tick_clock.h"
@@ -117,7 +118,7 @@ std::string GetExpectedPowerPolicyForPrefs(PrefService* prefs,
 
   // Device-level prefs do not exist in the user-level |prefs|.
   expected_policy.mutable_battery_charge_mode()->set_mode(
-      power_manager::PowerManagementPolicy::BatteryChargeMode::STANDARD);
+      power_manager::PowerManagementPolicy::BatteryChargeMode::ADAPTIVE);
   expected_policy.set_boot_on_ac(false);
   expected_policy.set_usb_power_share(true);
 
@@ -168,11 +169,12 @@ std::string GetExpectedAdvancedBatteryChargeModePolicyForPrefs(
 
 void DecodeJsonStringAndNormalize(const std::string& json_string,
                                   base::Value* value) {
-  base::JSONReader reader(base::JSON_ALLOW_TRAILING_COMMAS);
-  base::Optional<base::Value> read_value = reader.ReadToValue(json_string);
-  ASSERT_EQ(reader.GetErrorMessage(), "");
-  ASSERT_TRUE(read_value.has_value());
-  *value = std::move(read_value.value());
+  base::JSONReader::ValueWithError parsed_json =
+      base::JSONReader::ReadAndReturnValueWithError(
+          json_string, base::JSON_ALLOW_TRAILING_COMMAS);
+  ASSERT_EQ(parsed_json.error_message, "");
+  ASSERT_TRUE(parsed_json.value);
+  *value = std::move(*parsed_json.value);
 }
 
 }  // namespace

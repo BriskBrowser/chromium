@@ -47,25 +47,27 @@
 #include "third_party/blink/renderer/core/css/css_grid_integer_repeat_value.h"
 #include "third_party/blink/renderer/core/css/css_grid_line_names_value.h"
 #include "third_party/blink/renderer/core/css/css_grid_template_areas_value.h"
+#include "third_party/blink/renderer/core/css/css_id_selector_value.h"
 #include "third_party/blink/renderer/core/css/css_identifier_value.h"
 #include "third_party/blink/renderer/core/css/css_image_set_value.h"
 #include "third_party/blink/renderer/core/css/css_image_value.h"
 #include "third_party/blink/renderer/core/css/css_inherited_value.h"
+#include "third_party/blink/renderer/core/css/css_initial_color_value.h"
 #include "third_party/blink/renderer/core/css/css_initial_value.h"
 #include "third_party/blink/renderer/core/css/css_invalid_variable_value.h"
 #include "third_party/blink/renderer/core/css/css_keyframe_shorthand_value.h"
 #include "third_party/blink/renderer/core/css/css_layout_function_value.h"
-#include "third_party/blink/renderer/core/css/css_light_dark_color_pair.h"
+#include "third_party/blink/renderer/core/css/css_light_dark_value_pair.h"
 #include "third_party/blink/renderer/core/css/css_math_function_value.h"
 #include "third_party/blink/renderer/core/css/css_numeric_literal_value.h"
 #include "third_party/blink/renderer/core/css/css_paint_value.h"
 #include "third_party/blink/renderer/core/css/css_path_value.h"
-#include "third_party/blink/renderer/core/css/css_pending_interpolation_value.h"
 #include "third_party/blink/renderer/core/css/css_pending_substitution_value.h"
 #include "third_party/blink/renderer/core/css/css_primitive_value.h"
 #include "third_party/blink/renderer/core/css/css_quad_value.h"
 #include "third_party/blink/renderer/core/css/css_ray_value.h"
 #include "third_party/blink/renderer/core/css/css_reflect_value.h"
+#include "third_party/blink/renderer/core/css/css_revert_value.h"
 #include "third_party/blink/renderer/core/css/css_shadow_value.h"
 #include "third_party/blink/renderer/core/css/css_string_value.h"
 #include "third_party/blink/renderer/core/css/css_timing_function_value.h"
@@ -81,7 +83,7 @@
 namespace blink {
 
 struct SameSizeAsCSSValue final : public GarbageCollected<SameSizeAsCSSValue> {
-  uint32_t bitfields;
+  char bitfields[sizeof(uint16_t) + sizeof(uint8_t)];
 };
 ASSERT_SIZE(CSSValue, SameSizeAsCSSValue);
 
@@ -100,7 +102,8 @@ CSSValue* CSSValue::Create(const Length& value, float zoom) {
       return CSSPrimitiveValue::CreateFromLength(value, zoom);
     case Length::kDeviceWidth:
     case Length::kDeviceHeight:
-    case Length::kMaxSizeNone:
+    case Length::kMinIntrinsic:
+    case Length::kNone:
       NOTREACHED();
       break;
   }
@@ -213,6 +216,8 @@ bool CSSValue::operator==(const CSSValue& other) const {
         return CompareCSSValues<CSSInitialValue>(*this, other);
       case kUnsetClass:
         return CompareCSSValues<cssvalue::CSSUnsetValue>(*this, other);
+      case kRevertClass:
+        return CompareCSSValues<cssvalue::CSSRevertValue>(*this, other);
       case kGridAutoRepeatClass:
         return CompareCSSValues<cssvalue::CSSGridAutoRepeatValue>(*this, other);
       case kGridIntegerRepeatClass:
@@ -235,6 +240,8 @@ bool CSSValue::operator==(const CSSValue& other) const {
         return CompareCSSValues<CSSIdentifierValue>(*this, other);
       case kKeyframeShorthandClass:
         return CompareCSSValues<CSSKeyframeShorthandValue>(*this, other);
+      case kInitialColorValueClass:
+        return CompareCSSValues<CSSInitialColorValue>(*this, other);
       case kQuadClass:
         return CompareCSSValues<CSSQuadValue>(*this, other);
       case kReflectClass:
@@ -262,9 +269,6 @@ bool CSSValue::operator==(const CSSValue& other) const {
       case kCSSContentDistributionClass:
         return CompareCSSValues<cssvalue::CSSContentDistributionValue>(*this,
                                                                        other);
-      case kPendingInterpolationClass:
-        return CompareCSSValues<cssvalue::CSSPendingInterpolationValue>(*this,
-                                                                        other);
       case kCustomPropertyDeclarationClass:
         return CompareCSSValues<CSSCustomPropertyDeclaration>(*this, other);
       case kVariableReferenceClass:
@@ -274,8 +278,10 @@ bool CSSValue::operator==(const CSSValue& other) const {
                                                                        other);
       case kInvalidVariableValueClass:
         return CompareCSSValues<CSSInvalidVariableValue>(*this, other);
-      case kLightDarkColorPairClass:
-        return CompareCSSValues<CSSLightDarkColorPair>(*this, other);
+      case kLightDarkValuePairClass:
+        return CompareCSSValues<CSSLightDarkValuePair>(*this, other);
+      case kIdSelectorClass:
+        return CompareCSSValues<cssvalue::CSSIdSelectorValue>(*this, other);
     }
     NOTREACHED();
     return false;
@@ -335,6 +341,8 @@ String CSSValue::CssText() const {
       return To<CSSInheritedValue>(this)->CustomCSSText();
     case kUnsetClass:
       return To<cssvalue::CSSUnsetValue>(this)->CustomCSSText();
+    case kRevertClass:
+      return To<cssvalue::CSSRevertValue>(this)->CustomCSSText();
     case kInitialClass:
       return To<CSSInitialValue>(this)->CustomCSSText();
     case kGridAutoRepeatClass:
@@ -357,6 +365,8 @@ String CSSValue::CssText() const {
       return To<CSSIdentifierValue>(this)->CustomCSSText();
     case kKeyframeShorthandClass:
       return To<CSSKeyframeShorthandValue>(this)->CustomCSSText();
+    case kInitialColorValueClass:
+      return To<CSSInitialColorValue>(this)->CustomCSSText();
     case kQuadClass:
       return To<CSSQuadValue>(this)->CustomCSSText();
     case kReflectClass:
@@ -382,8 +392,6 @@ String CSSValue::CssText() const {
       return To<CSSImageSetValue>(this)->CustomCSSText();
     case kCSSContentDistributionClass:
       return To<cssvalue::CSSContentDistributionValue>(this)->CustomCSSText();
-    case kPendingInterpolationClass:
-      return To<cssvalue::CSSPendingInterpolationValue>(this)->CustomCSSText();
     case kVariableReferenceClass:
       return To<CSSVariableReferenceValue>(this)->CustomCSSText();
     case kCustomPropertyDeclarationClass:
@@ -392,8 +400,10 @@ String CSSValue::CssText() const {
       return To<cssvalue::CSSPendingSubstitutionValue>(this)->CustomCSSText();
     case kInvalidVariableValueClass:
       return To<CSSInvalidVariableValue>(this)->CustomCSSText();
-    case kLightDarkColorPairClass:
-      return To<CSSLightDarkColorPair>(this)->CustomCSSText();
+    case kLightDarkValuePairClass:
+      return To<CSSLightDarkValuePair>(this)->CustomCSSText();
+    case kIdSelectorClass:
+      return To<cssvalue::CSSIdSelectorValue>(this)->CustomCSSText();
   }
   NOTREACHED();
   return String();
@@ -481,6 +491,9 @@ void CSSValue::FinalizeGarbageCollectedObject() {
     case kUnsetClass:
       To<cssvalue::CSSUnsetValue>(this)->~CSSUnsetValue();
       return;
+    case kRevertClass:
+      To<cssvalue::CSSRevertValue>(this)->~CSSRevertValue();
+      return;
     case kGridAutoRepeatClass:
       To<cssvalue::CSSGridAutoRepeatValue>(this)->~CSSGridAutoRepeatValue();
       return;
@@ -512,6 +525,9 @@ void CSSValue::FinalizeGarbageCollectedObject() {
       return;
     case kKeyframeShorthandClass:
       To<CSSKeyframeShorthandValue>(this)->~CSSKeyframeShorthandValue();
+      return;
+    case kInitialColorValueClass:
+      To<CSSInitialColorValue>(this)->~CSSInitialColorValue();
       return;
     case kQuadClass:
       To<CSSQuadValue>(this)->~CSSQuadValue();
@@ -552,10 +568,6 @@ void CSSValue::FinalizeGarbageCollectedObject() {
       To<cssvalue::CSSContentDistributionValue>(this)
           ->~CSSContentDistributionValue();
       return;
-    case kPendingInterpolationClass:
-      To<cssvalue::CSSPendingInterpolationValue>(this)
-          ->~CSSPendingInterpolationValue();
-      return;
     case kVariableReferenceClass:
       To<CSSVariableReferenceValue>(this)->~CSSVariableReferenceValue();
       return;
@@ -569,14 +581,17 @@ void CSSValue::FinalizeGarbageCollectedObject() {
     case kInvalidVariableValueClass:
       To<CSSInvalidVariableValue>(this)->~CSSInvalidVariableValue();
       return;
-    case kLightDarkColorPairClass:
-      To<CSSLightDarkColorPair>(this)->~CSSLightDarkColorPair();
+    case kLightDarkValuePairClass:
+      To<CSSLightDarkValuePair>(this)->~CSSLightDarkValuePair();
+      return;
+    case kIdSelectorClass:
+      To<cssvalue::CSSIdSelectorValue>(this)->~CSSIdSelectorValue();
       return;
   }
   NOTREACHED();
 }
 
-void CSSValue::Trace(blink::Visitor* visitor) {
+void CSSValue::Trace(Visitor* visitor) const {
   switch (GetClassType()) {
     case kAxisClass:
       To<cssvalue::CSSAxisValue>(this)->TraceAfterDispatch(visitor);
@@ -658,6 +673,9 @@ void CSSValue::Trace(blink::Visitor* visitor) {
     case kUnsetClass:
       To<cssvalue::CSSUnsetValue>(this)->TraceAfterDispatch(visitor);
       return;
+    case kRevertClass:
+      To<cssvalue::CSSRevertValue>(this)->TraceAfterDispatch(visitor);
+      return;
     case kGridAutoRepeatClass:
       To<cssvalue::CSSGridAutoRepeatValue>(this)->TraceAfterDispatch(visitor);
       return;
@@ -689,6 +707,9 @@ void CSSValue::Trace(blink::Visitor* visitor) {
       return;
     case kKeyframeShorthandClass:
       To<CSSKeyframeShorthandValue>(this)->TraceAfterDispatch(visitor);
+      return;
+    case kInitialColorValueClass:
+      To<CSSInitialColorValue>(this)->TraceAfterDispatch(visitor);
       return;
     case kQuadClass:
       To<CSSQuadValue>(this)->TraceAfterDispatch(visitor);
@@ -729,10 +750,6 @@ void CSSValue::Trace(blink::Visitor* visitor) {
       To<cssvalue::CSSContentDistributionValue>(this)->TraceAfterDispatch(
           visitor);
       return;
-    case kPendingInterpolationClass:
-      To<cssvalue::CSSPendingInterpolationValue>(this)->TraceAfterDispatch(
-          visitor);
-      return;
     case kVariableReferenceClass:
       To<CSSVariableReferenceValue>(this)->TraceAfterDispatch(visitor);
       return;
@@ -746,8 +763,11 @@ void CSSValue::Trace(blink::Visitor* visitor) {
     case kInvalidVariableValueClass:
       To<CSSInvalidVariableValue>(this)->TraceAfterDispatch(visitor);
       return;
-    case kLightDarkColorPairClass:
-      To<CSSLightDarkColorPair>(this)->TraceAfterDispatch(visitor);
+    case kLightDarkValuePairClass:
+      To<CSSLightDarkValuePair>(this)->TraceAfterDispatch(visitor);
+      return;
+    case kIdSelectorClass:
+      To<cssvalue::CSSIdSelectorValue>(this)->TraceAfterDispatch(visitor);
       return;
   }
   NOTREACHED();

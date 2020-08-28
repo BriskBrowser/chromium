@@ -9,12 +9,12 @@
 
 #include <algorithm>
 
-#include "base/logging.h"
+#include "base/check_op.h"
+#include "base/notreached.h"
 #include "base/numerics/safe_conversions.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
 #include "ui/gfx/geometry/cubic_bezier.h"
-#include "ui/gfx/geometry/safe_integer_conversions.h"
 
 #if defined(OS_WIN)
 #include <float.h>
@@ -39,11 +39,17 @@ double Tween::CalculateValue(Tween::Type type, double state) {
         return pow(state * 2, 2) / 2.0;
       return 1.0 - (pow((state - 1.0) * 2, 2) / 2.0);
 
+    case EASE_IN_OUT_2:
+      return gfx::CubicBezier(0.33, 0, 0.67, 1).Solve(state);
+
     case LINEAR:
       return state;
 
     case EASE_OUT:
       return 1.0 - pow(1.0 - state, 2);
+
+    case EASE_OUT_2:
+      return gfx::CubicBezier(0.4, 0, 0, 1).Solve(state);
 
     case SMOOTH_IN_OUT:
       return sin(state);
@@ -74,7 +80,7 @@ double Tween::CalculateValue(Tween::Type type, double state) {
 namespace {
 
 uint8_t FloatToColorByte(float f) {
-  return base::saturated_cast<uint8_t>(ToRoundedInt(f * 255.f));
+  return base::ClampRound<uint8_t>(f * 255.0f);
 }
 
 uint8_t BlendColorComponents(uint8_t start,
@@ -90,11 +96,6 @@ uint8_t BlendColorComponents(uint8_t start,
   return FloatToColorByte(blended_premultiplied / blended_alpha);
 }
 
-double TimeDeltaDivide(base::TimeDelta dividend, base::TimeDelta divisor) {
-  return static_cast<double>(dividend.InMicroseconds()) /
-         static_cast<double>(divisor.InMicroseconds());
-}
-
 }  // namespace
 
 // static
@@ -103,7 +104,7 @@ SkColor Tween::ColorValueBetween(double value, SkColor start, SkColor target) {
   float target_a = SkColorGetA(target) / 255.f;
   float blended_a = FloatValueBetween(value, start_a, target_a);
   if (blended_a <= 0.f)
-    return SkColorSetARGB(0, 0, 0, 0);
+    return SK_ColorTRANSPARENT;
   blended_a = std::min(blended_a, 1.f);
 
   uint8_t blended_r =
@@ -141,8 +142,7 @@ float Tween::ClampedFloatValueBetween(const base::TimeTicks& time,
   if (time >= target_time)
     return target;
 
-  double progress =
-      TimeDeltaDivide(time - start_time, target_time - start_time);
+  const double progress = (time - start_time) / (target_time - start_time);
   return FloatValueBetween(progress, start, target);
 }
 
@@ -164,8 +164,8 @@ int Tween::IntValueBetween(double value, int start, int target) {
 
 // static
 int Tween::LinearIntValueBetween(double value, int start, int target) {
-  // NOTE: Do not use ToRoundedInt()!  See comments on function declaration.
-  return ToFlooredInt(0.5 + DoubleValueBetween(value, start, target));
+  // NOTE: Do not use base::ClampRound()!  See comments on function declaration.
+  return base::ClampFloor(0.5 + DoubleValueBetween(value, start, target));
 }
 
 // static

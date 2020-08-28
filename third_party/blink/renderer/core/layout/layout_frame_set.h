@@ -23,7 +23,6 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_LAYOUT_FRAME_SET_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_LAYOUT_FRAME_SET_H_
 
-#include "base/macros.h"
 #include "third_party/blink/renderer/core/layout/layout_box.h"
 
 namespace blink {
@@ -100,6 +99,8 @@ class LayoutFrameSet final : public LayoutBox {
 
    public:
     GridAxis();
+    GridAxis(const GridAxis&) = delete;
+    GridAxis& operator=(const GridAxis&) = delete;
     void Resize(int);
 
     Vector<int> sizes_;
@@ -108,9 +109,6 @@ class LayoutFrameSet final : public LayoutBox {
     Vector<bool> allow_border_;
     int split_being_resized_;
     int split_resize_offset_;
-
-   private:
-    DISALLOW_COPY_AND_ASSIGN(GridAxis);
   };
 
   const GridAxis& Rows() const { return rows_; }
@@ -132,9 +130,14 @@ class LayoutFrameSet final : public LayoutBox {
 
   void UpdateLayout() override;
   void Paint(const PaintInfo&) const override;
-  void ComputePreferredLogicalWidths() override;
+
+  MinMaxSizes PreferredLogicalWidths() const override { return MinMaxSizes(); }
+  MinMaxSizes ComputeIntrinsicLogicalWidths() const final {
+    return MinMaxSizes();
+  }
+
   bool IsChildAllowed(LayoutObject*, const ComputedStyle&) const override;
-  CursorDirective GetCursor(const PhysicalOffset&, Cursor&) const override;
+  CursorDirective GetCursor(const PhysicalOffset&, ui::Cursor&) const override;
 
   void SetIsResizing(bool);
 
@@ -148,10 +151,6 @@ class LayoutFrameSet final : public LayoutBox {
 
   void StartResizing(GridAxis&, int position);
   void ContinueResizing(GridAxis&, int position);
-
-  bool PaintedOutputOfObjectHasNoEffectRegardlessOfSize() const override {
-    return false;
-  }
 
   LayoutObjectChildList children_;
 

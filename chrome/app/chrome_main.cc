@@ -18,16 +18,14 @@
 #include "headless/public/headless_shell.h"
 #include "ui/gfx/switches.h"
 
-#if defined(OS_LINUX) && !defined(OS_CHROMEOS)
-#include "components/crash/content/app/crashpad.h"
-#endif
-
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
 #include "chrome/app/chrome_main_mac.h"
 #endif
 
 #if defined(OS_WIN)
 #include "base/debug/dump_without_crashing.h"
+#include "base/files/file_util.h"
+#include "base/metrics/histogram_functions.h"
 #include "base/win/win_util.h"
 #include "chrome/chrome_elf/chrome_elf_main.h"
 #include "chrome/common/chrome_constants.h"
@@ -40,7 +38,8 @@
 extern "C" {
 DLLEXPORT int __cdecl ChromeMain(HINSTANCE instance,
                                  sandbox::SandboxInterfaceInfo* sandbox_info,
-                                 int64_t exe_entry_point_ticks);
+                                 int64_t exe_entry_point_ticks,
+                                 base::PrefetchResultCode prefetch_result_code);
 }
 #elif defined(OS_POSIX)
 extern "C" {
@@ -50,15 +49,19 @@ int ChromeMain(int argc, const char** argv);
 #endif
 
 #if defined(OS_WIN)
-DLLEXPORT int __cdecl ChromeMain(HINSTANCE instance,
-                                 sandbox::SandboxInterfaceInfo* sandbox_info,
-                                 int64_t exe_entry_point_ticks) {
+DLLEXPORT int __cdecl ChromeMain(
+    HINSTANCE instance,
+    sandbox::SandboxInterfaceInfo* sandbox_info,
+    int64_t exe_entry_point_ticks,
+    base::PrefetchResultCode prefetch_result_code) {
 #elif defined(OS_POSIX)
 int ChromeMain(int argc, const char** argv) {
   int64_t exe_entry_point_ticks = 0;
 #endif
 
 #if defined(OS_WIN)
+  base::UmaHistogramEnumeration("Windows.ChromeDllPrefetchResult",
+                                prefetch_result_code);
   install_static::InitializeFromPrimaryModule();
 #endif
 
@@ -70,8 +73,8 @@ int ChromeMain(int argc, const char** argv) {
   // The process should crash when going through abnormal termination, but we
   // must be sure to reset this setting when ChromeMain returns normally.
   auto crash_on_detach_resetter = base::ScopedClosureRunner(
-      base::Bind(&base::win::SetShouldCrashOnProcessDetach,
-                 base::win::ShouldCrashOnProcessDetach()));
+      base::BindOnce(&base::win::SetShouldCrashOnProcessDetach,
+                     base::win::ShouldCrashOnProcessDetach()));
   base::win::SetShouldCrashOnProcessDetach(true);
   base::win::SetAbortBehaviorForCrashReporting();
   params.instance = instance;
@@ -94,7 +97,7 @@ int ChromeMain(int argc, const char** argv) {
   const base::CommandLine* command_line(base::CommandLine::ForCurrentProcess());
   ALLOW_UNUSED_LOCAL(command_line);
 
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
   SetUpBundleOverrides();
 #endif
 
@@ -105,18 +108,13 @@ int ChromeMain(int argc, const char** argv) {
   MainThreadStackSamplingProfiler scoped_sampling_profiler;
 
   // Chrome-specific process modes.
-#if defined(OS_LINUX) || defined(OS_MACOSX) || defined(OS_WIN)
+#if defined(OS_LINUX) || defined(OS_CHROMEOS) || defined(OS_MAC) || \
+    defined(OS_WIN)
   if (command_line->HasSwitch(switches::kHeadless)) {
     return headless::HeadlessShellMain(params);
   }
-#endif  // defined(OS_LINUX) || defined(OS_MACOSX) || defined(OS_WIN)
-
-#if defined(OS_LINUX) && !defined(OS_CHROMEOS)
-  // TODO(https://crbug.com/942279): This can be removed when Chrome_ChromeOS
-  // and other embedders on Chrome OS and Linux are ready to use Crashpad.
-  base::CommandLine::ForCurrentProcess()->AppendSwitch(
-      crash_reporter::kEnableCrashpad);
-#endif
+#endif  // defined(OS_LINUX) || defined(OS_CHROMEOS) || defined(OS_MAC) ||
+        // defined(OS_WIN)
 
   int rv = content::ContentMain(params);
 

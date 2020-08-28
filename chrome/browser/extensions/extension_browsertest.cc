@@ -24,7 +24,9 @@
 #include "base/threading/thread_restrictions.h"
 #include "build/build_config.h"
 #include "chrome/browser/apps/app_service/app_launch_params.h"
-#include "chrome/browser/apps/launch_service/launch_service.h"
+#include "chrome/browser/apps/app_service/app_service_proxy.h"
+#include "chrome/browser/apps/app_service/app_service_proxy_factory.h"
+#include "chrome/browser/apps/app_service/browser_app_launcher.h"
 #include "chrome/browser/extensions/browsertest_util.h"
 #include "chrome/browser/extensions/chrome_test_extension_loader.h"
 #include "chrome/browser/extensions/component_loader.h"
@@ -43,10 +45,8 @@
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/extensions/extension_message_bubble_factory.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
-#include "chrome/browser/web_applications/extensions/web_app_extension_shortcut.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_switches.h"
-#include "chrome/common/web_application_info.h"
 #include "components/crx_file/crx_verifier.h"
 #include "components/sync/model/string_ordinal.h"
 #include "components/version_info/version_info.h"
@@ -85,8 +85,27 @@ namespace extensions {
 namespace {
 
 // Maps all chrome-extension://<id>/_test_resources/foo requests to
-// chrome/test/data/extensions/foo. This is what allows us to share code between
-// tests without needing to duplicate files in each extension.
+// <test_dir_root>/foo or <test_dir_gen_root>/foo, where |test_dir_gen_root| is
+// inferred from <test_dir_root>. The latter is triggered only if the first path
+// does not correspond to an existing file. This is what allows us to share code
+// between tests without needing to duplicate files in each extension.
+// Example invocation #1, where the requested file exists in |test_dir_root|
+//   Input:
+//     test_dir_root: /abs/path/src/chrome/test/data
+//     directory_path: /abs/path/src/out/<out_dir>/resources/pdf
+//     relative_path: _test_resources/webui/test_browser_proxy.js
+//   Output:
+//     directory_path: /abs/path/src/chrome/test/data
+//     relative_path: webui/test_browser_proxy.js
+//
+// Example invocation #2, where the requested file exists in |test_dir_gen_root|
+//   Input:
+//     test_dir_root: /abs/path/src/chrome/test/data
+//     directory_path: /abs/path/src/out/<out_dir>/resources/pdf
+//     relative_path: _test_resources/webui/test_browser_proxy.js
+//   Output:
+//     directory_path: /abs/path/src/out/<out_dir>/gen/chrome/test/data
+//     relative_path: webui/test_browser_proxy.js
 void ExtensionProtocolTestResourcesHandler(const base::FilePath& test_dir_root,
                                            base::FilePath* directory_path,
                                            base::FilePath* relative_path) {
@@ -96,16 +115,49 @@ void ExtensionProtocolTestResourcesHandler(const base::FilePath& test_dir_root,
     return;
   }
 
-  // Replace _test_resources/foo with chrome/test/data/extensions/foo.
-  *directory_path = test_dir_root;
+  // Strip the '_test_resources/' prefix from |relative_path|.
   std::vector<base::FilePath::StringType> components;
   relative_path->GetComponents(&components);
   DCHECK_GT(components.size(), 1u);
   base::FilePath new_relative_path;
   for (size_t i = 1u; i < components.size(); ++i)
     new_relative_path = new_relative_path.Append(components[i]);
-
   *relative_path = new_relative_path;
+
+  // Check if the file exists in the |test_dir_root| folder first.
+  base::FilePath src_path = test_dir_root.Append(new_relative_path);
+  // Replace _test_resources/foo with <test_dir_root>/foo.
+  *directory_path = test_dir_root;
+  {
+    base::ScopedAllowBlockingForTesting scoped_allow_blocking;
+    if (base::PathExists(src_path)) {
+      return;
+    }
+  }
+
+  // Infer |test_dir_gen_root| from |test_dir_root|.
+  // E.g., if |test_dir_root| is /abs/path/src/chrome/test/data,
+  // |test_dir_gen_root| will be /abs/path/out/<out_dir>/gen/chrome/test/data.
+  base::FilePath dir_source_root;
+  base::PathService::Get(base::DIR_SOURCE_ROOT, &dir_source_root);
+  base::FilePath exe_dir;
+  base::PathService::Get(base::DIR_EXE, &exe_dir);
+  base::FilePath relative_root_path;
+  dir_source_root.AppendRelativePath(test_dir_root, &relative_root_path);
+  // TODO(dpapad): Add a new DIR_GEN key to PathService instead of manually
+  // appending "gen".
+  base::FilePath test_dir_gen_root =
+      exe_dir.AppendASCII("gen").Append(relative_root_path);
+
+  // Then check if the file exists in the |test_dir_gen_root| folder
+  // covering cases where the test file is generated at build time.
+  base::FilePath gen_path = test_dir_gen_root.Append(new_relative_path);
+  {
+    base::ScopedAllowBlockingForTesting scoped_allow_blocking;
+    if (base::PathExists(gen_path)) {
+      *directory_path = test_dir_gen_root;
+    }
+  }
 }
 
 }  // namespace
@@ -128,7 +180,7 @@ ExtensionBrowserTest::ExtensionBrowserTest()
       start_menu_override_(base::DIR_START_MENU),
       common_start_menu_override_(base::DIR_COMMON_START_MENU),
 #endif
-      profile_(NULL),
+      profile_(nullptr),
       verifier_format_override_(crx_file::VerifierFormat::CRX3) {
   EXPECT_TRUE(temp_dir_.CreateUniqueTempDir());
 }
@@ -266,6 +318,12 @@ const Extension* ExtensionBrowserTest::LoadExtensionWithInstallParam(
   loader.set_allow_incognito_access(flags & kFlagEnableIncognito);
   loader.set_allow_file_access(flags & kFlagEnableFileAccess);
   loader.set_install_param(install_param);
+
+  // Note: Rely on the default value to wait for renderers unless otherwise
+  // specified.
+  if (flags & kFlagDontWaitForExtensionRenderers)
+    loader.set_wait_for_renderers(false);
+
   if ((flags & kFlagLoadForLoginScreen) != 0) {
     loader.add_creation_flag(Extension::FOR_LOGIN_SCREEN);
     loader.set_location(Manifest::EXTERNAL_POLICY);
@@ -324,9 +382,10 @@ bool ExtensionBrowserTest::CreateServiceWorkerBasedExtension(
   {
     base::Value* background_persistent = background_dict->FindKeyOfType(
         "persistent", base::Value::Type::BOOLEAN);
-    if (!background_persistent || background_persistent->GetBool()) {
+    if (!background_persistent) {
       ADD_FAILURE() << path.value()
-                    << ": Only event pages can be loaded as SW extension.";
+                    << ": The \"persistent\" key must be specified to run as a "
+                       "Service Worker-based extension.";
       return false;
     }
   }
@@ -430,7 +489,9 @@ const Extension* ExtensionBrowserTest::LoadAndLaunchApp(
                                WindowOpenDisposition::NEW_WINDOW,
                                AppLaunchSource::kSourceTest);
   params.command_line = *base::CommandLine::ForCurrentProcess();
-  apps::LaunchService::Get(profile())->OpenApplication(params);
+  apps::AppServiceProxyFactory::GetForProfile(profile())
+      ->BrowserAppLauncher()
+      ->LaunchAppWithParams(params);
   app_loaded_observer.Wait();
 
   return app;
@@ -445,7 +506,7 @@ base::FilePath ExtensionBrowserTest::PackExtension(
     int extra_run_flags) {
   base::ScopedAllowBlockingForTesting allow_blocking;
   base::FilePath crx_path = temp_dir_.GetPath().AppendASCII("temp.crx");
-  if (!base::DeleteFile(crx_path, false)) {
+  if (!base::DeleteFile(crx_path)) {
     ADD_FAILURE() << "Failed to delete crx: " << crx_path.value();
     return base::FilePath();
   }
@@ -458,7 +519,7 @@ base::FilePath ExtensionBrowserTest::PackExtension(
   if (!base::PathExists(pem_path)) {
     pem_path = base::FilePath();
     pem_path_out = crx_path.DirName().AppendASCII("temp.pem");
-    if (!base::DeleteFile(pem_path_out, false)) {
+    if (!base::DeleteFile(pem_path_out)) {
       ADD_FAILURE() << "Failed to delete pem: " << pem_path_out.value();
       return base::FilePath();
     }
@@ -507,11 +568,6 @@ const Extension* ExtensionBrowserTest::UpdateExtensionWaitForIdle(
   return InstallOrUpdateExtension(id, path, INSTALL_UI_TYPE_NONE,
                                   expected_change, Manifest::INTERNAL,
                                   browser(), Extension::NO_FLAGS, false, false);
-}
-
-const Extension* ExtensionBrowserTest::InstallBookmarkApp(
-    WebApplicationInfo info) {
-  return browsertest_util::InstallBookmarkApp(profile(), std::move(info));
 }
 
 const Extension* ExtensionBrowserTest::InstallExtensionFromWebstore(
@@ -736,7 +792,7 @@ ExtensionHost* ExtensionBrowserTest::FindHostWithPath(ProcessManager* manager,
   ExtensionHost* result_host = nullptr;
   int num_hosts = 0;
   for (ExtensionHost* host : manager->background_hosts()) {
-    if (host->GetURL().path() == path) {
+    if (host->GetLastCommittedURL().path() == path) {
       EXPECT_FALSE(result_host);
       result_host = host;
     }

@@ -45,6 +45,7 @@
 #include "third_party/blink/renderer/core/layout/layout_object.h"
 #include "third_party/blink/renderer/core/page/page.h"
 #include "third_party/blink/renderer/core/page/validation_message_client.h"
+#include "third_party/blink/renderer/platform/heap/heap.h"
 #include "third_party/blink/renderer/platform/text/bidi_text_run.h"
 #include "third_party/blink/renderer/platform/wtf/functional.h"
 
@@ -54,7 +55,7 @@ class FormAttributeTargetObserver : public IdTargetObserver {
  public:
   FormAttributeTargetObserver(const AtomicString& id, ListedElement*);
 
-  void Trace(Visitor*) override;
+  void Trace(Visitor*) const override;
   void IdTargetChanged() override;
 
  private:
@@ -73,7 +74,7 @@ ListedElement::~ListedElement() {
   // We can't call setForm here because it contains virtual calls.
 }
 
-void ListedElement::Trace(Visitor* visitor) {
+void ListedElement::Trace(Visitor* visitor) const {
   visitor->Trace(form_attribute_target_observer_);
   visitor->Trace(form_);
   visitor->Trace(validity_state_);
@@ -314,8 +315,7 @@ void ListedElement::UpdateWillValidateCache() {
 }
 
 bool ListedElement::CustomError() const {
-  return ToHTMLElement().willValidate() &&
-         !custom_validation_message_.IsEmpty();
+  return !custom_validation_message_.IsEmpty();
 }
 
 bool ListedElement::HasBadInput() const {
@@ -371,7 +371,9 @@ void ListedElement::SetCustomValidationMessage(const String& message) {
 }
 
 String ListedElement::validationMessage() const {
-  return CustomError() ? custom_validation_message_ : String();
+  return ToHTMLElement().willValidate() && CustomError()
+             ? custom_validation_message_
+             : String();
 }
 
 String ListedElement::ValidationSubMessage() const {
@@ -493,7 +495,7 @@ bool ListedElement::reportValidity() {
   // Update layout now before calling IsFocusable(), which has
   // !LayoutObject()->NeedsLayout() assertion.
   HTMLElement& element = ToHTMLElement();
-  element.GetDocument().UpdateStyleAndLayout();
+  element.GetDocument().UpdateStyleAndLayout(DocumentUpdateReason::kForm);
   if (element.IsFocusable()) {
     ShowValidationMessage();
     return false;
@@ -503,8 +505,9 @@ bool ListedElement::reportValidity() {
         "An invalid form control with name='%name' is not focusable.");
     message.Replace("%name", GetName());
     element.GetDocument().AddConsoleMessage(
-        ConsoleMessage::Create(mojom::ConsoleMessageSource::kRendering,
-                               mojom::ConsoleMessageLevel::kError, message));
+        MakeGarbageCollected<ConsoleMessage>(
+            mojom::ConsoleMessageSource::kRendering,
+            mojom::ConsoleMessageLevel::kError, message));
   }
   return false;
 }
@@ -700,7 +703,7 @@ FormAttributeTargetObserver::FormAttributeTargetObserver(const AtomicString& id,
           id),
       element_(element) {}
 
-void FormAttributeTargetObserver::Trace(Visitor* visitor) {
+void FormAttributeTargetObserver::Trace(Visitor* visitor) const {
   visitor->Trace(element_);
   IdTargetObserver::Trace(visitor);
 }

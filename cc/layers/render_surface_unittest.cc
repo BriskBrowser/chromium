@@ -21,6 +21,7 @@
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/gfx/transform.h"
 
+#include "base/memory/ptr_util.h"
 #include "cc/test/fake_raster_source.h"
 
 namespace cc {
@@ -204,7 +205,7 @@ TEST(RenderSurfaceTest, SanityCheckSurfaceCreatesCorrectRenderPass) {
 
   auto pass = render_surface->CreateRenderPass();
 
-  EXPECT_EQ(2u, pass->id);
+  EXPECT_EQ(viz::RenderPassId{2}, pass->id);
   EXPECT_EQ(content_rect, pass->output_rect);
   EXPECT_EQ(origin, pass->transform_to_root_target);
 }

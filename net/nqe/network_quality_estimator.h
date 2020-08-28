@@ -47,6 +47,7 @@ class TickClock;
 
 namespace net {
 
+class ConnectivityMonitor;
 class NetLog;
 
 namespace nqe {
@@ -389,8 +390,9 @@ class NET_EXPORT_PRIVATE NetworkQualityEstimator
   // technology inputs. 0 represents very poor signal strength while 4
   // represents a very strong signal strength. The range is capped between 0 and
   // 4 to ensure that a change in the value indicates a non-negligible change in
-  // the signal quality.
-  virtual int32_t GetCurrentSignalStrength() const;
+  // the signal quality. To reduce the number of Android API calls, it returns
+  // a null value if the signal strength was recently obtained.
+  virtual base::Optional<int32_t> GetCurrentSignalStrengthWithThrottling();
 
   // Computes the recent network queueing delay. It updates the recent
   // per-packet queueing delay introduced by the packet queue in the mobile
@@ -675,10 +677,17 @@ class NET_EXPORT_PRIVATE NetworkQualityEstimator
   // Time when the last RTT observation from a socket watcher was received.
   base::TimeTicks last_socket_watcher_rtt_notification_;
 
+  base::Optional<base::TimeTicks> last_signal_strength_check_timestamp_;
+
 #if defined(OS_CHROMEOS)
   // Whether the network id should be obtained on a worker thread.
   bool get_network_id_asynchronously_ = false;
 #endif
+
+  // Watches network activity and attempts to infer when the current network is
+  // effectively disconnected due to either substantial degradation or actual
+  // disconnection.
+  std::unique_ptr<ConnectivityMonitor> connectivity_monitor_;
 
   base::WeakPtrFactory<NetworkQualityEstimator> weak_ptr_factory_{this};
 

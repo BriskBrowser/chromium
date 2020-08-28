@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "content/browser/accessibility/accessibility_tree_formatter_browser.h"
+#include "content/browser/accessibility/accessibility_tree_formatter_base.h"
 
 #include <atspi/atspi.h>
 #include <dbus/dbus.h>
@@ -21,13 +21,11 @@
 #include "content/browser/accessibility/accessibility_tree_formatter_utils_auralinux.h"
 #include "content/browser/accessibility/browser_accessibility_auralinux.h"
 #include "ui/accessibility/platform/ax_platform_node_auralinux.h"
-#include "ui/base/x/x11_util.h"
-#include "ui/gfx/x/x11.h"
 
 namespace content {
 
 class AccessibilityTreeFormatterAuraLinux
-    : public AccessibilityTreeFormatterBrowser {
+    : public AccessibilityTreeFormatterBase {
  public:
   AccessibilityTreeFormatterAuraLinux();
   ~AccessibilityTreeFormatterAuraLinux() override;
@@ -38,13 +36,14 @@ class AccessibilityTreeFormatterAuraLinux
   const std::string GetAllowString() override;
   const std::string GetDenyString() override;
   const std::string GetDenyNodeString() override;
-  void AddProperties(const BrowserAccessibility& node,
-                     base::DictionaryValue* dict) override;
+  const std::string GetRunUntilEventString() override;
 
   base::string16 ProcessTreeForOutput(
       const base::DictionaryValue& node,
       base::DictionaryValue* filtered_dict_result = nullptr) override;
 
+  std::unique_ptr<base::DictionaryValue> BuildAccessibilityTree(
+      BrowserAccessibility* root) override;
   std::unique_ptr<base::DictionaryValue> BuildAccessibilityTreeForProcess(
       base::ProcessId pid) override;
   std::unique_ptr<base::DictionaryValue> BuildAccessibilityTreeForWindow(
@@ -54,6 +53,13 @@ class AccessibilityTreeFormatterAuraLinux
   std::unique_ptr<base::DictionaryValue> BuildAccessibilityTreeWithNode(
       AtspiAccessible* node);
 
+  void RecursiveBuildAccessibilityTree(AtspiAccessible* node,
+                                       base::DictionaryValue* dict);
+  void RecursiveBuildAccessibilityTree(AtkObject*, base::DictionaryValue*);
+
+  void AddProperties(AtkObject*, base::DictionaryValue*);
+  void AddProperties(AtspiAccessible*, base::DictionaryValue*);
+
   void AddTextProperties(AtkText* atk_text, base::DictionaryValue* dict);
   void AddActionProperties(AtkObject* atk_object, base::DictionaryValue* dict);
   void AddValueProperties(AtkObject* atk_object, base::DictionaryValue* dict);
@@ -61,11 +67,6 @@ class AccessibilityTreeFormatterAuraLinux
   void AddTableCellProperties(const ui::AXPlatformNodeAuraLinux* node,
                               AtkObject* atk_object,
                               base::DictionaryValue* dict);
-
-  void RecursiveBuildAccessibilityTree(AtspiAccessible* node,
-                                       base::DictionaryValue* dict);
-  virtual void AddProperties(AtspiAccessible* node,
-                             base::DictionaryValue* dict);
 };
 
 // static
@@ -136,6 +137,23 @@ AccessibilityTreeFormatterAuraLinux::BuildAccessibilityTreeForPattern(
 }
 
 std::unique_ptr<base::DictionaryValue>
+AccessibilityTreeFormatterAuraLinux::BuildAccessibilityTree(
+    BrowserAccessibility* root) {
+  DCHECK(root);
+
+  BrowserAccessibilityAuraLinux* platform_root =
+      ToBrowserAccessibilityAuraLinux(root);
+  DCHECK(platform_root);
+
+  AtkObject* atk_root = platform_root->GetNativeViewAccessible();
+  DCHECK(atk_root);
+
+  std::unique_ptr<base::DictionaryValue> dict(new base::DictionaryValue);
+  RecursiveBuildAccessibilityTree(atk_root, dict.get());
+  return dict;
+}
+
+std::unique_ptr<base::DictionaryValue>
 AccessibilityTreeFormatterAuraLinux::BuildAccessibilityTreeForProcess(
     base::ProcessId pid) {
   LOG(ERROR) << "Aura Linux does not yet support building trees for processes";
@@ -160,6 +178,32 @@ AccessibilityTreeFormatterAuraLinux::BuildAccessibilityTreeWithNode(
   RecursiveBuildAccessibilityTree(node, dict.get());
 
   return dict;
+}
+
+void AccessibilityTreeFormatterAuraLinux::RecursiveBuildAccessibilityTree(
+    AtkObject* atk_node,
+    base::DictionaryValue* dict) {
+  AddProperties(atk_node, dict);
+
+  auto child_count = atk_object_get_n_accessible_children(atk_node);
+  if (child_count <= 0)
+    return;
+
+  auto children = std::make_unique<base::ListValue>();
+  for (auto i = 0; i < child_count; i++) {
+    std::unique_ptr<base::DictionaryValue> child_dict(
+        new base::DictionaryValue);
+
+    AtkObject* atk_child = atk_object_ref_accessible_child(atk_node, i);
+    CHECK(atk_child);
+
+    RecursiveBuildAccessibilityTree(atk_child, child_dict.get());
+    g_object_unref(atk_child);
+
+    children->Append(std::move(child_dict));
+  }
+
+  dict->Set(kChildrenDictAttr, std::move(children));
 }
 
 void AccessibilityTreeFormatterAuraLinux::RecursiveBuildAccessibilityTree(
@@ -412,18 +456,17 @@ void AccessibilityTreeFormatterAuraLinux::AddTableCellProperties(
 }
 
 void AccessibilityTreeFormatterAuraLinux::AddProperties(
-    const BrowserAccessibility& node,
+    AtkObject* atk_object,
     base::DictionaryValue* dict) {
-  dict->SetInteger("id", node.GetId());
-  BrowserAccessibilityAuraLinux* acc_obj =
-      ToBrowserAccessibilityAuraLinux(const_cast<BrowserAccessibility*>(&node));
-  DCHECK(acc_obj);
+  ui::AXPlatformNodeAuraLinux* platform_node =
+      ui::AXPlatformNodeAuraLinux::FromAtkObject(atk_object);
+  DCHECK(platform_node);
 
-  ui::AXPlatformNodeAuraLinux* ax_platform_node = acc_obj->GetNode();
-  DCHECK(ax_platform_node);
+  BrowserAccessibility* node = BrowserAccessibility::FromAXPlatformNodeDelegate(
+      platform_node->GetDelegate());
+  DCHECK(node);
 
-  AtkObject* atk_object = ax_platform_node->GetNativeViewAccessible();
-  DCHECK(atk_object);
+  dict->SetInteger("id", node->GetId());
 
   AtkRole role = atk_object_get_role(atk_object);
   if (role != ATK_ROLE_UNKNOWN) {
@@ -469,7 +512,7 @@ void AccessibilityTreeFormatterAuraLinux::AddProperties(
   AddActionProperties(atk_object, dict);
   AddValueProperties(atk_object, dict);
   AddTableProperties(atk_object, dict);
-  AddTableCellProperties(ax_platform_node, atk_object, dict);
+  AddTableCellProperties(platform_node, atk_object, dict);
 }
 
 void AccessibilityTreeFormatterAuraLinux::AddProperties(
@@ -537,6 +580,7 @@ const char* const ATK_OBJECT_ATTRIBUTES[] = {
     "container-live",
     "container-relevant",
     "current",
+    "details-roles",
     "display",
     "dropeffect",
     "explicit-name",
@@ -560,6 +604,8 @@ const char* const ATK_OBJECT_ATTRIBUTES[] = {
     "src",
     "table-cell-index",
     "tag",
+    "text-align",
+    "text-indent",
     "text-input-type",
     "valuemin",
     "valuemax",
@@ -701,6 +747,11 @@ const std::string AccessibilityTreeFormatterAuraLinux::GetDenyString() {
 
 const std::string AccessibilityTreeFormatterAuraLinux::GetDenyNodeString() {
   return "@AURALINUX-DENY-NODE:";
+}
+
+const std::string
+AccessibilityTreeFormatterAuraLinux::GetRunUntilEventString() {
+  return "@AURALINUX-RUN-UNTIL-EVENT:";
 }
 
 }  // namespace content

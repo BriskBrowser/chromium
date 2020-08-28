@@ -19,14 +19,14 @@
 #include "ui/events/base_event_utils.h"
 #include "ui/events/blink/did_overscroll_params.h"
 
-using ui::EdgeEffectBase;
-using ui::ResourceManager;
+using ::testing::_;
+using ::testing::Return;
+using ui::EdgeEffect;
 using ui::OverscrollGlow;
 using ui::OverscrollGlowClient;
 using ui::OverscrollRefresh;
+using ui::ResourceManager;
 using ui::WindowAndroidCompositor;
-using ::testing::_;
-using ::testing::Return;
 
 namespace content {
 
@@ -35,7 +35,7 @@ namespace {
 class MockCompositor : public WindowAndroidCompositor {
  public:
   ~MockCompositor() override {}
-  void AttachLayerForReadback(scoped_refptr<cc::Layer>) override {}
+  std::unique_ptr<ReadbackRef> TakeReadbackRef() override { return nullptr; }
   void RequestCopyOfOutputOnRootLayer(
       std::unique_ptr<viz::CopyOutputRequest>) override {}
   void SetNeedsAnimate() override {}
@@ -52,7 +52,7 @@ class MockCompositor : public WindowAndroidCompositor {
 
 class MockGlowClient : public OverscrollGlowClient {
  public:
-  MOCK_METHOD0(CreateEdgeEffect, std::unique_ptr<EdgeEffectBase>());
+  MOCK_METHOD0(CreateEdgeEffect, std::unique_ptr<EdgeEffect>());
 };
 
 class MockGlow : public OverscrollGlow {
@@ -207,10 +207,11 @@ TEST_F(OverscrollControllerAndroidUnitTest,
   controller_->OnOverscrolled(params);
 
   // Generate a consumed scroll update.
-  blink::WebGestureEvent event(blink::WebInputEvent::kGestureScrollUpdate,
+  blink::WebGestureEvent event(blink::WebInputEvent::Type::kGestureScrollUpdate,
                                blink::WebInputEvent::kNoModifiers,
                                ui::EventTimeForNow());
-  controller_->OnGestureEventAck(event, INPUT_EVENT_ACK_STATE_CONSUMED);
+  controller_->OnGestureEventAck(
+      event, blink::mojom::InputEventResultState::kConsumed);
 
   testing::Mock::VerifyAndClearExpectations(&refresh_);
 }

@@ -302,10 +302,24 @@ class ProgressCenterPanel {
   static getToggleAnimation_(document) {
     for (let i = 0; i < document.styleSheets.length; i++) {
       const styleSheet = document.styleSheets[i];
-      for (let j = 0; j < styleSheet.cssRules.length; j++) {
+      let rules = null;
+      // External stylesheets may not be accessible due to CORS restrictions.
+      // This try/catch is the only way avoid an exception when iterating over
+      // stylesheets that include chrome://resources.
+      // See https://crbug.com/775525/ for details.
+      try {
+        rules = styleSheet.cssRules;
+      } catch (err) {
+        if (err.name == 'SecurityError') {
+          continue;
+        }
+        throw err;
+      }
+
+      for (let j = 0; j < rules.length; j++) {
         // HACK: closure does not define experimental CSSRules.
         const keyFramesRule = CSSRule.KEYFRAMES_RULE || 7;
-        const rule = styleSheet.cssRules[j];
+        const rule = rules[j];
         if (rule.type === keyFramesRule &&
             rule.name === 'progress-center-toggle') {
           return rule;
@@ -358,6 +372,8 @@ class ProgressCenterPanel {
         return info['source'] || item.message;
       case 'error':
         return item.message;
+      case 'canceled':
+        return '';
       default:
         assertNotReached();
         break;
@@ -383,12 +399,101 @@ class ProgressCenterPanel {
         }
         break;
       case 'error':
+      case 'canceled':
         break;
       default:
         assertNotReached();
         break;
     }
     return '';
+  }
+
+
+  /**
+   * Generate primary text string for display on the feedback panel.
+   * It is used for TransferDetails mode.
+   * @param {!ProgressCenterItem} item Item we're generating a message for.
+   * @param {Object} info Cached information to use for formatting.
+   * @return {string} String formatted based on the item state.
+   */
+  generatePrimaryString_(item, info) {
+    switch (item.state) {
+      case 'progressing':
+      case 'completed':
+        if (item.itemCount === 1) {
+          if (item.type === ProgressItemType.COPY) {
+            return strf(
+                'COPY_FILE_NAME_LONG', info['source'], info['destination']);
+          } else if (item.type === ProgressItemType.MOVE) {
+            return strf(
+                'MOVE_FILE_NAME_LONG', info['source'], info['destination']);
+          } else {
+            return item.message;
+          }
+        } else {
+          if (item.type === ProgressItemType.COPY) {
+            return strf(
+                'COPY_ITEMS_REMAINING_LONG', info['source'],
+                info['destination']);
+          } else if (item.type === ProgressItemType.MOVE) {
+            return strf(
+                'MOVE_ITEMS_REMAINING_LONG', info['source'],
+                info['destination']);
+          } else {
+            return item.message;
+          }
+        }
+        break;
+      case 'error':
+        return item.message;
+      case 'canceled':
+        return '';
+      default:
+        assertNotReached();
+        break;
+    }
+    return '';
+  }
+
+  /**
+   * Generates remaining time message with formatted time.
+   *
+   * The time format in hour and minute and the durations more
+   * than 24 hours also formatted in hour.
+   *
+   * As ICU syntax is not implemented in web ui yet (crbug/481718), the i18n
+   * of time part is handled using Intl methods.
+   *
+   * @param {!ProgressCenterItem} item Item we're generating a message for.
+   * @return {!string} Remaining time message.
+   */
+  generateRemainingTimeMessage(item) {
+    const seconds = item.remainingTime;
+    if (seconds == 0 && item.state == 'progressing') {
+      return str('PENDING_LABEL');
+    }
+
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+
+    const hourFormatter = new Intl.NumberFormat(
+        navigator.language, {style: 'unit', unit: 'hour', unitDisplay: 'long'});
+    const minuteFormatter = new Intl.NumberFormat(
+        navigator.language,
+        {style: 'unit', unit: 'minute', unitDisplay: 'short'});
+
+    if (hours > 0 && minutes > 0) {
+      return strf(
+          'TIME_REMAINING_ESTIMATE_2', hourFormatter.format(hours),
+          minuteFormatter.format(minutes));
+    } else if (hours > 0) {
+      return strf('TIME_REMAINING_ESTIMATE', hourFormatter.format(hours));
+    } else if (minutes > 0) {
+      return strf('TIME_REMAINING_ESTIMATE', minuteFormatter.format(minutes));
+    } else {
+      // Round up to 1 min for short period of remaining time.
+      return strf('TIME_REMAINING_ESTIMATE', minuteFormatter.format(1));
+    }
   }
 
   /**
@@ -409,6 +514,8 @@ class ProgressCenterPanel {
         }, this.PENDING_TIME_MS_);
         if (item.type === 'format') {
           panelItem.panelType = panelItem.panelTypeFormatProgress;
+        } else if (item.type === 'sync') {
+          panelItem.panelType = panelItem.panelTypeSyncProgress;
         } else {
           panelItem.panelType = panelItem.panelTypeProgress;
         }
@@ -417,18 +524,25 @@ class ProgressCenterPanel {
           'destination': item.destinationMessage,
           'count': item.itemCount,
         };
-        const primaryText =
-            this.generateSourceString_(item, panelItem.userData);
-        panelItem.primaryText = primaryText;
-        panelItem.setAttribute('data-progress-id', item.id);
+      }
+
+      let primaryText, secondaryText;
+      if (util.isTransferDetailsEnabled()) {
+        primaryText = this.generatePrimaryString_(item, panelItem.userData);
+        panelItem.secondaryText = this.generateRemainingTimeMessage(item);
+      } else {
+        primaryText = this.generateSourceString_(item, panelItem.userData);
         if (item.destinationMessage) {
           panelItem.secondaryText =
               strf('TO_FOLDER_NAME', item.destinationMessage);
         }
-        // On progress panels, make the cancel button aria-lable more useful.
-        const cancelLabel = strf('CANCEL_ACTIVITY_LABEL', primaryText);
-        panelItem.closeButtonAriaLabel = cancelLabel;
       }
+      panelItem.primaryText = primaryText;
+      panelItem.setAttribute('data-progress-id', item.id);
+
+      // On progress panels, make the cancel button aria-label more useful.
+      const cancelLabel = strf('CANCEL_ACTIVITY_LABEL', primaryText);
+      panelItem.closeButtonAriaLabel = cancelLabel;
       panelItem.signalCallback = (signal) => {
         if (signal === 'cancel' && item.cancelCallback) {
           item.cancelCallback();
@@ -447,10 +561,13 @@ class ProgressCenterPanel {
               item.type === 'format') {
             const donePanelItem = this.feedbackHost_.addPanelItem(item.id);
             donePanelItem.panelType = donePanelItem.panelTypeDone;
-            donePanelItem.primaryText =
-                this.generateSourceString_(item, panelItem.userData);
-            donePanelItem.secondaryText =
-                this.generateDestinationString_(item, panelItem.userData);
+            donePanelItem.primaryText = primaryText;
+            if (util.isTransferDetailsEnabled()) {
+              donePanelItem.secondaryText = str('COMPLETE_LABEL');
+            } else {
+              donePanelItem.secondaryText =
+                  this.generateDestinationString_(item, panelItem.userData);
+            }
             donePanelItem.signalCallback = (signal) => {
               if (signal === 'dismiss') {
                 this.feedbackHost_.removePanelItem(donePanelItem);
@@ -491,28 +608,7 @@ class ProgressCenterPanel {
 
     // Update an open view item.
     const newItem = targetGroup.getItem(item.id);
-    if (util.isFeedbackPanelEnabled()) {
-      this.updateFeedbackPanelItem(item, newItem);
-    } else {
-      let itemElement = this.getItemElement_(item.id);
-      if (newItem) {
-        if (!itemElement) {
-          itemElement =
-              new ProgressCenterItemElement(this.element_.ownerDocument);
-          // Find quiet node and insert the item before the quiet node.
-          this.openView_.insertBefore(
-              itemElement, this.openView_.querySelector('.quiet'));
-        }
-        itemElement.update(newItem, targetGroup.isAnimated(item.id));
-      } else {
-        if (itemElement) {
-          itemElement.parentNode.removeChild(itemElement);
-        }
-      }
-
-      // Update the close view.
-      this.updateCloseView_();
-    }
+    this.updateFeedbackPanelItem(item, newItem);
   }
 
   /**
@@ -531,17 +627,9 @@ class ProgressCenterPanel {
     } else {
       const itemId = event.target.getAttribute('data-progress-id');
       targetGroup.completeItemAnimation(itemId);
-      if (util.isFeedbackPanelEnabled()) {
-        const panelItem = this.feedbackHost_.findPanelItemById(itemId);
-        if (panelItem) {
-          this.feedbackHost_.removePanelItem(panelItem);
-        }
-      } else {
-        const newItem = targetGroup.getItem(itemId);
-        const itemElement = this.getItemElement_(itemId);
-        if (!newItem && itemElement) {
-          itemElement.parentNode.removeChild(itemElement);
-        }
+      const panelItem = this.feedbackHost_.findPanelItemById(itemId);
+      if (panelItem) {
+        this.feedbackHost_.removePanelItem(panelItem);
       }
     }
     this.updateCloseView_();

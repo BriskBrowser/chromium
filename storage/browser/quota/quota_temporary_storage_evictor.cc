@@ -22,11 +22,11 @@
       base::TimeDelta::FromDays(1), 50)
 
 namespace {
-const int64_t kMBytes = 1024 * 1024;
-const double kUsageRatioToStartEviction = 0.7;
-const int kThresholdOfErrorsToStopEviction = 5;
-const int kHistogramReportIntervalMinutes = 60;
-const double kDiskSpaceShortageAllowanceRatio = 0.5;
+constexpr int64_t kMBytes = 1024 * 1024;
+constexpr double kUsageRatioToStartEviction = 0.7;
+constexpr int kThresholdOfErrorsToStopEviction = 5;
+constexpr int kHistogramReportIntervalMinutes = 60;
+constexpr double kDiskSpaceShortageAllowanceRatio = 0.5;
 }
 
 namespace storage {
@@ -76,9 +76,12 @@ void QuotaTemporaryStorageEvictor::ReportPerRoundHistogram() {
   base::Time now = base::Time::Now();
   UMA_HISTOGRAM_TIMES("Quota.TimeSpentToAEvictionRound",
                       now - round_statistics_.start_time);
-  if (!time_of_end_of_last_round_.is_null())
+  if (!time_of_end_of_last_round_.is_null()) {
     UMA_HISTOGRAM_MINUTES("Quota.TimeDeltaOfEvictionRounds",
                           now - time_of_end_of_last_round_);
+  }
+  time_of_end_of_last_round_ = now;
+
   UMA_HISTOGRAM_MBYTES("Quota.DiskspaceShortage",
                        round_statistics_.diskspace_shortage_at_round);
   UMA_HISTOGRAM_MBYTES("Quota.EvictedBytesPerRound",

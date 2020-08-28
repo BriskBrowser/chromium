@@ -18,7 +18,9 @@
 #include "base/test/scoped_feature_list.h"
 #include "base/test/scoped_path_override.h"
 #include "chrome/browser/supervised_user/supervised_user_constants.h"
+#include "chrome/browser/web_applications/components/external_app_install_features.h"
 #include "chrome/browser/web_applications/components/web_app_constants.h"
+#include "chrome/common/chrome_features.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/test/base/testing_profile.h"
 #include "components/account_id/account_id.h"
@@ -115,7 +117,8 @@ class ScanDirForExternalWebAppsTest : public testing::Test {
   std::vector<ExternalInstallOptions> ScanTestDirForExternalWebApps(
       const std::string& dir) {
     return ExternalWebAppManager::ScanDirForExternalWebAppsForTesting(
-        GetTestDir(dir), CreateProfile().get());
+        std::make_unique<FileUtilsWrapper>(), GetTestDir(dir),
+        CreateProfile().get());
   }
 
   // Helper that creates simple test profile.
@@ -192,6 +195,8 @@ TEST_F(ScanDirForExternalWebAppsTest, GoodJson) {
         GURL("https://www.chromestatus.com/features"), DisplayMode::kBrowser,
         ExternalInstallSource::kExternalDefault);
     install_options.add_to_applications_menu = true;
+    install_options.add_to_search = true;
+    install_options.add_to_management = true;
     install_options.add_to_desktop = true;
     install_options.add_to_quick_launch_bar = true;
     install_options.require_manifest = true;
@@ -201,7 +206,9 @@ TEST_F(ScanDirForExternalWebAppsTest, GoodJson) {
     ExternalInstallOptions install_options(
         GURL("https://events.google.com/io2016/?utm_source=web_app_manifest"),
         DisplayMode::kStandalone, ExternalInstallSource::kExternalDefault);
-    install_options.add_to_applications_menu = false;
+    install_options.add_to_applications_menu = true;
+    install_options.add_to_search = true;
+    install_options.add_to_management = true;
     install_options.add_to_desktop = false;
     install_options.add_to_quick_launch_bar = false;
     install_options.require_manifest = true;
@@ -210,7 +217,7 @@ TEST_F(ScanDirForExternalWebAppsTest, GoodJson) {
   }
 
   EXPECT_EQ(test_install_options_list.size(), install_options_list.size());
-  for (const auto install_option : test_install_options_list) {
+  for (const auto& install_option : test_install_options_list) {
     EXPECT_TRUE(base::Contains(install_options_list, install_option));
   }
 }
@@ -267,12 +274,31 @@ TEST_F(ScanDirForExternalWebAppsTest, InvalidAppUrl) {
   EXPECT_EQ(0u, app_infos.size());
 }
 
+TEST_F(ScanDirForExternalWebAppsTest, TrueHideFromUser) {
+  const auto app_infos = ScanTestDirForExternalWebApps("true_hide_from_user");
+
+  EXPECT_EQ(1u, app_infos.size());
+  const auto& app = app_infos[0];
+  EXPECT_FALSE(app.add_to_applications_menu);
+  EXPECT_FALSE(app.add_to_search);
+  EXPECT_FALSE(app.add_to_management);
+}
+
+TEST_F(ScanDirForExternalWebAppsTest, InvalidHideFromUser) {
+  const auto app_infos =
+      ScanTestDirForExternalWebApps("invalid_hide_from_user");
+
+  // The invalid_hide_from_user directory contains on JSON file which is correct
+  // except for an invalid "hide_from_user" field.
+  EXPECT_EQ(0u, app_infos.size());
+}
+
 TEST_F(ScanDirForExternalWebAppsTest, InvalidCreateShortcuts) {
   const auto app_infos =
       ScanTestDirForExternalWebApps("invalid_create_shortcuts");
 
   // The invalid_create_shortcuts directory contains one JSON file which is
-  // correct except for an invalid "create_shortctus" field.
+  // correct except for an invalid "create_shortcuts" field.
   EXPECT_EQ(0u, app_infos.size());
 }
 
@@ -303,14 +329,23 @@ TEST_F(ScanDirForExternalWebAppsTest, InvalidUninstallAndReplace) {
   EXPECT_EQ(0u, app_infos.size());
 }
 
-TEST_F(ScanDirForExternalWebAppsTest, EnabledByFinch) {
+TEST_F(ScanDirForExternalWebAppsTest, DefaultWebAppInstallDisabled) {
   base::test::ScopedFeatureList scoped_feature_list;
-  scoped_feature_list.InitAndEnableFeature(
-      base::Feature{"test_feature_name", base::FEATURE_DISABLED_BY_DEFAULT});
+  scoped_feature_list.InitAndDisableFeature(
+      features::kDefaultWebAppInstallation);
+  const auto app_infos = ScanTestDirForExternalWebApps(kGoodJsonTestDir);
+
+  EXPECT_EQ(0u, app_infos.size());
+}
+
+TEST_F(ScanDirForExternalWebAppsTest, EnabledByFinch) {
+  base::AutoReset<bool> testing_scope =
+      SetExternalAppInstallFeatureAlwaysEnabledForTesting();
+
   const auto app_infos = ScanTestDirForExternalWebApps("enabled_by_finch");
 
   // The enabled_by_finch directory contains two JSON file containing apps
-  // that have field trials. As the matching featureis enabled, they should be
+  // that have field trials. As the matching feature is enabled, they should be
   // in our list of apps to install.
   EXPECT_EQ(2u, app_infos.size());
 }
@@ -319,8 +354,8 @@ TEST_F(ScanDirForExternalWebAppsTest, NotEnabledByFinch) {
   const auto app_infos = ScanTestDirForExternalWebApps("enabled_by_finch");
 
   // The enabled_by_finch directory contains two JSON file containing apps
-  // that have field trials. As the matching featureis enabled, they should not
-  // be in our list of apps to install.
+  // that have field trials. As the matching feature isn't enabled, they should
+  // not be in our list of apps to install.
   EXPECT_EQ(0u, app_infos.size());
 }
 

@@ -293,6 +293,11 @@ void RuleSet::AddPropertyRule(StyleRuleProperty* rule) {
   property_rules_.push_back(rule);
 }
 
+void RuleSet::AddScrollTimelineRule(StyleRuleScrollTimeline* rule) {
+  EnsurePendingRules();  // So that property_rules_.ShrinkToFit() gets called.
+  scroll_timeline_rules_.push_back(rule);
+}
+
 void RuleSet::AddChildRules(const HeapVector<Member<StyleRuleBase>>& rules,
                             const MediaQueryEvaluator& medium,
                             AddRuleFlags add_rule_flags) {
@@ -320,10 +325,7 @@ void RuleSet::AddChildRules(const HeapVector<Member<StyleRuleBase>>& rules,
     } else if (auto* page_rule = DynamicTo<StyleRulePage>(rule)) {
       AddPageRule(page_rule);
     } else if (auto* media_rule = DynamicTo<StyleRuleMedia>(rule)) {
-      if (!media_rule->MediaQueries() ||
-          medium.Eval(*media_rule->MediaQueries(),
-                      &features_.ViewportDependentMediaQueryResults(),
-                      &features_.DeviceDependentMediaQueryResults()))
+      if (MatchMediaForAddRules(medium, media_rule->MediaQueries()))
         AddChildRules(media_rule->ChildRules(), medium, add_rule_flags);
     } else if (auto* font_face_rule = DynamicTo<StyleRuleFontFace>(rule)) {
       AddFontFaceRule(font_face_rule);
@@ -331,11 +333,26 @@ void RuleSet::AddChildRules(const HeapVector<Member<StyleRuleBase>>& rules,
       AddKeyframesRule(keyframes_rule);
     } else if (auto* property_rule = DynamicTo<StyleRuleProperty>(rule)) {
       AddPropertyRule(property_rule);
+    } else if (auto* scroll_timeline_rule =
+                   DynamicTo<StyleRuleScrollTimeline>(rule)) {
+      AddScrollTimelineRule(scroll_timeline_rule);
     } else if (auto* supports_rule = DynamicTo<StyleRuleSupports>(rule)) {
       if (supports_rule->ConditionIsSupported())
         AddChildRules(supports_rule->ChildRules(), medium, add_rule_flags);
     }
   }
+}
+
+bool RuleSet::MatchMediaForAddRules(const MediaQueryEvaluator& evaluator,
+                                    const MediaQuerySet* media_queries) {
+  if (!media_queries)
+    return true;
+  bool match_media = evaluator.Eval(
+      *media_queries, &features_.ViewportDependentMediaQueryResults(),
+      &features_.DeviceDependentMediaQueryResults());
+  media_query_set_results_.push_back(
+      MediaQuerySetResult(*media_queries, match_media));
+  return match_media;
 }
 
 void RuleSet::AddRulesFromSheet(StyleSheetContents* sheet,
@@ -350,11 +367,9 @@ void RuleSet::AddRulesFromSheet(StyleSheetContents* sheet,
   for (unsigned i = 0; i < import_rules.size(); ++i) {
     StyleRuleImport* import_rule = import_rules[i].Get();
     if (import_rule->GetStyleSheet() &&
-        (!import_rule->MediaQueries() ||
-         medium.Eval(*import_rule->MediaQueries(),
-                     &features_.ViewportDependentMediaQueryResults(),
-                     &features_.DeviceDependentMediaQueryResults())))
+        MatchMediaForAddRules(medium, import_rule->MediaQueries())) {
       AddRulesFromSheet(import_rule->GetStyleSheet(), medium, add_rule_flags);
+    }
   }
 
   AddChildRules(sheet->ChildRules(), medium, add_rule_flags);
@@ -413,22 +428,31 @@ void RuleSet::CompactRules() {
   slotted_pseudo_element_rules_.ShrinkToFit();
 }
 
-void MinimalRuleData::Trace(blink::Visitor* visitor) {
+bool RuleSet::DidMediaQueryResultsChange(
+    const MediaQueryEvaluator& evaluator) const {
+  for (const auto& result : media_query_set_results_) {
+    if (result.Result() != evaluator.Eval(result.MediaQueries()))
+      return true;
+  }
+  return false;
+}
+
+void MinimalRuleData::Trace(Visitor* visitor) const {
   visitor->Trace(rule_);
 }
 
-void RuleData::Trace(blink::Visitor* visitor) {
+void RuleData::Trace(Visitor* visitor) const {
   visitor->Trace(rule_);
 }
 
-void RuleSet::PendingRuleMaps::Trace(blink::Visitor* visitor) {
+void RuleSet::PendingRuleMaps::Trace(Visitor* visitor) const {
   visitor->Trace(id_rules);
   visitor->Trace(class_rules);
   visitor->Trace(tag_rules);
   visitor->Trace(shadow_pseudo_element_rules);
 }
 
-void RuleSet::Trace(blink::Visitor* visitor) {
+void RuleSet::Trace(Visitor* visitor) const {
   visitor->Trace(id_rules_);
   visitor->Trace(class_rules_);
   visitor->Trace(tag_rules_);
@@ -443,6 +467,7 @@ void RuleSet::Trace(blink::Visitor* visitor) {
   visitor->Trace(font_face_rules_);
   visitor->Trace(keyframes_rules_);
   visitor->Trace(property_rules_);
+  visitor->Trace(scroll_timeline_rules_);
   visitor->Trace(deep_combinator_or_shadow_pseudo_rules_);
   visitor->Trace(part_pseudo_rules_);
   visitor->Trace(content_pseudo_element_rules_);

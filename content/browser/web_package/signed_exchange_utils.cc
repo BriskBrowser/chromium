@@ -21,6 +21,7 @@
 #include "content/public/common/content_features.h"
 #include "content/public/common/content_switches.h"
 #include "net/http/http_util.h"
+#include "net/url_request/redirect_info.h"
 #include "services/network/public/cpp/features.h"
 #include "services/network/public/mojom/url_response_head.mojom.h"
 
@@ -48,17 +49,13 @@ bool IsSignedExchangeHandlingEnabled(BrowserContext* context) {
   if (!GetContentClient()->browser()->AllowSignedExchange(context))
     return false;
 
-  return base::FeatureList::IsEnabled(features::kSignedHTTPExchange) ||
-         base::CommandLine::ForCurrentProcess()->HasSwitch(
-             switches::kEnableExperimentalWebPlatformFeatures);
+  return base::FeatureList::IsEnabled(features::kSignedHTTPExchange);
 }
 
 bool IsSignedExchangeReportingForDistributorsEnabled() {
   return base::FeatureList::IsEnabled(network::features::kReporting) &&
-         (base::FeatureList::IsEnabled(
-              features::kSignedExchangeReportingForDistributors) ||
-          base::CommandLine::ForCurrentProcess()->HasSwitch(
-              switches::kEnableExperimentalWebPlatformFeatures));
+         base::FeatureList::IsEnabled(
+             features::kSignedExchangeReportingForDistributors);
 }
 
 bool ShouldHandleAsSignedHTTPExchange(
@@ -219,9 +216,8 @@ net::RedirectInfo CreateRedirectInfo(
   return net::RedirectInfo::ComputeRedirectInfo(
       "GET", outer_request.url, outer_request.site_for_cookies,
       outer_request.update_first_party_url_on_redirect
-          ? net::URLRequest::FirstPartyURLPolicy::
-                UPDATE_FIRST_PARTY_URL_ON_REDIRECT
-          : net::URLRequest::FirstPartyURLPolicy::NEVER_CHANGE_FIRST_PARTY_URL,
+          ? net::RedirectInfo::FirstPartyURLPolicy::UPDATE_URL_ON_REDIRECT
+          : net::RedirectInfo::FirstPartyURLPolicy::NEVER_CHANGE_URL,
       outer_request.referrer_policy, outer_request.referrer.spec(), 303,
       new_url,
       net::RedirectUtil::GetReferrerPolicyHeader(outer_response.headers.get()),

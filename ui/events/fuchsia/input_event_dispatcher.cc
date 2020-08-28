@@ -6,7 +6,9 @@
 
 #include <memory>
 
+#include "base/logging.h"
 #include "base/memory/ptr_util.h"
+#include "base/notreached.h"
 #include "ui/events/event.h"
 #include "ui/events/fuchsia/input_event_dispatcher_delegate.h"
 #include "ui/events/keycodes/dom/keycode_converter.h"
@@ -14,8 +16,6 @@
 
 namespace ui {
 namespace {
-
-const uint32_t kUsbHidKeyboardPage = 0x07;
 
 int KeyModifiersToFlags(int modifiers) {
   int flags = 0;
@@ -135,7 +135,7 @@ bool InputEventDispatcher::ProcessTouchEvent(
 
   // TODO(crbug.com/876933): Add more detailed fields such as
   // force/orientation/tilt once they are added to PointerEvent.
-  ui::PointerDetails pointer_details(ui::EventPointerType::POINTER_TYPE_TOUCH,
+  ui::PointerDetails pointer_details(ui::EventPointerType::kTouch,
                                      event.pointer_id);
 
   ui::TouchEvent touch_event(event_type, gfx::Point(),
@@ -167,11 +167,7 @@ bool InputEventDispatcher::ProcessKeyboardEvent(
       break;
   }
 
-  // Currently KeyboardEvent doesn't specify HID Usage page. |hid_usage|
-  // field always contains values from the Keyboard page. See
-  // https://fuchsia.atlassian.net/browse/SCN-762 .
-  DomCode dom_code = KeycodeConverter::UsbKeycodeToDomCode(
-      (kUsbHidKeyboardPage << 16) | event.hid_usage);
+  DomCode dom_code = KeycodeConverter::NativeKeycodeToDomCode(event.hid_usage);
   DomKey dom_key;
   KeyboardCode key_code;
   if (!DomCodeToUsLayoutDomKey(dom_code, KeyModifiersToFlags(event.modifiers),

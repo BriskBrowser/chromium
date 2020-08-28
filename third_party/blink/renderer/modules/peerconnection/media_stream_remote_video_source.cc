@@ -7,6 +7,7 @@
 #include <stdint.h>
 #include <utility>
 
+#include "base/bind_helpers.h"
 #include "base/location.h"
 #include "base/single_thread_task_runner.h"
 #include "base/trace_event/trace_event.h"
@@ -24,7 +25,8 @@
 #include "third_party/blink/renderer/platform/wtf/thread_safe_ref_counted.h"
 #include "third_party/webrtc/api/video/i420_buffer.h"
 #include "third_party/webrtc/api/video/recordable_encoded_frame.h"
-#include "third_party/webrtc/rtc_base/time_utils.h"  // for TimeMicros
+#include "third_party/webrtc/rtc_base/time_utils.h"
+#include "third_party/webrtc/system_wrappers/include/clock.h"
 
 namespace WTF {
 
@@ -118,7 +120,8 @@ class MediaStreamRemoteVideoSource::RemoteVideoSourceDelegate
   // VideoSinkInterface<webrtc::RecordableEncodedFrame>
   void OnFrame(const webrtc::RecordableEncodedFrame& frame) override;
 
-  void DoRenderFrameOnIOThread(scoped_refptr<media::VideoFrame> video_frame);
+  void DoRenderFrameOnIOThread(scoped_refptr<media::VideoFrame> video_frame,
+                               base::TimeTicks estimated_capture_time);
 
  private:
   void OnEncodedVideoFrameOnIO(scoped_refptr<EncodedVideoFrame> frame,
@@ -143,6 +146,12 @@ class MediaStreamRemoteVideoSource::RemoteVideoSourceDelegate
 
   // WebRTC Chromium timestamp diff
   const base::TimeDelta time_diff_encoded_;
+
+  // WebRTC real time clock, needed to determine NTP offset.
+  webrtc::Clock* clock_;
+
+  // Offset between NTP clock and WebRTC clock.
+  const int64_t ntp_offset_;
 };
 
 MediaStreamRemoteVideoSource::RemoteVideoSourceDelegate::
@@ -161,11 +170,13 @@ MediaStreamRemoteVideoSource::RemoteVideoSourceDelegate::
                  base::TimeDelta::FromMicroseconds(rtc::TimeMicros())),
       start_timestamp_encoded_(media::kNoTimestamp),
       time_diff_encoded_(base::TimeTicks::Now() - base::TimeTicks() -
-                         base::TimeDelta::FromMicroseconds(rtc::TimeMicros())) {
-}
+                         base::TimeDelta::FromMicroseconds(rtc::TimeMicros())),
+      clock_(webrtc::Clock::GetRealTimeClock()),
+      ntp_offset_(clock_->TimeInMilliseconds() -
+                  clock_->CurrentNtpInMilliseconds()) {}
 
 MediaStreamRemoteVideoSource::RemoteVideoSourceDelegate::
-    ~RemoteVideoSourceDelegate() {}
+    ~RemoteVideoSourceDelegate() = default;
 
 void MediaStreamRemoteVideoSource::RemoteVideoSourceDelegate::OnFrame(
     const webrtc::VideoFrame& incoming_frame) {
@@ -264,9 +275,8 @@ void MediaStreamRemoteVideoSource::RemoteVideoSourceDelegate::OnFrame(
 
   // Rotation may be explicitly set sometimes.
   if (incoming_frame.rotation() != webrtc::kVideoRotation_0) {
-    video_frame->metadata()->SetRotation(
-        media::VideoFrameMetadata::ROTATION,
-        WebRtcToMediaVideoRotation(incoming_frame.rotation()));
+    video_frame->metadata()->rotation =
+        WebRtcToMediaVideoRotation(incoming_frame.rotation());
   }
 
   if (incoming_frame.color_space()) {
@@ -277,29 +287,67 @@ void MediaStreamRemoteVideoSource::RemoteVideoSourceDelegate::OnFrame(
 
   // Run render smoothness algorithm only when we don't have to render
   // immediately.
-  if (!render_immediately) {
-    video_frame->metadata()->SetTimeTicks(
-        media::VideoFrameMetadata::REFERENCE_TIME, render_time);
+  if (!render_immediately)
+    video_frame->metadata()->reference_time = render_time;
+
+  video_frame->metadata()->decode_end_time = current_time;
+
+  // RTP_TIMESTAMP, PROCESSING_TIME, and CAPTURE_BEGIN_TIME are all exposed
+  // through the JavaScript callback mechanism
+  // video.requestVideoFrameCallback().
+  video_frame->metadata()->rtp_timestamp =
+      static_cast<double>(incoming_frame.timestamp());
+
+  if (incoming_frame.processing_time()) {
+    video_frame->metadata()->processing_time =
+        base::TimeDelta::FromMicroseconds(
+            incoming_frame.processing_time()->Elapsed().us());
   }
-  video_frame->metadata()->SetTimeTicks(
-      media::VideoFrameMetadata::DECODE_END_TIME, current_time);
 
-  video_frame->metadata()->SetDouble(
-      media::VideoFrameMetadata::RTP_TIMESTAMP,
-      static_cast<double>(incoming_frame.timestamp()));
+  // Set capture time to the NTP time, which is the estimated capture time
+  // converted to the local clock.
+  if (incoming_frame.ntp_time_ms() > 0) {
+    const base::TimeTicks capture_time =
+        base::TimeTicks() +
+        base::TimeDelta::FromMilliseconds(incoming_frame.ntp_time_ms() +
+                                          ntp_offset_) +
+        time_diff_;
+    video_frame->metadata()->capture_begin_time = capture_time;
+  }
 
+  // Set receive time to arrival of last packet.
+  if (!incoming_frame.packet_infos().empty()) {
+    int64_t last_packet_arrival_ms =
+        std::max_element(
+            incoming_frame.packet_infos().cbegin(),
+            incoming_frame.packet_infos().cend(),
+            [](const webrtc::RtpPacketInfo& a, const webrtc::RtpPacketInfo& b) {
+              return a.receive_time_ms() < b.receive_time_ms();
+            })
+            ->receive_time_ms();
+    const base::TimeTicks receive_time =
+        base::TimeTicks() +
+        base::TimeDelta::FromMilliseconds(last_packet_arrival_ms) + time_diff_;
+    video_frame->metadata()->receive_time = receive_time;
+  }
+
+  // Use our computed render time as estimated capture time. If timestamp_us()
+  // (which is actually the suggested render time) is set by WebRTC, it's based
+  // on the RTP timestamps in the frame's packets, so congruent with the
+  // received frame capture timestamps. If set by us, it's as congruent as we
+  // can get with the timestamp sequence of frames we received.
   PostCrossThreadTask(
       *io_task_runner_, FROM_HERE,
       CrossThreadBindOnce(&RemoteVideoSourceDelegate::DoRenderFrameOnIOThread,
-                          WrapRefCounted(this), video_frame));
+                          WrapRefCounted(this), video_frame, render_time));
 }
 
 void MediaStreamRemoteVideoSource::RemoteVideoSourceDelegate::
-    DoRenderFrameOnIOThread(scoped_refptr<media::VideoFrame> video_frame) {
+    DoRenderFrameOnIOThread(scoped_refptr<media::VideoFrame> video_frame,
+                            base::TimeTicks estimated_capture_time) {
   DCHECK(io_task_runner_->BelongsToCurrentThread());
   TRACE_EVENT0("webrtc", "RemoteVideoSourceDelegate::DoRenderFrameOnIOThread");
-  // TODO(hclam): Give the estimated capture time.
-  frame_callback_.Run(std::move(video_frame), base::TimeTicks());
+  frame_callback_.Run(std::move(video_frame), estimated_capture_time);
 }
 
 void MediaStreamRemoteVideoSource::RemoteVideoSourceDelegate::OnFrame(
@@ -315,6 +363,11 @@ void MediaStreamRemoteVideoSource::RemoteVideoSourceDelegate::OnFrame(
           ? base::TimeTicks() + incoming_timestamp
           : base::TimeTicks() + incoming_timestamp + time_diff_encoded_;
 
+  // Use our computed render time as estimated capture time. If render_time()
+  // is set by WebRTC, it's based on the RTP timestamps in the frame's packets,
+  // so congruent with the received frame capture timestamps. If set by us, it's
+  // as congruent as we can get with the timestamp sequence of frames we
+  // received.
   PostCrossThreadTask(
       *io_task_runner_, FROM_HERE,
       CrossThreadBindOnce(&RemoteVideoSourceDelegate::OnEncodedVideoFrameOnIO,

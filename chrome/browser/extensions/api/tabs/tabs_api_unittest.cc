@@ -30,6 +30,7 @@
 #if defined(OS_CHROMEOS)
 #include "ash/public/cpp/window_pin_type.h"
 #include "ash/public/cpp/window_properties.h"
+#include "chrome/browser/chromeos/policy/dlp/mock_dlp_content_manager.h"
 #endif
 
 namespace extensions {
@@ -338,6 +339,45 @@ TEST_F(TabsApiUnitTest, ExecuteScriptNoTabIsNonFatalError) {
   EXPECT_EQ(tabs_constants::kNoTabInBrowserWindowError, error);
 }
 
+// Tests that calling chrome.tabs.update updates the URL as expected.
+TEST_F(TabsApiUnitTest, TabsUpdate) {
+  scoped_refptr<const Extension> extension =
+      ExtensionBuilder("UpdateTest").Build();
+  const GURL kExampleCom("http://example.com");
+  const GURL kChromiumOrg("https://chromium.org");
+
+  // Add a web contents to the browser.
+  std::unique_ptr<content::WebContents> contents(
+      content::WebContentsTester::CreateTestWebContents(profile(), nullptr));
+  content::WebContents* raw_contents = contents.get();
+  browser()->tab_strip_model()->AppendWebContents(std::move(contents), true);
+  EXPECT_EQ(browser()->tab_strip_model()->GetActiveWebContents(), raw_contents);
+  CreateSessionServiceTabHelper(raw_contents);
+  int tab_id = sessions::SessionTabHelper::IdForTab(raw_contents).id();
+
+  // Navigate the browser to example.com
+  content::WebContentsTester* web_contents_tester =
+      content::WebContentsTester::For(raw_contents);
+  web_contents_tester->NavigateAndCommit(kExampleCom);
+  EXPECT_EQ(kExampleCom, raw_contents->GetLastCommittedURL());
+
+  // Use the TabsUpdateFunction to navigate to chromium.org
+  auto function = base::MakeRefCounted<TabsUpdateFunction>();
+  function->set_extension(extension);
+  static constexpr char kFormatArgs[] = R"([%d, {"url": "%s"}])";
+  const std::string args =
+      base::StringPrintf(kFormatArgs, tab_id, kChromiumOrg.spec().c_str());
+  ASSERT_TRUE(extension_function_test_utils::RunFunction(
+      function.get(), args, browser(), api_test_utils::NONE));
+  content::NavigationController& controller =
+      browser()->tab_strip_model()->GetActiveWebContents()->GetController();
+  content::RenderFrameHostTester::CommitPendingLoad(&controller);
+  EXPECT_EQ(kChromiumOrg, raw_contents->GetLastCommittedURL());
+
+  // Clean up.
+  browser()->tab_strip_model()->CloseAllTabs();
+}
+
 // Tests that calling chrome.tabs.update with a JavaScript URL results
 // in an error.
 TEST_F(TabsApiUnitTest, TabsUpdateJavaScriptUrlNotAllowed) {
@@ -561,6 +601,44 @@ TEST_F(TabsApiUnitTest, DontCreateTabsInLockedFullscreenMode) {
   EXPECT_EQ(tabs_constants::kLockedFullscreenModeNewTabError,
             extension_function_test_utils::RunFunctionAndReturnError(
                 function.get(), "[{}]", browser(), api_test_utils::NONE));
+}
+
+// Ensure tabs.captureVisibleTab respects any Data Leak Prevention restrictions.
+TEST_F(TabsApiUnitTest, ScreenshotsRestricted) {
+  // Setup the function and extension.
+  scoped_refptr<const Extension> extension = ExtensionBuilder("Screenshot")
+                                                 .AddPermission("tabs")
+                                                 .AddPermission("<all_urls>")
+                                                 .Build();
+  auto function = base::MakeRefCounted<TabsCaptureVisibleTabFunction>();
+  function->set_extension(extension.get());
+
+  // Add a visible tab.
+  std::unique_ptr<content::WebContents> web_contents =
+      content::WebContentsTester::CreateTestWebContents(profile(), nullptr);
+  content::WebContentsTester* web_contents_tester =
+      content::WebContentsTester::For(web_contents.get());
+  const GURL kGoogle("http://www.google.com");
+  web_contents_tester->NavigateAndCommit(kGoogle);
+  browser()->tab_strip_model()->AppendWebContents(std::move(web_contents),
+                                                  /*foreground=*/true);
+
+  // Setup Data Leak Prevention restriction.
+  policy::MockDlpContentManager mock_dlp_content_manager;
+  policy::DlpContentManager::SetDlpContentManagerForTesting(
+      &mock_dlp_content_manager);
+  EXPECT_CALL(mock_dlp_content_manager, IsScreenshotRestricted(testing::_))
+      .Times(1)
+      .WillOnce(testing::Return(true));
+
+  // Run the function and check result.
+  std::string error = extension_function_test_utils::RunFunctionAndReturnError(
+      function.get(), "[{}]", browser(), api_test_utils::NONE);
+  EXPECT_EQ(tabs_constants::kScreenshotsDisabled, error);
+
+  // Clean up.
+  browser()->tab_strip_model()->CloseAllTabs();
+  policy::DlpContentManager::ResetDlpContentManagerForTesting();
 }
 #endif  // defined(OS_CHROMEOS)
 

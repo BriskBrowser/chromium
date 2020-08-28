@@ -13,11 +13,13 @@ static_library("policy_engine") {
     "//components/prefs",
     "//components/safe_browsing/core:features",
     "//components/safe_browsing/core:realtimeapi_proto",
+    "//components/safe_browsing/core/common",
     "//components/safe_browsing/core/common:safe_browsing_prefs",
+    "//components/signin/public/identity_manager",
+    "//components/sync",
     "//components/unified_consent",
     "//components/user_prefs",
-    "//content/public/browser",
-    "//content/public/common:resource_type_header",
+    "//components/variations/service",
   ]
 }
 
@@ -29,10 +31,45 @@ static_library("url_lookup_service") {
 
   deps = [
     ":policy_engine",
+    ":url_lookup_service_base",
     "//base:base",
+    "//components/prefs",
+    "//components/safe_browsing:buildflags",
+    "//components/safe_browsing/core:csd_proto",
     "//components/safe_browsing/core:realtimeapi_proto",
+    "//components/safe_browsing/core:verdict_cache_manager",
+    "//components/safe_browsing/core/browser:token_fetcher",
+    "//components/safe_browsing/core/common:safe_browsing_prefs",
+    "//components/safe_browsing/core/common:thread_utils",
     "//components/safe_browsing/core/db:v4_protocol_manager_util",
-    "//content/public/browser",
+    "//components/signin/public/identity_manager",
+    "//components/sync",
+    "//components/variations/service:service",
+    "//services/network/public/cpp:cpp",
+    "//url:url",
+  ]
+}
+
+static_library("url_lookup_service_base") {
+  sources = [
+    "url_lookup_service_base.cc",
+    "url_lookup_service_base.h",
+  ]
+
+  deps = [
+    "//base:base",
+    "//components/prefs",
+    "//components/safe_browsing:buildflags",
+    "//components/safe_browsing/core:csd_proto",
+    "//components/safe_browsing/core:features",
+    "//components/safe_browsing/core:realtimeapi_proto",
+    "//components/safe_browsing/core:verdict_cache_manager",
+    "//components/safe_browsing/core/common:safe_browsing_prefs",
+    "//components/safe_browsing/core/common:thread_utils",
+    "//components/safe_browsing/core/db:v4_protocol_manager_util",
+    "//components/signin/public/identity_manager",
+    "//components/sync",
+    "//services/network/public/cpp:cpp",
     "//url:url",
   ]
 }
@@ -47,15 +84,22 @@ source_set("unit_tests") {
     ":policy_engine",
     ":url_lookup_service",
     "//base/test:test_support",
+    "//components/content_settings/core/browser",
+    "//components/safe_browsing:buildflags",
     "//components/safe_browsing/core:features",
+    "//components/safe_browsing/core:verdict_cache_manager",
+    "//components/safe_browsing/core/common",
     "//components/safe_browsing/core/common:safe_browsing_prefs",
     "//components/safe_browsing/core/common:test_support",
+    "//components/signin/public/identity_manager:test_support",
+    "//components/sync:test_support",
     "//components/sync_preferences:test_support",
     "//components/unified_consent",
     "//components/user_prefs",
-    "//content/test:test_support",
+    "//components/variations/service:service",
     "//services/network:test_support",
     "//services/network/public/cpp:cpp",
     "//testing/gtest",
+    "//third_party/googletest:gmock",
   ]
 }

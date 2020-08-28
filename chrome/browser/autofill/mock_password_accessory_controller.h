@@ -8,7 +8,7 @@
 #include <map>
 
 #include "base/macros.h"
-#include "chrome/browser/password_manager/password_accessory_controller.h"
+#include "chrome/browser/password_manager/android/password_accessory_controller.h"
 #include "components/autofill/core/browser/ui/accessory_sheet_data.h"
 #include "components/autofill/core/browser/ui/accessory_sheet_enums.h"
 #include "components/autofill/core/common/mojom/autofill_types.mojom-forward.h"
@@ -32,6 +32,8 @@ class MockPasswordAccessoryController : public PasswordAccessoryController {
   MOCK_METHOD1(OnFillingTriggered, void(const autofill::UserInfo::Field&));
   MOCK_METHOD1(OnOptionSelected,
                void(autofill::AccessoryAction selected_action));
+  MOCK_METHOD2(OnToggleChanged,
+               void(autofill::AccessoryAction toggled_action, bool enabled));
 
  private:
   DISALLOW_COPY_AND_ASSIGN(MockPasswordAccessoryController);

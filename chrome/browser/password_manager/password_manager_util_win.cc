@@ -27,7 +27,8 @@
 #include "base/metrics/histogram_macros.h"
 #include "base/stl_util.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
+#include "base/threading/hang_watcher.h"
 #include "base/threading/scoped_thread_priority.h"
 #include "base/time/time.h"
 #include "base/win/win_util.h"
@@ -209,6 +210,10 @@ void PasswordCheckPrefs::Write(PrefService* local_state) {
 }
 
 int64_t GetPasswordLastChanged(const WCHAR* username) {
+  // Mitigate the issues caused by loading DLLs on a background thread
+  // (http://crbug/973868).
+  SCOPED_MAY_LOAD_LIBRARY_AT_BACKGROUND_PRIORITY();
+
   LPUSER_INFO_1 user_info = NULL;
   DWORD age = 0;
 
@@ -339,12 +344,11 @@ void GetOsPasswordStatus() {
   PasswordCheckPrefs* prefs_weak = prefs.get();
   OsPasswordStatus* status_weak = status.get();
   // This task calls ::LogonUser(), hence MayBlock().
-  base::PostTaskAndReply(
-      FROM_HERE,
-      {base::ThreadPool(), base::MayBlock(), base::TaskPriority::BEST_EFFORT},
-      base::Bind(&GetOsPasswordStatusInternal, prefs_weak, status_weak),
-      base::Bind(&ReplyOsPasswordStatus, base::Passed(&prefs),
-                 base::Passed(&status)));
+  base::ThreadPool::PostTaskAndReply(
+      FROM_HERE, {base::MayBlock(), base::TaskPriority::BEST_EFFORT},
+      base::BindOnce(&GetOsPasswordStatusInternal, prefs_weak, status_weak),
+      base::BindOnce(&ReplyOsPasswordStatus, base::Passed(&prefs),
+                     base::Passed(&status)));
 }
 
 // Authenticate the user using the old Windows credential prompt.
@@ -364,6 +368,14 @@ bool AuthenticateUserOld(gfx::NativeWindow window,
     case password_manager::ReauthPurpose::VIEW_PASSWORD:
       password_prompt =
           l10n_util::GetStringUTF16(IDS_PASSWORDS_PAGE_AUTHENTICATION_PROMPT);
+      break;
+    case password_manager::ReauthPurpose::COPY_PASSWORD:
+      password_prompt = l10n_util::GetStringUTF16(
+          IDS_PASSWORDS_PAGE_COPY_AUTHENTICATION_PROMPT);
+      break;
+    case password_manager::ReauthPurpose::EDIT_PASSWORD:
+      password_prompt = l10n_util::GetStringUTF16(
+          IDS_PASSWORDS_PAGE_EDIT_AUTHENTICATION_PROMPT);
       break;
     case password_manager::ReauthPurpose::EXPORT:
       password_prompt = l10n_util::GetStringUTF16(
@@ -485,6 +497,14 @@ bool AuthenticateUserNew(gfx::NativeWindow window,
       password_prompt =
           l10n_util::GetStringUTF16(IDS_PASSWORDS_PAGE_AUTHENTICATION_PROMPT);
       break;
+    case password_manager::ReauthPurpose::COPY_PASSWORD:
+      password_prompt = l10n_util::GetStringUTF16(
+          IDS_PASSWORDS_PAGE_COPY_AUTHENTICATION_PROMPT);
+      break;
+    case password_manager::ReauthPurpose::EDIT_PASSWORD:
+      password_prompt = l10n_util::GetStringUTF16(
+          IDS_PASSWORDS_PAGE_EDIT_AUTHENTICATION_PROMPT);
+      break;
     case password_manager::ReauthPurpose::EXPORT:
       password_prompt = l10n_util::GetStringUTF16(
           IDS_PASSWORDS_PAGE_EXPORT_AUTHENTICATION_PROMPT);
@@ -496,6 +516,10 @@ bool AuthenticateUserNew(gfx::NativeWindow window,
   cui.pszMessageText = password_prompt.c_str();
   cui.pszCaptionText = product_name.c_str();
   cui.hbmBanner = nullptr;
+
+  // Disable hang watching until the end of the function since the user can take
+  // unbounded time to answer the password prompt. (http://crbug.com/806174)
+  base::HangWatchScopeDisabled disabler;
 
   CredentialBufferValidator validator;
 
@@ -532,9 +556,9 @@ bool AuthenticateUserNew(gfx::NativeWindow window,
 }  // namespace
 
 void DelayReportOsPassword() {
-  base::PostDelayedTask(FROM_HERE, {content::BrowserThread::UI},
-                        base::BindOnce(&GetOsPasswordStatus),
-                        base::TimeDelta::FromSeconds(40));
+  content::GetUIThreadTaskRunner({})->PostDelayedTask(
+      FROM_HERE, base::BindOnce(&GetOsPasswordStatus),
+      base::TimeDelta::FromSeconds(40));
 }
 
 bool AuthenticateUser(gfx::NativeWindow window,

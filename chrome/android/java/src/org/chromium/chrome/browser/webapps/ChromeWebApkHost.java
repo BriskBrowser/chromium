@@ -4,7 +4,7 @@
 
 package org.chromium.chrome.browser.webapps;
 
-import static org.chromium.chrome.browser.ChromeSwitches.SKIP_WEBAPK_VERIFICATION;
+import static org.chromium.chrome.browser.flags.ChromeSwitches.SKIP_WEBAPK_VERIFICATION;
 
 import org.chromium.base.ApplicationState;
 import org.chromium.base.ApplicationStatus;
@@ -13,9 +13,10 @@ import org.chromium.base.ContextUtils;
 import org.chromium.base.ThreadUtils;
 import org.chromium.base.task.PostTask;
 import org.chromium.chrome.browser.ChromeVersionInfo;
+import org.chromium.components.webapk.lib.client.ChromeWebApkHostSignature;
+import org.chromium.components.webapk.lib.client.WebApkValidator;
 import org.chromium.content_public.browser.UiThreadTaskTraits;
 import org.chromium.webapk.lib.client.WebApkIdentityServiceClient;
-import org.chromium.webapk.lib.client.WebApkValidator;
 
 /**
  * Contains functionality needed for Chrome to host WebAPKs.
@@ -32,7 +33,7 @@ public class ChromeWebApkHost {
         if (ChromeVersionInfo.isLocalBuild()
                 && CommandLine.getInstance().hasSwitch(SKIP_WEBAPK_VERIFICATION)) {
             // Tell the WebApkValidator to work for all WebAPKs.
-            WebApkValidator.disableValidationForTesting();
+            WebApkValidator.setDisableValidationForTesting(true);
         }
     }
 

@@ -116,6 +116,13 @@ Polymer({
         value: false,
       },
 
+      /** @private */
+      showOpenNow_: {
+        computed: 'computeShowOpenNow_(data.state)',
+        type: Boolean,
+        value: false,
+      },
+
       useFileIcon_: Boolean,
     },
 
@@ -264,6 +271,9 @@ Polymer({
           }
           break;
 
+        case States.MIXED_CONTENT:
+          return loadTimeData.getString('mixedContentDownloadDesc');
+
         case States.DANGEROUS:
           const fileName = data.fileName;
           switch (data.dangerType) {
@@ -285,6 +295,9 @@ Polymer({
               return loadTimeData.getString('sensitiveContentWarningDesc');
           }
           break;
+
+        case States.ASYNC_SCANNING:
+          return loadTimeData.getString('asyncScanningDownloadDesc');
 
         case States.IN_PROGRESS:
         case States.PAUSED:  // Fallthrough.
@@ -311,11 +324,45 @@ Polymer({
     computeIcon_() {
       if (this.data) {
         const dangerType = this.data.dangerType;
-
         if ((loadTimeData.getBoolean('requestsApVerdicts') &&
              dangerType === DangerType.UNCOMMON_CONTENT) ||
             dangerType === DangerType.SENSITIVE_CONTENT_WARNING) {
+          return 'cr:warning';
+        }
+
+        const ERROR_TYPES = [
+          DangerType.SENSITIVE_CONTENT_BLOCK,
+          DangerType.BLOCKED_TOO_LARGE,
+          DangerType.BLOCKED_PASSWORD_PROTECTED,
+        ];
+        if (ERROR_TYPES.includes(dangerType)) {
           return 'cr:error';
+        }
+
+        if (this.data.state === States.ASYNC_SCANNING) {
+          return 'cr:info';
+        }
+      }
+      if (this.isDangerous_) {
+        return 'cr:error';
+      }
+      if (!this.useFileIcon_) {
+        return 'cr:insert-drive-file';
+      }
+      return '';
+    },
+
+    /**
+     * @return {string}
+     * @private
+     */
+    computeIconColor_() {
+      if (this.data) {
+        const dangerType = this.data.dangerType;
+        if ((loadTimeData.getBoolean('requestsApVerdicts') &&
+             dangerType === DangerType.UNCOMMON_CONTENT) ||
+            dangerType === DangerType.SENSITIVE_CONTENT_WARNING) {
+          return 'yellow';
         }
 
         const WARNING_TYPES = [
@@ -324,14 +371,18 @@ Polymer({
           DangerType.BLOCKED_PASSWORD_PROTECTED,
         ];
         if (WARNING_TYPES.includes(dangerType)) {
-          return 'cr:warning';
+          return 'red';
+        }
+
+        if (this.data.state === States.ASYNC_SCANNING) {
+          return 'grey';
         }
       }
       if (this.isDangerous_) {
-        return 'cr:warning';
+        return 'red';
       }
       if (!this.useFileIcon_) {
-        return 'cr:insert-drive-file';
+        return 'paper-grey';
       }
       return '';
     },
@@ -351,7 +402,8 @@ Polymer({
      * @private
      */
     computeIsDangerous_() {
-      return this.data.state === States.DANGEROUS;
+      return this.data.state === States.DANGEROUS ||
+             this.data.state === States.MIXED_CONTENT;
     },
 
     /**
@@ -428,7 +480,8 @@ Polymer({
      */
     computeShowCancel_() {
       return this.data.state === States.IN_PROGRESS ||
-          this.data.state === States.PAUSED;
+          this.data.state === States.PAUSED ||
+          this.data.state === States.ASYNC_SCANNING;
     },
 
     /**
@@ -436,7 +489,17 @@ Polymer({
      * @private
      */
     computeShowProgress_() {
-      return this.showCancel_ && this.data.percent >= -1;
+      return this.showCancel_ && this.data.percent >= -1 &&
+          this.data.state !== States.ASYNC_SCANNING;
+    },
+
+    /**
+     * @return {boolean}
+     * @private
+     */
+    computeShowOpenNow_() {
+      const allowOpenNow = loadTimeData.getBoolean('allowOpenNow');
+      return this.data.state === States.ASYNC_SCANNING && allowOpenNow;
     },
 
     /**
@@ -495,13 +558,16 @@ Polymer({
         this.useFileIcon_ = false;
       } else if (OVERRIDDEN_ICON_TYPES.includes(this.data.dangerType)) {
         this.useFileIcon_ = false;
+      } else if (this.data.state === States.ASYNC_SCANNING) {
+        this.useFileIcon_ = false;
       } else {
         this.$.url.href = assert(this.data.url);
         const path = this.data.filePath;
         IconLoader.getInstance()
             .loadIcon(this.$['file-icon'], path)
             .then(success => {
-              if (path === this.data.filePath) {
+              if (path === this.data.filePath && this.data.state !==
+                  States.ASYNC_SCANNING) {
                 this.useFileIcon_ = success;
               }
             });
@@ -517,6 +583,11 @@ Polymer({
     /** @private */
     onDiscardDangerousTap_() {
       this.mojoHandler_.discardDangerous(this.data.id);
+    },
+
+    /** @private */
+    onOpenNowTap_() {
+      this.mojoHandler_.openDuringScanningRequiringGesture(this.data.id);
     },
 
     /**

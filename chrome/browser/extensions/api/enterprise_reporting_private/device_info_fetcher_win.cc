@@ -5,6 +5,7 @@
 #include "chrome/browser/extensions/api/enterprise_reporting_private/device_info_fetcher_win.h"
 
 #include "base/path_service.h"
+#include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/system/sys_info.h"
 #include "base/win/windows_types.h"
@@ -12,6 +13,7 @@
 #include "net/base/network_interfaces.h"
 
 // Those headers need defines from windows_types.h, thus have to come after it.
+#include <iphlpapi.h>      // NOLINT(build/include_order)
 #include <powersetting.h>  // NOLINT(build/include_order)
 #include <propsys.h>       // NOLINT(build/include_order)
 #include <shobjidl.h>      // NOLINT(build/include_order)
@@ -71,9 +73,6 @@ base::Optional<bool> GetConsoleLockStatus() {
   if (!::GetSystemPowerStatus(&sps))
     return status;
 
-  auto const power_read_current_value =
-      sps.ACLineStatus != 0U ? &PowerReadACValue : &PowerReadDCValue;
-
   LPGUID p_active_policy = nullptr;
   // https://docs.microsoft.com/en-us/windows/desktop/api/powersetting/nf-powersetting-powergetactivescheme
   // Retrieves the active power scheme and returns a GUID that identifies the
@@ -87,6 +86,8 @@ base::Optional<bool> GetConsoleLockStatus() {
     const GUID active_policy = *p_active_policy;
     ::LocalFree(p_active_policy);
 
+    auto const power_read_current_value_func =
+        sps.ACLineStatus != 0U ? &PowerReadACValue : &PowerReadDCValue;
     ULONG type;
     DWORD value;
     DWORD value_size = sizeof(value);
@@ -96,7 +97,7 @@ base::Optional<bool> GetConsoleLockStatus() {
     // LPBYTE case is safe and is needed as the function expects generic byte
     // array buffer regardless of the exact value read as it is a generic
     // interface.
-    if (power_read_current_value(
+    if (power_read_current_value_func(
             nullptr, &active_policy, &NO_SUBGROUP_GUID, &kConsoleLock, &type,
             reinterpret_cast<LPBYTE>(&value), &value_size) == ERROR_SUCCESS) {
       status = value != 0U;
@@ -124,8 +125,7 @@ enterprise_reporting_private::SettingValue GetScreenlockSecured() {
   return enterprise_reporting_private::SETTING_VALUE_UNKNOWN;
 }
 
-// Writes the volume where the Windows OS is installed in |out_volume|. Returns
-// false if there was an error retrieving the volume.
+// Returns the volume where the Windows OS is installed.
 base::Optional<std::wstring> GetOsVolume() {
   base::Optional<std::wstring> volume;
   base::FilePath windows_dir;
@@ -180,7 +180,7 @@ bool GetPropVariantAsInt64(PROPVARIANT variant, int64_t* out_value) {
 // The values given in the BitLockerStatus enum contain the relevant values
 // for the shell property. I also directly validated them.
 enterprise_reporting_private::SettingValue GetDiskEncrypted() {
-  // It has to be a |wstring| because |SHCreateItemFromParsingName| only
+  // |volume| has to be a |wstring| because SHCreateItemFromParsingName() only
   // accepts |PCWSTR| which is |wchar_t*|.
   base::Optional<std::wstring> volume = GetOsVolume();
   if (!volume.has_value())
@@ -192,9 +192,6 @@ enterprise_reporting_private::SettingValue GetDiskEncrypted() {
   if (FAILED(property_key_result))
     return enterprise_reporting_private::SETTING_VALUE_UNKNOWN;
 
-  // This class inherits from IUnknown, which is essentially a pointer to
-  // a reference counted object. The reference should be released explicitly
-  // calling item->Release().
   Microsoft::WRL::ComPtr<IShellItem2> item;
   const HRESULT create_item_result = SHCreateItemFromParsingName(
       volume.value().c_str(), nullptr, IID_IShellItem2, &item);
@@ -217,6 +214,41 @@ enterprise_reporting_private::SettingValue GetDiskEncrypted() {
   return enterprise_reporting_private::SETTING_VALUE_DISABLED;
 }
 
+std::vector<std::string> GetMacAddresses() {
+  std::vector<std::string> mac_addresses;
+  ULONG adapter_info_size = 0;
+  // Get the right buffer size in case of overflow
+  if (::GetAdaptersInfo(nullptr, &adapter_info_size) != ERROR_BUFFER_OVERFLOW ||
+      adapter_info_size == 0) {
+    return mac_addresses;
+  }
+
+  std::vector<byte> adapters(adapter_info_size);
+  if (::GetAdaptersInfo(reinterpret_cast<PIP_ADAPTER_INFO>(adapters.data()),
+                        &adapter_info_size) != ERROR_SUCCESS) {
+    return mac_addresses;
+  }
+
+  // The returned value is not an array of IP_ADAPTER_INFO elements but a linked
+  // list of such
+  PIP_ADAPTER_INFO adapter =
+      reinterpret_cast<PIP_ADAPTER_INFO>(adapters.data());
+  while (adapter) {
+    if (adapter->AddressLength == 6) {
+      mac_addresses.push_back(
+          base::StringPrintf("%02X-%02X-%02X-%02X-%02X-%02X",
+                             static_cast<unsigned int>(adapter->Address[0]),
+                             static_cast<unsigned int>(adapter->Address[1]),
+                             static_cast<unsigned int>(adapter->Address[2]),
+                             static_cast<unsigned int>(adapter->Address[3]),
+                             static_cast<unsigned int>(adapter->Address[4]),
+                             static_cast<unsigned int>(adapter->Address[5])));
+    }
+    adapter = adapter->Next;
+  }
+  return mac_addresses;
+}
+
 }  // namespace
 
 DeviceInfoFetcherWin::DeviceInfoFetcherWin() = default;
@@ -232,6 +264,7 @@ DeviceInfo DeviceInfoFetcherWin::Fetch() {
   device_info.serial_number = GetSerialNumber();
   device_info.screen_lock_secured = GetScreenlockSecured();
   device_info.disk_encrypted = GetDiskEncrypted();
+  device_info.mac_addresses = GetMacAddresses();
   return device_info;
 }
 

@@ -54,11 +54,11 @@
     [Affects=Nothing, PerWorldBindings] readonly attribute Node? lastChild;
     [Affects=Nothing, PerWorldBindings] readonly attribute Node? previousSibling;
     [Affects=Nothing, PerWorldBindings] readonly attribute Node? nextSibling;
-    [MeasureAs=NodeGetRootNode] Node getRootNode(optional GetRootNodeOptions options);
+    [MeasureAs=NodeGetRootNode] Node getRootNode(optional GetRootNodeOptions options = {});
 
     [Affects=Nothing, CEReactions, CustomElementCallbacks] attribute DOMString? nodeValue;
 
-    [Affects=Nothing, CEReactions, CustomElementCallbacks, RaisesException=Setter] attribute ScriptString? textContent;
+    [Affects=Nothing, CEReactions, CustomElementCallbacks, RaisesException=Setter] attribute (DOMString or TrustedScript)? textContent;
     [CEReactions, CustomElementCallbacks] void normalize();
 
     [NewObject, DoNotTestNewObject, CEReactions, CustomElementCallbacks, RaisesException] Node cloneNode(optional boolean deep = false);

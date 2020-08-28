@@ -11,14 +11,11 @@
 
 namespace blink {
 
-class XRPlaneDetectionStateInit;
-
 class XRPlaneDetectionState : public ScriptWrappable {
   DEFINE_WRAPPERTYPEINFO();
 
  public:
-  XRPlaneDetectionState(
-      XRPlaneDetectionStateInit* plane_detection_state_init = nullptr);
+  explicit XRPlaneDetectionState(bool enabled);
 
   bool enabled() const { return enabled_; }
 

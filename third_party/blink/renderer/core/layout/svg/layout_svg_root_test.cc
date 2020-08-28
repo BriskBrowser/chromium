@@ -10,6 +10,7 @@
 #include "third_party/blink/renderer/core/paint/paint_layer.h"
 #include "third_party/blink/renderer/core/testing/core_unit_test_helper.h"
 #include "third_party/blink/renderer/platform/graphics/graphics_layer.h"
+#include "third_party/blink/renderer/platform/testing/paint_test_configurations.h"
 
 namespace blink {
 
@@ -96,39 +97,6 @@ TEST_F(LayoutSVGRootTest, VisualRectMappingWithViewportClipAndBorder) {
   EXPECT_EQ(PhysicalRect(0, 0, 220, 120), root_visual_rect);
 }
 
-TEST_F(LayoutSVGRootTest,
-       PaintedOutputOfObjectHasNoEffectRegardlessOfSizeEmpty) {
-  SetBodyInnerHTML(R"HTML(
-    <svg id="svg" width="100.1%" height="16">
-      <rect width="100%" height="16" fill="#fff"></rect>
-    </svg>
-  )HTML");
-
-  const LayoutSVGRoot& root =
-      *ToLayoutSVGRoot(GetLayoutObjectByElementId("svg"));
-  EXPECT_FALSE(root.PaintedOutputOfObjectHasNoEffectRegardlessOfSize());
-}
-
-TEST_F(LayoutSVGRootTest,
-       PaintedOutputOfObjectHasNoEffectRegardlessOfSizeMask) {
-  SetBodyInnerHTML(R"HTML(
-    <svg id="svg" width="16" height="16" mask="url(#test)">
-      <rect width="100%" height="16" fill="#fff"></rect>
-      <defs>
-        <mask id="test">
-          <g>
-            <rect width="100%" height="100%" fill="#ffffff" style=""></rect>
-          </g>
-        </mask>
-      </defs>
-    </svg>
-  )HTML");
-
-  const LayoutSVGRoot& root =
-      *ToLayoutSVGRoot(GetLayoutObjectByElementId("svg"));
-  EXPECT_FALSE(root.PaintedOutputOfObjectHasNoEffectRegardlessOfSize());
-}
-
 TEST_F(LayoutSVGRootTest, RectBasedHitTestPartialOverlap) {
   SetBodyInnerHTML(R"HTML(
     <style>body { margin: 0 }</style>
@@ -156,6 +124,89 @@ TEST_F(LayoutSVGRootTest, RectBasedHitTestPartialOverlap) {
       count++;
   }
   EXPECT_EQ(2, count);
+}
+
+class CompositeSVGLayoutSVGRootTest : public PaintTestConfigurations,
+                                      public LayoutSVGRootTest,
+                                      private ScopedCompositeSVGForTest {
+ public:
+  CompositeSVGLayoutSVGRootTest() : ScopedCompositeSVGForTest(true) {}
+};
+
+INSTANTIATE_PAINT_TEST_SUITE_P(CompositeSVGLayoutSVGRootTest);
+
+// A PaintLayer is needed for the purposes of creating a GraphicsLayer to limit
+// CompositeSVG to SVG subtrees. This PaintLayer will not be needed with
+// CompositeAfterPaint. If compositing is needed for descendants, the paint
+// layer should be self-painting. Otherwise, it should be non-self-painting.
+TEST_P(CompositeSVGLayoutSVGRootTest, PaintLayerType) {
+  SetBodyInnerHTML(R"HTML(
+    <svg id="root" style="width: 200px; height: 200px;">
+      <rect id="rect" width="100" height="100" fill="green"/>
+    </svg>
+  )HTML");
+
+  const LayoutSVGRoot& root =
+      *ToLayoutSVGRoot(GetLayoutObjectByElementId("root"));
+  if (RuntimeEnabledFeatures::CompositeAfterPaintEnabled())
+    EXPECT_FALSE(root.Layer());
+  else
+    EXPECT_FALSE(root.Layer()->IsSelfPaintingLayer());
+
+  GetDocument().getElementById("rect")->setAttribute("style",
+                                                     "will-change: transform");
+  UpdateAllLifecyclePhasesForTest();
+  if (RuntimeEnabledFeatures::CompositeAfterPaintEnabled())
+    EXPECT_FALSE(root.Layer());
+  else
+    EXPECT_TRUE(root.Layer()->IsSelfPaintingLayer());
+
+  GetDocument().getElementById("rect")->removeAttribute("style");
+  UpdateAllLifecyclePhasesForTest();
+  if (RuntimeEnabledFeatures::CompositeAfterPaintEnabled())
+    EXPECT_FALSE(root.Layer());
+  else
+    EXPECT_FALSE(root.Layer()->IsSelfPaintingLayer());
+}
+
+TEST_P(CompositeSVGLayoutSVGRootTest, HasDescendantCompositingReasons) {
+  SetBodyInnerHTML(R"HTML(
+    <svg id="root" style="width: 200px; height: 200px;">
+      <rect id="rect" width="100" height="100" fill="green"/>
+      <text id="text" x="10" y="30">
+        text
+        <tspan id="tspan">tspan</tspan>
+      </text>
+    </svg>
+  )HTML");
+
+  const LayoutSVGRoot& root =
+      *ToLayoutSVGRoot(GetLayoutObjectByElementId("root"));
+  EXPECT_FALSE(root.HasDescendantCompositingReasons());
+
+  GetDocument().getElementById("rect")->setAttribute("style",
+                                                     "will-change: transform");
+  UpdateAllLifecyclePhasesForTest();
+  EXPECT_TRUE(root.HasDescendantCompositingReasons());
+  GetDocument().getElementById("rect")->removeAttribute("style");
+  UpdateAllLifecyclePhasesForTest();
+  EXPECT_FALSE(root.HasDescendantCompositingReasons());
+
+  GetDocument().getElementById("text")->setAttribute("style",
+                                                     "will-change: transform");
+  UpdateAllLifecyclePhasesForTest();
+  EXPECT_TRUE(root.HasDescendantCompositingReasons());
+  GetDocument().getElementById("text")->removeAttribute("style");
+  UpdateAllLifecyclePhasesForTest();
+  EXPECT_FALSE(root.HasDescendantCompositingReasons());
+
+  GetDocument().getElementById("tspan")->setAttribute("style",
+                                                      "will-change: transform");
+  UpdateAllLifecyclePhasesForTest();
+  EXPECT_TRUE(root.HasDescendantCompositingReasons());
+  GetDocument().getElementById("tspan")->removeAttribute("style");
+  UpdateAllLifecyclePhasesForTest();
+  EXPECT_FALSE(root.HasDescendantCompositingReasons());
 }
 
 }  // namespace blink

@@ -13,6 +13,7 @@
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/compositor/canvas_painter.h"
 #include "ui/gfx/geometry/insets.h"
+#include "ui/native_theme/themed_vector_icon.h"
 #include "ui/strings/grit/ui_strings.h"
 #include "ui/views/controls/menu/submenu_view.h"
 #include "ui/views/controls/menu/test_menu_item_view.h"
@@ -319,19 +320,38 @@ class MenuItemViewPaintUnitTest : public ViewsTestBase {
   DISALLOW_COPY_AND_ASSIGN(MenuItemViewPaintUnitTest);
 };
 
-// Provides assertion coverage for painting minor text and icons.
+// Provides assertion coverage for painting, secondary label, minor text and
+// icons.
 TEST_F(MenuItemViewPaintUnitTest, MinorTextAndIconAssertionCoverage) {
-  auto AddItem = [this](auto label, auto minor_label, auto minor_icon) {
-    menu_item_view()->AddMenuItemAt(0, 1000, base::ASCIIToUTF16(label),
-                                    minor_label, minor_icon, gfx::ImageSkia(),
-                                    nullptr, views::MenuItemView::Type::kNormal,
-                                    ui::NORMAL_SEPARATOR);
+  auto AddItem = [this](auto label, auto secondary_label, auto minor_label,
+                        auto minor_icon) {
+    menu_item_view()->AddMenuItemAt(
+        0, 1000, base::ASCIIToUTF16(label), secondary_label, minor_label,
+        minor_icon, gfx::ImageSkia(), ui::ThemedVectorIcon(),
+        views::MenuItemView::Type::kNormal, ui::NORMAL_SEPARATOR);
   };
-  AddItem("No minor content", base::string16(), nullptr);
-  AddItem("Minor text only", base::ASCIIToUTF16("minor text"), nullptr);
-  AddItem("Minor icon only", base::string16(), &views::kMenuCheckIcon);
-  AddItem("Minor text and icon", base::ASCIIToUTF16("minor text"),
-          &views::kMenuCheckIcon);
+  AddItem("No secondary label, no minor content", base::string16(),
+          base::string16(), ui::ThemedVectorIcon());
+  AddItem("No secondary label, minor text only", base::string16(),
+          base::ASCIIToUTF16("minor text"), ui::ThemedVectorIcon());
+  AddItem("No secondary label, minor icon only", base::string16(),
+          base::string16(), ui::ThemedVectorIcon(&views::kMenuCheckIcon));
+  AddItem("No secondary label, minor text and icon", base::string16(),
+          base::ASCIIToUTF16("minor text"),
+          ui::ThemedVectorIcon(&views::kMenuCheckIcon));
+  AddItem("Secondary label, no minor content",
+          base::ASCIIToUTF16("secondary label"), base::string16(),
+          ui::ThemedVectorIcon());
+  AddItem("Secondary label, minor text only",
+          base::ASCIIToUTF16("secondary label"),
+          base::ASCIIToUTF16("minor text"), ui::ThemedVectorIcon());
+  AddItem("Secondary label, minor icon only",
+          base::ASCIIToUTF16("secondary label"), base::string16(),
+          ui::ThemedVectorIcon(&views::kMenuCheckIcon));
+  AddItem("Secondary label, minor text and icon",
+          base::ASCIIToUTF16("secondary label"),
+          base::ASCIIToUTF16("minor text"),
+          ui::ThemedVectorIcon(&views::kMenuCheckIcon));
 
   menu_runner()->RunMenuAt(widget(), nullptr, gfx::Rect(),
                            MenuAnchorPosition::kTopLeft,

@@ -4,7 +4,9 @@
 
 #include "pdf/test/test_client.h"
 
+#include "base/memory/scoped_refptr.h"
 #include "pdf/document_layout.h"
+#include "pdf/ppapi_migration/url_loader.h"
 
 namespace chrome_pdf {
 
@@ -33,8 +35,8 @@ std::string TestClient::GetURL() {
   return std::string();
 }
 
-pp::URLLoader TestClient::CreateURLLoader() {
-  return pp::URLLoader();
+scoped_refptr<UrlLoader> TestClient::CreateUrlLoader() {
+  return base::MakeRefCounted<UrlLoader>();
 }
 
 std::vector<PDFEngine::Client::SearchStringResult> TestClient::SearchString(
@@ -56,7 +58,7 @@ uint32_t TestClient::GetBackgroundColor() {
   return 0;
 }
 
-float TestClient::GetToolbarHeightInScreenCoords() const {
+float TestClient::GetToolbarHeightInScreenCoords() {
   return 0;
 }
 

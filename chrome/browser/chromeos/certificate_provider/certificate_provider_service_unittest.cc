@@ -87,6 +87,8 @@ class TestDelegate : public CertificateProviderService::Delegate {
   enum class RequestType { NONE, SIGN, GET_CERTIFICATES };
 
   TestDelegate() {}
+  TestDelegate(const TestDelegate&) = delete;
+  TestDelegate& operator=(const TestDelegate&) = delete;
 
   std::vector<std::string> CertificateProviderExtensions() override {
     return std::vector<std::string>(provider_extensions_.begin(),
@@ -132,15 +134,13 @@ class TestDelegate : public CertificateProviderService::Delegate {
   std::string last_extension_id_;
   std::set<std::string> provider_extensions_;
   RequestType expected_request_type_ = RequestType::NONE;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(TestDelegate);
 };
 
 class MockObserver : public CertificateProviderService::Observer {
  public:
-  MOCK_METHOD1(OnSignCompleted,
-               void(const scoped_refptr<net::X509Certificate>& certificate));
+  MOCK_METHOD2(OnSignCompleted,
+               void(const scoped_refptr<net::X509Certificate>& certificate,
+                    const std::string& extension_id));
 };
 
 }  // namespace
@@ -209,8 +209,9 @@ class CertificateProviderServiceTest : public testing::Test {
       const certificate_provider::CertificateInfo& cert_info) {
     certificate_provider::CertificateInfoList infos;
     infos.push_back(cert_info);
-    service_->SetCertificatesProvidedByExtension(extension_id, cert_request_id,
-                                                 infos);
+    service_->SetCertificatesProvidedByExtension(extension_id, infos);
+    service_->SetExtensionCertificateReplyReceived(extension_id,
+                                                   cert_request_id);
   }
 
   bool CheckLookUpCertificate(
@@ -279,6 +280,8 @@ TEST_F(CertificateProviderServiceTest, GetCertificates) {
   // Deregister the extensions as certificate providers. The next
   // GetCertificates call must report an empty list of certs.
   test_delegate_->provider_extensions_.clear();
+  service_->OnExtensionUnloaded(kExtension1);
+  service_->OnExtensionUnloaded(kExtension2);
 
   // No request expected.
   test_delegate_->ClearAndExpectRequest(TestDelegate::RequestType::NONE);
@@ -314,8 +317,9 @@ TEST_F(CertificateProviderServiceTest, LookUpCertificate) {
   {
     const int cert_request_id = RequestCertificatesFromExtensions(nullptr);
     service_->SetCertificatesProvidedByExtension(
-        kExtension1, cert_request_id,
-        certificate_provider::CertificateInfoList());
+        kExtension1, certificate_provider::CertificateInfoList());
+    service_->SetExtensionCertificateReplyReceived(kExtension1,
+                                                   cert_request_id);
     SetCertificateProvidedByExtension(kExtension2, cert_request_id,
                                       cert_info2_);
     task_runner_->RunUntilIdle();
@@ -332,6 +336,7 @@ TEST_F(CertificateProviderServiceTest, LookUpCertificate) {
   // Deregister |kExtension2| as certificate provider and provide |cert_info1_|
   // from |kExtension1|.
   test_delegate_->provider_extensions_.erase(kExtension2);
+  service_->OnExtensionUnloaded(kExtension2);
 
   {
     const int cert_request_id = RequestCertificatesFromExtensions(nullptr);
@@ -505,7 +510,7 @@ TEST_F(CertificateProviderServiceTest, SignRequest) {
   // No signature received until the extension replied to the service.
   EXPECT_TRUE(received_signature.empty());
 
-  EXPECT_CALL(observer_, OnSignCompleted(cert_info1_.certificate));
+  EXPECT_CALL(observer_, OnSignCompleted(cert_info1_.certificate, kExtension1));
 
   std::vector<uint8_t> signature_reply;
   signature_reply.push_back(5);
@@ -560,10 +565,12 @@ TEST_F(CertificateProviderServiceTest, SignUsingSpkiAsIdentification) {
   ASSERT_TRUE(cert);
 
   std::vector<uint16_t> supported_algorithms;
+  std::string extension_id;
   // If this fails, try to regenerate kClient1SpkiBase64 using the command shown
   // above.
-  EXPECT_TRUE(service_->GetSupportedAlgorithmsBySpki(client1_spki,
-                                                     &supported_algorithms));
+  EXPECT_TRUE(
+      service_->LookUpSpki(client1_spki, &supported_algorithms, &extension_id));
+  EXPECT_EQ(extension_id, kExtension1);
   EXPECT_THAT(supported_algorithms,
               testing::UnorderedElementsAre(SSL_SIGN_RSA_PKCS1_SHA256));
 
@@ -586,7 +593,7 @@ TEST_F(CertificateProviderServiceTest, SignUsingSpkiAsIdentification) {
   // No signature received until the extension replied to the service.
   EXPECT_TRUE(received_signature.empty());
 
-  EXPECT_CALL(observer_, OnSignCompleted(cert_info1_.certificate));
+  EXPECT_CALL(observer_, OnSignCompleted(cert_info1_.certificate, kExtension1));
 
   std::vector<uint8_t> signature_reply;
   signature_reply.push_back(5);

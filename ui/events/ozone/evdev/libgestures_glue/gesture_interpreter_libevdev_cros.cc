@@ -8,6 +8,7 @@
 #include <libevdev/libevdev.h>
 #include <linux/input.h>
 
+#include "base/logging.h"
 #include "base/stl_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/timer/timer.h"
@@ -23,6 +24,10 @@
 #include "ui/events/ozone/evdev/libgestures_glue/gesture_property_provider.h"
 #include "ui/events/ozone/evdev/libgestures_glue/gesture_timer_provider.h"
 #include "ui/gfx/geometry/point_f.h"
+
+#ifndef REL_WHEEL_HI_RES
+#define REL_WHEEL_HI_RES 0x0b
+#endif
 
 namespace ui {
 
@@ -67,6 +72,8 @@ HardwareProperties GestureHardwareProperties(
   hwprops.is_button_pad = Event_Get_Button_Pad(evdev);
   hwprops.has_wheel = EvdevBitIsSet(evdev->info.rel_bitmask, REL_WHEEL) ||
                       EvdevBitIsSet(evdev->info.rel_bitmask, REL_HWHEEL);
+  hwprops.wheel_is_hi_res =
+	  EvdevBitIsSet(evdev->info.rel_bitmask, REL_WHEEL_HI_RES);
 
   return hwprops;
 }
@@ -170,6 +177,7 @@ void GestureInterpreterLibevdevCros::OnLibEvdevCrosEvent(Evdev* evdev,
   hwstate.rel_x = evstate->rel_x;
   hwstate.rel_y = evstate->rel_y;
   hwstate.rel_wheel = evstate->rel_wheel;
+  hwstate.rel_wheel_hi_res = evstate->rel_wheel_hi_res;
   hwstate.rel_hwheel = evstate->rel_hwheel;
 
   // Touch.
@@ -239,6 +247,9 @@ void GestureInterpreterLibevdevCros::OnGestureReady(const Gesture* gesture) {
     case kGestureTypeScroll:
       OnGestureScroll(gesture, &gesture->details.scroll);
       break;
+    case kGestureTypeMouseWheel:
+      OnGestureMouseWheel(gesture, &gesture->details.wheel);
+      break;
     case kGestureTypeButtonsChange:
       OnGestureButtonsChange(gesture, &gesture->details.buttons);
       break;
@@ -288,7 +299,7 @@ void GestureInterpreterLibevdevCros::OnGestureMove(const Gesture* gesture,
   // TODO(spang): Use move->ordinal_dx, move->ordinal_dy
   dispatcher_->DispatchMouseMoveEvent(
       MouseMoveEventParams(id_, EF_NONE, cursor_->GetLocation(),
-                           PointerDetails(EventPointerType::POINTER_TYPE_MOUSE),
+                           PointerDetails(EventPointerType::kMouse),
                            StimeToTimeTicks(gesture->end_time)));
 }
 
@@ -304,8 +315,11 @@ void GestureInterpreterLibevdevCros::OnGestureScroll(
     return;  // No cursor!
 
   if (is_mouse_) {
+    // Traditional mice don't emit scroll events, but multitouch mice still do.
     dispatcher_->DispatchMouseWheelEvent(MouseWheelEventParams(
         id_, cursor_->GetLocation(), gfx::Vector2d(scroll->dx, scroll->dy),
+        gfx::Vector2d(scroll->dx / kMultitouchMousePixelsPerTick * 120,
+                      scroll->dy / kMultitouchMousePixelsPerTick * 120),
         StimeToTimeTicks(gesture->end_time)));
   } else {
     dispatcher_->DispatchScrollEvent(ScrollEventParams(
@@ -314,6 +328,21 @@ void GestureInterpreterLibevdevCros::OnGestureScroll(
         gfx::Vector2dF(scroll->ordinal_dx, scroll->ordinal_dy),
         kGestureScrollFingerCount, StimeToTimeTicks(gesture->end_time)));
   }
+}
+
+void GestureInterpreterLibevdevCros::OnGestureMouseWheel(
+    const Gesture* gesture,
+    const GestureMouseWheel* wheel) {
+  DVLOG(3) << base::StringPrintf("Gesture Mouse Wheel: (%f, %f) [%d, %d]",
+                                 wheel->dx, wheel->dy, wheel->tick_120ths_dx,
+                                 wheel->tick_120ths_dy);
+  if (!cursor_)
+    return;  // No cursor!
+
+  dispatcher_->DispatchMouseWheelEvent(MouseWheelEventParams(
+      id_, cursor_->GetLocation(), gfx::Vector2d(wheel->dx, wheel->dy),
+      gfx::Vector2d(wheel->tick_120ths_dx, wheel->tick_120ths_dy),
+      StimeToTimeTicks(gesture->end_time)));
 }
 
 void GestureInterpreterLibevdevCros::OnGestureButtonsChange(
@@ -493,8 +522,7 @@ void GestureInterpreterLibevdevCros::DispatchMouseButton(unsigned int button,
   bool allow_remap = is_mouse_;
   dispatcher_->DispatchMouseButtonEvent(MouseButtonEventParams(
       id_, EF_NONE, cursor_->GetLocation(), button, down, allow_remap,
-      PointerDetails(EventPointerType::POINTER_TYPE_MOUSE),
-      StimeToTimeTicks(time)));
+      PointerDetails(EventPointerType::kMouse), StimeToTimeTicks(time)));
 }
 
 void GestureInterpreterLibevdevCros::DispatchChangedKeys(
@@ -520,9 +548,9 @@ void GestureInterpreterLibevdevCros::DispatchChangedKeys(
         continue;
 
       // Dispatch key press or release to keyboard.
-      dispatcher_->DispatchKeyEvent(
-          KeyEventParams(id_, key, value, false /* suppress_auto_repeat */,
-                         StimeToTimeTicks(timestamp)));
+      dispatcher_->DispatchKeyEvent(KeyEventParams(
+          id_, ui::EF_NONE, key, 0 /* scan_code */, value,
+          false /* suppress_auto_repeat */, StimeToTimeTicks(timestamp)));
     }
   }
 

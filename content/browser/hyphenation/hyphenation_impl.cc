@@ -15,6 +15,8 @@
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
+#include "base/timer/elapsed_timer.h"
 #include "mojo/public/cpp/bindings/self_owned_receiver.h"
 
 namespace {
@@ -45,7 +47,9 @@ base::File GetDictionaryFile(const std::string& locale) {
 #endif
   std::string filename = base::StringPrintf("hyph-%s.hyb", locale.c_str());
   base::FilePath path = dir.AppendASCII(filename);
+  base::ElapsedTimer timer;
   file.Initialize(path, base::File::FLAG_OPEN | base::File::FLAG_READ);
+  UMA_HISTOGRAM_TIMES("Hyphenation.Open.File", timer.Elapsed());
   return file.Duplicate();
 }
 
@@ -67,9 +71,8 @@ void HyphenationImpl::Create(
 // static
 scoped_refptr<base::SequencedTaskRunner> HyphenationImpl::GetTaskRunner() {
   static base::NoDestructor<scoped_refptr<base::SequencedTaskRunner>> runner(
-      base::CreateSequencedTaskRunner(
-          {base::ThreadPool(), base::MayBlock(),
-           base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN,
+      base::ThreadPool::CreateSequencedTaskRunner(
+          {base::MayBlock(), base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN,
            base::TaskPriority::USER_BLOCKING}));
   return *runner;
 }

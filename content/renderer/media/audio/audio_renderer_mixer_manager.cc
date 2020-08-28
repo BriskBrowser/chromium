@@ -5,11 +5,13 @@
 #include "content/renderer/media/audio/audio_renderer_mixer_manager.h"
 
 #include <algorithm>
+#include <limits>
 #include <string>
 #include <utility>
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
+#include "base/logging.h"
 #include "base/memory/ptr_util.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
@@ -98,33 +100,6 @@ media::AudioParameters GetMixerOutputParams(
   return params;
 }
 
-void LogMixerUmaHistogram(media::AudioLatency::LatencyType latency, int value) {
-  switch (latency) {
-    case media::AudioLatency::LATENCY_EXACT_MS:
-      UMA_HISTOGRAM_CUSTOM_COUNTS(
-          "Media.Audio.Render.AudioInputsPerMixer.LatencyExact", value, 1, 20,
-          21);
-      return;
-    case media::AudioLatency::LATENCY_INTERACTIVE:
-      UMA_HISTOGRAM_CUSTOM_COUNTS(
-          "Media.Audio.Render.AudioInputsPerMixer.LatencyInteractive", value, 1,
-          20, 21);
-      return;
-    case media::AudioLatency::LATENCY_RTC:
-      UMA_HISTOGRAM_CUSTOM_COUNTS(
-          "Media.Audio.Render.AudioInputsPerMixer.LatencyRtc", value, 1, 20,
-          21);
-      return;
-    case media::AudioLatency::LATENCY_PLAYBACK:
-      UMA_HISTOGRAM_CUSTOM_COUNTS(
-          "Media.Audio.Render.AudioInputsPerMixer.LatencyPlayback", value, 1,
-          20, 21);
-      return;
-    default:
-      NOTREACHED();
-  }
-}
-
 }  // namespace
 
 namespace content {
@@ -149,7 +124,7 @@ std::unique_ptr<AudioRendererMixerManager> AudioRendererMixerManager::Create() {
 
 scoped_refptr<media::AudioRendererMixerInput>
 AudioRendererMixerManager::CreateInput(
-    int source_render_frame_id,
+    const base::UnguessableToken& source_frame_token,
     const base::UnguessableToken& session_id,
     const std::string& device_id,
     media::AudioLatency::LatencyType latency) {
@@ -161,11 +136,11 @@ AudioRendererMixerManager::CreateInput(
   // NewAudioRenderingMixingStrategy didn't ship, https://crbug.com/870836.
   DCHECK(session_id.is_empty());
   return base::MakeRefCounted<media::AudioRendererMixerInput>(
-      this, source_render_frame_id, device_id, latency);
+      this, source_frame_token, device_id, latency);
 }
 
 media::AudioRendererMixer* AudioRendererMixerManager::GetMixer(
-    int source_render_frame_id,
+    const base::UnguessableToken& source_frame_token,
     const media::AudioParameters& input_params,
     media::AudioLatency::LatencyType latency,
     const media::OutputDeviceInfo& sink_info,
@@ -174,26 +149,15 @@ media::AudioRendererMixer* AudioRendererMixerManager::GetMixer(
   DCHECK(sink->HasOneRef());
   DCHECK_EQ(sink_info.device_status(), media::OUTPUT_DEVICE_STATUS_OK);
 
-  const MixerKey key(source_render_frame_id, input_params, latency,
+  const MixerKey key(source_frame_token, input_params, latency,
                      sink_info.device_id());
   base::AutoLock auto_lock(mixers_lock_);
 
-  // Update latency map when the mixer is requested, i.e. there is an attempt to
-  // mix and output audio with a given latency. This is opposite to
-  // CreateInput() which creates a sink which is probably never used for output.
-  if (!latency_map_[latency]) {
-    latency_map_[latency] = 1;
-    // Log the updated latency map. This can't be done once in the end of the
-    // renderer lifetime, because the destructor is usually not called. So,
-    // we'll have a sort of exponential scale here, with a smaller subset
-    // logged both on its own and as a part of any larger subset.
-    base::UmaHistogramSparse("Media.Audio.Render.AudioMixing.LatencyMap",
-                             latency_map_.to_ulong());
-  }
-
   auto it = mixers_.find(key);
   if (it != mixers_.end()) {
-    it->second.ref_count++;
+    auto new_count = ++it->second.ref_count;
+    CHECK(new_count != std::numeric_limits<decltype(new_count)>::max());
+
     DVLOG(1) << "Reusing mixer: " << it->second.mixer;
 
     // Sink will now be released unused, but still must be stopped.
@@ -209,9 +173,8 @@ media::AudioRendererMixer* AudioRendererMixerManager::GetMixer(
 
   const media::AudioParameters& mixer_output_params =
       GetMixerOutputParams(input_params, sink_info.output_params(), latency);
-  media::AudioRendererMixer* mixer = new media::AudioRendererMixer(
-      mixer_output_params, std::move(sink),
-      base::BindRepeating(&LogMixerUmaHistogram, latency));
+  media::AudioRendererMixer* mixer =
+      new media::AudioRendererMixer(mixer_output_params, std::move(sink));
   mixers_[key] = {mixer, 1};
   DVLOG(1) << __func__ << " mixer: " << mixer << " latency: " << latency
            << "\n input: " << input_params.AsHumanReadableString()
@@ -237,19 +200,19 @@ void AudioRendererMixerManager::ReturnMixer(media::AudioRendererMixer* mixer) {
 }
 
 scoped_refptr<media::AudioRendererSink> AudioRendererMixerManager::GetSink(
-    int source_render_frame_id,
+    const base::UnguessableToken& source_frame_token,
     const std::string& device_id) {
   return create_sink_cb_.Run(
-      source_render_frame_id,
+      source_frame_token,
       media::AudioSinkParameters(base::UnguessableToken(), device_id));
 }
 
 AudioRendererMixerManager::MixerKey::MixerKey(
-    int source_render_frame_id,
+    const base::UnguessableToken& source_frame_token,
     const media::AudioParameters& params,
     media::AudioLatency::LatencyType latency,
     const std::string& device_id)
-    : source_render_frame_id(source_render_frame_id),
+    : source_frame_token(source_frame_token),
       params(params),
       latency(latency),
       device_id(device_id) {}

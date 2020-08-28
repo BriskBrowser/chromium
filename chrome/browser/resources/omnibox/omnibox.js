@@ -77,8 +77,7 @@ class BrowserProxy {
         omniboxOutput.updateAnswerImage.bind(omniboxOutput));
 
     /** @private {!mojom.OmniboxPageHandlerRemote} */
-    this.handler_ =
-        mojom.OmniboxPageHandler.getRemote(/*useBrowserInterfaceBroker=*/ true);
+    this.handler_ = mojom.OmniboxPageHandler.getRemote();
     this.handler_.setClientPage(
         this.callbackRouter_.$.bindNewPipeAndPassRemote());
 
@@ -86,19 +85,13 @@ class BrowserProxy {
     this.lastRequest;
   }
 
-
   /**
    * @param {!mojom.OmniboxResponse} response
    * @param {boolean} isPageController
    */
   handleNewAutocompleteResponse(response, isPageController) {
-    // Note: Using inputText is a sufficient fix for the way this is used today,
-    // but in principle it would be better to associate requests with responses
-    // using a unique session identifier, for example by rolling an integer each
-    // time a request is made. Doing so would require extra bookkeeping on the
-    // host side, so for now we keep it simple.
-    const isForLastPageRequest = isPageController && this.lastRequest &&
-        this.lastRequest.inputText === response.inputText;
+    const isForLastPageRequest =
+        this.isForLastPageRequest(response.inputText, isPageController);
 
     // When unfocusing the browser omnibox, the autocomplete controller
     // sends a response with no combined results. This response is ignored
@@ -127,8 +120,7 @@ class BrowserProxy {
   handleNewAutocompleteQuery(isPageController, inputText) {
     // If the request originated from the debug page and is not for display,
     // then we don't want to clear the omniboxOutput.
-    if (isPageController && this.lastRequest &&
-            this.lastRequest.inputText === inputText &&
+    if (this.isForLastPageRequest(inputText, isPageController) &&
             this.lastRequest.display ||
         omniboxInput.connectWindowOmnibox && !isPageController) {
       omniboxOutput.prepareNewQuery();
@@ -158,6 +150,21 @@ class BrowserProxy {
           preventInlineAutocomplete, preferKeyword, currentUrl,
           pageClassification);
     });
+  }
+
+  /**
+   * @param {string} inputText
+   * @param {boolean} isPageController
+   * @return {boolean}
+   */
+  isForLastPageRequest(inputText, isPageController) {
+    // Note: Using inputText is a sufficient fix for the way this is used today,
+    // but in principle it would be better to associate requests with responses
+    // using a unique session identifier, for example by rolling an integer each
+    // time a request is made. Doing so would require extra bookkeeping on the
+    // host side, so for now we keep it simple.
+    return isPageController && this.lastRequest !== null &&
+        this.lastRequest.inputText.trimStart() === inputText;
   }
 }
 
@@ -193,6 +200,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
   omniboxOutput.addEventListener(
       'responses-count-changed', e => omniboxInput.responsesCount = e.detail);
+
+  omniboxOutput.updateDisplayInputs(omniboxInput.displayInputs);
 });
 
 class ExportDelegate {

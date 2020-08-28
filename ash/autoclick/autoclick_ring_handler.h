@@ -14,8 +14,8 @@
 namespace ash {
 
 // AutoclickRingHandler displays an animated affordance that is shown
-// on autoclick gesture. The animation sequence consists of two circles which
-// shrink towards the spot the autoclick will generate a mouse event.
+// on autoclick gesture. The animation is a semi-transparent ring which
+// fills with white.
 class AutoclickRingHandler : public gfx::LinearAnimation {
  public:
   AutoclickRingHandler();
@@ -33,10 +33,12 @@ class AutoclickRingHandler : public gfx::LinearAnimation {
  private:
   class AutoclickRingView;
 
+  // The default values of the autoclick ring widget size.
+  const int kAutoclickRingInnerRadius = 20;
+
   enum class AnimationType {
     NONE,
     GROW_ANIMATION,
-    SHRINK_ANIMATION,
   };
 
   void StartAnimation(base::TimeDelta duration);
@@ -46,14 +48,14 @@ class AutoclickRingHandler : public gfx::LinearAnimation {
   void AnimateToState(double state) override;
   void AnimationStopped() override;
 
-  std::unique_ptr<AutoclickRingView> view_;
-  views::Widget* ring_widget_;
+  AutoclickRingView* view_ = nullptr;
+  views::Widget* ring_widget_ = nullptr;
   // Location of the simulated mouse event from auto click in screen
   // coordinates.
   gfx::Point tap_down_location_;
-  AnimationType current_animation_type_;
+  AnimationType current_animation_type_ = AnimationType::NONE;
   base::TimeDelta animation_duration_;
-  int radius_;
+  int radius_ = kAutoclickRingInnerRadius;
 
   DISALLOW_COPY_AND_ASSIGN(AutoclickRingHandler);
 };

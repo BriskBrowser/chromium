@@ -7,7 +7,7 @@ from six import iteritems
 
 from ..wptcommandline import require_arg  # noqa: F401
 
-here = os.path.split(__file__)[0]
+here = os.path.dirname(__file__)
 
 
 def inherit(super_module, child_globals, product_name):
@@ -147,10 +147,6 @@ class Browser(object):
     def is_alive(self):
         """Boolean indicating whether the browser process is still running"""
         pass
-
-    def setup_ssl(self, hosts):
-        """Return a certificate to use for tests requiring ssl that will be trusted by the browser"""
-        raise NotImplementedError("ssl testing not supported")
 
     def cleanup(self):
         """Browser-specific cleanup that is run after the testrun is finished"""

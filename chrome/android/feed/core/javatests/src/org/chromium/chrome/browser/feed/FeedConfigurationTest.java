@@ -4,7 +4,7 @@
 
 package org.chromium.chrome.browser.feed;
 
-import android.support.test.filters.SmallTest;
+import androidx.test.filters.SmallTest;
 
 import org.junit.Assert;
 import org.junit.Rule;
@@ -13,9 +13,9 @@ import org.junit.runner.RunWith;
 
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.Feature;
-import org.chromium.chrome.browser.ChromeFeatureList;
 import org.chromium.chrome.browser.feed.library.api.host.config.Configuration;
 import org.chromium.chrome.browser.feed.library.api.host.config.Configuration.ConfigKey;
+import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.test.ChromeBrowserTestRule;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.chrome.test.util.browser.Features;
@@ -28,6 +28,9 @@ public class FeedConfigurationTest {
     public final ChromeBrowserTestRule mRule = new ChromeBrowserTestRule();
 
     private static final double ASSERT_EQUALS_DOUBLE_DELTA = 0.001d;
+
+    /** Default value for whether to use menu options to send user feedback. */
+    public static final boolean SEND_FEEDBACK_ENABLED_DEFAULT = true;
 
     @Test
     @Feature({"Feed"})
@@ -273,6 +276,15 @@ public class FeedConfigurationTest {
     @Test
     @Feature({"Feed"})
     @CommandLineFlags.
+    Add({"enable-features=InterestFeedFeedback"})
+    public void
+    testSendFeedbackEnabled() {
+        Assert.assertTrue(FeedConfiguration.getSendFeedbackEnabled());
+    }
+
+    @Test
+    @Feature({"Feed"})
+    @CommandLineFlags.
     Add({"enable-features=InterestFeedContentSuggestions<Trial", "force-fieldtrials=Trial/Group",
             "force-fieldtrial-params=Trial.Group:maximum_gc_attempts/5"})
     public void
@@ -408,8 +420,8 @@ public class FeedConfigurationTest {
         Configuration configuration = FeedConfiguration.createConfiguration();
         Assert.assertFalse(
                 configuration.getValueOrDefault(ConfigKey.ABANDON_RESTORE_BELOW_FOLD, true));
-        Assert.assertFalse(
-                configuration.getValueOrDefault(ConfigKey.CARD_MENU_TOOLTIP_ELIGIBLE, true));
+        Assert.assertTrue(
+                configuration.getValueOrDefault(ConfigKey.CARD_MENU_TOOLTIP_ELIGIBLE, false));
         Assert.assertFalse(
                 configuration.getValueOrDefault(ConfigKey.CONSUME_SYNTHETIC_TOKENS, true));
         Assert.assertTrue(configuration.getValueOrDefault(
@@ -443,8 +455,8 @@ public class FeedConfigurationTest {
         Assert.assertEquals((long) FeedConfiguration.LOGGING_IMMEDIATE_CONTENT_THRESHOLD_MS_DEFAULT,
                 configuration.getValueOrDefault(
                         ConfigKey.LOGGING_IMMEDIATE_CONTENT_THRESHOLD_MS, 0L));
-        Assert.assertFalse(
-                configuration.getValueOrDefault(ConfigKey.MANAGE_INTERESTS_ENABLED, true));
+        Assert.assertTrue(
+                configuration.getValueOrDefault(ConfigKey.MANAGE_INTERESTS_ENABLED, false));
         Assert.assertEquals((long) FeedConfiguration.MAXIMUM_GC_ATTEMPTS_DEFAULT,
                 configuration.getValueOrDefault(ConfigKey.MAXIMUM_GC_ATTEMPTS, 0L));
         Assert.assertEquals((long) FeedConfiguration.NON_CACHED_MIN_PAGE_SIZE_DEFAULT,
@@ -462,8 +474,8 @@ public class FeedConfigurationTest {
                 configuration.getValueOrDefault(ConfigKey.STORAGE_MISS_THRESHOLD, 0L));
         Assert.assertFalse(
                 configuration.getValueOrDefault(ConfigKey.TRIGGER_IMMEDIATE_PAGINATION, true));
-        Assert.assertFalse(
-                configuration.getValueOrDefault(ConfigKey.UNDOABLE_ACTIONS_ENABLED, true));
+        Assert.assertTrue(
+                configuration.getValueOrDefault(ConfigKey.UNDOABLE_ACTIONS_ENABLED, false));
         Assert.assertTrue(configuration.getValueOrDefault(ConfigKey.USE_TIMEOUT_SCHEDULER, false));
         Assert.assertFalse(
                 configuration.getValueOrDefault(ConfigKey.USE_SECONDARY_PAGE_REQUEST, true));

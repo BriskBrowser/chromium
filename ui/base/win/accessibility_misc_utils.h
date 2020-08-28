@@ -9,14 +9,14 @@
 #include <UIAutomationCore.h>
 
 #include "base/compiler_specific.h"
+#include "base/component_export.h"
 #include "base/strings/string16.h"
-#include "ui/base/ui_base_export.h"
 
 namespace base {
 namespace win {
 
   // UIA Text provider implementation for edit controls.
-class UI_BASE_EXPORT UIATextProvider
+class COMPONENT_EXPORT(UI_BASE) UIATextProvider
     : public CComObjectRootEx<CComMultiThreadModel>,
       public ITextProvider {
  public:
@@ -43,19 +43,19 @@ class UI_BASE_EXPORT UIATextProvider
   //
   // ITextProvider methods.
   //
-  STDMETHOD(GetSelection)(SAFEARRAY** ret) override;
+  IFACEMETHODIMP GetSelection(SAFEARRAY** ret) override;
 
-  STDMETHOD(GetVisibleRanges)(SAFEARRAY** ret) override;
+  IFACEMETHODIMP GetVisibleRanges(SAFEARRAY** ret) override;
 
-  STDMETHOD(RangeFromChild)(IRawElementProviderSimple* child,
-                            ITextRangeProvider** ret) override;
+  IFACEMETHODIMP RangeFromChild(IRawElementProviderSimple* child,
+                                ITextRangeProvider** ret) override;
 
-  STDMETHOD(RangeFromPoint)(struct UiaPoint point,
-                            ITextRangeProvider** ret) override;
+  IFACEMETHODIMP RangeFromPoint(struct UiaPoint point,
+                                ITextRangeProvider** ret) override;
 
-  STDMETHOD(get_DocumentRange)(ITextRangeProvider** ret) override;
+  IFACEMETHODIMP get_DocumentRange(ITextRangeProvider** ret) override;
 
-  STDMETHOD(get_SupportedTextSelection)(
+  IFACEMETHODIMP get_SupportedTextSelection(
       enum SupportedTextSelection* ret) override;
 
  private:

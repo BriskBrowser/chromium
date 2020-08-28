@@ -11,7 +11,6 @@ import android.os.Bundle;
 import android.text.TextUtils;
 
 import com.google.android.gms.gcm.GcmListenerService;
-import com.google.ipc.invalidation.ticl.android2.channel.AndroidGcmController;
 
 import org.chromium.base.ContextUtils;
 import org.chromium.base.Log;
@@ -46,12 +45,6 @@ public class ChromeGcmListenerService extends GcmListenerService {
     public void onMessageReceived(final String from, final Bundle data) {
         boolean hasCollapseKey = !TextUtils.isEmpty(data.getString("collapse_key"));
         GcmUma.recordDataMessageReceived(ContextUtils.getApplicationContext(), hasCollapseKey);
-
-        String invalidationSenderId = AndroidGcmController.get(this).getSenderId();
-        if (from.equals(invalidationSenderId)) {
-            AndroidGcmController.get(this).onMessageReceived(data);
-            return;
-        }
 
         // Dispatch the message to the GCM Driver for native features.
         PostTask.runOrPostTask(UiThreadTaskTraits.DEFAULT, () -> {
@@ -126,7 +119,7 @@ public class ChromeGcmListenerService extends GcmListenerService {
      * the next time Chrome is launched into foreground.
      */
     private static boolean maybePersistLazyMessage(GCMMessage message) {
-        if (isNativeLoaded()) {
+        if (isFullBrowserLoaded()) {
             return false;
         }
 
@@ -150,10 +143,10 @@ public class ChromeGcmListenerService extends GcmListenerService {
      */
     private static void scheduleBackgroundTask(GCMMessage message) {
         // TODO(peter): Add UMA for measuring latency introduced by the BackgroundTaskScheduler.
-        TaskInfo backgroundTask = TaskInfo.createOneOffTask(TaskIds.GCM_BACKGROUND_TASK_JOB_ID,
-                                                  GCMBackgroundTask.class, 0 /* immediately */)
-                                          .setExtras(message.toBundle())
-                                          .build();
+        TaskInfo backgroundTask =
+                TaskInfo.createOneOffTask(TaskIds.GCM_BACKGROUND_TASK_JOB_ID, 0 /* immediately */)
+                        .setExtras(message.toBundle())
+                        .build();
         BackgroundTaskSchedulerFactory.getScheduler().schedule(
                 ContextUtils.getApplicationContext(), backgroundTask);
     }
@@ -221,7 +214,7 @@ public class ChromeGcmListenerService extends GcmListenerService {
         GCMDriver.dispatchMessage(message);
     }
 
-    private static boolean isNativeLoaded() {
-        return ChromeBrowserInitializer.getInstance().hasNativeInitializationCompleted();
+    private static boolean isFullBrowserLoaded() {
+        return ChromeBrowserInitializer.getInstance().isFullBrowserInitialized();
     }
 }

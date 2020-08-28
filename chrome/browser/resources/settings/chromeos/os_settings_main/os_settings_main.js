@@ -81,10 +81,6 @@ Polymer({
 
     showAndroidApps: Boolean,
 
-    showAppManagement: Boolean,
-
-    showApps: Boolean,
-
     showCrostini: Boolean,
 
     showReset: Boolean,
@@ -136,7 +132,8 @@ Polymer({
    * @param {!settings.Route} newRoute
    */
   currentRouteChanged(newRoute) {
-    const inAbout = settings.routes.ABOUT.contains(settings.getCurrentRoute());
+    const inAbout = settings.routes.ABOUT.contains(
+        settings.Router.getInstance().getCurrentRoute());
     this.showPages_ = {about: inAbout, settings: !inAbout};
 
     if (!newRoute.isSubpage()) {

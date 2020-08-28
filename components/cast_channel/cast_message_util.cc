@@ -107,6 +107,10 @@ constexpr int kVirtualConnectSdkType = 2;
 // stands for CONNECTION_TYPE_LOCAL, which is the only type used in Chrome.
 constexpr int kVirtualConnectTypeLocal = 1;
 
+// The reason code passed to the virtual connection CLOSE message indicating
+// that the connection has been gracefully closed by the sender.
+constexpr int kVirtualConnectionClosedByPeer = 5;
+
 void FillCommonCastMessageFields(CastMessage* message,
                                  const std::string& source_id,
                                  const std::string& destination_id,
@@ -130,7 +134,7 @@ CastMessage CreateKeepAliveMessage(base::StringPiece keep_alive_type) {
 int GetVirtualConnectPlatformValue() {
 #if defined(OS_WIN)
   return 3;
-#elif defined(OS_MACOSX)
+#elif defined(OS_APPLE)
   return 4;
 #elif defined(OS_CHROMEOS)
   return 5;
@@ -225,7 +229,7 @@ const char* ToString(CastMessageType message_type) {
 
 // TODO(jrw): Eliminate this function.
 const char* ToString(V2MessageType message_type) {
-  return EnumToString(message_type).value_or(nullptr).data();
+  return EnumToString(message_type).value_or("").data();
 }
 
 // TODO(jrw): Eliminate this function.
@@ -349,6 +353,18 @@ CastMessage CreateVirtualConnectionRequest(
                            destination_id);
 }
 
+CastMessage CreateVirtualConnectionClose(const std::string& source_id,
+                                         const std::string& destination_id) {
+  Value dict(Value::Type::DICTIONARY);
+  dict.SetKey(
+      "type",
+      Value(
+          EnumToString<CastMessageType, CastMessageType::kCloseConnection>()));
+  dict.SetKey("reasonCode", Value(kVirtualConnectionClosedByPeer));
+  return CreateCastMessage(kConnectionNamespace, dict, source_id,
+                           destination_id);
+}
+
 CastMessage CreateGetAppAvailabilityRequest(const std::string& source_id,
                                             int request_id,
                                             const std::string& app_id) {
@@ -405,17 +421,27 @@ CastMessage CreateBroadcastRequest(const std::string& source_id,
                            kPlatformReceiverId);
 }
 
-CastMessage CreateLaunchRequest(const std::string& source_id,
-                                int request_id,
-                                const std::string& app_id,
-                                const std::string& locale) {
+CastMessage CreateLaunchRequest(
+    const std::string& source_id,
+    int request_id,
+    const std::string& app_id,
+    const std::string& locale,
+    const std::vector<std::string>& supported_app_types,
+    const base::Optional<base::Value>& app_params) {
   Value dict(Value::Type::DICTIONARY);
   dict.SetKey("type",
               Value(EnumToString<CastMessageType, CastMessageType::kLaunch>()));
   dict.SetKey("requestId", Value(request_id));
   dict.SetKey("appId", Value(app_id));
   dict.SetKey("language", Value(locale));
+  std::vector<Value> supported_app_types_value;
+  for (const std::string& type : supported_app_types)
+    supported_app_types_value.push_back(Value(type));
 
+  dict.SetKey("supportedAppTypes", Value(supported_app_types_value));
+  if (app_params) {
+    dict.SetKey("appParams", app_params.value().Clone());
+  }
   return CreateCastMessage(kReceiverNamespace, dict, source_id,
                            kPlatformReceiverId);
 }
@@ -441,7 +467,19 @@ CastMessage CreateCastMessage(const std::string& message_namespace,
                               message_namespace);
   output.set_payload_type(
       CastMessage::PayloadType::CastMessage_PayloadType_STRING);
-  CHECK(base::JSONWriter::Write(message, output.mutable_payload_utf8()));
+  if (message.is_string()) {
+    // NOTE(jrw): This case is needed to fix crbug.com/149843471, which affects
+    // the ability to cast the Shaka player.  Without it, the payload of the
+    // first message sent with the urn:x-cast:com.google.shaka.v2 namespace is
+    // given an extra level of quoting.  It's not clear whether switching on the
+    // JSON type of the message is the right thing to do here, or if this case
+    // is simply compensating for some other problem that occurs between here
+    // and PresentationConnection::send(string, ...), which receives a value
+    // with the correct amount of quotation.
+    output.set_payload_utf8(message.GetString());
+  } else {
+    CHECK(base::JSONWriter::Write(message, output.mutable_payload_utf8()));
+  }
   return output;
 }
 
@@ -497,7 +535,7 @@ bool IsMediaRequestMessageType(V2MessageType type) {
 
 // TODO(jrw): Eliminate this function.
 const char* ToString(GetAppAvailabilityResult result) {
-  return EnumToString(result).value_or(nullptr).data();
+  return EnumToString(result).value_or("").data();
 }
 
 base::Optional<int> GetRequestIdFromResponse(const Value& payload) {
@@ -523,10 +561,19 @@ GetAppAvailabilityResult GetAppAvailabilityResultFromResponse(
       .value_or(GetAppAvailabilityResult::kUnknown);
 }
 
-LaunchSessionResponse::LaunchSessionResponse() {}
+LaunchSessionResponse::LaunchSessionResponse() = default;
 LaunchSessionResponse::LaunchSessionResponse(LaunchSessionResponse&& other) =
     default;
+LaunchSessionResponse& LaunchSessionResponse::operator=(
+    LaunchSessionResponse&& other) = default;
 LaunchSessionResponse::~LaunchSessionResponse() = default;
+
+LaunchSessionResponse GetLaunchSessionResponseError(std::string error_msg) {
+  LaunchSessionResponse response;
+  response.result = LaunchSessionResponse::Result::kError;
+  response.error_msg = std::move(error_msg);
+  return response;
+}
 
 LaunchSessionResponse GetLaunchSessionResponse(const base::Value& payload) {
   const Value* type_value = payload.FindKeyOfType("type", Value::Type::STRING);

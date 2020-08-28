@@ -17,7 +17,6 @@
 #include "base/threading/sequenced_task_runner_handle.h"
 #include "base/threading/thread_restrictions.h"
 #include "chrome/browser/download/download_prefs.h"
-#include "chrome/browser/metrics/subprocess_metrics_provider.h"
 #include "chrome/browser/predictors/loading_predictor_config.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
@@ -26,10 +25,10 @@
 #include "chrome/common/pref_names.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/ui_test_utils.h"
+#include "components/metrics/content/subprocess_metrics_provider.h"
 #include "components/prefs/pref_service.h"
 #include "content/public/browser/web_contents_observer.h"
-#include "content/public/common/resource_load_info.mojom.h"
-#include "content/public/common/resource_type.h"
+#include "content/public/test/browser_test.h"
 #include "content/public/test/download_test_observer.h"
 #include "content/public/test/test_navigation_observer.h"
 #include "net/base/filename_util.h"
@@ -38,6 +37,7 @@
 #include "net/test/embedded_test_server/controllable_http_response.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/blink/public/mojom/loader/resource_load_info.mojom.h"
 #include "ui/base/window_open_disposition.h"
 #include "url/gurl.h"
 
@@ -83,8 +83,9 @@ class WaitForMainFrameResourceObserver : public content::WebContentsObserver {
   void ResourceLoadComplete(
       RenderFrameHost* render_frame_host,
       const content::GlobalRequestID& request_id,
-      const content::mojom::ResourceLoadInfo& resource_load_info) override {
-    EXPECT_EQ(ResourceType::kMainFrame, resource_load_info.resource_type);
+      const blink::mojom::ResourceLoadInfo& resource_load_info) override {
+    EXPECT_EQ(network::mojom::RequestDestination::kDocument,
+              resource_load_info.request_destination);
     EXPECT_EQ(net::OK, resource_load_info.net_error);
     run_loop_.Quit();
   }
@@ -133,11 +134,9 @@ class NetworkRequestMetricsBrowserTest
                                   subresource_path.c_str());
       case RequestType::kImage:
         return base::StringPrintf("<img src='%s'>", subresource_path.c_str());
-        break;
       case RequestType::kScript:
         return base::StringPrintf("<script src='%s'></script>",
                                   subresource_path.c_str());
-        break;
       case RequestType::kMainFrame:
         NOTREACHED();
     }
@@ -182,7 +181,7 @@ class NetworkRequestMetricsBrowserTest
                        NetworkAccessed network_accessed) {
     // Some metrics may come from the renderer. This call ensures that those
     // metrics are available.
-    SubprocessMetricsProvider::MergeHistogramDeltasForTesting();
+    metrics::SubprocessMetricsProvider::MergeHistogramDeltasForTesting();
 
     if (GetParam() == RequestType::kMainFrame) {
       histograms_->ExpectTotalCount("Net.ErrorCodesForImages2", 0);
@@ -269,7 +268,7 @@ class NetworkRequestMetricsBrowserTest
   void CheckHistogramsAfterMainFrameInterruption() {
     // Some metrics may come from the renderer. This call ensures that those
     // metrics are available.
-    SubprocessMetricsProvider::MergeHistogramDeltasForTesting();
+    metrics::SubprocessMetricsProvider::MergeHistogramDeltasForTesting();
 
     if (GetParam() == RequestType::kMainFrame) {
       // Can't check Net.ErrorCodesForSubresources3, due to the favicon, which
@@ -512,7 +511,7 @@ IN_PROC_BROWSER_TEST_P(NetworkRequestMetricsBrowserTest, Download) {
 
   // Some metrics may come from the renderer. This call ensures that those
   // metrics are available.
-  SubprocessMetricsProvider::MergeHistogramDeltasForTesting();
+  metrics::SubprocessMetricsProvider::MergeHistogramDeltasForTesting();
 
   if (GetParam() == RequestType::kMainFrame) {
     histograms()->ExpectTotalCount("Net.ErrorCodesForImages2", 0);
@@ -570,9 +569,7 @@ IN_PROC_BROWSER_TEST_P(NetworkRequestMetricsBrowserTest, FileURLError) {
   base::FilePath main_frame_path = temp_dir_.GetPath().AppendASCII("main.html");
   if (GetParam() != RequestType::kMainFrame) {
     std::string main_frame_data = GetMainFrameContents("subresource");
-    ASSERT_EQ(static_cast<int>(main_frame_data.length()),
-              base::WriteFile(main_frame_path, main_frame_data.c_str(),
-                              main_frame_data.length()));
+    ASSERT_TRUE(base::WriteFile(main_frame_path, main_frame_data));
   }
 
   ui_test_utils::NavigateToURL(browser(),
@@ -592,15 +589,11 @@ IN_PROC_BROWSER_TEST_P(NetworkRequestMetricsBrowserTest, FileURLSuccess) {
   std::string main_frame_data = "foo";
   if (GetParam() != RequestType::kMainFrame)
     main_frame_data = GetMainFrameContents(kSubresourcePath);
-  ASSERT_EQ(static_cast<int>(main_frame_data.length()),
-            base::WriteFile(main_frame_path, main_frame_data.c_str(),
-                            main_frame_data.length()));
+  ASSERT_TRUE(base::WriteFile(main_frame_path, main_frame_data.c_str()));
   if (GetParam() != RequestType::kMainFrame) {
     std::string subresource_data = "foo";
-    ASSERT_EQ(
-        static_cast<int>(subresource_data.length()),
-        base::WriteFile(temp_dir_.GetPath().AppendASCII(kSubresourcePath),
-                        subresource_data.c_str(), subresource_data.length()));
+    ASSERT_TRUE(base::WriteFile(
+        temp_dir_.GetPath().AppendASCII(kSubresourcePath), subresource_data));
   }
 
   ui_test_utils::NavigateToURL(browser(),

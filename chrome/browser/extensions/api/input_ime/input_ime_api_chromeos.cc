@@ -13,6 +13,7 @@
 #include "base/feature_list.h"
 #include "base/macros.h"
 #include "base/strings/stringprintf.h"
+#include "chrome/browser/chromeos/input_method/assistive_window_properties.h"
 #include "chrome/browser/chromeos/input_method/input_method_engine.h"
 #include "chrome/browser/chromeos/input_method/native_input_method_engine.h"
 #include "chrome/browser/chromeos/login/lock/screen_locker.h"
@@ -22,13 +23,14 @@
 #include "chrome/browser/ui/ash/keyboard/chrome_keyboard_controller_client.h"
 #include "chrome/common/extensions/api/input_ime.h"
 #include "chrome/common/extensions/api/input_method_private.h"
+#include "chromeos/constants/chromeos_features.h"
 #include "extensions/browser/extension_registry.h"
 #include "extensions/browser/process_manager.h"
 #include "extensions/common/manifest_handlers/background_info.h"
 #include "ui/base/ime/chromeos/component_extension_ime_manager.h"
 #include "ui/base/ime/chromeos/extension_ime_util.h"
+#include "ui/base/ime/chromeos/ime_engine_handler_interface.h"
 #include "ui/base/ime/chromeos/input_method_manager.h"
-#include "ui/base/ime/ime_engine_handler_interface.h"
 #include "ui/base/ui_base_features.h"
 
 namespace input_ime = extensions::api::input_ime;
@@ -42,6 +44,10 @@ namespace SetCursorPosition = extensions::api::input_ime::SetCursorPosition;
 namespace SetCandidates = extensions::api::input_ime::SetCandidates;
 namespace SetCandidateWindowProperties =
     extensions::api::input_ime::SetCandidateWindowProperties;
+namespace SetAssistiveWindowProperties =
+    extensions::api::input_ime::SetAssistiveWindowProperties;
+namespace SetAssistiveWindowButtonHighlighted =
+    extensions::api::input_ime::SetAssistiveWindowButtonHighlighted;
 namespace ClearComposition = extensions::api::input_ime::ClearComposition;
 namespace OnCompositionBoundsChanged =
     extensions::api::input_method_private::OnCompositionBoundsChanged;
@@ -53,9 +59,9 @@ namespace SetSelectionRange =
     extensions::api::input_method_private::SetSelectionRange;
 namespace FinishComposingText =
     extensions::api::input_method_private::FinishComposingText;
-using ui::IMEEngineHandlerInterface;
-using input_method::InputMethodEngineBase;
 using chromeos::InputMethodEngine;
+using chromeos::InputMethodEngineBase;
+using ui::IMEEngineHandlerInterface;
 
 namespace {
 const char kErrorEngineNotAvailable[] = "The engine is not available.";
@@ -98,6 +104,55 @@ keyboard::KeyboardConfig GetKeyboardConfig() {
   return ChromeKeyboardControllerClient::Get()->GetKeyboardConfig();
 }
 
+ui::ime::AssistiveWindowType ConvertAssistiveWindowType(
+    input_ime::AssistiveWindowType type) {
+  switch (type) {
+    case input_ime::ASSISTIVE_WINDOW_TYPE_NONE:
+      return ui::ime::AssistiveWindowType::kNone;
+    case input_ime::ASSISTIVE_WINDOW_TYPE_UNDO:
+      return ui::ime::AssistiveWindowType::kUndoWindow;
+  }
+}
+
+ui::ime::ButtonId ConvertAssistiveWindowButtonId(
+    input_ime::AssistiveWindowButton id) {
+  switch (id) {
+    case input_ime::ASSISTIVE_WINDOW_BUTTON_ADDTODICTIONARY:
+      return ui::ime::ButtonId::kAddToDictionary;
+    case input_ime::ASSISTIVE_WINDOW_BUTTON_UNDO:
+      return ui::ime::ButtonId::kUndo;
+    case input_ime::ASSISTIVE_WINDOW_BUTTON_NONE:
+      return ui::ime::ButtonId::kNone;
+  }
+}
+
+input_ime::AssistiveWindowButton ConvertAssistiveWindowButton(
+    const ui::ime::ButtonId id) {
+  switch (id) {
+    case ui::ime::ButtonId::kNone:
+    case ui::ime::ButtonId::kSmartInputsSettingLink:
+    case ui::ime::ButtonId::kSuggestion:
+    case ui::ime::ButtonId::kLearnMore:
+      return input_ime::ASSISTIVE_WINDOW_BUTTON_NONE;
+    case ui::ime::ButtonId::kUndo:
+      return input_ime::ASSISTIVE_WINDOW_BUTTON_UNDO;
+    case ui::ime::ButtonId::kAddToDictionary:
+      return input_ime::ASSISTIVE_WINDOW_BUTTON_ADDTODICTIONARY;
+  }
+}
+
+input_ime::AssistiveWindowType ConvertAssistiveWindowType(
+    const ui::ime::AssistiveWindowType& type) {
+  switch (type) {
+    case ui::ime::AssistiveWindowType::kNone:
+    case ui::ime::AssistiveWindowType::kEmojiSuggestion:
+    case ui::ime::AssistiveWindowType::kPersonalInfoSuggestion:
+      return input_ime::AssistiveWindowType::ASSISTIVE_WINDOW_TYPE_NONE;
+    case ui::ime::AssistiveWindowType::kUndoWindow:
+      return input_ime::AssistiveWindowType::ASSISTIVE_WINDOW_TYPE_UNDO;
+  }
+}
+
 class ImeObserverChromeOS : public ui::ImeObserver {
  public:
   ImeObserverChromeOS(const std::string& extension_id, Profile* profile)
@@ -105,7 +160,7 @@ class ImeObserverChromeOS : public ui::ImeObserver {
 
   ~ImeObserverChromeOS() override = default;
 
-  // input_method::InputMethodEngineBase::Observer overrides.
+  // chromeos::InputMethodEngineBase::Observer overrides.
   void OnInputContextUpdate(
       const IMEEngineHandlerInterface::InputContext& context) override {
     if (extension_id_.empty() ||
@@ -232,6 +287,8 @@ class ImeObserverChromeOS : public ui::ImeObserver {
       input_context.context_id = context.id;
       input_context.type = input_method_private::ParseInputContextType(
           ConvertInputContextType(context));
+      input_context.mode = input_method_private::ParseInputModeType(
+          ConvertInputContextMode(context));
       input_context.auto_correct = ConvertInputContextAutoCorrect(context);
       input_context.auto_complete = ConvertInputContextAutoComplete(context);
       input_context.auto_capitalize =
@@ -252,6 +309,42 @@ class ImeObserverChromeOS : public ui::ImeObserver {
     }
 
     ImeObserver::OnFocus(context);
+  }
+
+  void OnAssistiveWindowButtonClicked(
+      const ui::ime::AssistiveWindowButton& button) override {
+    if (extension_id_.empty() ||
+        !HasListener(input_ime::OnAssistiveWindowButtonClicked::kEventName)) {
+      return;
+    }
+    input_ime::OnAssistiveWindowButtonClicked::Details details;
+    details.button_id = ConvertAssistiveWindowButton(button.id);
+    details.window_type = ConvertAssistiveWindowType(button.window_type);
+
+    std::unique_ptr<base::ListValue> args(
+        input_ime::OnAssistiveWindowButtonClicked::Create(details));
+    DispatchEventToExtension(
+        extensions::events::INPUT_IME_ON_ASSISTIVE_WINDOW_BUTTON_CLICKED,
+        input_ime::OnAssistiveWindowButtonClicked::kEventName, std::move(args));
+  }
+
+  void OnSuggestionsChanged(
+      const std::vector<std::string>& suggestions) override {
+    std::unique_ptr<base::ListValue> args(
+        input_method_private::OnSuggestionsChanged::Create(suggestions));
+    DispatchEventToExtension(
+        extensions::events::INPUT_IME_ON_SUGGESTIONS_CHANGED,
+        input_method_private::OnSuggestionsChanged::kEventName,
+        std::move(args));
+  }
+
+  void OnInputMethodOptionsChanged(const std::string& engine_id) override {
+    std::unique_ptr<base::ListValue> args(
+        input_method_private::OnInputMethodOptionsChanged::Create(engine_id));
+    DispatchEventToExtension(
+        extensions::events::INPUT_IME_ON_INPUT_METHOD_OPTIONS_CHANGED,
+        input_method_private::OnInputMethodOptionsChanged::kEventName,
+        std::move(args));
   }
 
  private:
@@ -377,6 +470,41 @@ class ImeObserverChromeOS : public ui::ImeObserver {
     return input_context.flags & ui::TEXT_INPUT_FLAG_HAS_BEEN_PASSWORD;
   }
 
+  std::string ConvertInputContextMode(
+      ui::IMEEngineHandlerInterface::InputContext input_context) {
+    std::string input_mode_type = "none";  // default to nothing
+    switch (input_context.mode) {
+      case ui::TEXT_INPUT_MODE_SEARCH:
+        input_mode_type = "search";
+        break;
+      case ui::TEXT_INPUT_MODE_TEL:
+        input_mode_type = "tel";
+        break;
+      case ui::TEXT_INPUT_MODE_URL:
+        input_mode_type = "url";
+        break;
+      case ui::TEXT_INPUT_MODE_EMAIL:
+        input_mode_type = "email";
+        break;
+      case ui::TEXT_INPUT_MODE_NUMERIC:
+        input_mode_type = "numeric";
+        break;
+      case ui::TEXT_INPUT_MODE_DECIMAL:
+        input_mode_type = "decimal";
+        break;
+      case ui::TEXT_INPUT_MODE_NONE:
+        input_mode_type = "noKeyboard";
+        break;
+      case ui::TEXT_INPUT_MODE_TEXT:
+        input_mode_type = "text";
+        break;
+      default:
+        input_mode_type = "";
+        break;
+    }
+    return input_mode_type;
+  }
+
   DISALLOW_COPY_AND_ASSIGN(ImeObserverChromeOS);
 };
 
@@ -457,14 +585,16 @@ bool InputImeEventRouter::RegisterImeExtension(
 
   if (chromeos::input_method::InputMethodManager::Get()->GetUISessionState() ==
           chromeos::input_method::InputMethodManager::STATE_LOGIN_SCREEN &&
-      profile->HasOffTheRecordProfile()) {
-    profile = profile->GetOffTheRecordProfile();
+      profile->HasPrimaryOTRProfile()) {
+    profile = profile->GetPrimaryOTRProfile();
   }
 
   auto observer = std::make_unique<ImeObserverChromeOS>(extension_id, profile);
-  auto engine = (extension_id == "jkghodnilhceideoidjikpgommlajknk")
-                    ? std::make_unique<chromeos::NativeInputMethodEngine>()
-                    : std::make_unique<chromeos::InputMethodEngine>();
+  auto engine =
+      (extension_id == "jkghodnilhceideoidjikpgommlajknk" &&
+       base::FeatureList::IsEnabled(chromeos::features::kNativeRuleBasedTyping))
+          ? std::make_unique<chromeos::NativeInputMethodEngine>()
+          : std::make_unique<chromeos::InputMethodEngine>();
   engine->Initialize(std::move(observer), extension_id.c_str(), profile);
   engine_map_[extension_id] = std::move(engine);
 
@@ -548,6 +678,60 @@ ExtensionFunction::ResponseAction InputImeHideInputViewFunction::Run() {
 }
 
 ExtensionFunction::ResponseAction
+InputImeSetAssistiveWindowPropertiesFunction::Run() {
+  std::string error;
+  InputMethodEngine* engine = GetEngineIfActive(
+      Profile::FromBrowserContext(browser_context()), extension_id(), &error);
+  if (!engine) {
+    return RespondNow(Error(InformativeError(error, function_name())));
+  }
+  std::unique_ptr<SetAssistiveWindowProperties::Params> parent_params(
+      SetAssistiveWindowProperties::Params::Create(*args_));
+  const SetAssistiveWindowProperties::Params::Parameters& params =
+      parent_params->parameters;
+  const input_ime::AssistiveWindowProperties& window = params.properties;
+  chromeos::AssistiveWindowProperties assistive_window;
+
+  assistive_window.visible = window.visible;
+  assistive_window.type = ConvertAssistiveWindowType(window.type);
+  if (window.announce_string)
+    assistive_window.announce_string = *window.announce_string;
+
+  engine->SetAssistiveWindowProperties(params.context_id, assistive_window,
+                                       &error);
+  if (!error.empty())
+    return RespondNow(Error(InformativeError(error, function_name())));
+  return RespondNow(OneArgument(std::make_unique<base::Value>(true)));
+}
+
+ExtensionFunction::ResponseAction
+InputImeSetAssistiveWindowButtonHighlightedFunction::Run() {
+  std::string error;
+  InputMethodEngine* engine = GetEngineIfActive(
+      Profile::FromBrowserContext(browser_context()), extension_id(), &error);
+  if (!engine) {
+    return RespondNow(Error(InformativeError(error, function_name())));
+  }
+  std::unique_ptr<SetAssistiveWindowButtonHighlighted::Params> parent_params(
+      SetAssistiveWindowButtonHighlighted::Params::Create(*args_));
+  const SetAssistiveWindowButtonHighlighted::Params::Parameters& params =
+      parent_params->parameters;
+  ui::ime::AssistiveWindowButton button;
+
+  button.id = ConvertAssistiveWindowButtonId(params.button_id);
+  button.window_type = ConvertAssistiveWindowType(params.window_type);
+  if (params.announce_string)
+    button.announce_string = *params.announce_string;
+
+  engine->SetButtonHighlighted(params.context_id, button, params.highlighted,
+                               &error);
+  if (!error.empty())
+    return RespondNow(Error(InformativeError(error, function_name())));
+
+  return RespondNow(NoArguments());
+}
+
+ExtensionFunction::ResponseAction
 InputImeSetCandidateWindowPropertiesFunction::Run() {
   std::unique_ptr<SetCandidateWindowProperties::Params> parent_params(
       SetCandidateWindowProperties::Params::Create(*args_));
@@ -574,7 +758,7 @@ InputImeSetCandidateWindowPropertiesFunction::Run() {
   }
 
   InputMethodEngine::CandidateWindowProperty properties_out =
-      engine->GetCandidateWindowProperty();
+      engine->GetCandidateWindowProperty(params.engine_id);
   bool modified = false;
 
   if (properties.cursor_visible) {
@@ -611,8 +795,19 @@ InputImeSetCandidateWindowPropertiesFunction::Run() {
     modified = true;
   }
 
+  if (properties.current_candidate_index) {
+    properties_out.current_candidate_index =
+        *properties.current_candidate_index;
+    modified = true;
+  }
+
+  if (properties.total_candidates) {
+    properties_out.total_candidates = *properties.total_candidates;
+    modified = true;
+  }
+
   if (modified) {
-    engine->SetCandidateWindowProperty(properties_out);
+    engine->SetCandidateWindowProperty(params.engine_id, properties_out);
   }
 
   return RespondNow(OneArgument(std::make_unique<base::Value>(true)));

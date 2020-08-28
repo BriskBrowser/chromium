@@ -17,6 +17,7 @@ Polymer({
   behaviors: [
     NetworkListenerBehavior,
     CrPolicyNetworkBehaviorMojo,
+    DeepLinkingBehavior,
     settings.RouteObserverBehavior,
     settings.RouteOriginBehavior,
     I18nBehavior,
@@ -107,9 +108,49 @@ Polymer({
     },
 
     /** @private */
+    isUpdatedCellularUiEnabled_: {
+      type: Boolean,
+      value: loadTimeData.getBoolean('updatedCellularActivationUi'),
+    },
+
+    /** @private */
     hasCompletedScanSinceLastEnabled_: {
       type: Boolean,
       value: false,
+    },
+
+    /**
+     * False if VPN is disabled by policy.
+     * @private {boolean}
+     */
+    vpnIsEnabled_: {
+      type: Boolean,
+      value: false,
+    },
+
+    /**
+     * Contains the settingId of any deep link that wasn't able to be shown,
+     * null otherwise.
+     * @private {?chromeos.settings.mojom.Setting}
+     */
+    pendingSettingId_: {
+      type: Number,
+      value: null,
+    },
+
+    /**
+     * Used by DeepLinkingBehavior to focus this page's deep links.
+     * @type {!Set<!chromeos.settings.mojom.Setting>}
+     */
+    supportedSettingIds: {
+      type: Object,
+      value: () => new Set([
+        chromeos.settings.mojom.Setting.kWifiOnOff,
+        chromeos.settings.mojom.Setting.kWifiAddNetwork,
+        chromeos.settings.mojom.Setting.kMobileOnOff,
+        chromeos.settings.mojom.Setting.kInstantTetheringOnOff,
+        chromeos.settings.mojom.Setting.kCellularAddNetwork,
+      ]),
     },
   },
 
@@ -150,6 +191,39 @@ Polymer({
   },
 
   /**
+   * Overridden from DeepLinkingBehavior.
+   * @param {!chromeos.settings.mojom.Setting} settingId
+   * @return {boolean}
+   */
+  beforeDeepLinkAttempt(settingId) {
+    if (settingId !== chromeos.settings.mojom.Setting.kInstantTetheringOnOff) {
+      // Continue with deep linking attempt.
+      return true;
+    }
+
+    // Wait for element to load.
+    Polymer.RenderStatus.afterNextRender(this, () => {
+      // If both Cellular and Instant Tethering are enabled, we show a special
+      // toggle for Instant Tethering. If it exists, deep link to it.
+      const tetherEnabled = this.$$('#tetherEnabledButton');
+      if (tetherEnabled) {
+        this.showDeepLinkElement(tetherEnabled);
+        return;
+      }
+      // Otherwise, the device does not support Cellular and Instant Tethering
+      // on/off is controlled by the top-level "Mobile data" toggle instead.
+      const deviceEnabled = this.$$('#deviceEnabledButton');
+      if (deviceEnabled) {
+        this.showDeepLinkElement(deviceEnabled);
+        return;
+      }
+      console.warn(`Element with deep link id ${settingId} not focusable.`);
+    });
+    // Stop deep link attempt since we completed it manually.
+    return false;
+  },
+
+  /**
    * settings.RouteObserverBehavior
    * @param {!settings.Route} newRoute
    * @param {!settings.Route} oldRoute
@@ -163,6 +237,14 @@ Polymer({
     this.init();
     settings.RouteOriginBehaviorImpl.currentRouteChanged.call(
         this, newRoute, oldRoute);
+
+    this.attemptDeepLink().then(result => {
+      if (!result.deepLinkShown && result.pendingSettingId) {
+        // Store any deep link settingId that wasn't shown so we can try again
+        // in getNetworkStateList_.
+        this.pendingSettingId_ = result.pendingSettingId;
+      }
+    });
   },
 
   init() {
@@ -201,6 +283,12 @@ Polymer({
   /** @private */
   deviceStateChanged_() {
     if (this.deviceState !== undefined) {
+      // Set |vpnIsEnabled_| to be used for VPN special cases.
+      if (this.deviceState.type === mojom.NetworkType.kVPN) {
+        this.vpnIsEnabled_ = this.deviceState.deviceState ===
+            chromeos.networkConfig.mojom.DeviceStateType.kEnabled;
+      }
+
       // A scan has completed if the spinner was active (i.e., scanning was
       // active) and the device is no longer scanning.
       this.hasCompletedScanSinceLastEnabled_ = this.showSpinner &&
@@ -210,7 +298,8 @@ Polymer({
     }
 
     // Scans should only be triggered by the "networks" subpage.
-    if (settings.getCurrentRoute() != settings.routes.INTERNET_NETWORKS) {
+    if (settings.Router.getInstance().getCurrentRoute() !=
+        settings.routes.INTERNET_NETWORKS) {
       this.stopScanning_();
       return;
     }
@@ -260,7 +349,9 @@ Polymer({
     const INTERVAL_MS = 10 * 1000;
     let type = this.deviceState.type;
     if (type == mojom.NetworkType.kCellular && this.tetherDeviceState) {
-      type = mojom.NetworkType.kMobile;
+      // Only request tether scan. Cellular scan is disruptive and should
+      // only be triggered by explicit user action.
+      type = mojom.NetworkType.kTether;
     }
     this.networkConfig_.requestNetworkScan(type);
     this.scanIntervalId_ = window.setInterval(() => {
@@ -289,6 +380,17 @@ Polymer({
     };
     this.networkConfig_.getNetworkStateList(filter).then(response => {
       this.onGetNetworks_(response.result);
+
+      // Check if we have yet to focus a deep-linked element.
+      if (!this.pendingSettingId_) {
+        return;
+      }
+
+      this.showDeepLink(this.pendingSettingId_).then(result => {
+        if (result.deepLinkShown) {
+          this.pendingSettingId_ = null;
+        }
+      });
     });
   },
 
@@ -333,7 +435,7 @@ Polymer({
             if (!OncMojo.connectionStateIsConnected(state.connectionState)) {
               break;
             }
-            // Otherwise Arc VPNs are treated the same as Extension VPNs.
+          // Otherwise Arc VPNs are treated the same as Extension VPNs.
           case mojom.VpnType.kExtension:
             const providerId = state.typeState.vpn.providerId;
             thirdPartyVpns[providerId] = thirdPartyVpns[providerId] || [];
@@ -398,13 +500,18 @@ Polymer({
 
   /**
    * @param {!OncMojo.DeviceStateProperties|undefined} deviceState
-   * @return {boolean} Whether or not the device state is enabled.
+   * @return {boolean} True if the device is enabled or if it is a VPN.
+   *     Note: This function will always return true for VPN because VPNs can be
+   *     disabled by policy only for built-in VPNs (OpenVPN & L2TP). So even
+   *     when VPNs are disabled by policy; the VPN network summary item should
+   *     still be visible and actionable to show details for other VPN
+   *     providers.
    * @private
    */
   deviceIsEnabled_(deviceState) {
     return !!deviceState &&
-        deviceState.deviceState ==
-        chromeos.networkConfig.mojom.DeviceStateType.kEnabled;
+        (deviceState.type == mojom.NetworkType.kVPN ||
+         deviceState.deviceState == mojom.DeviceStateType.kEnabled);
   },
 
   /**
@@ -436,7 +543,8 @@ Polymer({
   enableToggleIsEnabled_(deviceState) {
     return !!deviceState &&
         deviceState.deviceState !=
-        chromeos.networkConfig.mojom.DeviceStateType.kProhibited;
+        chromeos.networkConfig.mojom.DeviceStateType.kProhibited &&
+        !OncMojo.deviceStateIsIntermediate(deviceState.deviceState);
   },
 
   /**
@@ -469,11 +577,15 @@ Polymer({
   },
 
   /**
+   * @param {!OncMojo.DeviceStateProperties|undefined} deviceState
    * @param {!mojom.GlobalPolicy} globalPolicy
    * @return {boolean}
    * @private
    */
-  allowAddConnection_(globalPolicy) {
+  allowAddConnection_(deviceState, globalPolicy) {
+    if (!this.deviceIsEnabled_(deviceState)) {
+      return false;
+    }
     return globalPolicy && !globalPolicy.allowOnlyPolicyNetworksToConnect;
   },
 
@@ -483,22 +595,52 @@ Polymer({
    * @return {boolean}
    * @private
    */
-  showAddButton_(deviceState, globalPolicy) {
+  showAddWifiButton_(deviceState, globalPolicy) {
     if (!deviceState || deviceState.type != mojom.NetworkType.kWiFi) {
       return false;
     }
-    if (!this.deviceIsEnabled_(deviceState)) {
+    return this.allowAddConnection_(deviceState, globalPolicy);
+  },
+
+  /**
+   * @param {!OncMojo.DeviceStateProperties|undefined} deviceState
+   * @param {!mojom.GlobalPolicy} globalPolicy
+   * @return {boolean}
+   * @private
+   */
+  showAddCellularButton_(deviceState, globalPolicy) {
+    if (!this.isUpdatedCellularUiEnabled_) {
       return false;
     }
-    return this.allowAddConnection_(globalPolicy);
+
+    if (!deviceState || deviceState.type != mojom.NetworkType.kCellular) {
+      return false;
+    }
+    return this.allowAddConnection_(deviceState, globalPolicy);
   },
 
   /** @private */
-  onAddButtonTap_() {
-    assert(this.deviceState);
+  onAddWifiButtonTap_() {
+    assert(this.deviceState, 'Device state is falsey - Wifi expected.');
     const type = this.deviceState.type;
-    assert(type != mojom.NetworkType.kCellular);
+    assert(type === mojom.NetworkType.kWiFi, 'Wifi type expected.');
     this.fire('show-config', {type: OncMojo.getNetworkTypeString(type)});
+  },
+
+  /** @private */
+  onAddVpnButtonTap_() {
+    assert(this.deviceState, 'Device state is falsey - VPN expected.');
+    const type = this.deviceState.type;
+    assert(type === mojom.NetworkType.kVPN, 'VPN type expected.');
+    this.fire('show-config', {type: OncMojo.getNetworkTypeString(type)});
+  },
+
+  /** @private */
+  onAddCellularButtonTap_() {
+    assert(this.deviceState, 'Device state is falsey - Cellular expected.');
+    const type = this.deviceState.type;
+    assert(type === mojom.NetworkType.kCellular, 'Cellular type expected.');
+    this.fire('show-cellular-setup');
   },
 
   /**
@@ -508,6 +650,7 @@ Polymer({
   onAddThirdPartyVpnTap_(event) {
     const provider = event.model.item;
     this.browserProxy_.addThirdPartyVpn(provider.appId);
+    settings.recordSettingChange();
   },
 
   /**
@@ -574,6 +717,7 @@ Polymer({
     e.target.blur();
     if (this.canAttemptConnection_(networkState)) {
       this.fire('network-connect', {networkState: networkState});
+      settings.recordSettingChange();
       return;
     }
     this.fire('show-detail', networkState);
@@ -668,7 +812,7 @@ Polymer({
    * @private
    */
   matchesType_(typeString, device) {
-    return device &&
+    return !!device &&
         device.type == OncMojo.getNetworkTypeFromString(typeString);
   },
 
@@ -678,7 +822,21 @@ Polymer({
    * @private
    */
   shouldShowNetworkList_(networkStateList) {
+    if (!!this.deviceState &&
+        this.deviceState.type === mojom.NetworkType.kVPN) {
+      return this.shouldShowVpnList_(networkStateList);
+    }
     return networkStateList.length > 0;
+  },
+
+  /**
+   * @param {!Array<!OncMojo.NetworkStateProperties>} networkStateList
+   * @return {boolean} True if native VPN is not disabled by policy and there
+   *     are more than one VPN network configured.
+   * @private
+   */
+  shouldShowVpnList_(networkStateList) {
+    return this.vpnIsEnabled_ && networkStateList.length > 0;
   },
 
   /**

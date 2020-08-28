@@ -11,10 +11,12 @@
 #include "chrome/browser/extensions/api/safe_browsing_private/safe_browsing_private_event_router_factory.h"
 #include "chrome/browser/profiles/profile_key.h"
 #include "chrome/browser/profiles/profile_manager.h"
+#include "chrome/browser/safe_browsing/cloud_content_scanning/deep_scanning_utils.h"
 #include "chrome/browser/safe_browsing/safe_browsing_service.h"
 #include "components/download/public/common/download_danger_type.h"
 #include "components/download/public/common/download_item.h"
 #include "components/download/public/common/simple_download_manager_coordinator.h"
+#include "components/safe_browsing/core/proto/webprotect.pb.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/download_item_utils.h"
 
@@ -84,6 +86,23 @@ void ReportDangerousDownloadWarningBypassed(
   }
 }
 
+void ReportAnalysisConnectorWarningBypassed(download::DownloadItem* download) {
+  content::BrowserContext* browser_context =
+      content::DownloadItemUtils::GetBrowserContext(download);
+  Profile* profile = Profile::FromBrowserContext(browser_context);
+  if (profile) {
+    std::string raw_digest_sha256 = download->GetHash();
+    extensions::SafeBrowsingPrivateEventRouterFactory::GetForProfile(profile)
+        ->OnAnalysisConnectorWarningBypassed(
+            download->GetURL(), download->GetTargetFilePath().AsUTF8Unsafe(),
+            base::HexEncode(raw_digest_sha256.data(), raw_digest_sha256.size()),
+            download->GetMimeType(),
+            extensions::SafeBrowsingPrivateEventRouter::kTriggerFileDownload,
+            DeepScanAccessPoint::DOWNLOAD, ContentAnalysisScanResult(),
+            download->GetTotalBytes());
+  }
+}
+
 }  // namespace
 
 DownloadReporter::DownloadReporter() {
@@ -135,6 +154,7 @@ void DownloadReporter::OnDownloadUpdated(download::DownloadItem* download) {
   download::DownloadDangerType current_danger_type = download->GetDangerType();
 
   if (!DangerTypeIsDangerous(old_danger_type) &&
+      old_danger_type != download::DOWNLOAD_DANGER_TYPE_ASYNC_SCANNING &&
       DangerTypeIsDangerous(current_danger_type)) {
     ReportDangerousDownloadWarning(download);
   }
@@ -142,6 +162,12 @@ void DownloadReporter::OnDownloadUpdated(download::DownloadItem* download) {
   if (DangerTypeIsDangerous(old_danger_type) &&
       current_danger_type == download::DOWNLOAD_DANGER_TYPE_USER_VALIDATED) {
     ReportDangerousDownloadWarningBypassed(download, old_danger_type);
+  }
+
+  if (old_danger_type ==
+          download::DOWNLOAD_DANGER_TYPE_SENSITIVE_CONTENT_WARNING &&
+      current_danger_type == download::DOWNLOAD_DANGER_TYPE_USER_VALIDATED) {
+    ReportAnalysisConnectorWarningBypassed(download);
   }
 
   danger_types_[download] = current_danger_type;

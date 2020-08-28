@@ -1590,7 +1590,7 @@ TEST_F(ElementAnimationsTest, InfiniteLooping) {
   std::unique_ptr<KeyframeModel> to_add(CreateKeyframeModel(
       std::unique_ptr<AnimationCurve>(new FakeFloatTransition(1.0, 0.f, 1.f)),
       1, TargetProperty::OPACITY));
-  to_add->set_iterations(-1);
+  to_add->set_iterations(std::numeric_limits<double>::infinity());
   animation_->AddKeyframeModel(std::move(to_add));
 
   animation_->Tick(kInitialTickTime);
@@ -3872,26 +3872,6 @@ TEST_F(ElementAnimationsTest, RemoveAndReAddAnimationToTicking) {
       std::unique_ptr<AnimationCurve>(new FakeFloatTransition(1.0, 1.f, 0.5f)),
       2, TargetProperty::OPACITY));
   EXPECT_EQ(1u, host_->ticking_animations_for_testing().size());
-}
-
-TEST_F(ElementAnimationsTest, TickingKeyframeModelsCount) {
-  CreateTestLayer(false, false);
-  AttachTimelineAnimationLayer();
-
-  // Add an animation and ensure the animation is in the host's ticking
-  // animations.
-  animation_->AddKeyframeModel(CreateKeyframeModel(
-      std::unique_ptr<AnimationCurve>(new FakeFloatTransition(1.0, 1.f, 0.5f)),
-      2, TargetProperty::OPACITY));
-  EXPECT_EQ(1u, animation_->TickingKeyframeModelsCount());
-  EXPECT_EQ(1u, host_->CompositedAnimationsCount());
-  animation_->AddKeyframeModel(CreateKeyframeModel(
-      std::unique_ptr<AnimationCurve>(new FakeTransformTransition(1)), 1,
-      TargetProperty::TRANSFORM));
-  EXPECT_EQ(2u, animation_->TickingKeyframeModelsCount());
-  EXPECT_EQ(2u, host_->CompositedAnimationsCount());
-  animation_->keyframe_effect()->RemoveFromTicking();
-  EXPECT_EQ(0u, host_->CompositedAnimationsCount());
 }
 
 // This test verifies that finished keyframe models don't get copied over to

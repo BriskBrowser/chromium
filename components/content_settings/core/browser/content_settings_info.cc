@@ -56,6 +56,13 @@ bool ContentSettingsInfo::IsDefaultSettingValid(ContentSetting setting) const {
     return false;
   }
 
+  // Don't support ALLOW for the file system settings.
+  if ((type == ContentSettingsType::FILE_SYSTEM_WRITE_GUARD ||
+       type == ContentSettingsType::FILE_SYSTEM_READ_GUARD) &&
+      setting == CONTENT_SETTING_ALLOW) {
+    return false;
+  }
+
   return base::Contains(valid_settings_, setting);
 }
 

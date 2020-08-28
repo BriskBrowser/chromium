@@ -53,16 +53,18 @@ GetNetworkFactoryCallback() {
 
 }  // namespace
 
-MockRenderProcessHost::MockRenderProcessHost(BrowserContext* browser_context)
+MockRenderProcessHost::MockRenderProcessHost(BrowserContext* browser_context,
+                                             bool is_for_guests_only)
     : bad_msg_count_(0),
       factory_(nullptr),
       id_(ChildProcessHostImpl::GenerateChildProcessUniqueId()),
       has_connection_(false),
       browser_context_(browser_context),
       prev_routing_id_(0),
+      shutdown_requested_(false),
       fast_shutdown_started_(false),
       deletion_callback_called_(false),
-      is_for_guests_only_(false),
+      is_for_guests_only_(is_for_guests_only),
       is_process_backgrounded_(false),
       is_unused_(true),
       keep_alive_ref_count_(0),
@@ -100,7 +102,6 @@ void MockRenderProcessHost::SimulateRenderProcessExit(
   termination_info.status = status;
   termination_info.exit_code = exit_code;
   termination_info.renderer_has_visible_clients = VisibleClientCount() > 0;
-  termination_info.renderer_was_subframe = GetFrameDepth() > 0;
   NotificationService::current()->Notify(
       NOTIFICATION_RENDERER_PROCESS_CLOSED, Source<RenderProcessHost>(this),
       Details<ChildProcessTerminationInfo>(&termination_info));
@@ -203,7 +204,12 @@ void MockRenderProcessHost::AddWord(const base::string16& word) {
 }
 
 bool MockRenderProcessHost::Shutdown(int exit_code) {
+  shutdown_requested_ = true;
   return true;
+}
+
+bool MockRenderProcessHost::ShutdownRequested() {
+  return shutdown_requested_;
 }
 
 bool MockRenderProcessHost::FastShutdownIfPossible(size_t page_count,
@@ -255,9 +261,9 @@ bool MockRenderProcessHost::IsBlocked() {
   return false;
 }
 
-std::unique_ptr<base::CallbackList<void(bool)>::Subscription>
+std::unique_ptr<RenderProcessHost::BlockStateChangedCallbackList::Subscription>
 MockRenderProcessHost::RegisterBlockStateChangedCallback(
-    const base::RepeatingCallback<void(bool)>& cb) {
+    const BlockStateChangedCallback& cb) {
   return nullptr;
 }
 
@@ -268,6 +274,15 @@ static void DeleteIt(base::WeakPtr<MockRenderProcessHost> h) {
 
 void MockRenderProcessHost::Cleanup() {
   if (listeners_.IsEmpty()) {
+    if (IsInitializedAndNotDead()) {
+      ChildProcessTerminationInfo termination_info;
+      termination_info.status = base::TERMINATION_STATUS_NORMAL_TERMINATION;
+      termination_info.exit_code = 0;
+      termination_info.renderer_has_visible_clients = VisibleClientCount() > 0;
+      for (auto& observer : observers_)
+        observer.RenderProcessExited(this, termination_info);
+    }
+
     for (auto& observer : observers_)
       observer.RenderProcessHostDestroyed(this);
     // Post the delete of |this| as a WeakPtr so that if |this| is deleted by a
@@ -433,30 +448,42 @@ bool MockRenderProcessHost::HostHasNotBeenUsed() {
   return IsUnused() && listeners_.IsEmpty() && GetKeepAliveRefCount() == 0;
 }
 
-void MockRenderProcessHost::LockToOrigin(
+void MockRenderProcessHost::SetProcessLock(
     const IsolationContext& isolation_context,
-    const GURL& lock_url) {
-  ChildProcessSecurityPolicyImpl::GetInstance()->LockToOrigin(
-      isolation_context, GetID(), lock_url);
-  if (SiteInstanceImpl::IsOriginLockASite(lock_url))
+    const ProcessLock& process_lock) {
+  ChildProcessSecurityPolicyImpl::GetInstance()->LockProcess(
+      isolation_context, GetID(), process_lock);
+  if (process_lock.IsASiteOrOrigin())
     is_renderer_locked_to_site_ = true;
 }
 
+bool MockRenderProcessHost::IsProcessLockedForTesting() {
+  ProcessLock lock =
+      ChildProcessSecurityPolicyImpl::GetInstance()->GetProcessLock(GetID());
+  return !lock.is_empty();
+}
+
 void MockRenderProcessHost::BindCacheStorage(
-    network::mojom::CrossOriginEmbedderPolicy,
+    const network::CrossOriginEmbedderPolicy&,
+    mojo::PendingRemote<network::mojom::CrossOriginEmbedderPolicyReporter>,
     const url::Origin& origin,
     mojo::PendingReceiver<blink::mojom::CacheStorage> receiver) {
   cache_storage_receiver_ = std::move(receiver);
 }
 
 void MockRenderProcessHost::BindIndexedDB(
-    int render_frame_id,
     const url::Origin& origin,
     mojo::PendingReceiver<blink::mojom::IDBFactory> receiver) {
   idb_factory_receiver_ = std::move(receiver);
 }
 
-void MockRenderProcessHost::CleanupCorbExceptionForPluginUponDestruction() {}
+void MockRenderProcessHost::
+    CleanupNetworkServicePluginExceptionsUponDestruction() {}
+
+std::string
+MockRenderProcessHost::GetInfoForBrowserContextDestructionCrashReporting() {
+  return std::string();
+}
 
 void MockRenderProcessHost::FilterURL(bool empty_allowed, GURL* url) {
   RenderProcessHostImpl::FilterURL(this, empty_allowed, url);
@@ -512,8 +539,10 @@ MockRenderProcessHostFactory::~MockRenderProcessHostFactory() {
 RenderProcessHost* MockRenderProcessHostFactory::CreateRenderProcessHost(
     BrowserContext* browser_context,
     SiteInstance* site_instance) {
+  const bool is_for_guests_only = site_instance && site_instance->IsGuest();
   std::unique_ptr<MockRenderProcessHost> host =
-      std::make_unique<MockRenderProcessHost>(browser_context);
+      std::make_unique<MockRenderProcessHost>(browser_context,
+                                              is_for_guests_only);
   processes_.push_back(std::move(host));
   processes_.back()->SetFactory(this);
   return processes_.back().get();

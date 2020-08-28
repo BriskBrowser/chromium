@@ -14,19 +14,20 @@
 #include "base/macros.h"
 #include "content/common/content_export.h"
 #include "content/public/common/content_switches.h"
-#include "content/public/common/resource_type.h"
-#include "net/http/http_request_headers.h"
-#include "services/network/public/mojom/url_response_head.mojom.h"
 #include "third_party/blink/public/common/fetch/fetch_api_request_headers_map.h"
 #include "third_party/blink/public/common/service_worker/service_worker_status_code.h"
 #include "third_party/blink/public/mojom/fetch/fetch_api_request.mojom.h"
+#include "third_party/blink/public/mojom/loader/resource_load_info.mojom-shared.h"
 #include "url/gurl.h"
 
 namespace content {
 
 class ServiceWorkerUtils {
  public:
-  static bool IsMainResourceType(ResourceType type);
+  static bool IsMainResourceType(blink::mojom::ResourceType type);
+
+  static bool IsMainRequestDestination(
+      network::mojom::RequestDestination destination);
 
   // Returns true if |scope| matches |url|.
   CONTENT_EXPORT static bool ScopeMatches(const GURL& scope, const GURL& url);
@@ -73,25 +74,6 @@ class ServiceWorkerUtils {
 
   CONTENT_EXPORT static const char* FetchResponseSourceToSuffix(
       network::mojom::FetchResponseSource source);
-
-  struct CONTENT_EXPORT ResourceResponseHeadAndMetadata {
-    ResourceResponseHeadAndMetadata(network::mojom::URLResponseHeadPtr head,
-                                    std::vector<uint8_t> metadata);
-    ResourceResponseHeadAndMetadata(ResourceResponseHeadAndMetadata&& other);
-    ResourceResponseHeadAndMetadata(
-        const ResourceResponseHeadAndMetadata& other) = delete;
-    ~ResourceResponseHeadAndMetadata();
-
-    network::mojom::URLResponseHeadPtr head;
-    std::vector<uint8_t> metadata;
-  };
-
-  CONTENT_EXPORT static ResourceResponseHeadAndMetadata
-  CreateResourceResponseHeadAndMetadata(const net::HttpResponseInfo* http_info,
-                                        uint32_t options,
-                                        base::TimeTicks request_start_time,
-                                        base::TimeTicks response_start_time,
-                                        int response_data_size);
 
  private:
   static bool IsPathRestrictionSatisfiedInternal(

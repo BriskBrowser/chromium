@@ -17,6 +17,7 @@
 #include "content/browser/frame_host/render_frame_host_impl.h"
 #include "content/browser/loader/merkle_integrity_source_stream.h"
 #include "content/browser/renderer_host/render_process_host_impl.h"
+#include "content/browser/web_package/prefetched_signed_exchange_cache_entry.h"
 #include "content/browser/web_package/signed_exchange_cert_fetcher_factory.h"
 #include "content/browser/web_package/signed_exchange_certificate_chain.h"
 #include "content/browser/web_package/signed_exchange_devtools_proxy.h"
@@ -48,7 +49,7 @@
 #include "services/network/public/mojom/network_context.mojom.h"
 #include "services/network/public/mojom/url_response_head.mojom.h"
 #include "third_party/blink/public/common/loader/url_loader_throttle.h"
-#include "third_party/blink/public/common/web_package/signed_exchange_request_matcher.h"
+#include "third_party/blink/public/common/web_package/web_package_request_matcher.h"
 
 namespace content {
 
@@ -171,7 +172,7 @@ SignedExchangeHandler::SignedExchangeHandler(
     ExchangeHeadersCallback headers_callback,
     std::unique_ptr<SignedExchangeCertFetcherFactory> cert_fetcher_factory,
     int load_flags,
-    std::unique_ptr<blink::SignedExchangeRequestMatcher> request_matcher,
+    std::unique_ptr<blink::WebPackageRequestMatcher> request_matcher,
     std::unique_ptr<SignedExchangeDevToolsProxy> devtools_proxy,
     SignedExchangeReporter* reporter,
     int frame_tree_node_id)
@@ -252,10 +253,10 @@ void SignedExchangeHandler::DoHeaderLoop() {
   DCHECK(state_ == State::kReadingPrologueBeforeFallbackUrl ||
          state_ == State::kReadingPrologueFallbackUrlAndAfter ||
          state_ == State::kReadingHeaders);
-  int rv = source_->Read(
-      header_read_buf_.get(), header_read_buf_->BytesRemaining(),
-      base::BindRepeating(&SignedExchangeHandler::DidReadHeader,
-                          base::Unretained(this), false /* sync */));
+  int rv =
+      source_->Read(header_read_buf_.get(), header_read_buf_->BytesRemaining(),
+                    base::BindOnce(&SignedExchangeHandler::DidReadHeader,
+                                   base::Unretained(this), false /* sync */));
   if (rv != net::ERR_IO_PENDING)
     DidReadHeader(true /* sync */, rv);
 }
@@ -436,7 +437,7 @@ SignedExchangeHandler::ParseHeadersAndFetchCertificate() {
                           cert_url, force_fetch,
                           base::BindOnce(&SignedExchangeHandler::OnCertReceived,
                                          base::Unretained(this)),
-                          devtools_proxy_.get(), reporter_);
+                          devtools_proxy_.get());
 
   state_ = State::kFetchingCertificate;
   return SignedExchangeLoadResult::kSuccess;
@@ -459,12 +460,18 @@ void SignedExchangeHandler::RunErrorCallback(SignedExchangeLoadResult result,
 
 void SignedExchangeHandler::OnCertReceived(
     SignedExchangeLoadResult result,
-    std::unique_ptr<SignedExchangeCertificateChain> cert_chain) {
+    std::unique_ptr<SignedExchangeCertificateChain> cert_chain,
+    net::IPAddress cert_server_ip_address) {
   TRACE_EVENT0(TRACE_DISABLED_BY_DEFAULT("loading"),
                "SignedExchangeHandler::OnCertReceived");
+  DCHECK_EQ(state_, State::kFetchingCertificate);
+
   base::TimeDelta cert_fetch_duration =
       base::TimeTicks::Now() - cert_fetch_start_time_;
-  DCHECK_EQ(state_, State::kFetchingCertificate);
+  cert_server_ip_address_ = cert_server_ip_address;
+  if (reporter_)
+    reporter_->set_cert_server_ip_address(cert_server_ip_address_);
+
   if (result != SignedExchangeLoadResult::kSuccess) {
     UMA_HISTOGRAM_MEDIUM_TIMES("SignedExchange.Time.CertificateFetch.Failure",
                                cert_fetch_duration);
@@ -740,17 +747,18 @@ SignedExchangeHandler::CreateResponseBodyStream() {
                                                        std::move(source_));
 }
 
-base::Optional<net::SHA256HashValue>
-SignedExchangeHandler::ComputeHeaderIntegrity() const {
+bool SignedExchangeHandler::GetSignedExchangeInfoForPrefetchCache(
+    PrefetchedSignedExchangeCacheEntry& entry) const {
   if (!envelope_)
-    return base::nullopt;
-  return envelope_->ComputeHeaderIntegrity();
+    return false;
+  entry.SetHeaderIntegrity(std::make_unique<net::SHA256HashValue>(
+      envelope_->ComputeHeaderIntegrity()));
+  entry.SetSignatureExpireTime(
+      base::Time::UnixEpoch() +
+      base::TimeDelta::FromSeconds(envelope_->signature().expires));
+  entry.SetCertUrl(envelope_->signature().cert_url);
+  entry.SetCertServerIPAddress(cert_server_ip_address_);
+  return true;
 }
 
-base::Time SignedExchangeHandler::GetSignatureExpireTime() const {
-  if (!envelope_)
-    return base::Time();
-  return base::Time::UnixEpoch() +
-         base::TimeDelta::FromSeconds(envelope_->signature().expires);
-}
 }  // namespace content

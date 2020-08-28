@@ -14,7 +14,7 @@
 
 @protocol BrowserCommands;
 @protocol LoadQueryCommands;
-@protocol OmniboxFocuser;
+@protocol OmniboxCommands;
 @class OmniboxViewController;
 class OmniboxTextChangeDelegate;
 
@@ -47,7 +47,7 @@ class OmniboxTextChangeDelegate;
 
 // The dispatcher for the paste and go action.
 @property(nonatomic, weak)
-    id<BrowserCommands, LoadQueryCommands, OmniboxFocuser>
+    id<BrowserCommands, LoadQueryCommands, OmniboxCommands>
         dispatcher;
 
 // The delegate for this object.
@@ -57,6 +57,12 @@ class OmniboxTextChangeDelegate;
 - (instancetype)initWithIncognito:(BOOL)isIncognito;
 
 - (void)setTextChangeDelegate:(OmniboxTextChangeDelegate*)textChangeDelegate;
+
+// Hides extra chrome, i.e. attributed text, and clears.
+- (void)prepareOmniboxForScribble;
+// Restores the chrome post-scribble.
+- (void)cleanupOmniboxAfterScribble;
+
 @end
 
 #endif  // IOS_CHROME_BROWSER_UI_OMNIBOX_OMNIBOX_VIEW_CONTROLLER_H_

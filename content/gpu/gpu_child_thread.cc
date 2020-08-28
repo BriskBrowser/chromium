@@ -13,6 +13,8 @@
 #include "base/callback_helpers.h"
 #include "base/command_line.h"
 #include "base/memory/weak_ptr.h"
+#include "base/power_monitor/power_monitor.h"
+#include "base/power_monitor/power_monitor_device_source.h"
 #include "base/run_loop.h"
 #include "base/sequenced_task_runner.h"
 #include "base/threading/thread_checker.h"
@@ -22,7 +24,6 @@
 #include "content/gpu/gpu_service_factory.h"
 #include "content/public/common/content_client.h"
 #include "content/public/common/content_switches.h"
-#include "content/public/common/service_manager_connection.h"
 #include "content/public/common/service_names.mojom.h"
 #include "content/public/gpu/content_gpu_client.h"
 #include "gpu/command_buffer/common/activity_flags.h"
@@ -40,10 +41,6 @@
 #include "services/viz/privileged/mojom/gl/gpu_service.mojom.h"
 #include "third_party/skia/include/core/SkGraphics.h"
 
-#if defined(USE_OZONE)
-#include "ui/ozone/public/ozone_platform.h"
-#endif
-
 #if defined(OS_ANDROID)
 #include "media/base/android/media_drm_bridge_client.h"
 #include "media/mojo/clients/mojo_android_overlay.h"
@@ -55,13 +52,6 @@ namespace {
 ChildThreadImpl::Options GetOptions() {
   ChildThreadImpl::Options::Builder builder;
 
-#if defined(USE_OZONE)
-  IPC::MessageFilter* message_filter =
-      ui::OzonePlatform::GetInstance()->GetGpuMessageFilter();
-  if (message_filter)
-    builder.AddStartupFilter(message_filter);
-#endif
-
   builder.ConnectToBrowser(true);
   builder.ExposesInterfacesToBrowser();
 
@@ -70,6 +60,10 @@ ChildThreadImpl::Options GetOptions() {
 
 viz::VizMainImpl::ExternalDependencies CreateVizMainDependencies() {
   viz::VizMainImpl::ExternalDependencies deps;
+  if (!base::PowerMonitor::IsInitialized()) {
+    deps.power_monitor_source =
+        std::make_unique<base::PowerMonitorDeviceSource>();
+  }
   if (GetContentClient()->gpu()) {
     deps.sync_point_manager = GetContentClient()->gpu()->GetSyncPointManager();
     deps.shared_image_manager =
@@ -92,13 +86,10 @@ viz::VizMainImpl::ExternalDependencies CreateVizMainDependencies() {
 }  // namespace
 
 GpuChildThread::GpuChildThread(base::RepeatingClosure quit_closure,
-                               std::unique_ptr<gpu::GpuInit> gpu_init,
-                               viz::VizMainImpl::LogMessages log_messages)
+                               std::unique_ptr<gpu::GpuInit> gpu_init)
     : GpuChildThread(std::move(quit_closure),
                      GetOptions(),
-                     std::move(gpu_init)) {
-  viz_main_.SetLogMessagesForHost(std::move(log_messages));
-}
+                     std::move(gpu_init)) {}
 
 GpuChildThread::GpuChildThread(const InProcessChildThreadParams& params,
                                std::unique_ptr<gpu::GpuInit> gpu_init)
@@ -143,9 +134,9 @@ void GpuChildThread::Init(const base::Time& process_start_time) {
   associated_registry->AddInterface(base::BindRepeating(
       &GpuChildThread::CreateVizMainService, base::Unretained(this)));
 
-  memory_pressure_listener_ =
-      std::make_unique<base::MemoryPressureListener>(base::BindRepeating(
-          &GpuChildThread::OnMemoryPressure, base::Unretained(this)));
+  memory_pressure_listener_ = std::make_unique<base::MemoryPressureListener>(
+      FROM_HERE, base::BindRepeating(&GpuChildThread::OnMemoryPressure,
+                                     base::Unretained(this)));
 }
 
 void GpuChildThread::CreateVizMainService(
@@ -244,7 +235,8 @@ void GpuChildThread::QuitSafelyHelper(
           return;
         GpuChildThread* gpu_child_thread =
             static_cast<GpuChildThread*>(current_child_thread);
-        gpu_child_thread->viz_main_.ExitProcess(/*immediately=*/true);
+        gpu_child_thread->viz_main_.ExitProcess(
+            viz::ExitCode::RESULT_CODE_NORMAL_EXIT);
       }));
 }
 

@@ -138,7 +138,7 @@ cr.define('cr.ui', function() {
 
     /**
      * Handles click events on the tree and forwards the event to the relevant
-     * tree items as necesary.
+     * tree items as necessary.
      * @param {Event} e The click event object.
      */
     handleClick(e) {
@@ -294,12 +294,30 @@ cr.define('cr.ui', function() {
   const treeItemProto = (function() {
     const treeItem = document.createElement('div');
     treeItem.className = 'tree-item';
-    treeItem.innerHTML = '<div class="tree-row">' +
+    const htmlString = '<div class="tree-row">' +
         '<span class="expand-icon"></span>' +
         '<span class="tree-label-icon"></span>' +
         '<span class="tree-label"></span>' +
         '</div>' +
         '<div class="tree-children" role="group"></div>';
+
+    if (window.trustedTypes) {
+      /**
+       * This is used to create TrustedHTML.
+       *
+       * @type {!TrustedTypePolicy}
+       */
+      const staticHtmlPolicy = trustedTypes.createPolicy(
+          'cr-ui-tree-js-static', {createHTML: () => htmlString});
+
+      // TODO(Jun.Kokatsu@microsoft.com): remove an empty string argument
+      // once supported.
+      // https://github.com/w3c/webappsec-trusted-types/issues/278
+      treeItem.innerHTML = staticHtmlPolicy.createHTML('');
+    } else {
+      treeItem.innerHTML = htmlString;
+    }
+
     treeItem.setAttribute('role', 'treeitem');
     return treeItem;
   })();

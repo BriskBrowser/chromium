@@ -8,9 +8,11 @@
 #include <memory>
 
 #include "base/mac/foundation_util.h"
+#include "base/strings/stringprintf.h"
 #include "base/strings/sys_string_conversions.h"
 #include "build/branding_buildflags.h"
 #include "components/strings/grit/components_strings.h"
+#import "ios/chrome/browser/ui/authentication/signin/signin_constants.h"
 #import "ios/chrome/browser/ui/settings/settings_app_interface.h"
 #include "ios/chrome/grit/ios_chromium_strings.h"
 #include "ios/chrome/grit/ios_strings.h"
@@ -20,8 +22,7 @@
 #import "ios/chrome/test/earl_grey/chrome_matchers.h"
 #import "ios/chrome/test/earl_grey/chrome_test_case.h"
 #import "ios/testing/earl_grey/earl_grey_test.h"
-#import "ios/web/public/test/http_server/http_server.h"
-#include "ios/web/public/test/http_server/http_server_util.h"
+#include "net/test/embedded_test_server/embedded_test_server.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "url/gurl.h"
 
@@ -52,10 +53,6 @@ using chrome_test_util::SettingsMenuPrivacyButton;
 
 namespace {
 
-const char kUrl[] = "http://foo/browsing";
-const char kUrlWithSetCookie[] = "http://foo/set_cookie";
-const char kResponse[] = "bar";
-const char kResponseWithSetCookie[] = "bar with set cookie";
 NSString* const kCookieName = @"name";
 NSString* const kCookieValue = @"value";
 
@@ -351,37 +348,23 @@ id<GREYMatcher> ClearBrowsingDataCell() {
 // Tests that clearing the cookies through the UI does clear all of them. Use a
 // local server to navigate to a page that sets then tests a cookie, and then
 // clears the cookie and tests it is not set.
-// TODO(crbug.com/1036133): [ChromeEarlGrey cookies] does not work correctly in
-// this test.
-// TODO(crbug.com/1038398): This test crashes flakily.
-- (void)DISABLED_testClearCookies {
-  // Creates a map of canned responses and set up the test HTML server.
-  std::map<GURL, std::pair<std::string, std::string>> response;
-
-  NSString* cookieForURL =
-      [NSString stringWithFormat:@"%@=%@", kCookieName, kCookieValue];
-
-  response[web::test::HttpServer::MakeUrl(kUrlWithSetCookie)] =
-      std::pair<std::string, std::string>(base::SysNSStringToUTF8(cookieForURL),
-                                          kResponseWithSetCookie);
-  response[web::test::HttpServer::MakeUrl(kUrl)] =
-      std::pair<std::string, std::string>("", kResponse);
-
-  web::test::SetUpSimpleHttpServerWithSetCookies(response);
+- (void)testClearCookies {
+  GREYAssertTrue(self.testServer->Start(), @"Server did not start.");
 
   // Load |kUrl| and check that cookie is not set.
-  [ChromeEarlGrey loadURL:web::test::HttpServer::MakeUrl(kUrl)];
-  [ChromeEarlGrey waitForWebStateContainingText:kResponse];
+  [ChromeEarlGrey loadURL:self.testServer->GetURL("/echo")];
 
   NSDictionary* cookies = [ChromeEarlGrey cookies];
   GREYAssertEqual(0U, cookies.count, @"No cookie should be found.");
 
-  // Visit |kUrlWithSetCookie| to set a cookie and then load |kUrl| to check it
-  // is still set.
-  [ChromeEarlGrey loadURL:web::test::HttpServer::MakeUrl(kUrlWithSetCookie)];
-  [ChromeEarlGrey waitForWebStateContainingText:kResponseWithSetCookie];
-  [ChromeEarlGrey loadURL:web::test::HttpServer::MakeUrl(kUrl)];
-  [ChromeEarlGrey waitForWebStateContainingText:kResponse];
+  // Visit "/set-cookie" to set a cookie and then load another page to check
+  // that it is still set.
+  std::string setCookiePath = base::StringPrintf(
+      "/set-cookie?%s=%s", base::SysNSStringToUTF8(kCookieName).c_str(),
+      base::SysNSStringToUTF8(kCookieValue).c_str());
+  [ChromeEarlGrey loadURL:self.testServer->GetURL(setCookiePath)];
+
+  [ChromeEarlGrey loadURL:self.testServer->GetURL("/echo")];
 
   cookies = [ChromeEarlGrey cookies];
   GREYAssertEqualObjects(kCookieValue, cookies[kCookieName],
@@ -398,8 +381,7 @@ id<GREYMatcher> ClearBrowsingDataCell() {
   [self clearCookiesAndSiteData];
 
   // Reload and test that there are no cookies left.
-  [ChromeEarlGrey loadURL:web::test::HttpServer::MakeUrl(kUrl)];
-  [ChromeEarlGrey waitForWebStateContainingText:kResponse];
+  [ChromeEarlGrey loadURL:self.testServer->GetURL("/echo")];
 
   cookies = [ChromeEarlGrey cookies];
   GREYAssertEqual(0U, cookies.count, @"No cookie should be found.");
@@ -457,20 +439,19 @@ id<GREYMatcher> ClearBrowsingDataCell() {
                                        grey_sufficientlyVisible(), nil);
   [[EarlGrey selectElementWithMatcher:matcher] performAction:grey_tap()];
   // Wait for UI to finish loading the Sign-in screen.
-  [[GREYUIThreadExecutor sharedInstance] drainUntilIdle];
+  [ChromeEarlGreyUI waitForAppToIdle];
 
   // Verify that the Settings register keyboard commands.
   GREYAssertFalse([SettingsAppInterface settingsRegisteredKeyboardCommands],
                   @"Settings should not register key commands when presented.");
 
   // Cancel the sign-in operation.
-  [[EarlGrey selectElementWithMatcher:
-                 grey_buttonTitle([l10n_util::GetNSString(
-                     IDS_IOS_ACCOUNT_CONSISTENCY_SETUP_SKIP_BUTTON)
-                     uppercaseString])] performAction:grey_tap()];
+  [[EarlGrey selectElementWithMatcher:grey_accessibilityID(
+                                          kSkipSigninAccessibilityIdentifier)]
+      performAction:grey_tap()];
 
   // Wait for UI to finish closing the Sign-in screen.
-  [[GREYUIThreadExecutor sharedInstance] drainUntilIdle];
+  [ChromeEarlGreyUI waitForAppToIdle];
 
   // Verify that the Settings register keyboard commands.
   GREYAssertTrue([SettingsAppInterface settingsRegisteredKeyboardCommands],

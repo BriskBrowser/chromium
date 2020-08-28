@@ -70,7 +70,6 @@ class NigoriSyncBridgeImpl : public KeystoreKeysHandler,
   bool IsEncryptEverythingEnabled() const override;
   base::Time GetKeystoreMigrationTime() const override;
   KeystoreKeysHandler* GetKeystoreKeysHandler() override;
-  std::string GetLastKeystoreKey() const override;
 
   // KeystoreKeysHandler implementation.
   bool NeedKeystoreKey() const override;
@@ -101,12 +100,21 @@ class NigoriSyncBridgeImpl : public KeystoreKeysHandler,
   base::Optional<ModelError> UpdateLocalState(
       const sync_pb::NigoriSpecifics& specifics);
 
-  base::Optional<ModelError> UpdateCryptographerFromKeystoreNigori(
+  base::Optional<ModelError> UpdateCryptographer(
       const sync_pb::EncryptedData& encryption_keybag,
+      const NigoriKeyBag& decryption_key_bag);
+
+  base::Optional<sync_pb::NigoriKey> TryDecryptPendingKeystoreDecryptorToken(
       const sync_pb::EncryptedData& keystore_decryptor_token);
 
-  base::Optional<ModelError> UpdateCryptographerFromNonKeystoreNigori(
-      const sync_pb::EncryptedData& keybag);
+  // Builds NigoriKeyBag, which contains keys acceptable for decryption of
+  // |encryption_keybag| from remote NigoriSpecifics. Its content depends on
+  // current passphrase type and available keys: for KEYSTORE_PASSPHRASE it
+  // contains only |keystore_decryptor_key|, for all other passphrase types
+  // it contains deserialized |explicit_passphrase_key_| and current default
+  // encryption key.
+  NigoriKeyBag BuildDecryptionKeyBagForRemoteKeybag(
+      const base::Optional<sync_pb::NigoriKey>& keystore_decryptor_key) const;
 
   // Uses |key_bag| to try to decrypt pending keys as represented in
   // |state_.pending_keys| (which must be set).
@@ -139,8 +147,9 @@ class NigoriSyncBridgeImpl : public KeystoreKeysHandler,
   // just won't be updated.
   void MaybeNotifyBootstrapTokenUpdated() const;
 
-  // Queues keystore rotation if current state assume it should happen.
-  void MaybeTriggerKeystoreKeyRotation();
+  // Queues keystore rotation or full keystore migration if current state
+  // assumes it should happen.
+  void MaybeTriggerKeystoreReencryption();
 
   // Prior to USS keystore keys were stored in preferences. To avoid redundant
   // requests to the server and make USS implementation more robust against
@@ -165,6 +174,11 @@ class NigoriSyncBridgeImpl : public KeystoreKeysHandler,
   // found (if any). If such applicable commit is found, the corresponding Put()
   // call is issued.
   void PutNextApplicablePendingLocalCommit();
+
+  // Populates keystore keys into |cryptographer| in case it doesn't contain
+  // them already and |passphrase_type| isn't KEYSTORE_PASSPHRASE. This
+  // function only updates local state and doesn't trigger a commit.
+  void MaybePopulateKeystoreKeysIntoCryptographer();
 
   const Encryptor* const encryptor_;
 

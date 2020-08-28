@@ -11,9 +11,12 @@ import androidx.annotation.Nullable;
 
 import org.chromium.base.Callback;
 import org.chromium.base.ThreadUtils;
+import org.chromium.chrome.browser.ActivityTabProvider;
+import org.chromium.chrome.browser.browser_controls.BrowserControlsStateProvider;
+import org.chromium.chrome.browser.compositor.CompositorViewHolder;
 import org.chromium.chrome.browser.tab.Tab;
-import org.chromium.chrome.browser.widget.ScrimView;
-import org.chromium.chrome.browser.widget.bottomsheet.BottomSheetController;
+import org.chromium.components.browser_ui.bottomsheet.BottomSheetController;
+import org.chromium.components.browser_ui.widget.scrim.ScrimCoordinator;
 
 import java.util.Collections;
 import java.util.HashMap;
@@ -26,15 +29,20 @@ import java.util.Map;
 class AutofillAssistantActionHandlerImpl implements AutofillAssistantActionHandler {
     private final Context mContext;
     private final BottomSheetController mBottomSheetController;
-    private final ScrimView mScrimView;
-    private final GetCurrentTab mGetCurrentTab;
+    private final BrowserControlsStateProvider mBrowserControls;
+    private final CompositorViewHolder mCompositorViewHolder;
+    private final ActivityTabProvider mActivityTabProvider;
+    private final ScrimCoordinator mScrim;
 
     AutofillAssistantActionHandlerImpl(Context context, BottomSheetController bottomSheetController,
-            ScrimView scrimView, GetCurrentTab getCurrentTab) {
+            BrowserControlsStateProvider browserControls, CompositorViewHolder compositorViewHolder,
+            ActivityTabProvider activityTabProvider, ScrimCoordinator scrim) {
         mContext = context;
         mBottomSheetController = bottomSheetController;
-        mScrimView = scrimView;
-        mGetCurrentTab = getCurrentTab;
+        mBrowserControls = browserControls;
+        mCompositorViewHolder = compositorViewHolder;
+        mActivityTabProvider = activityTabProvider;
+        mScrim = scrim;
     }
 
     @Override
@@ -71,9 +79,12 @@ class AutofillAssistantActionHandlerImpl implements AutofillAssistantActionHandl
     }
 
     @Override
-    public void performOnboarding(String experimentIds, Callback<Boolean> callback) {
-        AssistantOnboardingCoordinator coordinator = new AssistantOnboardingCoordinator(
-                experimentIds, mContext, mBottomSheetController, mGetCurrentTab.get());
+    public void performOnboarding(
+            String experimentIds, Bundle arguments, Callback<Boolean> callback) {
+        Map<String, String> parameters = toArgumentMap(arguments);
+        AssistantOnboardingCoordinator coordinator =
+                new AssistantOnboardingCoordinator(experimentIds, parameters, mContext,
+                        mBottomSheetController, mBrowserControls, mCompositorViewHolder, mScrim);
         coordinator.show(accepted -> {
             coordinator.hide();
             callback.onResult(accepted);
@@ -89,15 +100,16 @@ class AutofillAssistantActionHandlerImpl implements AutofillAssistantActionHandl
             return;
         }
 
+        Map<String, String> argumentMap = toArgumentMap(arguments);
         Callback<AssistantOnboardingCoordinator> afterOnboarding = (onboardingCoordinator) -> {
-            Map<String, String> argumentMap = toArgumentMap(arguments);
             callback.onResult(client.performDirectAction(
                     name, experimentIds, argumentMap, onboardingCoordinator));
         };
 
         if (!AutofillAssistantPreferencesUtil.isAutofillOnboardingAccepted()) {
             AssistantOnboardingCoordinator coordinator = new AssistantOnboardingCoordinator(
-                    experimentIds, mContext, mBottomSheetController, mGetCurrentTab.get());
+                    experimentIds, argumentMap, mContext, mBottomSheetController, mBrowserControls,
+                    mCompositorViewHolder, mScrim);
             coordinator.show(accepted -> {
                 if (!accepted) {
                     coordinator.hide();
@@ -118,7 +130,7 @@ class AutofillAssistantActionHandlerImpl implements AutofillAssistantActionHandl
     @Nullable
     private AutofillAssistantClient getOrCreateClient() {
         ThreadUtils.assertOnUiThread();
-        Tab tab = mGetCurrentTab.get();
+        Tab tab = mActivityTabProvider.get();
 
         if (tab == null || tab.getWebContents() == null) return null;
 

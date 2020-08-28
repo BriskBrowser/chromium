@@ -29,25 +29,37 @@ using base::UserMetricsAction;
 namespace importer {
 
 void ShowImportLockDialog(gfx::NativeWindow parent,
-                          const base::Callback<void(bool)>& callback) {
-  ImportLockDialogView::Show(parent, callback);
+                          base::OnceCallback<void(bool)> callback) {
+  ImportLockDialogView::Show(parent, std::move(callback));
 }
 
 }  // namespace importer
 
 // static
 void ImportLockDialogView::Show(gfx::NativeWindow parent,
-                                const base::Callback<void(bool)>& callback) {
+                                base::OnceCallback<void(bool)> callback) {
   views::DialogDelegate::CreateDialogWidget(
-      new ImportLockDialogView(callback), NULL, NULL)->Show();
+      new ImportLockDialogView(std::move(callback)), nullptr, nullptr)
+      ->Show();
   base::RecordAction(UserMetricsAction("ImportLockDialogView_Shown"));
 }
 
 ImportLockDialogView::ImportLockDialogView(
-    const base::Callback<void(bool)>& callback)
-    : callback_(callback) {
-  DialogDelegate::set_button_label(
-      ui::DIALOG_BUTTON_OK, l10n_util::GetStringUTF16(IDS_IMPORTER_LOCK_OK));
+    base::OnceCallback<void(bool)> callback)
+    : callback_(std::move(callback)) {
+  SetButtonLabel(ui::DIALOG_BUTTON_OK,
+                 l10n_util::GetStringUTF16(IDS_IMPORTER_LOCK_OK));
+
+  auto done_callback = [](ImportLockDialogView* dialog, bool accepted) {
+    if (dialog->callback_) {
+      base::ThreadTaskRunnerHandle::Get()->PostTask(
+          FROM_HERE, base::BindOnce(std::move(dialog->callback_), accepted));
+    }
+  };
+  SetAcceptCallback(
+      base::BindOnce(done_callback, base::Unretained(this), true));
+  SetCancelCallback(
+      base::BindOnce(done_callback, base::Unretained(this), false));
 
   SetLayoutManager(std::make_unique<views::FillLayout>());
   views::Label* description_label =
@@ -72,22 +84,6 @@ gfx::Size ImportLockDialogView::CalculatePreferredSize() const {
 
 base::string16 ImportLockDialogView::GetWindowTitle() const {
   return l10n_util::GetStringUTF16(IDS_IMPORTER_LOCK_TITLE);
-}
-
-bool ImportLockDialogView::Accept() {
-  if (callback_) {
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
-        FROM_HERE, base::BindOnce(callback_, true));
-  }
-  return true;
-}
-
-bool ImportLockDialogView::Cancel() {
-  if (callback_) {
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
-        FROM_HERE, base::BindOnce(callback_, false));
-  }
-  return true;
 }
 
 bool ImportLockDialogView::ShouldShowCloseButton() const {

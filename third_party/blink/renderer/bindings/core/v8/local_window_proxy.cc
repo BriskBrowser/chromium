@@ -31,6 +31,7 @@
 #include "third_party/blink/renderer/bindings/core/v8/local_window_proxy.h"
 
 #include "base/debug/dump_without_crashing.h"
+#include "base/memory/scoped_refptr.h"
 #include "third_party/blink/renderer/bindings/core/v8/isolated_world_csp.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_controller.h"
 #include "third_party/blink/renderer/bindings/core/v8/to_v8_for_core.h"
@@ -60,8 +61,8 @@
 #include "third_party/blink/renderer/platform/bindings/v8_private_property.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
 #include "third_party/blink/renderer/platform/instrumentation/tracing/trace_event.h"
+#include "third_party/blink/renderer/platform/weborigin/reporting_disposition.h"
 #include "third_party/blink/renderer/platform/weborigin/security_origin.h"
-#include "third_party/blink/renderer/platform/weborigin/security_violation_reporting_policy.h"
 #include "third_party/blink/renderer/platform/wtf/assertions.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_operators.h"
 #include "v8/include/v8.h"
@@ -74,7 +75,7 @@ constexpr char kGlobalProxyLabel[] = "WindowProxy::global_proxy_";
 
 }  // namespace
 
-void LocalWindowProxy::Trace(blink::Visitor* visitor) {
+void LocalWindowProxy::Trace(Visitor* visitor) const {
   visitor->Trace(script_state_);
   WindowProxy::Trace(visitor);
 }
@@ -174,43 +175,30 @@ void LocalWindowProxy::Initialize() {
       (world_->IsIsolatedWorld() &&
        IsolatedWorldCSP::Get().HasContentSecurityPolicy(world_->GetWorldId()));
   if (evaluate_csp_for_eval) {
-    // Check that there is a document that can be used to get the
-    // ContentSecurityPolicy;
-    // TODO(clamy): Remove this DumpWithoutCrashing once
-    // https://crbug.com/1037776 is fixed.
-    if (!GetFrame()->GetDocument())
-      base::debug::DumpWithoutCrashing();
-
     ContentSecurityPolicy* csp =
-        GetFrame()->GetDocument()->GetContentSecurityPolicyForWorld();
-
-    // Check that the ContentSecurityPolicy returned is not null.
-    // TODO(clamy): Remove this DumpWithoutCrashing once
-    // https://crbug.com/1037776 is fixed.
-    if (!csp)
-      base::debug::DumpWithoutCrashing();
-
+        GetFrame()->DomWindow()->GetContentSecurityPolicyForCurrentWorld();
     context->AllowCodeGenerationFromStrings(!csp->ShouldCheckEval());
     context->SetErrorMessageForCodeGenerationFromStrings(
         V8String(GetIsolate(), csp->EvalDisabledErrorMessage()));
   }
 
-  const SecurityOrigin* origin = nullptr;
+  scoped_refptr<const SecurityOrigin> origin;
   if (world_->IsMainWorld()) {
     // ActivityLogger for main world is updated within updateDocumentInternal().
     UpdateDocumentInternal();
-    origin = GetFrame()->GetDocument()->GetSecurityOrigin();
+    origin = GetFrame()->DomWindow()->GetSecurityOrigin();
   } else {
     UpdateActivityLogger();
-    origin = world_->IsolatedWorldSecurityOrigin();
-    SetSecurityToken(origin);
+    origin = world_->IsolatedWorldSecurityOrigin(
+        GetFrame()->DomWindow()->GetAgentClusterID());
+    SetSecurityToken(origin.get());
   }
 
   {
     TRACE_EVENT1("v8", "ContextCreatedNotification", "IsMainFrame",
                  GetFrame()->IsMainFrame());
     MainThreadDebugger::Instance()->ContextCreated(script_state_, GetFrame(),
-                                                   origin);
+                                                   origin.get());
     GetFrame()->Client()->DidCreateScriptContext(context, world_->GetWorldId());
   }
 
@@ -229,7 +217,7 @@ void LocalWindowProxy::CreateContext() {
   CHECK(IsMainThread());
 
   v8::ExtensionConfiguration extension_configuration =
-      ScriptController::ExtensionsFor(GetFrame()->GetDocument());
+      ScriptController::ExtensionsFor(GetFrame()->DomWindow());
 
   v8::Local<v8::Context> context;
   {
@@ -241,6 +229,7 @@ void LocalWindowProxy::CreateContext() {
     v8::Local<v8::Object> global_proxy = global_proxy_.NewLocal(isolate);
     context = V8ContextSnapshot::CreateContextFromSnapshot(
         isolate, World(), &extension_configuration, global_proxy, document);
+    context_was_created_from_snapshot_ = !context.IsEmpty();
 
     // Even if we enable V8 context snapshot feature, we may hit this branch
     // in some cases, e.g. loading XML files.
@@ -259,7 +248,9 @@ void LocalWindowProxy::CreateContext() {
   DidAttachGlobalObject();
 #endif
 
-  script_state_ = MakeGarbageCollected<ScriptState>(context, world_);
+  DCHECK(GetFrame()->DomWindow());
+  script_state_ = MakeGarbageCollected<ScriptState>(context, world_,
+                                                    GetFrame()->DomWindow());
 
   DCHECK(lifecycle_ == Lifecycle::kContextIsUninitialized ||
          lifecycle_ == Lifecycle::kGlobalObjectIsDetached);
@@ -271,6 +262,15 @@ void LocalWindowProxy::InstallConditionalFeatures() {
   TRACE_EVENT1("v8", "InstallConditionalFeatures", "IsMainFrame",
                GetFrame()->IsMainFrame());
 
+#if defined(USE_BLINK_V8_BINDING_NEW_IDL_INTERFACE)
+  if (context_was_created_from_snapshot_) {
+    V8ContextSnapshot::InstallContextIndependentProps(script_state_);
+  }
+
+  V8PerContextData* per_context_data = script_state_->PerContextData();
+  ignore_result(
+      per_context_data->ConstructorForType(V8Window::GetWrapperTypeInfo()));
+#else   // USE_BLINK_V8_BINDING_NEW_IDL_INTERFACE
   v8::Local<v8::Context> context = script_state_->GetContext();
 
   // If the context was created from snapshot, all conditionally
@@ -301,6 +301,7 @@ void LocalWindowProxy::InstallConditionalFeatures() {
                                v8::Local<v8::Object>(),
                                v8::Local<v8::Function>());
   }
+#endif  // USE_BLINK_V8_BINDING_NEW_IDL_INTERFACE
 }
 
 void LocalWindowProxy::SetupWindowPrototypeChain() {
@@ -325,16 +326,17 @@ void LocalWindowProxy::SetupWindowPrototypeChain() {
   // The global object, aka window wrapper object.
   v8::Local<v8::Object> window_wrapper =
       global_proxy->GetPrototype().As<v8::Object>();
-  v8::Local<v8::Object> associated_wrapper =
-      AssociateWithWrapper(window, wrapper_type_info, window_wrapper);
-  DCHECK(associated_wrapper == window_wrapper);
+  V8DOMWrapper::SetNativeInfo(GetIsolate(), window_wrapper, wrapper_type_info,
+                              window);
 
   // The prototype object of Window interface.
   v8::Local<v8::Object> window_prototype =
       window_wrapper->GetPrototype().As<v8::Object>();
   CHECK(!window_prototype.IsEmpty());
+#if !defined(USE_BLINK_V8_BINDING_NEW_IDL_INTERFACE)
   V8DOMWrapper::SetNativeInfo(GetIsolate(), window_prototype, wrapper_type_info,
                               window);
+#endif
 
   // The named properties object of Window interface.
   v8::Local<v8::Object> window_properties =
@@ -342,6 +344,13 @@ void LocalWindowProxy::SetupWindowPrototypeChain() {
   CHECK(!window_properties.IsEmpty());
   V8DOMWrapper::SetNativeInfo(GetIsolate(), window_properties,
                               wrapper_type_info, window);
+
+#if defined(USE_BLINK_V8_BINDING_NEW_IDL_INTERFACE)
+  // [CachedAccessor=kWindowProxy]
+  V8PrivateProperty::GetCachedAccessor(
+      GetIsolate(), V8PrivateProperty::CachedAccessor::kWindowProxy)
+      .Set(window_wrapper, global_proxy);
+#endif
 
   // TODO(keishi): Remove installPagePopupController and implement
   // PagePopupController in another way.
@@ -394,11 +403,9 @@ void LocalWindowProxy::SetSecurityToken(const SecurityOrigin* origin) {
   //    value. Checking this can currently only be done in Blink, so require a
   //    full CanAccess() check.
   bool use_default_security_token =
-      world_->IsMainWorld() && (GetFrame()
-                                    ->Loader()
-                                    .StateMachine()
-                                    ->IsDisplayingInitialEmptyDocument() ||
-                                origin->DomainWasSetInDOM());
+      world_->IsMainWorld() &&
+      (GetFrame()->GetDocument()->IsInitialEmptyDocument() ||
+       origin->DomainWasSetInDOM());
   if (origin && !use_default_security_token)
     token = origin->ToTokenForFastCheck();
 
@@ -417,7 +424,7 @@ void LocalWindowProxy::SetSecurityToken(const SecurityOrigin* origin) {
 
   if (world_->IsIsolatedWorld()) {
     const SecurityOrigin* frame_security_origin =
-        GetFrame()->GetDocument()->GetSecurityOrigin();
+        GetFrame()->DomWindow()->GetSecurityOrigin();
     String frame_security_token = frame_security_origin->ToTokenForFastCheck();
     // We need to check the return value of domainWasSetInDOM() on the
     // frame's SecurityOrigin because, if that's the case, only
@@ -460,13 +467,13 @@ void LocalWindowProxy::UpdateDocument() {
 void LocalWindowProxy::UpdateDocumentInternal() {
   UpdateActivityLogger();
   UpdateDocumentProperty();
-  UpdateSecurityOrigin(GetFrame()->GetDocument()->GetSecurityOrigin());
+  UpdateSecurityOrigin(GetFrame()->DomWindow()->GetSecurityOrigin());
 }
 
 // GetNamedProperty(), Getter(), NamedItemAdded(), and NamedItemRemoved()
 // optimize property access performance for Document.
 //
-// Document interface has [OverrideBuiltins] and a named getter. If we
+// Document interface has [LegacyOverrideBuiltins] and a named getter. If we
 // implemented the named getter as a standard IDL-mapped code, we would call a
 // Blink function before any of Document property access, and it would be
 // performance overhead even for builtin properties. Our implementation updates

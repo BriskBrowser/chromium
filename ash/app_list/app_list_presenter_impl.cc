@@ -15,15 +15,18 @@
 #include "ash/public/cpp/app_list/app_list_features.h"
 #include "ash/public/cpp/app_list/app_list_switches.h"
 #include "ash/public/cpp/app_list/app_list_types.h"
+#include "ash/public/cpp/metrics_util.h"
 #include "ash/public/cpp/pagination/pagination_model.h"
 #include "ash/public/cpp/shell_window_ids.h"
 #include "base/bind.h"
 #include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/metrics/user_metrics.h"
 #include "base/optional.h"
 #include "ui/aura/client/focus_client.h"
 #include "ui/aura/window.h"
+#include "ui/compositor/animation_throughput_reporter.h"
 #include "ui/compositor/layer.h"
 #include "ui/compositor/scoped_layer_animation_settings.h"
 #include "ui/display/screen.h"
@@ -38,11 +41,10 @@
 namespace ash {
 namespace {
 
-constexpr std::array<int, 7> kIdsOfContainersThatWontHideAppList = {
-    kShellWindowId_AppListContainer,      kShellWindowId_HomeScreenContainer,
-    kShellWindowId_MenuContainer,         kShellWindowId_SettingBubbleContainer,
-    kShellWindowId_ShelfBubbleContainer,  kShellWindowId_ShelfContainer,
-    kShellWindowId_ShelfControlContainer,
+constexpr std::array<int, 6> kIdsOfContainersThatWontHideAppList = {
+    kShellWindowId_AppListContainer,     kShellWindowId_HomeScreenContainer,
+    kShellWindowId_MenuContainer,        kShellWindowId_SettingBubbleContainer,
+    kShellWindowId_ShelfBubbleContainer, kShellWindowId_ShelfContainer,
 };
 
 inline ui::Layer* GetLayer(views::Widget* widget) {
@@ -105,6 +107,7 @@ AppListPresenterImpl::~AppListPresenterImpl() {
     if (view_->GetWidget())
       view_->GetWidget()->CloseNow();
   }
+  CHECK(!IsInObserverList());
 }
 
 aura::Window* AppListPresenterImpl::GetWindow() const {
@@ -118,10 +121,10 @@ void AppListPresenterImpl::Show(int64_t display_id,
   if (is_target_visibility_show_) {
     // Launcher is always visible on the internal display when home launcher is
     // enabled in tablet mode.
-    if (display_id != GetDisplayId() && !delegate_->IsTabletMode()) {
-      Dismiss(event_time_stamp);
-    }
-    return;
+    if (delegate_->IsTabletMode() || display_id == GetDisplayId())
+      return;
+
+    Dismiss(event_time_stamp);
   }
 
   if (!delegate_->GetRootWindowForDisplayId(display_id)) {
@@ -210,7 +213,7 @@ ShelfAction AppListPresenterImpl::ToggleAppList(
                             show_source == kShelfButtonFullscreen;
   // Dismiss or show based on the target visibility because the show/hide
   // animation can be reversed.
-  if (is_target_visibility_show_) {
+  if (is_target_visibility_show_ && GetDisplayId() == display_id) {
     if (request_fullscreen) {
       if (view_->app_list_state() == AppListViewState::kPeeking) {
         view_->SetState(AppListViewState::kFullscreenAllApps);
@@ -230,7 +233,7 @@ ShelfAction AppListPresenterImpl::ToggleAppList(
 }
 
 bool AppListPresenterImpl::IsVisibleDeprecated() const {
-  return delegate_->IsVisible();
+  return delegate_->IsVisible(GetDisplayId());
 }
 
 bool AppListPresenterImpl::IsAtLeastPartiallyVisible() const {
@@ -243,7 +246,7 @@ bool AppListPresenterImpl::GetTargetVisibility() const {
   return is_target_visibility_show_;
 }
 
-void AppListPresenterImpl::UpdateYPositionAndOpacity(int y_position_in_screen,
+void AppListPresenterImpl::UpdateYPositionAndOpacity(float y_position_in_screen,
                                                      float background_opacity) {
   if (!is_target_visibility_show_)
     return;
@@ -264,7 +267,7 @@ void AppListPresenterImpl::ProcessMouseWheelOffset(
 }
 
 void AppListPresenterImpl::UpdateYPositionAndOpacityForHomeLauncher(
-    int y_position_in_screen,
+    float y_position_in_screen,
     float opacity,
     base::Optional<TabletModeAnimationTransition> transition,
     UpdateHomeLauncherAnimationSettingsCallback callback) {
@@ -283,7 +286,7 @@ void AppListPresenterImpl::UpdateYPositionAndOpacityForHomeLauncher(
   }
 
   const gfx::Transform translation(1.f, 0.f, 0.f, 1.f, 0.f,
-                                   static_cast<float>(y_position_in_screen));
+                                   y_position_in_screen);
   if (layer->GetAnimator()->is_animating()) {
     layer->GetAnimator()->StopAnimating();
 
@@ -300,7 +303,7 @@ void AppListPresenterImpl::UpdateYPositionAndOpacityForHomeLauncher(
     base::ScopedClosureRunner blur_disabler =
         view_->app_list_main_view()
             ->contents_view()
-            ->GetAppsContainerView()
+            ->apps_container_view()
             ->DisableSuggestionChipsBlur();
     // The observer will delete itself when the animations are completed.
     settings->AddObserver(
@@ -312,10 +315,12 @@ void AppListPresenterImpl::UpdateYPositionAndOpacityForHomeLauncher(
   // reported for transform animation only.
   layer->SetOpacity(opacity);
 
+  base::Optional<ui::AnimationThroughputReporter> reporter;
   if (settings.has_value() && transition.has_value()) {
     view_->OnTabletModeAnimationTransitionNotified(transition.value());
-    settings->SetAnimationMetricsReporter(
-        view_->GetStateTransitionMetricsReporter());
+    reporter.emplace(settings->GetAnimator(),
+                     metrics_util::ForSmoothness(
+                         view_->GetStateTransitionMetricsReportCallback()));
   }
 
   layer->SetTransform(translation);
@@ -357,7 +362,7 @@ void AppListPresenterImpl::UpdateScaleAndOpacityForHomeLauncher(
     base::ScopedClosureRunner blur_disabler =
         view_->app_list_main_view()
             ->contents_view()
-            ->GetAppsContainerView()
+            ->apps_container_view()
             ->DisableSuggestionChipsBlur();
     // The observer will delete itself when the animations are completed.
     settings->AddObserver(
@@ -369,10 +374,12 @@ void AppListPresenterImpl::UpdateScaleAndOpacityForHomeLauncher(
   // reported for transform animation only.
   layer->SetOpacity(opacity);
 
+  base::Optional<ui::AnimationThroughputReporter> reporter;
   if (settings.has_value() && transition.has_value()) {
     view_->OnTabletModeAnimationTransitionNotified(*transition);
-    settings->SetAnimationMetricsReporter(
-        view_->GetStateTransitionMetricsReporter());
+    reporter.emplace(settings->GetAnimator(),
+                     metrics_util::ForSmoothness(
+                         view_->GetStateTransitionMetricsReportCallback()));
   }
 
   gfx::Transform transform =
@@ -444,7 +451,7 @@ void AppListPresenterImpl::ResetView() {
   view_ = nullptr;
 }
 
-int64_t AppListPresenterImpl::GetDisplayId() {
+int64_t AppListPresenterImpl::GetDisplayId() const {
   views::Widget* widget = view_ ? view_->GetWidget() : nullptr;
   if (!widget)
     return display::kInvalidDisplayId;
@@ -502,7 +509,7 @@ void AppListPresenterImpl::OnWindowFocused(aura::Window* gained_focus,
                        (IsAtLeastPartiallyVisible() && !app_list_lost_focus);
 
   if (delegate_->IsTabletMode()) {
-    if (visible != delegate_->IsVisible()) {
+    if (visible != delegate_->IsVisible(GetDisplayId())) {
       if (app_list_gained_focus)
         view_->OnHomeLauncherGainingFocusWithoutAnimation();
 

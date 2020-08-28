@@ -33,19 +33,21 @@ class ExtensionsMenuView : public views::BubbleDialogDelegateView,
                            public TabStripModelObserver,
                            public ToolbarActionsModel::Observer {
  public:
-  static constexpr gfx::Size kExtensionsMenuIconSize = gfx::Size(28, 28);
-
   ExtensionsMenuView(views::View* anchor_view,
                      Browser* browser,
-                     ExtensionsContainer* extensions_container);
+                     ExtensionsContainer* extensions_container,
+                     bool allow_pinning);
+  ExtensionsMenuView(const ExtensionsMenuView&) = delete;
+  ExtensionsMenuView& operator=(const ExtensionsMenuView&) = delete;
   ~ExtensionsMenuView() override;
 
   // Displays the ExtensionsMenu under |anchor_view|, attached to |browser|, and
   // with the associated |extensions_container|.
   // Only one menu is allowed to be shown at a time (outside of tests).
-  static void ShowBubble(views::View* anchor_view,
-                         Browser* browser,
-                         ExtensionsContainer* extensions_container);
+  static views::Widget* ShowBubble(views::View* anchor_view,
+                                   Browser* browser,
+                                   ExtensionsContainer* extensions_container,
+                                   bool allow_pinning);
 
   // Returns true if there is currently an ExtensionsMenuView showing (across
   // all browsers and profiles).
@@ -58,8 +60,6 @@ class ExtensionsMenuView : public views::BubbleDialogDelegateView,
   static ExtensionsMenuView* GetExtensionsMenuViewForTesting();
 
   // views::BubbleDialogDelegateView:
-  base::string16 GetWindowTitle() const override;
-  bool ShouldShowCloseButton() const override;
   // TODO(crbug.com/1003072): This override is copied from PasswordItemsView to
   // contrain the width. It would be nice to have a unified way of getting the
   // preferred size to not duplicate the code.
@@ -129,7 +129,10 @@ class ExtensionsMenuView : public views::BubbleDialogDelegateView,
     views::View* menu_items;
 
     // The id of the string to use for the section heading.
-    const int label_string_id;
+    const int header_string_id;
+
+    // The id of the string to use for the longer description of the section.
+    const int description_string_id;
 
     // The PageInteractionStatus that this section is handling.
     const ToolbarActionViewController::PageInteractionStatus page_status;
@@ -171,6 +174,7 @@ class ExtensionsMenuView : public views::BubbleDialogDelegateView,
 
   Browser* const browser_;
   ExtensionsContainer* const extensions_container_;
+  bool allow_pinning_;
   ToolbarActionsModel* const toolbar_model_;
   ScopedObserver<ToolbarActionsModel, ToolbarActionsModel::Observer>
       toolbar_model_observer_;
@@ -183,8 +187,6 @@ class ExtensionsMenuView : public views::BubbleDialogDelegateView,
   Section cant_access_;
   Section wants_access_;
   Section has_access_;
-
-  DISALLOW_COPY_AND_ASSIGN(ExtensionsMenuView);
 };
 
 #endif  // CHROME_BROWSER_UI_VIEWS_EXTENSIONS_EXTENSIONS_MENU_VIEW_H_

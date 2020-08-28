@@ -51,10 +51,6 @@ bool IsRendererResourceSamplingDisabled(int64_t flags) {
   return (flags & (REFRESH_TYPE_V8_MEMORY | REFRESH_TYPE_WEBCACHE_STATS)) == 0;
 }
 
-std::string GetRapporSampleName(content::WebContents* web_contents) {
-  return web_contents->GetVisibleURL().GetOrigin().spec();
-}
-
 }  // namespace
 
 RendererTask::RendererTask(const base::string16& title,
@@ -78,7 +74,6 @@ RendererTask::RendererTask(const base::string16& title,
                            content::WebContents* web_contents,
                            content::RenderProcessHost* render_process_host)
     : Task(title,
-           GetRapporSampleName(web_contents),
            icon,
            render_process_host->GetProcess().Handle()),
       web_contents_(web_contents),
@@ -106,10 +101,6 @@ RendererTask::~RendererTask() {
       RemoveObserver(this);
 }
 
-void RendererTask::UpdateRapporSampleName() {
-  set_rappor_sample_name(GetRapporSampleName(web_contents()));
-}
-
 void RendererTask::Activate() {
   if (!web_contents_->GetDelegate())
     return;
@@ -128,7 +119,7 @@ void RendererTask::Refresh(const base::TimeDelta& update_interval,
   // it and record the current values (which might be invalid at the moment. We
   // can safely ignore that and count on future refresh cycles potentially
   // having valid values).
-  renderer_resources_sampler_->Refresh(base::Closure());
+  renderer_resources_sampler_->Refresh(base::DoNothing());
 
   v8_memory_allocated_ = base::saturated_cast<int64_t>(
       renderer_resources_sampler_->GetV8MemoryAllocated());

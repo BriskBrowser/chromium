@@ -4,6 +4,8 @@
 
 #include "chrome/browser/chromeos/login/lock/screen_locker.h"
 
+#include <algorithm>
+
 #include "ash/public/cpp/ash_switches.h"
 #include "ash/public/cpp/login_screen.h"
 #include "ash/public/cpp/login_screen_model.h"
@@ -14,14 +16,13 @@
 #include "base/location.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
-#include "base/message_loop/message_loop_current.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/metrics/user_metrics.h"
 #include "base/single_thread_task_runner.h"
 #include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
-#include "base/task/post_task.h"
+#include "base/task/current_thread.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/chromeos/accessibility/accessibility_manager.h"
@@ -77,8 +78,6 @@
 #include "url/gurl.h"
 
 using base::UserMetricsAction;
-using content::BrowserThread;
-
 namespace chromeos {
 
 namespace {
@@ -476,8 +475,8 @@ void ScreenLocker::ContinueAuthenticate(
                                         ->GetSupervisedUserManager()
                                         ->GetAuthentication()
                                         ->TransformKey(user_context);
-      base::PostTask(
-          FROM_HERE, {BrowserThread::UI},
+      content::GetUIThreadTaskRunner({})->PostTask(
+          FROM_HERE,
           base::BindOnce(
               &ExtendedAuthenticator::AuthenticateToCheck,
               extended_authenticator_.get(), updated_context,
@@ -500,8 +499,8 @@ void ScreenLocker::ContinueAuthenticate(
         user_context.GetKey()->GetSecret());
   }
 
-  base::PostTask(
-      FROM_HERE, {BrowserThread::UI},
+  content::GetUIThreadTaskRunner({})->PostTask(
+      FROM_HERE,
       base::BindOnce(&ExtendedAuthenticator::AuthenticateToCheck,
                      extended_authenticator_.get(), user_context,
                      base::Bind(&ScreenLocker::OnPasswordAuthSuccess,
@@ -555,6 +554,17 @@ void ScreenLocker::ShowErrorMessage(int error_msg_id,
   delegate_->ShowErrorMessage(error_msg_id, help_topic_id);
 }
 
+user_manager::UserList ScreenLocker::GetUsersToShow() const {
+  user_manager::UserList users_to_show;
+  // Filter out Managed Guest Session users as they should not appear on the UI.
+  std::copy_if(users_.begin(), users_.end(), std::back_inserter(users_to_show),
+               [](const user_manager::User* user) -> bool {
+                 return user->GetType() !=
+                        user_manager::UserType::USER_TYPE_PUBLIC_ACCOUNT;
+               });
+  return users_to_show;
+}
+
 void ScreenLocker::SetLoginStatusConsumer(
     chromeos::AuthStatusConsumer* consumer) {
   auth_status_consumer_ = consumer;
@@ -604,7 +614,7 @@ void ScreenLocker::HandleShowLockScreenRequest() {
 // static
 void ScreenLocker::Show() {
   base::RecordAction(UserMetricsAction("ScreenLocker_Show"));
-  DCHECK(base::MessageLoopCurrentForUI::IsSet());
+  DCHECK(base::CurrentUIThread::IsSet());
 
   // Check whether the currently logged in user is a guest account and if so,
   // refuse to lock the screen (crosbug.com/23764).
@@ -629,7 +639,7 @@ void ScreenLocker::Show() {
 
 // static
 void ScreenLocker::Hide() {
-  DCHECK(base::MessageLoopCurrentForUI::IsSet());
+  DCHECK(base::CurrentUIThread::IsSet());
   // For a guest user, screen_locker_ would have never been initialized.
   if (user_manager::UserManager::Get()->IsLoggedInAsGuest()) {
     VLOG(1) << "Refusing to hide lock screen for guest account";
@@ -699,7 +709,7 @@ ScreenLocker::AuthState::~AuthState() = default;
 
 ScreenLocker::~ScreenLocker() {
   VLOG(1) << "Destroying ScreenLocker " << this;
-  DCHECK(base::MessageLoopCurrentForUI::IsSet());
+  DCHECK(base::CurrentUIThread::IsSet());
   user_manager::UserManager::Get()->RemoveSessionStateObserver(this);
 
   GetLoginScreenCertProviderService()
@@ -788,13 +798,13 @@ void ScreenLocker::OnAuthScanDone(
   VLOG(1) << "Receive fingerprint auth scan result. scan_result="
           << scan_result;
   unlock_attempt_type_ = AUTH_FINGERPRINT;
-  user_manager::User* active_user =
-      user_manager::UserManager::Get()->GetActiveUser();
+  const user_manager::User* primary_user =
+      user_manager::UserManager::Get()->GetPrimaryUser();
   quick_unlock::QuickUnlockStorage* quick_unlock_storage =
-      quick_unlock::QuickUnlockFactory::GetForUser(active_user);
+      quick_unlock::QuickUnlockFactory::GetForUser(primary_user);
   if (!quick_unlock_storage ||
       !quick_unlock_storage->IsFingerprintAuthenticationAvailable() ||
-      base::Contains(users_with_disabled_auth_, active_user->GetAccountId())) {
+      base::Contains(users_with_disabled_auth_, primary_user->GetAccountId())) {
     return;
   }
 
@@ -804,19 +814,19 @@ void ScreenLocker::OnAuthScanDone(
   if (scan_result != device::mojom::ScanResult::SUCCESS) {
     LOG(ERROR) << "Fingerprint unlock failed because scan_result="
                << scan_result;
-    OnFingerprintAuthFailure(*active_user);
+    OnFingerprintAuthFailure(*primary_user);
     return;
   }
 
-  UserContext user_context(*active_user);
-  if (!base::Contains(matches, active_user->username_hash())) {
-    LOG(ERROR) << "Fingerprint unlock failed because it does not match active"
+  UserContext user_context(*primary_user);
+  if (!base::Contains(matches, primary_user->username_hash())) {
+    LOG(ERROR) << "Fingerprint unlock failed because it does not match primary"
                << " user's record";
-    OnFingerprintAuthFailure(*active_user);
+    OnFingerprintAuthFailure(*primary_user);
     return;
   }
   ash::LoginScreen::Get()->GetModel()->NotifyFingerprintAuthResult(
-      active_user->GetAccountId(), true /*success*/);
+      primary_user->GetAccountId(), true /*success*/);
   VLOG(1) << "Fingerprint unlock is successful.";
   LoginScreenClient::Get()->auth_recorder()->RecordFingerprintAuthSuccess(
       true /*success*/,

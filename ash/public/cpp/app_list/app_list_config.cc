@@ -236,12 +236,6 @@ int ItemIconInFolderIconMarginForType(ash::AppListConfigType type) {
   }
 }
 
-int SuggestionChipIconDimension() {
-  // This is needed because chrome uses default instance when generating icons
-  // for suggestion chip and needs to be done for all configs including kShared.
-  return app_list_features::IsScalableAppListEnabled() ? 20 : 16;
-}
-
 int SuggestionChipContainerTopMarginForType(ash::AppListConfigType type) {
   switch (type) {
     case ash::AppListConfigType::kSmall:
@@ -281,7 +275,7 @@ AppListConfig::AppListConfig(AppListConfigType type)
       search_list_icon_dimension_(20),
       search_list_icon_vertical_bar_dimension_(48),
       search_list_badge_icon_dimension_(14),
-      suggestion_chip_icon_dimension_(SuggestionChipIconDimension()),
+      suggestion_chip_icon_dimension_(20),
       suggestion_chip_container_top_margin_(
           SuggestionChipContainerTopMarginForType(type)),
       suggestion_chip_container_height_(32),
@@ -331,7 +325,10 @@ AppListConfig::AppListConfig(AppListConfigType type)
       all_apps_opacity_start_px_(8.0f),
       all_apps_opacity_end_px_(144.0f),
       search_result_title_font_style_(ui::ResourceBundle::BaseFont),
-      search_tile_height_(92) {}
+      search_tile_height_(92),
+      cardified_background_color_(SkColorSetA(SK_ColorWHITE, 26 /* 10% */)),
+      cardified_background_color_active_(
+          SkColorSetA(SK_ColorWHITE, 41 /* 16% */)) {}
 
 AppListConfig::AppListConfig(const AppListConfig& base_config,
                              float scale_x,
@@ -475,7 +472,10 @@ AppListConfig::AppListConfig(const AppListConfig& base_config,
       all_apps_opacity_end_px_(base_config.all_apps_opacity_end_px_),
       search_result_title_font_style_(
           base_config.search_result_title_font_style_),
-      search_tile_height_(base_config.search_tile_height_) {}
+      search_tile_height_(base_config.search_tile_height_),
+      cardified_background_color_(base_config.cardified_background_color_),
+      cardified_background_color_active_(
+          base_config.cardified_background_color_active_) {}
 
 AppListConfig::~AppListConfig() = default;
 
@@ -488,10 +488,10 @@ AppListConfig& AppListConfig::instance() {
 int AppListConfig::GetPreferredIconDimension(
     SearchResultDisplayType display_type) const {
   switch (display_type) {
-    case SearchResultDisplayType::kRecommendation:
-      FALLTHROUGH;
     case SearchResultDisplayType::kTile:
       return search_tile_icon_dimension_;
+    case SearchResultDisplayType::kChip:
+      return suggestion_chip_icon_dimension_;
     case SearchResultDisplayType::kList:
       return search_list_icon_dimension_;
     case SearchResultDisplayType::kNone:  // Falls through.
@@ -527,6 +527,11 @@ int AppListConfig::GetIdealHorizontalMargin(
 int AppListConfig::GetIdealVerticalMargin(
     const gfx::Rect& available_bounds) const {
   return available_bounds.height() / kAppsGridMarginRatio;
+}
+
+SkColor AppListConfig::GetCardifiedBackgroundColor(bool is_active) const {
+  return is_active ? cardified_background_color_active_
+                   : cardified_background_color_;
 }
 
 }  // namespace ash

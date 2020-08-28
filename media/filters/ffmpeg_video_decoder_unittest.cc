@@ -75,7 +75,12 @@ class FFmpegVideoDecoderTest : public testing::Test {
   void InitializeWithConfigWithResult(const VideoDecoderConfig& config,
                                       bool success) {
     decoder_->Initialize(
-        config, false, nullptr, NewExpectedBoolCB(success),
+        config, false, nullptr,
+        base::BindOnce(
+            [](bool success, Status status) {
+              EXPECT_EQ(status.is_ok(), success);
+            },
+            success),
         base::Bind(&FFmpegVideoDecoderTest::FrameReady, base::Unretained(this)),
         base::NullCallback());
     base::RunLoop().RunUntilIdle();
@@ -192,7 +197,7 @@ class FFmpegVideoDecoderTest : public testing::Test {
   }
 
   void FrameReady(scoped_refptr<VideoFrame> frame) {
-    DCHECK(!frame->metadata()->IsTrue(VideoFrameMetadata::END_OF_STREAM));
+    DCHECK(!frame->metadata()->end_of_stream);
     output_frames_.push_back(std::move(frame));
   }
 

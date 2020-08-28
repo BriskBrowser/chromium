@@ -10,9 +10,14 @@
 #include <algorithm>
 #include <utility>
 
-#include "base/logging.h"
+#include "base/bind.h"
+#include "base/callback.h"
+#include "base/check_op.h"
+#include "base/feature_list.h"
+#include "base/notreached.h"
 #include "base/numerics/safe_math.h"
 #include "base/strings/string_util.h"
+#include "pdf/pdf_features.h"
 #include "pdf/url_loader_wrapper.h"
 #include "ppapi/c/pp_errors.h"
 #include "ui/gfx/range/range.h"
@@ -63,7 +68,9 @@ void DocumentLoaderImpl::Chunk::Clear() {
 }
 
 DocumentLoaderImpl::DocumentLoaderImpl(Client* client)
-    : client_(client), loader_factory_(this) {}
+    : client_(client),
+      partial_loading_enabled_(
+          base::FeatureList::IsEnabled(features::kPdfPartialLoading)) {}
 
 DocumentLoaderImpl::~DocumentLoaderImpl() = default;
 
@@ -98,14 +105,15 @@ bool DocumentLoaderImpl::Init(std::unique_ptr<URLLoaderWrapper> loader,
   loader_ = std::move(loader);
 
   if (!loader_->IsContentEncoded())
-    SetDocumentSize(std::max(0, loader_->GetContentLength()));
+    chunk_stream_.set_eof_pos(std::max(0, loader_->GetContentLength()));
 
   int64_t bytes_received = 0;
   int64_t total_bytes_to_be_received = 0;
   if (GetDocumentSize() == 0 &&
-      loader_->GetDownloadProgress(&bytes_received,
-                                   &total_bytes_to_be_received)) {
-    SetDocumentSize(std::max(0, static_cast<int>(total_bytes_to_be_received)));
+      loader_->GetDownloadProgress(bytes_received,
+                                   total_bytes_to_be_received)) {
+    chunk_stream_.set_eof_pos(
+        std::max(0, static_cast<int>(total_bytes_to_be_received)));
   }
 
   SetPartialLoadingEnabled(
@@ -120,10 +128,6 @@ bool DocumentLoaderImpl::Init(std::unique_ptr<URLLoaderWrapper> loader,
 
 bool DocumentLoaderImpl::IsDocumentComplete() const {
   return chunk_stream_.IsComplete();
-}
-
-void DocumentLoaderImpl::SetDocumentSize(uint32_t size) {
-  chunk_stream_.set_eof_pos(size);
 }
 
 uint32_t DocumentLoaderImpl::GetDocumentSize() const {
@@ -259,9 +263,9 @@ void DocumentLoaderImpl::ContinueDownload() {
 
   loader_ = client_->CreateURLLoader();
 
-  loader_->OpenRange(
-      url_, url_, start, length,
-      loader_factory_.NewCallback(&DocumentLoaderImpl::DidOpenPartial));
+  loader_->OpenRange(url_, url_, start, length,
+                     base::BindOnce(&DocumentLoaderImpl::DidOpenPartial,
+                                    weak_factory_.GetWeakPtr()));
 }
 
 void DocumentLoaderImpl::DidOpenPartial(int32_t result) {
@@ -300,7 +304,7 @@ void DocumentLoaderImpl::DidOpenPartial(int32_t result) {
 void DocumentLoaderImpl::ReadMore() {
   loader_->ReadResponseBody(
       buffer_, sizeof(buffer_),
-      loader_factory_.NewCallback(&DocumentLoaderImpl::DidRead));
+      base::BindOnce(&DocumentLoaderImpl::DidRead, weak_factory_.GetWeakPtr()));
 }
 
 void DocumentLoaderImpl::DidRead(int32_t result) {
@@ -395,7 +399,7 @@ void DocumentLoaderImpl::ReadComplete() {
           chunk_stream_.filled_chunks().Last().end() * DataStream::kChunkSize,
           eof);
     }
-    SetDocumentSize(eof);
+    chunk_stream_.set_eof_pos(eof);
     if (eof == EndOfCurrentChunk())
       SaveChunkData();
   }

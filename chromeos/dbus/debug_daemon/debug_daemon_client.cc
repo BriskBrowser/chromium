@@ -21,14 +21,18 @@
 #include "base/files/file_path.h"
 #include "base/json/json_string_value_serializer.h"
 #include "base/location.h"
+#include "base/logging.h"
 #include "base/macros.h"
 #include "base/no_destructor.h"
 #include "base/posix/eintr_wrapper.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/trace_event/trace_config.h"
+#include "chromeos/dbus/cryptohome/cryptohome_client.h"
+#include "chromeos/dbus/cryptohome/rpc.pb.h"
 #include "chromeos/dbus/pipe_reader.h"
 #include "dbus/bus.h"
 #include "dbus/message.h"
@@ -45,6 +49,10 @@ const char kCrOSTraceLabel[] = "systemTraceEvents";
 // Because the cheets logs are very huge, we set the D-Bus timeout to 2 minutes.
 const int kBigLogsDBusTimeoutMS = 120 * 1000;
 
+// crash_sender could take a while to run if the network connection is slow, so
+// wait up to 20 seconds for it.
+const int kCrashSenderTimeoutMS = 20 * 1000;
+
 // A self-deleting object that wraps the pipe reader operations for reading the
 // big feedback logs. It will delete itself once the pipe stream has been
 // terminated. Once the data has been completely read from the pipe, it invokes
@@ -53,8 +61,8 @@ const int kBigLogsDBusTimeoutMS = 120 * 1000;
 class PipeReaderWrapper : public base::SupportsWeakPtr<PipeReaderWrapper> {
  public:
   explicit PipeReaderWrapper(DebugDaemonClient::GetLogsCallback callback)
-      : pipe_reader_(base::CreateTaskRunner(
-            {base::ThreadPool(), base::MayBlock(),
+      : pipe_reader_(base::ThreadPool::CreateTaskRunner(
+            {base::MayBlock(),
              base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN})),
         callback_(std::move(callback)) {}
 
@@ -231,7 +239,8 @@ class DebugDaemonClientImpl : public DebugDaemonClient {
                        weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
   }
 
-  void GetScrubbedBigLogs(GetLogsCallback callback) override {
+  void GetScrubbedBigLogs(const cryptohome::AccountIdentifier& id,
+                          GetLogsCallback callback) override {
     // The PipeReaderWrapper is a self-deleting object; we don't have to worry
     // about ownership or lifetime. We need to create a new one for each Big
     // Logs requests in order to queue these requests. One request can take a
@@ -244,6 +253,7 @@ class DebugDaemonClientImpl : public DebugDaemonClient {
                                  debugd::kGetBigFeedbackLogs);
     dbus::MessageWriter writer(&method_call);
     writer.AppendFileDescriptor(pipe_write_end.get());
+    writer.AppendString(id.account_id());
 
     DVLOG(1) << "Requesting big feedback logs";
     debugdaemon_proxy_->CallMethod(
@@ -251,6 +261,20 @@ class DebugDaemonClientImpl : public DebugDaemonClient {
         base::BindOnce(&DebugDaemonClientImpl::OnBigFeedbackLogsResponse,
                        weak_ptr_factory_.GetWeakPtr(),
                        pipe_reader->AsWeakPtr()));
+  }
+
+  void BackupArcBugReport(const std::string& userhash,
+                          VoidDBusMethodCallback callback) override {
+    dbus::MethodCall method_call(debugd::kDebugdInterface,
+                                 debugd::kBackupArcBugReport);
+    dbus::MessageWriter writer(&method_call);
+    writer.AppendString(userhash);
+
+    DVLOG(1) << "Backing up ARC bug report";
+    debugdaemon_proxy_->CallMethod(
+        &method_call, kBigLogsDBusTimeoutMS,
+        base::BindOnce(&DebugDaemonClientImpl::OnVoidMethod,
+                       weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
   }
 
   void GetAllLogs(GetLogsCallback callback) override {
@@ -285,7 +309,7 @@ class DebugDaemonClientImpl : public DebugDaemonClient {
       writer.AppendString("all");  // TODO(sleffler) parameterize category list
     } else {
       std::string events;
-      for (const std::string event : trace_config.systrace_events()) {
+      for (const std::string& event : trace_config.systrace_events()) {
         if (!events.empty())
           events += " ";
         events += event;
@@ -377,13 +401,22 @@ class DebugDaemonClientImpl : public DebugDaemonClient {
                        weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
   }
 
-  void UploadCrashes() override {
+  void UploadCrashes(UploadCrashesCallback callback) override {
     dbus::MethodCall method_call(debugd::kDebugdInterface,
                                  debugd::kUploadCrashes);
     debugdaemon_proxy_->CallMethod(
-        &method_call, dbus::ObjectProxy::TIMEOUT_USE_DEFAULT,
-        base::BindOnce(&DebugDaemonClientImpl::OnStartMethod,
-                       weak_ptr_factory_.GetWeakPtr()));
+        &method_call, kCrashSenderTimeoutMS,
+        base::BindOnce(&DebugDaemonClientImpl::OnUploadCrashes,
+                       weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
+  }
+
+  void OnUploadCrashes(UploadCrashesCallback callback,
+                       dbus::Response* response) {
+    if (callback.is_null()) {
+      return;
+    }
+
+    std::move(callback).Run(response != nullptr);
   }
 
   void EnableDebuggingFeatures(const std::string& password,
@@ -508,23 +541,15 @@ class DebugDaemonClientImpl : public DebugDaemonClient {
                        weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
   }
 
-  void StopConcierge(ConciergeCallback callback) override {
-    dbus::MethodCall method_call(debugd::kDebugdInterface,
-                                 debugd::kStopVmConcierge);
-    dbus::MessageWriter writer(&method_call);
-    debugdaemon_proxy_->CallMethod(
-        &method_call, dbus::ObjectProxy::TIMEOUT_USE_DEFAULT,
-        base::BindOnce(&DebugDaemonClientImpl::OnStopConcierge,
-                       weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
-  }
-
   void StartPluginVmDispatcher(const std::string& owner_id,
+                               const std::string& lang,
                                PluginVmDispatcherCallback callback) override {
     dbus::MethodCall method_call(debugd::kDebugdInterface,
                                  debugd::kStartVmPluginDispatcher);
     dbus::MessageWriter writer(&method_call);
     writer.AppendString(owner_id);
-    debugdaemon_proxy_->CallMethod(
+    writer.AppendString(lang);
+    debugdaemon_proxy_->CallMethodWithErrorResponse(
         &method_call, dbus::ObjectProxy::TIMEOUT_USE_DEFAULT,
         base::BindOnce(&DebugDaemonClientImpl::OnStartPluginVmDispatcher,
                        weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
@@ -704,14 +729,15 @@ class DebugDaemonClientImpl : public DebugDaemonClient {
   void OnUint64Method(DBusMethodCallback<uint64_t> callback,
                       dbus::Response* response) {
     if (!response) {
-      std::move(callback).Run(0);
+      std::move(callback).Run(base::nullopt);
       return;
     }
 
     dbus::MessageReader reader(response);
     uint64_t result;
     if (!reader.PopUint64(&result)) {
-      result = 0;
+      std::move(callback).Run(base::nullopt);
+      return;
     }
 
     std::move(callback).Run(std::move(result));
@@ -853,14 +879,16 @@ class DebugDaemonClientImpl : public DebugDaemonClient {
     std::move(callback).Run(result);
   }
 
-  void OnStopConcierge(ConciergeCallback callback, dbus::Response* response) {
-    // Debugd just sends back an empty response, so we just check if
-    // the response exists
-    std::move(callback).Run(response != nullptr);
-  }
-
   void OnStartPluginVmDispatcher(PluginVmDispatcherCallback callback,
-                                 dbus::Response* response) {
+                                 dbus::Response* response,
+                                 dbus::ErrorResponse* error) {
+    if (error) {
+      LOG(ERROR) << "Failed to start dispatcher, DBus error "
+                 << error->GetErrorName();
+      std::move(callback).Run(false);
+      return;
+    }
+
     bool result = false;
     if (response) {
       dbus::MessageReader reader(response);

@@ -17,6 +17,7 @@
 #include "ash/system/unified/unified_system_tray.h"
 #include "ash/wm/drag_window_resizer.h"
 #include "ash/wm/overview/overview_controller.h"
+#include "ash/wm/pip/pip_positioner.h"
 #include "ash/wm/splitview/split_view_controller.h"
 #include "ash/wm/tablet_mode/tablet_mode_browser_window_drag_delegate.h"
 #include "ash/wm/tablet_mode/tablet_mode_controller.h"
@@ -704,6 +705,7 @@ TEST_F(ClientControlledShellSurfaceTest, CompositorLockInRotation) {
 
   shell_surface->SetOrientation(Orientation::PORTRAIT);
   surface->Commit();
+  shell_surface->DidReceiveCompositorFrameAck();
 
   EXPECT_FALSE(compositor->IsLocked());
 }
@@ -842,7 +844,7 @@ TEST_F(ClientControlledShellSurfaceTest, SetFullscreen) {
   shell_surface->SetFullscreen(false);
   surface->Commit();
   EXPECT_FALSE(HasBackdrop());
-  EXPECT_NE(CurrentContext()->bounds().ToString(),
+  EXPECT_NE(GetContext()->bounds().ToString(),
             shell_surface->GetWidget()->GetWindowBoundsInScreen().ToString());
 }
 
@@ -1584,6 +1586,7 @@ TEST_F(ClientControlledShellSurfaceTest, SetExtraTitle) {
   // Setting the extra title/debug text won't change the window's title, but it
   // will be drawn by the frame header.
   shell_surface->SetExtraTitle(base::ASCIIToUTF16("extra"));
+  surface->Commit();
   EXPECT_EQ(window_title, window->GetTitle());
   EXPECT_TRUE(paint_does_draw_text());
   EXPECT_FALSE(
@@ -1931,6 +1934,7 @@ TEST_F(ClientControlledShellSurfaceTest, SnappedInTabletMode) {
           shell_surface->GetWidget()->non_client_view()->frame_view());
   // Snapped window can also use auto hide.
   surface->SetFrame(SurfaceFrameType::AUTOHIDE);
+  surface->Commit();
   EXPECT_TRUE(frame_view->GetVisible());
   EXPECT_TRUE(frame_view->GetHeaderView()->in_immersive_mode());
 }
@@ -2047,11 +2051,11 @@ TEST_F(ClientControlledShellSurfaceTest, SetPipWindowBoundsAnimates) {
   ui::ScopedAnimationDurationScaleMode animation_scale_mode(
       ui::ScopedAnimationDurationScaleMode::NON_ZERO_DURATION);
   aura::Window* window = shell_surface->GetWidget()->GetNativeWindow();
-  EXPECT_EQ(gfx::Rect(0, 0, 256, 256), window->layer()->GetTargetBounds());
-  EXPECT_EQ(gfx::Rect(0, 0, 256, 256), window->layer()->bounds());
+  EXPECT_EQ(gfx::Rect(8, 8, 256, 256), window->layer()->GetTargetBounds());
+  EXPECT_EQ(gfx::Rect(8, 8, 256, 256), window->layer()->bounds());
   window->SetBounds(gfx::Rect(10, 10, 256, 256));
-  EXPECT_EQ(gfx::Rect(10, 10, 256, 256), window->layer()->GetTargetBounds());
-  EXPECT_EQ(gfx::Rect(0, 0, 256, 256), window->layer()->bounds());
+  EXPECT_EQ(gfx::Rect(8, 10, 256, 256), window->layer()->GetTargetBounds());
+  EXPECT_EQ(gfx::Rect(8, 8, 256, 256), window->layer()->bounds());
 }
 
 TEST_F(ClientControlledShellSurfaceTest, PipWindowDragDoesNotAnimate) {
@@ -2069,15 +2073,15 @@ TEST_F(ClientControlledShellSurfaceTest, PipWindowDragDoesNotAnimate) {
   shell_surface->GetWidget()->Show();
 
   aura::Window* window = shell_surface->GetWidget()->GetNativeWindow();
-  EXPECT_EQ(gfx::Rect(0, 0, 256, 256), window->layer()->GetTargetBounds());
-  EXPECT_EQ(gfx::Rect(0, 0, 256, 256), window->layer()->bounds());
+  EXPECT_EQ(gfx::Rect(8, 8, 256, 256), window->layer()->GetTargetBounds());
+  EXPECT_EQ(gfx::Rect(8, 8, 256, 256), window->layer()->bounds());
   ui::ScopedAnimationDurationScaleMode animation_scale_mode(
       ui::ScopedAnimationDurationScaleMode::NON_ZERO_DURATION);
   std::unique_ptr<ash::WindowResizer> resizer(ash::CreateWindowResizer(
       window, gfx::PointF(), HTCAPTION, ::wm::WINDOW_MOVE_SOURCE_MOUSE));
   resizer->Drag(gfx::PointF(10, 10), 0);
-  EXPECT_EQ(gfx::Rect(10, 10, 256, 256), window->layer()->GetTargetBounds());
-  EXPECT_EQ(gfx::Rect(10, 10, 256, 256), window->layer()->bounds());
+  EXPECT_EQ(gfx::Rect(18, 18, 256, 256), window->layer()->GetTargetBounds());
+  EXPECT_EQ(gfx::Rect(18, 18, 256, 256), window->layer()->bounds());
   resizer->CompleteDrag();
 }
 
@@ -2101,15 +2105,15 @@ TEST_F(ClientControlledShellSurfaceTest,
   surface->Commit();
 
   aura::Window* window = shell_surface->GetWidget()->GetNativeWindow();
-  EXPECT_EQ(gfx::Rect(0, 0, 256, 256), window->layer()->GetTargetBounds());
-  EXPECT_EQ(gfx::Rect(0, 0, 256, 256), window->layer()->bounds());
+  EXPECT_EQ(gfx::Rect(8, 8, 256, 256), window->layer()->GetTargetBounds());
+  EXPECT_EQ(gfx::Rect(8, 8, 256, 256), window->layer()->bounds());
   ui::ScopedAnimationDurationScaleMode animation_scale_mode(
       ui::ScopedAnimationDurationScaleMode::NON_ZERO_DURATION);
   std::unique_ptr<ash::WindowResizer> resizer(ash::CreateWindowResizer(
       window, gfx::PointF(), HTCAPTION, ::wm::WINDOW_MOVE_SOURCE_MOUSE));
   resizer->Drag(gfx::PointF(10, 10), 0);
-  EXPECT_EQ(gfx::Rect(10, 10, 256, 256), window->layer()->GetTargetBounds());
-  EXPECT_EQ(gfx::Rect(10, 10, 256, 256), window->layer()->bounds());
+  EXPECT_EQ(gfx::Rect(18, 18, 256, 256), window->layer()->GetTargetBounds());
+  EXPECT_EQ(gfx::Rect(18, 18, 256, 256), window->layer()->bounds());
   EXPECT_FALSE(window->layer()->GetAnimator()->is_animating());
   resizer->CompleteDrag();
 }
@@ -2208,7 +2212,7 @@ TEST_F(ClientControlledShellSurfaceTest, DoNotReplayWindowStateRequest) {
 }
 
 TEST_F(ClientControlledShellSurfaceDisplayTest,
-       DoNotRequestBoundsChangeWithStateTransition) {
+       RequestBoundsChangeOnceWithStateTransition) {
   gfx::Size buffer_size(64, 64);
   auto buffer = std::make_unique<Buffer>(
       exo_test_helper()->CreateGpuMemoryBuffer(buffer_size));
@@ -2232,7 +2236,7 @@ TEST_F(ClientControlledShellSurfaceDisplayTest,
   shell_surface->SetPip();
   surface->Commit();
 
-  ASSERT_EQ(0, bounds_change_count());
+  ASSERT_EQ(1, bounds_change_count());
 }
 
 TEST_F(ClientControlledShellSurfaceTest,
@@ -2249,35 +2253,103 @@ TEST_F(ClientControlledShellSurfaceTest,
   surface->Commit();
   aura::Window* window = shell_surface->GetWidget()->GetNativeWindow();
 
-  const gfx::Rect original_bounds(gfx::Point(10, 10), content_size);
+  const gfx::Rect original_bounds(gfx::Point(8, 10), content_size);
   shell_surface->SetGeometry(original_bounds);
   shell_surface->SetPip();
   surface->Commit();
-  EXPECT_EQ(gfx::Rect(10, 10, 100, 100), window->bounds());
+  EXPECT_EQ(gfx::Rect(8, 10, 100, 100), window->bounds());
   shell_surface->GetWidget()->Show();
 
-  const gfx::Rect moved_bounds(gfx::Point(20, 20), content_size);
+  const gfx::Rect moved_bounds(gfx::Point(8, 20), content_size);
   shell_surface->SetGeometry(moved_bounds);
   surface->Commit();
-  EXPECT_EQ(gfx::Rect(20, 20, 100, 100), window->bounds());
+  EXPECT_EQ(gfx::Rect(8, 20, 100, 100), window->bounds());
 
   shell_surface->SetRestored();
   surface->Commit();
   shell_surface->SetGeometry(original_bounds);
   shell_surface->SetPip();
   surface->Commit();
-  EXPECT_EQ(gfx::Rect(10, 10, 100, 100), window->bounds());
+  EXPECT_EQ(gfx::Rect(8, 10, 100, 100), window->bounds());
 
   shell_surface->SetGeometry(moved_bounds);
   surface->Commit();
-  EXPECT_EQ(gfx::Rect(20, 20, 100, 100), window->bounds());
+  EXPECT_EQ(gfx::Rect(8, 20, 100, 100), window->bounds());
 
   shell_surface->SetRestored();
   surface->Commit();
   shell_surface->SetGeometry(moved_bounds);
   shell_surface->SetPip();
   surface->Commit();
-  EXPECT_EQ(gfx::Rect(20, 20, 100, 100), window->bounds());
+  EXPECT_EQ(gfx::Rect(8, 20, 100, 100), window->bounds());
+}
+
+TEST_F(ClientControlledShellSurfaceTest,
+       DoNotApplyCollisionDetectionWhileDragged) {
+  const gfx::Size buffer_size(256, 256);
+  std::unique_ptr<Buffer> buffer(
+      new Buffer(exo_test_helper()->CreateGpuMemoryBuffer(buffer_size)));
+  std::unique_ptr<Surface> surface(new Surface());
+  auto shell_surface =
+      exo_test_helper()->CreateClientControlledShellSurface(surface.get());
+
+  surface->Attach(buffer.get());
+  shell_surface->SetGeometry(gfx::Rect(gfx::Point(8, 50), buffer_size));
+  shell_surface->SetPip();
+  surface->Commit();
+  aura::Window* window = shell_surface->GetWidget()->GetNativeWindow();
+  ash::WindowState* window_state = ash::WindowState::Get(window);
+  EXPECT_EQ(gfx::Rect(8, 50, 256, 256), window->bounds());
+
+  // Ensure that the collision detection logic is not applied during drag move.
+  ui::test::EventGenerator* event_generator = GetEventGenerator();
+  event_generator->MoveMouseToCenterOf(window);
+  event_generator->PressLeftButton();
+  shell_surface->StartDrag(HTTOP, gfx::PointF(0, 0));
+  ASSERT_TRUE(window_state->is_dragged());
+  shell_surface->SetGeometry(gfx::Rect(gfx::Point(20, 50), buffer_size));
+  surface->Commit();
+  EXPECT_EQ(gfx::Rect(20, 50, 256, 256), window->bounds());
+}
+
+TEST_F(ClientControlledShellSurfaceTest, EnteringPipSavesPipSnapFraction) {
+  const gfx::Size content_size(100, 100);
+  auto buffer = std::make_unique<Buffer>(
+      exo_test_helper()->CreateGpuMemoryBuffer(content_size));
+
+  auto surface = std::make_unique<Surface>();
+  auto shell_surface =
+      exo_test_helper()->CreateClientControlledShellSurface(surface.get());
+  surface->Attach(buffer.get());
+  surface->Commit();
+  aura::Window* window = shell_surface->GetWidget()->GetNativeWindow();
+  ash::WindowState* window_state = ash::WindowState::Get(window);
+
+  // Put the PIP window off the top edge as snap fraction has more likely to
+  // have an error vertically.
+  const gfx::Rect original_bounds(gfx::Point(8, 50), content_size);
+  shell_surface->SetGeometry(original_bounds);
+  shell_surface->SetPip();
+  surface->Commit();
+  EXPECT_EQ(gfx::Rect(8, 50, 100, 100), window->bounds());
+  shell_surface->GetWidget()->Show();
+
+  // Ensure the correct value is saved to pip snap fraction.
+  EXPECT_TRUE(ash::PipPositioner::HasSnapFraction(window_state));
+  EXPECT_EQ(ash::PipPositioner::GetSnapFractionAppliedBounds(window_state),
+            window->bounds());
+}
+
+TEST_F(ClientControlledShellSurfaceTest,
+       ShadowBoundsChangedIsResetAfterCommit) {
+  auto surface = std::make_unique<Surface>();
+  auto shell_surface =
+      exo_test_helper()->CreateClientControlledShellSurface(surface.get());
+  surface->SetFrame(SurfaceFrameType::SHADOW);
+  shell_surface->SetShadowBounds(gfx::Rect(10, 10, 100, 100));
+  EXPECT_TRUE(shell_surface->get_shadow_bounds_changed_for_testing());
+  surface->Commit();
+  EXPECT_FALSE(shell_surface->get_shadow_bounds_changed_for_testing());
 }
 
 }  // namespace exo

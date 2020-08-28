@@ -35,18 +35,18 @@
   }
 
   #checkMark circle {
-    fill: var(--google-blue-refresh-500);
+    fill: var(--ntp-selected-border-color);
   }
 
   #checkMark path {
-    fill: white;
+    fill: var(--ntp-background-override-color);
   }
 </style>
 <svg xmlns="http://www.w3.org/2000/svg"
     xmlns:xlink="http://www.w3.org/1999/xlink">
   <defs>
-    <linearGradient id="gradient" gradientUnits="userSpaceOnUse" x1="32" y1="32"
-        x2="32.08" y2="32">
+    <linearGradient id="gradient" gradientUnits="objectBoundingBox"
+        x1="50%" y1="0" x2="50.01%" y2="0">
       <stop id="leftColor" offset="0%"></stop>
       <stop id="rightColor" offset="100%"></stop>
     </linearGradient>

@@ -26,7 +26,7 @@ namespace content {
 class BrowserContext;
 class RenderFrameHost;
 struct GlobalRequestID;
-}
+}  // namespace content
 
 namespace views {
 
@@ -43,7 +43,7 @@ class ObservableWebView : public WebView {
   void ResourceLoadComplete(
       content::RenderFrameHost* render_frame_host,
       const content::GlobalRequestID& request_id,
-      const content::mojom::ResourceLoadInfo& resource_load_info) override;
+      const blink::mojom::ResourceLoadInfo& resource_load_info) override;
 
   // Resets the delegate. The delegate will no longer receive calls after this
   // point.
@@ -90,22 +90,25 @@ class WEBVIEW_EXPORT WebDialogView : public ClientView,
   bool AcceleratorPressed(const ui::Accelerator& accelerator) override;
   void ViewHierarchyChanged(
       const ViewHierarchyChangedDetails& details) override;
-  bool CanClose() override;
+  views::CloseRequestResult OnWindowCloseRequested() override;
 
   // WidgetDelegate:
   bool OnCloseRequested(Widget::ClosedReason close_reason) override;
   bool CanResize() const override;
-  ui::ModalType GetModalType() const override;
+  bool CanMaximize() const override;
   base::string16 GetWindowTitle() const override;
   base::string16 GetAccessibleWindowTitle() const override;
   std::string GetWindowName() const override;
   void WindowClosing() override;
   View* GetContentsView() override;
   ClientView* CreateClientView(Widget* widget) override;
-  NonClientFrameView* CreateNonClientFrameView(Widget* widget) override;
+  std::unique_ptr<NonClientFrameView> CreateNonClientFrameView(
+      Widget* widget) override;
   View* GetInitiallyFocusedView() override;
   bool ShouldShowWindowTitle() const override;
   bool ShouldShowCloseButton() const override;
+  Widget* GetWidget() override;
+  const Widget* GetWidget() const override;
 
   // ui::WebDialogDelegate:
   ui::ModalType GetDialogModalType() const override;
@@ -138,6 +141,7 @@ class WEBVIEW_EXPORT WebDialogView : public ClientView,
       const content::OpenURLParams& params) override;
   void AddNewContents(content::WebContents* source,
                       std::unique_ptr<content::WebContents> new_contents,
+                      const GURL& target_url,
                       WindowOpenDisposition disposition,
                       const gfx::Rect& initial_rect,
                       bool user_gesture,
@@ -153,6 +157,13 @@ class WEBVIEW_EXPORT WebDialogView : public ClientView,
       const GURL& opener_url,
       const std::string& frame_name,
       const GURL& target_url) override;
+  void RequestMediaAccessPermission(
+      content::WebContents* web_contents,
+      const content::MediaStreamRequest& request,
+      content::MediaResponseCallback callback) override;
+  bool CheckMediaAccessPermission(content::RenderFrameHost* render_frame_host,
+                                  const GURL& security_origin,
+                                  blink::mojom::MediaStreamType type) override;
 
  private:
   friend class WebDialogViewUnitTest;
@@ -165,6 +176,11 @@ class WEBVIEW_EXPORT WebDialogView : public ClientView,
   // about when the dialog is closing. For all other actions (besides dialog
   // closing) we delegate to the creator of this view, which we keep track of
   // using this variable.
+  //
+  // TODO(ellyjones): Having WebDialogView implement all of WebDialogDelegate,
+  // and plumb all the calls through to |delegate_|, is a lot of code overhead
+  // to support having this view know about dialog closure. There is probably a
+  // lighter-weight way to achieve that.
   ui::WebDialogDelegate* delegate_;
 
   ObservableWebView* web_view_;

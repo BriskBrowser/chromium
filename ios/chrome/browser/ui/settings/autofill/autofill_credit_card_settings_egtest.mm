@@ -6,6 +6,7 @@
 
 #include "base/strings/sys_string_conversions.h"
 #import "base/test/ios/wait_util.h"
+#include "components/autofill/core/browser/autofill_test_utils.h"
 #include "components/strings/grit/components_strings.h"
 #import "ios/chrome/browser/ui/autofill/autofill_app_interface.h"
 #import "ios/chrome/browser/ui/settings/autofill/autofill_constants.h"
@@ -28,6 +29,7 @@
 using chrome_test_util::ButtonWithAccessibilityLabel;
 using chrome_test_util::ButtonWithAccessibilityLabelId;
 using chrome_test_util::NavigationBarDoneButton;
+using chrome_test_util::SettingsMenuBackButton;
 using chrome_test_util::SettingsDoneButton;
 
 namespace {
@@ -42,8 +44,10 @@ struct DisplayStringIDToExpectedResult {
 const DisplayStringIDToExpectedResult kExpectedFields[] = {
     {IDS_IOS_AUTOFILL_CARDHOLDER, @"Test User"},
     {IDS_IOS_AUTOFILL_CARD_NUMBER, @"4111111111111111"},
-    {IDS_IOS_AUTOFILL_EXP_MONTH, @"11"},
-    {IDS_IOS_AUTOFILL_EXP_YEAR, @"2022"}};
+    {IDS_IOS_AUTOFILL_EXP_MONTH,
+     base::SysUTF8ToNSString(autofill::test::NextMonth())},
+    {IDS_IOS_AUTOFILL_EXP_YEAR,
+     base::SysUTF8ToNSString(autofill::test::NextYear())}};
 
 NSString* const kCreditCardLabelTemplate = @"Test User, %@";
 
@@ -59,17 +63,6 @@ id<GREYMatcher> NavigationBarEditButton() {
 // screen.
 id<GREYMatcher> BottomToolbar() {
   return grey_accessibilityID(kAutofillPaymentMethodsToolbarId);
-}
-
-id<GREYMatcher> SettingsMenuBackButton(NSString* backItemTitle) {
-#if defined(CHROME_EARL_GREY_2)
-  return grey_allOf(
-      grey_accessibilityLabel(backItemTitle),
-      grey_kindOfClassName(@"UIAccessibilityBackButtonElement"),
-      grey_ancestor(grey_accessibilityID(@"SettingNavigationBar")), nil);
-#else
-  return chrome_test_util::SettingsMenuBackButton();
-#endif
 }
 
 }  // namespace
@@ -125,14 +118,12 @@ id<GREYMatcher> SettingsMenuBackButton(NSString* backItemTitle) {
 
 // Close the settings.
 - (void)exitSettingsMenu {
-  [[EarlGrey
-      selectElementWithMatcher:SettingsMenuBackButton(l10n_util::GetNSString(
-                                   IDS_IOS_SETTINGS_TITLE))]
+  [[EarlGrey selectElementWithMatcher:SettingsMenuBackButton()]
       performAction:grey_tap()];
   [[EarlGrey selectElementWithMatcher:SettingsDoneButton()]
       performAction:grey_tap()];
   // Wait for UI components to finish loading.
-  [[GREYUIThreadExecutor sharedInstance] drainUntilIdle];
+  [ChromeEarlGreyUI waitForAppToIdle];
 }
 
 // Test that the page for viewing Autofill credit card details is as expected.
@@ -152,9 +143,7 @@ id<GREYMatcher> SettingsMenuBackButton(NSString* backItemTitle) {
   }
 
   // Go back to the list view page.
-  [[EarlGrey
-      selectElementWithMatcher:SettingsMenuBackButton(l10n_util::GetNSString(
-                                   IDS_AUTOFILL_PAYMENT_METHODS))]
+  [[EarlGrey selectElementWithMatcher:SettingsMenuBackButton()]
       performAction:grey_tap()];
 
   [self exitSettingsMenu];
@@ -168,9 +157,7 @@ id<GREYMatcher> SettingsMenuBackButton(NSString* backItemTitle) {
   [ChromeEarlGrey verifyAccessibilityForCurrentScreen];
 
   // Go back to the list view page.
-  [[EarlGrey
-      selectElementWithMatcher:SettingsMenuBackButton(l10n_util::GetNSString(
-                                   IDS_AUTOFILL_PAYMENT_METHODS))]
+  [[EarlGrey selectElementWithMatcher:SettingsMenuBackButton()]
       performAction:grey_tap()];
 
   [self exitSettingsMenu];
@@ -187,9 +174,7 @@ id<GREYMatcher> SettingsMenuBackButton(NSString* backItemTitle) {
   [ChromeEarlGrey verifyAccessibilityForCurrentScreen];
 
   // Go back to the list view page.
-  [[EarlGrey
-      selectElementWithMatcher:SettingsMenuBackButton(l10n_util::GetNSString(
-                                   IDS_AUTOFILL_PAYMENT_METHODS))]
+  [[EarlGrey selectElementWithMatcher:SettingsMenuBackButton()]
       performAction:grey_tap()];
 
   [self exitSettingsMenu];

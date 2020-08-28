@@ -8,28 +8,59 @@
 
 #include "base/command_line.h"
 #include "base/macros.h"
+#include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
 #include "chrome/browser/ui/passwords/manage_passwords_test.h"
 #include "chrome/browser/ui/test/test_browser_dialog.h"
 #include "chrome/browser/ui/views/passwords/password_auto_sign_in_view.h"
+#include "components/password_manager/core/common/password_manager_features.h"
+#include "content/public/test/browser_test.h"
 
+using base::StartsWith;
+
+// Test params:
+//  - bool : whether to enable account storage feature or not.
 class PasswordBubbleBrowserTest
-    : public SupportsTestDialog<ManagePasswordsTest> {
+    : public SupportsTestDialog<ManagePasswordsTest>,
+      public testing::WithParamInterface<bool> {
  public:
-  PasswordBubbleBrowserTest() {}
-  ~PasswordBubbleBrowserTest() override {}
+  PasswordBubbleBrowserTest() {
+    if (GetParam()) {
+      // |kEnablePasswordsAccountStorage|, |kCompromisedPasswordsReengagement|
+      // are both enabled.
+      scoped_feature_list_.InitWithFeatures(
+          {password_manager::features::kEnablePasswordsAccountStorage,
+           password_manager::features::kCompromisedPasswordsReengagement},
+          {});
+    } else {
+      // |kCompromisedPasswordsReengagement| enabled,
+      // |kEnablePasswordsAccountStorage| disabled.
+      scoped_feature_list_.InitWithFeatures(
+          {password_manager::features::kCompromisedPasswordsReengagement},
+          {password_manager::features::kEnablePasswordsAccountStorage});
+    }
+  }
+
+  ~PasswordBubbleBrowserTest() override = default;
 
   void ShowUi(const std::string& name) override {
-    if (name == "PendingPasswordBubble") {
+    if (StartsWith(name, "PendingPasswordBubble",
+                   base::CompareCase::SENSITIVE)) {
       SetupPendingPassword();
-    } else if (name == "AutomaticPasswordBubble") {
+    } else if (StartsWith(name, "AutomaticPasswordBubble",
+                          base::CompareCase::SENSITIVE)) {
       SetupAutomaticPassword();
-    } else if (name == "ManagePasswordBubble") {
+    } else if (StartsWith(name, "ManagePasswordBubble",
+                          base::CompareCase::SENSITIVE)) {
+      // Set test form to be account-stored. Otherwise, there is no indicator.
+      test_form()->in_store =
+          GetParam() ? autofill::PasswordForm::Store::kAccountStore
+                     : autofill::PasswordForm::Store::kProfileStore;
       SetupManagingPasswords();
       ExecuteManagePasswordsCommand();
-    } else if (name == "AutoSignin") {
-      test_form()->origin = GURL("https://example.com");
+    } else if (StartsWith(name, "AutoSignin", base::CompareCase::SENSITIVE)) {
+      test_form()->url = GURL("https://example.com");
       test_form()->display_name = base::ASCIIToUTF16("Peter");
       test_form()->username_value = base::ASCIIToUTF16("pet12@gmail.com");
       std::vector<std::unique_ptr<autofill::PasswordForm>> local_credentials;
@@ -38,6 +69,16 @@ class PasswordBubbleBrowserTest
 
       PasswordAutoSignInView::set_auto_signin_toast_timeout(10);
       SetupAutoSignin(std::move(local_credentials));
+    } else if (StartsWith(name, "MoveToAccountStoreBubble",
+                          base::CompareCase::SENSITIVE)) {
+      SetupMovingPasswords();
+    } else if (StartsWith(name, "SafeState", base::CompareCase::SENSITIVE)) {
+      SetupSafeState();
+    } else if (StartsWith(name, "MoreToFixState",
+                          base::CompareCase::SENSITIVE)) {
+      SetupMoreToFixState();
+    } else if (StartsWith(name, "UnsafeState", base::CompareCase::SENSITIVE)) {
+      SetupUnsafeState();
     } else {
       ADD_FAILURE() << "Unknown dialog type";
       return;
@@ -45,26 +86,47 @@ class PasswordBubbleBrowserTest
   }
 
  private:
+  base::test::ScopedFeatureList scoped_feature_list_;
   DISALLOW_COPY_AND_ASSIGN(PasswordBubbleBrowserTest);
 };
 
-IN_PROC_BROWSER_TEST_F(PasswordBubbleBrowserTest,
+INSTANTIATE_TEST_SUITE_P(All, PasswordBubbleBrowserTest, ::testing::Bool());
+
+IN_PROC_BROWSER_TEST_P(PasswordBubbleBrowserTest,
                        InvokeUi_PendingPasswordBubble) {
   ShowAndVerifyUi();
 }
 
-IN_PROC_BROWSER_TEST_F(PasswordBubbleBrowserTest,
+IN_PROC_BROWSER_TEST_P(PasswordBubbleBrowserTest,
                        InvokeUi_AutomaticPasswordBubble) {
   ShowAndVerifyUi();
 }
 
-// Disabled: ExecuteManagePasswordsCommand() spins a runloop which will be flaky
-// in a browser test. See http://crbug.com/716681.
-IN_PROC_BROWSER_TEST_F(PasswordBubbleBrowserTest,
-                       DISABLED_InvokeUi_ManagePasswordBubble) {
+IN_PROC_BROWSER_TEST_P(PasswordBubbleBrowserTest,
+                       InvokeUi_ManagePasswordBubble) {
   ShowAndVerifyUi();
 }
 
-IN_PROC_BROWSER_TEST_F(PasswordBubbleBrowserTest, InvokeUi_AutoSignin) {
+IN_PROC_BROWSER_TEST_P(PasswordBubbleBrowserTest, InvokeUi_AutoSignin) {
+  ShowAndVerifyUi();
+}
+
+IN_PROC_BROWSER_TEST_P(PasswordBubbleBrowserTest, InvokeUi_SafeState) {
+  ShowAndVerifyUi();
+}
+
+IN_PROC_BROWSER_TEST_P(PasswordBubbleBrowserTest, InvokeUi_MoreToFixState) {
+  ShowAndVerifyUi();
+}
+
+IN_PROC_BROWSER_TEST_P(PasswordBubbleBrowserTest, InvokeUi_UnsafeState) {
+  ShowAndVerifyUi();
+}
+
+IN_PROC_BROWSER_TEST_P(PasswordBubbleBrowserTest,
+                       InvokeUi_MoveToAccountStoreBubble) {
+  if (!GetParam()) {
+    return;  // No moving bubble available without the flag.
+  }
   ShowAndVerifyUi();
 }

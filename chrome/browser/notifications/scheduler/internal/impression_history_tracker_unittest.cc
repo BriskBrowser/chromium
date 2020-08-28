@@ -53,12 +53,28 @@ Impression CreateImpression(const base::Time& create_time,
   return impression;
 }
 
+Impression CreateImpression(
+    const base::Time& create_time,
+    const std::string& guid,
+    UserFeedback feedback,
+    base::TimeDelta ignore_timeout_duration,
+    Impression::ImpressionResultMap impression_mapping) {
+  Impression impression(SchedulerClientType::kTest1, guid, create_time);
+  impression.feedback = feedback;
+  impression.ignore_timeout_duration = ignore_timeout_duration;
+  impression.impression_mapping = impression_mapping;
+  return impression;
+}
+
 TestCase CreateDefaultTestCase() {
   TestCase test_case;
   test_case.input = {{SchedulerClientType::kTest1,
                       2 /* current_max_daily_show */,
-                      {},
-                      base::nullopt /* suppression_info */}};
+                      {} /* impressions */,
+                      base::nullopt /* suppression_info */,
+                      0 /* negative_events_count */,
+                      base::nullopt /* last_negative_event_ts */,
+                      base::nullopt /* last_shown_ts */}};
   test_case.registered_clients = {SchedulerClientType::kTest1};
   test_case.expected = test_case.input;
   return test_case;
@@ -67,6 +83,8 @@ TestCase CreateDefaultTestCase() {
 class MockImpressionStore : public CollectionStore<ClientState> {
  public:
   MockImpressionStore() {}
+  MockImpressionStore(const MockImpressionStore&) = delete;
+  MockImpressionStore& operator=(const MockImpressionStore&) = delete;
 
   MOCK_METHOD1(InitAndLoad, void(CollectionStore<ClientState>::LoadCallback));
   MOCK_METHOD3(Add,
@@ -79,15 +97,26 @@ class MockImpressionStore : public CollectionStore<ClientState> {
                     base::OnceCallback<void(bool)>));
   MOCK_METHOD2(Delete,
                void(const std::string&, base::OnceCallback<void(bool)>));
+};
 
- private:
-  DISALLOW_COPY_AND_ASSIGN(MockImpressionStore);
+class MockDelegate : public ImpressionHistoryTracker::Delegate {
+ public:
+  MockDelegate() = default;
+  MockDelegate(const MockDelegate&) = delete;
+  MockDelegate& operator=(const MockDelegate&) = delete;
+  ~MockDelegate() final = default;
+  MOCK_METHOD2(GetThrottleConfig,
+               void(SchedulerClientType,
+                    base::OnceCallback<void(std::unique_ptr<ThrottleConfig>)>));
 };
 
 // TODO(xingliu): Add more test cases following the test doc.
 class ImpressionHistoryTrackerTest : public ::testing::Test {
  public:
-  ImpressionHistoryTrackerTest() : store_(nullptr) {}
+  ImpressionHistoryTrackerTest() : store_(nullptr), delegate_(nullptr) {}
+  ImpressionHistoryTrackerTest(const ImpressionHistoryTrackerTest&) = delete;
+  ImpressionHistoryTrackerTest& operator=(const ImpressionHistoryTrackerTest&) =
+      delete;
   ~ImpressionHistoryTrackerTest() override = default;
 
   void SetUp() override {
@@ -101,7 +130,7 @@ class ImpressionHistoryTrackerTest : public ::testing::Test {
   void CreateTracker(const TestCase& test_case) {
     auto store = std::make_unique<MockImpressionStore>();
     store_ = store.get();
-
+    delegate_ = std::make_unique<MockDelegate>();
     impression_trakcer_ = std::make_unique<ImpressionHistoryTrackerImpl>(
         config_, test_case.registered_clients, std::move(store), &clock_);
   }
@@ -117,12 +146,13 @@ class ImpressionHistoryTrackerTest : public ::testing::Test {
               std::move(cb).Run(true, std::move(entries));
             }));
     base::RunLoop loop;
-    impression_trakcer_->Init(base::BindOnce(
-        [](base::RepeatingClosure closure, bool success) {
-          EXPECT_TRUE(success);
-          std::move(closure).Run();
-        },
-        loop.QuitClosure()));
+    impression_trakcer_->Init(
+        delegate_.get(), base::BindOnce(
+                             [](base::RepeatingClosure closure, bool success) {
+                               EXPECT_TRUE(success);
+                               std::move(closure).Run();
+                             },
+                             loop.QuitClosure()));
     loop.Run();
   }
 
@@ -149,6 +179,8 @@ class ImpressionHistoryTrackerTest : public ::testing::Test {
 
   const SchedulerConfig& config() const { return config_; }
   MockImpressionStore* store() { return store_; }
+  MockDelegate* delegate() { return delegate_.get(); }
+
   ImpressionHistoryTracker* tracker() { return impression_trakcer_.get(); }
   test::FakeClock* clock() { return &clock_; }
 
@@ -158,8 +190,7 @@ class ImpressionHistoryTrackerTest : public ::testing::Test {
   SchedulerConfig config_;
   std::unique_ptr<ImpressionHistoryTracker> impression_trakcer_;
   MockImpressionStore* store_;
-
-  DISALLOW_COPY_AND_ASSIGN(ImpressionHistoryTrackerTest);
+  std::unique_ptr<MockDelegate> delegate_;
 };
 
 // New client data should be added to impression tracker.
@@ -168,7 +199,7 @@ TEST_F(ImpressionHistoryTrackerTest, NewReigstedClient) {
   test_case.registered_clients.emplace_back(SchedulerClientType::kTest2);
   test_case.expected.emplace_back(test::ImpressionTestData(
       SchedulerClientType::kTest2, config().initial_daily_shown_per_type, {},
-      base::nullopt));
+      base::nullopt, 0, base::nullopt, base::nullopt));
 
   CreateTracker(test_case);
   EXPECT_CALL(*store(), Add(_, _, _));
@@ -215,9 +246,9 @@ TEST_F(ImpressionHistoryTrackerTest, AddImpression) {
   InitTrackerWithData(test_case);
 
   // No-op for unregistered client.
-  tracker()->AddImpression(
-      SchedulerClientType::kTest2, kGuid2, Impression::ImpressionResultMap(),
-      Impression::CustomData(), base::nullopt /*custom_suppression_duration*/);
+  tracker()->AddImpression(SchedulerClientType::kTest2, kGuid2,
+                           Impression::ImpressionResultMap(),
+                           Impression::CustomData(), base::nullopt);
   VerifyClientStates(test_case);
 
   clock()->SetNow(kTimeStr);
@@ -225,17 +256,15 @@ TEST_F(ImpressionHistoryTrackerTest, AddImpression) {
   Impression::ImpressionResultMap impression_mapping = {
       {UserFeedback::kDismiss, ImpressionResult::kNegative}};
   Impression::CustomData custom_data = {{"url", "https://www.example.com"}};
-  auto custom_suppression_duration = base::TimeDelta::FromDays(56);
   EXPECT_CALL(*store(), Update(_, _, _));
   tracker()->AddImpression(SchedulerClientType::kTest1, kGuid1,
-                           impression_mapping, custom_data,
-                           custom_suppression_duration);
+                           impression_mapping, custom_data, base::nullopt);
   Impression expected_impression(SchedulerClientType::kTest1, kGuid1,
                                  clock()->Now());
   expected_impression.impression_mapping = impression_mapping;
   expected_impression.custom_data = custom_data;
-  expected_impression.custom_suppression_duration = custom_suppression_duration;
   test_case.expected.back().impressions.emplace_back(expected_impression);
+  test_case.expected.back().last_shown_ts = clock()->Now();
   VerifyClientStates(test_case);
   EXPECT_EQ(*tracker()->GetImpression(kGuid1), expected_impression);
 }
@@ -289,6 +318,64 @@ TEST_F(ImpressionHistoryTrackerTest, ConsecutiveDismisses) {
   CreateTracker(test_case);
   InitTrackerWithData(test_case);
   EXPECT_CALL(*store(), Update(_, _, _));
+  EXPECT_CALL(*delegate(), GetThrottleConfig(_, _))
+      .Times(test_case.input.front().impressions.size())
+      .WillRepeatedly(Invoke(
+          [&](SchedulerClientType type,
+              base::OnceCallback<void(std::unique_ptr<ThrottleConfig>)> cb) {
+            std::move(cb).Run(nullptr);
+          }));
+  UserActionData action_data(SchedulerClientType::kTest1,
+                             UserActionType::kDismiss, "guid2");
+  tracker()->OnUserAction(action_data);
+  VerifyClientStates(test_case);
+}
+
+// Verifies consecutive dismisses or timeout-ignored impressions will generate
+// impression result with timeout configured.
+TEST_F(ImpressionHistoryTrackerTest, ConsecutiveDismissesWithIgnoreTimeout) {
+  TestCase test_case = CreateDefaultTestCase();
+  clock()->SetNow(kTimeStr);
+
+  // Config timeout duration and negative impression mapping.
+  Impression::ImpressionResultMap impression_mapping;
+  impression_mapping.emplace(UserFeedback::kDismiss,
+                             ImpressionResult::kNegative);
+  impression_mapping.emplace(UserFeedback::kIgnore,
+                             ImpressionResult::kNegative);
+  base::TimeDelta ignore_timeout_duration = base::TimeDelta::FromHours(12);
+
+  // Construct 3 dismisses or timeout-ignored impressions in a row, which will
+  // generate negative impression result.
+  auto dismiss_0 = CreateImpression(
+      clock()->Now() - base::TimeDelta::FromDays(1), "guid0",
+      UserFeedback::kNoFeedback, ignore_timeout_duration, impression_mapping);
+  auto dismiss_1 = CreateImpression(
+      clock()->Now() - base::TimeDelta::FromHours(16), "guid1",
+      UserFeedback::kNoFeedback, ignore_timeout_duration, impression_mapping);
+  auto dismiss_2 = CreateImpression(
+      clock()->Now() - base::TimeDelta::FromMinutes(15), "guid2",
+      UserFeedback::kDismiss, ignore_timeout_duration, impression_mapping);
+  test_case.input.front().impressions = {dismiss_0, dismiss_1, dismiss_2};
+  test_case.expected.front().impressions = test_case.input.front().impressions;
+  for (auto& impression : test_case.expected.front().impressions) {
+    if (impression.guid != "guid2") {
+      impression.feedback = UserFeedback::kIgnore;
+    }
+    impression.impression = ImpressionResult::kNegative;
+    impression.integrated = true;
+  }
+
+  CreateTracker(test_case);
+  InitTrackerWithData(test_case);
+  EXPECT_CALL(*store(), Update(_, _, _));
+  EXPECT_CALL(*delegate(), GetThrottleConfig(_, _))
+      .Times(test_case.input.front().impressions.size())
+      .WillRepeatedly(Invoke(
+          [&](SchedulerClientType type,
+              base::OnceCallback<void(std::unique_ptr<ThrottleConfig>)> cb) {
+            std::move(cb).Run(nullptr);
+          }));
   UserActionData action_data(SchedulerClientType::kTest1,
                              UserActionType::kDismiss, "guid2");
   tracker()->OnUserAction(action_data);
@@ -303,7 +390,6 @@ struct UserActionTestParam {
   base::Optional<ActionButtonType> button_type;
   bool integrated = false;
   bool has_suppression = false;
-  base::Optional<base::TimeDelta> custom_suppression_duration;
   std::map<UserFeedback, ImpressionResult> impression_mapping;
 };
 
@@ -312,10 +398,11 @@ class ImpressionHistoryTrackerUserActionTest
       public ::testing::WithParamInterface<UserActionTestParam> {
  public:
   ImpressionHistoryTrackerUserActionTest() = default;
+  ImpressionHistoryTrackerUserActionTest(
+      const ImpressionHistoryTrackerUserActionTest&) = delete;
+  ImpressionHistoryTrackerUserActionTest& operator=(
+      const ImpressionHistoryTrackerUserActionTest&) = delete;
   ~ImpressionHistoryTrackerUserActionTest() override = default;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(ImpressionHistoryTrackerUserActionTest);
 };
 
 const UserActionTestParam kUserActionTestParams[] = {
@@ -344,7 +431,6 @@ const UserActionTestParam kUserActionTestParams[] = {
      base::nullopt,
      true /*integrated*/,
      true /*has_suppression*/,
-     base::nullopt /*custom_suppression_duration*/,
      {{UserFeedback::kClick,
        ImpressionResult::kNegative}} /*impression_mapping*/},
 
@@ -355,10 +441,10 @@ const UserActionTestParam kUserActionTestParams[] = {
      base::nullopt,
      true /*integrated*/,
      true /*has_suppression*/,
-     base::TimeDelta::FromDays(2) /*custom_suppression_duration*/,
      {{UserFeedback::kClick,
        ImpressionResult::kNegative}} /*impression_mapping*/}};
 
+// TODO(hesen): Add test for custom suppression duration from client.
 // User actions like clicks should update the ClientState data accordingly.
 TEST_P(ImpressionHistoryTrackerUserActionTest, UserAction) {
   clock()->SetNow(base::Time::UnixEpoch());
@@ -366,8 +452,6 @@ TEST_P(ImpressionHistoryTrackerUserActionTest, UserAction) {
   Impression impression = CreateImpression(base::Time::Now(), kGuid1);
   DCHECK(!test_case.input.empty());
   impression.impression_mapping = GetParam().impression_mapping;
-  impression.custom_suppression_duration =
-      GetParam().custom_suppression_duration;
   test_case.input.front().impressions.emplace_back(impression);
 
   impression.impression = GetParam().impression_result;
@@ -378,16 +462,22 @@ TEST_P(ImpressionHistoryTrackerUserActionTest, UserAction) {
   test_case.expected.front().impressions.emplace_back(impression);
   if (GetParam().has_suppression) {
     test_case.expected.front().suppression_info =
-        SuppressionInfo(base::Time::UnixEpoch(),
-                        GetParam().custom_suppression_duration.has_value()
-                            ? GetParam().custom_suppression_duration.value()
-                            : config().suppression_duration);
+        SuppressionInfo(base::Time::UnixEpoch(), config().suppression_duration);
+    test_case.expected.front().negative_events_count = 1;
+    test_case.expected.front().last_negative_event_ts = base::Time::UnixEpoch();
   }
-
   CreateTracker(test_case);
   InitTrackerWithData(test_case);
   EXPECT_CALL(*store(), Update(_, _, _));
-
+  if (GetParam().impression_result == ImpressionResult::kNegative ||
+      GetParam().user_feedback == UserFeedback::kDismiss) {
+    EXPECT_CALL(*delegate(), GetThrottleConfig(_, _))
+        .WillOnce(Invoke(
+            [&](SchedulerClientType type,
+                base::OnceCallback<void(std::unique_ptr<ThrottleConfig>)> cb) {
+              std::move(cb).Run(nullptr);
+            }));
+  }
   // Trigger user action.
   if (GetParam().user_feedback == UserFeedback::kClick) {
     UserActionData action_data(SchedulerClientType::kTest1,
@@ -407,7 +497,6 @@ TEST_P(ImpressionHistoryTrackerUserActionTest, UserAction) {
                                UserActionType::kDismiss, kGuid1);
     tracker()->OnUserAction(action_data);
   }
-
   VerifyClientStates(test_case);
 }
 

@@ -19,6 +19,7 @@
 #include "base/json/json_writer.h"
 #include "base/stl_util.h"
 #include "base/strings/strcat.h"
+#include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/credential_provider/common/gcp_strings.h"
@@ -79,6 +80,9 @@ constexpr size_t kMinPaddedPasswordLength = 64;
 constexpr size_t kNonceLength = 12;
 
 constexpr size_t kSessionKeyLength = 32;
+
+// Maximum number of retries if a HTTP call to the backend fails.
+constexpr unsigned int kMaxNumHttpRetries = 3;
 
 bool Base64DecodeCryptographicKey(const std::string& cryptographic_key,
                                   std::string* out) {
@@ -190,7 +194,7 @@ base::Optional<std::vector<uint8_t>> PublicKeyEncrypt(
             base::StringPiece(reinterpret_cast<const char*>(
                                   &session_key_with_nonce[kSessionKeyLength]),
                               kNonceLength),
-            /*ad=*/nullptr, &sealed_secret);
+            /*ad=*/"", &sealed_secret);
 
   ciphertext.insert(ciphertext.end(), sealed_secret.data(),
                     sealed_secret.data() + sealed_secret.size());
@@ -245,7 +249,7 @@ base::Optional<std::string> PrivateKeyDecrypt(
       base::StringPiece(reinterpret_cast<const char*>(
                             &session_key_with_nonce[kSessionKeyLength]),
                         kNonceLength),
-      /*ad=*/nullptr, &plaintext);
+      /*ad=*/"", &plaintext);
 
   return plaintext;
 }
@@ -266,22 +270,31 @@ HRESULT EncryptUserPasswordUsingEscrowService(
 
   std::string resource_id;
   std::string public_key;
+  base::Value request_dict(base::Value::Type::DICTIONARY);
+  request_dict.SetStringKey(kGenerateKeyPairRequestDeviceIdParameterName,
+                            device_id);
+  base::Optional<base::Value> request_result;
 
   // Fetch the results and extract the |resource_id| for the key and the
   // |public_key| to be used for encryption.
   HRESULT hr = WinHttpUrlFetcher::BuildRequestAndFetchResultFromHttpService(
       PasswordRecoveryManager::Get()->GetEscrowServiceGenerateKeyPairUrl(),
-      access_token, {},
-      {{kGenerateKeyPairRequestDeviceIdParameterName, device_id}},
-      {
-          {kGenerateKeyPairResponseResourceIdParameterName, &resource_id},
-          {kGenerateKeyPairResponsePublicKeyParameterName, &public_key},
-      },
-      request_timeout);
+      access_token, {}, request_dict, request_timeout, kMaxNumHttpRetries,
+      &request_result);
 
   if (FAILED(hr)) {
     LOGFN(ERROR) << "BuildRequestAndFetchResultFromHttpService hr="
                  << putHR(hr);
+    return E_FAIL;
+  }
+
+  if (!request_result.has_value() ||
+      !ExtractKeysFromDict(
+          *request_result,
+          {
+              {kGenerateKeyPairResponseResourceIdParameterName, &resource_id},
+              {kGenerateKeyPairResponsePublicKeyParameterName, &public_key},
+          })) {
     return E_FAIL;
   }
 
@@ -349,20 +362,27 @@ HRESULT DecryptUserPasswordUsingEscrowService(
   }
 
   std::string private_key;
+  base::Optional<base::Value> request_result;
 
   // Fetch the results and extract the |private_key| to be used for decryption.
   HRESULT hr = WinHttpUrlFetcher::BuildRequestAndFetchResultFromHttpService(
       PasswordRecoveryManager::Get()->GetEscrowServiceGetPrivateKeyUrl(
           *resource_id),
-      access_token, {}, {},
-      {
-          {kGetPrivateKeyResponsePrivateKeyParameterName, &private_key},
-      },
-      request_timeout);
+      access_token, {}, {}, request_timeout, kMaxNumHttpRetries,
+      &request_result);
 
   if (FAILED(hr)) {
     LOGFN(ERROR) << "BuildRequestAndFetchResultFromHttpService hr="
                  << putHR(hr);
+    return E_FAIL;
+  }
+
+  if (!request_result.has_value() ||
+      !ExtractKeysFromDict(
+          *request_result,
+          {
+              {kGetPrivateKeyResponsePrivateKeyParameterName, &private_key},
+          })) {
     return E_FAIL;
   }
 
@@ -482,7 +502,7 @@ HRESULT PasswordRecoveryManager::StoreWindowsPasswordIfNeeded(
         return hr;
       }
 
-      LOGFN(INFO) << "Encrypted and stored secret for sid=" << sid;
+      LOGFN(VERBOSE) << "Encrypted and stored secret for sid=" << sid;
     } else {
       LOGFN(ERROR) << "base::JSONWriter::Write failed";
       return E_FAIL;
@@ -543,7 +563,7 @@ HRESULT PasswordRecoveryManager::RecoverWindowsPasswordIfPossible(
     *recovered_password = decrypted_password;
   SecurelyClearString(decrypted_password);
 
-  LOGFN(INFO) << "Decrypted the secret for sid=" << sid;
+  LOGFN(VERBOSE) << "Decrypted the secret for sid=" << sid;
 
   return hr;
 }

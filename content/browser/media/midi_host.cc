@@ -6,6 +6,7 @@
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
+#include "base/memory/ptr_util.h"
 #include "base/process/process.h"
 #include "base/stl_util.h"
 #include "base/trace_event/trace_event.h"
@@ -235,8 +236,8 @@ void MidiHost::SendData(uint32_t port,
 template <typename Method, typename... Params>
 void MidiHost::CallClient(Method method, Params... params) {
   if (!BrowserThread::CurrentlyOn(BrowserThread::IO)) {
-    base::PostTask(FROM_HERE, {BrowserThread::IO},
-                   base::BindOnce(&MidiHost::CallClient<Method, Params...>,
+    GetIOThreadTaskRunner({})->PostTask(
+        FROM_HERE, base::BindOnce(&MidiHost::CallClient<Method, Params...>,
                                   AsWeakPtr(), method, std::move(params)...));
     return;
   }

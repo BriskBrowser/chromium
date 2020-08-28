@@ -8,15 +8,20 @@
 #include "base/containers/flat_map.h"
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
+#include "build/build_config.h"
 #include "components/exo/data_source_observer.h"
 #include "ui/aura/client/drag_drop_delegate.h"
 #include "ui/aura/client/focus_change_observer.h"
 #include "ui/base/clipboard/clipboard_observer.h"
 #include "ui/base/clipboard/scoped_clipboard_writer.h"
-#include "ui/base/dragdrop/drag_drop_types.h"
+#include "ui/base/dragdrop/mojom/drag_drop_types.mojom-forward.h"
 #include "ui/events/event_handler.h"
 #include "ui/events/keycodes/dom/dom_codes.h"
 #include "ui/events/platform/platform_event_observer.h"
+
+#if defined(OS_CHROMEOS)
+#include "components/exo/ui_lock_controller.h"
+#endif
 
 namespace ui {
 enum class DomCode;
@@ -70,7 +75,11 @@ class Seat : public aura::client::FocusChangeObserver,
   void StartDrag(DataSource* source,
                  Surface* origin,
                  Surface* icon,
-                 ui::DragDropTypes::DragEventSource event_source);
+                 ui::mojom::DragEventSource event_source);
+
+  // Sets the last location in screen coordinates, irrespective of mouse or
+  // touch.
+  void SetLastLocation(const gfx::Point& last_location);
 
   // Abort any drag operations that haven't been started yet.
   void AbortPendingDragOperation();
@@ -88,6 +97,9 @@ class Seat : public aura::client::FocusChangeObserver,
 
   // Overridden from ui::ClipboardObserver:
   void OnClipboardDataChanged() override;
+#if defined(OS_CHROMEOS)
+  void OnClipboardDataRead() override {}
+#endif  // defined(OS_CHROMEOS)
 
   // Overridden from DataSourceObserver:
   void OnDataSourceDestroying(DataSource* source) override;
@@ -103,17 +115,7 @@ class Seat : public aura::client::FocusChangeObserver,
   }
 
  private:
-  class RefCountedScopedClipboardWriter
-      : public ui::ScopedClipboardWriter,
-        public base::RefCounted<RefCountedScopedClipboardWriter> {
-   public:
-    RefCountedScopedClipboardWriter(ui::ClipboardBuffer buffer)
-        : ScopedClipboardWriter(buffer) {}
-
-   private:
-    friend class base::RefCounted<RefCountedScopedClipboardWriter>;
-    virtual ~RefCountedScopedClipboardWriter() = default;
-  };
+  class RefCountedScopedClipboardWriter;
 
   // Called when data is read from FD passed from a client.
   // |data| is read data. |source| is source of the data, or nullptr if
@@ -158,6 +160,12 @@ class Seat : public aura::client::FocusChangeObserver,
 
   // True while Seat is updating clipboard data to selection source.
   bool changing_clipboard_data_to_selection_source_;
+
+  gfx::Point last_location_;
+
+#if defined(OS_CHROMEOS)
+  std::unique_ptr<UILockController> ui_lock_controller_;
+#endif  // defined(OS_CHROMEOS)
 
   base::WeakPtrFactory<Seat> weak_ptr_factory_{this};
 

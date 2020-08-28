@@ -2,8 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import {FittingType} from 'chrome-extension://mhjfbmdgcfjbbpaeojofohoefgiehjai/constants.js';
 import {OpenPdfParamsParser} from 'chrome-extension://mhjfbmdgcfjbbpaeojofohoefgiehjai/open_pdf_params_parser.js';
-import {FittingType} from 'chrome-extension://mhjfbmdgcfjbbpaeojofohoefgiehjai/pdf_fitting_type.js';
 import {PDFScriptingAPI} from 'chrome-extension://mhjfbmdgcfjbbpaeojofohoefgiehjai/pdf_scripting_api.js';
 
 
@@ -13,11 +13,11 @@ const tests = [
    */
   function testParamsParser() {
     const paramsParser = new OpenPdfParamsParser(function(destination) {
-      if (destination == 'RU') {
+      if (destination === 'RU') {
         paramsParser.onNamedDestinationReceived(26);
-      } else if (destination == 'US') {
+      } else if (destination === 'US') {
         paramsParser.onNamedDestinationReceived(0);
-      } else if (destination == 'UY') {
+      } else if (destination === 'UY') {
         paramsParser.onNamedDestinationReceived(22);
       } else {
         paramsParser.onNamedDestinationReceived(-1);
@@ -140,16 +140,14 @@ const tests = [
         });
 
     // Checking #toolbar=0 to disable the toolbar.
-    let uiParams = paramsParser.getUiUrlParams(`${url}#toolbar=0`);
-    chrome.test.assertFalse(uiParams.toolbar);
-    uiParams = paramsParser.getUiUrlParams(`${url}#toolbar=1`);
-    chrome.test.assertTrue(uiParams.toolbar);
+    chrome.test.assertFalse(paramsParser.shouldShowToolbar(`${url}#toolbar=0`));
+    chrome.test.assertTrue(paramsParser.shouldShowToolbar(`${url}#toolbar=1`));
 
     chrome.test.succeed();
   }
 ];
 
 const scriptingAPI = new PDFScriptingAPI(window, window);
-scriptingAPI.setLoadCallback(function() {
+scriptingAPI.setLoadCompleteCallback(function() {
   chrome.test.runTests(tests);
 });

@@ -18,6 +18,7 @@
 #include "content/common/content_export.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
+#include "net/base/isolation_info.h"
 #include "services/network/public/mojom/url_loader.mojom.h"
 
 namespace network {
@@ -39,14 +40,14 @@ class URLLoaderThrottle;
 namespace content {
 
 class SignedExchangeDevToolsProxy;
-class SignedExchangeReporter;
 
 class CONTENT_EXPORT SignedExchangeCertFetcher
     : public network::mojom::URLLoaderClient {
  public:
   using CertificateCallback =
       base::OnceCallback<void(SignedExchangeLoadResult,
-                              std::unique_ptr<SignedExchangeCertificateChain>)>;
+                              std::unique_ptr<SignedExchangeCertificateChain>,
+                              net::IPAddress cert_server_ip_address)>;
 
   // Starts fetching the certificate using a ThrottlingURLLoader created with
   // the |shared_url_loader_factory| and the |throttles|. The |callback| will
@@ -63,8 +64,8 @@ class CONTENT_EXPORT SignedExchangeCertFetcher
       bool force_fetch,
       CertificateCallback callback,
       SignedExchangeDevToolsProxy* devtools_proxy,
-      SignedExchangeReporter* reporter,
-      const base::Optional<base::UnguessableToken>& throttling_profile_id);
+      const base::Optional<base::UnguessableToken>& throttling_profile_id,
+      net::IsolationInfo isolation_info);
 
   ~SignedExchangeCertFetcher() override;
 
@@ -85,8 +86,8 @@ class CONTENT_EXPORT SignedExchangeCertFetcher
       bool force_fetch,
       CertificateCallback callback,
       SignedExchangeDevToolsProxy* devtools_proxy,
-      SignedExchangeReporter* reporter,
-      const base::Optional<base::UnguessableToken>& throttling_profile_id);
+      const base::Optional<base::UnguessableToken>& throttling_profile_id,
+      net::IsolationInfo isolation_info);
   void Start();
   void Abort();
   void OnHandleReady(MojoResult result);
@@ -125,12 +126,11 @@ class CONTENT_EXPORT SignedExchangeCertFetcher
   // This is owned by SignedExchangeHandler which is the owner of |this|.
   SignedExchangeDevToolsProxy* devtools_proxy_;
   bool has_notified_completion_to_devtools_ = false;
-  // This is owned by SignedExchangeLoader which owns SignedExchangeHandler
-  // that is the owner of |this|.
-  SignedExchangeReporter* reporter_;
   base::Optional<base::UnguessableToken> cert_request_id_;
 
   std::unique_ptr<network::mojom::URLLoaderFactory> data_url_loader_factory_;
+
+  net::IPAddress cert_server_ip_address_;
 
   DISALLOW_COPY_AND_ASSIGN(SignedExchangeCertFetcher);
 };

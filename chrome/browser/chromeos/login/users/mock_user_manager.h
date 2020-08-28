@@ -110,8 +110,6 @@ class MockUserManager : public ChromeUserManager {
                      bool(const AccountId&));
   MOCK_METHOD0(DemoAccountLoggedIn, void(void));
   MOCK_METHOD1(KioskAppLoggedIn, void(user_manager::User*));
-  MOCK_METHOD1(ArcKioskAppLoggedIn, void(user_manager::User*));
-  MOCK_METHOD1(WebKioskAppLoggedIn, void(user_manager::User*));
   MOCK_METHOD1(PublicAccountUserLoggedIn, void(user_manager::User*));
   MOCK_METHOD1(SupervisedUserLoggedIn, void(const AccountId&));
   MOCK_METHOD1(OnUserRemoved, void(const AccountId&));
@@ -176,6 +174,9 @@ class MockUserManager : public ChromeUserManager {
   // created by this MockUserManager remain valid. The added User is not
   // affiliated with the domain, that owns the device.
   void AddUser(const AccountId& account_id);
+
+  // Allows to add SAML user
+  void AddPublicAccountWithSAML(const AccountId& account_id);
 
   // The same as AddUser, but allows specifying affiliation with the domain,
   // that owns the device and user type.

@@ -15,6 +15,7 @@
 #include "base/sequence_checker.h"
 #include "base/single_thread_task_runner.h"
 #include "base/threading/thread.h"
+#include "base/win/windows_types.h"
 #include "base/win/wrapped_window_proc.h"
 #include "chrome/browser/lifetime/application_lifetime.h"
 #include "chrome/browser/ui/views/status_icons/status_icon_win.h"
@@ -59,11 +60,11 @@ class StatusTrayStateChangerProxyImpl : public StatusTrayStateChangerProxy {
     ++pending_requests_;
     worker_thread_.task_runner()->PostTaskAndReply(
         FROM_HERE,
-        base::Bind(
+        base::BindOnce(
             &StatusTrayStateChangerProxyImpl::EnqueueChangeOnWorkerThread,
             icon_id, window),
-        base::Bind(&StatusTrayStateChangerProxyImpl::ChangeDone,
-                   weak_factory_.GetWeakPtr()));
+        base::BindOnce(&StatusTrayStateChangerProxyImpl::ChangeDone,
+                       weak_factory_.GetWeakPtr()));
   }
 
  private:
@@ -122,7 +123,7 @@ StatusTrayWin::StatusTrayWin()
   // "TaskbarCreated".
   window_ = CreateWindow(MAKEINTATOM(atom_),
                          0, WS_POPUP, 0, 0, 0, 0, 0, 0, instance_, 0);
-  gfx::CheckWindowCreated(window_);
+  gfx::CheckWindowCreated(window_, ::GetLastError());
   gfx::SetWindowUserData(window_, this);
 }
 

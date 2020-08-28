@@ -15,7 +15,7 @@
 #include "base/logging.h"
 #include "base/memory/ref_counted.h"
 #include "base/single_thread_task_runner.h"
-#include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "base/values.h"
@@ -42,7 +42,7 @@ void RunCallbackOnTaskRunner(
     const base::Callback<void(crypto::ScopedPK11Slot)>& callback,
     crypto::ScopedPK11Slot slot) {
   response_task_runner->PostTask(FROM_HERE,
-                                 base::BindOnce(callback, base::Passed(&slot)));
+                                 base::BindOnce(callback, std::move(slot)));
 }
 
 // Gets TPM system slot. Must be called on IO thread.
@@ -199,7 +199,7 @@ void EasyUnlockTpmKeyManager::ResetLocalStateForUser(
     return;
 
   DictionaryPrefUpdate update(local_state, prefs::kEasyUnlockLocalStateTpmKeys);
-  update->RemoveWithoutPathExpansion(account_id.GetUserEmail(), NULL);
+  update->RemoveKey(account_id.GetUserEmail());
 }
 
 EasyUnlockTpmKeyManager::EasyUnlockTpmKeyManager(
@@ -236,8 +236,8 @@ bool EasyUnlockTpmKeyManager::PrepareTpmKey(bool check_private_key,
         base::Bind(&EasyUnlockTpmKeyManager::OnUserTPMInitialized,
                    get_tpm_slot_weak_ptr_factory_.GetWeakPtr(), key);
 
-    base::PostTask(
-        FROM_HERE, {content::BrowserThread::IO},
+    content::GetIOThreadTaskRunner({})->PostTask(
+        FROM_HERE,
         base::BindOnce(&EnsureUserTPMInitializedOnIOThread, username_hash_,
                        base::ThreadTaskRunnerHandle::Get(), on_user_tpm_ready));
   }
@@ -286,8 +286,8 @@ void EasyUnlockTpmKeyManager::SignUsingTpmKey(
       base::Bind(&EasyUnlockTpmKeyManager::SignDataWithSystemSlot,
                  weak_ptr_factory_.GetWeakPtr(), key, data, callback);
 
-  base::PostTask(FROM_HERE, {content::BrowserThread::IO},
-                 base::BindOnce(&GetSystemSlotOnIOThread,
+  content::GetIOThreadTaskRunner({})->PostTask(
+      FROM_HERE, base::BindOnce(&GetSystemSlotOnIOThread,
                                 base::ThreadTaskRunnerHandle::Get(),
                                 sign_with_system_slot));
 }
@@ -317,8 +317,8 @@ void EasyUnlockTpmKeyManager::OnUserTPMInitialized(
       base::Bind(&EasyUnlockTpmKeyManager::CreateKeyInSystemSlot,
                  get_tpm_slot_weak_ptr_factory_.GetWeakPtr(), public_key);
 
-  base::PostTask(FROM_HERE, {content::BrowserThread::IO},
-                 base::BindOnce(&GetSystemSlotOnIOThread,
+  content::GetIOThreadTaskRunner({})->PostTask(
+      FROM_HERE, base::BindOnce(&GetSystemSlotOnIOThread,
                                 base::ThreadTaskRunnerHandle::Get(),
                                 create_key_with_system_slot));
 }
@@ -336,13 +336,11 @@ void EasyUnlockTpmKeyManager::CreateKeyInSystemSlot(
   get_tpm_slot_weak_ptr_factory_.InvalidateWeakPtrs();
 
   // This task interacts with the TPM, hence MayBlock().
-  base::PostTask(
+  base::ThreadPool::PostTask(
       FROM_HERE,
-      {base::ThreadPool(), base::MayBlock(),
-       base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN},
-      base::BindOnce(&CreateTpmKeyPairOnWorkerThread,
-                     base::Passed(&system_slot), public_key,
-                     base::ThreadTaskRunnerHandle::Get(),
+      {base::MayBlock(), base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN},
+      base::BindOnce(&CreateTpmKeyPairOnWorkerThread, std::move(system_slot),
+                     public_key, base::ThreadTaskRunnerHandle::Get(),
                      base::Bind(&EasyUnlockTpmKeyManager::OnTpmKeyCreated,
                                 weak_ptr_factory_.GetWeakPtr())));
 }
@@ -355,11 +353,10 @@ void EasyUnlockTpmKeyManager::SignDataWithSystemSlot(
   CHECK(system_slot);
 
   // This task interacts with the TPM, hence MayBlock().
-  base::PostTask(
+  base::ThreadPool::PostTask(
       FROM_HERE,
-      {base::ThreadPool(), base::MayBlock(),
-       base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN},
-      base::BindOnce(&SignDataOnWorkerThread, base::Passed(&system_slot),
+      {base::MayBlock(), base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN},
+      base::BindOnce(&SignDataOnWorkerThread, std::move(system_slot),
                      public_key, data, base::ThreadTaskRunnerHandle::Get(),
                      base::Bind(&EasyUnlockTpmKeyManager::OnDataSigned,
                                 weak_ptr_factory_.GetWeakPtr(), callback)));

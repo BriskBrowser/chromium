@@ -8,12 +8,22 @@
 #include <vector>
 
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/web_applications/components/web_app_icon_generator.h"
 #include "chrome/browser/web_applications/components/web_app_utils.h"
 #include "chrome/browser/web_applications/file_utils_wrapper.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "ui/gfx/codec/png_codec.h"
 
 namespace web_app {
+
+namespace {
+
+constexpr int kIconSizes[] = {
+    icon_size::k32, icon_size::k64,  icon_size::k48,
+    icon_size::k96, icon_size::k128, icon_size::k256,
+};
+
+}  // namespace
 
 SkBitmap CreateSquareIcon(int size_px, SkColor solid_color) {
   SkBitmap bitmap;
@@ -58,10 +68,19 @@ bool AreColorsEqual(SkColor expected_color,
          abs_error_b <= threshold && abs_error_a <= threshold;
 }
 
-base::FilePath GetAppIconsDir(Profile* profile, const AppId& app_id) {
-  base::FilePath web_apps_dir = GetWebAppsDirectory(profile);
-  base::FilePath app_dir = web_apps_dir.AppendASCII(app_id);
+base::FilePath GetAppIconsAnyDir(Profile* profile, const AppId& app_id) {
+  base::FilePath web_apps_root_directory = GetWebAppsRootDirectory(profile);
+  base::FilePath app_dir =
+      GetManifestResourcesDirectoryForApp(web_apps_root_directory, app_id);
   base::FilePath icons_dir = app_dir.AppendASCII("Icons");
+  return icons_dir;
+}
+
+base::FilePath GetAppIconsMaskableDir(Profile* profile, const AppId& app_id) {
+  base::FilePath web_apps_root_directory = GetWebAppsRootDirectory(profile);
+  base::FilePath app_dir =
+      GetManifestResourcesDirectoryForApp(web_apps_root_directory, app_id);
+  base::FilePath icons_dir = app_dir.AppendASCII("Icons Maskable");
   return icons_dir;
 }
 
@@ -75,6 +94,25 @@ bool ReadBitmap(FileUtilsWrapper* utils,
   return gfx::PNGCodec::Decode(
       reinterpret_cast<const unsigned char*>(icon_data.c_str()),
       icon_data.size(), bitmap);
+}
+
+base::span<const int> GetIconSizes() {
+  return base::span<const int>(kIconSizes, base::size(kIconSizes));
+}
+
+bool ContainsOneIconOfEachSize(
+    const std::map<SquareSizePx, SkBitmap>& icon_bitmaps) {
+  for (int size_px : kIconSizes) {
+    int num_icons_for_size = std::count_if(
+        icon_bitmaps.begin(), icon_bitmaps.end(),
+        [&size_px](const std::pair<SquareSizePx, SkBitmap>& icon) {
+          return icon.first == size_px;
+        });
+    if (num_icons_for_size != 1)
+      return false;
+  }
+
+  return true;
 }
 
 }  // namespace web_app

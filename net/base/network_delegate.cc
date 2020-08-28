@@ -45,16 +45,6 @@ int NetworkDelegate::NotifyBeforeStartTransaction(
   return OnBeforeStartTransaction(request, std::move(callback), headers);
 }
 
-void NetworkDelegate::NotifyBeforeSendHeaders(
-    URLRequest* request,
-    const ProxyInfo& proxy_info,
-    const ProxyRetryInfoMap& proxy_retry_info,
-    HttpRequestHeaders* headers) {
-  DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
-  DCHECK(headers);
-  OnBeforeSendHeaders(request, proxy_info, proxy_retry_info, headers);
-}
-
 int NetworkDelegate::NotifyHeadersReceived(
     URLRequest* request,
     CompletionOnceCallback callback,
@@ -111,11 +101,10 @@ void NetworkDelegate::NotifyPACScriptError(int line_number,
 }
 
 bool NetworkDelegate::CanGetCookies(const URLRequest& request,
-                                    const CookieList& cookie_list,
                                     bool allowed_from_caller) {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
-  DCHECK(!(request.load_flags() & LOAD_DO_NOT_SEND_COOKIES));
-  return OnCanGetCookies(request, cookie_list, allowed_from_caller);
+  DCHECK_EQ(PrivacyMode::PRIVACY_MODE_DISABLED, request.privacy_mode());
+  return OnCanGetCookies(request, allowed_from_caller);
 }
 
 bool NetworkDelegate::CanSetCookie(const URLRequest& request,

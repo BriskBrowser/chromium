@@ -6,6 +6,7 @@
 
 #include <inttypes.h>
 
+#include "base/memory/ptr_util.h"
 #include "base/trace_event/memory_dump_manager.h"
 #include "base/trace_event/trace_event.h"
 #include "components/viz/common/features.h"
@@ -13,6 +14,7 @@
 #include "gpu/command_buffer/service/scheduler.h"
 #include "gpu/command_buffer/service/shared_image_factory.h"
 #include "gpu/ipc/common/command_buffer_id.h"
+#include "gpu/ipc/common/gpu_peak_memory.h"
 #include "gpu/ipc/service/gpu_channel.h"
 #include "gpu/ipc/service/gpu_channel_manager.h"
 #include "gpu/ipc/service/gpu_memory_buffer_factory.h"
@@ -72,6 +74,10 @@ bool SharedImageStub::OnMessageReceived(const IPC::Message& msg) {
     IPC_MESSAGE_HANDLER(GpuChannelMsg_CreateGMBSharedImage,
                         OnCreateGMBSharedImage)
     IPC_MESSAGE_HANDLER(GpuChannelMsg_UpdateSharedImage, OnUpdateSharedImage)
+#if defined(OS_ANDROID)
+    IPC_MESSAGE_HANDLER(GpuChannelMsg_CreateSharedImageWithAHB,
+                        OnCreateSharedImageWithAHB)
+#endif
     IPC_MESSAGE_HANDLER(GpuChannelMsg_DestroySharedImage, OnDestroySharedImage)
     IPC_MESSAGE_HANDLER(GpuChannelMsg_RegisterSharedImageUploadBuffer,
                         OnRegisterSharedImageUploadBuffer)
@@ -97,6 +103,8 @@ bool SharedImageStub::CreateSharedImage(const Mailbox& mailbox,
                                         SurfaceHandle surface_handle,
                                         const gfx::Size& size,
                                         const gfx::ColorSpace& color_space,
+                                        GrSurfaceOrigin surface_origin,
+                                        SkAlphaType alpha_type,
                                         uint32_t usage) {
   TRACE_EVENT2("gpu", "SharedImageStub::CreateSharedImage", "width",
                size.width(), "height", size.height());
@@ -112,7 +120,7 @@ bool SharedImageStub::CreateSharedImage(const Mailbox& mailbox,
   }
   if (!factory_->CreateSharedImage(mailbox, client_id, std::move(handle),
                                    format, surface_handle, size, color_space,
-                                   usage)) {
+                                   surface_origin, alpha_type, usage)) {
     LOG(ERROR) << "SharedImageStub: Unable to create shared image";
     OnError();
     return false;
@@ -145,6 +153,30 @@ bool SharedImageStub::UpdateSharedImage(
   return true;
 }
 
+#if defined(OS_ANDROID)
+bool SharedImageStub::CreateSharedImageWithAHB(const Mailbox& out_mailbox,
+                                               const Mailbox& in_mailbox,
+                                               uint32_t usage) {
+  TRACE_EVENT0("gpu", "SharedImageStub::CreateSharedImageWithAHB");
+  if (!out_mailbox.IsSharedImage() || !in_mailbox.IsSharedImage()) {
+    LOG(ERROR) << "SharedImageStub: Trying to access a SharedImage with a "
+                  "non-SharedImage mailbox.";
+    OnError();
+    return false;
+  }
+  if (!MakeContextCurrent()) {
+    OnError();
+    return false;
+  }
+  if (!factory_->CreateSharedImageWithAHB(out_mailbox, in_mailbox, usage)) {
+    LOG(ERROR) << "SharedImageStub: Unable to update shared image";
+    OnError();
+    return false;
+  }
+  return true;
+}
+#endif
+
 void SharedImageStub::OnCreateSharedImage(
     const GpuChannelMsg_CreateSharedImage_Params& params) {
   TRACE_EVENT2("gpu", "SharedImageStub::OnCreateSharedImage", "width",
@@ -162,7 +194,10 @@ void SharedImageStub::OnCreateSharedImage(
   }
 
   if (!factory_->CreateSharedImage(params.mailbox, params.format, params.size,
-                                   params.color_space, params.usage)) {
+                                   params.color_space, params.surface_origin,
+                                   params.alpha_type, gpu::kNullSurfaceHandle,
+
+                                   params.usage)) {
     LOG(ERROR) << "SharedImageStub: Unable to create shared image";
     OnError();
     return;
@@ -214,7 +249,8 @@ void SharedImageStub::OnCreateSharedImageWithData(
       memory.subspan(params.pixel_data_offset, params.pixel_data_size);
 
   if (!factory_->CreateSharedImage(params.mailbox, params.format, params.size,
-                                   params.color_space, params.usage, subspan)) {
+                                   params.color_space, params.surface_origin,
+                                   params.alpha_type, params.usage, subspan)) {
     LOG(ERROR) << "SharedImageStub: Unable to create shared image";
     OnError();
     return;
@@ -240,10 +276,10 @@ void SharedImageStub::OnCreateGMBSharedImage(
                params.size.width(), "height", params.size.height());
   // TODO(piman): add support for SurfaceHandle (for backbuffers for ozone/drm).
   constexpr SurfaceHandle surface_handle = kNullSurfaceHandle;
-  if (!CreateSharedImage(params.mailbox, channel_->client_id(),
-                         std::move(params.handle), params.format,
-                         surface_handle, params.size, params.color_space,
-                         params.usage)) {
+  if (!CreateSharedImage(
+          params.mailbox, channel_->client_id(), std::move(params.handle),
+          params.format, surface_handle, params.size, params.color_space,
+          params.surface_origin, params.alpha_type, params.usage)) {
     return;
   }
 
@@ -271,6 +307,25 @@ void SharedImageStub::OnUpdateSharedImage(
   mailbox_manager->PushTextureUpdates(sync_token);
   sync_point_client_state_->ReleaseFenceSync(release_id);
 }
+
+#if defined(OS_ANDROID)
+void SharedImageStub::OnCreateSharedImageWithAHB(const Mailbox& out_mailbox,
+                                                 const Mailbox& in_mailbox,
+                                                 uint32_t usage,
+                                                 uint32_t release_id) {
+  TRACE_EVENT0("gpu", "SharedImageStub::OnCreateSharedImageWithAHB");
+
+  if (!CreateSharedImageWithAHB(out_mailbox, in_mailbox, usage))
+    return;
+
+  SyncToken sync_token(sync_point_client_state_->namespace_id(),
+                       sync_point_client_state_->command_buffer_id(),
+                       release_id);
+  auto* mailbox_manager = channel_->gpu_channel_manager()->mailbox_manager();
+  mailbox_manager->PushTextureUpdates(sync_token);
+  sync_point_client_state_->ReleaseFenceSync(release_id);
+}
+#endif
 
 void SharedImageStub::OnDestroySharedImage(const Mailbox& mailbox) {
   TRACE_EVENT0("gpu", "SharedImageStub::OnDestroySharedImage");
@@ -313,7 +368,8 @@ void SharedImageStub::OnCreateSwapChain(
 
   if (!factory_->CreateSwapChain(
           params.front_buffer_mailbox, params.back_buffer_mailbox,
-          params.format, params.size, params.color_space, params.usage)) {
+          params.format, params.size, params.color_space, params.surface_origin,
+          params.alpha_type, params.usage)) {
     DLOG(ERROR) << "SharedImageStub: Unable to create swap chain";
     OnError();
     return;
@@ -351,13 +407,16 @@ void SharedImageStub::OnPresentSwapChain(const Mailbox& mailbox,
 #if defined(OS_FUCHSIA)
 void SharedImageStub::OnRegisterSysmemBufferCollection(
     gfx::SysmemBufferCollectionId id,
-    zx::channel token) {
+    zx::channel token,
+    gfx::BufferFormat format,
+    gfx::BufferUsage usage) {
   if (!id || !token) {
     OnError();
     return;
   }
 
-  if (!factory_->RegisterSysmemBufferCollection(id, std::move(token))) {
+  if (!factory_->RegisterSysmemBufferCollection(id, std::move(token), format,
+                                                usage)) {
     OnError();
   }
 }
@@ -386,7 +445,7 @@ void SharedImageStub::OnRegisterSharedImageUploadBuffer(
   }
 }
 
-bool SharedImageStub::MakeContextCurrent() {
+bool SharedImageStub::MakeContextCurrent(bool needs_gl) {
   DCHECK(context_state_);
 
   if (context_state_->context_lost()) {
@@ -397,13 +456,9 @@ bool SharedImageStub::MakeContextCurrent() {
   // |factory_| never writes to the surface, so pass nullptr to
   // improve performance. https://crbug.com/457431
   auto* context = context_state_->real_context();
-  if (context->IsCurrent(nullptr) ||
-      context->MakeCurrent(context_state_->surface())) {
-    return true;
-  }
-  context_state_->MarkContextLost();
-  LOG(ERROR) << "SharedImageStub: MakeCurrent failed";
-  return false;
+  if (context->IsCurrent(nullptr))
+    return !context_state_->CheckResetStatus(needs_gl);
+  return context_state_->MakeCurrent(/*surface=*/nullptr, needs_gl);
 }
 
 ContextResult SharedImageStub::MakeContextCurrentAndCreateFactory() {
@@ -418,7 +473,9 @@ ContextResult SharedImageStub::MakeContextCurrentAndCreateFactory() {
   }
   DCHECK(context_state_);
   DCHECK(!context_state_->context_lost());
-  if (!MakeContextCurrent()) {
+  // Some shared image backing factories will use GL in ctor, so we need GL even
+  // if chrome is using non-GL backing.
+  if (!MakeContextCurrent(/*needs_gl=*/true)) {
     context_state_ = nullptr;
     return ContextResult::kTransientFailure;
   }
@@ -446,7 +503,9 @@ void SharedImageStub::TrackMemoryAllocatedChange(int64_t delta) {
   size_ += delta;
   channel_->gpu_channel_manager()
       ->peak_memory_monitor()
-      ->OnMemoryAllocatedChange(command_buffer_id_, old_size, size_);
+      ->OnMemoryAllocatedChange(
+          command_buffer_id_, old_size, size_,
+          GpuPeakMemoryAllocationSource::SHARED_IMAGE_STUB);
 }
 
 uint64_t SharedImageStub::GetSize() const {

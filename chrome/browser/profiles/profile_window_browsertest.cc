@@ -9,7 +9,6 @@
 
 #include "base/bind.h"
 #include "base/command_line.h"
-#include "base/macros.h"
 #include "base/run_loop.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
@@ -36,6 +35,7 @@
 #include "components/history/core/browser/history_db_task.h"
 #include "components/history/core/browser/history_service.h"
 #include "components/search_engines/template_url_service.h"
+#include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/test_utils.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
@@ -60,7 +60,9 @@ namespace {
 // Notifies the main thread after all history backend thread tasks have run.
 class WaitForHistoryTask : public history::HistoryDBTask {
  public:
-  WaitForHistoryTask() {}
+  WaitForHistoryTask() = default;
+  WaitForHistoryTask(const WaitForHistoryTask&) = delete;
+  WaitForHistoryTask& operator=(const WaitForHistoryTask&) = delete;
 
   bool RunOnDBThread(history::HistoryBackend* backend,
                      history::HistoryDatabase* db) override {
@@ -72,9 +74,7 @@ class WaitForHistoryTask : public history::HistoryDBTask {
   }
 
  private:
-  ~WaitForHistoryTask() override {}
-
-  DISALLOW_COPY_AND_ASSIGN(WaitForHistoryTask);
+  ~WaitForHistoryTask() override = default;
 };
 
 void WaitForHistoryBackendToRun(Profile* profile) {
@@ -115,13 +115,12 @@ base::FilePath CreateTestingProfile(const std::string& name,
 
 class ProfileWindowBrowserTest : public InProcessBrowserTest {
  public:
-  ProfileWindowBrowserTest() {}
-  ~ProfileWindowBrowserTest() override {}
+  ProfileWindowBrowserTest() = default;
+  ProfileWindowBrowserTest(const ProfileWindowBrowserTest&) = delete;
+  ProfileWindowBrowserTest& operator=(const ProfileWindowBrowserTest&) = delete;
+  ~ProfileWindowBrowserTest() override = default;
 
   Browser* OpenGuestBrowser();
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(ProfileWindowBrowserTest);
 };
 
 Browser* ProfileWindowBrowserTest::OpenGuestBrowser() {
@@ -208,8 +207,8 @@ IN_PROC_BROWSER_TEST_F(ProfileWindowBrowserTest, GuestClearsFindInPageCache) {
 
   base::string16 fip_text =
       base::ASCIIToUTF16("first guest session search text");
-  FindBarStateFactory::GetForProfile(guest_profile)
-      ->set_last_prepopulate_text(fip_text);
+  FindBarStateFactory::GetForBrowserContext(guest_profile)
+      ->SetLastSearchText(fip_text);
 
   // Open a second guest window and close one. This should not affect the find
   // in page cache as the guest session hasn't been ended.
@@ -217,8 +216,8 @@ IN_PROC_BROWSER_TEST_F(ProfileWindowBrowserTest, GuestClearsFindInPageCache) {
       guest_profile, chrome::startup::IS_NOT_PROCESS_STARTUP,
       chrome::startup::IS_NOT_FIRST_RUN, true /*always_create*/);
   CloseBrowserSynchronously(guest_browser);
-  EXPECT_EQ(fip_text, FindBarStateFactory::GetForProfile(guest_profile)
-                          ->last_prepopulate_text());
+  EXPECT_EQ(fip_text, FindBarStateFactory::GetForBrowserContext(guest_profile)
+                          ->GetSearchPrepopulateText());
 
   // Close the remaining guest browser window.
   guest_browser = chrome::FindAnyBrowser(guest_profile, true);
@@ -230,8 +229,9 @@ IN_PROC_BROWSER_TEST_F(ProfileWindowBrowserTest, GuestClearsFindInPageCache) {
   profiles::FindOrCreateNewWindowForProfile(
       guest_profile, chrome::startup::IS_NOT_PROCESS_STARTUP,
       chrome::startup::IS_NOT_FIRST_RUN, true /*always_create*/);
-  EXPECT_EQ(base::string16(), FindBarStateFactory::GetForProfile(guest_profile)
-                                  ->last_prepopulate_text());
+  EXPECT_EQ(base::string16(),
+            FindBarStateFactory::GetForBrowserContext(guest_profile)
+                ->GetSearchPrepopulateText());
 }
 
 IN_PROC_BROWSER_TEST_F(ProfileWindowBrowserTest, GuestCannotSignin) {
@@ -269,7 +269,7 @@ IN_PROC_BROWSER_TEST_F(ProfileWindowBrowserTest, OpenBrowserWindowForProfile) {
 }
 
 // TODO(crbug.com/935746): Test is flaky on Win and Linux.
-#if defined(OS_LINUX) || defined(OS_WIN)
+#if defined(OS_LINUX) || defined(OS_CHROMEOS) || defined(OS_WIN)
 #define MAYBE_OpenBrowserWindowForProfileWithSigninRequired \
   DISABLED_OpenBrowserWindowForProfileWithSigninRequired
 #else

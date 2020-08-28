@@ -48,6 +48,11 @@ struct ShortcutInfo {
   std::set<std::string> file_handler_extensions;
   std::set<std::string> file_handler_mime_types;
 
+  // An app is multi-profile if there is a single shortcut and single app shim
+  // for all profiles. The app itself has a profile switcher that may be used
+  // to open windows for the various profiles. This is relevant only on macOS.
+  bool is_multi_profile = false;
+
  private:
   // Since gfx::ImageFamily |favicon| has a non-thread-safe reference count in
   // its member and is bound to current thread, always destroy ShortcutInfo
@@ -87,6 +92,10 @@ struct ShortcutLocations {
   // Mac dock or the gnome/kde application launcher. However, those are not
   // implemented yet.
   bool in_quick_launch_bar;
+
+  // For Windows, this refers to the Startup folder.
+  // TODO(crbug.com/897302): where to create shortcuts in other OS.
+  bool in_startup;
 };
 
 // This encodes the cause of shortcut creation as the correct behavior in each
@@ -99,17 +108,25 @@ enum ShortcutCreationReason {
 // Compute a deterministic name based on data in the shortcut_info.
 std::string GenerateApplicationNameFromInfo(const ShortcutInfo& shortcut_info);
 
-// Gets the user data directory for given web app. The path for the directory is
-// based on |extension_id|. If |extension_id| is empty then |url| is used
-// to construct a unique ID.
-base::FilePath GetWebAppDataDirectory(const base::FilePath& profile_path,
-                                      const std::string& extension_id,
-                                      const GURL& url);
+// Returns a per-app directory for OS-specific web app data to handle OS
+// registration and unregistration. To store manifest resources, use
+// GetManifestResourcesDirectoryForApp() declared in web_app_utils.h.
+//
+// The path for the directory is based on |app_id|. If |app_id| is empty then
+// |url| is used to construct a unique ID.
+base::FilePath GetOsIntegrationResourcesDirectoryForApp(
+    const base::FilePath& profile_path,
+    const std::string& app_id,
+    const GURL& url);
 
 // Callback made when CreateShortcuts has finished trying to create the
 // platform shortcuts indicating whether or not they were successfully
 // created.
 using CreateShortcutsCallback = base::OnceCallback<void(bool shortcut_created)>;
+// Callback made when DeletePlatformShortcuts has finished trying to delete the
+// platform shortcuts indicating whether or not they were successfully
+// deleted.
+using DeleteShortcutsCallback = base::OnceCallback<void(bool shortcut_deleted)>;
 
 // Returns an array of desired icon sizes (in px) to be contained in an app OS
 // shortcut, sorted in ascending order (biggest desired icon size is last).
@@ -142,10 +159,15 @@ void ScheduleCreatePlatformShortcuts(
     std::unique_ptr<ShortcutInfo> shortcut_info,
     CreateShortcutsCallback callback);
 
+void ScheduleDeletePlatformShortcuts(
+    const base::FilePath& shortcut_data_path,
+    std::unique_ptr<ShortcutInfo> shortcut_info,
+    DeleteShortcutsCallback callback);
+
 // Delete all the shortcuts we have added for this extension. This is the
 // platform specific implementation of the DeleteAllShortcuts function, and
 // is executed on the FILE thread.
-void DeletePlatformShortcuts(const base::FilePath& shortcut_data_path,
+bool DeletePlatformShortcuts(const base::FilePath& shortcut_data_path,
                              const ShortcutInfo& shortcut_info);
 
 // Delete the multi-profile (non-profile_scoped) shortcuts for the specified

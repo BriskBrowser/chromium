@@ -373,7 +373,8 @@ StaticNodeList* SVGSVGElement::CollectIntersectionOrEnclosureList(
 StaticNodeList* SVGSVGElement::getIntersectionList(
     SVGRectTearOff* rect,
     SVGElement* reference_element) const {
-  GetDocument().UpdateStyleAndLayoutForNode(this);
+  GetDocument().UpdateStyleAndLayoutForNode(this,
+                                            DocumentUpdateReason::kJavaScript);
 
   return CollectIntersectionOrEnclosureList(
       rect->Target()->Value(), reference_element, kCheckIntersection);
@@ -382,7 +383,8 @@ StaticNodeList* SVGSVGElement::getIntersectionList(
 StaticNodeList* SVGSVGElement::getEnclosureList(
     SVGRectTearOff* rect,
     SVGElement* reference_element) const {
-  GetDocument().UpdateStyleAndLayoutForNode(this);
+  GetDocument().UpdateStyleAndLayoutForNode(this,
+                                            DocumentUpdateReason::kJavaScript);
 
   return CollectIntersectionOrEnclosureList(rect->Target()->Value(),
                                             reference_element, kCheckEnclosure);
@@ -391,7 +393,8 @@ StaticNodeList* SVGSVGElement::getEnclosureList(
 bool SVGSVGElement::checkIntersection(SVGElement* element,
                                       SVGRectTearOff* rect) const {
   DCHECK(element);
-  GetDocument().UpdateStyleAndLayoutForNode(this);
+  GetDocument().UpdateStyleAndLayoutForNode(this,
+                                            DocumentUpdateReason::kJavaScript);
 
   return CheckIntersectionOrEnclosure(*element, rect->Target()->Value(),
                                       kCheckIntersection);
@@ -400,7 +403,8 @@ bool SVGSVGElement::checkIntersection(SVGElement* element,
 bool SVGSVGElement::checkEnclosure(SVGElement* element,
                                    SVGRectTearOff* rect) const {
   DCHECK(element);
-  GetDocument().UpdateStyleAndLayoutForNode(this);
+  GetDocument().UpdateStyleAndLayoutForNode(this,
+                                            DocumentUpdateReason::kJavaScript);
 
   return CheckIntersectionOrEnclosure(*element, rect->Target()->Value(),
                                       kCheckEnclosure);
@@ -502,6 +506,7 @@ void SVGSVGElement::AttachLayoutTree(AttachContext& context) {
 
 LayoutObject* SVGSVGElement::CreateLayoutObject(const ComputedStyle&,
                                                 LegacyLayout) {
+  UseCounter::Count(GetDocument(), WebFeature::kLegacyLayoutBySVG);
   if (IsOutermostSVGSVGElement())
     return new LayoutSVGRoot(this);
 
@@ -665,15 +670,9 @@ AffineTransform SVGSVGElement::ViewBoxToViewTransform(float view_width,
       view_height);
   if (!view_spec_ || !view_spec_->Transform())
     return ctm;
-
   const SVGTransformList* transform_list = view_spec_->Transform();
-  if (transform_list->IsEmpty())
-    return ctm;
-
-  AffineTransform transform;
-  if (transform_list->Concatenate(transform))
-    ctm *= transform;
-
+  if (!transform_list->IsEmpty())
+    ctm *= transform_list->Concatenate();
   return ctm;
 }
 
@@ -730,7 +729,7 @@ void SVGSVGElement::FinishParsingChildren() {
   SendSVGLoadEventIfPossible();
 }
 
-void SVGSVGElement::Trace(blink::Visitor* visitor) {
+void SVGSVGElement::Trace(Visitor* visitor) const {
   visitor->Trace(x_);
   visitor->Trace(y_);
   visitor->Trace(width_);

@@ -50,7 +50,9 @@ const ProgressItemType = {
   // This is used for the mixed operation of summarized item.
   TRANSFER: 'transfer',
   // The item is external drive format operation.
-  FORMAT: 'format'
+  FORMAT: 'format',
+  // The item is archive operation.
+  MOUNT_ARCHIVE: 'mount_archive'
 };
 Object.freeze(ProgressItemType);
 
@@ -131,6 +133,26 @@ class ProgressCenterItem {
      * @type {?function()}
      */
     this.cancelCallback = null;
+
+    /**
+     * The current speed of the progress item in bytes per second.
+     * It's calculated using moving average formula.
+     * @type {number}
+     */
+    this.currentSpeed;
+
+    /**
+     * The average speed of the progress item in bytes per second.
+     * It is calculated using cumulative moving average.
+     * @type {number}
+     */
+    this.averageSpeed;
+
+    /**
+     * The predicted remaining time to complete the progress item in seconds.
+     * @type {number}
+     */
+    this.remainingTime;
   }
 
   /**

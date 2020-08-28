@@ -25,8 +25,6 @@ template <typename T>
 class GlobalCookieStoreImpl final
     : public GarbageCollected<GlobalCookieStoreImpl<T>>,
       public Supplement<T> {
-  USING_GARBAGE_COLLECTED_MIXIN(GlobalCookieStoreImpl);
-
  public:
   static const char kSupplementName[];
 
@@ -61,7 +59,7 @@ class GlobalCookieStoreImpl final
     return cookie_store_;
   }
 
-  void Trace(blink::Visitor* visitor) override {
+  void Trace(Visitor* visitor) const override {
     visitor->Trace(cookie_store_);
     Supplement<T>::Trace(visitor);
   }

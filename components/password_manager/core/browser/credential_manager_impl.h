@@ -61,22 +61,21 @@ class CredentialManagerImpl
 
  private:
   // CredentialManagerPendingRequestTaskDelegate:
-  GURL GetOrigin() const override;
-  void SendCredential(const SendCredentialCallback& send_callback,
+  url::Origin GetOrigin() const override;
+  void SendCredential(SendCredentialCallback send_callback,
                       const CredentialInfo& info) override;
-  void SendPasswordForm(const SendCredentialCallback& send_callback,
+  void SendPasswordForm(SendCredentialCallback send_callback,
                         CredentialMediationRequirement mediation,
                         const autofill::PasswordForm* form) override;
   PasswordManagerClient* client() const override;
 
   // CredentialManagerPendingPreventSilentAccessTaskDelegate:
-  PasswordStore* GetPasswordStore() override;
+  PasswordStore* GetProfilePasswordStore() override;
+  PasswordStore* GetAccountPasswordStore() override;
   void DoneRequiringUserMediation() override;
 
   // CredentialManagerPasswordFormManagerDelegate:
   void OnProvisionalSaveComplete() override;
-
-  GURL GetLastCommittedURL() const;
 
   PasswordManagerClient* client_;
 

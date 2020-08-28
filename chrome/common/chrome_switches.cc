@@ -33,6 +33,13 @@ const char kAllowHttpScreenCapture[] = "allow-http-screen-capture";
 // Don't block outdated plugins.
 const char kAllowOutdatedPlugins[]          = "allow-outdated-plugins";
 
+// Allows profiles to be created outside of the user data dir.
+// TODO(https://crbug.com/1060366): Various places in Chrome assume that all
+// profiles are within the user data dir. Some tests need to violate that
+// assumption. The switch should be removed after this workaround is no longer
+// needed.
+const char kAllowProfilesOutsideUserDir[] = "allow-profiles-outside-user-dir";
+
 // By default, an https page cannot run JavaScript, CSS or plugins from http
 // URLs. This provides an override to get the old insecure behavior.
 const char kAllowRunningInsecureContent[]   = "allow-running-insecure-content";
@@ -47,6 +54,12 @@ const char kApp[]                           = "app";
 // Specifies that the extension-app with the specified id should be launched
 // according to its configuration.
 const char kAppId[]                         = "app-id";
+
+// Overrides the launch url of an app with the specified url. This is used
+// along with kAppId to launch a given app with the url corresponding to an item
+// in the app's shortcuts menu.
+const char kAppLaunchUrlForShortcutsMenuItem[] =
+    "app-launch-url-for-shortcuts-menu-item";
 
 // Value of GAIA auth code for --force-app-mode.
 const char kAppModeAuthCode[]               = "app-mode-auth-code";
@@ -64,8 +77,8 @@ const char kAppsGalleryUpdateURL[]          = "apps-gallery-update-url";
 // The URL to use for the gallery link in the app launcher.
 const char kAppsGalleryURL[]                = "apps-gallery-url";
 
-// Whitelist for Negotiate Auth servers
-const char kAuthServerWhitelist[]           = "auth-server-whitelist";
+// Allowlist for Negotiate Auth servers
+const char kAuthServerAllowlist[] = "auth-server-whitelist";
 
 // This flag makes Chrome auto-open DevTools window for each tab. It is
 // intended to be used by developers and automation to not require user
@@ -75,7 +88,9 @@ const char kAutoOpenDevToolsForTabs[]       = "auto-open-devtools-for-tabs";
 // This flag makes Chrome auto-select the provided choice when an extension asks
 // permission to start desktop capture. Should only be used for tests. For
 // instance, --auto-select-desktop-capture-source="Entire screen" will
-// automatically select to share the entire screen in English locales.
+// automatically select sharing the entire screen in English locales. The switch
+// value only needs to be substring of the capture source name, i.e. "display"
+// would match "Built-in display" and "External display", whichever comes first.
 const char kAutoSelectDesktopCaptureSource[] =
     "auto-select-desktop-capture-source";
 
@@ -151,10 +166,6 @@ const char kDebugEnableFrameToggle[]        = "debug-enable-frame-toggle";
 // apps.
 const char kDebugPackedApps[]               = "debug-packed-apps";
 
-// Prevents permission prompts from appearing by denying instead of showing
-// prompts.
-const char kDenyPermissionPrompts[] = "deny-permission-prompts";
-
 // Passes command line parameters to the DevTools front-end.
 const char kDevToolsFlags[]                 = "devtools-flags";
 
@@ -196,10 +207,6 @@ const char kDisableComponentUpdate[]        = "disable-component-update";
 // automated testing.
 const char kDisableDefaultApps[]            = "disable-default-apps";
 
-// Disables device discovery notifications.
-const char kDisableDeviceDiscoveryNotifications[] =
-    "disable-device-discovery-notifications";
-
 // Disables Domain Reliability Monitoring.
 const char kDisableDomainReliability[]      = "disable-domain-reliability";
 
@@ -225,11 +232,6 @@ const char kDisablePromptOnRepost[]         = "disable-prompt-on-repost";
 // Disables showing the search geolocation disclosure UI. Used for perf testing.
 const char kDisableSearchGeolocationDisclosure[] =
     "disable-search-geolocation-disclosure";
-
-// Disables prompting the user for consent before fulfilling WebXR's
-// requestSession(). Use only when absolutely necessary, such as for perf tests.
-const char kDisableXrDeviceConsentPromptForTesting[] =
-    "disable-xr-device-consent-prompt-for-testing";
 
 // Some tests seem to require the application to close when the last
 // browser window is closed. Thus, we need a switch to force this behavior
@@ -269,12 +271,13 @@ const char kEnableBookmarkUndo[]            = "enable-bookmark-undo";
 // Proxy component within the service process.
 const char kEnableCloudPrintProxy[]         = "enable-cloud-print-proxy";
 
+// Enables CriticalPersistedTabData - redesign/replacement for TabState
+const char kEnableCriticalPersistedTabData[] =
+    "enable-critical-persisted-tab-data";
+
 // Enable device discovery notifications.
 const char kEnableDeviceDiscoveryNotifications[] =
     "enable-device-discovery-notifications";
-
-// If true devtools experimental settings are enabled.
-const char kEnableDevToolsExperiments[]     = "enable-devtools-experiments";
 
 // Enables Domain Reliability Monitoring.
 const char kEnableDomainReliability[] = "enable-domain-reliability";
@@ -289,11 +292,6 @@ const char kEnableExtensionActivityLogTesting[] =
 // Runs the Native Client inside the renderer process and enables GPU plugin
 // (internally adds lEnableGpuPlugin to the command line).
 const char kEnableNaCl[]                    = "enable-nacl";
-
-// Enables tracing for each navigation. It will attempt to trace each navigation
-// for 10s, until the buffer is full, or until the next navigation.
-// It only works if a URL was provided by --trace-upload-url.
-const char kEnableNavigationTracing[] = "enable-navigation-tracing";
 
 // Enables the network-related benchmarking extensions.
 const char kEnableNetBenchmarking[]         = "enable-net-benchmarking";
@@ -321,15 +319,6 @@ const char kExtensionsInstallVerification[] = "extensions-install-verification";
 // be treated as not from the webstore when doing install verification.
 const char kExtensionsNotWebstore[] = "extensions-not-webstore";
 
-// If this flag is present then this command line is being delegated to an
-// already running chrome process via the fast path, ie: before chrome.dll is
-// loaded. It is useful to tell the difference for tracking purposes.
-const char kFastStart[]            = "fast-start";
-
-// Forces Android application mode. This hides certain system UI elements and
-// forces the app to be installed if it hasn't been already.
-const char kForceAndroidAppMode[] = "force-android-app-mode";
-
 // Forces application mode. This hides certain system UI elements and forces
 // the app to be installed if it hasn't been already.
 const char kForceAppMode[]                  = "force-app-mode";
@@ -341,9 +330,6 @@ const char kForceFirstRun[]                 = "force-first-run";
 // Forces Chrome to use a stacked tab strip layout.
 const char kForceStackedTabStripLayout[]    = "force-stacked-tab-strip-layout";
 
-// Forces web-application mode. This hides certain system UI elements and forces
-// the app to be installed if it hasn't been already.
-const char kForceWebAppMode[]               = "force-web-app-mode";
 
 // Specifies which page will be displayed in newly-opened tabs. We need this
 // for testing purposes so that the UI tests don't depend on what comes up for
@@ -360,9 +346,9 @@ const char kInstallAutogeneratedTheme[] = "install-autogenerated-theme";
 // Causes Chrome to initiate an installation flow for the given app.
 const char kInstallChromeApp[]              = "install-chrome-app";
 
-// A list of whitelists to install for a supervised user, for testing.
+// A list of allowlists to install for a supervised user, for testing.
 // The list is of the following form: <id>[:<name>],[<id>[:<name>],...]
-const char kInstallSupervisedUserWhitelists[] =
+const char kInstallSupervisedUserAllowlists[] =
     "install-supervised-user-whitelists";
 
 // Marks a renderer as an Instant process.
@@ -453,22 +439,6 @@ const char kOnTheFlyMhtmlHashComputation[] =
 // Launches URL in new browser window.
 const char kOpenInNewWindow[]               = "new-window";
 
-// The time that a new chrome process which is delegating to an already running
-// chrome process started. (See ProcessSingleton for more details.)
-const char kOriginalProcessStartTime[]      = "original-process-start-time";
-
-// Contains a list of feature names for which origin trial experiments should
-// be disabled. Names should be separated by "|" characters.
-const char kOriginTrialDisabledFeatures[] = "origin-trial-disabled-features";
-
-// Contains a list of token signatures for which origin trial experiments should
-// be disabled. Tokens should be separated by "|" characters.
-const char kOriginTrialDisabledTokens[] = "origin-trial-disabled-tokens";
-
-// Comma-separated list of keys which will override the default public keys for
-// checking origin trial tokens.
-const char kOriginTrialPublicKey[] = "origin-trial-public-key";
-
 // Packages an extension to a .crx installable file from a given directory.
 const char kPackExtension[]                 = "pack-extension";
 
@@ -534,9 +504,6 @@ const char kSavePageAsMHTML[]               = "save-page-as-mhtml";
 // Sets the Reporting API delay to under a second to allow much quicker reports.
 const char kShortReportingDelay[] = "short-reporting-delay";
 
-// If true the app list will be shown.
-const char kShowAppList[]                   = "show-app-list";
-
 // Does not show an infobar when an extension attaches to a page using
 // chrome.debugger page. Required to attach to extension background pages.
 const char kSilentDebuggerExtensionAPI[]    = "silent-debugger-extension-api";
@@ -576,7 +543,7 @@ const char kSSLVersionTLSv11[] = "tls1.1";
 // TLS 1.2 mode for |kSSLVersionMax| and |kSSLVersionMin| switches.
 const char kSSLVersionTLSv12[] = "tls1.2";
 
-// TLS 1.2 mode for |kSSLVersionMax| and |kSSLVersionMin| switches.
+// TLS 1.3 mode for |kSSLVersionMax| and |kSSLVersionMin| switches.
 const char kSSLVersionTLSv13[] = "tls1.3";
 
 // Starts the browser maximized, regardless of any previous settings.
@@ -589,6 +556,12 @@ const char kStartStackProfiler[]            = "start-stack-profiler";
 // durations to be significantly less than the test timeout.
 const char kStartStackProfilerBrowserTest[] = "browser-test";
 
+// Interval, in minutes, used for storage pressure notification throttling.
+// Useful for developers testing applications that might use non-trivial
+// amounts of disk space.
+const char kStoragePressureNotificationInterval[] =
+    "storage-pressure-notification-interval";
+
 // Sets the supervised user ID for any loaded or newly created profile to the
 // given value. Pass an empty string to mark the profile as non-supervised.
 // Used for testing.
@@ -597,11 +570,6 @@ const char kSupervisedUserId[]              = "managed-user-id";
 // Frequency in Milliseconds for system log uploads. Should only be used for
 // testing purposes.
 const char kSystemLogUploadFrequency[] = "system-log-upload-frequency";
-
-// Sets the task manager to track extra renderer processes that might not
-// normally be displayed in the task manager.
-const char kTaskManagerShowExtraRenderers[] =
-    "task-manager-show-extra-renderers";
 
 // Passes the name of the current running automated test to Chrome.
 const char kTestName[]                      = "test-name";
@@ -678,6 +646,10 @@ const char kEnableAccessibilityTabSwitcher[] =
 // unresponsive web content.
 const char kEnableHungRendererInfoBar[] = "enable-hung-renderer-infobar";
 
+// Forces the device to report being owned by an enterprise. This mimics the
+// presence of an app signaling device ownerhsip.
+const char kForceDeviceOwnership[] = "force-device-ownership";
+
 // Forces the night mode to be enabled.
 const char kForceEnableNightMode[] = "force-enable-night-mode";
 
@@ -722,9 +694,13 @@ const char kShortMergeSessionTimeoutForTest[] =
 const char kSchedulerConfiguration[] = "scheduler-configuration";
 const char kSchedulerConfigurationConservative[] = "conservative";
 const char kSchedulerConfigurationPerformance[] = "performance";
+
+// Specifies what the default scheduler configuration value is if the user does
+// not set one.
+const char kSchedulerConfigurationDefault[] = "scheduler-configuration-default";
 #endif  // defined(OS_CHROMEOS)
 
-#if defined(OS_POSIX) && !defined(OS_MACOSX) && !defined(OS_CHROMEOS)
+#if defined(OS_POSIX) && !defined(OS_MAC) && !defined(OS_CHROMEOS)
 // These flags show the man page on Linux. They are equivalent to each
 // other.
 const char kHelp[]                          = "help";
@@ -749,7 +725,7 @@ const char kEnableEncryptionSelection[] = "enable-encryption-selection";
 const char kWmClass[]                       = "class";
 #endif
 
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
 // Prevents Chrome from quitting when Chrome Apps are open.
 const char kAppsKeepChromeAliveInTests[]    = "apps-keep-chrome-alive-in-tests";
 
@@ -758,10 +734,6 @@ const char kDisableHostedAppShimCreation[] = "disable-hosted-app-shim-creation";
 
 // Enable user metrics from within the installer.
 const char kEnableUserMetrics[] = "enable-user-metrics";
-
-// Enables the fullscreen toolbar to reveal itself for tab strip changes.
-const char kEnableFullscreenToolbarReveal[] =
-    "enable-fullscreen-toolbar-reveal";
 
 // Shows a notification when quitting Chrome with hosted apps running. Default
 // behavior is to also quit all hosted apps.
@@ -785,15 +757,12 @@ const char kRelauncherProcessDMGDevice[]    = "dmg-device";
 // Indicates whether Chrome should be set as the default browser during
 // installation.
 const char kMakeChromeDefault[] = "make-chrome-default";
-#endif  // defined(OS_MACOSX)
+#endif  // defined(OS_MAC)
 
 #if defined(OS_WIN)
 // Disables custom-drawing the window titlebar on Windows 10.
 const char kDisableWindows10CustomTitlebar[] =
     "disable-windows10-custom-titlebar";
-
-// Fallback to XPS. By default connector uses CDD.
-const char kEnableCloudPrintXps[]           = "enable-cloud-print-xps";
 
 // Force-enables the profile shortcut manager. This is needed for tests since
 // they use a custom-user-data-dir which disables this.
@@ -831,12 +800,12 @@ const char kShowIcons[]                     = "show-icons";
 // Runs un-installation steps that were done by chrome first-run.
 const char kUninstall[]                     = "uninstall";
 
-// Indicates that this process is the product of a relaunch following migration
-// of User Data.
-const char kUserDataMigrated[] = "user-data-migrated";
-
-// Causes the process to run as a watcher process.
-const char kWatcherProcess[]                = "watcher";
+// Specifies the version of the Progressive-Web-App launcher that launched
+// Chrome, used to determine whether to update all launchers.
+// NOTE: changing this switch requires adding legacy handling for the previous
+// method, as older PWA launchers still using this switch will rely on Chrome to
+// update them to use the new method.
+const char kPwaLauncherVersion[] = "pwa-launcher-version";
 #endif  // defined(OS_WIN)
 
 #if BUILDFLAG(ENABLE_PRINT_PREVIEW) && !defined(OFFICIAL_BUILD)
@@ -858,7 +827,8 @@ const char kAllowNaClFileHandleAPI[]        = "allow-nacl-file-handle-api";
 const char kAllowNaClSocketAPI[]            = "allow-nacl-socket-api";
 #endif
 
-#if defined(OS_LINUX) || defined(OS_MACOSX) || defined(OS_WIN)
+#if defined(OS_LINUX) || defined(OS_CHROMEOS) || defined(OS_MAC) || \
+    defined(OS_WIN)
 const char kEnableNewAppMenuIcon[] = "enable-new-app-menu-icon";
 
 // Causes the browser to launch directly in guest mode.
@@ -870,12 +840,16 @@ const char kGuest[] = "guest";
 // always enabled on the branded builds.
 const char kEnableChromeBrowserCloudManagement[] =
     "enable-chrome-browser-cloud-management";
-#endif
 
-#if !defined(OS_CHROMEOS) && !defined(OS_ANDROID)
 // Uses the system default printer as the initially selected destination in
 // print preview, instead of the most recently used destination.
 const char kUseSystemDefaultPrinter[] = "use-system-default-printer";
+#endif
+
+#if BUILDFLAG(ENABLE_DOWNGRADE_PROCESSING)
+// Indicates that this process is the product of a relaunch following migration
+// of User Data.
+const char kUserDataMigrated[] = "user-data-migrated";
 #endif
 
 // -----------------------------------------------------------------------------

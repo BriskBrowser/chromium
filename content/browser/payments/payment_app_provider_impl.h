@@ -5,7 +5,6 @@
 #ifndef CONTENT_BROWSER_PAYMENTS_PAYMENT_APP_PROVIDER_IMPL_H_
 #define CONTENT_BROWSER_PAYMENTS_PAYMENT_APP_PROVIDER_IMPL_H_
 
-#include "base/macros.h"
 #include "base/memory/singleton.h"
 #include "content/common/content_export.h"
 #include "content/public/browser/payment_app_provider.h"
@@ -17,11 +16,14 @@ class CONTENT_EXPORT PaymentAppProviderImpl : public PaymentAppProvider {
  public:
   static PaymentAppProviderImpl* GetInstance();
 
+  // Disallow copy and assign.
+  PaymentAppProviderImpl(const PaymentAppProviderImpl& other) = delete;
+  PaymentAppProviderImpl& operator=(const PaymentAppProviderImpl& other) =
+      delete;
+
   // PaymentAppProvider implementation:
   // Should be accessed only on the UI thread.
-  void GetAllPaymentApps(BrowserContext* browser_context,
-                         GetAllPaymentAppsCallback callback) override;
-  void InvokePaymentApp(BrowserContext* browser_context,
+  void InvokePaymentApp(WebContents* web_contents,
                         int64_t registration_id,
                         const url::Origin& sw_origin,
                         payments::mojom::PaymentRequestEventDataPtr event_data,
@@ -31,33 +33,43 @@ class CONTENT_EXPORT PaymentAppProviderImpl : public PaymentAppProvider {
       payments::mojom::PaymentRequestEventDataPtr event_data,
       const std::string& app_name,
       const SkBitmap& app_icon,
-      const std::string& sw_js_url,
-      const std::string& sw_scope,
+      const GURL& sw_js_url,
+      const GURL& sw_scope,
       bool sw_use_cache,
       const std::string& method,
       const SupportedDelegations& supported_delegations,
       RegistrationIdCallback registration_id_callback,
       InvokePaymentAppCallback callback) override;
-  void CanMakePayment(BrowserContext* browser_context,
+  void UpdatePaymentAppIcon(BrowserContext* browser_context,
+                            int64_t registration_id,
+                            const std::string& instrument_key,
+                            const std::string& name,
+                            const std::string& string_encoded_icon,
+                            const std::string& method_name,
+                            const SupportedDelegations& supported_delegations,
+                            UpdatePaymentAppIconCallback callback) override;
+  void CanMakePayment(WebContents* web_contents,
                       int64_t registration_id,
                       const url::Origin& sw_origin,
                       const std::string& payment_request_id,
                       payments::mojom::CanMakePaymentEventDataPtr event_data,
-                      PaymentEventResultCallback callback) override;
-  void AbortPayment(BrowserContext* browser_context,
+                      CanMakePaymentCallback callback) override;
+  void AbortPayment(WebContents* web_contents,
                     int64_t registration_id,
                     const url::Origin& sw_origin,
                     const std::string& payment_request_id,
-                    PaymentEventResultCallback callback) override;
+                    AbortCallback callback) override;
   void SetOpenedWindow(WebContents* web_contents) override;
-  void CloseOpenedWindow(BrowserContext* browser_context) override;
+  void CloseOpenedWindow() override;
   void OnClosingOpenedWindow(
-      BrowserContext* browser_context,
+      WebContents* web_contents,
       payments::mojom::PaymentEventResponseType reason) override;
   bool IsValidInstallablePaymentApp(const GURL& manifest_url,
                                     const GURL& sw_js_url,
                                     const GURL& sw_scope,
                                     std::string* error_message) override;
+  ukm::SourceId GetSourceIdForPaymentAppFromScope(
+      const GURL& sw_scope) override;
 
  private:
   PaymentAppProviderImpl();
@@ -72,11 +84,7 @@ class CONTENT_EXPORT PaymentAppProviderImpl : public PaymentAppProvider {
     ~PaymentHandlerWindowObserver() override;
   };
 
-  // Map to maintain at most one opened window per browser context.
-  std::map<BrowserContext*, std::unique_ptr<PaymentHandlerWindowObserver>>
-      payment_handler_windows_;
-
-  DISALLOW_COPY_AND_ASSIGN(PaymentAppProviderImpl);
+  std::unique_ptr<PaymentHandlerWindowObserver> payment_handler_window_;
 };
 
 }  // namespace content

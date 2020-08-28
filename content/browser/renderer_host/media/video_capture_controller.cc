@@ -180,8 +180,6 @@ VideoCaptureController::BufferContext::BufferContext(
       frame_feedback_id_(0),
       consumer_feedback_observer_(consumer_feedback_observer),
       buffer_handle_(std::move(buffer_handle)),
-      max_consumer_utilization_(
-          media::VideoFrameConsumerFeedbackObserver::kNoUtilizationRecorded),
       consumer_hold_count_(0) {}
 
 VideoCaptureController::BufferContext::~BufferContext() = default;
@@ -193,11 +191,8 @@ VideoCaptureController::BufferContext& VideoCaptureController::BufferContext::
 operator=(BufferContext&& other) = default;
 
 void VideoCaptureController::BufferContext::RecordConsumerUtilization(
-    double utilization) {
-  if (std::isfinite(utilization) && utilization >= 0.0) {
-    max_consumer_utilization_ =
-        std::max(max_consumer_utilization_, utilization);
-  }
+    const media::VideoFrameFeedback& feedback) {
+  combined_consumer_feedback_.Combine(feedback);
 }
 
 void VideoCaptureController::BufferContext::IncreaseConsumerCount() {
@@ -208,14 +203,12 @@ void VideoCaptureController::BufferContext::DecreaseConsumerCount() {
   consumer_hold_count_--;
   if (consumer_hold_count_ == 0) {
     if (consumer_feedback_observer_ != nullptr &&
-        max_consumer_utilization_ !=
-            media::VideoFrameConsumerFeedbackObserver::kNoUtilizationRecorded) {
+        !combined_consumer_feedback_.Empty()) {
       consumer_feedback_observer_->OnUtilizationReport(
-          frame_feedback_id_, max_consumer_utilization_);
+          frame_feedback_id_, combined_consumer_feedback_);
     }
     buffer_read_permission_.reset();
-    max_consumer_utilization_ =
-        media::VideoFrameConsumerFeedbackObserver::kNoUtilizationRecorded;
+    combined_consumer_feedback_ = media::VideoFrameFeedback();
   }
 }
 
@@ -355,9 +348,8 @@ base::UnguessableToken VideoCaptureController::RemoveClient(
     return base::UnguessableToken();
 
   for (const auto& buffer_id : client->buffers_in_use) {
-    OnClientFinishedConsumingBuffer(
-        client, buffer_id,
-        media::VideoFrameConsumerFeedbackObserver::kNoUtilizationRecorded);
+    OnClientFinishedConsumingBuffer(client, buffer_id,
+                                    media::VideoFrameFeedback());
   }
   client->buffers_in_use.clear();
 
@@ -447,7 +439,7 @@ void VideoCaptureController::ReturnBuffer(
     const VideoCaptureControllerID& id,
     VideoCaptureControllerEventHandler* event_handler,
     int buffer_id,
-    double consumer_resource_utilization) {
+    const media::VideoFrameFeedback& feedback) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
 
   ControllerClient* client = FindClient(id, event_handler, controller_clients_);
@@ -467,8 +459,7 @@ void VideoCaptureController::ReturnBuffer(
   }
   client->buffers_in_use.erase(buffers_in_use_entry_iter);
 
-  OnClientFinishedConsumingBuffer(client, buffer_id,
-                                  consumer_resource_utilization);
+  OnClientFinishedConsumingBuffer(client, buffer_id, feedback);
 }
 
 const base::Optional<media::VideoCaptureFormat>
@@ -548,11 +539,8 @@ void VideoCaptureController::OnFrameReadyInBuffer(
                                frame_info->coded_size.height());
     double frame_rate = 0.0f;
     if (video_capture_format_) {
-      media::VideoFrameMetadata metadata;
-      metadata.MergeInternalValuesFrom(frame_info->metadata);
-      if (!metadata.GetDouble(VideoFrameMetadata::FRAME_RATE, &frame_rate)) {
-        frame_rate = video_capture_format_->frame_rate;
-      }
+      frame_rate = frame_info->metadata.frame_rate.value_or(
+          video_capture_format_->frame_rate);
     }
     UMA_HISTOGRAM_COUNTS_1M("Media.VideoCapture.FrameRate", frame_rate);
     UMA_HISTOGRAM_TIMES("Media.VideoCapture.DelayUntilFirstFrame",
@@ -587,6 +575,9 @@ void VideoCaptureController::OnFrameDropped(
     media::VideoCaptureFrameDropReason reason) {
   TRACE_EVENT0(TRACE_DISABLED_BY_DEFAULT("video_and_image_capture"),
                "VideoCaptureController::OnFrameDropped");
+
+  MaybeEmitFrameDropLogMessage(reason);
+
   if (reason == frame_drop_log_state_.drop_reason) {
     if (frame_drop_log_state_.max_log_count_exceeded)
       return;
@@ -595,12 +586,6 @@ void VideoCaptureController::OnFrameDropped(
         kMaxConsecutiveFrameDropForSameReasonCount) {
       frame_drop_log_state_.max_log_count_exceeded = true;
       LogMaxConsecutiveVideoFrameDropCountExceeded(reason, stream_type_);
-      std::ostringstream string_stream;
-      string_stream << "Too many consecutive frames dropped with reason code "
-                    << static_cast<int>(reason)
-                    << ". Stopping to log dropped frames for this reason in "
-                       "order to avoid log spam.";
-      EmitLogMessage(string_stream.str(), 1);
       return;
     }
   } else {
@@ -608,10 +593,6 @@ void VideoCaptureController::OnFrameDropped(
   }
 
   LogVideoFrameDrop(reason, stream_type_);
-  std::ostringstream string_stream;
-  string_stream << "Frame dropped with reason code "
-                << static_cast<int>(reason);
-  EmitLogMessage(string_stream.str(), 1);
 }
 
 void VideoCaptureController::OnLog(const std::string& message) {
@@ -716,6 +697,10 @@ void VideoCaptureController::ReleaseDeviceAsync(base::OnceClosure done_cb) {
     device_launcher_->AbortLaunch();
     return;
   }
+  // |buffer_contexts_| contain references to |launched_device_| as observers.
+  // Clear those observer references prior to resetting |launced_device_|.
+  for (auto& entry : buffer_contexts_)
+    entry.set_consumer_feedback_observer(nullptr);
   launched_device_.reset();
 }
 
@@ -820,12 +805,12 @@ VideoCaptureController::FindUnretiredBufferContextFromBufferId(int buffer_id) {
 void VideoCaptureController::OnClientFinishedConsumingBuffer(
     ControllerClient* client,
     int buffer_context_id,
-    double consumer_resource_utilization) {
+    const media::VideoFrameFeedback& feedback) {
   auto buffer_context_iter =
       FindBufferContextFromBufferContextId(buffer_context_id);
   DCHECK(buffer_context_iter != buffer_contexts_.end());
 
-  buffer_context_iter->RecordConsumerUtilization(consumer_resource_utilization);
+  buffer_context_iter->RecordConsumerUtilization(feedback);
   buffer_context_iter->DecreaseConsumerCount();
   if (!buffer_context_iter->HasConsumers() &&
       buffer_context_iter->is_retired()) {
@@ -864,6 +849,36 @@ void VideoCaptureController::EmitLogMessage(const std::string& message,
                                             int verbose_log_level) {
   DVLOG(verbose_log_level) << message;
   emit_log_message_cb_.Run(message);
+}
+
+void VideoCaptureController::MaybeEmitFrameDropLogMessage(
+    media::VideoCaptureFrameDropReason reason) {
+  using Type = std::underlying_type<media::VideoCaptureFrameDropReason>::type;
+  static_assert(
+      static_cast<Type>(media::VideoCaptureFrameDropReason::kMaxValue) <= 100,
+      "Risk of memory overuse.");
+
+  static_assert(kMaxEmittedLogsForDroppedFramesBeforeSuppressing <
+                    kFrequencyForSuppressedLogs,
+                "");
+
+  DCHECK_GE(static_cast<Type>(reason), 0);
+  DCHECK_LE(reason, media::VideoCaptureFrameDropReason::kMaxValue);
+
+  int& occurrences = frame_drop_log_counters_[reason];
+  if (++occurrences > kMaxEmittedLogsForDroppedFramesBeforeSuppressing &&
+      occurrences % kFrequencyForSuppressedLogs != 0) {
+    return;
+  }
+
+  std::ostringstream string_stream;
+  string_stream << "Frame dropped with reason code "
+                << static_cast<Type>(reason) << ".";
+  if (occurrences == kMaxEmittedLogsForDroppedFramesBeforeSuppressing) {
+    string_stream << " Additional logs will be partially suppressed.";
+  }
+
+  EmitLogMessage(string_stream.str(), 1);
 }
 
 }  // namespace content

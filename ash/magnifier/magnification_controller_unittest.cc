@@ -11,6 +11,7 @@
 #include "ash/public/cpp/ash_switches.h"
 #include "ash/shell.h"
 #include "ash/test/ash_test_base.h"
+#include "ash/wm/window_state.h"
 #include "base/command_line.h"
 #include "base/run_loop.h"
 #include "base/strings/stringprintf.h"
@@ -20,6 +21,7 @@
 #include "ui/base/ime/input_method.h"
 #include "ui/display/manager/display_manager.h"
 #include "ui/display/screen.h"
+#include "ui/display/test/display_manager_test_api.h"
 #include "ui/events/event_handler.h"
 #include "ui/events/test/event_generator.h"
 #include "ui/gfx/geometry/rect_conversions.h"
@@ -74,6 +76,13 @@ class MagnificationControllerTest : public AshTestBase {
   }
 
  protected:
+  enum class ScrollDirection {
+    kPositiveX,
+    kNegativeX,
+    kPositiveY,
+    kNegativeY,
+  };
+
   std::unique_ptr<TouchEventWatcher> touch_event_watcher_;
 
   aura::Window* GetRootWindow() const { return Shell::GetPrimaryRootWindow(); }
@@ -109,27 +118,58 @@ class MagnificationControllerTest : public AshTestBase {
     GetEventGenerator()->Dispatch(&event);
   }
 
-  void PerformTwoFingersScrollGesture() {
+  // Performs a two-finger scroll gesture in the given |direction|.
+  void PerformTwoFingersScrollGesture(ScrollDirection direction) {
     base::TimeTicks time = base::TimeTicks::Now();
-    ui::PointerDetails pointer_details1(
-        ui::EventPointerType::POINTER_TYPE_TOUCH, 0);
-    ui::PointerDetails pointer_details2(
-        ui::EventPointerType::POINTER_TYPE_TOUCH, 1);
+    ui::PointerDetails pointer_details1(ui::EventPointerType::kTouch, 0);
+    ui::PointerDetails pointer_details2(ui::EventPointerType::kTouch, 1);
 
-    DispatchTouchEvent(ui::ET_TOUCH_PRESSED, gfx::Point(150, 10), time,
-                       pointer_details1);
-    DispatchTouchEvent(ui::ET_TOUCH_PRESSED, gfx::Point(150, 20), time,
-                       pointer_details2);
+    // The offset by which the two fingers will move according to the given
+    // direction.
+    constexpr int kOffset = 50;
+    // The start and end points of both fingers.
+    gfx::Point start1(150, 150);
+    gfx::Point start2(150, 160);
+    gfx::Point end1 = start1;
+    gfx::Point end2 = start2;
 
-    DispatchTouchEvent(ui::ET_TOUCH_MOVED, gfx::Point(200, 10), time,
-                       pointer_details1);
-    DispatchTouchEvent(ui::ET_TOUCH_MOVED, gfx::Point(200, 20), time,
-                       pointer_details2);
+    gfx::Point offset;
+    switch (direction) {
+      case ScrollDirection::kPositiveX:
+        offset.Offset(kOffset, 0);
+        break;
 
-    DispatchTouchEvent(ui::ET_TOUCH_RELEASED, gfx::Point(200, 10), time,
-                       pointer_details1);
-    DispatchTouchEvent(ui::ET_TOUCH_RELEASED, gfx::Point(200, 20), time,
-                       pointer_details2);
+      case ScrollDirection::kNegativeX:
+        offset.Offset(-kOffset, 0);
+        break;
+
+      case ScrollDirection::kPositiveY:
+        offset.Offset(0, kOffset);
+        break;
+
+      case ScrollDirection::kNegativeY:
+        offset.Offset(0, -kOffset);
+        break;
+    }
+
+    // The above calculated offsets are in dip, so apply the display rotation
+    // transform to convert to pixel.
+    const auto display = display_manager()->GetDisplayAt(0);
+    gfx::Transform rotation_transform;
+    rotation_transform.Rotate(display.PanelRotationAsDegree());
+    rotation_transform.TransformPoint(&offset);
+
+    end1.Offset(offset.x(), offset.y());
+    end2.Offset(offset.x(), offset.y());
+
+    DispatchTouchEvent(ui::ET_TOUCH_PRESSED, start1, time, pointer_details1);
+    DispatchTouchEvent(ui::ET_TOUCH_PRESSED, start2, time, pointer_details2);
+
+    DispatchTouchEvent(ui::ET_TOUCH_MOVED, end1, time, pointer_details1);
+    DispatchTouchEvent(ui::ET_TOUCH_MOVED, end2, time, pointer_details2);
+
+    DispatchTouchEvent(ui::ET_TOUCH_RELEASED, end1, time, pointer_details1);
+    DispatchTouchEvent(ui::ET_TOUCH_RELEASED, end2, time, pointer_details2);
   }
 
   MagnifierTextInputTestHelper text_input_helper_;
@@ -788,10 +828,8 @@ TEST_F(MagnificationControllerTest, PinchZoom) {
   ASSERT_EQ(2.0f, GetMagnificationController()->GetScale());
 
   base::TimeTicks time = base::TimeTicks::Now();
-  ui::PointerDetails pointer_details1(ui::EventPointerType::POINTER_TYPE_TOUCH,
-                                      0);
-  ui::PointerDetails pointer_details2(ui::EventPointerType::POINTER_TYPE_TOUCH,
-                                      1);
+  ui::PointerDetails pointer_details1(ui::EventPointerType::kTouch, 0);
+  ui::PointerDetails pointer_details2(ui::EventPointerType::kTouch, 1);
 
   // Simulate pinch gesture.
   DispatchTouchEvent(ui::ET_TOUCH_PRESSED, gfx::Point(900, 10), time,
@@ -865,7 +903,7 @@ TEST_F(MagnificationControllerTest, TwoFingersScroll) {
 
   const gfx::Point initial_position =
       GetMagnificationController()->GetWindowPosition();
-  PerformTwoFingersScrollGesture();
+  PerformTwoFingersScrollGesture(ScrollDirection::kPositiveX);
   const gfx::Point moved_position =
       GetMagnificationController()->GetWindowPosition();
 
@@ -881,7 +919,7 @@ TEST_F(MagnificationControllerTest, TwoFingersScroll) {
 
   const gfx::Point initial_position_zoomed =
       GetMagnificationController()->GetWindowPosition();
-  PerformTwoFingersScrollGesture();
+  PerformTwoFingersScrollGesture(ScrollDirection::kPositiveX);
   const gfx::Point moved_position_zoomed =
       GetMagnificationController()->GetWindowPosition();
 
@@ -896,6 +934,67 @@ TEST_F(MagnificationControllerTest, TwoFingersScroll) {
   EXPECT_EQ(delta, delta_zoomed * 2);
 }
 
+TEST_F(MagnificationControllerTest, TwoFingersScrollRotation) {
+  const int64_t internal_display_id =
+      display::test::DisplayManagerTestApi(display_manager())
+          .SetFirstDisplayAsInternalDisplay();
+
+  GetMagnificationController()->SetEnabled(true);
+  ASSERT_EQ(2.0f, GetMagnificationController()->GetScale());
+
+  // Test two-finger scroll gestures in all rotations in all directions.
+  for (const auto& rotation :
+       {display::Display::ROTATE_0, display::Display::ROTATE_90,
+        display::Display::ROTATE_180, display::Display::ROTATE_270}) {
+    SCOPED_TRACE(::testing::Message() << "Testing in rotation: " << rotation);
+    display_manager()->SetDisplayRotation(
+        internal_display_id, rotation, display::Display::RotationSource::USER);
+
+    for (const auto& scroll_direction : {
+             ScrollDirection::kPositiveX,
+             ScrollDirection::kNegativeX,
+             ScrollDirection::kPositiveY,
+             ScrollDirection::kNegativeY,
+         }) {
+      SCOPED_TRACE(::testing::Message()
+                   << "Scroll direction: " << (int)scroll_direction);
+      const gfx::Point initial_position =
+          GetMagnificationController()->GetWindowPosition();
+      PerformTwoFingersScrollGesture(scroll_direction);
+      const gfx::Point moved_position =
+          GetMagnificationController()->GetWindowPosition();
+
+      // Confirm that two fingers scroll gesture moves viewport in the right
+      // direction.
+      switch (scroll_direction) {
+        case ScrollDirection::kPositiveX:
+          // Viewport moves horizontally to the left.
+          EXPECT_GT(initial_position.x(), moved_position.x());
+          EXPECT_EQ(initial_position.y(), moved_position.y());
+          break;
+
+        case ScrollDirection::kNegativeX:
+          // Viewport moves horizontally to the right.
+          EXPECT_GT(moved_position.x(), initial_position.x());
+          EXPECT_EQ(initial_position.y(), moved_position.y());
+          break;
+
+        case ScrollDirection::kPositiveY:
+          // Viewport moves vertically up.
+          EXPECT_EQ(initial_position.x(), moved_position.x());
+          EXPECT_GT(initial_position.y(), moved_position.y());
+          break;
+
+        case ScrollDirection::kNegativeY:
+          // Viewport moves vertically down.
+          EXPECT_EQ(initial_position.x(), moved_position.x());
+          EXPECT_GT(moved_position.y(), initial_position.y());
+          break;
+      }
+    }
+  }
+}
+
 TEST_F(MagnificationControllerTest, ZoomsIntoCenter) {
   UpdateDisplay("0+0-500x500");
 
@@ -907,10 +1006,8 @@ TEST_F(MagnificationControllerTest, ZoomsIntoCenter) {
             GetMagnificationController()->GetViewportRect().CenterPoint());
 
   base::TimeTicks time = base::TimeTicks::Now();
-  ui::PointerDetails pointer_details1(ui::EventPointerType::POINTER_TYPE_TOUCH,
-                                      0);
-  ui::PointerDetails pointer_details2(ui::EventPointerType::POINTER_TYPE_TOUCH,
-                                      1);
+  ui::PointerDetails pointer_details1(ui::EventPointerType::kTouch, 0);
+  ui::PointerDetails pointer_details2(ui::EventPointerType::kTouch, 1);
 
   // Simulate pinch gesture with keeping center of bounding box of touches at
   // (250, 250). Note that GestureProvider dispatches scroll gesture from this
@@ -1001,6 +1098,58 @@ TEST_F(MagnificationControllerTest, DISABLED_TextfieldFocusedWithKeyboard) {
   EXPECT_TRUE(text_input_bounds.Contains(caret_bounds.CenterPoint()));
   EXPECT_EQ(caret_bounds.CenterPoint(),
             viewport_outside_keyboard_bounds.CenterPoint());
+}
+
+// Tests that the magnifier gets updated when dragging a window.
+TEST_F(MagnificationControllerTest, DragWindow) {
+  UpdateDisplay("800x800");
+
+  // Create a window and start dragging by grabbing its caption.
+  const gfx::Rect initial_window_bounds(200, 200, 400, 400);
+  auto window = CreateTestWindow(initial_window_bounds);
+  ui::test::EventGenerator* event_generator = GetEventGenerator();
+  event_generator->set_current_screen_location(gfx::Point(205, 205));
+  event_generator->PressLeftButton();
+  ASSERT_TRUE(WindowState::Get(window.get())->is_dragged());
+
+  GetMagnificationController()->SetEnabled(true);
+  const gfx::Rect initial_viewport_bounds(GetViewport());
+
+  // Move the mouse around a bit. The viewport should change, and the window
+  // bounds should change too.
+  event_generator->MoveMouseTo(gfx::Point(1, 1));
+  EXPECT_NE(initial_viewport_bounds, GetViewport());
+
+  event_generator->MoveMouseTo(gfx::Point(799, 799));
+  EXPECT_NE(initial_viewport_bounds, GetViewport());
+
+  EXPECT_NE(initial_window_bounds, window->bounds());
+}
+
+// Tests that the magnifier gets updated while drag a window across displays.
+TEST_F(MagnificationControllerTest, DragWindowAcrossDisplays) {
+  UpdateDisplay("0+0-500x500, 500+0-500x500");
+  aura::Window::Windows root_windows = Shell::GetAllRootWindows();
+
+  // Create a window and start dragging by grabbing its caption.
+  std::unique_ptr<aura::Window> window =
+      CreateTestWindow(gfx::Rect(100, 100, 300, 300));
+  ui::test::EventGenerator* event_generator = GetEventGenerator();
+  event_generator->set_current_screen_location(gfx::Point(105, 105));
+  event_generator->PressLeftButton();
+  ASSERT_TRUE(WindowState::Get(window.get())->is_dragged());
+
+  GetMagnificationController()->SetEnabled(true);
+  event_generator->MoveMouseToInHost(gfx::Point(250, 250));
+  EXPECT_FALSE(root_windows[0]->layer()->transform().IsIdentity());
+  EXPECT_TRUE(root_windows[1]->layer()->transform().IsIdentity());
+
+  // Move the cursor manually since EventGenerator uses a hack to move the
+  // cursor between displays.
+  root_windows[1]->MoveCursorTo(gfx::Point(950, 250));
+  event_generator->MoveMouseToInHost(gfx::Point(950, 250));
+  EXPECT_TRUE(root_windows[0]->layer()->transform().IsIdentity());
+  EXPECT_FALSE(root_windows[1]->layer()->transform().IsIdentity());
 }
 
 }  // namespace ash

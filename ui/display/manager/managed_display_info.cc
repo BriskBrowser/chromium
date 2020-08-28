@@ -19,6 +19,7 @@
 #include "ui/display/display.h"
 #include "ui/display/display_features.h"
 #include "ui/display/display_switches.h"
+#include "ui/display/manager/display_manager_utilities.h"
 #include "ui/gfx/geometry/size_conversions.h"
 #include "ui/gfx/geometry/size_f.h"
 
@@ -33,7 +34,7 @@ namespace {
 // Use larger than max int to catch overflow early.
 const int64_t kSynthesizedDisplayIdStart = 2200000000LL;
 
-int64_t synthesized_display_id = kSynthesizedDisplayIdStart;
+int64_t next_synthesized_display_id = kSynthesizedDisplayIdStart;
 
 const float kDpi96 = 96.0;
 
@@ -69,6 +70,11 @@ struct ManagedDisplayModeSorter {
   }
 };
 
+bool IsWithinEpsilon(float a, float b) {
+  constexpr float kEpsilon = 0.0001f;
+  return std::abs(a - b) < kEpsilon;
+}
+
 }  // namespace
 
 ManagedDisplayMode::ManagedDisplayMode() {}
@@ -103,6 +109,13 @@ ManagedDisplayMode::ManagedDisplayMode(const ManagedDisplayMode& other) =
 ManagedDisplayMode& ManagedDisplayMode::operator=(
     const ManagedDisplayMode& other) = default;
 
+bool ManagedDisplayMode::operator==(const ManagedDisplayMode& other) const {
+  return size_ == other.size_ && is_interlaced_ == other.is_interlaced_ &&
+         native_ == other.native_ &&
+         IsWithinEpsilon(refresh_rate_, other.refresh_rate_) &&
+         IsWithinEpsilon(device_scale_factor_, other.device_scale_factor_);
+}
+
 gfx::Size ManagedDisplayMode::GetSizeInDIP() const {
   gfx::SizeF size_dip(size_);
   size_dip.Scale(1.0f / device_scale_factor_);
@@ -113,9 +126,8 @@ bool ManagedDisplayMode::IsEquivalent(const ManagedDisplayMode& other) const {
   if (display::features::IsListAllDisplayModesEnabled())
     return *this == other;
 
-  const float kEpsilon = 0.0001f;
   return size_ == other.size_ &&
-         std::abs(device_scale_factor_ - other.device_scale_factor_) < kEpsilon;
+         IsWithinEpsilon(device_scale_factor_, other.device_scale_factor_);
 }
 
 std::string ManagedDisplayMode::ToString() const {
@@ -207,7 +219,7 @@ ManagedDisplayInfo ManagedDisplayInfo::CreateFromSpecWithID(
                               base::SPLIT_WANT_NONEMPTY);
     for (size_t i = 0; i < parts.size(); ++i) {
       gfx::Size size;
-      float refresh_rate = 0.0f;
+      float refresh_rate = 60.0f;
       bool is_interlaced = false;
 
       gfx::Rect mode_bounds;
@@ -234,8 +246,10 @@ ManagedDisplayInfo ManagedDisplayInfo::CreateFromSpecWithID(
                            true, dm.device_scale_factor());
   }
 
-  if (id == kInvalidDisplayId)
-    id = synthesized_display_id++;
+  if (id == kInvalidDisplayId) {
+    id = next_synthesized_display_id;
+    next_synthesized_display_id = GetNextSynthesizedDisplayId(id);
+  }
   ManagedDisplayInfo display_info(
       id, base::StringPrintf("Display-%d", static_cast<int>(id)), has_overscan);
   display_info.set_device_scale_factor(device_scale_factor);
@@ -352,7 +366,7 @@ void ManagedDisplayInfo::Copy(const ManagedDisplayInfo& native_info) {
   is_aspect_preserving_scaling_ = native_info.is_aspect_preserving_scaling_;
   display_modes_ = native_info.display_modes_;
   maximum_cursor_size_ = native_info.maximum_cursor_size_;
-  color_space_ = native_info.color_space_;
+  display_color_spaces_ = native_info.display_color_spaces_;
   bits_per_channel_ = native_info.bits_per_channel_;
   refresh_rate_ = native_info.refresh_rate_;
   is_interlaced_ = native_info.is_interlaced_;
@@ -489,7 +503,17 @@ Display::Rotation ManagedDisplayInfo::GetRotationWithPanelOrientation(
 }
 
 void ResetDisplayIdForTest() {
-  synthesized_display_id = kSynthesizedDisplayIdStart;
+  next_synthesized_display_id = kSynthesizedDisplayIdStart;
+}
+
+int64_t GetNextSynthesizedDisplayId(int64_t id) {
+  int next_output_index = id & 0xFF;
+  next_output_index++;
+  DCHECK_GT(0x100, next_output_index);
+  int64_t base = GetDisplayIdWithoutOutputIndex(id);
+  if (id == kSynthesizedDisplayIdStart)
+    return id + 0x100 + next_output_index;
+  return base + next_output_index;
 }
 
 }  // namespace display

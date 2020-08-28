@@ -15,7 +15,9 @@
 #include "base/json/json_writer.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/values.h"
-#include "chrome/browser/apps/launch_service/launch_service.h"
+#include "chrome/browser/apps/app_service/app_service_proxy.h"
+#include "chrome/browser/apps/app_service/app_service_proxy_factory.h"
+#include "chrome/browser/apps/app_service/browser_app_launcher.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/consent_auditor/consent_auditor_factory.h"
@@ -29,6 +31,7 @@
 #include "chrome/common/webui_url_constants.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/consent_auditor/consent_auditor.h"
+#include "components/signin/public/identity_manager/consent_level.h"
 #include "components/signin/public/identity_manager/identity_manager.h"
 #include "components/user_manager/known_user.h"
 #include "components/user_manager/user_manager.h"
@@ -127,8 +130,9 @@ void RequestOpenApp(Profile* profile) {
           arc::kPlayStoreAppId);
   DCHECK(extension);
   DCHECK(extensions::util::IsAppLaunchable(arc::kPlayStoreAppId, profile));
-  apps::LaunchService::Get(profile)->OpenApplication(
-      CreateAppLaunchParamsUserContainer(
+  apps::AppServiceProxyFactory::GetForProfile(profile)
+      ->BrowserAppLauncher()
+      ->LaunchAppWithParams(CreateAppLaunchParamsUserContainer(
           profile, extension, WindowOpenDisposition::NEW_WINDOW,
           apps::mojom::AppLaunchSource::kSourceChromeInternal));
 }
@@ -163,8 +167,23 @@ std::ostream& operator<<(std::ostream& os, ArcSupportHost::Error error) {
       return os << "SIGN_IN_BAD_AUTHENTICATION_ERROR";
     case ArcSupportHost::Error::SIGN_IN_GMS_NOT_AVAILABLE_ERROR:
       return os << "SIGN_IN_GMS_NOT_AVAILABLE_ERROR";
-    case ArcSupportHost::Error::SIGN_IN_CLOUD_PROVISION_FLOW_FAIL_ERROR:
-      return os << "SIGN_IN_CLOUD_PROVISION_FLOW_FAIL_ERROR";
+    case ArcSupportHost::Error::
+        SIGN_IN_CLOUD_PROVISION_FLOW_ACCOUNT_MISSING_ERROR:
+      return os << "SIGN_IN_CLOUD_PROVISION_FLOW_ACCOUNT_MISSING_ERROR";
+    case ArcSupportHost::Error::
+        SIGN_IN_CLOUD_PROVISION_FLOW_DOMAIN_JOIN_FAIL_ERROR:
+      return os << "SIGN_IN_CLOUD_PROVISION_FLOW_DOMAIN_JOIN_FAIL_ERROR";
+    case ArcSupportHost::Error::
+        SIGN_IN_CLOUD_PROVISION_FLOW_ENROLLMENT_TOKEN_INVALID:
+      return os << "SIGN_IN_CLOUD_PROVISION_FLOW_ENROLLMENT_TOKEN_INVALID";
+    case ArcSupportHost::Error::SIGN_IN_CLOUD_PROVISION_FLOW_INTERRUPTED_ERROR:
+      return os << "SIGN_IN_CLOUD_PROVISION_FLOW_INTERRUPTED_ERROR";
+    case ArcSupportHost::Error::SIGN_IN_CLOUD_PROVISION_FLOW_NETWORK_ERROR:
+      return os << "SIGN_IN_CLOUD_PROVISION_FLOW_NETWORK_ERROR";
+    case ArcSupportHost::Error::SIGN_IN_CLOUD_PROVISION_FLOW_PERMANENT_ERROR:
+      return os << "SIGN_IN_CLOUD_PROVISION_FLOW_PERMANENT_ERROR";
+    case ArcSupportHost::Error::SIGN_IN_CLOUD_PROVISION_FLOW_TRANSIENT_ERROR:
+      return os << "SIGN_IN_CLOUD_PROVISION_FLOW_TRANSIENT_ERROR";
     case ArcSupportHost::Error::SIGN_IN_UNKNOWN_ERROR:
       return os << "SIGN_IN_UNKNOWN_ERROR";
     case ArcSupportHost::Error::SERVER_COMMUNICATION_ERROR:
@@ -185,7 +204,7 @@ std::ostream& operator<<(std::ostream& os, ArcSupportHost::Error error) {
 
 ArcSupportHost::ArcSupportHost(Profile* profile)
     : profile_(profile),
-      request_open_app_callback_(base::Bind(&RequestOpenApp)) {
+      request_open_app_callback_(base::BindRepeating(&RequestOpenApp)) {
   DCHECK(profile_);
 }
 
@@ -297,14 +316,18 @@ void ArcSupportHost::ShowPage(UIPage ui_page) {
   message_host_->SendMessage(message);
 }
 
-void ArcSupportHost::ShowError(Error error, bool should_show_send_feedback) {
+void ArcSupportHost::ShowError(Error error,
+                               int error_code,
+                               bool should_show_send_feedback) {
   ui_page_ = UIPage::ERROR;
   error_ = error;
+  error_code_ = error_code;
   should_show_send_feedback_ = should_show_send_feedback;
   if (!message_host_) {
     if (app_start_pending_) {
-      VLOG(2) << "ArcSupportHost::ShowError(" << error << ", "
-              << should_show_send_feedback << ") is called before connection "
+      VLOG(2) << "ArcSupportHost::ShowError(" << error << ", " << error_code
+              << ", " << should_show_send_feedback
+              << ") is called before connection "
               << "to ARC support Chrome app is established.";
       return;
     }
@@ -312,41 +335,80 @@ void ArcSupportHost::ShowError(Error error, bool should_show_send_feedback) {
     return;
   }
 
-  base::DictionaryValue message;
-  message.SetString(kAction, kActionShowErrorPage);
-  int message_id;
+  base::DictionaryValue message_args;
+  message_args.SetString(kAction, kActionShowErrorPage);
+  base::string16 message;
   switch (error) {
     case Error::SIGN_IN_NETWORK_ERROR:
-      message_id = IDS_ARC_SIGN_IN_NETWORK_ERROR;
+      message = l10n_util::GetStringUTF16(IDS_ARC_SIGN_IN_NETWORK_ERROR);
       break;
     case Error::SIGN_IN_SERVICE_UNAVAILABLE_ERROR:
-      message_id = IDS_ARC_SIGN_IN_SERVICE_UNAVAILABLE_ERROR;
+      message =
+          l10n_util::GetStringUTF16(IDS_ARC_SIGN_IN_SERVICE_UNAVAILABLE_ERROR);
       break;
     case Error::SIGN_IN_BAD_AUTHENTICATION_ERROR:
-      message_id = IDS_ARC_SIGN_IN_BAD_AUTHENTICATION_ERROR;
+      message =
+          l10n_util::GetStringUTF16(IDS_ARC_SIGN_IN_BAD_AUTHENTICATION_ERROR);
       break;
     case Error::SIGN_IN_GMS_NOT_AVAILABLE_ERROR:
-      message_id = IDS_ARC_SIGN_IN_GMS_NOT_AVAILABLE_ERROR;
+      message =
+          l10n_util::GetStringUTF16(IDS_ARC_SIGN_IN_GMS_NOT_AVAILABLE_ERROR);
       break;
-    case Error::SIGN_IN_CLOUD_PROVISION_FLOW_FAIL_ERROR:
-      message_id = IDS_ARC_SIGN_IN_CLOUD_PROVISION_FLOW_FAIL_ERROR;
+    case ArcSupportHost::Error::
+        SIGN_IN_CLOUD_PROVISION_FLOW_ACCOUNT_MISSING_ERROR:
+      message = l10n_util::GetStringFUTF16(
+          IDS_ARC_SIGN_IN_CLOUD_PROVISION_FLOW_ACCOUNT_MISSING_ERROR,
+          base::NumberToString16(error_code));
+      break;
+    case ArcSupportHost::Error::
+        SIGN_IN_CLOUD_PROVISION_FLOW_DOMAIN_JOIN_FAIL_ERROR:
+      message = l10n_util::GetStringFUTF16(
+          IDS_ARC_SIGN_IN_CLOUD_PROVISION_FLOW_DOMAIN_JOIN_FAIL_ERROR,
+          base::NumberToString16(error_code));
+      break;
+    case ArcSupportHost::Error::
+        SIGN_IN_CLOUD_PROVISION_FLOW_ENROLLMENT_TOKEN_INVALID:
+      message = l10n_util::GetStringFUTF16(
+          IDS_ARC_SIGN_IN_CLOUD_PROVISION_FLOW_ENROLLMENT_TOKEN_INVALID,
+          base::NumberToString16(error_code));
+      break;
+    case ArcSupportHost::Error::SIGN_IN_CLOUD_PROVISION_FLOW_INTERRUPTED_ERROR:
+      message = l10n_util::GetStringFUTF16(
+          IDS_ARC_SIGN_IN_CLOUD_PROVISION_FLOW_INTERRUPTED_ERROR,
+          base::NumberToString16(error_code));
+      break;
+    case ArcSupportHost::Error::SIGN_IN_CLOUD_PROVISION_FLOW_NETWORK_ERROR:
+      message = l10n_util::GetStringFUTF16(
+          IDS_ARC_SIGN_IN_CLOUD_PROVISION_FLOW_NETWORK_ERROR,
+          base::NumberToString16(error_code));
+      break;
+    case ArcSupportHost::Error::SIGN_IN_CLOUD_PROVISION_FLOW_PERMANENT_ERROR:
+      message = l10n_util::GetStringFUTF16(
+          IDS_ARC_SIGN_IN_CLOUD_PROVISION_FLOW_PERMANENT_ERROR,
+          base::NumberToString16(error_code));
+      break;
+    case ArcSupportHost::Error::SIGN_IN_CLOUD_PROVISION_FLOW_TRANSIENT_ERROR:
+      message = l10n_util::GetStringFUTF16(
+          IDS_ARC_SIGN_IN_CLOUD_PROVISION_FLOW_TRANSIENT_ERROR,
+          base::NumberToString16(error_code));
       break;
     case Error::SIGN_IN_UNKNOWN_ERROR:
-      message_id = IDS_ARC_SIGN_IN_UNKNOWN_ERROR;
+      message = l10n_util::GetStringUTF16(IDS_ARC_SIGN_IN_UNKNOWN_ERROR);
       break;
     case Error::SERVER_COMMUNICATION_ERROR:
-      message_id = IDS_ARC_SERVER_COMMUNICATION_ERROR;
+      message = l10n_util::GetStringUTF16(IDS_ARC_SERVER_COMMUNICATION_ERROR);
       break;
     case Error::ANDROID_MANAGEMENT_REQUIRED_ERROR:
-      message_id = IDS_ARC_ANDROID_MANAGEMENT_REQUIRED_ERROR;
+      message =
+          l10n_util::GetStringUTF16(IDS_ARC_ANDROID_MANAGEMENT_REQUIRED_ERROR);
       break;
     case Error::NETWORK_UNAVAILABLE_ERROR:
-      message_id = IDS_ARC_NETWORK_UNAVAILABLE_ERROR;
+      message = l10n_util::GetStringUTF16(IDS_ARC_NETWORK_UNAVAILABLE_ERROR);
       break;
   }
-  message.SetString(kErrorMessage, l10n_util::GetStringUTF16(message_id));
-  message.SetBoolean(kShouldShowSendFeedback, should_show_send_feedback);
-  message_host_->SendMessage(message);
+  message_args.SetString(kErrorMessage, message);
+  message_args.SetBoolean(kShouldShowSendFeedback, should_show_send_feedback);
+  message_host_->SendMessage(message_args);
 }
 
 void ArcSupportHost::SetMetricsPreferenceCheckbox(bool is_enabled,
@@ -413,7 +475,7 @@ void ArcSupportHost::SetMessageHost(arc::ArcSupportMessageHost* message_host) {
     // Close() is called before opening the window.
     Close();
   } else if (ui_page_ == UIPage::ERROR) {
-    ShowError(error_, should_show_send_feedback_);
+    ShowError(error_, error_code_, should_show_send_feedback_);
   } else {
     ShowPage(ui_page_);
   }
@@ -536,20 +598,34 @@ bool ArcSupportHost::Initialize() {
       "controlledByPolicy",
       l10n_util::GetStringUTF16(IDS_CONTROLLED_SETTING_POLICY));
   loadtime_data->SetString(
+      "learnMoreStatisticsTitle",
+      l10n_util::GetStringUTF16(IDS_ARC_OPT_IN_LEARN_MORE_STATISTICS_TITLE));
+  loadtime_data->SetString(
       "learnMoreStatistics",
       l10n_util::GetStringUTF16(is_child
                                     ? IDS_ARC_OPT_IN_LEARN_MORE_STATISTICS_CHILD
                                     : IDS_ARC_OPT_IN_LEARN_MORE_STATISTICS));
+  loadtime_data->SetString(
+      "learnMoreBackupAndRestoreTitle",
+      l10n_util::GetStringUTF16(
+          IDS_ARC_OPT_IN_LEARN_MORE_BACKUP_AND_RESTORE_TITLE));
   loadtime_data->SetString(
       "learnMoreBackupAndRestore",
       l10n_util::GetStringUTF16(
           is_child ? IDS_ARC_OPT_IN_LEARN_MORE_BACKUP_AND_RESTORE_CHILD
                    : IDS_ARC_OPT_IN_LEARN_MORE_BACKUP_AND_RESTORE));
   loadtime_data->SetString(
+      "learnMoreLocationServicesTitle",
+      l10n_util::GetStringUTF16(
+          IDS_ARC_OPT_IN_LEARN_MORE_LOCATION_SERVICES_TITLE));
+  loadtime_data->SetString(
       "learnMoreLocationServices",
       l10n_util::GetStringUTF16(
           is_child ? IDS_ARC_OPT_IN_LEARN_MORE_LOCATION_SERVICES_CHILD
                    : IDS_ARC_OPT_IN_LEARN_MORE_LOCATION_SERVICES));
+  loadtime_data->SetString(
+      "learnMorePaiServiceTitle",
+      l10n_util::GetStringUTF16(IDS_ARC_OPT_IN_LEARN_MORE_PAI_SERVICE_TITLE));
   loadtime_data->SetString(
       "learnMorePaiService",
       l10n_util::GetStringUTF16(IDS_ARC_OPT_IN_LEARN_MORE_PAI_SERVICE));
@@ -664,8 +740,11 @@ void ArcSupportHost::OnMessage(const base::DictionaryValue& message) {
     }
 
     auto* identity_manager = IdentityManagerFactory::GetForProfile(profile_);
-    DCHECK(identity_manager->HasPrimaryAccount());
-    CoreAccountId account_id = identity_manager->GetPrimaryAccountId();
+    // This class doesn't care about browser sync consent.
+    DCHECK(identity_manager->HasPrimaryAccount(
+        signin::ConsentLevel::kNotRequired));
+    CoreAccountId account_id = identity_manager->GetPrimaryAccountId(
+        signin::ConsentLevel::kNotRequired);
     bool is_child = user_manager::UserManager::Get()->IsLoggedInAsChildUser();
 
     // Record acceptance of ToS if it was shown to the user, otherwise simply

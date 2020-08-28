@@ -9,11 +9,12 @@
 #include "base/bind.h"
 #include "base/macros.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/strings/strcat.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/simple_test_clock.h"
 #include "base/time/time.h"
 #include "chrome/browser/ui/media_router/media_cast_mode.h"
-#include "chrome/common/media_router/media_sink.h"
+#include "components/media_router/common/media_sink.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "url/gurl.h"
@@ -273,12 +274,6 @@ TEST(MediaRouterMetricsTest, RecordStopRoute) {
                           Bucket(/* Remote route */ 1, 1)));
 }
 
-TEST(MediaRouterMetricsTest, RecordSearchSinkOutcome) {
-  TestRecordBooleanMetric(
-      base::BindRepeating(&MediaRouterMetrics::RecordSearchSinkOutcome),
-      MediaRouterMetrics::kHistogramRecordSearchSinkOutcome);
-}
-
 TEST(MediaRouterMetricsTest, RecordIconStateAtDialogOpen) {
   TestRecordBooleanMetric(
       base::BindRepeating(&MediaRouterMetrics::RecordIconStateAtDialogOpen),
@@ -289,6 +284,57 @@ TEST(MediaRouterMetricsTest, RecordIconStateAtInit) {
   TestRecordBooleanMetric(
       base::BindRepeating(&MediaRouterMetrics::RecordIconStateAtInit),
       MediaRouterMetrics::kHistogramUiIconStateAtInit);
+}
+
+TEST(MediaRouterMetricsTest, RecordCloudPrefAtDialogOpen) {
+  TestRecordBooleanMetric(
+      base::BindRepeating(&MediaRouterMetrics::RecordCloudPrefAtDialogOpen),
+      MediaRouterMetrics::kHistogramCloudPrefAtDialogOpen);
+}
+
+TEST(MediaRouterMetricsTest, RecordCloudPrefAtInit) {
+  TestRecordBooleanMetric(
+      base::BindRepeating(&MediaRouterMetrics::RecordCloudPrefAtInit),
+      MediaRouterMetrics::kHistogramCloudPrefAtInit);
+}
+
+TEST(MediaRouterMetricsTest, RecordPresentationRequestUrlBySink) {
+  MediaSource cast_source("cast:ABCD1234");
+  MediaSource dial_source(
+      GURL(base::StrCat({kCastDialPresentationUrlScheme, ":YouTube"})));
+  MediaSource presentation_url(GURL("https://www.example.com"));
+
+  base::HistogramTester tester;
+  MediaRouterMetrics::RecordPresentationRequestUrlBySink(
+      cast_source, MediaRouteProviderId::CAST);
+  MediaRouterMetrics::RecordPresentationRequestUrlBySink(
+      dial_source, MediaRouteProviderId::DIAL);
+  MediaRouterMetrics::RecordPresentationRequestUrlBySink(
+      presentation_url, MediaRouteProviderId::CAST);
+  MediaRouterMetrics::RecordPresentationRequestUrlBySink(
+      presentation_url, MediaRouteProviderId::WIRED_DISPLAY);
+  MediaRouterMetrics::RecordPresentationRequestUrlBySink(
+      presentation_url, MediaRouteProviderId::EXTENSION);
+  // DIAL devices don't support normal URLs, so this will get logged as
+  // kUnknown.
+  MediaRouterMetrics::RecordPresentationRequestUrlBySink(
+      presentation_url, MediaRouteProviderId::DIAL);
+
+  EXPECT_THAT(
+      tester.GetAllSamples("MediaRouter.PresentationRequest.UrlBySink"),
+      testing::UnorderedElementsAre(
+          Bucket(static_cast<int>(PresentationUrlBySink::kUnknown), 1),
+          Bucket(
+              static_cast<int>(PresentationUrlBySink::kNormalUrlToChromecast),
+              1),
+          Bucket(static_cast<int>(PresentationUrlBySink::kNormalUrlToExtension),
+                 1),
+          Bucket(
+              static_cast<int>(PresentationUrlBySink::kNormalUrlToWiredDisplay),
+              1),
+          Bucket(static_cast<int>(PresentationUrlBySink::kCastUrlToChromecast),
+                 1),
+          Bucket(static_cast<int>(PresentationUrlBySink::kDialUrlToDial), 1)));
 }
 
 }  // namespace media_router

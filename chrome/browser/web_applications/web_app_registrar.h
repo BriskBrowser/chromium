@@ -8,13 +8,16 @@
 #include <map>
 #include <memory>
 #include <string>
+#include <utility>
+#include <vector>
 
-#include "base/logging.h"
+#include "base/check_op.h"
 #include "base/macros.h"
 #include "base/optional.h"
+#include "chrome/browser/profiles/profile_manager_observer.h"
 #include "chrome/browser/web_applications/components/app_registrar.h"
 #include "chrome/browser/web_applications/components/web_app_constants.h"
-#include "chrome/browser/web_applications/components/web_app_helpers.h"
+#include "chrome/browser/web_applications/components/web_app_id.h"
 
 namespace web_app {
 
@@ -23,7 +26,7 @@ class WebApp;
 using Registry = std::map<AppId, std::unique_ptr<WebApp>>;
 
 // A registry model. This is a read-only container, which owns WebApp objects.
-class WebAppRegistrar : public AppRegistrar {
+class WebAppRegistrar : public AppRegistrar, public ProfileManagerObserver {
  public:
   explicit WebAppRegistrar(Profile* profile);
   ~WebAppRegistrar() override;
@@ -33,6 +36,8 @@ class WebAppRegistrar : public AppRegistrar {
   const WebApp* GetAppById(const AppId& app_id) const;
 
   // AppRegistrar:
+  void Start() override;
+  void Shutdown() override;
   bool IsInstalled(const AppId& app_id) const override;
   bool IsLocallyInstalled(const AppId& app_id) const override;
   bool WasInstalledByUser(const AppId& app_id) const override;
@@ -40,14 +45,31 @@ class WebAppRegistrar : public AppRegistrar {
   std::string GetAppShortName(const AppId& app_id) const override;
   std::string GetAppDescription(const AppId& app_id) const override;
   base::Optional<SkColor> GetAppThemeColor(const AppId& app_id) const override;
+  base::Optional<SkColor> GetAppBackgroundColor(
+      const AppId& app_id) const override;
   const GURL& GetAppLaunchURL(const AppId& app_id) const override;
-  base::Optional<GURL> GetAppScope(const AppId& app_id) const override;
+  base::Optional<GURL> GetAppScopeInternal(const AppId& app_id) const override;
   DisplayMode GetAppDisplayMode(const AppId& app_id) const override;
   DisplayMode GetAppUserDisplayMode(const AppId& app_id) const override;
+  std::vector<DisplayMode> GetAppDisplayModeOverride(
+      const AppId& app_id) const override;
+  base::Time GetAppLastLaunchTime(const web_app::AppId& app_id) const override;
+  base::Time GetAppInstallTime(const web_app::AppId& app_id) const override;
   std::vector<WebApplicationIconInfo> GetAppIconInfos(
       const AppId& app_id) const override;
+  std::vector<SquareSizePx> GetAppDownloadedIconSizesAny(
+      const AppId& app_id) const override;
+  std::vector<WebApplicationShortcutsMenuItemInfo> GetAppShortcutsMenuItemInfos(
+      const AppId& app_id) const override;
+  std::vector<std::vector<SquareSizePx>>
+  GetAppDownloadedShortcutsMenuIconsSizes(const AppId& app_id) const override;
+  RunOnOsLoginMode GetAppRunOnOsLoginMode(const AppId& app_id) const override;
   std::vector<AppId> GetAppIds() const override;
   WebAppRegistrar* AsWebAppRegistrar() override;
+
+  // ProfileManagerObserver:
+  void OnProfileMarkedForPermanentDeletion(
+      Profile* profile_to_be_deleted) override;
 
   // Only range-based |for| loop supported. Don't use AppSet directly.
   // Doesn't support registration and unregistration of WebApp while iterating.
@@ -105,6 +127,7 @@ class WebAppRegistrar : public AppRegistrar {
 
  private:
   Registry registry_;
+  bool registry_profile_being_deleted_ = false;
 #if DCHECK_IS_ON()
   size_t mutations_count_ = 0;
 #endif

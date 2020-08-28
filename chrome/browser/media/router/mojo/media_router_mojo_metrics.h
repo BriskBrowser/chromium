@@ -7,8 +7,10 @@
 
 #include "base/gtest_prod_util.h"
 #include "base/time/time.h"
-#include "chrome/common/media_router/media_route_provider_helper.h"
-#include "chrome/common/media_router/route_request_result.h"
+#include "components/media_router/common/media_route_provider_helper.h"
+#include "components/media_router/common/media_source.h"
+#include "components/media_router/common/route_request_result.h"
+#include "content/public/browser/web_contents.h"
 
 namespace base {
 class Version;
@@ -43,7 +45,7 @@ enum class MediaRouteProviderWakeReason {
   CONNECT_ROUTE_BY_ROUTE_ID = 14,
   ENABLE_MDNS_DISCOVERY = 15,
   UPDATE_MEDIA_SINKS = 16,
-  SEARCH_SINKS = 17,
+  SEARCH_SINKS = 17,  // Obsolete
   PROVIDE_SINKS = 18,
   CREATE_MEDIA_ROUTE_CONTROLLER = 19,
   ROUTE_CONTROLLER_COMMAND = 20,
@@ -77,20 +79,17 @@ enum class MediaRouteProviderWakeup {
   TOTAL_COUNT = 3
 };
 
+// Whether audio has been played since the last navigation. Do not modify
+// existing values, since they are used for metrics reporting. Add new values
+// only at the bottom, and also update tools/metrics/histograms/enums.xml.
+enum class WebContentsAudioState {
+  kWasNeverAudible = 0,
+  kIsCurrentlyAudible = 1,
+  kWasPreviouslyAudible = 2,  // Was playing audio, but not currently.
+};
+
 class MediaRouterMojoMetrics {
  public:
-  // UMA histogram names.
-  static const char kHistogramProviderCreateRouteResult[];
-  static const char kHistogramProviderCreateRouteResultWiredDisplay[];
-  static const char kHistogramProviderJoinRouteResult[];
-  static const char kHistogramProviderJoinRouteResultWiredDisplay[];
-  static const char kHistogramProviderRouteControllerCreationOutcome[];
-  static const char kHistogramProviderTerminateRouteResult[];
-  static const char kHistogramProviderTerminateRouteResultWiredDisplay[];
-  static const char kHistogramProviderVersion[];
-  static const char kHistogramProviderWakeReason[];
-  static const char kHistogramProviderWakeup[];
-
   // Records the installed version of the Media Router component extension.
   static void RecordMediaRouteProviderVersion(
       const extensions::Extension& extension);
@@ -124,6 +123,15 @@ class MediaRouterMojoMetrics {
   // Records whether the Media Route Provider succeeded or failed to create a
   // controller for a media route.
   static void RecordMediaRouteControllerCreationResult(bool success);
+
+  // Records the audio playback state of a WebContents that is being
+  // tab-mirrored.
+  static void RecordTabMirroringMetrics(content::WebContents* web_contents);
+
+  // Records the audio capture setting of a site-initiated mirroring session.
+  static void RecordSiteInitiatedMirroringStarted(
+      content::WebContents* web_contents,
+      const MediaSource& media_source);
 
  private:
   FRIEND_TEST_ALL_PREFIXES(MediaRouterMojoMetricsTest,

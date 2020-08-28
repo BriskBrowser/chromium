@@ -4,6 +4,9 @@
 
 #include "ui/views/controls/button/label_button.h"
 
+#include <algorithm>
+#include <utility>
+
 #include "base/command_line.h"
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
@@ -11,8 +14,6 @@
 #include "build/build_config.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "ui/accessibility/ax_node_data.h"
-#include "ui/base/material_design/material_design_controller.h"
-#include "ui/base/test/material_design_controller_test_api.h"
 #include "ui/base/ui_base_switches.h"
 #include "ui/events/test/event_generator.h"
 #include "ui/gfx/canvas.h"
@@ -22,6 +23,7 @@
 #include "ui/gfx/geometry/vector2d.h"
 #include "ui/gfx/text_utils.h"
 #include "ui/native_theme/native_theme.h"
+#include "ui/native_theme/native_theme_base.h"
 #include "ui/views/accessibility/view_accessibility.h"
 #include "ui/views/animation/test/ink_drop_host_view_test_api.h"
 #include "ui/views/animation/test/test_ink_drop.h"
@@ -43,6 +45,24 @@ gfx::ImageSkia CreateTestImage(int width, int height) {
   return gfx::ImageSkia::CreateFrom1xBitmap(bitmap);
 }
 
+// A test theme that always returns a fixed color.
+class TestNativeTheme : public ui::NativeThemeBase {
+ public:
+  static constexpr SkColor kSystemColor = SK_ColorRED;
+
+  TestNativeTheme() = default;
+  TestNativeTheme(const TestNativeTheme&) = delete;
+  TestNativeTheme& operator=(const TestNativeTheme&) = delete;
+
+  // NativeThemeBase:
+  SkColor GetSystemColor(ColorId color_id,
+                         ColorScheme color_scheme) const override {
+    return kSystemColor;
+  }
+};
+
+constexpr SkColor TestNativeTheme::kSystemColor;
+
 }  // namespace
 
 namespace views {
@@ -54,9 +74,9 @@ class TestLabelButton : public LabelButton {
                            int button_context = style::CONTEXT_BUTTON)
       : LabelButton(nullptr, text, button_context) {}
 
-  using LabelButton::label;
   using LabelButton::image;
-  using LabelButton::ResetColorsFromNativeTheme;
+  using LabelButton::label;
+  using LabelButton::OnThemeChanged;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(TestLabelButton);
@@ -73,11 +93,15 @@ class LabelButtonTest : public test::WidgetTest {
     // used (which could be derived from the Widget's NativeTheme).
     test_widget_ = CreateTopLevelPlatformWidget();
 
+    // Ensure the Widget is active, since LabelButton appearance in inactive
+    // Windows is platform-dependent.
+    test_widget_->Show();
+
     // The test code below is not prepared to handle dark mode.
     test_widget_->GetNativeTheme()->set_use_dark_colors(false);
 
-    button_ = new TestLabelButton;
-    test_widget_->GetContentsView()->AddChildView(button_);
+    button_ = test_widget_->GetContentsView()->AddChildView(
+        std::make_unique<TestLabelButton>());
 
     // Establish the expected text colors for testing changes due to state.
     themed_normal_text_color_ = button_->GetNativeTheme()->GetSystemColor(
@@ -87,7 +111,8 @@ class LabelButtonTest : public test::WidgetTest {
     // NativeTheme and use a hardcoded black or (on Mac) have a NativeTheme that
     // reliably returns black.
     styled_normal_text_color_ = SK_ColorBLACK;
-#if defined(OS_LINUX) && BUILDFLAG(ENABLE_DESKTOP_AURA)
+#if (defined(OS_LINUX) || defined(OS_CHROMEOS)) && \
+    BUILDFLAG(ENABLE_DESKTOP_AURA)
     // The Linux theme provides a non-black highlight text color, but it's not
     // used for styled buttons.
     styled_highlight_text_color_ = styled_normal_text_color_ =
@@ -134,7 +159,7 @@ TEST_F(LabelButtonTest, Init) {
                       ax::mojom::StringAttribute::kName));
 
   EXPECT_FALSE(button.GetIsDefault());
-  EXPECT_EQ(Button::STATE_NORMAL, button.state());
+  EXPECT_EQ(Button::STATE_NORMAL, button.GetState());
 
   EXPECT_EQ(button.image()->parent(), &button);
   EXPECT_EQ(button.label()->parent(), &button);
@@ -345,6 +370,31 @@ TEST_F(LabelButtonTest, Image) {
   EXPECT_EQ(button_->GetPreferredSize(), gfx::Size(large_size, large_size));
 }
 
+TEST_F(LabelButtonTest, ImageAlignmentWithMultilineLabel) {
+  const base::string16 text(
+      ASCIIToUTF16("Some long text that would result in multiline label"));
+  button_->SetText(text);
+
+  const int max_label_width = 40;
+  button_->label()->SetMultiLine(true);
+  button_->label()->SetMaximumWidth(max_label_width);
+
+  const int image_size = 16;
+  const gfx::ImageSkia image = CreateTestImage(image_size, image_size);
+  button_->SetImage(Button::STATE_NORMAL, image);
+
+  button_->SetBoundsRect(gfx::Rect(button_->GetPreferredSize()));
+  button_->Layout();
+  int y_origin_centered = button_->image()->origin().y();
+
+  button_->SetBoundsRect(gfx::Rect(button_->GetPreferredSize()));
+  button_->SetImageCentered(false);
+  button_->Layout();
+  int y_origin_not_centered = button_->image()->origin().y();
+
+  EXPECT_LT(y_origin_not_centered, y_origin_centered);
+}
+
 TEST_F(LabelButtonTest, LabelAndImage) {
   const gfx::FontList font_list = button_->label()->font_list();
   const base::string16 text(ASCIIToUTF16("abcdefghijklm"));
@@ -422,6 +472,7 @@ TEST_F(LabelButtonTest, LabelWrapAndImageAlignment) {
   ASSERT_EQ(font_list.GetHeight(), image.width());
 
   button_->SetImage(Button::STATE_NORMAL, image);
+  button_->SetImageCentered(false);
   button_->SetMaxSize(
       gfx::Size(image.width() + image_spacing + text_wrap_width, 0));
 
@@ -436,7 +487,7 @@ TEST_F(LabelButtonTest, LabelWrapAndImageAlignment) {
   EXPECT_EQ(preferred_size.height(),
             font_list.GetHeight() * 2 + button_insets.height());
 
-  // The image should be centered on the first line of the multi-line label.
+  // The image should be centered on the first line of the multi-line label
   EXPECT_EQ(button_->image()->y(),
             (font_list.GetHeight() - button_->image()->height()) / 2 +
                 button_insets.top());
@@ -578,10 +629,11 @@ TEST_F(LabelButtonTest, HighlightedButtonStyle) {
   EXPECT_EQ(themed_normal_text_color_, button_->label()->GetEnabledColor());
 }
 
-// Ensure the label gets the correct enabled color after
-// LabelButton::ResetColorsFromNativeTheme() is invoked.
-TEST_F(LabelButtonTest, ResetColorsFromNativeTheme) {
-  ASSERT_FALSE(color_utils::IsInvertedColorScheme());
+// Ensure the label resets the enabled color after LabelButton::OnThemeChanged()
+// is invoked.
+TEST_F(LabelButtonTest, OnThemeChanged) {
+  ASSERT_NE(button_->GetNativeTheme()->GetPlatformHighContrastColorScheme(),
+            ui::NativeTheme::PlatformHighContrastColorScheme::kDark);
   ASSERT_NE(button_->label()->GetBackgroundColor(), SK_ColorBLACK);
   EXPECT_EQ(themed_normal_text_color_, button_->label()->GetEnabledColor());
 
@@ -589,8 +641,84 @@ TEST_F(LabelButtonTest, ResetColorsFromNativeTheme) {
   button_->label()->SetAutoColorReadabilityEnabled(true);
   EXPECT_NE(themed_normal_text_color_, button_->label()->GetEnabledColor());
 
-  button_->ResetColorsFromNativeTheme();
+  button_->OnThemeChanged();
   EXPECT_EQ(themed_normal_text_color_, button_->label()->GetEnabledColor());
+}
+
+TEST_F(LabelButtonTest, SetEnabledTextColorsResetsToThemeColors) {
+  constexpr SkColor kReplacementColor = SK_ColorCYAN;
+
+  // This test doesn't make sense if any used colors are equal.
+  EXPECT_NE(themed_normal_text_color_, kReplacementColor);
+  EXPECT_NE(themed_normal_text_color_, TestNativeTheme::kSystemColor);
+  EXPECT_NE(kReplacementColor, TestNativeTheme::kSystemColor);
+
+  // Initially the test should have the normal colors.
+  EXPECT_EQ(themed_normal_text_color_, button_->label()->GetEnabledColor());
+
+  // Setting the enabled text colors should replace the label's enabled color.
+  button_->SetEnabledTextColors(kReplacementColor);
+  EXPECT_EQ(kReplacementColor, button_->label()->GetEnabledColor());
+
+  // Replace the theme. This should not replace the enabled text color as it's
+  // been manually overridden above.
+  TestNativeTheme test_theme;
+  button_->SetNativeThemeForTesting(&test_theme);
+  EXPECT_EQ(kReplacementColor, button_->label()->GetEnabledColor());
+
+  // Removing the enabled text color restore colors from the new theme, not
+  // the original colors used before the theme changed.
+  button_->SetEnabledTextColors(base::nullopt);
+  EXPECT_EQ(TestNativeTheme::kSystemColor, button_->label()->GetEnabledColor());
+}
+
+TEST_F(LabelButtonTest, ImageOrLabelGetClipped) {
+  const base::string16 text(ASCIIToUTF16("abc"));
+  button_->SetText(text);
+
+  const gfx::FontList font_list = button_->label()->font_list();
+  const int image_size = font_list.GetHeight();
+  button_->SetImage(Button::STATE_NORMAL,
+                    CreateTestImage(image_size, image_size));
+
+  button_->SetBoundsRect(gfx::Rect(button_->GetPreferredSize()));
+  // The border size + the content height is more than button's preferred size.
+  button_->SetBorder(CreateEmptyBorder(image_size / 2, 0, image_size / 2, 0));
+  button_->Layout();
+
+  // Ensure that content (image and label) doesn't get clipped by the border.
+  EXPECT_GE(button_->image()->height(), image_size);
+  EXPECT_GE(button_->label()->height(), image_size);
+}
+
+TEST_F(LabelButtonTest, UpdateImageAfterSettingImageModel) {
+  auto is_showing_image = [&](const gfx::ImageSkia& image) {
+    return button_->image()->GetImage().BackedBySameObjectAs(image);
+  };
+
+  auto normal_image = CreateTestImage(16, 16);
+  button_->SetImageModel(Button::STATE_NORMAL,
+                         ui::ImageModel::FromImageSkia(normal_image));
+  EXPECT_TRUE(is_showing_image(normal_image));
+
+  // When the button has no specific disabled image, changing the normal image
+  // while the button is disabled should update the currently-visible image.
+  normal_image = CreateTestImage(16, 16);
+  button_->SetState(Button::STATE_DISABLED);
+  button_->SetImageModel(Button::STATE_NORMAL,
+                         ui::ImageModel::FromImageSkia(normal_image));
+  EXPECT_TRUE(is_showing_image(normal_image));
+
+  // Any specific disabled image should take precedence over the normal image.
+  auto disabled_image = CreateTestImage(16, 16);
+  button_->SetImageModel(Button::STATE_DISABLED,
+                         ui::ImageModel::FromImageSkia(disabled_image));
+  EXPECT_TRUE(is_showing_image(disabled_image));
+
+  // Removing the disabled image should result in falling back to the normal
+  // image again.
+  button_->SetImageModel(Button::STATE_DISABLED, ui::ImageModel());
+  EXPECT_TRUE(is_showing_image(normal_image));
 }
 
 // Test fixture for a LabelButton that has an ink drop configured.

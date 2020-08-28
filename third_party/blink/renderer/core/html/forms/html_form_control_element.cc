@@ -53,7 +53,7 @@ HTMLFormControlElement::HTMLFormControlElement(const QualifiedName& tag_name,
 
 HTMLFormControlElement::~HTMLFormControlElement() = default;
 
-void HTMLFormControlElement::Trace(Visitor* visitor) {
+void HTMLFormControlElement::Trace(Visitor* visitor) const {
   ListedElement::Trace(visitor);
   HTMLElement::Trace(visitor);
 }
@@ -202,18 +202,6 @@ const AtomicString& HTMLFormControlElement::autocapitalize() const {
   return g_empty_atom;
 }
 
-void HTMLFormControlElement::AttachLayoutTree(AttachContext& context) {
-  HTMLElement::AttachLayoutTree(context);
-
-  if (!GetLayoutObject())
-    return;
-
-  // The call to updateFromElement() needs to go after the call through
-  // to the base class's attachLayoutTree() because that can sometimes do a
-  // close on the layoutObject.
-  GetLayoutObject()->UpdateFromElement();
-}
-
 void HTMLFormControlElement::DidMoveToNewDocument(Document& old_document) {
   ListedElement::DidMoveToNewDocument(old_document);
   HTMLElement::DidMoveToNewDocument(old_document);
@@ -267,13 +255,6 @@ bool HTMLFormControlElement::IsRequired() const {
 
 String HTMLFormControlElement::ResultForDialogSubmit() {
   return FastGetAttribute(html_names::kValueAttr);
-}
-
-void HTMLFormControlElement::DidRecalcStyle(const StyleRecalcChange change) {
-  if (change.ReattachLayoutTree())
-    return;
-  if (LayoutObject* layout_object = GetLayoutObject())
-    layout_object->UpdateFromElement();
 }
 
 bool HTMLFormControlElement::SupportsFocus() const {

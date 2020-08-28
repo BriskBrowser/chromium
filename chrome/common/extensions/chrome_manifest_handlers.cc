@@ -19,13 +19,11 @@
 #include "chrome/common/extensions/manifest_handlers/app_icon_color_info.h"
 #include "chrome/common/extensions/manifest_handlers/app_launch_info.h"
 #include "chrome/common/extensions/manifest_handlers/app_theme_color_info.h"
-#include "chrome/common/extensions/manifest_handlers/extension_action_handler.h"
 #include "chrome/common/extensions/manifest_handlers/linked_app_icons.h"
 #include "chrome/common/extensions/manifest_handlers/minimum_chrome_version_checker.h"
 #include "chrome/common/extensions/manifest_handlers/natively_connectable_handler.h"
 #include "chrome/common/extensions/manifest_handlers/settings_overrides_handler.h"
 #include "chrome/common/extensions/manifest_handlers/theme_handler.h"
-#include "chrome/common/extensions/manifest_handlers/ui_overrides_handler.h"
 #include "extensions/common/manifest_handlers/app_isolation_info.h"
 #include "extensions/common/manifest_handlers/automation.h"
 #include "extensions/common/manifest_handlers/options_page_info.h"
@@ -54,7 +52,6 @@ void RegisterChromeManifestHandlers() {
   registry->RegisterHandler(std::make_unique<AutomationHandler>());
   registry->RegisterHandler(std::make_unique<CommandsHandler>());
   registry->RegisterHandler(std::make_unique<DevToolsPageHandler>());
-  registry->RegisterHandler(std::make_unique<ExtensionActionHandler>());
   registry->RegisterHandler(std::make_unique<HomepageURLHandler>());
   registry->RegisterHandler(std::make_unique<LinkedAppIconsHandler>());
   registry->RegisterHandler(std::make_unique<MinimumChromeVersionChecker>());
@@ -67,7 +64,6 @@ void RegisterChromeManifestHandlers() {
   registry->RegisterHandler(std::make_unique<SystemIndicatorHandler>());
   registry->RegisterHandler(std::make_unique<ThemeHandler>());
   registry->RegisterHandler(std::make_unique<TtsEngineManifestHandler>());
-  registry->RegisterHandler(std::make_unique<UIOverridesHandler>());
   registry->RegisterHandler(std::make_unique<UrlHandlersParser>());
   registry->RegisterHandler(std::make_unique<URLOverridesHandler>());
 #if defined(OS_CHROMEOS)

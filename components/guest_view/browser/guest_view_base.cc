@@ -10,6 +10,7 @@
 #include "base/bind.h"
 #include "base/lazy_instance.h"
 #include "base/macros.h"
+#include "base/memory/ptr_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "components/guest_view/browser/guest_view_event.h"
 #include "components/guest_view/browser/guest_view_manager.h"
@@ -326,8 +327,8 @@ void GuestViewBase::SetSize(const SetSizeParams& params) {
         rwhv->DisableAutoResize(new_size);
       changed_due_to_auto_resize = true;
     } else {
-      // Autosize was already disabled.
-      guest_host_->SizeContents(new_size);
+      // Autosize was already disabled. The RenderWidgetHostView is responsible
+      // for the GuestView's size.
     }
 
     UpdateGuestSize(new_size, changed_due_to_auto_resize);
@@ -445,7 +446,7 @@ WebContents* GuestViewBase::GetOwnerWebContents() {
 }
 
 const GURL& GuestViewBase::GetOwnerSiteURL() const {
-  return owner_web_contents()->GetLastCommittedURL();
+  return owner_web_contents()->GetMainFrame()->GetSiteInstance()->GetSiteURL();
 }
 
 bool GuestViewBase::ShouldDestroyOnDetach() const {
@@ -673,7 +674,7 @@ void GuestViewBase::ResizeDueToAutoResize(WebContents* web_contents,
 
 void GuestViewBase::RunFileChooser(
     content::RenderFrameHost* render_frame_host,
-    std::unique_ptr<content::FileSelectListener> listener,
+    scoped_refptr<content::FileSelectListener> listener,
     const blink::mojom::FileChooserParams& params) {
   if (!attached() || !embedder_web_contents()->GetDelegate()) {
     listener->FileSelectionCanceled();

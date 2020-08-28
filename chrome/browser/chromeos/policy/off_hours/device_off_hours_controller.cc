@@ -36,8 +36,8 @@ DeviceOffHoursController::DeviceOffHoursController()
   if (system_clock_client) {
     system_clock_client->AddObserver(this);
     system_clock_client->WaitForServiceToBeAvailable(
-        base::Bind(&DeviceOffHoursController::SystemClockInitiallyAvailable,
-                   weak_ptr_factory_.GetWeakPtr()));
+        base::BindOnce(&DeviceOffHoursController::SystemClockInitiallyAvailable,
+                       weak_ptr_factory_.GetWeakPtr()));
   }
 
   if (chromeos::PowerManagerClient::Get())
@@ -147,7 +147,7 @@ void DeviceOffHoursController::UpdateOffHoursMode() {
     if (interval.Contains(current_time)) {
       base::TimeDelta remaining_off_hours_duration =
           current_time.GetDurationTo(interval.end());
-      SetOffHoursEndTime(base::TimeTicks::Now() + remaining_off_hours_duration);
+      SetOffHoursEndTime(base::Time::Now() + remaining_off_hours_duration);
       StartOffHoursTimer(remaining_off_hours_duration);
       SetOffHoursMode(true);
       return;
@@ -159,7 +159,7 @@ void DeviceOffHoursController::UpdateOffHoursMode() {
 }
 
 void DeviceOffHoursController::SetOffHoursEndTime(
-    base::TimeTicks off_hours_end_time) {
+    base::Time off_hours_end_time) {
   if (off_hours_end_time == off_hours_end_time_)
     return;
   off_hours_end_time_ = off_hours_end_time;
@@ -172,7 +172,7 @@ void DeviceOffHoursController::SetOffHoursMode(bool off_hours_enabled) {
   off_hours_mode_ = off_hours_enabled;
   DVLOG(1) << "OffHours mode: " << off_hours_mode_;
   if (!off_hours_mode_)
-    SetOffHoursEndTime(base::TimeTicks());
+    SetOffHoursEndTime(base::Time());
   OffHoursModeIsChanged();
 }
 
@@ -180,8 +180,8 @@ void DeviceOffHoursController::StartOffHoursTimer(base::TimeDelta delay) {
   DCHECK_GT(delay, base::TimeDelta());
   DVLOG(1) << "OffHours mode timer starts for " << delay;
   timer_->Start(FROM_HERE, delay,
-                base::Bind(&DeviceOffHoursController::UpdateOffHoursMode,
-                           weak_ptr_factory_.GetWeakPtr()));
+                base::BindOnce(&DeviceOffHoursController::UpdateOffHoursMode,
+                               weak_ptr_factory_.GetWeakPtr()));
 }
 
 void DeviceOffHoursController::StopOffHoursTimer() {
@@ -195,8 +195,8 @@ void DeviceOffHoursController::SystemClockUpdated() {
   // system time synchronization with the network time asynchronously.
   // Information will be received by NetworkSynchronizationUpdated method.
   chromeos::SystemClockClient::Get()->GetLastSyncInfo(
-      base::Bind(&DeviceOffHoursController::NetworkSynchronizationUpdated,
-                 weak_ptr_factory_.GetWeakPtr()));
+      base::BindOnce(&DeviceOffHoursController::NetworkSynchronizationUpdated,
+                     weak_ptr_factory_.GetWeakPtr()));
 }
 
 void DeviceOffHoursController::SystemClockInitiallyAvailable(
@@ -204,8 +204,8 @@ void DeviceOffHoursController::SystemClockInitiallyAvailable(
   if (!service_is_available)
     return;
   chromeos::SystemClockClient::Get()->GetLastSyncInfo(
-      base::Bind(&DeviceOffHoursController::NetworkSynchronizationUpdated,
-                 weak_ptr_factory_.GetWeakPtr()));
+      base::BindOnce(&DeviceOffHoursController::NetworkSynchronizationUpdated,
+                     weak_ptr_factory_.GetWeakPtr()));
 }
 
 void DeviceOffHoursController::NetworkSynchronizationUpdated(

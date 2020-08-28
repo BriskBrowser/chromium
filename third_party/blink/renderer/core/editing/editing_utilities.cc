@@ -1079,6 +1079,13 @@ Element* TableElementJustBefore(
       visible_position);
 }
 
+Element* EnclosingTableCell(const Position& p) {
+  return To<Element>(EnclosingNodeOfType(p, IsTableCell));
+}
+Element* EnclosingTableCell(const PositionInFlatTree& p) {
+  return To<Element>(EnclosingNodeOfType(p, IsTableCell));
+}
+
 Element* TableElementJustAfter(const VisiblePosition& visible_position) {
   Position downstream(
       MostForwardCaretPosition(visible_position.DeepEquivalent()));
@@ -1115,7 +1122,8 @@ bool IsHTMLListElement(const Node* n) {
 }
 
 bool IsListItem(const Node* n) {
-  return n && n->GetLayoutObject() && n->GetLayoutObject()->IsListItem();
+  return n && n->GetLayoutObject() &&
+         n->GetLayoutObject()->IsListItemIncludingNG();
 }
 
 bool IsPresentationalHTMLElement(const Node* node) {
@@ -1581,7 +1589,7 @@ FloatQuad LocalToAbsoluteQuadOf(const LocalCaretRect& caret_rect) {
 const StaticRangeVector* TargetRangesForInputEvent(const Node& node) {
   // TODO(editing-dev): The use of UpdateStyleAndLayout
   // needs to be audited. see http://crbug.com/590369 for more details.
-  node.GetDocument().UpdateStyleAndLayout();
+  node.GetDocument().UpdateStyleAndLayout(DocumentUpdateReason::kEditing);
   if (!HasRichlyEditableStyle(node))
     return nullptr;
   const EphemeralRange& range =
@@ -1700,7 +1708,7 @@ static scoped_refptr<Image> ImageFromNode(const Node& node) {
 
   if (layout_object->IsCanvas()) {
     return To<HTMLCanvasElement>(const_cast<Node&>(node))
-        .Snapshot(kFrontBuffer, kPreferNoAcceleration);
+        .Snapshot(kFrontBuffer);
   }
 
   if (!layout_object->IsImage())
@@ -1726,15 +1734,16 @@ AtomicString GetUrlStringFromNode(const Node& node) {
   return AtomicString();
 }
 
-void WriteImageNodeToClipboard(const Node& node, const String& title) {
+void WriteImageNodeToClipboard(SystemClipboard& system_clipboard,
+                               const Node& node,
+                               const String& title) {
   const scoped_refptr<Image> image = ImageFromNode(node);
   if (!image.get())
     return;
   const KURL url_string = node.GetDocument().CompleteURL(
       StripLeadingAndTrailingHTMLSpaces(GetUrlStringFromNode(node)));
-  SystemClipboard::GetInstance().WriteImageWithTag(image.get(), url_string,
-                                                   title);
-  SystemClipboard::GetInstance().CommitWrite();
+  system_clipboard.WriteImageWithTag(image.get(), url_string, title);
+  system_clipboard.CommitWrite();
 }
 
 Element* FindEventTargetFrom(LocalFrame& frame,

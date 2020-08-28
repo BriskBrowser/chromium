@@ -14,8 +14,11 @@ specific_include_rules = {
     "+chrome/test",
     "+content/public",
   ],
-  # TODO(mash): Fix. https://crbug.com/738531
   "candidate_window_controller_impl\.cc": [
+    "+ash/shell.h",
+    "+ash/wm/window_util.h",
+  ],
+  "assistive_window_controller\.cc": [
     "+ash/shell.h",
     "+ash/wm/window_util.h",
   ],
@@ -27,8 +30,6 @@ specific_include_rules = {
     # TODO(erikwright): Much/all of language_preferences can/should be decoupled
     # from chrome/browser.
     "!chrome/browser/chromeos/language_preferences.h",
-    # TODO(stevenjb/shuchen): Fix this for Mash. https://crbug.com/756059
-    "+ui/keyboard/keyboard_controller.h",
   ],
 
   # For testing.

@@ -9,13 +9,14 @@ import org.chromium.base.ApplicationStatus;
 import org.chromium.base.ApplicationStatus.ActivityStateListener;
 import org.chromium.base.ThreadUtils;
 import org.chromium.chrome.R;
-import org.chromium.chrome.browser.ChromeActivity;
+import org.chromium.chrome.browser.app.ChromeActivity;
 import org.chromium.chrome.browser.download.home.DownloadManagerCoordinator;
-import org.chromium.chrome.browser.download.home.DownloadManagerCoordinatorFactory;
+import org.chromium.chrome.browser.download.home.DownloadManagerCoordinatorFactoryHelper;
 import org.chromium.chrome.browser.download.home.DownloadManagerUiConfig;
-import org.chromium.chrome.browser.native_page.BasicNativePage;
-import org.chromium.chrome.browser.native_page.NativePageHost;
-import org.chromium.chrome.browser.util.UrlConstants;
+import org.chromium.chrome.browser.download.home.DownloadManagerUiConfigHelper;
+import org.chromium.chrome.browser.ui.native_page.BasicNativePage;
+import org.chromium.chrome.browser.ui.native_page.NativePageHost;
+import org.chromium.components.embedder_support.util.UrlConstants;
 
 /**
  * Native page for managing downloads handled through Chrome.
@@ -35,19 +36,17 @@ public class DownloadPage extends BasicNativePage implements DownloadManagerCoor
         super(host);
 
         ThreadUtils.assertOnUiThread();
-
         DownloadManagerUiConfig config =
-                new DownloadManagerUiConfig.Builder()
+                DownloadManagerUiConfigHelper.fromFlags()
                         .setIsOffTheRecord(activity.getCurrentTabModel().isIncognito())
                         .setIsSeparateActivity(false)
                         .setShowPaginationHeaders(DownloadUtils.shouldShowPaginationHeaders())
                         .build();
-        mDownloadCoordinator = DownloadManagerCoordinatorFactory.create(activity, config,
-                activity.getSnackbarManager(), activity.getComponentName(),
-                activity.getModalDialogManager());
+
+        mDownloadCoordinator = DownloadManagerCoordinatorFactoryHelper.create(
+                activity, config, activity.getSnackbarManager(), activity.getModalDialogManager());
 
         mDownloadCoordinator.addObserver(this);
-        mDownloadCoordinator.setHistoryNavigationDelegate(host.createHistoryNavigationDelegate());
         mTitle = activity.getString(R.string.menu_downloads);
 
         // #destroy() unregisters the ActivityStateListener to avoid checking for externally removed

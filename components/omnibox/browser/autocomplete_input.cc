@@ -6,13 +6,13 @@
 
 #include <vector>
 
+#include "base/logging.h"
 #include "base/stl_util.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/trace_event/memory_usage_estimator.h"
 #include "components/omnibox/browser/autocomplete_scheme_classifier.h"
-#include "components/omnibox/browser/omnibox_field_trial.h"
 #include "components/url_formatter/url_fixer.h"
 #include "components/url_formatter/url_formatter.h"
 #include "net/base/registry_controlled_domains/registry_controlled_domain.h"
@@ -26,7 +26,6 @@ namespace {
 
 // Hardcode constant to avoid any dependencies on content/.
 const char kViewSourceScheme[] = "view-source";
-const char kDevToolsScheme[] = "devtools";
 
 void AdjustCursorPositionIfNecessary(size_t num_leading_chars_removed,
                                      size_t* cursor_position) {
@@ -77,8 +76,7 @@ AutocompleteInput::AutocompleteInput()
       prefer_keyword_(false),
       allow_exact_keyword_match_(true),
       keyword_mode_entry_method_(metrics::OmniboxEventProto::INVALID),
-      want_asynchronous_matches_(true),
-      from_omnibox_focus_(false) {}
+      want_asynchronous_matches_(true) {}
 
 AutocompleteInput::AutocompleteInput(
     const base::string16& text,
@@ -203,14 +201,6 @@ metrics::OmniboxInputType AutocompleteInput::Parse(
     // A user might or might not type a scheme when entering a file URL.  In
     // either case, |parsed_scheme_utf8| will tell us that this is a file URL,
     // but |parts->scheme| might be empty, e.g. if the user typed "C:\foo".
-    return metrics::OmniboxInputType::URL;
-  }
-
-  if (base::LowerCaseEqualsASCII(parsed_scheme_utf8, kDevToolsScheme)) {
-    // A user might type in the fallback url when using devtools.  In
-    // this case, |parsed_scheme_utf8| will tell us that this is a devtools URL,
-    // but |parts->scheme| might be empty.e.g. if the user typed
-    // "chrome-devtools://".
     return metrics::OmniboxInputType::URL;
   }
 
@@ -600,8 +590,9 @@ void AutocompleteInput::Clear() {
   prefer_keyword_ = false;
   allow_exact_keyword_match_ = false;
   want_asynchronous_matches_ = true;
-  from_omnibox_focus_ = false;
+  focus_type_ = OmniboxFocusType::DEFAULT;
   terms_prefixed_by_http_or_https_.clear();
+  query_tile_id_.reset();
 }
 
 size_t AutocompleteInput::EstimateMemoryUsage() const {
@@ -615,6 +606,9 @@ size_t AutocompleteInput::EstimateMemoryUsage() const {
   res += base::trace_event::EstimateMemoryUsage(desired_tld_);
   res +=
       base::trace_event::EstimateMemoryUsage(terms_prefixed_by_http_or_https_);
+  res += query_tile_id_.has_value()
+             ? base::trace_event::EstimateMemoryUsage(query_tile_id_.value())
+             : 0u;
 
   return res;
 }

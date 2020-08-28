@@ -28,6 +28,7 @@
 #include "content/public/common/page_state.h"
 #include "content/public/common/web_preferences.h"
 #include "content/test/test_render_frame_host.h"
+#include "content/test/test_render_view_host.h"
 #include "content/test/test_web_contents.h"
 #include "media/base/video_frame.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
@@ -153,13 +154,15 @@ gfx::Rect TestRenderWidgetHostView::GetViewBounds() {
   return gfx::Rect();
 }
 
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
 void TestRenderWidgetHostView::SetActive(bool active) {
   // <viettrungluu@gmail.com>: Do I need to do anything here?
 }
 
 void TestRenderWidgetHostView::SpeakSelection() {
 }
+
+void TestRenderWidgetHostView::SetWindowFrameInScreen(const gfx::Rect& rect) {}
 #endif
 
 gfx::Rect TestRenderWidgetHostView::GetBoundsInRootWindow() {
@@ -173,8 +176,13 @@ void TestRenderWidgetHostView::TakeFallbackContentFrom(
     SetBackgroundColor(*color);
 }
 
-bool TestRenderWidgetHostView::LockMouse(bool) {
-  return false;
+blink::mojom::PointerLockResult TestRenderWidgetHostView::LockMouse(bool) {
+  return blink::mojom::PointerLockResult::kUnknownError;
+}
+
+blink::mojom::PointerLockResult TestRenderWidgetHostView::ChangeMouseLock(
+    bool) {
+  return blink::mojom::PointerLockResult::kUnknownError;
 }
 
 void TestRenderWidgetHostView::UnlockMouse() {
@@ -225,9 +233,7 @@ TestRenderViewHost::TestRenderViewHost(
                          main_frame_routing_id,
                          swapped_out,
                          false /* has_initialized_audio_host */),
-      delete_counter_(nullptr),
-      webkit_preferences_changed_counter_(nullptr),
-      opener_frame_route_id_(MSG_ROUTING_NONE) {
+      delete_counter_(nullptr) {
   // TestRenderWidgetHostView installs itself into this->view_ in its
   // constructor, and deletes itself when TestRenderWidgetHostView::Destroy() is
   // called.
@@ -240,27 +246,21 @@ TestRenderViewHost::~TestRenderViewHost() {
 }
 
 bool TestRenderViewHost::CreateTestRenderView(
-    const base::string16& frame_name,
-    int opener_frame_route_id,
+    const base::Optional<base::UnguessableToken>& opener_frame_token,
     int proxy_route_id,
     bool window_was_created_with_opener) {
-  FrameReplicationState replicated_state;
-  replicated_state.name = base::UTF16ToUTF8(frame_name);
-  return CreateRenderView(opener_frame_route_id, proxy_route_id,
-                          base::UnguessableToken::Create(), replicated_state,
+  return CreateRenderView(opener_frame_token, proxy_route_id,
                           window_was_created_with_opener);
 }
 
 bool TestRenderViewHost::CreateRenderView(
-    int opener_frame_route_id,
+    const base::Optional<base::UnguessableToken>& opener_frame_token,
     int proxy_route_id,
-    const base::UnguessableToken& devtools_frame_token,
-    const FrameReplicationState& replicated_frame_state,
     bool window_was_created_with_opener) {
   DCHECK(!IsRenderViewLive());
   GetWidget()->set_renderer_initialized(true);
   DCHECK(IsRenderViewLive());
-  opener_frame_route_id_ = opener_frame_route_id;
+  opener_frame_token_ = opener_frame_token;
   RenderFrameHostImpl* main_frame =
       static_cast<RenderFrameHostImpl*>(GetMainFrame());
   if (main_frame && is_active()) {
@@ -268,6 +268,23 @@ bool TestRenderViewHost::CreateRenderView(
         stub_interface_provider_remote;
     main_frame->BindInterfaceProviderReceiver(
         stub_interface_provider_remote.InitWithNewPipeAndPassReceiver());
+
+    mojo::AssociatedRemote<blink::mojom::WidgetHost> blink_widget_host;
+    mojo::AssociatedRemote<blink::mojom::Widget> blink_widget;
+    auto blink_widget_receiver =
+        blink_widget.BindNewEndpointAndPassDedicatedReceiverForTesting();
+    GetWidget()->BindWidgetInterfaces(
+        blink_widget_host.BindNewEndpointAndPassDedicatedReceiverForTesting(),
+        blink_widget.Unbind());
+
+    mojo::AssociatedRemote<blink::mojom::FrameWidgetHost> frame_widget_host;
+    mojo::AssociatedRemote<blink::mojom::FrameWidget> frame_widget;
+    auto frame_widget_receiver =
+        frame_widget.BindNewEndpointAndPassDedicatedReceiverForTesting();
+    GetWidget()->BindFrameWidgetInterfaces(
+        frame_widget_host.BindNewEndpointAndPassDedicatedReceiverForTesting(),
+        frame_widget.Unbind());
+
     main_frame->SetRenderFrameCreated(true);
   }
 
@@ -283,17 +300,12 @@ void TestRenderViewHost::SimulateWasHidden() {
 }
 
 void TestRenderViewHost::SimulateWasShown() {
-  GetWidget()->WasShown(base::nullopt /* record_tab_switch_time_request */);
+  GetWidget()->WasShown({} /* record_tab_switch_time_request */);
 }
 
 WebPreferences TestRenderViewHost::TestComputeWebPreferences() {
-  return ComputeWebPreferences();
-}
-
-void TestRenderViewHost::OnWebkitPreferencesChanged() {
-  RenderViewHostImpl::OnWebkitPreferencesChanged();
-  if (webkit_preferences_changed_counter_)
-    ++*webkit_preferences_changed_counter_;
+  return static_cast<WebContentsImpl*>(WebContents::FromRenderViewHost(this))
+      ->ComputeWebPreferences();
 }
 
 bool TestRenderViewHost::IsTestRenderViewHost() const {
@@ -312,10 +324,12 @@ void TestRenderViewHost::TestOnUpdateStateWithFile(
     const base::FilePath& file_path) {
   PageState state = PageState::CreateForTesting(GURL("http://www.google.com"),
                                                 false, "data", &file_path);
-  static_cast<RenderFrameHostImpl*>(GetMainFrame())->OnUpdateState(state);
+  static_cast<RenderFrameHostImpl*>(GetMainFrame())->UpdateState(state);
 }
 
-RenderViewHostImplTestHarness::RenderViewHostImplTestHarness() {
+RenderViewHostImplTestHarness::RenderViewHostImplTestHarness()
+    : RenderViewHostTestHarness(
+          base::test::TaskEnvironment::TimeSource::MOCK_TIME) {
   std::vector<ui::ScaleFactor> scale_factors;
   scale_factors.push_back(ui::SCALE_FACTOR_100P);
   scoped_set_supported_scale_factors_.reset(

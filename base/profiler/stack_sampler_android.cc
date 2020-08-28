@@ -6,10 +6,11 @@
 
 #include <pthread.h>
 
-#include "base/profiler/native_unwinder_android.h"
+#include "base/check.h"
 #include "base/profiler/stack_copier_signal.h"
 #include "base/profiler/stack_sampler_impl.h"
 #include "base/profiler/thread_delegate_posix.h"
+#include "base/profiler/unwinder.h"
 #include "base/threading/platform_thread.h"
 
 namespace base {
@@ -17,11 +18,17 @@ namespace base {
 std::unique_ptr<StackSampler> StackSampler::Create(
     SamplingProfilerThreadToken thread_token,
     ModuleCache* module_cache,
+    std::vector<std::unique_ptr<Unwinder>> core_unwinders,
+    RepeatingClosure record_sample_callback,
     StackSamplerTestDelegate* test_delegate) {
+  // |core_unwinders| must contain NativeUnwinderAndroid and
+  // ChromeUnwinderAndroid, respectively.
+  DCHECK_EQ(2U, core_unwinders.size());
   return std::make_unique<StackSamplerImpl>(
       std::make_unique<StackCopierSignal>(
           std::make_unique<ThreadDelegatePosix>(thread_token)),
-      std::make_unique<NativeUnwinderAndroid>(), module_cache, test_delegate);
+      std::move(core_unwinders), module_cache,
+      std::move(record_sample_callback), test_delegate);
 }
 
 size_t StackSampler::GetStackBufferSize() {

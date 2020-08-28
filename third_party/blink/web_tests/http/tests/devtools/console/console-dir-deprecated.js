@@ -15,14 +15,14 @@
      function logObjects()
     {
         console.dir(window);
-        console.dir(document.getElementById("foo").createShadowRoot());
+        console.dir((document.createRange()).expand('document'));
     }
   `);
 
   TestRunner.evaluateInPage('logObjects()', step2);
 
-  function step2() {
-    ConsoleTestRunner.dumpConsoleMessages();
+  async function step2() {
+    await ConsoleTestRunner.dumpConsoleMessages();
     TestRunner.completeTest();
   }
 })();

@@ -91,7 +91,7 @@ target_os = ['fuchsia']
 You will then need to run:
 
 ```shell
-$ gclient runhooks
+$ gclient sync
 ```
 
 This makes sure the Fuchsia SDK is available in third\_party and keeps it up to
@@ -190,6 +190,11 @@ $ sudo apt-get install qemu-system-common
 ```
 3. Add users to the "kvm" group, and have them login again, to pick-up the new
 group.
+```shell
+$ sudo adduser <user> kvm
+$ exit
+[log in again]
+```
 
 ### Running test suites
 

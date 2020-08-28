@@ -9,10 +9,9 @@
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/banners/app_banner_manager.h"
 #include "chrome/browser/installable/installable_metrics.h"
-#include "chrome/browser/ui/views/extensions/pwa_confirmation_bubble_view.h"
+#include "chrome/browser/ui/views/web_apps/pwa_confirmation_bubble_view.h"
 #include "chrome/browser/ui/web_applications/web_app_dialog_utils.h"
 #include "chrome/browser/web_applications/components/web_app_constants.h"
-#include "chrome/browser/web_applications/components/web_app_tab_helper.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/omnibox/browser/vector_icons.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -37,6 +36,11 @@ void PwaInstallView::UpdateImpl() {
   if (!web_contents)
     return;
 
+  if (web_contents->IsCrashed()) {
+    SetVisible(false);
+    return;
+  }
+
   auto* manager = banners::AppBannerManager::FromWebContents(web_contents);
   // May not be present e.g. in incognito mode.
   if (!manager)
@@ -54,11 +58,12 @@ void PwaInstallView::UpdateImpl() {
 void PwaInstallView::OnExecuting(PageActionIconView::ExecuteSource source) {
   base::RecordAction(base::UserMetricsAction("PWAInstallIcon"));
   web_app::CreateWebAppFromManifest(GetWebContents(),
+                                    /*bypass_service_worker_check=*/false,
                                     WebappInstallSource::OMNIBOX_INSTALL_ICON,
                                     base::DoNothing());
 }
 
-views::BubbleDialogDelegateView* PwaInstallView::GetBubble() const {
+views::BubbleDialogDelegate* PwaInstallView::GetBubble() const {
   // TODO(https://907351): Implement.
   return nullptr;
 }

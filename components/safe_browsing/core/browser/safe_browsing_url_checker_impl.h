@@ -11,13 +11,19 @@
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
 #include "base/timer/timer.h"
-#include "components/safe_browsing/core/common/safe_browsing.mojom.h"
+#include "components/safe_browsing/core/common/safe_browsing_url_checker.mojom.h"
 #include "components/safe_browsing/core/db/database_manager.h"
 #include "components/safe_browsing/core/proto/realtimeapi.pb.h"
-#include "content/public/common/resource_type.h"
+#include "components/security_interstitials/core/unsafe_resource.h"
 #include "mojo/public/cpp/bindings/remote.h"
 #include "net/http/http_request_headers.h"
 #include "url/gurl.h"
+
+namespace blink {
+namespace mojom {
+enum class ResourceType;
+}  // namespace mojom
+}  // namespace blink
 
 namespace content {
 class WebContents;
@@ -25,9 +31,11 @@ class WebContents;
 
 namespace safe_browsing {
 
+enum class ResourceType;
+
 class UrlCheckerDelegate;
 
-class VerdictCacheManager;
+class RealTimeUrlLookupServiceBase;
 
 // A SafeBrowsingUrlCheckerImpl instance is used to perform SafeBrowsing check
 // for a URL and its redirect URLs. It implements Mojo interface so that it can
@@ -64,16 +72,33 @@ class SafeBrowsingUrlCheckerImpl : public mojom::SafeBrowsingUrlChecker,
   // indicates whether or not the profile has enabled real time URL lookups, as
   // computed by the RealTimePolicyEngine. This must be computed in advance,
   // since this class only exists on the IO thread.
+  // |can_rt_check_subresource_url| indicates whether or not the profile has
+  // enabled real time URL lookups for subresource URLs.
+  // |real_time_lookup_enabled| must be true if |can_rt_check_subresource_url|
+  // is true.
   SafeBrowsingUrlCheckerImpl(
       const net::HttpRequestHeaders& headers,
       int load_flags,
-      content::ResourceType resource_type,
+      blink::mojom::ResourceType resource_type,
       bool has_user_gesture,
       scoped_refptr<UrlCheckerDelegate> url_checker_delegate,
       const base::RepeatingCallback<content::WebContents*()>&
           web_contents_getter,
       bool real_time_lookup_enabled,
-      base::WeakPtr<VerdictCacheManager> cache_manager_on_ui);
+      bool can_rt_check_subresource_url,
+      bool can_check_db,
+      base::WeakPtr<RealTimeUrlLookupServiceBase> url_lookup_service_on_ui);
+
+  // Constructor that takes only a ResourceType, a UrlCheckerDelegate, and
+  // real-time lookup-related arguments, omitting other arguments that never
+  // have non-default values on iOS.
+  SafeBrowsingUrlCheckerImpl(
+      ResourceType resource_type,
+      scoped_refptr<UrlCheckerDelegate> url_checker_delegate,
+      const base::RepeatingCallback<web::WebState*()>& web_state_getter,
+      bool real_time_lookup_enabled,
+      bool can_rt_check_subresource_url,
+      base::WeakPtr<RealTimeUrlLookupServiceBase> url_lookup_service_on_ui);
 
   ~SafeBrowsingUrlCheckerImpl() override;
 
@@ -86,9 +111,9 @@ class SafeBrowsingUrlCheckerImpl : public mojom::SafeBrowsingUrlChecker,
 
   // NOTE: |callback| could be run synchronously before this method returns. Be
   // careful if |callback| could destroy this object.
-  void CheckUrl(const GURL& url,
-                const std::string& method,
-                NativeCheckUrlCallback callback);
+  virtual void CheckUrl(const GURL& url,
+                        const std::string& method,
+                        NativeCheckUrlCallback callback);
 
  private:
   class Notifier {
@@ -120,22 +145,6 @@ class SafeBrowsingUrlCheckerImpl : public mojom::SafeBrowsingUrlChecker,
                               const ThreatMetadata& metadata) override;
   void OnCheckUrlForHighConfidenceAllowlist(bool did_match_allowlist) override;
 
-  // This function has to be static because it is called in UI thread,
-  // |weak_checker_on_io| can only be accessed from IO thread.
-  // This function is called if the url doesn't match the allowlist.
-  static void StartGetCachedRealTimeUrlVerdictOnUI(
-      base::WeakPtr<SafeBrowsingUrlCheckerImpl> weak_checker_on_io,
-      base::WeakPtr<VerdictCacheManager> cache_manager_on_ui,
-      const GURL& url,
-      base::TimeTicks get_cache_start_time);
-
-  // This function will start real time url lookup if there is no cache match.
-  void OnGetCachedRealTimeUrlVerdictDoneOnIO(
-      RTLookupResponse::ThreatInfo::VerdictType verdict_type,
-      std::unique_ptr<RTLookupResponse::ThreatInfo> cached_threat_info,
-      const GURL& url,
-      base::TimeTicks get_cache_start_time);
-
   void OnTimeout();
 
   void OnUrlResult(const GURL& url,
@@ -152,7 +161,7 @@ class SafeBrowsingUrlCheckerImpl : public mojom::SafeBrowsingUrlChecker,
   // NOTE: this method runs callbacks which could destroy this object.
   void BlockAndProcessUrls(bool showed_interstitial);
 
-  void OnBlockingPageComplete(bool proceed);
+  void OnBlockingPageComplete(bool proceed, bool showed_interstitial);
 
   // Helper method that checks whether |url|'s reputation can be checked using
   // real time lookups.
@@ -164,19 +173,54 @@ class SafeBrowsingUrlCheckerImpl : public mojom::SafeBrowsingUrlChecker,
   // case none of the members of this object should be touched again.
   bool RunNextCallback(bool proceed, bool showed_interstitial);
 
+  // Perform the hash based check for the url.
+  void PerformHashBasedCheck(const GURL& url);
+
+  // This function has to be static because it is called in UI thread.
+  // This function starts a real time url check if |url_lookup_service_on_ui| is
+  // available and is not in backoff mode. Otherwise, hop back to IO thread and
+  // perform hash based check.
+  static void StartLookupOnUIThread(
+      base::WeakPtr<SafeBrowsingUrlCheckerImpl> weak_checker_on_io,
+      const GURL& url,
+      base::WeakPtr<RealTimeUrlLookupServiceBase> url_lookup_service_on_ui,
+      scoped_refptr<SafeBrowsingDatabaseManager> database_manager);
+
   // Called when the |request| from the real-time lookup service is sent.
-  void OnRTLookupRequest(std::unique_ptr<RTLookupRequest> request);
+  void OnRTLookupRequest(std::unique_ptr<RTLookupRequest> request,
+                         std::string oauth_token);
 
   // Called when the |response| from the real-time lookup service is received.
-  void OnRTLookupResponse(std::unique_ptr<RTLookupResponse> response);
+  // |is_rt_lookup_successful| is true if the response code is OK and the
+  // response body is successfully parsed.
+  // |is_cached_response| is true if the response is a cache hit. In such a
+  // case, fall back to hash-based checks if the cached verdict is |SAFE|.
+  void OnRTLookupResponse(bool is_rt_lookup_successful,
+                          bool is_cached_response,
+                          std::unique_ptr<RTLookupResponse> response);
+
+  // Logs |request| on any open chrome://safe-browsing pages.
+  void LogRTLookupRequest(const RTLookupRequest& request,
+                          const std::string& oauth_token);
+
+  // Logs |response| on any open chrome://safe-browsing pages.
+  void LogRTLookupResponse(const RTLookupResponse& response);
 
   void SetWebUIToken(int token);
+
+  security_interstitials::UnsafeResource MakeUnsafeResource(
+      const GURL& url,
+      SBThreatType threat_type,
+      const ThreatMetadata& metadata);
 
   enum State {
     // Haven't started checking or checking is complete.
     STATE_NONE,
     // We have one outstanding URL-check.
     STATE_CHECKING_URL,
+    // A warning must be shown, but it's delayed because of the Delayed Warnings
+    // experiment.
+    STATE_DELAYED_BLOCKING_PAGE,
     // We're displaying a blocking page.
     STATE_DISPLAYING_BLOCKING_PAGE,
     // The blocking page has returned *not* to proceed.
@@ -196,9 +240,14 @@ class SafeBrowsingUrlCheckerImpl : public mojom::SafeBrowsingUrlChecker,
 
   const net::HttpRequestHeaders headers_;
   const int load_flags_;
-  const content::ResourceType resource_type_;
+  const ResourceType resource_type_;
   const bool has_user_gesture_;
+  // TODO(crbug.com/1069047): |web_state_getter| is only used on iOS, and
+  // |web_contents_getter| is used on all other platforms.  This class should
+  // be refactored to use only the common functionality can be shared across
+  // platforms.
   base::RepeatingCallback<content::WebContents*()> web_contents_getter_;
+  base::RepeatingCallback<web::WebState*()> web_state_getter_;
   scoped_refptr<UrlCheckerDelegate> url_checker_delegate_;
   scoped_refptr<SafeBrowsingDatabaseManager> database_manager_;
 
@@ -221,10 +270,17 @@ class SafeBrowsingUrlCheckerImpl : public mojom::SafeBrowsingUrlChecker,
   // Whether real time lookup is enabled for this request.
   bool real_time_lookup_enabled_;
 
-  // Unowned object used for getting and storing real time url check cache.
-  // Must be NOT nullptr when real time url check is enabled and profile is not
-  // delete. Can only be accessed in UI thread.
-  base::WeakPtr<VerdictCacheManager> cache_manager_on_ui_;
+  // Whether non mainframe url can be checked for this profile.
+  bool can_rt_check_subresource_url_;
+
+  // Whether safe browsing database can be checked. It is set to false when
+  // enterprise real time URL lookup is enabled and safe browsing is disabled
+  // for this profile.
+  bool can_check_db_;
+
+  // This object is used to perform real time url check. Can only be accessed in
+  // UI thread.
+  base::WeakPtr<RealTimeUrlLookupServiceBase> url_lookup_service_on_ui_;
 
   base::WeakPtrFactory<SafeBrowsingUrlCheckerImpl> weak_factory_{this};
 

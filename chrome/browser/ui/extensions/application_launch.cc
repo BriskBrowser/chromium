@@ -6,15 +6,20 @@
 
 #include <memory>
 #include <string>
+#include <utility>
 
 #include "apps/launcher.h"
 #include "base/bind.h"
+#include "base/command_line.h"
+#include "base/files/file_path.h"
 #include "base/macros.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
 #include "chrome/browser/app_mode/app_mode_utils.h"
 #include "chrome/browser/apps/app_service/app_launch_params.h"
+#include "chrome/browser/apps/app_service/launch_utils.h"
+#include "chrome/browser/apps/platform_apps/platform_app_launch.h"
 #include "chrome/browser/banners/app_banner_settings_helper.h"
 #include "chrome/browser/engagement/site_engagement_service.h"
 #include "chrome/browser/extensions/extension_service.h"
@@ -25,17 +30,19 @@
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_commands.h"
 #include "chrome/browser/ui/browser_finder.h"
+#include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/browser_navigator_params.h"
 #include "chrome/browser/ui/browser_tabstrip.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/extensions/extension_enable_flow.h"
 #include "chrome/browser/ui/extensions/extension_enable_flow_delegate.h"
-#include "chrome/browser/ui/extensions/hosted_app_browser_controller.h"
 #include "chrome/browser/ui/web_applications/system_web_app_ui_utils.h"
+#include "chrome/browser/ui/web_applications/web_app_launch_manager.h"
+#include "chrome/browser/ui/web_applications/web_app_launch_utils.h"
 #include "chrome/browser/web_applications/components/file_handler_manager.h"
 #include "chrome/browser/web_applications/components/web_app_helpers.h"
 #include "chrome/browser/web_applications/components/web_app_provider_base.h"
-#include "chrome/browser/web_applications/components/web_app_tab_helper.h"
+#include "chrome/browser/web_applications/components/web_app_tab_helper_base.h"
 #include "chrome/browser/web_applications/system_web_app_manager.h"
 #include "chrome/browser/web_launch/web_launch_files_helper.h"
 #include "chrome/common/chrome_features.h"
@@ -52,9 +59,10 @@
 #include "extensions/common/manifest_handlers/options_page_info.h"
 #include "third_party/blink/public/common/features.h"
 #include "ui/base/window_open_disposition.h"
+#include "ui/display/scoped_display_for_new_windows.h"
 #include "ui/gfx/geometry/rect.h"
 
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
 #include "chrome/browser/ui/browser_commands_mac.h"
 #endif
 
@@ -268,8 +276,8 @@ WebContents* OpenApplicationTab(Profile* profile,
   }
 
   if (extension->from_bookmark()) {
-    web_app::WebAppTabHelper* tab_helper =
-        web_app::WebAppTabHelper::FromWebContents(contents);
+    web_app::WebAppTabHelperBase* tab_helper =
+        web_app::WebAppTabHelperBase::FromWebContents(contents);
     DCHECK(tab_helper);
     tab_helper->SetAppId(extension->id());
   }
@@ -345,12 +353,14 @@ WebContents* OpenEnabledApplication(Profile* profile,
       break;
   }
 
-  if (base::FeatureList::IsEnabled(blink::features::kFileHandlingAPI)) {
-    web_launch::WebLaunchFilesHelper::SetLaunchPaths(tab, url,
-                                                     params.launch_files);
-  }
-
   if (extension->from_bookmark()) {
+    if (web_app::WebAppProviderBase::GetProviderBase(profile)
+            ->file_handler_manager()
+            .IsFileHandlingAPIAvailable(extension->id())) {
+      web_launch::WebLaunchFilesHelper::SetLaunchPaths(tab, url,
+                                                       params.launch_files);
+    }
+
     UMA_HISTOGRAM_ENUMERATION("Extensions.BookmarkAppLaunchSource",
                               params.source);
     UMA_HISTOGRAM_ENUMERATION("Extensions.BookmarkAppLaunchContainer",
@@ -402,6 +412,9 @@ Browser* CreateApplicationWindow(Profile* profile,
         extensions::AppLaunchInfo::GetLaunchHeight(extension));
   }
 
+  // Place new windows on the specified display.
+  display::ScopedDisplayForNewWindows scoped_display(params.display_id);
+
   // TODO(erg): AppLaunchParams should pass through the user_gesture from the
   // extension system here.
   Browser::CreateParams browser_params(
@@ -434,19 +447,20 @@ WebContents* NavigateApplicationWindow(Browser* browser,
   nav_params.disposition = disposition;
   Navigate(&nav_params);
 
-  WebContents* web_contents = nav_params.navigated_or_inserted_contents;
+  WebContents* const web_contents = nav_params.navigated_or_inserted_contents;
 
-  // TODO(https://crbug.com/1034361):
-  // Once WebAppBrowserController implements TabInserted and TabRemoved, remove
-  // the following call.
-  extensions::HostedAppBrowserController::SetAppPrefsForWebContents(
-      browser->app_controller(), web_contents);
+  if (extension && !extension->from_bookmark()) {
+    DCHECK(extension->is_app());
+    extensions::TabHelper::FromWebContents(web_contents)
+        ->SetExtensionApp(extension);
+  }
+  web_app::SetAppPrefsForWebContents(web_contents);
 
   // TODO(https://crbug.com/1032443):
   // Eventually move this to browser_navigator.cc: CreateTargetContents().
   if (extension && extension->from_bookmark()) {
-    web_app::WebAppTabHelper* tab_helper =
-        web_app::WebAppTabHelper::FromWebContents(web_contents);
+    web_app::WebAppTabHelperBase* tab_helper =
+        web_app::WebAppTabHelperBase::FromWebContents(web_contents);
     DCHECK(tab_helper);
     tab_helper->SetAppId(extension->id());
   }
@@ -460,11 +474,6 @@ WebContents* OpenApplicationWindow(Profile* profile,
   Browser* browser = CreateApplicationWindow(profile, params, url);
   WebContents* web_contents = NavigateApplicationWindow(
       browser, params, url, WindowOpenDisposition::NEW_FOREGROUND_TAB);
-
-  if (base::FeatureList::IsEnabled(blink::features::kFileHandlingAPI)) {
-    web_launch::WebLaunchFilesHelper::SetLaunchPaths(
-        web_contents, web_contents->GetURL(), params.launch_files);
-  }
 
   browser->window()->Show();
   return web_contents;
@@ -516,4 +525,33 @@ bool CanLaunchViaEvent(const extensions::Extension* extension) {
   const extensions::Feature* feature =
       extensions::FeatureProvider::GetAPIFeature("app.runtime");
   return feature && feature->IsAvailableToExtension(extension).is_available();
+}
+
+void LaunchAppWithCallback(
+    Profile* profile,
+    const std::string& app_id,
+    const base::CommandLine& command_line,
+    const base::FilePath& current_directory,
+    base::OnceCallback<void(Browser* browser,
+                            apps::mojom::LaunchContainer container)> callback) {
+  apps::mojom::LaunchContainer container;
+  if (apps::OpenExtensionApplicationWindow(profile, app_id, command_line,
+                                           current_directory)) {
+    const extensions::Extension* extension =
+        extensions::ExtensionRegistry::Get(profile)->GetInstalledExtension(
+            app_id);
+    // TODO(crbug.com/1061843): Remove this when BMO launches.
+    if (extension && extension->from_bookmark())
+      web_app::RecordAppWindowLaunch(profile, app_id);
+
+    container = apps::mojom::LaunchContainer::kLaunchContainerWindow;
+  } else if (apps::OpenExtensionApplicationTab(profile, app_id)) {
+    container = apps::mojom::LaunchContainer::kLaunchContainerTab;
+  } else {
+    // Open an empty browser window as the app_id is invalid.
+    apps::CreateBrowserWithNewTabPage(profile);
+    container = apps::mojom::LaunchContainer::kLaunchContainerNone;
+  }
+  std::move(callback).Run(BrowserList::GetInstance()->GetLastActive(),
+                          container);
 }

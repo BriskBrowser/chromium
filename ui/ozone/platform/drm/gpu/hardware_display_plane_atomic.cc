@@ -4,6 +4,7 @@
 
 #include "ui/ozone/platform/drm/gpu/hardware_display_plane_atomic.h"
 
+#include "base/logging.h"
 #include "ui/ozone/platform/drm/gpu/drm_device.h"
 #include "ui/ozone/platform/drm/gpu/drm_gpu_util.h"
 
@@ -63,6 +64,12 @@ bool HardwareDisplayPlaneAtomic::Initialize(DrmDevice* drm) {
              properties_.src_w.id && properties_.src_h.id;
   LOG_IF(ERROR, !ret) << "Failed to find all required properties for plane="
                       << id_;
+
+  ret &= (properties_.plane_color_encoding.id == 0) ==
+         (properties_.plane_color_range.id == 0);
+  LOG_IF(ERROR, !ret) << "Inconsistent color management properties for plane="
+                      << id_;
+
   return ret;
 }
 
@@ -118,11 +125,22 @@ bool HardwareDisplayPlaneAtomic::SetPlaneData(
         AddPropertyIfValid(property_set, id_, properties_.in_fence_fd);
   }
 
+  if (properties_.plane_color_encoding.id) {
+    properties_.plane_color_encoding.value = color_encoding_bt601_;
+    properties_.plane_color_range.value = color_range_limited_;
+    plane_set_succeeded =
+        plane_set_succeeded &&
+        AddPropertyIfValid(property_set, id_,
+                           properties_.plane_color_encoding) &&
+        AddPropertyIfValid(property_set, id_, properties_.plane_color_range);
+  }
+
   if (!plane_set_succeeded) {
     LOG(ERROR) << "Failed to set plane data";
     return false;
   }
 
+  crtc_id_ = crtc_id;
   return true;
 }
 

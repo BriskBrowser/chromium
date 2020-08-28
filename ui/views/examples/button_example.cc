@@ -4,6 +4,9 @@
 
 #include "ui/views/examples/button_example.h"
 
+#include <memory>
+#include <utility>
+
 #include "base/strings/utf_string_conversions.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/gfx/geometry/insets.h"
@@ -21,9 +24,10 @@ using base::ASCIIToUTF16;
 
 namespace {
 const char kLabelButton[] = "Label Button";
-const char kLongText[] = "Start of Really Really Really Really Really Really "
-                         "Really Really Really Really Really Really Really "
-                         "Really Really Really Really Really Long Button Text";
+const char kLongText[] =
+    "Start of Really Really Really Really Really Really "
+    "Really Really Really Really Really Really Really "
+    "Really Really Really Really Really Long Button Text";
 }  // namespace
 
 namespace views {
@@ -49,16 +53,16 @@ void ButtonExample::CreateExampleView(View* container) {
   label_button->set_request_focus_on_press(true);
   label_button_ = container->AddChildView(std::move(label_button));
 
-  md_button_ = container->AddChildView(
-      MdTextButton::Create(this, base::ASCIIToUTF16("Material Design")));
+  md_button_ = container->AddChildView(std::make_unique<views::MdTextButton>(
+      this, base::ASCIIToUTF16("Material Design")));
 
-  auto md_disabled_button = MdTextButton::Create(
+  auto md_disabled_button = std::make_unique<views::MdTextButton>(
       this, ASCIIToUTF16("Material Design Disabled Button"));
   md_disabled_button->SetState(Button::STATE_DISABLED);
   md_disabled_button_ = container->AddChildView(std::move(md_disabled_button));
 
-  auto md_default_button =
-      MdTextButton::Create(this, base::ASCIIToUTF16("Default"));
+  auto md_default_button = std::make_unique<views::MdTextButton>(
+      this, base::ASCIIToUTF16("Default"));
   md_default_button->SetIsDefault(true);
   md_default_button_ = container->AddChildView(std::move(md_default_button));
 

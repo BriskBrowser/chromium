@@ -108,6 +108,10 @@ class MEDIA_GPU_EXPORT Fourcc {
     // Maps to V4L2_PIX_FMT_MM21.
     // It is used for MT8183 hardware video decoder.
     MM21 = ComposeFourcc('M', 'M', '2', '1'),
+
+    // Two-plane 10-bit YUV 4:2:0. Each sample is a two-byte little-endian value
+    // with the bottom six bits ignored.
+    P010 = ComposeFourcc('P', '0', '1', '0'),
   };
 
   explicit Fourcc(Fourcc::Value fourcc);
@@ -154,6 +158,10 @@ class MEDIA_GPU_EXPORT Fourcc {
   // Returns nullopt if no mapping is found.
   base::Optional<uint32_t> ToVAFourCC() const;
 #endif  // BUILDFLAG(USE_VAAPI)
+
+  // Returns the single-planar Fourcc of the value. If value is a single-planar,
+  // returns the same Fourcc. Returns nullopt if no mapping is found.
+  base::Optional<Fourcc> ToSinglePlanar() const;
 
   // Returns whether |value_| is multi planar format.
   bool IsMultiPlanar() const;

@@ -34,12 +34,11 @@ class ReloadButtonTest : public ChromeRenderViewHostTestHarness {
   ReloadButton* reload() { return &reload_; }
 
  private:
-  ChromeTestViewsDelegate views_delegate_;
+  ChromeTestViewsDelegate<> views_delegate_;
   ReloadButton reload_;
 };
 
-ReloadButtonTest::ReloadButtonTest()
-    : reload_(nullptr, ReloadButton::IconStyle::kBrowser) {
+ReloadButtonTest::ReloadButtonTest() : reload_(nullptr) {
   // Set the timer delays to 0 so that timers will fire as soon as we tell the
   // message loop to run pending tasks.
   reload_.double_click_timer_delay_ = base::TimeDelta();

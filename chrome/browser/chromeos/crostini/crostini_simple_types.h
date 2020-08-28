@@ -7,6 +7,7 @@
 
 #include <string>
 
+#include "base/callback.h"
 #include "base/files/file_path.h"
 #include "chromeos/dbus/concierge/concierge_service.pb.h"
 
@@ -17,11 +18,14 @@
 namespace crostini {
 
 // Result types for various callbacks etc.
-
+//
 // WARNING: Do not remove or re-order these values, as they are used in user
 // visible error messages and logs. New entries should only be added to the end.
 // This message was added during development of M74, error codes from prior
 // versions may differ from the numbering here.
+// If you add anything here make sure to also update enums.xml and the plx
+// scripts in
+// https://plx.corp.google.com/home2/home/collections/c16e3c1474497b821
 enum class CrostiniResult {
   SUCCESS = 0,
   // DBUS_ERROR = 1,
@@ -73,8 +77,15 @@ enum class CrostiniResult {
   CONTAINER_CONFIGURATION_FAILED = 47,
   LOAD_COMPONENT_UPDATE_IN_PROGRESS = 48,
   NEVER_FINISHED = 49,
-  kMaxValue = NEVER_FINISHED,
+  CONTAINER_SETUP_FAILED = 50,
+  START_LXD_FAILED = 51,
+  kMaxValue = START_LXD_FAILED,
+  // When adding a new value, check you've followed the steps in the comment at
+  // the top of this enum.
 };
+
+using CrostiniSuccessCallback =
+    base::OnceCallback<void(bool success, const std::string& failure_reason)>;
 
 enum class InstallLinuxPackageProgressStatus {
   SUCCEEDED,
@@ -137,14 +148,21 @@ struct StreamingExportStatus {
 };
 
 struct ContainerInfo {
-  ContainerInfo(std::string name, std::string username, std::string homedir);
+  ContainerInfo(std::string name,
+                std::string username,
+                std::string homedir,
+                std::string ipv4_address);
   ~ContainerInfo();
+  ContainerInfo(ContainerInfo&&);
   ContainerInfo(const ContainerInfo&);
+  ContainerInfo& operator=(ContainerInfo&&);
+  ContainerInfo& operator=(const ContainerInfo&);
 
   std::string name;
   std::string username;
   base::FilePath homedir;
   bool sshfs_mounted = false;
+  std::string ipv4_address;
 };
 
 // Return type when getting app icons from within a container.
@@ -157,7 +175,10 @@ struct Icon {
 
 struct LinuxPackageInfo {
   LinuxPackageInfo();
+  LinuxPackageInfo(LinuxPackageInfo&&);
   LinuxPackageInfo(const LinuxPackageInfo&);
+  LinuxPackageInfo& operator=(LinuxPackageInfo&&);
+  LinuxPackageInfo& operator=(const LinuxPackageInfo&);
   ~LinuxPackageInfo();
 
   bool success;
@@ -174,8 +195,6 @@ struct LinuxPackageInfo {
   std::string description;
 };
 
-constexpr char kCrostiniCorruptionHistogram[] = "Crostini.FilesystemCorruption";
-
 // These values are persisted to logs. Entries should not be renumbered and
 // numeric values should never be reused.
 enum class CorruptionStates {
@@ -185,10 +204,42 @@ enum class CorruptionStates {
   kMaxValue = OTHER_CORRUPTION,
 };
 
+// Dialog types used by CrostiniDialogStatusObserver.
+enum class DialogType {
+  INSTALLER,
+  UPGRADER,
+  REMOVER,
+};
+
+enum class UpgradeDialogEvent {
+  kDialogShown = 0,
+  kUpgradeSuccess = 1,
+  kUpgradeCanceled = 2,
+  kUpgradeFailed = 3,
+  kNotStarted = 4,
+  kDidBackup = 5,
+  kBackupSucceeded = 6,
+  kBackupFailed = 7,
+  kDidRestore = 8,
+  kRestoreSucceeded = 9,
+  kRestoreFailed = 10,
+  kMaxValue = kRestoreFailed,
+};
+
+// Keep this in sync with CrostiniDiskImageType in enums.xml
+enum class CrostiniDiskImageType {
+  kUnknown = 0,
+  kQCow2Sparse = 1,
+  kRawSparse = 2,
+  kRawPreallocated = 3,
+  kMultiDisk = 4,
+  kMaxValue = kMultiDisk,
+};
+
 }  // namespace crostini
 
 enum class ContainerOsVersion {
-  kUnkown = 0,
+  kUnknown = 0,
   kDebianStretch = 1,
   kDebianBuster = 2,
   kDebianOther = 3,

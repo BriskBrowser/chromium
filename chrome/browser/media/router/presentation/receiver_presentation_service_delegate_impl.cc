@@ -28,11 +28,9 @@ void ReceiverPresentationServiceDelegateImpl::CreateForWebContents(
       UserDataKey(),
       base::WrapUnique(new ReceiverPresentationServiceDelegateImpl(
           web_contents, presentation_id)));
-  auto* render_view_host = web_contents->GetRenderViewHost();
-  DCHECK(render_view_host);
-  auto web_prefs = render_view_host->GetWebkitPreferences();
+  auto web_prefs = web_contents->GetOrCreateWebPreferences();
   web_prefs.presentation_receiver = true;
-  render_view_host->UpdateWebkitPreferences(web_prefs);
+  web_contents->SetWebPreferences(web_prefs);
 }
 
 void ReceiverPresentationServiceDelegateImpl::AddObserver(
@@ -51,7 +49,6 @@ void ReceiverPresentationServiceDelegateImpl::RemoveObserver(
 
 void ReceiverPresentationServiceDelegateImpl::Reset(int render_process_id,
                                                     int render_frame_id) {
-  DVLOG(2) << __FUNCTION__ << render_process_id << ", " << render_frame_id;
   local_presentation_manager_->OnLocalPresentationReceiverTerminated(
       presentation_id_);
 }

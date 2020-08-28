@@ -9,6 +9,7 @@
 #include "base/command_line.h"
 #include "base/metrics/field_trial_params.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/tracing_buildflags.h"
 #include "build/build_config.h"
 #include "build/chromecast_buildflags.h"
 #include "components/tracing/common/tracing_switches.h"
@@ -22,17 +23,7 @@ namespace features {
 // Causes the BackgroundTracingManager to upload proto messages via UMA,
 // rather than JSON via the crash frontend.
 const base::Feature kBackgroundTracingProtoOutput{
-  "BackgroundTracingProtoOutput",
-#if defined(OS_ANDROID)
-      base::FEATURE_ENABLED_BY_DEFAULT
-#else
-      base::FEATURE_DISABLED_BY_DEFAULT
-#endif
-};
-
-// Causes Perfetto to run in-process mode for in-process tracing producers.
-const base::Feature kPerfettoForceOutOfProcessProducer{
-    "PerfettoForceOutOfProcessProducer", base::FEATURE_DISABLED_BY_DEFAULT};
+    "BackgroundTracingProtoOutput", base::FEATURE_ENABLED_BY_DEFAULT};
 
 // Runs the tracing service as an in-process browser service.
 const base::Feature kTracingServiceInProcess {
@@ -46,6 +37,17 @@ const base::Feature kTracingServiceInProcess {
 
 const base::Feature kEnablePerfettoSystemTracing{
     "EnablePerfettoSystemTracing", base::FEATURE_DISABLED_BY_DEFAULT};
+
+// Controls whether trace points are implemented using Perfetto's client library
+// (enabled) or legacy TraceLog (disabled).
+const base::Feature kEnablePerfettoClientApiProducer {
+  "EnablePerfettoClientApiProducer",
+#if BUILDFLAG(USE_PERFETTO_CLIENT_LIBRARY)
+      base::FEATURE_ENABLED_BY_DEFAULT
+#else
+      base::FEATURE_DISABLED_BY_DEFAULT
+#endif
+};
 
 }  // namespace features
 

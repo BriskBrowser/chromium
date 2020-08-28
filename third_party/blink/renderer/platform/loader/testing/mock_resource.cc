@@ -37,7 +37,7 @@ MockResource* MockResource::Fetch(FetchParameters& params,
 MockResource::MockResource(const KURL& url)
     : MockResource(ResourceRequest(url)) {}
 MockResource::MockResource(const ResourceRequest& request)
-    : MockResource(request, ResourceLoaderOptions()) {}
+    : MockResource(request, ResourceLoaderOptions(nullptr /* world */)) {}
 MockResource::MockResource(const ResourceRequest& request,
                            const ResourceLoaderOptions& options)
     : Resource(request, ResourceType::kMock, options) {}
@@ -80,8 +80,8 @@ void MockCacheHandler::Set(const uint8_t* data, size_t size) {
 }
 
 void MockCacheHandler::ClearCachedMetadata(
-    CachedMetadataHandler::CacheType cache_type) {
-  if (cache_type == CachedMetadataHandler::kSendToPlatform) {
+    CachedMetadataHandler::ClearCacheType cache_type) {
+  if (cache_type == CachedMetadataHandler::kClearPersistentStorage) {
     Send();
   }
   data_.reset();

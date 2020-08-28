@@ -17,11 +17,8 @@
 #include "ui/base/page_transition_types.h"
 #include "url/gurl.h"
 
-@protocol PreloadControllerDelegate;
-
-namespace ios {
 class ChromeBrowserState;
-}
+@protocol PreloadControllerDelegate;
 
 namespace web {
 class WebState;
@@ -42,7 +39,7 @@ class WebState;
 @property(nonatomic, readonly, getter=isEnabled) BOOL enabled;
 
 // Designated initializer.
-- (instancetype)initWithBrowserState:(ios::ChromeBrowserState*)browserState;
+- (instancetype)initWithBrowserState:(ChromeBrowserState*)browserState;
 
 // Called when the browser state this object was initialized with is being
 // destroyed.

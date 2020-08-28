@@ -15,6 +15,7 @@
 #include "chrome/app/vector_icons/vector_icons.h"
 #include "chrome/browser/ui/browser_dialogs.h"
 #include "chrome/browser/ui/views/autofill/payments/dialog_view_ids.h"
+#include "chrome/browser/ui/views/autofill/payments/payments_view_util.h"
 #include "chrome/browser/ui/views/chrome_layout_provider.h"
 #include "chrome/browser/ui/views/chrome_typography.h"
 #include "components/autofill/core/browser/ui/payments/local_card_migration_bubble_controller.h"
@@ -49,11 +50,16 @@ LocalCardMigrationBubbleViews::LocalCardMigrationBubbleViews(
     : LocationBarBubbleDelegateView(anchor_view, web_contents),
       controller_(controller) {
   DCHECK(controller);
-  DialogDelegate::set_buttons(ui::DIALOG_BUTTON_OK);
-  DialogDelegate::set_button_label(
-      ui::DIALOG_BUTTON_OK,
-      l10n_util::GetStringUTF16(
-          IDS_AUTOFILL_LOCAL_CARD_MIGRATION_BUBBLE_BUTTON_LABEL));
+  SetButtons(ui::DIALOG_BUTTON_OK);
+  SetButtonLabel(ui::DIALOG_BUTTON_OK,
+                 l10n_util::GetStringUTF16(
+                     IDS_AUTOFILL_LOCAL_CARD_MIGRATION_BUBBLE_BUTTON_LABEL));
+  SetCancelCallback(
+      base::BindOnce(&LocalCardMigrationBubbleViews::OnDialogCancelled,
+                     base::Unretained(this)));
+  SetAcceptCallback(
+      base::BindOnce(&LocalCardMigrationBubbleViews::OnDialogAccepted,
+                     base::Unretained(this)));
 }
 
 void LocalCardMigrationBubbleViews::Show(DisplayReason reason) {
@@ -65,26 +71,24 @@ void LocalCardMigrationBubbleViews::Hide() {
   // do that here. This will clear out |controller_|'s reference to |this|. Note
   // that WindowClosing() happens only after the _asynchronous_ Close() task
   // posted in CloseBubble() completes, but we need to fix references sooner.
-  if (controller_)
-    controller_->OnBubbleClosed();
-  controller_ = nullptr;
   CloseBubble();
+
+  if (controller_)
+    controller_->OnBubbleClosed(closed_reason_);
+
+  controller_ = nullptr;
 }
 
-bool LocalCardMigrationBubbleViews::Accept() {
+void LocalCardMigrationBubbleViews::OnDialogAccepted() {
+  // TODO(https://crbug.com/1046793): Maybe delete this.
   if (controller_)
     controller_->OnConfirmButtonClicked();
-  return true;
 }
 
-bool LocalCardMigrationBubbleViews::Cancel() {
+void LocalCardMigrationBubbleViews::OnDialogCancelled() {
+  // TODO(https://crbug.com/1046793): Maybe delete this.
   if (controller_)
     controller_->OnCancelButtonClicked();
-  return true;
-}
-
-bool LocalCardMigrationBubbleViews::Close() {
-  return true;
 }
 
 gfx::Size LocalCardMigrationBubbleViews::CalculatePreferredSize() const {
@@ -147,12 +151,20 @@ base::string16 LocalCardMigrationBubbleViews::GetWindowTitle() const {
 
 void LocalCardMigrationBubbleViews::WindowClosing() {
   if (controller_) {
-    controller_->OnBubbleClosed();
+    controller_->OnBubbleClosed(closed_reason_);
     controller_ = nullptr;
   }
 }
 
-LocalCardMigrationBubbleViews::~LocalCardMigrationBubbleViews() {}
+void LocalCardMigrationBubbleViews::OnWidgetClosing(views::Widget* widget) {
+  LocationBarBubbleDelegateView::OnWidgetDestroying(widget);
+  DCHECK_NE(widget->closed_reason(),
+            views::Widget::ClosedReason::kCancelButtonClicked);
+  closed_reason_ = GetPaymentsBubbleClosedReasonFromWidgetClosedReason(
+      widget->closed_reason());
+}
+
+LocalCardMigrationBubbleViews::~LocalCardMigrationBubbleViews() = default;
 
 void LocalCardMigrationBubbleViews::Init() {
   SetLayoutManager(std::make_unique<views::FillLayout>());

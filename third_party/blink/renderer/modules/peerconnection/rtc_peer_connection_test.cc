@@ -17,22 +17,21 @@
 #include "third_party/blink/renderer/bindings/core/v8/to_v8_for_core.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_binding_for_testing.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_void_function.h"
+#include "third_party/blink/renderer/bindings/modules/v8/v8_rtc_answer_options.h"
+#include "third_party/blink/renderer/bindings/modules/v8/v8_rtc_configuration.h"
+#include "third_party/blink/renderer/bindings/modules/v8/v8_rtc_ice_server.h"
+#include "third_party/blink/renderer/bindings/modules/v8/v8_rtc_offer_options.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_rtc_peer_connection_error_callback.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_rtc_session_description_callback.h"
+#include "third_party/blink/renderer/bindings/modules/v8/v8_rtc_session_description_init.h"
 #include "third_party/blink/renderer/core/frame/web_local_frame_impl.h"
 #include "third_party/blink/renderer/core/testing/sim/sim_request.h"
 #include "third_party/blink/renderer/core/testing/sim/sim_test.h"
 #include "third_party/blink/renderer/modules/mediastream/media_stream.h"
 #include "third_party/blink/renderer/modules/mediastream/media_stream_track.h"
 #include "third_party/blink/renderer/modules/peerconnection/mock_rtc_peer_connection_handler_platform.h"
-#include "third_party/blink/renderer/modules/peerconnection/rtc_answer_options.h"
-#include "third_party/blink/renderer/modules/peerconnection/rtc_configuration.h"
-#include "third_party/blink/renderer/modules/peerconnection/rtc_ice_server.h"
-#include "third_party/blink/renderer/modules/peerconnection/rtc_offer_options.h"
-#include "third_party/blink/renderer/modules/peerconnection/rtc_session_description_init.h"
 #include "third_party/blink/renderer/platform/heap/heap.h"
 #include "third_party/blink/renderer/platform/heap/heap_allocator.h"
-#include "third_party/blink/renderer/platform/peerconnection/rtc_peer_connection_handler_platform.h"
 #include "third_party/blink/renderer/platform/peerconnection/rtc_rtp_receiver_platform.h"
 #include "third_party/blink/renderer/platform/peerconnection/rtc_rtp_sender_platform.h"
 #include "third_party/blink/renderer/platform/peerconnection/rtc_session_description_platform.h"
@@ -379,12 +378,20 @@ static const char* kOfferSdpPlanBMultipleAudioTracks =
 
 class RTCPeerConnectionTest : public testing::Test {
  public:
-  RTCPeerConnection* CreatePC(V8TestingScope& scope,
-                              const String& sdpSemantics = String()) {
+  RTCPeerConnection* CreatePC(
+      V8TestingScope& scope,
+      const base::Optional<String>& sdp_semantics = base::nullopt,
+      bool force_encoded_audio_insertable_streams = false,
+      bool force_encoded_video_insertable_streams = false) {
     RTCConfiguration* config = RTCConfiguration::Create();
-    config->setSdpSemantics(sdpSemantics);
+    if (sdp_semantics)
+      config->setSdpSemantics(sdp_semantics.value());
+    config->setForceEncodedAudioInsertableStreams(
+        force_encoded_audio_insertable_streams);
+    config->setForceEncodedVideoInsertableStreams(
+        force_encoded_video_insertable_streams);
     RTCIceServer* ice_server = RTCIceServer::Create();
-    ice_server->setURL("stun:fake.stun.url");
+    ice_server->setUrl("stun:fake.stun.url");
     HeapVector<Member<RTCIceServer>> ice_servers;
     ice_servers.push_back(ice_server);
     config->setIceServers(ice_servers);
@@ -393,10 +400,10 @@ class RTCPeerConnectionTest : public testing::Test {
             &RTCPeerConnectionTest::CreateRTCPeerConnectionHandler,
             base::Unretained(this)));
     return RTCPeerConnection::Create(scope.GetExecutionContext(), config,
-                                     Dictionary(), scope.GetExceptionState());
+                                     scope.GetExceptionState());
   }
 
-  virtual std::unique_ptr<RTCPeerConnectionHandlerPlatform>
+  virtual std::unique_ptr<RTCPeerConnectionHandler>
   CreateRTCPeerConnectionHandler() {
     return std::make_unique<MockRTCPeerConnectionHandlerPlatform>();
   }
@@ -420,8 +427,7 @@ class RTCPeerConnectionTest : public testing::Test {
   void AddStream(V8TestingScope& scope,
                  RTCPeerConnection* pc,
                  MediaStream* stream) {
-    pc->addStream(scope.GetScriptState(), stream, Dictionary(),
-                  scope.GetExceptionState());
+    pc->addStream(scope.GetScriptState(), stream, scope.GetExceptionState());
     EXPECT_EQ("", GetExceptionMessage(scope));
   }
 
@@ -644,6 +650,21 @@ TEST_F(RTCPeerConnectionTest, CheckForComplexSdpWithSdpSemanticsUnspecified) {
   ASSERT_FALSE(pc->CheckForComplexSdp(sdp).has_value());
 }
 
+TEST_F(RTCPeerConnectionTest, CheckInsertableStreamsConfig) {
+  for (bool force_encoded_audio_insertable_streams : {true, false}) {
+    for (bool force_encoded_video_insertable_streams : {true, false}) {
+      V8TestingScope scope;
+      Persistent<RTCPeerConnection> pc =
+          CreatePC(scope, base::nullopt, force_encoded_audio_insertable_streams,
+                   force_encoded_video_insertable_streams);
+      EXPECT_EQ(pc->force_encoded_audio_insertable_streams(),
+                force_encoded_audio_insertable_streams);
+      EXPECT_EQ(pc->force_encoded_video_insertable_streams(),
+                force_encoded_video_insertable_streams);
+    }
+  }
+}
+
 enum class AsyncOperationAction {
   kLeavePending,
   kResolve,
@@ -754,8 +775,8 @@ class FakeRTCPeerConnectionHandlerPlatform
 //
 class RTCPeerConnectionCallSetupStateTest : public RTCPeerConnectionTest {
  public:
-  std::unique_ptr<RTCPeerConnectionHandlerPlatform>
-  CreateRTCPeerConnectionHandler() override {
+  std::unique_ptr<RTCPeerConnectionHandler> CreateRTCPeerConnectionHandler()
+      override {
     auto handler = std::make_unique<FakeRTCPeerConnectionHandlerPlatform>();
     handler_ = handler.get();
     return handler;
@@ -793,12 +814,10 @@ class RTCPeerConnectionCallSetupStateTest : public RTCPeerConnectionTest {
     return CallbackType::Create(v8_function);
   }
 
-  Dictionary ToDictionary(V8TestingScope& scope,
-                          const IDLDictionaryBase* value) {
-    return Dictionary(
-        scope.GetIsolate(),
-        ToV8(value, scope.GetContext()->Global(), scope.GetIsolate()),
-        scope.GetExceptionState());
+  ScriptValue ToScriptValue(V8TestingScope& scope, RTCOfferOptions* value) {
+    v8::Isolate* isolate = scope.GetIsolate();
+    return ScriptValue(isolate,
+                       ToV8(value, scope.GetContext()->Global(), isolate));
   }
 
  private:
@@ -900,7 +919,7 @@ TEST_F(RTCPeerConnectionCallSetupStateTest, OffererLegacyApiPath) {
   pc->createOffer(scope.GetScriptState(),
                   CreateEmptyCallback<V8RTCSessionDescriptionCallback>(scope),
                   CreateEmptyCallback<V8RTCPeerConnectionErrorCallback>(scope),
-                  ToDictionary(scope, RTCOfferOptions::Create()),
+                  ToScriptValue(scope, RTCOfferOptions::Create()),
                   scope.GetExceptionState());
   EXPECT_EQ(OffererState::kCreateOfferPending, tracker_->offerer_state());
   EXPECT_EQ(CallSetupState::kStarted, tracker_->GetCallSetupState());
@@ -1018,7 +1037,7 @@ TEST_F(RTCPeerConnectionCallSetupStateTest, AnswererLegacyApiPath) {
   pc->createAnswer(scope.GetScriptState(),
                    CreateEmptyCallback<V8RTCSessionDescriptionCallback>(scope),
                    CreateEmptyCallback<V8RTCPeerConnectionErrorCallback>(scope),
-                   Dictionary() /* media_constraints */);
+                   scope.GetExceptionState());
   EXPECT_EQ(AnswererState::kCreateAnswerPending, tracker_->answerer_state());
   platform_->RunUntilIdle();
   EXPECT_EQ(AnswererState::kCreateAnswerResolved, tracker_->answerer_state());
@@ -1160,8 +1179,7 @@ class SchedulingAffectingWebRTCFeaturesTest : public SimTest {
     return result;
   }
 
-  std::unique_ptr<RTCPeerConnectionHandlerPlatform>
-  CreateRTCPeerConnectionHandler() {
+  std::unique_ptr<RTCPeerConnectionHandler> CreateRTCPeerConnectionHandler() {
     return std::make_unique<MockRTCPeerConnectionHandlerPlatform>();
   }
 };

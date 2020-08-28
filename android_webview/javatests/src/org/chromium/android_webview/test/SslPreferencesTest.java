@@ -6,7 +6,8 @@ package org.chromium.android_webview.test;
 
 import android.net.http.SslError;
 import android.support.test.InstrumentationRegistry;
-import android.support.test.filters.SmallTest;
+
+import androidx.test.filters.SmallTest;
 
 import org.junit.Assert;
 import org.junit.Before;
@@ -16,9 +17,11 @@ import org.junit.runner.RunWith;
 
 import org.chromium.android_webview.AwContents;
 import org.chromium.android_webview.test.TestAwContentsClient.OnReceivedSslErrorHelper;
+import org.chromium.base.test.util.DisableIf;
 import org.chromium.base.test.util.Feature;
 import org.chromium.net.test.EmbeddedTestServer;
 import org.chromium.net.test.ServerCertificate;
+import org.chromium.ui.test.util.UiDisableIf;
 
 /**
  * SslError tests.
@@ -47,6 +50,7 @@ public class SslPreferencesTest {
     @Test
     @Feature({"AndroidWebView"})
     @SmallTest
+    @DisableIf.Device(type = {UiDisableIf.TABLET}) // See https://crbug.com/1117289.
     public void testSslErrorNotCalledForOkCert() throws Throwable {
         mTestServer = EmbeddedTestServer.createAndStartHTTPSServer(
                 InstrumentationRegistry.getInstrumentation().getContext(),

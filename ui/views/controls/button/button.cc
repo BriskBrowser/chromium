@@ -4,6 +4,8 @@
 
 #include "ui/views/controls/button/button.h"
 
+#include <utility>
+
 #include "base/strings/utf_string_conversions.h"
 #include "ui/accessibility/ax_enums.mojom.h"
 #include "ui/accessibility/ax_node_data.h"
@@ -18,7 +20,6 @@
 #include "ui/views/animation/ink_drop_impl.h"
 #include "ui/views/controls/button/button_controller.h"
 #include "ui/views/controls/button/button_controller_delegate.h"
-#include "ui/views/controls/button/button_observer.h"
 #include "ui/views/controls/button/checkbox.h"
 #include "ui/views/controls/button/image_button.h"
 #include "ui/views/controls/button/label_button.h"
@@ -28,7 +29,6 @@
 #include "ui/views/controls/focus_ring.h"
 #include "ui/views/painter.h"
 #include "ui/views/style/platform_style.h"
-#include "ui/views/widget/widget.h"
 
 #if defined(USE_AURA)
 #include "ui/aura/client/capture_client.h"
@@ -43,32 +43,6 @@ DEFINE_UI_CLASS_PROPERTY_KEY(bool, kIsButtonProperty, false)
 
 }  // namespace
 
-////////////////////////////////////////////////////////////////////////////////
-// WidgetObserverButtonBridge:
-Button::WidgetObserverButtonBridge::WidgetObserverButtonBridge(Button* button)
-    : owner_(button) {
-  DCHECK(button->GetWidget());
-  button->GetWidget()->AddObserver(this);
-}
-
-Button::WidgetObserverButtonBridge::~WidgetObserverButtonBridge() {
-  if (owner_)
-    owner_->GetWidget()->RemoveObserver(this);
-}
-
-void Button::WidgetObserverButtonBridge::OnWidgetActivationChanged(
-    Widget* widget,
-    bool active) {
-  owner_->WidgetActivationChanged(widget, active);
-}
-
-void Button::WidgetObserverButtonBridge::OnWidgetDestroying(Widget* widget) {
-  widget->RemoveObserver(this);
-  owner_ = nullptr;
-}
-
-////////////////////////////////////////////////////////////////////////////////
-// ButtonControllerDelegate:
 Button::DefaultButtonControllerDelegate::DefaultButtonControllerDelegate(
     Button* button)
     : ButtonControllerDelegate(button) {}
@@ -117,7 +91,8 @@ bool Button::DefaultButtonControllerDelegate::InDrag() {
   return button()->InDrag();
 }
 
-////////////////////////////////////////////////////////////////////////////////
+// static
+constexpr Button::ButtonState Button::kButtonStates[STATE_COUNT];
 
 // static
 const Button* Button::AsButton(const views::View* view) {
@@ -134,22 +109,24 @@ Button* Button::AsButton(views::View* view) {
 // static
 Button::ButtonState Button::GetButtonStateFrom(ui::NativeTheme::State state) {
   switch (state) {
-    case ui::NativeTheme::kDisabled:  return Button::STATE_DISABLED;
-    case ui::NativeTheme::kHovered:   return Button::STATE_HOVERED;
-    case ui::NativeTheme::kNormal:    return Button::STATE_NORMAL;
-    case ui::NativeTheme::kPressed:   return Button::STATE_PRESSED;
-    case ui::NativeTheme::kNumStates: NOTREACHED();
+    case ui::NativeTheme::kDisabled:
+      return Button::STATE_DISABLED;
+    case ui::NativeTheme::kHovered:
+      return Button::STATE_HOVERED;
+    case ui::NativeTheme::kNormal:
+      return Button::STATE_NORMAL;
+    case ui::NativeTheme::kPressed:
+      return Button::STATE_PRESSED;
+    case ui::NativeTheme::kNumStates:
+      NOTREACHED();
   }
   return Button::STATE_NORMAL;
 }
 
-////////////////////////////////////////////////////////////////////////////////
-// Button, public:
-
 Button::~Button() = default;
 
 void Button::SetFocusForPlatform() {
-#if defined(OS_MACOSX)
+#if defined(OS_APPLE)
   // On Mac, buttons are focusable only in full keyboard access mode.
   SetFocusBehavior(FocusBehavior::ACCESSIBLE_ONLY);
 #else
@@ -163,6 +140,7 @@ void Button::SetTooltipText(const base::string16& tooltip_text) {
   tooltip_text_ = tooltip_text;
   OnSetTooltipText(tooltip_text);
   TooltipTextChanged();
+  NotifyAccessibilityEvent(ax::mojom::Event::kTextChanged, true);
 }
 
 void Button::SetAccessibleName(const base::string16& name) {
@@ -172,6 +150,10 @@ void Button::SetAccessibleName(const base::string16& name) {
 
 const base::string16& Button::GetAccessibleName() const {
   return accessible_name_.empty() ? tooltip_text_ : accessible_name_;
+}
+
+Button::ButtonState Button::GetState() const {
+  return state_;
 }
 
 void Button::SetState(ButtonState state) {
@@ -200,15 +182,7 @@ void Button::SetState(ButtonState state) {
   ButtonState old_state = state_;
   state_ = state;
   StateChanged(old_state);
-  SchedulePaint();
-}
-
-Button::ButtonState Button::GetVisualState() const {
-  if (PlatformStyle::kInactiveWidgetControlsAppearDisabled && GetWidget() &&
-      !GetWidget()->IsActive()) {
-    return STATE_DISABLED;
-  }
-  return state();
+  OnPropertyChanged(&state_, kPropertyEffectsPaint);
 }
 
 void Button::StartThrobbing(int cycles_til_stop) {
@@ -230,10 +204,12 @@ void Button::SetAnimationDuration(base::TimeDelta duration) {
 }
 
 void Button::SetInstallFocusRingOnFocus(bool install) {
-  if (install)
+  if (focus_ring_ && !install) {
+    RemoveChildViewT(focus_ring_);
+    focus_ring_ = nullptr;
+  } else if (!focus_ring_ && install) {
     focus_ring_ = FocusRing::Install(this);
-  else
-    focus_ring_.reset();
+  }
 }
 
 void Button::SetHotTracked(bool is_hot_tracked) {
@@ -262,22 +238,21 @@ void Button::SetHighlighted(bool bubble_visible) {
   AnimateInkDrop(bubble_visible ? views::InkDropState::ACTIVATED
                                 : views::InkDropState::DEACTIVATED,
                  nullptr);
-  for (ButtonObserver& observer : button_observers_)
-    observer.OnHighlightChanged(this, bubble_visible);
 }
 
-void Button::AddButtonObserver(ButtonObserver* observer) {
-  button_observers_.AddObserver(observer);
-}
-
-void Button::RemoveButtonObserver(ButtonObserver* observer) {
-  button_observers_.RemoveObserver(observer);
+PropertyChangedSubscription Button::AddStateChangedCallback(
+    PropertyChangedCallback callback) {
+  return AddPropertyChangedCallback(&state_, std::move(callback));
 }
 
 Button::KeyClickAction Button::GetKeyClickActionForEvent(
     const ui::KeyEvent& event) {
   if (event.key_code() == ui::VKEY_SPACE)
     return PlatformStyle::kKeyClickActionOnSpace;
+  // Note that default buttons also have VKEY_RETURN installed as an accelerator
+  // in LabelButton::SetIsDefault(). On platforms where
+  // PlatformStyle::kReturnClicksFocusedControl, the logic here will take
+  // precedence over that.
   if (event.key_code() == ui::VKEY_RETURN &&
       PlatformStyle::kReturnClicksFocusedControl)
     return KeyClickAction::kOnKeyPress;
@@ -314,9 +289,6 @@ gfx::Point Button::GetMenuPosition() const {
     menu_position.set_x(max_x_coordinate - 1);
   return menu_position;
 }
-
-////////////////////////////////////////////////////////////////////////////////
-// Button, View overrides:
 
 bool Button::OnMousePressed(const ui::MouseEvent& event) {
   return button_controller_->OnMousePressed(event);
@@ -494,15 +466,6 @@ void Button::OnBlur() {
     SchedulePaint();
 }
 
-void Button::AddedToWidget() {
-  if (PlatformStyle::kInactiveWidgetControlsAppearDisabled)
-    widget_observer_ = std::make_unique<WidgetObserverButtonBridge>(this);
-}
-
-void Button::RemovedFromWidget() {
-  widget_observer_.reset();
-}
-
 std::unique_ptr<InkDrop> Button::CreateInkDrop() {
   std::unique_ptr<InkDrop> ink_drop = InkDropHostView::CreateInkDrop();
   ink_drop->SetShowHighlightOnFocus(!focus_ring_);
@@ -513,15 +476,9 @@ SkColor Button::GetInkDropBaseColor() const {
   return ink_drop_base_color_;
 }
 
-////////////////////////////////////////////////////////////////////////////////
-// Button, gfx::AnimationDelegate implementation:
-
 void Button::AnimationProgressed(const gfx::Animation* animation) {
   SchedulePaint();
 }
-
-////////////////////////////////////////////////////////////////////////////////
-// Button, protected:
 
 Button::Button(ButtonListener* listener)
     : AnimationDelegateViews(this),
@@ -566,11 +523,7 @@ void Button::OnClickCanceled(const ui::Event& event) {
 
 void Button::OnSetTooltipText(const base::string16& tooltip_text) {}
 
-void Button::StateChanged(ButtonState old_state) {
-  button_controller_->OnStateChanged(old_state);
-  for (ButtonObserver& observer : button_observers_)
-    observer.OnStateChanged(this, old_state);
-}
+void Button::StateChanged(ButtonState old_state) {}
 
 bool Button::IsTriggerableEvent(const ui::Event& event) {
   return button_controller_->IsTriggerableEvent(event);
@@ -624,12 +577,15 @@ void Button::OnEnabledChanged() {
   }
 }
 
-void Button::WidgetActivationChanged(Widget* widget, bool active) {
-  StateChanged(state());
-}
+DEFINE_ENUM_CONVERTERS(
+    Button::ButtonState,
+    {Button::STATE_NORMAL, base::ASCIIToUTF16("STATE_NORMAL")},
+    {Button::STATE_HOVERED, base::ASCIIToUTF16("STATE_HOVERED")},
+    {Button::STATE_PRESSED, base::ASCIIToUTF16("STATE_PRESSED")},
+    {Button::STATE_DISABLED, base::ASCIIToUTF16("STATE_DISABLED")})
 
-BEGIN_METADATA(Button)
-METADATA_PARENT_CLASS(InkDropHostView)
+BEGIN_METADATA(Button, InkDropHostView)
+ADD_PROPERTY_METADATA(ButtonState, State)
 END_METADATA()
 
 }  // namespace views

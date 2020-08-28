@@ -6,7 +6,6 @@
 #define THIRD_PARTY_BLINK_RENDERER_CORE_CSS_PARSER_CSS_SELECTOR_PARSER_H_
 
 #include <memory>
-#include "base/macros.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/css/parser/css_parser_selector.h"
 #include "third_party/blink/renderer/core/css/parser/css_parser_token_range.h"
@@ -34,6 +33,9 @@ class CORE_EXPORT CSSSelectorParser {
                                          CSSParserObserver*);
 
   static bool ConsumeANPlusB(CSSParserTokenRange&, std::pair<int, int>&);
+
+  static bool SupportsComplexSelector(CSSParserTokenRange,
+                                      const CSSParserContext*);
 
  private:
   CSSSelectorParser(const CSSParserContext*, StyleSheetContents*);
@@ -80,9 +82,11 @@ class CORE_EXPORT CSSSelectorParser {
   SplitCompoundAtImplicitShadowCrossingCombinator(
       std::unique_ptr<CSSParserSelector> compound_selector);
   void RecordUsageAndDeprecations(const CSSSelectorList&);
+  static bool ContainsUnknownWebkitPseudoElements(
+      const CSSSelector& complex_selector);
 
-  Member<const CSSParserContext> context_;
-  Member<const StyleSheetContents> style_sheet_;
+  const CSSParserContext* context_;
+  const StyleSheetContents* style_sheet_;
 
   bool failed_parsing_ = false;
   bool disallow_pseudo_elements_ = false;
@@ -95,6 +99,9 @@ class CORE_EXPORT CSSSelectorParser {
         : parser_(parser), was_disallowed_(parser_->disallow_pseudo_elements_) {
       parser_->disallow_pseudo_elements_ = true;
     }
+    DisallowPseudoElementsScope(const DisallowPseudoElementsScope&) = delete;
+    DisallowPseudoElementsScope& operator=(const DisallowPseudoElementsScope&) =
+        delete;
 
     ~DisallowPseudoElementsScope() {
       parser_->disallow_pseudo_elements_ = was_disallowed_;
@@ -103,7 +110,6 @@ class CORE_EXPORT CSSSelectorParser {
    private:
     CSSSelectorParser* parser_;
     bool was_disallowed_;
-    DISALLOW_COPY_AND_ASSIGN(DisallowPseudoElementsScope);
   };
 };
 

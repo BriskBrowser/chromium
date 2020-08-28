@@ -17,7 +17,7 @@
 #include "base/synchronization/lock.h"
 #include "base/time/time.h"
 #include "chromeos/dbus/power/power_manager_client.h"
-#include "chromeos/services/assistant/public/mojom/assistant.mojom.h"
+#include "chromeos/services/assistant/public/cpp/assistant_service.h"
 #include "libassistant/shared/public/platform_audio_input.h"
 #include "media/base/audio_capturer_source.h"
 
@@ -31,8 +31,7 @@ class COMPONENT_EXPORT(ASSISTANT_SERVICE) AudioInputImpl
       public media::AudioCapturerSource::CaptureCallback,
       public chromeos::PowerManagerClient::Observer {
  public:
-  AudioInputImpl(mojom::Client* client,
-                 PowerManagerClient* power_manager_client,
+  AudioInputImpl(PowerManagerClient* power_manager_client,
                  CrasAudioHandler* cras_audio_handler,
                  const std::string& device_id);
   ~AudioInputImpl() override;
@@ -86,7 +85,7 @@ class COMPONENT_EXPORT(ASSISTANT_SERVICE) AudioInputImpl
   void SetDeviceId(const std::string& device_id);
   void SetHotwordDeviceId(const std::string& device_id);
   void SetDspHotwordLocale(std::string pref_locale);
-  void SetDspHotwordLocaleCallback(bool success);
+  void SetDspHotwordLocaleCallback(std::string pref_locale, bool success);
 
   void RecreateAudioInputStream(bool use_dsp);
 
@@ -128,8 +127,6 @@ class COMPONENT_EXPORT(ASSISTANT_SERVICE) AudioInputImpl
   // It ensures that AddObserver / RemoveObserver are called on the same
   // sequence.
   SEQUENCE_CHECKER(observer_sequence_checker_);
-
-  mojom::Client* const client_;
 
   chromeos::PowerManagerClient* power_manager_client_;
   ScopedObserver<chromeos::PowerManagerClient,

@@ -28,6 +28,7 @@ class NetworkConfigurationHandler;
 class NetworkConnectionHandler;
 class NetworkDeviceHandler;
 class NetworkDeviceHandlerImpl;
+class NetworkMetadataStore;
 class NetworkProfileHandler;
 class NetworkStateHandler;
 class NetworkSmsHandler;
@@ -63,6 +64,10 @@ class COMPONENT_EXPORT(CHROMEOS_NETWORK) NetworkHandler {
   // Must be called before pref services are shut down.
   void ShutdownPrefServices();
 
+  // Global network configuration services.
+  static bool HasUiProxyConfigService();
+  static UIProxyConfigService* GetUiProxyConfigService();
+
   // Returns the task runner for posting NetworkHandler calls from other
   // threads.
   base::SingleThreadTaskRunner* task_runner() { return task_runner_.get(); }
@@ -79,13 +84,14 @@ class COMPONENT_EXPORT(CHROMEOS_NETWORK) NetworkHandler {
   NetworkActivationHandler* network_activation_handler();
   NetworkCertificateHandler* network_certificate_handler();
   NetworkConnectionHandler* network_connection_handler();
+  NetworkMetadataStore* network_metadata_store();
   NetworkSmsHandler* network_sms_handler();
   GeolocationHandler* geolocation_handler();
   ProhibitedTechnologiesHandler* prohibited_technologies_handler();
 
-  // Global network configuration services.
-  UIProxyConfigService* ui_proxy_config_service();
-  bool has_ui_proxy_config_service() { return ui_proxy_config_service_.get(); }
+  void set_is_enterprise_managed(bool is_enterprise_managed) {
+    is_enterprise_managed_ = is_enterprise_managed;
+  }
 
  private:
   NetworkHandler();
@@ -106,6 +112,7 @@ class COMPONENT_EXPORT(CHROMEOS_NETWORK) NetworkHandler {
   std::unique_ptr<ClientCertResolver> client_cert_resolver_;
   std::unique_ptr<NetworkActivationHandler> network_activation_handler_;
   std::unique_ptr<NetworkConnectionHandler> network_connection_handler_;
+  std::unique_ptr<NetworkMetadataStore> network_metadata_store_;
   std::unique_ptr<AutoConnectHandler> auto_connect_handler_;
   std::unique_ptr<NetworkSmsHandler> network_sms_handler_;
   std::unique_ptr<GeolocationHandler> geolocation_handler_;
@@ -113,6 +120,9 @@ class COMPONENT_EXPORT(CHROMEOS_NETWORK) NetworkHandler {
       prohibited_technologies_handler_;
   std::unique_ptr<UIProxyConfigService> ui_proxy_config_service_;
   std::unique_ptr<CellularMetricsLogger> cellular_metrics_logger_;
+
+  // True when the device is managed by policy.
+  bool is_enterprise_managed_ = false;
 
   DISALLOW_COPY_AND_ASSIGN(NetworkHandler);
 };

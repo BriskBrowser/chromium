@@ -83,7 +83,8 @@ Polymer({
   getItemLabel_(item) {
     if (this.certList) {
       return this.getCertificateName_(
-          /** @type {chromeos.networkConfig.mojom.NetworkCertificate}*/ (item));
+          /** @type {!chromeos.networkConfig.mojom.NetworkCertificate}*/ (
+              item));
     }
     let value;
     if (this.key) {
@@ -106,8 +107,9 @@ Polymer({
   },
 
   /**
-   * @param {string|!chromeos.networkConfig.mojom.NetworkCertificate} item
-   * @return {string}
+   * @param {string|number|!chromeos.networkConfig.mojom.NetworkCertificate}
+   *     item
+   * @return {string|number}
    * @private
    */
   getItemValue_(item) {
@@ -116,7 +118,7 @@ Polymer({
                  item)
           .hash;
     }
-    return /** @type {string} */ (item);
+    return /** @type {string|number}*/ (item);
   },
 
   /**

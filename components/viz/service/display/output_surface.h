@@ -9,21 +9,24 @@
 #include <vector>
 
 #include "base/callback_helpers.h"
-#include "base/containers/circular_deque.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/threading/thread_checker.h"
 #include "components/viz/common/display/update_vsync_parameters_callback.h"
 #include "components/viz/common/gpu/context_provider.h"
 #include "components/viz/common/gpu/gpu_vsync_callback.h"
+#include "components/viz/common/resources/resource_format.h"
 #include "components/viz/common/resources/returned_resource.h"
 #include "components/viz/service/display/software_output_device.h"
 #include "components/viz/service/viz_service_export.h"
+#include "gpu/command_buffer/common/mailbox.h"
 #include "gpu/command_buffer/common/texture_in_use_response.h"
 #include "gpu/ipc/common/surface_handle.h"
 #include "gpu/ipc/gpu_task_scheduler_helper.h"
+#include "third_party/skia/include/gpu/GrBackendSurface.h"
 #include "ui/gfx/color_space.h"
 #include "ui/gfx/overlay_transform.h"
+#include "ui/gfx/surface_origin.h"
 #include "ui/latency/latency_info.h"
 
 namespace gfx {
@@ -48,34 +51,45 @@ class VIZ_SERVICE_EXPORT OutputSurface {
     kOpenGL = 1,
     kVulkan = 2,
   };
+
+  enum class OrientationMode {
+    kLogic,     // The orientation same to logical screen orientation as seen by
+                // the user.
+    kHardware,  // The orientation same to the hardware.
+  };
   struct Capabilities {
     Capabilities();
     Capabilities(const Capabilities& capabilities);
 
     int max_frames_pending = 1;
+    // The number of buffers for the SkiaOutputDevice. If the
+    // |supports_post_sub_buffer| true, SkiaOutputSurfaceImpl will track target
+    // damaged area based on this number.
+    int number_of_buffers = 2;
     // Whether this output surface renders to the default OpenGL zero
     // framebuffer or to an offscreen framebuffer.
     bool uses_default_gl_framebuffer = true;
-    // Whether this OutputSurface is flipped or not.
-    bool flipped_output_surface = false;
+    // Where (0,0) is on this OutputSurface.
+    gfx::SurfaceOrigin output_surface_origin = gfx::SurfaceOrigin::kBottomLeft;
     // Whether this OutputSurface supports stencil operations or not.
     // Note: HasExternalStencilTest() must return false when an output surface
     // has been configured for stencil usage.
     bool supports_stencil = false;
     // Whether this OutputSurface supports post sub buffer or not.
     bool supports_post_sub_buffer = false;
+    // Whether this OutputSurface supports commit overlay planes.
+    bool supports_commit_overlay_planes = false;
     // Whether this OutputSurface supports gpu vsync callbacks.
     bool supports_gpu_vsync = false;
-    // Whether this OutputSurface supports pre transform. If it is supported,
-    // the chrome will set the output surface size in hardware natural
-    // orientation, and will render transformed content on back buffers based
-    // on the current system transform. So the OS presentation engine can
-    // present buffers onto the screen directly.
-    bool supports_pre_transform = false;
+    // OutputSurface's orientation mode.
+    OrientationMode orientation_mode = OrientationMode::kLogic;
     // Whether this OutputSurface supports direct composition layers.
     bool supports_dc_layers = false;
-    // Whether this OutputSurface supports direct composition video overlays.
-    bool supports_dc_video_overlays = false;
+    // Set RGB10A2 overlay support flags true by force, which is used for
+    // playing hdr video.
+    // TODO(richard.li@intel.com): Remove this when Intel fixs its overlay caps.
+    // checking bug in their driver.
+    bool forces_rgb10a2_overlay_support_flags = false;
     // Whether this OutputSurface should skip DrawAndSwap(). This is true for
     // the unified display on Chrome OS. All drawing is handled by the physical
     // displays so the unified display should skip that work.
@@ -84,12 +98,28 @@ class VIZ_SERVICE_EXPORT OutputSurface {
     // When this is false contents outside the damaged area might need to be
     // recomposited to the surface.
     bool only_invalidates_damage_rect = true;
+    // Whether OutputSurface::GetTargetDamageBoundingRect is implemented and
+    // will return a bounding rectangle of the target buffer invalidated area.
+    bool supports_target_damage = false;
     // Whether the gpu supports surfaceless surface (equivalent of using buffer
     // queue).
     bool supports_surfaceless = false;
     // This is copied over from gpu feature info since there is no easy way to
     // share that out of skia output surface.
     bool android_surface_control_feature_enabled = false;
+    // True if the buffer content will be preserved after presenting.
+    bool preserve_buffer_content = false;
+    // True if the SkiaOutputDevice will set
+    // SwapBuffersCompleteParams::frame_buffer_damage_area for every
+    // SwapBuffers complete callback.
+    bool damage_area_from_skia_output_device = false;
+    // This is the maximum size for RenderPass textures. No maximum size is
+    // enforced if zero.
+    int max_render_target_size = 0;
+
+    // SkColorType for all supported buffer formats.
+    SkColorType sk_color_types[static_cast<int>(gfx::BufferFormat::LAST) + 1] =
+        {};
   };
 
   // Constructor for skia-based compositing.
@@ -134,8 +164,12 @@ class VIZ_SERVICE_EXPORT OutputSurface {
   virtual void BindFramebuffer() = 0;
 
   // Marks that the given rectangle will be drawn to on the default, bound
-  // framebuffer.
-  virtual void SetDrawRectangle(const gfx::Rect& rect) = 0;
+  // framebuffer. Only valid if |capabilities().supports_dc_layers| is true.
+  virtual void SetDrawRectangle(const gfx::Rect& rect);
+
+  // Enable or disable DC layers. Must be called before DC layers are scheduled.
+  // Only valid if |capabilities().supports_dc_layers| is true.
+  virtual void SetEnableDCLayers(bool enabled);
 
   // Returns true if a main image overlay plane should be scheduled.
   virtual bool IsDisplayedAsOverlayPlane() const = 0;
@@ -143,13 +177,13 @@ class VIZ_SERVICE_EXPORT OutputSurface {
   // Get the texture for the main image's overlay.
   virtual unsigned GetOverlayTextureId() const = 0;
 
-  // Get the format for the main image's overlay.
-  virtual gfx::BufferFormat GetOverlayBufferFormat() const = 0;
+  // Returns the |mailbox| corresponding to the main image's overlay.
+  virtual gpu::Mailbox GetOverlayMailbox() const;
 
   virtual void Reshape(const gfx::Size& size,
                        float device_scale_factor,
                        const gfx::ColorSpace& color_space,
-                       bool has_alpha,
+                       gfx::BufferFormat format,
                        bool use_stencil) = 0;
 
   virtual bool HasExternalStencilTest() const = 0;
@@ -221,6 +255,9 @@ class VIZ_SERVICE_EXPORT OutputSurface {
   virtual void SetNeedsSwapSizeNotifications(
       bool needs_swap_size_notifications);
 
+  // Notifies surface that we want to measure viz-gpu latency for next draw.
+  virtual void SetNeedsMeasureNextDrawLatency() {}
+
   // Updates timing info on the provided LatencyInfo when swap completes.
   static void UpdateLatencyInfoOnSwap(
       const gfx::SwapResponse& response,
@@ -232,6 +269,10 @@ class VIZ_SERVICE_EXPORT OutputSurface {
   // instead of passing it out here.
   virtual scoped_refptr<gpu::GpuTaskSchedulerHelper>
   GetGpuTaskSchedulerHelper() = 0;
+  virtual gpu::MemoryTracker* GetMemoryTracker() = 0;
+
+  // Notifies the OutputSurface of rate of content updates in frames per second.
+  virtual void SetFrameRate(float frame_rate) {}
 
  protected:
   struct OutputSurface::Capabilities capabilities_;

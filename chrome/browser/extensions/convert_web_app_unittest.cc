@@ -6,30 +6,43 @@
 
 #include <stddef.h>
 
+#include <map>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/path_service.h"
+#include "base/run_loop.h"
 #include "base/stl_util.h"
+#include "base/strings/string16.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/test/scoped_feature_list.h"
 #include "base/time/time.h"
 #include "base/version.h"
+#include "chrome/browser/extensions/extension_service.h"
+#include "chrome/browser/extensions/extension_service_test_base.h"
+#include "chrome/common/chrome_features.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/extensions/manifest_handlers/app_launch_info.h"
 #include "chrome/common/extensions/manifest_handlers/linked_app_icons.h"
 #include "chrome/common/web_application_info.h"
+#include "components/services/app_service/public/cpp/file_handler.h"
 #include "components/services/app_service/public/cpp/file_handler_info.h"
+#include "extensions/browser/extension_system.h"
 #include "extensions/common/extension.h"
 #include "extensions/common/extension_icon_set.h"
 #include "extensions/common/extension_resource.h"
 #include "extensions/common/manifest_constants.h"
 #include "extensions/common/manifest_handlers/file_handler_info.h"
 #include "extensions/common/manifest_handlers/icons_handler.h"
+#include "extensions/common/manifest_handlers/web_app_file_handler.h"
+#include "extensions/common/manifest_handlers/web_app_linked_shortcut_items.h"
+#include "extensions/common/manifest_handlers/web_app_shortcut_icons_handler.h"
 #include "extensions/common/permissions/permission_set.h"
 #include "extensions/common/permissions/permissions_data.h"
 #include "extensions/common/url_pattern.h"
@@ -91,10 +104,41 @@ base::Time GetTestTime(int year, int month, int day, int hour, int minute,
 
 }  // namespace
 
-TEST(ExtensionFromWebApp, GetScopeURLFromBookmarkApp) {
-  base::ScopedTempDir extensions_dir;
-  ASSERT_TRUE(extensions_dir.CreateUniqueTempDir());
+class ExtensionFromWebApp : public extensions::ExtensionServiceTestBase {
+ public:
+  void SetUp() override {
+    extensions::ExtensionServiceTestBase::SetUp();
+    ASSERT_TRUE(extensions_dir_.CreateUniqueTempDir());
+  }
 
+  void StartExtensionService() {
+    InitializeEmptyExtensionService();
+    service()->Init();
+    base::RunLoop().RunUntilIdle();
+    ASSERT_TRUE(ExtensionSystem::Get(service()->profile())->is_ready());
+  }
+
+  const base::FilePath& ExtensionPath() const {
+    return extensions_dir_.GetPath();
+  }
+
+ private:
+  base::ScopedTempDir extensions_dir_;
+};
+
+class ExtensionFromWebAppWithShortcutsMenu : public ExtensionFromWebApp {
+ public:
+  ExtensionFromWebAppWithShortcutsMenu() {
+    scoped_feature_list.InitAndEnableFeature(
+        features::kDesktopPWAsAppIconShortcutsMenu);
+  }
+
+ private:
+  base::test::ScopedFeatureList scoped_feature_list;
+};
+
+TEST_F(ExtensionFromWebApp, GetScopeURLFromBookmarkApp) {
+  StartExtensionService();
   base::DictionaryValue manifest;
   manifest.SetString(keys::kName, "Test App");
   manifest.SetString(keys::kVersion, "0");
@@ -115,17 +159,15 @@ TEST(ExtensionFromWebApp, GetScopeURLFromBookmarkApp) {
 
   std::string error;
   scoped_refptr<Extension> bookmark_app =
-      Extension::Create(extensions_dir.GetPath(), Manifest::INTERNAL, manifest,
+      Extension::Create(ExtensionPath(), Manifest::INTERNAL, manifest,
                         Extension::FROM_BOOKMARK, &error);
   ASSERT_TRUE(bookmark_app.get());
 
   EXPECT_EQ(scope_url, GetScopeURLFromBookmarkApp(bookmark_app.get()));
 }
 
-TEST(ExtensionFromWebApp, GetScopeURLFromBookmarkApp_NoURLHandlers) {
-  base::ScopedTempDir extensions_dir;
-  ASSERT_TRUE(extensions_dir.CreateUniqueTempDir());
-
+TEST_F(ExtensionFromWebApp, GetScopeURLFromBookmarkApp_NoURLHandlers) {
+  StartExtensionService();
   base::DictionaryValue manifest;
   manifest.SetString(keys::kName, "Test App");
   manifest.SetString(keys::kVersion, "0");
@@ -135,17 +177,15 @@ TEST(ExtensionFromWebApp, GetScopeURLFromBookmarkApp_NoURLHandlers) {
 
   std::string error;
   scoped_refptr<Extension> bookmark_app =
-      Extension::Create(extensions_dir.GetPath(), Manifest::INTERNAL, manifest,
+      Extension::Create(ExtensionPath(), Manifest::INTERNAL, manifest,
                         Extension::FROM_BOOKMARK, &error);
   ASSERT_TRUE(bookmark_app.get());
 
   EXPECT_EQ(GURL(), GetScopeURLFromBookmarkApp(bookmark_app.get()));
 }
 
-TEST(ExtensionFromWebApp, GetScopeURLFromBookmarkApp_WrongURLHandler) {
-  base::ScopedTempDir extensions_dir;
-  ASSERT_TRUE(extensions_dir.CreateUniqueTempDir());
-
+TEST_F(ExtensionFromWebApp, GetScopeURLFromBookmarkApp_WrongURLHandler) {
+  StartExtensionService();
   base::DictionaryValue manifest;
   manifest.SetString(keys::kName, "Test App");
   manifest.SetString(keys::kVersion, "0");
@@ -172,17 +212,15 @@ TEST(ExtensionFromWebApp, GetScopeURLFromBookmarkApp_WrongURLHandler) {
 
   std::string error;
   scoped_refptr<Extension> bookmark_app =
-      Extension::Create(extensions_dir.GetPath(), Manifest::INTERNAL, manifest,
+      Extension::Create(ExtensionPath(), Manifest::INTERNAL, manifest,
                         Extension::FROM_BOOKMARK, &error);
   ASSERT_TRUE(bookmark_app.get());
 
   EXPECT_EQ(GURL(), GetScopeURLFromBookmarkApp(bookmark_app.get()));
 }
 
-TEST(ExtensionFromWebApp, GetScopeURLFromBookmarkApp_ExtraURLHandler) {
-  base::ScopedTempDir extensions_dir;
-  ASSERT_TRUE(extensions_dir.CreateUniqueTempDir());
-
+TEST_F(ExtensionFromWebApp, GetScopeURLFromBookmarkApp_ExtraURLHandler) {
+  StartExtensionService();
   base::DictionaryValue manifest;
   manifest.SetString(keys::kName, "Test App");
   manifest.SetString(keys::kVersion, "0");
@@ -217,7 +255,7 @@ TEST(ExtensionFromWebApp, GetScopeURLFromBookmarkApp_ExtraURLHandler) {
 
   std::string error;
   scoped_refptr<Extension> bookmark_app =
-      Extension::Create(extensions_dir.GetPath(), Manifest::INTERNAL, manifest,
+      Extension::Create(ExtensionPath(), Manifest::INTERNAL, manifest,
                         Extension::FROM_BOOKMARK, &error);
   ASSERT_TRUE(bookmark_app.get());
 
@@ -226,7 +264,8 @@ TEST(ExtensionFromWebApp, GetScopeURLFromBookmarkApp_ExtraURLHandler) {
   EXPECT_EQ(scope_url, GetScopeURLFromBookmarkApp(bookmark_app.get()));
 }
 
-TEST(ExtensionFromWebApp, GenerateVersion) {
+TEST_F(ExtensionFromWebApp, GenerateVersion) {
+  StartExtensionService();
   EXPECT_EQ("2010.1.1.0",
             ConvertTimeToExtensionVersion(
                 GetTestTime(2010, 1, 1, 0, 0, 0, 0)));
@@ -238,10 +277,8 @@ TEST(ExtensionFromWebApp, GenerateVersion) {
                 GetTestTime(2010, 10, 1, 23, 59, 59, 999)));
 }
 
-TEST(ExtensionFromWebApp, Basic) {
-  base::ScopedTempDir extensions_dir;
-  ASSERT_TRUE(extensions_dir.CreateUniqueTempDir());
-
+TEST_F(ExtensionFromWebApp, Basic) {
+  StartExtensionService();
   WebApplicationInfo web_app;
   web_app.title = base::ASCIIToUTF16("Gearpad");
   web_app.description =
@@ -256,11 +293,11 @@ TEST(ExtensionFromWebApp, Basic) {
         web_app.app_url.Resolve(base::StringPrintf("%i.png", sizes[i]));
     icon_info.square_size_px = sizes[i];
     web_app.icon_infos.push_back(std::move(icon_info));
-    web_app.icon_bitmaps[sizes[i]] = GetIconBitmap(sizes[i]);
+    web_app.icon_bitmaps_any[sizes[i]] = GetIconBitmap(sizes[i]);
   }
 
   scoped_refptr<Extension> extension = ConvertWebAppToExtension(
-      web_app, GetTestTime(1978, 12, 11, 0, 0, 0, 0), extensions_dir.GetPath(),
+      web_app, GetTestTime(1978, 12, 11, 0, 0, 0, 0), ExtensionPath(),
       Extension::NO_FLAGS, Manifest::INTERNAL);
   ASSERT_TRUE(extension.get());
 
@@ -297,9 +334,10 @@ TEST(ExtensionFromWebApp, Basic) {
     EXPECT_EQ(web_app.icon_infos[i].square_size_px, linked_icons.icons[i].size);
   }
 
-  EXPECT_EQ(web_app.icon_bitmaps.size(),
+  EXPECT_EQ(web_app.icon_bitmaps_any.size(),
             IconsInfo::GetIcons(extension.get()).map().size());
-  for (const std::pair<SquareSizePx, SkBitmap>& icon : web_app.icon_bitmaps) {
+  for (const std::pair<const SquareSizePx, SkBitmap>& icon :
+       web_app.icon_bitmaps_any) {
     int size = icon.first;
     EXPECT_EQ(base::StringPrintf("icons/%i.png", size),
               IconsInfo::GetIcons(extension.get())
@@ -311,16 +349,14 @@ TEST(ExtensionFromWebApp, Basic) {
   }
 }
 
-TEST(ExtensionFromWebApp, Minimal) {
-  base::ScopedTempDir extensions_dir;
-  ASSERT_TRUE(extensions_dir.CreateUniqueTempDir());
-
+TEST_F(ExtensionFromWebApp, Minimal) {
+  StartExtensionService();
   WebApplicationInfo web_app;
   web_app.title = base::ASCIIToUTF16("Gearpad");
   web_app.app_url = GURL("http://aaronboodman.com/gearpad/");
 
   scoped_refptr<Extension> extension = ConvertWebAppToExtension(
-      web_app, GetTestTime(1978, 12, 11, 0, 0, 0, 0), extensions_dir.GetPath(),
+      web_app, GetTestTime(1978, 12, 11, 0, 0, 0, 0), ExtensionPath(),
       Extension::NO_FLAGS, Manifest::INTERNAL);
   ASSERT_TRUE(extension.get());
 
@@ -351,16 +387,14 @@ TEST(ExtensionFromWebApp, Minimal) {
   ASSERT_EQ(0u, extension->web_extent().patterns().size());
 }
 
-TEST(ExtensionFromWebApp, ExtraInstallationFlags) {
-  base::ScopedTempDir extensions_dir;
-  ASSERT_TRUE(extensions_dir.CreateUniqueTempDir());
-
+TEST_F(ExtensionFromWebApp, ExtraInstallationFlags) {
+  StartExtensionService();
   WebApplicationInfo web_app;
   web_app.title = base::ASCIIToUTF16("Gearpad");
   web_app.app_url = GURL("http://aaronboodman.com/gearpad/");
 
   scoped_refptr<Extension> extension = ConvertWebAppToExtension(
-      web_app, GetTestTime(1978, 12, 11, 0, 0, 0, 0), extensions_dir.GetPath(),
+      web_app, GetTestTime(1978, 12, 11, 0, 0, 0, 0), ExtensionPath(),
       Extension::FROM_WEBSTORE | Extension::WAS_INSTALLED_BY_OEM,
       Manifest::INTERNAL);
   ASSERT_TRUE(extension.get());
@@ -376,16 +410,14 @@ TEST(ExtensionFromWebApp, ExtraInstallationFlags) {
   EXPECT_EQ(Manifest::INTERNAL, extension->location());
 }
 
-TEST(ExtensionFromWebApp, ExternalPolicyLocation) {
-  base::ScopedTempDir extensions_dir;
-  ASSERT_TRUE(extensions_dir.CreateUniqueTempDir());
-
+TEST_F(ExtensionFromWebApp, ExternalPolicyLocation) {
+  StartExtensionService();
   WebApplicationInfo web_app;
   web_app.title = base::ASCIIToUTF16("Gearpad");
   web_app.app_url = GURL("http://aaronboodman.com/gearpad/");
 
   scoped_refptr<Extension> extension = ConvertWebAppToExtension(
-      web_app, GetTestTime(1978, 12, 11, 0, 0, 0, 0), extensions_dir.GetPath(),
+      web_app, GetTestTime(1978, 12, 11, 0, 0, 0, 0), ExtensionPath(),
       Extension::NO_FLAGS, Manifest::EXTERNAL_POLICY);
   ASSERT_TRUE(extension.get());
 
@@ -400,10 +432,8 @@ TEST(ExtensionFromWebApp, ExternalPolicyLocation) {
 // Tests that a scope not ending in "/" works correctly.
 // The tested behavior is unexpected but is working correctly according
 // to the Web Manifest spec. https://github.com/w3c/manifest/issues/554
-TEST(ExtensionFromWebApp, ScopeDoesNotEndInSlash) {
-  base::ScopedTempDir extensions_dir;
-  ASSERT_TRUE(extensions_dir.CreateUniqueTempDir());
-
+TEST_F(ExtensionFromWebApp, ScopeDoesNotEndInSlash) {
+  StartExtensionService();
   WebApplicationInfo web_app;
   web_app.title = base::ASCIIToUTF16("Gearpad");
   web_app.description =
@@ -412,7 +442,7 @@ TEST(ExtensionFromWebApp, ScopeDoesNotEndInSlash) {
   web_app.scope = GURL("http://aaronboodman.com/gear");
 
   scoped_refptr<Extension> extension = ConvertWebAppToExtension(
-      web_app, GetTestTime(1978, 12, 11, 0, 0, 0, 0), extensions_dir.GetPath(),
+      web_app, GetTestTime(1978, 12, 11, 0, 0, 0, 0), ExtensionPath(),
       Extension::NO_FLAGS, Manifest::INTERNAL);
   ASSERT_TRUE(extension.get());
   EXPECT_EQ(web_app.scope, GetScopeURLFromBookmarkApp(extension.get()));
@@ -420,10 +450,8 @@ TEST(ExtensionFromWebApp, ScopeDoesNotEndInSlash) {
 
 // Tests that |file_handler| on the WebAppManifest is correctly converted
 // to |file_handlers| on an extension manifest.
-TEST(ExtensionFromWebApp, FileHandlersAreCorrectlyConverted) {
-  base::ScopedTempDir extensions_dir;
-  ASSERT_TRUE(extensions_dir.CreateUniqueTempDir());
-
+TEST_F(ExtensionFromWebApp, FileHandlersAreCorrectlyConverted) {
+  StartExtensionService();
   WebApplicationInfo web_app;
   web_app.title = base::ASCIIToUTF16("Graphr");
   web_app.description = base::ASCIIToUTF16("A magical graphy thing");
@@ -449,35 +477,186 @@ TEST(ExtensionFromWebApp, FileHandlersAreCorrectlyConverted) {
   }
 
   scoped_refptr<Extension> extension = ConvertWebAppToExtension(
-      web_app, GetTestTime(1978, 12, 11, 0, 0, 0, 0), extensions_dir.GetPath(),
+      web_app, GetTestTime(1978, 12, 11, 0, 0, 0, 0), ExtensionPath(),
       Extension::NO_FLAGS, Manifest::INTERNAL);
 
   ASSERT_TRUE(extension.get());
 
-  const std::vector<apps::FileHandlerInfo> file_handler_info =
-      *extensions::FileHandlers::GetFileHandlers(extension.get());
+  const std::vector<apps::FileHandlerInfo>* file_handler_infos =
+      extensions::FileHandlers::GetFileHandlers(extension.get());
 
-  EXPECT_EQ(2u, file_handler_info.size());
+  ASSERT_TRUE(file_handler_infos);
+  EXPECT_EQ(2u, file_handler_infos->size());
 
-  EXPECT_EQ("https://graphr.n/open-graph/", file_handler_info[0].id);
-  EXPECT_FALSE(file_handler_info[0].include_directories);
-  EXPECT_EQ(apps::file_handler_verbs::kOpenWith, file_handler_info[0].verb);
-  // Extensions should contain SVG, and only SVG
-  EXPECT_THAT(file_handler_info[0].extensions,
-              testing::UnorderedElementsAre("svg"));
-  // Mime types should contain text/svg+xml and only text/svg+xml
-  EXPECT_THAT(file_handler_info[0].types,
-              testing::UnorderedElementsAre("text/svg+xml"));
+  {
+    const apps::FileHandlerInfo& info = file_handler_infos->at(0);
+    EXPECT_EQ("https://graphr.n/open-graph/", info.id);
+    EXPECT_FALSE(info.include_directories);
+    EXPECT_EQ(apps::file_handler_verbs::kOpenWith, info.verb);
+    // Extensions should contain SVG, and only SVG
+    EXPECT_THAT(info.extensions, testing::UnorderedElementsAre("svg"));
+    // Mime types should contain text/svg+xml and only text/svg+xml
+    EXPECT_THAT(info.types, testing::UnorderedElementsAre("text/svg+xml"));
+  }
+  {
+    const apps::FileHandlerInfo& info = file_handler_infos->at(1);
+    EXPECT_EQ("https://graphr.n/open-raw/", info.id);
+    EXPECT_FALSE(info.include_directories);
+    EXPECT_EQ(apps::file_handler_verbs::kOpenWith, info.verb);
+    // Extensions should contain csv, and only csv
+    EXPECT_THAT(info.extensions, testing::UnorderedElementsAre("csv"));
+    // Mime types should contain text/csv and only text/csv
+    EXPECT_THAT(info.types, testing::UnorderedElementsAre("text/csv"));
+  }
+}
 
-  EXPECT_EQ("https://graphr.n/open-raw/", file_handler_info[1].id);
-  EXPECT_FALSE(file_handler_info[1].include_directories);
-  EXPECT_EQ(apps::file_handler_verbs::kOpenWith, file_handler_info[1].verb);
-  // Extensions should contain csv, and only csv
-  EXPECT_THAT(file_handler_info[1].extensions,
-              testing::UnorderedElementsAre("csv"));
-  // Mime types should contain text/csv and only text/csv
-  EXPECT_THAT(file_handler_info[1].types,
-              testing::UnorderedElementsAre("text/csv"));
+// Tests that |file_handler| on the WebAppManifest is correctly converted
+// to |web_app_file_handlers| on an extension manifest.
+TEST_F(ExtensionFromWebApp, WebAppFileHandlersAreCorrectlyConverted) {
+  StartExtensionService();
+  WebApplicationInfo web_app;
+  web_app.title = base::ASCIIToUTF16("Graphr");
+  web_app.description = base::ASCIIToUTF16("A magical graphy thing.");
+  web_app.app_url = GURL("https://graphr.n/");
+  web_app.scope = GURL("https://graphr.n");
+
+  {
+    blink::Manifest::FileHandler file_handler;
+    file_handler.action = GURL("https://graphr.n/open-graph/");
+    file_handler.name = base::ASCIIToUTF16("Graph");
+    file_handler.accept[base::ASCIIToUTF16("text/svg+xml")].push_back(
+        base::ASCIIToUTF16(""));
+    file_handler.accept[base::ASCIIToUTF16("text/svg+xml")].push_back(
+        base::ASCIIToUTF16(".svg"));
+    web_app.file_handlers.push_back(file_handler);
+  }
+  {
+    blink::Manifest::FileHandler file_handler;
+    file_handler.action = GURL("https://graphr.n/open-raw/");
+    file_handler.name = base::ASCIIToUTF16("Raw");
+    file_handler.accept[base::ASCIIToUTF16("text/csv")].push_back(
+        base::ASCIIToUTF16(".csv"));
+    web_app.file_handlers.push_back(file_handler);
+  }
+
+  scoped_refptr<Extension> extension = ConvertWebAppToExtension(
+      web_app, GetTestTime(1978, 12, 11, 0, 0, 0, 0), ExtensionPath(),
+      Extension::NO_FLAGS, Manifest::INTERNAL);
+
+  ASSERT_TRUE(extension.get());
+
+  const apps::FileHandlers* file_handlers =
+      extensions::WebAppFileHandlers::GetWebAppFileHandlers(extension.get());
+
+  ASSERT_TRUE(file_handlers);
+  EXPECT_EQ(2u, file_handlers->size());
+
+  {
+    const apps::FileHandler& file_handler = file_handlers->at(0);
+    EXPECT_EQ("https://graphr.n/open-graph/", file_handler.action);
+    EXPECT_EQ(1u, file_handler.accept.size());
+    EXPECT_EQ("text/svg+xml", file_handler.accept[0].mime_type);
+    EXPECT_THAT(file_handler.accept[0].file_extensions,
+                testing::UnorderedElementsAre(".svg"));
+  }
+  {
+    const apps::FileHandler& file_handler = file_handlers->at(1);
+    EXPECT_EQ("https://graphr.n/open-raw/", file_handler.action);
+    EXPECT_EQ(1u, file_handler.accept.size());
+    EXPECT_EQ("text/csv", file_handler.accept[0].mime_type);
+    EXPECT_THAT(file_handler.accept[0].file_extensions,
+                testing::UnorderedElementsAre(".csv"));
+  }
+}
+
+// Tests that |shortcuts_menu_item_infos| on the WebAppManifest is correctly
+// converted to |web_app_shortcut_icons| and |web_app_linked_shortcut_items| on
+// an extension manifest.
+TEST_F(ExtensionFromWebAppWithShortcutsMenu,
+       WebAppShortcutIconsAreCorrectlyConverted) {
+  StartExtensionService();
+  WebApplicationInfo web_app;
+  WebApplicationShortcutsMenuItemInfo shortcut_item;
+  std::map<SquareSizePx, SkBitmap> shortcut_icon_bitmaps;
+  web_app.title = base::ASCIIToUTF16("Shortcut App");
+  web_app.description = base::ASCIIToUTF16("We have shortcuts.");
+  web_app.app_url = GURL("https://shortcut-app.io/");
+  web_app.scope = GURL("https://shortcut-app.io");
+
+  shortcut_item.name = base::ASCIIToUTF16("Shortcut 1");
+  shortcut_item.url = GURL("https://shortcut-app.io/shortcuts/shortcut1");
+  {
+    const int sizes[] = {16, 128};
+    for (const auto& size : sizes) {
+      WebApplicationShortcutsMenuItemInfo::Icon icon_info;
+      icon_info.url =
+          web_app.app_url.Resolve(base::StringPrintf("shortcut1/%i.png", size));
+      icon_info.square_size_px = size;
+      shortcut_item.shortcut_icon_infos.push_back(std::move(icon_info));
+      shortcut_icon_bitmaps[size] = GetIconBitmap(size);
+    }
+    web_app.shortcuts_menu_icons_bitmaps.emplace_back(
+        std::move(shortcut_icon_bitmaps));
+  }
+  web_app.shortcuts_menu_item_infos.push_back(std::move(shortcut_item));
+
+  shortcut_item.name = base::ASCIIToUTF16("Shortcut 2");
+  shortcut_item.url = GURL("https://shortcut-app.io/shortcuts/shortcut2");
+  {
+    const int sizes[] = {16, 48};
+    for (const auto& size : sizes) {
+      WebApplicationShortcutsMenuItemInfo::Icon icon_info;
+      icon_info.url =
+          web_app.app_url.Resolve(base::StringPrintf("0/%i.png", size));
+      icon_info.square_size_px = size;
+      shortcut_item.shortcut_icon_infos.push_back(std::move(icon_info));
+      shortcut_icon_bitmaps[size] = GetIconBitmap(size);
+    }
+    web_app.shortcuts_menu_icons_bitmaps.emplace_back(
+        std::move(shortcut_icon_bitmaps));
+  }
+  web_app.shortcuts_menu_item_infos.push_back(std::move(shortcut_item));
+
+  scoped_refptr<Extension> extension = ConvertWebAppToExtension(
+      web_app, GetTestTime(1978, 12, 11, 0, 0, 0, 0), ExtensionPath(),
+      Extension::FROM_BOOKMARK, Manifest::INTERNAL);
+
+  ASSERT_TRUE(extension.get());
+
+  const WebAppLinkedShortcutItems& linked_shortcut_items =
+      WebAppLinkedShortcutItems::GetWebAppLinkedShortcutItems(extension.get());
+  const std::map<int, ExtensionIconSet>& shortcut_icons =
+      WebAppShortcutIconsInfo::GetShortcutIcons(extension.get());
+  for (size_t i = 0; i < web_app.shortcuts_menu_item_infos.size(); ++i) {
+    const std::vector<WebApplicationShortcutsMenuItemInfo::Icon>& icon_infos =
+        web_app.shortcuts_menu_item_infos[i].shortcut_icon_infos;
+    const std::vector<WebAppLinkedShortcutItems::ShortcutItemInfo::IconInfo>&
+        linked_shortcut_icons_info =
+            linked_shortcut_items.shortcut_item_infos[i]
+                .shortcut_item_icon_infos;
+    ASSERT_EQ(icon_infos.size(), linked_shortcut_icons_info.size());
+    for (size_t j = 0; j < icon_infos.size(); ++j) {
+      EXPECT_EQ(linked_shortcut_icons_info[j].url, icon_infos[j].url);
+      EXPECT_EQ(linked_shortcut_icons_info[j].size,
+                icon_infos[j].square_size_px);
+    }
+
+    const std::map<SquareSizePx, SkBitmap>& icon_bitmaps =
+        web_app.shortcuts_menu_icons_bitmaps[i];
+    EXPECT_EQ(icon_bitmaps.size(), shortcut_icons.at(i).map().size());
+    for (const std::pair<const SquareSizePx, SkBitmap>& icon : icon_bitmaps) {
+      int size = icon.first;
+      EXPECT_EQ(
+          base::StringPrintf("shortcut_icons/%i/%i.png", static_cast<int>(i),
+                             size),
+          shortcut_icons.at(i).Get(size, ExtensionIconSet::MATCH_EXACTLY));
+
+      ExtensionResource resource = WebAppShortcutIconsInfo::GetIconResource(
+          extension.get(), i, size, ExtensionIconSet::MATCH_EXACTLY);
+      EXPECT_TRUE(base::PathExists(resource.GetFilePath()));
+      ASSERT_TRUE(!resource.empty());
+    }
+  }
 }
 
 }  // namespace extensions

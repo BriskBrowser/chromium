@@ -9,6 +9,7 @@
 #include "base/files/scoped_temp_dir.h"
 #include "base/run_loop.h"
 #include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
 #include "base/test/bind_test_util.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
@@ -22,6 +23,7 @@
 #include "components/games/core/proto/games_catalog.pb.h"
 #include "components/games/core/proto/highlighted_games.pb.h"
 #include "components/games/core/test/test_utils.h"
+#include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -68,13 +70,14 @@ class GamesServiceBrowserTest : public PlatformBrowserTest {
   void ExpectGetHighlightedGame(const Game& expected_game,
                                 ResponseCode expected_code) {
     base::RunLoop run_loop;
-    games_service()->GetHighlightedGame(
+    games_service()->SetHighlightedGameCallback(
         base::BindLambdaForTesting([&expected_game, &expected_code, &run_loop](
                                        ResponseCode code, const Game game) {
           EXPECT_EQ(expected_code, code);
           test::ExpectProtosEqual(expected_game, game);
           run_loop.Quit();
         }));
+    games_service()->GenerateHub();
     run_loop.Run();
   }
 
@@ -91,13 +94,11 @@ class GamesServiceBrowserTest : public PlatformBrowserTest {
     // restrictions (no blocking calls on the thread executing the tests).
     base::RunLoop run_loop;
     bool write_file_success = false;
-    base::PostTask(FROM_HERE, {base::ThreadPool(), base::MayBlock()},
-                   base::BindLambdaForTesting([&]() {
-                     write_file_success =
-                         base::WriteFile(file_path, string_data.data(),
-                                         string_data.size()) != -1;
-                     run_loop.Quit();
-                   }));
+    base::ThreadPool::PostTask(
+        FROM_HERE, {base::MayBlock()}, base::BindLambdaForTesting([&]() {
+          write_file_success = base::WriteFile(file_path, string_data);
+          run_loop.Quit();
+        }));
     run_loop.Run();
 
     ASSERT_TRUE(write_file_success);
@@ -113,7 +114,7 @@ class GamesServiceBrowserTest : public PlatformBrowserTest {
 
 IN_PROC_BROWSER_TEST_F(GamesServiceBrowserTest,
                        GetHighlightedGame_NoComponent) {
-  ExpectGetHighlightedGameFailure(ResponseCode::kFileNotFound);
+  ExpectGetHighlightedGameFailure(ResponseCode::kComponentNotInstalled);
 }
 
 IN_PROC_BROWSER_TEST_F(GamesServiceBrowserTest,

@@ -28,7 +28,6 @@ import android.os.Build;
 import android.text.TextUtils;
 import android.util.Base64;
 
-import androidx.annotation.Nullable;
 import androidx.annotation.VisibleForTesting;
 
 import org.chromium.base.ApiCompatibilityUtils;
@@ -40,21 +39,25 @@ import org.chromium.base.annotations.CalledByNative;
 import org.chromium.base.annotations.NativeMethods;
 import org.chromium.base.task.AsyncTask;
 import org.chromium.chrome.R;
-import org.chromium.chrome.browser.favicon.RoundedIconGenerator;
-import org.chromium.chrome.browser.tab.Tab;
+import org.chromium.chrome.browser.browserservices.BrowserServicesIntentDataProvider;
+import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.webapps.WebDisplayMode;
 import org.chromium.chrome.browser.webapps.WebappActivity;
 import org.chromium.chrome.browser.webapps.WebappAuthenticator;
 import org.chromium.chrome.browser.webapps.WebappDataStorage;
-import org.chromium.chrome.browser.webapps.WebappInfo;
+import org.chromium.chrome.browser.webapps.WebappIntentDataProviderFactory;
 import org.chromium.chrome.browser.webapps.WebappLauncherActivity;
 import org.chromium.chrome.browser.webapps.WebappRegistry;
+import org.chromium.components.browser_ui.widget.RoundedIconGenerator;
+import org.chromium.components.webapk.lib.client.WebApkValidator;
 import org.chromium.content_public.common.ScreenOrientationConstants;
+import org.chromium.ui.base.ViewUtils;
 import org.chromium.ui.widget.Toast;
-import org.chromium.webapk.lib.client.WebApkValidator;
 
 import java.io.ByteArrayOutputStream;
 import java.util.List;
+import java.util.Locale;
+import java.util.Set;
 
 /**
  * This class contains functions related to adding shortcuts to the Android Home
@@ -133,6 +136,8 @@ public class ShortcutHelper {
 
     private static final float MASKABLE_ICON_PADDING_RATIO =
             (MASKABLE_TO_ADAPTIVE_SCALING_FACTOR - 1.0f) / 2.0f;
+
+    private static final float SHORTCUT_ICON_IDEAL_SIZE_DP = 48;
 
     // True when Android O's ShortcutManager.requestPinShortcut() is supported.
     private static boolean sIsRequestPinShortcutSupported;
@@ -224,10 +229,11 @@ public class ShortcutHelper {
                 // process is complete, call back to native code to start the splash image
                 // download.
                 WebappRegistry.getInstance().register(id, storage -> {
-                    WebappInfo webappInfo = WebappInfo.create(resultIntent);
-                    assert webappInfo != null;
-                    if (webappInfo != null) {
-                        storage.updateFromWebappInfo(webappInfo);
+                    BrowserServicesIntentDataProvider intentDataProvider =
+                            WebappIntentDataProviderFactory.create(resultIntent);
+                    assert intentDataProvider != null;
+                    if (intentDataProvider != null) {
+                        storage.updateFromWebappIntentDataProvider(intentDataProvider);
                         if (callbackPointer != 0) {
                             ShortcutHelperJni.get().onWebappDataStored(callbackPointer);
                         }
@@ -244,10 +250,9 @@ public class ShortcutHelper {
     /**
      * Adds home screen shortcut which opens in the browser Activity.
      */
-    @SuppressWarnings("unused")
     @CalledByNative
-    public static void addShortcut(@Nullable Tab tab, String id, String url, String userTitle,
-            Bitmap icon, boolean isIconAdaptive, int source, String iconUrl) {
+    public static void addShortcut(String id, String url, String userTitle, Bitmap icon,
+            boolean isIconAdaptive, int source, String iconUrl) {
         Intent shortcutIntent = createShortcutIntent(url);
         shortcutIntent.putExtra(EXTRA_ID, id);
         shortcutIntent.putExtra(EXTRA_SOURCE, source);
@@ -556,8 +561,8 @@ public class ShortcutHelper {
         int cornerRadius = Math.round(ICON_CORNER_RADIUS_RATIO * outerSize);
         int fontSize = Math.round(GENERATED_ICON_FONT_SIZE_RATIO * outerSize);
         int color = Color.rgb(red, green, blue);
-        RoundedIconGenerator generator = new RoundedIconGenerator(
-                innerSize, innerSize, cornerRadius, color, fontSize);
+        RoundedIconGenerator generator =
+                new RoundedIconGenerator(innerSize, innerSize, cornerRadius, color, fontSize);
         Bitmap icon = generator.generateIconForUrl(url);
         if (icon == null) return null; // Bookmark URL does not have a domain.
         canvas.drawBitmap(icon, padding, padding, null);
@@ -572,6 +577,34 @@ public class ShortcutHelper {
     @CalledByNative
     private static String queryFirstWebApkPackage(String url) {
         return WebApkValidator.queryFirstWebApkPackage(ContextUtils.getApplicationContext(), url);
+    }
+
+    /**
+     * Returns true if there is a WebAPK installed that sits within {@link origin}, and false
+     * otherwise.
+     */
+    @CalledByNative
+    @VisibleForTesting
+    public static boolean doesOriginContainAnyInstalledWebApk(String origin) {
+        return WebappRegistry.getInstance().hasAtLeastOneWebApkForOrigin(
+                origin.toLowerCase(Locale.getDefault()));
+    }
+    /**
+     * Returns true if there is a TWA installed that sits within {@link origin}, and false
+     * otherwise.
+     */
+    @CalledByNative
+    @VisibleForTesting
+    public static boolean doesOriginContainAnyInstalledTwa(String origin) {
+        return WebappRegistry.getInstance().getTrustedWebActivityPermissionStore().isTwaInstalled(
+                origin.toLowerCase(Locale.getDefault()));
+    }
+
+    @CalledByNative
+    static String[] getOriginsWithInstalledWebApksOrTwas() {
+        Set<String> originSet = WebappRegistry.getInstance().getOriginsWithInstalledApp();
+        String[] output = new String[originSet.size()];
+        return originSet.toArray(output);
     }
 
     /**
@@ -642,12 +675,12 @@ public class ShortcutHelper {
     }
 
     /**
-     * Returns the ideal size for a badge icon of a WebAPK.
+     * Returns the ideal size for a monochrome icon of a WebAPK.
      * @param context Context to pull resources from.
-     * @return the dimensions in pixels which the badge icon should have.
+     * @return the dimensions in pixels which the monochrome icon should have.
      */
-    public static int getIdealBadgeIconSizeInPx(Context context) {
-        return getSizeFromResourceInPx(context, R.dimen.webapk_badge_icon_size);
+    public static int getIdealMonochromeIconSizeInPx(Context context) {
+        return getSizeFromResourceInPx(context, R.dimen.webapk_monochrome_icon_size);
     }
 
     /**
@@ -706,13 +739,14 @@ public class ShortcutHelper {
      * icon and the ideal and minimum sizes of the splash screen image in that order.
      */
     @CalledByNative
-    private static int[] getHomeScreenIconAndSplashImageSizes() {
+    private static int[] getIconSizes() {
         Context context = ContextUtils.getApplicationContext();
         // This ordering must be kept up to date with the C++ ShortcutHelper.
         return new int[] {getIdealHomescreenIconSizeInPx(context),
                 getMinimumHomescreenIconSizeInPx(context), getIdealSplashImageSizeInPx(context),
-                getMinimumSplashImageSizeInPx(context), getIdealBadgeIconSizeInPx(context),
-                getIdealAdaptiveLauncherIconSizeInPx(context)};
+                getMinimumSplashImageSizeInPx(context), getIdealMonochromeIconSizeInPx(context),
+                getIdealAdaptiveLauncherIconSizeInPx(context),
+                ViewUtils.dpToPx(context, SHORTCUT_ICON_IDEAL_SIZE_DP)};
     }
 
     /**

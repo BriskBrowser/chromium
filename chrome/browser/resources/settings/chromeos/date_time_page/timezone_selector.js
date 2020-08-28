@@ -5,13 +5,11 @@
 /**
  * @fileoverview 'timezone-selector' is the time zone selector dropdown.
  */
-(function() {
-'use strict';
 
 Polymer({
   is: 'timezone-selector',
 
-  behaviors: [I18nBehavior, PrefsBehavior],
+  behaviors: [PrefsBehavior],
 
   properties: {
     /**
@@ -20,6 +18,15 @@ Polymer({
      */
     activeTimeZoneDisplayName: {
       type: String,
+      notify: true,
+    },
+
+    /**
+     * True if the account is supervised and doesn't get parent access code
+     * verification.
+     */
+    shouldDisableTimeZoneGeoSelector: {
+      type: Boolean,
       notify: true,
     },
 
@@ -170,4 +177,3 @@ Polymer({
         prefResolveOnOffValue;
   },
 });
-})();

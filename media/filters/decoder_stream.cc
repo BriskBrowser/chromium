@@ -79,7 +79,8 @@ const char* GetPrepareTraceString<DemuxerStream::AUDIO>() {
 }
 
 template <DemuxerStream::Type StreamType>
-const char* GetStatusString(typename DecoderStream<StreamType>::Status status) {
+const char* GetStatusString(
+    typename DecoderStream<StreamType>::ReadStatus status) {
   switch (status) {
     case DecoderStream<StreamType>::OK:
       return "okay";
@@ -90,6 +91,9 @@ const char* GetStatusString(typename DecoderStream<StreamType>::Status status) {
     case DecoderStream<StreamType>::DECODE_ERROR:
       return "decode_error";
   }
+
+  NOTREACHED();
+  return "";
 }
 
 template <DemuxerStream::Type StreamType>
@@ -245,7 +249,7 @@ void DecoderStream<StreamType>::Reset(base::OnceClosure closure) {
   // it resets. |reset_cb_| will be fired in OnDecoderReset(), after the
   // decrypting demuxer stream finishes its reset.
   if (decrypting_demuxer_stream_) {
-    decrypting_demuxer_stream_->Reset(base::BindRepeating(
+    decrypting_demuxer_stream_->Reset(base::BindOnce(
         &DecoderStream<StreamType>::ResetDecoder, weak_factory_.GetWeakPtr()));
     return;
   }
@@ -274,11 +278,29 @@ bool DecoderStream<DemuxerStream::AUDIO>::CanReadWithoutStalling() const {
 
 template <DemuxerStream::Type StreamType>
 int DecoderStream<StreamType>::GetMaxDecodeRequests() const {
-  return decoder_->GetMaxDecodeRequests();
+  // The decoder is owned by |decoder_selector_| during reinitialization, so
+  // during that time we disallow decode requests.
+  return state_ != STATE_REINITIALIZING_DECODER
+             ? decoder_->GetMaxDecodeRequests()
+             : 0;
 }
 
 template <>
 int DecoderStream<DemuxerStream::AUDIO>::GetMaxDecodeRequests() const {
+  return 1;
+}
+
+template <DemuxerStream::Type StreamType>
+int DecoderStream<StreamType>::GetMaxReadyOutputs() const {
+  // The decoder is owned by |decoder_selector_| during reinitialization, so
+  // during that time we assume the minimum viable number of max ready outputs.
+  return state_ != STATE_REINITIALIZING_DECODER
+             ? decoder_->GetMaxDecodeRequests()
+             : 1;
+}
+
+template <>
+int DecoderStream<DemuxerStream::AUDIO>::GetMaxReadyOutputs() const {
   return 1;
 }
 
@@ -318,8 +340,8 @@ void DecoderStream<StreamType>::SkipPrepareUntil(
 template <DemuxerStream::Type StreamType>
 void DecoderStream<StreamType>::SelectDecoder() {
   decoder_selector_.SelectDecoder(
-      base::BindRepeating(&DecoderStream<StreamType>::OnDecoderSelected,
-                          weak_factory_.GetWeakPtr()),
+      base::BindOnce(&DecoderStream<StreamType>::OnDecoderSelected,
+                     weak_factory_.GetWeakPtr()),
       base::BindRepeating(&DecoderStream<StreamType>::OnDecodeOutputReady,
                           fallback_weak_factory_.GetWeakPtr()));
 }
@@ -339,8 +361,6 @@ void DecoderStream<StreamType>::OnDecoderSelected(
     DCHECK(init_cb_);
     DCHECK(!read_cb_);
     DCHECK(!reset_cb_);
-  } else if (state_ == STATE_REINITIALIZING_DECODER) {
-    DCHECK(decoder_);
   }
 
   auto* original_stream = stream_;
@@ -420,7 +440,7 @@ void DecoderStream<StreamType>::OnDecoderSelected(
 }
 
 template <DemuxerStream::Type StreamType>
-void DecoderStream<StreamType>::SatisfyRead(Status status,
+void DecoderStream<StreamType>::SatisfyRead(ReadStatus status,
                                             scoped_refptr<Output> output) {
   DCHECK(read_cb_);
   TRACE_EVENT_ASYNC_END1("media", GetReadTraceString<StreamType>(), this,
@@ -483,9 +503,9 @@ void DecoderStream<StreamType>::DecodeInternal(
   const int buffer_size = is_eos ? 0 : buffer->data_size();
   decoder_->Decode(
       std::move(buffer),
-      base::BindRepeating(&DecoderStream<StreamType>::OnDecodeDone,
-                          fallback_weak_factory_.GetWeakPtr(), buffer_size,
-                          decoding_eos_, base::Passed(&trace_event)));
+      base::BindOnce(&DecoderStream<StreamType>::OnDecodeDone,
+                     fallback_weak_factory_.GetWeakPtr(), buffer_size,
+                     decoding_eos_, base::Passed(&trace_event)));
 }
 
 template <DemuxerStream::Type StreamType>
@@ -821,39 +841,8 @@ void DecoderStream<StreamType>::ReinitializeDecoder() {
   DCHECK_EQ(pending_decode_requests_, 0);
 
   state_ = STATE_REINITIALIZING_DECODER;
-
-  // TODO(sandersd): Detect whether a new decoder is required before
-  // attempting reinitialization.
-  traits_->InitializeDecoder(
-      decoder_.get(), traits_->GetDecoderConfig(stream_),
-      stream_->liveness() == DemuxerStream::LIVENESS_LIVE, cdm_context_,
-      base::BindRepeating(&DecoderStream<StreamType>::OnDecoderReinitialized,
-                          weak_factory_.GetWeakPtr()),
-      base::BindRepeating(&DecoderStream<StreamType>::OnDecodeOutputReady,
-                          fallback_weak_factory_.GetWeakPtr()),
-      waiting_cb_);
-}
-
-template <DemuxerStream::Type StreamType>
-void DecoderStream<StreamType>::OnDecoderReinitialized(bool success) {
-  FUNCTION_DVLOG(2) << ": success = " << success;
-  DCHECK(task_runner_->BelongsToCurrentThread());
-  DCHECK_EQ(state_, STATE_REINITIALIZING_DECODER);
-
-  // ReinitializeDecoder() can be called in two cases:
-  // 1, Flushing decoder finished (see OnDecodeOutputReady()).
-  // 2, Reset() was called during flushing decoder (see OnDecoderReset()).
-  // Also, Reset() can be called during pending ReinitializeDecoder().
-  // This function needs to handle them all!
-
-  if (!success) {
-    // Reinitialization failed. Try to fall back to one of the remaining
-    // decoders. This will consume at least one decoder so doing it more than
-    // once is safe.
-    SelectDecoder();
-  } else {
-    CompleteDecoderReinitialization(true);
-  }
+  decoder_selector_.PrependDecoder(std::move(decoder_));
+  SelectDecoder();
 }
 
 template <DemuxerStream::Type StreamType>
@@ -903,8 +892,8 @@ void DecoderStream<StreamType>::ResetDecoder() {
       << state_;
   DCHECK(reset_cb_);
 
-  decoder_->Reset(base::BindRepeating(
-      &DecoderStream<StreamType>::OnDecoderReset, weak_factory_.GetWeakPtr()));
+  decoder_->Reset(base::BindOnce(&DecoderStream<StreamType>::OnDecoderReset,
+                                 weak_factory_.GetWeakPtr()));
 }
 
 template <DemuxerStream::Type StreamType>
@@ -958,7 +947,7 @@ void DecoderStream<StreamType>::MaybePrepareAnotherOutput() {
     return;
 
   // If there's too many ready outputs, we're done.
-  if (ready_outputs_.size() >= static_cast<size_t>(GetMaxDecodeRequests()))
+  if (ready_outputs_.size() >= static_cast<size_t>(GetMaxReadyOutputs()))
     return;
 
   // Retain a copy to avoid dangling reference in OnPreparedOutputReady().

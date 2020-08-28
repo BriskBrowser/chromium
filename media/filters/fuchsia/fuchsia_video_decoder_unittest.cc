@@ -11,8 +11,8 @@
 #include "base/bind_helpers.h"
 #include "base/containers/flat_map.h"
 #include "base/containers/flat_set.h"
-#include "base/fuchsia/default_context.h"
 #include "base/fuchsia/fuchsia_logging.h"
+#include "base/fuchsia/process_context.h"
 #include "base/test/task_environment.h"
 #include "components/viz/test/test_context_support.h"
 #include "gpu/command_buffer/client/shared_image_interface.h"
@@ -30,7 +30,7 @@ namespace {
 class TestBufferCollection {
  public:
   explicit TestBufferCollection(zx::channel collection_token) {
-    sysmem_allocator_ = base::fuchsia::ComponentContextForCurrentProcess()
+    sysmem_allocator_ = base::ComponentContextForProcess()
                             ->svc()
                             ->Connect<fuchsia::sysmem::Allocator>();
     sysmem_allocator_.set_error_handler([](zx_status_t status) {
@@ -85,7 +85,10 @@ class TestSharedImageInterface : public gpu::SharedImageInterface {
   gpu::Mailbox CreateSharedImage(viz::ResourceFormat format,
                                  const gfx::Size& size,
                                  const gfx::ColorSpace& color_space,
-                                 uint32_t usage) override {
+                                 GrSurfaceOrigin surface_origin,
+                                 SkAlphaType alpha_type,
+                                 uint32_t usage,
+                                 gpu::SurfaceHandle surface_handle) override {
     NOTREACHED();
     return gpu::Mailbox();
   }
@@ -94,6 +97,8 @@ class TestSharedImageInterface : public gpu::SharedImageInterface {
       viz::ResourceFormat format,
       const gfx::Size& size,
       const gfx::ColorSpace& color_space,
+      GrSurfaceOrigin surface_origin,
+      SkAlphaType alpha_type,
       uint32_t usage,
       base::span<const uint8_t> pixel_data) override {
     NOTREACHED();
@@ -104,6 +109,8 @@ class TestSharedImageInterface : public gpu::SharedImageInterface {
       gfx::GpuMemoryBuffer* gpu_memory_buffer,
       gpu::GpuMemoryBufferManager* gpu_memory_buffer_manager,
       const gfx::ColorSpace& color_space,
+      GrSurfaceOrigin surface_origin,
+      SkAlphaType alpha_type,
       uint32_t usage) override {
     gfx::GpuMemoryBufferHandle handle = gpu_memory_buffer->CloneHandle();
     CHECK_EQ(handle.type, gfx::GpuMemoryBufferType::NATIVE_PIXMAP);
@@ -137,6 +144,8 @@ class TestSharedImageInterface : public gpu::SharedImageInterface {
   SwapChainMailboxes CreateSwapChain(viz::ResourceFormat format,
                                      const gfx::Size& size,
                                      const gfx::ColorSpace& color_space,
+                                     GrSurfaceOrigin surface_origin,
+                                     SkAlphaType alpha_type,
                                      uint32_t usage) override {
     NOTREACHED();
     return SwapChainMailboxes();
@@ -147,7 +156,11 @@ class TestSharedImageInterface : public gpu::SharedImageInterface {
   }
 
   void RegisterSysmemBufferCollection(gfx::SysmemBufferCollectionId id,
-                                      zx::channel token) override {
+                                      zx::channel token,
+                                      gfx::BufferFormat format,
+                                      gfx::BufferUsage usage) override {
+    EXPECT_EQ(format, gfx::BufferFormat::YUV_420_BIPLANAR);
+    EXPECT_EQ(usage, gfx::BufferUsage::GPU_READ);
     std::unique_ptr<TestBufferCollection>& collection =
         sysmem_buffer_collections_[id];
     EXPECT_FALSE(collection);
@@ -165,6 +178,10 @@ class TestSharedImageInterface : public gpu::SharedImageInterface {
   gpu::SyncToken GenUnverifiedSyncToken() override {
     return gpu::SyncToken(gpu::CommandBufferNamespace::GPU_IO,
                           gpu::CommandBufferId(33), 1);
+  }
+
+  void WaitSyncToken(const gpu::SyncToken& sync_token) override {
+    NOTREACHED();
   }
 
   void Flush() override { NOTREACHED(); }
@@ -200,8 +217,8 @@ class FuchsiaVideoDecoderTest : public testing::Test {
     decoder_->Initialize(
         config, true, /*cdm_context=*/nullptr,
         base::BindRepeating(
-            [](bool* init_cb_result, base::RunLoop* run_loop, bool result) {
-              *init_cb_result = result;
+            [](bool* init_cb_result, base::RunLoop* run_loop, Status status) {
+              *init_cb_result = status.is_ok();
               run_loop->Quit();
             },
             &init_cb_result, &run_loop),

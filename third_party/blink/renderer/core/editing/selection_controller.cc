@@ -34,13 +34,13 @@
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/dom/events/event.h"
 #include "third_party/blink/renderer/core/dom/node_computed_style.h"
+#include "third_party/blink/renderer/core/editing/bidi_adjustment.h"
 #include "third_party/blink/renderer/core/editing/editing_behavior.h"
 #include "third_party/blink/renderer/core/editing/editing_boundary.h"
 #include "third_party/blink/renderer/core/editing/editing_utilities.h"
 #include "third_party/blink/renderer/core/editing/editor.h"
 #include "third_party/blink/renderer/core/editing/ephemeral_range.h"
 #include "third_party/blink/renderer/core/editing/frame_selection.h"
-#include "third_party/blink/renderer/core/editing/inline_box_traversal.h"
 #include "third_party/blink/renderer/core/editing/iterators/text_iterator.h"
 #include "third_party/blink/renderer/core/editing/markers/document_marker_controller.h"
 #include "third_party/blink/renderer/core/editing/selection_template.h"
@@ -48,6 +48,7 @@
 #include "third_party/blink/renderer/core/editing/spellcheck/spell_checker.h"
 #include "third_party/blink/renderer/core/editing/suggestion/text_suggestion_controller.h"
 #include "third_party/blink/renderer/core/editing/visible_position.h"
+#include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/frame/local_frame_client.h"
 #include "third_party/blink/renderer/core/frame/local_frame_view.h"
@@ -62,16 +63,17 @@
 namespace blink {
 
 SelectionController::SelectionController(LocalFrame& frame)
-    : frame_(&frame),
+    : ExecutionContextLifecycleObserver(frame.DomWindow()),
+      frame_(&frame),
       mouse_down_may_start_select_(false),
       mouse_down_was_single_click_in_selection_(false),
       mouse_down_allows_multi_click_(false),
       selection_state_(SelectionState::kHaveNotStartedSelection) {}
 
-void SelectionController::Trace(Visitor* visitor) {
+void SelectionController::Trace(Visitor* visitor) const {
   visitor->Trace(frame_);
   visitor->Trace(original_base_in_flat_tree_);
-  DocumentShutdownObserver::Trace(visitor);
+  ExecutionContextLifecycleObserver::Trace(visitor);
 }
 
 namespace {
@@ -123,8 +125,9 @@ bool CanMouseDownStartSelect(Node* node) {
 PositionInFlatTreeWithAffinity PositionWithAffinityOfHitTestResult(
     const HitTestResult& hit_test_result) {
   return FromPositionInDOMTree<EditingInFlatTreeStrategy>(
-      hit_test_result.InnerNode()->GetLayoutObject()->PositionForPoint(
-          hit_test_result.LocalPoint()));
+      hit_test_result.InnerPossiblyPseudoNode()
+          ->GetLayoutObject()
+          ->PositionForPoint(hit_test_result.LocalPoint()));
 }
 
 DocumentMarker* SpellCheckMarkerAtPosition(
@@ -167,7 +170,7 @@ Document& SelectionController::GetDocument() const {
   return *frame_->GetDocument();
 }
 
-void SelectionController::ContextDestroyed(Document*) {
+void SelectionController::ContextDestroyed() {
   original_base_in_flat_tree_ = PositionInFlatTreeWithAffinity();
 }
 
@@ -311,8 +314,9 @@ bool SelectionController::HandleSingleClick(
 
   DCHECK(!frame_->GetDocument()->NeedsLayoutTreeUpdate());
   Node* inner_node = event.InnerNode();
-  if (!(inner_node && inner_node->GetLayoutObject() &&
-        mouse_down_may_start_select_))
+  Node* inner_pseudo = event.GetHitTestResult().InnerPossiblyPseudoNode();
+  if (!(inner_node && inner_node->GetLayoutObject() && inner_pseudo &&
+        inner_pseudo->GetLayoutObject() && mouse_down_may_start_select_))
     return false;
 
   // Extend the selection if the Shift key is down, unless the click is in a
@@ -477,13 +481,13 @@ void SelectionController::UpdateSelectionForMouseDrag(
   if (!mouse_down_may_start_select_)
     return;
 
-  Node* target = hit_test_result.InnerNode();
+  Node* target = hit_test_result.InnerPossiblyPseudoNode();
   if (!target)
     return;
 
   // TODO(editing-dev): Use of UpdateStyleAndLayout
   // needs to be audited.  See http://crbug.com/590369 for more details.
-  frame_->GetDocument()->UpdateStyleAndLayout();
+  frame_->GetDocument()->UpdateStyleAndLayout(DocumentUpdateReason::kSelection);
 
   const PositionWithAffinity& raw_target_position =
       Selection().SelectionHasFocus()
@@ -581,7 +585,7 @@ bool SelectionController::UpdateSelectionForMouseDownDispatchingSelectStart(
 
   // TODO(editing-dev): Use of UpdateStyleAndLayout
   // needs to be audited.  See http://crbug.com/590369 for more details.
-  GetDocument().UpdateStyleAndLayout();
+  GetDocument().UpdateStyleAndLayout(DocumentUpdateReason::kSelection);
   const SelectionInFlatTree visible_selection =
       CreateVisibleSelection(selection).AsSelection();
 
@@ -602,7 +606,7 @@ bool SelectionController::SelectClosestWordFromHitTestResult(
     const HitTestResult& result,
     AppendTrailingWhitespace append_trailing_whitespace,
     SelectInputEventType select_input_event_type) {
-  Node* const inner_node = result.InnerNode();
+  Node* const inner_node = result.InnerPossiblyPseudoNode();
 
   if (!inner_node || !inner_node->GetLayoutObject() ||
       !inner_node->GetLayoutObject()->IsSelectable())
@@ -615,8 +619,8 @@ bool SelectionController::SelectClosestWordFromHitTestResult(
   HitTestResult adjusted_hit_test_result = result;
   if (select_input_event_type == SelectInputEventType::kTouch &&
       result.GetImage()) {
-    adjusted_hit_test_result.SetNodeAndPosition(result.InnerNode(),
-                                                PhysicalOffset());
+    adjusted_hit_test_result.SetNodeAndPosition(
+        result.InnerPossiblyPseudoNode(), PhysicalOffset());
   }
 
   const PositionInFlatTreeWithAffinity pos =
@@ -681,7 +685,7 @@ bool SelectionController::SelectClosestWordFromHitTestResult(
 void SelectionController::SelectClosestMisspellingFromHitTestResult(
     const HitTestResult& result,
     AppendTrailingWhitespace append_trailing_whitespace) {
-  Node* inner_node = result.InnerNode();
+  Node* inner_node = result.InnerPossiblyPseudoNode();
 
   if (!inner_node || !inner_node->GetLayoutObject())
     return;
@@ -730,55 +734,60 @@ void SelectionController::SelectClosestMisspellingFromHitTestResult(
           .Build());
 }
 
+template <typename MouseEventObject>
 bool SelectionController::SelectClosestWordFromMouseEvent(
-    const MouseEventWithHitTestResults& result) {
+    const MouseEventObject* mouse_event,
+    const HitTestResult& result) {
   if (!mouse_down_may_start_select_)
     return false;
 
   AppendTrailingWhitespace append_trailing_whitespace =
-      (result.Event().click_count == 2 &&
+      (mouse_event->ClickCount() == 2 &&
        frame_->GetEditor().IsSelectTrailingWhitespaceEnabled())
           ? AppendTrailingWhitespace::kShouldAppend
           : AppendTrailingWhitespace::kDontAppend;
 
   DCHECK(!frame_->GetDocument()->NeedsLayoutTreeUpdate());
 
-  return SelectClosestWordFromHitTestResult(
-      result.GetHitTestResult(), append_trailing_whitespace,
-      result.Event().FromTouch() ? SelectInputEventType::kTouch
-                                 : SelectInputEventType::kMouse);
+  return SelectClosestWordFromHitTestResult(result, append_trailing_whitespace,
+                                            mouse_event->FromTouch()
+                                                ? SelectInputEventType::kTouch
+                                                : SelectInputEventType::kMouse);
 }
 
+template <typename MouseEventObject>
 void SelectionController::SelectClosestMisspellingFromMouseEvent(
-    const MouseEventWithHitTestResults& result) {
+    const MouseEventObject* mouse_event,
+    const HitTestResult& hit_test_result) {
   if (!mouse_down_may_start_select_)
     return;
 
   SelectClosestMisspellingFromHitTestResult(
-      result.GetHitTestResult(),
-      (result.Event().click_count == 2 &&
-       frame_->GetEditor().IsSelectTrailingWhitespaceEnabled())
-          ? AppendTrailingWhitespace::kShouldAppend
-          : AppendTrailingWhitespace::kDontAppend);
+      hit_test_result, (mouse_event->ClickCount() == 2 &&
+                        frame_->GetEditor().IsSelectTrailingWhitespaceEnabled())
+                           ? AppendTrailingWhitespace::kShouldAppend
+                           : AppendTrailingWhitespace::kDontAppend);
 }
 
+template <typename MouseEventObject>
 void SelectionController::SelectClosestWordOrLinkFromMouseEvent(
-    const MouseEventWithHitTestResults& result) {
-  if (!result.GetHitTestResult().IsLiveLink()) {
-    SelectClosestWordFromMouseEvent(result);
+    const MouseEventObject* mouse_event,
+    const HitTestResult& hit_test_result) {
+  if (!hit_test_result.IsLiveLink()) {
+    SelectClosestWordFromMouseEvent(mouse_event, hit_test_result);
     return;
   }
 
-  Node* const inner_node = result.InnerNode();
+  Node* const inner_node = hit_test_result.InnerNode();
 
   if (!inner_node || !inner_node->GetLayoutObject() ||
       !mouse_down_may_start_select_)
     return;
 
-  Element* url_element = result.GetHitTestResult().URLElement();
+  Element* url_element = hit_test_result.URLElement();
   const PositionInFlatTreeWithAffinity pos =
       CreateVisiblePosition(
-          PositionWithAffinityOfHitTestResult(result.GetHitTestResult()))
+          PositionWithAffinityOfHitTestResult(hit_test_result))
           .ToPositionWithAffinity();
   const SelectionInFlatTree& new_selection =
       pos.IsNotNull() && pos.AnchorNode()->IsDescendantOf(url_element)
@@ -830,7 +839,7 @@ void SelectionController::SetNonDirectionalSelectionIfNeeded(
   if (adjusted_selection.Base() != base.GetPosition() ||
       adjusted_selection.Extent() != extent.GetPosition()) {
     original_base_in_flat_tree_ = base;
-    SetContext(&GetDocument());
+    SetExecutionContext(frame_->DomWindow());
     builder.SetBaseAndExtent(adjusted_selection.Base(),
                              adjusted_selection.Extent());
   } else if (original_base.IsNotNull()) {
@@ -871,7 +880,7 @@ void SelectionController::SetNonDirectionalSelectionIfNeeded(
 
 void SelectionController::SetCaretAtHitTestResult(
     const HitTestResult& hit_test_result) {
-  Node* inner_node = hit_test_result.InnerNode();
+  Node* inner_node = hit_test_result.InnerPossiblyPseudoNode();
   DCHECK(inner_node);
   const PositionInFlatTreeWithAffinity visible_hit_pos =
       CreateVisiblePosition(
@@ -921,7 +930,8 @@ bool SelectionController::HandleDoubleClick(
     selection_state_ = SelectionState::kExtendedSelection;
     return true;
   }
-  if (!SelectClosestWordFromMouseEvent(event))
+  if (!SelectClosestWordFromMouseEvent(&event.Event(),
+                                       event.GetHitTestResult()))
     return true;
   if (!Selection().IsHandleVisible())
     return true;
@@ -947,8 +957,9 @@ bool SelectionController::HandleTripleClick(
     return false;
 
   Node* const inner_node = event.InnerNode();
-  if (!(inner_node && inner_node->GetLayoutObject() &&
-        mouse_down_may_start_select_))
+  Node* inner_pseudo = event.GetHitTestResult().InnerPossiblyPseudoNode();
+  if (!(inner_node && inner_node->GetLayoutObject() && inner_pseudo &&
+        inner_pseudo->GetLayoutObject() && mouse_down_may_start_select_))
     return false;
 
   const PositionInFlatTreeWithAffinity pos =
@@ -1078,7 +1089,8 @@ bool SelectionController::HandleMouseReleaseEvent(
       event.Event().button != WebPointerProperties::Button::kRight) {
     // TODO(editing-dev): Use of UpdateStyleAndLayout
     // needs to be audited.  See http://crbug.com/590369 for more details.
-    frame_->GetDocument()->UpdateStyleAndLayout();
+    frame_->GetDocument()->UpdateStyleAndLayout(
+        DocumentUpdateReason::kSelection);
 
     SelectionInFlatTree::Builder builder;
     Node* node = event.InnerNode();
@@ -1133,7 +1145,7 @@ bool SelectionController::HandlePasteGlobalSelection(
   // down then the text is pasted just before the onclick handler runs and
   // clears the text box. So it's important this happens after the event
   // handlers have been fired.
-  if (mouse_event.GetType() != WebInputEvent::kMouseUp)
+  if (mouse_event.GetType() != WebInputEvent::Type::kMouseUp)
     return false;
 
   if (!frame_->GetPage())
@@ -1156,7 +1168,7 @@ bool SelectionController::HandleGestureLongPress(
   if (hit_test_result.IsLiveLink())
     return false;
 
-  Node* inner_node = hit_test_result.InnerNode();
+  Node* inner_node = hit_test_result.InnerPossiblyPseudoNode();
   inner_node->GetDocument().UpdateStyleAndLayoutTree();
   bool inner_node_is_selectable = HasEditableStyle(*inner_node) ||
                                   inner_node->IsTextNode() ||
@@ -1182,15 +1194,8 @@ void SelectionController::HandleGestureTwoFingerTap(
   SetCaretAtHitTestResult(targeted_event.GetHitTestResult());
 }
 
-void SelectionController::HandleGestureLongTap(
-    const GestureEventWithHitTestResults& targeted_event) {
-  TRACE_EVENT0("blink", "SelectionController::handleGestureLongTap");
-
-  SetCaretAtHitTestResult(targeted_event.GetHitTestResult());
-}
-
 static bool HitTestResultIsMisspelled(const HitTestResult& result) {
-  Node* inner_node = result.InnerNode();
+  Node* inner_node = result.InnerPossiblyPseudoNode();
   if (!inner_node || !inner_node->GetLayoutObject())
     return false;
   PositionWithAffinity pos_with_affinity =
@@ -1206,12 +1211,14 @@ static bool HitTestResultIsMisspelled(const HitTestResult& result) {
                                     ToPositionInFlatTree(marker_position));
 }
 
-void SelectionController::SendContextMenuEvent(
-    const MouseEventWithHitTestResults& mev,
+template <typename MouseEventObject>
+void SelectionController::UpdateSelectionForContextMenuEvent(
+    const MouseEventObject* mouse_event,
+    const HitTestResult& hit_test_result,
     const PhysicalOffset& position) {
   if (!Selection().IsAvailable())
     return;
-  if (Selection().Contains(position) || mev.GetScrollbar() ||
+  if (Selection().Contains(position) || hit_test_result.GetScrollbar() ||
       // FIXME: In the editable case, word selection sometimes selects content
       // that isn't underneath the mouse.
       // If the selection is non-editable, we do word selection to make it
@@ -1220,28 +1227,30 @@ void SelectionController::SendContextMenuEvent(
       !(Selection()
             .ComputeVisibleSelectionInDOMTreeDeprecated()
             .IsContentEditable() ||
-        (mev.InnerNode() && mev.InnerNode()->IsTextNode())))
+        (hit_test_result.InnerNode() &&
+         hit_test_result.InnerNode()->IsTextNode())))
     return;
 
   // Context menu events are always allowed to perform a selection.
   base::AutoReset<bool> mouse_down_may_start_select_change(
       &mouse_down_may_start_select_, true);
 
-  if (mev.Event().menu_source_type != kMenuSourceTouchHandle &&
-      HitTestResultIsMisspelled(mev.GetHitTestResult()))
-    return SelectClosestMisspellingFromMouseEvent(mev);
+  if (mouse_event->GetMenuSourceType() != kMenuSourceTouchHandle &&
+      HitTestResultIsMisspelled(hit_test_result)) {
+    return SelectClosestMisspellingFromMouseEvent(mouse_event, hit_test_result);
+  }
 
   if (!frame_->GetEditor().Behavior().ShouldSelectOnContextualMenuClick())
     return;
 
-  SelectClosestWordOrLinkFromMouseEvent(mev);
+  SelectClosestWordOrLinkFromMouseEvent(mouse_event, hit_test_result);
 }
 
 void SelectionController::PassMousePressEventToSubframe(
     const MouseEventWithHitTestResults& mev) {
   // TODO(editing-dev): The use of UpdateStyleAndLayout
   // needs to be audited.  See http://crbug.com/590369 for more details.
-  frame_->GetDocument()->UpdateStyleAndLayout();
+  frame_->GetDocument()->UpdateStyleAndLayout(DocumentUpdateReason::kInput);
 
   // If we're clicking into a frame that is selected, the frame will appear
   // greyed out even though we're clicking on the selection.  This looks
@@ -1335,5 +1344,8 @@ bool IsExtendingSelection(const MouseEventWithHitTestResults& event) {
              0 &&
          !is_mouse_down_on_link_or_image && !IsUserNodeDraggable(event);
 }
+
+template void SelectionController::UpdateSelectionForContextMenuEvent<
+    MouseEvent>(const MouseEvent*, const HitTestResult&, const PhysicalOffset&);
 
 }  // namespace blink

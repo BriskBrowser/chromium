@@ -15,14 +15,11 @@ you find, either:
   the top of the file) and set an appropriate expiration milestone;
 
 - **If it is not in use:** delete it from `kFeatureEntries` in
-  [`chrome/browser/about_flags.cc`](https://cs.chromium.org/chromium/src/chrome/browser/about_flags.cc?sq=package:chromium&g=0&l=1319).
+  [`chrome/browser/about_flags.cc`](https://cs.chromium.org/chromium/src/chrome/browser/about_flags.cc?sq=package:chromium&g=0&l=1319) or 
+  [`ios/chrome/browser/about_flags.mm`](https://cs.chromium.org/chromium/src/ios/chrome/browser/about_flags.mm) for iOS.
   Remember to file a cleanup bug to remove code paths that become dead. It is
   not necessary to delete the corresponding entry in `flag-metadata.json` as it
   will be cleaned up for you in the future.
-
-All existing flags have been set to expire in M76 (~6 months from now). At that
-time, every flag with no owners will be hardcoded to behave as though it was
-always its default value and will be removed from the `chrome://flags` UI.
 
 ## Wait, What Are You Doing?
 
@@ -47,7 +44,7 @@ controlled via
 ## I Don't Want My Flag To Expire!
 
 Some flags do not control UI features, but rather are commonly-used debugging
-controls, such as `ignore-gpu-blacklist`. For these flags, see the instructions
+controls, such as `ignore-gpu-blocklist`. For these flags, see the instructions
 at the head of `flag-metadata.json`. Please be very judicious about
 never-expiring flags, since they represent ongoing engineering, test and support
 burden. The flags team will probably only approve your non-expiring flag if:

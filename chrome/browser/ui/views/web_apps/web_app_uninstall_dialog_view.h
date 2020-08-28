@@ -17,7 +17,7 @@
 #include "chrome/browser/ui/web_applications/web_app_uninstall_dialog.h"
 #include "chrome/browser/web_applications/components/app_registrar.h"
 #include "chrome/browser/web_applications/components/app_registrar_observer.h"
-#include "chrome/browser/web_applications/components/web_app_helpers.h"
+#include "chrome/browser/web_applications/components/web_app_id.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "ui/gfx/image/image_skia.h"
 #include "ui/gfx/native_widget_types.h"
@@ -47,32 +47,31 @@ class WebAppUninstallDialogDelegateView : public views::DialogDelegateView {
       const WebAppUninstallDialogDelegateView&) = delete;
   ~WebAppUninstallDialogDelegateView() override;
 
+  void ProcessAutoConfirmValue();
+
  private:
   // views::DialogDelegateView:
-  bool Accept() override;
-  bool Cancel() override;
   gfx::Size CalculatePreferredSize() const override;
 
   // views::WidgetDelegate:
   ui::ModalType GetModalType() const override;
-  base::string16 GetWindowTitle() const override;
   gfx::ImageSkia GetWindowIcon() override;
   bool ShouldShowWindowIcon() const override;
-  bool ShouldShowCloseButton() const override;
 
   // Uninstalls the web app. Returns true on success.
   bool Uninstall();
   void ClearWebAppSiteData();
-  void ProcessAutoConfirmValue();
+
+  void OnDialogAccepted();
+  void OnDialogCanceled();
 
   WebAppUninstallDialogViews* dialog_;
-  base::string16 app_name_;
 
   views::Checkbox* checkbox_ = nullptr;
   gfx::ImageSkia image_;
 
   // The web app we are showing the dialog for.
-  web_app::AppId app_id_;
+  const web_app::AppId app_id_;
   // The dialog needs launch_url copy even if app gets uninstalled.
   GURL app_launch_url_;
 
@@ -106,7 +105,7 @@ class WebAppUninstallDialogViews : public web_app::WebAppUninstallDialog,
   void OnWebAppUninstalled(const web_app::AppId& app_id) override;
   void OnAppRegistrarDestroyed() override;
 
-  void OnAllIconsRead(std::map<SquareSizePx, SkBitmap> icon_bitmaps);
+  void OnIconsRead(std::map<SquareSizePx, SkBitmap> icon_bitmaps);
 
   // The dialog's parent window.
   const gfx::NativeWindow parent_;

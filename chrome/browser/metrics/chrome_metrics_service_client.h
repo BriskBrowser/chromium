@@ -12,7 +12,6 @@
 #include <string>
 
 #include "base/callback.h"
-#include "base/containers/circular_deque.h"
 #include "base/gtest_prod_util.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
@@ -20,6 +19,7 @@
 #include "build/build_config.h"
 #include "chrome/browser/metrics/incognito_observer.h"
 #include "chrome/browser/metrics/metrics_memory_details.h"
+#include "chrome/browser/privacy_budget/identifiability_study_state.h"
 #include "components/metrics/file_metrics_provider.h"
 #include "components/metrics/metrics_log_uploader.h"
 #include "components/metrics/metrics_service_client.h"
@@ -67,7 +67,6 @@ class ChromeMetricsServiceClient : public metrics::MetricsServiceClient,
   metrics::SystemProfileProto::Channel GetChannel() override;
   std::string GetVersionString() override;
   void OnEnvironmentUpdate(std::string* serialized_environment) override;
-  void OnLogCleanShutdown() override;
   void CollectFinalMetricsForLog(base::OnceClosure done_callback) override;
   std::unique_ptr<metrics::MetricsLogUploader> CreateUploader(
       const GURL& server_url,
@@ -88,6 +87,7 @@ class ChromeMetricsServiceClient : public metrics::MetricsServiceClient,
   std::string GetUploadSigningKey() override;
   static void SetNotificationListenerSetupFailedForTesting(
       bool simulate_failure);
+  bool ShouldResetClientIdsOnClonedInstall() override;
 
   // ukm::HistoryDeleteObserver:
   void OnHistoryDeleted() override;
@@ -162,6 +162,9 @@ class ChromeMetricsServiceClient : public metrics::MetricsServiceClient,
 
   SEQUENCE_CHECKER(sequence_checker_);
 
+  // Chrome's privacy budget identifiability study state.
+  std::unique_ptr<IdentifiabilityStudyState> identifiability_study_state_;
+
   // Weak pointer to the MetricsStateManager.
   metrics::MetricsStateManager* const metrics_state_manager_;
 
@@ -193,10 +196,6 @@ class ChromeMetricsServiceClient : public metrics::MetricsServiceClient,
   // MetricsService. Has the same lifetime as |metrics_service_|.
   PluginMetricsProvider* plugin_metrics_provider_ = nullptr;
 #endif
-
-  // Callback to determine whether or not a cellular network is currently being
-  // used.
-  base::Callback<void(bool*)> cellular_callback_;
 
   // Subscription for receiving callbacks that a URL was opened from the
   // omnibox.

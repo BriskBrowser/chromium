@@ -25,20 +25,12 @@ class AccessibilityFeatureDisableDialog : public views::DialogDelegateView {
                                     base::OnceClosure on_cancel_callback);
   ~AccessibilityFeatureDisableDialog() override;
 
-  // views::DialogDelegateView:
-  bool Cancel() override;
-  bool Accept() override;
-  ui::ModalType GetModalType() const override;
-  base::string16 GetWindowTitle() const override;
-
   base::WeakPtr<AccessibilityFeatureDisableDialog> GetWeakPtr();
 
   // views::View:
   const char* GetClassName() const override;
 
  private:
-  const base::string16 window_title_;
-  base::OnceClosure on_accept_callback_;
   base::OnceClosure on_cancel_callback_;
 
   base::WeakPtrFactory<AccessibilityFeatureDisableDialog> weak_ptr_factory_{

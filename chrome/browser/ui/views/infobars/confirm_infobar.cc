@@ -8,7 +8,6 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/logging.h"
 #include "build/build_config.h"
 #include "chrome/browser/infobars/infobar_service.h"
 #include "chrome/browser/ui/views/chrome_layout_provider.h"
@@ -120,8 +119,8 @@ ConfirmInfoBarDelegate* ConfirmInfoBar::GetDelegate() {
 
 views::MdTextButton* ConfirmInfoBar::CreateButton(
     ConfirmInfoBarDelegate::InfoBarButton type) {
-  auto button =
-      views::MdTextButton::Create(this, GetDelegate()->GetButtonLabel(type));
+  auto button = std::make_unique<views::MdTextButton>(
+      this, GetDelegate()->GetButtonLabel(type));
   button->SetProperty(
       views::kMarginsKey,
       gfx::Insets(ChromeLayoutProvider::Get()->GetDistanceMetric(

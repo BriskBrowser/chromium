@@ -23,6 +23,7 @@
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/ui_test_utils.h"
 #include "components/ukm/test_ukm_recorder.h"
+#include "content/public/test/browser_test.h"
 #include "content/public/test/web_contents_tester.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
 #include "services/metrics/public/cpp/ukm_builders.h"
@@ -56,7 +57,7 @@ const UkmMetricMap kBasicMetricValues({
 
 // These parameters don't affect logging.
 const bool kCheckNavigationSuccess = true;
-const int64_t kIdShift = 1 << 13;
+const int64_t kIdShift = 1 << 16;
 
 }  // namespace
 

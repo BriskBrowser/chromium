@@ -7,6 +7,8 @@
 #include <memory>
 
 #include "base/bind.h"
+#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/command_line.h"
 #include "base/location.h"
 #include "base/logging.h"
@@ -19,16 +21,18 @@
 #include "chrome/browser/chromeos/login/startup_utils.h"
 #include "chrome/browser/chromeos/policy/browser_policy_connector_chromeos.h"
 #include "chrome/browser/chromeos/policy/device_cloud_policy_initializer.h"
-#include "chrome/browser/chromeos/policy/enrollment_status_chromeos.h"
 #include "chrome/browser/chromeos/policy/policy_oauth2_token_fetcher.h"
 #include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/net/system_network_context_manager.h"
+#include "chrome/browser/policy/enrollment_status.h"
 #include "chromeos/constants/chromeos_switches.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "components/policy/core/common/cloud/cloud_policy_constants.h"
 #include "components/policy/core/common/cloud/dm_auth.h"
+#include "components/policy/proto/device_management_backend.pb.h"
 #include "google_apis/gaia/gaia_auth_consumer.h"
 #include "google_apis/gaia/gaia_auth_fetcher.h"
+#include "google_apis/gaia/gaia_constants.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
 
 namespace {
@@ -75,8 +79,7 @@ namespace chromeos {
 EnterpriseEnrollmentHelperImpl::EnterpriseEnrollmentHelperImpl() {
   // Init the TPM if it has not been done until now (in debug build we might
   // have not done that yet).
-  CryptohomeClient::Get()->TpmCanAttemptOwnership(
-      EmptyVoidDBusMethodCallback());
+  CryptohomeClient::Get()->TpmCanAttemptOwnership(base::DoNothing());
 }
 
 EnterpriseEnrollmentHelperImpl::~EnterpriseEnrollmentHelperImpl() {
@@ -204,6 +207,21 @@ void EnterpriseEnrollmentHelperImpl::OnDeviceAccountClientError(
       FROM_HERE, device_account_initializer_.release());
 }
 
+enterprise_management::DeviceServiceApiAccessRequest::DeviceType
+EnterpriseEnrollmentHelperImpl::GetRobotAuthCodeDeviceType() {
+  return enterprise_management::DeviceServiceApiAccessRequest::CHROME_OS;
+}
+
+std::set<std::string> EnterpriseEnrollmentHelperImpl::GetRobotOAuthScopes() {
+  return {GaiaConstants::kAnyApiOAuth2Scope};
+}
+
+scoped_refptr<network::SharedURLLoaderFactory>
+EnterpriseEnrollmentHelperImpl::GetURLLoaderFactory() {
+  return g_browser_process->system_network_context_manager()
+      ->GetSharedURLLoaderFactory();
+}
+
 void EnterpriseEnrollmentHelperImpl::ClearAuth(base::OnceClosure callback) {
   if (oauth_status_ != OAUTH_NOT_STARTED) {
     if (oauth_fetcher_) {
@@ -235,6 +253,8 @@ void EnterpriseEnrollmentHelperImpl::DoEnroll(
              policy::EnrollmentConfig::MODE_OFFLINE_DEMO ||
          oauth_status_ == OAUTH_STARTED_WITH_AUTH_CODE ||
          oauth_status_ == OAUTH_STARTED_WITH_TOKEN);
+  VLOG(1) << "Enroll with token type: "
+          << static_cast<int>(auth_data->token_type());
   auth_data_ = std::move(auth_data);
   policy::BrowserPolicyConnectorChromeOS* connector =
       g_browser_process->platform_part()->browser_policy_connector_chromeos();
@@ -259,7 +279,7 @@ void EnterpriseEnrollmentHelperImpl::DoEnroll(
       enrollment_config_, auth_data_->Clone(),
       base::Bind(&EnterpriseEnrollmentHelperImpl::OnEnrollmentFinished,
                  weak_ptr_factory_.GetWeakPtr()));
-    dcp_initializer->StartEnrollment();
+  dcp_initializer->StartEnrollment();
 }
 
 void EnterpriseEnrollmentHelperImpl::GetDeviceAttributeUpdatePermission() {
@@ -277,7 +297,7 @@ void EnterpriseEnrollmentHelperImpl::GetDeviceAttributeUpdatePermission() {
 
   client->GetDeviceAttributeUpdatePermission(
       auth_data_->Clone(),
-      base::Bind(
+      base::BindOnce(
           &EnterpriseEnrollmentHelperImpl::OnDeviceAttributeUpdatePermission,
           weak_ptr_factory_.GetWeakPtr()));
 }
@@ -294,7 +314,7 @@ void EnterpriseEnrollmentHelperImpl::UpdateDeviceAttributes(
 
   client->UpdateDeviceAttributes(
       auth_data_->Clone(), asset_id, location,
-      base::Bind(
+      base::BindOnce(
           &EnterpriseEnrollmentHelperImpl::OnDeviceAttributeUploadCompleted,
           weak_ptr_factory_.GetWeakPtr()));
 }
@@ -314,6 +334,7 @@ void EnterpriseEnrollmentHelperImpl::OnTokenFetched(
 
 void EnterpriseEnrollmentHelperImpl::OnEnrollmentFinished(
     policy::EnrollmentStatus status) {
+  VLOG(1) << "Enrollment finished, status: " << status.status();
   ReportEnrollmentStatus(status);
   if (oauth_status_ != OAUTH_NOT_STARTED)
     oauth_status_ = OAUTH_FINISHED;
@@ -429,6 +450,14 @@ void EnterpriseEnrollmentHelperImpl::ReportEnrollmentStatus(
         case policy::DM_STATUS_SERVICE_CONSUMER_ACCOUNT_WITH_PACKAGED_LICENSE:
           UMA(policy::
                   kMetricEnrollmentRegisterConsumerAccountWithPackagedLicense);
+          break;
+        case policy::
+            DM_STATUS_SERVICE_ENTERPRISE_ACCOUNT_IS_NOT_ELIGIBLE_TO_ENROLL:
+          UMA(policy::
+                  kMetricEnrollmentRegisterEnterpriseAccountIsNotEligibleToEnroll);
+          break;
+        case policy::DM_STATUS_SERVICE_ENTERPRISE_TOS_HAS_NOT_BEEN_ACCEPTED:
+          UMA(policy::kMetricEnrollmentRegisterEnterpriseTosHasNotBeenAccepted);
           break;
       }
       break;

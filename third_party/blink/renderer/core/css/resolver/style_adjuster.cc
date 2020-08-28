@@ -50,10 +50,11 @@
 #include "third_party/blink/renderer/core/html/html_table_cell_element.h"
 #include "third_party/blink/renderer/core/html/media/html_media_element.h"
 #include "third_party/blink/renderer/core/html_names.h"
-#include "third_party/blink/renderer/core/layout/layout_list_marker.h"
+#include "third_party/blink/renderer/core/input_type_names.h"
 #include "third_party/blink/renderer/core/layout/layout_object.h"
 #include "third_party/blink/renderer/core/layout/layout_replaced.h"
 #include "third_party/blink/renderer/core/layout/layout_theme.h"
+#include "third_party/blink/renderer/core/layout/list_marker.h"
 #include "third_party/blink/renderer/core/style/computed_style.h"
 #include "third_party/blink/renderer/core/style/computed_style_constants.h"
 #include "third_party/blink/renderer/core/svg/svg_svg_element.h"
@@ -71,12 +72,45 @@ namespace {
 TouchAction AdjustTouchActionForElement(TouchAction touch_action,
                                         const ComputedStyle& style,
                                         Element* element) {
+  // if body is the viewport defining element then ScrollsOverflow should
+  // return false as body should have overflow-x/overflow-y set to visible
+  Element* body = element ? element->GetDocument().body() : nullptr;
+  bool is_body_and_viewport =
+      element && element == body &&
+      body == element->GetDocument().ViewportDefiningElement();
   bool is_child_document =
       element && element == element->GetDocument().documentElement() &&
       element->GetDocument().LocalOwner();
-  if (style.ScrollsOverflow() || is_child_document)
+  if ((!is_body_and_viewport && style.ScrollsOverflow()) || is_child_document)
     return touch_action | TouchAction::kPan;
   return touch_action;
+}
+
+void AdjustBackgroundForForcedColorsMode(StyleResolverState& state,
+                                         ComputedStyle& style,
+                                         Element* element) {
+  if (!element || !element->GetDocument().InForcedColorsMode() ||
+      style.ForcedColorAdjust() == EForcedColorAdjust::kNone)
+    return;
+
+  int bg_color_alpha =
+      LayoutObject::ResolveColor(style, GetCSSPropertyBackgroundColor())
+          .Alpha();
+  Color bg_color_rbg = StyleColor::ColorFromKeyword(
+      style.InternalForcedBackgroundColorRgb(), WebColorScheme::kLight);
+  StyleColor bg_color(Color(bg_color_rbg.Red(), bg_color_rbg.Green(),
+                            bg_color_rbg.Blue(), bg_color_alpha));
+  style.SetBackgroundColor(bg_color);
+}
+
+bool HostIsInputFile(const Element* element) {
+  if (!element || !element->IsInUserAgentShadowRoot())
+    return false;
+  if (const Element* shadow_host = element->OwnerShadowHost()) {
+    if (const auto* input = DynamicTo<HTMLInputElement>(shadow_host))
+      return input->type() == input_type_names::kFile;
+  }
+  return false;
 }
 
 }  // namespace
@@ -131,24 +165,28 @@ static bool IsOutermostSVGElement(const Element* element) {
   return svg_element && svg_element->IsOutermostSVGSVGElement();
 }
 
-static bool IsAtUAShadowBoundary(const Element* element) {
+static bool IsAtMediaUAShadowBoundary(const Element* element) {
   if (!element)
     return false;
-  if (ContainerNode* parent = element->parentNode())
-    return parent->IsShadowRoot() && To<ShadowRoot>(parent)->IsUserAgent();
+  if (ContainerNode* parent = element->parentNode()) {
+    if (auto* shadow_root = DynamicTo<ShadowRoot>(parent))
+      return shadow_root->host().IsMediaElement();
+  }
   return false;
 }
 
-// CSS requires text-decoration to be reset at each DOM element for
-// inline blocks, inline tables, UA shadow DOM crossings, floating elements,
-// and absolute or relatively positioned elements. Outermost <svg> roots are
-// considered to be atomic inline-level.
+// CSS requires text-decoration to be reset at each DOM element for inline
+// blocks, inline tables, floating elements, and absolute or relatively
+// positioned elements. Outermost <svg> roots are considered to be atomic
+// inline-level. Media elements have a special rendering where the media
+// controls do not use a proper containing block model which means we need
+// to manually stop text-decorations to apply to text inside media controls.
 static bool StopPropagateTextDecorations(const ComputedStyle& style,
                                          const Element* element) {
   return style.Display() == EDisplay::kInlineTable ||
          style.Display() == EDisplay::kInlineBlock ||
          style.Display() == EDisplay::kWebkitInlineBox ||
-         IsAtUAShadowBoundary(element) || style.IsFloating() ||
+         IsAtMediaUAShadowBoundary(element) || style.IsFloating() ||
          style.HasOutOfFlowPosition() || IsOutermostSVGElement(element) ||
          IsA<HTMLRTElement>(element);
 }
@@ -198,6 +236,14 @@ static void AdjustStyleForFirstLetter(ComputedStyle& style) {
   style.SetPosition(EPosition::kStatic);
 }
 
+static void AdjustStyleForFirstLine(ComputedStyle& style) {
+  if (style.StyleType() != kPseudoIdFirstLine)
+    return;
+
+  // Force inline display.
+  style.SetDisplay(EDisplay::kInline);
+}
+
 static void AdjustStyleForMarker(ComputedStyle& style,
                                  const ComputedStyle& parent_style,
                                  const Element& parent_element) {
@@ -210,13 +256,11 @@ static void AdjustStyleForMarker(ComputedStyle& style,
        !parent_style.IsInsideListElement());
 
   if (is_inside) {
-    auto margins = LayoutListMarker::InlineMarginsForInside(
-        style, parent_style.GeneratesMarkerImage());
+    auto margins = ListMarker::InlineMarginsForInside(style, parent_style);
     style.SetMarginStart(Length::Fixed(margins.first));
     style.SetMarginEnd(Length::Fixed(margins.second));
   } else {
     // Outside list markers should generate a block container.
-    DCHECK_EQ(style.Display(), EDisplay::kInline);
     style.SetDisplay(EDisplay::kInlineBlock);
 
     // Do not break inside the marker, and honor the trailing spaces.
@@ -396,25 +440,22 @@ void StyleAdjuster::AdjustOverflow(ComputedStyle& style) {
              style.OverflowX() != EOverflow::kVisible) {
     style.SetOverflowY(EOverflow::kAuto);
   }
-
-  // Menulists should have visible overflow
-  if (style.Appearance() == kMenulistPart) {
-    style.SetOverflowX(EOverflow::kVisible);
-    style.SetOverflowY(EOverflow::kVisible);
-  }
 }
 
 static void AdjustStyleForDisplay(ComputedStyle& style,
                                   const ComputedStyle& layout_parent_style,
+                                  const Element* element,
                                   Document* document) {
   // Blockify the children of flex, grid or LayoutCustom containers.
-  if (layout_parent_style.BlockifiesChildren()) {
+  if (layout_parent_style.BlockifiesChildren() && !HostIsInputFile(element)) {
     style.SetIsInBlockifyingDisplay();
     if (style.Display() != EDisplay::kContents) {
       style.SetDisplay(EquivalentBlockDisplay(style.Display()));
       if (!style.HasOutOfFlowPosition())
         style.SetIsFlexOrGridOrCustomItem();
     }
+    if (layout_parent_style.IsDisplayFlexibleOrGridBox())
+      style.SetIsFlexOrGridItem();
   }
 
   if (style.Display() == EDisplay::kBlock && !style.IsFloating())
@@ -430,18 +471,6 @@ static void AdjustStyleForDisplay(ComputedStyle& style,
       style.GetWritingMode() != layout_parent_style.GetWritingMode())
     style.SetDisplay(EDisplay::kInlineBlock);
 
-  // We do not honor position: relative or sticky for table rows, headers, and
-  // footers. This is correct for position: relative in CSS2.1 (and caused a
-  // crash in containingBlock() on some sites) and position: sticky is defined
-  // as following position: relative behavior for table elements. It is
-  // incorrect for CSS3.
-  if ((style.Display() == EDisplay::kTableHeaderGroup ||
-       style.Display() == EDisplay::kTableRowGroup ||
-       style.Display() == EDisplay::kTableFooterGroup ||
-       style.Display() == EDisplay::kTableRow) &&
-      style.HasInFlowPosition())
-    style.SetPosition(EPosition::kStatic);
-
   // Cannot support position: sticky for table columns and column groups because
   // current code is only doing background painting through columns / column
   // groups.
@@ -452,15 +481,12 @@ static void AdjustStyleForDisplay(ComputedStyle& style,
 
   // writing-mode does not apply to table row groups, table column groups, table
   // rows, and table columns.
-  // FIXME: Table cells should be allowed to be perpendicular or flipped with
-  // respect to the table, though.
   if (style.Display() == EDisplay::kTableColumn ||
       style.Display() == EDisplay::kTableColumnGroup ||
       style.Display() == EDisplay::kTableFooterGroup ||
       style.Display() == EDisplay::kTableHeaderGroup ||
       style.Display() == EDisplay::kTableRow ||
-      style.Display() == EDisplay::kTableRowGroup ||
-      style.Display() == EDisplay::kTableCell) {
+      style.Display() == EDisplay::kTableRowGroup) {
     style.SetWritingMode(layout_parent_style.GetWritingMode());
     style.UpdateFontOrientation();
   }
@@ -481,8 +507,6 @@ static void AdjustStyleForDisplay(ComputedStyle& style,
     style.SetUserModify(EUserModify::kReadOnly);
 
   if (layout_parent_style.IsDisplayFlexibleOrGridBox()) {
-    style.SetFloating(EFloat::kNone);
-
     // We want to count vertical percentage paddings/margins on flex items
     // because our current behavior is different from the spec and we want to
     // gather compatibility data.
@@ -504,10 +528,10 @@ static void AdjustEffectiveTouchAction(ComputedStyle& style,
                                        bool is_svg_root) {
   TouchAction inherited_action = parent_style.GetEffectiveTouchAction();
 
-  bool is_replaced_canvas =
-      element && IsA<HTMLCanvasElement>(element) &&
-      element->GetDocument().GetFrame() &&
-      element->GetDocument().CanExecuteScripts(kNotAboutToExecuteScript);
+  bool is_replaced_canvas = element && IsA<HTMLCanvasElement>(element) &&
+                            element->GetExecutionContext() &&
+                            element->GetExecutionContext()->CanExecuteScripts(
+                                kNotAboutToExecuteScript);
   bool is_non_replaced_inline_elements =
       style.IsDisplayInlineType() &&
       !(style.IsDisplayReplacedType() || is_svg_root ||
@@ -567,61 +591,22 @@ static void AdjustEffectiveTouchAction(ComputedStyle& style,
   }
 }
 
-static void AdjustStateForRenderSubtree(ComputedStyle& style,
-                                        Element* element) {
+static void AdjustStateForContentVisibility(ComputedStyle& style,
+                                            Element* element) {
   if (!element)
     return;
-
-  bool should_be_invisible = style.RenderSubtreeInvisible();
   auto* context = element->GetDisplayLockContext();
-
-  // Return early if there's no context and no render-subtree invisible token.
-  if (!should_be_invisible && !context)
+  // The common case for most elements is that we don't have a context and have
+  // the default (visible) content-visibility value.
+  if (LIKELY(!context &&
+             style.ContentVisibility() == EContentVisibility::kVisible)) {
     return;
-
-  // If we're using an attribute version of display locking, then also abort.
-  if (context && DisplayLockContext::IsAttributeVersion(context))
-    return;
-
-  // Create a context if we need to be invisible.
-  if (should_be_invisible && !context) {
-    context = &element->EnsureDisplayLockContext(
-        DisplayLockContextCreateMethod::kCSS);
-  }
-  DCHECK(context);
-
-  uint16_t activation_mask =
-      static_cast<uint16_t>(DisplayLockActivationReason::kAny);
-  if (style.RenderSubtreeSkipActivation()) {
-    activation_mask = 0;
-  } else if (style.RenderSubtreeSkipViewportActivation()) {
-    activation_mask &=
-        ~static_cast<uint16_t>(DisplayLockActivationReason::kViewport);
   }
 
-  // Propagate activatable style to context.
-  context->SetActivatable(activation_mask);
-
-  if (should_be_invisible) {
-    // Add containment to style if we're invisible.
-    auto contain = style.Contain() | kContainsStyle | kContainsLayout;
-    // If we haven't activated, then we should also contain size. This means
-    // that if we are rendering the element's subtree (i.e. it is either
-    // unlocked or activated), then we do not have size containment.
-    if (!context->IsActivated())
-      contain |= kContainsSize;
-    style.SetContain(contain);
-
-    // If we're unlocked and unactivated, then we should lock the context. Note
-    // that we do this here, since locking the element means we can skip styling
-    // the subtree.
-    if (!context->IsLocked() && !context->IsActivated())
-      context->StartAcquire();
-  } else {
-    context->ClearActivated();
-    if (context->IsLocked())
-      context->StartCommit();
-  }
+  if (!context)
+    context = &element->EnsureDisplayLockContext();
+  context->SetRequestedState(style.ContentVisibility());
+  context->AdjustElementStyle(&style);
 }
 
 void StyleAdjuster::AdjustComputedStyle(StyleResolverState& state,
@@ -661,9 +646,10 @@ void StyleAdjuster::AdjustComputedStyle(StyleResolverState& state,
     // We don't adjust the first letter style earlier because we may change the
     // display setting in adjustStyeForTagName() above.
     AdjustStyleForFirstLetter(style);
+    AdjustStyleForFirstLine(style);
     AdjustStyleForMarker(style, parent_style, state.GetElement());
 
-    AdjustStyleForDisplay(style, layout_parent_style,
+    AdjustStyleForDisplay(style, layout_parent_style, element,
                           element ? &element->GetDocument() : nullptr);
 
     // If this is a child of a LayoutNGCustom, we need the name of the parent
@@ -672,46 +658,28 @@ void StyleAdjuster::AdjustComputedStyle(StyleResolverState& state,
       style.SetDisplayLayoutCustomParentName(
           layout_parent_style.DisplayLayoutCustomName());
     }
+
+    bool is_in_main_frame = element && element->GetDocument().IsInMainFrame();
+    // The root element of the main frame has no backdrop, so don't allow
+    // it to have a backdrop filter either.
+    if (is_document_element && is_in_main_frame && style.HasBackdropFilter())
+      style.MutableBackdropFilter().clear();
   } else {
     AdjustStyleForFirstLetter(style);
   }
 
-  if (element &&
-      RuntimeEnabledFeatures::DisplayLockingEnabled(
-          element->GetExecutionContext()) &&
-      element->FastHasAttribute(html_names::kRendersubtreeAttr)) {
-    // The element has the rendersubtree attr, so we should add style and
-    // layout containment. If the attribute contains "invisible" we should
-    // also add size containment.
-    Containment contain = kContainsStyle | kContainsLayout;
-    SpaceSplitString tokens(
-        element->FastGetAttribute(html_names::kRendersubtreeAttr).LowerASCII());
-    if (style.ContainsSize() || tokens.Contains("invisible")) {
-      contain |= kContainsSize;
-    }
-    if (style.ContainsPaint())
-      contain |= kContainsPaint;
-    style.SetContain(contain);
-  }
-
-  if (RuntimeEnabledFeatures::CSSRenderSubtreeEnabled())
-    AdjustStateForRenderSubtree(style, element);
-
-  if (style.IsColorInternalText()) {
-    style.ResolveInternalTextColor(LayoutTheme::GetTheme().RootElementColor(
-        style.UsedColorSchemeForInitialColors()));
-  }
+  if (RuntimeEnabledFeatures::CSSContentVisibilityEnabled())
+    AdjustStateForContentVisibility(style, element);
 
   // Make sure our z-index value is only applied if the object is positioned.
   if (style.GetPosition() == EPosition::kStatic &&
       !LayoutParentStyleForcesZIndexToCreateStackingContext(
           layout_parent_style)) {
-    style.SetIsStackingContext(false);
-    // TODO(alancutter): Avoid altering z-index here.
+    style.SetIsStackingContextWithoutContainment(false);
     if (!style.HasAutoZIndex())
-      style.SetZIndex(0);
+      style.SetEffectiveZIndexZero(true);
   } else if (!style.HasAutoZIndex()) {
-    style.SetIsStackingContext(true);
+    style.SetIsStackingContextWithoutContainment(true);
   }
 
   if (style.OverflowX() != EOverflow::kVisible ||
@@ -773,6 +741,13 @@ void StyleAdjuster::AdjustComputedStyle(StyleResolverState& state,
       // https://drafts.csswg.org/css-display/#unbox-mathml
       style.SetDisplay(EDisplay::kNone);
     }
+
+    if (style.GetWritingMode() != WritingMode::kHorizontalTb) {
+      // TODO(rbuis): this will not work with logical CSS properties.
+      // Disable vertical writing-mode for now.
+      style.SetWritingMode(WritingMode::kHorizontalTb);
+      style.UpdateFontOrientation();
+    }
   }
 
   // If this node is sticky it marks the creation of a sticky subtree, which we
@@ -799,9 +774,7 @@ void StyleAdjuster::AdjustComputedStyle(StyleResolverState& state,
   if (is_media_control && !style.HasEffectiveAppearance()) {
     // For compatibility reasons if the element is a media control and the
     // -webkit-appearance is none then we should clear the background image.
-    if (!StyleResolver::HasAuthorBackground(state)) {
-      style.MutableBackgroundInternal().ClearImage();
-    }
+    style.MutableBackgroundInternal().ClearImage();
   }
 
   if (element && style.TextOverflow() == ETextOverflow::kEllipsis) {
@@ -833,5 +806,7 @@ void StyleAdjuster::AdjustComputedStyle(StyleResolverState& state,
         (element && element->GetDocument().Printing()))
       style.SetInsideNGFragmentationContext(true);
   }
+
+  AdjustBackgroundForForcedColorsMode(state, style, element);
 }
 }  // namespace blink

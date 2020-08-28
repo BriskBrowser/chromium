@@ -33,10 +33,10 @@ web::WebUIIOSDataSource* CreateSignInInternalsHTMLSource() {
 
 }  //  namespace
 
-SignInInternalsUIIOS::SignInInternalsUIIOS(web::WebUIIOS* web_ui)
-    : WebUIIOSController(web_ui) {
-  ios::ChromeBrowserState* browser_state =
-      ios::ChromeBrowserState::FromWebUIIOS(web_ui);
+SignInInternalsUIIOS::SignInInternalsUIIOS(web::WebUIIOS* web_ui,
+                                           const std::string& host)
+    : WebUIIOSController(web_ui, host) {
+  ChromeBrowserState* browser_state = ChromeBrowserState::FromWebUIIOS(web_ui);
   DCHECK(browser_state);
   web::WebUIIOSDataSource::Add(browser_state,
                                CreateSignInInternalsHTMLSource());
@@ -48,8 +48,8 @@ SignInInternalsUIIOS::SignInInternalsUIIOS(web::WebUIIOS* web_ui)
 }
 
 SignInInternalsUIIOS::~SignInInternalsUIIOS() {
-  ios::ChromeBrowserState* browser_state =
-      ios::ChromeBrowserState::FromWebUIIOS(web_ui());
+  ChromeBrowserState* browser_state =
+      ChromeBrowserState::FromWebUIIOS(web_ui());
   DCHECK(browser_state);
   AboutSigninInternals* about_signin_internals =
       ios::AboutSigninInternalsFactory::GetForBrowserState(browser_state);
@@ -62,8 +62,8 @@ bool SignInInternalsUIIOS::OverrideHandleWebUIIOSMessage(
     const std::string& name,
     const base::ListValue& content) {
   if (name == "getSigninInfo") {
-    ios::ChromeBrowserState* browser_state =
-        ios::ChromeBrowserState::FromWebUIIOS(web_ui());
+    ChromeBrowserState* browser_state =
+        ChromeBrowserState::FromWebUIIOS(web_ui());
     DCHECK(browser_state);
 
     AboutSigninInternals* about_signin_internals =

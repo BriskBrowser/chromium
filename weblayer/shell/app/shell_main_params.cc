@@ -28,12 +28,11 @@ GURL GetStartupURL() {
   if (command_line->HasSwitch(switches::kNoInitialNavigation))
     return GURL();
 
-  const base::CommandLine::StringVector& args = command_line->GetArgs();
-
 #if defined(OS_ANDROID)
   // Delay renderer creation on Android until surface is ready.
   return GURL();
-#endif
+#else
+  const base::CommandLine::StringVector& args = command_line->GetArgs();
 
   if (args.empty())
     return GURL("https://www.google.com/");
@@ -44,16 +43,31 @@ GURL GetStartupURL() {
 
   return net::FilePathToFileURL(
       base::MakeAbsoluteFilePath(base::FilePath(args[0])));
+#endif
 }
 
 class MainDelegateImpl : public MainDelegate {
  public:
   void PreMainMessageLoopRun() override {
-    InitializeProfiles();
+    // On Android the Profile is created and owned in Java via an
+    // embedder-specific call to WebLayer.createBrowserFragment().
+#if !defined(OS_ANDROID)
+    InitializeProfile();
+#endif
 
     Shell::Initialize();
 
+#if defined(OS_ANDROID)
+    Shell::CreateNewWindow(GetStartupURL(), gfx::Size());
+#else
     Shell::CreateNewWindow(profile_.get(), GetStartupURL(), gfx::Size());
+#endif
+  }
+
+  void PostMainMessageLoopRun() override {
+#if !defined(OS_ANDROID)
+    DestroyProfile();
+#endif
   }
 
   void SetMainMessageLoopQuitClosure(base::OnceClosure quit_closure) override {
@@ -61,13 +75,19 @@ class MainDelegateImpl : public MainDelegate {
   }
 
  private:
-  void InitializeProfiles() {
-    profile_ = Profile::Create("web_shell");
+#if !defined(OS_ANDROID)
+  void InitializeProfile() {
+    auto* command_line = base::CommandLine::ForCurrentProcess();
+    std::string profile_name =
+        command_line->HasSwitch(switches::kStartInIncognito) ? "" : "web_shell";
 
-    // TODO: create an incognito profile as well.
+    profile_ = Profile::Create(profile_name);
   }
 
+  void DestroyProfile() { profile_.reset(); }
+
   std::unique_ptr<Profile> profile_;
+#endif
 };
 
 }  // namespace

@@ -40,7 +40,9 @@ class QuicPacketPrinter : public QuicFramerVisitorInterface {
   }
   void OnRetryPacket(QuicConnectionId original_connection_id,
                      QuicConnectionId new_connection_id,
-                     quiche::QuicheStringPiece retry_token) override {
+                     quiche::QuicheStringPiece retry_token,
+                     quiche::QuicheStringPiece retry_integrity_tag,
+                     quiche::QuicheStringPiece retry_without_tag) override {
     *output_ << "OnRetryPacket\n";
   }
   bool OnUnauthenticatedPublicHeader(const QuicPacketHeader& header) override {
@@ -172,6 +174,14 @@ class QuicPacketPrinter : public QuicFramerVisitorInterface {
   }
   bool OnMessageFrame(const QuicMessageFrame& frame) override {
     *output_ << "OnMessageFrame: " << frame;
+    return true;
+  }
+  bool OnHandshakeDoneFrame(const QuicHandshakeDoneFrame& frame) override {
+    *output_ << "OnHandshakeDoneFrame: " << frame;
+    return true;
+  }
+  bool OnAckFrequencyFrame(const QuicAckFrequencyFrame& frame) override {
+    *output_ << "OnAckFrequencyFrame: " << frame;
     return true;
   }
   void OnPacketComplete() override { *output_ << "OnPacketComplete\n"; }

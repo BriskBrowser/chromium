@@ -7,7 +7,7 @@
 
 #include <memory>
 
-#include "ash/session/session_observer.h"
+#include "ash/public/cpp/session/session_observer.h"
 #include "ash/system/network/active_network_icon.h"
 #include "ash/system/network/network_icon_animation_observer.h"
 #include "ash/system/network/tray_network_state_observer.h"
@@ -29,12 +29,17 @@ class NetworkTrayView : public TrayItemView,
 
   NetworkTrayView(Shelf* shelf, ActiveNetworkIcon::Type type);
 
+  base::string16 GetAccessibleNameString() const;
+
   const char* GetClassName() const override;
 
   // views::View:
   void GetAccessibleNodeData(ui::AXNodeData* node_data) override;
   views::View* GetTooltipHandlerForPoint(const gfx::Point& point) override;
   base::string16 GetTooltipText(const gfx::Point& p) const override;
+
+  // TrayItemView:
+  void HandleLocaleChange() override;
 
   // network_icon::AnimationObserver:
   void NetworkIconChanged() override;

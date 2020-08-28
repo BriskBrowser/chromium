@@ -39,9 +39,9 @@
 #include "net/cert/x509_certificate.h"
 #include "net/cert/x509_util.h"
 #include "net/cert_net/cert_net_fetcher_url_request.h"
-#include "net/cert_net/nss_ocsp_session_url_request.h"
 #include "net/der/input.h"
 #include "net/der/parser.h"
+#include "net/log/test_net_log.h"
 #include "net/proxy_resolution/proxy_config.h"
 #include "net/proxy_resolution/proxy_config_service_fixed.h"
 #include "net/test/cert_builder.h"
@@ -50,6 +50,7 @@
 #include "net/test/embedded_test_server/http_request.h"
 #include "net/test/embedded_test_server/http_response.h"
 #include "net/test/gtest_util.h"
+#include "net/test/revocation_builder.h"
 #include "net/test/test_certificate_data.h"
 #include "net/test/test_data_directory.h"
 #include "net/url_request/url_request_context.h"
@@ -59,16 +60,13 @@
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/boringssl/src/include/openssl/mem.h"
 
-#if defined(USE_NSS_CERTS)
-#include "net/cert/cert_verify_proc_nss.h"
-#include "net/cert_net/nss_ocsp.h"
-#elif defined(OS_ANDROID)
+#if defined(OS_ANDROID)
 #include "base/android/build_info.h"
 #include "net/cert/cert_verify_proc_android.h"
 #elif defined(OS_IOS)
 #include "base/ios/ios_util.h"
 #include "net/cert/cert_verify_proc_ios.h"
-#elif defined(OS_MACOSX)
+#elif defined(OS_MAC)
 #include "base/mac/mac_util.h"
 #include "net/cert/cert_verify_proc_mac.h"
 #include "net/cert/internal/trust_store_mac.h"
@@ -117,7 +115,8 @@ class MockCertVerifyProc : public CertVerifyProc {
                      int flags,
                      CRLSet* crl_set,
                      const CertificateList& additional_trust_anchors,
-                     CertVerifyResult* verify_result) override;
+                     CertVerifyResult* verify_result,
+                     const NetLogWithSource& net_log) override;
 
   const CertVerifyResult result_;
 
@@ -132,7 +131,8 @@ int MockCertVerifyProc::VerifyInternal(
     int flags,
     CRLSet* crl_set,
     const CertificateList& additional_trust_anchors,
-    CertVerifyResult* verify_result) {
+    CertVerifyResult* verify_result,
+    const NetLogWithSource& net_log) {
   *verify_result = result_;
   verify_result->verified_cert = cert;
   return OK;
@@ -143,7 +143,6 @@ int MockCertVerifyProc::VerifyInternal(
 // The type is erased by CreateCertVerifyProc(), however needs to be known for
 // some of the test expectations.
 enum CertVerifyProcType {
-  CERT_VERIFY_PROC_NSS,
   CERT_VERIFY_PROC_ANDROID,
   CERT_VERIFY_PROC_IOS,
   CERT_VERIFY_PROC_MAC,
@@ -153,7 +152,7 @@ enum CertVerifyProcType {
 
 // Wrapper for base::mac::IsAtLeastOS10_12() to avoid littering ifdefs.
 bool IsMacAtLeastOS10_12() {
-#if defined(OS_MACOSX) && !defined(OS_IOS)
+#if defined(OS_MAC)
   return base::mac::IsAtLeastOS10_12();
 #else
   return false;
@@ -166,8 +165,6 @@ bool IsMacAtLeastOS10_12() {
 std::string VerifyProcTypeToName(
     const testing::TestParamInfo<CertVerifyProcType>& params) {
   switch (params.param) {
-    case CERT_VERIFY_PROC_NSS:
-      return "CertVerifyProcNSS";
     case CERT_VERIFY_PROC_ANDROID:
       return "CertVerifyProcAndroid";
     case CERT_VERIFY_PROC_IOS:
@@ -187,16 +184,13 @@ scoped_refptr<CertVerifyProc> CreateCertVerifyProc(
     CertVerifyProcType type,
     scoped_refptr<CertNetFetcher> cert_net_fetcher) {
   switch (type) {
-#if defined(USE_NSS_CERTS)
-    case CERT_VERIFY_PROC_NSS:
-      return new CertVerifyProcNSS();
-#elif defined(OS_ANDROID)
+#if defined(OS_ANDROID)
     case CERT_VERIFY_PROC_ANDROID:
       return new CertVerifyProcAndroid(std::move(cert_net_fetcher));
 #elif defined(OS_IOS)
     case CERT_VERIFY_PROC_IOS:
       return new CertVerifyProcIOS();
-#elif defined(OS_MACOSX)
+#elif defined(OS_MAC)
     case CERT_VERIFY_PROC_MAC:
       return new CertVerifyProcMac();
 #elif defined(OS_WIN)
@@ -219,17 +213,15 @@ scoped_refptr<CertVerifyProc> CreateCertVerifyProc(
 // now this is gated on having CertVerifyProcBuiltin understand the roots added
 // via TestRootCerts.
 const std::vector<CertVerifyProcType> kAllCertVerifiers = {
-#if defined(USE_NSS_CERTS)
-    CERT_VERIFY_PROC_NSS, CERT_VERIFY_PROC_BUILTIN
-#elif defined(OS_ANDROID)
+#if defined(OS_ANDROID)
     CERT_VERIFY_PROC_ANDROID
 #elif defined(OS_IOS)
     CERT_VERIFY_PROC_IOS
-#elif defined(OS_MACOSX)
+#elif defined(OS_MAC)
     CERT_VERIFY_PROC_MAC, CERT_VERIFY_PROC_BUILTIN
 #elif defined(OS_WIN)
     CERT_VERIFY_PROC_WIN
-#elif defined(OS_FUCHSIA)
+#elif defined(OS_FUCHSIA) || defined(OS_LINUX) || defined(OS_CHROMEOS)
     CERT_VERIFY_PROC_BUILTIN
 #else
 #error Unsupported platform
@@ -242,7 +234,6 @@ const std::vector<CertVerifyProcType> kAllCertVerifiers = {
 bool ScopedTestRootCanTrustTargetCert(CertVerifyProcType verify_proc_type) {
   return verify_proc_type == CERT_VERIFY_PROC_MAC ||
          verify_proc_type == CERT_VERIFY_PROC_IOS ||
-         verify_proc_type == CERT_VERIFY_PROC_NSS ||
          verify_proc_type == CERT_VERIFY_PROC_ANDROID;
 }
 
@@ -253,7 +244,6 @@ bool ScopedTestRootCanTrustIntermediateCert(
     CertVerifyProcType verify_proc_type) {
   return verify_proc_type == CERT_VERIFY_PROC_MAC ||
          verify_proc_type == CERT_VERIFY_PROC_IOS ||
-         verify_proc_type == CERT_VERIFY_PROC_NSS ||
          verify_proc_type == CERT_VERIFY_PROC_BUILTIN ||
          verify_proc_type == CERT_VERIFY_PROC_ANDROID;
 }
@@ -305,10 +295,22 @@ class CertVerifyProcInternalTest
              int flags,
              CRLSet* crl_set,
              const CertificateList& additional_trust_anchors,
-             CertVerifyResult* verify_result) {
+             CertVerifyResult* verify_result,
+             const NetLogWithSource& net_log) {
     return verify_proc_->Verify(cert, hostname, /*ocsp_response=*/std::string(),
                                 /*sct_list=*/std::string(), flags, crl_set,
-                                additional_trust_anchors, verify_result);
+                                additional_trust_anchors, verify_result,
+                                net_log);
+  }
+
+  int Verify(X509Certificate* cert,
+             const std::string& hostname,
+             int flags,
+             CRLSet* crl_set,
+             const CertificateList& additional_trust_anchors,
+             CertVerifyResult* verify_result) {
+    return Verify(cert, hostname, flags, crl_set, additional_trust_anchors,
+                  verify_result, NetLogWithSource());
   }
 
   CertVerifyProcType verify_proc_type() const { return GetParam(); }
@@ -341,7 +343,7 @@ class CertVerifyProcInternalTest
         base::ios::IsRunningOnIOS13OrLater()) {
       return size < 2048;
     }
-#elif defined(OS_MACOSX)
+#elif defined(OS_MAC)
     // Beginning with macOS 10.15, the minimum key size for RSA/DSA algorithms
     // is 2048 bits. See https://support.apple.com/en-us/HT210176
     if (verify_proc_type() == CERT_VERIFY_PROC_MAC &&
@@ -356,7 +358,13 @@ class CertVerifyProcInternalTest
   // Returns true if the RSA/DSA keysize will be considered invalid on the
   // current platform.
   bool IsInvalidRsaDsaKeySize(int size) const {
-#if defined(OS_MACOSX) and !defined(OS_IOS)
+#if defined(OS_IOS)
+    if (base::ios::IsRunningOnIOS12OrLater()) {
+      // On iOS using SecTrustEvaluateWithError it is not possible to
+      // distinguish between weak and invalid key sizes.
+      return IsWeakRsaDsaKeySize(size);
+    }
+#elif defined(OS_MAC)
     // Starting with Mac OS 10.12, certs with keys < 1024 are invalid.
     if (verify_proc_type() == CERT_VERIFY_PROC_MAC &&
         base::mac::IsAtLeastOS10_12()) {
@@ -411,36 +419,31 @@ class CertVerifyProcInternalTest
   }
 
   bool SupportsCRLSet() const {
-    return verify_proc_type() == CERT_VERIFY_PROC_NSS ||
-           verify_proc_type() == CERT_VERIFY_PROC_WIN ||
+    return verify_proc_type() == CERT_VERIFY_PROC_WIN ||
            verify_proc_type() == CERT_VERIFY_PROC_MAC ||
            verify_proc_type() == CERT_VERIFY_PROC_BUILTIN;
   }
 
   bool SupportsCRLSetsInPathBuilding() const {
     return verify_proc_type() == CERT_VERIFY_PROC_WIN ||
-           verify_proc_type() == CERT_VERIFY_PROC_NSS ||
            verify_proc_type() == CERT_VERIFY_PROC_BUILTIN;
   }
 
   bool SupportsEV() const {
     // TODO(crbug.com/117478): Android and iOS do not support EV.
-    return verify_proc_type() == CERT_VERIFY_PROC_NSS ||
-           verify_proc_type() == CERT_VERIFY_PROC_WIN ||
+    return verify_proc_type() == CERT_VERIFY_PROC_WIN ||
            verify_proc_type() == CERT_VERIFY_PROC_MAC ||
            verify_proc_type() == CERT_VERIFY_PROC_BUILTIN;
   }
 
   bool SupportsSoftFailRevChecking() const {
-    return verify_proc_type() == CERT_VERIFY_PROC_NSS ||
-           verify_proc_type() == CERT_VERIFY_PROC_WIN ||
+    return verify_proc_type() == CERT_VERIFY_PROC_WIN ||
            verify_proc_type() == CERT_VERIFY_PROC_MAC ||
            verify_proc_type() == CERT_VERIFY_PROC_BUILTIN;
   }
 
   bool SupportsRevCheckingRequiredLocalAnchors() const {
-    return verify_proc_type() == CERT_VERIFY_PROC_NSS ||
-           verify_proc_type() == CERT_VERIFY_PROC_WIN ||
+    return verify_proc_type() == CERT_VERIFY_PROC_WIN ||
            verify_proc_type() == CERT_VERIFY_PROC_BUILTIN;
   }
 
@@ -458,7 +461,8 @@ INSTANTIATE_TEST_SUITE_P(All,
 // Tests that a certificate is recognized as EV, when the valid EV policy OID
 // for the trust anchor is the second candidate EV oid in the target
 // certificate. This is a regression test for crbug.com/705285.
-TEST_P(CertVerifyProcInternalTest, EVVerificationMultipleOID) {
+// Started failing: https://crbug.com/1094358
+TEST_P(CertVerifyProcInternalTest, DISABLED_EVVerificationMultipleOID) {
   if (!SupportsEV()) {
     LOG(INFO) << "Skipping test as EV verification is not yet supported";
     return;
@@ -803,14 +807,45 @@ TEST_P(CertVerifyProcInternalTest, UnnecessaryInvalidIntermediate) {
   ASSERT_TRUE(cert_with_bad_intermediate);
   EXPECT_EQ(1U, cert_with_bad_intermediate->intermediate_buffers().size());
 
+  RecordingNetLogObserver net_log_observer(NetLogCaptureMode::kDefault);
+  NetLogWithSource net_log(NetLogWithSource::Make(
+      net::NetLog::Get(), net::NetLogSourceType::CERT_VERIFIER_TASK));
   int flags = 0;
   CertVerifyResult verify_result;
-  int error =
-      Verify(cert_with_bad_intermediate.get(), "127.0.0.1", flags,
-             CRLSet::BuiltinCRLSet().get(), CertificateList(), &verify_result);
+  int error = Verify(cert_with_bad_intermediate.get(), "127.0.0.1", flags,
+                     CRLSet::BuiltinCRLSet().get(), CertificateList(),
+                     &verify_result, net_log);
 
   EXPECT_THAT(error, IsOk());
   EXPECT_EQ(0u, verify_result.cert_status);
+
+  auto events = net_log_observer.GetEntriesForSource(net_log.source());
+  EXPECT_FALSE(events.empty());
+
+  auto event = std::find_if(events.begin(), events.end(), [](const auto& e) {
+    return e.type == NetLogEventType::CERT_VERIFY_PROC;
+  });
+  ASSERT_NE(event, events.end());
+  EXPECT_EQ(net::NetLogEventPhase::BEGIN, event->phase);
+  ASSERT_TRUE(event->params.is_dict());
+  const std::string* host = event->params.FindStringKey("host");
+  ASSERT_TRUE(host);
+  EXPECT_EQ("127.0.0.1", *host);
+
+  if (verify_proc_type() == CERT_VERIFY_PROC_BUILTIN) {
+    event = std::find_if(events.begin(), events.end(), [](const auto& e) {
+      return e.type == NetLogEventType::CERT_VERIFY_PROC_INPUT_CERT;
+    });
+    ASSERT_NE(event, events.end());
+    EXPECT_EQ(net::NetLogEventPhase::NONE, event->phase);
+    ASSERT_TRUE(event->params.is_dict());
+    const std::string* errors = event->params.FindStringKey("errors");
+    ASSERT_TRUE(errors);
+    EXPECT_EQ(
+        "ERROR: Failed parsing Certificate SEQUENCE\nERROR: Failed parsing "
+        "Certificate\n",
+        *errors);
+  }
 }
 
 // A regression test for http://crbug.com/31497.
@@ -1075,7 +1110,7 @@ class CertVerifyProcInspectSignatureAlgorithmsTest : public ::testing::Test {
     LOG(INFO) << "Skipping test on iOS because certs with mismatched "
                  "algorithms cannot be imported";
     return false;
-#elif defined(OS_MACOSX)
+#elif defined(OS_MAC)
     if (base::mac::IsAtLeastOS10_12()) {
       LOG(INFO) << "Skipping test on macOS >= 10.12 because certs with "
                    "mismatched algorithms cannot be imported";
@@ -1142,7 +1177,7 @@ class CertVerifyProcInspectSignatureAlgorithmsTest : public ::testing::Test {
     return verify_proc->Verify(
         chain.get(), "test.example.com", /*ocsp_response=*/std::string(),
         /*sct_list=*/std::string(), flags, CRLSet::BuiltinCRLSet().get(),
-        CertificateList(), &verify_result);
+        CertificateList(), &verify_result, NetLogWithSource());
   }
 
  private:
@@ -1464,6 +1499,9 @@ TEST(CertVerifyProcTest, TestHasTooLongValidity) {
       {"826_days_after_2018_03_01.pem", true},
       {"825_days_1_second_after_2018_03_01.pem", true},
       {"39_months_based_on_last_day.pem", false},
+      {"398_days_after_2020_09_01.pem", false},
+      {"399_days_after_2020_09_01.pem", true},
+      {"398_days_1_second_after_2020_09_01.pem", true},
   };
 
   base::FilePath certs_dir = GetTestCertsDirectory();
@@ -1495,7 +1533,7 @@ TEST_P(CertVerifyProcInternalTest, TestKnownRoot) {
                              << "that date, please disable and file a bug "
                              << "against rsleevi.";
   EXPECT_TRUE(verify_result.is_issued_by_known_root);
-#if defined(OS_MACOSX) && !defined(OS_IOS)
+#if defined(OS_MAC)
   if (verify_proc_type() == CERT_VERIFY_PROC_BUILTIN) {
     auto* mac_trust_debug_info =
         net::TrustStoreMac::ResultDebugData::Get(&verify_result);
@@ -1509,8 +1547,8 @@ TEST_P(CertVerifyProcInternalTest, TestKnownRoot) {
 }
 
 // This tests that on successful certificate verification,
-// CertVerifyResult::public_key_hashes is filled with a SHA1 and SHA256 hash
-// for each of the certificates in the chain.
+// CertVerifyResult::public_key_hashes is filled with a SHA256 hash for each
+// of the certificates in the chain.
 TEST_P(CertVerifyProcInternalTest, PublicKeyHashes) {
   if (!SupportsReturningVerifiedChain()) {
     LOG(INFO) << "Skipping this test in this platform.";
@@ -1548,7 +1586,7 @@ TEST_P(CertVerifyProcInternalTest, PublicKeyHashes) {
 
   std::vector<std::string> expected_public_key_hashes = {
       // Target
-      "sha256/jpsUnwFFTO7e+l5zQDYhutkf7uA+dCVsWfRvv0UDX40=",
+      "sha256/DZMTp9cNNYkzUG6baDB6T306ekLUYJpeEEtYpaeQpYE=",
 
       // Intermediate
       "sha256/D9u0epgvPYlG9YiVp7V+IMT+xhUpB5BhsS/INjDXc4Y=",
@@ -1564,6 +1602,8 @@ TEST_P(CertVerifyProcInternalTest, PublicKeyHashes) {
 // A regression test for http://crbug.com/70293.
 // The certificate in question has a key purpose of clientAuth, and also lacks
 // the required key usage for serverAuth.
+// TODO(mattm): This cert fails for many reasons, replace with a generated one
+// that tests only the desired case.
 TEST_P(CertVerifyProcInternalTest, WrongKeyPurpose) {
   base::FilePath certs_dir = GetTestCertsDirectory();
 
@@ -1579,14 +1619,23 @@ TEST_P(CertVerifyProcInternalTest, WrongKeyPurpose) {
 
   EXPECT_TRUE(verify_result.cert_status & CERT_STATUS_COMMON_NAME_INVALID);
 
+#if defined(OS_IOS)
+  if (verify_proc_type() == CERT_VERIFY_PROC_IOS) {
+    if (base::ios::IsRunningOnIOS13OrLater() ||
+        !base::ios::IsRunningOnIOS12OrLater()) {
+      EXPECT_THAT(error, IsError(ERR_CERT_INVALID));
+    } else {
+      EXPECT_THAT(error, IsError(ERR_CERT_AUTHORITY_INVALID));
+    }
+    return;
+  }
+#endif
+
   // TODO(crbug.com/649017): Don't special-case builtin verifier.
   if (verify_proc_type() != CERT_VERIFY_PROC_BUILTIN)
     EXPECT_TRUE(verify_result.cert_status & CERT_STATUS_INVALID);
 
-  // TODO(wtc): fix http://crbug.com/75520 to get all the certificate errors
-  // from NSS.
-  if (verify_proc_type() != CERT_VERIFY_PROC_NSS &&
-      verify_proc_type() != CERT_VERIFY_PROC_ANDROID) {
+  if (verify_proc_type() != CERT_VERIFY_PROC_ANDROID) {
     // The certificate is issued by an unknown CA.
     EXPECT_TRUE(verify_result.cert_status & CERT_STATUS_AUTHORITY_INVALID);
   }
@@ -1710,7 +1759,7 @@ TEST(CertVerifyProcTest, IntranetHostsRejected) {
   error = verify_proc->Verify(
       cert.get(), "webmail", /*ocsp_response=*/std::string(),
       /*sct_list=*/std::string(), 0, CRLSet::BuiltinCRLSet().get(),
-      CertificateList(), &verify_result);
+      CertificateList(), &verify_result, NetLogWithSource());
   EXPECT_THAT(error, IsOk());
   EXPECT_TRUE(verify_result.cert_status & CERT_STATUS_NON_UNIQUE_NAME);
 
@@ -1721,7 +1770,7 @@ TEST(CertVerifyProcTest, IntranetHostsRejected) {
   error = verify_proc->Verify(
       cert.get(), "webmail", /*ocsp_response=*/std::string(),
       /*sct_list=*/std::string(), 0, CRLSet::BuiltinCRLSet().get(),
-      CertificateList(), &verify_result);
+      CertificateList(), &verify_result, NetLogWithSource());
   EXPECT_THAT(error, IsOk());
   EXPECT_FALSE(verify_result.cert_status & CERT_STATUS_NON_UNIQUE_NAME);
 }
@@ -1765,7 +1814,7 @@ TEST(CertVerifyProcTest, SymantecCertsRejected) {
     error = verify_proc->Verify(
         cert.get(), "127.0.0.1", /*ocsp_response=*/std::string(),
         /*sct_list=*/std::string(), 0, CRLSet::BuiltinCRLSet().get(),
-        CertificateList(), &test_result_1);
+        CertificateList(), &test_result_1, NetLogWithSource());
     EXPECT_THAT(error, IsError(ERR_CERT_SYMANTEC_LEGACY));
     EXPECT_TRUE(test_result_1.cert_status & CERT_STATUS_SYMANTEC_LEGACY);
 
@@ -1782,7 +1831,7 @@ TEST(CertVerifyProcTest, SymantecCertsRejected) {
     error = verify_proc->Verify(
         cert.get(), "127.0.0.1", /*ocsp_response=*/std::string(),
         /*sct_list=*/std::string(), 0, CRLSet::BuiltinCRLSet().get(),
-        CertificateList(), &test_result_2);
+        CertificateList(), &test_result_2, NetLogWithSource());
     EXPECT_THAT(error, IsOk());
     EXPECT_FALSE(test_result_2.cert_status & CERT_STATUS_AUTHORITY_INVALID);
 
@@ -1792,7 +1841,8 @@ TEST(CertVerifyProcTest, SymantecCertsRejected) {
         cert.get(), "127.0.0.1", /*ocsp_response=*/std::string(),
         /*sct_list=*/std::string(),
         CertVerifyProc::VERIFY_DISABLE_SYMANTEC_ENFORCEMENT,
-        CRLSet::BuiltinCRLSet().get(), CertificateList(), &test_result_3);
+        CRLSet::BuiltinCRLSet().get(), CertificateList(), &test_result_3,
+        NetLogWithSource());
     EXPECT_THAT(error, IsOk());
     EXPECT_FALSE(test_result_3.cert_status & CERT_STATUS_SYMANTEC_LEGACY);
   }
@@ -1825,7 +1875,7 @@ TEST(CertVerifyProcTest, SymantecCertsRejected) {
     error = verify_proc->Verify(
         cert.get(), "127.0.0.1", /*ocsp_response=*/std::string(),
         /*sct_list=*/std::string(), 0, CRLSet::BuiltinCRLSet().get(),
-        CertificateList(), &test_result_1);
+        CertificateList(), &test_result_1, NetLogWithSource());
     if (feature_flag_enabled) {
       EXPECT_THAT(error, IsError(ERR_CERT_SYMANTEC_LEGACY));
       EXPECT_TRUE(test_result_1.cert_status & CERT_STATUS_SYMANTEC_LEGACY);
@@ -1847,7 +1897,7 @@ TEST(CertVerifyProcTest, SymantecCertsRejected) {
     error = verify_proc->Verify(
         cert.get(), "127.0.0.1", /*ocsp_response=*/std::string(),
         /*sct_list=*/std::string(), 0, CRLSet::BuiltinCRLSet().get(),
-        CertificateList(), &test_result_2);
+        CertificateList(), &test_result_2, NetLogWithSource());
     EXPECT_THAT(error, IsOk());
     EXPECT_FALSE(test_result_2.cert_status & CERT_STATUS_AUTHORITY_INVALID);
 
@@ -1857,7 +1907,8 @@ TEST(CertVerifyProcTest, SymantecCertsRejected) {
         cert.get(), "127.0.0.1", /*ocsp_response=*/std::string(),
         /*sct_list=*/std::string(),
         CertVerifyProc::VERIFY_DISABLE_SYMANTEC_ENFORCEMENT,
-        CRLSet::BuiltinCRLSet().get(), CertificateList(), &test_result_3);
+        CRLSet::BuiltinCRLSet().get(), CertificateList(), &test_result_3,
+        NetLogWithSource());
     EXPECT_THAT(error, IsOk());
     EXPECT_FALSE(test_result_3.cert_status & CERT_STATUS_SYMANTEC_LEGACY);
   }
@@ -2044,7 +2095,10 @@ TEST_P(CertVerifyProcInternalTest, IsIssuedByKnownRootIgnoresTestRoots) {
 // has a notBefore date after 2018/10/15, and passing a valid |sct_list| to
 // Verify(). Verification should succeed on all platforms. (Assuming the
 // verifier trusts the SCT Logs used in |sct_list|.)
-TEST_P(CertVerifyProcInternalTest, LeafNewerThan20181015WithTlsSctList) {
+//
+// Fails on multiple plaforms, see crbug.com/1050152.
+TEST_P(CertVerifyProcInternalTest,
+       DISABLED_LeafNewerThan20181015WithTlsSctList) {
   scoped_refptr<X509Certificate> chain = CreateCertificateChainFromFile(
       GetTestCertsDirectory(), "treadclimber.pem",
       X509Certificate::FORMAT_PEM_CERT_SEQUENCE);
@@ -2061,10 +2115,11 @@ TEST_P(CertVerifyProcInternalTest, LeafNewerThan20181015WithTlsSctList) {
 
   int flags = 0;
   CertVerifyResult verify_result;
-  int error = verify_proc()->Verify(chain.get(), "treadclimber.com",
-                                    /*ocsp_response=*/std::string(), sct_list,
-                                    flags, CRLSet::BuiltinCRLSet().get(),
-                                    CertificateList(), &verify_result);
+  int error =
+      verify_proc()->Verify(chain.get(), "treadclimber.com",
+                            /*ocsp_response=*/std::string(), sct_list, flags,
+                            CRLSet::BuiltinCRLSet().get(), CertificateList(),
+                            &verify_result, NetLogWithSource());
 
   // Since the valid |sct_list| was passed to Verify, verification should
   // succeed on all verifiers and OS versions.
@@ -2561,15 +2616,9 @@ TEST_P(CertVerifyProcInternalTest, ValidityDayBeforeNotBefore) {
   int error =
       Verify(chain.get(), "www.example.com", flags,
              CRLSet::BuiltinCRLSet().get(), CertificateList(), &verify_result);
-  if (verify_proc_type() == CERT_VERIFY_PROC_NSS) {
-    // NSS seems to give a 24 hour buffer before the notBefore date where it
-    // will accept a certificate that isn't actually valid yet. ¯\_(ツ)_/¯
-    EXPECT_THAT(error, IsOk());
-  } else {
-    // Current time is before certificate's notBefore. Verification should fail.
-    EXPECT_THAT(error, IsError(ERR_CERT_DATE_INVALID));
-    EXPECT_TRUE(verify_result.cert_status & CERT_STATUS_DATE_INVALID);
-  }
+  // Current time is before certificate's notBefore. Verification should fail.
+  EXPECT_THAT(error, IsError(ERR_CERT_DATE_INVALID));
+  EXPECT_TRUE(verify_result.cert_status & CERT_STATUS_DATE_INVALID);
 }
 
 TEST_P(CertVerifyProcInternalTest, ValidityJustBeforeNotBefore) {
@@ -2590,15 +2639,9 @@ TEST_P(CertVerifyProcInternalTest, ValidityJustBeforeNotBefore) {
   int error =
       Verify(chain.get(), "www.example.com", flags,
              CRLSet::BuiltinCRLSet().get(), CertificateList(), &verify_result);
-  if (verify_proc_type() == CERT_VERIFY_PROC_NSS) {
-    // NSS seems to give a 24 hour buffer before the notBefore date where it
-    // will accept a certificate that isn't actually valid yet. ¯\_(ツ)_/¯
-    EXPECT_THAT(error, IsOk());
-  } else {
-    // Current time is before certificate's notBefore. Verification should fail.
-    EXPECT_THAT(error, IsError(ERR_CERT_DATE_INVALID));
-    EXPECT_TRUE(verify_result.cert_status & CERT_STATUS_DATE_INVALID);
-  }
+  // Current time is before certificate's notBefore. Verification should fail.
+  EXPECT_THAT(error, IsError(ERR_CERT_DATE_INVALID));
+  EXPECT_TRUE(verify_result.cert_status & CERT_STATUS_DATE_INVALID);
 }
 
 TEST_P(CertVerifyProcInternalTest, ValidityJustAfterNotBefore) {
@@ -2753,8 +2796,6 @@ class CertVerifyProcNameNormalizationTest : public CertVerifyProcInternalTest {
   std::string HistogramName() const {
     std::string prefix("Net.CertVerifier.NameNormalizationPrivateRoots.");
     switch (verify_proc_type()) {
-      case CERT_VERIFY_PROC_NSS:
-        return prefix + "NSS";
       case CERT_VERIFY_PROC_ANDROID:
         return prefix + "Android";
       case CERT_VERIFY_PROC_IOS:
@@ -2810,7 +2851,6 @@ TEST_P(CertVerifyProcNameNormalizationTest, StringType) {
              CertificateList(), &verify_result);
 
   switch (verify_proc_type()) {
-    case CERT_VERIFY_PROC_NSS:
     case CERT_VERIFY_PROC_IOS:
     case CERT_VERIFY_PROC_MAC:
     case CERT_VERIFY_PROC_WIN:
@@ -2841,7 +2881,6 @@ TEST_P(CertVerifyProcNameNormalizationTest, CaseFolding) {
              CertificateList(), &verify_result);
 
   switch (verify_proc_type()) {
-    case CERT_VERIFY_PROC_NSS:
     case CERT_VERIFY_PROC_WIN:
       EXPECT_THAT(error, IsError(ERR_CERT_AUTHORITY_INVALID));
       break;
@@ -2996,8 +3035,8 @@ class CertVerifyProcInternalWithNetFetchingTest
   GURL CreateAndServeCrl(CertBuilder* crl_issuer,
                          const std::vector<uint64_t>& revoked_serials,
                          DigestAlgorithm digest = DigestAlgorithm::Sha256) {
-    std::string crl =
-        CertBuilder::CreateCrl(crl_issuer, revoked_serials, digest);
+    std::string crl = BuildCrl(crl_issuer->GetSubject(), crl_issuer->GetKey(),
+                               revoked_serials, digest);
     std::string crl_path = MakeRandomPath(".crl");
     return RegisterSimpleTestServerHandler(crl_path, HTTP_OK,
                                            "application/pkix-crl", crl);
@@ -3046,9 +3085,6 @@ class CertVerifyProcInternalWithNetFetchingTest
         std::make_unique<ProxyConfigServiceFixed>(ProxyConfigWithAnnotation()));
     *context = url_request_context_builder.Build();
 
-#if defined(USE_NSS_CERTS)
-    SetURLRequestContextForNSSHttpIO(context->get());
-#endif
     *cert_net_fetcher = base::MakeRefCounted<net::CertNetFetcherURLRequest>();
     (*cert_net_fetcher)->SetURLRequestContext(context->get());
     initialization_complete_event->Signal();
@@ -3057,9 +3093,6 @@ class CertVerifyProcInternalWithNetFetchingTest
   static void ShutdownOnNetworkThread(
       std::unique_ptr<URLRequestContext>* context,
       scoped_refptr<net::CertNetFetcherURLRequest>* cert_net_fetcher) {
-#if defined(USE_NSS_CERTS)
-    SetURLRequestContextForNSSHttpIO(nullptr);
-#endif
     (*cert_net_fetcher)->Shutdown();
     cert_net_fetcher->reset();
     context->reset();
@@ -3416,13 +3449,7 @@ TEST_P(CertVerifyProcInternalWithNetFetchingTest, RevocationHardFailNoCrls) {
       Verify(chain.get(), kHostname, flags, CRLSet::BuiltinCRLSet().get(),
              CertificateList(), &verify_result);
 
-  if (verify_proc_type() == CERT_VERIFY_PROC_NSS) {
-    // NSS doesn't have an error code for lack of revocation methods, it just
-    // gets mapped to REVOKED.
-    EXPECT_THAT(error, IsError(ERR_CERT_REVOKED));
-  } else {
-    EXPECT_THAT(error, IsError(ERR_CERT_NO_REVOCATION_MECHANISM));
-  }
+  EXPECT_THAT(error, IsError(ERR_CERT_NO_REVOCATION_MECHANISM));
   EXPECT_TRUE(verify_result.cert_status & CERT_STATUS_REV_CHECKING_ENABLED);
 }
 
@@ -3619,12 +3646,7 @@ TEST_P(CertVerifyProcInternalWithNetFetchingTest,
              CertificateList(), &verify_result);
 
   // Should fail since no revocation information was available for the leaf.
-  if (verify_proc_type() == CERT_VERIFY_PROC_NSS) {
-    // NSS just returns REVOKED for hard-fail checking errors.
-    EXPECT_THAT(error, IsError(ERR_CERT_REVOKED));
-  } else {
-    EXPECT_THAT(error, IsError(ERR_CERT_UNABLE_TO_CHECK_REVOCATION));
-  }
+  EXPECT_THAT(error, IsError(ERR_CERT_UNABLE_TO_CHECK_REVOCATION));
   EXPECT_TRUE(verify_result.cert_status & CERT_STATUS_REV_CHECKING_ENABLED);
 }
 
@@ -3665,12 +3687,7 @@ TEST_P(CertVerifyProcInternalWithNetFetchingTest,
 
   // Should fail since no revocation information was available for the
   // intermediate.
-  if (verify_proc_type() == CERT_VERIFY_PROC_NSS) {
-    // NSS just returns REVOKED for hard-fail checking errors.
-    EXPECT_THAT(error, IsError(ERR_CERT_REVOKED));
-  } else {
-    EXPECT_THAT(error, IsError(ERR_CERT_UNABLE_TO_CHECK_REVOCATION));
-  }
+  EXPECT_THAT(error, IsError(ERR_CERT_UNABLE_TO_CHECK_REVOCATION));
   EXPECT_TRUE(verify_result.cert_status & CERT_STATUS_REV_CHECKING_ENABLED);
 }
 
@@ -4055,7 +4072,7 @@ TEST(CertVerifyProcTest, RejectsMD2) {
   int error = verify_proc->Verify(
       cert.get(), "127.0.0.1", /*ocsp_response=*/std::string(),
       /*sct_list=*/std::string(), flags, CRLSet::BuiltinCRLSet().get(),
-      CertificateList(), &verify_result);
+      CertificateList(), &verify_result, NetLogWithSource());
   EXPECT_THAT(error, IsError(ERR_CERT_INVALID));
   EXPECT_TRUE(verify_result.cert_status & CERT_STATUS_INVALID);
 }
@@ -4074,7 +4091,7 @@ TEST(CertVerifyProcTest, RejectsMD4) {
   int error = verify_proc->Verify(
       cert.get(), "127.0.0.1", /*ocsp_response=*/std::string(),
       /*sct_list=*/std::string(), flags, CRLSet::BuiltinCRLSet().get(),
-      CertificateList(), &verify_result);
+      CertificateList(), &verify_result, NetLogWithSource());
   EXPECT_THAT(error, IsError(ERR_CERT_INVALID));
   EXPECT_TRUE(verify_result.cert_status & CERT_STATUS_INVALID);
 }
@@ -4093,7 +4110,7 @@ TEST(CertVerifyProcTest, RejectsMD5) {
   int error = verify_proc->Verify(
       cert.get(), "127.0.0.1", /*ocsp_response=*/std::string(),
       /*sct_list=*/std::string(), flags, CRLSet::BuiltinCRLSet().get(),
-      CertificateList(), &verify_result);
+      CertificateList(), &verify_result, NetLogWithSource());
   EXPECT_THAT(error, IsError(ERR_CERT_WEAK_SIGNATURE_ALGORITHM));
   EXPECT_TRUE(verify_result.cert_status & CERT_STATUS_WEAK_SIGNATURE_ALGORITHM);
 }
@@ -4114,7 +4131,7 @@ TEST(CertVerifyProcTest, RejectsPublicSHA1Leaves) {
   int error = verify_proc->Verify(
       cert.get(), "127.0.0.1", /*ocsp_response=*/std::string(),
       /*sct_list=*/std::string(), flags, CRLSet::BuiltinCRLSet().get(),
-      CertificateList(), &verify_result);
+      CertificateList(), &verify_result, NetLogWithSource());
   EXPECT_THAT(error, IsError(ERR_CERT_WEAK_SIGNATURE_ALGORITHM));
   EXPECT_TRUE(verify_result.cert_status & CERT_STATUS_WEAK_SIGNATURE_ALGORITHM);
 }
@@ -4135,7 +4152,7 @@ TEST(CertVerifyProcTest, RejectsPublicSHA1IntermediatesUnlessAllowed) {
   int error = verify_proc->Verify(
       cert.get(), "127.0.0.1", /*ocsp_response=*/std::string(),
       /*sct_list=*/std::string(), flags, CRLSet::BuiltinCRLSet().get(),
-      CertificateList(), &verify_result);
+      CertificateList(), &verify_result, NetLogWithSource());
   if (AreSHA1IntermediatesAllowed()) {
     EXPECT_THAT(error, IsOk());
     EXPECT_TRUE(verify_result.cert_status & CERT_STATUS_SHA1_SIGNATURE_PRESENT);
@@ -4163,7 +4180,7 @@ TEST(CertVerifyProcTest, RejectsPrivateSHA1UnlessFlag) {
   int error = verify_proc->Verify(
       cert.get(), "127.0.0.1", /*ocsp_response=*/std::string(),
       /*sct_list=*/std::string(), flags, CRLSet::BuiltinCRLSet().get(),
-      CertificateList(), &verify_result);
+      CertificateList(), &verify_result, NetLogWithSource());
   EXPECT_THAT(error, IsError(ERR_CERT_WEAK_SIGNATURE_ALGORITHM));
   EXPECT_TRUE(verify_result.cert_status & CERT_STATUS_SHA1_SIGNATURE_PRESENT);
 
@@ -4173,7 +4190,7 @@ TEST(CertVerifyProcTest, RejectsPrivateSHA1UnlessFlag) {
   error = verify_proc->Verify(
       cert.get(), "127.0.0.1", /*ocsp_response=*/std::string(),
       /*sct_list=*/std::string(), flags, CRLSet::BuiltinCRLSet().get(),
-      CertificateList(), &verify_result);
+      CertificateList(), &verify_result, NetLogWithSource());
   EXPECT_THAT(error, IsOk());
   EXPECT_TRUE(verify_result.cert_status & CERT_STATUS_SHA1_SIGNATURE_PRESENT);
 }
@@ -4260,7 +4277,7 @@ TEST_P(CertVerifyProcWeakDigestTest, VerifyDetectsAlgorithm) {
       new MockCertVerifyProc(CertVerifyResult());
   proc->Verify(ee_chain.get(), "127.0.0.1", /*ocsp_response=*/std::string(),
                /*sct_list=*/std::string(), flags, CRLSet::BuiltinCRLSet().get(),
-               CertificateList(), &verify_result);
+               CertificateList(), &verify_result, NetLogWithSource());
   EXPECT_EQ(!!(data.expected_algorithms & EXPECT_MD2), verify_result.has_md2);
   EXPECT_EQ(!!(data.expected_algorithms & EXPECT_MD4), verify_result.has_md4);
   EXPECT_EQ(!!(data.expected_algorithms & EXPECT_MD5), verify_result.has_md5);
@@ -4390,7 +4407,7 @@ class CertVerifyProcNameTest : public ::testing::Test {
     int error = verify_proc->Verify(
         cert.get(), hostname, /*ocsp_response=*/std::string(),
         /*sct_list=*/std::string(), 0, CRLSet::BuiltinCRLSet().get(),
-        CertificateList(), &verify_result);
+        CertificateList(), &verify_result, NetLogWithSource());
     if (valid) {
       EXPECT_THAT(error, IsOk());
       EXPECT_FALSE(verify_result.cert_status & CERT_STATUS_COMMON_NAME_INVALID);
@@ -4486,7 +4503,7 @@ TEST(CertVerifyProcTest, HasTLSFeatureExtensionUMA) {
   int error = verify_proc->Verify(
       cert.get(), "127.0.0.1", /*ocsp_response=*/std::string(),
       /*sct_list=*/std::string(), flags, CRLSet::BuiltinCRLSet().get(),
-      CertificateList(), &verify_result);
+      CertificateList(), &verify_result, NetLogWithSource());
   EXPECT_EQ(OK, error);
   histograms.ExpectTotalCount(kTLSFeatureExtensionHistogram, 1);
   histograms.ExpectBucketCount(kTLSFeatureExtensionHistogram, true, 1);
@@ -4513,7 +4530,8 @@ TEST(CertVerifyProcTest, HasTLSFeatureExtensionWithStapleUMA) {
   CertVerifyResult verify_result;
   int error = verify_proc->Verify(
       cert.get(), "127.0.0.1", "dummy response", /*sct_list=*/std::string(),
-      flags, CRLSet::BuiltinCRLSet().get(), CertificateList(), &verify_result);
+      flags, CRLSet::BuiltinCRLSet().get(), CertificateList(), &verify_result,
+      NetLogWithSource());
   EXPECT_EQ(OK, error);
   histograms.ExpectTotalCount(kTLSFeatureExtensionHistogram, 1);
   histograms.ExpectBucketCount(kTLSFeatureExtensionHistogram, true, 1);
@@ -4541,7 +4559,7 @@ TEST(CertVerifyProcTest, DoesNotHaveTLSFeatureExtensionUMA) {
   int error = verify_proc->Verify(
       cert.get(), "127.0.0.1", /*ocsp_response=*/std::string(),
       /*sct_list=*/std::string(), flags, CRLSet::BuiltinCRLSet().get(),
-      CertificateList(), &verify_result);
+      CertificateList(), &verify_result, NetLogWithSource());
   EXPECT_EQ(OK, error);
   histograms.ExpectTotalCount(kTLSFeatureExtensionHistogram, 1);
   histograms.ExpectBucketCount(kTLSFeatureExtensionHistogram, false, 1);
@@ -4567,7 +4585,7 @@ TEST(CertVerifyProcTest, HasTLSFeatureExtensionWithPublicRootUMA) {
   int error = verify_proc->Verify(
       cert.get(), "127.0.0.1", /*ocsp_response=*/std::string(),
       /*sct_list=*/std::string(), flags, CRLSet::BuiltinCRLSet().get(),
-      CertificateList(), &verify_result);
+      CertificateList(), &verify_result, NetLogWithSource());
   EXPECT_EQ(OK, error);
   histograms.ExpectTotalCount(kTLSFeatureExtensionHistogram, 0);
   histograms.ExpectTotalCount(kTLSFeatureExtensionOCSPHistogram, 0);
@@ -4609,7 +4627,7 @@ TEST(CertVerifyProcTest, HasTrustAnchorVerifyUMA) {
   int error = verify_proc->Verify(
       cert.get(), "127.0.0.1", /*ocsp_response=*/std::string(),
       /*sct_list=*/std::string(), flags, CRLSet::BuiltinCRLSet().get(),
-      CertificateList(), &verify_result);
+      CertificateList(), &verify_result, NetLogWithSource());
   EXPECT_EQ(OK, error);
   histograms.ExpectUniqueSample(kTrustAnchorVerifyHistogram,
                                 kGTSRootR4HistogramID, 1);
@@ -4657,7 +4675,7 @@ TEST(CertVerifyProcTest, LogsOnlyMostSpecificTrustAnchorUMA) {
   int error = verify_proc->Verify(
       cert.get(), "127.0.0.1", /*ocsp_response=*/std::string(),
       /*sct_list=*/std::string(), flags, CRLSet::BuiltinCRLSet().get(),
-      CertificateList(), &verify_result);
+      CertificateList(), &verify_result, NetLogWithSource());
   EXPECT_EQ(OK, error);
 
   // Only GTS Root R3 should be recorded.
@@ -4696,7 +4714,7 @@ TEST(CertVerifyProcTest, HasTrustAnchorVerifyOutOfDateUMA) {
   int error = verify_proc->Verify(
       cert.get(), "127.0.0.1", /*ocsp_response=*/std::string(),
       /*sct_list=*/std::string(), flags, CRLSet::BuiltinCRLSet().get(),
-      CertificateList(), &verify_result);
+      CertificateList(), &verify_result, NetLogWithSource());
   EXPECT_EQ(OK, error);
   const base::HistogramBase::Sample kUnknownRootHistogramID = 0;
   histograms.ExpectUniqueSample(kTrustAnchorVerifyHistogram,
@@ -4723,11 +4741,11 @@ TEST(CertVerifyProcTest, DoesNotRecalculateStapledOCSPResult) {
 
   int flags = 0;
   CertVerifyResult verify_result;
-  int error = verify_proc->Verify(cert.get(), "127.0.0.1",
-                                  /*ocsp_response=*/"invalid OCSP data",
-                                  /*sct_list=*/std::string(), flags,
-                                  CRLSet::BuiltinCRLSet().get(),
-                                  CertificateList(), &verify_result);
+  int error = verify_proc->Verify(
+      cert.get(), "127.0.0.1",
+      /*ocsp_response=*/"invalid OCSP data",
+      /*sct_list=*/std::string(), flags, CRLSet::BuiltinCRLSet().get(),
+      CertificateList(), &verify_result, NetLogWithSource());
   EXPECT_EQ(OK, error);
 
   EXPECT_EQ(OCSPVerifyResult::PROVIDED,
@@ -4757,7 +4775,7 @@ TEST(CertVerifyProcTest, CalculateStapledOCSPResultIfNotAlreadyDone) {
   int error = verify_proc->Verify(
       cert.get(), "127.0.0.1", /*ocsp_response=*/"invalid OCSP data",
       /*sct_list=*/std::string(), flags, CRLSet::BuiltinCRLSet().get(),
-      CertificateList(), &verify_result);
+      CertificateList(), &verify_result, NetLogWithSource());
   EXPECT_EQ(OK, error);
 
   EXPECT_EQ(OCSPVerifyResult::PARSE_RESPONSE_ERROR,

@@ -5,7 +5,7 @@
 #include "third_party/blink/renderer/modules/peerconnection/rtc_rtp_transceiver_impl.h"
 
 #include "base/bind.h"
-#include "base/logging.h"
+#include "base/check_op.h"
 #include "third_party/blink/renderer/platform/wtf/thread_safe_ref_counted.h"
 #include "third_party/webrtc/api/scoped_refptr.h"
 
@@ -186,15 +186,21 @@ class RTCRtpTransceiverImpl::RTCRtpTransceiverInternal
   RTCRtpTransceiverInternal(
       scoped_refptr<webrtc::PeerConnectionInterface> native_peer_connection,
       scoped_refptr<blink::WebRtcMediaStreamTrackAdapterMap> track_map,
-      RtpTransceiverState state)
+      RtpTransceiverState state,
+      bool force_encoded_audio_insertable_streams,
+      bool force_encoded_video_insertable_streams)
       : main_task_runner_(state.main_task_runner()),
         signaling_task_runner_(state.signaling_task_runner()),
         webrtc_transceiver_(state.webrtc_transceiver()),
         state_(std::move(state)) {
     sender_ = std::make_unique<blink::RTCRtpSenderImpl>(
-        native_peer_connection, track_map, state_.MoveSenderState());
+        native_peer_connection, track_map, state_.MoveSenderState(),
+        force_encoded_audio_insertable_streams,
+        force_encoded_video_insertable_streams);
     receiver_ = std::make_unique<blink::RTCRtpReceiverImpl>(
-        native_peer_connection, state_.MoveReceiverState());
+        native_peer_connection, state_.MoveReceiverState(),
+        force_encoded_audio_insertable_streams,
+        force_encoded_video_insertable_streams);
   }
 
   const RtpTransceiverState& state() const {
@@ -239,13 +245,18 @@ class RTCRtpTransceiverImpl::RTCRtpTransceiverInternal
     return receiver_.get();
   }
 
-  void SetDirection(webrtc::RtpTransceiverDirection direction) {
+  webrtc::RTCError SetDirection(webrtc::RtpTransceiverDirection direction) {
     DCHECK(main_task_runner_->BelongsToCurrentThread());
     // This implicitly performs a blocking invoke on the webrtc signaling thread
     // due to use of PROXY references for |webrtc_transceiver_|.
-    webrtc_transceiver_->SetDirection(direction);
-    state_.set_direction(webrtc_transceiver_->direction());
+    auto error = webrtc_transceiver_->SetDirectionWithError(direction);
+    if (error.ok()) {
+      state_.set_direction(webrtc_transceiver_->direction());
+    }
+    return error;
   }
+
+  webrtc::RTCError Stop() { return webrtc_transceiver_->StopStandard(); }
 
   webrtc::RTCError setCodecPreferences(
       std::vector<webrtc::RtpCodecCapability> codec_preferences) {
@@ -297,11 +308,15 @@ uintptr_t RTCRtpTransceiverImpl::GetId(
 RTCRtpTransceiverImpl::RTCRtpTransceiverImpl(
     scoped_refptr<webrtc::PeerConnectionInterface> native_peer_connection,
     scoped_refptr<blink::WebRtcMediaStreamTrackAdapterMap> track_map,
-    RtpTransceiverState transceiver_state)
+    RtpTransceiverState transceiver_state,
+    bool force_encoded_audio_insertable_streams,
+    bool force_encoded_video_insertable_streams)
     : internal_(base::MakeRefCounted<RTCRtpTransceiverInternal>(
           std::move(native_peer_connection),
           std::move(track_map),
-          std::move(transceiver_state))) {}
+          std::move(transceiver_state),
+          force_encoded_audio_insertable_streams,
+          force_encoded_video_insertable_streams)) {}
 
 RTCRtpTransceiverImpl::RTCRtpTransceiverImpl(const RTCRtpTransceiverImpl& other)
     : internal_(other.internal_) {}
@@ -373,9 +388,9 @@ webrtc::RtpTransceiverDirection RTCRtpTransceiverImpl::Direction() const {
   return internal_->state().direction();
 }
 
-void RTCRtpTransceiverImpl::SetDirection(
+webrtc::RTCError RTCRtpTransceiverImpl::SetDirection(
     webrtc::RtpTransceiverDirection direction) {
-  internal_->SetDirection(direction);
+  return internal_->SetDirection(direction);
 }
 
 base::Optional<webrtc::RtpTransceiverDirection>
@@ -386,6 +401,10 @@ RTCRtpTransceiverImpl::CurrentDirection() const {
 base::Optional<webrtc::RtpTransceiverDirection>
 RTCRtpTransceiverImpl::FiredDirection() const {
   return internal_->state().fired_direction();
+}
+
+webrtc::RTCError RTCRtpTransceiverImpl::Stop() {
+  return internal_->Stop();
 }
 
 webrtc::RTCError RTCRtpTransceiverImpl::SetCodecPreferences(

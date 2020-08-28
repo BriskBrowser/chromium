@@ -5,9 +5,14 @@
 #include "pdf/pdfium/pdfium_test_base.h"
 
 #include <memory>
+#include <string>
+#include <utility>
 
+#include "base/check_op.h"
+#include "base/memory/scoped_refptr.h"
 #include "build/build_config.h"
 #include "pdf/pdfium/pdfium_engine.h"
+#include "pdf/ppapi_migration/url_loader.h"
 #include "pdf/test/test_client.h"
 #include "pdf/test/test_document_loader.h"
 
@@ -19,16 +24,15 @@ namespace chrome_pdf {
 
 namespace {
 
-const base::FilePath::CharType* g_test_pdf_name;
-
-std::unique_ptr<DocumentLoader> CreateTestDocumentLoader(
-    DocumentLoader::Client* client) {
-  return std::make_unique<TestDocumentLoader>(client, g_test_pdf_name);
-}
-
 bool IsValidLinkForTesting(const std::string& url) {
   return !url.empty();
 }
+
+void SetSelectedTextForTesting(pp::Instance* instance,
+                               const std::string& selected_text) {}
+
+void SetLinkUnderCursorForTesting(pp::Instance* instance,
+                                  const std::string& link_under_cursor) {}
 
 }  // namespace
 
@@ -47,54 +51,92 @@ bool PDFiumTestBase::IsRunningOnChromeOS() {
 
 void PDFiumTestBase::SetUp() {
   InitializePDFium();
+  PDFiumEngine::OverrideSetSelectedTextFunctionForTesting(
+      &SetSelectedTextForTesting);
+  PDFiumEngine::OverrideSetLinkUnderCursorFunctionForTesting(
+      &SetLinkUnderCursorForTesting);
   PDFiumPage::SetIsValidLinkFunctionForTesting(&IsValidLinkForTesting);
 }
 
 void PDFiumTestBase::TearDown() {
-  PDFiumEngine::SetCreateDocumentLoaderFunctionForTesting(nullptr);
   PDFiumPage::SetIsValidLinkFunctionForTesting(nullptr);
-  g_test_pdf_name = nullptr;
+  PDFiumEngine::OverrideSetLinkUnderCursorFunctionForTesting(nullptr);
+  PDFiumEngine::OverrideSetSelectedTextFunctionForTesting(nullptr);
   FPDF_DestroyLibrary();
 }
 
 std::unique_ptr<PDFiumEngine> PDFiumTestBase::InitializeEngine(
     TestClient* client,
     const base::FilePath::CharType* pdf_name) {
-  SetDocumentForTest(pdf_name);
-  pp::URLLoader dummy_loader;
-  auto engine =
-      std::make_unique<PDFiumEngine>(client, /*enable_javascript=*/false);
-  client->set_engine(engine.get());
-  if (!engine->New("https://chromium.org/dummy.pdf", "") ||
-      !engine->HandleDocumentLoad(dummy_loader)) {
-    client->set_engine(nullptr);
-    return nullptr;
+  InitializeEngineResult result =
+      InitializeEngineWithoutLoading(client, pdf_name);
+  if (result.engine) {
+    // Incrementally read the PDF. To detect linearized PDFs, the first read
+    // should be at least 1024 bytes.
+    while (result.document_loader->SimulateLoadData(1024))
+      continue;
   }
-  return engine;
+  return std::move(result.engine);
 }
 
-void PDFiumTestBase::SetDocumentForTest(
+PDFiumTestBase::InitializeEngineResult
+PDFiumTestBase::InitializeEngineWithoutLoading(
+    TestClient* client,
     const base::FilePath::CharType* pdf_name) {
-  DCHECK(!g_test_pdf_name);
-  g_test_pdf_name = pdf_name;
-  PDFiumEngine::SetCreateDocumentLoaderFunctionForTesting(
-      &CreateTestDocumentLoader);
+  InitializeEngineResult result;
+
+  auto dummy_loader = base::MakeRefCounted<UrlLoader>();
+  result.engine =
+      std::make_unique<PDFiumEngine>(client, /*enable_javascript=*/false);
+  client->set_engine(result.engine.get());
+
+  auto test_loader =
+      std::make_unique<TestDocumentLoader>(result.engine.get(), pdf_name);
+  result.document_loader = test_loader.get();
+  result.engine->SetDocumentLoaderForTesting(std::move(test_loader));
+
+  if (!result.engine->New("https://chromium.org/dummy.pdf", "") ||
+      !result.engine->HandleDocumentLoad(std::move(dummy_loader))) {
+    client->set_engine(nullptr);
+    result.engine = nullptr;
+    result.document_loader = nullptr;
+  }
+  return result;
 }
 
 void PDFiumTestBase::InitializePDFium() {
   FPDF_LIBRARY_CONFIG config;
-  config.version = 2;
+  config.version = 3;
   config.m_pUserFontPaths = nullptr;
   config.m_pIsolate = nullptr;
   config.m_v8EmbedderSlot = 0;
+  config.m_pPlatform = nullptr;
   FPDF_InitLibraryWithConfig(&config);
 }
 
-PDFiumPage* PDFiumTestBase::GetPDFiumPageForTest(PDFiumEngine* engine,
-                                                 size_t page_index) {
-  if (engine && page_index < engine->pages_.size())
-    return engine->pages_[page_index].get();
-  return nullptr;
+const PDFiumPage& PDFiumTestBase::GetPDFiumPageForTest(
+    const PDFiumEngine& engine,
+    size_t page_index) {
+  return GetPDFiumPageForTest(const_cast<PDFiumEngine&>(engine), page_index);
 }
+
+PDFiumPage& PDFiumTestBase::GetPDFiumPageForTest(PDFiumEngine& engine,
+                                                 size_t page_index) {
+  DCHECK_LT(page_index, engine.pages_.size());
+  PDFiumPage* page = engine.pages_[page_index].get();
+  DCHECK(page);
+  return *page;
+}
+
+PDFiumTestBase::InitializeEngineResult::InitializeEngineResult() = default;
+
+PDFiumTestBase::InitializeEngineResult::InitializeEngineResult(
+    InitializeEngineResult&& other) noexcept = default;
+
+PDFiumTestBase::InitializeEngineResult&
+PDFiumTestBase::InitializeEngineResult::operator=(
+    InitializeEngineResult&& other) noexcept = default;
+
+PDFiumTestBase::InitializeEngineResult::~InitializeEngineResult() = default;
 
 }  // namespace chrome_pdf

@@ -211,22 +211,19 @@ class PictureBufferManagerImpl : public PictureBufferManager {
     // Create and return a VideoFrame for the picture buffer.
     scoped_refptr<VideoFrame> frame = VideoFrame::WrapNativeTextures(
         picture_buffer_data.pixel_format, picture_buffer_data.mailbox_holders,
-        base::BindRepeating(&PictureBufferManagerImpl::OnVideoFrameDestroyed,
-                            this, picture_buffer_id),
+        base::BindOnce(&PictureBufferManagerImpl::OnVideoFrameDestroyed, this,
+                       picture_buffer_id),
         picture_buffer_data.texture_size, visible_rect, natural_size,
         timestamp);
 
     frame->set_color_space(picture.color_space());
 
-    if (picture.allow_overlay())
-      frame->metadata()->SetBoolean(VideoFrameMetadata::ALLOW_OVERLAY, true);
-    if (picture.read_lock_fences_enabled()) {
-      frame->metadata()->SetBoolean(
-          VideoFrameMetadata::READ_LOCK_FENCES_ENABLED, true);
-    }
+    frame->metadata()->allow_overlay = picture.allow_overlay();
+    frame->metadata()->read_lock_fences_enabled =
+        picture.read_lock_fences_enabled();
 
     // TODO(sandersd): Provide an API for VDAs to control this.
-    frame->metadata()->SetBoolean(VideoFrameMetadata::POWER_EFFICIENT, true);
+    frame->metadata()->power_efficient = true;
 
     return frame;
   }

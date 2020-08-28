@@ -7,8 +7,10 @@
 #include <string>
 
 #include "base/bind_helpers.h"
+#include "build/build_config.h"
 #include "device/vr/openxr/openxr_api_wrapper.h"
 #include "device/vr/openxr/openxr_render_loop.h"
+#include "device/vr/openxr/openxr_statics.h"
 #include "device/vr/util/transform_utils.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 
@@ -53,10 +55,18 @@ mojom::VRDisplayInfoPtr CreateFakeVRDisplayInfo(device::mojom::XRDeviceId id) {
 
 }  // namespace
 
-OpenXrDevice::OpenXrDevice()
+// OpenXrDevice must not take ownership of the OpenXrStatics passed in.
+// The OpenXrStatics object is owned by IsolatedXRRuntimeProvider.
+OpenXrDevice::OpenXrDevice(OpenXrStatics* openxr_statics)
     : VRDeviceBase(device::mojom::XRDeviceId::OPENXR_DEVICE_ID),
+      instance_(openxr_statics->GetXrInstance()),
       weak_ptr_factory_(this) {
-  SetVRDisplayInfo(CreateFakeVRDisplayInfo(GetId()));
+  mojom::VRDisplayInfoPtr display_info = CreateFakeVRDisplayInfo(GetId());
+  SetVRDisplayInfo(std::move(display_info));
+
+#if defined(OS_WIN)
+  SetLuid(openxr_statics->GetLuid());
+#endif
 }
 
 OpenXrDevice::~OpenXrDevice() {
@@ -77,8 +87,8 @@ void OpenXrDevice::EnsureRenderLoop() {
   if (!render_loop_) {
     auto on_info_changed = base::BindRepeating(&OpenXrDevice::SetVRDisplayInfo,
                                                weak_ptr_factory_.GetWeakPtr());
-    render_loop_ =
-        std::make_unique<OpenXrRenderLoop>(std::move(on_info_changed));
+    render_loop_ = std::make_unique<OpenXrRenderLoop>(
+        std::move(on_info_changed), instance_);
   }
 }
 

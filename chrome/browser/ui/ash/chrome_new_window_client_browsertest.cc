@@ -15,7 +15,8 @@
 #include "chrome/browser/ui/settings_window_manager_chromeos.h"
 #include "chrome/browser/ui/settings_window_manager_observer_chromeos.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
-#include "chrome/browser/ui/web_applications/test/bookmark_app_navigation_browsertest.h"
+#include "chrome/browser/ui/web_applications/test/web_app_navigation_browsertest.h"
+#include "chrome/browser/ui/webui/settings/chromeos/constants/routes.mojom.h"
 #include "chrome/browser/web_applications/system_web_app_manager.h"
 #include "chrome/browser/web_applications/web_app_provider.h"
 #include "chrome/common/chrome_features.h"
@@ -26,6 +27,7 @@
 #include "components/session_manager/core/session_manager.h"
 #include "components/user_manager/known_user.h"
 #include "components/user_manager/user_manager.h"
+#include "content/public/test/browser_test.h"
 #include "content/public/test/test_navigation_observer.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/aura/window.h"
@@ -72,7 +74,7 @@ Browser* GetLastActiveBrowser() {
 using ChromeNewWindowClientBrowserTest = InProcessBrowserTest;
 
 using ChromeNewWindowClientWebAppBrowserTest =
-    extensions::test::BookmarkAppNavigationBrowserTest;
+    web_app::WebAppNavigationBrowserTest;
 
 // Tests that when we open a new window by pressing 'Ctrl-N', we should use the
 // current active window's profile to determine on which profile's desktop we
@@ -142,7 +144,7 @@ IN_PROC_BROWSER_TEST_F(ChromeNewWindowClientBrowserTest, IncognitoDisabled) {
 }
 
 IN_PROC_BROWSER_TEST_F(ChromeNewWindowClientWebAppBrowserTest, OpenWebApp) {
-  InstallTestBookmarkApp();
+  InstallTestWebApp();
   const GURL app_url = https_server().GetURL(GetAppUrlHost(), GetAppUrlPath());
   const char* key =
       arc::ArcWebContentsData::ArcWebContentsData::kArcTransitionFlag;
@@ -214,7 +216,8 @@ IN_PROC_BROWSER_TEST_F(ChromeNewWindowClientBrowserTest,
   // But opening an OS setting should open the OS setting window.
   TestOpenSettingFromArc(
       browser(), ChromePage::POWER,
-      GURL("chrome://os-settings/").Resolve(chrome::kPowerSubPage),
+      GURL("chrome://os-settings/")
+          .Resolve(chromeos::settings::mojom::kPowerSubpagePath),
       /*expected_setting_window_count=*/1);
 }
 
@@ -243,48 +246,185 @@ void TestOpenChromePage(ChromePage page, const GURL& expected_url) {
 
 void TestAllOSSettingPages(const GURL& base_url) {
   TestOpenChromePage(ChromePage::MAIN, base_url);
-  TestOpenChromePage(ChromePage::MULTIDEVICE,
-                     base_url.Resolve(chrome::kMultideviceSubPage));
-  TestOpenChromePage(ChromePage::WIFI,
-                     base_url.Resolve(chrome::kWiFiSettingsSubPage));
-  TestOpenChromePage(ChromePage::POWER,
-                     base_url.Resolve(chrome::kPowerSubPage));
-  TestOpenChromePage(ChromePage::BLUETOOTH,
-                     base_url.Resolve(chrome::kBluetoothSubPage));
-  TestOpenChromePage(ChromePage::DATETIME,
-                     base_url.Resolve(chrome::kDateTimeSubPage));
-  TestOpenChromePage(ChromePage::DISPLAY,
-                     base_url.Resolve(chrome::kDisplaySubPage));
-  TestOpenChromePage(ChromePage::HELP, base_url.Resolve(chrome::kHelpSubPage));
-  TestOpenChromePage(ChromePage::ACCOUNTS,
-                     base_url.Resolve(chrome::kAccountSubPage));
-  TestOpenChromePage(ChromePage::BLUETOOTHDEVICES,
-                     base_url.Resolve(chrome::kBluetoothSubPage));
-  TestOpenChromePage(ChromePage::CHANGEPICTURE,
-                     base_url.Resolve(chrome::kChangePictureSubPage));
-  TestOpenChromePage(ChromePage::CUPSPRINTERS,
-                     base_url.Resolve(chrome::kNativePrintingSettingsSubPage));
-  TestOpenChromePage(ChromePage::KEYBOARDOVERLAY,
-                     base_url.Resolve(chrome::kKeyboardOverlaySubPage));
-  TestOpenChromePage(ChromePage::LANGUAGES,
-                     base_url.Resolve(chrome::kLanguageSubPage));
-  TestOpenChromePage(ChromePage::LOCKSCREEN,
-                     base_url.Resolve(chrome::kLockScreenSubPage));
-  TestOpenChromePage(ChromePage::MANAGEACCESSIBILITY,
-                     base_url.Resolve(chrome::kManageAccessibilitySubPage));
-  TestOpenChromePage(ChromePage::NETWORKSTYPEVPN,
-                     base_url.Resolve(chrome::kVPNSettingsSubPage));
-  TestOpenChromePage(ChromePage::POINTEROVERLAY,
-                     base_url.Resolve(chrome::kPointerOverlaySubPage));
-  TestOpenChromePage(ChromePage::RESET,
-                     base_url.Resolve(chrome::kResetSubPage));
-  TestOpenChromePage(ChromePage::STORAGE,
-                     base_url.Resolve(chrome::kStorageSubPage));
-  TestOpenChromePage(ChromePage::SYNCSETUP,
-                     base_url.Resolve(chrome::kSyncSetupSubPage));
+  TestOpenChromePage(
+      ChromePage::MULTIDEVICE,
+      base_url.Resolve(chromeos::settings::mojom::kMultiDeviceSectionPath));
+  TestOpenChromePage(
+      ChromePage::WIFI,
+      base_url.Resolve(chromeos::settings::mojom::kWifiNetworksSubpagePath));
+  TestOpenChromePage(
+      ChromePage::POWER,
+      base_url.Resolve(chromeos::settings::mojom::kPowerSubpagePath));
+  TestOpenChromePage(
+      ChromePage::BLUETOOTH,
+      base_url.Resolve(
+          chromeos::settings::mojom::kBluetoothDevicesSubpagePath));
+  TestOpenChromePage(
+      ChromePage::DATETIME,
+      base_url.Resolve(chromeos::settings::mojom::kDateAndTimeSectionPath));
+  TestOpenChromePage(
+      ChromePage::DISPLAY,
+      base_url.Resolve(chromeos::settings::mojom::kDisplaySubpagePath));
+  TestOpenChromePage(
+      ChromePage::HELP,
+      base_url.Resolve(chromeos::settings::mojom::kAboutChromeOsSectionPath));
+  TestOpenChromePage(
+      ChromePage::ACCOUNTS,
+      base_url.Resolve(
+          chromeos::settings::mojom::kManageOtherPeopleSubpagePath));
+  TestOpenChromePage(
+      ChromePage::BLUETOOTHDEVICES,
+      base_url.Resolve(
+          chromeos::settings::mojom::kBluetoothDevicesSubpagePath));
+  TestOpenChromePage(
+      ChromePage::CHANGEPICTURE,
+      base_url.Resolve(chromeos::settings::mojom::kChangePictureSubpagePath));
+  TestOpenChromePage(
+      ChromePage::CUPSPRINTERS,
+      base_url.Resolve(chromeos::settings::mojom::kPrintingDetailsSubpagePath));
+  TestOpenChromePage(
+      ChromePage::KEYBOARDOVERLAY,
+      base_url.Resolve(chromeos::settings::mojom::kKeyboardSubpagePath));
+  TestOpenChromePage(
+      ChromePage::OSLANGUAGES,
+      base_url.Resolve(
+          chromeos::settings::mojom::kLanguagesAndInputSectionPath));
+  TestOpenChromePage(
+      ChromePage::OSLANGUAGESDETAILS,
+      base_url.Resolve(
+          chromeos::settings::mojom::kLanguagesAndInputDetailsSubpagePath));
+  TestOpenChromePage(
+      ChromePage::OSLANGUAGESINPUT,
+      base_url.Resolve(chromeos::settings::mojom::kInputSubpagePath));
+  TestOpenChromePage(
+      ChromePage::OSLANGUAGESINPUTMETHODS,
+      base_url.Resolve(
+          chromeos::settings::mojom::kManageInputMethodsSubpagePath));
+  TestOpenChromePage(
+      ChromePage::OSLANGUAGESLANGUAGES,
+      base_url.Resolve(chromeos::settings::mojom::kLanguagesSubpagePath));
+  TestOpenChromePage(
+      ChromePage::OSLANGUAGESSMARTINPUTS,
+      base_url.Resolve(chromeos::settings::mojom::kSmartInputsSubpagePath));
+  TestOpenChromePage(
+      ChromePage::LOCKSCREEN,
+      base_url.Resolve(
+          chromeos::settings::mojom::kSecurityAndSignInSubpagePath));
+  TestOpenChromePage(
+      ChromePage::MANAGEACCESSIBILITY,
+      base_url.Resolve(
+          chromeos::settings::mojom::kManageAccessibilitySubpagePath));
+  TestOpenChromePage(
+      ChromePage::NETWORKSTYPEVPN,
+      base_url.Resolve(chromeos::settings::mojom::kVpnDetailsSubpagePath));
+  TestOpenChromePage(
+      ChromePage::OSPEOPLE,
+      base_url.Resolve(chromeos::settings::mojom::kPeopleSectionPath));
+  TestOpenChromePage(
+      ChromePage::OSPRINTING,
+      base_url.Resolve(chromeos::settings::mojom::kPrintingSectionPath));
+  TestOpenChromePage(
+      ChromePage::POINTEROVERLAY,
+      base_url.Resolve(chromeos::settings::mojom::kPointersSubpagePath));
+  TestOpenChromePage(
+      ChromePage::OSRESET,
+      base_url.Resolve(chromeos::settings::mojom::kResetSectionPath));
+  TestOpenChromePage(
+      ChromePage::STORAGE,
+      base_url.Resolve(chromeos::settings::mojom::kStorageSubpagePath));
+  TestOpenChromePage(
+      ChromePage::OSACCESSIBILITY,
+      base_url.Resolve(chromeos::settings::mojom::kAccessibilitySectionPath));
+  TestOpenChromePage(
+      ChromePage::ACCOUNTMANAGER,
+      base_url.Resolve(chromeos::settings::mojom::kMyAccountsSubpagePath));
+  TestOpenChromePage(
+      ChromePage::AMBIENTMODE,
+      base_url.Resolve(chromeos::settings::mojom::kAmbientModeSubpagePath));
+  TestOpenChromePage(
+      ChromePage::ANDROIDAPPSDETAILS,
+      base_url.Resolve(chromeos::settings::mojom::kGooglePlayStoreSubpagePath));
+  TestOpenChromePage(
+      ChromePage::ANDROIDAPPSDETAILSINBROWSERSETTINGS,
+      base_url.Resolve(chromeos::settings::mojom::kGooglePlayStoreSubpagePath));
+  TestOpenChromePage(
+      ChromePage::APPMANAGEMENTDETAILS,
+      base_url.Resolve(chromeos::settings::mojom::kAppDetailsSubpagePath));
+  TestOpenChromePage(
+      ChromePage::APPMANAGEMENT,
+      base_url.Resolve(chromeos::settings::mojom::kAppManagementSubpagePath));
+  TestOpenChromePage(
+      ChromePage::ASSISTANT,
+      base_url.Resolve(chromeos::settings::mojom::kAssistantSubpagePath));
+  TestOpenChromePage(
+      ChromePage::CONNECTEDDEVICES,
+      base_url.Resolve(
+          chromeos::settings::mojom::kMultiDeviceFeaturesSubpagePath));
+  TestOpenChromePage(
+      ChromePage::CROSTINISHAREDPATHS,
+      base_url.Resolve(
+          chromeos::settings::mojom::kCrostiniManageSharedFoldersSubpagePath));
+  TestOpenChromePage(
+      ChromePage::CROSTINISHAREDUSBDEVICES,
+      base_url.Resolve(
+          chromeos::settings::mojom::kCrostiniUsbPreferencesSubpagePath));
+  TestOpenChromePage(
+      ChromePage::CROSTINIEXPORTIMPORT,
+      base_url.Resolve(
+          chromeos::settings::mojom::kCrostiniBackupAndRestoreSubpagePath));
+  TestOpenChromePage(
+      ChromePage::EXTERNALSTORAGE,
+      base_url.Resolve(chromeos::settings::mojom::kExternalStorageSubpagePath));
+  TestOpenChromePage(
+      ChromePage::INTERNET,
+      base_url.Resolve(chromeos::settings::mojom::kNetworkSectionPath));
+  TestOpenChromePage(
+      ChromePage::KERBEROSACCOUNTS,
+      base_url.Resolve(chromeos::settings::mojom::kKerberosSubpagePath));
+  TestOpenChromePage(
+      ChromePage::KNOWNNETWORKS,
+      base_url.Resolve(chromeos::settings::mojom::kKnownNetworksSubpagePath));
+  TestOpenChromePage(
+      ChromePage::MANAGEACCESSIBILITYTTS,
+      base_url.Resolve(chromeos::settings::mojom::kTextToSpeechSubpagePath));
+  TestOpenChromePage(
+      ChromePage::PLUGINVMSHAREDPATHS,
+      base_url.Resolve(
+          chromeos::settings::mojom::kPluginVmSharedPathsSubpagePath));
+  TestOpenChromePage(
+      ChromePage::OSSEARCH,
+      base_url.Resolve(
+          chromeos::settings::mojom::kSearchAndAssistantSectionPath));
+  TestOpenChromePage(
+      ChromePage::OSPRIVACY,
+      base_url.Resolve(
+          chromeos::settings::mojom::kPrivacyAndSecuritySectionPath));
+  TestOpenChromePage(
+      ChromePage::SMARTLOCKSETTINGS,
+      base_url.Resolve(chromeos::settings::mojom::kSmartLockSubpagePath));
+  TestOpenChromePage(
+      ChromePage::STYLUS,
+      base_url.Resolve(chromeos::settings::mojom::kStylusSubpagePath));
+  TestOpenChromePage(
+      ChromePage::SWITCHACCESS,
+      base_url.Resolve(
+          chromeos::settings::mojom::kSwitchAccessOptionsSubpagePath));
+  TestOpenChromePage(
+      ChromePage::TETHERSETTINGS,
+      base_url.Resolve(
+          chromeos::settings::mojom::kMobileDataNetworksSubpagePath));
+  TestOpenChromePage(
+      ChromePage::ETHERNET,
+      base_url.Resolve(chromeos::settings::mojom::kEthernetDetailsSubpagePath));
+  TestOpenChromePage(
+      ChromePage::CELLULAR,
+      base_url.Resolve(
+          chromeos::settings::mojom::kMobileDataNetworksSubpagePath));
 }
 
 void TestAllBrowserSettingPages(const GURL& base_url) {
+  TestOpenChromePage(ChromePage::ACCESSIBILITY,
+                     base_url.Resolve(chrome::kAccessibilitySubPage));
   TestOpenChromePage(ChromePage::PRIVACY,
                      base_url.Resolve(chrome::kPrivacySubPage));
   TestOpenChromePage(ChromePage::APPEARANCE,
@@ -301,8 +441,16 @@ void TestAllBrowserSettingPages(const GURL& base_url) {
                      base_url.Resolve(chrome::kOnStartupSubPage));
   TestOpenChromePage(ChromePage::PASSWORDS,
                      base_url.Resolve(chrome::kPasswordManagerSubPage));
+  TestOpenChromePage(ChromePage::RESET,
+                     base_url.Resolve(chrome::kResetSubPage));
+  TestOpenChromePage(ChromePage::PRINTING,
+                     base_url.Resolve(chrome::kPrintingSettingsSubPage));
   TestOpenChromePage(ChromePage::SEARCH,
                      base_url.Resolve(chrome::kSearchSubPage));
+  TestOpenChromePage(ChromePage::SYNCSETUP,
+                     base_url.Resolve(chrome::kSyncSetupSubPage));
+  TestOpenChromePage(ChromePage::LANGUAGES,
+                     base_url.Resolve(chrome::kLanguagesSubPage));
 }
 
 void TestAllAboutPages() {

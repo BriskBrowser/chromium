@@ -15,7 +15,7 @@
 #include "base/run_loop.h"
 #include "base/strings/utf_string_conversions.h"
 #include "ui/accessibility/ax_node_data.h"
-#include "ui/base/ime/ime_bridge.h"
+#include "ui/base/ime/chromeos/ime_bridge.h"
 #include "ui/base/ime/text_input_flags.h"
 #include "ui/events/event.h"
 #include "ui/views/controls/label.h"
@@ -116,6 +116,14 @@ TEST_F(SelectToSpeakTrayTest, SelectToSpeakStateImpactsImageAndActivation) {
   EXPECT_FALSE(IsTrayBackgroundActive());
   EXPECT_TRUE(
       GetInactiveImage().BackedBySameObjectAs(GetImageView()->GetImage()));
+}
+
+// Trivial test to increase coverage of select_to_speak_tray.h. The
+// SelectToSpeakTray does not have a bubble, so these are empty functions.
+// Without this test, coverage of select_to_speak_tray.h is 0%.
+TEST_F(SelectToSpeakTrayTest, OverriddenFunctionsDoNothing) {
+  GetTray()->HideBubbleWithView(nullptr);
+  GetTray()->ClickedOutsideBubble();
 }
 
 }  // namespace ash

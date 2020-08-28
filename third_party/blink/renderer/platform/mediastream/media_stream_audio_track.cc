@@ -5,14 +5,15 @@
 #include "third_party/blink/renderer/platform/mediastream/media_stream_audio_track.h"
 
 #include <utility>
-#include <vector>
 
-#include "base/logging.h"
+#include "base/check_op.h"
 #include "base/strings/stringprintf.h"
 #include "media/base/audio_bus.h"
 #include "third_party/blink/public/platform/modules/mediastream/web_media_stream_audio_sink.h"
+#include "third_party/blink/public/platform/modules/mediastream/web_media_stream_source.h"
 #include "third_party/blink/public/platform/modules/webrtc/webrtc_logging.h"
-#include "third_party/blink/public/platform/web_media_stream_source.h"
+#include "third_party/blink/renderer/platform/mediastream/media_stream_component.h"
+#include "third_party/blink/renderer/platform/mediastream/media_stream_source.h"
 
 namespace blink {
 
@@ -25,10 +26,10 @@ void SendLogMessage(const std::string& message) {
 }  // namespace
 
 MediaStreamAudioTrack::MediaStreamAudioTrack(bool is_local_track)
-    : WebPlatformMediaStreamTrack(is_local_track), is_enabled_(1) {
+    : MediaStreamTrackPlatform(is_local_track), is_enabled_(1) {
   SendLogMessage(
       base::StringPrintf("MediaStreamAudioTrack([this=%p] {is_local_track=%s})",
-                         this, (is_local_track ? "local" : "remote")));
+                         this, (is_local_track ? "true" : "false")));
 }
 
 MediaStreamAudioTrack::~MediaStreamAudioTrack() {
@@ -39,12 +40,12 @@ MediaStreamAudioTrack::~MediaStreamAudioTrack() {
 
 // static
 MediaStreamAudioTrack* MediaStreamAudioTrack::From(
-    const WebMediaStreamTrack& track) {
-  if (track.IsNull() ||
-      track.Source().GetType() != WebMediaStreamSource::kTypeAudio) {
+    const MediaStreamComponent* component) {
+  if (!component ||
+      component->Source()->GetType() != MediaStreamSource::kTypeAudio) {
     return nullptr;
   }
-  return static_cast<MediaStreamAudioTrack*>(track.GetPlatformTrack());
+  return static_cast<MediaStreamAudioTrack*>(component->GetPlatformTrack());
 }
 
 void MediaStreamAudioTrack::AddSink(WebMediaStreamAudioSink* sink) {
@@ -82,7 +83,7 @@ void MediaStreamAudioTrack::SetEnabled(bool enabled) {
   if (enabled == previously_enabled)
     return;
 
-  std::vector<WebMediaStreamAudioSink*> sinks_to_notify;
+  Vector<WebMediaStreamAudioSink*> sinks_to_notify;
   deliverer_.GetConsumerList(&sinks_to_notify);
   for (WebMediaStreamAudioSink* sink : sinks_to_notify)
     sink->OnEnabledChanged(enabled);
@@ -92,7 +93,7 @@ void MediaStreamAudioTrack::SetContentHint(
     WebMediaStreamTrack::ContentHintType content_hint) {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
 
-  std::vector<WebMediaStreamAudioSink*> sinks_to_notify;
+  Vector<WebMediaStreamAudioSink*> sinks_to_notify;
   deliverer_.GetConsumerList(&sinks_to_notify);
   for (WebMediaStreamAudioSink* sink : sinks_to_notify)
     sink->OnContentHintChanged(content_hint);
@@ -117,7 +118,7 @@ void MediaStreamAudioTrack::StopAndNotify(base::OnceClosure callback) {
   if (!stop_callback_.is_null())
     std::move(stop_callback_).Run();
 
-  std::vector<WebMediaStreamAudioSink*> sinks_to_end;
+  Vector<WebMediaStreamAudioSink*> sinks_to_end;
   deliverer_.GetConsumerList(&sinks_to_end);
   for (WebMediaStreamAudioSink* sink : sinks_to_end) {
     deliverer_.RemoveConsumer(sink);
@@ -138,6 +139,9 @@ void MediaStreamAudioTrack::OnSetFormat(const media::AudioParameters& params) {
 
 void MediaStreamAudioTrack::OnData(const media::AudioBus& audio_bus,
                                    base::TimeTicks reference_time) {
+  TRACE_EVENT0(TRACE_DISABLED_BY_DEFAULT("mediastream"),
+               "MediaStreamAudioTrack::OnData");
+
   if (!received_audio_callback_) {
     // Add log message with unique this pointer id to mark the audio track as
     // alive at the first data callback.

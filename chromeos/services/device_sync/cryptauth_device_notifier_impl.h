@@ -17,7 +17,6 @@
 #include "chromeos/services/device_sync/cryptauth_device_notifier.h"
 #include "chromeos/services/device_sync/cryptauth_feature_type.h"
 #include "chromeos/services/device_sync/network_request_error.h"
-#include "chromeos/services/device_sync/proto/cryptauth_client_app_metadata.pb.h"
 #include "chromeos/services/device_sync/proto/cryptauth_common.pb.h"
 #include "chromeos/services/device_sync/proto/cryptauth_devicesync.pb.h"
 
@@ -25,10 +24,8 @@ namespace chromeos {
 
 namespace device_sync {
 
-class ClientAppMetadataProvider;
 class CryptAuthClient;
 class CryptAuthClientFactory;
-class CryptAuthGCMManager;
 
 // An implementation of CryptAuthDeviceNotifier, using instances of
 // CryptAuthClient to make the BatchNotifyGroupDevices API calls to CryptAuth.
@@ -39,15 +36,21 @@ class CryptAuthDeviceNotifierImpl : public CryptAuthDeviceNotifier {
  public:
   class Factory {
    public:
-    static Factory* Get();
-    static void SetFactoryForTesting(Factory* test_factory);
-    virtual ~Factory();
-    virtual std::unique_ptr<CryptAuthDeviceNotifier> BuildInstance(
-        ClientAppMetadataProvider* client_app_metadata_provider,
+    static std::unique_ptr<CryptAuthDeviceNotifier> Create(
+        const std::string& instance_id,
+        const std::string& instance_id_token,
         CryptAuthClientFactory* client_factory,
-        CryptAuthGCMManager* gcm_manager,
         std::unique_ptr<base::OneShotTimer> timer =
             std::make_unique<base::OneShotTimer>());
+    static void SetFactoryForTesting(Factory* test_factory);
+
+   protected:
+    virtual ~Factory();
+    virtual std::unique_ptr<CryptAuthDeviceNotifier> CreateInstance(
+        const std::string& instance_id,
+        const std::string& instance_id_token,
+        CryptAuthClientFactory* client_factory,
+        std::unique_ptr<base::OneShotTimer> timer) = 0;
 
    private:
     static Factory* test_factory_;
@@ -56,11 +59,7 @@ class CryptAuthDeviceNotifierImpl : public CryptAuthDeviceNotifier {
   ~CryptAuthDeviceNotifierImpl() override;
 
  private:
-  enum class State {
-    kIdle,
-    kWaitingForClientAppMetadata,
-    kWaitingForBatchNotifyGroupDevicesResponse
-  };
+  enum class State { kIdle, kWaitingForBatchNotifyGroupDevicesResponse };
 
   friend std::ostream& operator<<(std::ostream& stream, const State& state);
 
@@ -84,11 +83,10 @@ class CryptAuthDeviceNotifierImpl : public CryptAuthDeviceNotifier {
     base::OnceCallback<void(NetworkRequestError)> error_callback;
   };
 
-  CryptAuthDeviceNotifierImpl(
-      ClientAppMetadataProvider* client_app_metadata_provider,
-      CryptAuthClientFactory* client_factory,
-      CryptAuthGCMManager* gcm_manager,
-      std::unique_ptr<base::OneShotTimer> timer);
+  CryptAuthDeviceNotifierImpl(const std::string& instance_id,
+                              const std::string& instance_id_token,
+                              CryptAuthClientFactory* client_factory,
+                              std::unique_ptr<base::OneShotTimer> timer);
 
   // CryptAuthDeviceNotifier:
   void NotifyDevices(
@@ -102,9 +100,6 @@ class CryptAuthDeviceNotifierImpl : public CryptAuthDeviceNotifier {
   void OnTimeout();
 
   void ProcessRequestQueue();
-  void OnClientAppMetadataFetched(
-      const base::Optional<cryptauthv2::ClientAppMetadata>&
-          client_app_metadata);
   void OnBatchNotifyGroupDevicesSuccess(
       const cryptauthv2::BatchNotifyGroupDevicesResponse& response);
   void OnBatchNotifyGroupDevicesFailure(NetworkRequestError error);
@@ -112,12 +107,11 @@ class CryptAuthDeviceNotifierImpl : public CryptAuthDeviceNotifier {
 
   State state_ = State::kIdle;
   base::TimeTicks last_state_change_timestamp_;
-  base::Optional<cryptauthv2::ClientAppMetadata> client_app_metadata_;
   base::queue<Request> pending_requests_;
 
-  ClientAppMetadataProvider* client_app_metadata_provider_ = nullptr;
+  std::string instance_id_;
+  std::string instance_id_token_;
   CryptAuthClientFactory* client_factory_ = nullptr;
-  CryptAuthGCMManager* gcm_manager_ = nullptr;
   std::unique_ptr<CryptAuthClient> cryptauth_client_;
   std::unique_ptr<base::OneShotTimer> timer_;
   base::WeakPtrFactory<CryptAuthDeviceNotifierImpl> weak_ptr_factory_{this};

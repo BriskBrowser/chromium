@@ -18,6 +18,7 @@
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
 #include "base/values.h"
 #include "chrome/browser/chromeos/accessibility/accessibility_manager.h"
 #include "chrome/browser/chromeos/camera_presence_notifier.h"
@@ -183,7 +184,7 @@ void ChangePictureHandler::HandlePhotoTaken(const base::ListValue* args) {
   base::StringPiece url(image_url);
   const char kDataUrlPrefix[] = "data:image/png;base64,";
   const size_t kDataUrlPrefixLength = base::size(kDataUrlPrefix) - 1;
-  if (!url.starts_with(kDataUrlPrefix) ||
+  if (!base::StartsWith(url, kDataUrlPrefix) ||
       !base::Base64Decode(url.substr(kDataUrlPrefixLength), &raw_data)) {
     LOG(WARNING) << "Invalid image URL";
     return;
@@ -228,8 +229,8 @@ void ChangePictureHandler::SendSelectedImage() {
         DCHECK(previous_image_.IsThreadSafe());
         // Post a task because GetBitmapDataUrl does PNG encoding, which is
         // slow for large images.
-        base::PostTaskAndReplyWithResult(
-            FROM_HERE, {base::ThreadPool(), base::TaskPriority::USER_BLOCKING},
+        base::ThreadPool::PostTaskAndReplyWithResult(
+            FROM_HERE, {base::TaskPriority::USER_BLOCKING},
             base::BindOnce(&webui::GetBitmapDataUrl, *previous_image_.bitmap()),
             base::BindOnce(&ChangePictureHandler::SendOldImage,
                            weak_ptr_factory_.GetWeakPtr()));
@@ -322,9 +323,6 @@ void ChangePictureHandler::HandleSelectImage(const base::ListValue* args) {
     }
     user_image_manager->SaveUserImage(std::move(user_image));
 
-    UMA_HISTOGRAM_EXACT_LINEAR("UserImage.ChangeChoice",
-                               default_user_image::kHistogramImageOld,
-                               default_user_image::kHistogramImagesCount);
     VLOG(1) << "Selected old user image";
   } else if (image_type == "default") {
     int image_index = user_manager::User::USER_IMAGE_INVALID;
@@ -332,10 +330,6 @@ void ChangePictureHandler::HandleSelectImage(const base::ListValue* args) {
       // One of the default user images.
       user_image_manager->SaveUserDefaultImageIndex(image_index);
 
-      UMA_HISTOGRAM_EXACT_LINEAR(
-          "UserImage.ChangeChoice",
-          default_user_image::GetDefaultImageHistogramValue(image_index),
-          default_user_image::kHistogramImagesCount);
       VLOG(1) << "Selected default user image: " << image_index;
     } else {
       LOG(WARNING) << "Invalid image_url for default image type: " << image_url;
@@ -351,18 +345,6 @@ void ChangePictureHandler::HandleSelectImage(const base::ListValue* args) {
   } else if (image_type == "profile") {
     // Profile image selected. Could be previous (old) user image.
     user_image_manager->SaveUserImageFromProfileImage();
-
-    if (previous_image_index_ == user_manager::User::USER_IMAGE_PROFILE) {
-      UMA_HISTOGRAM_EXACT_LINEAR("UserImage.ChangeChoice",
-                                 default_user_image::kHistogramImageOld,
-                                 default_user_image::kHistogramImagesCount);
-      VLOG(1) << "Selected old (profile) user image";
-    } else {
-      UMA_HISTOGRAM_EXACT_LINEAR("UserImage.ChangeChoice",
-                                 default_user_image::kHistogramImageFromProfile,
-                                 default_user_image::kHistogramImagesCount);
-      VLOG(1) << "Selected profile image";
-    }
   } else {
     NOTREACHED() << "Unexpected image type: " << image_type;
   }
@@ -383,9 +365,6 @@ void ChangePictureHandler::FileSelected(const base::FilePath& path,
   ChromeUserManager::Get()
       ->GetUserImageManager(GetUser()->GetAccountId())
       ->SaveUserImageFromFile(path);
-  UMA_HISTOGRAM_EXACT_LINEAR("UserImage.ChangeChoice",
-                             default_user_image::kHistogramImageFromFile,
-                             default_user_image::kHistogramImagesCount);
   VLOG(1) << "Selected image from file";
 }
 
@@ -399,9 +378,6 @@ void ChangePictureHandler::SetImageFromCamera(
   ChromeUserManager::Get()
       ->GetUserImageManager(GetUser()->GetAccountId())
       ->SaveUserImage(std::move(user_image));
-  UMA_HISTOGRAM_EXACT_LINEAR("UserImage.ChangeChoice",
-                             default_user_image::kHistogramImageFromCamera,
-                             default_user_image::kHistogramImagesCount);
   VLOG(1) << "Selected camera photo";
 }
 

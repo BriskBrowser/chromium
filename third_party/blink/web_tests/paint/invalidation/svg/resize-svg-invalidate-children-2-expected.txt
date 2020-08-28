@@ -8,19 +8,8 @@
     },
     {
       "name": "LayoutSVGRoot svg",
-      "bounds": [600, 400],
-      "paintInvalidations": [
-        {
-          "object": "LayoutSVGRoot svg",
-          "rect": [50, 0, 500, 400],
-          "reason": "paint property change"
-        },
-        {
-          "object": "LayoutSVGRoot svg",
-          "rect": [0, 120, 200, 160],
-          "reason": "paint property change"
-        }
-      ],
+      "position": [50, 0],
+      "bounds": [500, 400],
       "transform": 1
     }
   ],

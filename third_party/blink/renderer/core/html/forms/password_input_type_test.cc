@@ -13,6 +13,7 @@
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/public/common/browser_interface_broker_proxy.h"
 #include "third_party/blink/public/mojom/insecure_input/insecure_input_service.mojom-blink.h"
+#include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/core/frame/local_frame_view.h"
 #include "third_party/blink/renderer/core/testing/dummy_page_holder.h"
 #include "third_party/blink/renderer/platform/testing/unit_test_helpers.h"
@@ -51,10 +52,9 @@ class MockInsecureInputService : public mojom::blink::InsecureInputService {
 TEST(PasswordInputTypeTest, DidEditFieldEvent) {
   auto page_holder = std::make_unique<DummyPageHolder>(IntSize(2000, 2000));
   MockInsecureInputService mock_service(page_holder->GetFrame());
-  page_holder->GetDocument().body()->SetInnerHTMLFromString(
-      "<input type='password'>");
+  page_holder->GetDocument().body()->setInnerHTML("<input type='password'>");
   page_holder->GetDocument().View()->UpdateAllLifecyclePhases(
-      DocumentLifecycle::LifecycleUpdateReason::kTest);
+      DocumentUpdateReason::kTest);
   blink::test::RunPendingTasks();
   EXPECT_EQ(0u, mock_service.DidEditFieldCalls());
   // Simulate a text field edit.
@@ -77,12 +77,9 @@ TEST(PasswordInputTypeTest, DidEditFieldEventNotSentFromSecureContext) {
       nullptr /* extra_data */);
   blink::test::RunPendingTasks();
   MockInsecureInputService mock_service(page_holder->GetFrame());
-  page_holder->GetDocument().SetSecureContextModeForTesting(
-      SecureContextMode::kSecureContext);
-  page_holder->GetDocument().body()->SetInnerHTMLFromString(
-      "<input type='password'>");
+  page_holder->GetDocument().body()->setInnerHTML("<input type='password'>");
   page_holder->GetDocument().View()->UpdateAllLifecyclePhases(
-      DocumentLifecycle::LifecycleUpdateReason::kTest);
+      DocumentUpdateReason::kTest);
   // Simulate a text field edit.
   page_holder->GetDocument().MaybeQueueSendDidEditFieldInInsecureContext();
   // No message should have been sent from a secure context.

@@ -12,6 +12,7 @@
 
 #include "base/bind.h"
 #include "base/memory/writable_shared_memory_region.h"
+#include "base/strings/string_util.h"
 #include "base/version.h"
 #include "build/build_config.h"
 #include "content/public/browser/browser_context.h"
@@ -93,13 +94,14 @@ bool UserScriptLoader::ParseMetadataHeader(const base::StringPiece& script_text,
     if (line_end == std::string::npos)
       line_end = script_text.length() - 1;
 
-    line.set(script_text.data() + line_start, line_end - line_start);
+    line = base::StringPiece(script_text.data() + line_start,
+                             line_end - line_start);
 
     if (!in_metadata) {
-      if (line.starts_with(kUserScriptBegin))
+      if (base::StartsWith(line, kUserScriptBegin))
         in_metadata = true;
     } else {
-      if (line.starts_with(kUserScriptEng))
+      if (base::StartsWith(line, kUserScriptEng))
         break;
 
       std::string value;
@@ -282,8 +284,8 @@ void UserScriptLoader::StartLoad() {
     changed_hosts_.insert(id_pair.host_id);
 
   LoadScripts(std::move(scripts_to_load), changed_hosts_, added_script_ids,
-              base::Bind(&UserScriptLoader::OnScriptsLoaded,
-                         weak_factory_.GetWeakPtr()));
+              base::BindOnce(&UserScriptLoader::OnScriptsLoaded,
+                             weak_factory_.GetWeakPtr()));
 
   clear_scripts_ = false;
   added_scripts_map_.clear();

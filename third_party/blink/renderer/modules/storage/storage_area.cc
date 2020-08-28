@@ -27,6 +27,8 @@
 
 #include "base/feature_list.h"
 #include "base/memory/scoped_refptr.h"
+#include "base/metrics/histogram_macros.h"
+#include "third_party/blink/public/common/action_after_pagehide.h"
 #include "third_party/blink/public/common/features.h"
 #include "third_party/blink/public/platform/task_type.h"
 #include "third_party/blink/renderer/core/dom/document.h"
@@ -63,7 +65,7 @@ StorageArea::StorageArea(LocalFrame* frame,
                          scoped_refptr<CachedStorageArea> storage_area,
                          StorageType storage_type,
                          bool should_enqueue_events)
-    : ContextClient(frame),
+    : ExecutionContextClient(frame),
       cached_area_(std::move(storage_area)),
       storage_type_(storage_type),
       should_enqueue_events_(should_enqueue_events) {
@@ -97,29 +99,34 @@ String StorageArea::getItem(const String& key,
   return cached_area_->GetItem(key);
 }
 
-bool StorageArea::setItem(const String& key,
-                          const String& value,
-                          ExceptionState& exception_state) {
+NamedPropertySetterResult StorageArea::setItem(
+    const String& key,
+    const String& value,
+    ExceptionState& exception_state) {
   if (!CanAccessStorage()) {
     exception_state.ThrowSecurityError("access is denied for this document.");
-    return true;
+    return NamedPropertySetterResult::kIntercepted;
   }
   if (!cached_area_->SetItem(key, value, this)) {
     exception_state.ThrowDOMException(
         DOMExceptionCode::kQuotaExceededError,
         "Setting the value of '" + key + "' exceeded the quota.");
+    return NamedPropertySetterResult::kIntercepted;
   }
-  return true;
+  RecordModificationInMetrics();
+  return NamedPropertySetterResult::kIntercepted;
 }
 
-DeleteResult StorageArea::removeItem(const String& key,
-                                     ExceptionState& exception_state) {
+NamedPropertyDeleterResult StorageArea::removeItem(
+    const String& key,
+    ExceptionState& exception_state) {
   if (!CanAccessStorage()) {
     exception_state.ThrowSecurityError("access is denied for this document.");
-    return kDeleteSuccess;
+    return NamedPropertyDeleterResult::kDidNotDelete;
   }
+  RecordModificationInMetrics();
   cached_area_->RemoveItem(key, this);
-  return kDeleteSuccess;
+  return NamedPropertyDeleterResult::kDeleted;
 }
 
 void StorageArea::clear(ExceptionState& exception_state) {
@@ -127,6 +134,7 @@ void StorageArea::clear(ExceptionState& exception_state) {
     exception_state.ThrowSecurityError("access is denied for this document.");
     return;
   }
+  RecordModificationInMetrics();
   cached_area_->Clear(this);
 }
 
@@ -165,9 +173,9 @@ bool StorageArea::NamedPropertyQuery(const AtomicString& name,
   return found && !exception_state.HadException();
 }
 
-void StorageArea::Trace(blink::Visitor* visitor) {
+void StorageArea::Trace(Visitor* visitor) const {
   ScriptWrappable::Trace(visitor);
-  ContextClient::Trace(visitor);
+  ExecutionContextClient::Trace(visitor);
 }
 
 bool StorageArea::CanAccessStorage() const {
@@ -181,6 +189,24 @@ bool StorageArea::CanAccessStorage() const {
       StorageController::CanAccessStorageArea(frame, storage_type_);
   did_check_can_access_storage_ = true;
   return can_access_storage_cached_result_;
+}
+
+void StorageArea::RecordModificationInMetrics() {
+  if (!GetFrame() || !GetFrame()->GetPage() ||
+      !GetFrame()->GetPage()->DispatchedPagehideAndStillHidden()) {
+    return;
+  }
+  // The storage modification is done after the pagehide event got dispatched
+  // and the page is still hidden, which is not normally possible (this might
+  // happen if we're doing a same-site cross-RenderFrame navigation where we
+  // dispatch pagehide during the new RenderFrame's commit but won't actually
+  // unload/freeze the page after the new RenderFrame finished committing). We
+  // should track this case to measure how often this is happening.
+  UMA_HISTOGRAM_ENUMERATION(
+      "BackForwardCache.SameSite.ActionAfterPagehide",
+      storage_type_ == StorageType::kLocalStorage
+          ? ActionAfterPagehide::kLocalStorageModification
+          : ActionAfterPagehide::kSessionStorageModification);
 }
 
 KURL StorageArea::GetPageUrl() const {

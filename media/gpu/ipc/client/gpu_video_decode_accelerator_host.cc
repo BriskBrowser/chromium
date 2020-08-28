@@ -213,10 +213,12 @@ void GpuVideoDecodeAcceleratorHost::Send(IPC::Message* message) {
   }
 }
 
+// TODO(tmathmeyer) This needs to accept a Status at some point
 void GpuVideoDecodeAcceleratorHost::OnInitializationComplete(bool success) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   if (client_)
-    client_->NotifyInitializationComplete(success);
+    client_->NotifyInitializationComplete(
+        success ? OkStatus() : StatusCode::kInitializationUnspecifiedFailure);
 }
 
 void GpuVideoDecodeAcceleratorHost::OnBitstreamBufferProcessed(
@@ -290,8 +292,8 @@ void GpuVideoDecodeAcceleratorHost::OnNotifyError(uint32_t error) {
 
   // Client::NotifyError() may Destroy() |this|, so calling it needs to be the
   // last thing done on this stack!
-  VideoDecodeAccelerator::Client* client = nullptr;
-  std::swap(client, client_);
+  VideoDecodeAccelerator::Client* client = client_;
+  client_ = nullptr;
   client->NotifyError(static_cast<VideoDecodeAccelerator::Error>(error));
 }
 

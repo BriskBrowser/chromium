@@ -76,7 +76,6 @@ import java.util.List;
  * Implementation of the interface {@link SelectionPopupController}.
  */
 @JNINamespace("content")
-@TargetApi(Build.VERSION_CODES.LOLLIPOP)
 public class SelectionPopupControllerImpl extends ActionModeCallbackHelper
         implements ImeEventObserver, SelectionPopupController, WindowEventObserver, HideablePopup,
                    ContainerViewObserver, UserData {
@@ -105,6 +104,13 @@ public class SelectionPopupControllerImpl extends ActionModeCallbackHelper
     // The readback view could be the ContainerView, which WindowAndroid has no control on that.
     // Embedders should set this properly to use the correct view for readback.
     private static boolean sShouldGetReadbackViewFromWindowAndroid;
+
+    // A flag to determine if we must only use the context from the associated web contents
+    // to inflate menus. By default we use the context held by the ActionMode, because this
+    // enables correct theming, but in cases where we rely on the wrapping of contexts for
+    // correct resource lookup, this is not correct. In that case we must directly inflate
+    // menus from the context.
+    private static boolean sMustUseWebContentsContext;
 
     private static final class UserDataFactoryLazyHolder {
         private static final UserDataFactory<SelectionPopupControllerImpl> INSTANCE =
@@ -201,6 +207,10 @@ public class SelectionPopupControllerImpl extends ActionModeCallbackHelper
         sShouldGetReadbackViewFromWindowAndroid = true;
     }
 
+    public static void setMustUseWebContentsContext() {
+        sMustUseWebContentsContext = true;
+    }
+
     /**
      * Get {@link SelectionPopupController} object used for the give WebContents.
      * {@link #create()} should precede any calls to this.
@@ -282,6 +292,23 @@ public class SelectionPopupControllerImpl extends ActionModeCallbackHelper
         getPopupController().registerPopup(this);
     }
 
+    private void reset() {
+        dropFocus();
+        mContext = null;
+        mWindowAndroid = null;
+    }
+
+    private void dropFocus() {
+        // Hide popups and clear selection.
+        destroyActionModeAndUnselect();
+        dismissTextHandles();
+        PopupController.hideAll(mWebContents);
+        // Clear the selection. The selection is cleared on destroying IME
+        // and also here since we may receive destroy first, for example
+        // when focus is lost in webview.
+        clearSelection();
+    }
+
     public static String sanitizeQuery(String query, int maxLength) {
         if (TextUtils.isEmpty(query) || query.length() < maxLength) return query;
         Log.w(TAG, "Truncating oversized query (" + query.length() + ").");
@@ -341,7 +368,8 @@ public class SelectionPopupControllerImpl extends ActionModeCallbackHelper
     }
 
     // True if action mode is initialized to a working (not a no-op) mode.
-    private boolean isActionModeSupported() {
+    @VisibleForTesting
+    public boolean isActionModeSupported() {
         return mCallback != EMPTY_CALLBACK;
     }
 
@@ -598,6 +626,11 @@ public class SelectionPopupControllerImpl extends ActionModeCallbackHelper
 
     @Override
     public void onWindowAndroidChanged(WindowAndroid newWindowAndroid) {
+        if (newWindowAndroid == null) {
+            reset();
+            return;
+        }
+
         mWindowAndroid = newWindowAndroid;
         mContext = mWebContents.getContext();
         initHandleObserver();
@@ -626,14 +659,7 @@ public class SelectionPopupControllerImpl extends ActionModeCallbackHelper
                 setPreserveSelectionOnNextLossOfFocus(false);
                 hidePopupsAndPreserveSelection();
             } else {
-                // Hide popups and clear selection.
-                destroyActionModeAndUnselect();
-                dismissTextHandles();
-                PopupController.hideAll(mWebContents);
-                // Clear the selection. The selection is cleared on destroying IME
-                // and also here since we may receive destroy first, for example
-                // when focus is lost in webview.
-                clearSelection();
+                dropFocus();
             }
         }
     }
@@ -715,15 +741,23 @@ public class SelectionPopupControllerImpl extends ActionModeCallbackHelper
      * the items that are not relevant to the input text being edited.
      */
     public static void initializeMenu(Context context, ActionMode mode, Menu menu) {
-        try {
-            mode.getMenuInflater().inflate(R.menu.select_action_menu, menu);
-        } catch (Resources.NotFoundException e) {
-            // TODO(tobiasjs) by the time we get here we have already
-            // caused a resource loading failure to be logged. WebView
-            // resource access needs to be improved so that this
-            // logspam can be avoided.
-            new MenuInflater(context).inflate(R.menu.select_action_menu, menu);
+        if (!sMustUseWebContentsContext) {
+            // For WebView the correct choice is to use the actionMode context because webview
+            // assets have been added to its asset path. However we need to fall back to
+            // using the web contents context in the case where the AssetManager associated with
+            // the actionMode context does not contain our assets, because not doing so will cause a
+            // crash.
+            try {
+                mode.getMenuInflater().inflate(R.menu.select_action_menu, menu);
+                return;
+            } catch (Resources.NotFoundException e) {
+                // TODO(tobiasjs) by the time we get here we have already
+                // caused a resource loading failure to be logged. WebView
+                // resource access needs to be improved so that this
+                // logspam can be avoided.
+            }
         }
+        new MenuInflater(context).inflate(R.menu.select_action_menu, menu);
     }
 
     @TargetApi(Build.VERSION_CODES.O)
@@ -852,7 +886,8 @@ public class SelectionPopupControllerImpl extends ActionModeCallbackHelper
     /**
      * Intialize the menu items for processing text, if there is any.
      */
-    private void initializeTextProcessingMenu(Menu menu) {
+    @VisibleForTesting
+    /* package */ void initializeTextProcessingMenu(Menu menu) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M
                 || !isSelectActionModeAllowed(MENU_ITEM_PROCESS_TEXT)) {
             return;
@@ -862,6 +897,8 @@ public class SelectionPopupControllerImpl extends ActionModeCallbackHelper
                 PackageManagerUtils.queryIntentActivities(createProcessTextIntent(), 0);
         for (int i = 0; i < supportedActivities.size(); i++) {
             ResolveInfo resolveInfo = supportedActivities.get(i);
+            if (resolveInfo.activityInfo == null || !resolveInfo.activityInfo.exported) continue;
+
             CharSequence label = resolveInfo.loadLabel(mContext.getPackageManager());
             menu.add(R.id.select_action_menu_text_processing_menus, Menu.NONE,
                         MENU_ITEM_ORDER_TEXT_PROCESS_START + i, label)
@@ -1104,7 +1141,8 @@ public class SelectionPopupControllerImpl extends ActionModeCallbackHelper
         RecordUserAction.record("MobileActionMode.ProcessTextIntent");
         assert Build.VERSION.SDK_INT >= Build.VERSION_CODES.M;
 
-        String query = sanitizeQuery(getSelectedText(), MAX_SEARCH_QUERY_LENGTH);
+        // Use MAX_SHARE_QUERY_LENGTH for the Intent 100k limitation.
+        String query = sanitizeQuery(getSelectedText(), MAX_SHARE_QUERY_LENGTH);
         if (TextUtils.isEmpty(query)) return;
 
         intent.putExtra(Intent.EXTRA_PROCESS_TEXT, query);
@@ -1424,10 +1462,9 @@ public class SelectionPopupControllerImpl extends ActionModeCallbackHelper
     @Override
     public void setSelectionClient(@Nullable SelectionClient selectionClient) {
         mSelectionClient = selectionClient;
-        if (mSelectionClient != null) {
-            mSelectionMetricsLogger =
-                    (SmartSelectionMetricsLogger) mSelectionClient.getSelectionMetricsLogger();
-        }
+        mSelectionMetricsLogger = mSelectionClient == null
+                ? null
+                : (SmartSelectionMetricsLogger) mSelectionClient.getSelectionMetricsLogger();
 
         mClassificationResult = null;
 

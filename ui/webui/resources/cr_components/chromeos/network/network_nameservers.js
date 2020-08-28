@@ -71,6 +71,14 @@ Polymer({
    */
   savedNameservers_: [],
 
+  /*
+   * Returns the nameserver type CrRadioGroupElement.
+   * @return {?CrRadioGroupElement}
+   */
+  getNameserverRadioButtons() {
+    return /** @type {?CrRadioGroupElement} */ (this.$$('#nameserverType'));
+  },
+
   /**
    * Returns true if |nameservers| contains any all google nameserver entries
    * and only google nameserver entries or empty entries.
@@ -122,8 +130,11 @@ Polymer({
     }
 
     // Update the 'nameserversType' property.
-    const configType =
-        OncMojo.getActiveValue(this.managedProperties.nameServersConfigType);
+    let configType;
+    if (this.managedProperties.nameServersConfigType) {
+      configType =
+          OncMojo.getActiveValue(this.managedProperties.nameServersConfigType);
+    }
     let type;
     if (configType === 'Static') {
       if (this.isGoogleNameservers_(nameservers)) {

@@ -8,7 +8,6 @@
 
 #include "ash/home_screen/home_launcher_gesture_handler.h"
 #include "ash/home_screen/home_screen_controller.h"
-#include "ash/public/cpp/ash_features.h"
 #include "ash/public/cpp/shelf_config.h"
 #include "ash/public/cpp/shell_window_ids.h"
 #include "ash/public/cpp/window_properties.h"
@@ -72,10 +71,8 @@ bool ShouldAnimateWallpaper(aura::Window* root_window) {
   if (overview_session) {
     // Never animate when doing app dragging or when immediately exiting.
     const auto enter_exit_type = overview_session->enter_exit_overview_type();
-    if (enter_exit_type ==
-            OverviewSession::EnterExitOverviewType::kImmediateEnter ||
-        enter_exit_type ==
-            OverviewSession::EnterExitOverviewType::kImmediateExit) {
+    if (enter_exit_type == OverviewEnterExitType::kImmediateEnter ||
+        enter_exit_type == OverviewEnterExitType::kImmediateExit) {
       return false;
     }
 
@@ -337,12 +334,16 @@ gfx::Rect GetGridBoundsInScreen(
     const bool hotseat_will_extend =
         overview_session &&
         overview_session->enter_exit_overview_type() ==
-            OverviewSession::EnterExitOverviewType::kImmediateEnter &&
+            OverviewEnterExitType::kImmediateEnter &&
         !split_view_controller->InSplitViewMode();
     if (hotseat_extended || hotseat_will_extend) {
+      // Use the default hotseat size here to avoid the possible re-layout
+      // due to the update in HotseatWidget::is_forced_dense_.
       const int hotseat_bottom_inset =
-          ShelfConfig::Get()->hotseat_size() +
+          ShelfConfig::Get()->GetHotseatSize(
+              /*density=*/HotseatDensity::kNormal) +
           ShelfConfig::Get()->hotseat_bottom_padding();
+
       bounds.Inset(0, 0, 0, hotseat_bottom_inset);
     }
   }
@@ -376,8 +377,7 @@ gfx::Rect GetGridBoundsInScreen(
   return bounds;
 }
 
-base::Optional<gfx::RectF> GetSplitviewBoundsMaintainingAspectRatio(
-    aura::Window* window) {
+base::Optional<gfx::RectF> GetSplitviewBoundsMaintainingAspectRatio() {
   if (!ShouldAllowSplitView())
     return base::nullopt;
   if (!Shell::Get()->tablet_mode_controller()->InTabletMode())
@@ -406,8 +406,7 @@ base::Optional<gfx::RectF> GetSplitviewBoundsMaintainingAspectRatio(
 }
 
 bool ShouldUseTabletModeGridLayout() {
-  return base::FeatureList::IsEnabled(features::kNewOverviewLayout) &&
-         Shell::Get()->tablet_mode_controller()->InTabletMode();
+  return Shell::Get()->tablet_mode_controller()->InTabletMode();
 }
 
 gfx::Rect ToStableSizeRoundedRect(const gfx::RectF& rect) {

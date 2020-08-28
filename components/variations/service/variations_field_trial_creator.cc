@@ -34,8 +34,9 @@
 #include "components/variations/proto/variations_seed.pb.h"
 #include "components/variations/service/buildflags.h"
 #include "components/variations/service/safe_seed_manager.h"
+#include "components/variations/service/variations_service.h"
 #include "components/variations/service/variations_service_client.h"
-#include "components/variations/variations_http_header_provider.h"
+#include "components/variations/variations_ids_provider.h"
 #include "components/variations/variations_seed_processor.h"
 #include "components/variations/variations_switches.h"
 #include "ui/base/device_form_factor.h"
@@ -83,28 +84,6 @@ base::Time GetReferenceDateForExpiryChecks(PrefService* local_state) {
   return reference_date;
 }
 
-// TODO(b/957197): Improve how we handle OS versions.
-// Add os_version.h and os_version_<platform>.cc that handle retrieving and
-// parsing OS versions. Then get rid of all the platform-dependent code here.
-base::Version GetOSVersion() {
-  base::Version ret;
-
-#if defined(OS_WIN)
-  std::string win_version = base::SysInfo::OperatingSystemVersion();
-  base::ReplaceSubstringsAfterOffset(&win_version, 0, " SP", ".");
-  ret = base::Version(win_version);
-  DCHECK(ret.IsValid()) << win_version;
-#else
-  // Every other OS is supported by OperatingSystemVersionNumbers
-  int major, minor, build;
-  base::SysInfo::OperatingSystemVersionNumbers(&major, &minor, &build);
-  ret = base::Version(base::StringPrintf("%d.%d.%d", major, minor, build));
-  DCHECK(ret.IsValid());
-#endif
-
-  return ret;
-}
-
 // Just maps one set of enum values to another. Nothing to see here.
 Study::Channel ConvertProductChannelToStudyChannel(
     version_info::Channel product_channel) {
@@ -143,6 +122,17 @@ void RecordSeedFreshness(base::TimeDelta seed_age) {
 void ExitWithMessage(const std::string& message) {
   puts(message.c_str());
   exit(1);
+}
+
+// Retrieves the value of the policy converted to the RestrictionPolicyValues.
+RestrictionPolicy GetVariationPolicyRestriction(PrefService* local_state) {
+  int value = local_state->GetInteger(prefs::kVariationsRestrictionsByPolicy);
+
+  // If the value form the pref is invalid use the default value.
+  if (value < 0 || value > static_cast<int>(RestrictionPolicy::kMaxValue))
+    return RestrictionPolicy::NO_RESTRICTIONS;
+
+  return static_cast<RestrictionPolicy>(value);
 }
 
 }  // namespace
@@ -192,6 +182,8 @@ bool VariationsFieldTrialCreator::CreateTrialsFromSeed(
       GetClientFilterableStateForVersion(current_version);
   base::UmaHistogramSparse("Variations.UserChannel",
                            client_filterable_state->channel);
+  base::UmaHistogramEnumeration("Variations.PolicyRestriction",
+                                client_filterable_state->policy_restriction);
 
   VariationsSeed seed;
   bool run_in_safe_mode = safe_seed_manager->ShouldRunInSafeMode() &&
@@ -243,12 +235,15 @@ VariationsFieldTrialCreator::GetClientFilterableStateForVersion(
   state->locale = application_locale_;
   state->reference_date = GetReferenceDateForExpiryChecks(local_state());
   state->version = version;
-  state->os_version = GetOSVersion();
+  state->os_version = ClientFilterableState::GetOSVersion();
   state->channel =
       ConvertProductChannelToStudyChannel(client_->GetChannelForVariations());
   state->form_factor = GetCurrentFormFactor();
   state->platform = GetPlatform();
-  state->hardware_class = GetShortHardwareClass();
+  // TODO(crbug/1111131): Expand to other platforms.
+#if defined(OS_CHROMEOS) || defined(OS_ANDROID)
+  state->hardware_class = base::SysInfo::HardwareModelName();
+#endif
 #if defined(OS_ANDROID)
   // This is set on Android only currently, because the IsLowEndDevice() API
   // on other platforms has no intrinsic meaning outside of a field trial that
@@ -259,6 +254,7 @@ VariationsFieldTrialCreator::GetClientFilterableStateForVersion(
   state->session_consistency_country = GetLatestCountry();
   state->permanent_consistency_country = LoadPermanentConsistencyCountry(
       version, state->session_consistency_country);
+  state->policy_restriction = GetVariationPolicyRestriction(local_state());
   return state;
 }
 
@@ -381,24 +377,6 @@ void VariationsFieldTrialCreator::OverrideCachedUIStrings() {
   overridden_strings_map_.clear();
 }
 
-// static
-std::string VariationsFieldTrialCreator::GetShortHardwareClass() {
-#if defined(OS_CHROMEOS)
-  std::string board = base::SysInfo::GetLsbReleaseBoard();
-  // GetLsbReleaseBoard() may be suffixed with a "-signed-" and other extra
-  // info. Strip it.
-  const size_t index = board.find("-signed-");
-  if (index != std::string::npos)
-    board.resize(index);
-
-  return base::ToUpperASCII(board);
-#elif defined(OS_ANDROID)
-  return base::SysInfo::HardwareModelName();
-#else
-  return std::string();
-#endif
-}
-
 bool VariationsFieldTrialCreator::LoadSeed(VariationsSeed* seed,
                                            std::string* seed_data,
                                            std::string* base64_signature) {
@@ -448,7 +426,6 @@ bool VariationsFieldTrialCreator::SetupFieldTrials(
     const char* kEnableGpuBenchmarking,
     const char* kEnableFeatures,
     const char* kDisableFeatures,
-    const std::set<std::string>& unforceable_field_trials,
     const std::vector<std::string>& variation_ids,
     const std::vector<base::FeatureList::FeatureOverrideInfo>& extra_overrides,
     std::unique_ptr<const base::FieldTrial::EntropyProvider>
@@ -482,32 +459,31 @@ bool VariationsFieldTrialCreator::SetupFieldTrials(
     // Create field trials without activating them, so that this behaves in a
     // consistent manner with field trials created from the server.
     bool result = base::FieldTrialList::CreateTrialsFromString(
-        command_line->GetSwitchValueASCII(::switches::kForceFieldTrials),
-        unforceable_field_trials);
+        command_line->GetSwitchValueASCII(::switches::kForceFieldTrials));
     if (!result) {
       ExitWithMessage(base::StringPrintf("Invalid --%s list specified.",
                                          ::switches::kForceFieldTrials));
     }
   }
 
-  VariationsHttpHeaderProvider* http_header_provider =
-      VariationsHttpHeaderProvider::GetInstance();
+  VariationsIdsProvider* http_header_provider =
+      VariationsIdsProvider::GetInstance();
   // Force the variation ids selected in chrome://flags and/or specified using
   // the command-line flag.
   auto result = http_header_provider->ForceVariationIds(
       variation_ids,
       command_line->GetSwitchValueASCII(switches::kForceVariationIds));
   switch (result) {
-    case VariationsHttpHeaderProvider::ForceIdsResult::INVALID_SWITCH_ENTRY:
+    case VariationsIdsProvider::ForceIdsResult::INVALID_SWITCH_ENTRY:
       ExitWithMessage(base::StringPrintf("Invalid --%s list specified.",
                                          switches::kForceVariationIds));
       break;
-    case VariationsHttpHeaderProvider::ForceIdsResult::INVALID_VECTOR_ENTRY:
+    case VariationsIdsProvider::ForceIdsResult::INVALID_VECTOR_ENTRY:
       // It should not be possible to have invalid variation ids from the
       // vector param (which corresponds to chrome://flags).
       NOTREACHED();
       break;
-    case VariationsHttpHeaderProvider::ForceIdsResult::SUCCESS:
+    case VariationsIdsProvider::ForceIdsResult::SUCCESS:
       break;
   }
 

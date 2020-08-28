@@ -31,13 +31,18 @@ void MockInputMethodEngine::Reset() {}
 void MockInputMethodEngine::ProcessKeyEvent(const ui::KeyEvent& key_event,
                                             KeyEventDoneCallback callback) {}
 
-void MockInputMethodEngine::SetSurroundingText(const std::string& text,
+void MockInputMethodEngine::SetSurroundingText(const base::string16& text,
                                                uint32_t cursor_pos,
                                                uint32_t anchor_pos,
                                                uint32_t offset_pos) {}
 
 void MockInputMethodEngine::SetCompositionBounds(
     const std::vector<gfx::Rect>& bounds) {}
+
+ui::InputMethodKeyboardController*
+MockInputMethodEngine::GetInputMethodKeyboardController() const {
+  return nullptr;
+}
 
 void MockInputMethodEngine::PropertyActivate(const std::string& property_name) {
   last_activated_property_ = property_name;

@@ -169,7 +169,7 @@ void CanvasResourceDispatcher::DispatchFrameSync(
   sink_->SubmitCompositorFrameSync(
       parent_local_surface_id_allocator_.GetCurrentLocalSurfaceIdAllocation()
           .local_surface_id(),
-      std::move(frame), nullptr, 0, &resources);
+      std::move(frame), base::nullopt, 0, &resources);
   DidReceiveCompositorFrameAck(resources);
 }
 
@@ -190,7 +190,7 @@ void CanvasResourceDispatcher::DispatchFrame(
   sink_->SubmitCompositorFrame(
       parent_local_surface_id_allocator_.GetCurrentLocalSurfaceIdAllocation()
           .local_surface_id(),
-      std::move(frame), nullptr, 0);
+      std::move(frame), base::nullopt, 0);
 }
 
 bool CanvasResourceDispatcher::PrepareFrame(
@@ -228,9 +228,10 @@ bool CanvasResourceDispatcher::PrepareFrame(
   frame->metadata.frame_token = ++next_frame_token_;
 
   const gfx::Rect bounds(size_.Width(), size_.Height());
-  constexpr int kRenderPassId = 1;
+  constexpr viz::RenderPassId kRenderPassId{1};
   constexpr bool is_clipped = false;
-  std::unique_ptr<viz::RenderPass> pass = viz::RenderPass::Create();
+  auto pass = viz::RenderPass::Create(/*shared_quad_state_list_size=*/1u,
+                                      /*quad_list_size=*/1u);
   pass->SetNew(kRenderPassId, bounds,
                gfx::Rect(damage_rect.x(), damage_rect.y(), damage_rect.width(),
                          damage_rect.height()),
@@ -333,7 +334,7 @@ bool CanvasResourceDispatcher::HasTooManyPendingFrames() const {
 
 void CanvasResourceDispatcher::OnBeginFrame(
     const viz::BeginFrameArgs& begin_frame_args,
-    WTF::HashMap<uint32_t, ::viz::mojom::blink::FrameTimingDetailsPtr>) {
+    const WTF::HashMap<uint32_t, viz::FrameTimingDetails>&) {
   current_begin_frame_ack_ = viz::BeginFrameAck(begin_frame_args, false);
   if (HasTooManyPendingFrames() ||
       (begin_frame_args.type == viz::BeginFrameArgs::MISSED &&
@@ -400,15 +401,14 @@ void CanvasResourceDispatcher::Reshape(const IntSize& size) {
 
 void CanvasResourceDispatcher::DidAllocateSharedBitmap(
     base::ReadOnlySharedMemoryRegion region,
-    ::gpu::mojom::blink::MailboxPtr id) {
+    const gpu::Mailbox& id) {
   if (sink_)
-    sink_->DidAllocateSharedBitmap(std::move(region), std::move(id));
+    sink_->DidAllocateSharedBitmap(std::move(region), id);
 }
 
-void CanvasResourceDispatcher::DidDeleteSharedBitmap(
-    ::gpu::mojom::blink::MailboxPtr id) {
+void CanvasResourceDispatcher::DidDeleteSharedBitmap(const gpu::Mailbox& id) {
   if (sink_)
-    sink_->DidDeleteSharedBitmap(std::move(id));
+    sink_->DidDeleteSharedBitmap(id);
 }
 
 void CanvasResourceDispatcher::SetFilterQuality(

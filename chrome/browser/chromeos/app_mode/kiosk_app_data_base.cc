@@ -10,6 +10,7 @@
 #include "base/files/file_util.h"
 #include "base/task/post_task.h"
 #include "base/task/task_traits.h"
+#include "base/task/thread_pool.h"
 #include "base/threading/scoped_blocking_call.h"
 #include "chrome/browser/browser_process.h"
 #include "components/prefs/pref_service.h"
@@ -72,7 +73,16 @@ void KioskAppDataBase::SaveToDictionary(DictionaryPrefUpdate& dict_update) {
   dict_update->SetString(icon_path_key, icon_path_.value());
 }
 
-bool KioskAppDataBase::LoadFromDictionary(const base::DictionaryValue& dict) {
+void KioskAppDataBase::SaveIconToDictionary(DictionaryPrefUpdate& dict_update) {
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
+  const std::string app_key = std::string(kKeyApps) + '.' + app_id_;
+  const std::string icon_path_key = app_key + '.' + kKeyIcon;
+
+  dict_update->SetString(icon_path_key, icon_path_.value());
+}
+
+bool KioskAppDataBase::LoadFromDictionary(const base::DictionaryValue& dict,
+                                          bool lazy_icon_load) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   const std::string app_key =
       std::string(KioskAppDataBase::kKeyApps) + '.' + app_id_;
@@ -80,15 +90,26 @@ bool KioskAppDataBase::LoadFromDictionary(const base::DictionaryValue& dict) {
   const std::string icon_path_key = app_key + '.' + kKeyIcon;
 
   std::string icon_path_string;
-  if (!dict.GetString(name_key, &name_) ||
-      !dict.GetString(icon_path_key, &icon_path_string)) {
+  // If there is no title stored, do not stop, sometimes only icon is cached.
+  dict.GetString(name_key, &name_);
+
+  if (!dict.GetString(icon_path_key, &icon_path_string)) {
     return false;
   }
+
   icon_path_ = base::FilePath(icon_path_string);
 
+  if (!lazy_icon_load) {
+    DecodeIcon();
+  }
+
+  return true;
+}
+
+void KioskAppDataBase::DecodeIcon() {
+  DCHECK(!icon_path_.empty());
   kiosk_app_icon_loader_ = std::make_unique<KioskAppIconLoader>(this);
   kiosk_app_icon_loader_->Start(icon_path_);
-  return true;
 }
 
 void KioskAppDataBase::SaveIcon(const SkBitmap& icon,
@@ -102,9 +123,9 @@ void KioskAppDataBase::SaveIcon(const SkBitmap& icon,
 
   const base::FilePath icon_path =
       cache_dir.AppendASCII(app_id_).AddExtension(kIconFileExtension);
-  base::PostTask(FROM_HERE, {base::ThreadPool(), base::MayBlock()},
-                 base::BindOnce(&SaveIconToLocalOnBlockingPool, icon_path,
-                                std::move(image_data)));
+  base::ThreadPool::PostTask(FROM_HERE, {base::MayBlock()},
+                             base::BindOnce(&SaveIconToLocalOnBlockingPool,
+                                            icon_path, std::move(image_data)));
 
   icon_path_ = icon_path;
 }
@@ -120,11 +141,9 @@ void KioskAppDataBase::ClearCache() {
   dict_update->Remove(app_key, nullptr);
 
   if (!icon_path_.empty()) {
-    base::PostTask(
-        FROM_HERE,
-        {base::ThreadPool(), base::MayBlock(), base::TaskPriority::BEST_EFFORT},
-        base::BindOnce(base::IgnoreResult(&base::DeleteFile), icon_path_,
-                       false));
+    base::ThreadPool::PostTask(
+        FROM_HERE, {base::MayBlock(), base::TaskPriority::BEST_EFFORT},
+        base::BindOnce(base::GetDeleteFileCallback(), icon_path_));
   }
 }
 

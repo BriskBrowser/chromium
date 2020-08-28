@@ -26,6 +26,7 @@
 #include "net/test/spawned_test_server/spawned_test_server.h"
 #include "services/network/public/cpp/network_switches.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/blink/public/common/switches.h"
 #include "url/url_util.h"
 
 namespace headless {
@@ -194,7 +195,9 @@ class HeadlessProtocolBrowserTest
 };
 
 // TODO(crbug.com/867447): The whole test suite is extremely flaky on Win dbg.
-#if defined(OS_WIN) && !defined(NDEBUG)
+// TODO(crbug.com/1086872): The whole test suite is flaky on Mac ASAN.
+#if (defined(OS_WIN) && !defined(NDEBUG)) || \
+    (defined(OS_MAC) && defined(ADDRESS_SANITIZER))
 #define HEADLESS_PROTOCOL_TEST(TEST_NAME, SCRIPT_NAME)                        \
   IN_PROC_BROWSER_TEST_F(HeadlessProtocolBrowserTest, DISABLED_##TEST_NAME) { \
     test_folder_ = "/protocol/";                                              \
@@ -216,7 +219,8 @@ HEADLESS_PROTOCOL_TEST(VirtualTimeInterrupt,
                        "emulation/virtual-time-interrupt.js")
 
 // Flaky on Linux, Mac & Win. TODO(crbug.com/930717): Re-enable.
-#if defined(OS_LINUX) || defined(OS_MACOSX) || defined(OS_WIN)
+#if defined(OS_LINUX) || defined(OS_CHROMEOS) || defined(OS_MAC) || \
+    defined(OS_WIN) || defined(OS_FUCHSIA)
 #define MAYBE_VirtualTimeCrossProcessNavigation \
   DISABLED_VirtualTimeCrossProcessNavigation
 #else
@@ -274,6 +278,9 @@ HEADLESS_PROTOCOL_TEST(MAYBE_VirtualTimeTimerSuspend,
 HEADLESS_PROTOCOL_TEST(HeadlessSessionBasicsTest,
                        "sessions/headless-session-basics.js")
 
+HEADLESS_PROTOCOL_TEST(HeadlessSessionCreateContextDisposeOnDetach,
+                       "sessions/headless-createContext-disposeOnDetach.js")
+
 class HeadlessProtocolCompositorBrowserTest
     : public HeadlessProtocolBrowserTest {
  public:
@@ -298,7 +305,7 @@ class HeadlessProtocolCompositorBrowserTest
 
         // Ensure that image animations don't resync their animation timestamps
         // when looping back around.
-        switches::kDisableImageAnimationResync,
+        blink::switches::kDisableImageAnimationResync,
     };
 
     for (auto* compositor_switch : compositor_switches) {
@@ -312,8 +319,8 @@ class HeadlessProtocolCompositorBrowserTest
 // rcl=5811aa08e60ba5ac7622f029163213cfbdb682f7&l=32
 // TODO(crbug.com/954398): Suite is timeout-flaky on Windows.
 // TODO(crbug.com/1020046): Suite is flaky on TSan Linux.
-#if defined(OS_MACOSX) || defined(OS_WIN) || \
-    (defined(OS_LINUX) && defined(THREAD_SANITIZER))
+#if defined(OS_MAC) || defined(OS_WIN) || \
+    ((defined(OS_LINUX) || defined(OS_CHROMEOS)) && defined(THREAD_SANITIZER))
 #define HEADLESS_PROTOCOL_COMPOSITOR_TEST(TEST_NAME, SCRIPT_NAME) \
   IN_PROC_BROWSER_TEST_F(HeadlessProtocolCompositorBrowserTest,   \
                          DISABLED_##TEST_NAME) {                  \
@@ -337,7 +344,7 @@ HEADLESS_PROTOCOL_COMPOSITOR_TEST(
     "emulation/compositor-image-animation-test.js")
 
 // Flaky on Linux. TODO(crbug.com/986027): Re-enable.
-#if defined(OS_LINUX)
+#if defined(OS_LINUX) || defined(OS_CHROMEOS) || defined(OS_FUCHSIA)
 #define MAYBE_CompositorCssAnimation DISABLED_CompositorCssAnimation
 #else
 #define MAYBE_CompositorCssAnimation CompositorCssAnimation
@@ -433,5 +440,7 @@ HEADLESS_PROTOCOL_COMPOSITOR_TEST(RendererCanvas, "sanity/renderer-canvas.js")
 
 HEADLESS_PROTOCOL_COMPOSITOR_TEST(RendererOpacityAnimation,
                                   "sanity/renderer-opacity-animation.js")
+HEADLESS_PROTOCOL_COMPOSITOR_TEST(BrowserSetInitialProxyConfig,
+                                  "sanity/browser-set-initial-proxy-config.js")
 
 }  // namespace headless

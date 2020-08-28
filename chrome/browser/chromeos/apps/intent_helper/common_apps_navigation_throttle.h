@@ -89,10 +89,21 @@ class CommonAppsNavigationThrottle : public apps::AppsNavigationThrottle {
       IntentPickerAutoDisplayService* ui_auto_display_service,
       const GURL& url) override;
 
-  bool ShouldDeferNavigation(content::NavigationHandle* handle) override;
+  bool ShouldCancelNavigation(content::NavigationHandle* handle) override;
 
-  void OnDeferredNavigationProcessed(
-      std::vector<apps::IntentPickerAppInfo> apps);
+  void ShowIntentPickerForApps(
+      content::WebContents* web_contents,
+      IntentPickerAutoDisplayService* ui_auto_display_service,
+      const GURL& url,
+      std::vector<IntentPickerAppInfo> apps,
+      IntentPickerResponse callback) override;
+
+  // Whether or not the intent picker UI should be displayed without the user
+  // clicking in the omnibox's icon.
+  bool ShouldAutoDisplayUi(
+      const std::vector<apps::IntentPickerAppInfo>& apps_for_picker,
+      content::WebContents* web_contents,
+      const GURL& url);
 
   base::WeakPtrFactory<CommonAppsNavigationThrottle> weak_factory_{this};
 

@@ -5,12 +5,12 @@
 #ifndef CHROME_BROWSER_CHROMEOS_CHILD_ACCOUNTS_TIME_LIMITS_APP_TYPES_H_
 #define CHROME_BROWSER_CHROMEOS_CHILD_ACCOUNTS_TIME_LIMITS_APP_TYPES_H_
 
-#include <list>
 #include <string>
+#include <vector>
 
 #include "base/optional.h"
 #include "base/time/time.h"
-#include "chrome/services/app_service/public/mojom/types.mojom.h"
+#include "components/services/app_service/public/mojom/types.mojom.h"
 
 namespace chromeos {
 namespace app_time {
@@ -25,19 +25,56 @@ enum class AppRestriction {
   kTimeLimit,
 };
 
-// State of the app. Used for activity recording and status reporting.
+// State of the app. Used for activity recording and status reporting. The enum
+// values are persisted in user pref service. Existing values should never be
+// deleted or reordered. New states should be appended at the end.
 enum class AppState {
   // App is available for the user.
-  kAvailable,
+  kAvailable = 0,
   // App cannot be restricted. Used for important system apps.
-  kAlwaysAvailable,
+  kAlwaysAvailable = 1,
   // App is not available for the user because of being blocked.
-  kBlocked,
+  kBlocked = 2,
   // App is not available for the user because daily time limit was reached.
-  kLimitReached,
+  kLimitReached = 3,
   // App is uninstalled. Activity might still be preserved and reported for
   // recently uninstalled apps.
-  kUninstalled,
+  kUninstalled = 4,
+};
+
+// Type of notification to show the child user.
+enum class AppNotification {
+  kUnknown,
+
+  // Five minutes left before the application's time limit is reached.
+  kFiveMinutes,
+
+  // One minjute left before the application's time limit is reached.
+  kOneMinute,
+
+  // Application's time limit reached.
+  kTimeLimitReached,
+
+  // Application's time limit has been updated by parents.
+  kTimeLimitChanged,
+
+  // Application is blocked.
+  kBlocked,
+
+  // Application is unblocked.
+  kAvailable
+};
+
+enum class ChromeAppActivityState {
+  // The browser is active and hosts urls in its active tab which are not
+  // allowlisted.
+  kActive,
+
+  // Same as |kActive| except the urls the browser hosts are allowlisted.
+  kActiveAllowlisted,
+
+  // The browser window is not active.
+  kInactive,
 };
 
 // Identifies an app for app time limits.
@@ -69,6 +106,14 @@ class AppId {
   std::string app_id_;
 };
 
+struct PauseAppInfo {
+  PauseAppInfo(const AppId& app, base::TimeDelta limit, bool show_dialog);
+
+  AppId app_id;
+  base::TimeDelta daily_limit;
+  bool show_pause_dialog = true;
+};
+
 // Represents restriction that can be applied to an installed app.
 class AppLimit {
  public:
@@ -85,6 +130,7 @@ class AppLimit {
   ~AppLimit();
 
   AppRestriction restriction() const { return restriction_; }
+  base::Time last_updated() const { return last_updated_; }
   const base::Optional<base::TimeDelta>& daily_limit() const {
     return daily_limit_;
   }
@@ -106,6 +152,15 @@ class AppActivity {
  public:
   class ActiveTime {
    public:
+    static const base::TimeDelta kActiveTimeMergePrecision;
+
+    // If |t1| and |t2| overlap or are within |kActiveTimeMergePrecision| of
+    // each other, this static method creates a new ActiveTime with the earlier
+    // of |t1|'s or |t2|'s |active_from| and the later of |t1|'s or |t2|'s
+    // |active_to_|.
+    static base::Optional<ActiveTime> Merge(const ActiveTime& t1,
+                                            const ActiveTime& t2);
+
     ActiveTime(base::Time start, base::Time end);
     ActiveTime(const ActiveTime& rhs);
     ActiveTime& operator=(const ActiveTime& rhs);
@@ -134,6 +189,7 @@ class AppActivity {
 
   // Creates AppActivity and sets current |app_state_|.
   explicit AppActivity(AppState app_state);
+  AppActivity(AppState app_state, base::TimeDelta running_active_time);
   AppActivity(const AppActivity&);
   AppActivity& operator=(const AppActivity&);
   AppActivity(AppActivity&&);
@@ -144,22 +200,45 @@ class AppActivity {
   void SetAppActive(base::Time timestamp);
   void SetAppInactive(base::Time timestamp);
 
-  void ResetRunningActiveTime() {
-    running_active_time_ = base::TimeDelta::FromSeconds(0);
-  }
+  // Called when reset time has been reached.
+  // Resets |running_active_time_|.
+  // If the application is currently running, uses |timestamp| as current time
+  // to log activity.
+  void ResetRunningActiveTime(base::Time timestamp);
 
   base::TimeDelta RunningActiveTime() const;
 
-  // Removes active time data older than given |timestamp|.
-  void RemoveActiveTimeEarlierThan(base::Time timestamp);
+  // Updates |active_times_| to include the current activity. If the app is
+  // active, it saves the activitity until |timestamp|.
+  void CaptureOngoingActivity(base::Time timestamp);
+
+  // Caller takes ownership of |active_times_| i.e. |active_times_| is moved and
+  // thus becomes empty after this method is called. Called from
+  // AppActivityRegistry::SaveAppActivity when the app activity is going to be
+  // saved in user preference.
+  std::vector<ActiveTime> TakeActiveTimes();
 
   bool is_active() const { return is_active_; }
   AppState app_state() const { return app_state_; }
-  const std::list<ActiveTime>& active_times() const { return active_times_; }
+  const std::vector<ActiveTime>& active_times() const { return active_times_; }
+  AppNotification last_notification() const { return last_notification_; }
+
+  void set_last_notification(AppNotification notification) {
+    last_notification_ = notification;
+  }
+
+  // Chrome and web apps share the same time limit. Therefore, we need to have a
+  // consistent |running_active_time_| across all web apps and chrome.
+  void set_running_active_time(base::TimeDelta time) {
+    DCHECK(!is_active_);
+    running_active_time_ = time;
+  }
 
  private:
   // boolean to specify if the application is active.
   bool is_active_ = false;
+
+  AppNotification last_notification_ = AppNotification::kUnknown;
 
   // Current state of the app.
   // There might be relevant activity recoded for app that was uninstalled
@@ -170,7 +249,7 @@ class AppActivity {
   base::TimeDelta running_active_time_;
 
   // The time app was active.
-  std::list<ActiveTime> active_times_;
+  std::vector<ActiveTime> active_times_;
 
   // Time tick for the last time the activity was updated.
   base::TimeTicks last_updated_time_ticks_;

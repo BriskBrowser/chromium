@@ -8,12 +8,13 @@
 #include <fcntl.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <string.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 
 #include <utility>
 
-#include "base/logging.h"
+#include "base/check.h"
 #include "base/posix/unix_domain_socket.h"
 #include "build/build_config.h"
 #include "sandbox/linux/syscall_broker/broker_channel.h"
@@ -111,11 +112,14 @@ int BrokerClient::Readlink(const char* path, char* buf, size_t bufsize) const {
     return -ENOMEM;
   if (return_length < 0)
     return -ENOMEM;
+  // Sanity check that our broker is behaving correctly.
+  RAW_CHECK(return_length == static_cast<size_t>(return_value));
 
-  if (static_cast<size_t>(return_length) > bufsize)
-    return -ENAMETOOLONG;
+  if (return_length > bufsize) {
+    return_length = bufsize;
+  }
   memcpy(buf, return_data, return_length);
-  return return_value;
+  return return_length;
 }
 
 int BrokerClient::Rename(const char* oldpath, const char* newpath) const {

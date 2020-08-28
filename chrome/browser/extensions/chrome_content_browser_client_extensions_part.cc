@@ -16,7 +16,6 @@
 #include "base/metrics/histogram_macros.h"
 #include "base/stl_util.h"
 #include "base/strings/string_piece.h"
-#include "base/task/post_task.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/extensions/component_loader.h"
 #include "chrome/browser/extensions/extension_service.h"
@@ -58,6 +57,7 @@
 #include "extensions/browser/guest_view/extensions_guest_view_message_filter.h"
 #include "extensions/browser/guest_view/web_view/web_view_renderer_state.h"
 #include "extensions/browser/info_map.h"
+#include "extensions/browser/process_map.h"
 #include "extensions/browser/url_loader_factory_manager.h"
 #include "extensions/browser/url_request_util.h"
 #include "extensions/browser/view_type_utils.h"
@@ -145,17 +145,16 @@ RenderProcessHostPrivilege GetProcessPrivilege(
   return PRIV_EXTENSION;
 }
 
-const Extension* GetEnabledExtensionFromEffectiveURL(
-    BrowserContext* context,
-    const GURL& effective_url) {
-  if (!effective_url.SchemeIs(kExtensionScheme))
+const Extension* GetEnabledExtensionFromSiteURL(BrowserContext* context,
+                                                const GURL& site_url) {
+  if (!site_url.SchemeIs(kExtensionScheme))
     return nullptr;
 
   ExtensionRegistry* registry = ExtensionRegistry::Get(context);
   if (!registry)
     return nullptr;
 
-  return registry->enabled_extensions().GetByID(effective_url.host());
+  return registry->enabled_extensions().GetByID(site_url.host());
 }
 
 bool HasEffectiveUrl(content::BrowserContext* browser_context,
@@ -266,9 +265,10 @@ bool ChromeContentBrowserClientExtensionsPart::
 
 // static
 bool ChromeContentBrowserClientExtensionsPart::ShouldUseProcessPerSite(
-    Profile* profile, const GURL& effective_url) {
+    Profile* profile,
+    const GURL& site_url) {
   const Extension* extension =
-      GetEnabledExtensionFromEffectiveURL(profile, effective_url);
+      GetEnabledExtensionFromSiteURL(profile, site_url);
   if (!extension)
     return false;
 
@@ -313,7 +313,7 @@ bool ChromeContentBrowserClientExtensionsPart::DoesSiteRequireDedicatedProcess(
 }
 
 // static
-bool ChromeContentBrowserClientExtensionsPart::ShouldLockToOrigin(
+bool ChromeContentBrowserClientExtensionsPart::ShouldLockProcess(
     content::BrowserContext* browser_context,
     const GURL& effective_site_url) {
   if (!effective_site_url.SchemeIs(kExtensionScheme))
@@ -677,20 +677,13 @@ void ChromeContentBrowserClientExtensionsPart::SiteInstanceGotProcess(
   // the hosted app's Extension from the site URL using GetExtensionOrAppByURL,
   // since it isn't treated as a hosted app.
   const Extension* extension =
-      GetEnabledExtensionFromEffectiveURL(context, site_instance->GetSiteURL());
+      GetEnabledExtensionFromSiteURL(context, site_instance->GetSiteURL());
   if (!extension)
     return;
 
   ProcessMap::Get(context)->Insert(extension->id(),
                                    site_instance->GetProcess()->GetID(),
                                    site_instance->GetId());
-
-  base::PostTask(
-      FROM_HERE, {BrowserThread::IO},
-      base::BindOnce(&InfoMap::RegisterExtensionProcess,
-                     ExtensionSystem::Get(context)->info_map(), extension->id(),
-                     site_instance->GetProcess()->GetID(),
-                     site_instance->GetId()));
 }
 
 void ChromeContentBrowserClientExtensionsPart::SiteInstanceDeleting(
@@ -709,13 +702,6 @@ void ChromeContentBrowserClientExtensionsPart::SiteInstanceDeleting(
   ProcessMap::Get(context)->Remove(extension->id(),
                                    site_instance->GetProcess()->GetID(),
                                    site_instance->GetId());
-
-  base::PostTask(
-      FROM_HERE, {BrowserThread::IO},
-      base::BindOnce(&InfoMap::UnregisterExtensionProcess,
-                     ExtensionSystem::Get(context)->info_map(), extension->id(),
-                     site_instance->GetProcess()->GetID(),
-                     site_instance->GetId()));
 }
 
 void ChromeContentBrowserClientExtensionsPart::OverrideWebkitPrefs(

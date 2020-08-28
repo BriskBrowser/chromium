@@ -203,12 +203,12 @@ void WebstoreStandaloneInstaller::OnInstallPromptDone(
 
     ExtensionService* extension_service =
         ExtensionSystem::Get(profile_)->extension_service();
-    if (ExtensionPrefs::Get(profile_)->IsExtensionBlacklisted(id_)) {
-      // Don't install a blacklisted extension.
-      install_result = webstore_install::BLACKLISTED;
-      install_message = webstore_install::kExtensionIsBlacklisted;
+    if (ExtensionPrefs::Get(profile_)->IsExtensionBlocklisted(id_)) {
+      // Don't install a blocklisted extension.
+      install_result = webstore_install::BLOCKLISTED;
+      install_message = webstore_install::kExtensionIsBlocklisted;
     } else if (!extension_service->IsExtensionEnabled(id_)) {
-      // If the extension is installed but disabled, and not blacklisted,
+      // If the extension is installed but disabled, and not blocklisted,
       // enable it.
       extension_service->EnableExtension(id_);
     }  // else extension is installed and enabled; no work to be done.
@@ -223,13 +223,15 @@ void WebstoreStandaloneInstaller::OnInstallPromptDone(
   installer->Start();
 }
 
-void WebstoreStandaloneInstaller::OnWebstoreRequestFailure() {
+void WebstoreStandaloneInstaller::OnWebstoreRequestFailure(
+    const std::string& extension_id) {
   OnWebStoreDataFetcherDone();
   CompleteInstall(webstore_install::WEBSTORE_REQUEST_ERROR,
                   webstore_install::kWebstoreRequestError);
 }
 
 void WebstoreStandaloneInstaller::OnWebstoreResponseParseSuccess(
+    const std::string& extension_id,
     std::unique_ptr<base::DictionaryValue> webstore_data) {
   OnWebStoreDataFetcherDone();
 
@@ -303,6 +305,7 @@ void WebstoreStandaloneInstaller::OnWebstoreResponseParseSuccess(
 }
 
 void WebstoreStandaloneInstaller::OnWebstoreResponseParseFailure(
+    const std::string& extension_id,
     const std::string& error) {
   OnWebStoreDataFetcherDone();
   CompleteInstall(webstore_install::INVALID_WEBSTORE_RESPONSE, error);

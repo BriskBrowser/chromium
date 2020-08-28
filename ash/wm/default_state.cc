@@ -4,6 +4,7 @@
 
 #include "ash/wm/default_state.h"
 
+#include "ash/public/cpp/metrics_util.h"
 #include "ash/public/cpp/shell_window_ids.h"
 #include "ash/public/cpp/window_animation_types.h"
 #include "ash/public/cpp/window_state_type.h"
@@ -17,9 +18,12 @@
 #include "ash/wm/window_state_util.h"
 #include "ash/wm/wm_event.h"
 #include "ash/wm/workspace_controller.h"
+#include "base/bind.h"
+#include "base/metrics/histogram_macros.h"
 #include "ui/aura/client/aura_constants.h"
 #include "ui/aura/window.h"
 #include "ui/aura/window_delegate.h"
+#include "ui/compositor/animation_throughput_reporter.h"
 #include "ui/display/display.h"
 #include "ui/display/display_observer.h"
 #include "ui/display/screen.h"
@@ -76,27 +80,6 @@ void MoveToDisplayForRestore(WindowState* window_state) {
 }
 
 }  // namespace
-
-class ScopedMeasureBoundsAnimation {
- public:
-  ScopedMeasureBoundsAnimation(WindowState* window_state,
-                               const std::string& histogram_name)
-      : window_state_(window_state) {
-    window_state_->set_animation_smoothness_histogram_name(
-        base::make_optional(histogram_name));
-  }
-  ~ScopedMeasureBoundsAnimation() {
-    window_state_->set_animation_smoothness_histogram_name(base::nullopt);
-  }
-
-  ScopedMeasureBoundsAnimation(const ScopedMeasureBoundsAnimation& other) =
-      delete;
-  ScopedMeasureBoundsAnimation& operator=(
-      const ScopedMeasureBoundsAnimation& rhs) = delete;
-
- private:
-  WindowState* window_state_;
-};
 
 DefaultState::DefaultState(WindowStateType initial_state_type)
     : BaseState(initial_state_type), stored_window_state_(nullptr) {}
@@ -197,20 +180,10 @@ void DefaultState::HandleWorkspaceEvents(WindowState* window_state,
       return;
     }
     case WM_EVENT_DISPLAY_BOUNDS_CHANGED: {
-      if (window_state->is_dragged() ||
-          window_state->allow_set_bounds_direct() ||
-          SetMaximizedOrFullscreenBounds(window_state)) {
-        return;
-      }
-      gfx::Rect work_area_in_parent =
-          screen_util::GetDisplayWorkAreaBoundsInParent(window_state->window());
-      gfx::Rect bounds = window_state->window()->GetTargetBounds();
       // When display bounds has changed, make sure the entire window is fully
       // visible.
-      bounds.AdjustToFit(work_area_in_parent);
-      window_state->AdjustSnappedBounds(&bounds);
-      if (window_state->window()->GetTargetBounds() != bounds)
-        window_state->SetBoundsDirectAnimated(bounds);
+      UpdateBoundsForDisplayOrWorkAreaBoundsChange(
+          window_state, /*ensure_full_window_visibility=*/true);
       return;
     }
     case WM_EVENT_WORKAREA_BOUNDS_CHANGED: {
@@ -227,21 +200,8 @@ void DefaultState::HandleWorkspaceEvents(WindowState* window_state,
       if (in_fullscreen && window_state->IsMaximized())
         return;
 
-      if (window_state->is_dragged() ||
-          window_state->allow_set_bounds_direct() ||
-          SetMaximizedOrFullscreenBounds(window_state)) {
-        return;
-      }
-      gfx::Rect work_area_in_parent =
-          screen_util::GetDisplayWorkAreaBoundsInParent(window_state->window());
-      gfx::Rect bounds = window_state->window()->GetTargetBounds();
-      if (!::wm::GetTransientParent(window_state->window())) {
-        AdjustBoundsToEnsureMinimumWindowVisibility(work_area_in_parent,
-                                                    &bounds);
-      }
-      window_state->AdjustSnappedBounds(&bounds);
-      if (window_state->window()->GetTargetBounds() != bounds)
-        window_state->SetBoundsDirectAnimated(bounds);
+      UpdateBoundsForDisplayOrWorkAreaBoundsChange(
+          window_state, /*ensure_full_window_visibility=*/false);
       return;
     }
     case WM_EVENT_SYSTEM_UI_AREA_CHANGED:
@@ -462,8 +422,7 @@ void DefaultState::EnterToNextState(WindowState* window_state,
   // we still need this.
   if (window_state->window()->parent()) {
     if (!window_state->HasRestoreBounds() &&
-        (previous_state_type == WindowStateType::kDefault ||
-         previous_state_type == WindowStateType::kNormal) &&
+        IsNormalWindowStateType(previous_state_type) &&
         !window_state->IsMinimized() && !window_state->IsNormalStateType()) {
       window_state->SaveCurrentBoundsForRestore();
     }
@@ -525,9 +484,7 @@ void DefaultState::ReenterToCurrentState(
   window_state->UpdateWindowPropertiesFromStateType();
   window_state->NotifyPreStateTypeChange(previous_state_type);
 
-  if ((state_type_ == WindowStateType::kNormal ||
-       state_type_ == WindowStateType::kDefault) &&
-      !stored_bounds_.IsEmpty()) {
+  if (IsNormalWindowStateType(state_type_) && !stored_bounds_.IsEmpty()) {
     // Use the restore mechanism to set the bounds for
     // the window in normal state. This also covers unminimize case.
     window_state->SetRestoreBoundsInParent(stored_bounds_);
@@ -622,14 +579,46 @@ void DefaultState::UpdateBoundsFromState(WindowState* window_state,
   } else {
     // Record smoothness of the snapping animation if the size of the window
     // changes.
+    base::Optional<ui::AnimationThroughputReporter> reporter;
     if (window_state->IsSnapped() &&
         bounds_in_parent.size() != window->bounds().size()) {
-      ScopedMeasureBoundsAnimation scoped(window_state,
-                                          kSnapWindowSmoothnessHistogramName);
-      window_state->SetBoundsDirectAnimated(bounds_in_parent);
-    } else {
-      window_state->SetBoundsDirectAnimated(bounds_in_parent);
+      reporter.emplace(
+          window_state->window()->layer()->GetAnimator(),
+          metrics_util::ForSmoothness(base::BindRepeating([](int smoothness) {
+            UMA_HISTOGRAM_PERCENTAGE(kSnapWindowSmoothnessHistogramName,
+                                     smoothness);
+          })));
     }
+
+    window_state->SetBoundsDirectAnimated(bounds_in_parent);
+  }
+}
+
+void DefaultState::UpdateBoundsForDisplayOrWorkAreaBoundsChange(
+    WindowState* window_state,
+    bool ensure_full_window_visibility) {
+  if (window_state->is_dragged() || window_state->allow_set_bounds_direct() ||
+      SetMaximizedOrFullscreenBounds(window_state)) {
+    return;
+  }
+
+  const gfx::Rect work_area_in_parent =
+      screen_util::GetDisplayWorkAreaBoundsInParent(window_state->window());
+  gfx::Rect bounds = window_state->window()->GetTargetBounds();
+  if (ensure_full_window_visibility)
+    bounds.AdjustToFit(work_area_in_parent);
+  else if (!::wm::GetTransientParent(window_state->window()))
+    AdjustBoundsToEnsureMinimumWindowVisibility(work_area_in_parent, &bounds);
+  window_state->AdjustSnappedBounds(&bounds);
+
+  if (window_state->window()->GetTargetBounds() == bounds)
+    return;
+
+  if (window_state->bounds_animation_type() ==
+      WindowState::BoundsChangeAnimationType::IMMEDIATE) {
+    window_state->SetBoundsDirect(bounds);
+  } else {
+    window_state->SetBoundsDirectAnimated(bounds);
   }
 }
 

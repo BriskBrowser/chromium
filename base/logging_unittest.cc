@@ -11,10 +11,13 @@
 #include "base/files/scoped_temp_dir.h"
 #include "base/logging.h"
 #include "base/macros.h"
+#include "base/no_destructor.h"
 #include "base/run_loop.h"
 #include "base/sanitizer_buildflags.h"
 #include "base/strings/string_piece.h"
+#include "base/test/bind_test_util.h"
 #include "base/test/scoped_feature_list.h"
+#include "base/test/scoped_logging_settings.h"
 #include "base/test/task_environment.h"
 #include "build/build_config.h"
 
@@ -27,7 +30,7 @@
 #include "base/posix/eintr_wrapper.h"
 #endif  // OS_POSIX
 
-#if defined(OS_LINUX) || defined(OS_ANDROID)
+#if defined(OS_LINUX) || defined(OS_CHROMEOS) || defined(OS_ANDROID)
 #include <ucontext.h>
 #endif
 
@@ -52,8 +55,8 @@
 #include <zircon/syscalls/exception.h>
 #include <zircon/types.h>
 
-#include "base/fuchsia/default_context.h"
 #include "base/fuchsia/fuchsia_logging.h"
+#include "base/fuchsia/process_context.h"
 #endif  // OS_FUCHSIA
 
 namespace logging {
@@ -63,40 +66,16 @@ namespace {
 using ::testing::Return;
 using ::testing::_;
 
-// Needs to be global since log assert handlers can't maintain state.
-int g_log_sink_call_count = 0;
-
-#if !defined(OFFICIAL_BUILD) || defined(DCHECK_ALWAYS_ON) || !defined(NDEBUG)
-void LogSink(const char* file,
-             int line,
-             const base::StringPiece message,
-             const base::StringPiece stack_trace) {
-  ++g_log_sink_call_count;
-}
-#endif
-
-// Class to make sure any manipulations we do to the min log level are
-// contained (i.e., do not affect other unit tests).
-class LogStateSaver {
- public:
-  LogStateSaver() : old_min_log_level_(GetMinLogLevel()) {}
-
-  ~LogStateSaver() {
-    SetMinLogLevel(old_min_log_level_);
-    g_log_sink_call_count = 0;
+class LoggingTest : public testing::Test {
+ protected:
+  const ScopedLoggingSettings& scoped_logging_settings() {
+    return scoped_logging_settings_;
   }
 
  private:
-  int old_min_log_level_;
-
-  DISALLOW_COPY_AND_ASSIGN(LogStateSaver);
-};
-
-class LoggingTest : public testing::Test {
- private:
   base::test::SingleThreadTaskEnvironment task_environment_{
       base::test::SingleThreadTaskEnvironment::MainThreadType::IO};
-  LogStateSaver log_state_saver_;
+  ScopedLoggingSettings scoped_logging_settings_;
 };
 
 class MockLogSource {
@@ -375,33 +354,6 @@ TEST_F(LoggingTest, DuplicateLogFile) {
 }
 #endif  // defined(OS_CHROMEOS)
 
-// Official builds have CHECKs directly call BreakDebugger.
-#if !defined(OFFICIAL_BUILD)
-
-// https://crbug.com/709067 tracks test flakiness on iOS.
-#if defined(OS_IOS)
-#define MAYBE_CheckStreamsAreLazy DISABLED_CheckStreamsAreLazy
-#else
-#define MAYBE_CheckStreamsAreLazy CheckStreamsAreLazy
-#endif
-TEST_F(LoggingTest, MAYBE_CheckStreamsAreLazy) {
-  MockLogSource mock_log_source, uncalled_mock_log_source;
-  EXPECT_CALL(mock_log_source, Log()).Times(8).
-      WillRepeatedly(Return("check message"));
-  EXPECT_CALL(uncalled_mock_log_source, Log()).Times(0);
-
-  ScopedLogAssertHandler scoped_assert_handler(base::BindRepeating(LogSink));
-
-  CHECK(mock_log_source.Log()) << uncalled_mock_log_source.Log();
-  PCHECK(!mock_log_source.Log()) << mock_log_source.Log();
-  CHECK_EQ(mock_log_source.Log(), mock_log_source.Log())
-      << uncalled_mock_log_source.Log();
-  CHECK_NE(mock_log_source.Log(), mock_log_source.Log())
-      << mock_log_source.Log();
-}
-
-#endif
-
 #if defined(OFFICIAL_BUILD) && defined(OS_WIN)
 NOINLINE void CheckContainingFunc(int death_location) {
   CHECK(death_location != 1);
@@ -591,9 +543,9 @@ void CheckCrashTestSighandler(int, siginfo_t* info, void* context_ptr) {
   // need the arch-specific boilerplate below, which is inspired by breakpad.
   // At the same time, on OSX, ucontext.h is deprecated but si_addr works fine.
   uintptr_t crash_addr = 0;
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
   crash_addr = reinterpret_cast<uintptr_t>(info->si_addr);
-#else  // OS_POSIX && !OS_MACOSX
+#else  // OS_*
   ucontext_t* context = reinterpret_cast<ucontext_t*>(context_ptr);
 #if defined(ARCH_CPU_X86)
   crash_addr = static_cast<uintptr_t>(context->uc_mcontext.gregs[REG_EIP]);
@@ -604,7 +556,7 @@ void CheckCrashTestSighandler(int, siginfo_t* info, void* context_ptr) {
 #elif defined(ARCH_CPU_ARM64)
   crash_addr = static_cast<uintptr_t>(context->uc_mcontext.pc);
 #endif  // ARCH_*
-#endif  // OS_POSIX && !OS_MACOSX
+#endif  // OS_*
   HANDLE_EINTR(write(g_child_crash_pipe, &crash_addr, sizeof(uintptr_t)));
   _exit(0);
 }
@@ -688,160 +640,6 @@ TEST_F(LoggingTest, DebugLoggingReleaseBehavior) {
   DVLOG_IF(1, debug_only_variable) << "test";
 }
 
-TEST_F(LoggingTest, DcheckStreamsAreLazy) {
-  MockLogSource mock_log_source;
-  EXPECT_CALL(mock_log_source, Log()).Times(0);
-#if DCHECK_IS_ON()
-  DCHECK(true) << mock_log_source.Log();
-  DCHECK_EQ(0, 0) << mock_log_source.Log();
-#else
-  DCHECK(mock_log_source.Log()) << mock_log_source.Log();
-  DPCHECK(mock_log_source.Log()) << mock_log_source.Log();
-  DCHECK_EQ(0, 0) << mock_log_source.Log();
-  DCHECK_EQ(mock_log_source.Log(), static_cast<const char*>(nullptr))
-      << mock_log_source.Log();
-#endif
-}
-
-void DcheckEmptyFunction1() {
-  // Provide a body so that Release builds do not cause the compiler to
-  // optimize DcheckEmptyFunction1 and DcheckEmptyFunction2 as a single
-  // function, which breaks the Dcheck tests below.
-  LOG(INFO) << "DcheckEmptyFunction1";
-}
-void DcheckEmptyFunction2() {}
-
-#if defined(DCHECK_IS_CONFIGURABLE)
-class ScopedDcheckSeverity {
- public:
-  ScopedDcheckSeverity(LogSeverity new_severity) : old_severity_(LOG_DCHECK) {
-    LOG_DCHECK = new_severity;
-  }
-
-  ~ScopedDcheckSeverity() { LOG_DCHECK = old_severity_; }
-
- private:
-  LogSeverity old_severity_;
-};
-#endif  // defined(DCHECK_IS_CONFIGURABLE)
-
-// https://crbug.com/709067 tracks test flakiness on iOS.
-#if defined(OS_IOS)
-#define MAYBE_Dcheck DISABLED_Dcheck
-#else
-#define MAYBE_Dcheck Dcheck
-#endif
-TEST_F(LoggingTest, MAYBE_Dcheck) {
-#if defined(DCHECK_IS_CONFIGURABLE)
-  // DCHECKs are enabled, and LOG_DCHECK is mutable, but defaults to non-fatal.
-  // Set it to LOG_FATAL to get the expected behavior from the rest of this
-  // test.
-  ScopedDcheckSeverity dcheck_severity(LOG_FATAL);
-#endif  // defined(DCHECK_IS_CONFIGURABLE)
-
-#if defined(NDEBUG) && !defined(DCHECK_ALWAYS_ON)
-  // Release build.
-  EXPECT_FALSE(DCHECK_IS_ON());
-  EXPECT_FALSE(DLOG_IS_ON(DCHECK));
-#elif defined(NDEBUG) && defined(DCHECK_ALWAYS_ON)
-  // Release build with real DCHECKS.
-  ScopedLogAssertHandler scoped_assert_handler(base::BindRepeating(LogSink));
-  EXPECT_TRUE(DCHECK_IS_ON());
-  EXPECT_TRUE(DLOG_IS_ON(DCHECK));
-#else
-  // Debug build.
-  ScopedLogAssertHandler scoped_assert_handler(base::BindRepeating(LogSink));
-  EXPECT_TRUE(DCHECK_IS_ON());
-  EXPECT_TRUE(DLOG_IS_ON(DCHECK));
-#endif
-
-  // DCHECKs are fatal iff they're compiled in DCHECK_IS_ON() and the DCHECK
-  // log level is set to fatal.
-  const bool dchecks_are_fatal = DCHECK_IS_ON() && LOG_DCHECK == LOG_FATAL;
-  EXPECT_EQ(0, g_log_sink_call_count);
-  DCHECK(false);
-  EXPECT_EQ(dchecks_are_fatal ? 1 : 0, g_log_sink_call_count);
-  DPCHECK(false);
-  EXPECT_EQ(dchecks_are_fatal ? 2 : 0, g_log_sink_call_count);
-  DCHECK_EQ(0, 1);
-  EXPECT_EQ(dchecks_are_fatal ? 3 : 0, g_log_sink_call_count);
-
-  // Test DCHECK on std::nullptr_t
-  g_log_sink_call_count = 0;
-  const void* p_null = nullptr;
-  const void* p_not_null = &p_null;
-  DCHECK_EQ(p_null, nullptr);
-  DCHECK_EQ(nullptr, p_null);
-  DCHECK_NE(p_not_null, nullptr);
-  DCHECK_NE(nullptr, p_not_null);
-  EXPECT_EQ(0, g_log_sink_call_count);
-
-  // Test DCHECK on a scoped enum.
-  enum class Animal { DOG, CAT };
-  DCHECK_EQ(Animal::DOG, Animal::DOG);
-  EXPECT_EQ(0, g_log_sink_call_count);
-  DCHECK_EQ(Animal::DOG, Animal::CAT);
-  EXPECT_EQ(dchecks_are_fatal ? 1 : 0, g_log_sink_call_count);
-
-  // Test DCHECK on functions and function pointers.
-  g_log_sink_call_count = 0;
-  struct MemberFunctions {
-    void MemberFunction1() {
-      // See the comment in DcheckEmptyFunction1().
-      LOG(INFO) << "Do not merge with MemberFunction2.";
-    }
-    void MemberFunction2() {}
-  };
-  void (MemberFunctions::*mp1)() = &MemberFunctions::MemberFunction1;
-  void (MemberFunctions::*mp2)() = &MemberFunctions::MemberFunction2;
-  void (*fp1)() = DcheckEmptyFunction1;
-  void (*fp2)() = DcheckEmptyFunction2;
-  void (*fp3)() = DcheckEmptyFunction1;
-  DCHECK_EQ(fp1, fp3);
-  EXPECT_EQ(0, g_log_sink_call_count);
-  DCHECK_EQ(mp1, &MemberFunctions::MemberFunction1);
-  EXPECT_EQ(0, g_log_sink_call_count);
-  DCHECK_EQ(mp2, &MemberFunctions::MemberFunction2);
-  EXPECT_EQ(0, g_log_sink_call_count);
-  DCHECK_EQ(fp1, fp2);
-  EXPECT_EQ(dchecks_are_fatal ? 1 : 0, g_log_sink_call_count);
-  DCHECK_EQ(mp2, &MemberFunctions::MemberFunction1);
-  EXPECT_EQ(dchecks_are_fatal ? 2 : 0, g_log_sink_call_count);
-}
-
-TEST_F(LoggingTest, DcheckReleaseBehavior) {
-  int some_variable = 1;
-  // These should still reference |some_variable| so we don't get
-  // unused variable warnings.
-  DCHECK(some_variable) << "test";
-  DPCHECK(some_variable) << "test";
-  DCHECK_EQ(some_variable, 1) << "test";
-}
-
-TEST_F(LoggingTest, DCheckEqStatements) {
-  bool reached = false;
-  if (false)
-    DCHECK_EQ(false, true);           // Unreached.
-  else
-    DCHECK_EQ(true, reached = true);  // Reached, passed.
-  ASSERT_EQ(DCHECK_IS_ON() ? true : false, reached);
-
-  if (false)
-    DCHECK_EQ(false, true);           // Unreached.
-}
-
-TEST_F(LoggingTest, CheckEqStatements) {
-  bool reached = false;
-  if (false)
-    CHECK_EQ(false, true);           // Unreached.
-  else
-    CHECK_EQ(true, reached = true);  // Reached, passed.
-  ASSERT_TRUE(reached);
-
-  if (false)
-    CHECK_EQ(false, true);           // Unreached.
-}
-
 TEST_F(LoggingTest, NestedLogAssertHandlers) {
   ::testing::InSequence dummy;
   ::testing::StrictMock<MockLogAssertHandler> handler_a, handler_b;
@@ -898,69 +696,16 @@ namespace nested_test {
   }
 }  // namespace nested_test
 
-#if defined(DCHECK_IS_CONFIGURABLE)
-TEST_F(LoggingTest, ConfigurableDCheck) {
-  // Verify that DCHECKs default to non-fatal in configurable-DCHECK builds.
-  // Note that we require only that DCHECK is non-fatal by default, rather
-  // than requiring that it be exactly INFO, ERROR, etc level.
-  EXPECT_LT(LOG_DCHECK, LOG_FATAL);
-  DCHECK(false);
-
-  // Verify that DCHECK* aren't hard-wired to crash on failure.
-  LOG_DCHECK = LOG_INFO;
-  DCHECK(false);
-  DCHECK_EQ(1, 2);
-
-  // Verify that DCHECK does crash if LOG_DCHECK is set to LOG_FATAL.
-  LOG_DCHECK = LOG_FATAL;
-
-  ::testing::StrictMock<MockLogAssertHandler> handler;
-  EXPECT_CALL(handler, HandleLogAssert(_, _, _, _)).Times(2);
-  {
-    logging::ScopedLogAssertHandler scoped_handler_b(base::BindRepeating(
-        &MockLogAssertHandler::HandleLogAssert, base::Unretained(&handler)));
-    DCHECK(false);
-    DCHECK_EQ(1, 2);
-  }
-}
-
-TEST_F(LoggingTest, ConfigurableDCheckFeature) {
-  // Initialize FeatureList with and without DcheckIsFatal, and verify the
-  // value of LOG_DCHECK. Note that we don't require that DCHECK take a
-  // specific value when the feature is off, only that it is non-fatal.
-
-  {
-    base::test::ScopedFeatureList feature_list;
-    feature_list.InitFromCommandLine("DcheckIsFatal", "");
-    EXPECT_EQ(LOG_DCHECK, LOG_FATAL);
-  }
-
-  {
-    base::test::ScopedFeatureList feature_list;
-    feature_list.InitFromCommandLine("", "DcheckIsFatal");
-    EXPECT_LT(LOG_DCHECK, LOG_FATAL);
-  }
-
-  // The default case is last, so we leave LOG_DCHECK in the default state.
-  {
-    base::test::ScopedFeatureList feature_list;
-    feature_list.InitFromCommandLine("", "");
-    EXPECT_LT(LOG_DCHECK, LOG_FATAL);
-  }
-}
-#endif  // defined(DCHECK_IS_CONFIGURABLE)
-
 #if defined(OS_FUCHSIA)
 
-class TestLogListener : public fuchsia::logger::testing::LogListener_TestBase {
+class TestLogListenerSafe
+    : public fuchsia::logger::testing::LogListenerSafe_TestBase {
  public:
-  TestLogListener() = default;
-  ~TestLogListener() override = default;
+  TestLogListenerSafe() = default;
+  ~TestLogListenerSafe() override = default;
 
-  void RunUntilDone() {
-    base::RunLoop loop;
-    dump_logs_done_quit_closure_ = loop.QuitClosure();
-    loop.Run();
+  void set_on_dump_logs_done(base::OnceClosure on_dump_logs_done) {
+    on_dump_logs_done_ = std::move(on_dump_logs_done);
   }
 
   bool DidReceiveString(base::StringPiece message,
@@ -975,24 +720,26 @@ class TestLogListener : public fuchsia::logger::testing::LogListener_TestBase {
   }
 
   // LogListener implementation.
-  void LogMany(std::vector<fuchsia::logger::LogMessage> messages) override {
+  void LogMany(std::vector<fuchsia::logger::LogMessage> messages,
+               LogManyCallback callback) override {
     log_messages_.insert(log_messages_.end(),
                          std::make_move_iterator(messages.begin()),
                          std::make_move_iterator(messages.end()));
+    callback();
   }
 
-  void Done() override { std::move(dump_logs_done_quit_closure_).Run(); }
+  void Done() override { std::move(on_dump_logs_done_).Run(); }
 
   void NotImplemented_(const std::string& name) override {
-    NOTIMPLEMENTED() << name;
+    ADD_FAILURE() << "NotImplemented_: " << name;
   }
 
  private:
-  fuchsia::logger::LogListenerPtr log_listener_;
+  fuchsia::logger::LogListenerSafePtr log_listener_;
   std::vector<fuchsia::logger::LogMessage> log_messages_;
-  base::OnceClosure dump_logs_done_quit_closure_;
+  base::OnceClosure on_dump_logs_done_;
 
-  DISALLOW_COPY_AND_ASSIGN(TestLogListener);
+  DISALLOW_COPY_AND_ASSIGN(TestLogListenerSafe);
 };
 
 // Verifies that calling the log macro goes to the Fuchsia system logs.
@@ -1000,21 +747,38 @@ TEST_F(LoggingTest, FuchsiaSystemLogging) {
   const char kLogMessage[] = "system log!";
   LOG(ERROR) << kLogMessage;
 
-  TestLogListener listener;
-  fidl::Binding<fuchsia::logger::LogListener> binding(&listener);
+  TestLogListenerSafe listener;
+  fidl::Binding<fuchsia::logger::LogListenerSafe> binding(&listener);
 
   fuchsia::logger::LogMessage logged_message;
-  do {
+
+  base::RunLoop wait_for_message_loop;
+
+  // |dump_logs| checks whether the expected log line has been received yet,
+  // and invokes DumpLogs() if not. It passes itself as the completion callback,
+  // so that when the call completes it can check again for the expected message
+  // and re-invoke DumpLogs(), or quit the loop, as appropriate.
+  base::RepeatingClosure dump_logs = base::BindLambdaForTesting([&]() {
+    if (listener.DidReceiveString(kLogMessage, &logged_message)) {
+      wait_for_message_loop.Quit();
+      return;
+    }
+
     std::unique_ptr<fuchsia::logger::LogFilterOptions> options =
         std::make_unique<fuchsia::logger::LogFilterOptions>();
     options->tags = {"base_unittests__exec"};
-    fuchsia::logger::LogPtr logger =
-        base::fuchsia::ComponentContextForCurrentProcess()
-            ->svc()
-            ->Connect<fuchsia::logger::Log>();
-    logger->DumpLogs(binding.NewBinding(), std::move(options));
-    listener.RunUntilDone();
-  } while (!listener.DidReceiveString(kLogMessage, &logged_message));
+    fuchsia::logger::LogPtr logger = base::ComponentContextForProcess()
+                                         ->svc()
+                                         ->Connect<fuchsia::logger::Log>();
+    listener.set_on_dump_logs_done(dump_logs);
+    logger->DumpLogsSafe(binding.NewBinding(), std::move(options));
+  });
+
+  // Start the first DumpLogs() call.
+  dump_logs.Run();
+
+  // Run until kLogMessage is received.
+  wait_for_message_loop.Run();
 
   EXPECT_EQ(logged_message.severity,
             static_cast<int32_t>(fuchsia::logger::LogLevelFilter::ERROR));
@@ -1045,34 +809,100 @@ TEST_F(LoggingTest, FuchsiaLogging) {
 #endif  // defined(OS_FUCHSIA)
 
 TEST_F(LoggingTest, LogPrefix) {
-  // Set up a callback function to capture the log output string.
-  auto old_log_message_handler = GetLogMessageHandler();
   // Use a static because only captureless lambdas can be converted to a
   // function pointer for SetLogMessageHandler().
-  static std::string* log_string_ptr = nullptr;
-  std::string log_string;
-  log_string_ptr = &log_string;
+  static base::NoDestructor<std::string> log_string;
   SetLogMessageHandler([](int severity, const char* file, int line,
                           size_t start, const std::string& str) -> bool {
-    *log_string_ptr = str;
+    *log_string = str;
     return true;
   });
 
-  // Logging with a prefix includes the prefix string after the opening '['.
+  // Logging with a prefix includes the prefix string.
   const char kPrefix[] = "prefix";
   SetLogPrefix(kPrefix);
   LOG(ERROR) << "test";  // Writes into |log_string|.
-  EXPECT_EQ(1u, log_string.find(kPrefix));
-
+  EXPECT_NE(std::string::npos, log_string->find(kPrefix));
   // Logging without a prefix does not include the prefix string.
   SetLogPrefix(nullptr);
   LOG(ERROR) << "test";  // Writes into |log_string|.
-  EXPECT_EQ(std::string::npos, log_string.find(kPrefix));
-
-  // Clean up.
-  SetLogMessageHandler(old_log_message_handler);
-  log_string_ptr = nullptr;
+  EXPECT_EQ(std::string::npos, log_string->find(kPrefix));
 }
+
+#if defined(OS_CHROMEOS)
+TEST_F(LoggingTest, LogCrosSyslogFormat) {
+  // Set log format to syslog format.
+  scoped_logging_settings().SetLogFormat(LogFormat::LOG_FORMAT_SYSLOG);
+
+  const char* kTimestampPattern = R"(\d\d\d\d\-\d\d\-\d\d)"             // date
+                                  R"(T\d\d\:\d\d\:\d\d\.\d\d\d\d\d\d)"  // time
+                                  R"(Z.+\n)";  // timezone
+
+  // Use a static because only captureless lambdas can be converted to a
+  // function pointer for SetLogMessageHandler().
+  static base::NoDestructor<std::string> log_string;
+  SetLogMessageHandler([](int severity, const char* file, int line,
+                          size_t start, const std::string& str) -> bool {
+    *log_string = str;
+    return true;
+  });
+
+  {
+    // All flags are true.
+    SetLogItems(true, true, true, true);
+    const char* kExpected =
+        R"(\S+ \d+ ERROR \S+\[\d+:\d+\]\: \[\S+\] message\n)";
+
+    LOG(ERROR) << "message";
+
+    EXPECT_THAT(*log_string, ::testing::MatchesRegex(kTimestampPattern));
+    EXPECT_THAT(*log_string, ::testing::MatchesRegex(kExpected));
+  }
+
+  {
+    // Timestamp is true.
+    SetLogItems(false, false, true, false);
+    const char* kExpected = R"(\S+ ERROR \S+\: \[\S+\] message\n)";
+
+    LOG(ERROR) << "message";
+
+    EXPECT_THAT(*log_string, ::testing::MatchesRegex(kTimestampPattern));
+    EXPECT_THAT(*log_string, ::testing::MatchesRegex(kExpected));
+  }
+
+  {
+    // PID and timestamp are true.
+    SetLogItems(true, false, true, false);
+    const char* kExpected = R"(\S+ ERROR \S+\[\d+\]: \[\S+\] message\n)";
+
+    LOG(ERROR) << "message";
+
+    EXPECT_THAT(*log_string, ::testing::MatchesRegex(kTimestampPattern));
+    EXPECT_THAT(*log_string, ::testing::MatchesRegex(kExpected));
+  }
+
+  {
+    // ThreadID and timestamp are true.
+    SetLogItems(false, true, true, false);
+    const char* kExpected = R"(\S+ ERROR \S+\[:\d+\]: \[\S+\] message\n)";
+
+    LOG(ERROR) << "message";
+
+    EXPECT_THAT(*log_string, ::testing::MatchesRegex(kTimestampPattern));
+    EXPECT_THAT(*log_string, ::testing::MatchesRegex(kExpected));
+  }
+
+  {
+    // All flags are false.
+    SetLogItems(false, false, false, false);
+    const char* kExpected = R"(ERROR \S+: \[\S+\] message\n)";
+
+    LOG(ERROR) << "message";
+
+    EXPECT_THAT(*log_string, ::testing::MatchesRegex(kExpected));
+  }
+}
+#endif  // defined(OS_CHROMEOS)
 
 #if !defined(ADDRESS_SANITIZER) && !defined(MEMORY_SANITIZER) && \
     !BUILDFLAG(IS_HWASAN)
@@ -1124,46 +954,6 @@ TEST_F(LoggingTest, LogMessageMarkersOnStack) {
   LOG(FATAL) << kTestMessage;
 }
 #endif  // !defined(ADDRESS_SANITIZER)
-
-const char* kToStringResult = "to_string";
-const char* kOstreamResult = "ostream";
-
-struct StructWithOstream {};
-
-std::ostream& operator<<(std::ostream& out, const StructWithOstream&) {
-  return out << kOstreamResult;
-}
-
-TEST(MakeCheckOpValueStringTest, HasOnlyOstream) {
-  std::ostringstream oss;
-  logging::MakeCheckOpValueString(&oss, StructWithOstream());
-  EXPECT_EQ(kOstreamResult, oss.str());
-}
-
-struct StructWithToString {
-  std::string ToString() const { return kToStringResult; }
-};
-
-TEST(MakeCheckOpValueStringTest, HasOnlyToString) {
-  std::ostringstream oss;
-  logging::MakeCheckOpValueString(&oss, StructWithToString());
-  EXPECT_EQ(kToStringResult, oss.str());
-}
-
-struct StructWithToStringAndOstream {
-  std::string ToString() const { return kToStringResult; }
-};
-
-std::ostream& operator<<(std::ostream& out,
-                         const StructWithToStringAndOstream&) {
-  return out << kOstreamResult;
-}
-
-TEST(MakeCheckOpValueStringTest, HasOstreamAndToString) {
-  std::ostringstream oss;
-  logging::MakeCheckOpValueString(&oss, StructWithToStringAndOstream());
-  EXPECT_EQ(kOstreamResult, oss.str());
-}
 
 }  // namespace
 

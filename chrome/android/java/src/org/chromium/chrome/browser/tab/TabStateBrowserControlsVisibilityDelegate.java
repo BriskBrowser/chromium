@@ -8,18 +8,22 @@ import android.annotation.SuppressLint;
 import android.os.Handler;
 import android.os.Message;
 
-import org.chromium.chrome.browser.ChromeFeatureList;
+import androidx.annotation.Nullable;
+
 import org.chromium.chrome.browser.device.DeviceClassManager;
-import org.chromium.chrome.browser.util.AccessibilityUtil;
-import org.chromium.chrome.browser.util.UrlConstants;
+import org.chromium.chrome.browser.flags.ChromeFeatureList;
+import org.chromium.chrome.browser.util.ChromeAccessibilityUtil;
+import org.chromium.components.browser_ui.util.BrowserControlsVisibilityDelegate;
 import org.chromium.components.dom_distiller.core.DomDistillerUrlUtils;
-import org.chromium.components.security_state.ConnectionSecurityLevel;
+import org.chromium.components.embedder_support.util.UrlConstants;
+import org.chromium.components.security_state.SecurityStateModel;
 import org.chromium.content_public.browser.ImeAdapter;
 import org.chromium.content_public.browser.ImeEventObserver;
 import org.chromium.content_public.browser.NavigationHandle;
 import org.chromium.content_public.browser.SelectionPopupController;
 import org.chromium.content_public.browser.WebContents;
 import org.chromium.content_public.common.BrowserControlsState;
+import org.chromium.ui.base.WindowAndroid;
 
 /**
  * Determines the desired visibility of the browser controls based on the current state of a given
@@ -133,23 +137,13 @@ public class TabStateBrowserControlsVisibilityDelegate
             }
 
             @Override
-            public void onDidAttachInterstitialPage(Tab tab) {
-                updateVisibilityConstraints();
-            }
-
-            @Override
-            public void onDidDetachInterstitialPage(Tab tab) {
-                updateVisibilityConstraints();
-            }
-
-            @Override
             public void onShown(Tab tab, int type) {
                 updateVisibilityConstraints();
             }
 
             @Override
-            public void onActivityAttachmentChanged(Tab tab, boolean isAttached) {
-                if (isAttached) updateVisibilityConstraints();
+            public void onActivityAttachmentChanged(Tab tab, @Nullable WindowAndroid window) {
+                if (window != null) updateVisibilityConstraints();
             }
 
             @Override
@@ -186,25 +180,23 @@ public class TabStateBrowserControlsVisibilityDelegate
         WebContents webContents = mTab.getWebContents();
         if (webContents == null || webContents.isDestroyed()) return false;
 
-        String url = mTab.getUrl();
+        String url = mTab.getUrlString();
         boolean enableHidingBrowserControls = url != null;
         enableHidingBrowserControls &= !url.startsWith(UrlConstants.CHROME_URL_PREFIX);
         enableHidingBrowserControls &= !url.startsWith(UrlConstants.CHROME_NATIVE_URL_PREFIX);
 
-        int securityState = mTab.getSecurityLevel();
-        enableHidingBrowserControls &= (securityState != ConnectionSecurityLevel.DANGEROUS);
-
+        enableHidingBrowserControls &=
+                !SecurityStateModel.isContentDangerous(mTab.getWebContents());
         enableHidingBrowserControls &=
                 !SelectionPopupController.fromWebContents(webContents).isFocusedNodeEditable();
         enableHidingBrowserControls &= !mTab.isShowingErrorPage();
-        enableHidingBrowserControls &= !webContents.isShowingInterstitialPage();
         enableHidingBrowserControls &= !mTab.isRendererUnresponsive();
         enableHidingBrowserControls &= !mTab.isHidden();
         enableHidingBrowserControls &= !mIsFullscreenWaitingForLoad;
 
         // TODO(tedchoc): AccessibilityUtil and DeviceClassManager checks do not belong in Tab
         //                logic.  They should be moved to application level checks.
-        enableHidingBrowserControls &= !AccessibilityUtil.isAccessibilityEnabled();
+        enableHidingBrowserControls &= !ChromeAccessibilityUtil.get().isAccessibilityEnabled();
         enableHidingBrowserControls &= DeviceClassManager.enableFullscreen();
 
         return enableHidingBrowserControls;

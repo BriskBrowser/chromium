@@ -8,7 +8,7 @@
 
 #include "base/command_line.h"
 #include "base/memory/ptr_util.h"
-#include "chrome/browser/extensions/blacklist.h"
+#include "chrome/browser/extensions/blocklist.h"
 #include "chrome/browser/extensions/chrome_app_sorting.h"
 #include "chrome/browser/extensions/crx_installer.h"
 #include "chrome/browser/extensions/extension_management.h"
@@ -20,7 +20,6 @@
 #include "components/services/unzip/content/unzip_service.h"
 #include "components/services/unzip/in_process_unzipper.h"
 #include "content/public/browser/browser_thread.h"
-#include "content/public/common/service_manager_connection.h"
 #include "extensions/browser/extension_prefs.h"
 #include "extensions/browser/extension_registry.h"
 #include "extensions/browser/extension_system.h"
@@ -75,7 +74,7 @@ ExtensionService* TestExtensionSystem::CreateExtensionService(
   runtime_data_.reset(new RuntimeData(ExtensionRegistry::Get(profile_)));
   extension_service_.reset(new ExtensionService(
       profile_, command_line, install_directory, ExtensionPrefs::Get(profile_),
-      Blacklist::Get(profile_), autoupdate_enabled, extensions_enabled,
+      Blocklist::Get(profile_), autoupdate_enabled, extensions_enabled,
       &ready_));
 
   unzip::SetUnzipperLaunchOverrideForTesting(
@@ -107,8 +106,8 @@ ServiceWorkerManager* TestExtensionSystem::service_worker_manager() {
   return nullptr;
 }
 
-SharedUserScriptMaster* TestExtensionSystem::shared_user_script_master() {
-  return NULL;
+SharedUserScriptManager* TestExtensionSystem::shared_user_script_manager() {
+  return nullptr;
 }
 
 StateStore* TestExtensionSystem::state_store() {
@@ -137,6 +136,10 @@ const base::OneShotEvent& TestExtensionSystem::ready() const {
   return ready_;
 }
 
+bool TestExtensionSystem::is_ready() const {
+  return ready_.is_signaled();
+}
+
 ContentVerifier* TestExtensionSystem::content_verifier() {
   return NULL;
 }
@@ -155,6 +158,10 @@ void TestExtensionSystem::InstallUpdate(
     InstallUpdateCallback install_update_callback) {
   NOTREACHED();
 }
+
+void TestExtensionSystem::PerformActionBasedOnOmahaAttributes(
+    const std::string& extension_id,
+    const base::Value& attributes) {}
 
 bool TestExtensionSystem::FinishDelayedInstallationIfReady(
     const std::string& extension_id,

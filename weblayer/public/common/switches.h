@@ -5,11 +5,12 @@
 #ifndef WEBLAYER_PUBLIC_COMMON_SWITCHES_H_
 #define WEBLAYER_PUBLIC_COMMON_SWITCHES_H_
 
+namespace weblayer {
 namespace switches {
 
 extern const char kWebLayerUserDataDir[];
-extern const char kWebLayerFakePermissions[];
 
 }  // namespace switches
+}  //  namespace weblayer
 
 #endif  // WEBLAYER_PUBLIC_COMMON_SWITCHES_H_

@@ -15,11 +15,11 @@
 #include "base/bind.h"
 #include "base/feature_list.h"
 #include "base/lazy_instance.h"
+#include "base/memory/ptr_util.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/stl_util.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/string_util.h"
-#include "base/task/post_task.h"
 #include "components/history/core/browser/history_service.h"
 #include "components/safe_browsing/content/base_ui_manager.h"
 #include "components/safe_browsing/content/browser/threat_details_cache.h"
@@ -28,6 +28,7 @@
 #include "components/safe_browsing/core/browser/referrer_chain_provider.h"
 #include "components/safe_browsing/core/db/hit_report.h"
 #include "components/safe_browsing/core/features.h"
+#include "components/security_interstitials/content/unsafe_resource_util.h"
 #include "content/public/browser/back_forward_cache.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
@@ -382,6 +383,7 @@ ThreatDetails::ThreatDetails(
     : content::WebContentsObserver(web_contents),
       url_loader_factory_(url_loader_factory),
       ui_manager_(ui_manager),
+      browser_context_(web_contents->GetBrowserContext()),
       resource_(resource),
       referrer_chain_provider_(referrer_chain_provider),
       cache_result_(false),
@@ -581,12 +583,10 @@ void ThreatDetails::StartCollection() {
   // navigation to the interstitial, and the entry with the page details get
   // destroyed when leaving the interstitial.
   if (!resource_.navigation_url.is_empty()) {
-    DCHECK(
-        base::FeatureList::IsEnabled(safe_browsing::kCommittedSBInterstitials));
     page_url = resource_.navigation_url;
     referrer_url = resource_.referrer_url;
   } else {
-    NavigationEntry* nav_entry = resource_.GetNavigationEntryForResource();
+    NavigationEntry* nav_entry = GetNavigationEntryForResource(resource_);
     if (nav_entry) {
       page_url = nav_entry->GetURL();
       referrer_url = nav_entry->GetReferrer().url;
@@ -849,13 +849,13 @@ void ThreatDetails::OnCacheCollectionReady() {
     return;
   }
 
-  base::PostTask(
-      FROM_HERE, {content::BrowserThread::UI},
+  content::GetUIThreadTaskRunner({})->PostTask(
+      FROM_HERE,
       base::BindOnce(&WebUIInfoSingleton::AddToCSBRRsSent,
                      base::Unretained(WebUIInfoSingleton::GetInstance()),
                      std::move(report_)));
 
-  ui_manager_->SendSerializedThreatDetails(serialized);
+  ui_manager_->SendSerializedThreatDetails(browser_context_, serialized);
 
   AllDone();
 }
@@ -877,8 +877,8 @@ void ThreatDetails::MaybeFillReferrerChain() {
 
 void ThreatDetails::AllDone() {
   is_all_done_ = true;
-  base::PostTask(FROM_HERE, {content::BrowserThread::UI},
-                 base::BindOnce(std::move(done_callback_),
+  content::GetUIThreadTaskRunner({})->PostTask(
+      FROM_HERE, base::BindOnce(std::move(done_callback_),
                                 base::Unretained(web_contents())));
 }
 

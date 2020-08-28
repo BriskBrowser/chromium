@@ -79,7 +79,7 @@ public class ProfileDownloader {
             if (sPendingProfileDownloads == null) {
                 sPendingProfileDownloads = new PendingProfileDownloads();
                 IdentityServicesProvider.get()
-                        .getAccountTrackerService()
+                        .getAccountTrackerService(Profile.getLastUsedRegularProfile())
                         .addSystemAccountsSeededListener(sPendingProfileDownloads);
             }
             return sPendingProfileDownloads;
@@ -123,9 +123,9 @@ public class ProfileDownloader {
     public static void startFetchingAccountInfoFor(
             Context context, String accountId, int imageSidePixels, boolean isPreSignin) {
         ThreadUtils.assertOnUiThread();
-        Profile profile = Profile.getLastUsedProfile().getOriginalProfile();
+        Profile profile = Profile.getLastUsedRegularProfile();
         if (!IdentityServicesProvider.get()
-                        .getAccountTrackerService()
+                        .getAccountTrackerService(profile)
                         .checkAndSeedSystemAccounts()) {
             PendingProfileDownloads.get(context).pendProfileDownload(
                     profile, accountId, imageSidePixels);

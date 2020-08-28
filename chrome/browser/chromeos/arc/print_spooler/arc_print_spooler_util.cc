@@ -11,12 +11,13 @@
 #include "base/files/file_util.h"
 #include "base/files/platform_file.h"
 #include "base/files/scoped_file.h"
+#include "base/logging.h"
 #include "mojo/public/c/system/types.h"
 
 namespace arc {
 
 void DeletePrintDocument(const base::FilePath& file_path) {
-  if (!base::DeleteFile(file_path, false))
+  if (!base::DeleteFile(file_path))
     LOG(ERROR) << "Failed to delete print document.";
 }
 

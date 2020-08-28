@@ -13,16 +13,16 @@
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "chrome/browser/chromeos/login/enrollment/enterprise_enrollment_helper.h"
-#include "chrome/browser/chromeos/policy/device_account_initializer.h"
 #include "chrome/browser/chromeos/policy/device_cloud_policy_manager_chromeos.h"
 #include "chrome/browser/chromeos/policy/enrollment_config.h"
+#include "chrome/browser/policy/device_account_initializer.h"
 #include "components/policy/core/common/cloud/enterprise_metrics.h"
 #include "google_apis/gaia/google_service_auth_error.h"
 
 namespace policy {
 class DMAuth;
 class PolicyOAuth2TokenFetcher;
-}
+}  // namespace policy
 
 namespace chromeos {
 
@@ -59,6 +59,10 @@ class EnterpriseEnrollmentHelperImpl
   void OnDeviceAccountTokenError(policy::EnrollmentStatus status) override;
   void OnDeviceAccountClientError(
       policy::DeviceManagementStatus status) override;
+  enterprise_management::DeviceServiceApiAccessRequest::DeviceType
+  GetRobotAuthCodeDeviceType() override;
+  std::set<std::string> GetRobotOAuthScopes() override;
+  scoped_refptr<network::SharedURLLoaderFactory> GetURLLoaderFactory() override;
 
  private:
   FRIEND_TEST_ALL_PREFIXES(EnterpriseEnrollmentTest,

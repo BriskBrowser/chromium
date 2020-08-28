@@ -28,6 +28,7 @@
 #include "base/task/thread_pool/task.h"
 #include "base/task/thread_pool/task_source.h"
 #include "base/task/thread_pool/thread_group_impl.h"
+#include "base/task/thread_pool/worker_thread.h"
 #include "base/threading/platform_thread.h"
 #include "base/time/time.h"
 
@@ -35,7 +36,7 @@
 #include "base/task/thread_pool/thread_group_native_win.h"
 #endif
 
-#if defined(OS_MACOSX)
+#if defined(OS_APPLE)
 #include "base/task/thread_pool/thread_group_native_mac.h"
 #endif
 
@@ -61,6 +62,12 @@ bool HasDisableBestEffortTasksSwitch() {
              switches::kDisableBestEffortTasks);
 }
 
+// A global variable that can be set from test fixtures while no
+// ThreadPoolInstance is active. Global instead of being a member variable to
+// avoid having to add a public API to ThreadPoolInstance::InitParams for this
+// internal edge case.
+bool g_synchronous_thread_start_for_testing = false;
+
 }  // namespace
 
 ThreadPoolImpl::ThreadPoolImpl(StringPiece histogram_label)
@@ -70,10 +77,7 @@ ThreadPoolImpl::ThreadPoolImpl(StringPiece histogram_label)
 ThreadPoolImpl::ThreadPoolImpl(StringPiece histogram_label,
                                std::unique_ptr<TaskTrackerImpl> task_tracker)
     : task_tracker_(std::move(task_tracker)),
-      service_thread_(std::make_unique<ServiceThread>(
-          task_tracker_.get(),
-          BindRepeating(&ThreadPoolImpl::ReportHeartbeatMetrics,
-                        Unretained(this)))),
+      service_thread_(std::make_unique<ServiceThread>(task_tracker_.get())),
       single_thread_task_runner_manager_(task_tracker_->GetTrackedRef(),
                                          &delayed_task_manager_),
       has_disable_best_effort_switch_(HasDisableBestEffortTasksSwitch()),
@@ -118,9 +122,6 @@ void ThreadPoolImpl::Start(const ThreadPoolInstance::InitParams& init_params,
 
   internal::InitializeThreadPrioritiesFeature();
 
-  if (FeatureList::IsEnabled(kNoPriorityInheritanceFromThreadPool))
-    internal::SetNoPriorityInheritanceFromThreadPool();
-
   // The max number of concurrent BEST_EFFORT tasks is |kMaxBestEffortTasks|,
   // unless the max number of foreground threads is lower.
   const int max_best_effort_tasks =
@@ -154,6 +155,8 @@ void ThreadPoolImpl::Start(const ThreadPoolInstance::InitParams& init_params,
 #endif
   service_thread_options.timer_slack = TIMER_SLACK_MAXIMUM;
   CHECK(service_thread_->StartWithOptions(service_thread_options));
+  if (g_synchronous_thread_start_for_testing)
+    service_thread_->WaitUntilThreadStarted();
 
 #if defined(OS_POSIX) && !defined(OS_NACL_SFI)
   // Needs to happen after starting the service thread to get its
@@ -206,7 +209,8 @@ void ThreadPoolImpl::Start(const ThreadPoolInstance::InitParams& init_params,
     static_cast<ThreadGroupImpl*>(foreground_thread_group_.get())
         ->Start(init_params.max_num_foreground_threads, max_best_effort_tasks,
                 suggested_reclaim_time, service_thread_task_runner,
-                worker_thread_observer, worker_environment);
+                worker_thread_observer, worker_environment,
+                g_synchronous_thread_start_for_testing);
   }
 
   if (background_thread_group_) {
@@ -220,7 +224,8 @@ void ThreadPoolImpl::Start(const ThreadPoolInstance::InitParams& init_params,
             ? ThreadGroup::WorkerEnvironment::NONE
             :
 #endif
-            worker_environment);
+            worker_environment,
+        g_synchronous_thread_start_for_testing);
   }
 
   started_ = true;
@@ -231,7 +236,7 @@ bool ThreadPoolImpl::PostDelayedTask(const Location& from_here,
                                      OnceClosure task,
                                      TimeDelta delay) {
   // Post |task| as part of a one-off single-task Sequence.
-  const TaskTraits new_traits = SetUserBlockingPriorityIfNeeded(traits);
+  const TaskTraits new_traits = VerifyAndAjustIncomingTraits(traits);
   return PostTaskWithSequence(
       Task(from_here, std::move(task), delay),
       MakeRefCounted<Sequence>(new_traits, nullptr,
@@ -240,13 +245,13 @@ bool ThreadPoolImpl::PostDelayedTask(const Location& from_here,
 
 scoped_refptr<TaskRunner> ThreadPoolImpl::CreateTaskRunner(
     const TaskTraits& traits) {
-  const TaskTraits new_traits = SetUserBlockingPriorityIfNeeded(traits);
+  const TaskTraits new_traits = VerifyAndAjustIncomingTraits(traits);
   return MakeRefCounted<PooledParallelTaskRunner>(new_traits, this);
 }
 
 scoped_refptr<SequencedTaskRunner> ThreadPoolImpl::CreateSequencedTaskRunner(
     const TaskTraits& traits) {
-  const TaskTraits new_traits = SetUserBlockingPriorityIfNeeded(traits);
+  const TaskTraits new_traits = VerifyAndAjustIncomingTraits(traits);
   return MakeRefCounted<PooledSequencedTaskRunner>(new_traits, this);
 }
 
@@ -255,7 +260,7 @@ ThreadPoolImpl::CreateSingleThreadTaskRunner(
     const TaskTraits& traits,
     SingleThreadTaskRunnerThreadMode thread_mode) {
   return single_thread_task_runner_manager_.CreateSingleThreadTaskRunner(
-      SetUserBlockingPriorityIfNeeded(traits), thread_mode);
+      VerifyAndAjustIncomingTraits(traits), thread_mode);
 }
 
 #if defined(OS_WIN)
@@ -263,13 +268,13 @@ scoped_refptr<SingleThreadTaskRunner> ThreadPoolImpl::CreateCOMSTATaskRunner(
     const TaskTraits& traits,
     SingleThreadTaskRunnerThreadMode thread_mode) {
   return single_thread_task_runner_manager_.CreateCOMSTATaskRunner(
-      SetUserBlockingPriorityIfNeeded(traits), thread_mode);
+      VerifyAndAjustIncomingTraits(traits), thread_mode);
 }
 #endif  // defined(OS_WIN)
 
 scoped_refptr<UpdateableSequencedTaskRunner>
 ThreadPoolImpl::CreateUpdateableSequencedTaskRunner(const TaskTraits& traits) {
-  const TaskTraits new_traits = SetUserBlockingPriorityIfNeeded(traits);
+  const TaskTraits new_traits = VerifyAndAjustIncomingTraits(traits);
   return MakeRefCounted<PooledSequencedTaskRunner>(new_traits, this);
 }
 
@@ -281,6 +286,12 @@ Optional<TimeTicks> ThreadPoolImpl::NextScheduledRunTimeForTesting() const {
 
 void ThreadPoolImpl::ProcessRipeDelayedTasksForTesting() {
   delayed_task_manager_.ProcessRipeTasks();
+}
+
+// static
+void ThreadPoolImpl::SetSynchronousThreadStartForTesting(bool enabled) {
+  DCHECK(!ThreadPoolInstance::Get());
+  g_synchronous_thread_start_for_testing = enabled;
 }
 
 int ThreadPoolImpl::GetMaxConcurrentNonBlockedTasksWithTraitsDeprecated(
@@ -420,14 +431,13 @@ bool ThreadPoolImpl::PostTaskWithSequence(Task task,
 
 bool ThreadPoolImpl::ShouldYield(const TaskSource* task_source) const {
   const TaskPriority priority = task_source->priority_racy();
-  auto* const thread_group = GetThreadGroupForTraits(
-      {ThreadPool(), priority, task_source->thread_policy()});
+  auto* const thread_group =
+      GetThreadGroupForTraits({priority, task_source->thread_policy()});
   // A task whose priority changed and is now running in the wrong thread group
   // should yield so it's rescheduled in the right one.
   if (!thread_group->IsBoundToCurrentThread())
     return true;
-  return GetThreadGroupForTraits(
-             {ThreadPool(), priority, task_source->thread_policy()})
+  return GetThreadGroupForTraits({priority, task_source->thread_policy()})
       ->ShouldYield(priority);
 }
 
@@ -526,17 +536,14 @@ void ThreadPoolImpl::UpdateCanRunPolicy() {
   single_thread_task_runner_manager_.DidUpdateCanRunPolicy();
 }
 
-TaskTraits ThreadPoolImpl::SetUserBlockingPriorityIfNeeded(
+TaskTraits ThreadPoolImpl::VerifyAndAjustIncomingTraits(
     TaskTraits traits) const {
+  DCHECK_EQ(traits.extension_id(),
+            TaskTraitsExtensionStorage::kInvalidExtensionId)
+      << "Extension traits cannot be used with the ThreadPool API.";
   if (all_tasks_user_blocking_.IsSet())
     traits.UpdatePriority(TaskPriority::USER_BLOCKING);
   return traits;
-}
-
-void ThreadPoolImpl::ReportHeartbeatMetrics() const {
-  foreground_thread_group_->ReportHeartbeatMetrics();
-  if (background_thread_group_)
-    background_thread_group_->ReportHeartbeatMetrics();
 }
 
 }  // namespace internal

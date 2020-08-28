@@ -17,6 +17,10 @@ class TestWebAppUiManager : public WebAppUiManager {
   TestWebAppUiManager();
   ~TestWebAppUiManager() override;
 
+  void SetSubsystems(AppRegistryController* app_registry_controller) override;
+  void Start() override;
+  void Shutdown() override;
+
   void SetNumWindowsForApp(const AppId& app_id, size_t num_windows_for_app);
   bool DidUninstallAndReplace(const AppId& from_app, const AppId& to_app);
 
@@ -29,7 +33,11 @@ class TestWebAppUiManager : public WebAppUiManager {
                            const AppId& to_app) override;
   bool CanAddAppToQuickLaunchBar() const override;
   void AddAppToQuickLaunchBar(const AppId& app_id) override;
-  bool IsInAppWindow(content::WebContents* web_contents) const override;
+  bool IsInAppWindow(content::WebContents* web_contents,
+                     const AppId* app_id) const override;
+  void NotifyOnAssociatedAppChanged(content::WebContents* web_contents,
+                                    const AppId& previous_app_id,
+                                    const AppId& new_app_id) const override {}
   bool CanReparentAppTabToWindow(const AppId& app_id,
                                  bool shortcut_created) const override;
   void ReparentAppTabToWindow(content::WebContents* contents,

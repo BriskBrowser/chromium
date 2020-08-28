@@ -10,6 +10,7 @@
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/location.h"
+#include "base/logging.h"
 #include "base/memory/ptr_util.h"
 #include "base/single_thread_task_runner.h"
 #include "base/strings/string_number_conversions.h"
@@ -29,13 +30,6 @@
 namespace chromeos {
 
 namespace {
-
-void PassStubServiceProperties(
-    ShillServiceClient::DictionaryValueCallback callback,
-    DBusMethodCallStatus call_status,
-    const base::DictionaryValue* properties) {
-  std::move(callback).Run(call_status, *properties);
-}
 
 void CallSortManagerServices() {
   ShillManagerClient::Get()->GetTestInterface()->SortManagerServices(true);
@@ -166,26 +160,20 @@ void FakeShillServiceClient::RemovePropertyChangedObserver(
 void FakeShillServiceClient::GetProperties(const dbus::ObjectPath& service_path,
                                            DictionaryValueCallback callback) {
   base::DictionaryValue* nested_dict = nullptr;
-  std::unique_ptr<base::DictionaryValue> result_properties;
-  DBusMethodCallStatus call_status;
+  base::Optional<base::Value> result_properties;
   stub_services_.GetDictionaryWithoutPathExpansion(service_path.value(),
                                                    &nested_dict);
   if (nested_dict) {
-    result_properties.reset(nested_dict->DeepCopy());
+    result_properties = nested_dict->Clone();
     // Remove credentials that Shill wouldn't send.
-    result_properties->RemoveWithoutPathExpansion(shill::kPassphraseProperty,
-                                                  nullptr);
-    call_status = DBUS_METHOD_CALL_SUCCESS;
+    result_properties->RemoveKey(shill::kPassphraseProperty);
   } else {
     // This may happen if we remove services from the list.
     VLOG(2) << "Properties not found for: " << service_path.value();
-    result_properties.reset(new base::DictionaryValue);
-    call_status = DBUS_METHOD_CALL_FAILURE;
   }
 
   base::OnceClosure property_update =
-      base::BindOnce(&PassStubServiceProperties, std::move(callback),
-                     call_status, base::Owned(result_properties.release()));
+      base::BindOnce(std::move(callback), std::move(result_properties));
   if (hold_back_service_property_updates_)
     recorded_property_updates_.push_back(std::move(property_update));
   else
@@ -232,7 +220,7 @@ void FakeShillServiceClient::ClearProperty(const dbus::ObjectPath& service_path,
     std::move(error_callback).Run("Error.InvalidService", "Invalid Service");
     return;
   }
-  dict->RemoveWithoutPathExpansion(name, nullptr);
+  dict->RemoveKey(name);
   // Note: Shill does not send notifications when properties are cleared.
   base::ThreadTaskRunnerHandle::Get()->PostTask(FROM_HERE, std::move(callback));
 }
@@ -318,30 +306,6 @@ void FakeShillServiceClient::Remove(const dbus::ObjectPath& service_path,
   base::ThreadTaskRunnerHandle::Get()->PostTask(FROM_HERE, std::move(callback));
 }
 
-void FakeShillServiceClient::ActivateCellularModem(
-    const dbus::ObjectPath& service_path,
-    const std::string& carrier,
-    base::OnceClosure callback,
-    ErrorCallback error_callback) {
-  base::DictionaryValue* service_properties =
-      GetModifiableServiceProperties(service_path.value(), false);
-  if (!service_properties) {
-    LOG(ERROR) << "Service not found: " << service_path.value();
-    std::move(error_callback).Run("Error.InvalidService", "Invalid Service");
-  }
-  SetServiceProperty(service_path.value(), shill::kActivationStateProperty,
-                     base::Value(shill::kActivationStateActivating));
-  // Set Activated after a delay
-  base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
-      FROM_HERE,
-      base::BindOnce(&FakeShillServiceClient::SetCellularActivated,
-                     weak_ptr_factory_.GetWeakPtr(), service_path,
-                     std::move(error_callback)),
-      GetInteractiveDelay());
-
-  base::ThreadTaskRunnerHandle::Get()->PostTask(FROM_HERE, std::move(callback));
-}
-
 void FakeShillServiceClient::CompleteCellularActivation(
     const dbus::ObjectPath& service_path,
     base::OnceClosure callback,
@@ -360,17 +324,33 @@ void FakeShillServiceClient::GetLoadableProfileEntries(
 
   // Provide a dictionary with  {profile_path: service_path} entries for
   // profile_paths that contain the service.
-  std::unique_ptr<base::DictionaryValue> result_properties(
-      new base::DictionaryValue);
+  base::DictionaryValue result_properties;
   for (const auto& profile : profiles) {
-    result_properties->SetKey(profile, base::Value(service_path.value()));
+    result_properties.SetKey(profile, base::Value(service_path.value()));
   }
 
-  DBusMethodCallStatus call_status = DBUS_METHOD_CALL_SUCCESS;
   base::ThreadTaskRunnerHandle::Get()->PostTask(
       FROM_HERE,
-      base::BindOnce(&PassStubServiceProperties, std::move(callback),
-                     call_status, base::Owned(result_properties.release())));
+      base::BindOnce(std::move(callback), std::move(result_properties)));
+}
+
+void FakeShillServiceClient::GetWiFiPassphrase(
+    const dbus::ObjectPath& service_path,
+    StringCallback callback,
+    ErrorCallback error_callback) {
+  base::DictionaryValue* service_properties =
+      GetModifiableServiceProperties(service_path.value(), false);
+  if (!service_properties) {
+    LOG(ERROR) << "Service not found: " << service_path.value();
+    std::move(error_callback).Run("Error.InvalidService", "Invalid Service");
+    return;
+  }
+
+  std::string passphrase;
+  service_properties->GetStringWithoutPathExpansion(shill::kPassphraseProperty,
+                                                    &passphrase);
+
+  std::move(callback).Run(passphrase);
 }
 
 ShillServiceClient::TestInterface* FakeShillServiceClient::GetTestInterface() {
@@ -451,15 +431,19 @@ base::DictionaryValue* FakeShillServiceClient::SetServiceProperties(
     properties->SetKey(shill::kModeProperty, base::Value(shill::kModeManaged));
   }
 
-  // Ethernet is always connectable;
+  // Ethernet is always connectable.
   if (type == shill::kTypeEthernet)
     properties->SetKey(shill::kConnectableProperty, base::Value(true));
+
+  // Cellular is always metered.
+  if (type == shill::kTypeCellular)
+    properties->SetKey(shill::kMeteredProperty, base::Value(true));
 
   return properties;
 }
 
 void FakeShillServiceClient::RemoveService(const std::string& service_path) {
-  stub_services_.RemoveWithoutPathExpansion(service_path, nullptr);
+  stub_services_.RemoveKey(service_path);
   connect_behavior_.erase(service_path);
   ShillManagerClient::Get()->GetTestInterface()->RemoveManagerService(
       service_path);
@@ -591,7 +575,10 @@ bool FakeShillServiceClient::ClearConfiguredServiceProperties(
 
   const base::Value* visible_property = service_dict->FindKeyOfType(
       shill::kVisibleProperty, base::Value::Type::BOOLEAN);
-  if (!visible_property || !visible_property->GetBool()) {
+  const base::Value* service_type = service_dict->FindKeyOfType(
+      shill::kTypeProperty, base::Value::Type::STRING);
+  if (!visible_property || !visible_property->GetBool() || !service_type ||
+      (service_type->GetString() == shill::kTypeVPN)) {
     stub_services_.RemoveKey(service_path);
     RemoveService(service_path);
     return true;

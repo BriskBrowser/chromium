@@ -5,6 +5,7 @@
 #include "chrome/browser/ui/views/bubble_anchor_util_views.h"
 
 #include "build/build_config.h"
+#include "chrome/browser/ui/ui_features.h"
 #include "chrome/browser/ui/views/frame/app_menu_button.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
 #include "chrome/browser/ui/views/location_bar/location_bar_view.h"
@@ -33,9 +34,28 @@ AnchorConfiguration GetPageInfoAnchorConfiguration(Browser* browser,
   // Fall back to menu button.
   views::Button* app_menu_button =
       browser_view->toolbar_button_provider()->GetAppMenuButton();
-  if (app_menu_button && app_menu_button->IsDrawn())
-    return {app_menu_button, app_menu_button, views::BubbleBorder::TOP_RIGHT};
-  return {};
+  if (!app_menu_button || !app_menu_button->IsDrawn())
+    return {};
+
+  // The app menu button is not visible when immersive mode is enabled and the
+  // title bar is not revealed. So return null anchor configuration.
+  if (browser_view->IsImmersiveModeEnabled() &&
+      !browser_view->immersive_mode_controller()->IsRevealed()) {
+    return {};
+  }
+
+  return {app_menu_button, app_menu_button, views::BubbleBorder::TOP_RIGHT};
+}
+
+AnchorConfiguration GetPermissionPromptBubbleAnchorConfiguration(
+    Browser* browser) {
+  if (base::FeatureList::IsEnabled(features::kPermissionChip)) {
+    BrowserView* browser_view = BrowserView::GetBrowserViewForBrowser(browser);
+    return {browser_view->GetLocationBarView(),
+            browser_view->GetLocationBarView()->permission_chip()->button(),
+            views::BubbleBorder::TOP_LEFT};
+  }
+  return GetPageInfoAnchorConfiguration(browser);
 }
 
 gfx::Rect GetPageInfoAnchorRect(Browser* browser) {

@@ -131,6 +131,8 @@ const char* AuthStateToString(CryptohomeAuthenticator::AuthState state) {
       return "FAILED_PREVIOUS_MIGRATION_INCOMPLETE";
     case CryptohomeAuthenticator::OFFLINE_NO_MOUNT:
       return "OFFLINE_NO_MOUNT";
+    case CryptohomeAuthenticator::TPM_UPDATE_REQUIRED:
+      return "TPM_UPDATE_REQUIRED";
   }
   return "UNKNOWN";
 }
@@ -797,7 +799,7 @@ void CryptohomeAuthenticator::OnOffTheRecordAuthSuccess() {
 void CryptohomeAuthenticator::OnPasswordChangeDetected() {
   DCHECK(task_runner_->RunsTasksInCurrentSequence());
   if (consumer_)
-    consumer_->OnPasswordChangeDetected();
+    consumer_->OnPasswordChangeDetected(current_state_->user_context);
 }
 
 void CryptohomeAuthenticator::OnOldEncryptionDetected(
@@ -1031,6 +1033,13 @@ void CryptohomeAuthenticator::Resolve() {
           base::BindOnce(&CryptohomeAuthenticator::OnAuthFailure, this,
                          AuthFailure(AuthFailure::MISSING_CRYPTOHOME)));
       break;
+    case TPM_UPDATE_REQUIRED:
+      current_state_->ResetCryptohomeStatus();
+      task_runner_->PostTask(
+          FROM_HERE,
+          base::BindOnce(&CryptohomeAuthenticator::OnAuthFailure, this,
+                         AuthFailure(AuthFailure::TPM_UPDATE_REQUIRED)));
+      break;
     default:
       NOTREACHED();
       break;
@@ -1110,6 +1119,10 @@ CryptohomeAuthenticator::ResolveCryptohomeFailureState() {
   if (current_state_->cryptohome_code() ==
       cryptohome::MOUNT_ERROR_PREVIOUS_MIGRATION_INCOMPLETE) {
     return FAILED_PREVIOUS_MIGRATION_INCOMPLETE;
+  }
+  if (current_state_->cryptohome_code() ==
+      cryptohome::MOUNT_ERROR_TPM_UPDATE_REQUIRED) {
+    return TPM_UPDATE_REQUIRED;
   }
 
   // Return intermediate states in the following case:

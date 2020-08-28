@@ -20,7 +20,7 @@ namespace caspian {
 
 namespace {
 
-using FilterList = std::vector<std::function<bool(const BaseSymbol&)>>;
+using FilterList = std::vector<TreeBuilder::FilterFunc>;
 
 void MakeSymbol(SizeInfo* info,
                 SectionId section_id,
@@ -147,8 +147,7 @@ TEST(TreeBuilderTest, TestJoinDexMethodClasses) {
   EXPECT_EQ(1u, class_symbol["children"].size());
 
   Json::Value method_symbol = builder.Open("a/b/c/zL2")["children"][0];
-  EXPECT_EQ("foo(int,android.os.Parcel,android.os.Parcel,int): boolean",
-            ShortName(method_symbol));
+  EXPECT_EQ("foo", ShortName(method_symbol));
   EXPECT_EQ(0u, method_symbol["children"].size());
 }
 }  // namespace caspian

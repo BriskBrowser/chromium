@@ -6,7 +6,12 @@
 #include "base/run_loop.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/scoped_feature_list.h"
+#include "base/test/test_timeouts.h"
 #include "build/build_config.h"
+#include "chrome/browser/navigation_predictor/navigation_predictor_features.h"
+#include "chrome/browser/navigation_predictor/navigation_predictor_keyed_service.h"
+#include "chrome/browser/navigation_predictor/navigation_predictor_keyed_service_factory.h"
+#include "chrome/browser/navigation_predictor/search_engine_preconnector.h"
 #include "chrome/browser/predictors/loading_predictor.h"
 #include "chrome/browser/predictors/loading_predictor_factory.h"
 #include "chrome/browser/predictors/preconnect_manager.h"
@@ -18,10 +23,12 @@
 #include "chrome/test/base/search_test_utils.h"
 #include "chrome/test/base/ui_test_utils.h"
 #include "components/search_engines/template_url_service.h"
+#include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
 #include "net/base/features.h"
 #include "net/dns/mock_host_resolver.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
+#include "url/origin.h"
 
 namespace {
 
@@ -31,8 +38,9 @@ class NavigationPredictorPreconnectClientBrowserTest
  public:
   NavigationPredictorPreconnectClientBrowserTest()
       : subresource_filter::SubresourceFilterBrowserTest() {
-    feature_list_.InitFromCommandLine(std::string(),
-                                      "NavigationPredictorPreconnectHoldback");
+    feature_list_.InitFromCommandLine(
+        std::string(),
+        "NavigationPredictorPreconnectHoldback,PreconnectToSearch");
   }
 
   void SetUp() override {
@@ -64,6 +72,12 @@ class NavigationPredictorPreconnectClientBrowserTest
       const GURL& url,
       const net::NetworkIsolationKey& network_isolation_key,
       bool success) override {
+    // The tests do not care about preresolves to non-test server (e.g., hard
+    // coded preconnects to google.com).
+    if (url::Origin::Create(url) !=
+        url::Origin::Create(https_server_->base_url())) {
+      return;
+    }
     EXPECT_TRUE(success);
     preresolve_done_count_++;
     if (run_loop_)
@@ -130,23 +144,16 @@ IN_PROC_BROWSER_TEST_F(NavigationPredictorPreconnectClientBrowserTest,
                        PreconnectNotSearchBackgroundForeground) {
   const GURL& url = GetTestURL("/anchors_different_area.html");
 
-  browser()->tab_strip_model()->GetActiveWebContents()->WasHidden();
-
   ui_test_utils::NavigateToURL(browser(), url);
-
-  // There should be a navigational preconnect.
-  EXPECT_EQ(1, preresolve_done_count_);
-
-  // Change to visible.
-  browser()->tab_strip_model()->GetActiveWebContents()->WasShown();
-
-  // After showing the contents, there should be a preconnect client preconnect.
+  // There should be one preconnect from navigation and one from preconnect
+  // client.
   WaitForPreresolveCount(2);
   EXPECT_EQ(2, preresolve_done_count_);
 
   browser()->tab_strip_model()->GetActiveWebContents()->WasHidden();
 
   browser()->tab_strip_model()->GetActiveWebContents()->WasShown();
+
   // After showing the contents again, there should be another preconnect client
   // preconnect.
   WaitForPreresolveCount(3);
@@ -171,16 +178,43 @@ class NavigationPredictorPreconnectClientBrowserTestWithUnusedIdleSocketTimeout
 IN_PROC_BROWSER_TEST_F(
     NavigationPredictorPreconnectClientBrowserTestWithUnusedIdleSocketTimeout,
     ActionAccuracy_timeout) {
-
   const GURL& url = GetTestURL("/page_with_same_host_anchor_element.html");
   ui_test_utils::NavigateToURL(browser(), url);
 
   WaitForPreresolveCount(3);
-  EXPECT_EQ(3, preresolve_done_count_);
+  EXPECT_LE(3, preresolve_done_count_);
 
   // Expect another one.
   WaitForPreresolveCount(4);
-  EXPECT_EQ(4, preresolve_done_count_);
+  EXPECT_LE(4, preresolve_done_count_);
+}
+
+// Test that we preconnect after the last preconnect timed out.
+IN_PROC_BROWSER_TEST_F(
+    NavigationPredictorPreconnectClientBrowserTestWithUnusedIdleSocketTimeout,
+    CappedAtFiveAttempts) {
+  const GURL& url = GetTestURL("/page_with_same_host_anchor_element.html");
+  ui_test_utils::NavigateToURL(browser(), url);
+
+  // Expect 1 navigation preresolve and 5 repeated onLoad calls.
+  WaitForPreresolveCount(6);
+  EXPECT_EQ(6, preresolve_done_count_);
+
+  // We should not see additional preresolves.
+  base::RunLoop run_loop;
+  base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+      FROM_HERE, run_loop.QuitClosure(), TestTimeouts::tiny_timeout());
+  run_loop.Run();
+
+  EXPECT_EQ(6, preresolve_done_count_);
+
+  // By default, same document navigation should not trigger new preconnects.
+  const GURL& same_document_url =
+      GetTestURL("/page_with_same_host_anchor_element.html#foobar");
+  ui_test_utils::NavigateToURL(browser(), same_document_url);
+  // Expect another one.
+  WaitForPreresolveCount(6);
+  EXPECT_EQ(6, preresolve_done_count_);
 }
 
 class NavigationPredictorPreconnectClientBrowserTestWithHoldback
@@ -189,7 +223,7 @@ class NavigationPredictorPreconnectClientBrowserTestWithHoldback
   NavigationPredictorPreconnectClientBrowserTestWithHoldback()
       : NavigationPredictorPreconnectClientBrowserTest() {
     feature_list_.InitFromCommandLine("NavigationPredictorPreconnectHoldback",
-                                      std::string());
+                                      "PreconnectToSearch");
   }
 
  private:
@@ -266,6 +300,54 @@ IN_PROC_BROWSER_TEST_F(
   EXPECT_EQ(3, preresolve_done_count_);
 }
 
+class NavigationPredictorSameDocumentPreconnectClientBrowserTest
+    : public NavigationPredictorPreconnectClientBrowserTest {
+ public:
+  NavigationPredictorSameDocumentPreconnectClientBrowserTest()
+      : NavigationPredictorPreconnectClientBrowserTest() {
+    // Configure kDelayRequestsOnMultiplexedConnections experiment params.
+    base::FieldTrialParams params_kNetUnusedIdleSocketTimeout;
+    params_kNetUnusedIdleSocketTimeout["unused_idle_socket_timeout_seconds"] =
+        "0";
+
+    // Configure kThrottleDelayable experiment params.
+    base::FieldTrialParams
+        params_kNavigationPredictorEnablePreconnectOnSameDocumentNavigations;
+    feature_list_.InitWithFeaturesAndParameters(
+        {{net::features::kNetUnusedIdleSocketTimeout,
+          params_kNetUnusedIdleSocketTimeout},
+         {features::
+              kNavigationPredictorEnablePreconnectOnSameDocumentNavigations,
+          params_kNavigationPredictorEnablePreconnectOnSameDocumentNavigations}},
+        {});
+  }
+
+ private:
+  base::test::ScopedFeatureList feature_list_;
+};
+
+// Test that we preconnect after the last preconnect timed out.
+IN_PROC_BROWSER_TEST_F(
+    NavigationPredictorSameDocumentPreconnectClientBrowserTest,
+    SameDocumentNavigation) {
+  const GURL& url = GetTestURL("/page_with_same_host_anchor_element.html");
+  ui_test_utils::NavigateToURL(browser(), url);
+
+  WaitForPreresolveCount(3);
+  EXPECT_LE(3, preresolve_done_count_);
+
+  // Expect another one.
+  WaitForPreresolveCount(4);
+  EXPECT_LE(4, preresolve_done_count_);
+
+  const GURL& same_document_url =
+      GetTestURL("/page_with_same_host_anchor_element.html#foobar");
+  ui_test_utils::NavigateToURL(browser(), same_document_url);
+  // Expect another one.
+  WaitForPreresolveCount(8);
+  EXPECT_LE(8, preresolve_done_count_);
+}
+
 namespace {
 // Feature to control preconnect to search.
 const base::Feature kPreconnectToSearchTest{"PreconnectToSearch",
@@ -277,17 +359,21 @@ class NavigationPredictorPreconnectClientBrowserTestWithSearch
  public:
   NavigationPredictorPreconnectClientBrowserTestWithSearch()
       : NavigationPredictorPreconnectClientBrowserTest() {
-    feature_list_.InitAndEnableFeature(kPreconnectToSearchTest);
+    feature_list_.InitWithFeatures(
+        {kPreconnectToSearchTest, features::kPreconnectToSearchNonGoogle}, {});
   }
 
  private:
   base::test::ScopedFeatureList feature_list_;
 };
 
-// TODO(https://crbug.com/1039813): Test fails consistently on MacOS 10.13
-// TODO(https://crbug.com/1040153): Test fails consistently on Win 7 as well.
+#if defined(OS_WIN) && defined(ADDRESS_SANITIZER)
+#define MAYBE_PreconnectSearchWithFeature DISABLED_PreconnectSearchWithFeature
+#else
+#define MAYBE_PreconnectSearchWithFeature PreconnectSearchWithFeature
+#endif
 IN_PROC_BROWSER_TEST_F(NavigationPredictorPreconnectClientBrowserTestWithSearch,
-                       DISABLED_PreconnectSearchWithFeature) {
+                       MAYBE_PreconnectSearchWithFeature) {
   static const char kShortName[] = "test";
   static const char kSearchURL[] =
       "/anchors_different_area.html?q={searchTerms}";
@@ -306,6 +392,11 @@ IN_PROC_BROWSER_TEST_F(NavigationPredictorPreconnectClientBrowserTestWithSearch,
   ASSERT_TRUE(template_url);
   model->SetUserSelectedDefaultSearchProvider(template_url);
   const GURL& url = GetTestURL("/anchors_different_area.html?q=cats");
+
+  NavigationPredictorKeyedServiceFactory::GetForProfile(
+      Profile::FromBrowserContext(browser()->profile()))
+      ->search_engine_preconnector()
+      ->StartPreconnecting(/*with_startup_delay=*/false);
 
   // There should be 2 DSE preconnects (2 NIKs).
   WaitForPreresolveCount(2);

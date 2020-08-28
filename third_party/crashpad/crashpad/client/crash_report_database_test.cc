@@ -53,6 +53,12 @@ class CrashReportDatabaseTest : public testing::Test {
     static constexpr char kTest[] = "test";
     ASSERT_TRUE(new_report->Writer()->Write(kTest, sizeof(kTest)));
 
+    char contents[sizeof(kTest)];
+    FileReaderInterface* reader = new_report->Reader();
+    ASSERT_TRUE(reader->ReadExactly(contents, sizeof(contents)));
+    EXPECT_EQ(memcmp(contents, kTest, sizeof(contents)), 0);
+    EXPECT_EQ(reader->ReadExactly(contents, 1), 0);
+
     UUID uuid;
     EXPECT_EQ(db_->FinishedWritingCrashReport(std::move(new_report), &uuid),
               CrashReportDatabase::kNoError);
@@ -668,7 +674,7 @@ TEST_F(CrashReportDatabaseTest, RequestUpload) {
 }
 
 TEST_F(CrashReportDatabaseTest, Attachments) {
-#if defined(OS_MACOSX) || defined(OS_WIN)
+#if defined(OS_APPLE) || defined(OS_WIN)
   // Attachments aren't supported on Mac and Windows yet.
   GTEST_SKIP();
 #else
@@ -714,7 +720,7 @@ TEST_F(CrashReportDatabaseTest, Attachments) {
 }
 
 TEST_F(CrashReportDatabaseTest, OrphanedAttachments) {
-#if defined(OS_MACOSX) || defined(OS_WIN)
+#if defined(OS_APPLE) || defined(OS_WIN)
   // Attachments aren't supported on Mac and Windows yet.
   GTEST_SKIP();
 #else
@@ -764,7 +770,7 @@ TEST_F(CrashReportDatabaseTest, OrphanedAttachments) {
 
 // This test uses knowledge of the database format to break it, so it only
 // applies to the unfified database implementation.
-#if !defined(OS_MACOSX) && !defined(OS_WIN)
+#if !defined(OS_APPLE) && !defined(OS_WIN)
 TEST_F(CrashReportDatabaseTest, CleanBrokenDatabase) {
   // Remove report files if metadata goes missing.
   CrashReportDatabase::Report report;
@@ -830,7 +836,7 @@ TEST_F(CrashReportDatabaseTest, CleanBrokenDatabase) {
   EXPECT_FALSE(PathExists(report.file_path));
   EXPECT_FALSE(PathExists(metadata3));
 }
-#endif  // !OS_MACOSX && !OS_WIN
+#endif  // !OS_APPLE && !OS_WIN
 
 TEST_F(CrashReportDatabaseTest, TotalSize_MainReportOnly) {
   std::unique_ptr<CrashReportDatabase::NewReport> new_report;
@@ -854,7 +860,7 @@ TEST_F(CrashReportDatabaseTest, TotalSize_MainReportOnly) {
 }
 
 TEST_F(CrashReportDatabaseTest, GetReportSize_RightSizeWithAttachments) {
-#if defined(OS_MACOSX) || defined(OS_WIN)
+#if defined(OS_APPLE) || defined(OS_WIN)
   // Attachments aren't supported on Mac and Windows yet.
   return;
 #else

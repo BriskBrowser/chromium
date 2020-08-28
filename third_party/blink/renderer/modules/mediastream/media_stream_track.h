@@ -50,14 +50,17 @@ class MODULES_EXPORT MediaStreamTrack
     : public EventTargetWithInlineData,
       public ActiveScriptWrappable<MediaStreamTrack>,
       public MediaStreamSource::Observer {
-  USING_GARBAGE_COLLECTED_MIXIN(MediaStreamTrack);
   DEFINE_WRAPPERTYPEINFO();
 
  public:
   MediaStreamTrack(ExecutionContext*, MediaStreamComponent*);
   MediaStreamTrack(ExecutionContext*,
                    MediaStreamComponent*,
-                   MediaStreamSource::ReadyState);
+                   base::OnceClosure callback);
+  MediaStreamTrack(ExecutionContext*,
+                   MediaStreamComponent*,
+                   MediaStreamSource::ReadyState,
+                   base::OnceClosure callback);
   ~MediaStreamTrack() override;
 
   String kind() const;
@@ -106,7 +109,9 @@ class MODULES_EXPORT MediaStreamTrack
   std::unique_ptr<AudioSourceProvider> CreateWebAudioSource(
       int context_sample_rate);
 
-  void Trace(blink::Visitor*) override;
+  ImageCapture* GetImageCapture() { return image_capture_; }
+
+  void Trace(Visitor*) const override;
 
  private:
   friend class CanvasCaptureMediaStreamTrack;

@@ -11,26 +11,36 @@
 #import "ios/chrome/browser/ui/collection_view/cells/collection_view_item.h"
 #import "ios/chrome/browser/ui/collection_view/collection_view_model.h"
 #import "ios/chrome/browser/ui/content_suggestions/cells/content_suggestions_cell.h"
+#import "ios/chrome/browser/ui/content_suggestions/cells/content_suggestions_discover_header_item.h"
+#import "ios/chrome/browser/ui/content_suggestions/cells/content_suggestions_discover_item.h"
 #import "ios/chrome/browser/ui/content_suggestions/cells/content_suggestions_most_visited_cell.h"
+#import "ios/chrome/browser/ui/content_suggestions/cells/content_suggestions_most_visited_item.h"
 #import "ios/chrome/browser/ui/content_suggestions/cells/suggested_content.h"
+#import "ios/chrome/browser/ui/content_suggestions/content_suggestions_action_handler.h"
 #import "ios/chrome/browser/ui/content_suggestions/content_suggestions_collection_updater.h"
 #import "ios/chrome/browser/ui/content_suggestions/content_suggestions_collection_utils.h"
 #import "ios/chrome/browser/ui/content_suggestions/content_suggestions_commands.h"
 #import "ios/chrome/browser/ui/content_suggestions/content_suggestions_constants.h"
+#import "ios/chrome/browser/ui/content_suggestions/content_suggestions_feature.h"
 #import "ios/chrome/browser/ui/content_suggestions/content_suggestions_header_synchronizing.h"
 #import "ios/chrome/browser/ui/content_suggestions/content_suggestions_layout.h"
+#import "ios/chrome/browser/ui/content_suggestions/content_suggestions_menu_provider.h"
 #import "ios/chrome/browser/ui/content_suggestions/content_suggestions_metrics_recording.h"
 #import "ios/chrome/browser/ui/content_suggestions/content_suggestions_view_controller_audience.h"
+#import "ios/chrome/browser/ui/content_suggestions/discover_feed_menu_commands.h"
 #import "ios/chrome/browser/ui/content_suggestions/ntp_home_constant.h"
+#import "ios/chrome/browser/ui/content_suggestions/theme_change_delegate.h"
 #import "ios/chrome/browser/ui/ntp/new_tab_page_header_constants.h"
 #import "ios/chrome/browser/ui/ntp_tile_views/ntp_tile_layout_util.h"
 #import "ios/chrome/browser/ui/overscroll_actions/overscroll_actions_controller.h"
 #import "ios/chrome/browser/ui/toolbar/public/toolbar_utils.h"
 #import "ios/chrome/browser/ui/ui_feature_flags.h"
+#import "ios/chrome/browser/ui/util/menu_util.h"
 #import "ios/chrome/browser/ui/util/uikit_ui_util.h"
-#import "ios/chrome/common/colors/UIColor+cr_semantic_colors.h"
-#import "ios/chrome/common/colors/semantic_color_names.h"
-#import "ios/chrome/common/ui_util/constraints_ui_util.h"
+#import "ios/chrome/common/ui/colors/UIColor+cr_semantic_colors.h"
+#import "ios/chrome/common/ui/colors/semantic_color_names.h"
+#import "ios/chrome/common/ui/util/constraints_ui_util.h"
+#include "url/gurl.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -40,7 +50,11 @@ namespace {
 using CSCollectionViewItem = CollectionViewItem<SuggestedContent>;
 const CGFloat kMostVisitedBottomMargin = 13;
 const CGFloat kCardBorderRadius = 11;
-
+const CGFloat kDiscoverFeedContentWith = 430;
+// Value representing offset from bottom of the page to trigger pagination.
+const CGFloat kPaginationOffset = 400;
+// Height for the Discover Feed section header.
+const CGFloat kDiscoverFeedFeaderHeight = 30;
 }
 
 NSString* const kContentSuggestionsMostVisitedAccessibilityIdentifierPrefix =
@@ -56,6 +70,16 @@ NSString* const kContentSuggestionsMostVisitedAccessibilityIdentifierPrefix =
 // The overscroll actions controller managing accelerators over the toolbar.
 @property(nonatomic, strong)
     OverscrollActionsController* overscrollActionsController;
+
+// The DiscoverFeedVC that might be displayed by this VC.
+@property(nonatomic, weak) UIViewController* discoverFeedVC;
+// The FeedView CollectionView contained by discoverFeedVC.
+@property(nonatomic, strong) UICollectionView* feedView;
+
+// Navigation offset applied to the layout height to maintain the scroll
+// position, since the feed height is dynamic.
+@property(nonatomic) CGFloat offset;
+
 @end
 
 @implementation ContentSuggestionsViewController
@@ -72,17 +96,30 @@ NSString* const kContentSuggestionsMostVisitedAccessibilityIdentifierPrefix =
 
 #pragma mark - Lifecycle
 
-- (instancetype)initWithStyle:(CollectionViewControllerStyle)style {
-  UICollectionViewLayout* layout = [[ContentSuggestionsLayout alloc] init];
+- (instancetype)initWithStyle:(CollectionViewControllerStyle)style
+                       offset:(CGFloat)offset {
+  _offset = offset;
+  UICollectionViewLayout* layout =
+      [[ContentSuggestionsLayout alloc] initWithOffset:offset];
   self = [super initWithLayout:layout style:style];
   if (self) {
     _collectionUpdater = [[ContentSuggestionsCollectionUpdater alloc] init];
     _initialContentOffset = NAN;
+    _discoverFeedHeaderDelegate = _collectionUpdater;
   }
   return self;
 }
 
 - (void)dealloc {
+  // Only remove the FeedVC and observer if it was actually added to the
+  // hierarchy. |self.discoverFeedVC| is only added to the hierarchy at the same
+  // time the KVO observer is added to |self.feedView|, so its safe to remove.
+  if (self.discoverFeedVC.parentViewController) {
+    [self.feedView removeObserver:self forKeyPath:@"contentSize"];
+    [self.discoverFeedVC willMoveToParentViewController:nil];
+    [self.discoverFeedVC.view removeFromSuperview];
+    [self.discoverFeedVC removeFromParentViewController];
+  }
   [self.overscrollActionsController invalidate];
 }
 
@@ -225,12 +262,12 @@ NSString* const kContentSuggestionsMostVisitedAccessibilityIdentifierPrefix =
   ApplyVisualConstraints(@[ @"V:|[collection]|", @"H:|[collection]|" ],
                          @{@"collection" : self.collectionView});
 
-  UILongPressGestureRecognizer* longPressRecognizer =
-      [[UILongPressGestureRecognizer alloc]
-          initWithTarget:self
-                  action:@selector(handleLongPress:)];
-  longPressRecognizer.delegate = self;
-  [self.collectionView addGestureRecognizer:longPressRecognizer];
+    UILongPressGestureRecognizer* longPressRecognizer =
+        [[UILongPressGestureRecognizer alloc]
+            initWithTarget:self
+                    action:@selector(handleLongPress:)];
+    longPressRecognizer.delegate = self;
+    [self.collectionView addGestureRecognizer:longPressRecognizer];
 
   self.overscrollActionsController = [[OverscrollActionsController alloc]
       initWithScrollView:self.collectionView];
@@ -266,6 +303,13 @@ NSString* const kContentSuggestionsMostVisitedAccessibilityIdentifierPrefix =
   // Resize the collection as it might have been rotated while not being
   // presented (e.g. rotation on stack view).
   [self updateConstraints];
+  // Remove forced height if it was already applied, since the scroll position
+  // was already maintained.
+  if (self.offset > 0) {
+    ContentSuggestionsLayout* layout = static_cast<ContentSuggestionsLayout*>(
+        self.collectionView.collectionViewLayout);
+    layout.offset = 0;
+  }
 }
 
 - (void)viewDidLayoutSubviews {
@@ -311,6 +355,10 @@ NSString* const kContentSuggestionsMostVisitedAccessibilityIdentifierPrefix =
   }
   [self.headerSynchronizer updateConstraints];
   [self updateOverscrollActionsState];
+  if (previousTraitCollection.userInterfaceStyle !=
+      self.traitCollection.userInterfaceStyle) {
+    [self.themeChangeDelegate handleThemeChange];
+  }
 }
 
 - (void)viewSafeAreaInsetsDidChange {
@@ -356,6 +404,7 @@ NSString* const kContentSuggestionsMostVisitedAccessibilityIdentifierPrefix =
     case ContentSuggestionTypeLearnMore:
       [self.suggestionCommandHandler handleLearnMoreTapped];
       break;
+    case ContentSuggestionTypeDiscover:
     case ContentSuggestionTypeEmpty:
       break;
   }
@@ -365,6 +414,48 @@ NSString* const kContentSuggestionsMostVisitedAccessibilityIdentifierPrefix =
                  cellForItemAtIndexPath:(NSIndexPath*)indexPath {
   CSCollectionViewItem* item =
       [self.collectionViewModel itemAtIndexPath:indexPath];
+
+  if ([self.collectionUpdater
+          isDiscoverItem:[self.collectionViewModel
+                             itemTypeForIndexPath:indexPath]]) {
+    // TODO(crbug.com/1114792): Remove DiscoverItem logic once we stop
+    // containing the DiscoverFeed inside a cell.
+    ContentSuggestionsDiscoverItem* discoverFeedItem =
+        static_cast<ContentSuggestionsDiscoverItem*>(item);
+    UIViewController* newFeedViewController = discoverFeedItem.discoverFeed;
+
+    if (newFeedViewController != self.discoverFeedVC) {
+      // If previous VC is not nil, remove it from the view hierarchy and stop
+      // osberving its feedView.
+      if (self.discoverFeedVC) {
+        [self.feedView removeObserver:self forKeyPath:@"contentSize"];
+        [self.discoverFeedVC willMoveToParentViewController:nil];
+        [self.discoverFeedVC.view removeFromSuperview];
+        [self.discoverFeedVC removeFromParentViewController];
+      }
+
+      // If new VC is not nil, add it to the view hierarchy.
+      if (newFeedViewController) {
+        [self addChildViewController:newFeedViewController];
+        UICollectionViewCell* cell = [super collectionView:collectionView
+                                    cellForItemAtIndexPath:indexPath];
+        [newFeedViewController didMoveToParentViewController:self];
+
+        // Observe its CollectionView for contentSize changes.
+        for (UIView* view in newFeedViewController.view.subviews) {
+          if ([view isKindOfClass:[UICollectionView class]]) {
+            self.feedView = static_cast<UICollectionView*>(view);
+          }
+        }
+        [self.feedView addObserver:self
+                        forKeyPath:@"contentSize"
+                           options:0
+                           context:nil];
+        self.discoverFeedVC = newFeedViewController;
+        return cell;
+      }
+    }
+  }
 
   if ([self.collectionUpdater isContentSuggestionsSection:indexPath.section] &&
       [self.collectionUpdater contentSuggestionTypeForItem:item] !=
@@ -386,10 +477,59 @@ NSString* const kContentSuggestionsMostVisitedAccessibilityIdentifierPrefix =
             @"%@%li",
             kContentSuggestionsMostVisitedAccessibilityIdentifierPrefix,
             indexPath.row];
+    // Apple doesn't handle the transparency of the background during animations
+    // linked to context menus. To prevent the cell from turning black during
+    // animations, its background is set to be the same as the NTP background.
+    // See: crbug.com/1120321.
+    cell.backgroundColor = ntp_home::kNTPBackgroundColor();
     [self.collectionViewModel itemAtIndexPath:indexPath]
         .accessibilityIdentifier = cell.accessibilityIdentifier;
   }
 
+  return cell;
+}
+
+- (UIContextMenuConfiguration*)collectionView:(UICollectionView*)collectionView
+    contextMenuConfigurationForItemAtIndexPath:(NSIndexPath*)indexPath
+                                         point:(CGPoint)point
+    API_AVAILABLE(ios(13.0)) {
+  if (!IsNativeContextMenuEnabled()) {
+    // Returning nil will allow the gesture to be captured and show the old
+    // context menus.
+    return nil;
+  }
+
+  CollectionViewItem* item =
+      [self.collectionViewModel itemAtIndexPath:indexPath];
+
+  if (![item isKindOfClass:[ContentSuggestionsMostVisitedItem class]])
+    return nil;
+
+  ContentSuggestionsMostVisitedItem* contentSuggestionsItem =
+      base::mac::ObjCCastStrict<ContentSuggestionsMostVisitedItem>(item);
+
+  return [self.menuProvider
+      contextMenuConfigurationForItem:contentSuggestionsItem
+                             fromView:[self.collectionView
+                                          cellForItemAtIndexPath:indexPath]];
+}
+
+#pragma mark - UICollectionViewDataSource
+
+- (UICollectionReusableView*)collectionView:(UICollectionView*)collectionView
+          viewForSupplementaryElementOfKind:(NSString*)kind
+                                atIndexPath:(NSIndexPath*)indexPath {
+  UICollectionReusableView* cell = [super collectionView:collectionView
+                       viewForSupplementaryElementOfKind:kind
+                                             atIndexPath:indexPath];
+  if ([kind isEqualToString:UICollectionElementKindSectionHeader] &&
+      [self.collectionUpdater isDiscoverSection:indexPath.section]) {
+    ContentSuggestionsDiscoverHeaderCell* discoverFeedHeader =
+        base::mac::ObjCCastStrict<ContentSuggestionsDiscoverHeaderCell>(cell);
+    [discoverFeedHeader.menuButton addTarget:self
+                                      action:@selector(openDiscoverFeedMenu:)
+                            forControlEvents:UIControlEventTouchUpInside];
+  }
   return cell;
 }
 
@@ -426,6 +566,13 @@ NSString* const kContentSuggestionsMostVisitedAccessibilityIdentifierPrefix =
     if ([self.collectionUpdater isMostVisitedSection:section]) {
       parentInset.bottom = kMostVisitedBottomMargin;
     }
+  } else if ([self.collectionUpdater isDiscoverSection:section]) {
+    // TODO(crbug.com/1085419): Get card width from Mulder.
+    CGFloat feedCardWidth = kDiscoverFeedContentWith;
+    CGFloat margin =
+        MAX(0, (collectionView.frame.size.width - feedCardWidth) / 2);
+    parentInset.left = margin;
+    parentInset.right = margin;
   } else if (self.styler.cellStyle == MDCCollectionViewCellStyleCard) {
     CGFloat collectionWidth = collectionView.bounds.size.width;
     CGFloat maxCardWidth =
@@ -463,13 +610,6 @@ NSString* const kContentSuggestionsMostVisitedAccessibilityIdentifierPrefix =
           shouldUseCustomStyleForSection:indexPath.section]) {
     return UIColor.clearColor;
   }
-  // MDCCollectionView doesn't support dynamic colors, so they have to be
-  // resolved now.
-  // TODO(crbug.com/984928): Clean up once dynamic color support is added.
-  if (@available(iOS 13, *)) {
-    return [ntp_home::kNTPBackgroundColor()
-        resolvedColorWithTraitCollection:self.traitCollection];
-  }
   return ntp_home::kNTPBackgroundColor();
 }
 
@@ -479,6 +619,9 @@ NSString* const kContentSuggestionsMostVisitedAccessibilityIdentifierPrefix =
     referenceSizeForHeaderInSection:(NSInteger)section {
   if ([self.collectionUpdater isHeaderSection:section]) {
     return CGSizeMake(0, [self.headerSynchronizer headerHeight]);
+  }
+  if ([self.collectionUpdater isDiscoverSection:section]) {
+    return CGSizeMake(0, kDiscoverFeedFeaderHeight);
   }
   CGSize defaultSize = [super collectionView:collectionView
                                       layout:collectionViewLayout
@@ -541,6 +684,7 @@ NSString* const kContentSuggestionsMostVisitedAccessibilityIdentifierPrefix =
       [self.collectionViewModel itemAtIndexPath:indexPath];
   return ![self.collectionUpdater isMostVisitedSection:indexPath.section] &&
          ![self.collectionUpdater isPromoSection:indexPath.section] &&
+         ![self.collectionUpdater isDiscoverSection:indexPath.section] &&
          [self.collectionUpdater contentSuggestionTypeForItem:item] !=
              ContentSuggestionTypeLearnMore &&
          [self.collectionUpdater contentSuggestionTypeForItem:item] !=
@@ -562,6 +706,32 @@ NSString* const kContentSuggestionsMostVisitedAccessibilityIdentifierPrefix =
   [self.headerSynchronizer updateFakeOmniboxOnCollectionScroll];
   self.scrolledToTop =
       scrollView.contentOffset.y >= [self.headerSynchronizer pinnedOffsetY];
+
+  if (IsDiscoverFeedEnabled() && self.contentSuggestionsEnabled) {
+    float scrollPosition =
+        scrollView.contentOffset.y + scrollView.frame.size.height;
+    // Check if view is bouncing to ignore overscoll positions for infinite feed
+    // triggering.
+    BOOL isBouncing =
+        (scrollView.contentOffset.y >=
+         (scrollView.contentSize.height - scrollView.bounds.size.height));
+    ContentSuggestionsLayout* layout = static_cast<ContentSuggestionsLayout*>(
+        self.collectionView.collectionViewLayout);
+    if (scrollPosition > scrollView.contentSize.height - kPaginationOffset &&
+        scrollPosition > layout.ntpHeight && !isBouncing) {
+      [self.handler loadMoreFeedArticles];
+    }
+  }
+}
+
+- (BOOL)scrollViewShouldScrollToTop:(UIScrollView*)scrollView {
+  // User has tapped the status bar to scroll to the top.
+  // Prevent scrolling back to pre-focus state, making sure we don't have
+  // two scrolling animations running at the same time.
+  [self.headerSynchronizer resetPreFocusOffset];
+  // Unfocus omnibox without scrolling back.
+  [self.headerSynchronizer unfocusOmnibox];
+  return YES;
 }
 
 - (void)scrollViewWillBeginDragging:(UIScrollView*)scrollView {
@@ -626,6 +796,26 @@ NSString* const kContentSuggestionsMostVisitedAccessibilityIdentifierPrefix =
   return YES;
 }
 
+#pragma mark - ContentSuggestionsConsumer
+
+- (void)setContentSuggestionsEnabled:(BOOL)enabled {
+  _contentSuggestionsEnabled = enabled;
+}
+
+#pragma mark - NSKeyValueObserving
+
+// TODO(crbug.com/1114792): Remove once we stop containing the DiscoverFeed
+// inside a cell.
+- (void)observeValueForKeyPath:(NSString*)keyPath
+                      ofObject:(id)object
+                        change:(NSDictionary*)change
+                       context:(void*)context {
+  if (object == self.feedView && [keyPath isEqualToString:@"contentSize"]) {
+    // Reload the CollectionView data to adjust to the new Feed height.
+    [self.collectionView reloadData];
+  }
+}
+
 #pragma mark - Private
 
 - (void)handleLongPress:(UILongPressGestureRecognizer*)gestureRecognizer {
@@ -664,10 +854,12 @@ NSString* const kContentSuggestionsMostVisitedAccessibilityIdentifierPrefix =
                           readLaterAction:NO];
       break;
     case ContentSuggestionTypeMostVisited:
-      [self.suggestionCommandHandler
-          displayContextMenuForMostVisitedItem:touchedItem
-                                       atPoint:touchLocation
-                                   atIndexPath:touchedItemIndexPath];
+      if (!IsNativeContextMenuEnabled()) {
+        [self.suggestionCommandHandler
+            displayContextMenuForMostVisitedItem:touchedItem
+                                         atPoint:touchLocation
+                                     atIndexPath:touchedItemIndexPath];
+      }
       break;
     default:
       break;
@@ -709,6 +901,11 @@ NSString* const kContentSuggestionsMostVisitedAccessibilityIdentifierPrefix =
     }
   }
   _initialContentOffset = NAN;
+}
+
+// Opens top-level feed menu when pressing |menuButton|.
+- (void)openDiscoverFeedMenu:(id)menuButton {
+  [self.discoverFeedMenuHandler openDiscoverFeedMenu:menuButton];
 }
 
 @end

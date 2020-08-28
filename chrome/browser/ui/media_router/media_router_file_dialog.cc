@@ -9,13 +9,14 @@
 #include "base/bind.h"
 #include "base/task/cancelable_task_tracker.h"
 #include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
 #include "chrome/browser/media/router/media_router_metrics.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
-#include "chrome/common/media_router/issue.h"
 #include "chrome/grit/generated_resources.h"
+#include "components/media_router/common/issue.h"
 #include "media/base/container_names.h"
 #include "media/base/mime_util.h"
 #include "net/base/filename_util.h"
@@ -134,8 +135,8 @@ MediaRouterFileDialog::MediaRouterFileDialog(
 MediaRouterFileDialog::MediaRouterFileDialog(
     base::WeakPtr<MediaRouterFileDialogDelegate> delegate,
     std::unique_ptr<FileSystemDelegate> file_system_delegate)
-    : task_runner_(base::CreateTaskRunner({base::ThreadPool(), base::MayBlock(),
-                                           base::TaskPriority::USER_VISIBLE})),
+    : task_runner_(base::ThreadPool::CreateTaskRunner(
+          {base::MayBlock(), base::TaskPriority::USER_VISIBLE})),
       file_system_delegate_(std::move(file_system_delegate)),
       delegate_(std::move(delegate)) {}
 

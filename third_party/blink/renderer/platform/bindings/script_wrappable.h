@@ -48,7 +48,7 @@ namespace blink {
 // a v8::Object and toScriptWrappable() converts a v8::Object back to
 // a ScriptWrappable.  v8::Object as platform object is called "wrapper object".
 // The wrapper object for the main world is stored in ScriptWrappable.  Wrapper
-// objects for other worlds are stored in DOMWrapperMap.
+// objects for other worlds are stored in DOMDataStore.
 class PLATFORM_EXPORT ScriptWrappable
     : public GarbageCollected<ScriptWrappable>,
       public NameClient {
@@ -68,7 +68,7 @@ class PLATFORM_EXPORT ScriptWrappable
 
   const char* NameInHeapSnapshot() const override;
 
-  virtual void Trace(blink::Visitor*);
+  virtual void Trace(Visitor*) const;
 
   template <typename T>
   T* ToImpl() {
@@ -95,8 +95,8 @@ class PLATFORM_EXPORT ScriptWrappable
   virtual const WrapperTypeInfo* GetWrapperTypeInfo() const = 0;
 
   // Creates and returns a new wrapper object.
-  virtual v8::Local<v8::Object> Wrap(v8::Isolate*,
-                                     v8::Local<v8::Object> creation_context);
+  virtual v8::Local<v8::Value> Wrap(v8::Isolate*,
+                                    v8::Local<v8::Object> creation_context);
 
   // Associates the instance with the given |wrapper| if this instance is not
   // yet associated with any wrapper.  Returns the wrapper already associated

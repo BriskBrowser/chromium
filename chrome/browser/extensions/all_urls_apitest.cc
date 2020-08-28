@@ -13,6 +13,7 @@
 #include "chrome/common/url_constants.h"
 #include "chrome/test/base/ui_test_utils.h"
 #include "components/crx_file/id_util.h"
+#include "content/public/test/browser_test.h"
 #include "extensions/browser/extension_registry.h"
 #include "extensions/common/extension.h"
 #include "extensions/common/extensions_client.h"
@@ -34,10 +35,10 @@ class AllUrlsApiTest : public ExtensionApiTest {
   const Extension* execute_script() const { return execute_script_.get(); }
 
   void WhitelistExtensions() {
-    ExtensionsClient::ScriptingWhitelist whitelist;
-    whitelist.push_back(content_script_->id());
-    whitelist.push_back(execute_script_->id());
-    ExtensionsClient::Get()->SetScriptingWhitelist(whitelist);
+    ExtensionsClient::ScriptingAllowlist allowlist;
+    allowlist.push_back(content_script_->id());
+    allowlist.push_back(execute_script_->id());
+    ExtensionsClient::Get()->SetScriptingAllowlist(allowlist);
     // Extensions will have certain permissions withheld at initialization if
     // they aren't whitelisted, so we need to reload them.
     ExtensionTestMessageListener listener("execute: ready", false);

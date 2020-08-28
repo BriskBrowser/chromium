@@ -14,7 +14,6 @@
 #include "mojo/public/cpp/bindings/connection_error_callback.h"
 #include "mojo/public/cpp/bindings/interface_ptr.h"
 #include "mojo/public/cpp/bindings/interface_ptr_info.h"
-#include "mojo/public/cpp/bindings/interface_request.h"
 #include "mojo/public/cpp/bindings/lib/binding_state.h"
 #include "mojo/public/cpp/bindings/raw_ptr_impl_ref_traits.h"
 #include "mojo/public/cpp/system/core.h"
@@ -23,6 +22,9 @@ namespace mojo {
 
 class MessageFilter;
 
+// DEPRECATED: Do not introduce new uses of this type. Instead use the
+// Receiver type defined in receiver.h.
+//
 // Represents the binding of an interface implementation to a message pipe.
 // When the |Binding| object is destroyed, the binding between the message pipe
 // and the interface is torn down and the message pipe is closed, leaving the
@@ -135,11 +137,10 @@ class Binding {
   // true if a method was successfully read and dispatched.
   //
   // This method may only be called if the object has been bound to a message
-  // pipe. This returns once a message is received either on the master
+  // pipe. This returns once a message is received either on the primary
   // interface or any associated interfaces.
-  bool WaitForIncomingMethodCall(
-      MojoDeadline deadline = MOJO_DEADLINE_INDEFINITE) {
-    return internal_state_.WaitForIncomingMethodCall(deadline);
+  bool WaitForIncomingMethodCall() {
+    return internal_state_.WaitForIncomingMethodCall();
   }
 
   // Closes the message pipe that was previously bound. Put this object into a

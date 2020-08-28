@@ -1,6 +1,7 @@
 This test (crudely) documents Blink's web-exposed CSS properties.  All changes to this list should go through Blink's feature review process: http://www.chromium.org/blink#new-features
 
 
+advanceOverride
 alignContent
 alignItems
 alignSelf
@@ -15,6 +16,9 @@ animationIterationCount
 animationName
 animationPlayState
 animationTimingFunction
+appearance
+ascentOverride
+aspectRatio
 backdropFilter
 backfaceVisibility
 background
@@ -107,6 +111,7 @@ color
 colorInterpolation
 colorInterpolationFilters
 colorRendering
+colorScheme
 columnCount
 columnFill
 columnGap
@@ -118,15 +123,19 @@ columnSpan
 columnWidth
 columns
 contain
+containIntrinsicSize
 content
+contentVisibility
 counterIncrement
 counterReset
+counterSet
 cssFloat
 cssText
 cursor
 cx
 cy
 d
+descentOverride
 direction
 display
 dominantBaseline
@@ -187,6 +196,8 @@ height
 hyphens
 imageOrientation
 imageRendering
+inherits
+initialValue
 inlineSize
 inset
 insetBlock
@@ -195,11 +206,6 @@ insetBlockStart
 insetInline
 insetInlineEnd
 insetInlineStart
-intrinsicBlockSize
-intrinsicHeight
-intrinsicInlineSize
-intrinsicSize
-intrinsicWidth
 isolation
 item
 justifyContent
@@ -210,6 +216,7 @@ length
 letterSpacing
 lightingColor
 lineBreak
+lineGapOverride
 lineHeight
 lineHeightStep
 listStyle
@@ -232,8 +239,9 @@ markerEnd
 markerMid
 markerStart
 mask
-maskSourceType
 maskType
+mathStyle
+mathSuperscriptShiftStyle
 maxBlockSize
 maxHeight
 maxInlineSize
@@ -289,6 +297,7 @@ page
 pageBreakAfter
 pageBreakBefore
 pageBreakInside
+pageOrientation
 paintOrder
 parentRule
 perspective
@@ -301,11 +310,11 @@ position
 quotes
 r
 removeProperty
-renderSubtree
 resize
 right
 rotate
 rowGap
+rubyPosition
 rx
 ry
 scale
@@ -335,6 +344,7 @@ scrollPaddingTop
 scrollSnapAlign
 scrollSnapStop
 scrollSnapType
+scrollbarGutter
 setProperty
 shapeImageThreshold
 shapeMargin
@@ -353,6 +363,7 @@ strokeLinejoin
 strokeMiterlimit
 strokeOpacity
 strokeWidth
+syntax
 tabSize
 tableLayout
 textAlign
@@ -364,6 +375,7 @@ textDecorationColor
 textDecorationLine
 textDecorationSkipInk
 textDecorationStyle
+textDecorationThickness
 textIndent
 textJustify
 textOrientation
@@ -372,6 +384,7 @@ textRendering
 textShadow
 textSizeAdjust
 textTransform
+textUnderlineOffset
 textUnderlinePosition
 top
 touchAction
@@ -466,7 +479,6 @@ webkitFlexGrow
 webkitFlexShrink
 webkitFlexWrap
 webkitFontFeatureSettings
-webkitFontSizeDelta
 webkitFontSmoothing
 webkitHighlight
 webkitHyphenateCharacter

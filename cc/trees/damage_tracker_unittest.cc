@@ -5,7 +5,10 @@
 #include "cc/trees/damage_tracker.h"
 
 #include <stddef.h>
+#include <limits>
+#include <utility>
 
+#include "base/memory/ptr_util.h"
 #include "cc/base/math_util.h"
 #include "cc/layers/layer_impl.h"
 #include "cc/paint/filter_operation.h"
@@ -68,6 +71,13 @@ void ClearDamageForAllSurfaces(LayerImpl* root) {
       GetRenderSurface(layer)->damage_tracker()->DidDrawDamagedArea();
     layer->ResetChangeTracking();
   }
+}
+
+void SetCopyRequest(LayerImpl* root) {
+  auto* root_node = root->layer_tree_impl()->property_trees()->effect_tree.Node(
+      root->effect_tree_index());
+  root_node->has_copy_request = true;
+  root->layer_tree_impl()->property_trees()->effect_tree.set_needs_update(true);
 }
 
 class DamageTrackerTest : public LayerTreeImplTestBase, public testing::Test {
@@ -235,6 +245,23 @@ class DamageTrackerTest : public LayerTreeImplTestBase, public testing::Test {
     return root;
   }
 
+  LayerImpl* CreateAndSetUpTestTreeWithTwoSurfacesDrawingFullyVisible() {
+    LayerImpl* root = CreateTestTreeWithTwoSurfaces();
+    // Make sure render surface takes content outside visible rect into
+    // consideration.
+    root->layer_tree_impl()
+        ->property_trees()
+        ->effect_tree.Node(child1_->effect_tree_index())
+        ->backdrop_filters.Append(
+            FilterOperation::CreateZoomFilter(2.f /* zoom */, 0 /* inset */));
+
+    // Setup includes going past the first frame which always damages
+    // everything, so that we can actually perform specific tests.
+    EmulateDrawingOneFrame(root);
+
+    return root;
+  }
+
   LayerImpl* CreateAndSetUpTestTreeWithFourSurfaces() {
     LayerImpl* root = CreateTestTreeWithFourSurfaces();
 
@@ -252,7 +279,6 @@ class DamageTrackerTest : public LayerTreeImplTestBase, public testing::Test {
     //   2. updating all damage trackers in the correct order
     //   3. resetting all update_rects and property_changed flags for all layers
     //      and surfaces.
-
     root->layer_tree_impl()->SetDeviceScaleFactor(device_scale_factor);
     root->layer_tree_impl()->set_needs_update_draw_properties();
     UpdateDrawProperties(root->layer_tree_impl());
@@ -1071,148 +1097,6 @@ TEST_F(DamageTrackerTest, VerifyDamageForHighDPIImageFilter) {
   EXPECT_EQ(expected_child_damage_rect, child_damage_rect);
 }
 
-TEST_F(DamageTrackerTest, VerifyDamageForBackdropBlurredChild) {
-  LayerImpl* root = CreateAndSetUpTestTreeWithTwoSurfaces();
-
-  // Allow us to set damage on child1_ too.
-  child1_->SetDrawsContent(true);
-
-  FilterOperations filters;
-  filters.Append(FilterOperation::CreateBlurFilter(2.f));
-
-  // Setting the filter will damage the whole surface.
-  ClearDamageForAllSurfaces(root);
-  SetBackdropFilter(child1_, filters);
-  child1_->NoteLayerPropertyChanged();
-  EmulateDrawingOneFrame(root);
-
-  // CASE 1: Setting the update rect should cause the corresponding damage to
-  //         the surface, blurred based on the size of the child's backdrop
-  //         blur filter. Note that child1_'s render surface has a size of
-  //         206x208 due to contributions from grand_child1_ and grand_child2_.
-  ClearDamageForAllSurfaces(root);
-  root->UnionUpdateRect(gfx::Rect(297, 297, 2, 2));
-  EmulateDrawingOneFrame(root);
-
-  gfx::Rect root_damage_rect;
-  EXPECT_TRUE(GetRenderSurface(root)->damage_tracker()->GetDamageRectIfValid(
-      &root_damage_rect));
-  // Damage position on the surface should be a composition of the damage on
-  // the root and on child2_.  Damage on the root should be: position of
-  // update_rect (297, 297), but expanded by the blur outsets.
-  gfx::Rect expected_damage_rect = gfx::Rect(297, 297, 2, 2);
-
-  // 6px spread for a 2px blur.
-  expected_damage_rect.Inset(-6, -6, -6, -6);
-  EXPECT_EQ(expected_damage_rect.ToString(), root_damage_rect.ToString());
-
-  // CASE 2: Setting the update rect should cause the corresponding damage to
-  //         the surface, blurred based on the size of the child's backdrop
-  //         blur filter. Since the damage extends to the right/bottom outside
-  //         of the blurred layer, only the left/top should end up expanded.
-  ClearDamageForAllSurfaces(root);
-  root->UnionUpdateRect(gfx::Rect(297, 297, 30, 30));
-  EmulateDrawingOneFrame(root);
-
-  EXPECT_TRUE(GetRenderSurface(root)->damage_tracker()->GetDamageRectIfValid(
-      &root_damage_rect));
-  // Damage position on the surface should be a composition of the damage on
-  // the root and on child2_.  Damage on the root should be: position of
-  // update_rect (297, 297), but expanded on the left/top by the blur outsets.
-  expected_damage_rect = gfx::Rect(297, 297, 30, 30);
-
-  // 6px spread for a 2px blur.
-  expected_damage_rect.Inset(-6, -6, 0, 0);
-  EXPECT_EQ(expected_damage_rect.ToString(), root_damage_rect.ToString());
-
-  // CASE 3: Setting this update rect outside the blurred content_bounds of the
-  //         blurred child1_ will not cause it to be expanded.
-  ClearDamageForAllSurfaces(root);
-  root->UnionUpdateRect(gfx::Rect(30, 30, 2, 2));
-  EmulateDrawingOneFrame(root);
-
-  EXPECT_TRUE(GetRenderSurface(root)->damage_tracker()->GetDamageRectIfValid(
-      &root_damage_rect));
-  // Damage on the root should be: position of update_rect (30, 30), not
-  // expanded.
-  expected_damage_rect = gfx::Rect(30, 30, 2, 2);
-
-  EXPECT_EQ(expected_damage_rect.ToString(), root_damage_rect.ToString());
-
-  // CASE 4: Setting this update rect inside the blurred content_bounds but
-  //         outside the original content_bounds of the blurred child1_ will
-  //         cause it to be expanded.
-  ClearDamageForAllSurfaces(root);
-  root->UnionUpdateRect(gfx::Rect(99, 99, 1, 1));
-  EmulateDrawingOneFrame(root);
-
-  EXPECT_TRUE(GetRenderSurface(root)->damage_tracker()->GetDamageRectIfValid(
-      &root_damage_rect));
-  // Damage on the root should be: the originally damaged rect (99,99 1x1)
-  // plus the rect that can influence with a 2px blur (93,93 13x13) intersected
-  // with the surface rect (100,100 206x208). So no additional damage occurs
-  // above or to the left, but there is additional damage within the blurred
-  // area.
-  expected_damage_rect = gfx::Rect(99, 99, 7, 7);
-  EXPECT_EQ(expected_damage_rect.ToString(), root_damage_rect.ToString());
-
-  // CASE 5: Setting the update rect on child2_, which is above child1_, will
-  // not get blurred by child1_, so it does not need to get expanded.
-  ClearDamageForAllSurfaces(root);
-  child2_->UnionUpdateRect(gfx::Rect(1, 1));
-  EmulateDrawingOneFrame(root);
-
-  EXPECT_TRUE(GetRenderSurface(root)->damage_tracker()->GetDamageRectIfValid(
-      &root_damage_rect));
-  // Damage on child2_ should be: position of update_rect offset by the child's
-  // position (11, 11), and not expanded by anything.
-  expected_damage_rect = gfx::Rect(11, 11, 1, 1);
-
-  EXPECT_EQ(expected_damage_rect.ToString(), root_damage_rect.ToString());
-
-  // CASE 6: Setting the update rect on child1_ will also blur the damage, so
-  //         that any pixels needed for the blur are redrawn in the current
-  //         frame.
-  ClearDamageForAllSurfaces(root);
-  child1_->UnionUpdateRect(gfx::Rect(1, 1));
-  EmulateDrawingOneFrame(root);
-
-  EXPECT_TRUE(GetRenderSurface(root)->damage_tracker()->GetDamageRectIfValid(
-      &root_damage_rect));
-  // Damage on child1_ should be: position of update_rect offset by the child's
-  // position (100, 100), and expanded by the damage.
-
-  // Damage should be (0,0 1x1), offset by the 100,100 offset of child1_ in
-  // root, and expanded 6px for the 2px blur (i.e., 94,94 13x13), but there
-  // should be no damage outside child1_ (i.e. none above or to the left of
-  // 100,100.
-  expected_damage_rect = gfx::Rect(100, 100, 7, 7);
-  EXPECT_EQ(expected_damage_rect.ToString(), root_damage_rect.ToString());
-
-  // CASE 7: No changes, so should not damage the surface.
-  ClearDamageForAllSurfaces(root);
-  // We want to make sure that the backdrop filter doesn't cause empty damage
-  // to get expanded. We position child1_ so that an expansion of the empty rect
-  // would have non-empty intersection with child1_ in its target space (root
-  // space).
-  SetPostTranslation(child1_, gfx::Vector2dF());
-  child1_->NoteLayerPropertyChanged();
-  // The first call clears the damage caused by the movement.
-  EmulateDrawingOneFrame(root);
-  ClearDamageForAllSurfaces(root);
-  EmulateDrawingOneFrame(root);
-
-  gfx::Rect child_damage_rect;
-  EXPECT_TRUE(GetRenderSurface(root)->damage_tracker()->GetDamageRectIfValid(
-      &root_damage_rect));
-  EXPECT_TRUE(GetRenderSurface(child1_)->damage_tracker()->GetDamageRectIfValid(
-      &child_damage_rect));
-
-  // Should not be expanded by the blur filter.
-  EXPECT_EQ(gfx::Rect(), root_damage_rect);
-  EXPECT_EQ(gfx::Rect(), child_damage_rect);
-}
-
 TEST_F(DamageTrackerTest, VerifyDamageForAddingAndRemovingLayer) {
   LayerImpl* root = CreateAndSetUpTestTreeWithOneSurface();
   LayerImpl* child1 = child_layers_[0];
@@ -1876,6 +1760,8 @@ TEST_F(DamageTrackerTest, HugeDamageRect) {
   for (int i = 0; i < kRange; ++i) {
     LayerImpl* root = CreateAndSetUpTestTreeWithOneSurface();
     LayerImpl* child = child_layers_[0];
+    // Set copy request to damage the entire layer.
+    SetCopyRequest(root);
 
     gfx::Transform transform;
     transform.Translate(-kBigNumber, -kBigNumber);
@@ -1913,6 +1799,9 @@ TEST_F(DamageTrackerTest, DamageRectTooBig) {
   LayerImpl* child1 = child_layers_[0];
   LayerImpl* child2 = child_layers_[1];
 
+  // Set copy request to damage the entire layer.
+  SetCopyRequest(root);
+
   // Really far left.
   child1->SetOffsetToTransformParent(
       gfx::Vector2dF(std::numeric_limits<int>::min() + 100, 0));
@@ -1922,9 +1811,7 @@ TEST_F(DamageTrackerTest, DamageRectTooBig) {
   child2->SetOffsetToTransformParent(
       gfx::Vector2dF(std::numeric_limits<int>::max() - 100, 0));
   child2->SetBounds(gfx::Size(1, 1));
-
-  float device_scale_factor = 1.f;
-  EmulateDrawingOneFrame(root, device_scale_factor);
+  EmulateDrawingOneFrame(root, 1.f);
 
   // The expected damage would be too large to store in a gfx::Rect, so we
   // should damage everything (ie, we don't have a valid rect).
@@ -1942,6 +1829,9 @@ TEST_F(DamageTrackerTest, DamageRectTooBigWithFilter) {
   LayerImpl* root = CreateAndSetUpTestTreeWithOneSurface(2);
   LayerImpl* child1 = child_layers_[0];
   LayerImpl* child2 = child_layers_[1];
+
+  // Set copy request to damage the entire layer.
+  SetCopyRequest(root);
 
   FilterOperations filters;
   filters.Append(FilterOperation::CreateBlurFilter(5.f));
@@ -1974,7 +1864,10 @@ TEST_F(DamageTrackerTest, DamageRectTooBigWithFilter) {
 }
 
 TEST_F(DamageTrackerTest, DamageRectTooBigInRenderSurface) {
-  LayerImpl* root = CreateAndSetUpTestTreeWithTwoSurfaces();
+  LayerImpl* root = CreateAndSetUpTestTreeWithTwoSurfacesDrawingFullyVisible();
+
+  // Set copy request to damage the entire layer.
+  SetCopyRequest(root);
 
   // Really far left.
   grand_child1_->SetOffsetToTransformParent(
@@ -2056,6 +1949,9 @@ TEST_F(DamageTrackerTest, DamageRectTooBigInRenderSurface) {
 
 TEST_F(DamageTrackerTest, DamageRectTooBigInRenderSurfaceWithFilter) {
   LayerImpl* root = CreateAndSetUpTestTreeWithTwoSurfaces();
+
+  // Set copy request to damage the entire layer.
+  SetCopyRequest(root);
 
   // Set up a moving pixels filter on the child.
   FilterOperations filters;
@@ -2333,6 +2229,125 @@ TEST_F(DamageTrackerTest, CanUseCachedBackdropFilterResultTest) {
   EmulateDrawingOneFrame(root);
   EXPECT_FALSE(GetRenderSurface(grand_child4_)
                    ->can_use_cached_backdrop_filtered_result());
+}
+
+TEST_F(DamageTrackerTest, DamageRectOnlyVisibleContentsMoveToOutside) {
+  LayerImpl* root = CreateAndSetUpTestTreeWithOneSurface(2);
+  ClearDamageForAllSurfaces(root);
+
+  LayerImpl* child1 = child_layers_[0];
+  LayerImpl* child2 = child_layers_[1];
+  gfx::Rect origin_damage = child1->visible_drawable_content_rect();
+  origin_damage.Union(child2->visible_drawable_content_rect());
+
+  // Really far left.
+  child1->SetOffsetToTransformParent(
+      gfx::Vector2dF(std::numeric_limits<int>::min() + 100, 0));
+  child1->SetBounds(gfx::Size(1, 1));
+
+  // Really far right.
+  child2->SetOffsetToTransformParent(
+      gfx::Vector2dF(std::numeric_limits<int>::max() - 100, 0));
+  child2->SetBounds(gfx::Size(1, 1));
+  EmulateDrawingOneFrame(root, 1.f);
+
+  // Above damages should be excludebe because they're outside of
+  // the root surface.
+  gfx::Rect damage_rect;
+  EXPECT_TRUE(GetRenderSurface(root)->damage_tracker()->GetDamageRectIfValid(
+      &damage_rect));
+  EXPECT_EQ(origin_damage, damage_rect);
+  EXPECT_TRUE(GetRenderSurface(root)->content_rect().Contains(damage_rect));
+  EXPECT_TRUE(GetRenderSurface(root)
+                  ->damage_tracker()
+                  ->has_damage_from_contributing_content());
+}
+
+TEST_F(DamageTrackerTest, DamageRectOnlyVisibleContentsLargeTwoContents) {
+  LayerImpl* root = CreateAndSetUpTestTreeWithOneSurface(2);
+  ClearDamageForAllSurfaces(root);
+
+  LayerImpl* child1 = child_layers_[0];
+  LayerImpl* child2 = child_layers_[1];
+
+  gfx::Rect expected_damage = child1->visible_drawable_content_rect();
+  expected_damage.Union(child2->visible_drawable_content_rect());
+  expected_damage.set_x(0);
+  expected_damage.set_width(GetRenderSurface(root)->content_rect().width());
+
+  // Really far left.
+  child1->SetOffsetToTransformParent(
+      gfx::Vector2dF(std::numeric_limits<int>::min() + 100, 100));
+  child1->SetBounds(
+      gfx::Size(std::numeric_limits<int>::max(), child1->bounds().height()));
+
+  // Really far right.
+  child2->SetOffsetToTransformParent(gfx::Vector2dF(100, 100));
+  child2->SetBounds(
+      gfx::Size(std::numeric_limits<int>::max(), child2->bounds().height()));
+  EmulateDrawingOneFrame(root, 1.f);
+
+  // Above damages should be excludebe because they're outside of
+  // the root surface.
+  gfx::Rect damage_rect;
+  EXPECT_TRUE(GetRenderSurface(root)->damage_tracker()->GetDamageRectIfValid(
+      &damage_rect));
+  EXPECT_EQ(expected_damage, damage_rect);
+  EXPECT_TRUE(GetRenderSurface(root)->content_rect().Contains(damage_rect));
+  EXPECT_TRUE(GetRenderSurface(root)
+                  ->damage_tracker()
+                  ->has_damage_from_contributing_content());
+}
+
+TEST_F(DamageTrackerTest,
+       DamageRectOnlyVisibleContentsHugeContentPartiallyVisible) {
+  LayerImpl* root = CreateAndSetUpTestTreeWithOneSurface(1);
+  int content_width = GetRenderSurface(root)->content_rect().width();
+
+  ClearDamageForAllSurfaces(root);
+
+  LayerImpl* child1 = child_layers_[0];
+  int y = child1->offset_to_transform_parent().y();
+  int offset = 100;
+  int expected_width = offset + child1->bounds().width();
+  // Huge content that exceeds on both side.
+  child1->SetOffsetToTransformParent(
+      gfx::Vector2dF(std::numeric_limits<int>::min() + offset, y));
+  child1->SetBounds(
+      gfx::Size(std::numeric_limits<int>::max(), child1->bounds().height()));
+
+  EmulateDrawingOneFrame(root);
+
+  gfx::Rect expected_damage_rect1(0, y, expected_width,
+                                  child1->bounds().height());
+
+  // Above damages should be excludebe because they're outside of
+  // the root surface.
+  gfx::Rect damage_rect;
+  EXPECT_TRUE(GetRenderSurface(root)->damage_tracker()->GetDamageRectIfValid(
+      &damage_rect));
+  EXPECT_EQ(expected_damage_rect1, damage_rect);
+  EXPECT_TRUE(GetRenderSurface(root)
+                  ->damage_tracker()
+                  ->has_damage_from_contributing_content());
+
+  ClearDamageForAllSurfaces(root);
+
+  // Now move the huge layer to the right, keeping offset visible.
+  child1->SetOffsetToTransformParent(gfx::Vector2dF(content_width - offset, y));
+  child1->NoteLayerPropertyChanged();
+
+  EmulateDrawingOneFrame(root);
+
+  // The damaged rect should be "letter boxed" region.
+  gfx::Rect expected_damage_rect2(0, y, content_width,
+                                  child1->bounds().height());
+  EXPECT_TRUE(GetRenderSurface(root)->damage_tracker()->GetDamageRectIfValid(
+      &damage_rect));
+  EXPECT_EQ(expected_damage_rect2, damage_rect);
+  EXPECT_TRUE(GetRenderSurface(root)
+                  ->damage_tracker()
+                  ->has_damage_from_contributing_content());
 }
 
 }  // namespace

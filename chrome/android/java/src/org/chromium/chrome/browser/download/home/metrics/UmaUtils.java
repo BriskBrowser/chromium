@@ -9,9 +9,9 @@ import androidx.annotation.IntDef;
 
 import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.base.metrics.RecordUserAction;
+import org.chromium.chrome.browser.download.R;
 import org.chromium.chrome.browser.download.home.filter.Filters;
 import org.chromium.chrome.browser.download.home.filter.Filters.FilterType;
-import org.chromium.chrome.download.R;
 import org.chromium.components.offline_items_collection.OfflineItem;
 import org.chromium.components.offline_items_collection.OfflineItemFilter;
 import org.chromium.components.offline_items_collection.RenameResult;
@@ -41,7 +41,8 @@ public class UmaUtils {
     // Please treat this list as append only and keep it in sync with
     // Android.DownloadManager.List.View.Actions in enums.xml.
     @IntDef({ViewAction.OPEN, ViewAction.RESUME, ViewAction.PAUSE, ViewAction.CANCEL,
-            ViewAction.MENU_SHARE, ViewAction.MENU_DELETE, ViewAction.RETRY, ViewAction.MENU_RENAME})
+            ViewAction.MENU_SHARE, ViewAction.MENU_DELETE, ViewAction.RETRY, ViewAction.MENU_RENAME,
+            ViewAction.MENU_CHANGE})
     @Retention(RetentionPolicy.SOURCE)
     public @interface ViewAction {
         int OPEN = 0;
@@ -52,7 +53,8 @@ public class UmaUtils {
         int MENU_DELETE = 5;
         int RETRY = 6;
         int MENU_RENAME = 7;
-        int NUM_ENTRIES = 8;
+        int MENU_CHANGE = 8;
+        int NUM_ENTRIES = 9;
     }
 
     // Please treat this list as append only and keep it in sync with
@@ -103,6 +105,9 @@ public class UmaUtils {
                 break;
             case ViewAction.MENU_RENAME:
                 userActionSuffix = "MenuRename";
+                break;
+            case ViewAction.MENU_CHANGE:
+                userActionSuffix = "MenuChange";
                 break;
             default:
                 assert false : "Unexpected action " + action + " passed to recordItemAction.";
@@ -179,13 +184,6 @@ public class UmaUtils {
             @Filters.FilterType
             int filterType = Filters.fromOfflineItem(item);
 
-            if (filterType == Filters.FilterType.OTHER) {
-                RecordHistogram.recordEnumeratedHistogram(
-                        "Android.DownloadManager.OtherExtensions.Share",
-                        FileExtensions.getExtension(item.filePath),
-                        FileExtensions.Type.NUM_ENTRIES);
-            }
-
             RecordHistogram.recordEnumeratedHistogram("Android.DownloadManager.Share.FileTypes",
                     filterType, Filters.FilterType.NUM_ENTRIES);
         }
@@ -237,15 +235,6 @@ public class UmaUtils {
                 "Android.DownloadManager.Thumbnail.MaxRequiredStretch."
                         + getSuffixForFilter(filter),
                 (int) (maxRequiredStretch * 100), 10, 1000, 50);
-    }
-
-    /**
-     * Records the number of chips enabled whenever the chip row is changed.
-     * @param numEnabledChips The number of chips being shown.
-     */
-    public static void recordChipStats(int numEnabledChips) {
-        RecordHistogram.recordCustomCountHistogram(
-                "Android.DownloadManager.Chips.Enabled", numEnabledChips, 1, 10, 10);
     }
 
     /**

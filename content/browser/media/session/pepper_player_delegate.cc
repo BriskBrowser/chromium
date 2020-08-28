@@ -21,10 +21,9 @@ const double kDuckVolume = 0.2f;
 
 const int PepperPlayerDelegate::kPlayerId = 0;
 
-PepperPlayerDelegate::PepperPlayerDelegate(
-    RenderFrameHost* render_frame_host, int32_t pp_instance)
-    : render_frame_host_(render_frame_host),
-      pp_instance_(pp_instance) {}
+PepperPlayerDelegate::PepperPlayerDelegate(RenderFrameHost* render_frame_host,
+                                           int32_t pp_instance)
+    : render_frame_host_(render_frame_host), pp_instance_(pp_instance) {}
 
 PepperPlayerDelegate::~PepperPlayerDelegate() = default;
 
@@ -64,11 +63,30 @@ void PepperPlayerDelegate::OnSetVolumeMultiplier(int player_id,
   SetVolume(player_id, volume_multiplier);
 }
 
+void PepperPlayerDelegate::OnEnterPictureInPicture(int player_id) {
+  // Pepper player cannot enter picture-in-picture. Do nothing.
+}
+
+void PepperPlayerDelegate::OnExitPictureInPicture(int player_id) {
+  // Pepper player cannot exit picture-in-picture. Do nothing.
+}
+
+void PepperPlayerDelegate::OnSetAudioSinkId(int player_id,
+                                            const std::string& raw_device_id) {
+  // Pepper player cannot change audio sinks. Do nothing.
+  NOTREACHED();
+}
+
 base::Optional<media_session::MediaPosition> PepperPlayerDelegate::GetPosition(
     int player_id) const {
   // Pepper does not support position data.
   DCHECK_EQ(player_id, kPlayerId);
   return base::nullopt;
+}
+
+bool PepperPlayerDelegate::IsPictureInPictureAvailable(int player_id) const {
+  DCHECK_EQ(player_id, kPlayerId);
+  return false;
 }
 
 RenderFrameHost* PepperPlayerDelegate::render_frame_host() const {
@@ -78,6 +96,16 @@ RenderFrameHost* PepperPlayerDelegate::render_frame_host() const {
 void PepperPlayerDelegate::SetVolume(int player_id, double volume) {
   render_frame_host_->Send(new FrameMsg_SetPepperVolume(
       render_frame_host_->GetRoutingID(), pp_instance_, volume));
+}
+
+bool PepperPlayerDelegate::HasVideo(int player_id) const {
+  // We don't actually know whether a pepper player has both audio/video.
+  return true;
+}
+
+std::string PepperPlayerDelegate::GetAudioOutputSinkId(int player_id) const {
+  // This operation is not supported for pepper players.
+  return "";
 }
 
 }  // namespace content

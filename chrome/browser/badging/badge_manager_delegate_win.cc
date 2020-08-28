@@ -74,6 +74,7 @@ void BadgeManagerDelegateWin::OnAppBadgeUpdated(const web_app::AppId& app_id) {
       continue;
 
     auto* window = browser->window()->GetNativeWindow();
+
     if (content_and_alt) {
       taskbar::DrawTaskbarDecorationString(window, content_and_alt->first,
                                            content_and_alt->second);

@@ -37,12 +37,10 @@ class TabModalConfirmDialogViews : public TabModalConfirmDialog,
 
   // views::DialogDelegate:
   base::string16 GetWindowTitle() const override;
-  bool Cancel() override;
-  bool Accept() override;
-  bool Close() override;
   bool ShouldShowCloseButton() const override;
   views::View* GetContentsView() override;
-  void DeleteDelegate() override;
+  views::Widget* GetWidget() override;
+  const views::Widget* GetWidget() const override;
   ui::ModalType GetModalType() const override;
 
  private:
@@ -52,9 +50,6 @@ class TabModalConfirmDialogViews : public TabModalConfirmDialog,
   void AcceptTabModalDialog() override;
   void CancelTabModalDialog() override;
   void CloseDialog() override;
-
-  // views::DialogDelegate:
-  const views::Widget* GetWidgetImpl() const override;
 
   void LinkClicked(views::Link* source, int event_flags);
 

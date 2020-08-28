@@ -13,23 +13,28 @@
 #include <vector>
 
 #include "base/bind.h"
+#include "base/check.h"
 #include "base/i18n/char_iterator.h"
-#include "base/logging.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/third_party/icu/icu_utf.h"
 #include "chromeos/system/devicemode.h"
+#include "ui/base/ime/chromeos/ime_bridge.h"
+#include "ui/base/ime/chromeos/ime_engine_handler_interface.h"
 #include "ui/base/ime/chromeos/ime_keyboard.h"
 #include "ui/base/ime/chromeos/input_method_manager.h"
 #include "ui/base/ime/composition_text.h"
-#include "ui/base/ime/ime_bridge.h"
-#include "ui/base/ime/ime_engine_handler_interface.h"
 #include "ui/base/ime/input_method_delegate.h"
 #include "ui/base/ime/text_input_client.h"
 #include "ui/events/event.h"
 #include "ui/gfx/geometry/rect.h"
 
 namespace ui {
+
+ui::IMEEngineHandlerInterface* GetEngine() {
+  auto* bridge = ui::IMEBridge::Get();
+  return bridge ? bridge->GetCurrentEngineHandler() : nullptr;
+}
 
 // InputMethodChromeOS implementation -----------------------------------------
 InputMethodChromeOS::InputMethodChromeOS(
@@ -123,7 +128,7 @@ ui::EventDispatchDetails InputMethodChromeOS::DispatchKeyEvent(
   // normal input field (not a password field).
   // Note: We need to send the key event to ibus even if the |context_| is not
   // enabled, so that ibus can have a chance to enable the |context_|.
-  if (!IsNonPasswordInputFieldFocused() || !GetEngine()) {
+  if (IsPasswordOrNoneInputFieldFocused() || !GetEngine()) {
     if (event->type() == ET_KEY_PRESSED) {
       if (ExecuteCharacterComposer(*event)) {
         // Treating as PostIME event if character composer handles key event and
@@ -197,7 +202,7 @@ void InputMethodChromeOS::OnCaretBoundsChanged(const TextInputClient* client) {
 
   NotifyTextInputCaretBoundsChanged(client);
 
-  if (!IsNonPasswordInputFieldFocused())
+  if (IsPasswordOrNoneInputFieldFocused())
     return;
 
   // The current text input type should not be NONE if |context_| is focused.
@@ -209,7 +214,9 @@ void InputMethodChromeOS::OnCaretBoundsChanged(const TextInputClient* client) {
 
   chromeos::IMECandidateWindowHandlerInterface* candidate_window =
       ui::IMEBridge::Get()->GetCandidateWindowHandler();
-  if (!candidate_window)
+  chromeos::IMEAssistiveWindowHandlerInterface* assistive_window =
+      ui::IMEBridge::Get()->GetAssistiveWindowHandler();
+  if (!candidate_window && !assistive_window)
     return;
 
   const gfx::Rect caret_rect = client->GetCaretBounds();
@@ -222,7 +229,15 @@ void InputMethodChromeOS::OnCaretBoundsChanged(const TextInputClient* client) {
   // avoid a bad user experience (the IME window moved to upper left corner).
   if (composition_head.IsEmpty())
     composition_head = caret_rect;
-  candidate_window->SetCursorBounds(caret_rect, composition_head);
+  if (candidate_window)
+    candidate_window->SetCursorBounds(caret_rect, composition_head);
+
+  if (assistive_window) {
+    chromeos::Bounds bounds;
+    bounds.caret = caret_rect;
+    bounds.autocorrect = client->GetAutocorrectCharacterBounds();
+    assistive_window->SetBounds(bounds);
+  }
 
   gfx::Range text_range;
   gfx::Range selection_range;
@@ -254,14 +269,13 @@ void InputMethodChromeOS::OnCaretBoundsChanged(const TextInputClient* client) {
   // |surrounding_text| coordinates.
   if (GetEngine()) {
     GetEngine()->SetSurroundingText(
-        base::UTF16ToUTF8(surrounding_text),
-        selection_range.start() - text_range.start(),
+        surrounding_text, selection_range.start() - text_range.start(),
         selection_range.end() - text_range.start(), text_range.start());
   }
 }
 
 void InputMethodChromeOS::CancelComposition(const TextInputClient* client) {
-  if (IsNonPasswordInputFieldFocused() && IsTextInputClientFocused(client))
+  if (!IsPasswordOrNoneInputFieldFocused() && IsTextInputClientFocused(client))
     ResetContext();
 }
 
@@ -281,10 +295,31 @@ InputMethodChromeOS::GetInputMethodKeyboardController() {
   return InputMethodBase::GetInputMethodKeyboardController();
 }
 
+void InputMethodChromeOS::OnFocus() {
+  ui::IMEBridge* bridge = ui::IMEBridge::Get();
+  if (bridge) {
+    bridge->SetInputContextHandler(this);
+    bridge->MaybeSwitchEngine();
+  }
+}
+
+void InputMethodChromeOS::OnBlur() {
+  if (ui::IMEBridge::Get() &&
+      ui::IMEBridge::Get()->GetInputContextHandler() == this)
+    ui::IMEBridge::Get()->SetInputContextHandler(nullptr);
+}
+
 void InputMethodChromeOS::OnWillChangeFocusedClient(
     TextInputClient* focused_before,
     TextInputClient* focused) {
   ConfirmCompositionText(/* reset_engine */ true, /* keep_selection */ false);
+
+  // Removes any autocorrect range in the unfocused TextInputClient.
+  gfx::Range text_range;
+  if (focused_before && focused_before->GetTextRange(&text_range)) {
+    // This is currently only implemented in RenderWidgetHostViewAura.
+    focused_before->SetAutocorrectRange(base::EmptyString16(), text_range);
+  }
 
   if (GetEngine())
     GetEngine()->FocusOut();
@@ -344,6 +379,28 @@ bool InputMethodChromeOS::SetCompositionRange(
   }
 }
 
+gfx::Range InputMethodChromeOS::GetAutocorrectRange() {
+  if (IsTextInputTypeNone())
+    return gfx::Range();
+  return GetTextInputClient()->GetAutocorrectRange();
+}
+
+gfx::Rect InputMethodChromeOS::GetAutocorrectCharacterBounds() {
+  if (IsTextInputTypeNone())
+    return gfx::Rect();
+  return GetTextInputClient()->GetAutocorrectCharacterBounds();
+}
+
+bool InputMethodChromeOS::SetAutocorrectRange(
+    const base::string16& autocorrect_text,
+    uint32_t start,
+    uint32_t end) {
+  if (IsTextInputTypeNone())
+    return false;
+  return GetTextInputClient()->SetAutocorrectRange(autocorrect_text,
+                                                   gfx::Range(start, end));
+}
+
 bool InputMethodChromeOS::SetSelectionRange(uint32_t start, uint32_t end) {
   if (IsTextInputTypeNone())
     return false;
@@ -353,14 +410,16 @@ bool InputMethodChromeOS::SetSelectionRange(uint32_t start, uint32_t end) {
 
 void InputMethodChromeOS::ConfirmCompositionText(bool reset_engine,
                                                  bool keep_selection) {
-  InputMethodBase::ConfirmCompositionText(reset_engine, keep_selection);
+  TextInputClient* client = GetTextInputClient();
+  if (client && client->HasCompositionText())
+    client->ConfirmCompositionText(keep_selection);
 
   // See https://crbug.com/984472.
   ResetContext(reset_engine);
 }
 
 void InputMethodChromeOS::ResetContext(bool reset_engine) {
-  if (!IsNonPasswordInputFieldFocused() || !GetTextInputClient())
+  if (IsPasswordOrNoneInputFieldFocused() || !GetTextInputClient())
     return;
 
   pending_composition_ = CompositionText();
@@ -383,7 +442,13 @@ void InputMethodChromeOS::UpdateContextFocusState() {
   chromeos::IMECandidateWindowHandlerInterface* candidate_window =
       ui::IMEBridge::Get()->GetCandidateWindowHandler();
   if (candidate_window)
-    candidate_window->FocusStateChanged(IsNonPasswordInputFieldFocused());
+    candidate_window->FocusStateChanged(!IsPasswordOrNoneInputFieldFocused());
+
+  // Propagate focus event to assistive window handler.
+  chromeos::IMEAssistiveWindowHandlerInterface* assistive_window =
+      ui::IMEBridge::Get()->GetAssistiveWindowHandler();
+  if (assistive_window)
+    assistive_window->FocusStateChanged();
 
   ui::IMEEngineHandlerInterface::InputContext context(
       GetTextInputType(), GetTextInputMode(), GetTextInputFlags(),
@@ -631,6 +696,27 @@ void InputMethodChromeOS::HidePreeditText() {
   }
 }
 
+void InputMethodChromeOS::SendKeyEvent(KeyEvent* event) {
+  ui::EventDispatchDetails details = DispatchKeyEvent(event);
+  DCHECK(!details.dispatcher_destroyed);
+}
+
+SurroundingTextInfo InputMethodChromeOS::GetSurroundingTextInfo() {
+  gfx::Range text_range;
+  SurroundingTextInfo info;
+  TextInputClient* client = GetTextInputClient();
+  if (!client->GetTextRange(&text_range) ||
+      !client->GetTextFromRange(text_range, &info.surrounding_text) ||
+      !client->GetEditableSelectionRange(&info.selection_range)) {
+    return SurroundingTextInfo();
+  }
+  // Makes the |selection_range| be relative to the |surrounding_text|.
+  info.selection_range.set_start(info.selection_range.start() -
+                                 text_range.start());
+  info.selection_range.set_end(info.selection_range.end() - text_range.start());
+  return info;
+}
+
 void InputMethodChromeOS::DeleteSurroundingText(int32_t offset,
                                                 uint32_t length) {
   if (!GetTextInputClient())
@@ -698,6 +784,7 @@ void InputMethodChromeOS::ExtractCompositionText(
       ImeTextSpan ime_text_span(ui::ImeTextSpan::Type::kComposition,
                                 char16_offsets[start], char16_offsets[end],
                                 text_ime_text_span.thickness,
+                                ui::ImeTextSpan::UnderlineStyle::kSolid,
                                 text_ime_text_span.background_color);
       ime_text_span.underline_color = text_ime_text_span.underline_color;
       out_composition->ime_text_spans.push_back(ime_text_span);
@@ -708,10 +795,10 @@ void InputMethodChromeOS::ExtractCompositionText(
   if (text.selection.start() < text.selection.end()) {
     const uint32_t start = text.selection.start();
     const uint32_t end = text.selection.end();
-    ImeTextSpan ime_text_span(ui::ImeTextSpan::Type::kComposition,
-                              char16_offsets[start], char16_offsets[end],
-                              ui::ImeTextSpan::Thickness::kThick,
-                              SK_ColorTRANSPARENT);
+    ImeTextSpan ime_text_span(
+        ui::ImeTextSpan::Type::kComposition, char16_offsets[start],
+        char16_offsets[end], ui::ImeTextSpan::Thickness::kThick,
+        ui::ImeTextSpan::UnderlineStyle::kSolid, SK_ColorTRANSPARENT);
     out_composition->ime_text_spans.push_back(ime_text_span);
 
     // If the cursor is at start or end of this ime_text_span, then we treat
@@ -728,15 +815,16 @@ void InputMethodChromeOS::ExtractCompositionText(
 
   // Use a thin underline with text color by default.
   if (out_composition->ime_text_spans.empty()) {
-    out_composition->ime_text_spans.push_back(
-        ImeTextSpan(ui::ImeTextSpan::Type::kComposition, 0, length,
-                    ui::ImeTextSpan::Thickness::kThin, SK_ColorTRANSPARENT));
+    out_composition->ime_text_spans.push_back(ImeTextSpan(
+        ui::ImeTextSpan::Type::kComposition, 0, length,
+        ui::ImeTextSpan::Thickness::kThin,
+        ui::ImeTextSpan::UnderlineStyle::kSolid, SK_ColorTRANSPARENT));
   }
 }
 
-bool InputMethodChromeOS::IsNonPasswordInputFieldFocused() {
+bool InputMethodChromeOS::IsPasswordOrNoneInputFieldFocused() {
   TextInputType type = GetTextInputType();
-  return (type != TEXT_INPUT_TYPE_NONE) && (type != TEXT_INPUT_TYPE_PASSWORD);
+  return type == TEXT_INPUT_TYPE_NONE || type == TEXT_INPUT_TYPE_PASSWORD;
 }
 
 bool InputMethodChromeOS::IsInputFieldFocused() {
@@ -746,6 +834,15 @@ bool InputMethodChromeOS::IsInputFieldFocused() {
 TextInputClient::FocusReason InputMethodChromeOS::GetClientFocusReason() const {
   TextInputClient* client = GetTextInputClient();
   return client ? client->GetFocusReason() : TextInputClient::FOCUS_REASON_NONE;
+}
+
+bool InputMethodChromeOS::HasCompositionText() {
+  TextInputClient* client = GetTextInputClient();
+  return client && client->HasCompositionText();
+}
+
+InputMethod* InputMethodChromeOS::GetInputMethod() {
+  return this;
 }
 
 }  // namespace ui

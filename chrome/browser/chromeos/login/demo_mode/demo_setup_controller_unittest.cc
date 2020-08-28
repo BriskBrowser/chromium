@@ -17,10 +17,10 @@
 #include "chrome/browser/browser_process_platform_part.h"
 #include "chrome/browser/chromeos/login/demo_mode/demo_session.h"
 #include "chrome/browser/chromeos/login/demo_mode/demo_setup_test_utils.h"
-#include "chrome/browser/chromeos/policy/browser_policy_connector_chromeos.h"
-#include "chrome/browser/chromeos/policy/device_cloud_policy_manager_chromeos.h"
+#include "chrome/browser/chromeos/policy/enrollment_requisition_manager.h"
 #include "chrome/browser/chromeos/settings/device_settings_service.h"
 #include "chrome/browser/component_updater/cros_component_installer_chromeos.h"
+#include "chrome/common/pref_names.h"
 #include "chrome/test/base/scoped_testing_local_state.h"
 #include "chrome/test/base/testing_browser_process.h"
 #include "chromeos/cryptohome/system_salt_getter.h"
@@ -62,12 +62,24 @@ class DemoSetupControllerTestHelper {
     run_loop_->Quit();
   }
 
+  void SetCurrentSetupStep(DemoSetupController::DemoSetupStep current_step) {
+    setup_step_ = current_step;
+  }
+
   // Wait until the setup result arrives (either OnSetupError or OnSetupSuccess
-  // is called), returns true when the result matches with |expected|.
-  bool WaitResult(bool expected) {
+  // is called), returns true when the success result matches with
+  // |success_expected| and setup step matches |setup_step_expected|.
+  bool WaitResult(bool success_expected,
+                  DemoSetupController::DemoSetupStep setup_step_expected) {
     // Run() stops immediately if Quit is already called.
     run_loop_->Run();
-    return succeeded_.has_value() && succeeded_.value() == expected;
+
+    const bool success_check =
+        succeeded_.has_value() && succeeded_.value() == success_expected;
+    const bool setup_step_check =
+        setup_step_.has_value() && setup_step_.value() == setup_step_expected;
+
+    return success_check && setup_step_check;
   }
 
   // Returns true if powerwash is required to recover from the error.
@@ -79,11 +91,13 @@ class DemoSetupControllerTestHelper {
 
   void Reset() {
     succeeded_.reset();
+    setup_step_.reset();
     run_loop_ = std::make_unique<base::RunLoop>();
   }
 
  private:
   base::Optional<bool> succeeded_;
+  base::Optional<DemoSetupController::DemoSetupStep> setup_step_;
   base::Optional<DemoSetupController::DemoSetupError> error_;
   std::unique_ptr<base::RunLoop> run_loop_;
 
@@ -103,11 +117,7 @@ class DemoSetupControllerTest : public testing::Test {
     DBusThreadManager::Initialize();
     SessionManagerClient::InitializeFake();
     DeviceSettingsService::Initialize();
-    TestingBrowserProcess::GetGlobal()
-        ->platform_part()
-        ->browser_policy_connector_chromeos()
-        ->GetDeviceCloudPolicyManager()
-        ->Initialize(TestingBrowserProcess::GetGlobal()->local_state());
+    policy::EnrollmentRequisitionManager::Initialize();
     helper_ = std::make_unique<DemoSetupControllerTestHelper>();
     tested_controller_ = std::make_unique<DemoSetupController>();
   }
@@ -121,11 +131,7 @@ class DemoSetupControllerTest : public testing::Test {
   }
 
   static std::string GetDeviceRequisition() {
-    return TestingBrowserProcess::GetGlobal()
-        ->platform_part()
-        ->browser_policy_connector_chromeos()
-        ->GetDeviceCloudPolicyManager()
-        ->GetDeviceRequisition();
+    return policy::EnrollmentRequisitionManager::GetDeviceRequisition();
   }
 
   std::unique_ptr<DemoSetupControllerTestHelper> helper_;
@@ -158,9 +164,12 @@ TEST_F(DemoSetupControllerTest, OfflineSuccess) {
       base::BindOnce(&DemoSetupControllerTestHelper::OnSetupSuccess,
                      base::Unretained(helper_.get())),
       base::BindOnce(&DemoSetupControllerTestHelper::OnSetupError,
-                     base::Unretained(helper_.get())));
+                     base::Unretained(helper_.get())),
+      base::BindRepeating(&DemoSetupControllerTestHelper::SetCurrentSetupStep,
+                          base::Unretained(helper_.get())));
 
-  EXPECT_TRUE(helper_->WaitResult(true));
+  EXPECT_TRUE(
+      helper_->WaitResult(true, DemoSetupController::DemoSetupStep::kComplete));
   EXPECT_EQ("", GetDeviceRequisition());
 }
 
@@ -183,9 +192,12 @@ TEST_F(DemoSetupControllerTest, OfflineDeviceLocalAccountPolicyStoreFailed) {
       base::BindOnce(&DemoSetupControllerTestHelper::OnSetupSuccess,
                      base::Unretained(helper_.get())),
       base::BindOnce(&DemoSetupControllerTestHelper::OnSetupError,
-                     base::Unretained(helper_.get())));
+                     base::Unretained(helper_.get())),
+      base::BindRepeating(&DemoSetupControllerTestHelper::SetCurrentSetupStep,
+                          base::Unretained(helper_.get())));
 
-  EXPECT_TRUE(helper_->WaitResult(false));
+  EXPECT_TRUE(helper_->WaitResult(
+      false, DemoSetupController::DemoSetupStep::kDownloadResources));
   EXPECT_TRUE(helper_->RequiresPowerwash());
   EXPECT_EQ("", GetDeviceRequisition());
 }
@@ -203,9 +215,12 @@ TEST_F(DemoSetupControllerTest, OfflineInvalidDeviceLocalAccountPolicyBlob) {
       base::BindOnce(&DemoSetupControllerTestHelper::OnSetupSuccess,
                      base::Unretained(helper_.get())),
       base::BindOnce(&DemoSetupControllerTestHelper::OnSetupError,
-                     base::Unretained(helper_.get())));
+                     base::Unretained(helper_.get())),
+      base::BindRepeating(&DemoSetupControllerTestHelper::SetCurrentSetupStep,
+                          base::Unretained(helper_.get())));
 
-  EXPECT_TRUE(helper_->WaitResult(false));
+  EXPECT_TRUE(helper_->WaitResult(
+      false, DemoSetupController::DemoSetupStep::kDownloadResources));
   EXPECT_TRUE(helper_->RequiresPowerwash());
   EXPECT_EQ("", GetDeviceRequisition());
 }
@@ -228,9 +243,12 @@ TEST_F(DemoSetupControllerTest, OfflineErrorDefault) {
       base::BindOnce(&DemoSetupControllerTestHelper::OnSetupSuccess,
                      base::Unretained(helper_.get())),
       base::BindOnce(&DemoSetupControllerTestHelper::OnSetupError,
-                     base::Unretained(helper_.get())));
+                     base::Unretained(helper_.get())),
+      base::BindRepeating(&DemoSetupControllerTestHelper::SetCurrentSetupStep,
+                          base::Unretained(helper_.get())));
 
-  EXPECT_TRUE(helper_->WaitResult(false));
+  EXPECT_TRUE(helper_->WaitResult(
+      false, DemoSetupController::DemoSetupStep::kDownloadResources));
   EXPECT_FALSE(helper_->RequiresPowerwash());
   EXPECT_EQ("", GetDeviceRequisition());
 }
@@ -254,9 +272,12 @@ TEST_F(DemoSetupControllerTest, OfflineErrorPowerwashRequired) {
       base::BindOnce(&DemoSetupControllerTestHelper::OnSetupSuccess,
                      base::Unretained(helper_.get())),
       base::BindOnce(&DemoSetupControllerTestHelper::OnSetupError,
-                     base::Unretained(helper_.get())));
+                     base::Unretained(helper_.get())),
+      base::BindRepeating(&DemoSetupControllerTestHelper::SetCurrentSetupStep,
+                          base::Unretained(helper_.get())));
 
-  EXPECT_TRUE(helper_->WaitResult(false));
+  EXPECT_TRUE(helper_->WaitResult(
+      false, DemoSetupController::DemoSetupStep::kDownloadResources));
   EXPECT_TRUE(helper_->RequiresPowerwash());
   EXPECT_EQ("", GetDeviceRequisition());
 }
@@ -269,9 +290,12 @@ TEST_F(DemoSetupControllerTest, OnlineSuccess) {
       base::BindOnce(&DemoSetupControllerTestHelper::OnSetupSuccess,
                      base::Unretained(helper_.get())),
       base::BindOnce(&DemoSetupControllerTestHelper::OnSetupError,
-                     base::Unretained(helper_.get())));
+                     base::Unretained(helper_.get())),
+      base::BindRepeating(&DemoSetupControllerTestHelper::SetCurrentSetupStep,
+                          base::Unretained(helper_.get())));
 
-  EXPECT_TRUE(helper_->WaitResult(true));
+  EXPECT_TRUE(
+      helper_->WaitResult(true, DemoSetupController::DemoSetupStep::kComplete));
   EXPECT_EQ("", GetDeviceRequisition());
 }
 
@@ -283,9 +307,12 @@ TEST_F(DemoSetupControllerTest, OnlineErrorDefault) {
       base::BindOnce(&DemoSetupControllerTestHelper::OnSetupSuccess,
                      base::Unretained(helper_.get())),
       base::BindOnce(&DemoSetupControllerTestHelper::OnSetupError,
-                     base::Unretained(helper_.get())));
+                     base::Unretained(helper_.get())),
+      base::BindRepeating(&DemoSetupControllerTestHelper::SetCurrentSetupStep,
+                          base::Unretained(helper_.get())));
 
-  EXPECT_TRUE(helper_->WaitResult(false));
+  EXPECT_TRUE(helper_->WaitResult(
+      false, DemoSetupController::DemoSetupStep::kEnrollment));
   EXPECT_FALSE(helper_->RequiresPowerwash());
   EXPECT_EQ("", GetDeviceRequisition());
 }
@@ -299,9 +326,12 @@ TEST_F(DemoSetupControllerTest, OnlineErrorPowerwashRequired) {
       base::BindOnce(&DemoSetupControllerTestHelper::OnSetupSuccess,
                      base::Unretained(helper_.get())),
       base::BindOnce(&DemoSetupControllerTestHelper::OnSetupError,
-                     base::Unretained(helper_.get())));
+                     base::Unretained(helper_.get())),
+      base::BindRepeating(&DemoSetupControllerTestHelper::SetCurrentSetupStep,
+                          base::Unretained(helper_.get())));
 
-  EXPECT_TRUE(helper_->WaitResult(false));
+  EXPECT_TRUE(helper_->WaitResult(
+      false, DemoSetupController::DemoSetupStep::kEnrollment));
   EXPECT_TRUE(helper_->RequiresPowerwash());
   EXPECT_EQ("", GetDeviceRequisition());
 }
@@ -318,9 +348,12 @@ TEST_F(DemoSetupControllerTest, OnlineComponentError) {
       base::BindOnce(&DemoSetupControllerTestHelper::OnSetupSuccess,
                      base::Unretained(helper_.get())),
       base::BindOnce(&DemoSetupControllerTestHelper::OnSetupError,
-                     base::Unretained(helper_.get())));
+                     base::Unretained(helper_.get())),
+      base::BindRepeating(&DemoSetupControllerTestHelper::SetCurrentSetupStep,
+                          base::Unretained(helper_.get())));
 
-  EXPECT_TRUE(helper_->WaitResult(false));
+  EXPECT_TRUE(helper_->WaitResult(
+      false, DemoSetupController::DemoSetupStep::kEnrollment));
   EXPECT_FALSE(helper_->RequiresPowerwash());
   EXPECT_EQ("", GetDeviceRequisition());
 }
@@ -333,9 +366,12 @@ TEST_F(DemoSetupControllerTest, EnrollTwice) {
       base::BindOnce(&DemoSetupControllerTestHelper::OnSetupSuccess,
                      base::Unretained(helper_.get())),
       base::BindOnce(&DemoSetupControllerTestHelper::OnSetupError,
-                     base::Unretained(helper_.get())));
+                     base::Unretained(helper_.get())),
+      base::BindRepeating(&DemoSetupControllerTestHelper::SetCurrentSetupStep,
+                          base::Unretained(helper_.get())));
 
-  EXPECT_TRUE(helper_->WaitResult(false));
+  EXPECT_TRUE(helper_->WaitResult(
+      false, DemoSetupController::DemoSetupStep::kEnrollment));
   EXPECT_FALSE(helper_->RequiresPowerwash());
   EXPECT_EQ("", GetDeviceRequisition());
 
@@ -348,10 +384,41 @@ TEST_F(DemoSetupControllerTest, EnrollTwice) {
       base::BindOnce(&DemoSetupControllerTestHelper::OnSetupSuccess,
                      base::Unretained(helper_.get())),
       base::BindOnce(&DemoSetupControllerTestHelper::OnSetupError,
-                     base::Unretained(helper_.get())));
+                     base::Unretained(helper_.get())),
+      base::BindRepeating(&DemoSetupControllerTestHelper::SetCurrentSetupStep,
+                          base::Unretained(helper_.get())));
 
-  EXPECT_TRUE(helper_->WaitResult(true));
+  EXPECT_TRUE(
+      helper_->WaitResult(true, DemoSetupController::DemoSetupStep::kComplete));
   EXPECT_EQ("", GetDeviceRequisition());
+}
+
+TEST_F(DemoSetupControllerTest, GetSubOrganizationEmail) {
+  std::string email = DemoSetupController::GetSubOrganizationEmail();
+
+  // kDemoModeCountry defaults to "us" which is the root organisation.
+  EXPECT_EQ(email, "");
+
+  // Test other supported countries.
+  const std::string testing_supported_countries[] = {"be", "de", "es", "fr",
+                                                     "ie", "jp", "nl", "se"};
+
+  for (auto country : testing_supported_countries) {
+    g_browser_process->local_state()->SetString(prefs::kDemoModeCountry,
+                                                country);
+    email = DemoSetupController::GetSubOrganizationEmail();
+    EXPECT_EQ(email, "admin-" + country + "@" + policy::kDemoModeDomain);
+  }
+
+  // Test unsupported country string.
+  g_browser_process->local_state()->SetString(prefs::kDemoModeCountry, "kr");
+  email = DemoSetupController::GetSubOrganizationEmail();
+  EXPECT_EQ(email, "");
+
+  // Test random string.
+  g_browser_process->local_state()->SetString(prefs::kDemoModeCountry, "foo");
+  email = DemoSetupController::GetSubOrganizationEmail();
+  EXPECT_EQ(email, "");
 }
 
 }  //  namespace chromeos

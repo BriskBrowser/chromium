@@ -5,6 +5,7 @@
 #include "media/gpu/chromeos/fourcc.h"
 
 #include "base/logging.h"
+#include "base/notreached.h"
 #include "base/strings/stringprintf.h"
 #include "media/gpu/macros.h"
 
@@ -42,6 +43,7 @@ base::Optional<Fourcc> Fourcc::FromUint32(uint32_t fourcc) {
     case YM16:
     case MT21:
     case MM21:
+    case P010:
       return Fourcc(static_cast<Value>(fourcc));
   }
   DVLOGF(3) << "Unmapped fourcc: " << FourccToString(fourcc);
@@ -74,6 +76,11 @@ base::Optional<Fourcc> Fourcc::FromVideoPixelFormat(
         return Fourcc(NV12);
       case PIXEL_FORMAT_NV21:
         return Fourcc(NV21);
+      case PIXEL_FORMAT_P016LE:
+        return Fourcc(P010);
+      case PIXEL_FORMAT_UYVY:
+        NOTREACHED();
+        FALLTHROUGH;
       case PIXEL_FORMAT_I422:
       case PIXEL_FORMAT_I420A:
       case PIXEL_FORMAT_I444:
@@ -89,7 +96,6 @@ base::Optional<Fourcc> Fourcc::FromVideoPixelFormat(
       case PIXEL_FORMAT_YUV422P12:
       case PIXEL_FORMAT_YUV444P12:
       case PIXEL_FORMAT_Y16:
-      case PIXEL_FORMAT_P016LE:
       case PIXEL_FORMAT_XR30:
       case PIXEL_FORMAT_XB30:
       case PIXEL_FORMAT_UNKNOWN:
@@ -107,6 +113,9 @@ base::Optional<Fourcc> Fourcc::FromVideoPixelFormat(
         return Fourcc(YM16);
       case PIXEL_FORMAT_NV21:
         return Fourcc(NM21);
+      case PIXEL_FORMAT_UYVY:
+        NOTREACHED();
+        FALLTHROUGH;
       case PIXEL_FORMAT_I420A:
       case PIXEL_FORMAT_I444:
       case PIXEL_FORMAT_YUY2:
@@ -180,6 +189,8 @@ VideoPixelFormat Fourcc::ToVideoPixelFormat() const {
     // be mapped to PIXEL_FORMAT_NV12.
     case MM21:
       return PIXEL_FORMAT_NV12;
+    case P010:
+      return PIXEL_FORMAT_P016LE;
   }
   NOTREACHED() << "Unmapped Fourcc: " << ToString();
   return PIXEL_FORMAT_UNKNOWN;
@@ -224,6 +235,8 @@ base::Optional<Fourcc> Fourcc::FromVAFourCC(uint32_t va_fourcc) {
       return Fourcc(XR24);
     case VA_FOURCC_ARGB:
       return Fourcc(RGB4);
+    case VA_FOURCC_P010:
+      return Fourcc(P010);
   }
   DVLOGF(3) << "Unmapped VAFourCC: " << FourccToString(va_fourcc);
   return base::nullopt;
@@ -251,6 +264,8 @@ base::Optional<uint32_t> Fourcc::ToVAFourCC() const {
       return VA_FOURCC_BGRX;
     case RGB4:
       return VA_FOURCC_ARGB;
+    case P010:
+      return VA_FOURCC_P010;
     case YM12:
     case YM21:
     case NM12:
@@ -269,6 +284,35 @@ base::Optional<uint32_t> Fourcc::ToVAFourCC() const {
 
 #endif  // BUILDFLAG(USE_VAAPI)
 
+base::Optional<Fourcc> Fourcc::ToSinglePlanar() const {
+  switch (value_) {
+    case AR24:
+    case AB24:
+    case XR24:
+    case XB24:
+    case RGB4:
+    case YU12:
+    case YV12:
+    case YUYV:
+    case NV12:
+    case NV21:
+    case P010:
+      return Fourcc(value_);
+    case YM12:
+      return Fourcc(YU12);
+    case YM21:
+      return Fourcc(YV12);
+    case NM12:
+      return Fourcc(NV12);
+    case NM21:
+      return Fourcc(NV21);
+    case YM16:
+    case MT21:
+    case MM21:
+      return base::nullopt;
+  }
+}
+
 bool operator!=(const Fourcc& lhs, const Fourcc& rhs) {
   return !(lhs == rhs);
 }
@@ -285,6 +329,7 @@ bool Fourcc::IsMultiPlanar() const {
     case YUYV:
     case NV12:
     case NV21:
+    case P010:
       return false;
     case YM12:
     case YM21:

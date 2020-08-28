@@ -7,8 +7,10 @@
 #include "ash/multi_profile_uma.h"
 #include "ash/session/session_controller_impl.h"
 #include "ash/shell.h"
+#include "ash/strings/grit/ash_strings.h"
 #include "ash/system/unified/unified_system_tray_controller.h"
 #include "ash/system/unified/user_chooser_view.h"
+#include "ui/base/l10n/l10n_util.h"
 
 namespace ash {
 
@@ -63,7 +65,6 @@ void UserChooserDetailedViewController::HandleUserSwitch(int user_index) {
 }
 
 void UserChooserDetailedViewController::HandleAddUserAction() {
-  MultiProfileUMA::RecordSigninUser(MultiProfileUMA::SIGNIN_USER_BY_TRAY);
   tray_controller_->CloseBubble();
   Shell::Get()->session_controller()->ShowMultiProfileLogin();
   // ShowMultiProfileLogin may delete us.
@@ -71,6 +72,11 @@ void UserChooserDetailedViewController::HandleAddUserAction() {
 
 views::View* UserChooserDetailedViewController::CreateView() {
   return new UserChooserView(this);
+}
+
+base::string16 UserChooserDetailedViewController::GetAccessibleName() const {
+  return l10n_util::GetStringUTF16(
+      IDS_ASH_QUICK_SETTINGS_BUBBLE_USER_SETTINGS_ACCESSIBLE_DESCRIPTION);
 }
 
 }  // namespace ash

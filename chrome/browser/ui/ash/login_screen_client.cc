@@ -23,11 +23,10 @@
 #include "chrome/browser/ui/ash/wallpaper_controller_client.h"
 #include "chrome/browser/ui/settings_window_manager_chromeos.h"
 #include "chrome/browser/ui/webui/chromeos/login/l10n_util.h"
+#include "chrome/browser/ui/webui/settings/chromeos/constants/routes.mojom.h"
 #include "chrome/common/webui_url_constants.h"
 #include "components/user_manager/remove_user_delegate.h"
 #include "components/user_manager/user_names.h"
-#include "content/public/common/service_manager_connection.h"
-#include "services/service_manager/public/cpp/connector.h"
 
 namespace {
 LoginScreenClient* g_login_screen_client_instance = nullptr;
@@ -78,6 +77,16 @@ void LoginScreenClient::RemoveSystemTrayFocusObserver(
   system_tray_focus_observers_.RemoveObserver(observer);
 }
 
+void LoginScreenClient::AddLoginScreenShownObserver(
+    LoginScreenShownObserver* observer) {
+  login_screen_shown_observers_.AddObserver(observer);
+}
+
+void LoginScreenClient::RemoveLoginScreenShownObserver(
+    LoginScreenShownObserver* observer) {
+  login_screen_shown_observers_.RemoveObserver(observer);
+}
+
 chromeos::LoginAuthRecorder* LoginScreenClient::auth_recorder() {
   return auth_recorder_.get();
 }
@@ -98,29 +107,6 @@ void LoginScreenClient::AuthenticateUserWithPasswordOrPin(
     LOG(ERROR) << "Failed AuthenticateUserWithPasswordOrPin; no delegate";
     std::move(callback).Run(false);
   }
-}
-
-void LoginScreenClient::AuthenticateUserWithExternalBinary(
-    const AccountId& account_id,
-    base::OnceCallback<void(bool)> callback) {
-  if (!delegate_)
-    LOG(FATAL) << "Failed AuthenticateUserWithExternalBinary; no delegate";
-
-  delegate_->HandleAuthenticateUserWithExternalBinary(account_id,
-                                                      std::move(callback));
-  // TODO: Record auth method attempt here
-  NOTIMPLEMENTED() << "Missing UMA recording for external binary auth";
-}
-
-void LoginScreenClient::EnrollUserWithExternalBinary(
-    base::OnceCallback<void(bool)> callback) {
-  if (!delegate_)
-    LOG(FATAL) << "Failed EnrollUserWithExternalBinary; no delegate";
-
-  delegate_->HandleEnrollUserWithExternalBinary(std::move(callback));
-
-  // TODO: Record enrollment attempt here
-  NOTIMPLEMENTED() << "Missing UMA recording for external binary enrollment";
 }
 
 void LoginScreenClient::AuthenticateUserWithEasyUnlock(
@@ -180,11 +166,21 @@ void LoginScreenClient::FocusOobeDialog() {
     delegate_->HandleFocusOobeDialog();
 }
 
-void LoginScreenClient::ShowGaiaSignin(bool can_close,
-                                       const AccountId& prefilled_account) {
-  if (chromeos::LoginDisplayHost::default_host()) {
-    chromeos::LoginDisplayHost::default_host()->ShowGaiaDialog(
-        can_close, prefilled_account);
+void LoginScreenClient::ShowGaiaSignin(const AccountId& prefilled_account) {
+  if (chromeos::parent_access::ParentAccessService::Get().IsApprovalRequired(
+          chromeos::parent_access::ParentAccessService::SupervisedAction::
+              kOnlineLogin)) {
+    // Show the client native parent access widget and processed to GAIA signin
+    // flow in |OnParentAccessValidation| when validation success.
+    ash::LoginScreen::Get()->ShowParentAccessWidget(
+        prefilled_account,
+        base::BindOnce(&LoginScreenClient::OnParentAccessValidation,
+                       weak_ptr_factory_.GetWeakPtr(), prefilled_account),
+        prefilled_account.empty() ? ash::ParentAccessRequestReason::kAddUser
+                                  : ash::ParentAccessRequestReason::kReauth,
+        false /* extra_dimmer */, base::Time::Now());
+  } else {
+    ShowGaiaSigninInternal(prefilled_account);
   }
 }
 
@@ -218,35 +214,39 @@ void LoginScreenClient::RequestPublicSessionKeyboardLayouts(
       locale);
 }
 
-void LoginScreenClient::ShowFeedback() {
+void LoginScreenClient::HandleAccelerator(ash::LoginAcceleratorAction action) {
   if (chromeos::LoginDisplayHost::default_host())
-    chromeos::LoginDisplayHost::default_host()->ShowFeedback();
+    chromeos::LoginDisplayHost::default_host()->HandleAccelerator(action);
 }
 
-void LoginScreenClient::ShowResetScreen() {
-  chromeos::LoginDisplayHost::default_host()->ShowResetScreen();
-}
-
-void LoginScreenClient::ShowAccountAccessHelpApp() {
+void LoginScreenClient::ShowAccountAccessHelpApp(
+    gfx::NativeWindow parent_window) {
   scoped_refptr<chromeos::HelpAppLauncher>(
-      new chromeos::HelpAppLauncher(nullptr))
+      new chromeos::HelpAppLauncher(parent_window))
       ->ShowHelpTopic(chromeos::HelpAppLauncher::HELP_CANT_ACCESS_ACCOUNT);
 }
 
-void LoginScreenClient::ShowParentAccessHelpApp() {
+void LoginScreenClient::ShowParentAccessHelpApp(
+    gfx::NativeWindow parent_window) {
   scoped_refptr<chromeos::HelpAppLauncher>(
-      new chromeos::HelpAppLauncher(nullptr))
+      new chromeos::HelpAppLauncher(parent_window))
       ->ShowHelpTopic(chromeos::HelpAppLauncher::HELP_PARENT_ACCESS_CODE);
 }
 
 void LoginScreenClient::ShowLockScreenNotificationSettings() {
   chrome::SettingsWindowManager::GetInstance()->ShowOSSettings(
-      ProfileManager::GetActiveUserProfile(), chrome::kLockScreenSubPage);
+      ProfileManager::GetActiveUserProfile(),
+      chromeos::settings::mojom::kSecurityAndSignInSubpagePath);
 }
 
 void LoginScreenClient::OnFocusLeavingSystemTray(bool reverse) {
   for (ash::SystemTrayFocusObserver& observer : system_tray_focus_observers_)
     observer.OnFocusLeavingSystemTray(reverse);
+}
+
+void LoginScreenClient::OnLoginScreenShown() {
+  for (LoginScreenShownObserver& observer : login_screen_shown_observers_)
+    observer.OnLoginScreenShown();
 }
 
 void LoginScreenClient::LoadWallpaper(const AccountId& account_id) {
@@ -312,5 +312,20 @@ void LoginScreenClient::OnUserActivity() {
     chromeos::LoginDisplayHost::default_host()
         ->GetExistingUserController()
         ->ResetAutoLoginTimer();
+  }
+}
+
+void LoginScreenClient::OnParentAccessValidation(
+    const AccountId& prefilled_account,
+    bool success) {
+  if (success)
+    ShowGaiaSigninInternal(prefilled_account);
+}
+
+void LoginScreenClient::ShowGaiaSigninInternal(
+    const AccountId& prefilled_account) {
+  if (chromeos::LoginDisplayHost::default_host()) {
+    chromeos::LoginDisplayHost::default_host()->ShowGaiaDialog(
+        prefilled_account);
   }
 }

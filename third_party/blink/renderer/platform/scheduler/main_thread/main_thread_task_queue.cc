@@ -8,6 +8,7 @@
 #include <utility>
 
 #include "base/bind.h"
+#include "base/task/common/scoped_defer_task_posting.h"
 #include "third_party/blink/renderer/platform/scheduler/main_thread/frame_scheduler_impl.h"
 #include "third_party/blink/renderer/platform/scheduler/main_thread/main_thread_scheduler_impl.h"
 #include "third_party/blink/renderer/platform/wtf/wtf.h"
@@ -29,8 +30,6 @@ const char* MainThreadTaskQueue::NameForQueueType(
       return "control_tq";
     case MainThreadTaskQueue::QueueType::kDefault:
       return "default_tq";
-    case MainThreadTaskQueue::QueueType::kUnthrottled:
-      return "unthrottled_tq";
     case MainThreadTaskQueue::QueueType::kFrameLoading:
       return "frame_loading_tq";
     case MainThreadTaskQueue::QueueType::kFrameThrottleable:
@@ -51,18 +50,16 @@ const char* MainThreadTaskQueue::NameForQueueType(
       return "frame_loading_control_tq";
     case MainThreadTaskQueue::QueueType::kV8:
       return "v8_tq";
-    case MainThreadTaskQueue::QueueType::kIPC:
-      return "ipc_tq";
     case MainThreadTaskQueue::QueueType::kInput:
       return "input_tq";
     case MainThreadTaskQueue::QueueType::kDetached:
       return "detached_tq";
-    case MainThreadTaskQueue::QueueType::kCleanup:
-      return "cleanup_tq";
     case MainThreadTaskQueue::QueueType::kOther:
       return "other_tq";
     case MainThreadTaskQueue::QueueType::kWebScheduling:
       return "web_scheduling_tq";
+    case MainThreadTaskQueue::QueueType::kNonWaking:
+      return "non_waking_tq";
     case MainThreadTaskQueue::QueueType::kCount:
       NOTREACHED();
       return nullptr;
@@ -87,14 +84,12 @@ bool MainThreadTaskQueue::IsPerFrameTaskQueue(
     case MainThreadTaskQueue::QueueType::kWebScheduling:
       return true;
     case MainThreadTaskQueue::QueueType::kControl:
-    case MainThreadTaskQueue::QueueType::kUnthrottled:
     case MainThreadTaskQueue::QueueType::kCompositor:
     case MainThreadTaskQueue::QueueType::kTest:
     case MainThreadTaskQueue::QueueType::kV8:
-    case MainThreadTaskQueue::QueueType::kIPC:
     case MainThreadTaskQueue::QueueType::kInput:
     case MainThreadTaskQueue::QueueType::kDetached:
-    case MainThreadTaskQueue::QueueType::kCleanup:
+    case MainThreadTaskQueue::QueueType::kNonWaking:
     case MainThreadTaskQueue::QueueType::kOther:
       return false;
     case MainThreadTaskQueue::QueueType::kCount:
@@ -113,19 +108,16 @@ MainThreadTaskQueue::QueueClass MainThreadTaskQueue::QueueClassForQueueType(
     case QueueType::kIdle:
     case QueueType::kTest:
     case QueueType::kV8:
-    case QueueType::kIPC:
-    case QueueType::kCleanup:
-      return QueueClass::kNone;
-    case QueueType::kFrameLoading:
-    case QueueType::kFrameLoadingControl:
-      return QueueClass::kLoading;
-    case QueueType::kUnthrottled:
+    case QueueType::kNonWaking:
     case QueueType::kFrameThrottleable:
     case QueueType::kFrameDeferrable:
     case QueueType::kFramePausable:
     case QueueType::kFrameUnpausable:
     case QueueType::kWebScheduling:
-      return QueueClass::kTimer;
+      return QueueClass::kNone;
+    case QueueType::kFrameLoading:
+    case QueueType::kFrameLoadingControl:
+      return QueueClass::kLoading;
     case QueueType::kCompositor:
     case QueueType::kInput:
       return QueueClass::kCompositor;
@@ -159,9 +151,6 @@ MainThreadTaskQueue::MainThreadTaskQueue(
     // MainThreadSchedulerImpl::OnTaskStarted/Completed. At the moment this
     // is not possible due to task queue being created inside
     // MainThreadScheduler's constructor.
-    GetTaskQueueImpl()->SetOnTaskReadyHandler(
-        base::BindRepeating(&MainThreadTaskQueue::OnTaskReady,
-                            base::Unretained(this), frame_scheduler_));
     GetTaskQueueImpl()->SetOnTaskStartedHandler(base::BindRepeating(
         &MainThreadTaskQueue::OnTaskStarted, base::Unretained(this)));
     GetTaskQueueImpl()->SetOnTaskCompletedHandler(base::BindRepeating(
@@ -170,14 +159,6 @@ MainThreadTaskQueue::MainThreadTaskQueue(
 }
 
 MainThreadTaskQueue::~MainThreadTaskQueue() = default;
-
-void MainThreadTaskQueue::OnTaskReady(
-    const void* frame_scheduler,
-    const base::sequence_manager::Task& task,
-    base::sequence_manager::LazyNow* lazy_now) {
-  if (main_thread_scheduler_)
-    main_thread_scheduler_->OnTaskReady(frame_scheduler, task, lazy_now);
-}
 
 void MainThreadTaskQueue::OnTaskStarted(
     const base::sequence_manager::Task& task,
@@ -204,20 +185,34 @@ void MainThreadTaskQueue::DetachFromMainThreadScheduler() {
     return;
 
   if (GetTaskQueueImpl()) {
-    // Since the OnTaskReadyHandler can be invoked from any thread, it is not
-    // possible to bind it to a WeakPtr. Simply stop invoking it once the
-    // MainThreadScheduler is detached. This is not a problem since it is only
-    // used to record histograms.
-    GetTaskQueueImpl()->SetOnTaskReadyHandler({});
     GetTaskQueueImpl()->SetOnTaskStartedHandler(
         base::BindRepeating(&MainThreadSchedulerImpl::OnTaskStarted,
                             main_thread_scheduler_->GetWeakPtr(), nullptr));
     GetTaskQueueImpl()->SetOnTaskCompletedHandler(
         base::BindRepeating(&MainThreadSchedulerImpl::OnTaskCompleted,
                             main_thread_scheduler_->GetWeakPtr(), nullptr));
+    GetTaskQueueImpl()->SetOnTaskPostedHandler(
+        internal::TaskQueueImpl::OnTaskPostedHandler());
   }
 
   ClearReferencesToSchedulers();
+}
+
+void MainThreadTaskQueue::SetOnIPCTaskPosted(
+    base::RepeatingCallback<void(const base::sequence_manager::Task&)>
+        on_ipc_task_posted_callback) {
+  if (GetTaskQueueImpl()) {
+    // We use the frame_scheduler_ to track metrics so as to ensure that metrics
+    // are not tied to individual task queues.
+    GetTaskQueueImpl()->SetOnTaskPostedHandler(on_ipc_task_posted_callback);
+  }
+}
+
+void MainThreadTaskQueue::DetachOnIPCTaskPostedWhileInBackForwardCache() {
+  if (GetTaskQueueImpl()) {
+    GetTaskQueueImpl()->SetOnTaskPostedHandler(
+        internal::TaskQueueImpl::OnTaskPostedHandler());
+  }
 }
 
 void MainThreadTaskQueue::ShutdownTaskQueue() {

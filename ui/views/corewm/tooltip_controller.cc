@@ -49,10 +49,10 @@ bool IsValidTarget(aura::Window* event_target, aura::Window* target) {
 
   void* event_target_grouping_id = event_target->GetNativeWindowProperty(
       TooltipManager::kGroupingPropertyKey);
-  void* target_grouping_id = target->GetNativeWindowProperty(
-      TooltipManager::kGroupingPropertyKey);
+  void* target_grouping_id =
+      target->GetNativeWindowProperty(TooltipManager::kGroupingPropertyKey);
   return event_target_grouping_id &&
-      event_target_grouping_id == target_grouping_id;
+         event_target_grouping_id == target_grouping_id;
 }
 
 // Returns the target (the Window tooltip text comes from) based on the event.
@@ -141,9 +141,12 @@ int TooltipController::GetMaxWidth(const gfx::Point& location) const {
 }
 
 void TooltipController::UpdateTooltip(aura::Window* target) {
-  // If tooltip is visible, we may want to hide it. If it is not, we are ok.
-  if (tooltip_window_ == target && tooltip_->IsVisible())
+  // Ensure relevant tooltip is updated when it is visible or scheduled to
+  // show. Otherwise, a stale tooltip might be shown.
+  if (tooltip_window_ == target &&
+      (tooltip_->IsVisible() || tooltip_defer_timer_.IsRunning())) {
     UpdateIfRequired();
+  }
 
   // Reset |tooltip_window_at_mouse_press_| if the moving within the same window
   // but over a region that has different tooltip text.
@@ -196,8 +199,7 @@ void TooltipController::OnMouseEvent(ui::MouseEvent* event) {
       aura::Window* target = nullptr;
       // Avoid a call to display::Screen::GetWindowAtScreenPoint() since it can
       // be very expensive on X11 in cases when the tooltip is hidden anyway.
-      if (tooltips_enabled_ &&
-          !aura::Env::GetInstance()->IsMouseButtonDown() &&
+      if (tooltips_enabled_ && !aura::Env::GetInstance()->IsMouseButtonDown() &&
           !IsDragDropInProgress()) {
         target = GetTooltipTarget(*event, &curr_mouse_loc_);
       }
@@ -231,18 +233,22 @@ void TooltipController::OnMouseEvent(ui::MouseEvent* event) {
 
 void TooltipController::OnTouchEvent(ui::TouchEvent* event) {
   // Hide the tooltip for touch events.
-  tooltip_->Hide();
-  SetTooltipWindow(nullptr);
+  HideTooltipAndResetStates();
   last_touch_loc_ = event->location();
 }
 
 void TooltipController::OnCancelMode(ui::CancelModeEvent* event) {
-  tooltip_->Hide();
-  SetTooltipWindow(nullptr);
+  HideTooltipAndResetStates();
 }
 
 void TooltipController::OnCursorVisibilityChanged(bool is_visible) {
   UpdateIfRequired();
+}
+
+void TooltipController::OnWindowVisibilityChanged(aura::Window* window,
+                                                  bool visible) {
+  if (!visible)
+    HideTooltipAndResetStates();
 }
 
 void TooltipController::OnWindowDestroyed(aura::Window* window) {
@@ -321,9 +327,10 @@ void TooltipController::UpdateIfRequired() {
       if (tooltip_defer_timer_.IsRunning()) {
         tooltip_defer_timer_.Reset();
       } else {
-        tooltip_defer_timer_.Start(FROM_HERE, base::TimeDelta::FromMilliseconds(
-                                                  kDelayForTooltipUpdateInMs),
-                                   this, &TooltipController::ShowTooltip);
+        tooltip_defer_timer_.Start(
+            FROM_HERE,
+            base::TimeDelta::FromMilliseconds(kDelayForTooltipUpdateInMs), this,
+            &TooltipController::ShowTooltip);
       }
     } else {
       ShowTooltip();  // Allow tooltip to show up without delay for unit tests.
@@ -345,6 +352,19 @@ void TooltipController::ShowTooltip() {
                                base::TimeDelta::FromMilliseconds(timeout), this,
                                &TooltipController::TooltipShownTimerFired);
   }
+}
+
+void TooltipController::HideTooltipAndResetStates() {
+  // Hide any open tooltips.
+  if (tooltip_shown_timer_.IsRunning())
+    tooltip_shown_timer_.Stop();
+  tooltip_->Hide();
+
+  // Cancel pending tooltips and reset controller states.
+  if (tooltip_defer_timer_.IsRunning())
+    tooltip_defer_timer_.Stop();
+  SetTooltipWindow(nullptr);
+  tooltip_id_ = nullptr;
 }
 
 bool TooltipController::IsTooltipVisible() {

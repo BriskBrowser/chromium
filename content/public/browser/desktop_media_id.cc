@@ -27,7 +27,7 @@ const DesktopMediaID::Id DesktopMediaID::kNullId = 0;
 // static
 const DesktopMediaID::Id DesktopMediaID::kFakeId = -3;
 
-#if defined(USE_AURA) || defined(OS_MACOSX)
+#if defined(USE_AURA) || defined(OS_MAC)
 // static
 DesktopMediaID DesktopMediaID::RegisterNativeWindow(DesktopMediaID::Type type,
                                                     gfx::NativeWindow window) {
@@ -114,7 +114,6 @@ std::string DesktopMediaID::ToString() const {
       break;
     case TYPE_WEB_CONTENTS:
       return web_contents_id.ToString();
-      break;
   }
   DCHECK(!prefix.empty());
 

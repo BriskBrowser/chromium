@@ -38,17 +38,8 @@ void UpgradeDetector::RegisterPrefs(PrefRegistrySimple* registry) {
   registry->RegisterBooleanPref(prefs::kAttemptedToEnableAutoupdate, false);
 }
 
-UpgradeDetector::UpgradeDetector(const base::Clock* clock,
-                                 const base::TickClock* tick_clock)
-    : clock_(clock),
-      tick_clock_(tick_clock),
-      upgrade_available_(UPGRADE_AVAILABLE_NONE),
-      best_effort_experiment_updates_available_(false),
-      critical_experiment_updates_available_(false),
-      critical_update_acknowledged_(false),
-      idle_check_timer_(tick_clock_),
-      upgrade_notification_stage_(UPGRADE_ANNOYANCE_NONE),
-      notify_upgrade_(false) {
+void UpgradeDetector::Init() {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   // Not all tests provide a PrefService for local_state().
   PrefService* local_state = g_browser_process->local_state();
   if (local_state) {
@@ -62,14 +53,48 @@ UpgradeDetector::UpgradeDetector(const base::Clock* clock,
   }
 }
 
-UpgradeDetector::~UpgradeDetector() {}
+void UpgradeDetector::Shutdown() {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  idle_check_timer_.Stop();
+  pref_change_registrar_.RemoveAll();
+}
+
+void UpgradeDetector::OverrideRelaunchNotificationToRequired(bool override) {
+  NotifyRelaunchOverriddenToRequired(override);
+}
+
+UpgradeDetector::UpgradeDetector(const base::Clock* clock,
+                                 const base::TickClock* tick_clock)
+    : clock_(clock),
+      tick_clock_(tick_clock),
+      upgrade_available_(UPGRADE_AVAILABLE_NONE),
+      best_effort_experiment_updates_available_(false),
+      critical_experiment_updates_available_(false),
+      critical_update_acknowledged_(false),
+      idle_check_timer_(tick_clock_),
+      upgrade_notification_stage_(UPGRADE_ANNOYANCE_NONE),
+      notify_upgrade_(false) {}
+
+UpgradeDetector::~UpgradeDetector() {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  // Ensure that Shutdown() was called.
+  DCHECK(pref_change_registrar_.IsEmpty());
+}
 
 void UpgradeDetector::NotifyOutdatedInstall() {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  if (!observer_list_.might_have_observers())
+    return;
+
   for (auto& observer : observer_list_)
     observer.OnOutdatedInstall();
 }
 
 void UpgradeDetector::NotifyOutdatedInstallNoAutoUpdate() {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  if (!observer_list_.might_have_observers())
+    return;
+
   for (auto& observer : observer_list_)
     observer.OnOutdatedInstallNoAutoUpdate();
 }
@@ -104,6 +129,7 @@ bool UpgradeDetector::IsRelaunchNotificationPolicyEnabled() {
 }
 
 void UpgradeDetector::NotifyUpgrade() {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   // An implementation will request that a notification be sent after dropping
   // back to the "none" annoyance level if the RelaunchNotificationPeriod
   // setting changes to a large enough value such that none of the revised
@@ -125,26 +151,52 @@ void UpgradeDetector::NotifyUpgrade() {
 }
 
 void UpgradeDetector::NotifyUpgradeRecommended() {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  if (!observer_list_.might_have_observers())
+    return;
+
   for (auto& observer : observer_list_)
     observer.OnUpgradeRecommended();
 }
 
 void UpgradeDetector::NotifyCriticalUpgradeInstalled() {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  if (!observer_list_.might_have_observers())
+    return;
+
   for (auto& observer : observer_list_)
     observer.OnCriticalUpgradeInstalled();
 }
 
 void UpgradeDetector::NotifyUpdateOverCellularAvailable() {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  if (!observer_list_.might_have_observers())
+    return;
+
   for (auto& observer : observer_list_)
     observer.OnUpdateOverCellularAvailable();
 }
 
 void UpgradeDetector::NotifyUpdateOverCellularOneTimePermissionGranted() {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  if (!observer_list_.might_have_observers())
+    return;
+
   for (auto& observer : observer_list_)
     observer.OnUpdateOverCellularOneTimePermissionGranted();
 }
 
+void UpgradeDetector::NotifyRelaunchOverriddenToRequired(bool override) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  if (!observer_list_.might_have_observers())
+    return;
+
+  for (auto& observer : observer_list_)
+    observer.OnRelaunchOverriddenToRequired(override);
+}
+
 void UpgradeDetector::TriggerCriticalUpdate() {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   const base::TimeDelta idle_timer =
       UseTestingIntervals()
           ? base::TimeDelta::FromSeconds(kIdleRepeatingTimerWait)
@@ -154,9 +206,10 @@ void UpgradeDetector::TriggerCriticalUpdate() {
 }
 
 void UpgradeDetector::CheckIdle() {
-  // Don't proceed while an incognito window is open. The timer will still
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  // Don't proceed while an off-the-record window is open. The timer will still
   // keep firing, so this function will get a chance to re-evaluate this.
-  if (chrome::IsIncognitoSessionActive())
+  if (chrome::IsOffTheRecordSessionActive())
     return;
 
   // CalculateIdleState expects an interval in seconds.
@@ -183,9 +236,11 @@ void UpgradeDetector::CheckIdle() {
 }
 
 void UpgradeDetector::AddObserver(UpgradeObserver* observer) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   observer_list_.AddObserver(observer);
 }
 
 void UpgradeDetector::RemoveObserver(UpgradeObserver* observer) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   observer_list_.RemoveObserver(observer);
 }

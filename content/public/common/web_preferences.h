@@ -14,6 +14,7 @@
 #include "build/build_config.h"
 #include "content/common/content_export.h"
 #include "net/nqe/effective_connection_type.h"
+#include "third_party/blink/public/common/css/preferred_color_scheme.h"
 #include "third_party/blink/public/mojom/v8_cache_options.mojom.h"
 #include "ui/base/pointer/pointer_device.h"
 #include "url/gurl.h"
@@ -33,7 +34,8 @@ enum EditingBehavior {
   EDITING_BEHAVIOR_WIN,
   EDITING_BEHAVIOR_UNIX,
   EDITING_BEHAVIOR_ANDROID,
-  EDITING_BEHAVIOR_LAST = EDITING_BEHAVIOR_ANDROID
+  EDITING_BEHAVIOR_CHROMEOS,
+  EDITING_BEHAVIOR_LAST = EDITING_BEHAVIOR_CHROMEOS
 };
 
 // ImageAnimationPolicy is used for controlling image animation
@@ -122,9 +124,9 @@ struct CONTENT_EXPORT WebPreferences {
   bool webgl_errors_to_console_enabled;
   bool hide_scrollbars;
   bool accelerated_2d_canvas_enabled;
+  bool new_canvas_2d_api_enabled;
   bool antialiased_2d_canvas_disabled;
   bool antialiased_clips_2d_canvas_enabled;
-  int accelerated_2d_canvas_msaa_sample_count;
   bool accelerated_filters_enabled;
   bool deferred_filters_enabled;
   bool container_culling_enabled;
@@ -150,7 +152,6 @@ struct CONTENT_EXPORT WebPreferences {
   bool enable_scroll_animator;
   bool prefers_reduced_motion;
   bool touch_event_feature_detection_enabled;
-  bool touch_adjustment_enabled;
   int pointer_events_max_touch_points;
   int available_pointer_types;
   ui::PointerType primary_pointer_type;
@@ -159,7 +160,6 @@ struct CONTENT_EXPORT WebPreferences {
   bool dont_send_key_events_to_javascript;
   bool barrel_button_for_drag_enabled = false;
   bool sync_xhr_in_documents_enabled;
-  bool should_respect_image_orientation;
   int number_of_cpu_cores;
   EditingBehavior editing_behavior;
   bool supports_multiple_windows;
@@ -178,7 +178,6 @@ struct CONTENT_EXPORT WebPreferences {
   bool initialize_at_minimum_page_scale;
   bool smart_insert_delete_enabled;
   bool spatial_navigation_enabled;
-  bool caret_browsing_enabled;
   bool navigate_on_drag_drop;
   blink::mojom::V8CacheOptions v8_cache_options;
   bool record_whole_document;
@@ -198,6 +197,8 @@ struct CONTENT_EXPORT WebPreferences {
 
   bool user_gesture_required_for_presentation;
 
+  bool text_tracks_enabled;
+
   // These fields specify the foreground and background color for WebVTT text
   // tracks. Their values can be any legal CSS color descriptor.
   std::string text_track_background_color;
@@ -209,6 +210,7 @@ struct CONTENT_EXPORT WebPreferences {
   std::string text_track_text_size;
   std::string text_track_text_shadow;
   std::string text_track_font_family;
+  std::string text_track_font_style;
   // Specifies the value for CSS font-variant property.
   std::string text_track_font_variant;
 
@@ -264,8 +266,6 @@ struct CONTENT_EXPORT WebPreferences {
   // If enabled, fullscreen should be entered/exited when the device is rotated
   // to/from the orientation of the video.
   bool video_rotate_to_fullscreen_enabled;
-  // If enabled, video fullscreen detection will be enabled.
-  bool video_fullscreen_detection_enabled;
   bool embedded_media_experience_enabled;
   // Enable 8 (#RRGGBBAA) and 4 (#RGBA) value hex colors in CSS Android
   // WebView quirk (http://crbug.com/618472).
@@ -313,6 +313,12 @@ struct CONTENT_EXPORT WebPreferences {
   // Defines the current autoplay policy.
   AutoplayPolicy autoplay_policy;
 
+  // The preferred color scheme for the web content. The scheme is used to
+  // evaluate the prefers-color-scheme media query and resolve UA color scheme
+  // to be used based on the supported-color-schemes META tag and CSS property.
+  blink::PreferredColorScheme preferred_color_scheme =
+      blink::PreferredColorScheme::kLight;
+
   // Network quality threshold below which resources from iframes are assigned
   // either kVeryLow or kVeryLow Blink priority.
   net::EffectiveConnectionType low_priority_iframes_threshold;
@@ -348,6 +354,14 @@ struct CONTENT_EXPORT WebPreferences {
   // Setting to false disables upgrades to HTTPS for HTTP resources in HTTPS
   // sites.
   bool allow_mixed_content_upgrades;
+
+  // Whether the focused element should always be indicated (for example, by
+  // forcing :focus-visible to match regardless of focus method).
+  bool always_show_focus;
+
+  // Whether touch input can trigger HTML drag-and-drop operations. The
+  // default value depends on the platform.
+  bool touch_drag_drop_enabled;
 
   // We try to keep the default values the same as the default values in
   // chrome, except for the cases where it would require lots of extra work for

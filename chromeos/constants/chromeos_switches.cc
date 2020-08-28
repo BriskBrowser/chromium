@@ -83,6 +83,12 @@ const char kArcDataCleanupOnStart[] = "arc-data-cleanup-on-start";
 // in autotests to resolve racy conditions.
 const char kArcDisableAppSync[] = "arc-disable-app-sync";
 
+// Flag to enables an experiment to allow users to turn on 64-bit support in
+// native bridge on systems that have such support available but not yet enabled
+// by default.
+const char kArcEnableNativeBridge64BitSupportExperiment[] =
+    "arc-enable-native-bridge-64bit-support-experiment";
+
 // Used in autotest to disable GMS-core caches which is on by default.
 const char kArcDisableGmsCoreCache[] = "arc-disable-gms-core-cache";
 
@@ -92,6 +98,10 @@ const char kArcDisableGmsCoreCache[] = "arc-disable-gms-core-cache";
 // this flag would also forces ARC container to use 'en-US' as a locale and
 // 'en-US,en' as preferred languages.
 const char kArcDisableLocaleSync[] = "arc-disable-locale-sync";
+
+// Used for development of Android app that are included into ARC++ as system
+// default apps in order to be able to install them via adb.
+const char kArcDisableSystemDefaultApps[] = "arc-disable-system-default-apps";
 
 // Flag that disables ARC Play Auto Install flow that installs set of predefined
 // apps silently. Used in autotests to resolve racy conditions.
@@ -126,6 +136,9 @@ const char kArcScale[] = "arc-scale";
 // - always-start-with-no-play-store automatically start without Play Store UI.
 // If it is not set, then ARC is started in default mode.
 const char kArcStartMode[] = "arc-start-mode";
+
+// Sets ARC Terms Of Service hostname url for testing.
+const char kArcTosHostForTests[] = "arc-tos-host-for-tests";
 
 // If this flag is present then the device had ARC M available and gets ARC N
 // when updating.
@@ -227,19 +240,10 @@ const char kDisableRollbackOption[] = "disable-rollback-option";
 
 // Disables client certificate authentication on the sign-in frame on the Chrome
 // OS sign-in profile.
-// TODO(pmarko): Remove this flag in M-66 if no issues are found
-// (https://crbug.com/723849).
+// TODO(https://crbug.com/844022): Remove this flag when reaching endpoints that
+// request client certs does not hang anymore when there is no system token yet.
 const char kDisableSigninFrameClientCerts[] =
     "disable-signin-frame-client-certs";
-
-// Disables user selection of client certificate on the sign-in frame on the
-// Chrome OS sign-in profile.
-// TODO(pmarko): Remove this flag in M-65 when the
-// DeviceLoginScreenAutoSelectCertificateForUrls policy is enabled on the server
-// side (https://crbug.com/723849) and completely disable user selection of
-// certificates on the sign-in frame.
-const char kDisableSigninFrameClientCertUserSelection[] =
-    "disable-signin-frame-client-cert-user-selection";
 
 // Disables volume adjust sound.
 const char kDisableVolumeAdjustSound[] = "disable-volume-adjust-sound";
@@ -250,9 +254,6 @@ const char kDisableWakeOnWifi[] = "disable-wake-on-wifi";
 // DEPRECATED. Please use --arc-availability=officially-supported.
 // Enables starting the ARC instance upon session start.
 const char kEnableArc[] = "enable-arc";
-
-// Enables "hide Skip button" for ARC setup in the OOBE flow.
-const char kEnableArcOobeOptinNoSkip[] = "enable-arc-oobe-optin-no-skip";
 
 // Enables ARC VM.
 const char kEnableArcVm[] = "enable-arcvm";
@@ -269,12 +270,17 @@ const char kEnableEncryptionMigration[] = "enable-encryption-migration";
 // Enables sharing assets for installed default apps.
 const char kEnableExtensionAssetsSharing[] = "enable-extension-assets-sharing";
 
-// Enables animated transitions during first-run tutorial.
-// TODO(https://crbug.com/945966): Remove this.
-const char kEnableFirstRunUITransitions[] = "enable-first-run-ui-transitions";
+// Enables the use of 32-bit Houdini library for ARM binary translation.
+const char kEnableHoudini[] = "enable-houdini";
 
-// Enables the marketing opt-in screen in OOBE.
-const char kEnableMarketingOptInScreen[] = "enable-market-opt-in";
+// Enables the use of 64-bit Houdini library for ARM binary translation.
+const char kEnableHoudini64[] = "enable-houdini64";
+
+// Enables the use of 32-bit NDK translation library for ARM binary translation.
+const char kEnableNdkTranslation[] = "enable-ndk-translation";
+
+// Enables the use of 64-bit NDK translation library for ARM binary translation.
+const char kEnableNdkTranslation64[] = "enable-ndk-translation64";
 
 // Enables request of tablet site (via user agent override).
 const char kEnableRequestTabletSite[] = "enable-request-tablet-site";
@@ -301,6 +307,9 @@ const char kEnterpriseEnableForcedReEnrollment[] =
 // Whether to enable initial enterprise enrollment.
 const char kEnterpriseEnableInitialEnrollment[] =
     "enterprise-enable-initial-enrollment";
+
+// Whether to enable private set membership queries.
+const char kEnterpriseEnablePrivateSetMembership[] = "enterprise-enable-psm";
 
 // Enables the zero-touch enterprise enrollment flow.
 const char kEnterpriseEnableZeroTouchEnrollment[] =
@@ -358,6 +367,11 @@ const char kForceFirstRunUI[] = "force-first-run-ui";
 // for any type of user. Should be used only for testing.
 const char kForceHappinessTrackingSystem[] = "force-happiness-tracking-system";
 
+// Forces Hardware ID check (happens during OOBE) to fail. Should be used only
+// for testing.
+const char kForceHWIDCheckFailureForTest[] =
+    "force-hwid-check-failure-for-test";
+
 // Usually in browser tests the usual login manager bringup is skipped so that
 // tests can change how it's brought up. This flag disables that.
 const char kForceLoginManagerInTests[] = "force-login-manager-in-tests";
@@ -387,6 +401,11 @@ const char kHasChromeOSKeyboard[] = "has-chromeos-keyboard";
 // Defines user homedir. This defaults to primary user homedir.
 const char kHomedir[] = "homedir";
 
+// If set, the "ignore_dev_conf" field in StartArcVmRequest message will
+// consequently be set such that all development configuration directives in
+// /usr/local/vms/etc/arcvm_dev.conf will be ignored during ARCVM start.
+const char kIgnoreArcVmDevConf[] = "ignore-arcvm-dev-conf";
+
 // If true, profile selection in UserManager will always return active user's
 // profile.
 // TODO(nkostlyev): http://crbug.com/364604 - Get rid of this switch after we
@@ -398,6 +417,19 @@ const char kIgnoreUserProfileMappingForTests[] =
 // unless the enable-experimental-kernel-vm-support flag is set in
 // chrome://flags
 const char kKernelnextRestrictVMs[] = "kernelnext-restrict-vms";
+
+// If this switch is set, then ash-chrome will pass additional arguments when
+// launching lacros-chrome. The string '####' is used as a delimiter. Example:
+// --lacros-chrome-additional-args="--foo=5####--bar=/tmp/dir name". Will
+// result in two arguments passed to lacros-chrome:
+//   --foo=5
+//   --bar=/tmp/dir name
+const char kLacrosChromeAdditionalArgs[] = "lacros-chrome-additional-args";
+
+// If this switch is set, then ash-chrome will exec the lacros-chrome binary
+// from the indicated path rather than from component updater. Note that the
+// path should be to a directory that contains a binary named 'chrome'.
+const char kLacrosChromePath[] = "lacros-chrome-path";
 
 // Enables Chrome-as-a-login-manager behavior.
 const char kLoginManager[] = "login-manager";
@@ -411,6 +443,9 @@ const char kLoginProfile[] = "login-profile";
 
 // Specifies the user which is already logged in.
 const char kLoginUser[] = "login-user";
+
+// Determines the URL to be used when calling the backend.
+const char kMarketingOptInUrl[] = "marketing-opt-in-url";
 
 // Enables natural scroll by default.
 const char kNaturalScrollDefault[] = "enable-natural-scroll-default";
@@ -430,6 +465,14 @@ const char kNoteTakingAppIds[] = "note-taking-app-ids";
 //   user-image
 const char kOobeForceShowScreen[] = "oobe-force-show-screen";
 
+// Allows the eula url to be overridden for tests.
+const char kOobeEulaUrlForTests[] = "oobe-eula-url-for-tests";
+
+// Indicates that the first user run flow (sequence of OOBE screens after the
+// first user login) should show tablet mode centric screens, even if the device
+// is not in tablet mode.
+const char kOobeForceTabletFirstRun[] = "oobe-force-tablet-first-run";
+
 // Indicates that a guest session has been started before OOBE completion.
 const char kOobeGuestSession[] = "oobe-guest-session";
 
@@ -441,6 +484,9 @@ const char kOobeSkipToLogin[] = "oobe-skip-to-login";
 
 // Interval at which we check for total time on OOBE.
 const char kOobeTimerInterval[] = "oobe-timer-interval";
+
+// Allows the timezone to be overridden on the marketing opt-in screen.
+const char kOobeTimezoneOverrideForTests[] = "oobe-timezone-override-for-tests";
 
 // SAML assertion consumer URL, used to detect when Gaia-less SAML flows end
 // (e.g. for SAML managed guest sessions)
@@ -456,6 +502,11 @@ const char kRedirectLibassistantLogging[] = "redirect-libassistant-logging";
 
 // The rlz ping delay (in seconds) that overwrites the default value.
 const char kRlzPingDelay[] = "rlz-ping-delay";
+
+// The switch added by session_manager daemon when chrome crashes 3 times or
+// more within the first 60 seconds on start.
+// See BrowserJob::ExportArgv in platform2/login_manager/browser_job.cc.
+const char kSafeMode[] = "safe-mode";
 
 // Password change url for SAML users.
 // TODO(941489): Remove when the bug is fixed.
@@ -483,6 +534,16 @@ const char kRegulatoryLabelDir[] = "regulatory-label-dir";
 // If true, the developer tool overlay will be shown for the login/lock screen.
 // This makes it easier to test layout logic.
 const char kShowLoginDevOverlay[] = "show-login-dev-overlay";
+
+// Enables OOBE UI Debugger for ease of navigation between screens during manual
+// testing. Limited to ChromeOS-on-linux and test images only.
+const char kShowOobeDevOverlay[] = "show-oobe-dev-overlay";
+
+// Specifies directory for screenshots taken with OOBE UI Debugger.
+const char kOobeScreenshotDirectory[] = "oobe-screenshot-dir";
+
+// Specifies directory for the Telemetry System Web Extension.
+const char kTelemetryExtensionDirectory[] = "telemetry-extension-dir";
 
 // Enables testing for encryption migration UI.
 const char kTestEncryptionMigrationUI[] = "test-encryption-migration-ui";
@@ -512,14 +573,15 @@ const char kUnfilteredBluetoothDevices[] = "unfiltered-bluetooth-devices";
 const char kWaitForInitialPolicyFetchForTest[] =
     "wait-for-initial-policy-fetch-for-test";
 
-// Enables wake on wifi packet feature, which wakes the device on the receipt
-// of network packets from whitelisted sources.
-const char kWakeOnWifiPacket[] = "wake-on-wifi-packet";
-
 // Prevents any CPU restrictions being set on the ARC container. Only meant to
 // be used by tests as some tests may time out if the ARC container is
 // throttled.
 const char kDisableArcCpuRestriction[] = "disable-arc-cpu-restriction";
+
+// If this switch is passed, the device policy DeviceMinimumVersion
+// assumes that the device has reached Auto Update Expiration. This is useful
+// for testing the policy behaviour on the DUT.
+const char kUpdateRequiredAueForTest[] = "aue-reached-for-update-required-test";
 
 bool WakeOnWifiEnabled() {
   return !base::CommandLine::ForCurrentProcess()->HasSwitch(kDisableWakeOnWifi);
@@ -551,25 +613,12 @@ bool IsSigninFrameClientCertsEnabled() {
       kDisableSigninFrameClientCerts);
 }
 
-bool IsSigninFrameClientCertUserSelectionEnabled() {
-  return !base::CommandLine::ForCurrentProcess()->HasSwitch(
-      kDisableSigninFrameClientCertUserSelection);
-}
-
 bool ShouldShowShelfHotseat() {
   return base::FeatureList::IsEnabled(features::kShelfHotseat);
 }
 
 bool ShouldShowShelfHoverPreviews() {
   return base::CommandLine::ForCurrentProcess()->HasSwitch(kShelfHoverPreviews);
-}
-
-bool ShouldShowScrollableShelf() {
-  // If we're showing the new shelf design, also enable scrollable shelf.
-  if (ShouldShowShelfHotseat())
-    return true;
-
-  return base::FeatureList::IsEnabled(features::kShelfScrollable);
 }
 
 bool ShouldTetherHostScansIgnoreWiredConnections() {
@@ -599,6 +648,16 @@ bool IsArcCpuRestrictionDisabled() {
 bool IsUnfilteredBluetoothDevicesEnabled() {
   return base::CommandLine::ForCurrentProcess()->HasSwitch(
       kUnfilteredBluetoothDevices);
+}
+
+bool ShouldOobeUseTabletModeFirstRun() {
+  return base::CommandLine::ForCurrentProcess()->HasSwitch(
+      kOobeForceTabletFirstRun);
+}
+
+bool IsAueReachedForUpdateRequiredForTest() {
+  return base::CommandLine::ForCurrentProcess()->HasSwitch(
+      kUpdateRequiredAueForTest);
 }
 
 }  // namespace switches

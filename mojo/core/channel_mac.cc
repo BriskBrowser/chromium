@@ -22,9 +22,9 @@
 #include "base/mac/scoped_mach_msg_destroy.h"
 #include "base/mac/scoped_mach_port.h"
 #include "base/mac/scoped_mach_vm.h"
-#include "base/message_loop/message_loop_current.h"
 #include "base/message_loop/message_pump_for_io.h"
 #include "base/strings/stringprintf.h"
+#include "base/task/current_thread.h"
 
 extern "C" {
 kern_return_t fileport_makeport(int fd, mach_port_t*);
@@ -41,7 +41,7 @@ constexpr mach_msg_id_t kChannelMacInlineMsgId = 'MOJO';
 constexpr mach_msg_id_t kChannelMacOOLMsgId = 'MOJ+';
 
 class ChannelMac : public Channel,
-                   public base::MessageLoopCurrent::DestructionObserver,
+                   public base::CurrentThread::DestructionObserver,
                    public base::MessagePumpKqueue::MachPortWatcher {
  public:
   ChannelMac(Delegate* delegate,
@@ -193,13 +193,13 @@ class ChannelMac : public Channel,
       NOTREACHED();
     }
 
-    base::MessageLoopCurrent::Get()->AddDestructionObserver(this);
-    base::MessageLoopCurrentForIO::Get()->WatchMachReceivePort(
+    base::CurrentThread::Get()->AddDestructionObserver(this);
+    base::CurrentIOThread::Get()->WatchMachReceivePort(
         receive_port_.get(), &watch_controller_, this);
   }
 
   void ShutDownOnIOThread() {
-    base::MessageLoopCurrent::Get()->RemoveDestructionObserver(this);
+    base::CurrentThread::Get()->RemoveDestructionObserver(this);
 
     watch_controller_.StopWatchingMachPort();
 
@@ -446,12 +446,19 @@ class ChannelMac : public Channel,
         io_task_runner_->PostTask(
             FROM_HERE, base::BindOnce(&ChannelMac::SendPendingMessages, this));
       } else {
-        // If the message failed to send for other reasons, destroy it and
-        // close the channel.
-        MACH_LOG_IF(ERROR, kr != MACH_SEND_INVALID_DEST, kr) << "mach_msg send";
+        // If the message failed to send for other reasons, destroy it.
         send_buffer_contains_message_ = false;
         mach_msg_destroy(header);
-        OnWriteErrorLocked(Error::kDisconnected);
+        if (kr != MACH_SEND_INVALID_DEST) {
+          // If the message failed to send because the receiver is a dead-name,
+          // wait for the Channel to process the dead-name notification.
+          // Otherwise, the notification message will never be received and the
+          // dead-name right contained within it will be leaked
+          // (https://crbug.com/1041682). If the message failed to send for any
+          // other reason, report an error and shut down.
+          MACH_LOG(ERROR, kr) << "mach_msg send";
+          OnWriteErrorLocked(Error::kDisconnected);
+        }
       }
       return false;
     }
@@ -460,7 +467,7 @@ class ChannelMac : public Channel,
     return true;
   }
 
-  // base::MessageLoopCurrent::DestructionObserver:
+  // base::CurrentThread::DestructionObserver:
   void WillDestroyCurrentMessageLoop() override {
     DCHECK(io_task_runner_->RunsTasksInCurrentSequence());
     if (self_)

@@ -28,6 +28,11 @@ class ShelfButton;
 // return value can be merged into ButtonListener.
 class ShelfButtonDelegate {
  public:
+  class ScopedActiveInkDropCount {
+   public:
+    virtual ~ScopedActiveInkDropCount() = default;
+  };
+
   ShelfButtonDelegate() {}
   ~ShelfButtonDelegate() = default;
 
@@ -46,6 +51,13 @@ class ShelfButtonDelegate {
   // kScrollToMakeVisible. |button| is the view receiving the accessibility
   // focus.
   virtual void HandleAccessibleActionScrollToMakeVisible(ShelfButton* button) {}
+
+  // Returns a scoped count that indicates whether |button| has an active ink
+  // drop. |button| calls this to get the scoped count when its ink drop is
+  // activated. It holds on to the scoped count until the ink drop is no longer
+  // active.
+  virtual std::unique_ptr<ScopedActiveInkDropCount>
+  CreateScopedActiveInkDropCount(const ShelfButton* button);
 
  private:
   DISALLOW_COPY_AND_ASSIGN(ShelfButtonDelegate);

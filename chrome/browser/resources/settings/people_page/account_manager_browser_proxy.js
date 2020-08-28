@@ -2,6 +2,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+// clang-format off
+// #import {addSingletonGetter, sendWithPromise} from 'chrome://resources/js/cr.m.js';
+// clang-format on
+
 cr.define('settings', function() {
   /**
    * Information for an account managed by Chrome OS AccountManager.
@@ -17,10 +21,10 @@ cr.define('settings', function() {
    *   organization: (string|undefined),
    * }}
    */
-  let Account;
+  /* #export */ let Account;
 
   /** @interface */
-  class AccountManagerBrowserProxy {
+  /* #export */ class AccountManagerBrowserProxy {
     /**
      * Returns a Promise for the list of GAIA accounts held in AccountManager.
      * @return {!Promise<!Array<settings.Account>>}
@@ -61,7 +65,7 @@ cr.define('settings', function() {
   /**
    * @implements {settings.AccountManagerBrowserProxy}
    */
-  class AccountManagerBrowserProxyImpl {
+  /* #export */ class AccountManagerBrowserProxyImpl {
     /** @override */
     getAccounts() {
       return cr.sendWithPromise('getAccounts');
@@ -95,6 +99,7 @@ cr.define('settings', function() {
 
   cr.addSingletonGetter(AccountManagerBrowserProxyImpl);
 
+  // #cr_define_end
   return {
     Account,
     AccountManagerBrowserProxy,

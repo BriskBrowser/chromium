@@ -28,6 +28,7 @@
 
 #include "third_party/blink/renderer/core/page/spatial_navigation.h"
 
+#include "third_party/blink/public/mojom/scroll/scrollbar_mode.mojom-blink.h"
 #include "third_party/blink/renderer/core/dom/node_traversal.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/frame/local_frame_view.h"
@@ -281,7 +282,10 @@ bool ScrollInDirection(Node* container, SpatialNavigationDirection direction) {
     case SpatialNavigationDirection::kRight:
       // TODO(bokan, https://crbug.com/952326): Fix this DCHECK.
       //  DCHECK_GT(container->GetLayoutBox()->ScrollWidth(),
-      //            container->GetScrollableArea()->ScrollPosition().X() +
+      //            container->GetLayoutBoxForScrolling()
+      //                    ->GetScrollableArea()
+      //                    ->ScrollPosition()
+      //                    .X() +
       //                container->GetLayoutBox()->ClientWidth());
       dx = pixels_per_line_step;
       break;
@@ -291,7 +295,10 @@ bool ScrollInDirection(Node* container, SpatialNavigationDirection direction) {
     case SpatialNavigationDirection::kDown:
       // TODO(bokan, https://crbug.com/952326): Fix this DCHECK.
       //  DCHECK_GT(container->GetLayoutBox()->ScrollHeight(),
-      //            container->GetScrollableArea()->ScrollPosition().Y() +
+      //            container->GetLayoutBoxForScrolling()
+      //                    ->GetScrollableArea()
+      //                    ->ScrollPosition()
+      //                    .Y() +
       //                container->GetLayoutBox()->ClientHeight());
       dy = pixels_per_line_step;
       break;
@@ -310,7 +317,7 @@ bool ScrollInDirection(Node* container, SpatialNavigationDirection direction) {
   if (!scroller)
     return false;
 
-  scroller->ScrollBy(ScrollOffset(dx, dy), kUserScroll);
+  scroller->ScrollBy(ScrollOffset(dx, dy), mojom::blink::ScrollType::kUser);
   return true;
 }
 
@@ -363,7 +370,10 @@ bool CanScrollInDirection(const Node* container,
   const Element* container_element = DynamicTo<Element>(container);
   if (!container_element)
     return false;
-  auto* scrollable_area = container_element->GetScrollableArea();
+  LayoutBox* box = container_element->GetLayoutBoxForScrolling();
+  if (!box)
+    return false;
+  auto* scrollable_area = box->GetScrollableArea();
   if (!scrollable_area)
     return false;
 
@@ -402,16 +412,16 @@ bool CanScrollInDirection(const LocalFrame* frame,
   LayoutView* layoutView = frame->ContentLayoutObject();
   if (!layoutView)
     return false;
-  ScrollbarMode vertical_mode;
-  ScrollbarMode horizontal_mode;
+  mojom::blink::ScrollbarMode vertical_mode;
+  mojom::blink::ScrollbarMode horizontal_mode;
   layoutView->CalculateScrollbarModes(horizontal_mode, vertical_mode);
   if ((direction == SpatialNavigationDirection::kLeft ||
        direction == SpatialNavigationDirection::kRight) &&
-      ScrollbarMode::kAlwaysOff == horizontal_mode)
+      mojom::blink::ScrollbarMode::kAlwaysOff == horizontal_mode)
     return false;
   if ((direction == SpatialNavigationDirection::kUp ||
        direction == SpatialNavigationDirection::kDown) &&
-      ScrollbarMode::kAlwaysOff == vertical_mode)
+      mojom::blink::ScrollbarMode::kAlwaysOff == vertical_mode)
     return false;
   ScrollableArea* scrollable_area = frame->View()->GetScrollableArea();
   LayoutSize size(scrollable_area->ContentsSize());
@@ -742,7 +752,7 @@ PhysicalRect StartEdgeForAreaElement(const HTMLAreaElement& area,
 }
 
 HTMLFrameOwnerElement* FrameOwnerElement(const FocusCandidate& candidate) {
-  return DynamicTo<HTMLFrameOwnerElement>(candidate.visible_node.Get());
+  return DynamicTo<HTMLFrameOwnerElement>(candidate.visible_node);
 }
 
 // The visual viewport's rect (given in the root frame's coordinate space).
@@ -774,7 +784,7 @@ PhysicalRect SearchOriginFragment(const PhysicalRect& visible_part,
   // entire bounding rect which is a union of all fragments) as search origin.
   Vector<FloatQuad> fragments;
   fragmented.AbsoluteQuads(
-      fragments, kTraverseDocumentBoundaries | kApplyRemoteRootFrameOffset);
+      fragments, kTraverseDocumentBoundaries | kApplyRemoteMainFrameTransform);
   switch (direction) {
     case SpatialNavigationDirection::kLeft:
     case SpatialNavigationDirection::kDown:

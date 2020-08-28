@@ -16,7 +16,8 @@
 
 #include <string.h>
 
-#include "base/logging.h"
+#include "base/check_op.h"
+#include "base/notreached.h"
 #include "base/stl_util.h"
 #include "minidump/minidump_string_writer.h"
 #include "snapshot/system_snapshot.h"
@@ -151,7 +152,7 @@ void MinidumpSystemInfoWriter::InitializeFromSnapshot(
     SetCPUX86VersionAndFeatures(system_snapshot->CPUX86Signature(),
                                 system_snapshot->CPUX86Features() & 0xffffffff);
 
-    if (cpu_vendor == "AuthenticAMD") {
+    if (cpu_vendor == "AuthenticAMD" || cpu_vendor == "HygonGenuine") {
       SetCPUX86AMDExtendedFeatures(
           system_snapshot->CPUX86ExtendedFeatures() & 0xffffffff);
     }
@@ -175,6 +176,9 @@ void MinidumpSystemInfoWriter::InitializeFromSnapshot(
       break;
     case SystemSnapshot::kOperatingSystemFuchsia:
       operating_system = kMinidumpOSFuchsia;
+      break;
+    case SystemSnapshot::kOperatingSystemIOS:
+      operating_system = kMinidumpOSIOS;
       break;
     default:
       NOTREACHED();

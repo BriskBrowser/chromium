@@ -63,7 +63,9 @@ class ListContainer {
      * @type {!HTMLElement}
      * @const
      */
-    this.spinner = queryRequiredElement('.loading-indicator', element);
+    this.spinner = util.isFilesNg() ?
+        queryRequiredElement('files-spinner.loading-indicator', element) :
+        queryRequiredElement('paper-progress.loading-indicator', element);
 
     /**
      * @type {FileListModel}
@@ -119,6 +121,8 @@ class ListContainer {
     this.element.addEventListener(
         'contextmenu', this.onContextMenu_.bind(this), /* useCapture */ true);
 
+    // Disables context menu by long-tap when at least one file/folder is
+    // selected, while still enabling two-finger tap.
     this.element.addEventListener('touchstart', function(e) {
       if (e.touches.length > 1) {
         this.allowContextMenuByTouch_ = true;

@@ -18,6 +18,7 @@
 #include "components/version_info/version_info.h"
 #import "ios/chrome/browser/ui/commands/application_commands.h"
 #import "ios/chrome/browser/ui/commands/open_new_tab_command.h"
+#import "ios/chrome/browser/upgrade/upgrade_constants.h"
 #include "ios/chrome/grit/ios_chromium_strings.h"
 #include "ios/chrome/grit/ios_strings.h"
 #import "ios/web/common/url_scheme_util.h"
@@ -48,16 +49,12 @@
 - (BOOL)infoBarShownRecently;
 // Called when the application become active again.
 - (void)applicationWillEnterForeground:(NSNotification*)note;
-// The dispatcher for this object.
-@property(nonatomic, weak) id<ApplicationCommands> dispatcher;
+// The command handler for this object.
+@property(nonatomic, weak) id<ApplicationCommands> handler;
 @end
 
 namespace {
 
-// The user defaults key for the upgrade version.
-NSString* const kNextVersionKey = @"UpdateInfobarNextVersion";
-// The user defaults key for the upgrade URL.
-NSString* const kUpgradeURLKey = @"UpdateInfobarUpgradeURL";
 // The user defaults key for the last time the update infobar was shown.
 NSString* const kLastInfobarDisplayTimeKey = @"UpdateInfobarLastDisplayTime";
 // The amount of time that must elapse before showing the infobar again.
@@ -217,7 +214,7 @@ class UpgradeInfoBarDismissObserver
   BOOL _inCallback;
 #endif
 }
-@synthesize dispatcher = _dispatcher;
+@synthesize handler = _handler;
 
 + (UpgradeCenter*)sharedInstance {
   static UpgradeCenter* obj;
@@ -253,7 +250,7 @@ class UpgradeInfoBarDismissObserver
 
 - (BOOL)isCurrentVersionObsolete {
   NSUserDefaults* defaults = [NSUserDefaults standardUserDefaults];
-  NSString* nextVersion = [defaults stringForKey:kNextVersionKey];
+  NSString* nextVersion = [defaults stringForKey:kIOSChromeNextVersionKey];
   if (nextVersion) {
     const base::Version& current_version = version_info::GetVersion();
     const std::string upgrade = base::SysNSStringToUTF8(nextVersion);
@@ -285,9 +282,9 @@ class UpgradeInfoBarDismissObserver
 }
 
 - (void)registerClient:(id<UpgradeCenterClient>)client
-        withDispatcher:(id<ApplicationCommands>)dispatcher {
+           withHandler:(id<ApplicationCommands>)handler {
   [_clients addObject:client];
-  self.dispatcher = dispatcher;
+  self.handler = handler;
   if (_upgradeInfoBarIsVisible)
     [client showUpgrade:self];
 }
@@ -345,8 +342,8 @@ class UpgradeInfoBarDismissObserver
   [self hideUpgradeInfoBars];
 
   if (shouldUpgrade) {
-    NSString* urlString =
-        [[NSUserDefaults standardUserDefaults] valueForKey:kUpgradeURLKey];
+    NSString* urlString = [[NSUserDefaults standardUserDefaults]
+        valueForKey:kIOSChromeUpgradeURLKey];
     if (!urlString)
       return;  // Missing URL, no upgrade possible.
 
@@ -358,7 +355,7 @@ class UpgradeInfoBarDismissObserver
       // This URL can be opened in the application, just open in a new tab.
       OpenNewTabCommand* command =
           [OpenNewTabCommand commandWithURLFromChrome:URL];
-      [self.dispatcher openURLInNewTab:command];
+      [self.handler openURLInNewTab:command];
     } else {
       // This URL scheme is not understood, ask the system to open it.
       NSURL* launchURL = [NSURL URLWithString:urlString];
@@ -428,15 +425,16 @@ class UpgradeInfoBarDismissObserver
 
   // Reset the display clock when the version changes.
   NSString* newVersionString = base::SysUTF8ToNSString(details.next_version);
-  NSString* previousVersionString = [defaults stringForKey:kNextVersionKey];
+  NSString* previousVersionString =
+      [defaults stringForKey:kIOSChromeNextVersionKey];
   if (!previousVersionString ||
       ![previousVersionString isEqualToString:newVersionString]) {
     [defaults removeObjectForKey:kLastInfobarDisplayTimeKey];
   }
 
   [defaults setValue:base::SysUTF8ToNSString(upgradeUrl.spec())
-              forKey:kUpgradeURLKey];
-  [defaults setValue:newVersionString forKey:kNextVersionKey];
+              forKey:kIOSChromeUpgradeURLKey];
+  [defaults setValue:newVersionString forKey:kIOSChromeNextVersionKey];
 
   if ([self shouldShowInfoBar])
     [self showUpgradeInfoBars];
@@ -445,8 +443,8 @@ class UpgradeInfoBarDismissObserver
 - (void)resetForTests {
   [[UpgradeCenter sharedInstance] hideUpgradeInfoBars];
   NSUserDefaults* defaults = [NSUserDefaults standardUserDefaults];
-  [defaults removeObjectForKey:kNextVersionKey];
-  [defaults removeObjectForKey:kUpgradeURLKey];
+  [defaults removeObjectForKey:kIOSChromeNextVersionKey];
+  [defaults removeObjectForKey:kIOSChromeUpgradeURLKey];
   [defaults removeObjectForKey:kLastInfobarDisplayTimeKey];
   [_clients removeAllObjects];
 }

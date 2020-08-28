@@ -41,14 +41,14 @@ const char* FeatureToString(WebSchedulerTrackedFeature feature) {
       return "Dedicated worker or worklet present";
     case WebSchedulerTrackedFeature::kSharedWorker:
       return "Shared worker present";
-    case WebSchedulerTrackedFeature::kOutstandingNetworkRequest:
-      return "outstanding network request";
-    case WebSchedulerTrackedFeature::kServiceWorkerControlledPage:
-      return "ServiceWorker-controlled page";
+    case WebSchedulerTrackedFeature::kOutstandingNetworkRequestFetch:
+      return "outstanding network request (fetch)";
+    case WebSchedulerTrackedFeature::kOutstandingNetworkRequestXHR:
+      return "outstanding network request (XHR)";
+    case WebSchedulerTrackedFeature::kOutstandingNetworkRequestOthers:
+      return "outstanding network request (others)";
     case WebSchedulerTrackedFeature::kOutstandingIndexedDBTransaction:
       return "outstanding IndexedDB transaction";
-    case WebSchedulerTrackedFeature::kHasScriptableFramesInMultipleTabs:
-      return "has scriptable frames in multiple tabs";
     case WebSchedulerTrackedFeature::kRequestedGeolocationPermission:
       return "requested geolocation permission";
     case WebSchedulerTrackedFeature::kRequestedNotificationsPermission:
@@ -79,6 +79,38 @@ const char* FeatureToString(WebSchedulerTrackedFeature feature) {
       return "WebHID";
     case WebSchedulerTrackedFeature::kWakeLock:
       return "WakeLock";
+    case WebSchedulerTrackedFeature::kWebShare:
+      return "WebShare";
+    case WebSchedulerTrackedFeature::kRequestedStorageAccessGrant:
+      return "requested storage access permission";
+    case WebSchedulerTrackedFeature::kWebNfc:
+      return "WebNfc";
+    case WebSchedulerTrackedFeature::kWebFileSystem:
+      return "WebFileSystem";
+    case WebSchedulerTrackedFeature::kAppBanner:
+      return "AppBanner";
+    case WebSchedulerTrackedFeature::kPrinting:
+      return "Printing";
+    case WebSchedulerTrackedFeature::kWebDatabase:
+      return "WebDatabase";
+    case WebSchedulerTrackedFeature::kPictureInPicture:
+      return "PictureInPicture";
+    case WebSchedulerTrackedFeature::kPortal:
+      return "Portal";
+    case WebSchedulerTrackedFeature::kSpeechRecognizer:
+      return "SpeechRecognizer";
+    case WebSchedulerTrackedFeature::kIdleManager:
+      return "IdleManager";
+    case WebSchedulerTrackedFeature::kPaymentManager:
+      return "PaymentManager";
+    case WebSchedulerTrackedFeature::kSpeechSynthesis:
+      return "SpeechSynthesis";
+    case WebSchedulerTrackedFeature::kKeyboardLock:
+      return "KeyboardLock";
+    case WebSchedulerTrackedFeature::kSmsService:
+      return "SMSService";
+    case WebSchedulerTrackedFeature::kOutstandingNetworkRequestDirectSocket:
+      return "outstanding network request (direct socket)";
   }
 }
 

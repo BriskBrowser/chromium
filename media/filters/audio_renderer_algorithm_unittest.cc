@@ -125,7 +125,7 @@ class AudioRendererAlgorithmTest : public testing::Test {
   }
 
   base::TimeDelta BufferedTime() {
-    return AudioTimestampHelper::FramesToTime(algorithm_.frames_buffered(),
+    return AudioTimestampHelper::FramesToTime(algorithm_.BufferedFrames(),
                                               samples_per_second_);
   }
 
@@ -200,7 +200,7 @@ class AudioRendererAlgorithmTest : public testing::Test {
   int ComputeConsumedFrames(int initial_frames_enqueued,
                             int initial_frames_buffered) {
     int frame_delta = frames_enqueued_ - initial_frames_enqueued;
-    int buffered_delta = algorithm_.frames_buffered() - initial_frames_buffered;
+    int buffered_delta = algorithm_.BufferedFrames() - initial_frames_buffered;
     int consumed = frame_delta - buffered_delta;
     CHECK_GE(consumed, 0);
     return consumed;
@@ -220,7 +220,7 @@ class AudioRendererAlgorithmTest : public testing::Test {
                         int total_frames_requested,
                         int dest_offset) {
     int initial_frames_enqueued = frames_enqueued_;
-    int initial_frames_buffered = algorithm_.frames_buffered();
+    int initial_frames_buffered = algorithm_.BufferedFrames();
 
     std::unique_ptr<AudioBus> bus =
         AudioBus::Create(channels_, buffer_size_in_frames);
@@ -256,7 +256,7 @@ class AudioRendererAlgorithmTest : public testing::Test {
       FillAlgorithmQueueUntilFull();
     }
 
-    EXPECT_EQ(algorithm_.frames_buffered() * channels_ * sizeof(float),
+    EXPECT_EQ(algorithm_.BufferedFrames() * channels_ * sizeof(float),
               static_cast<size_t>(algorithm_.GetMemoryUsage()));
 
     int frames_consumed =
@@ -282,13 +282,9 @@ class AudioRendererAlgorithmTest : public testing::Test {
     EXPECT_NEAR(playback_rate, actual_playback_rate, playback_rate / 100.0);
   }
 
-  void TestPlaybackRateWithUnderflow(double playback_rate, bool end_of_stream) {
-    if (playback_rate > AudioRendererAlgorithm::kUpperResampleThreshold ||
-        playback_rate < AudioRendererAlgorithm::kLowerResampleThreshold) {
-      // This test is only used for the range in which we resample data instead
-      // of using WSOLA.
-      return;
-    }
+  void TestResamplingWithUnderflow(double playback_rate, bool end_of_stream) {
+    // We are only testing the behavior of the resampling case.
+    algorithm_.SetPreservesPitch(false);
 
     if (end_of_stream) {
       algorithm_.MarkEndOfStream();
@@ -311,7 +307,7 @@ class AudioRendererAlgorithmTest : public testing::Test {
           bus.get(), 0, buffer_size_in_frames, playback_rate);
 
       total_frames_written += frames_written;
-    } while (frames_written && algorithm_.frames_buffered() > 0);
+    } while (frames_written && algorithm_.BufferedFrames() > 0);
 
     int input_frames_enqueued = frames_enqueued_ - initial_frames_enqueued;
 
@@ -452,13 +448,20 @@ TEST_F(AudioRendererAlgorithmTest, FillBuffer_NearlyNormalSlowerRate) {
 // The range of playback rates in which we use resampling is [0.95, 1.06].
 TEST_F(AudioRendererAlgorithmTest, FillBuffer_ResamplingRates) {
   Initialize();
-  TestPlaybackRate(0.94);  // WSOLA.
-  TestPlaybackRate(AudioRendererAlgorithm::kLowerResampleThreshold);
-  TestPlaybackRate(0.97);
+  // WSOLA.
+  TestPlaybackRate(0.50);
+  TestPlaybackRate(0.95);
   TestPlaybackRate(1.00);
-  TestPlaybackRate(1.04);
-  TestPlaybackRate(AudioRendererAlgorithm::kUpperResampleThreshold);
-  TestPlaybackRate(1.07);  // WSOLA.
+  TestPlaybackRate(1.05);
+  TestPlaybackRate(2.00);
+
+  // Resampling.
+  algorithm_.SetPreservesPitch(false);
+  TestPlaybackRate(0.50);
+  TestPlaybackRate(0.95);
+  TestPlaybackRate(1.00);
+  TestPlaybackRate(1.05);
+  TestPlaybackRate(2.00);
 }
 
 TEST_F(AudioRendererAlgorithmTest, FillBuffer_WithOffset) {
@@ -480,14 +483,10 @@ TEST_F(AudioRendererAlgorithmTest, FillBuffer_WithOffset) {
 
 TEST_F(AudioRendererAlgorithmTest, FillBuffer_UnderFlow) {
   Initialize();
-  TestPlaybackRateWithUnderflow(AudioRendererAlgorithm::kLowerResampleThreshold,
-                                true);
-  TestPlaybackRateWithUnderflow(AudioRendererAlgorithm::kLowerResampleThreshold,
-                                false);
-  TestPlaybackRateWithUnderflow(AudioRendererAlgorithm::kUpperResampleThreshold,
-                                true);
-  TestPlaybackRateWithUnderflow(AudioRendererAlgorithm::kUpperResampleThreshold,
-                                false);
+  TestResamplingWithUnderflow(0.75, true);
+  TestResamplingWithUnderflow(0.75, false);
+  TestResamplingWithUnderflow(1.25, true);
+  TestResamplingWithUnderflow(1.25, false);
 }
 
 TEST_F(AudioRendererAlgorithmTest, FillBuffer_OneAndAQuarterRate) {
@@ -861,7 +860,7 @@ TEST_F(AudioRendererAlgorithmTest, FillBuffer_ChannelMask) {
 // |latency_hint_| is set.
 TEST_F(AudioRendererAlgorithmTest, NoLatencyHint) {
   // Queue is initially empty. Capacity is unset.
-  EXPECT_EQ(algorithm_.frames_buffered(), 0);
+  EXPECT_EQ(algorithm_.BufferedFrames(), 0);
   EXPECT_EQ(algorithm_.QueueCapacity(), 0);
 
   // Initialize sets capacity fills queue.
@@ -875,21 +874,21 @@ TEST_F(AudioRendererAlgorithmTest, NoLatencyHint) {
   // one frame below the capacity limit.
   std::unique_ptr<AudioBus> bus = AudioBus::Create(channels_, kFrameSize);
   int requested_frames =
-      (algorithm_.frames_buffered() - algorithm_.QueueCapacity()) + 1;
+      (algorithm_.BufferedFrames() - algorithm_.QueueCapacity()) + 1;
   const int frames_filled =
       algorithm_.FillBuffer(bus.get(), 0, requested_frames, 1);
   EXPECT_EQ(frames_filled, requested_frames);
-  EXPECT_EQ(algorithm_.frames_buffered(), algorithm_.QueueCapacity() - 1);
+  EXPECT_EQ(algorithm_.BufferedFrames(), algorithm_.QueueCapacity() - 1);
   EXPECT_FALSE(algorithm_.IsQueueFull());
   EXPECT_FALSE(algorithm_.IsQueueAdequateForPlayback());
 
   // Queue should again be "adequate for playback" and "full" it we add a single
-  // frame such that frames_buffered() == QueueCapacity().
+  // frame such that BufferedFrames() == QueueCapacity().
   DCHECK_EQ(sample_format_, kSampleFormatS16);
   algorithm_.EnqueueBuffer(MakeBuffer(1));
   EXPECT_TRUE(algorithm_.IsQueueFull());
   EXPECT_TRUE(algorithm_.IsQueueAdequateForPlayback());
-  EXPECT_EQ(algorithm_.frames_buffered(), algorithm_.QueueCapacity());
+  EXPECT_EQ(algorithm_.BufferedFrames(), algorithm_.QueueCapacity());
 
   // Increasing playback threshold should also increase capacity.
   int orig_capacity = algorithm_.QueueCapacity();
@@ -1079,7 +1078,7 @@ TEST_F(AudioRendererAlgorithmTest, ClampLatencyHint) {
   // well above the hinted value.
   EXPECT_EQ(algorithm_.QueueCapacity(), default_capacity);
   FillAlgorithmQueueUntilAdequate();
-  EXPECT_EQ(algorithm_.frames_buffered(), 2 * kBufferSize);
+  EXPECT_EQ(algorithm_.BufferedFrames(), 2 * kBufferSize);
 }
 
 }  // namespace media

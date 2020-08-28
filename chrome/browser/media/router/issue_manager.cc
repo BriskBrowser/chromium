@@ -7,7 +7,6 @@
 #include <algorithm>
 
 #include "base/bind.h"
-#include "base/task/post_task.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 
@@ -45,9 +44,7 @@ base::TimeDelta IssueManager::GetAutoDismissTimeout(
 }
 
 IssueManager::IssueManager()
-    : top_issue_(nullptr),
-      task_runner_(
-          base::CreateSingleThreadTaskRunner({content::BrowserThread::UI})) {}
+    : top_issue_(nullptr), task_runner_(content::GetUIThreadTaskRunner({})) {}
 
 IssueManager::~IssueManager() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
@@ -64,11 +61,11 @@ void IssueManager::AddIssue(const IssueInfo& issue_info) {
   }
 
   Issue issue(issue_info);
-  std::unique_ptr<base::CancelableClosure> cancelable_dismiss_cb;
+  std::unique_ptr<base::CancelableOnceClosure> cancelable_dismiss_cb;
   base::TimeDelta timeout = GetAutoDismissTimeout(issue_info);
   if (!timeout.is_zero()) {
     cancelable_dismiss_cb =
-        std::make_unique<base::CancelableClosure>(base::Bind(
+        std::make_unique<base::CancelableOnceClosure>(base::BindOnce(
             &IssueManager::ClearIssue, base::Unretained(this), issue.id()));
     task_runner_->PostDelayedTask(FROM_HERE, cancelable_dismiss_cb->callback(),
                                   timeout);
@@ -111,7 +108,7 @@ void IssueManager::UnregisterObserver(IssuesObserver* observer) {
 
 IssueManager::Entry::Entry(
     const Issue& issue,
-    std::unique_ptr<base::CancelableClosure> cancelable_dismiss_callback)
+    std::unique_ptr<base::CancelableOnceClosure> cancelable_dismiss_callback)
     : issue(issue),
       cancelable_dismiss_callback(std::move(cancelable_dismiss_callback)) {}
 

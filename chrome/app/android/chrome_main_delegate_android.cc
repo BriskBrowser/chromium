@@ -33,9 +33,6 @@ ChromeMainDelegateAndroid::ChromeMainDelegateAndroid() = default;
 ChromeMainDelegateAndroid::~ChromeMainDelegateAndroid() = default;
 
 bool ChromeMainDelegateAndroid::BasicStartupComplete(int* exit_code) {
-  // Start the sampling profiler as early as possible.
-  sampling_profiler_ = std::make_unique<MainThreadStackSamplingProfiler>();
-
 #if BUILDFLAG(SAFE_BROWSING_DB_REMOTE)
   safe_browsing_api_handler_.reset(
       new safe_browsing::SafeBrowsingApiHandlerBridge());
@@ -48,9 +45,11 @@ bool ChromeMainDelegateAndroid::BasicStartupComplete(int* exit_code) {
   return ChromeMainDelegate::BasicStartupComplete(exit_code);
 }
 
-void ChromeMainDelegateAndroid::SandboxInitialized(
-    const std::string& process_type) {
-  ChromeMainDelegate::SandboxInitialized(process_type);
+void ChromeMainDelegateAndroid::PreSandboxStartup() {
+  ChromeMainDelegate::PreSandboxStartup();
+
+  // Start the sampling profiler after crashpad initialization.
+  sampling_profiler_ = std::make_unique<MainThreadStackSamplingProfiler>();
 }
 
 void ChromeMainDelegateAndroid::SecureDataDirectory() {
@@ -87,8 +86,8 @@ int ChromeMainDelegateAndroid::RunProcess(
   // Also only record the start time the first time round, since this is the
   // start time of the application, and will be same for all requests.
   if (!browser_runner_) {
-    startup_metric_utils::RecordMainEntryPointTime(
-        chrome::android::GetMainEntryPointTimeTicks());
+    startup_metric_utils::RecordApplicationStartTime(
+        chrome::android::GetApplicationStartTime());
     browser_runner_ = content::BrowserMainRunner::Create();
   }
 

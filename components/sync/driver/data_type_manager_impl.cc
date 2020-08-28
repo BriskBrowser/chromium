@@ -352,24 +352,33 @@ void DataTypeManagerImpl::OnAllDataTypesReadyForConfigure() {
 }
 
 ModelTypeSet DataTypeManagerImpl::GetPriorityTypes() const {
-  ModelTypeSet high_priority_types;
-  high_priority_types.PutAll(ControlTypes());
-  high_priority_types.PutAll(PriorityUserTypes());
-  return high_priority_types;
+  return PriorityUserTypes();
 }
 
 TypeSetPriorityList DataTypeManagerImpl::PrioritizeTypes(
     const ModelTypeSet& types) {
-  ModelTypeSet high_priority_types = GetPriorityTypes();
-  high_priority_types.RetainAll(types);
+  // Control types are usually downloaded before all other types during
+  // initialization of sync engine even before data type manager gets
+  // constructed. However, listing control types here with the highest priority
+  // makes the behavior consistent also for various flows for restarting sync
+  // such as migrating all data types or reconfiguring sync in ephemeral mode
+  // when all local data is wiped.
+  ModelTypeSet control_types = ControlTypes();
+  control_types.RetainAll(types);
 
-  ModelTypeSet low_priority_types = Difference(types, high_priority_types);
+  ModelTypeSet priority_types = GetPriorityTypes();
+  priority_types.RetainAll(types);
+
+  ModelTypeSet regular_types =
+      Difference(types, Union(control_types, priority_types));
 
   TypeSetPriorityList result;
-  if (!high_priority_types.Empty())
-    result.push(high_priority_types);
-  if (!low_priority_types.Empty())
-    result.push(low_priority_types);
+  if (!control_types.Empty())
+    result.push(control_types);
+  if (!priority_types.Empty())
+    result.push(priority_types);
+  if (!regular_types.Empty())
+    result.push(regular_types);
 
   // Could be empty in case of purging for migration, sync nothing, etc.
   // Configure empty set to purge data from backend.
@@ -450,10 +459,9 @@ void DataTypeManagerImpl::ProcessReconfigure() {
            << " busy.";
 
   // Note: ConfigureImpl is called directly, rather than posted, in order to
-  // ensure that any purging/unapplying/journaling happens while the set of
-  // failed types is still up to date. If stack unwinding were to be done
-  // via PostTask, the failed data types may be reset before the purging was
-  // performed.
+  // ensure that any purging happens while the set of failed types is still up
+  // to date. If stack unwinding were to be done via PostTask, the failed data
+  // types may be reset before the purging was performed.
   state_ = RETRYING;
   needs_reconfigure_ = false;
   ConfigureImpl(last_requested_types_, last_requested_context_);
@@ -549,8 +557,6 @@ ModelTypeSet DataTypeManagerImpl::PrepareConfigureParams(
     ModelTypeConfigurer::ConfigureParams* params) {
   // Divide up the types into their corresponding actions:
   // - Types which are newly enabled are downloaded.
-  // - Types which have encountered a fatal error (fatal_types) are deleted
-  //   from the directory and journaled in the delete journal.
   // - Types which have encountered a cryptographer error (crypto_types) are
   //   unapplied (local state is purged but sync state is not).
   // - All other types not in the routing info (types just disabled) are deleted
@@ -634,14 +640,6 @@ ModelTypeSet DataTypeManagerImpl::PrepareConfigureParams(
     types_to_purge.RemoveAll(unready_types);
   }
 
-  // If a type has already been disabled and unapplied or journaled, it will
-  // not be part of the |types_to_purge| set, and therefore does not need
-  // to be acted on again.
-  ModelTypeSet types_to_journal = Intersection(fatal_types, types_to_purge);
-  ModelTypeSet unapply_types = Union(crypto_types, clean_types);
-  unapply_types.RetainAll(types_to_purge);
-
-  DCHECK(Intersection(downloaded_types_, types_to_journal).Empty());
   DCHECK(Intersection(downloaded_types_, crypto_types).Empty());
   // |downloaded_types_| was already updated to include all enabled types.
   DCHECK(downloaded_types_.HasAll(types_to_download));
@@ -654,8 +652,6 @@ ModelTypeSet DataTypeManagerImpl::PrepareConfigureParams(
   params->disabled_types = disabled_types;
   params->to_download = types_to_download;
   params->to_purge = types_to_purge;
-  params->to_journal = types_to_journal;
-  params->to_unapply = unapply_types;
   params->ready_task = base::BindOnce(&DataTypeManagerImpl::DownloadReady,
                                       weak_ptr_factory_.GetWeakPtr(),
                                       download_types_queue_.front());
@@ -664,7 +660,6 @@ ModelTypeSet DataTypeManagerImpl::PrepareConfigureParams(
 
   DCHECK(Intersection(active_types, types_to_purge).Empty());
   DCHECK(Intersection(active_types, fatal_types).Empty());
-  DCHECK(Intersection(active_types, unapply_types).Empty());
   DCHECK(Intersection(active_types, inactive_types).Empty());
   return Difference(active_types, types_to_download);
 }
@@ -703,12 +698,6 @@ void DataTypeManagerImpl::StartNextAssociation(AssociationGroup group) {
   model_association_manager_.StartAssociationAsync(types_to_associate);
 }
 
-void DataTypeManagerImpl::OnSingleDataTypeWillStart(ModelType type) {
-  DCHECK(controllers_->find(type) != controllers_->end());
-  DataTypeController* dtc = controllers_->find(type)->second.get();
-  dtc->BeforeLoadModels(configurer_);
-}
-
 void DataTypeManagerImpl::OnSingleDataTypeWillStop(ModelType type,
                                                    const SyncError& error) {
   auto c_it = controllers_->find(type);
@@ -739,12 +728,6 @@ void DataTypeManagerImpl::OnSingleDataTypeAssociationDone(
     ModelType type,
     const DataTypeAssociationStats& association_stats) {
   DCHECK(!association_types_queue_.empty());
-  auto c_it = controllers_->find(type);
-  DCHECK(c_it != controllers_->end());
-  if (c_it->second->state() == DataTypeController::RUNNING) {
-    // Delegate activation to the controller.
-    c_it->second->ActivateDataType(configurer_);
-  }
 
   if (!debug_info_listener_.IsInitialized())
     return;
@@ -789,7 +772,7 @@ void DataTypeManagerImpl::OnModelAssociationDone(
     return;
   }
 
-  if (result.status == ABORTED || result.status == UNRECOVERABLE_ERROR) {
+  if (result.status == ABORTED) {
     Abort(result.status);
     return;
   }
@@ -891,11 +874,6 @@ void DataTypeManagerImpl::NotifyDone(const ConfigureResult& raw_result) {
       DVLOG(1) << "NotifyDone called with result: ABORTED";
       base::UmaHistogramLongTimes(prefix_uma + ".ABORTED", configure_time);
       break;
-    case DataTypeManager::UNRECOVERABLE_ERROR:
-      DVLOG(1) << "NotifyDone called with result: UNRECOVERABLE_ERROR";
-      base::UmaHistogramLongTimes(prefix_uma + ".UNRECOVERABLE_ERROR",
-                                  configure_time);
-      break;
     case DataTypeManager::UNKNOWN:
       NOTREACHED();
       break;
@@ -907,6 +885,22 @@ ModelTypeSet DataTypeManagerImpl::GetActiveDataTypes() const {
   if (state_ != CONFIGURED)
     return ModelTypeSet();
   return GetEnabledTypes();
+}
+
+ModelTypeSet DataTypeManagerImpl::GetPurgedDataTypes() const {
+  ModelTypeSet purged_types;
+
+  for (const auto& kv : *controllers_) {
+    ModelType type = kv.first;
+    const DataTypeController* controller = kv.second.get();
+    // TODO(crbug.com/897628): NOT_RUNNING doesn't necessarily mean the sync
+    // metadata was cleared, if KEEP_METADATA was used when stopping.
+    if (controller->state() == DataTypeController::NOT_RUNNING) {
+      purged_types.Put(type);
+    }
+  }
+
+  return purged_types;
 }
 
 bool DataTypeManagerImpl::IsNigoriEnabled() const {

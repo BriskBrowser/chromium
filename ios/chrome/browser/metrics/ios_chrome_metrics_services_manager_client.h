@@ -42,7 +42,12 @@ class IOSChromeMetricsServicesManagerClient
   scoped_refptr<network::SharedURLLoaderFactory> GetURLLoaderFactory() override;
   bool IsMetricsReportingEnabled() override;
   bool IsMetricsConsentGiven() override;
-  bool IsIncognitoSessionActive() override;
+  bool IsOffTheRecordSessionActive() override;
+
+  // Static helper for |IsOffTheRecordSessionActive()|, suitable for binding
+  // into callbacks. |true| if any browser states have any incognito WebStates
+  // in any Browser.
+  static bool AreIncognitoTabsPresent();
 
   // MetricsStateManager which is passed as a parameter to service constructors.
   std::unique_ptr<metrics::MetricsStateManager> metrics_state_manager_;

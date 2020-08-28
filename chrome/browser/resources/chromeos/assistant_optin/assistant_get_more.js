@@ -10,6 +10,12 @@
  * Event 'loaded' will be fired when the page has been successfully loaded.
  */
 
+/**
+ * Name of the screen.
+ * @type {string}
+ */
+const GET_MORE_SCREEN_ID = 'GetMoreScreen';
+
 Polymer({
   is: 'assistant-get-more',
 
@@ -46,6 +52,9 @@ Polymer({
    */
   screenShown_: false,
 
+  /** @private {?assistant.BrowserProxy} */
+  browserProxy_: null,
+
   /**
    * On-tap event handler for next button.
    *
@@ -62,10 +71,13 @@ Polymer({
     var emailOptedIn =
         toggleEmail != null && toggleEmail.hasAttribute('checked');
 
-    // TODO(updowndota): Wrap chrome.send() calls with a proxy object.
-    chrome.send(
-        'login.AssistantOptInFlowScreen.GetMoreScreen.userActed',
-        [screenContext, emailOptedIn]);
+    this.browserProxy_.userActed(
+        GET_MORE_SCREEN_ID, [screenContext, emailOptedIn]);
+  },
+
+  /** @override */
+  created() {
+    this.browserProxy_ = assistant.BrowserProxyImpl.getInstance();
   },
 
   /**
@@ -111,12 +123,12 @@ Polymer({
       zippy.setAttribute('toggle-style', true);
       zippy.id = 'zippy-' + data['id'];
       var title = document.createElement('div');
-      title.className = 'zippy-title';
+      title.slot = 'title';
       title.textContent = data['title'];
       zippy.appendChild(title);
 
       var toggle = document.createElement('cr-toggle');
-      toggle.className = 'zippy-toggle';
+      toggle.slot = 'toggle';
       toggle.id = 'toggle-' + data['id'];
       if (data['defaultEnabled']) {
         toggle.setAttribute('checked', '');
@@ -127,7 +139,7 @@ Polymer({
       zippy.appendChild(toggle);
 
       var description = document.createElement('div');
-      description.className = 'zippy-description';
+      description.slot = 'content';
       description.textContent = data['description'];
       if (data['legalText']) {
         var legalText = document.createElement('p');
@@ -153,7 +165,7 @@ Polymer({
     this.buttonsDisabled = false;
     this.$['next-button'].focus();
     if (!this.hidden && !this.screenShown_) {
-      chrome.send('login.AssistantOptInFlowScreen.GetMoreScreen.screenShown');
+      this.browserProxy_.screenShown(GET_MORE_SCREEN_ID);
       this.screenShown_ = true;
     }
   },
@@ -166,7 +178,7 @@ Polymer({
       this.reloadPage();
     } else {
       this.$['next-button'].focus();
-      chrome.send('login.AssistantOptInFlowScreen.GetMoreScreen.screenShown');
+      this.browserProxy_.screenShown(GET_MORE_SCREEN_ID);
       this.screenShown_ = true;
     }
   },

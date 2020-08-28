@@ -6,8 +6,10 @@ package org.chromium.chrome.browser.locale;
 
 import android.app.Activity;
 import android.support.test.InstrumentationRegistry;
-import android.support.test.filters.LargeTest;
 
+import androidx.test.filters.LargeTest;
+
+import org.hamcrest.Matchers;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -15,8 +17,8 @@ import org.junit.runner.RunWith;
 
 import org.chromium.base.test.util.CallbackHelper;
 import org.chromium.base.test.util.CommandLineFlags;
-import org.chromium.chrome.browser.ChromeSwitches;
 import org.chromium.chrome.browser.ChromeTabbedActivity;
+import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.init.ChromeBrowserInitializer;
 import org.chromium.chrome.browser.search_engines.TemplateUrlServiceFactory;
 import org.chromium.chrome.browser.searchwidget.SearchActivity;
@@ -84,26 +86,13 @@ public class DefaultSearchEnginePromoDialogTest {
         final DefaultSearchEnginePromoDialog tabbedDialog = showDialog(tabbedActivity);
         Assert.assertEquals(tabbedDialog, DefaultSearchEnginePromoDialog.getCurrentDialog());
 
-        CriteriaHelper.pollUiThread(Criteria.equals(false, new Callable<Boolean>() {
-            @Override
-            public Boolean call() {
-                return searchDialog.isShowing();
-            }
-        }));
-
-        CriteriaHelper.pollUiThread(Criteria.equals(true, new Callable<Boolean>() {
-            @Override
-            public Boolean call() {
-                return searchActivity.isFinishing();
-            }
-        }));
+        CriteriaHelper.pollUiThread(() -> !searchDialog.isShowing());
+        CriteriaHelper.pollUiThread(() -> searchActivity.isFinishing());
 
         TestThreadUtils.runOnUiThreadBlocking(() -> tabbedDialog.dismiss());
-        CriteriaHelper.pollUiThread(new Criteria() {
-            @Override
-            public boolean isSatisfied() {
-                return DefaultSearchEnginePromoDialog.getCurrentDialog() == null;
-            }
+        CriteriaHelper.pollUiThread(() -> {
+            Criteria.checkThat(
+                    DefaultSearchEnginePromoDialog.getCurrentDialog(), Matchers.nullValue());
         });
     }
 

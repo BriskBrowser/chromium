@@ -51,6 +51,8 @@ class ChromeWebClient : public web::WebClient {
       bool overridable,
       int64_t navigation_id,
       const base::Callback<void(bool)>& callback) override;
+  bool IsLegacyTLSAllowedForHost(web::WebState* web_state,
+                                 const std::string& hostname) override;
   void PrepareErrorPage(web::WebState* web_state,
                         const GURL& url,
                         NSError* error,
@@ -61,13 +63,11 @@ class ChromeWebClient : public web::WebClient {
                         base::OnceCallback<void(NSString*)> callback) override;
   UIView* GetWindowedContainer() override;
   bool ForceMobileVersionByDefault(const GURL& url) override;
-  web::UserAgentType GetDefaultUserAgent(UIView* web_view) override;
+  web::UserAgentType GetDefaultUserAgent(id<UITraitEnvironment> web_view,
+                                         const GURL& url) override;
+  bool IsEmbedderBlockRestoreUrlEnabled() override;
 
  private:
-  // Returns a string describing the product name and version, of the
-  // form "productname/version". Used as part of the user agent string.
-  std::string GetProduct() const;
-
   // Reference to a view that is attached to a window.
   UIView* windowed_container_ = nil;
 

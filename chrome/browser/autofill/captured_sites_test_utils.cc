@@ -20,16 +20,19 @@
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/threading/thread_restrictions.h"
 #include "base/time/time.h"
 #include "base/values.h"
 #include "build/build_config.h"
-#include "chrome/browser/permissions/permission_request_manager.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/test/base/interactive_test_utils.h"
 #include "chrome/test/base/ui_test_utils.h"
-#include "components/app_modal/javascript_app_modal_dialog.h"
-#include "components/app_modal/native_app_modal_dialog.h"
+#include "components/autofill/core/browser/test_autofill_clock.h"
+#include "components/autofill/core/common/autofill_clock.h"
+#include "components/javascript_dialogs/app_modal_dialog_controller.h"
+#include "components/javascript_dialogs/app_modal_dialog_view.h"
+#include "components/permissions/permission_request_manager.h"
 #include "content/public/browser/browsing_data_remover.h"
 #include "content/public/browser/navigation_handle.h"
 #include "content/public/browser/render_process_host.h"
@@ -43,6 +46,7 @@
 #include "ipc/ipc_logging.h"
 #include "ipc/ipc_message_macros.h"
 #include "ipc/ipc_sync_message.h"
+#include "third_party/zlib/google/compression_utils.h"
 #include "ui/events/keycodes/dom/dom_key.h"
 #include "ui/events/keycodes/keyboard_code_conversion.h"
 #include "ui/events/keycodes/keyboard_codes.h"
@@ -74,13 +78,17 @@ const int kAutofillActionNumRetries = 5;
 // validation errors from WPR.
 const char kWebPageReplayCertSPKI[] =
     "PoNnQAwghMiLUPg1YNFtvTfGreNT8r9oeLEyzgNCJWc=";
+
+const char kClockNotSetMessage[] =
+    "No AutofillClock override set from wpr archive: ";
 }  // namespace
 
 namespace captured_sites_test_utils {
 
 CapturedSiteParams::CapturedSiteParams() = default;
 CapturedSiteParams::~CapturedSiteParams() = default;
-CapturedSiteParams::CapturedSiteParams(const CapturedSiteParams& other) = default;
+CapturedSiteParams::CapturedSiteParams(const CapturedSiteParams& other) =
+    default;
 
 std::ostream& operator<<(std::ostream& os, const CapturedSiteParams& param) {
   if (param.scenario_dir.empty())
@@ -109,17 +117,12 @@ std::vector<CapturedSiteParams> GetCapturedSites(
   base::Value root_node;
   {
     JSONReader::ValueWithError value_with_error =
-        JSONReader().ReadAndReturnValueWithError(
+        JSONReader::ReadAndReturnValueWithError(
             json_text, JSONParserOptions::JSON_PARSE_RFC);
-    if (value_with_error.error_code !=
-        JSONReader::JsonParseError::JSON_NO_ERROR) {
+    if (!value_with_error.value) {
       LOG(WARNING) << "Could not load test config from json file: "
                    << "`testcases.json` because: "
                    << value_with_error.error_message;
-      return sites;
-    }
-    if (!value_with_error.value) {
-      LOG(WARNING) << "JSON Reader could not any object from `testcases.json`";
       return sites;
     }
     root_node = std::move(value_with_error.value.value());
@@ -313,13 +316,52 @@ bool TestRecipeReplayer::ReplayTest(const base::FilePath capture_file_path,
                                     const base::FilePath recipe_file_path) {
   if (!StartWebPageReplayServer(capture_file_path))
     return false;
-
+  if (OverrideAutofillClock(capture_file_path))
+    VLOG(1) << "AutofillClock was set to:" << autofill::AutofillClock::Now();
   return ReplayRecordedActions(recipe_file_path);
 }
 
 const std::vector<testing::AssertionResult>
 TestRecipeReplayer::GetValidationFailures() const {
   return validation_failures_;
+}
+
+// Extracts the time of the wpr recording from the wpr archive file and
+// overrides the autofill::AutofillClock to match that time.
+bool TestRecipeReplayer::OverrideAutofillClock(
+    const base::FilePath capture_file_path) {
+  std::string json_text;
+  {
+    base::ScopedAllowBlockingForTesting allow_blocking;
+    if (!base::ReadFileToString(capture_file_path, &json_text)) {
+      VLOG(1) << kClockNotSetMessage << "Could not read file";
+      return false;
+    }
+  }
+  // Decompress the json text from gzip.
+  std::string decompressed_json_text;
+  if (!compression::GzipUncompress(json_text, &decompressed_json_text)) {
+    VLOG(1) << kClockNotSetMessage << "Could not gzip decompress file";
+    return false;
+  }
+  // Convert the file text into a json object.
+  base::Optional<base::Value> parsed_json =
+      base::JSONReader::Read(decompressed_json_text);
+  if (!parsed_json) {
+    VLOG(1) << kClockNotSetMessage << "Failed to deserialize json";
+    return false;
+  }
+  std::unique_ptr<base::DictionaryValue> wpr_info = base::DictionaryValue::From(
+      base::Value::ToUniquePtrValue(std::move(*parsed_json)));
+
+  base::Value* time_value = wpr_info->FindKey("DeterministicTimeSeedMs");
+  if (!time_value) {
+    VLOG(1) << kClockNotSetMessage << "No DeterministicTimeSeedMs found";
+    return false;
+  }
+  // wpr archive stores time seed in ms, clock is set in seconds.
+  test_clock_.SetNow(base::Time::FromDoubleT(time_value->GetDouble() / 1000));
+  return true;
 }
 
 // static
@@ -344,8 +386,9 @@ void TestRecipeReplayer::Setup() {
   CleanupSiteData();
 
   // Bypass permission dialogs.
-  PermissionRequestManager::FromWebContents(GetWebContents())
-      ->set_auto_response_for_test(PermissionRequestManager::ACCEPT_ALL);
+  permissions::PermissionRequestManager::FromWebContents(GetWebContents())
+      ->set_auto_response_for_test(
+          permissions::PermissionRequestManager::ACCEPT_ALL);
 }
 
 void TestRecipeReplayer::Cleanup() {
@@ -568,7 +611,7 @@ bool TestRecipeReplayer::RunWebPageReplayCmd(
       base::FilePath(FILE_PATH_LITERAL("win"))
           .AppendASCII("AMD64")
           .AppendASCII("wpr.exe");
-#elif defined(OS_MACOSX)
+#elif defined(OS_MAC)
   base::FilePath wpr_executable_binary =
       base::FilePath(FILE_PATH_LITERAL("mac"))
           .AppendASCII("x86_64")
@@ -614,7 +657,7 @@ bool TestRecipeReplayer::RunWebPageReplayCmd(
           web_page_replay_support_file_dir.AppendASCII("wpr_key.pem").value())
           .c_str()));
 
-  for (const auto arg : args)
+  for (const auto& arg : args)
     full_command.AppendArg(arg);
 
   LOG(INFO) << full_command.GetArgumentsString();
@@ -647,12 +690,13 @@ bool TestRecipeReplayer::ReplayRecordedActions(
   }
 
   // Convert the file text into a json object.
-  std::unique_ptr<base::DictionaryValue> recipe = base::DictionaryValue::From(
-      base::JSONReader().ReadToValueDeprecated(json_text));
-  if (!recipe) {
+  base::Optional<base::Value> parsed_json = base::JSONReader::Read(json_text);
+  if (!parsed_json) {
     ADD_FAILURE() << "Failed to deserialize json text!";
     return false;
   }
+  std::unique_ptr<base::DictionaryValue> recipe = base::DictionaryValue::From(
+      base::Value::ToUniquePtrValue(std::move(*parsed_json)));
 
   if (!InitializeBrowserToExecuteRecipe(recipe))
     return false;
@@ -1715,7 +1759,8 @@ bool TestRecipeReplayer::SimulateLeftMouseClickAt(
     return false;
 
   blink::WebMouseEvent mouse_event(
-      blink::WebInputEvent::kMouseDown, blink::WebInputEvent::kNoModifiers,
+      blink::WebInputEvent::Type::kMouseDown,
+      blink::WebInputEvent::kNoModifiers,
       blink::WebInputEvent::GetStaticTimeStampForTests());
   mouse_event.button = blink::WebMouseEvent::Button::kLeft;
   mouse_event.SetPositionInWidget(point.x(), point.y());
@@ -1730,7 +1775,7 @@ bool TestRecipeReplayer::SimulateLeftMouseClickAt(
   content::RenderWidgetHost* widget = view->GetRenderWidgetHost();
 
   widget->ForwardMouseEvent(mouse_event);
-  mouse_event.SetType(blink::WebInputEvent::kMouseUp);
+  mouse_event.SetType(blink::WebInputEvent::Type::kMouseUp);
   widget->ForwardMouseEvent(mouse_event);
   return true;
 }
@@ -1764,9 +1809,9 @@ void TestRecipeReplayer::NavigateAwayAndDismissBeforeUnloadDialog() {
   ui_test_utils::NavigateToURLWithDisposition(
       browser(), GURL(url::kAboutBlankURL), WindowOpenDisposition::CURRENT_TAB,
       ui_test_utils::BROWSER_TEST_NONE);
-  app_modal::JavaScriptAppModalDialog* alert =
+  javascript_dialogs::AppModalDialogController* alert =
       ui_test_utils::WaitForAppModalDialog();
-  alert->native_dialog()->AcceptAppModalDialog();
+  alert->view()->AcceptAppModalDialog();
 }
 
 bool TestRecipeReplayer::HasChromeStoredCredential(

@@ -8,6 +8,7 @@
 <translation id="1046068652463704410">Спосіб введення для японської мови (клавіатура США)</translation>
 <translation id="1047956942837015229">Видалення елементів (<ph name="COUNT" />)…</translation>
 <translation id="1049926623896334335">Документ Word</translation>
+<translation id="1060368002126861100">Щоб відкривати файли через додаток <ph name="APP_NAME" />, спершу перемістіть їх у папку з файлами в ОС Windows.</translation>
 <translation id="1062407476771304334">Замінити</translation>
 <translation id="1065449928621190041">Французька розкладка (Канада)</translation>
 <translation id="1119069657431255176">Архів у форматі TAR зі стисненням Bzip2</translation>
@@ -20,6 +21,7 @@
 <translation id="1150565364351027703">Сонцезахисні окуляри</translation>
 <translation id="115443833402798225">Клавіатура хангул (анмате)</translation>
 <translation id="1155759005174418845">Каталанська</translation>
+<translation id="1172970565351728681">Залишилося приблизно <ph name="REMAINING_TIME" /></translation>
 <translation id="1173894706177603556">Перейменувати</translation>
 <translation id="117624967391683467">Копіювання файлу <ph name="FILE_NAME" />…</translation>
 <translation id="1178581264944972037">Пауза</translation>
@@ -29,6 +31,7 @@
 <translation id="1243314992276662751">Завантажити</translation>
 <translation id="1249250836236328755">Жанр</translation>
 <translation id="1278813325885878377">Угорська клавіатура QWERTY</translation>
+<translation id="1293556467332435079">Файли</translation>
 <translation id="1297922636971898492">Диск Google зараз недоступний. Завантаження автоматично відновиться після повторного під’єднання до Google Диска.</translation>
 <translation id="1307931752636661898">Не вдається переглянути файли Linux</translation>
 <translation id="1310751437842832374">Транслітерація (mausam → ନମସ୍ତେ)</translation>
@@ -44,6 +47,8 @@
 <translation id="1395262318152388157">Повзунок пошуку</translation>
 <translation id="1399648040768741453">Клавіатура телугу (фонетична)</translation>
 <translation id="1430915738399379752">Друк</translation>
+<translation id="1433600251059882049">Linux і Windows мають доступ до цієї папки</translation>
+<translation id="1435838927755162558">Надати додатку Parallels Desktop доступ до папки</translation>
 <translation id="1439494416798956626">Переміщено в папку "<ph name="FOLDER_NAME" />".</translation>
 <translation id="1441841714100794440">В’єтнамська клавіатура (телекс)</translation>
 <translation id="1455548678241328678">Норвезька розкладка</translation>
@@ -78,6 +83,7 @@
 <translation id="1844692022597038441">Цей файл не доступний в режимі офлайн.</translation>
 <translation id="184633654410729720">Тайська клавіатура (кедмані)</translation>
 <translation id="1847880352285315359">Збережено</translation>
+<translation id="1853795129690976061">Linux має доступ до цієї папки</translation>
 <translation id="1864756863218646478">Файл неможливо знайти.</translation>
 <translation id="1921986354447415460">Турецька клавіатура F</translation>
 <translation id="1924372192547904021">Диск "<ph name="DRIVE_NAME" />" відформатовано</translation>
@@ -89,6 +95,7 @@
 <translation id="1947424002851288782">Німецька розкладка</translation>
 <translation id="1972984168337863910">Розгортаються панелі відгуків про файли</translation>
 <translation id="1984603991036629094">Вірменська клавіатура (фонетична)</translation>
+<translation id="1995337122023280937">Відкрити місце розташування файлу</translation>
 <translation id="2001796770603320721">Керувати на Диску</translation>
 <translation id="2009067268969781306">Якщо відформатувати диск, усі збережені на ньому дані буде видалено. Цю дію не можна відмінити.</translation>
 <translation id="2028997212275086731">Архів у форматі RAR</translation>
@@ -100,7 +107,6 @@
 <translation id="2085470240340828803">Файл із назвою "<ph name="FILENAME" />" уже існує. Що робити?</translation>
 <translation id="2121825465123208577">Змінити розмір</translation>
 <translation id="2136953289241069843">Транслітерація (namaste → नमस्कार)</translation>
-<translation id="2138867954865495510">Не вдається відкрити шлях <ph name="PATH" />: <ph name="ERROR_MESSAGE" /></translation>
 <translation id="2163152940313951844">Недійсний символ: <ph name="CHARACTER_NAME" /></translation>
 <translation id="2164862903024139959">В’єтнамська клавіатура (TCVN)</translation>
 <translation id="2168214441502403371">Перська клавіатура</translation>
@@ -122,6 +128,7 @@
 <translation id="2384596874640104496">Сингальська клавіатура</translation>
 <translation id="240770291734945588">Доступно <ph name="SPACE_AVAILABLE" /></translation>
 <translation id="2425665904502185219">Загальний розмір файлу</translation>
+<translation id="2428749644083375155">Копіювання елементів (<ph name="NUMBER_OF_ITEMS" />) у папку "<ph name="FOLDER_NAME" />"</translation>
 <translation id="2448312741937722512">Тип</translation>
 <translation id="2453576648990281505">Файл уже існує</translation>
 <translation id="2464079411014186876">Морозиво</translation>
@@ -140,6 +147,7 @@
 <translation id="2638942478653899953">Диск Google недоступний. <ph name="BEGIN_LINK" />Вийдіть<ph name="END_LINK" /> і ввійдіть знову.</translation>
 <translation id="2649120831653069427">Золота рибка</translation>
 <translation id="2661146741306740526">16x9</translation>
+<translation id="2664412712123763093">Місце розташування файлу</translation>
 <translation id="2672394958563893062">Сталася помилка. Натисніть, щоб знову запустити з початку.</translation>
 <translation id="2676946222714718093">Відтворюється на пристрої</translation>
 <translation id="2735698359135166290">Стандартна румунська клавіатура</translation>
@@ -175,6 +183,7 @@
 <translation id="303198083543495566">Координати</translation>
 <translation id="3057861065630527966">Створити резервні копії фотографій і відео</translation>
 <translation id="3064388234319122767">Транслітерація (zdravo → здраво)</translation>
+<translation id="3067790092342515856">Файли Windows</translation>
 <translation id="3078461028045006476">Надіслати в <ph name="EXTENSION_NAME" /></translation>
 <translation id="3088034400796962477">Транслітерація (salam ← سلام)</translation>
 <translation id="3116361045094675131">Британська розкладка</translation>
@@ -189,6 +198,7 @@
 <translation id="3236289833370040187">Право власності буде передано в домен <ph name="DESTINATION_DOMAIN" />.</translation>
 <translation id="3241720467332021590">Ірландська</translation>
 <translation id="3245321423178950146">Невідомий виконавець</translation>
+<translation id="3248185426436836442">Очікування</translation>
 <translation id="3252266817569339921">Французька</translation>
 <translation id="3254434849914415189">Вибрати програму за умовчанням для файлів <ph name="FILE_TYPE" />:</translation>
 <translation id="3264582393905923483">Контекст</translation>
@@ -199,6 +209,7 @@
 <translation id="3335337277364016868">Рік запису</translation>
 <translation id="3338239663705455570">Словенська розкладка</translation>
 <translation id="3353984535370177728">Виберіть папку для завантаження</translation>
+<translation id="3356580349448036450">Готово</translation>
 <translation id="3399597614303179694">Македонська клавіатура</translation>
 <translation id="3414856743105198592">Форматування знімного носія призведе до стирання всіх даних. Продовжити?</translation>
 <translation id="3437801641691368414">Час створення</translation>
@@ -210,8 +221,10 @@
 <translation id="3495304270784461826">Помилок: <ph name="COUNT" />.</translation>
 <translation id="3519867315646775981">Транслітерація (shalom ← שלום)</translation>
 <translation id="3522708245912499433">Португальська</translation>
+<translation id="3524311639100184459">Увага: ці файли тимчасові й можуть автоматично видалятися, щоб звільнити місце на диску.  <ph name="BEGIN_LINK" />Докладніше<ph name="END_LINK" /></translation>
 <translation id="3527085408025491307">Папка</translation>
 <translation id="3549797760399244642">Перейти на drive.google.com...</translation>
+<translation id="3553048479571901246">Щоб відкривати файли через додаток <ph name="APP_NAME" />, спершу скопіюйте їх у папку з файлами в ОС Windows.</translation>
 <translation id="357479282490346887">Литовська</translation>
 <translation id="3583509704582854624">Буквено-цифрове введення (японська клавіатура)</translation>
 <translation id="3603385196401704894">Французька (Канада)</translation>
@@ -232,9 +245,11 @@
 <translation id="3780536599611287598">У вас немає дозволу переміщати файли в папку "<ph name="FOLDER_NAME" />".</translation>
 <translation id="3786301125658655746">Ви в режимі офлайн</translation>
 <translation id="3789841737615482174">Встановити</translation>
+<translation id="3793469551756281394">Залишилося приблизно <ph name="REMAINING_TIME_HOUR" /> <ph name="REMAINING_TIME_MINUTE" /></translation>
 <translation id="3798449238516105146">Версія</translation>
 <translation id="3801082500826908679">Фарерська</translation>
 <translation id="3809272675881623365">Кролик</translation>
+<translation id="3810973564298564668">Змінити</translation>
 <translation id="3811494700605067549">Вибрано 1 файл</translation>
 <translation id="3815016854028376614">Метод введення для стандарту чжуїнь</translation>
 <translation id="3825863595139017598">Монгольська клавіатура</translation>
@@ -255,6 +270,7 @@
 <translation id="3943857333388298514">Вставити</translation>
 <translation id="3958548648197196644">Ківі</translation>
 <translation id="3966388904776714213">Аудіопрогравач</translation>
+<translation id="3984317463833596033">Надати додатку Parallels Desktop дозвіл змінювати файли в папці "<ph name="FOLDER_NAME" />"</translation>
 <translation id="4002066346123236978">Назва</translation>
 <translation id="4070370845051020638">Метод введення кантонським діалектом</translation>
 <translation id="4072248638558688893">Тамільська клавіатура (фонетична)</translation>
@@ -283,8 +299,10 @@
 <translation id="4470564870223067757">Клавіатура хангул із 2 наборами клавіш</translation>
 <translation id="4477219268485577442">Болгарська (фонетична)</translation>
 <translation id="4479812471636796472">Розкладка Дворака (США)</translation>
+<translation id="4481711095103932593">ОС Windows має доступ до цієї папки</translation>
 <translation id="4487088045714738411">Бельгійська розкладка</translation>
 <translation id="4522570452068850558">Деталі</translation>
+<translation id="4542387084127299777">Не вдається відкрити файл "<ph name="PATH" />"</translation>
 <translation id="4552678318981539154">Придбати більше об’єму пам’яті</translation>
 <translation id="4559767610552730302">Боке</translation>
 <translation id="4572815280350369984">Файл <ph name="FILE_TYPE" /></translation>
@@ -292,6 +310,7 @@
 <translation id="4579744207439506346">Додано до вибраного: <ph name="ENTRY_NAME" />.</translation>
 <translation id="4582497162516204941">Установити з Linux (бета-версія)</translation>
 <translation id="4594543368593301662">Результати для запиту "<ph name="SEARCH_TERM" />".</translation>
+<translation id="4603392156942865207">Копіювання файлу <ph name="FILE_NAME" /> у папку "<ph name="FOLDER_NAME" />"</translation>
 <translation id="4631887759990505102">Виконавець</translation>
 <translation id="4656293982926141856">На цьому комп’ютері</translation>
 <translation id="4669606053856530811">Учасники, які мають доступ до розташування "<ph name="SOURCE_NAME" />", втратять доступ до елементів, якими з ними не поділилися.</translation>
@@ -325,10 +344,12 @@
 <translation id="4880520557730313061">Автовиправлення</translation>
 <translation id="4881695831933465202">Відкрити</translation>
 <translation id="4886021172213954916">Тамільська клавіатура (друкарська машинка)</translation>
+<translation id="4900532980794411603">Надати доступ додатку Parallels Desktop</translation>
 <translation id="4905417359854579806">Готово до резервного копіювання: <ph name="FILE_COUNT" /></translation>
 <translation id="4924638091161556692">Виправлено</translation>
 <translation id="4935975195727477204">Квітка</translation>
 <translation id="4943368462779413526">Футбольний м’яч</translation>
+<translation id="4961158930123534723">Додатку Parallels Desktop надано доступ до 1 папки</translation>
 <translation id="4969785127455456148">Альбом</translation>
 <translation id="497244430928947428">Малаяламська клавіатура (фонетична)</translation>
 <translation id="4973523518332075481">Задовга назва. Максимальна кількість символів: <ph name="MAX_LENGTH" />.</translation>
@@ -340,10 +361,12 @@
 <translation id="5010406651457630570">Комп’ютери</translation>
 <translation id="5011233892417813670">Chromebook</translation>
 <translation id="5024856940085636730">Операція триває довше, ніж очікувалось. Скасувати її?</translation>
+<translation id="5036159836254554629">Керувати доступом додатка Parallels Desktop</translation>
 <translation id="5038625366300922036">Більше…</translation>
 <translation id="5061708541166515394">Контраст</translation>
 <translation id="5068919226082848014">Піца</translation>
 <translation id="5081517858322016911">Буде видалено файли загальним обсягом <ph name="TOTAL_FILE_SIZE" /></translation>
+<translation id="508423945471810158">Переміщення елементів (<ph name="NUMBER_OF_ITEMS" />) у папку "<ph name="FOLDER_NAME" />"</translation>
 <translation id="509429900233858213">Сталася помилка.</translation>
 <translation id="5098629044894065541">Іврит</translation>
 <translation id="5123433949759960244">Баскетбол</translation>
@@ -362,7 +385,7 @@
 <translation id="5177526793333269655">Перегляд ескізів</translation>
 <translation id="5194713942430106590">Натисніть, щоб відсортувати стовпці в порядку зростання.</translation>
 <translation id="5218183485292899140">Французька (Швейцарія)</translation>
-<translation id="5234764350956374838">Відхилити</translation>
+<translation id="5234764350956374838">Закрити</translation>
 <translation id="5241298539944515331">В’єтнамська клавіатура (VIQR)</translation>
 <translation id="5253070652067921974">Автор:</translation>
 <translation id="5257456363153333584">Бабка</translation>
@@ -389,6 +412,7 @@
 <translation id="5418923334382419584">Мʼянмська клавіатура</translation>
 <translation id="5428105026674456456">Іспанська</translation>
 <translation id="5438282218546237410">Немає результатів для запиту "<ph name="SEARCH_TERM" />".</translation>
+<translation id="5449551289610225147">Недійсний пароль</translation>
 <translation id="5464696796438641524">Польська розкладка</translation>
 <translation id="5465122519792752163">Непальська клавіатура (індійські шрифти)</translation>
 <translation id="5469868506864199649">Італійська</translation>
@@ -447,6 +471,7 @@
 <translation id="6054173164583630569">Французька розкладка</translation>
 <translation id="6074825444536523002">Форма Google</translation>
 <translation id="6096979789310008754">Текст пошукового запиту стерто, показано всі папки та файли.</translation>
+<translation id="610101264611565198"><ph name="FILE_NAME" /> переміщається в папку "<ph name="FOLDER_NAME" />"</translation>
 <translation id="6111770213269631447">Транслітерація (namaskar → নমস্কার)</translation>
 <translation id="6129953537138746214">Пробіл</translation>
 <translation id="6133173853026656527">Переміщення файлу <ph name="FILE_NAME" />…</translation>
@@ -487,10 +512,12 @@
 <translation id="656398493051028875">Видалення файлу "<ph name="FILENAME" />"…</translation>
 <translation id="6581162200855843583">Посилання Google Диска</translation>
 <translation id="6607272825297743757">Інформація про файл</translation>
+<translation id="6609332149380188670">Додатку Parallels Desktop надано доступ до папок (<ph name="NUMBER_OF_ITEMS" />)</translation>
 <translation id="6629841649550503054">Усі файли імпортовано на <ph name="BEGIN_LINK" />Google Диск.<ph name="END_LINK" /></translation>
 <translation id="6643016212128521049">Очистити</translation>
 <translation id="6650726141019353908">Рожевий метелик</translation>
-<translation id="6710213216561001401">Попереднє</translation>
+<translation id="6657585470893396449">Пароль</translation>
+<translation id="6710213216561001401">Назад</translation>
 <translation id="6718273304615422081">Архівування…</translation>
 <translation id="6751256176799620176">Вибрано 1 папку</translation>
 <translation id="6760765581316020278">В’єтнамська клавіатура (VNI)</translation>
@@ -499,6 +526,7 @@
 <translation id="6806699711453372963">Керувати спільним доступом Linux</translation>
 <translation id="6808193438228982088">Лисиця</translation>
 <translation id="6820687829547641339">Архів у форматі TAR зі стисненням Gzip</translation>
+<translation id="6823166707458800069">Резервні копії всіх файлів, збережених у цій папці, автоматично створюються в мережі.</translation>
 <translation id="6825883775269213504">Російська</translation>
 <translation id="6827236167376090743">Це відео буде відтворюватися, доки рак на горі не свисне.</translation>
 <translation id="6847101934483209767">Видалено з вибраного: <ph name="ENTRY_NAME" />.</translation>
@@ -508,6 +536,7 @@
 <translation id="6878261347041253038">Клавіатура деванагарі (фонетична)</translation>
 <translation id="6885780034956018177">Равлик</translation>
 <translation id="6896758677409633944">Копіювати</translation>
+<translation id="6898028766943174120">Інші підпапки…</translation>
 <translation id="691516599546977041">Неможливо зберегти в папку "<ph name="FOLDER_NAME" />". Відредаговані зображення буде збережено в папці "Завантаження".</translation>
 <translation id="6915678159055240887">Chromebox</translation>
 <translation id="6918340160281024199">US Workman</translation>
@@ -520,6 +549,7 @@
 <translation id="696203921837389374">Увімкнути синхронізацію через мобільний Інтернет</translation>
 <translation id="6965382102122355670">OK</translation>
 <translation id="6970230597523682626">Болгарська</translation>
+<translation id="6973630695168034713">Папки</translation>
 <translation id="6978611942794658017">Цей файл створено для ПК, на яких використовується програмне забезпечення Windows. Він несумісний із вашим пристроєм, оскільки на ньому встановлено ОС Chrome. Знайдіть відповідний додаток у Веб-магазині Chrome.</translation>
 <translation id="6979158407327259162">Диск Google</translation>
 <translation id="6990081529015358884">У вас недостатньо місця</translation>
@@ -553,6 +583,7 @@
 <translation id="7417705661718309329">Карта Google</translation>
 <translation id="7419631653042041064">Каталонська розкладка</translation>
 <translation id="7434823369735508263">Розкладка Дворака (Велика Британія)</translation>
+<translation id="7447678886297481665">Файли в цій папці можна лише переглядати. Деякі дії не підтримуються.</translation>
 <translation id="7460898608667578234">Українська</translation>
 <translation id="7474889694310679759">Англійська розкладка (Канада)</translation>
 <translation id="7489215562877293245">Знайдено: <ph name="FILE_COUNT" />
@@ -662,6 +693,7 @@
 <translation id="8475647382427415476">Не вдалося синхронізувати файл "<ph name="FILENAME" />". Google Диск спробує пізніше.</translation>
 <translation id="8477649328507734757">Концентричні кола</translation>
 <translation id="8487700953926739672">Доступ у режимі офлайн</translation>
+<translation id="8490342535582768689">Надати додатку Parallels Desktop дозвіл змінювати файли на Google Диску. Зміни буде синхронізовано з вашими іншими пристроями.</translation>
 <translation id="8521441079177373948">Англійська (Велика Британія)</translation>
 <translation id="8525306231823319788">На весь екран</translation>
 <translation id="8551494947769799688">Латвійська</translation>
@@ -697,6 +729,7 @@
 <translation id="9065203028668620118">Редагувати</translation>
 <translation id="9099674669267916096">Кількість сторінок</translation>
 <translation id="9110990317705400362">Ми постійно шукаємо способи зробити перегляд веб-сторінок безпечнішим. Раніше будь-який веб-сайт міг пропонувати вам додати розширення у веб-переглядач. В останніх версіях Google Chrome ви маєте чітко вказати, що хочете встановити ці розширення, додавши їх на сторінці "Розширення". <ph name="BEGIN_LINK" />Докладніше<ph name="END_LINK" /></translation>
+<translation id="9111102763498581341">Розблокувати</translation>
 <translation id="912419004897138677">Кодек</translation>
 <translation id="9129931661813833980">Закріпити папку</translation>
 <translation id="9130775360844693113">Учасники, які мають доступ до розташування "<ph name="DESTINATION_NAME" />", отримають доступ до цих елементів.</translation>

@@ -120,18 +120,23 @@ CanvasRenderingContext2DState::CanvasRenderingContext2DState(
 
 CanvasRenderingContext2DState::~CanvasRenderingContext2DState() = default;
 
-void CanvasRenderingContext2DState::FontsNeedUpdate(
-    FontSelector* font_selector) {
+void CanvasRenderingContext2DState::FontsNeedUpdate(FontSelector* font_selector,
+                                                    FontInvalidationReason) {
   DCHECK_EQ(font_selector, font_.GetFontSelector());
   DCHECK(realized_font_);
 
-  font_.Update(font_selector);
+  if (!RuntimeEnabledFeatures::CSSReducedFontLoadingInvalidationsEnabled()) {
+    // With the feature enabled, |font_| will revalidate its FontFallbackList on
+    // demand. We don't need to manually reset the Font object here.
+    font_ = Font(font_.GetFontDescription(), font_selector);
+  }
+
   // FIXME: We only really need to invalidate the resolved filter if the font
   // update above changed anything and the filter uses font-dependent units.
   resolved_filter_.reset();
 }
 
-void CanvasRenderingContext2DState::Trace(blink::Visitor* visitor) {
+void CanvasRenderingContext2DState::Trace(Visitor* visitor) const {
   visitor->Trace(stroke_style_);
   visitor->Trace(fill_style_);
   visitor->Trace(filter_value_);
@@ -253,10 +258,12 @@ void CanvasRenderingContext2DState::ClipPath(
     has_complex_clip_ = true;
 }
 
-void CanvasRenderingContext2DState::SetFont(const Font& font,
-                                            FontSelector* selector) {
-  font_ = font;
-  font_.Update(selector);
+void CanvasRenderingContext2DState::SetFont(
+    const FontDescription& passed_font_description,
+    FontSelector* selector) {
+  FontDescription font_description = passed_font_description;
+  font_description.SetSubpixelAscentDescent(true);
+  font_ = Font(font_description, selector);
   realized_font_ = true;
   if (selector)
     selector->RegisterForInvalidationCallbacks(this);
@@ -265,6 +272,12 @@ void CanvasRenderingContext2DState::SetFont(const Font& font,
 const Font& CanvasRenderingContext2DState::GetFont() const {
   DCHECK(realized_font_);
   return font_;
+}
+
+const FontDescription& CanvasRenderingContext2DState::GetFontDescription()
+    const {
+  DCHECK(realized_font_);
+  return font_.GetFontDescription();
 }
 
 void CanvasRenderingContext2DState::SetTransform(
@@ -330,7 +343,8 @@ sk_sp<PaintFilter> CanvasRenderingContext2DState::GetFilter(
   if (!resolved_filter_) {
     // Update the filter value to the proper base URL if needed.
     if (filter_value_->MayContainUrl()) {
-      style_resolution_host->GetDocument().UpdateStyleAndLayout();
+      style_resolution_host->GetDocument().UpdateStyleAndLayout(
+          DocumentUpdateReason::kCanvas);
       filter_value_->ReResolveUrl(style_resolution_host->GetDocument());
     }
 
@@ -624,15 +638,16 @@ const PaintFlags* CanvasRenderingContext2DState::GetFlags(
   return flags;
 }
 
-bool CanvasRenderingContext2DState::HasPattern() const {
-  return FillStyle() && FillStyle()->GetCanvasPattern() &&
-         FillStyle()->GetCanvasPattern()->GetPattern();
+bool CanvasRenderingContext2DState::HasPattern(PaintType paint_type) const {
+  return Style(paint_type) && Style(paint_type)->GetCanvasPattern() &&
+         Style(paint_type)->GetCanvasPattern()->GetPattern();
 }
 
 // Only to be used if the CanvasRenderingContext2DState has Pattern
-bool CanvasRenderingContext2DState::PatternIsAccelerated() const {
-  DCHECK(HasPattern());
-  return FillStyle()->GetCanvasPattern()->GetPattern()->IsTextureBacked();
+bool CanvasRenderingContext2DState::PatternIsAccelerated(
+    PaintType paint_type) const {
+  DCHECK(HasPattern(paint_type));
+  return Style(paint_type)->GetCanvasPattern()->GetPattern()->IsTextureBacked();
 }
 
 }  // namespace blink

@@ -15,7 +15,6 @@
 #include "base/memory/weak_ptr.h"
 #include "base/optional.h"
 #include "base/strings/string16.h"
-#include "base/task/cancelable_task_tracker.h"
 #include "base/time/time.h"
 #include "base/token.h"
 #include "chrome/browser/defaults.h"
@@ -26,7 +25,7 @@
 #include "chrome/browser/ui/browser_list_observer.h"
 #include "components/keyed_service/core/keyed_service.h"
 #include "components/sessions/content/session_tab_helper_delegate.h"
-#include "components/sessions/core/base_session_service_delegate.h"
+#include "components/sessions/core/command_storage_manager_delegate.h"
 #include "components/sessions/core/session_service_commands.h"
 #include "components/sessions/core/tab_restore_service_client.h"
 #include "components/tab_groups/tab_group_id.h"
@@ -44,6 +43,7 @@ namespace sessions {
 class SessionCommand;
 struct SessionTab;
 struct SessionWindow;
+class SnapshottingCommandStorageManager;
 }  // namespace sessions
 
 // SessionService ------------------------------------------------------------
@@ -63,10 +63,10 @@ struct SessionWindow;
 // SessionService itself uses functions from session_service_commands to store
 // commands which can rebuild the open state of the browser (as |SessionWindow|,
 // |SessionTab| and |SerializedNavigationEntry|). The commands are periodically
-// flushed to |SessionBackend| and written to a file. Every so often
+// flushed to |CommandStorageBackend| and written to a file. Every so often
 // |SessionService| rebuilds the contents of the file from the open state of the
 // browser.
-class SessionService : public sessions::BaseSessionServiceDelegate,
+class SessionService : public sessions::CommandStorageManagerDelegate,
                        public sessions::SessionTabHelperDelegate,
                        public KeyedService,
                        public BrowserListObserver {
@@ -143,14 +143,9 @@ class SessionService : public sessions::BaseSessionServiceDelegate,
                       const SessionID& tab_id,
                       bool is_pinned);
 
-  // Notification that a tab has been closed. |closed_by_user_gesture| comes
-  // from |WebContents::closed_by_user_gesture|; see it for details.
-  //
   // Note: this is invoked from the NavigationController's destructor, which is
   // after the actual tab has been removed.
-  void TabClosed(const SessionID& window_id,
-                 const SessionID& tab_id,
-                 bool closed_by_user_gesture);
+  void TabClosed(const SessionID& window_id, const SessionID& tab_id);
 
   // Notification a window has opened.
   void WindowOpened(Browser* browser);
@@ -196,18 +191,17 @@ class SessionService : public sessions::BaseSessionServiceDelegate,
   // Fetches the contents of the last session, notifying the callback when
   // done. If the callback is supplied an empty vector of SessionWindows
   // it means the session could not be restored.
-  base::CancelableTaskTracker::TaskId GetLastSession(
-      sessions::GetLastSessionCallback callback,
-      base::CancelableTaskTracker* tracker);
+  void GetLastSession(sessions::GetLastSessionCallback callback);
 
-  // BaseSessionServiceDelegate:
+  // CommandStorageManagerDelegate:
   bool ShouldUseDelayedSave() override;
   void OnWillSaveCommands() override;
 
   // sessions::SessionTabHelperDelegate:
   void SetTabUserAgentOverride(const SessionID& window_id,
                                const SessionID& tab_id,
-                               const std::string& user_agent_override) override;
+                               const sessions::SerializedUserAgentOverride&
+                                   user_agent_override) override;
   void SetSelectedNavigationIndex(const SessionID& window_id,
                                   const SessionID& tab_id,
                                   int index) override;
@@ -325,7 +319,7 @@ class SessionService : public sessions::BaseSessionServiceDelegate,
   void MaybeDeleteSessionOnlyData();
 
   // Unit test accessors.
-  sessions::BaseSessionService* GetBaseSessionServiceForTest();
+  sessions::CommandStorageManager* GetCommandStorageManagerForTest();
 
   void SetAvailableRangeForTest(const SessionID& tab_id,
                                 const std::pair<int, int>& range);
@@ -339,8 +333,8 @@ class SessionService : public sessions::BaseSessionServiceDelegate,
   // (which should only be used for testing).
   bool should_use_delayed_save_;
 
-  // The owned BaseSessionService.
-  std::unique_ptr<sessions::BaseSessionService> base_session_service_;
+  std::unique_ptr<sessions::SnapshottingCommandStorageManager>
+      command_storage_manager_;
 
   // Maps from session tab id to the range of navigation entries that has
   // been written to disk.
@@ -373,6 +367,12 @@ class SessionService : public sessions::BaseSessionServiceDelegate,
 
   // Are there any open trackable browsers?
   bool has_open_trackable_browsers_;
+
+  // Used to override HasOpenTrackableBrowsers()
+  bool has_open_trackable_browser_for_test_ = true;
+
+  // Use to override IsOnlyOneTableft()
+  bool is_only_one_tab_left_for_test_ = false;
 
   // If true and a new tabbed browser is created and there are no opened tabbed
   // browser (has_open_trackable_browsers_ is false), then the current session

@@ -137,7 +137,9 @@ namespace developerPrivate {
     boolean corruptInstall;
     boolean updateRequired;
     boolean blockedByPolicy;
+    boolean reloading;
     boolean custodianApprovalRequired;
+    boolean parentDisabledPermissions;
   };
 
   dictionary OptionsPage {
@@ -160,11 +162,6 @@ namespace developerPrivate {
     ViewType type;
   };
 
-  enum ControllerType {
-    POLICY,
-    SUPERVISED_USER_CUSTODIAN
-  };
-
   enum HostAccess {
     ON_CLICK,
     ON_SPECIFIC_SITES,
@@ -172,7 +169,6 @@ namespace developerPrivate {
   };
 
   dictionary ControlledInfo {
-    ControllerType type;
     DOMString text;
   };
 

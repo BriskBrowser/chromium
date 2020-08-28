@@ -24,12 +24,9 @@
 #import "ios/chrome/browser/metrics/incognito_web_state_observer.h"
 #include "ios/web/public/deprecated/global_web_state_observer.h"
 
+class ChromeBrowserState;
 class IOSChromeStabilityMetricsProvider;
 class PrefRegistrySimple;
-
-namespace ios {
-class ChromeBrowserState;
-}
 
 namespace metrics {
 class MetricsService;
@@ -107,6 +104,14 @@ class IOSChromeMetricsServiceClient : public IncognitoWebStateObserver,
   // Completes the two-phase initialization of IOSChromeMetricsServiceClient.
   void Initialize();
 
+  // Registers providers to the MetricsService. These provide data from
+  // alternate sources.
+  void RegisterMetricsServiceProviders();
+
+  // Registers providers to the UkmService. These provide data from alternate
+  // sources.
+  void RegisterUKMProviders();
+
   // Callbacks for various stages of final log info collection. Do not call
   // these directly.
   void CollectFinalHistograms();
@@ -120,7 +125,7 @@ class IOSChromeMetricsServiceClient : public IncognitoWebStateObserver,
 
   // Register to observe events on a browser state's services.
   // Returns true if registration was successful.
-  bool RegisterForBrowserStateEvents(ios::ChromeBrowserState* browser_state);
+  bool RegisterForBrowserStateEvents(ChromeBrowserState* browser_state);
 
   // Called when a tab is parented.
   void OnTabParented(web::WebState* web_state);

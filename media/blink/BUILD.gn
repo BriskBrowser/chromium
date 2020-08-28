@@ -82,6 +82,7 @@ component("blink") {
     "//media",
     "//media:shared_memory_support",
     "//media/learning/common",
+    "//media/learning/mojo/public/cpp:cpp",
     "//media/mojo/mojom",
     "//net",
     "//services/network/public/cpp:cpp",
@@ -98,6 +99,8 @@ component("blink") {
       "webmediaplayer_impl.cc",
       "webmediaplayer_impl.h",
     ]
+
+    deps += [ "//media/remoting:remoting_constants" ]
   }
 }
 
@@ -124,9 +127,7 @@ test("media_blink_unittests") {
     "//url",
   ]
 
-  data = [
-    "//media/test/data/",
-  ]
+  data = [ "//media/test/data/" ]
 
   configs += [
     "//build/config/compiler:no_size_t_to_int_warning",

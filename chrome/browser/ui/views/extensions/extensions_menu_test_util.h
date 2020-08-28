@@ -6,9 +6,9 @@
 #define CHROME_BROWSER_UI_VIEWS_EXTENSIONS_EXTENSIONS_MENU_TEST_UTIL_H_
 
 #include <memory>
+#include <string>
 
 #include "base/auto_reset.h"
-#include "base/macros.h"
 #include "chrome/browser/ui/extensions/extension_action_test_helper.h"
 
 class Browser;
@@ -21,7 +21,8 @@ class ExtensionsToolbarContainer;
 class ExtensionsMenuTestUtil : public ExtensionActionTestHelper {
  public:
   ExtensionsMenuTestUtil(Browser* browser, bool is_real_window);
-
+  ExtensionsMenuTestUtil(const ExtensionsMenuTestUtil&) = delete;
+  ExtensionsMenuTestUtil& operator=(const ExtensionsMenuTestUtil&) = delete;
   ~ExtensionsMenuTestUtil() override;
 
   // ExtensionActionTestHelper:
@@ -35,14 +36,13 @@ class ExtensionsMenuTestUtil : public ExtensionActionTestHelper {
   std::string GetTooltip(int index) override;
   gfx::NativeView GetPopupNativeView() override;
   bool HasPopup() override;
-  gfx::Size GetPopupSize() override;
   bool HidePopup() override;
-  bool ActionButtonWantsToRun(size_t index) override;
   void SetWidth(int width) override;
   ToolbarActionsBar* GetToolbarActionsBar() override;
   ExtensionsContainer* GetExtensionsContainer() override;
   std::unique_ptr<ExtensionActionTestHelper> CreateOverflowBar(
       Browser* browser) override;
+  void LayoutForOverflowBar() override;
   // TODO(devlin): Some of these popup methods have a common implementation
   // between this and ExtensionActionTestHelperViews. It would make sense to
   // extract them (since they aren't dependent on the extension action UI
@@ -50,7 +50,6 @@ class ExtensionsMenuTestUtil : public ExtensionActionTestHelper {
   gfx::Size GetMinPopupSize() override;
   gfx::Size GetMaxPopupSize() override;
   gfx::Size GetToolbarActionSize() override;
-  bool CanBeResized() override;
 
  private:
   class Wrapper;
@@ -66,10 +65,8 @@ class ExtensionsMenuTestUtil : public ExtensionActionTestHelper {
   std::unique_ptr<Wrapper> wrapper_;
 
   Browser* const browser_;
-  ExtensionsToolbarContainer* extensions_container_;
+  ExtensionsToolbarContainer* extensions_container_ = nullptr;
   std::unique_ptr<ExtensionsMenuView> menu_view_;
-
-  DISALLOW_COPY_AND_ASSIGN(ExtensionsMenuTestUtil);
 };
 
 #endif  // CHROME_BROWSER_UI_VIEWS_EXTENSIONS_EXTENSIONS_MENU_TEST_UTIL_H_

@@ -7,7 +7,6 @@
 
 #include <memory>
 
-#include "base/macros.h"
 #include "ios/public/provider/chrome/browser/chrome_browser_provider.h"
 
 namespace ios {
@@ -17,11 +16,16 @@ class TestChromeBrowserProvider : public ChromeBrowserProvider {
   TestChromeBrowserProvider();
   ~TestChromeBrowserProvider() override;
 
+  TestChromeBrowserProvider(const TestChromeBrowserProvider&) = delete;
+  TestChromeBrowserProvider& operator=(const TestChromeBrowserProvider&) =
+      delete;
+
   // Returns the current provider as a |TestChromeBrowserProvider|.
   static TestChromeBrowserProvider* GetTestProvider();
 
   // ChromeBrowserProvider:
   SigninResourcesProvider* GetSigninResourcesProvider() override;
+  SigninErrorProvider* GetSigninErrorProvider() override;
   void SetChromeIdentityServiceForTesting(
       std::unique_ptr<ChromeIdentityService> service) override;
   ChromeIdentityService* GetChromeIdentityService() override;
@@ -34,20 +38,21 @@ class TestChromeBrowserProvider : public ChromeBrowserProvider {
   FullscreenProvider* GetFullscreenProvider() const override;
   BrandedImageProvider* GetBrandedImageProvider() const override;
   MailtoHandlerProvider* GetMailtoHandlerProvider() const override;
+  DiscoverFeedProvider* GetDiscoverFeedProvider() const override;
 
  private:
   std::unique_ptr<AppDistributionProvider> app_distribution_provider_;
   std::unique_ptr<BrandedImageProvider> branded_image_provider_;
   std::unique_ptr<ChromeIdentityService> chrome_identity_service_;
   std::unique_ptr<OmahaServiceProvider> omaha_service_provider_;
+  std::unique_ptr<SigninErrorProvider> signin_error_provider_;
   std::unique_ptr<SigninResourcesProvider> signin_resources_provider_;
   std::unique_ptr<VoiceSearchProvider> voice_search_provider_;
   std::unique_ptr<UserFeedbackProvider> user_feedback_provider_;
   std::unique_ptr<SpotlightProvider> spotlight_provider_;
   std::unique_ptr<MailtoHandlerProvider> mailto_handler_provider_;
   std::unique_ptr<FullscreenProvider> fullscreen_provider_;
-
-  DISALLOW_COPY_AND_ASSIGN(TestChromeBrowserProvider);
+  std::unique_ptr<DiscoverFeedProvider> discover_feed_provider_;
 };
 
 }  // namespace ios

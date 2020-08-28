@@ -31,7 +31,7 @@ namespace protocol {
 class ServiceWorkerHandler : public DevToolsDomainHandler,
                              public ServiceWorker::Backend {
  public:
-  ServiceWorkerHandler();
+  explicit ServiceWorkerHandler(bool allow_inspect_worker);
   ~ServiceWorkerHandler() override;
 
   void Wire(UberDispatcher* dispatcher) override;
@@ -67,11 +67,12 @@ class ServiceWorkerHandler : public DevToolsDomainHandler,
       const std::vector<ServiceWorkerVersionInfo>& registrations);
   void OnErrorReported(int64_t registration_id,
                        int64_t version_id,
-                       const ServiceWorkerContextCoreObserver::ErrorInfo& info);
+                       const ServiceWorkerContextObserver::ErrorInfo& info);
 
   void OpenNewDevToolsWindow(int process_id, int devtools_agent_route_id);
   void ClearForceUpdate();
 
+  const bool allow_inspect_worker_;
   scoped_refptr<ServiceWorkerContextWrapper> context_;
   std::unique_ptr<ServiceWorker::Frontend> frontend_;
   bool enabled_;

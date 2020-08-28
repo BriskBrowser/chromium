@@ -27,7 +27,7 @@ KnownInterceptionDisclosureInfoBar::CreateInfoBar(
 
 KnownInterceptionDisclosureInfoBar::KnownInterceptionDisclosureInfoBar(
     std::unique_ptr<KnownInterceptionDisclosureInfoBarDelegate> delegate)
-    : ConfirmInfoBar(std::move(delegate)) {}
+    : ChromeConfirmInfoBar(std::move(delegate)) {}
 
 ScopedJavaLocalRef<jobject>
 KnownInterceptionDisclosureInfoBar::CreateRenderInfoBar(JNIEnv* env) {
@@ -51,7 +51,7 @@ KnownInterceptionDisclosureInfoBar::CreateRenderInfoBar(JNIEnv* env) {
   }
 
   return Java_KnownInterceptionDisclosureInfoBar_create(
-      env, GetEnumeratedIconId(), java_bitmap, message_text, link_text,
+      env, GetJavaIconId(), java_bitmap, message_text, link_text,
       ok_button_text, description_text);
 }
 

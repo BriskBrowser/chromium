@@ -8,7 +8,8 @@
 #include <string>
 
 #include "base/macros.h"
-#include "chrome/services/app_service/public/mojom/app_service.mojom.h"
+#include "components/services/app_service/public/cpp/publisher_base.h"
+#include "components/services/app_service/public/mojom/app_service.mojom.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "mojo/public/cpp/bindings/receiver.h"
 #include "mojo/public/cpp/bindings/remote.h"
@@ -19,29 +20,22 @@ namespace apps {
 
 // An app publisher (in the App Service sense) of built-in Chrome OS apps.
 //
-// See chrome/services/app_service/README.md.
-class BuiltInChromeOsApps : public apps::mojom::Publisher {
+// See components/services/app_service/README.md.
+class BuiltInChromeOsApps : public apps::PublisherBase {
  public:
   BuiltInChromeOsApps(const mojo::Remote<apps::mojom::AppService>& app_service,
                       Profile* profile);
   ~BuiltInChromeOsApps() override;
 
-  void FlushMojoCallsForTesting();
-
   static bool SetHideSettingsAppForTesting(bool hide);
 
  private:
-  using GetMenuModelCallback =
-      base::OnceCallback<void(::apps::mojom::MenuItemsPtr)>;
-
-  void Initialize(const mojo::Remote<apps::mojom::AppService>& app_service);
-
   // apps::mojom::Publisher overrides.
   void Connect(mojo::PendingRemote<apps::mojom::Subscriber> subscriber_remote,
                apps::mojom::ConnectOptionsPtr opts) override;
   void LoadIcon(const std::string& app_id,
                 apps::mojom::IconKeyPtr icon_key,
-                apps::mojom::IconCompression icon_compression,
+                apps::mojom::IconType icon_type,
                 int32_t size_hint_in_dip,
                 bool allow_placeholder_icon,
                 LoadIconCallback callback) override;
@@ -49,29 +43,12 @@ class BuiltInChromeOsApps : public apps::mojom::Publisher {
               int32_t event_flags,
               apps::mojom::LaunchSource launch_source,
               int64_t display_id) override;
-  void LaunchAppWithIntent(const std::string& app_id,
-                           apps::mojom::IntentPtr intent,
-                           apps::mojom::LaunchSource launch_source,
-                           int64_t display_id) override;
-  void SetPermission(const std::string& app_id,
-                     apps::mojom::PermissionPtr permission) override;
-  void PromptUninstall(const std::string& app_id) override;
-  void Uninstall(const std::string& app_id,
-                 bool clear_site_data,
-                 bool report_abuse) override;
-  void PauseApp(const std::string& app_id) override;
-  void UnpauseApps(const std::string& app_id) override;
   void GetMenuModel(const std::string& app_id,
                     apps::mojom::MenuType menu_type,
-                    GetMenuModelCallback callback);
-  void OpenNativeSettings(const std::string& app_id) override;
-  void OnPreferredAppSet(const std::string& app_id,
-                         apps::mojom::IntentFilterPtr intent_filter,
-                         apps::mojom::IntentPtr intent) override;
+                    int64_t display_id,
+                    GetMenuModelCallback callback) override;
 
-  mojo::Receiver<apps::mojom::Publisher> receiver_{this};
-
-  Profile* profile_;
+  Profile* const profile_;
 
   // Hack to hide the settings app from the app list search box. This is only
   // intended to be used in tests.

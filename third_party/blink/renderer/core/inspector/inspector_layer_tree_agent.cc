@@ -36,6 +36,7 @@
 #include "base/stl_util.h"
 #include "cc/base/region.h"
 #include "cc/layers/picture_layer.h"
+#include "cc/trees/layer_tree_host.h"
 #include "cc/trees/transform_node.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/dom/dom_node_ids.h"
@@ -58,6 +59,7 @@
 #include "third_party/blink/renderer/platform/transforms/transformation_matrix.h"
 #include "third_party/blink/renderer/platform/wtf/text/base64.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_builder.h"
+#include "third_party/inspector_protocol/crdtp/json.h"
 #include "third_party/skia/include/core/SkPicture.h"
 #include "third_party/skia/include/core/SkRefCnt.h"
 #include "ui/gfx/geometry/rect.h"
@@ -259,7 +261,7 @@ InspectorLayerTreeAgent::InspectorLayerTreeAgent(
 
 InspectorLayerTreeAgent::~InspectorLayerTreeAgent() = default;
 
-void InspectorLayerTreeAgent::Trace(blink::Visitor* visitor) {
+void InspectorLayerTreeAgent::Trace(Visitor* visitor) const {
   visitor->Trace(inspected_frames_);
   InspectorBaseAgent::Trace(visitor);
 }
@@ -274,21 +276,21 @@ Response InspectorLayerTreeAgent::enable() {
   instrumenting_agents_->AddInspectorLayerTreeAgent(this);
   Document* document = inspected_frames_->Root()->GetDocument();
   if (!document)
-    return Response::Error("The root frame doesn't have document");
+    return Response::ServerError("The root frame doesn't have document");
 
   inspected_frames_->Root()->View()->UpdateAllLifecyclePhases(
-      DocumentLifecycle::LifecycleUpdateReason::kOther);
+      DocumentUpdateReason::kInspector);
 
   LayerTreePainted();
   LayerTreeDidChange();
 
-  return Response::OK();
+  return Response::Success();
 }
 
 Response InspectorLayerTreeAgent::disable() {
   instrumenting_agents_->RemoveInspectorLayerTreeAgent(this);
   snapshot_by_id_.clear();
-  return Response::OK();
+  return Response::Success();
 }
 
 void InspectorLayerTreeAgent::LayerTreeDidChange() {
@@ -312,16 +314,13 @@ InspectorLayerTreeAgent::BuildLayerTree() {
 
   auto layers = std::make_unique<protocol::Array<protocol::LayerTree::Layer>>();
   auto* root_frame = inspected_frames_->Root();
-  auto* layer_for_scrolling =
-      root_frame->View()->LayoutViewport()->LayerForScrolling();
-  int scrolling_layer_id = layer_for_scrolling ? layer_for_scrolling->id() : 0;
   bool have_blocking_wheel_event_handlers =
       root_frame->GetChromeClient().EventListenerProperties(
           root_frame, cc::EventListenerClass::kMouseWheel) ==
       cc::EventListenerProperties::kBlocking;
 
   GatherLayers(root_layer, layers, have_blocking_wheel_event_handlers,
-               scrolling_layer_id);
+               root_layer->layer_tree_host()->OuterViewportScrollElementId());
   return layers;
 }
 
@@ -329,18 +328,18 @@ void InspectorLayerTreeAgent::GatherLayers(
     const cc::Layer* layer,
     std::unique_ptr<Array<protocol::LayerTree::Layer>>& layers,
     bool has_wheel_event_handlers,
-    int scrolling_layer_id) {
+    CompositorElementId outer_viewport_scroll_element_id) {
   if (client_->IsInspectorLayer(layer))
     return;
   if (layer->layer_tree_host()->is_hud_layer(layer))
     return;
-  int layer_id = layer->id();
   layers->emplace_back(BuildObjectForLayer(
       RootLayer(), layer,
-      has_wheel_event_handlers && layer_id == scrolling_layer_id));
+      has_wheel_event_handlers &&
+          layer->element_id() == outer_viewport_scroll_element_id));
   for (auto child : layer->children()) {
     GatherLayers(child.get(), layers, has_wheel_event_handlers,
-                 scrolling_layer_id);
+                 outer_viewport_scroll_element_id);
   }
 }
 
@@ -349,6 +348,8 @@ const cc::Layer* InspectorLayerTreeAgent::RootLayer() {
 }
 
 static const cc::Layer* FindLayerById(const cc::Layer* root, int layer_id) {
+  if (!root)
+    return nullptr;
   if (root->id() == layer_id)
     return root;
   for (auto child : root->children()) {
@@ -363,27 +364,36 @@ Response InspectorLayerTreeAgent::LayerById(const String& layer_id,
   bool ok;
   int id = layer_id.ToInt(&ok);
   if (!ok)
-    return Response::Error("Invalid layer id");
+    return Response::ServerError("Invalid layer id");
 
   result = FindLayerById(RootLayer(), id);
   if (!result)
-    return Response::Error("No layer matching given id found");
-  return Response::OK();
+    return Response::ServerError("No layer matching given id found");
+  return Response::Success();
 }
 
 Response InspectorLayerTreeAgent::compositingReasons(
     const String& layer_id,
-    std::unique_ptr<Array<String>>* reason_strings) {
+    std::unique_ptr<Array<String>>* compositing_reasons,
+    std::unique_ptr<Array<String>>* compositing_reason_ids) {
   const cc::Layer* layer = nullptr;
   Response response = LayerById(layer_id, layer);
-  if (!response.isSuccess())
+  if (!response.IsSuccess())
     return response;
-  *reason_strings = std::make_unique<protocol::Array<String>>();
+  *compositing_reasons = std::make_unique<protocol::Array<String>>();
+  *compositing_reason_ids = std::make_unique<protocol::Array<String>>();
   if (layer->debug_info()) {
-    for (const char* name : layer->debug_info()->compositing_reasons)
-      (*reason_strings)->emplace_back(name);
+    for (const char* compositing_reason :
+         layer->debug_info()->compositing_reasons) {
+      (*compositing_reasons)->emplace_back(compositing_reason);
+    }
+    for (const char* compositing_reason_id :
+         layer->debug_info()->compositing_reason_ids) {
+      (*compositing_reason_ids)->emplace_back(compositing_reason_id);
+    }
   }
-  return Response::OK();
+
+  return Response::Success();
 }
 
 Response InspectorLayerTreeAgent::makeSnapshot(const String& layer_id,
@@ -397,38 +407,38 @@ Response InspectorLayerTreeAgent::makeSnapshot(const String& layer_id,
                                                       ->GetDocument()
                                                       ->Lifecycle()
                                                       .LifecyclePostponed())
-    return Response::Error("Layer does not draw content");
+    return Response::ServerError("Layer does not draw content");
 
   inspected_frames_->Root()->View()->UpdateAllLifecyclePhases(
-      DocumentLifecycle::LifecycleUpdateReason::kOther);
+      DocumentUpdateReason::kInspector);
 
   suppress_layer_paint_events_ = false;
 
   const cc::Layer* layer = nullptr;
   Response response = LayerById(layer_id, layer);
-  if (!response.isSuccess())
+  if (!response.IsSuccess())
     return response;
   if (!layer->DrawsContent())
-    return Response::Error("Layer does not draw content");
+    return Response::ServerError("Layer does not draw content");
 
   auto picture = layer->GetPicture();
   if (!picture)
-    return Response::Error("Layer does not produce picture");
+    return Response::ServerError("Layer does not produce picture");
 
   auto snapshot = base::MakeRefCounted<PictureSnapshot>(std::move(picture));
   *snapshot_id = String::Number(++last_snapshot_id_);
   bool new_entry = snapshot_by_id_.insert(*snapshot_id, snapshot).is_new_entry;
   DCHECK(new_entry);
-  return Response::OK();
+  return Response::Success();
 }
 
 Response InspectorLayerTreeAgent::loadSnapshot(
     std::unique_ptr<Array<protocol::LayerTree::PictureTile>> tiles,
     String* snapshot_id) {
   if (tiles->empty())
-    return Response::Error("Invalid argument, no tiles provided");
+    return Response::ServerError("Invalid argument, no tiles provided");
   if (tiles->size() > UINT_MAX)
-    return Response::Error("Invalid argument, too many tiles provided");
+    return Response::ServerError("Invalid argument, too many tiles provided");
   wtf_size_t tiles_length = static_cast<wtf_size_t>(tiles->size());
   Vector<scoped_refptr<PictureSnapshot::TilePictureStream>> decoded_tiles;
   decoded_tiles.Grow(tiles_length);
@@ -443,22 +453,22 @@ Response InspectorLayerTreeAgent::loadSnapshot(
   scoped_refptr<PictureSnapshot> snapshot =
       PictureSnapshot::Load(decoded_tiles);
   if (!snapshot)
-    return Response::Error("Invalid snapshot format");
+    return Response::ServerError("Invalid snapshot format");
   if (snapshot->IsEmpty())
-    return Response::Error("Empty snapshot");
+    return Response::ServerError("Empty snapshot");
 
   *snapshot_id = String::Number(++last_snapshot_id_);
   bool new_entry = snapshot_by_id_.insert(*snapshot_id, snapshot).is_new_entry;
   DCHECK(new_entry);
-  return Response::OK();
+  return Response::Success();
 }
 
 Response InspectorLayerTreeAgent::releaseSnapshot(const String& snapshot_id) {
   SnapshotById::iterator it = snapshot_by_id_.find(snapshot_id);
   if (it == snapshot_by_id_.end())
-    return Response::Error("Snapshot not found");
+    return Response::ServerError("Snapshot not found");
   snapshot_by_id_.erase(it);
-  return Response::OK();
+  return Response::Success();
 }
 
 Response InspectorLayerTreeAgent::GetSnapshotById(
@@ -466,9 +476,9 @@ Response InspectorLayerTreeAgent::GetSnapshotById(
     const PictureSnapshot*& result) {
   SnapshotById::iterator it = snapshot_by_id_.find(snapshot_id);
   if (it == snapshot_by_id_.end())
-    return Response::Error("Snapshot not found");
+    return Response::ServerError("Snapshot not found");
   result = it->value.get();
-  return Response::OK();
+  return Response::Success();
 }
 
 Response InspectorLayerTreeAgent::replaySnapshot(const String& snapshot_id,
@@ -478,14 +488,14 @@ Response InspectorLayerTreeAgent::replaySnapshot(const String& snapshot_id,
                                                  String* data_url) {
   const PictureSnapshot* snapshot = nullptr;
   Response response = GetSnapshotById(snapshot_id, snapshot);
-  if (!response.isSuccess())
+  if (!response.IsSuccess())
     return response;
   auto png_data = snapshot->Replay(from_step.fromMaybe(0), to_step.fromMaybe(0),
                                    scale.fromMaybe(1.0));
   if (png_data.IsEmpty())
-    return Response::Error("Image encoding failed");
+    return Response::ServerError("Image encoding failed");
   *data_url = "data:image/png;base64," + Base64Encode(png_data);
-  return Response::OK();
+  return Response::Success();
 }
 
 static void ParseRect(protocol::DOM::Rect* object, FloatRect* rect) {
@@ -501,7 +511,7 @@ Response InspectorLayerTreeAgent::profileSnapshot(
     std::unique_ptr<protocol::Array<protocol::Array<double>>>* out_timings) {
   const PictureSnapshot* snapshot = nullptr;
   Response response = GetSnapshotById(snapshot_id, snapshot);
-  if (!response.isSuccess())
+  if (!response.IsSuccess())
     return response;
   FloatRect rect;
   if (clip_rect.isJust())
@@ -517,7 +527,7 @@ Response InspectorLayerTreeAgent::profileSnapshot(
       out_row->emplace_back(delta.InSecondsF());
     (*out_timings)->emplace_back(std::move(out_row));
   }
-  return Response::OK();
+  return Response::Success();
 }
 
 Response InspectorLayerTreeAgent::snapshotCommandLog(
@@ -525,17 +535,29 @@ Response InspectorLayerTreeAgent::snapshotCommandLog(
     std::unique_ptr<Array<protocol::DictionaryValue>>* command_log) {
   const PictureSnapshot* snapshot = nullptr;
   Response response = GetSnapshotById(snapshot_id, snapshot);
-  if (!response.isSuccess())
+  if (!response.IsSuccess())
     return response;
   protocol::ErrorSupport errors;
-  std::unique_ptr<protocol::Value> log_value = protocol::StringUtil::parseJSON(
-      snapshot->SnapshotCommandLog()->ToJSONString());
+  const String& json = snapshot->SnapshotCommandLog()->ToJSONString();
+  std::vector<uint8_t> cbor;
+  if (json.Is8Bit()) {
+    crdtp::json::ConvertJSONToCBOR(
+        crdtp::span<uint8_t>(json.Characters8(), json.length()), &cbor);
+  } else {
+    crdtp::json::ConvertJSONToCBOR(
+        crdtp::span<uint16_t>(
+            reinterpret_cast<const uint16_t*>(json.Characters16()),
+            json.length()),
+        &cbor);
+  }
+  auto log_value = protocol::Value::parseBinary(cbor.data(), cbor.size());
   *command_log = protocol::ValueConversions<
       protocol::Array<protocol::DictionaryValue>>::fromValue(log_value.get(),
                                                              &errors);
-  if (errors.hasErrors())
-    return Response::Error(errors.errors());
-  return Response::OK();
+  auto err = errors.Errors();
+  if (err.empty())
+    return Response::Success();
+  return Response::ServerError(std::string(err.begin(), err.end()));
 }
 
 }  // namespace blink

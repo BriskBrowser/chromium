@@ -13,12 +13,16 @@
 #include <vector>
 
 #include "base/macros.h"
+#include "base/optional.h"
 #include "base/test/task_environment.h"
 #include "build/build_config.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_view_host.h"
 #include "content/public/test/browser_task_environment.h"
+#include "content/public/test/browser_test_utils.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/blink/public/common/input/synthetic_web_input_event_builders.h"
+#include "third_party/blink/public/common/input/web_input_event.h"
 #include "ui/base/page_transition_types.h"
 
 #if defined(USE_AURA)
@@ -29,7 +33,7 @@ namespace aura {
 namespace test {
 class AuraTestHelper;
 }
-}
+}  // namespace aura
 
 namespace display {
 class Screen;
@@ -48,7 +52,7 @@ class ScopedOleInitializer;
 namespace content {
 
 class BrowserContext;
-class ContentBrowserSanityChecker;
+class ContentBrowserConsistencyChecker;
 class MockRenderProcessHost;
 class MockRenderProcessHostFactory;
 class NavigationController;
@@ -63,6 +67,13 @@ struct WebPreferences;
 // An interface and utility for driving tests of RenderFrameHost.
 class RenderFrameHostTester {
  public:
+  enum class HeavyAdIssueType {
+    kNetworkTotal,
+    kCpuTotal,
+    kCpuPeak,
+    kAll,
+  };
+
   // Retrieves the RenderFrameHostTester that drives the specified
   // RenderFrameHost. The RenderFrameHost must have been created while
   // RenderFrameHost testing was enabled; use a
@@ -92,8 +103,9 @@ class RenderFrameHostTester {
   // Gives tests access to RenderFrameHostImpl::OnDetach. Destroys |this|.
   virtual void Detach() = 0;
 
-  // Calls OnBeforeUnloadACK on this RenderFrameHost with the given parameter.
-  virtual void SendBeforeUnloadACK(bool proceed) = 0;
+  // Calls ProcessBeforeUnloadCompleted on this RenderFrameHost with the given
+  // parameter.
+  virtual void SimulateBeforeUnloadCompleted(bool proceed) = 0;
 
   // Simulates the FrameHostMsg_Unload_ACK that fires if you commit a cross-site
   // navigation without making any network requests.
@@ -107,9 +119,15 @@ class RenderFrameHostTester {
       blink::mojom::FeaturePolicyFeature feature,
       const std::vector<url::Origin>& allowlist) = 0;
 
+  // Simulates the frame receiving a user activation.
+  virtual void SimulateUserActivation() = 0;
+
   // Gets all the console messages requested via
   // RenderFrameHost::AddMessageToConsole in this frame.
   virtual const std::vector<std::string>& GetConsoleMessages() = 0;
+
+  // Get a count of the total number of heavy ad issues reported.
+  virtual int GetHeavyAdIssueCount(HeavyAdIssueType type) = 0;
 };
 
 // An interface and utility for driving tests of RenderViewHost.
@@ -123,16 +141,20 @@ class RenderViewHostTester {
 
   static void SimulateFirstPaint(RenderViewHost* rvh);
 
-  // Returns whether the underlying web-page has any touch-event handlers.
-  static bool HasTouchEventHandler(RenderViewHost* rvh);
+  static std::unique_ptr<content::InputMsgWatcher> CreateInputWatcher(
+      RenderViewHost* rvh,
+      blink::WebInputEvent::Type type);
+
+  static void SendTouchEvent(RenderViewHost* rvh,
+                             blink::SyntheticWebTouchEvent* touch_event);
 
   virtual ~RenderViewHostTester() {}
 
   // Gives tests access to RenderViewHostImpl::CreateRenderView.
-  virtual bool CreateTestRenderView(const base::string16& frame_name,
-                                    int opener_frame_route_id,
-                                    int proxy_routing_id,
-                                    bool created_with_opener) = 0;
+  virtual bool CreateTestRenderView(
+      const base::Optional<base::UnguessableToken>& opener_frame_route_id,
+      int proxy_routing_id,
+      bool created_with_opener) = 0;
 
   // Makes the WasHidden/WasShown calls to the RenderWidget that
   // tell it it has been hidden or restored from having been hidden.
@@ -250,7 +272,7 @@ class RenderViewHostTestHarness : public testing::Test {
   BrowserTaskEnvironment* task_environment() { return task_environment_.get(); }
 
 #if defined(USE_AURA)
-  aura::Window* root_window() { return aura_test_helper_->root_window(); }
+  aura::Window* root_window() { return aura_test_helper_->GetContext(); }
 #endif
 
   // Replaces the RPH being used.
@@ -264,7 +286,7 @@ class RenderViewHostTestHarness : public testing::Test {
 
   std::unique_ptr<BrowserTaskEnvironment> task_environment_;
 
-  std::unique_ptr<ContentBrowserSanityChecker> sanity_checker_;
+  std::unique_ptr<ContentBrowserConsistencyChecker> consistency_checker_;
 
   // TODO(crbug.com/1011275): This is a temporary work around to fix flakiness
   // on tests. The default behavior of the network stack is to allocate a

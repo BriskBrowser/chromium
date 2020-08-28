@@ -35,8 +35,6 @@ using PermissionCallback = base::OnceCallback<void(PermissionStatus)>;
 
 double kMockLatitude = 1.0;
 double kMockLongitude = 10.0;
-GURL kMainUrl = GURL("https://www.google.com/maps");
-GURL kEmbeddedUrl = GURL("https://embeddables.com/someframe");
 
 class TestPermissionManager : public MockPermissionManager {
  public:
@@ -76,7 +74,7 @@ class GeolocationServiceTest : public RenderViewHostImplTestHarness {
 
   void SetUp() override {
     RenderViewHostImplTestHarness::SetUp();
-    NavigateAndCommit(kMainUrl);
+    NavigateAndCommit(GURL("https://www.google.com/maps"));
     browser_context_.reset(new content::TestBrowserContext());
     browser_context_->SetPermissionControllerDelegate(
         std::make_unique<TestPermissionManager>());
@@ -96,6 +94,7 @@ class GeolocationServiceTest : public RenderViewHostImplTestHarness {
   }
 
   void CreateEmbeddedFrameAndGeolocationService(bool allow_via_feature_policy) {
+    const GURL kEmbeddedUrl("https://embeddables.com/someframe");
     if (allow_via_feature_policy) {
       RenderFrameHostTester::For(main_rfh())
           ->SimulateFeaturePolicyHeader(
@@ -150,7 +149,7 @@ TEST_F(GeolocationServiceTest, PermissionGrantedPolicyViolation) {
   mojo::Remote<Geolocation> geolocation;
   service_remote()->CreateGeolocation(
       geolocation.BindNewPipeAndPassReceiver(), true,
-      base::BindRepeating([](blink::mojom::PermissionStatus status) {
+      base::BindOnce([](blink::mojom::PermissionStatus status) {
         EXPECT_EQ(blink::mojom::PermissionStatus::DENIED, status);
       }));
 
@@ -174,7 +173,7 @@ TEST_F(GeolocationServiceTest, PermissionGrantedNoPolicyViolation) {
   mojo::Remote<Geolocation> geolocation;
   service_remote()->CreateGeolocation(
       geolocation.BindNewPipeAndPassReceiver(), true,
-      base::BindRepeating([](blink::mojom::PermissionStatus status) {
+      base::BindOnce([](blink::mojom::PermissionStatus status) {
         EXPECT_EQ(blink::mojom::PermissionStatus::GRANTED, status);
       }));
 
@@ -201,7 +200,7 @@ TEST_F(GeolocationServiceTest, PermissionGrantedSync) {
   mojo::Remote<Geolocation> geolocation;
   service_remote()->CreateGeolocation(
       geolocation.BindNewPipeAndPassReceiver(), true,
-      base::BindRepeating([](blink::mojom::PermissionStatus status) {
+      base::BindOnce([](blink::mojom::PermissionStatus status) {
         EXPECT_EQ(blink::mojom::PermissionStatus::GRANTED, status);
       }));
 
@@ -228,7 +227,7 @@ TEST_F(GeolocationServiceTest, PermissionDeniedSync) {
   mojo::Remote<Geolocation> geolocation;
   service_remote()->CreateGeolocation(
       geolocation.BindNewPipeAndPassReceiver(), true,
-      base::BindRepeating([](blink::mojom::PermissionStatus status) {
+      base::BindOnce([](blink::mojom::PermissionStatus status) {
         EXPECT_EQ(blink::mojom::PermissionStatus::DENIED, status);
       }));
 
@@ -253,7 +252,7 @@ TEST_F(GeolocationServiceTest, PermissionGrantedAsync) {
   mojo::Remote<Geolocation> geolocation;
   service_remote()->CreateGeolocation(
       geolocation.BindNewPipeAndPassReceiver(), true,
-      base::BindRepeating([](blink::mojom::PermissionStatus status) {
+      base::BindOnce([](blink::mojom::PermissionStatus status) {
         EXPECT_EQ(blink::mojom::PermissionStatus::GRANTED, status);
       }));
 
@@ -283,7 +282,7 @@ TEST_F(GeolocationServiceTest, PermissionDeniedAsync) {
   mojo::Remote<Geolocation> geolocation;
   service_remote()->CreateGeolocation(
       geolocation.BindNewPipeAndPassReceiver(), true,
-      base::BindRepeating([](blink::mojom::PermissionStatus status) {
+      base::BindOnce([](blink::mojom::PermissionStatus status) {
         EXPECT_EQ(blink::mojom::PermissionStatus::DENIED, status);
       }));
 
@@ -302,7 +301,7 @@ TEST_F(GeolocationServiceTest, ServiceClosedBeforePermissionResponse) {
   mojo::Remote<Geolocation> geolocation;
   service_remote()->CreateGeolocation(
       geolocation.BindNewPipeAndPassReceiver(), true,
-      base::BindRepeating([](blink::mojom::PermissionStatus) {
+      base::BindOnce([](blink::mojom::PermissionStatus) {
         ADD_FAILURE() << "PositionStatus received unexpectedly.";
       }));
   // Don't immediately respond to the request.

@@ -13,13 +13,15 @@ import android.content.IntentFilter;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.support.test.InstrumentationRegistry;
-import android.support.test.filters.MediumTest;
-import android.support.test.filters.SmallTest;
 import android.support.test.uiautomator.UiDevice;
 import android.support.test.uiautomator.UiObject;
 import android.support.test.uiautomator.UiSelector;
 import android.view.View;
 
+import androidx.test.filters.MediumTest;
+import androidx.test.filters.SmallTest;
+
+import org.hamcrest.Matchers;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -35,23 +37,22 @@ import org.chromium.base.ThreadUtils;
 import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.base.task.PostTask;
 import org.chromium.base.test.util.CommandLineFlags;
+import org.chromium.base.test.util.DisabledTest;
 import org.chromium.base.test.util.Feature;
+import org.chromium.base.test.util.FlakyTest;
 import org.chromium.chrome.R;
-import org.chromium.chrome.browser.ChromeActivity;
-import org.chromium.chrome.browser.ChromeFeatureList;
-import org.chromium.chrome.browser.ChromeSwitches;
 import org.chromium.chrome.browser.ShortcutHelper;
+import org.chromium.chrome.browser.app.ChromeActivity;
 import org.chromium.chrome.browser.customtabs.CustomTabActivityTestRule;
 import org.chromium.chrome.browser.customtabs.CustomTabsTestUtils;
 import org.chromium.chrome.browser.engagement.SiteEngagementService;
-import org.chromium.chrome.browser.infobar.InfoBar;
+import org.chromium.chrome.browser.flags.ChromeFeatureList;
+import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.infobar.InfoBarContainer;
-import org.chromium.chrome.browser.infobar.InfoBarContainer.InfoBarAnimationListener;
-import org.chromium.chrome.browser.infobar.InfoBarContainerLayout.Item;
 import org.chromium.chrome.browser.infobar.InstallableAmbientBadgeInfoBar;
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.tab.Tab;
-import org.chromium.chrome.browser.tab.TabImpl;
+import org.chromium.chrome.browser.tab.TabUtils;
 import org.chromium.chrome.browser.webapps.WebappDataStorage;
 import org.chromium.chrome.test.ChromeActivityTestRule;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
@@ -60,6 +61,9 @@ import org.chromium.chrome.test.util.InfoBarUtil;
 import org.chromium.chrome.test.util.browser.TabLoadObserver;
 import org.chromium.chrome.test.util.browser.TabTitleObserver;
 import org.chromium.chrome.test.util.browser.webapps.WebappTestPage;
+import org.chromium.components.infobars.InfoBar;
+import org.chromium.components.infobars.InfoBarAnimationListener;
+import org.chromium.components.infobars.InfoBarUiItem;
 import org.chromium.content_public.browser.UiThreadTaskTraits;
 import org.chromium.content_public.browser.test.util.Criteria;
 import org.chromium.content_public.browser.test.util.CriteriaHelper;
@@ -67,7 +71,6 @@ import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.content_public.browser.test.util.TouchCommon;
 import org.chromium.content_public.common.ContentUrlConstants;
 import org.chromium.net.test.EmbeddedTestServer;
-import org.chromium.ui.modaldialog.ModalDialogManager;
 import org.chromium.ui.modaldialog.ModalDialogProperties;
 import org.chromium.ui.modaldialog.ModalDialogProperties.ButtonType;
 import org.chromium.ui.modelutil.PropertyModel;
@@ -170,7 +173,7 @@ public class AppBannerManagerTest {
         }
 
         @Override
-        public void notifyAllAnimationsFinished(Item frontInfoBar) {
+        public void notifyAllAnimationsFinished(InfoBarUiItem frontInfoBar) {
             mDoneAnimating = true;
         }
     }
@@ -198,6 +201,7 @@ public class AppBannerManagerTest {
         ThreadUtils.runOnUiThreadBlocking(
                 () -> { AppBannerManager.setAppDetailsDelegate(mDetailsDelegate); });
 
+        AppBannerManager.ignoreChromeChannelForTesting();
         AppBannerManager.setTotalEngagementForTesting(10);
         mTestServer = EmbeddedTestServer.createAndStartServer(InstrumentationRegistry.getContext());
         mUiDevice = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation());
@@ -210,7 +214,8 @@ public class AppBannerManagerTest {
 
     private void resetEngagementForUrl(final String url, final double engagement) {
         ThreadUtils.runOnUiThreadBlocking(() -> {
-            SiteEngagementService.getForProfile(Profile.getLastUsedProfile())
+            // TODO (https://crbug.com/1063807):  Add incognito mode tests.
+            SiteEngagementService.getForProfile(Profile.getLastUsedRegularProfile())
                     .resetBaseScoreForUrl(url, engagement);
         });
     }
@@ -220,12 +225,7 @@ public class AppBannerManagerTest {
     }
 
     private void waitForBannerManager(Tab tab) {
-        CriteriaHelper.pollUiThread(new Criteria() {
-            @Override
-            public boolean isSatisfied() {
-                return !getAppBannerManager(tab).isRunningForTesting();
-            }
-        });
+        CriteriaHelper.pollUiThread(() -> !getAppBannerManager(tab).isRunningForTesting());
     }
 
     private void navigateToUrlAndWaitForBannerManager(
@@ -237,34 +237,27 @@ public class AppBannerManagerTest {
 
     private void waitUntilAppDetailsRetrieved(
             ChromeActivityTestRule<? extends ChromeActivity> rule, final int numExpected) {
-        CriteriaHelper.pollUiThread(new Criteria() {
-            @Override
-            public boolean isSatisfied() {
-                AppBannerManager manager = getAppBannerManager(rule.getActivity().getActivityTab());
-                return mDetailsDelegate.mNumRetrieved == numExpected
-                        && !manager.isRunningForTesting();
-            }
+        CriteriaHelper.pollUiThread(() -> {
+            AppBannerManager manager = getAppBannerManager(rule.getActivity().getActivityTab());
+            Criteria.checkThat(mDetailsDelegate.mNumRetrieved, Matchers.is(numExpected));
+            Criteria.checkThat(manager.isRunningForTesting(), Matchers.is(false));
         });
     }
 
     private void waitUntilAmbientBadgeInfoBarAppears(
             ChromeActivityTestRule<? extends ChromeActivity> rule) {
         if (ChromeFeatureList.isEnabled(ChromeFeatureList.INSTALLABLE_AMBIENT_BADGE_INFOBAR)) {
-            CriteriaHelper.pollUiThread(new Criteria() {
-                @Override
-                public boolean isSatisfied() {
-                    List<InfoBar> infobars = rule.getInfoBars();
-                    if (infobars.size() != 1) return false;
-                    return infobars.get(0) instanceof InstallableAmbientBadgeInfoBar;
-                }
+            CriteriaHelper.pollUiThread(() -> {
+                List<InfoBar> infobars = rule.getInfoBars();
+                Criteria.checkThat(infobars.size(), Matchers.is(1));
+                Criteria.checkThat(
+                        infobars.get(0), Matchers.instanceOf(InstallableAmbientBadgeInfoBar.class));
             });
         }
     }
 
-    private String getExpectedDialogTitle(Tab tab) {
-        return ((TabImpl) tab)
-                .getActivity()
-                .getString(AppBannerManager.getHomescreenLanguageOption());
+    private static String getExpectedDialogTitle(Tab tab) {
+        return TabUtils.getActivity(tab).getString(AppBannerManager.getHomescreenLanguageOption());
     }
 
     private void waitUntilNoDialogsShowing(final Tab tab) {
@@ -355,11 +348,10 @@ public class AppBannerManagerTest {
     }
 
     private void clickButton(final ChromeActivity activity, @ButtonType final int buttonType) {
-        ModalDialogManager manager = activity.getModalDialogManager();
-        PropertyModel model = manager.getCurrentDialogForTest();
-        ModalDialogProperties.Controller dialogController =
-                model.get(ModalDialogProperties.CONTROLLER);
-        TestThreadUtils.runOnUiThreadBlocking(() -> dialogController.onClick(model, buttonType));
+        TestThreadUtils.runOnUiThreadBlocking(() -> {
+            PropertyModel model = activity.getModalDialogManager().getCurrentDialogForTest();
+            model.get(ModalDialogProperties.CONTROLLER).onClick(model, buttonType);
+        });
     }
 
     @Test
@@ -387,11 +379,8 @@ public class AppBannerManagerTest {
         });
 
         // Make sure that the splash screen icon was downloaded.
-        CriteriaHelper.pollUiThread(new Criteria() {
-            @Override
-            public boolean isSatisfied() {
-                return dataStorageFactory.mSplashImage != null;
-            }
+        CriteriaHelper.pollUiThread(() -> {
+            Criteria.checkThat(dataStorageFactory.mSplashImage, Matchers.notNullValue());
         });
 
         // Test that bitmap sizes match expectations.
@@ -431,11 +420,8 @@ public class AppBannerManagerTest {
         });
 
         // Make sure that the splash screen icon was downloaded.
-        CriteriaHelper.pollUiThread(new Criteria() {
-            @Override
-            public boolean isSatisfied() {
-                return dataStorageFactory.mSplashImage != null;
-            }
+        CriteriaHelper.pollUiThread(() -> {
+            Criteria.checkThat(dataStorageFactory.mSplashImage, Matchers.notNullValue());
         });
 
         // Test that bitmap sizes match expectations.
@@ -550,6 +536,7 @@ public class AppBannerManagerTest {
     @Test
     @SmallTest
     @Feature({"AppBanners"})
+    @FlakyTest(message = "crbug.com/1062843")
     public void testModalNativeAppBannerCanBeTriggeredMultipleTimesCustomTab() throws Exception {
         mCustomTabActivityTestRule.startCustomTabActivityWithIntent(
                 CustomTabsTestUtils.createMinimalCustomTabIntent(
@@ -631,6 +618,7 @@ public class AppBannerManagerTest {
     @MediumTest
     @Feature({"AppBanners"})
     @CommandLineFlags.Add("enable-features=" + ChromeFeatureList.INSTALLABLE_AMBIENT_BADGE_INFOBAR)
+    @DisabledTest(message = "Test is flaky, see crbug.com/1054196")
     public void testAmbientBadgeDoesNotAppearWhenEventCanceled() throws Exception {
         String webBannerUrl = WebappTestPage.getServiceWorkerUrlWithAction(
                 mTestServer, "stash_event_and_prevent_default");

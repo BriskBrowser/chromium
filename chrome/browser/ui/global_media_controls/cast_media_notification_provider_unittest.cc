@@ -8,18 +8,21 @@
 #include "chrome/test/base/testing_profile.h"
 #include "components/media_message_center/media_notification_controller.h"
 #include "components/media_message_center/media_notification_view.h"
+#include "components/media_router/common/media_route.h"
 #include "content/public/test/browser_task_environment.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "ui/gfx/vector_icon_types.h"
 
 using media_router::MediaRoute;
+using media_router::RouteControllerType;
 using testing::_;
 
 namespace {
 
-MediaRoute CreateRoute(const std::string& route_id) {
-  media_router::MediaRoute route(route_id,
-                                 media_router::MediaSource("source_id"),
+MediaRoute CreateRoute(const std::string& route_id,
+                       const std::string& source_id = "source_id") {
+  media_router::MediaRoute route(route_id, media_router::MediaSource(source_id),
                                  "sink_id", "description", true, true);
   route.set_controller_type(media_router::RouteControllerType::kGeneric);
   return route;
@@ -37,7 +40,9 @@ class MockMediaNotificationController
   scoped_refptr<base::SequencedTaskRunner> GetTaskRunner() const override {
     return nullptr;
   }
-  MOCK_METHOD1(LogMediaSessionActionButtonPressed, void(const std::string& id));
+  MOCK_METHOD2(LogMediaSessionActionButtonPressed,
+               void(const std::string& id,
+                    media_session::mojom::MediaSessionAction action));
 };
 
 class MockMediaNotificationView
@@ -55,6 +60,7 @@ class MockMediaNotificationView
       void(const base::flat_set<media_session::mojom::MediaSessionAction>&));
   MOCK_METHOD1(UpdateWithMediaArtwork, void(const gfx::ImageSkia&));
   MOCK_METHOD1(UpdateWithFavicon, void(const gfx::ImageSkia&));
+  MOCK_METHOD1(UpdateWithVectorIcon, void(const gfx::VectorIcon& vector_icon));
 };
 
 class MockClosure {
@@ -117,8 +123,22 @@ TEST_F(CastMediaNotificationProviderTest, UpdateRoute) {
 
   EXPECT_CALL(view, UpdateWithMediaMetadata(_))
       .WillOnce([&](const media_session::MediaMetadata& metadata) {
-        EXPECT_EQ(base::UTF8ToUTF16(new_sink), metadata.source_title);
-        EXPECT_EQ(base::UTF8ToUTF16(new_description), metadata.artist);
+        const std::string separator = " \xC2\xB7 ";
+        EXPECT_EQ(base::UTF8ToUTF16(new_description + separator + new_sink),
+                  metadata.source_title);
       });
   notification_provider_->OnRoutesUpdated({route}, {});
+}
+
+TEST_F(CastMediaNotificationProviderTest, RoutesWithoutNotifications) {
+  // These routes should not have notification items created for them.
+  MediaRoute non_display_route = CreateRoute("route-1");
+  non_display_route.set_for_display(false);
+  MediaRoute no_controller_route = CreateRoute("route-2");
+  no_controller_route.set_controller_type(RouteControllerType::kNone);
+  MediaRoute multizone_member_route = CreateRoute("route-3", "cast:705D30C6");
+
+  notification_provider_->OnRoutesUpdated(
+      {non_display_route, no_controller_route, multizone_member_route}, {});
+  EXPECT_FALSE(notification_provider_->HasItems());
 }

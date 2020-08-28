@@ -16,6 +16,9 @@ const char kAllowHTTPBackgroundPage[] = "allow-http-background-page";
 const char kAllowLegacyExtensionManifests[] =
     "allow-legacy-extension-manifests";
 
+// Adds the given extension ID to all the permission allowlists.
+const char kAllowlistedExtensionID[] = "whitelisted-extension-id";
+
 // Enables extension options to be embedded in chrome://extensions rather than
 // a new tab.
 const char kEmbeddedExtensionOptions[] = "embedded-extension-options";
@@ -30,17 +33,10 @@ const char kDisableDesktopCaptureAudio[] =
 const char kEnableExperimentalExtensionApis[] =
     "enable-experimental-extension-apis";
 
-// Enables extensions to hide bookmarks UI elements.
-const char kEnableOverrideBookmarksUI[] = "enable-override-bookmarks-ui";
-
 // Disable the net::URLRequestThrottlerManager functionality for
 // requests originating from extensions.
 const char kDisableExtensionsHttpThrottling[] =
     "disable-extensions-http-throttling";
-
-// Allows the ErrorConsole to collect runtime and manifest errors, and display
-// them in the chrome:extensions page.
-const char kErrorConsole[] = "error-console";
 
 // Marks a renderer as extension process.
 const char kExtensionProcess[] = "extension-process";
@@ -66,6 +62,13 @@ const char kLoadApps[] = "load-apps";
 // Comma-separated list of paths to extensions to load at startup.
 const char kLoadExtension[] = "load-extension";
 
+#if defined(OS_CHROMEOS)
+// Path to the unpacked test extension to load into the signin profile. The ID
+// extension loaded must match kTestSigninProfileExtensionId.
+const char kLoadSigninProfileTestExtension[] =
+    "load-signin-profile-test-extension";
+#endif
+
 // Set the parameters for ExtensionURLLoaderThrottleBrowserTest.
 const char kSetExtensionThrottleTestParams[] =
     "set-extension-throttle-test-params";
@@ -73,9 +76,6 @@ const char kSetExtensionThrottleTestParams[] =
 // Makes component extensions appear in chrome://settings/extensions.
 const char kShowComponentExtensionOptions[] =
     "show-component-extension-options";
-
-// Adds the given extension ID to all the permission whitelists.
-const char kWhitelistedExtensionID[] = "whitelisted-extension-id";
 
 // Pass launch source to platform apps.
 const char kTraceAppSource[] = "enable-trace-app-source";

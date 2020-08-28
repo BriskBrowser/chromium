@@ -23,7 +23,7 @@
 #include "components/cronet/cronet_buildflags.h"
 #include "components/cronet/cronet_global_state.h"
 #include "components/cronet/cronet_prefs_manager.h"
-#include "components/cronet/histogram_manager.h"
+#include "components/metrics/library_support/histogram_manager.h"
 #include "components/prefs/pref_filter.h"
 #include "ios/net/cookies/cookie_store_ios.h"
 #include "ios/net/cookies/cookie_store_ios_client.h"
@@ -135,8 +135,8 @@ base::SingleThreadTaskRunner* CronetEnvironment::GetNetworkThreadTaskRunner()
 }
 
 void CronetEnvironment::PostToNetworkThread(const base::Location& from_here,
-                                            const base::Closure& task) {
-  GetNetworkThreadTaskRunner()->PostTask(from_here, task);
+                                            base::OnceClosure task) {
+  GetNetworkThreadTaskRunner()->PostTask(from_here, std::move(task));
 }
 
 net::URLRequestContext* CronetEnvironment::GetURLRequestContext() const {
@@ -161,9 +161,9 @@ bool CronetEnvironment::StartNetLog(base::FilePath::StringType file_name,
   }
 
   LOG(WARNING) << "Starting NetLog to " << path.value();
-  PostToNetworkThread(FROM_HERE,
-                      base::Bind(&CronetEnvironment::StartNetLogOnNetworkThread,
-                                 base::Unretained(this), path, log_bytes));
+  PostToNetworkThread(
+      FROM_HERE, base::BindOnce(&CronetEnvironment::StartNetLogOnNetworkThread,
+                                base::Unretained(this), path, log_bytes));
 
   return true;
 }
@@ -190,9 +190,9 @@ void CronetEnvironment::StopNetLog() {
   base::WaitableEvent log_stopped_event(
       base::WaitableEvent::ResetPolicy::MANUAL,
       base::WaitableEvent::InitialState::NOT_SIGNALED);
-  PostToNetworkThread(FROM_HERE,
-                      base::Bind(&CronetEnvironment::StopNetLogOnNetworkThread,
-                                 base::Unretained(this), &log_stopped_event));
+  PostToNetworkThread(
+      FROM_HERE, base::BindOnce(&CronetEnvironment::StopNetLogOnNetworkThread,
+                                base::Unretained(this), &log_stopped_event));
   log_stopped_event.Wait();
 }
 
@@ -201,20 +201,20 @@ void CronetEnvironment::StopNetLogOnNetworkThread(
   if (file_net_log_observer_) {
     DLOG(WARNING) << "Stopped NetLog.";
     file_net_log_observer_->StopObserving(
-        GetNetLogInfo(), base::BindOnce(&SignalEvent, log_stopped_event));
+        base::Value::ToUniquePtrValue(GetNetLogInfo()),
+        base::BindOnce(&SignalEvent, log_stopped_event));
     file_net_log_observer_.reset();
   } else {
     log_stopped_event->Signal();
   }
 }
 
-std::unique_ptr<base::DictionaryValue> CronetEnvironment::GetNetLogInfo()
-    const {
-  std::unique_ptr<base::DictionaryValue> net_info =
+base::Value CronetEnvironment::GetNetLogInfo() const {
+  base::Value net_info =
       net::GetNetInfo(main_context_.get(), net::NET_INFO_ALL_SOURCES);
   if (effective_experimental_options_) {
-    net_info->Set("cronetExperimentalParams",
-                  effective_experimental_options_->CreateDeepCopy());
+    net_info.SetKey("cronetExperimentalParams",
+                    effective_experimental_options_->Clone());
   }
   return net_info;
 }
@@ -238,7 +238,7 @@ void CronetEnvironment::AddQuicHint(const std::string& host,
 CronetEnvironment::CronetEnvironment(const std::string& user_agent,
                                      bool user_agent_partial)
     : http2_enabled_(false),
-      quic_enabled_(false),
+      quic_enabled_(true),
       brotli_enabled_(false),
       http_cache_(URLRequestContextConfig::HttpCacheType::DISK),
       user_agent_(user_agent),
@@ -268,9 +268,9 @@ void CronetEnvironment::Start() {
   main_context_getter_ = new CronetURLRequestContextGetter(
       this, CronetEnvironment::GetNetworkThreadTaskRunner());
   std::atomic_thread_fence(std::memory_order_seq_cst);
-  PostToNetworkThread(FROM_HERE,
-                      base::Bind(&CronetEnvironment::InitializeOnNetworkThread,
-                                 base::Unretained(this)));
+  PostToNetworkThread(
+      FROM_HERE, base::BindOnce(&CronetEnvironment::InitializeOnNetworkThread,
+                                base::Unretained(this)));
 }
 
 void CronetEnvironment::CleanUpOnNetworkThread() {
@@ -315,8 +315,7 @@ void CronetEnvironment::InitializeOnNetworkThread() {
   }
 
   if (user_agent_partial_)
-    user_agent_ =
-        web::BuildUserAgentFromProduct(web::UserAgentType::MOBILE, user_agent_);
+    user_agent_ = web::BuildMobileUserAgent(user_agent_);
 
   // Cache
   base::FilePath storage_path;
@@ -447,7 +446,7 @@ std::vector<uint8_t> CronetEnvironment::GetHistogramDeltas() {
 #if BUILDFLAG(DISABLE_HISTOGRAM_SUPPORT)
   NOTREACHED() << "Histogram support is disabled";
 #else   // BUILDFLAG(DISABLE_HISTOGRAM_SUPPORT)
-  if (!HistogramManager::GetInstance()->GetDeltas(&data))
+  if (!metrics::HistogramManager::GetInstance()->GetDeltas(&data))
     return std::vector<uint8_t>();
 #endif  // BUILDFLAG(DISABLE_HISTOGRAM_SUPPORT)
   return data;
@@ -458,8 +457,8 @@ void CronetEnvironment::SetHostResolverRules(const std::string& rules) {
                             base::WaitableEvent::InitialState::NOT_SIGNALED);
   PostToNetworkThread(
       FROM_HERE,
-      base::Bind(&CronetEnvironment::SetHostResolverRulesOnNetworkThread,
-                 base::Unretained(this), rules, &event));
+      base::BindOnce(&CronetEnvironment::SetHostResolverRulesOnNetworkThread,
+                     base::Unretained(this), rules, &event));
   event.Wait();
 }
 

@@ -6,7 +6,6 @@
 
 #include <stdint.h>
 
-#include "base/logging.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
 #include "media/base/limits.h"
@@ -98,7 +97,7 @@ class AudioLatencyTest : public testing::TestWithParam<AudioLatencyTestData> {
                     hardware_sample_rate, hardware_buffer_size, min_buffer_size,
                     max_buffer_size, limits::kMaxWebAudioBufferSize));
     }
-#elif defined(OS_MACOSX)
+#elif defined(OS_MAC)
     EXPECT_EQ(limits::kMaxWebAudioBufferSize,
               media::AudioLatency::GetExactBufferSize(
                   base::TimeDelta::FromSecondsD(
@@ -137,7 +136,11 @@ TEST(AudioLatency, HighLatencyBufferSizes) {
   }
 #else
   for (int i = 6400; i <= 204800; i *= 2)
+#if defined(USE_CRAS)
+    EXPECT_EQ(8 * (i / 100), AudioLatency::GetHighLatencyBufferSize(i, 32));
+#else
     EXPECT_EQ(2 * (i / 100), AudioLatency::GetHighLatencyBufferSize(i, 32));
+#endif  // defined(USE_CRAS)
 #endif  // defined(OS_WIN)
 }
 
@@ -180,7 +183,7 @@ INSTANTIATE_TEST_SUITE_P(
                     std::make_tuple(44100, 440, 0, 0),
                     std::make_tuple(44100, 256, 128, 512),
                     std::make_tuple(44100, 256, 0, 0))
-#elif defined(OS_MACOSX) || defined(USE_CRAS)
+#elif defined(OS_MAC) || defined(USE_CRAS)
     // These values are constant on Mac and ChromeOS, regardless of device.
     testing::Values(std::make_tuple(44100,
                                     256,

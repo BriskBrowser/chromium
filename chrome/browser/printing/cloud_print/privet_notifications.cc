@@ -33,6 +33,7 @@
 #include "chrome/grit/generated_resources.h"
 #include "chrome/grit/theme_resources.h"
 #include "components/prefs/pref_service.h"
+#include "components/signin/public/identity_manager/consent_level.h"
 #include "components/signin/public/identity_manager/identity_manager.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/navigation_controller.h"
@@ -57,7 +58,6 @@ const int kTenMinutesInSeconds = 600;
 const char kPrivetInfoKeyUptime[] = "uptime";
 const char kPrivetNotificationID[] = "privet_notification";
 const char kPrivetNotificationOriginUrl[] = "chrome://devices";
-const int kStartDelaySeconds = 5;
 
 }  // namespace
 
@@ -179,13 +179,15 @@ PrivetNotificationsListener::DeviceContext::DeviceContext() {
 PrivetNotificationsListener::DeviceContext::~DeviceContext() {
 }
 
+// static
+constexpr base::TimeDelta PrivetNotificationService::kStartDelay;
+
 PrivetNotificationService::PrivetNotificationService(
     content::BrowserContext* profile)
     : profile_(profile) {
   base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
       FROM_HERE, base::BindOnce(&PrivetNotificationService::Start, AsWeakPtr()),
-      base::TimeDelta::FromSeconds(kStartDelaySeconds +
-                                   base::RandInt(0, kStartDelaySeconds / 4)));
+      kStartDelay + base::TimeDelta::FromMilliseconds(base::RandInt(0, 1000)));
 }
 
 PrivetNotificationService::~PrivetNotificationService() {
@@ -208,13 +210,6 @@ void PrivetNotificationService::DeviceCacheFlushed() {
 
 // static
 bool PrivetNotificationService::IsEnabled() {
-  base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
-  return !command_line->HasSwitch(
-      switches::kDisableDeviceDiscoveryNotifications);
-}
-
-// static
-bool PrivetNotificationService::IsForced() {
   base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
   return command_line->HasSwitch(switches::kEnableDeviceDiscoveryNotifications);
 }
@@ -287,8 +282,11 @@ void PrivetNotificationService::Start() {
   auto* identity_manager = IdentityManagerFactory::GetForProfileIfExists(
       Profile::FromBrowserContext(profile_));
 
-  if (!identity_manager || !identity_manager->HasPrimaryAccount())
+  // Only show notifications for signed-in accounts. https://crbug.com/349098
+  if (!identity_manager || !identity_manager->HasPrimaryAccount(
+                               signin::ConsentLevel::kNotRequired)) {
     return;
+  }
 #endif  // defined(OS_CHROMEOS)
 
   enable_privet_notification_member_.Init(
@@ -304,9 +302,7 @@ void PrivetNotificationService::OnNotificationsEnabledChanged() {
 #if BUILDFLAG(ENABLE_MDNS)
   traffic_detector_.reset();
 
-  if (IsForced()) {
-    StartLister();
-  } else if (*enable_privet_notification_member_) {
+  if (*enable_privet_notification_member_) {
     traffic_detector_ = std::make_unique<PrivetTrafficDetector>(
         profile_, base::BindRepeating(&PrivetNotificationService::StartLister,
                                       AsWeakPtr()));
@@ -316,7 +312,7 @@ void PrivetNotificationService::OnNotificationsEnabledChanged() {
     privet_notifications_listener_.reset();
   }
 #else
-  if (IsForced() || *enable_privet_notification_member_) {
+  if (*enable_privet_notification_member_) {
     StartLister();
   } else {
     device_lister_.reset();

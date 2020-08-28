@@ -11,9 +11,10 @@
 #include "third_party/blink/public/platform/task_type.h"
 #include "third_party/blink/public/platform/web_url_request.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise_resolver.h"
-#include "third_party/blink/renderer/core/dom/document.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_worklet_options.h"
 #include "third_party/blink/renderer/core/dom/dom_exception.h"
 #include "third_party/blink/renderer/core/fetch/request.h"
+#include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/core/loader/worker_resource_timing_notifier_impl.h"
 #include "third_party/blink/renderer/core/workers/worklet_pending_tasks.h"
 #include "third_party/blink/renderer/platform/heap/heap.h"
@@ -25,8 +26,8 @@
 
 namespace blink {
 
-Worklet::Worklet(Document* document)
-    : ContextLifecycleObserver(document),
+Worklet::Worklet(LocalDOMWindow& window)
+    : ExecutionContextLifecycleObserver(&window),
       module_responses_map_(MakeGarbageCollected<WorkletModuleResponsesMap>()) {
   DCHECK(IsMainThread());
 }
@@ -93,7 +94,7 @@ ScriptPromise Worklet::addModule(ScriptState* script_state,
   return promise;
 }
 
-void Worklet::ContextDestroyed(ExecutionContext* execution_context) {
+void Worklet::ContextDestroyed() {
   DCHECK(IsMainThread());
   module_responses_map_->Dispose();
   for (const auto& proxy : proxies_)
@@ -188,12 +189,12 @@ wtf_size_t Worklet::SelectGlobalScope() {
   return 0u;
 }
 
-void Worklet::Trace(blink::Visitor* visitor) {
+void Worklet::Trace(Visitor* visitor) const {
   visitor->Trace(proxies_);
   visitor->Trace(module_responses_map_);
   visitor->Trace(pending_tasks_set_);
   ScriptWrappable::Trace(visitor);
-  ContextLifecycleObserver::Trace(visitor);
+  ExecutionContextLifecycleObserver::Trace(visitor);
 }
 
 }  // namespace blink

@@ -11,8 +11,10 @@
 #include "base/strings/utf_string_conversions.h"
 #include "components/password_manager/core/browser/leak_detection/leak_detection_check.h"
 #include "components/password_manager/core/browser/leak_detection/leak_detection_check_factory.h"
+#include "components/password_manager/core/browser/leak_detection/mock_leak_detection_check_factory.h"
 #include "components/password_manager/core/browser/test_password_store.h"
 #include "components/password_manager/ios/credential_manager_util.h"
+#include "components/safe_browsing/core/common/safe_browsing_prefs.h"
 #import "ios/chrome/browser/passwords/test/test_password_manager_client.h"
 #include "ios/web/public/navigation/navigation_item.h"
 #include "ios/web/public/navigation/navigation_manager.h"
@@ -54,16 +56,6 @@ constexpr char kCertFileName[] = "ok_cert.pem";
 class MockLeakDetectionCheck : public password_manager::LeakDetectionCheck {
  public:
   MOCK_METHOD3(Start, void(const GURL&, base::string16, base::string16));
-};
-
-class MockLeakDetectionCheckFactory
-    : public password_manager::LeakDetectionCheckFactory {
- public:
-  MOCK_CONST_METHOD3(TryCreateLeakCheck,
-                     std::unique_ptr<password_manager::LeakDetectionCheck>(
-                         password_manager::LeakDetectionDelegateInterface*,
-                         signin::IdentityManager*,
-                         scoped_refptr<network::SharedURLLoaderFactory>));
 };
 
 }  // namespace
@@ -122,14 +114,11 @@ class CredentialManagerTest : public CredentialManagerBaseTest {
     UpdateSslStatus(net::CERT_STATUS_IS_EV, web::SECURITY_STYLE_AUTHENTICATED,
                     web::SSLStatus::NORMAL_CONTENT);
 
-    ON_CALL(*client_, OnCredentialManagerUsed())
-        .WillByDefault(testing::Return(true));
-
     password_credential_form_1_.username_value = base::ASCIIToUTF16("id1");
     password_credential_form_1_.display_name = base::ASCIIToUTF16("Name One");
     password_credential_form_1_.icon_url = GURL("https://example.com/icon.png");
     password_credential_form_1_.password_value = base::ASCIIToUTF16("secret1");
-    password_credential_form_1_.origin = GURL(kHttpsWebOrigin);
+    password_credential_form_1_.url = GURL(kHttpsWebOrigin);
     password_credential_form_1_.signon_realm = kHttpsWebOrigin;
     password_credential_form_1_.scheme = autofill::PasswordForm::Scheme::kHtml;
 
@@ -137,7 +126,7 @@ class CredentialManagerTest : public CredentialManagerBaseTest {
     password_credential_form_2_.display_name = base::ASCIIToUTF16("Name Two");
     password_credential_form_2_.icon_url = GURL("https://example.com/icon.png");
     password_credential_form_2_.password_value = base::ASCIIToUTF16("secret2");
-    password_credential_form_2_.origin = GURL(kHttpsWebOrigin);
+    password_credential_form_2_.url = GURL(kHttpsWebOrigin);
     password_credential_form_2_.signon_realm = kHttpsWebOrigin;
     password_credential_form_2_.scheme = autofill::PasswordForm::Scheme::kHtml;
 
@@ -147,7 +136,7 @@ class CredentialManagerTest : public CredentialManagerBaseTest {
         GURL("https://federation.com/icon.png");
     federated_credential_form_.federation_origin =
         Origin::Create(GURL("https://federation.com"));
-    federated_credential_form_.origin = GURL(kHttpsWebOrigin);
+    federated_credential_form_.url = GURL(kHttpsWebOrigin);
     federated_credential_form_.signon_realm =
         "federation://www.example.com/www.federation.com";
     federated_credential_form_.scheme = autofill::PasswordForm::Scheme::kHtml;
@@ -175,8 +164,8 @@ class CredentialManagerTest : public CredentialManagerBaseTest {
 
 // Tests storing a PasswordCredential.
 TEST_F(CredentialManagerTest, StorePasswordCredential) {
-  auto mock_factory =
-      std::make_unique<testing::StrictMock<MockLeakDetectionCheckFactory>>();
+  auto mock_factory = std::make_unique<
+      testing::StrictMock<password_manager::MockLeakDetectionCheckFactory>>();
   auto* weak_factory = mock_factory.get();
   manager_->set_leak_factory(std::move(mock_factory));
 
@@ -225,7 +214,7 @@ TEST_F(CredentialManagerTest, StorePasswordCredential) {
   EXPECT_EQ(base::ASCIIToUTF16("name"), form.display_name);
   EXPECT_EQ(base::ASCIIToUTF16("pencil"), form.password_value);
   EXPECT_EQ(GURL("https://example.com/icon.png"), form.icon_url);
-  EXPECT_EQ(GURL(kHttpsWebOrigin), form.origin);
+  EXPECT_EQ(GURL(kHttpsWebOrigin), form.url);
   EXPECT_EQ(GURL(kHttpsWebOrigin), form.signon_realm);
 }
 
@@ -272,7 +261,7 @@ TEST_F(CredentialManagerTest, StoreFederatedCredential) {
   EXPECT_EQ(Origin::Create(GURL("https://www.federation.com")),
             form.federation_origin);
   EXPECT_EQ(GURL("https://federation.com/icon.png"), form.icon_url);
-  EXPECT_EQ(GURL("https://www.example.com"), form.origin);
+  EXPECT_EQ(GURL("https://www.example.com"), form.url);
   EXPECT_EQ(federated_origin, form.signon_realm);
 }
 
@@ -286,10 +275,6 @@ TEST_F(CredentialManagerTest, TryToStoreCredentialFromInsecureContext) {
 
   // Expect that user will NOT be prompted to save or update password.
   EXPECT_CALL(*client_, PromptUserToSavePasswordPtr(_)).Times(0);
-
-  // Expect that PasswordManagerClient method used by
-  // CredentialManagerImpl::Store will not be called.
-  EXPECT_CALL(*client_, OnCredentialManagerUsed()).Times(0);
 
   // Call API method |store|.
   ExecuteJavaScript(
@@ -407,10 +392,6 @@ TEST_F(CredentialManagerTest, TryToGetCredentialFromInsecureContext) {
   LoadHtml(@"<html></html>", GURL(kHttpWebOrigin));
   LoadHtmlAndInject(@"<html></html>");
   client_->set_current_url(GURL(kHttpWebOrigin));
-
-  // Expect that PasswordManagerClient method used by
-  // CredentialManagerImpl::Get will not be called.
-  EXPECT_CALL(*client_, OnCredentialManagerUsed()).Times(0);
 
   // Call API method |get|.
   ExecuteJavaScript(

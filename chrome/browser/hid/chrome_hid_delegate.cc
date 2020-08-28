@@ -9,13 +9,23 @@
 #include "chrome/browser/hid/hid_chooser_context.h"
 #include "chrome/browser/hid/hid_chooser_context_factory.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/ui/browser_dialogs.h"
 #include "chrome/browser/ui/browser_finder.h"
-#include "chrome/browser/ui/chrome_bubble_manager.h"
 #include "chrome/browser/ui/hid/hid_chooser.h"
 #include "chrome/browser/ui/hid/hid_chooser_controller.h"
-#include "chrome/browser/ui/permission_bubble/chooser_bubble_delegate.h"
 #include "chrome/browser/usb/usb_blocklist.h"
 #include "content/public/browser/web_contents.h"
+
+namespace {
+
+HidChooserContext* GetChooserContext(content::RenderFrameHost* frame) {
+  auto* web_contents = content::WebContents::FromRenderFrameHost(frame);
+  auto* profile =
+      Profile::FromBrowserContext(web_contents->GetBrowserContext());
+  return HidChooserContextFactory::GetForProfile(profile);
+}
+
+}  // namespace
 
 ChromeHidDelegate::ChromeHidDelegate() = default;
 
@@ -25,20 +35,15 @@ std::unique_ptr<content::HidChooser> ChromeHidDelegate::RunChooser(
     content::RenderFrameHost* frame,
     std::vector<blink::mojom::HidDeviceFilterPtr> filters,
     content::HidChooser::Callback callback) {
-  Browser* browser = chrome::FindBrowserWithWebContents(
-      content::WebContents::FromRenderFrameHost(frame));
-  if (!browser) {
-    std::move(callback).Run(std::vector<device::mojom::HidDeviceInfoPtr>());
-    return nullptr;
-  }
+  auto* chooser_context = GetChooserContext(frame);
+  if (!device_observer_.IsObservingSources())
+    device_observer_.Add(chooser_context);
+  if (!permission_observer_.IsObservingSources())
+    permission_observer_.Add(chooser_context);
 
-  auto chooser_controller = std::make_unique<HidChooserController>(
-      frame, std::move(filters), std::move(callback));
-  auto chooser_bubble_delegate = std::make_unique<ChooserBubbleDelegate>(
-      frame, std::move(chooser_controller));
-  BubbleReference bubble_reference = browser->GetBubbleManager()->ShowBubble(
-      std::move(chooser_bubble_delegate));
-  return std::make_unique<HidChooser>(std::move(bubble_reference));
+  return std::make_unique<HidChooser>(chrome::ShowDeviceChooserDialog(
+      frame, std::make_unique<HidChooserController>(frame, std::move(filters),
+                                                    std::move(callback))));
 }
 
 bool ChromeHidDelegate::CanRequestDevicePermission(
@@ -72,4 +77,52 @@ device::mojom::HidManager* ChromeHidDelegate::GetHidManager(
       Profile::FromBrowserContext(web_contents->GetBrowserContext());
   auto* chooser_context = HidChooserContextFactory::GetForProfile(profile);
   return chooser_context->GetHidManager();
+}
+
+void ChromeHidDelegate::AddObserver(content::RenderFrameHost* frame,
+                                    Observer* observer) {
+  observer_list_.AddObserver(observer);
+  auto* chooser_context = GetChooserContext(frame);
+  if (!device_observer_.IsObservingSources())
+    device_observer_.Add(chooser_context);
+  if (!permission_observer_.IsObservingSources())
+    permission_observer_.Add(chooser_context);
+}
+
+void ChromeHidDelegate::RemoveObserver(
+    content::RenderFrameHost* frame,
+    content::HidDelegate::Observer* observer) {
+  observer_list_.RemoveObserver(observer);
+}
+
+void ChromeHidDelegate::OnPermissionRevoked(
+    const url::Origin& requesting_origin,
+    const url::Origin& embedding_origin) {
+  for (auto& observer : observer_list_)
+    observer.OnPermissionRevoked(requesting_origin, embedding_origin);
+}
+
+void ChromeHidDelegate::OnDeviceAdded(
+    const device::mojom::HidDeviceInfo& device_info) {
+  for (auto& observer : observer_list_)
+    observer.OnDeviceAdded(device_info);
+}
+
+void ChromeHidDelegate::OnDeviceRemoved(
+    const device::mojom::HidDeviceInfo& device_info) {
+  for (auto& observer : observer_list_)
+    observer.OnDeviceRemoved(device_info);
+}
+
+void ChromeHidDelegate::OnHidManagerConnectionError() {
+  device_observer_.RemoveAll();
+  permission_observer_.RemoveAll();
+
+  for (auto& observer : observer_list_)
+    observer.OnHidManagerConnectionError();
+}
+
+void ChromeHidDelegate::OnHidChooserContextShutdown() {
+  device_observer_.RemoveAll();
+  permission_observer_.RemoveAll();
 }

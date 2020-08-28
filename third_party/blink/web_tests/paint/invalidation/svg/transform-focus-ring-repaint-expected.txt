@@ -8,21 +8,11 @@
     },
     {
       "name": "LayoutNGBlockFlow (positioned) DIV id='target'",
-      "position": [-1, -1],
-      "bounds": [202, 202],
+      "position": [-2, -2],
+      "bounds": [404, 544],
       "backfaceVisibility": "hidden",
-      "backgroundColor": "#FFFF00",
-      "paintInvalidations": [
-        {
-          "object": "LayoutNGBlockFlow (positioned) DIV id='target'",
-          "rect": [0, 0, 202, 202],
-          "reason": "full layer"
-        },
-        {
-          "object": "LayoutNGBlockFlow (positioned) DIV id='target'",
-          "rect": [0, 0, 200, 200],
-          "reason": "full layer"
-        }
+      "invalidations": [
+        [0, 0, 404, 544]
       ],
       "transform": 1
     },
@@ -30,6 +20,7 @@
       "name": "Squashing Layer (first squashed layer: LayoutNGBlockFlow (positioned) DIV)",
       "position": [100, 100],
       "bounds": [300, 440],
+      "backgroundColor": "#0000FF",
       "transform": 1
     }
   ],

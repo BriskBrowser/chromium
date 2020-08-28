@@ -29,19 +29,18 @@
 
 namespace blink {
 
-class LayoutListMarker;
-
 class LayoutListItem final : public LayoutBlockFlow {
  public:
   explicit LayoutListItem(Element*);
 
   int Value() const;
 
-  const String& MarkerText() const;
-
   bool IsEmpty() const;
 
-  LayoutListMarker* Marker() const { return marker_; }
+  LayoutObject* Marker() const {
+    Element* list_item = To<Element>(GetNode());
+    return list_item->PseudoElementLayoutObject(kPseudoIdMarker);
+  }
 
   ListItemOrdinal& Ordinal() { return ordinal_; }
   void OrdinalValueChanged();
@@ -50,12 +49,12 @@ class LayoutListItem final : public LayoutBlockFlow {
 
   void RecalcVisualOverflow() override;
 
+  void UpdateMarkerTextIfNeeded();
+
  private:
   bool IsOfType(LayoutObjectType type) const override {
     return type == kLayoutObjectListItem || LayoutBlockFlow::IsOfType(type);
   }
-
-  void WillBeDestroyed() override;
 
   void InsertedIntoTree() override;
   void WillBeRemovedFromTree() override;
@@ -79,8 +78,9 @@ class LayoutListItem final : public LayoutBlockFlow {
 
   bool PrepareForBlockDirectionAlign(const LayoutObject*);
 
+  void UpdateLayout() override;
+
   ListItemOrdinal ordinal_;
-  LayoutListMarker* marker_;
   bool need_block_direction_align_;
 };
 

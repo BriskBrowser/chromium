@@ -4,9 +4,9 @@
 
 #import "ios/chrome/browser/infobars/overlays/browser_agent/infobar_overlay_browser_agent.h"
 
-#include "base/logging.h"
+#include "base/check.h"
 #import "ios/chrome/browser/infobars/overlays/browser_agent/interaction_handlers/infobar_interaction_handler.h"
-#include "ios/chrome/browser/infobars/overlays/overlay_request_infobar_util.h"
+#include "ios/chrome/browser/infobars/overlays/infobar_overlay_util.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -77,9 +77,11 @@ InfobarOverlayBrowserAgent::OverlayVisibilityObserver::
 
 void InfobarOverlayBrowserAgent::OverlayVisibilityObserver::
     OverlayVisibilityChanged(OverlayRequest* request, bool visible) {
+  InfoBarIOS* infobar = GetOverlayRequestInfobar(request);
+  if (!infobar)
+    return;
   browser_agent_->GetInteractionHandler(request)->InfobarVisibilityChanged(
-      GetOverlayRequestInfobar(request),
-      GetOverlayRequestInfobarOverlayType(request), visible);
+      infobar, GetOverlayRequestInfobarOverlayType(request), visible);
 }
 
 const OverlayRequestSupport*

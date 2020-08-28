@@ -21,6 +21,7 @@ enum class Channel;
 
 namespace install_static {
 
+enum class ChannelOrigin;
 struct InstallConstants;
 
 // Registry key to store the stats/crash sampling state of Chrome. If set to 1,
@@ -49,7 +50,8 @@ extern const wchar_t kUserDataDirSwitch[];
 extern const wchar_t kUtilityProcess[];
 
 // Used for suppressing warnings.
-template <typename T> inline void IgnoreUnused(T) {}
+template <typename T>
+inline void IgnoreUnused(T) {}
 
 // Returns true if Chrome is running at system level.
 bool IsSystemInstall();
@@ -87,11 +89,6 @@ std::wstring GetClientStateKeyPath();
 // "<guid>" is the current install mode's appguid. This is is used exclusively
 // for system-wide installs to hold values written by the browser.
 std::wstring GetClientStateMediumKeyPath();
-
-// Returns the path to the ClientState{,Medium} key for the deprecated Chrome
-// binaries.
-std::wstring GetClientStateKeyPathForBinaries();
-std::wstring GetClientStateMediumKeyPathForBinaries();
 
 // Returns the path
 // "Software\Microsoft\Windows\CurrentVersion\Uninstall\[kCompanyPathName ]
@@ -291,18 +288,22 @@ std::wstring GetSwitchValueFromCommandLine(const std::wstring& command_line,
 // failure to create a directory.
 bool RecursiveDirectoryCreate(const std::wstring& full_path);
 
-// Returns the unadorned channel name based on the channel strategy for the
-// install mode. |from_binaries| forces the registry locations corresponding to
-// the now-deprecated multi-install binaries to be read, and is only for use by
-// the installer. |update_ap|, if not null, is set to the raw "ap" value read
-// from Chrome's ClientState key in the registry. |update_cohort_name|, if not
-// null, is set to the raw "cohort\name" value read from Chrome's ClientState
-// key in the registry.
-std::wstring DetermineChannel(const InstallConstants& mode,
-                              bool system_level,
-                              bool from_binaries,
-                              std::wstring* update_ap,
-                              std::wstring* update_cohort_name);
+struct DetermineChannelResult {
+  std::wstring channel_name;
+  ChannelOrigin origin;
+};
+
+// Returns the unadorned channel name and its origin based on the channel
+// strategy for the install mode. |channel_override|, if not empty is the
+// channel to return if |mode| supports non-fixed channels. |update_ap|, if not
+// null, is set to the raw "ap" value read from Chrome's ClientState key in the
+// registry. |update_cohort_name|, if not null, is set to the raw "cohort\name"
+// value read from Chrome's ClientState key in the registry.
+DetermineChannelResult DetermineChannel(const InstallConstants& mode,
+                                        bool system_level,
+                                        const wchar_t* channel_override,
+                                        std::wstring* update_ap,
+                                        std::wstring* update_cohort_name);
 
 }  // namespace install_static
 

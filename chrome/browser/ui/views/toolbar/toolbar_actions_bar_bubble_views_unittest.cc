@@ -45,11 +45,8 @@ class ToolbarActionsBarBubbleViewsTest : public ChromeViewsTestBase {
   }
 
   std::unique_ptr<views::Widget> CreateAnchorWidget() {
-    std::unique_ptr<views::Widget> anchor_widget(new views::Widget());
-    views::Widget::InitParams params =
-        CreateParams(views::Widget::InitParams::TYPE_WINDOW);
-    params.ownership = views::Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
-    anchor_widget->Init(std::move(params));
+    std::unique_ptr<views::Widget> anchor_widget =
+        CreateTestWidget(views::Widget::InitParams::TYPE_WINDOW);
     anchor_widget->Show();
     return anchor_widget;
   }
@@ -64,7 +61,7 @@ class ToolbarActionsBarBubbleViewsTest : public ChromeViewsTestBase {
         anchor_widget_->GetContentsView(), anchored_to_action,
         delegate->GetDelegate());
     bubble_widget_ = views::BubbleDialogDelegateView::CreateBubble(bubble_);
-    bubble_->Show();
+    bubble_widget_->Show();
   }
 
   void CloseBubble() {
@@ -242,7 +239,7 @@ TEST_F(ToolbarActionsBarBubbleViewsTest, TestShowAndCloseBubble) {
   views::Widget* bubble_widget =
       views::BubbleDialogDelegateView::CreateBubble(bubble);
   views::test::TestWidgetObserver bubble_observer(bubble_widget);
-  bubble->Show();
+  bubble_widget->Show();
   EXPECT_TRUE(delegate.shown());
   EXPECT_FALSE(delegate.close_action());
 

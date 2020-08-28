@@ -5,7 +5,9 @@
 #import "ios/chrome/browser/ui/main/scene_state.h"
 
 #import "base/ios/crb_protocol_observers.h"
+#import "ios/chrome/app/application_delegate/app_state.h"
 #import "ios/chrome/app/chrome_overlay_window.h"
+#import "ios/chrome/browser/ui/main/scene_controller.h"
 #import "ios/chrome/browser/ui/util/multi_window_support.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
@@ -25,16 +27,21 @@
 // Container for this object's observers.
 @property(nonatomic, strong) SceneStateObserverList* observers;
 
+// Agents attached to this scene.
+@property(nonatomic, strong) NSMutableArray<id<SceneAgent>>* agents;
+
 @end
 
 @implementation SceneState
 @synthesize window = _window;
 
-- (instancetype)init {
+- (instancetype)initWithAppState:(AppState*)appState {
   self = [super init];
   if (self) {
+    _appState = appState;
     _observers = [SceneStateObserverList
         observersWithProtocol:@protocol(SceneStateObserver)];
+    _agents = [[NSMutableArray alloc] init];
   }
   return self;
 }
@@ -49,10 +56,16 @@
   [self.observers removeObserver:observer];
 }
 
+- (void)addAgent:(id<SceneAgent>)agent {
+  DCHECK(agent);
+  [self.agents addObject:agent];
+  [agent setSceneState:self];
+}
+
 #pragma mark - Setters & Getters.
 
 - (void)setWindow:(UIWindow*)window {
-  if (IsMultiwindowSupported()) {
+  if (IsSceneStartupSupported()) {
     // No need to set anything, instead the getter is backed by scene.windows
     // property.
     return;
@@ -61,7 +74,7 @@
 }
 
 - (UIWindow*)window {
-  if (IsMultiwindowSupported()) {
+  if (IsSceneStartupSupported()) {
     UIWindow* mainWindow = nil;
     if (@available(ios 13, *)) {
       for (UIWindow* window in self.scene.windows) {
@@ -82,6 +95,41 @@
   _activationLevel = newLevel;
 
   [self.observers sceneState:self transitionedToActivationLevel:newLevel];
+}
+
+- (id<BrowserInterfaceProvider>)interfaceProvider {
+  return self.controller.interfaceProvider;
+}
+
+- (void)setPresentingModalOverlay:(BOOL)presentingModalOverlay {
+  if (presentingModalOverlay) {
+    [self.observers sceneStateWillShowModalOverlay:self];
+  } else {
+    [self.observers sceneStateWillHideModalOverlay:self];
+  }
+
+  _presentingModalOverlay = presentingModalOverlay;
+}
+
+- (void)setURLContextsToOpen:(NSSet<UIOpenURLContext*>*)URLContextsToOpen {
+  if (_URLContextsToOpen == nil || URLContextsToOpen == nil) {
+    _URLContextsToOpen = URLContextsToOpen;
+  } else {
+    _URLContextsToOpen =
+        [_URLContextsToOpen setByAddingObjectsFromSet:URLContextsToOpen];
+  }
+  if (_URLContextsToOpen) {
+    [self.observers sceneState:self hasPendingURLs:_URLContextsToOpen];
+  }
+}
+
+- (void)setPendingUserActivity:(NSUserActivity*)pendingUserActivity {
+  _pendingUserActivity = pendingUserActivity;
+  [self.observers sceneState:self receivedUserActivity:pendingUserActivity];
+}
+
+- (id<UIBlockerManager>)uiBlockerManager {
+  return _appState;
 }
 
 #pragma mark - debug

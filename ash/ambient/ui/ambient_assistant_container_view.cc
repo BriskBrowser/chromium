@@ -9,9 +9,13 @@
 
 #include "ash/ambient/ui/ambient_assistant_dialog_plate.h"
 #include "ash/ambient/ui/assistant_response_container_view.h"
+#include "ash/assistant/assistant_controller_impl.h"
+#include "ash/assistant/model/assistant_ui_model.h"
 #include "ash/assistant/ui/assistant_ui_constants.h"
 #include "ash/assistant/ui/assistant_view_delegate.h"
+#include "ash/assistant/ui/assistant_view_ids.h"
 #include "ash/assistant/util/assistant_util.h"
+#include "ash/public/cpp/assistant/controller/assistant_ui_controller.h"
 #include "ash/session/session_controller_impl.h"
 #include "ash/shell.h"
 #include "ash/strings/grit/ash_strings.h"
@@ -31,6 +35,7 @@ constexpr int kAvatarImageSizeDip = 32;
 
 // Greeting message.
 base::string16 GetGreetingMessage(const UserSession* user_session) {
+  DCHECK(user_session);
   const std::string& username = user_session->user_info.display_name;
   return l10n_util::GetStringFUTF16(IDS_ASSISTANT_AMBIENT_GREETING_MESSAGE,
                                     base::UTF8ToUTF16(username));
@@ -38,21 +43,28 @@ base::string16 GetGreetingMessage(const UserSession* user_session) {
 
 }  // namespace
 
-AmbientAssistantContainerView::AmbientAssistantContainerView(
-    AssistantViewDelegate* delegate)
-    : delegate_(delegate) {
+AmbientAssistantContainerView::AmbientAssistantContainerView()
+    : delegate_(Shell::Get()->assistant_controller()->view_delegate()) {
+  DCHECK(delegate_);
+  SetID(AssistantViewID::kAmbientAssistantContainerView);
   InitLayout();
 
-  // The AssistantViewDelegate should outlive AmbientAssistantContainerView.
-  delegate_->AddUiModelObserver(this);
+  assistant_controller_observer_.Add(AssistantController::Get());
+  AssistantUiController::Get()->GetModel()->AddObserver(this);
 }
 
 AmbientAssistantContainerView::~AmbientAssistantContainerView() {
-  delegate_->RemoveUiModelObserver(this);
+  if (AssistantUiController::Get())
+    AssistantUiController::Get()->GetModel()->RemoveObserver(this);
 }
 
 const char* AmbientAssistantContainerView::GetClassName() const {
   return "AmbientAssistantContainerView";
+}
+
+void AmbientAssistantContainerView::OnAssistantControllerDestroying() {
+  AssistantUiController::Get()->GetModel()->RemoveObserver(this);
+  assistant_controller_observer_.Remove(AssistantController::Get());
 }
 
 void AmbientAssistantContainerView::OnUiVisibilityChanged(
@@ -94,15 +106,19 @@ void AmbientAssistantContainerView::InitLayout() {
   // Greeting label.
   const UserSession* active_user_session =
       Shell::Get()->session_controller()->GetUserSession(0);
-  greeting_label_ = AddChildView(
-      std::make_unique<views::Label>(GetGreetingMessage(active_user_session)));
-  greeting_label_->SetEnabledColor(kTextColorSecondary);
-  greeting_label_->SetFontList(
-      assistant::ui::GetDefaultFontList()
-          .DeriveWithSizeDelta(8)
-          .DeriveWithWeight(gfx::Font::Weight::NORMAL));
-  greeting_label_->SetHorizontalAlignment(
-      gfx::HorizontalAlignment::ALIGN_CENTER);
+  // TODO(meilinw): uses login user info instead as no active user session is
+  // available on lock screen.
+  if (active_user_session) {
+    greeting_label_ = AddChildView(std::make_unique<views::Label>(
+        GetGreetingMessage(active_user_session)));
+    greeting_label_->SetEnabledColor(kTextColorSecondary);
+    greeting_label_->SetFontList(
+        assistant::ui::GetDefaultFontList()
+            .DeriveWithSizeDelta(8)
+            .DeriveWithWeight(gfx::Font::Weight::NORMAL));
+    greeting_label_->SetHorizontalAlignment(
+        gfx::HorizontalAlignment::ALIGN_CENTER);
+  }
 
   // Spacer.
   views::View* spacer = AddChildView(std::make_unique<views::View>());
@@ -115,15 +131,19 @@ void AmbientAssistantContainerView::InitLayout() {
       gfx::Size(kAvatarImageSizeDip, kAvatarImageSizeDip));
   avatar_view_->SetPreferredSize(
       gfx::Size(kAvatarImageSizeDip, kAvatarImageSizeDip));
-  gfx::ImageSkia avatar = active_user_session->user_info.avatar.image;
-  if (!avatar.isNull())
-    avatar_view_->SetImage(avatar);
+  // TODO(meilinw): uses login user info instead as no active user session is
+  // available on lock screen.
+  if (active_user_session) {
+    gfx::ImageSkia avatar = active_user_session->user_info.avatar.image;
+    if (!avatar.isNull())
+      avatar_view_->SetImage(avatar);
+  }
 
   SkPath circular_mask;
   constexpr int kClipCircleRadius = kAvatarImageSizeDip / 2;
   circular_mask.addCircle(kClipCircleRadius, kClipCircleRadius,
                           kClipCircleRadius);
-  avatar_view_->set_clip_path(circular_mask);
+  avatar_view_->SetClipPath(circular_mask);
 }
 
 }  // namespace ash

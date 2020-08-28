@@ -116,24 +116,11 @@ class VideoRendererAlgorithmTest : public testing::Test {
     if (!is_using_cadence())
       return false;
 
-    size_t size = algorithm_.cadence_estimator_.cadence_size_for_testing();
-    for (size_t i = 0; i < size; ++i) {
-      if (!algorithm_.cadence_estimator_.GetCadenceForFrame(i))
-        return true;
-    }
-
-    return false;
+    return algorithm_.cadence_estimator_.avg_cadence_for_testing() < 1.0;
   }
 
   double CadenceValue() const {
-    int num_render_intervals = 0;
-    size_t size = algorithm_.cadence_estimator_.cadence_size_for_testing();
-    for (size_t i = 0; i < size; ++i) {
-      num_render_intervals +=
-          algorithm_.cadence_estimator_.GetCadenceForFrame(i);
-    }
-
-    return (num_render_intervals + 0.0) / size;
+    return algorithm_.cadence_estimator_.avg_cadence_for_testing();
   }
 
   size_t frames_queued() const { return algorithm_.frame_queue_.size(); }
@@ -1225,8 +1212,7 @@ TEST_F(VideoRendererAlgorithmTest, RemoveExpiredFramesWithoutRendering) {
   // as effective since we know the duration of it. It is not removed since we
   // only have one frame in the queue though.
   auto frame = CreateFrame(tg.interval(0));
-  frame->metadata()->SetTimeDelta(VideoFrameMetadata::FRAME_DURATION,
-                                  tg.interval(1));
+  frame->metadata()->frame_duration = tg.interval(1);
   algorithm_.EnqueueFrame(frame);
   ASSERT_EQ(0u, algorithm_.RemoveExpiredFrames(tg.current() + tg.interval(3)));
   EXPECT_EQ(0u, EffectiveFramesQueued());
@@ -1598,8 +1584,7 @@ TEST_F(VideoRendererAlgorithmTest, InfiniteDurationMetadata) {
   TickGenerator tg(tick_clock_->NowTicks(), 50);
 
   auto frame = CreateFrame(kInfiniteDuration);
-  frame->metadata()->SetTimeDelta(VideoFrameMetadata::FRAME_DURATION,
-                                  tg.interval(1));
+  frame->metadata()->frame_duration = tg.interval(1);
   algorithm_.EnqueueFrame(frame);
 
   // This should not crash or fail.
@@ -1612,8 +1597,7 @@ TEST_F(VideoRendererAlgorithmTest, UsesFrameDuration) {
   TickGenerator tg(tick_clock_->NowTicks(), 50);
 
   auto frame = CreateFrame(tg.interval(0));
-  frame->metadata()->SetTimeDelta(VideoFrameMetadata::FRAME_DURATION,
-                                  tg.interval(1));
+  frame->metadata()->frame_duration = tg.interval(1);
   algorithm_.EnqueueFrame(frame);
 
   // This should not crash or fail.
@@ -1625,8 +1609,7 @@ TEST_F(VideoRendererAlgorithmTest, UsesFrameDuration) {
   constexpr base::TimeDelta kLongDuration = base::TimeDelta::FromSeconds(3);
   for (int i = 1; i < 4; ++i) {
     frame = CreateFrame(tg.interval(i));
-    frame->metadata()->SetTimeDelta(VideoFrameMetadata::FRAME_DURATION,
-                                    i == 3 ? kLongDuration : tg.interval(1));
+    frame->metadata()->frame_duration = i == 3 ? kLongDuration : tg.interval(1);
     algorithm_.EnqueueFrame(frame);
   }
 
@@ -1634,6 +1617,33 @@ TEST_F(VideoRendererAlgorithmTest, UsesFrameDuration) {
   EXPECT_EQ(tg.interval(1), algorithm_.average_frame_duration());
   EXPECT_EQ(algorithm_.last_frame_end_time(),
             base::TimeTicks() + kLongDuration + tg.interval(1) * 3);
+}
+
+// Check that VideoRendererAlgorithm correctly sets WALLCLOCK_FRAME_DURATION
+// for each frame.
+TEST_F(VideoRendererAlgorithmTest, WallClockDurationMetadataSet) {
+  int playback_rate = 4;
+  int frame_count = 10;
+  TickGenerator tg(tick_clock_->NowTicks(), 25);
+
+  time_source_.SetPlaybackRate(playback_rate);
+  auto intended_duration = tg.interval(1) / playback_rate;
+
+  for (int i = 0; i < frame_count; i++) {
+    auto frame = CreateFrame(tg.interval(i));
+    frame->metadata()->frame_duration = tg.interval(1);
+    algorithm_.EnqueueFrame(frame);
+  }
+
+  for (int i = 0; i < frame_count; i++) {
+    size_t frames_dropped = 0;
+    auto frame = RenderAndStep(&tg, &frames_dropped);
+
+    SCOPED_TRACE(base::StringPrintf("Frame #%d", i));
+
+    EXPECT_EQ(*frame->metadata()->wallclock_frame_duration, intended_duration);
+    EXPECT_EQ(algorithm_.average_frame_duration(), intended_duration);
+  }
 }
 
 }  // namespace media

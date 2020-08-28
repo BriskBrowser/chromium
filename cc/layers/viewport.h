@@ -68,7 +68,8 @@ class CC_EXPORT Viewport {
   void ScrollByInnerFirst(const gfx::Vector2dF& delta);
 
   // Scrolls the viewport, bubbling the delta between the inner and outer
-  // viewport. Only animates either of the two viewports.
+  // viewport. Only animates either of the two viewports. Returns the amount of
+  // delta that was consumed.
   gfx::Vector2dF ScrollAnimated(const gfx::Vector2dF& delta,
                                 base::TimeDelta delayed_by);
 
@@ -90,6 +91,18 @@ class CC_EXPORT Viewport {
   // viewport is scrolled. It is an error to pass any other node to this
   // method.
   bool CanScroll(const ScrollNode& node, const ScrollState& scroll_state) const;
+
+  // Takes |scroll_delta| and returns a clamped delta based on distributing
+  // |scroll_delta| first to the inner viewport, then the outer viewport.
+  // The passed delta must be scaled by the page scale factor and the returned
+  // delta will also be scaled.
+  gfx::Vector2dF ComputeClampedDelta(const gfx::Vector2dF& scroll_delta) const;
+
+  // Returns the innert viewport size, excluding scrollbars. This is not the
+  // same as the inner viewport container_bounds size, which does not account
+  // for scrollbars. This method can be useful for calculating the area of the
+  // inner viewport where content is visible.
+  gfx::SizeF GetInnerViewportSizeExcludingScrollbars() const;
 
  private:
   explicit Viewport(LayerTreeHostImpl* host_impl);

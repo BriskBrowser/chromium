@@ -34,7 +34,6 @@
 #include "extensions/common/manifest.h"
 
 class Profile;
-struct WebApplicationInfo;
 
 namespace extensions {
 class ExtensionCacheFake;
@@ -82,10 +81,13 @@ class ExtensionBrowserTest : virtual public InProcessBrowserTest {
     // Load the provided extension as Service Worker based extension.
     kFlagRunAsServiceWorkerBasedExtension = 1 << 5,
 
+    // Don't wait for extension renderers to fully load.
+    kFlagDontWaitForExtensionRenderers = 1 << 6,
+
     // Always maintain this as the next flag value. The flags in
     // ExtensionApiTest depend on this to avoid having overlapping
     // values with these flags.
-    kFlagNextValue = 1 << 6
+    kFlagNextValue = 1 << 7,
   };
 
   ExtensionBrowserTest();
@@ -227,9 +229,6 @@ class ExtensionBrowserTest : virtual public InProcessBrowserTest {
         std::string(), file_path, INSTALL_UI_TYPE_NONE, expected_change,
         Manifest::INTERNAL, browser(), Extension::NO_FLAGS, false, true);
   }
-
-  // Installs bookmark app for |info|.
-  const Extension* InstallBookmarkApp(WebApplicationInfo info);
 
   // Installs extension as if it came from the Chrome Webstore.
   const Extension* InstallExtensionFromWebstore(const base::FilePath& path,

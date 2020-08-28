@@ -41,11 +41,20 @@ class TestAXNodeWrapper : public AXPlatformNodeDelegateBase {
   // called from for testing.
   static const AXNode* GetNodeFromLastDefaultAction();
 
+  // Set the last node which AccessibilityPerformAction default action was
+  // called for testing.
+  static void SetNodeFromLastDefaultAction(AXNode* node);
+
   // Set a global scale factor for testing.
   static std::unique_ptr<base::AutoReset<float>> SetScaleFactor(float value);
 
   // Set a global indicating that AXPlatformNodeDelegates are for web content.
   static void SetGlobalIsWebContent(bool is_web_content);
+
+  // When a hit test is called on |src_node_id|, return |dst_node_id| as
+  // the result.
+  static void SetHitTestResult(AXNode::AXID src_node_id,
+                               AXNode::AXID dst_node_id);
 
   ~TestAXNodeWrapper() override;
 
@@ -64,7 +73,7 @@ class TestAXNodeWrapper : public AXPlatformNodeDelegateBase {
       int offset) const override;
   gfx::NativeViewAccessible GetNativeViewAccessible() override;
   gfx::NativeViewAccessible GetParent() override;
-  int GetChildCount() override;
+  int GetChildCount() const override;
   gfx::NativeViewAccessible ChildAtIndex(int index) override;
   gfx::Rect GetBoundsRect(const AXCoordinateSystem coordinate_system,
                           const AXClippingBehavior clipping_behavior,
@@ -81,7 +90,9 @@ class TestAXNodeWrapper : public AXPlatformNodeDelegateBase {
       const AXCoordinateSystem coordinate_system,
       const AXClippingBehavior clipping_behavior,
       AXOffscreenResult* offscreen_result) const override;
-  gfx::NativeViewAccessible HitTestSync(int x, int y) override;
+  gfx::NativeViewAccessible HitTestSync(
+      int screen_physical_pixel_x,
+      int screen_physical_pixel_y) const override;
   gfx::NativeViewAccessible GetFocus() override;
   bool IsMinimized() const override;
   bool IsWebContent() const override;
@@ -134,7 +145,8 @@ class TestAXNodeWrapper : public AXPlatformNodeDelegateBase {
   bool IsOrderedSet() const override;
   base::Optional<int> GetPosInSet() const override;
   base::Optional<int> GetSetSize() const override;
-  const std::vector<gfx::NativeViewAccessible> GetDescendants() const override;
+  const std::vector<gfx::NativeViewAccessible> GetUIADescendants()
+      const override;
   gfx::RectF GetLocation() const;
   int InternalChildCount() const;
   TestAXNodeWrapper* InternalGetChild(int index) const;
@@ -154,8 +166,10 @@ class TestAXNodeWrapper : public AXPlatformNodeDelegateBase {
                                     int32_t focus_offset);
 
   TestAXNodeWrapper* HitTestSyncInternal(int x, int y);
-  void Descendants(const AXNode* node,
-                   std::vector<gfx::NativeViewAccessible>* descendants) const;
+  void UIADescendants(
+      const AXNode* node,
+      std::vector<gfx::NativeViewAccessible>* descendants) const;
+  static bool ShouldHideChildrenForUIA(const AXNode* node);
 
   // Return the bounds of inline text in this node's coordinate system (which is
   // relative to its container node specified in AXRelativeBounds).

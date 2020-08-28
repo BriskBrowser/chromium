@@ -12,6 +12,7 @@
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "media/base/audio_decoder.h"
+#include "media/base/cdm_context.h"
 #include "media/mojo/mojom/audio_decoder.mojom.h"
 #include "media/mojo/services/media_mojo_export.h"
 #include "mojo/public/cpp/bindings/associated_remote.h"
@@ -19,7 +20,6 @@
 
 namespace media {
 
-class CdmContextRef;
 class MojoCdmServiceContext;
 class MojoDecoderBufferReader;
 
@@ -34,7 +34,7 @@ class MEDIA_MOJO_EXPORT MojoAudioDecoderService : public mojom::AudioDecoder {
   void Construct(
       mojo::PendingAssociatedRemote<mojom::AudioDecoderClient> client) final;
   void Initialize(const AudioDecoderConfig& config,
-                  int32_t cdm_id,
+                  const base::Optional<base::UnguessableToken>& cdm_id,
                   InitializeCallback callback) final;
 
   void SetDataSource(mojo::ScopedDataPipeConsumerHandle receive_pipe) final;
@@ -45,7 +45,7 @@ class MEDIA_MOJO_EXPORT MojoAudioDecoderService : public mojom::AudioDecoder {
 
  private:
   // Called by |decoder_| upon finishing initialization.
-  void OnInitialized(InitializeCallback callback, bool success);
+  void OnInitialized(InitializeCallback callback, Status status);
 
   // Called by |mojo_decoder_buffer_reader_| when read is finished.
   void OnReadDone(DecodeCallback callback, scoped_refptr<DecoderBuffer> buffer);
@@ -74,8 +74,9 @@ class MEDIA_MOJO_EXPORT MojoAudioDecoderService : public mojom::AudioDecoder {
   // The destination for the decoded buffers.
   mojo::AssociatedRemote<mojom::AudioDecoderClient> client_;
 
-  // Holds the CdmContextRef to keep the CdmContext alive for the lifetime of
-  // the |decoder_|.
+  // The CDM ID and the corresponding CdmContextRef, which must be held to keep
+  // the CdmContext alive for the lifetime of the |decoder_|.
+  base::Optional<base::UnguessableToken> cdm_id_;
   std::unique_ptr<CdmContextRef> cdm_context_ref_;
 
   // The AudioDecoder that does actual decoding work.

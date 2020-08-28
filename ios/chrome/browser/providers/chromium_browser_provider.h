@@ -20,15 +20,16 @@ class ChromiumBrowserProvider : public ios::ChromeBrowserProvider {
   ios::ChromeIdentityService* GetChromeIdentityService() override;
   UITextField* CreateStyledTextField() const override NS_RETURNS_RETAINED;
   VoiceSearchProvider* GetVoiceSearchProvider() const override;
-  id<LogoVendor> CreateLogoVendor(ios::ChromeBrowserState* browser_state,
-                                  web::WebState* web_state) const override
-      NS_RETURNS_RETAINED;
+
+  id<LogoVendor> CreateLogoVendor(Browser* browser, web::WebState* web_state)
+      const override NS_RETURNS_RETAINED;
   UserFeedbackProvider* GetUserFeedbackProvider() const override;
   AppDistributionProvider* GetAppDistributionProvider() const override;
   BrandedImageProvider* GetBrandedImageProvider() const override;
   SpotlightProvider* GetSpotlightProvider() const override;
   FullscreenProvider* GetFullscreenProvider() const override;
   OverridesProvider* GetOverridesProvider() const override;
+  DiscoverFeedProvider* GetDiscoverFeedProvider() const override;
 
  private:
   std::unique_ptr<AppDistributionProvider> app_distribution_provider_;
@@ -41,6 +42,7 @@ class ChromiumBrowserProvider : public ios::ChromeBrowserProvider {
   std::unique_ptr<SpotlightProvider> spotlight_provider_;
   std::unique_ptr<FullscreenProvider> fullscreen_provider_;
   std::unique_ptr<OverridesProvider> overrides_provider_;
+  std::unique_ptr<DiscoverFeedProvider> discover_feed_provider_;
 };
 
 #endif  // IOS_CHROME_BROWSER_PROVIDERS_CHROMIUM_BROWSER_PROVIDER_H_

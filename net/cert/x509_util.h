@@ -36,6 +36,9 @@ namespace x509_util {
 // Supported digest algorithms for signing certificates.
 enum DigestAlgorithm { DIGEST_SHA256 };
 
+// Adds a RFC 5280 Time value to the given CBB.
+NET_EXPORT bool CBBAddTime(CBB* cbb, base::Time time);
+
 // Generate a 'tls-server-end-point' channel binding based on the specified
 // certificate. Channel bindings are based on RFC 5929.
 NET_EXPORT_PRIVATE bool GetTLSServerEndPointChannelBinding(
@@ -136,6 +139,9 @@ NET_EXPORT bool SignatureVerifierInitWithCertificate(
     crypto::SignatureVerifier::SignatureAlgorithm signature_algorithm,
     base::span<const uint8_t> signature,
     const CRYPTO_BUFFER* certificate);
+
+// Returns true if the signature on the certificate uses SHA-1.
+NET_EXPORT_PRIVATE bool HasSHA1Signature(const CRYPTO_BUFFER* cert_buffer);
 
 }  // namespace x509_util
 

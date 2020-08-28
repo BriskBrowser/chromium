@@ -5,7 +5,7 @@
 package org.chromium.chrome.browser.firstrun;
 
 import org.chromium.base.CommandLine;
-import org.chromium.chrome.browser.ChromeSwitches;
+import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.preferences.ChromePreferenceKeys;
 import org.chromium.chrome.browser.preferences.SharedPreferencesManager;
 
@@ -13,6 +13,38 @@ import org.chromium.chrome.browser.preferences.SharedPreferencesManager;
  * Gets and sets preferences related to the status of the first run experience.
  */
 public class FirstRunStatus {
+    // Whether the first run flow is triggered in the current browser session.
+    private static boolean sFirstRunTriggered;
+
+    // Whether the first run flow should be skipped for the current browser session.
+    private static boolean sEphemeralSkipFirstRun;
+
+    /** @param triggered whether the first run flow is triggered in the current browser session. */
+    public static void setFirstRunTriggered(boolean triggered) {
+        sFirstRunTriggered = triggered;
+    }
+
+    /** @return whether first run flow is triggered in the current browser session. */
+    public static boolean isFirstRunTriggered() {
+        return sFirstRunTriggered;
+    }
+
+    /**
+     * @param skip Whether the first run flow should be skipped for the current session for app
+     *             entry points that allow for this (e.g. CCTs via Enterprise policy). Not saved to
+     *             durable storage, and will be erased when the process is restarted.
+     */
+    public static void setEphemeralSkipFirstRun(boolean skip) {
+        sEphemeralSkipFirstRun = skip;
+    }
+
+    /**
+     * @return Whether the first run flow should be skipped for the current session for app entry
+     *         points that allow for this.
+     */
+    public static boolean isEphemeralSkipFirstRun() {
+        return sEphemeralSkipFirstRun;
+    }
 
     /**
      * Sets the "main First Run Experience flow complete" preference.

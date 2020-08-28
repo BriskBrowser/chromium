@@ -7,6 +7,7 @@
 #include <stddef.h>
 
 #include <algorithm>
+#include <utility>
 
 #include "base/memory/ptr_util.h"
 #include "cc/base/math_util.h"
@@ -198,7 +199,7 @@ void DamageTracker::ComputeSurfaceDamage(
     bool is_rect_valid = damage_for_this_update_.GetAsRect(&damage_rect);
     if (is_rect_valid && !damage_rect.IsEmpty()) {
       damage_rect = render_surface->Filters().MapRect(
-          damage_rect, render_surface->SurfaceScale().matrix());
+          damage_rect, SkMatrix(render_surface->SurfaceScale().matrix()));
       damage_for_this_update_ = DamageAccumulator();
       damage_for_this_update_.Union(damage_rect);
     }
@@ -332,26 +333,6 @@ DamageTracker::DamageAccumulator DamageTracker::TrackDamageFromLeftoverRects() {
   return damage;
 }
 
-void DamageTracker::ExpandDamageInsideRectWithFilters(
-    const gfx::Rect& pre_filter_rect,
-    const FilterOperations& filters) {
-  gfx::Rect damage_rect;
-  bool is_valid_rect = damage_for_this_update_.GetAsRect(&damage_rect);
-  // If the damage accumulated so far isn't a valid rect or empty, then there is
-  // no point in trying to make it bigger.
-  if (!is_valid_rect || damage_rect.IsEmpty())
-    return;
-
-  // Compute the pixels in the backdrop of the surface that could be affected
-  // by the damage in the content below.
-  gfx::Rect expanded_damage_rect = filters.MapRect(damage_rect, SkMatrix::I());
-
-  // Restrict it to the rectangle in which the backdrop filter is shown.
-  expanded_damage_rect.Intersect(pre_filter_rect);
-
-  damage_for_this_update_.Union(expanded_damage_rect);
-}
-
 void DamageTracker::AccumulateDamageFromLayer(LayerImpl* layer) {
   // There are two ways that a layer can damage a region of the target surface:
   //   1. Property change (e.g. opacity, position, transforms):
@@ -375,13 +356,14 @@ void DamageTracker::AccumulateDamageFromLayer(LayerImpl* layer) {
   LayerRectMapData& data = RectDataForLayer(layer->id(), &layer_is_new);
   gfx::Rect old_rect_in_target_space = data.rect_;
 
-  gfx::Rect rect_in_target_space = layer->GetEnclosingRectInTargetSpace();
-  data.Update(rect_in_target_space, mailboxId_);
+  gfx::Rect visible_rect_in_target_space =
+      layer->visible_drawable_content_rect();
+  data.Update(visible_rect_in_target_space, mailboxId_);
 
   if (layer_is_new || layer->LayerPropertyChanged()) {
     // If a layer is new or has changed, then its entire layer rect affects the
     // target surface.
-    damage_for_this_update_.Union(rect_in_target_space);
+    damage_for_this_update_.Union(visible_rect_in_target_space);
 
     // The layer's old region is now exposed on the target surface, too.
     // Note old_rect_in_target_space is already in target space.
@@ -470,24 +452,15 @@ void DamageTracker::AccumulateDamageFromRenderSurface(
       const gfx::Transform& draw_transform = render_surface->draw_transform();
       gfx::Rect damage_rect_in_target_space = MathUtil::MapEnclosingClippedRect(
           draw_transform, damage_rect_in_local_space);
+      damage_rect_in_target_space.Intersect(
+          gfx::ToEnclosingRect(render_surface->DrawableContentRect()));
       damage_for_this_update_.Union(damage_rect_in_target_space);
     } else if (!is_valid_rect) {
       damage_for_this_update_.Union(surface_rect_in_target_space);
     }
   }
 
-  // If the layer has a backdrop filter, this may cause pixels in our surface
-  // to be expanded, so we will need to expand any damage at or below this
-  // layer. We expand the damage from this layer too, as we need to readback
-  // those pixels from the surface with only the contents of layers below this
-  // one in them. This means we need to redraw any pixels in the surface being
-  // used for the blur in this layer this frame.
   const FilterOperations& backdrop_filters = render_surface->BackdropFilters();
-  if (backdrop_filters.HasFilterThatMovesPixels()) {
-    ExpandDamageInsideRectWithFilters(surface_rect_in_target_space,
-                                      backdrop_filters);
-  }
-
   if (!surface_is_new &&
       backdrop_filters.HasFilterOfType(FilterOperation::BLUR)) {
     gfx::Rect damage_on_target;

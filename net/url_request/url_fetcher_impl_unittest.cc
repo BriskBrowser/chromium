@@ -11,6 +11,7 @@
 #include <limits>
 #include <memory>
 #include <string>
+#include <utility>
 
 #include "base/bind.h"
 #include "base/files/file_path.h"
@@ -26,6 +27,7 @@
 #include "base/strings/stringprintf.h"
 #include "base/synchronization/waitable_event.h"
 #include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
 #include "base/test/test_timeouts.h"
 #include "base/threading/platform_thread.h"
 #include "base/threading/sequenced_task_runner_handle.h"
@@ -39,6 +41,7 @@
 #include "net/base/upload_file_element_reader.h"
 #include "net/dns/mock_host_resolver.h"
 #include "net/http/http_response_headers.h"
+#include "net/proxy_resolution/configured_proxy_resolution_service.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
 #include "net/test/gtest_util.h"
 #include "net/test/test_with_task_environment.h"
@@ -56,31 +59,6 @@ using base::Time;
 using base::TimeDelta;
 using net::test::IsError;
 using net::test::IsOk;
-
-// TODO(eroman): Add a regression test for http://crbug.com/40505.
-
-namespace {
-
-// TODO(akalin): Move all the test data to somewhere under net/.
-const base::FilePath::CharType kDocRoot[] =
-    FILE_PATH_LITERAL("net/data/url_fetcher_impl_unittest");
-const char kTestServerFilePrefix[] = "/";
-
-// Test server path and response body for the default URL used by many of the
-// tests.
-const char kDefaultResponsePath[] = "/defaultresponse";
-const char kDefaultResponseBody[] =
-    "Default response given for path: /defaultresponse";
-
-// Request body for streams created by CreateUploadStream.
-const char kCreateUploadStreamBody[] = "rosebud";
-
-base::FilePath GetUploadFileTestPath() {
-  base::FilePath path;
-  base::PathService::Get(base::DIR_SOURCE_ROOT, &path);
-  return path.Append(
-      FILE_PATH_LITERAL("net/data/url_request_unittest/BullRunSpeech.txt"));
-}
 
 // Simple URLRequestDelegate that waits for the specified fetcher to complete.
 // Can only be used once.
@@ -180,6 +158,29 @@ class WaitingURLFetcherDelegate : public URLFetcherDelegate {
 
   DISALLOW_COPY_AND_ASSIGN(WaitingURLFetcherDelegate);
 };
+
+namespace {
+
+// TODO(akalin): Move all the test data to somewhere under net/.
+const base::FilePath::CharType kDocRoot[] =
+    FILE_PATH_LITERAL("net/data/url_fetcher_impl_unittest");
+const char kTestServerFilePrefix[] = "/";
+
+// Test server path and response body for the default URL used by many of the
+// tests.
+const char kDefaultResponsePath[] = "/defaultresponse";
+const char kDefaultResponseBody[] =
+    "Default response given for path: /defaultresponse";
+
+// Request body for streams created by CreateUploadStream.
+const char kCreateUploadStreamBody[] = "rosebud";
+
+base::FilePath GetUploadFileTestPath() {
+  base::FilePath path;
+  base::PathService::Get(base::DIR_SOURCE_ROOT, &path);
+  return path.Append(
+      FILE_PATH_LITERAL("net/data/url_request_unittest/BullRunSpeech.txt"));
+}
 
 // A TestURLRequestContext with a ThrottleManager and a MockHostResolver.
 class FetcherTestURLRequestContext : public TestURLRequestContext {
@@ -416,7 +417,7 @@ class URLFetcherTest : public TestWithTaskEnvironment {
     }
     delegate->StartFetcherAndWait();
 
-    EXPECT_TRUE(delegate->fetcher()->GetStatus().is_success());
+    EXPECT_EQ(OK, delegate->fetcher()->GetError());
     EXPECT_EQ(200, delegate->fetcher()->GetResponseCode());
 
     base::FilePath out_path;
@@ -442,7 +443,7 @@ class URLFetcherTest : public TestWithTaskEnvironment {
 
     // Cleanup.
     if (base::PathExists(out_path))
-      base::DeleteFile(out_path, false);
+      base::DeleteFile(out_path);
   }
 
   // Returns a URL that hangs on DNS resolution when using a context created by
@@ -506,7 +507,7 @@ TEST_F(URLFetcherTest, FetchedUsingProxy) {
                                       test_server_->host_port_pair());
 
   std::unique_ptr<ProxyResolutionService> proxy_resolution_service =
-      ProxyResolutionService::CreateFixedFromPacResult(
+      ConfiguredProxyResolutionService::CreateFixedFromPacResult(
           proxy_server.ToPacString(), TRAFFIC_ANNOTATION_FOR_TESTS);
   context_getter->set_proxy_resolution_service(
       std::move(proxy_resolution_service));
@@ -516,7 +517,7 @@ TEST_F(URLFetcherTest, FetchedUsingProxy) {
       URLFetcher::GET, context_getter);
   delegate.StartFetcherAndWait();
 
-  EXPECT_TRUE(delegate.fetcher()->GetStatus().is_success());
+  EXPECT_EQ(OK, delegate.fetcher()->GetError());
   EXPECT_EQ(200, delegate.fetcher()->GetResponseCode());
   std::string data;
   ASSERT_TRUE(delegate.fetcher()->GetResponseAsString(&data));
@@ -534,7 +535,7 @@ TEST_F(URLFetcherTest, SameThreadTest) {
                          URLFetcher::GET, CreateSameThreadContextGetter());
   delegate.StartFetcherAndWait();
 
-  EXPECT_TRUE(delegate.fetcher()->GetStatus().is_success());
+  EXPECT_EQ(OK, delegate.fetcher()->GetError());
   EXPECT_EQ(200, delegate.fetcher()->GetResponseCode());
   std::string data;
   ASSERT_TRUE(delegate.fetcher()->GetResponseAsString(&data));
@@ -560,7 +561,7 @@ TEST_F(URLFetcherTest, DifferentThreadsTest) {
                          URLFetcher::GET, CreateCrossThreadContextGetter());
   delegate.StartFetcherAndWait();
 
-  EXPECT_TRUE(delegate.fetcher()->GetStatus().is_success());
+  EXPECT_EQ(OK, delegate.fetcher()->GetError());
   EXPECT_EQ(200, delegate.fetcher()->GetResponseCode());
   std::string data;
   ASSERT_TRUE(delegate.fetcher()->GetResponseAsString(&data));
@@ -569,8 +570,7 @@ TEST_F(URLFetcherTest, DifferentThreadsTest) {
 
 // Verifies that a URLFetcher works correctly on a ThreadPool Sequence.
 TEST_F(URLFetcherTest, SequencedTaskTest) {
-  auto sequenced_task_runner =
-      base::CreateSequencedTaskRunner({base::ThreadPool()});
+  auto sequenced_task_runner = base::ThreadPool::CreateSequencedTaskRunner({});
 
   // Since we cannot use StartFetchAndWait(), which runs a nested RunLoop owned
   // by the Delegate, in the ThreadPool, this test is split into two Callbacks,
@@ -593,14 +593,14 @@ TEST_F(URLFetcherTest, SequencedTaskTest) {
             raw_delegate->set_on_complete_or_cancel_closure(base::BindOnce(
                 [](base::OnceClosure quit_closure,
                    std::unique_ptr<WaitingURLFetcherDelegate> delegate) {
-                  EXPECT_TRUE(delegate->fetcher()->GetStatus().is_success());
+                  EXPECT_EQ(OK, delegate->fetcher()->GetError());
                   EXPECT_EQ(200, delegate->fetcher()->GetResponseCode());
                   std::string data;
                   ASSERT_TRUE(delegate->fetcher()->GetResponseAsString(&data));
                   EXPECT_EQ(kDefaultResponseBody, data);
                   std::move(quit_closure).Run();
                 },
-                std::move(quit_closure), base::Passed(&delegate)));
+                std::move(quit_closure), std::move(delegate)));
 
             raw_delegate->CreateFetcher(response_path, URLFetcher::GET,
                                         context_getter);
@@ -665,9 +665,7 @@ TEST_F(URLFetcherTest, DontRetryOnNetworkChangedByDefault) {
 
   // And the owner of the fetcher gets the ERR_NETWORK_CHANGED error.
   EXPECT_EQ(hanging_url(), delegate.fetcher()->GetOriginalURL());
-  ASSERT_FALSE(delegate.fetcher()->GetStatus().is_success());
-  EXPECT_THAT(delegate.fetcher()->GetStatus().error(),
-              IsError(ERR_NETWORK_CHANGED));
+  EXPECT_THAT(delegate.fetcher()->GetError(), IsError(ERR_NETWORK_CHANGED));
 }
 
 TEST_F(URLFetcherTest, RetryOnNetworkChangedAndFail) {
@@ -713,9 +711,7 @@ TEST_F(URLFetcherTest, RetryOnNetworkChangedAndFail) {
 
   // And the owner of the fetcher gets the ERR_NETWORK_CHANGED error.
   EXPECT_EQ(hanging_url(), delegate.fetcher()->GetOriginalURL());
-  ASSERT_FALSE(delegate.fetcher()->GetStatus().is_success());
-  EXPECT_THAT(delegate.fetcher()->GetStatus().error(),
-              IsError(ERR_NETWORK_CHANGED));
+  EXPECT_THAT(delegate.fetcher()->GetError(), IsError(ERR_NETWORK_CHANGED));
 }
 
 TEST_F(URLFetcherTest, RetryOnNetworkChangedAndSucceed) {
@@ -760,7 +756,7 @@ TEST_F(URLFetcherTest, RetryOnNetworkChangedAndSucceed) {
 
   // This time the request succeeded.
   EXPECT_EQ(hanging_url(), delegate.fetcher()->GetOriginalURL());
-  EXPECT_TRUE(delegate.fetcher()->GetStatus().is_success());
+  EXPECT_EQ(OK, delegate.fetcher()->GetError());
   EXPECT_EQ(200, delegate.fetcher()->GetResponseCode());
 
   std::string data;
@@ -778,7 +774,7 @@ TEST_F(URLFetcherTest, PostString) {
                                     kUploadData);
   delegate.StartFetcherAndWait();
 
-  EXPECT_TRUE(delegate.fetcher()->GetStatus().is_success());
+  EXPECT_EQ(OK, delegate.fetcher()->GetError());
   EXPECT_EQ(200, delegate.fetcher()->GetResponseCode());
   std::string data;
   ASSERT_TRUE(delegate.fetcher()->GetResponseAsString(&data));
@@ -795,7 +791,7 @@ TEST_F(URLFetcherTest, PostEmptyString) {
                                     kUploadData);
   delegate.StartFetcherAndWait();
 
-  EXPECT_TRUE(delegate.fetcher()->GetStatus().is_success());
+  EXPECT_EQ(OK, delegate.fetcher()->GetError());
   EXPECT_EQ(200, delegate.fetcher()->GetResponseCode());
   std::string data;
   ASSERT_TRUE(delegate.fetcher()->GetResponseAsString(&data));
@@ -814,7 +810,7 @@ TEST_F(URLFetcherTest, PostEntireFile) {
                                         base::SequencedTaskRunnerHandle::Get());
   delegate.StartFetcherAndWait();
 
-  EXPECT_TRUE(delegate.fetcher()->GetStatus().is_success());
+  EXPECT_EQ(OK, delegate.fetcher()->GetError());
   EXPECT_EQ(200, delegate.fetcher()->GetResponseCode());
 
   std::string expected;
@@ -837,7 +833,7 @@ TEST_F(URLFetcherTest, PostFileRange) {
                                         base::SequencedTaskRunnerHandle::Get());
   delegate.StartFetcherAndWait();
 
-  EXPECT_TRUE(delegate.fetcher()->GetStatus().is_success());
+  EXPECT_EQ(OK, delegate.fetcher()->GetError());
   EXPECT_EQ(200, delegate.fetcher()->GetResponseCode());
 
   std::string expected;
@@ -852,11 +848,11 @@ TEST_F(URLFetcherTest, PostWithUploadStreamFactory) {
   delegate.CreateFetcher(test_server_->GetURL("/echo"), URLFetcher::POST,
                          CreateSameThreadContextGetter());
   delegate.fetcher()->SetUploadStreamFactory(
-      "text/plain",
-      base::Bind(&URLFetcherTest::CreateUploadStream, base::Unretained(this)));
+      "text/plain", base::BindRepeating(&URLFetcherTest::CreateUploadStream,
+                                        base::Unretained(this)));
   delegate.StartFetcherAndWait();
 
-  EXPECT_TRUE(delegate.fetcher()->GetStatus().is_success());
+  EXPECT_EQ(OK, delegate.fetcher()->GetError());
   EXPECT_EQ(200, delegate.fetcher()->GetResponseCode());
   std::string data;
   ASSERT_TRUE(delegate.fetcher()->GetResponseAsString(&data));
@@ -871,11 +867,11 @@ TEST_F(URLFetcherTest, PostWithUploadStreamFactoryAndRetries) {
   delegate.fetcher()->SetAutomaticallyRetryOn5xx(true);
   delegate.fetcher()->SetMaxRetriesOn5xx(1);
   delegate.fetcher()->SetUploadStreamFactory(
-      "text/plain",
-      base::Bind(&URLFetcherTest::CreateUploadStream, base::Unretained(this)));
+      "text/plain", base::BindRepeating(&URLFetcherTest::CreateUploadStream,
+                                        base::Unretained(this)));
   delegate.StartFetcherAndWait();
 
-  EXPECT_TRUE(delegate.fetcher()->GetStatus().is_success());
+  EXPECT_EQ(OK, delegate.fetcher()->GetError());
   EXPECT_EQ(500, delegate.fetcher()->GetResponseCode());
   std::string data;
   ASSERT_TRUE(delegate.fetcher()->GetResponseAsString(&data));
@@ -902,7 +898,7 @@ TEST_F(URLFetcherTest, PostChunked) {
 
   delegate.WaitForComplete();
 
-  EXPECT_TRUE(delegate.fetcher()->GetStatus().is_success());
+  EXPECT_EQ(OK, delegate.fetcher()->GetError());
   EXPECT_EQ(200, delegate.fetcher()->GetResponseCode());
   std::string data;
   ASSERT_TRUE(delegate.fetcher()->GetResponseAsString(&data));
@@ -940,9 +936,7 @@ TEST_F(URLFetcherTest, PostAppendChunkAfterError) {
   delegate.WaitForComplete();
 
   // Make sure the request failed, as expected.
-  EXPECT_FALSE(delegate.fetcher()->GetStatus().is_success());
-  EXPECT_THAT(delegate.fetcher()->GetStatus().error(),
-              IsError(ERR_UNSAFE_PORT));
+  EXPECT_THAT(delegate.fetcher()->GetError(), IsError(ERR_UNSAFE_PORT));
 }
 
 // Checks that upload progress increases over time, never exceeds what's already
@@ -1008,7 +1002,7 @@ TEST_F(URLFetcherTest, UploadProgress) {
   // Make sure there are no pending events that cause problems when run.
   base::RunLoop().RunUntilIdle();
 
-  EXPECT_TRUE(delegate.fetcher()->GetStatus().is_success());
+  EXPECT_EQ(OK, delegate.fetcher()->GetError());
   EXPECT_EQ(200, delegate.fetcher()->GetResponseCode());
   EXPECT_TRUE(delegate.did_complete());
 }
@@ -1060,7 +1054,7 @@ TEST_F(URLFetcherTest, DownloadProgress) {
       URLFetcher::GET, CreateSameThreadContextGetter());
   delegate.StartFetcherAndWait();
 
-  EXPECT_TRUE(delegate.fetcher()->GetStatus().is_success());
+  EXPECT_EQ(OK, delegate.fetcher()->GetError());
   EXPECT_EQ(200, delegate.fetcher()->GetResponseCode());
   std::string data;
   ASSERT_TRUE(delegate.fetcher()->GetResponseAsString(&data));
@@ -1146,7 +1140,7 @@ TEST_F(URLFetcherTest, Headers) {
       URLFetcher::GET, CreateSameThreadContextGetter());
   delegate.StartFetcherAndWait();
 
-  EXPECT_TRUE(delegate.fetcher()->GetStatus().is_success());
+  EXPECT_EQ(OK, delegate.fetcher()->GetError());
   EXPECT_EQ(200, delegate.fetcher()->GetResponseCode());
   std::string header;
   ASSERT_TRUE(delegate.fetcher()->GetResponseHeaders()->GetNormalizedHeader(
@@ -1160,7 +1154,7 @@ TEST_F(URLFetcherTest, SocketAddress) {
                          URLFetcher::GET, CreateSameThreadContextGetter());
   delegate.StartFetcherAndWait();
 
-  EXPECT_TRUE(delegate.fetcher()->GetStatus().is_success());
+  EXPECT_EQ(OK, delegate.fetcher()->GetError());
   EXPECT_EQ(200, delegate.fetcher()->GetResponseCode());
   EXPECT_EQ(test_server_->host_port_pair().port(),
             delegate.fetcher()->GetSocketAddress().port());
@@ -1179,10 +1173,11 @@ TEST_F(URLFetcherTest, StopOnRedirect) {
   delegate.StartFetcherAndWait();
 
   EXPECT_EQ(GURL(kRedirectTarget), delegate.fetcher()->GetURL());
-  EXPECT_EQ(URLRequestStatus::CANCELED,
-            delegate.fetcher()->GetStatus().status());
-  EXPECT_THAT(delegate.fetcher()->GetStatus().error(), IsError(ERR_ABORTED));
+  EXPECT_THAT(delegate.fetcher()->GetError(), IsError(ERR_ABORTED));
   EXPECT_EQ(301, delegate.fetcher()->GetResponseCode());
+  ASSERT_TRUE(delegate.fetcher()->GetResponseHeaders());
+  EXPECT_TRUE(delegate.fetcher()->GetResponseHeaders()->HasHeaderValue(
+      "Location", std::string(kRedirectTarget)));
 }
 
 TEST_F(URLFetcherTest, ThrottleOnRepeatedFetches) {
@@ -1206,7 +1201,7 @@ TEST_F(URLFetcherTest, ThrottleOnRepeatedFetches) {
     delegate.CreateFetcher(url, URLFetcher::GET, context_getter);
     delegate.StartFetcherAndWait();
 
-    EXPECT_TRUE(delegate.fetcher()->GetStatus().is_success());
+    EXPECT_EQ(OK, delegate.fetcher()->GetError());
     EXPECT_EQ(200, delegate.fetcher()->GetResponseCode());
   }
 
@@ -1239,7 +1234,7 @@ TEST_F(URLFetcherTest, ThrottleChunkedUpload) {
     delegate.fetcher()->AppendChunkToUpload(kCreateUploadStreamBody, true);
     delegate.WaitForComplete();
 
-    EXPECT_TRUE(delegate.fetcher()->GetStatus().is_success());
+    EXPECT_EQ(OK, delegate.fetcher()->GetError());
     EXPECT_EQ(200, delegate.fetcher()->GetResponseCode());
     std::string data;
     ASSERT_TRUE(delegate.fetcher()->GetResponseAsString(&data));
@@ -1271,7 +1266,7 @@ TEST_F(URLFetcherTest, ThrottleOn5xxRetries) {
   delegate.fetcher()->SetMaxRetriesOn5xx(11);
   delegate.StartFetcherAndWait();
 
-  EXPECT_TRUE(delegate.fetcher()->GetStatus().is_success());
+  EXPECT_EQ(OK, delegate.fetcher()->GetError());
   EXPECT_EQ(503, delegate.fetcher()->GetResponseCode());
   std::string data;
   ASSERT_TRUE(delegate.fetcher()->GetResponseAsString(&data));
@@ -1310,7 +1305,7 @@ TEST_F(URLFetcherTest, ProtectTestPassedThrough) {
   delegate.fetcher()->SetMaxRetriesOn5xx(11);
   delegate.StartFetcherAndWait();
 
-  EXPECT_TRUE(delegate.fetcher()->GetStatus().is_success());
+  EXPECT_EQ(OK, delegate.fetcher()->GetError());
   EXPECT_EQ(503, delegate.fetcher()->GetResponseCode());
   std::string data;
   ASSERT_TRUE(delegate.fetcher()->GetResponseAsString(&data));
@@ -1429,7 +1424,7 @@ class ReuseFetcherDelegate : public WaitingURLFetcherDelegate {
     EXPECT_EQ(fetcher(), source);
     if (!first_request_complete_) {
       first_request_complete_ = true;
-      EXPECT_TRUE(fetcher()->GetStatus().is_success());
+      EXPECT_EQ(OK, fetcher()->GetError());
       EXPECT_EQ(200, fetcher()->GetResponseCode());
       std::string data;
       ASSERT_TRUE(fetcher()->GetResponseAsString(&data));
@@ -1462,7 +1457,7 @@ TEST_F(URLFetcherTest, ReuseFetcherForSameURL) {
   delegate.fetcher()->SetExtraRequestHeaders("test: request1");
   delegate.StartFetcherAndWait();
 
-  EXPECT_TRUE(delegate.fetcher()->GetStatus().is_success());
+  EXPECT_EQ(OK, delegate.fetcher()->GetError());
   EXPECT_EQ(200, delegate.fetcher()->GetResponseCode());
   std::string data;
   ASSERT_TRUE(delegate.fetcher()->GetResponseAsString(&data));
@@ -1492,15 +1487,11 @@ TEST_F(URLFetcherTest, ShutdownSameThread) {
 
   // Wait for the first fetcher, make sure it failed.
   delegate1.WaitForComplete();
-  EXPECT_FALSE(delegate1.fetcher()->GetStatus().is_success());
-  EXPECT_THAT(delegate1.fetcher()->GetStatus().error(),
-              IsError(ERR_CONTEXT_SHUT_DOWN));
+  EXPECT_THAT(delegate1.fetcher()->GetError(), IsError(ERR_CONTEXT_SHUT_DOWN));
 
   // Wait for the second fetcher, make sure it failed.
   delegate2.WaitForComplete();
-  EXPECT_FALSE(delegate2.fetcher()->GetStatus().is_success());
-  EXPECT_THAT(delegate2.fetcher()->GetStatus().error(),
-              IsError(ERR_CONTEXT_SHUT_DOWN));
+  EXPECT_THAT(delegate2.fetcher()->GetError(), IsError(ERR_CONTEXT_SHUT_DOWN));
 
   // New fetchers should automatically fail without making new requests. This
   // should follow the same path as the second fetcher, but best to be safe.
@@ -1508,9 +1499,7 @@ TEST_F(URLFetcherTest, ShutdownSameThread) {
   delegate3.CreateFetcher(hanging_url(), URLFetcher::GET, context_getter);
   delegate3.fetcher()->Start();
   delegate3.WaitForComplete();
-  EXPECT_FALSE(delegate3.fetcher()->GetStatus().is_success());
-  EXPECT_THAT(delegate3.fetcher()->GetStatus().error(),
-              IsError(ERR_CONTEXT_SHUT_DOWN));
+  EXPECT_THAT(delegate3.fetcher()->GetError(), IsError(ERR_CONTEXT_SHUT_DOWN));
 }
 
 TEST_F(URLFetcherTest, ShutdownCrossThread) {
@@ -1524,17 +1513,13 @@ TEST_F(URLFetcherTest, ShutdownCrossThread) {
   // and cancels the request.
   context_getter->Shutdown();
   delegate1.WaitForComplete();
-  EXPECT_FALSE(delegate1.fetcher()->GetStatus().is_success());
-  EXPECT_THAT(delegate1.fetcher()->GetStatus().error(),
-              IsError(ERR_CONTEXT_SHUT_DOWN));
+  EXPECT_THAT(delegate1.fetcher()->GetError(), IsError(ERR_CONTEXT_SHUT_DOWN));
 
   // New requests should automatically fail without making new requests.
   WaitingURLFetcherDelegate delegate2;
   delegate2.CreateFetcher(hanging_url(), URLFetcher::GET, context_getter);
   delegate2.StartFetcherAndWait();
-  EXPECT_FALSE(delegate2.fetcher()->GetStatus().is_success());
-  EXPECT_THAT(delegate2.fetcher()->GetStatus().error(),
-              IsError(ERR_CONTEXT_SHUT_DOWN));
+  EXPECT_THAT(delegate2.fetcher()->GetError(), IsError(ERR_CONTEXT_SHUT_DOWN));
 }
 
 // Get a small file.
@@ -1605,9 +1590,7 @@ TEST_F(URLFetcherTest, FileTestTryToOverwriteDirectory) {
                     base::SequencedTaskRunnerHandle::Get()));
   delegate.StartFetcherAndWait();
 
-  EXPECT_FALSE(delegate.fetcher()->GetStatus().is_success());
-  EXPECT_THAT(delegate.fetcher()->GetStatus().error(),
-              IsError(ERR_ACCESS_DENIED));
+  EXPECT_THAT(delegate.fetcher()->GetError(), IsError(ERR_ACCESS_DENIED));
 }
 
 // Get a small file and save it to a temp file.
@@ -1633,9 +1616,7 @@ TEST_F(URLFetcherBadHTTPSTest, BadHTTPS) {
                          URLFetcher::GET, CreateSameThreadContextGetter());
   delegate.StartFetcherAndWait();
 
-  EXPECT_EQ(URLRequestStatus::CANCELED,
-            delegate.fetcher()->GetStatus().status());
-  EXPECT_THAT(delegate.fetcher()->GetStatus().error(), IsError(ERR_ABORTED));
+  EXPECT_THAT(delegate.fetcher()->GetError(), IsError(ERR_ABORTED));
   EXPECT_EQ(-1, delegate.fetcher()->GetResponseCode());
   EXPECT_FALSE(delegate.fetcher()->GetResponseHeaders());
   std::string data;

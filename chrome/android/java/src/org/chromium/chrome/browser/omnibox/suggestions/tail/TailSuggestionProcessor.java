@@ -19,7 +19,6 @@ import org.chromium.ui.modelutil.PropertyModel;
 
 /** A class that handles model and view creation for the tail suggestions. */
 public class TailSuggestionProcessor extends BaseSuggestionViewProcessor {
-    private final Context mContext;
     private final boolean mAlignTailSuggestions;
     private AlignmentManager mAlignmentManager;
 
@@ -29,18 +28,14 @@ public class TailSuggestionProcessor extends BaseSuggestionViewProcessor {
      */
     public TailSuggestionProcessor(Context context, SuggestionHost suggestionHost) {
         super(context, suggestionHost);
-        mContext = context;
         mAlignTailSuggestions = DeviceFormFactor.isNonMultiDisplayContextOnTablet(context);
     }
 
     @Override
-    public boolean doesProcessSuggestion(OmniboxSuggestion suggestion) {
+    public boolean doesProcessSuggestion(OmniboxSuggestion suggestion, int position) {
         return mAlignTailSuggestions
                 && suggestion.getType() == OmniboxSuggestionType.SEARCH_SUGGEST_TAIL;
     }
-
-    @Override
-    public void onNativeInitialized() {}
 
     @Override
     public int getViewTypeId() {
@@ -48,7 +43,7 @@ public class TailSuggestionProcessor extends BaseSuggestionViewProcessor {
     }
 
     @Override
-    public PropertyModel createModelForSuggestion(OmniboxSuggestion suggestion) {
+    public PropertyModel createModel() {
         return new PropertyModel(TailSuggestionViewProperties.ALL_KEYS);
     }
 
@@ -67,21 +62,14 @@ public class TailSuggestionProcessor extends BaseSuggestionViewProcessor {
 
         setSuggestionDrawableState(model,
                 SuggestionDrawableState.Builder
-                        .forDrawableRes(mContext, R.drawable.ic_suggestion_magnifier)
+                        .forDrawableRes(getContext(), R.drawable.ic_suggestion_magnifier)
                         .setAllowTint(true)
                         .build());
+        setTabSwitchOrRefineAction(model, suggestion, position);
     }
 
     @Override
-    public void onUrlFocusChange(boolean hasFocus) {}
-
-    @Override
-    public void recordSuggestionPresented(OmniboxSuggestion suggestion, PropertyModel model) {}
-
-    @Override
-    public void recordSuggestionUsed(OmniboxSuggestion suggestion, PropertyModel model) {}
-
-    public void reset() {
+    public void onSuggestionsReceived() {
         mAlignmentManager = new AlignmentManager();
     }
 }

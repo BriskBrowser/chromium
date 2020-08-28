@@ -5,18 +5,19 @@
 #ifndef UI_BASE_CURSOR_CURSOR_LOADER_H_
 #define UI_BASE_CURSOR_CURSOR_LOADER_H_
 
-#include "base/logging.h"
+#include "base/component_export.h"
 #include "base/macros.h"
-#include "base/strings/string16.h"
-#include "ui/base/cursor/types/cursor_types.h"
-#include "ui/base/ui_base_export.h"
+#include "ui/base/cursor/mojom/cursor_type.mojom-forward.h"
 #include "ui/display/display.h"
-#include "ui/gfx/geometry/point.h"
 #include "ui/gfx/native_widget_types.h"
+
+namespace gfx {
+class Point;
+}
 
 namespace ui {
 
-class UI_BASE_EXPORT CursorLoader {
+class COMPONENT_EXPORT(UI_BASE_CURSOR) CursorLoader {
  public:
   CursorLoader() : scale_(1.f), rotation_(display::Display::ROTATE_0) {}
   virtual ~CursorLoader() {}
@@ -38,7 +39,7 @@ class UI_BASE_EXPORT CursorLoader {
   }
 
   // Creates a cursor from an image resource and puts it in the cursor map.
-  virtual void LoadImageCursor(CursorType id,
+  virtual void LoadImageCursor(mojom::CursorType id,
                                int resource_id,
                                const gfx::Point& hot) = 0;
 
@@ -47,7 +48,7 @@ class UI_BASE_EXPORT CursorLoader {
   // from left to right. Also, each frame is assumed to be square
   // (width == height).
   // |frame_delay_ms| is the delay between frames in millisecond.
-  virtual void LoadAnimatedCursor(CursorType id,
+  virtual void LoadAnimatedCursor(mojom::CursorType id,
                                   int resource_id,
                                   const gfx::Point& hot,
                                   int frame_delay_ms) = 0;

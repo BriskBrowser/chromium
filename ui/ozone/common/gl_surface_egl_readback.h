@@ -32,7 +32,7 @@ class GLSurfaceEglReadback : public gl::PbufferGLSurfaceEGL {
               bool has_alpha) override;
   bool IsOffscreen() override;
   gfx::SwapResult SwapBuffers(PresentationCallback callback) override;
-  bool FlipsVertically() const override;
+  gfx::SurfaceOrigin GetOrigin() const override;
 
   // TODO(kylechar): Implement SupportsPostSubBuffer() and PostSubBuffer().
 
@@ -43,6 +43,9 @@ class GLSurfaceEglReadback : public gl::PbufferGLSurfaceEGL {
   // true if succesful. Should return true on succesful swap or false on swap
   // failure.
   virtual bool HandlePixels(uint8_t* pixels);
+
+  // Reads pixels with glReadPixels from fbo to |buffer|.
+  void ReadPixels(void* buffer);
 
  private:
   scoped_refptr<base::SingleThreadTaskRunner> task_runner_;

@@ -5,7 +5,10 @@
 #import "ios/chrome/browser/ui/overlays/infobar_modal/infobar_modal_overlay_coordinator.h"
 #import "ios/chrome/browser/ui/overlays/infobar_modal/infobar_modal_overlay_coordinator+modal_configuration.h"
 
-#include "base/logging.h"
+#include "base/mac/foundation_util.h"
+#include "base/notreached.h"
+#import "ios/chrome/browser/ui/infobars/presentation/infobar_modal_positioner.h"
+#import "ios/chrome/browser/ui/infobars/presentation/infobar_modal_transition_driver.h"
 #import "ios/chrome/browser/ui/overlays/infobar_modal/infobar_modal_overlay_mediator.h"
 #import "ios/chrome/browser/ui/overlays/overlay_request_coordinator+subclassing.h"
 #import "ios/chrome/browser/ui/overlays/overlay_request_coordinator_delegate.h"
@@ -14,9 +17,12 @@
 #error "This file requires ARC support."
 #endif
 
-@interface InfobarModalOverlayCoordinator ()
+@interface InfobarModalOverlayCoordinator () <InfobarModalPositioner>
 // The navigation controller used to display the modal view.
 @property(nonatomic) UINavigationController* modalNavController;
+// The transition delegate used by the coordinator to present the modal UI.
+@property(nonatomic, strong)
+    InfobarModalTransitionDriver* modalTransitionDriver;
 @end
 
 @implementation InfobarModalOverlayCoordinator
@@ -28,13 +34,13 @@
     return;
   [self configureModal];
   self.mediator = self.modalMediator;
+  self.modalTransitionDriver = [[InfobarModalTransitionDriver alloc]
+      initWithTransitionMode:InfobarModalTransitionBase];
+  self.modalTransitionDriver.modalPositioner = self;
   self.modalNavController = [[UINavigationController alloc]
       initWithRootViewController:self.modalViewController];
-  // TODO(crbug.com/1030357): Use custom presentation.
-  self.modalNavController.modalPresentationStyle =
-      UIModalPresentationOverCurrentContext;
-  self.modalNavController.modalTransitionStyle =
-      UIModalTransitionStyleCrossDissolve;
+  self.modalNavController.modalPresentationStyle = UIModalPresentationCustom;
+  self.modalNavController.transitioningDelegate = self.modalTransitionDriver;
   [self.baseViewController presentViewController:self.viewController
                                         animated:animated
                                       completion:^{
@@ -46,15 +52,36 @@
 - (void)stopAnimated:(BOOL)animated {
   if (!self.started)
     return;
+  // Mark started as NO before calling dismissal callback to prevent dup
+  // stopAnimated: executions.
+  self.started = NO;
   [self.baseViewController dismissViewControllerAnimated:animated
                                               completion:^{
                                                 [self finishDismissal];
                                               }];
-  self.started = NO;
 }
 
 - (UIViewController*)viewController {
   return self.modalNavController;
+}
+
+#pragma mark - InfobarModalPositioner
+
+- (CGFloat)modalHeightForWidth:(CGFloat)width {
+  UIView* modalView = self.modalViewController.view;
+  CGSize modalContentSize = CGSizeZero;
+  if (UIScrollView* scrollView = base::mac::ObjCCast<UIScrollView>(modalView)) {
+    CGRect layoutFrame = self.baseViewController.view.bounds;
+    layoutFrame.size.width = width;
+    scrollView.frame = layoutFrame;
+    [scrollView setNeedsLayout];
+    [scrollView layoutIfNeeded];
+    modalContentSize = scrollView.contentSize;
+  } else {
+    modalContentSize = [modalView sizeThatFits:CGSizeMake(width, CGFLOAT_MAX)];
+  }
+  return modalContentSize.height +
+         CGRectGetHeight(self.modalNavController.navigationBar.bounds);
 }
 
 #pragma mark - Private
@@ -70,7 +97,7 @@
 // Called when the dismissal of the modal UI is finished.
 - (void)finishDismissal {
   [self resetModal];
-  self.navigationController = nil;
+  self.modalNavController = nil;
   // Notify the presentation context that the dismissal has finished.  This
   // is necessary to synchronize OverlayPresenter scheduling logic with the UI
   // layer.

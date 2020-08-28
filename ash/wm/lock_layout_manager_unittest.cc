@@ -30,18 +30,18 @@ namespace {
 // A login implementation of WidgetDelegate.
 class LoginTestWidgetDelegate : public views::WidgetDelegate {
  public:
-  explicit LoginTestWidgetDelegate(views::Widget* widget) : widget_(widget) {}
+  explicit LoginTestWidgetDelegate(views::Widget* widget) : widget_(widget) {
+    SetOwnedByWidget(true);
+    SetFocusTraversesOut(true);
+  }
   ~LoginTestWidgetDelegate() override = default;
 
   // views::WidgetDelegate:
-  void DeleteDelegate() override { delete this; }
+  views::Widget* GetWidget() override { return widget_; }
+  const views::Widget* GetWidget() const override { return widget_; }
   bool CanActivate() const override { return true; }
-  bool ShouldAdvanceFocusToTopLevelWidget() const override { return true; }
 
  private:
-  // views::WidgetDelegate:
-  const views::Widget* GetWidgetImpl() const override { return widget_; }
-
   views::Widget* widget_;
 
   DISALLOW_COPY_AND_ASSIGN(LoginTestWidgetDelegate);
@@ -71,7 +71,7 @@ class LockLayoutManagerTest : public AshTestBase {
     views::Widget* widget = new views::Widget;
     if (use_delegate)
       params.delegate = new LoginTestWidgetDelegate(widget);
-    params.context = CurrentContext();
+    params.context = GetContext();
     widget->Init(std::move(params));
     widget->Show();
     aura::Window* window = widget->GetNativeView();
@@ -142,7 +142,7 @@ TEST_F(LockLayoutManagerTest, MaximizedFullscreenWindowBoundsAreEqualToScreen) {
       CreateTestLoginWindow(std::move(widget_params), true /* use_delegate */));
 
   widget_params.show_state = ui::SHOW_STATE_FULLSCREEN;
-  widget_params.delegate = NULL;
+  widget_params.delegate = nullptr;
   std::unique_ptr<aura::Window> fullscreen_window(CreateTestLoginWindow(
       std::move(widget_params), false /* use_delegate */));
 
@@ -275,7 +275,7 @@ TEST_F(LockLayoutManagerTest, KeyboardBounds) {
   SetKeyboardOverscrollBehavior(keyboard::KeyboardOverscrollBehavior::kDefault);
 
   keyboard->SetContainerType(keyboard::ContainerType::kFloating,
-                             base::nullopt /* target_bounds */,
+                             gfx::Rect() /* target_bounds */,
                              base::BindOnce([](bool success) {}));
   ShowKeyboard(true);
   primary_display = display::Screen::GetScreen()->GetPrimaryDisplay();

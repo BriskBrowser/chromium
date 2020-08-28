@@ -6,16 +6,16 @@
 #define THIRD_PARTY_BLINK_RENDERER_CORE_FRAME_ROOT_FRAME_VIEWPORT_H_
 
 #include "base/single_thread_task_runner.h"
+#include "third_party/blink/public/mojom/scroll/scroll_into_view_params.mojom-blink-forward.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/scroll/scrollable_area.h"
-#include "third_party/blink/renderer/platform/graphics/scroll_types.h"
+#include "third_party/blink/renderer/platform/graphics/overlay_scrollbar_clip_behavior.h"
 #include "third_party/blink/renderer/platform/wtf/casting.h"
 
 namespace blink {
 
 class LocalFrameView;
 struct PhysicalRect;
-struct WebScrollIntoViewParams;
 
 // ScrollableArea for the root frame's viewport. This class ties together the
 // concepts of layout and visual viewports, used in pinch-to-zoom. This class
@@ -29,13 +29,11 @@ struct WebScrollIntoViewParams;
 class CORE_EXPORT RootFrameViewport final
     : public GarbageCollected<RootFrameViewport>,
       public ScrollableArea {
-  USING_GARBAGE_COLLECTED_MIXIN(RootFrameViewport);
-
  public:
   RootFrameViewport(ScrollableArea& visual_viewport,
                     ScrollableArea& layout_viewport);
 
-  void Trace(blink::Visitor*) override;
+  void Trace(Visitor*) const override;
 
   void SetLayoutViewport(ScrollableArea&);
   ScrollableArea& LayoutViewport() const;
@@ -58,11 +56,12 @@ class CORE_EXPORT RootFrameViewport final
   // ScrollableArea Implementation
   bool IsRootFrameViewport() const override { return true; }
   void SetScrollOffset(const ScrollOffset&,
-                       ScrollType,
-                       ScrollBehavior,
+                       mojom::blink::ScrollType,
+                       mojom::blink::ScrollBehavior,
                        ScrollCallback on_finish) override;
-  PhysicalRect ScrollIntoView(const PhysicalRect&,
-                              const WebScrollIntoViewParams&) override;
+  PhysicalRect ScrollIntoView(
+      const PhysicalRect&,
+      const mojom::blink::ScrollIntoViewParamsPtr&) override;
   IntRect VisibleContentRect(
       IncludeScrollbarsInRect = kExcludeScrollbars) const override;
   PhysicalRect VisibleScrollSnapportRect(
@@ -77,7 +76,8 @@ class CORE_EXPORT RootFrameViewport final
   int ScrollSize(ScrollbarOrientation) const override;
   bool IsScrollCornerVisible() const override;
   IntRect ScrollCornerRect() const override;
-  void UpdateScrollOffset(const ScrollOffset&, ScrollType) override;
+  void UpdateScrollOffset(const ScrollOffset&,
+                          mojom::blink::ScrollType) override;
   IntSize ScrollOffsetInt() const override;
   ScrollOffset GetScrollOffset() const override;
   IntSize MinimumScrollOffsetInt() const override;
@@ -95,12 +95,10 @@ class CORE_EXPORT RootFrameViewport final
   cc::Layer* LayerForHorizontalScrollbar() const override;
   cc::Layer* LayerForVerticalScrollbar() const override;
   cc::Layer* LayerForScrollCorner() const override;
-  int HorizontalScrollbarHeight(
-      OverlayScrollbarClipBehavior =
-          kIgnorePlatformOverlayScrollbarSize) const override;
-  int VerticalScrollbarWidth(
-      OverlayScrollbarClipBehavior =
-          kIgnorePlatformOverlayScrollbarSize) const override;
+  int HorizontalScrollbarHeight(OverlayScrollbarClipBehavior =
+                                    kIgnoreOverlayScrollbarSize) const override;
+  int VerticalScrollbarWidth(OverlayScrollbarClipBehavior =
+                                 kIgnoreOverlayScrollbarSize) const override;
   ScrollResult UserScroll(ScrollGranularity,
                           const FloatSize&,
                           ScrollableArea::ScrollCallback on_finish) override;
@@ -113,7 +111,7 @@ class CORE_EXPORT RootFrameViewport final
   void ServiceScrollAnimations(double) override;
   void UpdateCompositorScrollAnimations() override;
   void CancelProgrammaticScrollAnimation() override;
-  ScrollBehavior ScrollBehaviorStyle() const override;
+  mojom::blink::ScrollBehavior ScrollBehaviorStyle() const override;
   WebColorScheme UsedColorScheme() const override;
   void ClearScrollableArea() override;
   LayoutBox* GetLayoutBox() const override;
@@ -144,6 +142,10 @@ class CORE_EXPORT RootFrameViewport final
 
   void ApplyPendingHistoryRestoreScrollOffset() override;
 
+  bool HasPendingHistoryRestoreScrollOffset() override {
+    return !!pending_view_state_;
+  }
+
  private:
   FRIEND_TEST_ALL_PREFIXES(RootFrameViewportTest, DistributeScrollOrder);
 
@@ -153,8 +155,8 @@ class CORE_EXPORT RootFrameViewport final
 
   void DistributeScrollBetweenViewports(
       const ScrollOffset&,
-      ScrollType,
-      ScrollBehavior,
+      mojom::blink::ScrollType,
+      mojom::blink::ScrollBehavior,
       ViewportToScrollFirst,
       ScrollCallback on_finish = ScrollCallback());
 

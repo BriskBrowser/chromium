@@ -34,6 +34,7 @@ namespace blink {
 
 class CSSParserContext;
 class CSSSelectorList;
+class Node;
 
 // This class represents a simple selector for a StyleRule.
 
@@ -231,9 +232,10 @@ class CORE_EXPORT CSSSelector {
     kPseudoPictureInPicture,
     kPseudoInRange,
     kPseudoOutOfRange,
+    kPseudoXrOverlay,
     // Pseudo elements in UA ShadowRoots. Available in any stylesheets.
     kPseudoWebKitCustomElement,
-    // Pseudo elements in UA ShadowRoots. Availble only in UA stylesheets.
+    // Pseudo elements in UA ShadowRoots. Available only in UA stylesheets.
     kPseudoBlinkInternalElement,
     kPseudoCue,
     kPseudoFutureCue,
@@ -253,7 +255,6 @@ class CORE_EXPORT CSSSelector {
     kPseudoSlotted,
     kPseudoVideoPersistent,
     kPseudoVideoPersistentAncestor,
-    kPseudoXrImmersiveDomOverlay,
   };
 
   enum AttributeMatchType {
@@ -272,7 +273,7 @@ class CORE_EXPORT CSSSelector {
   void UpdatePseudoPage(const AtomicString&);
 
   static PseudoType ParsePseudoType(const AtomicString&, bool has_arguments);
-  static PseudoId ParsePseudoId(const String&);
+  static PseudoId ParsePseudoId(const String&, const Node*);
   static PseudoId GetPseudoId(PseudoType);
 
   // Selectors are kept in an array by CSSSelectorList. The next component of

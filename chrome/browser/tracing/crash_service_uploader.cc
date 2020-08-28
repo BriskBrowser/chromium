@@ -15,7 +15,7 @@
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
-#include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
 #include "components/tracing/common/tracing_switches.h"
@@ -100,8 +100,8 @@ void TraceCrashServiceUploader::OnSimpleURLLoaderComplete(
                base::NumberToString(response_code);
   }
 
-  base::PostTask(FROM_HERE, {content::BrowserThread::UI},
-                 base::BindOnce(std::move(done_callback_), success, feedback));
+  content::GetUIThreadTaskRunner({})->PostTask(
+      FROM_HERE, base::BindOnce(std::move(done_callback_), success, feedback));
   simple_url_loader_.reset();
 }
 
@@ -114,8 +114,8 @@ void TraceCrashServiceUploader::OnURLLoaderUploadProgress(uint64_t current,
 
   if (progress_callback_.is_null())
     return;
-  base::PostTask(FROM_HERE, {content::BrowserThread::UI},
-                 base::BindOnce(progress_callback_, current, total));
+  content::GetUIThreadTaskRunner({})->PostTask(
+      FROM_HERE, base::BindOnce(progress_callback_, current, total));
 }
 
 void TraceCrashServiceUploader::DoUpload(
@@ -129,8 +129,8 @@ void TraceCrashServiceUploader::DoUpload(
   progress_callback_ = progress_callback;
   done_callback_ = std::move(done_callback);
 
-  base::PostTask(
-      FROM_HERE, {base::ThreadPool(), base::TaskPriority::BEST_EFFORT},
+  base::ThreadPool::PostTask(
+      FROM_HERE, {base::TaskPriority::BEST_EFFORT},
       base::BindOnce(&TraceCrashServiceUploader::DoCompressOnBackgroundThread,
                      base::Unretained(this), file_contents, upload_mode,
                      upload_url_, std::move(metadata)));
@@ -150,13 +150,13 @@ void TraceCrashServiceUploader::DoCompressOnBackgroundThread(
 
 #if defined(OS_WIN)
   const char product[] = "Chrome";
-#elif defined(OS_MACOSX)
+#elif defined(OS_MAC)
   const char product[] = "Chrome_Mac";
 #elif defined(OS_CHROMEOS)
   // On ChromeOS, defined(OS_LINUX) also evalutes to true, so the
   // defined(OS_CHROMEOS) block must come first.
   const char product[] = "Chrome_ChromeOS";
-#elif defined(OS_LINUX)
+#elif defined(OS_LINUX) || defined(OS_CHROMEOS)
   const char product[] = "Chrome_Linux";
 #elif defined(OS_ANDROID)
   const char product[] = "Chrome_Android";
@@ -205,8 +205,8 @@ void TraceCrashServiceUploader::DoCompressOnBackgroundThread(
   SetupMultipart(product, version, std::move(metadata), "trace.json.gz",
                  compressed_contents, &post_data);
 
-  base::PostTask(
-      FROM_HERE, {content::BrowserThread::UI},
+  content::GetUIThreadTaskRunner({})->PostTask(
+      FROM_HERE,
       base::BindOnce(&TraceCrashServiceUploader::CreateAndStartURLLoader,
                      base::Unretained(this), upload_url, post_data));
 }
@@ -214,8 +214,8 @@ void TraceCrashServiceUploader::DoCompressOnBackgroundThread(
 void TraceCrashServiceUploader::OnUploadError(
     const std::string& error_message) {
   LOG(ERROR) << error_message;
-  base::PostTask(
-      FROM_HERE, {content::BrowserThread::UI},
+  content::GetUIThreadTaskRunner({})->PostTask(
+      FROM_HERE,
       base::BindOnce(std::move(done_callback_), false, error_message));
 }
 

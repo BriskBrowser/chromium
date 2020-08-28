@@ -11,6 +11,8 @@
 #include "base/callback_forward.h"
 #include "base/strings/string16.h"
 #include "build/buildflag.h"
+#include "chrome/browser/signin/reauth_result.h"
+#include "chrome/browser/ui/signin_reauth_view_controller.h"
 #include "chrome/browser/ui/webui/signin/dice_turn_sync_on_helper.h"
 #include "components/signin/public/base/signin_buildflags.h"
 #include "components/signin/public/base/signin_metrics.h"
@@ -28,8 +30,8 @@ namespace signin_ui_util {
 // The maximum number of times to show the welcome tutorial for an upgrade user.
 const int kUpgradeWelcomeTutorialShowMax = 1;
 
-// Returns the username of the authenticated user or an empty string if there is
-// no authenticated user.
+// Returns the username of the primary account or an empty string if there is
+// no primary account or the account has not consented to browser sync.
 base::string16 GetAuthenticatedUsername(Profile* profile);
 
 // Initializes signin-related preferences.
@@ -53,9 +55,12 @@ void EnableSyncFromPromo(Browser* browser,
                          bool is_default_promo_account);
 
 #if BUILDFLAG(ENABLE_DICE_SUPPORT)
-// Returns the list of all accounts that have a token. The default account in
-// the Gaia cookies will be the first account in the list.
+// Returns the list of all accounts that have a token. The unconsented primary
+// account will be the first account in the list.
 std::vector<AccountInfo> GetAccountsForDicePromos(Profile* profile);
+
+// Returns single account to use in Dice promos.
+AccountInfo GetSingleAccountForDicePromos(Profile* profile);
 
 #endif
 
@@ -115,6 +120,17 @@ void RecordProfileMenuViewShown(Profile* profile);
 
 // Called when a button/link in the profile menu was clicked.
 void RecordProfileMenuClick(Profile* profile);
+
+// Records the result of a re-auth challenge to finish a transaction (like
+// unlocking the account store for passwords).
+void RecordTransactionalReauthResult(
+    signin_metrics::ReauthAccessPoint access_point,
+    signin::ReauthResult result);
+
+// Records user action performed in a transactional reauth dialog/tab.
+void RecordTransactionalReauthUserAction(
+    signin_metrics::ReauthAccessPoint access_point,
+    SigninReauthViewController::UserAction user_action);
 
 }  // namespace signin_ui_util
 

@@ -8,8 +8,8 @@
 
 #import <Cocoa/Cocoa.h>
 
+#include "base/check_op.h"
 #include "base/compiler_specific.h"
-#include "base/logging.h"
 #include "base/mac/scoped_nsobject.h"
 #include "base/macros.h"
 #include "base/strings/sys_string_conversions.h"
@@ -56,6 +56,9 @@ ContinueWindowMac::ContinueWindowMac() {
 
 ContinueWindowMac::~ContinueWindowMac() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  if (controller_) {
+    HideUi();
+  }
 }
 
 void ContinueWindowMac::ShowUi() {
@@ -73,6 +76,7 @@ void ContinueWindowMac::HideUi() {
 
   @autoreleasepool {
     [controller_ hide];
+    controller_.reset();
   }
 }
 

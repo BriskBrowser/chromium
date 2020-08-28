@@ -70,7 +70,7 @@ void TrayEventFilter::ProcessPressedEvent(const ui::LocatedEvent& event) {
       return;
     // Don't process events that occurred inside a popup notification
     // from message center.
-    if (container_id == kShellWindowId_ShelfControlContainer &&
+    if (container_id == kShellWindowId_ShelfContainer &&
         target->type() == aura::client::WINDOW_TYPE_POPUP &&
         target_widget->GetName() ==
             AshMessagePopupCollection::kMessagePopupWidgetName) {
@@ -109,8 +109,7 @@ void TrayEventFilter::ProcessPressedEvent(const ui::LocatedEvent& event) {
     // The system tray and message center are separate bubbles but they need
     // to stay open together. We need to make sure to check if a click falls
     // with in both their bounds and not close them both in this case.
-    if (features::IsUnifiedMessageCenterRefactorEnabled() &&
-        bubble_container_id == kShellWindowId_SettingBubbleContainer) {
+    if (bubble_container_id == kShellWindowId_SettingBubbleContainer) {
       int64_t display_id = display::Screen::GetScreen()
                                ->GetDisplayNearestPoint(screen_location)
                                .id();

@@ -9,7 +9,6 @@
 #include <string>
 #include <vector>
 
-#include "base/macros.h"
 #include "base/optional.h"
 #include "printing/backend/cups_connection.h"
 #include "printing/backend/cups_deleters.h"
@@ -21,11 +20,9 @@ namespace printing {
 class PRINTING_EXPORT PrintingContextChromeos : public PrintingContext {
  public:
   explicit PrintingContextChromeos(Delegate* delegate);
+  PrintingContextChromeos(const PrintingContextChromeos&) = delete;
+  PrintingContextChromeos& operator=(const PrintingContextChromeos&) = delete;
   ~PrintingContextChromeos() override;
-
-  // Returns true if the ColorMode setting is a color ColorMode and false if it
-  // is a monochrome ColorMode.
-  static base::Optional<bool> ColorModeIsColor(int color_mode);
 
   // PrintingContext implementation.
   void AskUserForSettings(int max_pages,
@@ -56,8 +53,6 @@ class PRINTING_EXPORT PrintingContextChromeos : public PrintingContext {
   std::vector<ScopedCupsOption> cups_options_;
   bool send_user_info_;
   std::string username_;
-
-  DISALLOW_COPY_AND_ASSIGN(PrintingContextChromeos);
 };
 
 }  // namespace printing

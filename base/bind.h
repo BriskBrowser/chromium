@@ -12,9 +12,10 @@
 
 #include "base/bind_internal.h"
 #include "base/compiler_specific.h"
+#include "base/template_util.h"
 #include "build/build_config.h"
 
-#if defined(OS_MACOSX) && !HAS_FEATURE(objc_arc)
+#if defined(OS_APPLE) && !HAS_FEATURE(objc_arc)
 #include "base/mac/scoped_block.h"
 #endif
 
@@ -227,7 +228,7 @@ decltype(auto) BindImpl(Functor&& functor, Args&&... args) {
   // PolymorphicInvoke, to which CallbackType will cast back.
   using PolymorphicInvoke = typename CallbackType::PolymorphicInvoke;
   PolymorphicInvoke invoke_func =
-      GetInvokeFunc<Invoker>(std::integral_constant<bool, kIsOnce>());
+      GetInvokeFunc<Invoker>(bool_constant<kIsOnce>());
 
   using InvokeFuncStorage = internal::BindStateBase::InvokeFuncStorage;
   return CallbackType(BindState::Create(
@@ -275,20 +276,31 @@ Bind(Functor&& functor, Args&&... args) {
 }
 
 // Special cases for binding to a base::Callback without extra bound arguments.
+// We CHECK() the validity of callback to guard against null pointers
+// accidentally ending up in posted tasks, causing hard-to-debug crashes.
 template <typename Signature>
-OnceCallback<Signature> BindOnce(OnceCallback<Signature> closure) {
-  return closure;
+OnceCallback<Signature> BindOnce(OnceCallback<Signature> callback) {
+  CHECK(callback);
+  return callback;
+}
+
+template <typename Signature>
+OnceCallback<Signature> BindOnce(RepeatingCallback<Signature> callback) {
+  CHECK(callback);
+  return callback;
 }
 
 template <typename Signature>
 RepeatingCallback<Signature> BindRepeating(
-    RepeatingCallback<Signature> closure) {
-  return closure;
+    RepeatingCallback<Signature> callback) {
+  CHECK(callback);
+  return callback;
 }
 
 template <typename Signature>
-Callback<Signature> Bind(Callback<Signature> closure) {
-  return closure;
+Callback<Signature> Bind(Callback<Signature> callback) {
+  CHECK(callback);
+  return callback;
 }
 
 // Unretained() allows binding a non-refcounted class, and to disable
@@ -440,7 +452,7 @@ static inline internal::IgnoreResultHelper<T> IgnoreResult(T data) {
   return internal::IgnoreResultHelper<T>(std::move(data));
 }
 
-#if defined(OS_MACOSX) && !HAS_FEATURE(objc_arc)
+#if defined(OS_APPLE) && !HAS_FEATURE(objc_arc)
 
 // RetainBlock() is used to adapt an Objective-C block when Automated Reference
 // Counting (ARC) is disabled. This is unnecessary when ARC is enabled, as the
@@ -458,7 +470,7 @@ base::mac::ScopedBlock<R (^)(Args...)> RetainBlock(R (^block)(Args...)) {
                                                 base::scoped_policy::RETAIN);
 }
 
-#endif  // defined(OS_MACOSX) && !HAS_FEATURE(objc_arc)
+#endif  // defined(OS_APPLE) && !HAS_FEATURE(objc_arc)
 
 }  // namespace base
 

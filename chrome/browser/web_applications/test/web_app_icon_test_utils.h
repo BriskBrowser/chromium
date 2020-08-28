@@ -7,8 +7,9 @@
 
 #include <map>
 
+#include "base/containers/span.h"
 #include "base/files/file_path.h"
-#include "chrome/browser/web_applications/components/web_app_helpers.h"
+#include "chrome/browser/web_applications/components/web_app_id.h"
 #include "chrome/browser/web_applications/components/web_app_install_utils.h"
 #include "chrome/common/web_application_info.h"
 #include "third_party/skia/include/core/SkBitmap.h"
@@ -36,11 +37,18 @@ bool AreColorsEqual(SkColor expected_color,
                     SkColor actual_color,
                     int threshold);
 
-base::FilePath GetAppIconsDir(Profile* profile, const AppId& app_id);
+base::FilePath GetAppIconsAnyDir(Profile* profile, const AppId& app_id);
+
+base::FilePath GetAppIconsMaskableDir(Profile* profile, const AppId& app_id);
 
 bool ReadBitmap(FileUtilsWrapper* utils,
                 const base::FilePath& file_path,
                 SkBitmap* bitmap);
+
+base::span<const int> GetIconSizes();
+
+bool ContainsOneIconOfEachSize(
+    const std::map<SquareSizePx, SkBitmap>& icon_bitmaps);
 
 }  // namespace web_app
 

@@ -49,7 +49,7 @@ namespace {
 std::unique_ptr<views::LabelButton> CreateNewFolderButton(
     views::ButtonListener* listener,
     bool enabled) {
-  auto new_folder_button = views::MdTextButton::CreateSecondaryUiButton(
+  auto new_folder_button = std::make_unique<views::MdTextButton>(
       listener,
       l10n_util::GetStringUTF16(IDS_BOOKMARK_EDITOR_NEW_FOLDER_BUTTON));
   new_folder_button->SetEnabled(enabled);
@@ -71,11 +71,10 @@ BookmarkEditorView::BookmarkEditorView(
   DCHECK(profile);
   DCHECK(bb_model_);
   DCHECK(bb_model_->client()->CanBeEditedByUser(parent));
-  DialogDelegate::set_button_label(ui::DIALOG_BUTTON_OK,
-                                   l10n_util::GetStringUTF16(IDS_SAVE));
+  SetButtonLabel(ui::DIALOG_BUTTON_OK, l10n_util::GetStringUTF16(IDS_SAVE));
   if (show_tree_) {
-    new_folder_button_ = DialogDelegate::SetExtraView(
-        CreateNewFolderButton(this, bb_model_->loaded()));
+    new_folder_button_ =
+        SetExtraView(CreateNewFolderButton(this, bb_model_->loaded()));
   }
   set_margins(ChromeLayoutProvider::Get()->GetDialogInsetsForContentType(
       views::CONTROL, views::CONTROL));
@@ -170,7 +169,8 @@ void BookmarkEditorView::GetAccessibleNodeData(ui::AXNodeData* node_data) {
 void BookmarkEditorView::ButtonPressed(views::Button* sender,
                                        const ui::Event& event) {
   DCHECK_EQ(new_folder_button_, sender);
-  NewFolder();
+  DCHECK(tree_view_->GetSelectedNode());
+  NewFolder(tree_model_->AsNode(tree_view_->GetSelectedNode()));
 }
 
 bool BookmarkEditorView::IsCommandIdChecked(int command_id) const {
@@ -197,11 +197,11 @@ bool BookmarkEditorView::GetAcceleratorForCommandId(
 }
 
 void BookmarkEditorView::ExecuteCommand(int command_id, int event_flags) {
-  DCHECK(tree_view_->GetSelectedNode());
+  DCHECK(tree_view_->GetActiveNode());
   if (command_id == IDS_EDIT) {
-    tree_view_->StartEditing(tree_view_->GetSelectedNode());
+    tree_view_->StartEditing(tree_view_->GetActiveNode());
   } else if (command_id == IDS_DELETE) {
-    EditorNode* node = tree_model_->AsNode(tree_view_->GetSelectedNode());
+    EditorNode* node = tree_model_->AsNode(tree_view_->GetActiveNode());
     if (!node)
       return;
     if (node->value != 0) {
@@ -218,7 +218,7 @@ void BookmarkEditorView::ExecuteCommand(int command_id, int event_flags) {
     tree_model_->Remove(node->parent(), node);
   } else {
     DCHECK_EQ(IDS_BOOKMARK_EDITOR_NEW_FOLDER_MENU_ITEM, command_id);
-    NewFolder();
+    NewFolder(tree_model_->AsNode(tree_view_->GetActiveNode()));
   }
 }
 
@@ -239,10 +239,10 @@ void BookmarkEditorView::ShowContextMenuForViewImpl(
     const gfx::Point& point,
     ui::MenuSourceType source_type) {
   DCHECK_EQ(tree_view_, source);
-  if (!tree_view_->GetSelectedNode())
+  if (!tree_view_->GetActiveNode())
     return;
   running_menu_for_root_ =
-      (tree_model_->GetParent(tree_view_->GetSelectedNode()) ==
+      (tree_model_->GetParent(tree_view_->GetActiveNode()) ==
        tree_model_->GetRoot());
 
   context_menu_runner_ = std::make_unique<views::MenuRunner>(
@@ -336,36 +336,37 @@ void BookmarkEditorView::Init() {
   const int single_column_view_set_id = 1;
   const int buttons_column_set_id = 2;
 
+  using ColumnSize = views::GridLayout::ColumnSize;
   views::ColumnSet* column_set = layout->AddColumnSet(labels_column_set_id);
   column_set->AddColumn(
       provider->GetControlLabelGridAlignment(), views::GridLayout::CENTER,
-      views::GridLayout::kFixedSize, views::GridLayout::USE_PREF, 0, 0);
+      views::GridLayout::kFixedSize, ColumnSize::kUsePreferred, 0, 0);
   column_set->AddPaddingColumn(
       views::GridLayout::kFixedSize,
       provider->GetDistanceMetric(views::DISTANCE_RELATED_CONTROL_HORIZONTAL));
   column_set->AddColumn(views::GridLayout::FILL, views::GridLayout::CENTER, 1.0,
-                        views::GridLayout::USE_PREF, 0, 0);
+                        ColumnSize::kUsePreferred, 0, 0);
 
   column_set = layout->AddColumnSet(single_column_view_set_id);
   column_set->AddColumn(views::GridLayout::FILL, views::GridLayout::FILL, 1.0,
-                        views::GridLayout::USE_PREF, 0, 0);
+                        ColumnSize::kUsePreferred, 0, 0);
 
   column_set = layout->AddColumnSet(buttons_column_set_id);
   column_set->AddColumn(views::GridLayout::FILL, views::GridLayout::LEADING,
                         views::GridLayout::kFixedSize,
-                        views::GridLayout::USE_PREF, 0, 0);
+                        ColumnSize::kUsePreferred, 0, 0);
   column_set->AddPaddingColumn(
       1.0,
       provider->GetDistanceMetric(views::DISTANCE_RELATED_CONTROL_HORIZONTAL));
   column_set->AddColumn(views::GridLayout::FILL, views::GridLayout::LEADING,
                         views::GridLayout::kFixedSize,
-                        views::GridLayout::USE_PREF, 0, 0);
+                        ColumnSize::kUsePreferred, 0, 0);
   column_set->AddPaddingColumn(
       views::GridLayout::kFixedSize,
       provider->GetDistanceMetric(views::DISTANCE_RELATED_CONTROL_HORIZONTAL));
   column_set->AddColumn(views::GridLayout::FILL, views::GridLayout::LEADING,
                         views::GridLayout::kFixedSize,
-                        views::GridLayout::USE_PREF, 0, 0);
+                        ColumnSize::kUsePreferred, 0, 0);
   column_set->LinkColumnSizes({0, 2, 4});
 
   layout->StartRow(views::GridLayout::kFixedSize, labels_column_set_id);
@@ -445,10 +446,8 @@ void BookmarkEditorView::UserInputChanged() {
   DialogModelChanged();
 }
 
-void BookmarkEditorView::NewFolder() {
-  // Create a new entry parented to the selected item, or the bookmark
-  // bar if nothing is selected.
-  EditorNode* parent = tree_model_->AsNode(tree_view_->GetSelectedNode());
+void BookmarkEditorView::NewFolder(EditorNode* parent) {
+  // Create a new entry parented to the given item.
   if (!parent) {
     NOTREACHED();
     return;

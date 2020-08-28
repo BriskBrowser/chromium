@@ -5,6 +5,10 @@
 import("//net/features.gni")
 import("//testing/libfuzzer/fuzzer_test.gni")
 
+if (is_android) {
+  import("//build/config/android/rules.gni")
+}
+
 enable_built_in_dns = !is_ios
 
 source_set("dns") {
@@ -53,16 +57,17 @@ source_set("dns") {
       "dns_reloader.cc",
       "dns_reloader.h",
       "dns_response.cc",
+      "dns_server_iterator.cc",
+      "dns_server_iterator.h",
       "dns_session.cc",
       "dns_session.h",
-      "dns_socket_pool.cc",
-      "dns_socket_pool.h",
+      "dns_socket_allocator.cc",
+      "dns_socket_allocator.h",
       "dns_transaction.cc",
-      "esni_content.cc",
+      "dns_udp_tracker.cc",
+      "dns_udp_tracker.h",
       "host_cache.cc",
       "host_resolver.cc",
-      "host_resolver_histograms.cc",
-      "host_resolver_histograms.h",
       "host_resolver_manager.cc",
       "host_resolver_mdns_listener_impl.cc",
       "host_resolver_mdns_listener_impl.h",
@@ -70,11 +75,15 @@ source_set("dns") {
       "host_resolver_mdns_task.h",
       "host_resolver_proc.cc",
       "host_resolver_proc.h",
+      "httpssvc_metrics.cc",
+      "httpssvc_metrics.h",
       "mapped_host_resolver.cc",
       "notify_watcher_mac.cc",
       "notify_watcher_mac.h",
       "record_parsed.cc",
       "record_rdata.cc",
+      "resolve_context.cc",
+      "resolve_context.h",
       "serial_worker.cc",
       "serial_worker.h",
       "system_dns_config_change_notifier.cc",
@@ -194,7 +203,6 @@ source_set("host_resolver") {
     sources += [
       "dns_config.h",
       "dns_config_overrides.h",
-      "esni_content.h",
       "host_cache.h",
       "host_resolver.h",
       "host_resolver_source.h",
@@ -367,6 +375,12 @@ source_set("mdns_client") {
   public_deps = [ "//net:net_public_deps" ]
 }
 
+if (is_android) {
+  java_cpp_enum("secure_dns_mode_generated_enum") {
+    sources = [ "dns_config.h" ]
+  }
+}
+
 source_set("tests") {
   testonly = true
   sources = [
@@ -377,16 +391,17 @@ source_set("tests") {
     "dns_hosts_unittest.cc",
     "dns_query_unittest.cc",
     "dns_response_unittest.cc",
-    "dns_session_unittest.cc",
-    "dns_socket_pool_unittest.cc",
+    "dns_socket_allocator_unittest.cc",
     "dns_transaction_unittest.cc",
+    "dns_udp_tracker_unittest.cc",
     "dns_util_unittest.cc",
-    "esni_content_unittest.cc",
     "host_cache_unittest.cc",
     "host_resolver_manager_unittest.cc",
+    "httpssvc_metrics_unittest.cc",
     "mapped_host_resolver_unittest.cc",
     "record_parsed_unittest.cc",
     "record_rdata_unittest.cc",
+    "resolve_context_unittest.cc",
     "serial_worker_unittest.cc",
     "system_dns_config_change_notifier_unittest.cc",
   ]
@@ -422,6 +437,7 @@ source_set("tests") {
 }
 
 source_set("test_support") {
+  visibility = [ "//net:test_support" ]
   testonly = true
   sources = [
     "address_info_test_util.cc",
@@ -472,6 +488,16 @@ if (use_fuzzing_engine) {
   }
 }
 
+fuzzer_test("net_dns_host_cache_fuzzer") {
+  sources = [ "host_cache_fuzzer.cc" ]
+  deps = [
+    "//base",
+    "//net",
+    "//net:net_fuzzer_test_support",
+  ]
+  dict = "//testing/libfuzzer/fuzzers/dicts/json.dict"
+}
+
 fuzzer_test("net_dns_hosts_parse_fuzzer") {
   sources = [ "dns_hosts_parse_fuzzer.cc" ]
   deps = [
@@ -480,6 +506,15 @@ fuzzer_test("net_dns_hosts_parse_fuzzer") {
     "//net:net_fuzzer_test_support",
   ]
   dict = "//net/data/fuzzer_dictionaries/net_dns_hosts_parse_fuzzer.dict"
+}
+
+fuzzer_test("net_dns_integrity_record_fuzzer") {
+  sources = [ "integrity_record_fuzzer.cc" ]
+  deps = [
+    "//base",
+    "//net",
+    "//net:net_fuzzer_test_support",
+  ]
 }
 
 fuzzer_test("net_dns_record_fuzzer") {

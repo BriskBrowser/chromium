@@ -142,9 +142,6 @@ MouseEventWithHitTestResults PerformMouseEventHitTest(
 
 bool ShouldDiscardEventTargetingFrame(const WebInputEvent& event,
                                       const LocalFrame& frame) {
-  if (!RuntimeEnabledFeatures::DiscardInputToMovingIframesEnabled())
-    return false;
-
   // There are two different mechanisms for tracking whether an iframe has moved
   // recently, for OOPIF and in-process iframes. For OOPIF's, frame movement is
   // tracked in the browser process using hit test data, and it's propagated
@@ -152,7 +149,7 @@ bool ShouldDiscardEventTargetingFrame(const WebInputEvent& event,
   // during lifecycle updates, in FrameView::UpdateViewportIntersection, and
   // propagated via FrameView::RectInParentIsStable.
   bool should_discard = false;
-  if (frame.NeedsOcclusionTracking() && frame.IsCrossOriginSubframe()) {
+  if (frame.NeedsOcclusionTracking() && frame.IsCrossOriginToMainFrame()) {
     should_discard =
         (event.GetModifiers() & WebInputEvent::kTargetFrameMovedRecently) ||
         !frame.View()->RectInParentIsStable(event.TimeStamp());
@@ -190,16 +187,15 @@ LocalFrame* GetTargetSubframe(
     const MouseEventWithHitTestResults& hit_test_result,
     Node* capturing_node,
     bool* is_remote_frame) {
-  if (!RuntimeEnabledFeatures::UnifiedPointerCaptureInBlinkEnabled() &&
-      capturing_node) {
-    return event_handling_util::SubframeForTargetNode(capturing_node,
-                                                      is_remote_frame);
-  }
-
   if (!hit_test_result.IsOverEmbeddedContentView())
     return nullptr;
 
   return SubframeForTargetNode(hit_test_result.InnerNode(), is_remote_frame);
+}
+
+void PointerEventTarget::Trace(Visitor* visitor) const {
+  visitor->Trace(target_element);
+  visitor->Trace(target_frame);
 }
 
 }  // namespace event_handling_util

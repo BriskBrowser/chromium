@@ -50,10 +50,6 @@ class BASE_EXPORT TaskQueue : public RefCountedThreadSafe<TaskQueue> {
    public:
     virtual ~Observer() = default;
 
-    // Notify observer that a task has been posted on the TaskQueue. Can be
-    // called on any thread.
-    virtual void OnPostTask(Location from_here, TimeDelta delay) = 0;
-
     // Notify observer that the time at which this queue wants to run
     // the next task has changed. |next_wakeup| can be in the past
     // (e.g. TimeTicks() can be used to notify about immediate work).
@@ -323,12 +319,6 @@ class BASE_EXPORT TaskQueue : public RefCountedThreadSafe<TaskQueue> {
 
   // Returns true if the queue has a fence which is blocking execution of tasks.
   bool BlockedByFence() const;
-
-  // Returns an EnqueueOrder generated at the last transition to unblocked. A
-  // queue is unblocked when it is enabled and no fence prevents the front task
-  // from running. If the EnqueueOrder of a task is greater than this when it
-  // starts running, it means that is was never blocked.
-  EnqueueOrder GetEnqueueOrderAtWhichWeBecameUnblocked() const;
 
   void SetObserver(Observer* observer);
 

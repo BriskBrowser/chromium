@@ -29,7 +29,7 @@
 #include "base/macros.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/dom/events/event_target.h"
-#include "third_party/blink/renderer/core/execution_context/context_lifecycle_observer.h"
+#include "third_party/blink/renderer/core/execution_context/execution_context_lifecycle_observer.h"
 #include "third_party/blink/renderer/core/page/drag_actions.h"
 #include "third_party/blink/renderer/platform/geometry/int_point.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
@@ -53,9 +53,7 @@ class WebMouseEvent;
 
 class CORE_EXPORT DragController final
     : public GarbageCollected<DragController>,
-      public ContextLifecycleObserver {
-  USING_GARBAGE_COLLECTED_MIXIN(DragController);
-
+      public ExecutionContextLifecycleObserver {
  public:
   explicit DragController(Page*);
 
@@ -90,10 +88,10 @@ class CORE_EXPORT DragController final
   // to the visual viewport.
   static FloatRect ClippedSelection(const LocalFrame&);
 
-  // ContextLifecycleObserver.
-  void ContextDestroyed(ExecutionContext*) final;
+  // ExecutionContextLifecycleObserver.
+  void ContextDestroyed() final;
 
-  void Trace(blink::Visitor*) final;
+  void Trace(Visitor*) const final;
 
  private:
   DispatchEventResult DispatchTextInputEventFor(LocalFrame*, DragData*);
@@ -126,8 +124,8 @@ class CORE_EXPORT DragController final
 
   // The document the mouse was last dragged over.
   Member<Document> document_under_mouse_;
-  // The Document (if any) that initiated the drag.
-  Member<Document> drag_initiator_;
+  // The window (if any) that initiated the drag.
+  Member<LocalDOMWindow> drag_initiator_;
 
   Member<DragState> drag_state_;
 

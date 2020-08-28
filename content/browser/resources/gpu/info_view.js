@@ -224,6 +224,11 @@ cr.define('gpu', function() {
           this.setTable_('vulkan-info', []);
         }
 
+        if (gpuInfo.devicePerfInfo) {
+          this.setTable_('device-perf-info', gpuInfo.devicePerfInfo);
+        } else {
+          this.setTable_('device-perf-info', []);
+        }
       } else {
         this.setText_('basic-info', '... loading ...');
         diagnosticsDiv.hidden = true;
@@ -246,9 +251,6 @@ cr.define('gpu', function() {
         'gpu_compositing': 'Compositing',
         'webgl': 'WebGL',
         'multisampling': 'WebGL multisampling',
-        'flash_3d': 'Flash',
-        'flash_stage3d': 'Flash Stage3D',
-        'flash_stage3d_baseline': 'Flash Stage3D Baseline profile',
         'texture_sharing': 'Texture Sharing',
         'video_decode': 'Video Decode',
         'rasterization': 'Rasterization',
@@ -353,7 +355,15 @@ cr.define('gpu', function() {
 
       // Description of issue
       const desc = document.createElement('a');
-      desc.textContent = problem.description;
+      let text = problem.description;
+      const pattern = ' Please update your graphics driver via this link: ';
+      const pos = text.search(pattern);
+      let url = '';
+      if (pos > 0) {
+        url = text.substring(pos + pattern.length);
+        text = text.substring(0, pos);
+      }
+      desc.textContent = text;
       problemEl.appendChild(desc);
 
       // Spacing ':' element
@@ -390,9 +400,9 @@ cr.define('gpu', function() {
         problemEl.appendChild(iNode);
 
         const headNode = document.createElement('span');
-        if (problem.tag == 'disabledFeatures') {
+        if (problem.tag === 'disabledFeatures') {
           headNode.textContent = 'Disabled Features: ';
-        } else {  // problem.tag == 'workarounds'
+        } else {  // problem.tag === 'workarounds'
           headNode.textContent = 'Applied Workarounds: ';
         }
         iNode.appendChild(headNode);
@@ -403,14 +413,33 @@ cr.define('gpu', function() {
             iNode.appendChild(separateNode);
           }
           const nameNode = document.createElement('span');
-          if (problem.tag == 'disabledFeatures') {
+          if (problem.tag === 'disabledFeatures') {
             nameNode.classList.add('feature-red');
-          } else {  // problem.tag == 'workarounds'
+          } else {  // problem.tag === 'workarounds'
             nameNode.classList.add('feature-yellow');
           }
           nameNode.textContent = problem.affectedGpuSettings[j];
           iNode.appendChild(nameNode);
         }
+      }
+
+      // Append driver update link.
+      if (pos > 0) {
+        const brNode = document.createElement('br');
+        problemEl.appendChild(brNode);
+
+        const bNode = document.createElement('b');
+        bNode.classList.add('bg-yellow');
+        problemEl.appendChild(bNode);
+
+        const tmp = document.createElement('span');
+        tmp.textContent = 'Please update your graphics driver via ';
+        bNode.appendChild(tmp);
+
+        const link = document.createElement('a');
+        link.textContent = 'this link';
+        link.href = url;
+        bNode.appendChild(link);
       }
 
       return problemEl;
@@ -459,7 +488,7 @@ cr.define('gpu', function() {
       ANGLEFeatureEl.appendChild(separator);
 
       const status = document.createElement('span');
-      if (ANGLEFeature.status == 'enabled') {
+      if (ANGLEFeature.status === 'enabled') {
         status.textContent = 'Enabled';
         status.classList.add('feature-green');
       } else {
@@ -505,7 +534,7 @@ cr.define('gpu', function() {
         throw new Error('Node ' + outputElementId + ' not found');
       }
 
-      peg.innerHTML = '';
+      peg.innerHTML = trustedTypes.emptyHTML;
       peg.appendChild(template);
     }
   };

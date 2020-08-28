@@ -5,9 +5,11 @@
 package org.chromium.chrome.browser.ntp;
 
 import android.support.test.InstrumentationRegistry;
-import android.support.test.filters.MediumTest;
 import android.view.View;
 
+import androidx.test.filters.MediumTest;
+
+import org.hamcrest.Matchers;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -17,12 +19,13 @@ import org.junit.runner.RunWith;
 
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.Feature;
-import org.chromium.base.test.util.RetryOnFailure;
-import org.chromium.chrome.browser.ChromeSwitches;
+import org.chromium.base.test.util.FlakyTest;
+import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.tab.Tab;
-import org.chromium.chrome.browser.util.UrlConstants;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.chrome.test.ChromeTabbedActivityTestRule;
+import org.chromium.chrome.test.util.RecentTabsPageTestUtils;
+import org.chromium.components.embedder_support.util.UrlConstants;
 import org.chromium.content_public.browser.test.util.Criteria;
 import org.chromium.content_public.browser.test.util.CriteriaHelper;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
@@ -38,7 +41,6 @@ import java.util.concurrent.ExecutionException;
  */
 @RunWith(ChromeJUnit4ClassRunner.class)
 @CommandLineFlags.Add({ChromeSwitches.DISABLE_FIRST_RUN_EXPERIENCE})
-@RetryOnFailure
 public class RecentTabsPageTest {
     @Rule
     public ChromeTabbedActivityTestRule mActivityTestRule = new ChromeTabbedActivityTestRule();
@@ -65,6 +67,7 @@ public class RecentTabsPageTest {
     @Test
     @MediumTest
     @Feature({"RecentTabsPage"})
+    @FlakyTest(message = "crbug.com/1075804")
     public void testRecentlyClosedTabs() throws ExecutionException {
         // Set a recently closed tab and confirm a view is rendered for it.
         List<RecentlyClosedTab> tabs = setRecentlyClosedTabs(1);
@@ -95,13 +98,7 @@ public class RecentTabsPageTest {
 
     private RecentTabsPage loadRecentTabsPage() {
         mActivityTestRule.loadUrl(UrlConstants.RECENT_TABS_URL);
-        CriteriaHelper.pollUiThread(new Criteria("RecentTabsPage never fully loaded") {
-            @Override
-            public boolean isSatisfied() {
-                return mTab.getNativePage() instanceof RecentTabsPage;
-            }
-        });
-        Assert.assertTrue(mTab.getNativePage() instanceof RecentTabsPage);
+        RecentTabsPageTestUtils.waitForRecentTabsPageLoaded(mTab);
         return (RecentTabsPage) mTab.getNativePage();
     }
 
@@ -110,11 +107,9 @@ public class RecentTabsPageTest {
      */
     private void leaveRecentTabsPage() {
         mActivityTestRule.loadUrl(ContentUrlConstants.ABOUT_BLANK_DISPLAY_URL);
-        CriteriaHelper.pollUiThread(new Criteria("RecentTabsPage is still there") {
-            @Override
-            public boolean isSatisfied() {
-                return !(mTab.getNativePage() instanceof RecentTabsPage);
-            }
+        CriteriaHelper.pollUiThread(() -> {
+            Criteria.checkThat("RecentTabsPage is still there", mTab.getNativePage(),
+                    Matchers.not(Matchers.instanceOf(RecentTabsPage.class)));
         });
     }
 
@@ -123,12 +118,10 @@ public class RecentTabsPageTest {
      */
     private View waitForView(final String text) {
         final ArrayList<View> views = new ArrayList<>();
-        CriteriaHelper.pollUiThread(new Criteria("Could not find view with this text: " + text) {
-            @Override
-            public boolean isSatisfied() {
-                mPage.getView().findViewsWithText(views, text, View.FIND_VIEWS_WITH_TEXT);
-                return views.size() == 1;
-            }
+        CriteriaHelper.pollUiThread(() -> {
+            mPage.getView().findViewsWithText(views, text, View.FIND_VIEWS_WITH_TEXT);
+            Criteria.checkThat(
+                    "Could not find view with this text: " + text, views.size(), Matchers.is(1));
         });
         return views.get(0);
     }
@@ -137,13 +130,11 @@ public class RecentTabsPageTest {
      * Waits for the view with the specified text to disappear.
      */
     private void waitForViewToDisappear(final String text) {
-        CriteriaHelper.pollUiThread(new Criteria("View with this text is still present: " + text) {
-            @Override
-            public boolean isSatisfied() {
-                ArrayList<View> views = new ArrayList<>();
-                mPage.getView().findViewsWithText(views, text, View.FIND_VIEWS_WITH_TEXT);
-                return views.isEmpty();
-            }
+        CriteriaHelper.pollUiThread(() -> {
+            ArrayList<View> views = new ArrayList<>();
+            mPage.getView().findViewsWithText(views, text, View.FIND_VIEWS_WITH_TEXT);
+            Criteria.checkThat(
+                    "View with this text is still present: " + text, views, Matchers.empty());
         });
     }
 

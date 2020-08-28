@@ -41,12 +41,12 @@
 #include "ui/base/buildflags.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/views/controls/button/checkbox.h"
+#include "ui/views/controls/button/label_button_border.h"
 #include "ui/views/controls/button/menu_button.h"
 #include "ui/views/controls/label.h"
 #include "ui/views/controls/separator.h"
 #include "ui/views/controls/styled_label.h"
 #include "ui/views/layout/box_layout.h"
-#include "ui/views/layout/grid_layout.h"
 #include "ui/views/widget/widget.h"
 
 namespace {
@@ -77,19 +77,6 @@ bool DoesSupportConsentCheck() {
 #endif
 }
 
-// Returns the app menu view, except when the browser window is Cocoa; Cocoa
-// browser windows always have a null anchor view and use
-// GetSessionCrashedBubbleAnchorRect() instead.
-views::View* GetSessionCrashedBubbleAnchorView(Browser* browser) {
-  return BrowserView::GetBrowserViewForBrowser(browser)
-      ->toolbar_button_provider()
-      ->GetAppMenuButton();
-}
-
-gfx::Rect GetSessionCrashedBubbleAnchorRect(Browser* browser) {
-  return gfx::Rect();
-}
-
 }  // namespace
 
 // A helper class that listens to browser removal event.
@@ -106,7 +93,7 @@ class SessionCrashedBubbleView::BrowserRemovalObserver
   // Overridden from BrowserListObserver.
   void OnBrowserRemoved(Browser* browser) override {
     if (browser == browser_)
-      browser_ = NULL;
+      browser_ = nullptr;
   }
 
   Browser* browser() const { return browser_; }
@@ -131,9 +118,9 @@ void SessionCrashedBubble::ShowIfNotOffTheRecordProfile(Browser* browser) {
   if (DoesSupportConsentCheck()) {
     base::PostTaskAndReplyWithResult(
         GoogleUpdateSettings::CollectStatsConsentTaskRunner(), FROM_HERE,
-        base::Bind(&GoogleUpdateSettings::GetCollectStatsConsent),
-        base::Bind(&SessionCrashedBubbleView::Show,
-                   base::Passed(&browser_observer)));
+        base::BindOnce(&GoogleUpdateSettings::GetCollectStatsConsent),
+        base::BindOnce(&SessionCrashedBubbleView::Show,
+                       std::move(browser_observer)));
   } else {
     SessionCrashedBubbleView::Show(std::move(browser_observer), false);
   }
@@ -158,9 +145,11 @@ void SessionCrashedBubbleView::Show(
     return;
   }
 
-  SessionCrashedBubbleView* crash_bubble = new SessionCrashedBubbleView(
-      GetSessionCrashedBubbleAnchorView(browser),
-      GetSessionCrashedBubbleAnchorRect(browser), browser, offer_uma_optin);
+  views::View* anchor_view = BrowserView::GetBrowserViewForBrowser(browser)
+                                 ->toolbar_button_provider()
+                                 ->GetAppMenuButton();
+  SessionCrashedBubbleView* crash_bubble =
+      new SessionCrashedBubbleView(anchor_view, browser, offer_uma_optin);
   views::BubbleDialogDelegateView::CreateBubble(crash_bubble)->Show();
 
   RecordBubbleHistogramValue(SESSION_CRASHED_BUBBLE_SHOWN);
@@ -168,53 +157,61 @@ void SessionCrashedBubbleView::Show(
     RecordBubbleHistogramValue(SESSION_CRASHED_BUBBLE_ALREADY_UMA_OPTIN);
 }
 
+gfx::Size SessionCrashedBubbleView::CalculatePreferredSize() const {
+  const int width = ChromeLayoutProvider::Get()->GetDistanceMetric(
+                        DISTANCE_BUBBLE_PREFERRED_WIDTH) -
+                    margins().width();
+  return gfx::Size(width, GetHeightForWidth(width));
+}
+
+ax::mojom::Role SessionCrashedBubbleView::GetAccessibleWindowRole() {
+  return ax::mojom::Role::kAlertDialog;
+}
+
 SessionCrashedBubbleView::SessionCrashedBubbleView(views::View* anchor_view,
-                                                   const gfx::Rect& anchor_rect,
                                                    Browser* browser,
                                                    bool offer_uma_optin)
     : BubbleDialogDelegateView(anchor_view, views::BubbleBorder::TOP_RIGHT),
       browser_(browser),
-      uma_option_(NULL),
+      uma_option_(nullptr),
       offer_uma_optin_(offer_uma_optin),
       ignored_(true) {
+  DCHECK(anchor_view);
+
+  SetShowCloseButton(true);
+  SetTitle(l10n_util::GetStringUTF16(IDS_SESSION_CRASHED_BUBBLE_TITLE));
+
+  set_margins(ChromeLayoutProvider::Get()->GetDialogInsetsForContentType(
+      views::TEXT, offer_uma_optin_ ? views::CONTROL : views::TEXT));
+
+  // Allow unit tests to leave out Browser.
   const SessionStartupPref session_startup_pref =
-      SessionStartupPref::GetStartupPref(browser_->profile());
+      browser_ ? SessionStartupPref::GetStartupPref(browser_->profile())
+               : SessionStartupPref{SessionStartupPref::DEFAULT};
   // Offer the option to open the startup pages using the cancel button, but
   // only when the user has selected the URLS option, and set at least one url.
-  DialogDelegate::set_buttons(
-      (session_startup_pref.type == SessionStartupPref::URLS &&
-       !session_startup_pref.urls.empty())
-          ? ui::DIALOG_BUTTON_OK | ui::DIALOG_BUTTON_CANCEL
-          : ui::DIALOG_BUTTON_OK);
-  DialogDelegate::set_button_label(
+  SetButtons((session_startup_pref.type == SessionStartupPref::URLS &&
+              !session_startup_pref.urls.empty())
+                 ? ui::DIALOG_BUTTON_OK | ui::DIALOG_BUTTON_CANCEL
+                 : ui::DIALOG_BUTTON_OK);
+  SetButtonLabel(
       ui::DIALOG_BUTTON_OK,
       l10n_util::GetStringUTF16(IDS_SESSION_CRASHED_VIEW_RESTORE_BUTTON));
-  DialogDelegate::set_button_label(
+  SetButtonLabel(
       ui::DIALOG_BUTTON_CANCEL,
       l10n_util::GetStringUTF16(IDS_SESSION_CRASHED_VIEW_STARTUP_PAGES_BUTTON));
+
+  SetAcceptCallback(
+      base::BindOnce(&SessionCrashedBubbleView::RestorePreviousSession,
+                     base::Unretained(this)));
+  SetCancelCallback(base::BindOnce(&SessionCrashedBubbleView::OpenStartupPages,
+                                   base::Unretained(this)));
+
   set_close_on_deactivate(false);
   chrome::RecordDialogCreation(chrome::DialogIdentifier::SESSION_CRASHED);
-
-  if (!anchor_view) {
-    SetAnchorRect(anchor_rect);
-    set_parent_window(
-        platform_util::GetViewForWindow(browser->window()->GetNativeWindow()));
-  }
 }
 
 SessionCrashedBubbleView::~SessionCrashedBubbleView() {
-}
-
-base::string16 SessionCrashedBubbleView::GetWindowTitle() const {
-  return l10n_util::GetStringUTF16(IDS_SESSION_CRASHED_BUBBLE_TITLE);
-}
-
-bool SessionCrashedBubbleView::ShouldShowWindowTitle() const {
-  return true;
-}
-
-bool SessionCrashedBubbleView::ShouldShowCloseButton() const {
-  return true;
 }
 
 void SessionCrashedBubbleView::OnWidgetDestroying(views::Widget* widget) {
@@ -231,14 +228,10 @@ void SessionCrashedBubbleView::Init() {
 
   // Description text label.
   auto text_label = std::make_unique<views::Label>(
-      l10n_util::GetStringUTF16(IDS_SESSION_CRASHED_VIEW_MESSAGE));
+      l10n_util::GetStringUTF16(IDS_SESSION_CRASHED_VIEW_MESSAGE),
+      CONTEXT_BODY_TEXT_LARGE);
   text_label->SetMultiLine(true);
-  text_label->SetLineHeight(20);
   text_label->SetHorizontalAlignment(gfx::ALIGN_LEFT);
-  text_label->SizeToFit(
-      provider->GetDistanceMetric(
-          ChromeDistanceMetric::DISTANCE_BUBBLE_PREFERRED_WIDTH) -
-      margins().width());
   AddChildView(std::move(text_label));
 
   if (offer_uma_optin_)
@@ -248,6 +241,26 @@ void SessionCrashedBubbleView::Init() {
 std::unique_ptr<views::View> SessionCrashedBubbleView::CreateUmaOptInView() {
   RecordBubbleHistogramValue(SESSION_CRASHED_BUBBLE_OPTIN_BAR_SHOWN);
 
+  // Create a view that will function like a views::Checkbox, but with a
+  // StyledLabel instead of the normal Label.
+  auto uma_view = std::make_unique<views::View>();
+  auto* uma_layout =
+      uma_view->SetLayoutManager(std::make_unique<views::BoxLayout>(
+          views::BoxLayout::Orientation::kHorizontal, gfx::Insets(),
+          ChromeLayoutProvider::Get()->GetDistanceMetric(
+              views::DISTANCE_RELATED_LABEL_HORIZONTAL)));
+  uma_layout->set_cross_axis_alignment(
+      views::BoxLayout::CrossAxisAlignment::kStart);
+
+  // The checkbox itself.
+  uma_option_ = uma_view->AddChildView(
+      std::make_unique<views::Checkbox>(base::string16()));
+  uma_option_->SetChecked(false);
+
+  // Move the checkbox border up to |uma_view|.
+  uma_view->SetBorder(uma_option_->CreateDefaultBorder());
+  uma_option_->SetBorder(nullptr);
+
   // The text to the right of the checkbox.
   size_t offset;
   base::string16 link_text =
@@ -256,7 +269,10 @@ std::unique_ptr<views::View> SessionCrashedBubbleView::CreateUmaOptInView() {
       IDS_SESSION_CRASHED_VIEW_UMA_OPTIN,
       link_text,
       &offset);
-  auto uma_label = std::make_unique<views::StyledLabel>(uma_text, this);
+
+  auto* uma_label =
+      uma_view->AddChildView(std::make_unique<views::StyledLabel>(this));
+  uma_label->SetText(uma_text);
   uma_label->AddStyleRange(gfx::Range(offset, offset + link_text.length()),
                            views::StyledLabel::RangeStyleInfo::CreateForLink());
   views::StyledLabel::RangeStyleInfo uma_style;
@@ -267,53 +283,10 @@ std::unique_ptr<views::View> SessionCrashedBubbleView::CreateUmaOptInView() {
   gfx::Range after_link_range(offset + link_text.length(), uma_text.length());
   if (!after_link_range.is_empty())
     uma_label->AddStyleRange(after_link_range, uma_style);
-  // Shift the text down by 1px to align with the checkbox.
-  uma_label->SetBorder(views::CreateEmptyBorder(1, 0, 0, 0));
 
-  // Checkbox for metric reporting setting.
-  auto uma_option = std::make_unique<views::Checkbox>(base::string16());
-  uma_option->SetChecked(false);
-  uma_option->SetAssociatedLabel(uma_label.get());
-
-  // Create a view to hold the checkbox and the text.
-  auto uma_view = std::make_unique<views::View>();
-  views::GridLayout* uma_layout =
-      uma_view->SetLayoutManager(std::make_unique<views::GridLayout>());
-
-  const int kReportColumnSetId = 0;
-  views::ColumnSet* cs = uma_layout->AddColumnSet(kReportColumnSetId);
-  cs->AddColumn(views::GridLayout::CENTER, views::GridLayout::LEADING,
-                views::GridLayout::kFixedSize, views::GridLayout::USE_PREF, 0,
-                0);
-  cs->AddPaddingColumn(views::GridLayout::kFixedSize,
-                       ChromeLayoutProvider::Get()->GetDistanceMetric(
-                           views::DISTANCE_RELATED_LABEL_HORIZONTAL));
-  cs->AddColumn(views::GridLayout::FILL, views::GridLayout::FILL, 1.0,
-                views::GridLayout::USE_PREF, 0, 0);
-
-  uma_layout->StartRow(views::GridLayout::kFixedSize, kReportColumnSetId);
-  uma_option_ = uma_layout->AddView(std::move(uma_option));
-  uma_layout->AddView(std::move(uma_label));
+  uma_option_->SetAssociatedLabel(uma_label);
 
   return uma_view;
-}
-
-bool SessionCrashedBubbleView::Accept() {
-  RestorePreviousSession();
-  return true;
-}
-
-// The cancel button is used as an option to open the startup pages instead of
-// restoring the previous session.
-bool SessionCrashedBubbleView::Cancel() {
-  OpenStartupPages();
-  return true;
-}
-
-bool SessionCrashedBubbleView::Close() {
-  // Don't default to Accept() just because that's the only choice. Instead, do
-  // nothing.
-  return true;
 }
 
 void SessionCrashedBubbleView::StyledLabelLinkClicked(views::StyledLabel* label,

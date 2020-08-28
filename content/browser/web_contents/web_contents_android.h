@@ -35,6 +35,10 @@ class CONTENT_EXPORT WebContentsAndroid {
 
   base::android::ScopedJavaLocalRef<jobject> GetJavaObject();
 
+  // Ensure that the render frame host etc are ready to handle JS eval
+  // (e.g. recover from a crashed state).
+  bool InitializeRenderFrameForJavaScript();
+
   // Methods called from Java
   void ClearNativeReference(JNIEnv* env,
                             const base::android::JavaParamRef<jobject>& obj);
@@ -55,10 +59,14 @@ class CONTENT_EXPORT WebContentsAndroid {
   base::android::ScopedJavaLocalRef<jobject> GetFocusedFrame(
       JNIEnv* env,
       const base::android::JavaParamRef<jobject>& obj) const;
+  base::android::ScopedJavaLocalRef<jobject> GetRenderFrameHostFromId(
+      JNIEnv* env,
+      jint render_process_id,
+      jint render_frame_id) const;
   base::android::ScopedJavaLocalRef<jstring> GetTitle(
       JNIEnv* env,
       const base::android::JavaParamRef<jobject>& obj) const;
-  base::android::ScopedJavaLocalRef<jstring> GetVisibleURL(
+  base::android::ScopedJavaLocalRef<jobject> GetVisibleURL(
       JNIEnv* env,
       const base::android::JavaParamRef<jobject>& obj) const;
 
@@ -67,6 +75,10 @@ class CONTENT_EXPORT WebContentsAndroid {
   bool IsLoadingToDifferentDocument(
       JNIEnv* env,
       const base::android::JavaParamRef<jobject>& obj) const;
+
+  void DispatchBeforeUnload(JNIEnv* env,
+                            const base::android::JavaParamRef<jobject>& obj,
+                            bool auto_cancel);
 
   void Stop(JNIEnv* env, const base::android::JavaParamRef<jobject>& obj);
   void Cut(JNIEnv* env, const base::android::JavaParamRef<jobject>& obj);
@@ -103,10 +115,10 @@ class CONTENT_EXPORT WebContentsAndroid {
                      const base::android::JavaParamRef<jobject>& jobj,
                      jboolean mute);
 
-  jboolean IsShowingInterstitialPage(
+  jboolean FocusLocationBarByDefault(
       JNIEnv* env,
       const base::android::JavaParamRef<jobject>& obj);
-  jboolean FocusLocationBarByDefault(
+  bool IsFullscreenForCurrentTab(
       JNIEnv* env,
       const base::android::JavaParamRef<jobject>& obj);
   void ExitFullscreen(JNIEnv* env,
@@ -249,6 +261,12 @@ class CONTENT_EXPORT WebContentsAndroid {
   base::android::ScopedJavaLocalRef<jobject> GetRenderWidgetHostView(
       JNIEnv* env,
       const base::android::JavaParamRef<jobject>& obj);
+
+  base::android::ScopedJavaLocalRef<jobjectArray> GetInnerWebContents(
+      JNIEnv* env,
+      const base::android::JavaParamRef<jobject>& obj);
+
+  jint GetVisibility(JNIEnv* env);
 
   RenderWidgetHostViewAndroid* GetRenderWidgetHostViewAndroid();
 

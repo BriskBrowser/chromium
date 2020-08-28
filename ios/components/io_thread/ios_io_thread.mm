@@ -11,11 +11,11 @@
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
+#include "base/check_op.h"
 #include "base/command_line.h"
 #include "base/compiler_specific.h"
 #include "base/debug/leak_tracker.h"
 #include "base/environment.h"
-#include "base/logging.h"
 #include "base/macros.h"
 #include "base/metrics/field_trial.h"
 #include "base/single_thread_task_runner.h"
@@ -274,7 +274,7 @@ void IOSIOThread::Init() {
   quic_user_agent_id.append(
       version_info::GetProductNameAndVersionForUserAgent());
   quic_user_agent_id.push_back(' ');
-  quic_user_agent_id.append(web::BuildOSCpuInfo(web::UserAgentType::MOBILE));
+  quic_user_agent_id.append(web::BuildOSCpuInfo());
 
   // Set up field trials, ignoring debug command line options.
   network_session_configurator::ParseCommandLineAndFieldTrials(

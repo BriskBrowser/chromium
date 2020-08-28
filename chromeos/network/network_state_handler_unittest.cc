@@ -15,6 +15,7 @@
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/command_line.h"
+#include "base/logging.h"
 #include "base/macros.h"
 #include "base/run_loop.h"
 #include "base/strings/string_number_conversions.h"
@@ -109,7 +110,7 @@ class TestObserver final : public chromeos::NetworkStateHandlerObserver {
   }
 
   void DefaultNetworkChanged(const NetworkState* network) override {
-    EXPECT_TRUE(!network || network->IsConnectedState());
+    EXPECT_TRUE(!network || network->IsActive());
     ++default_network_change_count_;
     default_network_ = network ? network->path() : "";
     default_network_connection_state_ =
@@ -148,6 +149,10 @@ class TestObserver final : public chromeos::NetworkStateHandlerObserver {
     scan_completed_count_++;
   }
 
+  void HostnameChanged(const std::string& hostname) override {
+    hostname_ = hostname;
+  }
+
   size_t active_network_change_count() { return active_network_change_count_; }
   size_t default_network_change_count() {
     return default_network_change_count_;
@@ -161,6 +166,7 @@ class TestObserver final : public chromeos::NetworkStateHandlerObserver {
     return scan_requests_;
   }
   size_t scan_completed_count() { return scan_completed_count_; }
+  const std::string& hostname() { return hostname_; }
   void reset_change_counts() {
     VLOG(1) << "=== RESET CHANGE COUNTS ===";
     active_network_change_count_ = 0;
@@ -210,6 +216,7 @@ class TestObserver final : public chromeos::NetworkStateHandlerObserver {
   size_t network_count_ = 0;
   std::vector<NetworkTypePattern> scan_requests_;
   size_t scan_completed_count_ = 0;
+  std::string hostname_;
   std::vector<std::string> active_network_paths_;
   std::string default_network_;
   std::string default_network_connection_state_;
@@ -323,9 +330,9 @@ class NetworkStateHandlerTest : public testing::Test {
   void SetServiceProperty(const std::string& service_path,
                           const std::string& key,
                           const base::Value& value) {
-    ShillServiceClient::Get()->SetProperty(dbus::ObjectPath(service_path), key,
-                                           value, base::DoNothing(),
-                                           base::Bind(&ErrorCallbackFunction));
+    ShillServiceClient::Get()->SetProperty(
+        dbus::ObjectPath(service_path), key, value, base::DoNothing(),
+        base::BindOnce(&ErrorCallbackFunction));
   }
 
   void SetProperties(NetworkState* network, const base::Value& properties) {
@@ -837,7 +844,7 @@ TEST_F(NetworkStateHandlerTest, TetherTechnologyState) {
 
   // Test SetProhibitedTechnologies() with a Tether network:
   network_state_handler_->SetProhibitedTechnologies(
-      std::vector<std::string>{kTypeTether}, network_handler::ErrorCallback());
+      std::vector<std::string>{kTypeTether});
   EXPECT_EQ(3u, test_observer_->device_list_changed_count());
   EXPECT_EQ(
       NetworkStateHandler::TECHNOLOGY_PROHIBITED,
@@ -1246,10 +1253,11 @@ TEST_F(NetworkStateHandlerTest,
   network_state_handler_->AddTetherNetworkState(
       kTetherGuid1, kTetherName1, kTetherCarrier1, kTetherBatteryPercentage1,
       kTetherSignalStrength1, kTetherHasConnectedToHost1);
-  test_observer_->reset_change_counts();
-  test_observer_->reset_updates();
+  base::RunLoop().RunUntilIdle();
 
   // Preconditions.
+  test_observer_->reset_change_counts();
+  test_observer_->reset_updates();
   EXPECT_EQ(0, test_observer_->ConnectionStateChangesForService(kTetherGuid1));
   EXPECT_EQ(0, test_observer_->PropertyUpdatesForService(kTetherGuid1));
   EXPECT_EQ(0u, test_observer_->default_network_change_count());
@@ -1262,6 +1270,7 @@ TEST_F(NetworkStateHandlerTest,
   const NetworkState* tether_network =
       network_state_handler_->GetNetworkStateFromGuid(kTetherGuid1);
   network_state_handler_->SetTetherNetworkStateConnecting(kTetherGuid1);
+  base::RunLoop().RunUntilIdle();
   EXPECT_TRUE(tether_network->IsConnectingState());
   EXPECT_EQ(1, test_observer_->ConnectionStateChangesForService(kTetherGuid1));
   EXPECT_EQ(1, test_observer_->PropertyUpdatesForService(kTetherGuid1));
@@ -1271,8 +1280,10 @@ TEST_F(NetworkStateHandlerTest,
   // Associate Tether and Wi-Fi networks.
   network_state_handler_->AssociateTetherNetworkStateWithWifiNetwork(
       kTetherGuid1, "wifi1_guid");
+  base::RunLoop().RunUntilIdle();
   EXPECT_EQ(1, test_observer_->ConnectionStateChangesForService(kTetherGuid1));
   EXPECT_EQ(2, test_observer_->PropertyUpdatesForService(kTetherGuid1));
+  EXPECT_EQ(0u, test_observer_->default_network_change_count());
 
   // Connect to the underlying Wi-Fi network. The default network should not
   // change yet.
@@ -1998,11 +2009,12 @@ TEST_F(NetworkStateHandlerTest, UpdateGuid) {
   // No service matching kShillManagerClientStubCellular.
   EXPECT_FALSE(
       network_state_handler_->GetNetworkState(kShillManagerClientStubCellular));
-  // The default cellular network should have the same guid as before.
+  // The default cellular network will have a unique assigned guid.
   cellular = network_state_handler_->FirstNetworkByType(
       NetworkTypePattern::Cellular());
   ASSERT_TRUE(cellular);
-  EXPECT_EQ("cellular1_guid", cellular->guid());
+  EXPECT_FALSE(cellular->guid().empty());
+  EXPECT_NE("cellular1_guid", cellular->guid());
 }
 
 TEST_F(NetworkStateHandlerTest, DefaultCellularNetwork) {
@@ -2092,7 +2104,7 @@ TEST_F(NetworkStateHandlerTest, UpdateCaptivePortalProvider) {
   EXPECT_EQ(kProviderName, info->name);
 }
 
-TEST_F(NetworkStateHandlerTest, BlockedByPolicyBlacklisted) {
+TEST_F(NetworkStateHandlerTest, BlockedByPolicyBlocked) {
   NetworkState* wifi1 = network_state_handler_->GetModifiableNetworkState(
       kShillManagerClientStubDefaultWifi);
   NetworkState* wifi2 = network_state_handler_->GetModifiableNetworkState(
@@ -2104,12 +2116,12 @@ TEST_F(NetworkStateHandlerTest, BlockedByPolicyBlacklisted) {
   EXPECT_FALSE(wifi1->blocked_by_policy());
   EXPECT_FALSE(wifi2->blocked_by_policy());
 
-  std::vector<std::string> blacklist;
-  blacklist.push_back(wifi1->GetHexSsid());
-  network_state_handler_->UpdateBlockedWifiNetworks(false, false, blacklist);
+  std::vector<std::string> blocked;
+  blocked.push_back(wifi1->GetHexSsid());
+  network_state_handler_->UpdateBlockedWifiNetworks(false, false, blocked);
 
   EXPECT_FALSE(network_state_handler_->OnlyManagedWifiNetworksAllowed());
-  EXPECT_EQ(blacklist, network_state_handler_->blacklisted_hex_ssids_);
+  EXPECT_EQ(blocked, network_state_handler_->blocked_hex_ssids_);
   EXPECT_TRUE(wifi1->blocked_by_policy());
   EXPECT_FALSE(wifi2->blocked_by_policy());
 
@@ -2122,7 +2134,7 @@ TEST_F(NetworkStateHandlerTest, BlockedByPolicyBlacklisted) {
   SetProperties(wifi1, properties);
 
   EXPECT_FALSE(network_state_handler_->OnlyManagedWifiNetworksAllowed());
-  EXPECT_EQ(blacklist, network_state_handler_->blacklisted_hex_ssids_);
+  EXPECT_EQ(blocked, network_state_handler_->blocked_hex_ssids_);
   EXPECT_TRUE(wifi1->IsManagedByPolicy());
   EXPECT_FALSE(wifi2->IsManagedByPolicy());
   EXPECT_FALSE(wifi1->blocked_by_policy());
@@ -2252,6 +2264,19 @@ TEST_F(NetworkStateHandlerTest, SetNetworkChromePortalDetected) {
   EXPECT_FALSE(network->IsCaptivePortal());
   EXPECT_EQ(2,
             test_observer_->ConnectionStateChangesForService(network->path()));
+}
+
+TEST_F(NetworkStateHandlerTest, Hostname) {
+  const std::string kTestHostname = "Test Hostname";
+  network_state_handler_->SetHostname(kTestHostname);
+  base::RunLoop().RunUntilIdle();
+  EXPECT_EQ(network_state_handler_->hostname(), kTestHostname);
+  EXPECT_EQ(test_observer_->hostname(), kTestHostname);
+
+  network_state_handler_->SetHostname(std::string());
+  base::RunLoop().RunUntilIdle();
+  EXPECT_TRUE(network_state_handler_->hostname().empty());
+  EXPECT_TRUE(test_observer_->hostname().empty());
 }
 
 }  // namespace chromeos

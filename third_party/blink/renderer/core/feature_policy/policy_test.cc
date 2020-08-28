@@ -2,14 +2,14 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "third_party/blink/renderer/core/feature_policy/dom_document_policy.h"
+#include "third_party/blink/renderer/core/feature_policy/dom_feature_policy.h"
 #include "third_party/blink/renderer/core/feature_policy/iframe_policy.h"
 
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
-#include "third_party/blink/renderer/core/dom/document.h"
-#include "third_party/blink/renderer/core/dom/document_init.h"
 #include "third_party/blink/renderer/core/feature_policy/feature_policy_parser.h"
+#include "third_party/blink/renderer/core/frame/local_dom_window.h"
+#include "third_party/blink/renderer/core/testing/dummy_page_holder.h"
 #include "third_party/blink/renderer/platform/weborigin/security_origin.h"
 
 namespace blink {
@@ -25,27 +25,41 @@ using testing::UnorderedElementsAre;
 class PolicyTest : public testing::Test {
  public:
   void SetUp() override {
-    DocumentInit init =
-        DocumentInit::Create()
-            .WithOriginToCommit(SecurityOrigin::CreateFromString(kSelfOrigin))
-            .WithFeaturePolicyHeader(
-                "fullscreen *; payment 'self'; midi 'none'; camera 'self' "
-                "https://example.com https://example.net");
-    document_ = MakeGarbageCollected<Document>(init);
+    page_holder_ = std::make_unique<DummyPageHolder>();
+
+    auto origin = SecurityOrigin::CreateFromString(kSelfOrigin);
+
+    auto feature_policy = FeaturePolicy::CreateFromParentPolicy(
+        nullptr, ParsedFeaturePolicy(), origin->ToUrlOrigin());
+    auto header = FeaturePolicyParser::ParseHeader(
+        "fullscreen *; payment 'self'; midi 'none'; camera 'self' "
+        "https://example.com https://example.net",
+        /* permissions_policy_header */ g_empty_string, origin.get(),
+        dummy_logger_);
+    feature_policy->SetHeaderPolicy(header);
+
+    auto& security_context =
+        page_holder_->GetFrame().DomWindow()->GetSecurityContext();
+    security_context.SetSecurityOriginForTesting(origin);
+    security_context.SetFeaturePolicy(std::move(feature_policy));
   }
 
   DOMFeaturePolicy* GetPolicy() const { return policy_; }
 
+  PolicyParserMessageBuffer dummy_logger_ =
+      PolicyParserMessageBuffer("", true /* discard_message */);
+
  protected:
-  Persistent<Document> document_;
+  std::unique_ptr<DummyPageHolder> page_holder_;
   Persistent<DOMFeaturePolicy> policy_;
 };
 
-class DOMDocumentPolicyTest : public PolicyTest {
+class DOMFeaturePolicyTest : public PolicyTest {
  public:
   void SetUp() override {
     PolicyTest::SetUp();
-    policy_ = MakeGarbageCollected<DOMDocumentPolicy>(document_);
+    policy_ = MakeGarbageCollected<DOMFeaturePolicy>(
+        page_holder_->GetFrame().DomWindow());
   }
 };
 
@@ -54,12 +68,12 @@ class IFramePolicyTest : public PolicyTest {
   void SetUp() override {
     PolicyTest::SetUp();
     policy_ = MakeGarbageCollected<IFramePolicy>(
-        document_, ParsedFeaturePolicy(),
+        page_holder_->GetFrame().DomWindow(), ParsedFeaturePolicy(),
         SecurityOrigin::CreateFromString(kSelfOrigin));
   }
 };
 
-TEST_F(DOMDocumentPolicyTest, TestAllowsFeature) {
+TEST_F(DOMFeaturePolicyTest, TestAllowsFeature) {
   EXPECT_FALSE(GetPolicy()->allowsFeature(nullptr, "badfeature"));
   EXPECT_FALSE(GetPolicy()->allowsFeature(nullptr, "midi"));
   EXPECT_FALSE(GetPolicy()->allowsFeature(nullptr, "midi", kSelfOrigin));
@@ -78,7 +92,7 @@ TEST_F(DOMDocumentPolicyTest, TestAllowsFeature) {
   EXPECT_TRUE(GetPolicy()->allowsFeature(nullptr, "sync-xhr", kOriginA));
 }
 
-TEST_F(DOMDocumentPolicyTest, TestGetAllowList) {
+TEST_F(DOMFeaturePolicyTest, TestGetAllowList) {
   EXPECT_THAT(GetPolicy()->getAllowlistForFeature(nullptr, "camera"),
               UnorderedElementsAre(kSelfOrigin, kOriginA, kOriginB));
   EXPECT_THAT(GetPolicy()->getAllowlistForFeature(nullptr, "payment"),
@@ -94,7 +108,7 @@ TEST_F(DOMDocumentPolicyTest, TestGetAllowList) {
               UnorderedElementsAre("*"));
 }
 
-TEST_F(DOMDocumentPolicyTest, TestAllowedFeatures) {
+TEST_F(DOMFeaturePolicyTest, TestAllowedFeatures) {
   Vector<String> allowed_features = GetPolicy()->allowedFeatures(nullptr);
   EXPECT_TRUE(allowed_features.Contains("fullscreen"));
   EXPECT_TRUE(allowed_features.Contains("payment"));
@@ -160,7 +174,7 @@ TEST_F(IFramePolicyTest, TestCombinedPolicy) {
   ParsedFeaturePolicy container_policy = FeaturePolicyParser::ParseAttribute(
       "geolocation 'src'; payment 'none'; midi; camera 'src'",
       SecurityOrigin::CreateFromString(kSelfOrigin),
-      SecurityOrigin::CreateFromString(kOriginA), nullptr);
+      SecurityOrigin::CreateFromString(kOriginA), dummy_logger_);
   GetPolicy()->UpdateContainerPolicy(
       container_policy, SecurityOrigin::CreateFromString(kOriginA));
   Vector<String> allowed_features = GetPolicy()->allowedFeatures(nullptr);

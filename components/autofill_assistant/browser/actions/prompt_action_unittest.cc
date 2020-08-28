@@ -45,11 +45,14 @@ class PromptActionTest : public testing::Test {
 
     EXPECT_CALL(mock_action_delegate_, OnWaitForDom(_, _, _, _))
         .WillRepeatedly(Invoke(this, &PromptActionTest::FakeWaitForDom));
-    ON_CALL(mock_action_delegate_, Prompt(_))
-        .WillByDefault(Invoke(
-            [this](std::unique_ptr<std::vector<UserAction>> user_actions) {
+    ON_CALL(mock_action_delegate_, Prompt(_, _, _, _, _))
+        .WillByDefault(
+            [this](std::unique_ptr<std::vector<UserAction>> user_actions,
+                   bool disable_force_expand_sheet,
+                   base::OnceCallback<void()> callback, bool browse_mode,
+                   bool browse_mode_invisible) {
               user_actions_ = std::move(user_actions);
-            }));
+            });
     prompt_proto_ = proto_.mutable_prompt();
   }
 
@@ -65,22 +68,25 @@ class PromptActionTest : public testing::Test {
           void(BatchElementChecker*,
                base::OnceCallback<void(const ClientStatus&)>)>& check_elements,
       base::OnceCallback<void(const ClientStatus&)>& done_waiting_callback) {
-    RunFakeWaitForDom(check_elements, std::move(done_waiting_callback));
+    fake_wait_for_dom_done_ = std::move(done_waiting_callback);
+    RunFakeWaitForDom(check_elements);
   }
 
   void RunFakeWaitForDom(
       base::RepeatingCallback<
           void(BatchElementChecker*,
-               base::OnceCallback<void(const ClientStatus&)>)> check_elements,
-      base::OnceCallback<void(const ClientStatus&)> done_waiting_callback) {
+               base::OnceCallback<void(const ClientStatus&)>)> check_elements) {
+    if (!fake_wait_for_dom_done_)
+      return;
+
     checker_ = std::make_unique<BatchElementChecker>();
     has_check_elements_result_ = false;
     check_elements.Run(checker_.get(),
                        base::BindOnce(&PromptActionTest::OnCheckElementsDone,
                                       base::Unretained(this)));
-    checker_->AddAllDoneCallback(base::BindOnce(
-        &PromptActionTest::OnWaitForDomDone, base::Unretained(this),
-        check_elements, std::move(done_waiting_callback)));
+    checker_->AddAllDoneCallback(
+        base::BindOnce(&PromptActionTest::OnWaitForDomDone,
+                       base::Unretained(this), check_elements));
     checker_->Run(&mock_web_controller_);
   }
 
@@ -96,20 +102,21 @@ class PromptActionTest : public testing::Test {
   void OnWaitForDomDone(
       base::RepeatingCallback<
           void(BatchElementChecker*,
-               base::OnceCallback<void(const ClientStatus&)>)> check_elements,
-      base::OnceCallback<void(const ClientStatus&)> done_waiting_callback) {
+               base::OnceCallback<void(const ClientStatus&)>)> check_elements) {
     ASSERT_TRUE(
         has_check_elements_result_);  // OnCheckElementsDone() not called
 
+    if (!fake_wait_for_dom_done_)
+      return;
+
     if (check_elements_result_.ok()) {
-      std::move(done_waiting_callback).Run(check_elements_result_);
+      std::move(fake_wait_for_dom_done_).Run(check_elements_result_);
     } else {
       wait_for_dom_timer_ = std::make_unique<base::OneShotTimer>();
       wait_for_dom_timer_->Start(
           FROM_HERE, base::TimeDelta::FromSeconds(1),
           base::BindOnce(&PromptActionTest::RunFakeWaitForDom,
-                         base::Unretained(this), check_elements,
-                         std::move(done_waiting_callback)));
+                         base::Unretained(this), check_elements));
     }
   }
 
@@ -120,6 +127,7 @@ class PromptActionTest : public testing::Test {
   MockActionDelegate mock_action_delegate_;
   MockWebController mock_web_controller_;
   base::MockCallback<Action::ProcessActionCallback> callback_;
+  base::OnceCallback<void(const ClientStatus&)> fake_wait_for_dom_done_;
   ActionProto proto_;
   PromptProto* prompt_proto_;
   std::unique_ptr<std::vector<UserAction>> user_actions_;
@@ -165,7 +173,9 @@ TEST_F(PromptActionTest, SelectButtons) {
       Run(Pointee(AllOf(
           Property(&ProcessedActionProto::status, ACTION_APPLIED),
           Property(&ProcessedActionProto::prompt_choice,
-                   Property(&PromptProto::Choice::server_payload, "ok"))))));
+                   Property(&PromptProto::Result::navigation_ended, false)),
+          Property(&ProcessedActionProto::prompt_choice,
+                   Property(&PromptProto::Result::server_payload, "ok"))))));
   EXPECT_TRUE((*user_actions_)[0].HasCallback());
   (*user_actions_)[0].Call(TriggerContext::CreateEmpty());
 }
@@ -200,7 +210,8 @@ TEST_F(PromptActionTest, ShowOnlyIfElementExists) {
   ok_proto->mutable_chip()->set_text("Ok");
   ok_proto->mutable_chip()->set_type(HIGHLIGHTED_ACTION);
   ok_proto->set_server_payload("ok");
-  ok_proto->add_show_only_if_element_exists()->add_selectors("element");
+  *ok_proto->mutable_show_only_when()->mutable_match() =
+      ToSelectorProto("element");
 
   PromptAction action(&mock_action_delegate_, proto_);
   action.ProcessAction(callback_.Get());
@@ -226,7 +237,8 @@ TEST_F(PromptActionTest, DisabledUnlessElementExists) {
   ok_proto->mutable_chip()->set_type(HIGHLIGHTED_ACTION);
   ok_proto->set_server_payload("ok");
   ok_proto->set_allow_disabling(true);
-  ok_proto->add_show_only_if_element_exists()->add_selectors("element");
+  *ok_proto->mutable_show_only_when()->mutable_match() =
+      ToSelectorProto("element");
 
   PromptAction action(&mock_action_delegate_, proto_);
   action.ProcessAction(callback_.Get());
@@ -250,8 +262,8 @@ TEST_F(PromptActionTest, DisabledUnlessElementExists) {
 TEST_F(PromptActionTest, AutoSelectWhenElementExists) {
   auto* choice_proto = prompt_proto_->add_choices();
   choice_proto->set_server_payload("auto-select");
-  choice_proto->mutable_auto_select_if_element_exists()->add_selectors(
-      "element");
+  *choice_proto->mutable_auto_select_when()->mutable_match() =
+      ToSelectorProto("element");
 
   PromptAction action(&mock_action_delegate_, proto_);
   action.ProcessAction(callback_.Get());
@@ -261,42 +273,12 @@ TEST_F(PromptActionTest, AutoSelectWhenElementExists) {
               OnElementCheck(Eq(Selector({"element"})), _))
       .WillRepeatedly(RunOnceCallback<1>(OkClientStatus()));
 
-  EXPECT_CALL(mock_action_delegate_, CancelPrompt());
+  EXPECT_CALL(mock_action_delegate_, CleanUpAfterPrompt());
   EXPECT_CALL(
       callback_,
       Run(Pointee(AllOf(Property(&ProcessedActionProto::status, ACTION_APPLIED),
                         Property(&ProcessedActionProto::prompt_choice,
-                                 Property(&PromptProto::Choice::server_payload,
-                                          "auto-select"))))));
-  task_env_.FastForwardBy(base::TimeDelta::FromSeconds(1));
-}
-
-TEST_F(PromptActionTest, AutoSelectWhenElementDisappears) {
-  auto* choice_proto = prompt_proto_->add_choices();
-  choice_proto->set_server_payload("auto-select");
-  choice_proto->mutable_auto_select_if_element_disappears()->add_selectors(
-      "element");
-
-  PromptAction action(&mock_action_delegate_, proto_);
-  action.ProcessAction(callback_.Get());
-  EXPECT_THAT(user_actions_, Pointee(SizeIs(0)));
-
-  EXPECT_CALL(mock_web_controller_,
-              OnElementCheck(Eq(Selector({"element"})), _))
-      .WillOnce(RunOnceCallback<1>(OkClientStatus()))
-      .WillRepeatedly(
-          RunOnceCallback<1>(ClientStatus(ELEMENT_RESOLUTION_FAILED)));
-
-  // First round of element checks: element exists.
-  task_env_.FastForwardBy(base::TimeDelta::FromSeconds(1));
-
-  // Second round of element checks: element has gone.
-  EXPECT_CALL(mock_action_delegate_, CancelPrompt());
-  EXPECT_CALL(
-      callback_,
-      Run(Pointee(AllOf(Property(&ProcessedActionProto::status, ACTION_APPLIED),
-                        Property(&ProcessedActionProto::prompt_choice,
-                                 Property(&PromptProto::Choice::server_payload,
+                                 Property(&PromptProto::Result::server_payload,
                                           "auto-select"))))));
   task_env_.FastForwardBy(base::TimeDelta::FromSeconds(1));
 }
@@ -309,8 +291,8 @@ TEST_F(PromptActionTest, AutoSelectWithButton) {
 
   auto* choice_proto = prompt_proto_->add_choices();
   choice_proto->set_server_payload("auto-select");
-  choice_proto->mutable_auto_select_if_element_exists()->add_selectors(
-      "element");
+  *choice_proto->mutable_auto_select_when()->mutable_match() =
+      ToSelectorProto("element");
 
   PromptAction action(&mock_action_delegate_, proto_);
   action.ProcessAction(callback_.Get());
@@ -324,7 +306,7 @@ TEST_F(PromptActionTest, AutoSelectWithButton) {
       callback_,
       Run(Pointee(AllOf(Property(&ProcessedActionProto::status, ACTION_APPLIED),
                         Property(&ProcessedActionProto::prompt_choice,
-                                 Property(&PromptProto::Choice::server_payload,
+                                 Property(&PromptProto::Result::server_payload,
                                           "auto-select"))))));
   task_env_.FastForwardBy(base::TimeDelta::FromSeconds(1));
 }
@@ -380,6 +362,108 @@ TEST_F(PromptActionTest, NormalMessageSet) {
   EXPECT_CALL(mock_action_delegate_, SetStatusMessage(StrEq(" test message ")));
 
   PromptAction action(&mock_action_delegate_, proto_);
+  action.ProcessAction(callback_.Get());
+}
+
+TEST_F(PromptActionTest, ForceExpandSheetDefault) {
+  auto* ok_proto = prompt_proto_->add_choices();
+  ok_proto->mutable_chip()->set_text("Ok");
+  ok_proto->mutable_chip()->set_type(HIGHLIGHTED_ACTION);
+  ok_proto->set_server_payload("ok");
+
+  EXPECT_CALL(mock_action_delegate_, Prompt(_, false, _, false, false));
+  PromptAction action(&mock_action_delegate_, proto_);
+  action.ProcessAction(callback_.Get());
+}
+
+TEST_F(PromptActionTest, ForceExpandSheetDisable) {
+  auto* ok_proto = prompt_proto_->add_choices();
+  ok_proto->mutable_chip()->set_text("Ok");
+  ok_proto->mutable_chip()->set_type(HIGHLIGHTED_ACTION);
+  ok_proto->set_server_payload("ok");
+
+  prompt_proto_->set_disable_force_expand_sheet(true);
+  EXPECT_CALL(mock_action_delegate_, Prompt(_, true, _, false, false));
+  PromptAction action(&mock_action_delegate_, proto_);
+  action.ProcessAction(callback_.Get());
+}
+
+TEST_F(PromptActionTest, RunPromptInBrowseMode) {
+  auto* ok_proto = prompt_proto_->add_choices();
+  ok_proto->mutable_chip()->set_text("Ok");
+  ok_proto->mutable_chip()->set_type(HIGHLIGHTED_ACTION);
+  ok_proto->set_server_payload("ok");
+
+  prompt_proto_->set_browse_mode(true);
+  EXPECT_CALL(mock_action_delegate_, Prompt(_, false, _, true, false));
+  PromptAction action(&mock_action_delegate_, proto_);
+  action.ProcessAction(callback_.Get());
+}
+
+TEST_F(PromptActionTest, RunPromptInInvisibleBrowseMode) {
+  auto* ok_proto = prompt_proto_->add_choices();
+  ok_proto->mutable_chip()->set_text("Ok");
+  ok_proto->mutable_chip()->set_type(HIGHLIGHTED_ACTION);
+  ok_proto->set_server_payload("ok");
+
+  prompt_proto_->set_browse_mode(true);
+  prompt_proto_->set_browse_mode_invisible(true);
+  EXPECT_CALL(mock_action_delegate_, Prompt(_, false, _, true, true));
+  PromptAction action(&mock_action_delegate_, proto_);
+  action.ProcessAction(callback_.Get());
+}
+
+TEST_F(PromptActionTest, ForwardInterruptFailure) {
+  prompt_proto_->set_allow_interrupt(true);
+  auto* choice_proto = prompt_proto_->add_choices();
+  choice_proto->set_server_payload("auto-select");
+  *choice_proto->mutable_auto_select_when()->mutable_match() =
+      ToSelectorProto("element");
+
+  PromptAction action(&mock_action_delegate_, proto_);
+  action.ProcessAction(callback_.Get());
+  EXPECT_THAT(user_actions_, Pointee(SizeIs(0)));
+
+  // First round of element checks: element doesn't exist.
+  task_env_.FastForwardBy(base::TimeDelta::FromSeconds(1));
+
+  // Second round of element checks: an interrupt ran and failed. No choice was
+  // selected.
+  EXPECT_CALL(
+      callback_,
+      Run(AllOf(
+          Pointee(Property(&ProcessedActionProto::status, INTERRUPT_FAILED)),
+          Pointee(
+              Property(&ProcessedActionProto::prompt_choice,
+                       Property(&PromptProto::Result::server_payload, ""))))));
+  ASSERT_TRUE(fake_wait_for_dom_done_);
+  std::move(fake_wait_for_dom_done_).Run(ClientStatus(INTERRUPT_FAILED));
+}
+
+TEST_F(PromptActionTest, EndActionOnNavigation) {
+  EXPECT_CALL(mock_action_delegate_, Prompt(_, _, _, _, _))
+      .WillOnce([this](std::unique_ptr<std::vector<UserAction>> user_actions,
+                       bool disable_force_expand_sheet,
+                       base::OnceCallback<void()> callback, bool browse_mode,
+                       bool browse_mode_invisible) {
+        user_actions_ = std::move(user_actions);
+        std::move(callback).Run();
+      });
+
+  prompt_proto_->set_end_on_navigation(true);
+  prompt_proto_->add_choices()->mutable_chip()->set_text("ok");
+
+  PromptAction action(&mock_action_delegate_, proto_);
+
+  // Set new expectations for when the navigation event arrives.
+  EXPECT_CALL(mock_action_delegate_, CleanUpAfterPrompt());
+  EXPECT_CALL(
+      callback_,
+      Run(Pointee(AllOf(
+          Property(&ProcessedActionProto::status, ACTION_APPLIED),
+          Property(&ProcessedActionProto::prompt_choice,
+                   Property(&PromptProto::Result::navigation_ended, true))))));
+
   action.ProcessAction(callback_.Get());
 }
 

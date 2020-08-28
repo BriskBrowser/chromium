@@ -43,9 +43,7 @@
 #include "components/user_manager/user_type.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/notification_service.h"
-#include "content/public/common/service_manager_connection.h"
 #include "mojo/public/cpp/bindings/equals_traits.h"
-#include "services/service_manager/public/cpp/connector.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/chromeos/resources/grit/ui_chromeos_resources.h"
 #include "ui/gfx/image/image_skia.h"
@@ -82,8 +80,7 @@ uint32_t GetSessionId(const User& user) {
 // no user session started for the given user.
 std::unique_ptr<ash::UserSession> UserToUserSession(const User& user) {
   const uint32_t user_session_id = GetSessionId(user);
-  if (user_session_id == 0u)
-    return nullptr;
+  DCHECK_NE(0u, user_session_id);
 
   Profile* profile = chromeos::ProfileHelper::Get()->GetProfileByUser(&user);
   DCHECK(profile);
@@ -94,13 +91,12 @@ std::unique_ptr<ash::UserSession> UserToUserSession(const User& user) {
   session->user_info.account_id = user.GetAccountId();
   session->user_info.display_name = base::UTF16ToUTF8(user.display_name());
   session->user_info.display_email = user.display_email();
+  session->user_info.given_name = base::UTF16ToUTF8(user.GetGivenName());
   session->user_info.is_ephemeral =
       UserManager::Get()->IsUserNonCryptohomeDataEphemeral(user.GetAccountId());
   session->user_info.has_gaia_account = user.has_gaia_account();
   session->user_info.should_display_managed_ui =
       profile && chrome::ShouldDisplayManagedUi(profile);
-  session->user_info.service_instance_group =
-      content::BrowserContext::GetServiceInstanceGroupFor(profile);
   session->user_info.is_new_profile = profile->IsNewProfile();
 
   session->user_info.avatar.image = user.GetImage();
@@ -356,8 +352,15 @@ void SessionControllerClientImpl::UserAddedToSession(const User* added_user) {
   SendUserSession(*added_user);
 }
 
+void SessionControllerClientImpl::LocalStateChanged(
+    user_manager::UserManager* user_manager) {
+  SendSessionInfoIfChanged();
+}
+
 void SessionControllerClientImpl::OnUserImageChanged(const User& user) {
-  SendUserSession(user);
+  // Only sends user session for signed-in user.
+  if (GetSessionId(user) != 0)
+    SendUserSession(user);
 }
 
 // static
@@ -560,6 +563,9 @@ void SessionControllerClientImpl::SendSessionInfoIfChanged() {
 }
 
 void SessionControllerClientImpl::SendUserSession(const User& user) {
+  // |user| must have a session, i.e. signed-in already.
+  DCHECK_NE(0u, GetSessionId(user));
+
   // Check user profile via GetProfileByUser() instead of is_profile_created()
   // flag because many tests have only setup testing user profile in
   // ProfileHelper but do not have the flag updated.
@@ -569,14 +575,6 @@ void SessionControllerClientImpl::SendUserSession(const User& user) {
   }
 
   auto user_session = UserToUserSession(user);
-
-  // Bail if the user has no session. Currently the only code path that hits
-  // this condition is from OnUserImageChanged when user images are changed
-  // on the login screen (e.g. policy change that adds a public session user,
-  // or tests that create new users on the login screen).
-  if (!user_session)
-    return;
-
   if (last_sent_user_session_ && *user_session == *last_sent_user_session_)
     return;
 
@@ -613,15 +611,15 @@ void SessionControllerClientImpl::SendSessionLengthLimit() {
                           kSessionLengthLimitMinMs),
                  kSessionLengthLimitMaxMs));
   }
-  base::TimeTicks session_start_time;
+  base::Time session_start_time;
   if (local_state->HasPrefPath(prefs::kSessionStartTime)) {
-    session_start_time = base::TimeTicks::FromInternalValue(
+    session_start_time = base::Time::FromInternalValue(
         local_state->GetInt64(prefs::kSessionStartTime));
   }
 
   policy::off_hours::DeviceOffHoursController* off_hours_controller =
       chromeos::DeviceSettingsService::Get()->device_off_hours_controller();
-  base::TimeTicks off_hours_session_end_time;
+  base::Time off_hours_session_end_time;
   // Use "OffHours" end time only if the session will be actually terminated.
   if (off_hours_controller->IsCurrentSessionAllowedOnlyForOffHours())
     off_hours_session_end_time = off_hours_controller->GetOffHoursEndTime();
@@ -646,7 +644,7 @@ void SessionControllerClientImpl::SendSessionLengthLimit() {
                                                session_start_time);
     return;
   }
-  base::TimeTicks off_hours_session_start_time = base::TimeTicks::Now();
+  base::Time off_hours_session_start_time = base::Time::Now();
   base::TimeDelta off_hours_session_length_limit =
       off_hours_session_end_time - off_hours_session_start_time;
   session_controller_->SetSessionLengthLimit(off_hours_session_length_limit,

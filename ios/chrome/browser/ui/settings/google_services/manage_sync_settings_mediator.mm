@@ -5,8 +5,9 @@
 #import "ios/chrome/browser/ui/settings/google_services/manage_sync_settings_mediator.h"
 
 #include "base/auto_reset.h"
-#include "base/logging.h"
+#include "base/check_op.h"
 #include "base/mac/foundation_util.h"
+#include "base/notreached.h"
 #include "components/autofill/core/common/autofill_prefs.h"
 #include "components/strings/grit/components_strings.h"
 #include "components/sync/driver/sync_service.h"
@@ -23,7 +24,7 @@
 #import "ios/chrome/browser/ui/table_view/cells/table_view_image_item.h"
 #import "ios/chrome/browser/ui/table_view/cells/table_view_item.h"
 #import "ios/chrome/browser/ui/util/uikit_ui_util.h"
-#import "ios/chrome/common/colors/UIColor+cr_semantic_colors.h"
+#import "ios/chrome/common/ui/colors/UIColor+cr_semantic_colors.h"
 #include "ios/chrome/grit/ios_chromium_strings.h"
 #include "ios/chrome/grit/ios_strings.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -238,8 +239,15 @@ NSString* kGoogleServicesSyncErrorImage = @"google_services_sync_error";
   self.encryptionItem =
       [[TableViewImageItem alloc] initWithType:EncryptionItemType];
   self.encryptionItem.title = GetNSString(IDS_IOS_MANAGE_SYNC_ENCRYPTION);
+  // For kSyncServiceNeedsTrustedVaultKey, the disclosure indicator should not
+  // be shown since the reauth dialog for the trusted vault is presented from
+  // the bottom, and is not part of navigation controller.
+  BOOL hasDisclosureIndicator =
+      self.syncSetupService->GetSyncServiceState() !=
+      SyncSetupService::kSyncServiceNeedsTrustedVaultKey;
   self.encryptionItem.accessoryType =
-      UITableViewCellAccessoryDisclosureIndicator;
+      hasDisclosureIndicator ? UITableViewCellAccessoryDisclosureIndicator
+                             : UITableViewCellAccessoryNone;
   [model addItem:self.encryptionItem
       toSectionWithIdentifier:AdvancedSettingsSectionIdentifier];
   [self updateEncryptionItem:NO];
@@ -471,7 +479,7 @@ NSString* kGoogleServicesSyncErrorImage = @"google_services_sync_error";
     case EncryptionItemType:
       if (self.syncSetupService->GetSyncServiceState() ==
           SyncSetupService::kSyncServiceNeedsTrustedVaultKey) {
-        // TODO(crbug.com/1019685): Open key retrieval dialog.
+        [self.commandHandler openTrustedVaultReauth];
         break;
       }
       [self.commandHandler openPassphraseDialog];

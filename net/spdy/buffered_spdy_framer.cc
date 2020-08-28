@@ -7,7 +7,7 @@
 #include <algorithm>
 #include <utility>
 
-#include "base/logging.h"
+#include "base/check.h"
 #include "base/strings/string_util.h"
 #include "base/trace_event/memory_usage_estimator.h"
 
@@ -49,7 +49,8 @@ void BufferedSpdyFramer::set_debug_visitor(
 }
 
 void BufferedSpdyFramer::OnError(
-    http2::Http2DecoderAdapter::SpdyFramerError spdy_framer_error) {
+    http2::Http2DecoderAdapter::SpdyFramerError spdy_framer_error,
+    std::string /*detailed_error*/) {
   visitor_->OnError(spdy_framer_error);
 }
 
@@ -314,6 +315,14 @@ std::unique_ptr<spdy::SpdySerializedFrame> BufferedSpdyFramer::CreatePriority(
   spdy::SpdyPriorityIR priority_ir(stream_id, dependency_id, weight, exclusive);
   return std::make_unique<spdy::SpdySerializedFrame>(
       spdy_framer_.SerializePriority(priority_ir));
+}
+
+void BufferedSpdyFramer::UpdateHeaderEncoderTableSize(uint32_t value) {
+  spdy_framer_.UpdateHeaderEncoderTableSize(value);
+}
+
+uint32_t BufferedSpdyFramer::header_encoder_table_size() const {
+  return spdy_framer_.header_encoder_table_size();
 }
 
 size_t BufferedSpdyFramer::EstimateMemoryUsage() const {

@@ -8,6 +8,7 @@
 
 #include "base/command_line.h"
 #include "base/logging.h"
+#include "base/notreached.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
 #include "build/build_config.h"
@@ -233,7 +234,14 @@ Display::Display(int64_t id, const gfx::Rect& bounds)
   if (HasForceDisplayColorProfile())
     color_space = GetForcedDisplayColorProfile();
 #endif
-  SetColorSpaceAndDepth(color_space);
+  color_spaces_ = gfx::DisplayColorSpaces(color_space);
+  if (color_spaces_.SupportsHDR()) {
+    color_depth_ = kHDR10BitsPerPixel;
+    depth_per_component_ = kHDR10BitsPerComponent;
+  } else {
+    color_depth_ = kDefaultBitsPerPixel;
+    depth_per_component_ = kDefaultBitsPerComponent;
+  }
 
 #if defined(USE_AURA)
   if (!bounds.IsEmpty())
@@ -286,7 +294,7 @@ void Display::SetRotationAsDegree(int rotation) {
 }
 
 int Display::PanelRotationAsDegree() const {
-  return RotationToDegrees(panel_rotation_);
+  return RotationToDegrees(panel_rotation());
 }
 
 gfx::Insets Display::GetWorkAreaInsets() const {
@@ -299,7 +307,7 @@ void Display::SetScaleAndBounds(float device_scale_factor,
                                 const gfx::Rect& bounds_in_pixel) {
   gfx::Insets insets = bounds_.InsetsFrom(work_area_);
   if (!HasForceDeviceScaleFactor()) {
-#if defined(OS_MACOSX)
+#if defined(OS_APPLE)
     // Unless an explicit scale factor was provided for testing, ensure the
     // scale is integral.
     device_scale_factor = static_cast<int>(device_scale_factor);
@@ -323,22 +331,6 @@ void Display::SetSize(const gfx::Size& size_in_pixel) {
   SetScaleAndBounds(device_scale_factor_, gfx::Rect(origin, size_in_pixel));
 }
 
-void Display::SetColorSpaceAndDepth(const gfx::ColorSpace& color_space,
-                                    float sdr_white_level) {
-  color_space_ = color_space;
-  sdr_white_level_ = sdr_white_level;
-  if (color_space_ == gfx::ColorSpace::CreateHDR10()) {
-    color_depth_ = kHDR10BitsPerPixel;
-    depth_per_component_ = kHDR10BitsPerComponent;
-  } else if (color_space == gfx::ColorSpace::CreateSCRGBLinear()) {
-    color_depth_ = kSCRGBLinearBitsPerPixel;
-    depth_per_component_ = kSCRGBLinearBitsPerComponent;
-  } else {
-    color_depth_ = kDefaultBitsPerPixel;
-    depth_per_component_ = kDefaultBitsPerComponent;
-  }
-}
-
 void Display::UpdateWorkAreaFromInsets(const gfx::Insets& insets) {
   work_area_ = bounds_;
   work_area_.Inset(insets);
@@ -356,7 +348,7 @@ std::string Display::ToString() const {
       "panel_rotation=%s %s.",
       static_cast<long long int>(id_), bounds_.ToString().c_str(),
       work_area_.ToString().c_str(), device_scale_factor_,
-      ToRotationString(rotation_), ToRotationString(panel_rotation_),
+      ToRotationString(rotation_), ToRotationString(panel_rotation()),
       IsInternal() ? "internal" : "external");
 }
 
@@ -394,7 +386,8 @@ bool Display::operator==(const Display& rhs) const {
          rotation_ == rhs.rotation_ && touch_support_ == rhs.touch_support_ &&
          accelerometer_support_ == rhs.accelerometer_support_ &&
          maximum_cursor_size_ == rhs.maximum_cursor_size_ &&
-         color_space_ == rhs.color_space_ && color_depth_ == rhs.color_depth_ &&
+         color_spaces_ == rhs.color_spaces_ &&
+         color_depth_ == rhs.color_depth_ &&
          depth_per_component_ == rhs.depth_per_component_ &&
          is_monochrome_ == rhs.is_monochrome_ &&
          display_frequency_ == rhs.display_frequency_;

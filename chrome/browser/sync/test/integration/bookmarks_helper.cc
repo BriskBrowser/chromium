@@ -34,6 +34,7 @@
 #include "chrome/browser/sync/test/integration/profile_sync_service_harness.h"
 #include "chrome/browser/sync/test/integration/sync_datatype_helper.h"
 #include "chrome/browser/sync/test/integration/sync_test.h"
+#include "chrome/browser/undo/bookmark_undo_service_factory.h"
 #include "chrome/common/chrome_paths.h"
 #include "components/bookmarks/browser/bookmark_client.h"
 #include "components/bookmarks/browser/bookmark_model.h"
@@ -373,6 +374,11 @@ bool NodesMatch(const BookmarkNode* node_a, const BookmarkNode* node_b) {
                << node_b->parent()->GetIndexOf(node_b);
     return false;
   }
+  if (node_a->guid() != node_b->guid()) {
+    LOG(ERROR) << "GUID mismatch: " << node_a->guid() << " vs. "
+               << node_b->guid();
+    return false;
+  }
   return true;
 }
 
@@ -467,6 +473,11 @@ void TriggerAllFaviconLoading(BookmarkModel* model) {
 
 }  // namespace
 
+BookmarkUndoService* GetBookmarkUndoService(int index) {
+  return BookmarkUndoServiceFactory::GetForProfile(
+      sync_datatype_helper::test()->GetProfile(index));
+}
+
 BookmarkModel* GetBookmarkModel(int index) {
   return BookmarkModelFactory::GetForBrowserContext(
       sync_datatype_helper::test()->GetProfile(index));
@@ -530,7 +541,8 @@ const BookmarkNode* AddURL(int profile,
     const BookmarkNode* v_parent = nullptr;
     FindNodeInVerifier(model, parent, &v_parent);
     const BookmarkNode* v_node = GetVerifierBookmarkModel()->AddURL(
-        v_parent, index, base::UTF8ToUTF16(title), url);
+        v_parent, index, base::UTF8ToUTF16(title), url,
+        /*meta_info=*/nullptr, result->date_added(), result->guid());
     if (!v_node) {
       LOG(ERROR) << "Could not add bookmark " << title << " to the verifier";
       return nullptr;
@@ -573,7 +585,8 @@ const BookmarkNode* AddFolder(int profile,
     const BookmarkNode* v_parent = nullptr;
     FindNodeInVerifier(model, parent, &v_parent);
     const BookmarkNode* v_node = GetVerifierBookmarkModel()->AddFolder(
-        v_parent, index, base::UTF8ToUTF16(title));
+        v_parent, index, base::UTF8ToUTF16(title),
+        /*meta_info=*/nullptr, result->guid());
     if (!v_node) {
       LOG(ERROR) << "Could not add folder " << title << " to the verifier";
       return nullptr;
@@ -652,7 +665,7 @@ void CheckFaviconExpired(int profile, const GURL& icon_url) {
   favicon_base::FaviconRawBitmapResult bitmap_result;
   favicon_service->GetRawFavicon(
       icon_url, favicon_base::IconType::kFavicon, 0,
-      base::Bind(&OnGotFaviconData, run_loop.QuitClosure(), &bitmap_result),
+      base::BindOnce(&OnGotFaviconData, run_loop.QuitClosure(), &bitmap_result),
       &task_tracker);
   run_loop.Run();
 
@@ -672,7 +685,7 @@ void CheckHasNoFavicon(int profile, const GURL& page_url) {
   favicon_service->GetRawFaviconForPageURL(
       page_url, {favicon_base::IconType::kFavicon}, 0,
       /*fallback_to_host=*/false,
-      base::Bind(&OnGotFaviconData, run_loop.QuitClosure(), &bitmap_result),
+      base::BindOnce(&OnGotFaviconData, run_loop.QuitClosure(), &bitmap_result),
       &task_tracker);
   run_loop.Run();
 
@@ -1117,8 +1130,8 @@ void BookmarkModelStatusChangeChecker::PostCheckExitCondition() {
   // that the checker doesn't immediately kick in while bookmarks are modified.
   base::SequencedTaskRunnerHandle::Get()->PostTask(
       FROM_HERE,
-      base::BindRepeating(&BookmarkModelStatusChangeChecker::CheckExitCondition,
-                          weak_ptr_factory_.GetWeakPtr()));
+      base::BindOnce(&BookmarkModelStatusChangeChecker::CheckExitCondition,
+                     weak_ptr_factory_.GetWeakPtr()));
 }
 
 BookmarksMatchChecker::BookmarksMatchChecker() {
@@ -1220,6 +1233,18 @@ bool BookmarksTitleChecker::IsExitConditionSatisfied(std::ostream* os) {
   return expected_count_ == actual_count;
 }
 
+BookmarkFaviconLoadedChecker::BookmarkFaviconLoadedChecker(int profile_index,
+                                                           const GURL& page_url)
+    : SingleBookmarkModelStatusChangeChecker(profile_index),
+      bookmark_node_(GetUniqueNodeByURL(profile_index, page_url)) {
+  DCHECK_NE(nullptr, bookmark_node_);
+}
+
+bool BookmarkFaviconLoadedChecker::IsExitConditionSatisfied(std::ostream* os) {
+  *os << "Waiting for the favicon to be loaded for " << bookmark_node_->url();
+  return bookmark_node_->is_favicon_loaded();
+}
+
 ServerBookmarksEqualityChecker::ServerBookmarksEqualityChecker(
     syncer::ProfileSyncService* service,
     fake_server::FakeServer* fake_server,
@@ -1266,15 +1291,17 @@ bool ServerBookmarksEqualityChecker::IsExitConditionSatisfied(
     auto it =
         std::find_if(expected.begin(), expected.end(),
                      [actual_specifics](const ExpectedBookmark& bookmark) {
-                       return actual_specifics.title() == bookmark.title &&
+                       return actual_specifics.legacy_canonicalized_title() ==
+                                  bookmark.title &&
                               actual_specifics.url() == bookmark.url;
                      });
     if (it != expected.end()) {
       expected.erase(it);
     } else {
-      ADD_FAILURE() << "Could not find expected bookmark with title '"
-                    << actual_specifics.title() << "' and URL '"
-                    << actual_specifics.url() << "'";
+      *os << "Could not find expected bookmark with title '"
+          << actual_specifics.legacy_canonicalized_title() << "' and URL '"
+          << actual_specifics.url() << "'";
+      return false;
     }
   }
 

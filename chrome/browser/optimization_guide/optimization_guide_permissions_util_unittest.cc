@@ -6,7 +6,7 @@
 
 #include "base/command_line.h"
 #include "base/test/scoped_feature_list.h"
-#include "chrome/browser/previews/previews_lite_page_redirect_decider.h"
+#include "chrome/browser/performance_hints/performance_hints_features.h"
 #include "chrome/browser/previews/previews_service.h"
 #include "chrome/browser/previews/previews_service_factory.h"
 #include "chrome/browser/unified_consent/unified_consent_service_factory.h"
@@ -27,7 +27,6 @@ class OptimizationGuidePermissionsUtilTest
         data_reduction_proxy::DataReductionProxyTestContext::Builder()
             .WithMockConfig()
             .Build();
-    drp_test_context_->DisableWarmupURLFetch();
   }
 
   void TearDown() override {
@@ -43,10 +42,9 @@ class OptimizationGuidePermissionsUtilTest
     // Make sure infobar not shown.
     PreviewsService* previews_service =
         PreviewsServiceFactory::GetForProfile(profile());
-    PreviewsLitePageRedirectDecider* decider =
-        previews_service->previews_lite_page_redirect_decider();
-    // Initialize settings here so Lite Pages Decider checks for the Data Saver
-    // bit.
+    PreviewsHTTPSNotificationInfoBarDecider* decider =
+        previews_service->previews_https_notification_infobar_decider();
+    // Initialize settings here so |decider| checks for the Data Saver bit.
     decider->OnSettingsInitialized();
     if (has_seen_infobar) {
       base::CommandLine::ForCurrentProcess()->AppendSwitch(
@@ -192,20 +190,37 @@ TEST_F(OptimizationGuidePermissionsUtilTest,
 }
 
 TEST_F(OptimizationGuidePermissionsUtilTest,
+       IsUserPermittedToFetchHintsPerformanceInfoFlagExplicitlyAllows) {
+  base::test::ScopedFeatureList scoped_feature_list;
+  scoped_feature_list.InitWithFeatures(
+      {optimization_guide::features::kRemoteOptimizationGuideFetching,
+       performance_hints::features::
+           kContextMenuPerformanceInfoAndRemoteHintFetching},
+      {});
+  SetDataSaverEnabled(false);
+  SetSyncServiceEnabled(false);
+
+  EXPECT_FALSE(profile()->IsOffTheRecord());
+  EXPECT_TRUE(IsUserPermittedToFetchFromRemoteOptimizationGuide(profile()));
+}
+
+TEST_F(OptimizationGuidePermissionsUtilTest,
        IsUserPermittedToFetchHintsAllConsentsEnabledIncognitoProfile) {
   base::test::ScopedFeatureList scoped_feature_list;
   scoped_feature_list.InitWithFeatures(
       {optimization_guide::features::kRemoteOptimizationGuideFetching,
        optimization_guide::features::
-           kRemoteOptimizationGuideFetchingAnonymousDataConsent},
+           kRemoteOptimizationGuideFetchingAnonymousDataConsent,
+       performance_hints::features::
+           kContextMenuPerformanceInfoAndRemoteHintFetching},
       {});
   SetDataSaverEnabled(true);
   SetInfobarSeen(true);
   SetSyncServiceEnabled(true);
   SetUrlKeyedAnonymizedDataCollectionEnabled(true);
 
-  Profile* off_the_record_profile = profile()->GetOffTheRecordProfile();
-  EXPECT_TRUE(off_the_record_profile->IsOffTheRecord());
-  EXPECT_FALSE(IsUserPermittedToFetchFromRemoteOptimizationGuide(
-      off_the_record_profile));
+  Profile* incognito_profile = profile()->GetPrimaryOTRProfile();
+  EXPECT_TRUE(incognito_profile->IsOffTheRecord());
+  EXPECT_FALSE(
+      IsUserPermittedToFetchFromRemoteOptimizationGuide(incognito_profile));
 }

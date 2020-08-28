@@ -152,6 +152,10 @@ void WebSettingsImpl::SetAccessibilityFontScaleFactor(float font_scale_factor) {
   settings_->SetAccessibilityFontScaleFactor(font_scale_factor);
 }
 
+void WebSettingsImpl::SetAccessibilityAlwaysShowFocus(bool always_show_focus) {
+  settings_->SetAccessibilityAlwaysShowFocus(always_show_focus);
+}
+
 void WebSettingsImpl::SetAccessibilityPasswordValuesEnabled(bool enabled) {
   settings_->SetAccessibilityPasswordValuesEnabled(enabled);
 }
@@ -560,10 +564,6 @@ void WebSettingsImpl::SetPrefersReducedMotion(bool enabled) {
   settings_->SetPrefersReducedMotion(enabled);
 }
 
-void WebSettingsImpl::SetEnableTouchAdjustment(bool enabled) {
-  settings_->SetTouchAdjustmentEnabled(enabled);
-}
-
 bool WebSettingsImpl::ViewportEnabled() const {
   return settings_->GetViewportEnabled();
 }
@@ -582,10 +582,6 @@ bool WebSettingsImpl::MockGestureTapHighlightsEnabled() const {
 
 bool WebSettingsImpl::ShrinksViewportContentToFit() const {
   return settings_->GetShrinksViewportContentToFit();
-}
-
-void WebSettingsImpl::SetShouldRespectImageOrientation(bool enabled) {
-  settings_->SetShouldRespectImageOrientation(enabled);
 }
 
 void WebSettingsImpl::SetPictureInPictureEnabled(bool enabled) {
@@ -770,9 +766,26 @@ void WebSettingsImpl::SetForceDarkModeEnabled(bool enabled) {
   settings_->SetForceDarkModeEnabled(enabled);
 }
 
+void WebSettingsImpl::SetPreferredColorScheme(
+    PreferredColorScheme color_scheme) {
+  settings_->SetPreferredColorScheme(color_scheme);
+}
+
 void WebSettingsImpl::SetNavigationControls(
     NavigationControls navigation_controls) {
   settings_->SetNavigationControls(navigation_controls);
+}
+
+void WebSettingsImpl::SetAriaModalPrunesAXTree(bool enabled) {
+  settings_->SetAriaModalPrunesAXTree(enabled);
+}
+
+void WebSettingsImpl::SetUseAXMenuList(bool enabled) {
+  settings_->SetUseAXMenuList(enabled);
+}
+
+void WebSettingsImpl::SetSelectionClipboardBufferAvailable(bool available) {
+  settings_->SetSelectionClipboardBufferAvailable(available);
 }
 
 STATIC_ASSERT_ENUM(WebSettings::ImageAnimationPolicy::kAllowed,

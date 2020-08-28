@@ -201,9 +201,9 @@ CreditCardEditorViewController::CreateHeaderView() {
       views::BoxLayout::CrossAxisAlignment::kStart);
   view->SetLayoutManager(std::move(layout));
 
-  // "Cards accepted" label is "hint" grey.
-  view->AddChildView(CreateHintLabel(GetAcceptedCardTypesText(
-                                         spec()->supported_card_types_set()))
+  // "Accepted cards" label is "hint" grey.
+  view->AddChildView(CreateHintLabel(l10n_util::GetStringUTF16(
+                                         IDS_PAYMENTS_ACCEPTED_CARDS_LABEL))
                          .release());
 
   // 8dp padding is required between icons.
@@ -221,7 +221,7 @@ CreditCardEditorViewController::CreateHeaderView() {
   constexpr gfx::Size kCardIconSize = gfx::Size(30, 18);
   for (const std::string& supported_network :
        spec()->supported_card_networks()) {
-    const std::string autofill_card_type =
+    const std::string autofill_card_network =
         autofill::data_util::GetIssuerNetworkForBasicCardIssuerNetwork(
             supported_network);
     // Icon is fully opaque if no network is selected, or if it is the selected
@@ -231,9 +231,9 @@ CreditCardEditorViewController::CreateHeaderView() {
             ? 1.0f
             : kDimmedCardIconOpacity;
     std::unique_ptr<views::ImageView> card_icon_view = CreateAppIconView(
-        autofill::data_util::GetPaymentRequestData(autofill_card_type)
+        autofill::data_util::GetPaymentRequestData(autofill_card_network)
             .icon_resource_id,
-        gfx::ImageSkia(), base::UTF8ToUTF16(supported_network), opacity);
+        /*icon_bitmap=*/nullptr, base::UTF8ToUTF16(supported_network), opacity);
     card_icon_view->SetImageSize(kCardIconSize);
 
     // Keep track of this card icon to later adjust opacity.
@@ -258,9 +258,10 @@ CreditCardEditorViewController::CreateHeaderView() {
             .release());
 
     // "Edit" link.
+    auto edit_link = std::make_unique<views::StyledLabel>(this);
     base::string16 link_text =
         l10n_util::GetStringUTF16(IDS_AUTOFILL_WALLET_MANAGEMENT_LINK_TEXT);
-    auto edit_link = std::make_unique<views::StyledLabel>(link_text, this);
+    edit_link->SetText(link_text);
     edit_link->SetID(
         static_cast<int>(DialogViewID::GOOGLE_PAYMENTS_EDIT_LINK_LABEL));
     edit_link->AddStyleRange(
@@ -298,13 +299,13 @@ CreditCardEditorViewController::CreateCustomFieldView(
         view->SetLayoutManager(std::make_unique<views::GridLayout>());
     views::ColumnSet* columns = combobox_layout->AddColumnSet(0);
     columns->AddColumn(views::GridLayout::LEADING, views::GridLayout::CENTER,
-                       1.0, views::GridLayout::USE_PREF, 0, 0);
+                       1.0, views::GridLayout::ColumnSize::kUsePreferred, 0, 0);
     // Space between the two comboboxes.
     constexpr int kHorizontalSpacing = 8;
     columns->AddPaddingColumn(views::GridLayout::kFixedSize,
                               kHorizontalSpacing);
     columns->AddColumn(views::GridLayout::LEADING, views::GridLayout::CENTER,
-                       1.0, views::GridLayout::USE_PREF, 0, 0);
+                       1.0, views::GridLayout::ColumnSize::kUsePreferred, 0, 0);
 
     combobox_layout->StartRow(views::GridLayout::kFixedSize, 0);
     constexpr int kInputFieldHeight = 28;
@@ -350,8 +351,8 @@ CreditCardEditorViewController::CreateExtraViewForField(
   button_view->SetLayoutManager(std::make_unique<views::FillLayout>());
 
   // The button to add new billing addresses.
-  auto add_button =
-      views::MdTextButton::Create(this, l10n_util::GetStringUTF16(IDS_ADD));
+  auto add_button = std::make_unique<views::MdTextButton>(
+      this, l10n_util::GetStringUTF16(IDS_ADD));
   add_button->SetID(static_cast<int>(DialogViewID::ADD_BILLING_ADDRESS_BUTTON));
   add_button->set_tag(add_billing_address_button_tag_);
   add_button->SetFocusBehavior(views::View::FocusBehavior::ALWAYS);

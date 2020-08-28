@@ -6,6 +6,7 @@
 
 #import <WebKit/WebKit.h>
 
+#include "base/bind.h"
 #import "base/ios/block_types.h"
 #include "base/ios/ios_util.h"
 #include "base/json/string_escape.h"
@@ -34,7 +35,6 @@
 #import "ios/web/navigation/navigation_context_impl.h"
 #import "ios/web/navigation/wk_back_forward_list_item_holder.h"
 #import "ios/web/navigation/wk_navigation_util.h"
-#import "ios/web/public/deprecated/crw_context_menu_delegate.h"
 #include "ios/web/public/js_messaging/web_frame_util.h"
 #import "ios/web/public/ui/crw_web_view_scroll_view_proxy.h"
 #import "ios/web/public/ui/page_display_state.h"
@@ -42,7 +42,9 @@
 #import "ios/web/security/crw_cert_verification_controller.h"
 #import "ios/web/security/crw_ssl_status_updater.h"
 #import "ios/web/web_state/page_viewport_state.h"
+#import "ios/web/web_state/ui/cookie_blocking_error_logger.h"
 #import "ios/web/web_state/ui/crw_context_menu_controller.h"
+#import "ios/web/web_state/ui/crw_context_menu_delegate.h"
 #import "ios/web/web_state/ui/crw_swipe_recognizer_provider.h"
 #import "ios/web/web_state/ui/crw_web_controller_container_view.h"
 #import "ios/web/web_state/ui/crw_web_request_controller.h"
@@ -98,6 +100,7 @@ NSString* const kScriptMessageName = @"crwebinvoke";
                                 CRWWebViewScrollViewProxyObserver,
                                 CRWWKNavigationHandlerDelegate,
                                 CRWWKUIHandlerDelegate,
+                                UIDropInteractionDelegate,
                                 WKNavigationDelegate> {
   // The view used to display content.  Must outlive |_webViewProxy|. The
   // container view should be accessed through this property rather than
@@ -143,6 +146,9 @@ NSString* const kScriptMessageName = @"crwebinvoke";
 
   // Manager for window.error message.
   std::unique_ptr<web::JsWindowErrorManager> _jsWindowErrorManager;
+
+  // Logger for cookie;.error message.
+  std::unique_ptr<web::CookieBlockingErrorLogger> _cookieBlockingErrorLogger;
 }
 
 // The WKNavigationDelegate handler class.
@@ -187,11 +193,6 @@ NSString* const kScriptMessageName = @"crwebinvoke";
 // it's needed multiple times in a method.
 @property(nonatomic, readonly) GURL currentURL;
 
-// User agent type of the transient item if any, the pending item if a
-// navigation is in progress or the last committed item otherwise.
-// Returns MOBILE, the default type, if navigation manager is nullptr or empty.
-@property(nonatomic, readonly) web::UserAgentType userAgentType;
-
 @property(nonatomic, readonly) web::WebState* webState;
 // WebStateImpl instance associated with this CRWWebController, web controller
 // does not own this pointer.
@@ -204,6 +205,10 @@ NSString* const kScriptMessageName = @"crwebinvoke";
 // gesture. Lazily created.
 @property(nonatomic, strong, readonly)
     CRWTouchTrackingRecognizer* touchTrackingRecognizer;
+
+// A custom drop interaction that is added alongside the web view's default drop
+// interaction.
+@property(nonatomic, strong) UIDropInteraction* customDropInteraction;
 
 // Session Information
 // -------------------
@@ -300,6 +305,8 @@ typedef void (^ViewportStateCompletion)(const web::PageViewportState*);
     _faviconManager = std::make_unique<web::FaviconManager>(_webStateImpl);
     _jsWindowErrorManager =
         std::make_unique<web::JsWindowErrorManager>(_webStateImpl);
+    _cookieBlockingErrorLogger =
+        std::make_unique<web::CookieBlockingErrorLogger>(_webStateImpl);
     [[NSNotificationCenter defaultCenter]
         addObserver:self
            selector:@selector(orientationDidChange)
@@ -494,11 +501,6 @@ typedef void (^ViewportStateCompletion)(const web::PageViewportState*);
   return [self currentURLWithTrustLevel:&trustLevel];
 }
 
-- (web::UserAgentType)userAgentType {
-  web::NavigationItem* item = self.currentNavItem;
-  return item ? item->GetUserAgentType() : web::UserAgentType::MOBILE;
-}
-
 - (WebState*)webState {
   return _webStateImpl;
 }
@@ -604,12 +606,6 @@ typedef void (^ViewportStateCompletion)(const web::PageViewportState*);
 - (BOOL)contentIsHTML {
   return self.webView &&
          web::IsContentTypeHtml(self.webState->GetContentsMimeType());
-}
-
-// Returns YES if the current live view is a web view with an image MIME type.
-- (BOOL)contentIsImage {
-  return self.webView &&
-         web::IsContentTypeImage(self.webState->GetContentsMimeType());
 }
 
 - (GURL)currentURLWithTrustLevel:(web::URLVerificationTrustLevel*)trustLevel {
@@ -730,8 +726,16 @@ typedef void (^ViewportStateCompletion)(const web::PageViewportState*);
   }
 }
 
+- (void)setVisible:(BOOL)visible {
+  _visible = visible;
+}
+
 - (void)wasShown {
   self.visible = YES;
+
+  // WebKit adds a drop interaction to a subview (WKContentView) of WKWebView's
+  // scrollView when the web view is added to the view hierarchy.
+  [self addCustomURLDropInteractionIfNeeded];
 }
 
 - (void)wasHidden {
@@ -761,9 +765,6 @@ typedef void (^ViewportStateCompletion)(const web::PageViewportState*);
               ui::PageTransition::PAGE_TRANSITION_FORWARD_BACK),
           type == web::NavigationInitiationType::RENDERER_INITIATED);
   context->SetIsSameDocument(true);
-  if (!web::features::UseWKWebViewLoading()) {
-    self.webStateImpl->SetIsLoading(true);
-  }
   self.webStateImpl->OnNavigationStarted(context.get());
   [self setDocumentURL:URL context:context.get()];
   context->SetHasCommitted(true);
@@ -806,9 +807,6 @@ typedef void (^ViewportStateCompletion)(const web::PageViewportState*);
     // navigations.
     context->SetIsSameDocument(true);
   } else {
-    if (!web::features::UseWKWebViewLoading()) {
-      self.webStateImpl->SetIsLoading(true);
-    }
     self.navigationHandler.navigationState = web::WKNavigationState::REQUESTED;
   }
 
@@ -852,14 +850,28 @@ typedef void (^ViewportStateCompletion)(const web::PageViewportState*);
                     // |-removeWebView| are ignored to prevent crashing.
                     if (error || !weakSelf.webView) {
                       if (error) {
-                        DLOG(ERROR) << "WKWebView snapshot error: "
-                                    << error.description;
+                        DLOG(ERROR)
+                            << "WKWebView snapshot error: "
+                            << base::SysNSStringToUTF8(error.description);
                       }
                       completion(nil);
                     } else {
                       completion(snapshot);
                     }
                   }];
+}
+
+- (void)createFullPagePDFWithCompletion:(void (^)(NSData*))completionBlock {
+  // Invoke the |completionBlock| with nil rather than a blank PDF for certain
+  // URLs.
+  const GURL& URL = self.webState->GetLastCommittedURL();
+  if (!URL.is_valid() || web::GetWebClient()->IsAppSpecificURL(URL)) {
+    dispatch_async(dispatch_get_main_queue(), ^{
+      completionBlock(nil);
+    });
+    return;
+  }
+  web::CreateFullPagePdf(self.webView, base::BindOnce(completionBlock));
 }
 
 #pragma mark - CRWTouchTrackingDelegate (Public)
@@ -904,6 +916,12 @@ typedef void (^ViewportStateCompletion)(const web::PageViewportState*);
       return;
     }
 
+    // Ignore mismatches triggered by a WKWebView out-of-sync back forward list.
+    if (![self.webView.backForwardList.currentItem.URL
+            isEqual:self.webView.URL]) {
+      return;
+    }
+
     GURL documentOrigin = newURL.GetOrigin();
     web::NavigationItem* committedItem =
         self.webStateImpl->GetNavigationManager()->GetLastCommittedItem();
@@ -937,6 +955,46 @@ typedef void (^ViewportStateCompletion)(const web::PageViewportState*);
   return _userInteractionState.IsUserInteracting(self.webView);
 }
 
+// Adds a custom drop interaction to the same subview of |self.webScrollView|
+// that already has a default drop interaction.
+- (void)addCustomURLDropInteractionIfNeeded {
+  if (!base::FeatureList::IsEnabled(
+          web::features::kAddWebContentDropInteraction))
+    return;
+
+  BOOL subviewWithDefaultInteractionFound = NO;
+  for (UIView* subview in self.webScrollView.subviews) {
+    BOOL defaultInteractionFound = NO;
+    BOOL customInteractionFound = NO;
+    for (id<UIInteraction> interaction in subview.interactions) {
+      if ([interaction isKindOfClass:[UIDropInteraction class]]) {
+        if (interaction == self.customDropInteraction) {
+          customInteractionFound = YES;
+        } else {
+          DCHECK(!defaultInteractionFound &&
+                 !subviewWithDefaultInteractionFound)
+              << "There should be only one default drop interaction in the "
+                 "webScrollView.";
+          defaultInteractionFound = YES;
+          subviewWithDefaultInteractionFound = YES;
+        }
+      }
+    }
+    if (customInteractionFound) {
+      // The custom interaction must be added after the default drop interaction
+      // to work properly.
+      [subview removeInteraction:self.customDropInteraction];
+      [subview addInteraction:self.customDropInteraction];
+    } else if (defaultInteractionFound) {
+      if (!self.customDropInteraction) {
+        self.customDropInteraction =
+            [[UIDropInteraction alloc] initWithDelegate:self];
+      }
+      [subview addInteraction:self.customDropInteraction];
+    }
+  }
+}
+
 #pragma mark - End of loading
 
 - (void)didFinishNavigation:(web::NavigationContextImpl*)context {
@@ -945,6 +1003,22 @@ typedef void (^ViewportStateCompletion)(const web::PageViewportState*);
   if (self.navigationHandler.navigationState ==
       web::WKNavigationState::FINISHED)
     return;
+
+  web::NavigationItem* pendingOrCommittedItem =
+      self.navigationManagerImpl->GetPendingItem();
+  if (!pendingOrCommittedItem)
+    pendingOrCommittedItem = self.navigationManagerImpl->GetLastCommittedItem();
+  if (pendingOrCommittedItem) {
+    // This stores the UserAgent that was used to load the item.
+    if (pendingOrCommittedItem->GetUserAgentType() ==
+            web::UserAgentType::NONE &&
+        web::wk_navigation_util::URLNeedsUserAgentType(
+            pendingOrCommittedItem->GetURL())) {
+      pendingOrCommittedItem->SetUserAgentType(
+          self.webStateImpl->GetUserAgentForNextNavigation(
+              pendingOrCommittedItem->GetURL()));
+    }
+  }
 
   // Restore allowsBackForwardNavigationGestures once restoration is complete.
   if (!self.navigationManagerImpl->IsRestoreSessionInProgress()) {
@@ -957,6 +1031,13 @@ typedef void (^ViewportStateCompletion)(const web::PageViewportState*);
 
   BOOL success = !context || !context->GetError();
   [self loadCompleteWithSuccess:success forContext:context];
+
+  // WebKit adds a drop interaction to a subview (WKContentView) of WKWebView's
+  // scrollView when a new WebProcess finishes launching. This can be loading
+  // the first page, navigating cross-domain, or recovering from a WebProcess
+  // crash. Add a custom drop interaction alongside the default drop
+  // interaction.
+  [self addCustomURLDropInteractionIfNeeded];
 }
 
 - (void)loadCompleteWithSuccess:(BOOL)loadSuccess
@@ -976,6 +1057,20 @@ typedef void (^ViewportStateCompletion)(const web::PageViewportState*);
   [_requestController didFinishWithURL:currentURL
                            loadSuccess:loadSuccess
                                context:context];
+
+  if (web::GetWebClient()->IsEmbedderBlockRestoreUrlEnabled()) {
+    if (@available(iOS 14, *)) {
+    } else {
+      if (@available(iOS 13.5, *)) {
+        // In some cases on iOS 13.5, when restoring about: URL, the load might
+        // never ends. Make sure to mark the load as done here. This is fixed in
+        // iOS 14. See crbug.com/1099235.
+        if (currentURL.SchemeIs(url::kAboutScheme)) {
+          self.webStateImpl->SetIsLoading(false);
+        }
+      }
+    }
+  }
 
   // Execute the pending LoadCompleteActions.
   for (ProceduralBlock action in _pendingLoadCompleteActions) {
@@ -1334,11 +1429,18 @@ typedef void (^ViewportStateCompletion)(const web::PageViewportState*);
       [[CRWWebControllerContainerView alloc] initWithDelegate:self];
 
   // This will be resized later, but matching the final frame will minimize
-  // re-rendering. Use the screen size because the application's key window
-  // may still be nil.
-  _containerView.frame = UIApplication.sharedApplication.keyWindow
-                             ? UIApplication.sharedApplication.keyWindow.bounds
-                             : UIScreen.mainScreen.bounds;
+  // re-rendering.
+  UIView* browserContainer = self.webStateImpl->GetWebViewContainer();
+  if (browserContainer) {
+    _containerView.frame = browserContainer.bounds;
+  } else {
+    // Use the screen size because the application's key window and the
+    // container may still be nil.
+    _containerView.frame =
+        UIApplication.sharedApplication.keyWindow
+            ? UIApplication.sharedApplication.keyWindow.bounds
+            : UIScreen.mainScreen.bounds;
+  }
 
   DCHECK(!CGRectIsEmpty(_containerView.frame));
 
@@ -1407,9 +1509,20 @@ typedef void (^ViewportStateCompletion)(const web::PageViewportState*);
 - (WKWebView*)webViewWithConfiguration:(WKWebViewConfiguration*)config {
   // Do not attach the context menu controller immediately as the JavaScript
   // delegate must be specified.
-  return web::BuildWKWebView(CGRectZero, config,
-                             self.webStateImpl->GetBrowserState(),
-                             [self userAgentType]);
+  web::UserAgentType defaultUserAgent =
+      web::features::UseWebClientDefaultUserAgent()
+          ? web::UserAgentType::AUTOMATIC
+          : web::UserAgentType::MOBILE;
+  web::NavigationItem* item = self.currentNavItem;
+  web::UserAgentType userAgentType =
+      item ? item->GetUserAgentType() : defaultUserAgent;
+  if (userAgentType == web::UserAgentType::AUTOMATIC) {
+    userAgentType =
+        web::GetWebClient()->GetDefaultUserAgent(_containerView, GURL());
+  }
+
+  return web::BuildWKWebView(
+      CGRectZero, config, self.webStateImpl->GetBrowserState(), userAgentType);
 }
 
 // Wraps the web view in a CRWWebViewContentView and adds it to the container
@@ -1884,6 +1997,37 @@ typedef void (^ViewportStateCompletion)(const web::PageViewportState*);
 - (void)JSNavigationHandlerOptOutScrollsToTopForSubviews:
     (CRWJSNavigationHandler*)navigationHandler {
   return [self optOutScrollsToTopForSubviews];
+}
+
+#pragma mark - UIDropInteractionDelegate
+
+- (BOOL)dropInteraction:(UIDropInteraction*)interaction
+       canHandleSession:(id<UIDropSession>)session {
+  return session.items.count == 1U &&
+         [session canLoadObjectsOfClass:[NSURL class]];
+}
+
+- (UIDropProposal*)dropInteraction:(UIDropInteraction*)interaction
+                  sessionDidUpdate:(id<UIDropSession>)session {
+  return [[UIDropProposal alloc] initWithDropOperation:UIDropOperationCopy];
+}
+
+- (void)dropInteraction:(UIDropInteraction*)interaction
+            performDrop:(id<UIDropSession>)session {
+  DCHECK_EQ(1U, session.items.count);
+  if ([session canLoadObjectsOfClass:[NSURL class]]) {
+    __weak CRWWebController* weakSelf = self;
+    [session loadObjectsOfClass:[NSURL class]
+                     completion:^(NSArray<NSURL*>* objects) {
+                       GURL URL = net::GURLWithNSURL([objects firstObject]);
+                       if (!_isBeingDestroyed && URL.is_valid()) {
+                         web::NavigationManager::WebLoadParams params(URL);
+                         params.transition_type = ui::PAGE_TRANSITION_TYPED;
+                         weakSelf.webStateImpl->GetNavigationManager()
+                             ->LoadURLWithParams(params);
+                       }
+                     }];
+  }
 }
 
 #pragma mark - Testing-Only Methods

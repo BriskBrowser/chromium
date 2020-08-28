@@ -2,7 +2,6 @@
 # found in the LICENSE file.
 
 import("//build/config/chromecast_build.gni")
-import("//build/config/jumbo.gni")
 import("//extensions/buildflags/buildflags.gni")
 import("//testing/test.gni")
 import("//tools/grit/grit_rule.gni")
@@ -53,9 +52,6 @@ grit("extensions_renderer_resources") {
     "mojom_root=" + rebase_path(root_gen_dir, root_build_dir),
   ]
 
-  # Files included from ${mojom_root} are generated.
-  source_is_generated = true
-
   deps = [
     "//extensions/common:mojom_js",
     "//extensions/common/api:mojom_js",
@@ -63,7 +59,7 @@ grit("extensions_renderer_resources") {
   ]
 }
 
-jumbo_static_library("test_support") {
+static_library("test_support") {
   testonly = true
   sources = [
     "browser/api/declarative/test_rules_registry.cc",
@@ -116,6 +112,8 @@ jumbo_static_library("test_support") {
     "renderer/test_extensions_renderer_client.h",
     "test/background_page_watcher.cc",
     "test/background_page_watcher.h",
+    "test/extension_background_page_waiter.cc",
+    "test/extension_background_page_waiter.h",
     "test/extension_test_message_listener.cc",
     "test/extension_test_message_listener.h",
     "test/extension_test_notification_observer.cc",
@@ -126,6 +124,8 @@ jumbo_static_library("test_support") {
     "test/result_catcher.h",
     "test/test_background_page_first_load_observer.cc",
     "test/test_background_page_first_load_observer.h",
+    "test/test_background_page_ready_observer.cc",
+    "test/test_background_page_ready_observer.h",
     "test/test_content_utility_client.cc",
     "test/test_content_utility_client.h",
     "test/test_extension_dir.cc",
@@ -162,9 +162,7 @@ jumbo_static_library("test_support") {
     "//third_party/cld_3/src/src:cld_3",
   ]
 
-  public_deps = [
-    "//content/public/browser",
-  ]
+  public_deps = [ "//content/public/browser" ]
 }
 
 repack("shell_and_test_pak") {
@@ -173,6 +171,7 @@ repack("shell_and_test_pak") {
   sources = [
     "$root_gen_dir/content/browser/devtools/devtools_resources.pak",
     "$root_gen_dir/content/content_resources.pak",
+    "$root_gen_dir/content/dev_ui_content_resources.pak",
     "$root_gen_dir/content/shell/shell_resources.pak",
     "$root_gen_dir/extensions/extensions_browser_resources_100_percent.pak",
     "$root_gen_dir/extensions/extensions_renderer_resources.pak",
@@ -192,7 +191,8 @@ repack("shell_and_test_pak") {
 
   deps = [
     ":extensions_resources",
-    "//content:resources",
+    "//content:content_resources",
+    "//content:dev_ui_content_resources",
     "//content/browser/devtools:devtools_resources",
     "//content/shell:resources",
     "//extensions/shell:resources",
@@ -207,6 +207,10 @@ repack("shell_and_test_pak") {
 }
 
 test("extensions_unittests") {
+  if ((is_linux && !is_chromeos) || chromeos_is_browser_only) {
+    use_xvfb = true
+  }
+
   sources = [
     "test/extensions_unittests_main.cc",
     "test/logging_timer_unittest.cc",
@@ -237,16 +241,18 @@ test("extensions_unittests") {
     "//ui/gl:test_support",
   ]
 
-  data_deps = [
-    "//third_party/mesa_headers",
-  ]
+  data_deps = [ "//third_party/mesa_headers" ]
 }
 
 test("extensions_browsertests") {
+  if ((is_linux && !is_chromeos) || chromeos_is_browser_only) {
+    use_xvfb = true
+  }
+
   data = [
     "//extensions/test/data/",
     "//net/tools/testserver/",
-    "//third_party/pywebsocket/src/mod_pywebsocket/",
+    "//third_party/pywebsocket3/src/mod_pywebsocket/",
     "//third_party/tlslite/",
     "$root_out_dir/extensions_shell_and_test.pak",
   ]
@@ -256,9 +262,7 @@ test("extensions_browsertests") {
     "//extensions/shell:browser_tests",
   ]
 
-  data_deps = [
-    "//third_party/mesa_headers",
-  ]
+  data_deps = [ "//third_party/mesa_headers" ]
 }
 
 # TODO(rockot) bug 505926: These should be moved to extensions_browsertests but have
@@ -291,13 +295,13 @@ source_set("chrome_extensions_browsertests") {
     "//chrome/browser",
     "//chrome/common/extensions/api",
     "//chrome/renderer",
-    "//components/app_modal",
     "//components/autofill/content/browser:risk_proto",
     "//components/autofill/content/renderer:test_support",
-    "//components/captive_portal:test_support",
+    "//components/captive_portal/core:test_support",
     "//components/dom_distiller/content/browser",
     "//components/dom_distiller/core:test_support",
     "//components/guest_view/browser:test_support",
+    "//components/javascript_dialogs",
     "//components/printing/common",
     "//components/resources",
     "//components/strings",
@@ -318,7 +322,6 @@ source_set("chrome_extensions_browsertests") {
     "//testing/gtest",
     "//testing/perf",
     "//third_party/blink/public:blink",
-    "//third_party/cacheinvalidation",
     "//third_party/icu",
     "//third_party/leveldatabase",
     "//third_party/libaddressinput",

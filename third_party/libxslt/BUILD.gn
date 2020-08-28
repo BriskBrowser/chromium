@@ -81,7 +81,7 @@ static_library("libxslt") {
   public_configs = [ ":libxslt_config" ]
 
   cflags = []
-  if (is_linux || is_android || is_fuchsia) {
+  if (is_linux || is_chromeos || is_android || is_fuchsia) {
     include_dirs = [ "linux" ]
   } else if (is_win) {
     include_dirs = [ "win32" ]
@@ -96,9 +96,7 @@ static_library("libxslt") {
     include_dirs = [ "mac" ]
   }
 
-  deps = [
-    "//third_party/libxml",
-  ]
+  deps = [ "//third_party/libxml" ]
 
   visibility = [ "//third_party/blink/renderer/*" ]
 }

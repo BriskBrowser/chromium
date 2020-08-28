@@ -63,6 +63,11 @@ void WebKioskAppManager::GetApps(std::vector<App>* apps) const {
   }
 }
 
+void WebKioskAppManager::LoadIcons() {
+  for (auto& web_app : apps_)
+    web_app->LoadIcon();
+}
+
 const AccountId& WebKioskAppManager::GetAutoLaunchAccountId() const {
   return auto_launch_account_id_;
 }
@@ -92,8 +97,10 @@ void WebKioskAppManager::UpdateAppByAccountId(
 void WebKioskAppManager::AddAppForTesting(const AccountId& account_id,
                                           const GURL& install_url) {
   const std::string app_id = web_app::GenerateAppIdFromURL(install_url);
-  apps_.push_back(
-      std::make_unique<WebKioskAppData>(this, app_id, account_id, install_url));
+  apps_.push_back(std::make_unique<WebKioskAppData>(
+      this, app_id, account_id, install_url, /*title*/ std::string(),
+      /*icon_url*/ GURL()));
+  NotifyKioskAppsChanged();
 }
 
 void WebKioskAppManager::InitSession(Browser* browser) {
@@ -132,18 +139,21 @@ void WebKioskAppManager::UpdateAppsFromPolicy() {
           kAccountsPrefDeviceLocalAccountAutoLoginDelay, &auto_launch_delay);
       auto_launched_with_zero_delay_ = auto_launch_delay == 0;
     }
+
     GURL url(account.web_kiosk_app_info.url());
+    std::string title = account.web_kiosk_app_info.title();
+    GURL icon_url = GURL(account.web_kiosk_app_info.icon_url());
+
     std::string app_id = web_app::GenerateAppIdFromURL(url);
 
     auto old_it = old_apps.find(app_id);
     if (old_it != old_apps.end()) {
-      // TODO(apotapchuk): Data fetcher will be created, will use it to
-      // update previously not loaded data.
       apps_.push_back(std::move(old_it->second));
       old_apps.erase(old_it);
     } else {
       apps_.push_back(std::make_unique<WebKioskAppData>(
-          this, app_id, account_id, std::move(url)));
+          this, app_id, account_id, std::move(url), title,
+          std::move(icon_url)));
       apps_.back()->LoadFromCache();
     }
 

@@ -35,6 +35,7 @@ class SyncServiceCrypto : public SyncEncryptionHandler::Observer,
   // outlive this object.
   SyncServiceCrypto(
       const base::RepeatingClosure& notify_observers,
+      const base::RepeatingClosure& notify_required_user_action_changed,
       const base::RepeatingCallback<void(ConfigureReason)>& reconfigure,
       CryptoSyncPrefs* sync_prefs,
       TrustedVaultClient* trusted_vault_client);
@@ -47,10 +48,16 @@ class SyncServiceCrypto : public SyncEncryptionHandler::Observer,
   bool IsPassphraseRequired() const;
   bool IsUsingSecondaryPassphrase() const;
   bool IsTrustedVaultKeyRequired() const;
+  bool IsTrustedVaultRecoverabilityDegraded() const;
   void EnableEncryptEverything();
   bool IsEncryptEverythingEnabled() const;
   void SetEncryptionPassphrase(const std::string& passphrase);
   bool SetDecryptionPassphrase(const std::string& passphrase);
+
+  // Returns whether it's already possible to determine whether trusted vault
+  // key required (e.g. engine didn't start yet or silent fetch attempt is in
+  // progress).
+  bool IsTrustedVaultKeyRequiredStateKnown() const;
 
   // Returns the actual passphrase type being used for encryption.
   PassphraseType GetPassphraseType() const;
@@ -87,6 +94,7 @@ class SyncServiceCrypto : public SyncEncryptionHandler::Observer,
 
  private:
   enum class RequiredUserAction {
+    kUnknownDuringInitialization,
     kNone,
     kPassphraseRequiredForDecryption,
     kPassphraseRequiredForEncryption,
@@ -100,24 +108,41 @@ class SyncServiceCrypto : public SyncEncryptionHandler::Observer,
     // via IsTrustedVaultKeyRequired() but there's an ongoing fetch that may
     // resolve the issue.
     kTrustedVaultKeyRequiredButFetching,
+    // No keys are required locally but user action is recommended to improve
+    // recoverability.
+    kTrustedVaultRecoverabilityDegraded,
   };
 
   // Observer method invoked by TrustedVaultClient when its content changes.
   void OnTrustedVaultClientKeysChanged();
 
   // Reads trusted vault keys from the client and feeds them to the sync engine.
-  void FetchTrustedVaultKeys();
+  void FetchTrustedVaultKeys(bool is_second_fetch_attempt);
 
   // Called at various stages of asynchronously fetching and processing trusted
-  // vault encryption keys.
+  // vault encryption keys. |is_second_fetch_attempt| is useful for the case
+  // where multiple passes (up to two) are needed to fetch the keys from the
+  // client.
   void TrustedVaultKeysFetchedFromClient(
+      bool is_second_fetch_attempt,
       const std::vector<std::vector<uint8_t>>& keys);
-  void TrustedVaultKeysAdded();
-  void TrustedVaultKeysMarkedAsStale(bool result);
+  void TrustedVaultKeysAdded(bool is_second_fetch_attempt);
+  void TrustedVaultKeysMarkedAsStale(bool is_second_fetch_attempt, bool result);
   void FetchTrustedVaultKeysCompletedButInsufficient();
+
+  // Updates required user action and notifies observers via
+  // |notify_required_user_action_changed_|.
+  void UpdateRequiredUserActionAndNotify(
+      RequiredUserAction new_required_user_action);
+
+  // Completion callback function for
+  // TrustedVaultClient::GetIsRecoverabilityDegraded().
+  void GetIsRecoverabilityDegradedCompleted(bool is_recoverability_degraded);
 
   // Calls SyncServiceBase::NotifyObservers(). Never null.
   const base::RepeatingClosure notify_observers_;
+
+  const base::RepeatingClosure notify_required_user_action_changed_;
 
   const base::RepeatingCallback<void(ConfigureReason)> reconfigure_;
 
@@ -146,7 +171,10 @@ class SyncServiceCrypto : public SyncEncryptionHandler::Observer,
     // Populated when the engine is initialized.
     CoreAccountInfo account_info;
 
-    RequiredUserAction required_user_action = RequiredUserAction::kNone;
+    // This field must be updated via UpdateRequiredUserAction() to ensure
+    // observers are notified.
+    RequiredUserAction required_user_action =
+        RequiredUserAction::kUnknownDuringInitialization;
 
     // The current set of encrypted types. Always a superset of
     // AlwaysEncryptedUserTypes().

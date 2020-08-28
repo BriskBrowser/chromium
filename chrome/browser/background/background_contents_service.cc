@@ -348,9 +348,10 @@ void BackgroundContentsService::OnExtensionLoaded(
     // app, then blow away registered urls in the pref.
     ShutdownAssociatedBackgroundContents(extension->id());
 
-    extensions::ExtensionService* service =
-        extensions::ExtensionSystem::Get(browser_context)->extension_service();
-    if (service && service->is_ready()) {
+    extensions::ExtensionSystem* extension_system =
+        extensions::ExtensionSystem::Get(profile);
+
+    if (extension_system->is_ready()) {
       // Now load the manifest-specified background page. If service isn't
       // ready, then the background page will be loaded from the
       // EXTENSIONS_READY callback.
@@ -390,7 +391,7 @@ void BackgroundContentsService::OnExtensionUnloaded(
     case UnloadedExtensionReason::DISABLE:                // Fall through.
     case UnloadedExtensionReason::TERMINATE:              // Fall through.
     case UnloadedExtensionReason::UNINSTALL:              // Fall through.
-    case UnloadedExtensionReason::BLACKLIST:              // Fall through.
+    case UnloadedExtensionReason::BLOCKLIST:              // Fall through.
     case UnloadedExtensionReason::LOCK_ALL:               // Fall through.
     case UnloadedExtensionReason::MIGRATED_TO_COMPONENT:  // Fall through.
     case UnloadedExtensionReason::PROFILE_SHUTDOWN:
@@ -716,6 +717,7 @@ const std::string& BackgroundContentsService::GetParentApplicationId(
 
 void BackgroundContentsService::AddWebContents(
     std::unique_ptr<WebContents> new_contents,
+    const GURL& target_url,
     WindowOpenDisposition disposition,
     const gfx::Rect& initial_rect,
     bool* was_blocked) {
@@ -723,7 +725,7 @@ void BackgroundContentsService::AddWebContents(
       Profile::FromBrowserContext(new_contents->GetBrowserContext()));
   if (browser) {
     chrome::AddWebContents(browser, nullptr, std::move(new_contents),
-                           disposition, initial_rect);
+                           target_url, disposition, initial_rect);
   }
 }
 

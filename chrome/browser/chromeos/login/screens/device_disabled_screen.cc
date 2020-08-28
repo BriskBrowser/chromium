@@ -6,7 +6,6 @@
 
 #include <string>
 
-#include "base/logging.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_process_platform_part.h"
 #include "chrome/browser/chromeos/login/wizard_controller.h"
@@ -21,13 +20,15 @@ system::DeviceDisablingManager* DeviceDisablingManager() {
 }  // namespace
 
 DeviceDisabledScreen::DeviceDisabledScreen(DeviceDisabledScreenView* view)
-    : BaseScreen(DeviceDisabledScreenView::kScreenId), view_(view) {
-  view_->SetDelegate(this);
+    : BaseScreen(DeviceDisabledScreenView::kScreenId,
+                 OobeScreenPriority::SCREEN_DEVICE_DISABLED),
+      view_(view) {
+  view_->Bind(this);
 }
 
 DeviceDisabledScreen::~DeviceDisabledScreen() {
   if (view_)
-    view_->SetDelegate(nullptr);
+    view_->Bind(nullptr);
 }
 
 void DeviceDisabledScreen::OnViewDestroyed(DeviceDisabledScreenView* view) {
@@ -35,33 +36,19 @@ void DeviceDisabledScreen::OnViewDestroyed(DeviceDisabledScreenView* view) {
     view_ = nullptr;
 }
 
-const std::string& DeviceDisabledScreen::GetEnrollmentDomain() const {
-  return DeviceDisablingManager()->enrollment_domain();
-}
-
-const std::string& DeviceDisabledScreen::GetMessage() const {
-  return DeviceDisablingManager()->disabled_message();
-}
-
-const std::string& DeviceDisabledScreen::GetSerialNumber() const {
-  return DeviceDisablingManager()->serial_number();
-}
-
-void DeviceDisabledScreen::Show() {
-  if (!view_ || showing_)
+void DeviceDisabledScreen::ShowImpl() {
+  if (!view_ || !is_hidden())
     return;
 
-  showing_ = true;
-  view_->Show();
+  view_->Show(DeviceDisablingManager()->serial_number(),
+              DeviceDisablingManager()->enrollment_domain(),
+              DeviceDisablingManager()->disabled_message());
   DeviceDisablingManager()->AddObserver(this);
-  if (!DeviceDisablingManager()->disabled_message().empty())
-    view_->UpdateMessage(DeviceDisablingManager()->disabled_message());
 }
 
-void DeviceDisabledScreen::Hide() {
-  if (!showing_)
+void DeviceDisabledScreen::HideImpl() {
+  if (is_hidden())
     return;
-  showing_ = false;
 
   if (view_)
     view_->Hide();

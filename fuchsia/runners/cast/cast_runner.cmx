@@ -1,12 +1,15 @@
 {
   "sandbox": {
     "features": [
-      "config-data"
+      "config-data",
+      "isolated-cache-storage"
     ],
     "services": [
       "chromium.cast.ApplicationConfigManager",
       "fuchsia.accessibility.semantics.SemanticsManager",
+      "fuchsia.camera3.DeviceWatcher",
       "fuchsia.device.NameProvider",
+      "fuchsia.feedback.CrashReportingProductRegister",
       "fuchsia.fonts.Provider",
       "fuchsia.intl.PropertyProvider",
       "fuchsia.logger.LogSink",
@@ -15,6 +18,7 @@
       "fuchsia.media.drm.PlayReady",
       "fuchsia.media.drm.Widevine",
       "fuchsia.mediacodec.CodecFactory",
+      "fuchsia.memorypressure.Provider",
       "fuchsia.net.NameLookup",
       "fuchsia.netstack.Netstack",
       "fuchsia.posix.socket.Provider",

@@ -15,14 +15,12 @@
 #include "components/autofill/core/browser/payments/full_card_request.h"
 #include "components/autofill/core/browser/ui/payments/card_unmask_prompt_controller_impl.h"
 
+class ChromeBrowserState;
+
 namespace autofill {
 class AutofillManager;
 class CreditCard;
 }  // namespace autofill
-
-namespace ios {
-class ChromeBrowserState;
-}  // namespace ios
 
 // Receives the full credit card details. Also displays the unmask prompt UI.
 class FullCardRequester
@@ -30,7 +28,7 @@ class FullCardRequester
       public base::SupportsWeakPtr<FullCardRequester> {
  public:
   FullCardRequester(UIViewController* base_view_controller,
-                    ios::ChromeBrowserState* browser_state);
+                    ChromeBrowserState* browser_state);
 
   void GetFullCard(
       const autofill::CreditCard& card,

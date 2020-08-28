@@ -2,10 +2,10 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+import("//build/apple/tweak_info_plist.gni")
 import("//build/config/ios/rules.gni")
 import("//build/config/locales.gni")
 import("//build/config/mac/base_rules.gni")
-import("//build/mac/tweak_info_plist.gni")
 import("//ios/build/chrome_build.gni")
 import("//ios/build/config.gni")
 import("//ios/chrome/tools/strings/generate_localizable_strings.gni")
@@ -38,6 +38,7 @@ ios_appex_bundle("content_widget_extension") {
 
   entitlements_target = ":entitlements"
   info_plist_target = ":tweak_info_plist"
+  xcode_product_bundle_id = "$chromium_bundle_id.ContentTodayExtension"
 }
 
 source_set("content_widget") {
@@ -52,15 +53,15 @@ source_set("content_widget") {
 
   deps = [
     "//base",
-    "//ios/chrome/common:common_extension",
     "//ios/chrome/common/app_group",
     "//ios/chrome/common/app_group:command",
-    "//ios/chrome/common/favicon",
     "//ios/chrome/common/ntp_tile",
-    "//ios/chrome/common/ui_util",
+    "//ios/chrome/common/ui/elements",
+    "//ios/chrome/common/ui/favicon",
+    "//ios/chrome/common/ui/util",
   ]
 
-  libs = [
+  frameworks = [
     "Foundation.framework",
     "NotificationCenter.framework",
     "UIKit.framework",
@@ -73,9 +74,7 @@ source_set("content_widget") {
 
 source_set("unit_tests") {
   testonly = true
-  sources = [
-    "content_widget_view_controller_unittest.mm",
-  ]
+  sources = [ "content_widget_view_controller_unittest.mm" ]
   deps = [
     ":content_widget",
     "//testing/gtest",
@@ -89,9 +88,7 @@ repack_locales("packed_resources") {
 
   source_patterns = [ "$root_gen_dir/ios/content_widget_extension/ios_content_widget_extension_${branding_path_component}_strings_" ]
 
-  deps = [
-    "//ios/chrome/content_widget_extension/strings:ios_content_widget_extension_${branding_path_component}_strings",
-  ]
+  deps = [ "//ios/chrome/content_widget_extension/strings:ios_content_widget_extension_${branding_path_component}_strings" ]
 }
 
 generate_localizable_strings("system_strings") {

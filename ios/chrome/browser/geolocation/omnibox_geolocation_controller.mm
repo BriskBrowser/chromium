@@ -9,8 +9,9 @@
 
 #include <string>
 
-#include "base/logging.h"
+#include "base/check_op.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/notreached.h"
 #include "base/version.h"
 #include "components/google/core/common/google_util.h"
 #include "components/version_info/version_info.h"
@@ -198,15 +199,13 @@ const char* const kGeolocationAuthorizationActionNewUser =
   }
 }
 
-- (void)locationBarDidBecomeFirstResponder:
-    (ios::ChromeBrowserState*)browserState {
+- (void)locationBarDidBecomeFirstResponder:(ChromeBrowserState*)browserState {
   if (self.enabled && browserState && !browserState->IsOffTheRecord()) {
     [self startUpdatingLocation];
   }
 }
 
-- (void)locationBarDidResignFirstResponder:
-    (ios::ChromeBrowserState*)browserState {
+- (void)locationBarDidResignFirstResponder:(ChromeBrowserState*)browserState {
   // It's always okay to stop updating location.
   [self stopUpdatingLocation];
 }

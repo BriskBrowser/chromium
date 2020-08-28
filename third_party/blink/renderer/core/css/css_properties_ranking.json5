@@ -693,7 +693,7 @@
         "border-inline-width",
         "inset-block-start",
         "syntax",
-        "render-subtree",
+        "content-visibility",
         "origin-trial-test-property",
     ],
     "properties": {}

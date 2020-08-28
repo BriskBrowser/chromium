@@ -27,7 +27,8 @@ constexpr char kSortKeyNoFederationSymbol = '-';
 
 }  // namespace
 
-std::string CreateSortKey(const autofill::PasswordForm& form) {
+std::string CreateSortKey(const autofill::PasswordForm& form,
+                          IgnoreStore ignore_store) {
   std::string shown_origin;
   GURL link_url;
   std::tie(shown_origin, link_url) = GetShownOriginAndLinkUrl(form);
@@ -60,7 +61,7 @@ std::string CreateSortKey(const autofill::PasswordForm& form) {
   key += is_android_uri ? facet_uri.canonical_spec()
                         : SplitByDotAndReverse(shown_origin);
 
-  if (!form.blacklisted_by_user) {
+  if (!form.blocked_by_user) {
     key += kSortKeyPartsSeparator + base::UTF16ToUTF8(form.username_value) +
            kSortKeyPartsSeparator + base::UTF16ToUTF8(form.password_value);
 
@@ -74,7 +75,8 @@ std::string CreateSortKey(const autofill::PasswordForm& form) {
   // To separate HTTP/HTTPS credentials, add the scheme to the key.
   key += kSortKeyPartsSeparator + link_url.scheme();
 
-  if (form.in_store == autofill::PasswordForm::Store::kAccountStore) {
+  if (!ignore_store &&
+      form.in_store == autofill::PasswordForm::Store::kAccountStore) {
     key += kSortKeyPartsSeparator + std::string("account");
   }
 

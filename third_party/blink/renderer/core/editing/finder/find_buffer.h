@@ -31,6 +31,10 @@ class CORE_EXPORT FindBuffer {
       String search_text,
       const FindOptions);
 
+  // Returns the closest ancestor of |start_node| (including the node itself)
+  // that is block level.
+  static Node& GetFirstBlockLevelAncestorInclusive(const Node& start_node);
+
   // A match result, containing the starting position of the match and
   // the length of the match.
   struct BufferMatchResult {
@@ -133,19 +137,6 @@ class CORE_EXPORT FindBuffer {
   // another LayoutBlockFlow or after |end_position|) to |node_after_block_|.
   void CollectTextUntilBlockBoundary(const EphemeralRangeInFlatTree& range);
 
-  // Adds the ScopedForcedUpdate of |element|'s DisplayLockContext (if it's
-  // there) to |scoped_forced_update_list_|. Returns true if we added a
-  // ScopedForceUpdate.
-  bool PushScopedForcedUpdateIfNeeded(const Element& element);
-
-  // Collects all ScopedForceUpdates of any activatable-locked element
-  // within the range of [start_node, search_range_end_node] or
-  // [start_node, node_after_block) whichever is smaller, to
-  // |scoped_forced_update_list_|.
-  void CollectScopedForcedUpdates(Node& start_node,
-                                  const Node* search_range_end_node,
-                                  const Node* node_after_block);
-
   // Mapping for position in buffer -> actual node where the text came from,
   // along with the offset in the NGOffsetMapping of this find_buffer.
   // This is needed because when we find a match in the buffer, we want to know
@@ -187,10 +178,9 @@ class CORE_EXPORT FindBuffer {
                        LayoutBlockFlow& block_flow,
                        const EphemeralRangeInFlatTree& range);
 
-  Member<Node> node_after_block_;
+  Node* node_after_block_ = nullptr;
   Vector<UChar> buffer_;
   Vector<BufferNodeMapping> buffer_node_mappings_;
-  Vector<DisplayLockContext::ScopedForcedUpdate> scoped_forced_update_list_;
   TextSearcherICU text_searcher_;
 
   const NGOffsetMapping* offset_mapping_ = nullptr;

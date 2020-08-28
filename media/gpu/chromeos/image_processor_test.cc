@@ -76,13 +76,21 @@ const base::FilePath::CharType* kNV12Image180P =
 const base::FilePath::CharType* kNV12Image360PIn480P =
     FILE_PATH_LITERAL("puppets-640x360_in_640x480.nv12.yuv");
 
+// Files for rotation test.
+const base::FilePath::CharType* kNV12Image90 =
+    FILE_PATH_LITERAL("bear_192x320_90.nv12.yuv");
+const base::FilePath::CharType* kNV12Image180 =
+    FILE_PATH_LITERAL("bear_320x192_180.nv12.yuv");
+const base::FilePath::CharType* kNV12Image270 =
+    FILE_PATH_LITERAL("bear_192x320_270.nv12.yuv");
+
 class ImageProcessorParamTest
     : public ::testing::Test,
       public ::testing::WithParamInterface<
           std::tuple<base::FilePath, base::FilePath>> {
  public:
   void SetUp() override {}
-  void TearDown() override {}
+  void TearDown() override { model_frames_.clear(); }
 
   std::unique_ptr<test::ImageProcessorClient> CreateImageProcessorClient(
       const test::Image& input_image,
@@ -115,19 +123,39 @@ class ImageProcessorParamTest
     ImageProcessor::PortConfig output_config(
         output_fourcc, output_image->Size(), output_layout->planes(),
         output_image->VisibleRect(), output_storage_types);
+    int rotation =
+        ((output_image->Rotation() - input_image.Rotation() + 4) % 4) * 90;
+    VideoRotation relative_rotation = VIDEO_ROTATION_0;
+    switch (rotation) {
+      case 0:
+        relative_rotation = VIDEO_ROTATION_0;
+        break;
+      case 90:
+        relative_rotation = VIDEO_ROTATION_90;
+        break;
+      case 180:
+        relative_rotation = VIDEO_ROTATION_180;
+        break;
+      case 270:
+        relative_rotation = VIDEO_ROTATION_270;
+        break;
+      default:
+        NOTREACHED() << "Invalid rotation: " << rotation;
+        return nullptr;
+    }
     // TODO(crbug.com/917951): Select more appropriate number of buffers.
     constexpr size_t kNumBuffers = 1;
     LOG_ASSERT(output_image->IsMetadataLoaded());
     std::vector<std::unique_ptr<test::VideoFrameProcessor>> frame_processors;
     // TODO(crbug.com/944823): Use VideoFrameValidator for RGB formats.
-    // TODO(crbug.com/917951): We should validate a scaled image with SSIM.
     // Validating processed frames is currently not supported when a format is
     // not YUV or when scaling images.
     if (IsYuvPlanar(input_fourcc.ToVideoPixelFormat()) &&
         IsYuvPlanar(output_fourcc.ToVideoPixelFormat())) {
       if (input_image.Size() == output_image->Size()) {
-        auto vf_validator = test::VideoFrameValidator::Create(
+        auto vf_validator = test::MD5VideoFrameValidator::Create(
             {output_image->Checksum()}, output_image->PixelFormat());
+        LOG_ASSERT(vf_validator);
         frame_processors.push_back(std::move(vf_validator));
       } else if (input_fourcc == output_fourcc) {
         // Scaling case.
@@ -135,12 +163,10 @@ class ImageProcessorParamTest
         scoped_refptr<const VideoFrame> model_frame =
             CreateVideoFrameFromImage(*output_image);
         LOG_ASSERT(model_frame) << "Failed to create from image";
-        // Scaling is not deterministic process. There are various algorithms to
-        // scale images. We set a weaker tolerance value, 32, to avoid false
-        // negative.
-        constexpr uint32_t kImageProcessorTestTorelance = 32;
-        auto vf_validator = test::VideoFrameValidator::Create(
-            {model_frame}, kImageProcessorTestTorelance);
+        model_frames_ = {model_frame};
+        auto vf_validator = test::SSIMVideoFrameValidator::Create(
+            base::BindRepeating(&ImageProcessorParamTest::GetModelFrame,
+                                base::Unretained(this)));
         frame_processors.push_back(std::move(vf_validator));
       }
     }
@@ -158,9 +184,22 @@ class ImageProcessorParamTest
     }
 
     auto ip_client = test::ImageProcessorClient::Create(
-        input_config, output_config, kNumBuffers, std::move(frame_processors));
+        input_config, output_config, kNumBuffers, relative_rotation,
+        std::move(frame_processors));
     return ip_client;
   }
+
+ private:
+  scoped_refptr<const VideoFrame> GetModelFrame(size_t frame_index) const {
+    if (frame_index >= model_frames_.size()) {
+      LOG(ERROR) << "Failed to get model frame with index=" << frame_index;
+      ADD_FAILURE();
+      return nullptr;
+    }
+    return model_frames_[frame_index];
+  }
+
+  std::vector<scoped_refptr<const VideoFrame>> model_frames_;
 };
 
 TEST_P(ImageProcessorParamTest, ConvertOneTime_MemToMem) {
@@ -170,14 +209,6 @@ TEST_P(ImageProcessorParamTest, ConvertOneTime_MemToMem) {
   test::Image output_image(std::get<1>(GetParam()));
   ASSERT_TRUE(input_image.Load());
   ASSERT_TRUE(output_image.LoadMetadata());
-  if (input_image.PixelFormat() == output_image.PixelFormat()) {
-    // If the input format is the same as the output format, then the conversion
-    // is scaling. LibyuvImageProcessorBackend doesn't support scaling yet. So
-    // skip this test case.
-    // TODO(hiroh): Remove this skip once LibyuvIP supports scaling.
-    GTEST_SKIP();
-  }
-
   auto ip_client = CreateImageProcessorClient(
       input_image, {VideoFrame::STORAGE_OWNED_MEMORY}, &output_image,
       {VideoFrame::STORAGE_OWNED_MEMORY});
@@ -201,14 +232,6 @@ TEST_P(ImageProcessorParamTest, ConvertOneTime_DmabufToMem) {
   test::Image output_image(std::get<1>(GetParam()));
   ASSERT_TRUE(input_image.Load());
   ASSERT_TRUE(output_image.LoadMetadata());
-  if (input_image.PixelFormat() == output_image.PixelFormat()) {
-    // If the input format is the same as the output format, then the conversion
-    // is scaling. LibyuvImageProcessorBackend doesn't support scaling yet. So
-    // skip this test case.
-    // TODO(hiroh): Remove this skip once LibyuvIP supports scaling.
-    GTEST_SKIP();
-  }
-
   auto ip_client = CreateImageProcessorClient(
       input_image, {VideoFrame::STORAGE_DMABUFS}, &output_image,
       {VideoFrame::STORAGE_OWNED_MEMORY});
@@ -299,6 +322,17 @@ INSTANTIATE_TEST_SUITE_P(NV12CroppingAndScaling,
                          ImageProcessorParamTest,
                          ::testing::Values(std::make_tuple(kNV12Image360PIn480P,
                                                            kNV12Image270P)));
+
+// Rotate frame to specified rotation.
+// Now only VaapiIP maybe support rotaion.
+INSTANTIATE_TEST_SUITE_P(
+    NV12Rotation,
+    ImageProcessorParamTest,
+    ::testing::Values(std::make_tuple(kNV12Image, kNV12Image90),
+                      std::make_tuple(kNV12Image, kNV12Image180),
+                      std::make_tuple(kNV12Image, kNV12Image270),
+                      std::make_tuple(kNV12Image180, kNV12Image90),
+                      std::make_tuple(kNV12Image180, kNV12Image)));
 
 #if defined(OS_CHROMEOS)
 // TODO(hiroh): Add more tests.

@@ -37,6 +37,7 @@ using Microsoft::WRL::ComPtr;
 namespace {
 
 constexpr size_t kMaxAllowedRelatedApps = 3;
+constexpr char kWindowsPlatformName[] = "windows";
 
 void OnGetAppUrlHandlers(
     std::vector<blink::mojom::RelatedApplicationPtr> related_apps,
@@ -64,13 +65,17 @@ void OnGetAppUrlHandlers(
     base::string16 app_user_model_id(
         base::win::ScopedHString(app_user_model_id_native).Get());
 
-    for (size_t j = 0;
-         j < std::min(related_apps.size(), kMaxAllowedRelatedApps); ++j) {
+    size_t windows_app_count = 0;
+    for (size_t j = 0; j < related_apps.size(); ++j) {
       auto& related_app = related_apps[j];
-      // v1 supports only 'store' platform name. It doesn't necessarily mean
-      // the app must be installed from the store though.
-      if (related_app->platform != "store")
+
+      // v1 supports only 'windows' platform name.
+      if (related_app->platform != kWindowsPlatformName)
         continue;
+
+      // It iterates only max 3 windows related apps.
+      if (++windows_app_count > kMaxAllowedRelatedApps)
+        break;
 
       if (!related_app->id.has_value())
         continue;
@@ -99,7 +104,7 @@ void OnGetAppUrlHandlers(
 void FilterInstalledAppsForWin(
     std::vector<blink::mojom::RelatedApplicationPtr> related_apps,
     blink::mojom::InstalledAppProvider::FilterInstalledAppsCallback callback,
-    RenderFrameHost* render_frame_host) {
+    const GURL frame_url) {
   if (!base::win::ScopedHString::ResolveCoreWinRTStringDelayload() ||
       !base::win::ResolveCoreWinRTDelayload()) {
     std::move(callback).Run(std::vector<blink::mojom::RelatedApplicationPtr>());
@@ -122,7 +127,6 @@ void FilterInstalledAppsForWin(
   }
 
   ComPtr<IUriRuntimeClass> url;
-  const GURL& frame_url = render_frame_host->GetLastCommittedURL();
   hr = url_factory->CreateUri(
       base::win::ScopedHString::Create(frame_url.spec()).get(), &url);
   if (FAILED(hr)) {

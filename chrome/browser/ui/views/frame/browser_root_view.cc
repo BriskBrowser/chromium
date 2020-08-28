@@ -11,6 +11,7 @@
 #include "base/bind.h"
 #include "base/metrics/user_metrics.h"
 #include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
 #include "chrome/browser/autocomplete/autocomplete_classifier_factory.h"
 #include "chrome/browser/defaults.h"
 #include "chrome/browser/profiles/profile.h"
@@ -85,8 +86,8 @@ void OnFindURLMimeType(const GURL& url,
 bool GetURLForDrop(const ui::DropTargetEvent& event, GURL* url) {
   DCHECK(url);
   base::string16 title;
-  return event.data().GetURLAndTitle(ui::OSExchangeData::CONVERT_FILENAMES, url,
-                                     &title) &&
+  return event.data().GetURLAndTitle(ui::FilenameToURLPolicy::CONVERT_FILENAMES,
+                                     url, &title) &&
          url->is_valid();
 }
 
@@ -147,7 +148,7 @@ bool BrowserRootView::CanDrop(const ui::OSExchangeData& data) {
     return false;
 
   // If there is a URL, we'll allow the drop.
-  if (data.HasURL(ui::OSExchangeData::CONVERT_FILENAMES))
+  if (data.HasURL(ui::FilenameToURLPolicy::CONVERT_FILENAMES))
     return true;
 
   // If there isn't a URL, see if we can 'paste and go'.
@@ -166,10 +167,8 @@ void BrowserRootView::OnDragEntered(const ui::DropTargetEvent& event) {
                                           ->tab_strip_model()
                                           ->GetActiveWebContents()
                                           ->GetMainFrame();
-      base::PostTaskAndReplyWithResult(
-          FROM_HERE,
-          {base::ThreadPool(), base::MayBlock(),
-           base::TaskPriority::USER_VISIBLE},
+      base::ThreadPool::PostTaskAndReplyWithResult(
+          FROM_HERE, {base::MayBlock(), base::TaskPriority::USER_VISIBLE},
           base::BindOnce(&FindURLMimeType, url),
           base::BindOnce(&OnFindURLMimeType, url, rfh->GetProcess()->GetID(),
                          rfh->GetRoutingID(),

@@ -7,9 +7,6 @@
  * in a list. This also supports editing fields inline for fields listed in
  * editFieldTypes.
  */
-(function() {
-'use strict';
-
 Polymer({
   is: 'network-property-list-mojo',
 
@@ -74,7 +71,7 @@ Polymer({
     if (typeof curValue === 'object' && !Array.isArray(curValue)) {
       // Extract the property from an ONC managed dictionary.
       curValue = OncMojo.getActiveValue(
-          /** @type{OncMojo.ManagedProperty} */ (curValue));
+          /** @type{!OncMojo.ManagedProperty} */ (curValue));
     }
     const newValue = this.getValueFromEditField_(key, event.target.value);
     if (newValue === curValue) {
@@ -117,6 +114,8 @@ Polymer({
         result += 'OTP';
       } else if (subKey === 'ssid') {
         result += 'SSID';
+      } else if (subKey === 'bssid') {
+        result += 'BSSID';
       } else if (subKey === 'serverCa') {
         result += 'ServerCA';
       } else if (subKey === 'vpn') {
@@ -380,4 +379,3 @@ Polymer({
     return '';
   },
 });
-})();

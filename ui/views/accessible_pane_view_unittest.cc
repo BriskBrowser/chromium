@@ -4,6 +4,8 @@
 
 #include "ui/views/accessible_pane_view.h"
 
+#include <utility>
+
 #include "base/macros.h"
 #include "build/build_config.h"
 #include "ui/base/accelerators/accelerator.h"
@@ -19,8 +21,7 @@ namespace views {
 
 using AccessiblePaneViewTest = ViewsTestBase;
 
-class TestBarView : public AccessiblePaneView,
-                    public ButtonListener {
+class TestBarView : public AccessiblePaneView, public ButtonListener {
  public:
   TestBarView();
   ~TestBarView() override;
@@ -53,8 +54,7 @@ TestBarView::TestBarView() {
 
 TestBarView::~TestBarView() = default;
 
-void TestBarView::ButtonPressed(Button* sender, const ui::Event& event) {
-}
+void TestBarView::ButtonPressed(Button* sender, const ui::Event& event) {}
 
 void TestBarView::Init() {
   SetLayoutManager(std::make_unique<FillLayout>());
@@ -142,7 +142,7 @@ TEST_F(AccessiblePaneViewTest, SetPaneFocusAndRestore) {
   // predictable. On Mac, Deactivate() is not implemented. Note that
   // TestBarView calls set_allow_deactivate_on_esc(true), which is only
   // otherwise used in Ash.
-#if !defined(OS_MACOSX) || defined(OS_CHROMEOS)
+#if !defined(OS_APPLE) || defined(OS_CHROMEOS)
   // Esc should deactivate the widget.
   test_view_bar->AcceleratorPressed(test_view_bar->escape_key());
   EXPECT_TRUE(widget_main->IsActive());

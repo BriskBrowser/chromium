@@ -80,6 +80,70 @@ be describing additional metrics about the same event.
   </metric>
 </event>
 
+<event name="Accessibility.ImageDescriptions">
+  <owner>dmazzoni@chromium.org</owner>
+  <summary>
+    Tracks automatic image descriptions provided to blind users.
+  </summary>
+  <metric name="Description" enum="Boolean">
+    <summary>
+      Whether the image description included a description.
+    </summary>
+    <aggregation>
+      <history>
+        <statistics>
+          <enumeration/>
+        </statistics>
+      </history>
+    </aggregation>
+  </metric>
+  <metric name="ImageAlreadyHasLabel" enum="Boolean">
+    <summary>
+      Whether the image already had label text before it was augmented with an
+      additional description.
+    </summary>
+    <aggregation>
+      <history>
+        <statistics>
+          <enumeration/>
+        </statistics>
+      </history>
+    </aggregation>
+  </metric>
+  <metric name="OCR" enum="Boolean">
+    <summary>
+      Whether the image description included OCR text.
+    </summary>
+    <aggregation>
+      <history>
+        <statistics>
+          <enumeration/>
+        </statistics>
+      </history>
+    </aggregation>
+  </metric>
+</event>
+
+<event name="Accessibility.Renderer">
+  <owner>dmazzoni@chromium.org</owner>
+  <summary>
+    Tracks the amount of time sending accessibility events from web renderers.
+  </summary>
+  <metric name="CpuTime.SendPendingAccessibilityEvents">
+    <summary>
+      The amount of time spent in
+      RenderAccessibilityImpl.SendPendingAccessibilityEvents
+    </summary>
+    <aggregation>
+      <history>
+        <statistics>
+          <quantiles type="std-percentiles"/>
+        </statistics>
+      </history>
+    </aggregation>
+  </metric>
+</event>
+
 <event name="AdFrameLoad">
   <owner>johnidel@chromium.org</owner>
   <owner>jkarlin@chromium.org</owner>
@@ -197,6 +261,9 @@ be describing additional metrics about the same event.
     </summary>
   </metric>
   <metric name="Timing.PreActivationForegroundDuration">
+    <obsolete>
+      Deprecated 07/2020.
+    </obsolete>
     <summary>
       Number of millseconds that the current web contents spent in the
       foreground prior to the frame receiving user activation.
@@ -228,7 +295,7 @@ be describing additional metrics about the same event.
   <owner>johnidel@chromium.org</owner>
   <owner>jkarlin@chromium.org</owner>
   <summary>
-    Recorded when a page has loadded non-zero ad bytes, and the page is being
+    Recorded when a page has loaded non-zero ad bytes, and the page is being
     destroyed/navigated.
   </summary>
   <metric name="AdBytes">
@@ -238,12 +305,18 @@ be describing additional metrics about the same event.
     </summary>
   </metric>
   <metric name="AdBytesPerSecond">
+    <obsolete>
+      Deprecated 01/2020.
+    </obsolete>
     <summary>
       Amount of network bytes used to load ad resources on the page, per second
       the page was alive after commit. Measured in kilobytes per second.
     </summary>
   </metric>
   <metric name="AdBytesPerSecondAfterInteractive">
+    <obsolete>
+      Deprecated 01/2020.
+    </obsolete>
     <summary>
       Amount of network bytes used to load ad resources on the page per second
       after the page was interactive. Measured in kilobytes.
@@ -273,6 +346,22 @@ be describing additional metrics about the same event.
       Includes resources that did not finish but does not include resources in
       subframes. Measured in bytes. This is rounded to the nearest exponential
       bucket (with a bucket ratio of 1.3).
+    </summary>
+  </metric>
+  <metric name="MaxAdDensityByArea">
+    <summary>
+      The estimated maximum density of ads on a page by area. Calculated as the
+      area of ads on the page * 100 / page area. This counts each overlapping
+      area once, it may be inaccurate due to updates and calculations being
+      throttled.
+    </summary>
+  </metric>
+  <metric name="MaxAdDensityByHeight">
+    <summary>
+      The estimated maximum density of ads on a page by height. Calculated as
+      the combined height of ads on the page * 100 / page height. This counts
+      each overlapping area once, it may be inaccurate due to updates and
+      calculations being throttled.
     </summary>
   </metric>
   <metric name="TotalBytes">
@@ -356,6 +445,12 @@ be describing additional metrics about the same event.
       Measures the time in milliseconds from navigation timing's navigation
       start to the time when the page first paints content, in the AMP subframe.
       A contentful paint includes a paint of text, image, SVG, or canvas.
+    </summary>
+  </metric>
+  <metric name="SubFrame.PaintTiming.NavigationToFirstPaint">
+    <summary>
+      Measures the time in milliseconds from navigation timing's navigation
+      start to the time the first paint is performed, in the AMP subframe.
     </summary>
   </metric>
   <metric name="SubFrame.PaintTiming.NavigationToLargestContentfulPaint">
@@ -977,6 +1072,33 @@ be describing additional metrics about the same event.
   </metric>
 </event>
 
+<event name="Autofill.EditedAutofilledFieldAtSubmission">
+  <owner>koerber@google.com</owner>
+  <owner>battre@google.com</owner>
+  <summary>
+    Records when a user edits a value that was filled by autofill.
+  </summary>
+  <metric name="FieldSignature">
+    <summary>
+      The signature of the field. This is the hash identifier used to denote
+      this field for query and voting purposes. See
+      components/autofill/core/common/signatures_util.cc for more details.
+    </summary>
+  </metric>
+  <metric name="FormSignature">
+    <summary>
+      The signature of the form. This is the hash identifier used to denote this
+      form for query and voting purposes. See
+      components/autofill/core/common/signatures_util.cc for more details.
+    </summary>
+  </metric>
+  <metric name="OverallType" enum="AutofillServerFieldType">
+    <summary>
+      Field's overall |ServerFieldType|. See: autofill::ServerFieldType
+    </summary>
+  </metric>
+</event>
+
 <event name="Autofill.FieldFillStatus">
   <owner>rogerm@chromium.org</owner>
   <summary>
@@ -1035,13 +1157,6 @@ be describing additional metrics about the same event.
     <summary>
       The observed type of the field. See: autofill::ServerFieldType
     </summary>
-    <aggregation>
-      <history>
-        <statistics>
-          <enumeration/>
-        </statistics>
-      </history>
-    </aggregation>
   </metric>
   <metric name="FieldSignature">
     <summary>
@@ -1057,56 +1172,22 @@ be describing additional metrics about the same event.
     <summary>
       Time since form parse.
     </summary>
-    <aggregation>
-      <history>
-        <index fields="metrics.ValidationEvent"/>
-        <statistics>
-          <quantiles type="std-percentiles"/>
-        </statistics>
-      </history>
-    </aggregation>
   </metric>
   <metric name="PredictedType" enum="AutofillServerFieldType">
     <summary>
       The predicted type of the field. See: autofill::ServerFieldType
     </summary>
-    <aggregation>
-      <history>
-        <index fields="metrics.ActualType"/>
-        <index fields="metrics.ActualType,metrics.PredictionSource"/>
-        <index fields="metrics.PredictionSource"/>
-        <statistics>
-          <enumeration/>
-        </statistics>
-      </history>
-    </aggregation>
   </metric>
   <metric name="PredictionSource" enum="AutofillPredictionSource">
     <summary>
       The system which generated the prediction: heuristics, server, overall.
     </summary>
-    <aggregation>
-      <history>
-        <index fields="metrics.ActualType,metrics.PredictedType"/>
-        <index fields="metrics.PredictedType"/>
-        <statistics>
-          <enumeration/>
-        </statistics>
-      </history>
-    </aggregation>
   </metric>
   <metric name="ValidationEvent" enum="AutofillQualitiyMetricType">
     <summary>
       The event which triggered the validation: Submission, Left Form, Form has
       Autocomplete attributes.
     </summary>
-    <aggregation>
-      <history>
-        <statistics>
-          <enumeration/>
-        </statistics>
-      </history>
-    </aggregation>
   </metric>
 </event>
 
@@ -1478,6 +1559,78 @@ be describing additional metrics about the same event.
   </metric>
 </event>
 
+<event name="AutofillAssistant.LiteScriptFinished">
+  <owner>arbesser@google.com</owner>
+  <owner>mcarlen@google.com</owner>
+  <owner>marianfe@google.com</owner>
+  <summary>
+    Recorded when a lite script has finished, either because the user made a
+    choice, or because some error occurred.
+  </summary>
+  <metric name="LiteScriptFinished" enum="AutofillAssistantLiteScriptFinished">
+    <summary>
+      An enum that describes the different ways a lite script can finish. Users
+      may click continue, cancel, or indirectly abort the experience in various
+      ways. See components/autofill_assistant/browser/metrics.h.
+    </summary>
+    <aggregation>
+      <history>
+        <statistics>
+          <enumeration/>
+        </statistics>
+      </history>
+    </aggregation>
+  </metric>
+</event>
+
+<event name="AutofillAssistant.LiteScriptOnboarding">
+  <owner>arbesser@google.com</owner>
+  <owner>mcarlen@google.com</owner>
+  <owner>marianfe@google.com</owner>
+  <summary>
+    Recorded after a user has finished a lite script flow and accepted the final
+    prompt in it.
+  </summary>
+  <metric name="LiteScriptOnboarding"
+      enum="AutofillAssistantLiteScriptOnboarding">
+    <summary>
+      An enum that describes whether users who have successfully finished a lite
+      script also accepted the onboarding or not. See
+      components/autofill_assistant/browser/metrics.h.
+    </summary>
+    <aggregation>
+      <history>
+        <statistics>
+          <enumeration/>
+        </statistics>
+      </history>
+    </aggregation>
+  </metric>
+</event>
+
+<event name="AutofillAssistant.LiteScriptStarted">
+  <owner>arbesser@google.com</owner>
+  <owner>mcarlen@google.com</owner>
+  <owner>marianfe@google.com</owner>
+  <summary>
+    Recorded at the time when the decision is made to start (or not to start) a
+    lite script.
+  </summary>
+  <metric name="LiteScriptStarted" enum="AutofillAssistantLiteScriptStarted">
+    <summary>
+      An enum that captures the different ways a lite script may be started or
+      suppressed. See components/autofill_assistant/browser/metrics.h.
+    </summary>
+    <aggregation>
+      <history>
+        <statistics>
+          <enumeration/>
+        </statistics>
+      </history>
+    </aggregation>
+  </metric>
+</event>
+
 <event name="BackgroundFetch">
   <owner>nator@chromium.org</owner>
   <owner>rayankans@chromium.org</owner>
@@ -1587,6 +1740,125 @@ be describing additional metrics about the same event.
   </metric>
 </event>
 
+<event name="Badging">
+  <owner>phillis@chromium.org</owner>
+  <owner>cmumford@chromium.org</owner>
+  <summary>
+    Metrics that measure the use of Badging API
+  </summary>
+  <metric name="UpdateAppBadge" enum="UpdateAppBadgeTypes">
+    <summary>
+      Logged when navigator.setAppBadge or navigator.clearAppBadge is called.
+    </summary>
+    <aggregation>
+      <history>
+        <index fields="profile.country"/>
+        <statistics>
+          <enumeration/>
+        </statistics>
+      </history>
+    </aggregation>
+  </metric>
+</event>
+
+<event name="Blink.FindInPage" singular="True">
+  <owner>vmpstr@chromium.org</owner>
+  <owner>chrishtr@chromium.org</owner>
+  <owner>paint-dev@chromium.org</owner>
+  <summary>
+    Logged once per page; indicates the type of find-in-page behaviors users
+    utilizied.
+  </summary>
+  <metric name="BeforematchExpandedHiddenMatchable">
+    <summary>
+      Boolean indicating that a find-in-page match was hidden but became visible
+      after the beforematch event was fired.
+    </summary>
+  </metric>
+  <metric name="DidHaveRenderSubtreeMatch">
+    <summary>
+      Boolean indicating whether there was an active match in content-visibility
+      unrendered elements.
+    </summary>
+  </metric>
+  <metric name="DidSearch">
+    <summary>
+      Boolean indicating that find-in-page happened.
+    </summary>
+  </metric>
+</event>
+
+<event name="Blink.HTMLParsing">
+  <owner>schenney@chromium.org</owner>
+  <owner>dom-dev@chromium.org</owner>
+  <summary>
+    Logged once per page load, to capture information about invocation of the
+    HTMLDocumentParser for the initial document load. Does not include other
+    aspects of document parsing, such as style sheet parsing or script execution
+    during parsing. Also does not include innerText parsing.
+
+    This event is not recorded on machines with low-resolution clocks.
+  </summary>
+  <metric name="ChunkCount">
+    <summary>
+      The number of chunks parsed while loading the page. Each chunk represents
+      a piece of the HTML content that can be loaded without blocking or
+      yielding.
+    </summary>
+  </metric>
+  <metric name="ParsingTimeMax">
+    <summary>
+      The maximum time used to parse a single chunk before being blocked,
+      yielding or completing, in microseconds.
+    </summary>
+  </metric>
+  <metric name="ParsingTimeMin">
+    <summary>
+      The minimum time used to parse a single chunk before being blocked,
+      yielding or completing, in microseconds.
+    </summary>
+  </metric>
+  <metric name="ParsingTimeTotal">
+    <summary>
+      The total amount of time spent in the HTMLDocumentParser parsing the page,
+      in microseconds.
+    </summary>
+  </metric>
+  <metric name="TokensParsedAverage">
+    <summary>
+      The average number of tokens parsed across all chunks.
+    </summary>
+  </metric>
+  <metric name="TokensParsedMax">
+    <summary>
+      The maximum number of tokens parsed as a chunk.
+    </summary>
+  </metric>
+  <metric name="TokensParsedMin">
+    <summary>
+      The minimum number of tokens parsed as a chunk.
+    </summary>
+  </metric>
+  <metric name="YieldedTimeAverage">
+    <summary>
+      The average time between parsing of two chunks, in microseconds. Will be
+      zero if only one chunk was parsed.
+    </summary>
+  </metric>
+  <metric name="YieldedTimeMax">
+    <summary>
+      The minimum time between parsing of two chunks, in microseconds. Will be
+      zero if only one chunk was parsed.
+    </summary>
+  </metric>
+  <metric name="YieldedTimeMin">
+    <summary>
+      The maximum time between parsing of two chunks, in microseconds. Will be
+      zero if only one chunk was parsed.
+    </summary>
+  </metric>
+</event>
+
 <event name="Blink.PageLoad">
   <owner>schenney@chromium.org</owner>
   <owner>paint-dev@chromium.org</owner>
@@ -1594,6 +1866,8 @@ be describing additional metrics about the same event.
     The aggregated time spent in each metric's component from creation of the
     local frame view to the First Contentful Paint signal. The event is reported
     once per page load when First Contentful Paint is signaled.
+
+    This event is not recorded on machines with low-resolution clocks.
   </summary>
   <metric name="Animate">
     <summary>
@@ -1602,15 +1876,30 @@ be describing additional metrics about the same event.
     </summary>
   </metric>
   <metric name="Compositing">
+    <obsolete>
+      Obsolete as of http://crrev.com/794384 and M86.
+    </obsolete>
     <summary>
       The time spent in main thread compositing, between navigation and First
       Contentful Paint, in microseconds.
+    </summary>
+  </metric>
+  <metric name="CompositingAssignments">
+    <summary>
+      The time spent in main thread compositing assignments, between navigation
+      and First Contentful Paint, in microseconds.
     </summary>
   </metric>
   <metric name="CompositingCommit">
     <summary>
       The time spent committing main thread compositing results, between
       navigation and First Contentful Paint, in microseconds.
+    </summary>
+  </metric>
+  <metric name="CompositingInputs">
+    <summary>
+      The time spent in main thread compositing inputs, between navigation and
+      First Contentful Paint, in microseconds.
     </summary>
   </metric>
   <metric name="ForcedStyleAndLayout">
@@ -1623,6 +1912,19 @@ be describing additional metrics about the same event.
     <summary>
       The time spent in processing rAF-aligned input for the main frame, between
       navigation and First Contentful Paint, in microseconds.
+    </summary>
+  </metric>
+  <metric name="HitTestDocumentUpdate">
+    <summary>
+      The time spent updating the document in preparation for a hit test for the
+      main frame, between navigation and First Contentful Paint, in
+      microseconds.
+    </summary>
+  </metric>
+  <metric name="ImplCompositorCommit">
+    <summary>
+      The time spent committing layer tree impl data in the compositor thread,
+      between navigation and First Contentful Paint, in microseconds.
     </summary>
   </metric>
   <metric name="IntersectionObservation">
@@ -1656,6 +1958,10 @@ be describing additional metrics about the same event.
     </summary>
   </metric>
   <metric name="ProxyCommit">
+    <obsolete>
+      Removed in M84 in favor of separate ImplCompositorCommit and WaitForCommit
+      metrics.
+    </obsolete>
     <summary>
       The time spent committing main thread to impl layer tree information,
       between navigation and First Contentful Paint, in microseconds.
@@ -1674,6 +1980,9 @@ be describing additional metrics about the same event.
     </summary>
   </metric>
   <metric name="StyleAndLayout">
+    <obsolete>
+      Removed January 2020 in favor of separate Style and Layout metrics.
+    </obsolete>
     <summary>
       The time spent in layout and style document lifecycle work, between
       navigation and First Contentful Paint, in microseconds. Will be obsolete
@@ -1686,6 +1995,27 @@ be describing additional metrics about the same event.
       First Contentful Paint, in microseconds.
     </summary>
   </metric>
+  <metric name="WaitForCommit">
+    <summary>
+      The time spent waiting for the compositor thread to begin processing a
+      commit, between navigation and First Contentful Paint, in microseconds.
+    </summary>
+  </metric>
+</event>
+
+<event name="Blink.Script.AsyncScripts" singular="True">
+  <owner>dom@chromium.org</owner>
+  <owner>chrome-loading@google.com</owner>
+  <summary>
+    Metrics associated with the async script count associated with a document,
+    recorded when the HTML parsing of a mainframe has completed.
+  </summary>
+  <metric name="AsyncScriptCount">
+    <summary>
+      The total number of async scripts associated with a document at the time
+      parsing has finished.
+    </summary>
+  </metric>
 </event>
 
 <event name="Blink.UpdateTime">
@@ -1695,6 +2025,8 @@ be describing additional metrics about the same event.
     Metrics that measure various update times in Blink. This includes paint,
     compositing, and layout update times. The metrics are recorded at first
     lifecycle update and then a random frame with mean interval of 2000 frames.
+
+    This event is not recorded on machines with low-resolution clocks.
   </summary>
   <metric name="Animate">
     <summary>
@@ -1762,6 +2094,9 @@ be describing additional metrics about the same event.
     </summary>
   </metric>
   <metric name="Compositing">
+    <obsolete>
+      Obsolete as of http://crrev.com/794384.
+    </obsolete>
     <summary>
       The time taken by the compositing phase in microseconds during the sampled
       frame.
@@ -1818,6 +2153,26 @@ be describing additional metrics about the same event.
     <summary>
       The highest proportion of a frame ever used by the compositing phase
       within the sample window. An int in the range [0,100].
+    </summary>
+  </metric>
+  <metric name="CompositingAssignments">
+    <summary>
+      The time taken by compositing assignments in microseconds during the
+      sampled frame.
+    </summary>
+    <aggregation>
+      <history>
+        <index fields="profile.country"/>
+        <statistics>
+          <quantiles type="std-percentiles"/>
+        </statistics>
+      </history>
+    </aggregation>
+  </metric>
+  <metric name="CompositingAssignmentsPercentage">
+    <summary>
+      The percentage of the main frame time used by the compositing assignments
+      phase. An int in the range [0,100].
     </summary>
   </metric>
   <metric name="CompositingCommit">
@@ -1886,10 +2241,31 @@ be describing additional metrics about the same event.
       int in the range [0,100].
     </summary>
   </metric>
+  <metric name="CompositingInputs">
+    <summary>
+      The time taken by the compositing inputs phase in microseconds during the
+      sampled frame.
+    </summary>
+    <aggregation>
+      <history>
+        <index fields="profile.country"/>
+        <statistics>
+          <quantiles type="std-percentiles"/>
+        </statistics>
+      </history>
+    </aggregation>
+  </metric>
+  <metric name="CompositingInputsPercentage">
+    <summary>
+      The percentage of the main frame time used by the compositing inputs
+      phase. An int in the range [0,100].
+    </summary>
+  </metric>
   <metric name="CompositingPercentage">
     <summary>
       The percentage of the main frame time used by the compositing phase. An
-      int in the range [0,100].
+      int in the range [0,100]. This is being replaced soon by
+      CompositingInputsPercentage and CompositingAssignmentsPercentage.
     </summary>
   </metric>
   <metric name="ForcedStyleAndLayout">
@@ -2027,6 +2403,48 @@ be describing additional metrics about the same event.
       input. An int in the range [0,100].
     </summary>
   </metric>
+  <metric name="HitTestDocumentUpdate">
+    <summary>
+      The time taken to perform hit test document updates for the main frame in
+      microseconds during the sampled frame. It does not compute the actual hit
+      test time, rather the style, layout, compositing, etc time to prepare for
+      the test.
+    </summary>
+    <aggregation>
+      <history>
+        <index fields="profile.country"/>
+        <statistics>
+          <quantiles type="std-percentiles"/>
+        </statistics>
+      </history>
+    </aggregation>
+  </metric>
+  <metric name="HitTestDocumentUpdatePercentage">
+    <summary>
+      The percentage of the main frame time used in performing hit test document
+      updates. An int in the range [0,100].
+    </summary>
+  </metric>
+  <metric name="ImplCompositorCommit">
+    <summary>
+      The time spent committing layer tree impl data in the compositor thread,
+      in microseconds.
+    </summary>
+    <aggregation>
+      <history>
+        <index fields="profile.country"/>
+        <statistics>
+          <quantiles type="std-percentiles"/>
+        </statistics>
+      </history>
+    </aggregation>
+  </metric>
+  <metric name="ImplCompositorCommitPercentage">
+    <summary>
+      The percentage of the main frame time spent committing layer tree impl
+      data in the compositor thread. An int in the range [0,100].
+    </summary>
+  </metric>
   <metric name="IntersectionObservation">
     <summary>
       The time taken to compute intersection observer state for the main frame
@@ -2157,6 +2575,15 @@ be describing additional metrics about the same event.
     <summary>
       True if the lifecycle update in this event occurred before FCP (First
       Contentful Paint) was registered.
+    </summary>
+  </metric>
+  <metric name="MainFrameReasons">
+    <summary>
+      A bitfield representation of the reasons for a main frame update. The
+      fields are based on the FrameSequenceTrackerType enum, so bitwise and with
+      the following values to determine if a reason was present:
+      CompositorAnimation: 1, MainThreadAnimation: 2, PinchZoom: 4, RAF: 8,
+      TouchScroll: 16, Universal: 32, Video: 64 and WheelScroll: 128.
     </summary>
   </metric>
   <metric name="Paint">
@@ -2290,6 +2717,10 @@ be describing additional metrics about the same event.
     </summary>
   </metric>
   <metric name="ProxyCommit">
+    <obsolete>
+      Removed in M84 in favor of separate ImplCompositorCommit and WaitForCommit
+      metrics.
+    </obsolete>
     <summary>
       The time taken for the proxy to commit to the impl thread in microseconds
       during the sampled frame.
@@ -2304,6 +2735,10 @@ be describing additional metrics about the same event.
     </aggregation>
   </metric>
   <metric name="ProxyCommitPercentage">
+    <obsolete>
+      Removed in M84 in favor of separate ImplCompositorCommit and WaitForCommit
+      metrics.
+    </obsolete>
     <summary>
       The percentage of the main frame time used to commit to the impl thread.
       An int in the range [0,100].
@@ -2390,6 +2825,9 @@ be describing additional metrics about the same event.
     </aggregation>
   </metric>
   <metric name="StyleAndLayout">
+    <obsolete>
+      Removed January 2020 in favor of separate Style and Layout metrics.
+    </obsolete>
     <summary>
       The time taken for style and layout for the main frame in microseconds
       during the sampled frame.
@@ -2449,6 +2887,9 @@ be describing additional metrics about the same event.
     </summary>
   </metric>
   <metric name="StyleAndLayoutPercentage">
+    <obsolete>
+      Removed January 2020 in favor of separate Style and Layout metrics.
+    </obsolete>
     <summary>
       The percentage of the main frame time used in style and layout work. An
       int in the range [0,100].
@@ -2478,6 +2919,26 @@ be describing additional metrics about the same event.
     <summary>
       The percentage of the main frame time used by LayerTreeHost::UpdateLayers.
       An int in the range [0,100].
+    </summary>
+  </metric>
+  <metric name="WaitForCommit">
+    <summary>
+      The time spent waiting for the compositor thread to begin processing a
+      commit, in microseconds.
+    </summary>
+    <aggregation>
+      <history>
+        <index fields="profile.country"/>
+        <statistics>
+          <quantiles type="std-percentiles"/>
+        </statistics>
+      </history>
+    </aggregation>
+  </metric>
+  <metric name="WaitForCommitPercentage">
+    <summary>
+      The percentage of the main frame time spent waiting for the compositor
+      thread to begin processing a commit. An int in the range [0,100].
     </summary>
   </metric>
 </event>
@@ -2665,6 +3126,41 @@ be describing additional metrics about the same event.
   <metric name="IsOffline" enum="Boolean">
     <summary>
       Whether the browser was offline when the content was opened.
+    </summary>
+  </metric>
+</event>
+
+<event name="ContextMenuAndroid.Selected">
+  <owner>benwgold@google.com</owner>
+  <owner>twellington@chromium.org</owner>
+  <metric name="Action">
+    <summary>
+      Emits an integer id for a selection corresponding to the action enum
+      defined in ChromeContextMenuPopulator.java (within the ContextMenuUma
+      class).
+    </summary>
+  </metric>
+</event>
+
+<event name="ContextMenuAndroid.Shown">
+  <owner>benwgold@google.com</owner>
+  <owner>twellington@chromium.org</owner>
+  <metric name="SearchByImage" enum="Boolean">
+    <summary>
+      Recorded when the context menu is constructed and logged if the search by
+      image option was displayed.
+    </summary>
+  </metric>
+  <metric name="SearchWithGoogleLens" enum="Boolean">
+    <summary>
+      Recorded when the context menu is constructed and logged if the lens
+      option was displayed.
+    </summary>
+  </metric>
+  <metric name="ShopWithGoogleLens" enum="Boolean">
+    <summary>
+      Recorded when the context menu is constructed and logged if the lens
+      shopping option was displayed.
     </summary>
   </metric>
 </event>
@@ -3038,6 +3534,76 @@ be describing additional metrics about the same event.
   </metric>
 </event>
 
+<event name="DetachedWindows.Experimental">
+  <obsolete>
+    Deprecated as of 01/2020.
+  </obsolete>
+  <owner>bartekn@chromium.org</owner>
+  <summary>
+    Metrics related to detached windows.
+  </summary>
+  <metric name="NavigationSourceId">
+    <summary>
+      Contains the UKM source id of the navigation as an integer.
+    </summary>
+  </metric>
+  <metric name="NumberOfCallsInDetachedWindowByClosing">
+    <summary>
+      The number of function calls in a window detached by closing/removal.
+    </summary>
+  </metric>
+  <metric name="NumberOfCallsInDetachedWindowByClosing_After10sSinceDetaching">
+    <summary>
+      The number of function calls in a window detached by closing/removal, that
+      happened at least 10 seconds after detaching.
+    </summary>
+  </metric>
+  <metric name="NumberOfCallsInDetachedWindowByClosing_After1minSinceDetaching">
+    <summary>
+      The number of function calls in a window detached by closing/removal, that
+      happened at least 1 minute after detaching.
+    </summary>
+  </metric>
+  <metric name="NumberOfCallsInDetachedWindowByNavigation">
+    <summary>
+      The number of function calls in a window detached by navigating away.
+    </summary>
+  </metric>
+  <metric
+      name="NumberOfCallsInDetachedWindowByNavigation_After10sSinceDetaching">
+    <summary>
+      The number of function calls in a window detached by navigating away, that
+      happened at least 10 seconds after detaching.
+    </summary>
+  </metric>
+  <metric
+      name="NumberOfCallsInDetachedWindowByNavigation_After1minSinceDetaching">
+    <summary>
+      The number of function calls in a window detached by navigating away, that
+      happened at least 1 minute after detaching.
+    </summary>
+  </metric>
+  <metric name="NumberOfCallsInDetachedWindowByOtherReason">
+    <summary>
+      The number of function calls in a window detached by another reason.
+    </summary>
+  </metric>
+  <metric
+      name="NumberOfCallsInDetachedWindowByOtherReason_After10sSinceDetaching">
+    <summary>
+      The number of function calls in a window detached by another reason, that
+      happened at least 10 seconds after detaching.
+    </summary>
+  </metric>
+  <metric
+      name="NumberOfCallsInDetachedWindowByOtherReason_After1minSinceDetaching">
+    <summary>
+      The number of function calls in a window detached by another reason, that
+      happened at least 1 minute after detaching.
+    </summary>
+  </metric>
+</event>
+
 <event name="Document.OutliveTimeAfterShutdown">
   <owner>hajimehoshi@chromium.org</owner>
   <owner>keishi@chromium.org</owner>
@@ -3376,6 +3942,56 @@ be describing additional metrics about the same event.
   </metric>
 </event>
 
+<event name="Extensions.CrossOriginFetchFromContentScript3">
+  <owner>lukasza@chromium.org</owner>
+  <summary>
+    This UKM event is logged when an extension which triggers a cross-origin
+    CORS-mode request from a content script if such a request results would be
+    allowed by CORB, but potentially blocked by CORS. The source-id URL
+    associated with the UKM event identifies the extension initiating such
+    request.
+
+    Note that this data is only gathered if the
+    CorbAllowlistAlsoAppliesToOorCors feature is disabled. Also note that this
+    data is not gathered for extensions that are already on the allowlist.
+  </summary>
+  <metric name="EventHappened" enum="Boolean">
+    <summary>
+      Always true - introduced to have non-zero number of metrics which should
+      make it easier to work with queries / dashboards for the overall
+      CrossOriginFetchFromContentScript3 event.
+    </summary>
+    <aggregation>
+      <history>
+        <statistics>
+          <enumeration/>
+        </statistics>
+      </history>
+    </aggregation>
+  </metric>
+</event>
+
+<event name="Extensions.WebRequest.KeepaliveRequestFinished">
+  <owner>yhirano@chromium.org</owner>
+  <owner>kinuko@chromium.org</owner>
+  <summary>
+    Whether and how keepalive requests are blocked. Recorded when a keepalive
+    request finishes.
+  </summary>
+  <metric name="State" enum="ExtensionInProgressRequestState">
+    <summary>
+      The final state of the request.
+    </summary>
+    <aggregation>
+      <history>
+        <statistics>
+          <enumeration/>
+        </statistics>
+      </history>
+    </aggregation>
+  </metric>
+</event>
+
 <event name="FontMatchAttempts">
   <owner>caraitto@chromium.org</owner>
   <owner>pauljensen@chromium.org</owner>
@@ -3471,6 +4087,42 @@ be describing additional metrics about the same event.
   </metric>
 </event>
 
+<event name="GeneratedNavigation" singular="True">
+  <owner>ryansturm@chromium.org</owner>
+  <owner>avi@chromium.org</owner>
+  <summary>
+    Logged when the user navigated to their home page or their default search
+    engine. Recorded if the first URL or the final URL matches the pattern for
+    Default Search or matches the user's home page URL. Recorded upon commit
+    (even if the page was not foreground).
+  </summary>
+  <metric name="FinalURLIsDefaultSearchEngine">
+    <summary>
+      If the navigation committed URL matches the template URL of the user's
+      Default Search Engine.
+    </summary>
+  </metric>
+  <metric name="FinalURLIsHomePage">
+    <summary>
+      If the navigation committed URL matches the user's home page URL. Not
+      recorded on Android because home page is managed outside of Chrome.
+    </summary>
+  </metric>
+  <metric name="FirstURLIsDefaultSearchEngine">
+    <summary>
+      If the navigation starting URL matches the template URL of the user's
+      Default Search Engine.
+    </summary>
+  </metric>
+  <metric name="FirstURLIsHomePage">
+    <summary>
+      If the navigation starting URL (first URL in the redirect chain) matches
+      the user's home page URL. Not recorded on Android because home page is
+      managed outside of Chrome.
+    </summary>
+  </metric>
+</event>
+
 <event name="GoogleDocsOfflineExtension">
   <owner>rhalavati@chromium.org</owner>
   <owner>chrome-privacy-core@google.com</owner>
@@ -3482,6 +4134,200 @@ be describing additional metrics about the same event.
   <metric name="ResourceRequested">
     <summary>
       Marks a resource request from a website.
+    </summary>
+    <aggregation>
+      <history>
+        <statistics>
+          <enumeration/>
+        </statistics>
+      </history>
+    </aggregation>
+  </metric>
+</event>
+
+<event name="Graphics.Smoothness.EventLatency">
+  <owner>mohsen@chromium.org</owner>
+  <owner>sadrul@chromium.org</owner>
+  <summary>
+    Tracks the duration of stages in the rendering pipeline when processing a
+    single frame in response to an input event. To meet UKM goals for data
+    volume, a Poisson process with an exponential decay multipler is used to
+    sample events for recporting. It will sample many reandomly distributed
+    events early during page load and initial interaction, then samples at an
+    exponentially decreasing rate to effectively cap the number of samples. All
+    times are in microseconds.
+  </summary>
+  <metric name="Activation">
+    <summary>
+      The duration of the activation stage.
+    </summary>
+    <aggregation>
+      <history>
+        <index fields="profile.country"/>
+        <statistics>
+          <quantiles type="std-percentiles"/>
+        </statistics>
+      </history>
+    </aggregation>
+  </metric>
+  <metric name="BeginImplFrameToSendBeginMainFrame">
+    <summary>
+      The time from when the Impl frame is started to when BeginMainFrame is
+      sent.
+    </summary>
+    <aggregation>
+      <history>
+        <index fields="profile.country"/>
+        <statistics>
+          <quantiles type="std-percentiles"/>
+        </statistics>
+      </history>
+    </aggregation>
+  </metric>
+  <metric name="BrowserToRendererCompositor">
+    <summary>
+      The time from when the event is created in the browser until the first
+      compositor stage after the event arrives in the renderer.
+    </summary>
+    <aggregation>
+      <history>
+        <index fields="profile.country"/>
+        <statistics>
+          <quantiles type="std-percentiles"/>
+        </statistics>
+      </history>
+    </aggregation>
+  </metric>
+  <metric name="Commit">
+    <summary>
+      The duration of the commit stage.
+    </summary>
+    <aggregation>
+      <history>
+        <index fields="profile.country"/>
+        <statistics>
+          <quantiles type="std-percentiles"/>
+        </statistics>
+      </history>
+    </aggregation>
+  </metric>
+  <metric name="EndActivateToSubmitCompositorFrame">
+    <summary>
+      The time from when an activation is complete to the next
+      SubmitCompositorFrame.
+    </summary>
+    <aggregation>
+      <history>
+        <index fields="profile.country"/>
+        <statistics>
+          <quantiles type="std-percentiles"/>
+        </statistics>
+      </history>
+    </aggregation>
+  </metric>
+  <metric name="EndCommitToActivation">
+    <summary>
+      The time from when a commit is complete to the beginning of the next
+      activation.
+    </summary>
+    <aggregation>
+      <history>
+        <index fields="profile.country"/>
+        <statistics>
+          <quantiles type="std-percentiles"/>
+        </statistics>
+      </history>
+    </aggregation>
+  </metric>
+  <metric name="EventType" enum="EventLatencyEventType">
+    <summary>
+      Type of the input event.
+    </summary>
+    <aggregation>
+      <history>
+        <index fields="profile.country"/>
+        <statistics>
+          <enumeration/>
+        </statistics>
+      </history>
+    </aggregation>
+  </metric>
+  <metric name="ScrollInputType" enum="EventLatencyScrollInputType">
+    <summary>
+      Type of the input device for scroll and pinch events.
+    </summary>
+    <aggregation>
+      <history>
+        <statistics>
+          <enumeration/>
+        </statistics>
+      </history>
+    </aggregation>
+  </metric>
+  <metric name="SendBeginMainFrameToCommit">
+    <summary>
+      The time from when the BeginMainFrame is sent to the beginning of the
+      commit.
+    </summary>
+    <aggregation>
+      <history>
+        <index fields="profile.country"/>
+        <statistics>
+          <quantiles type="std-percentiles"/>
+        </statistics>
+      </history>
+    </aggregation>
+  </metric>
+  <metric name="SubmitCompositorFrameToPresentationCompositorFrame">
+    <summary>
+      The time from when a compositor frame is submitted to the display
+      compositor to when it is presented.
+    </summary>
+    <aggregation>
+      <history>
+        <index fields="profile.country"/>
+        <statistics>
+          <quantiles type="std-percentiles"/>
+        </statistics>
+      </history>
+    </aggregation>
+  </metric>
+  <metric name="TotalLatency">
+    <summary>
+      The total time from when the event is created in the browser to when the
+      frame is presented.
+    </summary>
+    <aggregation>
+      <history>
+        <index fields="profile.country"/>
+        <statistics>
+          <quantiles type="std-percentiles"/>
+        </statistics>
+      </history>
+    </aggregation>
+  </metric>
+  <metric name="TotalLatencyToSwapBegin">
+    <summary>
+      The time from when the event is created in the browser to when the
+      gpu-swap is started, for scroll events.
+    </summary>
+    <aggregation>
+      <history>
+        <index fields="profile.country"/>
+        <statistics>
+          <quantiles type="std-percentiles"/>
+        </statistics>
+      </history>
+    </aggregation>
+  </metric>
+  <metric name="TotalLatencyToSwapEnd">
+    <obsolete>
+      Deprecated as of 07/2020. Replaced with TotalLatencyToSwapBegin which
+      measures what we actually intended to measure.
+    </obsolete>
+    <summary>
+      The time from when the event is created in the browser to when the
+      gpu-swap is completed, for scroll events.
     </summary>
   </metric>
 </event>
@@ -3594,6 +4440,11 @@ be describing additional metrics about the same event.
       True when a rAF-driven animation was active this frame.
     </summary>
   </metric>
+  <metric name="ScrollbarScroll" enum="Boolean">
+    <summary>
+      True when a scrollbar driven interaction was active this frame.
+    </summary>
+  </metric>
   <metric name="SendBeginMainFrameToCommit">
     <summary>
       The time from when the BeginMainFrame is sent to the beginning of the
@@ -3639,9 +4490,29 @@ be describing additional metrics about the same event.
   </metric>
   <metric
       name="SubmitCompositorFrameToPresentationCompositorFrame.StartDrawToSwapEnd">
+    <obsolete>
+      Deprecated 02/2020. Split into
+      SubmitCompositorFrameToPresentationCompositorFrame.StartDrawToSwapStart
+      and SubmitCompositorFrameToPresentationCompositorFrame.SwapStartToSwapEnd.
+    </obsolete>
     <summary>
       The time from when the a compositor frame is started to draw to when it
       ends swap.
+    </summary>
+    <aggregation>
+      <history>
+        <index fields="profile.country"/>
+        <statistics>
+          <quantiles type="std-percentiles"/>
+        </statistics>
+      </history>
+    </aggregation>
+  </metric>
+  <metric
+      name="SubmitCompositorFrameToPresentationCompositorFrame.StartDrawToSwapStart">
+    <summary>
+      The time from when a compositor frame is started to draw to when it starts
+      swap.
     </summary>
     <aggregation>
       <history>
@@ -3672,6 +4543,20 @@ be describing additional metrics about the same event.
     <summary>
       The time from when the a compositor frame ends swap to when it is
       presented.
+    </summary>
+    <aggregation>
+      <history>
+        <index fields="profile.country"/>
+        <statistics>
+          <quantiles type="std-percentiles"/>
+        </statistics>
+      </history>
+    </aggregation>
+  </metric>
+  <metric
+      name="SubmitCompositorFrameToPresentationCompositorFrame.SwapStartToSwapEnd">
+    <summary>
+      The time from when a compositor frame starts swap to when it ends swap.
     </summary>
     <aggregation>
       <history>
@@ -3728,15 +4613,294 @@ be describing additional metrics about the same event.
   </metric>
 </event>
 
-<event name="Graphics.Smoothness.Throughput">
+<event name="Graphics.Smoothness.PercentDroppedFrames">
   <owner>animations-dev@chromium.org</owner>
   <owner>sadrul@chromium.org</owner>
   <summary>
-    Tracks the throughput of a particular sequence of frames such as during
-    scroll or animation. Throughput is measured by tracking the number of frames
-    the sequence was expected to produce, and the number of frames that were
-    actually displayed on screen. Throughput is the ratio of actual to expected,
-    converted to a percentage.
+    Tracks the percent of dropped frames for a particular sequence of frames
+    such as during scroll or animation. PercentDroppedFrames is measured by
+    tracking the number of frames the sequence was expected to produce, and the
+    number of frames that were not displayed on screen (dropped). It is the
+    ratio of dropped over expected, converted to a percentage.
+  </summary>
+  <metric name="AllAnimations">
+    <summary>
+      Tracks the throughput of a particular sequence of frames for all
+      animations. This metric is reported for all animations (e.g.
+      comositor-driven animations, main-thread driven animations, and raf-driven
+      animations).
+    </summary>
+    <aggregation>
+      <history>
+        <index fields="profile.country"/>
+        <statistics>
+          <quantiles type="std-percentiles"/>
+        </statistics>
+      </history>
+    </aggregation>
+  </metric>
+  <metric name="AllInteractions">
+    <summary>
+      Tracks the throughput of a particular sequence of frames where a
+      user-input (e.g. scroll, pinch) is active. This metric is reported for all
+      sources of user-input (i.e. both touchscreen and touchpad/mouse-wheel).
+    </summary>
+    <aggregation>
+      <history>
+        <index fields="profile.country"/>
+        <statistics>
+          <quantiles type="std-percentiles"/>
+        </statistics>
+      </history>
+    </aggregation>
+  </metric>
+  <metric name="AllSequences">
+    <summary>
+      Tracks the throughput of a particular sequence of frames. This metric is
+      reported for all animations and all interactions.
+    </summary>
+    <aggregation>
+      <history>
+        <index fields="profile.country"/>
+        <statistics>
+          <quantiles type="std-percentiles"/>
+        </statistics>
+      </history>
+    </aggregation>
+  </metric>
+  <metric name="CompositorThread.CompositorAnimation">
+    <summary>
+      The throughput of the compositor thread during a compositor animation.
+    </summary>
+  </metric>
+  <metric name="CompositorThread.MainThreadAnimation">
+    <summary>
+      The throughput of the compositor thread during a main thread animation.
+    </summary>
+  </metric>
+  <metric name="CompositorThread.PinchZoom">
+    <summary>
+      The throughput of the compositor thread during pinch-zoom interactions.
+    </summary>
+  </metric>
+  <metric name="CompositorThread.RAF">
+    <summary>
+      The throughput of the compositor thread during rAF callback driven
+      animation.
+    </summary>
+  </metric>
+  <metric name="CompositorThread.ScrollbarScroll">
+    <summary>
+      The throughput of the compositor thread during scrollbar scroll driven
+      interactions.
+    </summary>
+  </metric>
+  <metric name="CompositorThread.TouchScroll">
+    <summary>
+      The throughput of the compositor thread during touchscroll driven
+      interactions.
+    </summary>
+  </metric>
+  <metric name="CompositorThread.Universal">
+    <summary>
+      The throughput of the compositor thread for all frame production.
+    </summary>
+  </metric>
+  <metric name="CompositorThread.Video">
+    <summary>
+      The throughput of the compositor thread during video play.
+    </summary>
+  </metric>
+  <metric name="CompositorThread.WheelScroll">
+    <summary>
+      The throughput of the compositor thread during mousewheel scroll driven
+      interactions.
+    </summary>
+  </metric>
+  <metric name="MainThread.CompositorAnimation">
+    <summary>
+      The throughput of the main thread during a compositor animation.
+    </summary>
+  </metric>
+  <metric name="MainThread.MainThreadAnimation">
+    <summary>
+      The throughput of the main thread during a main thread animation.
+    </summary>
+  </metric>
+  <metric name="MainThread.PinchZoom">
+    <summary>
+      The throughput of the main thread during pinch-zoom interactions.
+    </summary>
+  </metric>
+  <metric name="MainThread.RAF">
+    <summary>
+      The throughput of the main thread during rAF callback driven animation.
+    </summary>
+  </metric>
+  <metric name="MainThread.ScrollbarScroll">
+    <summary>
+      The throughput of the main thread during scrollbar scroll driven
+      interactions.
+    </summary>
+  </metric>
+  <metric name="MainThread.TouchScroll">
+    <summary>
+      The throughput of the main thread during touchscroll driven interactions.
+    </summary>
+  </metric>
+  <metric name="MainThread.Universal">
+    <summary>
+      The throughput of the main thread for all frame production.
+    </summary>
+  </metric>
+  <metric name="MainThread.Video">
+    <summary>
+      The throughput of the main thread during video play.
+    </summary>
+  </metric>
+  <metric name="MainThread.WheelScroll">
+    <summary>
+      The throughput of the main thread during mousewheel scroll driven
+      interactions.
+    </summary>
+  </metric>
+  <metric name="SlowerThread.CompositorAnimation">
+    <summary>
+      The worse throughput of the main and the compositor thread during a
+      compositor animation.
+    </summary>
+    <aggregation>
+      <history>
+        <index fields="profile.country"/>
+        <statistics>
+          <quantiles type="std-percentiles"/>
+        </statistics>
+      </history>
+    </aggregation>
+  </metric>
+  <metric name="SlowerThread.MainThreadAnimation">
+    <summary>
+      The worse throughput of the main and the compositor thread during a main
+      thread animation.
+    </summary>
+    <aggregation>
+      <history>
+        <index fields="profile.country"/>
+        <statistics>
+          <quantiles type="std-percentiles"/>
+        </statistics>
+      </history>
+    </aggregation>
+  </metric>
+  <metric name="SlowerThread.PinchZoom">
+    <summary>
+      The worse throughput of the main and the compositor thread during
+      pinch-zoom interactions.
+    </summary>
+    <aggregation>
+      <history>
+        <index fields="profile.country"/>
+        <statistics>
+          <quantiles type="std-percentiles"/>
+        </statistics>
+      </history>
+    </aggregation>
+  </metric>
+  <metric name="SlowerThread.RAF">
+    <summary>
+      The worse throughput of the main and the compositor thread during rAF
+      callback driven animation.
+    </summary>
+    <aggregation>
+      <history>
+        <index fields="profile.country"/>
+        <statistics>
+          <quantiles type="std-percentiles"/>
+        </statistics>
+      </history>
+    </aggregation>
+  </metric>
+  <metric name="SlowerThread.ScrollbarScroll">
+    <summary>
+      The worse throughput of the main and the compositor thread during
+      scrollbar driven interactions.
+    </summary>
+    <aggregation>
+      <history>
+        <index fields="profile.country"/>
+        <statistics>
+          <quantiles type="std-percentiles"/>
+        </statistics>
+      </history>
+    </aggregation>
+  </metric>
+  <metric name="SlowerThread.TouchScroll">
+    <summary>
+      The worse throughput of the main and the compositor thread during
+      touchscroll driven interactions.
+    </summary>
+    <aggregation>
+      <history>
+        <index fields="profile.country"/>
+        <statistics>
+          <quantiles type="std-percentiles"/>
+        </statistics>
+      </history>
+    </aggregation>
+  </metric>
+  <metric name="SlowerThread.Universal">
+    <summary>
+      The worse throughput of the main and the compositor thread for all frame
+      production.
+    </summary>
+    <aggregation>
+      <history>
+        <index fields="profile.country"/>
+        <statistics>
+          <quantiles type="std-percentiles"/>
+        </statistics>
+      </history>
+    </aggregation>
+  </metric>
+  <metric name="SlowerThread.Video">
+    <summary>
+      The worse throughput of the main and the compositor thread during video
+      play.
+    </summary>
+    <aggregation>
+      <history>
+        <index fields="profile.country"/>
+        <statistics>
+          <quantiles type="std-percentiles"/>
+        </statistics>
+      </history>
+    </aggregation>
+  </metric>
+  <metric name="SlowerThread.WheelScroll">
+    <summary>
+      The worse throughput of the main and the compositor thread during
+      mousewheel scroll driven interactions.
+    </summary>
+    <aggregation>
+      <history>
+        <index fields="profile.country"/>
+        <statistics>
+          <quantiles type="std-percentiles"/>
+        </statistics>
+      </history>
+    </aggregation>
+  </metric>
+</event>
+
+<event name="Graphics.Smoothness.Throughput">
+  <obsolete>
+    Deprecated 02/2020.
+  </obsolete>
+  <owner>animations-dev@chromium.org</owner>
+  <owner>sadrul@chromium.org</owner>
+  <summary>
+    As of 2020-02-12, this is deprecated in favor of
+    Graphics.Smoothness.PercentDroppedFrames.
   </summary>
   <metric name="CompositorThread.CompositorAnimation">
     <summary>
@@ -3827,112 +4991,48 @@ be describing additional metrics about the same event.
       The worse throughput of the main and the compositor thread during a
       compositor animation.
     </summary>
-    <aggregation>
-      <history>
-        <index fields="profile.country"/>
-        <statistics>
-          <quantiles type="std-percentiles"/>
-        </statistics>
-      </history>
-    </aggregation>
   </metric>
   <metric name="SlowerThread.MainThreadAnimation">
     <summary>
       The worse throughput of the main and the compositor thread during a main
       thread animation.
     </summary>
-    <aggregation>
-      <history>
-        <index fields="profile.country"/>
-        <statistics>
-          <quantiles type="std-percentiles"/>
-        </statistics>
-      </history>
-    </aggregation>
   </metric>
   <metric name="SlowerThread.PinchZoom">
     <summary>
       The worse throughput of the main and the compositor thread during
       pinch-zoom interactions.
     </summary>
-    <aggregation>
-      <history>
-        <index fields="profile.country"/>
-        <statistics>
-          <quantiles type="std-percentiles"/>
-        </statistics>
-      </history>
-    </aggregation>
   </metric>
   <metric name="SlowerThread.RAF">
     <summary>
       The worse throughput of the main and the compositor thread during rAF
       callback driven animation.
     </summary>
-    <aggregation>
-      <history>
-        <index fields="profile.country"/>
-        <statistics>
-          <quantiles type="std-percentiles"/>
-        </statistics>
-      </history>
-    </aggregation>
   </metric>
   <metric name="SlowerThread.TouchScroll">
     <summary>
       The worse throughput of the main and the compositor thread during
       touchscroll driven interactions.
     </summary>
-    <aggregation>
-      <history>
-        <index fields="profile.country"/>
-        <statistics>
-          <quantiles type="std-percentiles"/>
-        </statistics>
-      </history>
-    </aggregation>
   </metric>
   <metric name="SlowerThread.Universal">
     <summary>
       The worse throughput of the main and the compositor thread for all frame
       production.
     </summary>
-    <aggregation>
-      <history>
-        <index fields="profile.country"/>
-        <statistics>
-          <quantiles type="std-percentiles"/>
-        </statistics>
-      </history>
-    </aggregation>
   </metric>
   <metric name="SlowerThread.Video">
     <summary>
       The worse throughput of the main and the compositor thread during video
       play.
     </summary>
-    <aggregation>
-      <history>
-        <index fields="profile.country"/>
-        <statistics>
-          <quantiles type="std-percentiles"/>
-        </statistics>
-      </history>
-    </aggregation>
   </metric>
   <metric name="SlowerThread.WheelScroll">
     <summary>
       The worse throughput of the main and the compositor thread during
       mousewheel scroll driven interactions.
     </summary>
-    <aggregation>
-      <history>
-        <index fields="profile.country"/>
-        <statistics>
-          <quantiles type="std-percentiles"/>
-        </statistics>
-      </history>
-    </aggregation>
   </metric>
 </event>
 
@@ -3948,10 +5048,25 @@ be describing additional metrics about the same event.
 <event name="HistoryNavigation" singular="True">
   <owner>altimin@chromium.org</owner>
   <owner>arthursonzogni@chromium.org</owner>
+  <owner>hajimehoshi@chromium.org</owner>
   <summary>
     Metrics recorded each time we commit a history navigation, which are needed
-    to estimate benefits of back-forward cache.
+    to estimate benefits of back-forward cache. Except as otherwise noted, the
+    metrics are recorded for history navigations, but not for same-document
+    navigations.
   </summary>
+  <metric name="BackForwardCache.IsServedFromBackForwardCache">
+    <summary>
+      Boolean whether the page was restored from the back-forward cache or not.
+    </summary>
+  </metric>
+  <metric name="BackForwardCache.NotRestoredReasons">
+    <summary>
+      Bitmask of the reasons why the page was not restored from the back-forward
+      cache. See contents::BackForwardCacheMetrics::NotRestoredReason for the
+      meaning of the individual bits.
+    </summary>
+  </metric>
   <metric name="CrossOriginSubframesFeatures">
     <summary>
       Bitmask of features used by the cross origin subframes of the previous
@@ -3959,10 +5074,31 @@ be describing additional metrics about the same event.
       individual features.
     </summary>
   </metric>
-  <metric name="LastCommittedSourceIdForTheSameDocument">
+  <metric name="CumulativeShiftScoreAfterBackForwardCacheRestore">
+    <summary>
+      Measures the cumulative layout shift (bit.ly/3fQz29y) that has occurred
+      during the session, after the page is restored from the back-forward
+      cache. This metric's integral value is 100x the fractional cumulative
+      layout shift score described in the explainer.
+    </summary>
+  </metric>
+  <metric name="FirstInputDelayAfterBackForwardCacheRestore">
+    <summary>
+      Measures First Input Delay, the duration between the hardware timestamp
+      and the start of event processing on the main thread for the first
+      meaningful input per navigation, after the page is restored from the
+      back-forward cache.
+    </summary>
+  </metric>
+  <metric name="LastCommittedCrossDocumentNavigationSourceIdForTheSameDocument">
     <summary>
       For history navigations and reloads, the source id of the previous
       navigation which loaded the page we're trying to navigate back to.
+    </summary>
+  </metric>
+  <metric name="LastCommittedSourceIdForTheSameDocument">
+    <summary>
+      Deprecated as of 01/2019.
     </summary>
   </metric>
   <metric name="MainFrameFeatures">
@@ -3986,6 +5122,13 @@ be describing additional metrics about the same event.
       It's expected to be rare, but might be problematic for back-forward cache.
     </summary>
   </metric>
+  <metric name="NavigationToFirstPaintAfterBackForwardCacheRestore">
+    <summary>
+      Measures the time in milliseconds from navigation timing's navigation
+      start to the time the first paint is performed, after the page is restored
+      from the back-forward cache.
+    </summary>
+  </metric>
   <metric name="SameOriginSubframesFeatures">
     <summary>
       Bitmask of features used by the same origin subframes of the previous page
@@ -4002,6 +5145,81 @@ be describing additional metrics about the same event.
       values greater than 3 minutes, to seconds for values greater than 5
       seconds.
     </summary>
+  </metric>
+</event>
+
+<event name="Identifiability">
+  <owner>asanka@chromium.org</owner>
+  <owner>pauljensen@chromium.org</owner>
+  <owner>caraitto@chromium.org</owner>
+  <summary>
+    Identifiability metrics are used to measure the diversity of web clients as
+    observed by individual web sites.
+
+    Browser or device fingerprinting uses differences in behaviors of web APIs
+    as identifiers. The values collected under this event indicate the level of
+    identifiability of these differences.
+
+    Metrics recorded under this event are keyed based on parameters determined
+    at runtime. Hence the metrics described in this file are not exhaustive.
+
+    See
+    //third_party/blink/public/common/privacy_budget/identifiability/identifiability_metric_builder.h
+    for details on how the metrics hash is determined.
+  </summary>
+  <metric name="StudyGeneration.626">
+    <summary>
+      An integer identifying the study &quot;generation.&quot; In case the study
+      parameters need to be tweaked to the point where results cannot be
+      aggregated across study parameter sets, this value can be changed to
+      partition the results.
+
+      The name suffix (.626) was chosen so that the resulting metric hash as
+      determined by base::HashMetricName() has all 8 LSBs set to 0. Such a
+      metric hash does not collide with any other metric hash generated by
+      blink::IdentifiabilityMetricBuilder().
+    </summary>
+  </metric>
+</event>
+
+<event name="InputEvent">
+  <owner>hbsong@chromium.org</owner>
+  <summary>
+    Metrics associated with user input events. This event is recorded in Blink
+    and may not be recorded for the same page visits as events like PageLoad.
+    Consumers of this event's metrics should be aware of this when making
+    comparisons between InputEvent metrics and PageLoad metrics.
+  </summary>
+  <metric name="InteractiveTiming.InputDelay">
+    <summary>
+      Measures Input Delay, the duration between the hardware timestamp and the
+      start of event processing on the main thread for the meaningful input. In
+      ms. (go/FirstInputDelay)
+    </summary>
+    <aggregation>
+      <history>
+        <index fields="profile.is_dominant_version"/>
+        <index fields="profile.is_latest_version"/>
+        <statistics>
+          <quantiles type="std-percentiles"/>
+        </statistics>
+      </history>
+    </aggregation>
+  </metric>
+  <metric name="InteractiveTiming.ProcessingTime">
+    <summary>
+      Measures Input Event processing time, the duration of event handlers
+      processing the input event. In ms.
+    </summary>
+    <aggregation>
+      <history>
+        <index fields="profile.is_dominant_version"/>
+        <index fields="profile.is_latest_version"/>
+        <statistics>
+          <quantiles type="std-percentiles"/>
+        </statistics>
+      </history>
+    </aggregation>
   </metric>
 </event>
 
@@ -4050,6 +5268,37 @@ be describing additional metrics about the same event.
         </statistics>
       </history>
     </aggregation>
+  </metric>
+</event>
+
+<event name="IOS.PageZoomChanged">
+  <owner>rkgibson@google.com</owner>
+  <summary>
+    Logged when the user changes their zoom level on iOS.
+  </summary>
+  <metric name="ContentSizeCategory" enum="IOSContentSizeCategory">
+    <summary>
+      The content size category the user is currently using.
+    </summary>
+    <aggregation>
+      <history>
+        <statistics>
+          <enumeration/>
+        </statistics>
+      </history>
+    </aggregation>
+  </metric>
+  <metric name="OverallZoomLevel">
+    <summary>
+      The overall zoom level. This is based on a combination of the user zoom
+      level and a multiplier from the user's content size category.
+    </summary>
+  </metric>
+  <metric name="UserZoomLevel">
+    <summary>
+      The current zoom multiplier (percentage-based, with 100 -&gt; 100%) the
+      user has chosen.
+    </summary>
   </metric>
 </event>
 
@@ -4114,6 +5363,16 @@ be describing additional metrics about the same event.
   </metric>
 </event>
 
+<event name="JavascriptFrameworkPageLoad" singular="True">
+  <owner>houssein@chromium.org</owner>
+  <metric name="NextJSPageLoad">
+    <summary>
+      True if the page loaded in the main frame uses the Next.js JavaScript
+      framework.
+    </summary>
+  </metric>
+</event>
+
 <event name="Layout.DisplayCutout.StateChanged">
   <owner>beccahughes@chromium.org</owner>
   <owner>media-dev@chromium.org</owner>
@@ -4157,6 +5416,154 @@ be describing additional metrics about the same event.
       triggered the event. This is stored as a ViewportFit enum (see
       display_cutout.mojom). It can never be kAuto as we ignore events when the
       page is not trying to use the viewport fit API.
+    </summary>
+  </metric>
+</event>
+
+<event name="LiteVideo">
+  <owner>mcrouse@chromium.org</owner>
+  <owner>rajendrant@chromium.org</owner>
+  <summary>
+    Metrics that capture the state and result of the LiteVideo optimization.
+    This will be recorded once per frame when the associated render process
+    ends. Only for Lite mode users on Android.
+  </summary>
+  <metric name="BlocklistReason" enum="LiteVideoBlocklistReason">
+    <summary>
+      The reason that a navigation was blocklisted and will not have media
+      requests throttled.
+    </summary>
+  </metric>
+  <metric name="ThrottlingResult" enum="LiteVideoThrottleResult">
+    <summary>
+      The result for whether media requests associated with this navigation were
+      successfully throttled or stopped due to an opt-out event.
+    </summary>
+  </metric>
+  <metric name="ThrottlingStartDecision" enum="LiteVideoDecision">
+    <summary>
+      The decision for whether media requests associated with this frame will be
+      potentially throttled.
+    </summary>
+  </metric>
+</event>
+
+<event name="LoadingPredictor" singular="true">
+  <owner>sophiechang@chromium.org</owner>
+  <owner>tbansal@chromium.org</owner>
+  <summary>
+    Metrics that reflect the accuracy of the predictions used by the Loading
+    Predictor. This event will be recorded once per page load on
+    DocumentOnLoadCompletedInMainFrame().
+  </summary>
+  <metric name="CorrectSubresourceOriginPreconnectsInitiated">
+    <summary>
+      The number of subresource origin preconnects that were initiated by the
+      Loading Predictor for the navigation and were actually used by the page
+      load, excluding the main frame URL's origin. If more than 100 subresource
+      origins were preconnected to and were actually used by the page load, this
+      will be capped at 100.
+    </summary>
+  </metric>
+  <metric name="CorrectSubresourcePrefetchesInitiated">
+    <summary>
+      The number of subresource prefetches that were initiated by the Loading
+      Predictor for the navigation and were actually used by the page load. If
+      more than 100 subresources were prefetched and were actually used by the
+      page load, this will be capped at 100.
+    </summary>
+  </metric>
+  <metric name="LocalPredictionCorrectlyPredictedOrigins">
+    <summary>
+      The number of subresource origins that were correctly predicted by the
+      local prediction database. This will be recorded if there is a prediction
+      available in the local prediction database and does not necessarily mean
+      that the prediction was used. If more than 100 subresource origins were
+      correctly predicted, this will be capped at 100.
+    </summary>
+  </metric>
+  <metric name="LocalPredictionOrigins">
+    <summary>
+      The number of subresource origins that were predicted locally. This will
+      be recorded if there is a prediction available in the local prediction
+      database and does not necessarily mean that the prediction was used. If
+      more than 100 subresource origins were predicted, this will be capped at
+      100.
+    </summary>
+  </metric>
+  <metric name="NavigationStartToFirstSubresourcePrefetchInitiated">
+    <summary>
+      The time (in milliseconds) that elapsed between navigation start and the
+      first subresource prefetch that was initiated based on these predictions.
+    </summary>
+  </metric>
+  <metric name="NavigationStartToNavigationCommit">
+    <summary>
+      The time (in milliseconds) that elapsed between navigation start and the
+      commit finished.
+    </summary>
+  </metric>
+  <metric name="NavigationStartToOptimizationGuidePredictionArrived">
+    <summary>
+      The time (in milliseconds) that elapsed between navigation start and the
+      optimization guide prediction arriving for the navigation.
+    </summary>
+  </metric>
+  <metric name="OptimizationGuidePredictionCorrectlyPredictedOrigins">
+    <summary>
+      The number of subresource origins that were correctly predicted by the
+      Optimization Guide. This will be recorded if the Optimization Guide was
+      consulted for the page load and the Optimization Guide had a prediction
+      for it. If more than 100 subresource origins were correctly predicted,
+      this will be capped at 100.
+    </summary>
+  </metric>
+  <metric name="OptimizationGuidePredictionCorrectlyPredictedSubresources">
+    <summary>
+      The number of subresources that were correctly predicted by the
+      Optimization Guide. This will be recorded if the Optimization Guide was
+      consulted for the page load and the Optimization Guide had a prediction
+      for it. If more than 100 subresources were predicted, this will be capped
+      at 100.
+    </summary>
+  </metric>
+  <metric name="OptimizationGuidePredictionDecision"
+      enum="OptimizationGuideOptimizationGuideDecision">
+    <summary>
+      The decision coming from the Optimization Guide for whether there was a
+      prediction available for the Page Load. This will be recorded if the
+      Optimization Guide was consulted for the page load.
+    </summary>
+  </metric>
+  <metric name="OptimizationGuidePredictionOrigins">
+    <summary>
+      The number of subresource origins that were predicted by the Optimization
+      Guide. This will be recorded if the Optimization Guide was consulted for
+      the page load and the Optimization Guide had a prediction for it. If more
+      than 100 subresource origins were predicted, this will be capped at 100.
+    </summary>
+  </metric>
+  <metric name="OptimizationGuidePredictionSubresources">
+    <summary>
+      The number of subresources that were predicted by the Optimization Guide.
+      This will be recorded if the Optimization Guide was consulted for the page
+      load and the Optimization Guide had a prediction for it. If more than 100
+      subresources were predicted, this will be capped at 100.
+    </summary>
+  </metric>
+  <metric name="SubresourceOriginPreconnectsInitiated">
+    <summary>
+      The number of subresource origins that were initiated by the Loading
+      Predictor and were preconnected to, excluding the main frame URL's origin.
+      If more than 100 subresource origins were preconnected to, this will be
+      capped at 100.
+    </summary>
+  </metric>
+  <metric name="SubresourcePrefetchesInitiated">
+    <summary>
+      The number of subresource prefetches that were initiated by the Loading
+      Predictor for the navigation. If more than 100 subresources were
+      prefetched, this will be capped at 100.
     </summary>
   </metric>
 </event>
@@ -4218,14 +5625,14 @@ be describing additional metrics about the same event.
   <metric name="MatchType">
     <summary>
       An enum value representing the type of the match (popular domain, engaged
-      domain, etc.). The enum is defined in |LookalikeUrlInterstitialPage|.
+      domain, etc.). The enum is defined in |LookalikeUrlBlockingPage|.
     </summary>
   </metric>
   <metric name="UserAction">
     <summary>
       An enum value representing the decision the user made when shown an
       interstitial (ignored, suggestion_accepted, etc.). The enum is defined in
-      |LookalikeUrlInterstitialPage|.
+      |LookalikeUrlBlockingPage|.
     </summary>
   </metric>
 </event>
@@ -4248,6 +5655,19 @@ be describing additional metrics about the same event.
     <summary>
       A boolean denoting whether the download occurs in a sandboxed browsing
       context.
+    </summary>
+  </metric>
+</event>
+
+<event name="MainFrameNavigation" singular="True">
+  <owner>thegreenfrog@chromium.org</owner>
+  <summary>
+    Metric associated with a main frame navigation. Currently implemented only
+    on iOS.
+  </summary>
+  <metric name="DidCommit" enum="Boolean">
+    <summary>
+      Set to 1 if the navigation successfully commited.
     </summary>
   </metric>
 </event>
@@ -4366,6 +5786,12 @@ be describing additional metrics about the same event.
     <summary>
       media::AudioCodec enum value. Can be kUnknownAudioCodec even when HasAudio
       is true because we don't always know the codec.
+    </summary>
+  </metric>
+  <metric name="AudioCodecProfile">
+    <summary>
+      media::AudioCodecProfile enum value. Can be AudioCodecProfile::kUnknown
+      even when HasAudio is true because we don't always know the codec profile.
     </summary>
   </metric>
   <metric name="AudioDecoderName">
@@ -4565,6 +5991,96 @@ be describing additional metrics about the same event.
   </metric>
 </event>
 
+<event name="Media.EME.ApiPromiseRejection">
+  <owner>xhwang@chromium.org</owner>
+  <owner>media-dev@chromium.org</owner>
+  <summary>
+    Event recorded when an Encrypted Media Extensions (EME) API promise is
+    rejected. In most cases this indicates a failure.
+  </summary>
+  <metric name="Api" enum="EmeApiType">
+    <summary>
+      The EME API for which the promise is rejected.
+    </summary>
+    <aggregation>
+      <history>
+        <statistics>
+          <enumeration/>
+        </statistics>
+      </history>
+    </aggregation>
+  </metric>
+  <metric name="SystemCode" enum="CdmSystemCode">
+    <summary>
+      A CDM specific code providing more details about the cause of rejection.
+    </summary>
+    <aggregation>
+      <history>
+        <statistics>
+          <enumeration/>
+        </statistics>
+      </history>
+    </aggregation>
+  </metric>
+</event>
+
+<event name="Media.EME.CreateMediaKeys">
+  <owner>xhwang@chromium.org</owner>
+  <owner>media-dev@chromium.org</owner>
+  <summary>
+    Event recorded when createMediaKeys() is called as part of Encrypted Media
+    Extensions (EME) API.
+  </summary>
+  <metric name="IsAdFrame" enum="Boolean">
+    <summary>
+      Whether the frame is an ad frame.
+    </summary>
+    <aggregation>
+      <history>
+        <statistics>
+          <enumeration/>
+        </statistics>
+      </history>
+    </aggregation>
+  </metric>
+  <metric name="IsCrossOrigin" enum="Boolean">
+    <summary>
+      Whether the frame is Cross-Origin to the main frame.
+    </summary>
+    <aggregation>
+      <history>
+        <statistics>
+          <enumeration/>
+        </statistics>
+      </history>
+    </aggregation>
+  </metric>
+  <metric name="IsTopFrame" enum="Boolean">
+    <summary>
+      Whether the frame is the main frame.
+    </summary>
+    <aggregation>
+      <history>
+        <statistics>
+          <enumeration/>
+        </statistics>
+      </history>
+    </aggregation>
+  </metric>
+  <metric name="KeySystem" enum="MediaKeySystem">
+    <summary>
+      The key system associated with this call.
+    </summary>
+    <aggregation>
+      <history>
+        <statistics>
+          <enumeration/>
+        </statistics>
+      </history>
+    </aggregation>
+  </metric>
+</event>
+
 <event name="Media.EME.RequestMediaKeySystemAccess">
   <owner>xhwang@chromium.org</owner>
   <owner>media-dev@chromium.org</owner>
@@ -4572,26 +6088,76 @@ be describing additional metrics about the same event.
     Event recorded when RequestMediaKeySystemAccess() is called as part of
     Encrypted Media Extensions (EME) API.
   </summary>
-  <metric name="KeySystem">
+  <metric name="IsAdFrame" enum="Boolean">
+    <summary>
+      Whether the frame is an ad frame.
+    </summary>
+    <aggregation>
+      <history>
+        <statistics>
+          <enumeration/>
+        </statistics>
+      </history>
+    </aggregation>
+  </metric>
+  <metric name="IsCrossOrigin" enum="Boolean">
+    <summary>
+      Whether the frame is Cross-Origin to the main frame.
+    </summary>
+    <aggregation>
+      <history>
+        <statistics>
+          <enumeration/>
+        </statistics>
+      </history>
+    </aggregation>
+  </metric>
+  <metric name="IsTopFrame" enum="Boolean">
+    <summary>
+      Whether the frame is the main frame.
+    </summary>
+    <aggregation>
+      <history>
+        <statistics>
+          <enumeration/>
+        </statistics>
+      </history>
+    </aggregation>
+  </metric>
+  <metric name="KeySystem" enum="MediaKeySystem">
     <summary>
       The key system passed in requestMediaKeySystemAccess() call.
     </summary>
+    <aggregation>
+      <history>
+        <statistics>
+          <enumeration/>
+        </statistics>
+      </history>
+    </aggregation>
   </metric>
-  <metric name="VideoCapabilities">
+  <metric name="VideoCapabilities" enum="Boolean">
     <summary>
       Whether there are any &quot;videoCapabilities&quot;.
     </summary>
   </metric>
-  <metric name="VideoCapabilities.HasEmptyRobustness">
+  <metric name="VideoCapabilities.HasEmptyRobustness" enum="Boolean">
     <summary>
       Whether there are any &quot;videoCapabilities&quot; with empty robustness.
     </summary>
   </metric>
-  <metric name="VideoCapabilities.HasHwSecureAllRobustness">
+  <metric name="VideoCapabilities.HasHwSecureAllRobustness" enum="Boolean">
     <summary>
       Whether there are any &quot;videoCapabilities&quot; with robustness being
       &quot;HW_SECURE_ALL&quot;.
     </summary>
+    <aggregation>
+      <history>
+        <statistics>
+          <enumeration/>
+        </statistics>
+      </history>
+    </aggregation>
   </metric>
 </event>
 
@@ -4743,6 +6309,37 @@ be describing additional metrics about the same event.
     the length considered &quot;short&quot;.
   </summary>
   <metric name="Length"/>
+</event>
+
+<event name="Media.Feed.Discover">
+  <owner>beccahughes@chromium.org</owner>
+  <owner>media-dev@chromium.org</owner>
+  <summary>
+    Media Feeds are out of band feeds of media recommendations that are fetched
+    by the browser. This records when we discover a feed that has been placed in
+    a meta tag on a website.
+  </summary>
+  <metric name="HasMediaFeed">
+    <summary>
+      Whether the site has a media feed.
+    </summary>
+  </metric>
+</event>
+
+<event name="Media.GlobalMediaControls.ActionButtonPressed">
+  <owner>steimel@chromium.org</owner>
+  <owner>media-dev@chromium.org</owner>
+  <summary>
+    Records when a user presses a button in the Global Media Controls. Records
+    no more than 100 actions per source per session. Records which button was
+    pressed (e.g. play, pause, next track, picture-in-picture).
+  </summary>
+  <metric name="MediaSessionAction" enum="MediaSessionAction">
+    <summary>
+      The action of the button that was pressed (e.g. play, pause, next track,
+      picture-in-picture).
+    </summary>
+  </metric>
 </event>
 
 <event name="Media.Learning.PredictionRecord">
@@ -5081,6 +6678,43 @@ be describing additional metrics about the same event.
   </metric>
 </event>
 
+<event name="MediaRouter.CastWebSenderExtensionLoadUrl" singular="True">
+  <owner>rwkeane@chromium.org</owner>
+  <owner>openscreen-eng@google.com</owner>
+  <summary>
+    Records that the a resource has been loaded from the Media Router Component
+    Extension.
+  </summary>
+  <metric name="HasOccurred" enum="Boolean">
+    <summary>
+      A boolean signaling that the event has occurred; only records true values.
+    </summary>
+  </metric>
+</event>
+
+<event name="MediaRouter.SiteInitiatedMirroringStarted">
+  <owner>muyaoxu@google.com</owner>
+  <owner>openscreen-eng@google.com</owner>
+  <summary>
+    Recorded whenever user starts a site-initiated mirroring session via Media
+    Router.
+  </summary>
+  <metric name="AllowAudioCapture" enum="BooleanAllowed">
+    <summary>
+      Whether audio capture is allowed in the cast session. If allowed, audio
+      playback will happen on the receiver side. If not allowed, audio playback
+      will happen on the sender side.
+    </summary>
+    <aggregation>
+      <history>
+        <statistics>
+          <enumeration/>
+        </statistics>
+      </history>
+    </aggregation>
+  </metric>
+</event>
+
 <event name="MediaRouter.TabMirroringStarted">
   <owner>takumif@chromium.org</owner>
   <owner>openscreen-eng@google.com</owner>
@@ -5121,6 +6755,11 @@ be describing additional metrics about the same event.
   <metric name="BlinkGC.AllocatedObjects">
     <summary>
       Measure of memory consumed by live allocations made from Oilpan.
+    </summary>
+  </metric>
+  <metric name="CanvasResourceProvider.SkSurface">
+    <summary>
+      Measure of memory used due to CanvasResourceProvider's SkSurface.
     </summary>
   </metric>
   <metric name="CommandBuffer">
@@ -5201,30 +6840,50 @@ be describing additional metrics about the same event.
       The number of ad subframes that the associated renderer owns.
     </summary>
   </metric>
+  <metric name="NumberOfArrayBufferContents">
+    <summary>
+      The number of arraybuffer contents that the associated renderer owns.
+    </summary>
+  </metric>
   <metric name="NumberOfCallsInDetachedWindowByClosing">
+    <obsolete>
+      Deprecated as of 01/2020.
+    </obsolete>
     <summary>
       The number of function calls in a window detached by closing/removal.
     </summary>
   </metric>
   <metric name="NumberOfCallsInDetachedWindowByClosing_After10sSinceDetaching">
+    <obsolete>
+      Deprecated as of 01/2020.
+    </obsolete>
     <summary>
       The number of function calls in a window detached by closing/removal, that
       happened at least 10 seconds after detaching.
     </summary>
   </metric>
   <metric name="NumberOfCallsInDetachedWindowByClosing_After1minSinceDetaching">
+    <obsolete>
+      Deprecated as of 01/2020.
+    </obsolete>
     <summary>
       The number of function calls in a window detached by closing/removal, that
       happened at least 1 minute after detaching.
     </summary>
   </metric>
   <metric name="NumberOfCallsInDetachedWindowByNavigation">
+    <obsolete>
+      Deprecated as of 01/2020.
+    </obsolete>
     <summary>
       The number of function calls in a window detached by navigating away.
     </summary>
   </metric>
   <metric
       name="NumberOfCallsInDetachedWindowByNavigation_After10sSinceDetaching">
+    <obsolete>
+      Deprecated as of 01/2020.
+    </obsolete>
     <summary>
       The number of function calls in a window detached by navigating away, that
       happened at least 10 seconds after detaching.
@@ -5232,18 +6891,27 @@ be describing additional metrics about the same event.
   </metric>
   <metric
       name="NumberOfCallsInDetachedWindowByNavigation_After1minSinceDetaching">
+    <obsolete>
+      Deprecated as of 01/2020.
+    </obsolete>
     <summary>
       The number of function calls in a window detached by navigating away, that
       happened at least 1 minute after detaching.
     </summary>
   </metric>
   <metric name="NumberOfCallsInDetachedWindowByOtherReason">
+    <obsolete>
+      Deprecated as of 01/2020.
+    </obsolete>
     <summary>
       The number of function calls in a window detached by another reason.
     </summary>
   </metric>
   <metric
       name="NumberOfCallsInDetachedWindowByOtherReason_After10sSinceDetaching">
+    <obsolete>
+      Deprecated as of 01/2020.
+    </obsolete>
     <summary>
       The number of function calls in a window detached by another reason, that
       happened at least 10 seconds after detaching.
@@ -5251,6 +6919,9 @@ be describing additional metrics about the same event.
   </metric>
   <metric
       name="NumberOfCallsInDetachedWindowByOtherReason_After1minSinceDetaching">
+    <obsolete>
+      Deprecated as of 01/2020.
+    </obsolete>
     <summary>
       The number of function calls in a window detached by another reason, that
       happened at least 1 minute after detaching.
@@ -5290,6 +6961,11 @@ be describing additional metrics about the same event.
   <metric name="NumberOfNodes">
     <summary>
       The number of nodes that the associated renderer owns.
+    </summary>
+  </metric>
+  <metric name="NumberOfWebMediaPlayers">
+    <summary>
+      The number of web media players in the associated renderer.
     </summary>
   </metric>
   <metric name="OmniboxSuggestions">
@@ -5461,11 +7137,27 @@ be describing additional metrics about the same event.
     <summary>
       Measure of memory consumed by V8.
     </summary>
+    <aggregation>
+      <history>
+        <index fields="metrics.ProcessType"/>
+        <statistics>
+          <quantiles type="std-percentiles"/>
+        </statistics>
+      </history>
+    </aggregation>
   </metric>
   <metric name="V8.AllocatedObjects">
     <summary>
       Measure of memory consumed by live objects in V8.
     </summary>
+    <aggregation>
+      <history>
+        <index fields="metrics.ProcessType"/>
+        <statistics>
+          <quantiles type="std-percentiles"/>
+        </statistics>
+      </history>
+    </aggregation>
   </metric>
   <metric name="V8.Main">
     <summary>
@@ -5475,6 +7167,11 @@ be describing additional metrics about the same event.
   <metric name="V8.Main.AllocatedObjects">
     <summary>
       Measure of memory consumed by live objects in the main isolate of V8.
+    </summary>
+  </metric>
+  <metric name="V8.Main.GlobalHandles">
+    <summary>
+      Measure of memory consumed by global handles in V8.
     </summary>
   </metric>
   <metric name="V8.Main.Heap">
@@ -5638,6 +7335,26 @@ be describing additional metrics about the same event.
   <metric name="WebCache.XSLStylesheetResources">
     <summary>
       Measure of memory consumed by XSL Stylesheet resources in Blink Web Cache.
+    </summary>
+  </metric>
+  <metric name="WebMediaPlayer.Audio">
+    <summary>
+      Measure of total memory used by media/webmediaplayer/audio.
+    </summary>
+  </metric>
+  <metric name="WebMediaPlayer.DataSource">
+    <summary>
+      Measure of total memory used by media/webmediaplayer/data_source.
+    </summary>
+  </metric>
+  <metric name="WebMediaPlayer.Demuxer">
+    <summary>
+      Measure of total memory used by media/webmediaplayer/demuxer.
+    </summary>
+  </metric>
+  <metric name="WebMediaPlayer.Video">
+    <summary>
+      Measure of total memory used by media/webmediaplayer/video.
     </summary>
   </metric>
 </event>
@@ -5906,6 +7623,74 @@ be describing additional metrics about the same event.
   </metric>
 </event>
 
+<event name="NavigationTiming" singular="True">
+  <owner>nhiroki@chromium.org</owner>
+  <owner>chrome-loading@google.com</owner>
+  <summary>
+    Metrics associated with main frame navigation.
+  </summary>
+  <metric name="EarlyHintsForFinalRequest">
+    <owner>nhiroki@chromium.org</owner>
+    <owner>chrome-loading@google.com</owner>
+    <summary>
+      The time relative to navigation start that the headers of the 103 Early
+      Hints response are received in reply to the final HTTP request for the
+      main resource of a main frame navigation.
+    </summary>
+  </metric>
+  <metric name="EarlyHintsForFirstRequest">
+    <owner>nhiroki@chromium.org</owner>
+    <owner>chrome-loading@google.com</owner>
+    <summary>
+      The time relative to navigation start that the headers of the 103 Early
+      Hints response are received in reply to the first HTTP request for the
+      main resource of a main frame navigation.
+    </summary>
+  </metric>
+  <metric name="FinalLoaderCallback">
+    <summary>
+      The time relative to navigation start that a callback for the navigation
+      loader is last invoked for the main resource of a main frame navigation.
+    </summary>
+  </metric>
+  <metric name="FinalRequestStart">
+    <summary>
+      The time relative to navigation start that the final HTTP request is sent
+      for the main resource of a main frame navigation.
+    </summary>
+  </metric>
+  <metric name="FinalResponseStart">
+    <summary>
+      The time relative to navigation start that the headers of the final HTTP
+      response are received for the main resource of a main frame navigation.
+    </summary>
+  </metric>
+  <metric name="FirstLoaderCallback">
+    <summary>
+      The time relative to navigation start that a callback for the navigation
+      loader is first invoked for the main resource of a main frame navigation.
+    </summary>
+  </metric>
+  <metric name="FirstRequestStart">
+    <summary>
+      The time relative to navigation start that the first HTTP request is sent
+      for the main resource of a main frame navigation.
+    </summary>
+  </metric>
+  <metric name="FirstResponseStart">
+    <summary>
+      The time relative to navigation start that the headers of the first HTTP
+      response are received for the main resource of a main frame navigation.
+    </summary>
+  </metric>
+  <metric name="NavigationCommitSent">
+    <summary>
+      The time relative to navigation start that navigation commit message for a
+      main frame navigation is sent to a renderer process.
+    </summary>
+  </metric>
+</event>
+
 <event name="Net.LegacyTLSVersion">
   <owner>davidben@chromium.org</owner>
   <summary>
@@ -6085,19 +7870,44 @@ be describing additional metrics about the same event.
     See //components/optimization_guide/.
   </summary>
   <metric name="HintGenerationTimestamp">
+    <obsolete>
+      Obsolete as of 04/2020.
+    </obsolete>
     <summary>
       The timestamp, in seconds from epoch, that the server generated the hint
       for the optimization applied on the page load.
     </summary>
   </metric>
   <metric name="HintSource">
+    <obsolete>
+      Obsolete as of 04/2020.
+    </obsolete>
     <summary>
       The |optimization_guide::proto::HintSource| for the optimization that was
       applied on the page load.
     </summary>
   </metric>
+  <metric name="NavigationHintsFetchAttemptStatus"
+      enum="OptimizationGuideRaceNavigationFetchAttemptStatus">
+    <summary>
+      An enum value representing the status of a fetch attempt for the page load
+      and what it contains (i.e. hosts or URLs). Captured at the start of the
+      navigation.
+    </summary>
+  </metric>
+  <metric name="NavigationHintsFetchRequestLatency">
+    <summary>
+      The duration (in milliseconds) for how long it took from the request to go
+      out to when it was usable on the client. Only recorded if a fetch was
+      initiated for the navigation. Will be recorded as INT64_MAX if the request
+      did not complete successfully.
+    </summary>
+  </metric>
   <metric name="NavigationHostCovered"
       enum="OptimizationGuideNavigationHostCoveredStatus">
+    <obsolete>
+      Obsolete as of 04/2020.
+    </obsolete>
     <summary>
       An enum value representing whether Chrome had a hint cached for the
       navigation or had attempted to fetch a hint from the remote Optimization
@@ -6116,6 +7926,82 @@ be describing additional metrics about the same event.
     <summary>
       The server-generated version of the painful page load model that was
       evaluated for the page load.
+    </summary>
+  </metric>
+  <metric name="PredictionModelFeatureEffectiveConnectionType">
+    <summary>
+      The |net::EffectiveConnectionType| at the time a prediction was requested.
+      Recorded once per page load.
+    </summary>
+  </metric>
+  <metric name="PredictionModelFeatureIsSameOriginNavigation">
+    <summary>
+      Whether the current navigatation is the same origin as the previous one at
+      the time a prediction was requested. Recorded once per page load.
+    </summary>
+  </metric>
+  <metric name="PredictionModelFeatureNavigationToFCPSessionMean">
+    <summary>
+      The average navigation to first contentful paint for the current session
+      at the time a prediction was requested. Recorded once per page load.
+    </summary>
+  </metric>
+  <metric name="PredictionModelFeatureNavigationToFCPSessionStdDev">
+    <summary>
+      The standard deviation of navigation to first contentful paint for page
+      loads in the current session at the time a prediction was requested.
+      Recorded once per page load.
+    </summary>
+  </metric>
+  <metric name="PredictionModelFeaturePageTransition">
+    <summary>
+      The |ui::PageTransition| of the current navigation at the time a
+      prediction was requested. Recorded once per page load.
+    </summary>
+  </metric>
+  <metric name="PredictionModelFeaturePreviousPageLoadNavigationToFCP">
+    <summary>
+      The navigation to to first contentful paint for the previous page load at
+      the time a prediction was requested. Recorded once per page load.
+    </summary>
+  </metric>
+  <metric name="PredictionModelFeatureSiteEngagementScore">
+    <summary>
+      The site engagement score of the host of the current navigation at the
+      time a prediction was requested. Recorded once per page load.
+    </summary>
+  </metric>
+  <metric name="RegisteredOptimizationTargets">
+    <summary>
+      A bitmask of the optimization targets that were registered at the start of
+      the page load where each flipped bit corresponds to its int value in
+      |optimization_guide::proto::OptimizationTarget|.
+    </summary>
+  </metric>
+  <metric name="RegisteredOptimizationTypes">
+    <summary>
+      A bitmask of the optimization types that were registered at the start of
+      the page load where each flipped bit corresponds to its int value in
+      |optimization_guide::proto::OptimizationTarget|.
+    </summary>
+  </metric>
+</event>
+
+<event name="OptimizationGuideAutotuning">
+  <owner>sophiechang@chromium.org</owner>
+  <owner>mcrouse@chromium.org</owner>
+  <summary>
+    Metrics associated with an autotuning event initiated by the Optimization
+    Guide.
+  </summary>
+  <metric name="OptimizationType">
+    <summary>
+      The |optimization_guide::proto::OptimizationType| that is being tuned.
+    </summary>
+  </metric>
+  <metric name="TuningVersion">
+    <summary>
+      The version of the tuning group for the optimization type that was served.
     </summary>
   </metric>
 </event>
@@ -6153,7 +8039,63 @@ be describing additional metrics about the same event.
     <aggregation>
       <history>
         <index fields="profile.country"/>
+        <statistics>
+          <quantiles type="std-percentiles"/>
+        </statistics>
+      </history>
+    </aggregation>
+  </metric>
+  <metric name="ForegroundNumInputEvents">
+    <summary>
+      The number of Input Events, including click, tap, key press, cancellable
+      touchstart, or pointer down followed by apointer up. This metric gets
+      recorded each time the page is backgrounded.
+    </summary>
+    <aggregation>
+      <history>
+        <index fields="profile.country"/>
         <index fields="profile.country,profile.system_ram"/>
+        <index fields="profile.is_dominant_version"/>
+        <index fields="profile.is_latest_version"/>
+        <index fields="profile.system_ram"/>
+        <statistics>
+          <quantiles type="std-percentiles"/>
+        </statistics>
+      </history>
+    </aggregation>
+  </metric>
+  <metric name="ForegroundTotalAdjustedInputDelay">
+    <summary>
+      sum(max(Input Delay - 50, 0)), recorded each time the page is
+      backgrounded. The Input Delay refers to the duration between the hardware
+      timestamp and the start of event processing on the main thread for the
+      meaningful input. In ms.
+    </summary>
+    <aggregation>
+      <history>
+        <index fields="profile.country"/>
+        <index fields="profile.country,profile.system_ram"/>
+        <index fields="profile.is_dominant_version"/>
+        <index fields="profile.is_latest_version"/>
+        <index fields="profile.system_ram"/>
+        <statistics>
+          <quantiles type="std-percentiles"/>
+        </statistics>
+      </history>
+    </aggregation>
+  </metric>
+  <metric name="ForegroundTotalInputDelay">
+    <summary>
+      sum(Input Delay), recorded each time the page is backgrounded. The Input
+      Delay refers to the duration between the hardware timestamp and the start
+      of event processing on the main thread for the meaningful input. In ms.
+    </summary>
+    <aggregation>
+      <history>
+        <index fields="profile.country"/>
+        <index fields="profile.country,profile.system_ram"/>
+        <index fields="profile.is_dominant_version"/>
+        <index fields="profile.is_latest_version"/>
         <index fields="profile.system_ram"/>
         <statistics>
           <quantiles type="std-percentiles"/>
@@ -6234,12 +8176,25 @@ be describing additional metrics about the same event.
     </summary>
   </metric>
   <metric name="Experimental.NavigationToInteractive">
+    <obsolete>
+      Removed 2/2020. Do not use Time to Interactive as a RUM metric.
+    </obsolete>
     <summary>
       Measures Time to Interactive, a metric based on main thread and network
       heuristics to approximate the point in time when the page feels
       interactive to the user. See https://goo.gl/TFw6xz for detailed
       explanation. This histogram uses First Meaningful Paint as the lower bound
       for quiescent windows. The unit of time is ms.
+    </summary>
+  </metric>
+  <metric name="Experimental.PageLoadType" enum="PageLoadType">
+    <summary>
+      Determines the PageLoadType for this page load. That is, records whether
+      the page was never foregrounded, was foregrounded but did not reach FCP,
+      or did reach FCP. The metric is recorded at the end of each page load. As
+      usual with PageLoad metrics, we consider app backgrounding on Android to
+      be the end of page load as well as the app could be evicted by Android
+      anytime after that happens.
     </summary>
   </metric>
   <metric name="Experimental.PaintTiming.NavigationToFirstMeaningfulPaint">
@@ -6352,6 +8307,20 @@ be describing additional metrics about the same event.
       http://bit.ly/fcp_plus_plus for more details.
     </summary>
   </metric>
+  <metric name="Experimental.TotalForegroundDuration">
+    <summary>
+      The total amount of time the page spent in the foreground, in
+      milliseconds. Note that this metric adds all foreground durations
+      occurring for the page. For example: if the page starts foregrounded
+      during 1 second, then goes to the background for a while, then is
+      foregrounded again for 2 seconds, and then is unloaded, this metric
+      reports 3 seconds. To see metrics about consecutive foreground sessions,
+      see the PageForegroundSession event instead. This metric is recorded at
+      the end of each page load. As usual with PageLoad metrics, we consider app
+      backgrounding on Android to be the end of page load as well as the app
+      could be evicted by Android anytime after that happens.
+    </summary>
+  </metric>
   <metric name="InteractiveTiming.FirstInputDelay">
     <obsolete>
       Deprecated on January 2019 in favor of InteractiveTiming.FirstInputDelay2,
@@ -6366,6 +8335,9 @@ be describing additional metrics about the same event.
     </summary>
   </metric>
   <metric name="InteractiveTiming.FirstInputDelay.SkipFilteringComparison">
+    <obsolete>
+      Removed in January 2020 as the experiment is launched.
+    </obsolete>
     <summary>
       For comparing FirstInputDelay metrics in the SkipTouchEventFilter
       experiment. Measures First Input Delay, the duration between the hardware
@@ -6411,7 +8383,26 @@ be describing additional metrics about the same event.
       Measures First Input Delay, the duration between the hardware timestamp
       and the start of event processing on the main thread for the first
       meaningful input per navigation. See https://goo.gl/tr1oTZ for a detailed
-      explanation. In ms.
+      explanation. In ms. Log of major changes:
+      http://bit.ly/chrome-speed-metrics-changelog
+    </summary>
+    <aggregation>
+      <history>
+        <index fields="profile.country"/>
+        <index fields="profile.country,profile.system_ram"/>
+        <index fields="profile.is_dominant_version"/>
+        <index fields="profile.is_latest_version"/>
+        <index fields="profile.system_ram"/>
+        <statistics>
+          <quantiles type="std-percentiles"/>
+        </statistics>
+      </history>
+    </aggregation>
+  </metric>
+  <metric name="InteractiveTiming.FirstInputProcessingTimes">
+    <summary>
+      Measures First Input Processing Time, the duration of event handlers
+      processing the first input event. In ms.
     </summary>
     <aggregation>
       <history>
@@ -6439,6 +8430,9 @@ be describing additional metrics about the same event.
     </summary>
   </metric>
   <metric name="InteractiveTiming.FirstInputTimestamp.SkipFilteringComparison">
+    <obsolete>
+      Removed in Jaunary 2020 as the experiment is launched.
+    </obsolete>
     <summary>
       The duration between navigation start and the hardware timestamp of the
       first meaningful input per navigation. See https://goo.gl/tr1oTZ for a
@@ -6477,6 +8471,25 @@ be describing additional metrics about the same event.
       first meaningful input per navigation. See https://goo.gl/tr1oTZ for a
       detailed explanation. In ms.
     </summary>
+  </metric>
+  <metric name="InteractiveTiming.FirstScrollDelay">
+    <summary>
+      Measures the time, in milliseconds, from when a user starts scrolling
+      until the result shows up on screen if the scroll was the first scroll
+      since navigation.
+    </summary>
+    <aggregation>
+      <history>
+        <index fields="profile.country"/>
+        <index fields="profile.country,profile.system_ram"/>
+        <index fields="profile.is_dominant_version"/>
+        <index fields="profile.is_latest_version"/>
+        <index fields="profile.system_ram"/>
+        <statistics>
+          <quantiles type="std-percentiles"/>
+        </statistics>
+      </history>
+    </aggregation>
   </metric>
   <metric name="InteractiveTiming.LongestInputDelay">
     <obsolete>
@@ -6528,7 +8541,6 @@ be describing additional metrics about the same event.
     </summary>
     <aggregation>
       <history>
-        <index fields="profile.country"/>
         <statistics>
           <quantiles type="std-percentiles"/>
         </statistics>
@@ -6574,6 +8586,47 @@ be describing additional metrics about the same event.
       meaningful input with longest queuing delay per navigation. In ms.
     </summary>
   </metric>
+  <metric name="InteractiveTiming.NumInputEvents">
+    <summary>
+      The number of Input Events, including click, tap, key press, cancellable
+      touchstart, or pointer down followed by a pointer up.
+    </summary>
+    <aggregation>
+      <history>
+        <statistics>
+          <quantiles type="std-percentiles"/>
+        </statistics>
+      </history>
+    </aggregation>
+  </metric>
+  <metric name="InteractiveTiming.TotalAdjustedInputDelay">
+    <summary>
+      sum(max(Input Delay - 50, 0)). The Input Delay refers to the duration
+      between the hardware timestamp and the start of event processing on the
+      main thread for the meaningful input. In ms.
+    </summary>
+    <aggregation>
+      <history>
+        <statistics>
+          <quantiles type="std-percentiles"/>
+        </statistics>
+      </history>
+    </aggregation>
+  </metric>
+  <metric name="InteractiveTiming.TotalInputDelay">
+    <summary>
+      sum(Input Delay). The Input Delay refers to the duration between the
+      hardware timestamp and the start of event processing on the main thread
+      for the meaningful input. In ms.
+    </summary>
+    <aggregation>
+      <history>
+        <statistics>
+          <quantiles type="std-percentiles"/>
+        </statistics>
+      </history>
+    </aggregation>
+  </metric>
   <metric name="IsCrossProcessNavigation">
     <owner>altimin@chromium.org</owner>
     <owner>arthursonzogni@chromium.org</owner>
@@ -6583,6 +8636,10 @@ be describing additional metrics about the same event.
     </summary>
   </metric>
   <metric name="IsSignedExchangeInnerResponse">
+    <obsolete>
+      Migrated to the PageLoad.SignedExchange event. The presence of that event
+      indicates the associated source was served via signed exchange.
+    </obsolete>
     <summary>
       Set to 1 if the main resource is an inner response of a signed exchange.
     </summary>
@@ -6592,7 +8649,9 @@ be describing additional metrics about the same event.
       Measures the cumulative layout shift (bit.ly/lsm-explainer) that has
       occurred on the page (including all subframes) during the session. This
       metric's integral value is 100x the fractional cumulative layout shift
-      score described in the explainer.
+      score described in the explainer. Stable since M79; previous versions are
+      expermental and subject to fluctuation between releases. Log of major
+      changes: http://bit.ly/chrome-speed-metrics-changelog
     </summary>
     <aggregation>
       <history>
@@ -6733,9 +8792,21 @@ be describing additional metrics about the same event.
     </summary>
   </metric>
   <metric name="Navigation.PageEndReason">
+    <obsolete>
+      Deprecated May 2020 in favor of Navigation.PageEndReason2.
+    </obsolete>
     <summary>
       The |page_load_metrics::PageEndReason| for the main frame navigation of
       this page load.
+    </summary>
+  </metric>
+  <metric name="Navigation.PageEndReason2" enum="PageEndReason">
+    <summary>
+      The |page_load_metrics::PageEndReason| for the main frame navigation of
+      this page load. Replaced Navigation.PageEndReason at the end of May 2020
+      to reduce occurrences of page_load_metrics::PageEndReason::END_NONE by
+      setting the value to page_load_metrics::PageEndReason::END_HIDDEN when the
+      metric is recorded due to the page becoming hidden.
     </summary>
   </metric>
   <metric name="Navigation.PageTransition">
@@ -6809,6 +8880,46 @@ be describing additional metrics about the same event.
       navigation for this page load was initiated.
     </summary>
   </metric>
+  <metric name="Net.ImageBytes">
+    <summary>
+      The total number of bytes loaded from the network for images on the page.
+      This is rounded down to the nearest exponential bucket (with a bucket
+      spacing factor of 1.3). On mobile this only records bytes up until the
+      page/app is backgrounded.
+    </summary>
+  </metric>
+  <metric name="Net.ImageSubframeBytes">
+    <summary>
+      The total number of bytes loaded from the network for images on the
+      subframes of the page. This is rounded down to the nearest exponential
+      bucket (with a bucket spacing factor of 1.3). On mobile this only records
+      bytes up until the page/app is backgrounded.
+    </summary>
+  </metric>
+  <metric name="Net.JavaScriptBytes">
+    <summary>
+      The sum of decoded body lengths of all JavaScript resouces that completed
+      loading on the page. This is rounded down to the nearest exponential
+      bucket (with a bucket spacing factor of 10). On mobile this only records
+      bytes up until the page/app is backgrounded.
+    </summary>
+  </metric>
+  <metric name="Net.JavaScriptMaxBytes">
+    <summary>
+      The max of decoded body lengths of all JavaScript resouces that completed
+      loading on the page. This is rounded down to the nearest exponential
+      bucket (with a bucket spacing factor of 10). On mobile this only records
+      bytes up until the page/app is backgrounded.
+    </summary>
+  </metric>
+  <metric name="Net.MediaBytes">
+    <summary>
+      The total number of bytes loaded from the network for media (video, audio)
+      on the page. This is rounded down to the nearest exponential bucket (with
+      a bucket spacing factor of 1.3). On mobile this only records bytes up
+      until the page/app is backgrounded.
+    </summary>
+  </metric>
   <metric name="Net.NetworkBytes">
     <obsolete>
       Deprecated 03/2019 in favor of Net.NetworkBytes2.
@@ -6852,16 +8963,51 @@ be describing additional metrics about the same event.
       loads that failed in the foreground.
     </summary>
   </metric>
-  <metric name="PaintTiming.NavigationToFirstContentfulPaint">
+  <metric name="PaintTiming.NavigationToExperimentalLargestContentfulPaint">
     <summary>
       Measures the time in milliseconds from navigation timing's navigation
-      start to the time when the page first paints content. A contentful paint
-      includes a paint of text, image, SVG, or canvas.
+      start to the time when the page first paints the largest content (text or
+      image) within viewport, across all frames. Differs from
+      PaintTiming.NavigationToLargestContentfulPaint in that this experimental
+      version includes content that has been removed.
     </summary>
     <aggregation>
       <history>
         <index fields="profile.country"/>
         <index fields="profile.country,profile.system_ram"/>
+        <index fields="profile.is_dominant_version"/>
+        <index fields="profile.is_latest_version"/>
+        <index fields="profile.system_ram"/>
+        <statistics>
+          <quantiles type="std-percentiles"/>
+        </statistics>
+      </history>
+    </aggregation>
+  </metric>
+  <metric
+      name="PaintTiming.NavigationToExperimentalLargestContentfulPaint.MainFrame">
+    <summary>
+      Measures the time in milliseconds from navigation timing's navigation
+      start to the time when the page first paints the largest content (text or
+      image) within viewport, in the main frame. Differs from
+      PaintTiming.NavigationToLargestContentfulPaint.MainFrame in that this
+      experimental version includes content that has been removed.
+    </summary>
+  </metric>
+  <metric name="PaintTiming.NavigationToFirstContentfulPaint">
+    <summary>
+      Measures the time in milliseconds from navigation timing's navigation
+      start to the time when the page first paints content. A contentful paint
+      includes a paint of text, image, SVG, or canvas. Log of major changes:
+      http://bit.ly/chrome-speed-metrics-changelog
+    </summary>
+    <aggregation>
+      <history>
+        <index fields="profile.country"/>
+        <index fields="profile.country,profile.system_ram"/>
+        <index fields="profile.gender"/>
+        <index fields="profile.gender,profile.generation"/>
+        <index fields="profile.generation"/>
         <index fields="profile.is_dominant_version"/>
         <index fields="profile.is_latest_version"/>
         <index fields="profile.system_ram"/>
@@ -6878,7 +9024,6 @@ be describing additional metrics about the same event.
     </summary>
     <aggregation>
       <history>
-        <index fields="profile.country"/>
         <statistics>
           <quantiles type="std-percentiles"/>
         </statistics>
@@ -6890,7 +9035,9 @@ be describing additional metrics about the same event.
       Measures the time in milliseconds from navigation timing's navigation
       start to the time when the page first paints the largest content (text or
       image) within viewport, across all frames. See http://bit.ly/fcp_plus_plus
-      for more details.
+      for more details. Stable since M79; previous versions are experimental and
+      subject to fluctuation between releases. Log of major changes:
+      http://bit.ly/chrome-speed-metrics-changelog
     </summary>
     <aggregation>
       <history>
@@ -6927,7 +9074,7 @@ be describing additional metrics about the same event.
       nearest 10.
     </summary>
   </metric>
-  <metric name="ThirdPartyCookieBlockingEnabledForSite">
+  <metric name="ThirdPartyCookieBlockingEnabledForSite" enum="Boolean">
     <owner>dullweber@chromium.org</owner>
     <owner>huanzhong@chromium.org</owner>
     <summary>
@@ -6958,12 +9105,82 @@ be describing additional metrics about the same event.
   </summary>
 </event>
 
+<event name="PageLoad.Internal" singular="True">
+  <owner>npm@chromium.org</owner>
+  <owner>speed-metrics-dev@chromium.org</owner>
+  <summary>
+    Debugging metrics for the PageLoad event that do not require the same amount
+    of sampling.
+  </summary>
+  <metric name="PaintTiming.ExperimentalLargestContentfulPaint.ContentType"
+      enum="LargestContentType">
+    <summary>
+      Records whether the page's experimental version of largest contentful
+      paint, whose timestamp is measured by
+      PageLoad.PaintTiming.NavigationToExperimentalLargestContentfulPaint, comes
+      from text or image. This value is sampled and not on the PageLoad event,
+      so it is not always recorded whenever
+      PageLoad.PaintTiming.NavigationToExperimentalLargestContentfulPaint is
+      recorded.
+    </summary>
+  </metric>
+  <metric
+      name="PaintTiming.ExperimentalLargestContentfulPaint.TerminationState"
+      enum="LargestContentfulPaint.TerminationState">
+    <summary>
+      Records the state of the experimental largest contentful paint algorithm
+      at the time in which the browser attempts to record
+      PageLoad.PaintTiming.NavigationToExperimentalLargestContentfulPaint. This
+      state depends on whether there was an experimental largest contentful
+      paint candidate or not and the foreground state of the page. This value is
+      sampled and not on the PageLoad event, so it is not always recorded
+      whenever the browser attempts to record
+      PageLoad.PaintTiming.NavigationToExperimentalLargestContentfulPaint.
+    </summary>
+  </metric>
+  <metric name="PaintTiming.LargestContentfulPaint.ContentType"
+      enum="LargestContentType">
+    <summary>
+      Records whether the page's largest contentful paint, whose timestamp is
+      measured by PageLoad.PaintTiming.NavigationToLargestContentfulPaint, comes
+      from text or image. This value is sampled and not on the PageLoad event,
+      so it is not always recorded whenever
+      PageLoad.PaintTiming.NavigationToLargestContentfulPaint is recorded.
+    </summary>
+  </metric>
+  <metric name="PaintTiming.LargestContentfulPaint.TerminationState"
+      enum="LargestContentfulPaint.TerminationState">
+    <summary>
+      Records the state of the largest contentful paint algorithm at the time in
+      which the browser attempts to record
+      PageLoad.PaintTiming.NavigationToLargestContentfulPaint. This state
+      depends on whether there was a largest contentful paint candidate or not
+      and the foreground state of the page. This value is sampled and not on the
+      PageLoad event, so it is not always recorded whenever the browser attempts
+      to record PageLoad.PaintTiming.NavigationToLargestContentfulPaint.
+    </summary>
+  </metric>
+</event>
+
 <event name="PageLoad.ServiceWorkerControlled" singular="True">
   <owner>bmcquade@chromium.org</owner>
   <owner>falken@chromium.org</owner>
   <summary>
     Recorded for page loads controlled by a service worker.
   </summary>
+</event>
+
+<event name="PageLoad.SignedExchange" singular="True">
+  <owner>horo@chromium.org</owner>
+  <summary>
+    Recorded for page loads which main resource is an inner response of a signed
+    exchange.
+  </summary>
+  <metric name="ServedFromGoogleCache">
+    <summary>
+      Set to 1 if the main resource was served from Google's cache server.
+    </summary>
+  </metric>
 </event>
 
 <event name="PageLoadCapping" singular="True">
@@ -7023,6 +9240,29 @@ be describing additional metrics about the same event.
   </metric>
 </event>
 
+<event name="PaintPreviewCapture" singular="True">
+  <owner>ckitagawa@chromium.org</owner>
+  <owner>fredmello@chromium.org</owner>
+  <owner>mahmoudi@chromium.org</owner>
+  <owner>vollick@chromium.org</owner>
+  <summary>
+    Metrics related to the performance of capturing Paint Previews.
+  </summary>
+  <metric name="BlinkCaptureTime">
+    <summary>
+      The amount of time spent painting in Blink to record a Paint Preview of
+      the main frame.
+    </summary>
+  </metric>
+  <metric name="CompressedOnDiskSize">
+    <summary>
+      The compressed on-disk size in KB of the captured artifacts. This is
+      rounded down to the nearest exponential bucket (with a bucket ratio of
+      1.3).
+    </summary>
+  </metric>
+</event>
+
 <event name="PasswordForm">
   <owner>battre@chromium.org</owner>
   <summary>
@@ -7075,20 +9315,19 @@ be describing additional metrics about the same event.
       password_manager::PasswordFormMetricsRecorder::FillOnLoad.
     </summary>
   </metric>
-  <metric name="Generation.GeneratedPassword">
+  <metric name="Generation.GeneratedPassword" enum="Boolean">
     <summary>
       Records '1' if the user has generated a password on this form.
     </summary>
   </metric>
-  <metric name="Generation.GeneratedPasswordModified">
+  <metric name="Generation.GeneratedPasswordModified" enum="Boolean">
     <summary>
       Records '1' if the user has modified a generated a password on this form.
     </summary>
   </metric>
-  <metric name="Generation.PopupShown">
+  <metric name="Generation.PopupShown" enum="PasswordGenerationPopupShown">
     <summary>
-      Records a PasswordFormMetricsRecorder::PasswordGenerationPopupShown entry
-      if (and only if) a popup was shown.
+      Records an entry if (and only if) a popup was shown.
     </summary>
   </metric>
   <metric name="Generation.SpecPriority">
@@ -7110,11 +9349,12 @@ be describing additional metrics about the same event.
       enum ManagerAutofillEvent.
     </summary>
   </metric>
-  <metric name="ManagerFill.Assistance">
+  <metric name="ManagerFill.Assistance" enum="PasswordManagerFillingAssistance">
     <summary>
       Records for each successful submission the degree to which the user has
-      been assisted by the password manager. Recorded values correspond to the
-      enum password_manager::PasswordFormMetricsRecorder::FillingAssistance.
+      been assisted by the password manager.
+
+      This is replicated as PasswordManager.FillingAssistance in UMA.
     </summary>
   </metric>
   <metric name="ParsingComparison">
@@ -7155,26 +9395,23 @@ be describing additional metrics about the same event.
       for ReadonlyWhenFilling.
     </summary>
   </metric>
-  <metric name="Saving.Prompt.Interaction">
+  <metric name="Saving.Prompt.Interaction" enum="PasswordBubbleDismissalReason">
     <summary>
-      Records how the user interacted with a saving prompt. Recorded values
-      correspond to the enum PasswordFormMetricsRecorder::BubbleDismissalReason.
+      Records how the user interacted with a saving prompt.
     </summary>
   </metric>
-  <metric name="Saving.Prompt.Shown">
+  <metric name="Saving.Prompt.Shown" enum="Boolean">
     <summary>
       Records, for each password form seen by the password manager, whether the
       user was shown a prompt that asked for permission to save new credentials.
       In case a store() via the Credential Management API, a virtual password
-      form is created, for which this metric is recorded. Recorded values are 0
-      and 1 for false and true.
+      form is created, for which this metric is recorded.
     </summary>
   </metric>
-  <metric name="Saving.Prompt.Trigger">
+  <metric name="Saving.Prompt.Trigger" enum="PasswordBubbleTrigger">
     <summary>
       Records the trigger of each password save bubble that was shown to the
-      user to ask for permission to save new credentials. Recorded values
-      correspond to the enum PasswordFormMetricsRecorder::BubbleTrigger.
+      user to ask for permission to save new credentials.
     </summary>
   </metric>
   <metric name="Saving.ShowedManualFallbackForSaving">
@@ -7186,32 +9423,29 @@ be describing additional metrics about the same event.
       update.
     </summary>
   </metric>
-  <metric name="Submission.Indicator">
+  <metric name="Submission.Indicator" enum="SubmissionIndicatorEvent">
     <summary>
       Records the event that led the password manager to believe the submission
       was successful. Metrics is recorded only when the password is saved.
-      Recorded values correspond to the enum
-      autofill::mojom::SubmissionIndicatorEvent.
     </summary>
   </metric>
-  <metric name="Submission.Observed">
+  <metric name="Submission.Observed" enum="Boolean">
     <summary>
       Records whether a submission of a password form has been observered. The
       values 0 and 1 correspond to false and true respectively.
     </summary>
   </metric>
-  <metric name="Submission.SubmissionResult">
+  <metric name="Submission.SubmissionResult"
+      enum="PasswordFormSubmissionResult">
     <summary>
-      Records the outcome of a password form submission. The values are numbered
-      according to PasswordFormMetricsRecorder::SubmitResult. Note that no
-      metric is recorded for kSubmitResultNotSubmitted.
+      Records the outcome of a password form submission.
     </summary>
   </metric>
-  <metric name="Submission.SubmittedFormType">
+  <metric name="Submission.SubmittedFormType" enum="PasswordFormType">
     <summary>
-      Records the classification of a form at submission time. The values
-      correspond to PasswordFormMetricsRecorder::SubmittedFormType. Note that no
-      metric is recorded for kSubmittedFormTypeUnspecified.
+      Records the classification of a form at submission time.
+
+      This is replicated as PasswordManager.SubmittedFormType in UMA.
     </summary>
   </metric>
   <metric name="SuppressedAccount.Generated.HTTPSNotHTTP">
@@ -7312,24 +9546,23 @@ be describing additional metrics about the same event.
       enum SuppressedAccountExistence.
     </summary>
   </metric>
-  <metric name="Updating.Prompt.Interaction">
+  <metric name="Updating.Prompt.Interaction"
+      enum="PasswordBubbleDismissalReason">
     <summary>
-      Records how the user interacted with an updating prompt. Recorded values
-      correspond to the enum PasswordFormMetricsRecorder::BubbleDismissalReason.
+      Records how the user interacted with an updating prompt.
     </summary>
   </metric>
-  <metric name="Updating.Prompt.Shown">
+  <metric name="Updating.Prompt.Shown" enum="Boolean">
     <summary>
       Records, for each password form seen by the password manager, whether the
       user was shown a prompt that asked for permission to update existing
-      credentials. Recorded values are 0 and 1 for false and true.
+      credentials.
     </summary>
   </metric>
-  <metric name="Updating.Prompt.Trigger">
+  <metric name="Updating.Prompt.Trigger" enum="PasswordBubbleTrigger">
     <summary>
       Records the trigger of each password update bubble that was shown to the
-      user to ask for permission to update existing credentials. Recorded values
-      correspond to the enum PasswordFormMetricsRecorder::BubbleTrigger.
+      user to ask for permission to update existing credentials.
     </summary>
   </metric>
   <metric name="User.Action">
@@ -7388,6 +9621,56 @@ be describing additional metrics about the same event.
   </metric>
 </event>
 
+<event name="PasswordManager.WellKnownChangePasswordResult">
+  <owner>jdoerrie@chromium.org</owner>
+  <owner>vasilii@chromium.org</owner>
+  <summary>
+    Metrics related to the usage and support of .well-known/change-password. The
+    .well-known/change-password standard is defined to redirect to the sites
+    change password form. We collect whether a site supports the standart or
+    not. https://wicg.github.io/change-password-url/
+  </summary>
+  <metric name="WellKnownChangePasswordResult"
+      enum="WellKnownChangePasswordResult">
+    <summary>
+      Records if a site supports .well-known/change-password and if a url
+      override was used or not.
+    </summary>
+    <aggregation>
+      <history>
+        <statistics>
+          <enumeration/>
+        </statistics>
+      </history>
+    </aggregation>
+  </metric>
+</event>
+
+<event name="PaymentApp.CheckoutEvents">
+  <owner>sahel@chromium.org</owner>
+  <owner>web-payments-team@google.com</owner>
+  <summary>
+    Records checkout events as well as completion status for the invoked payment
+    app when its origin is shown inside the payment handler modal window. This
+    metric uses the specific PAYMENT_APP_ID ukm_source_id which is generated
+    from the app's origin.
+  </summary>
+  <metric name="CompletionStatus" enum="PaymentRequestFlowCompletionStatus">
+    <summary>
+      How the Payment Request ended. This metric will only get recorded if a
+      non-autofill payment app gets invoked to handle the request.
+    </summary>
+  </metric>
+  <metric name="Events">
+    <summary>
+      Bitfield representing the events that occurred during the Payment Request.
+      This metric will only get recorded if a non-autofill payment app gets
+      invoked to handle the request. Values defined in the Event enum of
+      components/payments/core/journey_logger.h.
+    </summary>
+  </metric>
+</event>
+
 <event name="PaymentRequest.CheckoutEvents">
   <owner>sebsg@chromium.org</owner>
   <metric name="CompletionStatus">
@@ -7405,12 +9688,43 @@ be describing additional metrics about the same event.
   </metric>
 </event>
 
+<event name="PaymentRequest.TransactionAmount">
+  <owner>sahel@chromium.org</owner>
+  <owner>web-payments-team@google.com</owner>
+  <metric name="Category">
+    <summary>
+      Tranaction size can be zero, micro, or regular. Values defined in the
+      TransactionSize enum of components/payments/core/journey_logger.h.
+    </summary>
+  </metric>
+  <metric name="CompletionStatus" enum="Boolean">
+    <summary>
+      Whether the transaction has been triggered or completed.
+    </summary>
+  </metric>
+</event>
+
 <event name="Pepper.Broker" singular="True">
   <owner>raymes@chromium.org</owner>
   <summary>
     Event recorded when a flash instance connects to the broker, resulting in a
     channel being opened to the broker process.
   </summary>
+</event>
+
+<event name="PerfectHeuristics" singular="True">
+  <owner>dom@chromium.org</owner>
+  <owner>chrome-loading@google.com</owner>
+  <summary>
+    Metrics recorded for the various Perfect Heuristics experiments being run.
+  </summary>
+  <metric name="delay_async_script_execution_before_finished_parsing"
+      enum="Boolean">
+    <summary>
+      Set to 1 when blink::ScriptRunner sees an async script before the
+      associated document has finished parsing.
+    </summary>
+  </metric>
 </event>
 
 <event name="PeriodicBackgroundSyncEventCompleted">
@@ -7523,6 +9837,14 @@ be describing additional metrics about the same event.
       permission prompt, if any.
     </summary>
   </metric>
+  <metric name="SatisfiedAdaptiveTriggers">
+    <summary>
+      A bitmask consisting of flags defined in enum type AdaptiveTriggers. A bit
+      is set if the corresponding adaptive triggering condition has been
+      satisfied at least once in the past for the user. This metric is not
+      recorded for users who don't have the activation dry run enabled.
+    </summary>
+  </metric>
   <metric name="Source">
     <summary>
       An enum of type PermissionSourceUI. The UI surface for this action.
@@ -7550,12 +9872,29 @@ be describing additional metrics about the same event.
       popup opener's URL (not the URL of the popup).
     </summary>
   </metric>
+  <metric name="NumActivationInteractions">
+    <summary>
+      Integer value representing how many mouse down, touch start user, or raw
+      key down interactions the popup had. This is capped at 50.
+    </summary>
+  </metric>
+  <metric name="NumGestureScrollBeginInteractions">
+    <summary>
+      Integer value representing how many gesture scroll begin user interactions
+      the popup had. This is capped at 50.
+    </summary>
+  </metric>
   <metric name="NumInteractions">
     <summary>
       Integer value representing how many user interactions the popup had. This
       is capped at 100. See IsUserInteractionInputType in web_contents_impl for
       what an interaction is. Currently it is a mouse, scroll begin, touch
       start, or raw key down event.
+    </summary>
+  </metric>
+  <metric name="SafeBrowsingStatus" enum="PopupSafeBrowsingStatus">
+    <summary>
+      The site's safe browsing status if the pop-up's navigation commits.
     </summary>
   </metric>
   <metric name="Trusted">
@@ -7567,6 +9906,55 @@ be describing additional metrics about the same event.
   <metric name="UserInitiatedClose">
     <summary>
       Boolean value to represent whether the popup was closed by user gesture.
+    </summary>
+  </metric>
+  <metric name="WindowOpenDisposition" enum="WindowOpenDisposition">
+    <summary>
+      The UI window open disposition used when creating the web contents of the
+      pop-up. Set by the browser process when the pop up tracker is created.
+    </summary>
+  </metric>
+</event>
+
+<event name="Popup.Page" singular="True">
+  <owner>justinmiron@google.com</owner>
+  <summary>
+    Page level pop-up statistics.
+  </summary>
+  <metric name="Allowed">
+    <summary>
+      Whether a user has, explicitly, allowed all popups on the last committed
+      url of a page. The user's site level popup content setting is queried when
+      a page that opened a popup is destroyed. Only emitted when at least one
+      popup has been opened and the last committed page url is valid.
+    </summary>
+  </metric>
+</event>
+
+<event name="Portal.Activate">
+  <owner>lfg@chromium.org</owner>
+  <summary>
+    A portal was activated. A portal activation enables a seamless transition
+    between different pages. See the portals explainer for more details:
+    https://github.com/WICG/portals/blob/master/README.md.
+  </summary>
+  <metric name="PaintTiming.PortalActivationToFirstPaint">
+    <summary>
+      When this page load happened inside a Portal, this metrics records the
+      time in milliseconds between the portal activation and the first paint
+      after activation.
+    </summary>
+  </metric>
+  <metric name="PortalActivation">
+    <summary>
+      Measures the time between LCP and the portal activation. Uses exponential
+      bucketing with a spacing of 2, with the units in milliseconds.
+    </summary>
+  </metric>
+  <metric name="PortalActivationBeforeLCP" enum="Boolean">
+    <summary>
+      Indicates whether the portal activation happened before or after the
+      largest contentful paint.
     </summary>
   </metric>
 </event>
@@ -7607,6 +9995,80 @@ be describing additional metrics about the same event.
       A boolean indicating if any mainpage request in the redirect chain or
       committed request had cookies set on it. Only set when a query result was
       received from the cookie manager before event recording.
+    </summary>
+  </metric>
+  <metric name="ordered_eligible_pages_bitmask">
+    <summary>
+      Which links on the Google Search Page were eligible to be prefetched where
+      the Nth-LSB is set if the Nth page is eligible.
+    </summary>
+  </metric>
+  <metric name="prefetch_attempted_count">
+    <summary>
+      The number of pages on the Google Search Result Page that were attempted
+      to be prefetched.
+    </summary>
+  </metric>
+  <metric name="prefetch_eligible_count">
+    <summary>
+      The number of pages on the Google Search Result page that were eligible to
+      be prefetched.
+    </summary>
+  </metric>
+  <metric name="prefetch_successful_count">
+    <summary>
+      The number of pages on the Google Search Result Page that were
+      successfully prefetched.
+    </summary>
+  </metric>
+  <metric name="prefetch_usage">
+    <obsolete>
+      Replaced by PrefetchProxy.AfterSRPClick.SRPClickPrefetchStatus in M84.
+    </obsolete>
+    <summary>
+      This enum records if a cached prefetch page was used, and its probe
+      status, when the user navigates off the Google Search Result Page. Not set
+      if there was no prefetch. Values: Prefetch used, no probe = 0. Prefetch
+      used, successful probe = 1. Prefetch not used, failed probe = 2.
+    </summary>
+  </metric>
+</event>
+
+<event name="PrefetchProxy.AfterSRPClick" singular="True">
+  <owner>robertogden@chromium.org</owner>
+  <owner>ryansturm@chromium.org</owner>
+  <owner>tbansal@chromium.org</owner>
+  <summary>
+    Metrics related to the privacy-preserving prefetch proxy on the page load
+    after the SRP. Recorded only for eligible users on the first mainframe
+    user-initiated page load immediately after a Google Search Result Page (SRP)
+    which Chrome parsed and may have prefetched links.
+  </summary>
+  <metric name="ClickedLinkSRPPosition">
+    <summary>
+      When a user clicks on a Google SRP link, this int records which position
+      the clicked link was in. Recorded only when the user navigates to a Google
+      SRP link.
+    </summary>
+  </metric>
+  <metric name="ProbeLatencyMs">
+    <summary>
+      How long the network probe blocked commit in milliseconds. Recorded only
+      when a probe was required.
+    </summary>
+  </metric>
+  <metric name="SRPClickPrefetchStatus" enum="IsolatedPrerenderPrefetchStatus">
+    <summary>
+      The outcome of the prefetch eligibility check and possible attempt to
+      prefetch the resource. The prefetched url is always the committed URL of
+      the page. See |IsolatedPrerenderTabHelper.PrefetchStatus| for a mapping of
+      enum values and their meanings.
+    </summary>
+  </metric>
+  <metric name="SRPPrefetchEligibleCount">
+    <summary>
+      The number of links from the SRP page (the previous page load) that were
+      eligible for prefetch. Always set when this event is recorded.
     </summary>
   </metric>
 </event>
@@ -7657,11 +10119,17 @@ be describing additional metrics about the same event.
     </summary>
   </metric>
   <metric name="lite_page_redirect">
+    <obsolete>
+      Removed in M84.
+    </obsolete>
     <summary>
       Set to 1 when a user is shown a lite page redirect in page load.
     </summary>
   </metric>
   <metric name="lite_page_redirect_eligibility_reason">
+    <obsolete>
+      Removed in M84.
+    </obsolete>
     <summary>
       Set to the value of the last known reason a Lite Page Redirect preview was
       not eligible on this page load. The value of this metric corresponds to
@@ -7859,6 +10327,60 @@ be describing additional metrics about the same event.
   </metric>
 </event>
 
+<event name="PublicImageCompressionDataUse">
+  <owner>rajendrant@chromium.org</owner>
+  <owner>mcrouse@chromium.org</owner>
+  <summary>
+    Records coverage metrics for https image compression. The network data use
+    of images is recorded with breakdown of whether the image was compressible
+    by redirecting to optimized version, or if not the reason for its
+    ineligblity is recorded. The bytes are rounded down to the exponential
+    bucket with factor of 1.3.
+  </summary>
+  <metric name="CompressibleImageBytes">
+    <summary>
+      Total image bytes that can be compressed, by redirecting to optimized
+      versions to save data.
+    </summary>
+  </metric>
+  <metric name="IneligibleImageHintsUnavailableAndMissingInHintsBytes">
+    <summary>
+      Total bytes of images that were ineligible to be compressed due to the
+      image hint list was not retrieved in time before the image fetch started,
+      and the image URL was not in the hint list as well, which finished
+      fetching later.
+    </summary>
+  </metric>
+  <metric name="IneligibleImageHintsUnavailableButCompressibleBytes">
+    <summary>
+      Total bytes of images that were ineligible to be compressed due to the
+      image hint list was not retrieved in time before the image fetch started,
+      but the image URL was found in the hint list, which finished fetching
+      later.
+    </summary>
+  </metric>
+  <metric name="IneligibleImageHintsUnavailableBytes">
+    <summary>
+      Total bytes of images that were ineligible to be compressed due to the
+      image hint list was not retrieved within within certain time limit of
+      navigation start.
+    </summary>
+  </metric>
+  <metric name="IneligibleMissingInImageHintsBytes">
+    <summary>
+      Total bytes of images that were ineligible to be compressed due to the
+      image URL not exist in the image hint list.
+    </summary>
+  </metric>
+  <metric name="IneligibleOtherImageBytes">
+    <summary>
+      Total bytes of images that were ineligible to be compressed due to other
+      reasons not listed here, such as subframe images, non img element,
+      javascript initiated image, etc.
+    </summary>
+  </metric>
+</event>
+
 <event name="PWA.Visit" singular="True">
   <owner>yfriedman@chromium.org</owner>
   <owner>hartmanng@chromium.org</owner>
@@ -7894,6 +10416,52 @@ be describing additional metrics about the same event.
         <index fields="profile.system_ram"/>
         <statistics>
           <quantiles type="std-percentiles"/>
+        </statistics>
+      </history>
+    </aggregation>
+  </metric>
+</event>
+
+<event name="ReaderModeActivated" singular="True">
+  <owner>gilmanmh@google.com</owner>
+  <owner>kjbooker@google.com</owner>
+  <owner>dmazzoni@chromium.org</owner>
+  <summary>
+    Recorded after a user activates Reader Mode for a given page.
+  </summary>
+  <metric name="ActivatedViaOmnibox" enum="Boolean">
+    <summary>
+      Whether the user activated Reader Mode via the omnibox badge.
+    </summary>
+    <aggregation>
+      <history>
+        <index fields="profile.country"/>
+        <statistics>
+          <enumeration/>
+        </statistics>
+      </history>
+    </aggregation>
+  </metric>
+</event>
+
+<event name="ReaderModeReceivedDistillability">
+  <owner>gilmanmh@google.com</owner>
+  <owner>kjbooker@google.com</owner>
+  <owner>dmazzoni@chromium.org</owner>
+  <summary>
+    Recorded when the Reader Mode badge receives a result from the
+    distillability service.
+  </summary>
+  <metric name="IsPageDistillable" enum="Boolean">
+    <summary>
+      Whether the distillability service determined the page to be distillable,
+      i.e. likely to render well in Reader Mode.
+    </summary>
+    <aggregation>
+      <history>
+        <index fields="profile.country"/>
+        <statistics>
+          <enumeration/>
         </statistics>
       </history>
     </aggregation>
@@ -7999,11 +10567,70 @@ be describing additional metrics about the same event.
     Responsiveness metrics recorded once every 5 seconds.
   </summary>
   <metric name="ExpectedTaskQueueingDuration">
+    <obsolete>
+      Removed June 2020.
+    </obsolete>
     <summary>
       Duration in MS for expected task queueing duration. The metric reflects
       the responsiveness of a tab. A lower value means the tab will respond to
       inputs faster. This metric is equal to
       RendererScheduler.ExpectedTaskQueueingDuration of the main frame process.
+    </summary>
+  </metric>
+</event>
+
+<event name="SameSiteDifferentSchemeRequest">
+  <owner>bingler@chromium.org</owner>
+  <metric name="SameSiteContextWithSchemes" enum="SameSiteCookieContext">
+    <obsolete>
+      Removed Apr 2020 as this metric doesn't capture the correct information.
+      https://crbug.com/1066231
+    </obsolete>
+    <summary>
+      An enum that records the type of same-site context if a cookie marked with
+      SameSite=Lax or SameSite=Strict is sent across schemes on a request. E.x.:
+      An http site making a request to an https site.
+    </summary>
+  </metric>
+</event>
+
+<event name="SameSiteDifferentSchemeResponse">
+  <owner>bingler@chromium.org</owner>
+  <metric name="SameSiteContextWithSchemes" enum="SameSiteCookieContext">
+    <obsolete>
+      Removed Apr 2020 as this metric doesn't capture the correct information.
+      https://crbug.com/1066231
+    </obsolete>
+    <summary>
+      An enum that records the type of same-site context if a cookie marked with
+      SameSite=Lax or SameSite=Strict is set across schemes on a response. E.x.:
+      An http site returning a response to an https site.
+    </summary>
+  </metric>
+</event>
+
+<event name="SchemefulSameSiteContextDowngrade">
+  <owner>bingler@chromium.org</owner>
+  <metric name="RequestPerCookie"
+      enum="SameSiteCookieContextBreakingDowngradeWithSecureness">
+    <summary>
+      An enum which records the type of schemeful same-site downgrade applied to
+      a cookie which is being sent on a request along with the secureness of the
+      origin the cookie is attempting to be sent to. This is recorded once per
+      cookie when the cookie is included in the request or if the cookie
+      excluded due to insufficent same-site context only. Cookies that meet the
+      above conditions but without a downgrade warning are not recorded.
+    </summary>
+  </metric>
+  <metric name="ResponsePerCookie"
+      enum="SameSiteCookieContextBreakingDowngradeWithSecureness">
+    <summary>
+      An enum which records the type of schemeful same-site downgrade applied to
+      a cookie which is being set by a response along with the secureness of the
+      origin that is attempting to set the cookie. This is recorded once per
+      cookie when the cookie is allowed to be set or if the cookie is ignored
+      due to insufficent same-site context only. Cookies that meet the above
+      conditions but without a downgrade warning are not recorded.
     </summary>
   </metric>
 </event>
@@ -8438,6 +11065,11 @@ be describing additional metrics about the same event.
       current event.
     </summary>
   </metric>
+  <metric name="IsCharging" enum="Boolean">
+    <summary>
+      Whether the device is being charged or not.
+    </summary>
+  </metric>
   <metric name="Month" enum="Month">
     <summary>
       Event's month (e.g. Jan-Dec) in local time zone. January is 1.
@@ -8766,6 +11398,9 @@ be describing additional metrics about the same event.
 
 <event
     name="TabManager.BackgroundTabOpening.ForegroundTab.ExpectedTaskQueueingDurationInfo">
+  <obsolete>
+    Removed June 2020.
+  </obsolete>
   <owner>chrisha@chromium.org</owner>
   <summary>
     Collects the expected queueing duration of tasks and metadata for the
@@ -8937,9 +11572,18 @@ be describing additional metrics about the same event.
     attempted, and information about the outcome of the attempt.
   </summary>
   <metric name="FailureGlobalBlacklist" enum="Boolean">
+    <obsolete>
+      Deprecated 06/2020. Replaced with FailureGlobalDisallowlist.
+    </obsolete>
     <summary>
       Boolean indicating that the tab was explicitly opted out of the
-      intervention via the global blacklist.
+      intervention via the global disallowlist.
+    </summary>
+  </metric>
+  <metric name="FailureGlobalDisallowlist" enum="Boolean">
+    <summary>
+      Boolean indicating that the tab was explicitly opted out of the
+      intervention via the global disallowlist.
     </summary>
   </metric>
   <metric name="FailureHeuristicAudio" enum="Boolean">
@@ -9087,6 +11731,12 @@ be describing additional metrics about the same event.
       currently visible.
     </summary>
   </metric>
+  <metric name="FailureLiveWebApp" enum="Boolean">
+    <summary>
+      Boolean indicating that the intervention was disallowed because the tab is
+      a web application window.
+    </summary>
+  </metric>
   <metric name="FailureOriginTrialOptOut" enum="Boolean">
     <summary>
       Boolean indicating that the tab explicitly opted out of the intervention
@@ -9128,10 +11778,19 @@ be describing additional metrics about the same event.
       success bits are present the outcome is positive.
     </summary>
   </metric>
-  <metric name="SuccessGlobalWhitelist" enum="Boolean">
+  <metric name="SuccessGlobalAllowlist" enum="Boolean">
     <summary>
       Boolean indicating that the tab was explicitly opted in to the
-      intervention via the global whitelist.
+      intervention via the global allowlist.
+    </summary>
+  </metric>
+  <metric name="SuccessGlobalWhitelist" enum="Boolean">
+    <obsolete>
+      Deprecated 06/2020. Replaced with SuccessGlobalAllowlist.
+    </obsolete>
+    <summary>
+      Boolean indicating that the tab was explicitly opted in to the
+      intervention via the global allowlist.
     </summary>
   </metric>
   <metric name="SuccessHeuristic" enum="Boolean">
@@ -9501,6 +12160,50 @@ be describing additional metrics about the same event.
   </metric>
 </event>
 
+<event name="Unload" singular="True">
+  <owner>kdillon@chromium.org</owner>
+  <summary>
+    Metrics associated with a unloading in preparation for a navigation.
+  </summary>
+  <metric name="BeforeUnloadDuration">
+    <summary>
+      Measures the time in milliseconds of running the beforeunload handlers for
+      a page. If the beforeunloads are dispatched from the browser, this reports
+      the longest running one since these handlers will be run in parallel when
+      the page has frames in different processes. If the navigation is renderer
+      initiated, it will be the duration of running beforeunload handlers in the
+      navigating frame and its local descendants in the renderer plus any
+      latency caused by dispatching beforeunloads to remote frames from the
+      browser.
+    </summary>
+    <aggregation>
+      <history>
+        <statistics>
+          <quantiles type="std-percentiles"/>
+        </statistics>
+      </history>
+    </aggregation>
+  </metric>
+  <metric name="BeforeUnloadQueueingDuration">
+    <summary>
+      Measures the time in milliseconds from when the browser sends the request
+      to run beforeunload to the renderer to when the renderer begins
+      dispatching the handlers. For browser-initiated navigations, we report the
+      queueing duration of the beforeunloads that took the longest since they
+      are dispatched in parallel to remote and local frames. For renderer-
+      initiated navigations this metric will only be filled in if we dispatched
+      beforeunloads from the browser to remote frames which we had to wait on.
+    </summary>
+    <aggregation>
+      <history>
+        <statistics>
+          <quantiles type="std-percentiles"/>
+        </statistics>
+      </history>
+    </aggregation>
+  </metric>
+</event>
+
 <event name="UserActivity">
   <owner>jiameng@chromium.org</owner>
   <summary>
@@ -9758,6 +12461,455 @@ be describing additional metrics about the same event.
       Site engagement score in the range [0, 100], rounded down to a multiple of
       10 to limit granularity.
     </summary>
+  </metric>
+</event>
+
+<event name="UserSettingsEvent">
+  <owner>wrong@chromium.org</owner>
+  <owner>jiameng@chromium.org</owner>
+  <summary>
+    Contains information about user activities relating to settings changes.
+  </summary>
+  <metric name="AccessibilityId" enum="AccessibilityId">
+    <summary>
+      The accessibility setting that was changed.
+    </summary>
+  </metric>
+  <metric name="BatteryPercentage">
+    <summary>
+      Battery percentage from 0 to 100.
+    </summary>
+  </metric>
+  <metric name="Country">
+    <summary>
+      Country ID at install, corresponding to the value used by
+      src/components/country_codes/country_codes.h.
+    </summary>
+  </metric>
+  <metric name="CurrentValue">
+    <summary>
+      Value of the setting after the change.
+    </summary>
+  </metric>
+  <metric name="DayOfWeek" enum="DayOfWeek">
+    <summary>
+      Day of the week of the settings change.
+    </summary>
+  </metric>
+  <metric name="DeviceMode" enum="DeviceMode">
+    <summary>
+      The current device mode, such as clamshell or tablet.
+    </summary>
+  </metric>
+  <metric name="DeviceOrientation" enum="DeviceOrientation">
+    <summary>
+      The current orientation of the device.
+    </summary>
+  </metric>
+  <metric name="EventId">
+    <summary>
+      Randomly generated ID that links together settings events that occured at
+      the same time.
+    </summary>
+  </metric>
+  <metric name="HasNightLightSchedule" enum="Boolean">
+    <summary>
+      A boolean indicating whether the user has set up a night light schedule.
+    </summary>
+  </metric>
+  <metric name="HasWifiSecurity" enum="Boolean">
+    <summary>
+      A boolean indicating whether or not the current wifi network has security.
+      Only populated upon connection to a wifi network.
+    </summary>
+  </metric>
+  <metric name="HourOfDay">
+    <summary>
+      Time in hours since midnight in the local time zone.
+    </summary>
+  </metric>
+  <metric name="IsAfterSunset" enum="Boolean">
+    <summary>
+      A boolean, true if it is after sunset and before sunrise in the local
+      time.
+    </summary>
+  </metric>
+  <metric name="IsCharging" enum="Boolean">
+    <summary>
+      A boolean indicating whether the device is charging.
+    </summary>
+  </metric>
+  <metric name="IsFromSearch" enum="Boolean">
+    <summary>
+      A boolean indicating whether or not search was used to navigate to the
+      setting.
+    </summary>
+  </metric>
+  <metric name="IsPairedBluetoothDevice" enum="Boolean">
+    <summary>
+      A boolean indicating whether or not the current bluetooth device was
+      already paired. Only populated upon connection to a bluetooth device.
+    </summary>
+  </metric>
+  <metric name="IsPlayingAudio" enum="Boolean">
+    <summary>
+      A boolean indicating whether the device is playing audio.
+    </summary>
+  </metric>
+  <metric name="IsPlayingVideo" enum="Boolean">
+    <summary>
+      A boolean indicating whether the device is playing video.
+    </summary>
+  </metric>
+  <metric name="IsRecentlyFullscreen" enum="Boolean">
+    <summary>
+      A boolean indicating whether the device has been in fullscreen mode in the
+      last 5 minutes.
+    </summary>
+  </metric>
+  <metric name="IsRecentlyPresenting" enum="Boolean">
+    <summary>
+      A boolean indicating whether the device has been presenting in the last 5
+      minutes.
+    </summary>
+  </metric>
+  <metric name="NetworkStatus" enum="NetworkStatus">
+    <summary>
+      Internet connection status of the device.
+    </summary>
+  </metric>
+  <metric name="PreviousValue">
+    <summary>
+      Value of the setting before the change.
+    </summary>
+  </metric>
+  <metric name="SettingId" enum="SettingId">
+    <summary>
+      The setting that was changed.
+    </summary>
+  </metric>
+  <metric name="SettingType" enum="SettingType">
+    <summary>
+      Where the settings event originated from.
+    </summary>
+  </metric>
+  <metric name="SignalStrength">
+    <summary>
+      The signal strength for the connected network. Only populated upon
+      connection to a wifi or cellular network.
+    </summary>
+  </metric>
+  <metric name="TimeSinceLastSettingsChange">
+    <summary>
+      Time in minutes since the last settings change.
+    </summary>
+  </metric>
+  <metric name="UsedCellularInSession" enum="Boolean">
+    <summary>
+      A boolean indicating whether the user has connected to a cellular network
+      in the current session.
+    </summary>
+  </metric>
+</event>
+
+<event name="V8.Wasm.ModuleCompiled">
+  <owner>ecmziegler@chromium.org</owner>
+  <summary>
+    Records information on baseline compilation of WebAssembly modules and its
+    resource consumption.
+  </summary>
+  <metric name="Async" enum="Boolean">
+    <summary>
+      The compilation was running asynchronously.
+    </summary>
+    <aggregation>
+      <history>
+        <index fields="profile.form_factor"/>
+        <statistics>
+          <enumeration/>
+        </statistics>
+      </history>
+    </aggregation>
+  </metric>
+  <metric name="Cached" enum="Boolean">
+    <summary>
+      The compilation was re-using already cached native module code instead of
+      JIT compiling it.
+    </summary>
+    <aggregation>
+      <history>
+        <index fields="profile.form_factor"/>
+        <statistics>
+          <enumeration/>
+        </statistics>
+      </history>
+    </aggregation>
+  </metric>
+  <metric name="CodeSize">
+    <summary>
+      The size of the native module code in bytes after baseline compilation
+      finished.
+    </summary>
+    <aggregation>
+      <history>
+        <index fields="profile.form_factor"/>
+        <statistics>
+          <quantiles type="std-percentiles"/>
+        </statistics>
+      </history>
+    </aggregation>
+  </metric>
+  <metric name="Deserialized" enum="Boolean">
+    <summary>
+      The compilation was deserializing the native module code from the disk
+      cache instead of JIT compiling it.
+    </summary>
+    <aggregation>
+      <history>
+        <index fields="profile.form_factor"/>
+        <statistics>
+          <enumeration/>
+        </statistics>
+      </history>
+    </aggregation>
+  </metric>
+  <metric name="Lazy" enum="Boolean">
+    <summary>
+      The lazy compilation flag was enabled and therefore not all functions
+      might have been compiled.
+    </summary>
+    <aggregation>
+      <history>
+        <index fields="profile.form_factor"/>
+        <statistics>
+          <enumeration/>
+        </statistics>
+      </history>
+    </aggregation>
+  </metric>
+  <metric name="LiftoffBailoutCount">
+    <summary>
+      The number of functions that Liftoff could not compile and that therefore
+      needed to be compiled by TurboFan.
+    </summary>
+    <aggregation>
+      <history>
+        <index fields="profile.form_factor"/>
+        <statistics>
+          <quantiles type="std-percentiles"/>
+        </statistics>
+      </history>
+    </aggregation>
+  </metric>
+  <metric name="Streamed" enum="Boolean">
+    <summary>
+      The wire bytes were streamed while compiling.
+    </summary>
+    <aggregation>
+      <history>
+        <index fields="profile.form_factor"/>
+        <statistics>
+          <enumeration/>
+        </statistics>
+      </history>
+    </aggregation>
+  </metric>
+  <metric name="Success" enum="Boolean">
+    <summary>
+      The module was successfully compiled.
+    </summary>
+    <aggregation>
+      <history>
+        <index fields="profile.form_factor"/>
+        <index fields="profile.system_ram"/>
+        <statistics>
+          <enumeration/>
+        </statistics>
+      </history>
+    </aggregation>
+  </metric>
+  <metric name="WallClockTime">
+    <summary>
+      The total time the compilation took in microseconds.
+    </summary>
+    <aggregation>
+      <history>
+        <index fields="profile.form_factor"/>
+        <statistics>
+          <quantiles type="std-percentiles"/>
+        </statistics>
+      </history>
+    </aggregation>
+  </metric>
+</event>
+
+<event name="V8.Wasm.ModuleDecoded">
+  <owner>ecmziegler@chromium.org</owner>
+  <summary>
+    Records information on WebAssembly modules included in websites.
+  </summary>
+  <metric name="FunctionCount">
+    <summary>
+      Number of declared functions in this module.
+    </summary>
+    <aggregation>
+      <history>
+        <index fields="profile.form_factor"/>
+        <statistics>
+          <quantiles type="std-percentiles"/>
+        </statistics>
+      </history>
+    </aggregation>
+  </metric>
+  <metric name="ModuleSize">
+    <summary>
+      The size of the wire bytes of the module.
+    </summary>
+    <aggregation>
+      <history>
+        <index fields="profile.form_factor"/>
+        <statistics>
+          <quantiles type="std-percentiles"/>
+        </statistics>
+      </history>
+    </aggregation>
+  </metric>
+  <metric name="Streamed" enum="Boolean">
+    <summary>
+      The wire bytes were streamed while decoding.
+    </summary>
+    <aggregation>
+      <history>
+        <index fields="profile.form_factor"/>
+        <statistics>
+          <enumeration/>
+        </statistics>
+      </history>
+    </aggregation>
+  </metric>
+  <metric name="Success" enum="Boolean">
+    <summary>
+      The module was successfully decoded.
+    </summary>
+    <aggregation>
+      <history>
+        <index fields="profile.form_factor"/>
+        <index fields="profile.system_ram"/>
+        <statistics>
+          <enumeration/>
+        </statistics>
+      </history>
+    </aggregation>
+  </metric>
+  <metric name="WallClockTime">
+    <summary>
+      The total time the decoding took in microseconds.
+    </summary>
+    <aggregation>
+      <history>
+        <index fields="profile.form_factor"/>
+        <statistics>
+          <quantiles type="std-percentiles"/>
+        </statistics>
+      </history>
+    </aggregation>
+  </metric>
+</event>
+
+<event name="V8.Wasm.ModuleInstantiated">
+  <owner>ecmziegler@chromium.org</owner>
+  <summary>
+    Records information on instantiation of WebAssembly modules and its resource
+    consumption.
+  </summary>
+  <metric name="ImportedFunctionCount">
+    <summary>
+      The number of functions imported by the module.
+    </summary>
+    <aggregation>
+      <history>
+        <index fields="profile.form_factor"/>
+        <statistics>
+          <quantiles type="std-percentiles"/>
+        </statistics>
+      </history>
+    </aggregation>
+  </metric>
+  <metric name="Success" enum="Boolean">
+    <summary>
+      The module was successfully instantiated.
+    </summary>
+    <aggregation>
+      <history>
+        <index fields="profile.form_factor"/>
+        <index fields="profile.system_ram"/>
+        <statistics>
+          <enumeration/>
+        </statistics>
+      </history>
+    </aggregation>
+  </metric>
+  <metric name="WallClockTime">
+    <summary>
+      The total time the instantiation took in microseconds.
+    </summary>
+    <aggregation>
+      <history>
+        <index fields="profile.form_factor"/>
+        <statistics>
+          <quantiles type="std-percentiles"/>
+        </statistics>
+      </history>
+    </aggregation>
+  </metric>
+</event>
+
+<event name="V8.Wasm.ModuleTieredUp">
+  <owner>ecmziegler@chromium.org</owner>
+  <summary>
+    Records information on top-tier compilation of WebAssembly modules and its
+    resource consumption.
+  </summary>
+  <metric name="CodeSize">
+    <summary>
+      The size of the native module code in bytes after top-tier compilation
+      finished.
+    </summary>
+    <aggregation>
+      <history>
+        <index fields="profile.form_factor"/>
+        <statistics>
+          <quantiles type="std-percentiles"/>
+        </statistics>
+      </history>
+    </aggregation>
+  </metric>
+  <metric name="Lazy" enum="Boolean">
+    <summary>
+      The lazy compilation flag was enabled and therefore not all functions
+      might have been compiled.
+    </summary>
+    <aggregation>
+      <history>
+        <index fields="profile.form_factor"/>
+        <statistics>
+          <enumeration/>
+        </statistics>
+      </history>
+    </aggregation>
+  </metric>
+  <metric name="WallClockTime">
+    <summary>
+      The total time the compilation took in microseconds.
+    </summary>
+    <aggregation>
+      <history>
+        <index fields="profile.form_factor"/>
+        <statistics>
+          <quantiles type="std-percentiles"/>
+        </statistics>
+      </history>
+    </aggregation>
   </metric>
 </event>
 
@@ -10060,6 +13212,162 @@ be describing additional metrics about the same event.
   </metric>
 </event>
 
+<event name="WebApp.DailyInteraction">
+  <owner>glenrob@chromium.org</owner>
+  <owner>benwells@chromium.org</owner>
+  <summary>
+    Features of a web app recorded at most once per day if a user interacted
+    with the web app. Recorded for both installed and promotable (installable)
+    web apps unless noted otherwise on the metric.
+  </summary>
+  <metric name="BackgroundDuration">
+    <summary>
+      Records the total duration (seconds, bucketed) that the app was open in
+      the background in the last calendar day. Summed during the day and emitted
+      if the date changes. Recorded only for installed web apps that open with
+      standalone display mode.
+    </summary>
+    <aggregation>
+      <history>
+        <index fields="profile.country"/>
+        <index fields="profile.form_factor"/>
+        <index fields="profile.system_ram"/>
+        <statistics>
+          <quantiles type="std-percentiles"/>
+        </statistics>
+      </history>
+    </aggregation>
+  </metric>
+  <metric name="DisplayMode" enum="WebAppDisplayMode">
+    <summary>
+      Effective display mode of the web app (may be set by a manifest and
+      manifest may be overridden by the user).
+    </summary>
+    <aggregation>
+      <history>
+        <index fields="profile.country"/>
+        <index fields="profile.form_factor"/>
+        <index fields="profile.system_ram"/>
+        <statistics>
+          <enumeration/>
+        </statistics>
+      </history>
+    </aggregation>
+  </metric>
+  <metric name="ForegroundDuration">
+    <summary>
+      Records the total duration (seconds, bucketed) that the app was open in
+      the foreground in the last calendar day. Summed during the day and emitted
+      if the date changes. Recorded only for installed web apps that open with
+      standalone display mode.
+    </summary>
+    <aggregation>
+      <history>
+        <index fields="profile.country"/>
+        <index fields="profile.form_factor"/>
+        <index fields="profile.system_ram"/>
+        <statistics>
+          <quantiles type="std-percentiles"/>
+        </statistics>
+      </history>
+    </aggregation>
+  </metric>
+  <metric name="Installed" enum="Boolean">
+    <summary>
+      Whether the web app is installed.
+    </summary>
+    <aggregation>
+      <history>
+        <index fields="profile.country"/>
+        <index fields="profile.form_factor"/>
+        <index fields="profile.system_ram"/>
+        <statistics>
+          <enumeration/>
+        </statistics>
+      </history>
+    </aggregation>
+  </metric>
+  <metric name="InstallSource" enum="WebappInstallSource">
+    <summary>
+      Install source of the web app (omnibox, menu item, policy, etc).
+    </summary>
+    <aggregation>
+      <history>
+        <index fields="profile.country"/>
+        <index fields="profile.form_factor"/>
+        <index fields="profile.system_ram"/>
+        <statistics>
+          <enumeration/>
+        </statistics>
+      </history>
+    </aggregation>
+  </metric>
+  <metric name="NumSessions">
+    <summary>
+      Records the total number of times the app was focused in the foreground in
+      the last calendar day. Recorded only for installed web apps that open with
+      standalone display mode.
+    </summary>
+    <aggregation>
+      <history>
+        <index fields="profile.country"/>
+        <index fields="profile.form_factor"/>
+        <index fields="profile.system_ram"/>
+        <statistics>
+          <quantiles type="std-percentiles"/>
+        </statistics>
+      </history>
+    </aggregation>
+  </metric>
+  <metric name="Promotable" enum="Boolean">
+    <summary>
+      Whether the web app is currently considered 'promotable' (passes Chrome
+      checks to be considered an installable web app).
+    </summary>
+    <aggregation>
+      <history>
+        <index fields="profile.country"/>
+        <index fields="profile.form_factor"/>
+        <index fields="profile.system_ram"/>
+        <statistics>
+          <enumeration/>
+        </statistics>
+      </history>
+    </aggregation>
+  </metric>
+  <metric name="Used" enum="Boolean">
+    <summary>
+      Records that the web app was used. Always true (or the event would not
+      have been emitted for this WebApp).
+    </summary>
+    <aggregation>
+      <history>
+        <index fields="profile.country"/>
+        <index fields="profile.form_factor"/>
+        <index fields="profile.system_ram"/>
+        <statistics>
+          <enumeration/>
+        </statistics>
+      </history>
+    </aggregation>
+  </metric>
+</event>
+
+<event name="WebOTPImpact">
+  <owner>yigu@chromium.org</owner>
+  <owner>goto@chromium.org</owner>
+  <owner>web-identity@google.com</owner>
+  <summary>
+    Records in the browser process when a document is destroyed.
+  </summary>
+  <metric name="PhoneCollection" enum="PhoneCollectionState">
+    <summary>
+      Records whether a document collected phone number, and/or used WebOTP,
+      and/or used OneTimeCode (OTC) during its lifecycle.
+    </summary>
+  </metric>
+</event>
+
 <event name="WebRTC.AddressHarvesting">
   <owner>hta@chromium.org</owner>
   <summary>
@@ -10095,8 +13403,29 @@ be describing additional metrics about the same event.
   </metric>
 </event>
 
+<event name="Worker.ClientAdded">
+  <owner>cfredric@google.com</owner>
+  <summary>
+    Recorded when a client connects to an existing SharedWorker; records the
+    source IDs of the client (which may be a document or another worker), and
+    the type of the worker being connected to.
+  </summary>
+  <metric name="ClientSourceId">
+    <summary>
+      The UKM source ID of the connecting client, as an integer.
+    </summary>
+  </metric>
+  <metric name="WorkerType" enum="WorkerType">
+    <summary>
+      The type of the worker that was connected to.
+    </summary>
+  </metric>
+</event>
+
 <event name="XR.PageSession" singular="True">
-  <owner>offenwanger@chromium.org</owner>
+  <obsolete>
+    Removed 2/2020
+  </obsolete>
   <owner>xr-dev@chromium.org</owner>
   <summary>
     Records properties of page use in XR, including VR browsing and WebXR
@@ -10400,6 +13729,9 @@ be describing additional metrics about the same event.
     </summary>
   </metric>
   <metric name="IsLegacyWebVR" enum="Boolean">
+    <obsolete>
+      Removed 2/2020
+    </obsolete>
     <summary>
       Boolean value indicating whether a session was created using the legacy
       WebVR API rather than WebXR.

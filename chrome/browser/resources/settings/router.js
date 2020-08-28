@@ -2,9 +2,22 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+// #import {assert, assertNotReached} from 'chrome://resources/js/assert.m.js';
+// #import {loadTimeData} from 'chrome://resources/js/load_time_data.m.js';
+// #import './i18n_setup.js';
+
 cr.define('settings', function() {
+  /**
+   * @typedef {{
+   *   BASIC: !settings.Route,
+   *   ADVANCED: !settings.Route,
+   *   ABOUT: !settings.Route,
+   * }}
+   */
+  /* #export */ let MinimumRoutes;
+
   /** Class for navigable routes. */
-  class Route {
+  /* #export */ class Route {
     /** @param {string} path */
     constructor(path) {
       /** @type {string} */
@@ -40,7 +53,7 @@ cr.define('settings', function() {
 
       // |path| extends this route's path if it doesn't have a leading slash.
       // If it does have a leading slash, it's just set as the new route's URL.
-      const newUrl = path[0] == '/' ? path : `${this.path}/${path}`;
+      const newUrl = path[0] === '/' ? path : `${this.path}/${path}`;
 
       const route = new Route(newUrl);
       route.parent = this;
@@ -79,7 +92,7 @@ cr.define('settings', function() {
      */
     contains(route) {
       for (let r = route; r != null; r = r.parent) {
-        if (this == r) {
+        if (this === r) {
           return true;
         }
       }
@@ -92,7 +105,7 @@ cr.define('settings', function() {
      */
     isSubpage() {
       return !!this.parent && !!this.section &&
-          this.parent.section == this.section;
+          this.parent.section === this.section;
     }
   }
 
@@ -103,13 +116,35 @@ cr.define('settings', function() {
    */
   const CANONICAL_PATH_REGEX = /(^\/)([\/-\w]+)(\/$)/;
 
-  class Router {
-    /** @param {!SettingsRoutes} availableRoutes */
+  /** @type {?settings.Router} */
+  let routerInstance = null;
+
+  /* #export */ class Router {
+    /** @return {!settings.Router} The singleton instance. */
+    static getInstance() {
+      return assert(routerInstance);
+    }
+
+    /** @param {!settings.Router} instance */
+    static setInstance(instance) {
+      assert(!routerInstance);
+      routerInstance = instance;
+    }
+
+    /** @param {!settings.Router} instance */
+    static resetInstanceForTesting(instance) {
+      if (routerInstance) {
+        instance.routeObservers_ = routerInstance.routeObservers_;
+      }
+      routerInstance = instance;
+    }
+
+    /** @param {!settings.MinimumRoutes} availableRoutes */
     constructor(availableRoutes) {
       /**
        * List of available routes. This is populated taking into account current
        * state (like guest mode).
-       * @private {!SettingsRoutes}
+       * @private {!settings.MinimumRoutes}
        */
       this.routes_ = availableRoutes;
 
@@ -118,7 +153,7 @@ cr.define('settings', function() {
        * or settings.initializeRouteFromUrl.
        * @type {!settings.Route}
        */
-      this.currentRoute = /** @type {!settings.Route} */ (this.routes_.BASIC);
+      this.currentRoute = this.routes_.BASIC;
 
       /**
        * The current query parameters. This is updated only by
@@ -153,7 +188,7 @@ cr.define('settings', function() {
       return this.routes_[routeName];
     }
 
-    /** @return {!SettingsRoutes} */
+    /** @return {!Object} */
     getRoutes() {
       return this.routes_;
     }
@@ -204,7 +239,7 @@ cr.define('settings', function() {
       // TODO(tommycli): Use Object.values once Closure compilation supports it.
       const matchingKey =
           Object.keys(this.routes_)
-              .find((key) => this.routes_[key].path == canonicalPath);
+              .find((key) => this.routes_[key].path === canonicalPath);
 
       return matchingKey ? this.routes_[matchingKey] : null;
     }
@@ -220,8 +255,8 @@ cr.define('settings', function() {
     navigateTo(route, opt_dynamicParameters, opt_removeSearch) {
       // The ADVANCED route only serves as a parent of subpages, and should not
       // be possible to navigate to it directly.
-      if (route == this.routes_.ADVANCED) {
-        route = /** @type {!settings.Route} */ (this.routes_.BASIC);
+      if (route === this.routes_.ADVANCED) {
+        route = this.routes_.BASIC;
       }
 
       const params = opt_dynamicParameters || new URLSearchParams();
@@ -258,9 +293,7 @@ cr.define('settings', function() {
       if (previousRoute && previousRoute.depth <= this.currentRoute.depth) {
         window.history.back();
       } else {
-        this.navigateTo(
-            this.currentRoute.parent ||
-            /** @type {!settings.Route} */ (this.routes_.BASIC));
+        this.navigateTo(this.currentRoute.parent || this.routes_.BASIC);
       }
     }
 
@@ -279,7 +312,7 @@ cr.define('settings', function() {
       this.recordMetrics(route ? route.path : this.routes_.BASIC.path);
 
       // Never allow direct navigation to ADVANCED.
-      if (route && route != this.routes_.ADVANCED) {
+      if (route && route !== this.routes_.ADVANCED) {
         this.currentRoute = route;
         this.currentQueryParameters_ =
             new URLSearchParams(window.location.search);
@@ -297,20 +330,52 @@ cr.define('settings', function() {
       assert(!urlPath.startsWith('settings'));
       assert(urlPath.startsWith('/'));
       assert(!urlPath.match(/\?/g));
-      chrome.metricsPrivate.recordSparseHashable(
-          'WebUI.Settings.PathVisited', urlPath);
+
+      const metricName = loadTimeData.valueExists('isOSSettings') &&
+              loadTimeData.getBoolean('isOSSettings') ?
+          'ChromeOS.Settings.PathVisited' :
+          'WebUI.Settings.PathVisited';
+      chrome.metricsPrivate.recordSparseHashable(metricName, urlPath);
     }
 
     resetRouteForTesting() {
       this.initializeRouteFromUrlCalled_ = false;
       this.wasLastRouteChangePopstate_ = false;
-      this.currentRoute = /** @type {!settings.Route} */ (this.routes_.BASIC);
+      this.currentRoute = this.routes_.BASIC;
       this.currentQueryParameters_ = new URLSearchParams();
     }
   }
 
+  /** @polymerBehavior */
+  /* #export */ const RouteObserverBehavior = {
+    /** @override */
+    attached() {
+      routerInstance.addObserver(this);
+
+      // Emulating Polymer data bindings, the observer is called when the
+      // element starts observing the route.
+      this.currentRouteChanged(routerInstance.currentRoute, undefined);
+    },
+
+    /** @override */
+    detached() {
+      routerInstance.removeObserver(this);
+    },
+
+    /**
+     * @param {!settings.Route|undefined} opt_newRoute
+     * @param {!settings.Route|undefined} opt_oldRoute
+     */
+    currentRouteChanged(opt_newRoute, opt_oldRoute) {
+      assertNotReached();
+    },
+  };
+
+  // #cr_define_end
   return {
+    MinimumRoutes: MinimumRoutes,
     Route: Route,    // The Route class definition.
     Router: Router,  // The Router class definition.
+    RouteObserverBehavior: RouteObserverBehavior,
   };
 });

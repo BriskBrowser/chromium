@@ -9,14 +9,17 @@
 #include <string>
 
 #include "ash/public/cpp/ash_public_export.h"
+#include "base/strings/string16.h"
 #include "third_party/skia/include/core/SkColor.h"
 #include "ui/base/class_property.h"
+
+class SkRegion;
 
 namespace aura {
 class Window;
 template <typename T>
 using WindowProperty = ui::ClassProperty<T>;
-}
+}  // namespace aura
 
 namespace gfx {
 class Rect;
@@ -27,13 +30,7 @@ namespace ash {
 enum class WindowPinType;
 enum class WindowStateType;
 
-enum class BackdropWindowMode {
-  kEnabled,     // The window needs a backdrop shown behind it.
-  kDisabled,    // The window should never have a backdrop.
-  kAutoOpaque,  // The window manager decides if the window should have a fully
-                // opaque backdrop.
-  kAutoSemiOpaque,  // The window needs a semi-opaque backdrop shown behind it.
-};
+class WindowBackdrop;
 
 // Shell-specific window property keys for use by ash and its clients.
 
@@ -48,10 +45,11 @@ ASH_PUBLIC_EXPORT extern const aura::WindowProperty<std::string*>* const
 ASH_PUBLIC_EXPORT extern const aura::WindowProperty<std::string*>* const
     kArcPackageNameKey;
 
-// A property key to specify if the window should (or should not) have a
-// backdrop window (typically black) that covers the desktop behind the window.
-ASH_PUBLIC_EXPORT extern const aura::WindowProperty<BackdropWindowMode>* const
-    kBackdropWindowMode;
+// A property key to specify whether the window should have backdrop and if
+// it has backdrop, the backdrop's mode and type. The backdrop is typically a
+// black window that covers the entire workspace placed behind the window.
+ASH_PUBLIC_EXPORT extern const aura::WindowProperty<WindowBackdrop*>* const
+    kWindowBackdropKey;
 
 // If set to true, the window will be replaced by a black rectangle when taking
 // screenshot for assistant. Used to preserve privacy for incognito windows.
@@ -66,10 +64,18 @@ ASH_PUBLIC_EXPORT extern const aura::WindowProperty<bool>* const
 ASH_PUBLIC_EXPORT extern const aura::WindowProperty<bool>* const
     kCanConsumeSystemKeysKey;
 
+// A property key to exclude the window in MruTracker.
+ASH_PUBLIC_EXPORT extern const aura::WindowProperty<bool>* const
+    kExcludeInMruKey;
+
 // A property key to indicate whether we should hide this window in overview
 // mode and Alt + Tab.
 ASH_PUBLIC_EXPORT extern const aura::WindowProperty<bool>* const
     kHideInOverviewKey;
+
+// A property key to indicate whether we should hide this window in the shelf.
+ASH_PUBLIC_EXPORT extern const aura::WindowProperty<bool>* const
+    kHideInShelfKey;
 
 // Whether the shelf should be hidden when this window is put into fullscreen.
 // Exposed because some windows want to explicitly opt-out of this.
@@ -121,6 +127,16 @@ ASH_PUBLIC_EXPORT extern const aura::WindowProperty<bool>* const
 ASH_PUBLIC_EXPORT extern const aura::WindowProperty<bool>* const
     kForceVisibleInMiniViewKey;
 
+// A property key to tell if the window's opacity should be managed by WM.
+ASH_PUBLIC_EXPORT extern const aura::WindowProperty<bool>* const
+    kWindowManagerManagesOpacityKey;
+
+// A property key to store whether we should minimize a window when a system
+// synthesized back event (back gesture, back button) is processed by this
+// window and when this window is at the bottom of its navigation stack.
+ASH_PUBLIC_EXPORT extern const aura::WindowProperty<bool*>* const
+    kMinimizeOnBackKey;
+
 // A property key to store the window state the window had before entering PIP.
 ASH_PUBLIC_EXPORT extern const aura::WindowProperty<WindowStateType>* const
     kPrePipWindowStateTypeKey;
@@ -138,6 +154,18 @@ ASH_PUBLIC_EXPORT extern const aura::WindowProperty<WindowStateType>* const
 // calculated the position of the PIP window in the Alt-Tab window cycler.
 ASH_PUBLIC_EXPORT extern const aura::WindowProperty<bool>* const
     kPipOriginalWindowKey;
+
+// A property key to store the PIP snap fraction for this window.
+// The fraction is defined in a clockwise fashion against the PIP movement area.
+//
+//            0   1
+//          4 +---+ 1
+//            |   |
+//          3 +---+ 2
+//            3   2
+//
+ASH_PUBLIC_EXPORT extern const aura::WindowProperty<float*>* const
+    kPipSnapFractionKey;
 
 // Maps to ws::mojom::WindowManager::kRenderParentTitleArea_Property.
 ASH_PUBLIC_EXPORT extern const aura::WindowProperty<bool>* const
@@ -171,6 +199,11 @@ ASH_PUBLIC_EXPORT extern const aura::WindowProperty<std::string*>* const
 ASH_PUBLIC_EXPORT extern const aura::WindowProperty<int32_t>* const
     kShelfItemTypeKey;
 
+// A property key to store the system gesture exclusion region. From a point
+// inside the region, system gesture e.g. back gesture shouldn't be triggered.
+ASH_PUBLIC_EXPORT extern const aura::WindowProperty<SkRegion*>* const
+    kSystemGestureExclusionKey;
+
 // A property key to store the address of the source window that the drag
 // originated from if the window is currently in tab-dragging process.
 ASH_PUBLIC_EXPORT extern const aura::WindowProperty<aura::Window*>* const
@@ -182,6 +215,16 @@ ASH_PUBLIC_EXPORT extern const aura::WindowProperty<SkColor>* const
 // A property key to store the inactive color on the window frame.
 ASH_PUBLIC_EXPORT extern const aura::WindowProperty<SkColor>* const
     kFrameInactiveColorKey;
+// A property key that is set to true when the window frame should look like it
+// is in restored state, but actually isn't. Set while dragging a maximized
+// window.
+ASH_PUBLIC_EXPORT extern const aura::WindowProperty<bool>* const
+    kFrameRestoreLookKey;
+
+// A property key whose value is shown in alt-tab/overview mode. If non-value
+// is set, the window's title is used.
+ASH_PUBLIC_EXPORT extern const aura::WindowProperty<base::string16*>* const
+    kWindowOverviewTitleKey;
 
 // A property key to store ash::WindowPinType for a window.
 // When setting this property to PINNED or TRUSTED_PINNED, the window manager

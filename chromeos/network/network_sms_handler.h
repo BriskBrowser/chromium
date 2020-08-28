@@ -13,12 +13,12 @@
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
+#include "base/optional.h"
 #include "chromeos/dbus/dbus_method_call_status.h"
 #include "chromeos/dbus/shill/shill_property_changed_observer.h"
 
 namespace base {
 class DictionaryValue;
-class ListValue;
 class Value;
 }
 
@@ -80,17 +80,15 @@ class COMPONENT_EXPORT(CHROMEOS_NETWORK) NetworkSmsHandler
   void MessageReceived(const base::DictionaryValue& message);
 
   // Callback to handle the manager properties with the list of devices.
-  void ManagerPropertiesCallback(DBusMethodCallStatus call_status,
-                                 const base::DictionaryValue& properties);
+  void ManagerPropertiesCallback(base::Optional<base::Value> properties);
 
   // Requests properties for each entry in |devices|.
-  void UpdateDevices(const base::ListValue* devices);
+  void UpdateDevices(const base::Value& devices);
 
   // Callback to handle the device properties for |device_path|.
   // A NetworkSmsDeviceHandler will be instantiated for each cellular device.
   void DevicePropertiesCallback(const std::string& device_path,
-                                DBusMethodCallStatus call_status,
-                                const base::DictionaryValue& properties);
+                                base::Optional<base::Value> properties);
 
   base::ObserverList<Observer, true>::Unchecked observers_;
   std::vector<std::unique_ptr<NetworkSmsDeviceHandler>> device_handlers_;

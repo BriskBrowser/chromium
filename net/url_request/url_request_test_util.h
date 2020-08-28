@@ -12,6 +12,7 @@
 #include <memory>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include "base/compiler_specific.h"
 #include "base/memory/ref_counted.h"
@@ -27,6 +28,7 @@
 #include "net/base/net_errors.h"
 #include "net/base/network_delegate_impl.h"
 #include "net/base/request_priority.h"
+#include "net/base/transport_info.h"
 #include "net/cert/cert_verifier.h"
 #include "net/cert/ct_policy_enforcer.h"
 #include "net/cookies/cookie_monster.h"
@@ -37,7 +39,6 @@
 #include "net/http/http_network_layer.h"
 #include "net/http/http_network_session.h"
 #include "net/http/http_request_headers.h"
-#include "net/proxy_resolution/proxy_resolution_service.h"
 #include "net/ssl/ssl_config_service_defaults.h"
 #include "net/url_request/redirect_info.h"
 #include "net/url_request/url_request.h"
@@ -168,6 +169,9 @@ class TestDelegate : public URLRequest::Delegate {
     on_complete_ = std::move(on_complete);
   }
 
+  // Sets the result returned by subsequent calls to OnConnected().
+  void set_on_connected_result(int result) { on_connected_result_ = result; }
+
   void set_cancel_in_received_redirect(bool val) { cancel_in_rr_ = val; }
   void set_cancel_in_response_started(bool val) { cancel_in_rs_ = val; }
   void set_cancel_in_received_data(bool val) { cancel_in_rd_ = val; }
@@ -181,6 +185,10 @@ class TestDelegate : public URLRequest::Delegate {
   void set_credentials(const AuthCredentials& credentials) {
     credentials_ = credentials;
   }
+
+  // Returns the list of arguments with which OnConnected() was called.
+  // The arguments are listed in the same order as the calls were received.
+  const std::vector<TransportInfo>& transports() const { return transports_; }
 
   // query state
   const std::string& data_received() const { return data_received_; }
@@ -203,6 +211,7 @@ class TestDelegate : public URLRequest::Delegate {
   int request_status() const { return request_status_; }
 
   // URLRequest::Delegate:
+  int OnConnected(URLRequest* request, const TransportInfo& info) override;
   void OnReceivedRedirect(URLRequest* request,
                           const RedirectInfo& redirect_info,
                           bool* defer_redirect) override;
@@ -224,6 +233,7 @@ class TestDelegate : public URLRequest::Delegate {
   virtual void OnResponseCompleted(URLRequest* request);
 
   // options for controlling behavior
+  int on_connected_result_ = OK;
   bool cancel_in_rr_ = false;
   bool cancel_in_rs_ = false;
   bool cancel_in_rd_ = false;
@@ -241,6 +251,7 @@ class TestDelegate : public URLRequest::Delegate {
   base::OnceClosure on_auth_required_;
 
   // tracks status of callbacks
+  std::vector<TransportInfo> transports_;
   int response_started_count_ = 0;
   int received_bytes_count_ = 0;
   int received_redirect_count_ = 0;
@@ -308,27 +319,15 @@ class TestNetworkDelegate : public NetworkDelegateImpl {
   int blocked_set_cookie_count() const { return blocked_set_cookie_count_; }
   int set_cookie_count() const { return set_cookie_count_; }
 
-  void set_experimental_cookie_features_enabled(bool val) {
-    experimental_cookie_features_enabled_ = val;
-  }
-
   void set_cancel_request_with_policy_violating_referrer(bool val) {
     cancel_request_with_policy_violating_referrer_ = val;
   }
 
-  int before_send_headers_with_proxy_count() const {
-    return before_send_headers_with_proxy_count_;
-  }
   int before_start_transaction_count() const {
     return before_start_transaction_count_;
   }
 
   int headers_received_count() const { return headers_received_count_; }
-
-  // Last observed proxy in proxy header sent callback.
-  HostPortPair last_observed_proxy() {
-    return last_observed_proxy_;
-  }
 
   void set_before_start_transaction_fails() {
     before_start_transaction_fails_ = true;
@@ -342,10 +341,6 @@ class TestNetworkDelegate : public NetworkDelegateImpl {
   int OnBeforeStartTransaction(URLRequest* request,
                                CompletionOnceCallback callback,
                                HttpRequestHeaders* headers) override;
-  void OnBeforeSendHeaders(URLRequest* request,
-                           const ProxyInfo& proxy_info,
-                           const ProxyRetryInfoMap& proxy_retry_info,
-                           HttpRequestHeaders* headers) override;
   int OnHeadersReceived(
       URLRequest* request,
       CompletionOnceCallback callback,
@@ -359,7 +354,6 @@ class TestNetworkDelegate : public NetworkDelegateImpl {
   void OnURLRequestDestroyed(URLRequest* request) override;
   void OnPACScriptError(int line_number, const base::string16& error) override;
   bool OnCanGetCookies(const URLRequest& request,
-                       const CookieList& cookie_list,
                        bool allowed_from_caller) override;
   bool OnCanSetCookie(const URLRequest& request,
                       const net::CanonicalCookie& cookie,
@@ -391,11 +385,8 @@ class TestNetworkDelegate : public NetworkDelegateImpl {
   int blocked_get_cookies_count_;
   int blocked_set_cookie_count_;
   int set_cookie_count_;
-  int before_send_headers_with_proxy_count_;
   int before_start_transaction_count_;
   int headers_received_count_;
-  // Last observed proxy in before proxy header sent callback.
-  HostPortPair last_observed_proxy_;
 
   // NetworkDelegate callbacks happen in a particular order (e.g.
   // OnBeforeURLRequest is always called before OnBeforeStartTransaction).
@@ -410,7 +401,6 @@ class TestNetworkDelegate : public NetworkDelegateImpl {
   LoadTimingInfo load_timing_info_before_redirect_;
   bool has_load_timing_info_before_redirect_;
 
-  bool experimental_cookie_features_enabled_;           // false by default
   bool cancel_request_with_policy_violating_referrer_;  // false by default
   bool before_start_transaction_fails_;
   bool add_header_to_first_response_;

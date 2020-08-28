@@ -8,7 +8,6 @@
 
 #include "base/bind.h"
 #include "base/command_line.h"
-#include "base/logging.h"
 #include "base/run_loop.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/post_task.h"
@@ -21,14 +20,15 @@
 #include "chrome/common/chrome_switches.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/ui_test_utils.h"
-#include "components/app_modal/javascript_app_modal_dialog.h"
-#include "components/app_modal/native_app_modal_dialog.h"
 #include "components/embedder_support/switches.h"
+#include "components/javascript_dialogs/app_modal_dialog_controller.h"
+#include "components/javascript_dialogs/app_modal_dialog_view.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/content_switches.h"
+#include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
 #include "net/dns/mock_host_resolver.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
@@ -193,12 +193,12 @@ class UnloadTest : public InProcessBrowserTest {
   // If |accept| is true, simulates user clicking OK, otherwise simulates
   // clicking Cancel.
   void ClickModalDialogButton(bool accept) {
-    app_modal::JavaScriptAppModalDialog* dialog =
+    javascript_dialogs::AppModalDialogController* dialog =
         ui_test_utils::WaitForAppModalDialog();
     if (accept)
-      dialog->native_dialog()->AcceptAppModalDialog();
+      dialog->view()->AcceptAppModalDialog();
     else
-      dialog->native_dialog()->CancelAppModalDialog();
+      dialog->view()->CancelAppModalDialog();
   }
 
   void PrepareForDialog(Browser* browser) {
@@ -212,9 +212,10 @@ class UnloadTest : public InProcessBrowserTest {
     UnloadResults unload_results;
     BrowserList::CloseAllBrowsersWithProfile(
         browser()->profile(),
-        base::Bind(&UnloadResults::AddSuccess,
-                   base::Unretained(&unload_results)),
-        base::Bind(&UnloadResults::AddAbort, base::Unretained(&unload_results)),
+        base::BindRepeating(&UnloadResults::AddSuccess,
+                            base::Unretained(&unload_results)),
+        base::BindRepeating(&UnloadResults::AddAbort,
+                            base::Unretained(&unload_results)),
         force);
     ui_test_utils::WaitForBrowserToClose();
     EXPECT_EQ(1, unload_results.get_successes());
@@ -351,8 +352,10 @@ IN_PROC_BROWSER_TEST_F(UnloadTest, BrowserListCloseBeforeUnloadOK) {
   UnloadResults unload_results;
   BrowserList::CloseAllBrowsersWithProfile(
       browser()->profile(),
-      base::Bind(&UnloadResults::AddSuccess, base::Unretained(&unload_results)),
-      base::Bind(&UnloadResults::AddAbort, base::Unretained(&unload_results)),
+      base::BindRepeating(&UnloadResults::AddSuccess,
+                          base::Unretained(&unload_results)),
+      base::BindRepeating(&UnloadResults::AddAbort,
+                          base::Unretained(&unload_results)),
       false);
   ClickModalDialogButton(true);
   ui_test_utils::WaitForBrowserToClose();
@@ -381,8 +384,10 @@ IN_PROC_BROWSER_TEST_F(UnloadTest, BrowserListCloseBeforeUnloadCancel) {
   UnloadResults unload_results;
   BrowserList::CloseAllBrowsersWithProfile(
       browser()->profile(),
-      base::Bind(&UnloadResults::AddSuccess, base::Unretained(&unload_results)),
-      base::Bind(&UnloadResults::AddAbort, base::Unretained(&unload_results)),
+      base::BindRepeating(&UnloadResults::AddSuccess,
+                          base::Unretained(&unload_results)),
+      base::BindRepeating(&UnloadResults::AddAbort,
+                          base::Unretained(&unload_results)),
       false);
 
   // We wait for the title to change after cancelling the closure of browser
@@ -410,13 +415,17 @@ IN_PROC_BROWSER_TEST_F(UnloadTest, BrowserListDoubleCloseBeforeUnloadOK) {
   UnloadResults unload_results;
   BrowserList::CloseAllBrowsersWithProfile(
       browser()->profile(),
-      base::Bind(&UnloadResults::AddSuccess, base::Unretained(&unload_results)),
-      base::Bind(&UnloadResults::AddAbort, base::Unretained(&unload_results)),
+      base::BindRepeating(&UnloadResults::AddSuccess,
+                          base::Unretained(&unload_results)),
+      base::BindRepeating(&UnloadResults::AddAbort,
+                          base::Unretained(&unload_results)),
       false);
   BrowserList::CloseAllBrowsersWithProfile(
       browser()->profile(),
-      base::Bind(&UnloadResults::AddSuccess, base::Unretained(&unload_results)),
-      base::Bind(&UnloadResults::AddAbort, base::Unretained(&unload_results)),
+      base::BindRepeating(&UnloadResults::AddSuccess,
+                          base::Unretained(&unload_results)),
+      base::BindRepeating(&UnloadResults::AddAbort,
+                          base::Unretained(&unload_results)),
       false);
   ClickModalDialogButton(true);
   ui_test_utils::WaitForBrowserToClose();
@@ -433,13 +442,17 @@ IN_PROC_BROWSER_TEST_F(UnloadTest, BrowserListDoubleCloseBeforeUnloadCancel) {
   UnloadResults unload_results;
   BrowserList::CloseAllBrowsersWithProfile(
       browser()->profile(),
-      base::Bind(&UnloadResults::AddSuccess, base::Unretained(&unload_results)),
-      base::Bind(&UnloadResults::AddAbort, base::Unretained(&unload_results)),
+      base::BindRepeating(&UnloadResults::AddSuccess,
+                          base::Unretained(&unload_results)),
+      base::BindRepeating(&UnloadResults::AddAbort,
+                          base::Unretained(&unload_results)),
       false);
   BrowserList::CloseAllBrowsersWithProfile(
       browser()->profile(),
-      base::Bind(&UnloadResults::AddSuccess, base::Unretained(&unload_results)),
-      base::Bind(&UnloadResults::AddAbort, base::Unretained(&unload_results)),
+      base::BindRepeating(&UnloadResults::AddSuccess,
+                          base::Unretained(&unload_results)),
+      base::BindRepeating(&UnloadResults::AddAbort,
+                          base::Unretained(&unload_results)),
       false);
 
   // We wait for the title to change after cancelling the closure of browser
@@ -609,13 +622,17 @@ IN_PROC_BROWSER_TEST_F(UnloadTest, BrowserListForceCloseAfterNormalClose) {
   UnloadResults unload_results;
   BrowserList::CloseAllBrowsersWithProfile(
       browser()->profile(),
-      base::Bind(&UnloadResults::AddSuccess, base::Unretained(&unload_results)),
-      base::Bind(&UnloadResults::AddAbort, base::Unretained(&unload_results)),
+      base::BindRepeating(&UnloadResults::AddSuccess,
+                          base::Unretained(&unload_results)),
+      base::BindRepeating(&UnloadResults::AddAbort,
+                          base::Unretained(&unload_results)),
       false);
   BrowserList::CloseAllBrowsersWithProfile(
       browser()->profile(),
-      base::Bind(&UnloadResults::AddSuccess, base::Unretained(&unload_results)),
-      base::Bind(&UnloadResults::AddAbort, base::Unretained(&unload_results)),
+      base::BindRepeating(&UnloadResults::AddSuccess,
+                          base::Unretained(&unload_results)),
+      base::BindRepeating(&UnloadResults::AddAbort,
+                          base::Unretained(&unload_results)),
       true);
   ui_test_utils::WaitForBrowserToClose();
   EXPECT_EQ(1, unload_results.get_successes());

@@ -23,7 +23,7 @@
 #include "third_party/blink/public/common/mediastream/media_stream_request.h"
 #include "third_party/blink/public/mojom/mediastream/media_stream.mojom-shared.h"
 
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
 #include "base/mac/mac_util.h"
 #endif
 
@@ -55,7 +55,9 @@ class DisplayMediaAccessHandlerTest : public ChromeRenderViewHostTestHarness {
         std::string(), std::string(),
         request_audio ? blink::mojom::MediaStreamType::DISPLAY_AUDIO_CAPTURE
                       : blink::mojom::MediaStreamType::NO_SERVICE,
-        blink::mojom::MediaStreamType::DISPLAY_VIDEO_CAPTURE, false);
+        blink::mojom::MediaStreamType::DISPLAY_VIDEO_CAPTURE,
+        /*disable_local_echo=*/false,
+        /*request_pan_tilt_zoom_permission=*/false);
 
     base::RunLoop wait_loop;
     content::MediaResponseCallback callback = base::BindOnce(
@@ -101,7 +103,7 @@ TEST_F(DisplayMediaAccessHandlerTest, PermissionGiven) {
   ProcessRequest(content::DesktopMediaID(content::DesktopMediaID::TYPE_SCREEN,
                                          content::DesktopMediaID::kFakeId),
                  &result, &devices, false /* request_audio */);
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
   // Starting from macOS 10.15, screen capture requires system permissions
   // that are disabled by default.
   if (base::mac::IsAtLeastOS10_15()) {
@@ -125,7 +127,7 @@ TEST_F(DisplayMediaAccessHandlerTest, PermissionGivenToRequestWithAudio) {
                                         content::DesktopMediaID::kFakeId,
                                         true /* audio_share */);
   ProcessRequest(fake_media_id, &result, &devices, true /* request_audio */);
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
   // Starting from macOS 10.15, screen capture requires system permissions
   // that are disabled by default.
   if (base::mac::IsAtLeastOS10_15()) {
@@ -170,7 +172,7 @@ TEST_F(DisplayMediaAccessHandlerTest, UpdateMediaRequestStateWithClosing) {
       render_process_id, render_frame_id, page_request_id,
       GURL("http://origin/"), false, blink::MEDIA_GENERATE_STREAM,
       std::string(), std::string(), audio_stream_type, video_stream_type,
-      false);
+      /*disable_local_echo=*/false, /*request_pan_tilt_zoom_permission=*/false);
   content::MediaResponseCallback callback;
   access_handler_->HandleRequest(web_contents(), request, std::move(callback),
                                  nullptr /* extension */);
@@ -200,7 +202,8 @@ TEST_F(DisplayMediaAccessHandlerTest, WebContentsDestroyed) {
   content::MediaStreamRequest request(
       0, 0, 0, GURL("http://origin/"), false, blink::MEDIA_GENERATE_STREAM,
       std::string(), std::string(), blink::mojom::MediaStreamType::NO_SERVICE,
-      blink::mojom::MediaStreamType::DISPLAY_VIDEO_CAPTURE, false);
+      blink::mojom::MediaStreamType::DISPLAY_VIDEO_CAPTURE,
+      /*disable_local_echo=*/false, /*request_pan_tilt_zoom_permission=*/false);
   content::MediaResponseCallback callback;
   access_handler_->HandleRequest(web_contents(), request, std::move(callback),
                                  nullptr /* extension */);
@@ -237,7 +240,9 @@ TEST_F(DisplayMediaAccessHandlerTest, MultipleRequests) {
     content::MediaStreamRequest request(
         0, 0, 0, GURL("http://origin/"), false, blink::MEDIA_GENERATE_STREAM,
         std::string(), std::string(), blink::mojom::MediaStreamType::NO_SERVICE,
-        blink::mojom::MediaStreamType::DISPLAY_VIDEO_CAPTURE, false);
+        blink::mojom::MediaStreamType::DISPLAY_VIDEO_CAPTURE,
+        /*disable_local_echo=*/false,
+        /*request_pan_tilt_zoom_permission=*/false);
     content::MediaResponseCallback callback = base::BindOnce(
         [](base::RunLoop* wait_loop,
            blink::mojom::MediaStreamRequestResult* request_result,
@@ -256,7 +261,7 @@ TEST_F(DisplayMediaAccessHandlerTest, MultipleRequests) {
   wait_loop[0].Run();
   EXPECT_TRUE(test_flags[0].picker_created);
   EXPECT_TRUE(test_flags[0].picker_deleted);
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
   // Starting from macOS 10.15, screen capture requires system permissions
   // that are disabled by default.
   if (base::mac::IsAtLeastOS10_15()) {

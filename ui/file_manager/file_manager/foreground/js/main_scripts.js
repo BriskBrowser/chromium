@@ -89,6 +89,8 @@
 //
 // <include src="constants.js">
 // <include src="web_store_utils.js">
+// <include src="ui/multi_menu.js">
+// <include src="ui/multi_menu_button.js">
 // <include src="ui/combobutton.js">
 // <include src="ui/commandbutton.js">
 // <include src="ui/file_manager_dialog_base.js">
@@ -106,6 +108,7 @@
 // <include src="android_app_list_model.js">
 // <include src="app_state_controller.js">
 // <include src="column_visibility_controller.js">
+// <include src="crostini_controller.js">
 // <include src="dialog_action_controller.js">
 // <include src="dialog_type.js">
 // <include src="directory_contents.js">
@@ -119,6 +122,7 @@
 // <include src="file_selection.js">
 // <include src="file_tasks.js">
 // <include src="file_transfer_controller.js">
+// <include src="file_type_filters_controller.js">
 // <include src="file_watcher.js">
 // <include src="folder_shortcuts_data_model.js">
 // <include src="sort_menu_controller.js">
@@ -139,6 +143,7 @@
 // <include src="naming_controller.js">
 // <include src="navigation_list_model.js">
 // <include src="navigation_uma.js">
+// <include src="path_component.js">
 // <include src="progress_center_item_group.js">
 // <include src="quick_view_controller.js">
 // <include src="quick_view_model.js">
@@ -155,6 +160,7 @@
 // <include src="providers_model.js">
 // <include src="ui/actions_submenu.js">
 // <include src="ui/banners.js">
+// <include src="ui/breadcrumb.js">
 // <include src="ui/default_task_dialog.js">
 // <include src="ui/dialog_footer.js">
 // <include src="ui/directory_tree.js">
@@ -175,7 +181,6 @@
 // <include src="ui/import_crostini_image_dialog.js">
 // <include src="ui/list_container.js">
 // <include src="ui/location_line.js">
-// <include src="ui/multi_menu.js">
 // <include src="ui/progress_center_panel.js">
 // <include src="ui/providers_menu.js">
 // <include src="ui/search_box.js">
@@ -193,4 +198,6 @@ window.fileManager = fileManager;
 
 // Exports
 window.util = util;
+// TODO(crbug.com/1115792) remove this export.
+window.AsyncUtil = AsyncUtil;
 })();

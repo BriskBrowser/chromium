@@ -4,6 +4,8 @@
 
 #include "ui/views/controls/scrollbar/overlay_scroll_bar.h"
 
+#include <memory>
+
 #include "base/bind.h"
 #include "base/macros.h"
 #include "cc/paint/paint_flags.h"
@@ -185,8 +187,7 @@ void OverlayScrollBar::StartHideCountdown() {
       base::BindOnce(&OverlayScrollBar::Hide, base::Unretained(this)));
 }
 
-BEGIN_METADATA(OverlayScrollBar)
-METADATA_PARENT_CLASS(ScrollBar)
+BEGIN_METADATA(OverlayScrollBar, ScrollBar)
 END_METADATA()
 
 }  // namespace views

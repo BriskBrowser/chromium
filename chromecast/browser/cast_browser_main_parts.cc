@@ -16,13 +16,13 @@
 #include "base/files/file_util.h"
 #include "base/logging.h"
 #include "base/memory/ptr_util.h"
-#include "base/message_loop/message_loop_current.h"
 #include "base/path_service.h"
 #include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
 #include "base/stl_util.h"
 #include "base/strings/string_split.h"
-#include "base/task/post_task.h"
+#include "base/task/current_thread.h"
+#include "base/task/thread_pool.h"
 #include "base/threading/thread.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
@@ -44,8 +44,6 @@
 #include "chromecast/browser/media/media_caps_impl.h"
 #include "chromecast/browser/metrics/cast_browser_metrics.h"
 #include "chromecast/browser/service_connector.h"
-#include "chromecast/browser/tts/tts_controller_impl.h"
-#include "chromecast/browser/tts/tts_platform_stub.h"
 #include "chromecast/chromecast_buildflags.h"
 #include "chromecast/graphics/cast_window_manager.h"
 #include "chromecast/media/base/key_systems_common.h"
@@ -74,7 +72,7 @@
 #include "ui/base/ui_base_switches.h"
 #include "ui/gl/gl_switches.h"
 
-#if defined(OS_LINUX)
+#if defined(OS_LINUX) || defined(OS_CHROMEOS)
 #include <fontconfig/fontconfig.h>
 #include <signal.h>
 #include <sys/prctl.h>
@@ -102,9 +100,15 @@
 // callback.
 #include "chromecast/browser/accessibility/accessibility_manager.h"
 #include "chromecast/browser/cast_display_configurator.h"
+#include "chromecast/browser/devtools/cast_ui_devtools.h"
 #include "chromecast/graphics/cast_screen.h"
 #include "chromecast/graphics/cast_window_manager_aura.h"
+#include "chromecast/graphics/rounded_window_corners_manager.h"
 #include "chromecast/media/service/cast_renderer.h"  // nogncheck
+#if !defined(OS_FUCHSIA)
+#include "components/ui_devtools/devtools_server.h"  // nogncheck
+#include "components/ui_devtools/switches.h"         // nogncheck
+#endif
 #include "components/viz/service/display/overlay_strategy_underlay_cast.h"  // nogncheck
 #include "ui/display/screen.h"
 #include "ui/views/views_delegate.h"  // nogncheck
@@ -115,6 +119,7 @@
 #if BUILDFLAG(ENABLE_CHROMECAST_EXTENSIONS)
 #include "chromecast/browser/extensions/api/tts/tts_extension_api.h"
 #include "chromecast/browser/extensions/cast_extension_system.h"
+#include "chromecast/browser/extensions/cast_extension_system_factory.h"
 #include "chromecast/browser/extensions/cast_extensions_browser_client.h"
 #include "chromecast/browser/extensions/cast_prefs.h"
 #include "chromecast/common/cast_extensions_client.h"
@@ -123,7 +128,7 @@
 #include "extensions/browser/extension_prefs.h"  // nogncheck
 #endif
 
-#if defined(OS_LINUX) && defined(USE_OZONE)
+#if (defined(OS_LINUX) || defined(OS_CHROMEOS)) && defined(USE_OZONE)
 #include "chromecast/browser/exo/wayland_server_controller.h"
 #endif
 
@@ -133,8 +138,10 @@
 
 #if !defined(OS_FUCHSIA)
 #include "base/bind_helpers.h"
-#include "components/heap_profiling/client_connection_manager.h"
-#include "components/heap_profiling/supervisor.h"
+#include "chromecast/base/cast_sys_info_util.h"
+#include "chromecast/public/cast_sys_info.h"
+#include "components/heap_profiling/multi_process/client_connection_manager.h"
+#include "components/heap_profiling/multi_process/supervisor.h"
 #endif  // !defined(OS_FUCHSIA)
 
 namespace {
@@ -263,7 +270,7 @@ class CastViewsDelegate : public views::ViewsDelegate {
 
 #endif  // defined(USE_AURA)
 
-#if defined(OS_LINUX)
+#if defined(OS_LINUX) || defined(OS_CHROMEOS)
 
 base::FilePath GetApplicationFontsDir() {
   std::unique_ptr<base::Environment> env(base::Environment::Create());
@@ -279,7 +286,7 @@ base::FilePath GetApplicationFontsDir() {
   }
 }
 
-#endif  // defined(OS_LINUX)
+#endif  // defined(OS_LINUX) || defined(OS_CHROMEOS)
 
 }  // namespace
 
@@ -301,24 +308,24 @@ const DefaultCommandLineSwitch kDefaultSwitches[] = {
 #if BUILDFLAG(IS_CAST_AUDIO_ONLY)
     {switches::kDisableGpu, ""},
     {switches::kDisableSoftwareRasterizer, ""},
+    {switches::kDisableGpuCompositing, ""},
 #if defined(OS_ANDROID)
     {switches::kDisableFrameRateLimit, ""},
     {switches::kDisableGLDrawingForTests, ""},
-    {switches::kDisableGpuCompositing, ""},
     {cc::switches::kDisableThreadedAnimation, ""},
 #endif  // defined(OS_ANDROID)
 #endif  // BUILDFLAG(IS_CAST_AUDIO_ONLY)
-#if defined(OS_LINUX)
+#if defined(OS_LINUX) || defined(OS_CHROMEOS)
 #if defined(ARCH_CPU_X86_FAMILY)
     // This is needed for now to enable the x11 Ozone platform to work with
     // current Linux/NVidia OpenGL drivers.
-    {switches::kIgnoreGpuBlacklist, ""},
+    {switches::kIgnoreGpuBlocklist, ""},
 #elif defined(ARCH_CPU_ARM_FAMILY)
 #if !BUILDFLAG(IS_CAST_AUDIO_ONLY)
     {switches::kEnableHardwareOverlays, "cast"},
 #endif
 #endif
-#endif  // defined(OS_LINUX)
+#endif  // defined(OS_LINUX) || defined(OS_CHROMEOS)
     // It's better to start GPU process on demand. For example, for TV platforms
     // cast starts in background and can't render until TV switches to cast
     // input.
@@ -330,9 +337,6 @@ const DefaultCommandLineSwitch kDefaultSwitches[] = {
     {switches::kEnableUseZoomForDSF, "false"},
     // TODO(halliwell): Revert after fix for b/63101386.
     {switches::kDisallowNonExactResourceReuse, ""},
-    // Enable autoplay without requiring any user gesture.
-    {switches::kAutoplayPolicy,
-     switches::autoplay::kNoUserGestureRequiredPolicy},
     // Disable pinch zoom gesture.
     {switches::kDisablePinch, ""},
 };
@@ -371,6 +375,17 @@ void AddDefaultCommandLineSwitches(base::CommandLine* command_line) {
     }
   }
 }
+
+#if BUILDFLAG(ENABLE_CHROMECAST_EXTENSIONS)
+// Instantiates all cast KeyedService factories, which is especially important
+// for services that should be created at profile creation time as compared to
+// lazily on first access.
+void EnsureBrowserContextKeyedServiceFactoriesBuilt() {
+  extensions::EnsureBrowserContextKeyedServiceFactoriesBuilt();
+
+  extensions::CastExtensionSystemFactory::GetInstance();
+}
+#endif
 
 }  // namespace
 
@@ -459,7 +474,7 @@ void CastBrowserMainParts::ToolkitInitialized() {
     views_delegate_ = std::make_unique<CastViewsDelegate>();
 #endif  // defined(USE_AURA)
 
-#if defined(OS_LINUX)
+#if defined(OS_LINUX) || defined(OS_CHROMEOS)
   base::FilePath dir_font = GetApplicationFontsDir();
   const FcChar8 *dir_font_char8 = reinterpret_cast<const FcChar8*>(dir_font.value().data());
   if (!FcConfigAppFontAddDir(gfx::GetGlobalFontConfig(), dir_font_char8)) {
@@ -515,8 +530,8 @@ void CastBrowserMainParts::PreMainMessageLoopRun() {
 #endif  // !defined(OS_ANDROID) && !defined(OS_FUCHSIA)
 
 #if defined(OS_ANDROID)
-  crash_reporter_runner_ = base::CreateSequencedTaskRunner(
-      {base::ThreadPool(), base::MayBlock(), base::TaskPriority::BEST_EFFORT,
+  crash_reporter_runner_ = base::ThreadPool::CreateSequencedTaskRunner(
+      {base::MayBlock(), base::TaskPriority::BEST_EFFORT,
        base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN});
   crash_reporter_runner_->PostTask(
       FROM_HERE,
@@ -528,7 +543,7 @@ void CastBrowserMainParts::PreMainMessageLoopRun() {
       std::make_unique<CastBrowserContext>());
 
   cast_browser_process_->SetConnectivityChecker(ConnectivityChecker::Create(
-      base::CreateSingleThreadTaskRunner({content::BrowserThread::IO}),
+      content::GetIOThreadTaskRunner({}),
       content::BrowserContext::GetDefaultStoragePartition(
           cast_browser_process_->browser_context())
           ->GetURLLoaderFactoryForBrowserProcessIOThread(),
@@ -566,10 +581,27 @@ void CastBrowserMainParts::PreMainMessageLoopRun() {
 #endif
 
 #if defined(USE_AURA)
+
+#if !defined(OS_FUCHSIA)
+  // Start UI devtools if this is a dev device or explicitly enabled.
+  // Note that this must happen before the window tree host is created by the
+  // window manager.
+  auto build_type = CreateSysInfo()->GetBuildType();
+  if (CAST_IS_DEBUG_BUILD() || build_type == CastSysInfo::BUILD_ENG ||
+      ::ui_devtools::UiDevToolsServer::IsUiDevToolsEnabled(
+          ::ui_devtools::switches::kEnableUiDevTools)) {
+    // Starts the UI Devtools server for browser Aura UI
+    ui_devtools_ = std::make_unique<CastUIDevTools>(
+        cast_content_browser_client_->GetSystemNetworkContext());
+  }
+#endif
+
   window_manager_ = std::make_unique<CastWindowManagerAura>(
       CAST_IS_DEBUG_BUILD() ||
       GetSwitchValueBoolean(switches::kEnableInput, false));
   window_manager_->Setup();
+  rounded_window_corners_manager_ =
+      std::make_unique<RoundedWindowCornersManager>(window_manager_.get());
 
 #if BUILDFLAG(ENABLE_CHROMECAST_EXTENSIONS)
   cast_browser_process_->SetAccessibilityManager(
@@ -592,9 +624,6 @@ void CastBrowserMainParts::PreMainMessageLoopRun() {
   ::media::InitializeMediaLibrary();
   media_caps_->Initialize();
 
-  cast_browser_process_->SetTtsController(std::make_unique<TtsControllerImpl>(
-      std::make_unique<TtsPlatformImplStub>()));
-
 #if BUILDFLAG(ENABLE_CHROMECAST_EXTENSIONS)
   user_pref_service_ = extensions::cast_prefs::CreateUserPrefService(
       cast_browser_process_->browser_context());
@@ -608,7 +637,7 @@ void CastBrowserMainParts::PreMainMessageLoopRun() {
           cast_content_browser_client_->cast_network_contexts());
   extensions::ExtensionsBrowserClient::Set(extensions_browser_client_.get());
 
-  extensions::EnsureBrowserContextKeyedServiceFactoriesBuilt();
+  EnsureBrowserContextKeyedServiceFactoriesBuilt();
 
   extensions::CastExtensionSystem* extension_system =
       static_cast<extensions::CastExtensionSystem*>(
@@ -626,7 +655,7 @@ void CastBrowserMainParts::PreMainMessageLoopRun() {
       cast_browser_process_->browser_context());
 #endif
 
-#if defined(OS_LINUX) && defined(USE_OZONE)
+#if (defined(OS_LINUX) || defined(OS_CHROMEOS)) && defined(USE_OZONE)
   wayland_server_controller_ =
       std::make_unique<WaylandServerController>(window_manager_.get());
 #endif
@@ -708,7 +737,7 @@ bool CastBrowserMainParts::MainMessageLoopRun(int* result_code) {
 }
 
 void CastBrowserMainParts::PostMainMessageLoopRun() {
-#if defined(OS_LINUX) && defined(USE_OZONE)
+#if (defined(OS_LINUX) || defined(OS_CHROMEOS)) && defined(USE_OZONE)
   wayland_server_controller_.reset();
 #endif
 #if BUILDFLAG(ENABLE_CHROMECAST_EXTENSIONS)
@@ -727,6 +756,10 @@ void CastBrowserMainParts::PostMainMessageLoopRun() {
   cast_browser_process_->cast_service()->Finalize();
   cast_browser_process_->cast_browser_metrics()->Finalize();
   cast_browser_process_.reset();
+
+#if defined(USE_AURA)
+  rounded_window_corners_manager_.reset();
+#endif
 
   window_manager_.reset();
 #if defined(USE_AURA)

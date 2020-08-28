@@ -4,6 +4,10 @@
 
 #include "chrome/browser/tab_contents/form_interaction_tab_helper.h"
 
+#include <memory>
+#include <utility>
+
+#include "base/bind_helpers.h"
 #include "base/run_loop.h"
 #include "base/task/post_task.h"
 #include "base/task/task_traits.h"
@@ -15,6 +19,7 @@
 #include "components/performance_manager/public/performance_manager.h"
 #include "components/performance_manager/test_support/graph_impl.h"
 #include "components/performance_manager/test_support/mock_graphs.h"
+#include "components/performance_manager/test_support/test_harness_helper.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/test/navigation_simulator.h"
@@ -32,11 +37,9 @@ class FormInteractionTabHelperTest : public ChromeRenderViewHostTestHarness {
 
   void SetUp() override {
     ChromeRenderViewHostTestHarness::SetUp();
-    perf_man_ =
-        performance_manager::PerformanceManagerImpl::Create(base::DoNothing());
-    registry_ = performance_manager::PerformanceManagerRegistry::Create();
+    pm_harness_.SetUp();
     performance_manager::testing::CreatePageAggregatorAndPassItToGraph();
-    perf_man_->CallOnGraph(
+    performance_manager::PerformanceManagerImpl::CallOnGraph(
         FROM_HERE, base::BindOnce([](performance_manager::Graph* graph) {
           graph->PassToGraph(FormInteractionTabHelper::CreateGraphObserver());
         }));
@@ -45,7 +48,6 @@ class FormInteractionTabHelperTest : public ChromeRenderViewHostTestHarness {
   std::unique_ptr<content::WebContents> CreateTestWebContents() {
     std::unique_ptr<content::WebContents> contents =
         ChromeRenderViewHostTestHarness::CreateTestWebContents();
-    registry_->CreatePageNodeForWebContents(contents.get());
     FormInteractionTabHelper::CreateForWebContents(contents.get());
     // Simulate a navigation event to force the initialization of the main
     // frame.
@@ -56,16 +58,12 @@ class FormInteractionTabHelperTest : public ChromeRenderViewHostTestHarness {
   }
 
   void TearDown() override {
-    registry_->TearDown();
-    registry_.reset();
-    performance_manager::PerformanceManagerImpl::Destroy(std::move(perf_man_));
-    task_environment()->RunUntilIdle();
+    pm_harness_.TearDown();
     ChromeRenderViewHostTestHarness::TearDown();
   }
 
  private:
-  std::unique_ptr<performance_manager::PerformanceManagerImpl> perf_man_;
-  std::unique_ptr<performance_manager::PerformanceManagerRegistry> registry_;
+  performance_manager::PerformanceManagerTestHarnessHelper pm_harness_;
 };
 
 TEST_F(FormInteractionTabHelperTest, HadFormInteractionSingleFrame) {
@@ -84,7 +82,7 @@ TEST_F(FormInteractionTabHelperTest, HadFormInteractionSingleFrame) {
         [quit_loop = run_loop.QuitWhenIdleClosure(),
          page_node =
              performance_manager::PerformanceManager::GetPageNodeForWebContents(
-                 contents.get())](performance_manager::Graph* graph) {
+                 contents.get())]() {
           auto* frame_node = performance_manager::FrameNodeImpl::FromNode(
               page_node->GetMainFrameNode());
           frame_node->SetIsCurrent(true);
@@ -129,7 +127,7 @@ TEST_F(FormInteractionTabHelperTest, HadFormInteractionWithChildFrames) {
         [quit_loop = run_loop.QuitWhenIdleClosure(),
          page_node =
              performance_manager::PerformanceManager::GetPageNodeForWebContents(
-                 contents.get())](performance_manager::Graph* graph) {
+                 contents.get())]() {
           auto children = page_node->GetMainFrameNode()->GetChildFrameNodes();
           EXPECT_EQ(1U, children.size());
           auto* frame_node =

@@ -129,23 +129,23 @@ class CONTENT_EXPORT RenderWidgetHostViewAndroid
   void SetTooltipText(const base::string16& tooltip_text) override;
   void TransformPointToRootSurface(gfx::PointF* point) override;
   gfx::Rect GetBoundsInRootWindow() override;
-  void ProcessAckedTouchEvent(const TouchEventWithLatencyInfo& touch,
-                              InputEventAckState ack_result) override;
-  InputEventAckState FilterInputEvent(
+  void ProcessAckedTouchEvent(
+      const TouchEventWithLatencyInfo& touch,
+      blink::mojom::InputEventResultState ack_result) override;
+  blink::mojom::InputEventResultState FilterInputEvent(
       const blink::WebInputEvent& input_event) override;
   void GestureEventAck(const blink::WebGestureEvent& event,
-                       InputEventAckState ack_result) override;
-  bool OnUnconsumedKeyboardEventAck(
-      const NativeWebKeyboardEventWithLatencyInfo& event) override;
-  void FallbackCursorModeLockCursor(bool left,
-                                    bool right,
-                                    bool up,
-                                    bool down) override;
-  void FallbackCursorModeSetCursorVisibility(bool visible) override;
+                       blink::mojom::InputEventResultState ack_result) override;
+  void ChildDidAckGestureEvent(
+      const blink::WebGestureEvent& event,
+      blink::mojom::InputEventResultState ack_result) override;
   BrowserAccessibilityManager* CreateBrowserAccessibilityManager(
       BrowserAccessibilityDelegate* delegate,
       bool for_root_frame) override;
-  bool LockMouse(bool request_unadjusted_movement) override;
+  blink::mojom::PointerLockResult LockMouse(
+      bool request_unadjusted_movement) override;
+  blink::mojom::PointerLockResult ChangeMouseLock(
+      bool request_unadjusted_movement) override;
   void UnlockMouse() override;
   void ResetFallbackToFirstNavigationSurface() override;
   bool RequestRepaintForTesting() override;
@@ -176,7 +176,7 @@ class CONTENT_EXPORT RenderWidgetHostViewAndroid
   void DidNavigate() override;
   viz::ScopedSurfaceIdAllocator DidUpdateVisualProperties(
       const cc::RenderFrameMetadata& metadata) override;
-  void GetScreenInfo(ScreenInfo* screen_info) override;
+  void GetScreenInfo(blink::ScreenInfo* screen_info) override;
   std::vector<std::unique_ptr<ui::TouchEvent>> ExtractAndCancelActiveTouches()
       override;
   void TransferTouches(
@@ -205,8 +205,6 @@ class CONTENT_EXPORT RenderWidgetHostViewAndroid
   void OnAnimate(base::TimeTicks begin_frame_time) override;
   void OnActivityStopped() override;
   void OnActivityStarted() override;
-  void OnCursorVisibilityChanged(bool visible) override;
-  void OnFallbackCursorModeToggled(bool is_on) override;
 
   // StylusTextSelectorClient implementation.
   void OnStylusSelectBegin(float x0, float y0, float x1, float y1) override;
@@ -250,9 +248,9 @@ class CONTENT_EXPORT RenderWidgetHostViewAndroid
   TextSuggestionHostAndroid* text_suggestion_host() const {
     return text_suggestion_host_;
   }
-  void set_gesture_listener_manager(GestureListenerManager* manager) {
-    gesture_listener_manager_ = manager;
-  }
+  void SetGestureListenerManager(GestureListenerManager* manager);
+
+  void UpdateReportAllRootScrolls();
 
   base::WeakPtr<RenderWidgetHostViewAndroid> GetWeakPtrAndroid();
 
@@ -319,6 +317,8 @@ class CONTENT_EXPORT RenderWidgetHostViewAndroid
   void OnRenderFrameMetadataChangedBeforeActivation(
       const cc::RenderFrameMetadata& metadata) override;
   void OnRenderFrameMetadataChangedAfterActivation() override;
+  void OnRootScrollOffsetChanged(
+      const gfx::Vector2dF& root_scroll_offset) override;
 
   void WasEvicted();
 
@@ -370,10 +370,12 @@ class CONTENT_EXPORT RenderWidgetHostViewAndroid
 
  private:
   friend class RenderWidgetHostViewAndroidTest;
+  FRIEND_TEST_ALL_PREFIXES(SitePerProcessBrowserTest,
+                           GestureManagerListensToChildFrames);
+
+  bool ShouldReportAllRootScrolls();
 
   MouseWheelPhaseHandler* GetMouseWheelPhaseHandler() override;
-
-  void EvictDelegatedFrame();
 
   bool ShouldRouteEvents() const;
 
@@ -386,8 +388,10 @@ class CONTENT_EXPORT RenderWidgetHostViewAndroid
   bool UpdateControls(float dip_scale,
                       float top_controls_height,
                       float top_controls_shown_ratio,
+                      float top_controls_min_height_offset,
                       float bottom_controls_height,
-                      float bottom_controls_shown_ratio);
+                      float bottom_controls_shown_ratio,
+                      float bottom_controls_min_height_offset);
   void OnDidUpdateVisualPropertiesComplete(
       const cc::RenderFrameMetadata& metadata);
 
@@ -401,8 +405,6 @@ class CONTENT_EXPORT RenderWidgetHostViewAndroid
   void AttachLayers();
   void RemoveLayers();
 
-  void EvictFrameIfNecessary();
-
   // Helper function to update background color for WebView on fullscreen
   // changes. See https://crbug.com/961223.
   void UpdateWebViewBackgroundColorIfNecessary();
@@ -413,8 +415,8 @@ class CONTENT_EXPORT RenderWidgetHostViewAndroid
       const gfx::Size& dst_size_in_pixel,
       base::OnceCallback<void(const SkBitmap&)> callback);
 
-  void EvictDelegatedContent();
-  void OnLostResources();
+  void MaybeCreateSynchronousCompositor();
+  void ResetSynchronousCompositor();
 
   void StartObservingRootWindow();
   void StopObservingRootWindow();
@@ -500,6 +502,8 @@ class CONTENT_EXPORT RenderWidgetHostViewAndroid
   const bool using_browser_compositor_;
   const bool using_viz_for_webview_;
   std::unique_ptr<SynchronousCompositorHost> sync_compositor_;
+  uint32_t sync_compositor_last_frame_token_ = 0u;
+
 
   SynchronousCompositorClient* synchronous_compositor_client_;
 
@@ -507,12 +511,13 @@ class CONTENT_EXPORT RenderWidgetHostViewAndroid
 
   bool controls_initialized_ = false;
 
-  bool fallback_cursor_mode_enabled_;
-
   float prev_top_shown_pix_;
+  float prev_top_controls_pix_;
   float prev_top_controls_translate_;
+  float prev_top_controls_min_height_offset_pix_;
   float prev_bottom_shown_pix_;
   float prev_bottom_controls_translate_;
+  float prev_bottom_controls_min_height_offset_pix_;
   float page_scale_;
   float min_page_scale_;
   float max_page_scale_;
@@ -530,6 +535,8 @@ class CONTENT_EXPORT RenderWidgetHostViewAndroid
   bool is_first_navigation_ = true;
   // If true, then the next allocated surface should be embedded.
   bool navigation_while_hidden_ = false;
+
+  bool render_widget_initialized_ = false;
 
   // Tracks whether we are in SynchronousCopyContents to avoid repeated calls
   // into DevTools capture logic.

@@ -88,7 +88,7 @@ CompositorThreadScheduler::CompositorTaskRunner() {
 }
 
 scoped_refptr<base::SingleThreadTaskRunner>
-CompositorThreadScheduler::IPCTaskRunner() {
+CompositorThreadScheduler::NonWakingTaskRunner() {
   NOTREACHED();
   return nullptr;
 }

@@ -10,7 +10,6 @@
 #include <string>
 #include <vector>
 
-#include "base/logging.h"
 #include "build/build_config.h"
 #include "components/cloud_devices/common/description_items.h"
 
@@ -28,6 +27,15 @@ typedef SelectionCapability<SelectVendorCapabilityOption,
     SelectVendorCapability;
 
 typedef std::string ContentType;
+
+struct Copies {
+  // Default requested number of copies.
+  int32_t default_value = 1;
+
+  // Maximum number of copies supported, sourced from
+  // PrinterSemanticCapsAndDefaults.copies_max.
+  int32_t max_value = 1;
+};
 
 enum class DocumentSheetBack {
   NORMAL,
@@ -494,9 +502,10 @@ class MarginsTraits;
 class DpiTraits;
 class FitToPageTraits;
 class MediaTraits;
-class CopiesTraits;
 class PageRangeTraits;
 class CollateTraits;
+class CopiesCapabilityTraits;
+class CopiesTicketItemTraits;
 
 typedef ListCapability<ContentType, ContentTypeTraits> ContentTypesCapability;
 typedef ValueCapability<PwgRasterConfig, PwgRasterConfigTraits>
@@ -511,7 +520,7 @@ typedef SelectionCapability<Margins, MarginsTraits> MarginsCapability;
 typedef SelectionCapability<Dpi, DpiTraits> DpiCapability;
 typedef SelectionCapability<FitToPageType, FitToPageTraits> FitToPageCapability;
 typedef SelectionCapability<Media, MediaTraits> MediaCapability;
-typedef EmptyCapability<class CopiesTraits> CopiesCapability;
+typedef ValueCapability<Copies, class CopiesCapabilityTraits> CopiesCapability;
 typedef EmptyCapability<class PageRangeTraits> PageRangeCapability;
 typedef BooleanCapability<class CollateTraits> CollateCapability;
 typedef BooleanCapability<class ReverseTraits> ReverseCapability;
@@ -530,7 +539,7 @@ typedef TicketItem<Margins, MarginsTraits> MarginsTicketItem;
 typedef TicketItem<Dpi, DpiTraits> DpiTicketItem;
 typedef TicketItem<FitToPageType, FitToPageTraits> FitToPageTicketItem;
 typedef TicketItem<Media, MediaTraits> MediaTicketItem;
-typedef TicketItem<int32_t, CopiesTraits> CopiesTicketItem;
+typedef TicketItem<int32_t, CopiesTicketItemTraits> CopiesTicketItem;
 typedef TicketItem<PageRange, PageRangeTraits> PageRangeTicketItem;
 typedef TicketItem<bool, CollateTraits> CollateTicketItem;
 typedef TicketItem<bool, ReverseTraits> ReverseTicketItem;

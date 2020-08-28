@@ -84,6 +84,19 @@ Polymer({
 
   properties: {
     /**
+     * Determine the behavior of back button and brings user back to user
+     * creation screen when enabled. True when kChildSpecificSignin feature
+     * flag is enabled.
+     */
+    childSpecificSigninFeatureEnabled_: {
+      type: Boolean,
+      value() {
+        return loadTimeData.getBoolean('childSpecificSigninFeatureEnabled');
+      },
+      readOnly: true,
+    },
+
+    /**
      * Current mode of this screen.
      * @private
      */
@@ -104,12 +117,22 @@ Polymer({
     },
 
     /**
+     * Whether the screen contents are currently being loaded.
+     * @private
+     */
+    loadingFrameContents_: {
+      type: Boolean,
+      value: false,
+    },
+
+    /**
      * Whether the loading UI is shown.
      * @private
      */
     isLoadingUiShown_: {
       type: Boolean,
-      value: false,
+      computed: 'computeIsLoadingUiShown_(loadingFrameContents_, ' +
+          'isWhitelistErrorShown_, authCompleted_)',
     },
 
     /**
@@ -141,21 +164,22 @@ Polymer({
     },
 
     /**
+     * Whether the authenticator is or has been in the |SAML| AuthFlow during
+     * the current authentication attempt.
+     * @private
+     */
+    usedSaml_: {
+      type: Boolean,
+      value: false,
+    },
+
+    /**
      * Management domain displayed on SAML interstitial page.
      * @private
      */
     samlInterstitialDomain_: {
       type: String,
       value: null,
-    },
-
-    /**
-     * Message displayed on SAML interstitial page.
-     * @private
-     */
-    samlInterstitialMessage_: {
-      type: String,
-      computed: 'calculateSamlMessage_(locale, samlInterstitialDomain_)',
     },
 
     /**
@@ -205,6 +229,25 @@ Polymer({
       type: Boolean,
       value: true,
     },
+
+    /**
+     * Whether the SAML 3rd-party page is visible.
+     * @private
+     */
+    isSamlSsoVisible_: {
+      type: Boolean,
+      computed: 'computeSamlSsoVisible_(isSaml_, pinDialogParameters_)',
+    },
+
+    /**
+     * Whether a pop-up overlay should be shown. This overlay is necessary
+     * when GAIA shows an overlay within their iframe. It covers the parts
+     * of the screen that would otherwise not show an overlay.
+     */
+    isPopUpOverlayVisible_: {
+      type: Boolean,
+      computed: 'showOverlay_(navigationEnabled_, isSamlSsoVisible_)'
+    }
   },
 
   observers: [
@@ -308,6 +351,13 @@ Polymer({
    */
   pinDialogResultReported_: false,
 
+  /**
+   * Emulate click on the primary action button when it is visible and enabled.
+   * @type {boolean}
+   * @private
+   */
+  clickPrimaryActionButtonForTesting_: false,
+
   /** @override */
   ready() {
     this.authenticator_ = new cr.login.Authenticator(this.getSigninFrame_());
@@ -358,6 +408,8 @@ Polymer({
     this.authenticator_.missingGaiaInfoCallback =
         this.missingGaiaInfo_.bind(this);
     this.authenticator_.samlApiUsedCallback = this.samlApiUsed_.bind(this);
+    this.authenticator_.recordSAMLProviderCallback =
+        this.recordSAMLProvider_.bind(this);
     this.authenticator_.getIsSamlUserPasswordlessCallback =
         this.getIsSamlUserPasswordless_.bind(this);
 
@@ -386,8 +438,6 @@ Polymer({
           eventName, authenticatorEventListeners[eventName].bind(this));
     }
 
-    this.$['signin-back-button'].addEventListener(
-        'click', this.onBackButtonClicked_.bind(this));
     this.$['offline-gaia'].addEventListener(
         'offline-gaia-cancel', this.cancel.bind(this));
 
@@ -464,7 +514,7 @@ Polymer({
    */
   canGoBack_() {
     return this.lastBackMessageValue_ && !this.isWhitelistErrorShown_ &&
-        !this.authCompleted_ && !this.isLoadingUiShown_ && !this.isSaml_;
+        !this.authCompleted_ && !this.isSaml_;
   },
 
   /**
@@ -473,7 +523,11 @@ Polymer({
    */
   onBackButtonClicked_() {
     if (!this.canGoBack_()) {
-      this.cancel();
+      if (!this.isSaml_ && this.childSpecificSigninFeatureEnabled_) {
+        this.userActed('back');
+      } else {
+        this.cancel();
+      }
     } else {
       this.getActiveFrame_().back();
     }
@@ -487,7 +541,7 @@ Polymer({
    * @private
    */
   loadAuthenticator_(doSamlRedirect) {
-    this.isLoadingUiShown_ = true;
+    this.loadingFrameContents_ = true;
     this.startLoadingTimer_();
 
     this.authenticatorParams_.doSamlRedirect = doSamlRedirect;
@@ -521,40 +575,13 @@ Polymer({
   },
 
   /**
-   * Whether the signin-frame-dialog element should be visible.
-   * @param {number} screenMode
-   * @param {OobeTypes.SecurityTokenPinDialogParameters} pinDialogParameters
-   * @return {boolean}
-   * @private
-   */
-  isSigninFrameDialogVisible_(screenMode, pinDialogParameters) {
-    // See the comment in getSigninFrameContainerClass_() for the explanation on
-    // why our element shouldn't be hidden during loading.
-    return screenMode == AuthMode.DEFAULT && pinDialogParameters === null;
-  },
-
-  /**
-   * Calculates the dynamically updatable classes for the signin-frame-container
-   * element.
-   * @param {boolean} isLoadingUiShown
-   * @return {string}
-   * @private
-   */
-  getSigninFrameContainerClass_(isLoadingUiShown) {
-    // Use the CSS class in order to make the signin-frame webview invisible
-    // (completely transparent) during loading, since setting the "hidden"
-    // attribute would affect its loading events.
-    return isLoadingUiShown ? 'transparent' : 'non-transparent';
-  },
-
-  /**
-   * Whether the saml-notice-container element should be visible.
+   * Whether the SAML 3rd-party page is visible.
    * @param {boolean} isSaml
    * @param {OobeTypes.SecurityTokenPinDialogParameters} pinDialogParameters
    * @return {boolean}
    * @private
    */
-  isSamlNoticeContainerVisible_(isSaml, pinDialogParameters) {
+  computeSamlSsoVisible_(isSaml, pinDialogParameters) {
     return isSaml && !pinDialogParameters;
   },
 
@@ -693,19 +720,15 @@ Polymer({
         GAIA_ANIMATION_GUARD_MILLISEC);
   },
 
+  getOobeUIInitialState() {
+    return OOBE_UI_STATE.GAIA_SIGNIN;
+  },
+
   /**
    * Event handler that is invoked just before the frame is shown.
    */
   onBeforeShow() {
-    this.behaviors.forEach((behavior) => {
-      if (behavior.onBeforeShow)
-        behavior.onBeforeShow.call(this);
-    });
-
-    this.screenMode_ = AuthMode.DEFAULT;
-    this.isLoadingUiShown_ = true;
     chrome.send('loginUIStateChanged', ['gaia-signin', true]);
-    Oobe.getInstance().setSigninUIState(SIGNIN_UI_STATE.GAIA_SIGNIN);
 
     // Ensure that GAIA signin (or loading UI) is actually visible.
     window.requestAnimationFrame(function() {
@@ -718,8 +741,11 @@ Polymer({
     this.lastBackMessageValue_ = false;
     this.updateGuestButtonVisibility_();
 
-    this.$['offline-ad-auth'].onBeforeShow();
-    this.$['signin-frame-dialog'].onBeforeShow();
+    cr.ui.login.invokePolymerMethod(this.$['offline-ad-auth'], 'onBeforeShow');
+    cr.ui.login.invokePolymerMethod(
+        this.$['signin-frame-dialog'], 'onBeforeShow');
+    cr.ui.login.invokePolymerMethod(this.$['offline-gaia'], 'onBeforeShow');
+    cr.ui.login.invokePolymerMethod(this.$.pinDialog, 'onBeforeShow');
   },
 
   /**
@@ -765,7 +791,6 @@ Polymer({
    */
   onBeforeHide() {
     chrome.send('loginUIStateChanged', ['gaia-signin', false]);
-    Oobe.getInstance().setSigninUIState(SIGNIN_UI_STATE.HIDDEN);
     this.$['offline-gaia'].switchToEmailCard(false /* animated */);
   },
 
@@ -791,6 +816,7 @@ Polymer({
 
     // Reset SAML
     this.isSaml_ = false;
+    this.usedSaml_ = false;
     this.samlPasswordConfirmAttempt_ = 0;
 
     // Reset the PIN dialog, in case it's shown.
@@ -804,8 +830,6 @@ Polymer({
     }
 
     params.doSamlRedirect = (this.screenMode_ == AuthMode.SAML_INTERSTITIAL);
-    params.menuGuestMode = data.guestSignin;
-    params.menuKeyboardOptions = false;
     params.menuEnterpriseEnrollment =
         !(data.enterpriseManagedDevice || data.hasDeviceOwner);
     params.isFirstUser = !(data.enterpriseManagedDevice || data.hasDeviceOwner);
@@ -829,7 +853,7 @@ Polymer({
 
       case AuthMode.SAML_INTERSTITIAL:
         this.samlInterstitialDomain_ = data.enterpriseDisplayDomain;
-        this.isLoadingUiShown_ = false;
+        this.loadingFrameContents_ = false;
         break;
     }
     this.updateGuestButtonVisibility_();
@@ -911,6 +935,9 @@ Polymer({
    * @private
    */
   onSamlChanged_(newValue, oldValue) {
+    if (this.isSaml_)
+      this.usedSaml_ = true;
+
     chrome.send('samlStateChanged', [this.isSaml_]);
 
     this.classList.toggle('saml', this.isSaml_);
@@ -935,10 +962,13 @@ Polymer({
     this.showViewProcessed_ = false;
     this.startLoadAnimationGuardTimer_();
     this.clearLoadingTimer_();
-    this.isLoadingUiShown_ = false;
+    // Workaround to hide flashing scroll bar.
+    this.async(function() {
+      this.loadingFrameContents_ = false;
 
-    if (!this.$['offline-gaia'].hidden)
-      this.$['offline-gaia'].focus();
+      if (!this.$['offline-gaia'].hidden)
+        this.$['offline-gaia'].focus();
+    }.bind(this), 100);
   },
 
   /**
@@ -963,10 +993,7 @@ Polymer({
    * @private
    */
   onMenuItemClicked_(e) {
-    if (e.detail == 'gm') {
-      Oobe.disableSigninUI();
-      chrome.send('launchIncognito');
-    } else if (e.detail == 'ee') {
+    if (e.detail == 'ee') {
       cr.ui.Oobe.handleAccelerator(ACCELERATOR_ENROLLMENT);
     }
   },
@@ -1001,6 +1028,7 @@ Polymer({
    */
   onSetPrimaryActionEnabled_(e) {
     this.primaryActionButtonEnabled_ = e.detail;
+    this.maybeClickPrimaryActionButtonForTesting_();
   },
 
   /**
@@ -1017,6 +1045,7 @@ Polymer({
    */
   onSetPrimaryActionLabel_(e) {
     this.primaryActionButtonLabel_ = e.detail;
+    this.maybeClickPrimaryActionButtonForTesting_();
   },
 
   /**
@@ -1074,13 +1103,11 @@ Polymer({
    * @private
    */
   onAuthConfirmPassword_(email, passwordCount) {
-    this.isLoadingUiShown_ = true;
-
     if (this.samlPasswordConfirmAttempt_ == 0)
       chrome.send('scrapedPasswordCount', [passwordCount]);
 
     if (this.samlPasswordConfirmAttempt_ < 2) {
-      login.ConfirmPasswordScreen.show(
+      login.ConfirmSamlPasswordScreen.show(
           email, false /* manual password entry */,
           this.samlPasswordConfirmAttempt_,
           this.onConfirmPasswordCollected_.bind(this));
@@ -1125,7 +1152,7 @@ Polymer({
    */
   onAuthNoPassword_(email) {
     chrome.send('scrapedPasswordCount', [0]);
-    login.ConfirmPasswordScreen.show(
+    login.ConfirmSamlPasswordScreen.show(
         email, true /* manual password entry */,
         this.samlPasswordConfirmAttempt_,
         this.onManualPasswordCollected_.bind(this));
@@ -1186,6 +1213,15 @@ Polymer({
   },
 
   /**
+   * Record SAML Provider that has signed-in
+   * @param {string} X509Certificate is a x509certificate in pem format
+   * @private
+   */
+  recordSAMLProvider_(X509Certificate) {
+    chrome.send('recordSAMLProvider', [X509Certificate]);
+  },
+
+  /**
    * Invoked when auth is completed successfully.
    * @param {!Object} credentials Credentials of the completed authentication.
    * @private
@@ -1211,8 +1247,6 @@ Polymer({
         credentials.passwordAttributes
       ]);
     }
-
-    this.isLoadingUiShown_ = true;
 
     // Hide the back button and the border line as they are not useful when
     // the loading screen is shown.
@@ -1269,7 +1303,7 @@ Polymer({
     this.authenticator_.resetStates();
     if (takeFocus) {
       if (!forceOnline && this.isOffline_()) {
-        Oobe.getInstance().setSigninUIState(SIGNIN_UI_STATE.GAIA_SIGNIN);
+        Oobe.getInstance().setOobeUIState(OOBE_UI_STATE.GAIA_SIGNIN);
         // Do nothing, since offline version is reloaded after an error comes.
       } else {
         Oobe.showSigninUI();
@@ -1284,7 +1318,7 @@ Polymer({
     if (this.screenMode_ != AuthMode.DEFAULT)
       return;
     this.authenticator_.reload();
-    this.isLoadingUiShown_ = true;
+    this.loadingFrameContents_ = true;
     this.startLoadingTimer_();
     this.lastBackMessageValue_ = false;
     this.authCompleted_ = false;
@@ -1301,7 +1335,7 @@ Polymer({
       // Reload offline version of the sign-in extension, which will show
       // error itself.
       chrome.send('offlineLogin', [this.email_]);
-    } else if (!this.isLoadingUiShown_) {
+    } else if (!this.loadingFrameContents_) {
       $('bubble').showContentForElement(
           this, cr.ui.Bubble.Attachment.BOTTOM, error,
           BUBBLE_HORIZONTAL_PADDING, BUBBLE_VERTICAL_PADDING);
@@ -1319,15 +1353,15 @@ Polymer({
 
     // TODO(crbug.com/470893): Figure out whether/which of these exit conditions
     // are useful.
-    if (this.screenMode_ == AuthMode.SAML_INTERSTITIAL ||
-        this.isWhitelistErrorShown_ || this.authCompleted_) {
+    if (this.isWhitelistErrorShown_ || this.authCompleted_) {
       return;
     }
 
     if (this.screenMode_ == AuthMode.AD_AUTH)
       chrome.send('cancelAdAuthentication');
 
-    if (this.isClosable_())
+    // Only close oobe dialog when it is the first screen in add user flow.
+    if (this.isClosable_() && !this.childSpecificSigninFeatureEnabled_)
       Oobe.showUserPods();
     else
       Oobe.resetSigninUI(true);
@@ -1361,9 +1395,10 @@ Polymer({
    * @private
    */
   loadOffline_(params) {
-    this.isLoadingUiShown_ = true;
+    this.loadingFrameContents_ = true;
     this.startLoadingTimer_();
     const offlineLogin = this.$['offline-gaia'];
+    offlineLogin.reset();
     if ('enterpriseDisplayDomain' in params)
       offlineLogin.domain = params['enterpriseDisplayDomain'];
     if ('emailDomain' in params)
@@ -1374,7 +1409,7 @@ Polymer({
 
   /** @private */
   loadAdAuth_(params) {
-    this.isLoadingUiShown_ = true;
+    this.loadingFrameContents_ = true;
     this.startLoadingTimer_();
     const adAuthUI = this.getActiveFrame_();
     adAuthUI.realm = params['realm'];
@@ -1406,7 +1441,6 @@ Polymer({
     }
 
     this.isWhitelistErrorShown_ = show;
-    this.isLoadingUiShown_ = !show;
 
     if (show)
       this.$['gaia-whitelist-error'].submitButton.focus();
@@ -1442,7 +1476,7 @@ Polymer({
     adAuthUI.userName = username;
     adAuthUI.errorState = errorState;
     this.authCompleted_ = false;
-    this.isLoadingUiShown_ = false;
+    this.loadingFrameContents_ = false;
   },
 
   /**
@@ -1476,8 +1510,8 @@ Polymer({
   /**
    * Observer that is called when the |pinDialogParameters_| property gets
    * changed.
-   * @param {number} newValue
-   * @param {number} oldValue
+   * @param {OobeTypes.SecurityTokenPinDialogParameter} newValue
+   * @param {OobeTypes.SecurityTokenPinDialogParameter} oldValue
    * @private
    */
   onPinDialogParametersChanged_(newValue, oldValue) {
@@ -1485,6 +1519,17 @@ Polymer({
       // Don't do anything on the initial call, triggered by the property
       // initialization.
       return;
+    }
+    if (oldValue === null && newValue !== null) {
+      // Asynchronously set the focus, so that this happens after Polymer
+      // recalculates the visibility of |pinDialog|.
+      // Also notify the C++ test after this happens, in order to avoid
+      // flakiness (so that the test doesn't try to simulate the input before
+      // the caret is positioned).
+      requestAnimationFrame(() => {
+        this.$.pinDialog.focus();
+        chrome.send('securityTokenPinDialogShownForTest');
+      });
     }
     if ((oldValue !== null && newValue === null) ||
         (oldValue !== null && newValue !== null &&
@@ -1590,14 +1635,16 @@ Polymer({
   },
 
   /**
-   * Calculates samlInterstitialMessage_, as it can not be easily evaluated via
-   * current i18n functions (HTML + substitutions).
-   * @param {string} locale
-   * @param {string} domain
+   * Computes the value of the isLoadingUiShown_ property.
+   * @param {boolean} loadingFrameContents
+   * @param {boolean} isWhitelistErrorShown
+   * @param {boolean} authCompleted
+   * @return {boolean}
    * @private
    */
-  calculateSamlMessage_(locale, domain) {
-    return loadTimeData.getStringF('samlInterstitialMessage', domain);
+  computeIsLoadingUiShown_: function(
+      loadingFrameContents, isWhitelistErrorShown, authCompleted) {
+    return (loadingFrameContents || authCompleted) && !isWhitelistErrorShown;
   },
 
   /**
@@ -1607,6 +1654,40 @@ Polymer({
    */
   isEmpty_(value) {
     return !value;
+  },
+
+  /**
+   * Whether popup overlay should be open.
+   * @param {boolean} navigationEnabled
+   * @param {boolean} isSamlSsoVisible
+   * @return {boolean}
+   */
+  showOverlay_(navigationEnabled, isSamlSsoVisible) {
+    return !navigationEnabled || isSamlSsoVisible;
+  },
+
+  clickPrimaryButtonForTesting() {
+    this.clickPrimaryActionButtonForTesting_ = true;
+    this.maybeClickPrimaryActionButtonForTesting_();
+  },
+
+  maybeClickPrimaryActionButtonForTesting_() {
+    if (!this.clickPrimaryActionButtonForTesting_)
+      return;
+
+    const button = this.$['primary-action-button'];
+    if (button.hidden || button.disabled)
+      return;
+
+    this.clickPrimaryActionButtonForTesting_ = false;
+    button.click();
+  },
+
+  /**
+   * Called when focus is returned.
+   */
+  onFocusReturned() {
+    this.focusActiveFrame_();
   },
 });
 })();

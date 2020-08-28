@@ -23,9 +23,6 @@
 #import "net/base/mac/url_conversions.h"
 #include "url/gurl.h"
 
-const NSString* kHeaderEtag = @"ETag";
-const NSString* kHeaderXRetryAfter = @"X-Retry-After";
-
 using ResponseStartedCallback =
     update_client::NetworkFetcher::ResponseStartedCallback;
 using ProgressCallback = update_client::NetworkFetcher::ProgressCallback;
@@ -34,14 +31,14 @@ using PostRequestCompleteCallback =
 using DownloadToFileCompleteCallback =
     update_client::NetworkFetcher::DownloadToFileCompleteCallback;
 
-@interface CHUpdaterNetworkController : NSObject <NSURLSessionDelegate>
+@interface CRUUpdaterNetworkController : NSObject <NSURLSessionDelegate>
 - (instancetype)initWithResponseStartedCallback:
                     (ResponseStartedCallback)responseStartedCallback
                                progressCallback:
                                    (ProgressCallback)progressCallback;
 @end
 
-@implementation CHUpdaterNetworkController {
+@implementation CRUUpdaterNetworkController {
  @protected
   ResponseStartedCallback _responseStartedCallback;
   ProgressCallback _progressCallback;
@@ -52,7 +49,7 @@ using DownloadToFileCompleteCallback =
                     (ResponseStartedCallback)responseStartedCallback
                                progressCallback:
                                    (ProgressCallback)progressCallback {
-  if (self == [super init]) {
+  if (self = [super init]) {
     _responseStartedCallback = std::move(responseStartedCallback);
     _progressCallback = progressCallback;
     _callbackRunner = base::ThreadTaskRunnerHandle::Get();
@@ -73,8 +70,8 @@ using DownloadToFileCompleteCallback =
 }
 @end
 
-@interface CHUpdaterNetworkDataDelegate
-    : CHUpdaterNetworkController <NSURLSessionDataDelegate>
+@interface CRUUpdaterNetworkDataDelegate
+    : CRUUpdaterNetworkController <NSURLSessionDataDelegate>
 - (instancetype)
     initWithResponseStartedCallback:
         (ResponseStartedCallback)responseStartedCallback
@@ -83,7 +80,7 @@ using DownloadToFileCompleteCallback =
             (PostRequestCompleteCallback)postRequestCompleteCallback;
 @end
 
-@implementation CHUpdaterNetworkDataDelegate {
+@implementation CRUUpdaterNetworkDataDelegate {
   PostRequestCompleteCallback _postRequestCompleteCallback;
   base::scoped_nsobject<NSMutableData> _downloadedData;
 }
@@ -94,10 +91,11 @@ using DownloadToFileCompleteCallback =
                    progressCallback:(ProgressCallback)progressCallback
         postRequestCompleteCallback:
             (PostRequestCompleteCallback)postRequestCompleteCallback {
-  if (self ==
-      [super initWithResponseStartedCallback:std::move(responseStartedCallback)
-                            progressCallback:progressCallback]) {
+  if (self = [super
+          initWithResponseStartedCallback:std::move(responseStartedCallback)
+                         progressCallback:progressCallback]) {
     _postRequestCompleteCallback = std::move(postRequestCompleteCallback);
+    _downloadedData.reset([[NSMutableData alloc] init]);
   }
   return self;
 }
@@ -107,9 +105,6 @@ using DownloadToFileCompleteCallback =
 - (void)URLSession:(NSURLSession*)session
           dataTask:(NSURLSessionDataTask*)dataTask
     didReceiveData:(NSData*)data {
-  if (_downloadedData == nil) {
-    _downloadedData.reset([[NSMutableData alloc] init]);
-  }
   [_downloadedData appendData:data];
 
   int64_t current = 0;
@@ -151,12 +146,23 @@ using DownloadToFileCompleteCallback =
 
   NSHTTPURLResponse* response = (NSHTTPURLResponse*)task.response;
   NSDictionary* headers = response.allHeaderFields;
+
+  NSString* headerEtag =
+      base::SysUTF8ToNSString(update_client::NetworkFetcher::kHeaderEtag);
   NSString* etag = @"";
-  if ([headers objectForKey:kHeaderEtag]) {
-    etag = [headers objectForKey:kHeaderEtag];
+  if ([headers objectForKey:headerEtag]) {
+    etag = [headers objectForKey:headerEtag];
+  }
+  NSString* headerXCupServerProof = base::SysUTF8ToNSString(
+      update_client::NetworkFetcher::kHeaderXCupServerProof);
+  NSString* cupServerProof = @"";
+  if ([headers objectForKey:headerXCupServerProof]) {
+    cupServerProof = [headers objectForKey:headerXCupServerProof];
   }
   int64_t retryAfterResult = -1;
-  NSString* xRetryAfter = [headers objectForKey:kHeaderXRetryAfter];
+  NSString* xRetryAfter = [headers
+      objectForKey:base::SysUTF8ToNSString(
+                       update_client::NetworkFetcher::kHeaderXRetryAfter)];
   if (xRetryAfter) {
     retryAfterResult = [xRetryAfter intValue];
   }
@@ -165,15 +171,17 @@ using DownloadToFileCompleteCallback =
       FROM_HERE,
       base::BindOnce(std::move(_postRequestCompleteCallback),
                      std::make_unique<std::string>(
-                         base::SysNSStringToUTF8(response.description)),
-                     error.code, std::string(base::SysNSStringToUTF8(etag)),
+                         reinterpret_cast<const char*>([_downloadedData bytes]),
+                         [_downloadedData length]),
+                     error.code, base::SysNSStringToUTF8(etag),
+                     base::SysNSStringToUTF8(cupServerProof),
                      retryAfterResult));
 }
 
 @end
 
-@interface CHUpdaterNetworkDownloadDelegate
-    : CHUpdaterNetworkController <NSURLSessionDownloadDelegate>
+@interface CRUUpdaterNetworkDownloadDelegate
+    : CRUUpdaterNetworkController <NSURLSessionDownloadDelegate>
 - (instancetype)
     initWithResponseStartedCallback:
         (ResponseStartedCallback)responseStartedCallback
@@ -183,7 +191,7 @@ using DownloadToFileCompleteCallback =
          (DownloadToFileCompleteCallback)downloadToFileCompleteCallback;
 @end
 
-@implementation CHUpdaterNetworkDownloadDelegate {
+@implementation CRUUpdaterNetworkDownloadDelegate {
   base::FilePath _filePath;
   DownloadToFileCompleteCallback _downloadToFileCompleteCallback;
 }
@@ -195,9 +203,9 @@ using DownloadToFileCompleteCallback =
                            filePath:(const base::FilePath&)filePath
      downloadToFileCompleteCallback:
          (DownloadToFileCompleteCallback)downloadToFileCompleteCallback {
-  if (self ==
-      [super initWithResponseStartedCallback:std::move(responseStartedCallback)
-                            progressCallback:progressCallback]) {
+  if (self = [super
+          initWithResponseStartedCallback:std::move(responseStartedCallback)
+                         progressCallback:progressCallback]) {
     _filePath = filePath;
     _downloadToFileCompleteCallback = std::move(downloadToFileCompleteCallback);
   }
@@ -246,9 +254,10 @@ using DownloadToFileCompleteCallback =
                                                        error:nil];
   NSNumber* fileSizeAttribute = attributes[NSFileSize];
   int64_t fileSize = [fileSizeAttribute integerValue];
+  NSInteger statusCode = response.statusCode == 200 ? 0 : response.statusCode;
   _callbackRunner->PostTask(
       FROM_HERE, base::BindOnce(std::move(_downloadToFileCompleteCallback),
-                                response.statusCode, fileSize));
+                                statusCode, fileSize));
 }
 
 @end
@@ -259,21 +268,22 @@ class SingleThreadTaskRunner;
 
 namespace updater {
 
-NetworkFetcher::NetworkFetcher() {}
+NetworkFetcher::NetworkFetcher() = default;
 
-NetworkFetcher::~NetworkFetcher() {}
+NetworkFetcher::~NetworkFetcher() = default;
 
 void NetworkFetcher::PostRequest(
     const GURL& url,
     const std::string& post_data,
+    const std::string& content_type,
     const base::flat_map<std::string, std::string>& post_additional_headers,
     ResponseStartedCallback response_started_callback,
     ProgressCallback progress_callback,
     PostRequestCompleteCallback post_request_complete_callback) {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
 
-  base::scoped_nsobject<CHUpdaterNetworkDataDelegate> delegate(
-      [[CHUpdaterNetworkDataDelegate alloc]
+  base::scoped_nsobject<CRUUpdaterNetworkDataDelegate> delegate(
+      [[CRUUpdaterNetworkDataDelegate alloc]
           initWithResponseStartedCallback:std::move(response_started_callback)
                          progressCallback:progress_callback
               postRequestCompleteCallback:std::move(
@@ -288,8 +298,18 @@ void NetworkFetcher::PostRequest(
   base::scoped_nsobject<NSMutableURLRequest> urlRequest(
       [[NSMutableURLRequest alloc] initWithURL:net::NSURLWithGURL(url)]);
   [urlRequest setHTTPMethod:@"POST"];
-  [urlRequest setHTTPBody:[base::SysUTF8ToNSString(post_data)
-                              dataUsingEncoding:NSUTF8StringEncoding]];
+  base::scoped_nsobject<NSData> body(
+      [[NSData alloc] initWithBytes:post_data.c_str() length:post_data.size()]);
+  [urlRequest setHTTPBody:body];
+  [urlRequest addValue:base::SysUTF8ToNSString(content_type)
+      forHTTPHeaderField:@"Content-Type"];
+
+  // Post additional headers could overwrite existing headers with the same key,
+  // such as "Content-Type" above.
+  for (const auto& header : post_additional_headers) {
+    [urlRequest setValue:base::SysUTF8ToNSString(header.second)
+        forHTTPHeaderField:base::SysUTF8ToNSString(header.first)];
+  }
   VLOG(1) << "Posting data: " << post_data.c_str();
 
   NSURLSessionDataTask* dataTask = [session dataTaskWithRequest:urlRequest];
@@ -304,8 +324,8 @@ void NetworkFetcher::DownloadToFile(
     DownloadToFileCompleteCallback download_to_file_complete_callback) {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
 
-  base::scoped_nsobject<CHUpdaterNetworkDownloadDelegate> delegate(
-      [[CHUpdaterNetworkDownloadDelegate alloc]
+  base::scoped_nsobject<CRUUpdaterNetworkDownloadDelegate> delegate(
+      [[CRUUpdaterNetworkDownloadDelegate alloc]
           initWithResponseStartedCallback:std::move(response_started_callback)
                          progressCallback:progress_callback
                                  filePath:file_path

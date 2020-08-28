@@ -4,8 +4,8 @@
 
 package org.chromium.chrome.browser.download.home.list;
 
-import android.support.v7.widget.RecyclerView;
-import android.support.v7.widget.RecyclerView.ItemAnimator;
+import androidx.recyclerview.widget.RecyclerView;
+import androidx.recyclerview.widget.RecyclerView.ItemAnimator;
 
 import org.chromium.chrome.R;
 import org.chromium.ui.modelutil.PropertyKey;
@@ -36,6 +36,7 @@ class ListPropertyViewBinder implements ViewBinder<PropertyModel, RecyclerView, 
                 || propertyKey == ListProperties.PROVIDER_VISUALS
                 || propertyKey == ListProperties.CALLBACK_SELECTION
                 || propertyKey == ListProperties.CALLBACK_RENAME
+                || propertyKey == ListProperties.CALLBACK_CHANGE
                 || propertyKey == ListProperties.SELECTION_MODE_ACTIVE) {
             view.getAdapter().notifyItemRangeChanged(0, view.getAdapter().getItemCount());
         }

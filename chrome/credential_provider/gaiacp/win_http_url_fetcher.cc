@@ -10,6 +10,8 @@
 #include <atlconv.h>
 #include <process.h>
 
+#include <set>
+
 #include "base/base64.h"
 #include "base/containers/span.h"
 #include "base/json/json_reader.h"
@@ -20,6 +22,18 @@
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/credential_provider/gaiacp/logging.h"
+#include "chrome/credential_provider/gaiacp/mdm_utils.h"
+
+namespace {
+// Key name containing the HTTP error code within the dictionary returned by the
+// server in case of errors.
+constexpr char kHttpErrorCodeKeyNameInResponse[] = "code";
+
+// The HTTP response codes for which the request is re-tried on failure.
+const std::set<int> kRetryableHttpErrorCodes = {
+    503,  // Service Unavailable
+    504   // Gateway Timeout
+};
 
 // Self deleting http service requester. This class will try to make a query
 // using the given url fetcher. It will delete itself when the request is
@@ -41,11 +55,12 @@
 //       thread can self delete.
 class HttpServiceRequest {
  public:
-  explicit HttpServiceRequest(
-      std::unique_ptr<credential_provider::WinHttpUrlFetcher> fetcher)
-      : fetcher_(std::move(fetcher)) {
-    DCHECK(fetcher_);
-  }
+  static HttpServiceRequest* Create(
+      const GURL& request_url,
+      const std::string& access_token,
+      const std::vector<std::pair<std::string, std::string>>& headers,
+      const std::string& request_body,
+      const base::TimeDelta& request_timeout);
 
   // Tries to fetch the request stored in |fetcher_| in a background thread
   // within the given |request_timeout|. If the background thread returns before
@@ -103,6 +118,12 @@ class HttpServiceRequest {
   }
 
  private:
+  explicit HttpServiceRequest(
+      std::unique_ptr<credential_provider::WinHttpUrlFetcher> fetcher)
+      : fetcher_(std::move(fetcher)) {
+    DCHECK(fetcher_);
+  }
+
   void OrphanRequest() {
     bool delete_self = false;
     {
@@ -158,6 +179,44 @@ class HttpServiceRequest {
   bool is_processing_ = true;
 };
 
+HttpServiceRequest* HttpServiceRequest::Create(
+    const GURL& request_url,
+    const std::string& access_token,
+    const std::vector<std::pair<std::string, std::string>>& headers,
+    const std::string& request_body,
+    const base::TimeDelta& request_timeout) {
+  auto url_fetcher =
+      credential_provider::WinHttpUrlFetcher::Create(request_url);
+  if (!url_fetcher) {
+    LOGFN(ERROR) << "Could not create valid fetcher for url="
+                 << request_url.spec();
+    return nullptr;
+  }
+
+  url_fetcher->SetRequestHeader("Content-Type", "application/json");
+  url_fetcher->SetRequestHeader("Authorization",
+                                ("Bearer " + access_token).c_str());
+  for (auto& header : headers)
+    url_fetcher->SetRequestHeader(header.first.c_str(), header.second.c_str());
+
+  if (!request_body.empty()) {
+    HRESULT hr = url_fetcher->SetRequestBody(request_body.c_str());
+    if (FAILED(hr)) {
+      LOGFN(ERROR) << "fetcher.SetRequestBody hr="
+                   << credential_provider::putHR(hr);
+      return nullptr;
+    }
+  }
+
+  if (!request_timeout.is_zero()) {
+    url_fetcher->SetHttpRequestTimeout(request_timeout.InMilliseconds());
+  }
+
+  return (new HttpServiceRequest(std::move(url_fetcher)));
+}
+
+}  // namespace
+
 namespace credential_provider {
 
 // static
@@ -176,7 +235,7 @@ std::unique_ptr<WinHttpUrlFetcher> WinHttpUrlFetcher::Create(const GURL& url) {
 
 WinHttpUrlFetcher::WinHttpUrlFetcher(const GURL& url)
     : url_(url), session_(nullptr), request_(nullptr) {
-  LOGFN(INFO) << "url=" << url.spec() << " (scheme and port ignored)";
+  LOGFN(VERBOSE) << "url=" << url.spec() << " (scheme and port ignored)";
 
   ScopedWinHttpHandle::Handle session = ::WinHttpOpen(
       L"GaiaCP/1.0 (Windows NT)", WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,
@@ -347,77 +406,60 @@ HRESULT WinHttpUrlFetcher::Close() {
   return S_OK;
 }
 
-// Builds the required json request to be sent to the http service and fetches
-// the json response from the service (if any). Returns S_OK if
-// |needed_outputs| can be filled correctly with the requested data, otherwise
-// returns an error code and clears |needed_outputs|.
-// |request_url| is the full query url from which to fetch a response.
-// |headers| are all the header key value pairs to be sent with the request.
-// |parameters| are all the json parameters to be sent with the request. This
-// argument will be converted to a json string and sent as part of the body of
-// the request.
-// |request_timeout| is the maximum time to wait for a response.
-// |needed_outputs| is the mapping of the desired result key to an address where
-// the result can be stored.
 HRESULT WinHttpUrlFetcher::BuildRequestAndFetchResultFromHttpService(
     const GURL& request_url,
     std::string access_token,
     const std::vector<std::pair<std::string, std::string>>& headers,
-    const std::vector<std::pair<std::string, std::string>>& parameters,
-    const std::vector<std::pair<std::string, std::string*>>& needed_outputs,
-    const base::TimeDelta& request_timeout) {
-  auto url_fetcher = WinHttpUrlFetcher::Create(request_url);
-  if (!url_fetcher) {
-    LOGFN(ERROR) << "Could not create valid fetcher for url="
-                 << request_url.spec();
-    return E_FAIL;
-  }
-
-  url_fetcher->SetRequestHeader("Content-Type", "application/json");
-  url_fetcher->SetRequestHeader("Authorization",
-                                ("Bearer " + access_token).c_str());
-  for (auto& header : headers)
-    url_fetcher->SetRequestHeader(header.first.c_str(), header.second.c_str());
-
+    const base::Value& request_dict,
+    const base::TimeDelta& request_timeout,
+    unsigned int request_retries,
+    base::Optional<base::Value>* request_result) {
+  DCHECK(request_result);
   HRESULT hr = S_OK;
 
-  if (!parameters.empty()) {
-    base::Value request_dict(base::Value::Type::DICTIONARY);
-
-    for (auto& parameter : parameters)
-      request_dict.SetStringKey(parameter.first, parameter.second);
-
-    std::string json;
-    if (!base::JSONWriter::Write(request_dict, &json)) {
+  std::string request_body;
+  if (request_dict.is_dict()) {
+    if (!base::JSONWriter::Write(request_dict, &request_body)) {
       LOGFN(ERROR) << "base::JSONWriter::Write failed";
       return E_FAIL;
     }
-
-    hr = url_fetcher->SetRequestBody(json.c_str());
-    if (FAILED(hr)) {
-      LOGFN(ERROR) << "fetcher.SetRequestBody hr=" << putHR(hr);
-      return E_FAIL;
-    }
   }
 
-  base::Optional<base::Value> request_result =
-      (new HttpServiceRequest(std::move(url_fetcher)))
-          ->WaitForResponseFromHttpService(request_timeout);
+  for (unsigned int try_count = 0; try_count <= request_retries; ++try_count) {
+    HttpServiceRequest* request = HttpServiceRequest::Create(
+        request_url, access_token, headers, request_body, request_timeout);
 
-  if (!request_result)
-    return E_FAIL;
+    if (!request)
+      return E_FAIL;
 
-  for (const std::pair<std::string, std::string*>& output : needed_outputs) {
-    const std::string* output_value =
-        request_result->FindStringKey(output.first);
-    if (!output_value) {
-      LOGFN(ERROR) << "Could not extract value '" << output.first
-                   << "' from server response";
+    auto extracted_param =
+        request->WaitForResponseFromHttpService(request_timeout);
+
+    if (!extracted_param) {
       hr = E_FAIL;
-      break;
+      continue;
     }
-    DCHECK(output.second);
-    *output.second = *output_value;
+    *request_result = std::move(extracted_param);
+
+    base::Value* error_detail =
+        (*request_result)->FindDictKey(kErrorKeyInRequestResult);
+    if (error_detail) {
+      hr = E_FAIL;
+      LOGFN(ERROR) << "error: " << *error_detail;
+
+      // If error code is known, retry only on retryable server errors.
+      base::Optional<int> error_code =
+          error_detail->FindIntKey(kHttpErrorCodeKeyNameInResponse);
+      if (error_code.has_value() &&
+          kRetryableHttpErrorCodes.find(error_code.value()) ==
+              kRetryableHttpErrorCodes.end())
+        break;
+
+      continue;
+    }
+
+    hr = S_OK;
+    break;
   }
 
   return hr;

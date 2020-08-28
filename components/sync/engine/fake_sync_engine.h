@@ -24,9 +24,7 @@ namespace syncer {
 // behavior.
 class FakeSyncEngine : public SyncEngine {
  public:
-  static constexpr char kTestCacheGuid[] = "test-guid";
   static constexpr char kTestBirthday[] = "1";
-  static constexpr char kTestKeystoreKey[] = "test-keystore-key";
 
   FakeSyncEngine();
   ~FakeSyncEngine() override;
@@ -60,32 +58,22 @@ class FakeSyncEngine : public SyncEngine {
 
   void ConfigureDataTypes(ConfigureParams params) override;
 
-  void RegisterDirectoryDataType(ModelType type, ModelSafeGroup group) override;
-
-  void UnregisterDirectoryDataType(ModelType type) override;
-
   void EnableEncryptEverything() override;
-
-  void ActivateDirectoryDataType(ModelType type,
-                                 ModelSafeGroup group,
-                                 ChangeProcessor* change_processor) override;
-  void DeactivateDirectoryDataType(ModelType type) override;
 
   void ActivateNonBlockingDataType(
       ModelType type,
       std::unique_ptr<DataTypeActivationResponse>) override;
   void DeactivateNonBlockingDataType(ModelType type) override;
 
-  UserShare* GetUserShare() const override;
+  void ActivateProxyDataType(ModelType type) override;
+  void DeactivateProxyDataType(ModelType type) override;
 
-  SyncStatus GetDetailedStatus() override;
+  const SyncStatus& GetDetailedStatus() const override;
 
   void HasUnsyncedItemsForTest(
       base::OnceCallback<void(bool)> cb) const override;
 
   void GetModelSafeRoutingInfo(ModelSafeRoutingInfo* out) const override;
-
-  void FlushDirectory() const override;
 
   void RequestBufferedProtocolEventsAndEnableForwarding() override;
   void DisableProtocolEventForwarding() override;
@@ -103,6 +91,7 @@ class FakeSyncEngine : public SyncEngine {
  private:
   bool fail_initial_download_ = false;
   bool initialized_ = false;
+  const SyncStatus default_sync_status_;
 };
 
 }  // namespace syncer

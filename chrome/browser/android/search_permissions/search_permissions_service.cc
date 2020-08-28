@@ -9,7 +9,7 @@
 #include "base/values.h"
 #include "chrome/browser/android/search_permissions/search_geolocation_disclosure_tab_helper.h"
 #include "chrome/browser/content_settings/host_content_settings_map_factory.h"
-#include "chrome/browser/permissions/permission_decision_auto_blocker.h"
+#include "chrome/browser/permissions/permission_decision_auto_blocker_factory.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/search_engines/template_url_service_factory.h"
 #include "chrome/browser/search_engines/ui_thread_search_terms_data.h"
@@ -18,6 +18,7 @@
 #include "components/content_settings/core/browser/host_content_settings_map.h"
 #include "components/content_settings/core/common/content_settings_types.h"
 #include "components/keyed_service/content/browser_context_dependency_manager.h"
+#include "components/permissions/permission_decision_auto_blocker.h"
 #include "components/pref_registry/pref_registry_syncable.h"
 #include "components/prefs/pref_service.h"
 #include "components/search_engines/template_url.h"
@@ -78,8 +79,8 @@ class SearchEngineDelegateImpl
     return url::Origin();
   }
 
-  void SetDSEChangedCallback(const base::Closure& callback) override {
-    dse_changed_callback_ = callback;
+  void SetDSEChangedCallback(base::RepeatingClosure callback) override {
+    dse_changed_callback_ = std::move(callback);
   }
 
   // TemplateURLServiceObserver
@@ -91,7 +92,7 @@ class SearchEngineDelegateImpl
   // Will be null in unittests.
   TemplateURLService* template_url_service_;
 
-  base::Closure dse_changed_callback_;
+  base::RepeatingClosure dse_changed_callback_;
 };
 
 }  // namespace
@@ -153,7 +154,7 @@ SearchPermissionsService::SearchPermissionsService(Profile* profile)
   DCHECK(!profile_->IsOffTheRecord());
 
   delegate_.reset(new SearchEngineDelegateImpl(profile_));
-  delegate_->SetDSEChangedCallback(base::Bind(
+  delegate_->SetDSEChangedCallback(base::BindRepeating(
       &SearchPermissionsService::OnDSEChanged, base::Unretained(this)));
 
   // Under normal circumstances we wouldn't need to call OnDSEChanged here, just
@@ -275,8 +276,8 @@ ContentSetting SearchPermissionsService::UpdatePermissionAndReturnPrevious(
     ContentSetting old_dse_setting_to_restore,
     bool dse_name_changed) {
   // Remove any embargo on the URL.
-  PermissionDecisionAutoBlocker::GetForProfile(profile_)->RemoveEmbargoByUrl(
-      new_dse_origin, type);
+  PermissionDecisionAutoBlockerFactory::GetForProfile(profile_)
+      ->RemoveEmbargoAndResetCounts(new_dse_origin, type);
 
   ContentSetting dse_setting = RestoreOldSettingAndReturnPrevious(
       old_dse_origin, type, old_dse_setting_to_restore);
@@ -487,6 +488,6 @@ void SearchPermissionsService::SetContentSetting(const GURL& origin,
 void SearchPermissionsService::SetSearchEngineDelegateForTest(
     std::unique_ptr<SearchEngineDelegate> delegate) {
   delegate_ = std::move(delegate);
-  delegate_->SetDSEChangedCallback(base::Bind(
+  delegate_->SetDSEChangedCallback(base::BindRepeating(
       &SearchPermissionsService::OnDSEChanged, base::Unretained(this)));
 }

@@ -6,10 +6,10 @@
 
 #import <WebKit/WebKit.h>
 
+#include "base/check_op.h"
 #include "base/feature_list.h"
 #include "base/i18n/i18n_constants.h"
 #import "base/ios/block_types.h"
-#include "base/logging.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/sys_string_conversions.h"
 #include "ios/web/common/features.h"
@@ -28,6 +28,7 @@
 #import "ios/web/web_state/user_interaction_state.h"
 #import "ios/web/web_state/web_state_impl.h"
 #import "net/base/mac/url_conversions.h"
+#include "net/base/url_util.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -324,17 +325,19 @@ enum class BackForwardNavigationType {
     // redirects can not change the origin. It is possible to have more than one
     // pending navigations, so the redirect does not necesserily belong to the
     // pending navigation item.
+    // Do not do it for localhost address as this is needed to have
+    // pre-rendering in tests.
     if ((base::FeatureList::IsEnabled(web::features::kUseJSForErrorPage) ||
          !placeholderNavigation) &&
-        item->GetURL().GetOrigin() == requestURL.GetOrigin()) {
+        item->GetURL().GetOrigin() == requestURL.GetOrigin() &&
+        !net::IsLocalhost(requestURL)) {
       self.navigationManagerImpl->UpdatePendingItemUrl(requestURL);
     }
   } else {
     self.navigationManagerImpl->AddPendingItem(
         requestURL, referrer, transition,
         rendererInitiated ? web::NavigationInitiationType::RENDERER_INITIATED
-                          : web::NavigationInitiationType::BROWSER_INITIATED,
-        web::NavigationManager::UserAgentOverrideOption::INHERIT);
+                          : web::NavigationInitiationType::BROWSER_INITIATED);
     item =
         self.navigationManagerImpl->GetPendingItemInCurrentOrRestoredSession();
   }
@@ -366,7 +369,7 @@ enum class BackForwardNavigationType {
   if (!IsWKInternalUrl(requestURL) &&
       (base::FeatureList::IsEnabled(web::features::kUseJSForErrorPage) ||
        !placeholderNavigation) &&
-      (!web::features::UseWKWebViewLoading() || !rendererInitiated)) {
+      !rendererInitiated) {
     self.webState->SetIsLoading(true);
   }
 
@@ -414,14 +417,6 @@ enum class BackForwardNavigationType {
     // loading placeholder URL.
     return;
   }
-  if (!web::features::UseWKWebViewLoading()) {
-    if (![self.navigationHandler.navigationStates
-                lastNavigationWithPendingItemInNavigationContext]) {
-      self.webState->SetIsLoading(false);
-    } else {
-      // There is another pending navigation, so the state is still loading.
-    }
-  }
 
   self.webState->OnPageLoaded(currentURL, YES);
 
@@ -434,31 +429,6 @@ enum class BackForwardNavigationType {
                           context->GetElapsedTimeSinceCreation());
     }
   }
-}
-
-// Reports Navigation.IOSWKWebViewSlowFastBackForward UMA. No-op if pending
-// navigation is not back forward navigation.
-- (void)reportBackForwardNavigationTypeForFastNavigation:(BOOL)isFast {
-  web::NavigationManager* navigationManager = self.navigationManagerImpl;
-  int pendingIndex = navigationManager->GetPendingItemIndex();
-  if (pendingIndex == -1) {
-    // Pending navigation is not a back forward navigation.
-    return;
-  }
-
-  BOOL isBack = pendingIndex < navigationManager->GetLastCommittedItemIndex();
-  BackForwardNavigationType type = BackForwardNavigationType::FAST_BACK;
-  if (isBack) {
-    type = isFast ? BackForwardNavigationType::FAST_BACK
-                  : BackForwardNavigationType::SLOW_BACK;
-  } else {
-    type = isFast ? BackForwardNavigationType::FAST_FORWARD
-                  : BackForwardNavigationType::SLOW_FORWARD;
-  }
-
-  UMA_HISTOGRAM_ENUMERATION(
-      "Navigation.IOSWKWebViewSlowFastBackForward", type,
-      BackForwardNavigationType::BACK_FORWARD_NAVIGATION_TYPE_COUNT);
 }
 
 #pragma mark Navigation and Session Information
@@ -547,34 +517,6 @@ enum class BackForwardNavigationType {
   // crbug.com/577793).
   DCHECK_GT(CGRectGetWidth(self.webView.frame), 0.0);
   DCHECK_GT(CGRectGetHeight(self.webView.frame), 0.0);
-
-  // If the current item uses a different user agent from that is currently used
-  // in the web view, update |customUserAgent| property, which will be used by
-  // the next request sent by this web view.
-  web::UserAgentType itemUserAgentType =
-      self.currentNavItem->GetUserAgentType();
-
-  if (itemUserAgentType == web::UserAgentType::AUTOMATIC) {
-    DCHECK(base::FeatureList::IsEnabled(
-        web::features::kUseDefaultUserAgentInWebClient));
-    itemUserAgentType = web::GetWebClient()->GetDefaultUserAgent(self.webView);
-    self.currentNavItem->SetUserAgentType(
-        itemUserAgentType, /*update_inherited_user_agent =*/false);
-  } else if (itemUserAgentType == web::UserAgentType::NONE &&
-             web::GetWebClient()->IsAppSpecificURL(
-                 self.currentNavItem->GetVirtualURL())) {
-    // In case the URL to be loaded is a WebUI URL and the user agent is nil,
-    // get the mobile user agent.
-    itemUserAgentType = web::UserAgentType::MOBILE;
-  }
-
-  if (itemUserAgentType != web::UserAgentType::NONE) {
-    NSString* userAgentString = base::SysUTF8ToNSString(
-        web::GetWebClient()->GetUserAgent(itemUserAgentType));
-    if (![self.webView.customUserAgent isEqualToString:userAgentString]) {
-      self.webView.customUserAgent = userAgentString;
-    }
-  }
 
   web::WKBackForwardListItemHolder* holder =
       self.navigationHandler.currentBackForwardListItemHolder;
@@ -676,7 +618,6 @@ enum class BackForwardNavigationType {
     [self.navigationHandler.navigationStates
            setContext:std::move(navigationContext)
         forNavigation:navigation];
-    [self reportBackForwardNavigationTypeForFastNavigation:NO];
   };
 
   // When navigating via WKBackForwardListItem to pages created or updated by
@@ -728,7 +669,6 @@ enum class BackForwardNavigationType {
       holder->set_navigation_type(WKNavigationTypeBackForward);
       navigation = [self.webView
           goToBackForwardListItem:holder->back_forward_list_item()];
-      [self reportBackForwardNavigationTypeForFastNavigation:YES];
     }
     [self.navigationHandler.navigationStates
              setState:web::WKNavigationState::REQUESTED

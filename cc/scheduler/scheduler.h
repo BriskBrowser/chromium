@@ -7,10 +7,12 @@
 
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "base/cancelable_callback.h"
 #include "base/time/time.h"
 #include "cc/cc_export.h"
+#include "cc/metrics/event_metrics.h"
 #include "cc/scheduler/begin_frame_tracker.h"
 #include "cc/scheduler/draw_result.h"
 #include "cc/scheduler/scheduler.h"
@@ -67,7 +69,13 @@ class SchedulerClient {
   virtual void ScheduledActionInvalidateLayerTreeFrameSink(
       bool needs_redraw) = 0;
   virtual void ScheduledActionPerformImplSideInvalidation() = 0;
-  virtual void DidFinishImplFrame() = 0;
+  // Called when the scheduler is done processing a frame. Note that the
+  // BeginFrameArgs instance passed may not necessarily be the same instance
+  // that was passed to WillBeginImplFrame(). Rather, |last_activated_args|
+  // represents the latest BeginFrameArgs instance that caused an activation to
+  // happen.
+  virtual void DidFinishImplFrame(
+      const viz::BeginFrameArgs& last_activated_args) = 0;
   virtual void DidNotProduceFrame(const viz::BeginFrameAck& ack,
                                   FrameSkippedReason reason) = 0;
   virtual void WillNotReceiveBeginFrame() = 0;
@@ -77,11 +85,7 @@ class SchedulerClient {
   virtual void FrameIntervalUpdated(base::TimeDelta interval) = 0;
 
   // Functions used for reporting animation targeting UMA, crbug.com/758439.
-  virtual size_t CompositedAnimationsCount() const = 0;
-  virtual size_t MainThreadAnimationsCount() const = 0;
   virtual bool HasCustomPropertyAnimations() const = 0;
-  virtual bool CurrentFrameHadRAF() const = 0;
-  virtual bool NextFrameHasPendingRAF() const = 0;
 
  protected:
   virtual ~SchedulerClient() {}
@@ -170,7 +174,8 @@ class CC_EXPORT Scheduler : public viz::BeginFrameObserverBase {
 
   // Drawing should result in submitting a CompositorFrame to the
   // LayerTreeFrameSink and then calling this.
-  void DidSubmitCompositorFrame(uint32_t frame_token);
+  void DidSubmitCompositorFrame(uint32_t frame_token,
+                                EventMetricsSet events_metrics);
   // The LayerTreeFrameSink acks when it is ready for a new frame which
   // should result in this getting called to unblock the next draw.
   void DidReceiveCompositorFrameAck();
@@ -278,7 +283,8 @@ class CC_EXPORT Scheduler : public viz::BeginFrameObserverBase {
   // What the latest deadline was, and when it was scheduled.
   base::TimeTicks deadline_;
   base::TimeTicks deadline_scheduled_at_;
-  SchedulerStateMachine::BeginImplFrameDeadlineMode deadline_mode_;
+  SchedulerStateMachine::BeginImplFrameDeadlineMode deadline_mode_ =
+      SchedulerStateMachine::BeginImplFrameDeadlineMode::NONE;
 
   BeginFrameTracker begin_impl_frame_tracker_;
   viz::BeginFrameAck last_begin_frame_ack_;

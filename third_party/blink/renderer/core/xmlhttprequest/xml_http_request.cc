@@ -30,22 +30,25 @@
 #include "base/feature_list.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/time/time.h"
+#include "services/network/public/mojom/trust_tokens.mojom-shared.h"
 #include "third_party/blink/public/common/blob/blob_utils.h"
 #include "third_party/blink/public/common/features.h"
+#include "third_party/blink/public/mojom/feature_policy/feature_policy.mojom-blink-forward.h"
 #include "third_party/blink/public/mojom/feature_policy/feature_policy.mojom-blink.h"
 #include "third_party/blink/public/mojom/fetch/fetch_api_request.mojom-blink.h"
 #include "third_party/blink/public/platform/web_url_request.h"
-#include "third_party/blink/renderer/bindings/core/v8/array_buffer_or_array_buffer_view_or_blob_or_document_or_string_or_form_data_or_url_search_params.h"
 #include "third_party/blink/renderer/bindings/core/v8/array_buffer_or_array_buffer_view_or_blob_or_usv_string.h"
+#include "third_party/blink/renderer/bindings/core/v8/document_or_xml_http_request_body_init.h"
 #include "third_party/blink/renderer/core/dom/document_init.h"
 #include "third_party/blink/renderer/core/dom/document_parser.h"
 #include "third_party/blink/renderer/core/dom/dom_exception.h"
-#include "third_party/blink/renderer/core/dom/dom_implementation.h"
 #include "third_party/blink/renderer/core/dom/events/event.h"
 #include "third_party/blink/renderer/core/dom/xml_document.h"
 #include "third_party/blink/renderer/core/editing/serializers/serialization.h"
 #include "third_party/blink/renderer/core/events/progress_event.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
+#include "third_party/blink/renderer/core/fetch/trust_token_issuance_authorization.h"
+#include "third_party/blink/renderer/core/fetch/trust_token_to_mojom.h"
 #include "third_party/blink/renderer/core/fileapi/blob.h"
 #include "third_party/blink/renderer/core/fileapi/file.h"
 #include "third_party/blink/renderer/core/fileapi/file_reader_loader.h"
@@ -54,6 +57,7 @@
 #include "third_party/blink/renderer/core/frame/csp/content_security_policy.h"
 #include "third_party/blink/renderer/core/frame/deprecation.h"
 #include "third_party/blink/renderer/core/frame/frame.h"
+#include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/core/frame/settings.h"
 #include "third_party/blink/renderer/core/html/forms/form_data.h"
 #include "third_party/blink/renderer/core/html/html_document.h"
@@ -68,6 +72,7 @@
 #include "third_party/blink/renderer/core/typed_arrays/dom_array_buffer_view.h"
 #include "third_party/blink/renderer/core/typed_arrays/dom_typed_array.h"
 #include "third_party/blink/renderer/core/url/url_search_params.h"
+#include "third_party/blink/renderer/core/xmlhttprequest/main_thread_disallow_synchronous_xhr_scope.h"
 #include "third_party/blink/renderer/core/xmlhttprequest/xml_http_request_upload.h"
 #include "third_party/blink/renderer/platform/bindings/dom_wrapper_world.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
@@ -86,6 +91,7 @@
 #include "third_party/blink/renderer/platform/loader/fetch/text_resource_decoder_options.h"
 #include "third_party/blink/renderer/platform/network/http_names.h"
 #include "third_party/blink/renderer/platform/network/http_parsers.h"
+#include "third_party/blink/renderer/platform/network/mime/mime_type_registry.h"
 #include "third_party/blink/renderer/platform/network/network_log.h"
 #include "third_party/blink/renderer/platform/network/parsed_content_type.h"
 #include "third_party/blink/renderer/platform/runtime_enabled_features.h"
@@ -200,9 +206,9 @@ void LogConsoleError(ExecutionContext* context, const String& message) {
   // FIXME: It's not good to report the bad usage without indicating what source
   // line it came from.  We should pass additional parameters so we can tell the
   // console where the mistake occurred.
-  ConsoleMessage* console_message =
-      ConsoleMessage::Create(mojom::ConsoleMessageSource::kJavaScript,
-                             mojom::ConsoleMessageLevel::kError, message);
+  auto* console_message = MakeGarbageCollected<ConsoleMessage>(
+      mojom::ConsoleMessageSource::kJavaScript,
+      mojom::ConsoleMessageLevel::kError, message);
   context->AddConsoleMessage(console_message);
 }
 
@@ -258,7 +264,7 @@ class XMLHttpRequest::BlobLoader final
 
   void Cancel() { loader_->Cancel(); }
 
-  void Trace(blink::Visitor* visitor) { visitor->Trace(xhr_); }
+  void Trace(Visitor* visitor) const { visitor->Trace(xhr_); }
 
  private:
   Member<XMLHttpRequest> xhr_;
@@ -266,45 +272,35 @@ class XMLHttpRequest::BlobLoader final
 };
 
 XMLHttpRequest* XMLHttpRequest::Create(ScriptState* script_state) {
-  ExecutionContext* context = ExecutionContext::From(script_state);
-  DOMWrapperWorld& world = script_state->World();
-  v8::Isolate* isolate = script_state->GetIsolate();
-
-  return world.IsIsolatedWorld()
-             ? MakeGarbageCollected<XMLHttpRequest>(
-                   context, isolate, true, world.IsolatedWorldSecurityOrigin())
-             : MakeGarbageCollected<XMLHttpRequest>(context, isolate, false,
-                                                    nullptr);
+  return MakeGarbageCollected<XMLHttpRequest>(
+      ExecutionContext::From(script_state), script_state->GetIsolate(),
+      &script_state->World());
 }
 
 XMLHttpRequest* XMLHttpRequest::Create(ExecutionContext* context) {
   v8::Isolate* isolate = context->GetIsolate();
   CHECK(isolate);
 
-  return MakeGarbageCollected<XMLHttpRequest>(context, isolate, false, nullptr);
+  return MakeGarbageCollected<XMLHttpRequest>(context, isolate, nullptr);
 }
 
-XMLHttpRequest::XMLHttpRequest(
-    ExecutionContext* context,
-    v8::Isolate* isolate,
-    bool is_isolated_world,
-    scoped_refptr<SecurityOrigin> isolated_world_security_origin)
-    : ContextLifecycleObserver(context),
+XMLHttpRequest::XMLHttpRequest(ExecutionContext* context,
+                               v8::Isolate* isolate,
+                               scoped_refptr<const DOMWrapperWorld> world)
+    : ExecutionContextLifecycleObserver(context),
       progress_event_throttle_(
           MakeGarbageCollected<XMLHttpRequestProgressEventThrottle>(this)),
       isolate_(isolate),
-      is_isolated_world_(is_isolated_world),
-      isolated_world_security_origin_(
-          std::move(isolated_world_security_origin)) {}
+      world_(std::move(world)),
+      isolated_world_security_origin_(world_ && world_->IsIsolatedWorld()
+                                          ? world_->IsolatedWorldSecurityOrigin(
+                                                context->GetAgentClusterID())
+                                          : nullptr) {}
 
 XMLHttpRequest::~XMLHttpRequest() {
   binary_response_builder_ = nullptr;
   length_downloaded_to_blob_ = 0;
   ReportMemoryUsageToV8();
-}
-
-Document* XMLHttpRequest::GetDocument() const {
-  return To<Document>(GetExecutionContext());
 }
 
 XMLHttpRequest::State XMLHttpRequest::readyState() const {
@@ -347,18 +343,17 @@ void XMLHttpRequest::InitResponseDocument() {
     return;
   }
 
+  auto* document = To<LocalDOMWindow>(GetExecutionContext())->document();
   DocumentInit init = DocumentInit::Create()
-                          .WithContextDocument(GetDocument()->ContextDocument())
-                          .WithOwnerDocument(GetDocument()->ContextDocument())
-                          .WithURL(response_.ResponseUrl())
-                          .WithContentSecurityPolicyFromContextDoc();
+                          .WithExecutionContext(GetExecutionContext())
+                          .WithURL(response_.ResponseUrl());
   if (is_html)
     response_document_ = MakeGarbageCollected<HTMLDocument>(init);
   else
     response_document_ = MakeGarbageCollected<XMLDocument>(init);
 
   // FIXME: Set Last-Modified.
-  response_document_->SetContextFeatures(GetDocument()->GetContextFeatures());
+  response_document_->SetContextFeatures(document->GetContextFeatures());
   response_document_->SetMimeType(FinalResponseMIMETypeWithFallback());
 }
 
@@ -460,7 +455,7 @@ void XMLHttpRequest::setTimeout(unsigned timeout,
   // XHR2 spec, 4.7.3. "This implies that the timeout attribute can be set while
   // fetching is in progress. If that occurs it will still be measured relative
   // to the start of fetching."
-  if (GetExecutionContext() && GetExecutionContext()->IsDocument() && !async_) {
+  if (GetExecutionContext() && GetExecutionContext()->IsWindow() && !async_) {
     exception_state.ThrowDOMException(DOMExceptionCode::kInvalidAccessError,
                                       "Timeouts cannot be set for synchronous "
                                       "requests made from a document.");
@@ -491,7 +486,7 @@ void XMLHttpRequest::setResponseType(const String& response_type,
   // Newer functionality is not available to synchronous requests in window
   // contexts, as a spec-mandated attempt to discourage synchronous XHR use.
   // responseType is one such piece of functionality.
-  if (GetExecutionContext() && GetExecutionContext()->IsDocument() && !async_) {
+  if (GetExecutionContext() && GetExecutionContext()->IsWindow() && !async_) {
     exception_state.ThrowDOMException(DOMExceptionCode::kInvalidAccessError,
                                       "The response type cannot be changed for "
                                       "synchronous requests made from a "
@@ -655,9 +650,10 @@ void XMLHttpRequest::open(const AtomicString& method,
   error_ = false;
   upload_complete_ = false;
 
-  if (!async && GetExecutionContext()->IsDocument()) {
-    if (GetDocument()->GetSettings() &&
-        !GetDocument()->GetSettings()->GetSyncXHRInDocumentsEnabled()) {
+  auto* window = DynamicTo<LocalDOMWindow>(GetExecutionContext());
+  if (!async && window) {
+    if (window->GetFrame() &&
+        !window->GetFrame()->GetSettings()->GetSyncXHRInDocumentsEnabled()) {
       exception_state.ThrowDOMException(
           DOMExceptionCode::kInvalidAccessError,
           "Synchronous requests are disabled for this page.");
@@ -687,7 +683,7 @@ void XMLHttpRequest::open(const AtomicString& method,
     // exception thrown.
     // Refer : https://xhr.spec.whatwg.org/#sync-warning
     // Use count for XHR synchronous requests on main thread only.
-    if (!GetDocument()->ProcessingBeforeUnload()) {
+    if (!window->document()->ProcessingBeforeUnload()) {
       Deprecation::CountDeprecation(
           GetExecutionContext(),
           WebFeature::kXMLHttpRequestSynchronousInNonWorkerOutsideBeforeUnload);
@@ -734,9 +730,9 @@ bool XMLHttpRequest::InitSend(ExceptionState& exception_state) {
   }
 
   if (!async_) {
-    if (GetExecutionContext()->IsDocument() &&
-        !GetDocument()->IsFeatureEnabled(
-            mojom::FeaturePolicyFeature::kSyncXHR,
+    if (GetExecutionContext()->IsWindow() &&
+        !GetExecutionContext()->IsFeatureEnabled(
+            mojom::blink::FeaturePolicyFeature::kSyncXHR,
             ReportOptions::kReportOnFailure,
             "Synchronous requests are disabled by Feature Policy.")) {
       HandleNetworkError();
@@ -755,13 +751,23 @@ bool XMLHttpRequest::InitSend(ExceptionState& exception_state) {
 }
 
 void XMLHttpRequest::send(
-    const ArrayBufferOrArrayBufferViewOrBlobOrDocumentOrStringOrFormDataOrURLSearchParams&
+    const DocumentOrBlobOrArrayBufferOrArrayBufferViewOrFormDataOrURLSearchParamsOrUSVString&
         body,
     ExceptionState& exception_state) {
   probe::WillSendXMLHttpOrFetchNetworkRequest(GetExecutionContext(), Url());
 
   if (body.IsNull()) {
     send(String(), exception_state);
+    return;
+  }
+
+  if (body.IsDocument()) {
+    send(body.GetAsDocument(), exception_state);
+    return;
+  }
+
+  if (body.IsBlob()) {
+    send(body.GetAsBlob(), exception_state);
     return;
   }
 
@@ -775,16 +781,6 @@ void XMLHttpRequest::send(
     return;
   }
 
-  if (body.IsBlob()) {
-    send(body.GetAsBlob(), exception_state);
-    return;
-  }
-
-  if (body.IsDocument()) {
-    send(body.GetAsDocument(), exception_state);
-    return;
-  }
-
   if (body.IsFormData()) {
     send(body.GetAsFormData(), exception_state);
     return;
@@ -795,8 +791,8 @@ void XMLHttpRequest::send(
     return;
   }
 
-  DCHECK(body.IsString());
-  send(body.GetAsString(), exception_state);
+  DCHECK(body.IsUSVString());
+  send(body.GetAsUSVString(), exception_state);
 }
 
 bool XMLHttpRequest::AreMethodAndURLValidForSend() {
@@ -1057,11 +1053,13 @@ void XMLHttpRequest::CreateRequest(scoped_refptr<EncodedFormData> http_body,
   request.SetCredentialsMode(
       with_credentials_ ? network::mojom::CredentialsMode::kInclude
                         : network::mojom::CredentialsMode::kSameOrigin);
-  request.SetSkipServiceWorker(is_isolated_world_);
+  request.SetSkipServiceWorker(world_ && world_->IsIsolatedWorld());
   request.SetExternalRequestStateFromRequestorAddressSpace(
-      execution_context.GetSecurityContext().AddressSpace());
+      execution_context.AddressSpace());
+  if (trust_token_params_)
+    request.SetTrustTokenParams(*trust_token_params_);
 
-  probe::WillLoadXHR(&execution_context, method_, url_, async_, http_body.get(),
+  probe::WillLoadXHR(&execution_context, method_, url_, async_,
                      request_headers_, with_credentials_);
 
   if (http_body) {
@@ -1073,7 +1071,7 @@ void XMLHttpRequest::CreateRequest(scoped_refptr<EncodedFormData> http_body,
   if (request_headers_.size() > 0)
     request.AddHTTPHeaderFields(request_headers_);
 
-  ResourceLoaderOptions resource_loader_options;
+  ResourceLoaderOptions resource_loader_options(world_);
   resource_loader_options.initiator_info.name =
       fetch_initiator_type_names::kXmlhttprequest;
   if (blob_url_loader_factory_) {
@@ -1100,18 +1098,6 @@ void XMLHttpRequest::CreateRequest(scoped_refptr<EncodedFormData> http_body,
   if (async_) {
     UseCounter::Count(&execution_context,
                       WebFeature::kXMLHttpRequestAsynchronous);
-    if (execution_context.IsDocument()) {
-      // Update histogram for usage of async xhr within pagedismissal.
-      auto pagedismissal = GetDocument()->PageDismissalEventBeingDispatched();
-      if (pagedismissal != Document::kNoDismissal) {
-        UseCounter::Count(&execution_context,
-                          WebFeature::kAsyncXhrInPageDismissal);
-        DEFINE_STATIC_LOCAL(EnumerationHistogram,
-                            asyncxhr_pagedismissal_histogram,
-                            ("XHR.Async.PageDismissal", 5));
-        asyncxhr_pagedismissal_histogram.Count(pagedismissal);
-      }
-    }
     if (upload_)
       request.SetReportUploadProgress(true);
 
@@ -1121,12 +1107,12 @@ void XMLHttpRequest::CreateRequest(scoped_refptr<EncodedFormData> http_body,
   } else {
     // Use count for XHR synchronous requests.
     UseCounter::Count(&execution_context, WebFeature::kXMLHttpRequestSynchronous);
-    if (execution_context.IsDocument()) {
-      if (Frame* frame = GetDocument()->GetFrame()) {
+    if (auto* window = DynamicTo<LocalDOMWindow>(GetExecutionContext())) {
+      if (Frame* frame = window->GetFrame()) {
         if (frame->IsMainFrame()) {
           UseCounter::Count(&execution_context,
                             WebFeature::kXMLHttpRequestSynchronousInMainFrame);
-        } else if (frame->IsCrossOriginSubframe()) {
+        } else if (frame->IsCrossOriginToMainFrame()) {
           UseCounter::Count(
               &execution_context,
               WebFeature::kXMLHttpRequestSynchronousInCrossOriginSubframe);
@@ -1136,33 +1122,16 @@ void XMLHttpRequest::CreateRequest(scoped_refptr<EncodedFormData> http_body,
               WebFeature::kXMLHttpRequestSynchronousInSameOriginSubframe);
         }
       }
-      // Update histogram for usage of sync xhr within pagedismissal.
-      auto pagedismissal = GetDocument()->PageDismissalEventBeingDispatched();
-      if (pagedismissal != Document::kNoDismissal) {
-        // Disallow synchronous requests on page dismissal unless enabled by
-        // origin trial or enterprise policy.
-        if (!RuntimeEnabledFeatures::AllowSyncXHRInPageDismissalEnabled(
-                &execution_context)) {
-          UseCounter::Count(&execution_context,
-                            WebFeature::kForbiddenSyncXhrInPageDismissal);
-          DEFINE_STATIC_LOCAL(EnumerationHistogram,
-                              forbidden_syncxhr_pagedismissal_histogram,
-                              ("XHR.Sync.PageDismissal_forbidden", 5));
-          forbidden_syncxhr_pagedismissal_histogram.Count(pagedismissal);
-          HandleNetworkError();
-          ThrowForLoadFailureIfNeeded(exception_state,
-                                      "Synchronous XHR in page dismissal. See "
-                                      "https://www.chromestatus.com/feature/"
-                                      "4664843055398912 for more details.");
-          return;
-        } else {
-          UseCounter::Count(&execution_context,
-                            WebFeature::kSyncXhrInPageDismissal);
-          DEFINE_STATIC_LOCAL(EnumerationHistogram,
-                              syncxhr_pagedismissal_histogram,
-                              ("XHR.Sync.PageDismissal", 5));
-          syncxhr_pagedismissal_histogram.Count(pagedismissal);
-        }
+      if (MainThreadDisallowSynchronousXHRScope::
+              ShouldDisallowSynchronousXHR() &&
+          !RuntimeEnabledFeatures::AllowSyncXHRInPageDismissalEnabled(
+              &execution_context)) {
+        HandleNetworkError();
+        ThrowForLoadFailureIfNeeded(exception_state,
+                                    "Synchronous XHR in page dismissal. See "
+                                    "https://www.chromestatus.com/feature/"
+                                    "4664843055398912 for more details.");
+        return;
       }
     } else {
       DCHECK(execution_context.IsWorkerGlobalScope());
@@ -1179,11 +1148,11 @@ void XMLHttpRequest::CreateRequest(scoped_refptr<EncodedFormData> http_body,
                                                    resource_loader_options);
   loader_->SetTimeout(timeout_);
   base::TimeTicks start_time = base::TimeTicks::Now();
-  loader_->Start(request);
+  loader_->Start(std::move(request));
 
   if (!async_) {
     base::TimeDelta blocking_time = base::TimeTicks::Now() - start_time;
-    if (execution_context.IsDocument()) {
+    if (execution_context.IsWindow()) {
       UMA_HISTOGRAM_MEDIUM_TIMES("XHR.Sync.BlockingTime.MainThread",
                                  blocking_time);
     } else {
@@ -1468,6 +1437,49 @@ void XMLHttpRequest::SetRequestHeaderInternal(const AtomicString& name,
   }
 }
 
+void XMLHttpRequest::setTrustToken(const TrustToken* trust_token,
+                                   ExceptionState& exception_state) {
+  // These precondition checks are copied from |setRequestHeader|.
+  if (state_ != kOpened || send_flag_) {
+    exception_state.ThrowDOMException(DOMExceptionCode::kInvalidStateError,
+                                      "The object's state must be OPENED.");
+    return;
+  }
+
+  auto params = network::mojom::blink::TrustTokenParams::New();
+  if (!ConvertTrustTokenToMojom(*trust_token, &exception_state, params.get())) {
+    DCHECK(exception_state.HadException());
+    return;
+  }
+
+  bool operation_requires_feature_policy =
+      params->type ==
+          network::mojom::blink::TrustTokenOperationType::kRedemption ||
+      params->type == network::mojom::blink::TrustTokenOperationType::kSigning;
+  if (operation_requires_feature_policy &&
+      !GetExecutionContext()->IsFeatureEnabled(
+          mojom::blink::FeaturePolicyFeature::kTrustTokenRedemption)) {
+    exception_state.ThrowDOMException(
+        DOMExceptionCode::kNotAllowedError,
+        "Trust Tokens redemption and signing require the "
+        "trust-token-redemption Feature Policy feature.");
+    return;
+  }
+
+  if (params->type ==
+          network::mojom::blink::TrustTokenOperationType::kIssuance &&
+      !IsTrustTokenIssuanceAvailableInExecutionContext(
+          *GetExecutionContext())) {
+    exception_state.ThrowDOMException(
+        DOMExceptionCode::kNotAllowedError,
+        "Trust Tokens issuance is disabled except in "
+        "contexts with the TrustTokens Origin Trial enabled.");
+    return;
+  }
+
+  trust_token_params_ = std::move(params);
+}
+
 bool XMLHttpRequest::HasContentTypeRequestHeader() const {
   return request_headers_.Find(http_names::kContentType) !=
          request_headers_.end();
@@ -1635,7 +1647,7 @@ void XMLHttpRequest::UpdateContentTypeAndCharset(
 }
 
 bool XMLHttpRequest::ResponseIsXML() const {
-  return DOMImplementation::IsXMLMIMEType(FinalResponseMIMETypeWithFallback());
+  return MIMETypeRegistry::IsXMLMIMEType(FinalResponseMIMETypeWithFallback());
 }
 
 bool XMLHttpRequest::ResponseIsHTML() const {
@@ -1684,6 +1696,12 @@ void XMLHttpRequest::DidFail(const ResourceError& error) {
   if (error.IsTimeout()) {
     HandleDidTimeout();
     return;
+  }
+
+  if (error.TrustTokenOperationError() !=
+      network::mojom::TrustTokenOperationStatus::kOk) {
+    trust_token_operation_error_ =
+        TrustTokenErrorToDOMException(error.TrustTokenOperationError());
   }
 
   HandleNetworkError();
@@ -1792,13 +1810,11 @@ void XMLHttpRequest::EndLoading() {
   send_flag_ = false;
   ChangeState(kDone);
 
-  if (!GetExecutionContext() || !GetExecutionContext()->IsDocument())
-    return;
-
-  if (GetDocument() && GetDocument()->GetFrame() &&
-      GetDocument()->GetFrame()->GetPage() && cors::IsOkStatus(status()))
-    GetDocument()->GetFrame()->GetPage()->GetChromeClient().AjaxSucceeded(
-        GetDocument()->GetFrame());
+  if (auto* window = DynamicTo<LocalDOMWindow>(GetExecutionContext())) {
+    LocalFrame* frame = window->GetFrame();
+    if (frame && cors::IsOkStatus(status()))
+      frame->GetPage()->GetChromeClient().AjaxSucceeded(frame);
+  }
 }
 
 void XMLHttpRequest::DidSendData(uint64_t bytes_sent,
@@ -1840,8 +1856,10 @@ void XMLHttpRequest::ParseDocumentChunk(const char* data, unsigned len) {
     if (!response_document_)
       return;
 
-    response_document_parser_ =
-        response_document_->ImplicitOpen(kAllowAsynchronousParsing);
+    response_document_parser_ = response_document_->ImplicitOpen(
+        RuntimeEnabledFeatures::ForceSynchronousHTMLParsingEnabled()
+            ? kAllowDeferredParsing
+            : kAllowAsynchronousParsing);
     response_document_parser_->AddClient(this);
   }
   DCHECK(response_document_parser_);
@@ -2019,7 +2037,7 @@ void XMLHttpRequest::HandleDidTimeout() {
                      expected_length);
 }
 
-void XMLHttpRequest::ContextDestroyed(ExecutionContext*) {
+void XMLHttpRequest::ContextDestroyed() {
   Dispose();
 
   // In case we are in the middle of send() function, unset the send flag to
@@ -2044,7 +2062,7 @@ const AtomicString& XMLHttpRequest::InterfaceName() const {
 }
 
 ExecutionContext* XMLHttpRequest::GetExecutionContext() const {
-  return ContextLifecycleObserver::GetExecutionContext();
+  return ExecutionContextLifecycleObserver::GetExecutionContext();
 }
 
 void XMLHttpRequest::ReportMemoryUsageToV8() {
@@ -2064,7 +2082,7 @@ void XMLHttpRequest::ReportMemoryUsageToV8() {
     isolate_->AdjustAmountOfExternalAllocatedMemory(diff);
 }
 
-void XMLHttpRequest::Trace(blink::Visitor* visitor) {
+void XMLHttpRequest::Trace(Visitor* visitor) const {
   visitor->Trace(response_blob_);
   visitor->Trace(loader_);
   visitor->Trace(response_document_);
@@ -2074,10 +2092,11 @@ void XMLHttpRequest::Trace(blink::Visitor* visitor) {
   visitor->Trace(upload_);
   visitor->Trace(blob_loader_);
   visitor->Trace(response_text_);
+  visitor->Trace(trust_token_operation_error_);
   XMLHttpRequestEventTarget::Trace(visitor);
   ThreadableLoaderClient::Trace(visitor);
   DocumentParserClient::Trace(visitor);
-  ContextLifecycleObserver::Trace(visitor);
+  ExecutionContextLifecycleObserver::Trace(visitor);
 }
 
 std::ostream& operator<<(std::ostream& ostream, const XMLHttpRequest* xhr) {

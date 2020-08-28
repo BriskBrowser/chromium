@@ -9,7 +9,6 @@
 #include <algorithm>
 #include <utility>
 
-#include "base/task/post_task.h"
 #include "content/browser/renderer_host/render_process_host_impl.h"
 #include "content/browser/service_worker/service_worker_context_wrapper.h"
 #include "content/browser/site_instance_impl.h"
@@ -27,7 +26,8 @@ ServiceWorkerProcessManager::ServiceWorkerProcessManager(
     : browser_context_(browser_context),
       storage_partition_(nullptr),
       process_id_for_test_(ChildProcessHost::kInvalidUniqueID),
-      new_process_id_for_test_(ChildProcessHost::kInvalidUniqueID) {
+      new_process_id_for_test_(ChildProcessHost::kInvalidUniqueID),
+      force_new_process_for_test_(false) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   DCHECK(browser_context);
   weak_this_ = weak_this_factory_.GetWeakPtr();
@@ -86,6 +86,9 @@ ServiceWorkerProcessManager::AllocateWorkerProcess(
     bool can_use_existing_process,
     AllocatedProcessInfo* out_info) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
+
+  if (force_new_process_for_test_)
+    can_use_existing_process = false;
 
   out_info->process_id = ChildProcessHost::kInvalidUniqueID;
   out_info->start_situation = ServiceWorkerMetrics::StartSituation::UNKNOWN;
@@ -198,6 +201,6 @@ namespace std {
 // thread.
 void default_delete<content::ServiceWorkerProcessManager>::operator()(
     content::ServiceWorkerProcessManager* ptr) const {
-  base::DeleteSoon(FROM_HERE, {content::BrowserThread::UI}, ptr);
+  content::GetUIThreadTaskRunner({})->DeleteSoon(FROM_HERE, ptr);
 }
 }  // namespace std

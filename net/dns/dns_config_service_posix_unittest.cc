@@ -23,6 +23,7 @@
 #include "net/dns/public/dns_protocol.h"
 
 #include "base/bind.h"
+#include "base/task/thread_pool.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 #if defined(OS_ANDROID)
@@ -50,7 +51,7 @@ const char* const kNameserversIPv4[] = {
     "1.0.0.1",
 };
 
-#if defined(OS_LINUX)
+#if defined(OS_LINUX) || defined(OS_CHROMEOS)
 const char* const kNameserversIPv6[] = {
     NULL,
     "2001:DB8:0::42",
@@ -86,7 +87,7 @@ void InitializeResState(res_state res) {
     ++res->nscount;
   }
 
-#if defined(OS_LINUX)
+#if defined(OS_LINUX) || defined(OS_CHROMEOS)
   // Install IPv6 addresses, replacing the corresponding IPv4 addresses.
   unsigned nscount6 = 0;
   for (unsigned i = 0; i < base::size(kNameserversIPv6) && i < MAXNS; ++i) {
@@ -107,7 +108,7 @@ void InitializeResState(res_state res) {
 }
 
 void CloseResState(res_state res) {
-#if defined(OS_LINUX)
+#if defined(OS_LINUX) || defined(OS_CHROMEOS)
   for (int i = 0; i < res->nscount; ++i) {
     if (res->_u._ext.nsaddrs[i] != NULL)
       free(res->_u._ext.nsaddrs[i]);
@@ -132,7 +133,7 @@ void InitializeExpectedConfig(DnsConfig* config) {
     config->nameservers.push_back(IPEndPoint(ip, NS_DEFAULTPORT + i));
   }
 
-#if defined(OS_LINUX)
+#if defined(OS_LINUX) || defined(OS_CHROMEOS)
   for (unsigned i = 0; i < base::size(kNameserversIPv6) && i < MAXNS; ++i) {
     if (!kNameserversIPv6[i])
       continue;
@@ -206,7 +207,7 @@ TEST(DnsConfigServicePosixTest, DestroyOnDifferentThread) {
   base::test::TaskEnvironment task_environment;
 
   scoped_refptr<base::SequencedTaskRunner> runner =
-      base::CreateSequencedTaskRunner({base::ThreadPool(), base::MayBlock()});
+      base::ThreadPool::CreateSequencedTaskRunner({base::MayBlock()});
   std::unique_ptr<internal::DnsConfigServicePosix, base::OnTaskRunnerDeleter>
       service(new internal::DnsConfigServicePosix(),
               base::OnTaskRunnerDeleter(runner));
@@ -240,7 +241,7 @@ class DnsConfigServicePosixTest : public testing::Test {
     service_.reset(new DnsConfigServicePosix());
   }
 
-  void TearDown() override { ASSERT_TRUE(base::DeleteFile(temp_file_, false)); }
+  void TearDown() override { ASSERT_TRUE(base::DeleteFile(temp_file_)); }
 
   base::test::TaskEnvironment task_environment_;
   bool seen_config_;
@@ -251,8 +252,8 @@ class DnsConfigServicePosixTest : public testing::Test {
 
 // Regression test for https://crbug.com/704662.
 TEST_F(DnsConfigServicePosixTest, ChangeConfigMultipleTimes) {
-  service_->WatchConfig(base::Bind(&DnsConfigServicePosixTest::OnConfigChanged,
-                                   base::Unretained(this)));
+  service_->WatchConfig(base::BindRepeating(
+      &DnsConfigServicePosixTest::OnConfigChanged, base::Unretained(this)));
   task_environment_.RunUntilIdle();
 
   for (int i = 0; i < 5; i++) {

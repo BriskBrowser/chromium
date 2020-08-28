@@ -43,7 +43,10 @@ namespace {
 const char kIsUsingDefaultAvatarKey[] = "is_using_default_avatar";
 const char kUseGAIAPictureKey[] = "use_gaia_picture";
 const char kGAIAPictureFileNameKey[] = "gaia_picture_file_name";
+const char kLastDownloadedGAIAPictureUrlWithSizeKey[] =
+    "last_downloaded_gaia_picture_url_with_size";
 const char kAccountIdKey[] = "account_id_key";
+const char kProfileCountLastUpdatePref[] = "profile.profile_counts_reported";
 #if !defined(OS_ANDROID) && !defined(OS_CHROMEOS)
 const char kLegacyProfileNameMigrated[] = "legacy.profile.name.migrated";
 bool migration_enabled_for_testing = false;
@@ -52,7 +55,7 @@ bool migration_enabled_for_testing = false;
 void DeleteBitmap(const base::FilePath& image_path) {
   base::ScopedBlockingCall scoped_blocking_call(FROM_HERE,
                                                 base::BlockingType::MAY_BLOCK);
-  base::DeleteFile(image_path, false);
+  base::DeleteFile(image_path);
 }
 
 }  // namespace
@@ -65,7 +68,7 @@ ProfileInfoCache::ProfileInfoCache(PrefService* prefs,
   base::DictionaryValue* cache = update.Get();
   for (base::DictionaryValue::Iterator it(*cache);
        !it.IsAtEnd(); it.Advance()) {
-    base::DictionaryValue* info = NULL;
+    base::DictionaryValue* info = nullptr;
     cache->GetDictionaryWithoutPathExpansion(it.key(), &info);
 #if BUILDFLAG(ENABLE_SUPERVISED_USERS) && !defined(OS_ANDROID) && \
     !defined(OS_CHROMEOS)
@@ -109,9 +112,11 @@ ProfileInfoCache::ProfileInfoCache(PrefService* prefs,
   if (!disable_avatar_download_for_testing_)
     DownloadAvatars();
 
-#if !defined(OS_ANDROID) && !defined(OS_CHROMEOS)
+#if !defined(OS_ANDROID)
   LoadGAIAPictureIfNeeded();
+#endif
 
+#if !defined(OS_ANDROID) && !defined(OS_CHROMEOS)
   bool migrate_legacy_profile_names =
       (!prefs_->GetBoolean(kLegacyProfileNameMigrated) ||
        migration_enabled_for_testing);
@@ -119,11 +124,15 @@ ProfileInfoCache::ProfileInfoCache(PrefService* prefs,
     MigrateLegacyProfileNamesAndRecomputeIfNeeded();
     prefs_->SetBoolean(kLegacyProfileNameMigrated, true);
   }
-#endif  //! defined(OS_ANDROID) && !defined(OS_CHROMEOS)
+
+  repeating_timer_ = std::make_unique<signin::PersistentRepeatingTimer>(
+      prefs_, kProfileCountLastUpdatePref, base::TimeDelta::FromHours(24),
+      base::Bind(&ProfileMetrics::LogNumberOfProfiles, this));
+  repeating_timer_->Start();
+#endif  // !defined(OS_ANDROID) && !defined(OS_CHROMEOS)
 }
 
-ProfileInfoCache::~ProfileInfoCache() {
-}
+ProfileInfoCache::~ProfileInfoCache() = default;
 
 void ProfileInfoCache::AddProfileToCache(const base::FilePath& profile_path,
                                          const base::string16& name,
@@ -185,6 +194,12 @@ void ProfileInfoCache::AddProfileToCache(const base::FilePath& profile_path,
     observer.OnProfileAdded(profile_path);
 }
 
+void ProfileInfoCache::DisableProfileMetricsForTesting() {
+#if !defined(OS_ANDROID) && !defined(OS_CHROMEOS)
+  repeating_timer_.reset();
+#endif
+}
+
 void ProfileInfoCache::NotifyIfProfileNamesHaveChanged() {
   std::vector<ProfileAttributesEntry*> entries = GetAllProfilesAttributes();
   for (ProfileAttributesEntry* entry : entries) {
@@ -224,7 +239,7 @@ void ProfileInfoCache::DeleteProfileFromCache(
   DictionaryPrefUpdate update(prefs_, prefs::kProfileInfoCache);
   base::DictionaryValue* cache = update.Get();
   std::string key = CacheKeyFromProfilePath(profile_path);
-  cache->Remove(key, NULL);
+  cache->Remove(key, nullptr);
   keys_.erase(std::find(keys_.begin(), keys_.end(), key));
   profile_attributes_entries_.erase(profile_path.value());
 
@@ -265,7 +280,7 @@ const gfx::Image* ProfileInfoCache::GetGAIAPictureOfProfileAtIndex(
 
   // If the picture is not on disk then return NULL.
   if (file_name.empty())
-    return NULL;
+    return nullptr;
 
   base::FilePath image_path = path.AppendASCII(file_name);
   return LoadAvatarPictureFromPath(path, key, image_path);
@@ -333,40 +348,97 @@ void ProfileInfoCache::SetAvatarIconOfProfileAtIndex(size_t index,
     observer.OnProfileAvatarChanged(profile_path);
 }
 
-void ProfileInfoCache::SetGAIAPictureOfProfileAtIndex(size_t index,
-                                                      gfx::Image image) {
-  base::FilePath path = GetPathOfProfileAtIndex(index);
-  std::string key = CacheKeyFromProfilePath(path);
-
-  std::string old_file_name;
+std::string
+ProfileInfoCache::GetLastDownloadedGAIAPictureUrlWithSizeOfProfileAtIndex(
+    size_t index) const {
+  std::string current_gaia_image_url;
   GetInfoForProfileAtIndex(index)->GetString(
-      kGAIAPictureFileNameKey, &old_file_name);
-  std::string new_file_name;
+      kLastDownloadedGAIAPictureUrlWithSizeKey, &current_gaia_image_url);
+  return current_gaia_image_url;
+}
 
-  if (image.IsEmpty() && old_file_name.empty()) {
+void ProfileInfoCache::SetLastDownloadedGAIAPictureUrlWithSizeOfProfileAtIndex(
+    size_t index,
+    const std::string& image_url_with_size) {
+  std::unique_ptr<base::DictionaryValue> info(
+      GetInfoForProfileAtIndex(index)->DeepCopy());
+  info->SetString(kLastDownloadedGAIAPictureUrlWithSizeKey,
+                  image_url_with_size);
+  SetInfoForProfileAtIndex(index, std::move(info));
+}
+
+bool ProfileInfoCache::ShouldUpdateGAIAPictureOfProfileAtIndex(
+    size_t index,
+    const std::string& old_file_name,
+    const std::string& key,
+    const std::string& image_url_with_size,
+    bool image_is_empty) const {
+  if (old_file_name.empty() && image_is_empty) {
     // On Windows, Taskbar and Desktop icons are refreshed every time
     // |OnProfileAvatarChanged| notification is fired.
     // Updating from an empty image to a null image is a no-op and it is
     // important to avoid firing |OnProfileAvatarChanged| in this case.
     // See http://crbug.com/900374
     DCHECK_EQ(0U, cached_avatar_images_.count(key));
+    return false;
+  }
+
+  std::string current_gaia_image_url =
+      GetLastDownloadedGAIAPictureUrlWithSizeOfProfileAtIndex(index);
+  if (old_file_name.empty() || image_is_empty ||
+      current_gaia_image_url != image_url_with_size) {
+    return true;
+  }
+  const gfx::Image* gaia_picture = GetGAIAPictureOfProfileAtIndex(index);
+  if (gaia_picture && !gaia_picture->IsEmpty()) {
+    return false;
+  }
+
+  // We either did not load the GAIA image or we failed to. In that case, only
+  // update if the GAIA picture is used as the profile avatar.
+  return ProfileIsUsingDefaultAvatarAtIndex(index) ||
+         IsUsingGAIAPictureOfProfileAtIndex(index);
+}
+
+void ProfileInfoCache::SetGAIAPictureOfProfileAtIndex(
+    size_t index,
+    const std::string& image_url_with_size,
+    gfx::Image image) {
+  base::FilePath path = GetPathOfProfileAtIndex(index);
+  std::string key = CacheKeyFromProfilePath(path);
+
+  std::string old_file_name;
+  GetInfoForProfileAtIndex(index)->GetString(kGAIAPictureFileNameKey,
+                                             &old_file_name);
+
+  if (!ShouldUpdateGAIAPictureOfProfileAtIndex(
+          index, old_file_name, key, image_url_with_size, image.IsEmpty())) {
     return;
   }
 
   // Delete the old bitmap from cache.
   cached_avatar_images_.erase(key);
+  std::string new_file_name;
   if (image.IsEmpty()) {
     // Delete the old bitmap from disk.
     base::FilePath image_path = path.AppendASCII(old_file_name);
     file_task_runner_->PostTask(FROM_HERE,
                                 base::BindOnce(&DeleteBitmap, image_path));
+    SetLastDownloadedGAIAPictureUrlWithSizeOfProfileAtIndex(index,
+                                                            std::string());
   } else {
     // Save the new bitmap to disk.
     new_file_name =
-        old_file_name.empty() ? profiles::kGAIAPictureFileName : old_file_name;
+        old_file_name.empty()
+            ? base::FilePath(profiles::kGAIAPictureFileName).MaybeAsASCII()
+            : old_file_name;
     base::FilePath image_path = path.AppendASCII(new_file_name);
     SaveAvatarImageAtPath(
-        GetPathOfProfileAtIndex(index), image, key, image_path);
+        GetPathOfProfileAtIndex(index), image, key, image_path,
+        base::BindOnce(
+            &ProfileInfoCache::
+                SetLastDownloadedGAIAPictureUrlWithSizeOfProfileAtIndex,
+            weak_factory_.GetWeakPtr(), index, image_url_with_size));
   }
 
   std::unique_ptr<base::DictionaryValue> info(
@@ -414,6 +486,7 @@ const base::FilePath& ProfileInfoCache::GetUserDataDir() const {
 // static
 void ProfileInfoCache::RegisterPrefs(PrefRegistrySimple* registry) {
   registry->RegisterDictionaryPref(prefs::kProfileInfoCache);
+  registry->RegisterTimePref(kProfileCountLastUpdatePref, base::Time());
 #if !defined(OS_ANDROID) && !defined(OS_CHROMEOS)
   registry->RegisterBooleanPref(kLegacyProfileNameMigrated, false);
 #endif  // !defined(OS_ANDROID) && !defined(OS_CHROMEOS)
@@ -424,7 +497,7 @@ const base::DictionaryValue* ProfileInfoCache::GetInfoForProfileAtIndex(
   DCHECK_LT(index, GetNumberOfProfiles());
   const base::DictionaryValue* cache =
       prefs_->GetDictionary(prefs::kProfileInfoCache);
-  const base::DictionaryValue* info = NULL;
+  const base::DictionaryValue* info = nullptr;
   cache->GetDictionaryWithoutPathExpansion(keys_[index], &info);
   return info;
 }
@@ -463,7 +536,7 @@ const gfx::Image* ProfileInfoCache::GetHighResAvatarOfProfileAtIndex(
                                    image_path);
 }
 
-#if !defined(OS_ANDROID) && !defined(OS_CHROMEOS)
+#if !defined(OS_ANDROID)
 void ProfileInfoCache::LoadGAIAPictureIfNeeded() {
   std::vector<ProfileAttributesEntry*> entries = GetAllProfilesAttributes();
   for (ProfileAttributesEntry* entry : entries) {
@@ -477,7 +550,9 @@ void ProfileInfoCache::LoadGAIAPictureIfNeeded() {
       entry->GetGAIAPicture();
   }
 }
+#endif
 
+#if !defined(OS_ANDROID) && !defined(OS_CHROMEOS)
 void ProfileInfoCache::MigrateLegacyProfileNamesAndRecomputeIfNeeded() {
   std::vector<ProfileAttributesEntry*> entries = GetAllProfilesAttributes();
   for (size_t i = 0; i < entries.size(); i++) {
@@ -516,8 +591,7 @@ void ProfileInfoCache::SetLegacyProfileMigrationForTesting(bool value) {
 #endif  // !defined(OS_ANDROID) && !defined(OS_CHROMEOS)
 
 void ProfileInfoCache::DownloadAvatars() {
-  // Only do this on desktop platforms.
-#if !defined(OS_ANDROID) && !defined(OS_CHROMEOS)
+#if !defined(OS_ANDROID)
   std::vector<ProfileAttributesEntry*> entries = GetAllProfilesAttributes();
   for (ProfileAttributesEntry* entry : entries) {
     DownloadHighResAvatarIfNeeded(entry->GetAvatarIconIndex(),

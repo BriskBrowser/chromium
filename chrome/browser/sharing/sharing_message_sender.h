@@ -25,7 +25,8 @@ class DeviceInfo;
 class LocalDeviceInfoProvider;
 }  // namespace syncer
 
-class SharingSyncPreference;
+enum class SharingChannelType;
+class SharingFCMSender;
 enum class SharingDevicePlatform;
 enum class SharingSendMessageResult;
 
@@ -39,8 +40,9 @@ class SharingMessageSender {
   class SendMessageDelegate {
    public:
     using SendMessageCallback =
-        base::OnceCallback<void(SharingSendMessageResult,
-                                base::Optional<std::string>)>;
+        base::OnceCallback<void(SharingSendMessageResult result,
+                                base::Optional<std::string> message_id,
+                                SharingChannelType channel_type)>;
     virtual ~SendMessageDelegate() = default;
 
     virtual void DoSendMessageToDevice(
@@ -53,10 +55,10 @@ class SharingMessageSender {
   // Delegate type used to send a message.
   enum class DelegateType {
     kFCM,
+    kWebRtc,
   };
 
   SharingMessageSender(
-      SharingSyncPreference* sync_prefs,
       syncer::LocalDeviceInfoProvider* local_device_info_provider);
   SharingMessageSender(const SharingMessageSender&) = delete;
   SharingMessageSender& operator=(const SharingMessageSender&) = delete;
@@ -78,13 +80,19 @@ class SharingMessageSender {
   void RegisterSendDelegate(DelegateType type,
                             std::unique_ptr<SendMessageDelegate> delegate);
 
+  // Returns SharingFCMSender for testing.
+  SharingFCMSender* GetFCMSenderForTesting() const;
+
  private:
   struct SentMessageMetadata {
     SentMessageMetadata(ResponseCallback callback,
                         base::TimeTicks timestamp,
                         chrome_browser_sharing::MessageType type,
                         SharingDevicePlatform receiver_device_platform,
-                        base::TimeDelta last_updated_age);
+                        base::TimeDelta last_updated_age,
+                        int trace_id,
+                        SharingChannelType channel_type,
+                        base::TimeDelta receiver_pulse_interval);
     SentMessageMetadata(SentMessageMetadata&& other);
     SentMessageMetadata& operator=(SentMessageMetadata&& other);
     ~SentMessageMetadata();
@@ -94,18 +102,21 @@ class SharingMessageSender {
     chrome_browser_sharing::MessageType type;
     SharingDevicePlatform receiver_device_platform;
     base::TimeDelta last_updated_age;
+    int trace_id;
+    SharingChannelType channel_type;
+    base::TimeDelta receiver_pulse_interval;
   };
 
   void OnMessageSent(const std::string& message_guid,
                      SharingSendMessageResult result,
-                     base::Optional<std::string> message_id);
+                     base::Optional<std::string> message_id,
+                     SharingChannelType channel_type);
 
   void InvokeSendMessageCallback(
       const std::string& message_guid,
       SharingSendMessageResult result,
       std::unique_ptr<chrome_browser_sharing::ResponseMessage> response);
 
-  SharingSyncPreference* sync_prefs_;
   syncer::LocalDeviceInfoProvider* local_device_info_provider_;
 
   // Map of random GUID to SentMessageMetadata.

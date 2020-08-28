@@ -13,6 +13,7 @@
 #include "base/bind_helpers.h"
 #include "base/command_line.h"
 #include "base/location.h"
+#include "base/logging.h"
 #include "base/single_thread_task_runner.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
@@ -36,8 +37,6 @@ namespace chromeos {
 
 namespace {
 
-// Allow parsed command line option 'tdls_busy' to set the fake busy count.
-int s_tdls_busy_count = 0;
 int s_extra_wifi_networks = 0;
 
 // For testing dynamic WEP networks (uses wifi2).
@@ -535,6 +534,34 @@ void FakeShillManagerClient::SetTechnologyInitializing(const std::string& type,
   }
 }
 
+void FakeShillManagerClient::SetTechnologyProhibited(const std::string& type,
+                                                     bool prohibited) {
+  std::string prohibited_technologies =
+      GetStringValue(stub_properties_, shill::kProhibitedTechnologiesProperty);
+  std::vector<std::string> prohibited_list =
+      base::SplitString(prohibited_technologies, ",", base::TRIM_WHITESPACE,
+                        base::SPLIT_WANT_NONEMPTY);
+  std::set<std::string> prohibited_set(prohibited_list.begin(),
+                                       prohibited_list.end());
+  if (prohibited) {
+    auto iter = prohibited_set.find(type);
+    if (iter != prohibited_set.end())
+      return;
+    prohibited_set.insert(type);
+  } else {
+    auto iter = prohibited_set.find(type);
+    if (iter == prohibited_set.end())
+      return;
+    prohibited_set.erase(iter);
+  }
+  prohibited_list =
+      std::vector<std::string>(prohibited_set.begin(), prohibited_set.end());
+  prohibited_technologies = base::JoinString(prohibited_list, ",");
+  stub_properties_.SetStringKey(shill::kProhibitedTechnologiesProperty,
+                                prohibited_technologies);
+  CallNotifyObserversPropertyChanged(shill::kProhibitedTechnologiesProperty);
+}
+
 void FakeShillManagerClient::AddGeoNetwork(
     const std::string& technology,
     const base::DictionaryValue& network) {
@@ -604,12 +631,18 @@ void FakeShillManagerClient::SortManagerServices(bool notify) {
   VLOG(1) << "SortManagerServices";
 
   // ServiceCompleteList contains string path values for each service.
-  base::Value* complete_path_list = stub_properties_.FindKeyOfType(
-      shill::kServiceCompleteListProperty, base::Value::Type::LIST);
+  base::Value* complete_path_list =
+      stub_properties_.FindListKey(shill::kServiceCompleteListProperty);
   if (!complete_path_list || complete_path_list->GetList().empty())
     return;
-
   base::Value prev_complete_path_list = complete_path_list->Clone();
+
+  base::Value* visible_services =
+      stub_properties_.FindListKey(shill::kServicesProperty);
+  if (!visible_services) {
+    visible_services = stub_properties_.SetKey(
+        shill::kServicesProperty, base::Value(base::Value::Type::LIST));
+  }
 
   // Networks for disabled services get appended to the end without sorting.
   std::vector<std::string> disabled_path_list;
@@ -644,11 +677,15 @@ void FakeShillManagerClient::SortManagerServices(bool notify) {
   std::sort(complete_dict_list.begin(), complete_dict_list.end(),
             CompareNetworks);
 
-  // Rebuild |complete_path_list| with the new sort order.
-  complete_path_list->GetList().clear();
+  // Rebuild |complete_path_list| and |visible_services| with the new sort
+  // order.
+  complete_path_list->ClearList();
+  visible_services->ClearList();
   for (const base::Value& dict : complete_dict_list) {
     std::string service_path = GetStringValue(dict, kPathKey);
     complete_path_list->Append(base::Value(service_path));
+    if (dict.FindBoolKey(shill::kVisibleProperty).value_or(false))
+      visible_services->Append(base::Value(service_path));
   }
   // Append disabled networks to the end of the complete path list.
   for (const std::string& path : disabled_path_list)
@@ -777,11 +814,6 @@ void FakeShillManagerClient::SetupDefaultEnvironment() {
   }
 
   // Wifi
-  if (s_tdls_busy_count != 0) {
-    ShillDeviceClient::Get()->GetTestInterface()->SetTDLSBusyCount(
-        s_tdls_busy_count);
-  }
-
   state = GetInitialStateForType(shill::kTypeWifi, &enabled);
   if (state != kTechnologyUnavailable) {
     bool portaled = false;
@@ -1015,17 +1047,15 @@ void FakeShillManagerClient::SetupDefaultEnvironment() {
 
 void FakeShillManagerClient::PassStubProperties(
     DictionaryValueCallback callback) const {
-  std::unique_ptr<base::DictionaryValue> stub_properties(
-      stub_properties_.DeepCopy());
-  stub_properties->SetWithoutPathExpansion(
-      shill::kServiceCompleteListProperty,
-      GetEnabledServiceList(shill::kServiceCompleteListProperty));
-  std::move(callback).Run(DBUS_METHOD_CALL_SUCCESS, *stub_properties);
+  base::Value stub_properties = stub_properties_.Clone();
+  stub_properties.SetKey(shill::kServiceCompleteListProperty,
+                         GetEnabledServiceList());
+  std::move(callback).Run(std::move(stub_properties));
 }
 
 void FakeShillManagerClient::PassStubGeoNetworks(
     DictionaryValueCallback callback) const {
-  std::move(callback).Run(DBUS_METHOD_CALL_SUCCESS, stub_geo_networks_);
+  std::move(callback).Run(stub_geo_networks_.Clone());
 }
 
 void FakeShillManagerClient::CallNotifyObserversPropertyChanged(
@@ -1049,9 +1079,9 @@ void FakeShillManagerClient::NotifyObserversPropertyChanged(
     return;
   }
   if (property == shill::kServiceCompleteListProperty) {
-    std::unique_ptr<base::ListValue> services(GetEnabledServiceList(property));
+    base::Value services = GetEnabledServiceList();
     for (auto& observer : observer_list_)
-      observer.OnPropertyChanged(property, *(services.get()));
+      observer.OnPropertyChanged(property, services);
     return;
   }
   for (auto& observer : observer_list_)
@@ -1100,11 +1130,11 @@ void FakeShillManagerClient::SetTechnologyEnabled(const std::string& type,
   SortManagerServices(true);
 }
 
-std::unique_ptr<base::ListValue> FakeShillManagerClient::GetEnabledServiceList(
-    const std::string& property) const {
-  auto new_service_list = std::make_unique<base::ListValue>();
+base::Value FakeShillManagerClient::GetEnabledServiceList() const {
+  base::Value new_service_list(base::Value::Type::LIST);
   const base::ListValue* service_list;
-  if (stub_properties_.GetListWithoutPathExpansion(property, &service_list)) {
+  if (stub_properties_.GetListWithoutPathExpansion(
+          shill::kServiceCompleteListProperty, &service_list)) {
     ShillServiceClient::TestInterface* service_client =
         ShillServiceClient::Get()->GetTestInterface();
     for (base::ListValue::const_iterator iter = service_list->begin();
@@ -1121,7 +1151,7 @@ std::unique_ptr<base::ListValue> FakeShillManagerClient::GetEnabledServiceList(
       std::string type;
       properties->GetString(shill::kTypeProperty, &type);
       if (TechnologyEnabled(type))
-        new_service_list->Append(iter->CreateDeepCopy());
+        new_service_list.Append(iter->Clone());
     }
   }
   return new_service_list;
@@ -1198,12 +1228,6 @@ bool FakeShillManagerClient::ParseOption(const std::string& arg0,
                               [shill::kSIMPresentProperty] = sim_present;
     if (!present)
       shill_initial_state_map_[shill::kTypeCellular] = kNetworkDisabled;
-    return true;
-  } else if (arg0 == "tdls_busy") {
-    if (!arg1.empty())
-      base::StringToInt(arg1, &s_tdls_busy_count);
-    else
-      s_tdls_busy_count = 1;
     return true;
   } else if (arg0 == "olp") {
     cellular_olp_ = arg1;

@@ -28,6 +28,7 @@
 #include "components/sync/engine/model_type_configurer.h"
 #include "components/sync/engine/sync_credentials.h"
 #include "components/sync/engine/sync_engine.h"
+#include "components/sync/invalidations/invalidations_listener.h"
 #include "components/sync/protocol/encryption.pb.h"
 #include "components/sync/protocol/sync_protocol_error.h"
 
@@ -37,19 +38,22 @@ class InvalidationService;
 
 namespace syncer {
 
-class ChangeProcessor;
-class SyncEngineBackend;
 class SyncBackendRegistrar;
+class SyncEngineBackend;
+class SyncInvalidationsService;
 class SyncPrefs;
 
 // The only real implementation of the SyncEngine. See that interface's
 // definition for documentation of public methods.
-class SyncEngineImpl : public SyncEngine, public InvalidationHandler {
+class SyncEngineImpl : public SyncEngine,
+                       public InvalidationHandler,
+                       public InvalidationsListener {
  public:
   using Status = SyncStatus;
 
   SyncEngineImpl(const std::string& name,
                  invalidation::InvalidationService* invalidator,
+                 SyncInvalidationsService* sync_invalidations_service,
                  const base::WeakPtr<SyncPrefs>& sync_prefs,
                  const base::FilePath& sync_data_folder);
   ~SyncEngineImpl() override;
@@ -70,23 +74,17 @@ class SyncEngineImpl : public SyncEngine, public InvalidationHandler {
   void StopSyncingForShutdown() override;
   void Shutdown(ShutdownReason reason) override;
   void ConfigureDataTypes(ConfigureParams params) override;
-  void RegisterDirectoryDataType(ModelType type, ModelSafeGroup group) override;
-  void UnregisterDirectoryDataType(ModelType type) override;
-  void ActivateDirectoryDataType(ModelType type,
-                                 ModelSafeGroup group,
-                                 ChangeProcessor* change_processor) override;
-  void DeactivateDirectoryDataType(ModelType type) override;
   void ActivateNonBlockingDataType(
       ModelType type,
       std::unique_ptr<DataTypeActivationResponse>) override;
   void DeactivateNonBlockingDataType(ModelType type) override;
+  void ActivateProxyDataType(ModelType type) override;
+  void DeactivateProxyDataType(ModelType type) override;
   void EnableEncryptEverything() override;
-  UserShare* GetUserShare() const override;
-  Status GetDetailedStatus() override;
+  const Status& GetDetailedStatus() const override;
   void HasUnsyncedItemsForTest(
       base::OnceCallback<void(bool)> cb) const override;
   void GetModelSafeRoutingInfo(ModelSafeRoutingInfo* out) const override;
-  void FlushDirectory() const override;
   void RequestBufferedProtocolEventsAndEnableForwarding() override;
   void DisableProtocolEventForwarding() override;
   void EnableDirectoryTypeDebugInfoForwarding() override;
@@ -100,9 +98,12 @@ class SyncEngineImpl : public SyncEngine, public InvalidationHandler {
   // InvalidationHandler implementation.
   void OnInvalidatorStateChange(InvalidatorState state) override;
   void OnIncomingInvalidation(
-      const ObjectIdInvalidationMap& invalidation_map) override;
+      const TopicInvalidationMap& invalidation_map) override;
   std::string GetOwnerName() const override;
   void OnInvalidatorClientIdChange(const std::string& client_id) override;
+
+  // InvalidationsListener implementation.
+  void OnInvalidationReceived(const std::string& payload) override;
 
  protected:
   // The types and functions below are protected so that test
@@ -125,10 +126,8 @@ class SyncEngineImpl : public SyncEngine, public InvalidationHandler {
       const WeakHandle<JsBackend> js_backend,
       const WeakHandle<DataTypeDebugInfoListener> debug_info_listener,
       std::unique_ptr<ModelTypeConnector> model_type_connector,
-      const std::string& cache_guid,
       const std::string& birthday,
-      const std::string& bag_of_chips,
-      const std::string& last_keystore_key);
+      const std::string& bag_of_chips);
 
   // Forwards a ProtocolEvent to the host. Will not be called unless a call to
   // SetForwardProtocolEvents() explicitly requested that we start forwarding
@@ -161,6 +160,8 @@ class SyncEngineImpl : public SyncEngine, public InvalidationHandler {
   void UpdateInvalidationVersions(
       const std::map<ModelType, int64_t>& invalidation_versions);
 
+  void HandleSyncStatusChanged(const SyncStatus& status);
+
  private:
   friend class SyncEngineBackend;
 
@@ -170,8 +171,7 @@ class SyncEngineImpl : public SyncEngine, public InvalidationHandler {
   // Called from SyncEngineBackend::OnSyncCycleCompleted to handle updating
   // frontend thread components.
   void HandleSyncCycleCompletedOnFrontendLoop(
-      const SyncCycleSnapshot& snapshot,
-      const std::string& last_keystore_key);
+      const SyncCycleSnapshot& snapshot);
 
   // Let the front end handle the actionable error event.
   void HandleActionableErrorEventOnFrontendLoop(
@@ -212,10 +212,19 @@ class SyncEngineImpl : public SyncEngine, public InvalidationHandler {
   // A pointer to the registrar; owned by |backend_|.
   SyncBackendRegistrar* registrar_ = nullptr;
 
-  invalidation::InvalidationService* invalidator_;
+  invalidation::InvalidationService* invalidator_ = nullptr;
   bool invalidation_handler_registered_ = false;
+
+  // Sync invalidation service, it may be nullptr if sync invalidations are
+  // disabled or not supported. It doesn't need to have the same as
+  // |invalidation_handler_registered_| flag as the service doesn't have topics
+  // to unsibscribe.
+  SyncInvalidationsService* sync_invalidations_service_ = nullptr;
+
   ModelTypeSet last_enabled_types_;
   bool sessions_invalidation_enabled_ = false;
+
+  SyncStatus cached_status_;
 
   // Checks that we're on the same thread this was constructed on (UI thread).
   SEQUENCE_CHECKER(sequence_checker_);

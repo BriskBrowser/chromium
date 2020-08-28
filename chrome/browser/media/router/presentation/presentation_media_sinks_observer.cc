@@ -5,7 +5,7 @@
 #include "chrome/browser/media/router/presentation/presentation_media_sinks_observer.h"
 
 #include "chrome/browser/media/router/media_router.h"
-#include "chrome/common/media_router/media_source.h"
+#include "components/media_router/common/media_source.h"
 #include "content/public/browser/presentation_screen_availability_listener.h"
 
 namespace media_router {
@@ -29,11 +29,6 @@ void PresentationMediaSinksObserver::OnSinksReceived(
   blink::mojom::ScreenAvailability current_availability =
       result.empty() ? blink::mojom::ScreenAvailability::UNAVAILABLE
                      : blink::mojom::ScreenAvailability::AVAILABLE;
-
-  DVLOG(1) << "PresentationMediaSinksObserver::OnSinksReceived: "
-           << (source() ? source()->id() : "Any source") << " "
-           << (result.empty() ? "unavailable" : "available");
-
   // Don't send if new result is same as previous.
   if (previous_availability_ == current_availability)
     return;

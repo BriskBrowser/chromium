@@ -40,6 +40,10 @@ const char kAccessibilityScreenMagnifierScale[] =
 // due to lack of a physical keyboard.
 const char kAccessibilityVirtualKeyboardEnabled[] =
     "settings.a11y.virtual_keyboard";
+// A pref that identifies which kind of features are enabled for the Web Kiosk
+// session.
+const char kAccessibilityVirtualKeyboardFeatures[] =
+    "settings.a11y.virtual_keyboard_features";
 // A boolean pref which determines whether the mono audio output is enabled for
 // accessibility.
 const char kAccessibilityMonoAudioEnabled[] = "settings.a11y.mono_audio";
@@ -77,6 +81,17 @@ const char kAccessibilityCaretHighlightEnabled[] =
 // A boolean pref which determines whether cursor highlighting is enabled.
 const char kAccessibilityCursorHighlightEnabled[] =
     "settings.a11y.cursor_highlight";
+// A boolean pref which determines whether custom cursor color is enabled.
+const char kAccessibilityCursorColorEnabled[] =
+    "settings.a11y.cursor_color_enabled";
+// An integer pref which determines the custom cursor color.
+const char kAccessibilityCursorColor[] = "settings.a11y.cursor_color";
+// A boolean pref which determines whether floating accessibility menu is
+// enabled.
+const char kAccessibilityFloatingMenuEnabled[] = "settings.a11y.floating_menu";
+// Floating a11y menu position, a FloatingMenuPosition;
+const char kAccessibilityFloatingMenuPosition[] =
+    "settings.a11y.floating_menu_position";
 // A boolean pref which determines whether focus highlighting is enabled.
 const char kAccessibilityFocusHighlightEnabled[] =
     "settings.a11y.focus_highlight";
@@ -117,11 +132,30 @@ const char kAccessibilitySwitchAccessAutoScanSpeedMs[] =
 // enabled).
 const char kAccessibilitySwitchAccessAutoScanKeyboardSpeedMs[] =
     "settings.a11y.switch_access.auto_scan.keyboard.speed_ms";
+// A boolean pref which, if set, indicates that shelf navigation buttons (home,
+// back and overview button) should be shown in tablet mode. Note that shelf
+// buttons might be shown even if the pref value is false - for example, if
+// spoken feedback, autoclick or switch access are enabled.
+const char kAccessibilityTabletModeShelfNavigationButtonsEnabled[] =
+    "settings.a11y.tablet_mode_shelf_nav_buttons_enabled";
 // A boolean pref which determines whether dictation is enabled.
 const char kAccessibilityDictationEnabled[] = "settings.a11y.dictation";
 // A boolean pref which determines whether the accessibility menu shows
 // regardless of the state of a11y features.
 const char kShouldAlwaysShowAccessibilityMenu[] = "settings.a11y.enable_menu";
+
+// A dictionary storing the number of times and most recent time all contextual
+// tooltips have been shown.
+const char kContextualTooltips[] = "settings.contextual_tooltip.shown_info";
+
+// A list containing the stored virtual desks names in the same order of the
+// desks in the overview desks bar. This list will be used to restore the desks,
+// their order, and their names for the primary user on first signin. If a desk
+// hasn't been renamed by the user (i.e. it uses one of the default
+// automatically-assigned desk names such as "Desk 1", "Desk 2", ... etc.), its
+// name will appear in this list as an empty string. The desk names are stored
+// as UTF8 strings.
+const char kDesksNamesList[] = "ash.desks.desks_names_list";
 
 // A boolean pref storing the enabled status of the Docked Magnifier feature.
 const char kDockedMagnifierEnabled[] = "ash.docked_magnifier.enabled";
@@ -158,6 +192,9 @@ const char kDisplayMixedMirrorModeParams[] =
 const char kDisplayPowerState[] = "settings.display.power_state";
 // A dictionary pref that stores per display preferences.
 const char kDisplayProperties[] = "settings.display.properties";
+// Boolean controlling whether privacy screen is enabled.
+const char kDisplayPrivacyScreenEnabled[] =
+    "settings.display.privacy_screen_enabled";
 // A dictionary pref that specifies the state of the rotation lock, and the
 // display orientation, for the internal display.
 const char kDisplayRotationLock[] = "settings.display.rotation_lock";
@@ -174,6 +211,11 @@ const char kExternalDisplayMirrorInfo[] =
 // layout/offset information.
 const char kSecondaryDisplays[] = "settings.display.secondary_displays";
 
+// A boolean pref storing whether the gesture education notification has ever
+// been shown to the user, which we use to stop showing it again.
+const char kGestureEducationNotificationShown[] =
+    "ash.gesture_education.notification_shown";
+
 // A boolean pref which stores whether a stylus has been seen before.
 const char kHasSeenStylus[] = "ash.has_seen_stylus";
 // A boolean pref which stores whether a the palette warm welcome bubble
@@ -185,6 +227,12 @@ const char kEnableStylusTools[] = "settings.enable_stylus_tools";
 // eject input event has been received.
 const char kLaunchPaletteOnEjectEvent[] =
     "settings.launch_palette_on_eject_event";
+
+// Boolean pref indicating whether the privacy warning of the managed-guest
+// session on both; the login screen and inside the auto-launched session,
+// should be displayed or not.
+const char kManagedGuestSessionPrivacyWarningsEnabled[] =
+    "managed_session.privacy_warning_enabled";
 
 // A string pref storing the type of lock screen notification mode.
 // "show" -> show notifications on the lock screen
@@ -340,6 +388,10 @@ const char kPowerSmartDimEnabled[] = "power.smart_dim_enabled";
 // Boolean controlling whether ALS logging is enabled.
 const char kPowerAlsLoggingEnabled[] = "power.als_logging_enabled";
 
+// Boolean controlling whether the settings is enabled. This pref is intended to
+// be set only by policy not by user.
+const char kOsSettingsEnabled[] = "os_settings_enabled";
+
 // |kShelfAlignment| and |kShelfAutoHideBehavior| have a local variant. The
 // local variant is not synced and is used if set. If the local variant is not
 // set its value is set from the synced value (once prefs have been
@@ -396,9 +448,13 @@ const char kQuickUnlockPinSalt[] = "quick_unlock.pin.salt";
 // bases - for exmaple the last used base per user.
 const char kDetachableBaseDevices[] = "ash.detachable_base.devices";
 
-// Integer pref storing the number of Assistant warmer welcome triggered times.
-const char kAssistantNumWarmerWelcomeTriggered[] =
-    "ash.assistant.num_warmer_welcome_triggered";
+// Pref storing the number of sessions in which Assistant onboarding was shown.
+const char kAssistantNumSessionsWhereOnboardingShown[] =
+    "ash.assistant.num_sessions_where_onboarding_shown";
+
+// Pref storing the time of the last Assistant interaction.
+const char kAssistantTimeOfLastInteraction[] =
+    "ash.assistant.time_of_last_interaction";
 
 // Whether the user is allowed to disconnect and configure VPN connections.
 const char kVpnConfigAllowed[] = "vpn_config_allowed";
@@ -476,10 +532,50 @@ const char kAssistantPrivacyInfoShownInLauncher[] =
 const char kAssistantPrivacyInfoDismissedInLauncher[] =
     "ash.launcher.assistant_privacy_info_dismissed";
 
+// An integer pref that specifies how many times the Suggested Content privacy
+// info has been shown in Launcher. This value will increment by one every time
+// when Launcher changes state from Peeking to Half or FullscreenSearch up to a
+// predefined threshold, e.g. six times. If the info has been shown for more
+// than the threshold, do not show the privacy info any more.
+const char kSuggestedContentInfoShownInLauncher[] =
+    "ash.launcher.suggested_content_info_shown";
+
+// A boolean pref that indicates whether the Suggested Content privacy info may
+// be displayed to user. A false value indicates that the info can be displayed
+// if the value of |kSuggestedContentInfoShownInLauncher| is smaller than the
+// predefined threshold. A true value implies that the user has dismissed the
+// info view, and do not show the privacy info any more.
+const char kSuggestedContentInfoDismissedInLauncher[] =
+    "ash.launcher.suggested_content_info_dismissed";
+
 // A boolean pref that indicates whether lock screen media controls are enabled.
 // Controlled by user policy.
 const char kLockScreenMediaControlsEnabled[] =
     "ash.lock_screen_media_controls_enabled";
+
+// Boolean pref which determines whether key repeat is enabled.
+const char kXkbAutoRepeatEnabled[] =
+    "settings.language.xkb_auto_repeat_enabled_r2";
+
+// Integer pref which determines key repeat delay (in ms).
+const char kXkbAutoRepeatDelay[] = "settings.language.xkb_auto_repeat_delay_r2";
+
+// Integer pref which determines key repeat interval (in ms).
+const char kXkbAutoRepeatInterval[] =
+    "settings.language.xkb_auto_repeat_interval_r2";
+// "_r2" suffixes were added to the three prefs above when we changed the
+// preferences to not be user-configurable or sync with the cloud. The prefs are
+// now user-configurable and syncable again, but we don't want to overwrite the
+// current values with the old synced values, so we continue to use this suffix.
+
+// A boolean pref which is true if touchpad reverse scroll is enabled.
+const char kNaturalScroll[] = "settings.touchpad.natural_scroll";
+// A boolean pref which is true if mouse reverse scroll is enabled.
+const char kMouseReverseScroll[] = "settings.mouse.reverse_scroll";
+
+// A dictionary storing the number of times and most recent time the multipaste
+// contextual nudge was shown.
+const char kMultipasteNudges[] = "ash.clipboard.multipaste_nudges";
 
 // NOTE: New prefs should start with the "ash." prefix. Existing prefs moved
 // into this file should not be renamed, since they may be synced.

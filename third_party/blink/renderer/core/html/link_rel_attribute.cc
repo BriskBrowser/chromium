@@ -36,7 +36,7 @@
 namespace blink {
 
 LinkRelAttribute::LinkRelAttribute()
-    : icon_type_(kInvalidIcon),
+    : icon_type_(mojom::blink::FaviconIconType::kInvalid),
       is_style_sheet_(false),
       is_alternate_(false),
       is_dns_prefetch_(false),
@@ -50,7 +50,8 @@ LinkRelAttribute::LinkRelAttribute()
       is_module_preload_(false),
       is_service_worker_(false),
       is_canonical_(false),
-      is_monetization_(false) {}
+      is_monetization_(false),
+      is_web_bundle_(false) {}
 
 LinkRelAttribute::LinkRelAttribute(const String& rel) : LinkRelAttribute() {
   if (rel.IsEmpty())
@@ -74,7 +75,7 @@ LinkRelAttribute::LinkRelAttribute(const String& rel) : LinkRelAttribute() {
       // FIXME: This doesn't really follow the spec that requires "shortcut
       // icon" to be the entire string
       // http://www.whatwg.org/specs/web-apps/current-work/multipage/links.html#rel-icon
-      icon_type_ = kFavicon;
+      icon_type_ = mojom::blink::FaviconIconType::kFavicon;
     } else if (EqualIgnoringASCIICase(link_type, "prefetch")) {
       is_link_prefetch_ = true;
     } else if (EqualIgnoringASCIICase(link_type, "dns-prefetch")) {
@@ -88,10 +89,10 @@ LinkRelAttribute::LinkRelAttribute(const String& rel) : LinkRelAttribute() {
     } else if (EqualIgnoringASCIICase(link_type, "next")) {
       is_link_next_ = true;
     } else if (EqualIgnoringASCIICase(link_type, "apple-touch-icon")) {
-      icon_type_ = kTouchIcon;
+      icon_type_ = mojom::blink::FaviconIconType::kTouchIcon;
     } else if (EqualIgnoringASCIICase(link_type,
                                       "apple-touch-icon-precomposed")) {
-      icon_type_ = kTouchPrecomposedIcon;
+      icon_type_ = mojom::blink::FaviconIconType::kTouchPrecomposedIcon;
     } else if (EqualIgnoringASCIICase(link_type, "manifest")) {
       is_manifest_ = true;
     } else if (EqualIgnoringASCIICase(link_type, "modulepreload")) {
@@ -102,6 +103,8 @@ LinkRelAttribute::LinkRelAttribute(const String& rel) : LinkRelAttribute() {
       is_canonical_ = true;
     } else if (EqualIgnoringASCIICase(link_type, "monetization")) {
       is_monetization_ = true;
+    } else if (EqualIgnoringASCIICase(link_type, "webbundle")) {
+      is_web_bundle_ = true;
     }
     // Adding or removing a value here requires you to update
     // RelList::supportedTokens()

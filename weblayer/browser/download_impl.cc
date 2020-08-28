@@ -49,10 +49,22 @@ void DownloadImpl::SetJavaDownload(
 }
 
 base::android::ScopedJavaLocalRef<jstring> DownloadImpl::GetLocation(
-    JNIEnv* env,
-    const base::android::JavaParamRef<jobject>& obj) {
+    JNIEnv* env) {
   return base::android::ScopedJavaLocalRef<jstring>(
       base::android::ConvertUTF8ToJavaString(env, GetLocation().value()));
+}
+
+base::android::ScopedJavaLocalRef<jstring>
+DownloadImpl::GetFileNameToReportToUser(JNIEnv* env) {
+  return base::android::ScopedJavaLocalRef<jstring>(
+      base::android::ConvertUTF8ToJavaString(
+          env, GetFileNameToReportToUser().value()));
+}
+
+base::android::ScopedJavaLocalRef<jstring> DownloadImpl::GetMimeTypeImpl(
+    JNIEnv* env) {
+  return base::android::ScopedJavaLocalRef<jstring>(
+      base::android::ConvertUTF8ToJavaString(env, GetMimeType()));
 }
 #endif
 
@@ -66,8 +78,10 @@ DownloadState DownloadImpl::GetState() {
   if (pause_pending_ || (item_->IsPaused() && !resume_pending_))
     return DownloadState::kPaused;
 
-  if (item_->GetState() == download::DownloadItem::IN_PROGRESS)
+  if (resume_pending_ ||
+      item_->GetState() == download::DownloadItem::IN_PROGRESS) {
     return DownloadState::kInProgress;
+  }
 
   return DownloadState::kFailed;
 }
@@ -110,6 +124,14 @@ base::FilePath DownloadImpl::GetLocation() {
   return item_->GetTargetFilePath();
 }
 
+base::FilePath DownloadImpl::GetFileNameToReportToUser() {
+  return item_->GetFileNameToReportUser();
+}
+
+std::string DownloadImpl::GetMimeType() {
+  return item_->GetMimeType();
+}
+
 DownloadError DownloadImpl::GetError() {
   auto reason = item_->GetLastReason();
   if (reason == download::DOWNLOAD_INTERRUPT_REASON_NONE)
@@ -145,6 +167,10 @@ void DownloadImpl::PauseInternal() {
     pause_pending_ = false;
     item_->Pause();
   }
+}
+
+uint32_t DownloadImpl::GetId() {
+  return item_->GetId();
 }
 
 void DownloadImpl::ResumeInternal() {

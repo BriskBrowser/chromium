@@ -12,10 +12,12 @@
 #include "chrome/browser/chromeos/file_manager/file_tasks.h"
 #include "chrome/browser/chromeos/file_manager/path_util.h"
 #include "chrome/browser/web_applications/components/app_registrar.h"
-#include "chrome/browser/web_applications/components/web_app_helpers.h"
+#include "chrome/browser/web_applications/components/web_app_id.h"
 #include "chrome/browser/web_applications/test/test_app_registrar.h"
 #include "chrome/browser/web_applications/test/test_file_handler_manager.h"
 #include "chrome/browser/web_applications/test/test_web_app_provider.h"
+#include "chrome/browser/web_applications/test/web_app_test.h"
+#include "chrome/common/chrome_features.h"
 #include "chrome/test/base/testing_profile.h"
 #include "content/public/test/browser_task_environment.h"
 #include "extensions/browser/entry_info.h"
@@ -23,52 +25,66 @@
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/public/common/features.h"
 
+using web_app::ProviderType;
+
 namespace file_manager {
 namespace file_tasks {
 
-class WebFileTasksTest : public testing::Test {
+class WebFileTasksTest : public ::testing::TestWithParam<ProviderType> {
  protected:
-  WebFileTasksTest() {}
+  WebFileTasksTest() {
+    if (GetParam() == web_app::ProviderType::kWebApps) {
+      scoped_feature_list_.InitAndEnableFeature(
+          features::kDesktopPWAsWithoutExtensions);
+    } else if (GetParam() == web_app::ProviderType::kBookmarkApps) {
+      scoped_feature_list_.InitAndDisableFeature(
+          features::kDesktopPWAsWithoutExtensions);
+    }
+  }
 
   void SetUp() override {
-    app_provider_ = web_app::TestWebAppProvider::Get(&profile_);
+    profile_ = std::make_unique<TestingProfile>();
+
+    app_provider_ = web_app::TestWebAppProvider::Get(profile_.get());
 
     auto app_registrar = std::make_unique<web_app::TestAppRegistrar>();
     app_registrar_ = app_registrar.get();
     app_provider_->SetRegistrar(std::move(app_registrar));
 
     auto file_handler_manager =
-        std::make_unique<web_app::TestFileHandlerManager>(&profile_);
+        std::make_unique<web_app::TestFileHandlerManager>(profile_.get());
     file_handler_manager_ = file_handler_manager.get();
     app_provider_->SetFileHandlerManager(std::move(file_handler_manager));
 
     app_provider_->Start();
   }
 
-  void InstallFileHandler(const web_app::AppId& app_id,
-                          const GURL& install_url,
-                          const std::vector<std::string> accepts) {
+  void InstallFileHandler(
+      const web_app::AppId& app_id,
+      const GURL& install_url,
+      const web_app::TestFileHandlerManager::AcceptMap& accept) {
     app_registrar_->AddExternalApp(app_id, {install_url});
-    file_handler_manager_->InstallFileHandler(app_id, install_url, accepts);
+    file_handler_manager_->InstallFileHandler(app_id, install_url, accept);
   }
 
-  Profile* profile() { return &profile_; }
+  Profile* profile() { return profile_.get(); }
   web_app::TestFileHandlerManager* file_handler_manager() {
     return file_handler_manager_;
   }
 
  private:
+  base::test::ScopedFeatureList scoped_feature_list_;
   content::BrowserTaskEnvironment task_environment_;
-  TestingProfile profile_;
+  std::unique_ptr<TestingProfile> profile_;
   web_app::TestWebAppProvider* app_provider_;
   web_app::TestAppRegistrar* app_registrar_;
   web_app::TestFileHandlerManager* file_handler_manager_;
 };
 
-TEST_F(WebFileTasksTest, WebAppFileHandlingCanBeDisabledByFlag) {
+TEST_P(WebFileTasksTest, WebAppFileHandlingCanBeDisabledByFlag) {
   const char kGraphrId[] = "graphr-app-id";
   const char kGraphrAction[] = "https://graphr.tld/csv";
-  InstallFileHandler(kGraphrId, GURL(kGraphrAction), {".csv", "text/csv"});
+  InstallFileHandler(kGraphrId, GURL(kGraphrAction), {{"text/csv", {".csv"}}});
 
   std::vector<extensions::EntryInfo> entries;
   entries.emplace_back(
@@ -111,7 +127,7 @@ TEST_F(WebFileTasksTest, WebAppFileHandlingCanBeDisabledByFlag) {
   }
 }
 
-TEST_F(WebFileTasksTest, DisabledFileHandlersAreNotVisible) {
+TEST_P(WebFileTasksTest, DisabledFileHandlersAreNotVisible) {
   const char kGraphrId[] = "graphr-app-id";
   const char kGraphrAction[] = "https://graphr.tld/csv";
 
@@ -125,8 +141,8 @@ TEST_F(WebFileTasksTest, DisabledFileHandlersAreNotVisible) {
                                         blink::features::kFileHandlingAPI},
                                        {});
 
-  InstallFileHandler(kGraphrId, GURL(kGraphrAction), {".csv", "text/csv"});
-  InstallFileHandler(kFooId, GURL(kFooAction), {".csv", "text/csv"});
+  InstallFileHandler(kGraphrId, GURL(kGraphrAction), {{"text/csv", {".csv"}}});
+  InstallFileHandler(kFooId, GURL(kFooAction), {{"text/csv", {".csv"}}});
 
   std::vector<extensions::EntryInfo> entries;
   entries.emplace_back(
@@ -148,7 +164,7 @@ TEST_F(WebFileTasksTest, DisabledFileHandlersAreNotVisible) {
   EXPECT_EQ(kFooId, tasks[0].task_descriptor().app_id);
 }
 
-TEST_F(WebFileTasksTest, FindWebFileHandlerTasks) {
+TEST_P(WebFileTasksTest, FindWebFileHandlerTasks) {
   base::test::ScopedFeatureList scoped_feature_list;
   scoped_feature_list.InitWithFeatures({blink::features::kNativeFileSystemAPI,
                                         blink::features::kFileHandlingAPI},
@@ -160,9 +176,10 @@ TEST_F(WebFileTasksTest, FindWebFileHandlerTasks) {
   const char kBarAction[] = "https://bar.tld/files";
 
   // Foo can handle "text/plain" and "text/html".
-  InstallFileHandler(kFooId, GURL(kFooAction), {"text/plain", "text/html"});
+  InstallFileHandler(kFooId, GURL(kFooAction),
+                     {{"text/plain", {".txt"}}, {"text/html", {".html"}}});
   // Bar can only handle "text/plain".
-  InstallFileHandler(kBarId, GURL(kBarAction), {"text/plain"});
+  InstallFileHandler(kBarId, GURL(kBarAction), {{"text/plain", {".txt"}}});
 
   // Find apps for a "text/plain" file. Both Foo and Bar should be found.
   std::vector<extensions::EntryInfo> entries;
@@ -197,7 +214,7 @@ TEST_F(WebFileTasksTest, FindWebFileHandlerTasks) {
   FindWebTasks(profile(), entries, &tasks);
 }
 
-TEST_F(WebFileTasksTest, FindWebFileHandlerTask_Generic) {
+TEST_P(WebFileTasksTest, FindWebFileHandlerTask_Generic) {
   base::test::ScopedFeatureList scoped_feature_list;
   scoped_feature_list.InitWithFeatures({blink::features::kNativeFileSystemAPI,
                                         blink::features::kFileHandlingAPI},
@@ -222,18 +239,18 @@ TEST_F(WebFileTasksTest, FindWebFileHandlerTask_Generic) {
   };
 
   // Bar provides a file handler for .txt files, and has no generic handler.
-  InstallFileHandler(kBarId, GURL(kBarAction), {".txt"});
+  InstallFileHandler(kBarId, GURL(kBarAction), {{"text/plain", {".txt"}}});
 
   // Baz provides a file handler for all extensions and all images.
-  InstallFileHandler(kBazId, GURL(kBazAction), {".*"});
-  InstallFileHandler(kBazId, GURL(kBazAction), {"image/*"});
+  InstallFileHandler(kBazId, GURL(kBazAction), {{"*/*", {".*"}}});
+  InstallFileHandler(kBazId, GURL(kBazAction), {{"image/*", {".*"}}});
 
   // Foo provides a file handler for "text/plain" and "*/*" <-- All file types.
-  InstallFileHandler(kFooId, GURL(kFooAction), {"text/plain"});
-  InstallFileHandler(kFooId, GURL(kFooAction), {"*/*"});
+  InstallFileHandler(kFooId, GURL(kFooAction), {{"text/plain", {".txt"}}});
+  InstallFileHandler(kFooId, GURL(kFooAction), {{"*/*", {".*"}}});
 
   // Qux provides a file handler for all file types.
-  InstallFileHandler(kQuxId, GURL(kQuxAction), {"*"});
+  InstallFileHandler(kQuxId, GURL(kQuxAction), {{"*", {".*"}}});
 
   std::vector<extensions::EntryInfo> entries;
   std::vector<FullTaskDescriptor> tasks;
@@ -281,6 +298,12 @@ TEST_F(WebFileTasksTest, FindWebFileHandlerTask_Generic) {
   EXPECT_EQ(kQuxId, tasks[2].task_descriptor().app_id);
   EXPECT_TRUE(tasks[2].is_generic_file_handler());
 }
+
+INSTANTIATE_TEST_SUITE_P(All,
+                         WebFileTasksTest,
+                         ::testing::Values(ProviderType::kBookmarkApps,
+                                           ProviderType::kWebApps),
+                         web_app::ProviderTypeParamToString);
 
 }  // namespace file_tasks
 }  // namespace file_manager

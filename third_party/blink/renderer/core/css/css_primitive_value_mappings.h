@@ -226,6 +226,9 @@ inline CSSIdentifierValue::CSSIdentifierValue(ControlPart e)
     case kNoControlPart:
       value_id_ = CSSValueID::kNone;
       break;
+    case kAutoPart:
+      value_id_ = CSSValueID::kAuto;
+      break;
     case kCheckboxPart:
       value_id_ = CSSValueID::kCheckbox;
       break;
@@ -305,8 +308,10 @@ template <>
 inline ControlPart CSSIdentifierValue::ConvertTo() const {
   if (value_id_ == CSSValueID::kNone)
     return kNoControlPart;
+  if (value_id_ == CSSValueID::kAuto)
+    return kAutoPart;
   return ControlPart(static_cast<int>(value_id_) -
-                     static_cast<int>(CSSValueID::kCheckbox) + 1);
+                     static_cast<int>(CSSValueID::kCheckbox) + kCheckboxPart);
 }
 
 template <>
@@ -1756,16 +1761,17 @@ inline OverflowAlignment CSSIdentifierValue::ConvertTo() const {
 }
 
 template <>
-inline CSSIdentifierValue::CSSIdentifierValue(ScrollBehavior behavior)
+inline CSSIdentifierValue::CSSIdentifierValue(
+    mojom::blink::ScrollBehavior behavior)
     : CSSValue(kIdentifierClass) {
   switch (behavior) {
-    case kScrollBehaviorAuto:
+    case mojom::blink::ScrollBehavior::kAuto:
       value_id_ = CSSValueID::kAuto;
       break;
-    case kScrollBehaviorSmooth:
+    case mojom::blink::ScrollBehavior::kSmooth:
       value_id_ = CSSValueID::kSmooth;
       break;
-    case kScrollBehaviorInstant:
+    case mojom::blink::ScrollBehavior::kInstant:
       // Behavior 'instant' is only allowed in ScrollOptions arguments passed to
       // CSSOM scroll APIs.
       NOTREACHED();
@@ -1773,17 +1779,17 @@ inline CSSIdentifierValue::CSSIdentifierValue(ScrollBehavior behavior)
 }
 
 template <>
-inline ScrollBehavior CSSIdentifierValue::ConvertTo() const {
+inline mojom::blink::ScrollBehavior CSSIdentifierValue::ConvertTo() const {
   switch (GetValueID()) {
     case CSSValueID::kAuto:
-      return kScrollBehaviorAuto;
+      return mojom::blink::ScrollBehavior::kAuto;
     case CSSValueID::kSmooth:
-      return kScrollBehaviorSmooth;
+      return mojom::blink::ScrollBehavior::kSmooth;
     default:
       break;
   }
   NOTREACHED();
-  return kScrollBehaviorAuto;
+  return mojom::blink::ScrollBehavior::kAuto;
 }
 
 template <>
@@ -1951,6 +1957,9 @@ inline CSSIdentifierValue::CSSIdentifierValue(TextUnderlinePosition position)
     case kTextUnderlinePositionAuto:
       value_id_ = CSSValueID::kAuto;
       break;
+    case kTextUnderlinePositionFromFont:
+      value_id_ = CSSValueID::kFromFont;
+      break;
     case kTextUnderlinePositionUnder:
       value_id_ = CSSValueID::kUnder;
       break;
@@ -1968,6 +1977,8 @@ inline TextUnderlinePosition CSSIdentifierValue::ConvertTo() const {
   switch (GetValueID()) {
     case CSSValueID::kAuto:
       return kTextUnderlinePositionAuto;
+    case CSSValueID::kFromFont:
+      return kTextUnderlinePositionFromFont;
     case CSSValueID::kUnder:
       return kTextUnderlinePositionUnder;
     case CSSValueID::kLeft:
@@ -1979,6 +1990,48 @@ inline TextUnderlinePosition CSSIdentifierValue::ConvertTo() const {
   }
   NOTREACHED();
   return kTextUnderlinePositionAuto;
+}
+
+template <>
+inline CSSIdentifierValue::CSSIdentifierValue(ScrollbarGutter scrollbar_gutter)
+    : CSSValue(kIdentifierClass) {
+  switch (scrollbar_gutter) {
+    case kScrollbarGutterAuto:
+      value_id_ = CSSValueID::kAuto;
+      break;
+    case kScrollbarGutterStable:
+      value_id_ = CSSValueID::kStable;
+      break;
+    case kScrollbarGutterAlways:
+      value_id_ = CSSValueID::kAlways;
+      break;
+    case kScrollbarGutterBoth:
+      value_id_ = CSSValueID::kBoth;
+      break;
+    case kScrollbarGutterForce:
+      value_id_ = CSSValueID::kForce;
+      break;
+  }
+}
+
+template <>
+inline ScrollbarGutter CSSIdentifierValue::ConvertTo() const {
+  switch (GetValueID()) {
+    case CSSValueID::kAuto:
+      return kScrollbarGutterAuto;
+    case CSSValueID::kStable:
+      return kScrollbarGutterStable;
+    case CSSValueID::kAlways:
+      return kScrollbarGutterAlways;
+    case CSSValueID::kBoth:
+      return kScrollbarGutterBoth;
+    case CSSValueID::kForce:
+      return kScrollbarGutterForce;
+    default:
+      break;
+  }
+  NOTREACHED();
+  return kScrollbarGutterAuto;
 }
 
 }  // namespace blink

@@ -4,29 +4,22 @@
 
 /**
  * Test fixture for node_utils.js.
- * @constructor
- * @extends {testing.Test}
  */
-function SelectToSpeakNodeUtilsUnitTest() {
-  testing.Test.call(this);
-}
+SelectToSpeakNodeUtilsUnitTest = class extends testing.Test {};
 
-SelectToSpeakNodeUtilsUnitTest.prototype = {
-  __proto__: testing.Test.prototype,
+/** @override */
+SelectToSpeakNodeUtilsUnitTest.prototype.extraLibraries = [
+  'test_support.js',
+  'paragraph_utils.js',
+  'node_utils.js',
+  'word_utils.js',
+  '../common/rect_util.js',
+];
 
-  /** @override */
-  extraLibraries: [
-    'test_support.js',
-    'paragraph_utils.js',
-    'node_utils.js',
-    'word_utils.js',
-    'rect_utils.js',
-  ]
-};
 
 TEST_F('SelectToSpeakNodeUtilsUnitTest', 'GetNodeVisibilityState', function() {
-  let nodeWithoutRoot1 = {root: null};
-  let nodeWithoutRoot2 = {root: null, state: {invisible: true}};
+  const nodeWithoutRoot1 = {root: null};
+  const nodeWithoutRoot2 = {root: null, state: {invisible: true}};
   assertEquals(
       NodeUtils.getNodeState(nodeWithoutRoot1),
       NodeUtils.NodeState.NODE_STATE_INVALID);
@@ -34,16 +27,20 @@ TEST_F('SelectToSpeakNodeUtilsUnitTest', 'GetNodeVisibilityState', function() {
       NodeUtils.getNodeState(nodeWithoutRoot2),
       NodeUtils.NodeState.NODE_STATE_INVALID);
 
-  let invisibleNode1 = {root: {}, parent: {role: ''}, state: {invisible: true}};
+  const invisibleNode1 = {
+    root: {},
+    parent: {role: ''},
+    state: {invisible: true}
+  };
   // Currently nodes aren't actually marked 'invisible', so we need to navigate
   // up their tree.
-  let invisibleNode2 = {
+  const invisibleNode2 = {
     root: {},
     parent: {role: 'window', state: {invisible: true}},
     state: {}
   };
-  let invisibleNode3 = {root: {}, parent: invisibleNode2, state: {}};
-  let invisibleNode4 = {root: {}, parent: invisibleNode3, state: {}};
+  const invisibleNode3 = {root: {}, parent: invisibleNode2, state: {}};
+  const invisibleNode4 = {root: {}, parent: invisibleNode3, state: {}};
   assertEquals(
       NodeUtils.getNodeState(invisibleNode1),
       NodeUtils.NodeState.NODE_STATE_INVISIBLE);
@@ -54,8 +51,12 @@ TEST_F('SelectToSpeakNodeUtilsUnitTest', 'GetNodeVisibilityState', function() {
       NodeUtils.getNodeState(invisibleNode3),
       NodeUtils.NodeState.NODE_STATE_INVISIBLE);
 
-  let normalNode1 = {root: {}, parent: {role: 'window', state: {}}, state: {}};
-  let normalNode2 = {root: {}, parent: {normalNode1}, state: {}};
+  const normalNode1 = {
+    root: {},
+    parent: {role: 'window', state: {}},
+    state: {}
+  };
+  const normalNode2 = {root: {}, parent: {normalNode1}, state: {}};
   assertEquals(
       NodeUtils.getNodeState(normalNode1),
       NodeUtils.NodeState.NODE_STATE_NORMAL);
@@ -69,10 +70,11 @@ TEST_F(
     function() {
       // Currently nodes aren't actually marked 'invisible', so we need to
       // navigate up their tree.
-      let window = {root: {}, role: 'window', state: {invisible: true}};
-      let rootNode = {root: {}, parent: window, state: {}, role: 'rootWebArea'};
-      let container = {root: rootNode, parent: rootNode, state: {}};
-      let node = {root: rootNode, parent: container, state: {}};
+      const window = {root: {}, role: 'window', state: {invisible: true}};
+      const rootNode =
+          {root: {}, parent: window, state: {}, role: 'rootWebArea'};
+      const container = {root: rootNode, parent: rootNode, state: {}};
+      const node = {root: rootNode, parent: container, state: {}};
       assertEquals(
           NodeUtils.getNodeState(window),
           NodeUtils.NodeState.NODE_STATE_INVISIBLE);
@@ -86,9 +88,9 @@ TEST_F(
       // Make a fake iframe in this invisible window by adding another
       // RootWebArea. The iframe has no root but is parented to the container
       // above.
-      let iframeRoot = {parent: container, state: {}, role: 'rootWebArea'};
-      let iframeContainer = {root: iframeRoot, parent: iframeRoot, state: {}};
-      let iframeNode = {root: iframeRoot, parent: iframeContainer, state: {}};
+      const iframeRoot = {parent: container, state: {}, role: 'rootWebArea'};
+      const iframeContainer = {root: iframeRoot, parent: iframeRoot, state: {}};
+      const iframeNode = {root: iframeRoot, parent: iframeContainer, state: {}};
       assertEquals(
           NodeUtils.getNodeState(iframeContainer),
           NodeUtils.NodeState.NODE_STATE_INVISIBLE);
@@ -115,15 +117,15 @@ TEST_F(
     });
 
 TEST_F('SelectToSpeakNodeUtilsUnitTest', 'findAllMatching', function() {
-  let rect = {left: 0, top: 0, width: 100, height: 100};
-  let rootNode = {
+  const rect = {left: 0, top: 0, width: 100, height: 100};
+  const rootNode = {
     root: {},
     state: {},
     role: 'rootWebArea',
     state: {},
     location: {left: 0, top: 0, width: 600, height: 600}
   };
-  let container1 = {
+  const container1 = {
     root: rootNode,
     parent: rootNode,
     role: 'staticText',
@@ -131,14 +133,14 @@ TEST_F('SelectToSpeakNodeUtilsUnitTest', 'findAllMatching', function() {
     state: {},
     location: {left: 0, top: 0, width: 200, height: 200}
   };
-  let container2 = {
+  const container2 = {
     root: rootNode,
     parent: rootNode,
     state: {},
     role: 'genericContainer',
     location: {left: 0, top: 0, width: 200, height: 200}
   };
-  let node1 = {
+  const node1 = {
     root: rootNode,
     parent: container1,
     name: 'one',
@@ -146,7 +148,7 @@ TEST_F('SelectToSpeakNodeUtilsUnitTest', 'findAllMatching', function() {
     state: {},
     location: {left: 50, top: 0, width: 50, height: 50}
   };
-  let node2 = {
+  const node2 = {
     root: rootNode,
     parent: container1,
     name: 'two',
@@ -154,7 +156,7 @@ TEST_F('SelectToSpeakNodeUtilsUnitTest', 'findAllMatching', function() {
     state: {},
     location: {left: 0, top: 50, width: 50, height: 50}
   };
-  let node3 = {
+  const node3 = {
     root: rootNode,
     parent: container1,
     value: 'text',
@@ -219,7 +221,7 @@ TEST_F('SelectToSpeakNodeUtilsUnitTest', 'findAllMatching', function() {
   // A non staticText container without a name should still have
   // children found if they are valid.
   result = [];
-  let node4 = {
+  const node4 = {
     root: rootNode,
     parent: container2,
     name: 'four',
@@ -250,14 +252,14 @@ TEST_F('SelectToSpeakNodeUtilsUnitTest', 'findAllMatching', function() {
 
 TEST_F(
     'SelectToSpeakNodeUtilsUnitTest', 'findAllMatchingWithInputs', function() {
-      let rect = {left: 0, top: 0, width: 100, height: 100};
-      let rootNode = {
+      const rect = {left: 0, top: 0, width: 100, height: 100};
+      const rootNode = {
         root: {},
         state: {},
         role: 'rootWebArea',
         location: {left: 0, top: 0, width: 600, height: 600}
       };
-      let checkbox = {
+      const checkbox = {
         root: rootNode,
         parent: rootNode,
         role: 'checkBox',
@@ -268,33 +270,33 @@ TEST_F(
       rootNode.children = [checkbox];
       rootNode.firstChild = checkbox;
 
-      let result = [];
+      const result = [];
       assertTrue(NodeUtils.findAllMatching(rootNode, rect, result));
       assertEquals(1, result.length);
       assertEquals(checkbox, result[0]);
     });
 
 TEST_F(
-    'SelectToSpeakNodeUtilsUnitTest', 'getDeepEquivalentForSelectionNoChildren',
-    function() {
-      let node = {name: 'Hello, world', children: []};
-      let result = NodeUtils.getDeepEquivalentForSelection(node, 0);
+    'SelectToSpeakNodeUtilsUnitTest',
+    'getDeepEquivalentForSelectionDeprecatedNoChildren', function() {
+      const node = {name: 'Hello, world', children: []};
+      let result = NodeUtils.getDeepEquivalentForSelectionDeprecated(node, 0);
       assertEquals(node, result.node);
       assertEquals(0, result.offset);
 
-      result = NodeUtils.getDeepEquivalentForSelection(node, 6);
+      result = NodeUtils.getDeepEquivalentForSelectionDeprecated(node, 6);
       assertEquals(node, result.node);
       assertEquals(6, result.offset);
     });
 
 TEST_F(
     'SelectToSpeakNodeUtilsUnitTest',
-    'getDeepEquivalentForSelectionSimpleChildren', function() {
-      let child1 =
+    'getDeepEquivalentForSelectionDeprecatedSimpleChildren', function() {
+      const child1 =
           {name: 'Hello,', children: [], role: 'inlineTextBox', state: {}};
-      let child2 =
+      const child2 =
           {name: ' world', children: [], role: 'inlineTextBox', state: {}};
-      let root = {
+      const root = {
         name: 'Hello, world',
         children: [child1, child2],
         role: 'staticText',
@@ -302,35 +304,38 @@ TEST_F(
       };
       child1.parent = root;
       child2.parent = root;
-      let result = NodeUtils.getDeepEquivalentForSelection(root, 0, true);
+      let result =
+          NodeUtils.getDeepEquivalentForSelectionDeprecated(root, 0, true);
       assertEquals(child1, result.node);
       assertEquals(0, result.offset);
 
       // Get the last index of the first child
-      result = NodeUtils.getDeepEquivalentForSelection(root, 5, false);
+      result =
+          NodeUtils.getDeepEquivalentForSelectionDeprecated(root, 5, false);
       assertEquals(child1, result.node);
       assertEquals(5, result.offset);
 
       // Get the first index of the second child
-      result = NodeUtils.getDeepEquivalentForSelection(root, 6, true);
+      result = NodeUtils.getDeepEquivalentForSelectionDeprecated(root, 6, true);
       assertEquals(child2, result.node);
       assertEquals(0, result.offset);
 
-      result = NodeUtils.getDeepEquivalentForSelection(root, 9, true);
+      result = NodeUtils.getDeepEquivalentForSelectionDeprecated(root, 9, true);
       assertEquals(child2, result.node);
       assertEquals(3, result.offset);
     });
 
 TEST_F(
     'SelectToSpeakNodeUtilsUnitTest',
-    'getDeepEquivalentForSelectionComplexChildren', function() {
-      let child1 =
+    'getDeepEquivalentForSelectionDeprecatedComplexChildren', function() {
+      const child1 =
           {name: 'Hello', children: [], role: 'inlineTextBox', state: {}};
       // Empty name
-      let child2 =
+      const child2 =
           {name: undefined, children: [], role: 'inlineTextBox', state: {}};
-      let child3 = {name: ',', children: [], role: 'inlineTextBox', state: {}};
-      let child4 = {
+      const child3 =
+          {name: ',', children: [], role: 'inlineTextBox', state: {}};
+      const child4 = {
         name: 'Hello,',
         children: [child1, child2, child3],
         role: 'staticText',
@@ -342,10 +347,11 @@ TEST_F(
       child2.parent = child4;
       child3.parent = child4;
 
-      let child5 = {name: ' ', children: [], role: 'inlineTextBox', state: {}};
-      let child6 =
+      const child5 =
+          {name: ' ', children: [], role: 'inlineTextBox', state: {}};
+      const child6 =
           {name: 'world', children: [], role: 'inlineTextBox', state: {}};
-      let child7 = {
+      const child7 = {
         name: ' world',
         children: [child5, child6],
         role: 'staticText',
@@ -356,7 +362,7 @@ TEST_F(
       child5.parent = child7;
       child6.parent = child7;
 
-      let root = {
+      const root = {
         name: undefined,
         children: [child4, child7],
         role: 'genericContainer',
@@ -367,23 +373,27 @@ TEST_F(
       child4.parent = root;
       child7.parent = root;
 
-      let result = NodeUtils.getDeepEquivalentForSelection(root, 0, true);
+      let result =
+          NodeUtils.getDeepEquivalentForSelectionDeprecated(root, 0, true);
       assertEquals(child1, result.node);
       assertEquals(0, result.offset);
 
-      result = NodeUtils.getDeepEquivalentForSelection(root, 1, true);
+      result = NodeUtils.getDeepEquivalentForSelectionDeprecated(root, 1, true);
       assertEquals(child5, result.node);
       assertEquals(0, result.offset);
 
-      result = NodeUtils.getDeepEquivalentForSelection(root, 2, false);
+      result =
+          NodeUtils.getDeepEquivalentForSelectionDeprecated(root, 2, false);
       assertEquals(child6, result.node);
       assertEquals(5, result.offset);
 
-      result = NodeUtils.getDeepEquivalentForSelection(child4, 2, true);
+      result =
+          NodeUtils.getDeepEquivalentForSelectionDeprecated(child4, 2, true);
       assertEquals(child1, result.node);
       assertEquals(2, result.offset);
 
-      result = NodeUtils.getDeepEquivalentForSelection(child4, 5, true);
+      result =
+          NodeUtils.getDeepEquivalentForSelectionDeprecated(child4, 5, true);
       assertEquals(child3, result.node);
       assertEquals(0, result.offset);
     });

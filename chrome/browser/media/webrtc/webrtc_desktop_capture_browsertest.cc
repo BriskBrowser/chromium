@@ -13,6 +13,7 @@
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/ui_test_utils.h"
 #include "content/public/common/content_switches.h"
+#include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
 #include "media/base/media_switches.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
@@ -35,9 +36,6 @@ class WebRtcDesktopCaptureBrowserTest : public WebRtcTestBase {
     // Ensure the infobar is enabled, since we expect that in this test.
     EXPECT_FALSE(command_line->HasSwitch(switches::kUseFakeUIForMediaStream));
 
-    // Always use fake devices.
-    command_line->AppendSwitch(switches::kUseFakeDeviceForMediaStream);
-
     // Flags use to automatically select the right dekstop source and get
     // around security restrictions.
     command_line->AppendSwitchASCII(switches::kAutoSelectDesktopCaptureSource,
@@ -49,7 +47,7 @@ class WebRtcDesktopCaptureBrowserTest : public WebRtcTestBase {
   void DetectVideoAndHangUp() {
     StartDetectingVideo(left_tab_, "remote-view");
     StartDetectingVideo(right_tab_, "remote-view");
-#if !defined(OS_MACOSX)
+#if !defined(OS_MAC)
     // Video is choppy on Mac OS X. http://crbug.com/443542.
     WaitForVideoToPlay(left_tab_);
     WaitForVideoToPlay(right_tab_);

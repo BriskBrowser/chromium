@@ -8,7 +8,7 @@
 #include <utility>
 
 #include "base/files/file_util.h"
-#include "base/logging.h"
+#include "chrome/browser/chromeos/service_sandbox_type.h"
 #include "chromeos/constants/chromeos_features.h"
 #include "chromeos/services/ime/constants.h"
 #include "chromeos/strings/grit/chromeos_strings.h"
@@ -108,15 +108,10 @@ void ImeServiceConnector::DownloadImeFileTo(
 void ImeServiceConnector::SetupImeService(
     mojo::PendingReceiver<chromeos::ime::mojom::InputEngineManager> receiver) {
   if (!remote_service_) {
-    auto kImeServiceSandboxType =
-        chromeos::features::IsImeDecoderWithSandboxEnabled()
-            ? service_manager::SandboxType::kIme
-            : service_manager::SandboxType::kUtility;
     content::ServiceProcessHost::Launch(
         remote_service_.BindNewPipeAndPassReceiver(),
         content::ServiceProcessHost::Options()
             .WithDisplayName(IDS_IME_SERVICE_DISPLAY_NAME)
-            .WithSandboxType(kImeServiceSandboxType)
             .Pass());
     remote_service_.reset_on_disconnect();
 

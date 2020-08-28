@@ -10,6 +10,7 @@
 
 #include "ash/public/cpp/app_list/app_list_features.h"
 #include "base/command_line.h"
+#include "base/memory/ptr_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/scoped_feature_list.h"
@@ -153,9 +154,6 @@ class TestSearchResult : public ChromeSearchResult {
   void SetId(const std::string& str) {
     // set_id is protected in chromesearchresult.
     ChromeSearchResult::set_id(str);
-  }
-  ash::SearchResultType GetSearchResultType() const override {
-    return ash::SEARCH_RESULT_TYPE_BOUNDARY;
   }
 };
 }  // namespace

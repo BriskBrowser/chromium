@@ -61,6 +61,18 @@ Polymer({
             'showExperimentalAccessibilitySwitchAccess');
       },
     },
+
+    /**
+     * Whether the user is in kiosk mode.
+     * @private
+     */
+    isKioskModeActive_: {
+      type: Boolean,
+      value: function() {
+        return loadTimeData.getBoolean('isKioskModeActive');
+      }
+    },
+
   },
 
   /** @override */
@@ -68,7 +80,9 @@ Polymer({
     this.addWebUIListener(
         'screen-reader-state-changed',
         this.onScreenReaderStateChanged_.bind(this));
-    chrome.send('getScreenReaderState');
+
+    // Enables javascript and gets the screen reader state.
+    chrome.send('a11yPageReady');
   },
 
   /**
@@ -87,14 +101,12 @@ Polymer({
     if (a11yImageLabelsOn) {
       chrome.send('confirmA11yImageLabels');
     }
-    chrome.metricsPrivate.recordBoolean(
-        'Accessibility.ImageLabels.FromSettings.ToggleSetting',
-        a11yImageLabelsOn);
   },
 
   /** @private */
   onManageAccessibilityFeaturesTap_() {
-    settings.navigateTo(settings.routes.MANAGE_ACCESSIBILITY);
+    settings.Router.getInstance().navigateTo(
+        settings.routes.MANAGE_ACCESSIBILITY);
   },
 
 });

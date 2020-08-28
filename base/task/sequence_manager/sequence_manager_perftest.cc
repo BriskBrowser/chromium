@@ -8,6 +8,7 @@
 #include <memory>
 
 #include "base/bind.h"
+#include "base/logging.h"
 #include "base/message_loop/message_pump_default.h"
 #include "base/message_loop/message_pump_type.h"
 #include "base/run_loop.h"
@@ -23,6 +24,7 @@
 #include "base/task/sequence_manager/test/test_task_time_observer.h"
 #include "base/task/sequence_manager/thread_controller_with_message_pump_impl.h"
 #include "base/task/task_traits.h"
+#include "base/task/thread_pool.h"
 #include "base/task/thread_pool/thread_pool_impl.h"
 #include "base/task/thread_pool/thread_pool_instance.h"
 #include "base/threading/thread.h"
@@ -207,8 +209,8 @@ class SingleThreadInThreadPoolPerfTestDelegate : public PerfTestDelegate {
   bool MultipleQueuesSupported() const override { return false; }
 
   scoped_refptr<TaskRunner> CreateTaskRunner() override {
-    return CreateSingleThreadTaskRunner(
-        {ThreadPool(), TaskPriority::USER_BLOCKING});
+    return ThreadPool::CreateSingleThreadTaskRunner(
+        {TaskPriority::USER_BLOCKING});
   }
 
   void WaitUntilDone() override {

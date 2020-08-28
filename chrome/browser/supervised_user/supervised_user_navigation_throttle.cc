@@ -5,10 +5,11 @@
 #include "chrome/browser/supervised_user/supervised_user_navigation_throttle.h"
 
 #include "base/bind.h"
+#include "base/check_op.h"
 #include "base/location.h"
-#include "base/logging.h"
 #include "base/memory/ptr_util.h"
 #include "base/metrics/histogram_functions.h"
+#include "base/notreached.h"
 #include "base/single_thread_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "chrome/browser/profiles/profile.h"
@@ -29,12 +30,12 @@ namespace {
 enum {
   FILTERING_BEHAVIOR_ALLOW = 1,
   FILTERING_BEHAVIOR_ALLOW_UNCERTAIN,
-  FILTERING_BEHAVIOR_BLOCK_BLACKLIST,
+  FILTERING_BEHAVIOR_BLOCK_DENYLIST,
   FILTERING_BEHAVIOR_BLOCK_SAFESITES,
   FILTERING_BEHAVIOR_BLOCK_MANUAL,
   FILTERING_BEHAVIOR_BLOCK_DEFAULT,
-  FILTERING_BEHAVIOR_ALLOW_WHITELIST,
-  FILTERING_BEHAVIOR_MAX = FILTERING_BEHAVIOR_ALLOW_WHITELIST
+  FILTERING_BEHAVIOR_ALLOW_ALLOWLIST,
+  FILTERING_BEHAVIOR_MAX = FILTERING_BEHAVIOR_ALLOW_ALLOWLIST
 };
 const int kHistogramFilteringBehaviorSpacing = 100;
 const int kHistogramPageTransitionMaxKnownValue =
@@ -58,17 +59,17 @@ int GetHistogramValueForFilteringBehavior(
   switch (behavior) {
     case SupervisedUserURLFilter::ALLOW:
     case SupervisedUserURLFilter::WARN:
-      if (reason == supervised_user_error_page::WHITELIST)
-        return FILTERING_BEHAVIOR_ALLOW_WHITELIST;
+      if (reason == supervised_user_error_page::ALLOWLIST)
+        return FILTERING_BEHAVIOR_ALLOW_ALLOWLIST;
       return uncertain ? FILTERING_BEHAVIOR_ALLOW_UNCERTAIN
                        : FILTERING_BEHAVIOR_ALLOW;
     case SupervisedUserURLFilter::BLOCK:
       switch (reason) {
-        case supervised_user_error_page::BLACKLIST:
-          return FILTERING_BEHAVIOR_BLOCK_BLACKLIST;
+        case supervised_user_error_page::DENYLIST:
+          return FILTERING_BEHAVIOR_BLOCK_DENYLIST;
         case supervised_user_error_page::ASYNC_CHECKER:
           return FILTERING_BEHAVIOR_BLOCK_SAFESITES;
-        case supervised_user_error_page::WHITELIST:
+        case supervised_user_error_page::ALLOWLIST:
           NOTREACHED();
           break;
         case supervised_user_error_page::MANUAL:
@@ -115,23 +116,6 @@ void RecordFilterResultEvent(
     base::UmaHistogramSparse("ManagedUsers.FilteringResult", value);
 }
 
-bool IsMainFrameWhitelisted(content::WebContents* web_contents) {
-  auto* navigation_observer =
-      SupervisedUserNavigationObserver::FromWebContents(web_contents);
-  if (!navigation_observer)
-    return false;
-  auto behavior = navigation_observer->main_frame_filtering_behavior();
-  auto reason = navigation_observer->main_frame_filtering_behavior_reason();
-  bool is_allowed =
-      behavior == SupervisedUserURLFilter::FilteringBehavior::ALLOW;
-  bool is_whitelisted =
-      reason == supervised_user_error_page::FilteringBehaviorReason::WHITELIST;
-  bool is_manual =
-      reason == supervised_user_error_page::FilteringBehaviorReason::MANUAL;
-
-  return is_allowed && (is_whitelisted || is_manual);
-}
-
 }  // namespace
 
 // static
@@ -148,11 +132,6 @@ SupervisedUserNavigationThrottle::MaybeCreateThrottleFor(
     SupervisedUserService* service =
         SupervisedUserServiceFactory::GetForProfile(profile);
     if (!service->IsSupervisedUserIframeFilterEnabled())
-      return nullptr;
-
-    // If the url in the main main frame has already been whitelisted by
-    // parents, then don't create the throttle for the subframe.
-    if (IsMainFrameWhitelisted(navigation_handle->GetWebContents()))
       return nullptr;
   }
 
@@ -179,9 +158,15 @@ SupervisedUserNavigationThrottle::CheckURL() {
   deferred_ = false;
   DCHECK_EQ(SupervisedUserURLFilter::INVALID, behavior_);
   GURL url = navigation_handle()->GetURL();
+
+  bool skip_manual_parent_filter =
+      url_filter_->ShouldSkipParentManualAllowlistFiltering(
+          navigation_handle()->GetWebContents()->GetOutermostWebContents());
   bool got_result = url_filter_->GetFilteringBehaviorForURLWithAsyncChecks(
-      url, base::Bind(&SupervisedUserNavigationThrottle::OnCheckDone,
-                      weak_ptr_factory_.GetWeakPtr(), url));
+      url,
+      base::BindOnce(&SupervisedUserNavigationThrottle::OnCheckDone,
+                     weak_ptr_factory_.GetWeakPtr(), url),
+      skip_manual_parent_filter);
   DCHECK_EQ(got_result, behavior_ != SupervisedUserURLFilter::INVALID);
   // If we got a "not blocked" result synchronously, don't defer.
   deferred_ = !got_result || (behavior_ == SupervisedUserURLFilter::BLOCK);
@@ -249,11 +234,11 @@ void SupervisedUserNavigationThrottle::OnCheckDone(
 
   RecordFilterResultEvent(false, behavior, reason, uncertain, transition);
 
-  // If both the static blacklist and the async checker are enabled, also record
+  // If both the static denylist and the async checker are enabled, also record
   // SafeSites-only UMA events.
-  if (url_filter_->HasBlacklist() && url_filter_->HasAsyncURLChecker() &&
+  if (url_filter_->HasDenylist() && url_filter_->HasAsyncURLChecker() &&
       (reason == supervised_user_error_page::ASYNC_CHECKER ||
-       reason == supervised_user_error_page::BLACKLIST)) {
+       reason == supervised_user_error_page::DENYLIST)) {
     RecordFilterResultEvent(true, behavior, reason, uncertain, transition);
   }
 
@@ -273,7 +258,9 @@ void SupervisedUserNavigationThrottle::OnCheckDone(
 }
 
 void SupervisedUserNavigationThrottle::OnInterstitialResult(
-    CallbackActions action) {
+    CallbackActions action,
+    bool already_sent_request,
+    bool is_main_frame) {
   switch (action) {
     case kCancelNavigation: {
       CancelDeferredNavigation(CANCEL);
@@ -284,7 +271,7 @@ void SupervisedUserNavigationThrottle::OnInterstitialResult(
           SupervisedUserInterstitial::GetHTMLContents(
               Profile::FromBrowserContext(
                   navigation_handle()->GetWebContents()->GetBrowserContext()),
-              reason_);
+              reason_, already_sent_request, is_main_frame);
       CancelDeferredNavigation(content::NavigationThrottle::ThrottleCheckResult(
           CANCEL, net::ERR_BLOCKED_BY_CLIENT, interstitial_html));
     }

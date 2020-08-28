@@ -18,20 +18,24 @@
 #include "base/macros.h"
 #include "base/no_destructor.h"
 #include "base/stl_util.h"
+#include "base/strings/strcat.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
+#include "base/strings/utf_string_conversions.h"
 #include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
 #include "base/task_runner_util.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/supervised_user/experimental/supervised_user_blacklist.h"
 #include "chrome/browser/supervised_user/kids_management_url_checker_client.h"
+#include "chrome/browser/supervised_user/supervised_user_denylist.h"
 #include "chrome/common/chrome_features.h"
-#include "components/policy/core/browser/url_blacklist_manager.h"
+#include "chrome/common/webui_url_constants.h"
 #include "components/policy/core/browser/url_util.h"
-#include "components/safe_search_api/safe_search/safe_search_url_checker_client.h"
+#include "components/url_formatter/url_formatter.h"
 #include "components/url_matcher/url_matcher.h"
 #include "components/variations/service/variations_service.h"
 #include "content/public/browser/browser_thread.h"
+#include "content/public/browser/web_contents.h"
 #include "extensions/buildflags/buildflags.h"
 #include "net/base/registry_controlled_domains/registry_controlled_domain.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
@@ -99,13 +103,16 @@ const char* const kCrxDownloadUrls[] = {
     "https://chrome.google.com/webstore/download/"};
 #endif
 
-// Whitelisted origins:
+// Allowed origins:
 const char kFamiliesSecureUrl[] = "https://families.google.com/";
 const char kFamiliesUrl[] = "http://families.google.com/";
 
 // Play Store terms of service path:
 const char kPlayStoreHost[] = "play.google.com";
 const char kPlayTermsPath[] = "/about/play-terms";
+
+// accounts.google.com used for login:
+const char kAccountsGoogleUrl[] = "https://accounts.google.com";
 
 // This class encapsulates all the state that is required during construction of
 // a new SupervisedUserURLFilter::Contents.
@@ -182,7 +189,7 @@ std::unique_ptr<SupervisedUserURLFilter::Contents> FilterBuilder::Build() {
 }
 
 std::unique_ptr<SupervisedUserURLFilter::Contents>
-CreateWhitelistFromPatternsForTesting(
+CreateAllowlistFromPatternsForTesting(
     const std::vector<std::string>& patterns) {
   FilterBuilder builder;
   for (const std::string& pattern : patterns)
@@ -192,7 +199,7 @@ CreateWhitelistFromPatternsForTesting(
 }
 
 std::unique_ptr<SupervisedUserURLFilter::Contents>
-CreateWhitelistsFromSiteListsForTesting(
+CreateAllowlistsFromSiteListsForTesting(
     const std::vector<scoped_refptr<SupervisedUserSiteList>>& site_lists) {
   FilterBuilder builder;
   for (const scoped_refptr<SupervisedUserSiteList>& site_list : site_lists)
@@ -200,7 +207,7 @@ CreateWhitelistsFromSiteListsForTesting(
   return builder.Build();
 }
 
-std::unique_ptr<SupervisedUserURLFilter::Contents> LoadWhitelistsAsyncThread(
+std::unique_ptr<SupervisedUserURLFilter::Contents> LoadAllowlistsAsyncThread(
     const std::vector<scoped_refptr<SupervisedUserSiteList>>& site_lists) {
   FilterBuilder builder;
   for (const scoped_refptr<SupervisedUserSiteList>& site_list : site_lists)
@@ -214,14 +221,25 @@ std::unique_ptr<SupervisedUserURLFilter::Contents> LoadWhitelistsAsyncThread(
 SupervisedUserURLFilter::SupervisedUserURLFilter()
     : default_behavior_(ALLOW),
       contents_(new Contents()),
-      blacklist_(nullptr),
-      blocking_task_runner_(base::CreateTaskRunner(
-          {base::ThreadPool(), base::MayBlock(),
-           base::TaskPriority::BEST_EFFORT,
+      denylist_(nullptr),
+      blocking_task_runner_(base::ThreadPool::CreateTaskRunner(
+          {base::MayBlock(), base::TaskPriority::BEST_EFFORT,
            base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN})) {}
 
 SupervisedUserURLFilter::~SupervisedUserURLFilter() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+}
+
+// static
+bool SupervisedUserURLFilter::ShouldSkipParentManualAllowlistFiltering(
+    content::WebContents* contents) {
+  // Note that |contents| can be an inner WebContents. Get the outer most
+  // WebContents and check if it belongs to the EDUCoexistence login flow.
+  content::WebContents* outer_most_content =
+      contents->GetOutermostWebContents();
+
+  return outer_most_content->GetURL() ==
+         GURL(chrome::kChromeUIEDUCoexistenceLoginURL);
 }
 
 // static
@@ -245,8 +263,20 @@ bool SupervisedUserURLFilter::HasFilteredScheme(const GURL& url) {
 bool SupervisedUserURLFilter::HostMatchesPattern(
     const std::string& canonical_host,
     const std::string& pattern) {
-  std::string trimmed_pattern = pattern;
+  // If |canonical_host| starts with |www.| but |pattern| starts with neither
+  // |www.| nor |*.| then trim |www.| part of canonical host.
+  bool is_host_www =
+      base::StartsWith(canonical_host, "www.", base::CompareCase::SENSITIVE);
+  bool patern_accepts =
+      base::StartsWith(pattern, "www.", base::CompareCase::SENSITIVE) ||
+      base::StartsWith(pattern, "*.", base::CompareCase::SENSITIVE);
+
   std::string trimmed_host = canonical_host;
+  if (is_host_www && !patern_accepts) {
+    trimmed_host = url_formatter::StripWWW(canonical_host);
+  }
+
+  std::string trimmed_pattern = pattern;
   if (base::EndsWith(pattern, ".*", base::CompareCase::SENSITIVE)) {
     size_t registry_length = GetCanonicalHostRegistryLength(
         trimmed_host, EXCLUDE_UNKNOWN_REGISTRIES, EXCLUDE_PRIVATE_REGISTRIES);
@@ -332,11 +362,13 @@ SupervisedUserURLFilter::GetFilteringBehaviorForURL(
   }
 #endif
 
-  // Allow navigations to whitelisted origins (currently families.google.com).
-  static const base::NoDestructor<base::flat_set<GURL>> kWhitelistedOrigins(
+  // Allow navigations to allowed origins (currently families.google.com and
+  // accounts.google.com).
+  static const base::NoDestructor<base::flat_set<GURL>> kAllowedOrigins(
       base::flat_set<GURL>({GURL(kFamiliesUrl).GetOrigin(),
-                            GURL(kFamiliesSecureUrl).GetOrigin()}));
-  if (base::Contains(*kWhitelistedOrigins, effective_url.GetOrigin()))
+                            GURL(kFamiliesSecureUrl).GetOrigin(),
+                            GURL(kAccountsGoogleUrl).GetOrigin()}));
+  if (base::Contains(*kAllowedOrigins, effective_url.GetOrigin()))
     return ALLOW;
 
   // Check Play Store terms of service.
@@ -349,7 +381,7 @@ SupervisedUserURLFilter::GetFilteringBehaviorForURL(
     return ALLOW;
   }
 
-  // Check manual blacklists and whitelists.
+  // Check manual denylists and allowlists.
   FilteringBehavior manual_result =
       GetManualFilteringBehaviorForURL(effective_url);
   if (manual_result != INVALID)
@@ -360,22 +392,31 @@ SupervisedUserURLFilter::GetFilteringBehaviorForURL(
       contents_->url_matcher.MatchURL(effective_url);
 
   if (!matching_ids.empty()) {
-    *reason = supervised_user_error_page::WHITELIST;
+    *reason = supervised_user_error_page::ALLOWLIST;
     return ALLOW;
   }
 
   // Check the list of hostname hashes.
   if (contents_->hostname_hashes.count(HostnameHash(effective_url.host()))) {
-    *reason = supervised_user_error_page::WHITELIST;
+    *reason = supervised_user_error_page::ALLOWLIST;
     return ALLOW;
   }
 
-  // Check the static blacklist, unless the default is to block anyway.
-  if (!manual_only && default_behavior_ != BLOCK && blacklist_ &&
-      blacklist_->HasURL(effective_url)) {
-    *reason = supervised_user_error_page::BLACKLIST;
+  // Check the static denylist, unless the default is to block anyway.
+  if (!manual_only && default_behavior_ != BLOCK && denylist_ &&
+      denylist_->HasURL(effective_url)) {
+    *reason = supervised_user_error_page::DENYLIST;
     return BLOCK;
   }
+
+#if BUILDFLAG(ENABLE_EXTENSIONS)
+  // The user requested the Chrome Webstore, and it
+  // hasn't specifically been blocked above, so allow.
+  if (policy::url_util::Normalize(effective_url).host() ==
+      extension_urls::GetWebstoreLaunchURL().host()) {
+    return ALLOW;
+  }
+#endif
 
   // Fall back to the default behavior.
   *reason = supervised_user_error_page::DEFAULT;
@@ -383,7 +424,7 @@ SupervisedUserURLFilter::GetFilteringBehaviorForURL(
 }
 
 // There may be conflicting patterns, say, "allow *.google.com" and "block
-// www.google.*". To break the tie, we prefer blacklists over whitelists, by
+// www.google.*". To break the tie, we prefer denylists over allowlists, by
 // returning early if there is a BLOCK and evaluating all manual overrides
 // before returning an ALLOW. If there are no applicable manual overrides,
 // return INVALID.
@@ -424,17 +465,27 @@ SupervisedUserURLFilter::GetManualFilteringBehaviorForURL(
 
 bool SupervisedUserURLFilter::GetFilteringBehaviorForURLWithAsyncChecks(
     const GURL& url,
-    FilteringBehaviorCallback callback) const {
-  supervised_user_error_page::FilteringBehaviorReason reason =
-      supervised_user_error_page::DEFAULT;
-  FilteringBehavior behavior = GetFilteringBehaviorForURL(url, false, &reason);
-  // Any non-default reason trumps the async checker.
-  // Also, if we're blocking anyway, then there's no need to check it.
-  if (reason != supervised_user_error_page::DEFAULT || behavior == BLOCK ||
-      !async_url_checker_) {
-    std::move(callback).Run(behavior, reason, false);
-    for (Observer& observer : observers_)
-      observer.OnURLChecked(url, behavior, reason, false);
+    FilteringBehaviorCallback callback,
+    bool skip_manual_parent_filter) const {
+  if (!skip_manual_parent_filter) {
+    supervised_user_error_page::FilteringBehaviorReason reason =
+        supervised_user_error_page::DEFAULT;
+    FilteringBehavior behavior =
+        GetFilteringBehaviorForURL(url, false, &reason);
+    // Any non-default reason trumps the async checker.
+    // Also, if we're blocking anyway, then there's no need to check it.
+    if (reason != supervised_user_error_page::DEFAULT || behavior == BLOCK ||
+        !async_url_checker_) {
+      std::move(callback).Run(behavior, reason, false);
+      for (Observer& observer : observers_)
+        observer.OnURLChecked(url, behavior, reason, false);
+      return true;
+    }
+  }
+
+  if (!async_url_checker_) {
+    std::move(callback).Run(FilteringBehavior::ALLOW,
+                            supervised_user_error_page::DEFAULT, false);
     return true;
   }
 
@@ -445,8 +496,8 @@ bool SupervisedUserURLFilter::GetFilteringBehaviorForURLWithAsyncChecks(
 }
 
 std::map<std::string, base::string16>
-SupervisedUserURLFilter::GetMatchingWhitelistTitles(const GURL& url) const {
-  std::map<std::string, base::string16> whitelists;
+SupervisedUserURLFilter::GetMatchingAllowlistTitles(const GURL& url) const {
+  std::map<std::string, base::string16> allowlists;
 
   std::set<URLMatcherConditionSet::ID> matching_ids =
       contents_->url_matcher.MatchURL(url);
@@ -454,17 +505,17 @@ SupervisedUserURLFilter::GetMatchingWhitelistTitles(const GURL& url) const {
   for (const auto& matching_id : matching_ids) {
     const scoped_refptr<SupervisedUserSiteList>& site_list =
         contents_->site_lists_by_matcher_id[matching_id];
-    whitelists[site_list->id()] = site_list->title();
+    allowlists[site_list->id()] = site_list->title();
   }
 
   // Add the site lists that match the URL hostname hash to the map of
-  // whitelists (IDs -> titles).
+  // allowlists (IDs -> titles).
   const auto& range =
       contents_->hostname_hashes.equal_range(HostnameHash(url.host()));
   for (auto it = range.first; it != range.second; ++it)
-    whitelists[it->second->id()] = it->second->title();
+    allowlists[it->second->id()] = it->second->title();
 
-  return whitelists;
+  return allowlists;
 }
 
 void SupervisedUserURLFilter::SetDefaultFilteringBehavior(
@@ -478,24 +529,24 @@ SupervisedUserURLFilter::GetDefaultFilteringBehavior() const {
   return default_behavior_;
 }
 
-void SupervisedUserURLFilter::LoadWhitelists(
+void SupervisedUserURLFilter::LoadAllowlists(
     const std::vector<scoped_refptr<SupervisedUserSiteList>>& site_lists) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
   base::PostTaskAndReplyWithResult(
       blocking_task_runner_.get(), FROM_HERE,
-      base::Bind(&LoadWhitelistsAsyncThread, site_lists),
-      base::Bind(&SupervisedUserURLFilter::SetContents,
-                 weak_ptr_factory_.GetWeakPtr()));
+      base::BindOnce(&LoadAllowlistsAsyncThread, site_lists),
+      base::BindOnce(&SupervisedUserURLFilter::SetContents,
+                     weak_ptr_factory_.GetWeakPtr()));
 }
 
-void SupervisedUserURLFilter::SetBlacklist(
-    const SupervisedUserBlacklist* blacklist) {
-  blacklist_ = blacklist;
+void SupervisedUserURLFilter::SetDenylist(
+    const SupervisedUserDenylist* denylist) {
+  denylist_ = denylist;
 }
 
-bool SupervisedUserURLFilter::HasBlacklist() const {
-  return !!blacklist_;
+bool SupervisedUserURLFilter::HasDenylist() const {
+  return !!denylist_;
 }
 
 void SupervisedUserURLFilter::SetFromPatternsForTesting(
@@ -504,9 +555,9 @@ void SupervisedUserURLFilter::SetFromPatternsForTesting(
 
   base::PostTaskAndReplyWithResult(
       blocking_task_runner_.get(), FROM_HERE,
-      base::Bind(&CreateWhitelistFromPatternsForTesting, patterns),
-      base::Bind(&SupervisedUserURLFilter::SetContents,
-                 weak_ptr_factory_.GetWeakPtr()));
+      base::BindOnce(&CreateAllowlistFromPatternsForTesting, patterns),
+      base::BindOnce(&SupervisedUserURLFilter::SetContents,
+                     weak_ptr_factory_.GetWeakPtr()));
 }
 
 void SupervisedUserURLFilter::SetFromSiteListsForTesting(
@@ -515,9 +566,9 @@ void SupervisedUserURLFilter::SetFromSiteListsForTesting(
 
   base::PostTaskAndReplyWithResult(
       blocking_task_runner_.get(), FROM_HERE,
-      base::Bind(&CreateWhitelistsFromSiteListsForTesting, site_lists),
-      base::Bind(&SupervisedUserURLFilter::SetContents,
-                 weak_ptr_factory_.GetWeakPtr()));
+      base::BindOnce(&CreateAllowlistsFromSiteListsForTesting, site_lists),
+      base::BindOnce(&SupervisedUserURLFilter::SetContents,
+                     weak_ptr_factory_.GetWeakPtr()));
 }
 
 void SupervisedUserURLFilter::SetManualHosts(
@@ -542,40 +593,8 @@ void SupervisedUserURLFilter::InitAsyncURLChecker(
       country = variations_service->GetLatestCountry();
   }
 
-  std::unique_ptr<safe_search_api::URLCheckerClient> url_checker_client;
-
-  if ((base::FeatureList::IsEnabled(
-          features::kKidsManagementUrlClassification))) {
-    url_checker_client =
-        std::make_unique<KidsManagementURLCheckerClient>(country);
-  } else {
-    // TODO(crbug.com/940454): remove safe_search_checker
-    net::NetworkTrafficAnnotationTag traffic_annotation =
-        net::DefineNetworkTrafficAnnotation("supervised_user_url_filter", R"(
-        semantics {
-          sender: "Supervised Users"
-          description:
-            "Checks whether a given URL (or set of URLs) is considered safe by "
-            "Google SafeSearch."
-          trigger:
-            "If the parent enabled this feature for the child account, this is "
-            "sent for every navigation."
-          data: "URL(s) to be checked."
-          destination: GOOGLE_OWNED_SERVICE
-        }
-        policy {
-          cookies_allowed: NO
-          setting:
-            "This feature is only used in child accounts and cannot be "
-            "disabled by settings. Parent accounts can disable it in the "
-            "family dashboard."
-          policy_exception_justification: "Not implemented."
-        })");
-    url_checker_client =
-        std::make_unique<safe_search_api::SafeSearchURLCheckerClient>(
-            std::move(url_loader_factory), traffic_annotation, country);
-  }
-
+  std::unique_ptr<safe_search_api::URLCheckerClient> url_checker_client =
+      std::make_unique<KidsManagementURLCheckerClient>(country);
   async_url_checker_ = std::make_unique<safe_search_api::URLChecker>(
       std::move(url_checker_client));
 }
@@ -593,7 +612,7 @@ void SupervisedUserURLFilter::Clear() {
   SetContents(std::make_unique<Contents>());
   url_map_.clear();
   host_map_.clear();
-  blacklist_ = nullptr;
+  denylist_ = nullptr;
   async_url_checker_.reset();
 }
 
@@ -622,11 +641,8 @@ void SupervisedUserURLFilter::CheckCallback(
     const GURL& url,
     safe_search_api::Classification classification,
     bool uncertain) const {
-  DCHECK(default_behavior_ != BLOCK);
-
   FilteringBehavior behavior =
       GetBehaviorFromSafeSearchClassification(classification);
-
   std::move(callback).Run(behavior, supervised_user_error_page::ASYNC_CHECKER,
                           uncertain);
   for (Observer& observer : observers_) {

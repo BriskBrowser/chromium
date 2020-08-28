@@ -11,10 +11,15 @@
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
+#include "content/browser/service_worker/service_worker_accessed_callback.h"
 #include "content/browser/service_worker/service_worker_container_host.h"
 #include "content/browser/service_worker/service_worker_controllee_request_handler.h"
 #include "content/common/content_export.h"
 #include "services/network/public/mojom/network_context.mojom.h"
+
+namespace network {
+struct CrossOriginEmbedderPolicy;
+}
 
 namespace content {
 
@@ -32,7 +37,8 @@ class CONTENT_EXPORT ServiceWorkerMainResourceHandleCore {
  public:
   ServiceWorkerMainResourceHandleCore(
       base::WeakPtr<ServiceWorkerMainResourceHandle> ui_handle,
-      ServiceWorkerContextWrapper* context_wrapper);
+      ServiceWorkerContextWrapper* context_wrapper,
+      ServiceWorkerAccessedCallback on_service_worker_accessed);
   ~ServiceWorkerMainResourceHandleCore();
 
   // Called by corresponding methods in ServiceWorkerMainResourceHandle. See
@@ -40,9 +46,12 @@ class CONTENT_EXPORT ServiceWorkerMainResourceHandleCore {
   void OnBeginNavigationCommit(
       int render_process_id,
       int render_frame_id,
-      network::mojom::CrossOriginEmbedderPolicy cross_origin_embedder_policy);
+      const network::CrossOriginEmbedderPolicy& cross_origin_embedder_policy,
+      mojo::PendingRemote<network::mojom::CrossOriginEmbedderPolicyReporter>
+          coep_reporter);
+  void OnEndNavigationCommit();
   void OnBeginWorkerCommit(
-      network::mojom::CrossOriginEmbedderPolicy cross_origin_embedder_policy);
+      const network::CrossOriginEmbedderPolicy& cross_origin_embedder_policy);
 
   ServiceWorkerContextWrapper* context_wrapper() const {
     return context_wrapper_.get();
@@ -66,6 +75,10 @@ class CONTENT_EXPORT ServiceWorkerMainResourceHandleCore {
     return interceptor_.get();
   }
 
+  const ServiceWorkerAccessedCallback& service_worker_accessed_callback() {
+    return service_worker_accessed_callback_;
+  }
+
   base::WeakPtr<ServiceWorkerMainResourceHandleCore> AsWeakPtr() {
     return weak_factory_.GetWeakPtr();
   }
@@ -75,6 +88,8 @@ class CONTENT_EXPORT ServiceWorkerMainResourceHandleCore {
   base::WeakPtr<ServiceWorkerMainResourceHandle> ui_handle_;
   base::WeakPtr<ServiceWorkerContainerHost> container_host_;
   std::unique_ptr<ServiceWorkerControlleeRequestHandler> interceptor_;
+  ServiceWorkerAccessedCallback service_worker_accessed_callback_;
+
   base::WeakPtrFactory<ServiceWorkerMainResourceHandleCore> weak_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(ServiceWorkerMainResourceHandleCore);

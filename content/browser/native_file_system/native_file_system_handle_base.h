@@ -35,9 +35,7 @@ namespace content {
 // sequence. That sequence also has to be the same sequence on which the
 // NativeFileSystemPermissionContext expects to be interacted with, which
 // is the UI thread.
-class CONTENT_EXPORT NativeFileSystemHandleBase
-    : public NativeFileSystemPermissionGrant::Observer,
-      public WebContentsObserver {
+class CONTENT_EXPORT NativeFileSystemHandleBase : public WebContentsObserver {
  public:
   using BindingContext = NativeFileSystemManagerImpl::BindingContext;
   using SharedHandleState = NativeFileSystemManagerImpl::SharedHandleState;
@@ -46,8 +44,7 @@ class CONTENT_EXPORT NativeFileSystemHandleBase
   NativeFileSystemHandleBase(NativeFileSystemManagerImpl* manager,
                              const BindingContext& context,
                              const storage::FileSystemURL& url,
-                             const SharedHandleState& handle_state,
-                             bool is_directory);
+                             const SharedHandleState& handle_state);
   ~NativeFileSystemHandleBase() override;
 
   const storage::FileSystemURL& url() const { return url_; }
@@ -77,7 +74,8 @@ class CONTENT_EXPORT NativeFileSystemHandleBase
   template <typename CallbackArgType>
   void RunWithWritePermission(
       base::OnceCallback<void(CallbackArgType)> callback,
-      base::OnceCallback<void(CallbackArgType)> no_permission_callback,
+      base::OnceCallback<void(blink::mojom::NativeFileSystemErrorPtr,
+                              CallbackArgType)> no_permission_callback,
       CallbackArgType callback_arg);
 
  protected:
@@ -92,9 +90,6 @@ class CONTENT_EXPORT NativeFileSystemHandleBase
   }
 
   virtual base::WeakPtr<NativeFileSystemHandleBase> AsWeakPtr() = 0;
-
-  // NativeFileSystemPermissionGrant::Observer:
-  void OnPermissionStatusChanged() override;
 
   // Invokes |method| on the correct sequence on this handle's
   // FileSystemOperationRunner, passing |args| and a callback to the method. The
@@ -195,7 +190,8 @@ class CONTENT_EXPORT NativeFileSystemHandleBase
       NativeFileSystemPermissionGrant::PermissionRequestOutcome outcome);
 
   bool ShouldTrackUsage() const {
-    return url_.type() == storage::kFileSystemTypeNativeLocal;
+    return url_.type() != storage::kFileSystemTypeTemporary &&
+           url_.type() != storage::kFileSystemTypeTest;
   }
 
   // The NativeFileSystemManagerImpl that owns this instance.
@@ -204,26 +200,22 @@ class CONTENT_EXPORT NativeFileSystemHandleBase
   const storage::FileSystemURL url_;
   const SharedHandleState handle_state_;
 
-  base::FilePath directory_for_usage_tracking_;
-  bool was_readable_at_last_check_ = false;
-  bool was_writable_at_last_check_ = false;
-
-  void UpdateUsage();
-
   DISALLOW_COPY_AND_ASSIGN(NativeFileSystemHandleBase);
 };
 
 template <typename CallbackArgType>
 void NativeFileSystemHandleBase::RunWithWritePermission(
     base::OnceCallback<void(CallbackArgType)> callback,
-    base::OnceCallback<void(CallbackArgType)> no_permission_callback,
+    base::OnceCallback<void(blink::mojom::NativeFileSystemErrorPtr,
+                            CallbackArgType)> no_permission_callback,
     CallbackArgType callback_arg) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DoRequestPermission(
       /*writable=*/true,
       base::BindOnce(
           [](base::OnceCallback<void(CallbackArgType)> callback,
-             base::OnceCallback<void(CallbackArgType)> no_permission_callback,
+             base::OnceCallback<void(blink::mojom::NativeFileSystemErrorPtr,
+                                     CallbackArgType)> no_permission_callback,
              CallbackArgType callback_arg,
              blink::mojom::NativeFileSystemErrorPtr result,
              blink::mojom::PermissionStatus status) {
@@ -231,7 +223,12 @@ void NativeFileSystemHandleBase::RunWithWritePermission(
               std::move(callback).Run(std::move(callback_arg));
               return;
             }
-            std::move(no_permission_callback).Run(std::move(callback_arg));
+            if (result->status == blink::mojom::NativeFileSystemStatus::kOk) {
+              result->status =
+                  blink::mojom::NativeFileSystemStatus::kPermissionDenied;
+            }
+            std::move(no_permission_callback)
+                .Run(std::move(result), std::move(callback_arg));
           },
           std::move(callback), std::move(no_permission_callback),
           std::move(callback_arg)));

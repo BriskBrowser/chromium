@@ -7,6 +7,7 @@
 #include <cstdlib>
 #include <memory>
 
+#include "base/memory/ptr_util.h"
 #include "base/test/mock_callback.h"
 #include "content/public/browser/permission_controller_delegate.h"
 #include "content/public/browser/permission_type.h"
@@ -32,20 +33,26 @@ class MockManagerWithRequests : public MockPermissionManager {
  public:
   MockManagerWithRequests() {}
   ~MockManagerWithRequests() override {}
-  MOCK_METHOD5(
+  MOCK_METHOD(
+      int,
       RequestPermissions,
-      int(const std::vector<PermissionType>& permission,
-          RenderFrameHost* render_frame_host,
-          const GURL& requesting_origin,
-          bool user_gesture,
-          const base::OnceCallback<void(
-              const std::vector<blink::mojom::PermissionStatus>&)> callback));
-  MOCK_METHOD2(SetPermissionOverridesForDevTools,
-               void(const url::Origin& origin,
-                    const PermissionOverrides& overrides));
-  MOCK_METHOD0(ResetPermissionOverridesForDevTools, void());
-  MOCK_METHOD2(IsPermissionOverridableByDevTools,
-               bool(PermissionType, const url::Origin&));
+      (const std::vector<PermissionType>& permission,
+       RenderFrameHost* render_frame_host,
+       const GURL& requesting_origin,
+       bool user_gesture,
+       const base::OnceCallback<
+           void(const std::vector<blink::mojom::PermissionStatus>&)> callback),
+      (override));
+  MOCK_METHOD(void,
+              SetPermissionOverridesForDevTools,
+              (const base::Optional<url::Origin>& origin,
+               const PermissionOverrides& overrides),
+              (override));
+  MOCK_METHOD(void, ResetPermissionOverridesForDevTools, (), (override));
+  MOCK_METHOD(bool,
+              IsPermissionOverridableByDevTools,
+              (PermissionType, const base::Optional<url::Origin>&),
+              (override));
 
  private:
   DISALLOW_COPY_AND_ASSIGN(MockManagerWithRequests);
@@ -91,7 +98,7 @@ TEST_F(PermissionControllerImplTest, ResettingOverridesForwardsReset) {
 }
 
 TEST_F(PermissionControllerImplTest, SettingOverridesForwardsUpdates) {
-  url::Origin kTestOrigin = url::Origin::Create(GURL(kTestUrl));
+  auto kTestOrigin = base::make_optional(url::Origin::Create(GURL(kTestUrl)));
   EXPECT_CALL(*mock_manager(),
               SetPermissionOverridesForDevTools(
                   kTestOrigin, testing::ElementsAre(testing::Pair(

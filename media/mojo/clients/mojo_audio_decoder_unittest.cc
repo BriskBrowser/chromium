@@ -26,10 +26,8 @@
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "mojo/public/cpp/bindings/self_owned_receiver.h"
-#include "mojo/public/cpp/bindings/strong_binding.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
-using ::base::test::RunCallback;
 using ::base::test::RunOnceCallback;
 using ::testing::_;
 using ::testing::DoAll;
@@ -82,7 +80,7 @@ class MojoAudioDecoderTest : public ::testing::Test {
   }
 
   // Completion callbacks.
-  MOCK_METHOD1(OnInitialized, void(bool));
+  MOCK_METHOD1(OnInitialized, void(Status));
   MOCK_METHOD1(OnOutput, void(scoped_refptr<AudioBuffer>));
   MOCK_METHOD1(OnWaiting, void(WaitingReason));
   MOCK_METHOD1(OnDecoded, void(DecodeStatus));
@@ -117,11 +115,13 @@ class MojoAudioDecoderTest : public ::testing::Test {
 
     EXPECT_CALL(*mock_audio_decoder_, Initialize_(_, _, _, _, _))
         .WillRepeatedly(DoAll(SaveArg<3>(&output_cb_), SaveArg<4>(&waiting_cb_),
-                              RunOnceCallback<2>(true)));
+                              RunOnceCallback<2>(OkStatus())));
     EXPECT_CALL(*mock_audio_decoder_, Decode(_, _))
-        .WillRepeatedly(
-            DoAll(InvokeWithoutArgs(this, &MojoAudioDecoderTest::ReturnOutput),
-                  RunCallback<1>(DecodeStatus::OK)));
+        .WillRepeatedly([&](scoped_refptr<DecoderBuffer> buffer,
+                            AudioDecoder::DecodeCB decode_cb) {
+          ReturnOutput();
+          std::move(decode_cb).Run(DecodeStatus::OK);
+        });
     EXPECT_CALL(*mock_audio_decoder_, Reset_(_))
         .WillRepeatedly(RunOnceCallback<0>());
 
@@ -135,9 +135,9 @@ class MojoAudioDecoderTest : public ::testing::Test {
     mojo_audio_decoder_->set_writer_capacity_for_testing(capacity);
   }
 
-  void InitializeAndExpect(bool success) {
-    DVLOG(1) << __func__ << ": success=" << success;
-    EXPECT_CALL(*this, OnInitialized(success))
+  void InitializeAndExpect(Status status) {
+    DVLOG(1) << __func__ << ": success=" << status.code();
+    EXPECT_CALL(*this, OnInitialized(SameStatusCode(status)))
         .WillOnce(InvokeWithoutArgs(this, &MojoAudioDecoderTest::QuitLoop));
 
     AudioDecoderConfig audio_config(kCodecVorbis, kSampleFormat, kChannelLayout,
@@ -146,26 +146,28 @@ class MojoAudioDecoderTest : public ::testing::Test {
 
     mojo_audio_decoder_->Initialize(
         audio_config, nullptr,
-        base::Bind(&MojoAudioDecoderTest::OnInitialized,
-                   base::Unretained(this)),
-        base::Bind(&MojoAudioDecoderTest::OnOutput, base::Unretained(this)),
-        base::Bind(&MojoAudioDecoderTest::OnWaiting, base::Unretained(this)));
+        base::BindOnce(&MojoAudioDecoderTest::OnInitialized,
+                       base::Unretained(this)),
+        base::BindRepeating(&MojoAudioDecoderTest::OnOutput,
+                            base::Unretained(this)),
+        base::BindRepeating(&MojoAudioDecoderTest::OnWaiting,
+                            base::Unretained(this)));
 
     RunLoop();
   }
 
-  void Initialize() { InitializeAndExpect(true); }
+  void Initialize() { InitializeAndExpect(OkStatus()); }
 
   void Decode() {
     scoped_refptr<DecoderBuffer> buffer(new DecoderBuffer(100));
     mojo_audio_decoder_->Decode(
-        buffer,
-        base::Bind(&MojoAudioDecoderTest::OnDecoded, base::Unretained(this)));
+        buffer, base::BindRepeating(&MojoAudioDecoderTest::OnDecoded,
+                                    base::Unretained(this)));
   }
 
   void Reset() {
     mojo_audio_decoder_->Reset(
-        base::Bind(&MojoAudioDecoderTest::OnReset, base::Unretained(this)));
+        base::BindOnce(&MojoAudioDecoderTest::OnReset, base::Unretained(this)));
   }
 
   void ResetAndWaitUntilFinish() {
@@ -289,9 +291,11 @@ TEST_F(MojoAudioDecoderTest, Reset_DuringDecode_ChunkedWrite) {
 TEST_F(MojoAudioDecoderTest, WaitingForKey) {
   Initialize();
   EXPECT_CALL(*mock_audio_decoder_, Decode(_, _))
-      .WillOnce(
-          DoAll(InvokeWithoutArgs(this, &MojoAudioDecoderTest::WaitForKey),
-                RunCallback<1>(DecodeStatus::OK)));
+      .WillOnce([&](scoped_refptr<DecoderBuffer> buffer,
+                    AudioDecoder::DecodeCB decode_cb) {
+        WaitForKey();
+        std::move(decode_cb).Run(DecodeStatus::OK);
+      });
   EXPECT_CALL(*this, OnWaiting(WaitingReason::kNoDecryptionKey)).Times(1);
   EXPECT_CALL(*this, OnDecoded(DecodeStatus::OK))
       .WillOnce(InvokeWithoutArgs(this, &MojoAudioDecoderTest::QuitLoop));

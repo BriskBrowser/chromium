@@ -43,10 +43,6 @@
 namespace blink {
 namespace text_iterator_test {
 
-TextIteratorBehavior CollapseTrailingSpaceBehavior() {
-  return TextIteratorBehavior::Builder().SetCollapseTrailingSpace(true).Build();
-}
-
 TextIteratorBehavior EmitsImageAltTextBehavior() {
   return TextIteratorBehavior::Builder().SetEmitsImageAltText(true).Build();
 }
@@ -97,7 +93,9 @@ class TextIteratorTest : public testing::WithParamInterface<bool>,
  protected:
   TextIteratorTest() : ScopedLayoutNGForTest(GetParam()) {}
 
-  bool LayoutNGEnabled() const { return GetParam(); }
+  bool LayoutNGEnabled() const {
+    return RuntimeEnabledFeatures::LayoutNGEnabled();
+  }
 
   template <typename Tree>
   std::string Iterate(const TextIteratorBehavior& = TextIteratorBehavior());
@@ -146,7 +144,7 @@ std::string TextIteratorTest::IterateWithIterator(
   StringBuilder text_chunks;
   for (; !iterator.AtEnd(); iterator.Advance()) {
     text_chunks.Append('[');
-    text_chunks.Append(iterator.GetText().GetTextForTesting());
+    text_chunks.Append(iterator.GetTextState().GetTextForTesting());
     text_chunks.Append(']');
   }
   return text_chunks.ToString().Utf8();
@@ -542,16 +540,41 @@ TEST_P(TextIteratorTest, RangeLengthWithFirstLetterMultipleLeadingSpaces) {
   EXPECT_EQ(3, TestRangeLength("<p>^   foo|</p>"));
 }
 
+TEST_P(TextIteratorTest, TrainlingSpace) {
+  // text_content = "ab\ncd"
+  // offset mapping units:
+  //   [0] I DOM:0-2 TC:0-2 "ab"
+  //   [1] C DOM:2-4 TC:2-2 " " spaces after "ab"
+  //   [2] I DOM:0-1 TC:2-3 <br>
+  //   [3] I DOM:0-2 TC:3-5 "cd"
+  // Note: InlineTextBox has trailing spaces which we should get rid from
+  // inline layout tree as LayoutNG.
+  SetBodyContent("ab  <br>  cd");
+  EXPECT_EQ(LayoutNGEnabled() ? "[ab][\n][cd]" : "[ab ][\n][cd]",
+            Iterate<DOMTree>());
+}
+
 TEST_P(TextIteratorTest, WhitespaceCollapseForReplacedElements) {
   static const char* body_content =
       "<span>Some text </span> <input type='button' value='Button "
       "text'/><span>Some more text</span>";
   SetBodyContent(body_content);
-  EXPECT_EQ("[Some text ][][Some more text]",
-            Iterate<DOMTree>(CollapseTrailingSpaceBehavior()));
+  // text_content = "Some text \uFFFCSome more text"
+  // offset mapping units:
+  //   [0] I DOM:0-10 TC:0-10 "Some text "
+  //   [1] C DOM:0-1  TC:10-10 " " (A space between </span> and <input>
+  //   [2] I DOM:0-1  TC:10-11 <input> as U+FFFC (ORC)
+  //   [3] I DOM:0-14 TC:11-25 "Some more text"
+  // Note: InlineTextBox has a collapsed space which we should get rid from
+  // inline layout tree as LayoutNG.
+  EXPECT_EQ(LayoutNGEnabled() ? "[Some text ][][Some more text]"
+                              : "[Some text ][ ][][Some more text]",
+            Iterate<DOMTree>());
   // <input type=button> is not text control element
-  EXPECT_EQ("[Some text ][][Button text][Some more text]",
-            Iterate<FlatTree>(CollapseTrailingSpaceBehavior()));
+  EXPECT_EQ(LayoutNGEnabled()
+                ? "[Some text ][][Button text][Some more text]"
+                : "[Some text ][ ][][Button text][Some more text]",
+            Iterate<FlatTree>());
 }
 
 TEST_P(TextIteratorTest, characterAt) {
@@ -678,14 +701,14 @@ TEST_P(TextIteratorTest, StartAtFirstLetter) {
   TextIterator iter(start, end);
 
   EXPECT_FALSE(iter.AtEnd());
-  EXPECT_EQ("A", iter.GetText().GetTextForTesting());
+  EXPECT_EQ("A", iter.GetTextState().GetTextForTesting());
   EXPECT_EQ(text, iter.CurrentContainer());
   EXPECT_EQ(Position(text, 0), iter.StartPositionInCurrentContainer());
   EXPECT_EQ(Position(text, 1), iter.EndPositionInCurrentContainer());
 
   iter.Advance();
   EXPECT_FALSE(iter.AtEnd());
-  EXPECT_EQ("xyz", iter.GetText().GetTextForTesting());
+  EXPECT_EQ("xyz", iter.GetTextState().GetTextForTesting());
   EXPECT_EQ(text, iter.CurrentContainer());
   EXPECT_EQ(Position(text, 1), iter.StartPositionInCurrentContainer());
   EXPECT_EQ(Position(text, 4), iter.EndPositionInCurrentContainer());
@@ -705,21 +728,21 @@ TEST_P(TextIteratorTest, StartInMultiCharFirstLetterWithCollapsedSpace) {
   TextIterator iter(start, end);
 
   EXPECT_FALSE(iter.AtEnd());
-  EXPECT_EQ("A)", iter.GetText().GetTextForTesting());
+  EXPECT_EQ("A)", iter.GetTextState().GetTextForTesting());
   EXPECT_EQ(text, iter.CurrentContainer());
   EXPECT_EQ(Position(text, 3), iter.StartPositionInCurrentContainer());
   EXPECT_EQ(Position(text, 5), iter.EndPositionInCurrentContainer());
 
   iter.Advance();
   EXPECT_FALSE(iter.AtEnd());
-  EXPECT_EQ(" ", iter.GetText().GetTextForTesting());
+  EXPECT_EQ(" ", iter.GetTextState().GetTextForTesting());
   EXPECT_EQ(text, iter.CurrentContainer());
   EXPECT_EQ(Position(text, 5), iter.StartPositionInCurrentContainer());
   EXPECT_EQ(Position(text, 6), iter.EndPositionInCurrentContainer());
 
   iter.Advance();
   EXPECT_FALSE(iter.AtEnd());
-  EXPECT_EQ("xyz", iter.GetText().GetTextForTesting());
+  EXPECT_EQ("xyz", iter.GetTextState().GetTextForTesting());
   EXPECT_EQ(text, iter.CurrentContainer());
   EXPECT_EQ(Position(text, 7), iter.StartPositionInCurrentContainer());
   EXPECT_EQ(Position(text, 10), iter.EndPositionInCurrentContainer());
@@ -739,7 +762,7 @@ TEST_P(TextIteratorTest, StartAndEndInMultiCharFirstLetterWithCollapsedSpace) {
   TextIterator iter(start, end);
 
   EXPECT_FALSE(iter.AtEnd());
-  EXPECT_EQ("A", iter.GetText().GetTextForTesting());
+  EXPECT_EQ("A", iter.GetTextState().GetTextForTesting());
   EXPECT_EQ(text, iter.CurrentContainer());
   EXPECT_EQ(Position(text, 3), iter.StartPositionInCurrentContainer());
   EXPECT_EQ(Position(text, 4), iter.EndPositionInCurrentContainer());
@@ -758,7 +781,7 @@ TEST_P(TextIteratorTest, StartAtRemainingText) {
   TextIterator iter(start, end);
 
   EXPECT_FALSE(iter.AtEnd());
-  EXPECT_EQ("xyz", iter.GetText().GetTextForTesting());
+  EXPECT_EQ("xyz", iter.GetTextState().GetTextForTesting());
   EXPECT_EQ(text, iter.CurrentContainer());
   EXPECT_EQ(Position(text, 1), iter.StartPositionInCurrentContainer());
   EXPECT_EQ(Position(text, 4), iter.EndPositionInCurrentContainer());
@@ -777,14 +800,14 @@ TEST_P(TextIteratorTest, StartAtFirstLetterInPre) {
   TextIterator iter(start, end);
 
   EXPECT_FALSE(iter.AtEnd());
-  EXPECT_EQ("A", iter.GetText().GetTextForTesting());
+  EXPECT_EQ("A", iter.GetTextState().GetTextForTesting());
   EXPECT_EQ(text, iter.CurrentContainer());
   EXPECT_EQ(Position(text, 0), iter.StartPositionInCurrentContainer());
   EXPECT_EQ(Position(text, 1), iter.EndPositionInCurrentContainer());
 
   iter.Advance();
   EXPECT_FALSE(iter.AtEnd());
-  EXPECT_EQ("xyz", iter.GetText().GetTextForTesting());
+  EXPECT_EQ("xyz", iter.GetTextState().GetTextForTesting());
   EXPECT_EQ(text, iter.CurrentContainer());
   EXPECT_EQ(Position(text, 1), iter.StartPositionInCurrentContainer());
   EXPECT_EQ(Position(text, 4), iter.EndPositionInCurrentContainer());
@@ -804,14 +827,14 @@ TEST_P(TextIteratorTest, StartInMultiCharFirstLetterInPre) {
   TextIterator iter(start, end);
 
   EXPECT_FALSE(iter.AtEnd());
-  EXPECT_EQ("A)", iter.GetText().GetTextForTesting());
+  EXPECT_EQ("A)", iter.GetTextState().GetTextForTesting());
   EXPECT_EQ(text, iter.CurrentContainer());
   EXPECT_EQ(Position(text, 1), iter.StartPositionInCurrentContainer());
   EXPECT_EQ(Position(text, 3), iter.EndPositionInCurrentContainer());
 
   iter.Advance();
   EXPECT_FALSE(iter.AtEnd());
-  EXPECT_EQ("xyz", iter.GetText().GetTextForTesting());
+  EXPECT_EQ("xyz", iter.GetTextState().GetTextForTesting());
   EXPECT_EQ(text, iter.CurrentContainer());
   EXPECT_EQ(Position(text, 3), iter.StartPositionInCurrentContainer());
   EXPECT_EQ(Position(text, 6), iter.EndPositionInCurrentContainer());
@@ -831,7 +854,7 @@ TEST_P(TextIteratorTest, StartAndEndInMultiCharFirstLetterInPre) {
   TextIterator iter(start, end);
 
   EXPECT_FALSE(iter.AtEnd());
-  EXPECT_EQ("A", iter.GetText().GetTextForTesting());
+  EXPECT_EQ("A", iter.GetTextState().GetTextForTesting());
   EXPECT_EQ(text, iter.CurrentContainer());
   EXPECT_EQ(Position(text, 1), iter.StartPositionInCurrentContainer());
   EXPECT_EQ(Position(text, 2), iter.EndPositionInCurrentContainer());
@@ -850,7 +873,7 @@ TEST_P(TextIteratorTest, StartAtRemainingTextInPre) {
   TextIterator iter(start, end);
 
   EXPECT_FALSE(iter.AtEnd());
-  EXPECT_EQ("xyz", iter.GetText().GetTextForTesting());
+  EXPECT_EQ("xyz", iter.GetTextState().GetTextForTesting());
   EXPECT_EQ(text, iter.CurrentContainer());
   EXPECT_EQ(Position(text, 1), iter.StartPositionInCurrentContainer());
   EXPECT_EQ(Position(text, 4), iter.EndPositionInCurrentContainer());
@@ -945,7 +968,7 @@ TEST_P(TextIteratorTest, BasicIterationInputiWithBr) {
   const ShadowRoot* shadow_root = input_element->UserAgentShadowRoot();
   const Position start = Position::FirstPositionInNode(*shadow_root);
   const Position end = Position::LastPositionInNode(*shadow_root);
-  GetDocument().UpdateStyleAndLayout();
+  GetDocument().UpdateStyleAndLayout(DocumentUpdateReason::kTest);
   EXPECT_EQ("[b]", IteratePartial<DOMTree>(start, end));
 }
 
@@ -978,8 +1001,8 @@ TEST_P(TextIteratorTest, PositionInShadowTree) {
   Element& host = *GetDocument().getElementById("host");
   ShadowRoot& shadow_root =
       host.AttachShadowRootInternal(ShadowRootType::kOpen);
-  shadow_root.SetInnerHTMLFromString("A<slot name=c></slot>");
-  GetDocument().UpdateStyleAndLayout();
+  shadow_root.setInnerHTML("A<slot name=c></slot>");
+  GetDocument().UpdateStyleAndLayout(DocumentUpdateReason::kTest);
   Element& body = *GetDocument().body();
   Node& text_a = *shadow_root.firstChild();
   Node& slot = *shadow_root.lastChild();
@@ -1034,8 +1057,8 @@ TEST_P(TextIteratorTest, EmitsSpaceForNbsp) {
 TEST_P(TextIteratorTest, IterateWithLockedSubtree) {
   SetBodyContent("<div id='parent'>foo<div id='locked'>text</div>bar</div>");
   auto* locked = GetDocument().getElementById("locked");
-  locked->setAttribute("rendersubtree", "invisible");
-  GetDocument().UpdateStyleAndLayout();
+  locked->setAttribute(html_names::kStyleAttr, "content-visibility: auto");
+  GetDocument().UpdateStyleAndLayout(DocumentUpdateReason::kTest);
   auto* parent = GetDocument().getElementById("parent");
   const Position start_position = Position::FirstPositionInNode(*parent);
   const Position end_position = Position::LastPositionInNode(*parent);

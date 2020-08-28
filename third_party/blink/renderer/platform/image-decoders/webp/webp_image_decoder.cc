@@ -34,6 +34,7 @@
 #include "build/build_config.h"
 #include "third_party/blink/renderer/platform/instrumentation/histogram.h"
 #include "third_party/blink/renderer/platform/runtime_enabled_features.h"
+#include "third_party/blink/renderer/platform/wtf/wtf.h"
 #include "third_party/skia/include/core/SkData.h"
 #include "third_party/skia/include/core/SkYUVAIndex.h"
 
@@ -403,6 +404,9 @@ void WEBPImageDecoder::OnInitFrameBuffer(size_t frame_index) {
 void WEBPImageDecoder::DecodeToYUV() {
   DCHECK(IsDoingYuvDecode());
 
+  // Only 8-bit YUV decode is currently supported.
+  DCHECK_EQ(image_planes_->color_type(), kGray_8_SkColorType);
+
   if (Failed())
     return;
 
@@ -430,7 +434,6 @@ IntSize WEBPImageDecoder::DecodedYUVSize(int component) const {
     case SkYUVAIndex::kY_Index:
       return Size();
     case SkYUVAIndex::kU_Index:
-      FALLTHROUGH;
     case SkYUVAIndex::kV_Index:
       return IntSize((Size().Width() + 1) / 2, (Size().Height() + 1) / 2);
   }
@@ -445,7 +448,6 @@ size_t WEBPImageDecoder::DecodedYUVWidthBytes(int component) const {
     case SkYUVAIndex::kY_Index:
       return base::checked_cast<size_t>(Size().Width());
     case SkYUVAIndex::kU_Index:
-      FALLTHROUGH;
     case SkYUVAIndex::kV_Index:
       return base::checked_cast<size_t>((Size().Width() + 1) / 2);
   }

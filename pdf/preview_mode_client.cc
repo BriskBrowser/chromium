@@ -6,8 +6,14 @@
 
 #include <stdint.h>
 
-#include "base/logging.h"
+#include <string>
+#include <utility>
+
+#include "base/callback.h"
+#include "base/memory/scoped_refptr.h"
+#include "base/notreached.h"
 #include "pdf/document_layout.h"
+#include "pdf/ppapi_migration/url_loader.h"
 
 namespace chrome_pdf {
 
@@ -22,7 +28,7 @@ void PreviewModeClient::Invalidate(const pp::Rect& rect) {
   NOTREACHED();
 }
 
-void PreviewModeClient::DidScroll(const pp::Point& point) {
+void PreviewModeClient::DidScroll(const gfx::Vector2d& point) {
   NOTREACHED();
 }
 
@@ -35,7 +41,7 @@ void PreviewModeClient::ScrollToY(int y_in_screen_coords,
   NOTREACHED();
 }
 
-void PreviewModeClient::ScrollBy(const pp::Point& point) {
+void PreviewModeClient::ScrollBy(const gfx::Vector2d& scroll_delta) {
   NOTREACHED();
 }
 
@@ -68,8 +74,8 @@ void PreviewModeClient::NotifySelectedFindResultChanged(
 }
 
 void PreviewModeClient::GetDocumentPassword(
-    pp::CompletionCallbackWithOutput<pp::Var> callback) {
-  callback.Run(PP_ERROR_FAILED);
+    base::OnceCallback<void(const std::string&)> callback) {
+  std::move(callback).Run("");
 }
 
 void PreviewModeClient::Alert(const std::string& message) {
@@ -110,9 +116,9 @@ void PreviewModeClient::SubmitForm(const std::string& url,
   NOTREACHED();
 }
 
-pp::URLLoader PreviewModeClient::CreateURLLoader() {
+scoped_refptr<UrlLoader> PreviewModeClient::CreateUrlLoader() {
   NOTREACHED();
-  return pp::URLLoader();
+  return base::MakeRefCounted<UrlLoader>();
 }
 
 std::vector<PDFEngine::Client::SearchStringResult>
@@ -146,11 +152,10 @@ void PreviewModeClient::FormTextFieldFocusChange(bool in_focus) {
 }
 
 bool PreviewModeClient::IsPrintPreview() {
-  NOTREACHED();
-  return false;
+  return true;
 }
 
-float PreviewModeClient::GetToolbarHeightInScreenCoords() const {
+float PreviewModeClient::GetToolbarHeightInScreenCoords() {
   return 0.0f;
 }
 

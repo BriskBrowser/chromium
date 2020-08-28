@@ -4,6 +4,7 @@
 
 #include <string>
 
+#include "ash/public/cpp/login_screen_test_api.h"
 #include "base/command_line.h"
 #include "base/optional.h"
 #include "base/strings/string_piece.h"
@@ -14,6 +15,7 @@
 #include "chrome/browser/chromeos/login/oobe_screen.h"
 #include "chrome/browser/chromeos/login/test/js_checker.h"
 #include "chrome/browser/chromeos/login/test/login_manager_mixin.h"
+#include "chrome/browser/chromeos/login/test/oobe_base_test.h"
 #include "chrome/browser/chromeos/login/test/oobe_screen_waiter.h"
 #include "chrome/browser/chromeos/login/test/user_policy_mixin.h"
 #include "chrome/browser/chromeos/login/ui/login_display_host.h"
@@ -21,7 +23,6 @@
 #include "chrome/browser/ui/webui/chromeos/login/encryption_migration_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/gaia_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/oobe_ui.h"
-#include "chrome/test/base/mixin_based_in_process_browser_test.h"
 #include "chromeos/constants/chromeos_switches.h"
 #include "chromeos/dbus/cryptohome/account_identifier_operators.h"
 #include "chromeos/dbus/cryptohome/fake_cryptohome_client.h"
@@ -31,11 +32,17 @@
 #include "chromeos/login/auth/stub_authenticator_builder.h"
 #include "chromeos/login/auth/user_context.h"
 #include "components/account_id/account_id.h"
+#include "content/public/test/browser_test.h"
 #include "third_party/cros_system_api/dbus/cryptohome/dbus-constants.h"
 
 namespace chromeos {
 
 namespace {
+
+const test::UIPath kMigrationProgress = {"encryption-migration-element",
+                                         "migration-progress"};
+const test::UIPath kSkipButton = {"encryption-migration-element",
+                                  "skip-button"};
 
 OobeUI* GetOobeUI() {
   auto* host = LoginDisplayHost::default_host();
@@ -44,26 +51,24 @@ OobeUI* GetOobeUI() {
 
 }  // namespace
 
-class EncryptionMigrationTest : public MixinBasedInProcessBrowserTest {
+class EncryptionMigrationTest : public OobeBaseTest {
  public:
   EncryptionMigrationTest() = default;
   ~EncryptionMigrationTest() override = default;
 
+  // OobeBaseTest:
   void SetUpCommandLine(base::CommandLine* command_line) override {
-    MixinBasedInProcessBrowserTest::SetUpCommandLine(command_line);
+    OobeBaseTest::SetUpCommandLine(command_line);
     // Enable ARC, so dircrypto encryption is forced.
     command_line->AppendSwitchASCII(switches::kArcAvailability,
                                     "officially-supported");
   }
-
   void SetUpOnMainThread() override {
-    MixinBasedInProcessBrowserTest::SetUpOnMainThread();
+    OobeBaseTest::SetUpOnMainThread();
 
     FakeCryptohomeClient::Get()->set_run_default_dircrypto_migration(false);
 
-    // Initialize OOBE UI, and configure encryption migration screen handler for
-    // test.
-    ShowLoginWizard(OobeScreen::SCREEN_TEST_NO_WINDOW);
+    // Configure encryption migration screen handler for test.
     auto* handler = GetOobeUI()->GetHandler<EncryptionMigrationScreenHandler>();
     handler->SetFreeDiskSpaceFetcherForTesting(base::BindRepeating(
         &EncryptionMigrationTest::GetFreeSpace, base::Unretained(this)));
@@ -153,23 +158,17 @@ class EncryptionMigrationTest : public MixinBasedInProcessBrowserTest {
         5 /*total*/);
     EXPECT_EQ(0, FakePowerManagerClient::Get()->num_request_restart_calls());
 
-    std::initializer_list<base::StringPiece> migration_progress = {
-        "encryption-migration-element", "migration-progress"};
-    test::OobeJS().ExpectTrue(test::GetOobeElementPath(migration_progress) +
-                              ".indeterminate");
+    test::OobeJS().ExpectAttributeEQ("indeterminate", kMigrationProgress, true);
 
     FakeCryptohomeClient::Get()->NotifyDircryptoMigrationProgress(
         cryptohome::DIRCRYPTO_MIGRATION_IN_PROGRESS, 3 /*current*/,
         5 /*total*/);
     EXPECT_EQ(0, FakePowerManagerClient::Get()->num_request_restart_calls());
 
-    test::OobeJS().ExpectFalse(test::GetOobeElementPath(migration_progress) +
-                               ".indeterminate");
-
-    test::OobeJS().ExpectEQ(
-        test::GetOobeElementPath(migration_progress) + ".value * 100", 60);
-    test::OobeJS().ExpectEQ(
-        test::GetOobeElementPath(migration_progress) + ".max", 1);
+    test::OobeJS().ExpectAttributeEQ("indeterminate", kMigrationProgress,
+                                     false);
+    test::OobeJS().ExpectAttributeEQ("value * 100", kMigrationProgress, 60);
+    test::OobeJS().ExpectAttributeEQ("max", kMigrationProgress, 1);
 
     FakeCryptohomeClient::Get()->NotifyDircryptoMigrationProgress(
         cryptohome::DIRCRYPTO_MIGRATION_SUCCESS, 5 /*current*/, 5 /*total*/);
@@ -209,6 +208,10 @@ IN_PROC_BROWSER_TEST_F(EncryptionMigrationTest, SkipWithNoPolicySet) {
   SetUpStubAuthenticatorAndAttemptLogin(false /* has_incomplete_migration */);
   OobeScreenWaiter(EncryptionMigrationScreenView::kScreenId).Wait();
 
+  EXPECT_FALSE(ash::LoginScreenTestApi::IsShutdownButtonShown());
+  EXPECT_FALSE(ash::LoginScreenTestApi::IsGuestButtonShown());
+  EXPECT_FALSE(ash::LoginScreenTestApi::IsAddUserButtonShown());
+
   WaitForElementCreation("ready-dialog");
   VerifyUiElementVisible("ready-dialog");
 
@@ -221,7 +224,7 @@ IN_PROC_BROWSER_TEST_F(EncryptionMigrationTest, SkipWithNoPolicySet) {
   VerifyUiElementVisible("upgrade-button");
 
   // Click skip - this should start the user session.
-  test::OobeJS().TapOnPath({"encryption-migration-element", "skip-button"});
+  test::OobeJS().TapOnPath(kSkipButton);
 
   WaitForActiveSession();
 
@@ -366,7 +369,7 @@ IN_PROC_BROWSER_TEST_F(EncryptionMigrationTest, MinimalMigrationWithTimeout) {
       cryptohome::DIRCRYPTO_MIGRATION_SUCCESS, 5 /*current*/, 5 /*total*/);
   EXPECT_EQ(0, FakePowerManagerClient::Get()->num_request_restart_calls());
 
-  OobeScreenWaiter(GaiaView::kScreenId).Wait();
+  OobeScreenWaiter(GetFirstSigninScreen()).Wait();
 }
 
 IN_PROC_BROWSER_TEST_F(EncryptionMigrationTest,
@@ -446,7 +449,7 @@ IN_PROC_BROWSER_TEST_F(EncryptionMigrationTest, WipeMigrationActionPolicy) {
   SetUpStubAuthenticatorAndAttemptLogin(false /* has_incomplete_migration */);
 
   // Wipe is expected to wipe the cryptohome, and force online login.
-  OobeScreenWaiter(GaiaView::kScreenId).Wait();
+  OobeScreenWaiter(GetFirstSigninScreen()).Wait();
 
   EXPECT_FALSE(FakeCryptohomeClient::Get()
                    ->get_id_for_disk_migrated_to_dircrypto()

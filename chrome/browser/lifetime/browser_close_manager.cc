@@ -87,7 +87,7 @@ void BrowserCloseManager::OnBrowserReportCloseable(bool proceed) {
   if (!current_browser_)
     return;
 
-  current_browser_ = NULL;
+  current_browser_ = nullptr;
 
   if (proceed)
     TryToCloseBrowsers();
@@ -96,12 +96,10 @@ void BrowserCloseManager::OnBrowserReportCloseable(bool proceed) {
 }
 
 void BrowserCloseManager::CheckForDownloadsInProgress() {
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
   // Mac has its own in-progress downloads prompt in app_controller_mac.mm.
   CloseBrowsers();
-  return;
-#endif
-
+#else
   int download_count =
       DownloadCoreService::NonMaliciousDownloadCountAllProfiles();
   if (download_count == 0) {
@@ -112,6 +110,7 @@ void BrowserCloseManager::CheckForDownloadsInProgress() {
   ConfirmCloseWithPendingDownloads(
       download_count,
       base::Bind(&BrowserCloseManager::OnReportDownloadsCancellable, this));
+#endif
 }
 
 void BrowserCloseManager::ConfirmCloseWithPendingDownloads(
@@ -137,8 +136,9 @@ void BrowserCloseManager::OnReportDownloadsCancellable(bool proceed) {
       g_browser_process->profile_manager()->GetLoadedProfiles());
   for (Profile* profile : profiles) {
     ShowInProgressDownloads(profile);
-    if (profile->HasOffTheRecordProfile())
-      ShowInProgressDownloads(profile->GetOffTheRecordProfile());
+    std::vector<Profile*> otr_profiles = profile->GetAllOffTheRecordProfiles();
+    for (Profile* otr : otr_profiles)
+      ShowInProgressDownloads(otr);
   }
 }
 

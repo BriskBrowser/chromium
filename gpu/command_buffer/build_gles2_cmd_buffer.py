@@ -308,6 +308,13 @@ _NAMED_TYPE_INFO = {
       'GL_UNPACK_SKIP_IMAGES',
       'GL_UNPACK_SKIP_PIXELS',
       'GL_UNPACK_SKIP_ROWS',
+      'GL_BLEND_EQUATION_RGB',
+      'GL_BLEND_EQUATION_ALPHA',
+      'GL_BLEND_SRC_RGB',
+      'GL_BLEND_SRC_ALPHA',
+      'GL_BLEND_DST_RGB',
+      'GL_BLEND_DST_ALPHA',
+      'GL_COLOR_WRITEMASK',
       # GL_VERTEX_ARRAY_BINDING is the same as GL_VERTEX_ARRAY_BINDING_OES
       # 'GL_VERTEX_ARRAY_BINDING',
     ],
@@ -324,6 +331,13 @@ _NAMED_TYPE_INFO = {
       'GL_UNIFORM_BUFFER_BINDING',
       'GL_UNIFORM_BUFFER_SIZE',
       'GL_UNIFORM_BUFFER_START',
+      'GL_BLEND_EQUATION_RGB',
+      'GL_BLEND_EQUATION_ALPHA',
+      'GL_BLEND_SRC_RGB',
+      'GL_BLEND_SRC_ALPHA',
+      'GL_BLEND_DST_RGB',
+      'GL_BLEND_DST_ALPHA',
+      'GL_COLOR_WRITEMASK',
     ],
     'invalid': [
       'GL_FOG_HINT',
@@ -370,6 +384,21 @@ _NAMED_TYPE_INFO = {
     ]
   },
   'TextureTarget': {
+    'type': 'GLenum',
+    'valid': [
+      'GL_TEXTURE_2D',
+      'GL_TEXTURE_CUBE_MAP_POSITIVE_X',
+      'GL_TEXTURE_CUBE_MAP_NEGATIVE_X',
+      'GL_TEXTURE_CUBE_MAP_POSITIVE_Y',
+      'GL_TEXTURE_CUBE_MAP_NEGATIVE_Y',
+      'GL_TEXTURE_CUBE_MAP_POSITIVE_Z',
+      'GL_TEXTURE_CUBE_MAP_NEGATIVE_Z',
+    ],
+    'invalid': [
+      'GL_PROXY_TEXTURE_CUBE_MAP',
+    ]
+  },
+  'TextureFboTarget': {
     'type': 'GLenum',
     'valid': [
       'GL_TEXTURE_2D',
@@ -683,14 +712,6 @@ _NAMED_TYPE_INFO = {
   'FramebufferParameter' : {
     'type': 'GLenum',
     'valid' : [],
-  },
-  'MatrixMode': {
-    'type': 'GLenum',
-    'is_complete': True,
-    'valid': [
-      'GL_PATH_PROJECTION_CHROMIUM',
-      'GL_PATH_MODELVIEW_CHROMIUM',
-    ],
   },
   'ProgramParameter': {
     'type': 'GLenum',
@@ -1054,109 +1075,6 @@ _NAMED_TYPE_INFO = {
     ],
     'invalid': [
       'GL_UNSIGNED_BYTE_3_3_2',
-    ],
-  },
-  'PathCoordType': {
-    'type': 'GLenum',
-    'is_complete': True,
-    'valid': [
-      'GL_BYTE',
-      'GL_UNSIGNED_BYTE',
-      'GL_SHORT',
-      'GL_UNSIGNED_SHORT',
-      'GL_FLOAT',
-    ],
-  },
-  'PathCoverMode': {
-    'type': 'GLenum',
-    'is_complete': True,
-    'valid': [
-      'GL_CONVEX_HULL_CHROMIUM',
-      'GL_BOUNDING_BOX_CHROMIUM',
-    ],
-  },
-  'PathFillMode': {
-    'type': 'GLenum',
-    'is_complete': True,
-    'valid': [
-      'GL_INVERT',
-      'GL_COUNT_UP_CHROMIUM',
-      'GL_COUNT_DOWN_CHROMIUM',
-    ],
-  },
-  'PathInstancedCoverMode': {
-    'type': 'GLenum',
-    'is_complete': True,
-    'valid': [
-      'GL_CONVEX_HULL_CHROMIUM',
-      'GL_BOUNDING_BOX_CHROMIUM',
-      'GL_BOUNDING_BOX_OF_BOUNDING_BOXES_CHROMIUM',
-    ],
-  },
-  'PathNameType': {
-    'type': 'GLenum',
-    'is_complete': True,
-    'valid': [
-      'GL_UNSIGNED_BYTE',
-      'GL_BYTE',
-      'GL_UNSIGNED_SHORT',
-      'GL_SHORT',
-      'GL_UNSIGNED_INT',
-      'GL_INT',
-    ],
-  },
-  'PathParameter': {
-    'type': 'GLenum',
-    'is_complete': True,
-    'valid': [
-      'GL_PATH_STROKE_WIDTH_CHROMIUM',
-      'GL_PATH_END_CAPS_CHROMIUM',
-      'GL_PATH_JOIN_STYLE_CHROMIUM',
-      'GL_PATH_MITER_LIMIT_CHROMIUM',
-      'GL_PATH_STROKE_BOUND_CHROMIUM',
-    ]
-  },
-  'PathParameterCapValues': {
-    'type': 'GLint',
-    'is_complete': True,
-    'valid': [
-      'GL_FLAT',
-      'GL_SQUARE_CHROMIUM',
-      'GL_ROUND_CHROMIUM',
-    ]
-  },
-  'PathParameterJoinValues': {
-    'type': 'GLint',
-    'is_complete': True,
-    'valid': [
-      'GL_MITER_REVERT_CHROMIUM',
-      'GL_BEVEL_CHROMIUM',
-      'GL_ROUND_CHROMIUM',
-    ]
-  },
-  'PathTransformType': {
-    'type': 'GLenum',
-    'is_complete': True,
-    'valid': [
-      'GL_NONE',
-      'GL_TRANSLATE_X_CHROMIUM',
-      'GL_TRANSLATE_Y_CHROMIUM',
-      'GL_TRANSLATE_2D_CHROMIUM',
-      'GL_TRANSLATE_3D_CHROMIUM',
-      'GL_AFFINE_2D_CHROMIUM',
-      'GL_AFFINE_3D_CHROMIUM',
-      'GL_TRANSPOSE_AFFINE_2D_CHROMIUM',
-      'GL_TRANSPOSE_AFFINE_3D_CHROMIUM',
-    ],
-  },
-  'PathFragmentInputGenMode': {
-    'type': 'GLenum',
-    'is_complete': True,
-    'valid': [
-      'GL_NONE',
-      'GL_EYE_LINEAR_CHROMIUM',
-      'GL_OBJECT_LINEAR_CHROMIUM',
-      'GL_CONSTANT_CHROMIUM',
     ],
   },
   'ReadPixelType': {
@@ -1689,6 +1607,7 @@ _NAMED_TYPE_INFO = {
     'type': 'GLenum',
     'is_complete': True,
     'valid': [
+      'GL_SHARED_IMAGE_ACCESS_MODE_OVERLAY_CHROMIUM',
       'GL_SHARED_IMAGE_ACCESS_MODE_READWRITE_CHROMIUM',
       'GL_SHARED_IMAGE_ACCESS_MODE_READ_CHROMIUM',
     ],
@@ -1939,6 +1858,11 @@ _FUNCTION_INFO = {
     'no_gl': True,
     'expectation': False,
   },
+  'ColorMaskiOES': {
+    'extension_flag': 'oes_draw_buffers_indexed',
+    'unit_test': False,
+    'extension': 'OES_draw_buffers_indexed',
+  },
   'ContextVisibilityHintCHROMIUM': {
     'decoder_func': 'DoContextVisibilityHintCHROMIUM',
     'extension': 'CHROMIUM_context_visibility_hint',
@@ -2065,6 +1989,15 @@ _FUNCTION_INFO = {
       '0': 'GL_FUNC_SUBTRACT'
     },
   },
+  'BlendEquationiOES': {
+    'extension_flag': 'oes_draw_buffers_indexed',
+    'unit_test': False,
+    'extension': 'OES_draw_buffers_indexed',
+    'valid_args': {
+      '1': 'GL_FUNC_SUBTRACT',
+      '2': 'GL_FUNC_SUBTRACT'
+    },
+  },
   'BlendEquationSeparate': {
     'type': 'StateSet',
     'state': 'BlendEquation',
@@ -2072,13 +2005,32 @@ _FUNCTION_INFO = {
       '0': 'GL_FUNC_SUBTRACT'
     },
   },
+  'BlendEquationSeparateiOES': {
+    'extension_flag': 'oes_draw_buffers_indexed',
+    'unit_test': False,
+    'extension': 'OES_draw_buffers_indexed',
+    'valid_args': {
+      '1': 'GL_FUNC_SUBTRACT',
+      '2': 'GL_FUNC_SUBTRACT'
+    },
+  },
   'BlendFunc': {
     'type': 'StateSetRGBAlpha',
     'state': 'BlendFunc',
   },
+  'BlendFunciOES': {
+    'extension_flag': 'oes_draw_buffers_indexed',
+    'unit_test': False,
+    'extension': 'OES_draw_buffers_indexed',
+  },
   'BlendFuncSeparate': {
     'type': 'StateSet',
     'state': 'BlendFunc',
+  },
+  'BlendFuncSeparateiOES': {
+    'extension_flag': 'oes_draw_buffers_indexed',
+    'unit_test': False,
+    'extension': 'OES_draw_buffers_indexed',
   },
   'BlendBarrierKHR': {
     'gl_test_func': 'glBlendBarrierKHR',
@@ -2190,6 +2142,13 @@ _FUNCTION_INFO = {
     'impl_func': False,
     'client_test': False,
   },
+  'DisableiOES': {
+    'extension_flag': 'oes_draw_buffers_indexed',
+    'extension': 'OES_draw_buffers_indexed',
+    'decoder_func': 'DoDisableiOES',
+    'impl_func': False,
+    'unit_test': False,
+  },
   'DisableVertexAttribArray': {
     'decoder_func': 'DoDisableVertexAttribArray',
     'impl_func': False,
@@ -2249,6 +2208,13 @@ _FUNCTION_INFO = {
     'decoder_func': 'DoEnable',
     'impl_func': False,
     'client_test': False,
+  },
+  'EnableiOES': {
+    'extension_flag': 'oes_draw_buffers_indexed',
+    'extension': 'OES_draw_buffers_indexed',
+    'decoder_func': 'DoEnableiOES',
+    'impl_func': False,
+    'unit_test': False,
   },
   'EnableVertexAttribArray': {
     'decoder_func': 'DoEnableVertexAttribArray',
@@ -2435,6 +2401,15 @@ _FUNCTION_INFO = {
     'result': ['SizedResult<GLboolean>'],
     'decoder_func': 'DoGetBooleanv',
     'gl_test_func': 'glGetIntegerv',
+  },
+  'GetBooleani_v': {
+    'type': 'GETn',
+    'result': ['SizedResult<GLboolean>'],
+    'decoder_func': 'DoGetBooleani_v',
+    'shadowed': True,
+    'client_test': False,
+    'unit_test': False,
+    'es3': True
   },
   'GetBufferParameteri64v': {
     'type': 'GETn',
@@ -2832,6 +2807,16 @@ _FUNCTION_INFO = {
     'impl_func': False,
     'expectation': False,
   },
+  'IsEnablediOES': {
+    'extension_flag': 'oes_draw_buffers_indexed',
+    'unit_test': False,
+    'extension': 'OES_draw_buffers_indexed',
+    'type': 'Is',
+    'decoder_func': 'DoIsEnablediOES',
+    'client_test': False,
+    'impl_func': False,
+    'expectation': False,
+  },
   'IsFramebuffer': {
     'type': 'Is',
     'decoder_func': 'DoIsFramebuffer',
@@ -3108,12 +3093,6 @@ _FUNCTION_INFO = {
     'type': 'NoCommand',
     'extension': 'WEBGL_multi_draw_instanced_base_vertex_base_instance',
     'extension_flag': 'webgl_multi_draw_instanced_base_vertex_base_instance',
-  },
-  'OverlayPromotionHintCHROMIUM': {
-    'decoder_func': 'DoOverlayPromotionHintCHROMIUM',
-    'extension': "CHROMIUM_uniform_stream_texture_matrix",
-    'unit_test': False,
-    'client_test': False,
   },
   'PauseTransformFeedback': {
     'decoder_func': 'DoPauseTransformFeedback',
@@ -3517,14 +3496,6 @@ _FUNCTION_INFO = {
     'count': 16,
     'decoder_func': 'DoUniformMatrix4fv',
     'unit_test': False,
-  },
-  'UniformMatrix4fvStreamTextureMatrixCHROMIUM': {
-    'type': 'PUT',
-    'count': 16,
-    'decoder_func': 'DoUniformMatrix4fvStreamTextureMatrixCHROMIUM',
-    'extension': "CHROMIUM_uniform_stream_texture_matrix",
-    'unit_test': False,
-    'client_test': False,
   },
   'UniformMatrix4x2fv': {
     'type': 'PUTn',
@@ -4053,138 +4024,6 @@ _FUNCTION_INFO = {
     'client_test': False,
     'extension': 'CHROMIUM_commit_overlay_planes',
   },
-  'MatrixLoadfCHROMIUM': {
-    'type': 'PUT',
-    'count': 16,
-    'data_type': 'GLfloat',
-    'decoder_func': 'DoMatrixLoadfCHROMIUM',
-    'gl_test_func': 'glMatrixLoadfEXT',
-    'extension': 'CHROMIUM_path_rendering',
-    'extension_flag': 'chromium_path_rendering',
-  },
-  'MatrixLoadIdentityCHROMIUM': {
-    'decoder_func': 'DoMatrixLoadIdentityCHROMIUM',
-    'gl_test_func': 'glMatrixLoadIdentityEXT',
-    'extension': 'CHROMIUM_path_rendering',
-    'extension_flag': 'chromium_path_rendering',
-  },
-  'GenPathsCHROMIUM': {
-    'type': 'Custom',
-    'cmd_args': 'GLuint first_client_id, GLsizei range',
-    'extension': 'CHROMIUM_path_rendering',
-    'extension_flag': 'chromium_path_rendering',
-  },
-  'DeletePathsCHROMIUM': {
-    'type': 'Custom',
-    'cmd_args': 'GLuint first_client_id, GLsizei range',
-    'impl_func': False,
-    'extension': 'CHROMIUM_path_rendering',
-    'extension_flag': 'chromium_path_rendering',
-  },
-  'IsPathCHROMIUM': {
-    'type': 'Is',
-    'decoder_func': 'DoIsPathCHROMIUM',
-    'gl_test_func': 'glIsPathNV',
-    'extension': 'CHROMIUM_path_rendering',
-    'extension_flag': 'chromium_path_rendering',
-  },
-  'PathCommandsCHROMIUM': {
-    'type': 'Custom',
-    'impl_func': False,
-    'extension': 'CHROMIUM_path_rendering',
-    'extension_flag': 'chromium_path_rendering',
-  },
-  'PathParameterfCHROMIUM': {
-    'type': 'Custom',
-    'extension': 'CHROMIUM_path_rendering',
-    'extension_flag': 'chromium_path_rendering',
-  },
-  'PathParameteriCHROMIUM': {
-    'type': 'Custom',
-    'extension': 'CHROMIUM_path_rendering',
-    'extension_flag': 'chromium_path_rendering',
-  },
-  'PathStencilFuncCHROMIUM': {
-    'type': 'StateSet',
-    'state': 'PathStencilFuncCHROMIUM',
-    'decoder_func': 'glPathStencilFuncNV',
-    'extension': 'CHROMIUM_path_rendering',
-    'extension_flag': 'chromium_path_rendering',
-  },
-  'StencilFillPathCHROMIUM': {
-    'type': 'Custom',
-    'extension': 'CHROMIUM_path_rendering',
-    'extension_flag': 'chromium_path_rendering',
-  },
-  'StencilStrokePathCHROMIUM': {
-    'type': 'Custom',
-    'extension': 'CHROMIUM_path_rendering',
-    'extension_flag': 'chromium_path_rendering',
-  },
-  'CoverFillPathCHROMIUM': {
-    'type': 'Custom',
-    'extension': 'CHROMIUM_path_rendering',
-    'extension_flag': 'chromium_path_rendering',
-  },
-  'CoverStrokePathCHROMIUM': {
-    'type': 'Custom',
-    'extension': 'CHROMIUM_path_rendering',
-    'extension_flag': 'chromium_path_rendering',
-  },
-  'StencilThenCoverFillPathCHROMIUM': {
-    'type': 'Custom',
-    'extension': 'CHROMIUM_path_rendering',
-    'extension_flag': 'chromium_path_rendering',
-  },
-  'StencilThenCoverStrokePathCHROMIUM': {
-    'type': 'Custom',
-    'extension': 'CHROMIUM_path_rendering',
-    'extension_flag': 'chromium_path_rendering',
-  },
-  'StencilFillPathInstancedCHROMIUM': {
-    'type': 'Custom',
-    'extension': 'CHROMIUM_path_rendering',
-    'extension_flag': 'chromium_path_rendering',
-  },
-  'StencilStrokePathInstancedCHROMIUM': {
-    'type': 'Custom',
-    'extension': 'CHROMIUM_path_rendering',
-    'extension_flag': 'chromium_path_rendering',
-  },
-  'CoverFillPathInstancedCHROMIUM': {
-    'type': 'Custom',
-    'extension': 'CHROMIUM_path_rendering',
-    'extension_flag': 'chromium_path_rendering',
-  },
-  'CoverStrokePathInstancedCHROMIUM': {
-    'type': 'Custom',
-    'extension': 'CHROMIUM_path_rendering',
-    'extension_flag': 'chromium_path_rendering',
-  },
-  'StencilThenCoverFillPathInstancedCHROMIUM': {
-    'type': 'Custom',
-    'extension': 'CHROMIUM_path_rendering',
-    'extension_flag': 'chromium_path_rendering',
-  },
-  'StencilThenCoverStrokePathInstancedCHROMIUM': {
-    'type': 'Custom',
-    'extension': 'CHROMIUM_path_rendering',
-    'extension_flag': 'chromium_path_rendering',
-  },
-  'BindFragmentInputLocationCHROMIUM': {
-    'type': 'GLchar',
-    'data_transfer_methods': ['bucket'],
-    'needs_size': True,
-    'gl_test_func': 'DoBindFragmentInputLocationCHROMIUM',
-    'extension': 'CHROMIUM_path_rendering',
-    'extension_flag': 'chromium_path_rendering',
-  },
-  'ProgramPathFragmentInputGenCHROMIUM': {
-    'type': 'Custom',
-    'data_transfer_methods': ['shm'],
-    'extension': 'CHROMIUM_path_rendering',
-    'extension_flag': 'chromium_path_rendering',
-  },
   'SetDrawRectangleCHROMIUM': {
     'decoder_func': 'DoSetDrawRectangleCHROMIUM',
     'unit_test': False,
@@ -4415,7 +4254,18 @@ _FUNCTION_INFO = {
     'decoder_func': 'DoEndSharedImageAccessDirectCHROMIUM',
     'extension': 'CHROMIUM_shared_image',
     'unit_test': False,
+  },
+  'BeginBatchReadAccessSharedImageCHROMIUM': {
+    'decoder_func': 'DoBeginBatchReadAccessSharedImageCHROMIUM',
+    'extension': 'CHROMIUM_shared_image',
+    'unit_test': False,
+  },
+  'EndBatchReadAccessSharedImageCHROMIUM': {
+    'decoder_func': 'DoEndBatchReadAccessSharedImageCHROMIUM',
+    'extension': 'CHROMIUM_shared_image',
+    'unit_test': False,
   }
+
 }
 
 

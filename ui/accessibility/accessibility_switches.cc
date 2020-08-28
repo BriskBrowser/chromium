@@ -9,11 +9,6 @@
 
 namespace switches {
 
-// Shows additional checkboxes in Settings to enable Chrome OS accessibility
-// features that haven't launched yet.
-const char kEnableExperimentalAccessibilityFeatures[] =
-    "enable-experimental-accessibility-features";
-
 // Shows additional automatic click features that haven't launched yet.
 const char kEnableExperimentalAccessibilityAutoclick[] =
     "enable-experimental-accessibility-autoclick";
@@ -41,19 +36,25 @@ const char kEnableExperimentalAccessibilitySwitchAccess[] =
 const char kEnableExperimentalAccessibilitySwitchAccessText[] =
     "enable-experimental-accessibility-switch-access-text";
 
-// Enables language switching feature that hasn't launched yet.
-const char kEnableExperimentalAccessibilityChromeVoxLanguageSwitching[] =
-    "enable-experimental-accessibility-chromevox-language-switching";
+// Enables annotations feature that hasn't launched yet.
+const char kEnableExperimentalAccessibilityChromeVoxAnnotations[] =
+    "enable-experimental-accessibility-chromevox-annotations";
 
-// Enables search bar to search the ChromeVox menus.
-const char kEnableExperimentalAccessibilityChromeVoxSearchMenus[] =
-    "enable-experimental-accessibility-chromevox-search-menus";
+// Disables ChromeVox language switching feature.
+const char kDisableExperimentalAccessibilityChromeVoxLanguageSwitching[] =
+    "disable-experimental-accessibility-chromevox-language-switching";
 
-// Enables ChromeVox language switching at the inner node level. This feature
-// hasn't launched yet.
-const char kEnableExperimentalAccessibilityChromeVoxSubNodeLanguageSwitching[] =
-    "enable-experimental-accessibility-chromevox-sub-node-language-"
-    "switching";
+// Disables ChromeVox search menus feature.
+const char kDisableExperimentalAccessibilityChromeVoxSearchMenus[] =
+    "disable-experimental-accessibility-chromevox-search-menus";
+
+// Enables interactive tutorial for ChromeVox.
+const char kEnableExperimentalAccessibilityChromeVoxTutorial[] =
+    "enable-experimental-accessibility-chromevox-tutorial";
+
+// Enables Switch Access point scanning. This feature hasn't launched yet.
+const char kEnableSwitchAccessPointScanning[] =
+    "enable-switch-access-point-scanning";
 
 bool IsExperimentalAccessibilityLanguageDetectionEnabled() {
   return base::CommandLine::ForCurrentProcess()->HasSwitch(
@@ -70,6 +71,11 @@ bool IsExperimentalAccessibilitySwitchAccessTextEnabled() {
       ::switches::kEnableExperimentalAccessibilitySwitchAccessText);
 }
 
+bool IsSwitchAccessPointScanningEnabled() {
+  return base::CommandLine::ForCurrentProcess()->HasSwitch(
+      ::switches::kEnableSwitchAccessPointScanning);
+}
+
 #if defined(OS_WIN)
 // Enables UI Automation platform API in addition to the IAccessible API.
 const char kEnableExperimentalUIAutomation[] =
@@ -84,5 +90,9 @@ bool IsExperimentalAccessibilityPlatformUIAEnabled() {
   return false;
 #endif
 }
+
+// Optionally disable AXMenuList, which makes the internal pop-up menu
+// UI for a select element directly accessible.
+const char kDisableAXMenuList[] = "disable-ax-menu-list";
 
 }  // namespace switches

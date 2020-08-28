@@ -78,6 +78,9 @@ class WebStateImpl : public WebState,
   // Notifies the observers that a navigation has started.
   void OnNavigationStarted(web::NavigationContextImpl* context);
 
+  // Notifies the observers that a navigation was redirected.
+  void OnNavigationRedirected(web::NavigationContextImpl* context);
+
   // Notifies the observers that a navigation has finished. For same-document
   // navigations notifies the observers about favicon URLs update using
   // candidates received in OnFaviconUrlUpdated.
@@ -135,13 +138,23 @@ class WebStateImpl : public WebState,
   void SetContentsMimeType(const std::string& mime_type);
 
   // Returns whether the navigation corresponding to |request| should be allowed
-  // to continue by asking its policy deciders. Defaults to true.
-  bool ShouldAllowRequest(
+  // to continue by asking its policy deciders. Defaults to
+  // PolicyDecision::Allow().
+  WebStatePolicyDecider::PolicyDecision ShouldAllowRequest(
       NSURLRequest* request,
       const WebStatePolicyDecider::RequestInfo& request_info);
-  // Returns whether the navigation corresponding to |response| should be
-  // allowed to continue by asking its policy deciders. Defaults to true.
-  bool ShouldAllowResponse(NSURLResponse* response, bool for_main_frame);
+  // Decides whether the navigation corresponding to |response| should be
+  // allowed to continue by asking its policy deciders, and calls |callback|
+  // with the decision. Defaults to PolicyDecision::Allow(). If at least one
+  // policy decider's decision is PolicyDecision::Cancel(), the final result is
+  // PolicyDecision::Cancel(). Otherwise, if at least one policy decider's
+  // decision is PolicyDecision::CancelAndDisplayError(), the final result is
+  // PolicyDecision::CancelAndDisplayError(), with the error corresponding to
+  // the first PolicyDecision::CancelAndDisplayError() result that was received.
+  void ShouldAllowResponse(
+      NSURLResponse* response,
+      bool for_main_frame,
+      base::OnceCallback<void(WebStatePolicyDecider::PolicyDecision)> callback);
 
   // Determines whether the given link with |link_url| should show a preview on
   // force touch.
@@ -156,11 +169,17 @@ class WebStateImpl : public WebState,
   void CommitPreviewingViewController(
       UIViewController* previewing_view_controller);
 
+  // Returns the UIView used to contain the WebView for sizing purposes. Can be
+  // nil.
+  UIView* GetWebViewContainer();
+
   // WebFramesManagerDelegate.
   void OnWebFrameAvailable(web::WebFrame* frame) override;
   void OnWebFrameUnavailable(web::WebFrame* frame) override;
 
   // WebState:
+  Getter CreateDefaultGetter() override;
+  OnceGetter CreateDefaultOnceGetter() override;
   WebStateDelegate* GetDelegate() override;
   void SetDelegate(WebStateDelegate* delegate) override;
   bool IsWebUsageEnabled() const override;
@@ -210,8 +229,23 @@ class WebStateImpl : public WebState,
   void SetHasOpener(bool has_opener) override;
   bool CanTakeSnapshot() const override;
   void TakeSnapshot(const gfx::RectF& rect, SnapshotCallback callback) override;
+  void CreateFullPagePdf(base::OnceCallback<void(NSData*)> callback) override;
   void AddObserver(WebStateObserver* observer) override;
   void RemoveObserver(WebStateObserver* observer) override;
+  void CloseWebState() override;
+
+  // Returns the UserAgent that should be used to load the |url| if it is a new
+  // navigation. This will be Mobile or Desktop.
+  UserAgentType GetUserAgentForNextNavigation(const GURL& url);
+  // Returns the UserAgent type actually used by this WebState, mostly use for
+  // restoration.
+  UserAgentType GetUserAgentForSessionRestoration() const;
+  // Sets the UserAgent type that should be used by the WebState. If
+  // |user_agent| is AUTOMATIC, GetUserAgentForNextNavigation() will return
+  // MOBILE or DESKTOP based on the size class of the WebView. Otherwise, it
+  // will return |user_agent|.
+  // GetUserAgentForSessionRestoration() will always return |user_agent|.
+  void SetUserAgent(UserAgentType user_agent);
 
   // Adds |interstitial|'s view to the web controller's content view.
   void ShowWebInterstitial(WebInterstitialImpl* interstitial);
@@ -239,10 +273,6 @@ class WebStateImpl : public WebState,
                               const GURL& opener_url,
                               bool initiated_by_user);
 
-  // Instructs the delegate to close this web state. Called when the page calls
-  // wants to close self by calling window.close() JavaScript API.
-  virtual void CloseWebState();
-
   // Notifies the delegate that request receives an authentication challenge
   // and is unable to respond using cached credentials.
   void OnAuthRequired(NSURLProtectionSpace* protection_space,
@@ -264,6 +294,7 @@ class WebStateImpl : public WebState,
   void OnNavigationItemCommitted(NavigationItem* item) override;
 
   WebState* GetWebState() override;
+  void SetWebStateUserAgent(UserAgentType user_agent_type) override;
   id<CRWWebViewNavigationProxy> GetWebViewNavigationProxy() const override;
   void GoToBackForwardListItem(WKBackForwardListItem* wk_item,
                                NavigationItem* item,
@@ -282,11 +313,17 @@ class WebStateImpl : public WebState,
   friend SessionStorageBuilder;
 
   // Called when a dialog presented by the JavaScriptDialogPresenter is
-  // dismissed.  |original_callback| is the callback provided to
-  // RunJavaScriptDialog(), and is executed with |success| and |user_input|.
-  void JavaScriptDialogClosed(DialogClosedCallback callback,
-                              bool success,
-                              NSString* user_input);
+  // dismissed.  |callback| is the callback provided to RunJavaScriptDialog(),
+  // and is executed with |success| and |user_input|.
+  //
+  // This is defined as a static function taking WeakPtr to WebStateImpl instead
+  // of an instance method of WebStateImpl. This is to guarantee that |callback|
+  // is called even when JavaScriptDialogClosed() is called after WebStateImpl
+  // is destructed. Otherwise WKWebView raises NSInternalInconsistencyException.
+  static void JavaScriptDialogClosed(base::WeakPtr<WebStateImpl> weak_web_state,
+                                     DialogClosedCallback callback,
+                                     bool success,
+                                     NSString* user_input);
 
   // Creates a WebUIIOS object for |url| that is owned by the caller. Returns
   // nullptr if |url| does not correspond to a WebUI page.
@@ -366,6 +403,8 @@ class WebStateImpl : public WebState,
   // The InterfaceBinder exposed by WebStateImpl. Used to handle Mojo interface
   // requests from the main frame.
   InterfaceBinder interface_binder_{this};
+
+  UserAgentType user_agent_type_;
 
   base::WeakPtrFactory<WebStateImpl> weak_factory_;
 

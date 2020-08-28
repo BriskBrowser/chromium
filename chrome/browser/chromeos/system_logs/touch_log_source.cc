@@ -9,13 +9,14 @@
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/callback.h"
+#include "base/check_op.h"
 #include "base/command_line.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
-#include "base/logging.h"
 #include "base/process/launch.h"
 #include "base/strings/string_util.h"
 #include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
 #include "chromeos/login/login_state/login_state.h"
 #include "content/public/browser/browser_thread.h"
 #include "ui/ozone/public/input_controller.h"
@@ -51,7 +52,7 @@ const int kMaxDeviceTouchEventLogs = 7;
 // Clean up intermediate log files dumped during feedback creation.
 void CleanupEventLog(const std::vector<base::FilePath>& log_paths) {
   for (const base::FilePath& path : log_paths)
-    base::DeleteFile(path, false);
+    base::DeleteFile(path);
 }
 
 // Check for all known log paths and find the ones whose filenames match a
@@ -123,9 +124,8 @@ void PackEventLog(system_logs::SystemLogsResponse* response,
   }
 
   // Cleanup these temporary log files.
-  base::PostTask(
-      FROM_HERE,
-      {base::ThreadPool(), base::MayBlock(), base::TaskPriority::BEST_EFFORT},
+  base::ThreadPool::PostTask(
+      FROM_HERE, {base::MayBlock(), base::TaskPriority::BEST_EFFORT},
       base::BindOnce(CleanupEventLog, log_paths));
 }
 
@@ -138,9 +138,8 @@ void OnEventLogCollected(
     const std::vector<base::FilePath>& log_paths) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   system_logs::SystemLogsResponse* response_ptr = response.get();
-  base::PostTaskAndReply(
-      FROM_HERE,
-      {base::ThreadPool(), base::MayBlock(), base::TaskPriority::BEST_EFFORT},
+  base::ThreadPool::PostTaskAndReply(
+      FROM_HERE, {base::MayBlock(), base::TaskPriority::BEST_EFFORT},
       base::BindOnce(&PackEventLog, response_ptr, log_paths),
       base::BindOnce(std::move(callback), std::move(response)));
 }

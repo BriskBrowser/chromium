@@ -62,16 +62,21 @@ ScriptPromise CustomLayoutChild::layoutNextFragment(
   // Serialize the provided data if needed.
   scoped_refptr<SerializedScriptValue> constraint_data;
   if (options->hasData()) {
-    // We serialize "kForStorage" so that SharedArrayBuffers can't be shared
-    // between LayoutWorkletGlobalScopes.
-    constraint_data = SerializedScriptValue::Serialize(
-        script_state->GetIsolate(), options->data().V8Value(),
-        SerializedScriptValue::SerializeOptions(
-            SerializedScriptValue::kForStorage),
-        exception_state);
+    v8::Local<v8::Value> data = options->data().V8Value();
+    // TODO(peria): Remove this branch.  We don't serialize null values for
+    // backward compatibility.  https://crbug.com/1070871
+    if (!data->IsNullOrUndefined()) {
+      // We serialize "kForStorage" so that SharedArrayBuffers can't be shared
+      // between LayoutWorkletGlobalScopes.
+      constraint_data = SerializedScriptValue::Serialize(
+          script_state->GetIsolate(), data,
+          SerializedScriptValue::SerializeOptions(
+              SerializedScriptValue::kForStorage),
+          exception_state);
 
-    if (exception_state.HadException())
-      return ScriptPromise();
+      if (exception_state.HadException())
+        return ScriptPromise();
+    }
   }
 
   auto* resolver = MakeGarbageCollected<ScriptPromiseResolver>(script_state);
@@ -81,7 +86,7 @@ ScriptPromise CustomLayoutChild::layoutNextFragment(
   return resolver->Promise();
 }
 
-void CustomLayoutChild::Trace(blink::Visitor* visitor) {
+void CustomLayoutChild::Trace(Visitor* visitor) const {
   visitor->Trace(style_map_);
   visitor->Trace(token_);
   ScriptWrappable::Trace(visitor);

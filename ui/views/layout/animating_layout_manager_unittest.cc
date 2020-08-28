@@ -4,6 +4,7 @@
 
 #include "ui/views/layout/animating_layout_manager.h"
 
+#include <algorithm>
 #include <utility>
 #include <vector>
 
@@ -14,6 +15,7 @@
 #include "ui/gfx/animation/animation_test_api.h"
 #include "ui/views/layout/fill_layout.h"
 #include "ui/views/layout/flex_layout.h"
+#include "ui/views/layout/normalized_geometry.h"
 #include "ui/views/test/views_test_base.h"
 #include "ui/views/view.h"
 #include "ui/views/view_class_properties.h"
@@ -165,6 +167,7 @@ class AnimatingLayoutManagerTest : public testing::Test {
 
   void TearDown() override { DestroyView(); }
 
+  const View* view() const { return view_; }
   View* view() { return view_; }
   TestView* child(size_t index) const { return children_[index]; }
   size_t num_children() const { return children_.size(); }
@@ -237,19 +240,20 @@ class AnimatingLayoutManagerTest : public testing::Test {
 };
 
 const FlexSpecification AnimatingLayoutManagerTest::kDropOut =
-    FlexSpecification::ForSizeRule(MinimumFlexSizeRule::kPreferredSnapToZero,
-                                   MaximumFlexSizeRule::kPreferred)
+    FlexSpecification(MinimumFlexSizeRule::kPreferredSnapToZero,
+                      MaximumFlexSizeRule::kPreferred)
         .WithWeight(0);
 
 const FlexSpecification AnimatingLayoutManagerTest::kFlex =
-    FlexSpecification::ForSizeRule(MinimumFlexSizeRule::kScaleToZero,
-                                   MaximumFlexSizeRule::kUnbounded)
+    FlexSpecification(MinimumFlexSizeRule::kScaleToZero,
+                      MaximumFlexSizeRule::kUnbounded)
         .WithOrder(2);
 
 TEST_F(AnimatingLayoutManagerTest, SetLayoutManager_NoAnimation) {
   auto test_layout = std::make_unique<TestLayoutManager>();
   test_layout->SetLayout(layout1());
-  layout()->SetShouldAnimateBounds(true);
+  layout()->SetBoundsAnimationMode(
+      AnimatingLayoutManager::BoundsAnimationMode::kAnimateBothAxes);
   layout()->SetTargetLayoutManager(std::move(test_layout));
 
   SizeAndLayout();
@@ -259,7 +263,8 @@ TEST_F(AnimatingLayoutManagerTest, SetLayoutManager_NoAnimation) {
 }
 
 TEST_F(AnimatingLayoutManagerTest, ResetLayout_NoAnimation) {
-  layout()->SetShouldAnimateBounds(true);
+  layout()->SetBoundsAnimationMode(
+      AnimatingLayoutManager::BoundsAnimationMode::kAnimateBothAxes);
   auto* const test_layout =
       layout()->SetTargetLayoutManager(std::make_unique<TestLayoutManager>());
   test_layout->SetLayout(layout1());
@@ -272,7 +277,8 @@ TEST_F(AnimatingLayoutManagerTest, ResetLayout_NoAnimation) {
 }
 
 TEST_F(AnimatingLayoutManagerTest, HostInvalidate_TriggersAnimation) {
-  layout()->SetShouldAnimateBounds(true);
+  layout()->SetBoundsAnimationMode(
+      AnimatingLayoutManager::BoundsAnimationMode::kAnimateBothAxes);
   auto* const test_layout =
       layout()->SetTargetLayoutManager(std::make_unique<TestLayoutManager>());
   test_layout->SetLayout(layout1());
@@ -291,7 +297,8 @@ TEST_F(AnimatingLayoutManagerTest, HostInvalidate_TriggersAnimation) {
 
 TEST_F(AnimatingLayoutManagerTest,
        HostInvalidate_AnimateBounds_AnimationProgresses) {
-  layout()->SetShouldAnimateBounds(true);
+  layout()->SetBoundsAnimationMode(
+      AnimatingLayoutManager::BoundsAnimationMode::kAnimateBothAxes);
   auto* const test_layout =
       layout()->SetTargetLayoutManager(std::make_unique<TestLayoutManager>());
   test_layout->SetLayout(layout1());
@@ -328,7 +335,8 @@ TEST_F(AnimatingLayoutManagerTest,
 }
 
 TEST_F(AnimatingLayoutManagerTest, HostInvalidate_NoAnimateBounds_NoAnimation) {
-  layout()->SetShouldAnimateBounds(false);
+  layout()->SetBoundsAnimationMode(
+      AnimatingLayoutManager::BoundsAnimationMode::kUseHostBounds);
   auto* const test_layout =
       layout()->SetTargetLayoutManager(std::make_unique<TestLayoutManager>());
   test_layout->SetLayout(layout1());
@@ -349,7 +357,8 @@ TEST_F(AnimatingLayoutManagerTest, HostInvalidate_NoAnimateBounds_NoAnimation) {
 }
 
 TEST_F(AnimatingLayoutManagerTest, HostResize_NoAnimateBounds_NoAnimation) {
-  layout()->SetShouldAnimateBounds(false);
+  layout()->SetBoundsAnimationMode(
+      AnimatingLayoutManager::BoundsAnimationMode::kUseHostBounds);
   auto* const test_layout =
       layout()->SetTargetLayoutManager(std::make_unique<TestLayoutManager>());
   test_layout->SetLayout(layout1());
@@ -373,7 +382,8 @@ TEST_F(AnimatingLayoutManagerTest, HostResize_NoAnimateBounds_NoAnimation) {
 
 TEST_F(AnimatingLayoutManagerTest,
        HostInvalidate_NoAnimateBounds_NewLayoutTriggersAnimation) {
-  layout()->SetShouldAnimateBounds(false);
+  layout()->SetBoundsAnimationMode(
+      AnimatingLayoutManager::BoundsAnimationMode::kUseHostBounds);
   auto* const test_layout =
       layout()->SetTargetLayoutManager(std::make_unique<TestLayoutManager>());
   test_layout->SetLayout(layout1());
@@ -398,7 +408,8 @@ TEST_F(AnimatingLayoutManagerTest,
 
 TEST_F(AnimatingLayoutManagerTest,
        HostInvalidate_NoAnimateBounds_AnimationProgresses) {
-  layout()->SetShouldAnimateBounds(false);
+  layout()->SetBoundsAnimationMode(
+      AnimatingLayoutManager::BoundsAnimationMode::kUseHostBounds);
   auto* const test_layout =
       layout()->SetTargetLayoutManager(std::make_unique<TestLayoutManager>());
   test_layout->SetLayout(layout1());
@@ -447,7 +458,8 @@ TEST_F(AnimatingLayoutManagerTest, FadeInOutMode_MiddleView_ScaleFromZero) {
                                       {{child(0), true, {5, 5, 10, 10}},
                                        {child(1), true, {20, 5, 10, 10}},
                                        {child(2), true, {35, 5, 10, 10}}}};
-  layout()->SetShouldAnimateBounds(true);
+  layout()->SetBoundsAnimationMode(
+      AnimatingLayoutManager::BoundsAnimationMode::kAnimateBothAxes);
   layout()->SetDefaultFadeMode(
       AnimatingLayoutManager::FadeInOutMode::kScaleFromZero);
   layout()->SetOrientation(LayoutOrientation::kHorizontal);
@@ -526,7 +538,8 @@ TEST_F(AnimatingLayoutManagerTest, FadeInOutMode_MiddleView_ScaleFromMinimum) {
                                       {{child(0), true, {5, 5, 10, 10}},
                                        {child(1), true, {20, 5, 10, 10}},
                                        {child(2), true, {35, 5, 10, 10}}}};
-  layout()->SetShouldAnimateBounds(true);
+  layout()->SetBoundsAnimationMode(
+      AnimatingLayoutManager::BoundsAnimationMode::kAnimateBothAxes);
   layout()->SetDefaultFadeMode(
       AnimatingLayoutManager::FadeInOutMode::kScaleFromMinimum);
   layout()->SetOrientation(LayoutOrientation::kHorizontal);
@@ -589,7 +602,8 @@ TEST_F(AnimatingLayoutManagerTest, FadeInOutMode_LeadingView_ScaleFromMinimum) {
                                       {{child(0), true, {5, 5, 10, 10}},
                                        {child(1), true, {20, 5, 10, 10}},
                                        {child(2), true, {35, 5, 10, 10}}}};
-  layout()->SetShouldAnimateBounds(true);
+  layout()->SetBoundsAnimationMode(
+      AnimatingLayoutManager::BoundsAnimationMode::kAnimateBothAxes);
   layout()->SetDefaultFadeMode(
       AnimatingLayoutManager::FadeInOutMode::kScaleFromMinimum);
   layout()->SetOrientation(LayoutOrientation::kHorizontal);
@@ -652,7 +666,8 @@ TEST_F(AnimatingLayoutManagerTest,
                                        {child(1), true, {20, 5, 10, 10}},
                                        {child(2), false}}};
 
-  layout()->SetShouldAnimateBounds(true);
+  layout()->SetBoundsAnimationMode(
+      AnimatingLayoutManager::BoundsAnimationMode::kAnimateBothAxes);
   layout()->SetDefaultFadeMode(
       AnimatingLayoutManager::FadeInOutMode::kScaleFromMinimum);
   layout()->SetOrientation(LayoutOrientation::kHorizontal);
@@ -716,7 +731,8 @@ TEST_F(AnimatingLayoutManagerTest,
                                       {{child(0), true, {5, 5, 10, 10}},
                                        {child(1), true, {20, 5, 10, 10}},
                                        {child(2), true, {35, 5, 10, 10}}}};
-  layout()->SetShouldAnimateBounds(true);
+  layout()->SetBoundsAnimationMode(
+      AnimatingLayoutManager::BoundsAnimationMode::kAnimateBothAxes);
   layout()->SetDefaultFadeMode(
       AnimatingLayoutManager::FadeInOutMode::kScaleFromMinimum);
   layout()->SetOrientation(LayoutOrientation::kHorizontal);
@@ -780,7 +796,8 @@ TEST_F(AnimatingLayoutManagerTest,
                                       {{child(0), true, {5, 5, 10, 10}},
                                        {child(1), true, {5, 20, 10, 10}},
                                        {child(2), true, {5, 35, 10, 10}}}};
-  layout()->SetShouldAnimateBounds(true);
+  layout()->SetBoundsAnimationMode(
+      AnimatingLayoutManager::BoundsAnimationMode::kAnimateBothAxes);
   layout()->SetDefaultFadeMode(
       AnimatingLayoutManager::FadeInOutMode::kScaleFromMinimum);
   layout()->SetOrientation(LayoutOrientation::kVertical);
@@ -837,7 +854,8 @@ TEST_F(AnimatingLayoutManagerTest,
 
 TEST_F(AnimatingLayoutManagerTest,
        FadeInOutMode_Hide_HidesViewDuringAnimation) {
-  layout()->SetShouldAnimateBounds(false);
+  layout()->SetBoundsAnimationMode(
+      AnimatingLayoutManager::BoundsAnimationMode::kUseHostBounds);
   layout()->SetDefaultFadeMode(AnimatingLayoutManager::FadeInOutMode::kHide);
   layout()->SetOrientation(LayoutOrientation::kVertical);
   FlexLayout* const flex_layout =
@@ -879,7 +897,8 @@ TEST_F(AnimatingLayoutManagerTest,
 
 TEST_F(AnimatingLayoutManagerTest,
        FadeInOutMode_Hide_HidesViewDuringAnimation_OneFrame) {
-  layout()->SetShouldAnimateBounds(false);
+  layout()->SetBoundsAnimationMode(
+      AnimatingLayoutManager::BoundsAnimationMode::kUseHostBounds);
   layout()->SetDefaultFadeMode(AnimatingLayoutManager::FadeInOutMode::kHide);
   layout()->SetOrientation(LayoutOrientation::kVertical);
   FlexLayout* const flex_layout =
@@ -914,7 +933,8 @@ TEST_F(AnimatingLayoutManagerTest,
 
 TEST_F(AnimatingLayoutManagerTest,
        FadeInOutMode_Hide_AnimationResetDuringHide) {
-  layout()->SetShouldAnimateBounds(false);
+  layout()->SetBoundsAnimationMode(
+      AnimatingLayoutManager::BoundsAnimationMode::kUseHostBounds);
   layout()->SetDefaultFadeMode(AnimatingLayoutManager::FadeInOutMode::kHide);
   layout()->SetOrientation(LayoutOrientation::kVertical);
   FlexLayout* const flex_layout =
@@ -955,7 +975,8 @@ TEST_F(AnimatingLayoutManagerTest, FadeInOutMode_SlideFromLeading_LastView) {
                                      {child(1), true, {20, 5, 10, 10}},
                                      {child(2), true, {35, 5, 10, 10}}}};
 
-  layout()->SetShouldAnimateBounds(true);
+  layout()->SetBoundsAnimationMode(
+      AnimatingLayoutManager::BoundsAnimationMode::kAnimateBothAxes);
   layout()->SetDefaultFadeMode(
       AnimatingLayoutManager::FadeInOutMode::kSlideFromLeadingEdge);
   layout()->SetOrientation(LayoutOrientation::kHorizontal);
@@ -1002,7 +1023,8 @@ TEST_F(AnimatingLayoutManagerTest, FadeInOutMode_SlideFromLeading_Vertical) {
                                      {child(1), true, {5, 20, 10, 10}},
                                      {child(2), true, {5, 35, 10, 10}}}};
 
-  layout()->SetShouldAnimateBounds(true);
+  layout()->SetBoundsAnimationMode(
+      AnimatingLayoutManager::BoundsAnimationMode::kAnimateBothAxes);
   layout()->SetDefaultFadeMode(
       AnimatingLayoutManager::FadeInOutMode::kSlideFromLeadingEdge);
   layout()->SetOrientation(LayoutOrientation::kVertical);
@@ -1050,7 +1072,8 @@ TEST_F(AnimatingLayoutManagerTest, FadeInOutMode_SlideFromLeading_MiddleView) {
                                      {child(1), false},
                                      {child(2), true, {20, 5, 10, 10}}}};
 
-  layout()->SetShouldAnimateBounds(true);
+  layout()->SetBoundsAnimationMode(
+      AnimatingLayoutManager::BoundsAnimationMode::kAnimateBothAxes);
   layout()->SetDefaultFadeMode(
       AnimatingLayoutManager::FadeInOutMode::kSlideFromLeadingEdge);
   layout()->SetOrientation(LayoutOrientation::kHorizontal);
@@ -1100,7 +1123,8 @@ TEST_F(AnimatingLayoutManagerTest,
                                      {child(1), true, {5, 5, 5, 10}},
                                      {child(2), true, {20, 5, 10, 10}}}};
 
-  layout()->SetShouldAnimateBounds(true);
+  layout()->SetBoundsAnimationMode(
+      AnimatingLayoutManager::BoundsAnimationMode::kAnimateBothAxes);
   layout()->SetDefaultFadeMode(
       AnimatingLayoutManager::FadeInOutMode::kSlideFromLeadingEdge);
   layout()->SetOrientation(LayoutOrientation::kHorizontal);
@@ -1149,7 +1173,8 @@ TEST_F(AnimatingLayoutManagerTest, FadeInOutMode_SlideFromTrailing_MiddleView) {
                                      {child(1), false},
                                      {child(2), true, {20, 5, 10, 10}}}};
 
-  layout()->SetShouldAnimateBounds(true);
+  layout()->SetBoundsAnimationMode(
+      AnimatingLayoutManager::BoundsAnimationMode::kAnimateBothAxes);
   layout()->SetDefaultFadeMode(
       AnimatingLayoutManager::FadeInOutMode::kSlideFromTrailingEdge);
   layout()->SetOrientation(LayoutOrientation::kHorizontal);
@@ -1189,7 +1214,8 @@ TEST_F(AnimatingLayoutManagerTest, FadeInOutMode_SlideFromTrailing_MiddleView) {
 
 TEST_F(AnimatingLayoutManagerTest, FlexLayout_FadeOutOnVisibilitySet) {
   constexpr gfx::Insets kChildMargins(5);
-  layout()->SetShouldAnimateBounds(false);
+  layout()->SetBoundsAnimationMode(
+      AnimatingLayoutManager::BoundsAnimationMode::kUseHostBounds);
   layout()->SetOrientation(LayoutOrientation::kHorizontal);
   layout()->SetDefaultFadeMode(
       AnimatingLayoutManager::FadeInOutMode::kScaleFromZero);
@@ -1199,9 +1225,9 @@ TEST_F(AnimatingLayoutManagerTest, FlexLayout_FadeOutOnVisibilitySet) {
   flex_layout->SetCollapseMargins(true);
   flex_layout->SetCrossAxisAlignment(LayoutAlignment::kStart);
   flex_layout->SetDefault(kMarginsKey, kChildMargins);
-  child(1)->SetProperty(kFlexBehaviorKey, FlexSpecification::ForSizeRule(
-                                              MinimumFlexSizeRule::kPreferred,
-                                              MaximumFlexSizeRule::kUnbounded));
+  child(1)->SetProperty(kFlexBehaviorKey,
+                        FlexSpecification(MinimumFlexSizeRule::kPreferred,
+                                          MaximumFlexSizeRule::kUnbounded));
 
   const ProposedLayout expected_start{
       {50, 20},
@@ -1245,7 +1271,8 @@ TEST_F(AnimatingLayoutManagerTest, FlexLayout_FadeOutOnVisibilitySet) {
 
 TEST_F(AnimatingLayoutManagerTest, FlexLayout_FadeInOnVisibilitySet) {
   constexpr gfx::Insets kChildMargins(5);
-  layout()->SetShouldAnimateBounds(false);
+  layout()->SetBoundsAnimationMode(
+      AnimatingLayoutManager::BoundsAnimationMode::kUseHostBounds);
   layout()->SetOrientation(LayoutOrientation::kHorizontal);
   layout()->SetDefaultFadeMode(
       AnimatingLayoutManager::FadeInOutMode::kScaleFromZero);
@@ -1256,9 +1283,9 @@ TEST_F(AnimatingLayoutManagerTest, FlexLayout_FadeInOnVisibilitySet) {
   flex_layout->SetCollapseMargins(true);
   flex_layout->SetCrossAxisAlignment(LayoutAlignment::kStart);
   flex_layout->SetDefault(kMarginsKey, kChildMargins);
-  child(1)->SetProperty(kFlexBehaviorKey, FlexSpecification::ForSizeRule(
-                                              MinimumFlexSizeRule::kPreferred,
-                                              MaximumFlexSizeRule::kUnbounded));
+  child(1)->SetProperty(kFlexBehaviorKey,
+                        FlexSpecification(MinimumFlexSizeRule::kPreferred,
+                                          MaximumFlexSizeRule::kUnbounded));
 
   const ProposedLayout expected_start{
       {50, 20},
@@ -1304,7 +1331,8 @@ TEST_F(AnimatingLayoutManagerTest, FlexLayout_FadeInOnVisibilitySet) {
 TEST_F(AnimatingLayoutManagerTest,
        FlexLayout_AnimateOutOnDescendentVisbilitySet) {
   constexpr gfx::Insets kChildMargins(5);
-  layout()->SetShouldAnimateBounds(false);
+  layout()->SetBoundsAnimationMode(
+      AnimatingLayoutManager::BoundsAnimationMode::kUseHostBounds);
   layout()->SetOrientation(LayoutOrientation::kHorizontal);
   layout()->SetDefaultFadeMode(
       AnimatingLayoutManager::FadeInOutMode::kScaleFromZero);
@@ -1318,9 +1346,9 @@ TEST_F(AnimatingLayoutManagerTest,
   flex_layout->SetCollapseMargins(true);
   flex_layout->SetCrossAxisAlignment(LayoutAlignment::kStart);
   flex_layout->SetDefault(kMarginsKey, kChildMargins);
-  child(1)->SetProperty(kFlexBehaviorKey, FlexSpecification::ForSizeRule(
-                                              MinimumFlexSizeRule::kPreferred,
-                                              MaximumFlexSizeRule::kUnbounded));
+  child(1)->SetProperty(kFlexBehaviorKey,
+                        FlexSpecification(MinimumFlexSizeRule::kPreferred,
+                                          MaximumFlexSizeRule::kUnbounded));
 
   const ProposedLayout expected_start{
       {50, 20},
@@ -1366,7 +1394,8 @@ TEST_F(AnimatingLayoutManagerTest,
 TEST_F(AnimatingLayoutManagerTest,
        FlexLayout_AnimateInOnDescendentVisbilitySet) {
   constexpr gfx::Insets kChildMargins(5);
-  layout()->SetShouldAnimateBounds(false);
+  layout()->SetBoundsAnimationMode(
+      AnimatingLayoutManager::BoundsAnimationMode::kUseHostBounds);
   layout()->SetOrientation(LayoutOrientation::kHorizontal);
   layout()->SetDefaultFadeMode(
       AnimatingLayoutManager::FadeInOutMode::kScaleFromZero);
@@ -1381,9 +1410,9 @@ TEST_F(AnimatingLayoutManagerTest,
   flex_layout->SetCollapseMargins(true);
   flex_layout->SetCrossAxisAlignment(LayoutAlignment::kStart);
   flex_layout->SetDefault(kMarginsKey, kChildMargins);
-  child(1)->SetProperty(kFlexBehaviorKey, FlexSpecification::ForSizeRule(
-                                              MinimumFlexSizeRule::kPreferred,
-                                              MaximumFlexSizeRule::kUnbounded));
+  child(1)->SetProperty(kFlexBehaviorKey,
+                        FlexSpecification(MinimumFlexSizeRule::kPreferred,
+                                          MaximumFlexSizeRule::kUnbounded));
 
   const ProposedLayout expected_start{
       {50, 20},
@@ -1428,7 +1457,8 @@ TEST_F(AnimatingLayoutManagerTest,
 // Regression test for crbug.com/1037625: crash in SetViewVisibility() (1/2)
 TEST_F(AnimatingLayoutManagerTest, FlexLayout_RemoveFadingViewDoesNotCrash) {
   constexpr gfx::Insets kChildMargins(5);
-  layout()->SetShouldAnimateBounds(false);
+  layout()->SetBoundsAnimationMode(
+      AnimatingLayoutManager::BoundsAnimationMode::kUseHostBounds);
   layout()->SetOrientation(LayoutOrientation::kHorizontal);
   auto* const flex_layout =
       layout()->SetTargetLayoutManager(std::make_unique<FlexLayout>());
@@ -1471,7 +1501,8 @@ TEST_F(AnimatingLayoutManagerTest, FlexLayout_RemoveFadingViewDoesNotCrash) {
 // Regression test for crbug.com/1037625: crash in SetViewVisibility() (2/2)
 TEST_F(AnimatingLayoutManagerTest, FlexLayout_RemoveShowingViewDoesNotCrash) {
   constexpr gfx::Insets kChildMargins(5);
-  layout()->SetShouldAnimateBounds(false);
+  layout()->SetBoundsAnimationMode(
+      AnimatingLayoutManager::BoundsAnimationMode::kUseHostBounds);
   layout()->SetOrientation(LayoutOrientation::kHorizontal);
   child(1)->SetVisible(false);
   auto* const flex_layout =
@@ -1507,7 +1538,8 @@ TEST_F(AnimatingLayoutManagerTest, FlexLayout_RemoveShowingViewDoesNotCrash) {
 
 // Regression test for crbug.com/1037947 (1/2)
 TEST_F(AnimatingLayoutManagerTest, FlexLayout_DoubleSlide) {
-  layout()->SetShouldAnimateBounds(true);
+  layout()->SetBoundsAnimationMode(
+      AnimatingLayoutManager::BoundsAnimationMode::kAnimateBothAxes);
   layout()->SetOrientation(LayoutOrientation::kHorizontal);
   layout()->SetDefaultFadeMode(
       AnimatingLayoutManager::FadeInOutMode::kSlideFromTrailingEdge);
@@ -1594,7 +1626,8 @@ TEST_F(AnimatingLayoutManagerTest, FlexLayout_DoubleSlide) {
 // [A]    [B]
 //
 TEST_F(AnimatingLayoutManagerTest, FlexLayout_RedirectAfterExchangePlaces) {
-  layout()->SetShouldAnimateBounds(true);
+  layout()->SetBoundsAnimationMode(
+      AnimatingLayoutManager::BoundsAnimationMode::kAnimateBothAxes);
   layout()->SetOrientation(LayoutOrientation::kHorizontal);
   layout()->SetDefaultFadeMode(
       AnimatingLayoutManager::FadeInOutMode::kSlideFromLeadingEdge);
@@ -1645,7 +1678,8 @@ TEST_F(AnimatingLayoutManagerTest, FlexLayout_RedirectAfterExchangePlaces) {
 TEST_F(AnimatingLayoutManagerTest,
        FlexLayout_PostDelayedActionAfterFadeIn_AnimateNewViewIn) {
   child(0)->SetVisible(false);
-  layout()->SetShouldAnimateBounds(true);
+  layout()->SetBoundsAnimationMode(
+      AnimatingLayoutManager::BoundsAnimationMode::kAnimateBothAxes);
   layout()->SetOrientation(LayoutOrientation::kHorizontal);
   auto* const flex_layout =
       layout()->SetTargetLayoutManager(std::make_unique<FlexLayout>());
@@ -1684,7 +1718,8 @@ TEST_F(AnimatingLayoutManagerTest,
 TEST_F(AnimatingLayoutManagerTest,
        FlexLayout_PostDelayedActionAfterFadeIn_SwapTwoViews) {
   child(0)->SetVisible(false);
-  layout()->SetShouldAnimateBounds(false);
+  layout()->SetBoundsAnimationMode(
+      AnimatingLayoutManager::BoundsAnimationMode::kUseHostBounds);
   layout()->SetOrientation(LayoutOrientation::kHorizontal);
   auto* const flex_layout =
       layout()->SetTargetLayoutManager(std::make_unique<FlexLayout>());
@@ -1724,7 +1759,8 @@ TEST_F(AnimatingLayoutManagerTest,
 // change and FadeIn() was called.
 TEST_F(AnimatingLayoutManagerTest,
        FlexLayout_PostDelayedActionAfterFadeIn_FadeInHiddenView) {
-  layout()->SetShouldAnimateBounds(false);
+  layout()->SetBoundsAnimationMode(
+      AnimatingLayoutManager::BoundsAnimationMode::kUseHostBounds);
   layout()->SetOrientation(LayoutOrientation::kHorizontal);
   auto* const flex_layout =
       layout()->SetTargetLayoutManager(std::make_unique<FlexLayout>());
@@ -1767,9 +1803,49 @@ TEST_F(AnimatingLayoutManagerTest,
   EXPECT_TRUE(child(2)->GetVisible());
 }
 
+// Regression test for issue 1046393 (crash/use-after-free when removing view
+// during animation).
+TEST_F(AnimatingLayoutManagerTest, RemoveDuringAnimationDoesntCrash) {
+  const ProposedLayout initial_layout{{35, 20},
+                                      {{child(0), true, {5, 5, 10, 10}},
+                                       {child(1), true, {20, 5, 10, 10}},
+                                       {child(2), false}}};
+  const ProposedLayout final_layout{
+      {20, 20},
+      {{child(0), true, {5, 5, 10, 10}}, {child(1), false}, {child(2), false}}};
+  layout()->SetBoundsAnimationMode(
+      AnimatingLayoutManager::BoundsAnimationMode::kAnimateBothAxes);
+  layout()->SetDefaultFadeMode(
+      AnimatingLayoutManager::FadeInOutMode::kSlideFromLeadingEdge);
+  layout()->SetOrientation(LayoutOrientation::kHorizontal);
+  auto* const test_layout =
+      layout()->SetTargetLayoutManager(std::make_unique<TestLayoutManager>());
+  test_layout->SetLayout(initial_layout);
+  layout()->ResetLayout();
+  SizeAndLayout();
+
+  // Hide the second view.
+  test_layout->SetLayout(final_layout);
+
+  // Advance the animation. Second view should still be visible, third view
+  // should be hidden.
+  animation_api()->IncrementTime(base::TimeDelta::FromMilliseconds(500));
+
+  // Remove third view.
+  View* const child2 = child(2);
+  view()->RemoveChildView(child2);
+  delete child2;
+
+  // There is still layout data for the third view; the target hasn't changed;
+  // it's critical that during the removal the current layout has had the third
+  // view excised or there will be a DCHECK() here.
+  view()->Layout();
+}
+
 TEST_F(AnimatingLayoutManagerTest, FlexLayout_FadeInOnAdded) {
   constexpr gfx::Insets kChildMargins(5);
-  layout()->SetShouldAnimateBounds(false);
+  layout()->SetBoundsAnimationMode(
+      AnimatingLayoutManager::BoundsAnimationMode::kUseHostBounds);
   layout()->SetOrientation(LayoutOrientation::kHorizontal);
   layout()->SetDefaultFadeMode(
       AnimatingLayoutManager::FadeInOutMode::kScaleFromZero);
@@ -1780,9 +1856,9 @@ TEST_F(AnimatingLayoutManagerTest, FlexLayout_FadeInOnAdded) {
   flex_layout->SetCollapseMargins(true);
   flex_layout->SetCrossAxisAlignment(LayoutAlignment::kStart);
   flex_layout->SetDefault(kMarginsKey, kChildMargins);
-  child(1)->SetProperty(kFlexBehaviorKey, FlexSpecification::ForSizeRule(
-                                              MinimumFlexSizeRule::kPreferred,
-                                              MaximumFlexSizeRule::kUnbounded));
+  child(1)->SetProperty(kFlexBehaviorKey,
+                        FlexSpecification(MinimumFlexSizeRule::kPreferred,
+                                          MaximumFlexSizeRule::kUnbounded));
 
   const ProposedLayout expected_start{
       {50, 20},
@@ -1829,7 +1905,8 @@ TEST_F(AnimatingLayoutManagerTest, FlexLayout_FadeInOnAdded) {
 
 TEST_F(AnimatingLayoutManagerTest, FlexLayout_FadeIn) {
   constexpr gfx::Insets kChildMargins(5);
-  layout()->SetShouldAnimateBounds(false);
+  layout()->SetBoundsAnimationMode(
+      AnimatingLayoutManager::BoundsAnimationMode::kUseHostBounds);
   layout()->SetOrientation(LayoutOrientation::kHorizontal);
   layout()->SetDefaultFadeMode(
       AnimatingLayoutManager::FadeInOutMode::kScaleFromZero);
@@ -1840,9 +1917,9 @@ TEST_F(AnimatingLayoutManagerTest, FlexLayout_FadeIn) {
   flex_layout->SetCollapseMargins(true);
   flex_layout->SetCrossAxisAlignment(LayoutAlignment::kStart);
   flex_layout->SetDefault(kMarginsKey, kChildMargins);
-  child(1)->SetProperty(kFlexBehaviorKey, FlexSpecification::ForSizeRule(
-                                              MinimumFlexSizeRule::kPreferred,
-                                              MaximumFlexSizeRule::kUnbounded));
+  child(1)->SetProperty(kFlexBehaviorKey,
+                        FlexSpecification(MinimumFlexSizeRule::kPreferred,
+                                          MaximumFlexSizeRule::kUnbounded));
 
   const ProposedLayout expected_start{
       {50, 20},
@@ -1886,7 +1963,8 @@ TEST_F(AnimatingLayoutManagerTest, FlexLayout_FadeIn) {
 
 TEST_F(AnimatingLayoutManagerTest, FlexLayout_FadeOut) {
   constexpr gfx::Insets kChildMargins(5);
-  layout()->SetShouldAnimateBounds(false);
+  layout()->SetBoundsAnimationMode(
+      AnimatingLayoutManager::BoundsAnimationMode::kUseHostBounds);
   layout()->SetOrientation(LayoutOrientation::kHorizontal);
   layout()->SetDefaultFadeMode(
       AnimatingLayoutManager::FadeInOutMode::kScaleFromZero);
@@ -1896,9 +1974,9 @@ TEST_F(AnimatingLayoutManagerTest, FlexLayout_FadeOut) {
   flex_layout->SetCollapseMargins(true);
   flex_layout->SetCrossAxisAlignment(LayoutAlignment::kStart);
   flex_layout->SetDefault(kMarginsKey, kChildMargins);
-  child(1)->SetProperty(kFlexBehaviorKey, FlexSpecification::ForSizeRule(
-                                              MinimumFlexSizeRule::kPreferred,
-                                              MaximumFlexSizeRule::kUnbounded));
+  child(1)->SetProperty(kFlexBehaviorKey,
+                        FlexSpecification(MinimumFlexSizeRule::kPreferred,
+                                          MaximumFlexSizeRule::kUnbounded));
 
   const ProposedLayout expected_start{
       {50, 20},
@@ -1942,7 +2020,8 @@ TEST_F(AnimatingLayoutManagerTest, FlexLayout_FadeOut) {
 
 TEST_F(AnimatingLayoutManagerTest, FlexLayout_FadeOut_NoCrashOnRemove) {
   constexpr gfx::Insets kChildMargins(5);
-  layout()->SetShouldAnimateBounds(false);
+  layout()->SetBoundsAnimationMode(
+      AnimatingLayoutManager::BoundsAnimationMode::kUseHostBounds);
   layout()->SetOrientation(LayoutOrientation::kHorizontal);
   layout()->SetDefaultFadeMode(
       AnimatingLayoutManager::FadeInOutMode::kScaleFromZero);
@@ -1952,9 +2031,9 @@ TEST_F(AnimatingLayoutManagerTest, FlexLayout_FadeOut_NoCrashOnRemove) {
   flex_layout->SetCollapseMargins(true);
   flex_layout->SetCrossAxisAlignment(LayoutAlignment::kStart);
   flex_layout->SetDefault(kMarginsKey, kChildMargins);
-  child(1)->SetProperty(kFlexBehaviorKey, FlexSpecification::ForSizeRule(
-                                              MinimumFlexSizeRule::kPreferred,
-                                              MaximumFlexSizeRule::kUnbounded));
+  child(1)->SetProperty(kFlexBehaviorKey,
+                        FlexSpecification(MinimumFlexSizeRule::kPreferred,
+                                          MaximumFlexSizeRule::kUnbounded));
 
   const ProposedLayout expected_start{
       {50, 20},
@@ -2000,7 +2079,8 @@ TEST_F(AnimatingLayoutManagerTest, FlexLayout_FadeOut_NoCrashOnRemove) {
 
 TEST_F(AnimatingLayoutManagerTest, FlexLayout_FadeOut_IgnoreChildView) {
   constexpr gfx::Insets kChildMargins(5);
-  layout()->SetShouldAnimateBounds(false);
+  layout()->SetBoundsAnimationMode(
+      AnimatingLayoutManager::BoundsAnimationMode::kUseHostBounds);
   layout()->SetOrientation(LayoutOrientation::kHorizontal);
   layout()->SetDefaultFadeMode(
       AnimatingLayoutManager::FadeInOutMode::kScaleFromZero);
@@ -2010,9 +2090,9 @@ TEST_F(AnimatingLayoutManagerTest, FlexLayout_FadeOut_IgnoreChildView) {
   flex_layout->SetCollapseMargins(true);
   flex_layout->SetCrossAxisAlignment(LayoutAlignment::kStart);
   flex_layout->SetDefault(kMarginsKey, kChildMargins);
-  child(1)->SetProperty(kFlexBehaviorKey, FlexSpecification::ForSizeRule(
-                                              MinimumFlexSizeRule::kPreferred,
-                                              MaximumFlexSizeRule::kUnbounded));
+  child(1)->SetProperty(kFlexBehaviorKey,
+                        FlexSpecification(MinimumFlexSizeRule::kPreferred,
+                                          MaximumFlexSizeRule::kUnbounded));
 
   const ProposedLayout expected_start{
       {50, 20},
@@ -2054,16 +2134,17 @@ TEST_F(AnimatingLayoutManagerTest, FlexLayout_FadeOut_IgnoreChildView) {
 // which is hidden, and that such a layout change triggers animation.
 TEST_F(AnimatingLayoutManagerTest, FlexLayout_SlideAfterViewHidden) {
   constexpr gfx::Insets kChildMargins(5);
-  layout()->SetShouldAnimateBounds(false);
+  layout()->SetBoundsAnimationMode(
+      AnimatingLayoutManager::BoundsAnimationMode::kUseHostBounds);
   auto* const flex_layout =
       layout()->SetTargetLayoutManager(std::make_unique<FlexLayout>());
   flex_layout->SetOrientation(LayoutOrientation::kHorizontal);
   flex_layout->SetCollapseMargins(true);
   flex_layout->SetCrossAxisAlignment(LayoutAlignment::kStart);
   flex_layout->SetDefault(kMarginsKey, kChildMargins);
-  child(1)->SetProperty(kFlexBehaviorKey, FlexSpecification::ForSizeRule(
-                                              MinimumFlexSizeRule::kPreferred,
-                                              MaximumFlexSizeRule::kUnbounded));
+  child(1)->SetProperty(kFlexBehaviorKey,
+                        FlexSpecification(MinimumFlexSizeRule::kPreferred,
+                                          MaximumFlexSizeRule::kUnbounded));
 
   const ProposedLayout expected_start{
       {50, 20},
@@ -2106,16 +2187,17 @@ TEST_F(AnimatingLayoutManagerTest, FlexLayout_SlideAfterViewHidden) {
 // which is removed, and that such a layout change triggers animation.
 TEST_F(AnimatingLayoutManagerTest, FlexLayout_SlideAfterViewRemoved) {
   constexpr gfx::Insets kChildMargins(5);
-  layout()->SetShouldAnimateBounds(false);
+  layout()->SetBoundsAnimationMode(
+      AnimatingLayoutManager::BoundsAnimationMode::kUseHostBounds);
   auto* const flex_layout =
       layout()->SetTargetLayoutManager(std::make_unique<FlexLayout>());
   flex_layout->SetOrientation(LayoutOrientation::kHorizontal);
   flex_layout->SetCollapseMargins(true);
   flex_layout->SetCrossAxisAlignment(LayoutAlignment::kStart);
   flex_layout->SetDefault(kMarginsKey, kChildMargins);
-  child(1)->SetProperty(kFlexBehaviorKey, FlexSpecification::ForSizeRule(
-                                              MinimumFlexSizeRule::kPreferred,
-                                              MaximumFlexSizeRule::kUnbounded));
+  child(1)->SetProperty(kFlexBehaviorKey,
+                        FlexSpecification(MinimumFlexSizeRule::kPreferred,
+                                          MaximumFlexSizeRule::kUnbounded));
 
   const ProposedLayout expected_start{
       {50, 20},
@@ -2158,16 +2240,17 @@ TEST_F(AnimatingLayoutManagerTest, FlexLayout_SlideAfterViewRemoved) {
 // the animation redirects.
 TEST_F(AnimatingLayoutManagerTest, FlexLayout_RedirectAnimation) {
   constexpr gfx::Insets kChildMargins(5);
-  layout()->SetShouldAnimateBounds(false);
+  layout()->SetBoundsAnimationMode(
+      AnimatingLayoutManager::BoundsAnimationMode::kUseHostBounds);
   auto* const flex_layout =
       layout()->SetTargetLayoutManager(std::make_unique<FlexLayout>());
   flex_layout->SetOrientation(LayoutOrientation::kHorizontal);
   flex_layout->SetCollapseMargins(true);
   flex_layout->SetCrossAxisAlignment(LayoutAlignment::kStart);
   flex_layout->SetDefault(kMarginsKey, kChildMargins);
-  child(1)->SetProperty(kFlexBehaviorKey, FlexSpecification::ForSizeRule(
-                                              MinimumFlexSizeRule::kPreferred,
-                                              MaximumFlexSizeRule::kUnbounded));
+  child(1)->SetProperty(kFlexBehaviorKey,
+                        FlexSpecification(MinimumFlexSizeRule::kPreferred,
+                                          MaximumFlexSizeRule::kUnbounded));
 
   const ProposedLayout expected_start{
       {50, 20},
@@ -2217,16 +2300,17 @@ TEST_F(AnimatingLayoutManagerTest, FlexLayout_RedirectAnimation) {
 // of the animation, the animation resets.
 TEST_F(AnimatingLayoutManagerTest, FlexLayout_ResetAnimation) {
   constexpr gfx::Insets kChildMargins(5);
-  layout()->SetShouldAnimateBounds(false);
+  layout()->SetBoundsAnimationMode(
+      AnimatingLayoutManager::BoundsAnimationMode::kUseHostBounds);
   auto* const flex_layout =
       layout()->SetTargetLayoutManager(std::make_unique<FlexLayout>());
   flex_layout->SetOrientation(LayoutOrientation::kHorizontal);
   flex_layout->SetCollapseMargins(true);
   flex_layout->SetCrossAxisAlignment(LayoutAlignment::kStart);
   flex_layout->SetDefault(kMarginsKey, kChildMargins);
-  child(1)->SetProperty(kFlexBehaviorKey, FlexSpecification::ForSizeRule(
-                                              MinimumFlexSizeRule::kPreferred,
-                                              MaximumFlexSizeRule::kUnbounded));
+  child(1)->SetProperty(kFlexBehaviorKey,
+                        FlexSpecification(MinimumFlexSizeRule::kPreferred,
+                                          MaximumFlexSizeRule::kUnbounded));
 
   const ProposedLayout expected_start{
       {50, 20},
@@ -2277,7 +2361,8 @@ TEST_F(AnimatingLayoutManagerTest, FlexLayout_ResetAnimation) {
 }
 
 TEST_F(AnimatingLayoutManagerTest, TestEvents) {
-  layout()->SetShouldAnimateBounds(true);
+  layout()->SetBoundsAnimationMode(
+      AnimatingLayoutManager::BoundsAnimationMode::kAnimateBothAxes);
   auto* const test_layout =
       layout()->SetTargetLayoutManager(std::make_unique<TestLayoutManager>());
   test_layout->SetLayout(layout1());
@@ -2308,7 +2393,8 @@ TEST_F(AnimatingLayoutManagerTest, TestEvents) {
 }
 
 TEST_F(AnimatingLayoutManagerTest, PostOrQueueAction) {
-  layout()->SetShouldAnimateBounds(true);
+  layout()->SetBoundsAnimationMode(
+      AnimatingLayoutManager::BoundsAnimationMode::kAnimateBothAxes);
   auto* const test_layout =
       layout()->SetTargetLayoutManager(std::make_unique<TestLayoutManager>());
   test_layout->SetLayout(layout1());
@@ -2360,7 +2446,8 @@ TEST_F(AnimatingLayoutManagerTest, PostOrQueueAction) {
 }
 
 TEST_F(AnimatingLayoutManagerTest, PostOrQueueAction_ContinueAnimation) {
-  layout()->SetShouldAnimateBounds(true);
+  layout()->SetBoundsAnimationMode(
+      AnimatingLayoutManager::BoundsAnimationMode::kAnimateBothAxes);
   auto* const test_layout =
       layout()->SetTargetLayoutManager(std::make_unique<TestLayoutManager>());
   test_layout->SetLayout(layout1());
@@ -2422,7 +2509,8 @@ TEST_F(AnimatingLayoutManagerTest, PostOrQueueAction_ContinueAnimation) {
 }
 
 TEST_F(AnimatingLayoutManagerTest, PostOrQueueAction_NeverFinishes) {
-  layout()->SetShouldAnimateBounds(true);
+  layout()->SetBoundsAnimationMode(
+      AnimatingLayoutManager::BoundsAnimationMode::kAnimateBothAxes);
   auto* const test_layout =
       layout()->SetTargetLayoutManager(std::make_unique<TestLayoutManager>());
   test_layout->SetLayout(layout1());
@@ -2465,7 +2553,8 @@ TEST_F(AnimatingLayoutManagerTest, PostOrQueueAction_NeverFinishes) {
 }
 
 TEST_F(AnimatingLayoutManagerTest, PostOrQueueAction_MayPostImmediately) {
-  layout()->SetShouldAnimateBounds(true);
+  layout()->SetBoundsAnimationMode(
+      AnimatingLayoutManager::BoundsAnimationMode::kAnimateBothAxes);
   auto* const test_layout =
       layout()->SetTargetLayoutManager(std::make_unique<TestLayoutManager>());
   test_layout->SetLayout(layout1());
@@ -2523,7 +2612,8 @@ TEST_F(AnimatingLayoutManagerTest, ZOrder_UnchangedWhenNotAnimating) {
 }
 
 TEST_F(AnimatingLayoutManagerTest, ZOrder_UnchangedWhenNotFading) {
-  layout()->SetShouldAnimateBounds(true);
+  layout()->SetBoundsAnimationMode(
+      AnimatingLayoutManager::BoundsAnimationMode::kAnimateBothAxes);
   auto* const test_layout =
       layout()->SetTargetLayoutManager(std::make_unique<TestLayoutManager>());
   test_layout->SetLayout(layout1());
@@ -2563,7 +2653,8 @@ TEST_F(AnimatingLayoutManagerTest, ZOrder_FadingOutViewMovedToBack) {
 
   const std::vector<View*> expected_order{child(1), child(0), child(2)};
 
-  layout()->SetShouldAnimateBounds(true);
+  layout()->SetBoundsAnimationMode(
+      AnimatingLayoutManager::BoundsAnimationMode::kAnimateBothAxes);
   layout()->SetDefaultFadeMode(
       AnimatingLayoutManager::FadeInOutMode::kScaleFromZero);
   auto* const test_layout =
@@ -2602,7 +2693,8 @@ TEST_F(AnimatingLayoutManagerTest, ZOrder_FadingInViewMovedToBack) {
 
   const std::vector<View*> expected_order{child(1), child(0), child(2)};
 
-  layout()->SetShouldAnimateBounds(true);
+  layout()->SetBoundsAnimationMode(
+      AnimatingLayoutManager::BoundsAnimationMode::kAnimateBothAxes);
   layout()->SetDefaultFadeMode(
       AnimatingLayoutManager::FadeInOutMode::kScaleFromZero);
   auto* const test_layout =
@@ -2629,7 +2721,8 @@ TEST_F(AnimatingLayoutManagerTest, ZOrder_FadingInViewMovedToBack) {
 }
 
 TEST_F(AnimatingLayoutManagerTest, ConstrainedSpace_StopsAnimation) {
-  layout()->SetShouldAnimateBounds(true);
+  layout()->SetBoundsAnimationMode(
+      AnimatingLayoutManager::BoundsAnimationMode::kAnimateBothAxes);
   auto* const test_layout =
       layout()->SetTargetLayoutManager(std::make_unique<TestLayoutManager>());
   test_layout->SetLayout(layout1());
@@ -2649,7 +2742,8 @@ TEST_F(AnimatingLayoutManagerTest, ConstrainedSpace_StopsAnimation) {
 }
 
 TEST_F(AnimatingLayoutManagerTest, ConstrainedSpace_TriggersDelayedAction) {
-  layout()->SetShouldAnimateBounds(true);
+  layout()->SetBoundsAnimationMode(
+      AnimatingLayoutManager::BoundsAnimationMode::kAnimateBothAxes);
   auto* const test_layout =
       layout()->SetTargetLayoutManager(std::make_unique<TestLayoutManager>());
   test_layout->SetLayout(layout1());
@@ -2677,7 +2771,8 @@ TEST_F(AnimatingLayoutManagerTest, ConstrainedSpace_TriggersDelayedAction) {
 }
 
 TEST_F(AnimatingLayoutManagerTest, ConstrainedSpace_SubsequentAnimation) {
-  layout()->SetShouldAnimateBounds(true);
+  layout()->SetBoundsAnimationMode(
+      AnimatingLayoutManager::BoundsAnimationMode::kAnimateBothAxes);
   auto* const test_layout =
       layout()->SetTargetLayoutManager(std::make_unique<TestLayoutManager>());
   test_layout->SetLayout(layout1());
@@ -2713,11 +2808,18 @@ constexpr base::TimeDelta kMinimumAnimationTime =
 // invalidated.
 class ImmediateLayoutManager : public LayoutManagerBase {
  public:
-  explicit ImmediateLayoutManager(bool use_preferred_size,
-                                  const SizeBounds& size_bounds = SizeBounds())
-      : use_preferred_size_(use_preferred_size), size_bounds_(size_bounds) {
-    DCHECK(use_preferred_size_ || size_bounds == SizeBounds());
-  }
+  ImmediateLayoutManager()
+      : ImmediateLayoutManager(
+            AnimatingLayoutManager::BoundsAnimationMode::kAnimateBothAxes,
+            LayoutOrientation::kHorizontal) {}
+
+  ImmediateLayoutManager(
+      AnimatingLayoutManager::BoundsAnimationMode bounds_animation_mode,
+      LayoutOrientation orientation,
+      SizeBounds size_bounds = SizeBounds())
+      : bounds_animation_mode_(bounds_animation_mode),
+        orientation_(orientation),
+        size_bounds_(std::move(size_bounds)) {}
 
   // LayoutManager:
 
@@ -2736,11 +2838,23 @@ class ImmediateLayoutManager : public LayoutManagerBase {
       child_layout.child_view = child;
       child_layout.visible = child->GetVisible();
       child_layout.available_size = size_bounds_;
-      if (use_preferred_size_) {
-        child_layout.bounds = gfx::Rect(
-            ConstrainSizeToBounds(child->GetPreferredSize(), size_bounds_));
-      } else {
-        child_layout.bounds = child->bounds();
+      switch (bounds_animation_mode_) {
+        case AnimatingLayoutManager::BoundsAnimationMode::kAnimateBothAxes:
+          child_layout.bounds = gfx::Rect(
+              ConstrainSizeToBounds(child->GetPreferredSize(), size_bounds_));
+          break;
+        case AnimatingLayoutManager::BoundsAnimationMode::kAnimateMainAxis: {
+          // Start with the preferred size constrained to the bounds, then force
+          // the cross axis.
+          gfx::Size size =
+              ConstrainSizeToBounds(child->GetPreferredSize(), size_bounds_);
+          SetCrossAxis(&size, orientation_,
+                       GetCrossAxis(orientation_, child->bounds().size()));
+          child_layout.bounds = gfx::Rect(size);
+        } break;
+        case AnimatingLayoutManager::BoundsAnimationMode::kUseHostBounds:
+          child_layout.bounds = child->bounds();
+          break;
       }
       layout.host_size.SetToMax(child_layout.bounds.size());
       layout.child_layouts.push_back(child_layout);
@@ -2755,7 +2869,8 @@ class ImmediateLayoutManager : public LayoutManagerBase {
   }
 
  private:
-  const bool use_preferred_size_;
+  const AnimatingLayoutManager::BoundsAnimationMode bounds_animation_mode_;
+  const LayoutOrientation orientation_;
   SizeBounds size_bounds_;
 };
 
@@ -2824,7 +2939,7 @@ class AnimatingLayoutManagerAvailableSizeTest
   void InitRootView() {
     root_layout_ =
         root_view()->SetLayoutManager(std::make_unique<ImmediateLayoutManager>(
-            layout()->should_animate_bounds()));
+            layout()->bounds_animation_mode(), layout()->orientation()));
   }
 
   ImmediateLayoutManager* root_layout() { return root_layout_; }
@@ -2835,7 +2950,8 @@ class AnimatingLayoutManagerAvailableSizeTest
 
 TEST_F(AnimatingLayoutManagerAvailableSizeTest, AvailableSize_LimitsExpansion) {
   constexpr gfx::Insets kChildMargins(5);
-  layout()->SetShouldAnimateBounds(true);
+  layout()->SetBoundsAnimationMode(
+      AnimatingLayoutManager::BoundsAnimationMode::kAnimateBothAxes);
   auto* const flex_layout =
       layout()->SetTargetLayoutManager(std::make_unique<FlexLayout>());
   flex_layout->SetOrientation(LayoutOrientation::kHorizontal);
@@ -2883,7 +2999,8 @@ TEST_F(AnimatingLayoutManagerAvailableSizeTest, AvailableSize_LimitsExpansion) {
 TEST_F(AnimatingLayoutManagerAvailableSizeTest,
        AvailableSize_RestartsAnimation) {
   constexpr gfx::Insets kChildMargins(5);
-  layout()->SetShouldAnimateBounds(true);
+  layout()->SetBoundsAnimationMode(
+      AnimatingLayoutManager::BoundsAnimationMode::kAnimateBothAxes);
   auto* const flex_layout =
       layout()->SetTargetLayoutManager(std::make_unique<FlexLayout>());
   flex_layout->SetOrientation(LayoutOrientation::kHorizontal);
@@ -2925,7 +3042,8 @@ TEST_F(AnimatingLayoutManagerAvailableSizeTest,
 TEST_F(AnimatingLayoutManagerAvailableSizeTest,
        AvailableSize_RestartsAnimation_Vertical) {
   constexpr gfx::Insets kChildMargins(5);
-  layout()->SetShouldAnimateBounds(true);
+  layout()->SetBoundsAnimationMode(
+      AnimatingLayoutManager::BoundsAnimationMode::kAnimateBothAxes);
   auto* const flex_layout =
       layout()->SetTargetLayoutManager(std::make_unique<FlexLayout>());
   flex_layout->SetOrientation(LayoutOrientation::kVertical);
@@ -2978,7 +3096,8 @@ TEST_F(AnimatingLayoutManagerAvailableSizeTest,
 TEST_F(AnimatingLayoutManagerAvailableSizeTest,
        AvailableSize_RedirectsAnimation) {
   constexpr gfx::Insets kChildMargins(5);
-  layout()->SetShouldAnimateBounds(true);
+  layout()->SetBoundsAnimationMode(
+      AnimatingLayoutManager::BoundsAnimationMode::kAnimateBothAxes);
   auto* const flex_layout =
       layout()->SetTargetLayoutManager(std::make_unique<FlexLayout>());
   flex_layout->SetOrientation(LayoutOrientation::kHorizontal);
@@ -3023,7 +3142,8 @@ TEST_F(AnimatingLayoutManagerAvailableSizeTest,
 
 TEST_F(AnimatingLayoutManagerAvailableSizeTest, AvailableSize_StopsAnimation) {
   constexpr gfx::Insets kChildMargins(5);
-  layout()->SetShouldAnimateBounds(true);
+  layout()->SetBoundsAnimationMode(
+      AnimatingLayoutManager::BoundsAnimationMode::kAnimateBothAxes);
   auto* const flex_layout =
       layout()->SetTargetLayoutManager(std::make_unique<FlexLayout>());
   flex_layout->SetOrientation(LayoutOrientation::kHorizontal);
@@ -3062,7 +3182,8 @@ TEST_F(AnimatingLayoutManagerAvailableSizeTest, AvailableSize_StopsAnimation) {
 
 TEST_F(AnimatingLayoutManagerAvailableSizeTest, AvailableSize_ImmediateResize) {
   constexpr gfx::Insets kChildMargins(5);
-  layout()->SetShouldAnimateBounds(true);
+  layout()->SetBoundsAnimationMode(
+      AnimatingLayoutManager::BoundsAnimationMode::kAnimateBothAxes);
   auto* const flex_layout =
       layout()->SetTargetLayoutManager(std::make_unique<FlexLayout>());
   flex_layout->SetOrientation(LayoutOrientation::kHorizontal);
@@ -3090,7 +3211,8 @@ TEST_F(AnimatingLayoutManagerAvailableSizeTest, AvailableSize_ImmediateResize) {
 
 TEST_F(AnimatingLayoutManagerAvailableSizeTest, AvailableSize_StepDownStepUp) {
   constexpr gfx::Insets kChildMargins(5);
-  layout()->SetShouldAnimateBounds(true);
+  layout()->SetBoundsAnimationMode(
+      AnimatingLayoutManager::BoundsAnimationMode::kAnimateBothAxes);
   auto* const flex_layout =
       layout()->SetTargetLayoutManager(std::make_unique<FlexLayout>());
   flex_layout->SetOrientation(LayoutOrientation::kHorizontal);
@@ -3132,7 +3254,8 @@ TEST_F(AnimatingLayoutManagerAvailableSizeTest, AvailableSize_StepDownStepUp) {
 TEST_F(AnimatingLayoutManagerAvailableSizeTest,
        AvailableSize_ConstraintRemovedStartsAnimation) {
   constexpr gfx::Insets kChildMargins(5);
-  layout()->SetShouldAnimateBounds(true);
+  layout()->SetBoundsAnimationMode(
+      AnimatingLayoutManager::BoundsAnimationMode::kAnimateBothAxes);
   auto* const flex_layout =
       layout()->SetTargetLayoutManager(std::make_unique<FlexLayout>());
   flex_layout->SetOrientation(LayoutOrientation::kHorizontal);
@@ -3172,7 +3295,8 @@ TEST_F(AnimatingLayoutManagerAvailableSizeTest,
 TEST_F(AnimatingLayoutManagerAvailableSizeTest,
        AvailableSize_LimitsExpansion_WithFlex) {
   constexpr gfx::Insets kChildMargins(5);
-  layout()->SetShouldAnimateBounds(true);
+  layout()->SetBoundsAnimationMode(
+      AnimatingLayoutManager::BoundsAnimationMode::kAnimateBothAxes);
   auto* const flex_layout =
       layout()->SetTargetLayoutManager(std::make_unique<FlexLayout>());
   flex_layout->SetOrientation(LayoutOrientation::kHorizontal);
@@ -3222,7 +3346,8 @@ TEST_F(AnimatingLayoutManagerAvailableSizeTest,
 TEST_F(AnimatingLayoutManagerAvailableSizeTest,
        AvailableSize_RestartsAnimation_WithFlex) {
   constexpr gfx::Insets kChildMargins(5);
-  layout()->SetShouldAnimateBounds(true);
+  layout()->SetBoundsAnimationMode(
+      AnimatingLayoutManager::BoundsAnimationMode::kAnimateBothAxes);
   auto* const flex_layout =
       layout()->SetTargetLayoutManager(std::make_unique<FlexLayout>());
   flex_layout->SetOrientation(LayoutOrientation::kHorizontal);
@@ -3265,7 +3390,8 @@ TEST_F(AnimatingLayoutManagerAvailableSizeTest,
 TEST_F(AnimatingLayoutManagerAvailableSizeTest,
        AvailableSize_RedirectsAnimation_WithFlex) {
   constexpr gfx::Insets kChildMargins(5);
-  layout()->SetShouldAnimateBounds(true);
+  layout()->SetBoundsAnimationMode(
+      AnimatingLayoutManager::BoundsAnimationMode::kAnimateBothAxes);
   auto* const flex_layout =
       layout()->SetTargetLayoutManager(std::make_unique<FlexLayout>());
   flex_layout->SetOrientation(LayoutOrientation::kHorizontal);
@@ -3313,7 +3439,8 @@ TEST_F(AnimatingLayoutManagerAvailableSizeTest,
 TEST_F(AnimatingLayoutManagerAvailableSizeTest,
        AvailableSize_StopsAnimation_WithFlex) {
   constexpr gfx::Insets kChildMargins(5);
-  layout()->SetShouldAnimateBounds(true);
+  layout()->SetBoundsAnimationMode(
+      AnimatingLayoutManager::BoundsAnimationMode::kAnimateBothAxes);
   auto* const flex_layout =
       layout()->SetTargetLayoutManager(std::make_unique<FlexLayout>());
   flex_layout->SetOrientation(LayoutOrientation::kHorizontal);
@@ -3354,7 +3481,8 @@ TEST_F(AnimatingLayoutManagerAvailableSizeTest,
 TEST_F(AnimatingLayoutManagerAvailableSizeTest,
        AvailableSize_ImmediateResize_WithFlex) {
   constexpr gfx::Insets kChildMargins(5);
-  layout()->SetShouldAnimateBounds(true);
+  layout()->SetBoundsAnimationMode(
+      AnimatingLayoutManager::BoundsAnimationMode::kAnimateBothAxes);
   auto* const flex_layout =
       layout()->SetTargetLayoutManager(std::make_unique<FlexLayout>());
   flex_layout->SetOrientation(LayoutOrientation::kHorizontal);
@@ -3384,7 +3512,8 @@ TEST_F(AnimatingLayoutManagerAvailableSizeTest,
 TEST_F(AnimatingLayoutManagerAvailableSizeTest,
        AvailableSize_StepDownStepUp_WithFlex) {
   constexpr gfx::Insets kChildMargins(5);
-  layout()->SetShouldAnimateBounds(true);
+  layout()->SetBoundsAnimationMode(
+      AnimatingLayoutManager::BoundsAnimationMode::kAnimateBothAxes);
   auto* const flex_layout =
       layout()->SetTargetLayoutManager(std::make_unique<FlexLayout>());
   flex_layout->SetOrientation(LayoutOrientation::kHorizontal);
@@ -3426,7 +3555,8 @@ TEST_F(AnimatingLayoutManagerAvailableSizeTest,
 TEST_F(AnimatingLayoutManagerAvailableSizeTest,
        AvailableSize_ConstraintRemovedStartsAnimation_WithFlex) {
   constexpr gfx::Insets kChildMargins(5);
-  layout()->SetShouldAnimateBounds(true);
+  layout()->SetBoundsAnimationMode(
+      AnimatingLayoutManager::BoundsAnimationMode::kAnimateBothAxes);
   auto* const flex_layout =
       layout()->SetTargetLayoutManager(std::make_unique<FlexLayout>());
   flex_layout->SetOrientation(LayoutOrientation::kHorizontal);
@@ -3465,6 +3595,330 @@ TEST_F(AnimatingLayoutManagerAvailableSizeTest,
   EXPECT_EQ(expected_events, logger.events());
 }
 
+TEST_F(AnimatingLayoutManagerAvailableSizeTest,
+       AnimateMainAxis_Horizontal_MainAxisAnimates) {
+  layout()->SetBoundsAnimationMode(
+      AnimatingLayoutManager::BoundsAnimationMode::kAnimateMainAxis);
+  auto* const flex_layout =
+      layout()->SetTargetLayoutManager(std::make_unique<FlexLayout>());
+  flex_layout->SetOrientation(LayoutOrientation::kHorizontal)
+      .SetCrossAxisAlignment(LayoutAlignment::kStart)
+      .SetDefault(kFlexBehaviorKey,
+                  FlexSpecification(LayoutOrientation::kHorizontal,
+                                    MinimumFlexSizeRule::kPreferred,
+                                    MaximumFlexSizeRule::kPreferred, false,
+                                    MinimumFlexSizeRule::kScaleToZero));
+  view()->SetBoundsRect(gfx::Rect(0, 0, 5, 5));
+  InitRootView();
+  layout()->ResetLayout();
+  root_view()->Layout();
+
+  EXPECT_FALSE(layout()->is_animating());
+  EXPECT_EQ(gfx::Size(30, 5), view()->size());
+  EXPECT_TRUE(child(0)->GetVisible());
+  EXPECT_EQ(gfx::Rect(0, 0, 10, 5), child(0)->bounds());
+  EXPECT_TRUE(child(1)->GetVisible());
+  EXPECT_EQ(gfx::Rect(10, 0, 10, 5), child(1)->bounds());
+  EXPECT_TRUE(child(2)->GetVisible());
+  EXPECT_EQ(gfx::Rect(20, 0, 10, 5), child(2)->bounds());
+
+  child(1)->SetVisible(false);
+  EXPECT_TRUE(layout()->is_animating());
+
+  // Advance the animation halfway.
+  animation_api()->IncrementTime(base::TimeDelta::FromMilliseconds(500));
+  EXPECT_TRUE(layout()->is_animating());
+  EXPECT_EQ(gfx::Size(25, 5), view()->size());
+
+  // Finish the animation.
+  animation_api()->IncrementTime(base::TimeDelta::FromMilliseconds(500));
+  EXPECT_FALSE(layout()->is_animating());
+  EXPECT_EQ(gfx::Size(20, 5), view()->size());
+  EXPECT_TRUE(child(0)->GetVisible());
+  EXPECT_EQ(gfx::Rect(0, 0, 10, 5), child(0)->bounds());
+  EXPECT_FALSE(child(1)->GetVisible());
+  EXPECT_TRUE(child(2)->GetVisible());
+  EXPECT_EQ(gfx::Rect(10, 0, 10, 5), child(2)->bounds());
+}
+
+TEST_F(AnimatingLayoutManagerAvailableSizeTest,
+       AnimateMainAxis_Vertical_MainAxisAnimates) {
+  layout()
+      ->SetBoundsAnimationMode(
+          AnimatingLayoutManager::BoundsAnimationMode::kAnimateMainAxis)
+      .SetOrientation(LayoutOrientation::kVertical);
+  auto* const flex_layout =
+      layout()->SetTargetLayoutManager(std::make_unique<FlexLayout>());
+  flex_layout->SetOrientation(LayoutOrientation::kVertical)
+      .SetCrossAxisAlignment(LayoutAlignment::kStart)
+      .SetDefault(kFlexBehaviorKey,
+                  FlexSpecification(LayoutOrientation::kVertical,
+                                    MinimumFlexSizeRule::kPreferred,
+                                    MaximumFlexSizeRule::kPreferred, false,
+                                    MinimumFlexSizeRule::kScaleToZero));
+  view()->SetBoundsRect(gfx::Rect(0, 0, 5, 5));
+  InitRootView();
+  layout()->ResetLayout();
+  root_view()->Layout();
+
+  EXPECT_FALSE(layout()->is_animating());
+  EXPECT_EQ(gfx::Size(5, 30), view()->size());
+  EXPECT_TRUE(child(0)->GetVisible());
+  EXPECT_EQ(gfx::Rect(0, 0, 5, 10), child(0)->bounds());
+  EXPECT_TRUE(child(1)->GetVisible());
+  EXPECT_EQ(gfx::Rect(0, 10, 5, 10), child(1)->bounds());
+  EXPECT_TRUE(child(2)->GetVisible());
+  EXPECT_EQ(gfx::Rect(0, 20, 5, 10), child(2)->bounds());
+
+  child(1)->SetVisible(false);
+  EXPECT_TRUE(layout()->is_animating());
+
+  // Advance the animation halfway.
+  animation_api()->IncrementTime(base::TimeDelta::FromMilliseconds(500));
+  EXPECT_TRUE(layout()->is_animating());
+  EXPECT_EQ(gfx::Size(5, 25), view()->size());
+
+  // Finish the animation.
+  animation_api()->IncrementTime(base::TimeDelta::FromMilliseconds(500));
+  EXPECT_FALSE(layout()->is_animating());
+  EXPECT_EQ(gfx::Size(5, 20), view()->size());
+  EXPECT_TRUE(child(0)->GetVisible());
+  EXPECT_EQ(gfx::Rect(0, 0, 5, 10), child(0)->bounds());
+  EXPECT_FALSE(child(1)->GetVisible());
+  EXPECT_TRUE(child(2)->GetVisible());
+  EXPECT_EQ(gfx::Rect(0, 10, 5, 10), child(2)->bounds());
+}
+
+TEST_F(AnimatingLayoutManagerAvailableSizeTest,
+       AnimateMainAxis_Horizontal_CrossAxisSizeChangeResetsLayout) {
+  layout()->SetBoundsAnimationMode(
+      AnimatingLayoutManager::BoundsAnimationMode::kAnimateMainAxis);
+  auto* const flex_layout =
+      layout()->SetTargetLayoutManager(std::make_unique<FlexLayout>());
+  flex_layout->SetOrientation(LayoutOrientation::kHorizontal)
+      .SetCrossAxisAlignment(LayoutAlignment::kStart)
+      .SetDefault(kFlexBehaviorKey,
+                  FlexSpecification(LayoutOrientation::kHorizontal,
+                                    MinimumFlexSizeRule::kPreferred,
+                                    MaximumFlexSizeRule::kPreferred, false,
+                                    MinimumFlexSizeRule::kScaleToZero));
+  view()->SetBoundsRect(gfx::Rect(0, 0, 5, 5));
+  InitRootView();
+  layout()->ResetLayout();
+  root_view()->Layout();
+
+  EXPECT_FALSE(layout()->is_animating());
+  EXPECT_EQ(gfx::Size(30, 5), view()->size());
+  EXPECT_TRUE(child(0)->GetVisible());
+  EXPECT_EQ(gfx::Rect(0, 0, 10, 5), child(0)->bounds());
+  EXPECT_TRUE(child(1)->GetVisible());
+  EXPECT_EQ(gfx::Rect(10, 0, 10, 5), child(1)->bounds());
+  EXPECT_TRUE(child(2)->GetVisible());
+  EXPECT_EQ(gfx::Rect(20, 0, 10, 5), child(2)->bounds());
+
+  child(1)->SetVisible(false);
+  EXPECT_TRUE(layout()->is_animating());
+
+  // Advance the animation halfway.
+  animation_api()->IncrementTime(base::TimeDelta::FromMilliseconds(500));
+  EXPECT_TRUE(layout()->is_animating());
+  EXPECT_EQ(gfx::Size(25, 5), view()->size());
+
+  // Change the cross-axis size.
+  view()->SetSize(gfx::Size(25, 7));
+  view()->InvalidateLayout();
+  EXPECT_FALSE(layout()->is_animating());
+  EXPECT_EQ(gfx::Size(20, 7), view()->size());
+  EXPECT_TRUE(child(0)->GetVisible());
+  EXPECT_EQ(gfx::Rect(0, 0, 10, 7), child(0)->bounds());
+  EXPECT_FALSE(child(1)->GetVisible());
+  EXPECT_TRUE(child(2)->GetVisible());
+  EXPECT_EQ(gfx::Rect(10, 0, 10, 7), child(2)->bounds());
+}
+
+TEST_F(AnimatingLayoutManagerAvailableSizeTest,
+       AnimateMainAxis_Vertical_CrossAxisSizeChangeResetsLayout) {
+  layout()
+      ->SetBoundsAnimationMode(
+          AnimatingLayoutManager::BoundsAnimationMode::kAnimateMainAxis)
+      .SetOrientation(LayoutOrientation::kVertical);
+  auto* const flex_layout =
+      layout()->SetTargetLayoutManager(std::make_unique<FlexLayout>());
+  flex_layout->SetOrientation(LayoutOrientation::kVertical)
+      .SetCrossAxisAlignment(LayoutAlignment::kStart)
+      .SetDefault(kFlexBehaviorKey,
+                  FlexSpecification(LayoutOrientation::kVertical,
+                                    MinimumFlexSizeRule::kPreferred,
+                                    MaximumFlexSizeRule::kPreferred, false,
+                                    MinimumFlexSizeRule::kScaleToZero));
+  view()->SetBoundsRect(gfx::Rect(0, 0, 5, 5));
+  InitRootView();
+  layout()->ResetLayout();
+  root_view()->Layout();
+
+  EXPECT_FALSE(layout()->is_animating());
+  EXPECT_EQ(gfx::Size(5, 30), view()->size());
+  EXPECT_TRUE(child(0)->GetVisible());
+  EXPECT_EQ(gfx::Rect(0, 0, 5, 10), child(0)->bounds());
+  EXPECT_TRUE(child(1)->GetVisible());
+  EXPECT_EQ(gfx::Rect(0, 10, 5, 10), child(1)->bounds());
+  EXPECT_TRUE(child(2)->GetVisible());
+  EXPECT_EQ(gfx::Rect(0, 20, 5, 10), child(2)->bounds());
+
+  child(1)->SetVisible(false);
+  EXPECT_TRUE(layout()->is_animating());
+
+  // Advance the animation halfway.
+  animation_api()->IncrementTime(base::TimeDelta::FromMilliseconds(500));
+  EXPECT_TRUE(layout()->is_animating());
+  EXPECT_EQ(gfx::Size(5, 25), view()->size());
+
+  // Change the cross-axis size.
+  view()->SetSize(gfx::Size(7, 25));
+  view()->InvalidateLayout();
+  EXPECT_FALSE(layout()->is_animating());
+  EXPECT_EQ(gfx::Size(7, 20), view()->size());
+  EXPECT_TRUE(child(0)->GetVisible());
+  EXPECT_EQ(gfx::Rect(0, 0, 7, 10), child(0)->bounds());
+  EXPECT_FALSE(child(1)->GetVisible());
+  EXPECT_TRUE(child(2)->GetVisible());
+  EXPECT_EQ(gfx::Rect(0, 10, 7, 10), child(2)->bounds());
+}
+
+TEST_F(AnimatingLayoutManagerAvailableSizeTest,
+       AnimateMainAxis_Horizontal_CrossAxisAlignmentWorks) {
+  layout()->SetBoundsAnimationMode(
+      AnimatingLayoutManager::BoundsAnimationMode::kAnimateMainAxis);
+  auto* const flex_layout =
+      layout()->SetTargetLayoutManager(std::make_unique<FlexLayout>());
+  flex_layout->SetOrientation(LayoutOrientation::kHorizontal)
+      .SetCrossAxisAlignment(LayoutAlignment::kStart);
+  // Pick an arbitrary (wrong) main-axis size.
+  view()->SetBoundsRect(gfx::Rect(0, 0, 20, 20));
+  InitRootView();
+  layout()->ResetLayout();
+  root_view()->Layout();
+
+  EXPECT_FALSE(layout()->is_animating());
+  EXPECT_EQ(gfx::Size(30, 20), view()->size());
+  EXPECT_TRUE(child(0)->GetVisible());
+  EXPECT_EQ(gfx::Rect(0, 0, 10, 10), child(0)->bounds());
+  EXPECT_TRUE(child(1)->GetVisible());
+  EXPECT_EQ(gfx::Rect(10, 0, 10, 10), child(1)->bounds());
+  EXPECT_TRUE(child(2)->GetVisible());
+  EXPECT_EQ(gfx::Rect(20, 0, 10, 10), child(2)->bounds());
+
+  flex_layout->SetCrossAxisAlignment(LayoutAlignment::kCenter);
+  EXPECT_TRUE(layout()->is_animating());
+
+  // Finish the animation.
+  animation_api()->IncrementTime(base::TimeDelta::FromMilliseconds(1000));
+  EXPECT_FALSE(layout()->is_animating());
+  EXPECT_EQ(gfx::Size(30, 20), view()->size());
+  EXPECT_TRUE(child(0)->GetVisible());
+  EXPECT_EQ(gfx::Rect(0, 5, 10, 10), child(0)->bounds());
+  EXPECT_TRUE(child(1)->GetVisible());
+  EXPECT_EQ(gfx::Rect(10, 5, 10, 10), child(1)->bounds());
+  EXPECT_TRUE(child(2)->GetVisible());
+  EXPECT_EQ(gfx::Rect(20, 5, 10, 10), child(2)->bounds());
+
+  flex_layout->SetCrossAxisAlignment(LayoutAlignment::kEnd);
+  EXPECT_TRUE(layout()->is_animating());
+
+  // Finish the animation.
+  animation_api()->IncrementTime(base::TimeDelta::FromMilliseconds(1000));
+  EXPECT_FALSE(layout()->is_animating());
+  EXPECT_EQ(gfx::Size(30, 20), view()->size());
+  EXPECT_TRUE(child(0)->GetVisible());
+  EXPECT_EQ(gfx::Rect(0, 10, 10, 10), child(0)->bounds());
+  EXPECT_TRUE(child(1)->GetVisible());
+  EXPECT_EQ(gfx::Rect(10, 10, 10, 10), child(1)->bounds());
+  EXPECT_TRUE(child(2)->GetVisible());
+  EXPECT_EQ(gfx::Rect(20, 10, 10, 10), child(2)->bounds());
+
+  flex_layout->SetCrossAxisAlignment(LayoutAlignment::kStretch);
+  EXPECT_TRUE(layout()->is_animating());
+
+  // Finish the animation.
+  animation_api()->IncrementTime(base::TimeDelta::FromMilliseconds(1000));
+  EXPECT_FALSE(layout()->is_animating());
+  EXPECT_EQ(gfx::Size(30, 20), view()->size());
+  EXPECT_TRUE(child(0)->GetVisible());
+  EXPECT_EQ(gfx::Rect(0, 0, 10, 20), child(0)->bounds());
+  EXPECT_TRUE(child(1)->GetVisible());
+  EXPECT_EQ(gfx::Rect(10, 0, 10, 20), child(1)->bounds());
+  EXPECT_TRUE(child(2)->GetVisible());
+  EXPECT_EQ(gfx::Rect(20, 0, 10, 20), child(2)->bounds());
+}
+
+TEST_F(AnimatingLayoutManagerAvailableSizeTest,
+       AnimateMainAxis_Vertical_CrossAxisAlignmentWorks) {
+  layout()
+      ->SetBoundsAnimationMode(
+          AnimatingLayoutManager::BoundsAnimationMode::kAnimateMainAxis)
+      .SetOrientation(LayoutOrientation::kVertical);
+  auto* const flex_layout =
+      layout()->SetTargetLayoutManager(std::make_unique<FlexLayout>());
+  flex_layout->SetOrientation(LayoutOrientation::kVertical)
+      .SetCrossAxisAlignment(LayoutAlignment::kStart);
+  // Pick an arbitrary (wrong) main-axis size.
+  view()->SetBoundsRect(gfx::Rect(0, 0, 20, 20));
+  InitRootView();
+  layout()->ResetLayout();
+  root_view()->Layout();
+
+  EXPECT_FALSE(layout()->is_animating());
+  EXPECT_EQ(gfx::Size(20, 30), view()->size());
+  EXPECT_TRUE(child(0)->GetVisible());
+  EXPECT_EQ(gfx::Rect(0, 0, 10, 10), child(0)->bounds());
+  EXPECT_TRUE(child(1)->GetVisible());
+  EXPECT_EQ(gfx::Rect(0, 10, 10, 10), child(1)->bounds());
+  EXPECT_TRUE(child(2)->GetVisible());
+  EXPECT_EQ(gfx::Rect(0, 20, 10, 10), child(2)->bounds());
+
+  flex_layout->SetCrossAxisAlignment(LayoutAlignment::kCenter);
+  EXPECT_TRUE(layout()->is_animating());
+
+  // Finish the animation.
+  animation_api()->IncrementTime(base::TimeDelta::FromMilliseconds(1000));
+  EXPECT_FALSE(layout()->is_animating());
+  EXPECT_EQ(gfx::Size(20, 30), view()->size());
+  EXPECT_TRUE(child(0)->GetVisible());
+  EXPECT_EQ(gfx::Rect(5, 0, 10, 10), child(0)->bounds());
+  EXPECT_TRUE(child(1)->GetVisible());
+  EXPECT_EQ(gfx::Rect(5, 10, 10, 10), child(1)->bounds());
+  EXPECT_TRUE(child(2)->GetVisible());
+  EXPECT_EQ(gfx::Rect(5, 20, 10, 10), child(2)->bounds());
+
+  flex_layout->SetCrossAxisAlignment(LayoutAlignment::kEnd);
+  EXPECT_TRUE(layout()->is_animating());
+
+  // Finish the animation.
+  animation_api()->IncrementTime(base::TimeDelta::FromMilliseconds(1000));
+  EXPECT_FALSE(layout()->is_animating());
+  EXPECT_EQ(gfx::Size(20, 30), view()->size());
+  EXPECT_TRUE(child(0)->GetVisible());
+  EXPECT_EQ(gfx::Rect(10, 0, 10, 10), child(0)->bounds());
+  EXPECT_TRUE(child(1)->GetVisible());
+  EXPECT_EQ(gfx::Rect(10, 10, 10, 10), child(1)->bounds());
+  EXPECT_TRUE(child(2)->GetVisible());
+  EXPECT_EQ(gfx::Rect(10, 20, 10, 10), child(2)->bounds());
+
+  flex_layout->SetCrossAxisAlignment(LayoutAlignment::kStretch);
+  EXPECT_TRUE(layout()->is_animating());
+
+  // Finish the animation.
+  animation_api()->IncrementTime(base::TimeDelta::FromMilliseconds(1000));
+  EXPECT_FALSE(layout()->is_animating());
+  EXPECT_EQ(gfx::Size(20, 30), view()->size());
+  EXPECT_TRUE(child(0)->GetVisible());
+  EXPECT_EQ(gfx::Rect(0, 0, 20, 10), child(0)->bounds());
+  EXPECT_TRUE(child(1)->GetVisible());
+  EXPECT_EQ(gfx::Rect(0, 10, 20, 10), child(1)->bounds());
+  EXPECT_TRUE(child(2)->GetVisible());
+  EXPECT_EQ(gfx::Rect(0, 20, 20, 10), child(2)->bounds());
+}
+
 // Flex Rule Tests -------------------------------------------------------------
 
 class AnimatingLayoutManagerFlexRuleTest : public AnimatingLayoutManagerTest {
@@ -3498,7 +3952,10 @@ class AnimatingLayoutManagerFlexRuleTest : public AnimatingLayoutManagerTest {
   }
 
   FlexLayout* flex_layout() { return flex_layout_; }
-  FlexRule* flex_rule() { return &flex_rule_; }
+
+  gfx::Size RunFlexRule(const SizeBounds& bounds) const {
+    return flex_rule_.Run(view(), bounds);
+  }
 
   static const FlexSpecification kScaleToMinimumSnapToZero;
 
@@ -3509,17 +3966,15 @@ class AnimatingLayoutManagerFlexRuleTest : public AnimatingLayoutManagerTest {
 
 const FlexSpecification
     AnimatingLayoutManagerFlexRuleTest::kScaleToMinimumSnapToZero =
-        FlexSpecification::ForSizeRule(
-            MinimumFlexSizeRule::kScaleToMinimumSnapToZero,
-            MaximumFlexSizeRule::kUnbounded,
-            true)
+        FlexSpecification(MinimumFlexSizeRule::kScaleToMinimumSnapToZero,
+                          MaximumFlexSizeRule::kUnbounded,
+                          true)
             .WithOrder(2);
 
 TEST_F(AnimatingLayoutManagerFlexRuleTest, ReturnsPreferredSize) {
   InitLayout(LayoutOrientation::kHorizontal, kScaleToMinimumSnapToZero,
              gfx::Size(5, 5), false);
-  EXPECT_EQ(flex_layout()->GetPreferredSize(view()),
-            flex_rule()->Run(view(), {}));
+  EXPECT_EQ(flex_layout()->GetPreferredSize(view()), RunFlexRule(SizeBounds()));
 }
 
 TEST_F(AnimatingLayoutManagerFlexRuleTest,
@@ -3528,7 +3983,7 @@ TEST_F(AnimatingLayoutManagerFlexRuleTest,
              gfx::Size(5, 5), true);
   const gfx::Size preferred = flex_layout()->GetPreferredSize(view());
   const gfx::Size result =
-      flex_rule()->Run(view(), {preferred.width() + 5, base::nullopt});
+      RunFlexRule(SizeBounds(preferred.width() + 5, base::nullopt));
   EXPECT_EQ(preferred, result);
   EXPECT_EQ(3U, GetVisibleChildCount(result));
 }
@@ -3543,7 +3998,7 @@ TEST_F(AnimatingLayoutManagerFlexRuleTest,
   const int height_for_width =
       flex_layout()->GetPreferredHeightForWidth(view(), width);
   DCHECK_GT(height_for_width, preferred.height());
-  const gfx::Size result = flex_rule()->Run(view(), {width, base::nullopt});
+  const gfx::Size result = RunFlexRule(SizeBounds(width, base::nullopt));
   EXPECT_EQ(gfx::Size(width, height_for_width), result);
   EXPECT_EQ(3U, GetVisibleChildCount(result));
 }
@@ -3553,10 +4008,10 @@ TEST_F(AnimatingLayoutManagerFlexRuleTest, HorizontalBounded_FlexToSize) {
              gfx::Size(5, 5), false);
 
   const gfx::Size preferred = flex_layout()->GetPreferredSize(view());
-  const gfx::Size actual{preferred.width() - 5, preferred.height()};
+  const gfx::Size actual(preferred.width() - 5, preferred.height());
   const ProposedLayout layout = flex_layout()->GetProposedLayout(actual);
   DCHECK_LT(layout.host_size.width(), preferred.width());
-  const gfx::Size result = flex_rule()->Run(view(), SizeBounds(actual));
+  const gfx::Size result = RunFlexRule(SizeBounds(actual));
   EXPECT_EQ(actual, result);
   EXPECT_EQ(3U, GetVisibleChildCount(result));
 }
@@ -3565,10 +4020,10 @@ TEST_F(AnimatingLayoutManagerFlexRuleTest, HorizontalBounded_DropOut) {
   InitLayout(LayoutOrientation::kHorizontal, kDropOut, {}, false);
 
   const gfx::Size preferred = flex_layout()->GetPreferredSize(view());
-  const gfx::Size actual{preferred.width() - 5, preferred.height()};
+  const gfx::Size actual(preferred.width() - 5, preferred.height());
   const ProposedLayout layout = flex_layout()->GetProposedLayout(actual);
   DCHECK_LT(layout.host_size.width(), actual.width());
-  const gfx::Size result = flex_rule()->Run(view(), SizeBounds(actual));
+  const gfx::Size result = RunFlexRule(SizeBounds(actual));
   EXPECT_EQ(layout.host_size, result);
   EXPECT_EQ(2U, GetVisibleChildCount(result));
 }
@@ -3578,10 +4033,10 @@ TEST_F(AnimatingLayoutManagerFlexRuleTest, VerticalBounded_FlexToSize) {
              gfx::Size(5, 5), false);
 
   const gfx::Size preferred = flex_layout()->GetPreferredSize(view());
-  const gfx::Size actual{preferred.width(), preferred.height() - 5};
+  const gfx::Size actual(preferred.width(), preferred.height() - 5);
   const ProposedLayout layout = flex_layout()->GetProposedLayout(actual);
   DCHECK_LT(layout.host_size.height(), preferred.height());
-  const gfx::Size result = flex_rule()->Run(view(), SizeBounds(actual));
+  const gfx::Size result = RunFlexRule(SizeBounds(actual));
   EXPECT_EQ(actual, result);
   EXPECT_EQ(3U, GetVisibleChildCount(result));
 }
@@ -3590,10 +4045,10 @@ TEST_F(AnimatingLayoutManagerFlexRuleTest, VerticalBounded_DropOut) {
   InitLayout(LayoutOrientation::kVertical, kDropOut, {}, false);
 
   const gfx::Size preferred = flex_layout()->GetPreferredSize(view());
-  const gfx::Size actual{preferred.width(), preferred.height() - 5};
+  const gfx::Size actual(preferred.width(), preferred.height() - 5);
   const ProposedLayout layout = flex_layout()->GetProposedLayout(actual);
   DCHECK_LT(layout.host_size.height(), actual.height());
-  const gfx::Size result = flex_rule()->Run(view(), SizeBounds(actual));
+  const gfx::Size result = RunFlexRule(SizeBounds(actual));
   EXPECT_EQ(layout.host_size, result);
   EXPECT_EQ(2U, GetVisibleChildCount(result));
 }
@@ -3603,11 +4058,11 @@ TEST_F(AnimatingLayoutManagerFlexRuleTest, HorizontalDoubleBounded_DropOut) {
              gfx::Size(10, 5), true);
 
   const gfx::Size preferred = flex_layout()->GetPreferredSize(view());
-  const gfx::Size actual{preferred.width() - 5, preferred.height() - 5};
+  const gfx::Size actual(preferred.width() - 5, preferred.height() - 5);
   const ProposedLayout layout = flex_layout()->GetProposedLayout(actual);
   DCHECK_LT(layout.host_size.width(), preferred.width());
   DCHECK_LT(layout.host_size.height(), preferred.height());
-  const gfx::Size result = flex_rule()->Run(view(), SizeBounds(actual));
+  const gfx::Size result = RunFlexRule(SizeBounds(actual));
   EXPECT_EQ(layout.host_size, result);
   EXPECT_EQ(2U, GetVisibleChildCount(result));
 }
@@ -3617,11 +4072,11 @@ TEST_F(AnimatingLayoutManagerFlexRuleTest, VerticalDoubleBounded_DropOut) {
              gfx::Size(5, 10), true);
 
   const gfx::Size preferred = flex_layout()->GetPreferredSize(view());
-  const gfx::Size actual{preferred.width() - 5, preferred.height() - 5};
+  const gfx::Size actual(preferred.width() - 5, preferred.height() - 5);
   const ProposedLayout layout = flex_layout()->GetProposedLayout(actual);
   DCHECK_LT(layout.host_size.width(), preferred.width());
   DCHECK_LT(layout.host_size.height(), preferred.height());
-  const gfx::Size result = flex_rule()->Run(view(), SizeBounds(actual));
+  const gfx::Size result = RunFlexRule(SizeBounds(actual));
   EXPECT_EQ(layout.host_size, result);
   EXPECT_EQ(2U, GetVisibleChildCount(result));
 }
@@ -3634,7 +4089,7 @@ TEST_F(AnimatingLayoutManagerFlexRuleTest, HorizontalMinimumSize) {
   const gfx::Size preferred = flex_layout()->GetPreferredSize(view());
   DCHECK_GT(preferred.width(), minimum.width());
   DCHECK_GT(preferred.height(), minimum.height());
-  const gfx::Size result = flex_rule()->Run(view(), SizeBounds(0, 0));
+  const gfx::Size result = RunFlexRule(SizeBounds(0, 0));
   EXPECT_EQ(minimum, result);
 }
 
@@ -3646,7 +4101,7 @@ TEST_F(AnimatingLayoutManagerFlexRuleTest, VerticalMinimumSize) {
   const gfx::Size preferred = flex_layout()->GetPreferredSize(view());
   DCHECK_GT(preferred.width(), minimum.width());
   DCHECK_GT(preferred.height(), minimum.height());
-  const gfx::Size result = flex_rule()->Run(view(), SizeBounds(0, 0));
+  const gfx::Size result = RunFlexRule(SizeBounds(0, 0));
   EXPECT_EQ(minimum, result);
 }
 
@@ -3657,15 +4112,16 @@ class AnimatingLayoutManagerInFlexLayoutTest
  protected:
   void SetUp() override {
     AnimatingLayoutManagerRootViewTest::SetUp();
-    layout()->SetShouldAnimateBounds(true);
+    layout()->SetBoundsAnimationMode(
+        AnimatingLayoutManager::BoundsAnimationMode::kAnimateBothAxes);
     root_layout_ =
         root_view()->SetLayoutManager(std::make_unique<FlexLayout>());
     root_layout_->SetOrientation(LayoutOrientation::kHorizontal)
         .SetMainAxisAlignment(LayoutAlignment::kStart)
         .SetCrossAxisAlignment(LayoutAlignment::kStart);
-    view()->SetProperty(kFlexBehaviorKey, FlexSpecification::ForCustomRule(
-                                              layout()->GetDefaultFlexRule())
-                                              .WithOrder(2));
+    view()->SetProperty(
+        kFlexBehaviorKey,
+        FlexSpecification(layout()->GetDefaultFlexRule()).WithOrder(2));
     target_layout_ =
         layout()->SetTargetLayoutManager(std::make_unique<FlexLayout>());
     target_layout_->SetOrientation(LayoutOrientation::kHorizontal)
@@ -4093,9 +4549,10 @@ class AnimatingLayoutManagerRealtimeTest
   bool UseContainerTestApi() const override { return false; }
 
  protected:
-  void InitRootView(const SizeBounds& bounds = SizeBounds()) {
+  void InitRootView(SizeBounds bounds = SizeBounds()) {
     root_view()->SetLayoutManager(std::make_unique<ImmediateLayoutManager>(
-        layout()->should_animate_bounds(), bounds));
+        layout()->bounds_animation_mode(), layout()->orientation(),
+        std::move(bounds)));
     layout()->EnableAnimationForTesting();
   }
 
@@ -4107,7 +4564,8 @@ class AnimatingLayoutManagerRealtimeTest
 
 TEST_F(AnimatingLayoutManagerRealtimeTest, TestAnimateSlide) {
   constexpr gfx::Insets kChildMargins(5);
-  layout()->SetShouldAnimateBounds(true);
+  layout()->SetBoundsAnimationMode(
+      AnimatingLayoutManager::BoundsAnimationMode::kAnimateBothAxes);
   layout()->SetAnimationDuration(kMinimumAnimationTime);
   auto* const flex_layout =
       layout()->SetTargetLayoutManager(std::make_unique<FlexLayout>());
@@ -4145,7 +4603,8 @@ TEST_F(AnimatingLayoutManagerRealtimeTest, TestAnimateSlide) {
 
 TEST_F(AnimatingLayoutManagerRealtimeTest, TestAnimateStretch) {
   constexpr gfx::Insets kChildMargins(5);
-  layout()->SetShouldAnimateBounds(false);
+  layout()->SetBoundsAnimationMode(
+      AnimatingLayoutManager::BoundsAnimationMode::kUseHostBounds);
   layout()->SetAnimationDuration(kMinimumAnimationTime);
   auto* const flex_layout =
       layout()->SetTargetLayoutManager(std::make_unique<FlexLayout>());
@@ -4153,9 +4612,9 @@ TEST_F(AnimatingLayoutManagerRealtimeTest, TestAnimateStretch) {
   flex_layout->SetCollapseMargins(true);
   flex_layout->SetCrossAxisAlignment(LayoutAlignment::kStart);
   flex_layout->SetDefault(kMarginsKey, kChildMargins);
-  child(1)->SetProperty(kFlexBehaviorKey, FlexSpecification::ForSizeRule(
-                                              MinimumFlexSizeRule::kPreferred,
-                                              MaximumFlexSizeRule::kUnbounded));
+  child(1)->SetProperty(kFlexBehaviorKey,
+                        FlexSpecification(MinimumFlexSizeRule::kPreferred,
+                                          MaximumFlexSizeRule::kUnbounded));
   InitRootView();
 
   const ProposedLayout expected_start{
@@ -4184,8 +4643,9 @@ TEST_F(AnimatingLayoutManagerRealtimeTest, TestAnimateStretch) {
 
 TEST_F(AnimatingLayoutManagerRealtimeTest, TestConstrainedSpaceStopsAnimation) {
   constexpr gfx::Insets kChildMargins(5);
-  static const SizeBounds kSizeBounds(45, base::nullopt);
-  layout()->SetShouldAnimateBounds(true);
+  constexpr SizeBounds kSizeBounds(45, base::nullopt);
+  layout()->SetBoundsAnimationMode(
+      AnimatingLayoutManager::BoundsAnimationMode::kAnimateBothAxes);
   layout()->SetAnimationDuration(kMinimumAnimationTime);
   auto* const flex_layout =
       layout()->SetTargetLayoutManager(std::make_unique<FlexLayout>());
@@ -4194,9 +4654,9 @@ TEST_F(AnimatingLayoutManagerRealtimeTest, TestConstrainedSpaceStopsAnimation) {
   flex_layout->SetCrossAxisAlignment(LayoutAlignment::kStart);
   flex_layout->SetDefault(kMarginsKey, kChildMargins);
   InitRootView(kSizeBounds);
-  child(0)->SetProperty(kFlexBehaviorKey, FlexSpecification::ForSizeRule(
-                                              MinimumFlexSizeRule::kScaleToZero,
-                                              MaximumFlexSizeRule::kPreferred));
+  child(0)->SetProperty(kFlexBehaviorKey,
+                        FlexSpecification(MinimumFlexSizeRule::kScaleToZero,
+                                          MaximumFlexSizeRule::kPreferred));
   child(0)->SetVisible(false);
   layout()->ResetLayout();
   view()->InvalidateLayout();
@@ -4228,8 +4688,9 @@ TEST_F(AnimatingLayoutManagerRealtimeTest, TestConstrainedSpaceStopsAnimation) {
 
 TEST_F(AnimatingLayoutManagerRealtimeTest, TestConstrainedSpaceDoesNotRestart) {
   constexpr gfx::Insets kChildMargins(5);
-  static const SizeBounds kSizeBounds(45, base::nullopt);
-  layout()->SetShouldAnimateBounds(true);
+  constexpr SizeBounds kSizeBounds(45, base::nullopt);
+  layout()->SetBoundsAnimationMode(
+      AnimatingLayoutManager::BoundsAnimationMode::kAnimateBothAxes);
   layout()->SetAnimationDuration(kMinimumAnimationTime);
   auto* const flex_layout =
       layout()->SetTargetLayoutManager(std::make_unique<FlexLayout>());
@@ -4238,9 +4699,9 @@ TEST_F(AnimatingLayoutManagerRealtimeTest, TestConstrainedSpaceDoesNotRestart) {
   flex_layout->SetCrossAxisAlignment(LayoutAlignment::kStart);
   flex_layout->SetDefault(kMarginsKey, kChildMargins);
   InitRootView(kSizeBounds);
-  child(0)->SetProperty(kFlexBehaviorKey, FlexSpecification::ForSizeRule(
-                                              MinimumFlexSizeRule::kScaleToZero,
-                                              MaximumFlexSizeRule::kPreferred));
+  child(0)->SetProperty(kFlexBehaviorKey,
+                        FlexSpecification(MinimumFlexSizeRule::kScaleToZero,
+                                          MaximumFlexSizeRule::kPreferred));
   child(0)->SetVisible(false);
   layout()->ResetLayout();
   view()->InvalidateLayout();
@@ -4276,8 +4737,9 @@ TEST_F(AnimatingLayoutManagerRealtimeTest, TestConstrainedSpaceDoesNotRestart) {
 TEST_F(AnimatingLayoutManagerRealtimeTest,
        TestConstrainedSpaceRestartedAnimationSucceeds) {
   constexpr gfx::Insets kChildMargins(5);
-  static const SizeBounds kSizeBounds(45, base::nullopt);
-  layout()->SetShouldAnimateBounds(true);
+  constexpr SizeBounds kSizeBounds(45, base::nullopt);
+  layout()->SetBoundsAnimationMode(
+      AnimatingLayoutManager::BoundsAnimationMode::kAnimateBothAxes);
   layout()->SetAnimationDuration(kMinimumAnimationTime);
   auto* const flex_layout =
       layout()->SetTargetLayoutManager(std::make_unique<FlexLayout>());
@@ -4286,9 +4748,9 @@ TEST_F(AnimatingLayoutManagerRealtimeTest,
   flex_layout->SetCrossAxisAlignment(LayoutAlignment::kStart);
   flex_layout->SetDefault(kMarginsKey, kChildMargins);
   InitRootView(kSizeBounds);
-  child(0)->SetProperty(kFlexBehaviorKey, FlexSpecification::ForSizeRule(
-                                              MinimumFlexSizeRule::kScaleToZero,
-                                              MaximumFlexSizeRule::kPreferred));
+  child(0)->SetProperty(kFlexBehaviorKey,
+                        FlexSpecification(MinimumFlexSizeRule::kScaleToZero,
+                                          MaximumFlexSizeRule::kPreferred));
   child(0)->SetVisible(false);
   layout()->ResetLayout();
   view()->InvalidateLayout();
@@ -4327,7 +4789,7 @@ TEST_F(AnimatingLayoutManagerRealtimeTest,
 // TODO(dfried): figure out why these tests absolutely do not animate properly
 // on Mac. Whatever magic makes the compositor animation runner go doesn't seem
 // to want to work on Mac in non-browsertests :(
-#if !defined(OS_MACOSX)
+#if !defined(OS_APPLE)
 
 // Test fixture for testing sequences of the following four actions:
 // * animating layout manager configured on host view
@@ -4350,7 +4812,7 @@ class AnimatingLayoutManagerSequenceTest : public ViewsTestBase {
 
     parent_view_ptr_ = std::make_unique<View>();
     parent_view_ptr_->SetLayoutManager(
-        std::make_unique<ImmediateLayoutManager>(true));
+        std::make_unique<ImmediateLayoutManager>());
     parent_view_ = parent_view_ptr_.get();
 
     layout_view_ptr_ = std::make_unique<View>();
@@ -4374,7 +4836,8 @@ class AnimatingLayoutManagerSequenceTest : public ViewsTestBase {
     flex_layout->SetCollapseMargins(true);
     flex_layout->SetCrossAxisAlignment(LayoutAlignment::kStart);
     flex_layout->SetDefault(kMarginsKey, gfx::Insets(5));
-    layout_manager_->SetShouldAnimateBounds(true);
+    layout_manager_->SetBoundsAnimationMode(
+        AnimatingLayoutManager::BoundsAnimationMode::kAnimateBothAxes);
   }
 
   void AddViewToParent() {
@@ -4521,6 +4984,6 @@ TEST_F(AnimatingLayoutManagerSequenceTest,
   ExpectResetToLayout();
 }
 
-#endif  // !defined(OS_MACOSX)
+#endif  // !defined(OS_APPLE)
 
 }  // namespace views

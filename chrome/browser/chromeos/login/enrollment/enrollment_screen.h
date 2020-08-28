@@ -18,6 +18,7 @@
 #include "chrome/browser/chromeos/login/enrollment/enrollment_screen_view.h"
 #include "chrome/browser/chromeos/login/enrollment/enterprise_enrollment_helper.h"
 #include "chrome/browser/chromeos/login/screens/base_screen.h"
+#include "chrome/browser/chromeos/login/wizard_context.h"
 #include "chrome/browser/chromeos/policy/active_directory_join_delegate.h"
 #include "chrome/browser/chromeos/policy/enrollment_config.h"
 #include "components/policy/core/common/cloud/cloud_policy_constants.h"
@@ -44,7 +45,9 @@ class EnrollmentScreen
       public EnrollmentScreenView::Controller,
       public ActiveDirectoryJoinDelegate {
  public:
-  enum class Result { COMPLETED, BACK };
+  enum class Result { COMPLETED, BACK, SKIPPED_FOR_TESTS };
+
+  static std::string GetResultString(Result result);
 
   using ScreenExitCallback = base::RepeatingCallback<void(Result result)>;
   EnrollmentScreen(EnrollmentScreenView* view,
@@ -55,10 +58,6 @@ class EnrollmentScreen
 
   // Setup how this screen will handle enrollment.
   void SetEnrollmentConfig(const policy::EnrollmentConfig& enrollment_config);
-
-  // BaseScreen implementation:
-  void Show() override;
-  void Hide() override;
 
   // EnrollmentScreenView::Controller implementation:
   void OnLoginDone(const std::string& user,
@@ -96,6 +95,11 @@ class EnrollmentScreen
   }
 
  protected:
+  // BaseScreen:
+  bool MaybeSkip(WizardContext* context) override;
+  void ShowImpl() override;
+  void HideImpl() override;
+
   // Expose the exit_callback to test screen overrides.
   ScreenExitCallback* exit_callback() { return &exit_callback_; }
 
@@ -184,8 +188,11 @@ class EnrollmentScreen
   ScreenExitCallback exit_callback_;
   policy::EnrollmentConfig config_;
   policy::EnrollmentConfig enrollment_config_;
+
+  // 'Current' and 'Next' authentication mechanisms to be used.
   Auth current_auth_ = AUTH_OAUTH;
-  Auth last_auth_ = AUTH_OAUTH;
+  Auth next_auth_ = AUTH_OAUTH;
+
   bool enrollment_failed_once_ = false;
   bool enrollment_succeeded_ = false;
   std::string enrolling_user_domain_;

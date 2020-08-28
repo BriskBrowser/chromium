@@ -9,8 +9,6 @@
 
 #include "base/strings/string16.h"
 #include "chrome/browser/chromeos/crostini/crostini_package_service.h"
-#include "chrome/browser/chromeos/crostini/crostini_registry_service.h"
-#include "chrome/browser/chromeos/crostini/crostini_registry_service_factory.h"
 #include "chrome/browser/chromeos/crostini/crostini_test_helper.h"
 #include "chrome/browser/chromeos/crostini/crostini_util.h"
 #include "chrome/test/base/testing_profile.h"
@@ -65,8 +63,7 @@ TEST_F(CrostiniPackageNotificationTest, InstallWithNoIcons) {
   CrostiniPackageNotification notification(
       profile_.get(),
       CrostiniPackageNotification::NotificationType::PACKAGE_INSTALL,
-      PackageOperationStatus::RUNNING,
-      ContainerId(kCrostiniDefaultVmName, kCrostiniDefaultContainerName),
+      PackageOperationStatus::RUNNING, ContainerId::GetDefault(),
       base::string16(), kNotificationId, service_.get());
 
   notification.UpdateProgress(PackageOperationStatus::SUCCEEDED, 100);
@@ -77,8 +74,7 @@ TEST_F(CrostiniPackageNotificationTest, InstallWithOneIcon) {
   CrostiniPackageNotification notification(
       profile_.get(),
       CrostiniPackageNotification::NotificationType::PACKAGE_INSTALL,
-      PackageOperationStatus::RUNNING,
-      ContainerId(kCrostiniDefaultVmName, kCrostiniDefaultContainerName),
+      PackageOperationStatus::RUNNING, ContainerId::GetDefault(),
       base::string16(), kNotificationId, service_.get());
 
   auto app = CrostiniTestHelper::BasicApp(kDefaultAppFileId);
@@ -92,8 +88,7 @@ TEST_F(CrostiniPackageNotificationTest, InstallWithTwoIcons) {
   CrostiniPackageNotification notification(
       profile_.get(),
       CrostiniPackageNotification::NotificationType::PACKAGE_INSTALL,
-      PackageOperationStatus::RUNNING,
-      ContainerId(kCrostiniDefaultVmName, kCrostiniDefaultContainerName),
+      PackageOperationStatus::RUNNING, ContainerId::GetDefault(),
       base::string16(), kNotificationId, service_.get());
 
   auto app = CrostiniTestHelper::BasicApp(kDefaultAppFileId);

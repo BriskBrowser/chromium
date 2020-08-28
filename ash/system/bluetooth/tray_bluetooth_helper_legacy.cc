@@ -13,7 +13,6 @@
 #include "ash/system/model/system_tray_model.h"
 #include "base/bind.h"
 #include "base/bind_helpers.h"
-#include "base/metrics/histogram_macros.h"
 #include "base/metrics/user_metrics.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
@@ -25,6 +24,7 @@
 #include "device/bluetooth/bluetooth_device.h"
 #include "device/bluetooth/bluetooth_discovery_session.h"
 #include "device/bluetooth/chromeos/bluetooth_utils.h"
+#include "device/bluetooth/public/cpp/bluetooth_address.h"
 #include "services/device/public/cpp/bluetooth/bluetooth_utils.h"
 
 using device::mojom::BluetoothDeviceBatteryInfo;
@@ -39,12 +39,22 @@ namespace {
 // System tray shows a limited number of bluetooth devices.
 const int kMaximumDevicesShown = 50;
 
-void RecordUserInitiatedReconnectionAttemptResult(bool success) {
-  UMA_HISTOGRAM_BOOLEAN(
-      "Bluetooth.ChromeOS.UserInitiatedReconnectionAttempt.Result", success);
-  UMA_HISTOGRAM_BOOLEAN(
-      "Bluetooth.ChromeOS.UserInitiatedReconnectionAttempt.Result.SystemTray",
-      success);
+device::ConnectionFailureReason GetConnectionFailureReason(
+    device::BluetoothDevice::ConnectErrorCode error_code) {
+  switch (error_code) {
+    case device::BluetoothDevice::ConnectErrorCode::ERROR_AUTH_FAILED:
+      return device::ConnectionFailureReason::kAuthFailed;
+    case device::BluetoothDevice::ConnectErrorCode::ERROR_AUTH_TIMEOUT:
+      return device::ConnectionFailureReason::kAuthTimeout;
+    case device::BluetoothDevice::ConnectErrorCode::ERROR_FAILED:
+      return device::ConnectionFailureReason::kFailed;
+    case device::BluetoothDevice::ConnectErrorCode::ERROR_UNKNOWN:
+      return device::ConnectionFailureReason::kUnknownConnectionError;
+    case device::BluetoothDevice::ConnectErrorCode::ERROR_UNSUPPORTED_DEVICE:
+      return device::ConnectionFailureReason::kUnsupportedDevice;
+    default:
+      return device::ConnectionFailureReason::kUnknownError;
+  }
 }
 
 void BluetoothSetDiscoveringError() {
@@ -52,8 +62,11 @@ void BluetoothSetDiscoveringError() {
 }
 
 void OnBluetoothDeviceConnect(bool was_device_already_paired) {
-  if (was_device_already_paired)
-    RecordUserInitiatedReconnectionAttemptResult(true /* success */);
+  if (was_device_already_paired) {
+    device::RecordUserInitiatedReconnectionAttemptResult(
+        base::nullopt /* failure_reason */,
+        device::BluetoothUiSurface::kSystemTray);
+  }
 }
 
 void OnBluetoothDeviceConnectError(
@@ -63,8 +76,11 @@ void OnBluetoothDeviceConnectError(
              << "]. The attempted device was previously ["
              << (was_device_already_paired ? "paired" : "not paired") << "].";
 
-  if (was_device_already_paired)
-    RecordUserInitiatedReconnectionAttemptResult(false /* success */);
+  if (was_device_already_paired) {
+    device::RecordUserInitiatedReconnectionAttemptResult(
+        GetConnectionFailureReason(error_code),
+        device::BluetoothUiSurface::kSystemTray);
+  }
 }
 
 std::string BluetoothAddressToStr(const BluetoothAddress& address) {
@@ -81,7 +97,7 @@ BluetoothAddress AddressStrToBluetoothAddress(const std::string& address_str) {
 
   // If the string is not a valid encoding of a Bluetooth address, then the
   // underlying Bluetooth API returned an incorrect value.
-  CHECK(device::BluetoothDevice::ParseAddress(address_str, address_array));
+  CHECK(device::ParseBluetoothAddress(address_str, address_array));
 
   return address_array;
 }
@@ -173,7 +189,7 @@ void TrayBluetoothHelperLegacy::InitializeOnAdapterReady(
 }
 
 void TrayBluetoothHelperLegacy::Initialize() {
-  device::BluetoothAdapterFactory::GetAdapter(
+  device::BluetoothAdapterFactory::Get()->GetAdapter(
       base::BindOnce(&TrayBluetoothHelperLegacy::InitializeOnAdapterReady,
                      weak_ptr_factory_.GetWeakPtr()));
 }
@@ -229,7 +245,9 @@ void TrayBluetoothHelperLegacy::ConnectToBluetoothDevice(
         base::UserMetricsAction("StatusArea_Bluetooth_Connect_Known"));
 
     if (!device->IsConnectable()) {
-      RecordUserInitiatedReconnectionAttemptResult(false /* success */);
+      device::RecordUserInitiatedReconnectionAttemptResult(
+          device::ConnectionFailureReason::kNotConnectable,
+          device::BluetoothUiSurface::kSystemTray);
       return;
     }
 

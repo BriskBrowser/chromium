@@ -24,8 +24,8 @@ class CONTENT_EXPORT FixedNativeFileSystemPermissionGrant
   // NativeFileSystemPermissionGrant:
   PermissionStatus GetStatus() override;
   void RequestPermission(
-      int process_id,
-      int frame_id,
+      GlobalFrameRoutingId frame_id,
+      UserActivationState user_activation_state,
       base::OnceCallback<void(PermissionRequestOutcome)> callback) override;
 
  protected:

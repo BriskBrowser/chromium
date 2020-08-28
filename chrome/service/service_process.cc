@@ -25,6 +25,7 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/synchronization/waitable_event.h"
 #include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
 #include "base/task/thread_pool/thread_pool_instance.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
@@ -52,7 +53,6 @@
 #include "net/url_request/url_fetcher.h"
 #include "services/network/public/cpp/network_switches.h"
 #include "ui/base/l10n/l10n_util.h"
-#include "ui/base/material_design/material_design_controller.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/base/ui_base_switches.h"
 
@@ -196,10 +196,10 @@ bool ServiceProcess::Initialize(base::OnceClosure quit_closure,
   base::FilePath pref_path =
       user_data_dir.Append(chrome::kServiceStateFileName);
   service_prefs_ = std::make_unique<ServiceProcessPrefs>(
-      pref_path, base::CreateSequencedTaskRunner(
-                     {base::ThreadPool(), base::MayBlock(),
-                      base::TaskShutdownBehavior::BLOCK_SHUTDOWN})
-                     .get());
+      pref_path,
+      base::ThreadPool::CreateSequencedTaskRunner(
+          {base::MayBlock(), base::TaskShutdownBehavior::BLOCK_SHUTDOWN})
+          .get());
   service_prefs_->ReadPrefs();
 
   // This switch it required to run connector with test gaia.
@@ -221,7 +221,6 @@ bool ServiceProcess::Initialize(base::OnceClosure quit_closure,
     if (locale.empty())
       locale = kDefaultServiceProcessLocale;
   }
-  ui::MaterialDesignController::Initialize();
   ui::ResourceBundle::InitSharedInstanceWithLocale(
       locale, NULL, ui::ResourceBundle::LOAD_COMMON_RESOURCES);
 
@@ -285,7 +284,7 @@ bool ServiceProcess::Teardown() {
 // This method is called when a shutdown command is received from IPC channel
 // or there was an error in the IPC channel.
 void ServiceProcess::Shutdown() {
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
   // On MacOS X the service must be removed from the launchd job list.
   // http://www.chromium.org/developers/design-documents/service-processes
   // The best way to do that is to go through the ForceServiceProcessShutdown
@@ -325,7 +324,7 @@ bool ServiceProcess::OnIPCClientDisconnect() {
 }
 
 mojo::ScopedMessagePipeHandle ServiceProcess::CreateChannelMessagePipe() {
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
   if (!server_endpoint_.is_valid()) {
     server_endpoint_ =
         service_process_state_->GetServiceProcessServerEndpoint();
@@ -347,7 +346,7 @@ mojo::ScopedMessagePipeHandle ServiceProcess::CreateChannelMessagePipe() {
 #endif
 
   mojo::PlatformChannelServerEndpoint server_endpoint;
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
   // Mach receive rights (named server channels) are not Clone-able.
   server_endpoint = std::move(server_endpoint_);
 #elif defined(OS_POSIX)

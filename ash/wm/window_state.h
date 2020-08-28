@@ -329,11 +329,6 @@ class ASH_EXPORT WindowState : public aura::WindowObserver {
   const DragDetails* drag_details() const { return drag_details_.get(); }
   DragDetails* drag_details() { return drag_details_.get(); }
 
-  void set_animation_smoothness_histogram_name(
-      base::Optional<std::string> val) {
-    animation_smoothness_histogram_name_ = val;
-  }
-
   // Returns the Display that this WindowState is on.
   display::Display GetDisplay();
 
@@ -352,6 +347,7 @@ class ASH_EXPORT WindowState : public aura::WindowObserver {
   friend class TabletModeWindowState;
   friend class ScopedBoundsChangeAnimation;
   FRIEND_TEST_ALL_PREFIXES(WindowAnimationsTest, CrossFadeToBounds);
+  FRIEND_TEST_ALL_PREFIXES(WindowAnimationsTest, CrossFadeHistograms);
   FRIEND_TEST_ALL_PREFIXES(WindowAnimationsTest,
                            CrossFadeToBoundsFromTransform);
   FRIEND_TEST_ALL_PREFIXES(WindowStateTest, PipWindowMaskRecreated);
@@ -453,6 +449,10 @@ class ASH_EXPORT WindowState : public aura::WindowObserver {
                                intptr_t old) override;
   void OnWindowAddedToRootWindow(aura::Window* window) override;
   void OnWindowDestroying(aura::Window* window) override;
+  void OnWindowBoundsChanged(aura::Window* window,
+                             const gfx::Rect& old_bounds,
+                             const gfx::Rect& new_bounds,
+                             ui::PropertyChangeReason reason) override;
 
   // The owner of this window settings.
   aura::Window* window_;
@@ -461,10 +461,6 @@ class ASH_EXPORT WindowState : public aura::WindowObserver {
   bool bounds_changed_by_user_;
   bool can_consume_system_keys_;
   std::unique_ptr<DragDetails> drag_details_;
-
-  // If this has a value when an animation starts, animation smoothness metrics
-  // with this name will be logged for the animation.
-  base::Optional<std::string> animation_smoothness_histogram_name_;
 
   bool unminimize_to_restore_bounds_;
   bool ignore_keyboard_bounds_change_ = false;

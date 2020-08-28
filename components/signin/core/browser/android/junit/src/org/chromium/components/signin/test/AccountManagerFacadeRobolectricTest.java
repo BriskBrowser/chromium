@@ -4,6 +4,9 @@
 
 package org.chromium.components.signin.test;
 
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.verify;
 import static org.robolectric.Shadows.shadowOf;
 
 import android.accounts.Account;
@@ -11,14 +14,13 @@ import android.content.Context;
 import android.content.Intent;
 import android.os.Bundle;
 import android.os.UserManager;
-import android.support.test.filters.SmallTest;
-import android.support.test.rule.UiThreadTestRule;
+
+import androidx.test.filters.SmallTest;
 
 import com.google.common.collect.ImmutableList;
 
 import org.junit.Assert;
 import org.junit.Before;
-import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.robolectric.RuntimeEnvironment;
@@ -28,14 +30,16 @@ import org.chromium.base.task.test.CustomShadowAsyncTask;
 import org.chromium.base.test.BaseRobolectricTestRunner;
 import org.chromium.components.signin.AccountManagerDelegateException;
 import org.chromium.components.signin.AccountManagerFacade;
+import org.chromium.components.signin.AccountManagerFacadeImpl;
+import org.chromium.components.signin.AccountUtils;
 import org.chromium.components.signin.ChildAccountStatus;
-import org.chromium.components.signin.ProfileDataSource;
 import org.chromium.components.signin.test.util.AccountHolder;
 import org.chromium.components.signin.test.util.FakeAccountManagerDelegate;
 import org.chromium.testing.local.CustomShadowUserManager;
 
 import java.util.Arrays;
 import java.util.HashSet;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -45,9 +49,6 @@ import java.util.concurrent.atomic.AtomicInteger;
 @Config(manifest = Config.NONE,
         shadows = {CustomShadowAsyncTask.class, CustomShadowUserManager.class})
 public class AccountManagerFacadeRobolectricTest {
-    @Rule
-    public UiThreadTestRule mRule = new UiThreadTestRule();
-
     private CustomShadowUserManager mShadowUserManager;
     private FakeAccountManagerDelegate mDelegate;
     private AccountManagerFacade mFacade;
@@ -57,19 +58,14 @@ public class AccountManagerFacadeRobolectricTest {
         Context context = RuntimeEnvironment.application;
         UserManager userManager = (UserManager) context.getSystemService(Context.USER_SERVICE);
         mShadowUserManager = (CustomShadowUserManager) shadowOf(userManager);
-
-        mDelegate = new FakeAccountManagerDelegate(
-                FakeAccountManagerDelegate.ENABLE_PROFILE_DATA_SOURCE);
-        Assert.assertFalse(mDelegate.isRegisterObserversCalled());
-        AccountManagerFacade.overrideAccountManagerFacadeForTests(mDelegate);
-        Assert.assertTrue(mDelegate.isRegisterObserversCalled());
-        mFacade = AccountManagerFacade.get();
+        mDelegate = new FakeAccountManagerDelegate();
+        mFacade = new AccountManagerFacadeImpl(mDelegate);
     }
 
     private void setAccountRestrictionPatterns(String... patterns) {
         Bundle restrictions = new Bundle();
         restrictions.putStringArray(
-                AccountManagerFacade.ACCOUNT_RESTRICTION_PATTERNS_KEY, patterns);
+                AccountManagerFacadeImpl.ACCOUNT_RESTRICTION_PATTERNS_KEY, patterns);
         mShadowUserManager.setApplicationRestrictions(
                 RuntimeEnvironment.application.getPackageName(), restrictions);
         RuntimeEnvironment.application.sendBroadcast(
@@ -85,12 +81,23 @@ public class AccountManagerFacadeRobolectricTest {
 
     @Test
     @SmallTest
+    public void testRegisterObserversCalledInConstructor() {
+        FakeAccountManagerDelegate delegate = spy(new FakeAccountManagerDelegate());
+        verify(delegate, never()).registerObservers();
+        AccountManagerFacade accountManagerFacade = new AccountManagerFacadeImpl(delegate);
+        verify(delegate).registerObservers();
+    }
+
+    @Test
+    @SmallTest
     public void testCanonicalAccount() {
         addTestAccount("test@gmail.com");
+        List<Account> accounts = mFacade.tryGetGoogleAccounts();
 
-        Assert.assertTrue(mFacade.hasAccountForName("test@gmail.com"));
-        Assert.assertTrue(mFacade.hasAccountForName("Test@gmail.com"));
-        Assert.assertTrue(mFacade.hasAccountForName("te.st@gmail.com"));
+        Assert.assertNotNull(AccountUtils.findAccountByName(accounts, "test@gmail.com"));
+        Assert.assertNotNull(AccountUtils.findAccountByName(accounts, "Test@gmail.com"));
+        Assert.assertNotNull(AccountUtils.findAccountByName(accounts, "te.st@gmail.com"));
+        Assert.assertNull(AccountUtils.findAccountByName(accounts, "te@googlemail.com"));
     }
 
     // If this test starts flaking, please re-open crbug.com/568636 and make sure there is some sort
@@ -99,33 +106,12 @@ public class AccountManagerFacadeRobolectricTest {
     @SmallTest
     public void testNonCanonicalAccount() {
         addTestAccount("test.me@gmail.com");
+        List<Account> accounts = mFacade.tryGetGoogleAccounts();
 
-        Assert.assertTrue(mFacade.hasAccountForName("test.me@gmail.com"));
-        Assert.assertTrue(mFacade.hasAccountForName("testme@gmail.com"));
-        Assert.assertTrue(mFacade.hasAccountForName("Testme@gmail.com"));
-        Assert.assertTrue(mFacade.hasAccountForName("te.st.me@gmail.com"));
-    }
-
-    @Test
-    @SmallTest
-    public void testProfileDataSource() throws Throwable {
-        String accountName = "test@gmail.com";
-        addTestAccount(accountName);
-
-        mRule.runOnUiThread(() -> {
-            ProfileDataSource.ProfileData profileData = new ProfileDataSource.ProfileData(
-                    accountName, null, "Test Full Name", "Test Given Name");
-
-            ProfileDataSource profileDataSource = mDelegate.getProfileDataSource();
-            Assert.assertNotNull(profileDataSource);
-            mDelegate.setProfileData(accountName, profileData);
-            Assert.assertArrayEquals(profileDataSource.getProfileDataMap().values().toArray(),
-                    new ProfileDataSource.ProfileData[] {profileData});
-
-            mDelegate.setProfileData(accountName, null);
-            Assert.assertArrayEquals(profileDataSource.getProfileDataMap().values().toArray(),
-                    new ProfileDataSource.ProfileData[0]);
-        });
+        Assert.assertNotNull(AccountUtils.findAccountByName(accounts, "test.me@gmail.com"));
+        Assert.assertNotNull(AccountUtils.findAccountByName(accounts, "testme@gmail.com"));
+        Assert.assertNotNull(AccountUtils.findAccountByName(accounts, "Testme@gmail.com"));
+        Assert.assertNotNull(AccountUtils.findAccountByName(accounts, "te.st.me@gmail.com"));
     }
 
     @Test
@@ -225,13 +211,13 @@ public class AccountManagerFacadeRobolectricTest {
     @SmallTest
     public void testCheckChildAccount() {
         Account testAccount = addTestAccount("test@gmail.com");
-        Account ucaAccount =
-                addTestAccount("uca@gmail.com", AccountManagerFacade.FEATURE_IS_CHILD_ACCOUNT_KEY);
-        Account usmAccount =
-                addTestAccount("usm@gmail.com", AccountManagerFacade.FEATURE_IS_USM_ACCOUNT_KEY);
+        Account ucaAccount = addTestAccount(
+                "uca@gmail.com", AccountManagerFacadeImpl.FEATURE_IS_CHILD_ACCOUNT_KEY);
+        Account usmAccount = addTestAccount(
+                "usm@gmail.com", AccountManagerFacadeImpl.FEATURE_IS_USM_ACCOUNT_KEY);
         Account bothAccount = addTestAccount("uca_usm@gmail.com",
-                AccountManagerFacade.FEATURE_IS_CHILD_ACCOUNT_KEY,
-                AccountManagerFacade.FEATURE_IS_USM_ACCOUNT_KEY);
+                AccountManagerFacadeImpl.FEATURE_IS_CHILD_ACCOUNT_KEY,
+                AccountManagerFacadeImpl.FEATURE_IS_USM_ACCOUNT_KEY);
 
         assertChildAccountStatus(testAccount, ChildAccountStatus.NOT_CHILD);
         assertChildAccountStatus(ucaAccount, ChildAccountStatus.REGULAR_CHILD);
@@ -240,13 +226,13 @@ public class AccountManagerFacadeRobolectricTest {
     }
 
     private Account addTestAccount(String accountName, String... features) {
-        Account account = AccountManagerFacade.createAccountFromName(accountName);
+        Account account = AccountUtils.createAccountFromName(accountName);
         AccountHolder holder = AccountHolder.builder(account)
                                        .alwaysAccept(true)
                                        .featureSet(new HashSet<>(Arrays.asList(features)))
                                        .build();
         mDelegate.addAccountHolderExplicitly(holder);
-        Assert.assertFalse(AccountManagerFacade.get().isUpdatePending().get());
+        Assert.assertFalse(((AccountManagerFacadeImpl) mFacade).isUpdatePending().get());
         return account;
     }
 
@@ -257,7 +243,7 @@ public class AccountManagerFacadeRobolectricTest {
     private void assertChildAccountStatus(
             Account account, @ChildAccountStatus.Status Integer status) {
         final AtomicInteger callCount = new AtomicInteger();
-        AccountManagerFacade.get().checkChildAccountStatus(account, result -> {
+        mFacade.checkChildAccountStatus(account, result -> {
             callCount.incrementAndGet();
             Assert.assertEquals(result, status);
         });

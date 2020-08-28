@@ -5,9 +5,18 @@
 #ifndef CHROME_BROWSER_AUTOCOMPLETE_CHROME_AUTOCOMPLETE_PROVIDER_CLIENT_H_
 #define CHROME_BROWSER_AUTOCOMPLETE_CHROME_AUTOCOMPLETE_PROVIDER_CLIENT_H_
 
+#include <memory>
+#include <string>
+#include <vector>
+
 #include "base/macros.h"
+#include "build/build_config.h"
 #include "chrome/browser/autocomplete/chrome_autocomplete_scheme_classifier.h"
 #include "components/omnibox/browser/autocomplete_provider_client.h"
+
+#if defined(OS_ANDROID)
+class TabAndroid;
+#endif  // defined(OS_ANDROID)
 
 class Profile;
 
@@ -52,6 +61,7 @@ class ChromeAutocompleteProviderClient : public AutocompleteProviderClient {
   std::vector<base::string16> GetBuiltinsToProvideAsUserTypes() override;
   component_updater::ComponentUpdateService* GetComponentUpdateService()
       override;
+  query_tiles::TileService* GetQueryTileService() const override;
 
   bool IsOffTheRecord() const override;
   bool SearchSuggestEnabled() const override;
@@ -89,6 +99,12 @@ class ChromeAutocompleteProviderClient : public AutocompleteProviderClient {
   // re-stripping the URL.
   bool IsStrippedURLEqualToWebContentsURL(const GURL& stripped_url,
                                           content::WebContents* web_contents);
+
+#if defined(OS_ANDROID)
+  // Returns a TabAndroid has opened same URL as |url|.
+  TabAndroid* GetTabOpenWithURL(const GURL& url,
+                                const AutocompleteInput* input);
+#endif  // defined(OS_ANDROID)
 
  private:
   Profile* profile_;

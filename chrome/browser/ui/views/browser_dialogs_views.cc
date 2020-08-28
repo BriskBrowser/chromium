@@ -10,7 +10,6 @@
 #include "chrome/browser/chooser_controller/chooser_controller.h"
 #include "chrome/browser/extensions/api/chrome_device_permissions_prompt.h"
 #include "chrome/browser/extensions/chrome_extension_chooser_dialog.h"
-#include "chrome/browser/extensions/extension_install_prompt.h"
 #include "chrome/browser/ui/login/login_handler.h"
 #include "chrome/browser/ui/views/bookmarks/bookmark_editor_view.h"
 #include "chrome/browser/ui/views/task_manager_view.h"
@@ -48,7 +47,7 @@ void ChromeExtensionChooserDialog::ShowDialog(
 
 namespace chrome {
 
-#if !defined(OS_MACOSX)
+#if !defined(OS_MAC)
 task_manager::TaskManagerTableModel* ShowTaskManager(Browser* browser) {
   return task_manager::TaskManagerView::Show(browser);
 }

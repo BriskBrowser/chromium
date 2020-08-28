@@ -6,9 +6,11 @@
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
+#include "base/logging.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
 #include "chrome/browser/chromeos/authpolicy/data_pipe_utils.h"
 #include "chromeos/dbus/authpolicy/authpolicy_client.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
@@ -147,9 +149,8 @@ void AuthPolicyHelper::Restart() {
 void AuthPolicyHelper::DecryptConfiguration(const std::string& blob,
                                             const std::string& password,
                                             OnDecryptedCallback callback) {
-  base::PostTaskAndReplyWithResult(
-      FROM_HERE,
-      {base::ThreadPool(), base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN},
+  base::ThreadPool::PostTaskAndReplyWithResult(
+      FROM_HERE, {base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN},
       base::BindOnce(&DoDecrypt, blob, password), std::move(callback));
 }
 

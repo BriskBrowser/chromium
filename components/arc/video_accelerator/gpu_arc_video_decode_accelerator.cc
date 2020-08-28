@@ -282,13 +282,13 @@ void GpuArcVideoDecodeAccelerator::ExecuteRequest(
 
 void GpuArcVideoDecodeAccelerator::Initialize(
     mojom::VideoDecodeAcceleratorConfigPtr config,
-    mojom::VideoDecodeClientPtr client,
+    mojo::PendingRemote<mojom::VideoDecodeClient> client,
     InitializeCallback callback) {
   VLOGF(2) << "profile = " << config->profile
            << ", secure_mode = " << config->secure_mode;
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
   CHECK(!client_);
-  client_ = std::move(client);
+  client_.Bind(std::move(client));
 
   auto result = InitializeTask(std::move(config));
 
@@ -321,7 +321,8 @@ GpuArcVideoDecodeAccelerator::InitializeTask(
   vda_config.output_mode =
       media::VideoDecodeAccelerator::Config::OutputMode::IMPORT;
 
-  auto vda_factory = media::GpuVideoDecodeAcceleratorFactory::CreateWithNoGL();
+  auto vda_factory = media::GpuVideoDecodeAcceleratorFactory::Create(
+      media::GpuVideoDecodeGLClient());
   vda_ = vda_factory->CreateVDA(
       this, vda_config, gpu::GpuDriverBugWorkarounds(), gpu_preferences_);
   if (!vda_) {

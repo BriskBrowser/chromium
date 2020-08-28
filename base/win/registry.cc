@@ -12,7 +12,8 @@
 #include <string>
 #include <utility>
 
-#include "base/logging.h"
+#include "base/check_op.h"
+#include "base/notreached.h"
 #include "base/stl_util.h"
 #include "base/strings/string_util.h"
 #include "base/strings/string_util_win.h"
@@ -106,7 +107,7 @@ RegKey::RegKey(HKEY rootkey, const wchar_t* subkey, REGSAM access) {
   }
 }
 
-RegKey::RegKey(RegKey&& other)
+RegKey::RegKey(RegKey&& other) noexcept
     : key_(other.key_),
       wow64access_(other.wow64access_),
       key_watcher_(std::move(other.key_watcher_)) {

@@ -27,9 +27,6 @@ class TestFrameSinkManagerImpl : public mojom::FrameSinkManager {
   void RegisterFrameSinkId(const FrameSinkId& frame_sink_id,
                            bool report_activation) override {}
   void InvalidateFrameSinkId(const FrameSinkId& frame_sink_id) override {}
-  void EnableSynchronizationReporting(
-      const FrameSinkId& frame_sink_id,
-      const std::string& reporting_label) override {}
   void SetFrameSinkDebugLabel(const FrameSinkId& frame_sink_id,
                               const std::string& debug_label) override {}
   void CreateRootCompositorFrameSink(
@@ -63,6 +60,11 @@ class TestFrameSinkManagerImpl : public mojom::FrameSinkManager {
                        const FrameSinkId& root_frame_sink_id) override {}
   void EvictBackBuffer(uint32_t cache_id,
                        EvictBackBufferCallback callback) override {}
+  void UpdateDebugRendererSettings(
+      const DebugRendererSettings& debug_settings) override {}
+  void StartThrottling(const std::vector<FrameSinkId>& frame_sink_ids,
+                       base::TimeDelta interval) override {}
+  void EndThrottling() override {}
 
   mojo::Receiver<mojom::FrameSinkManager> receiver_{this};
   mojo::Remote<mojom::FrameSinkManagerClient> client_;

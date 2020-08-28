@@ -21,9 +21,11 @@
 
 #include "third_party/blink/renderer/core/html/forms/radio_input_type.h"
 
+#include "third_party/blink/public/mojom/input/focus_type.mojom-blink.h"
 #include "third_party/blink/public/strings/grit/blink_strings.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/dom/element_traversal.h"
+#include "third_party/blink/renderer/core/dom/focus_params.h"
 #include "third_party/blink/renderer/core/events/keyboard_event.h"
 #include "third_party/blink/renderer/core/events/mouse_event.h"
 #include "third_party/blink/renderer/core/frame/web_feature.h"
@@ -135,7 +137,7 @@ void RadioInputType::HandleKeydownEvent(KeyboardEvent& event) {
                      : (key == "ArrowDown" || key == "ArrowRight");
 
   // Force layout for isFocusable() in findNextFocusableRadioButtonInGroup().
-  document.UpdateStyleAndLayout();
+  document.UpdateStyleAndLayout(DocumentUpdateReason::kInput);
 
   // We can only stay within the form's children if the form hasn't been demoted
   // to a leaf because of malformed HTML.
@@ -153,9 +155,9 @@ void RadioInputType::HandleKeydownEvent(KeyboardEvent& event) {
     }
   }
   if (input_element) {
-    document.SetFocusedElement(input_element,
-                               FocusParams(SelectionBehaviorOnFocus::kRestore,
-                                           kWebFocusTypeNone, nullptr));
+    document.SetFocusedElement(
+        input_element, FocusParams(SelectionBehaviorOnFocus::kRestore,
+                                   mojom::blink::FocusType::kNone, nullptr));
     input_element->DispatchSimulatedClick(&event, kSendNoEvents);
     event.SetDefaultHandled();
     return;

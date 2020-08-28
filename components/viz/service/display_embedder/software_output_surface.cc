@@ -26,6 +26,10 @@ SoftwareOutputSurface::SoftwareOutputSurface(
     std::unique_ptr<SoftwareOutputDevice> software_device)
     : OutputSurface(std::move(software_device)) {
   capabilities_.max_frames_pending = software_device_->MaxFramesPending();
+  // Arbitrary max texture size to help avoid OOM crashes. A 8192*8192 RGBA
+  // texture will require ~268mb of memory so we probably don't want to allow
+  // much bigger.
+  capabilities_.max_render_target_size = 8192;
 }
 
 SoftwareOutputSurface::~SoftwareOutputSurface() = default;
@@ -49,12 +53,10 @@ void SoftwareOutputSurface::BindFramebuffer() {
   NOTREACHED();
 }
 
-void SoftwareOutputSurface::SetDrawRectangle(const gfx::Rect& draw_rectangle) {}
-
 void SoftwareOutputSurface::Reshape(const gfx::Size& size,
                                     float device_scale_factor,
                                     const gfx::ColorSpace& color_space,
-                                    bool has_alpha,
+                                    gfx::BufferFormat format,
                                     bool use_stencil) {
   software_device()->Resize(size, device_scale_factor);
 }
@@ -89,10 +91,6 @@ bool SoftwareOutputSurface::IsDisplayedAsOverlayPlane() const {
 
 unsigned SoftwareOutputSurface::GetOverlayTextureId() const {
   return 0;
-}
-
-gfx::BufferFormat SoftwareOutputSurface::GetOverlayBufferFormat() const {
-  return gfx::BufferFormat::RGBX_8888;
 }
 
 bool SoftwareOutputSurface::HasExternalStencilTest() const {
@@ -159,4 +157,7 @@ SoftwareOutputSurface::GetGpuTaskSchedulerHelper() {
   return nullptr;
 }
 
+gpu::MemoryTracker* SoftwareOutputSurface::GetMemoryTracker() {
+  return nullptr;
+}
 }  // namespace viz

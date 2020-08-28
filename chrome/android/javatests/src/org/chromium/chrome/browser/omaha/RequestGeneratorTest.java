@@ -4,12 +4,18 @@
 
 package org.chromium.chrome.browser.omaha;
 
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
+
 import android.accounts.Account;
 import android.content.Context;
 import android.support.test.InstrumentationRegistry;
-import android.support.test.filters.SmallTest;
+
+import androidx.test.filters.SmallTest;
 
 import org.junit.Assert;
+import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
@@ -18,14 +24,14 @@ import org.chromium.base.test.util.Feature;
 import org.chromium.chrome.browser.identity.SettingsSecureBasedIdentificationGenerator;
 import org.chromium.chrome.browser.identity.UniqueIdentificationGenerator;
 import org.chromium.chrome.browser.identity.UniqueIdentificationGeneratorFactory;
+import org.chromium.chrome.browser.signin.IdentityServicesProvider;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.chrome.test.omaha.AttributeFinder;
 import org.chromium.chrome.test.omaha.MockRequestGenerator;
 import org.chromium.chrome.test.omaha.MockRequestGenerator.DeviceType;
 import org.chromium.chrome.test.omaha.MockRequestGenerator.SignedInStatus;
-import org.chromium.components.signin.AccountManagerFacade;
-import org.chromium.components.signin.test.util.AccountHolder;
-import org.chromium.components.signin.test.util.FakeAccountManagerDelegate;
+import org.chromium.chrome.test.util.browser.signin.AccountManagerTestRule;
+import org.chromium.components.signin.identitymanager.IdentityManager;
 
 /**
  * Unit tests for the RequestGenerator class.
@@ -33,6 +39,9 @@ import org.chromium.components.signin.test.util.FakeAccountManagerDelegate;
 @RunWith(ChromeJUnit4ClassRunner.class)
 public class RequestGeneratorTest {
     private static final String INSTALL_SOURCE = "install_source";
+
+    @Rule
+    public final AccountManagerTestRule mAccountManagerTestRule = new AccountManagerTestRule();
 
     @Test
     @SmallTest
@@ -174,17 +183,21 @@ public class RequestGeneratorTest {
         Context targetContext = InstrumentationRegistry.getTargetContext();
         AdvancedMockContext context = new AdvancedMockContext(targetContext);
 
-        FakeAccountManagerDelegate accountManager = new FakeAccountManagerDelegate(
-                FakeAccountManagerDelegate.DISABLE_PROFILE_DATA_SOURCE);
+        IdentityServicesProvider.setInstanceForTests(mock(IdentityServicesProvider.class));
+        when(IdentityServicesProvider.get().getIdentityManager(any()))
+                .thenReturn(mock(IdentityManager.class));
+        when(IdentityServicesProvider.get().getIdentityManager(any()).hasPrimaryAccount())
+                .thenReturn(true);
+
         for (Account account : accounts) {
-            accountManager.addAccountHolderExplicitly(AccountHolder.builder(account).build());
+            mAccountManagerTestRule.addAccount(account);
         }
-        AccountManagerFacade.overrideAccountManagerFacadeForTests(accountManager);
 
         String sessionId = "random_session_id";
         String requestId = "random_request_id";
         String version = "1.2.3.4";
         long installAge = 42;
+        int dateLastActive = 4088;
 
         MockRequestGenerator generator =
                 new MockRequestGenerator(context, deviceType, signInStatus);
@@ -192,7 +205,7 @@ public class RequestGeneratorTest {
         String xml = null;
         try {
             RequestData data = new RequestData(sendInstallEvent, 0, requestId, INSTALL_SOURCE);
-            xml = generator.generateXML(sessionId, version, installAge, data);
+            xml = generator.generateXML(sessionId, version, installAge, dateLastActive, data);
         } catch (RequestFailureException e) {
             Assert.fail("XML generation failed.");
         }
@@ -220,6 +233,8 @@ public class RequestGeneratorTest {
             Assert.assertFalse("Update check and install event are mutually exclusive",
                     checkForTag(xml, "event"));
             checkForAttributeAndValue(xml, "ping", "active", "1");
+            checkForAttributeAndValue(xml, "ping", "rd", String.valueOf(dateLastActive));
+            checkForAttributeAndValue(xml, "ping", "ad", String.valueOf(dateLastActive));
             Assert.assertTrue("Update check and install event are mutually exclusive",
                     checkForTag(xml, "updatecheck"));
         }

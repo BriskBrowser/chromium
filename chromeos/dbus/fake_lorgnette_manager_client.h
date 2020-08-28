@@ -5,50 +5,53 @@
 #ifndef CHROMEOS_DBUS_FAKE_LORGNETTE_MANAGER_CLIENT_H_
 #define CHROMEOS_DBUS_FAKE_LORGNETTE_MANAGER_CLIENT_H_
 
-#include <map>
 #include <string>
-#include <tuple>
 
-#include "base/macros.h"
+#include "base/optional.h"
+#include "chromeos/dbus/lorgnette/lorgnette_service.pb.h"
 #include "chromeos/dbus/lorgnette_manager_client.h"
 
 namespace chromeos {
 
-// Lorgnette LorgnetteManagerClient implementation used on Linux desktop,
-// which does nothing.
 class COMPONENT_EXPORT(CHROMEOS_DBUS) FakeLorgnetteManagerClient
     : public LorgnetteManagerClient {
  public:
   FakeLorgnetteManagerClient();
+  FakeLorgnetteManagerClient(const FakeLorgnetteManagerClient&) = delete;
+  FakeLorgnetteManagerClient& operator=(const FakeLorgnetteManagerClient&) =
+      delete;
   ~FakeLorgnetteManagerClient() override;
 
   void Init(dbus::Bus* bus) override;
 
-  void ListScanners(DBusMethodCallback<ScannerTable> callback) override;
-  void ScanImageToString(std::string device_name,
-                         const ScanProperties& properties,
-                         DBusMethodCallback<std::string> callback) override;
+  void ListScanners(
+      DBusMethodCallback<lorgnette::ListScannersResponse> callback) override;
+  void GetScannerCapabilities(
+      const std::string& device_name,
+      DBusMethodCallback<lorgnette::ScannerCapabilities> callback) override;
+  void StartScan(std::string device_name,
+                 const ScanProperties& properties,
+                 DBusMethodCallback<std::string> completion_callback,
+                 base::Optional<base::RepeatingCallback<void(int)>>
+                     progress_callback) override;
 
-  // Adds a fake scanner table entry, which will be returned by ListScanners().
-  void AddScannerTableEntry(const std::string& device_name,
-                            const ScannerTableEntry& entry);
+  // Sets the response returned by ListScanners().
+  void SetListScannersResponse(
+      const base::Optional<lorgnette::ListScannersResponse>&
+          list_scanners_response);
 
-  // Adds a fake scan data, which will be returned by ScanImageToString(),
-  // if |device_name| and |properties| are matched.
-  void AddScanData(const std::string& device_name,
-                   const ScanProperties& properties,
-                   const std::string& data);
+  // Sets the response returned by GetScannerCapabilities().
+  void SetScannerCapabilitiesResponse(
+      const base::Optional<lorgnette::ScannerCapabilities>&
+          capabilities_response);
+
+  // Sets the response returned by ScanImageToString() and StartScan().
+  void SetScanResponse(const base::Optional<std::string>& scan_image_response);
 
  private:
-  ScannerTable scanner_table_;
-
-  // Use tuple for a map below, which has pre-defined "less", for convenience.
-  using ScanDataKey = std::tuple<std::string /* device_name */,
-                                 std::string /* ScanProperties.mode */,
-                                 int /* Scanproperties.resolution_dpi */>;
-  std::map<ScanDataKey, std::string /* data */> scan_data_;
-
-  DISALLOW_COPY_AND_ASSIGN(FakeLorgnetteManagerClient);
+  base::Optional<lorgnette::ListScannersResponse> list_scanners_response_;
+  base::Optional<lorgnette::ScannerCapabilities> capabilities_response_;
+  base::Optional<std::string> scan_image_response_;
 };
 
 }  // namespace chromeos

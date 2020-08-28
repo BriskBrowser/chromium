@@ -84,7 +84,8 @@ class DownloadRequestLimiter
   // TabDownloadState prompts the user with an infobar as necessary.
   // TabDownloadState deletes itself (by invoking
   // DownloadRequestLimiter::Remove) as necessary.
-  // TODO(gbillock): just make this class implement PermissionRequest.
+  // TODO(gbillock): just make this class implement
+  // permissions::PermissionRequest.
   class TabDownloadState : public content_settings::Observer,
                            public content::WebContentsObserver {
    public:
@@ -126,7 +127,7 @@ class DownloadRequestLimiter
         content::NavigationHandle* navigation_handle) override;
     void DidFinishNavigation(
         content::NavigationHandle* navigation_handle) override;
-    void DidGetUserInteraction(const blink::WebInputEvent::Type type) override;
+    void DidGetUserInteraction(const blink::WebInputEvent& event) override;
     void WebContentsDestroyed() override;
 
     // Asks the user if they really want to allow the download.

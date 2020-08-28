@@ -202,7 +202,9 @@ TEST(URLPatternTest, Match3) {
   EXPECT_FALSE(pattern.match_all_urls());
   EXPECT_EQ("/foo*bar", pattern.path());
   EXPECT_TRUE(pattern.MatchesURL(GURL("http://google.com/foobar")));
+  EXPECT_TRUE(pattern.MatchesURL(GURL("http://www.google.com/foobar")));
   EXPECT_TRUE(pattern.MatchesURL(GURL("http://www.google.com/foo?bar")));
+  EXPECT_FALSE(pattern.MatchesURL(GURL("http://wwwgoogle.com/foobar")));
   EXPECT_TRUE(pattern.MatchesURL(
       GURL("http://monkey.images.google.com/foooobar")));
   EXPECT_FALSE(pattern.MatchesURL(GURL("http://yahoo.com/foobar")));
@@ -1156,7 +1158,7 @@ TEST(ExtensionURLPatternTest, Intersection) {
       "    Pattern1:        %s\n"
       "    Pattern2:        %s\n"
       "    Expected Result: %s";
-  for (const auto test_case : test_cases) {
+  for (const auto& test_case : test_cases) {
     SCOPED_TRACE(base::StringPrintf(
         kTestCaseDescriptionTemplate, test_case.pattern1.c_str(),
         test_case.pattern2.c_str(), test_case.expected_intersection.c_str()));

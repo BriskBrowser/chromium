@@ -164,8 +164,7 @@ INSTANTIATE_TEST_SUITE_P(Parameterized, UpdateCheckerTest, testing::Bool());
 UpdateCheckerTest::UpdateCheckerTest()
     : task_environment_(base::test::TaskEnvironment::MainThreadType::IO) {}
 
-UpdateCheckerTest::~UpdateCheckerTest() {
-}
+UpdateCheckerTest::~UpdateCheckerTest() = default;
 
 void UpdateCheckerTest::SetUp() {
   is_foreground_ = GetParam();
@@ -228,8 +227,9 @@ void UpdateCheckerTest::UpdateCheckComplete(
 scoped_refptr<UpdateContext> UpdateCheckerTest::MakeMockUpdateContext() const {
   return base::MakeRefCounted<UpdateContext>(
       config_, false, std::vector<std::string>(),
-      UpdateClient::CrxDataCallback(), UpdateEngine::NotifyObserversCallback(),
-      UpdateEngine::Callback(), nullptr);
+      UpdateClient::CrxDataCallback(), UpdateClient::CrxStateChangeCallback(),
+      UpdateEngine::NotifyObserversCallback(), UpdateEngine::Callback(),
+      nullptr);
 }
 
 std::unique_ptr<Component> UpdateCheckerTest::MakeComponent() const {
@@ -492,10 +492,10 @@ TEST_P(UpdateCheckerTest, UpdateCheckDownloadPreference) {
 
   // The request must contain dlpref="cacheable".
   const auto request = post_interceptor_->GetRequestBody(0);
-    const auto root = base::JSONReader().Read(request);
-    ASSERT_TRUE(root);
-    EXPECT_EQ("cacheable",
-              root->FindKey("request")->FindKey("dlpref")->GetString());
+  const auto root = base::JSONReader::Read(request);
+  ASSERT_TRUE(root);
+  EXPECT_EQ("cacheable",
+            root->FindKey("request")->FindKey("dlpref")->GetString());
 }
 
 // This test is checking that an update check signed with CUP fails, since there

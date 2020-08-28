@@ -20,6 +20,7 @@ import org.chromium.base.annotations.CalledByNative;
 import org.chromium.base.annotations.NativeMethods;
 import org.chromium.base.task.PostTask;
 import org.chromium.chrome.R;
+import org.chromium.chrome.browser.app.ChromeActivity;
 import org.chromium.chrome.browser.browserservices.BrowserServicesMetrics;
 import org.chromium.chrome.browser.browserservices.TrustedWebActivityClient;
 import org.chromium.chrome.browser.customtabs.CustomTabIntentDataProvider;
@@ -27,11 +28,12 @@ import org.chromium.chrome.browser.payments.PaymentRequestImpl;
 import org.chromium.chrome.browser.payments.handler.PaymentHandlerCoordinator;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tab.TabLaunchType;
-import org.chromium.chrome.browser.tabmodel.document.AsyncTabCreationParams;
+import org.chromium.chrome.browser.tabmodel.AsyncTabCreationParams;
 import org.chromium.chrome.browser.tabmodel.document.TabDelegate;
 import org.chromium.chrome.browser.webapps.ChromeWebApkHost;
 import org.chromium.chrome.browser.webapps.WebappDataStorage;
 import org.chromium.chrome.browser.webapps.WebappRegistry;
+import org.chromium.components.webapk.lib.client.WebApkValidator;
 import org.chromium.content_public.browser.LoadUrlParams;
 import org.chromium.content_public.browser.UiThreadTaskTraits;
 import org.chromium.content_public.browser.WebContents;
@@ -39,12 +41,10 @@ import org.chromium.content_public.common.Referrer;
 import org.chromium.content_public.common.ResourceRequestBody;
 import org.chromium.ui.base.PageTransition;
 import org.chromium.ui.mojom.WindowOpenDisposition;
+import org.chromium.url.GURL;
 import org.chromium.webapk.lib.client.WebApkIdentityServiceClient;
 import org.chromium.webapk.lib.client.WebApkNavigationClient;
-import org.chromium.webapk.lib.client.WebApkValidator;
 
-import java.net.URI;
-import java.net.URISyntaxException;
 import java.util.List;
 
 /**
@@ -73,18 +73,18 @@ public class ServiceTabLauncher {
      * @param postData       Post-data to include in the tab URL's request body.
      */
     @CalledByNative
-    public static void launchTab(final int requestId, boolean incognito, String url,
-            int disposition, String referrerUrl, int referrerPolicy, String extraHeaders,
+    public static void launchTab(final int requestId, boolean incognito, GURL url, int disposition,
+            String referrerUrl, int referrerPolicy, String extraHeaders,
             ResourceRequestBody postData) {
         // Open popup window in custom tab.
         // Note that this is used by PaymentRequestEvent.openWindow().
         if (disposition == WindowOpenDisposition.NEW_POPUP) {
             boolean success = false;
-            try {
-                success = PaymentHandlerCoordinator.isEnabled()
-                        ? PaymentRequestImpl.openPaymentHandlerWindow(new URI(url))
-                        : createPopupCustomTab(requestId, url, incognito);
-            } catch (URISyntaxException e) { /* Intentionally leave blank, so success is false. */
+            if (PaymentHandlerCoordinator.isEnabled()) {
+                success = PaymentRequestImpl.openPaymentHandlerWindow(url,
+                        (webContents) -> onWebContentsForRequestAvailable(requestId, webContents));
+            } else {
+                success = createPopupCustomTab(requestId, url.getSpec(), incognito);
             }
             if (!success) {
                 PostTask.postTask(UiThreadTaskTraits.DEFAULT,
@@ -93,8 +93,8 @@ public class ServiceTabLauncher {
             return;
         }
 
-        dispatchLaunch(
-                requestId, incognito, url, referrerUrl, referrerPolicy, extraHeaders, postData);
+        dispatchLaunch(requestId, incognito, url.getSpec(), referrerUrl, referrerPolicy,
+                extraHeaders, postData);
     }
 
     /** Dispatches the launch event. */

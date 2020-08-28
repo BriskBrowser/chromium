@@ -39,6 +39,9 @@ class APP_LIST_EXPORT SearchBoxView : public search_box::SearchBoxViewBase,
 
   void Init(bool is_tablet_mode);
 
+  // Called when tablet mode starts and ends.
+  void OnTabletModeChanged(bool started);
+
   // Resets state of SearchBoxView so it can be reshown.
   void ResetForShow();
 
@@ -88,9 +91,6 @@ class APP_LIST_EXPORT SearchBoxView : public search_box::SearchBoxViewBase,
   // Returns background color for the given state.
   SkColor GetBackgroundColorForState(AppListState state) const;
 
-  // Updates the opacity of the searchbox.
-  void UpdateOpacity();
-
   // Shows Zero State suggestions.
   void ShowZeroStateSuggestions();
 
@@ -116,6 +116,9 @@ class APP_LIST_EXPORT SearchBoxView : public search_box::SearchBoxViewBase,
   }
 
  private:
+  // Updates the search box placeholder text and accessible name.
+  void UpdatePlaceholderTextAndAccessibleName();
+
   // Notifies SearchBoxViewDelegate that the autocomplete text is valid.
   void AcceptAutocompleteText();
 
@@ -141,7 +144,6 @@ class APP_LIST_EXPORT SearchBoxView : public search_box::SearchBoxViewBase,
                           const ui::GestureEvent& gesture_event) override;
 
   // Overridden from SearchBoxModelObserver:
-  void HintTextChanged() override;
   void Update() override;
   void SearchEngineChanged() override;
   void ShowAssistantChanged() override;
@@ -155,12 +157,6 @@ class APP_LIST_EXPORT SearchBoxView : public search_box::SearchBoxViewBase,
 
   // Clear highlight range.
   void ResetHighlightRange();
-
-  // Key event handler used when SearchBoxSelection feature is disabled. This
-  // should be removed when the app_list_features::IsSearchBoxSelectionEnabled()
-  // flag is removed.
-  bool HandleKeyEventForDisabledSearchBoxSelection(
-      const ui::KeyEvent& key_event);
 
   base::string16 current_query_;
 
@@ -179,6 +175,10 @@ class APP_LIST_EXPORT SearchBoxView : public search_box::SearchBoxViewBase,
 
   // True if app list search autocomplete is enabled.
   const bool is_app_list_search_autocomplete_enabled_;
+
+
+  // Whether tablet mode is active.
+  bool is_tablet_mode_ = false;
 
   base::WeakPtrFactory<SearchBoxView> weak_ptr_factory_{this};
 

@@ -105,12 +105,12 @@
       await clickDirectoryTreeContextMenuItem(
           appId, '/Downloads/photos', 'rename');
     }
-    await remoteCall.waitForElement(appId, '.tree-row > input');
+    await remoteCall.waitForElement(appId, '.tree-row input');
     await remoteCall.callRemoteTestUtil(
-        'inputText', appId, ['.tree-row > input', newName]);
+        'inputText', appId, ['.tree-row input', newName]);
     await remoteCall.callRemoteTestUtil(
         'fakeKeyDown', appId,
-        ['.tree-row > input', 'Enter', false, false, false]);
+        ['.tree-row input', 'Enter', false, false, false]);
   }
 
   /**
@@ -167,12 +167,12 @@
       await clickDirectoryTreeContextMenuItem(
           appId, '/Downloads/photos', 'new-folder');
     }
-    await remoteCall.waitForElement(appId, '.tree-row > input');
+    await remoteCall.waitForElement(appId, '.tree-row input');
     await remoteCall.callRemoteTestUtil(
-        'inputText', appId, ['.tree-row > input', 'test']);
+        'inputText', appId, ['.tree-row input', 'test']);
     await remoteCall.callRemoteTestUtil(
         'fakeKeyDown', appId,
-        ['.tree-row > input', 'Enter', false, false, false]);
+        ['.tree-row input', 'Enter', false, false, false]);
 
     // Confirm that new directory is added to the directory tree.
     await remoteCall.waitForElement(
@@ -466,10 +466,10 @@
     // Rename parent folder.
     await clickDirectoryTreeContextMenuItem(
         appId, '/Downloads/photos', 'rename');
-    await remoteCall.waitForElement(appId, '.tree-row > input');
+    await remoteCall.waitForElement(appId, '.tree-row input');
     await remoteCall.callRemoteTestUtil(
-        'inputText', appId, ['.tree-row > input', 'photos-new']);
-    const enterKey = ['.tree-row > input', 'Enter', false, false, false];
+        'inputText', appId, ['.tree-row input', 'photos-new']);
+    const enterKey = ['.tree-row input', 'Enter', false, false, false];
     chrome.test.assertTrue(
         await remoteCall.callRemoteTestUtil('fakeKeyDown', appId, enterKey),
         'Enter key failed');
@@ -523,7 +523,7 @@
     await renamePhotosDirectoryTo(appId, '', false);
 
     // Wait for the input to be removed.
-    await remoteCall.waitForElementLost(appId, '.tree-row > input');
+    await remoteCall.waitForElementLost(appId, '.tree-row input');
 
     // No dialog should be shown.
     await remoteCall.waitForElementLost(appId, '.cr-dialog-container.shown');
@@ -653,6 +653,51 @@
     // console errors about not being able to 'mount' the older volume name
     // due to a disk_mount_manager.cc error: user/fake-usb not found.
     return IGNORE_APP_ERRORS;
+  };
+
+  /**
+   * Tests that opening context menu in the rename input won't commit the
+   * renaming.
+   */
+  testcase.dirContextMenuForRenameInput = async () => {
+    // Open Files app on local downloads.
+    const appId =
+        await setupAndWaitUntilReady(RootPath.DOWNLOADS, [ENTRIES.photos], []);
+
+    // Navigate to the photos folder.
+    await navigateWithDirectoryTree(appId, '/My files/Downloads/photos');
+
+    // Start renaming the photos folder.
+    await clickDirectoryTreeContextMenuItem(appId, '/Downloads/photos', 'rename');
+
+    // Check: the renaming text input element should appear.
+    const textInput = '#directory-tree .tree-row[selected] input';
+    await remoteCall.waitForElement(appId, textInput);
+
+    // Type new file name.
+    await remoteCall.callRemoteTestUtil(
+        'inputText', appId, [textInput, 'NEW NAME']);
+
+    // Right click to show the context menu.
+    await remoteCall.waitAndRightClick(appId, textInput);
+
+    // Context menu must be visible.
+    const contextMenu = '#text-context-menu:not([hidden])';
+    await remoteCall.waitForElement(appId, contextMenu);
+
+    // Dismiss the context menu.
+    const escKey = [contextMenu, 'Escape', false, false, false];
+    await remoteCall.callRemoteTestUtil('fakeKeyDown', appId, escKey);
+
+    // Check: The rename input should be still be visible and with the same
+    // content.
+    const inputElement = await remoteCall.waitForElement(appId, textInput);
+    chrome.test.assertEq('NEW NAME', inputElement.value);
+
+    // Check: The rename input should be the focused element.
+    const focusedElement =
+        await remoteCall.callRemoteTestUtil('getActiveElement', appId, []);
+    chrome.test.assertEq(inputElement, focusedElement);
   };
 
   /**
@@ -1813,6 +1858,6 @@
     // Check currently focused element.
     const focusedElement =
         await remoteCall.callRemoteTestUtil('getActiveElement', appId, []);
-    chrome.test.assertEq('menuitem', focusedElement.attributes.role);
+    chrome.test.assertEq('menuitem', focusedElement.attributes['role']);
   };
 })();

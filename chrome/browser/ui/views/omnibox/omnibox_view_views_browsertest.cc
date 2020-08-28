@@ -7,7 +7,9 @@
 #include <stddef.h>
 
 #include "base/command_line.h"
+#include "base/feature_list.h"
 #include "base/macros.h"
+#include "base/test/scoped_feature_list.h"
 #include "build/build_config.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/search_engines/template_url_service_factory.h"
@@ -20,19 +22,25 @@
 #include "chrome/browser/ui/views/location_bar/location_bar_view.h"
 #include "chrome/browser/ui/views/omnibox/omnibox_popup_contents_view.h"
 #include "chrome/browser/ui/views/toolbar/toolbar_view.h"
+#include "chrome/common/webui_url_constants.h"
 #include "chrome/grit/generated_resources.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/interactive_test_utils.h"
 #include "chrome/test/base/ui_test_utils.h"
 #include "components/omnibox/browser/omnibox_popup_model.h"
 #include "components/omnibox/browser/test_scheme_classifier.h"
+#include "components/omnibox/common/omnibox_features.h"
 #include "content/public/browser/web_contents.h"
+#include "content/public/common/url_constants.h"
+#include "content/public/test/browser_test.h"
 #include "ui/accessibility/accessibility_switches.h"
 #include "ui/accessibility/ax_action_data.h"
 #include "ui/accessibility/ax_node_data.h"
 #include "ui/base/clipboard/clipboard.h"
 #include "ui/base/clipboard/scoped_clipboard_writer.h"
+#include "ui/base/ime/init/input_method_factory.h"
 #include "ui/base/ime/input_method.h"
+#include "ui/base/ime/mock_input_method.h"
 #include "ui/base/ime/text_edit_commands.h"
 #include "ui/base/ime/text_input_client.h"
 #include "ui/base/test/ui_controls.h"
@@ -42,6 +50,7 @@
 #include "ui/events/test/event_generator.h"
 #include "ui/views/accessibility/view_accessibility.h"
 #include "ui/views/controls/textfield/textfield_test_api.h"
+#include "ui/views/views_features.h"
 
 #if defined(USE_AURA)
 #include "ui/aura/window.h"
@@ -62,7 +71,10 @@ void SetClipboardText(ui::ClipboardBuffer buffer, const std::string& text) {
 
 class OmniboxViewViewsTest : public InProcessBrowserTest {
  protected:
-  OmniboxViewViewsTest() {}
+  OmniboxViewViewsTest() {
+    scoped_feature_list_.InitAndEnableFeature(
+        omnibox::kOmniboxContextMenuShowFullUrls);
+  }
 
   static void GetOmniboxViewForBrowser(const Browser* browser,
                                        OmniboxView** omnibox_view) {
@@ -129,6 +141,8 @@ class OmniboxViewViewsTest : public InProcessBrowserTest {
 #endif
     return native_window;
   }
+
+  base::test::ScopedFeatureList scoped_feature_list_;
 
   DISALLOW_COPY_AND_ASSIGN(OmniboxViewViewsTest);
 };
@@ -279,7 +293,7 @@ IN_PROC_BROWSER_TEST_F(OmniboxViewViewsTest, SelectionClipboard) {
 #endif  // OS_LINUX && !OS_CHROMEOS
 
 // No touch on desktop Mac. Tracked in http://crbug.com/445520.
-#if !defined(OS_MACOSX) || defined(USE_AURA)
+#if !defined(OS_MAC) || defined(USE_AURA)
 
 IN_PROC_BROWSER_TEST_F(OmniboxViewViewsTest, SelectAllOnTap) {
   OmniboxView* omnibox_view = NULL;
@@ -321,11 +335,19 @@ IN_PROC_BROWSER_TEST_F(OmniboxViewViewsTest, SelectAllOnTap) {
   // not there was text under the tap, which appears to be flaky.
 
   // Take the focus away and tap in the omnibox again, but drag a bit before
-  // releasing.  We should focus the omnibox but not select all of its text.
+  // releasing. This shouldn't select text.
+  //
+  // Whether it'll focus depends on the state of the below feature: touch and
+  // drag will send a tap-down event, then a scroll or swipe event, but no
+  // complete tap event. When enabled, textfields will take focus on a complete
+  // tap instead of tap-down.
+  const bool focused_after_drag =
+      !base::FeatureList::IsEnabled(views::features::kTextfieldFocusOnTapUp);
   ASSERT_NO_FATAL_FAILURE(
       ui_test_utils::ClickOnView(browser(), VIEW_ID_TAB_CONTAINER));
   ASSERT_NO_FATAL_FAILURE(Tap(tap_location, tap2_location));
-  EXPECT_TRUE(ui_test_utils::IsViewFocused(browser(), VIEW_ID_OMNIBOX));
+  EXPECT_EQ(focused_after_drag,
+            ui_test_utils::IsViewFocused(browser(), VIEW_ID_OMNIBOX));
   EXPECT_FALSE(omnibox_view->IsSelectAll());
 }
 
@@ -353,7 +375,7 @@ IN_PROC_BROWSER_TEST_F(OmniboxViewViewsTest,
   EXPECT_FALSE(textfield_test_api.touch_selection_controller());
 }
 
-#endif  // !defined(OS_MACOSX) || defined(USE_AURA)
+#endif  // !defined(OS_MAC) || defined(USE_AURA)
 
 IN_PROC_BROWSER_TEST_F(OmniboxViewViewsTest, SelectAllOnTabToFocus) {
   OmniboxView* omnibox_view = NULL;
@@ -664,6 +686,64 @@ IN_PROC_BROWSER_TEST_F(OmniboxViewViewsTest, AccessiblePopup) {
   EXPECT_FALSE(popup_node_data_2.HasState(ax::mojom::State::kInvisible));
 }
 
+// Omnibox returns to clean state after chrome://kill and reload.
+// https://crbug.com/993701 left the URL and icon as chrome://kill after reload.
+IN_PROC_BROWSER_TEST_F(OmniboxViewViewsTest, ReloadAfterKill) {
+  OmniboxView* omnibox_view = nullptr;
+  ASSERT_NO_FATAL_FAILURE(GetOmniboxViewForBrowser(browser(), &omnibox_view));
+  OmniboxViewViews* omnibox_view_views =
+      static_cast<OmniboxViewViews*>(omnibox_view);
+
+  // Open new tab page.
+  ui_test_utils::NavigateToURL(browser(), GURL(chrome::kChromeUINewTabURL));
+
+  content::WebContents* tab =
+      browser()->tab_strip_model()->GetActiveWebContents();
+  // Kill the tab with chrome://kill
+  {
+    content::ScopedAllowRendererCrashes scoped_allow_renderer_crashes;
+    ui_test_utils::NavigateToURL(browser(), GURL(content::kChromeUIKillURL));
+    EXPECT_TRUE(tab->IsCrashed());
+  }
+
+  // Reload the tab.
+  tab->GetController().Reload(content::ReloadType::NORMAL, false);
+  EXPECT_TRUE(content::WaitForLoadStop(tab));
+
+  // Verify the omnibox contents, URL and icon.
+  EXPECT_EQ(base::ASCIIToUTF16(""), omnibox_view_views->GetText());
+  EXPECT_EQ(GURL(url::kAboutBlankURL),
+            browser()->location_bar_model()->GetURL());
+}
+
+// Omnibox un-elides and elides URL appropriately according to the Always Show
+// Full URLs setting.
+IN_PROC_BROWSER_TEST_F(OmniboxViewViewsTest, AlwaysShowFullURLs) {
+  OmniboxView* omnibox_view = nullptr;
+  ASSERT_NO_FATAL_FAILURE(GetOmniboxViewForBrowser(browser(), &omnibox_view));
+  OmniboxViewViews* omnibox_view_views =
+      static_cast<OmniboxViewViews*>(omnibox_view);
+
+  ASSERT_TRUE(embedded_test_server()->Start());
+  GURL url = embedded_test_server()->GetURL("/title1.html");
+  base::string16 url_text = base::ASCIIToUTF16(url.spec());
+
+  ui_test_utils::NavigateToURL(browser(), url);
+
+  // By default, the elided URL should be shown.
+  EXPECT_EQ(url_text,
+            base::ASCIIToUTF16("http://") + omnibox_view_views->GetText());
+
+  // After toggling the setting, the full URL should be shown.
+  chrome::ToggleShowFullURLs(browser());
+  EXPECT_EQ(url_text, omnibox_view_views->GetText());
+
+  // Toggling the setting again should go back to the elided URL.
+  chrome::ToggleShowFullURLs(browser());
+  EXPECT_EQ(url_text,
+            base::ASCIIToUTF16("http://") + omnibox_view_views->GetText());
+}
+
 // The following set of tests require UIA accessibility support, which only
 // exists on Windows.
 #if defined(OS_WIN)
@@ -731,5 +811,56 @@ IN_PROC_BROWSER_TEST_F(OmniboxViewViewsUIATest, AccessibleOmnibox) {
   ClickBrowserWindowCenter();
   close_waiter.Wait();
   EXPECT_FALSE(omnibox_view->model()->popup_model()->IsOpen());
+}
+
+namespace {
+
+// MockInputMethod ------------------------------------------------------------
+class OmniBoxMockInputMethod : public ui::MockInputMethod {
+ public:
+  OmniBoxMockInputMethod() : ui::MockInputMethod(nullptr) {}
+  bool IsInputLocaleCJK() const override { return input_locale_cjk; }
+  void SetInputLocaleCJK(bool is_cjk) { input_locale_cjk = is_cjk; }
+
+ private:
+  bool input_locale_cjk = false;
+};
+
+}  // namespace
+
+class OmniboxViewViewsIMETest : public OmniboxViewViewsTest {
+ public:
+  OmniboxViewViewsIMETest() {}
+  void SetUp() override {
+    input_method_ = new OmniBoxMockInputMethod();
+    // transfers ownership.
+    ui::SetUpInputMethodForTesting(input_method_);
+    InProcessBrowserTest::SetUp();
+  }
+
+ protected:
+  void SetUpCommandLine(base::CommandLine* command_line) override {
+    OmniboxViewViewsTest::SetUpCommandLine(command_line);
+    command_line->AppendSwitch(switches::kEnableExperimentalUIAutomation);
+  }
+  OmniBoxMockInputMethod* input_method_ = nullptr;
+};
+
+IN_PROC_BROWSER_TEST_F(OmniboxViewViewsIMETest, TextInputTypeChangedTest) {
+  chrome::FocusLocationBar(browser());
+  OmniboxView* view = nullptr;
+  ASSERT_NO_FATAL_FAILURE(GetOmniboxViewForBrowser(browser(), &view));
+  OmniboxViewViews* omnibox_view_views = static_cast<OmniboxViewViews*>(view);
+  ui::InputMethod* input_method =
+      omnibox_view_views->GetWidget()->GetInputMethod();
+  EXPECT_EQ(input_method, input_method_);
+  EXPECT_EQ(ui::TEXT_INPUT_TYPE_URL, omnibox_view_views->GetTextInputType());
+  input_method_->SetInputLocaleCJK(/*is_cjk*/ true);
+  omnibox_view_views->OnInputMethodChanged();
+  EXPECT_EQ(ui::TEXT_INPUT_TYPE_SEARCH, omnibox_view_views->GetTextInputType());
+
+  input_method_->SetInputLocaleCJK(/*is_cjk*/ false);
+  omnibox_view_views->OnInputMethodChanged();
+  EXPECT_EQ(ui::TEXT_INPUT_TYPE_URL, omnibox_view_views->GetTextInputType());
 }
 #endif  // OS_WIN

@@ -9,16 +9,15 @@
 
 #include "base/feature_list.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/task/post_task.h"
 #include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/content_settings/tab_specific_content_settings.h"
 #include "chrome/browser/infobars/infobar_service.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/safe_browsing/safe_browsing_service.h"
 #include "chrome/browser/subresource_filter/subresource_filter_content_settings_manager.h"
 #include "chrome/browser/subresource_filter/subresource_filter_profile_context.h"
 #include "chrome/browser/subresource_filter/subresource_filter_profile_context_factory.h"
+#include "components/content_settings/browser/page_specific_content_settings.h"
 #include "components/content_settings/core/browser/host_content_settings_map.h"
 #include "components/content_settings/core/common/content_settings_types.h"
 #include "components/safe_browsing/core/db/database_manager.h"
@@ -76,8 +75,7 @@ void ChromeSubresourceFilterClient::MaybeAppendNavigationThrottles(
     throttles->push_back(
         std::make_unique<subresource_filter::
                              SubresourceFilterSafeBrowsingActivationThrottle>(
-            navigation_handle, this,
-            base::CreateSingleThreadTaskRunner({content::BrowserThread::IO}),
+            navigation_handle, this, content::GetIOThreadTaskRunner({}),
             safe_browsing_service->database_manager()));
   }
 
@@ -86,8 +84,8 @@ void ChromeSubresourceFilterClient::MaybeAppendNavigationThrottles(
 }
 
 void ChromeSubresourceFilterClient::OnReloadRequested() {
-  LogAction(SubresourceFilterAction::kWhitelistedSite);
-  WhitelistByContentSettings(web_contents()->GetLastCommittedURL());
+  LogAction(SubresourceFilterAction::kAllowlistedSite);
+  AllowlistByContentSettings(web_contents()->GetLastCommittedURL());
   web_contents()->GetController().Reload(content::ReloadType::NORMAL, true);
 }
 
@@ -120,24 +118,27 @@ ChromeSubresourceFilterClient::OnPageActivationComputed(
 
   const GURL& url(navigation_handle->GetURL());
   if (url.SchemeIsHTTPOrHTTPS()) {
-    settings_manager_->ResetSiteMetadataBasedOnActivation(
-        url, effective_activation_level ==
-                 subresource_filter::mojom::ActivationLevel::kEnabled);
+    settings_manager_->SetSiteMetadataBasedOnActivation(
+        url,
+        effective_activation_level ==
+            subresource_filter::mojom::ActivationLevel::kEnabled,
+        SubresourceFilterContentSettingsManager::ActivationSource::
+            kSafeBrowsing);
   }
 
   if (settings_manager_->GetSitePermission(url) == CONTENT_SETTING_ALLOW) {
     if (effective_activation_level ==
         subresource_filter::mojom::ActivationLevel::kEnabled) {
-      *decision = subresource_filter::ActivationDecision::URL_WHITELISTED;
+      *decision = subresource_filter::ActivationDecision::URL_ALLOWLISTED;
     }
     return subresource_filter::mojom::ActivationLevel::kDisabled;
   }
   return effective_activation_level;
 }
 
-void ChromeSubresourceFilterClient::WhitelistByContentSettings(
+void ChromeSubresourceFilterClient::AllowlistByContentSettings(
     const GURL& top_level_url) {
-  settings_manager_->WhitelistSite(top_level_url);
+  settings_manager_->AllowlistSite(top_level_url);
 }
 
 void ChromeSubresourceFilterClient::ToggleForceActivationInCurrentWebContents(
@@ -163,8 +164,13 @@ void ChromeSubresourceFilterClient::ShowUI(const GURL& url) {
       InfoBarService::FromWebContents(web_contents());
   AdsBlockedInfobarDelegate::Create(infobar_service);
 #endif
-  TabSpecificContentSettings* content_settings =
-      TabSpecificContentSettings::FromWebContents(web_contents());
+  // TODO(https://crbug.com/1103176): Plumb the actual frame reference here
+  // (it comes  from
+  // ContentSubresourceFilterThrottleManager::DidDisallowFirstSubresource, which
+  // comes from a specific frame).
+  content_settings::PageSpecificContentSettings* content_settings =
+      content_settings::PageSpecificContentSettings::GetForFrame(
+          web_contents()->GetMainFrame());
   content_settings->OnContentBlocked(ContentSettingsType::ADS);
 
   LogAction(SubresourceFilterAction::kUIShown);

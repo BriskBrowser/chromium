@@ -21,10 +21,15 @@ namespace invalidation {
 class InvalidationService;
 }  // namespace invalidation
 
+namespace signin {
+class IdentityManager;
+}
+
 namespace syncer {
 
 class SyncApiComponentFactory;
 class SyncableService;
+class SyncInvalidationsService;
 class SyncService;
 class SyncTypePreferenceProvider;
 class TrustedVaultClient;
@@ -43,6 +48,8 @@ class SyncClient {
   // Returns the current profile's preference service.
   virtual PrefService* GetPrefService() = 0;
 
+  virtual signin::IdentityManager* GetIdentityManager() = 0;
+
   virtual base::FilePath GetSyncDataPath() = 0;
 
   // Returns the path to the folder used for storing the local sync database.
@@ -54,6 +61,7 @@ class SyncClient {
       SyncService* sync_service) = 0;
 
   virtual invalidation::InvalidationService* GetInvalidationService() = 0;
+  virtual syncer::SyncInvalidationsService* GetSyncInvalidationsService() = 0;
   virtual TrustedVaultClient* GetTrustedVaultClient() = 0;
   virtual scoped_refptr<ExtensionsActivity> GetExtensionsActivity() = 0;
 

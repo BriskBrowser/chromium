@@ -11,7 +11,7 @@
 #include "base/location.h"
 #include "base/run_loop.h"
 #include "base/stl_util.h"
-#include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
 #include "base/task/thread_pool/thread_pool_instance.h"
 #include "base/threading/thread.h"
 #include "base/threading/thread_task_runner_handle.h"
@@ -117,10 +117,8 @@ class LocalFileSyncServiceTest
     in_memory_env_ = leveldb_chrome::NewMemEnv("LocalFileSyncServiceTest");
 
     file_system_.reset(new CannedSyncableFileSystem(
-        GURL(kOrigin), in_memory_env_.get(),
-        base::CreateSingleThreadTaskRunner({BrowserThread::IO}),
-        base::CreateSingleThreadTaskRunner(
-            {base::ThreadPool(), base::MayBlock()})));
+        GURL(kOrigin), in_memory_env_.get(), content::GetIOThreadTaskRunner({}),
+        base::ThreadPool::CreateSingleThreadTaskRunner({base::MayBlock()})));
 
     local_service_ = LocalFileSyncService::CreateForTesting(
         &profile_, in_memory_env_.get());
@@ -301,10 +299,8 @@ TEST_F(LocalFileSyncServiceTest, LocalChangeObserver) {
 TEST_F(LocalFileSyncServiceTest, MAYBE_LocalChangeObserverMultipleContexts) {
   const char kOrigin2[] = "http://foo";
   CannedSyncableFileSystem file_system2(
-      GURL(kOrigin2), in_memory_env_.get(),
-      base::CreateSingleThreadTaskRunner({BrowserThread::IO}),
-      base::CreateSingleThreadTaskRunner(
-          {base::ThreadPool(), base::MayBlock()}));
+      GURL(kOrigin2), in_memory_env_.get(), content::GetIOThreadTaskRunner({}),
+      base::ThreadPool::CreateSingleThreadTaskRunner({base::MayBlock()}));
   file_system2.SetUp(CannedSyncableFileSystem::QUOTA_ENABLED);
 
   base::RunLoop run_loop;

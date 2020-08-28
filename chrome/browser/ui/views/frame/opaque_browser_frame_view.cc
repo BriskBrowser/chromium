@@ -15,6 +15,7 @@
 #include "chrome/browser/ui/views/frame/browser_view.h"
 #include "chrome/browser/ui/views/frame/opaque_browser_frame_view_layout.h"
 #include "chrome/browser/ui/views/frame/opaque_browser_frame_view_platform_specific.h"
+#include "chrome/browser/ui/views/frame/tab_strip_region_view.h"
 #include "chrome/browser/ui/views/tab_icon_view.h"
 #include "chrome/browser/ui/views/tabs/new_tab_button.h"
 #include "chrome/browser/ui/views/tabs/tab_strip.h"
@@ -48,7 +49,7 @@
 #include "ui/views/window/vector_icons/vector_icons.h"
 #include "ui/views/window/window_shape.h"
 
-#if defined(OS_LINUX)
+#if defined(OS_LINUX) || defined(OS_CHROMEOS)
 #include "ui/views/controls/menu/menu_runner.h"
 #endif
 
@@ -176,7 +177,7 @@ void OpaqueBrowserFrameView::InitViews() {
 
   web_app::AppBrowserController* controller =
       browser_view()->browser()->app_controller();
-  if (controller && controller->HasTitlebarToolbar()) {
+  if (controller) {
     set_web_app_frame_toolbar(AddChildView(
         std::make_unique<WebAppFrameToolbarView>(frame(), browser_view())));
   }
@@ -196,12 +197,8 @@ void OpaqueBrowserFrameView::InitViews() {
 // OpaqueBrowserFrameView, BrowserNonClientFrameView implementation:
 
 gfx::Rect OpaqueBrowserFrameView::GetBoundsForTabStripRegion(
-    const views::View* tabstrip) const {
-  if (!tabstrip)
-    return gfx::Rect();
-
-  return layout_->GetBoundsForTabStripRegion(tabstrip->GetPreferredSize(),
-                                             width());
+    const gfx::Size& tabstrip_minimum_size) const {
+  return layout_->GetBoundsForTabStripRegion(tabstrip_minimum_size, width());
 }
 
 int OpaqueBrowserFrameView::GetTopInset(bool restored) const {
@@ -349,7 +346,7 @@ void OpaqueBrowserFrameView::ButtonPressed(views::Button* sender,
   } else if (sender == close_button_) {
     frame()->CloseWithReason(views::Widget::ClosedReason::kCloseButtonClicked);
   } else if (sender == window_icon_) {
-#if defined(OS_LINUX)
+#if defined(OS_LINUX) || defined(OS_CHROMEOS)
     // TODO(pbos): Figure out / document why this is Linux only. This needs a
     // comment.
     views::MenuRunner menu_runner(frame()->GetSystemMenuModel(),
@@ -449,8 +446,8 @@ int OpaqueBrowserFrameView::GetTabStripHeight() const {
   return browser_view()->GetTabStripHeight();
 }
 
-gfx::Size OpaqueBrowserFrameView::GetTabstripPreferredSize() const {
-  return browser_view()->tabstrip()->GetPreferredSize();
+gfx::Size OpaqueBrowserFrameView::GetTabstripMinimumSize() const {
+  return browser_view()->tab_strip_region_view()->GetMinimumSize();
 }
 
 int OpaqueBrowserFrameView::GetTopAreaHeight() const {
@@ -459,7 +456,7 @@ int OpaqueBrowserFrameView::GetTopAreaHeight() const {
     return non_client_top_height;
   return std::max(
       non_client_top_height,
-      GetBoundsForTabStripRegion(browser_view()->tabstrip()).bottom() -
+      GetBoundsForTabStripRegion(GetTabstripMinimumSize()).bottom() -
           GetLayoutConstant(TABSTRIP_TOOLBAR_OVERLAP));
 }
 
@@ -513,7 +510,7 @@ void OpaqueBrowserFrameView::OnPaint(gfx::Canvas* canvas) {
   frame_background_->set_top_area_height(GetTopAreaHeight());
 
   if (GetFrameButtonStyle() == FrameButtonStyle::kMdButton) {
-    for (auto* button :
+    for (views::Button* button :
          {minimize_button_, maximize_button_, restore_button_, close_button_}) {
       DCHECK_EQ(std::string(views::FrameCaptionButton::kViewClassName),
                 button->GetClassName());

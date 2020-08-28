@@ -29,6 +29,7 @@ namespace blink {
 namespace scheduler {
 class WebThreadScheduler;
 }
+struct VisualProperties;
 class WebGestureEvent;
 class WebInputElement;
 class WebMouseEvent;
@@ -44,13 +45,13 @@ class ContentBrowserClient;
 class ContentClient;
 class ContentRendererClient;
 class CompositorDependencies;
-class MockRenderProcess;
+class FakeRenderWidgetHost;
 class PageState;
 class RendererMainPlatformDelegate;
 class RendererBlinkPlatformImpl;
 class RendererBlinkPlatformImplTestOverrideImpl;
+class RenderProcess;
 class RenderView;
-struct VisualProperties;
 
 class RenderViewTest : public testing::Test {
  public:
@@ -75,7 +76,10 @@ class RenderViewTest : public testing::Test {
         blink_platform_impl_;
   };
 
-  RenderViewTest();
+  // If |hook_render_frame_creation| is true then the RenderViewTest will hook
+  // the RenderFrame creation so a TestRenderFrame is always created. If it is
+  // false the subclass is responsible for hooking the create function.
+  explicit RenderViewTest(bool hook_render_frame_creation = true);
   ~RenderViewTest() override;
 
  protected:
@@ -188,9 +192,10 @@ class RenderViewTest : public testing::Test {
   virtual ContentClient* CreateContentClient();
   virtual ContentBrowserClient* CreateContentBrowserClient();
   virtual ContentRendererClient* CreateContentRendererClient();
+  virtual std::unique_ptr<FakeRenderWidgetHost> CreateRenderWidgetHost();
 
   // Allows a subclass to customize the initial size of the RenderView.
-  virtual VisualProperties InitialVisualProperties();
+  virtual blink::VisualProperties InitialVisualProperties();
 
   // Override this to change the CompositorDependencies for the test.
   virtual std::unique_ptr<CompositorDependencies>
@@ -207,7 +212,7 @@ class RenderViewTest : public testing::Test {
   base::test::TaskEnvironment task_environment_;
 
   std::unique_ptr<CompositorDependencies> compositor_deps_;
-  std::unique_ptr<MockRenderProcess> mock_process_;
+  std::unique_ptr<RenderProcess> process_;
   // We use a naked pointer because we don't want to expose RenderViewImpl in
   // the embedder's namespace.
   RenderView* view_ = nullptr;
@@ -216,6 +221,7 @@ class RenderViewTest : public testing::Test {
   std::unique_ptr<ContentBrowserClient> content_browser_client_;
   std::unique_ptr<ContentRendererClient> content_renderer_client_;
   std::unique_ptr<MockRenderThread> render_thread_;
+  std::unique_ptr<FakeRenderWidgetHost> render_widget_host_;
 
   // Used to setup the process so renderers can run.
   std::unique_ptr<RendererMainPlatformDelegate> platform_;
@@ -227,7 +233,7 @@ class RenderViewTest : public testing::Test {
   std::unique_ptr<mojo::core::ScopedIPCSupport> ipc_support_;
   mojo::BinderMap binders_;
 
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
   std::unique_ptr<base::mac::ScopedNSAutoreleasePool> autorelease_pool_;
 #endif
 

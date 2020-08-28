@@ -255,13 +255,16 @@ class AccountReconcilorTest : public ::testing::Test {
                                            const CoreAccountId& account_id,
                                            const GoogleServiceAuthError& error);
 
-  void SimulateCookieContentSettingsChanged(
-      content_settings::Observer* observer,
-      const ContentSettingsPattern& primary_pattern);
-
   void SimulateSetAccountsInCookieCompleted(
       AccountReconcilor* reconcilor,
       signin::SetAccountsInCookieResult result);
+
+  void SimulateLogOutFromCookieCompleted(AccountReconcilor* reconcilor,
+                                         const GoogleServiceAuthError& error);
+
+  void SimulateCookieContentSettingsChanged(
+      content_settings::Observer* observer,
+      const ContentSettingsPattern& primary_pattern);
 
   void SetAccountConsistency(signin::AccountConsistencyMethod method);
 
@@ -382,6 +385,12 @@ void AccountReconcilorTest::SimulateSetAccountsInCookieCompleted(
     AccountReconcilor* reconcilor,
     signin::SetAccountsInCookieResult result) {
   reconcilor->OnSetAccountsInCookieCompleted(result);
+}
+
+void AccountReconcilorTest::SimulateLogOutFromCookieCompleted(
+    AccountReconcilor* reconcilor,
+    const GoogleServiceAuthError& error) {
+  reconcilor->OnLogOutFromCookieCompleted(error);
 }
 
 void AccountReconcilorTest::SimulateCookieContentSettingsChanged(
@@ -675,8 +684,11 @@ class BaseAccountReconcilorTestTable : public AccountReconcilorTest {
     ASSERT_TRUE(reconcilor->delegate_->IsAccountConsistencyEnforced());
     reconcilor->StartReconcile();
     for (int i = 0; gaia_api_calls_[i] != '\0'; ++i) {
-      if (gaia_api_calls_[i] == 'X')
+      if (gaia_api_calls_[i] == 'X') {
+        SimulateLogOutFromCookieCompleted(
+            reconcilor, GoogleServiceAuthError::AuthErrorNone());
         continue;
+      }
       CoreAccountId account_id =
           PickAccountIdForAccount(accounts_[gaia_api_calls_[i]].gaia_id,
                                   accounts_[gaia_api_calls_[i]].email);
@@ -1361,6 +1373,8 @@ TEST_P(AccountReconcilorDiceEndpointParamTest,
   ASSERT_TRUE(reconcilor->is_reconcile_started_);
   base::RunLoop().RunUntilIdle();
   if (!IsMultiloginEnabled()) {
+    SimulateLogOutFromCookieCompleted(reconcilor,
+                                      GoogleServiceAuthError::AuthErrorNone());
     SimulateAddAccountToCookieCompleted(
         reconcilor, account_id_1, GoogleServiceAuthError::AuthErrorNone());
     SimulateAddAccountToCookieCompleted(
@@ -1905,6 +1919,42 @@ TEST_F(AccountReconcilorMirrorTest, GetAccountsFromCookieSuccess) {
             reconcilor->GetState());
   reconcilor->StartReconcile();
   ASSERT_EQ(signin_metrics::ACCOUNT_RECONCILOR_RUNNING, reconcilor->GetState());
+  base::RunLoop().RunUntilIdle();
+  ASSERT_EQ(signin_metrics::ACCOUNT_RECONCILOR_RUNNING, reconcilor->GetState());
+
+  signin::AccountsInCookieJarInfo accounts_in_cookie_jar_info =
+      identity_test_env()->identity_manager()->GetAccountsInCookieJar();
+  ASSERT_TRUE(accounts_in_cookie_jar_info.accounts_are_fresh);
+  ASSERT_EQ(1u, accounts_in_cookie_jar_info.signed_in_accounts.size());
+  ASSERT_EQ(account_id, accounts_in_cookie_jar_info.signed_in_accounts[0].id);
+  ASSERT_EQ(0u, accounts_in_cookie_jar_info.signed_out_accounts.size());
+}
+
+// Checks that calling EnableReconcile() while the reconcilor is already running
+// doesn't have any effect. Regression test for https://crbug.com/1043651
+TEST_F(AccountReconcilorMirrorTest, EnableReconcileWhileAlreadyRunning) {
+  AccountInfo account_info = ConnectProfileToAccount("user@gmail.com");
+  const CoreAccountId account_id = account_info.account_id;
+  signin::SetListAccountsResponseOneAccountWithParams(
+      {account_info.email, account_info.gaia, false /* valid */,
+       false /* signed_out */, true /* verified */},
+      &test_url_loader_factory_);
+
+  std::vector<CoreAccountId> accounts_to_send = {account_id};
+  const signin::MultiloginParameters params(
+      gaia::MultiloginMode::MULTILOGIN_UPDATE_COOKIE_ACCOUNTS_ORDER,
+      accounts_to_send);
+  EXPECT_CALL(*GetMockReconcilor(), PerformSetCookiesAction(params));
+
+  AccountReconcilor* reconcilor = GetMockReconcilor();
+  ASSERT_TRUE(reconcilor);
+
+  ASSERT_EQ(signin_metrics::ACCOUNT_RECONCILOR_SCHEDULED,
+            reconcilor->GetState());
+  reconcilor->StartReconcile();
+  EXPECT_EQ(signin_metrics::ACCOUNT_RECONCILOR_RUNNING, reconcilor->GetState());
+  reconcilor->EnableReconcile();
+  EXPECT_EQ(signin_metrics::ACCOUNT_RECONCILOR_RUNNING, reconcilor->GetState());
   base::RunLoop().RunUntilIdle();
   ASSERT_EQ(signin_metrics::ACCOUNT_RECONCILOR_RUNNING, reconcilor->GetState());
 

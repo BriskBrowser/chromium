@@ -9,34 +9,41 @@ a {
 }
 
 #crosEulaFrame {
-  min-height: 200px;
+  /* minimal height which allows popup dialogs looks fine. */
+  min-height: 300px;
 }
 
-#installationSettings,
+#additionalChromeToSFrame {
+  height: 300px;
+}
+
+#securitySettings,
 #logging {
   font-size: 13px;
   min-height: unset;
 }
 
-#installationSettings {
-  margin-inline-start: 16px;
+#footer-more {
+  padding-inline-start: 16px;
+}
+
+#additionalTerms,
+#securitySettings,
+#logging {
   margin-top: 16px;
 }
 
 #logging {
   color: rgba(0, 0, 0, 0.54);
-  margin-inline-start: 16px;
-  margin-top: 16px;
 }
 
-cr-toggle {
-  align-self: center;
+cr-checkbox {
+  --cr-checkbox-label-padding-start: 16px;
 }
 
 #usageStatsLabelContainer {
   color: var(--google-grey-refresh-700); /* #5F6368 */
   line-height: 20px;
-  margin-inline-start: 16px;
 }
 
 #usageStatsLabel {
@@ -55,8 +62,9 @@ cr-toggle {
   color: rgb(66, 133, 244);
   font-size: 24px;
   margin-top: 82px;
+  user-select: text;
 }
 
-.installation-settings-spinner {
+.security-settings-spinner {
   margin-inline-end: 5px;
 }

@@ -9,6 +9,7 @@
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_process_platform_part.h"
 #include "chrome/browser/chromeos/policy/browser_policy_connector_chromeos.h"
+#include "chrome/browser/chromeos/policy/hostname_handler.h"
 #include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/extensions/api/enterprise_device_attributes.h"
@@ -20,16 +21,22 @@ namespace extensions {
 
 namespace {
 
+// TODO(http://crbug.com/1056550): Return an error if the user is not permitted
+// to get device attributes instead of an empty string.
+
 // Checks for the current browser context if the user is affiliated or belongs
 // to the sign-in profile.
-bool IsPermittedToGetDeviceAttributes(content::BrowserContext* context) {
-  if (chromeos::ProfileHelper::IsSigninProfile(
-          Profile::FromBrowserContext(context))) {
+bool CanGetDeviceAttributesForBrowserContext(content::BrowserContext* context) {
+  const Profile* profile = Profile::FromBrowserContext(context);
+
+  if (chromeos::ProfileHelper::IsSigninProfile(profile))
     return true;
-  }
+
+  if (!profile->IsRegularProfile())
+    return false;
+
   const user_manager::User* user =
-      chromeos::ProfileHelper::Get()->GetUserByProfile(
-          Profile::FromBrowserContext(context));
+      chromeos::ProfileHelper::Get()->GetUserByProfile(profile);
   return user->IsAffiliated();
 }
 
@@ -44,7 +51,7 @@ EnterpriseDeviceAttributesGetDirectoryDeviceIdFunction::
 ExtensionFunction::ResponseAction
 EnterpriseDeviceAttributesGetDirectoryDeviceIdFunction::Run() {
   std::string device_id;
-  if (IsPermittedToGetDeviceAttributes(browser_context())) {
+  if (CanGetDeviceAttributesForBrowserContext(browser_context())) {
     device_id = g_browser_process->platform_part()
                     ->browser_policy_connector_chromeos()
                     ->GetDirectoryApiID();
@@ -63,7 +70,7 @@ EnterpriseDeviceAttributesGetDeviceSerialNumberFunction::
 ExtensionFunction::ResponseAction
 EnterpriseDeviceAttributesGetDeviceSerialNumberFunction::Run() {
   std::string serial_number;
-  if (IsPermittedToGetDeviceAttributes(browser_context())) {
+  if (CanGetDeviceAttributesForBrowserContext(browser_context())) {
     serial_number = chromeos::system::StatisticsProvider::GetInstance()
                         ->GetEnterpriseMachineID();
   }
@@ -81,7 +88,7 @@ EnterpriseDeviceAttributesGetDeviceAssetIdFunction::
 ExtensionFunction::ResponseAction
 EnterpriseDeviceAttributesGetDeviceAssetIdFunction::Run() {
   std::string asset_id;
-  if (IsPermittedToGetDeviceAttributes(browser_context())) {
+  if (CanGetDeviceAttributesForBrowserContext(browser_context())) {
     asset_id = g_browser_process->platform_part()
                    ->browser_policy_connector_chromeos()
                    ->GetDeviceAssetID();
@@ -100,7 +107,7 @@ EnterpriseDeviceAttributesGetDeviceAnnotatedLocationFunction::
 ExtensionFunction::ResponseAction
 EnterpriseDeviceAttributesGetDeviceAnnotatedLocationFunction::Run() {
   std::string annotated_location;
-  if (IsPermittedToGetDeviceAttributes(browser_context())) {
+  if (CanGetDeviceAttributesForBrowserContext(browser_context())) {
     annotated_location = g_browser_process->platform_part()
                              ->browser_policy_connector_chromeos()
                              ->GetDeviceAnnotatedLocation();
@@ -108,6 +115,26 @@ EnterpriseDeviceAttributesGetDeviceAnnotatedLocationFunction::Run() {
   return RespondNow(ArgumentList(
       api::enterprise_device_attributes::GetDeviceAnnotatedLocation::Results::
           Create(annotated_location)));
+}
+
+EnterpriseDeviceAttributesGetDeviceHostnameFunction::
+    EnterpriseDeviceAttributesGetDeviceHostnameFunction() = default;
+
+EnterpriseDeviceAttributesGetDeviceHostnameFunction::
+    ~EnterpriseDeviceAttributesGetDeviceHostnameFunction() = default;
+
+ExtensionFunction::ResponseAction
+EnterpriseDeviceAttributesGetDeviceHostnameFunction::Run() {
+  std::string hostname;
+  if (CanGetDeviceAttributesForBrowserContext(browser_context())) {
+    hostname = g_browser_process->platform_part()
+                   ->browser_policy_connector_chromeos()
+                   ->GetHostnameHandler()
+                   ->GetDeviceHostname();
+  }
+  return RespondNow(ArgumentList(
+      api::enterprise_device_attributes::GetDeviceHostname::Results::Create(
+          hostname)));
 }
 
 }  // namespace extensions

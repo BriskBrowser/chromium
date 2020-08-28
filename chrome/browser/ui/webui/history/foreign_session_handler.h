@@ -15,8 +15,11 @@
 #include "base/values.h"
 #include "chrome/browser/sessions/session_service.h"
 #include "components/sync_sessions/open_tabs_ui_delegate.h"
-#include "content/public/browser/web_ui.h"
 #include "content/public/browser/web_ui_message_handler.h"
+
+namespace content {
+class WebUI;
+}
 
 namespace user_prefs {
 class PrefRegistrySyncable;
@@ -95,10 +98,6 @@ class ForeignSessionHandler : public content::WebUIMessageHandler {
   void HandleDeleteForeignSession(const base::ListValue* args);
 
   void HandleSetForeignSessionCollapsed(const base::ListValue* args);
-
-  // The time at which this WebUI was created. Used to calculate how long
-  // the WebUI was present before the sessions data was visible.
-  base::TimeTicks load_attempt_time_;
 
   base::Value initial_session_list_;
 

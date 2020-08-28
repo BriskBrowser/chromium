@@ -10,6 +10,7 @@ import {loadTimeData} from 'chrome://resources/js/load_time_data.m.js';
 
 // <if expr="chromeos">
 import {ColorModeRestriction, DestinationPolicies, DuplexModeRestriction, PinModeRestriction} from './destination_policies.js';
+import {PrinterStatusReason} from '../data/printer_status_cros.js';
 // </if>
 
 /**
@@ -139,7 +140,7 @@ export let VendorCapability;
  * only on Chrome OS.
  *
  * @typedef {{
- *   vendor_capability: !Array<!VendorCapability>,
+ *   vendor_capability: (Array<!VendorCapability>|undefined),
  *   collate: ({default: (boolean|undefined)}|undefined),
  *   color: ({
  *     option: !Array<{
@@ -162,7 +163,8 @@ export let VendorCapability;
  *       type: (string|undefined),
  *       vendor_id: (string|undefined),
  *       custom_display_name: (string|undefined),
- *       is_default: (boolean|undefined)
+ *       is_default: (boolean|undefined),
+ *       name: (string|undefined),
  *     }>
  *   }|undefined),
  *   dpi: ({
@@ -277,7 +279,6 @@ export class Destination {
    *          certificateStatus:
    *              (DestinationCertificateStatus|undefined),
    *          policies: (DestinationPolicies|undefined),
-   *          eulaUrl: (string|undefined),
    *         }=} opt_params Optional
    *     parameters for the destination.
    */
@@ -407,12 +408,25 @@ export class Destination {
     this.certificateStatus_ = opt_params && opt_params.certificateStatus ||
         DestinationCertificateStatus.NONE;
 
+    /**
+     * Whether cloud print deprecation warnings are suppressed.
+     * @private {boolean}
+     */
+    this.cloudPrintDeprecationWarningsSuppressed_ =
+        loadTimeData.getBoolean('cloudPrintDeprecationWarningsSuppressed');
+
     // <if expr="chromeos">
     /**
      * EULA url for printer's PPD. Empty string indicates no provided EULA.
      * @private {string}
      */
     this.eulaUrl_ = '';
+
+    /**
+     * Stores the printer status reason for a local Chrome OS printer.
+     * @private {!PrinterStatusReason}
+     */
+    this.printerStatusReason_ = PrinterStatusReason.UNKNOWN_REASON;
     // </if>
 
     assert(
@@ -518,7 +532,9 @@ export class Destination {
    *     if it was not provided.
    */
   get description() {
-    return this.description_;
+    return this.shouldShowSaveToDriveWarning ?
+        loadTimeData.getString('destinationNotSupportedWarning') :
+        this.description_;
   }
 
   /**
@@ -598,6 +614,22 @@ export class Destination {
   set eulaUrl(eulaUrl) {
     this.eulaUrl_ = eulaUrl;
   }
+
+  /**
+   * @return {!PrinterStatusReason} The printer status reason for a local
+   *    Chrome OS printer.
+   */
+  get printerStatusReason() {
+    return this.printerStatusReason_;
+  }
+
+  /**
+   * @param {!PrinterStatusReason} printerStatusReason The printer status reason
+   *    to be set.
+   */
+  set printerStatusReason(printerStatusReason) {
+    this.printerStatusReason_ = printerStatusReason;
+  }
   // </if>
 
   /**
@@ -625,6 +657,16 @@ export class Destination {
   }
 
   /**
+   * @return {boolean} Whether the destination's description and icon should
+   *     warn that it is a deprecated printer.
+   */
+  get shouldShowDeprecatedPrinterWarning() {
+    return !this.cloudPrintDeprecationWarningsSuppressed_ &&
+        this.id_ !== Destination.GooglePromotedId.DOCS &&
+        (this.isPrivet || CloudOrigins.includes(this.origin_));
+  }
+
+  /**
    * @return {boolean} Whether the destination should display an invalid
    *     certificate UI warning in the selection dialog and cause a UI
    *     warning to appear in the preview area when selected.
@@ -632,6 +674,20 @@ export class Destination {
   get shouldShowInvalidCertificateError() {
     return this.certificateStatus_ === DestinationCertificateStatus.NO &&
         !loadTimeData.getBoolean('isEnterpriseManaged');
+  }
+
+  /**
+   * @return {boolean} Whether this destination's description and icon should
+   *     warn that "Save to Drive" is deprecated.
+   */
+  get shouldShowSaveToDriveWarning() {
+    let shouldShowSaveToDriveWarning = false;
+    // <if expr="not chromeos">
+    shouldShowSaveToDriveWarning =
+        this.id_ === Destination.GooglePromotedId.DOCS &&
+        !this.cloudPrintDeprecationWarningsSuppressed_;
+    // </if>
+    return shouldShowSaveToDriveWarning;
   }
 
   /** @return {boolean} Whether the destination is considered offline. */
@@ -690,6 +746,17 @@ export class Destination {
 
   /** @return {string} Path to the SVG for the destination's icon. */
   get icon() {
+    if (this.shouldShowSaveToDriveWarning) {
+      return 'print-preview:save-to-drive-not-supported';
+    }
+    if (this.shouldShowDeprecatedPrinterWarning) {
+      return 'print-preview:printer-not-supported';
+    }
+    // <if expr="chromeos">
+    if (this.id_ === Destination.GooglePromotedId.SAVE_TO_DRIVE_CROS) {
+      return 'print-preview:save-to-drive';
+    }
+    // </if>
     if (this.id_ === Destination.GooglePromotedId.DOCS) {
       return 'print-preview:save-to-drive';
     }
@@ -767,6 +834,17 @@ export class Destination {
   }
 
   /**
+   * @return {Object} Copies capability of this destination.
+   * @private
+   */
+  copiesCapability_() {
+    return this.capabilities && this.capabilities.printer &&
+            this.capabilities.printer.copies ?
+        this.capabilities.printer.copies :
+        null;
+  }
+
+  /**
    * @return {Object} Color capability of this destination.
    * @private
    */
@@ -807,6 +885,15 @@ export class Destination {
   }
 
   // </if>
+
+  /** @return {boolean} Whether the printer supports copies. */
+  get hasCopiesCapability() {
+    const capability = this.copiesCapability_();
+    if (!capability) {
+      return false;
+    }
+    return capability.max ? capability.max > 1 : true;
+  }
 
   /**
    * @return {boolean} Whether the printer supports both black and white and
@@ -928,5 +1015,19 @@ Destination.LOCATION_TAG_PREFIXES =
  */
 Destination.GooglePromotedId = {
   DOCS: '__google__docs',
-  SAVE_AS_PDF: 'Save as PDF'
+  SAVE_AS_PDF: 'Save as PDF',
+  // <if expr="chromeos">
+  SAVE_TO_DRIVE_CROS: 'Save to Drive CrOS',
+  // </if>
 };
+
+/** @type {string} Unique identifier for the Save as PDF destination */
+export const PDF_DESTINATION_KEY =
+    `${Destination.GooglePromotedId.SAVE_AS_PDF}/${DestinationOrigin.LOCAL}/`;
+
+// <if expr="chromeos">
+/** @type {string} Unique identifier for the Save to Drive CrOS destination */
+export const SAVE_TO_DRIVE_CROS_DESTINATION_KEY =
+    `${Destination.GooglePromotedId.SAVE_TO_DRIVE_CROS}/${
+        DestinationOrigin.LOCAL}/`;
+// </if>

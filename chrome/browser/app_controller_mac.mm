@@ -17,7 +17,6 @@
 #include "base/mac/foundation_util.h"
 #include "base/mac/mac_util.h"
 #include "base/mac/scoped_objc_class_swizzler.h"
-#include "base/mac/sdk_forward_declarations.h"
 #include "base/macros.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/metrics/user_metrics.h"
@@ -26,11 +25,12 @@
 #include "base/strings/sys_string_conversions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
 #include "base/threading/scoped_blocking_call.h"
 #include "build/branding_buildflags.h"
 #include "chrome/app/chrome_command_ids.h"
+#include "chrome/browser/apps/app_shim/app_shim_manager_mac.h"
 #include "chrome/browser/apps/app_shim/app_shim_termination_manager.h"
-#include "chrome/browser/apps/app_shim/extension_app_shim_handler_mac.h"
 #include "chrome/browser/apps/platform_apps/app_window_registry_util.h"
 #include "chrome/browser/background/background_application_list_model.h"
 #include "chrome/browser/background/background_mode_manager.h"
@@ -44,7 +44,6 @@
 #include "chrome/browser/lifetime/application_lifetime.h"
 #include "chrome/browser/lifetime/browser_shutdown.h"
 #include "chrome/browser/mac/mac_startup_profiler.h"
-#include "chrome/browser/policy/chrome_browser_cloud_management_controller.h"
 #include "chrome/browser/policy/chrome_browser_policy_connector.h"
 #include "chrome/browser/prefs/incognito_mode_prefs.h"
 #include "chrome/browser/profiles/profile_attributes_entry.h"
@@ -87,13 +86,13 @@
 #include "chrome/browser/web_applications/components/web_app_shortcut_mac.h"
 #include "chrome/common/chrome_paths_internal.h"
 #include "chrome/common/chrome_switches.h"
-#include "chrome/common/cloud_print/cloud_print_class_mac.h"
 #include "chrome/common/extensions/extension_constants.h"
 #include "chrome/common/mac/app_mode_common.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/grit/chromium_strings.h"
 #include "chrome/grit/generated_resources.h"
+#include "components/enterprise/browser/controller/chrome_browser_cloud_management_controller.h"
 #include "components/handoff/handoff_manager.h"
 #include "components/handoff/handoff_utility.h"
 #include "components/keep_alive_registry/keep_alive_types.h"
@@ -107,11 +106,12 @@
 #include "extensions/browser/extension_registry.h"
 #include "extensions/browser/extension_system.h"
 #include "net/base/filename_util.h"
+#include "net/base/mac/url_conversions.h"
 #include "ui/base/cocoa/focus_window_set.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/l10n/l10n_util_mac.h"
 
-using apps::ExtensionAppShimHandler;
+using apps::AppShimManager;
 using base::UserMetricsAction;
 using content::BrowserContext;
 using content::DownloadManager;
@@ -201,6 +201,15 @@ bool IsProfileSignedOut(Profile* profile) {
       g_browser_process->profile_manager()->GetProfileAttributesStorage().
           GetProfileAttributesWithPath(profile->GetPath(), &entry);
   return has_entry && entry->IsSigninRequired();
+}
+
+void ConfigureNSAppForKioskMode() {
+  NSApp.presentationOptions =
+      NSApplicationPresentationHideDock | NSApplicationPresentationHideMenuBar |
+      NSApplicationPresentationDisableProcessSwitching |
+      NSApplicationPresentationDisableSessionTermination |
+      NSApplicationPresentationDisableForceQuit |
+      NSApplicationPresentationFullScreen;
 }
 
 }  // namespace
@@ -398,8 +407,6 @@ static base::mac::ScopedObjCClassSwizzler* g_swizzle_imk_input_session;
   NSAppleEventManager* em = [NSAppleEventManager sharedAppleEventManager];
   [em removeEventHandlerForEventClass:kInternetEventClass
                            andEventID:kAEGetURL];
-  [em removeEventHandlerForEventClass:cloud_print::kAECloudPrintClass
-                           andEventID:cloud_print::kAECloudPrintClass];
   [em removeEventHandlerForEventClass:'WWW!'
                            andEventID:'OURL'];
   [[NSNotificationCenter defaultCenter] removeObserver:self];
@@ -764,9 +771,9 @@ static base::mac::ScopedObjCClassSwizzler* g_swizzle_imk_input_session;
   // Record the path to the (browser) app bundle; this is used by the app mode
   // shim.
   if (base::mac::AmIBundled()) {
-    base::PostTask(
+    base::ThreadPool::PostTask(
         FROM_HERE,
-        {base::ThreadPool(), base::MayBlock(), base::TaskPriority::BEST_EFFORT,
+        {base::MayBlock(), base::TaskPriority::BEST_EFFORT,
          base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN},
         base::BindOnce(&RecordLastRunAppBundlePath));
   }
@@ -775,6 +782,9 @@ static base::mac::ScopedObjCClassSwizzler* g_swizzle_imk_input_session;
   [self registerServicesMenuTypesTo:[notify object]];
 
   _startupComplete = YES;
+
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(switches::kKioskMode))
+    ConfigureNSAppForKioskMode();
 
   Browser* browser = chrome::FindLastActive();
   content::WebContents* activeWebContents = nullptr;
@@ -788,8 +798,9 @@ static base::mac::ScopedObjCClassSwizzler* g_swizzle_imk_input_session;
     _localPrefRegistrar.Init(localState);
     _localPrefRegistrar.Add(
         prefs::kAllowFileSelectionDialogs,
-        base::Bind(&chrome::BrowserCommandController::UpdateOpenFileState,
-                   _menuState.get()));
+        base::BindRepeating(
+            &chrome::BrowserCommandController::UpdateOpenFileState,
+            _menuState.get()));
   }
 
   _handoff_active_url_observer_bridge.reset(
@@ -1415,6 +1426,23 @@ static base::mac::ScopedObjCClassSwizzler* g_swizzle_imk_input_session;
         net::FilePathToFileURL(base::FilePath([file fileSystemRepresentation]));
     gurlVector.push_back(gurl);
   }
+
+  if (!gurlVector.empty())
+    [self openUrlsReplacingNTP:gurlVector];
+  else
+    NOTREACHED() << "Nothing to open!";
+
+  [sender replyToOpenOrPrint:NSApplicationDelegateReplySuccess];
+}
+
+// TODO(avi): When Chromium requires 10.13 as a minimum, remove the
+// -[NSApplication application:openFiles:] override and the
+// kInternetEventClass/kAEGetURL Apple Event registration in -mainMenuCreated.
+- (void)application:(NSApplication*)sender openURLs:(NSArray<NSURL*>*)urls {
+  std::vector<GURL> gurlVector;
+  for (NSURL* url in urls)
+    gurlVector.push_back(net::GURLWithNSURL(url));
+
   if (!gurlVector.empty())
     [self openUrlsReplacingNTP:gurlVector];
   else
@@ -1603,10 +1631,9 @@ static base::mac::ScopedObjCClassSwizzler* g_swizzle_imk_input_session;
   _profilePrefRegistrar->Init(_lastProfile->GetPrefs());
   _profilePrefRegistrar->Add(
       prefs::kIncognitoModeAvailability,
-      base::Bind(&chrome::BrowserCommandController::
-                     UpdateSharedCommandsForIncognitoAvailability,
-                 _menuState.get(),
-                 _lastProfile));
+      base::BindRepeating(&chrome::BrowserCommandController::
+                              UpdateSharedCommandsForIncognitoAvailability,
+                          _menuState.get(), _lastProfile));
 }
 
 - (void)updateMenuItemKeyEquivalents {
@@ -1640,13 +1667,8 @@ static base::mac::ScopedObjCClassSwizzler* g_swizzle_imk_input_session;
 
 - (BOOL)application:(NSApplication*)application
     continueUserActivity:(NSUserActivity*)userActivity
-#if !defined(MAC_OS_X_VERSION_10_14) || \
-    MAC_OS_X_VERSION_MAX_ALLOWED < MAC_OS_X_VERSION_10_14
-      restorationHandler:(void (^)(NSArray*))restorationHandler
-#else
       restorationHandler:
           (void (^)(NSArray<id<NSUserActivityRestoring>>*))restorationHandler
-#endif
 {
   if (![userActivity.activityType
           isEqualToString:NSUserActivityTypeBrowsingWeb]) {

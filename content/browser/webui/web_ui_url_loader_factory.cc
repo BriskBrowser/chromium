@@ -4,36 +4,32 @@
 
 #include "content/public/browser/web_ui_url_loader_factory.h"
 
-#include <map>
+#include <utility>
 
 #include "base/bind.h"
 #include "base/debug/crash_logging.h"
-#include "base/lazy_instance.h"
 #include "base/logging.h"
 #include "base/memory/ref_counted_memory.h"
 #include "base/single_thread_task_runner.h"
 #include "base/strings/string_piece.h"
-#include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
 #include "content/browser/bad_message.h"
 #include "content/browser/blob_storage/blob_internals_url_loader.h"
 #include "content/browser/blob_storage/chrome_blob_storage_context.h"
+#include "content/browser/frame_host/frame_tree_node.h"
 #include "content/browser/frame_host/render_frame_host_impl.h"
-#include "content/browser/resource_context_impl.h"
-#include "content/browser/storage_partition_impl.h"
 #include "content/browser/webui/network_error_url_loader.h"
 #include "content/browser/webui/url_data_manager_backend.h"
 #include "content/browser/webui/url_data_source_impl.h"
 #include "content/public/browser/browser_context.h"
-#include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
-#include "content/public/browser/render_process_host.h"
 #include "content/public/browser/web_contents.h"
-#include "content/public/browser/web_contents_observer.h"
 #include "content/public/common/url_constants.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "mojo/public/cpp/bindings/receiver_set.h"
 #include "mojo/public/cpp/bindings/remote.h"
+#include "services/network/public/cpp/parsed_headers.h"
 #include "services/network/public/mojom/network_service.mojom.h"
 #include "ui/base/template_expressions.h"
 
@@ -42,9 +38,6 @@ namespace content {
 namespace {
 
 class WebUIURLLoaderFactory;
-base::LazyInstance<std::map<GlobalFrameRoutingId,
-                            std::unique_ptr<WebUIURLLoaderFactory>>>::Leaky
-    g_web_ui_url_loader_factories = LAZY_INSTANCE_INITIALIZER;
 
 void CallOnError(
     mojo::PendingRemote<network::mojom::URLLoaderClient> client_remote,
@@ -136,8 +129,8 @@ void DataAvailable(
   // Since the bytes are from the memory mapped resource file, copying the
   // data can lead to disk access. Needs to be posted to a SequencedTaskRunner
   // as Mojo requires a SequencedTaskRunnerHandle in scope.
-  base::CreateSequencedTaskRunner(
-      {base::ThreadPool(), base::TaskPriority::USER_BLOCKING, base::MayBlock(),
+  base::ThreadPool::CreateSequencedTaskRunner(
+      {base::TaskPriority::USER_BLOCKING, base::MayBlock(),
        base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN})
       ->PostTask(FROM_HERE, base::BindOnce(ReadData, std::move(headers),
                                            replacements, replace_in_js, source,
@@ -148,7 +141,7 @@ void StartURLLoader(
     const network::ResourceRequest& request,
     int frame_tree_node_id,
     mojo::PendingRemote<network::mojom::URLLoaderClient> client_remote,
-    ResourceContext* resource_context) {
+    BrowserContext* browser_context) {
   // NOTE: this duplicates code in URLDataManagerBackend::StartRequest.
   if (!URLDataManagerBackend::CheckURLIsValid(request.url)) {
     CallOnError(std::move(client_remote), net::ERR_INVALID_URL);
@@ -156,14 +149,14 @@ void StartURLLoader(
   }
 
   URLDataSourceImpl* source =
-      GetURLDataManagerForResourceContext(resource_context)
+      URLDataManagerBackend::GetForBrowserContext(browser_context)
           ->GetDataSourceFromURL(request.url);
   if (!source) {
     CallOnError(std::move(client_remote), net::ERR_INVALID_URL);
     return;
   }
 
-  if (!source->source()->ShouldServiceRequest(request.url, resource_context,
+  if (!source->source()->ShouldServiceRequest(request.url, browser_context,
                                               -1)) {
     CallOnError(std::move(client_remote), net::ERR_INVALID_URL);
     return;
@@ -177,7 +170,12 @@ void StartURLLoader(
       URLDataManagerBackend::GetHeaders(source, path, origin_header);
 
   auto resource_response = network::mojom::URLResponseHead::New();
+
   resource_response->headers = headers;
+  // Headers from WebUI are trusted, so parsing can happen from a non-sandboxed
+  // process.
+  resource_response->parsed_headers =
+      network::PopulateParsedHeaders(resource_response->headers, request.url);
   resource_response->mime_type = source->source()->GetMimeType(path);
   // TODO: fill all the time related field i.e. request_time response_time
   // request_start response_start
@@ -191,56 +189,43 @@ void StartURLLoader(
 
   const ui::TemplateReplacements* replacements = nullptr;
   if (source->source()->GetMimeType(path) == "text/html" || replace_in_js)
-    replacements = source->GetReplacements();
+    replacements = source->source()->GetReplacements();
 
   // To keep the same behavior as the old WebUI code, we call the source to get
   // the value for |replacements| on the IO thread. Since |replacements| is
   // owned by |source| keep a reference to it in the callback.
   URLDataSource::GotDataCallback data_available_callback = base::BindOnce(
       DataAvailable, std::move(resource_response), replacements, replace_in_js,
-      base::RetainedRef(source), base::Passed(&client_remote));
+      base::RetainedRef(source), std::move(client_remote));
 
-  // TODO(jam): once we only have this code path for WebUI, and not the
-  // URLLRequestJob one, then we should switch data sources to run on the UI
-  // thread by default.
-  scoped_refptr<base::SingleThreadTaskRunner> target_runner =
-      source->source()->TaskRunnerForRequestPath(path);
-  if (!target_runner) {
-    source->source()->StartDataRequest(request.url, std::move(wc_getter),
-                                       std::move(data_available_callback));
-    return;
-  }
-
-  // The DataSource wants StartDataRequest to be called on a specific
-  // thread, usually the UI thread, for this path.
-  target_runner->PostTask(
-      FROM_HERE,
-      base::BindOnce(&URLDataSource::StartDataRequest,
-                     base::Unretained(source->source()), request.url,
-                     std::move(wc_getter), std::move(data_available_callback)));
+  source->source()->StartDataRequest(request.url, std::move(wc_getter),
+                                     std::move(data_available_callback));
 }
 
-class WebUIURLLoaderFactory : public network::mojom::URLLoaderFactory,
-                              public WebContentsObserver {
+// This class has two ownership models. When it's created by
+// CreateWebUIURLLoaderBinding it is owned by its receivers and will delete
+// itself when it has no more receivers. Otherwise it's strongly owned.
+class WebUIURLLoaderFactory : public network::mojom::URLLoaderFactory {
  public:
   // |allowed_hosts| is an optional set of allowed host names. If empty then
   // all hosts are allowed.
-  WebUIURLLoaderFactory(RenderFrameHost* rfh,
-                        const std::string& scheme,
-                        base::flat_set<std::string> allowed_hosts)
-      : WebContentsObserver(WebContents::FromRenderFrameHost(rfh)),
-        render_frame_host_(rfh),
+  WebUIURLLoaderFactory(
+      FrameTreeNode* ftn,
+      const std::string& scheme,
+      base::flat_set<std::string> allowed_hosts,
+      mojo::PendingReceiver<network::mojom::URLLoaderFactory> factory_receiver =
+          mojo::PendingReceiver<network::mojom::URLLoaderFactory>())
+      : frame_tree_node_id_(ftn->frame_tree_node_id()),
         scheme_(scheme),
         allowed_hosts_(std::move(allowed_hosts)) {
-    DCHECK(render_frame_host_);
+    if (factory_receiver) {
+      loader_factory_receivers_.set_disconnect_handler(base::BindRepeating(
+          &WebUIURLLoaderFactory::OnDisconnect, base::Unretained(this)));
+      loader_factory_receivers_.Add(this, std::move(factory_receiver));
+    }
   }
 
   ~WebUIURLLoaderFactory() override {}
-
-  void AddReceiver(mojo::PendingReceiver<network::mojom::URLLoaderFactory>
-                       factory_receiver) {
-    loader_factory_receivers_.Add(this, std::move(factory_receiver));
-  }
 
   // network::mojom::URLLoaderFactory implementation:
   void CreateLoaderAndStart(
@@ -254,10 +239,24 @@ class WebUIURLLoaderFactory : public network::mojom::URLLoaderFactory,
       override {
     DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
+    auto* ftn = FrameTreeNode::GloballyFindByID(frame_tree_node_id_);
+    if (!ftn) {
+      CallOnError(std::move(client), net::ERR_FAILED);
+      return;
+    }
+
+    BrowserContext* browser_context =
+        ftn->current_frame_host()->GetBrowserContext();
+
     if (request.url.scheme() != scheme_) {
       DVLOG(1) << "Bad scheme: " << request.url.scheme();
-      ReceivedBadMessage(render_frame_host_->GetProcess(),
-                         bad_message::WEBUI_BAD_SCHEME_ACCESS);
+      if (loader_factory_receivers_.empty()) {
+        // This factory is being used directly without going through a mojo pipe
+        // so just assert.
+        CHECK(false) << "Incorrect scheme";
+      } else {
+        loader_factory_receivers_.ReportBadMessage("Incorrect scheme");
+      }
       mojo::Remote<network::mojom::URLLoaderClient>(std::move(client))
           ->OnComplete(network::URLLoaderCompletionStatus(net::ERR_FAILED));
       return;
@@ -272,20 +271,23 @@ class WebUIURLLoaderFactory : public network::mojom::URLLoaderFactory,
       base::debug::SetCrashKeyString(crash_key, request.url.spec());
 
       DVLOG(1) << "Bad host: \"" << request.url.host() << '"';
-      ReceivedBadMessage(render_frame_host_->GetProcess(),
-                         bad_message::WEBUI_BAD_HOST_ACCESS);
+      if (loader_factory_receivers_.empty()) {
+        CHECK(false) << "Incorrect host";
+      } else {
+        loader_factory_receivers_.ReportBadMessage("Incorrect host");
+      }
       mojo::Remote<network::mojom::URLLoaderClient>(std::move(client))
           ->OnComplete(network::URLLoaderCompletionStatus(net::ERR_FAILED));
       return;
     }
 
     if (request.url.host_piece() == kChromeUIBlobInternalsHost) {
-      base::PostTask(
-          FROM_HERE, {BrowserThread::IO},
-          base::BindOnce(&StartBlobInternalsURLLoader, request,
-                         std::move(client),
-                         base::Unretained(ChromeBlobStorageContext::GetFor(
-                             GetStoragePartition()->browser_context()))));
+      GetIOThreadTaskRunner({})->PostTask(
+          FROM_HERE,
+          base::BindOnce(
+              &StartBlobInternalsURLLoader, request, std::move(client),
+              base::Unretained(
+                  ChromeBlobStorageContext::GetFor(browser_context))));
       return;
     }
 
@@ -299,12 +301,8 @@ class WebUIURLLoaderFactory : public network::mojom::URLLoaderFactory,
     // from frames can happen while the RFH is changed for a cross-process
     // navigation. The URLDataSources just need the WebContents; the specific
     // frame doesn't matter.
-    base::PostTask(
-        FROM_HERE, {BrowserThread::IO},
-        base::BindOnce(
-            &StartURLLoader, request, render_frame_host_->GetFrameTreeNodeId(),
-            std::move(client),
-            GetStoragePartition()->browser_context()->GetResourceContext()));
+    StartURLLoader(request, frame_tree_node_id_, std::move(client),
+                   browser_context);
   }
 
   void Clone(mojo::PendingReceiver<network::mojom::URLLoaderFactory> receiver)
@@ -312,25 +310,16 @@ class WebUIURLLoaderFactory : public network::mojom::URLLoaderFactory,
     loader_factory_receivers_.Add(this, std::move(receiver));
   }
 
-  // WebContentsObserver implementation:
-  void RenderFrameDeleted(RenderFrameHost* render_frame_host) override {
-    if (render_frame_host != render_frame_host_)
-      return;
-    g_web_ui_url_loader_factories.Get().erase(
-        GlobalFrameRoutingId(render_frame_host_->GetRoutingID(),
-                             render_frame_host_->GetProcess()->GetID()));
-  }
-
   const std::string& scheme() const { return scheme_; }
 
  private:
-  StoragePartitionImpl* GetStoragePartition() {
-    return static_cast<StoragePartitionImpl*>(
-        render_frame_host_->GetProcess()->GetStoragePartition());
+  void OnDisconnect() {
+    if (loader_factory_receivers_.empty())
+      delete this;
   }
 
-  RenderFrameHost* render_frame_host_;
-  std::string scheme_;
+  int const frame_tree_node_id_;
+  const std::string scheme_;
   const base::flat_set<std::string> allowed_hosts_;  // if empty all allowed.
   mojo::ReceiverSet<network::mojom::URLLoaderFactory> loader_factory_receivers_;
 
@@ -343,25 +332,17 @@ std::unique_ptr<network::mojom::URLLoaderFactory> CreateWebUIURLLoader(
     RenderFrameHost* render_frame_host,
     const std::string& scheme,
     base::flat_set<std::string> allowed_hosts) {
-  return std::make_unique<WebUIURLLoaderFactory>(render_frame_host, scheme,
-                                                 std::move(allowed_hosts));
+  return std::make_unique<WebUIURLLoaderFactory>(
+      FrameTreeNode::From(render_frame_host), scheme, std::move(allowed_hosts));
 }
 
 void CreateWebUIURLLoaderBinding(
-    RenderFrameHost* render_frame_host,
+    FrameTreeNode* node,
     const std::string& scheme,
     mojo::PendingReceiver<network::mojom::URLLoaderFactory> factory_receiver) {
-  GlobalFrameRoutingId routing_id(render_frame_host->GetRoutingID(),
-                                  render_frame_host->GetProcess()->GetID());
-  if (g_web_ui_url_loader_factories.Get().find(routing_id) ==
-          g_web_ui_url_loader_factories.Get().end() ||
-      g_web_ui_url_loader_factories.Get()[routing_id]->scheme() != scheme) {
-    g_web_ui_url_loader_factories.Get()[routing_id] =
-        std::make_unique<WebUIURLLoaderFactory>(render_frame_host, scheme,
-                                                base::flat_set<std::string>());
-  }
-  g_web_ui_url_loader_factories.Get()[routing_id]->AddReceiver(
-      std::move(factory_receiver));
+  // Deletes itself when the last receiver is destructed.
+  new WebUIURLLoaderFactory(node, scheme, base::flat_set<std::string>(),
+                            std::move(factory_receiver));
 }
 
 }  // namespace content

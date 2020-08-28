@@ -14,8 +14,8 @@
 @class NSString;
 
 // Manager for the injection of the Translate JavaScript.
-// Replicates functionality from TranslateHelper in
-// chrome/renderer/translate/translate_helper.cc.
+// Replicates functionality from TranslateAgent in
+// chrome/renderer/translate/translate_agent.cc.
 // JsTranslateManager injects the script in the page and calls it, but is not
 // responsible for loading it or caching it.
 @interface JsTranslateManager : CRWJSInjectionManager
@@ -25,13 +25,28 @@
 @property(nonatomic, copy) NSString* script;
 
 // Starts translation of the page from |source| language to |target| language.
-// Equivalent to TranslateHelper::StartTranslation().
+// Equivalent to TranslateAgent::StartTranslation().
 - (void)startTranslationFrom:(const std::string&)source
                           to:(const std::string&)target;
 
 // Reverts the translation. Assumes that no navigation happened since the page
 // has been translated.
 - (void)revertTranslation;
+
+// Returns the response to a XHR request that was proxied to the browser from
+// javascript. See function __gCrWeb.translate.handleResponse.
+// |URL| The original URL that was requested.
+// |requestID| An ID for keeping track of inflight requests.
+// |responeCode| The HTTP response code.
+// |statusText| The status text associated with the response code, may be empty.
+// |responseURL| The final URL from which the response originates.
+// |responseText| The contents of the response.
+- (void)handleTranslateResponseWithURL:(NSString*)URL
+                             requestID:(int)requestID
+                          responseCode:(int)responseCode
+                            statusText:(NSString*)statusText
+                           responseURL:(NSString*)responseURL
+                          responseText:(NSString*)responseText;
 
 @end
 

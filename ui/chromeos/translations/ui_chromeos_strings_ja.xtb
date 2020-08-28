@@ -8,6 +8,7 @@
 <translation id="1046068652463704410">日本語入力（US キーボード用）</translation>
 <translation id="1047956942837015229"><ph name="COUNT" /> 件の項目を削除しています...</translation>
 <translation id="1049926623896334335">Word ドキュメント</translation>
+<translation id="1060368002126861100"><ph name="APP_NAME" /> でファイルを開くには、まず [Windows ファイル] フォルダにファイルを移動してください。</translation>
 <translation id="1062407476771304334">置換</translation>
 <translation id="1065449928621190041">フランス語（カナダ）のキーボード</translation>
 <translation id="1119069657431255176">bzip2 で圧縮された tar アーカイブ</translation>
@@ -20,6 +21,7 @@
 <translation id="1150565364351027703">サングラス</translation>
 <translation id="115443833402798225">ハングル（Ahnmatae 式）</translation>
 <translation id="1155759005174418845">カタロニア語</translation>
+<translation id="1172970565351728681">残り約 <ph name="REMAINING_TIME" /></translation>
 <translation id="1173894706177603556">名前を変更</translation>
 <translation id="117624967391683467"><ph name="FILE_NAME" /> をコピーしています...</translation>
 <translation id="1178581264944972037">一時停止</translation>
@@ -29,6 +31,7 @@
 <translation id="1243314992276662751">アップロード</translation>
 <translation id="1249250836236328755">ジャンル</translation>
 <translation id="1278813325885878377">ハンガリー語 QWERTY キーボード</translation>
+<translation id="1293556467332435079">ファイル</translation>
 <translation id="1297922636971898492">Google ドライブは現在ご利用いただけません。Google ドライブが利用可能になったときに、自動的にアップロードを再開します。</translation>
 <translation id="1307931752636661898">[Linux ファイル] を表示できません</translation>
 <translation id="1310751437842832374">文字変換（mausam → ନମସ୍ତେ）</translation>
@@ -44,6 +47,8 @@
 <translation id="1395262318152388157">シーク スライダー</translation>
 <translation id="1399648040768741453">テルグ語キーボード（表音）</translation>
 <translation id="1430915738399379752">印刷</translation>
+<translation id="1433600251059882049">このフォルダは Linux および Windows と共有されています</translation>
+<translation id="1435838927755162558">Parallels Desktop とのフォルダ共有</translation>
 <translation id="1439494416798956626">「<ph name="FOLDER_NAME" />」に移動しました。</translation>
 <translation id="1441841714100794440">ベトナム語キーボード（テレックス）</translation>
 <translation id="1455548678241328678">ノルウェー語のキーボード</translation>
@@ -78,6 +83,7 @@
 <translation id="1844692022597038441">このファイルはオフラインでは表示できません。</translation>
 <translation id="184633654410729720">タイ語キーボード（Kedmanee）</translation>
 <translation id="1847880352285315359">保存されました</translation>
+<translation id="1853795129690976061">このフォルダは Linux と共有されています</translation>
 <translation id="1864756863218646478">ファイルが見つかりませんでした。</translation>
 <translation id="1921986354447415460">トルコ語-F キーボード</translation>
 <translation id="1924372192547904021">「<ph name="DRIVE_NAME" />」をフォーマットしました</translation>
@@ -89,6 +95,7 @@
 <translation id="1947424002851288782">ドイツ語のキーボード</translation>
 <translation id="1972984168337863910">ファイルのフィードバック パネルを展開します</translation>
 <translation id="1984603991036629094">アルメニア語表音キーボード</translation>
+<translation id="1995337122023280937">ファイルの場所へ移動</translation>
 <translation id="2001796770603320721">ドライブで管理</translation>
 <translation id="2009067268969781306">ドライブをフォーマットすると、そのドライブに保存されているすべてのデータが削除されます。この操作は元に戻せません。</translation>
 <translation id="2028997212275086731">RAR アーカイブ</translation>
@@ -100,7 +107,6 @@
 <translation id="2085470240340828803">「<ph name="FILENAME" />」という名前のファイルは既に存在します。どのように処理しますか？</translation>
 <translation id="2121825465123208577">サイズを変更</translation>
 <translation id="2136953289241069843">文字変換（namaste → नमस्कार）</translation>
-<translation id="2138867954865495510">「<ph name="PATH" />」を開くことができません: <ph name="ERROR_MESSAGE" /></translation>
 <translation id="2163152940313951844">「<ph name="CHARACTER_NAME" />」は無効な文字です。</translation>
 <translation id="2164862903024139959">ベトナム語キーボード（TCVN）　　</translation>
 <translation id="2168214441502403371">ペルシャ語キーボード</translation>
@@ -122,6 +128,7 @@
 <translation id="2384596874640104496">シンハラ語キーボード</translation>
 <translation id="240770291734945588"><ph name="SPACE_AVAILABLE" /> 使用可能</translation>
 <translation id="2425665904502185219">合計ファイルサイズ</translation>
+<translation id="2428749644083375155"><ph name="NUMBER_OF_ITEMS" /> 個のアイテムを <ph name="FOLDER_NAME" /> にコピーしています</translation>
 <translation id="2448312741937722512">種類</translation>
 <translation id="2453576648990281505">このファイルは既に存在します</translation>
 <translation id="2464079411014186876">アイスクリーム</translation>
@@ -140,6 +147,7 @@
 <translation id="2638942478653899953">Google ドライブにアクセスできませんでした。<ph name="BEGIN_LINK" />ログアウト<ph name="END_LINK" />してもう一度ログインしてください。</translation>
 <translation id="2649120831653069427">熱帯魚</translation>
 <translation id="2661146741306740526">16×9</translation>
+<translation id="2664412712123763093">ファイルの場所</translation>
 <translation id="2672394958563893062">エラーが発生しました。クリックすると最初から再生します。</translation>
 <translation id="2676946222714718093">再生中:</translation>
 <translation id="2735698359135166290">ルーマニア語標準キーボード</translation>
@@ -175,6 +183,7 @@
 <translation id="303198083543495566">位置情報</translation>
 <translation id="3057861065630527966">写真や動画をバックアップします</translation>
 <translation id="3064388234319122767">文字変換（zdravo → здраво）</translation>
+<translation id="3067790092342515856">Windows ファイル</translation>
 <translation id="3078461028045006476"><ph name="EXTENSION_NAME" /> と共有</translation>
 <translation id="3088034400796962477">文字変換（salam ← سلام）</translation>
 <translation id="3116361045094675131">英語（英国）のキーボード</translation>
@@ -189,6 +198,7 @@
 <translation id="3236289833370040187">所有権が <ph name="DESTINATION_DOMAIN" /> に移ります。</translation>
 <translation id="3241720467332021590">アイルランド語</translation>
 <translation id="3245321423178950146">不明なアーティスト</translation>
+<translation id="3248185426436836442">保留中</translation>
 <translation id="3252266817569339921">フランス語</translation>
 <translation id="3254434849914415189"><ph name="FILE_TYPE" /> ファイルのデフォルト アプリを選択:</translation>
 <translation id="3264582393905923483">コンテキスト</translation>
@@ -199,6 +209,7 @@
 <translation id="3335337277364016868">録音された年</translation>
 <translation id="3338239663705455570">スロベニア語のキーボード</translation>
 <translation id="3353984535370177728">アップロードするフォルダを選択</translation>
+<translation id="3356580349448036450">完了</translation>
 <translation id="3399597614303179694">マケドニア語キーボード</translation>
 <translation id="3414856743105198592">リムーバブル メディアをフォーマットすると、すべてのデータが消去されます。続行しますか？</translation>
 <translation id="3437801641691368414">作成日時</translation>
@@ -210,8 +221,10 @@
 <translation id="3495304270784461826"><ph name="COUNT" /> 件のエラーがあります。</translation>
 <translation id="3519867315646775981">文字変換（shalom ← שלום）</translation>
 <translation id="3522708245912499433">ポルトガル語</translation>
+<translation id="3524311639100184459">注: これらのファイルは一時的なもので、ディスクの空き容量を増やすために自動的に削除されることがあります。<ph name="BEGIN_LINK" />詳細<ph name="END_LINK" /></translation>
 <translation id="3527085408025491307">フォルダ</translation>
 <translation id="3549797760399244642">drive.google.com にアクセスします...</translation>
+<translation id="3553048479571901246"><ph name="APP_NAME" /> でファイルを開くには、まず [Windows ファイル] フォルダにファイルをコピーしてください。</translation>
 <translation id="357479282490346887">リトアニア語</translation>
 <translation id="3583509704582854624">英数入力（日本語キーボード用）</translation>
 <translation id="3603385196401704894">フランス語（カナダ）</translation>
@@ -232,9 +245,11 @@
 <translation id="3780536599611287598">ファイルを「<ph name="FOLDER_NAME" />」に移動する権限がありません。</translation>
 <translation id="3786301125658655746">現在オフラインです</translation>
 <translation id="3789841737615482174">インストール</translation>
+<translation id="3793469551756281394">残り約 <ph name="REMAINING_TIME_HOUR" /> <ph name="REMAINING_TIME_MINUTE" /></translation>
 <translation id="3798449238516105146">バージョン</translation>
 <translation id="3801082500826908679">フェロー語</translation>
 <translation id="3809272675881623365">ウサギ</translation>
+<translation id="3810973564298564668">管理</translation>
 <translation id="3811494700605067549">1 個のファイルを選択しました</translation>
 <translation id="3815016854028376614">注音入力方法</translation>
 <translation id="3825863595139017598">モンゴル語キーボード</translation>
@@ -255,6 +270,7 @@
 <translation id="3943857333388298514">貼り付け</translation>
 <translation id="3958548648197196644">キウイ</translation>
 <translation id="3966388904776714213">オーディオ プレーヤー</translation>
+<translation id="3984317463833596033">Parallels Desktop に <ph name="FOLDER_NAME" /> フォルダのファイルの変更を許可します</translation>
 <translation id="4002066346123236978">タイトル</translation>
 <translation id="4070370845051020638">広東語入力方法</translation>
 <translation id="4072248638558688893">タミル語キーボード（表音）</translation>
@@ -283,8 +299,10 @@
 <translation id="4470564870223067757">ハングル（2 ボル式）</translation>
 <translation id="4477219268485577442">ブルガリア語（表音）</translation>
 <translation id="4479812471636796472">Dvorak 配列キーボード（米国）</translation>
+<translation id="4481711095103932593">このフォルダは Windows と共有されています</translation>
 <translation id="4487088045714738411">ベルギーのキーボード</translation>
 <translation id="4522570452068850558">詳細</translation>
+<translation id="4542387084127299777">「<ph name="PATH" />」を開くことができません</translation>
 <translation id="4552678318981539154">追加ストレージを購入</translation>
 <translation id="4559767610552730302">ピンぼけ</translation>
 <translation id="4572815280350369984"><ph name="FILE_TYPE" /> ファイル</translation>
@@ -292,6 +310,7 @@
 <translation id="4579744207439506346"><ph name="ENTRY_NAME" /> を選択範囲に追加しました。</translation>
 <translation id="4582497162516204941">Linux（ベータ版）でのインストール</translation>
 <translation id="4594543368593301662">「<ph name="SEARCH_TERM" />」の検索結果を表示しています。</translation>
+<translation id="4603392156942865207"><ph name="FILE_NAME" /> を <ph name="FOLDER_NAME" /> にコピーしています</translation>
 <translation id="4631887759990505102">アーティスト</translation>
 <translation id="4656293982926141856">このパソコン</translation>
 <translation id="4669606053856530811">「<ph name="SOURCE_NAME" />」のメンバーはこれらのアイテムにアクセスできなくなります（ただし個別に共有されている場合はアクセス可能です）。</translation>
@@ -325,10 +344,12 @@
 <translation id="4880520557730313061">自動修正</translation>
 <translation id="4881695831933465202">開く</translation>
 <translation id="4886021172213954916">タミル語キーボード（タイプライター）</translation>
+<translation id="4900532980794411603">Parallels Desktop と共有</translation>
 <translation id="4905417359854579806"><ph name="FILE_COUNT" />をバックアップできます</translation>
 <translation id="4924638091161556692">修正済み</translation>
 <translation id="4935975195727477204">花</translation>
 <translation id="4943368462779413526">フットボール</translation>
+<translation id="4961158930123534723">1 個のフォルダが Parallels Desktop と共有されています</translation>
 <translation id="4969785127455456148">アルバム</translation>
 <translation id="497244430928947428">マラヤーラム語キーボード（表音）</translation>
 <translation id="4973523518332075481">名前は <ph name="MAX_LENGTH" /> 文字以内で指定してください</translation>
@@ -340,10 +361,12 @@
 <translation id="5010406651457630570">パソコン</translation>
 <translation id="5011233892417813670">Chromebook</translation>
 <translation id="5024856940085636730">操作に予想より時間がかかっています。中止しますか？</translation>
+<translation id="5036159836254554629">Parallels Desktop との共有を管理</translation>
 <translation id="5038625366300922036">もっと見る...</translation>
 <translation id="5061708541166515394">コントラスト</translation>
 <translation id="5068919226082848014">ピザ</translation>
 <translation id="5081517858322016911"><ph name="TOTAL_FILE_SIZE" /> 分のファイルが削除されます</translation>
+<translation id="508423945471810158"><ph name="NUMBER_OF_ITEMS" /> 個のアイテムを <ph name="FOLDER_NAME" /> に移動しています</translation>
 <translation id="509429900233858213">エラーが発生しました。</translation>
 <translation id="5098629044894065541">ヘブライ語</translation>
 <translation id="5123433949759960244">バスケットボール</translation>
@@ -389,6 +412,7 @@
 <translation id="5418923334382419584">ミャンマー語キーボード</translation>
 <translation id="5428105026674456456">スペイン語</translation>
 <translation id="5438282218546237410"><ph name="SEARCH_TERM" /> に一致する検索結果はありません。</translation>
+<translation id="5449551289610225147">パスワードが無効です</translation>
 <translation id="5464696796438641524">ポーランド語のキーボード</translation>
 <translation id="5465122519792752163">ネパール語キーボード（字母）</translation>
 <translation id="5469868506864199649">イタリア語</translation>
@@ -447,6 +471,7 @@
 <translation id="6054173164583630569">フランス語のキーボード</translation>
 <translation id="6074825444536523002">Google フォーム</translation>
 <translation id="6096979789310008754">検索語句を削除しました。すべてのファイルとフォルダを表示しています。</translation>
+<translation id="610101264611565198"><ph name="FILE_NAME" /> を <ph name="FOLDER_NAME" /> に移動しています</translation>
 <translation id="6111770213269631447">文字変換（namaskar → নমস্কার）</translation>
 <translation id="6129953537138746214">Space</translation>
 <translation id="6133173853026656527"><ph name="FILE_NAME" /> を移動しています...</translation>
@@ -487,9 +512,11 @@
 <translation id="656398493051028875">「<ph name="FILENAME" />」を削除しています...</translation>
 <translation id="6581162200855843583">Google ドライブ リンク</translation>
 <translation id="6607272825297743757">ファイル情報</translation>
+<translation id="6609332149380188670"><ph name="NUMBER_OF_ITEMS" /> 個のフォルダが Parallels Desktop と共有されています</translation>
 <translation id="6629841649550503054">すべて <ph name="BEGIN_LINK" />Google ドライブ<ph name="END_LINK" />にバックアップ済みです</translation>
 <translation id="6643016212128521049">削除</translation>
 <translation id="6650726141019353908">ピンクの蝶</translation>
+<translation id="6657585470893396449">パスワード</translation>
 <translation id="6710213216561001401">前へ</translation>
 <translation id="6718273304615422081">圧縮しています...</translation>
 <translation id="6751256176799620176">1 個のフォルダを選択しました</translation>
@@ -499,6 +526,7 @@
 <translation id="6806699711453372963">Linux との共有を管理</translation>
 <translation id="6808193438228982088">キツネ</translation>
 <translation id="6820687829547641339">gzip で圧縮された tar アーカイブ</translation>
+<translation id="6823166707458800069">このフォルダに保存されているすべてのファイルが自動的にオンラインにバックアップされます。</translation>
 <translation id="6825883775269213504">ロシア語</translation>
 <translation id="6827236167376090743">この動画は繰り返し再生されます。</translation>
 <translation id="6847101934483209767"><ph name="ENTRY_NAME" /> を選択範囲から削除しました。</translation>
@@ -508,6 +536,7 @@
 <translation id="6878261347041253038">デバナーガリ語キーボード（表音）</translation>
 <translation id="6885780034956018177">カタツムリ</translation>
 <translation id="6896758677409633944">コピー</translation>
+<translation id="6898028766943174120">その他のサブフォルダ...</translation>
 <translation id="691516599546977041"><ph name="FOLDER_NAME" /> に保存できません。編集した画像はダウンロード フォルダに保存されます。</translation>
 <translation id="6915678159055240887">Chromebox</translation>
 <translation id="6918340160281024199">US Workman</translation>
@@ -520,6 +549,7 @@
 <translation id="696203921837389374">モバイルデータとの同期を有効にする</translation>
 <translation id="6965382102122355670">OK</translation>
 <translation id="6970230597523682626">ブルガリア語</translation>
+<translation id="6973630695168034713">フォルダ</translation>
 <translation id="6978611942794658017">このファイルは Windows ソフトウェアを使用する PC 用に作成されています。Chrome OS を実行するデバイスとは互換性がありません。Chrome ウェブストアで代わりのアプリをお探しください。</translation>
 <translation id="6979158407327259162">Google ドライブ</translation>
 <translation id="6990081529015358884">空き容量が不足しています</translation>
@@ -553,6 +583,7 @@
 <translation id="7417705661718309329">Google マップ</translation>
 <translation id="7419631653042041064">カタロニア語のキーボード</translation>
 <translation id="7434823369735508263">Dvorak 配列キーボード（英国）</translation>
+<translation id="7447678886297481665">このフォルダ内のファイルは読み取り専用です。一部の操作は行えません。</translation>
 <translation id="7460898608667578234">ウクライナ語</translation>
 <translation id="7474889694310679759">英語（カナダ）のキーボード</translation>
 <translation id="7489215562877293245"><ph name="FILE_COUNT" />が見つかりました
@@ -662,6 +693,7 @@
 <translation id="8475647382427415476">Google ドライブでは「<ph name="FILENAME" />」を直ちに同期できませんでした。時間を置いて再試行します。</translation>
 <translation id="8477649328507734757">スピン</translation>
 <translation id="8487700953926739672">オフラインでの利用</translation>
+<translation id="8490342535582768689">Parallels Desktop に Google ドライブのファイルの変更を許可します。変更が加えられた場合は他のデバイスに同期されます。</translation>
 <translation id="8521441079177373948">UK</translation>
 <translation id="8525306231823319788">全画面表示</translation>
 <translation id="8551494947769799688">ラトビア語</translation>
@@ -697,6 +729,7 @@
 <translation id="9065203028668620118">編集</translation>
 <translation id="9099674669267916096">ページ数</translation>
 <translation id="9110990317705400362">Google では、より安全にウェブを閲覧できる方法を常に追求しています。以前は、どのウェブサイトでも、ブラウザに拡張機能を追加するように指示することができました。Google Chrome の最新バージョンでは、ユーザーのインストールの意思をより明確に確認するため、拡張機能の追加は拡張機能ページで行うこととなりました。<ph name="BEGIN_LINK" />詳細<ph name="END_LINK" /></translation>
+<translation id="9111102763498581341">ロック解除</translation>
 <translation id="912419004897138677">コーデック</translation>
 <translation id="9129931661813833980">フォルダを固定</translation>
 <translation id="9130775360844693113">「<ph name="DESTINATION_NAME" />」のメンバーがこれらのアイテムにアクセスできるようになります。</translation>

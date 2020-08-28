@@ -807,7 +807,7 @@ void ScrollAnimatorMac::ImmediateScrollTo(const ScrollOffset& new_offset) {
   ScrollOffset delta = adjusted_offset - current_offset_;
 
   current_offset_ = adjusted_offset;
-  NotifyContentAreaScrolled(delta, kUserScroll);
+  NotifyContentAreaScrolled(delta, mojom::blink::ScrollType::kUser);
   NotifyOffsetChanged();
 }
 
@@ -935,8 +935,9 @@ void ScrollAnimatorMac::WillRemoveHorizontalScrollbar(Scrollbar& scrollbar) {
   [scrollbar_painter_controller_ setHorizontalScrollerImp:nil];
 }
 
-void ScrollAnimatorMac::NotifyContentAreaScrolled(const ScrollOffset& delta,
-                                                  ScrollType scrollType) {
+void ScrollAnimatorMac::NotifyContentAreaScrolled(
+    const ScrollOffset& delta,
+    mojom::blink::ScrollType scrollType) {
   // This function is called when a page is going into the page cache, but the
   // page
   // isn't really scrolling in that case. We should only pass the message on to
@@ -986,7 +987,7 @@ void ScrollAnimatorMac::UpdateScrollerStyle() {
         [scrollbar_painter_controller_ verticalScrollerImp];
     ScrollbarPainter new_vertical_painter = [NSClassFromString(@"NSScrollerImp")
         scrollerImpWithStyle:new_style
-                 controlSize:(NSControlSize)vertical_scrollbar->GetControlSize()
+                 controlSize:NSRegularControlSize
                   horizontal:NO
         replacingScrollerImp:old_vertical_painter];
     [old_vertical_painter setDelegate:nil];
@@ -1001,7 +1002,7 @@ void ScrollAnimatorMac::UpdateScrollerStyle() {
     // offset
     // and length are properly updated.
     int thickness =
-        mac_theme->ScrollbarThickness(vertical_scrollbar->GetControlSize());
+        mac_theme->ScrollbarThickness(vertical_scrollbar->ScaleFromDIP());
     vertical_scrollbar->SetFrameRect(IntRect(0, 0, thickness, thickness));
   }
 
@@ -1014,8 +1015,7 @@ void ScrollAnimatorMac::UpdateScrollerStyle() {
     ScrollbarPainter new_horizontal_painter =
         [NSClassFromString(@"NSScrollerImp")
             scrollerImpWithStyle:new_style
-                     controlSize:(NSControlSize)
-                                     horizontal_scrollbar->GetControlSize()
+                     controlSize:NSRegularControlSize
                       horizontal:YES
             replacingScrollerImp:old_horizontal_painter];
     [old_horizontal_painter setDelegate:nil];
@@ -1031,7 +1031,7 @@ void ScrollAnimatorMac::UpdateScrollerStyle() {
     // offset
     // and length are properly updated.
     int thickness =
-        mac_theme->ScrollbarThickness(horizontal_scrollbar->GetControlSize());
+        mac_theme->ScrollbarThickness(horizontal_scrollbar->ScaleFromDIP());
     horizontal_scrollbar->SetFrameRect(IntRect(0, 0, thickness, thickness));
   }
 

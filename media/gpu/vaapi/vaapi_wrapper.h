@@ -28,6 +28,7 @@
 #include "base/thread_annotations.h"
 #include "media/gpu/media_gpu_export.h"
 #include "media/gpu/vaapi/va_surface.h"
+#include "media/gpu/vaapi/vaapi_utils.h"
 #include "media/video/video_decode_accelerator.h"
 #include "media/video/video_encode_accelerator.h"
 #include "ui/gfx/geometry/size.h"
@@ -46,9 +47,15 @@ class Rect;
 namespace media {
 constexpr unsigned int kInvalidVaRtFormat = 0u;
 
-class ScopedVAImage;
-class ScopedVASurface;
 class VideoFrame;
+
+// Enum, function and callback type to allow VaapiWrapper to log errors in VA
+// function calls executed on behalf of its owner. |histogram_name| is prebound
+// to allow for disinguishing such owners.
+enum class VaapiFunctions;
+void ReportVaapiErrorToUMA(const std::string& histogram_name,
+                           VaapiFunctions value);
+using ReportErrorToUMACB = base::RepeatingCallback<void(VaapiFunctions)>;
 
 // This struct holds a NativePixmapDmaBuf, usually the result of exporting a VA
 // surface, and some associated size information needed to tell clients about
@@ -97,7 +104,9 @@ class MEDIA_GPU_EXPORT VaapiWrapper
  public:
   enum CodecMode {
     kDecode,
-    kEncode,
+    kEncode,  // Encode with Constant Bitrate algorithm.
+    kEncodeConstantQuantizationParameter,  // Encode with Constant Quantization
+                                           // Parameter algorithm.
     kVideoProcess,
     kCodecModeMax,
   };
@@ -112,6 +121,7 @@ class MEDIA_GPU_EXPORT VaapiWrapper
 
   using InternalFormats = struct {
     bool yuv420 : 1;
+    bool yuv420_10 : 1;
     bool yuv422 : 1;
     bool yuv444 : 1;
   };
@@ -125,7 +135,7 @@ class MEDIA_GPU_EXPORT VaapiWrapper
   static scoped_refptr<VaapiWrapper> Create(
       CodecMode mode,
       VAProfile va_profile,
-      const base::Closure& report_error_to_uma_cb);
+      const ReportErrorToUMACB& report_error_to_uma_cb);
 
   // Create VaapiWrapper for VideoCodecProfile. It maps VideoCodecProfile
   // |profile| to VAProfile.
@@ -134,7 +144,7 @@ class MEDIA_GPU_EXPORT VaapiWrapper
   static scoped_refptr<VaapiWrapper> CreateForVideoCodec(
       CodecMode mode,
       VideoCodecProfile profile,
-      const base::Closure& report_error_to_uma_cb);
+      const ReportErrorToUMACB& report_error_to_uma_cb);
 
   // Return the supported video encode profiles.
   static VideoEncodeAccelerator::SupportedProfiles GetSupportedEncodeProfiles();
@@ -203,6 +213,12 @@ class MEDIA_GPU_EXPORT VaapiWrapper
   // Returns the list of VAImageFormats supported by the driver.
   static const std::vector<VAImageFormat>& GetSupportedImageFormatsForTesting();
 
+  // Returns the list of supported profiles and entrypoints for a given |mode|.
+  static std::map<VAProfile, std::vector<VAEntrypoint>>
+  GetSupportedConfigurationsForCodecModeForTesting(CodecMode mode);
+
+  static VAEntrypoint GetDefaultVaEntryPoint(CodecMode mode, VAProfile profile);
+
   static uint32_t BufferFormatToVARTFormat(gfx::BufferFormat fmt);
 
   // Creates |num_surfaces| VASurfaceIDs of |va_format|, |size| and
@@ -228,7 +244,7 @@ class MEDIA_GPU_EXPORT VaapiWrapper
       const base::Optional<gfx::Size>& visible_size = base::nullopt);
 
   // Releases the |va_surfaces| and destroys |va_context_id_|.
-  virtual void DestroyContextAndSurfaces(std::vector<VASurfaceID> va_surfaces);
+  void DestroyContextAndSurfaces(std::vector<VASurfaceID> va_surfaces);
 
   // Creates a VA Context of |size| and sets |va_context_id_|. In the case of a
   // VPP VaapiWrapper, |size| is ignored and 0x0 is used to create the context.
@@ -237,7 +253,7 @@ class MEDIA_GPU_EXPORT VaapiWrapper
   virtual bool CreateContext(const gfx::Size& size);
 
   // Destroys the context identified by |va_context_id_|.
-  void DestroyContext();
+  virtual void DestroyContext();
 
   // Requests a VA surface of size |size| and |va_rt_format|. Returns a
   // self-cleaning ScopedVASurface or nullptr if creation failed. If
@@ -251,13 +267,6 @@ class MEDIA_GPU_EXPORT VaapiWrapper
       unsigned int va_rt_format,
       const gfx::Size& size,
       const base::Optional<gfx::Size>& visible_size = base::nullopt);
-
-  // Creates a self-releasing VASurface from |frame|. The created VASurface
-  // doesn't have the ownership of |frame|, while it shares the ownership of the
-  // underlying buffer represented by |frame|. In other words, the buffer is
-  // alive at least until both |frame| and the created VASurface are destroyed.
-  scoped_refptr<VASurface> CreateVASurfaceForVideoFrame(
-      const VideoFrame* frame);
 
   // Creates a self-releasing VASurface from |pixmap|. The created VASurface
   // shares the ownership of the underlying buffer represented by |pixmap|. The
@@ -321,9 +330,9 @@ class MEDIA_GPU_EXPORT VaapiWrapper
   // Useful when a pending job is to be cancelled (on reset or error).
   void DestroyPendingBuffers();
 
-  // Execute job in hardware on target |va_surface_id| and destroy pending
-  // buffers. Return false if Execute() fails.
-  bool ExecuteAndDestroyPendingBuffers(VASurfaceID va_surface_id);
+  // Executes job in hardware on target |va_surface_id| and destroys pending
+  // buffers. Returns false if Execute() fails.
+  virtual bool ExecuteAndDestroyPendingBuffers(VASurfaceID va_surface_id);
 
 #if defined(USE_X11)
   // Put data from |va_surface_id| into |x_pixmap| of size
@@ -342,27 +351,37 @@ class MEDIA_GPU_EXPORT VaapiWrapper
                                                VAImageFormat* format,
                                                const gfx::Size& size);
 
-  // Upload contents of |frame| into |va_surface_id| for encode.
-  bool UploadVideoFrameToSurface(const VideoFrame& frame,
-                                 VASurfaceID va_surface_id);
+  // Uploads contents of |frame| into |va_surface_id| for encode.
+  virtual bool UploadVideoFrameToSurface(const VideoFrame& frame,
+                                         VASurfaceID va_surface_id,
+                                         const gfx::Size& va_surface_size);
 
-  // Create a buffer of |size| bytes to be used as encode output.
-  bool CreateVABuffer(size_t size, VABufferID* buffer_id);
+  // Creates a buffer of |size| bytes to be used as encode output.
+  virtual bool CreateVABuffer(size_t size, VABufferID* buffer_id);
 
-  // Download the contents of the buffer with given |buffer_id| into a buffer of
-  // size |target_size|, pointed to by |target_ptr|. The number of bytes
+  // Gets the encoded frame linear size of the buffer with given |buffer_id|.
+  // |sync_surface_id| will be used as a sync point, i.e. it will have to become
+  // idle before starting the acquirement. |sync_surface_id| should be the
+  // source surface passed to the encode job. Returns 0 if it fails for any
+  // reason.
+  virtual uint64_t GetEncodedChunkSize(VABufferID buffer_id,
+                                       VASurfaceID sync_surface_id);
+
+  // Downloads the contents of the buffer with given |buffer_id| into a buffer
+  // of size |target_size|, pointed to by |target_ptr|. The number of bytes
   // downloaded will be returned in |coded_data_size|. |sync_surface_id| will
   // be used as a sync point, i.e. it will have to become idle before starting
   // the download. |sync_surface_id| should be the source surface passed
-  // to the encode job.
-  bool DownloadFromVABuffer(VABufferID buffer_id,
-                            VASurfaceID sync_surface_id,
-                            uint8_t* target_ptr,
-                            size_t target_size,
-                            size_t* coded_data_size);
+  // to the encode job. Returns false if it fails for any reason. For example,
+  // the linear size of the resulted encoded frame is larger than |target_size|.
+  virtual bool DownloadFromVABuffer(VABufferID buffer_id,
+                                    VASurfaceID sync_surface_id,
+                                    uint8_t* target_ptr,
+                                    size_t target_size,
+                                    size_t* coded_data_size);
 
   // Deletes the VA buffer identified by |buffer_id|.
-  void DestroyVABuffer(VABufferID buffer_id);
+  virtual void DestroyVABuffer(VABufferID buffer_id);
 
   // Destroy all previously-allocated (and not yet destroyed) buffers.
   void DestroyVABuffers();
@@ -372,24 +391,28 @@ class MEDIA_GPU_EXPORT VaapiWrapper
   // For H.264 encoding, the value represents the maximum number of reference
   // frames for both the reference picture list 0 (bottom 16 bits) and the
   // reference picture list 1 (top 16 bits).
-  bool GetVAEncMaxNumOfRefFrames(VideoCodecProfile profile,
-                                 size_t* max_ref_frames);
+  virtual bool GetVAEncMaxNumOfRefFrames(VideoCodecProfile profile,
+                                         size_t* max_ref_frames);
+
+  // Checks if the driver supports frame rotation.
+  bool IsRotationSupported();
 
   // Blits a VASurface |va_surface_src| into another VASurface
-  // |va_surface_dest| applying pixel format conversion, cropping and scaling
-  // if needed. |src_rect| and |dest_rect| are optional. They can be used to
-  // specify the area used in the blit.
+  // |va_surface_dest| applying pixel format conversion, rotation, cropping
+  // and scaling if needed. |src_rect| and |dest_rect| are optional. They can
+  // be used to specify the area used in the blit.
   bool BlitSurface(const VASurface& va_surface_src,
                    const VASurface& va_surface_dest,
                    base::Optional<gfx::Rect> src_rect = base::nullopt,
-                   base::Optional<gfx::Rect> dest_rect = base::nullopt);
+                   base::Optional<gfx::Rect> dest_rect = base::nullopt,
+                   VideoRotation rotation = VIDEO_ROTATION_0);
 
   // Initialize static data before sandbox is enabled.
   static void PreSandboxInitialization();
 
   // vaDestroySurfaces() a vector or a single VASurfaceID.
-  void DestroySurfaces(std::vector<VASurfaceID> va_surfaces);
-  void DestroySurface(VASurfaceID va_surface_id);
+  virtual void DestroySurfaces(std::vector<VASurfaceID> va_surfaces);
+  virtual void DestroySurface(VASurfaceID va_surface_id);
 
  protected:
   VaapiWrapper(CodecMode mode);
@@ -404,7 +427,7 @@ class MEDIA_GPU_EXPORT VaapiWrapper
 
   bool Initialize(CodecMode mode, VAProfile va_profile);
   void Deinitialize();
-  bool VaInitialize(const base::Closure& report_error_to_uma_cb);
+  bool VaInitialize(const ReportErrorToUMACB& report_error_to_uma_cb);
 
   // Tries to allocate |num_surfaces| VASurfaceIDs of |size| and |va_format|.
   // Fills |va_surfaces| and returns true if successful, or returns false.
@@ -423,12 +446,6 @@ class MEDIA_GPU_EXPORT VaapiWrapper
 
   void DestroyPendingBuffers_Locked() EXCLUSIVE_LOCKS_REQUIRED(va_lock_);
 
-  // Attempt to set render mode to "render to texture.". Failure is non-fatal.
-  void TryToSetVADisplayAttributeToLocalGPU();
-
-  // Check low-power encode support for the given profile
-  bool IsLowPowerEncSupported(VAProfile va_profile) const;
-
   const CodecMode mode_;
 
   // Pointer to VADisplayState's member |va_lock_|. Guaranteed to be valid for
@@ -443,16 +460,22 @@ class MEDIA_GPU_EXPORT VaapiWrapper
   // DestroyContext() or DestroyContextAndSurfaces().
   VAContextID va_context_id_;
 
-  // Data queued up for HW codec, to be committed on next execution.
-  std::vector<VABufferID> pending_slice_bufs_;
-  std::vector<VABufferID> pending_va_bufs_;
+  //Entrypoint configured for the corresponding context
+  VAEntrypoint va_entrypoint_;
 
-  // Buffers for kEncode or kVideoProcess.
+  // Data queued up for HW codec, to be committed on next execution.
+  std::vector<VABufferID> pending_va_buffers_;
+
+  // VABufferIDs for kEncode*.
   std::set<VABufferID> va_buffers_;
+
+  // VABufferID to be used for kVideoProcess. Allocated the first time around,
+  // and reused afterwards.
+  std::unique_ptr<ScopedID<VABufferID>> va_buffer_for_vpp_;
 
   // Called to report codec errors to UMA. Errors to clients are reported via
   // return values from public methods.
-  base::Closure report_error_to_uma_cb_;
+  ReportErrorToUMACB report_error_to_uma_cb_;
 
   DISALLOW_COPY_AND_ASSIGN(VaapiWrapper);
 };

@@ -7,6 +7,7 @@
 
 #include "ash/app_list/app_list_export.h"
 #include "ash/public/cpp/app_list/app_list_types.h"
+#include "base/time/time.h"
 #include "ui/events/event.h"
 
 namespace ash {
@@ -68,16 +69,20 @@ constexpr char kAppListToggleMethodHistogram[] = "Apps.AppListShowSource";
 constexpr char kAppListResultLaunchIndexAndQueryLength[] =
     "Apps.AppListResultLaunchIndexAndQueryLength";
 
-// The UMA histogram that logs the index launched item in the app tile list and
-// the query length.
-constexpr char kAppListTileLaunchIndexAndQueryLength[] =
-    "Apps.AppListTileLaunchIndexAndQueryLength";
+// The UMA histogram that logs if the query that introduces a launch of an item
+// in the results list is empty or not.
+constexpr char kAppListResultLaunchIsEmptyQuery[] =
+    "Apps.AppListResultLaunchIsEmptyQuery";
 
 // The UMA histogram that logs the presence or absence of Drive QuickAccess
 // search results in the zero-state results list. Differentiates between results
 // existing in the model's results list, but not being displayed in the view.
 constexpr char kDriveQuickAccessResultPresence[] =
     "Apps.AppListDriveQuickAccessProvider.ResultPresence";
+
+// The UMA histogram that logs smoothness of folder show/hide animation.
+constexpr char kFolderShowHideAnimationSmoothness[] =
+    "Apps.AppListFolder.ShowHide.AnimationSmoothness";
 
 // The UMA histogram that logs which page gets opened by the user.
 constexpr char kPageOpenedHistogram[] = "Apps.AppListPageOpened";
@@ -113,11 +118,6 @@ constexpr char kSearchQueryLengthInClamshell[] =
 // opened in tablet mode.
 constexpr char kSearchQueryLengthInTablet[] =
     "Apps.AppListSearchQueryLength.TabletMode";
-
-// The UMA histogram that logs the Manhattan distance from the origin of the
-// search results to the selected result.
-constexpr char kSearchResultDistanceFromOrigin[] =
-    "Apps.AppListSearchResultDistanceFromOrigin";
 
 // The different ways to create a new page in the apps grid. These values are
 // written to logs. New enum values can be added, but existing enums must never
@@ -299,20 +299,11 @@ struct AppLaunchedMetricParams {
   bool home_launcher_shown = false;
 };
 
-void RecordFolderShowHideAnimationSmoothness(int actual_frames,
-                                             base::TimeDelta ideal_duration,
-                                             float refresh_rate);
-
 void AppListRecordPageSwitcherSourceByEventType(ui::EventType type,
                                                 bool is_tablet_mode);
 
 void RecordPageSwitcherSource(AppListPageSwitcherSource source,
                               bool is_tablet_mode);
-
-void RecordPaginationAnimationSmoothness(int actual_frames,
-                                         base::TimeDelta ideal_duration,
-                                         float refresh_rate,
-                                         bool is_tablet_mode);
 
 void RecordZeroStateSearchResultUserActionHistogram(
     ZeroStateSearchResultUserActionType action);
@@ -339,6 +330,12 @@ APP_LIST_EXPORT void RecordAppListAppLaunched(AppListLaunchedFrom launched_from,
                                               bool home_launcher_shown);
 
 APP_LIST_EXPORT bool IsCommandIdAnAppLaunch(int command_id);
+
+APP_LIST_EXPORT void ReportPaginationSmoothness(bool is_tablet_mode,
+                                                int smoothness);
+
+APP_LIST_EXPORT void ReportCardifiedSmoothness(bool is_entering_cardified,
+                                               int smoothness);
 
 }  // namespace ash
 

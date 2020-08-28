@@ -41,14 +41,18 @@
 #include "third_party/blink/renderer/core/dom/node.h"
 #include "third_party/blink/renderer/core/editing/editing_tri_state.h"
 #include "third_party/blink/renderer/core/editing/editor.h"
+#include "third_party/blink/renderer/core/editing/ephemeral_range.h"
 #include "third_party/blink/renderer/core/editing/frame_selection.h"
 #include "third_party/blink/renderer/core/editing/ime/input_method_controller.h"
+#include "third_party/blink/renderer/core/editing/selection_controller.h"
 #include "third_party/blink/renderer/core/editing/spellcheck/spell_checker.h"
 #include "third_party/blink/renderer/core/events/mouse_event.h"
 #include "third_party/blink/renderer/core/exported/web_plugin_container_impl.h"
+#include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/frame/picture_in_picture_controller.h"
 #include "third_party/blink/renderer/core/frame/settings.h"
+#include "third_party/blink/renderer/core/frame/web_frame_widget_base.h"
 #include "third_party/blink/renderer/core/frame/web_local_frame_impl.h"
 #include "third_party/blink/renderer/core/html/forms/html_form_element.h"
 #include "third_party/blink/renderer/core/html/forms/html_input_element.h"
@@ -66,6 +70,7 @@
 #include "third_party/blink/renderer/core/page/context_menu_provider.h"
 #include "third_party/blink/renderer/core/page/focus_controller.h"
 #include "third_party/blink/renderer/core/page/page.h"
+#include "third_party/blink/renderer/core/page/scrolling/text_fragment_selector_generator.h"
 #include "third_party/blink/renderer/platform/exported/wrapped_resource_response.h"
 
 namespace blink {
@@ -74,7 +79,7 @@ ContextMenuController::ContextMenuController(Page* page) : page_(page) {}
 
 ContextMenuController::~ContextMenuController() = default;
 
-void ContextMenuController::Trace(blink::Visitor* visitor) {
+void ContextMenuController::Trace(Visitor* visitor) const {
   visitor->Trace(page_);
   visitor->Trace(menu_provider_);
   visitor->Trace(hit_test_result_);
@@ -100,7 +105,9 @@ void ContextMenuController::HandleContextMenuEvent(MouseEvent* mouse_event) {
   LocalFrame* frame = mouse_event->target()->ToNode()->GetDocument().GetFrame();
   PhysicalOffset location = PhysicalOffset::FromFloatPointRound(
       FloatPoint(mouse_event->AbsoluteLocation()));
-  if (ShowContextMenu(frame, location, mouse_event->GetMenuSourceType()))
+
+  if (ShowContextMenu(frame, location, mouse_event->GetMenuSourceType(),
+                      mouse_event))
     mouse_event->SetDefaultHandled();
 }
 
@@ -126,16 +133,6 @@ Node* ContextMenuController::ContextMenuNodeForFrame(LocalFrame* frame) {
   return hit_test_result_.InnerNodeFrame() == frame
              ? hit_test_result_.InnerNodeOrImageMapImage()
              : nullptr;
-}
-
-// Figure out the URL of a page or subframe.
-static KURL UrlFromFrame(LocalFrame* frame) {
-  if (frame) {
-    DocumentLoader* document_loader = frame->Loader().GetDocumentLoader();
-    if (document_loader)
-      return document_loader->UrlForHistory();
-  }
-  return KURL();
 }
 
 static int ComputeEditFlags(Document& selected_document, Editor& editor) {
@@ -218,7 +215,8 @@ bool ContextMenuController::ShouldShowContextMenuFromTouch(
 
 bool ContextMenuController::ShowContextMenu(LocalFrame* frame,
                                             const PhysicalOffset& point,
-                                            WebMenuSourceType source_type) {
+                                            WebMenuSourceType source_type,
+                                            const MouseEvent* mouse_event) {
   // Displaying the context menu in this function is a big hack as we don't
   // have context, i.e. whether this is being invoked via a script or in
   // response to user input (Mouse event WM_RBUTTONDOWN,
@@ -241,6 +239,14 @@ bool ContextMenuController::ShowContextMenu(LocalFrame* frame,
   result.SetToShadowHostIfInRestrictedShadowRoot();
 
   LocalFrame* selected_frame = result.InnerNodeFrame();
+  // Tests that do not require selection pass mouse_event = nullptr
+  if (mouse_event) {
+    selected_frame->GetEventHandler()
+        .GetSelectionController()
+        .UpdateSelectionForContextMenuEvent(
+            mouse_event, hit_test_result_,
+            PhysicalOffset(FlooredIntPoint(point)));
+  }
 
   WebContextMenuData data;
   data.mouse_position = selected_frame->View()->FrameToViewport(
@@ -251,8 +257,21 @@ bool ContextMenuController::ShowContextMenu(LocalFrame* frame,
       To<LocalFrame>(page_->GetFocusController().FocusedOrMainFrame())
           ->GetEditor());
 
-  // Links, Images, Media tags, and Image/Media-Links take preference over
-  // all else.
+  if (mouse_event && source_type == kMenuSourceKeyboard) {
+    Node* target_node = mouse_event->target()->ToNode();
+    if (target_node && IsA<Element>(target_node)) {
+      // Get the url from an explicitly set target, e.g. the focused element
+      // when the context menu is evoked from the keyboard. Note: the innerNode
+      // could also be set. It is used to identify a relevant inner media
+      // element. In most cases, the innerNode will already be set to any
+      // relevant inner media element via the median x,y point from the focused
+      // element's bounding box. As the media element in most cases fills the
+      // entire area of a focused link or button, this generally suffices.
+      // Example: When Shift+F10 is used with <a><img></a>, any image-related
+      // context menu options, such as open image in new tab, must be presented.
+      result.SetURLElement(target_node->EnclosingLinkEventParentOrSelf());
+    }
+  }
   data.link_url = result.AbsoluteLinkURL();
 
   auto* html_element = DynamicTo<HTMLElement>(result.InnerNode());
@@ -261,6 +280,8 @@ bool ContextMenuController::ShowContextMenu(LocalFrame* frame,
     data.alt_text = html_element->AltText();
   }
 
+  // Links, Images, Media tags, and Image/Media-Links take preference over
+  // all else.
   if (IsA<HTMLCanvasElement>(result.InnerNode())) {
     data.media_type = ContextMenuDataMediaType::kCanvas;
     data.has_image_contents = true;
@@ -380,25 +401,6 @@ bool ContextMenuController::ShowContextMenu(LocalFrame* frame,
   if (selected_frame->GetDocument()->Loader())
     data.frame_encoding = selected_frame->GetDocument()->EncodingName();
 
-  // Send the frame and page URLs in any case.
-  auto* main_local_frame = DynamicTo<LocalFrame>(page_->MainFrame());
-  if (!main_local_frame) {
-    // TODO(kenrb): This works around the problem of URLs not being
-    // available for top-level frames that are in a different process.
-    // It mostly works to convert the security origin to a URL, but
-    // extensions accessing that property will not get the correct value
-    // in that case. See https://crbug.com/534561
-    const SecurityOrigin* origin =
-        page_->MainFrame()->GetSecurityContext()->GetSecurityOrigin();
-    if (origin)
-      data.page_url = KURL(origin->ToString());
-  } else {
-    data.page_url = WebURL(UrlFromFrame(main_local_frame));
-  }
-
-  if (selected_frame != page_->MainFrame())
-    data.frame_url = WebURL(UrlFromFrame(selected_frame));
-
   data.selection_start_offset = 0;
   // HitTestResult::isSelected() ensures clean layout by performing a hit test.
   // If source_type is |kMenuSourceAdjustSelection| or
@@ -420,6 +422,11 @@ bool ContextMenuController::ShowContextMenu(LocalFrame* frame,
         << "]\nVisibleSelection: "
         << selected_frame->Selection()
                .ComputeVisibleSelectionInDOMTreeDeprecated();
+
+    // Store text selection when it happens as it might be cleared when the
+    // browser will request |TextFragmentSelectorGenerator| to generate
+    // selector.
+    UpdateTextFragmentSelectorGenerator(selected_frame);
   }
 
   if (result.IsContentEditable()) {
@@ -459,7 +466,7 @@ bool ContextMenuController::ShowContextMenu(LocalFrame* frame,
         WebContextMenuData::kCheckableMenuItemChecked;
   }
 
-  data.referrer_policy = selected_frame->GetDocument()->GetReferrerPolicy();
+  data.referrer_policy = selected_frame->DomWindow()->GetReferrerPolicy();
 
   if (menu_provider_) {
     // Filter out custom menu elements and add them into the data.
@@ -481,6 +488,9 @@ bool ContextMenuController::ShowContextMenu(LocalFrame* frame,
       data.referrer_policy = network::mojom::ReferrerPolicy::kNever;
 
     data.link_text = anchor->innerText();
+
+    if (anchor->HasImpression())
+      data.impression = anchor->GetImpressionForNavigation();
   }
 
   data.input_field_type = ComputeInputFieldType(result);
@@ -493,13 +503,32 @@ bool ContextMenuController::ShowContextMenu(LocalFrame* frame,
   if (from_touch && !ShouldShowContextMenuFromTouch(data))
     return false;
 
+  base::Optional<gfx::Point> host_context_menu_location;
+  auto* main_frame =
+      WebLocalFrameImpl::FromFrame(DynamicTo<LocalFrame>(page_->MainFrame()));
+  if (main_frame) {
+    host_context_menu_location =
+        main_frame->FrameWidgetImpl()->GetAndResetContextMenuLocation();
+  }
+
   WebLocalFrameImpl* selected_web_frame =
       WebLocalFrameImpl::FromFrame(selected_frame);
   if (!selected_web_frame || !selected_web_frame->Client())
     return false;
 
-  selected_web_frame->Client()->ShowContextMenu(data);
+  selected_web_frame->Client()->ShowContextMenu(data,
+                                                host_context_menu_location);
+
   return true;
+}
+
+void ContextMenuController::UpdateTextFragmentSelectorGenerator(
+    LocalFrame* selected_frame) {
+  VisibleSelectionInFlatTree selection =
+      selected_frame->Selection().ComputeVisibleSelectionInFlatTree();
+  EphemeralRangeInFlatTree selection_range(selection.Start(), selection.End());
+  page_->GetTextFragmentSelectorGenerator().UpdateSelection(selected_frame,
+                                                            selection_range);
 }
 
 }  // namespace blink

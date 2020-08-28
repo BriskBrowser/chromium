@@ -25,6 +25,7 @@
 #include "content/public/browser/storage_partition.h"
 #include "content/public/common/content_client.h"
 #include "content/public/common/content_switches.h"
+#include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/content_browser_test.h"
 #include "content/public/test/content_browser_test_utils.h"
@@ -34,6 +35,7 @@
 #include "ipc/ipc_security_test_util.h"
 #include "net/base/features.h"
 #include "net/cookies/canonical_cookie.h"
+#include "net/cookies/cookie_access_result.h"
 #include "net/cookies/cookie_util.h"
 #include "net/dns/mock_host_resolver.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
@@ -66,7 +68,7 @@ void SetCookieDirect(WebContentsImpl* tab,
   net::CookieOptions options;
   // Allow setting SameSite cookies.
   options.set_same_site_cookie_context(
-      net::CookieOptions::SameSiteCookieContext::SAME_SITE_STRICT);
+      net::CookieOptions::SameSiteCookieContext::MakeInclusive());
 
   auto cookie_obj = net::CanonicalCookie::Create(
       url, cookie_line, base::Time::Now(), base::nullopt /* server_time */);
@@ -75,11 +77,9 @@ void SetCookieDirect(WebContentsImpl* tab,
   BrowserContext::GetDefaultStoragePartition(tab->GetBrowserContext())
       ->GetCookieManagerForBrowserProcess()
       ->SetCanonicalCookie(
-          *cookie_obj, url.scheme(), options,
+          *cookie_obj, url, options,
           base::BindLambdaForTesting(
-              [&](net::CanonicalCookie::CookieInclusionStatus status) {
-                run_loop.Quit();
-              }));
+              [&](net::CookieAccessResult status) { run_loop.Quit(); }));
   run_loop.Run();
 }
 
@@ -87,19 +87,19 @@ std::string GetCookiesDirect(WebContentsImpl* tab, const GURL& url) {
   net::CookieOptions options;
   // Allow setting SameSite cookies.
   options.set_same_site_cookie_context(
-      net::CookieOptions::SameSiteCookieContext::SAME_SITE_STRICT);
+      net::CookieOptions::SameSiteCookieContext::MakeInclusive());
   net::CookieList result;
   base::RunLoop run_loop;
   BrowserContext::GetDefaultStoragePartition(tab->GetBrowserContext())
       ->GetCookieManagerForBrowserProcess()
-      ->GetCookieList(url, options,
-                      base::BindLambdaForTesting(
-                          [&](const net::CookieStatusList& cookie_list,
-                              const net::CookieStatusList& excluded_cookies) {
-                            result =
-                                net::cookie_util::StripStatuses(cookie_list);
-                            run_loop.Quit();
-                          }));
+      ->GetCookieList(
+          url, options,
+          base::BindLambdaForTesting(
+              [&](const net::CookieAccessResultList& cookie_list,
+                  const net::CookieAccessResultList& excluded_cookies) {
+                result = net::cookie_util::StripAccessResults(cookie_list);
+                run_loop.Quit();
+              }));
   run_loop.Run();
   return net::CanonicalCookie::BuildCookieLine(result);
 }

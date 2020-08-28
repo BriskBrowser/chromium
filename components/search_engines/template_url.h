@@ -14,6 +14,7 @@
 #include "base/gtest_prod_util.h"
 #include "base/macros.h"
 #include "base/time/time.h"
+#include "components/search_engines/omnibox_focus_type.h"
 #include "components/search_engines/search_engine_type.h"
 #include "components/search_engines/template_url_data.h"
 #include "components/search_engines/template_url_id.h"
@@ -76,21 +77,6 @@ class TemplateURLRef {
     SearchTermsArgs(const SearchTermsArgs& other);
     ~SearchTermsArgs();
 
-    // If the search request is from the omnibox, this enum may specify details
-    // about how the user last interacted with the omnibox.
-    //
-    // These values are used as HTTP GET parameter values. Entries should not be
-    // renumbered and numeric values should never be reused.
-    enum class OmniboxFocusType {
-      // The default value. This is used for any search requests without any
-      // special interaction annotation, including: normal omnibox searches,
-      // as-you-type omnibox suggestions, as well as non-omnibox searches.
-      DEFAULT = 0,
-
-      // This search request is triggered by the user focusing the omnibox.
-      ON_FOCUS = 1,
-    };
-
     struct ContextualSearchParams {
       ContextualSearchParams();
       // Modern constructor, used when the content is sent in the HTTP header
@@ -107,11 +93,30 @@ class TemplateURLRef {
       // The |previous_event_results| are the results of the user-interaction of
       // that previous request.
       // The "previous_xyz" parameters are documented in go/cs-sanitized.
+      // The |is_exact_search| allows the search request to be narrowed down to
+      // an "exact" search only, meaning just search for X rather than X +
+      // whatever else is in the context.  The returned search term should not
+      // be expanded, and the server will honor this along with creating a
+      // narrow Search Term.
+      // The |source_lang| specifies a source language hint to apply for
+      // translation or to indicate that translation might be appropriate.
+      // This comes from CLD evaluating the selection and/or page content.
+      // The |target_lang| specifies the best language to translate into for
+      // the user, which also indicates when translation is appropriate or
+      // helpful.  This comes from the Chrome Language Model.
+      // The |fluent_languages| string specifies the languages the user
+      // is fluent in reading.  This acts as an alternate set of languages
+      // to consider translating into.  The languages are ordered by
+      // fluency, and encoded as a comma-separated list of BCP 47 languages.
       ContextualSearchParams(int version,
                              int contextual_cards_version,
-                             const std::string& home_country,
+                             std::string home_country,
                              int64_t previous_event_id,
-                             int previous_event_results);
+                             int previous_event_results,
+                             bool is_exact_search,
+                             std::string source_lang,
+                             std::string target_lang,
+                             std::string fluent_languages);
       ContextualSearchParams(const ContextualSearchParams& other);
       ~ContextualSearchParams();
 
@@ -120,11 +125,11 @@ class TemplateURLRef {
       size_t EstimateMemoryUsage() const;
 
       // The version of contextual search.
-      int version;
+      int version = -1;
 
       // The version of Contextual Cards data to request.
       // A value of 0 indicates no data needed.
-      int contextual_cards_version;
+      int contextual_cards_version = 0;
 
       // The locale of the user's home country in an ISO country code format,
       // or an empty string if not available.  This indicates where the user
@@ -133,11 +138,25 @@ class TemplateURLRef {
 
       // An EventID from a previous interaction (sent by server, recorded by
       // client).
-      int64_t previous_event_id;
+      int64_t previous_event_id = 0l;
 
       // An encoded set of booleans that represent the interaction results from
       // the previous event.
-      int previous_event_results;
+      int previous_event_results = 0;
+
+      // A flag that restricts the search to exactly match the selection rather
+      // than expanding the Search Term to include other words in the context.
+      bool is_exact_search = false;
+
+      // Source language string to translate from.
+      std::string source_lang;
+
+      // Target language string to be translated into.
+      std::string target_lang;
+
+      // Alternate target languages that the user is fluent in, encoded in a
+      // single string.
+      std::string fluent_languages;
     };
 
     // Estimates dynamic memory usage.
@@ -153,9 +172,8 @@ class TemplateURLRef {
     // The type the original input query was identified as.
     metrics::OmniboxInputType input_type = metrics::OmniboxInputType::EMPTY;
 
-    // If the search request is from the omnibox, this may specify how the user
-    // last interacted with the omnibox.
-    OmniboxFocusType omnibox_focus_type = OmniboxFocusType::DEFAULT;
+    // Specifies how the user last interacted with the searchbox UI element.
+    OmniboxFocusType focus_type = OmniboxFocusType::DEFAULT;
 
     // The optional assisted query stats, aka AQS, used for logging purposes.
     // This string contains impressions of all autocomplete matches shown

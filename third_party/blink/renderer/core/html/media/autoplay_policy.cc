@@ -20,6 +20,7 @@
 #include "third_party/blink/renderer/core/intersection_observer/intersection_observer.h"
 #include "third_party/blink/renderer/core/intersection_observer/intersection_observer_entry.h"
 #include "third_party/blink/renderer/core/page/page.h"
+#include "third_party/blink/renderer/platform/heap/heap.h"
 #include "third_party/blink/renderer/platform/network/network_state_notifier.h"
 #include "third_party/blink/renderer/platform/runtime_enabled_features.h"
 #include "third_party/blink/renderer/platform/wtf/assertions.h"
@@ -88,7 +89,8 @@ bool AutoplayPolicy::IsDocumentAllowedToPlay(const Document& document) {
     return false;
 
   bool feature_policy_enabled =
-      document.IsFeatureEnabled(mojom::FeaturePolicyFeature::kAutoplay);
+      document.GetExecutionContext()->IsFeatureEnabled(
+          mojom::blink::FeaturePolicyFeature::kAutoplay);
 
   for (Frame* frame = document.GetFrame(); frame;
        frame = frame->Tree().Parent()) {
@@ -218,9 +220,10 @@ bool AutoplayPolicy::RequestAutoplayUnmute() {
   if (was_autoplaying_muted) {
     if (IsGestureNeededForPlayback()) {
       if (IsUsingDocumentUserActivationRequiredPolicy()) {
-        element_->GetDocument().AddConsoleMessage(ConsoleMessage::Create(
-            mojom::ConsoleMessageSource::kJavaScript,
-            mojom::ConsoleMessageLevel::kWarning, kWarningUnmuteFailed));
+        element_->GetDocument().AddConsoleMessage(
+            MakeGarbageCollected<ConsoleMessage>(
+                mojom::ConsoleMessageSource::kJavaScript,
+                mojom::ConsoleMessageLevel::kWarning, kWarningUnmuteFailed));
       }
 
       autoplay_uma_helper_->RecordAutoplayUnmuteStatus(
@@ -341,6 +344,7 @@ void AutoplayPolicy::OnIntersectionChangedForAutoplay(
 
   if (ShouldAutoplay()) {
     element_->paused_ = false;
+    element_->SetShowPosterFlag(false);
     element_->ScheduleEvent(event_type_names::kPlay);
     element_->ScheduleNotifyPlaying();
 
@@ -359,11 +363,12 @@ void AutoplayPolicy::MaybeSetAutoplayInitiated() {
 
   autoplay_initiated_ = true;
 
-  const Document& document = element_->GetDocument();
   bool feature_policy_enabled =
-      document.IsFeatureEnabled(mojom::FeaturePolicyFeature::kAutoplay);
+      element_->GetExecutionContext() &&
+      element_->GetExecutionContext()->IsFeatureEnabled(
+          mojom::blink::FeaturePolicyFeature::kAutoplay);
 
-  for (Frame* frame = document.GetFrame(); frame;
+  for (Frame* frame = element_->GetDocument().GetFrame(); frame;
        frame = frame->Tree().Parent()) {
     if (frame->HasStickyUserActivation() ||
         frame->HadStickyUserActivationBeforeNavigation()) {
@@ -376,12 +381,15 @@ void AutoplayPolicy::MaybeSetAutoplayInitiated() {
 }
 
 bool AutoplayPolicy::ShouldAutoplay() {
-  if (element_->GetDocument().IsSandboxed(WebSandboxFlags::kAutomaticFeatures))
+  if (!element_->GetExecutionContext() ||
+      element_->GetExecutionContext()->IsSandboxed(
+          network::mojom::blink::WebSandboxFlags::kAutomaticFeatures)) {
     return false;
+  }
   return element_->can_autoplay_ && element_->paused_ && element_->Autoplay();
 }
 
-void AutoplayPolicy::Trace(Visitor* visitor) {
+void AutoplayPolicy::Trace(Visitor* visitor) const {
   visitor->Trace(element_);
   visitor->Trace(autoplay_intersection_observer_);
   visitor->Trace(autoplay_uma_helper_);

@@ -47,8 +47,12 @@ cr.define('settings', function() {
 
   /**
    * @typedef {{
-   *   idleBehavior: settings.IdleBehavior,
-   *   idleControlled: boolean,
+   *   possibleAcIdleBehaviors: !Array<settings.IdleBehavior>,
+   *   possibleBatteryIdleBehaviors: !Array<settings.IdleBehavior>,
+   *   acIdleManaged: boolean,
+   *   batteryIdleManaged: boolean,
+   *   currentAcIdleBehavior: settings.IdleBehavior,
+   *   currentBatteryIdleBehavior: settings.IdleBehavior,
    *   lidClosedBehavior: settings.LidClosedBehavior,
    *   lidClosedControlled: boolean,
    *   hasLid: boolean,
@@ -115,8 +119,10 @@ cr.define('settings', function() {
     /**
      * Sets the idle power management behavior.
      * @param {settings.IdleBehavior} behavior Idle behavior.
+     * @param {boolean} whenOnAc If true sets AC idle behavior. Otherwise sets
+     *     battery idle behavior.
      */
-    setIdleBehavior(behavior) {}
+    setIdleBehavior(behavior, whenOnAc) {}
 
     /**
      * Sets the lid-closed power management behavior.
@@ -167,6 +173,23 @@ cr.define('settings', function() {
      * @param {function(Array<!settings.ExternalStorage>):void} callback
      */
     setExternalStoragesUpdatedCallback(callback) {}
+
+    /**
+     * Sets |id| of display to render identification highlight on. Invalid |id|
+     * turns identification highlight off. Handles any invalid input string as
+     * invalid id.
+     * @param {string} id Display id of selected display.
+     */
+    highlightDisplay(id) {}
+
+    /**
+     * Updates the position of the dragged display to render preview indicators
+     * as the display is being dragged around.
+     * @param {string} id Display id of selected display.
+     * @param {number} deltaX x-axis position change since the last update.
+     * @param {number} deltaY y-axis position change since the last update.
+     */
+    dragDisplayDelta(id, deltaX, deltaY) {}
   }
 
   /**
@@ -214,8 +237,8 @@ cr.define('settings', function() {
     }
 
     /** @override */
-    setIdleBehavior(behavior) {
-      chrome.send('setIdleBehavior', [behavior]);
+    setIdleBehavior(behavior, whenOnAc) {
+      chrome.send('setIdleBehavior', [behavior, whenOnAc]);
     }
 
     /** @override */
@@ -257,10 +280,21 @@ cr.define('settings', function() {
     setExternalStoragesUpdatedCallback(callback) {
       cr.addWebUIListener('onExternalStoragesUpdated', callback);
     }
+
+    /** @override */
+    highlightDisplay(id) {
+      chrome.send('highlightDisplay', [id]);
+    }
+
+    /** @override */
+    dragDisplayDelta(id, deltaX, deltaY) {
+      chrome.send('dragDisplayDelta', [id, deltaX, deltaY]);
+    }
   }
 
   cr.addSingletonGetter(DevicePageBrowserProxyImpl);
 
+  // #cr_define_end
   return {
     BatteryStatus,
     DevicePageBrowserProxy,

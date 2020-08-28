@@ -5,6 +5,7 @@
 #include "chrome/browser/renderer_context_menu/render_view_context_menu.h"
 
 #include "base/bind.h"
+#include "base/optional.h"
 #include "base/run_loop.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/scoped_feature_list.h"
@@ -27,7 +28,12 @@
 #include "components/prefs/pref_registry_simple.h"
 #include "components/prefs/pref_service.h"
 #include "components/proxy_config/proxy_config_pref_names.h"
+#include "content/public/browser/global_routing_id.h"
+#include "content/public/browser/render_frame_host.h"
+#include "content/public/browser/render_process_host.h"
 #include "content/public/browser/web_contents.h"
+#include "content/public/browser/web_contents_delegate.h"
+#include "content/public/common/impression.h"
 #include "content/public/test/test_renderer_host.h"
 #include "content/public/test/web_contents_tester.h"
 #include "extensions/browser/extension_prefs.h"
@@ -96,6 +102,26 @@ std::unique_ptr<TestRenderViewContextMenu> CreateContextMenu(
   menu->Init();
   return menu;
 }
+
+class TestNavigationDelegate : public content::WebContentsDelegate {
+ public:
+  TestNavigationDelegate() = default;
+  ~TestNavigationDelegate() override = default;
+
+  content::WebContents* OpenURLFromTab(
+      content::WebContents* source,
+      const content::OpenURLParams& params) override {
+    last_navigation_params_ = params;
+    return nullptr;
+  }
+
+  const base::Optional<content::OpenURLParams>& last_navigation_params() {
+    return last_navigation_params_;
+  }
+
+ private:
+  base::Optional<content::OpenURLParams> last_navigation_params_;
+};
 
 }  // namespace
 
@@ -459,27 +485,6 @@ TEST_F(RenderViewContextMenuPrefsTest,
   EXPECT_FALSE(menu->IsCommandIdEnabled(IDC_CONTENT_CONTEXT_CUSTOM_FIRST));
 }
 
-// Verify that request headers specify that data reduction proxy should return
-// the original non compressed resource when "Save Image As..." is used with
-// Data Saver enabled.
-TEST_F(RenderViewContextMenuPrefsTest, DataSaverEnabledSaveImageAs) {
-  data_reduction_proxy::DataReductionProxySettings::
-      SetDataSaverEnabledForTesting(profile()->GetPrefs(), true);
-
-  content::ContextMenuParams params = CreateParams(MenuItem::IMAGE);
-  params.unfiltered_link_url = params.link_url;
-  auto menu = std::make_unique<TestRenderViewContextMenu>(
-      web_contents()->GetMainFrame(), params);
-
-  menu->ExecuteCommand(IDC_CONTENT_CONTEXT_SAVEIMAGEAS, 0);
-
-  const std::string& headers =
-      content::WebContentsTester::For(web_contents())->GetSaveFrameHeaders();
-  EXPECT_TRUE(headers.find(
-      "Chrome-Proxy-Accept-Transform: identity") != std::string::npos);
-  EXPECT_TRUE(headers.find("Cache-Control: no-cache") != std::string::npos);
-}
-
 // Verify that request headers do not specify pass through when "Save Image
 // As..." is used with Data Saver disabled.
 TEST_F(RenderViewContextMenuPrefsTest, DataSaverDisabledSaveImageAs) {
@@ -539,6 +544,32 @@ TEST_F(RenderViewContextMenuPrefsTest, SaveMediaSuggestedFileName) {
   EXPECT_EQ(kTestSuggestedFileName, suggested_filename);
 }
 
+// Verify ContextMenu navigations properly set the initiator routing id for a
+// frame.
+TEST_F(RenderViewContextMenuPrefsTest, OpenLinkNavigationParamsSet) {
+  TestNavigationDelegate delegate;
+  web_contents()->SetDelegate(&delegate);
+  content::RenderFrameHost* main_frame = web_contents()->GetMainFrame();
+
+  content::ContextMenuParams params = CreateParams(MenuItem::LINK);
+  params.unfiltered_link_url = params.link_url;
+  params.link_url = params.link_url;
+  params.impression = content::Impression();
+  auto menu = std::make_unique<TestRenderViewContextMenu>(main_frame, params);
+  menu->ExecuteCommand(IDC_CONTENT_CONTEXT_OPENLINKNEWTAB, 0);
+  EXPECT_TRUE(delegate.last_navigation_params());
+
+  // Verify that the ContextMenu source frame is set as the navigation
+  // initiator.
+  auto main_frame_id = content::GlobalFrameRoutingId(
+      main_frame->GetProcess()->GetID(), main_frame->GetRoutingID());
+  EXPECT_EQ(main_frame_id,
+            delegate.last_navigation_params()->initiator_routing_id);
+
+  // Verify that the impression is attached to the navigation.
+  EXPECT_TRUE(delegate.last_navigation_params()->impression);
+}
+
 // Verify that "Show all passwords" is displayed on a password field.
 TEST_F(RenderViewContextMenuPrefsTest, ShowAllPasswords) {
   // Set up password manager stuff.
@@ -560,7 +591,7 @@ TEST_F(RenderViewContextMenuPrefsTest, ShowAllPasswords) {
 TEST_F(RenderViewContextMenuPrefsTest, ShowAllPasswordsIncognito) {
   std::unique_ptr<content::WebContents> incognito_web_contents(
       content::WebContentsTester::CreateTestWebContents(
-          profile()->GetOffTheRecordProfile(), nullptr));
+          profile()->GetPrimaryOTRProfile(), nullptr));
 
   // Set up password manager stuff.
   ChromePasswordManagerClient::CreateForWebContentsWithAutofillClient(

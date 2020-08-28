@@ -61,6 +61,23 @@ void AssertURLIs(const GURL& expectedURL) {
              description);
 }
 
+// A PDF itself can take a little longer to appear even after the page is loaded.  Instead, do an
+// additional wait for the internal PDF class to appear in the view hierarchy.
+void WaitforPDFExtensionView() {
+  ConditionBlock condition = ^{
+    NSError* error = nil;
+    [[EarlGrey selectElementWithMatcher:grey_kindOfClass(NSClassFromString(
+                                            @"PDFExtensionTopView"))]
+        assertWithMatcher:grey_notNil()
+                    error:&error];
+    return error == nil;
+  };
+
+  NSString* errorMessage = @"PDFExtensionTopView was not visible";
+  GREYAssert(WaitUntilConditionOrTimeout(kWaitForPageLoadTimeout, condition),
+             errorMessage);
+}
+
 }  // namespace
 
 #pragma mark - Tests
@@ -78,34 +95,13 @@ void AssertURLIs(const GURL& expectedURL) {
 // Verifies that the content offset of the web view is set up at the correct
 // initial value when initially displaying a PDF.
 // TODO(crbug.com/947536): Fails on iOS 12 devices.
-#if !TARGET_IPHONE_SIMULATOR
-#define MAYBE_testLongPDFInitialState DISABLED_testLongPDFInitialState
-#else
-#define MAYBE_testLongPDFInitialState testLongPDFInitialState
-#endif
-- (void)MAYBE_testLongPDFInitialState {
-  web::test::SetUpFileBasedHttpServer();
+// TODO(crbug.com/1106997): Test fails in simulator builders.
+- (void)DISABLED_testLongPDFInitialState {
   GURL URL = web::test::HttpServer::MakeUrl(
       "http://ios/testing/data/http_server_files/two_pages.pdf");
   [ChromeEarlGrey loadURL:URL];
-
+  WaitforPDFExtensionView();
   [ChromeEarlGreyUI waitForToolbarVisible:YES];
-
-  // Waiting for the toolbar to be visible is not enough -- the PDF itself can
-  // take a little longer to load.  Instead, wait for an internal PDF class to
-  // appear in the view hierarchy.
-  ConditionBlock condition = ^{
-    NSError* error = nil;
-    [[EarlGrey selectElementWithMatcher:grey_kindOfClass(NSClassFromString(
-                                            @"PDFExtensionTopView"))]
-        assertWithMatcher:grey_notNil()
-                    error:&error];
-    return error == nil;
-  };
-
-  NSString* errorMessage = @"PDFExtensionTopView was not visible";
-  GREYAssert(WaitUntilConditionOrTimeout(kWaitForPageLoadTimeout, condition),
-             errorMessage);
 
   // Initial y scroll positions are set to make room for the toolbar.
   CGFloat yOffset = -[FullscreenAppInterface currentViewportInsets].top;
@@ -116,21 +112,24 @@ void AssertURLIs(const GURL& expectedURL) {
 
 // Verifies that the toolbar is not hidden when scrolling a short pdf, as the
 // entire document is visible without hiding the toolbar.
-- (void)testSmallWidePDFScroll {
-// TODO(crbug.com/1022029): Enable this test.
 #if defined(CHROME_EARL_GREY_2)
-  EARL_GREY_TEST_DISABLED(@"Fails with EG2");
-#elif defined(CHROME_EARL_GREY_1)
+// TODO(crbug.com/1022029): Enable this test.
+#define MAYBE_testSmallWidePDFScroll DISABLED_testSmallWidePDFScroll
+#else
+#define MAYBE_testSmallWidePDFScroll testSmallWidePDFScroll
+#endif
+- (void)MAYBE_testSmallWidePDFScroll {
+#if defined(CHROME_EARL_GREY_1)
   // TODO(crbug.com/1036221): EG1 Test fails on iOS 12.
   if (!base::ios::IsRunningOnIOS13OrLater()) {
     EARL_GREY_TEST_DISABLED(@"EG1 Fails on iOS 12.");
   }
 #endif
 
-  web::test::SetUpFileBasedHttpServer();
   GURL URL = web::test::HttpServer::MakeUrl(
       "http://ios/testing/data/http_server_files/single_page_wide.pdf");
   [ChromeEarlGrey loadURL:URL];
+  WaitforPDFExtensionView();
 
   {
     // TODO(crbug.com/852393): Investigate why synchronization isn't working. Is
@@ -153,16 +152,17 @@ void AssertURLIs(const GURL& expectedURL) {
 
 // Verifies that the toolbar properly appears/disappears when scrolling up/down
 // on a PDF that is long in length and wide in width.
-- (void)testLongPDFScroll {
-// TODO(crbug.com/714329): Re-enable this test on devices.
 #if !TARGET_IPHONE_SIMULATOR
-  EARL_GREY_TEST_DISABLED(@"Test disabled on device.");
+// TODO(crbug.com/714329): Re-enable this test on devices.
+#define MAYBE_testLongPDFScroll DISABLED_testLongPDFScroll
+#else
+#define MAYBE_testLongPDFScroll testLongPDFScroll
 #endif
-
-  web::test::SetUpFileBasedHttpServer();
+- (void)MAYBE_testLongPDFScroll {
   GURL URL = web::test::HttpServer::MakeUrl(
       "http://ios/testing/data/http_server_files/two_pages.pdf");
   [ChromeEarlGrey loadURL:URL];
+  WaitforPDFExtensionView();
 
   // Test that the toolbar is hidden after a user swipes up.
   HideToolbarUsingUI();

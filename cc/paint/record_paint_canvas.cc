@@ -261,7 +261,7 @@ void RecordPaintCanvas::drawImageRect(const PaintImage& image,
                                       const SkRect& src,
                                       const SkRect& dst,
                                       const PaintFlags* flags,
-                                      SrcRectConstraint constraint) {
+                                      SkCanvas::SrcRectConstraint constraint) {
   list_->push<DrawImageRectOp>(image, src, dst, flags, constraint);
 }
 
@@ -308,6 +308,10 @@ void RecordPaintCanvas::Annotate(AnnotationType type,
 
 void RecordPaintCanvas::recordCustomData(uint32_t id) {
   list_->push<CustomDataOp>(id);
+}
+
+void RecordPaintCanvas::setNodeId(int node_id) {
+  list_->push<SetNodeIdOp>(node_id);
 }
 
 const SkNoDrawCanvas* RecordPaintCanvas::GetCanvas() const {

@@ -12,13 +12,14 @@
 #include "android_webview/public/browser/draw_gl.h"
 #include "base/android/android_hardware_buffer_compat.h"
 #include "base/android/scoped_hardware_buffer_fence_sync.h"
-#include "base/task/post_task.h"
 #include "base/trace_event/trace_event.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
+#include "gpu/command_buffer/service/skia_utils.h"
 #include "gpu/ipc/common/android/android_image_reader_utils.h"
 #include "gpu/vulkan/vulkan_fence_helper.h"
 #include "gpu/vulkan/vulkan_function_pointers.h"
+#include "gpu/vulkan/vulkan_image.h"
 #include "gpu/vulkan/vulkan_implementation.h"
 #include "third_party/skia/include/gpu/GrBackendSemaphore.h"
 #include "third_party/skia/include/gpu/GrContext.h"
@@ -26,6 +27,7 @@
 #include "third_party/skia/include/gpu/vk/GrVkExtensions.h"
 #include "third_party/skia/src/gpu/vk/GrVkSecondaryCBDrawContext.h"
 #include "ui/gfx/color_space.h"
+#include "ui/gfx/gpu_memory_buffer.h"
 #include "ui/gl/gl_bindings.h"
 #include "ui/gl/gl_context_egl.h"
 #include "ui/gl/gl_image_ahardwarebuffer.h"
@@ -66,7 +68,7 @@ class GLNonOwnedCompatibilityContext : public gl::GLContextEGL {
     g_gl_context = this;
   }
 
-  bool MakeCurrent(gl::GLSurface* surface) override {
+  bool MakeCurrentImpl(gl::GLSurface* surface) override {
     // A GLNonOwnedCompatibilityContext may have set the GetRealCurrent()
     // pointer to itself, while re-using our EGL context. In these cases just
     // call SetCurrent to restore expected GetRealContext().
@@ -81,10 +83,10 @@ class GLNonOwnedCompatibilityContext : public gl::GLContextEGL {
       return true;
     }
 
-    return gl::GLContextEGL::MakeCurrent(surface);
+    return gl::GLContextEGL::MakeCurrentImpl(surface);
   }
 
-  bool MakeCurrent() { return MakeCurrent(surface_.get()); }
+  bool MakeCurrent() { return gl::GLContext::MakeCurrent(surface_.get()); }
 
   static scoped_refptr<GLNonOwnedCompatibilityContext> GetOrCreateInstance() {
     if (g_gl_context)
@@ -201,8 +203,7 @@ static void JNI_AwDrawFnImpl_SetDrawFnFunctionTable(JNIEnv* env,
 AwDrawFnImpl::AwDrawFnImpl()
     : is_interop_mode_(!base::CommandLine::ForCurrentProcess()->HasSwitch(
           switches::kWebViewEnableVulkan)),
-      render_thread_manager_(
-          base::CreateSingleThreadTaskRunner({BrowserThread::UI})) {
+      render_thread_manager_(content::GetUIThreadTaskRunner({})) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   DCHECK(g_draw_fn_function_table);
 
@@ -462,32 +463,22 @@ void AwDrawFnImpl::DrawVkInterop(AwDrawFn_DrawVkParams* params) {
   }
 
   // Create a VkImage and import AHB.
-  if (!pending_draw->image_info.fImage) {
-    VkImage vk_image;
-    VkImageCreateInfo vk_image_info;
-    VkDeviceMemory vk_device_memory;
-    VkDeviceSize mem_allocation_size;
-    if (!vulkan_context_provider_->implementation()->CreateVkImageAndImportAHB(
-            vulkan_context_provider_->device(),
-            vulkan_context_provider_->physical_device(),
-            gfx::Size(params->width, params->height),
-            base::android::ScopedHardwareBufferHandle::Create(
-                pending_draw->ahb_image->GetAHardwareBuffer()->buffer()),
-            &vk_image, &vk_image_info, &vk_device_memory,
-            &mem_allocation_size)) {
+  if (!pending_draw->vulkan_image) {
+    auto handle = base::android::ScopedHardwareBufferHandle::Create(
+        pending_draw->ahb_image->GetAHardwareBuffer()->buffer());
+    gfx::GpuMemoryBufferHandle gmb_handle(std::move(handle));
+    auto* device_queue = vulkan_context_provider_->GetDeviceQueue();
+    auto vulkan_image = gpu::VulkanImage::CreateFromGpuMemoryBufferHandle(
+        device_queue, std::move(gmb_handle),
+        gfx::Size(params->width, params->height), VK_FORMAT_R8G8B8A8_UNORM,
+        0 /* usage */);
+    if (!vulkan_image) {
       LOG(ERROR) << "Could not create VkImage from AHB.";
       return;
     }
 
-    // Create backend texture from the VkImage.
-    GrVkAlloc alloc = {vk_device_memory, 0, mem_allocation_size, 0};
-    pending_draw->image_info = {vk_image,
-                                alloc,
-                                vk_image_info.tiling,
-                                vk_image_info.initialLayout,
-                                vk_image_info.format,
-                                vk_image_info.mipLevels,
-                                VK_QUEUE_FAMILY_EXTERNAL};
+    pending_draw->image_info = gpu::CreateGrVkImageInfo(vulkan_image.get());
+    pending_draw->vulkan_image = std::move(vulkan_image);
   }
 
   // Create an SkImage from AHB.
@@ -560,9 +551,12 @@ void AwDrawFnImpl::PostDrawVkInterop(AwDrawFn_PostDrawVkParams* params) {
 
   // Flush so that we know the image's transition has been submitted and that
   // the |post_draw_semaphore| is pending.
+  GrFlushInfo flushInfo;
+  flushInfo.fNumSemaphores = 1;
+  flushInfo.fSignalSemaphores = &gr_post_draw_semaphore;
   GrSemaphoresSubmitted submitted =
-      vulkan_context_provider_->gr_context()->flushAndSignalSemaphores(
-          1, &gr_post_draw_semaphore);
+      vulkan_context_provider_->gr_context()->flush(flushInfo);
+  vulkan_context_provider_->gr_context()->submit();
   if (submitted != GrSemaphoresSubmitted::kYes) {
     LOG(ERROR) << "Skia could not submit GrSemaphore.";
     return;
@@ -631,7 +625,7 @@ AwDrawFnImpl::InFlightInteropDraw::~InFlightInteropDraw() {
     // to flush before the vkQueueWaitIdle below.
     if (ahb_skimage) {
       ahb_skimage.reset();
-      vk_context_provider->gr_context()->flush();
+      vk_context_provider->gr_context()->flushAndSubmit();
     }
     // We encountered an error and are not sure when our Vk objects are safe to
     // delete. VkQueueWaitIdle to ensure safety.
@@ -655,11 +649,10 @@ AwDrawFnImpl::InFlightInteropDraw::~InFlightInteropDraw() {
     glDeleteTextures(1, &texture_id);
   if (framebuffer_id)
     glDeleteFramebuffersEXT(1, &framebuffer_id);
-  if (image_info.fImage != VK_NULL_HANDLE) {
+  if (vulkan_image) {
     vk_context_provider->GetDeviceQueue()
         ->GetFenceHelper()
-        ->EnqueueImageCleanupForSubmittedWork(image_info.fImage,
-                                              image_info.fAlloc.fMemory);
+        ->EnqueueVulkanObjectCleanupForSubmittedWork(std::move(vulkan_image));
   }
 }
 

@@ -9,6 +9,9 @@
 #include <string>
 
 #include "base/base_export.h"
+#include "base/logging.h"
+#include "base/notreached.h"
+#include "base/time/time.h"
 
 namespace base {
 
@@ -19,6 +22,11 @@ typedef std::map<std::string, std::string> FieldTrialParams;
 
 // Param string decoding function for AssociateFieldTrialParamsFromString().
 typedef std::string (*FieldTrialParamsDecodeStringFunc)(const std::string& str);
+
+// Unescapes special characters from the given string. Used in
+// AssociateFieldTrialParamsFromString() as one of the feature params decoding
+// functions.
+BASE_EXPORT std::string UnescapeValue(const std::string& value);
 
 // Associates the specified set of key-value |params| with the field trial
 // specified by |trial_name| and |group_name|. Fails and returns false if the
@@ -109,6 +117,7 @@ BASE_EXPORT bool GetFieldTrialParamByFeatureAsBool(
 //   double
 //   std::string
 //   enum types
+//   base::TimeDelta
 //
 // See the individual definitions below for the appropriate interfaces.
 // Attempting to use it with any other type is a compile error.
@@ -204,6 +213,27 @@ struct FeatureParam<bool> {
   const bool default_value;
 };
 
+// Declares an TimeDelta-valued parameter. Example:
+//
+//     constexpr base::FeatureParam<base::TimeDelta> kPerAgentDelayMs{
+//         &kPerAgentSchedulingExperiments, "delay_ms", base::TimeDelta()};
+//
+// If the feature is not set, or set to an invalid value (as defined by
+// base::TimeDelta::FromString()), then Get() will return the default value.
+template <>
+struct FeatureParam<base::TimeDelta> {
+  constexpr FeatureParam(const Feature* feature,
+                         const char* name,
+                         base::TimeDelta default_value)
+      : feature(feature), name(name), default_value(default_value) {}
+
+  BASE_EXPORT base::TimeDelta Get() const;
+
+  const Feature* const feature;
+  const char* const name;
+  const base::TimeDelta default_value;
+};
+
 BASE_EXPORT void LogInvalidEnumValue(const Feature& feature,
                                      const std::string& param_name,
                                      const std::string& value_as_string,
@@ -254,6 +284,16 @@ struct FeatureParam<Enum, true> {
     }
     LogInvalidEnumValue(*feature, name, value, static_cast<int>(default_value));
     return default_value;
+  }
+
+  // Returns the param-string for the given enum value.
+  std::string GetName(Enum value) const {
+    for (size_t i = 0; i < option_count; ++i) {
+      if (value == options[i].value)
+        return options[i].name;
+    }
+    NOTREACHED();
+    return "";
   }
 
   const base::Feature* const feature;

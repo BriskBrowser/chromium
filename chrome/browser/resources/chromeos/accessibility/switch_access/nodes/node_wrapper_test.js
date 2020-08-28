@@ -4,40 +4,8 @@
 
 GEN_INCLUDE(['../switch_access_e2e_test_base.js']);
 
-/**
- * @constructor
- * @extends {SwitchAccessE2ETest}
- */
-function SwitchAccessNodeWrapperTest() {
-  SwitchAccessE2ETest.call(this);
-}
-
-SwitchAccessNodeWrapperTest.prototype = {
-  __proto__: SwitchAccessE2ETest.prototype,
-};
-
-TEST_F('SwitchAccessNodeWrapperTest', 'BuildDesktopTree', function() {
-  this.runWithLoadedTree('', (desktop) => {
-    const desktopRootNode = RootNodeWrapper.buildDesktopTree(desktop);
-
-    const children = desktopRootNode.children;
-    for (let i = 0; i < children.length; i++) {
-      const child = children[i];
-      // The desktop tree should not include a back button.
-      assertFalse(child instanceof BackButtonNode);
-
-      // Check that the children form a loop.
-      const next = children[(i + 1) % children.length];
-      assertEquals(
-          next, child.next, 'next not properly initialized on child ' + i);
-      // We add children.length to ensure the value is greater than zero.
-      const previous = children[(i - 1 + children.length) % children.length];
-      assertEquals(
-          previous, child.previous,
-          'previous not properly initialized on child ' + i);
-    }
-  });
-});
+/** Test fixture for the node wrapper type. */
+SwitchAccessNodeWrapperTest = class extends SwitchAccessE2ETest {};
 
 TEST_F('SwitchAccessNodeWrapperTest', 'AsRootNode', function() {
   const website = `<div aria-label="outer">
@@ -75,46 +43,45 @@ TEST_F('SwitchAccessNodeWrapperTest', 'AsRootNode', function() {
 
 TEST_F('SwitchAccessNodeWrapperTest', 'Equals', function() {
   this.runWithLoadedTree('', (desktop) => {
-    const desktopRootNode = RootNodeWrapper.buildDesktopTree(desktop);
+    const desktopNode = DesktopNode.build(desktop);
 
-    let childGroup = desktopRootNode.firstChild;
+    let childGroup = desktopNode.firstChild;
     let i = 0;
-    while (!childGroup.isGroup() && i < desktopRootNode.children.length) {
+    while (!childGroup.isGroup() && i < desktopNode.children.length) {
       childGroup = childGroup.next;
       i++;
     }
     childGroup = childGroup.asRootNode();
 
-    assertFalse(desktopRootNode.equals(), 'Root node equals nothing');
+    assertFalse(desktopNode.equals(), 'Root node equals nothing');
     assertFalse(
-        desktopRootNode.equals(new SARootNode()),
+        desktopNode.equals(new SARootNode()),
         'Different type root nodes are equal');
     assertFalse(
-        new SARootNode().equals(desktopRootNode),
+        new SARootNode().equals(desktopNode),
         'Equals is not symmetric? Different types of root are equal');
     assertFalse(
-        desktopRootNode.equals(childGroup),
+        desktopNode.equals(childGroup),
         'Groups with different children are equal');
     assertFalse(
-        childGroup.equals(desktopRootNode),
+        childGroup.equals(desktopNode),
         'Equals is not symmetric? Groups with different children are equal');
 
     assertTrue(
-        desktopRootNode.equals(desktopRootNode),
+        desktopNode.equals(desktopNode),
         'Equals is not reflexive? (root node)');
-    const desktopCopy = RootNodeWrapper.buildDesktopTree(desktop);
+    const desktopCopy = DesktopNode.build(desktop);
     assertTrue(
-        desktopRootNode.equals(desktopCopy), 'Two desktop roots are not equal');
+        desktopNode.equals(desktopCopy), 'Two desktop roots are not equal');
     assertTrue(
-        desktopCopy.equals(desktopRootNode),
+        desktopCopy.equals(desktopNode),
         'Equals is not symmetric? Two desktop roots aren\'t equal');
 
-    const wrappedNode = desktopRootNode.firstChild;
+    const wrappedNode = desktopNode.firstChild;
     assertTrue(
         wrappedNode instanceof NodeWrapper,
         'Child node is not of type NodeWrapper');
-    assertGT(
-        desktopRootNode.children.length, 1, 'Desktop root has only 1 child');
+    assertGT(desktopNode.children.length, 1, 'Desktop root has only 1 child');
 
     assertFalse(wrappedNode.equals(), 'Child NodeWrapper equals nothing');
     assertFalse(
@@ -124,14 +91,14 @@ TEST_F('SwitchAccessNodeWrapperTest', 'Equals', function() {
         new BackButtonNode().equals(wrappedNode),
         'Equals is not symmetric? NodeWrapper equals a BackButtonNode');
     assertFalse(
-        wrappedNode.equals(desktopRootNode.lastChild),
+        wrappedNode.equals(desktopNode.lastChild),
         'Children with different base nodes are equal');
     assertFalse(
-        desktopRootNode.lastChild.equals(wrappedNode),
+        desktopNode.lastChild.equals(wrappedNode),
         'Equals is not symmetric? Nodes with different base nodes are equal');
 
     const equivalentWrappedNode =
-        new NodeWrapper(wrappedNode.baseNode_, desktopRootNode);
+        NodeWrapper.create(wrappedNode.baseNode_, desktopNode);
     assertTrue(
         wrappedNode.equals(wrappedNode),
         'Equals is not reflexive? (child node)');
@@ -149,7 +116,7 @@ TEST_F('SwitchAccessNodeWrapperTest', 'Actions', function() {
                    <button></button>
                    <input type="range" min=1 max=5 value=3>`;
   this.runWithLoadedTree(website, (desktop) => {
-    const textField = new NodeWrapper(
+    const textField = NodeWrapper.create(
         desktop.find({role: chrome.automation.RoleType.TEXT_FIELD}),
         new SARootNode());
 
@@ -157,16 +124,16 @@ TEST_F('SwitchAccessNodeWrapperTest', 'Actions', function() {
         chrome.automation.RoleType.TEXT_FIELD, textField.role,
         'Text field node is not a text field');
     assertTrue(
-        textField.hasAction(SAConstants.MenuAction.OPEN_KEYBOARD),
-        'Text field does not have action OPEN_KEYBOARD');
+        textField.hasAction(SwitchAccessMenuAction.KEYBOARD),
+        'Text field does not have action KEYBOARD');
     assertTrue(
-        textField.hasAction(SAConstants.MenuAction.DICTATION),
+        textField.hasAction(SwitchAccessMenuAction.DICTATION),
         'Text field does not have action DICTATION');
     assertFalse(
-        textField.hasAction(SAConstants.MenuAction.SELECT),
+        textField.hasAction(SwitchAccessMenuAction.SELECT),
         'Text field has action SELECT');
 
-    const button = new NodeWrapper(
+    const button = NodeWrapper.create(
         desktop.find({role: chrome.automation.RoleType.BUTTON}),
         new SARootNode());
 
@@ -174,16 +141,16 @@ TEST_F('SwitchAccessNodeWrapperTest', 'Actions', function() {
         chrome.automation.RoleType.BUTTON, button.role,
         'Button node is not a button');
     assertTrue(
-        button.hasAction(SAConstants.MenuAction.SELECT),
+        button.hasAction(SwitchAccessMenuAction.SELECT),
         'Button does not have action SELECT');
     assertFalse(
-        button.hasAction(SAConstants.MenuAction.OPEN_KEYBOARD),
-        'Button has action OPEN_KEYBOARD');
+        button.hasAction(SwitchAccessMenuAction.KEYBOARD),
+        'Button has action KEYBOARD');
     assertFalse(
-        button.hasAction(SAConstants.MenuAction.DICTATION),
+        button.hasAction(SwitchAccessMenuAction.DICTATION),
         'Button has action DICTATION');
 
-    const slider = new NodeWrapper(
+    const slider = NodeWrapper.create(
         desktop.find({role: chrome.automation.RoleType.SLIDER}),
         new SARootNode());
 
@@ -191,10 +158,10 @@ TEST_F('SwitchAccessNodeWrapperTest', 'Actions', function() {
         chrome.automation.RoleType.SLIDER, slider.role,
         'Slider node is not a slider');
     assertTrue(
-        slider.hasAction(SAConstants.MenuAction.INCREMENT),
+        slider.hasAction(SwitchAccessMenuAction.INCREMENT),
         'Slider does not have action INCREMENT');
     assertTrue(
-        slider.hasAction(SAConstants.MenuAction.DECREMENT),
+        slider.hasAction(SwitchAccessMenuAction.DECREMENT),
         'Slider does not have action DECREMENT');
   });
 });

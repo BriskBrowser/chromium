@@ -14,6 +14,8 @@
 #include "components/autofill/core/browser/data_model/credit_card.h"
 #include "components/autofill/core/browser/data_model/credit_card_cloud_token_data.h"
 #include "components/autofill/core/browser/field_types.h"
+#include "components/autofill/core/browser/form_structure.h"
+#include "components/autofill/core/browser/proto/api_v1.pb.h"
 #include "components/autofill/core/browser/proto/server.pb.h"
 
 class PrefService;
@@ -29,6 +31,26 @@ class AutofillProfile;
 class AutofillTable;
 struct FormData;
 struct FormFieldData;
+struct FormDataPredictions;
+struct FormFieldDataPredictions;
+
+// Defined by pair-wise equality of all members.
+bool operator==(const FormFieldDataPredictions& a,
+                const FormFieldDataPredictions& b);
+
+inline bool operator!=(const FormFieldDataPredictions& a,
+                       const FormFieldDataPredictions& b) {
+  return !(a == b);
+}
+
+// Holds iff the underlying FormDatas sans field values are equal and the
+// remaining members are pairwise equal.
+bool operator==(const FormDataPredictions& a, const FormDataPredictions& b);
+
+inline bool operator!=(const FormDataPredictions& a,
+                       const FormDataPredictions& b) {
+  return !(a == b);
+}
 
 // Common utilities shared amongst Autofill tests.
 namespace test {
@@ -62,6 +84,14 @@ void CreateTestSelectField(const char* label,
 
 void CreateTestSelectField(const std::vector<const char*>& values,
                            FormFieldData* field);
+
+// Provides a quick way to populate a datalist field.
+void CreateTestDatalistField(const char* label,
+                             const char* name,
+                             const char* value,
+                             const std::vector<const char*>& values,
+                             const std::vector<const char*>& labels,
+                             FormFieldData* field);
 
 // Populates |form| with data corresponding to a simple address form.
 // Note that this actually appends fields to the form data, which can be useful
@@ -135,6 +165,8 @@ CreditCard GetIncompleteCreditCard();
 // Returns a masked server card full of dummy info.
 CreditCard GetMaskedServerCard();
 CreditCard GetMaskedServerCardAmex();
+CreditCard GetMaskedServerCardWithNickname();
+CreditCard GetMaskedServerCardWithInvalidNickname();
 
 // Returns a full server card full of dummy info.
 CreditCard GetFullServerCard();
@@ -166,7 +198,8 @@ void SetProfileInfo(AutofillProfile* profile,
                     const char* state,
                     const char* zipcode,
                     const char* country,
-                    const char* phone);
+                    const char* phone,
+                    bool finalize = true);
 
 // This one doesn't require the |dependent_locality|.
 void SetProfileInfo(AutofillProfile* profile,
@@ -181,7 +214,8 @@ void SetProfileInfo(AutofillProfile* profile,
                     const char* state,
                     const char* zipcode,
                     const char* country,
-                    const char* phone);
+                    const char* phone,
+                    bool finalize = true);
 
 void SetProfileInfoWithGuid(AutofillProfile* profile,
                             const char* guid,
@@ -196,7 +230,8 @@ void SetProfileInfoWithGuid(AutofillProfile* profile,
                             const char* state,
                             const char* zipcode,
                             const char* country,
-                            const char* phone);
+                            const char* phone,
+                            bool finalize = true);
 
 // A unit testing utility that is common to a number of the Autofill unit
 // tests.  |SetCreditCardInfo| provides a quick way to populate a credit card
@@ -266,6 +301,20 @@ void FillQueryField(AutofillQueryContents::Form::Field* field,
                     unsigned signature,
                     const char* name,
                     const char* control_type);
+void FillQueryField(AutofillPageQueryRequest_Form_Field* field,
+                    unsigned signature,
+                    const char* name,
+                    const char* control_type);
+
+// Creates the structure of signatures that would be encoded by
+// FormStructure::EncodeUploadRequest() and FormStructure::EncodeQueryRequest()
+// and consumed by FormStructure::ParseQueryResponse() and
+// FormStructure::ParseApiQueryResponse().
+//
+// Perhaps a neater way would be to move this to TestFormStructure.
+FormAndFieldSignatures GetEncodedSignatures(const FormStructure& form);
+FormAndFieldSignatures GetEncodedSignatures(
+    const std::vector<FormStructure*>& forms);
 
 // Calls the required functions on the given external delegate to cause the
 // delegate to display a popup.
@@ -274,6 +323,7 @@ void GenerateTestAutofillPopup(
 
 std::string ObfuscatedCardDigitsAsUTF8(const std::string& str);
 
+// Returns 2-digit month string, like "02", "10".
 std::string NextMonth();
 std::string LastYear();
 std::string NextYear();

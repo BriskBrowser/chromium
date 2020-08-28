@@ -14,7 +14,6 @@
 #include "base/memory/weak_ptr.h"
 #include "chrome/browser/reputation/safety_tip_ui.h"
 #include "chrome/browser/ui/page_info/page_info_dialog.h"
-#include "chrome/browser/ui/page_info/page_info_ui.h"
 #include "chrome/browser/ui/views/bubble_anchor_util_views.h"
 #include "chrome/browser/ui/views/hover_button.h"
 #include "chrome/browser/ui/views/page_info/chosen_object_view_observer.h"
@@ -22,6 +21,7 @@
 #include "chrome/browser/ui/views/page_info/page_info_hover_button.h"
 #include "chrome/browser/ui/views/page_info/permission_selector_row.h"
 #include "chrome/browser/ui/views/page_info/permission_selector_row_observer.h"
+#include "components/page_info/page_info_ui.h"
 #include "components/safe_browsing/buildflags.h"
 #include "components/security_state/core/security_state.h"
 #include "ui/gfx/native_widget_types.h"
@@ -74,7 +74,7 @@ class PageInfoBubbleView : public PageInfoBubbleViewBase,
     VIEW_ID_NONE = 0,
     VIEW_ID_PAGE_INFO_BUTTON_CLOSE,
     VIEW_ID_PAGE_INFO_BUTTON_CHANGE_PASSWORD,
-    VIEW_ID_PAGE_INFO_BUTTON_WHITELIST_PASSWORD_REUSE,
+    VIEW_ID_PAGE_INFO_BUTTON_ALLOWLIST_PASSWORD_REUSE,
     VIEW_ID_PAGE_INFO_LABEL_SECURITY_DETAILS,
     VIEW_ID_PAGE_INFO_LABEL_EV_CERTIFICATE_DETAILS,
     VIEW_ID_PAGE_INFO_LABEL_RESET_CERTIFICATE_DECISIONS,
@@ -98,8 +98,6 @@ class PageInfoBubbleView : public PageInfoBubbleViewBase,
       Profile* profile,
       content::WebContents* web_contents,
       const GURL& url,
-      security_state::SecurityLevel security_level,
-      const security_state::VisibleSecurityState& visible_security_state,
       PageInfoClosingCallback closing_callback);
 
  protected:
@@ -117,8 +115,6 @@ class PageInfoBubbleView : public PageInfoBubbleViewBase,
       Profile* profile,
       content::WebContents* web_contents,
       const GURL& url,
-      security_state::SecurityLevel security_level,
-      const security_state::VisibleSecurityState& visible_security_state,
       PageInfoClosingCallback closing_callback);
 
   // PageInfoBubbleViewBase:

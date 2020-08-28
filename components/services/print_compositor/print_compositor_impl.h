@@ -12,18 +12,23 @@
 
 #include "base/containers/flat_map.h"
 #include "base/containers/flat_set.h"
+#include "base/containers/span.h"
 #include "base/macros.h"
 #include "base/memory/read_only_shared_memory_region.h"
 #include "base/memory/ref_counted_memory.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/optional.h"
+#include "build/build_config.h"
 #include "components/services/print_compositor/public/cpp/print_service_mojo_types.h"
 #include "components/services/print_compositor/public/mojom/print_compositor.mojom.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "mojo/public/cpp/bindings/receiver.h"
+#include "printing/buildflags/buildflags.h"
 #include "third_party/skia/include/core/SkPicture.h"
 #include "third_party/skia/include/core/SkRefCnt.h"
 #include "third_party/skia/include/core/SkStream.h"
+#include "third_party/skia/include/core/SkTypeface.h"
+#include "ui/accessibility/ax_tree_update.h"
 
 class SkDocument;
 
@@ -61,6 +66,10 @@ class PrintCompositorImpl : public mojom::PrintCompositor {
       uint64_t frame_guid,
       base::ReadOnlySharedMemoryRegion serialized_content,
       const ContentToFrameMap& subframe_content_map) override;
+#if BUILDFLAG(ENABLE_TAGGED_PDF)
+  void SetAccessibilityTree(
+      const ui::AXTreeUpdate& accessibility_tree) override;
+#endif
   void CompositePageToPdf(
       uint64_t frame_guid,
       base::ReadOnlySharedMemoryRegion serialized_content,
@@ -97,15 +106,14 @@ class PrintCompositorImpl : public mojom::PrintCompositor {
   // The core function for content composition and conversion to a pdf file.
   // Make this function virtual so tests can override it.
   virtual mojom::PrintCompositor::Status CompositeToPdf(
-      base::ReadOnlySharedMemoryMapping shared_mem,
+      base::span<const uint8_t> serialized_content,
       const ContentToFrameMap& subframe_content_map,
       base::ReadOnlySharedMemoryRegion* region);
 
   // Make these functions virtual so tests can override them.
-  virtual void FulfillRequest(
-      base::ReadOnlySharedMemoryMapping serialized_content,
-      const ContentToFrameMap& subframe_content_map,
-      CompositeToPdfCallback callback);
+  virtual void FulfillRequest(base::span<const uint8_t> serialized_content,
+                              const ContentToFrameMap& subframe_content_map,
+                              CompositeToPdfCallback callback);
   virtual void CompleteDocumentRequest(CompleteDocumentToPdfCallback callback);
 
  private:
@@ -116,30 +124,35 @@ class PrintCompositorImpl : public mojom::PrintCompositor {
 
   // The map needed during content deserialization. It stores the mapping
   // between content id and its actual content.
-  using DeserializationContext = base::flat_map<uint32_t, sk_sp<SkPicture>>;
+  using PictureDeserializationContext =
+      base::flat_map<uint32_t, sk_sp<SkPicture>>;
+  using TypefaceDeserializationContext =
+      base::flat_map<uint32_t, sk_sp<SkTypeface>>;
 
   // Base structure to store a frame's content and its subframe
   // content information.
   struct FrameContentInfo {
-    FrameContentInfo(base::ReadOnlySharedMemoryMapping content,
+    FrameContentInfo(base::span<const uint8_t> content,
                      const ContentToFrameMap& map);
     FrameContentInfo();
     ~FrameContentInfo();
 
     // Serialized SkPicture content of this frame.
-    base::ReadOnlySharedMemoryMapping serialized_content;
+    std::vector<uint8_t> serialized_content;
 
     // Frame content after composition with subframe content.
     sk_sp<SkPicture> content;
 
     // Subframe content id and its corresponding frame guid.
     ContentToFrameMap subframe_content_map;
+
+    // Typefaces used within scope of this frame.
+    TypefaceDeserializationContext typefaces;
   };
 
   // Other than content, it also stores the status during frame composition.
   struct FrameInfo : public FrameContentInfo {
-    FrameInfo();
-    ~FrameInfo();
+    using FrameContentInfo::FrameContentInfo;
 
     // The following fields are used for storing composition status.
     // Set to true when this frame's |serialized_content| is composed with
@@ -153,7 +166,7 @@ class PrintCompositorImpl : public mojom::PrintCompositor {
 
   // Stores the page or document's request information.
   struct RequestInfo : public FrameContentInfo {
-    RequestInfo(base::ReadOnlySharedMemoryMapping content,
+    RequestInfo(base::span<const uint8_t> content,
                 const ContentToFrameMap& content_info,
                 const base::flat_set<uint64_t>& pending_subframes,
                 CompositeToPdfCallback callback);
@@ -169,9 +182,7 @@ class PrintCompositorImpl : public mojom::PrintCompositor {
 
   // Stores the concurrent document composition information.
   struct DocumentInfo {
-    // Create the DocumentInfo object, which also creates a corresponding Skia
-    // document object.
-    explicit DocumentInfo(const std::string& creator);
+    DocumentInfo();
     ~DocumentInfo();
 
     SkDynamicMemoryWStream compositor_stream;
@@ -210,18 +221,10 @@ class PrintCompositorImpl : public mojom::PrintCompositor {
       CompositeToPdfCallback callback);
   void HandleDocumentCompletionRequest();
 
-  // Document content composition support functions when document is compiled
-  // using individual pages' content.  These are not used when document is
-  // composited with a separate metafile object.
-  mojom::PrintCompositor::Status PrepareForDocumentToPdf();
-  mojom::PrintCompositor::Status UpdateDocumentMetadata(uint32_t page_count);
-  mojom::PrintCompositor::Status CompleteDocumentToPdf(
-      base::ReadOnlySharedMemoryRegion* region);
-
   // Composite the content of a subframe.
   void CompositeSubframe(FrameInfo* frame_info);
 
-  DeserializationContext GetDeserializationContext(
+  PictureDeserializationContext GetPictureDeserializationContext(
       const ContentToFrameMap& subframe_content_map);
 
   mojo::Receiver<mojom::PrintCompositor> receiver_{this};
@@ -238,8 +241,15 @@ class PrintCompositorImpl : public mojom::PrintCompositor {
   // Keep track of all frames' information indexed by frame id.
   FrameMap frame_info_map_;
 
+  // Context for dealing with all typefaces encountered across multiple pages.
+  TypefaceDeserializationContext typefaces_;
+
   std::vector<std::unique_ptr<RequestInfo>> requests_;
   std::unique_ptr<DocumentInfo> docinfo_;
+
+  // If present, the accessibility tree for the document needed to
+  // export a tagged (accessible) PDF.
+  ui::AXTreeUpdate accessibility_tree_;
 
   DISALLOW_COPY_AND_ASSIGN(PrintCompositorImpl);
 };

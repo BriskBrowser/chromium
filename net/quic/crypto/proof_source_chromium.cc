@@ -130,6 +130,7 @@ bool ProofSourceChromium::GetProofInner(
 }
 
 void ProofSourceChromium::GetProof(const quic::QuicSocketAddress& server_addr,
+                                   const quic::QuicSocketAddress& client_addr,
                                    const std::string& hostname,
                                    const std::string& server_config,
                                    quic::QuicTransportVersion quic_version,
@@ -149,12 +150,14 @@ void ProofSourceChromium::GetProof(const quic::QuicSocketAddress& server_addr,
 
 quic::QuicReferenceCountedPointer<quic::ProofSource::Chain>
 ProofSourceChromium::GetCertChain(const quic::QuicSocketAddress& server_address,
+                                  const quic::QuicSocketAddress& client_address,
                                   const std::string& hostname) {
   return chain_;
 }
 
 void ProofSourceChromium::ComputeTlsSignature(
     const quic::QuicSocketAddress& server_address,
+    const quic::QuicSocketAddress& client_address,
     const std::string& hostname,
     uint16_t signature_algorithm,
     quiche::QuicheStringPiece in,
@@ -173,19 +176,28 @@ void ProofSourceChromium::ComputeTlsSignature(
                             reinterpret_cast<const uint8_t*>(in.data()),
                             in.size()) ||
       !EVP_DigestSignFinal(sign_context.get(), nullptr, &siglen)) {
-    callback->Run(false, sig);
+    callback->Run(false, sig, nullptr);
     return;
   }
   sig.resize(siglen);
   if (!EVP_DigestSignFinal(
           sign_context.get(),
           reinterpret_cast<uint8_t*>(const_cast<char*>(sig.data())), &siglen)) {
-    callback->Run(false, sig);
+    callback->Run(false, sig, nullptr);
     return;
   }
   sig.resize(siglen);
 
-  callback->Run(true, sig);
+  callback->Run(true, sig, nullptr);
+}
+
+quic::ProofSource::TicketCrypter* ProofSourceChromium::GetTicketCrypter() {
+  return ticket_crypter_.get();
+}
+
+void ProofSourceChromium::SetTicketCrypter(
+    std::unique_ptr<quic::ProofSource::TicketCrypter> ticket_crypter) {
+  ticket_crypter_ = std::move(ticket_crypter);
 }
 
 }  // namespace net

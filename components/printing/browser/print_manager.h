@@ -8,10 +8,10 @@
 #include <map>
 #include <memory>
 
-#include "base/macros.h"
 #include "build/build_config.h"
 #include "components/printing/common/print.mojom.h"
 #include "content/public/browser/web_contents_observer.h"
+#include "content/public/browser/web_contents_receiver_set.h"
 #include "mojo/public/cpp/bindings/associated_remote.h"
 
 #if defined(OS_ANDROID)
@@ -22,13 +22,13 @@ namespace IPC {
 class Message;
 }
 
-struct PrintHostMsg_DidPrintDocument_Params;
-struct PrintHostMsg_ScriptedPrint_Params;
-
 namespace printing {
 
-class PrintManager : public content::WebContentsObserver {
+class PrintManager : public content::WebContentsObserver,
+                     public mojom::PrintManagerHost {
  public:
+  PrintManager(const PrintManager&) = delete;
+  PrintManager& operator=(const PrintManager&) = delete;
   ~PrintManager() override;
 
 #if defined(OS_ANDROID)
@@ -38,6 +38,11 @@ class PrintManager : public content::WebContentsObserver {
 
   virtual void PdfWritingDone(int page_count) = 0;
 #endif
+
+  // printing::mojom::PrintManager:
+  void DidGetPrintedPagesCount(int32_t cookie, int32_t number_pages) override;
+  void DidGetDocumentCookie(int32_t cookie) override;
+  void DidShowPrintDialog() override;
 
  protected:
   explicit PrintManager(content::WebContents* contents);
@@ -61,14 +66,19 @@ class PrintManager : public content::WebContentsObserver {
   // IPC message PrintHostMsg_DidPrintDocument can require handling in other
   // processes beyond the rendering process running OnMessageReceived(),
   // requiring that the renderer needs to wait.
-  class DelayedFrameDispatchHelper {
+  class DelayedFrameDispatchHelper : public content::WebContentsObserver {
    public:
-    DelayedFrameDispatchHelper(content::RenderFrameHost* render_frame_host,
+    DelayedFrameDispatchHelper(content::WebContents* contents,
+                               content::RenderFrameHost* render_frame_host,
                                IPC::Message* reply_msg);
     DelayedFrameDispatchHelper(const DelayedFrameDispatchHelper&) = delete;
-    ~DelayedFrameDispatchHelper();
+    ~DelayedFrameDispatchHelper() override;
     DelayedFrameDispatchHelper& operator=(const DelayedFrameDispatchHelper&) =
         delete;
+
+    // content::WebContentsObserver
+    void RenderFrameDeleted(
+        content::RenderFrameHost* render_frame_host) override;
 
     // SendCompleted() can be called at most once, since it provides the success
     // reply for a message. A failure reply for the message is automatically
@@ -81,21 +91,23 @@ class PrintManager : public content::WebContentsObserver {
   };
 
   // IPC handlers
-  virtual void OnDidGetPrintedPagesCount(int cookie, int number_pages);
   virtual void OnDidPrintDocument(
       content::RenderFrameHost* render_frame_host,
-      const PrintHostMsg_DidPrintDocument_Params& params,
+      const mojom::DidPrintDocumentParams& params,
       std::unique_ptr<DelayedFrameDispatchHelper> helper) = 0;
   virtual void OnGetDefaultPrintSettings(
       content::RenderFrameHost* render_frame_host,
       IPC::Message* reply_msg) = 0;
   virtual void OnPrintingFailed(int cookie);
   virtual void OnScriptedPrint(content::RenderFrameHost* render_frame_host,
-                               const PrintHostMsg_ScriptedPrint_Params& params,
+                               const mojom::ScriptedPrintParams& params,
                                IPC::Message* reply_msg) = 0;
 
   int number_pages_ = 0;  // Number of pages to print in the print job.
   int cookie_ = 0;        // The current document cookie.
+  // Holds WebContents associated mojo receivers.
+  content::WebContentsFrameReceiverSet<printing::mojom::PrintManagerHost>
+      print_manager_host_receivers_;
 
 #if defined(OS_ANDROID)
   // Callback to execute when done writing pdf.
@@ -103,16 +115,12 @@ class PrintManager : public content::WebContentsObserver {
 #endif
 
  private:
-  void OnDidGetDocumentCookie(int cookie);
-
   // Stores a PrintRenderFrame associated remote with the RenderFrameHost used
   // to bind it. The PrintRenderFrame is used to transmit mojo interface method
   // calls to the associated receiver.
   std::map<content::RenderFrameHost*,
            mojo::AssociatedRemote<printing::mojom::PrintRenderFrame>>
       print_render_frames_;
-
-  DISALLOW_COPY_AND_ASSIGN(PrintManager);
 };
 
 }  // namespace printing

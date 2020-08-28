@@ -4,6 +4,7 @@
 
 #include "chrome/browser/web_applications/pending_app_registration_task.h"
 
+#include "base/bind_helpers.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/web_applications/components/pending_app_manager.h"
 #include "chrome/browser/web_applications/components/web_app_url_loader.h"
@@ -11,6 +12,7 @@
 #include "content/public/browser/service_worker_context.h"
 #include "content/public/browser/storage_partition.h"
 #include "content/public/browser/web_contents.h"
+#include "url/url_constants.h"
 
 namespace web_app {
 
@@ -83,6 +85,17 @@ void PendingAppRegistrationTask::OnDidCheckHasServiceWorker(
     std::move(callback_).Run(RegistrationResultCode::kAlreadyRegistered);
     return;
   }
+
+  url_loader_->PrepareForLoad(
+      web_contents_,
+      base::BindOnce(&PendingAppRegistrationTask::OnWebContentsReady,
+                     weak_ptr_factory_.GetWeakPtr()));
+}
+
+void PendingAppRegistrationTask::OnWebContentsReady(
+    WebAppUrlLoader::Result result) {
+  // TODO(crbug.com/1098139): Handle the scenario where WebAppUrlLoader fails to
+  // load about:blank and flush WebContents states.
 
   // No action is needed when the URL loads.
   // We wait for OnRegistrationCompleted (or registration timeout).

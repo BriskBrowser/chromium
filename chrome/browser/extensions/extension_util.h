@@ -41,8 +41,8 @@ namespace util {
 // has isolated storage. This can be either because it is an app that
 // requested this in its manifest, or because it is a policy-installed app or
 // extension running on the Chrome OS sign-in profile.
-bool SiteHasIsolatedStorage(const GURL& extension_site_url,
-                            content::BrowserContext* context);
+bool IsExtensionSiteWithIsolatedStorage(const GURL& site_url,
+                                        content::BrowserContext* context);
 
 // Returns true if the extension associated with |extension_id| has isolated
 // storage. This can be either because it is an app that requested this in its
@@ -99,13 +99,6 @@ std::unique_ptr<base::DictionaryValue> GetExtensionInfo(
 // have one).
 const gfx::ImageSkia& GetDefaultExtensionIcon();
 const gfx::ImageSkia& GetDefaultAppIcon();
-
-// Finds the first PWA with |url| in its scope, returns nullptr if there are
-// none.
-const Extension* GetInstalledPwaForUrl(
-    content::BrowserContext* context,
-    const GURL& url,
-    base::Optional<LaunchContainer> launch_container_filter = base::nullopt);
 
 // Returns a PermissionSet configured with the permissions that should be
 // displayed in an extension installation prompt for the specified |extension|.

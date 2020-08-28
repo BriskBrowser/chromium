@@ -9,13 +9,13 @@ import static org.chromium.chrome.browser.feed.library.piet.StyleProvider.DIMENS
 
 import android.content.Context;
 import android.os.Build;
-import android.support.annotation.VisibleForTesting;
 import android.view.View;
 import android.view.ViewGroup.LayoutParams;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.widget.FrameLayout;
 
 import androidx.annotation.Nullable;
+import androidx.annotation.VisibleForTesting;
 
 import org.chromium.chrome.browser.feed.library.common.logging.Logger;
 import org.chromium.chrome.browser.feed.library.piet.DebugLogger.MessageType;
@@ -252,11 +252,9 @@ abstract class ElementAdapter<V extends View, M> {
                             public void onInitializeAccessibilityNodeInfo(
                                     View host, AccessibilityNodeInfo info) {
                                 super.onInitializeAccessibilityNodeInfo(host, info);
-                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
-                                    info.setCollectionItemInfo(
-                                            AccessibilityNodeInfo.CollectionItemInfo.obtain(
-                                                    -1, 0, 0, 0, true));
-                                }
+                                info.setCollectionItemInfo(
+                                        AccessibilityNodeInfo.CollectionItemInfo.obtain(
+                                                -1, 0, 0, 0, true));
                             }
                         });
                     }

@@ -12,23 +12,6 @@
       "transform": 1
     },
     {
-      "name": "Scrolling Contents Layer",
-      "bounds": [685, 600],
-      "paintInvalidations": [
-        {
-          "object": "LayoutBlockFlow (positioned) DIV id='block'",
-          "rect": [300, 200, 120, 50],
-          "reason": "geometry"
-        },
-        {
-          "object": "LayoutBlockFlow (positioned) DIV id='block'",
-          "rect": [50, 200, 120, 50],
-          "reason": "geometry"
-        }
-      ],
-      "transform": 2
-    },
-    {
       "name": "ContentsLayer for Horizontal Scrollbar Layer",
       "position": [0, 385],
       "bounds": [685, 15],
@@ -45,6 +28,15 @@
       "position": [685, 385],
       "bounds": [15, 15],
       "transform": 1
+    },
+    {
+      "name": "Scrolling Contents Layer",
+      "bounds": [685, 600],
+      "invalidations": [
+        [300, 200, 120, 50],
+        [50, 200, 120, 50]
+      ],
+      "transform": 2
     }
   ],
   "transforms": [

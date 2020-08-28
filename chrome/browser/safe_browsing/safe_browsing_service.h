@@ -63,8 +63,9 @@ class SafeBrowsingPrivateApiUnitTest;
 namespace safe_browsing {
 class PingManager;
 class VerdictCacheManager;
-class ClientSideDetectionService;
+#if BUILDFLAG(FULL_SAFE_BROWSING)
 class DownloadProtectionService;
+#endif
 class PasswordProtectionService;
 class SafeBrowsingDatabaseManager;
 class SafeBrowsingNavigationObserverManager;
@@ -113,20 +114,27 @@ class SafeBrowsingService : public SafeBrowsingServiceInterface,
     return enabled_by_prefs_;
   }
 
-  ClientSideDetectionService* safe_browsing_detection_service() const {
-    return services_delegate_->GetCsdService();
-  }
-
+#if BUILDFLAG(FULL_SAFE_BROWSING)
   // The DownloadProtectionService is not valid after the SafeBrowsingService
   // is destroyed.
   DownloadProtectionService* download_protection_service() const {
     return services_delegate_->GetDownloadService();
   }
+#endif
 
   // NetworkContext and URLLoaderFactory used for safe browsing requests.
   // Called on UI thread.
+  // TODO(crbug/1049833): Transition all callers of these functions to the
+  // per-profile methods below.
   network::mojom::NetworkContext* GetNetworkContext();
   virtual scoped_refptr<network::SharedURLLoaderFactory> GetURLLoaderFactory();
+
+  // Get the NetworkContext or URLLoaderFactory attached to |browser_context|.
+  // Called on UI thread.
+  network::mojom::NetworkContext* GetNetworkContext(
+      content::BrowserContext* browser_context) override;
+  virtual scoped_refptr<network::SharedURLLoaderFactory> GetURLLoaderFactory(
+      Profile* profile);
 
   // Flushes above two interfaces to avoid races in tests.
   void FlushNetworkInterfaceForTesting();
@@ -173,18 +181,14 @@ class SafeBrowsingService : public SafeBrowsingServiceInterface,
       const base::Callback<void(void)>& callback);
 
   // Sends serialized download report to backend.
-  virtual void SendSerializedDownloadReport(const std::string& report);
+  virtual void SendSerializedDownloadReport(Profile* profile,
+                                            const std::string& report);
 
   // Create the default v4 protocol config struct.
   virtual V4ProtocolConfig GetV4ProtocolConfig() const;
 
   // Get the cache manager by profile.
   VerdictCacheManager* GetVerdictCacheManager(Profile* profile) const;
-  base::WeakPtr<VerdictCacheManager> GetVerdictCacheManagerWeakPtr(
-      Profile* profile) const;
-
-  // Get the binary upload service by profile.
-  BinaryUploadService* GetBinaryUploadService(Profile* profile) const;
 
  protected:
   // Creates the safe browsing service.  Need to initialize before using.
@@ -210,7 +214,6 @@ class SafeBrowsingService : public SafeBrowsingServiceInterface,
   friend class extensions::SafeBrowsingPrivateApiUnitTest;
   friend class SafeBrowsingServerTest;
   friend class SafeBrowsingUIManagerTest;
-  friend class SafeBrowsingURLRequestContextGetter;
   friend class TestSafeBrowsingService;
   friend class TestSafeBrowsingServiceFactory;
   friend class V4SafeBrowsingServiceTest;
@@ -220,10 +223,16 @@ class SafeBrowsingService : public SafeBrowsingServiceInterface,
 
   void SetDatabaseManagerForTest(SafeBrowsingDatabaseManager* database_manager);
 
-  // Called to initialize objects that are used on the io_thread.  This may be
+  // Called to initialize objects that are used on the io_thread. This may be
   // called multiple times during the life of the SafeBrowsingService.
+  // |sb_url_loader_factory| is a SharedURLLoaderFactory attached to the Safe
+  // Browsing NetworkContexts, and |browser_url_loader_factory| is attached to
+  // the global browser process.
+  // TODO(crbug.com/1049833): Remove the sb_url_loader_factory here.
   void StartOnIOThread(std::unique_ptr<network::PendingSharedURLLoaderFactory>
-                           url_loader_factory);
+                           sb_url_loader_factory,
+                       std::unique_ptr<network::PendingSharedURLLoaderFactory>
+                           browser_url_loader_factory);
 
   // Called to stop or shutdown operations on the io_thread. This may be called
   // multiple times to stop during the life of the SafeBrowsingService. If

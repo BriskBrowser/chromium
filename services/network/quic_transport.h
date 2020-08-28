@@ -43,12 +43,15 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) QuicTransport final
                               mojo::ScopedDataPipeProducerHandle)>;
   using UnidirectionalStreamAcceptanceCallback =
       base::OnceCallback<void(uint32_t, mojo::ScopedDataPipeConsumerHandle)>;
-  QuicTransport(const GURL& url,
-                const url::Origin& origin,
-                const net::NetworkIsolationKey& key,
-                NetworkContext* context,
-                mojo::PendingRemote<mojom::QuicTransportHandshakeClient>
-                    handshake_client);
+  QuicTransport(
+      const GURL& url,
+      const url::Origin& origin,
+      const net::NetworkIsolationKey& key,
+      const std::vector<mojom::QuicTransportCertificateFingerprintPtr>&
+          fingerprints,
+      NetworkContext* context,
+      mojo::PendingRemote<mojom::QuicTransportHandshakeClient>
+          handshake_client);
   ~QuicTransport() override;
 
   // mojom::QuicTransport implementation:
@@ -61,6 +64,8 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) QuicTransport final
       BidirectionalStreamAcceptanceCallback callback) override;
   void AcceptUnidirectionalStream(
       UnidirectionalStreamAcceptanceCallback callback) override;
+  void SendFin(uint32_t stream_id) override;
+  void AbortStream(uint32_t stream_id, uint64_t code) override;
 
   // net::QuicTransportClient::Visitor implementation:
   void OnConnected() override;
@@ -69,7 +74,7 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) QuicTransport final
   void OnError() override;
   void OnIncomingBidirectionalStreamAvailable() override;
   void OnIncomingUnidirectionalStreamAvailable() override;
-  void OnIncomingDatagramAvailable() override;
+  void OnDatagramReceived(base::StringPiece datagram) override;
   void OnCanCreateNewOutgoingBidirectionalStream() override;
   void OnCanCreateNewOutgoingUnidirectionalStream() override;
 
@@ -84,14 +89,16 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) QuicTransport final
 
   std::map<uint32_t, std::unique_ptr<Stream>> streams_;
 
-  mojo::Receiver<mojom::QuicTransport> receiver_;
-  mojo::Remote<mojom::QuicTransportHandshakeClient> handshake_client_;
-  mojo::Remote<mojom::QuicTransportClient> client_;
-
+  // These callbacks must be destroyed after |client_| because of mojo callback
+  // destruction checks, so they are declared first.
   base::queue<BidirectionalStreamAcceptanceCallback>
       bidirectional_stream_acceptances_;
   base::queue<UnidirectionalStreamAcceptanceCallback>
       unidirectional_stream_acceptances_;
+
+  mojo::Receiver<mojom::QuicTransport> receiver_;
+  mojo::Remote<mojom::QuicTransportHandshakeClient> handshake_client_;
+  mojo::Remote<mojom::QuicTransportClient> client_;
 
   bool torn_down_ = false;
 

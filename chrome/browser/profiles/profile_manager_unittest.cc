@@ -20,10 +20,8 @@
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/values.h"
 #include "build/build_config.h"
-#include "chrome/browser/bookmarks/bookmark_model_factory.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chrome_notification_types.h"
-#include "chrome/browser/history/history_service_factory.h"
 #include "chrome/browser/prefs/browser_prefs.h"
 #include "chrome/browser/prefs/incognito_mode_prefs.h"
 #include "chrome/browser/profiles/profile.h"
@@ -31,6 +29,7 @@
 #include "chrome/browser/profiles/profile_info_cache.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/profiles/profiles_state.h"
+#include "chrome/browser/signin/identity_manager_factory.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_switches.h"
@@ -40,7 +39,6 @@
 #include "chrome/test/base/testing_browser_process.h"
 #include "chrome/test/base/testing_profile.h"
 #include "components/account_id/account_id.h"
-#include "components/history/core/browser/history_service.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/test/browser_task_environment.h"
@@ -144,6 +142,8 @@ class ProfileManagerTest : public testing::Test {
       : local_state_(TestingBrowserProcess::GetGlobal()) {
   }
 
+  ProfileManagerTest(const ProfileManagerTest&) = delete;
+  ProfileManagerTest& operator=(const ProfileManagerTest&) = delete;
   ~ProfileManagerTest() override = default;
 
   void SetUp() override {
@@ -240,11 +240,13 @@ class ProfileManagerTest : public testing::Test {
   chromeos::ScopedCrosSettingsTestHelper cros_settings_test_helper_;
 #endif
 
-  content::BrowserTaskEnvironment task_environment_;
-
-  // The path to temporary directory used to contain the test operations.
+  // The path to temporary directory used to contain the test operations. These
+  // come before |task_environment_| to avoid issues around backend threads
+  // still using the temp directories upon teardown.
   base::ScopedTempDir temp_dir_;
   ScopedTestingLocalState local_state_;
+
+  content::BrowserTaskEnvironment task_environment_;
 
 #if defined(OS_CHROMEOS)
   chromeos::ScopedTestUserManager test_user_manager_;
@@ -253,9 +255,6 @@ class ProfileManagerTest : public testing::Test {
   std::unique_ptr<WallpaperControllerClient> wallpaper_controller_client_;
   TestWallpaperController test_wallpaper_controller_;
 #endif
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(ProfileManagerTest);
 };
 
 TEST_F(ProfileManagerTest, GetProfile) {
@@ -330,14 +329,14 @@ TEST_F(ProfileManagerTest, UserProfileLoading) {
   Profile* const signin_profile = ProfileHelper::GetSigninProfile();
 
   // Get[Active|Primary|LastUsed]Profile return the sign-in profile before login
-  // happens. IsSameProfile() is used to properly test against TestProfile whose
-  // OTR version uses a different temp path.
+  // happens. IsSameOrParent() is used to properly test against TestProfile
+  // whose OTR version uses a different temp path.
   EXPECT_TRUE(
-      ProfileManager::GetActiveUserProfile()->IsSameProfile(signin_profile));
+      ProfileManager::GetActiveUserProfile()->IsSameOrParent(signin_profile));
   EXPECT_TRUE(
-      ProfileManager::GetPrimaryUserProfile()->IsSameProfile(signin_profile));
+      ProfileManager::GetPrimaryUserProfile()->IsSameOrParent(signin_profile));
   EXPECT_TRUE(
-      ProfileManager::GetLastUsedProfile()->IsSameProfile(signin_profile));
+      ProfileManager::GetLastUsedProfile()->IsSameOrParent(signin_profile));
 
   // User signs in but user profile loading has not started.
   const std::string user_id = "test-user@example.com";
@@ -352,9 +351,9 @@ TEST_F(ProfileManagerTest, UserProfileLoading) {
   // ends up in an invalid state. Strange things as in http://crbug.com/728683
   // and http://crbug.com/718734 happens.
   EXPECT_TRUE(
-      ProfileManager::GetActiveUserProfile()->IsSameProfile(signin_profile));
+      ProfileManager::GetActiveUserProfile()->IsSameOrParent(signin_profile));
   EXPECT_TRUE(
-      ProfileManager::GetPrimaryUserProfile()->IsSameProfile(signin_profile));
+      ProfileManager::GetPrimaryUserProfile()->IsSameOrParent(signin_profile));
 
   // GetLastUsedProfile() after login but before a user profile is loaded is
   // fatal.
@@ -364,27 +363,20 @@ TEST_F(ProfileManagerTest, UserProfileLoading) {
   Profile* const user_profile =
       g_browser_process->profile_manager()->GetProfile(
           ProfileHelper::Get()->GetProfilePathByUserIdHash(user_id_hash));
-  ASSERT_FALSE(user_profile->IsSameProfile(signin_profile));
+  ASSERT_FALSE(user_profile->IsSameOrParent(signin_profile));
 
   // User profile is returned thereafter.
   EXPECT_TRUE(
-      ProfileManager::GetActiveUserProfile()->IsSameProfile(user_profile));
+      ProfileManager::GetActiveUserProfile()->IsSameOrParent(user_profile));
   EXPECT_TRUE(
-      ProfileManager::GetPrimaryUserProfile()->IsSameProfile(user_profile));
+      ProfileManager::GetPrimaryUserProfile()->IsSameOrParent(user_profile));
   EXPECT_TRUE(
-      ProfileManager::GetLastUsedProfile()->IsSameProfile(user_profile));
+      ProfileManager::GetLastUsedProfile()->IsSameOrParent(user_profile));
 }
 
 #endif  // defined(OS_CHROMEOS)
 
-// Data race on Linux bots. http://crbug.com/789214
-#if defined(OS_LINUX)
-#define MAYBE_CreateAndUseTwoProfiles DISABLED_CreateAndUseTwoProfiles
-#else
-#define MAYBE_CreateAndUseTwoProfiles CreateAndUseTwoProfiles
-#endif
-
-TEST_F(ProfileManagerTest, MAYBE_CreateAndUseTwoProfiles) {
+TEST_F(ProfileManagerTest, CreateAndUseTwoProfiles) {
   base::FilePath dest_path1 = temp_dir_.GetPath();
   dest_path1 = dest_path1.Append(FILE_PATH_LITERAL("New Profile 1"));
 
@@ -402,24 +394,16 @@ TEST_F(ProfileManagerTest, MAYBE_CreateAndUseTwoProfiles) {
       static_cast<TestingProfile*>(profile_manager->GetProfile(dest_path2));
   ASSERT_TRUE(profile2);
 
-  // Force lazy-init of some profile services to simulate use.
-  ASSERT_TRUE(profile1->CreateHistoryService(true, false));
-  EXPECT_TRUE(HistoryServiceFactory::GetForProfile(
-      profile1, ServiceAccessType::EXPLICIT_ACCESS));
-  profile1->CreateBookmarkModel(true);
-  EXPECT_TRUE(BookmarkModelFactory::GetForBrowserContext(profile1));
-  profile2->CreateBookmarkModel(true);
-  EXPECT_TRUE(BookmarkModelFactory::GetForBrowserContext(profile2));
-  ASSERT_TRUE(profile2->CreateHistoryService(true, false));
-  EXPECT_TRUE(HistoryServiceFactory::GetForProfile(
-      profile2, ServiceAccessType::EXPLICIT_ACCESS));
+  // Access some keyed service to simulate use.
+  EXPECT_TRUE(IdentityManagerFactory::GetForProfile(profile1));
+  EXPECT_TRUE(IdentityManagerFactory::GetForProfile(profile2));
 
   // Make sure any pending tasks run before we destroy the profiles.
   content::RunAllTasksUntilIdle();
 
   TestingBrowserProcess::GetGlobal()->SetProfileManager(nullptr);
 
-  // Make sure history cleans up correctly.
+  // Make sure backend sequences clean up correctly.
   content::RunAllTasksUntilIdle();
 }
 
@@ -431,12 +415,12 @@ TEST_F(ProfileManagerTest, LoadNonExistingProfile) {
   ProfileManager* profile_manager = g_browser_process->profile_manager();
   profile_manager->LoadProfile(
       profile_name, false /* incognito */,
-      base::Bind(&ExpectNullProfile, run_loop_1.QuitClosure()));
+      base::BindOnce(&ExpectNullProfile, run_loop_1.QuitClosure()));
   run_loop_1.Run();
 
   profile_manager->LoadProfile(
       profile_name, true /* incognito */,
-      base::Bind(&ExpectNullProfile, run_loop_2.QuitClosure()));
+      base::BindOnce(&ExpectNullProfile, run_loop_2.QuitClosure()));
   run_loop_2.Run();
 }
 
@@ -457,23 +441,23 @@ TEST_F(ProfileManagerTest, LoadExistingProfile) {
   bool incognito = false;
   profile_manager->LoadProfile(
       profile_name, incognito,
-      base::Bind(&ExpectProfileWithName, profile_name, incognito,
-                 load_profile.QuitClosure()));
+      base::BindOnce(&ExpectProfileWithName, profile_name, incognito,
+                     load_profile.QuitClosure()));
   load_profile.Run();
 
   base::RunLoop load_profile_incognito;
   incognito = true;
   profile_manager->LoadProfile(
       profile_name, incognito,
-      base::Bind(&ExpectProfileWithName, profile_name, incognito,
-                 load_profile_incognito.QuitClosure()));
+      base::BindOnce(&ExpectProfileWithName, profile_name, incognito,
+                     load_profile_incognito.QuitClosure()));
   load_profile_incognito.Run();
 
   // Loading some other non existing profile should still return null.
   base::RunLoop load_other_profile;
   profile_manager->LoadProfile(
       other_name, false,
-      base::Bind(&ExpectNullProfile, load_other_profile.QuitClosure()));
+      base::BindOnce(&ExpectNullProfile, load_other_profile.QuitClosure()));
   load_other_profile.Run();
 }
 
@@ -530,8 +514,7 @@ TEST_F(ProfileManagerTest, AddProfileToStorageCheckOmitted) {
       prefs::kSupervisedUserId, supervised_users::kChildAccountSUID);
 
   // RegisterTestingProfile adds the profile to the cache and takes ownership.
-  profile_manager->RegisterTestingProfile(std::move(supervised_profile), true,
-                                          false);
+  profile_manager->RegisterTestingProfile(std::move(supervised_profile), true);
   ASSERT_EQ(1u, storage.GetNumberOfProfiles());
   EXPECT_TRUE(storage.GetAllProfilesAttributesSortedByName()[0]->IsOmitted());
 #endif
@@ -541,7 +524,7 @@ TEST_F(ProfileManagerTest, AddProfileToStorageCheckOmitted) {
   auto nonsupervised_profile =
       std::make_unique<TestingProfile>(nonsupervised_path, nullptr);
   profile_manager->RegisterTestingProfile(std::move(nonsupervised_profile),
-                                          true, false);
+                                          true);
 
 #if BUILDFLAG(ENABLE_SUPERVISED_USERS)
   EXPECT_EQ(2u, storage.GetNumberOfProfiles());
@@ -590,6 +573,8 @@ class UnittestGuestProfileManager : public UnittestProfileManager {
 class ProfileManagerGuestTest : public ProfileManagerTest  {
  public:
   ProfileManagerGuestTest() = default;
+  ProfileManagerGuestTest(const ProfileManagerGuestTest&) = delete;
+  ProfileManagerGuestTest& operator=(const ProfileManagerGuestTest&) = delete;
   ~ProfileManagerGuestTest() override = default;
 
   void SetUp() override {
@@ -617,9 +602,6 @@ class ProfileManagerGuestTest : public ProfileManagerTest  {
         user_manager::UserManager::Get());
   }
 #endif
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(ProfileManagerGuestTest);
 };
 
 TEST_F(ProfileManagerGuestTest, GetLastUsedProfileAllowedByPolicy) {
@@ -639,12 +621,12 @@ TEST_F(ProfileManagerGuestTest, GuestProfileIngonito) {
   Profile* active_profile = ProfileManager::GetActiveUserProfile();
   EXPECT_TRUE(active_profile->IsOffTheRecord());
 
-  EXPECT_TRUE(active_profile->IsSameProfile(primary_profile));
+  EXPECT_TRUE(active_profile->IsSameOrParent(primary_profile));
 
   Profile* last_used_profile = ProfileManager::GetLastUsedProfile();
   EXPECT_TRUE(last_used_profile->IsOffTheRecord());
 
-  EXPECT_TRUE(last_used_profile->IsSameProfile(active_profile));
+  EXPECT_TRUE(last_used_profile->IsSameOrParent(active_profile));
 }
 #endif
 
@@ -885,8 +867,8 @@ TEST_F(ProfileManagerTest, GetLastUsedProfileAllowedByPolicy) {
 
 #if defined(OS_CHROMEOS)
   // On CrOS, profile returned by GetLastUsedProfile is a sign-in profile that
-  // is forced to be incognito. That's why we need to create at least one user
-  // to get a regular profile.
+  // is forced to be off-the-record. That's why we need to create at least one
+  // user to get a regular profile.
   RegisterUser(
       AccountId::FromUserEmailGaiaId("test-user@example.com", "1234567890"));
 #endif
@@ -898,13 +880,13 @@ TEST_F(ProfileManagerTest, GetLastUsedProfileAllowedByPolicy) {
   EXPECT_EQ(IncognitoModePrefs::kDefaultAvailability,
             IncognitoModePrefs::GetAvailability(prefs));
 
-  ASSERT_TRUE(profile->GetOffTheRecordProfile());
+  ASSERT_TRUE(profile->GetPrimaryOTRProfile());
 
   IncognitoModePrefs::SetAvailability(prefs, IncognitoModePrefs::DISABLED);
   EXPECT_FALSE(
       profile_manager->GetLastUsedProfileAllowedByPolicy()->IsOffTheRecord());
 
-  // GetLastUsedProfileAllowedByPolicy() returns the incognito Profile when
+  // GetLastUsedProfileAllowedByPolicy() returns the off-the-record Profile when
   // incognito mode is forced.
   IncognitoModePrefs::SetAvailability(prefs, IncognitoModePrefs::FORCED);
   EXPECT_TRUE(
@@ -1057,8 +1039,7 @@ TEST_F(ProfileManagerTest, LastOpenedProfilesDoesNotContainIncognito) {
   EXPECT_EQ(profile1, last_opened_profiles[0]);
 
   // And for profile2.
-  Browser::CreateParams profile2_params(profile1->GetOffTheRecordProfile(),
-                                        true);
+  Browser::CreateParams profile2_params(profile1->GetPrimaryOTRProfile(), true);
   std::unique_ptr<Browser> browser2a(
       CreateBrowserWithTestWindowForParams(&profile2_params));
 
@@ -1214,15 +1195,29 @@ TEST_F(ProfileManagerTest, CleanUpEphemeralProfiles) {
   PrefService* local_state = g_browser_process->local_state();
   local_state->SetString(prefs::kProfileLastUsed, profile_name1);
 
+  // Set the last used profiles.
+  ListPrefUpdate update(local_state, prefs::kProfilesLastActive);
+  base::ListValue* initial_last_active_profile_list = update.Get();
+  initial_last_active_profile_list->Append(
+      std::make_unique<base::Value>(path1.BaseName().MaybeAsASCII()));
+  initial_last_active_profile_list->Append(
+      std::make_unique<base::Value>(path2.BaseName().MaybeAsASCII()));
+
   profile_manager->CleanUpEphemeralProfiles();
   content::RunAllTasksUntilIdle();
+  const base::ListValue* final_last_active_profile_list =
+      local_state->GetList(prefs::kProfilesLastActive);
 
   // The ephemeral profile should be deleted, and the last used profile set to
-  // the other one.
+  // the other one. Also, the ephemeral profile should be removed from the
+  // kProfilesLastActive list.
   EXPECT_FALSE(base::DirectoryExists(path1));
   EXPECT_TRUE(base::DirectoryExists(path2));
   EXPECT_EQ(profile_name2, local_state->GetString(prefs::kProfileLastUsed));
   ASSERT_EQ(1u, storage.GetNumberOfProfiles());
+  ASSERT_EQ(1u, final_last_active_profile_list->GetSize());
+  ASSERT_EQ(path2.BaseName().MaybeAsASCII(),
+            (final_last_active_profile_list->GetList())[0].GetString());
 
   // Mark the remaining profile ephemeral and clean up.
   storage.GetAllProfilesAttributes()[0]->SetIsEphemeral(true);
@@ -1233,6 +1228,7 @@ TEST_F(ProfileManagerTest, CleanUpEphemeralProfiles) {
   EXPECT_FALSE(base::DirectoryExists(path2));
   EXPECT_EQ(0u, storage.GetNumberOfProfiles());
   EXPECT_EQ("Profile 1", local_state->GetString(prefs::kProfileLastUsed));
+  ASSERT_EQ(0u, final_last_active_profile_list->GetSize());
 }
 
 TEST_F(ProfileManagerTest, CleanUpEphemeralProfilesWithGuestLastUsedProfile) {
@@ -1363,8 +1359,7 @@ TEST_F(ProfileManagerTest, LastProfileDeletedWithGuestActiveProfile) {
   builder.SetPath(ProfileManager::GetGuestProfilePath());
   std::unique_ptr<TestingProfile> guest_profile = builder.Build();
   guest_profile->set_profile_name(guest_profile_name);
-  profile_manager->RegisterTestingProfile(std::move(guest_profile), false,
-                                          false);
+  profile_manager->RegisterTestingProfile(std::move(guest_profile), false);
 
   // The Guest profile does not get added to the ProfileAttributesStorage.
   EXPECT_EQ(2u, profile_manager->GetLoadedProfiles().size());
@@ -1593,7 +1588,7 @@ TEST_F(ProfileManagerTest, ProfileDisplayNameIsEmailIfDefaultName) {
 }
 #endif  // !defined(OS_ANDROID)
 
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
 // These tests are for a Mac-only code path that assumes the browser
 // process isn't killed when all browser windows are closed.
 TEST_F(ProfileManagerTest, ActiveProfileDeletedNeedsToLoadNextProfile) {
@@ -1698,4 +1693,39 @@ TEST_F(ProfileManagerTest, ActiveProfileDeletedNextProfileDeletedToo) {
   EXPECT_EQ(dest_path3, profile_manager->GetLastUsedProfile()->GetPath());
   EXPECT_EQ(profile_name3, local_state->GetString(prefs::kProfileLastUsed));
 }
-#endif  // defined(OS_MACOSX)
+#endif  // defined(OS_MAC)
+
+TEST_F(ProfileManagerTest, CannotCreateProfileOusideUserDir) {
+  base::ScopedTempDir non_user_dir;
+  ASSERT_TRUE(non_user_dir.CreateUniqueTempDir());
+
+  base::FilePath dest_path = non_user_dir.GetPath();
+  dest_path = dest_path.Append(FILE_PATH_LITERAL("New Profile"));
+
+  ProfileManager* profile_manager = g_browser_process->profile_manager();
+
+  Profile* profile = profile_manager->GetProfile(dest_path);
+  EXPECT_EQ(nullptr, profile);
+}
+
+TEST_F(ProfileManagerTest, CannotCreateProfileOusideUserDirAsync) {
+  base::ScopedTempDir non_user_dir;
+  ASSERT_TRUE(non_user_dir.CreateUniqueTempDir());
+
+  const std::string profile_name = "New Profile";
+  base::FilePath dest_path = non_user_dir.GetPath();
+  dest_path = dest_path.AppendASCII(profile_name);
+
+  ProfileManager* profile_manager = g_browser_process->profile_manager();
+
+  MockObserver mock_observer;
+  EXPECT_CALL(mock_observer,
+              OnProfileCreated(nullptr, Profile::CREATE_STATUS_LOCAL_FAIL));
+
+  profile_manager->CreateProfileAsync(
+      dest_path,
+      base::Bind(&MockObserver::OnProfileCreated,
+                 base::Unretained(&mock_observer)),
+      base::UTF8ToUTF16(profile_name), profiles::GetDefaultAvatarIconUrl(0));
+  content::RunAllTasksUntilIdle();
+}

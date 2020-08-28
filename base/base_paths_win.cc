@@ -107,6 +107,18 @@ bool PathProviderWin(int key, FilePath* result) {
         return false;
       cur = FilePath(system_buffer);
       break;
+    case base::DIR_COMMON_STARTUP:
+      if (FAILED(SHGetFolderPath(nullptr, CSIDL_COMMON_STARTUP, nullptr,
+                                 SHGFP_TYPE_CURRENT, system_buffer)))
+        return false;
+      cur = FilePath(system_buffer);
+      break;
+    case base::DIR_USER_STARTUP:
+      if (FAILED(SHGetFolderPath(nullptr, CSIDL_STARTUP, nullptr,
+                                 SHGFP_TYPE_CURRENT, system_buffer)))
+        return false;
+      cur = FilePath(system_buffer);
+      break;
     case base::DIR_APP_DATA:
       if (FAILED(SHGetFolderPath(NULL, CSIDL_APPDATA, NULL, SHGFP_TYPE_CURRENT,
                                  system_buffer)))
@@ -172,12 +184,13 @@ bool PathProviderWin(int key, FilePath* result) {
                 .Append(FILE_PATH_LITERAL("Internet Explorer"))
                 .Append(FILE_PATH_LITERAL("Quick Launch"));
       break;
-    case base::DIR_TASKBAR_PINS:
+    case base::DIR_TASKBAR_PINS: {
       if (!PathService::Get(base::DIR_USER_QUICK_LAUNCH, &cur))
         return false;
       cur = cur.Append(FILE_PATH_LITERAL("User Pinned"))
                 .Append(FILE_PATH_LITERAL("TaskBar"));
       break;
+    }
     case base::DIR_IMPLICIT_APP_SHORTCUTS:
       if (!PathService::Get(base::DIR_USER_QUICK_LAUNCH, &cur))
         return false;

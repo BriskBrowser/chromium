@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "base/component_export.h"
+#include "base/containers/flat_map.h"
 #include "base/containers/flat_set.h"
 #include "base/containers/span.h"
 #include "base/containers/unique_ptr_adapters.h"
@@ -38,6 +39,8 @@
 #include "services/network/public/mojom/network_change_manager.mojom.h"
 #include "services/network/public/mojom/network_quality_estimator_manager.mojom.h"
 #include "services/network/public/mojom/network_service.mojom.h"
+#include "services/network/public/mojom/trust_tokens.mojom.h"
+#include "services/network/trust_tokens/trust_token_key_commitments.h"
 #include "services/service_manager/public/cpp/binder_registry.h"
 
 namespace net {
@@ -54,8 +57,46 @@ namespace network {
 class CRLSetDistributor;
 class DnsConfigChangeManager;
 class HttpAuthCacheCopier;
+class LegacyTLSConfigDistributor;
+class NetLogProxySink;
 class NetworkContext;
+class NetworkService;
 class NetworkUsageAccumulator;
+class SCTAuditingCache;
+
+// DataPipeUseTracker tracks the mojo data pipe usage in the network
+// service.
+class COMPONENT_EXPORT(NETWORK_SERVICE) DataPipeUseTracker final {
+ public:
+  enum DataPipeUser {
+    kUrlLoader = 0,
+    kWebSocket = 1,
+  };
+  // |network_service| must outlive |this|.
+  DataPipeUseTracker(NetworkService* network_service, DataPipeUser user);
+  DataPipeUseTracker(DataPipeUseTracker&&);
+  ~DataPipeUseTracker();
+  DataPipeUseTracker(const DataPipeUseTracker&) = delete;
+  DataPipeUseTracker& operator=(const DataPipeUseTracker&) = delete;
+
+  // Call this when the associated data pipe is created.
+  void Activate();
+  // Call this when (one end of) the associated data pipe is dropped.
+  void Reset();
+
+ private:
+  enum State {
+    kInit,
+    kActivated,
+    kReset,
+  };
+  NetworkService* const network_service_;
+  const DataPipeUser user_;
+
+  State state_ = State::kInit;
+};
+
+using DataPipeUser = DataPipeUseTracker::DataPipeUser;
 
 class COMPONENT_EXPORT(NETWORK_SERVICE) NetworkService
     : public mojom::NetworkService {
@@ -113,6 +154,9 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) NetworkService
   void StartNetLog(base::File file,
                    net::NetLogCaptureMode capture_mode,
                    base::Value constants) override;
+  void AttachNetLogProxy(
+      mojo::PendingRemote<mojom::NetLogProxySource> proxy_source,
+      mojo::PendingReceiver<mojom::NetLogProxySink>) override;
   void SetSSLKeyLogFile(base::File file) override;
   void CreateNetworkContext(
       mojo::PendingReceiver<mojom::NetworkContext> receiver,
@@ -145,15 +189,21 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) NetworkService
   void UpdateCRLSet(
       base::span<const uint8_t> crl_set,
       mojom::NetworkService::UpdateCRLSetCallback callback) override;
+  void UpdateLegacyTLSConfig(
+      base::span<const uint8_t> config,
+      mojom::NetworkService::UpdateLegacyTLSConfigCallback callback) override;
   void OnCertDBChanged() override;
 #if defined(OS_LINUX) && !defined(OS_CHROMEOS)
   void SetCryptConfig(mojom::CryptConfigPtr crypt_config) override;
 #endif
-#if defined(OS_WIN) || (defined(OS_MACOSX) && !defined(OS_IOS))
+#if defined(OS_WIN) || defined(OS_MAC)
   void SetEncryptionKey(const std::string& encryption_key) override;
 #endif
   void AddCorbExceptionForPlugin(int32_t process_id) override;
-  void RemoveCorbExceptionForPlugin(int32_t process_id) override;
+  void AddAllowedRequestInitiatorForPlugin(
+      int32_t process_id,
+      const url::Origin& allowed_request_initiator) override;
+  void RemoveSecurityExceptionsForPlugin(int32_t process_id) override;
   void OnMemoryPressure(base::MemoryPressureListener::MemoryPressureLevel
                             memory_pressure_level) override;
   void OnPeerToPeerConnectionsCountChange(uint32_t count) override;
@@ -162,6 +212,12 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) NetworkService
 #endif
   void SetEnvironment(
       std::vector<mojom::EnvironmentVariablePtr> environment) override;
+  void SetTrustTokenKeyCommitments(const std::string& raw_commitments,
+                                   base::OnceClosure done) override;
+#if BUILDFLAG(IS_CT_SUPPORTED)
+  void ClearSCTAuditingCache() override;
+#endif
+
 #if defined(OS_ANDROID)
   void DumpWithoutCrashing(base::Time dump_request_time) override;
 #endif
@@ -177,6 +233,9 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) NetworkService
 
   bool quic_disabled() const { return quic_disabled_; }
   bool HasRawHeadersAccess(int32_t process_id, const GURL& resource_url) const;
+
+  bool IsInitiatorAllowedForPlugin(int process_id,
+                                   const url::Origin& request_initiator);
 
   mojom::NetworkServiceClient* client() {
     return client_.is_bound() ? client_.get() : nullptr;
@@ -205,6 +264,10 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) NetworkService
     return crl_set_distributor_.get();
   }
 
+  LegacyTLSConfigDistributor* legacy_tls_config_distributor() {
+    return legacy_tls_config_distributor_.get();
+  }
+
   bool os_crypt_config_set() const { return os_crypt_config_set_; }
 
   void set_host_resolver_factory_for_testing(
@@ -215,6 +278,22 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) NetworkService
   bool split_auth_cache_by_network_isolation_key() const {
     return split_auth_cache_by_network_isolation_key_;
   }
+
+  // From initialization on, this will be non-null and will always point to the
+  // same object (although the object's state can change on updates to the
+  // commitments). As a consequence, it's safe to store long-lived copies of the
+  // pointer.
+  const TrustTokenKeyCommitments* trust_token_key_commitments() const {
+    return trust_token_key_commitments_.get();
+  }
+
+#if BUILDFLAG(IS_CT_SUPPORTED)
+  SCTAuditingCache* sct_auditing_cache() { return sct_auditing_cache_.get(); }
+#endif
+
+  void OnDataPipeCreated(DataPipeUser user);
+  void OnDataPipeDropped(DataPipeUser user);
+  void StopMetricsTimerForTesting();
 
   static NetworkService* GetNetworkServiceForTesting();
 
@@ -240,9 +319,13 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) NetworkService
   // Starts timer call UpdateLoadInfo() again, if needed.
   void AckUpdateLoadInfo();
 
+  void ReportMetrics();
+
   bool initialized_ = false;
 
   net::NetLog* net_log_;
+
+  std::unique_ptr<NetLogProxySink> net_log_proxy_sink_;
 
   std::unique_ptr<net::FileNetLogObserver> file_net_log_observer_;
   net::TraceNetLogObserver trace_net_log_observer_;
@@ -308,6 +391,8 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) NetworkService
 
   std::unique_ptr<CRLSetDistributor> crl_set_distributor_;
 
+  std::unique_ptr<LegacyTLSConfigDistributor> legacy_tls_config_distributor_;
+
   // A timer that periodically calls UpdateLoadInfo while there are pending
   // loads and not waiting on an ACK from the client for the last sent
   // LoadInfo callback.
@@ -316,14 +401,35 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) NetworkService
   // acknowledged.
   bool waiting_on_load_state_ack_ = false;
 
-  // A timer that periodically calls ReportMetrics every hour.
+  // A timer that periodically calls ReportMetrics every 20 minutes.
   base::RepeatingTimer metrics_trigger_timer_;
 
   // Whether new NetworkContexts will be configured to partition their
   // HttpAuthCaches by NetworkIsolationKey.
   bool split_auth_cache_by_network_isolation_key_ = false;
 
+  // Globally-scoped cryptographic state for the Trust Tokens protocol
+  // (https://github.com/wicg/trust-token-api), updated via a Mojo IPC and
+  // provided to NetworkContexts via the getter.
+  std::unique_ptr<TrustTokenKeyCommitments> trust_token_key_commitments_;
+
   std::unique_ptr<DelayedDohProbeActivator> doh_probe_activator_;
+
+#if BUILDFLAG(IS_CT_SUPPORTED)
+  std::unique_ptr<SCTAuditingCache> sct_auditing_cache_;
+#endif
+
+  // Map from a renderer process id, to the set of plugin origins embedded by
+  // that renderer process (the renderer will proxy requests from PPAPI - such
+  // requests should have their initiator origin within the set stored here).
+  std::map<int, std::set<url::Origin>> plugin_origins_;
+
+  struct DataPipeUsage final {
+    int current = 0;
+    int max = 0;
+    int min = 0;
+  };
+  base::flat_map<DataPipeUser, DataPipeUsage> data_pipe_use_;
 
   DISALLOW_COPY_AND_ASSIGN(NetworkService);
 };

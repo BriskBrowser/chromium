@@ -4,24 +4,15 @@
 
 package org.chromium.chrome.test.util;
 
-import static org.junit.Assert.assertFalse;
-
-import android.accounts.Account;
-import android.annotation.TargetApi;
-import android.os.Build;
+import org.hamcrest.Matchers;
 
 import org.chromium.chrome.browser.ntp.IncognitoNewTabPage;
 import org.chromium.chrome.browser.ntp.NewTabPage;
-import org.chromium.chrome.browser.preferences.ChromePreferenceKeys;
-import org.chromium.chrome.browser.preferences.SharedPreferencesManager;
 import org.chromium.chrome.browser.suggestions.SiteSuggestion;
 import org.chromium.chrome.browser.suggestions.tile.TileSectionType;
 import org.chromium.chrome.browser.suggestions.tile.TileSource;
 import org.chromium.chrome.browser.suggestions.tile.TileTitleSource;
 import org.chromium.chrome.browser.tab.Tab;
-import org.chromium.components.signin.AccountManagerFacade;
-import org.chromium.components.signin.test.util.AccountHolder;
-import org.chromium.components.signin.test.util.FakeAccountManagerDelegate;
 import org.chromium.content_public.browser.test.util.Criteria;
 import org.chromium.content_public.browser.test.util.CriteriaHelper;
 import org.chromium.net.test.EmbeddedTestServer;
@@ -41,24 +32,17 @@ public class NewTabPageTestUtils {
      *
      * @param tab The tab to be monitored for NTP loading.
      */
-    @TargetApi(Build.VERSION_CODES.LOLLIPOP)
     public static void waitForNtpLoaded(final Tab tab) {
-        CriteriaHelper.pollUiThread(new Criteria("NTP never fully loaded") {
-            @Override
-            public boolean isSatisfied() {
-                if (!tab.isIncognito()) {
-                    // TODO(tedchoc): Make MostVisitedPage also have a isLoaded() concept.
-                    if (tab.getNativePage() instanceof NewTabPage) {
-                        return ((NewTabPage) tab.getNativePage()).isLoadedForTests();
-                    } else {
-                        return false;
-                    }
-                } else {
-                    if (!(tab.getNativePage() instanceof IncognitoNewTabPage)) {
-                        return false;
-                    }
-                    return ((IncognitoNewTabPage) tab.getNativePage()).isLoadedForTests();
-                }
+        CriteriaHelper.pollUiThread(() -> {
+            if (!tab.isIncognito()) {
+                Criteria.checkThat(tab.getNativePage(), Matchers.instanceOf(NewTabPage.class));
+                Criteria.checkThat(
+                        ((NewTabPage) tab.getNativePage()).isLoadedForTests(), Matchers.is(true));
+            } else {
+                Criteria.checkThat(
+                        tab.getNativePage(), Matchers.instanceOf(IncognitoNewTabPage.class));
+                Criteria.checkThat(((IncognitoNewTabPage) tab.getNativePage()).isLoadedForTests(),
+                        Matchers.is(true));
             }
         });
     }
@@ -90,17 +74,5 @@ public class NewTabPageTestUtils {
                 "", TileTitleSource.TITLE_TAG, TileSource.TOP_SITES, TileSectionType.PERSONALIZED,
                 new Date()));
         return siteSuggestions;
-    }
-
-    /** Initializes {@link AccountManagerFacade} and add one dummy . */
-    public static void setUpTestAccount() {
-        FakeAccountManagerDelegate fakeAccountManager = new FakeAccountManagerDelegate(
-                FakeAccountManagerDelegate.ENABLE_PROFILE_DATA_SOURCE);
-        AccountManagerFacade.overrideAccountManagerFacadeForTests(fakeAccountManager);
-        Account account = AccountManagerFacade.createAccountFromName("test@gmail.com");
-        fakeAccountManager.addAccountHolderExplicitly(new AccountHolder.Builder(account).build());
-        assertFalse(AccountManagerFacade.get().isUpdatePending().get());
-        assertFalse(SharedPreferencesManager.getInstance().readBoolean(
-                ChromePreferenceKeys.SIGNIN_PROMO_NTP_PROMO_DISMISSED, false));
     }
 }

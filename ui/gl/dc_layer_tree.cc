@@ -4,8 +4,10 @@
 
 #include "ui/gl/dc_layer_tree.h"
 
+#include "base/metrics/histogram_functions.h"
 #include "base/trace_event/trace_event.h"
 #include "ui/gl/direct_composition_child_surface_win.h"
+#include "ui/gl/direct_composition_surface_win.h"
 #include "ui/gl/swap_chain_presenter.h"
 
 namespace gl {
@@ -63,6 +65,8 @@ bool DCLayerTree::InitializeVideoProcessor(const gfx::Size& input_size,
     // This can fail if the D3D device is "Microsoft Basic Display Adapter".
     if (FAILED(d3d11_device_.As(&video_device_))) {
       DLOG(ERROR) << "Failed to retrieve video device from D3D11 device";
+      DCHECK(false);
+      DirectCompositionSurfaceWin::DisableOverlays();
       return false;
     }
     DCHECK(video_device_);
@@ -97,17 +101,27 @@ bool DCLayerTree::InitializeVideoProcessor(const gfx::Size& input_size,
   desc.Usage = D3D11_VIDEO_USAGE_PLAYBACK_NORMAL;
   HRESULT hr = video_device_->CreateVideoProcessorEnumerator(
       &desc, &video_processor_enumerator_);
+  base::UmaHistogramSparse(
+      "GPU.DirectComposition.CreateVideoProcessorEnumerator", hr);
   if (FAILED(hr)) {
     DLOG(ERROR) << "CreateVideoProcessorEnumerator failed with error 0x"
                 << std::hex << hr;
+    // It might fail again next time. Disable overlay support so
+    // overlay processor will stop sending down overlay frames.
+    DirectCompositionSurfaceWin::DisableOverlays();
     return false;
   }
 
   hr = video_device_->CreateVideoProcessor(video_processor_enumerator_.Get(), 0,
                                            &video_processor_);
+  base::UmaHistogramSparse(
+      "GPU.DirectComposition.VideoDeviceCreateVideoProcessor", hr);
   if (FAILED(hr)) {
     DLOG(ERROR) << "CreateVideoProcessor failed with error 0x" << std::hex
                 << hr;
+    // It might fail again next time. Disable overlay support so
+    // overlay processor will stop sending down overlay frames.
+    DirectCompositionSurfaceWin::DisableOverlays();
     return false;
   }
 
@@ -175,6 +189,8 @@ bool DCLayerTree::CommitAndClearPendingOverlays(
       } else {
         new_video_swap_chains.emplace_back(std::make_unique<SwapChainPresenter>(
             this, d3d11_device_, dcomp_device_));
+        if (frame_rate_ > 0)
+          new_video_swap_chains.back()->SetFrameRate(frame_rate_);
       }
     }
     video_swap_chains_.swap(new_video_swap_chains);
@@ -239,6 +255,12 @@ bool DCLayerTree::ScheduleDCLayer(const ui::DCRendererLayerParams& params) {
   pending_overlays_.push_back(
       std::make_unique<ui::DCRendererLayerParams>(params));
   return true;
+}
+
+void DCLayerTree::SetFrameRate(float frame_rate) {
+  frame_rate_ = frame_rate;
+  for (size_t ii = 0; ii < video_swap_chains_.size(); ++ii)
+    video_swap_chains_[ii]->SetFrameRate(frame_rate);
 }
 
 }  // namespace gl

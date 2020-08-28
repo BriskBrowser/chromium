@@ -35,11 +35,22 @@ class NamingController {
     /** @private @const {!FileSelectionHandler} */
     this.selectionHandler_ = selectionHandler;
 
+    /**
+     * Controls if a context menu is shown for the rename input, so it shouldn't
+     * commit the new name.
+     * @private {boolean}
+     */
+    this.showingContextMenu_ = false;
+
     // Register events.
     this.listContainer_.renameInput.addEventListener(
         'keydown', this.onRenameInputKeyDown_.bind(this));
     this.listContainer_.renameInput.addEventListener(
         'blur', this.onRenameInputBlur_.bind(this));
+    this.listContainer_.renameInput.addEventListener(
+        'contextmenu', this.onContextMenu_.bind(this));
+    this.listContainer_.renameInput.addEventListener(
+        'focus', this.onFocus_.bind(this));
   }
 
   /**
@@ -198,12 +209,6 @@ class NamingController {
    * @private
    */
   onRenameInputKeyDown_(event) {
-    // Ignore key events if event.keyCode is VK_PROCESSKEY(229).
-    // TODO(fukino): Remove this workaround once crbug.com/644140 is fixed.
-    if (event.keyCode === 229) {
-      return;
-    }
-
     if (!this.isRenamingInProgress()) {
       return;
     }
@@ -226,11 +231,23 @@ class NamingController {
     }
   }
 
+  onContextMenu_(event) {
+    this.showingContextMenu_ = true;
+  }
+
+  onFocus_(event) {
+    this.showingContextMenu_ = false;
+  }
+
   /**
    * @param {Event} event Blur event.
    * @private
    */
   onRenameInputBlur_(event) {
+    if (this.showingContextMenu_) {
+      return;
+    }
+
     if (this.isRenamingInProgress() &&
         !this.listContainer_.renameInput.validation_) {
       this.commitRename_();

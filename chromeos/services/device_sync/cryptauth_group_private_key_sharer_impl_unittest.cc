@@ -105,7 +105,7 @@ class DeviceSyncCryptAuthGroupPrivateKeySharerImplTest
     auto mock_timer = std::make_unique<base::MockOneShotTimer>();
     timer_ = mock_timer.get();
 
-    sharer_ = CryptAuthGroupPrivateKeySharerImpl::Factory::Get()->BuildInstance(
+    sharer_ = CryptAuthGroupPrivateKeySharerImpl::Factory::Create(
         client_factory_.get(), std::move(mock_timer));
   }
 
@@ -245,15 +245,15 @@ class DeviceSyncCryptAuthGroupPrivateKeySharerImplTest
 
   void OnShareGroupPrivateKey(
       const cryptauthv2::ShareGroupPrivateKeyRequest& request,
-      const CryptAuthClient::ShareGroupPrivateKeyCallback& callback,
-      const CryptAuthClient::ErrorCallback& error_callback) {
+      CryptAuthClient::ShareGroupPrivateKeyCallback callback,
+      CryptAuthClient::ErrorCallback error_callback) {
     EXPECT_FALSE(share_group_private_key_request_);
     EXPECT_FALSE(share_group_private_key_success_callback_);
     EXPECT_FALSE(share_group_private_key_failure_callback_);
 
     share_group_private_key_request_ = request;
-    share_group_private_key_success_callback_ = callback;
-    share_group_private_key_failure_callback_ = error_callback;
+    share_group_private_key_success_callback_ = std::move(callback);
+    share_group_private_key_failure_callback_ = std::move(error_callback);
   }
 
   void OnShareGroupPrivateKeyComplete(

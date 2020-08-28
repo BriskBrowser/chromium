@@ -57,12 +57,13 @@ import org.chromium.base.UserDataHost;
 import org.chromium.base.metrics.test.ShadowRecordHistogram;
 import org.chromium.base.test.BaseRobolectricTestRunner;
 import org.chromium.chrome.browser.ActivityTabProvider;
-import org.chromium.chrome.browser.ChromeActivity;
-import org.chromium.chrome.browser.ChromeFeatureList;
 import org.chromium.chrome.browser.ChromeKeyboardVisibilityDelegate;
 import org.chromium.chrome.browser.ChromeWindow;
+import org.chromium.chrome.browser.app.ChromeActivity;
 import org.chromium.chrome.browser.compositor.CompositorViewHolder;
-import org.chromium.chrome.browser.fullscreen.ChromeFullscreenManager;
+import org.chromium.chrome.browser.flags.ChromeFeatureList;
+import org.chromium.chrome.browser.fullscreen.BrowserControlsManager;
+import org.chromium.chrome.browser.fullscreen.FullscreenManager;
 import org.chromium.chrome.browser.keyboard_accessory.bar_component.KeyboardAccessoryCoordinator;
 import org.chromium.chrome.browser.keyboard_accessory.data.KeyboardAccessoryData;
 import org.chromium.chrome.browser.keyboard_accessory.data.KeyboardAccessoryData.AccessorySheetData;
@@ -73,13 +74,16 @@ import org.chromium.chrome.browser.keyboard_accessory.data.UserInfoField;
 import org.chromium.chrome.browser.keyboard_accessory.sheet_component.AccessorySheetCoordinator;
 import org.chromium.chrome.browser.keyboard_accessory.sheet_tabs.AccessorySheetTabCoordinator;
 import org.chromium.chrome.browser.tab.Tab;
+import org.chromium.chrome.browser.tab.TabCreationState;
 import org.chromium.chrome.browser.tab.TabHidingType;
 import org.chromium.chrome.browser.tabmodel.TabModelSelector;
 import org.chromium.chrome.test.util.browser.Features;
 import org.chromium.chrome.test.util.browser.Features.EnableFeatures;
+import org.chromium.components.browser_ui.bottomsheet.BottomSheetController;
 import org.chromium.components.embedder_support.view.ContentView;
 import org.chromium.content_public.browser.WebContents;
 import org.chromium.ui.KeyboardVisibilityDelegate;
+import org.chromium.ui.base.ApplicationViewportInsetSupplier;
 import org.chromium.ui.display.DisplayAndroid;
 import org.chromium.ui.modelutil.PropertyModel;
 
@@ -115,6 +119,12 @@ public class ManualFillingControllerTest {
     private AccessorySheetCoordinator mMockAccessorySheet;
     @Mock
     private CompositorViewHolder mMockCompositorViewHolder;
+    @Mock
+    private BottomSheetController mMockBottomSheetController;
+    @Mock
+    private FullscreenManager mMockFullscreenManager;
+    @Mock
+    private ApplicationViewportInsetSupplier mApplicationViewportInsetSupplier;
 
     @Rule
     public Features.JUnitProcessor mFeaturesProcessor = new Features.JUnitProcessor();
@@ -280,22 +290,22 @@ public class ManualFillingControllerTest {
         KeyboardVisibilityDelegate.setInstance(mMockKeyboard);
         when(mMockWindow.getKeyboardDelegate()).thenReturn(mMockKeyboard);
         when(mMockWindow.getActivity()).thenReturn(new WeakReference<>(mMockActivity));
+        when(mMockWindow.getApplicationBottomInsetProvider())
+                .thenReturn(mApplicationViewportInsetSupplier);
         when(mMockKeyboard.calculateKeyboardHeight(any())).thenReturn(0);
         when(mMockActivity.getTabModelSelector()).thenReturn(mMockTabModelSelector);
         when(mMockActivity.getActivityTabProvider()).thenReturn(mActivityTabProvider);
-        ChromeFullscreenManager fullscreenManager = new ChromeFullscreenManager(mMockActivity, 0) {
+        BrowserControlsManager browserControlsManager = new BrowserControlsManager(
+                mMockActivity, 0) {
             @Override
             protected boolean isInVr() {
                 return false;
             }
             @Override
-            protected boolean bootsToVr() {
-                return false;
-            }
-            @Override
-            protected void rawTopContentOffsetChangedForVr(int topContentOffset) {}
+            protected void rawTopContentOffsetChangedForVr() {}
         };
-        when(mMockActivity.getFullscreenManager()).thenReturn(fullscreenManager);
+        when(mMockActivity.getBrowserControlsManager()).thenReturn(browserControlsManager);
+        when(mMockActivity.getFullscreenManager()).thenReturn(mMockFullscreenManager);
         when(mMockActivity.getCompositorViewHolder()).thenReturn(mMockCompositorViewHolder);
         when(mMockActivity.getResources()).thenReturn(mMockResources);
         when(mMockActivity.getPackageManager())
@@ -309,7 +319,8 @@ public class ManualFillingControllerTest {
         config.hardKeyboardHidden = HARDKEYBOARDHIDDEN_UNDEFINED;
         when(mMockResources.getConfiguration()).thenReturn(config);
         AccessorySheetTabCoordinator.IconProvider.setIconForTesting(mock(Drawable.class));
-        mController.initialize(mMockWindow, mMockKeyboardAccessory, mMockAccessorySheet);
+        mController.initialize(mMockWindow, mMockKeyboardAccessory, mMockAccessorySheet,
+                mMockBottomSheetController);
     }
 
     @Test
@@ -1065,7 +1076,8 @@ public class ManualFillingControllerTest {
         when(tab.getContentView()).thenReturn(mMockContentView);
         when(mMockTabModelSelector.getCurrentTab()).thenReturn(tab);
         mActivityTabProvider.set(tab);
-        mediator.getTabModelObserverForTesting().didAddTab(tab, FROM_BROWSER_ACTIONS);
+        mediator.getTabModelObserverForTesting().didAddTab(
+                tab, FROM_BROWSER_ACTIONS, TabCreationState.LIVE_IN_FOREGROUND);
         mediator.getTabObserverForTesting().onShown(tab, FROM_NEW);
         mediator.getTabModelObserverForTesting().didSelectTab(tab, FROM_NEW, lastId);
         setContentAreaDimensions(2.f, 300, 128);

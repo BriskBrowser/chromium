@@ -17,7 +17,7 @@
 #include "chrome/browser/chromeos/login/oobe_screen.h"
 #include "chrome/browser/ui/webui/chromeos/login/base_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/core_oobe_handler.h"
-#include "chromeos/services/multidevice_setup/public/mojom/multidevice_setup.mojom.h"
+#include "chromeos/services/multidevice_setup/public/mojom/multidevice_setup.mojom-forward.h"
 #include "chromeos/services/network_config/public/mojom/cros_network_config.mojom-forward.h"  // nogncheck
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "ui/webui/mojo_web_ui_controller.h"
@@ -29,8 +29,6 @@ class DictionaryValue;
 namespace chromeos {
 
 class ErrorScreen;
-class LoginScreenContext;
-class NativeWindowDelegate;
 class NetworkStateInformer;
 class OobeDisplayChooser;
 class SigninScreenHandler;
@@ -45,7 +43,6 @@ class OobeUI : public ui::MojoWebUIController {
   // List of known types of OobeUI. Type added as path in chrome://oobe url, for
   // example chrome://oobe/user-adding.
   static const char kAppLaunchSplashDisplay[];
-  static const char kArcKioskSplashDisplay[];
   static const char kDiscoverDisplay[];
   static const char kGaiaSigninDisplay[];
   static const char kLockDisplay[];
@@ -89,9 +86,7 @@ class OobeUI : public ui::MojoWebUIController {
   void ShowOobeUI(bool show);
 
   // Shows the signin screen.
-  void ShowSigninScreen(const LoginScreenContext& context,
-                        SigninScreenHandlerDelegate* delegate,
-                        NativeWindowDelegate* native_window_delegate);
+  void ShowSigninScreen(SigninScreenHandlerDelegate* delegate);
 
   // Forwards an accelerator to the webui to be handled.
   void ForwardAccelerator(std::string accelerator_name);

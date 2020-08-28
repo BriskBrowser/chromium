@@ -11,7 +11,6 @@
 #include "base/command_line.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_tokenizer.h"
-#include "base/task/post_task.h"
 #include "content/browser/frame_host/render_frame_host_delegate.h"
 #include "content/browser/frame_host/render_frame_host_impl.h"
 #include "content/browser/web_contents/web_contents_impl.h"
@@ -22,6 +21,7 @@
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/content_client.h"
+#include "content/public/common/content_features.h"
 #include "media/base/media_switches.h"
 #include "third_party/blink/public/common/mediastream/media_stream_request.h"
 
@@ -121,8 +121,8 @@ void GetDefaultMediaDeviceID(
     }
   }
 
-  base::PostTaskAndReplyWithResult(
-      FROM_HERE, {BrowserThread::UI},
+  GetUIThreadTaskRunner({})->PostTaskAndReplyWithResult(
+      FROM_HERE,
       base::BindOnce(&GetDefaultMediaDeviceIDOnUIThread, device_type,
                      render_process_id, render_frame_id),
       std::move(callback));
@@ -184,8 +184,12 @@ blink::WebMediaDeviceInfo TranslateMediaDeviceInfo(
     const MediaDeviceSaltAndOrigin& salt_and_origin,
     const blink::WebMediaDeviceInfo& device_info) {
   return blink::WebMediaDeviceInfo(
-      GetHMACForMediaDeviceID(salt_and_origin.device_id_salt,
-                              salt_and_origin.origin, device_info.device_id),
+      !base::FeatureList::IsEnabled(features::kEnumerateDevicesHideDeviceIDs) ||
+              has_permission
+          ? GetHMACForMediaDeviceID(salt_and_origin.device_id_salt,
+                                    salt_and_origin.origin,
+                                    device_info.device_id)
+          : std::string(),
       has_permission ? device_info.label : std::string(),
       device_info.group_id.empty()
           ? std::string()

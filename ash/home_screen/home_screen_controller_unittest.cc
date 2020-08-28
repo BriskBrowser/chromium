@@ -39,15 +39,11 @@ class HomeScreenControllerTest : public AshTestBase,
                                  public testing::WithParamInterface<bool> {
  public:
   HomeScreenControllerTest() {
-    if (GetParam()) {
-      scoped_feature_list_.InitWithFeatures(
-          {features::kDragFromShelfToHomeOrOverview}, {});
-    } else {
+    if (!IsWindowDragFromShelfEnabled()) {
       // The feature verified by this test is only enabled if drag from shelf to
-      // home or overview is disabled.
+      // home or overview (which is controlled by hotseat flag) is disabled.
       scoped_feature_list_.InitWithFeatures(
-          {}, {features::kDragFromShelfToHomeOrOverview,
-               chromeos::features::kShelfHotseat});
+          {}, {chromeos::features::kShelfHotseat});
     }
   }
   ~HomeScreenControllerTest() override = default;
@@ -60,6 +56,8 @@ class HomeScreenControllerTest : public AshTestBase,
     return AshTestBase::CreateTestWindow(gfx::Rect(0, 0, 400, 400),
                                          aura::client::WINDOW_TYPE_POPUP);
   }
+
+  bool IsWindowDragFromShelfEnabled() const { return GetParam(); }
 
   HomeScreenController* home_screen_controller() {
     return Shell::Get()->home_screen_controller();
@@ -106,22 +104,6 @@ TEST_P(HomeScreenControllerTest,
       home_screen_controller()->delegate()->GetHomeScreenWindow()->IsVisible());
 }
 
-TEST_P(HomeScreenControllerTest, ShowLauncherHistograms) {
-  ui::ScopedAnimationDurationScaleMode test_duration_mode(
-      ui::ScopedAnimationDurationScaleMode::NON_ZERO_DURATION);
-
-  Shell::Get()->tablet_mode_controller()->SetEnabledForTest(true);
-
-  auto window = CreateTestWindow();
-  base::HistogramTester tester;
-  tester.ExpectTotalCount(kHomescreenAnimationHistogram, 0);
-  GetEventGenerator()->PressKey(ui::KeyboardCode::VKEY_BROWSER_SEARCH, 0);
-  GetEventGenerator()->ReleaseKey(ui::KeyboardCode::VKEY_BROWSER_SEARCH, 0);
-
-  ShellTestApi().WaitForWindowFinishAnimating(window.get());
-  tester.ExpectTotalCount(kHomescreenAnimationHistogram, 1);
-}
-
 TEST_P(HomeScreenControllerTest, DraggingHistograms) {
   UpdateDisplay("400x400");
 
@@ -140,21 +122,21 @@ TEST_P(HomeScreenControllerTest, DraggingHistograms) {
   tester.ExpectTotalCount(kHomescreenDragHistogram, 0);
   tester.ExpectTotalCount(kHomescreenDragMaxLatencyHistogram, 0);
 
-  const bool drag_enabled = !GetParam();
+  const bool drag_enabled = !IsWindowDragFromShelfEnabled();
 
   // Create a touch event and drag it twice and verify the histograms are
   // recorded as expected.
-  auto* compositor = CurrentContext()->layer()->GetCompositor();
+  auto* compositor = GetContext()->layer()->GetCompositor();
   auto* generator = GetEventGenerator();
   generator->set_current_screen_location(gfx::Point(200, 1));
   generator->PressTouch();
   generator->MoveTouch(gfx::Point(200, 20));
   compositor->ScheduleFullRedraw();
-  WaitForNextFrameToBePresented(compositor);
+  EXPECT_TRUE(ui::WaitForNextFrameToBePresented(compositor));
   tester.ExpectTotalCount(kHomescreenDragHistogram, drag_enabled ? 1 : 0);
   generator->MoveTouch(gfx::Point(200, 60));
   compositor->ScheduleFullRedraw();
-  WaitForNextFrameToBePresented(compositor);
+  EXPECT_TRUE(ui::WaitForNextFrameToBePresented(compositor));
   generator->ReleaseTouch();
 
   tester.ExpectTotalCount(kHomescreenAnimationHistogram, 0);
@@ -166,6 +148,13 @@ TEST_P(HomeScreenControllerTest, DraggingHistograms) {
   // should have a animation smoothness histogram recorded.
   if (drag_enabled) {
     ShellTestApi().WaitForWindowFinishAnimating(window.get());
+
+    // Wait for one more frame presented for the metrics to get recorded.
+    // ignore_result() and timeout is because the frame could already be
+    // presented.
+    ignore_result(ui::WaitForNextFrameToBePresented(
+        compositor, base::TimeDelta::FromMilliseconds(500)));
+
     tester.ExpectTotalCount(kHomescreenAnimationHistogram, 1);
   }
 }

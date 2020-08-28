@@ -5,9 +5,11 @@
 package org.chromium.chrome.browser.tab;
 
 import android.support.test.InstrumentationRegistry;
-import android.support.test.filters.MediumTest;
-import android.support.test.filters.SmallTest;
 
+import androidx.test.filters.MediumTest;
+import androidx.test.filters.SmallTest;
+
+import org.hamcrest.Matchers;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -16,13 +18,14 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 
 import org.chromium.base.test.util.CommandLineFlags;
-import org.chromium.base.test.util.RetryOnFailure;
-import org.chromium.chrome.browser.ChromeActivity;
-import org.chromium.chrome.browser.ChromeSwitches;
-import org.chromium.chrome.browser.externalnav.ExternalNavigationHandler;
-import org.chromium.chrome.browser.externalnav.ExternalNavigationParams;
+import org.chromium.chrome.browser.app.ChromeActivity;
+import org.chromium.chrome.browser.externalnav.ExternalNavigationDelegateImpl;
+import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.test.ChromeActivityTestRule;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
+import org.chromium.components.external_intents.ExternalNavigationHandler;
+import org.chromium.components.external_intents.ExternalNavigationParams;
+import org.chromium.components.external_intents.InterceptNavigationDelegateImpl;
 import org.chromium.components.navigation_interception.NavigationParams;
 import org.chromium.content_public.browser.test.util.Criteria;
 import org.chromium.content_public.browser.test.util.CriteriaHelper;
@@ -32,14 +35,12 @@ import org.chromium.net.test.EmbeddedTestServer;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.Callable;
 import java.util.concurrent.TimeoutException;
 
 /**
  * Tests for InterceptNavigationDelegate
  */
 @RunWith(ChromeJUnit4ClassRunner.class)
-@RetryOnFailure
 @CommandLineFlags.Add({ChromeSwitches.DISABLE_FIRST_RUN_EXPERIENCE})
 public class InterceptNavigationDelegateTest {
     @Rule
@@ -72,7 +73,7 @@ public class InterceptNavigationDelegateTest {
 
     class TestExternalNavigationHandler extends ExternalNavigationHandler {
         public TestExternalNavigationHandler() {
-            super(mActivity.getActivityTab());
+            super(new ExternalNavigationDelegateImpl(mActivity.getActivityTab()));
         }
 
         @Override
@@ -84,13 +85,9 @@ public class InterceptNavigationDelegateTest {
     }
 
     private void waitTillExpectedCallsComplete(int count, long timeout) {
-        CriteriaHelper.pollUiThread(
-                Criteria.equals(count, new Callable<Integer>() {
-                    @Override
-                    public Integer call() {
-                        return mNavParamHistory.size();
-                    }
-                }), timeout, CriteriaHelper.DEFAULT_POLLING_INTERVAL);
+        CriteriaHelper.pollUiThread(() -> {
+            Criteria.checkThat(mNavParamHistory.size(), Matchers.is(count));
+        }, timeout, CriteriaHelper.DEFAULT_POLLING_INTERVAL);
     }
 
     @Before
@@ -99,15 +96,18 @@ public class InterceptNavigationDelegateTest {
         mActivity = mActivityTestRule.getActivity();
         final Tab tab = mActivity.getActivityTab();
         TestThreadUtils.runOnUiThreadBlocking(() -> {
-            InterceptNavigationDelegateImpl delegate = new InterceptNavigationDelegateImpl(tab) {
+            InterceptNavigationDelegateClientImpl client =
+                    new InterceptNavigationDelegateClientImpl(tab);
+            InterceptNavigationDelegateImpl delegate = new InterceptNavigationDelegateImpl(client) {
                 @Override
                 public boolean shouldIgnoreNavigation(NavigationParams navigationParams) {
                     mNavParamHistory.add(navigationParams);
                     return super.shouldIgnoreNavigation(navigationParams);
                 }
             };
+            client.initializeWithDelegate(delegate);
             delegate.setExternalNavigationHandler(new TestExternalNavigationHandler());
-            InterceptNavigationDelegateImpl.initDelegateForTesting(tab, delegate);
+            delegate.associateWithWebContents(tab.getWebContents());
         });
         mTestServer = EmbeddedTestServer.createAndStartServer(InstrumentationRegistry.getContext());
     }
@@ -207,6 +207,6 @@ public class InterceptNavigationDelegateTest {
         Assert.assertTrue(mNavParamHistory.get(2).isExternalProtocol);
         Assert.assertFalse(mNavParamHistory.get(2).isMainFrame);
         Assert.assertTrue(
-                mExternalNavParamHistory.get(2).getRedirectHandler().shouldStayInChrome(true));
+                mExternalNavParamHistory.get(2).getRedirectHandler().shouldStayInApp(true, false));
     }
 }

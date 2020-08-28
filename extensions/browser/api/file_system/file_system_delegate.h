@@ -36,13 +36,13 @@ class SavedFilesServiceInterface;
 // Delegate class for embedder-specific file system access.
 class FileSystemDelegate {
  public:
-  using ErrorCallback = base::Callback<void(const std::string&)>;
+  using ErrorCallback = base::OnceCallback<void(const std::string&)>;
   using FileSystemCallback =
-      base::Callback<void(const std::string& id, const std::string& path)>;
+      base::OnceCallback<void(const std::string& id, const std::string& path)>;
   using FilesSelectedCallback =
       base::OnceCallback<void(const std::vector<base::FilePath>& paths)>;
   using VolumeListCallback =
-      base::Callback<void(const std::vector<api::file_system::Volume>&)>;
+      base::OnceCallback<void(const std::vector<api::file_system::Volume>&)>;
 
   enum GrantVolumesMode { kGrantAll, kGrantNone, kGrantPerVolume };
 
@@ -66,8 +66,8 @@ class FileSystemDelegate {
       bool has_write_permission,
       const base::string16& app_name,
       content::WebContents* web_contents,
-      const base::Closure& on_accept,
-      const base::Closure& on_cancel) = 0;
+      base::OnceClosure on_accept,
+      base::OnceClosure on_cancel) = 0;
 
   // Finds a string describing the accept type. Returns 0 if no applicable
   // string ID is found.
@@ -87,14 +87,14 @@ class FileSystemDelegate {
                                  const Extension& extension,
                                  std::string volume_id,
                                  bool writable,
-                                 const FileSystemCallback& success_callback,
-                                 const ErrorCallback& error_callback) = 0;
+                                 FileSystemCallback success_callback,
+                                 ErrorCallback error_callback) = 0;
 
   // Immediately calls VolumeListCallback or ErrorCallback.
   virtual void GetVolumeList(content::BrowserContext* browser_context,
                              const Extension& extension,
-                             const VolumeListCallback& success_callback,
-                             const ErrorCallback& error_callback) = 0;
+                             VolumeListCallback success_callback,
+                             ErrorCallback error_callback) = 0;
 #endif
 
   virtual SavedFilesServiceInterface* GetSavedFilesService(

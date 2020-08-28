@@ -32,6 +32,7 @@ class FakeBluetoothLEDeviceWinrt
           ABI::Windows::Devices::Bluetooth::IBluetoothLEDevice,
           ABI::Windows::Devices::Bluetooth::IBluetoothLEDevice2,
           ABI::Windows::Devices::Bluetooth::IBluetoothLEDevice3,
+          ABI::Windows::Devices::Bluetooth::IBluetoothLEDevice4,
           ABI::Windows::Foundation::IClosable> {
  public:
   explicit FakeBluetoothLEDeviceWinrt(BluetoothTestWinrt* bluetooth_test_winrt);
@@ -111,6 +112,10 @@ class FakeBluetoothLEDeviceWinrt
           ABI::Windows::Devices::Bluetooth::GenericAttributeProfile::
               GattDeviceServicesResult*>** operation) override;
 
+  // IBluetoothLEDevice4:
+  IFACEMETHODIMP get_BluetoothDeviceId(
+      ABI::Windows::Devices::Bluetooth::IBluetoothDeviceId** value) override;
+
   // IClosable:
   IFACEMETHODIMP Close() override;
 
@@ -122,6 +127,7 @@ class FakeBluetoothLEDeviceWinrt
 
   void SimulateDevicePaired(bool is_paired);
   void SimulatePairingPinCode(std::string pin_code);
+  base::Optional<BluetoothUUID> GetTargetGattService() const;
   void SimulateGattConnection();
   void SimulateGattConnectionError(
       BluetoothDevice::ConnectErrorCode error_code);
@@ -165,6 +171,8 @@ class FakeBluetoothLEDeviceWinrt
           ABI::Windows::Devices::Bluetooth::GenericAttributeProfile::
               IGattDeviceServicesResult>)>
       gatt_services_callback_;
+  // Contains the last GUID passed to GetGattServicesForUuidAsync.
+  base::Optional<GUID> service_uuid_;
 
   std::vector<Microsoft::WRL::ComPtr<FakeGattDeviceServiceWinrt>>
       fake_services_;

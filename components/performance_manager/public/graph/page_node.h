@@ -5,6 +5,7 @@
 #ifndef COMPONENTS_PERFORMANCE_MANAGER_PUBLIC_GRAPH_PAGE_NODE_H_
 #define COMPONENTS_PERFORMANCE_MANAGER_PUBLIC_GRAPH_PAGE_NODE_H_
 
+#include <ostream>
 #include <string>
 
 #include "base/containers/flat_set.h"
@@ -27,10 +28,27 @@ class PageNodeObserver;
 // Extensions.
 class PageNode : public Node {
  public:
+  using FrameNodeVisitor = base::RepeatingCallback<bool(const FrameNode*)>;
   using InterventionPolicy = mojom::InterventionPolicy;
   using LifecycleState = mojom::LifecycleState;
   using Observer = PageNodeObserver;
   class ObserverDefaultImpl;
+
+  // Reasons for which a frame can become the opener of a page.
+  enum class OpenedType {
+    // Returned if this node doesn't have an opener.
+    kInvalid,
+    // This page is a popup (the opener created it via window.open).
+    kPopup,
+    // This page is a guest view. This can be many things (<webview>, <appview>,
+    // etc) but is backed by the same inner/outer WebContents mechanism.
+    kGuestView,
+    // This page is a portal.
+    kPortal,
+  };
+
+  // Returns a string for a PageNode::OpenedType enumeration.
+  static const char* ToString(PageNode::OpenedType opened_type);
 
   PageNode();
   ~PageNode() override;
@@ -38,9 +56,13 @@ class PageNode : public Node {
   // Returns the unique ID of the browser context that this page belongs to.
   virtual const std::string& GetBrowserContextID() const = 0;
 
-  // Returns the page almost idle state of this page.
-  // See PageNodeObserver::OnPageAlmostIdleChanged.
-  virtual bool IsPageAlmostIdle() const = 0;
+  // Returns the opener frame node, if there is one. This may change over the
+  // lifetime of this page. See "OnOpenerFrameNodeChanged".
+  virtual const FrameNode* GetOpenerFrameNode() const = 0;
+
+  // Returns the type of relationship this node has with its opener, if it has
+  // an opener.
+  virtual OpenedType GetOpenedType() const = 0;
 
   // Returns true if this page is currently visible, false otherwise.
   // See PageNodeObserver::OnIsVisibleChanged.
@@ -54,8 +76,12 @@ class PageNode : public Node {
   // See PageNodeObserver::OnIsAudibleChanged.
   virtual bool IsAudible() const = 0;
 
-  // Returns true if this page is currently loading, false otherwise.
-  // See PageNodeObserver::OnIsLoadingChanged.
+  // Returns true if this page is currently loading, false otherwise. The page
+  // starts loading when incoming data starts arriving for a top-level load to a
+  // different document. It stops loading when it reaches an "almost idle"
+  // state, based on CPU and network quiescence, or after an absolute timeout.
+  // Note: This is different from WebContents::IsLoading(). See
+  // PageNodeObserver::OnIsLoadingChanged.
   virtual bool IsLoading() const = 0;
 
   // Returns the UKM source ID associated with the URL of the main frame of
@@ -97,8 +123,15 @@ class PageNode : public Node {
   // are no main frames at the moment, returns nullptr.
   virtual const FrameNode* GetMainFrameNode() const = 0;
 
+  // Visits the main frame nodes associated with this page. The iteration is
+  // halted if the visitor returns false. Returns true if every call to the
+  // visitor returned true, false otherwise.
+  virtual bool VisitMainFrameNodes(const FrameNodeVisitor& visitor) const = 0;
+
   // Returns all of the main frame nodes, both current and otherwise. If there
-  // are no main frames at the moment, returns the empty set.
+  // are no main frames at the moment, returns the empty set. Note that this
+  // incurs a full container copy of all main frame nodes. Please use
+  // VisitMainFrameNodes when that makes sense.
   virtual const base::flat_set<const FrameNode*> GetMainFrameNodes() const = 0;
 
   // Returns the URL the main frame last committed a navigation to, or the
@@ -124,6 +157,8 @@ class PageNode : public Node {
 // implement the entire interface.
 class PageNodeObserver {
  public:
+  using OpenedType = PageNode::OpenedType;
+
   PageNodeObserver();
   virtual ~PageNodeObserver();
 
@@ -136,6 +171,14 @@ class PageNodeObserver {
   virtual void OnBeforePageNodeRemoved(const PageNode* page_node) = 0;
 
   // Notifications of property changes.
+
+  // Invoked when this page has been assigned an opener, had the opener change,
+  // or had the opener removed. This can happen if a page is opened via
+  // window.open, webviews, portals, etc, or when that relationship is
+  // subsequently severed or reparented.
+  virtual void OnOpenerFrameNodeChanged(const PageNode* page_node,
+                                        const FrameNode* previous_opener,
+                                        OpenedType previous_opened_type) = 0;
 
   // Invoked when the IsVisible property changes.
   virtual void OnIsVisibleChanged(const PageNode* page_node) = 0;
@@ -165,9 +208,6 @@ class PageNodeObserver {
 
   // Invoked when the MainFrameUrl property changes.
   virtual void OnMainFrameUrlChanged(const PageNode* page_node) = 0;
-
-  // Invoked when the PageAlmostIdle property changes.
-  virtual void OnPageAlmostIdleChanged(const PageNode* page_node) = 0;
 
   // This is fired when a non-same document navigation commits in the main
   // frame. It indicates that the the |NavigationId| property and possibly the
@@ -202,6 +242,9 @@ class PageNode::ObserverDefaultImpl : public PageNodeObserver {
   // PageNodeObserver implementation:
   void OnPageNodeAdded(const PageNode* page_node) override {}
   void OnBeforePageNodeRemoved(const PageNode* page_node) override {}
+  void OnOpenerFrameNodeChanged(const PageNode* page_node,
+                                const FrameNode* previous_opener,
+                                OpenedType previous_opened_type) override {}
   void OnIsVisibleChanged(const PageNode* page_node) override {}
   void OnIsAudibleChanged(const PageNode* page_node) override {}
   void OnIsLoadingChanged(const PageNode* page_node) override {}
@@ -212,7 +255,6 @@ class PageNode::ObserverDefaultImpl : public PageNodeObserver {
   void OnPageIsHoldingWebLockChanged(const PageNode* page_node) override {}
   void OnPageIsHoldingIndexedDBLockChanged(const PageNode* page_node) override {
   }
-  void OnPageAlmostIdleChanged(const PageNode* page_node) override {}
   void OnMainFrameUrlChanged(const PageNode* page_node) override {}
   void OnMainFrameDocumentChanged(const PageNode* page_node) override {}
   void OnHadFormInteractionChanged(const PageNode* page_node) override {}
@@ -222,6 +264,10 @@ class PageNode::ObserverDefaultImpl : public PageNodeObserver {
  private:
   DISALLOW_COPY_AND_ASSIGN(ObserverDefaultImpl);
 };
+
+// std::ostream support for PageNode::OpenedType.
+std::ostream& operator<<(std::ostream& os,
+                         performance_manager::PageNode::OpenedType opened_type);
 
 }  // namespace performance_manager
 

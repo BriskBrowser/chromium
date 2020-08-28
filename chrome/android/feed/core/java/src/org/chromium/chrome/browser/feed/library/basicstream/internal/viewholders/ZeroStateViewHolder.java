@@ -13,10 +13,11 @@ import android.view.ViewGroup.MarginLayoutParams;
 import android.widget.FrameLayout;
 import android.widget.FrameLayout.LayoutParams;
 
+import org.chromium.chrome.R;
 import org.chromium.chrome.browser.feed.library.api.host.stream.CardConfiguration;
 import org.chromium.chrome.browser.feed.library.common.ui.LayoutUtils;
 
-/** {@link android.support.v7.widget.RecyclerView.ViewHolder} for zero state. */
+/** {@link androidx.recyclerview.widget.RecyclerView.ViewHolder} for zero state. */
 public class ZeroStateViewHolder extends FeedViewHolder {
     private final View mZeroStateView;
     private final View mLoadingSpinner;

@@ -4,6 +4,8 @@
 
 import("//build/config/chromecast_build.gni")
 import("//build/config/ui.gni")
+import("//build/toolchain/kythe.gni")
+import("//build/toolchain/toolchain.gni")
 
 declare_args() {
   # Ozone extra platforms file path. Can be overridden to build out of
@@ -64,11 +66,16 @@ declare_args() {
       ozone_platform = "x11"
       ozone_platform_gbm = true
       ozone_platform_x11 = true
+
+      # Enable the Ozone Wayland platform for ChromiumOS codesearch-gen bots
+      # so we get cross-references in codesearch. We can remove this once
+      # we can compile both x11 and Ozone on desktop Linux Chrome.
+      # TODO(crbug.com/1085700): Remove enable_kythe_annotations here.
+      ozone_platform_wayland = enable_kythe_annotations
     } else if (is_desktop_linux) {
       ozone_platform = "x11"
       ozone_platform_wayland = true
       ozone_platform_x11 = true
-      ozone_platform_gbm = true
     } else if (is_win) {
       ozone_platform = "windows"
       ozone_platform_windows = true
@@ -86,8 +93,10 @@ _ozone_extra_directory = get_path_info(ozone_extra_path, "dir")
 # Extra paths to add to targets visibility list.
 ozone_external_platform_visibility = [ "$_ozone_extra_directory/*" ]
 
-assert(use_ozone || !(ozone_platform_cast || ozone_platform_gbm ||
-                          ozone_platform_headless || ozone_platform_x11 ||
-                          ozone_platform_wayland || ozone_platform_windows ||
-                          ozone_platform_scenic),
-       "Must set use_ozone to select ozone platforms")
+if (is_a_target_toolchain) {
+  assert(use_ozone || !(ozone_platform_cast || ozone_platform_gbm ||
+                            ozone_platform_headless || ozone_platform_x11 ||
+                            ozone_platform_wayland || ozone_platform_windows ||
+                            ozone_platform_scenic),
+         "Must set use_ozone to select ozone platforms")
+}

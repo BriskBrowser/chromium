@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "base/logging.h"
+#include "base/notreached.h"
 #include "chromeos/cryptohome/cryptohome_parameters.h"
 #include "chromeos/dbus/constants/cryptohome_key_delegate_constants.h"
 #include "chromeos/dbus/cryptohome/key.pb.h"
@@ -156,6 +157,12 @@ std::vector<KeyDefinition> GetKeyDataReplyToKeyDefinitions(
       case KeyData::KEY_TYPE_CHALLENGE_RESPONSE:
         key_definition.type = KeyDefinition::TYPE_CHALLENGE_RESPONSE;
         break;
+      case KeyData::KEY_TYPE_FINGERPRINT:
+        // KEY_TYPE_FINGERPRINT means the key is a request for fingerprint auth
+        // and does not really carry any auth information. KEY_TYPE_FINGERPRINT
+        // is not expected to be used in GetKeyData.
+        NOTREACHED();
+        break;
     }
     key_definition.label = it->label();
     key_definition.revision = it->revision();
@@ -265,6 +272,8 @@ AuthorizationRequest CreateAuthorizationRequestFromKeyDef(
       auth_request.mutable_key_delegate()->set_dbus_object_path(
           cryptohome::kCryptohomeKeyDelegateServicePath);
       break;
+    case KeyDefinition::TYPE_FINGERPRINT:
+      break;
   }
 
   return auth_request;
@@ -289,6 +298,10 @@ void KeyDefinitionToKey(const KeyDefinition& key_def, Key* key) {
         ChallengeResponseKeyToPublicKeyInfo(challenge_response_key,
                                             data->add_challenge_response_key());
       }
+      break;
+
+    case KeyDefinition::TYPE_FINGERPRINT:
+      data->set_type(KeyData::KEY_TYPE_FINGERPRINT);
       break;
   }
 
@@ -330,6 +343,9 @@ MountError CryptohomeErrorToMountError(CryptohomeErrorCode code) {
     case CRYPTOHOME_ERROR_INSTALL_ATTRIBUTES_GET_FAILED:
     case CRYPTOHOME_ERROR_INSTALL_ATTRIBUTES_SET_FAILED:
     case CRYPTOHOME_ERROR_INVALID_ARGUMENT:
+    case CRYPTOHOME_ERROR_FINGERPRINT_ERROR_INTERNAL:
+    case CRYPTOHOME_ERROR_FINGERPRINT_RETRY_REQUIRED:
+    case CRYPTOHOME_ERROR_FINGERPRINT_DENIED:
       return MOUNT_ERROR_FATAL;
     case CRYPTOHOME_ERROR_AUTHORIZATION_KEY_NOT_FOUND:
     case CRYPTOHOME_ERROR_KEY_NOT_FOUND:
@@ -354,6 +370,8 @@ MountError CryptohomeErrorToMountError(CryptohomeErrorCode code) {
       return MOUNT_ERROR_PREVIOUS_MIGRATION_INCOMPLETE;
     case CRYPTOHOME_ERROR_REMOVE_FAILED:
       return MOUNT_ERROR_REMOVE_FAILED;
+    case CRYPTOHOME_ERROR_TPM_UPDATE_REQUIRED:
+      return MOUNT_ERROR_TPM_UPDATE_REQUIRED;
     // TODO(crbug.com/797563): Split the error space and/or handle everything.
     case CRYPTOHOME_ERROR_LOCKBOX_SIGNATURE_INVALID:
     case CRYPTOHOME_ERROR_LOCKBOX_CANNOT_SIGN:
@@ -372,7 +390,6 @@ MountError CryptohomeErrorToMountError(CryptohomeErrorCode code) {
     case CRYPTOHOME_ERROR_FAILED_TO_EXTEND_PCR:
     case CRYPTOHOME_ERROR_FAILED_TO_READ_PCR:
     case CRYPTOHOME_ERROR_PCR_ALREADY_EXTENDED:
-    case CRYPTOHOME_ERROR_TPM_UPDATE_REQUIRED:
       NOTREACHED();
       return MOUNT_ERROR_FATAL;
   }

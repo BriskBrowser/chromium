@@ -6,12 +6,12 @@ import {assert} from 'chrome://resources/js/assert.m.js';
 import {isMac, isWindows} from 'chrome://resources/js/cr.m.js';
 import {loadTimeData} from 'chrome://resources/js/load_time_data.m.js';
 import {PromiseResolver} from 'chrome://resources/js/promise_resolver.m.js';
-import {html, Polymer} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+import {Polymer} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
 import {BackgroundGraphicsModeRestriction, Policies} from '../native_layer.js';
 
-import {Cdd, CddCapabilities, Destination, DestinationOrigin, DestinationType, RecentDestination} from './destination.js';
-import {getPrinterTypeForDestination} from './destination_match.js';
+import {Cdd, CddCapabilities, Destination, DestinationOrigin, DestinationType, RecentDestination, VendorCapability} from './destination.js';
+import {getPrinterTypeForDestination, PrinterType} from './destination_match.js';
 // <if expr="chromeos">
 import {ColorModeRestriction, DuplexModeRestriction, PinModeRestriction} from './destination_policies.js';
 // </if>
@@ -44,6 +44,7 @@ export let Setting;
  *   collate: !Setting,
  *   layout: !Setting,
  *   color: !Setting,
+ *   customMargins: !Setting,
  *   mediaSize: !Setting,
  *   margins: !Setting,
  *   dpi: !Setting,
@@ -99,7 +100,8 @@ export let SerializedSettings;
 /**
  * @typedef {{
  *  value: *,
- *  managed: boolean
+ *  managed: boolean,
+ *  applyOnDestinationUpdate: boolean
  * }}
  */
 export let PolicyEntry;
@@ -108,6 +110,8 @@ export let PolicyEntry;
  * @typedef {{
  *   headerFooter: (PolicyEntry | undefined),
  *   cssBackground: (PolicyEntry | undefined),
+ *   mediaSize: (PolicyEntry | undefined),
+ *   sheets: (number | undefined),
  * }}
  */
 export let PolicySettings;
@@ -471,7 +475,7 @@ Polymer({
       value: false,
     },
 
-    /** @type {Destination} */
+    /** @type {!Destination} */
     destination: Object,
 
     /** @type {!DocumentSettings} */
@@ -482,6 +486,13 @@ Polymer({
 
     /** @type {!Size} */
     pageSize: Object,
+
+    /** @private {number} */
+    maxSheets: {
+      type: Number,
+      value: 0,
+      notify: true,
+    }
   },
 
   observers: [
@@ -491,8 +502,7 @@ Polymer({
         'documentSettings.isPdf, documentSettings.hasCssMediaStyles, ' +
         'documentSettings.hasSelection)',
     'updateHeaderFooterAvailable_(' +
-        'margins, settings.margins.value, ' +
-        'settings.customMargins.value, settings.mediaSize.value)',
+        'margins, settings.margins.value, settings.mediaSize.value)',
   ],
 
   /** @private {boolean} */
@@ -663,7 +673,8 @@ Polymer({
    * @private
    */
   updateSettingsAvailabilityFromDestination_(caps) {
-    this.setSettingPath_('copies.available', !!caps && !!caps.copies);
+    this.setSettingPath_(
+        'copies.available', this.destination.hasCopiesCapability);
     this.setSettingPath_('collate.available', !!caps && !!caps.collate);
     this.setSettingPath_(
         'color.available', this.destination.hasColorCapability);
@@ -697,8 +708,8 @@ Polymer({
 
   /** @private */
   updateSettingsAvailabilityFromDestinationAndDocumentSettings_() {
-    const isSaveAsPDF =
-        this.destination.id === Destination.GooglePromotedId.SAVE_AS_PDF;
+    const isSaveAsPDF = getPrinterTypeForDestination(this.destination) ===
+        PrinterType.PDF_PRINTER;
     const knownSizeToSaveAsPdf = isSaveAsPDF &&
         (!this.documentSettings.isModifiable ||
          this.documentSettings.hasCssMediaStyles);
@@ -798,28 +809,19 @@ Polymer({
     }
 
     // Otherwise, availability depends on the margins.
-    let available = false;
     const marginsType =
         /** @type {!MarginsType} */ (this.getSettingValue('margins'));
-    switch (marginsType) {
-      case MarginsType.DEFAULT:
-        available = !this.margins ||
-            this.margins.get(CustomMarginsOrientation.TOP) > 0 ||
-            this.margins.get(CustomMarginsOrientation.BOTTOM) > 0;
-        break;
-      case MarginsType.NO_MARGINS:
-        break;
-      case MarginsType.MINIMUM:
-        available = true;
-        break;
-      case MarginsType.CUSTOM:
-        const margins = this.getSettingValue('customMargins');
-        available = margins.marginTop > 0 || margins.marginBottom > 0;
-        break;
-      default:
-        break;
+    if (marginsType === MarginsType.NO_MARGINS) {
+      return false;
     }
-    return available;
+
+    if (marginsType === MarginsType.MINIMUM) {
+      return true;
+    }
+
+    return !this.margins ||
+        this.margins.get(CustomMarginsOrientation.TOP) > 0 ||
+        this.margins.get(CustomMarginsOrientation.BOTTOM) > 0;
   },
 
   /**
@@ -949,7 +951,8 @@ Polymer({
 
     if (this.settings.vendorItems.available) {
       const vendorSettings = {};
-      for (const item of caps.vendor_capability) {
+      for (const item of /** @type {!Array<!VendorCapability>} */ (
+               caps.vendor_capability)) {
         let defaultValue = null;
         if (item.type === 'SELECT' && item.select_cap &&
             item.select_cap.option) {
@@ -1014,15 +1017,18 @@ Polymer({
    * @param {string} settingName Name of the setting being applied.
    * @param {*} value Value of the setting provided via policy.
    * @param {boolean} managed Flag showing whether value of setting is managed.
+   * @param {boolean} applyOnDestinationUpdate Flag showing whether policy
+   *     should be applied on every destination update.
    * @private
    */
-  setPolicySetting_(settingName, value, managed) {
+  setPolicySetting_(settingName, value, managed, applyOnDestinationUpdate) {
     if (!this.policySettings_) {
       this.policySettings_ = {};
     }
     this.policySettings_[settingName] = {
       value: value,
       managed: managed,
+      applyOnDestinationUpdate: applyOnDestinationUpdate,
     };
   },
 
@@ -1039,7 +1045,9 @@ Polymer({
       case 'headerFooter': {
         const value = allowedMode !== undefined ? allowedMode : defaultMode;
         if (value !== undefined) {
-          this.setPolicySetting_(settingName, value, allowedMode !== undefined);
+          this.setPolicySetting_(
+              settingName, value, allowedMode !== undefined,
+              /*applyOnDestinationUpdate=*/ false);
         }
         break;
       }
@@ -1048,7 +1056,15 @@ Polymer({
         if (value !== undefined) {
           this.setPolicySetting_(
               settingName, value === BackgroundGraphicsModeRestriction.ENABLED,
-              !!allowedMode);
+              !!allowedMode, /*applyOnDestinationUpdate=*/ false);
+        }
+        break;
+      }
+      case 'mediaSize': {
+        if (defaultMode !== undefined) {
+          this.setPolicySetting_(
+              settingName, defaultMode, /*managed=*/ false,
+              /*applyOnDestinationUpdate=*/ true);
         }
         break;
       }
@@ -1066,7 +1082,7 @@ Polymer({
     if (policies === undefined) {
       return;
     }
-    ['headerFooter', 'cssBackground'].forEach(settingName => {
+    ['headerFooter', 'cssBackground', 'mediaSize'].forEach(settingName => {
       if (!policies[settingName]) {
         return;
       }
@@ -1074,6 +1090,17 @@ Polymer({
       const allowedMode = policies[settingName].allowedMode;
       this.configurePolicySetting_(settingName, allowedMode, defaultMode);
     });
+    // <if expr="chromeos">
+    if (policies['sheets']) {
+      if (!this.policySettings_) {
+        this.policySettings_ = {};
+      }
+      this.policySettings_['sheets'] = {
+        value: policies['sheets'].value,
+        applyOnDestinationUpdate: false
+      };
+    }
+    // </if>
   },
 
   applyStickySettings() {
@@ -1130,22 +1157,30 @@ Polymer({
     if (this.policySettings_) {
       for (const [settingName, policy] of Object.entries(
                this.policySettings_)) {
-        if (policy.value !== undefined) {
-          this.setSetting(settingName, policy.value, true);
+        // <if expr="chromeos">
+        if (settingName === 'sheets') {
+          this.maxSheets = this.policySettings_['sheets'].value;
+          continue;
         }
-        if (policy.managed) {
-          this.set(`settings.${settingName}.setByPolicy`, true);
+        // </if>
+        if (policy.value !== undefined && !policy.applyOnDestinationUpdate) {
+          this.setSetting(settingName, policy.value, true);
+          if (policy.managed) {
+            this.set(`settings.${settingName}.setByPolicy`, true);
+          }
         }
       }
     }
   },
 
-  // <if expr="chromeos">
+  // TODO (crbug.com/1069802): Migrate these policies from Destination.policies
+  // to NativeInitialSettings.policies.
   /**
    * Restricts settings and applies defaults as defined by policy applicable to
    * current destination.
    */
   applyDestinationSpecificPolicies() {
+    // <if expr="chromeos">
     const colorPolicy = this.destination.colorPolicy;
     const colorValue =
         colorPolicy ? colorPolicy : this.destination.defaultColorPolicy;
@@ -1188,10 +1223,25 @@ Polymer({
       this.set('settings.pin.value', pinValue === PinModeRestriction.PIN);
     }
     this.set('settings.pin.setByPolicy', !!pinPolicy);
+    // </if>
+
+    if (this.settings.mediaSize.available && this.policySettings_) {
+      const mediaSizePolicy = this.policySettings_['mediaSize'] &&
+          this.policySettings_['mediaSize'].value;
+      if (mediaSizePolicy !== undefined) {
+        const matchingOption =
+            this.destination.capabilities.printer.media_size.option.find(o => {
+              return o.width_microns === mediaSizePolicy.width &&
+                  o.height_microns === mediaSizePolicy.height;
+            });
+        if (matchingOption !== undefined) {
+          this.set('settings.mediaSize.value', matchingOption);
+        }
+      }
+    }
 
     this.updateManaged_();
   },
-  // </if>
 
   /** @private */
   updateManaged_() {
@@ -1307,6 +1357,10 @@ Polymer({
       pageHeight: this.pageSize.height,
       showSystemDialog: showSystemDialog,
     };
+    // <if expr="chromeos">
+    ticket.printToGoogleDrive = ticket.printToGoogleDrive ||
+        destination.id === Destination.GooglePromotedId.SAVE_TO_DRIVE_CROS;
+    // </if>
 
     // Set 'cloudPrintID' only if the destination is not local.
     if (!destination.isLocal) {

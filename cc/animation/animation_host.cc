@@ -46,19 +46,6 @@ AnimationWorkletMutationState ToAnimationWorkletMutationState(
   }
 }
 
-bool TickAnimationsIf(AnimationHost::AnimationsList animations,
-                      base::TimeTicks monotonic_time,
-                      bool (*predicate)(const Animation&)) {
-  bool did_tick = false;
-  for (auto& it : animations) {
-    if (predicate(*it)) {
-      it->Tick(monotonic_time);
-      did_tick = true;
-    }
-  }
-  return did_tick;
-}
-
 }  // namespace
 
 std::unique_ptr<AnimationHost> AnimationHost::CreateMainInstance() {
@@ -232,6 +219,8 @@ void AnimationHost::SetNeedsCommit() {
 }
 
 void AnimationHost::SetNeedsPushProperties() {
+  if (needs_push_properties_)
+    return;
   needs_push_properties_ = true;
   if (mutator_host_client_)
     mutator_host_client_->SetMutatorsNeedCommit();
@@ -239,6 +228,14 @@ void AnimationHost::SetNeedsPushProperties() {
 
 void AnimationHost::PushPropertiesTo(MutatorHost* mutator_host_impl) {
   auto* host_impl = static_cast<AnimationHost*>(mutator_host_impl);
+
+  // Update animation counts and whether raf was requested. These explicitly
+  // do not request push properties and are pushed as part of the next commit
+  // when it happens as requesting a commit leads to performance issues:
+  // https://crbug.com/1083244
+  host_impl->main_thread_animations_count_ = main_thread_animations_count_;
+  host_impl->current_frame_had_raf_ = current_frame_had_raf_;
+  host_impl->next_frame_has_pending_raf_ = next_frame_has_pending_raf_;
 
   if (needs_push_properties_) {
     needs_push_properties_ = false;
@@ -302,9 +299,12 @@ void AnimationHost::PushPropertiesToImplThread(AnimationHost* host_impl) {
   // Update the impl-only scroll offset animations.
   scroll_offset_animations_->PushPropertiesTo(
       host_impl->scroll_offset_animations_impl_.get());
-  host_impl->main_thread_animations_count_ = main_thread_animations_count_;
-  host_impl->current_frame_had_raf_ = current_frame_had_raf_;
-  host_impl->next_frame_has_pending_raf_ = next_frame_has_pending_raf_;
+
+  // The pending info list is cleared in LayerTreeHostImpl::CommitComplete
+  // and should be empty when pushing properties.
+  DCHECK(host_impl->pending_throughput_tracker_infos_.empty());
+  host_impl->pending_throughput_tracker_infos_ =
+      TakePendingThroughputTrackerInfos();
 }
 
 scoped_refptr<ElementAnimations>
@@ -404,12 +404,17 @@ bool AnimationHost::TickAnimations(base::TimeTicks monotonic_time,
 
   TRACE_EVENT_INSTANT0("cc", "NeedsTickAnimations", TRACE_EVENT_SCOPE_THREAD);
 
-  // Worklet animations are ticked at a later stage. See above comment for
-  // details.
-  bool animated = TickAnimationsIf(ticking_animations_, monotonic_time,
-                                   [](const Animation& animation) {
-                                     return !animation.IsWorkletAnimation();
-                                   });
+  bool animated = false;
+  for (auto& kv : id_to_timeline_map_) {
+    AnimationTimeline* timeline = kv.second.get();
+    if (timeline->IsScrollTimeline()) {
+      animated |= timeline->TickScrollLinkedAnimations(
+          ticking_animations_, scroll_tree, is_active_tree);
+    } else {
+      animated |= timeline->TickTimeLinkedAnimations(ticking_animations_,
+                                                     monotonic_time);
+    }
+  }
 
   // TODO(majidvp): At the moment we call this for both active and pending
   // trees similar to other animations. However our final goal is to only call
@@ -431,10 +436,11 @@ void AnimationHost::TickScrollAnimations(base::TimeTicks monotonic_time,
 }
 
 void AnimationHost::TickWorkletAnimations() {
-  TickAnimationsIf(ticking_animations_, base::TimeTicks(),
-                   [](const Animation& animation) {
-                     return animation.IsWorkletAnimation();
-                   });
+  for (auto& animation : ticking_animations_) {
+    if (!animation->IsWorkletAnimation())
+      continue;
+    animation->Tick(base::TimeTicks());
+  }
 }
 
 std::unique_ptr<MutatorInputState> AnimationHost::CollectWorkletAnimationsState(
@@ -472,9 +478,21 @@ bool AnimationHost::UpdateAnimationState(bool start_ready_animations,
   return true;
 }
 
+void AnimationHost::TakeTimeUpdatedEvents(MutatorEvents* events) {
+  auto* animation_events = static_cast<AnimationEvents*>(events);
+  if (!animation_events->needs_time_updated_events())
+    return;
+
+  for (auto& it : ticking_animations_)
+    it->TakeTimeUpdatedEvent(animation_events);
+
+  animation_events->set_needs_time_updated_events(false);
+}
+
 void AnimationHost::PromoteScrollTimelinesPendingToActive() {
-  for (auto& animation : ticking_animations_) {
-    animation->PromoteScrollTimelinePendingToActive();
+  for (auto& kv : id_to_timeline_map_) {
+    auto& timeline = kv.second;
+    timeline->ActivateTimeline();
   }
 }
 
@@ -674,9 +692,12 @@ void AnimationHost::ScrollAnimationAbort() {
       false /* needs_completion */);
 }
 
-bool AnimationHost::IsImplOnlyScrollAnimating() const {
+ElementId AnimationHost::ImplOnlyScrollAnimatingElement() const {
   DCHECK(scroll_offset_animations_impl_);
-  return scroll_offset_animations_impl_->IsAnimating();
+  if (!scroll_offset_animations_impl_->IsAnimating())
+    return ElementId();
+
+  return scroll_offset_animations_impl_->GetElementId();
 }
 
 void AnimationHost::AddToTicking(scoped_refptr<Animation> animation) {
@@ -738,37 +759,25 @@ void AnimationHost::SetMutationUpdate(
   }
 }
 
-size_t AnimationHost::CompositedAnimationsCount() const {
-  size_t composited_animations_count = 0;
-  for (const auto& it : ticking_animations_)
-    composited_animations_count += it->TickingKeyframeModelsCount();
-  return composited_animations_count;
-}
-
 void AnimationHost::SetAnimationCounts(
     size_t total_animations_count,
     bool current_frame_had_raf,
     bool next_frame_has_pending_raf) {
+  // Though these changes are pushed as part of AnimationHost::PushPropertiesTo
+  // we don't SetNeedsPushProperties as pushing the values requires a commit.
+  // Instead we allow them to be pushed whenever the next required commit
+  // happens to avoid unnecessary work. See https://crbug.com/1083244.
+
   // If an animation is being run on the compositor, it will have a ticking
   // Animation (which will have a corresponding impl-thread version). Therefore
   // to find the count of main-only animations, we can simply subtract the
   // number of ticking animations from the total count.
   size_t ticking_animations_count = ticking_animations_.size();
-  if (main_thread_animations_count_ !=
-      total_animations_count - ticking_animations_count) {
-    main_thread_animations_count_ =
-        total_animations_count - ticking_animations_count;
-    DCHECK_GE(main_thread_animations_count_, 0u);
-    SetNeedsPushProperties();
-  }
-  if (current_frame_had_raf != current_frame_had_raf_) {
-    current_frame_had_raf_ = current_frame_had_raf;
-    SetNeedsPushProperties();
-  }
-  if (next_frame_has_pending_raf != next_frame_has_pending_raf_) {
-    next_frame_has_pending_raf_ = next_frame_has_pending_raf;
-    SetNeedsPushProperties();
-  }
+  main_thread_animations_count_ =
+      total_animations_count - ticking_animations_count;
+  DCHECK_GE(main_thread_animations_count_, 0u);
+  current_frame_had_raf_ = current_frame_had_raf;
+  next_frame_has_pending_raf_ = next_frame_has_pending_raf;
 }
 
 size_t AnimationHost::MainThreadAnimationsCount() const {
@@ -788,6 +797,26 @@ bool AnimationHost::CurrentFrameHadRAF() const {
 
 bool AnimationHost::NextFrameHasPendingRAF() const {
   return next_frame_has_pending_raf_;
+}
+
+AnimationHost::PendingThroughputTrackerInfos
+AnimationHost::TakePendingThroughputTrackerInfos() {
+  PendingThroughputTrackerInfos infos =
+      std::move(pending_throughput_tracker_infos_);
+  pending_throughput_tracker_infos_ = {};
+  return infos;
+}
+
+void AnimationHost::StartThroughputTracking(
+    TrackedAnimationSequenceId sequence_id) {
+  pending_throughput_tracker_infos_.push_back({sequence_id, true});
+  SetNeedsPushProperties();
+}
+
+void AnimationHost::StopThroughputTracking(
+    TrackedAnimationSequenceId sequnece_id) {
+  pending_throughput_tracker_infos_.push_back({sequnece_id, false});
+  SetNeedsPushProperties();
 }
 
 }  // namespace cc

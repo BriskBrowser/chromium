@@ -5,6 +5,7 @@
 #include "ash/wm/gestures/wm_gesture_handler.h"
 
 #include "ash/public/cpp/ash_features.h"
+#include "ash/session/session_controller_impl.h"
 #include "ash/shell.h"
 #include "ash/test/ash_test_base.h"
 #include "ash/wm/desks/desk.h"
@@ -13,6 +14,8 @@
 #include "ash/wm/desks/desks_test_util.h"
 #include "ash/wm/overview/overview_controller.h"
 #include "ash/wm/overview/overview_test_util.h"
+#include "ash/wm/window_cycle_controller.h"
+#include "ash/wm/window_cycle_list.h"
 #include "ash/wm/window_util.h"
 #include "base/test/scoped_feature_list.h"
 #include "ui/aura/window.h"
@@ -36,22 +39,10 @@ const aura::Window* GetHighlightedWindow() {
 
 }  // namespace
 
-class WmGestureHandlerTest : public AshTestBase,
-                             public ::testing::WithParamInterface<bool> {
+class WmGestureHandlerTest : public AshTestBase {
  public:
   WmGestureHandlerTest() = default;
   ~WmGestureHandlerTest() override = default;
-
-  // AshTestBase:
-  void SetUp() override {
-    if (GetParam()) {
-      scoped_feature_list_.InitWithFeatures(
-          /*enabled_features=*/{features::kVirtualDesks},
-          /*disabled_features=*/{});
-    }
-
-    AshTestBase::SetUp();
-  }
 
   void Scroll(float x_offset, float y_offset, int fingers) {
     GetEventGenerator()->ScrollSequence(
@@ -60,8 +51,6 @@ class WmGestureHandlerTest : public AshTestBase,
   }
 
   void ScrollToSwitchDesks(bool scroll_left) {
-    DCHECK(features::IsVirtualDesksEnabled());
-
     DeskSwitchAnimationWaiter waiter;
     const float x_offset =
         (scroll_left ? -1 : 1) * WmGestureHandler::kHorizontalThresholdDp;
@@ -70,14 +59,12 @@ class WmGestureHandlerTest : public AshTestBase,
   }
 
  private:
-  base::test::ScopedFeatureList scoped_feature_list_;
-
   DISALLOW_COPY_AND_ASSIGN(WmGestureHandlerTest);
 };
 
 // Tests a three fingers upwards scroll gesture to enter and a scroll down to
 // exit overview.
-TEST_P(WmGestureHandlerTest, VerticalScrolls) {
+TEST_F(WmGestureHandlerTest, VerticalScrolls) {
   const float long_scroll = 2 * WmGestureHandler::kVerticalThresholdDp;
   Scroll(0, -long_scroll, 3);
   EXPECT_TRUE(InOverviewSession());
@@ -97,7 +84,7 @@ TEST_P(WmGestureHandlerTest, VerticalScrolls) {
 
 // Tests three or four finger horizontal scroll gesture (depending on flags) to
 // move selection left or right.
-TEST_P(WmGestureHandlerTest, HorizontalScrollInOverview) {
+TEST_F(WmGestureHandlerTest, HorizontalScrollInOverview) {
   const gfx::Rect bounds(0, 0, 400, 400);
   std::unique_ptr<aura::Window> window1 = CreateTestWindow(bounds);
   std::unique_ptr<aura::Window> window2 = CreateTestWindow(bounds);
@@ -145,7 +132,7 @@ TEST_P(WmGestureHandlerTest, HorizontalScrollInOverview) {
 }
 
 // Tests that a mostly horizontal scroll does not trigger overview.
-TEST_P(WmGestureHandlerTest, HorizontalScrolls) {
+TEST_F(WmGestureHandlerTest, HorizontalScrolls) {
   const float long_scroll = 2 * WmGestureHandler::kVerticalThresholdDp;
   Scroll(long_scroll + 100, -long_scroll, kNumFingersForHighlight);
   EXPECT_FALSE(InOverviewSession());
@@ -155,7 +142,7 @@ TEST_P(WmGestureHandlerTest, HorizontalScrolls) {
 }
 
 // Tests that we only enter overview after a scroll has ended.
-TEST_P(WmGestureHandlerTest, EnterOverviewOnScrollEnd) {
+TEST_F(WmGestureHandlerTest, EnterOverviewOnScrollEnd) {
   base::TimeTicks timestamp = base::TimeTicks::Now();
   const int num_fingers = 3;
   base::TimeDelta step_delay(base::TimeDelta::FromMilliseconds(5));
@@ -185,7 +172,7 @@ TEST_P(WmGestureHandlerTest, EnterOverviewOnScrollEnd) {
 using DesksGestureHandlerTest = WmGestureHandlerTest;
 
 // Tests that a three-finger horizontal scroll will switch desks as expected.
-TEST_P(DesksGestureHandlerTest, HorizontalScrolls) {
+TEST_F(DesksGestureHandlerTest, HorizontalScrolls) {
   auto* desk_controller = DesksController::Get();
   desk_controller->NewDesk(DesksCreationRemovalSource::kButton);
   ASSERT_EQ(2u, desk_controller->desks().size());
@@ -208,7 +195,7 @@ TEST_P(DesksGestureHandlerTest, HorizontalScrolls) {
 
 // Tests that vertical scrolls and horizontal scrolls that are too small do not
 // switch desks.
-TEST_P(DesksGestureHandlerTest, NoDeskChanges) {
+TEST_F(DesksGestureHandlerTest, NoDeskChanges) {
   auto* desk_controller = DesksController::Get();
   desk_controller->NewDesk(DesksCreationRemovalSource::kButton);
   ASSERT_EQ(2u, desk_controller->desks().size());
@@ -232,7 +219,7 @@ TEST_P(DesksGestureHandlerTest, NoDeskChanges) {
 }
 
 // Tests that a large scroll only moves to the next desk.
-TEST_P(DesksGestureHandlerTest, NoDoubleDeskChange) {
+TEST_F(DesksGestureHandlerTest, NoDoubleDeskChange) {
   auto* desk_controller = DesksController::Get();
   desk_controller->NewDesk(DesksCreationRemovalSource::kButton);
   desk_controller->NewDesk(DesksCreationRemovalSource::kButton);
@@ -247,8 +234,96 @@ TEST_P(DesksGestureHandlerTest, NoDoubleDeskChange) {
   EXPECT_EQ(desk_controller->desks()[1].get(), desk_controller->active_desk());
 }
 
-// Instantiate the parametrized tests.
-INSTANTIATE_TEST_SUITE_P(All, WmGestureHandlerTest, ::testing::Bool());
-INSTANTIATE_TEST_SUITE_P(All, DesksGestureHandlerTest, ::testing::Values(true));
+// Tests that touchpad gesture scrolls don't lead to any desk changes when the
+// screen is locked.
+TEST_F(DesksGestureHandlerTest, NoDeskChangesInLockScreen) {
+  auto* desk_controller = DesksController::Get();
+  desk_controller->NewDesk(DesksCreationRemovalSource::kButton);
+  desk_controller->NewDesk(DesksCreationRemovalSource::kButton);
+  ASSERT_EQ(3u, desk_controller->desks().size());
+  ASSERT_EQ(desk_controller->desks()[0].get(), desk_controller->active_desk());
+
+  auto* session_controller = Shell::Get()->session_controller();
+  session_controller->LockScreen();
+  GetSessionControllerClient()->FlushForTest();  // LockScreen is an async call.
+  ASSERT_TRUE(session_controller->IsScreenLocked());
+
+  const float long_scroll = WmGestureHandler::kHorizontalThresholdDp * 3;
+  Scroll(-long_scroll, 0, kNumFingersForDesksSwitch);
+  EXPECT_FALSE(desk_controller->AreDesksBeingModified());
+  EXPECT_EQ(desk_controller->desks()[0].get(), desk_controller->active_desk());
+}
+
+class InteractiveWindowCycleListGestureHandlerTest
+    : public WmGestureHandlerTest {
+ public:
+  InteractiveWindowCycleListGestureHandlerTest() = default;
+  InteractiveWindowCycleListGestureHandlerTest(
+      const InteractiveWindowCycleListGestureHandlerTest&) = delete;
+  InteractiveWindowCycleListGestureHandlerTest& operator=(
+      const InteractiveWindowCycleListGestureHandlerTest&) = delete;
+  ~InteractiveWindowCycleListGestureHandlerTest() override = default;
+
+  // AshTestBase:
+  void SetUp() override {
+    scoped_feature_list_.InitAndEnableFeature(
+        features::kInteractiveWindowCycleList);
+    AshTestBase::SetUp();
+    WindowCycleList::DisableInitialDelayForTesting();
+  }
+
+ private:
+  base::test::ScopedFeatureList scoped_feature_list_;
+};
+
+// Tests three finger horizontal scroll gesture to move selection left or right.
+TEST_F(InteractiveWindowCycleListGestureHandlerTest,
+       HorizontalScrollInWindowCycleList) {
+  const gfx::Rect bounds(0, 0, 400, 400);
+  std::unique_ptr<aura::Window> window1 = CreateTestWindow(bounds);
+  std::unique_ptr<aura::Window> window2 = CreateTestWindow(bounds);
+  std::unique_ptr<aura::Window> window3 = CreateTestWindow(bounds);
+  std::unique_ptr<aura::Window> window4 = CreateTestWindow(bounds);
+  std::unique_ptr<aura::Window> window5 = CreateTestWindow(bounds);
+  const float horizontal_scroll = WmGestureHandler::kHorizontalThresholdDp;
+
+  auto scroll_until_window_highlighted_and_confirm = [this](float x_offset,
+                                                            float y_offset) {
+    WindowCycleController* controller = Shell::Get()->window_cycle_controller();
+    controller->StartCycling();
+    Scroll(x_offset, y_offset, kNumFingersForHighlight);
+    controller->CompleteCycling();
+  };
+
+  // Start cycle, simulating alt key being held down. Scroll right to fourth
+  // item.
+  // Current order is [5,4,3,2,1].
+  scroll_until_window_highlighted_and_confirm(horizontal_scroll * 3, 0);
+  EXPECT_TRUE(wm::IsActiveWindow(window2.get()));
+
+  // Start cycle. Scroll left to third item.
+  // Current order is [2,5,4,3,1].
+  scroll_until_window_highlighted_and_confirm(-horizontal_scroll * 3, 0);
+  EXPECT_TRUE(wm::IsActiveWindow(window4.get()));
+
+  // Start cycle. Scroll right to second item.
+  // Current order is [4,2,5,3,1].
+  scroll_until_window_highlighted_and_confirm(horizontal_scroll, 0);
+  EXPECT_TRUE(wm::IsActiveWindow(window2.get()));
+
+  // Open an overview session and window cycle list. Scroll right to second
+  // item. Scroll should only go to the window cycle list.
+  // Current order is [2,4,5,3,1].
+  Shell::Get()->overview_controller()->StartOverview();
+  EXPECT_TRUE(InOverviewSession());
+
+  Shell::Get()->window_cycle_controller()->StartCycling();
+  Scroll(horizontal_scroll, 0, kNumFingersForHighlight);
+  EXPECT_EQ(nullptr, GetHighlightedWindow());
+
+  Shell::Get()->window_cycle_controller()->CompleteCycling();
+  EXPECT_FALSE(InOverviewSession());
+  EXPECT_TRUE(wm::IsActiveWindow(window4.get()));
+}
 
 }  // namespace ash

@@ -36,13 +36,14 @@
 #include "gpu/config/gpu_switches.h"
 #include "media/base/media_switches.h"
 #include "media/media_buildflags.h"
+#include "sandbox/policy/switches.h"
 #include "services/network/public/cpp/network_switches.h"
-#include "services/service_manager/sandbox/switches.h"
+#include "third_party/blink/public/common/features.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
 
 #if defined(OS_ANDROID)
-#include "chrome/browser/android/chrome_feature_list.h"
+#include "chrome/browser/flags/android/chrome_feature_list.h"
 #else
 #include "chrome/browser/ui/browser.h"
 #endif  // OS_ANDROID
@@ -57,12 +58,12 @@ namespace {
 static const char* kBadFlags[] = {
     network::switches::kIgnoreCertificateErrorsSPKIList,
     // These flags disable sandbox-related security.
-    service_manager::switches::kDisableGpuSandbox,
-    service_manager::switches::kDisableSeccompFilterSandbox,
-    service_manager::switches::kDisableSetuidSandbox,
-    service_manager::switches::kNoSandbox,
+    sandbox::policy::switches::kDisableGpuSandbox,
+    sandbox::policy::switches::kDisableSeccompFilterSandbox,
+    sandbox::policy::switches::kDisableSetuidSandbox,
+    sandbox::policy::switches::kNoSandbox,
 #if defined(OS_WIN)
-    service_manager::switches::kAllowThirdPartyModules,
+    sandbox::policy::switches::kAllowThirdPartyModules,
 #endif
     switches::kDisableSiteIsolation,
     switches::kDisableWebSecurity,
@@ -93,18 +94,18 @@ static const char* kBadFlags[] = {
     switches::kEnableSpeechDispatcher,
 #endif
 
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
     // This flag is only used for performance tests in mac, to ensure that
     // calculated values are reliable. Should not be used elsewhere.
     switches::kUseHighGPUThreadPriorityForPerfTests,
-#endif  // OS_MACOSX
+#endif  // OS_MAC
 
     // These flags control Blink feature state, which is not supported and is
     // intended only for use by Chromium developers.
     switches::kDisableBlinkFeatures,
     switches::kEnableBlinkFeatures,
 
-    // This flag allows people to whitelist certain origins as secure, even
+    // This flag allows people to allowlist certain origins as secure, even
     // if they are not.
     network::switches::kUnsafelyTreatInsecureOriginAsSecure,
 
@@ -141,6 +142,7 @@ static const char* kBadFlags[] = {
 // Dangerous feature flags in about:flags for which to display a warning that
 // "stability and security will suffer".
 static const base::Feature* kBadFeatureFlagsInAboutFlags[] = {
+    &blink::features::kRawClipboard,
     &features::kAllowSignedHTTPExchangeCertsWithoutExtension,
     &features::kWebBundlesFromNetwork,
 #if defined(OS_ANDROID)

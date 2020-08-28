@@ -9,6 +9,7 @@
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
+#include "base/hash/md5.h"
 #include "base/run_loop.h"
 #include "base/test/task_environment.h"
 #include "build/build_config.h"
@@ -27,13 +28,13 @@ using ::testing::_;
 
 namespace media {
 
-// TODO(dalecurtis): There is some weird collision going on with this matcher
-// and the one defined in the AomVideoDecoder unittest. Somehow only one ends
-// up in the final binary so one test or the other will fail. To workaround this
-// give it a unique name for now...
-MATCHER(ContainsDav1dDecoderErrorLog, "") {
-  return CONTAINS_STRING(arg, "dav1d_get_picture() failed");
+namespace {
+
+MATCHER(ContainsDecoderErrorLog, "") {
+  return CONTAINS_STRING(arg, "dav1d_send_data() failed");
 }
+
+}  // namespace
 
 class Dav1dVideoDecoderTest : public testing::Test {
  public:
@@ -51,7 +52,12 @@ class Dav1dVideoDecoderTest : public testing::Test {
                                       bool success) {
     decoder_->Initialize(
         config, true,  // Use low delay so we get 1 frame out for each frame in.
-        nullptr, NewExpectedBoolCB(success),
+        nullptr,
+        base::BindOnce(
+            [](bool success, Status status) {
+              EXPECT_EQ(status.is_ok(), success);
+            },
+            success),
         base::BindRepeating(&Dav1dVideoDecoderTest::FrameReady,
                             base::Unretained(this)),
         base::NullCallback());
@@ -156,16 +162,25 @@ class Dav1dVideoDecoderTest : public testing::Test {
     EXPECT_CALL(*this, DecodeDone(_)).WillOnce(testing::SaveArg<0>(&status));
 
     decoder_->Decode(std::move(buffer),
-                     base::BindRepeating(&Dav1dVideoDecoderTest::DecodeDone,
-                                         base::Unretained(this)));
+                     base::BindOnce(&Dav1dVideoDecoderTest::DecodeDone,
+                                    base::Unretained(this)));
     base::RunLoop().RunUntilIdle();
 
     return status;
   }
 
   void FrameReady(scoped_refptr<VideoFrame> frame) {
-    DCHECK(!frame->metadata()->IsTrue(VideoFrameMetadata::END_OF_STREAM));
+    DCHECK(!frame->metadata()->end_of_stream);
     output_frames_.push_back(std::move(frame));
+  }
+
+  std::string GetVideoFrameHash(const VideoFrame& frame) {
+    base::MD5Context md5_context;
+    base::MD5Init(&md5_context);
+    VideoFrame::HashFrameForTesting(&md5_context, frame);
+    base::MD5Digest digest;
+    base::MD5Final(&digest, &md5_context);
+    return base::MD5DigestToBase16(digest);
   }
 
   MOCK_METHOD1(DecodeDone, void(DecodeStatus));
@@ -210,19 +225,58 @@ TEST_F(Dav1dVideoDecoderTest, DecodeFrame_Normal) {
   // Simulate decoding a single frame.
   EXPECT_EQ(DecodeStatus::OK, DecodeSingleFrame(i_frame_buffer_));
   ASSERT_EQ(1U, output_frames_.size());
+
+  const auto& frame = output_frames_.front();
+  EXPECT_EQ(PIXEL_FORMAT_I420, frame->format());
+  EXPECT_EQ("589dc641b7742ffe7a2b0d4c16aa3e86", GetVideoFrameHash(*frame));
+}
+
+TEST_F(Dav1dVideoDecoderTest, DecodeFrame_8bitMono) {
+  Initialize();
+  EXPECT_EQ(DecodeStatus::OK, DecodeSingleFrame(ReadTestDataFile(
+                                  "av1-monochrome-I-frame-320x240-8bpp")));
+  ASSERT_EQ(1U, output_frames_.size());
+
+  const auto& frame = output_frames_.front();
+  EXPECT_EQ(PIXEL_FORMAT_I420, frame->format());
+  EXPECT_EQ(frame->data(VideoFrame::kUPlane), frame->data(VideoFrame::kVPlane));
+  EXPECT_EQ("eeba03dcc9c22c4632bf74b481db36b2", GetVideoFrameHash(*frame));
+}
+
+TEST_F(Dav1dVideoDecoderTest, DecodeFrame_10bitMono) {
+  Initialize();
+  EXPECT_EQ(DecodeStatus::OK, DecodeSingleFrame(ReadTestDataFile(
+                                  "av1-monochrome-I-frame-320x240-10bpp")));
+  ASSERT_EQ(1U, output_frames_.size());
+
+  const auto& frame = output_frames_.front();
+  EXPECT_EQ(PIXEL_FORMAT_YUV420P10, frame->format());
+  EXPECT_EQ(frame->data(VideoFrame::kUPlane), frame->data(VideoFrame::kVPlane));
+  EXPECT_EQ("026c1fed9e161f09d816ac7278458a80", GetVideoFrameHash(*frame));
+}
+
+TEST_F(Dav1dVideoDecoderTest, DecodeFrame_12bitMono) {
+  Initialize();
+  EXPECT_EQ(DecodeStatus::OK, DecodeSingleFrame(ReadTestDataFile(
+                                  "av1-monochrome-I-frame-320x240-12bpp")));
+  ASSERT_EQ(1U, output_frames_.size());
+
+  const auto& frame = output_frames_.front();
+  EXPECT_EQ(PIXEL_FORMAT_YUV420P12, frame->format());
+  EXPECT_EQ(frame->data(VideoFrame::kUPlane), frame->data(VideoFrame::kVPlane));
+  EXPECT_EQ("32115092dc00fbe86823b0b714a0f63e", GetVideoFrameHash(*frame));
 }
 
 // Decode |i_frame_buffer_| and then a frame with a larger width and verify
 // the output size was adjusted.
-// TODO(dalecurtis): Get an I-frame from a larger video.
-TEST_F(Dav1dVideoDecoderTest, DISABLED_DecodeFrame_LargerWidth) {
-  DecodeIFrameThenTestFile("av1-I-frame-320x240", gfx::Size(1280, 720));
+TEST_F(Dav1dVideoDecoderTest, DecodeFrame_LargerWidth) {
+  DecodeIFrameThenTestFile("av1-I-frame-1280x720", gfx::Size(1280, 720));
 }
 
 // Decode a VP9 frame which should trigger a decoder error.
 TEST_F(Dav1dVideoDecoderTest, DecodeFrame_Error) {
   Initialize();
-  EXPECT_MEDIA_LOG(ContainsDav1dDecoderErrorLog());
+  EXPECT_MEDIA_LOG(ContainsDecoderErrorLog());
   DecodeSingleFrame(ReadTestDataFile("vp9-I-frame-320x240"));
 }
 

@@ -7,12 +7,18 @@
 
 #include "base/macros.h"
 #include "base/metrics/user_metrics.h"
+#include "content/public/browser/web_contents_observer.h"
 #include "content/public/browser/web_ui_message_handler.h"
+
+namespace base {
+class TimeTicks;
+}  // namespace base
 
 // UI Handler for chrome://user-actions/
 // It listens to user action notifications and passes those notifications
 // into the Javascript to update the page.
-class UserActionsUIHandler : public content::WebUIMessageHandler {
+class UserActionsUIHandler : public content::WebUIMessageHandler,
+                             public content::WebContentsObserver {
  public:
   UserActionsUIHandler();
   ~UserActionsUIHandler() override;
@@ -21,8 +27,12 @@ class UserActionsUIHandler : public content::WebUIMessageHandler {
   // Does nothing for now.
   void RegisterMessages() override;
 
+  // WebContentsObserver::
+  void ReadyToCommitNavigation(
+      content::NavigationHandle* navigation_handle) override;
+
  private:
-  void OnUserAction(const std::string& action);
+  void OnUserAction(const std::string& action, base::TimeTicks action_time);
 
   base::ActionCallback action_callback_;
 

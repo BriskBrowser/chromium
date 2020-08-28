@@ -21,6 +21,7 @@
 #include "chrome/browser/engagement/site_engagement_details.mojom.h"
 #include "chrome/browser/engagement/site_engagement_score.h"
 #include "chrome/browser/engagement/site_engagement_service.h"
+#include "chrome/browser/installable/installable_utils.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/pref_names.h"
 #include "components/bookmarks/browser/bookmark_model.h"
@@ -39,7 +40,7 @@
 #if defined(OS_ANDROID)
 #include "chrome/browser/android/search_permissions/search_permissions_service.h"
 #else
-#include "chrome/browser/web_applications/components/web_app_helpers.h"
+#include "chrome/browser/web_applications/components/web_app_id.h"
 #include "chrome/browser/web_applications/web_app_provider.h"
 #include "chrome/browser/web_applications/web_app_registrar.h"
 #endif
@@ -253,7 +254,6 @@ void PopulateInfoMapWithEngagement(
   // with the highest engagement score.
   for (const auto& detail : engagement_details) {
     if (detail.installed_bonus > 0) {
-      // This origin was recently launched from the home screen.
       MaybePopulateImportantInfoForReason(detail.origin, &content_origins,
                                           ImportantReason::HOME_SCREEN,
                                           base::nullopt, output);
@@ -366,7 +366,7 @@ void PopulateInfoMapWithBookmarks(
 // used to warn about clearing data for installed apps can be excluded from the
 // Android build.
 #if !defined(OS_ANDROID)
-void PopulateInfoMapWithInstalled(
+void PopulateInfoMapWithInstalledEngagedInTimePeriod(
     browsing_data::TimePeriod time_period,
     Profile* profile,
     std::map<std::string, ImportantDomainInfo>* output) {
@@ -382,12 +382,11 @@ void PopulateInfoMapWithInstalled(
   auto app_ids = registrar.GetAppIds();
   std::map<std::string, std::string> installed_origins_map;
   for (auto& app_id : app_ids) {
-    auto scope = registrar.GetAppScope(app_id);
-    if (scope) {
-      auto app_name = registrar.GetAppShortName(app_id);
-      installed_origins_map.emplace(
-          std::make_pair(scope.value().GetOrigin().spec(), app_name));
-    }
+    GURL scope = registrar.GetAppScope(app_id);
+    DCHECK(scope.is_valid());
+    auto app_name = registrar.GetAppShortName(app_id);
+    installed_origins_map.emplace(
+        std::make_pair(scope.GetOrigin().spec(), app_name));
   }
 
   for (const auto& detail : engagement_details) {
@@ -435,6 +434,19 @@ bool ImportantSitesUtil::IsDialogDisabled(Profile* profile) {
 void ImportantSitesUtil::RegisterProfilePrefs(
     user_prefs::PrefRegistrySyncable* registry) {
   registry->RegisterDictionaryPref(prefs::kImportantSitesDialogHistory);
+}
+
+// static
+std::set<std::string> ImportantSitesUtil::GetInstalledRegisterableDomains(
+    Profile* profile) {
+  std::set<GURL> installed_origins = GetOriginsWithInstalledWebApps(profile);
+  std::set<std::string> registerable_domains;
+
+  for (auto& origin : installed_origins) {
+    registerable_domains.emplace(
+        ImportantSitesUtil::GetRegisterableDomainOrIP(origin));
+  }
+  return registerable_domains;
 }
 
 std::vector<ImportantDomainInfo>
@@ -491,7 +503,8 @@ ImportantSitesUtil::GetInstalledRegisterableDomains(
     size_t max_results) {
   std::vector<ImportantDomainInfo> installed_domains;
   std::map<std::string, ImportantDomainInfo> installed_app_info;
-  PopulateInfoMapWithInstalled(time_period, profile, &installed_app_info);
+  PopulateInfoMapWithInstalledEngagedInTimePeriod(time_period, profile,
+                                                  &installed_app_info);
 
   std::unordered_set<std::string> excluded_domains =
       GetBlacklistedImportantDomains(profile);

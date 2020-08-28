@@ -6,8 +6,10 @@
 
 #include "third_party/blink/renderer/core/layout/layout_list_item.h"
 #include "third_party/blink/renderer/core/layout/layout_list_marker.h"
+#include "third_party/blink/renderer/core/layout/list_marker.h"
 #include "third_party/blink/renderer/core/layout/list_marker_text.h"
 #include "third_party/blink/renderer/core/paint/box_model_object_painter.h"
+#include "third_party/blink/renderer/core/paint/box_painter.h"
 #include "third_party/blink/renderer/core/paint/paint_info.h"
 #include "third_party/blink/renderer/core/paint/scoped_paint_state.h"
 #include "third_party/blink/renderer/core/paint/selection_painting_utils.h"
@@ -25,6 +27,8 @@ void ListMarkerPainter::PaintSymbol(const PaintInfo& paint_info,
                                     const IntRect& marker) {
   DCHECK(object);
   GraphicsContext& context = paint_info.context;
+  ScopedDarkModeElementRoleOverride list_symbol(
+      &context, DarkModeFilter::ElementRole::kListSymbol);
   Color color(object->ResolveColor(GetCSSPropertyColor()));
   if (BoxModelObjectPainter::ShouldForceWhiteBackgroundForPrintEconomy(
           object->GetDocument(), style))
@@ -69,8 +73,9 @@ void ListMarkerPainter::Paint(const PaintInfo& paint_info) {
   const auto& local_paint_info = paint_state.GetPaintInfo();
   auto box_origin = paint_state.PaintOffset().ToLayoutPoint();
 
-  DrawingRecorder recorder(local_paint_info.context, layout_list_marker_,
-                           local_paint_info.phase);
+  BoxDrawingRecorder recorder(local_paint_info.context, layout_list_marker_,
+                              local_paint_info.phase,
+                              paint_state.PaintOffset());
 
   LayoutRect box(box_origin, layout_list_marker_.Size());
 
@@ -91,12 +96,12 @@ void ListMarkerPainter::Paint(const PaintInfo& paint_info) {
     return;
   }
 
-  LayoutListMarker::ListStyleCategory style_category =
+  ListMarker::ListStyleCategory style_category =
       layout_list_marker_.GetListStyleCategory();
-  if (style_category == LayoutListMarker::ListStyleCategory::kNone)
+  if (style_category == ListMarker::ListStyleCategory::kNone)
     return;
 
-  if (style_category == LayoutListMarker::ListStyleCategory::kSymbol) {
+  if (style_category == ListMarker::ListStyleCategory::kSymbol) {
     PaintSymbol(paint_info, &layout_list_marker_,
                 layout_list_marker_.StyleRef(), PixelSnappedIntRect(marker));
     return;
@@ -108,8 +113,7 @@ void ListMarkerPainter::Paint(const PaintInfo& paint_info) {
   Color color(layout_list_marker_.ResolveColor(GetCSSPropertyColor()));
 
   if (BoxModelObjectPainter::ShouldForceWhiteBackgroundForPrintEconomy(
-          layout_list_marker_.ListItem()->GetDocument(),
-          layout_list_marker_.StyleRef()))
+          layout_list_marker_.GetDocument(), layout_list_marker_.StyleRef()))
     color = TextPainter::TextColorForWhiteBackground(color);
 
   // Apply the color to the list marker text.
@@ -155,7 +159,7 @@ void ListMarkerPainter::Paint(const PaintInfo& paint_info) {
     text_run.SetText(reversed_text.ToString());
   }
 
-  if (style_category == LayoutListMarker::ListStyleCategory::kStaticString) {
+  if (style_category == ListMarker::ListStyleCategory::kStaticString) {
     // Don't add a suffix.
     context.DrawText(font, text_run_paint_info, text_origin, kInvalidDOMNodeId);
     context.GetPaintController().SetTextPainted();

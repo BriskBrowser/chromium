@@ -5,6 +5,7 @@
 #ifndef BASE_TASK_SEQUENCE_MANAGER_SEQUENCE_MANAGER_IMPL_H_
 #define BASE_TASK_SEQUENCE_MANAGER_SEQUENCE_MANAGER_IMPL_H_
 
+#include <deque>
 #include <list>
 #include <map>
 #include <memory>
@@ -12,7 +13,6 @@
 #include <set>
 #include <unordered_map>
 #include <utility>
-#include <vector>
 
 #include "base/atomic_sequence_num.h"
 #include "base/cancelable_callback.h"
@@ -21,7 +21,6 @@
 #include "base/macros.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/memory/weak_ptr.h"
-#include "base/message_loop/message_loop_current.h"
 #include "base/message_loop/message_pump_type.h"
 #include "base/pending_task.h"
 #include "base/run_loop.h"
@@ -29,6 +28,7 @@
 #include "base/single_thread_task_runner.h"
 #include "base/synchronization/lock.h"
 #include "base/task/common/task_annotator.h"
+#include "base/task/current_thread.h"
 #include "base/task/sequence_manager/associated_thread_id.h"
 #include "base/task/sequence_manager/enqueue_order.h"
 #include "base/task/sequence_manager/enqueue_order_generator.h"
@@ -38,6 +38,7 @@
 #include "base/task/sequence_manager/thread_controller.h"
 #include "base/threading/thread_checker.h"
 #include "base/time/default_tick_clock.h"
+#include "base/values.h"
 #include "build/build_config.h"
 
 namespace base {
@@ -83,8 +84,8 @@ class BASE_EXPORT SequenceManagerImpl
 
   // Assume direct control over current thread and create a SequenceManager.
   // This function should be called only once per thread.
-  // This function assumes that a MessageLoop is initialized for
-  // the current thread.
+  // This function assumes that a task execution environment is already
+  // initialized for the current thread.
   static std::unique_ptr<SequenceManagerImpl> CreateOnCurrentThread(
       SequenceManager::Settings settings = SequenceManager::Settings());
 
@@ -125,16 +126,19 @@ class BASE_EXPORT SequenceManagerImpl
   void RemoveTaskObserver(TaskObserver* task_observer) override;
 
   // SequencedTaskSource implementation:
-  Task* SelectNextTask() override;
+  Task* SelectNextTask(
+      SelectTaskOption option = SelectTaskOption::kDefault) override;
   void DidRunTask() override;
-  TimeDelta DelayTillNextTask(LazyNow* lazy_now) const override;
+  TimeDelta DelayTillNextTask(
+      LazyNow* lazy_now,
+      SelectTaskOption option = SelectTaskOption::kDefault) const override;
   bool HasPendingHighResolutionTasks() override;
   bool OnSystemIdle() override;
 
   void AddDestructionObserver(
-      MessageLoopCurrent::DestructionObserver* destruction_observer);
+      CurrentThread::DestructionObserver* destruction_observer);
   void RemoveDestructionObserver(
-      MessageLoopCurrent::DestructionObserver* destruction_observer);
+      CurrentThread::DestructionObserver* destruction_observer);
   // TODO(alexclarke): Remove this as part of https://crbug.com/825327.
   void SetTaskRunner(scoped_refptr<SingleThreadTaskRunner> task_runner);
   // TODO(alexclarke): Remove this as part of https://crbug.com/825327.
@@ -208,9 +212,9 @@ class BASE_EXPORT SequenceManagerImpl
 
   // Returns the SequenceManager running the
   // current thread. It must only be used on the thread it was obtained.
-  // Only to be used by MessageLoopCurrent for the moment
+  // Only to be used by CurrentThread for the moment
   static SequenceManagerImpl* GetCurrent();
-  friend class ::base::MessageLoopCurrent;
+  friend class ::base::CurrentThread;
 
   enum class ProcessTaskResult {
     kDeferred,
@@ -302,11 +306,13 @@ class BASE_EXPORT SequenceManagerImpl
     bool nesting_observer_registered_ = false;
 
     // Due to nested runloops more than one task can be executing concurrently.
-    std::vector<ExecutingTask> task_execution_stack;
+    // Note that this uses std::deque for pointer stability, since pointers to
+    // objects in this container are stored in TLS.
+    std::deque<ExecutingTask> task_execution_stack;
 
     Observer* observer = nullptr;  // NOT OWNED
 
-    ObserverList<MessageLoopCurrent::DestructionObserver>::Unchecked
+    ObserverList<CurrentThread::DestructionObserver>::Unchecked
         destruction_observers;
 
     // By default native work is not prioritized at all.
@@ -340,11 +346,10 @@ class BASE_EXPORT SequenceManagerImpl
   bool GetAddQueueTimeToTasks();
 
   std::unique_ptr<trace_event::ConvertableToTraceFormat>
-  AsValueWithSelectorResult(internal::WorkQueue* selected_work_queue,
-                            bool force_verbose) const;
-  void AsValueWithSelectorResultInto(trace_event::TracedValue*,
-                                     internal::WorkQueue* selected_work_queue,
-                                     bool force_verbose) const;
+  AsValueWithSelectorResultForTracing(internal::WorkQueue* selected_work_queue,
+                                      bool force_verbose) const;
+  Value AsValueWithSelectorResult(internal::WorkQueue* selected_work_queue,
+                                  bool force_verbose) const;
 
   // Used in construction of TaskQueueImpl to obtain an AtomicFlag which it can
   // use to request reload by ReloadEmptyWorkQueues. The lifetime of
@@ -377,14 +382,15 @@ class BASE_EXPORT SequenceManagerImpl
 
   // Helper to terminate all scoped trace events to allow starting new ones
   // in SelectNextTask().
-  Task* SelectNextTaskImpl();
+  Task* SelectNextTaskImpl(SelectTaskOption option);
 
   // Check if a task of priority |priority| should run given the pending set of
   // native work.
   bool ShouldRunTaskOfPriority(TaskQueue::QueuePriority priority) const;
 
   // Ignores any immediate work.
-  TimeDelta GetDelayTillNextDelayedTask(LazyNow* lazy_now) const;
+  TimeDelta GetDelayTillNextDelayedTask(LazyNow* lazy_now,
+                                        SelectTaskOption option) const;
 
 #if DCHECK_IS_ON()
   void LogTaskDebugInfo(const internal::WorkQueue* work_queue) const;

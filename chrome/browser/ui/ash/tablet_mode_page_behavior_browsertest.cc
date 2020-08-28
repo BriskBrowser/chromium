@@ -18,6 +18,7 @@
 #include "content/public/browser/render_widget_host.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/web_preferences.h"
+#include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
 
 namespace {
@@ -54,7 +55,7 @@ class TabletModePageBehaviorTest : public InProcessBrowserTest {
 
   content::WebPreferences GetWebKitPreferences(
       content::WebContents* web_contents) const {
-    return web_contents->GetRenderViewHost()->GetWebkitPreferences();
+    return web_contents->GetOrCreateWebPreferences();
   }
 
   void ValidateWebPrefs(content::WebContents* web_contents,

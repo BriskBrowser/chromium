@@ -51,8 +51,8 @@ class DEVICE_BLUETOOTH_EXPORT BluetoothAdapterMac
       public BluetoothDiscoveryManagerMac::Observer,
       public BluetoothLowEnergyDiscoveryManagerMac::Observer {
  public:
-  static base::WeakPtr<BluetoothAdapterMac> CreateAdapter();
-  static base::WeakPtr<BluetoothAdapterMac> CreateAdapterForTest(
+  static scoped_refptr<BluetoothAdapterMac> CreateAdapter();
+  static scoped_refptr<BluetoothAdapterMac> CreateAdapterForTest(
       std::string name,
       std::string address,
       scoped_refptr<base::SingleThreadTaskRunner> ui_task_runner);
@@ -67,34 +67,32 @@ class DEVICE_BLUETOOTH_EXPORT BluetoothAdapterMac
   std::string GetAddress() const override;
   std::string GetName() const override;
   void SetName(const std::string& name,
-               const base::Closure& callback,
-               const ErrorCallback& error_callback) override;
+               base::OnceClosure callback,
+               ErrorCallback error_callback) override;
   bool IsInitialized() const override;
   bool IsPresent() const override;
   bool IsPowered() const override;
   bool IsDiscoverable() const override;
   void SetDiscoverable(bool discoverable,
-                       const base::Closure& callback,
-                       const ErrorCallback& error_callback) override;
+                       base::OnceClosure callback,
+                       ErrorCallback error_callback) override;
   bool IsDiscovering() const override;
   std::unordered_map<BluetoothDevice*, BluetoothDevice::UUIDSet>
   RetrieveGattConnectedDevicesWithDiscoveryFilter(
       const BluetoothDiscoveryFilter& discovery_filter) override;
   UUIDList GetUUIDs() const override;
-  void CreateRfcommService(
-      const BluetoothUUID& uuid,
-      const ServiceOptions& options,
-      const CreateServiceCallback& callback,
-      const CreateServiceErrorCallback& error_callback) override;
-  void CreateL2capService(
-      const BluetoothUUID& uuid,
-      const ServiceOptions& options,
-      const CreateServiceCallback& callback,
-      const CreateServiceErrorCallback& error_callback) override;
+  void CreateRfcommService(const BluetoothUUID& uuid,
+                           const ServiceOptions& options,
+                           CreateServiceCallback callback,
+                           CreateServiceErrorCallback error_callback) override;
+  void CreateL2capService(const BluetoothUUID& uuid,
+                          const ServiceOptions& options,
+                          CreateServiceCallback callback,
+                          CreateServiceErrorCallback error_callback) override;
   void RegisterAdvertisement(
       std::unique_ptr<BluetoothAdvertisement::Data> advertisement_data,
-      const CreateAdvertisementCallback& callback,
-      const AdvertisementErrorCallback& error_callback) override;
+      CreateAdvertisementCallback callback,
+      AdvertisementErrorCallback error_callback) override;
   BluetoothLocalGattService* GetGattService(
       const std::string& identifier) const override;
 
@@ -205,7 +203,7 @@ class DEVICE_BLUETOOTH_EXPORT BluetoothAdapterMac
   // filter.  If a discovery session is already running the filter is updated.
   bool StartDiscovery(BluetoothDiscoveryFilter* discovery_filter);
 
-  void Init();
+  void Initialize(base::OnceClosure callback) override;
   void InitForTest(scoped_refptr<base::SingleThreadTaskRunner> ui_task_runner);
   void PollAdapter();
 

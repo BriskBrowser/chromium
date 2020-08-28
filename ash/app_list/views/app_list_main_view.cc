@@ -38,6 +38,7 @@
 #include "ui/views/controls/textfield/textfield.h"
 #include "ui/views/layout/fill_layout.h"
 #include "ui/views/widget/widget.h"
+#include "ui/wm/public/activation_client.h"
 
 namespace ash {
 
@@ -49,8 +50,6 @@ AppListMainView::AppListMainView(AppListViewDelegate* delegate,
     : delegate_(delegate),
       model_(delegate->GetModel()),
       search_model_(delegate->GetSearchModel()),
-      search_box_view_(nullptr),
-      contents_view_(nullptr),
       app_list_view_(app_list_view) {
   // We need a layer to apply transform to in small display so that the apps
   // grid fits in the display.
@@ -77,13 +76,26 @@ void AppListMainView::Init(int initial_apps_page,
 
 void AppListMainView::AddContentsViews() {
   DCHECK(search_box_view_);
-  contents_view_ = new ContentsView(app_list_view_);
-  contents_view_->Init(model_);
-  contents_view_->SetPaintToLayer(ui::LAYER_NOT_DRAWN);
-  contents_view_->layer()->SetMasksToBounds(true);
-  AddChildView(contents_view_);
+  auto contents_view = std::make_unique<ContentsView>(app_list_view_);
+  contents_view->Init(model_);
+  contents_view->SetPaintToLayer(ui::LAYER_NOT_DRAWN);
+  contents_view->layer()->SetMasksToBounds(true);
+  contents_view_ = AddChildView(std::move(contents_view));
 
   search_box_view_->set_contents_view(contents_view_);
+}
+
+void AppListMainView::ShowAppListWhenReady() {
+  // After switching to tablet mode, other app windows may be active. Show the
+  // app list without activating it to avoid breaking other windows' state.
+  const aura::Window* active_window =
+      wm::GetActivationClient(
+          app_list_view_->GetWidget()->GetNativeView()->GetRootWindow())
+          ->GetActiveWindow();
+  if (app_list_view_->is_tablet_mode() && active_window)
+    GetWidget()->ShowInactive();
+  else
+    GetWidget()->Show();
 }
 
 void AppListMainView::ModelChanged() {
@@ -104,7 +116,7 @@ void AppListMainView::SetDragAndDropHostOfCurrentAppList(
 }
 
 PaginationModel* AppListMainView::GetAppsPaginationModel() {
-  return contents_view_->GetAppsContainerView()
+  return contents_view_->apps_container_view()
       ->apps_grid_view()
       ->pagination_model();
 }
@@ -147,7 +159,7 @@ void AppListMainView::ActivateApp(AppListItem* item, int event_flags) {
 }
 
 void AppListMainView::CancelDragInActiveFolder() {
-  contents_view_->GetAppsContainerView()
+  contents_view_->apps_container_view()
       ->app_list_folder_view()
       ->items_grid_view()
       ->EndDrag(true);

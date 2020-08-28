@@ -7,9 +7,11 @@
 #include <utility>
 
 #include "base/bind.h"
+#include "base/callback_helpers.h"
+#include "base/check_op.h"
 #include "base/feature_list.h"
 #include "base/guid.h"
-#include "base/logging.h"
+#include "base/notreached.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/task/post_task.h"
@@ -347,8 +349,9 @@ void BackgroundFetchDelegateImpl::DownloadUrl(
   params.request_params.method = method;
   params.request_params.url = url;
   params.request_params.request_headers = headers;
-  params.callback = base::Bind(&BackgroundFetchDelegateImpl::OnDownloadReceived,
-                               weak_ptr_factory_.GetWeakPtr());
+  params.callback =
+      base::BindRepeating(&BackgroundFetchDelegateImpl::OnDownloadReceived,
+                          weak_ptr_factory_.GetWeakPtr());
   params.traffic_annotation =
       net::MutableNetworkTrafficAnnotationTag(traffic_annotation);
 
@@ -424,9 +427,6 @@ void BackgroundFetchDelegateImpl::DidGetBackgroundSourceId(
   ukm::builders::BackgroundFetchDeletingRegistration(*source_id)
       .SetUserInitiatedAbort(user_initiated_abort)
       .Record(ukm::UkmRecorder::Get());
-
-  if (ukm_event_recorded_for_testing_)
-    std::move(ukm_event_recorded_for_testing_).Run();
 }
 
 void BackgroundFetchDelegateImpl::MarkJobComplete(
@@ -658,7 +658,7 @@ void BackgroundFetchDelegateImpl::UpdateOfflineItemAndUpdateObservers(
 }
 
 void BackgroundFetchDelegateImpl::OpenItem(
-    offline_items_collection::LaunchLocation location,
+    const offline_items_collection::OpenParams& open_params,
     const offline_items_collection::ContentId& id) {
   auto job_details_iter = job_details_map_.find(id.id);
   if (job_details_iter == job_details_map_.end())
@@ -816,6 +816,12 @@ void BackgroundFetchDelegateImpl::RenameItem(
   NOTIMPLEMENTED();
 }
 
+void BackgroundFetchDelegateImpl::ChangeSchedule(
+    const offline_items_collection::ContentId& id,
+    base::Optional<offline_items_collection::OfflineItemSchedule> schedule) {
+  NOTIMPLEMENTED();
+}
+
 void BackgroundFetchDelegateImpl::AddObserver(Observer* observer) {
   DCHECK(!observers_.count(observer));
 
@@ -880,7 +886,14 @@ void BackgroundFetchDelegateImpl::GetUploadData(
     const std::string& download_guid,
     download::GetUploadDataCallback callback) {
   auto job_it = download_job_unique_id_map_.find(download_guid);
-  DCHECK(job_it != download_job_unique_id_map_.end());
+  // TODO(crbug.com/779012): When DownloadService fixes cancelled jobs calling
+  // client methods, then this can be a DCHECK.
+  if (job_it == download_job_unique_id_map_.end()) {
+    base::SequencedTaskRunnerHandle::Get()->PostTask(
+        FROM_HERE,
+        base::BindOnce(std::move(callback), /* request_body= */ nullptr));
+    return;
+  }
 
   JobDetails& job_details = job_details_map_.find(job_it->second)->second;
   if (job_details.current_fetch_guids.at(download_guid).status ==

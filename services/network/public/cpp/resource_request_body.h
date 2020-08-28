@@ -80,6 +80,16 @@ class COMPONENT_EXPORT(NETWORK_CPP_BASE) ResourceRequestBody
   // support chunked uploads.
   void SetToChunkedDataPipe(mojo::PendingRemote<mojom::ChunkedDataPipeGetter>
                                 chunked_data_pipe_getter);
+  // Almost same as above except |chunked_data_pipe_getter| is read only once
+  // and you must talk with a server supporting chunked upload.
+  void SetToReadOnceStream(mojo::PendingRemote<mojom::ChunkedDataPipeGetter>
+                               chunked_data_pipe_getter);
+  void SetAllowHTTP1ForStreamingUpload(bool allow) {
+    allow_http1_for_streaming_upload_ = allow;
+  }
+  bool AllowHTTP1ForStreamingUpload() const {
+    return allow_http1_for_streaming_upload_;
+  }
 
   const std::vector<DataElement>* elements() const { return &elements_; }
   std::vector<DataElement>* elements_mutable() { return &elements_; }
@@ -112,10 +122,14 @@ class COMPONENT_EXPORT(NETWORK_CPP_BASE) ResourceRequestBody
                                    scoped_refptr<network::ResourceRequestBody>>;
   ~ResourceRequestBody();
 
+  bool EnableToAppendElement() const;
+
   std::vector<DataElement> elements_;
   int64_t identifier_;
 
   bool contains_sensitive_info_;
+
+  bool allow_http1_for_streaming_upload_ = true;
 
   DISALLOW_COPY_AND_ASSIGN(ResourceRequestBody);
 };

@@ -9,13 +9,14 @@ import android.text.TextUtils;
 
 import androidx.annotation.VisibleForTesting;
 
+import org.chromium.base.IntentUtils;
 import org.chromium.base.TraceEvent;
 import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.base.supplier.Supplier;
-import org.chromium.chrome.browser.ChromeFeatureList;
 import org.chromium.chrome.browser.ChromeTabbedActivity;
 import org.chromium.chrome.browser.IntentHandler;
 import org.chromium.chrome.browser.WebContentsFactory;
+import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.lifecycle.ActivityLifecycleDispatcher;
 import org.chromium.chrome.browser.lifecycle.Destroyable;
 import org.chromium.chrome.browser.profiles.Profile;
@@ -25,35 +26,42 @@ import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tab.TabBuilder;
 import org.chromium.chrome.browser.tab.TabLaunchType;
 import org.chromium.chrome.browser.tabmodel.ChromeTabCreator;
+import org.chromium.chrome.browser.tabmodel.TabCreator;
 import org.chromium.chrome.browser.tabmodel.TabCreatorManager;
-import org.chromium.chrome.browser.util.IntentUtils;
 import org.chromium.components.url_formatter.UrlFormatter;
 import org.chromium.content_public.browser.LoadUrlParams;
 import org.chromium.content_public.browser.WebContents;
 import org.chromium.content_public.common.Referrer;
 import org.chromium.network.mojom.ReferrerPolicy;
+import org.chromium.ui.base.PageTransition;
 import org.chromium.ui.base.WindowAndroid;
+import org.chromium.url.GURL;
 
 /**
  * This class attempts to preload the tab if the url is known from the intent when the profile
  * is created. This is done to improve startup latency.
  */
 public class StartupTabPreloader implements ProfileManager.Observer, Destroyable {
+    private static final String EXTRA_DISABLE_STARTUP_TAB_PRELOADER =
+            "org.chromium.chrome.browser.init.DISABLE_STARTUP_TAB_PRELOADER";
+
     private final Supplier<Intent> mIntentSupplier;
     private final ActivityLifecycleDispatcher mActivityLifecycleDispatcher;
     private final WindowAndroid mWindowAndroid;
     private final TabCreatorManager mTabCreatorManager;
+    private final IntentHandler mIntentHandler;
     private LoadUrlParams mLoadUrlParams;
     private Tab mTab;
     private StartupTabObserver mObserver;
 
     public StartupTabPreloader(Supplier<Intent> intentSupplier,
             ActivityLifecycleDispatcher activityLifecycleDispatcher, WindowAndroid windowAndroid,
-            TabCreatorManager tabCreatorManager) {
+            TabCreatorManager tabCreatorManager, IntentHandler intentHandler) {
         mIntentSupplier = intentSupplier;
         mActivityLifecycleDispatcher = activityLifecycleDispatcher;
         mWindowAndroid = windowAndroid;
         mTabCreatorManager = tabCreatorManager;
+        mIntentHandler = intentHandler;
 
         mActivityLifecycleDispatcher.register(this);
         ProfileManager.addObserver(this);
@@ -149,7 +157,10 @@ public class StartupTabPreloader implements ProfileManager.Observer, Destroyable
         if (mTab != null) return false;
 
         Intent intent = mIntentSupplier.get();
-        if (IntentHandler.shouldIgnoreIntent(intent)) return false;
+        if (IntentUtils.safeGetBooleanExtra(intent, EXTRA_DISABLE_STARTUP_TAB_PRELOADER, false)) {
+            return false;
+        }
+        if (mIntentHandler.shouldIgnoreIntent(intent)) return false;
         if (getUrlFromIntent(intent) == null) return false;
 
         // We don't support incognito tabs because only chrome can send new incognito tab
@@ -158,7 +169,14 @@ public class StartupTabPreloader implements ProfileManager.Observer, Destroyable
                 intent, IntentHandler.EXTRA_OPEN_NEW_INCOGNITO_TAB, false);
         if (incognito) return false;
 
-        TabCreatorManager.TabCreator tabCreator = mTabCreatorManager.getTabCreator(incognito);
+        // The TabCreatorManager throws an IllegalStateException if it is not ready to provide a
+        // TabCreator.
+        TabCreator tabCreator;
+        try {
+            tabCreator = mTabCreatorManager.getTabCreator(incognito);
+        } catch (IllegalStateException e) {
+            return false;
+        }
 
         // We want to get the TabDelegateFactory but only ChromeTabCreator has one.
         if (!(tabCreator instanceof ChromeTabCreator)) return false;
@@ -168,17 +186,20 @@ public class StartupTabPreloader implements ProfileManager.Observer, Destroyable
 
     private void loadTab() {
         Intent intent = mIntentSupplier.get();
-        String url = UrlFormatter.fixupUrl(getUrlFromIntent(intent));
+        GURL url = UrlFormatter.fixupUrl(getUrlFromIntent(intent));
 
         ChromeTabCreator chromeTabCreator =
                 (ChromeTabCreator) mTabCreatorManager.getTabCreator(false);
         WebContents webContents = WebContentsFactory.createWebContents(false, false);
 
-        mLoadUrlParams = new LoadUrlParams(url);
+        mLoadUrlParams = new LoadUrlParams(url.getValidSpecOrEmpty());
         String referrer = IntentHandler.getReferrerUrlIncludingExtraHeaders(intent);
         if (referrer != null && !referrer.isEmpty()) {
             mLoadUrlParams.setReferrer(new Referrer(referrer, ReferrerPolicy.DEFAULT));
         }
+        int transition = IntentHandler.getTransitionTypeFromIntent(
+                intent, PageTransition.LINK | PageTransition.FROM_API);
+        mLoadUrlParams.setTransitionType(transition);
 
         // Create a detached tab, but don't add it to the tab model yet. We'll do that
         // later if the loadUrlParams etc... match.

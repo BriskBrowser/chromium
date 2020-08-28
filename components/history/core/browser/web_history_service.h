@@ -89,8 +89,7 @@ class WebHistoryService : public KeyedService {
   using AudioWebHistoryCallback =
       base::OnceCallback<void(bool success, bool new_enabled_value)>;
 
-  using QueryWebAndAppActivityCallback = base::OnceCallback<void(
-      const base::Optional<bool>& history_recording_enabled)>;
+  using QueryWebAndAppActivityCallback = base::OnceCallback<void(bool success)>;
 
   using QueryOtherFormsOfBrowsingHistoryCallback =
       base::OnceCallback<void(bool success)>;
@@ -212,7 +211,7 @@ class WebHistoryService : public KeyedService {
   // completed. Unpacks the response and calls |callback|, which is the original
   // callback that was passed to QueryOtherFormsOfBrowsingHistory().
   void QueryOtherFormsOfBrowsingHistoryCompletionCallback(
-      WebHistoryService::QueryOtherFormsOfBrowsingHistoryCallback callback,
+      WebHistoryService::QueryWebAndAppActivityCallback callback,
       WebHistoryService::Request* request,
       bool success);
 

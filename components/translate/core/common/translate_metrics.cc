@@ -27,16 +27,12 @@ const char kTranslateTimeToTranslate[] = "Translate.TimeToTranslate";
 const char kTranslateUserActionDuration[] = "Translate.UserActionDuration";
 const char kTranslatePageScheme[] = "Translate.PageScheme";
 const char kTranslateSimilarLanguageMatch[] = "Translate.SimilarLanguageMatch";
-const char kTranslateLanguageDetectionConflict[] =
-    "Translate.LanguageDetectionConflict";
+const char kTranslateLanguageDeterminedDuration[] =
+    "Translate.LanguageDeterminedDuration";
 
 }  // namespace metrics_internal
 
 namespace {
-
-// Page languages for which we track CLD3 language conflicts.
-const char kLanguageDetectionConflictPageLangs[][6] = {
-    "en", "en-US", "en-GB", "en-CA", "en-AU", "en-NZ", "en-ZA", "en-IN"};
 
 LanguageCheckType GetLanguageCheckMetric(const std::string& provided_code,
                                          const std::string& revised_code) {
@@ -106,17 +102,10 @@ void ReportSimilarLanguageMatch(bool match) {
                         match);
 }
 
-void ReportLanguageDetectionConflict(const std::string& page_lang,
-                                     const std::string& cld_lang) {
-  const auto* it =
-      std::find(std::begin(kLanguageDetectionConflictPageLangs),
-                std::end(kLanguageDetectionConflictPageLangs), page_lang);
-  const std::string page_lang_token =
-      it == std::end(kLanguageDetectionConflictPageLangs) ? "other" : *it;
-
-  base::UmaHistogramSparse(
-      metrics_internal::kTranslateLanguageDetectionConflict,
-      base::HashMetricName(page_lang_token + "," + cld_lang));
+void ReportLanguageDeterminedDuration(base::TimeTicks begin,
+                                      base::TimeTicks end) {
+  UMA_HISTOGRAM_LONG_TIMES(
+      metrics_internal::kTranslateLanguageDeterminedDuration, end - begin);
 }
 
 }  // namespace translate

@@ -20,8 +20,7 @@
 #include "components/ui_devtools/switches.h"
 #include "components/ui_devtools/views/devtools_server_util.h"
 #include "content/public/browser/tracing_service.h"
-#include "services/service_manager/sandbox/switches.h"
-#include "ui/base/material_design/material_design_controller.h"
+#include "sandbox/policy/switches.h"
 
 #if defined(USE_AURA)
 #include "base/run_loop.h"
@@ -72,11 +71,6 @@ void ChromeBrowserMainExtraPartsViews::ToolkitInitialized() {
 
   SetConstrainedWindowViewsClient(CreateChromeConstrainedWindowViewsClient());
 
-  // The MaterialDesignController needs to look at command line flags, which
-  // are not available until this point. Now that they are, proceed with
-  // initializing the MaterialDesignController.
-  ui::MaterialDesignController::Initialize();
-
 #if defined(USE_AURA)
   wm_state_ = std::make_unique<wm::WMState>();
 #endif
@@ -121,7 +115,7 @@ void ChromeBrowserMainExtraPartsViews::PreProfileInit() {
 
   const base::CommandLine& command_line =
       *base::CommandLine::ForCurrentProcess();
-  if (command_line.HasSwitch(service_manager::switches::kNoSandbox))
+  if (command_line.HasSwitch(sandbox::policy::switches::kNoSandbox))
     return;
 
   base::string16 title = l10n_util::GetStringFUTF16(

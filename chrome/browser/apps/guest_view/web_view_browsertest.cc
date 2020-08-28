@@ -37,7 +37,6 @@
 #include "chrome/browser/download/download_prefs.h"
 #include "chrome/browser/lifetime/application_lifetime.h"
 #include "chrome/browser/pdf/pdf_extension_test_util.h"
-#include "chrome/browser/prerender/prerender_link_manager.h"
 #include "chrome/browser/prerender/prerender_link_manager_factory.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/renderer_context_menu/render_view_context_menu.h"
@@ -46,7 +45,6 @@
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_commands.h"
 #include "chrome/browser/ui/browser_dialogs.h"
-#include "chrome/browser/ui/find_bar/find_tab_helper.h"
 #include "chrome/browser/ui/recently_audible_helper.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/common/chrome_features.h"
@@ -54,17 +52,18 @@
 #include "chrome/test/base/ui_test_utils.h"
 #include "components/content_settings/core/browser/host_content_settings_map.h"
 #include "components/download/public/common/download_task_runner.h"
+#include "components/find_in_page/find_tab_helper.h"
 #include "components/guest_view/browser/guest_view_manager.h"
 #include "components/guest_view/browser/guest_view_manager_delegate.h"
 #include "components/guest_view/browser/guest_view_manager_factory.h"
 #include "components/guest_view/browser/test_guest_view_manager.h"
+#include "components/prerender/browser/prerender_link_manager.h"
 #include "components/security_interstitials/content/security_interstitial_tab_helper.h"
 #include "components/version_info/channel.h"
 #include "components/version_info/version_info.h"
 #include "content/public/browser/ax_event_notification_details.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/gpu_data_manager.h"
-#include "content/public/browser/interstitial_page.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_process_host.h"
@@ -76,6 +75,7 @@
 #include "content/public/common/content_switches.h"
 #include "content/public/common/result_codes.h"
 #include "content/public/common/url_constants.h"
+#include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/download_test_observer.h"
 #include "content/public/test/fake_speech_recognition_manager.h"
@@ -296,7 +296,7 @@ class LeftMouseClick {
  public:
   explicit LeftMouseClick(content::WebContents* web_contents)
       : web_contents_(web_contents),
-        mouse_event_(blink::WebInputEvent::kMouseDown,
+        mouse_event_(blink::WebInputEvent::Type::kMouseDown,
                      blink::WebInputEvent::kNoModifiers,
                      blink::WebInputEvent::GetStaticTimeStampForTests()) {
     mouse_event_.button = blink::WebMouseEvent::Button::kLeft;
@@ -309,7 +309,7 @@ class LeftMouseClick {
   void Click(const gfx::Point& point, int duration_ms) {
     DCHECK(click_completed_);
     click_completed_ = false;
-    mouse_event_.SetType(blink::WebInputEvent::kMouseDown);
+    mouse_event_.SetType(blink::WebInputEvent::Type::kMouseDown);
     mouse_event_.SetPositionInWidget(point.x(), point.y());
     const gfx::Rect offset = web_contents_->GetContainerBounds();
     mouse_event_.SetPositionInScreen(point.x() + offset.x(),
@@ -335,7 +335,7 @@ class LeftMouseClick {
 
  private:
   void SendMouseUp() {
-    mouse_event_.SetType(blink::WebInputEvent::kMouseUp);
+    mouse_event_.SetType(blink::WebInputEvent::Type::kMouseUp);
     web_contents_->GetRenderViewHost()->GetWidget()->ForwardMouseEvent(
         mouse_event_);
     click_completed_ = true;
@@ -510,7 +510,7 @@ class WebViewTest : public extensions::PlatformAppBrowserTest {
   void TearDown() override {
     if (UsesFakeSpeech()) {
       // SpeechRecognition test specific TearDown.
-      content::SpeechRecognitionManager::SetManagerForTesting(NULL);
+      content::SpeechRecognitionManager::SetManagerForTesting(nullptr);
     }
 
     extensions::PlatformAppBrowserTest::TearDown();
@@ -529,7 +529,6 @@ class WebViewTest : public extensions::PlatformAppBrowserTest {
   }
 
   void SetUpCommandLine(base::CommandLine* command_line) override {
-    command_line->AppendSwitch(switches::kUseFakeDeviceForMediaStream);
     command_line->AppendSwitchASCII(switches::kJavaScriptFlags, "--expose-gc");
 
     extensions::PlatformAppBrowserTest::SetUpCommandLine(command_line);
@@ -636,19 +635,19 @@ class WebViewTest : public extensions::PlatformAppBrowserTest {
         LOG(ERROR) << "FAILED TO START TEST SERVER.";
         return;
       }
-      embedded_test_server()->RegisterRequestHandler(base::Bind(
+      embedded_test_server()->RegisterRequestHandler(base::BindRepeating(
           &WebViewTest::RedirectResponseHandler, kRedirectResponsePath,
           embedded_test_server()->GetURL(kRedirectResponseFullPath)));
 
-      embedded_test_server()->RegisterRequestHandler(
-          base::Bind(&WebViewTest::EmptyResponseHandler, kEmptyResponsePath));
+      embedded_test_server()->RegisterRequestHandler(base::BindRepeating(
+          &WebViewTest::EmptyResponseHandler, kEmptyResponsePath));
 
-      embedded_test_server()->RegisterRequestHandler(base::Bind(
+      embedded_test_server()->RegisterRequestHandler(base::BindRepeating(
           &WebViewTest::UserAgentResponseHandler,
           kUserAgentRedirectResponsePath,
           embedded_test_server()->GetURL(kRedirectResponseFullPath)));
 
-      embedded_test_server()->RegisterRequestHandler(base::Bind(
+      embedded_test_server()->RegisterRequestHandler(base::BindRepeating(
           &WebViewTest::CacheControlResponseHandler, kCacheResponsePath));
 
       EmbeddedTestServerAcceptConnections();
@@ -807,13 +806,14 @@ class WebViewTest : public extensions::PlatformAppBrowserTest {
 
   void OpenContextMenu(content::WebContents* web_contents) {
     blink::WebMouseEvent mouse_event(
-        blink::WebInputEvent::kMouseDown, blink::WebInputEvent::kNoModifiers,
+        blink::WebInputEvent::Type::kMouseDown,
+        blink::WebInputEvent::kNoModifiers,
         blink::WebInputEvent::GetStaticTimeStampForTests());
     mouse_event.button = blink::WebMouseEvent::Button::kRight;
     mouse_event.SetPositionInWidget(1, 1);
     web_contents->GetRenderViewHost()->GetWidget()->ForwardMouseEvent(
         mouse_event);
-    mouse_event.SetType(blink::WebInputEvent::kMouseUp);
+    mouse_event.SetType(blink::WebInputEvent::Type::kMouseUp);
     web_contents->GetRenderViewHost()->GetWidget()->ForwardMouseEvent(
         mouse_event);
   }
@@ -844,7 +844,8 @@ class WebViewTest : public extensions::PlatformAppBrowserTest {
     return manager;
   }
 
-  WebViewTest() : guest_web_contents_(NULL), embedder_web_contents_(NULL) {
+  WebViewTest()
+      : guest_web_contents_(nullptr), embedder_web_contents_(nullptr) {
     GuestViewManager::set_factory_for_testing(&factory_);
   }
 
@@ -1345,7 +1346,16 @@ IN_PROC_BROWSER_TEST_F(WebViewTest, Shim_TestDisplayNoneWebviewLoad) {
   TestHelper("testDisplayNoneWebviewLoad", "web_view/shim", NO_TEST_SERVER);
 }
 
-IN_PROC_BROWSER_TEST_F(WebViewTest, Shim_TestDisplayNoneWebviewRemoveChild) {
+#if defined(OS_WIN) || defined(OS_LINUX)
+#define MAYBE_Shim_TestDisplayNoneWebviewRemoveChild \
+  DISABLED_Shim_TestDisplayNoneWebviewRemoveChild
+#else
+#define MAYBE_Shim_TestDisplayNoneWebviewRemoveChild \
+  Shim_TestDisplayNoneWebviewRemoveChild
+#endif
+// Flaky on Windows & Linux: https://crbug.com/1115106.
+IN_PROC_BROWSER_TEST_F(WebViewTest,
+                       MAYBE_Shim_TestDisplayNoneWebviewRemoveChild) {
   TestHelper("testDisplayNoneWebviewRemoveChild",
              "web_view/shim", NO_TEST_SERVER);
 }
@@ -1514,7 +1524,7 @@ IN_PROC_BROWSER_TEST_F(WebViewTest, Shim_TestNestedCrossOriginSubframes) {
              "web_view/shim", NEEDS_TEST_SERVER);
 }
 
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
 // Flaky on Mac. See https://crbug.com/674904.
 #define MAYBE_Shim_TestNestedSubframes DISABLED_Shim_TestNestedSubframes
 #else
@@ -1917,12 +1927,12 @@ IN_PROC_BROWSER_TEST_F(WebViewTest, NoPrerenderer) {
       LoadGuest(
           "/extensions/platform_apps/web_view/noprerenderer/guest.html",
           "web_view/noprerenderer");
-  ASSERT_TRUE(guest_web_contents != NULL);
+  ASSERT_TRUE(guest_web_contents != nullptr);
 
   PrerenderLinkManager* prerender_link_manager =
-      PrerenderLinkManagerFactory::GetForProfile(
-          Profile::FromBrowserContext(guest_web_contents->GetBrowserContext()));
-  ASSERT_TRUE(prerender_link_manager != NULL);
+      PrerenderLinkManagerFactory::GetForBrowserContext(
+          guest_web_contents->GetBrowserContext());
+  ASSERT_TRUE(prerender_link_manager != nullptr);
   EXPECT_TRUE(prerender_link_manager->IsEmpty());
 }
 
@@ -2415,10 +2425,16 @@ IN_PROC_BROWSER_TEST_F(WebViewTest, ScreenCoordinates) {
           << message_;
 }
 
-IN_PROC_BROWSER_TEST_F(WebViewTest, TearDownTest) {
+// TODO(1057340): This test leaks memory.
+#if defined(LEAK_SANITIZER)
+#define MAYBE_TearDownTest DISABLED_TearDownTest
+#else
+#define MAYBE_TearDownTest TearDownTest
+#endif
+IN_PROC_BROWSER_TEST_F(WebViewTest, MAYBE_TearDownTest) {
   const extensions::Extension* extension =
       LoadAndLaunchPlatformApp("web_view/simple", "WebViewTest.LAUNCHED");
-  extensions::AppWindow* window = NULL;
+  extensions::AppWindow* window = nullptr;
   if (!GetAppWindowCount())
     window = CreateAppWindow(browser()->profile(), extension);
   else
@@ -3005,23 +3021,23 @@ IN_PROC_BROWSER_TEST_F(WebViewTest,
 }
 
 // This test makes sure loading <webview> does not crash when there is an
-// extension which has content script whitelisted/forced.
-IN_PROC_BROWSER_TEST_F(WebViewTest, WhitelistedContentScript) {
-  // Whitelist the extension for running content script we are going to load.
-  extensions::ExtensionsClient::ScriptingWhitelist whitelist;
+// extension which has content script allowlisted/forced.
+IN_PROC_BROWSER_TEST_F(WebViewTest, AllowlistedContentScript) {
+  // Allowlist the extension for running content script we are going to load.
+  extensions::ExtensionsClient::ScriptingAllowlist allowlist;
   const std::string extension_id = "imeongpbjoodlnmlakaldhlcmijmhpbb";
-  whitelist.push_back(extension_id);
-  extensions::ExtensionsClient::Get()->SetScriptingWhitelist(whitelist);
+  allowlist.push_back(extension_id);
+  extensions::ExtensionsClient::Get()->SetScriptingAllowlist(allowlist);
 
   // Load the extension.
-  const extensions::Extension* content_script_whitelisted_extension =
+  const extensions::Extension* content_script_allowlisted_extension =
       LoadExtension(test_data_dir_.AppendASCII(
-                        "platform_apps/web_view/extension_api/content_script"));
-  ASSERT_TRUE(content_script_whitelisted_extension);
-  ASSERT_EQ(extension_id, content_script_whitelisted_extension->id());
+          "platform_apps/web_view/extension_api/content_script"));
+  ASSERT_TRUE(content_script_allowlisted_extension);
+  ASSERT_EQ(extension_id, content_script_allowlisted_extension->id());
 
   // Now load an app with <webview>.
-  LoadAndLaunchPlatformApp("web_view/content_script_whitelisted",
+  LoadAndLaunchPlatformApp("web_view/content_script_allowlisted",
                            "TEST_PASSED");
 }
 
@@ -3208,7 +3224,13 @@ class WebViewCaptureTest : public WebViewTest {
   }
 };
 
-IN_PROC_BROWSER_TEST_F(WebViewTest, Shim_TestZoomAPI) {
+// https://crbug.com/1087381
+#if defined(OS_CHROMEOS) || (defined(OS_LINUX) && defined(ADDRESS_SANITIZER))
+#define MAYBE_Shim_TestZoomAPI DISABLED_Shim_TestZoomAPI
+#else
+#define MAYBE_Shim_TestZoomAPI Shim_TestZoomAPI
+#endif
+IN_PROC_BROWSER_TEST_F(WebViewTest, MAYBE_Shim_TestZoomAPI) {
   TestHelper("testZoomAPI", "web_view/shim", NO_TEST_SERVER);
 }
 
@@ -3384,15 +3406,9 @@ IN_PROC_BROWSER_TEST_F(WebViewTest, TestPlugin) {
   TestHelper("testPlugin", "web_view/shim", NEEDS_TEST_SERVER);
 }
 
-#if defined(OS_WIN)
-// Test is disabled on Windows because it times out often.
+// Test is disabled because it times out often.
 // http://crbug.com/403325
-#define MAYBE_WebViewInBackgroundPage \
-    DISABLED_WebViewInBackgroundPage
-#else
-#define MAYBE_WebViewInBackgroundPage WebViewInBackgroundPage
-#endif
-IN_PROC_BROWSER_TEST_F(WebViewTest, MAYBE_WebViewInBackgroundPage) {
+IN_PROC_BROWSER_TEST_F(WebViewTest, DISABLED_WebViewInBackgroundPage) {
   ASSERT_TRUE(StartEmbeddedTestServer());
   ASSERT_TRUE(RunExtensionTest("platform_apps/web_view/background"))
       << message_;
@@ -3594,6 +3610,19 @@ IN_PROC_BROWSER_TEST_F(WebViewTest, LoadWebviewInaccessibleResource) {
   EXPECT_EQ(foo_url, web_view_contents->GetLastCommittedURL());
 }
 
+// Ensure that only app resources accessible to the webview can be loaded in a
+// webview even if the webview commits an app frame.
+IN_PROC_BROWSER_TEST_F(WebViewTest,
+                       LoadAccessibleSubresourceInAppWebviewFrame) {
+  TestHelper("testLoadAccessibleSubresourceInAppWebviewFrame",
+             "web_view/load_webview_accessible_resource", NEEDS_TEST_SERVER);
+}
+IN_PROC_BROWSER_TEST_F(WebViewTest,
+                       InaccessibleResourceDoesNotLoadInAppWebviewFrame) {
+  TestHelper("testInaccessibleResourceDoesNotLoadInAppWebviewFrame",
+             "web_view/load_webview_accessible_resource", NEEDS_TEST_SERVER);
+}
+
 // Makes sure that a webview will display correctly after reloading it after a
 // crash.
 IN_PROC_BROWSER_TEST_F(WebViewTest, ReloadAfterCrash) {
@@ -3775,7 +3804,7 @@ IN_PROC_BROWSER_TEST_F(WebViewAccessibilityTest, DISABLED_TouchAccessibility) {
   // Send an accessibility touch event to the main WebContents, but
   // positioned on top of the button inside the inner WebView.
   blink::WebMouseEvent accessibility_touch_event(
-      blink::WebInputEvent::kMouseMove,
+      blink::WebInputEvent::Type::kMouseMove,
       blink::WebInputEvent::kIsTouchAccessibility,
       blink::WebInputEvent::GetStaticTimeStampForTests());
   accessibility_touch_event.SetPositionInWidget(95, 55);
@@ -3856,7 +3885,7 @@ IN_PROC_BROWSER_TEST_P(WebViewGuestScrollTest, TestGuestWheelScrollsBubble) {
     gfx::Vector2dF expected_offset(0.f, scroll_magnitude);
 
     content::SimulateMouseEvent(embedder_contents,
-                                blink::WebInputEvent::kMouseMove,
+                                blink::WebInputEvent::Type::kMouseMove,
                                 embedder_scroll_location);
     content::SimulateMouseWheelEvent(embedder_contents,
                                      embedder_scroll_location,
@@ -3880,7 +3909,7 @@ IN_PROC_BROWSER_TEST_P(WebViewGuestScrollTest, TestGuestWheelScrollsBubble) {
                                      guest_rect.y());
 
     content::SimulateMouseEvent(embedder_contents,
-                                blink::WebInputEvent::kMouseMove,
+                                blink::WebInputEvent::Type::kMouseMove,
                                 guest_scroll_location);
     content::SimulateMouseWheelEvent(embedder_contents, guest_scroll_location,
                                      gfx::Vector2d(0, scroll_magnitude),
@@ -3920,7 +3949,7 @@ IN_PROC_BROWSER_TEST_P(WebViewGuestScrollTest,
   // When the guest is already scrolled to the top, scroll up so that we bubble
   // scroll.
   blink::WebGestureEvent scroll_begin(
-      blink::WebGestureEvent::kGestureScrollBegin,
+      blink::WebGestureEvent::Type::kGestureScrollBegin,
       blink::WebInputEvent::kNoModifiers,
       blink::WebInputEvent::GetStaticTimeStampForTests(),
       blink::WebGestureDevice::kTouchpad);
@@ -3933,16 +3962,16 @@ IN_PROC_BROWSER_TEST_P(WebViewGuestScrollTest,
 
   content::InputEventAckWaiter update_waiter(
       guest_contents->GetRenderViewHost()->GetWidget(),
-      base::BindRepeating([](content::InputEventAckSource,
-                             content::InputEventAckState state,
+      base::BindRepeating([](blink::mojom::InputEventResultSource,
+                             blink::mojom::InputEventResultState state,
                              const blink::WebInputEvent& event) {
         return event.GetType() ==
-                   blink::WebGestureEvent::kGestureScrollUpdate &&
-               state != content::INPUT_EVENT_ACK_STATE_CONSUMED;
+                   blink::WebGestureEvent::Type::kGestureScrollUpdate &&
+               state != blink::mojom::InputEventResultState::kConsumed;
       }));
 
   blink::WebGestureEvent scroll_update(
-      blink::WebGestureEvent::kGestureScrollUpdate,
+      blink::WebGestureEvent::Type::kGestureScrollUpdate,
       blink::WebInputEvent::kNoModifiers,
       blink::WebInputEvent::GetStaticTimeStampForTests(),
       scroll_begin.SourceDevice());
@@ -4068,7 +4097,8 @@ class ChromeSignInWebViewTest : public WebViewTest {
         "var count = 10;"
         "var interval;"
         "interval = setInterval(function(){"
-        "  if (document.getElementsByTagName('webview').length) {"
+        "  if (document.querySelector('inline-login-app').shadowRoot"
+        "       .querySelector('webview')) {"
         "    document.title = 'success';"
         "    console.log('FOUND webview');"
         "    clearInterval(interval);"
@@ -4083,8 +4113,8 @@ class ChromeSignInWebViewTest : public WebViewTest {
   }
 };
 
-#if (defined(OS_LINUX) && !defined(OS_CHROMEOS)) || defined(OS_MACOSX) || \
-     defined(OS_WIN)
+#if (defined(OS_LINUX) && !defined(OS_CHROMEOS)) || defined(OS_MAC) || \
+    defined(OS_WIN)
 // This verifies the fix for http://crbug.com/667708.
 IN_PROC_BROWSER_TEST_F(ChromeSignInWebViewTest,
                        ClosingChromeSignInShouldNotCrash) {
@@ -4122,9 +4152,10 @@ IN_PROC_BROWSER_TEST_F(ChromeSignInWebViewTest,
   // which is before attaching begins).
   auto* unattached_guest = GetGuestViewManager()->GetLastGuestCreated();
   EXPECT_NE(unattached_guest, attached_guest);
-  auto* find_helper = FindTabHelper::FromWebContents(embedder_web_contents);
+  auto* find_helper =
+      find_in_page::FindTabHelper::FromWebContents(embedder_web_contents);
   find_helper->StartFinding(base::ASCIIToUTF16("doesn't matter"), true, true,
-                            false);
+                            true);
   auto pending =
       content::GetRenderFrameHostsWithPendingFindResults(embedder_web_contents);
   // Request for main frame of the tab.

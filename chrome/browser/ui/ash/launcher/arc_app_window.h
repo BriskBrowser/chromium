@@ -11,11 +11,12 @@
 #include "ash/public/cpp/shelf_types.h"
 #include "base/macros.h"
 #include "base/timer/timer.h"
-#include "chrome/browser/image_decoder.h"
-#include "chrome/browser/ui/app_list/arc/arc_app_icon_loader.h"
+#include "chrome/browser/image_decoder/image_decoder.h"
+#include "chrome/browser/ui/app_icon_loader.h"
 #include "chrome/browser/ui/ash/launcher/app_window_base.h"
 #include "chrome/browser/ui/ash/launcher/arc_app_shelf_id.h"
 
+class AppServiceAppIconLoader;
 class ArcAppWindowDelegate;
 
 namespace gfx {
@@ -30,7 +31,6 @@ class Profile;
 
 // A ui::BaseWindow for a chromeos launcher to control ARC applications.
 class ArcAppWindow : public AppWindowBase,
-                     public ImageDecoder::ImageRequest,
                      public AppIconLoaderDelegate {
  public:
   ArcAppWindow(int task_id,
@@ -43,11 +43,9 @@ class ArcAppWindow : public AppWindowBase,
 
   void SetFullscreenMode(FullScreenMode mode) override;
 
-  // Sets optional window title and icon. Note that |unsafe_icon_data_png| has
-  // to be decoded in separate process for security reason.
-  void SetDescription(
-      const std::string& title,
-      const std::vector<uint8_t>& unsafe_icon_data_png) override;
+  // Sets optional window title and icon.
+  void SetDescription(const std::string& title,
+                      const gfx::ImageSkia& icon) override;
 
   FullScreenMode fullscreen_mode() const { return fullscreen_mode_; }
 
@@ -70,9 +68,6 @@ class ArcAppWindow : public AppWindowBase,
   // Sets the icon for the window.
   void SetIcon(const gfx::ImageSkia& icon);
 
-  // ImageDecoder::ImageRequest:
-  void OnImageDecoded(const SkBitmap& decoded_image) override;
-
   // Keeps associated ARC task id.
   const int task_id_;
   // Keeps ARC shelf grouping id.
@@ -90,7 +85,7 @@ class ArcAppWindow : public AppWindowBase,
 
   // Loads the ARC app icon to the window icon keys. Nullptr once a custom icon
   // has been successfully set.
-  std::unique_ptr<ArcAppIconLoader> app_icon_loader_;
+  std::unique_ptr<AppServiceAppIconLoader> app_icon_loader_;
 
   DISALLOW_COPY_AND_ASSIGN(ArcAppWindow);
 };

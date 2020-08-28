@@ -5,13 +5,14 @@
 package org.chromium.chrome.browser.autofill_assistant;
 
 import android.content.Context;
-import android.os.Bundle;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 
-import org.chromium.chrome.browser.tab.Tab;
-import org.chromium.chrome.browser.widget.ScrimView;
-import org.chromium.chrome.browser.widget.bottomsheet.BottomSheetController;
+import org.chromium.chrome.browser.ActivityTabProvider;
+import org.chromium.chrome.browser.browser_controls.BrowserControlsStateProvider;
+import org.chromium.chrome.browser.compositor.CompositorViewHolder;
+import org.chromium.components.browser_ui.bottomsheet.BottomSheetController;
 import org.chromium.components.module_installer.builder.ModuleInterface;
 import org.chromium.content_public.browser.WebContents;
 
@@ -30,19 +31,23 @@ interface AutofillAssistantModuleEntry {
      * a single autostartable script for the tab's current URL, runs that script until the end and
      * disappears.
      */
-    void start(@NonNull Tab tab, @NonNull WebContents webContents, boolean skipOnboarding,
-            String initialUrl, Map<String, String> parameters, String experimentIds,
-            Bundle intentExtras);
+    void start(BottomSheetController bottomSheetController,
+            BrowserControlsStateProvider browserControls, CompositorViewHolder compositorViewHolder,
+            Context context, @NonNull WebContents webContents, boolean skipOnboarding,
+            boolean isChromeCustomTab, @NonNull String initialUrl, Map<String, String> parameters,
+            String experimentIds, @Nullable String callerAccount, @Nullable String userName);
     /**
      * Returns a {@link AutofillAssistantActionHandler} instance tied to the activity owning the
      * given bottom sheet, and scrim view.
      *
      * @param context activity context
      * @param bottomSheetController bottom sheet controller instance of the activity
-     * @param scrimView scrim view of the activity
-     * @param getCurrentTab a way to get the activity's current tab, if there is any
+     * @param browserControls provider of browser controls state
+     * @param compositorViewHolder compositor view holder of the activity
+     * @param activityTabProvider activity tab provider
      */
     AutofillAssistantActionHandler createActionHandler(Context context,
-            BottomSheetController bottomSheetController, ScrimView scrimView,
-            GetCurrentTab getCurrentTab);
+            BottomSheetController bottomSheetController,
+            BrowserControlsStateProvider browserControls, CompositorViewHolder compositorViewHolder,
+            ActivityTabProvider activityTabProvider);
 }

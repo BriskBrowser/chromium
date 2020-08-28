@@ -10,8 +10,6 @@
 #include "base/run_loop.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
-#include "chrome/browser/extensions/extension_action.h"
-#include "chrome/browser/extensions/extension_action_manager.h"
 #include "chrome/browser/extensions/extension_action_test_util.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/load_error_reporter.h"
@@ -27,13 +25,14 @@
 #include "chrome/test/base/scoped_testing_local_state.h"
 #include "chrome/test/base/testing_browser_process.h"
 #include "content/public/test/test_utils.h"
+#include "extensions/browser/extension_action.h"
+#include "extensions/browser/extension_action_manager.h"
 #include "extensions/browser/extension_prefs.h"
 #include "extensions/browser/extension_registry.h"
 #include "extensions/browser/extension_system.h"
 #include "extensions/browser/test_extension_registry_observer.h"
 #include "extensions/common/extension.h"
 #include "extensions/test/test_extension_dir.h"
-#include "ui/base/test/material_design_controller_test_api.h"
 
 namespace {
 
@@ -143,7 +142,7 @@ class ToolbarActionErrorTestObserver
 }  // namespace
 
 ToolbarActionsBarUnitTest::ToolbarActionsBarUnitTest()
-    : toolbar_model_(nullptr) {
+    : touch_ui_scoper_(GetParam()) {
   // The ToolbarActionsBar is not used when kExtensionsToolbarMenu is enabled.
   feature_list_.InitAndDisableFeature(features::kExtensionsToolbarMenu);
 }
@@ -151,10 +150,6 @@ ToolbarActionsBarUnitTest::ToolbarActionsBarUnitTest()
 ToolbarActionsBarUnitTest::~ToolbarActionsBarUnitTest() {}
 
 void ToolbarActionsBarUnitTest::SetUp() {
-  // Overriding MD state needs to be done before setting up the test window to
-  // maintain consistency throughout its lifetime.
-  material_design_state_ =
-      std::make_unique<ui::test::MaterialDesignControllerTestAPI>(GetParam());
   BrowserWithTestWindowTest::SetUp();
   extensions::LoadErrorReporter::Init(false);
 
@@ -186,7 +181,6 @@ void ToolbarActionsBarUnitTest::TearDown() {
   overflow_browser_action_test_util_.reset();
   ToolbarActionsBar::disable_animations_for_testing_ = false;
   BrowserWithTestWindowTest::TearDown();
-  material_design_state_.reset();
 }
 
 void ToolbarActionsBarUnitTest::ActivateTab(int index) {
@@ -670,8 +664,9 @@ TEST_P(ToolbarActionsBarUnitTest, ReuploadExtensionFailed) {
 
   // Reload the extension again. Check that the updated extension cannot be
   // loaded due to the manifest errors.
+  ToolbarActionErrorTestObserver observer;
   service->ReloadExtensionWithQuietFailure(extension->id());
-  base::RunLoop().RunUntilIdle();
+  observer.WaitForOnLoadFailure();
 
   // Since the extension is removed, its icon should no longer be in the
   // toolbar.

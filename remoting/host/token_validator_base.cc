@@ -26,7 +26,7 @@
 #include "net/ssl/client_cert_store_nss.h"
 #elif defined(OS_WIN)
 #include "net/ssl/client_cert_store_win.h"
-#elif defined(OS_MACOSX)
+#elif defined(OS_APPLE)
 #include "net/ssl/client_cert_store_mac.h"
 #endif
 #include "net/ssl/ssl_cert_request_info.h"
@@ -34,7 +34,6 @@
 #include "net/url_request/redirect_info.h"
 #include "net/url_request/url_request.h"
 #include "net/url_request/url_request_context.h"
-#include "net/url_request/url_request_status.h"
 #include "remoting/base/logging.h"
 #include "url/gurl.h"
 
@@ -127,12 +126,12 @@ TokenValidatorBase::~TokenValidatorBase() = default;
 // TokenValidator interface.
 void TokenValidatorBase::ValidateThirdPartyToken(
     const std::string& token,
-    const base::Callback<void(
-        const std::string& shared_secret)>& on_token_validated) {
+    base::OnceCallback<void(const std::string& shared_secret)>
+        on_token_validated) {
   DCHECK(!request_);
   DCHECK(!on_token_validated.is_null());
 
-  on_token_validated_ = on_token_validated;
+  on_token_validated_ = std::move(on_token_validated);
   token_ = token;
   StartValidateRequest(token);
 }
@@ -178,7 +177,7 @@ void TokenValidatorBase::OnReadCompleted(net::URLRequest* source,
   retrying_request_ = false;
   std::string shared_token = ProcessResponse(net_result);
   request_.reset();
-  on_token_validated_.Run(shared_token);
+  std::move(on_token_validated_).Run(shared_token);
 }
 
 void TokenValidatorBase::OnReceivedRedirect(
@@ -214,7 +213,7 @@ void TokenValidatorBase::OnCertificateRequested(
   // Machine" cert store needs to allow access by "Local Service".
   client_cert_store = new net::ClientCertStoreWin(
       base::BindRepeating(&OpenLocalMachineCertStore));
-#elif defined(OS_MACOSX)
+#elif defined(OS_APPLE)
   client_cert_store = new net::ClientCertStoreMac();
 #else
   // OpenSSL does not use the ClientCertStore infrastructure.

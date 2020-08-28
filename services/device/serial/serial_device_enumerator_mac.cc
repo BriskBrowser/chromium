@@ -69,45 +69,31 @@ CFNumberRef GetCFNumberProperty(io_service_t service, const CFStringRef key) {
   return NULL;
 }
 
-// Searches the specified service for a string property with the specified key,
-// sets value to that property's value, and returns whether the operation was
-// successful.
-bool GetStringProperty(io_service_t service,
-                       const CFStringRef key,
-                       std::string* value) {
+// Searches the specified service for a string property with the specified key.
+base::Optional<std::string> GetStringProperty(io_service_t service,
+                                              const CFStringRef key) {
   CFStringRef propValue = GetCFStringProperty(service, key);
-  if (propValue) {
-    *value = base::SysCFStringRefToUTF8(propValue);
-    return true;
-  }
+  if (propValue)
+    return base::SysCFStringRefToUTF8(propValue);
 
-  return false;
+  return base::nullopt;
 }
 
 // Searches the specified service for a uint16_t property with the specified
-// key, sets value to that property's value, and returns whether the operation
-// was successful.
-bool GetUInt16Property(io_service_t service,
-                       const CFStringRef key,
-                       uint16_t* value) {
+// key.
+base::Optional<uint16_t> GetUInt16Property(io_service_t service,
+                                           const CFStringRef key) {
   CFNumberRef propValue = GetCFNumberProperty(service, key);
   if (propValue) {
     int intValue;
-    if (CFNumberGetValue(propValue, kCFNumberIntType, &intValue)) {
-      *value = static_cast<uint16_t>(intValue);
-      return true;
-    }
+    if (CFNumberGetValue(propValue, kCFNumberIntType, &intValue))
+      return static_cast<uint16_t>(intValue);
   }
 
-  return false;
+  return base::nullopt;
 }
 
 }  // namespace
-
-// static
-std::unique_ptr<SerialDeviceEnumerator> SerialDeviceEnumerator::Create() {
-  return std::make_unique<SerialDeviceEnumeratorMac>();
-}
 
 SerialDeviceEnumeratorMac::SerialDeviceEnumeratorMac() {
   notify_port_.reset(IONotificationPortCreate(kIOMasterPortDefault));
@@ -142,23 +128,7 @@ SerialDeviceEnumeratorMac::SerialDeviceEnumeratorMac() {
   RemoveDevices();
 }
 
-SerialDeviceEnumeratorMac::~SerialDeviceEnumeratorMac() {}
-
-std::vector<mojom::SerialPortInfoPtr> SerialDeviceEnumeratorMac::GetDevices() {
-  std::vector<mojom::SerialPortInfoPtr> ports;
-  ports.reserve(ports_.size());
-  for (const auto& map_entry : ports_)
-    ports.push_back(map_entry.second->Clone());
-  return ports;
-}
-
-base::Optional<base::FilePath> SerialDeviceEnumeratorMac::GetPathFromToken(
-    const base::UnguessableToken& token) {
-  auto it = ports_.find(token);
-  if (it == ports_.end())
-    return base::nullopt;
-  return it->second->path;
-}
+SerialDeviceEnumeratorMac::~SerialDeviceEnumeratorMac() = default;
 
 // static
 void SerialDeviceEnumeratorMac::FirstMatchCallback(void* context,
@@ -186,49 +156,55 @@ void SerialDeviceEnumeratorMac::AddDevices() {
     if (result != kIOReturnSuccess)
       continue;
 
-    auto callout_info = mojom::SerialPortInfo::New();
-    uint16_t vendorId;
-    if (GetUInt16Property(device.get(), CFSTR(kUSBVendorID), &vendorId)) {
-      callout_info->has_vendor_id = true;
-      callout_info->vendor_id = vendorId;
+    auto info = mojom::SerialPortInfo::New();
+    base::Optional<uint16_t> vendor_id =
+        GetUInt16Property(device.get(), CFSTR(kUSBVendorID));
+    if (vendor_id) {
+      info->has_vendor_id = true;
+      info->vendor_id = *vendor_id;
     }
 
-    uint16_t productId;
-    if (GetUInt16Property(device.get(), CFSTR(kUSBProductID), &productId)) {
-      callout_info->has_product_id = true;
-      callout_info->product_id = productId;
+    base::Optional<uint16_t> product_id =
+        GetUInt16Property(device.get(), CFSTR(kUSBProductID));
+    if (product_id) {
+      info->has_product_id = true;
+      info->product_id = *product_id;
     }
 
-    std::string display_name;
-    if (GetStringProperty(device.get(), CFSTR(kUSBProductString),
-                          &display_name)) {
-      callout_info->display_name = std::move(display_name);
+    info->display_name =
+        GetStringProperty(device.get(), CFSTR(kUSBProductString));
+
+    base::Optional<std::string> serial_number =
+        GetStringProperty(device.get(), CFSTR(kUSBSerialNumberString));
+    if (vendor_id && product_id && serial_number) {
+      info->persistent_id = base::StringPrintf(
+          "%04X-%04X-%s", *vendor_id, *product_id, serial_number->c_str());
     }
 
-    // Each serial device has two "paths" in /dev/ associated with it: a
-    // "dialin" path starting with "tty" and a "callout" path starting with
-    // "cu". Each of these is considered a different device from Chrome's
-    // standpoint, but both should share the device's USB properties.
-    std::string dialin_device;
-    if (GetStringProperty(device.get(), CFSTR(kIODialinDeviceKey),
-                          &dialin_device)) {
-      auto token = base::UnguessableToken::Create();
-      mojom::SerialPortInfoPtr dialin_info = callout_info.Clone();
-      dialin_info->path = base::FilePath(dialin_device);
-      dialin_info->token = token;
-      ports_.insert(std::make_pair(token, std::move(dialin_info)));
-      entries_[entry_id].first = token;
+    // Each serial device has two paths associated with it: a "dialin" path
+    // starting with "tty" and a "callout" path starting with "cu". The
+    // call-out device is typically preferred but requesting the dial-in device
+    // is supported for the legacy Chrome Apps API.
+    base::Optional<std::string> dialin_device =
+        GetStringProperty(device.get(), CFSTR(kIODialinDeviceKey));
+    base::Optional<std::string> callout_device =
+        GetStringProperty(device.get(), CFSTR(kIOCalloutDeviceKey));
+
+    if (callout_device) {
+      info->path = base::FilePath(*callout_device);
+      if (dialin_device)
+        info->alternate_path = base::FilePath(*dialin_device);
+    } else if (dialin_device) {
+      info->path = base::FilePath(*dialin_device);
+    } else {
+      continue;
     }
 
-    std::string callout_device;
-    if (GetStringProperty(device.get(), CFSTR(kIOCalloutDeviceKey),
-                          &callout_device)) {
-      auto token = base::UnguessableToken::Create();
-      callout_info->path = base::FilePath(callout_device);
-      callout_info->token = token;
-      ports_.insert(std::make_pair(token, std::move(callout_info)));
-      entries_[entry_id].second = token;
-    }
+    auto token = base::UnguessableToken::Create();
+    info->token = token;
+
+    entries_.insert({entry_id, token});
+    AddPort(std::move(info));
   }
 }
 
@@ -246,11 +222,10 @@ void SerialDeviceEnumeratorMac::RemoveDevices() {
     if (it == entries_.end())
       continue;
 
-    if (it->second.first)
-      ports_.erase(it->second.first);
-    if (it->second.second)
-      ports_.erase(it->second.second);
+    base::UnguessableToken token = it->second;
     entries_.erase(it);
+
+    RemovePort(token);
   }
 }
 

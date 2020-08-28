@@ -25,17 +25,17 @@ void ColorChooserAura::OnColorChosen(SkColor color) {
 }
 
 void ColorChooserAura::OnColorChooserDialogClosed() {
-  view_ = NULL;
-  widget_ = NULL;
+  view_ = nullptr;
+  widget_ = nullptr;
   DidEndColorChooser();
 }
 
 void ColorChooserAura::End() {
   if (widget_) {
-    view_->set_listener(NULL);
+    view_->set_listener(nullptr);
     widget_->Close();
-    view_ = NULL;
-    widget_ = NULL;
+    view_ = nullptr;
+    widget_ = nullptr;
     // DidEndColorChooser will invoke Browser::DidEndColorChooser, which deletes
     // this. Take care of the call order.
     DidEndColorChooser();
@@ -58,7 +58,6 @@ ColorChooserAura* ColorChooserAura::Open(
   return new ColorChooserAura(web_contents, initial_color);
 }
 
-#if !defined(OS_WIN)
 namespace chrome {
 
 content::ColorChooser* ShowColorChooser(content::WebContents* web_contents,
@@ -67,4 +66,3 @@ content::ColorChooser* ShowColorChooser(content::WebContents* web_contents,
 }
 
 }  // namespace chrome
-#endif  // OS_WIN

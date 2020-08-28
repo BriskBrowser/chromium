@@ -88,7 +88,14 @@ Polymer({
     activationUnavailable: {
       type: Boolean,
       value: false,
-    }
+    },
+
+    /**
+     * DeviceState associated with the network item type, or undefined if none
+     * was provided.
+     * @private {!OncMojo.DeviceStateProperties|undefined} deviceState
+     */
+    deviceState: Object,
   },
 
   /** @override */
@@ -162,8 +169,21 @@ Polymer({
     const status = this.getNetworkStateText_();
     const isManaged = this.item.source === OncSource.kDevicePolicy ||
         this.item.source === OncSource.kUserPolicy;
-    const index = this.parentElement.items.indexOf(this.item) + 1;
-    const total = this.parentElement.items.length;
+
+    // TODO(jonmann): Reaching into the parent element breaks encapsulation so
+    // refactor this logic into the parent (NetworkList) and pass into
+    // NetworkListItem as a property.
+    let index;
+    let total;
+    if (this.parentElement.items) {
+      index = this.parentElement.items.indexOf(this.item) + 1;
+      total = this.parentElement.items.length;
+    } else {
+      // This should only happen in tests; see TODO above.
+      index = 0;
+      total = 1;
+    }
+
     switch (this.item.type) {
       case NetworkType.kCellular:
         if (isManaged) {
@@ -267,18 +287,20 @@ Polymer({
     if (!this.networkState) {
       return '';
     }
-    const connectionState = this.networkState.connectionState;
+
     if (this.networkState.type === mojom.NetworkType.kCellular) {
       if (this.shouldShowNotAvailableText_()) {
         return this.i18n('networkListItemNotAvailable');
       }
-      if (this.networkState.typeState.cellular.scanning) {
+      if (this.deviceState && this.deviceState.scanning) {
         return this.i18n('networkListItemScanning');
       }
       if (this.networkState.typeState.cellular.simLocked) {
         return this.i18n('networkListItemSimCardLocked');
       }
     }
+
+    const connectionState = this.networkState.connectionState;
     if (OncMojo.connectionStateIsConnected(connectionState)) {
       // TODO(khorimoto): Consider differentiating between Portal, Connected,
       // and Online.

@@ -12,12 +12,11 @@ mojom("mojo_bindings") {
   ]
 
   public_deps = [
+    "//services/media_session/public/mojom",
     "//url/mojom:url_mojom_origin",
   ]
 }
 
 proto_library("media_engagement_preload_proto") {
-  sources = [
-    "media_engagement_preload.proto",
-  ]
+  sources = [ "media_engagement_preload.proto" ]
 }

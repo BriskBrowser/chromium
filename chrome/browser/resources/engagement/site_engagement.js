@@ -25,8 +25,7 @@ whenPageIsPopulatedForTest = function() {
 };
 
 function initialize() {
-  engagementDetailsProvider = mojom.SiteEngagementDetailsProvider.getRemote(
-      /*useBrowserInterfaceBroker=*/ true);
+  engagementDetailsProvider = mojom.SiteEngagementDetailsProvider.getRemote();
 
   /** @type {?HTMLElement} */
   const engagementTableBody = $('engagement-table-body');
@@ -144,7 +143,7 @@ function initialize() {
    * Remove all rows from the engagement table.
    */
   function clearTable() {
-    engagementTableBody.innerHTML = '';
+    engagementTableBody.innerHTML = trustedTypes.emptyHTML;
   }
 
   /**

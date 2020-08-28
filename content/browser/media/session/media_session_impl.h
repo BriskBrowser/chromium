@@ -28,13 +28,12 @@
 #include "mojo/public/cpp/bindings/receiver_set.h"
 #include "mojo/public/cpp/bindings/remote_set.h"
 #include "services/media_session/public/mojom/audio_focus.mojom.h"
+#include "third_party/blink/public/mojom/favicon/favicon_url.mojom.h"
 #include "third_party/blink/public/mojom/mediasession/media_session.mojom.h"
 
 #if defined(OS_ANDROID)
 #include "base/android/scoped_java_ref.h"
 #endif  // defined(OS_ANDROID)
-
-class MediaSessionImplBrowserTest;
 
 namespace media {
 enum class MediaContentType;
@@ -86,11 +85,8 @@ class MediaSessionImpl : public MediaSession,
   ~MediaSessionImpl() override;
 
 #if defined(OS_ANDROID)
-  static MediaSession* FromJavaMediaSession(
-      const base::android::JavaRef<jobject>& j_media_session);
-  MediaSessionAndroid* session_android() const {
-    return session_android_.get();
-  }
+  void ClearMediaSessionAndroid();
+  MediaSessionAndroid* GetMediaSessionAndroid();
 #endif  // defined(OS_ANDROID)
 
   void NotifyMediaSessionMetadataChange();
@@ -139,7 +135,10 @@ class MediaSessionImpl : public MediaSession,
   void OnWebContentsFocused(RenderWidgetHost*) override;
   void OnWebContentsLostFocus(RenderWidgetHost*) override;
   void TitleWasSet(NavigationEntry* entry) override;
-  void DidUpdateFaviconURL(const std::vector<FaviconURL>& candidates) override;
+  void DidUpdateFaviconURL(
+      RenderFrameHost* rfh,
+      const std::vector<blink::mojom::FaviconURLPtr>& candidates) override;
+  void MediaPictureInPictureChanged(bool is_picture_in_picture) override;
 
   // MediaSessionService-related methods
 
@@ -248,6 +247,20 @@ class MediaSessionImpl : public MediaSession,
   // Scrub ("fast seek") the media session to a specific time.
   void ScrubTo(base::TimeDelta seek_time) override;
 
+  // Enter picture-in-picture.
+  void EnterPictureInPicture() override;
+
+  // Exit picture-in-picture.
+  void ExitPictureInPicture() override;
+
+  // Routes the audio from this Media Session to the given output device. If
+  // |id| is null, we will route to the default output device.
+  // Players created after this setting has been set will also have their audio
+  // rerouted. This setting persists until cross-origin navigation occurs, the
+  // renderer reports an audio sink change to a device different from |id|, or
+  // this method is called again.
+  void SetAudioSinkId(const base::Optional<std::string>& id) override;
+
   // Downloads the bitmap version of a MediaImage at least |minimum_size_px|
   // and closest to |desired_size_px|. If the download failed, was too small or
   // the image did not come from the media session then returns a null image.
@@ -261,6 +274,12 @@ class MediaSessionImpl : public MediaSession,
     return audio_focus_group_id_;
   }
 
+  void OnPictureInPictureAvailabilityChanged();
+
+  // Called when any of the normal players have switched to a different audio
+  // output device.
+  void OnAudioOutputSinkIdChanged();
+
   // Returns whether the action should be routed to |routed_service_|.
   bool ShouldRouteAction(media_session::mojom::MediaSessionAction action) const;
 
@@ -273,7 +292,7 @@ class MediaSessionImpl : public MediaSession,
 
  private:
   friend class content::WebContentsUserData<MediaSessionImpl>;
-  friend class ::MediaSessionImplBrowserTest;
+  friend class MediaSessionImplBrowserTest;
   friend class content::MediaSessionImplVisibilityBrowserTest;
   friend class content::AudioFocusManagerTest;
   friend class content::MediaSessionImplServiceRoutingTest;
@@ -375,10 +394,27 @@ class MediaSessionImpl : public MediaSession,
   // changed.
   void RebuildAndNotifyMetadataChanged();
 
+  bool IsPictureInPictureAvailable() const;
+
+  // Returns the device ID for the audio output device being used by all of the
+  // normal players. If the players are not all using the same audio output
+  // device, the id of the default device will be returned.
+  std::string GetSharedAudioOutputDeviceId() const;
+
   // Called when a MediaSessionAction is received. The action will be forwarded
   // to blink::MediaSession corresponding to the current routed service.
   void DidReceiveAction(media_session::mojom::MediaSessionAction action,
                         blink::mojom::MediaSessionActionDetailsPtr details);
+
+  // Returns the media audio video state. This is whether the players associated
+  // with the media session are audio-only or have audio and video. If we have
+  // a |routed_service_| then we limit to players on that frame because this
+  // should align with the metadata.
+  media_session::mojom::MediaAudioVideoState GetMediaAudioVideoState();
+
+  // Calls the callback with each |PlayerIdentifier| for every player associated
+  // with this media session.
+  void ForAllPlayers(base::RepeatingCallback<void(const PlayerIdentifier&)>);
 
   // A set of actions supported by |routed_service_| and the current media
   // session.
@@ -419,6 +455,11 @@ class MediaSessionImpl : public MediaSession,
 
   // True if the WebContents associated with this MediaSessionImpl is focused.
   bool focused_ = false;
+
+  // Used to persist audio device selection between navigations on the same
+  // origin.
+  url::Origin origin_;
+  base::Optional<std::string> audio_device_id_for_origin_;
 
 #if defined(OS_ANDROID)
   std::unique_ptr<MediaSessionAndroid> session_android_;

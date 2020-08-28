@@ -17,7 +17,7 @@
       function createShadowRoot()
       {
           var template = document.querySelector('#tmpl');
-          var root = document.querySelector('#host').createShadowRoot();
+          var root = document.querySelector('#host').attachShadow({mode: 'open'});
           root.appendChild(template.content.cloneNode(true));
       }
   `);
@@ -30,8 +30,8 @@
       }
     },
 
-    function testDumpStyles(next) {
-      ElementsTestRunner.dumpSelectedElementStyles(true);
+    async function testDumpStyles(next) {
+      await ElementsTestRunner.dumpSelectedElementStyles(true);
       next();
     }
   ]);

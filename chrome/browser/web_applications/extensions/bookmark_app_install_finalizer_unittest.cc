@@ -22,6 +22,7 @@
 #include "chrome/browser/web_applications/components/web_app_helpers.h"
 #include "chrome/browser/web_applications/extensions/bookmark_app_registrar.h"
 #include "chrome/browser/web_applications/extensions/bookmark_app_util.h"
+#include "chrome/browser/web_applications/test/test_app_registry_controller.h"
 #include "chrome/browser/web_applications/test/test_web_app_ui_manager.h"
 #include "chrome/common/web_application_info.h"
 #include "chrome/test/base/chrome_render_view_host_test_harness.h"
@@ -38,8 +39,6 @@ namespace extensions {
 
 namespace {
 
-const GURL kWebAppUrl("https://foo.example");
-const GURL kAlternateWebAppUrl("https://bar.example");
 const char kWebAppTitle[] = "Foo Title";
 
 const char kSystemAppExtensionInstalErrorHistogramName[] =
@@ -47,8 +46,20 @@ const char kSystemAppExtensionInstalErrorHistogramName[] =
 const char kSystemAppExtensionDisableReasonHistogramName[] =
     "Webapp.InstallResultExtensionDisabledReason.System.Profiles.Other";
 
+// TODO(https://crbug.com/1042727): Fix test GURL scoping and remove this getter
+// function.
+GURL WebAppUrl() {
+  return GURL("https://foo.example");
+}
+GURL AlternateWebAppUrl() {
+  return GURL("https://bar.example");
+}
+
 }  // namespace
 
+// Do not add tests to this class. Instead, add tests to
+// |InstallFinalizerUnitTest| so that both |InstallFinalizer| implementations
+// are tested.
 class BookmarkAppInstallFinalizerTest : public ChromeRenderViewHostTestHarness {
  public:
   // Subclass that runs a closure when an extension is unpacked successfully.
@@ -61,13 +72,14 @@ class BookmarkAppInstallFinalizerTest : public ChromeRenderViewHostTestHarness {
               nullptr,
               nullptr) {}
 
-    void OnUnpackSuccess(
-        const base::FilePath& temp_dir,
-        const base::FilePath& extension_dir,
+    void OnUnpackSuccessOnSharedFileThread(
+        base::FilePath temp_dir,
+        base::FilePath extension_dir,
         std::unique_ptr<base::DictionaryValue> original_manifest,
-        const Extension* extension,
-        const SkBitmap& install_icon,
-        const base::Optional<int>& dnr_ruleset_checksum) override {
+        scoped_refptr<const Extension> extension,
+        SkBitmap install_icon,
+        declarative_net_request::RulesetInstallPrefs ruleset_install_prefs)
+        override {
       run_loop_.Quit();
     }
 
@@ -142,10 +154,13 @@ class BookmarkAppInstallFinalizerTest : public ChromeRenderViewHostTestHarness {
                                         false /* autoupdate_enabled */);
 
     registrar_ = std::make_unique<BookmarkAppRegistrar>(profile());
+    registry_controller_ =
+        std::make_unique<web_app::TestAppRegistryController>(profile());
     ui_manager_ = std::make_unique<web_app::TestWebAppUiManager>();
 
     finalizer_ = std::make_unique<BookmarkAppInstallFinalizer>(profile());
-    finalizer_->SetSubsystems(registrar_.get(), ui_manager_.get());
+    finalizer_->SetSubsystems(registrar_.get(), ui_manager_.get(),
+                              registry_controller_.get());
   }
 
   web_app::AppId InstallExternalApp(const GURL& app_url) {
@@ -191,36 +206,12 @@ class BookmarkAppInstallFinalizerTest : public ChromeRenderViewHostTestHarness {
 
  private:
   std::unique_ptr<BookmarkAppRegistrar> registrar_;
+  std::unique_ptr<web_app::TestAppRegistryController> registry_controller_;
   std::unique_ptr<web_app::TestWebAppUiManager> ui_manager_;
   std::unique_ptr<BookmarkAppInstallFinalizer> finalizer_;
 
   DISALLOW_COPY_AND_ASSIGN(BookmarkAppInstallFinalizerTest);
 };
-
-TEST_F(BookmarkAppInstallFinalizerTest, BasicInstallSucceeds) {
-  auto info = std::make_unique<WebApplicationInfo>();
-  info->app_url = kWebAppUrl;
-  info->title = base::ASCIIToUTF16(kWebAppTitle);
-
-  base::RunLoop run_loop;
-  web_app::InstallFinalizer::FinalizeOptions options;
-  options.install_source = WebappInstallSource::INTERNAL_DEFAULT;
-  web_app::AppId app_id;
-  bool callback_called = false;
-
-  finalizer().FinalizeInstall(
-      *info, options,
-      base::BindLambdaForTesting([&](const web_app::AppId& installed_app_id,
-                                     web_app::InstallResultCode code) {
-        EXPECT_EQ(web_app::InstallResultCode::kSuccessNewInstall, code);
-        app_id = installed_app_id;
-        callback_called = true;
-        run_loop.Quit();
-      }));
-  run_loop.Run();
-
-  EXPECT_TRUE(callback_called);
-}
 
 TEST_F(BookmarkAppInstallFinalizerTest, BasicInstallButExtensionIsDisabled) {
   base::HistogramTester histograms;
@@ -237,7 +228,7 @@ TEST_F(BookmarkAppInstallFinalizerTest, BasicInstallButExtensionIsDisabled) {
       }));
 
   auto info = std::make_unique<WebApplicationInfo>();
-  info->app_url = kWebAppUrl;
+  info->app_url = WebAppUrl();
   info->title = base::ASCIIToUTF16(kWebAppTitle);
 
   web_app::InstallFinalizer::FinalizeOptions options;
@@ -274,7 +265,7 @@ TEST_F(BookmarkAppInstallFinalizerTest, BasicInstallFails) {
       }));
 
   auto info = std::make_unique<WebApplicationInfo>();
-  info->app_url = kWebAppUrl;
+  info->app_url = WebAppUrl();
   info->title = base::ASCIIToUTF16(kWebAppTitle);
 
   base::RunLoop run_loop;
@@ -356,7 +347,7 @@ TEST_F(BookmarkAppInstallFinalizerTest, ConcurrentInstallSucceeds) {
 
 TEST_F(BookmarkAppInstallFinalizerTest, DefaultInstalledSucceeds) {
   auto info = std::make_unique<WebApplicationInfo>();
-  info->app_url = kWebAppUrl;
+  info->app_url = WebAppUrl();
   info->title = base::ASCIIToUTF16(kWebAppTitle);
 
   web_app::InstallFinalizer::FinalizeOptions options;
@@ -383,7 +374,7 @@ TEST_F(BookmarkAppInstallFinalizerTest, DefaultInstalledSucceeds) {
 
 TEST_F(BookmarkAppInstallFinalizerTest, PolicyInstalledSucceeds) {
   auto info = std::make_unique<WebApplicationInfo>();
-  info->app_url = kWebAppUrl;
+  info->app_url = WebAppUrl();
   info->title = base::ASCIIToUTF16(kWebAppTitle);
 
   web_app::InstallFinalizer::FinalizeOptions options;
@@ -410,7 +401,7 @@ TEST_F(BookmarkAppInstallFinalizerTest, PolicyInstalledSucceeds) {
 TEST_F(BookmarkAppInstallFinalizerTest, SystemInstalledSucceeds) {
   base::HistogramTester histograms;
   auto info = std::make_unique<WebApplicationInfo>();
-  info->app_url = kWebAppUrl;
+  info->app_url = WebAppUrl();
   info->title = base::ASCIIToUTF16(kWebAppTitle);
 
   web_app::InstallFinalizer::FinalizeOptions options;
@@ -454,7 +445,7 @@ TEST_F(BookmarkAppInstallFinalizerTest, SystemInstalledButExtensionIsDisabled) {
       }));
 
   auto info = std::make_unique<WebApplicationInfo>();
-  info->app_url = kWebAppUrl;
+  info->app_url = WebAppUrl();
   info->title = base::ASCIIToUTF16(kWebAppTitle);
 
   web_app::InstallFinalizer::FinalizeOptions options;
@@ -491,7 +482,7 @@ TEST_F(BookmarkAppInstallFinalizerTest, SystemInstalledFails) {
       }));
 
   auto info = std::make_unique<WebApplicationInfo>();
-  info->app_url = kWebAppUrl;
+  info->app_url = WebAppUrl();
   info->title = base::ASCIIToUTF16(kWebAppTitle);
 
   web_app::InstallFinalizer::FinalizeOptions options;
@@ -520,7 +511,7 @@ TEST_F(BookmarkAppInstallFinalizerTest, SystemInstalledFails) {
 
 TEST_F(BookmarkAppInstallFinalizerTest, NoNetworkInstallForArc) {
   auto info = std::make_unique<WebApplicationInfo>();
-  info->app_url = kWebAppUrl;
+  info->app_url = WebAppUrl();
 
   web_app::InstallFinalizer::FinalizeOptions options;
   options.install_source = WebappInstallSource::ARC;
@@ -544,12 +535,12 @@ TEST_F(BookmarkAppInstallFinalizerTest, NoNetworkInstallForArc) {
 }
 
 TEST_F(BookmarkAppInstallFinalizerTest, UninstallExternalWebApp_Successful) {
-  InstallExternalApp(kWebAppUrl);
+  InstallExternalApp(WebAppUrl());
   ASSERT_EQ(1u, enabled_extensions().size());
 
   base::RunLoop run_loop;
   finalizer().UninstallExternalWebAppByUrl(
-      kWebAppUrl, web_app::ExternalInstallSource::kExternalPolicy,
+      WebAppUrl(), web_app::ExternalInstallSource::kExternalPolicy,
       base::BindLambdaForTesting([&](bool uninstalled) {
         EXPECT_TRUE(uninstalled);
         EXPECT_EQ(0u, enabled_extensions().size());
@@ -559,15 +550,15 @@ TEST_F(BookmarkAppInstallFinalizerTest, UninstallExternalWebApp_Successful) {
 }
 
 TEST_F(BookmarkAppInstallFinalizerTest, UninstallExternalWebApp_Multiple) {
-  auto foo_app_id = InstallExternalApp(kWebAppUrl);
-  auto bar_app_id = InstallExternalApp(kAlternateWebAppUrl);
+  auto foo_app_id = InstallExternalApp(WebAppUrl());
+  auto bar_app_id = InstallExternalApp(AlternateWebAppUrl());
   ASSERT_EQ(2u, enabled_extensions().size());
 
   // Uninstall one app.
   {
     base::RunLoop run_loop;
     finalizer().UninstallExternalWebAppByUrl(
-        kWebAppUrl, web_app::ExternalInstallSource::kExternalPolicy,
+        WebAppUrl(), web_app::ExternalInstallSource::kExternalPolicy,
         base::BindLambdaForTesting([&](bool uninstalled) {
           EXPECT_TRUE(uninstalled);
           run_loop.Quit();
@@ -582,7 +573,7 @@ TEST_F(BookmarkAppInstallFinalizerTest, UninstallExternalWebApp_Multiple) {
   {
     base::RunLoop run_loop;
     finalizer().UninstallExternalWebAppByUrl(
-        kAlternateWebAppUrl, web_app::ExternalInstallSource::kExternalPolicy,
+        AlternateWebAppUrl(), web_app::ExternalInstallSource::kExternalPolicy,
         base::BindLambdaForTesting([&](bool uninstalled) {
           EXPECT_TRUE(uninstalled);
           run_loop.Quit();
@@ -594,12 +585,12 @@ TEST_F(BookmarkAppInstallFinalizerTest, UninstallExternalWebApp_Multiple) {
 
 TEST_F(BookmarkAppInstallFinalizerTest,
        UninstallExternalWebApp_UninstalledExternalApp) {
-  auto app_id = InstallExternalApp(kWebAppUrl);
+  auto app_id = InstallExternalApp(WebAppUrl());
   SimulateExternalAppUninstalledByUser(app_id);
 
   base::RunLoop run_loop;
   finalizer().UninstallExternalWebAppByUrl(
-      kWebAppUrl, web_app::ExternalInstallSource::kExternalPolicy,
+      WebAppUrl(), web_app::ExternalInstallSource::kExternalPolicy,
       base::BindLambdaForTesting([&](bool uninstalled) {
         EXPECT_FALSE(uninstalled);
         run_loop.Quit();
@@ -611,7 +602,7 @@ TEST_F(BookmarkAppInstallFinalizerTest,
        UninstallExternalWebApp_FailsNeverInstalled) {
   base::RunLoop run_loop;
   finalizer().UninstallExternalWebAppByUrl(
-      kWebAppUrl, web_app::ExternalInstallSource::kExternalPolicy,
+      WebAppUrl(), web_app::ExternalInstallSource::kExternalPolicy,
       base::BindLambdaForTesting([&](bool uninstalled) {
         EXPECT_FALSE(uninstalled);
         run_loop.Quit();
@@ -621,13 +612,13 @@ TEST_F(BookmarkAppInstallFinalizerTest,
 
 TEST_F(BookmarkAppInstallFinalizerTest,
        UninstallExternalWebApp_FailsAlreadyUninstalled) {
-  InstallExternalApp(kWebAppUrl);
+  InstallExternalApp(WebAppUrl());
 
   // Uninstall the app.
   {
     base::RunLoop run_loop;
     finalizer().UninstallExternalWebAppByUrl(
-        kWebAppUrl, web_app::ExternalInstallSource::kExternalPolicy,
+        WebAppUrl(), web_app::ExternalInstallSource::kExternalPolicy,
         base::BindLambdaForTesting([&](bool uninstalled) {
           EXPECT_TRUE(uninstalled);
           run_loop.Quit();
@@ -639,7 +630,7 @@ TEST_F(BookmarkAppInstallFinalizerTest,
   {
     base::RunLoop run_loop;
     finalizer().UninstallExternalWebAppByUrl(
-        kWebAppUrl, web_app::ExternalInstallSource::kExternalPolicy,
+        WebAppUrl(), web_app::ExternalInstallSource::kExternalPolicy,
         base::BindLambdaForTesting([&](bool uninstalled) {
           EXPECT_FALSE(uninstalled);
           run_loop.Quit();
@@ -650,7 +641,7 @@ TEST_F(BookmarkAppInstallFinalizerTest,
 
 TEST_F(BookmarkAppInstallFinalizerTest, NotLocallyInstalled) {
   auto info = std::make_unique<WebApplicationInfo>();
-  info->app_url = kWebAppUrl;
+  info->app_url = WebAppUrl();
 
   web_app::InstallFinalizer::FinalizeOptions options;
   options.install_source = WebappInstallSource::INTERNAL_DEFAULT;

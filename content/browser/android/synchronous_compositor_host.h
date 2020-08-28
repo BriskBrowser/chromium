@@ -10,6 +10,7 @@
 
 #include <memory>
 
+#include "base/gtest_prod_util.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
@@ -17,17 +18,17 @@
 #include "components/viz/common/frame_sinks/begin_frame_source.h"
 #include "components/viz/common/quads/compositor_frame.h"
 #include "components/viz/common/surfaces/frame_sink_id.h"
-#include "content/common/input/synchronous_compositor.mojom.h"
+#include "content/common/content_export.h"
 #include "content/public/browser/android/synchronous_compositor.h"
-#include "content/public/common/input_event_ack_state.h"
 #include "mojo/public/cpp/bindings/associated_receiver.h"
 #include "mojo/public/cpp/bindings/associated_remote.h"
+#include "third_party/blink/public/mojom/input/input_event_result.mojom-shared.h"
+#include "third_party/blink/public/mojom/input/synchronous_compositor.mojom.h"
 #include "ui/android/view_android.h"
 #include "ui/gfx/geometry/scroll_offset.h"
 #include "ui/gfx/geometry/size_f.h"
 
 namespace ui {
-class WindowAndroid;
 struct DidOverscrollParams;
 }
 
@@ -37,11 +38,11 @@ class RenderProcessHost;
 class RenderWidgetHostViewAndroid;
 class SynchronousCompositorClient;
 class SynchronousCompositorSyncCallBridge;
-struct SyncCompositorCommonRendererParams;
 
-class SynchronousCompositorHost : public SynchronousCompositor,
-                                  public mojom::SynchronousCompositorHost,
-                                  public viz::BeginFrameObserver {
+class CONTENT_EXPORT SynchronousCompositorHost
+    : public SynchronousCompositor,
+      public blink::mojom::SynchronousCompositorHost,
+      public viz::BeginFrameObserver {
  public:
   static std::unique_ptr<SynchronousCompositorHost> Create(
       RenderWidgetHostViewAndroid* rwhva,
@@ -66,7 +67,8 @@ class SynchronousCompositorHost : public SynchronousCompositor,
       const gfx::ScrollOffset& root_offset) override;
   void SynchronouslyZoomBy(float zoom_delta, const gfx::Point& anchor) override;
   void OnComputeScroll(base::TimeTicks animation_time) override;
-  void ProgressFling(base::TimeTicks frame_time) override;
+  void SetBeginFrameSource(viz::BeginFrameSource* begin_frame_source) override;
+  void DidInvalidate() override;
 
   ui::ViewAndroid::CopyViewCallback GetCopyViewCallback();
   void DidOverscroll(const ui::DidOverscrollParams& over_scroll_params);
@@ -82,13 +84,14 @@ class SynchronousCompositorHost : public SynchronousCompositor,
 
   RenderProcessHost* GetRenderProcessHost();
 
-  void StartObservingRootWindow(ui::WindowAndroid* window);
-  void StopObservingRootWindow();
   void RequestOneBeginFrame();
 
-  // mojom::SynchronousCompositorHost overrides.
+  void AddBeginFrameCompletionCallback(base::OnceClosure callback);
+
+  // blink::mojom::SynchronousCompositorHost overrides.
   void LayerTreeFrameSinkCreated() override;
-  void UpdateState(const SyncCompositorCommonRendererParams& params) override;
+  void UpdateState(
+      blink::mojom::SyncCompositorCommonRendererParamsPtr params) override;
   void SetNeedsBeginFrames(bool needs_begin_frames) override;
 
   // viz::BeginFrameObserver implementation.
@@ -107,6 +110,8 @@ class SynchronousCompositorHost : public SynchronousCompositor,
   struct SharedMemoryWithSize;
   friend class ScopedSetZeroMemory;
   friend class SynchronousCompositorBase;
+  FRIEND_TEST_ALL_PREFIXES(SynchronousCompositorBrowserTest,
+                           RenderWidgetHostViewAndroidReuse);
 
   SynchronousCompositorHost(RenderWidgetHostViewAndroid* rwhva,
                             const viz::FrameSinkId& frame_sink_id,
@@ -118,7 +123,7 @@ class SynchronousCompositorHost : public SynchronousCompositor,
   bool DemandDrawSwInProc(SkCanvas* canvas);
   void SetSoftwareDrawSharedMemoryIfNeeded(size_t stride, size_t buffer_size);
   void SendZeroMemory();
-  mojom::SynchronousCompositor* GetSynchronousCompositor();
+  blink::mojom::SynchronousCompositor* GetSynchronousCompositor();
   // Whether the synchronous compositor host is ready to
   // handle blocking calls.
   bool IsReadyForSynchronousCall();
@@ -127,7 +132,6 @@ class SynchronousCompositorHost : public SynchronousCompositor,
 
   void SendBeginFramePaused();
   void SendBeginFrame(viz::BeginFrameArgs args);
-  void SetBeginFrameSource(viz::BeginFrameSource* begin_frame_source);
   void AddBeginFrameRequest(BeginFrameRequestType request);
   void ClearBeginFrameRequest(BeginFrameRequestType request);
 
@@ -135,9 +139,9 @@ class SynchronousCompositorHost : public SynchronousCompositor,
   SynchronousCompositorClient* const client_;
   const viz::FrameSinkId frame_sink_id_;
   const bool use_in_process_zero_copy_software_draw_;
-  mojo::AssociatedRemote<mojom::SynchronousCompositor> sync_compositor_;
-  mojo::AssociatedReceiver<mojom::SynchronousCompositorHost> host_receiver_{
-      this};
+  mojo::AssociatedRemote<blink::mojom::SynchronousCompositor> sync_compositor_;
+  mojo::AssociatedReceiver<blink::mojom::SynchronousCompositorHost>
+      host_receiver_{this};
 
   bool registered_with_filter_ = false;
 
@@ -176,9 +180,6 @@ class SynchronousCompositorHost : public SynchronousCompositor,
   float min_page_scale_factor_ = 0.f;
   float max_page_scale_factor_ = 0.f;
 
-  // From viz display.
-  uint32_t last_frame_token_ = 0u;
-
   scoped_refptr<SynchronousCompositorSyncCallBridge> bridge_;
 
   // Indicates whether and for what reason a request for begin frames has been
@@ -188,7 +189,6 @@ class SynchronousCompositorHost : public SynchronousCompositor,
   // The begin frame source being observed.  Null if none.
   viz::BeginFrameSource* begin_frame_source_ = nullptr;
   viz::BeginFrameArgs last_begin_frame_args_;
-  ui::WindowAndroid* observed_root_window_ = nullptr;
   viz::FrameTimingDetailsMap timing_details_;
 
   DISALLOW_COPY_AND_ASSIGN(SynchronousCompositorHost);

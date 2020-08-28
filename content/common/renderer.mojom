@@ -6,15 +6,31 @@ module content.mojom;
 
 import "content/common/document_scoped_interface_bundle.mojom";
 import "content/common/native_types.mojom";
+import "content/public/common/web_preferences.mojom";
 import "ipc/constants.mojom";
 import "mojo/public/mojom/base/generic_pending_receiver.mojom";
 import "mojo/public/mojom/base/time.mojom";
 import "mojo/public/mojom/base/unguessable_token.mojom";
 import "services/network/public/mojom/network_types.mojom";
+import "third_party/blink/public/mojom/frame/frame_owner_properties.mojom";
 import "third_party/blink/public/mojom/manifest/manifest.mojom";
+import "third_party/blink/public/mojom/page/page.mojom";
+import "third_party/blink/public/mojom/page/widget.mojom";
 import "third_party/blink/public/mojom/renderer_preferences.mojom";
+import "third_party/blink/public/mojom/widget/visual_properties.mojom";
 import "third_party/blink/public/mojom/user_agent/user_agent_metadata.mojom";
 import "ui/gfx/geometry/mojom/geometry.mojom";
+
+// A View (i.e. a "main frame") can be created for a few different cases, these
+// values are used to specify which it is.
+enum ViewWidgetType {
+  // A standard view that's the top-level widget in a frame hierarchy.
+  kTopLevel,
+  // A GuestView used to render contents inside a <webview> element.
+  kGuestView,
+  // A view used to render contents inside a <portal> element.
+  kPortal
+};
 
 struct CreateViewParams {
   // Renderer-wide preferences.
@@ -40,17 +56,31 @@ struct CreateViewParams {
   // that is, when creating a RenderView for a remote main frame.
   DocumentScopedInterfaceBundle? main_frame_interface_bundle;
 
+  // The communication interfaces for the WebFrameWidget in blink. All should
+  // be set if there is a |main_frame_routing_id|.
+  pending_associated_remote<blink.mojom.FrameWidgetHost>? frame_widget_host;
+  pending_associated_receiver<blink.mojom.FrameWidget>? frame_widget;
+  pending_associated_remote<blink.mojom.WidgetHost>? widget_host;
+  pending_associated_receiver<blink.mojom.Widget>? widget;
+
   // The session storage namespace ID this view should use.
   string session_storage_namespace_id;
 
-  // The route ID of the opener RenderFrame or RenderFrameProxy, if we need to
-  // set one (MSG_ROUTING_NONE otherwise).
-  int32 opener_frame_route_id = IPC.mojom.kRoutingIdNone;
+  // The frame token of the opener RenderFrame or RenderFrameProxy, if we need
+  // to set one (base::nullopt otherwise).
+  mojo_base.mojom.UnguessableToken? opener_frame_token;
 
   // Carries replicated information, such as frame name and sandbox flags, for
   // this view's main frame, which will be a proxy when |main_frame_routing_id|
   // is None (due to site isolation), or a RenderFrame in all other cases.
   FrameReplicationState replicated_frame_state;
+
+  // This represents the frame token for the MainFrame. It will be always set.
+  // If |main_frame_routing_id| is set, it will store a unique identifier for
+  // the  LocalFrame<-->RenderFrameHostImpl mapping.
+  // If |proxy_routing_id| is set, it will store a unique identifier for
+  // the RemoteFrame<-->RenderFrameProxyHost mapping.
+  mojo_base.mojom.UnguessableToken main_frame_frame_token;
 
   // Used for devtools instrumentation and trace-ability. The token is
   // propagated to Blink's LocalFrame and both Blink and content/
@@ -83,15 +113,19 @@ struct CreateViewParams {
   // Initial state for the main frame RenderWidget.
   // TODO(danakj): This should be optional and not included when there is no
   // main_frame_widget_routing_id.
-  VisualProperties visual_properties;
+  blink.mojom.VisualProperties visual_properties;
 
   // Whether lookup of frames in the created RenderView (e.g. lookup via
   // window.open or via <a target=...>) should be renderer-wide (i.e. going
   // beyond the usual opener-relationship-based BrowsingInstance boundaries).
   bool renderer_wide_named_frame_lookup;
 
-  // Set this to true when creating a RenderView inside a portal.
-  bool inside_portal;
+  // Indicates whether the view is a regular top-level widget or some other
+  // nested "main frame" widget type.
+  ViewWidgetType type;
+
+  // Endpoint for any messages that are broadcast to all views in a WebContents.
+  pending_associated_receiver<blink.mojom.PageBroadcast> blink_page_broadcast;
 };
 
 struct CreateFrameWidgetParams {
@@ -99,8 +133,14 @@ struct CreateFrameWidgetParams {
   // new RenderFrame.
   int32 routing_id;
 
+  // The communication interfaces for the WebFrameWidget in blink.
+  pending_associated_remote<blink.mojom.FrameWidgetHost> frame_widget_host;
+  pending_associated_receiver<blink.mojom.FrameWidget> frame_widget;
+  pending_associated_remote<blink.mojom.WidgetHost> widget_host;
+  pending_associated_receiver<blink.mojom.Widget> widget;
+
   // The initial visual properties of the widget.
-  VisualProperties visual_properties;
+  blink.mojom.VisualProperties visual_properties;
 };
 
 struct CreateFrameParams {
@@ -112,9 +152,13 @@ struct CreateFrameParams {
   // commit.
   int32 previous_routing_id;
 
+  // The frame token. It is a unique identifier for
+  // the LocalFrame<-->RenderFrameHostImpl mapping.
+  mojo_base.mojom.UnguessableToken frame_token;
+
   // Specifies the new frame's opener.  The opener will be null if this is
-  // MSG_ROUTING_NONE.
-  int32 opener_routing_id;
+  // base::nullopt.
+  mojo_base.mojom.UnguessableToken? opener_frame_token;
 
   // The new frame should be created as a child of the object
   // identified by |parent_routing_id| or as top level if that is
@@ -146,7 +190,7 @@ struct CreateFrameParams {
   // properties of the HTMLFrameOwnerElement from the parent process.
   // Note that unlike FrameReplicationState, this is not replicated for remote
   // frames.
-  FrameOwnerProperties frame_owner_properties;
+  blink.mojom.FrameOwnerProperties frame_owner_properties;
 
   // Specifies properties for a new RenderWidget that will be attached to the
   // new RenderFrame (if one is needed).
@@ -174,7 +218,6 @@ struct UpdateScrollbarThemeParams {
 struct UpdateSystemColorInfoParams {
   bool is_dark_mode;
   bool is_high_contrast;
-  PreferredColorScheme preferred_color_scheme;
   // uint32 represents a SkColor in the map.
   map<SystemThemeColor, uint32> colors;
 };
@@ -214,19 +257,26 @@ interface Renderer {
   // Tells the renderer to create a new RenderFrame.
   CreateFrame(CreateFrameParams params);
 
+  // Tells the renderer to create a new AgentSchedulingGroup.
+  CreateAgentSchedulingGroup();
+
   // Tells the renderer to create a new RenderFrameProxy object with
   // |routing_id|.  |render_view_routing_id| identifies the
-  // RenderView to be associated with this proxy.  The new proxy's opener should
-  // be set to the object identified by |opener_routing_id|, or to null if that
-  // is MSG_ROUTING_NONE.  The new proxy should be created as a child of the
+  // RenderView to be associated with this proxy. The new proxy's opener should
+  // be set to the object identified by |opener_frame_token|, or to null if that
+  // is base::nullopt.  The new proxy should be created as a child of the
   // object identified by |parent_routing_id| or as top level if that is
   // MSG_ROUTING_NONE.
+  // |proxy_frame_token| is used uniquely identify the
+  // RemoteFrame <--> RenderFrameProxyHost mapping.
   // |devtools_frame_token| is used for devtools instrumentation
   // and trace-ability. It is defined by the browser and is never
   // sent back from the renderer in the control calls.
   CreateFrameProxy(int32 routing_id, int32 render_view_routing_id,
-                   int32 opener_routing_id, int32 parent_routing_id,
+                   mojo_base.mojom.UnguessableToken? opener_frame_token,
+                   int32 parent_routing_id,
                    FrameReplicationState replication_state,
+                   mojo_base.mojom.UnguessableToken proxy_frame_token,
                    mojo_base.mojom.UnguessableToken devtools_frame_token);
 
   // Tells the renderer that the network type has changed so that
@@ -261,6 +311,9 @@ interface Renderer {
   // decide to ship https://github.com/WICG/ua-client-hints.
   SetUserAgentMetadata(blink.mojom.UserAgentMetadata metadata);
 
+  // Sets the CORS exempt header list for sanity checking (e.g. DCHECKs).
+  SetCorsExemptHeaderList(array<string> list);
+
   // Tells the renderer about a scrollbar appearance change. Only for use on
   // OS X.
   UpdateScrollbarTheme(UpdateScrollbarThemeParams params);
@@ -291,10 +344,17 @@ interface Renderer {
   // origin.
   SetIsLockedToSite();
 
-  // Tells the renderer to enable V8's memory saving mode when possible.
-  // This is only used when site-per-process is enabled. If the process
-  // only contains subframes, V8's low memory mode will be enabled.
-  // If a main frame exists or is created, the low memory mode will
-  // be disabled.
-  EnableV8LowMemoryMode();
+  // Write out the accumulated code profiling profile to the configured file.
+  // The callback is invoked once the profile has been flushed to disk.
+  [EnableIf=clang_profiling_inside_sandbox]
+  WriteClangProfilingProfile() => ();
+
+  // Set whether this renderer process is "cross-origin isolated". This
+  // corresponds to agent cluster's "cross-origin isolated" concept.
+  // TODO(yhirano): Have the spec URL.
+  // This property is process global because we ensure that a renderer process
+  // host only cross-origin isolated agents or only non-cross-origin isolated
+  // agents, not both.
+  // This is called at most once. This is called earlier than any frame commit.
+  SetIsCrossOriginIsolated(bool value);
 };

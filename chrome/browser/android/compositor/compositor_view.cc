@@ -15,6 +15,7 @@
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/containers/id_map.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/rand_util.h"
 #include "base/trace_event/trace_event.h"
 #include "cc/layers/layer.h"
@@ -28,6 +29,7 @@
 #include "chrome/browser/android/compositor/tab_content_manager.h"
 #include "content/public/browser/android/compositor.h"
 #include "content/public/browser/child_process_data.h"
+#include "content/public/browser/peak_gpu_memory_tracker.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/process_type.h"
 #include "third_party/skia/include/core/SkBitmap.h"
@@ -205,6 +207,17 @@ void CompositorView::OnPhysicalBackingSizeChanged(
   web_contents->GetNativeView()->OnPhysicalBackingSizeChanged(size);
 }
 
+void CompositorView::OnControlsResizeViewChanged(
+    JNIEnv* env,
+    const JavaParamRef<jobject>& obj,
+    const JavaParamRef<jobject>& jweb_contents,
+    jboolean controls_resize_view) {
+  content::WebContents* web_contents =
+      content::WebContents::FromJavaWebContents(jweb_contents);
+  web_contents->GetNativeView()->OnControlsResizeViewChanged(
+      controls_resize_view);
+}
+
 void CompositorView::SetLayoutBounds(JNIEnv* env,
                                      const JavaParamRef<jobject>& object) {
   root_layer_->SetBounds(gfx::Size(content_width_, content_height_));
@@ -230,12 +243,16 @@ void CompositorView::SetOverlayImmersiveArMode(
     JNIEnv* env,
     const JavaParamRef<jobject>& object,
     bool enabled) {
-  // This mode is a variant of overlay video mode, the Java code is responsible
-  // for calling SetOverlayVideoMode(enabled) first to ensure consistent state.
-  // Check to make sure this didn't get bypassed.
-  DCHECK_EQ(enabled, overlay_video_mode_) << "missing SetOverlayVideoMode call";
+  DVLOG(1) << __func__ << ": enabled=" << enabled;
 
   overlay_immersive_ar_mode_ = enabled;
+
+  // This method may be called after SetOverlayVideoMode (when switching between
+  // opaque and translucent surfaces), or just by itself (in SurfaceControl
+  // mode). All settings from SetOverlayVideoMode that the AR overlay depends on
+  // must be duplicated here. Currently, that's just SetRequiresAlphaChannel.
+  compositor_->SetRequiresAlphaChannel(enabled);
+
   // This mode needs a transparent background color.
   // ContentViewRenderView::SetOverlayVideoMode applies this, but the
   // CompositorView::SetOverlayVideoMode version in this file doesn't.
@@ -297,6 +314,8 @@ void CompositorView::SetSceneLayer(JNIEnv* env,
 
 void CompositorView::FinalizeLayers(JNIEnv* env,
                                     const JavaParamRef<jobject>& jobj) {
+  if (GetResourceManager())
+    GetResourceManager()->OnFrameUpdatesFinished();
 #if !defined(OFFICIAL_BUILD)
   TRACE_EVENT0("compositor", "CompositorView::FinalizeLayers");
 #endif
@@ -340,6 +359,24 @@ void CompositorView::EvictCachedBackBuffer(
     JNIEnv* env,
     const base::android::JavaParamRef<jobject>& object) {
   compositor_->EvictCachedBackBuffer();
+}
+
+void CompositorView::OnTabChanged(
+    JNIEnv* env,
+    const base::android::JavaParamRef<jobject>& object) {
+  if (!compositor_)
+    return;
+  std::unique_ptr<content::PeakGpuMemoryTracker> tracker =
+      content::PeakGpuMemoryTracker::Create(
+          content::PeakGpuMemoryTracker::Usage::CHANGE_TAB);
+  compositor_->RequestPresentationTimeForNextFrame(base::BindOnce(
+      [](std::unique_ptr<content::PeakGpuMemoryTracker> tracker,
+         const gfx::PresentationFeedback& feedback) {
+        // This callback will be ran once the content::Compositor presents the
+        // next frame. The destruction of |tracker| will get the peak GPU memory
+        // and record a histogram.
+      },
+      std::move(tracker)));
 }
 
 }  // namespace android

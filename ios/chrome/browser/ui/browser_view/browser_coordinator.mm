@@ -7,68 +7,89 @@
 #include <memory>
 
 #include "base/scoped_observer.h"
-#include "base/strings/sys_string_conversions.h"
 #import "ios/chrome/browser/app_launcher/app_launcher_abuse_detector.h"
 #import "ios/chrome/browser/app_launcher/app_launcher_tab_helper.h"
 #import "ios/chrome/browser/autofill/autofill_tab_helper.h"
 #include "ios/chrome/browser/browser_state/chrome_browser_state.h"
 #include "ios/chrome/browser/chrome_url_constants.h"
 #include "ios/chrome/browser/download/download_directory_util.h"
+#import "ios/chrome/browser/download/external_app_util.h"
 #import "ios/chrome/browser/download/pass_kit_tab_helper.h"
+#import "ios/chrome/browser/find_in_page/find_tab_helper.h"
 #import "ios/chrome/browser/main/browser.h"
 #import "ios/chrome/browser/store_kit/store_kit_coordinator.h"
 #import "ios/chrome/browser/store_kit/store_kit_tab_helper.h"
 #import "ios/chrome/browser/tabs/tab_title_util.h"
+#import "ios/chrome/browser/ui/activity_services/activity_params.h"
+#import "ios/chrome/browser/ui/activity_services/requirements/activity_service_positioner.h"
 #import "ios/chrome/browser/ui/alert_coordinator/repost_form_coordinator.h"
-#import "ios/chrome/browser/ui/app_launcher/app_launcher_coordinator.h"
 #import "ios/chrome/browser/ui/autofill/form_input_accessory/form_input_accessory_coordinator.h"
-#import "ios/chrome/browser/ui/autofill/manual_fill/manual_fill_all_password_coordinator.h"
-#import "ios/chrome/browser/ui/autofill/manual_fill/manual_fill_injection_handler.h"
 #import "ios/chrome/browser/ui/badges/badge_popup_menu_coordinator.h"
 #import "ios/chrome/browser/ui/browser_container/browser_container_coordinator.h"
 #import "ios/chrome/browser/ui/browser_view/browser_view_controller+private.h"
 #import "ios/chrome/browser/ui/browser_view/browser_view_controller.h"
 #import "ios/chrome/browser/ui/browser_view/browser_view_controller_dependency_factory.h"
+#import "ios/chrome/browser/ui/commands/activity_service_commands.h"
 #import "ios/chrome/browser/ui/commands/application_commands.h"
 #import "ios/chrome/browser/ui/commands/browser_coordinator_commands.h"
 #import "ios/chrome/browser/ui/commands/command_dispatcher.h"
+#import "ios/chrome/browser/ui/commands/find_in_page_commands.h"
 #import "ios/chrome/browser/ui/commands/infobar_commands.h"
 #import "ios/chrome/browser/ui/commands/page_info_commands.h"
+#import "ios/chrome/browser/ui/commands/password_breach_commands.h"
+#import "ios/chrome/browser/ui/commands/qr_generation_commands.h"
+#import "ios/chrome/browser/ui/commands/text_zoom_commands.h"
+#import "ios/chrome/browser/ui/commands/whats_new_commands.h"
 #import "ios/chrome/browser/ui/download/ar_quick_look_coordinator.h"
+#import "ios/chrome/browser/ui/download/features.h"
 #import "ios/chrome/browser/ui/download/pass_kit_coordinator.h"
+#import "ios/chrome/browser/ui/find_bar/find_bar_controller_ios.h"
+#import "ios/chrome/browser/ui/find_bar/find_bar_coordinator.h"
+#import "ios/chrome/browser/ui/infobars/infobar_feature.h"
 #import "ios/chrome/browser/ui/open_in/open_in_mediator.h"
+#import "ios/chrome/browser/ui/overlays/overlay_container_coordinator.h"
 #import "ios/chrome/browser/ui/page_info/features.h"
 #import "ios/chrome/browser/ui/page_info/page_info_coordinator.h"
 #import "ios/chrome/browser/ui/page_info/page_info_legacy_coordinator.h"
 #import "ios/chrome/browser/ui/passwords/password_breach_coordinator.h"
 #import "ios/chrome/browser/ui/print/print_controller.h"
+#import "ios/chrome/browser/ui/qr_generator/qr_generator_coordinator.h"
 #import "ios/chrome/browser/ui/qr_scanner/qr_scanner_legacy_coordinator.h"
 #import "ios/chrome/browser/ui/reading_list/reading_list_coordinator.h"
 #import "ios/chrome/browser/ui/recent_tabs/recent_tabs_coordinator.h"
 #import "ios/chrome/browser/ui/settings/autofill/autofill_add_credit_card_coordinator.h"
+#import "ios/chrome/browser/ui/sharing/sharing_coordinator.h"
 #import "ios/chrome/browser/ui/snackbar/snackbar_coordinator.h"
+#import "ios/chrome/browser/ui/text_zoom/text_zoom_coordinator.h"
+#import "ios/chrome/browser/ui/toolbar/accessory/toolbar_accessory_coordinator_delegate.h"
+#import "ios/chrome/browser/ui/toolbar/accessory/toolbar_accessory_presenter.h"
 #import "ios/chrome/browser/ui/translate/legacy_translate_infobar_coordinator.h"
+#include "ios/chrome/browser/ui/ui_feature_flags.h"
+#import "ios/chrome/browser/ui/whats_new/default_browser_promo_coordinator.h"
+#import "ios/chrome/browser/url_loading/url_loading_browser_agent.h"
 #import "ios/chrome/browser/url_loading/url_loading_params.h"
-#import "ios/chrome/browser/url_loading/url_loading_service.h"
-#import "ios/chrome/browser/url_loading/url_loading_service_factory.h"
+#import "ios/chrome/browser/web/features.h"
+#import "ios/chrome/browser/web/font_size_tab_helper.h"
 #import "ios/chrome/browser/web/print_tab_helper.h"
 #import "ios/chrome/browser/web/repost_form_tab_helper.h"
 #import "ios/chrome/browser/web/repost_form_tab_helper_delegate.h"
 #include "ios/chrome/browser/web_state_list/web_state_list.h"
 #import "ios/chrome/browser/web_state_list/web_state_list_observer_bridge.h"
-#include "ios/chrome/grit/ios_strings.h"
 #include "ui/base/l10n/l10n_util_mac.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
 #endif
 
-@interface BrowserCoordinator () <AutofillSecurityAlertPresenter,
+@interface BrowserCoordinator () <ActivityServiceCommands,
                                   BrowserCoordinatorCommands,
+                                  DefaultBrowserPromoCommands,
                                   FormInputAccessoryCoordinatorNavigator,
                                   PageInfoCommands,
+                                  PasswordBreachCommands,
                                   RepostFormTabHelperDelegate,
-                                  URLLoadingServiceDelegate,
+                                  ToolbarAccessoryCoordinatorDelegate,
+                                  URLLoadingDelegate,
                                   WebStateListObserving>
 
 // Whether the coordinator is started.
@@ -88,9 +109,6 @@
 // Child Coordinators, listed in alphabetical order.
 // =================================================
 
-// Coordinator for UI related to launching external apps.
-@property(nonatomic, strong) AppLauncherCoordinator* appLauncherCoordinator;
-
 // Presents a QLPreviewController in order to display USDZ format 3D models.
 @property(nonatomic, strong) ARQuickLookCoordinator* ARQuickLookCoordinator;
 
@@ -102,18 +120,16 @@
 @property(nonatomic, strong)
     BadgePopupMenuCoordinator* badgePopupMenuCoordinator;
 
+// Coordinator for the find bar.
+@property(nonatomic, strong) FindBarCoordinator* findBarCoordinator;
+
 // Coordinator in charge of the presenting autofill options above the
 // keyboard.
 @property(nonatomic, strong)
     FormInputAccessoryCoordinator* formInputAccessoryCoordinator;
 
-// The object in charge of interacting with the web view. Used to fill the data
-// in the forms.
-@property(nonatomic, strong) ManualFillInjectionHandler* injectionHandler;
-
-// Coordinator in charge of the presenting password autofill options as a modal.
-@property(nonatomic, strong)
-    ManualFillAllPasswordCoordinator* allPasswordCoordinator;
+// Weak reference for the next coordinator to be displayed over the toolbar.
+@property(nonatomic, weak) ChromeCoordinator* nextToolbarCoordinator;
 
 // Coordinator for Page Info UI.
 @property(nonatomic, strong) ChromeCoordinator* pageInfoCoordinator;
@@ -141,16 +157,32 @@
 // Coordinator for displaying Repost Form dialog.
 @property(nonatomic, strong) RepostFormCoordinator* repostFormCoordinator;
 
+// Coordinator for sharing scenarios.
+@property(nonatomic, strong) SharingCoordinator* sharingCoordinator;
+
 // Coordinator for displaying snackbars.
 @property(nonatomic, strong) SnackbarCoordinator* snackbarCoordinator;
 
 // Coordinator for presenting SKStoreProductViewController.
 @property(nonatomic, strong) StoreKitCoordinator* storeKitCoordinator;
 
+// Coordinator for Text Zoom.
+@property(nonatomic, strong) TextZoomCoordinator* textZoomCoordinator;
+
 // Coordinator for the translate infobar's language selection and translate
 // option popup menus.
 @property(nonatomic, strong)
     LegacyTranslateInfobarCoordinator* translateInfobarCoordinator;
+
+// Coordinator that manages the default browser promo modal.
+@property(nonatomic, strong)
+    DefaultBrowserPromoCoordinator* defaultBrowserPromoCoordinator;
+
+// The container coordinators for the infobar modalities.
+@property(nonatomic, strong)
+    OverlayContainerCoordinator* infobarBannerOverlayContainerCoordinator;
+@property(nonatomic, strong)
+    OverlayContainerCoordinator* infobarModalOverlayContainerCoordinator;
 
 @end
 
@@ -175,18 +207,28 @@
   if (self.started)
     return;
 
-  DCHECK(self.browserState);
   DCHECK(!self.viewController);
   [self startBrowserContainer];
+  [self.dispatcher startDispatchingToTarget:self
+                                forProtocol:@protocol(TextZoomCommands)];
+  [self.browser->GetCommandDispatcher()
+      startDispatchingToTarget:self
+                   forProtocol:@protocol(WhatsNewCommands)];
+  [self.dispatcher startDispatchingToTarget:self
+                                forProtocol:@protocol(FindInPageCommands)];
   [self createViewController];
   [self startChildCoordinators];
+  [self.dispatcher startDispatchingToTarget:self
+                                forProtocol:@protocol(ActivityServiceCommands)];
   [self.dispatcher
       startDispatchingToTarget:self
                    forProtocol:@protocol(BrowserCoordinatorCommands)];
   [self.dispatcher startDispatchingToTarget:self
                                 forProtocol:@protocol(PageInfoCommands)];
+  [self.dispatcher startDispatchingToTarget:self
+                                forProtocol:@protocol(PasswordBreachCommands)];
   [self installDelegatesForAllWebStates];
-  [self installDelegatesForBrowserState];
+  [self installDelegatesForBrowser];
   [self addWebStateListObserver];
   [super start];
   self.started = YES;
@@ -197,7 +239,7 @@
     return;
   [super stop];
   [self removeWebStateListObserver];
-  [self uninstallDelegatesForBrowserState];
+  [self uninstallDelegatesForBrowser];
   [self uninstallDelegatesForAllWebStates];
   [self.dispatcher stopDispatchingToTarget:self];
   [self stopChildCoordinators];
@@ -230,7 +272,11 @@
   [self.readingListCoordinator stop];
   self.readingListCoordinator = nil;
 
+  [self.sharingCoordinator stop];
+  self.sharingCoordinator = nil;
+
   [self.passwordBreachCoordinator stop];
+  self.passwordBreachCoordinator = nil;
 
   [self.pageInfoCoordinator stop];
 
@@ -240,9 +286,8 @@
 
 - (void)displayPopupMenuWithBadgeItems:(NSArray<id<BadgeItem>>*)badgeItems {
   self.badgePopupMenuCoordinator = [[BadgePopupMenuCoordinator alloc]
-      initWithBaseViewController:self.viewController];
-  self.badgePopupMenuCoordinator.dispatcher =
-      static_cast<id<InfobarCommands>>(self.dispatcher);
+      initWithBaseViewController:self.viewController
+                         browser:self.browser];
   [self.badgePopupMenuCoordinator setBadgeItemsToShow:badgeItems];
   [self.badgePopupMenuCoordinator start];
 }
@@ -254,14 +299,10 @@
   DCHECK(self.browserContainerCoordinator.viewController);
   BrowserViewControllerDependencyFactory* factory =
       [[BrowserViewControllerDependencyFactory alloc]
-          initWithBrowserState:self.browserState
-                  webStateList:self.browser->GetWebStateList()];
+          initWithBrowser:self.browser];
   _viewController = [[BrowserViewController alloc]
                      initWithBrowser:self.browser
                    dependencyFactory:factory
-          applicationCommandEndpoint:self.applicationCommandHandler
-         browsingDataCommandEndpoint:self.browsingDataCommandHandler
-                   commandDispatcher:self.dispatcher
       browserContainerViewController:self.browserContainerCoordinator
                                          .viewController];
 }
@@ -292,21 +333,14 @@
   // coordinators.
   DCHECK(self.dispatcher);
 
-  self.appLauncherCoordinator = [[AppLauncherCoordinator alloc]
-      initWithBaseViewController:self.viewController];
-
   self.ARQuickLookCoordinator = [[ARQuickLookCoordinator alloc]
       initWithBaseViewController:self.viewController
                          browser:self.browser];
   [self.ARQuickLookCoordinator start];
 
-  self.injectionHandler = [[ManualFillInjectionHandler alloc]
-        initWithWebStateList:self.browser->GetWebStateList()
-      securityAlertPresenter:self];
   self.formInputAccessoryCoordinator = [[FormInputAccessoryCoordinator alloc]
       initWithBaseViewController:self.viewController
-                         browser:self.browser
-                injectionHandler:self.injectionHandler];
+                         browser:self.browser];
   self.formInputAccessoryCoordinator.navigator = self;
   [self.formInputAccessoryCoordinator start];
 
@@ -324,15 +358,15 @@
       [[PassKitCoordinator alloc] initWithBaseViewController:self.viewController
                                                      browser:self.browser];
 
-  self.passwordBreachCoordinator = [[PasswordBreachCoordinator alloc]
-      initWithBaseViewController:self.viewController
-                         browser:self.browser];
-
   self.printController = [[PrintController alloc] init];
+  self.printController.baseViewController = self.viewController;
 
   self.qrScannerCoordinator = [[QRScannerLegacyCoordinator alloc]
-      initWithBaseViewController:self.viewController];
-  self.qrScannerCoordinator.dispatcher = self.dispatcher;
+      initWithBaseViewController:self.viewController
+                         browser:self.browser];
+  [self.qrScannerCoordinator start];
+
+  /* passwordBreachCoordinator is created and started by a BrowserCommand */
 
   /* ReadingListCoordinator is created and started by a BrowserCommand */
 
@@ -340,29 +374,47 @@
 
   /* RepostFormCoordinator is created and started by a delegate method */
 
+  /* SharingCoordinator is created and started by an ActivityServiceCommand */
+
   self.storeKitCoordinator = [[StoreKitCoordinator alloc]
-      initWithBaseViewController:self.viewController];
+      initWithBaseViewController:self.viewController
+                         browser:self.browser];
 
   self.addCreditCardCoordinator = [[AutofillAddCreditCardCoordinator alloc]
       initWithBaseViewController:self.viewController
                          browser:self.browser];
+
+  if (base::FeatureList::IsEnabled(kInfobarOverlayUI)) {
+    self.infobarBannerOverlayContainerCoordinator =
+        [[OverlayContainerCoordinator alloc]
+            initWithBaseViewController:self.viewController
+                               browser:self.browser
+                              modality:OverlayModality::kInfobarBanner];
+    [self.infobarBannerOverlayContainerCoordinator start];
+    self.viewController.infobarBannerOverlayContainerViewController =
+        self.infobarBannerOverlayContainerCoordinator.viewController;
+
+    self.infobarModalOverlayContainerCoordinator =
+        [[OverlayContainerCoordinator alloc]
+            initWithBaseViewController:self.viewController
+                               browser:self.browser
+                              modality:OverlayModality::kInfobarModal];
+    [self.infobarModalOverlayContainerCoordinator start];
+    self.viewController.infobarModalOverlayContainerViewController =
+        self.infobarModalOverlayContainerCoordinator.viewController;
+  }
 }
 
 // Stops child coordinators.
 - (void)stopChildCoordinators {
-  [self.allPasswordCoordinator stop];
-  self.allPasswordCoordinator = nil;
-
-  // TODO(crbug.com/906541) : AppLauncherCoordinator is not a subclass of
-  // ChromeCoordinator, and does not have a |-stop| method.
-  self.appLauncherCoordinator = nil;
-
   [self.ARQuickLookCoordinator stop];
   self.ARQuickLookCoordinator = nil;
 
+  [self.findBarCoordinator stop];
+  self.findBarCoordinator = nil;
+
   [self.formInputAccessoryCoordinator stop];
   self.formInputAccessoryCoordinator = nil;
-  self.injectionHandler = nil;
 
   [self.pageInfoCoordinator stop];
   self.pageInfoCoordinator = nil;
@@ -387,42 +439,46 @@
   [self.repostFormCoordinator stop];
   self.repostFormCoordinator = nil;
 
+  [self.sharingCoordinator stop];
+  self.sharingCoordinator = nil;
+
   [self.snackbarCoordinator stop];
   self.snackbarCoordinator = nil;
 
   [self.storeKitCoordinator stop];
   self.storeKitCoordinator = nil;
 
+  [self.textZoomCoordinator stop];
+  self.textZoomCoordinator = nil;
+
   [self.translateInfobarCoordinator stop];
   self.translateInfobarCoordinator = nil;
 
   [self.addCreditCardCoordinator stop];
   self.addCreditCardCoordinator = nil;
+
+  [self.infobarBannerOverlayContainerCoordinator stop];
+  self.infobarBannerOverlayContainerCoordinator = nil;
+
+  [self.infobarModalOverlayContainerCoordinator stop];
+  self.infobarModalOverlayContainerCoordinator = nil;
 }
 
-#pragma mark - AutofillSecurityAlertPresenter
+#pragma mark - ActivityServiceCommands
 
-- (void)presentSecurityWarningAlertWithText:(NSString*)body {
-  NSString* alertTitle =
-      l10n_util::GetNSString(IDS_IOS_MANUAL_FALLBACK_NOT_SECURE_TITLE);
-  NSString* defaultActionTitle =
-      l10n_util::GetNSString(IDS_IOS_MANUAL_FALLBACK_NOT_SECURE_OK_BUTTON);
+- (void)sharePage {
+  UIView* shareButton =
+      [self.viewController.activityServicePositioner shareButtonView];
 
-  UIAlertController* alert =
-      [UIAlertController alertControllerWithTitle:alertTitle
-                                          message:body
-                                   preferredStyle:UIAlertControllerStyleAlert];
-  UIAlertAction* defaultAction =
-      [UIAlertAction actionWithTitle:defaultActionTitle
-                               style:UIAlertActionStyleDefault
-                             handler:^(UIAlertAction* action){
-                             }];
-  [alert addAction:defaultAction];
-  UIViewController* presenter = self.viewController;
-  while (presenter.presentedViewController) {
-    presenter = presenter.presentedViewController;
-  }
-  [presenter presentViewController:alert animated:YES completion:nil];
+  ActivityParams* params = [[ActivityParams alloc]
+      initWithScenario:ActivityScenario::TabShareButton];
+
+  self.sharingCoordinator =
+      [[SharingCoordinator alloc] initWithBaseViewController:self.viewController
+                                                     browser:self.browser
+                                                      params:params
+                                                  originView:shareButton];
+  [self.sharingCoordinator start];
 }
 
 #pragma mark - BrowserCoordinatorCommands
@@ -431,8 +487,7 @@
   DCHECK(self.printController);
   web::WebState* webState =
       self.browser->GetWebStateList()->GetActiveWebState();
-  [self.printController printView:webState->GetView()
-                        withTitle:tab_util::GetTabTitle(webState)];
+  [self.printController printWebState:webState];
 }
 
 - (void)showReadingList {
@@ -443,20 +498,27 @@
 }
 
 - (void)showDownloadsFolder {
-  base::FilePath download_dir;
-  if (!GetDownloadsDirectory(&download_dir)) {
+  if (base::FeatureList::IsEnabled(kOpenDownloadsInFilesApp)) {
+    NSURL* URL = GetFilesAppUrl();
+    if (!URL)
+      return;
+
+    [[UIApplication sharedApplication] openURL:URL
+                                       options:@{}
+                             completionHandler:nil];
     return;
   }
+
+  base::FilePath download_dir;
+  if (!GetTempDownloadsDirectory(&download_dir)) {
+    return;
+  }
+
   UIDocumentPickerViewController* documentPicker =
       [[UIDocumentPickerViewController alloc]
           initWithDocumentTypes:@[ @"public.data" ]
                          inMode:UIDocumentPickerModeImport];
   documentPicker.modalPresentationStyle = UIModalPresentationFormSheet;
-  if (@available(iOS 13, *)) {
-    NSURL* URL =
-        [NSURL fileURLWithPath:base::SysUTF8ToNSString(download_dir.value())];
-    documentPicker.directoryURL = URL;
-  }
   [self.viewController presentViewController:documentPicker
                                     animated:YES
                                   completion:nil];
@@ -489,6 +551,123 @@
   [self.addCreditCardCoordinator start];
 }
 
+#pragma mark - WhatsNewCommands
+
+- (void)showDefaultBrowserFullscreenPromo {
+  if (!self.defaultBrowserPromoCoordinator) {
+    self.defaultBrowserPromoCoordinator =
+        [[DefaultBrowserPromoCoordinator alloc]
+            initWithBaseViewController:self.viewController
+                               browser:self.browser];
+    self.defaultBrowserPromoCoordinator.handler = self;
+  }
+  [self.defaultBrowserPromoCoordinator start];
+}
+
+#pragma mark - DefaultBrowserPromoCommands
+
+- (void)hidePromo {
+  [self.defaultBrowserPromoCoordinator stop];
+}
+
+#pragma mark - FindInPageCommands
+
+- (void)openFindInPage {
+  if (!self.canShowFindBar)
+    return;
+
+  self.findBarCoordinator =
+      [[FindBarCoordinator alloc] initWithBaseViewController:self.viewController
+                                                     browser:self.browser];
+  self.findBarCoordinator.presenter =
+      self.viewController.toolbarAccessoryPresenter;
+  self.findBarCoordinator.delegate = self;
+  self.findBarCoordinator.presentationDelegate = self.viewController;
+
+  if (self.viewController.toolbarAccessoryPresenter.isPresenting) {
+    self.nextToolbarCoordinator = self.findBarCoordinator;
+    [self closeTextZoom];
+    return;
+  }
+
+  [self.findBarCoordinator start];
+}
+
+- (void)closeFindInPage {
+  web::WebState* currentWebState =
+      self.browser->GetWebStateList()->GetActiveWebState();
+
+  if (currentWebState) {
+    FindTabHelper* findTabHelper = FindTabHelper::FromWebState(currentWebState);
+    if (findTabHelper->IsFindUIActive()) {
+      findTabHelper->StopFinding();
+    } else {
+      [self.findBarCoordinator stop];
+    }
+  }
+}
+
+- (void)showFindUIIfActive {
+  web::WebState* currentWebState =
+      self.browser->GetWebStateList()->GetActiveWebState();
+  auto* findHelper = FindTabHelper::FromWebState(currentWebState);
+  if (findHelper && findHelper->IsFindUIActive() &&
+      !self.findBarCoordinator.presenter.isPresenting) {
+    [self.findBarCoordinator start];
+  }
+}
+
+- (void)hideFindUI {
+  [self.findBarCoordinator stop];
+}
+
+- (void)defocusFindInPage {
+  [self.findBarCoordinator defocusFindBar];
+}
+
+- (void)searchFindInPage {
+  web::WebState* currentWebState =
+      self.browser->GetWebStateList()->GetActiveWebState();
+  DCHECK(currentWebState);
+  FindTabHelper* helper = FindTabHelper::FromWebState(currentWebState);
+  helper->StartFinding([self.findBarCoordinator.findBarController searchTerm]);
+
+  if (!self.browser->GetBrowserState()->IsOffTheRecord())
+    helper->PersistSearchTerm();
+}
+
+- (void)findNextStringInPage {
+  web::WebState* currentWebState =
+      self.browser->GetWebStateList()->GetActiveWebState();
+  DCHECK(currentWebState);
+  // TODO(crbug.com/603524): Reshow find bar if necessary.
+  FindTabHelper::FromWebState(currentWebState)
+      ->ContinueFinding(FindTabHelper::FORWARD);
+}
+
+- (void)findPreviousStringInPage {
+  web::WebState* currentWebState =
+      self.browser->GetWebStateList()->GetActiveWebState();
+  DCHECK(currentWebState);
+  // TODO(crbug.com/603524): Reshow find bar if necessary.
+  FindTabHelper::FromWebState(currentWebState)
+      ->ContinueFinding(FindTabHelper::REVERSE);
+}
+
+#pragma mark - FindInPageCommands Helpers
+
+- (BOOL)canShowFindBar {
+  web::WebState* currentWebState =
+      self.browser->GetWebStateList()->GetActiveWebState();
+  if (!currentWebState) {
+    return NO;
+  }
+
+  auto* helper = FindTabHelper::FromWebState(currentWebState);
+  return (helper && helper->CurrentPageSupportsFindInPage() &&
+          !helper->IsFindUIActive());
+}
+
 #pragma mark - PageInfoCommands
 
 - (void)legacyShowPageInfoForOriginPoint:(CGPoint)originPoint {
@@ -519,34 +698,26 @@
 
 - (void)showSecurityHelpPage {
   UrlLoadParams params = UrlLoadParams::InNewTab(GURL(kPageInfoHelpCenterURL));
-  params.in_incognito = self.browserState->IsOffTheRecord();
-  UrlLoadingServiceFactory::GetForBrowserState(self.browserState)->Load(params);
+  params.in_incognito = self.browser->GetBrowserState()->IsOffTheRecord();
+  UrlLoadingBrowserAgent::FromBrowser(self.browser)->Load(params);
   [self hidePageInfo];
 }
 
 #pragma mark - FormInputAccessoryCoordinatorNavigator
 
 - (void)openPasswordSettings {
-  [self.applicationCommandHandler
+  [HandlerForProtocol(self.dispatcher, ApplicationCommands)
       showSavedPasswordsSettingsFromViewController:self.viewController];
 }
 
 - (void)openAddressSettings {
-  [self.applicationCommandHandler
+  [HandlerForProtocol(self.dispatcher, ApplicationCommands)
       showProfileSettingsFromViewController:self.viewController];
 }
 
 - (void)openCreditCardSettings {
-  [self.applicationCommandHandler
+  [HandlerForProtocol(self.dispatcher, ApplicationCommands)
       showCreditCardSettingsFromViewController:self.viewController];
-}
-
-- (void)openAllPasswordsPicker {
-  self.allPasswordCoordinator = [[ManualFillAllPasswordCoordinator alloc]
-      initWithBaseViewController:self.viewController
-                         browser:self.browser
-                injectionHandler:self.injectionHandler];
-  [self.allPasswordCoordinator start];
 }
 
 #pragma mark - RepostFormTabHelperDelegate
@@ -557,6 +728,7 @@
                      completionHandler:(void (^)(BOOL))completion {
   self.repostFormCoordinator = [[RepostFormCoordinator alloc]
       initWithBaseViewController:self.viewController
+                         browser:self.browser
                   dialogLocation:location
                         webState:webState
                completionHandler:completion];
@@ -567,6 +739,75 @@
     (RepostFormTabHelper*)helper {
   [self.repostFormCoordinator stop];
   self.repostFormCoordinator = nil;
+}
+
+#pragma mark - ToolbarAccessoryCoordinatorDelegate
+
+- (void)toolbarAccessoryCoordinatorDidDismissUI:
+    (ChromeCoordinator*)coordinator {
+  if (!self.nextToolbarCoordinator) {
+    return;
+  }
+  if (self.nextToolbarCoordinator == self.findBarCoordinator) {
+    [self openFindInPage];
+    self.nextToolbarCoordinator = nil;
+  } else if (self.nextToolbarCoordinator == self.textZoomCoordinator) {
+    [self openTextZoom];
+    self.nextToolbarCoordinator = nil;
+  }
+}
+
+#pragma mark - TextZoomCommands
+
+- (void)openTextZoom {
+  self.textZoomCoordinator = [[TextZoomCoordinator alloc]
+      initWithBaseViewController:self.viewController
+                         browser:self.browser];
+  self.textZoomCoordinator.presenter =
+      self.viewController.toolbarAccessoryPresenter;
+  self.textZoomCoordinator.delegate = self;
+
+  if (self.viewController.toolbarAccessoryPresenter.isPresenting) {
+    self.nextToolbarCoordinator = self.textZoomCoordinator;
+    [self closeFindInPage];
+    return;
+  }
+
+  [self.textZoomCoordinator start];
+}
+
+- (void)closeTextZoom {
+  if (!base::FeatureList::IsEnabled(web::kWebPageTextAccessibility)) {
+    return;
+  }
+
+  web::WebState* currentWebState =
+      self.browser->GetWebStateList()->GetActiveWebState();
+  if (currentWebState) {
+    FontSizeTabHelper* fontSizeTabHelper =
+        FontSizeTabHelper::FromWebState(currentWebState);
+    fontSizeTabHelper->SetTextZoomUIActive(false);
+  }
+  [self.textZoomCoordinator stop];
+}
+
+- (void)showTextZoomUIIfActive {
+  web::WebState* currentWebState =
+      self.browser->GetWebStateList()->GetActiveWebState();
+  if (!currentWebState) {
+    return;
+  }
+
+  FontSizeTabHelper* fontSizeTabHelper =
+      FontSizeTabHelper::FromWebState(currentWebState);
+  if (fontSizeTabHelper && fontSizeTabHelper->IsTextZoomUIActive() &&
+      !self.textZoomCoordinator.presenter.isPresenting) {
+    [self.textZoomCoordinator start];
+  }
+}
+
+- (void)hideTextZoomUI {
+  [self.textZoomCoordinator stop];
 }
 
 #pragma mark - URLLoadingServiceDelegate
@@ -625,8 +866,7 @@
 
 // Installs delegates for each WebState in WebStateList.
 - (void)installDelegatesForAllWebStates {
-  self.openInMediator = [[OpenInMediator alloc]
-      initWithWebStateList:self.browser->GetWebStateList()];
+  self.openInMediator = [[OpenInMediator alloc] initWithBrowser:self.browser];
 
   for (int i = 0; i < self.browser->GetWebStateList()->count(); i++) {
     web::WebState* webState = self.browser->GetWebStateList()->GetWebStateAt(i);
@@ -634,25 +874,21 @@
   }
 }
 
-// Installs delegates for self.browserState.
-- (void)installDelegatesForBrowserState {
-  UrlLoadingService* urlLoadingService =
-      UrlLoadingServiceFactory::GetForBrowserState(self.browserState);
-  if (urlLoadingService) {
-    urlLoadingService->SetAppService(self.appURLLoadingService);
-    urlLoadingService->SetDelegate(self);
-    urlLoadingService->SetBrowser(self.browser);
+// Installs delegates for self.browser.
+- (void)installDelegatesForBrowser {
+  UrlLoadingBrowserAgent* loadingAgent =
+      UrlLoadingBrowserAgent::FromBrowser(self.browser);
+  if (loadingAgent) {
+    loadingAgent->SetDelegate(self);
   }
 }
 
-// Uninstalls delegates for self.browserState.
-- (void)uninstallDelegatesForBrowserState {
-  UrlLoadingService* urlLoadingService =
-      UrlLoadingServiceFactory::GetForBrowserState(self.browserState);
-  if (urlLoadingService) {
-    urlLoadingService->SetAppService(nullptr);
-    urlLoadingService->SetDelegate(nil);
-    urlLoadingService->SetBrowser(nil);
+// Uninstalls delegates for self.browser.
+- (void)uninstallDelegatesForBrowser {
+  UrlLoadingBrowserAgent* loadingAgent =
+      UrlLoadingBrowserAgent::FromBrowser(self.browser);
+  if (loadingAgent) {
+    loadingAgent->SetDelegate(nil);
   }
 }
 
@@ -669,10 +905,6 @@
 
 // Install delegates for |webState|.
 - (void)installDelegatesForWebState:(web::WebState*)webState {
-  AppLauncherTabHelper::CreateForWebState(
-      webState, [[AppLauncherAbuseDetector alloc] init],
-      self.appLauncherCoordinator);
-
   if (AutofillTabHelper::FromWebState(webState)) {
     AutofillTabHelper::FromWebState(webState)->SetBaseViewController(
         self.viewController);
@@ -701,6 +933,18 @@
   if (StoreKitTabHelper::FromWebState(webState)) {
     StoreKitTabHelper::FromWebState(webState)->SetLauncher(nil);
   }
+}
+
+#pragma mark - PasswordBreachCommands
+
+- (void)showPasswordBreachForLeakType:(CredentialLeakType)leakType
+                                  URL:(const GURL&)URL {
+  self.passwordBreachCoordinator = [[PasswordBreachCoordinator alloc]
+      initWithBaseViewController:self.viewController
+                         browser:self.browser
+                        leakType:leakType
+                             URL:URL];
+  [self.passwordBreachCoordinator start];
 }
 
 @end

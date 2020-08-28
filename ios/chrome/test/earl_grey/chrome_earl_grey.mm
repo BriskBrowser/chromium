@@ -7,6 +7,7 @@
 #import <Foundation/Foundation.h>
 
 #include "base/format_macros.h"
+#include "base/json/json_string_value_serializer.h"
 #include "base/mac/foundation_util.h"
 #include "base/strings/sys_string_conversions.h"
 #import "base/test/ios/wait_util.h"
@@ -32,12 +33,14 @@
 #import "ios/web/public/web_state.h"                             // nogncheck
 #endif
 
+using base::test::ios::kWaitForActionTimeout;
 using base::test::ios::kWaitForJSCompletionTimeout;
 using base::test::ios::kWaitForPageLoadTimeout;
 using base::test::ios::kWaitForUIElementTimeout;
 using base::test::ios::WaitUntilConditionOrTimeout;
 
 namespace {
+NSString* const kWaitForPageToStartLoadingError = @"Page did not start to load";
 NSString* const kWaitForPageToFinishLoadingError =
     @"Page did not finish loading";
 NSString* const kTypedURLError =
@@ -60,9 +63,31 @@ GREY_STUB_CLASS_IN_APP_MAIN_QUEUE(ChromeEarlGreyAppInterface)
 // induced.
 - (void)waitForRestoreSessionToFinish;
 
+// Perform a tap with a timeout, or a GREYAssert is induced. Occasionally EG
+// doesn't sync up properly to the animations of tab switcher, so it is
+// necessary to poll.
+- (void)waitForAndTapButton:(id<GREYMatcher>)button;
+
 @end
 
 @implementation ChromeEarlGreyImpl
+
+#pragma mark - Test Utilities
+
+- (void)waitForMatcher:(id<GREYMatcher>)matcher {
+  ConditionBlock condition = ^{
+    NSError* error = nil;
+    [[EarlGrey selectElementWithMatcher:matcher] assertWithMatcher:grey_notNil()
+                                                             error:&error];
+    return error == nil;
+  };
+  NSString* errorString =
+      [NSString stringWithFormat:@"Waiting for matcher %@ failed.", matcher];
+  EG_TEST_HELPER_ASSERT_TRUE(
+      base::test::ios::WaitUntilConditionOrTimeout(
+          base::test::ios::kWaitForUIElementTimeout, condition),
+      errorString);
+}
 
 #pragma mark - Device Utilities
 
@@ -151,7 +176,11 @@ GREY_STUB_CLASS_IN_APP_MAIN_QUEUE(ChromeEarlGreyAppInterface)
 
   // After clearing browsing history via code, wait for the UI to be done
   // with any updates. This includes icons from the new tab page being removed.
-  [[GREYUIThreadExecutor sharedInstance] drainUntilIdle];
+  GREYWaitForAppToIdle(@"App failed to idle");
+}
+
+- (NSInteger)getBrowsingHistoryEntryCount {
+  return [ChromeEarlGreyAppInterface getBrowsingHistoryEntryCount];
 }
 
 - (void)removeBrowsingCache {
@@ -198,7 +227,7 @@ GREY_STUB_CLASS_IN_APP_MAIN_QUEUE(ChromeEarlGreyAppInterface)
   [ChromeEarlGreyAppInterface selectTabAtIndex:index];
   // Tab changes are initiated through |WebStateList|. Need to wait its
   // obeservers to complete UI changes at app.
-  [[GREYUIThreadExecutor sharedInstance] drainUntilIdle];
+  GREYWaitForAppToIdle(@"App failed to idle");
 }
 
 - (BOOL)isIncognitoMode {
@@ -209,7 +238,7 @@ GREY_STUB_CLASS_IN_APP_MAIN_QUEUE(ChromeEarlGreyAppInterface)
   [ChromeEarlGreyAppInterface closeTabAtIndex:index];
   // Tab changes are initiated through |WebStateList|. Need to wait its
   // obeservers to complete UI changes at app.
-  [[GREYUIThreadExecutor sharedInstance] drainUntilIdle];
+  GREYWaitForAppToIdle(@"App failed to idle");
 }
 
 - (NSUInteger)mainTabCount {
@@ -218,6 +247,10 @@ GREY_STUB_CLASS_IN_APP_MAIN_QUEUE(ChromeEarlGreyAppInterface)
 
 - (NSUInteger)incognitoTabCount {
   return [ChromeEarlGreyAppInterface incognitoTabCount];
+}
+
+- (NSUInteger)browserCount {
+  return [ChromeEarlGreyAppInterface browserCount];
 }
 
 - (NSUInteger)evictedMainTabCount {
@@ -254,48 +287,65 @@ GREY_STUB_CLASS_IN_APP_MAIN_QUEUE(ChromeEarlGreyAppInterface)
 - (void)openNewTab {
   [ChromeEarlGreyAppInterface openNewTab];
   [self waitForPageToFinishLoading];
-  [[GREYUIThreadExecutor sharedInstance] drainUntilIdle];
+  GREYWaitForAppToIdle(@"App failed to idle");
 }
 
 - (void)simulateExternalAppURLOpening {
-  [ChromeEarlGreyAppInterface simulateExternalAppURLOpening];
+  NSURL* openedNSURL =
+      [ChromeEarlGreyAppInterface simulateExternalAppURLOpening];
+  // Wait until the navigation is finished.
+  GURL openedGURL = net::GURLWithNSURL(openedNSURL);
+  GREYCondition* finishedLoading = [GREYCondition
+      conditionWithName:kWaitForPageToStartLoadingError
+                  block:^{
+                    return openedGURL == [ChromeEarlGrey webStateVisibleURL];
+                  }];
+  bool pageLoaded = [finishedLoading waitWithTimeout:kWaitForPageLoadTimeout];
+  EG_TEST_HELPER_ASSERT_TRUE(pageLoaded, kWaitForPageToStartLoadingError);
+  // Wait until the page is loaded.
   [self waitForPageToFinishLoading];
-  [[GREYUIThreadExecutor sharedInstance] drainUntilIdle];
+  GREYWaitForAppToIdle(@"App failed to idle");
+}
+
+- (void)simulateAddAccountFromWeb {
+  [ChromeEarlGreyAppInterface simulateAddAccountFromWeb];
+  [self waitForPageToFinishLoading];
+  GREYWaitForAppToIdle(@"App failed to idle");
 }
 
 - (void)closeCurrentTab {
   [ChromeEarlGreyAppInterface closeCurrentTab];
-  [[GREYUIThreadExecutor sharedInstance] drainUntilIdle];
+  GREYWaitForAppToIdle(@"App failed to idle");
 }
 
 - (void)openNewIncognitoTab {
   [ChromeEarlGreyAppInterface openNewIncognitoTab];
   [self waitForPageToFinishLoading];
-  [[GREYUIThreadExecutor sharedInstance] drainUntilIdle];
+  GREYWaitForAppToIdle(@"App failed to idle");
 }
 
 - (void)closeAllTabsInCurrentMode {
   [ChromeEarlGreyAppInterface closeAllTabsInCurrentMode];
-  [[GREYUIThreadExecutor sharedInstance] drainUntilIdle];
+  GREYWaitForAppToIdle(@"App failed to idle");
 }
 
 - (void)closeAllNormalTabs {
   EG_TEST_HELPER_ASSERT_NO_ERROR(
       [ChromeEarlGreyAppInterface closeAllNormalTabs]);
-  [[GREYUIThreadExecutor sharedInstance] drainUntilIdle];
+  GREYWaitForAppToIdle(@"App failed to idle");
 }
 
 - (void)closeAllIncognitoTabs {
   EG_TEST_HELPER_ASSERT_NO_ERROR(
       [ChromeEarlGreyAppInterface closeAllIncognitoTabs]);
-  [[GREYUIThreadExecutor sharedInstance] drainUntilIdle];
+  GREYWaitForAppToIdle(@"App failed to idle");
 }
 
 - (void)closeAllTabs {
   [ChromeEarlGreyAppInterface closeAllTabs];
   // Tab changes are initiated through |WebStateList|. Need to wait its
   // obeservers to complete UI changes at app.
-  [[GREYUIThreadExecutor sharedInstance] drainUntilIdle];
+  GREYWaitForAppToIdle(@"App failed to idle");
 }
 
 - (void)waitForPageToFinishLoading {
@@ -370,22 +420,29 @@ GREY_STUB_CLASS_IN_APP_MAIN_QUEUE(ChromeEarlGreyAppInterface)
   return [ChromeEarlGreyAppInterface nextTabID];
 }
 
-- (void)showTabSwitcher {
-  id<GREYMatcher> matcher = chrome_test_util::TabGridOpenButton();
+- (void)waitForAndTapButton:(id<GREYMatcher>)button {
+  NSString* errorDescription =
+      [NSString stringWithFormat:@"Waiting to tap on button %@", button];
   // Perform a tap with a timeout. Occasionally EG doesn't sync up properly to
   // the animations of tab switcher, so it is necessary to poll here.
-  GREYCondition* tapTabSwitcher =
-      [GREYCondition conditionWithName:@"Tap tab switcher button"
+  // TODO(crbug.com/1050052): Fix the underlying issue in EarlGrey and remove
+  // this workaround.
+  GREYCondition* tapButton =
+      [GREYCondition conditionWithName:errorDescription
                                  block:^BOOL {
                                    NSError* error;
-                                   [[EarlGrey selectElementWithMatcher:matcher]
+                                   [[EarlGrey selectElementWithMatcher:button]
                                        performAction:grey_tap()
                                                error:&error];
                                    return error == nil;
                                  }];
-  // Wait until 2 seconds for the tap.
-  BOOL hasClicked = [tapTabSwitcher waitWithTimeout:2];
-  EG_TEST_HELPER_ASSERT_TRUE(hasClicked, @"Tab switcher could not be clicked.");
+  // Wait for the tap.
+  BOOL hasClicked = [tapButton waitWithTimeout:kWaitForUIElementTimeout];
+  EG_TEST_HELPER_ASSERT_TRUE(hasClicked, errorDescription);
+}
+
+- (void)showTabSwitcher {
+  [ChromeEarlGrey waitForAndTapButton:chrome_test_util::ShowTabsButton()];
 }
 
 #pragma mark - Cookie Utilities (EG2)
@@ -438,7 +495,7 @@ GREY_STUB_CLASS_IN_APP_MAIN_QUEUE(ChromeEarlGreyAppInterface)
       stringWithFormat:@"Waiting for main tab count to become %" PRIuNS, count];
 
   // Allow the UI to become idle, in case any tabs are being opened or closed.
-  [[GREYUIThreadExecutor sharedInstance] drainUntilIdle];
+  GREYWaitForAppToIdle(@"App failed to idle");
 
   GREYCondition* tabCountCheck = [GREYCondition
       conditionWithName:conditionName
@@ -461,7 +518,7 @@ GREY_STUB_CLASS_IN_APP_MAIN_QUEUE(ChromeEarlGreyAppInterface)
           @"Failed waiting for incognito tab count to become %" PRIuNS, count];
 
   // Allow the UI to become idle, in case any tabs are being opened or closed.
-  [[GREYUIThreadExecutor sharedInstance] drainUntilIdle];
+  GREYWaitForAppToIdle(@"App failed to idle");
 
   GREYCondition* tabCountCheck = [GREYCondition
       conditionWithName:errorString
@@ -471,6 +528,30 @@ GREY_STUB_CLASS_IN_APP_MAIN_QUEUE(ChromeEarlGreyAppInterface)
                   }];
   bool tabCountEqual = [tabCountCheck waitWithTimeout:kWaitForUIElementTimeout];
   EG_TEST_HELPER_ASSERT_TRUE(tabCountEqual, errorString);
+}
+
+- (void)waitForBrowserCount:(NSUInteger)count {
+  __block NSUInteger actualCount = [ChromeEarlGreyAppInterface browserCount];
+  NSString* conditionName = [NSString
+      stringWithFormat:@"Waiting for window count to become %" PRIuNS, count];
+
+  // Allow the UI to become idle, in case any tabs are being opened or closed.
+  GREYWaitForAppToIdle(@"App failed to idle");
+
+  GREYCondition* browserCountCheck = [GREYCondition
+      conditionWithName:conditionName
+                  block:^{
+                    actualCount = [ChromeEarlGreyAppInterface browserCount];
+                    return actualCount == count;
+                  }];
+  bool browserCountEqual =
+      [browserCountCheck waitWithTimeout:kWaitForUIElementTimeout];
+
+  NSString* errorString = [NSString
+      stringWithFormat:@"Failed waiting for window count to become %" PRIuNS
+                        "; actual count: %" PRIuNS,
+                       count, actualCount];
+  EG_TEST_HELPER_ASSERT_TRUE(browserCountEqual, errorString);
 }
 
 - (NSUInteger)indexOfActiveNormalTab {
@@ -497,8 +578,13 @@ GREY_STUB_CLASS_IN_APP_MAIN_QUEUE(ChromeEarlGreyAppInterface)
 }
 
 - (void)waitForWebStateContainingText:(const std::string&)UTF8Text {
-  [self waitForWebStateContainingText:UTF8Text
-                              timeout:kWaitForUIElementTimeout];
+  [self waitForWebStateContainingText:UTF8Text timeout:kWaitForPageLoadTimeout];
+}
+
+- (void)waitForWebStateFrameContainingText:(const std::string&)UTF8Text {
+  NSString* text = base::SysUTF8ToNSString(UTF8Text);
+  EG_TEST_HELPER_ASSERT_NO_ERROR(
+      [ChromeEarlGreyAppInterface waitForWebStateContainingTextInIFrame:text]);
 }
 
 - (void)waitForWebStateContainingText:(const std::string&)UTF8Text
@@ -564,13 +650,12 @@ GREY_STUB_CLASS_IN_APP_MAIN_QUEUE(ChromeEarlGreyAppInterface)
 
 - (void)triggerRestoreViaTabGridRemoveAllUndo {
   [ChromeEarlGrey showTabSwitcher];
-  [[EarlGrey selectElementWithMatcher:chrome_test_util::TabGridCloseAllButton()]
-      performAction:grey_tap()];
-  [[EarlGrey
-      selectElementWithMatcher:chrome_test_util::TabGridUndoCloseAllButton()]
-      performAction:grey_tap()];
-  [[EarlGrey selectElementWithMatcher:chrome_test_util::TabGridDoneButton()]
-      performAction:grey_tap()];
+  GREYWaitForAppToIdle(@"App failed to idle");
+  [ChromeEarlGrey
+      waitForAndTapButton:chrome_test_util::TabGridCloseAllButton()];
+  [ChromeEarlGrey
+      waitForAndTapButton:chrome_test_util::TabGridUndoCloseAllButton()];
+  [ChromeEarlGrey waitForAndTapButton:chrome_test_util::TabGridDoneButton()];
   [self waitForRestoreSessionToFinish];
   [self waitForPageToFinishLoading];
 }
@@ -603,20 +688,29 @@ GREY_STUB_CLASS_IN_APP_MAIN_QUEUE(ChromeEarlGreyAppInterface)
   [ChromeEarlGreyAppInterface stopSync];
 }
 
+- (void)
+    addUserDemographicsToSyncServerWithBirthYear:(int)rawBirthYear
+                                          gender:
+                                              (metrics::UserDemographicsProto::
+                                                   Gender)gender {
+  [ChromeEarlGreyAppInterface
+      addUserDemographicsToSyncServerWithBirthYear:rawBirthYear
+                                            gender:gender];
+}
+
 - (void)clearAutofillProfileWithGUID:(const std::string&)UTF8GUID {
   NSString* GUID = base::SysUTF8ToNSString(UTF8GUID);
   [ChromeEarlGreyAppInterface clearAutofillProfileWithGUID:GUID];
 }
 
-- (void)injectAutofillProfileOnFakeSyncServerWithGUID:
-            (const std::string&)UTF8GUID
-                                  autofillProfileName:
-                                      (const std::string&)UTF8FullName {
+- (void)addAutofillProfileToFakeSyncServerWithGUID:(const std::string&)UTF8GUID
+                               autofillProfileName:
+                                   (const std::string&)UTF8FullName {
   NSString* GUID = base::SysUTF8ToNSString(UTF8GUID);
   NSString* fullName = base::SysUTF8ToNSString(UTF8FullName);
   [ChromeEarlGreyAppInterface
-      injectAutofillProfileOnFakeSyncServerWithGUID:GUID
-                                autofillProfileName:fullName];
+      addAutofillProfileToFakeSyncServerWithGUID:GUID
+                             autofillProfileName:fullName];
 }
 
 - (BOOL)isAutofillProfilePresentWithGUID:(const std::string&)UTF8GUID
@@ -645,6 +739,20 @@ GREY_STUB_CLASS_IN_APP_MAIN_QUEUE(ChromeEarlGreyAppInterface)
   NSString* title = base::SysUTF8ToNSString(UTF8Title);
   [ChromeEarlGreyAppInterface addFakeSyncServerBookmarkWithURL:spec
                                                          title:title];
+}
+
+- (void)addFakeSyncServerLegacyBookmarkWithURL:(const GURL&)URL
+                                         title:(const std::string&)UTF8Title
+                     originator_client_item_id:
+                         (const std::string&)UTF8OriginatorClientItemId {
+  NSString* spec = base::SysUTF8ToNSString(URL.spec());
+  NSString* title = base::SysUTF8ToNSString(UTF8Title);
+  NSString* originator_client_item_id =
+      base::SysUTF8ToNSString(UTF8OriginatorClientItemId);
+  [ChromeEarlGreyAppInterface
+      addFakeSyncServerLegacyBookmarkWithURL:spec
+                                       title:title
+                   originator_client_item_id:originator_client_item_id];
 }
 
 - (void)addFakeSyncServerTypedURL:(const GURL&)URL {
@@ -682,11 +790,11 @@ GREY_STUB_CLASS_IN_APP_MAIN_QUEUE(ChromeEarlGreyAppInterface)
   [ChromeEarlGreyAppInterface triggerSyncCycleForType:type];
 }
 
-- (void)deleteAutofillProfileOnFakeSyncServerWithGUID:
+- (void)deleteAutofillProfileFromFakeSyncServerWithGUID:
     (const std::string&)UTF8GUID {
   NSString* GUID = base::SysUTF8ToNSString(UTF8GUID);
   [ChromeEarlGreyAppInterface
-      deleteAutofillProfileOnFakeSyncServerWithGUID:GUID];
+      deleteAutofillProfileFromFakeSyncServerWithGUID:GUID];
 }
 
 - (void)waitForSyncInitialized:(BOOL)isInitialized
@@ -729,12 +837,24 @@ GREY_STUB_CLASS_IN_APP_MAIN_QUEUE(ChromeEarlGreyAppInterface)
 
 #pragma mark - SignIn Utilities (EG2)
 
-- (void)signOutAndClearAccounts {
-  EG_TEST_HELPER_ASSERT_NO_ERROR(
-      [ChromeEarlGreyAppInterface signOutAndClearAccounts]);
+- (void)signOutAndClearIdentities {
+  [ChromeEarlGreyAppInterface signOutAndClearIdentities];
+
+  GREYCondition* allIdentitiesCleared = [GREYCondition
+      conditionWithName:@"All Chrome identities were cleared"
+                  block:^{
+                    return ![ChromeEarlGreyAppInterface hasIdentities];
+                  }];
+  bool success = [allIdentitiesCleared waitWithTimeout:kWaitForActionTimeout];
+  EG_TEST_HELPER_ASSERT_TRUE(success,
+                             @"Failed waiting for identities to be cleared");
 }
 
 #pragma mark - Bookmarks Utilities (EG2)
+
+- (void)addBookmarkWithSyncPassphrase:(NSString*)syncPassphrase {
+  [ChromeEarlGreyAppInterface addBookmarkWithSyncPassphrase:syncPassphrase];
+}
 
 - (void)waitForBookmarksToFinishLoading {
   EG_TEST_HELPER_ASSERT_NO_ERROR(
@@ -776,10 +896,6 @@ GREY_STUB_CLASS_IN_APP_MAIN_QUEUE(ChromeEarlGreyAppInterface)
   return [ChromeEarlGreyAppInterface isBlockNewTabPagePendingLoadEnabled];
 }
 
-- (BOOL)isNewOmniboxPopupLayoutEnabled {
-  return [ChromeEarlGreyAppInterface isNewOmniboxPopupLayoutEnabled];
-}
-
 - (BOOL)isVariationEnabled:(int)variationID {
   return [ChromeEarlGreyAppInterface isVariationEnabled:variationID];
 }
@@ -796,6 +912,10 @@ GREY_STUB_CLASS_IN_APP_MAIN_QUEUE(ChromeEarlGreyAppInterface)
   return [ChromeEarlGreyAppInterface isUKMEnabled];
 }
 
+- (BOOL)isTestFeatureEnabled {
+  return [ChromeEarlGreyAppInterface isTestFeatureEnabled];
+}
+
 - (BOOL)isCreditCardScannerEnabled {
   return [ChromeEarlGreyAppInterface isCreditCardScannerEnabled];
 }
@@ -804,8 +924,25 @@ GREY_STUB_CLASS_IN_APP_MAIN_QUEUE(ChromeEarlGreyAppInterface)
   return [ChromeEarlGreyAppInterface isAutofillCompanyNameEnabled];
 }
 
+- (BOOL)isChangeTabSwitcherPositionEnabled {
+  return [ChromeEarlGreyAppInterface isChangeTabSwitcherPositionEnabled];
+}
+
+- (BOOL)isDemographicMetricsReportingEnabled {
+  return [ChromeEarlGreyAppInterface isDemographicMetricsReportingEnabled];
+}
+
+- (BOOL)appHasLaunchSwitch:(const std::string&)launchSwitch {
+  return [ChromeEarlGreyAppInterface
+      appHasLaunchSwitch:base::SysUTF8ToNSString(launchSwitch)];
+}
+
 - (BOOL)isCustomWebKitLoadedIfRequested {
   return [ChromeEarlGreyAppInterface isCustomWebKitLoadedIfRequested];
+}
+
+- (BOOL)isMobileModeByDefault {
+  return [ChromeEarlGreyAppInterface isMobileModeByDefault];
 }
 
 #pragma mark - ScopedBlockPopupsPref
@@ -829,6 +966,69 @@ GREY_STUB_CLASS_IN_APP_MAIN_QUEUE(ChromeEarlGreyAppInterface)
 
 #pragma mark - Pref Utilities (EG2)
 
+// Returns a base::Value representation of the requested pref.
+- (std::unique_ptr<base::Value>)localStatePrefValue:
+    (const std::string&)prefName {
+  std::string jsonRepresentation =
+      base::SysNSStringToUTF8([ChromeEarlGreyAppInterface
+          localStatePrefValue:base::SysUTF8ToNSString(prefName)]);
+  JSONStringValueDeserializer deserializer(jsonRepresentation);
+  return deserializer.Deserialize(/*error_code=*/nullptr,
+                                  /*error_message=*/nullptr);
+}
+
+- (bool)localStateBooleanPref:(const std::string&)prefName {
+  std::unique_ptr<base::Value> value = [self localStatePrefValue:prefName];
+  BOOL success = value && value->is_bool();
+  EG_TEST_HELPER_ASSERT_TRUE(success, @"Expected bool");
+  return success ? value->GetBool() : false;
+}
+
+- (int)localStateIntegerPref:(const std::string&)prefName {
+  std::unique_ptr<base::Value> value = [self localStatePrefValue:prefName];
+  BOOL success = value && value->is_int();
+  EG_TEST_HELPER_ASSERT_TRUE(success, @"Expected int");
+  return success ? value->GetInt() : 0;
+}
+
+- (std::string)localStateStringPref:(const std::string&)prefName {
+  std::unique_ptr<base::Value> value = [self localStatePrefValue:prefName];
+  BOOL success = value && value->is_string();
+  EG_TEST_HELPER_ASSERT_TRUE(success, @"Expected string");
+  return success ? value->GetString() : "";
+}
+
+// Returns a base::Value representation of the requested pref.
+- (std::unique_ptr<base::Value>)userPrefValue:(const std::string&)prefName {
+  std::string jsonRepresentation =
+      base::SysNSStringToUTF8([ChromeEarlGreyAppInterface
+          userPrefValue:base::SysUTF8ToNSString(prefName)]);
+  JSONStringValueDeserializer deserializer(jsonRepresentation);
+  return deserializer.Deserialize(/*error_code=*/nullptr,
+                                  /*error_message=*/nullptr);
+}
+
+- (bool)userBooleanPref:(const std::string&)prefName {
+  std::unique_ptr<base::Value> value = [self userPrefValue:prefName];
+  BOOL success = value && value->is_bool();
+  EG_TEST_HELPER_ASSERT_TRUE(success, @"Expected bool");
+  return success ? value->GetBool() : false;
+}
+
+- (int)userIntegerPref:(const std::string&)prefName {
+  std::unique_ptr<base::Value> value = [self userPrefValue:prefName];
+  BOOL success = value && value->is_int();
+  EG_TEST_HELPER_ASSERT_TRUE(success, @"Expected int");
+  return success ? value->GetInt() : 0;
+}
+
+- (std::string)userStringPref:(const std::string&)prefName {
+  std::unique_ptr<base::Value> value = [self userPrefValue:prefName];
+  BOOL success = value && value->is_string();
+  EG_TEST_HELPER_ASSERT_TRUE(success, @"Expected string");
+  return success ? value->GetString() : "";
+}
+
 - (void)setBoolValue:(BOOL)value forUserPref:(const std::string&)UTF8PrefName {
   NSString* prefName = base::SysUTF8ToNSString(UTF8PrefName);
   return [ChromeEarlGreyAppInterface setBoolValue:value forUserPref:prefName];
@@ -836,6 +1036,13 @@ GREY_STUB_CLASS_IN_APP_MAIN_QUEUE(ChromeEarlGreyAppInterface)
 
 - (void)resetBrowsingDataPrefs {
   return [ChromeEarlGreyAppInterface resetBrowsingDataPrefs];
+}
+
+#pragma mark - Unified consent utilities
+
+- (void)setURLKeyedAnonymizedDataCollectionEnabled:(BOOL)enabled {
+  return [ChromeEarlGreyAppInterface
+      setURLKeyedAnonymizedDataCollectionEnabled:enabled];
 }
 
 @end

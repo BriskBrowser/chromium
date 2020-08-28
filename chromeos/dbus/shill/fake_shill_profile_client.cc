@@ -11,6 +11,7 @@
 #include "base/bind_helpers.h"
 #include "base/containers/adapters.h"
 #include "base/location.h"
+#include "base/logging.h"
 #include "base/single_thread_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/values.h"
@@ -29,16 +30,6 @@ struct FakeShillProfileClient::ProfileProperties {
   base::DictionaryValue entries;     // Dictionary of Service Dictionaries
   base::DictionaryValue properties;  // Dictionary of Profile properties
 };
-
-namespace {
-
-void PassDictionary(
-    ShillProfileClient::DictionaryValueCallbackWithoutStatus callback,
-    const base::DictionaryValue* dictionary) {
-  std::move(callback).Run(*dictionary);
-}
-
-}  // namespace
 
 FakeShillProfileClient::FakeShillProfileClient() = default;
 
@@ -62,20 +53,16 @@ void FakeShillProfileClient::GetProperties(
     return;
   }
 
-  auto entry_paths = std::make_unique<base::ListValue>();
-  for (base::DictionaryValue::Iterator it(profile->entries); !it.IsAtEnd();
-       it.Advance()) {
-    entry_paths->AppendString(it.key());
+  base::Value entry_paths(base::Value::Type::LIST);
+  for (const auto& it : profile->entries.DictItems()) {
+    entry_paths.Append(it.first);
   }
 
-  std::unique_ptr<base::DictionaryValue> properties =
-      profile->properties.CreateDeepCopy();
-  properties->SetWithoutPathExpansion(shill::kEntriesProperty,
-                                      std::move(entry_paths));
+  base::Value properties = profile->properties.Clone();
+  properties.SetKey(shill::kEntriesProperty, std::move(entry_paths));
 
   base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE, base::BindOnce(&PassDictionary, std::move(callback),
-                                base::Owned(properties.release())));
+      FROM_HERE, base::BindOnce(std::move(callback), std::move(properties)));
 }
 
 void FakeShillProfileClient::GetEntry(
@@ -89,8 +76,7 @@ void FakeShillProfileClient::GetEntry(
     return;
   }
 
-  base::DictionaryValue* entry = nullptr;
-  profile->entries.GetDictionaryWithoutPathExpansion(entry_path, &entry);
+  const base::Value* entry = profile->entries.FindDictKey(entry_path);
   if (!entry) {
     std::move(error_callback)
         .Run("Error.InvalidProfileEntry", "Invalid profile entry");
@@ -98,8 +84,7 @@ void FakeShillProfileClient::GetEntry(
   }
 
   base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE, base::BindOnce(&PassDictionary, std::move(callback),
-                                base::Owned(entry->DeepCopy())));
+      FROM_HERE, base::BindOnce(std::move(callback), entry->Clone()));
 }
 
 void FakeShillProfileClient::DeleteEntry(const dbus::ObjectPath& profile_path,
@@ -128,7 +113,7 @@ void FakeShillProfileClient::DeleteEntry(const dbus::ObjectPath& profile_path,
     return;
   }
 
-  if (!profile->entries.RemoveWithoutPathExpansion(entry_path, nullptr)) {
+  if (!profile->entries.RemoveKey(entry_path)) {
     base::ThreadTaskRunnerHandle::Get()->PostTask(
         FROM_HERE, base::BindOnce(std::move(error_callback),
                                   "Error.InvalidProfileEntry", entry_path));

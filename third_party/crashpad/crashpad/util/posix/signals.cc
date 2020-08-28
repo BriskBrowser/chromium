@@ -18,6 +18,7 @@
 
 #include <vector>
 
+#include "base/check_op.h"
 #include "base/logging.h"
 #include "base/stl_util.h"
 
@@ -81,10 +82,10 @@ constexpr int kTerminateSignals[] = {
 #if defined(SIGSTKFLT)
     SIGSTKFLT,
 #endif  // defined(SIGSTKFLT)
-#if defined(OS_MACOSX)
+#if defined(OS_APPLE)
     SIGXCPU,
     SIGXFSZ,
-#endif  // defined(OS_MACOSX)
+#endif  // defined(OS_APPLE)
 #if defined(OS_LINUX)
     SIGIO,
 #endif  // defined(OS_LINUX)

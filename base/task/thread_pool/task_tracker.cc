@@ -12,12 +12,13 @@
 #include "base/callback.h"
 #include "base/command_line.h"
 #include "base/compiler_specific.h"
-#include "base/debug/alias.h"
 #include "base/json/json_writer.h"
+#include "base/logging.h"
 #include "base/memory/ptr_util.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/optional.h"
 #include "base/sequence_token.h"
+#include "base/strings/string_util.h"
 #include "base/synchronization/condition_variable.h"
 #include "base/task/scoped_set_task_priority_for_current_thread.h"
 #include "base/task/task_executor.h"
@@ -26,7 +27,7 @@
 #include "base/threading/thread_restrictions.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
-#include "base/trace_event/trace_event.h"
+#include "base/trace_event/base_tracing.h"
 #include "base/values.h"
 #include "build/build_config.h"
 
@@ -487,16 +488,15 @@ RegisteredTaskSource TaskTracker::RunAndPopNextTask(
     RegisteredTaskSource task_source) {
   DCHECK(task_source);
 
-  const bool task_is_worker_task =
-      BeforeRunTask(task_source->shutdown_behavior());
+  const bool should_run_tasks = BeforeRunTask(task_source->shutdown_behavior());
 
   // Run the next task in |task_source|.
   Optional<Task> task;
-  TaskTraits traits{ThreadPool()};
+  TaskTraits traits;
   {
     auto transaction = task_source->BeginTransaction();
-    task = task_is_worker_task ? task_source.TakeTask(&transaction)
-                               : task_source.Clear(&transaction);
+    task = should_run_tasks ? task_source.TakeTask(&transaction)
+                            : task_source.Clear(&transaction);
     traits = transaction.traits();
   }
 
@@ -504,7 +504,7 @@ RegisteredTaskSource TaskTracker::RunAndPopNextTask(
     // Run the |task| (whether it's a worker task or the Clear() closure).
     RunTask(std::move(task.value()), task_source.get(), traits);
   }
-  if (task_is_worker_task)
+  if (should_run_tasks)
     AfterRunTask(task_source->shutdown_behavior());
   const bool task_source_must_be_queued = task_source.DidProcessTask();
   // |task_source| should be reenqueued iff requested by DidProcessTask().
@@ -593,7 +593,7 @@ void TaskTracker::RunTask(Task task,
     // Set up TaskRunnerHandle as expected for the scope of the task.
     Optional<SequencedTaskRunnerHandle> sequenced_task_runner_handle;
     Optional<ThreadTaskRunnerHandle> single_thread_task_runner_handle;
-    Optional<EphemeralTaskExecutor> ephemiral_task_executor;
+    Optional<EphemeralTaskExecutor> ephemeral_task_executor;
     switch (task_source->execution_mode()) {
       case TaskSourceExecutionMode::kJob:
       case TaskSourceExecutionMode::kParallel:
@@ -602,7 +602,7 @@ void TaskTracker::RunTask(Task task,
         DCHECK(task_source->task_runner());
         sequenced_task_runner_handle.emplace(
             static_cast<SequencedTaskRunner*>(task_source->task_runner()));
-        ephemiral_task_executor.emplace(
+        ephemeral_task_executor.emplace(
             static_cast<SequencedTaskRunner*>(task_source->task_runner()),
             nullptr, &traits);
         break;
@@ -610,7 +610,7 @@ void TaskTracker::RunTask(Task task,
         DCHECK(task_source->task_runner());
         single_thread_task_runner_handle.emplace(
             static_cast<SingleThreadTaskRunner*>(task_source->task_runner()));
-        ephemiral_task_executor.emplace(
+        ephemeral_task_executor.emplace(
             static_cast<SequencedTaskRunner*>(task_source->task_runner()),
             static_cast<SingleThreadTaskRunner*>(task_source->task_runner()),
             &traits);
@@ -761,21 +761,15 @@ void TaskTracker::CallFlushCallbackForTesting() {
 }
 
 NOINLINE void TaskTracker::RunContinueOnShutdown(Task* task) {
-  const int line_number = __LINE__;
   task_annotator_.RunTask("ThreadPool_RunTask_ContinueOnShutdown", task);
-  base::debug::Alias(&line_number);
 }
 
 NOINLINE void TaskTracker::RunSkipOnShutdown(Task* task) {
-  const int line_number = __LINE__;
   task_annotator_.RunTask("ThreadPool_RunTask_SkipOnShutdown", task);
-  base::debug::Alias(&line_number);
 }
 
 NOINLINE void TaskTracker::RunBlockShutdown(Task* task) {
-  const int line_number = __LINE__;
   task_annotator_.RunTask("ThreadPool_RunTask_BlockShutdown", task);
-  base::debug::Alias(&line_number);
 }
 
 void TaskTracker::RunTaskWithShutdownBehavior(

@@ -12,7 +12,6 @@
 #include <string>
 
 #include "base/compiler_specific.h"
-#include "base/logging.h"
 #include "base/macros.h"
 #include "base/no_destructor.h"
 #include "base/process/kill.h"
@@ -23,12 +22,14 @@
 #include "build/build_config.h"
 #include "content/public/browser/gpu_data_manager.h"
 #include "content/public/common/three_d_api_types.h"
+#include "gpu/config/device_perf_info.h"
 #include "gpu/config/gpu_control_list.h"
 #include "gpu/config/gpu_domain_guilt.h"
 #include "gpu/config/gpu_extra_info.h"
 #include "gpu/config/gpu_feature_info.h"
 #include "gpu/config/gpu_info.h"
 #include "gpu/config/gpu_mode.h"
+#include "ui/display/display_observer.h"
 
 class GURL;
 
@@ -40,13 +41,17 @@ namespace content {
 
 class GpuDataManagerImplPrivate;
 
-class CONTENT_EXPORT GpuDataManagerImpl : public GpuDataManager {
+class CONTENT_EXPORT GpuDataManagerImpl : public GpuDataManager,
+                                          public display::DisplayObserver {
  public:
   // Getter for the singleton. This will return NULL on failure.
   static GpuDataManagerImpl* GetInstance();
 
+  // This returns true after the first call of GetInstance().
+  static bool Initialized();
+
   // GpuDataManager implementation.
-  void BlacklistWebGLForTesting() override;
+  void BlocklistWebGLForTesting() override;
   gpu::GPUInfo GetGPUInfo() override;
   gpu::GpuFeatureStatus GetFeatureStatus(gpu::GpuFeatureType feature) override;
   bool GpuAccessAllowed(std::string* reason) override;
@@ -77,13 +82,21 @@ class CONTENT_EXPORT GpuDataManagerImpl : public GpuDataManager {
       const base::Optional<gpu::GPUInfo>& gpu_info_for_hardware_gpu);
 #if defined(OS_WIN)
   void UpdateDxDiagNode(const gpu::DxDiagNode& dx_diagnostics);
-  void UpdateDx12VulkanInfo(
-      const gpu::Dx12VulkanVersionInfo& dx12_vulkan_version_info);
+  void UpdateDx12Info(uint32_t d3d12_feature_level);
+  void UpdateVulkanInfo(uint32_t vulkan_version);
+  void UpdateDevicePerfInfo(const gpu::DevicePerfInfo& device_perf_info);
+  void UpdateOverlayInfo(const gpu::OverlayInfo& overlay_info);
+  void UpdateHDRStatus(bool hdr_enabled);
   void UpdateDxDiagNodeRequestStatus(bool request_continues);
-  void UpdateDx12VulkanRequestStatus(bool request_continues);
-  bool Dx12VulkanRequested() const;
+  void UpdateDx12RequestStatus(bool request_continues);
+  void UpdateVulkanRequestStatus(bool request_continues);
+  bool Dx12Requested() const;
+  bool VulkanRequested() const;
+  // Called from BrowserMainLoop::BrowserThreadsStarted().
+  void OnBrowserThreadsStarted();
+  void TerminateInfoCollectionGpuProcess();
 #endif
-  // Update the GPU feature info. This updates the blacklist and enabled status
+  // Update the GPU feature info. This updates the blocklist and enabled status
   // of GPU rasterization. In the future this will be used for more features.
   void UpdateGpuFeatureInfo(const gpu::GpuFeatureInfo& gpu_feature_info,
                             const base::Optional<gpu::GpuFeatureInfo>&
@@ -104,7 +117,7 @@ class CONTENT_EXPORT GpuDataManagerImpl : public GpuDataManager {
   // software compositing.
   void SetGpuCompositingDisabled();
 
-  // Update GpuPreferences based on blacklisting decisions.
+  // Update GpuPreferences based on blocklisting decisions.
   void UpdateGpuPreferences(gpu::GpuPreferences* gpu_preferences,
                             GpuProcessKind kind) const;
 
@@ -158,6 +171,10 @@ class CONTENT_EXPORT GpuDataManagerImpl : public GpuDataManager {
   // State tracking allows us to customize GPU process launch depending on
   // whether we are in the foreground or background.
   void SetApplicationVisible(bool is_visible);
+
+  // DisplayObserver overrides.
+  void OnDisplayAdded(const display::Display& new_display) override;
+  void OnDisplayRemoved(const display::Display& old_display) override;
 
  private:
   friend class GpuDataManagerImplPrivate;

@@ -103,6 +103,10 @@ struct StructTraits<
     return r.setting_value;
   }
 
+  static const base::Time& expiration(const ContentSettingPatternSource& r) {
+    return r.expiration;
+  }
+
   static const std::string& source(const ContentSettingPatternSource& r) {
     return r.source;
   }
@@ -128,11 +132,6 @@ struct StructTraits<
   static const std::vector<ContentSettingPatternSource>& script_rules(
       const RendererContentSettingRules& r) {
     return r.script_rules;
-  }
-
-  static const std::vector<ContentSettingPatternSource>& client_hints_rules(
-      const RendererContentSettingRules& r) {
-    return r.client_hints_rules;
   }
 
   static const std::vector<ContentSettingPatternSource>& popup_redirect_rules(

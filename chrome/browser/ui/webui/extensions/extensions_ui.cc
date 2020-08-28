@@ -12,6 +12,7 @@
 #include "base/command_line.h"
 #include "base/metrics/field_trial_params.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
@@ -29,7 +30,6 @@
 #include "chrome/grit/extensions_resources.h"
 #include "chrome/grit/extensions_resources_map.h"
 #include "chrome/grit/generated_resources.h"
-#include "chrome/grit/theme_resources.h"
 #include "components/google/core/common/google_util.h"
 #include "components/pref_registry/pref_registry_syncable.h"
 #include "components/prefs/pref_service.h"
@@ -40,8 +40,11 @@
 #include "extensions/browser/extension_prefs.h"
 #include "extensions/common/extension_features.h"
 #include "extensions/common/extension_urls.h"
+#include "extensions/grit/extensions_browser_resources.h"
+#include "services/network/public/mojom/content_security_policy.mojom.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
+#include "ui/base/webui/web_ui_util.h"
 
 #if defined(OS_CHROMEOS)
 #include "chrome/browser/chromeos/ownership/owner_settings_service_chromeos_factory.h"
@@ -73,6 +76,9 @@ content::WebUIDataSource* CreateMdExtensionsSource(Profile* profile,
   webui::SetupBundledWebUIDataSource(source, "extensions.js",
                                      IDR_EXTENSIONS_EXTENSIONS_ROLLUP_JS,
                                      IDR_EXTENSIONS_EXTENSIONS_HTML);
+  source->AddResourcePath("checkup_image.svg", IDR_EXTENSIONS_CHECKUP_IMAGE);
+  source->AddResourcePath("checkup_image_dark.svg",
+                          IDR_EXTENSIONS_CHECKUP_IMAGE_DARK);
 #else
   webui::SetupWebUIDataSource(
       source, base::make_span(kExtensionsResources, kExtensionsResourcesSize),
@@ -107,8 +113,7 @@ content::WebUIDataSource* CreateMdExtensionsSource(Profile* profile,
     {"toolbarTitle", IDS_EXTENSIONS_TOOLBAR_TITLE},
     {"mainMenu", IDS_EXTENSIONS_MENU_BUTTON_LABEL},
     {"search", IDS_EXTENSIONS_SEARCH},
-    // TODO(dpapad): Use a single merged string resource for "Clear search".
-    {"clearSearch", IDS_DOWNLOAD_CLEAR_SEARCH},
+    {"clearSearch", IDS_CLEAR_SEARCH},
     {"sidebarExtensions", IDS_EXTENSIONS_SIDEBAR_EXTENSIONS},
     {"appsTitle", IDS_EXTENSIONS_APPS_TITLE},
     {"noExtensionsOrApps", IDS_EXTENSIONS_NO_INSTALLED_ITEMS},
@@ -167,9 +172,9 @@ content::WebUIDataSource* CreateMdExtensionsSource(Profile* profile,
      IDS_EXTENSIONS_ACTIVITY_LOG_STREAM_TAB_HEADING},
     {"startActivityStream", IDS_EXTENSIONS_START_ACTIVITY_STREAM},
     {"stopActivityStream", IDS_EXTENSIONS_STOP_ACTIVITY_STREAM},
+    {"parentDisabledPermissions", IDS_EXTENSIONS_PERMISSIONS_OFF},
     {"emptyStreamStarted", IDS_EXTENSIONS_EMPTY_STREAM_STARTED},
     {"emptyStreamStopped", IDS_EXTENSIONS_EMPTY_STREAM_STOPPED},
-    {"enableButton", IDS_EXTENSIONS_ENABLE_BUTTON},
     {"activityArgumentsHeading", IDS_EXTENSIONS_ACTIVITY_ARGUMENTS_HEADING},
     {"webRequestInfoHeading", IDS_EXTENSIONS_WEB_REQUEST_INFO_HEADING},
     {"activityLogMoreActionsLabel",
@@ -378,7 +383,8 @@ ExtensionsUI::ExtensionsUI(content::WebUI* web_ui)
 
   // Need to allow <object> elements so that the <extensionoptions> browser
   // plugin can be loaded within chrome://extensions.
-  source->OverrideContentSecurityPolicyObjectSrc("object-src 'self';");
+  source->OverrideContentSecurityPolicy(
+      network::mojom::CSPDirectiveName::ObjectSrc, "object-src 'self';");
 
   content::WebUIDataSource::Add(profile, source);
 
@@ -387,16 +393,15 @@ ExtensionsUI::ExtensionsUI(content::WebUI* web_ui)
   // GetVisibleURL() because the load hasn't committed and this check isn't used
   // for a security decision, however a stronger check will be implemented if we
   // decide to invest more in this experiment.
-  if (web_ui->GetWebContents()->GetVisibleURL().query_piece().starts_with(
-          "checkup")) {
+  if (base::StartsWith(web_ui->GetWebContents()->GetVisibleURL().query_piece(),
+                       "checkup")) {
     ExtensionPrefs::Get(profile)->SetUserHasSeenExtensionsCheckupOnStartup(
         true);
   }
 }
 
 ExtensionsUI::~ExtensionsUI() {
-  if (timer_.has_value() &&
-      base::FeatureList::IsEnabled(extensions_features::kExtensionsCheckup))
+  if (timer_.has_value())
     UMA_HISTOGRAM_LONG_TIMES("Extensions.Checkup.TimeSpent", timer_->Elapsed());
 }
 

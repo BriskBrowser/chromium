@@ -75,10 +75,6 @@ struct DnsConfigOverrides {
   // Whether suffix search should be performed for multi-label names.
   Tristate append_to_multi_label_name = Tristate.NO_OVERRIDE;
 
-  // Whether source port randomization is required. This uses additional
-  // resources on some platforms.
-  Tristate randomize_ports = Tristate.NO_OVERRIDE;
-
   // Minimum number of dots before global resolution precedes |search|.
   int8 ndots = -1;  // -1 for no override.
 
@@ -219,8 +215,23 @@ struct ResolveHostParameters {
   // literals, etc.
   Source source = Source.ANY;
 
-  // If |false|, results will not come from the host cache.
-  bool allow_cached_response = true;
+  // Cache usage mode for ResolveHostRequest. Values corresponding to
+  // HostResolver::ResolveHostParameters::CacheUsage
+  enum CacheUsage {
+    // Results may come from the host cache if non-stale.
+    ALLOWED,
+
+    // Results may come from the host cache even if stale (by expiration or
+    // network changes).
+    STALE_ALLOWED,
+
+    // Results will not come from the host cache.
+    DISALLOWED,
+  };
+
+  // Indicates what DNS cache entries, if any, can be used to provide a
+  // response.
+  CacheUsage cache_usage = CacheUsage.ALLOWED;
 
   // If set, the outstanding request can be controlled, eg cancelled, via the
   // handle.

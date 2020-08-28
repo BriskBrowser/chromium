@@ -39,6 +39,7 @@
 #import "ios/web/security/web_interstitial_impl.h"
 #import "ios/web/session/session_certificate_policy_cache_impl.h"
 #import "ios/web/web_state/global_web_state_event_tracker.h"
+#import "ios/web/web_state/policy_decision_state_tracker.h"
 #import "ios/web/web_state/ui/crw_web_controller.h"
 #import "ios/web/web_state/ui/crw_web_controller_container_view.h"
 #import "ios/web/web_state/ui/crw_web_view_navigation_proxy.h"
@@ -53,6 +54,12 @@
 #endif
 
 namespace web {
+namespace {
+// Function used to implement the default WebState getters.
+web::WebState* ReturnWeakReference(base::WeakPtr<WebStateImpl> weak_web_state) {
+  return weak_web_state.get();
+}
+}  // namespace
 
 /* static */
 std::unique_ptr<WebState> WebState::Create(const CreateParams& params) {
@@ -84,6 +91,9 @@ WebStateImpl::WebStateImpl(const CreateParams& params,
       web_frames_manager_(*this),
       interstitial_(nullptr),
       created_with_opener_(params.created_with_opener),
+      user_agent_type_(features::UseWebClientDefaultUserAgent()
+                           ? UserAgentType::AUTOMATIC
+                           : UserAgentType::MOBILE),
       weak_factory_(this) {
   navigation_manager_ = std::make_unique<WKBasedNavigationManagerImpl>();
 
@@ -118,6 +128,14 @@ WebStateImpl::~WebStateImpl() {
   for (auto& observer : policy_deciders_)
     observer.ResetWebState();
   SetDelegate(nullptr);
+}
+
+WebState::Getter WebStateImpl::CreateDefaultGetter() {
+  return base::BindRepeating(&ReturnWeakReference, weak_factory_.GetWeakPtr());
+}
+
+WebState::OnceGetter WebStateImpl::CreateDefaultOnceGetter() {
+  return base::BindOnce(&ReturnWeakReference, weak_factory_.GetWeakPtr());
 }
 
 WebStateDelegate* WebStateImpl::GetDelegate() {
@@ -295,6 +313,13 @@ WebStateImpl::GetSessionCertificatePolicyCacheImpl() {
 }
 
 void WebStateImpl::CreateWebUI(const GURL& url) {
+  if (HasWebUI()) {
+    if (web_ui_->GetController()->GetHost() == url.host()) {
+      // Don't recreate webUI for the same host.
+      return;
+    }
+    ClearWebUI();
+  }
   web_ui_ = CreateWebUIIOS(url);
 }
 
@@ -377,10 +402,14 @@ void WebStateImpl::RunJavaScriptDialog(
                                  std::move(presenter_callback));
 }
 
-void WebStateImpl::JavaScriptDialogClosed(DialogClosedCallback callback,
-                                          bool success,
-                                          NSString* user_input) {
-  running_javascript_dialog_ = false;
+void WebStateImpl::JavaScriptDialogClosed(
+    base::WeakPtr<WebStateImpl> weak_web_state,
+    DialogClosedCallback callback,
+    bool success,
+    NSString* user_input) {
+  if (weak_web_state) {
+    weak_web_state->running_javascript_dialog_ = false;
+  }
   std::move(callback).Run(success, user_input);
 }
 
@@ -398,6 +427,23 @@ void WebStateImpl::CloseWebState() {
   if (delegate_) {
     delegate_->CloseWebState(this);
   }
+}
+
+UserAgentType WebStateImpl::GetUserAgentForNextNavigation(const GURL& url) {
+  if (user_agent_type_ == UserAgentType::AUTOMATIC) {
+    UIView* container =
+        GetWebViewContainer() ? GetWebViewContainer() : GetView();
+    return GetWebClient()->GetDefaultUserAgent(container, url);
+  }
+  return user_agent_type_;
+}
+
+UserAgentType WebStateImpl::GetUserAgentForSessionRestoration() const {
+  return user_agent_type_;
+}
+
+void WebStateImpl::SetUserAgent(UserAgentType user_agent) {
+  user_agent_type_ = user_agent;
 }
 
 void WebStateImpl::OnAuthRequired(
@@ -440,23 +486,41 @@ void WebStateImpl::SetContentsMimeType(const std::string& mime_type) {
   mime_type_ = mime_type;
 }
 
-bool WebStateImpl::ShouldAllowRequest(
+WebStatePolicyDecider::PolicyDecision WebStateImpl::ShouldAllowRequest(
     NSURLRequest* request,
     const WebStatePolicyDecider::RequestInfo& request_info) {
   for (auto& policy_decider : policy_deciders_) {
-    if (!policy_decider.ShouldAllowRequest(request, request_info))
-      return false;
+    WebStatePolicyDecider::PolicyDecision result =
+        policy_decider.ShouldAllowRequest(request, request_info);
+    if (result.ShouldCancelNavigation()) {
+      return result;
+    }
   }
-  return true;
+  return WebStatePolicyDecider::PolicyDecision::Allow();
 }
 
-bool WebStateImpl::ShouldAllowResponse(NSURLResponse* response,
-                                       bool for_main_frame) {
+void WebStateImpl::ShouldAllowResponse(
+    NSURLResponse* response,
+    bool for_main_frame,
+    base::OnceCallback<void(WebStatePolicyDecider::PolicyDecision)> callback) {
+  auto response_state_tracker =
+      std::make_unique<PolicyDecisionStateTracker>(std::move(callback));
+  PolicyDecisionStateTracker* response_state_tracker_ptr =
+      response_state_tracker.get();
+  auto policy_decider_callback = base::BindRepeating(
+      &PolicyDecisionStateTracker::OnSinglePolicyDecisionReceived,
+      base::Owned(std::move(response_state_tracker)));
+  int num_decisions_requested = 0;
   for (auto& policy_decider : policy_deciders_) {
-    if (!policy_decider.ShouldAllowResponse(response, for_main_frame))
-      return false;
+    policy_decider.ShouldAllowResponse(response, for_main_frame,
+                                       policy_decider_callback);
+    num_decisions_requested++;
+    if (response_state_tracker_ptr->DeterminedFinalResult())
+      break;
   }
-  return true;
+
+  response_state_tracker_ptr->FinishedRequestingDecisions(
+      num_decisions_requested);
 }
 
 bool WebStateImpl::ShouldPreviewLink(const GURL& link_url) {
@@ -474,6 +538,13 @@ void WebStateImpl::CommitPreviewingViewController(
   if (delegate_) {
     delegate_->CommitPreviewingViewController(this, previewing_view_controller);
   }
+}
+
+UIView* WebStateImpl::GetWebViewContainer() {
+  if (delegate_) {
+    return delegate_->GetWebViewContainer(this);
+  }
+  return nil;
 }
 
 #pragma mark - RequestTracker management
@@ -685,8 +756,6 @@ GURL WebStateImpl::GetCurrentURL(URLVerificationTrustLevel* trust_level) const {
   } else {
     equalOrigins = result.GetOrigin() == lastCommittedURL.GetOrigin();
   }
-  DCHECK(equalOrigins) << "Origin mismatch. URL: " << result.spec()
-                       << " Last committed: " << lastCommittedURL.spec();
   UMA_HISTOGRAM_BOOLEAN("Web.CurrentOriginEqualsLastCommittedOrigin",
                         equalOrigins);
   if (!equalOrigins || (item && item->IsUntrusted())) {
@@ -735,6 +804,18 @@ void WebStateImpl::TakeSnapshot(const gfx::RectF& rect,
                              }];
 }
 
+void WebStateImpl::CreateFullPagePdf(
+    base::OnceCallback<void(NSData*)> callback) {
+  // Move the callback to a __block pointer, which will be in scope as long
+  // as the callback is retained.
+  __block base::OnceCallback<void(NSData*)> callback_for_block =
+      std::move(callback);
+  [web_controller_
+      createFullPagePDFWithCompletion:^(NSData* pdf_document_data) {
+        std::move(callback_for_block).Run(pdf_document_data);
+      }];
+}
+
 void WebStateImpl::OnNavigationStarted(web::NavigationContextImpl* context) {
   // Navigation manager loads internal URLs to restore session history and
   // create back-forward entries for WebUI. Do not trigger external callbacks.
@@ -746,6 +827,11 @@ void WebStateImpl::OnNavigationStarted(web::NavigationContextImpl* context) {
 
   for (auto& observer : observers_)
     observer.DidStartNavigation(this, context);
+}
+
+void WebStateImpl::OnNavigationRedirected(web::NavigationContextImpl* context) {
+  for (auto& observer : observers_)
+    observer.DidRedirectNavigation(this, context);
 }
 
 void WebStateImpl::OnNavigationFinished(web::NavigationContextImpl* context) {
@@ -841,6 +927,10 @@ void WebStateImpl::OnNavigationItemCommitted(NavigationItem* item) {
 
 WebState* WebStateImpl::GetWebState() {
   return this;
+}
+
+void WebStateImpl::SetWebStateUserAgent(UserAgentType user_agent_type) {
+  SetUserAgent(user_agent_type);
 }
 
 id<CRWWebViewNavigationProxy> WebStateImpl::GetWebViewNavigationProxy() const {

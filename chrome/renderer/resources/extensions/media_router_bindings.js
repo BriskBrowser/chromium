@@ -9,15 +9,14 @@ if ((typeof mojo === 'undefined') || !mojo.bindingsLibraryInitialized) {
 }
 mojo.config.autoLoadMojomDeps = false;
 
-loadScript('chrome/common/media_router/mojom/media_controller.mojom');
-loadScript('chrome/common/media_router/mojom/media_router.mojom');
-loadScript('chrome/common/media_router/mojom/media_status.mojom');
+loadScript('components/media_router/common/mojom/media_controller.mojom');
+loadScript('components/media_router/common/mojom/media_router.mojom');
+loadScript('components/media_router/common/mojom/media_status.mojom');
 loadScript('components/mirroring/mojom/cast_message_channel.mojom');
 loadScript('components/mirroring/mojom/mirroring_service_host.mojom');
 loadScript('components/mirroring/mojom/session_observer.mojom');
 loadScript('components/mirroring/mojom/session_parameters.mojom');
 loadScript('extensions/common/mojom/keep_alive.mojom');
-loadScript('media/mojo/mojom/mirror_service_remoting.mojom');
 loadScript('media/mojo/mojom/remoting_common.mojom');
 loadScript('mojo/public/mojom/base/time.mojom');
 loadScript('mojo/public/mojom/base/unguessable_token.mojom');
@@ -149,6 +148,7 @@ IPEndpointAdapter.prototype.toNewVersion = function() {
  */
 function MediaStatusAdapter(fields) {
   this.title = null;
+  this.secondary_title = null;
   this.can_play_pause = false;
   this.can_mute = false;
   this.can_set_volume = false;
@@ -170,6 +170,7 @@ MediaStatusAdapter.PlayState = mediaRouter.mojom.MediaStatus.PlayState;
 MediaStatusAdapter.prototype.toNewVersion = function() {
   return new mediaRouter.mojom.MediaStatus({
     'title': this.title,
+    'secondaryTitle': this.secondary_title || '',
     'canPlayPause': this.can_play_pause,
     'canMute': this.can_mute,
     'canSetVolume': this.can_set_volume,
@@ -262,12 +263,12 @@ function MediaSinkExtraDataAdapter(value) {
   this.$data = null;
   this.$tag = undefined;
 
-  if (value == undefined) {
+  if (value === undefined) {
     return;
   }
 
   var keys = Object.keys(value);
-  if (keys.length == 0) {
+  if (keys.length === 0) {
     return;
   }
 
@@ -295,7 +296,7 @@ MediaSinkExtraDataAdapter.Tags = {
 
 Object.defineProperty(MediaSinkExtraDataAdapter.prototype, 'dial_media_sink', {
   get: function() {
-    if (this.$tag != MediaSinkExtraDataAdapter.Tags.dial_media_sink) {
+    if (this.$tag !== MediaSinkExtraDataAdapter.Tags.dial_media_sink) {
       throw new ReferenceError(
           'MediaSinkExtraDataAdapter.dial_media_sink is not currently set.');
     }
@@ -310,7 +311,7 @@ Object.defineProperty(MediaSinkExtraDataAdapter.prototype, 'dial_media_sink', {
 
 Object.defineProperty(MediaSinkExtraDataAdapter.prototype, 'cast_media_sink', {
   get: function() {
-    if (this.$tag != MediaSinkExtraDataAdapter.Tags.cast_media_sink) {
+    if (this.$tag !== MediaSinkExtraDataAdapter.Tags.cast_media_sink) {
       throw new ReferenceError(
           'MediaSinkExtraDataAdapter.cast_media_sink is not currently set.');
     }
@@ -324,7 +325,7 @@ Object.defineProperty(MediaSinkExtraDataAdapter.prototype, 'cast_media_sink', {
 });
 
 MediaSinkExtraDataAdapter.fromNewVersion = function(other) {
-  if (other.$tag == mediaRouter.mojom.MediaSinkExtraData.Tags.dialMediaSink) {
+  if (other.$tag === mediaRouter.mojom.MediaSinkExtraData.Tags.dialMediaSink) {
     return new MediaSinkExtraDataAdapter({
       'dial_media_sink':
           DialMediaSinkAdapter.fromNewVersion(other.dialMediaSink),
@@ -338,7 +339,7 @@ MediaSinkExtraDataAdapter.fromNewVersion = function(other) {
 };
 
 MediaSinkExtraDataAdapter.prototype.toNewVersion = function() {
-  if (this.$tag == MediaSinkExtraDataAdapter.Tags.dial_media_sink) {
+  if (this.$tag === MediaSinkExtraDataAdapter.Tags.dial_media_sink) {
     return new mediaRouter.mojom.MediaSinkExtraData({
       'dialMediaSink': this.dial_media_sink.toNewVersion(),
     });
@@ -347,100 +348,6 @@ MediaSinkExtraDataAdapter.prototype.toNewVersion = function() {
       'castMediaSink': this.cast_media_sink.toNewVersion(),
     });
   }
-};
-
-/**
- * Adapter for media.mojom.MirrorServiceRemoterPtr.
- * @constructor
- */
-function MirrorServiceRemoterPtrAdapter(handleOrPtrInfo) {
-  this.ptr = new mojo.InterfacePtrController(MirrorServiceRemoterAdapter,
-                                             handleOrPtrInfo);
-}
-
-MirrorServiceRemoterPtrAdapter.prototype =
-    Object.create(media.mojom.MirrorServiceRemoterPtr.prototype);
-MirrorServiceRemoterPtrAdapter.prototype.constructor =
-    MirrorServiceRemoterPtrAdapter;
-
-MirrorServiceRemoterPtrAdapter.prototype.startDataStreams = function() {
-  return MirrorServiceRemoterProxy.prototype.startDataStreams
-      .apply(this.ptr.getProxy(), arguments).then(function(response) {
-    return Promise.resolve({
-      'audio_stream_id': response.audioStreamId,
-      'video_stream_id': response.videoStreamId,
-    });
-  });
-};
-
-/**
- * Adapter for media.mojom.MirrorServiceRemoter.stubclass.
- * @constructor
- */
-function MirrorServiceRemoterStubAdapter(delegate) {
-  this.delegate_ = delegate;
-}
-
-MirrorServiceRemoterStubAdapter.prototype = Object.create(
-    media.mojom.MirrorServiceRemoter.stubClass.prototype);
-MirrorServiceRemoterStubAdapter.prototype.constructor =
-    MirrorServiceRemoterStubAdapter;
-
-MirrorServiceRemoterStubAdapter.prototype.startDataStreams =
-    function(hasAudio, hasVideo) {
-  return this.delegate_ && this.delegate_.startDataStreams &&
-      this.delegate_.startDataStreams(hasAudio, hasVideo).then(
-          function(response) {
-            return {
-              'audioStreamId': response.audio_stream_id,
-              'videoStreamId': response.video_stream_id,
-            };
-          });
-};
-
-/**
- * Adapter for media.mojom.MirrorServiceRemoter.
- */
-var MirrorServiceRemoterAdapter = {
-    name: 'media.mojom.MirrorServiceRemoter',
-    kVersion: 0,
-    ptrClass: MirrorServiceRemoterPtrAdapter,
-    proxyClass: media.mojom.MirrorServiceRemoter.proxyClass,
-    stubClass: MirrorServiceRemoterStubAdapter,
-    validateRequest: media.mojom.MirrorServiceRemoter.validateRequest,
-    validateResponse: media.mojom.MirrorServiceRemoter.validateResponse,
-};
-
-/**
- * Adapter for media.mojom.MirrorServiceRemotingSourcePtr.
- * @constructor
- */
-function MirrorServiceRemotingSourcePtrAdapter(handleOrPtrInfo) {
-  this.ptr = new mojo.InterfacePtrController(MirrorServiceRemotingSourceAdapter,
-                                             handleOrPtrInfo);
-}
-
-MirrorServiceRemotingSourcePtrAdapter.prototype =
-    Object.create(media.mojom.MirrorServiceRemotingSourcePtr.prototype);
-MirrorServiceRemotingSourcePtrAdapter.prototype.constructor =
-    MirrorServiceRemotingSourcePtrAdapter;
-
-MirrorServiceRemotingSourcePtrAdapter.prototype.onSinkAvailable =
-    function(metadata) {
-  return this.ptr.getProxy().onSinkAvailable(metadata.toNewVersion());
-};
-
-/**
- * Adapter for media.mojom.MirrorServiceRemotingSource.
- */
-var MirrorServiceRemotingSourceAdapter = {
-    name: 'media.mojom.MirrorServiceRemotingSource',
-    kVersion: 0,
-    ptrClass: MirrorServiceRemotingSourcePtrAdapter,
-    proxyClass: media.mojom.MirrorServiceRemotingSource.proxyClass,
-    stubClass: null,
-    validateRequest: media.mojom.MirrorServiceRemotingSource.validateRequest,
-    validateResponse: null,
 };
 
 /**
@@ -534,7 +441,7 @@ function routeToMojo_(route) {
     'iconUrl': route.iconUrl,
     'isLocal': route.isLocal,
     'forDisplay': route.forDisplay,
-    'isIncognito': route.offTheRecord,
+    'isOffTheRecord': route.offTheRecord,
     'isLocalPresentation': route.isOffscreenPresentation,
     'controllerType': route.controllerType,
     'presentationId': route.presentationId,
@@ -550,7 +457,7 @@ function routeToMojo_(route) {
  * @return {!mediaRouter.mojom.RouteMessage} A Mojo RouteMessage object.
  */
 function messageToMojo_(message) {
-  if ("string" == typeof message.message) {
+  if ('string' === typeof message.message) {
     return new mediaRouter.mojom.RouteMessage({
       'type': mediaRouter.mojom.RouteMessage.Type.TEXT,
       'message': message.message,
@@ -747,9 +654,6 @@ MediaRouter.prototype.getMojoExports = function() {
     MirroringSessionType: mirroring.mojom.SessionType,
     MirroringRemotingNamespace: mirroring.mojom.REMOTING_NAMESPACE,
     MirroringWebRtcNamespace: mirroring.mojom.WEB_RTC_NAMESPACE,
-    MirrorServiceRemoter: MirrorServiceRemoterAdapter,
-    MirrorServiceRemoterPtr: MirrorServiceRemoterPtrAdapter,
-    MirrorServiceRemotingSourcePtr: MirrorServiceRemotingSourcePtrAdapter,
     RemotingStopReason: media.mojom.RemotingStopReason,
     RemotingStartFailReason: media.mojom.RemotingStartFailReason,
     RemotingSinkFeature: media.mojom.RemotingSinkFeature,
@@ -825,20 +729,6 @@ MediaRouter.prototype.onSinksReceived = function(sourceUrn, sinks, origins) {
 };
 
 /**
- * Called by the provider manager when a sink is found to notify the MR of the
- * sink's ID. The actual sink will be returned through the normal sink list
- * update process, so this helps the MR identify the search result in the
- * list.
- * @param {string} pseudoSinkId  ID of the pseudo sink that started the
- *     search.
- * @param {string} sinkId ID of the newly-found sink.
- */
-MediaRouter.prototype.onSearchSinkIdReceived = function(
-    pseudoSinkId, sinkId) {
-  this.service_.onSearchSinkIdReceived(pseudoSinkId, sinkId);
-};
-
-/**
  * Called by the provider manager to keep the extension from suspending
  * if it enters a state where suspension is undesirable (e.g. there is an
  * active MediaRoute.)
@@ -853,8 +743,7 @@ MediaRouter.prototype.setKeepAlive = function(keepAlive) {
   } else if (keepAlive === true && !this.keepAlive_) {
     this.keepAlive_ = new extensions.KeepAlivePtr;
     Mojo.bindInterface(
-        extensions.KeepAlive.name, mojo.makeRequest(this.keepAlive_).handle,
-        'context', true);
+        extensions.KeepAlive.name, mojo.makeRequest(this.keepAlive_).handle);
   }
 };
 
@@ -965,24 +854,18 @@ MediaRouter.prototype.onRouteMessagesReceived = function(routeId, messages) {
 };
 
 /**
- * @param {number} tabId
- * @param {!media.mojom.MirrorServiceRemoterPtr} remoter
- * @param {!mojo.InterfaceRequest} remotingSource
- */
-MediaRouter.prototype.onMediaRemoterCreated = function(tabId, remoter,
-    remotingSource) {
-  this.service_.onMediaRemoterCreated(
-      tabId,
-      new media.mojom.MirrorServiceRemoterPtr(remoter.ptr.passInterface()),
-      remotingSource);
-}
-
-/**
  * Returns current status of media sink service in JSON format.
  * @return {!Promise<!{status: string}>}
  */
 MediaRouter.prototype.getMediaSinkServiceStatus = function() {
   return this.service_.getMediaSinkServiceStatus();
+}
+
+/**
+ * @return {!Promise<!{status: string}>}
+ */
+MediaRouter.prototype.getLogsAsString = function() {
+  return this.service_.getLogsAsString();
 }
 
 /**
@@ -1099,11 +982,6 @@ function MediaRouterHandlers() {
   this.updateMediaSinks = null;
 
   /**
-   * @type {function(string, string, !SinkSearchCriteria): string}
-   */
-  this.searchSinks = null;
-
-  /**
    * @type {function()}
    */
   this.provideSinks = null;
@@ -1159,7 +1037,6 @@ MediaRouteProvider.prototype.setHandlers = function(handlers) {
     'connectRouteByRouteId',
     'enableMdnsDiscovery',
     'updateMediaSinks',
-    'searchSinks',
     'provideSinks',
     'createMediaRouteController',
     'onBeforeInvokeHandler'
@@ -1205,19 +1082,19 @@ MediaRouteProvider.prototype.stopObservingMediaSinks =
  * @param {!number} tabId ID of tab requesting presentation.
  * @param {!mojo_base.mojom.TimeDelta} timeout If positive, the timeout
  *     duration for the request. Otherwise, the default duration will be used.
- * @param {!boolean} incognito If true, the route is being requested by
- *     an incognito profile.
+ * @param {!boolean} off_the_record If true, the route is being requested by
+ *     an off_the_record profile.
  * @return {!Promise.<!Object>} A Promise resolving to an object describing
  *     the newly created media route, or rejecting with an error message on
  *     failure.
  */
 MediaRouteProvider.prototype.createRoute =
     function(sourceUrn, sinkId, presentationId, origin, tabId,
-             timeout, incognito) {
+             timeout, off_the_record) {
   this.handlers_.onBeforeInvokeHandler();
   return this.handlers_.createRoute(
       sourceUrn, sinkId, presentationId, origin, tabId,
-      Math.floor(timeout.microseconds / 1000), incognito)
+      Math.floor(timeout.microseconds / 1000), off_the_record)
       .then(function(route) {
         return toSuccessRouteResponse_(route);
       },
@@ -1236,19 +1113,19 @@ MediaRouteProvider.prototype.createRoute =
  * @param {!number} tabId ID of tab requesting join.
  * @param {!mojo_base.mojom.TimeDelta} timeout If positive, the timeout
  *     duration for the request. Otherwise, the default duration will be used.
- * @param {!boolean} incognito If true, the route is being requested by
- *     an incognito profile.
+ * @param {!boolean} off_the_record If true, the route is being requested by
+ *     an off_the_record profile.
  * @return {!Promise.<!Object>} A Promise resolving to an object describing
  *     the newly created media route, or rejecting with an error message on
  *     failure.
  */
 MediaRouteProvider.prototype.joinRoute =
     function(sourceUrn, presentationId, origin, tabId, timeout,
-             incognito) {
+             off_the_record) {
   this.handlers_.onBeforeInvokeHandler();
   return this.handlers_.joinRoute(
       sourceUrn, presentationId, origin, tabId,
-      Math.floor(timeout.microseconds / 1000), incognito)
+      Math.floor(timeout.microseconds / 1000), off_the_record)
       .then(function(route) {
         return toSuccessRouteResponse_(route);
       },
@@ -1268,19 +1145,19 @@ MediaRouteProvider.prototype.joinRoute =
  * @param {!number} tabId ID of tab requesting join.
  * @param {!mojo_base.mojom.TimeDelta} timeout If positive, the timeout
  *     duration for the request. Otherwise, the default duration will be used.
- * @param {!boolean} incognito If true, the route is being requested by
- *     an incognito profile.
+ * @param {!boolean} off_the_record If true, the route is being requested by
+ *     an off_the_record profile.
  * @return {!Promise.<!Object>} A Promise resolving to an object describing
  *     the newly created media route, or rejecting with an error message on
  *     failure.
  */
 MediaRouteProvider.prototype.connectRouteByRouteId =
     function(sourceUrn, routeId, presentationId, origin, tabId,
-             timeout, incognito) {
+             timeout, off_the_record) {
   this.handlers_.onBeforeInvokeHandler();
   return this.handlers_.connectRouteByRouteId(
       sourceUrn, routeId, presentationId, origin, tabId,
-      Math.floor(timeout.microseconds / 1000), incognito)
+      Math.floor(timeout.microseconds / 1000), off_the_record)
       .then(function(route) {
         return toSuccessRouteResponse_(route);
       },
@@ -1392,32 +1269,6 @@ MediaRouteProvider.prototype.updateMediaSinks = function(sourceUrn) {
 };
 
 /**
- * Requests that the provider manager search its providers for a sink matching
- * |searchCriteria| that is compatible with |sourceUrn|. If a sink is found
- * that can be used immediately for route creation, its ID is returned.
- * Otherwise the empty string is returned.
- *
- * @param {string} sinkId Sink ID of the pseudo sink generating the request.
- * @param {string} sourceUrn Media source to be used with the sink.
- * @param {!SinkSearchCriteria} searchCriteria Search criteria for the route
- *     providers.
- * @return {!Promise.<!{sink_id: !string}>} A Promise resolving to either the
- *     sink ID of the sink found by the search that can be used for route
- *     creation, or the empty string if no route can be immediately created.
- */
-MediaRouteProvider.prototype.searchSinks = function(
-    sinkId, sourceUrn, searchCriteria) {
-  this.handlers_.onBeforeInvokeHandler();
- return this.handlers_.searchSinks(sinkId, sourceUrn, searchCriteria).then(
-      sinkId => {
-        return { 'sinkId': sinkId };
-      },
-      () => {
-        return { 'sinkId': '' };
-      });
-};
-
-/**
  * Notifies the provider manager that MediaRouter has discovered a list of
  * sinks.
  * @param {string} providerName
@@ -1451,6 +1302,5 @@ MediaRouteProvider.prototype.createMediaRouteController = function(
 
 var ptr = new mediaRouter.mojom.MediaRouterPtr;
 Mojo.bindInterface(
-    mediaRouter.mojom.MediaRouter.name, mojo.makeRequest(ptr).handle, 'context',
-    true);
+    mediaRouter.mojom.MediaRouter.name, mojo.makeRequest(ptr).handle);
 exports.$set('returnValue', new MediaRouter(ptr));

@@ -11,6 +11,7 @@
 #include "components/autofill/core/common/password_form.h"
 #import "ios/chrome/browser/passwords/ios_chrome_save_password_infobar_delegate.h"
 #include "testing/gmock/include/gmock/gmock.h"
+#include "url/gurl.h"
 
 // Mock queue observer.
 class MockIOSChromeSavePasswordInfoBarDelegate
@@ -23,21 +24,26 @@ class MockIOSChromeSavePasswordInfoBarDelegate
   ~MockIOSChromeSavePasswordInfoBarDelegate() override;
 
   // Factory method that creates a mock save password delegate for pending
-  // with credentials |username| and |password|.
+  // with credentials |username| and |password| for the page at |url|.
   static std::unique_ptr<MockIOSChromeSavePasswordInfoBarDelegate> Create(
       NSString* username,
-      NSString* password);
+      NSString* password,
+      const GURL& url = GURL::EmptyGURL());
 
   MOCK_METHOD0(InfoBarDismissed, void());
+  MOCK_METHOD2(UpdateCredentials, void(NSString* username, NSString* password));
   MOCK_METHOD0(Accept, bool());
+  MOCK_METHOD0(Cancel, bool());
   MOCK_METHOD1(InfobarPresenting, void(bool automatic));
   MOCK_METHOD0(InfobarDismissed, void());
 
  private:
-  explicit MockIOSChromeSavePasswordInfoBarDelegate(
-      std::unique_ptr<autofill::PasswordForm> form);
+  MockIOSChromeSavePasswordInfoBarDelegate(
+      std::unique_ptr<autofill::PasswordForm> form,
+      std::unique_ptr<GURL> url);
 
   std::unique_ptr<autofill::PasswordForm> form_;
+  std::unique_ptr<GURL> url_;
 };
 
 #endif  // IOS_CHROME_BROWSER_PASSWORDS_TEST_MOCK_IOS_CHROME_SAVE_PASSWORDS_INFOBAR_DELEGATE_H_

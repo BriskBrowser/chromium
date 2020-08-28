@@ -10,13 +10,15 @@
 #include <map>
 #include <memory>
 #include <set>
+#include <utility>
 #include <vector>
 
 #include "base/bind.h"
 #include "base/containers/stack.h"
+#include "base/json/json_reader.h"
 #include "base/stl_util.h"
 #include "base/strings/stringprintf.h"
-#include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
 #include "base/test/test_timeouts.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "content/browser/frame_host/frame_tree_node.h"
@@ -40,17 +42,27 @@
 #include "content/public/test/test_navigation_observer.h"
 #include "content/shell/browser/shell.h"
 #include "content/shell/browser/shell_javascript_dialog_manager.h"
-#include "net/url_request/url_request.h"
 
 namespace content {
 
-void NavigateFrameToURL(FrameTreeNode* node, const GURL& url) {
+bool NavigateFrameToURL(FrameTreeNode* node, const GURL& url) {
   TestFrameNavigationObserver observer(node);
   NavigationController::LoadURLParams params(url);
   params.transition_type = ui::PAGE_TRANSITION_LINK;
   params.frame_tree_node_id = node->frame_tree_node_id();
-  node->navigator()->GetController()->LoadURLWithParams(params);
+  node->navigator().GetController()->LoadURLWithParams(params);
   observer.Wait();
+
+  if (!observer.last_navigation_succeeded()) {
+    DLOG(WARNING) << "Navigation did not succeed: " << url;
+    return false;
+  }
+  if (url != node->current_url()) {
+    DLOG(WARNING) << "Expected URL " << url << " but observed "
+                  << node->current_url();
+    return false;
+  }
+  return true;
 }
 
 void SetShouldProceedOnBeforeUnload(Shell* shell, bool proceed, bool success) {
@@ -171,7 +183,8 @@ std::string FrameTreeVisualizer::DepictFrameTree(FrameTreeNode* root) {
         line = "  |--";
       else
         line = "  +--";
-      for (FrameTreeNode* up = node->parent(); up != root; up = up->parent()) {
+      for (FrameTreeNode* up = node->parent()->frame_tree_node(); up != root;
+           up = FrameTreeNode::From(up->parent())) {
         if (up->parent()->child_at(up->parent()->child_count() - 1) != up)
           line = "  |  " + line;
         else
@@ -269,6 +282,9 @@ std::string FrameTreeVisualizer::GetName(SiteInstance* site_instance) {
 Shell* OpenPopup(const ToRenderFrameHost& opener,
                  const GURL& url,
                  const std::string& name) {
+  TestNavigationObserver observer(url);
+  observer.StartWatchingNewWebContents();
+
   ShellAddedObserver new_shell_observer;
   bool did_create_popup = false;
   bool did_execute_script = ExecuteScriptAndExtractBool(
@@ -279,9 +295,12 @@ Shell* OpenPopup(const ToRenderFrameHost& opener,
   if (!did_execute_script || !did_create_popup)
     return nullptr;
 
+  observer.Wait();
+
   Shell* new_shell = new_shell_observer.GetShell();
-  WaitForLoadStop(new_shell->web_contents());
-  return new_shell;
+  EXPECT_EQ(url,
+            new_shell->web_contents()->GetMainFrame()->GetLastCommittedURL());
+  return new_shell_observer.GetShell();
 }
 
 FileChooserDelegate::FileChooserDelegate(const base::FilePath& file,
@@ -292,7 +311,7 @@ FileChooserDelegate::~FileChooserDelegate() = default;
 
 void FileChooserDelegate::RunFileChooser(
     RenderFrameHost* render_frame_host,
-    std::unique_ptr<content::FileSelectListener> listener,
+    scoped_refptr<content::FileSelectListener> listener,
     const blink::mojom::FileChooserParams& params) {
   // Send the selected file to the renderer process.
   auto file_info = blink::mojom::FileChooserFileInfo::NewNativeFile(
@@ -344,54 +363,41 @@ void UrlCommitObserver::DidFinishNavigation(
   }
 }
 
-RenderProcessHostKillWaiter::RenderProcessHostKillWaiter(
+RenderProcessHostBadIpcMessageWaiter::RenderProcessHostBadIpcMessageWaiter(
     RenderProcessHost* render_process_host)
-    : exit_watcher_(render_process_host,
-                    RenderProcessHostWatcher::WATCH_FOR_PROCESS_EXIT) {}
+    : internal_waiter_(render_process_host,
+                       "Stability.BadMessageTerminated.Content") {}
 
 base::Optional<bad_message::BadMessageReason>
-RenderProcessHostKillWaiter::Wait() {
-  base::Optional<bad_message::BadMessageReason> result;
-
-  // Wait for the renderer kill.
-  exit_watcher_.Wait();
-  if (exit_watcher_.did_exit_normally())
-    return result;
-
-  // Find the logged Stability.BadMessageTerminated.Content data (if present).
-  std::vector<base::Bucket> uma_samples =
-      histogram_tester_.GetAllSamples("Stability.BadMessageTerminated.Content");
-  // No UMA will be present if the kill was not trigerred by the //content layer
-  // (e.g. if it was trigerred by bad_message::ReceivedBadMessage from //chrome
-  // layer or from somewhere in the //components layer).
-  if (uma_samples.empty())
-    return result;
-  const base::Bucket& bucket = uma_samples.back();
-  // Assumming that user of RenderProcessHostKillWatcher makes sure that only
-  // one kill can happen while using the class.
-  DCHECK_EQ(1u, uma_samples.size())
-      << "Multiple renderer kills are unsupported";
-
-  // Translate contents of the bucket into bad_message::BadMessageReason.
-  return static_cast<bad_message::BadMessageReason>(bucket.min);
+RenderProcessHostBadIpcMessageWaiter::Wait() {
+  base::Optional<int> internal_result = internal_waiter_.Wait();
+  if (!internal_result.has_value())
+    return base::nullopt;
+  return static_cast<bad_message::BadMessageReason>(internal_result.value());
 }
 
-ShowWidgetMessageFilter::ShowWidgetMessageFilter()
-#if defined(OS_MACOSX) || defined(OS_ANDROID)
-    : content::BrowserMessageFilter(FrameMsgStart),
+ShowWidgetMessageFilter::ShowWidgetMessageFilter(WebContents* web_contents)
+#if defined(OS_MAC) || defined(OS_ANDROID)
+    : BrowserMessageFilter(FrameMsgStart),
 #else
-    : content::BrowserMessageFilter(ViewMsgStart),
+    : BrowserMessageFilter(ViewMsgStart),
 #endif
-      message_loop_runner_(new content::MessageLoopRunner) {
+      run_loop_(std::make_unique<base::RunLoop>()) {
+  WebContentsObserver::Observe(web_contents);
 }
 
-ShowWidgetMessageFilter::~ShowWidgetMessageFilter() {}
+ShowWidgetMessageFilter::~ShowWidgetMessageFilter() {
+  DCHECK(is_shut_down_);
+}
+
+void ShowWidgetMessageFilter::Shutdown() {
+  WebContentsObserver::Observe(nullptr);
+  is_shut_down_ = true;
+}
 
 bool ShowWidgetMessageFilter::OnMessageReceived(const IPC::Message& message) {
   IPC_BEGIN_MESSAGE_MAP(ShowWidgetMessageFilter, message)
-#if defined(OS_MACOSX) || defined(OS_ANDROID)
-    IPC_MESSAGE_HANDLER(FrameHostMsg_ShowPopup, OnShowPopup)
-#else
+#if !defined(OS_MAC) && !defined(OS_ANDROID)
     IPC_MESSAGE_HANDLER(ViewHostMsg_ShowWidget, OnShowWidget)
 #endif
   IPC_END_MESSAGE_MAP()
@@ -399,28 +405,39 @@ bool ShowWidgetMessageFilter::OnMessageReceived(const IPC::Message& message) {
 }
 
 void ShowWidgetMessageFilter::Wait() {
-  message_loop_runner_->Run();
+  DCHECK(!is_shut_down_);
+  run_loop_->Run();
 }
 
 void ShowWidgetMessageFilter::Reset() {
+  DCHECK(!is_shut_down_);
   initial_rect_ = gfx::Rect();
   routing_id_ = MSG_ROUTING_NONE;
-  message_loop_runner_ = new content::MessageLoopRunner;
+  run_loop_ = std::make_unique<base::RunLoop>();
 }
 
 void ShowWidgetMessageFilter::OnShowWidget(int route_id,
                                            const gfx::Rect& initial_rect) {
-  base::PostTask(FROM_HERE, {content::BrowserThread::UI},
-                 base::BindOnce(&ShowWidgetMessageFilter::OnShowWidgetOnUI,
+  content::GetUIThreadTaskRunner({})->PostTask(
+      FROM_HERE, base::BindOnce(&ShowWidgetMessageFilter::OnShowWidgetOnUI,
                                 this, route_id, initial_rect));
 }
 
-#if defined(OS_MACOSX) || defined(OS_ANDROID)
-void ShowWidgetMessageFilter::OnShowPopup(
-    const FrameHostMsg_ShowPopup_Params& params) {
-  base::PostTask(FROM_HERE, {content::BrowserThread::UI},
-                 base::BindOnce(&ShowWidgetMessageFilter::OnShowWidgetOnUI,
-                                this, MSG_ROUTING_NONE, params.bounds));
+#if defined(OS_MAC) || defined(OS_ANDROID)
+bool ShowWidgetMessageFilter::ShowPopupMenu(
+    RenderFrameHost* render_frame_host,
+    mojo::PendingRemote<blink::mojom::PopupMenuClient>* popup_client,
+    const gfx::Rect& bounds,
+    int32_t item_height,
+    double font_size,
+    int32_t selected_item,
+    std::vector<blink::mojom::MenuItemPtr>* menu_items,
+    bool right_aligned,
+    bool allow_multiple_selection) {
+  content::GetUIThreadTaskRunner({})->PostTask(
+      FROM_HERE, base::BindOnce(&ShowWidgetMessageFilter::OnShowWidgetOnUI,
+                                this, MSG_ROUTING_NONE, bounds));
+  return true;
 }
 #endif
 
@@ -428,7 +445,7 @@ void ShowWidgetMessageFilter::OnShowWidgetOnUI(int route_id,
                                                const gfx::Rect& initial_rect) {
   initial_rect_ = initial_rect;
   routing_id_ = route_id;
-  message_loop_runner_->Quit();
+  run_loop_->Quit();
 }
 
 DropMessageFilter::DropMessageFilter(uint32_t message_class,
@@ -459,8 +476,8 @@ bool ObserveMessageFilter::OnMessageReceived(const IPC::Message& message) {
     // Exit the Wait() method if it's being used, but in a fresh stack once the
     // message is actually handled.
     if (quit_closure_ && !received_) {
-      base::PostTask(FROM_HERE,
-                     base::BindOnce(&ObserveMessageFilter::QuitWait, this));
+      base::ThreadPool::PostTask(
+          FROM_HERE, base::BindOnce(&ObserveMessageFilter::QuitWait, this));
     }
     received_ = true;
   }
@@ -543,6 +560,68 @@ bool BeforeUnloadBlockingDelegate::HandleJavaScriptDialog(
     const base::string16* prompt_override) {
   NOTREACHED();
   return true;
+}
+
+namespace {
+static constexpr int kEnableLogMessageId = 0;
+static constexpr char kEnableLogMessage[] = R"({"id":0,"method":"Log.enable"})";
+static constexpr int kDisableLogMessageId = 1;
+static constexpr char kDisableLogMessage[] =
+    R"({"id":1,"method":"Log.disable"})";
+}  // namespace
+
+DevToolsInspectorLogWatcher::DevToolsInspectorLogWatcher(
+    WebContents* web_contents) {
+  host_ = DevToolsAgentHost::GetOrCreateFor(web_contents);
+  host_->AttachClient(this);
+
+  host_->DispatchProtocolMessage(
+      this, base::as_bytes(
+                base::make_span(kEnableLogMessage, strlen(kEnableLogMessage))));
+
+  run_loop_enable_log_.Run();
+}
+
+DevToolsInspectorLogWatcher::~DevToolsInspectorLogWatcher() {
+  host_->DetachClient(this);
+}
+
+void DevToolsInspectorLogWatcher::DispatchProtocolMessage(
+    DevToolsAgentHost* host,
+    base::span<const uint8_t> message) {
+  base::StringPiece message_str(reinterpret_cast<const char*>(message.data()),
+                                message.size());
+  auto parsed_message = base::JSONReader::Read(message_str);
+  base::Optional<int> command_id = parsed_message->FindIntPath("id");
+  if (command_id.has_value()) {
+    switch (command_id.value()) {
+      case kEnableLogMessageId:
+        run_loop_enable_log_.Quit();
+        break;
+      case kDisableLogMessageId:
+        run_loop_disable_log_.Quit();
+        break;
+      default:
+        NOTREACHED();
+    }
+    return;
+  }
+
+  std::string* notification = parsed_message->FindStringPath("method");
+  if (notification && *notification == "Log.entryAdded") {
+    std::string* text = parsed_message->FindStringPath("params.entry.text");
+    DCHECK(text);
+    last_message_ = *text;
+  }
+}
+
+void DevToolsInspectorLogWatcher::AgentHostClosed(DevToolsAgentHost* host) {}
+
+void DevToolsInspectorLogWatcher::FlushAndStopWatching() {
+  host_->DispatchProtocolMessage(
+      this, base::as_bytes(base::make_span(kDisableLogMessage,
+                                           strlen(kDisableLogMessage))));
+  run_loop_disable_log_.Run();
 }
 
 }  // namespace content

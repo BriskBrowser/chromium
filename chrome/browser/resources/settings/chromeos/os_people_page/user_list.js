@@ -51,7 +51,7 @@ Polymer({
     chrome.settingsPrivate.onPrefsChanged.addListener(prefs => {
       prefs.forEach(function(pref) {
         if (pref.key == 'cros.accounts.users') {
-          chrome.usersPrivate.getWhitelistedUsers(users => {
+          chrome.usersPrivate.getUsers(users => {
             this.setUsers_(users);
           });
         }
@@ -61,8 +61,9 @@ Polymer({
 
   /** @protected */
   currentRouteChanged() {
-    if (settings.getCurrentRoute() == settings.routes.ACCOUNTS) {
-      chrome.usersPrivate.getWhitelistedUsers(users => {
+    if (settings.Router.getInstance().getCurrentRoute() ==
+        settings.routes.ACCOUNTS) {
+      chrome.usersPrivate.getUsers(users => {
         this.setUsers_(users);
       });
     }
@@ -98,7 +99,7 @@ Polymer({
    * @param {!{model: !{item: !chrome.usersPrivate.User}}} e
    */
   removeUser_(e) {
-    chrome.usersPrivate.removeWhitelistedUser(
+    chrome.usersPrivate.removeUser(
         e.model.item.email, /* callback */ function() {});
   },
 

@@ -155,16 +155,16 @@ class CORE_EXPORT NGPaintFragment : public RefCounted<NGPaintFragment>,
   bool IsDirty() const { return is_dirty_inline_; }
 
   // Returns offset to its container box for inline and line box fragments.
-  const PhysicalOffset& InlineOffsetToContainerBox() const {
+  const PhysicalOffset& OffsetInContainerBlock() const {
     DCHECK(PhysicalFragment().IsInline() || PhysicalFragment().IsLineBox());
     return inline_offset_to_container_box_;
+  }
+  const PhysicalRect RectInContainerBlock() const {
+    return PhysicalRect(OffsetInContainerBlock(), Size());
   }
 
   // InkOverflow of itself, not including contents, in the local coordinate.
   PhysicalRect SelfInkOverflow() const;
-
-  // InkOverflow of its contents, not including itself, in the local coordinate.
-  PhysicalRect ContentsInkOverflow() const;
 
   // InkOverflow of itself, including contents if they contribute to the ink
   // overflow of this object (e.g. when not clipped,) in the local coordinate.
@@ -174,12 +174,11 @@ class CORE_EXPORT NGPaintFragment : public RefCounted<NGPaintFragment>,
 
   // TODO(layout-dev): Implement when we have oveflow support.
   // TODO(eae): Switch to using NG geometry types.
-  bool HasOverflowClip() const { return PhysicalFragment().HasOverflowClip(); }
+  bool HasNonVisibleOverflow() const {
+    return PhysicalFragment().HasNonVisibleOverflow();
+  }
   bool ShouldClipOverflow() const;
   bool HasSelfPaintingLayer() const;
-  // This is equivalent to LayoutObject::VisualRect
-  IntRect VisualRect() const override;
-  IntRect PartialInvalidationVisualRect() const override;
 
   // Set ShouldDoFullPaintInvalidation flag in the corresponding LayoutObject.
   void SetShouldDoFullPaintInvalidation();
@@ -214,10 +213,6 @@ class CORE_EXPORT NGPaintFragment : public RefCounted<NGPaintFragment>,
   // Converts the given point, relative to the fragment itself, into a position
   // in DOM tree.
   PositionWithAffinity PositionForPoint(const PhysicalOffset&) const;
-
-  // Returns true when associated fragment of |layout_object| has line box.
-  static bool TryMarkFirstLineBoxDirtyFor(const LayoutObject& layout_object);
-  static bool TryMarkLastLineBoxDirtyFor(const LayoutObject& layout_object);
 
   // A range of fragments for |FragmentsFor()|.
   class TraverseNextForSameLayoutObject {
@@ -255,19 +250,6 @@ class CORE_EXPORT NGPaintFragment : public RefCounted<NGPaintFragment>,
   void LayoutObjectWillBeDestroyed();
 
   void ClearAssociationWithLayoutObject();
-
-  // Called when lines containing |child| is dirty.
-  static void DirtyLinesFromChangedChild(LayoutObject* child);
-
-  // Mark this line box was changed, in order to re-use part of an inline
-  // formatting context.
-  void MarkLineBoxDirty() {
-    DCHECK(PhysicalFragment().IsLineBox());
-    is_dirty_inline_ = true;
-  }
-
-  // Mark the line box that contains this fragment dirty.
-  void MarkContainingLineBoxDirty();
 
   // Computes LocalVisualRect for an inline LayoutObject. Returns nullopt if the
   // LayoutObject is not in LayoutNG inline formatting context.
@@ -336,14 +318,12 @@ class CORE_EXPORT NGPaintFragment : public RefCounted<NGPaintFragment>,
   PhysicalRect RecalcInkOverflow();
   PhysicalRect RecalcContentsInkOverflow() const;
 
-  // This fragment will use the layout object's visual rect.
-  const LayoutObject& VisualRectLayoutObject(bool& this_as_inline_box) const;
-
   //
   // Following fields are computed in the layout phase.
   //
 
   scoped_refptr<const NGPhysicalFragment> physical_fragment_;
+  // The offset to |parent_| comes from |NGLink::Offset()|.
   PhysicalOffset offset_;
 
   NGPaintFragment* parent_;

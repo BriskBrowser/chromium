@@ -5,6 +5,7 @@
 #include "ui/views/controls/button/menu_button.h"
 
 #include <memory>
+#include <utility>
 
 #include "ui/events/event.h"
 #include "ui/views/controls/button/button_controller_delegate.h"
@@ -12,8 +13,8 @@
 
 namespace views {
 
-MenuButton::MenuButton(const base::string16& text,
-                       ButtonListener* button_listener,
+MenuButton::MenuButton(ButtonListener* button_listener,
+                       const base::string16& text,
                        int button_context)
     : LabelButton(nullptr, text, button_context) {
   SetHorizontalAlignment(gfx::ALIGN_LEFT);
@@ -36,8 +37,7 @@ void MenuButton::NotifyClick(const ui::Event& event) {
   button_controller()->Activate(&event);
 }
 
-BEGIN_METADATA(MenuButton)
-METADATA_PARENT_CLASS(LabelButton)
+BEGIN_METADATA(MenuButton, LabelButton)
 END_METADATA()
 
 }  // namespace views

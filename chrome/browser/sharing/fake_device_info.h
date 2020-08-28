@@ -17,13 +17,14 @@ class DeviceInfo;
 }  // namespace syncer
 
 std::unique_ptr<syncer::DeviceInfo> CreateFakeDeviceInfo(
-    const std::string& id,
-    const std::string& name,
+    const std::string& guid,
+    const std::string& name = "name",
     const base::Optional<syncer::DeviceInfo::SharingInfo>& sharing_info =
         base::nullopt,
     sync_pb::SyncEnums_DeviceType device_type =
         sync_pb::SyncEnums_DeviceType_TYPE_LINUX,
-    base::SysInfo::HardwareInfo hardware_info = base::SysInfo::HardwareInfo(),
+    const std::string& manufacturer_name = "manufacturer",
+    const std::string& model_name = "model",
     base::Time last_updated_timestamp = base::Time::Now());
 
 #endif  // CHROME_BROWSER_SHARING_FAKE_DEVICE_INFO_H_

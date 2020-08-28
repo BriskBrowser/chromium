@@ -28,6 +28,8 @@ using storage::FileSystemOperationRunner;
 
 namespace content {
 
+using HandleType = NativeFileSystemPermissionContext::HandleType;
+
 namespace {
 
 // Returns true when |name| contains a path separator like "/".
@@ -54,11 +56,7 @@ NativeFileSystemDirectoryHandleImpl::NativeFileSystemDirectoryHandleImpl(
     const BindingContext& context,
     const storage::FileSystemURL& url,
     const SharedHandleState& handle_state)
-    : NativeFileSystemHandleBase(manager,
-                                 context,
-                                 url,
-                                 handle_state,
-                                 /*is_directory=*/true) {}
+    : NativeFileSystemHandleBase(manager, context, url, handle_state) {}
 
 NativeFileSystemDirectoryHandleImpl::~NativeFileSystemDirectoryHandleImpl() =
     default;
@@ -104,11 +102,9 @@ void NativeFileSystemDirectoryHandleImpl::GetFile(const std::string& basename,
         base::BindOnce(
             &NativeFileSystemDirectoryHandleImpl::GetFileWithWritePermission,
             weak_factory_.GetWeakPtr(), child_url),
-        base::BindOnce([](GetFileCallback callback) {
-          std::move(callback).Run(
-              native_file_system_error::FromStatus(
-                  NativeFileSystemStatus::kPermissionDenied),
-              mojo::NullRemote());
+        base::BindOnce([](blink::mojom::NativeFileSystemErrorPtr result,
+                          GetFileCallback callback) {
+          std::move(callback).Run(std::move(result), mojo::NullRemote());
         }),
         std::move(callback));
   } else {
@@ -151,11 +147,9 @@ void NativeFileSystemDirectoryHandleImpl::GetDirectory(
         base::BindOnce(&NativeFileSystemDirectoryHandleImpl::
                            GetDirectoryWithWritePermission,
                        weak_factory_.GetWeakPtr(), child_url),
-        base::BindOnce([](GetDirectoryCallback callback) {
-          std::move(callback).Run(
-              native_file_system_error::FromStatus(
-                  NativeFileSystemStatus::kPermissionDenied),
-              mojo::NullRemote());
+        base::BindOnce([](blink::mojom::NativeFileSystemErrorPtr result,
+                          GetDirectoryCallback callback) {
+          std::move(callback).Run(std::move(result), mojo::NullRemote());
         }),
         std::move(callback));
   } else {
@@ -208,11 +202,82 @@ void NativeFileSystemDirectoryHandleImpl::RemoveEntry(
   RunWithWritePermission(
       base::BindOnce(&NativeFileSystemDirectoryHandleImpl::RemoveEntryImpl,
                      weak_factory_.GetWeakPtr(), child_url, recurse),
-      base::BindOnce([](RemoveEntryCallback callback) {
-        std::move(callback).Run(native_file_system_error::FromStatus(
-            NativeFileSystemStatus::kPermissionDenied));
+      base::BindOnce([](blink::mojom::NativeFileSystemErrorPtr result,
+                        RemoveEntryCallback callback) {
+        std::move(callback).Run(std::move(result));
       }),
       std::move(callback));
+}
+void NativeFileSystemDirectoryHandleImpl::Resolve(
+    mojo::PendingRemote<blink::mojom::NativeFileSystemTransferToken>
+        possible_child,
+    ResolveCallback callback) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
+  manager()->ResolveTransferToken(
+      std::move(possible_child),
+      base::BindOnce(&NativeFileSystemDirectoryHandleImpl::ResolveImpl,
+                     weak_factory_.GetWeakPtr(), std::move(callback)));
+}
+
+void NativeFileSystemDirectoryHandleImpl::ResolveImpl(
+    ResolveCallback callback,
+    NativeFileSystemTransferTokenImpl* possible_child) {
+  if (!possible_child) {
+    std::move(callback).Run(
+        native_file_system_error::FromStatus(
+            blink::mojom::NativeFileSystemStatus::kOperationFailed),
+        base::nullopt);
+    return;
+  }
+
+  const storage::FileSystemURL& parent_url = url();
+  const storage::FileSystemURL& child_url = possible_child->url();
+
+  // If two URLs are of a different type they are definitely not related.
+  if (parent_url.type() != child_url.type()) {
+    std::move(callback).Run(native_file_system_error::Ok(), base::nullopt);
+    return;
+  }
+
+  // Otherwise compare path.
+  const base::FilePath& parent_path = parent_url.path();
+  const base::FilePath& child_path = child_url.path();
+
+  // Same path, so return empty array if child is also a directory.
+  if (parent_path == child_path) {
+    std::move(callback).Run(
+        native_file_system_error::Ok(),
+        possible_child->type() == HandleType::kDirectory
+            ? base::make_optional(std::vector<std::string>())
+            : base::nullopt);
+    return;
+  }
+
+  // Now figure out relative path, if any.
+  base::FilePath relative_path;
+  if (parent_path.empty()) {
+    // The root of a sandboxed file system will have an empty path. In that
+    // case the child path is already the relative path.
+    relative_path = child_path;
+  } else if (!parent_path.AppendRelativePath(child_path, &relative_path)) {
+    std::move(callback).Run(native_file_system_error::Ok(), base::nullopt);
+    return;
+  }
+
+  std::vector<base::FilePath::StringType> components;
+  relative_path.GetComponents(&components);
+#if defined(OS_WIN)
+  std::vector<std::string> result;
+  result.reserve(components.size());
+  for (const auto& component : components) {
+    result.push_back(base::UTF16ToUTF8(component));
+  }
+  std::move(callback).Run(native_file_system_error::Ok(), std::move(result));
+#else
+  std::move(callback).Run(native_file_system_error::Ok(),
+                          std::move(components));
+#endif
 }
 
 void NativeFileSystemDirectoryHandleImpl::Transfer(
@@ -320,7 +385,9 @@ void NativeFileSystemDirectoryHandleImpl::DidReadDirectory(
 
     entries.push_back(
         CreateEntry(basename, child_url,
-                    entry.type == filesystem::mojom::FsFileType::DIRECTORY));
+                    entry.type == filesystem::mojom::FsFileType::DIRECTORY
+                        ? HandleType::kDirectory
+                        : HandleType::kFile));
   }
   (*listener)->DidReadDirectory(native_file_system_error::Ok(),
                                 std::move(entries), has_more_entries);
@@ -366,24 +433,18 @@ NativeFileSystemDirectoryHandleImpl::GetChildURL(
         "Name contains invalid characters.");
   }
 
-  std::string escaped_name =
-      net::EscapeQueryParamValue(basename, /*use_plus=*/false);
-
-  GURL parent_url = url().ToGURL();
-  std::string path = base::StrCat({parent_url.path(), "/", escaped_name});
-  GURL::Replacements replacements;
-  replacements.SetPathStr(path);
-  GURL child_url = parent_url.ReplaceComponents(replacements);
-
-  *result = file_system_context()->CrackURL(child_url);
+  const storage::FileSystemURL parent = url();
+  *result = file_system_context()->CreateCrackedFileSystemURL(
+      parent.origin(), parent.mount_type(),
+      parent.virtual_path().Append(base::FilePath::FromUTF8Unsafe(basename)));
   return native_file_system_error::Ok();
 }
 
 NativeFileSystemEntryPtr NativeFileSystemDirectoryHandleImpl::CreateEntry(
     const std::string& basename,
     const storage::FileSystemURL& url,
-    bool is_directory) {
-  if (is_directory) {
+    HandleType handle_type) {
+  if (handle_type == HandleType::kDirectory) {
     return NativeFileSystemEntry::New(
         NativeFileSystemHandle::NewDirectory(
             manager()->CreateDirectoryHandle(context(), url, handle_state())),

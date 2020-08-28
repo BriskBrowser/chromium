@@ -20,6 +20,9 @@
 
 namespace autofill_assistant {
 class ControllerObserver;
+class Details;
+class InfoBox;
+class BasicInteractions;
 struct ClientSettings;
 
 // UI delegate called for script executions.
@@ -37,12 +40,7 @@ class UiDelegate {
   virtual ~UiDelegate() = default;
 
   // Returns the current state of the controller.
-  virtual AutofillAssistantState GetState() = 0;
-
-  // Asks for updated coordinates for the touchable area. This is called to
-  // speed up update of the touchable areas when there are good reasons to think
-  // that the current coordinates are out of date, such as while scrolling.
-  virtual void UpdateTouchableArea() = 0;
+  virtual AutofillAssistantState GetState() const = 0;
 
   // Called when user interaction within the allowed touchable area was
   // detected. This should cause rerun of preconditions check.
@@ -67,8 +65,18 @@ class UiDelegate {
   // Returns the current progress; a percentage.
   virtual int GetProgress() const = 0;
 
+  // Returns the currently active progress step.
+  virtual base::Optional<int> GetProgressActiveStep() const = 0;
+
   // Returns whether the progress bar is visible.
   virtual bool GetProgressVisible() const = 0;
+
+  // Returns the current configuration of the step progress bar.
+  virtual base::Optional<ShowProgressBarProto::StepProgressBarConfiguration>
+  GetStepProgressBarConfiguration() const = 0;
+
+  // Returns whether the progress bar should show an error state.
+  virtual bool GetProgressBarErrorState() const = 0;
 
   // Returns the current set of user actions.
   virtual const std::vector<UserAction>& GetUserActions() const = 0;
@@ -124,31 +132,32 @@ class UiDelegate {
   // options.
   virtual void SetLoginOption(std::string identifier) = 0;
 
-  // Called when the user clicks a link on the terms & conditions message.
-  virtual void OnTermsAndConditionsLinkClicked(int link) = 0;
+  // Called when the user clicks a link of the form <link0>text</link0> in a
+  // text message.
+  virtual void OnTextLinkClicked(int link) = 0;
 
   // Called when the user clicks a link in the form action.
   virtual void OnFormActionLinkClicked(int link) = 0;
 
-  // Sets the start of the date/time range.
-  virtual void SetDateTimeRangeStart(int year,
-                                     int month,
-                                     int day,
-                                     int hour,
-                                     int minute,
-                                     int second) = 0;
+  // Sets the start date of the date/time range.
+  virtual void SetDateTimeRangeStartDate(
+      const base::Optional<DateProto>& date) = 0;
 
-  // Sets the end of the date/time range.
-  virtual void SetDateTimeRangeEnd(int year,
-                                   int month,
-                                   int day,
-                                   int hour,
-                                   int minute,
-                                   int second) = 0;
+  // Sets the start timeslot of the date/time range.
+  virtual void SetDateTimeRangeStartTimeSlot(
+      const base::Optional<int>& timeslot_index) = 0;
+
+  // Sets the end date of the date/time range.
+  virtual void SetDateTimeRangeEndDate(
+      const base::Optional<DateProto>& date) = 0;
+
+  // Sets the end timeslot of the date/time range.
+  virtual void SetDateTimeRangeEndTimeSlot(
+      const base::Optional<int>& timeslot_index) = 0;
 
   // Sets an additional value.
   virtual void SetAdditionalValue(const std::string& client_memory_key,
-                                  const std::string& value) = 0;
+                                  const ValueProto& value) = 0;
 
   // Adds the rectangles that correspond to the current touchable area to
   // the given vector.
@@ -171,9 +180,14 @@ class UiDelegate {
   virtual void OnFatalError(const std::string& error_message,
                             Metrics::DropOutReason reason) = 0;
 
+  // Reports that Autofill Assistant should be Stopped.
+  virtual void OnStop(const std::string& message,
+                      const std::string& button_label) = 0;
+
   // Returns whether the viewport should be resized.
   virtual ViewportMode GetViewportMode() = 0;
 
+  // Peek mode state and whether it was changed automatically last time.
   virtual ConfigureBottomSheetProto::PeekMode GetPeekMode() = 0;
 
   // Fills in the overlay colors.
@@ -184,6 +198,9 @@ class UiDelegate {
 
   // Returns the current form. May be null if there is no form to show.
   virtual const FormProto* GetForm() const = 0;
+
+  // Returns the current form data. May be null if there is no form to show.
+  virtual const FormProto::Result* GetFormResult() const = 0;
 
   // Sets a counter value.
   virtual void SetCounterValue(int input_index,
@@ -203,8 +220,7 @@ class UiDelegate {
   virtual void RemoveObserver(const ControllerObserver* observer) = 0;
 
   // Dispatches an event to the event handler.
-  virtual void DispatchEvent(const EventHandler::EventKey& key,
-                             const ValueProto& value) = 0;
+  virtual void DispatchEvent(const EventHandler::EventKey& key) = 0;
 
   // Returns the user model.
   virtual UserModel* GetUserModel() = 0;
@@ -212,7 +228,25 @@ class UiDelegate {
   // Returns the event handler.
   virtual EventHandler* GetEventHandler() = 0;
 
- protected:
+  // Returns an object that provides basic interactions for the UI framework.
+  virtual BasicInteractions* GetBasicInteractions() = 0;
+
+  // Whether the sheet should be auto expanded when entering the prompt state.
+  virtual bool ShouldPromptActionExpandSheet() const = 0;
+
+  // The generic user interface to show, if any.
+  virtual const GenericUserInterfaceProto* GetGenericUiProto() const = 0;
+
+  // Whether the overlay should be determined based on AA state or always
+  // hidden.
+  virtual bool ShouldShowOverlay() const = 0;
+
+  // Notifies the UI delegate that it should shut down.
+  virtual void ShutdownIfNecessary() = 0;
+
+  // Returns whether the UI delegate is currently running a lite script or not.
+  virtual bool IsRunningLiteScript() const = 0;
+
  protected:
   UiDelegate() = default;
 };

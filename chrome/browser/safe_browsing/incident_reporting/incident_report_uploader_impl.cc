@@ -7,7 +7,9 @@
 #include <utility>
 
 #include "base/bind.h"
+#include "base/feature_list.h"
 #include "base/metrics/histogram_macros.h"
+#include "components/safe_browsing/core/features.h"
 #include "components/safe_browsing/core/proto/csd.pb.h"
 #include "google_apis/google_api_keys.h"
 #include "net/base/escape.h"
@@ -48,9 +50,9 @@ constexpr net::NetworkTrafficAnnotationTag
         "Users can control this feature via the 'Automatically report details "
         "of possible security incidents to Google' setting under Privacy."
       chrome_policy {
-        SafeBrowsingExtendedReportingOptInAllowed {
+        SafeBrowsingExtendedReportingEnabled {
           policy_options {mode: MANDATORY}
-          SafeBrowsingExtendedReportingOptInAllowed: false
+          SafeBrowsingExtendedReportingEnabled: false
         }
       }
     })");
@@ -87,6 +89,8 @@ IncidentReportUploaderImpl::IncidentReportUploaderImpl(
   resource_request->url = GetIncidentReportUrl();
   resource_request->method = "POST";
   resource_request->load_flags = net::LOAD_DISABLE_CACHE;
+  if (base::FeatureList::IsEnabled(kSafeBrowsingRemoveCookies))
+    resource_request->credentials_mode = network::mojom::CredentialsMode::kOmit;
   url_loader_ = network::SimpleURLLoader::Create(
       std::move(resource_request), kSafeBrowsingIncidentTrafficAnnotation);
   url_loader_->AttachStringForUpload(post_data, "application/octet-stream");

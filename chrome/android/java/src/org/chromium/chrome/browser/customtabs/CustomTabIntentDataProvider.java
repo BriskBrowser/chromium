@@ -9,7 +9,6 @@ import static androidx.browser.customtabs.CustomTabsIntent.COLOR_SCHEME_SYSTEM;
 
 import android.app.PendingIntent;
 import android.app.PendingIntent.CanceledException;
-import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.Bitmap;
@@ -31,34 +30,32 @@ import androidx.browser.customtabs.CustomTabColorSchemeParams;
 import androidx.browser.customtabs.CustomTabsIntent;
 import androidx.browser.customtabs.CustomTabsSessionToken;
 import androidx.browser.customtabs.TrustedWebUtils;
+import androidx.browser.trusted.ScreenOrientation;
 import androidx.browser.trusted.TrustedWebActivityDisplayMode;
 import androidx.browser.trusted.TrustedWebActivityIntentBuilder;
 import androidx.browser.trusted.sharing.ShareData;
 import androidx.browser.trusted.sharing.ShareTarget;
 
+import org.chromium.base.IntentUtils;
 import org.chromium.base.Log;
 import org.chromium.base.metrics.RecordUserAction;
 import org.chromium.chrome.R;
-import org.chromium.chrome.browser.ChromeActivity;
-import org.chromium.chrome.browser.ChromeApplication;
-import org.chromium.chrome.browser.ChromeFeatureList;
 import org.chromium.chrome.browser.ChromeVersionInfo;
 import org.chromium.chrome.browser.IntentHandler;
+import org.chromium.chrome.browser.app.ChromeActivity;
 import org.chromium.chrome.browser.browserservices.BrowserServicesIntentDataProvider;
-import org.chromium.chrome.browser.customtabs.dynamicmodule.ModuleMetrics;
-import org.chromium.chrome.browser.externalauth.ExternalAuthUtils;
-import org.chromium.chrome.browser.net.spdyproxy.DataReductionProxySettings;
-import org.chromium.chrome.browser.util.ColorUtils;
-import org.chromium.chrome.browser.util.IntentUtils;
-import org.chromium.chrome.browser.util.UrlConstants;
+import org.chromium.chrome.browser.flags.ActivityType;
+import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.components.browser_ui.styles.ChromeColors;
 import org.chromium.components.browser_ui.widget.TintedDrawable;
+import org.chromium.components.embedder_support.util.UrlConstants;
+import org.chromium.device.mojom.ScreenOrientationLockType;
+import org.chromium.ui.util.ColorUtils;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.regex.Pattern;
 
 /**
  * A model class that parses the incoming intent for Custom Tabs specific customization data.
@@ -70,13 +67,10 @@ import java.util.regex.Pattern;
 public class CustomTabIntentDataProvider extends BrowserServicesIntentDataProvider {
     private static final String TAG = "CustomTabIntentData";
 
-    @IntDef({LaunchSourceType.OTHER, LaunchSourceType.WEBAPP, LaunchSourceType.WEBAPK,
-            LaunchSourceType.MEDIA_LAUNCHER_ACTIVITY})
+    @IntDef({LaunchSourceType.OTHER, LaunchSourceType.MEDIA_LAUNCHER_ACTIVITY})
     @Retention(RetentionPolicy.SOURCE)
     public @interface LaunchSourceType {
         int OTHER = -1;
-        int WEBAPP = 0;
-        int WEBAPK = 1;
         int MEDIA_LAUNCHER_ACTIVITY = 3;
     }
 
@@ -85,12 +79,12 @@ public class CustomTabIntentDataProvider extends BrowserServicesIntentDataProvid
      */
     public static final String EXTRA_KEEP_ALIVE = "android.support.customtabs.extra.KEEP_ALIVE";
 
-    private static final String ANIMATION_BUNDLE_PREFIX =
+    public static final String ANIMATION_BUNDLE_PREFIX =
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ? "android:activity." : "android:";
-    private static final String BUNDLE_PACKAGE_NAME = ANIMATION_BUNDLE_PREFIX + "packageName";
-    private static final String BUNDLE_ENTER_ANIMATION_RESOURCE =
+    public static final String BUNDLE_PACKAGE_NAME = ANIMATION_BUNDLE_PREFIX + "packageName";
+    public static final String BUNDLE_ENTER_ANIMATION_RESOURCE =
             ANIMATION_BUNDLE_PREFIX + "animEnterRes";
-    private static final String BUNDLE_EXIT_ANIMATION_RESOURCE =
+    public static final String BUNDLE_EXIT_ANIMATION_RESOURCE =
             ANIMATION_BUNDLE_PREFIX + "animExitRes";
 
     /**
@@ -124,13 +118,8 @@ public class CustomTabIntentDataProvider extends BrowserServicesIntentDataProvid
     public static final String EXTRA_DISABLE_DOWNLOAD_BUTTON =
             "org.chromium.chrome.browser.customtabs.EXTRA_DISABLE_DOWNLOAD_BUTTON";
 
-    /** Extra that indicates whether the client is a WebAPK. */
-    public static final String EXTRA_IS_OPENED_BY_WEBAPK =
-            "org.chromium.chrome.browser.customtabs.EXTRA_IS_OPENED_BY_WEBAPK";
-
     /**
-     * Indicates the source where the Custom Tab is launched. This is only used for
-     * WebApp/WebAPK/TrustedWebActivity. The value is defined as
+     * Indicates the source where the Custom Tab is launched. The value is defined as
      * {@link LaunchSourceType}.
      */
     public static final String EXTRA_BROWSER_LAUNCH_SOURCE =
@@ -140,35 +129,6 @@ public class CustomTabIntentDataProvider extends BrowserServicesIntentDataProvid
     /** Signals custom tabs to favor sending initial urls to external handler apps if possible. */
     public static final String EXTRA_SEND_TO_EXTERNAL_DEFAULT_HANDLER =
             "android.support.customtabs.extra.SEND_TO_EXTERNAL_HANDLER";
-
-    /** Extra that defines the module managed URLs regex. */
-    @VisibleForTesting
-    public static final String EXTRA_MODULE_MANAGED_URLS_REGEX =
-            "org.chromium.chrome.browser.customtabs.EXTRA_MODULE_MANAGED_URLS_REGEX";
-
-    /** The APK package to load the module from. */
-    @VisibleForTesting
-    public static final String EXTRA_MODULE_PACKAGE_NAME =
-            "org.chromium.chrome.browser.customtabs.EXTRA_MODULE_PACKAGE_NAME";
-
-    /** The asset name of the dex file that contains the module code. */
-    private static final String EXTRA_MODULE_DEX_ASSET_NAME =
-            "org.chromium.chrome.browser.customtabs.EXTRA_MODULE_DEX_ASSET_NAME";
-
-    /** The class name of the module entry point. */
-    @VisibleForTesting
-    public static final String EXTRA_MODULE_CLASS_NAME =
-            "org.chromium.chrome.browser.customtabs.EXTRA_MODULE_CLASS_NAME";
-
-    /** The custom header's value sent for module managed URLs */
-    @VisibleForTesting
-    public static final String EXTRA_MODULE_MANAGED_URLS_HEADER_VALUE =
-            "org.chromium.chrome.browser.customtabs.EXTRA_MODULE_MANAGED_URLS_HEADER_VALUE";
-
-    /** Extra that indicates whether to hide the CCT header on module managed URLs. */
-    @VisibleForTesting
-    public static final String EXTRA_HIDE_CCT_HEADER_ON_MODULE_MANAGED_URLS =
-            "org.chromium.chrome.browser.customtabs.EXTRA_HIDE_CCT_HEADER_ON_MODULE_MANAGED_URLS";
 
     // TODO(amalova): Move this to CustomTabsIntent.
     /**
@@ -185,6 +145,9 @@ public class CustomTabIntentDataProvider extends BrowserServicesIntentDataProvid
     private static final String EXTRA_FOCUS_INTENT =
             "androidx.browser.customtabs.extra.FOCUS_INTENT";
 
+    private static final String EXTRA_TWA_DISCLOSURE_UI =
+            "androidx.browser.trusted.extra.DISCLOSURE_VERSION";
+
     private static final int MAX_CUSTOM_MENU_ITEMS = 5;
 
     private static final int MAX_CUSTOM_TOOLBAR_ITEMS = 2;
@@ -193,6 +156,9 @@ public class CustomTabIntentDataProvider extends BrowserServicesIntentDataProvid
             "The intent contains a non-default UI type, but it is not from a first-party app. "
             + "To make locally-built Chrome a first-party app, sign with release-test "
             + "signing keys and run on userdebug devices. See use_signing_keys GN arg.";
+
+    private static final String EXPERIMENT_IDS =
+            "org.chromium.chrome.browser.customtabs.AGA_EXPERIMENT_IDS";
 
     private final Intent mIntent;
     private final CustomTabsSessionToken mSession;
@@ -208,20 +174,11 @@ public class CustomTabIntentDataProvider extends BrowserServicesIntentDataProvid
     private final int mInitialBackgroundColor;
     private final boolean mDisableStar;
     private final boolean mDisableDownload;
-    private final boolean mIsOpenedByWebApk;
-    private final boolean mIsTrustedWebActivity;
+    private final @ActivityType int mActivityType;
     @Nullable
     private final Integer mNavigationBarColor;
     @Nullable
-    private final ComponentName mModuleComponentName;
-    @Nullable
-    private final Pattern mModuleManagedUrlsPattern;
-    @Nullable
-    private final String mModuleManagedUrlsHeaderValue;
-    private final boolean mHideCctHeaderOnModuleManagedUrls;
-    @Nullable
-    private final String mModuleDexAssetName;
-    private final boolean mIsIncognito;
+    private final Integer mNavigationBarDividerColor;
     @Nullable
     private final List<String> mTrustedWebActivityAdditionalOrigins;
     @Nullable
@@ -252,6 +209,10 @@ public class CustomTabIntentDataProvider extends BrowserServicesIntentDataProvid
     /** ISO 639 language code */
     @Nullable
     private final String mTranslateLanguage;
+    private final int mDefaultOrientation;
+
+    @Nullable
+    private final int[] mGsaExperimentIds;
 
     /**
      * Add extras to customize menu items for opening payment request UI custom tab from Chrome.
@@ -272,6 +233,20 @@ public class CustomTabIntentDataProvider extends BrowserServicesIntentDataProvid
     }
 
     /**
+     * Evaluates whether the passed Intent and/or CustomTabsSessionToken are
+     * from a trusted source. Trusted in this case means from the app itself or
+     * via a first-party application.
+     *
+     * @param intent The Intent used to start the custom tabs activity, or null.
+     * @param session The connected session for the custom tabs activity, or null.
+     * @return True if the intent or session are trusted.
+     */
+    public static boolean isTrustedCustomTab(Intent intent, CustomTabsSessionToken session) {
+        return IntentHandler.wasIntentSenderChrome(intent)
+                || CustomTabsConnection.getInstance().isSessionFirstParty(session);
+    }
+
+    /**
      * Constructs a {@link CustomTabIntentDataProvider}.
      *
      * The colorScheme parameter specifies which color scheme the Custom Tab should use.
@@ -286,7 +261,7 @@ public class CustomTabIntentDataProvider extends BrowserServicesIntentDataProvid
         mIntent = intent;
 
         mSession = CustomTabsSessionToken.getSessionTokenFromIntent(intent);
-        mIsTrustedIntent = IntentHandler.notSecureIsIntentChromeOrFirstParty(intent);
+        mIsTrustedIntent = isTrustedCustomTab(intent, mSession);
 
         mAnimationBundle = IntentUtils.safeGetBundleExtra(
                 intent, CustomTabsIntent.EXTRA_EXIT_ANIMATION_BUNDLE);
@@ -300,18 +275,14 @@ public class CustomTabIntentDataProvider extends BrowserServicesIntentDataProvid
                 IntentUtils.safeGetIntExtra(intent, EXTRA_UI_TYPE, CustomTabsUiType.DEFAULT);
         mUiType = verifiedUiType(requestedUiType);
 
-        // TODO(https://crbug.com/1023759): WARNING: Current implementation uses
-        // a common off-the-record profile with browser's incognito mode and is
-        // not privacy-safe.
-        mIsIncognito = isValidIncognitoIntent(intent);
-
         CustomTabColorSchemeParams params = getColorSchemeParams(intent, colorScheme);
         retrieveCustomButtons(intent, context);
-        retrieveToolbarColor(params, context);
-        retrieveBottomBarColor(params);
+        mToolbarColor = retrieveToolbarColor(params, context);
+        mBottomBarColor = retrieveBottomBarColor(params);
         mNavigationBarColor = params.navigationBarColor == null
                 ? null
                 : ColorUtils.getOpaqueColor(params.navigationBarColor);
+        mNavigationBarDividerColor = params.navigationBarDividerColor;
         mInitialBackgroundColor = retrieveInitialBackgroundColor(intent);
 
         mEnableUrlBarHiding = IntentUtils.safeGetBooleanExtra(
@@ -333,20 +304,13 @@ public class CustomTabIntentDataProvider extends BrowserServicesIntentDataProvid
 
         List<Bundle> menuItems =
                 IntentUtils.getParcelableArrayListExtra(intent, CustomTabsIntent.EXTRA_MENU_ITEMS);
-        if (menuItems != null) {
-            for (int i = 0; i < Math.min(MAX_CUSTOM_MENU_ITEMS, menuItems.size()); i++) {
-                Bundle bundle = menuItems.get(i);
-                String title =
-                        IntentUtils.safeGetString(bundle, CustomTabsIntent.KEY_MENU_ITEM_TITLE);
-                PendingIntent pendingIntent =
-                        IntentUtils.safeGetParcelable(bundle, CustomTabsIntent.KEY_PENDING_INTENT);
-                if (TextUtils.isEmpty(title) || pendingIntent == null) continue;
-                mMenuEntries.add(new Pair<String, PendingIntent>(title, pendingIntent));
-            }
-        }
 
-        mIsTrustedWebActivity = IntentUtils.safeGetBooleanExtra(
-                intent, TrustedWebUtils.EXTRA_LAUNCH_AS_TRUSTED_WEB_ACTIVITY, false);
+        updateExtraMenuItems(menuItems);
+
+        mActivityType = IntentUtils.safeGetBooleanExtra(
+                                intent, TrustedWebUtils.EXTRA_LAUNCH_AS_TRUSTED_WEB_ACTIVITY, false)
+                ? ActivityType.TRUSTED_WEB_ACTIVITY
+                : ActivityType.CUSTOM_TAB;
         mTrustedWebActivityAdditionalOrigins = IntentUtils.safeGetStringArrayListExtra(intent,
                 TrustedWebActivityIntentBuilder.EXTRA_ADDITIONAL_TRUSTED_ORIGINS);
         mTrustedWebActivityDisplayMode = resolveTwaDisplayMode();
@@ -374,34 +338,26 @@ public class CustomTabIntentDataProvider extends BrowserServicesIntentDataProvid
         mDisableStar = IntentUtils.safeGetBooleanExtra(intent, EXTRA_DISABLE_STAR_BUTTON, false);
         mDisableDownload =
                 IntentUtils.safeGetBooleanExtra(intent, EXTRA_DISABLE_DOWNLOAD_BUTTON, false);
-        mIsOpenedByWebApk =
-                IntentUtils.safeGetBooleanExtra(intent, EXTRA_IS_OPENED_BY_WEBAPK, false);
 
         mTranslateLanguage = IntentUtils.safeGetStringExtra(intent, EXTRA_TRANSLATE_LANGUAGE);
         mFocusIntent = IntentUtils.safeGetParcelableExtra(intent, EXTRA_FOCUS_INTENT);
+        // Import the {@link ScreenOrientation}.
+        mDefaultOrientation = convertOrientationType(IntentUtils.safeGetIntExtra(intent,
+                TrustedWebActivityIntentBuilder.EXTRA_SCREEN_ORIENTATION,
+                ScreenOrientation.DEFAULT));
 
-        String modulePackageName =
-                IntentUtils.safeGetStringExtra(intent, EXTRA_MODULE_PACKAGE_NAME);
-        String moduleClassName = IntentUtils.safeGetStringExtra(intent, EXTRA_MODULE_CLASS_NAME);
-        if (modulePackageName != null && moduleClassName != null) {
-            mModuleComponentName = new ComponentName(modulePackageName, moduleClassName);
-            mModuleDexAssetName =
-                    IntentUtils.safeGetStringExtra(intent, EXTRA_MODULE_DEX_ASSET_NAME);
-            String moduleManagedUrlsRegex =
-                    IntentUtils.safeGetStringExtra(intent, EXTRA_MODULE_MANAGED_URLS_REGEX);
-            mModuleManagedUrlsPattern = (moduleManagedUrlsRegex != null)
-                    ? Pattern.compile(moduleManagedUrlsRegex)
-                    : null;
-            mModuleManagedUrlsHeaderValue =
-                    IntentUtils.safeGetStringExtra(intent, EXTRA_MODULE_MANAGED_URLS_HEADER_VALUE);
-            mHideCctHeaderOnModuleManagedUrls = IntentUtils.safeGetBooleanExtra(
-                    intent, EXTRA_HIDE_CCT_HEADER_ON_MODULE_MANAGED_URLS, false);
-        } else {
-            mModuleComponentName = null;
-            mModuleManagedUrlsPattern = null;
-            mModuleManagedUrlsHeaderValue = null;
-            mHideCctHeaderOnModuleManagedUrls = false;
-            mModuleDexAssetName = null;
+        mGsaExperimentIds = IntentUtils.safeGetIntArrayExtra(intent, EXPERIMENT_IDS);
+    }
+
+    private void updateExtraMenuItems(List<Bundle> menuItems) {
+        if (menuItems == null) return;
+        for (int i = 0; i < Math.min(MAX_CUSTOM_MENU_ITEMS, menuItems.size()); i++) {
+            Bundle bundle = menuItems.get(i);
+            String title = IntentUtils.safeGetString(bundle, CustomTabsIntent.KEY_MENU_ITEM_TITLE);
+            PendingIntent pendingIntent =
+                    IntentUtils.safeGetParcelable(bundle, CustomTabsIntent.KEY_PENDING_INTENT);
+            if (TextUtils.isEmpty(title) || pendingIntent == null) continue;
+            mMenuEntries.add(new Pair<String, PendingIntent>(title, pendingIntent));
         }
     }
 
@@ -457,28 +413,6 @@ public class CustomTabIntentDataProvider extends BrowserServicesIntentDataProvid
         }
     }
 
-    // TODO(https://crbug.com/1023759): Remove this function and enable
-    // incognito CCT request for all apps.
-    private boolean isValidIncognitoIntent(Intent intent) {
-        if (!isIncognitoRequested(intent)) return false;
-        // Incognito requests for payments flow are supported without
-        // INCOGNITO_CCT flag as an exceptional case that can use Chrome
-        // incognito profile.
-        if (isForPaymentsFlow(intent)) return true;
-        assert ChromeFeatureList.isInitialized();
-        return ChromeFeatureList.isEnabled(ChromeFeatureList.CCT_INCOGNITO);
-    }
-
-    private boolean isForPaymentsFlow(Intent intent) {
-        return isIncognitoRequested(intent) && isTrustedIntent() && isOpenedByChrome()
-                && isForPaymentRequest();
-    }
-
-    private static boolean isIncognitoRequested(Intent intent) {
-        return IntentUtils.safeGetBooleanExtra(
-                intent, IntentHandler.EXTRA_OPEN_NEW_INCOGNITO_TAB, false);
-    }
-
     /**
      * Get the verified UI type, according to the intent extras, and whether the intent is trusted.
      * @param requestedUiType requested UI type in the intent, unqualified
@@ -518,37 +452,28 @@ public class CustomTabIntentDataProvider extends BrowserServicesIntentDataProvid
     }
 
     private int getMaxCustomToolbarItems() {
-        if (!isTrustedIntent()) return 1;
-
         return MAX_CUSTOM_TOOLBAR_ITEMS;
     }
 
     /**
-     * Processes the color passed from the client app and updates {@link #mToolbarColor}.
+     * Returns the color passed from the client app.
      */
-    private void retrieveToolbarColor(CustomTabColorSchemeParams schemeParams, Context context) {
-        int defaultColor = ChromeColors.getDefaultThemeColor(context.getResources(), isIncognito());
-        if (isIncognito()) {
-            mToolbarColor = defaultColor;
-            return; // Don't allow toolbar color customization for incognito tabs.
-        }
+    private int retrieveToolbarColor(CustomTabColorSchemeParams schemeParams, Context context) {
+        int defaultColor = ChromeColors.getDefaultThemeColor(
+                context.getResources(), /*forceDarkBgColor*/ false);
         mHasCustomToolbarColor = (schemeParams.toolbarColor != null);
         int color = mHasCustomToolbarColor ? schemeParams.toolbarColor : defaultColor;
-        mToolbarColor = ColorUtils.getOpaqueColor(color);
+        return ColorUtils.getOpaqueColor(color);
     }
 
     /**
      * Must be called after calling {@link #retrieveToolbarColor}.
      */
-    private void retrieveBottomBarColor(CustomTabColorSchemeParams schemeParams) {
-        if (isIncognito()) {
-            mBottomBarColor = mToolbarColor;
-            return;
-        }
+    private int retrieveBottomBarColor(CustomTabColorSchemeParams schemeParams) {
         int defaultColor = mToolbarColor;
         int color = schemeParams.secondaryToolbarColor != null ? schemeParams.secondaryToolbarColor
                 : defaultColor;
-        mBottomBarColor = ColorUtils.getOpaqueColor(color);
+        return ColorUtils.getOpaqueColor(color);
     }
 
     /**
@@ -576,11 +501,6 @@ public class CustomTabIntentDataProvider extends BrowserServicesIntentDataProvid
                 }
             }
         }
-
-        if (!TextUtils.isEmpty(url)) {
-            url = DataReductionProxySettings.getInstance().maybeRewriteWebliteUrl(url);
-        }
-
         return url;
     }
 
@@ -596,6 +516,49 @@ public class CustomTabIntentDataProvider extends BrowserServicesIntentDataProvid
         } catch (Throwable e) {
             return null;
         }
+    }
+
+    /**
+     * Returns the {@link ScreenOrientationLockType} which matches {@link ScreenOrientation}.
+     * @param orientation {@link ScreenOrientation}
+     * @return The matching ScreenOrientationLockType. {@link ScreenOrientationLockType#DEFAULT} if
+     *         there is no match.
+     */
+    private static int convertOrientationType(@ScreenOrientation.LockType int orientation) {
+        switch (orientation) {
+            case ScreenOrientation.DEFAULT:
+                return ScreenOrientationLockType.DEFAULT;
+            case ScreenOrientation.PORTRAIT_PRIMARY:
+                return ScreenOrientationLockType.PORTRAIT_PRIMARY;
+            case ScreenOrientation.PORTRAIT_SECONDARY:
+                return ScreenOrientationLockType.PORTRAIT_SECONDARY;
+            case ScreenOrientation.LANDSCAPE_PRIMARY:
+                return ScreenOrientationLockType.LANDSCAPE_PRIMARY;
+            case ScreenOrientation.LANDSCAPE_SECONDARY:
+                return ScreenOrientationLockType.LANDSCAPE_SECONDARY;
+            case ScreenOrientation.ANY:
+                return ScreenOrientationLockType.ANY;
+            case ScreenOrientation.LANDSCAPE:
+                return ScreenOrientationLockType.LANDSCAPE;
+            case ScreenOrientation.PORTRAIT:
+                return ScreenOrientationLockType.PORTRAIT;
+            case ScreenOrientation.NATURAL:
+                return ScreenOrientationLockType.NATURAL;
+            default:
+                Log.w(TAG, "The provided orientaton is not supported, orientation = %d",
+                        orientation);
+                return ScreenOrientationLockType.DEFAULT;
+        }
+    }
+
+    @Override
+    public int getDefaultOrientation() {
+        return mDefaultOrientation;
+    }
+
+    @Override
+    public @ActivityType int getActivityType() {
+        return mActivityType;
     }
 
     @Override
@@ -673,6 +636,12 @@ public class CustomTabIntentDataProvider extends BrowserServicesIntentDataProvid
     @Nullable
     public Integer getNavigationBarColor() {
         return mNavigationBarColor;
+    }
+
+    @Override
+    @Nullable
+    public Integer getNavigationBarDividerColor() {
+        return mNavigationBarDividerColor;
     }
 
     @Override
@@ -794,79 +763,14 @@ public class CustomTabIntentDataProvider extends BrowserServicesIntentDataProvid
     }
 
     @Override
-    public boolean isOpenedByWebApk() {
-        return mIsOpenedByWebApk;
-    }
-
-    @Override
     public boolean isIncognito() {
-        return mIsIncognito;
-    }
-
-    @Override
-    public boolean isTrustedWebActivity() {
-        return mIsTrustedWebActivity;
+        return false;
     }
 
     @Nullable
     @Override
     public TrustedWebActivityDisplayMode getTwaDisplayMode() {
         return mTrustedWebActivityDisplayMode;
-    }
-
-    @Override
-    public boolean isDynamicModuleEnabled() {
-        if (!ChromeFeatureList.isInitialized()) return false;
-
-        ComponentName componentName = getModuleComponentName();
-        // Return early if no component name was provided. It's important to do this before checking
-        // the feature experiment group, to avoid entering users into the experiment that do not
-        // even receive the extras for using the feature.
-        if (componentName == null) return false;
-
-        if (!ChromeFeatureList.isEnabled(ChromeFeatureList.CCT_MODULE)) {
-            Log.w(TAG, "The %s feature is disabled.", ChromeFeatureList.CCT_MODULE);
-            ModuleMetrics.recordLoadResult(ModuleMetrics.LoadResult.FEATURE_DISABLED);
-            return false;
-        }
-
-        ExternalAuthUtils authUtils = ChromeApplication.getComponent().resolveExternalAuthUtils();
-        if (!authUtils.isGoogleSigned(componentName.getPackageName())) {
-            Log.w(TAG, "The %s package is not Google-signed.", componentName.getPackageName());
-            ModuleMetrics.recordLoadResult(ModuleMetrics.LoadResult.NOT_GOOGLE_SIGNED);
-            return false;
-        }
-
-        return true;
-    }
-
-    @Override
-    @Nullable
-    public ComponentName getModuleComponentName() {
-        return mModuleComponentName;
-    }
-
-    @Override
-    @Nullable
-    public String getModuleDexAssetName() {
-        return mModuleDexAssetName;
-    }
-
-    @Override
-    @Nullable
-    public Pattern getExtraModuleManagedUrlsPattern() {
-        return mModuleManagedUrlsPattern;
-    }
-
-    @Override
-    @Nullable
-    public String getExtraModuleManagedUrlsHeaderValue() {
-        return mModuleManagedUrlsHeaderValue;
-    }
-
-    @Override
-    public boolean shouldHideCctHeaderOnModuleManagedUrls() {
-        return mHideCctHeaderOnModuleManagedUrls;
     }
 
     @Override
@@ -915,5 +819,24 @@ public class CustomTabIntentDataProvider extends BrowserServicesIntentDataProvid
     @Nullable
     public PendingIntent getFocusIntent() {
         return mFocusIntent;
+    }
+
+    @TwaDisclosureUi
+    @Override
+    public int getTwaDisclosureUi() {
+        int version = mIntent.getIntExtra(EXTRA_TWA_DISCLOSURE_UI, TwaDisclosureUi.DEFAULT);
+
+        if (version != TwaDisclosureUi.V1_INFOBAR
+                && version != TwaDisclosureUi.V2_NOTIFICATION_OR_SNACKBAR) {
+            return TwaDisclosureUi.DEFAULT;
+        }
+
+        return version;
+    }
+
+    @Override
+    @Nullable
+    public int[] getGsaExperimentIds() {
+        return mGsaExperimentIds;
     }
 }

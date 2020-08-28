@@ -9,10 +9,11 @@
 #include <utility>
 
 #include "base/bind.h"
+#include "base/check_op.h"
 #include "base/command_line.h"
-#include "base/logging.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
+#include "base/notreached.h"
 #include "base/stl_util.h"
 #include "build/build_config.h"
 #include "chrome/browser/profiles/profile_io_data.h"
@@ -42,7 +43,7 @@ const ProtocolHandler& LookupHandler(
 // If true default protocol handlers will be removed if the OS level
 // registration for a protocol is no longer Chrome.
 bool ShouldRemoveHandlersNotInOS() {
-#if defined(OS_LINUX)
+#if defined(OS_LINUX) || defined(OS_CHROMEOS)
   // We don't do this on Linux as the OS registration there is not reliable,
   // and Chrome OS doesn't have any notion of OS registration.
   // TODO(benwells): When Linux support is more reliable remove this
@@ -100,9 +101,8 @@ void ProtocolHandlerRegistry::Delegate::RegisterWithOSAsDefaultClient(
   // The worker pointer is reference counted. While it is running, the
   // sequence it runs on will hold references it will be automatically freed
   // once all its tasks have finished.
-  base::MakeRefCounted<shell_integration::DefaultProtocolClientWorker>(
-      std::move(callback), protocol)
-      ->StartSetAsDefault();
+  base::MakeRefCounted<shell_integration::DefaultProtocolClientWorker>(protocol)
+      ->StartSetAsDefault(std::move(callback));
 }
 
 void ProtocolHandlerRegistry::Delegate::CheckDefaultClientWithOS(
@@ -111,9 +111,8 @@ void ProtocolHandlerRegistry::Delegate::CheckDefaultClientWithOS(
   // The worker pointer is reference counted. While it is running, the
   // sequence it runs on will hold references it will be automatically freed
   // once all its tasks have finished.
-  base::MakeRefCounted<shell_integration::DefaultProtocolClientWorker>(
-      std::move(callback), protocol)
-      ->StartCheckIsDefault();
+  base::MakeRefCounted<shell_integration::DefaultProtocolClientWorker>(protocol)
+      ->StartCheckIsDefault(std::move(callback));
 }
 
 // ProtocolHandlerRegistry -----------------------------------------------------

@@ -4,7 +4,7 @@
 
 #include "chrome/browser/page_load_metrics/observers/session_restore_page_load_metrics_observer.h"
 
-#include "base/logging.h"
+#include "base/check.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/resource_coordinator/tab_manager.h"
 #include "components/page_load_metrics/browser/page_load_metrics_util.h"
@@ -74,7 +74,7 @@ void SessionRestorePageLoadMetricsObserver::OnFirstPaintInPage(
     // is no need to record again in FCP or FMP, because FP comes first.
     ukm::builders::
         TabManager_Experimental_SessionRestore_ForegroundTab_PageLoad(
-            GetDelegate().GetSourceId())
+            GetDelegate().GetPageUkmSourceId())
             .SetSessionRestoreTabCount(
                 g_browser_process->GetTabManager()->restored_tab_count())
             .SetSystemTabCount(

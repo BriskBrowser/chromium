@@ -34,7 +34,6 @@
 #include "components/update_client/unzipper.h"
 #include "components/update_client/update_client.h"
 #include "components/update_client/update_client_errors.h"
-#include "services/service_manager/public/cpp/connector.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -72,10 +71,11 @@ base::FilePath test_file(const char* file) {
 
 class MockUpdateClient : public UpdateClient {
  public:
-  MockUpdateClient() {}
+  MockUpdateClient() = default;
 
   void Install(const std::string& id,
                CrxDataCallback crx_data_callback,
+               CrxStateChangeCallback crx_state_change_callback,
                Callback callback) override {
     DoInstall(id, std::move(crx_data_callback));
     std::move(callback).Run(update_client::Error::NONE);
@@ -83,6 +83,7 @@ class MockUpdateClient : public UpdateClient {
 
   void Update(const std::vector<std::string>& ids,
               CrxDataCallback crx_data_callback,
+              CrxStateChangeCallback crx_state_change_callback,
               bool is_foreground,
               Callback callback) override {
     DoUpdate(ids, std::move(crx_data_callback));
@@ -94,6 +95,13 @@ class MockUpdateClient : public UpdateClient {
                          int reason,
                          Callback callback) override {
     DoSendUninstallPing(id, version, reason);
+    std::move(callback).Run(update_client::Error::NONE);
+  }
+
+  void SendRegistrationPing(const std::string& id,
+                            const base::Version& version,
+                            Callback callback) override {
+    DoSendRegistrationPing(id, version);
     std::move(callback).Run(update_client::Error::NONE);
   }
 
@@ -113,15 +121,17 @@ class MockUpdateClient : public UpdateClient {
                void(const std::string& id,
                     const base::Version& version,
                     int reason));
+  MOCK_METHOD2(DoSendRegistrationPing,
+               void(const std::string& id, const base::Version& version));
 
  private:
-  ~MockUpdateClient() override {}
+  ~MockUpdateClient() override = default;
 };
 
 class MockInstallerPolicy : public ComponentInstallerPolicy {
  public:
-  MockInstallerPolicy() {}
-  ~MockInstallerPolicy() override {}
+  MockInstallerPolicy() = default;
+  ~MockInstallerPolicy() override = default;
 
   bool VerifyInstallation(const base::DictionaryValue& manifest,
                           const base::FilePath& dir) const override {
@@ -351,7 +361,7 @@ TEST_F(ComponentInstallerTest, UnpackPathInstallSuccess) {
   base_dir = base_dir.Append(relative_install_dir);
   EXPECT_TRUE(base::CreateDirectory(base_dir));
   installer->Install(
-      unpack_path, update_client::jebg_public_key,
+      unpack_path, update_client::jebg_public_key, nullptr, base::DoNothing(),
       base::BindOnce([](const update_client::CrxInstaller::Result& result) {
         EXPECT_EQ(0, result.error);
       }));
@@ -380,7 +390,7 @@ TEST_F(ComponentInstallerTest, UnpackPathInstallError) {
 
   // Calling |Install| fails since DIR_COMPONENT_USER does not exist.
   installer->Install(
-      unpack_path, update_client::jebg_public_key,
+      unpack_path, update_client::jebg_public_key, nullptr, base::DoNothing(),
       base::BindOnce([](const update_client::CrxInstaller::Result& result) {
         EXPECT_EQ(static_cast<int>(
                       update_client::InstallError::NO_DIR_COMPONENT_USER),

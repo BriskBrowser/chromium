@@ -8,6 +8,7 @@ import android.app.Activity;
 import android.content.Context;
 import android.graphics.RectF;
 import android.os.Handler;
+import android.view.View;
 import android.view.ViewGroup;
 
 import androidx.annotation.IntDef;
@@ -16,11 +17,12 @@ import androidx.annotation.VisibleForTesting;
 import org.chromium.base.ActivityState;
 import org.chromium.base.ApplicationStatus;
 import org.chromium.base.ApplicationStatus.ActivityStateListener;
-import org.chromium.chrome.browser.ChromeActivity;
-import org.chromium.chrome.browser.ChromeFeatureList;
+import org.chromium.chrome.browser.app.ChromeActivity;
 import org.chromium.chrome.browser.compositor.LayerTitleCache;
 import org.chromium.chrome.browser.compositor.bottombar.OverlayPanelManager.PanelPriority;
-import org.chromium.chrome.browser.compositor.layouts.LayoutUpdateHost;
+import org.chromium.chrome.browser.compositor.layouts.Layout;
+import org.chromium.chrome.browser.compositor.layouts.LayoutManager;
+import org.chromium.chrome.browser.compositor.layouts.SceneChangeObserver;
 import org.chromium.chrome.browser.compositor.layouts.components.VirtualView;
 import org.chromium.chrome.browser.compositor.layouts.eventfilter.EdgeSwipeHandler;
 import org.chromium.chrome.browser.compositor.layouts.eventfilter.EventFilter;
@@ -29,6 +31,7 @@ import org.chromium.chrome.browser.compositor.layouts.eventfilter.OverlayPanelEv
 import org.chromium.chrome.browser.compositor.layouts.eventfilter.ScrollDirection;
 import org.chromium.chrome.browser.compositor.overlays.SceneOverlay;
 import org.chromium.chrome.browser.compositor.scene_layer.SceneOverlayLayer;
+import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.multiwindow.MultiWindowUtils;
 import org.chromium.chrome.browser.tab.TabBrowserControlsConstraintsHelper;
 import org.chromium.content_public.browser.SelectionPopupController;
@@ -107,6 +110,12 @@ public class OverlayPanel extends OverlayPanelAnimation implements ActivityState
         int MAX_VALUE = 21;
     }
 
+    /** A layout manager for tracking changes in the active layout. */
+    private final LayoutManager mLayoutManager;
+
+    /** The observer that reacts to scene-change events. */
+    private final SceneChangeObserver mSceneChangeObserver;
+
     /** The activity this panel is in. */
     protected ChromeActivity mActivity;
 
@@ -153,17 +162,30 @@ public class OverlayPanel extends OverlayPanelAnimation implements ActivityState
 
     /**
      * @param context The current Android {@link Context}.
-     * @param updateHost The {@link LayoutUpdateHost} used to request updates in the Layout.
+     * @param layoutManager A {@link LayoutManager} for observing changes in the active layout.
      * @param panelManager The {@link OverlayPanelManager} responsible for showing panels.
      */
     public OverlayPanel(
-            Context context, LayoutUpdateHost updateHost, OverlayPanelManager panelManager) {
-        super(context, updateHost);
+            Context context, LayoutManager layoutManager, OverlayPanelManager panelManager) {
+        super(context, layoutManager);
+        mLayoutManager = layoutManager;
         mContentFactory = this;
 
         mPanelManager = panelManager;
         mPanelManager.registerPanel(this);
         mEventFilter = new OverlayPanelEventFilter(mContext, this);
+
+        mSceneChangeObserver = new SceneChangeObserver() {
+            @Override
+            public void onTabSelectionHinted(int tabId) {}
+
+            @Override
+            public void onSceneChange(Layout layout) {
+                closePanel(StateChangeReason.UNKNOWN, false);
+            }
+        };
+        // mLayoutManager will be null in testing.
+        if (mLayoutManager != null) mLayoutManager.addSceneChangeObserver(mSceneChangeObserver);
     }
 
     /**
@@ -171,6 +193,7 @@ public class OverlayPanel extends OverlayPanelAnimation implements ActivityState
      */
     public void destroy() {
         closePanel(StateChangeReason.UNKNOWN, false);
+        if (mLayoutManager != null) mLayoutManager.removeSceneChangeObserver(mSceneChangeObserver);
         ApplicationStatus.unregisterActivityStateListener(this);
     }
 
@@ -313,7 +336,7 @@ public class OverlayPanel extends OverlayPanelAnimation implements ActivityState
      */
     protected float getBrowserControlsOffsetDp() {
         if (mActivity == null) return 0.0f;
-        return -mActivity.getFullscreenManager().getTopControlOffset() * mPxToDp;
+        return -mActivity.getBrowserControlsManager().getTopControlOffset() * mPxToDp;
     }
 
     /**
@@ -343,7 +366,7 @@ public class OverlayPanel extends OverlayPanelAnimation implements ActivityState
     // Claim or lose focus of the content view of the base WebContents. This keeps
     // the state of the text selected for overlay in consistent way.
     private static void updateFocus(WebContents baseWebContents, boolean focusBaseView) {
-        ViewGroup baseContentView = baseWebContents.getViewAndroidDelegate() != null
+        View baseContentView = baseWebContents.getViewAndroidDelegate() != null
                 ? baseWebContents.getViewAndroidDelegate().getContainerView()
                 : null;
         if (baseContentView == null) return;
@@ -497,7 +520,6 @@ public class OverlayPanel extends OverlayPanelAnimation implements ActivityState
     protected void destroyOverlayPanelContent() {
         // It is possible that an OverlayPanelContent was never created for this panel.
         if (mContent != null) {
-            mActivity.getCompositorViewHolder().removeView(getContainerView());
             mContent.destroy();
             mContent = null;
         }
@@ -934,27 +956,9 @@ public class OverlayPanel extends OverlayPanelAnimation implements ActivityState
     }
 
     @Override
-    public void onHideLayout() {
-        if (!isShowing()) return;
-        closePanel(StateChangeReason.UNKNOWN, false);
-    }
-
-    @Override
     public boolean onBackPressed() {
         if (!isShowing()) return false;
         closePanel(StateChangeReason.BACK_PRESS, true);
         return true;
     }
-
-    @Override
-    public void tabTitleChanged(int tabId, String title) {}
-
-    @Override
-    public void tabStateInitialized() {}
-
-    @Override
-    public void tabModelSwitched(boolean incognito) {}
-
-    @Override
-    public void tabCreated(long time, boolean incognito, int id, int prevId, boolean selected) {}
 }

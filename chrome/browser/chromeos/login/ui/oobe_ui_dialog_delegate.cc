@@ -8,6 +8,7 @@
 #include <utility>
 #include <vector>
 
+#include "ash/public/cpp/login_accelerators.h"
 #include "ash/public/cpp/login_screen.h"
 #include "ash/public/cpp/login_screen_model.h"
 #include "ash/public/cpp/shelf_config.h"
@@ -41,9 +42,6 @@ namespace chromeos {
 namespace {
 
 constexpr char kGaiaURL[] = "chrome://oobe/gaia-signin";
-constexpr char kAppLaunchBailout[] = "app_launch_bailout";
-constexpr char kAppLaunchNetworkConfig[] = "app_launch_network_config";
-constexpr char kCancel[] = "cancel";
 
 CoreOobeView::DialogPaddingMode ConvertDialogPaddingMode(
     OobeDialogPaddingMode padding) {
@@ -121,6 +119,7 @@ class LayoutWidgetDelegateView : public views::WidgetDelegateView {
   LayoutWidgetDelegateView(OobeUIDialogDelegate* dialog_delegate,
                            OobeWebDialogView* oobe_view)
       : dialog_delegate_(dialog_delegate), oobe_view_(oobe_view) {
+    SetFocusTraversesOut(true);
     AddChildView(oobe_view_);
   }
 
@@ -142,8 +141,6 @@ class LayoutWidgetDelegateView : public views::WidgetDelegateView {
 
   // views::WidgetDelegateView:
   ui::ModalType GetModalType() const override { return ui::MODAL_TYPE_WINDOW; }
-
-  bool ShouldAdvanceFocusToTopLevelWidget() const override { return true; }
 
   void Layout() override {
     if (fullscreen_) {
@@ -305,12 +302,18 @@ OobeUIDialogDelegate::OobeUIDialogDelegate(
     : controller_(controller) {
   keyboard_observer_.Add(ChromeKeyboardControllerClient::Get());
 
-  accel_map_[ui::Accelerator(
-      ui::VKEY_S, ui::EF_CONTROL_DOWN | ui::EF_ALT_DOWN)] = kAppLaunchBailout;
-  accel_map_[ui::Accelerator(ui::VKEY_N,
-                             ui::EF_CONTROL_DOWN | ui::EF_ALT_DOWN)] =
-      kAppLaunchNetworkConfig;
-  accel_map_[ui::Accelerator(ui::VKEY_ESCAPE, 0)] = kCancel;
+  for (size_t i = 0; i < ash::kLoginAcceleratorDataLength; ++i) {
+    if (ash::kLoginAcceleratorData[i].global)
+      continue;
+    if (!(ash::kLoginAcceleratorData[i].scope &
+          (ash::kScopeLogin | ash::kScopeLock))) {
+      continue;
+    }
+
+    accel_map_[ui::Accelerator(ash::kLoginAcceleratorData[i].keycode,
+                               ash::kLoginAcceleratorData[i].modifiers)] =
+        ash::kLoginAcceleratorData[i].action;
+  }
 
   DCHECK(!dialog_view_ && !widget_);
   // Life cycle of |dialog_view_| is managed by the widget:
@@ -372,7 +375,11 @@ void OobeUIDialogDelegate::SetShouldDisplayCaptivePortal(bool should_display) {
 
 void OobeUIDialogDelegate::Show() {
   widget_->Show();
-  SetState(ash::OobeDialogState::GAIA_SIGNIN);
+  if (state_ == ash::OobeDialogState::HIDDEN) {
+    SetState(ash::OobeDialogState::GAIA_SIGNIN);
+  } else {
+    ash::LoginScreen::Get()->GetModel()->NotifyOobeDialogState(state_);
+  }
 
   if (should_display_captive_portal_)
     GetOobeUI()->GetErrorScreen()->FixCaptivePortal();
@@ -403,12 +410,13 @@ void OobeUIDialogDelegate::SetState(ash::OobeDialogState state) {
   if (!widget_ || state_ == state)
     return;
 
+  state_ = state;
+
   // Gaia WebUI is preloaded, so it's possible for WebUI to send state updates
   // while the widget is not visible. Defer the state update until Show().
-  if (!widget_->IsVisible() && state != ash::OobeDialogState::HIDDEN)
+  if (!widget_->IsVisible() && state_ != ash::OobeDialogState::HIDDEN)
     return;
 
-  state_ = state;
   ash::LoginScreen::Get()->GetModel()->NotifyOobeDialogState(state_);
 }
 
@@ -486,9 +494,9 @@ bool OobeUIDialogDelegate::AcceleratorPressed(
   auto entry = accel_map_.find(accelerator);
   if (entry == accel_map_.end())
     return false;
-
-  GetOobeUI()->ForwardAccelerator(entry->second);
-  return true;
+  if (controller_)
+    return controller_->HandleAccelerator(entry->second);
+  return false;
 }
 
 void OobeUIDialogDelegate::OnViewBoundsChanged(views::View* observed_view) {

@@ -160,6 +160,11 @@ HttpResponseInfo::ConnectionInfoCoarse HttpResponseInfo::ConnectionInfoToCoarse(
     case CONNECTION_INFO_QUIC_Q099:
     case CONNECTION_INFO_QUIC_T099:
     case CONNECTION_INFO_QUIC_999:
+    case CONNECTION_INFO_QUIC_DRAFT_25:
+    case CONNECTION_INFO_QUIC_DRAFT_27:
+    case CONNECTION_INFO_QUIC_DRAFT_28:
+    case CONNECTION_INFO_QUIC_DRAFT_29:
+    case CONNECTION_INFO_QUIC_T051:
       return CONNECTION_INFO_COARSE_QUIC;
 
     case CONNECTION_INFO_UNKNOWN:
@@ -493,6 +498,11 @@ bool HttpResponseInfo::DidUseQuic() const {
     case CONNECTION_INFO_QUIC_Q099:
     case CONNECTION_INFO_QUIC_T099:
     case CONNECTION_INFO_QUIC_999:
+    case CONNECTION_INFO_QUIC_DRAFT_25:
+    case CONNECTION_INFO_QUIC_DRAFT_27:
+    case CONNECTION_INFO_QUIC_DRAFT_28:
+    case CONNECTION_INFO_QUIC_DRAFT_29:
+    case CONNECTION_INFO_QUIC_T051:
       return true;
     case NUM_OF_CONNECTION_INFOS:
       NOTREACHED();
@@ -571,15 +581,24 @@ std::string HttpResponseInfo::ConnectionInfoToString(
       return "h3-T050";
     case CONNECTION_INFO_QUIC_Q099:
       return "h3-Q099";
+    case CONNECTION_INFO_QUIC_DRAFT_25:
+      return "h3-25";
+    case CONNECTION_INFO_QUIC_DRAFT_27:
+      return "h3-27";
+    case CONNECTION_INFO_QUIC_DRAFT_28:
+      return "h3-28";
+    case CONNECTION_INFO_QUIC_DRAFT_29:
+      return "h3-29";
     case CONNECTION_INFO_QUIC_T099:
-      return quic::AlpnForVersion(quic::ParsedQuicVersion(
-          quic::PROTOCOL_TLS1_3, quic::QUIC_VERSION_99));
+      return "h3-T099";
     case CONNECTION_INFO_HTTP0_9:
       return "http/0.9";
     case CONNECTION_INFO_HTTP1_0:
       return "http/1.0";
     case CONNECTION_INFO_QUIC_999:
       return "http2+quic/999";
+    case CONNECTION_INFO_QUIC_T051:
+      return "h3-T051";
     case NUM_OF_CONNECTION_INFOS:
       break;
   }

@@ -12,7 +12,6 @@
 
 #include "base/callback.h"
 #include "base/containers/circular_deque.h"
-#include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/time/clock.h"
 #include "base/time/time.h"
@@ -20,6 +19,7 @@
 #include "chrome/browser/notifications/scheduler/internal/impression_types.h"
 #include "chrome/browser/notifications/scheduler/internal/scheduler_config.h"
 #include "chrome/browser/notifications/scheduler/public/impression_detail.h"
+#include "chrome/browser/notifications/scheduler/public/throttle_config.h"
 #include "chrome/browser/notifications/scheduler/public/user_action_handler.h"
 
 namespace notifications {
@@ -31,9 +31,25 @@ class ImpressionHistoryTracker : public UserActionHandler {
   using ClientStates =
       std::map<SchedulerClientType, std::unique_ptr<ClientState>>;
   using InitCallback = base::OnceCallback<void(bool)>;
+  class Delegate {
+   public:
+    using ThrottleConfigCallback =
+        base::OnceCallback<void(std::unique_ptr<ThrottleConfig>)>;
+    Delegate() = default;
+    Delegate(const Delegate&) = delete;
+    Delegate& operator=(const Delegate&) = delete;
+    virtual ~Delegate() = default;
+
+    // Get ThrottleConfig.
+    virtual void GetThrottleConfig(SchedulerClientType type,
+                                   ThrottleConfigCallback callback) = 0;
+  };
+
+  ImpressionHistoryTracker(const ImpressionHistoryTracker&) = delete;
+  ImpressionHistoryTracker& operator=(const ImpressionHistoryTracker&) = delete;
 
   // Initializes the impression tracker.
-  virtual void Init(InitCallback callback) = 0;
+  virtual void Init(Delegate* delegate, InitCallback callback) = 0;
 
   // Add a new impression, called after the notification is shown.
   virtual void AddImpression(
@@ -41,7 +57,7 @@ class ImpressionHistoryTracker : public UserActionHandler {
       const std::string& guid,
       const Impression::ImpressionResultMap& impression_map,
       const Impression::CustomData& custom_data,
-      const base::Optional<base::TimeDelta>& custom_suppression_duration) = 0;
+      base::Optional<base::TimeDelta> ignore_timeout_duration) = 0;
 
   // Analyzes the impression history for all notification clients, and adjusts
   // the |current_max_daily_show|.
@@ -65,9 +81,6 @@ class ImpressionHistoryTracker : public UserActionHandler {
 
  protected:
   ImpressionHistoryTracker() = default;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(ImpressionHistoryTracker);
 };
 
 // An implementation of ImpressionHistoryTracker backed by a database.
@@ -78,17 +91,20 @@ class ImpressionHistoryTrackerImpl : public ImpressionHistoryTracker {
       std::vector<SchedulerClientType> registered_clients,
       std::unique_ptr<CollectionStore<ClientState>> store,
       base::Clock* clock);
+  ImpressionHistoryTrackerImpl(const ImpressionHistoryTrackerImpl&) = delete;
+  ImpressionHistoryTrackerImpl& operator=(const ImpressionHistoryTrackerImpl&) =
+      delete;
   ~ImpressionHistoryTrackerImpl() override;
 
  private:
   // ImpressionHistoryTracker implementation.
-  void Init(InitCallback callback) override;
-  void AddImpression(SchedulerClientType type,
-                     const std::string& guid,
-                     const Impression::ImpressionResultMap& impression_mapping,
-                     const Impression::CustomData& custom_data,
-                     const base::Optional<base::TimeDelta>&
-                         custom_suppression_duration) override;
+  void Init(Delegate* delegate, InitCallback callback) override;
+  void AddImpression(
+      SchedulerClientType type,
+      const std::string& guid,
+      const Impression::ImpressionResultMap& impression_mapping,
+      const Impression::CustomData& custom_data,
+      base::Optional<base::TimeDelta> ignore_timeout_duration) override;
   void AnalyzeImpressionHistory() override;
   void GetClientStates(std::map<SchedulerClientType, const ClientState*>*
                            client_states) const override;
@@ -119,8 +135,7 @@ class ImpressionHistoryTrackerImpl : public ImpressionHistoryTracker {
   // Check consecutive user actions, and generate impression result if no less
   // than |num_actions| count of user actions.
   void CheckConsecutiveDismiss(ClientState* client_state,
-                               base::circular_deque<Impression*>* impressions,
-                               size_t num_actions);
+                               base::circular_deque<Impression*>* impressions);
 
   // Generates user impression result.
   void GenerateImpressionResult(Impression* impression);
@@ -157,7 +172,14 @@ class ImpressionHistoryTrackerImpl : public ImpressionHistoryTracker {
                              ActionButtonType button_type,
                              bool update_db);
   void OnDismissInternal(const std::string& notification_guid, bool update_db);
-
+  void OnCustomNegativeActionCountQueried(
+      SchedulerClientType type,
+      base::circular_deque<Impression*>* impressions,
+      std::unique_ptr<ThrottleConfig> custom_throttle_config);
+  void OnCustomSuppressionDurationQueried(
+      SchedulerClientType type,
+      std::unique_ptr<ThrottleConfig> custom_throttle_config);
+  void HandleIgnoredImpressions(ClientState* client_state);
   // Impression history and global states for all notification scheduler
   // clients.
   ClientStates client_states_;
@@ -183,8 +205,10 @@ class ImpressionHistoryTrackerImpl : public ImpressionHistoryTracker {
   // The clock to provide the current timestamp.
   base::Clock* clock_;
 
+  // Delegate object.
+  Delegate* delegate_;
+
   base::WeakPtrFactory<ImpressionHistoryTrackerImpl> weak_ptr_factory_{this};
-  DISALLOW_COPY_AND_ASSIGN(ImpressionHistoryTrackerImpl);
 };
 
 }  // namespace notifications

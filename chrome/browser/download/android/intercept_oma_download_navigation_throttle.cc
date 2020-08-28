@@ -5,6 +5,7 @@
 #include "chrome/browser/download/android/intercept_oma_download_navigation_throttle.h"
 
 #include "base/bind.h"
+#include "base/memory/ptr_util.h"
 #include "chrome/browser/chrome_content_browser_client.h"
 #include "chrome/browser/download/android/download_controller_base.h"
 #include "content/public/browser/browser_thread.h"
@@ -12,7 +13,7 @@
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/render_view_host.h"
 #include "content/public/browser/web_contents.h"
-#include "third_party/blink/public/mojom/referrer.mojom.h"
+#include "third_party/blink/public/mojom/loader/referrer.mojom.h"
 
 using content::BrowserThread;
 

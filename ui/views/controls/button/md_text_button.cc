@@ -4,6 +4,10 @@
 
 #include "ui/views/controls/button/md_text_button.h"
 
+#include <algorithm>
+#include <utility>
+#include <vector>
+
 #include "base/i18n/case_conversion.h"
 #include "base/memory/ptr_util.h"
 #include "build/build_config.h"
@@ -26,33 +30,32 @@
 
 namespace views {
 
-// static
-std::unique_ptr<LabelButton> MdTextButton::CreateSecondaryUiButton(
-    ButtonListener* listener,
-    const base::string16& text) {
-  return MdTextButton::Create(listener, text, style::CONTEXT_BUTTON_MD);
-}
+MdTextButton::MdTextButton(ButtonListener* listener,
+                           const base::string16& text,
+                           int button_context)
+    : LabelButton(listener, text, button_context) {
+  SetInkDropMode(InkDropMode::ON);
+  set_has_ink_drop_action_on_click(true);
+  set_show_ink_drop_when_hot_tracked(true);
+  SetCornerRadius(LayoutProvider::Get()->GetCornerRadiusMetric(EMPHASIS_LOW));
+  SetHorizontalAlignment(gfx::ALIGN_CENTER);
+  SetFocusForPlatform();
 
-// static
-std::unique_ptr<LabelButton> MdTextButton::CreateSecondaryUiBlueButton(
-    ButtonListener* listener,
-    const base::string16& text) {
-  auto md_button =
-      MdTextButton::Create(listener, text, style::CONTEXT_BUTTON_MD);
-  md_button->SetProminent(true);
-  return md_button;
-}
+  const int minimum_width = LayoutProvider::Get()->GetDistanceMetric(
+      DISTANCE_DIALOG_BUTTON_MINIMUM_WIDTH);
+  SetMinSize(gfx::Size(minimum_width, 0));
+  SetInstallFocusRingOnFocus(true);
+  label()->SetAutoColorReadabilityEnabled(false);
+  set_request_focus_on_press(false);
+  set_animate_on_state_change(true);
 
-// static
-std::unique_ptr<MdTextButton> MdTextButton::Create(ButtonListener* listener,
-                                                   const base::string16& text,
-                                                   int button_context) {
-  auto button = base::WrapUnique<MdTextButton>(
-      new MdTextButton(listener, button_context));
-  button->SetText(text);
-  button->SetFocusForPlatform();
+  // Paint to a layer so that the canvas is snapped to pixel boundaries (useful
+  // for fractional DSF).
+  SetPaintToLayer();
+  layer()->SetFillsBoundsOpaquely(false);
 
-  return button;
+  // Call this to calculate the border given text.
+  UpdatePadding();
 }
 
 MdTextButton::~MdTextButton() = default;
@@ -90,25 +93,6 @@ float MdTextButton::GetCornerRadius() const {
   return corner_radius_;
 }
 
-void MdTextButton::OnPaintBackground(gfx::Canvas* canvas) {
-  LabelButton::OnPaintBackground(canvas);
-  if (hover_animation().is_animating() || state() == STATE_HOVERED) {
-    bool should_use_dark_colors = GetNativeTheme()->ShouldUseDarkColors();
-    int hover_alpha = is_prominent_ ? 0x0C : 0x05;
-    if (should_use_dark_colors)
-      hover_alpha = 0x0A;
-    const SkColor hover_color = should_use_dark_colors && !is_prominent_
-                                    ? gfx::kGoogleBlue300
-                                    : SK_ColorBLACK;
-    SkScalar alpha = hover_animation().CurrentValueBetween(0, hover_alpha);
-    cc::PaintFlags flags;
-    flags.setColor(SkColorSetA(hover_color, alpha));
-    flags.setStyle(cc::PaintFlags::kFill_Style);
-    flags.setAntiAlias(true);
-    canvas->DrawRoundRect(gfx::RectF(GetLocalBounds()), corner_radius_, flags);
-  }
-}
-
 void MdTextButton::OnThemeChanged() {
   LabelButton::OnThemeChanged();
   UpdateColors();
@@ -135,33 +119,49 @@ void MdTextButton::OnBlur() {
 
 std::unique_ptr<views::InkDropHighlight> MdTextButton::CreateInkDropHighlight()
     const {
-  bool should_use_dark_colors = GetNativeTheme()->ShouldUseDarkColors();
+  const ui::NativeTheme* theme = GetNativeTheme();
   // The prominent button hover effect is a shadow.
   constexpr int kYOffset = 1;
   constexpr int kSkiaBlurRadius = 2;
-  const int shadow_alpha = is_prominent_ ? 0x3D : 0x1A;
-  const SkColor shadow_color = should_use_dark_colors && is_prominent_
-                                   ? gfx::kGoogleBlue300
-                                   : SK_ColorBLACK;
+  ui::NativeTheme::ColorId fill_color_id;
+  ui::NativeTheme::ColorId shadow_color_id =
+      is_prominent_
+          ? ui::NativeTheme::kColorId_ProminentButtonInkDropShadowColor
+          : ui::NativeTheme::kColorId_ButtonInkDropShadowColor;
+  if (GetState() == STATE_HOVERED) {
+    fill_color_id = is_prominent_
+                        ? ui::NativeTheme::kColorId_ProminentButtonHoverColor
+                        : ui::NativeTheme::kColorId_ButtonHoverColor;
+  } else {
+    fill_color_id =
+        is_prominent_
+            ? ui::NativeTheme::kColorId_ProminentButtonInkDropFillColor
+            : ui::NativeTheme::kColorId_ButtonInkDropFillColor;
+  }
   std::vector<gfx::ShadowValue> shadows;
   // The notion of blur that gfx::ShadowValue uses is twice the Skia/CSS value.
   // Skia counts the number of pixels outside the mask area whereas
   // gfx::ShadowValue counts together the number of pixels inside and outside
   // the mask bounds.
-  shadows.emplace_back(
-      gfx::Vector2d(0, kYOffset), 2 * kSkiaBlurRadius,
-      SkColorSetA(shadow_color, should_use_dark_colors ? 0x7F : shadow_alpha));
-  const SkColor fill_color =
-      SkColorSetA(SK_ColorWHITE, is_prominent_ ? 0x0D : 0x05);
-  return std::make_unique<InkDropHighlight>(
+  shadows.emplace_back(gfx::Vector2d(0, kYOffset), 2 * kSkiaBlurRadius,
+                       theme->GetSystemColor(shadow_color_id));
+  auto highlight = std::make_unique<InkDropHighlight>(
       gfx::RectF(GetLocalBounds()).CenterPoint(),
-      base::WrapUnique(new BorderShadowLayerDelegate(
-          shadows, GetLocalBounds(), fill_color, corner_radius_)));
+      std::make_unique<BorderShadowLayerDelegate>(
+          shadows, GetLocalBounds(), theme->GetSystemColor(fill_color_id),
+          corner_radius_));
+  highlight->set_visible_opacity(1.0f);
+  return highlight;
 }
 
-void MdTextButton::SetEnabledTextColors(SkColor color) {
-  LabelButton::SetEnabledTextColors(color);
+void MdTextButton::SetEnabledTextColors(base::Optional<SkColor> color) {
+  LabelButton::SetEnabledTextColors(std::move(color));
   UpdateColors();
+}
+
+void MdTextButton::SetCustomPadding(const gfx::Insets& padding) {
+  custom_padding_ = padding;
+  UpdatePadding();
 }
 
 void MdTextButton::SetText(const base::string16& text) {
@@ -175,29 +175,6 @@ PropertyEffects MdTextButton::UpdateStyleToIndicateDefaultStatus() {
   return kPropertyEffectsNone;
 }
 
-MdTextButton::MdTextButton(ButtonListener* listener, int button_context)
-    : LabelButton(listener, base::string16(), button_context),
-      is_prominent_(false) {
-  SetInkDropMode(InkDropMode::ON);
-  set_has_ink_drop_action_on_click(true);
-  SetCornerRadius(LayoutProvider::Get()->GetCornerRadiusMetric(EMPHASIS_LOW));
-  SetHorizontalAlignment(gfx::ALIGN_CENTER);
-  SetFocusForPlatform();
-  const int minimum_width = LayoutProvider::Get()->GetDistanceMetric(
-      DISTANCE_DIALOG_BUTTON_MINIMUM_WIDTH);
-  SetMinSize(gfx::Size(minimum_width, 0));
-  SetInstallFocusRingOnFocus(true);
-  label()->SetAutoColorReadabilityEnabled(false);
-  set_request_focus_on_press(false);
-
-  set_animate_on_state_change(true);
-
-  // Paint to a layer so that the canvas is snapped to pixel boundaries (useful
-  // for fractional DSF).
-  SetPaintToLayer();
-  layer()->SetFillsBoundsOpaquely(false);
-}
-
 void MdTextButton::UpdatePadding() {
   // Don't use font-based padding when there's no text visible.
   if (GetText().empty()) {
@@ -205,6 +182,11 @@ void MdTextButton::UpdatePadding() {
     return;
   }
 
+  SetBorder(
+      CreateEmptyBorder(custom_padding_.value_or(CalculateDefaultPadding())));
+}
+
+gfx::Insets MdTextButton::CalculateDefaultPadding() const {
   // Text buttons default to 28dp in height on all platforms when the base font
   // is in use, but should grow or shrink if the font size is adjusted up or
   // down. When the system font size has been adjusted, the base font will be
@@ -235,34 +217,38 @@ void MdTextButton::UpdatePadding() {
   // we apply the MD treatment to all buttons, even GTK buttons?
   const int horizontal_padding = LayoutProvider::Get()->GetDistanceMetric(
       DISTANCE_BUTTON_HORIZONTAL_PADDING);
-  SetBorder(CreateEmptyBorder(top_padding, horizontal_padding, bottom_padding,
-                              horizontal_padding));
+  return gfx::Insets(top_padding, horizontal_padding, bottom_padding,
+                     horizontal_padding);
 }
 
-void MdTextButton::UpdateColors() {
-  bool is_disabled = state() == STATE_DISABLED;
+void MdTextButton::UpdateTextColor() {
+  if (explicitly_set_normal_color())
+    return;
+
   SkColor enabled_text_color =
       style::GetColor(*this, label()->GetTextContext(),
                       is_prominent_ ? style::STYLE_DIALOG_BUTTON_DEFAULT
                                     : style::STYLE_PRIMARY);
-  if (!explicitly_set_normal_color()) {
-    const auto colors = explicitly_set_colors();
-    LabelButton::SetEnabledTextColors(enabled_text_color);
-    // Disabled buttons need the disabled color explicitly set.
-    // This ensures that label()->GetEnabledColor() returns the correct color as
-    // the basis for calculating the stroke color. enabled_text_color isn't used
-    // since a descendant could have overridden the label enabled color.
-    if (is_disabled) {
-      LabelButton::SetTextColor(
-          STATE_DISABLED, style::GetColor(*this, label()->GetTextContext(),
-                                          style::STYLE_DISABLED));
-    }
-    set_explicitly_set_colors(colors);
-  }
 
+  const auto colors = explicitly_set_colors();
+  LabelButton::SetEnabledTextColors(enabled_text_color);
+  // Disabled buttons need the disabled color explicitly set.
+  // This ensures that label()->GetEnabledColor() returns the correct color as
+  // the basis for calculating the stroke color. enabled_text_color isn't used
+  // since a descendant could have overridden the label enabled color.
+  if (GetState() == STATE_DISABLED) {
+    LabelButton::SetTextColor(STATE_DISABLED,
+                              style::GetColor(*this, label()->GetTextContext(),
+                                              style::STYLE_DISABLED));
+  }
+  set_explicitly_set_colors(colors);
+}
+
+void MdTextButton::UpdateBackgroundColor() {
+  bool is_disabled = GetVisualState() == STATE_DISABLED;
   ui::NativeTheme* theme = GetNativeTheme();
   SkColor bg_color =
-      theme->GetSystemColor(ui::NativeTheme::kColorId_DialogBackground);
+      theme->GetSystemColor(ui::NativeTheme::kColorId_ButtonColor);
 
   if (bg_color_override_) {
     bg_color = *bg_color_override_;
@@ -276,32 +262,34 @@ void MdTextButton::UpdateColors() {
     }
   }
 
-  if (state() == STATE_PRESSED) {
-    SkColor shade =
-        theme->GetSystemColor(ui::NativeTheme::kColorId_ButtonPressedShade);
-    bg_color = color_utils::GetResultingPaintColor(shade, bg_color);
+  if (GetState() == STATE_PRESSED) {
+    bg_color = theme->GetSystemButtonPressedColor(bg_color);
   }
 
   SkColor stroke_color;
   if (is_prominent_) {
     stroke_color = SK_ColorTRANSPARENT;
   } else {
-    stroke_color = SkColorSetA(
-        theme->GetSystemColor(ui::NativeTheme::kColorId_ButtonBorderColor),
-        is_disabled ? 0x43 : SK_AlphaOPAQUE);
+    stroke_color = theme->GetSystemColor(
+        is_disabled ? ui::NativeTheme::kColorId_DisabledButtonBorderColor
+                    : ui::NativeTheme::kColorId_ButtonBorderColor);
   }
 
   SetBackground(
       CreateBackgroundFromPainter(Painter::CreateRoundRectWith1PxBorderPainter(
           bg_color, stroke_color, corner_radius_)));
+}
+
+void MdTextButton::UpdateColors() {
+  UpdateTextColor();
+  UpdateBackgroundColor();
   SchedulePaint();
 }
 
-BEGIN_METADATA(MdTextButton)
-METADATA_PARENT_CLASS(LabelButton)
-ADD_PROPERTY_METADATA(MdTextButton, bool, Prominent)
-ADD_PROPERTY_METADATA(MdTextButton, float, CornerRadius)
-ADD_PROPERTY_METADATA(MdTextButton, base::Optional<SkColor>, BgColorOverride)
+BEGIN_METADATA(MdTextButton, LabelButton)
+ADD_PROPERTY_METADATA(bool, Prominent)
+ADD_PROPERTY_METADATA(float, CornerRadius)
+ADD_PROPERTY_METADATA(base::Optional<SkColor>, BgColorOverride)
 END_METADATA()
 
 }  // namespace views

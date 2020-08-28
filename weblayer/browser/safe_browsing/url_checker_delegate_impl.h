@@ -25,6 +25,8 @@ class UrlCheckerDelegateImpl : public safe_browsing::UrlCheckerDelegate {
           database_manager,
       scoped_refptr<SafeBrowsingUIManager> ui_manager);
 
+  void SetSafeBrowsingDisabled(bool disabled);
+
  private:
   ~UrlCheckerDelegateImpl() override;
 
@@ -37,6 +39,9 @@ class UrlCheckerDelegateImpl : public safe_browsing::UrlCheckerDelegate {
       const net::HttpRequestHeaders& headers,
       bool is_main_frame,
       bool has_user_gesture) override;
+  void StartObservingInteractionsForDelayedBlockingPageHelper(
+      const security_interstitials::UnsafeResource& resource,
+      bool is_main_frame) override;
   bool IsUrlWhitelisted(const GURL& url) override;
   bool ShouldSkipRequestCheck(const GURL& original_url,
                               int frame_tree_node_id,

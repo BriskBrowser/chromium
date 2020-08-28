@@ -16,12 +16,16 @@
 #include "pdf/page_orientation.h"
 #include "pdf/pdf_engine.h"
 #include "ppapi/cpp/private/pdf.h"
-#include "ppapi/cpp/rect.h"
 #include "third_party/pdfium/public/cpp/fpdf_scopers.h"
 #include "third_party/pdfium/public/fpdf_doc.h"
 #include "third_party/pdfium/public/fpdf_formfill.h"
 #include "third_party/pdfium/public/fpdf_text.h"
 #include "ui/gfx/geometry/point_f.h"
+#include "ui/gfx/geometry/rect.h"
+
+namespace gfx {
+class Point;
+}  // namespace gfx
 
 namespace chrome_pdf {
 
@@ -31,6 +35,8 @@ class PDFiumEngine;
 class PDFiumPage {
  public:
   PDFiumPage(PDFiumEngine* engine, int i);
+  PDFiumPage(const PDFiumPage&) = delete;
+  PDFiumPage& operator=(const PDFiumPage&) = delete;
   PDFiumPage(PDFiumPage&& that);
   ~PDFiumPage();
 
@@ -45,6 +51,8 @@ class PDFiumPage {
   // Returns FPDF_TEXTPAGE for the page, loading and parsing it if necessary.
   FPDF_TEXTPAGE GetTextPage();
 
+  // Log overlaps between annotations in the page.
+  void LogOverlappingAnnotations();
   // See definition of PDFEngine::GetTextRunInfo().
   base::Optional<pp::PDF::PrivateAccessibilityTextRunInfo> GetTextRunInfo(
       int start_char_index);
@@ -60,6 +68,9 @@ class PDFiumPage {
   // For all the highlights on the page, get their underlying text ranges and
   // bounding boxes.
   std::vector<PDFEngine::AccessibilityHighlightInfo> GetHighlightInfo();
+  // For all the text fields on the page, get their properties like name,
+  // value, bounding boxes, etc.
+  std::vector<PDFEngine::AccessibilityTextFieldInfo> GetTextFieldInfo();
 
   enum Area {
     NONSELECTABLE_AREA,
@@ -94,6 +105,10 @@ class PDFiumPage {
   // |link_index| is invalid.
   Area GetLinkTargetAtIndex(int link_index, LinkTarget* target);
 
+  // Returns link type and fills target associated with a link. Returns
+  // NONSELECTABLE_AREA if link detection failed.
+  Area GetLinkTarget(FPDF_LINK link, LinkTarget* target);
+
   // Fills the output params with the (x, y) position in page coordinates and
   // zoom value of a destination.
   void GetPageDestinationTarget(FPDF_DEST destination,
@@ -107,7 +122,7 @@ class PDFiumPage {
   // index if it's near a character, and also the type of text.
   // Target is optional. It will be filled in for WEBLINK_AREA or
   // DOCLINK_AREA only.
-  Area GetCharIndex(const pp::Point& point,
+  Area GetCharIndex(const gfx::Point& point,
                     PageOrientation orientation,
                     int* char_index,
                     int* form_type,
@@ -134,20 +149,18 @@ class PDFiumPage {
                                      int* char_len);
 
   // Converts from page coordinates to screen coordinates.
-  pp::Rect PageToScreen(const pp::Point& offset,
-                        double zoom,
-                        double left,
-                        double top,
-                        double right,
-                        double bottom,
-                        PageOrientation orientation) const;
-
-  const PDFEngine::PageFeatures* GetPageFeatures();
+  gfx::Rect PageToScreen(const gfx::Point& page_point,
+                         double zoom,
+                         double left,
+                         double top,
+                         double right,
+                         double bottom,
+                         PageOrientation orientation) const;
 
   int index() const { return index_; }
 
-  const pp::Rect& rect() const { return rect_; }
-  void set_rect(const pp::Rect& r) { rect_ = r; }
+  const gfx::Rect& rect() const { return rect_; }
+  void set_rect(const gfx::Rect& r) { rect_ = r; }
 
   // Availability is a one-way transition: A page can become available, but it
   // cannot become unavailable (unless deleted entirely).
@@ -170,6 +183,129 @@ class PDFiumPage {
   FRIEND_TEST_ALL_PREFIXES(PDFiumPageImageTest, TestImageAltText);
   FRIEND_TEST_ALL_PREFIXES(PDFiumPageLinkTest, TestLinkGeneration);
   FRIEND_TEST_ALL_PREFIXES(PDFiumPageHighlightTest, TestPopulateHighlights);
+  FRIEND_TEST_ALL_PREFIXES(PDFiumPageTextFieldTest, TestPopulateTextFields);
+  FRIEND_TEST_ALL_PREFIXES(PDFiumPageChoiceFieldTest, TestPopulateChoiceFields);
+  FRIEND_TEST_ALL_PREFIXES(PDFiumPageButtonTest, TestPopulateButtons);
+  FRIEND_TEST_ALL_PREFIXES(PDFiumPageOverlappingTest, CountPartialOverlaps);
+  FRIEND_TEST_ALL_PREFIXES(PDFiumPageOverlappingTest, CountCompleteOverlaps);
+
+  class ScopedUnloadPreventer {
+   public:
+    explicit ScopedUnloadPreventer(PDFiumPage* page);
+    ~ScopedUnloadPreventer();
+
+   private:
+    PDFiumPage* const page_;
+  };
+
+  struct Link {
+    Link();
+    Link(const Link& that);
+    ~Link();
+
+    // Represents start index of underlying text range. Should be -1 if the link
+    // is not over text.
+    int32_t start_char_index = -1;
+    // Represents the number of characters that the link overlaps with.
+    int32_t char_count = 0;
+    std::vector<gfx::Rect> bounding_rects;
+    LinkTarget target;
+  };
+
+  // Represents an Image inside the page.
+  struct Image {
+    Image();
+    Image(const Image& other);
+    ~Image();
+
+    gfx::Rect bounding_rect;
+    // Alt text is available only for tagged PDFs.
+    std::string alt_text;
+  };
+
+  // Represents a highlight within the page.
+  struct Highlight {
+    Highlight();
+    Highlight(const Highlight& other);
+    ~Highlight();
+
+    // Start index of underlying text range. -1 indicates invalid value.
+    int32_t start_char_index = -1;
+    // Number of characters encompassed by this highlight.
+    int32_t char_count = 0;
+    gfx::Rect bounding_rect;
+
+    // Color of the highlight in ARGB. Alpha is stored in the first 8 MSBs. RGB
+    // follows after it with each using 8 bytes.
+    uint32_t color;
+
+    // Text of the popup note associated with highlight.
+    std::string note_text;
+  };
+
+  // Represents a form field within the page.
+  struct FormField {
+    FormField();
+    FormField(const FormField& other);
+    ~FormField();
+
+    gfx::Rect bounding_rect;
+    // Represents the name of form field as defined in the field dictionary.
+    std::string name;
+    // Represents the flags of form field as defined in the field dictionary.
+    int flags;
+  };
+
+  // Represents a text field within the page.
+  struct TextField : FormField {
+    TextField();
+    TextField(const TextField& other);
+    ~TextField();
+
+    std::string value;
+  };
+
+  // Represents a choice field option.
+  struct ChoiceFieldOption {
+    ChoiceFieldOption();
+    ChoiceFieldOption(const ChoiceFieldOption& other);
+    ~ChoiceFieldOption();
+
+    std::string name;
+    bool is_selected;
+  };
+
+  // Represents a choice field within the page.
+  struct ChoiceField : FormField {
+    ChoiceField();
+    ChoiceField(const ChoiceField& other);
+    ~ChoiceField();
+
+    std::vector<ChoiceFieldOption> options;
+  };
+
+  // Represents a button within the page.
+  struct Button : FormField {
+    Button();
+    Button(const Button& other);
+    ~Button();
+
+    std::string value;
+    // A button can be of type radio, checkbox or push button.
+    int type;
+    // Represents if the radio button or checkbox is checked.
+    bool is_checked = false;
+    // Represents count of controls in the control group. A group of
+    // interactive form annotations is collectively called a form control
+    // group. Here an interactive form annotation should be either a radio
+    // button or a checkbox.
+    uint32_t control_count = 0;
+    // Represents index of the control in the control group. A group of
+    // interactive form annotations is collectively called a form control
+    // group. Here an interactive form annotation should be either a radio
+    // button or a checkbox. Value of |control_index| is -1 for push button.
+    int control_index = -1;
+  };
 
   // Returns a link index if the given character index is over a link, or -1
   // otherwise.
@@ -182,11 +318,18 @@ class PDFiumPage {
   void PopulateAnnotationLinks();
   // Calculate the locations of images on the page.
   void CalculateImages();
-  // Populate highlights on the page.
-  void PopulateHighlights();
-  // Returns link type and fills target associated with a link. Returns
-  // NONSELECTABLE_AREA if link detection failed.
-  Area GetLinkTarget(FPDF_LINK link, LinkTarget* target);
+  // Populate annotations like highlight and text field on the page.
+  void PopulateAnnotations();
+  // Populate |highlights_| with |annot|.
+  void PopulateHighlight(FPDF_ANNOTATION annot);
+  // Populate |text_fields_| with |annot|.
+  void PopulateTextField(FPDF_ANNOTATION annot);
+  // Populate |choice_fields_| with |annot|.
+  void PopulateChoiceField(FPDF_ANNOTATION annot);
+  // Populate |buttons_| with |annot|.
+  void PopulateButton(FPDF_ANNOTATION annot);
+  // Populate form fields like text field, choice field and button on the page.
+  void PopulateFormField(FPDF_ANNOTATION annot);
   // Returns link type and fills target associated with a destination. Returns
   // NONSELECTABLE_AREA if detection failed.
   Area GetDestinationTarget(FPDF_DEST destination, LinkTarget* target);
@@ -223,79 +366,45 @@ class PDFiumPage {
       const MarkedContentIdToImageMap& marked_content_id_image_map,
       FPDF_STRUCTELEMENT current_element,
       std::set<FPDF_STRUCTELEMENT>* visited_elements);
-
-  class ScopedUnloadPreventer {
-   public:
-    explicit ScopedUnloadPreventer(PDFiumPage* page);
-    ~ScopedUnloadPreventer();
-
-   private:
-    PDFiumPage* const page_;
-  };
-
-  struct Link {
-    Link();
-    Link(const Link& that);
-    ~Link();
-
-    // Represents start index of underlying text range. Should be -1 if the link
-    // is not over text.
-    int32_t start_char_index = -1;
-    // Represents the number of characters that the link overlaps with.
-    int32_t char_count = 0;
-    std::vector<pp::Rect> bounding_rects;
-    LinkTarget target;
-  };
-
-  // Represents an Image inside the page.
-  struct Image {
-    Image();
-    Image(const Image& other);
-    ~Image();
-
-    pp::Rect bounding_rect;
-    // Alt text is available only for tagged PDFs.
-    std::string alt_text;
-  };
-
-  // Represents a highlight within the page.
-  struct Highlight {
-    Highlight();
-    Highlight(const Highlight& other);
-    ~Highlight();
-
-    // Start index of underlying text range. -1 indicates invalid value.
-    int32_t start_char_index = -1;
-    // Number of characters encompassed by this highlight.
-    int32_t char_count = 0;
-    pp::Rect bounding_rect;
-  };
+  static uint32_t CountLinkHighlightOverlaps(
+      const std::vector<Link>& links,
+      const std::vector<Highlight>& highlights);
+  bool PopulateFormFieldProperties(FPDF_ANNOTATION annot,
+                                   FormField* form_field);
 
   PDFiumEngine* engine_;
   ScopedFPDFPage page_;
   ScopedFPDFTextPage text_page_;
   int index_;
   int preventing_unload_count_ = 0;
-  pp::Rect rect_;
+  gfx::Rect rect_;
   bool calculated_links_ = false;
   std::vector<Link> links_;
   bool calculated_images_ = false;
   std::vector<Image> images_;
-  bool calculated_highlights_ = false;
+  bool calculated_annotations_ = false;
   std::vector<Highlight> highlights_;
+  std::vector<TextField> text_fields_;
+  std::vector<ChoiceField> choice_fields_;
+  std::vector<Button> buttons_;
+  bool logged_overlapping_annotations_ = false;
   bool calculated_page_object_text_run_breaks_ = false;
   // The set of character indices on which text runs need to be broken for page
   // objects.
   std::set<int> page_object_text_run_breaks_;
   bool available_;
-  PDFEngine::PageFeatures page_features_;
-
-  DISALLOW_COPY_AND_ASSIGN(PDFiumPage);
 };
 
 // Converts page orientations to the PDFium equivalents, as defined by
 // FPDF_RenderPage().
 int ToPDFiumRotation(PageOrientation orientation);
+
+constexpr uint32_t MakeARGB(unsigned int a,
+                            unsigned int r,
+                            unsigned int g,
+                            unsigned int b) {
+  return (a << 24) | (r << 16) | (g << 8) | b;
+}
 
 }  // namespace chrome_pdf
 

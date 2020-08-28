@@ -111,10 +111,11 @@ void AuthenticatorTestBase::ContinueAuthExchangeWith(Authenticator* sender,
   ASSERT_NE(Authenticator::MESSAGE_READY, sender->state());
 
   ASSERT_EQ(Authenticator::WAITING_MESSAGE, receiver->state());
-  receiver->ProcessMessage(message.get(), base::Bind(
-      &AuthenticatorTestBase::ContinueAuthExchangeWith,
-      base::Unretained(receiver), base::Unretained(sender),
-      receiver->started(), sender->started()));
+  receiver->ProcessMessage(
+      message.get(),
+      base::BindOnce(&AuthenticatorTestBase::ContinueAuthExchangeWith,
+                     base::Unretained(receiver), base::Unretained(sender),
+                     receiver->started(), sender->started()));
 }
 
 void AuthenticatorTestBase::RunChannelAuth(bool expected_fail) {
@@ -124,13 +125,13 @@ void AuthenticatorTestBase::RunChannelAuth(bool expected_fail) {
 
   client_auth_->SecureAndAuthenticate(
       std::move(client_fake_socket_),
-      base::Bind(&AuthenticatorTestBase::OnClientConnected,
-                 base::Unretained(this)));
+      base::BindOnce(&AuthenticatorTestBase::OnClientConnected,
+                     base::Unretained(this)));
 
   host_auth_->SecureAndAuthenticate(
       std::move(host_fake_socket_),
-      base::Bind(&AuthenticatorTestBase::OnHostConnected,
-                 base::Unretained(this)));
+      base::BindOnce(&AuthenticatorTestBase::OnHostConnected,
+                     base::Unretained(this)));
 
   // Expect two callbacks to be called - the client callback and the host
   // callback.

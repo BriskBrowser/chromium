@@ -27,6 +27,7 @@
 #include "components/payments/core/strings_util.h"
 #include "components/strings/grit/components_strings.h"
 #include "components/vector_icons/vector_icons.h"
+#include "third_party/blink/public/mojom/payments/payment_request.mojom.h"
 #include "ui/base/default_style.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
@@ -48,7 +49,6 @@
 #include "ui/views/controls/styled_label.h"
 #include "ui/views/layout/box_layout.h"
 #include "ui/views/layout/grid_layout.h"
-#include "ui/views/layout/layout_provider.h"
 #include "ui/views/painter.h"
 #include "ui/views/view.h"
 
@@ -177,12 +177,6 @@ class PaymentRequestRowBorderPainter : public views::Painter {
 
 }  // namespace
 
-int GetActualDialogWidth() {
-  static int actual_width =
-      views::LayoutProvider::Get()->GetSnappedDialogWidth(kDialogMinWidth);
-  return actual_width;
-}
-
 void PopulateSheetHeaderView(bool show_back_arrow,
                              std::unique_ptr<views::View> header_content_view,
                              views::ButtonListener* listener,
@@ -202,8 +196,8 @@ void PopulateSheetHeaderView(bool show_back_arrow,
   views::ColumnSet* columns = layout->AddColumnSet(0);
   // A column for the optional back arrow.
   columns->AddColumn(views::GridLayout::LEADING, views::GridLayout::CENTER,
-                     views::GridLayout::kFixedSize, views::GridLayout::USE_PREF,
-                     0, 0);
+                     views::GridLayout::kFixedSize,
+                     views::GridLayout::ColumnSize::kUsePreferred, 0, 0);
 
   constexpr int kPaddingBetweenArrowAndTitle = 8;
   if (show_back_arrow)
@@ -212,7 +206,7 @@ void PopulateSheetHeaderView(bool show_back_arrow,
 
   // A column for the title.
   columns->AddColumn(views::GridLayout::FILL, views::GridLayout::CENTER, 1.0,
-                     views::GridLayout::USE_PREF, 0, 0);
+                     views::GridLayout::ColumnSize::kUsePreferred, 0, 0);
 
   layout->StartRow(views::GridLayout::kFixedSize, 0);
   if (!show_back_arrow) {
@@ -237,13 +231,16 @@ void PopulateSheetHeaderView(bool show_back_arrow,
 
 std::unique_ptr<views::ImageView> CreateAppIconView(
     int icon_resource_id,
-    gfx::ImageSkia img,
+    const SkBitmap* icon_bitmap,
     const base::string16& tooltip_text,
     float opacity) {
   std::unique_ptr<views::ImageView> icon_view =
       std::make_unique<views::ImageView>();
   icon_view->set_can_process_events_within_subtree(false);
-  if (!img.isNull() || !icon_resource_id) {
+  if (icon_bitmap || !icon_resource_id) {
+    gfx::ImageSkia img = gfx::ImageSkia::CreateFrom1xBitmap(
+                             (icon_bitmap ? *icon_bitmap : SkBitmap()))
+                             .DeepCopy();
     icon_view->SetImage(img);
     float width = base::checked_cast<float>(img.width());
     float height = base::checked_cast<float>(img.height());
@@ -283,9 +280,12 @@ std::unique_ptr<views::View> CreateProductLogoFooterView() {
   std::unique_ptr<views::ImageView> chrome_logo =
       std::make_unique<views::ImageView>();
   chrome_logo->set_can_process_events_within_subtree(false);
-  chrome_logo->SetImage(ui::ResourceBundle::GetSharedInstance()
-                            .GetImageNamed(IDR_PRODUCT_LOGO_NAME_22)
-                            .AsImageSkia());
+  chrome_logo->SetImage(
+      ui::ResourceBundle::GetSharedInstance()
+          .GetImageNamed(content_view->GetNativeTheme()->ShouldUseDarkColors()
+                             ? IDR_PRODUCT_LOGO_NAME_22_WHITE
+                             : IDR_PRODUCT_LOGO_NAME_22)
+          .AsImageSkia());
   chrome_logo->set_tooltip_text(l10n_util::GetStringUTF16(IDS_PRODUCT_NAME));
   content_view->AddChildView(std::move(chrome_logo));
 
@@ -375,7 +375,7 @@ std::unique_ptr<views::Label> CreateHintLabel(
     const base::string16& text,
     gfx::HorizontalAlignment alignment) {
   std::unique_ptr<views::Label> label = std::make_unique<views::Label>(
-      text, views::style::CONTEXT_LABEL, STYLE_HINT);
+      text, views::style::CONTEXT_LABEL, views::style::STYLE_HINT);
   label->SetHorizontalAlignment(alignment);
   return label;
 }

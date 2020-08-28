@@ -10,9 +10,11 @@
 #include "base/files/file_enumerator.h"
 #include "base/files/file_util.h"
 #include "base/location.h"
+#include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
 #include "base/threading/thread_restrictions.h"
 #include "build/build_config.h"
 
@@ -85,7 +87,7 @@ const int kDefaultCacheSize = 80 * 1024 * 1024;
 
 void DeleteCache(const base::FilePath& path, bool remove_folder) {
   if (remove_folder) {
-    if (!base::DeleteFileRecursively(path))
+    if (!base::DeletePathRecursively(path))
       LOG(WARNING) << "Unable to delete cache folder.";
     return;
   }
@@ -96,7 +98,7 @@ void DeleteCache(const base::FilePath& path, bool remove_folder) {
       base::FileEnumerator::FILES | base::FileEnumerator::DIRECTORIES);
   for (base::FilePath file = iter.Next(); !file.value().empty();
        file = iter.Next()) {
-    if (!base::DeleteFileRecursively(file)) {
+    if (!base::DeletePathRecursively(file)) {
       LOG(WARNING) << "Unable to delete cache.";
       return;
     }
@@ -123,7 +125,7 @@ bool DelayedCacheCleanup(const base::FilePath& full_path) {
   base::FilePath name = current_path.BaseName();
 #if defined(OS_WIN)
   // We created this file so it should only contain ASCII.
-  std::string name_str = base::UTF16ToASCII(name.value());
+  std::string name_str = base::WideToASCII(name.value());
 #elif defined(OS_POSIX) || defined(OS_FUCHSIA)
   std::string name_str = name.value();
 #endif
@@ -140,11 +142,10 @@ bool DelayedCacheCleanup(const base::FilePath& full_path) {
     return false;
   }
 
-  base::PostTask(
-      FROM_HERE,
-      {base::ThreadPool(), base::MayBlock(), base::TaskPriority::BEST_EFFORT,
-       base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN},
-      base::BindOnce(&CleanupCallback, path, name_str));
+  base::ThreadPool::PostTask(FROM_HERE,
+                             {base::MayBlock(), base::TaskPriority::BEST_EFFORT,
+                              base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN},
+                             base::BindOnce(&CleanupCallback, path, name_str));
   return true;
 }
 

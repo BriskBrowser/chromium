@@ -840,6 +840,7 @@ def Bisect(context,
   fetch.WaitFor()
 
   # Binary search time!
+  prefetch_revisions = True
   while fetch and fetch.zip_file and maxrev - minrev > 1:
     if bad_rev < good_rev:
       min_str, max_str = 'bad', 'good'
@@ -856,20 +857,22 @@ def Bisect(context,
     #   - up_pivot is the next revision to check if the current revision turns
     #     out to be good.
     down_pivot = int((pivot - minrev) / 2) + minrev
-    down_fetch = None
-    if down_pivot != pivot and down_pivot != minrev:
-      down_rev = revlist[down_pivot]
-      down_fetch = DownloadJob(context, 'down_fetch', down_rev,
-                               _GetDownloadPath(down_rev))
-      down_fetch.Start()
+    if prefetch_revisions:
+      down_fetch = None
+      if down_pivot != pivot and down_pivot != minrev:
+        down_rev = revlist[down_pivot]
+        down_fetch = DownloadJob(context, 'down_fetch', down_rev,
+                                 _GetDownloadPath(down_rev))
+        down_fetch.Start()
 
     up_pivot = int((maxrev - pivot) / 2) + pivot
-    up_fetch = None
-    if up_pivot != pivot and up_pivot != maxrev:
-      up_rev = revlist[up_pivot]
-      up_fetch = DownloadJob(context, 'up_fetch', up_rev,
-                             _GetDownloadPath(up_rev))
-      up_fetch.Start()
+    if prefetch_revisions:
+      up_fetch = None
+      if up_pivot != pivot and up_pivot != maxrev:
+        up_rev = revlist[up_pivot]
+        up_fetch = DownloadJob(context, 'up_fetch', up_rev,
+                               _GetDownloadPath(up_rev))
+        up_fetch.Start()
 
     # Run test on the pivot revision.
     exit_status = None
@@ -886,6 +889,7 @@ def Bisect(context,
     # other, as described in the comments above.
     try:
       answer = evaluate(rev, exit_status, stdout, stderr)
+      prefetch_revisions = True
       if ((answer == 'g' and good_rev < bad_rev)
           or (answer == 'b' and bad_rev < good_rev)):
         fetch.Stop()
@@ -909,7 +913,8 @@ def Bisect(context,
           pivot = down_pivot
           fetch = down_fetch
       elif answer == 'r':
-        pass  # Retry requires no changes.
+        # Don't redundantly prefetch.
+        prefetch_revisions = False
       elif answer == 'u':
         # Nuke the revision from the revlist and choose a new pivot.
         fetch.Stop()
@@ -1072,7 +1077,9 @@ def main():
            '    Chrome\'s about: build number and omahaproxy branch_revision\n'
            '    are incorrect, they are from branches.\n'
            '\n'
-           'Tip: add "-- --no-first-run" to bypass the first run prompts.')
+           'Use "-- <args-to-pass-to-chromium>" to pass arbitrary extra \n'
+           'arguments to the test binaries.\n'
+           'E.g., add "-- --no-first-run" to bypass the first run prompts.')
   parser = optparse.OptionParser(usage=usage)
   # Strangely, the default help output doesn't include the choice list.
   choices = ['mac', 'mac64', 'win', 'win64', 'linux', 'linux64', 'linux-arm',
@@ -1108,14 +1115,17 @@ def main():
                     default=1,
                     help='Number of times to run each build before asking '
                          'if it\'s good or bad. Temporary profiles are reused.')
-  parser.add_option('-c', '--command',
+  parser.add_option('-c',
+                    '--command',
                     type='str',
                     default='%p %a',
                     help='Command to execute. %p and %a refer to Chrome '
-                         'executable and specified extra arguments '
-                         'respectively. Use %s to specify all extra arguments '
-                         'as one string. Defaults to "%p %a". Note that any '
-                         'extra paths specified should be absolute.')
+                    'executable and specified extra arguments respectively. '
+                    'Use %s to specify all extra arguments as one string. '
+                    'Defaults to "%p %a". Note that any extra paths specified '
+                    'should be absolute. If you just need to append an '
+                    'argument to the Chrome command line use "-- '
+                    '<args-to-pass-to-chromium>" instead.')
   parser.add_option('-l', '--blink',
                     action='store_true',
                     help='Use Blink bisect instead of Chromium. ')

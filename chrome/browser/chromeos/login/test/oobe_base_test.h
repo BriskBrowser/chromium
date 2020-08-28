@@ -8,7 +8,9 @@
 #include <memory>
 #include <string>
 
+#include "base/compiler_specific.h"
 #include "base/macros.h"
+#include "chrome/browser/chromeos/login/oobe_screen.h"
 #include "chrome/browser/chromeos/login/test/embedded_test_server_mixin.h"
 #include "chrome/browser/chromeos/login/test/js_checker.h"
 #include "chrome/test/base/mixin_based_in_process_browser_test.h"
@@ -20,6 +22,8 @@ class WindowedNotificationObserver;
 
 namespace chromeos {
 
+class FakeUpdateEngineClient;
+
 // Base class for OOBE, login, SAML and Kiosk tests.
 class OobeBaseTest : public MixinBasedInProcessBrowserTest {
  public:
@@ -30,10 +34,13 @@ class OobeBaseTest : public MixinBasedInProcessBrowserTest {
   // process requests prior it gets handled by FakeGaia instance.
   virtual void RegisterAdditionalRequestHandlers();
 
+  static OobeScreenId GetFirstSigninScreen();
+
  protected:
   // MixinBasedInProcessBrowserTest::
   void SetUp() override;
   void SetUpCommandLine(base::CommandLine* command_line) override;
+  void SetUpInProcessBrowserTestFixture() override;
   void CreatedBrowserMainParts(
       content::BrowserMainParts* browser_main_parts) override;
   void SetUpOnMainThread() override;
@@ -45,13 +52,19 @@ class OobeBaseTest : public MixinBasedInProcessBrowserTest {
   // Returns chrome://oobe WebUI.
   content::WebUI* GetLoginUI();
 
+  FakeUpdateEngineClient* update_engine_client() {
+    return update_engine_client_;
+  }
+
   void WaitForOobeUI();
   void WaitForGaiaPageLoad();
   void WaitForGaiaPageLoadAndPropertyUpdate();
   void WaitForGaiaPageReload();
   void WaitForGaiaPageBackButtonUpdate();
-  void WaitForGaiaPageEvent(const std::string& event);
+  WARN_UNUSED_RESULT std::unique_ptr<test::TestConditionWaiter>
+  CreateGaiaPageEventWaiter(const std::string& event);
   void WaitForSigninScreen();
+  void CheckJsExceptionErrors(int number);
   test::JSChecker SigninFrameJS();
 
   // Whether to use background networking. Note this is only effective when it
@@ -66,6 +79,8 @@ class OobeBaseTest : public MixinBasedInProcessBrowserTest {
  private:
   // Waits for login_screen_load_observer_ and resets it afterwards.
   void MaybeWaitForLoginScreenLoad();
+
+  FakeUpdateEngineClient* update_engine_client_ = nullptr;
 
   std::unique_ptr<content::WindowedNotificationObserver>
       login_screen_load_observer_;

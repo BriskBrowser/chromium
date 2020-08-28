@@ -4,7 +4,7 @@
 
 package org.chromium.chrome.browser.password_manager;
 
-import static android.support.test.espresso.Espresso.pressBack;
+import static androidx.test.espresso.Espresso.pressBack;
 
 import static org.chromium.chrome.browser.password_manager.OnboardingState.SHOULD_SHOW;
 import static org.chromium.chrome.browser.preferences.Pref.PASSWORD_MANAGER_ONBOARDING_STATE;
@@ -23,14 +23,15 @@ import org.junit.runner.RunWith;
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.IntegrationTest;
 import org.chromium.chrome.R;
-import org.chromium.chrome.browser.ChromeActivity;
-import org.chromium.chrome.browser.ChromeFeatureList;
-import org.chromium.chrome.browser.ChromeSwitches;
+import org.chromium.chrome.browser.app.ChromeActivity;
+import org.chromium.chrome.browser.flags.ChromeFeatureList;
+import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.infobar.InfoBarContainer;
-import org.chromium.chrome.browser.preferences.PrefServiceBridge;
+import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.sync.SyncTestRule;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.chrome.test.util.browser.Features.EnableFeatures;
+import org.chromium.components.user_prefs.UserPrefs;
 import org.chromium.content_public.browser.WebContents;
 import org.chromium.content_public.browser.test.util.CriteriaHelper;
 import org.chromium.content_public.browser.test.util.DOMUtils;
@@ -71,10 +72,10 @@ public class OnboardingDialogIntegrationTest {
 
     @Before
     public void setUp() {
-        mSyncTestRule.setUpTestAccountAndSignIn();
+        mSyncTestRule.setUpAccountAndSignInForTesting();
         TestThreadUtils.runOnUiThreadBlocking(() -> {
-            PrefServiceBridge.getInstance().setInteger(
-                    PASSWORD_MANAGER_ONBOARDING_STATE, SHOULD_SHOW);
+            UserPrefs.get(Profile.getLastUsedRegularProfile())
+                    .setInteger(PASSWORD_MANAGER_ONBOARDING_STATE, SHOULD_SHOW);
         });
         loadTestPage();
     }

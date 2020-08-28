@@ -7,13 +7,13 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <atomic>
 #include <memory>
 #include <new>
 #include <vector>
 
 #include "base/allocator/buildflags.h"
 #include "base/allocator/partition_allocator/partition_alloc.h"
-#include "base/atomicops.h"
 #include "base/process/process_metrics.h"
 #include "base/synchronization/waitable_event.h"
 #include "base/threading/platform_thread.h"
@@ -23,9 +23,9 @@
 #include "testing/gtest/include/gtest/gtest.h"
 
 #if defined(OS_WIN)
-#include <windows.h>
 #include <malloc.h>
-#elif defined(OS_MACOSX)
+#include <windows.h>
+#elif defined(OS_APPLE)
 #include <malloc/malloc.h>
 #include "base/allocator/allocator_interception_mac.h"
 #include "base/mac/mac_util.h"
@@ -38,21 +38,12 @@
 #include <unistd.h>
 #endif
 
-// Some new Android NDKs (64 bit) does not expose (p)valloc anymore. These
-// functions are implemented at the shim-layer level.
-#if defined(OS_ANDROID)
-extern "C" {
-void* valloc(size_t size);
-void* pvalloc(size_t size);
-}
-#endif
-
 namespace base {
 namespace allocator {
 namespace {
 
-using testing::MockFunction;
 using testing::_;
+using testing::MockFunction;
 
 // Special sentinel values used for testing GetSizeEstimate() interception.
 const char kTestSizeEstimateData[] = "test_value";
@@ -61,7 +52,14 @@ constexpr size_t kTestSizeEstimate = 1234;
 
 class AllocatorShimTest : public testing::Test {
  public:
+#if defined(OS_IOS)
+  // TODO(crbug.com/1077271): 64-bit iOS uses a page size that is larger than
+  // kSystemPageSize, causing this test to make larger allocations, relative to
+  // kSystemPageSize.
+  static const size_t kMaxSizeTracked = 6 * base::kSystemPageSize;
+#else
   static const size_t kMaxSizeTracked = 2 * base::kSystemPageSize;
+#endif
   AllocatorShimTest() : testing::Test() {}
 
   static size_t Hash(const void* ptr) {
@@ -216,11 +214,11 @@ class AllocatorShimTest : public testing::Test {
   static void NewHandler() {
     if (!instance_)
       return;
-    subtle::Barrier_AtomicIncrement(&instance_->num_new_handler_calls, 1);
+    instance_->num_new_handler_calls.fetch_add(1, std::memory_order_relaxed);
   }
 
   int32_t GetNumberOfNewHandlerCalls() {
-    return subtle::Acquire_Load(&instance_->num_new_handler_calls);
+    return instance_->num_new_handler_calls.load(std::memory_order_acquire);
   }
 
   void SetUp() override {
@@ -240,17 +238,17 @@ class AllocatorShimTest : public testing::Test {
     memset(&aligned_reallocs_intercepted_by_addr, 0, array_size);
     memset(&aligned_frees_intercepted_by_addr, 0, array_size);
     did_fail_realloc_0xfeed_once.reset(new ThreadLocalBoolean());
-    subtle::Release_Store(&num_new_handler_calls, 0);
+    num_new_handler_calls.store(0, std::memory_order_release);
     instance_ = this;
 
-#if defined(OS_MACOSX)
+#if defined(OS_APPLE)
     InitializeAllocatorShim();
 #endif
   }
 
   void TearDown() override {
     instance_ = nullptr;
-#if defined(OS_MACOSX)
+#if defined(OS_APPLE)
     UninterceptMallocZonesForTesting();
 #endif
   }
@@ -271,7 +269,7 @@ class AllocatorShimTest : public testing::Test {
   size_t aligned_reallocs_intercepted_by_addr[kMaxSizeTracked];
   size_t aligned_frees_intercepted_by_addr[kMaxSizeTracked];
   std::unique_ptr<ThreadLocalBoolean> did_fail_realloc_0xfeed_once;
-  subtle::Atomic32 num_new_handler_calls;
+  std::atomic<uint32_t> num_new_handler_calls;
 
  private:
   static AllocatorShimTest* instance_;
@@ -289,7 +287,8 @@ struct TestStruct2 {
 
 class ThreadDelegateForNewHandlerTest : public PlatformThread::Delegate {
  public:
-  ThreadDelegateForNewHandlerTest(WaitableEvent* event) : event_(event) {}
+  explicit ThreadDelegateForNewHandlerTest(WaitableEvent* event)
+      : event_(event) {}
 
   void ThreadMain() override {
     event_->Wait();
@@ -332,7 +331,6 @@ TEST_F(AllocatorShimTest, InterceptLibcSymbols) {
   ASSERT_GE(zero_allocs_intercepted_by_size[2 * 23], 1u);
 
 #if !defined(OS_WIN)
-  const size_t kPageSize = base::GetPageSize();
   void* posix_memalign_ptr = nullptr;
   int res = posix_memalign(&posix_memalign_ptr, 256, 59);
   ASSERT_EQ(0, res);
@@ -341,27 +339,36 @@ TEST_F(AllocatorShimTest, InterceptLibcSymbols) {
   ASSERT_GE(aligned_allocs_intercepted_by_alignment[256], 1u);
   ASSERT_GE(aligned_allocs_intercepted_by_size[59], 1u);
 
+  // (p)valloc() are not defined on Android. pvalloc() is a GNU extension,
+  // valloc() is not in POSIX.
+#if !defined(OS_ANDROID)
+  const size_t kPageSize = base::GetPageSize();
   void* valloc_ptr = valloc(61);
   ASSERT_NE(nullptr, valloc_ptr);
   ASSERT_EQ(0u, reinterpret_cast<uintptr_t>(valloc_ptr) % kPageSize);
   ASSERT_GE(aligned_allocs_intercepted_by_alignment[kPageSize], 1u);
   ASSERT_GE(aligned_allocs_intercepted_by_size[61], 1u);
+#endif  // !defined(OS_ANDROID)
+
 #endif  // !OS_WIN
 
-#if !defined(OS_WIN) && !defined(OS_MACOSX)
+#if !defined(OS_WIN) && !defined(OS_APPLE)
   void* memalign_ptr = memalign(128, 53);
   ASSERT_NE(nullptr, memalign_ptr);
   ASSERT_EQ(0u, reinterpret_cast<uintptr_t>(memalign_ptr) % 128);
   ASSERT_GE(aligned_allocs_intercepted_by_alignment[128], 1u);
   ASSERT_GE(aligned_allocs_intercepted_by_size[53], 1u);
 
+#if !defined(OS_ANDROID)
   void* pvalloc_ptr = pvalloc(67);
   ASSERT_NE(nullptr, pvalloc_ptr);
   ASSERT_EQ(0u, reinterpret_cast<uintptr_t>(pvalloc_ptr) % kPageSize);
   ASSERT_GE(aligned_allocs_intercepted_by_alignment[kPageSize], 1u);
   // pvalloc rounds the size up to the next page.
   ASSERT_GE(aligned_allocs_intercepted_by_size[kPageSize], 1u);
-#endif  // !OS_WIN && !OS_MACOSX
+#endif  // !defined(OS_ANDROID)
+
+#endif  // !OS_WIN && !OS_APPLE
 
   char* realloc_ptr = static_cast<char*>(malloc(10));
   strcpy(realloc_ptr, "foobar");
@@ -377,20 +384,26 @@ TEST_F(AllocatorShimTest, InterceptLibcSymbols) {
   free(zero_alloc_ptr);
   ASSERT_GE(frees_intercepted_by_addr[Hash(zero_alloc_ptr)], 1u);
 
-#if !defined(OS_WIN) && !defined(OS_MACOSX)
+#if !defined(OS_WIN) && !defined(OS_APPLE)
   free(memalign_ptr);
   ASSERT_GE(frees_intercepted_by_addr[Hash(memalign_ptr)], 1u);
 
+#if !defined(OS_ANDROID)
   free(pvalloc_ptr);
   ASSERT_GE(frees_intercepted_by_addr[Hash(pvalloc_ptr)], 1u);
-#endif  // !OS_WIN && !OS_MACOSX
+#endif  // !defined(OS_ANDROID)
+
+#endif  // !OS_WIN && !OS_APPLE
 
 #if !defined(OS_WIN)
   free(posix_memalign_ptr);
   ASSERT_GE(frees_intercepted_by_addr[Hash(posix_memalign_ptr)], 1u);
 
+#if !defined(OS_ANDROID)
   free(valloc_ptr);
   ASSERT_GE(frees_intercepted_by_addr[Hash(valloc_ptr)], 1u);
+#endif  // !defined(OS_ANDROID)
+
 #endif  // !OS_WIN
 
   free(realloc_ptr);
@@ -404,7 +417,7 @@ TEST_F(AllocatorShimTest, InterceptLibcSymbols) {
   free(non_hooked_ptr);
 }
 
-#if defined(OS_MACOSX)
+#if defined(OS_APPLE)
 TEST_F(AllocatorShimTest, InterceptLibcSymbolsBatchMallocFree) {
   InsertAllocatorDispatch(&g_mock_dispatch);
 
@@ -438,12 +451,12 @@ TEST_F(AllocatorShimTest, InterceptLibcSymbolsFreeDefiniteSize) {
   ASSERT_GE(allocs_intercepted_by_size[19], 1u);
 
   ChromeMallocZone* default_zone =
-          reinterpret_cast<ChromeMallocZone*>(malloc_default_zone());
+      reinterpret_cast<ChromeMallocZone*>(malloc_default_zone());
   default_zone->free_definite_size(malloc_default_zone(), alloc_ptr, 19);
   ASSERT_GE(free_definite_sizes_intercepted_by_size[19], 1u);
   RemoveAllocatorDispatchForTesting(&g_mock_dispatch);
 }
-#endif  // defined(OS_MACOSX)
+#endif  // defined(OS_APPLE)
 
 #if defined(OS_WIN)
 TEST_F(AllocatorShimTest, InterceptUcrtAlignedAllocationSymbols) {
@@ -538,7 +551,7 @@ TEST_F(AllocatorShimTest, NewHandlerConcurrency) {
 
 #if defined(OS_WIN) && BUILDFLAG(USE_ALLOCATOR_SHIM)
 TEST_F(AllocatorShimTest, ShimReplacesCRTHeapWhenEnabled) {
-  ASSERT_NE(::GetProcessHeap(), reinterpret_cast<HANDLE>(_get_heap_handle()));
+  ASSERT_EQ(::GetProcessHeap(), reinterpret_cast<HANDLE>(_get_heap_handle()));
 }
 #endif  // defined(OS_WIN) && BUILDFLAG(USE_ALLOCATOR_SHIM)
 
@@ -546,11 +559,11 @@ TEST_F(AllocatorShimTest, ShimReplacesCRTHeapWhenEnabled) {
 static size_t GetAllocatedSize(void* ptr) {
   return _msize(ptr);
 }
-#elif defined(OS_MACOSX)
+#elif defined(OS_APPLE)
 static size_t GetAllocatedSize(void* ptr) {
   return malloc_size(ptr);
 }
-#elif defined(OS_LINUX)
+#elif defined(OS_LINUX) || defined(OS_CHROMEOS)
 static size_t GetAllocatedSize(void* ptr) {
   return malloc_usable_size(ptr);
 }

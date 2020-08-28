@@ -31,6 +31,7 @@
 #include "third_party/blink/renderer/core/dom/raw_data_document_parser.h"
 #include "third_party/blink/renderer/core/dom/shadow_root.h"
 #include "third_party/blink/renderer/core/events/mouse_event.h"
+#include "third_party/blink/renderer/core/events/touch_event.h"
 #include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/frame/local_frame_client.h"
@@ -68,7 +69,7 @@ class ImageEventListener : public NativeEventListener {
 
   void Invoke(ExecutionContext*, Event*) override;
 
-  void Trace(Visitor* visitor) override {
+  void Trace(Visitor* visitor) const override {
     visitor->Trace(doc_);
     NativeEventListener::Trace(visitor);
   }
@@ -92,13 +93,14 @@ struct DowncastTraits<ImageEventListener> {
 class ImageDocumentParser : public RawDataDocumentParser {
  public:
   ImageDocumentParser(ImageDocument* document)
-      : RawDataDocumentParser(document) {}
+      : RawDataDocumentParser(document),
+        world_(document->GetExecutionContext()->GetCurrentWorld()) {}
 
   ImageDocument* GetDocument() const {
     return To<ImageDocument>(RawDataDocumentParser::GetDocument());
   }
 
-  void Trace(Visitor* visitor) override {
+  void Trace(Visitor* visitor) const override {
     visitor->Trace(image_resource_);
     RawDataDocumentParser::Trace(visitor);
   }
@@ -108,6 +110,7 @@ class ImageDocumentParser : public RawDataDocumentParser {
   void Finish() override;
 
   Member<ImageResource> image_resource_;
+  const scoped_refptr<const DOMWrapperWorld> world_;
 };
 
 // --------
@@ -143,7 +146,7 @@ void ImageDocumentParser::AppendBytes(const char* data, size_t length) {
   if (!image_resource_) {
     ResourceRequest request(GetDocument()->Url());
     request.SetCredentialsMode(network::mojom::CredentialsMode::kOmit);
-    image_resource_ = ImageResource::Create(request);
+    image_resource_ = ImageResource::Create(request, world_);
     image_resource_->NotifyStartLoad();
 
     GetDocument()->CreateDocumentStructure(image_resource_->GetContent());
@@ -369,7 +372,7 @@ void ImageDocument::ImageClicked(int x, int y) {
 
     RestoreImageSize();
 
-    UpdateStyleAndLayout();
+    UpdateStyleAndLayout(DocumentUpdateReason::kInput);
 
     double scale = Scale();
     double device_scale_factor =
@@ -382,7 +385,8 @@ void ImageDocument::ImageClicked(int x, int y) {
                      static_cast<float>(GetFrame()->View()->Height()) / 2;
 
     GetFrame()->View()->LayoutViewport()->SetScrollOffset(
-        ScrollOffset(scroll_x, scroll_y), kProgrammaticScroll);
+        ScrollOffset(scroll_x, scroll_y),
+        mojom::blink::ScrollType::kProgrammatic);
   }
 }
 
@@ -560,7 +564,7 @@ bool ImageDocument::ShouldShrinkToFit() const {
   return GetFrame()->IsMainFrame() && !is_wrap_content_web_view;
 }
 
-void ImageDocument::Trace(Visitor* visitor) {
+void ImageDocument::Trace(Visitor* visitor) const {
   visitor->Trace(div_element_);
   visitor->Trace(image_element_);
   HTMLDocument::Trace(visitor);
@@ -569,15 +573,14 @@ void ImageDocument::Trace(Visitor* visitor) {
 // --------
 
 void ImageEventListener::Invoke(ExecutionContext*, Event* event) {
+  auto* mouse_event = DynamicTo<MouseEvent>(event);
   if (event->type() == event_type_names::kResize) {
     doc_->WindowSizeChanged();
-  } else if (event->type() == event_type_names::kClick &&
-             event->IsMouseEvent()) {
-    MouseEvent* mouse_event = ToMouseEvent(event);
+  } else if (event->type() == event_type_names::kClick && mouse_event) {
     doc_->ImageClicked(mouse_event->x(), mouse_event->y());
   } else if ((event->type() == event_type_names::kTouchend ||
               event->type() == event_type_names::kTouchcancel) &&
-             event->IsTouchEvent()) {
+             IsA<TouchEvent>(event)) {
     doc_->UpdateImageStyle();
   }
 }

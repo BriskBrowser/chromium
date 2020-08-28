@@ -15,7 +15,7 @@ namespace net {
 // static
 void ReportingBrowsingDataRemover::RemoveBrowsingData(
     ReportingCache* cache,
-    int data_type_mask,
+    uint64_t data_type_mask,
     const base::RepeatingCallback<bool(const GURL&)>& origin_filter) {
   if ((data_type_mask & DATA_TYPE_REPORTS) != 0) {
     std::vector<const ReportingReport*> all_reports;
@@ -35,15 +35,16 @@ void ReportingBrowsingDataRemover::RemoveBrowsingData(
   if ((data_type_mask & DATA_TYPE_CLIENTS) != 0) {
     for (const url::Origin& origin : cache->GetAllOrigins()) {
       if (origin_filter.Run(origin.GetURL()))
-        cache->RemoveClient(origin);
+        cache->RemoveClientsForOrigin(origin);
     }
   }
   cache->Flush();
 }
 
 // static
-void ReportingBrowsingDataRemover::RemoveAllBrowsingData(ReportingCache* cache,
-                                                         int data_type_mask) {
+void ReportingBrowsingDataRemover::RemoveAllBrowsingData(
+    ReportingCache* cache,
+    uint64_t data_type_mask) {
   if ((data_type_mask & DATA_TYPE_REPORTS) != 0) {
     cache->RemoveAllReports(
         ReportingReport::Outcome::ERASED_BROWSING_DATA_REMOVED);

@@ -18,7 +18,7 @@
 #include "chrome/browser/media/router/media_sinks_observer.h"
 #include "chrome/browser/media/router/route_message_observer.h"
 #include "chrome/browser/media/router/route_message_util.h"
-#include "chrome/common/media_router/route_request_result.h"
+#include "components/media_router/common/route_request_result.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/web_contents.h"
 #include "url/gurl.h"
@@ -182,15 +182,6 @@ void MediaRouterAndroid::SendRouteBinaryMessage(
 }
 
 void MediaRouterAndroid::OnUserGesture() {}
-
-void MediaRouterAndroid::SearchSinks(
-    const MediaSink::Id& sink_id,
-    const MediaSource::Id& source_id,
-    const std::string& search_input,
-    const std::string& domain,
-    MediaSinkSearchResponseCallback sink_callback) {
-  NOTIMPLEMENTED();
-}
 
 void MediaRouterAndroid::DetachRoute(const MediaRoute::Id& route_id) {
   bridge_->DetachRoute(route_id);

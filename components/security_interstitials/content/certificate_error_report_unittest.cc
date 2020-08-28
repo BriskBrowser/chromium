@@ -34,7 +34,7 @@
 #include "net/cert/cert_verify_proc_android.h"
 #endif
 
-#if defined(OS_MACOSX)
+#if defined(OS_APPLE)
 #include "net/cert/internal/trust_store_mac.h"
 #endif
 
@@ -346,7 +346,7 @@ TEST(ErrorReportTest, TrialDebugInfo) {
 
   network::mojom::CertVerifierDebugInfoPtr debug_info =
       network::mojom::CertVerifierDebugInfo::New();
-#if defined(OS_MACOSX)
+#if defined(OS_APPLE)
   debug_info->mac_platform_debug_info =
       network::mojom::MacPlatformVerifierDebugInfo::New();
   debug_info->mac_platform_debug_info->trust_result = 1;
@@ -374,8 +374,8 @@ TEST(ErrorReportTest, TrialDebugInfo) {
   debug_info->trial_der_verification_time = "it's just a string";
 
   CertificateErrorReport report("example.com", *unverified_cert, false, false,
-                                false, false, primary_result, trial_result,
-                                std::move(debug_info));
+                                false, false, "ocsp", "sct", primary_result,
+                                trial_result, std::move(debug_info));
   std::string serialized_report;
   ASSERT_TRUE(report.Serialize(&serialized_report));
   chrome_browser_ssl::CertLoggerRequest parsed;
@@ -384,8 +384,12 @@ TEST(ErrorReportTest, TrialDebugInfo) {
   ASSERT_TRUE(parsed.features_info().has_trial_verification_info());
   const chrome_browser_ssl::TrialVerificationInfo& trial_info =
       parsed.features_info().trial_verification_info();
+  ASSERT_TRUE(trial_info.has_stapled_ocsp());
+  EXPECT_EQ("ocsp", trial_info.stapled_ocsp());
+  ASSERT_TRUE(trial_info.has_sct_list());
+  EXPECT_EQ("sct", trial_info.sct_list());
 
-#if defined(OS_MACOSX)
+#if defined(OS_APPLE)
   ASSERT_TRUE(trial_info.has_mac_platform_debug_info());
   EXPECT_EQ(1U, trial_info.mac_platform_debug_info().trust_result());
   EXPECT_EQ(20, trial_info.mac_platform_debug_info().result_code());

@@ -12,28 +12,23 @@
 #include "ash/public/cpp/shelf_model.h"
 #include "base/bind.h"
 #include "base/logging.h"
-#include "base/metrics/user_metrics.h"
 #include "base/no_destructor.h"
 #include "base/stl_util.h"
 #include "base/strings/string16.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/time/time.h"
 #include "chrome/browser/apps/app_service/app_service_metrics.h"
-#include "chrome/browser/apps/launch_service/launch_service.h"
-#include "chrome/browser/chromeos/plugin_vm/plugin_vm_manager.h"
 #include "chrome/browser/chromeos/plugin_vm/plugin_vm_util.h"
 #include "chrome/browser/chromeos/profiles/profile_helper.h"
+#include "chrome/browser/chromeos/release_notes/release_notes_storage.h"
+#include "chrome/browser/chromeos/web_applications/default_web_app_ids.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/sync/session_sync_service_factory.h"
 #include "chrome/browser/ui/app_list/app_list_client_impl.h"
 #include "chrome/browser/ui/app_list/extension_app_utils.h"
-#include "chrome/browser/ui/ash/launcher/app_window_launcher_item_controller.h"
 #include "chrome/browser/ui/ash/launcher/chrome_launcher_controller.h"
-#include "chrome/browser/ui/chrome_pages.h"
 #include "chrome/browser/ui/extensions/app_launch_params.h"
 #include "chrome/browser/ui/settings_window_manager_chromeos.h"
-#include "chrome/browser/ui/webui/chromeos/login/discover/discover_window_manager.h"
 #include "chrome/browser/web_applications/system_web_app_manager.h"
 #include "chrome/grit/chrome_unscaled_resources.h"
 #include "chrome/grit/generated_resources.h"
@@ -76,13 +71,6 @@ const std::vector<InternalApp>& GetInternalAppListImpl(bool get_all,
             /*recommendable=*/true,
             /*searchable=*/false,
             /*show_in_launcher=*/false, apps::BuiltInAppName::kContinueReading,
-            /*searchable_string_resource_id=*/0},
-
-           {ash::kReleaseNotesAppId, IDS_RELEASE_NOTES_NOTIFICATION_TITLE,
-            IDR_RELEASE_NOTES_APP_192,
-            /*recommendable=*/true,
-            /*searchable=*/false,
-            /*show_in_launcher=*/false, apps::BuiltInAppName::kReleaseNotes,
             /*searchable_string_resource_id=*/0}});
 
   static base::NoDestructor<std::vector<InternalApp>> internal_app_list;
@@ -90,6 +78,17 @@ const std::vector<InternalApp>& GetInternalAppListImpl(bool get_all,
   internal_app_list->insert(internal_app_list->begin(),
                             internal_app_list_static->begin(),
                             internal_app_list_static->end());
+
+  if (!base::FeatureList::IsEnabled(chromeos::features::kHelpAppReleaseNotes)) {
+    internal_app_list->push_back(
+        {ash::kReleaseNotesAppId, IDS_RELEASE_NOTES_NOTIFICATION_TITLE,
+         IDR_RELEASE_NOTES_APP_192,
+         /*recommendable=*/true,
+         /*searchable=*/false,
+         /*show_in_launcher=*/false, apps::BuiltInAppName::kReleaseNotes,
+         /*searchable_string_resource_id=*/0});
+  }
+
   const bool add_discover_app =
       get_all || !chromeos::ProfileHelper::IsEphemeralUserProfile(profile);
   if (base::FeatureList::IsEnabled(chromeos::features::kDiscoverApp) &&
@@ -116,15 +115,6 @@ const std::vector<InternalApp>& GetInternalAppListImpl(bool get_all,
          /*searchable_string_resource_id=*/0});
   }
 
-  if (get_all || plugin_vm::IsPluginVmAllowedForProfile(profile)) {
-    internal_app_list->push_back(
-        {plugin_vm::kPluginVmAppId, IDS_PLUGIN_VM_APP_NAME,
-         IDR_LOGO_PLUGIN_VM_DEFAULT_192,
-         /*recommendable=*/true,
-         /*searchable=*/true,
-         /*show_in_launcher=*/true, apps::BuiltInAppName::kPluginVm,
-         /*searchable_string_resource_id=*/0});
-  }
   return *internal_app_list;
 }
 
@@ -134,14 +124,21 @@ const std::vector<InternalApp>& GetInternalAppList(const Profile* profile) {
   return GetInternalAppListImpl(false, profile);
 }
 
-bool IsSuggestionChip(const std::string& app_id) {
-  // App IDs for internal apps which should only be shown as suggestion chips.
-  static const char* kSuggestionChipIds[] = {ash::kInternalAppIdContinueReading,
-                                             ash::kReleaseNotesAppId};
+bool IsSuggestionChip(const std::string& app_id, Profile* profile) {
+  if (base::LowerCaseEqualsASCII(app_id, ash::kInternalAppIdContinueReading))
+    return true;
 
-  for (size_t i = 0; i < base::size(kSuggestionChipIds); ++i) {
-    if (base::LowerCaseEqualsASCII(app_id, kSuggestionChipIds[i]))
+  if (!base::FeatureList::IsEnabled(chromeos::features::kHelpAppReleaseNotes)) {
+    if (base::LowerCaseEqualsASCII(app_id, ash::kReleaseNotesAppId))
       return true;
+  } else {
+    // We show the Help App as a release notes suggestion chip a certain
+    // number of times.
+    if (chromeos::ReleaseNotesStorage(profile).ShouldShowSuggestionChip() &&
+        base::LowerCaseEqualsASCII(app_id,
+                                   chromeos::default_web_apps::kHelpAppId)) {
+      return true;
+    }
   }
   return false;
 }
@@ -158,52 +155,6 @@ bool IsInternalApp(const std::string& app_id) {
   return !!FindInternalApp(app_id);
 }
 
-base::string16 GetInternalAppNameById(const std::string& app_id) {
-  const auto* app = FindInternalApp(app_id);
-  return app ? l10n_util::GetStringUTF16(app->name_string_resource_id)
-             : base::string16();
-}
-
-int GetIconResourceIdByAppId(const std::string& app_id) {
-  const auto* app = FindInternalApp(app_id);
-  return app ? app->icon_resource_id : 0;
-}
-
-void OpenInternalApp(const std::string& app_id,
-                     Profile* profile,
-                     int event_flags) {
-  if (app_id == ash::kInternalAppIdKeyboardShortcutViewer) {
-    ash::ToggleKeyboardShortcutViewer();
-  } else if (app_id == ash::kInternalAppIdSettings) {
-    chrome::SettingsWindowManager::GetInstance()->ShowOSSettings(profile);
-  } else if (app_id == ash::kInternalAppIdDiscover) {
-    base::RecordAction(base::UserMetricsAction("ShowDiscover"));
-    chromeos::DiscoverWindowManager::GetInstance()
-        ->ShowChromeDiscoverPageForProfile(profile);
-  } else if (app_id == plugin_vm::kPluginVmAppId) {
-    if (plugin_vm::IsPluginVmEnabled(profile)) {
-      plugin_vm::PluginVmManager::GetForProfile(profile)->LaunchPluginVm();
-    } else {
-      plugin_vm::ShowPluginVmInstallerView(profile);
-    }
-  } else if (app_id == ash::kReleaseNotesAppId) {
-    base::RecordAction(
-        base::UserMetricsAction("ReleaseNotes.SuggestionChipLaunched"));
-    chrome::LaunchReleaseNotes(profile);
-  }
-}
-
-gfx::ImageSkia GetIconForResourceId(int resource_id, int resource_size_in_dip) {
-  if (resource_id == 0)
-    return gfx::ImageSkia();
-
-  gfx::ImageSkia* source =
-      ui::ResourceBundle::GetSharedInstance().GetImageSkiaNamed(resource_id);
-  return gfx::ImageSkiaOperations::CreateResizedImage(
-      *source, skia::ImageOperations::RESIZE_BEST,
-      gfx::Size(resource_size_in_dip, resource_size_in_dip));
-}
-
 bool HasRecommendableForeignTab(
     Profile* profile,
     base::string16* title,
@@ -214,7 +165,7 @@ bool HasRecommendableForeignTab(
   std::vector<const sync_sessions::SyncedSession*> foreign_sessions;
   sync_sessions::OpenTabsUIDelegate* delegate =
       test_delegate ? test_delegate : service->GetOpenTabsUIDelegate();
-  if (delegate != nullptr)
+  if (delegate)
     delegate->GetAllForeignSessions(&foreign_sessions);
 
   constexpr int kMaxForeignTabAgeInMinutes = 120;

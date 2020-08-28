@@ -6,6 +6,8 @@
  * @fileoverview Tests for chrome://bluetooth-internals
  */
 
+GEN('#include "content/public/test/browser_test.h"');
+
 /**
  * Test fixture for BluetoothInternals WebUI testing.
  * @constructor
@@ -85,7 +87,7 @@ BluetoothInternalsTest.prototype = {
         super([
           'getInfo',
           'getDevices',
-          'setClient',
+          'addObserver',
         ]);
 
         this.receiver = new bluetooth.mojom.AdapterReceiver(this);
@@ -120,12 +122,30 @@ BluetoothInternalsTest.prototype = {
         return {devices: this.devices_};
       }
 
-      async setClient(client) {
-        this.methodCalled('setClient', client);
+      async addObserver(observer) {
+        this.methodCalled('addObserver', observer);
+      }
+
+      async setDiscoverable() {
+        this.methodCalled('setDiscoverable');
+        return {success: true};
+      }
+
+      async setName() {
+        this.methodCalled('setName');
+        return {success: true};
       }
 
       async startDiscoverySession() {
         return {session: null};
+      }
+
+      async connectToServiceInsecurely(address, service_uuid) {
+        return {result: null};
+      }
+
+      async createRfcommService(service_name, service_uuid) {
+        return {result: null};
       }
 
       setTestConnectResult(connectResult) {
@@ -189,8 +209,7 @@ BluetoothInternalsTest.prototype = {
 
     window.setupFn = () => {
       this.internalsHandlerInterceptor = new MojoInterfaceInterceptor(
-          mojom.BluetoothInternalsHandler.$interfaceName, 'context',
-          /*useBrowserInterfaceBroker=*/ true);
+          mojom.BluetoothInternalsHandler.$interfaceName);
       this.internalsHandlerInterceptor.oninterfacerequest = (e) => {
         this.internalsHandler = new TestBluetoothInternalsHandler(e.handle);
 
@@ -226,6 +245,7 @@ BluetoothInternalsTest.prototype = {
       discovering: false,
       initialized: true,
       name: 'computer.example.com-0',
+      systemName: 'Example Bluetooth Stack 1.0',
       powered: true,
       present: true,
     };
@@ -346,7 +366,7 @@ TEST_F('BluetoothInternalsTest', 'Startup_BluetoothInternals', function() {
         internalsHandler.whenCalled('getAdapter'),
         internalsHandler.adapter.whenCalled('getInfo'),
         internalsHandler.adapter.whenCalled('getDevices'),
-        internalsHandler.adapter.whenCalled('setClient')
+        internalsHandler.adapter.whenCalled('addObserver')
       ]);
     });
 
@@ -757,7 +777,7 @@ TEST_F('BluetoothInternalsTest', 'Startup_BluetoothInternals', function() {
           value = value[part];
         }
 
-        if (propName == 'isGattConnected') {
+        if (propName === 'isGattConnected') {
           value = value ? 'Connected' : 'Not Connected';
         }
 

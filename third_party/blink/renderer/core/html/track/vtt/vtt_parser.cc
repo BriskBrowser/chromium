@@ -255,8 +255,7 @@ VTTParser::ParseState VTTParser::CollectStyleSheet(const String& line) {
         CSSDeferPropertyParsing::kNo, false /* allow_import_rules */);
     auto* style_sheet =
         MakeGarbageCollected<CSSStyleSheet>(style_sheet_contents);
-    style_sheet->SetAssociatedDocument(document_);
-    style_sheet->SetIsConstructed(true);
+    style_sheet->SetConstructorDocument(*document_);
     style_sheet->SetTitle("");
     style_sheets_.push_back(style_sheet);
 
@@ -285,10 +284,8 @@ VTTParser::ParseState VTTParser::CollectWebVTTBlock(const String& line) {
     if (line.StartsWith("STYLE") && StringView(line, kStyleIdentifierLength)
                                         .IsAllSpecialCharacters<IsASpace>()) {
       contains_style_block_ = true;
-      if (RuntimeEnabledFeatures::EmbeddedVTTStylesheetsEnabled()) {
-        current_content_.Clear();
-        return kStyle;
-      }
+      current_content_.Clear();
+      return kStyle;
     }
   }
 
@@ -437,10 +434,10 @@ class VTTTreeBuilder {
   Document& GetDocument() const { return *document_; }
 
   VTTToken token_;
-  Member<ContainerNode> current_node_;
+  ContainerNode* current_node_ = nullptr;
   Vector<AtomicString> language_stack_;
-  Member<Document> document_;
-  Member<TextTrack> track_;
+  Document* document_;
+  TextTrack* track_;
 };
 
 DocumentFragment* VTTTreeBuilder::BuildFromString(const String& cue_text) {
@@ -600,7 +597,7 @@ void VTTTreeBuilder::ConstructTreeFromToken(Document& document) {
       if (node_type == kVTTNodeTypeNone)
         break;
 
-      auto* curr_vtt_element = DynamicTo<VTTElement>(current_node_.Get());
+      auto* curr_vtt_element = DynamicTo<VTTElement>(current_node_);
       VTTNodeType current_type = curr_vtt_element
                                      ? curr_vtt_element->WebVTTNodeType()
                                      : kVTTNodeTypeNone;
@@ -635,7 +632,7 @@ void VTTTreeBuilder::ConstructTreeFromToken(Document& document) {
 
       // The only non-VTTElement would be the DocumentFragment root. (Text
       // nodes and PIs will never appear as current_node_.)
-      auto* curr_vtt_element = DynamicTo<VTTElement>(current_node_.Get());
+      auto* curr_vtt_element = DynamicTo<VTTElement>(current_node_);
       if (!curr_vtt_element)
         break;
 
@@ -671,7 +668,7 @@ void VTTTreeBuilder::ConstructTreeFromToken(Document& document) {
   }
 }
 
-void VTTParser::Trace(Visitor* visitor) {
+void VTTParser::Trace(Visitor* visitor) const {
   visitor->Trace(document_);
   visitor->Trace(current_region_);
   visitor->Trace(client_);

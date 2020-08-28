@@ -4,10 +4,11 @@
 
 #include "chrome/browser/ui/layout_constants.h"
 
-#include "base/logging.h"
-#include "ui/base/material_design/material_design_controller.h"
+#include "base/notreached.h"
+#include "components/omnibox/browser/omnibox_field_trial.h"
+#include "ui/base/pointer/touch_ui_controller.h"
 
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
 int GetCocoaLayoutConstant(LayoutConstant constant) {
   switch (constant) {
     case BOOKMARK_BAR_HEIGHT:
@@ -27,7 +28,7 @@ int GetCocoaLayoutConstant(LayoutConstant constant) {
 #endif
 
 int GetLayoutConstant(LayoutConstant constant) {
-  const bool touch_ui = ui::MaterialDesignController::touch_ui();
+  const bool touch_ui = ui::TouchUiController::Get()->touch_ui();
   switch (constant) {
     case BOOKMARK_BAR_HEIGHT:
       // The fixed margin ensures the bookmark buttons appear centered relative
@@ -54,6 +55,9 @@ int GetLayoutConstant(LayoutConstant constant) {
     case LOCATION_BAR_ELEMENT_PADDING:
       return touch_ui ? 3 : 2;
     case LOCATION_BAR_HEIGHT:
+      if (OmniboxFieldTrial::RichAutocompletionShowAdditionalText() &&
+          OmniboxFieldTrial::RichAutocompletionTwoLineOmnibox())
+        return touch_ui ? 52 : 40;
       return touch_ui ? 36 : 28;
     case LOCATION_BAR_ICON_SIZE:
       return touch_ui ? 20 : 16;
@@ -85,7 +89,7 @@ int GetLayoutConstant(LayoutConstant constant) {
 }
 
 gfx::Insets GetLayoutInsets(LayoutInset inset) {
-  const bool touch_ui = ui::MaterialDesignController::touch_ui();
+  const bool touch_ui = ui::TouchUiController::Get()->touch_ui();
   switch (inset) {
     case LOCATION_BAR_ICON_INTERIOR_PADDING:
       return touch_ui ? gfx::Insets(5, 10) : gfx::Insets(4, 8);

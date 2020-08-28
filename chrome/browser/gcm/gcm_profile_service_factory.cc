@@ -8,7 +8,7 @@
 #include "base/bind.h"
 #include "base/no_destructor.h"
 #include "base/sequenced_task_runner.h"
-#include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
 #include "build/build_config.h"
 #include "chrome/browser/profiles/incognito_helpers.h"
 #include "chrome/browser/profiles/profile.h"
@@ -67,8 +67,8 @@ void RequestProxyResolvingSocketFactory(
     base::WeakPtr<GCMProfileService> service,
     mojo::PendingReceiver<network::mojom::ProxyResolvingSocketFactory>
         receiver) {
-  base::PostTask(
-      FROM_HERE, {content::BrowserThread::UI},
+  content::GetUIThreadTaskRunner({})->PostTask(
+      FROM_HERE,
       base::BindOnce(&RequestProxyResolvingSocketFactoryOnUIThread, profile,
                      std::move(service), std::move(receiver)));
 }
@@ -132,16 +132,13 @@ KeyedService* GCMProfileServiceFactory::BuildServiceInstanceFor(
     return testing_factory.Run(context).release();
 
   scoped_refptr<base::SequencedTaskRunner> blocking_task_runner(
-      base::CreateSequencedTaskRunner(
-          {base::ThreadPool(), base::MayBlock(),
-           base::TaskPriority::BEST_EFFORT,
+      base::ThreadPool::CreateSequencedTaskRunner(
+          {base::MayBlock(), base::TaskPriority::BEST_EFFORT,
            base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN}));
   std::unique_ptr<GCMProfileService> service = nullptr;
 #if defined(OS_ANDROID)
-  service = std::make_unique<GCMProfileService>(
-      profile->GetPath(), blocking_task_runner,
-      content::BrowserContext::GetDefaultStoragePartition(profile)
-          ->GetURLLoaderFactoryForBrowserProcess());
+  service = std::make_unique<GCMProfileService>(profile->GetPath(),
+                                                blocking_task_runner);
 #else
   service = std::make_unique<GCMProfileService>(
       profile->GetPrefs(), profile->GetPath(),
@@ -152,8 +149,7 @@ KeyedService* GCMProfileServiceFactory::BuildServiceInstanceFor(
       gcm::GetProductCategoryForSubtypes(profile->GetPrefs()),
       IdentityManagerFactory::GetForProfile(profile),
       std::unique_ptr<GCMClientFactory>(new GCMClientFactory),
-      base::CreateSingleThreadTaskRunner({content::BrowserThread::UI}),
-      base::CreateSingleThreadTaskRunner({content::BrowserThread::IO}),
+      content::GetUIThreadTaskRunner({}), content::GetIOThreadTaskRunner({}),
       blocking_task_runner);
 #endif
 #if BUILDFLAG(ENABLE_OFFLINE_PAGES)

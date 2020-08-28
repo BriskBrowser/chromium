@@ -58,15 +58,15 @@ class DevToolsWindow : public DevToolsUIBindings::Delegate,
                                content::WebContents* web_contents);
 
   // Return the DevToolsWindow for the given WebContents if one exists,
-  // otherwise NULL.
+  // otherwise nullptr.
   static DevToolsWindow* GetInstanceForInspectedWebContents(
       content::WebContents* inspected_web_contents);
 
   // Return the docked DevTools WebContents for the given inspected WebContents
-  // if one exists and should be shown in browser window, otherwise NULL.
+  // if one exists and should be shown in browser window, otherwise nullptr.
   // This method will return only fully initialized window ready to be
   // presented in UI.
-  // If |out_strategy| is not NULL, it will contain resizing strategy.
+  // If |out_strategy| is not nullptr, it will contain resizing strategy.
   // For immediately-ready-to-use but maybe not yet fully initialized DevTools
   // use |GetInstanceForInspectedRenderViewHost| instead.
   static content::WebContents* GetInTabWebContents(
@@ -128,11 +128,12 @@ class DevToolsWindow : public DevToolsUIBindings::Delegate,
   // Updates the WebContents inspected by the DevToolsWindow by reattaching
   // the binding to |new_web_contents|. Called when swapping an outer
   // WebContents with its inner WebContents.
-  void UpdateInspectedWebContents(content::WebContents* new_web_contents);
+  void UpdateInspectedWebContents(content::WebContents* new_web_contents,
+                                  base::OnceCallback<void()> callback);
 
   // Sets closure to be called after load is done. If already loaded, calls
   // closure immediately.
-  void SetLoadCompletedCallback(const base::Closure& closure);
+  void SetLoadCompletedCallback(base::OnceClosure closure);
 
   // Forwards an unhandled keyboard event to the DevTools frontend.
   bool ForwardKeyboardEvent(const content::NativeWebKeyboardEvent& event);
@@ -309,6 +310,7 @@ class DevToolsWindow : public DevToolsUIBindings::Delegate,
   void ActivateContents(content::WebContents* contents) override;
   void AddNewContents(content::WebContents* source,
                       std::unique_ptr<content::WebContents> new_contents,
+                      const GURL& target_url,
                       WindowOpenDisposition disposition,
                       const gfx::Rect& initial_rect,
                       bool user_gesture,
@@ -338,7 +340,7 @@ class DevToolsWindow : public DevToolsUIBindings::Delegate,
       const std::vector<blink::mojom::ColorSuggestionPtr>& suggestions)
       override;
   void RunFileChooser(content::RenderFrameHost* render_frame_host,
-                      std::unique_ptr<content::FileSelectListener> listener,
+                      scoped_refptr<content::FileSelectListener> listener,
                       const blink::mojom::FileChooserParams& params) override;
   bool PreHandleGestureEvent(content::WebContents* source,
                              const blink::WebGestureEvent& event) override;
@@ -380,6 +382,8 @@ class DevToolsWindow : public DevToolsUIBindings::Delegate,
   // display web modal dialogs triggered by it.
   void RegisterModalDialogManager(Browser* browser);
 
+  void OnReattachMainTargetComplete(base::Value);
+
   std::unique_ptr<ObserverWithAccessor> inspected_contents_observer_;
 
   FrontendType frontend_type_;
@@ -412,7 +416,7 @@ class DevToolsWindow : public DevToolsUIBindings::Delegate,
   // True if we're in the process of handling a beforeunload event originating
   // from the inspected webcontents, see InterceptPageBeforeUnload for details.
   bool intercepted_page_beforeunload_;
-  base::Closure load_completed_callback_;
+  base::OnceClosure load_completed_callback_;
   base::OnceClosure close_callback_;
   bool ready_for_test_;
   base::OnceClosure ready_for_test_callback_;
@@ -424,6 +428,8 @@ class DevToolsWindow : public DevToolsUIBindings::Delegate,
   class Throttle;
   Throttle* throttle_ = nullptr;
   bool open_new_window_for_popups_ = false;
+
+  base::OnceCallback<void()> reattach_complete_callback_;
 
   friend class DevToolsEventForwarder;
   DISALLOW_COPY_AND_ASSIGN(DevToolsWindow);

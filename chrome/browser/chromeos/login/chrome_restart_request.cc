@@ -8,10 +8,12 @@
 #include <vector>
 
 #include "ash/public/cpp/app_list/app_list_switches.h"
+#include "ash/public/cpp/ash_features.h"
 #include "ash/public/cpp/ash_switches.h"
 #include "base/base_switches.h"
 #include "base/bind.h"
 #include "base/command_line.h"
+#include "base/feature_list.h"
 #include "base/memory/weak_ptr.h"
 #include "base/process/launch.h"
 #include "base/stl_util.h"
@@ -45,9 +47,11 @@
 #include "media/base/media_switches.h"
 #include "media/capture/capture_switches.h"
 #include "media/media_buildflags.h"
-#include "services/service_manager/sandbox/switches.h"
+#include "sandbox/policy/switches.h"
+#include "third_party/blink/public/common/switches.h"
 #include "third_party/cros_system_api/switches/chrome_switches.h"
 #include "ui/base/ui_base_switches.h"
+#include "ui/display/display_features.h"
 #include "ui/display/display_switches.h"
 #include "ui/events/event_switches.h"
 #include "ui/gfx/switches.h"
@@ -76,12 +80,12 @@ void DeriveCommandLine(const GURL& start_url,
   DCHECK_NE(&base_command_line, command_line);
 
   static const char* const kForwardSwitches[] = {
-    service_manager::switches::kDisableGpuSandbox,
-    service_manager::switches::kDisableSeccompFilterSandbox,
-    service_manager::switches::kDisableSetuidSandbox,
-    service_manager::switches::kGpuSandboxAllowSysVShm,
-    service_manager::switches::kGpuSandboxFailuresFatal,
-    service_manager::switches::kNoSandbox,
+    sandbox::policy::switches::kDisableGpuSandbox,
+    sandbox::policy::switches::kDisableSeccompFilterSandbox,
+    sandbox::policy::switches::kDisableSetuidSandbox,
+    sandbox::policy::switches::kGpuSandboxAllowSysVShm,
+    sandbox::policy::switches::kGpuSandboxFailuresFatal,
+    sandbox::policy::switches::kNoSandbox,
     ::switches::kBlinkSettings,
     ::switches::kDisable2dCanvasImageChromium,
     ::switches::kDisableAccelerated2dCanvas,
@@ -93,51 +97,43 @@ void DeriveCommandLine(const GURL& start_url,
     ::switches::kDisableGpuMemoryBufferVideoFrames,
     ::switches::kDisableGpuShaderDiskCache,
     ::switches::kUseCmdDecoder,
+    ::switches::kUseANGLE,
     ::switches::kDisableGpuWatchdog,
     ::switches::kDisableGpuCompositing,
     ::switches::kDisableGpuRasterization,
-    ::switches::kDisableLowResTiling,
     ::switches::kDisableOopRasterization,
-    ::switches::kDisablePartialRaster,
     ::switches::kDisablePepper3DImageChromium,
-    ::switches::kDisablePreferCompositingToLCDText,
-    ::switches::kDisableRGBA4444Textures,
     ::switches::kDisableThreadedScrolling,
     ::switches::kDisableTouchDragDrop,
+    ::switches::kDisableVideoCaptureUseGpuMemoryBuffer,
     ::switches::kDisableYUVImageDecoding,
-    ::switches::kDisableZeroCopy,
     ::switches::kEnableBlinkFeatures,
     ::switches::kEnableGpuMemoryBufferVideoFrames,
     ::switches::kEnableGpuRasterization,
     ::switches::kEnableLogging,
-    ::switches::kEnableLowResTiling,
     ::switches::kEnableNativeGpuMemoryBuffers,
     ::switches::kEnableOopRasterization,
-    ::switches::kEnablePreferCompositingToLCDText,
-    ::switches::kEnableRGBA4444Textures,
     ::switches::kEnableTouchDragDrop,
     ::switches::kEnableUnifiedDesktop,
-    ::switches::kEnableUseHDRTransferFunction,
     ::switches::kEnableUseZoomForDSF,
     ::switches::kEnableViewport,
-    ::switches::kEnableZeroCopy,
     ::switches::kEnableHardwareOverlays,
     ::switches::kEdgeTouchFiltering,
     ::switches::kHostWindowBounds,
     ::switches::kMainFrameResizesAreOrientationChanges,
     ::switches::kForceDeviceScaleFactor,
     ::switches::kForceGpuMemAvailableMb,
-    ::switches::kForceGpuRasterization,
-    ::switches::kGpuRasterizationMSAASampleCount,
     ::switches::kGpuStartupDialog,
     ::switches::kGpuSandboxStartEarly,
     ::switches::kNumRasterThreads,
+    ::switches::kPlatformDisallowsChromeOSDirectVideoDecoder,
     ::switches::kPpapiFlashArgs,
     ::switches::kPpapiFlashPath,
     ::switches::kPpapiFlashVersion,
     ::switches::kPpapiInProcess,
     ::switches::kRemoteDebuggingPort,
     ::switches::kRendererStartupDialog,
+    ::switches::kSchedulerConfigurationDefault,
     ::switches::kTouchDevices,
     ::switches::kTouchEventFeatureDetection,
     ::switches::kTopChromeTouchUi,
@@ -164,9 +160,18 @@ void DeriveCommandLine(const GURL& start_url,
     ash::switches::kAshEnablePaletteOnAllDisplays,
     ash::switches::kAshTouchHud,
     ash::switches::kAuraLegacyPowerButton,
+    ash::switches::kEnableDimShelf,
     ash::switches::kShowTaps,
-    ash::switches::kShowWebUiLock,
-    ash::switches::kShowWebUiLogin,
+    blink::switches::kDisableLowResTiling,
+    blink::switches::kDisablePartialRaster,
+    blink::switches::kDisablePreferCompositingToLCDText,
+    blink::switches::kDisableRGBA4444Textures,
+    blink::switches::kDisableZeroCopy,
+    blink::switches::kEnableLowResTiling,
+    blink::switches::kEnablePreferCompositingToLCDText,
+    blink::switches::kEnableRGBA4444Textures,
+    blink::switches::kEnableZeroCopy,
+    blink::switches::kGpuRasterizationMSAASampleCount,
     chromeos::switches::kDefaultWallpaperLarge,
     chromeos::switches::kDefaultWallpaperSmall,
     chromeos::switches::kGuestWallpaperLarge,
@@ -180,6 +185,7 @@ void DeriveCommandLine(const GURL& start_url,
     cc::switches::kDisableThreadedAnimation,
     cc::switches::kEnableGpuBenchmarking,
     cc::switches::kEnableMainFrameBeforeActivation,
+    cc::switches::kHighlightNonLCDTextLayers,
     cc::switches::kShowCompositedLayerBorders,
     cc::switches::kShowFPSCounter,
     cc::switches::kShowLayerAnimationBounds,
@@ -219,6 +225,26 @@ void DeriveCommandLine(const GURL& start_url,
     CHECK(it.value().GetAsString(&value));
     command_line->AppendSwitchASCII(it.key(), value);
   }
+}
+
+// Adds whitelisted features to |out_command_line| if they are enabled in the
+// current session.
+void DeriveEnabledFeatures(base::CommandLine* out_command_line) {
+  static const base::Feature* kForwardEnabledFeatures[] = {
+      &ash::features::kAutoNightLight,
+  };
+
+  std::vector<std::string> enabled_features;
+  for (const auto* feature : kForwardEnabledFeatures) {
+    if (base::FeatureList::IsEnabled(*feature))
+      enabled_features.push_back(feature->name);
+  }
+
+  if (enabled_features.empty())
+    return;
+
+  out_command_line->AppendSwitchASCII("enable-features",
+                                      base::JoinString(enabled_features, ","));
 }
 
 // Simulates a session manager restart by launching give command line
@@ -297,8 +323,8 @@ void ChromeRestartRequest::RestartJob() {
   // of the socket-pair alive for the duration of the RPC.
   SessionManagerClient::Get()->RestartJob(
       remote_auth_fd.get(), argv_,
-      base::Bind(&ChromeRestartRequest::OnRestartJob, AsWeakPtr(),
-                 base::Passed(&local_auth_fd)));
+      base::BindOnce(&ChromeRestartRequest::OnRestartJob, AsWeakPtr(),
+                     base::Passed(&local_auth_fd)));
 }
 
 void ChromeRestartRequest::OnRestartJob(base::ScopedFD local_auth_fd,
@@ -334,6 +360,7 @@ void GetOffTheRecordCommandLine(const GURL& start_url,
     otr_switches.SetString(switches::kOobeGuestSession, std::string());
 
   DeriveCommandLine(start_url, base_command_line, otr_switches, command_line);
+  DeriveEnabledFeatures(command_line);
 }
 
 void RestartChrome(const base::CommandLine& command_line) {

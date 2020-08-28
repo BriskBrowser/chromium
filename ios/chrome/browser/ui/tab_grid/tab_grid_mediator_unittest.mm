@@ -8,6 +8,7 @@
 #include <memory>
 
 #include "base/mac/foundation_util.h"
+#include "base/strings/sys_string_conversions.h"
 #include "components/sessions/core/live_tab.h"
 #include "components/sessions/core/tab_restore_service.h"
 #include "components/sessions/core/tab_restore_service_helper.h"
@@ -16,11 +17,12 @@
 #import "ios/chrome/browser/main/test_browser.h"
 #import "ios/chrome/browser/ntp/new_tab_page_tab_helper.h"
 #import "ios/chrome/browser/ntp/new_tab_page_tab_helper_delegate.h"
+#include "ios/chrome/browser/sessions/ios_chrome_tab_restore_service_factory.h"
 #include "ios/chrome/browser/sessions/session_restoration_browser_agent.h"
 #import "ios/chrome/browser/sessions/test_session_service.h"
+#import "ios/chrome/browser/snapshots/snapshot_browser_agent.h"
 #import "ios/chrome/browser/snapshots/snapshot_tab_helper.h"
-#import "ios/chrome/browser/tabs/tab_model.h"
-#import "ios/chrome/browser/tabs/tab_model_closing_web_state_observer.h"
+#import "ios/chrome/browser/tabs/closing_web_state_observer_browser_agent.h"
 #import "ios/chrome/browser/ui/tab_grid/grid/grid_commands.h"
 #import "ios/chrome/browser/ui/tab_grid/grid/grid_consumer.h"
 #import "ios/chrome/browser/ui/tab_grid/grid/grid_item.h"
@@ -29,6 +31,7 @@
 #include "ios/chrome/browser/web_state_list/fake_web_state_list_delegate.h"
 #include "ios/chrome/browser/web_state_list/web_state_list.h"
 #import "ios/chrome/browser/web_state_list/web_state_opener.h"
+#import "ios/chrome/browser/web_state_list/web_usage_enabler/web_usage_enabler_browser_agent.h"
 #include "ios/web/common/features.h"
 #import "ios/web/public/test/fakes/test_navigation_manager.h"
 #import "ios/web/public/test/fakes/test_web_state.h"
@@ -140,6 +143,11 @@ class FakeTabRestoreService : public sessions::TabRestoreService {
   }
   Entries entries_;
 };
+
+std::unique_ptr<KeyedService> BuildFakeTabRestoreService(
+    web::BrowserState* browser_state) {
+  return std::make_unique<FakeTabRestoreService>();
+}
 }  // namespace
 
 // Test object that conforms to GridConsumer and exposes inner state for test
@@ -202,8 +210,11 @@ class TabHelperFakeWebStateListDelegate : public FakeWebStateListDelegate {
     TabIdTabHelper::CreateForWebState(web_state);
     // Create NTPTabHelper to ensure VisibleURL is set to kChromeUINewTabURL.
     id delegate = OCMProtocolMock(@protocol(NewTabPageTabHelperDelegate));
-    NewTabPageTabHelper::CreateForWebState(web_state, delegate);
+    NewTabPageTabHelper::CreateForWebState(web_state);
+    NewTabPageTabHelper::FromWebState(web_state)->SetDelegate(delegate);
     PagePlaceholderTabHelper::CreateForWebState(web_state);
+    NSString* identifier = TabIdTabHelper::FromWebState(web_state)->tab_id();
+    SnapshotTabHelper::CreateForWebState(web_state, identifier);
   }
 };
 
@@ -214,27 +225,26 @@ class TabGridMediatorTest : public PlatformTest {
 
   void SetUp() override {
     PlatformTest::SetUp();
-    browser_state_ = TestChromeBrowserState::Builder().Build();
+    TestChromeBrowserState::Builder builder;
+    builder.AddTestingFactory(IOSChromeTabRestoreServiceFactory::GetInstance(),
+                              base::BindRepeating(BuildFakeTabRestoreService));
+
+    browser_state_ = builder.Build();
+    tab_restore_service_ =
+        IOSChromeTabRestoreServiceFactory::GetForBrowserState(
+            browser_state_.get());
     web_state_list_delegate_ =
         std::make_unique<TabHelperFakeWebStateListDelegate>();
     web_state_list_ =
         std::make_unique<WebStateList>(web_state_list_delegate_.get());
+    NSMutableSet<NSString*>* identifiers = [[NSMutableSet alloc] init];
     browser_ = std::make_unique<TestBrowser>(browser_state_.get(),
                                              web_state_list_.get());
-    tab_restore_service_ = std::make_unique<FakeTabRestoreService>();
-    tab_model_ = OCMClassMock([TabModel class]);
-    OCMStub([tab_model_ webStateList]).andReturn(web_state_list_.get());
-    OCMStub([tab_model_ browserState]).andReturn(browser_state_.get());
-    tab_model_closing_web_state_observer_ =
-        [[TabModelClosingWebStateObserver alloc]
-            initWithTabModel:tab_model_
-              restoreService:tab_restore_service_.get()];
-    tab_model_closing_web_state_observer_bridge_ =
-        std::make_unique<WebStateListObserverBridge>(
-            tab_model_closing_web_state_observer_);
-    web_state_list_->AddObserver(
-        tab_model_closing_web_state_observer_bridge_.get());
-    NSMutableSet<NSString*>* identifiers = [[NSMutableSet alloc] init];
+    WebUsageEnablerBrowserAgent::CreateForBrowser(browser_.get());
+    ClosingWebStateObserverBrowserAgent::CreateForBrowser(browser_.get());
+    SnapshotBrowserAgent::CreateForBrowser(browser_.get());
+    SnapshotBrowserAgent::FromBrowser(browser_.get())
+        ->SetSessionID(base::SysNSStringToUTF8([[NSUUID UUID] UUIDString]));
 
     // Insert some web states.
     for (int i = 0; i < 3; i++) {
@@ -255,8 +265,8 @@ class TabGridMediatorTest : public PlatformTest {
             ->tab_id();
     consumer_ = [[FakeConsumer alloc] init];
     mediator_ = [[TabGridMediator alloc] initWithConsumer:consumer_];
-    mediator_.tabModel = tab_model_;
-    mediator_.tabRestoreService = tab_restore_service_.get();
+    mediator_.browser = browser_.get();
+    mediator_.tabRestoreService = tab_restore_service_;
   }
 
   // Creates a TestWebState with a navigation history containing exactly only
@@ -277,42 +287,29 @@ class TabGridMediatorTest : public PlatformTest {
   }
 
   void TearDown() override {
-    web_state_list_->RemoveObserver(
-        tab_model_closing_web_state_observer_bridge_.get());
     PlatformTest::TearDown();
   }
 
   // Prepare the mock method to restore the tabs.
   void PrepareForRestoration() {
-    [[[tab_model_ expect] andDo:^(NSInvocation* inv) {
-      SessionWindowIOS* sessionWindow;
-      [inv retainArguments];
-      [inv getArgument:&sessionWindow atIndex:2];
       TestSessionService* test_session_service =
           [[TestSessionService alloc] init];
       SessionRestorationBrowserAgent::CreateForBrowser(browser_.get(),
                                                        test_session_service);
-      SessionRestorationBrowserAgent* session_restoration_agent =
-          SessionRestorationBrowserAgent::FromBrowser(browser_.get());
-      session_restoration_agent->RestoreSessionWindow(sessionWindow);
-    }] restoreSessionWindow:[OCMArg any] forInitialRestore:NO];
   }
 
  protected:
   web::WebTaskEnvironment task_environment_;
-  std::unique_ptr<ios::ChromeBrowserState> browser_state_;
+  std::unique_ptr<ChromeBrowserState> browser_state_;
   std::unique_ptr<TabHelperFakeWebStateListDelegate> web_state_list_delegate_;
   std::unique_ptr<WebStateList> web_state_list_;
-  std::unique_ptr<FakeTabRestoreService> tab_restore_service_;
+  sessions::TabRestoreService* tab_restore_service_;
   id tab_model_;
   FakeConsumer* consumer_;
   TabGridMediator* mediator_;
   NSSet<NSString*>* original_identifiers_;
   NSString* original_selected_identifier_;
   std::unique_ptr<Browser> browser_;
-  TabModelClosingWebStateObserver* tab_model_closing_web_state_observer_;
-  std::unique_ptr<WebStateListObserverBridge>
-      tab_model_closing_web_state_observer_bridge_;
 };
 
 #pragma mark - Consumer tests
@@ -518,15 +515,11 @@ TEST_F(TabGridMediatorTest, AddNewItemAtEndCommand) {
   ASSERT_TRUE(web_state);
   EXPECT_EQ(web_state->GetBrowserState(), browser_state_.get());
   EXPECT_FALSE(web_state->HasOpener());
-  if (web::features::UseWKWebViewLoading()) {
-    // The URL of pending item (i.e. kChromeUINewTabURL) will not be returned
-    // here because WebState doesn't load the URL until it's visible and
-    // NavigationManager::GetVisibleURL requires WebState::IsLoading to be true
-    // to return pending item's URL.
-    EXPECT_EQ("", web_state->GetVisibleURL().spec());
-  } else {
-    EXPECT_EQ(kChromeUINewTabURL, web_state->GetVisibleURL().spec());
-  }
+  // The URL of pending item (i.e. kChromeUINewTabURL) will not be returned
+  // here because WebState doesn't load the URL until it's visible and
+  // NavigationManager::GetVisibleURL requires WebState::IsLoading to be true
+  // to return pending item's URL.
+  EXPECT_EQ("", web_state->GetVisibleURL().spec());
   NSString* identifier = TabIdTabHelper::FromWebState(web_state)->tab_id();
   EXPECT_FALSE([original_identifiers_ containsObject:identifier]);
   // Consumer checks.
@@ -548,15 +541,11 @@ TEST_F(TabGridMediatorTest, InsertNewItemCommand) {
   ASSERT_TRUE(web_state);
   EXPECT_EQ(web_state->GetBrowserState(), browser_state_.get());
   EXPECT_FALSE(web_state->HasOpener());
-  if (web::features::UseWKWebViewLoading()) {
-    // The URL of pending item (i.e. kChromeUINewTabURL) will not be returned
-    // here because WebState doesn't load the URL until it's visible and
-    // NavigationManager::GetVisibleURL requires WebState::IsLoading to be true
-    // to return pending item's URL.
-    EXPECT_EQ("", web_state->GetVisibleURL().spec());
-  } else {
-    EXPECT_EQ(kChromeUINewTabURL, web_state->GetVisibleURL().spec());
-  }
+  // The URL of pending item (i.e. kChromeUINewTabURL) will not be returned
+  // here because WebState doesn't load the URL until it's visible and
+  // NavigationManager::GetVisibleURL requires WebState::IsLoading to be true
+  // to return pending item's URL.
+  EXPECT_EQ("", web_state->GetVisibleURL().spec());
   NSString* identifier = TabIdTabHelper::FromWebState(web_state)->tab_id();
   EXPECT_FALSE([original_identifiers_ containsObject:identifier]);
   // Consumer checks.
@@ -565,10 +554,10 @@ TEST_F(TabGridMediatorTest, InsertNewItemCommand) {
   EXPECT_NSEQ(identifier, consumer_.items[0]);
 }
 
-// Tests that |-insertNewItemAtIndex:| is a no-op if the mediator's TabModel
-// is nil.
-TEST_F(TabGridMediatorTest, InsertNewItemWithNoTabModelCommand) {
-  mediator_.tabModel = nil;
+// Tests that |-insertNewItemAtIndex:| is a no-op if the mediator's browser
+// is bullptr.
+TEST_F(TabGridMediatorTest, InsertNewItemWithNoBrowserCommand) {
+  mediator_.browser = nullptr;
   ASSERT_EQ(3, web_state_list_->count());
   ASSERT_EQ(1, web_state_list_->active_index());
   [mediator_ insertNewItemAtIndex:0];

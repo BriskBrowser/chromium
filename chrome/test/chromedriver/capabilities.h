@@ -184,8 +184,6 @@ struct Capabilities {
   Switches switches;
 
   std::set<WebViewInfo::Type> window_types;
-
-  bool use_automation_extension;
 };
 
 bool GetChromeOptionsDictionary(const base::DictionaryValue& params,

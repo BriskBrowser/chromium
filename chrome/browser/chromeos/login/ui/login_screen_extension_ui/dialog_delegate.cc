@@ -52,7 +52,7 @@ void DialogDelegate::GetDialogSize(gfx::Size* size) const {
                     kRelativeScreenHeight * screen_size.height());
 }
 
-bool DialogDelegate::CanCloseDialog() const {
+bool DialogDelegate::OnDialogCloseRequested() {
   return can_close_;
 }
 
@@ -77,12 +77,20 @@ void DialogDelegate::OnCloseContents(content::WebContents* source,
   *out_close_dialog = true;
 }
 
+bool DialogDelegate::ShouldCloseDialogOnEscape() const {
+  return false;
+}
+
 bool DialogDelegate::ShouldShowDialogTitle() const {
   return true;
 }
 
 bool DialogDelegate::ShouldCenterDialogTitleText() const {
   return true;
+}
+
+bool DialogDelegate::ShouldShowCloseButton() const {
+  return can_close_;
 }
 
 }  // namespace login_screen_extension_ui

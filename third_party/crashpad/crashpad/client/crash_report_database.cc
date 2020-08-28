@@ -14,7 +14,6 @@
 
 #include "client/crash_report_database.h"
 
-#include "base/logging.h"
 #include "build/build_config.h"
 
 namespace crashpad {
@@ -63,6 +62,15 @@ bool CrashReportDatabase::NewReport::Initialize(
   }
   file_remover_.reset(path);
   return true;
+}
+
+FileReaderInterface* CrashReportDatabase::NewReport::Reader() {
+  auto reader = std::make_unique<FileReader>();
+  if (!reader->Open(file_remover_.get())) {
+    return nullptr;
+  }
+  reader_ = std::move(reader);
+  return reader_.get();
 }
 
 CrashReportDatabase::UploadReport::UploadReport()

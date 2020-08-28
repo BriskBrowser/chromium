@@ -8,11 +8,12 @@
 #import <UIKit/UIKit.h>
 
 #import "ios/chrome/browser/ui/tab_grid/tab_grid_paging.h"
-#import "ios/chrome/browser/ui/tab_grid/transitions/grid_transition_state_providing.h"
+#import "ios/chrome/browser/ui/tab_grid/transitions/grid_transition_animation_layout_providing.h"
 
 @protocol ApplicationCommands;
 @protocol GridConsumer;
 @protocol GridCommands;
+@protocol GridDragDropHandler;
 @protocol GridImageDataSource;
 @protocol RecentTabsConsumer;
 @class RecentTabsTableViewController;
@@ -28,9 +29,9 @@
 // View controller representing a tab switcher. The tab switcher has an
 // incognito tab grid, regular tab grid, and remote tabs.
 @interface TabGridViewController
-    : UIViewController<TabGridPaging, GridTransitionStateProviding>
+    : UIViewController <TabGridPaging, GridTransitionAnimationLayoutProviding>
 
-@property(nonatomic, weak) id<ApplicationCommands> dispatcher;
+@property(nonatomic, weak) id<ApplicationCommands> handler;
 
 // Delegate for this view controller to handle presenting tab UI.
 @property(nonatomic, weak) id<TabPresentationDelegate> tabPresentationDelegate;
@@ -44,9 +45,18 @@
 @property(nonatomic, weak) id<GridCommands> regularTabsDelegate;
 @property(nonatomic, weak) id<GridCommands> incognitoTabsDelegate;
 
+// Handles drag and drop interactions that require the model layer.
+@property(nonatomic, weak) id<GridDragDropHandler> regularTabsDragDropHandler;
+@property(nonatomic, weak) id<GridDragDropHandler> incognitoTabsDragDropHandler;
+
 // Data sources provide lazy access to heavy-weight resources.
 @property(nonatomic, weak) id<GridImageDataSource> regularTabsImageDataSource;
 @property(nonatomic, weak) id<GridImageDataSource> incognitoTabsImageDataSource;
+
+// Readwrite override of the UIViewController property. This object will ignore
+// the value supplied by UIViewController.
+@property(nonatomic, weak, readwrite)
+    UIViewController* childViewControllerForStatusBarStyle;
 
 // The view controller for remote tabs.
 // TODO(crbug.com/845192) : This was only exposed in the public interface so

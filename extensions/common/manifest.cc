@@ -9,6 +9,7 @@
 #include "base/lazy_instance.h"
 #include "base/logging.h"
 #include "base/memory/ptr_util.h"
+#include "base/notreached.h"
 #include "base/strings/string_split.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
@@ -319,7 +320,7 @@ bool Manifest::CanAccessPath(const std::string& path) const {
 bool Manifest::CanAccessPath(base::span<const base::StringPiece> path) const {
   std::string key;
   for (base::StringPiece component : path) {
-    component.AppendToString(&key);
+    key.append(component.data(), component.size());
     if (!CanAccessKey(key))
       return false;
     key += '.';

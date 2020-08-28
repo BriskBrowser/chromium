@@ -28,6 +28,11 @@ namespace {
 bool CtapDeviceShouldUseU2fBecauseClientPinIsSet(
     const FidoDevice* device,
     const CtapMakeCredentialRequest& request) {
+  if (!IsConvertibleToU2fRegisterCommand(request) ||
+      ShouldPreferCTAP2EvenIfItNeedsAPIN(request)) {
+    return false;
+  }
+
   DCHECK_EQ(device->supported_protocol(), ProtocolVersion::kCtap2);
   // Don't use U2F for requests that require UV or PIN which U2F doesn't
   // support. Note that |pin_auth| may also be set by GetTouchRequest(), but we
@@ -79,7 +84,7 @@ CtapMakeCredentialRequest MakeCredentialTask::GetTouchRequest(
       std::move(user),
       PublicKeyCredentialParams(
           {{CredentialType::kPublicKey,
-            base::strict_cast<int>(CoseAlgorithmIdentifier::kCoseEs256)}}));
+            base::strict_cast<int>(CoseAlgorithmIdentifier::kEs256)}}));
 
   // If a device supports CTAP2 and has PIN support then setting an empty
   // pinAuth should trigger just a touch[1]. Our U2F code also understands
@@ -142,31 +147,25 @@ CtapGetAssertionRequest MakeCredentialTask::NextSilentRequest() {
 void MakeCredentialTask::MakeCredential() {
   DCHECK_EQ(device()->supported_protocol(), ProtocolVersion::kCtap2);
 
-  if (!request_.app_id && request_.exclude_list.empty()) {
-    register_operation_ = std::make_unique<Ctap2DeviceOperation<
-        CtapMakeCredentialRequest, AuthenticatorMakeCredentialResponse>>(
-        device(), request_, std::move(callback_),
-        base::BindOnce(&ReadCTAPMakeCredentialResponse,
-                       device()->DeviceTransport()),
-        /*string_fixup_predicate=*/nullptr);
-    register_operation_->Start();
-    return;
-  }
-
   // Most authenticators can only process excludeList parameters up to a certain
   // size. Batch the list into chunks according to what the device can handle
   // and filter out IDs that are too large to originate from this device.
   exclude_list_batches_ =
       FilterAndBatchCredentialDescriptors(request_.exclude_list, *device());
+  DCHECK(!exclude_list_batches_.empty());
 
   // If the filtered excludeList is small enough to be sent in a single request,
-  // do so. (Note that the list may be empty now, even if it wasn't previously,
-  // due to filtering.)
-  if (!request_.app_id && exclude_list_batches_.size() <= 1) {
+  // do so. (Note that the exclude list may be empty now, even if it wasn't
+  // previously, due to filtering.)
+  //
+  // Handling appidExclude requires that the |HandleResponseToSilentSignRequest|
+  // path be used below, so this is only valid if either there's no
+  // appidExclude, or the single batch is empty and thus there are no excluded
+  // credentials.
+  if (exclude_list_batches_.size() == 1 &&
+      (!request_.app_id || exclude_list_batches_.front().empty())) {
     auto request = request_;
-    request.exclude_list = exclude_list_batches_.empty()
-                               ? std::vector<PublicKeyCredentialDescriptor>{}
-                               : exclude_list_batches_.front();
+    request.exclude_list = exclude_list_batches_.front();
     register_operation_ = std::make_unique<Ctap2DeviceOperation<
         CtapMakeCredentialRequest, AuthenticatorMakeCredentialResponse>>(
         device(), std::move(request), std::move(callback_),
@@ -194,8 +193,6 @@ void MakeCredentialTask::MakeCredential() {
 void MakeCredentialTask::HandleResponseToSilentSignRequest(
     CtapDeviceResponseCode response_code,
     base::Optional<AuthenticatorGetAssertionResponse> response_data) {
-  DCHECK(!request_.exclude_list.empty());
-
   if (canceled_) {
     return;
   }
@@ -316,7 +313,6 @@ std::vector<std::vector<PublicKeyCredentialDescriptor>>
 FilterAndBatchCredentialDescriptors(
     const std::vector<PublicKeyCredentialDescriptor>& in,
     const FidoDevice& device) {
-  DCHECK(!in.empty());
   DCHECK_EQ(device.supported_protocol(), ProtocolVersion::kCtap2);
   DCHECK(device.device_info().has_value());
 
@@ -342,13 +338,14 @@ FilterAndBatchCredentialDescriptors(
           : 1;
 
   std::vector<std::vector<PublicKeyCredentialDescriptor>> result;
+  result.emplace_back();
+
   for (const PublicKeyCredentialDescriptor& credential : in) {
     if (0 < max_credential_id_length &&
         max_credential_id_length < credential.id().size()) {
       continue;
     }
-    if (result.empty() ||
-        result.back().size() == max_credential_count_in_list) {
+    if (result.back().size() == max_credential_count_in_list) {
       result.emplace_back();
     }
     result.back().push_back(credential);

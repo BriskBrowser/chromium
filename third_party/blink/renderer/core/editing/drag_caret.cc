@@ -38,10 +38,6 @@ DragCaret::DragCaret() : display_item_client_(new CaretDisplayItemClient()) {}
 
 DragCaret::~DragCaret() = default;
 
-void DragCaret::ClearPreviousVisualRect(const LayoutBlock& block) {
-  display_item_client_->ClearPreviousVisualRect(block);
-}
-
 void DragCaret::LayoutBlockWillBeDestroyed(const LayoutBlock& block) {
   display_item_client_->LayoutBlockWillBeDestroyed(block);
 }
@@ -66,7 +62,7 @@ void DragCaret::SetCaretPosition(const PositionWithAffinity& position) {
   Document* document = nullptr;
   if (Node* node = position_.AnchorNode()) {
     document = &node->GetDocument();
-    SetContext(document);
+    SetDocument(document);
   }
 }
 
@@ -92,7 +88,7 @@ void DragCaret::NodeWillBeRemoved(Node& node) {
   Clear();
 }
 
-void DragCaret::Trace(Visitor* visitor) {
+void DragCaret::Trace(Visitor* visitor) const {
   visitor->Trace(position_);
   SynchronousMutationObserver::Trace(visitor);
 }

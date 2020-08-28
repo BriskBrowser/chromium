@@ -38,8 +38,62 @@ class AndroidFilesTestVolume;
 class RemovableTestVolume;
 class DocumentsProviderTestVolume;
 class MediaViewTestVolume;
+class SmbfsTestVolume;
 
 class FileManagerBrowserTestBase : public extensions::ExtensionApiTest {
+ public:
+  struct Options {
+    Options();
+    Options(const Options&);
+
+    // Should test run in Guest or Incognito mode?
+    GuestMode guest_mode = NOT_IN_GUEST_MODE;
+
+    // Whether test runs in tablet mode.
+    bool tablet_mode = false;
+
+    // Whether test requires Android documents providers.
+    bool documents_provider = false;
+
+    // Whether test requires ARC++.
+    bool arc = false;
+
+    // Whether test requires a browser to be started.
+    bool browser = false;
+
+    // Whether test requires zip/unzip support.
+    // TODO(crbug.com/912236) Remove once transition to new ZIP system is done.
+    bool zip = false;
+
+    // Whether test uses the new ZIP system.
+    // TODO(crbug.com/912236) Remove once transition to new ZIP system is done.
+    bool zip_no_nacl = false;
+
+    // Whether Drive should act as if offline.
+    bool offline = false;
+
+    // Whether test needs the files-ng feature.
+    bool files_ng = true;
+
+    // Whether test needs a native SMB file system provider.
+    bool native_smb = true;
+
+    // Whether test needs smbfs for native SMB integration.
+    bool smbfs = false;
+
+    // Whether test needs the unified media view feature.
+    bool unified_media_view = false;
+
+    // Whether FilesApp should start with volumes mounted.
+    bool mount_volumes = true;
+
+    // Whether test should observe file tasks.
+    bool observe_file_tasks = true;
+
+    // Whether test should enable sharesheet.
+    bool enable_sharesheet = false;
+  };
+
  protected:
   FileManagerBrowserTestBase();
   ~FileManagerBrowserTestBase() override;
@@ -54,22 +108,10 @@ class FileManagerBrowserTestBase : public extensions::ExtensionApiTest {
   void TearDown() override;
 
   // Mandatory overrides for each File Manager test extension type.
-  virtual GuestMode GetGuestMode() const = 0;
+  virtual Options GetOptions() const = 0;
   virtual const char* GetTestCaseName() const = 0;
   virtual std::string GetFullTestCaseName() const = 0;
   virtual const char* GetTestExtensionManifestName() const = 0;
-
-  // Optional overrides for each File Manager test extension type.
-  virtual bool GetTabletMode() const;
-  virtual bool GetEnableDocumentsProvider() const;
-  virtual bool GetEnableArc() const;
-  virtual bool GetRequiresStartupBrowser() const;
-  virtual bool GetNeedsZipSupport() const;
-  virtual bool GetIsOffline() const;
-  virtual bool GetEnableFilesNg() const;
-  virtual bool GetEnableNativeSmb() const;
-  virtual bool GetStartWithNoVolumesMounted() const;
-  virtual bool GetStartWithFileTasksObserver() const;
 
   // Launches the test extension from GetTestExtensionManifestName() and uses
   // it to drive the testing the actual FileManager component extension under
@@ -78,38 +120,6 @@ class FileManagerBrowserTestBase : public extensions::ExtensionApiTest {
 
  private:
   class MockFileTasksObserver;
-
-  // Returns true if the test requires incognito mode.
-  bool IsIncognitoModeTest() const { return GetGuestMode() == IN_INCOGNITO; }
-
-  // Returns true if the test requires in guest mode.
-  bool IsGuestModeTest() const { return GetGuestMode() == IN_GUEST_MODE; }
-
-  // Returns true if the test runs in tablet mode.
-  bool IsTabletModeTest() const { return GetTabletMode(); }
-
-  // Returns true if the test requires Android documents providers.
-  bool IsDocumentsProviderTest() const { return GetEnableDocumentsProvider(); }
-
-  // Returns true if the test requires ARC++.
-  bool IsArcTest() const { return GetEnableArc(); }
-
-  // Returns true if the test requires zip/unzip support.
-  bool IsZipTest() const { return GetNeedsZipSupport(); }
-
-  // Returns true if Drive should act as if offline.
-  bool IsOfflineTest() const { return GetIsOffline(); }
-
-  // Returns true if the test needs the files-ng feature.
-  bool IsFilesNgTest() const { return GetEnableFilesNg(); }
-
-  // Returns true if the test needs a native SMB file system provider.
-  bool IsNativeSmbTest() const { return GetEnableNativeSmb(); }
-
-  // Returns true if FilesApp should start with no volumes mounted.
-  bool DoesTestStartWithNoVolumesMounted() const {
-    return GetStartWithNoVolumesMounted();
-  }
 
   // Launches the test extension with manifest |manifest_name|. The extension
   // manifest_name file should reside in the specified |path| relative to the
@@ -161,6 +171,7 @@ class FileManagerBrowserTestBase : public extensions::ExtensionApiTest {
   std::unique_ptr<MediaViewTestVolume> media_view_images_;
   std::unique_ptr<MediaViewTestVolume> media_view_videos_;
   std::unique_ptr<MediaViewTestVolume> media_view_audio_;
+  std::unique_ptr<SmbfsTestVolume> smbfs_volume_;
 
   drive::DriveIntegrationServiceFactory::FactoryCallback
       create_drive_integration_service_;
@@ -180,6 +191,10 @@ class FileManagerBrowserTestBase : public extensions::ExtensionApiTest {
 
   DISALLOW_COPY_AND_ASSIGN(FileManagerBrowserTestBase);
 };
+
+std::ostream& operator<<(std::ostream& out, GuestMode mode);
+std::ostream& operator<<(std::ostream& out,
+                         const FileManagerBrowserTestBase::Options& options);
 
 }  // namespace file_manager
 

@@ -603,14 +603,6 @@ void FeedLoggingMetrics::OnSuggestionArticleVisited(base::TimeDelta visit_time,
   RecordSuggestionPageVisited(return_to_ntp);
 }
 
-void FeedLoggingMetrics::OnSuggestionOfflinePageVisited(
-    base::TimeDelta visit_time,
-    bool return_to_ntp) {
-  base::UmaHistogramLongTimes(
-      "NewTabPage.ContentSuggestions.VisitDuration.Downloads", visit_time);
-  RecordSuggestionPageVisited(return_to_ntp);
-}
-
 void FeedLoggingMetrics::OnMoreButtonShown(int position) {
   // The "more" card can appear in addition to the actual suggestions, so add
   // one extra bucket to this histogram.
@@ -629,11 +621,6 @@ void FeedLoggingMetrics::OnMoreButtonClicked(int position) {
   UMA_HISTOGRAM_EXACT_LINEAR(
       "NewTabPage.ContentSuggestions.MoreButtonClicked.Articles", position,
       kMaxSuggestionsForArticle + 1);
-}
-
-void FeedLoggingMetrics::OnManageInterestsClicked(int position) {
-  base::UmaHistogramExactLinear("ContentSuggestions.Feed.ManageInterestsOpened",
-                                position, kMaxSuggestionsTotal);
 }
 
 void FeedLoggingMetrics::OnNotInterestedInSource(int position, bool committed) {

@@ -4,12 +4,15 @@
 
 #include "chrome/browser/engagement/important_sites_usage_counter.h"
 
+#include <memory>
+#include <utility>
+
 #include "base/bind.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
+#include "base/memory/scoped_refptr.h"
 #include "base/run_loop.h"
-#include "base/task/post_task.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "chrome/browser/bookmarks/bookmark_model_factory.h"
 #include "chrome/test/base/testing_profile.h"
@@ -18,12 +21,13 @@
 #include "content/public/browser/storage_partition.h"
 #include "content/public/test/browser_task_environment.h"
 #include "content/public/test/test_utils.h"
+#include "storage/browser/quota/quota_client_type.h"
 #include "storage/browser/quota/quota_manager_proxy.h"
-#include "storage/browser/test/mock_storage_client.h"
+#include "storage/browser/test/mock_quota_client.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/blink/public/mojom/quota/quota_types.mojom-shared.h"
 
 using ImportantDomainInfo = ImportantSitesUtil::ImportantDomainInfo;
-using content::BrowserThread;
 using content::DOMStorageContext;
 using storage::QuotaManager;
 
@@ -31,7 +35,7 @@ class ImportantSitesUsageCounterTest : public testing::Test {
  public:
   void SetUp() override {
     ASSERT_TRUE(temp_dir_.CreateUniqueTempDir());
-    run_loop_.reset(new base::RunLoop());
+    run_loop_ = std::make_unique<base::RunLoop>();
   }
 
   void TearDown() override {
@@ -43,18 +47,21 @@ class ImportantSitesUsageCounterTest : public testing::Test {
   TestingProfile* profile() { return &profile_; }
 
   QuotaManager* CreateQuotaManager() {
-    quota_manager_ = new QuotaManager(
-        false, temp_dir_.GetPath(),
-        base::CreateSingleThreadTaskRunner({BrowserThread::IO}).get(), nullptr,
-        storage::GetQuotaSettingsFunc());
+    quota_manager_ = base::MakeRefCounted<QuotaManager>(
+        /*is_incognito=*/false, temp_dir_.GetPath(),
+        content::GetIOThreadTaskRunner({}).get(),
+        /*special_storage_policy=*/nullptr, storage::GetQuotaSettingsFunc());
     return quota_manager_.get();
   }
 
-  void RegisterClient(const std::vector<content::MockOriginData>& data) {
-    auto* client = new content::MockStorageClient(
-        quota_manager_->proxy(), data.data(), storage::QuotaClient::kFileSystem,
-        data.size());
-    quota_manager_->proxy()->RegisterClient(client);
+  void RegisterClient(base::span<const storage::MockOriginData> origin_data) {
+    auto client = base::MakeRefCounted<storage::MockQuotaClient>(
+        quota_manager_->proxy(), origin_data,
+        storage::QuotaClientType::kFileSystem);
+    quota_manager_->proxy()->RegisterClient(
+        client, storage::QuotaClientType::kFileSystem,
+        {blink::mojom::StorageType::kTemporary,
+         blink::mojom::StorageType::kPersistent});
     client->TouchAllOriginsAndNotify();
   }
 
@@ -82,15 +89,15 @@ class ImportantSitesUsageCounterTest : public testing::Test {
 
   void WaitForResult() {
     run_loop_->Run();
-    run_loop_.reset(new base::RunLoop());
+    run_loop_ = std::make_unique<base::RunLoop>();
   }
 
   const std::vector<ImportantDomainInfo>& domain_info() { return domain_info_; }
 
  private:
+  base::ScopedTempDir temp_dir_;
   content::BrowserTaskEnvironment task_environment_;
   TestingProfile profile_;
-  base::ScopedTempDir temp_dir_;
   scoped_refptr<QuotaManager> quota_manager_;
   std::vector<ImportantDomainInfo> domain_info_;
   std::unique_ptr<base::RunLoop> run_loop_;
@@ -105,7 +112,7 @@ TEST_F(ImportantSitesUsageCounterTest, PopulateUsage) {
   important_sites.push_back(std::move(i1));
   important_sites.push_back(std::move(i2));
 
-  const std::vector<content::MockOriginData> origins = {
+  static const storage::MockOriginData kOrigins[] = {
       {"http://example.com/", blink::mojom::StorageType::kTemporary, 1},
       {"https://example.com/", blink::mojom::StorageType::kTemporary, 2},
       {"https://maps.example.com/", blink::mojom::StorageType::kTemporary, 4},
@@ -113,7 +120,7 @@ TEST_F(ImportantSitesUsageCounterTest, PopulateUsage) {
   };
 
   QuotaManager* quota_manager = CreateQuotaManager();
-  RegisterClient(origins);
+  RegisterClient(kOrigins);
 
   base::Time now = base::Time::Now();
   CreateLocalStorage(now, 16,

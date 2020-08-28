@@ -14,6 +14,7 @@
 #include "base/optional.h"
 #include "base/task/post_task.h"
 #include "base/task/task_traits.h"
+#include "base/task/thread_pool.h"
 #include "base/values.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chromeos/extensions/external_cache_impl.h"
@@ -120,17 +121,6 @@ void DemoExtensionsExternalLoader::OnExtensionListsUpdated(
   LoadFinished(prefs->CreateDeepCopy());
 }
 
-void DemoExtensionsExternalLoader::OnExtensionLoadedInCache(
-    const std::string& id) {}
-
-void DemoExtensionsExternalLoader::OnExtensionDownloadFailed(
-    const std::string& id) {}
-
-std::string DemoExtensionsExternalLoader::GetInstalledExtensionVersion(
-    const std::string& id) {
-  return std::string();
-}
-
 void DemoExtensionsExternalLoader::StartLoadingFromOfflineDemoResources() {
   DemoSession* demo_session = DemoSession::Get();
   DCHECK(demo_session->resources()->loaded());
@@ -142,9 +132,9 @@ void DemoExtensionsExternalLoader::StartLoadingFromOfflineDemoResources() {
     return;
   }
 
-  base::PostTaskAndReplyWithResult(
+  base::ThreadPool::PostTaskAndReplyWithResult(
       FROM_HERE,
-      {base::ThreadPool(), base::MayBlock(), base::TaskPriority::USER_VISIBLE,
+      {base::MayBlock(), base::TaskPriority::USER_VISIBLE,
        base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN},
       base::BindOnce(&LoadPrefsFromDisk, demo_extension_list),
       base::BindOnce(

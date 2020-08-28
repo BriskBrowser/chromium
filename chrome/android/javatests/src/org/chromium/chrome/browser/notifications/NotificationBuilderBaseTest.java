@@ -8,39 +8,39 @@ import android.content.Context;
 import android.content.res.Resources;
 import android.graphics.Bitmap;
 import android.support.test.InstrumentationRegistry;
-import android.support.test.filters.MediumTest;
-import android.support.test.filters.SmallTest;
+
+import androidx.test.filters.MediumTest;
 
 import org.junit.Assert;
 import org.junit.Before;
-import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
 import org.chromium.base.test.BaseJUnit4ClassRunner;
+import org.chromium.base.test.util.Batch;
 import org.chromium.base.test.util.Feature;
-import org.chromium.chrome.browser.favicon.RoundedIconGenerator;
-import org.chromium.chrome.browser.notifications.channels.ChannelDefinitions;
-import org.chromium.chrome.browser.util.UrlUtilities;
-import org.chromium.content_public.browser.test.NativeLibraryTestRule;
+import org.chromium.chrome.browser.notifications.channels.ChromeChannelDefinitions;
+import org.chromium.components.browser_ui.notifications.NotificationMetadata;
+import org.chromium.components.browser_ui.notifications.NotificationWrapper;
+import org.chromium.components.browser_ui.widget.RoundedIconGenerator;
+import org.chromium.components.embedder_support.util.UrlUtilities;
+import org.chromium.content_public.browser.test.NativeLibraryTestUtils;
 
 /**
  * Instrumentation unit tests for NotificationBuilderBase.
  *
  * Extends NativeLibraryTestBase so that {@link UrlUtilities#getDomainAndRegistry} can access
- * native GetDomainAndRegistry, when called by {@link RoundedIconGenerator#getIconTextForUrl} during
- * testEnsureNormalizedIconBehavior().
+ * native GetDomainAndRegistry, when called by {@link RoundedIconGenerator#getIconTextForUrl}
+ * during testEnsureNormalizedIconBehavior().
  */
 @RunWith(BaseJUnit4ClassRunner.class)
+@Batch(Batch.UNIT_TESTS)
 public class NotificationBuilderBaseTest {
-    @Rule
-    public NativeLibraryTestRule mActivityTestRule = new NativeLibraryTestRule();
-
     @Before
     public void setUp() {
         // Not initializing the browser process is safe because GetDomainAndRegistry() is
         // stand-alone.
-        mActivityTestRule.loadNativeLibraryNoBrowserProcess();
+        NativeLibraryTestUtils.loadNativeLibraryNoBrowserProcess();
     }
 
     /**
@@ -68,11 +68,11 @@ public class NotificationBuilderBaseTest {
 
         NotificationBuilderBase notificationBuilder = new NotificationBuilderBase(resources) {
             @Override
-            public ChromeNotification build(NotificationMetadata metadata) {
+            public NotificationWrapper build(NotificationMetadata metadata) {
                 return null;
             }
         };
-        notificationBuilder.setChannelId(ChannelDefinitions.ChannelId.BROWSER);
+        notificationBuilder.setChannelId(ChromeChannelDefinitions.ChannelId.BROWSER);
         Bitmap fromNullIcon = notificationBuilder.ensureNormalizedIcon(null, origin);
         Assert.assertNotNull(fromNullIcon);
         Assert.assertEquals(largeIconWidthPx, fromNullIcon.getWidth());
@@ -92,34 +92,5 @@ public class NotificationBuilderBaseTest {
         Bitmap fromSmallIcon = notificationBuilder.ensureNormalizedIcon(smallIcon, origin);
         Assert.assertNotNull(fromSmallIcon);
         Assert.assertEquals(smallIcon, fromSmallIcon);
-    }
-
-    /**
-     * Tests that hiding the large icon will result in getNormalizedLargeIcon() returning null.
-     */
-    @Test
-    @SmallTest
-    @Feature({"Browser", "Notifications"})
-    public void testHiddenIconReturnsNull() {
-        NotificationBuilderBase notificationBuilder =
-                new NotificationBuilderBase(InstrumentationRegistry.getInstrumentation()
-                                                    .getTargetContext()
-                                                    .getApplicationContext()
-                                                    .getResources()) {
-                    @Override
-                    public ChromeNotification build(NotificationMetadata metadata) {
-                        return null;
-                    }
-                };
-
-        notificationBuilder.setChannelId(ChannelDefinitions.ChannelId.BROWSER);
-        notificationBuilder.setOrigin("https://example.com");
-
-        Bitmap normalizedIcon = notificationBuilder.getNormalizedLargeIcon();
-        Assert.assertNotNull(normalizedIcon);
-
-        notificationBuilder.setHideLargeIcon(true);
-        Bitmap nullIcon = notificationBuilder.getNormalizedLargeIcon();
-        Assert.assertNull(nullIcon);
     }
 }

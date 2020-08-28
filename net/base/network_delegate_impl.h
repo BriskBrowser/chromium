@@ -28,7 +28,6 @@ namespace net {
 class CookieOptions;
 class HttpRequestHeaders;
 class HttpResponseHeaders;
-class ProxyInfo;
 class URLRequest;
 
 class NET_EXPORT NetworkDelegateImpl : public NetworkDelegate {
@@ -43,11 +42,6 @@ class NET_EXPORT NetworkDelegateImpl : public NetworkDelegate {
   int OnBeforeStartTransaction(URLRequest* request,
                                CompletionOnceCallback callback,
                                HttpRequestHeaders* headers) override;
-
-  void OnBeforeSendHeaders(URLRequest* request,
-                           const ProxyInfo& proxy_info,
-                           const ProxyRetryInfoMap& proxy_retry_info,
-                           HttpRequestHeaders* headers) override;
 
   int OnHeadersReceived(
       URLRequest* request,
@@ -68,7 +62,6 @@ class NET_EXPORT NetworkDelegateImpl : public NetworkDelegate {
   void OnPACScriptError(int line_number, const base::string16& error) override;
 
   bool OnCanGetCookies(const URLRequest& request,
-                       const CookieList& cookie_list,
                        bool allowed_from_caller) override;
 
   bool OnCanSetCookie(const URLRequest& request,

@@ -35,7 +35,7 @@ void GPUComputePassEncoder::setBindGroup(
 void GPUComputePassEncoder::setBindGroup(
     uint32_t index,
     GPUBindGroup* bind_group,
-    const FlexibleUint32ArrayView& dynamic_offsets_data,
+    const FlexibleUint32Array& dynamic_offsets_data,
     uint64_t dynamic_offsets_data_start,
     uint32_t dynamic_offsets_data_length,
     ExceptionState& exception_state) {
@@ -54,8 +54,8 @@ void GPUComputePassEncoder::setBindGroup(
 }
 
 void GPUComputePassEncoder::pushDebugGroup(String groupLabel) {
-  GetProcs().computePassEncoderPushDebugGroup(GetHandle(),
-                                              groupLabel.Utf8().data());
+  std::string label = groupLabel.Utf8();
+  GetProcs().computePassEncoderPushDebugGroup(GetHandle(), label.c_str());
 }
 
 void GPUComputePassEncoder::popDebugGroup() {
@@ -63,8 +63,8 @@ void GPUComputePassEncoder::popDebugGroup() {
 }
 
 void GPUComputePassEncoder::insertDebugMarker(String markerLabel) {
-  GetProcs().computePassEncoderInsertDebugMarker(GetHandle(),
-                                                 markerLabel.Utf8().data());
+  std::string label = markerLabel.Utf8();
+  GetProcs().computePassEncoderInsertDebugMarker(GetHandle(), label.c_str());
 }
 
 void GPUComputePassEncoder::setPipeline(GPUComputePipeline* pipeline) {

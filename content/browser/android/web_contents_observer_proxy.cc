@@ -68,6 +68,14 @@ void WebContentsObserverProxy::WebContentsDestroyed() {
   Java_WebContentsObserverProxy_destroy(env, java_observer_);
 }
 
+void WebContentsObserverProxy::RenderFrameCreated(
+    RenderFrameHost* render_frame_host) {
+  JNIEnv* env = AttachCurrentThread();
+  Java_WebContentsObserverProxy_renderFrameCreated(
+      env, java_observer_, render_frame_host->GetProcess()->GetID(),
+      render_frame_host->GetRoutingID());
+}
+
 void WebContentsObserverProxy::RenderViewReady() {
   JNIEnv* env = AttachCurrentThread();
   Java_WebContentsObserverProxy_renderViewReady(env, java_observer_);
@@ -110,20 +118,16 @@ void WebContentsObserverProxy::LoadProgressChanged(double progress) {
       AttachCurrentThread(), java_observer_, static_cast<jfloat>(progress));
 }
 
-void WebContentsObserverProxy::DidFailLoad(
-    RenderFrameHost* render_frame_host,
-    const GURL& validated_url,
-    int error_code,
-    const base::string16& error_description) {
+void WebContentsObserverProxy::DidFailLoad(RenderFrameHost* render_frame_host,
+                                           const GURL& validated_url,
+                                           int error_code) {
   JNIEnv* env = AttachCurrentThread();
-  ScopedJavaLocalRef<jstring> jstring_error_description(
-      ConvertUTF16ToJavaString(env, error_description));
   ScopedJavaLocalRef<jstring> jstring_url(
       ConvertUTF8ToJavaString(env, validated_url.spec()));
 
-  Java_WebContentsObserverProxy_didFailLoad(
-      env, java_observer_, !render_frame_host->GetParent(), error_code,
-      jstring_error_description, jstring_url);
+  Java_WebContentsObserverProxy_didFailLoad(env, java_observer_,
+                                            !render_frame_host->GetParent(),
+                                            error_code, jstring_url);
 }
 
 void WebContentsObserverProxy::DidChangeVisibleSecurityState() {
@@ -199,16 +203,6 @@ void WebContentsObserverProxy::NavigationEntryChanged(
   JNIEnv* env = AttachCurrentThread();
   // TODO(jinsukkim): Convert |change_details| to Java object when needed.
   Java_WebContentsObserverProxy_navigationEntriesChanged(env, java_observer_);
-}
-
-void WebContentsObserverProxy::DidAttachInterstitialPage() {
-  JNIEnv* env = AttachCurrentThread();
-  Java_WebContentsObserverProxy_didAttachInterstitialPage(env, java_observer_);
-}
-
-void WebContentsObserverProxy::DidDetachInterstitialPage() {
-  JNIEnv* env = AttachCurrentThread();
-  Java_WebContentsObserverProxy_didDetachInterstitialPage(env, java_observer_);
 }
 
 void WebContentsObserverProxy::DidChangeThemeColor() {

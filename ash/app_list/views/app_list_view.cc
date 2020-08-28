@@ -5,6 +5,7 @@
 #include "ash/app_list/views/app_list_view.h"
 
 #include <algorithm>
+#include <cmath>
 #include <string>
 #include <utility>
 #include <vector>
@@ -15,7 +16,6 @@
 #include "ash/app_list/views/app_list_main_view.h"
 #include "ash/app_list/views/apps_container_view.h"
 #include "ash/app_list/views/contents_view.h"
-#include "ash/app_list/views/horizontal_page_container.h"
 #include "ash/app_list/views/search_box_view.h"
 #include "ash/assistant/ui/assistant_ui_constants.h"
 #include "ash/keyboard/ui/keyboard_ui_controller.h"
@@ -24,20 +24,22 @@
 #include "ash/public/cpp/app_list/app_list_features.h"
 #include "ash/public/cpp/app_list/app_list_types.h"
 #include "ash/public/cpp/ash_features.h"
+#include "ash/public/cpp/metrics_util.h"
 #include "ash/public/cpp/shell_window_ids.h"
 #include "ash/public/cpp/wallpaper_types.h"
 #include "base/macros.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/metrics/user_metrics.h"
 #include "base/strings/string_util.h"
+#include "ui/accessibility/aura/aura_window_properties.h"
 #include "ui/accessibility/ax_node.h"
 #include "ui/accessibility/ax_node_data.h"
-#include "ui/accessibility/platform/aura_window_properties.h"
 #include "ui/aura/window.h"
 #include "ui/aura/window_targeter.h"
 #include "ui/aura/window_tree_host.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/ui_base_switches.h"
+#include "ui/compositor/animation_throughput_reporter.h"
 #include "ui/compositor/layer.h"
 #include "ui/compositor/layer_animation_element.h"
 #include "ui/compositor/layer_animation_observer.h"
@@ -108,6 +110,13 @@ constexpr char kAppListDragInTabletHistogram[] =
 constexpr char kAppListDragInTabletMaxLatencyHistogram[] =
     "Apps.StateTransition.Drag.PresentationTime.MaxLatency.TabletMode";
 
+// The number of minutes that must pass for the current app list page to reset
+// to the first page.
+constexpr int kAppListPageResetTimeLimitMinutes = 20;
+
+// When true, immdeidately fires the page reset timer upon starting.
+bool skip_page_reset_timer_for_testing = false;
+
 // Returns whether AppList's rounded corners should be hidden based on
 // the app list view state and app list view bounds.
 bool ShouldHideRoundedCorners(ash::AppListViewState app_list_state,
@@ -139,10 +148,12 @@ class SearchBoxFocusHost : public views::View {
   explicit SearchBoxFocusHost(views::Widget* search_box_widget)
       : search_box_widget_(search_box_widget) {}
 
-  ~SearchBoxFocusHost() override {}
+  ~SearchBoxFocusHost() override = default;
 
   views::FocusTraversable* GetFocusTraversable() override {
-    return search_box_widget_;
+    if (search_box_widget_->IsVisible())
+      return search_box_widget_;
+    return nullptr;
   }
 
   // views::View:
@@ -230,70 +241,74 @@ class AppListEventTargeter : public aura::WindowTargeter {
   DISALLOW_COPY_AND_ASSIGN(AppListEventTargeter);
 };
 
+float ComputeSubpixelOffset(const display::Display& display, float value) {
+  float pixel_position = std::round(display.device_scale_factor() * value);
+  float dp_position = pixel_position / display.device_scale_factor();
+  return dp_position - std::floor(value);
+}
+
 }  // namespace
 
 ////////////////////////////////////////////////////////////////////////////////
 // AppListView::StateAnimationMetricsReporter
 
-class AppListView::StateAnimationMetricsReporter
-    : public ui::AnimationMetricsReporter {
+class AppListView::StateAnimationMetricsReporter {
  public:
   explicit StateAnimationMetricsReporter(AppListView* view) : view_(view) {}
+  StateAnimationMetricsReporter(const StateAnimationMetricsReporter&) = delete;
+  StateAnimationMetricsReporter& operator=(
+      const StateAnimationMetricsReporter&) = delete;
+  ~StateAnimationMetricsReporter() = default;
 
-  ~StateAnimationMetricsReporter() override = default;
-
+  // Sets target state of the transition for metrics.
   void SetTargetState(AppListViewState target_state) {
     target_state_ = target_state;
   }
 
-  void Start(bool is_in_tablet_mode) {
-    is_in_tablet_mode_ = is_in_tablet_mode;
-#if defined(DCHECK)
-    DCHECK(!started_);
-    started_ = ui::ScopedAnimationDurationScaleMode::duration_scale_mode() !=
-               ui::ScopedAnimationDurationScaleMode::ZERO_DURATION;
-#endif
-  }
-
-  void Reset();
-
+  // Sets tablet animation transition type for metrics.
   void SetTabletModeAnimationTransition(
       TabletModeAnimationTransition transition) {
     tablet_transition_ = transition;
   }
 
-  // ui::AnimationMetricsReporter:
-  void Report(int value) override;
+  // Resets the target state and animation type for metrics.
+  void Reset();
+
+  // Gets a callback to report smoothness.
+  metrics_util::SmoothnessCallback GetReportCallback(bool tablet_mode) {
+    return base::BindRepeating(&StateAnimationMetricsReporter::Report,
+                               weak_ptr_factory_.GetWeakPtr(), tablet_mode);
+  }
 
  private:
+  // Reports smoothness.
+  void Report(bool tablet_mode, int smoothess);
+
   void RecordMetricsInTablet(int value);
   void RecordMetricsInClamshell(int value);
 
-#if defined(DCHECK)
-  bool started_ = false;
-#endif
   base::Optional<AppListViewState> target_state_;
   base::Optional<TabletModeAnimationTransition> tablet_transition_;
-  bool is_in_tablet_mode_ = false;
   AppListView* view_;
 
-  DISALLOW_COPY_AND_ASSIGN(StateAnimationMetricsReporter);
+  base::WeakPtrFactory<StateAnimationMetricsReporter> weak_ptr_factory_{this};
 };
 
 void AppListView::StateAnimationMetricsReporter::Reset() {
-#if defined(DCHECK)
-  started_ = false;
-#endif
   tablet_transition_.reset();
   target_state_.reset();
 }
 
-void AppListView::StateAnimationMetricsReporter::Report(int value) {
-  UMA_HISTOGRAM_PERCENTAGE("Apps.StateTransition.AnimationSmoothness", value);
-  if (is_in_tablet_mode_)
-    RecordMetricsInTablet(value);
+void AppListView::StateAnimationMetricsReporter::Report(bool tablet_mode,
+                                                        int smoothess) {
+  UMA_HISTOGRAM_PERCENTAGE("Apps.StateTransition.AnimationSmoothness",
+                           smoothess);
+
+  if (tablet_mode)
+    RecordMetricsInTablet(smoothess);
   else
-    RecordMetricsInClamshell(value);
+    RecordMetricsInClamshell(smoothess);
+
   view_->OnStateTransitionAnimationCompleted();
   Reset();
 }
@@ -417,8 +432,8 @@ class BoundsAnimationObserver : public ui::ImplicitAnimationObserver {
   void OnImplicitAnimationsCompleted() override {
     StopObservingImplicitAnimations();
     view_->OnBoundsAnimationCompleted();
-    TRACE_EVENT_ASYNC_END1("ui", "AppList::StateTransitionAnimations", this,
-                           "state", target_state_.value());
+    TRACE_EVENT_NESTABLE_ASYNC_END1("ui", "AppList::StateTransitionAnimations",
+                                    this, "state", target_state_.value());
     target_state_ = base::nullopt;
   }
 
@@ -590,41 +605,44 @@ bool AppListView::ShortAnimationsForTesting() {
   return short_animations_for_testing;
 }
 
-void AppListView::InitView(
-    bool is_tablet_mode,
-    gfx::NativeView parent,
-    base::RepeatingClosure on_bounds_animation_ended_callback) {
+// static
+void AppListView::SetSkipPageResetTimerForTesting(bool enabled) {
+  skip_page_reset_timer_for_testing = enabled;
+}
+
+void AppListView::InitView(gfx::NativeView parent) {
   base::AutoReset<bool> auto_reset(&is_building_, true);
   time_shown_ = base::Time::Now();
   UpdateAppListConfig(parent);
-  InitContents(is_tablet_mode);
+  InitContents();
   InitWidget(parent);
   InitChildWidget();
-
-  on_bounds_animation_ended_callback_ =
-      std::move(on_bounds_animation_ended_callback);
 }
 
-void AppListView::InitContents(bool is_tablet_mode) {
+void AppListView::InitContents() {
   DCHECK(!app_list_background_shield_);
   DCHECK(!app_list_main_view_);
   DCHECK(!search_box_view_);
   DCHECK(!announcement_view_);
 
+  auto app_list_background_shield =
+      std::make_unique<AppListBackgroundShieldView>(delegate_->GetShelfSize() /
+                                                    2);
+  app_list_background_shield->UpdateBackground(
+      /*use_blur*/ !delegate_->IsInTabletMode() && is_background_blur_enabled_);
   app_list_background_shield_ =
-      new AppListBackgroundShieldView(delegate_->GetShelfSize() / 2);
-  app_list_background_shield_->UpdateBackground(/*use_blur*/ !is_tablet_mode &&
-                                                is_background_blur_enabled_);
-  AddChildView(app_list_background_shield_);
+      AddChildView(std::move(app_list_background_shield));
 
-  app_list_main_view_ = new AppListMainView(delegate_, this);
-  search_box_view_ = new SearchBoxView(app_list_main_view_, delegate_, this);
-  search_box_view_->Init(is_tablet_mode);
+  auto app_list_main_view = std::make_unique<AppListMainView>(delegate_, this);
+  search_box_view_ =
+      new SearchBoxView(app_list_main_view.get(), delegate_, this);
+  search_box_view_->Init(delegate_->IsInTabletMode());
 
-  app_list_main_view_->Init(0, search_box_view_);
-  AddChildView(app_list_main_view_);
-  announcement_view_ = new views::View();
-  AddChildView(announcement_view_);
+  // Assign |app_list_main_view_| here since it is accessed during Init().
+  app_list_main_view_ = app_list_main_view.get();
+  app_list_main_view->Init(0, search_box_view_);
+  AddChildView(std::move(app_list_main_view));
+  announcement_view_ = AddChildView(std::make_unique<views::View>());
 }
 
 void AppListView::InitWidget(gfx::NativeView parent) {
@@ -696,7 +714,7 @@ void AppListView::InitChildWidget() {
   GetViewAccessibility().OverridePreviousFocus(search_box_widget);
 }
 
-void AppListView::Show(bool is_side_shelf, bool is_tablet_mode) {
+void AppListView::Show(bool is_side_shelf) {
   if (!time_shown_.has_value())
     time_shown_ = base::Time::Now();
   // The opacity of the AppListView may have been manipulated by overview mode,
@@ -704,12 +722,14 @@ void AppListView::Show(bool is_side_shelf, bool is_tablet_mode) {
   GetWidget()->GetLayer()->SetOpacity(1.0f);
   is_side_shelf_ = is_side_shelf;
 
-  app_list_main_view_->contents_view()->ResetForShow();
-
   AddAccelerator(ui::Accelerator(ui::VKEY_ESCAPE, ui::EF_NONE));
   AddAccelerator(ui::Accelerator(ui::VKEY_BROWSER_BACK, ui::EF_NONE));
 
   UpdateWidget();
+
+  app_list_main_view_->contents_view()->ResetForShow();
+  if (!delegate_->IsInTabletMode())
+    SelectInitialAppsPage();
 
   // The initial state is kPeeking. If tablet mode is enabled, a fullscreen
   // state will be set later.
@@ -718,9 +738,8 @@ void AppListView::Show(bool is_side_shelf, bool is_tablet_mode) {
   // Ensures that the launcher won't open underneath the a11y keyboard.
   CloseKeyboardIfVisible();
 
-  OnTabletModeChanged(is_tablet_mode);
-  // Widget may be activated by |on_bounds_animation_ended_callback_|.
-  GetWidget()->ShowInactive();
+  OnTabletModeChanged(delegate_->IsInTabletMode());
+  app_list_main_view_->ShowAppListWhenReady();
 
   UMA_HISTOGRAM_TIMES(kAppListCreationTimeHistogram,
                       base::Time::Now() - time_shown_.value());
@@ -782,7 +801,7 @@ bool AppListView::AcceleratorPressed(const ui::Accelerator& accelerator) {
     case ui::VKEY_BROWSER_BACK:
       // If the ContentsView does not handle the back action, then this is the
       // top level, so we close the app list.
-      if (!Back() && !is_tablet_mode())
+      if (!Back() && !delegate_->IsInTabletMode())
         Dismiss();
       break;
     default:
@@ -842,6 +861,20 @@ bool AppListView::IsShowingEmbeddedAssistantUI() const {
   return app_list_main_view()->contents_view()->IsShowingEmbeddedAssistantUI();
 }
 
+void AppListView::UpdatePageResetTimer(bool app_list_visibility) {
+  if (app_list_visibility || !delegate_->IsInTabletMode()) {
+    page_reset_timer_.Stop();
+    return;
+  }
+  page_reset_timer_.Start(
+      FROM_HERE,
+      base::TimeDelta::FromMinutes(kAppListPageResetTimeLimitMinutes), this,
+      &AppListView::SelectInitialAppsPage);
+
+  if (skip_page_reset_timer_for_testing)
+    page_reset_timer_.FireNow();
+}
+
 gfx::Insets AppListView::GetMainViewInsetsForShelf() const {
   if (is_side_shelf()) {
     // Set both horizontal insets so the app list remains centered on the
@@ -871,11 +904,10 @@ void AppListView::UpdateAppListConfig(aura::Window* parent_window) {
   // Initial config should be set before the app list main view is initialized.
   DCHECK(!is_initial_config || !app_list_main_view_);
 
-  // If the config changed, notify apps grids the config has changed.
-  if (!is_initial_config) {
-    GetFolderAppsGridView()->OnAppListConfigUpdated();
-    GetRootAppsGridView()->OnAppListConfigUpdated();
-  }
+  // If the config changed, notify apps container the config has changed, so
+  // root and folder apps grids are updated for the new config.
+  if (!is_initial_config)
+    GetAppsContainerView()->OnAppListConfigUpdated();
 }
 
 void AppListView::UpdateWidget() {
@@ -885,13 +917,17 @@ void AppListView::UpdateWidget() {
   // intersection.
   GetWidget()->GetNativeView()->SetBounds(
       GetPreferredWidgetBoundsForState(AppListViewState::kClosed));
+  ResetSubpixelPositionOffset(GetWidget()->GetNativeView()->layer());
 }
 
 void AppListView::HandleClickOrTap(ui::LocatedEvent* event) {
-  // If the virtual keyboard is visible, dismiss the keyboard and return early.
+  // If the virtual keyboard is visible, dismiss the keyboard. If there is some
+  // text in the search box or the embedded assistant UI is shown, return early
+  // so they don't get closed.
   if (CloseKeyboardIfVisible()) {
     search_box_view_->NotifyGestureEvent();
-    return;
+    if (search_box_view_->HasSearch() || IsShowingEmbeddedAssistantUI())
+      return;
   }
 
   // Close embedded Assistant UI if it is shown.
@@ -917,7 +953,7 @@ void AppListView::HandleClickOrTap(ui::LocatedEvent* event) {
       (event->IsMouseEvent() &&
        event->AsMouseEvent()->IsOnlyRightMouseButton())) {
     // Don't show menus on empty areas of the AppListView in clamshell mode.
-    if (!is_tablet_mode())
+    if (!delegate_->IsInTabletMode())
       return;
 
     // Home launcher is shown on top of wallpaper with transparent background.
@@ -932,7 +968,7 @@ void AppListView::HandleClickOrTap(ui::LocatedEvent* event) {
 
   if (!search_box_view_->is_search_box_active() &&
       model_->state() != AppListState::kStateEmbeddedAssistant) {
-    if (!is_tablet_mode())
+    if (!delegate_->IsInTabletMode())
       Dismiss();
     return;
   }
@@ -940,26 +976,21 @@ void AppListView::HandleClickOrTap(ui::LocatedEvent* event) {
   search_box_view_->ClearSearchAndDeactivateSearchBox();
 }
 
-void AppListView::StartDrag(const gfx::Point& location) {
-  // Convert drag point from widget coordinates to screen coordinates because
-  // the widget bounds changes during the dragging.
-  initial_drag_point_ = location;
-  ConvertPointToScreen(this, &initial_drag_point_);
-  initial_window_bounds_ = GetWidget()->GetWindowBoundsInScreen();
+void AppListView::StartDrag(const gfx::PointF& location_in_root) {
+  initial_drag_point_ = location_in_root;
+
+  drag_offset_ =
+      initial_drag_point_.y() - GetWidget()->GetNativeWindow()->bounds().y();
 }
 
-void AppListView::UpdateDrag(const gfx::Point& location) {
-  // Update the widget bounds based on the initial widget bounds and drag delta.
-  gfx::Point location_in_screen_coordinates = location;
-  ConvertPointToScreen(this, &location_in_screen_coordinates);
-  int new_y_position = location_in_screen_coordinates.y() -
-                       initial_drag_point_.y() + initial_window_bounds_.y();
+void AppListView::UpdateDrag(const gfx::PointF& location_in_root) {
+  float new_y_position_in_root = location_in_root.y() - drag_offset_;
 
-  UpdateYPositionAndOpacity(new_y_position,
+  UpdateYPositionAndOpacity(new_y_position_in_root,
                             GetAppListBackgroundOpacityDuringDragging());
 }
 
-void AppListView::EndDrag(const gfx::Point& location) {
+void AppListView::EndDrag(const gfx::PointF& location_in_root) {
   // |is_in_drag_| might have been cleared if the app list was dismissed while
   // drag was still in progress. Nothing to do here in that case.
   if (!is_in_drag_) {
@@ -1030,22 +1061,17 @@ void AppListView::EndDrag(const gfx::Point& location) {
 
     const int app_list_threshold =
         app_list_height / kAppListThresholdDenominator;
-    gfx::Point location_in_screen_coordinates = location;
-    ConvertPointToScreen(this, &location_in_screen_coordinates);
-    const int drag_delta =
-        initial_drag_point_.y() - location_in_screen_coordinates.y();
-    const int location_y_in_current_work_area =
-        location_in_screen_coordinates.y() -
-        GetDisplayNearestView().work_area().y();
+    const int drag_delta = initial_drag_point_.y() - location_in_root.y();
+    int display_bottom_in_root = GetDisplayNearestView().bounds().height();
     // If the drag ended near the bezel, close the app list.
-    if (location_y_in_current_work_area >=
-        (fullscreen_height - kAppListBezelMargin)) {
+    if (location_in_root.y() >=
+        (display_bottom_in_root - kAppListBezelMargin)) {
       Dismiss();
     } else {
       switch (app_list_state_) {
         case AppListViewState::kFullscreenAllApps:
           if (drag_delta < -app_list_threshold) {
-            if (is_tablet_mode_ || is_side_shelf_)
+            if (delegate_->IsInTabletMode() || is_side_shelf_)
               Dismiss();
             else
               SetState(AppListViewState::kPeeking);
@@ -1084,7 +1110,7 @@ void AppListView::EndDrag(const gfx::Point& location) {
       }
     }
   }
-  initial_drag_point_ = gfx::Point();
+  initial_drag_point_ = gfx::PointF();
 }
 
 void AppListView::SetChildViewsForStateTransition(
@@ -1114,25 +1140,20 @@ void AppListView::SetChildViewsForStateTransition(
         AppListState::kStateApps, !is_side_shelf_);
   }
 
-  if (target_state == AppListViewState::kPeeking) {
-    // Set the apps to the initial page when PEEKING.
-    PaginationModel* pagination_model = GetAppsPaginationModel();
-    if (pagination_model->total_pages() > 0 &&
-        pagination_model->selected_page() != 0) {
-      pagination_model->SelectPage(0, false /* animate */);
-    }
-  }
+  // Set the apps to the initial page when PEEKING.
+  if (target_state == AppListViewState::kPeeking)
+    SelectInitialAppsPage();
+
   if (target_state == AppListViewState::kClosed && is_side_shelf_) {
     // Reset the search box to be shown again. This is done after the animation
     // is complete normally, but there is no animation when |is_side_shelf_|.
     search_box_view_->ClearSearchAndDeactivateSearchBox();
-    SelectInitialAppsPage();
   }
 }
 
 void AppListView::ConvertAppListStateToFullscreenEquivalent(
     AppListViewState* state) {
-  if (!(is_side_shelf_ || is_tablet_mode_))
+  if (!(is_side_shelf_ || delegate_->IsInTabletMode()))
     return;
 
   // If side shelf or tablet mode are active, all transitions should be
@@ -1148,7 +1169,7 @@ void AppListView::ConvertAppListStateToFullscreenEquivalent(
   }
 }
 
-void AppListView::MaybeIncreaseAssistantPrivacyInfoRowShownCount(
+void AppListView::MaybeIncreasePrivacyInfoRowShownCounts(
     AppListViewState new_state) {
   AppListStateTransitionSource transition =
       GetAppListStateTransitionSource(new_state);
@@ -1156,7 +1177,7 @@ void AppListView::MaybeIncreaseAssistantPrivacyInfoRowShownCount(
     case kPeekingToHalf:
     case kFullscreenAllAppsToFullscreenSearch:
       if (app_list_main_view()->contents_view()->IsShowingSearchResults())
-        delegate_->MaybeIncreaseAssistantPrivacyInfoShownCount();
+        delegate_->MaybeIncreasePrivacyInfoShownCounts();
       break;
     default:
       break;
@@ -1190,8 +1211,15 @@ void AppListView::RecordStateTransitionForUma(AppListViewState new_state) {
 }
 
 void AppListView::MaybeCreateAccessibilityEvent(AppListViewState new_state) {
-  if (new_state != AppListViewState::kPeeking &&
-      new_state != AppListViewState::kFullscreenAllApps)
+  if (new_state == app_list_state_)
+    return;
+
+  if ((new_state != AppListViewState::kPeeking &&
+       new_state != AppListViewState::kFullscreenAllApps)) {
+    return;
+  }
+
+  if (!delegate_->AppListTargetVisibility())
     return;
 
   base::string16 state_announcement;
@@ -1214,10 +1242,17 @@ void AppListView::EnsureWidgetBoundsMatchCurrentState() {
   if (new_target_bounds == window->GetTargetBounds())
     return;
 
+  // Update the app list config to match the new window bounds - do this before
+  // updating the bounds, so app list config is updated before apps container is
+  // laid out (to avoid separate layouts for window bounds change and app list
+  // config change).
+  UpdateAppListConfig(GetWidget()->GetNativeView());
+
   // Set the widget size to fit the new display metrics.
   GetWidget()->GetNativeView()->SetBounds(new_target_bounds);
+  ResetSubpixelPositionOffset(GetWidget()->GetNativeView()->layer());
 
-  // Update the widget bounds to accomodate the new work
+  // Update the widget bounds to accommodate the new work
   // area.
   SetState(app_list_state_);
 }
@@ -1232,7 +1267,7 @@ display::Display AppListView::GetDisplayNearestView() const {
 }
 
 AppsContainerView* AppListView::GetAppsContainerView() {
-  return app_list_main_view_->contents_view()->GetAppsContainerView();
+  return app_list_main_view_->contents_view()->apps_container_view();
 }
 
 AppsGridView* AppListView::GetRootAppsGridView() {
@@ -1325,7 +1360,15 @@ AppListStateTransitionSource AppListView::GetAppListStateTransitionSource(
 }
 
 views::View* AppListView::GetInitiallyFocusedView() {
-  return app_list_main_view_->search_box_view()->search_box();
+  views::View* initial_view;
+  if (IsShowingEmbeddedAssistantUI()) {
+    // Assistant page will redirect focus to its subviews.
+    auto* content = app_list_main_view_->contents_view();
+    initial_view = content->GetPageView(content->GetActivePageIndex());
+  } else {
+    initial_view = app_list_main_view_->search_box_view()->search_box();
+  }
+  return initial_view;
 }
 
 void AppListView::OnScrollEvent(ui::ScrollEvent* event) {
@@ -1348,17 +1391,17 @@ void AppListView::OnMouseEvent(ui::MouseEvent* event) {
       event->SetHandled();
       if (is_in_drag_)
         return;
-      initial_mouse_drag_point_ = event->location();
+      initial_mouse_drag_point_ = event->root_location_f();
       break;
     case ui::ET_MOUSE_DRAGGED:
       event->SetHandled();
-      if (is_side_shelf_ || is_tablet_mode_)
+      if (is_side_shelf_ || delegate_->IsInTabletMode())
         return;
       if (!is_in_drag_ && event->IsOnlyLeftMouseButton()) {
         // Calculate the mouse drag offset to determine whether AppListView is
         // in drag.
-        gfx::Vector2d drag_distance =
-            event->location() - initial_mouse_drag_point_;
+        gfx::Vector2dF drag_distance =
+            event->root_location_f() - initial_mouse_drag_point_;
         if (abs(drag_distance.y()) < kMouseDragThreshold)
           return;
 
@@ -1369,16 +1412,16 @@ void AppListView::OnMouseEvent(ui::MouseEvent* event) {
 
       if (!is_in_drag_)
         return;
-      UpdateDrag(event->location());
+      UpdateDrag(event->root_location_f());
       break;
     case ui::ET_MOUSE_RELEASED:
       event->SetHandled();
-      initial_mouse_drag_point_ = gfx::Point();
+      initial_mouse_drag_point_ = gfx::PointF();
       if (!is_in_drag_) {
         HandleClickOrTap(event);
         return;
       }
-      EndDrag(event->location());
+      EndDrag(event->root_location_f());
       CloseKeyboardIfVisible();
       SetIsInDrag(false);
       break;
@@ -1421,14 +1464,14 @@ void AppListView::OnGestureEvent(ui::GestureEvent* event) {
       }
 
       // Avoid scrolling events for the app list in tablet mode.
-      if (is_side_shelf_ || is_tablet_mode())
+      if (is_side_shelf_ || delegate_->IsInTabletMode())
         return;
       // There may be multiple scroll begin events in one drag because the
       // relative location of the finger and widget is almost unchanged and
       // scroll begin event occurs when the relative location changes beyond a
       // threshold. So avoid resetting the initial drag point in drag.
       if (!is_in_drag_)
-        StartDrag(event->location());
+        StartDrag(event->root_location_f());
       SetIsInDrag(true);
       event->SetHandled();
       break;
@@ -1441,11 +1484,11 @@ void AppListView::OnGestureEvent(ui::GestureEvent* event) {
       }
 
       // Avoid scrolling events for the app list in tablet mode.
-      if (is_side_shelf_ || is_tablet_mode())
+      if (is_side_shelf_ || delegate_->IsInTabletMode())
         return;
       SetIsInDrag(true);
       last_fling_velocity_ = event->details().scroll_y();
-      UpdateDrag(event->location());
+      UpdateDrag(event->root_location_f());
       event->SetHandled();
       break;
     }
@@ -1459,9 +1502,9 @@ void AppListView::OnGestureEvent(ui::GestureEvent* event) {
       if (!is_in_drag_)
         break;
       // Avoid scrolling events for the app list in tablet mode.
-      if (is_side_shelf_ || is_tablet_mode())
+      if (is_side_shelf_ || delegate_->IsInTabletMode())
         return;
-      EndDrag(event->location());
+      EndDrag(event->root_location_f());
       event->SetHandled();
       break;
     }
@@ -1480,14 +1523,9 @@ void AppListView::OnKeyEvent(ui::KeyEvent* event) {
 }
 
 void AppListView::OnTabletModeChanged(bool started) {
-  is_tablet_mode_ = started;
-
   search_box_view_->OnTabletModeChanged(started);
   search_model_->SetTabletMode(started);
   GetAppsContainerView()->OnTabletModeChanged(started);
-  app_list_main_view_->contents_view()
-      ->horizontal_page_container()
-      ->OnTabletModeChanged(started);
 
   if (is_in_drag_) {
     SetIsInDrag(false);
@@ -1535,7 +1573,7 @@ bool AppListView::HandleScroll(const gfx::Vector2d& offset,
   }
 
   // The AppList should not be dismissed with scroll in tablet mode.
-  if (is_tablet_mode())
+  if (delegate_->IsInTabletMode())
     return true;
 
   // If the event is a mousewheel event, the offset is always large enough,
@@ -1566,15 +1604,17 @@ void AppListView::SetState(AppListViewState new_state) {
     SetIsInDrag(false);
   SetChildViewsForStateTransition(new_state_override);
   StartAnimationForState(new_state_override);
-  MaybeIncreaseAssistantPrivacyInfoRowShownCount(new_state_override);
+  MaybeIncreasePrivacyInfoRowShownCounts(new_state_override);
   RecordStateTransitionForUma(new_state_override);
   model_->SetStateFullscreen(new_state_override);
+  if (delegate_)
+    delegate_->OnViewStateChanged(new_state_override);
   app_list_state_ = new_state_override;
 
   if (is_in_drag_ && app_list_state_ != AppListViewState::kClosed)
     app_list_main_view_->contents_view()->UpdateYPositionAndOpacity();
 
-  if (GetWidget()->IsActive() && !IsShowingEmbeddedAssistantUI()) {
+  if (GetWidget()->IsActive()) {
     // Reset the focus to initially focused view. This should be
     // done before updating visibility of views, because setting
     // focused view invisible automatically moves focus to next
@@ -1636,8 +1676,8 @@ void AppListView::ApplyBoundsAnimation(AppListViewState target_state,
 
   // When closing the view should animate to the shelf bounds. The workspace
   // area will not reflect an autohidden shelf so ask for the proper bounds.
-  const int y_for_closed_state =
-      delegate_->GetTargetYForAppListHide(GetWidget()->GetNativeView());
+  const int y_for_closed_state = delegate_->GetTargetYForAppListHide(
+      GetWidget()->GetNativeView()->GetRootWindow());
   if (target_state == AppListViewState::kClosed) {
     target_bounds.set_y(y_for_closed_state);
   }
@@ -1660,6 +1700,7 @@ void AppListView::ApplyBoundsAnimation(AppListViewState target_state,
   // to make this appear in the original location. Then set an empty transform
   // with the animation.
   layer->SetBounds(target_bounds);
+  ResetSubpixelPositionOffset(layer);
 
   gfx::Transform transform;
   const int y_offset = current_y_with_transform - target_bounds.y();
@@ -1670,7 +1711,8 @@ void AppListView::ApplyBoundsAnimation(AppListViewState target_state,
   // Reset animation metrics reporter when animation is started.
   ResetTransitionMetricsReporter();
 
-  if (is_tablet_mode_ && target_state != AppListViewState::kClosed) {
+  if (delegate_->IsInTabletMode() &&
+      target_state != AppListViewState::kClosed) {
     DCHECK(target_state == AppListViewState::kFullscreenAllApps ||
            target_state == AppListViewState::kFullscreenSearch);
     TabletModeAnimationTransition transition_type =
@@ -1686,9 +1728,11 @@ void AppListView::ApplyBoundsAnimation(AppListViewState target_state,
   ui::ScopedLayerAnimationSettings animation(layer->GetAnimator());
   animation.SetPreemptionStrategy(
       ui::LayerAnimator::IMMEDIATELY_SET_NEW_TARGET);
-  animation.SetAnimationMetricsReporter(GetStateTransitionMetricsReporter());
-  TRACE_EVENT_ASYNC_BEGIN0("ui", "AppList::StateTransitionAnimations",
-                           bounds_animation_observer_.get());
+  ui::AnimationThroughputReporter reporter(
+      animation.GetAnimator(),
+      metrics_util::ForSmoothness(GetStateTransitionMetricsReportCallback()));
+  TRACE_EVENT_NESTABLE_ASYNC_BEGIN0("ui", "AppList::StateTransitionAnimations",
+                                    bounds_animation_observer_.get());
   bounds_animation_observer_->set_target_state(target_state);
   animation.AddObserver(bounds_animation_observer_.get());
   if (animation_observer) {
@@ -1776,7 +1820,7 @@ void AppListView::SetStateFromSearchBoxView(bool search_box_is_empty,
   }
 }
 
-void AppListView::UpdateYPositionAndOpacity(int y_position_in_screen,
+void AppListView::UpdateYPositionAndOpacity(float y_position_in_root,
                                             float background_opacity) {
   DCHECK(!is_side_shelf_);
   if (app_list_state_ == AppListViewState::kClosed)
@@ -1793,14 +1837,20 @@ void AppListView::UpdateYPositionAndOpacity(int y_position_in_screen,
   presentation_time_recorder_->RequestNext();
 
   background_opacity_in_drag_ = background_opacity;
-  gfx::Rect new_widget_bounds = GetWidget()->GetWindowBoundsInScreen();
-  app_list_y_position_in_screen_ = std::min(
-      std::max(y_position_in_screen, GetDisplayNearestView().work_area().y()),
-      GetScreenBottom() - delegate_->GetShelfSize());
-  new_widget_bounds.set_y(app_list_y_position_in_screen_);
+  gfx::Rect new_window_bounds = GetWidget()->GetNativeWindow()->bounds();
+  display::Display display = GetDisplayNearestView();
+  float app_list_y_position_in_root = std::min(
+      std::max(y_position_in_root,
+               static_cast<float>(display.GetWorkAreaInsets().top())),
+      static_cast<float>(display.size().height() - delegate_->GetShelfSize()));
+
   gfx::NativeView native_view = GetWidget()->GetNativeView();
-  ::wm::ConvertRectFromScreen(native_view->parent(), &new_widget_bounds);
-  native_view->SetBounds(new_widget_bounds);
+  new_window_bounds.set_y(static_cast<int>(app_list_y_position_in_root));
+  native_view->SetBounds(new_window_bounds);
+  native_view->layer()->SetSubpixelPositionOffset(gfx::Vector2dF(
+      ComputeSubpixelOffset(display, new_window_bounds.x()),
+      ComputeSubpixelOffset(display, app_list_y_position_in_root)));
+
   UpdateChildViewsYPositionAndOpacity();
 }
 
@@ -1825,7 +1875,7 @@ gfx::Rect AppListView::GetAppInfoDialogBounds() const {
 void AppListView::SetIsInDrag(bool is_in_drag) {
   // In tablet mode, |presentation_time_recorder_| is constructed/reset by
   // HomeLauncherGestureHandler.
-  if (!is_in_drag && !is_tablet_mode_)
+  if (!is_in_drag && !delegate_->IsInTabletMode())
     presentation_time_recorder_.reset();
 
   if (is_in_drag == is_in_drag_)
@@ -1842,7 +1892,7 @@ void AppListView::SetIsInDrag(bool is_in_drag) {
 
   is_in_drag_ = is_in_drag;
 
-  if (is_in_drag && !is_tablet_mode_) {
+  if (is_in_drag && !delegate_->IsInTabletMode()) {
     presentation_time_recorder_.reset();
     presentation_time_recorder_ = CreatePresentationTimeHistogramRecorder(
         GetWidget()->GetCompositor(), kAppListDragInClamshellHistogram,
@@ -1879,7 +1929,7 @@ float AppListView::GetAppListTransitionProgress(int flags) const {
   // the app list layout should match the current app list state, so return
   // the progress for the current app list state.
   const gfx::Transform transform = GetWidget()->GetLayer()->transform();
-  if (is_tablet_mode_ && transform.IsScaleOrTranslation() &&
+  if (delegate_->IsInTabletMode() && transform.IsScaleOrTranslation() &&
       !transform.IsIdentityOrTranslation()) {
     return GetTransitionProgressForState(app_list_state_);
   }
@@ -1952,19 +2002,20 @@ AppListViewState AppListView::CalculateStateAfterShelfDrag(
   } else {
     // Snap the app list to corresponding state according to the snapping
     // thresholds.
-    if (is_tablet_mode_) {
+    if (delegate_->IsInTabletMode()) {
       app_list_state =
           launcher_above_shelf_bottom_amount > kDragSnapToFullscreenThreshold
               ? AppListViewState::kFullscreenAllApps
               : AppListViewState::kClosed;
     } else {
-      if (launcher_above_shelf_bottom_amount <= kDragSnapToClosedThreshold)
+      if (launcher_above_shelf_bottom_amount <= kDragSnapToClosedThreshold) {
         app_list_state = AppListViewState::kClosed;
-      else if (launcher_above_shelf_bottom_amount <=
-               kDragSnapToPeekingThreshold)
+      } else if (launcher_above_shelf_bottom_amount <=
+                 kDragSnapToPeekingThreshold) {
         app_list_state = AppListViewState::kPeeking;
-      else
+      } else {
         app_list_state = AppListViewState::kFullscreenAllApps;
+      }
     }
   }
 
@@ -1980,9 +2031,10 @@ AppListViewState AppListView::CalculateStateAfterShelfDrag(
   return app_list_state;
 }
 
-ui::AnimationMetricsReporter* AppListView::GetStateTransitionMetricsReporter() {
-  state_animation_metrics_reporter_->Start(is_tablet_mode_);
-  return state_animation_metrics_reporter_.get();
+metrics_util::SmoothnessCallback
+AppListView::GetStateTransitionMetricsReportCallback() {
+  return state_animation_metrics_reporter_->GetReportCallback(
+      delegate_->IsInTabletMode());
 }
 
 void AppListView::OnHomeLauncherDragStart() {
@@ -2045,15 +2097,12 @@ void AppListView::OnBoundsAnimationCompleted() {
   // Layout if the animation was completed.
   if (!was_animation_interrupted)
     Layout();
-
-  if (on_bounds_animation_ended_callback_)
-    on_bounds_animation_ended_callback_.Run();
 }
 
 gfx::Rect AppListView::GetItemScreenBoundsInFirstGridPage(
     const std::string& id) const {
   const AppsGridView* apps_grid_view = app_list_main_view_->contents_view()
-                                           ->GetAppsContainerView()
+                                           ->apps_container_view()
                                            ->apps_grid_view();
   gfx::Rect item_bounds = apps_grid_view->GetExpectedItemBoundsInFirstPage(id);
   ConvertRectToScreen(apps_grid_view, &item_bounds);
@@ -2081,7 +2130,6 @@ void AppListView::UpdateChildViewsYPositionAndOpacity() {
   // Update the opacity of the background shield.
   SetBackgroundShieldColor();
 
-  search_box_view_->UpdateOpacity();
   app_list_main_view_->contents_view()->UpdateYPositionAndOpacity();
 }
 
@@ -2107,15 +2155,8 @@ void AppListView::RedirectKeyEventToSearchBox(ui::KeyEvent* event) {
 
   // Do not redirect the arrow keys in app list as they are are used for focus
   // traversal and app movement.
-  if (app_list_features::IsSearchBoxSelectionEnabled() &&
-      IsArrowKeyEvent(*event) && !search_box_view_->is_search_box_active()) {
+  if (IsArrowKeyEvent(*event) && !search_box_view_->is_search_box_active())
     return;
-  }
-
-  if (!app_list_features::IsSearchBoxSelectionEnabled() &&
-      IsArrowKeyEvent(*event)) {
-    return;
-  }
 
   // Redirect key event to |search_box_|.
   search_box->OnKeyEvent(event);
@@ -2144,14 +2185,12 @@ void AppListView::OnScreenKeyboardShown(bool shown) {
     if (folder_offset != 0) {
       OffsetYPositionOfAppList(folder_offset);
       offset_to_show_folder_with_onscreen_keyboard_ = true;
-      app_list_main_view_->contents_view()->NotifySearchBoxBoundsUpdated();
     }
   } else if (offset_to_show_folder_with_onscreen_keyboard_) {
     // If the keyboard is closing or a folder isn't being shown, reset
     // the app list's position
     OffsetYPositionOfAppList(0);
     offset_to_show_folder_with_onscreen_keyboard_ = false;
-    app_list_main_view_->contents_view()->NotifySearchBoxBoundsUpdated();
   }
 
   if (!shown) {
@@ -2208,7 +2247,7 @@ void AppListView::SetBackgroundShieldColor() {
   // of the layer changes opacity of the blur effect, which is not desired.
   float color_opacity = kAppListOpacity;
 
-  if (is_tablet_mode_) {
+  if (delegate_->IsInTabletMode()) {
     // The Homecher background should have an opacity of 0.
     color_opacity = 0;
   } else if (is_in_drag_) {
@@ -2272,7 +2311,7 @@ int AppListView::GetPreferredWidgetYForState(AppListViewState state) const {
       return display.bounds().height() -
              AppListConfig::instance().peeking_app_list_height();
     case AppListViewState::kHalf:
-      return std::max(work_area_bounds.y(),
+      return std::max(work_area_bounds.y() - display.bounds().y(),
                       display.bounds().height() - kHalfAppListHeight);
     case AppListViewState::kFullscreenAllApps:
     case AppListViewState::kFullscreenSearch:
@@ -2356,6 +2395,14 @@ void AppListView::EndDragFromShelf(AppListViewState app_list_state) {
     SetState(app_list_state);
   }
   UpdateChildViewsYPositionAndOpacity();
+}
+
+void AppListView::ResetSubpixelPositionOffset(ui::Layer* layer) {
+  const display::Display display = GetDisplayNearestView();
+  const gfx::Rect& bounds = layer->bounds();
+  layer->SetSubpixelPositionOffset(
+      gfx::Vector2dF(ComputeSubpixelOffset(display, bounds.x()),
+                     ComputeSubpixelOffset(display, bounds.y())));
 }
 
 }  // namespace ash

@@ -55,15 +55,10 @@ class TaskManagerView : public TableViewDelegate,
 
   // views::DialogDelegateView:
   views::View* GetInitiallyFocusedView() override;
-  bool CanResize() const override;
-  bool CanMaximize() const override;
-  bool CanMinimize() const override;
   bool ExecuteWindowsCommand(int command_id) override;
-  base::string16 GetWindowTitle() const override;
   gfx::ImageSkia GetWindowIcon() override;
   std::string GetWindowName() const override;
   bool Accept() override;
-  bool Close() override;
   bool IsDialogButtonEnabled(ui::DialogButton button) const override;
   void WindowClosing() override;
 

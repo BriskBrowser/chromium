@@ -13,8 +13,6 @@ namespace blink {
 
 class FakeAreaSource : public GarbageCollected<FakeAreaSource>,
                        public CachedStorageArea::Source {
-  USING_GARBAGE_COLLECTED_MIXIN(FakeAreaSource);
-
  public:
   explicit FakeAreaSource(const KURL& page_url) : page_url_(page_url) {}
 
@@ -35,6 +33,11 @@ class FakeAreaSource : public GarbageCollected<FakeAreaSource>,
 
   struct Event {
     String key, old_value, new_value, url;
+
+    bool operator==(const Event& other) const {
+      return std::tie(key, old_value, new_value, url) ==
+             std::tie(other.key, other.old_value, other.new_value, other.url);
+    }
   };
 
   Vector<Event> events;

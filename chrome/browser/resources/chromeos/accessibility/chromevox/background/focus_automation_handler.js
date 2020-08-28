@@ -11,30 +11,25 @@ goog.provide('FocusAutomationHandler');
 goog.require('BaseAutomationHandler');
 
 goog.scope(function() {
-var AutomationEvent = chrome.automation.AutomationEvent;
-var AutomationNode = chrome.automation.AutomationNode;
-var Dir = constants.Dir;
-var EventType = chrome.automation.EventType;
-var RoleType = chrome.automation.RoleType;
-var StateType = chrome.automation.StateType;
+const AutomationEvent = chrome.automation.AutomationEvent;
+const AutomationNode = chrome.automation.AutomationNode;
+const Dir = constants.Dir;
+const EventType = chrome.automation.EventType;
+const RoleType = chrome.automation.RoleType;
+const StateType = chrome.automation.StateType;
 
-/**
- * @constructor
- * @extends {BaseAutomationHandler}
- */
-FocusAutomationHandler = function() {
-  BaseAutomationHandler.call(this, null);
 
-  /** @private {AutomationNode|undefined} */
-  this.previousActiveDescendant_;
+FocusAutomationHandler = class extends BaseAutomationHandler {
+  constructor() {
+    super(null);
 
-  chrome.automation.getDesktop((desktop) => {
-    desktop.addEventListener(EventType.FOCUS, this.onFocus.bind(this), false);
-  });
-};
+    /** @private {AutomationNode|undefined} */
+    this.previousActiveDescendant_;
 
-FocusAutomationHandler.prototype = {
-  __proto__: BaseAutomationHandler.prototype,
+    chrome.automation.getDesktop((desktop) => {
+      desktop.addEventListener(EventType.FOCUS, this.onFocus.bind(this), false);
+    });
+  }
 
   /**
    * @param {!AutomationEvent} evt
@@ -45,14 +40,28 @@ FocusAutomationHandler.prototype = {
     this.node_ = evt.target;
     this.addListener_(
         EventType.ACTIVEDESCENDANTCHANGED, this.onActiveDescendantChanged);
-  },
+    this.addListener_(
+        EventType.MENU_LIST_ITEM_SELECTED, this.onEventIfSelected);
+    this.addListener_(EventType.TEXT_CHANGED, this.onTextChanged_);
+  }
 
   /**
    * Handles active descendant changes.
    * @param {!AutomationEvent} evt
    */
   onActiveDescendantChanged(evt) {
-    if (!evt.target.activeDescendant || !evt.target.state.focused) {
+    if (!evt.target.activeDescendant) {
+      return;
+    }
+
+    let skipFocusCheck = false;
+    chrome.automation.getFocus(focus => {
+      if (focus.role == RoleType.POP_UP_BUTTON) {
+        skipFocusCheck = true;
+      }
+    });
+
+    if (!skipFocusCheck && !evt.target.state.focused) {
       return;
     }
 
@@ -60,7 +69,7 @@ FocusAutomationHandler.prototype = {
     // speech) and this handler. Force output to be at least category flushed.
     Output.forceModeForNextSpeechUtterance(QueueMode.CATEGORY_FLUSH);
 
-    var prev = this.previousActiveDescendant_ ?
+    const prev = this.previousActiveDescendant_ ?
         cursors.Range.fromNode(this.previousActiveDescendant_) :
         ChromeVoxState.instance.currentRange;
     new Output()
@@ -70,7 +79,36 @@ FocusAutomationHandler.prototype = {
         .go();
     this.previousActiveDescendant_ = evt.target.activeDescendant;
   }
-};
-});  // goog.scope
 
-new FocusAutomationHandler();
+  /**
+   * @param {!ChromeVoxEvent} evt
+   */
+  onEventIfSelected(evt) {
+    if (evt.target.selected) {
+      this.onEventDefault(evt);
+    }
+  }
+
+  /**
+   * @param {!ChromeVoxEvent} evt
+   */
+  onTextChanged_(evt) {
+    // TODO: listen to value changes instead when they are generated.
+    // Here only to handle popup buttons.
+    if (evt.target.role != RoleType.POP_UP_BUTTON ||
+        evt.target.state.editable) {
+      return;
+    }
+
+    // If it has children, that means a menu is showing.
+    if (evt.target.firstChild) {
+      return;
+    }
+
+    if (evt.target.value) {
+      new Output().withString(evt.target.value).go();
+    }
+  }
+};
+
+});  // goog.scope

@@ -10,7 +10,6 @@
 #include "ui/gfx/color_palette.h"
 #include "ui/gfx/color_utils.h"
 #include "ui/gfx/geometry/insets.h"
-#include "ui/gfx/geometry/safe_integer_conversions.h"
 #include "ui/gfx/scoped_canvas.h"
 #include "ui/gfx/skia_util.h"
 #include "ui/native_theme/native_theme.h"
@@ -49,10 +48,10 @@ void FocusableBorder::Paint(const View& view, gfx::Canvas* canvas) {
   rect.Inset(gfx::InsetsF(kStrokeWidthPx / 2.0f));
 
   SkPath path;
-    flags.setAntiAlias(true);
-    float corner_radius_px = kCornerRadiusDp * dsf;
-    path.addRoundRect(gfx::RectFToSkRect(rect), corner_radius_px,
-                      corner_radius_px);
+  flags.setAntiAlias(true);
+  float corner_radius_px = kCornerRadiusDp * dsf;
+  path.addRoundRect(gfx::RectFToSkRect(rect), corner_radius_px,
+                    corner_radius_px);
 
   canvas->DrawPath(path, flags);
 }

@@ -6,11 +6,11 @@
 
 #import <UIKit/UIKit.h>
 
-#include "base/logging.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/task/post_task.h"
 #include "ios/web/public/test/error_test_util.h"
+#import "ios/web/public/test/js_test_util.h"
 #include "ios/web/public/thread/web_task_traits.h"
 #include "ios/web/test/test_url_constants.h"
 #include "ui/base/resource/resource_bundle.h"
@@ -49,7 +49,9 @@ base::string16 TestWebClient::GetPluginNotSupportedText() const {
 }
 
 std::string TestWebClient::GetUserAgent(UserAgentType type) const {
-  return "Chromium/66.0.3333.0 CFNetwork/893.14 Darwin/16.7.0";
+  if (type == UserAgentType::DESKTOP)
+    return "Chromium/66.0.3333.0 CFNetwork/893.14 Darwin/16.7.0 Desktop";
+  return "Chromium/66.0.3333.0 CFNetwork/893.14 Darwin/16.7.0 Mobile";
 }
 
 base::RefCountedMemory* TestWebClient::GetDataResourceBytes(
@@ -63,6 +65,11 @@ base::RefCountedMemory* TestWebClient::GetDataResourceBytes(
 NSString* TestWebClient::GetDocumentStartScriptForMainFrame(
     BrowserState* browser_state) const {
   return early_page_script_ ? early_page_script_ : @"";
+}
+
+NSString* TestWebClient::GetDocumentStartScriptForAllFrames(
+    BrowserState* browser_state) const {
+  return web::test::GetPageScript(@"all_frames_web_test_bundle");
 }
 
 void TestWebClient::SetPluginNotSupportedText(const base::string16& text) {
@@ -104,13 +111,19 @@ void TestWebClient::PrepareErrorPage(
     const base::Optional<net::SSLInfo>& info,
     int64_t navigation_id,
     base::OnceCallback<void(NSString*)> callback) {
+  net::CertStatus cert_status = info.has_value() ? info.value().cert_status : 0;
   std::move(callback).Run(base::SysUTF8ToNSString(testing::GetErrorText(
-      web_state, url, base::SysNSStringToUTF8(error.domain), error.code,
-      is_post, is_off_the_record, info.has_value())));
+      web_state, url, error, is_post, is_off_the_record, cert_status)));
 }
 
 UIView* TestWebClient::GetWindowedContainer() {
   return UIApplication.sharedApplication.keyWindow.rootViewController.view;
+}
+
+UserAgentType TestWebClient::GetDefaultUserAgent(
+    id<UITraitEnvironment> web_view,
+    const GURL& url) {
+  return default_user_agent_;
 }
 
 }  // namespace web

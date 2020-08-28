@@ -6,6 +6,7 @@
 
 #include "base/bind.h"
 #include "base/location.h"
+#include "base/logging.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/stl_util.h"
 #include "base/strings/string_util.h"
@@ -123,8 +124,9 @@ void FirstUserActionRecorder::RecordStartOnNTP() {
   RecordAction(START_ON_NTP, log_message);
 }
 
-void FirstUserActionRecorder::OnUserAction(const std::string& action_name) {
-  if (ShouldProcessAction(action_name)) {
+void FirstUserActionRecorder::OnUserAction(const std::string& action_name,
+                                           base::TimeTicks action_time) {
+  if (ShouldProcessAction(action_name, action_time)) {
     if (ArrayContainsString(kNewTaskActions, base::size(kNewTaskActions),
                             action_name.c_str())) {
       std::string log_message = base::StringPrintf(
@@ -181,7 +183,8 @@ void FirstUserActionRecorder::RecordAction(
 }
 
 bool FirstUserActionRecorder::ShouldProcessAction(
-    const std::string& action_name) {
+    const std::string& action_name,
+    base::TimeTicks action_time) {
   if (recorded_action_)
     return false;
 
@@ -190,7 +193,7 @@ bool FirstUserActionRecorder::ShouldProcessAction(
                           action_name.c_str())) {
     rethrow_callback_.Reset(
         base::BindOnce(&FirstUserActionRecorder::OnUserAction,
-                       base::Unretained(this), action_name));
+                       base::Unretained(this), action_name, action_time));
     base::ThreadTaskRunnerHandle::Get()->PostTask(FROM_HERE,
                                                   rethrow_callback_.callback());
     action_pending_ = true;

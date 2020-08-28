@@ -62,6 +62,8 @@
 #include "third_party/blink/public/web/web_associated_url_loader_client.h"
 #include "third_party/blink/public/web/web_plugin.h"
 #include "ui/accessibility/ax_mode.h"
+#include "ui/base/cursor/cursor.h"
+#include "ui/base/cursor/mojom/cursor_type.mojom-shared.h"
 #include "ui/base/ime/text_input_type.h"
 #include "ui/gfx/geometry/rect.h"
 #include "url/gurl.h"
@@ -75,8 +77,6 @@ class WebInputEvent;
 class WebMouseEvent;
 class WebPluginContainer;
 class WebURLResponse;
-struct WebImeTextSpan;
-struct WebCursorInfo;
 struct WebURLError;
 struct WebPrintParams;
 }  // namespace blink
@@ -222,9 +222,8 @@ class CONTENT_EXPORT PepperPluginInstanceImpl
                   std::unique_ptr<PluginInstanceThrottlerImpl> throttler);
   bool HandleDocumentLoad(const blink::WebURLResponse& response);
   bool HandleCoalescedInputEvent(const blink::WebCoalescedInputEvent& event,
-                                 blink::WebCursorInfo* cursor_info);
-  bool HandleInputEvent(const blink::WebInputEvent& event,
-                        blink::WebCursorInfo* cursor_info);
+                                 ui::Cursor* cursor);
+  bool HandleInputEvent(const blink::WebInputEvent& event, ui::Cursor* cursor);
   PP_Var GetInstanceObject(v8::Isolate* isolate);
   void ViewChanged(const gfx::Rect& window,
                    const gfx::Rect& clip,
@@ -234,7 +233,7 @@ class CONTENT_EXPORT PepperPluginInstanceImpl
   bool HandleCompositionStart(const base::string16& text);
   bool HandleCompositionUpdate(
       const base::string16& text,
-      const std::vector<blink::WebImeTextSpan>& ime_text_spans,
+      const std::vector<ui::ImeTextSpan>& ime_text_spans,
       int selection_start,
       int selection_end);
   bool HandleCompositionEnd(const base::string16& text);
@@ -522,6 +521,8 @@ class CONTENT_EXPORT PepperPluginInstanceImpl
   // Should be used only for logging.
   bool is_flash_plugin() const { return is_flash_plugin_; }
 
+  bool SupportsKeyboardFocus();
+
  private:
   friend class base::RefCounted<PepperPluginInstanceImpl>;
   friend class PpapiPluginInstanceTest;
@@ -620,7 +621,7 @@ class CONTENT_EXPORT PepperPluginInstanceImpl
   //   to the container. Set to true if the bound device has been changed.
   void UpdateLayer(bool force_creation);
 
-  void DoSetCursor(std::unique_ptr<blink::WebCursorInfo> cursor);
+  void DoSetCursor(std::unique_ptr<ui::Cursor> cursor);
 
   // Internal helper functions for HandleCompositionXXX().
   bool SendCompositionEventToPlugin(PP_InputEvent_Type type,
@@ -628,7 +629,7 @@ class CONTENT_EXPORT PepperPluginInstanceImpl
   bool SendCompositionEventWithImeTextSpanInformationToPlugin(
       PP_InputEvent_Type type,
       const base::string16& text,
-      const std::vector<blink::WebImeTextSpan>& ime_text_spans,
+      const std::vector<ui::ImeTextSpan>& ime_text_spans,
       int selection_start,
       int selection_end);
 
@@ -638,10 +639,6 @@ class CONTENT_EXPORT PepperPluginInstanceImpl
   // Checks if the security origin of the document containing this instance can
   // assess the security origin of the main frame document.
   bool CanAccessMainFrame() const;
-
-  // Returns true if the WebView the plugin is in renders via the accelerated
-  // compositing path.
-  bool IsViewAccelerated();
 
   // Track, set and reset size attributes to control the size of the plugin
   // in and out of fullscreen mode.
@@ -802,7 +799,8 @@ class CONTENT_EXPORT PepperPluginInstanceImpl
   const PPP_Graphics3D* plugin_graphics_3d_interface_;
 
   // Contains the cursor if it's set by the plugin.
-  std::unique_ptr<blink::WebCursorInfo> cursor_;
+  std::unique_ptr<ui::Cursor> cursor_ =
+      std::make_unique<ui::Cursor>(ui::mojom::CursorType::kPointer);
 
   // Set to true if this plugin thinks it will always be on top. This allows us
   // to use a more optimized painting path in some cases.

@@ -16,7 +16,6 @@
 #include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
 #include "base/stl_util.h"
-#include "base/task/post_task.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "chrome/browser/sync_file_system/local/canned_syncable_file_system.h"
 #include "chrome/browser/sync_file_system/local/local_file_change_tracker.h"
@@ -37,7 +36,6 @@
 
 #define FPL FILE_PATH_LITERAL
 
-using content::BrowserThread;
 using storage::FileSystemContext;
 using storage::FileSystemURL;
 using storage::FileSystemURLSet;
@@ -70,8 +68,8 @@ class LocalFileSyncContextTest : public testing::Test {
     in_memory_env_ = leveldb_chrome::NewMemEnv("LocalFileSyncContextTest");
 
     ui_task_runner_ = base::ThreadTaskRunnerHandle::Get();
-    io_task_runner_ = base::CreateSingleThreadTaskRunner({BrowserThread::IO});
-    file_task_runner_ = base::CreateSingleThreadTaskRunner({BrowserThread::IO});
+    io_task_runner_ = content::GetIOThreadTaskRunner({});
+    file_task_runner_ = content::GetIOThreadTaskRunner({});
   }
 
   void TearDown() override { RevokeSyncableFileSystem(); }
@@ -187,8 +185,9 @@ class LocalFileSyncContextTest : public testing::Test {
     ASSERT_TRUE(io_task_runner_->RunsTasksInCurrentSequence());
     file_error_ = base::File::FILE_ERROR_FAILED;
     file_system->operation_runner()->Truncate(
-        url, 1, base::Bind(&LocalFileSyncContextTest::DidModifyFile,
-                           base::Unretained(this)));
+        url, 1,
+        base::BindOnce(&LocalFileSyncContextTest::DidModifyFile,
+                       base::Unretained(this)));
   }
 
   base::File::Error WaitUntilModifyFileIsDone() {

@@ -82,7 +82,7 @@ class CORE_EXPORT KeyframeEffect final : public AnimationEffect {
   // this returns the originating element.
   Element* target() const { return target_element_; }
   void setTarget(Element*);
-  const String& pseudoElement();
+  const String& pseudoElement() const;
   void setPseudoElement(String, ExceptionState&);
   String composite() const;
   void setComposite(String);
@@ -97,6 +97,7 @@ class CORE_EXPORT KeyframeEffect final : public AnimationEffect {
   void SetKeyframes(StringKeyframeVector keyframes);
 
   bool Affects(const PropertyHandle&) const;
+  bool HasRevert() const;
   const KeyframeEffectModelBase* Model() const { return model_.Get(); }
   KeyframeEffectModelBase* Model() { return model_.Get(); }
   void SetModel(KeyframeEffectModelBase* model) {
@@ -109,7 +110,8 @@ class CORE_EXPORT KeyframeEffect final : public AnimationEffect {
 
   CompositorAnimations::FailureReasons CheckCanStartAnimationOnCompositor(
       const PaintArtifactCompositor*,
-      double animation_playback_rate) const;
+      double animation_playback_rate,
+      PropertyHandleSet* unsupported_properties = nullptr) const;
   // Must only be called once.
   void StartAnimationOnCompositor(int group,
                                   base::Optional<double> start_time,
@@ -129,9 +131,16 @@ class CORE_EXPORT KeyframeEffect final : public AnimationEffect {
   bool HasAnimation() const;
   bool HasPlayingAnimation() const;
 
-  void Trace(blink::Visitor*) override;
+  void Trace(Visitor*) const override;
 
   bool AnimationsPreserveAxisAlignment() const;
+
+  ActiveInterpolationsMap InterpolationsForCommitStyles();
+
+  // Explicitly setting the keyframes via KeyfrfameEffect.setFrames or
+  // Animation.effect block subseuqent changes via CSS keyframe rules.
+  bool GetIgnoreCSSKeyframes() { return ignore_css_keyframes_; }
+  void SetIgnoreCSSKeyframes() { ignore_css_keyframes_ = true; }
 
  private:
   EffectModel::CompositeOperation CompositeInternal() const;
@@ -144,6 +153,7 @@ class CORE_EXPORT KeyframeEffect final : public AnimationEffect {
   void AttachTarget(Animation*);
   void DetachTarget(Animation*);
   void RefreshTarget();
+  void CountAnimatedProperties() const;
   AnimationTimeDelta CalculateTimeToEffectChange(
       bool forwards,
       base::Optional<double> inherited_time,
@@ -162,6 +172,8 @@ class CORE_EXPORT KeyframeEffect final : public AnimationEffect {
   Priority priority_;
 
   Vector<int> compositor_keyframe_model_ids_;
+
+  bool ignore_css_keyframes_;
 };
 
 template <>

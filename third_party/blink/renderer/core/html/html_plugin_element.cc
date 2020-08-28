@@ -23,6 +23,7 @@
 #include "third_party/blink/renderer/core/html/html_plugin_element.h"
 
 #include "third_party/blink/public/mojom/feature_policy/feature_policy.mojom-blink.h"
+#include "third_party/blink/public/mojom/feature_policy/policy_value.mojom-blink-forward.h"
 #include "third_party/blink/public/mojom/loader/request_context_frame_type.mojom-blink.h"
 #include "third_party/blink/public/platform/web_url_request.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_controller.h"
@@ -52,7 +53,7 @@
 #include "third_party/blink/renderer/core/page/plugin_data.h"
 #include "third_party/blink/renderer/core/page/scrolling/scrolling_coordinator.h"
 #include "third_party/blink/renderer/platform/bindings/v8_per_isolate_data.h"
-#include "third_party/blink/renderer/platform/instrumentation/histogram.h"
+#include "third_party/blink/renderer/platform/heap/heap.h"
 #include "third_party/blink/renderer/platform/instrumentation/use_counter.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_request.h"
 #include "third_party/blink/renderer/platform/network/mime/mime_type_from_url.h"
@@ -94,12 +95,22 @@ void PluginParameters::AppendNameWithValue(const String& name,
   values_.push_back(value);
 }
 
-int PluginParameters::FindStringInNames(const String& str) {
-  for (wtf_size_t i = 0; i < names_.size(); ++i) {
-    if (DeprecatedEqualIgnoringCase(names_[i], str))
-      return i;
+void PluginParameters::MapDataParamToSrc() {
+  auto* src = std::find_if(names_.begin(), names_.end(), [](auto name) {
+    return EqualIgnoringASCIICase(name, "src");
+  });
+
+  if (src != names_.end()) {
+    return;
   }
-  return -1;
+
+  auto* data = std::find_if(names_.begin(), names_.end(), [](auto name) {
+    return EqualIgnoringASCIICase(name, "data");
+  });
+
+  if (data != names_.end()) {
+    AppendNameWithValue("src", values_[data - names_.begin()]);
+  }
 }
 
 HTMLPlugInElement::HTMLPlugInElement(
@@ -117,8 +128,8 @@ HTMLPlugInElement::HTMLPlugInElement(
       should_prefer_plug_ins_for_images_(prefer_plug_ins_for_images_option ==
                                          kShouldPreferPlugInsForImages) {
   SetHasCustomStyleCallbacks();
-  if (doc.GetScheduler()) {
-    doc.GetScheduler()->RegisterStickyFeature(
+  if (auto* context = doc.GetExecutionContext()) {
+    context->GetScheduler()->RegisterStickyFeature(
         SchedulingPolicy::Feature::kContainsPlugins,
         {SchedulingPolicy::RecordMetricsForBackForwardCache()});
   }
@@ -129,7 +140,7 @@ HTMLPlugInElement::~HTMLPlugInElement() {
   DCHECK(!is_delaying_load_event_);
 }
 
-void HTMLPlugInElement::Trace(Visitor* visitor) {
+void HTMLPlugInElement::Trace(Visitor* visitor) const {
   visitor->Trace(image_loader_);
   visitor->Trace(persisted_plugin_);
   HTMLFrameOwnerElement::Trace(visitor);
@@ -149,7 +160,8 @@ void HTMLPlugInElement::SetPersistedPlugin(WebPluginContainerImpl* plugin) {
   persisted_plugin_ = plugin;
 }
 
-void HTMLPlugInElement::SetFocused(bool focused, WebFocusType focus_type) {
+void HTMLPlugInElement::SetFocused(bool focused,
+                                   mojom::blink::FocusType focus_type) {
   WebPluginContainerImpl* plugin = OwnedPlugin();
   if (plugin)
     plugin->SetFocused(focused, focus_type);
@@ -260,8 +272,7 @@ bool HTMLPlugInElement::ShouldAccelerate() const {
   return plugin && plugin->CcLayer();
 }
 
-ParsedFeaturePolicy HTMLPlugInElement::ConstructContainerPolicy(
-    Vector<String>*) const {
+ParsedFeaturePolicy HTMLPlugInElement::ConstructContainerPolicy() const {
   // Plugin elements (<object> and <embed>) are not allowed to enable the
   // fullscreen feature. Add an empty allowlist for the fullscreen feature so
   // that the nested browsing context is unable to use the API, regardless of
@@ -269,7 +280,7 @@ ParsedFeaturePolicy HTMLPlugInElement::ConstructContainerPolicy(
   // https://fullscreen.spec.whatwg.org/#model
   ParsedFeaturePolicy container_policy;
   ParsedFeaturePolicyDeclaration allowlist(
-      mojom::FeaturePolicyFeature::kFullscreen, mojom::PolicyValueType::kBool);
+      mojom::blink::FeaturePolicyFeature::kFullscreen);
   container_policy.push_back(allowlist);
   return container_policy;
 }
@@ -459,7 +470,7 @@ LayoutEmbeddedContent* HTMLPlugInElement::LayoutEmbeddedContentForJSBindings()
   // Needs to load the plugin immediatedly because this function is called
   // when JavaScript code accesses the plugin.
   // FIXME: Check if dispatching events here is safe.
-  GetDocument().UpdateStyleAndLayout();
+  GetDocument().UpdateStyleAndLayout(DocumentUpdateReason::kJavaScript);
   if (auto* view = GetDocument().View())
     view->FlushAnyPendingPostLayoutTasks();
 
@@ -470,7 +481,7 @@ bool HTMLPlugInElement::IsKeyboardFocusable() const {
   if (HTMLFrameOwnerElement::IsKeyboardFocusable())
     return true;
   return GetDocument().IsActive() && PluginEmbeddedContentView() &&
-         PluginEmbeddedContentView()->SupportsKeyboardFocus();
+         PluginEmbeddedContentView()->SupportsKeyboardFocus() && IsFocusable();
 }
 
 bool HTMLPlugInElement::HasCustomFocusLogic() const {
@@ -553,7 +564,7 @@ LayoutEmbeddedObject* HTMLPlugInElement::GetLayoutEmbeddedObject() const {
 bool HTMLPlugInElement::AllowedToLoadFrameURL(const String& url) {
   KURL complete_url = GetDocument().CompleteURL(url);
   return !(ContentFrame() && complete_url.ProtocolIsJavaScript() &&
-           !GetDocument().GetSecurityOrigin()->CanAccess(
+           !GetExecutionContext()->GetSecurityOrigin()->CanAccess(
                ContentFrame()->GetSecurityContext()->GetSecurityOrigin()));
 }
 
@@ -699,9 +710,9 @@ bool HTMLPlugInElement::AllowedToLoadObject(const KURL& url,
     return false;
 
   AtomicString declared_mime_type = FastGetAttribute(html_names::kTypeAttr);
-  if (!GetDocument().GetContentSecurityPolicy()->AllowObjectFromSource(url) ||
-      !GetDocument().GetContentSecurityPolicy()->AllowPluginTypeForDocument(
-          GetDocument(), mime_type, declared_mime_type, url)) {
+  auto* csp = GetExecutionContext()->GetContentSecurityPolicy();
+  if (!csp->AllowObjectFromSource(url) ||
+      !csp->AllowPluginType(mime_type, declared_mime_type, url)) {
     if (auto* layout_object = GetLayoutEmbeddedObject()) {
       plugin_is_available_ = false;
       layout_object->SetPluginAvailability(
@@ -713,20 +724,24 @@ bool HTMLPlugInElement::AllowedToLoadObject(const KURL& url,
   // is specified.
   return (!mime_type.IsEmpty() && url.IsEmpty()) ||
          !MixedContentChecker::ShouldBlockFetch(
-             frame, mojom::RequestContextType::OBJECT,
-             ResourceRequest::RedirectStatus::kNoRedirect, url);
+             frame, mojom::RequestContextType::OBJECT, url,
+             ResourceRequest::RedirectStatus::kNoRedirect, url,
+             /* devtools_id= */ base::nullopt, ReportingDisposition::kReport,
+             GetDocument().Loader()->GetContentSecurityNotifier());
 }
 
 bool HTMLPlugInElement::AllowedToLoadPlugin(const KURL& url,
                                             const String& mime_type) {
-  if (GetDocument().IsSandboxed(WebSandboxFlags::kPlugins)) {
-    GetDocument().AddConsoleMessage(
-        ConsoleMessage::Create(mojom::ConsoleMessageSource::kSecurity,
-                               mojom::ConsoleMessageLevel::kError,
-                               "Failed to load '" + url.ElidedString() +
-                                   "' as a plugin, because the "
-                                   "frame into which the plugin "
-                                   "is loading is sandboxed."));
+  if (GetExecutionContext()->IsSandboxed(
+          network::mojom::blink::WebSandboxFlags::kPlugins)) {
+    GetExecutionContext()->AddConsoleMessage(
+        MakeGarbageCollected<ConsoleMessage>(
+            mojom::blink::ConsoleMessageSource::kSecurity,
+            mojom::blink::ConsoleMessageLevel::kError,
+            "Failed to load '" + url.ElidedString() +
+                "' as a plugin, because the "
+                "frame into which the plugin "
+                "is loading is sandboxed."));
     return false;
   }
   return true;

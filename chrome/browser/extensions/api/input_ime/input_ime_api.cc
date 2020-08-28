@@ -8,15 +8,16 @@
 #include <utility>
 #include "base/lazy_instance.h"
 #include "base/strings/stringprintf.h"
+#include "base/strings/utf_string_conversions.h"
 #include "extensions/browser/extension_registry.h"
-#include "ui/base/ime/ime_bridge.h"
+#include "ui/base/ime/chromeos/ime_bridge.h"
 
 namespace input_ime = extensions::api::input_ime;
 namespace KeyEventHandled = extensions::api::input_ime::KeyEventHandled;
 namespace SetComposition = extensions::api::input_ime::SetComposition;
 namespace CommitText = extensions::api::input_ime::CommitText;
 namespace SendKeyEvents = extensions::api::input_ime::SendKeyEvents;
-using input_method::InputMethodEngineBase;
+using chromeos::InputMethodEngineBase;
 
 namespace {
 const char kErrorRouterNotAvailable[] = "The router is not available.";
@@ -164,7 +165,7 @@ void ImeObserver::OnCompositionBoundsChanged(
     const std::vector<gfx::Rect>& bounds) {}
 
 void ImeObserver::OnSurroundingTextChanged(const std::string& component_id,
-                                           const std::string& text,
+                                           const base::string16& text,
                                            int cursor_pos,
                                            int anchor_pos,
                                            int offset_pos) {
@@ -173,7 +174,10 @@ void ImeObserver::OnSurroundingTextChanged(const std::string& component_id,
     return;
 
   input_ime::OnSurroundingTextChanged::SurroundingInfo info;
-  info.text = text;
+  // |info.text| is encoded in UTF8 here so |info.focus| etc may not match the
+  // index in |info.text|, the javascript code on the extension side should
+  // handle it.
+  info.text = base::UTF16ToUTF8(text);
   info.focus = cursor_pos;
   info.anchor = anchor_pos;
   info.offset = offset_pos;
@@ -234,6 +238,9 @@ std::string ImeObserver::ConvertInputContextType(
     case ui::TEXT_INPUT_TYPE_PASSWORD:
       input_context_type = "password";
       break;
+    case ui::TEXT_INPUT_TYPE_NULL:
+      input_context_type = "null";
+      break;
     default:
       input_context_type = "text";
       break;
@@ -291,8 +298,8 @@ InputImeEventRouter* InputImeEventRouterFactory::GetRouter(Profile* profile) {
     // receive events. If |profile| has an off-the-record profile, attach the
     // off-the-record profile. e.g. In guest mode, the extension is running with
     // the incognito profile instead of its original profile.
-    router = new InputImeEventRouter(profile->HasOffTheRecordProfile()
-                                         ? profile->GetOffTheRecordProfile()
+    router = new InputImeEventRouter(profile->HasPrimaryOTRProfile()
+                                         ? profile->GetPrimaryOTRProfile()
                                          : profile);
     router_map_[profile] = router;
   }

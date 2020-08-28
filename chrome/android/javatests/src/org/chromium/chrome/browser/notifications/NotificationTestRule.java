@@ -4,15 +4,17 @@
 
 package org.chromium.chrome.browser.notifications;
 
+import org.hamcrest.Matchers;
 import org.junit.Assert;
 import org.junit.runner.Description;
 import org.junit.runners.model.Statement;
 
-import org.chromium.chrome.browser.settings.website.ContentSettingValues;
-import org.chromium.chrome.browser.settings.website.PermissionInfo;
+import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.test.ChromeTabbedActivityTestRule;
-import org.chromium.chrome.test.util.browser.notifications.MockNotificationManagerProxy;
-import org.chromium.chrome.test.util.browser.notifications.MockNotificationManagerProxy.NotificationEntry;
+import org.chromium.components.browser_ui.notifications.MockNotificationManagerProxy;
+import org.chromium.components.browser_ui.notifications.MockNotificationManagerProxy.NotificationEntry;
+import org.chromium.components.browser_ui.site_settings.PermissionInfo;
+import org.chromium.components.content_settings.ContentSettingValues;
 import org.chromium.content_public.browser.test.util.Criteria;
 import org.chromium.content_public.browser.test.util.CriteriaHelper;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
@@ -54,7 +56,7 @@ public class NotificationTestRule extends ChromeTabbedActivityTestRule {
             // The notification content setting does not consider the embedder origin.
             PermissionInfo notificationInfo =
                     new PermissionInfo(PermissionInfo.Type.NOTIFICATION, origin, "", false);
-            notificationInfo.setContentSetting(setting);
+            notificationInfo.setContentSetting(Profile.getLastUsedRegularProfile(), setting);
         });
 
         String permission = runJavaScriptCodeInCurrentTab("Notification.permission");
@@ -89,11 +91,9 @@ public class NotificationTestRule extends ChromeTabbedActivityTestRule {
      * called into Android to notify or cancel a notification.
      */
     public void waitForNotificationManagerMutation() {
-        CriteriaHelper.pollUiThread(new Criteria() {
-            @Override
-            public boolean isSatisfied() {
-                return mMockNotificationManager.getMutationCountAndDecrement() > 0;
-            }
+        CriteriaHelper.pollUiThread(() -> {
+            Criteria.checkThat(mMockNotificationManager.getMutationCountAndDecrement(),
+                    Matchers.greaterThan(0));
         }, MAX_TIME_TO_POLL_MS, POLLING_INTERVAL_MS);
     }
 

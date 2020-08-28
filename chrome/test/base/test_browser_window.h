@@ -177,7 +177,7 @@ class TestBrowserWindow : public BrowserWindow {
       signin_metrics::AccessPoint access_point,
       bool is_source_keyboard) override {}
 
-#if defined(OS_CHROMEOS) || defined(OS_MACOSX) || defined(OS_WIN) || \
+#if defined(OS_CHROMEOS) || defined(OS_MAC) || defined(OS_WIN) || \
     defined(OS_LINUX)
   void ShowHatsBubble(const std::string& site_id) override {}
 #endif
@@ -185,19 +185,21 @@ class TestBrowserWindow : public BrowserWindow {
   void ExecuteExtensionCommand(const extensions::Extension* extension,
                                const extensions::Command& command) override;
   ExclusiveAccessContext* GetExclusiveAccessContext() override;
-  void ShowImeWarningBubble(
-      const extensions::Extension* extension,
-      const base::Callback<void(ImeWarningBubblePermissionStatus status)>&
-          callback) override {}
   std::string GetWorkspace() const override;
   bool IsVisibleOnAllWorkspaces() const override;
   void ShowEmojiPanel() override {}
+  void ShowCaretBrowsingDialog() override {}
+  std::unique_ptr<content::EyeDropper> OpenEyeDropper(
+      content::RenderFrameHost* frame,
+      content::EyeDropperListener* listener) override;
 
   void ShowInProductHelpPromo(InProductHelpFeature iph_feature) override {}
 
   void SetNativeWindow(gfx::NativeWindow window);
 
   void SetCloseCallback(base::OnceClosure close_callback);
+
+  void CreateTabSearchBubble() override {}
 
  protected:
   void DestroyBrowser() override {}
@@ -229,7 +231,7 @@ class TestBrowserWindow : public BrowserWindow {
   };
 
   autofill::TestAutofillBubbleHandler autofill_bubble_handler_;
-  TestDownloadShelf download_shelf_;
+  TestDownloadShelf download_shelf_{nullptr};
   TestLocationBar location_bar_;
   gfx::NativeWindow native_window_ = nullptr;
 

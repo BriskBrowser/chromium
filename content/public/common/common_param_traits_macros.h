@@ -17,22 +17,16 @@
 #include "ipc/ipc_message_macros.h"
 #include "services/network/public/cpp/network_ipc_param_traits.h"
 #include "services/network/public/mojom/referrer_policy.mojom.h"
+#include "third_party/blink/public/common/page/web_drag_operation.h"
 #include "third_party/blink/public/common/security/security_style.h"
 #include "third_party/blink/public/mojom/devtools/console_message.mojom.h"
 #include "third_party/blink/public/mojom/permissions/permission_status.mojom.h"
 #include "third_party/blink/public/mojom/renderer_preferences.mojom.h"
 #include "third_party/blink/public/mojom/window_features/window_features.mojom.h"
-#include "third_party/blink/public/platform/web_drag_operation.h"
 #include "third_party/blink/public/platform/web_history_scroll_restoration_type.h"
-#include "third_party/blink/public/platform/web_point.h"
 #include "third_party/blink/public/platform/web_rect.h"
 #include "third_party/blink/public/platform/web_url_request.h"
-#include "ui/accessibility/ax_enums.mojom.h"
-#include "ui/accessibility/ax_event.h"
-#include "ui/accessibility/ax_node_data.h"
-#include "ui/accessibility/ax_relative_bounds.h"
-#include "ui/accessibility/ax_tree_update.h"
-#include "ui/base/dragdrop/drag_drop_types.h"
+#include "ui/accessibility/ax_param_traits.h"
 #include "ui/base/page_transition_types.h"
 #include "ui/base/window_open_disposition.h"
 #include "ui/gfx/ipc/geometry/gfx_param_traits.h"
@@ -81,11 +75,9 @@ IPC_ENUM_TRAITS_MIN_MAX_VALUE(
     content::AutoplayPolicy,
     content::AutoplayPolicy::kNoUserGestureRequired,
     content::AutoplayPolicy::kDocumentUserActivationRequired)
-
-IPC_STRUCT_TRAITS_BEGIN(blink::WebPoint)
-  IPC_STRUCT_TRAITS_MEMBER(x)
-  IPC_STRUCT_TRAITS_MEMBER(y)
-IPC_STRUCT_TRAITS_END()
+IPC_ENUM_TRAITS_MIN_MAX_VALUE(blink::PreferredColorScheme,
+                              blink::PreferredColorScheme::kDark,
+                              blink::PreferredColorScheme::kMaxValue)
 
 IPC_STRUCT_TRAITS_BEGIN(blink::WebRect)
   IPC_STRUCT_TRAITS_MEMBER(x)
@@ -146,9 +138,9 @@ IPC_STRUCT_TRAITS_BEGIN(content::WebPreferences)
   IPC_STRUCT_TRAITS_MEMBER(webgl_errors_to_console_enabled)
   IPC_STRUCT_TRAITS_MEMBER(hide_scrollbars)
   IPC_STRUCT_TRAITS_MEMBER(accelerated_2d_canvas_enabled)
+  IPC_STRUCT_TRAITS_MEMBER(new_canvas_2d_api_enabled)
   IPC_STRUCT_TRAITS_MEMBER(antialiased_2d_canvas_disabled)
   IPC_STRUCT_TRAITS_MEMBER(antialiased_clips_2d_canvas_enabled)
-  IPC_STRUCT_TRAITS_MEMBER(accelerated_2d_canvas_msaa_sample_count)
   IPC_STRUCT_TRAITS_MEMBER(accelerated_filters_enabled)
   IPC_STRUCT_TRAITS_MEMBER(deferred_filters_enabled)
   IPC_STRUCT_TRAITS_MEMBER(container_culling_enabled)
@@ -164,7 +156,6 @@ IPC_STRUCT_TRAITS_BEGIN(content::WebPreferences)
   IPC_STRUCT_TRAITS_MEMBER(password_echo_enabled)
   IPC_STRUCT_TRAITS_MEMBER(should_clear_document_background)
   IPC_STRUCT_TRAITS_MEMBER(touch_event_feature_detection_enabled)
-  IPC_STRUCT_TRAITS_MEMBER(touch_adjustment_enabled)
   IPC_STRUCT_TRAITS_MEMBER(pointer_events_max_touch_points)
   IPC_STRUCT_TRAITS_MEMBER(available_pointer_types)
   IPC_STRUCT_TRAITS_MEMBER(primary_pointer_type)
@@ -172,7 +163,6 @@ IPC_STRUCT_TRAITS_BEGIN(content::WebPreferences)
   IPC_STRUCT_TRAITS_MEMBER(primary_hover_type)
   IPC_STRUCT_TRAITS_MEMBER(barrel_button_for_drag_enabled)
   IPC_STRUCT_TRAITS_MEMBER(sync_xhr_in_documents_enabled)
-  IPC_STRUCT_TRAITS_MEMBER(should_respect_image_orientation)
   IPC_STRUCT_TRAITS_MEMBER(number_of_cpu_cores)
   IPC_STRUCT_TRAITS_MEMBER(editing_behavior)
   IPC_STRUCT_TRAITS_MEMBER(supports_multiple_windows)
@@ -187,17 +177,18 @@ IPC_STRUCT_TRAITS_BEGIN(content::WebPreferences)
   IPC_STRUCT_TRAITS_MEMBER(cookie_enabled)
   IPC_STRUCT_TRAITS_MEMBER(navigate_on_drag_drop)
   IPC_STRUCT_TRAITS_MEMBER(spatial_navigation_enabled)
-  IPC_STRUCT_TRAITS_MEMBER(caret_browsing_enabled)
   IPC_STRUCT_TRAITS_MEMBER(v8_cache_options)
   IPC_STRUCT_TRAITS_MEMBER(accelerated_video_decode_enabled)
   IPC_STRUCT_TRAITS_MEMBER(animation_policy)
   IPC_STRUCT_TRAITS_MEMBER(user_gesture_required_for_presentation)
+  IPC_STRUCT_TRAITS_MEMBER(text_tracks_enabled)
   IPC_STRUCT_TRAITS_MEMBER(text_track_background_color)
   IPC_STRUCT_TRAITS_MEMBER(text_track_margin_percentage)
   IPC_STRUCT_TRAITS_MEMBER(text_track_text_color)
   IPC_STRUCT_TRAITS_MEMBER(text_track_text_size)
   IPC_STRUCT_TRAITS_MEMBER(text_track_text_shadow)
   IPC_STRUCT_TRAITS_MEMBER(text_track_font_family)
+  IPC_STRUCT_TRAITS_MEMBER(text_track_font_style)
   IPC_STRUCT_TRAITS_MEMBER(text_track_font_variant)
   IPC_STRUCT_TRAITS_MEMBER(text_track_window_color)
   IPC_STRUCT_TRAITS_MEMBER(text_track_window_padding)
@@ -227,7 +218,6 @@ IPC_STRUCT_TRAITS_BEGIN(content::WebPreferences)
   IPC_STRUCT_TRAITS_MEMBER(spellcheck_enabled_by_default)
   IPC_STRUCT_TRAITS_MEMBER(video_fullscreen_orientation_lock_enabled)
   IPC_STRUCT_TRAITS_MEMBER(video_rotate_to_fullscreen_enabled)
-  IPC_STRUCT_TRAITS_MEMBER(video_fullscreen_detection_enabled)
   IPC_STRUCT_TRAITS_MEMBER(embedded_media_experience_enabled)
   IPC_STRUCT_TRAITS_MEMBER(immersive_mode_enabled)
   IPC_STRUCT_TRAITS_MEMBER(css_hex_alpha_color_enabled)
@@ -244,15 +234,17 @@ IPC_STRUCT_TRAITS_BEGIN(content::WebPreferences)
   IPC_STRUCT_TRAITS_MEMBER(media_controls_enabled)
   IPC_STRUCT_TRAITS_MEMBER(do_not_update_selection_on_mutating_selection_range)
   IPC_STRUCT_TRAITS_MEMBER(autoplay_policy)
+  IPC_STRUCT_TRAITS_MEMBER(preferred_color_scheme)
   IPC_STRUCT_TRAITS_MEMBER(low_priority_iframes_threshold)
   IPC_STRUCT_TRAITS_MEMBER(picture_in_picture_enabled)
   IPC_STRUCT_TRAITS_MEMBER(translate_service_available)
   IPC_STRUCT_TRAITS_MEMBER(network_quality_estimator_web_holdback)
-  IPC_STRUCT_TRAITS_MEMBER(lazy_load_enabled)
   IPC_STRUCT_TRAITS_MEMBER(lazy_frame_loading_distance_thresholds_px)
   IPC_STRUCT_TRAITS_MEMBER(lazy_image_loading_distance_thresholds_px)
   IPC_STRUCT_TRAITS_MEMBER(lazy_image_first_k_fully_load)
   IPC_STRUCT_TRAITS_MEMBER(allow_mixed_content_upgrades)
+  IPC_STRUCT_TRAITS_MEMBER(always_show_focus)
+  IPC_STRUCT_TRAITS_MEMBER(touch_drag_drop_enabled)
 IPC_STRUCT_TRAITS_END()
 
 IPC_STRUCT_TRAITS_BEGIN(blink::mojom::WindowFeatures)
@@ -270,41 +262,30 @@ IPC_STRUCT_TRAITS_BEGIN(blink::mojom::WindowFeatures)
   IPC_STRUCT_TRAITS_MEMBER(scrollbars_visible)
 IPC_STRUCT_TRAITS_END()
 
-IPC_ENUM_TRAITS_MAX_VALUE(ax::mojom::Event, ax::mojom::Event::kMaxValue)
-IPC_ENUM_TRAITS_MAX_VALUE(ax::mojom::Role, ax::mojom::Role::kMaxValue)
-IPC_ENUM_TRAITS_MAX_VALUE(ax::mojom::BoolAttribute,
-                          ax::mojom::BoolAttribute::kMaxValue)
-IPC_ENUM_TRAITS_MAX_VALUE(ax::mojom::FloatAttribute,
-                          ax::mojom::FloatAttribute::kMaxValue)
-IPC_ENUM_TRAITS_MAX_VALUE(ax::mojom::IntAttribute,
-                          ax::mojom::IntAttribute::kMaxValue)
-IPC_ENUM_TRAITS_MAX_VALUE(ax::mojom::IntListAttribute,
-                          ax::mojom::IntListAttribute::kMaxValue)
-IPC_ENUM_TRAITS_MAX_VALUE(ax::mojom::StringListAttribute,
-                          ax::mojom::StringListAttribute::kMaxValue)
-IPC_ENUM_TRAITS_MAX_VALUE(ax::mojom::StringAttribute,
-                          ax::mojom::StringAttribute::kMaxValue)
-IPC_ENUM_TRAITS_MAX_VALUE(ax::mojom::TextAffinity,
-                          ax::mojom::TextAffinity::kMaxValue)
-IPC_ENUM_TRAITS_MAX_VALUE(ax::mojom::EventFrom, ax::mojom::EventFrom::kMaxValue)
-
-IPC_STRUCT_TRAITS_BEGIN(ui::AXRelativeBounds)
-  IPC_STRUCT_TRAITS_MEMBER(offset_container_id)
-  IPC_STRUCT_TRAITS_MEMBER(bounds)
-  IPC_STRUCT_TRAITS_MEMBER(transform)
-IPC_STRUCT_TRAITS_END()
-
-IPC_STRUCT_TRAITS_BEGIN(ui::AXEvent)
-  IPC_STRUCT_TRAITS_MEMBER(event_type)
-  IPC_STRUCT_TRAITS_MEMBER(id)
-  IPC_STRUCT_TRAITS_MEMBER(event_from)
-  IPC_STRUCT_TRAITS_MEMBER(action_request_id)
-IPC_STRUCT_TRAITS_END()
-
 IPC_ENUM_TRAITS_MAX_VALUE(gfx::FontRenderParams::Hinting,
                           gfx::FontRenderParams::HINTING_MAX)
 IPC_ENUM_TRAITS_MAX_VALUE(gfx::FontRenderParams::SubpixelRendering,
                           gfx::FontRenderParams::SUBPIXEL_RENDERING_MAX)
+
+IPC_STRUCT_TRAITS_BEGIN(blink::UserAgentBrandVersion)
+  IPC_STRUCT_TRAITS_MEMBER(brand)
+  IPC_STRUCT_TRAITS_MEMBER(major_version)
+IPC_STRUCT_TRAITS_END()
+
+IPC_STRUCT_TRAITS_BEGIN(blink::UserAgentMetadata)
+  IPC_STRUCT_TRAITS_MEMBER(brand_version_list)
+  IPC_STRUCT_TRAITS_MEMBER(full_version)
+  IPC_STRUCT_TRAITS_MEMBER(platform)
+  IPC_STRUCT_TRAITS_MEMBER(platform_version)
+  IPC_STRUCT_TRAITS_MEMBER(architecture)
+  IPC_STRUCT_TRAITS_MEMBER(model)
+  IPC_STRUCT_TRAITS_MEMBER(mobile)
+IPC_STRUCT_TRAITS_END()
+
+IPC_STRUCT_TRAITS_BEGIN(blink::UserAgentOverride)
+  IPC_STRUCT_TRAITS_MEMBER(ua_string_override)
+  IPC_STRUCT_TRAITS_MEMBER(ua_metadata_override)
+IPC_STRUCT_TRAITS_END()
 
 IPC_STRUCT_TRAITS_BEGIN(blink::mojom::RendererPreferences)
   IPC_STRUCT_TRAITS_MEMBER(can_accept_load_drops)
@@ -332,7 +313,8 @@ IPC_STRUCT_TRAITS_BEGIN(blink::mojom::RendererPreferences)
   IPC_STRUCT_TRAITS_MEMBER(accept_languages)
   IPC_STRUCT_TRAITS_MEMBER(disable_client_blocked_error_page)
   IPC_STRUCT_TRAITS_MEMBER(plugin_fullscreen_allowed)
-#if defined(OS_LINUX)
+  IPC_STRUCT_TRAITS_MEMBER(caret_browsing_enabled)
+#if defined(OS_LINUX) || defined(OS_CHROMEOS)
   IPC_STRUCT_TRAITS_MEMBER(system_font_family_name)
 #endif
 #if defined(OS_WIN)
@@ -354,8 +336,6 @@ IPC_STRUCT_TRAITS_BEGIN(blink::mojom::RendererPreferences)
 IPC_STRUCT_TRAITS_END()
 
 IPC_ENUM_TRAITS(blink::WebDragOperation)  // Bitmask.
-IPC_ENUM_TRAITS_MAX_VALUE(ui::DragDropTypes::DragEventSource,
-                          ui::DragDropTypes::DRAG_EVENT_SOURCE_LAST)
 IPC_ENUM_TRAITS_MAX_VALUE(content::DropData::Kind,
                           content::DropData::Kind::LAST)
 
@@ -365,7 +345,6 @@ IPC_STRUCT_TRAITS_BEGIN(ui::FileInfo)
 IPC_STRUCT_TRAITS_END()
 
 IPC_STRUCT_TRAITS_BEGIN(content::DropData)
-  IPC_STRUCT_TRAITS_MEMBER(key_modifiers)
   IPC_STRUCT_TRAITS_MEMBER(url)
   IPC_STRUCT_TRAITS_MEMBER(url_title)
   IPC_STRUCT_TRAITS_MEMBER(download_metadata)

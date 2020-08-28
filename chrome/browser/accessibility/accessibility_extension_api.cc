@@ -33,7 +33,6 @@
 #include "extensions/common/error_utils.h"
 #include "extensions/common/image_util.h"
 #include "extensions/common/manifest_handlers/background_info.h"
-#include "services/service_manager/public/cpp/connector.h"
 #include "ui/accessibility/accessibility_switches.h"
 #include "ui/events/base_event_utils.h"
 #include "ui/events/keycodes/keyboard_codes.h"
@@ -46,6 +45,8 @@
 #include "ash/public/cpp/window_tree_host_lookup.h"
 #include "chrome/browser/chromeos/accessibility/accessibility_manager.h"
 #include "chrome/browser/chromeos/arc/accessibility/arc_accessibility_helper_bridge.h"
+#include "chrome/browser/chromeos/profiles/profile_helper.h"
+#include "chrome/browser/ui/webui/settings/chromeos/constants/routes_util.h"
 #include "ui/aura/window_tree_host.h"
 #include "ui/base/ui_base_features.h"
 #include "ui/display/display.h"
@@ -57,11 +58,6 @@ namespace accessibility_private = extensions::api::accessibility_private;
 namespace {
 
 const char kErrorNotSupported[] = "This API is not supported on this platform.";
-
-#if defined(OS_CHROMEOS)
-constexpr int kBackButtonWidth = 45;
-constexpr int kBackButtonHeight = 45;
-#endif
 
 }  // namespace
 
@@ -86,8 +82,11 @@ AccessibilityPrivateOpenSettingsSubpageFunction::Run() {
   EXTENSION_FUNCTION_VALIDATE(params);
 
 #if defined(OS_CHROMEOS)
+  // TODO(chrome-a11y-core): we can't open a settings page when you're on the
+  // signin profile, but maybe we should notify the user and explain why?
   Profile* profile = chromeos::AccessibilityManager::Get()->profile();
-  if (chrome::IsOSSettingsSubPage(params->subpage)) {
+  if (!chromeos::ProfileHelper::IsSigninProfile(profile) &&
+      chromeos::settings::IsOSSettingsSubPage(params->subpage)) {
     chrome::SettingsWindowManager::GetInstance()->ShowOSSettings(
         profile, params->subpage);
   }
@@ -127,12 +126,11 @@ AccessibilityPrivateSetFocusRingsFunction::Run() {
       return RespondNow(Error("Could not parse hex color"));
     }
 
-    if (focus_ring_info.secondary_color) {
-      if (!extensions::image_util::ParseHexColorString(
-              *(focus_ring_info.secondary_color),
-              &(focus_ring->secondary_color))) {
-        return RespondNow(Error("Could not parse secondary hex color"));
-      }
+    if (focus_ring_info.secondary_color &&
+        !extensions::image_util::ParseHexColorString(
+            *(focus_ring_info.secondary_color),
+            &(focus_ring->secondary_color))) {
+      return RespondNow(Error("Could not parse secondary hex color"));
     }
 
     switch (focus_ring_info.type) {
@@ -147,6 +145,13 @@ AccessibilityPrivateSetFocusRingsFunction::Run() {
         break;
       default:
         NOTREACHED();
+    }
+
+    if (focus_ring_info.background_color &&
+        !extensions::image_util::ParseHexColorString(
+            *(focus_ring_info.background_color),
+            &(focus_ring->background_color))) {
+      return RespondNow(Error("Could not parse background hex color"));
     }
 
     // Update the touch exploration controller so that synthesized touch events
@@ -307,7 +312,7 @@ AccessibilityPrivateSendSyntheticMouseEventFunction::Run() {
   EXTENSION_FUNCTION_VALIDATE(params);
   accessibility_private::SyntheticMouseEvent* mouse_data = &params->mouse_event;
 
-  ui::EventType type;
+  ui::EventType type = ui::ET_UNKNOWN;
   switch (mouse_data->type) {
     case accessibility_private::SYNTHETIC_MOUSE_EVENT_TYPE_PRESS:
       type = ui::ET_MOUSE_PRESSED;
@@ -331,7 +336,14 @@ AccessibilityPrivateSendSyntheticMouseEventFunction::Run() {
       NOTREACHED();
   }
 
-  int flags = ui::EF_LEFT_MOUSE_BUTTON;
+  int flags = 0;
+  if (type != ui::ET_MOUSE_MOVED)
+    flags |= ui::EF_LEFT_MOUSE_BUTTON;
+
+  int changed_button_flags = flags;
+
+  if (mouse_data->touch_accessibility && *(mouse_data->touch_accessibility))
+    flags |= ui::EF_TOUCH_ACCESSIBILITY;
 
   // Locations are assumed to be display relative (and in DIPs).
   // TODO(crbug/893752) Choose correct display
@@ -340,7 +352,7 @@ AccessibilityPrivateSendSyntheticMouseEventFunction::Run() {
   std::unique_ptr<ui::MouseEvent> synthetic_mouse_event =
       std::make_unique<ui::MouseEvent>(type, location, location,
                                        ui::EventTimeForNow(), flags,
-                                       flags /* changed_button_flags */);
+                                       changed_button_flags);
 
   auto* host = ash::GetWindowTreeHostForDisplay(display.id());
   DCHECK(host);
@@ -414,56 +426,6 @@ AccessibilityPrivateToggleDictationFunction::Run() {
 }
 
 ExtensionFunction::ResponseAction
-AccessibilityPrivateSetSwitchAccessMenuStateFunction::Run() {
-  std::unique_ptr<accessibility_private::SetSwitchAccessMenuState::Params>
-      params = accessibility_private::SetSwitchAccessMenuState::Params::Create(
-          *args_);
-  EXTENSION_FUNCTION_VALIDATE(params);
-
-  chromeos::AccessibilityManager* manager =
-      chromeos::AccessibilityManager::Get();
-
-  if (!params->show) {
-    manager->HideSwitchAccessMenu();
-    return RespondNow(NoArguments());
-  }
-
-  accessibility_private::ScreenRect elem = std::move(params->element_bounds);
-  gfx::Rect element_bounds(elem.left, elem.top, elem.width, elem.height);
-  int item_count = params->item_count;
-
-  // If we have an item count of 0, the panel is showing only the back button.
-  if (item_count == 0) {
-    manager->ShowSwitchAccessMenu(element_bounds, kBackButtonWidth,
-                                  kBackButtonHeight,
-                                  true /* back_button_only */);
-    return RespondNow(NoArguments());
-  }
-
-  int padding = 40;
-  int item_width = 88;
-
-  int item_height;
-  if (::switches::IsExperimentalAccessibilitySwitchAccessTextEnabled()) {
-    item_height = 85;
-  } else {
-    item_height = 60;
-  }
-  // TODO(anastasi): This should be a preference that the user can change.
-  int max_cols = 3;
-
-  // The number of rows is the number of items divided by the max columns,
-  // rounded down.
-  int rows = 1 + (item_count - 1) / max_cols;
-  int cols = rows == 1 ? item_count : max_cols;
-  int width = padding + (item_width * cols);
-  int height = padding + (item_height * rows);
-
-  manager->ShowSwitchAccessMenu(element_bounds, width, height);
-  return RespondNow(NoArguments());
-}
-
-ExtensionFunction::ResponseAction
 AccessibilityPrivateForwardKeyEventsToSwitchAccessFunction::Run() {
   std::unique_ptr<accessibility_private::ForwardKeyEventsToSwitchAccess::Params>
       params =
@@ -471,9 +433,54 @@ AccessibilityPrivateForwardKeyEventsToSwitchAccessFunction::Run() {
               *args_);
   EXTENSION_FUNCTION_VALIDATE(params);
 
-  ash::AccessibilityController::Get()->ForwardKeyEventsToSwitchAccess(
-      params->should_forward);
+  return RespondNow(Error("Forwarding key events is no longer supported."));
+}
 
+ExtensionFunction::ResponseAction
+AccessibilityPrivateUpdateSwitchAccessBubbleFunction::Run() {
+  std::unique_ptr<accessibility_private::UpdateSwitchAccessBubble::Params>
+      params = accessibility_private::UpdateSwitchAccessBubble::Params::Create(
+          *args_);
+  EXTENSION_FUNCTION_VALIDATE(params);
+
+  if (!params->show) {
+    if (params->bubble ==
+        accessibility_private::SWITCH_ACCESS_BUBBLE_BACKBUTTON)
+      ash::AccessibilityController::Get()->HideSwitchAccessBackButton();
+    else if (params->bubble == accessibility_private::SWITCH_ACCESS_BUBBLE_MENU)
+      ash::AccessibilityController::Get()->HideSwitchAccessMenu();
+    return RespondNow(NoArguments());
+  }
+
+  if (!params->anchor)
+    return RespondNow(Error("An anchor rect is required to show a bubble."));
+
+  gfx::Rect anchor(params->anchor->left, params->anchor->top,
+                   params->anchor->width, params->anchor->height);
+
+  if (params->bubble ==
+      accessibility_private::SWITCH_ACCESS_BUBBLE_BACKBUTTON) {
+    ash::AccessibilityController::Get()->ShowSwitchAccessBackButton(anchor);
+    return RespondNow(NoArguments());
+  }
+
+  if (!params->actions)
+    return RespondNow(Error("The menu cannot be shown without actions."));
+
+  std::vector<std::string> actions_to_show;
+  for (accessibility_private::SwitchAccessMenuAction extension_action :
+       *(params->actions)) {
+    std::string action = accessibility_private::ToString(extension_action);
+    // Check that this action is not already in our actions list.
+    if (std::find(actions_to_show.begin(), actions_to_show.end(), action) !=
+        actions_to_show.end()) {
+      continue;
+    }
+    actions_to_show.push_back(action);
+  }
+
+  ash::AccessibilityController::Get()->ShowSwitchAccessMenu(anchor,
+                                                            actions_to_show);
   return RespondNow(NoArguments());
 }
 

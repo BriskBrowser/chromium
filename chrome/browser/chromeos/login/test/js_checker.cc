@@ -35,6 +35,28 @@ std::string ElementHasClassCondition(
   return js;
 }
 
+std::string ElementHasAttributeCondition(
+    const std::string& attribute,
+    std::initializer_list<base::StringPiece> element_ids) {
+  std::string js = "$Element.hasAttribute('$Attribute')";
+  base::ReplaceSubstringsAfterOffset(&js, 0, "$Attribute", attribute);
+  base::ReplaceSubstringsAfterOffset(
+      &js, 0, "$Element", chromeos::test::GetOobeElementPath(element_ids));
+  return js;
+}
+
+std::string DescribePath(std::initializer_list<base::StringPiece> element_ids) {
+  CHECK(element_ids.size() > 0);
+  std::string result;
+  std::initializer_list<base::StringPiece>::const_iterator it =
+      element_ids.begin();
+  result.append("//").append(std::string(*it));
+  for (it++; it < element_ids.end(); it++) {
+    result.append("/").append(std::string(*it));
+  }
+  return result;
+}
+
 }  // namespace
 
 namespace chromeos {
@@ -80,6 +102,24 @@ std::string JSChecker::GetString(const std::string& expression) {
   return result;
 }
 
+bool JSChecker::GetAttributeBool(
+    const std::string& attribute,
+    std::initializer_list<base::StringPiece> element_ids) {
+  return GetBool(GetAttributeExpression(attribute, element_ids));
+}
+
+int JSChecker::GetAttributeInt(
+    const std::string& attribute,
+    std::initializer_list<base::StringPiece> element_ids) {
+  return GetInt(GetAttributeExpression(attribute, element_ids));
+}
+
+std::string JSChecker::GetAttributeString(
+    const std::string& attribute,
+    std::initializer_list<base::StringPiece> element_ids) {
+  return GetString(GetAttributeExpression(attribute, element_ids));
+}
+
 void JSChecker::ExpectTrue(const std::string& expression) {
   EXPECT_TRUE(GetBool(expression)) << expression;
 }
@@ -114,11 +154,79 @@ void JSChecker::ExpectNE(const std::string& expression, bool result) {
   EXPECT_NE(GetBool(expression), result) << expression;
 }
 
+void JSChecker::ExpectAttributeEQ(
+    const std::string& attribute,
+    std::initializer_list<base::StringPiece> element_ids,
+    int result) {
+  ExpectEQ(GetAttributeExpression(attribute, element_ids), result);
+}
+
+void JSChecker::ExpectAttributeNE(
+    const std::string& attribute,
+    std::initializer_list<base::StringPiece> element_ids,
+    int result) {
+  ExpectNE(GetAttributeExpression(attribute, element_ids), result);
+}
+void JSChecker::ExpectAttributeEQ(
+    const std::string& attribute,
+    std::initializer_list<base::StringPiece> element_ids,
+    const std::string& result) {
+  ExpectEQ(GetAttributeExpression(attribute, element_ids), result);
+}
+
+void JSChecker::ExpectAttributeNE(
+    const std::string& attribute,
+    std::initializer_list<base::StringPiece> element_ids,
+    const std::string& result) {
+  ExpectNE(GetAttributeExpression(attribute, element_ids), result);
+}
+
+void JSChecker::ExpectAttributeEQ(
+    const std::string& attribute,
+    std::initializer_list<base::StringPiece> element_ids,
+    bool result) {
+  ExpectEQ(GetAttributeExpression(attribute, element_ids), result);
+}
+
+void JSChecker::ExpectAttributeNE(
+    const std::string& attribute,
+    std::initializer_list<base::StringPiece> element_ids,
+    bool result) {
+  ExpectNE(GetAttributeExpression(attribute, element_ids), result);
+}
+
 std::unique_ptr<TestConditionWaiter> JSChecker::CreateWaiter(
     const std::string& js_condition) {
   TestPredicateWaiter::PredicateCheck predicate = base::BindRepeating(
       &CheckOobeCondition, base::Unretained(web_contents_), js_condition);
   return std::make_unique<TestPredicateWaiter>(predicate);
+}
+
+std::unique_ptr<TestConditionWaiter> JSChecker::CreateWaiterWithDescription(
+    const std::string& js_condition,
+    const std::string& description) {
+  TestPredicateWaiter::PredicateCheck predicate = base::BindRepeating(
+      &CheckOobeCondition, base::Unretained(web_contents_), js_condition);
+  auto result = std::make_unique<TestPredicateWaiter>(predicate);
+  result->set_description(description);
+  return result;
+}
+
+std::unique_ptr<TestConditionWaiter> JSChecker::CreateAttributePresenceWaiter(
+    const std::string& attribute,
+    bool presence,
+    std::initializer_list<base::StringPiece> element_ids) {
+  std::string condition = ElementHasAttributeCondition(attribute, element_ids);
+  if (!presence) {
+    condition = "!(" + condition + ")";
+  }
+  std::string description;
+  description.append("Attribute ")
+      .append(attribute)
+      .append(presence ? " present " : " absent ")
+      .append("for ")
+      .append(DescribePath(element_ids));
+  return CreateWaiterWithDescription(condition, description);
 }
 
 std::unique_ptr<TestConditionWaiter> JSChecker::CreateVisibilityWaiter(
@@ -134,7 +242,9 @@ std::unique_ptr<TestConditionWaiter> JSChecker::CreateVisibilityWaiter(
   if (visibility) {
     js_condition = "!(" + js_condition + ")";
   }
-  return CreateWaiter(js_condition);
+  std::string description;
+  description.append(element).append(visibility ? " visible" : " hidden");
+  return CreateWaiterWithDescription(js_condition, description);
 }
 
 std::unique_ptr<TestConditionWaiter> JSChecker::CreateDisplayedWaiter(
@@ -146,7 +256,10 @@ std::unique_ptr<TestConditionWaiter> JSChecker::CreateDisplayedWaiter(
   if (!displayed) {
     js_condition = "!(" + js_condition + ")";
   }
-  return CreateWaiter(js_condition);
+  std::string description;
+  description.append(DescribePath(element_ids))
+      .append(displayed ? " displayed" : " not displayed");
+  return CreateWaiterWithDescription(js_condition, description);
 }
 
 std::unique_ptr<TestConditionWaiter> JSChecker::CreateEnabledWaiter(
@@ -156,7 +269,10 @@ std::unique_ptr<TestConditionWaiter> JSChecker::CreateEnabledWaiter(
   if (enabled) {
     js_condition = "!(" + js_condition + ")";
   }
-  return CreateWaiter(js_condition);
+  std::string description;
+  description.append(DescribePath(element_ids))
+      .append(enabled ? " enabled" : " disabled");
+  return CreateWaiterWithDescription(js_condition, description);
 }
 
 std::unique_ptr<TestConditionWaiter> JSChecker::CreateHasClassWaiter(
@@ -167,7 +283,13 @@ std::unique_ptr<TestConditionWaiter> JSChecker::CreateHasClassWaiter(
   if (!has_class) {
     js_condition = "!(" + js_condition + ")";
   }
-  return CreateWaiter(js_condition);
+  std::string description;
+  description.append(DescribePath(element_ids))
+      .append(" has")
+      .append(has_class ? "" : " no")
+      .append(" css class ")
+      .append(css_class);
+  return CreateWaiterWithDescription(js_condition, description);
 }
 
 void JSChecker::GetBoolImpl(const std::string& expression, bool* result) {
@@ -221,12 +343,22 @@ void JSChecker::ExpectPathDisplayed(
 
 void JSChecker::ExpectDisabledPath(
     std::initializer_list<base::StringPiece> element_ids) {
-  ExpectTrue(GetOobeElementPath(element_ids) + ".disabled");
+  ExpectAttributeEQ("disabled", element_ids, true);
 }
 
 void JSChecker::ExpectEnabledPath(
     std::initializer_list<base::StringPiece> element_ids) {
-  ExpectFalse(GetOobeElementPath(element_ids) + ".disabled");
+  ExpectAttributeEQ("disabled", element_ids, false);
+}
+
+void JSChecker::ExpectInvalidPath(
+    std::initializer_list<base::StringPiece> element_ids) {
+  ExpectAttributeEQ("invalid", element_ids, true);
+}
+
+void JSChecker::ExpectValidPath(
+    std::initializer_list<base::StringPiece> element_ids) {
+  ExpectAttributeEQ("invalid", element_ids, false);
 }
 
 void JSChecker::ExpectHasClass(
@@ -234,10 +366,43 @@ void JSChecker::ExpectHasClass(
     std::initializer_list<base::StringPiece> element_ids) {
   ExpectTrue(ElementHasClassCondition(css_class, element_ids));
 }
+
 void JSChecker::ExpectHasNoClass(
     const std::string& css_class,
     std::initializer_list<base::StringPiece> element_ids) {
   ExpectFalse(ElementHasClassCondition(css_class, element_ids));
+}
+
+void JSChecker::ExpectHasAttribute(
+    const std::string& attribute,
+    std::initializer_list<base::StringPiece> element_ids) {
+  ExpectTrue(ElementHasAttributeCondition(attribute, element_ids));
+}
+
+void JSChecker::ExpectHasNoAttribute(
+    const std::string& attribute,
+    std::initializer_list<base::StringPiece> element_ids) {
+  ExpectFalse(ElementHasAttributeCondition(attribute, element_ids));
+}
+
+void JSChecker::ExpectElementText(
+    const std::string& content,
+    std::initializer_list<base::StringPiece> element_ids) {
+  ExpectAttributeEQ("textContent.trim()", element_ids, content);
+}
+
+void JSChecker::ExpectElementContainsText(
+    const std::string& content,
+    std::initializer_list<base::StringPiece> element_ids) {
+  const std::string message =
+      GetAttributeString("textContent.trim()", element_ids);
+  EXPECT_TRUE(std::string::npos != message.find(content));
+}
+
+void JSChecker::ExpectElementValue(
+    const std::string& value,
+    std::initializer_list<base::StringPiece> element_ids) {
+  ExpectAttributeEQ("value", element_ids, value);
 }
 
 void JSChecker::ClickOnPath(
@@ -270,7 +435,8 @@ void JSChecker::TapLinkOnPath(
     std::initializer_list<base::StringPiece> element_ids) {
   ExpectVisiblePath(element_ids);
   // Make sure this method is used only on <a> html elements.
-  ExpectEQ(GetOobeElementPath(element_ids) + ".tagName", std::string("A"));
+  ExpectAttributeEQ("tagName", element_ids, std::string("A"));
+
   Evaluate(GetOobeElementPath(element_ids) + ".click()");
 }
 
@@ -354,11 +520,21 @@ std::string GetOobeElementPath(
   return result;
 }
 
+std::string GetAttributeExpression(
+    const std::string& attribute,
+    std::initializer_list<base::StringPiece> element_ids) {
+  std::string result = GetOobeElementPath(element_ids);
+  result.append(".");
+  result.append(attribute);
+  return result;
+}
+
 std::unique_ptr<TestConditionWaiter> CreateOobeScreenWaiter(
     const std::string& oobe_screen_id) {
   std::string js = "Oobe.getInstance().currentScreen.id=='$ScreenId'";
   base::ReplaceSubstringsAfterOffset(&js, 0, "$ScreenId", oobe_screen_id);
-  return test::OobeJS().CreateWaiter(js);
+  std::string description = "OOBE Screen is " + oobe_screen_id;
+  return test::OobeJS().CreateWaiterWithDescription(js, description);
 }
 
 }  // namespace test

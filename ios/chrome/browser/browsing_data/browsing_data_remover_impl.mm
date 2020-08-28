@@ -29,10 +29,11 @@
 #include "components/history/core/browser/history_service.h"
 #include "components/keyed_service/core/service_access_type.h"
 #include "components/language/core/browser/url_language_histogram.h"
-#include "components/omnibox/browser/omnibox_pref_names.h"
+#include "components/omnibox/browser/omnibox_prefs.h"
 #include "components/open_from_clipboard/clipboard_recent_content.h"
 #include "components/password_manager/core/browser/password_store.h"
 #include "components/prefs/pref_service.h"
+#include "components/safe_browsing/core/features.h"
 #include "components/search_engines/template_url_service.h"
 #include "components/sessions/core/tab_restore_service.h"
 #include "components/signin/ios/browser/account_consistency_service.h"
@@ -52,11 +53,13 @@
 #include "ios/chrome/browser/language/url_language_histogram_factory.h"
 #include "ios/chrome/browser/passwords/ios_chrome_password_store_factory.h"
 #include "ios/chrome/browser/reading_list/reading_list_remover_helper.h"
+#import "ios/chrome/browser/safe_browsing/safe_browsing_service.h"
 #include "ios/chrome/browser/search_engines/template_url_service_factory.h"
 #include "ios/chrome/browser/sessions/ios_chrome_tab_restore_service_factory.h"
 #import "ios/chrome/browser/sessions/session_service_ios.h"
 #include "ios/chrome/browser/signin/account_consistency_service_factory.h"
 #include "ios/chrome/browser/snapshots/snapshots_util.h"
+#import "ios/chrome/browser/web/font_size_tab_helper.h"
 #include "ios/chrome/browser/webdata_services/web_data_service_factory.h"
 #include "ios/net/http_cache_helper.h"
 #import "ios/web/common/web_view_creation_util.h"
@@ -152,7 +155,7 @@ BrowsingDataRemoverImpl::RemovalTask::RemovalTask(
 BrowsingDataRemoverImpl::RemovalTask::~RemovalTask() = default;
 
 BrowsingDataRemoverImpl::BrowsingDataRemoverImpl(
-    ios::ChromeBrowserState* browser_state,
+    ChromeBrowserState* browser_state,
     SessionServiceIOS* session_service)
     : browser_state_(browser_state),
       session_service_(session_service),
@@ -293,14 +296,24 @@ void BrowsingDataRemoverImpl::RemoveImpl(base::Time delete_begin,
 
   if (IsRemoveDataMaskSet(mask, BrowsingDataRemoveMask::REMOVE_COOKIES)) {
     base::RecordAction(base::UserMetricsAction("ClearBrowsingData_Cookies"));
+    net::CookieDeletionInfo::TimeRange deletion_time_range =
+        net::CookieDeletionInfo::TimeRange(delete_begin, delete_end);
     base::PostTask(
         FROM_HERE, task_traits,
         base::BindOnce(
-            &ClearCookies, context_getter_,
-            net::CookieDeletionInfo::TimeRange(delete_begin, delete_end),
+            &ClearCookies, context_getter_, deletion_time_range,
             base::BindOnce(base::IgnoreResult(&base::TaskRunner::PostTask),
                            current_task_runner, FROM_HERE,
                            CreatePendingTaskCompletionClosure())));
+    if (base::FeatureList::IsEnabled(
+            safe_browsing::kSafeBrowsingAvailableOnIOS) &&
+        !browser_state_->IsOffTheRecord()) {
+      GetApplicationContext()->GetSafeBrowsingService()->ClearCookies(
+          deletion_time_range,
+          base::BindOnce(base::IgnoreResult(&base::TaskRunner::PostTask),
+                         current_task_runner, FROM_HERE,
+                         CreatePendingTaskCompletionClosure()));
+    }
   }
 
   // There is no need to clean the remaining types of data for off-the-record
@@ -513,6 +526,11 @@ void BrowsingDataRemoverImpl::RemoveImpl(base::Time delete_begin,
     browser_state_->GetPrefs()->ClearPref(prefs::kGoogleServicesLastUsername);
   }
 
+  // Remove stored zoom levels.
+  if (IsRemoveDataMaskSet(mask, BrowsingDataRemoveMask::REMOVE_SITE_DATA)) {
+    FontSizeTabHelper::ClearUserZoomPrefs(browser_state_->GetPrefs());
+  }
+
   // Always wipe accumulated network related data (TransportSecurityState and
   // HttpServerPropertiesManager data).
   browser_state_->ClearNetworkingHistorySince(
@@ -539,118 +557,47 @@ void BrowsingDataRemoverImpl::RemoveImpl(base::Time delete_begin,
       MAX_CHOICE_VALUE);
 }
 
+// Removes directories for sessions with |SessionIDs|
+void BrowsingDataRemoverImpl::RemoveSessionsData(
+    NSArray<NSString*>* session_ids) {
+  [[SessionServiceIOS sharedService]
+                 deleteSessions:session_ids
+      fromBrowserStateDirectory:base::SysUTF8ToNSString(
+                                    browser_state_->GetStatePath()
+                                        .AsUTF8Unsafe())];
+}
+
 // TODO(crbug.com/619783): removing data from WkWebsiteDataStore should be
 // implemented by //ios/web. Once this is available remove this and use the
 // new API.
 void BrowsingDataRemoverImpl::RemoveDataFromWKWebsiteDataStore(
     base::Time delete_begin,
     BrowsingDataRemoveMask mask) {
-  if (base::FeatureList::IsEnabled(kWebClearBrowsingData)) {
-    web::ClearBrowsingDataMask types =
-        web::ClearBrowsingDataMask::kRemoveNothing;
-    if (IsRemoveDataMaskSet(mask, BrowsingDataRemoveMask::REMOVE_APPCACHE)) {
-      types |= web::ClearBrowsingDataMask::kRemoveAppCache;
-    }
-    if (IsRemoveDataMaskSet(mask, BrowsingDataRemoveMask::REMOVE_COOKIES)) {
-      types |= web::ClearBrowsingDataMask::kRemoveCookies;
-    }
-    if (IsRemoveDataMaskSet(mask, BrowsingDataRemoveMask::REMOVE_INDEXEDDB)) {
-      types |= web::ClearBrowsingDataMask::kRemoveIndexedDB;
-    }
-    if (IsRemoveDataMaskSet(mask,
-                            BrowsingDataRemoveMask::REMOVE_LOCAL_STORAGE)) {
-      types |= web::ClearBrowsingDataMask::kRemoveLocalStorage;
-    }
-    if (IsRemoveDataMaskSet(mask, BrowsingDataRemoveMask::REMOVE_WEBSQL)) {
-      types |= web::ClearBrowsingDataMask::kRemoveWebSQL;
-    }
-    if (IsRemoveDataMaskSet(mask,
-                            BrowsingDataRemoveMask::REMOVE_CACHE_STORAGE)) {
-      types |= web::ClearBrowsingDataMask::kRemoveCacheStorage;
-    }
-    if (IsRemoveDataMaskSet(mask,
-                            BrowsingDataRemoveMask::REMOVE_VISITED_LINKS)) {
-      types |= web::ClearBrowsingDataMask::kRemoveVisitedLinks;
-    }
-
-    web::ClearBrowsingData(browser_state_, types, delete_begin,
-                           CreatePendingTaskCompletionClosure());
-    return;
-  }
-
-  // Converts browsing data types from BrowsingDataRemoveMask to
-  // WKWebsiteDataStore strings.
-  NSMutableSet* data_types_to_remove = [[NSMutableSet alloc] init];
-
-  if (IsRemoveDataMaskSet(mask, BrowsingDataRemoveMask::REMOVE_CACHE_STORAGE)) {
-    [data_types_to_remove addObject:WKWebsiteDataTypeDiskCache];
-    [data_types_to_remove addObject:WKWebsiteDataTypeMemoryCache];
-  }
+  web::ClearBrowsingDataMask types = web::ClearBrowsingDataMask::kRemoveNothing;
   if (IsRemoveDataMaskSet(mask, BrowsingDataRemoveMask::REMOVE_APPCACHE)) {
-    [data_types_to_remove
-        addObject:WKWebsiteDataTypeOfflineWebApplicationCache];
+    types |= web::ClearBrowsingDataMask::kRemoveAppCache;
   }
-  if (IsRemoveDataMaskSet(mask, BrowsingDataRemoveMask::REMOVE_LOCAL_STORAGE)) {
-    [data_types_to_remove addObject:WKWebsiteDataTypeSessionStorage];
-    [data_types_to_remove addObject:WKWebsiteDataTypeLocalStorage];
-  }
-  if (IsRemoveDataMaskSet(mask, BrowsingDataRemoveMask::REMOVE_WEBSQL)) {
-    [data_types_to_remove addObject:WKWebsiteDataTypeWebSQLDatabases];
+  if (IsRemoveDataMaskSet(mask, BrowsingDataRemoveMask::REMOVE_COOKIES)) {
+    types |= web::ClearBrowsingDataMask::kRemoveCookies;
   }
   if (IsRemoveDataMaskSet(mask, BrowsingDataRemoveMask::REMOVE_INDEXEDDB)) {
-    [data_types_to_remove addObject:WKWebsiteDataTypeIndexedDBDatabases];
+    types |= web::ClearBrowsingDataMask::kRemoveIndexedDB;
   }
-  if (IsRemoveDataMaskSet(mask, BrowsingDataRemoveMask::REMOVE_COOKIES)) {
-    [data_types_to_remove addObject:WKWebsiteDataTypeCookies];
+  if (IsRemoveDataMaskSet(mask, BrowsingDataRemoveMask::REMOVE_LOCAL_STORAGE)) {
+    types |= web::ClearBrowsingDataMask::kRemoveLocalStorage;
   }
-
-  if (![data_types_to_remove count]) {
-    return;
+  if (IsRemoveDataMaskSet(mask, BrowsingDataRemoveMask::REMOVE_WEBSQL)) {
+    types |= web::ClearBrowsingDataMask::kRemoveWebSQL;
   }
-
-  base::WeakPtr<BrowsingDataRemoverImpl> weak_ptr = GetWeakPtr();
-  __block base::OnceClosure closure = CreatePendingTaskCompletionClosure();
-  ProceduralBlock completion_block = ^{
-    if (BrowsingDataRemoverImpl* strong_ptr = weak_ptr.get())
-      strong_ptr->dummy_web_view_ = nil;
-    std::move(closure).Run();
-  };
-
+  if (IsRemoveDataMaskSet(mask, BrowsingDataRemoveMask::REMOVE_CACHE_STORAGE)) {
+    types |= web::ClearBrowsingDataMask::kRemoveCacheStorage;
+  }
   if (IsRemoveDataMaskSet(mask, BrowsingDataRemoveMask::REMOVE_VISITED_LINKS)) {
-    ProceduralBlock previous_completion_block = completion_block;
-
-    // TODO(crbug.com/557963): Purging the WKProcessPool is a workaround for
-    // the fact that there is no public API to clear visited links in
-    // WKWebView. Remove this workaround if/when that API is made public.
-    // Note: Purging the WKProcessPool for clearing visisted links does have
-    // the side-effect of also losing the in-memory cookies of WKWebView but
-    // it is not a problem in practice since there is no UI to only have
-    // visited links be removed but not cookies.
-    completion_block = ^{
-      if (BrowsingDataRemoverImpl* strong_ptr = weak_ptr.get()) {
-        web::WKWebViewConfigurationProvider::FromBrowserState(
-            strong_ptr->browser_state_)
-            .Purge();
-      }
-      previous_completion_block();
-    };
+    types |= web::ClearBrowsingDataMask::kRemoveVisitedLinks;
   }
 
-  // TODO(crbug.com/661630): |dummy_web_view_| is created to allow
-  // the -[WKWebsiteDataStore removeDataOfTypes:] API to access the cookiestore
-  // and clear cookies. This is a workaround for
-  // https://bugs.webkit.org/show_bug.cgi?id=149078. Remove this
-  // workaround when it's not needed anymore.
-  if (IsRemoveDataMaskSet(mask, BrowsingDataRemoveMask::REMOVE_COOKIES)) {
-    if (!dummy_web_view_)
-      dummy_web_view_ = [[WKWebView alloc] initWithFrame:CGRectZero];
-  }
-
-  NSDate* delete_begin_date =
-      [NSDate dateWithTimeIntervalSince1970:delete_begin.ToDoubleT()];
-  [[WKWebsiteDataStore defaultDataStore] removeDataOfTypes:data_types_to_remove
-                                             modifiedSince:delete_begin_date
-                                         completionHandler:completion_block];
+  web::ClearBrowsingData(browser_state_, types, delete_begin,
+                         CreatePendingTaskCompletionClosure());
 }
 
 void BrowsingDataRemoverImpl::OnKeywordsLoaded(base::Time delete_begin,
@@ -694,7 +641,7 @@ void BrowsingDataRemoverImpl::NotifyRemovalComplete() {
             "History.ClearBrowsingData.Duration.FullDeletion", delta);
       } else {
         UMA_HISTOGRAM_MEDIUM_TIMES(
-            "History.ClearBrowsingData.Duration.PartialDeletion", delta);
+            "History.ClearBrowsingData.Duration.TimeRangeDeletion", delta);
       }
     }
     removal_queue_.pop();

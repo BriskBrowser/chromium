@@ -9,9 +9,9 @@
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/public/common/browser_interface_broker_proxy.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_file_property_bag.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_share_data.h"
 #include "third_party/blink/renderer/core/fileapi/file.h"
-#include "third_party/blink/renderer/core/fileapi/file_property_bag.h"
 #include "third_party/blink/renderer/core/frame/frame_test_helpers.h"
 #include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
@@ -89,7 +89,8 @@ class NavigatorShareTest : public testing::Test {
   }
 
   void Share(const ShareData& share_data) {
-    LocalFrame::NotifyUserActivation(&GetFrame());
+    LocalFrame::NotifyUserActivation(
+        &GetFrame(), mojom::UserActivationNotificationType::kTest);
     Navigator* navigator = GetFrame().DomWindow()->navigator();
     NonThrowableExceptionState exception_state;
     ScriptPromise promise = NavigatorShare::share(GetScriptState(), *navigator,
@@ -142,7 +143,7 @@ TEST_F(NavigatorShareTest, ShareText) {
   ShareData share_data;
   share_data.setTitle(title);
   share_data.setText(message);
-  share_data.setURL(url);
+  share_data.setUrl(url);
   Share(share_data);
 
   EXPECT_EQ(mock_share_service().title(), title);

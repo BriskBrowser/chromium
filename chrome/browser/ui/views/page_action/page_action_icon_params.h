@@ -15,15 +15,11 @@
 
 class Browser;
 class CommandUpdater;
+class ToolbarIconContainerView;
 
 namespace gfx {
 class FontList;
 }
-
-namespace views {
-class ButtonObserver;
-class ViewObserver;
-}  // namespace views
 
 struct PageActionIconParams {
   PageActionIconParams();
@@ -32,8 +28,7 @@ struct PageActionIconParams {
   std::vector<PageActionIconType> types_enabled;
 
   // Leaving these params unset will leave the icon default values untouched.
-  // TODO(crbug.com/932818): Make these fields non-optional.
-  base::Optional<int> icon_size;
+  // TODO(crbug.com/1061634): Make these fields non-optional.
   base::Optional<SkColor> icon_color;
   const gfx::FontList* font_list = nullptr;
 
@@ -42,8 +37,10 @@ struct PageActionIconParams {
   CommandUpdater* command_updater = nullptr;
   IconLabelBubbleView::Delegate* icon_label_bubble_delegate = nullptr;
   PageActionIconView::Delegate* page_action_icon_delegate = nullptr;
-  views::ButtonObserver* button_observer = nullptr;
-  views::ViewObserver* view_observer = nullptr;
+  // If in the future another class also wants to observe button changes, this
+  // type could be an abstract class that simply exposes an ObserveButton()
+  // method.
+  ToolbarIconContainerView* button_observer = nullptr;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(PageActionIconParams);

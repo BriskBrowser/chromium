@@ -13,7 +13,6 @@
 #include "ui/base/models/table_model.h"
 #include "ui/base/models/table_model_observer.h"
 #include "ui/gfx/font_list.h"
-#include "ui/views/controls/focus_ring.h"
 #include "ui/views/view.h"
 #include "ui/views/views_export.h"
 
@@ -59,18 +58,17 @@ enum TableTypes {
   ICON_AND_TEXT,
 };
 
-class VIEWS_EXPORT TableView
-    : public views::View,
-      public ui::TableModelObserver {
+class VIEWS_EXPORT TableView : public views::View,
+                               public ui::TableModelObserver {
  public:
   METADATA_HEADER(TableView);
 
   // Used by AdvanceActiveVisibleColumn(), AdvanceSelection() and
   // ResizeColumnViaKeyboard() to determine the direction to change the
   // selection.
-  enum AdvanceDirection {
-    ADVANCE_DECREMENT,
-    ADVANCE_INCREMENT,
+  enum class AdvanceDirection {
+    kDecrement,
+    kIncrement,
   };
 
   // Used to track a visible column. Useful only for the header.
@@ -92,8 +90,7 @@ class VIEWS_EXPORT TableView
   struct VIEWS_EXPORT SortDescriptor {
     SortDescriptor() = default;
     SortDescriptor(int column_id, bool ascending)
-        : column_id(column_id),
-          ascending(ascending) {}
+        : column_id(column_id), ascending(ascending) {}
 
     // ID of the sorted column.
     int column_id = -1;
@@ -107,6 +104,7 @@ class VIEWS_EXPORT TableView
   // Creates a new table using the model and columns specified.
   // The table type applies to the content of the first column (text, icon and
   // text, checkbox and text).
+  TableView();
   TableView(ui::TableModel* model,
             const std::vector<ui::TableColumn>& columns,
             TableTypes table_type,
@@ -116,6 +114,12 @@ class VIEWS_EXPORT TableView
   // Returns a new ScrollView that contains the given |table|.
   static std::unique_ptr<ScrollView> CreateScrollViewWithTable(
       std::unique_ptr<TableView> table);
+
+  // Initialize the table with the appropriate data.
+  void Init(ui::TableModel* model,
+            const std::vector<ui::TableColumn>& columns,
+            TableTypes table_type,
+            bool single_selection);
 
   // Assigns a new model to the table view, detaching the old one if present.
   // If |model| is NULL, the table view cannot be used after this call. This
@@ -144,9 +148,6 @@ class VIEWS_EXPORT TableView
   // Changes the visibility of the specified column (by id).
   void SetColumnVisibility(int id, bool is_visible);
   bool IsColumnVisible(int id) const;
-
-  // Adds the specified column. |col| is not made visible.
-  void AddColumn(const ui::TableColumn& col);
 
   // Returns true if the column with the specified id is known (either visible
   // or not).
@@ -207,9 +208,18 @@ class VIEWS_EXPORT TableView
 
   TableTypes GetTableType() const;
 
+  // Updates the relative bounds of the virtual accessibility children created
+  // in UpdateVirtualAccessibilityChildren(). This function is public so that
+  // the table's |header_| can trigger an update when its visible bounds are
+  // changed, because its accessibility information is also contained in the
+  // table's virtual accessibility children.
+  void UpdateVirtualAccessibilityChildrenBounds();
+
   // View overrides:
   void Layout() override;
   gfx::Size CalculatePreferredSize() const override;
+  bool GetNeedsNotificationWhenVisibleBoundsChange() const override;
+  void OnVisibleBoundsChanged() override;
   bool OnKeyPressed(const ui::KeyEvent& event) override;
   bool OnMousePressed(const ui::MouseEvent& event) override;
   void OnGestureEvent(ui::GestureEvent* event) override;
@@ -345,6 +355,23 @@ class VIEWS_EXPORT TableView
   // to assistive software.
   void UpdateVirtualAccessibilityChildren();
 
+  // Clears the set of accessibility views set up in
+  // UpdateVirtualAccessibilityChildren(). Useful when the model is in the
+  // process of changing but the virtual accessibility children haven't been
+  // updated yet, e.g. showing or hiding a column via SetColumnVisibility().
+  void ClearVirtualAccessibilityChildren();
+
+  // Helper functions used in UpdateVirtualAccessibilityChildrenBounds() for
+  // calculating the accessibility bounds for the header and table rows and
+  // cells.
+  gfx::Rect CalculateHeaderRowAccessibilityBounds() const;
+  gfx::Rect CalculateHeaderCellAccessibilityBounds(
+      const int visible_column_index) const;
+  gfx::Rect CalculateTableRowAccessibilityBounds(const int row_index) const;
+  gfx::Rect CalculateTableCellAccessibilityBounds(
+      const int row_index,
+      const int visible_column_index) const;
+
   // Updates the internal accessibility state and fires the required
   // accessibility events to indicate to assistive software which row is active
   // and which cell is focused, if any.
@@ -359,10 +386,6 @@ class VIEWS_EXPORT TableView
   // |visible_column_index| indexes into |visible_columns_|.
   AXVirtualView* GetVirtualAccessibilityCell(int row, int visible_column_index);
 
-  // Returns |rect|, adjusted for use in AXRelativeBounds by converting it to
-  // gfx::RectF and translating it into screen coordinates.
-  gfx::RectF AdjustRectForAXRelativeBounds(gfx::Rect rect) const;
-
   ui::TableModel* model_ = nullptr;
 
   std::vector<ui::TableColumn> columns_;
@@ -376,15 +399,15 @@ class VIEWS_EXPORT TableView
   int active_visible_column_index_ = -1;
 
   // Used to draw a focus indicator around the active cell.
-  std::unique_ptr<FocusRing> focus_ring_ = FocusRing::Install(this);
+  FocusRing* focus_ring_ = nullptr;
 
   // The header. This is only created if more than one column is specified or
   // the first column has a non-empty title.
   TableHeader* header_ = nullptr;
 
-  const TableTypes table_type_;
+  TableTypes table_type_ = TableTypes::TEXT_ONLY;
 
-  const bool single_selection_;
+  bool single_selection_ = true;
 
   // If |select_on_remove_| is true: when a selected item is removed, if the
   // removed item is not the last item, select its next one; otherwise select

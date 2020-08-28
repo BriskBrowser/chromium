@@ -7,27 +7,20 @@
  * settings subpage (chrome://settings/captions).
  */
 (function() {
-'use strict';
 
 Polymer({
   is: 'settings-captions',
 
-  behaviors: [I18nBehavior, WebUIListenerBehavior],
+  behaviors: [
+    I18nBehavior,
+    WebUIListenerBehavior,
+    PrefsBehavior,
+  ],
 
   properties: {
     prefs: {
       type: Object,
       notify: true,
-    },
-
-    /**
-     * Returns true if the 'LiveCaption' media switch is enabled.
-     */
-    enableLiveCaption_: {
-      type: Boolean,
-      value: function() {
-        return loadTimeData.getBoolean('enableLiveCaption');
-      },
     },
 
     /**
@@ -40,7 +33,7 @@ Polymer({
       value() {
         return [
           {
-            value: 100, // Default
+            value: 100,  // Default
             name: loadTimeData.getString('captionsOpacityOpaque')
           },
           {
@@ -64,30 +57,18 @@ Polymer({
       type: Array,
       value() {
         return [
-          {
-            value: '',
-            name: loadTimeData.getString('captionsDefaultSetting')
-          },
-          {
-            value: '0,0,0',
-            name: loadTimeData.getString('captionsColorBlack')
-          },
+          {value: '', name: loadTimeData.getString('captionsDefaultSetting')},
+          {value: '0,0,0', name: loadTimeData.getString('captionsColorBlack')},
           {
             value: '255,255,255',
             name: loadTimeData.getString('captionsColorWhite')
           },
-          {
-            value: '255,0,0',
-            name: loadTimeData.getString('captionsColorRed')
-          },
+          {value: '255,0,0', name: loadTimeData.getString('captionsColorRed')},
           {
             value: '0,255,0',
             name: loadTimeData.getString('captionsColorGreen')
           },
-          {
-            value: '0,0,255',
-            name: loadTimeData.getString('captionsColorBlue')
-          },
+          {value: '0,0,255', name: loadTimeData.getString('captionsColorBlue')},
           {
             value: '255,255,0',
             name: loadTimeData.getString('captionsColorYellow')
@@ -106,7 +87,8 @@ Polymer({
 
     /**
      * List of fonts populated by the fonts browser proxy.
-     * @private {!DropdownMenuOptionList} */
+     * @private {!DropdownMenuOptionList}
+     */
     textFontOptions_: Object,
 
     /**
@@ -119,7 +101,7 @@ Polymer({
       value() {
         return [
           {
-            value: 100, // Default
+            value: 100,  // Default
             name: loadTimeData.getString('captionsOpacityOpaque')
           },
           {
@@ -176,7 +158,10 @@ Polymer({
         return [
           {value: '25%', name: loadTimeData.getString('verySmall')},
           {value: '50%', name: loadTimeData.getString('small')},
-          {value: '', name: loadTimeData.getString('medium')}, // Default = 100%
+          {
+            value: '',
+            name: loadTimeData.getString('medium')
+          },  // Default = 100%
           {value: '150%', name: loadTimeData.getString('large')},
           {value: '200%', name: loadTimeData.getString('veryLarge')},
         ];
@@ -194,8 +179,6 @@ Polymer({
 
   /** @override */
   ready() {
-    this.browserProxy_.observeAdvancedFontExtensionAvailable();
-
     this.browserProxy_.fetchFontsData().then(this.setFontsData_.bind(this));
   },
 
@@ -213,14 +196,31 @@ Polymer({
   },
 
   /**
+   * Get the font family as a CSS property value.
+   * @return {string}
+   * @private
+   */
+  getFontFamily_() {
+    const fontFamily = this.getPref('accessibility.captions.text_font').value;
+
+    // Return the preference value or the default font family for
+    // video::-webkit-media-text-track-container defined in mediaControls.css.
+    return /** @type {string} */ (fontFamily || 'sans-serif');
+  },
+
+  /**
    * Get the background color as a RGBA string.
    * @return {string}
    * @private
    */
   computeBackgroundColor_() {
-    return this.formatRGAString_(
-        'prefs.accessibility.captions.background_color.value',
-        'prefs.accessibility.captions.background_opacity.value');
+    const backgroundColor = this.formatRGAString_(
+        'accessibility.captions.background_color',
+        'accessibility.captions.background_opacity');
+
+    // Return the preference value or the default background color for
+    // video::cue defined in mediaControls.css.
+    return backgroundColor || 'rgba(0, 0, 0, 0.8)';
   },
 
   /**
@@ -229,9 +229,13 @@ Polymer({
    * @private
    */
   computeTextColor_() {
-    return this.formatRGAString_(
-        'prefs.accessibility.captions.text_color.value',
-        'prefs.accessibility.captions.text_opacity.value');
+    const textColor = this.formatRGAString_(
+        'accessibility.captions.text_color',
+        'accessibility.captions.text_opacity');
+
+    // Return the preference value or the default text color for
+    // video::-webkit-media-text-track-container defined in mediaControls.css.
+    return textColor || 'rgba(255, 255, 255, 1)';
   },
 
   /**
@@ -244,8 +248,14 @@ Polymer({
    * @private
    */
   formatRGAString_(colorPreference, opacityPreference) {
-    return 'rgba(' + this.get(colorPreference) + ',' +
-        parseInt(this.get(opacityPreference), 10) / 100.0 + ')';
+    const color = this.getPref(colorPreference).value;
+
+    if (!color) {
+      return '';
+    }
+
+    return 'rgba(' + color + ',' +
+        parseInt(this.getPref(opacityPreference).value, 10) / 100.0 + ')';
   },
 
   /**
@@ -254,11 +264,11 @@ Polymer({
    * @private
    */
   computePadding_(size) {
-    if (size == '') {
+    if (size === '') {
       return '1%';
     }
 
-    return `${+size.slice(0, -1) / 100}%`;
+    return `${+ size.slice(0, -1) / 100}%`;
   }
 });
 })();

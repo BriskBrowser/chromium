@@ -14,10 +14,10 @@ import org.chromium.chrome.browser.compositor.layouts.content.TabContentManager;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tab.TabLaunchType;
 import org.chromium.chrome.browser.tab.TabSelectionType;
+import org.chromium.chrome.browser.tabmodel.NextTabPolicy.NextTabPolicySupplier;
 import org.chromium.chrome.test.ChromeBrowserTestRule;
 import org.chromium.content_public.browser.LoadUrlParams;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
-import org.chromium.ui.base.WindowAndroid;
 
 import java.util.HashSet;
 import java.util.Set;
@@ -30,8 +30,6 @@ public class TabModelSelectorObserverTestRule extends ChromeBrowserTestRule {
     private TabModelSelectorTestTabModel mNormalTabModel;
     private TabModelSelectorTestTabModel mIncognitoTabModel;
 
-    private WindowAndroid mWindowAndroid;
-
     public TabModelSelectorBase getSelector() {
         return mSelector;
     }
@@ -42,10 +40,6 @@ public class TabModelSelectorObserverTestRule extends ChromeBrowserTestRule {
 
     public TabModelSelectorTestTabModel getIncognitoTabModel() {
         return mIncognitoTabModel;
-    }
-
-    public WindowAndroid getWindowAndroid() {
-        return mWindowAndroid;
     }
 
     @Override
@@ -65,11 +59,7 @@ public class TabModelSelectorObserverTestRule extends ChromeBrowserTestRule {
     }
 
     private void initialize() {
-        mWindowAndroid = new WindowAndroid(InstrumentationRegistry.getInstrumentation()
-                                                   .getTargetContext()
-                                                   .getApplicationContext());
-
-        mSelector = new TabModelSelectorBase(null, false) {
+        mSelector = new TabModelSelectorBase(null, EmptyTabModelFilter::new, false) {
             @Override
             public Tab openNewTab(LoadUrlParams loadUrlParams, @TabLaunchType int type, Tab parent,
                     boolean incognito) {
@@ -78,11 +68,14 @@ public class TabModelSelectorObserverTestRule extends ChromeBrowserTestRule {
         };
 
         TabModelOrderController orderController = new TabModelOrderControllerImpl(mSelector);
-        TabContentManager tabContentManager =
-                new TabContentManager(InstrumentationRegistry.getTargetContext(), null, false);
+        TabContentManager tabContentManager = new TabContentManager(
+                InstrumentationRegistry.getTargetContext(), null, false, mSelector::getTabById);
+        tabContentManager.initWithNative();
         TabPersistencePolicy persistencePolicy = new TabbedModeTabPersistencePolicy(0, false);
         TabPersistentStore tabPersistentStore =
                 new TabPersistentStore(persistencePolicy, mSelector, null, null);
+        NextTabPolicySupplier nextTabPolicySupplier = () -> NextTabPolicy.HIERARCHICAL;
+        AsyncTabParamsManager asyncTabParamsManager = AsyncTabParamsManager.getInstance();
 
         TabModelDelegate delegate = new TabModelDelegate() {
             @Override
@@ -104,11 +97,6 @@ public class TabModelSelectorObserverTestRule extends ChromeBrowserTestRule {
             }
 
             @Override
-            public boolean isInOverviewMode() {
-                return false;
-            }
-
-            @Override
             public TabModel getModel(boolean incognito) {
                 return mSelector.getModel(incognito);
             }
@@ -122,12 +110,19 @@ public class TabModelSelectorObserverTestRule extends ChromeBrowserTestRule {
             public boolean closeAllTabsRequest(boolean incognito) {
                 return false;
             }
-        };
-        mNormalTabModel = new TabModelSelectorTestTabModel(
-                false, orderController, tabContentManager, tabPersistentStore, delegate);
 
-        mIncognitoTabModel = new TabModelSelectorTestTabModel(
-                true, orderController, tabContentManager, tabPersistentStore, delegate);
+            @Override
+            public boolean isReparentingInProgress() {
+                return false;
+            }
+        };
+        mNormalTabModel =
+                new TabModelSelectorTestTabModel(false, orderController, tabContentManager,
+                        tabPersistentStore, nextTabPolicySupplier, asyncTabParamsManager, delegate);
+
+        mIncognitoTabModel =
+                new TabModelSelectorTestTabModel(true, orderController, tabContentManager,
+                        tabPersistentStore, nextTabPolicySupplier, asyncTabParamsManager, delegate);
 
         mSelector.initialize(mNormalTabModel, mIncognitoTabModel);
     }
@@ -140,9 +135,11 @@ public class TabModelSelectorObserverTestRule extends ChromeBrowserTestRule {
 
         public TabModelSelectorTestTabModel(boolean incognito,
                 TabModelOrderController orderController, TabContentManager tabContentManager,
-                TabPersistentStore tabPersistentStore, TabModelDelegate modelDelegate) {
+                TabPersistentStore tabPersistentStore, NextTabPolicySupplier nextTabPolicySupplier,
+                AsyncTabParamsManager asyncTabParamsManager, TabModelDelegate modelDelegate) {
             super(incognito, false, null, null, null, orderController, tabContentManager,
-                    tabPersistentStore, modelDelegate, false);
+                    tabPersistentStore, nextTabPolicySupplier, asyncTabParamsManager, modelDelegate,
+                    false);
         }
 
         @Override

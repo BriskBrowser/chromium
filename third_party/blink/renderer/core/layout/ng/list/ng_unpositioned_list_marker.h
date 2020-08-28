@@ -14,7 +14,7 @@
 namespace blink {
 
 class ComputedStyle;
-class LayoutNGListMarker;
+class LayoutNGOutsideListMarker;
 class LayoutUnit;
 class NGBlockNode;
 class NGConstraintSpace;
@@ -51,7 +51,7 @@ class CORE_EXPORT NGUnpositionedListMarker final {
 
  public:
   NGUnpositionedListMarker() : marker_layout_object_(nullptr) {}
-  explicit NGUnpositionedListMarker(LayoutNGListMarker*);
+  explicit NGUnpositionedListMarker(LayoutNGOutsideListMarker*);
   explicit NGUnpositionedListMarker(const NGBlockNode&);
 
   explicit operator bool() const { return marker_layout_object_; }
@@ -99,14 +99,12 @@ class CORE_EXPORT NGUnpositionedListMarker final {
 #endif
 
  private:
-  bool IsImage() const;
-
   LayoutUnit ComputeIntrudedFloatOffset(const NGConstraintSpace&,
                                         const NGBoxFragmentBuilder*,
                                         const NGBoxStrut&,
                                         LayoutUnit) const;
 
-  LayoutNGListMarker* marker_layout_object_;
+  LayoutNGOutsideListMarker* marker_layout_object_;
 };
 
 }  // namespace blink

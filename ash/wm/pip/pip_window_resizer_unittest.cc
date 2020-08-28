@@ -4,6 +4,7 @@
 
 #include "ash/wm/pip/pip_window_resizer.h"
 
+#include <memory>
 #include <string>
 #include <tuple>
 #include <utility>
@@ -12,20 +13,20 @@
 #include "ash/keyboard/ui/test/keyboard_test_util.h"
 #include "ash/metrics/pip_uma.h"
 #include "ash/public/cpp/keyboard/keyboard_switches.h"
-#include "ash/scoped_root_window_for_new_windows.h"
 #include "ash/shelf/shelf.h"
 #include "ash/shell.h"
 #include "ash/test/ash_test_base.h"
+#include "ash/wm/pip/pip_positioner.h"
 #include "ash/wm/pip/pip_test_utils.h"
 #include "ash/wm/tablet_mode/tablet_mode_controller.h"
 #include "ash/wm/window_state.h"
 #include "ash/wm/wm_event.h"
 #include "base/bind_helpers.h"
-#include "base/command_line.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "ui/aura/client/aura_constants.h"
 #include "ui/aura/window.h"
 #include "ui/base/hit_test.h"
+#include "ui/display/scoped_display_for_new_windows.h"
 #include "ui/gfx/geometry/insets.h"
 #include "ui/views/widget/widget.h"
 #include "ui/wm/core/coordinate_conversion.h"
@@ -80,23 +81,21 @@ class PipWindowResizerTest : public AshTestBase,
   ~PipWindowResizerTest() override = default;
 
   void SetUp() override {
-    base::CommandLine::ForCurrentProcess()->AppendSwitch(
-        keyboard::switches::kEnableVirtualKeyboard);
     AshTestBase::SetUp();
-    SetTouchKeyboardEnabled(true);
+    SetVirtualKeyboardEnabled(true);
 
     const std::string& display_string = std::get<0>(GetParam());
     const std::size_t root_window_index = std::get<1>(GetParam());
     UpdateWorkArea(display_string);
     ASSERT_LT(root_window_index, Shell::GetAllRootWindows().size());
-    scoped_root_.reset(new ScopedRootWindowForNewWindows(
-        Shell::GetAllRootWindows()[root_window_index]));
+    scoped_display_ = std::make_unique<display::ScopedDisplayForNewWindows>(
+        Shell::GetAllRootWindows()[root_window_index]);
     ForceHideShelvesForTest();
   }
 
   void TearDown() override {
-    scoped_root_.reset();
-    SetTouchKeyboardEnabled(false);
+    scoped_display_.reset();
+    SetVirtualKeyboardEnabled(false);
     AshTestBase::TearDown();
   }
 
@@ -178,7 +177,7 @@ class PipWindowResizerTest : public AshTestBase,
   aura::Window* window_;
   FakeWindowState* test_state_;
   base::HistogramTester histograms_;
-  std::unique_ptr<ScopedRootWindowForNewWindows> scoped_root_;
+  std::unique_ptr<display::ScopedDisplayForNewWindows> scoped_display_;
 
   void UpdateWorkArea(const std::string& bounds) {
     UpdateDisplay(bounds);
@@ -568,9 +567,7 @@ TEST_P(PipWindowResizerTest, PipRestoreBoundsSetOnFling) {
   }
 
   WindowState* window_state = WindowState::Get(window());
-  EXPECT_TRUE(window_state->HasRestoreBounds());
-  EXPECT_EQ(gfx::Rect(292, 292, 100, 100),
-            window_state->GetRestoreBoundsInParent());
+  EXPECT_TRUE(PipPositioner::HasSnapFraction(window_state));
 }
 
 TEST_P(PipWindowResizerTest, PipStartAndFinishFreeResizeUmaMetrics) {

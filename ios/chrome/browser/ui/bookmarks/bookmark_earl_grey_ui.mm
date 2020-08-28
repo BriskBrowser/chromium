@@ -10,7 +10,10 @@
 #include "components/strings/grit/components_strings.h"
 #import "ios/chrome/browser/ui/bookmarks/bookmark_ui_constants.h"
 #import "ios/chrome/browser/ui/popup_menu/popup_menu_constants.h"
+#import "ios/chrome/browser/ui/table_view/table_view_constants.h"
+#import "ios/chrome/browser/ui/ui_feature_flags.h"
 #include "ios/chrome/grit/ios_strings.h"
+#import "ios/chrome/test/earl_grey/chrome_earl_grey.h"
 #import "ios/chrome/test/earl_grey/chrome_earl_grey_ui.h"
 #import "ios/chrome/test/earl_grey/chrome_matchers.h"
 #import "ios/testing/earl_grey/earl_grey_test.h"
@@ -48,20 +51,6 @@ id<GREYMatcher> StarButton() {
 
 id<GREYMatcher> BookmarksDeleteSwipeButton() {
   return ButtonWithAccessibilityLabelId(IDS_IOS_BOOKMARK_ACTION_DELETE);
-}
-
-id<GREYMatcher> NavigateBackButtonTo(NSString* previousViewControllerLabel) {
-  // When using the stock UINavigationBar back button item, the button's label
-  // may be truncated to the word "Back", or to nothing at all.  It is not
-  // possible to know which label will be used, as the OS makes that decision,
-  // so try to search for any of them.
-  id<GREYMatcher> buttonLabelMatcher =
-      grey_anyOf(grey_accessibilityLabel(previousViewControllerLabel),
-                 grey_accessibilityLabel(@"Back"), nil);
-
-  return grey_allOf(grey_kindOfClassName(@"UIButton"),
-                    grey_ancestor(grey_kindOfClassName(@"UINavigationBar")),
-                    buttonLabelMatcher, nil);
 }
 
 id<GREYMatcher> BookmarkHomeDoneButton() {
@@ -241,16 +230,21 @@ id<GREYMatcher> SearchIconButton() {
       performAction:grey_tap()];
 }
 
-- (void)verifyContextMenuForSingleURL {
+- (void)verifyContextMenuForSingleURLWithEditEnabled:(BOOL)editEnabled {
   // Verify it shows the context menu.
-  [[EarlGrey
-      selectElementWithMatcher:grey_accessibilityID(@"bookmark_context_menu")]
+  [[EarlGrey selectElementWithMatcher:grey_accessibilityID(
+                                          kBookmarkHomeContextMenuIdentifier)]
       assertWithMatcher:grey_sufficientlyVisible()];
 
   // Verify options on context menu.
+  // Verify that the edit menu option is enabled/disabled according to
+  // |editEnabled|.
+  id<GREYMatcher> matcher =
+      editEnabled ? grey_sufficientlyVisible()
+                  : grey_accessibilityTrait(UIAccessibilityTraitNotEnabled);
   [[EarlGrey selectElementWithMatcher:ButtonWithAccessibilityLabelId(
                                           IDS_IOS_BOOKMARK_CONTEXT_MENU_EDIT)]
-      assertWithMatcher:grey_sufficientlyVisible()];
+      assertWithMatcher:matcher];
 
   [[EarlGrey
       selectElementWithMatcher:ButtonWithAccessibilityLabelId(
@@ -264,6 +258,47 @@ id<GREYMatcher> SearchIconButton() {
 
   [[EarlGrey selectElementWithMatcher:ContextMenuCopyButton()]
       assertWithMatcher:grey_sufficientlyVisible()];
+}
+
+- (void)verifyContextMenuForSingleFolderWithEditEnabled:(BOOL)editEnabled {
+  // Verify it shows the context menu.
+  [[EarlGrey selectElementWithMatcher:grey_accessibilityID(
+                                          kBookmarkHomeContextMenuIdentifier)]
+      assertWithMatcher:grey_sufficientlyVisible()];
+
+  // Verify options on context menu.
+  // Verify that the edit menu option is enabled/disabled according to
+  // |editEnabled|.
+  id<GREYMatcher> matcher =
+      editEnabled ? grey_sufficientlyVisible()
+                  : grey_accessibilityTrait(UIAccessibilityTraitNotEnabled);
+  [[EarlGrey
+      selectElementWithMatcher:ButtonWithAccessibilityLabelId(
+                                   IDS_IOS_BOOKMARK_CONTEXT_MENU_EDIT_FOLDER)]
+      assertWithMatcher:matcher];
+
+  [[EarlGrey selectElementWithMatcher:ButtonWithAccessibilityLabelId(
+                                          IDS_IOS_BOOKMARK_CONTEXT_MENU_MOVE)]
+      assertWithMatcher:matcher];
+}
+
+- (void)dismissContextMenu {
+  // Verify it shows the context menu.
+  [[EarlGrey selectElementWithMatcher:grey_accessibilityID(
+                                          kBookmarkHomeContextMenuIdentifier)]
+      assertWithMatcher:grey_sufficientlyVisible()];
+
+  // Dismiss the context menu. On non compact width tap the Bookmarks TableView
+  // to dismiss, since there might not be a cancel button.
+  if ([ChromeEarlGrey isCompactWidth]) {
+    [[EarlGrey
+        selectElementWithMatcher:ButtonWithAccessibilityLabelId(IDS_CANCEL)]
+        performAction:grey_tap()];
+  } else {
+    [[EarlGrey selectElementWithMatcher:grey_accessibilityID(
+                                            kBookmarkHomeTableViewIdentifier)]
+        performAction:grey_tap()];
+  }
 }
 
 - (void)verifyContextBarInDefaultStateWithSelectEnabled:(BOOL)selectEnabled
@@ -326,10 +361,26 @@ id<GREYMatcher> SearchIconButton() {
 }
 
 - (void)verifyEmptyBackgroundAppears {
-  [[EarlGrey
-      selectElementWithMatcher:
-          grey_accessibilityID(kBookmarkEmptyStateExplanatoryLabelIdentifier)]
+  id<GREYMatcher> emptyBackground =
+      grey_accessibilityID(base::FeatureList::IsEnabled(kIllustratedEmptyStates)
+                               ? kTableViewIllustratedEmptyViewID
+                               : kBookmarkEmptyStateExplanatoryLabelIdentifier);
+  [[EarlGrey selectElementWithMatcher:emptyBackground]
       assertWithMatcher:grey_sufficientlyVisible()];
+}
+
+- (void)verifyEmptyState {
+  [self verifyEmptyBackgroundAppears];
+
+  id<GREYInteraction> searchBar =
+      [EarlGrey selectElementWithMatcher:grey_accessibilityTrait(
+                                             UIAccessibilityTraitSearchField)];
+  if (base::FeatureList::IsEnabled(kIllustratedEmptyStates)) {
+    // With the illustrated empty state, the search bar should be hidden.
+    [searchBar assertWithMatcher:grey_nil()];
+  } else {
+    [searchBar assertWithMatcher:grey_notNil()];
+  }
 }
 
 - (void)verifyBookmarkFolderIsSeen:(NSString*)bookmarkFolder {
@@ -337,8 +388,8 @@ id<GREYMatcher> SearchIconButton() {
       selectElementWithMatcher:grey_allOf(
                                    grey_kindOfClassName(@"UITableViewCell"),
                                    grey_descendant(grey_text(bookmarkFolder)),
-                                   nil)]
-      assertWithMatcher:grey_sufficientlyVisible()];
+                                   grey_sufficientlyVisible(), nil)]
+      assertWithMatcher:grey_notNil()];
 }
 
 - (void)scrollToBottom {

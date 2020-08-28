@@ -20,10 +20,6 @@ SyncSetupInProgressHandle::~SyncSetupInProgressHandle() {
   std::move(on_destroy_).Run();
 }
 
-CoreAccountId SyncService::GetAuthenticatedAccountId() const {
-  return GetAuthenticatedAccountInfo().account_id;
-}
-
 bool SyncService::HasCompletedSyncCycle() const {
   // Stats on the last Sync cycle are only available in internal "for debugging"
   // information. Better to access that here than making clients do it.
@@ -44,6 +40,7 @@ bool SyncService::CanSyncFeatureStart() const {
 bool SyncService::IsEngineInitialized() const {
   switch (GetTransportState()) {
     case TransportState::DISABLED:
+    case TransportState::PAUSED:
     case TransportState::START_DEFERRED:
     case TransportState::INITIALIZING:
       return false;
@@ -62,6 +59,7 @@ bool SyncService::IsSyncFeatureActive() const {
   }
   switch (GetTransportState()) {
     case TransportState::DISABLED:
+    case TransportState::PAUSED:
     case TransportState::START_DEFERRED:
     case TransportState::INITIALIZING:
     case TransportState::PENDING_DESIRED_CONFIGURATION:

@@ -348,7 +348,7 @@ std::unique_ptr<PacketPipe> NewNetworkGlitchPipe(double average_work_time,
 class InterruptedPoissonProcess::InternalBuffer : public PacketPipe {
  public:
   InternalBuffer(base::WeakPtr<InterruptedPoissonProcess> ipp, size_t size)
-      : ipp_(ipp), stored_size_(0), stored_limit_(size), clock_(NULL) {}
+      : ipp_(ipp), stored_size_(0), stored_limit_(size), clock_(nullptr) {}
 
   void Send(std::unique_ptr<Packet> packet) final {
     // Drop if buffer is full.
@@ -409,7 +409,7 @@ InterruptedPoissonProcess::InterruptedPoissonProcess(
     double coef_burstiness,
     double coef_variance,
     uint32_t rand_seed)
-    : clock_(NULL),
+    : clock_(nullptr),
       average_rates_(average_rates),
       coef_burstiness_(coef_burstiness),
       coef_variance_(coef_variance),
@@ -727,13 +727,10 @@ class UDPProxyImpl : public UDPProxy {
       result = net::ERR_INVALID_ARGUMENT;
     } else {
       VLOG(1) << "Destination:" << destination.ToString();
-      result = socket_->SendTo(buf.get(),
-                               static_cast<int>(buf_size),
-                               destination,
-                               base::Bind(&UDPProxyImpl::AllowWrite,
-                                          weak_factory_.GetWeakPtr(),
-                                          buf,
-                                          base::Passed(&packet)));
+      result = socket_->SendTo(
+          buf.get(), static_cast<int>(buf_size), destination,
+          base::BindOnce(&UDPProxyImpl::AllowWrite, weak_factory_.GetWeakPtr(),
+                         buf, std::move(packet)));
     }
     if (result == net::ERR_IO_PENDING) {
       blocked_ = true;
@@ -804,12 +801,10 @@ class UDPProxyImpl : public UDPProxy {
       packet_.reset(new Packet(kMaxPacketSize));
       auto recv_buf = base::MakeRefCounted<net::WrappedIOBuffer>(
           reinterpret_cast<char*>(&packet_->front()));
-      int len = socket_->RecvFrom(
-          recv_buf.get(),
-          kMaxPacketSize,
-          &recv_address_,
-          base::Bind(
-              &UDPProxyImpl::ReadCallback, base::Unretained(this), recv_buf));
+      int len =
+          socket_->RecvFrom(recv_buf.get(), kMaxPacketSize, &recv_address_,
+                            base::BindOnce(&UDPProxyImpl::ReadCallback,
+                                           base::Unretained(this), recv_buf));
       if (len == net::ERR_IO_PENDING)
         break;
       ProcessPacket(recv_buf, len);

@@ -37,7 +37,6 @@
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/dom/events/event.h"
 #include "third_party/blink/renderer/core/dom/events/event_target.h"
-#include "third_party/blink/renderer/core/events/message_event_init.h"
 #include "third_party/blink/renderer/core/fileapi/blob.h"
 #include "third_party/blink/renderer/core/messaging/message_port.h"
 #include "third_party/blink/renderer/core/typed_arrays/dom_array_buffer.h"
@@ -46,6 +45,7 @@
 
 namespace blink {
 
+class MessageEventInit;
 class UserActivation;
 
 class CORE_EXPORT MessageEvent final : public Event {
@@ -79,12 +79,10 @@ class CORE_EXPORT MessageEvent final : public Event {
                               const String& origin = String(),
                               const String& last_event_id = String(),
                               EventTarget* source = nullptr,
-                              UserActivation* user_activation = nullptr,
-                              bool transfer_user_activation = false,
-                              bool allow_autoplay = false) {
+                              UserActivation* user_activation = nullptr) {
     return MakeGarbageCollected<MessageEvent>(
         std::move(data), origin, last_event_id, source, std::move(channels),
-        user_activation, transfer_user_activation, allow_autoplay);
+        user_activation);
   }
   static MessageEvent* CreateError(const String& origin = String(),
                                    EventTarget* source = nullptr) {
@@ -122,9 +120,7 @@ class CORE_EXPORT MessageEvent final : public Event {
                const String& last_event_id,
                EventTarget* source,
                Vector<MessagePortChannel>,
-               UserActivation* user_activation,
-               bool transfer_user_activation,
-               bool allow_autoplay);
+               UserActivation* user_activation);
   // Creates a "messageerror" event.
   MessageEvent(const String& origin, EventTarget* source);
   MessageEvent(const String& data, const String& origin);
@@ -148,9 +144,7 @@ class CORE_EXPORT MessageEvent final : public Event {
                         const String& last_event_id,
                         EventTarget* source,
                         MessagePortArray*,
-                        UserActivation* user_activation,
-                        bool transfer_user_activation = false,
-                        bool allow_autoplay = false);
+                        UserActivation* user_activation);
   void initMessageEvent(const AtomicString& type,
                         bool bubbles,
                         bool cancelable,
@@ -168,8 +162,6 @@ class CORE_EXPORT MessageEvent final : public Event {
   MessagePortArray ports();
   bool isPortsDirty() const { return is_ports_dirty_; }
   UserActivation* userActivation() const { return user_activation_; }
-  bool transferUserActivation() const { return transfer_user_activation_; }
-  bool allowAutoplay() const { return allow_autoplay_; }
 
   Vector<MessagePortChannel> ReleaseChannels() { return std::move(channels_); }
 
@@ -193,7 +185,9 @@ class CORE_EXPORT MessageEvent final : public Event {
 
   void EntangleMessagePorts(ExecutionContext*);
 
-  void Trace(blink::Visitor*) override;
+  void Trace(Visitor*) const override;
+
+  void LockToAgentCluster();
 
   WARN_UNUSED_RESULT v8::Local<v8::Object> AssociateWithWrapper(
       v8::Isolate*,
@@ -210,27 +204,16 @@ class CORE_EXPORT MessageEvent final : public Event {
     kDataTypeArrayBuffer
   };
 
-  class V8GCAwareString final {
-    DISALLOW_NEW();
+  size_t SizeOfExternalMemoryInBytes();
 
-   public:
-    V8GCAwareString() = default;
-    V8GCAwareString(const String&);
+  void RegisterAmountOfExternallyAllocatedMemory();
 
-    ~V8GCAwareString();
-
-    V8GCAwareString& operator=(const String&);
-
-    const String& data() const { return string_; }
-
-   private:
-    String string_;
-  };
+  void UnregisterAmountOfExternallyAllocatedMemory();
 
   DataType data_type_;
   WorldSafeV8Reference<v8::Value> data_as_v8_value_;
   Member<UnpackedSerializedScriptValue> data_as_serialized_script_value_;
-  V8GCAwareString data_as_string_;
+  String data_as_string_;
   Member<Blob> data_as_blob_;
   Member<DOMArrayBuffer> data_as_array_buffer_;
   bool is_data_dirty_ = true;
@@ -244,12 +227,12 @@ class CORE_EXPORT MessageEvent final : public Event {
   bool is_ports_dirty_ = true;
   Vector<MessagePortChannel> channels_;
   Member<UserActivation> user_activation_;
-  bool transfer_user_activation_ = false;
-  bool allow_autoplay_ = false;
+  size_t amount_of_external_memory_ = 0;
+  // For serialized messages across process this attribute contains the
+  // information of whether the actual original SerializedScriptValue was locked
+  // to the agent cluster.
+  bool locked_to_agent_cluster_ = false;
 };
-
-extern CORE_EXPORT const V8PrivateProperty::SymbolKey
-    kPrivatePropertyMessageEventCachedData;
 
 }  // namespace blink
 

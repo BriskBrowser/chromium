@@ -5,7 +5,7 @@
 #include "chrome/browser/payments/android/journey_logger_android.h"
 
 #include "base/android/jni_string.h"
-#include "chrome/android/chrome_jni_headers/JourneyLogger_jni.h"
+#include "components/payments/content/android/jni_headers/JourneyLogger_jni.h"
 #include "components/ukm/content/source_url_recorder.h"
 #include "content/public/browser/web_contents.h"
 
@@ -90,7 +90,8 @@ void JourneyLoggerAndroid::SetEventOccurred(
     const base::android::JavaParamRef<jobject>& jcaller,
     jint jevent) {
   DCHECK_GE(jevent, 0);
-  DCHECK_LT(jevent, JourneyLogger::Event::EVENT_ENUM_MAX);
+  DCHECK_LE(static_cast<unsigned int>(jevent),
+            static_cast<unsigned int>(JourneyLogger::Event::EVENT_ENUM_MAX));
   journey_logger_.SetEventOccurred(static_cast<JourneyLogger::Event>(jevent));
 }
 
@@ -111,8 +112,12 @@ void JourneyLoggerAndroid::SetRequestedPaymentMethodTypes(
     jboolean requested_basic_card,
     jboolean requested_method_google,
     jboolean requested_method_other) {
+  // TODO(crbug.com/1110320) : secure=payment-confirmation payment method is not
+  // implemented on Android yet.
   journey_logger_.SetRequestedPaymentMethodTypes(
-      requested_basic_card, requested_method_google, requested_method_other);
+      requested_basic_card, requested_method_google,
+      /*requested_method_secure_payment_confirmation=*/false,
+      requested_method_other);
 }
 
 void JourneyLoggerAndroid::SetCompleted(
@@ -151,10 +156,25 @@ void JourneyLoggerAndroid::RecordTransactionAmount(
       ConvertJavaStringToUTF8(env, jvalue), jcompleted);
 }
 
+void JourneyLoggerAndroid::RecordCheckoutStep(
+    JNIEnv* env,
+    const base::android::JavaParamRef<jobject>& jcaller,
+    jint jstep) {
+  journey_logger_.RecordCheckoutStep(
+      static_cast<JourneyLogger::CheckoutFunnelStep>(jstep));
+}
+
 void JourneyLoggerAndroid::SetTriggerTime(
     JNIEnv* env,
     const base::android::JavaParamRef<jobject>& jcaller) {
   journey_logger_.SetTriggerTime();
+}
+
+void JourneyLoggerAndroid::SetPaymentAppUkmSourceId(
+    JNIEnv* env,
+    const base::android::JavaParamRef<jobject>& jcaller,
+    ukm::SourceId source_id) {
+  journey_logger_.SetPaymentAppUkmSourceId(source_id);
 }
 
 static jlong JNI_JourneyLogger_InitJourneyLoggerAndroid(

@@ -7,7 +7,7 @@
  * interact with the browser. Used only on Chrome OS.
  */
 
-// #import {addSingletonGetter, sendWithPromise} from 'chrome://resources/js/cr.m.js';
+// #import {addSingletonGetter, sendWithPromise} from '../../../js/cr.m.js';
 
 /**
  *  @enum {number}
@@ -62,7 +62,7 @@ cr.define('smb_shares', function() {
 
     /**
      * Updates the credentials for a mounted share.
-     * @param {number} mountId
+     * @param {string} mountId
      * @param {string} username
      * @param {string} password
      */

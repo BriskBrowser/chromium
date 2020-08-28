@@ -4,6 +4,7 @@
 
 #include "third_party/blink/renderer/core/css/css_property_name.h"
 #include "third_party/blink/renderer/core/css/properties/css_property.h"
+#include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/testing/page_test_base.h"
 #include "third_party/blink/renderer/platform/wtf/hash_map.h"
 
@@ -61,14 +62,19 @@ TEST_F(CSSPropertyNameTest, OperatorEquals) {
 }
 
 TEST_F(CSSPropertyNameTest, From) {
-  EXPECT_TRUE(CSSPropertyName::From(&GetDocument(), "color"));
-  EXPECT_TRUE(CSSPropertyName::From(&GetDocument(), "--x"));
-  EXPECT_FALSE(CSSPropertyName::From(&GetDocument(), "notaproperty"));
-  EXPECT_FALSE(CSSPropertyName::From(&GetDocument(), "-not-a-property"));
+  EXPECT_TRUE(
+      CSSPropertyName::From(GetDocument().GetExecutionContext(), "color"));
+  EXPECT_TRUE(
+      CSSPropertyName::From(GetDocument().GetExecutionContext(), "--x"));
+  EXPECT_FALSE(CSSPropertyName::From(GetDocument().GetExecutionContext(),
+                                     "notaproperty"));
+  EXPECT_FALSE(CSSPropertyName::From(GetDocument().GetExecutionContext(),
+                                     "-not-a-property"));
 
-  EXPECT_EQ(*CSSPropertyName::From(&GetDocument(), "color"),
-            CSSPropertyName(CSSPropertyID::kColor));
-  EXPECT_EQ(*CSSPropertyName::From(&GetDocument(), "--x"),
+  EXPECT_EQ(
+      *CSSPropertyName::From(GetDocument().GetExecutionContext(), "color"),
+      CSSPropertyName(CSSPropertyID::kColor));
+  EXPECT_EQ(*CSSPropertyName::From(GetDocument().GetExecutionContext(), "--x"),
             CSSPropertyName("--x"));
 }
 

@@ -14,10 +14,12 @@
 
 #include "base/barrier_closure.h"
 #include "base/bind.h"
+#include "base/bind_helpers.h"
 #include "base/files/file_enumerator.h"
 #include "base/files/file_path.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/numerics/safe_conversions.h"
 #include "base/optional.h"
 #include "base/single_thread_task_runner.h"
 #include "base/stl_util.h"
@@ -26,6 +28,7 @@
 #include "base/strings/stringprintf.h"
 #include "base/system/sys_info.h"
 #include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
 #include "base/task_runner_util.h"
 #include "base/trace_event/memory_dump_manager.h"
 #include "build/build_config.h"
@@ -35,6 +38,7 @@
 #include "components/services/storage/dom_storage/legacy_dom_storage_database.h"
 #include "components/services/storage/dom_storage/local_storage_database.pb.h"
 #include "components/services/storage/dom_storage/storage_area_impl.h"
+#include "components/services/storage/filesystem_proxy_factory.h"
 #include "components/services/storage/public/cpp/constants.h"
 #include "mojo/public/cpp/bindings/self_owned_receiver.h"
 #include "sql/database.h"
@@ -118,7 +122,7 @@ void MigrateStorageHelper(
     const scoped_refptr<base::SingleThreadTaskRunner> reply_task_runner,
     base::OnceCallback<void(std::unique_ptr<StorageAreaImpl::ValueMap>)>
         callback) {
-  LegacyDomStorageDatabase db(db_path);
+  LegacyDomStorageDatabase db(db_path, CreateFilesystemProxy());
   LegacyDomStorageValuesMap map;
   db.ReadAllValues(&map);
   auto values = std::make_unique<StorageAreaImpl::ValueMap>();
@@ -211,17 +215,22 @@ const base::FilePath::CharType kLegacyDatabaseFileExtension[] =
 
 std::vector<mojom::LocalStorageUsageInfoPtr> GetLegacyLocalStorageUsage(
     const base::FilePath& directory) {
+  std::unique_ptr<FilesystemProxy> fs = CreateFilesystemProxy();
+  FileErrorOr<std::vector<base::FilePath>> result = fs->GetDirectoryEntries(
+      directory, FilesystemProxy::DirectoryEntryType::kFilesOnly);
+  if (result.is_error())
+    return {};
+
   std::vector<mojom::LocalStorageUsageInfoPtr> infos;
-  base::FileEnumerator enumerator(directory, false,
-                                  base::FileEnumerator::FILES);
-  for (base::FilePath path = enumerator.Next(); !path.empty();
-       path = enumerator.Next()) {
-    if (path.MatchesExtension(kLegacyDatabaseFileExtension)) {
-      base::FileEnumerator::FileInfo find_info = enumerator.GetInfo();
-      infos.push_back(mojom::LocalStorageUsageInfo::New(
-          LocalStorageImpl::OriginFromLegacyDatabaseFileName(path),
-          find_info.GetSize(), find_info.GetLastModifiedTime()));
-    }
+  for (const auto& path : result.value()) {
+    if (!path.MatchesExtension(kLegacyDatabaseFileExtension))
+      continue;
+    base::Optional<base::File::Info> info = fs->GetFileInfo(path);
+    if (!info)
+      continue;
+    infos.push_back(mojom::LocalStorageUsageInfo::New(
+        LocalStorageImpl::OriginFromLegacyDatabaseFileName(path), info->size,
+        info->last_modified));
   }
   return infos;
 }
@@ -339,7 +348,7 @@ class LocalStorageImpl::StorageAreaHolder final
           FROM_HERE, base::BindOnce(&MigrateStorageHelper, sql_db_path(),
                                     base::ThreadTaskRunnerHandle::Get(),
                                     base::BindOnce(&CallMigrationCalback,
-                                                   base::Passed(&callback))));
+                                                   std::move(callback))));
       return;
     }
     std::move(callback).Run(nullptr);
@@ -459,8 +468,8 @@ LocalStorageImpl::LocalStorageImpl(
     mojo::PendingReceiver<mojom::LocalStorageControl> receiver)
     : directory_(storage_root.empty() ? storage_root
                                       : storage_root.Append(kLocalStoragePath)),
-      leveldb_task_runner_(base::CreateSequencedTaskRunner(
-          {base::ThreadPool(), base::MayBlock(),
+      leveldb_task_runner_(base::ThreadPool::CreateSequencedTaskRunner(
+          {base::MayBlock(), base::WithBaseSyncPrimitives(),
            base::TaskShutdownBehavior::BLOCK_SHUTDOWN})),
       memory_dump_id_(base::StringPrintf("LocalStorage/0x%" PRIXPTR,
                                          reinterpret_cast<uintptr_t>(this))),
@@ -508,13 +517,16 @@ void LocalStorageImpl::DeleteStorage(const url::Origin& origin,
   auto found = areas_.find(origin);
   if (found != areas_.end()) {
     // Renderer process expects |source| to always be two newline separated
-    // strings.
+    // strings. We don't bother passing an observer because this is a one-shot
+    // event and we only care about observing its completion, for which the
+    // reply alone is sufficient.
     found->second->storage_area()->DeleteAll(
-        "\n", base::BindOnce(&SuccessResponse, std::move(callback)));
+        "\n", /*new_observer=*/mojo::NullRemote(),
+        base::BindOnce(&SuccessResponse, std::move(callback)));
     found->second->storage_area()->ScheduleImmediateCommit();
   } else if (database_) {
     DeleteOrigins(
-        database_.get(), {std::move(origin)},
+        database_.get(), {origin},
         base::BindOnce([](base::OnceClosure callback,
                           leveldb::Status) { std::move(callback).Run(); },
                        std::move(callback)));
@@ -557,10 +569,11 @@ void LocalStorageImpl::Flush(FlushCallback callback) {
                                     std::move(callback)));
     return;
   }
-  for (const auto& it : areas_)
-    it.second->storage_area()->ScheduleImmediateCommit();
 
-  std::move(callback).Run();
+  base::RepeatingClosure commit_callback = base::BarrierClosure(
+      base::saturated_cast<int>(areas_.size()), std::move(callback));
+  for (const auto& it : areas_)
+    it.second->storage_area()->ScheduleImmediateCommit(commit_callback);
 }
 
 void LocalStorageImpl::FlushOriginForTesting(const url::Origin& origin) {

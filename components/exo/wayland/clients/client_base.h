@@ -25,6 +25,8 @@
 #endif  // defined(USE_VULKAN)
 #endif  // defined(USE_GBM)
 
+class GrDirectContext;
+
 namespace base {
 class CommandLine;
 }
@@ -48,6 +50,7 @@ class ClientBase {
     size_t height = 256;
     int scale = 1;
     int transform = WL_OUTPUT_TRANSFORM_NORMAL;
+    bool has_transform = false;
     bool fullscreen = false;
     bool transparent_background = false;
     bool use_drm = false;
@@ -57,6 +60,7 @@ class ClientBase {
     bool y_invert = false;
     bool allocate_buffers_with_output_mode = false;
     bool use_fullscreen_shell = false;
+    bool use_memfd = false;
     bool use_touch = false;
     bool use_vulkan = false;
   };
@@ -103,7 +107,7 @@ class ClientBase {
 #endif  // defined(USE_GBM)
     std::unique_ptr<zwp_linux_buffer_params_v1> params;
     std::unique_ptr<wl_shm_pool> shm_pool;
-    base::WritableSharedMemoryMapping shared_memory_mapping;
+    base::SharedMemoryMapping shared_memory_mapping;
     sk_sp<SkSurface> sk_surface;
   };
 
@@ -112,9 +116,12 @@ class ClientBase {
  protected:
   ClientBase();
   virtual ~ClientBase();
-  std::unique_ptr<Buffer> CreateBuffer(const gfx::Size& size,
-                                       int32_t drm_format,
-                                       int32_t bo_usage);
+  std::unique_ptr<Buffer> CreateBuffer(
+      const gfx::Size& size,
+      int32_t drm_format,
+      int32_t bo_usage,
+      wl_buffer_listener* buffer_listener = nullptr,
+      void* data = nullptr);
   std::unique_ptr<Buffer> CreateDrmBuffer(const gfx::Size& size,
                                           int32_t drm_format,
                                           int32_t bo_usage,
@@ -178,8 +185,10 @@ class ClientBase {
   gfx::Size size_ = gfx::Size(256, 256);
   int scale_ = 1;
   int transform_ = WL_OUTPUT_TRANSFORM_NORMAL;
+  bool has_transform_ = false;
   gfx::Size surface_size_ = gfx::Size(256, 256);
   bool fullscreen_ = false;
+  bool use_memfd_ = false;
   bool transparent_background_ = false;
   bool y_invert_ = false;
 
@@ -205,7 +214,7 @@ class ClientBase {
   std::unique_ptr<ui::ScopedMakeCurrent> make_current_;
   unsigned egl_sync_type_ = 0;
   std::vector<std::unique_ptr<Buffer>> buffers_;
-  sk_sp<GrContext> gr_context_;
+  sk_sp<GrDirectContext> gr_context_;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(ClientBase);

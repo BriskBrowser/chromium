@@ -5,6 +5,8 @@
 #include "chrome/browser/ui/extensions/hosted_app_browser_controller.h"
 
 #include "base/strings/utf_string_conversions.h"
+#include "chrome/browser/apps/app_service/app_service_proxy.h"
+#include "chrome/browser/apps/app_service/app_service_proxy_factory.h"
 #include "chrome/browser/extensions/extension_util.h"
 #include "chrome/browser/extensions/tab_helper.h"
 #include "chrome/browser/installable/installable_manager.h"
@@ -12,13 +14,10 @@
 #include "chrome/browser/ssl/security_state_tab_helper.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_window.h"
-#include "chrome/browser/ui/browser_window_state.h"
 #include "chrome/browser/ui/location_bar/location_bar.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
-#include "chrome/browser/web_applications/components/app_registrar.h"
-#include "chrome/browser/web_applications/components/install_finalizer.h"
+#include "chrome/browser/ui/web_applications/web_app_launch_utils.h"
 #include "chrome/browser/web_applications/components/web_app_helpers.h"
-#include "chrome/browser/web_applications/web_app_provider.h"
 #include "chrome/common/chrome_features.h"
 #include "chrome/common/extensions/api/url_handlers/url_handlers_parser.h"
 #include "chrome/common/extensions/manifest_handlers/app_launch_info.h"
@@ -33,6 +32,7 @@
 #include "content/public/common/web_preferences.h"
 #include "extensions/browser/extension_registry.h"
 #include "extensions/browser/extension_system.h"
+#include "extensions/browser/management_policy.h"
 #include "extensions/common/constants.h"
 #include "extensions/common/extension.h"
 #include "third_party/blink/public/mojom/manifest/display_mode.mojom.h"
@@ -56,67 +56,41 @@ bool IsSameHostAndPort(const GURL& app_url, const GURL& page_url) {
 
 }  // namespace
 
-// static
-void HostedAppBrowserController::SetAppPrefsForWebContents(
-    web_app::AppBrowserController* controller,
-    content::WebContents* web_contents) {
-  web_contents->GetMutableRendererPrefs()->can_accept_load_drops = false;
-  web_contents->SyncRendererPrefs();
-
-  if (!controller)
-    return;
-
-  // All hosted apps should specify an app ID.
-  DCHECK(controller->HasAppId());
-  extensions::TabHelper::FromWebContents(web_contents)
-      ->SetExtensionApp(ExtensionRegistry::Get(controller->browser()->profile())
-                            ->GetExtensionById(controller->GetAppId(),
-                                               ExtensionRegistry::EVERYTHING));
-
-  web_contents->NotifyPreferencesChanged();
-}
-
-// static
-void HostedAppBrowserController::ClearAppPrefsForWebContents(
-    content::WebContents* web_contents) {
-  web_contents->GetMutableRendererPrefs()->can_accept_load_drops = true;
-  web_contents->SyncRendererPrefs();
-
-  extensions::TabHelper::FromWebContents(web_contents)
-      ->SetExtensionApp(nullptr);
-
-  web_contents->NotifyPreferencesChanged();
-}
-
 HostedAppBrowserController::HostedAppBrowserController(Browser* browser)
     : AppBrowserController(
           browser,
-          web_app::GetAppIdFromApplicationName(browser->app_name())),
-      // If a bookmark app has a URL handler, then it is a PWA.
-      // TODO(https://crbug.com/774918): Replace once there is a more explicit
-      // indicator of a Bookmark App for an installable website.
-      created_for_installed_pwa_(UrlHandlers::GetUrlHandlers(GetExtension())) {}
+          web_app::GetAppIdFromApplicationName(browser->app_name())) {
+  DCHECK(!GetExtension() || !GetExtension()->from_bookmark());
+}
 
 HostedAppBrowserController::~HostedAppBrowserController() = default;
 
-bool HostedAppBrowserController::CreatedForInstalledPwa() const {
-  return created_for_installed_pwa_;
-}
-
 bool HostedAppBrowserController::HasMinimalUiButtons() const {
-  const Extension* extension = GetExtension();
-  if (!extension || !extension->from_bookmark())
-    return false;
-
-  return web_app::WebAppProvider::Get(browser()->profile())
-             ->registrar()
-             .GetAppEffectiveDisplayMode(GetAppId()) ==
-         blink::mojom::DisplayMode::kMinimalUi;
+  return false;
 }
 
 gfx::ImageSkia HostedAppBrowserController::GetWindowAppIcon() const {
   // TODO(calamity): Use the app name to retrieve the app icon without using the
   // extensions tab helper to make icon load more immediate.
+#if defined(OS_CHROMEOS)
+  if (base::FeatureList::IsEnabled(features::kAppServiceAdaptiveIcon) &&
+      apps::AppServiceProxyFactory::IsAppServiceAvailableForProfile(
+          browser()->profile())) {
+    if (!app_icon_.isNull())
+      return app_icon_;
+
+    const Extension* extension = GetExtension();
+    if (extension &&
+        apps::AppServiceProxyFactory::GetForProfile(browser()->profile())
+                ->AppRegistryCache()
+                .GetAppType(extension->id()) !=
+            apps::mojom::AppType::kUnknown) {
+      LoadAppIcon(true /* allow_placeholder_icon */);
+      return GetFallbackAppIcon();
+    }
+  }
+#endif
+
   content::WebContents* contents =
       browser()->tab_strip_model()->GetActiveWebContents();
   if (!contents)
@@ -199,26 +173,29 @@ const Extension* HostedAppBrowserController::GetExtension() const {
       ->GetExtensionById(GetAppId(), ExtensionRegistry::EVERYTHING);
 }
 
-const Extension* HostedAppBrowserController::GetExtensionForTesting() const {
-  return GetExtension();
-}
-
-std::string HostedAppBrowserController::GetAppShortName() const {
+base::string16 HostedAppBrowserController::GetAppShortName() const {
   const Extension* extension = GetExtension();
-  return extension ? extension->short_name() : std::string();
+  return extension ? base::UTF8ToUTF16(extension->short_name())
+                   : base::string16();
 }
 
 base::string16 HostedAppBrowserController::GetFormattedUrlOrigin() const {
-  return FormatUrlOrigin(AppLaunchInfo::GetLaunchWebURL(GetExtension()));
+  const Extension* extension = GetExtension();
+  return extension ? FormatUrlOrigin(AppLaunchInfo::GetLaunchWebURL(extension))
+                   : base::string16();
 }
 
 bool HostedAppBrowserController::CanUninstall() const {
   if (uninstall_dialog_)
     return false;
 
-  return web_app::WebAppProvider::Get(browser()->profile())
-      ->install_finalizer()
-      .CanUserUninstallExternalApp(GetAppId());
+  const Extension* extension = GetExtension();
+  if (!extension)
+    return false;
+
+  return extensions::ExtensionSystem::Get(browser()->profile())
+      ->management_policy()
+      ->UserMayModifySettings(extension, nullptr);
 }
 
 void HostedAppBrowserController::Uninstall() {
@@ -253,33 +230,42 @@ void HostedAppBrowserController::OnExtensionUninstallDialogClosed(
   uninstall_dialog_.reset();
 }
 
-void HostedAppBrowserController::OnReceivedInitialURL() {
-  UpdateCustomTabBarVisibility(false);
-
-  // If the window bounds have not been overridden, there is no need to resize
-  // the window.
-  if (!browser()->bounds_overridden())
-    return;
-
-  // The saved bounds will only be wrong if they are content bounds.
-  if (!chrome::SavedBoundsAreContentBounds(browser()))
-    return;
-
-  // TODO(crbug.com/964825): Correctly set the window size at creation time.
-  // This is currently not possible because the current url is not easily known
-  // at popup construction time.
-  browser()->window()->SetContentsSize(browser()->override_bounds().size());
-}
-
 void HostedAppBrowserController::OnTabInserted(content::WebContents* contents) {
   AppBrowserController::OnTabInserted(contents);
-  extensions::HostedAppBrowserController::SetAppPrefsForWebContents(this,
-                                                                    contents);
+
+  const Extension* extension = GetExtension();
+  if (extension && extension->from_bookmark())
+    extension = nullptr;
+  extensions::TabHelper::FromWebContents(contents)->SetExtensionApp(extension);
+  web_app::SetAppPrefsForWebContents(contents);
 }
 
 void HostedAppBrowserController::OnTabRemoved(content::WebContents* contents) {
   AppBrowserController::OnTabRemoved(contents);
-  extensions::HostedAppBrowserController::ClearAppPrefsForWebContents(contents);
+
+  extensions::TabHelper::FromWebContents(contents)->SetExtensionApp(nullptr);
+  web_app::ClearAppPrefsForWebContents(contents);
+}
+
+void HostedAppBrowserController::LoadAppIcon(
+    bool allow_placeholder_icon) const {
+  apps::AppServiceProxyFactory::GetForProfile(browser()->profile())
+      ->LoadIcon(apps::mojom::AppType::kExtension, GetExtension()->id(),
+                 apps::mojom::IconType::kStandard,
+                 extension_misc::EXTENSION_ICON_SMALL, allow_placeholder_icon,
+                 base::BindOnce(&HostedAppBrowserController::OnLoadIcon,
+                                weak_ptr_factory_.GetWeakPtr()));
+}
+
+void HostedAppBrowserController::OnLoadIcon(
+    apps::mojom::IconValuePtr icon_value) {
+  if (icon_value->icon_type != apps::mojom::IconType::kStandard)
+    return;
+
+  app_icon_ = icon_value->uncompressed;
+
+  if (icon_value->is_placeholder_icon)
+    LoadAppIcon(false /* allow_placeholder_icon */);
 }
 
 }  // namespace extensions

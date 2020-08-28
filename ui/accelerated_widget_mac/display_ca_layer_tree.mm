@@ -8,9 +8,9 @@
 #include <IOSurface/IOSurface.h>
 
 #include "base/debug/dump_without_crashing.h"
+#include "base/logging.h"
 #include "base/mac/mac_util.h"
 #include "base/mac/scoped_cftyperef.h"
-#include "base/mac/sdk_forward_declarations.h"
 #include "base/trace_event/trace_event.h"
 #include "ui/base/cocoa/animation_utils.h"
 #include "ui/base/cocoa/remote_layer_api.h"

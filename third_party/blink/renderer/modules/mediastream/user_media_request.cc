@@ -38,15 +38,14 @@
 #include "third_party/blink/public/mojom/feature_policy/feature_policy.mojom-blink.h"
 #include "third_party/blink/public/platform/modules/webrtc/webrtc_logging.h"
 #include "third_party/blink/renderer/bindings/core/v8/dictionary.h"
-#include "third_party/blink/renderer/core/dom/document.h"
+#include "third_party/blink/renderer/bindings/modules/v8/v8_media_stream_constraints.h"
+#include "third_party/blink/renderer/bindings/modules/v8/v8_media_track_constraints.h"
 #include "third_party/blink/renderer/core/dom/dom_exception.h"
 #include "third_party/blink/renderer/core/dom/space_split_string.h"
 #include "third_party/blink/renderer/core/frame/deprecation.h"
-#include "third_party/blink/renderer/core/frame/hosts_using_features.h"
+#include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/modules/mediastream/media_constraints_impl.h"
 #include "third_party/blink/renderer/modules/mediastream/media_stream.h"
-#include "third_party/blink/renderer/modules/mediastream/media_stream_constraints.h"
-#include "third_party/blink/renderer/modules/mediastream/media_track_constraints.h"
 #include "third_party/blink/renderer/modules/mediastream/overconstrained_error.h"
 #include "third_party/blink/renderer/modules/mediastream/user_media_controller.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
@@ -305,7 +304,7 @@ class UserMediaRequest::V8Callbacks final : public UserMediaRequest::Callbacks {
       : success_callback_(success_callback), error_callback_(error_callback) {}
   ~V8Callbacks() override = default;
 
-  void Trace(blink::Visitor* visitor) override {
+  void Trace(Visitor* visitor) const override {
     visitor->Trace(success_callback_);
     visitor->Trace(error_callback_);
     UserMediaRequest::Callbacks::Trace(visitor);
@@ -328,7 +327,7 @@ class UserMediaRequest::V8Callbacks final : public UserMediaRequest::Callbacks {
 UserMediaRequest* UserMediaRequest::Create(
     ExecutionContext* context,
     UserMediaController* controller,
-    WebUserMediaRequest::MediaType media_type,
+    UserMediaRequest::MediaType media_type,
     const MediaStreamConstraints* options,
     Callbacks* callbacks,
     MediaErrorState& error_state) {
@@ -340,7 +339,7 @@ UserMediaRequest* UserMediaRequest::Create(
   if (error_state.HadException())
     return nullptr;
 
-  if (media_type == WebUserMediaRequest::MediaType::kDisplayMedia) {
+  if (media_type == UserMediaRequest::MediaType::kDisplayMedia) {
     // https://w3c.github.io/mediacapture-screen-share/#mediadevices-additions
     // MediaDevices Additions
     // The user agent MUST reject audio-only requests.
@@ -407,7 +406,7 @@ UserMediaRequest* UserMediaRequest::Create(
     V8NavigatorUserMediaErrorCallback* error_callback,
     MediaErrorState& error_state) {
   return Create(
-      context, controller, WebUserMediaRequest::MediaType::kUserMedia, options,
+      context, controller, UserMediaRequest::MediaType::kUserMedia, options,
       MakeGarbageCollected<V8Callbacks>(success_callback, error_callback),
       error_state);
 }
@@ -416,17 +415,17 @@ UserMediaRequest* UserMediaRequest::CreateForTesting(
     const MediaConstraints& audio,
     const MediaConstraints& video) {
   return MakeGarbageCollected<UserMediaRequest>(
-      nullptr, nullptr, WebUserMediaRequest::MediaType::kUserMedia, audio,
-      video, nullptr);
+      nullptr, nullptr, UserMediaRequest::MediaType::kUserMedia, audio, video,
+      nullptr);
 }
 
 UserMediaRequest::UserMediaRequest(ExecutionContext* context,
                                    UserMediaController* controller,
-                                   WebUserMediaRequest::MediaType media_type,
+                                   UserMediaRequest::MediaType media_type,
                                    MediaConstraints audio,
                                    MediaConstraints video,
                                    Callbacks* callbacks)
-    : ContextLifecycleObserver(context),
+    : ExecutionContextLifecycleObserver(context),
       media_type_(media_type),
       audio_(audio),
       video_(video),
@@ -443,7 +442,7 @@ UserMediaRequest::UserMediaRequest(ExecutionContext* context,
 
 UserMediaRequest::~UserMediaRequest() = default;
 
-WebUserMediaRequest::MediaType UserMediaRequest::MediaRequestType() const {
+UserMediaRequest::MediaType UserMediaRequest::MediaRequestType() const {
   return media_type_;
 }
 
@@ -468,47 +467,44 @@ bool UserMediaRequest::ShouldDisableHardwareNoiseSuppression() const {
 }
 
 bool UserMediaRequest::IsSecureContextUse(String& error_message) {
-  Document* document = OwnerDocument();
+  LocalDOMWindow* window = GetWindow();
 
-  if (document->IsSecureContext(error_message)) {
-    UseCounter::Count(document, WebFeature::kGetUserMediaSecureOrigin);
-    document->CountUseOnlyInCrossOriginIframe(
+  if (window->IsSecureContext(error_message)) {
+    UseCounter::Count(window, WebFeature::kGetUserMediaSecureOrigin);
+    window->CountUseOnlyInCrossOriginIframe(
         WebFeature::kGetUserMediaSecureOriginIframe);
 
     // Feature policy deprecation messages.
     if (Audio()) {
-      if (!document->IsFeatureEnabled(mojom::FeaturePolicyFeature::kMicrophone,
-                                      ReportOptions::kReportOnFailure)) {
+      if (!window->IsFeatureEnabled(
+              mojom::blink::FeaturePolicyFeature::kMicrophone,
+              ReportOptions::kReportOnFailure)) {
         UseCounter::Count(
-            document, WebFeature::kMicrophoneDisabledByFeaturePolicyEstimate);
+            window, WebFeature::kMicrophoneDisabledByFeaturePolicyEstimate);
       }
     }
     if (Video()) {
-      if (!document->IsFeatureEnabled(mojom::FeaturePolicyFeature::kCamera,
-                                      ReportOptions::kReportOnFailure)) {
-        UseCounter::Count(document,
+      if (!window->IsFeatureEnabled(mojom::blink::FeaturePolicyFeature::kCamera,
+                                    ReportOptions::kReportOnFailure)) {
+        UseCounter::Count(window,
                           WebFeature::kCameraDisabledByFeaturePolicyEstimate);
       }
     }
 
-    HostsUsingFeatures::CountAnyWorld(
-        *document, HostsUsingFeatures::Feature::kGetUserMediaSecureHost);
     return true;
   }
 
   // While getUserMedia is blocked on insecure origins, we still want to
   // count attempts to use it.
-  Deprecation::CountDeprecation(document,
+  Deprecation::CountDeprecation(window,
                                 WebFeature::kGetUserMediaInsecureOrigin);
   Deprecation::CountDeprecationCrossOriginIframe(
-      *document, WebFeature::kGetUserMediaInsecureOriginIframe);
-  HostsUsingFeatures::CountAnyWorld(
-      *document, HostsUsingFeatures::Feature::kGetUserMediaInsecureHost);
+      window, WebFeature::kGetUserMediaInsecureOriginIframe);
   return false;
 }
 
-Document* UserMediaRequest::OwnerDocument() {
-  return To<Document>(GetExecutionContext());
+LocalDOMWindow* UserMediaRequest::GetWindow() {
+  return To<LocalDOMWindow>(GetExecutionContext());
 }
 
 void UserMediaRequest::Start() {
@@ -521,20 +517,21 @@ void UserMediaRequest::Succeed(MediaStreamDescriptor* stream_descriptor) {
   if (!GetExecutionContext())
     return;
 
-  MediaStream* stream =
-      MediaStream::Create(GetExecutionContext(), stream_descriptor);
+  MediaStream::Create(GetExecutionContext(), stream_descriptor,
+                      WTF::Bind(&UserMediaRequest::OnMediaStreamInitialized,
+                                WrapPersistent(this)));
+}
+
+void UserMediaRequest::OnMediaStreamInitialized(MediaStream* stream) {
+  DCHECK(!is_resolved_);
 
   MediaStreamTrackVector audio_tracks = stream->getAudioTracks();
-  for (MediaStreamTrackVector::iterator iter = audio_tracks.begin();
-       iter != audio_tracks.end(); ++iter) {
-    (*iter)->SetConstraints(audio_);
-  }
+  for (const auto& audio_track : audio_tracks)
+    audio_track->SetConstraints(audio_);
 
   MediaStreamTrackVector video_tracks = stream->getVideoTracks();
-  for (MediaStreamTrackVector::iterator iter = video_tracks.begin();
-       iter != video_tracks.end(); ++iter) {
-    (*iter)->SetConstraints(video_);
-  }
+  for (const auto& video_track : video_tracks)
+    video_track->SetConstraints(video_);
 
   callbacks_->OnSuccess(nullptr, stream);
   is_resolved_ = true;
@@ -552,37 +549,36 @@ void UserMediaRequest::FailConstraint(const String& constraint_name,
   is_resolved_ = true;
 }
 
-void UserMediaRequest::Fail(WebUserMediaRequest::Error name,
-                            const String& message) {
+void UserMediaRequest::Fail(Error name, const String& message) {
   DCHECK(!is_resolved_);
   if (!GetExecutionContext())
     return;
 
   DOMExceptionCode exception_code = DOMExceptionCode::kNotSupportedError;
   switch (name) {
-    case WebUserMediaRequest::Error::kPermissionDenied:
-    case WebUserMediaRequest::Error::kPermissionDismissed:
-    case WebUserMediaRequest::Error::kInvalidState:
-    case WebUserMediaRequest::Error::kFailedDueToShutdown:
-    case WebUserMediaRequest::Error::kKillSwitchOn:
-    case WebUserMediaRequest::Error::kSystemPermissionDenied:
+    case Error::kPermissionDenied:
+    case Error::kPermissionDismissed:
+    case Error::kInvalidState:
+    case Error::kFailedDueToShutdown:
+    case Error::kKillSwitchOn:
+    case Error::kSystemPermissionDenied:
       exception_code = DOMExceptionCode::kNotAllowedError;
       break;
-    case WebUserMediaRequest::Error::kDevicesNotFound:
+    case Error::kDevicesNotFound:
       exception_code = DOMExceptionCode::kNotFoundError;
       break;
-    case WebUserMediaRequest::Error::kTabCapture:
-    case WebUserMediaRequest::Error::kScreenCapture:
-    case WebUserMediaRequest::Error::kCapture:
+    case Error::kTabCapture:
+    case Error::kScreenCapture:
+    case Error::kCapture:
       exception_code = DOMExceptionCode::kAbortError;
       break;
-    case WebUserMediaRequest::Error::kTrackStart:
+    case Error::kTrackStart:
       exception_code = DOMExceptionCode::kNotReadableError;
       break;
-    case WebUserMediaRequest::Error::kNotSupported:
+    case Error::kNotSupported:
       exception_code = DOMExceptionCode::kNotSupportedError;
       break;
-    case WebUserMediaRequest::Error::kSecurityError:
+    case Error::kSecurityError:
       exception_code = DOMExceptionCode::kSecurityError;
       break;
     default:
@@ -595,7 +591,7 @@ void UserMediaRequest::Fail(WebUserMediaRequest::Error name,
   is_resolved_ = true;
 }
 
-void UserMediaRequest::ContextDestroyed(ExecutionContext*) {
+void UserMediaRequest::ContextDestroyed() {
   if (!is_resolved_)
     blink::WebRtcLogMessage("UMR::ContextDestroyed. Request not resolved.");
   if (controller_) {
@@ -616,10 +612,10 @@ void UserMediaRequest::ContextDestroyed(ExecutionContext*) {
   }
 }
 
-void UserMediaRequest::Trace(blink::Visitor* visitor) {
+void UserMediaRequest::Trace(Visitor* visitor) const {
   visitor->Trace(controller_);
   visitor->Trace(callbacks_);
-  ContextLifecycleObserver::Trace(visitor);
+  ExecutionContextLifecycleObserver::Trace(visitor);
 }
 
 }  // namespace blink

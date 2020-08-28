@@ -54,7 +54,7 @@ struct InternalApp {
 const std::vector<InternalApp>& GetInternalAppList(const Profile* profile);
 
 // Returns true if the app should only be shown as a suggestion chip.
-bool IsSuggestionChip(const std::string& app_id);
+bool IsSuggestionChip(const std::string& app_id, Profile* profile);
 
 // Returns InternalApp by |app_id|.
 // Returns nullptr if |app_id| does not correspond to an internal app.
@@ -62,24 +62,6 @@ const InternalApp* FindInternalApp(const std::string& app_id);
 
 // Returns true if |app_id| corresponds to an internal app.
 bool IsInternalApp(const std::string& app_id);
-
-// Returns the name of internal app.
-// Returns empty string if |app_id| is invalid.
-base::string16 GetInternalAppNameById(const std::string& app_id);
-
-// Returns the app's icon resource id.
-// Returns 0 if |app_id| is invalid.
-int GetIconResourceIdByAppId(const std::string& app_id);
-
-// Helper function to open internal apps.
-void OpenInternalApp(const std::string& app_id,
-                     Profile* profile,
-                     int event_flags);
-
-// Returns icon associated with the |resource_id|.
-// Returns empty ImageSkia if |resource_id| is 0;
-// |resource_size_in_dip| is the preferred size of the icon.
-gfx::ImageSkia GetIconForResourceId(int resource_id, int resource_size_in_dip);
 
 // Returns true if there is a recommendable foreign tab.
 // If |title| is not nullptr, it will be replaced with the title of the foreign

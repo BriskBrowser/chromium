@@ -46,8 +46,8 @@ class SyncEncryptionPassphraseTableViewControllerTest
 
   static std::unique_ptr<KeyedService> CreateSyncSetupService(
       web::BrowserState* context) {
-    ios::ChromeBrowserState* chrome_browser_state =
-        ios::ChromeBrowserState::FromBrowserState(context);
+    ChromeBrowserState* chrome_browser_state =
+        ChromeBrowserState::FromBrowserState(context);
     syncer::SyncService* sync_service =
         ProfileSyncServiceFactory::GetForBrowserState(chrome_browser_state);
     return std::make_unique<SyncSetupServiceMock>(sync_service);
@@ -88,7 +88,7 @@ class SyncEncryptionPassphraseTableViewControllerTest
 
   ChromeTableViewController* InstantiateController() override {
     return [[SyncEncryptionPassphraseTableViewController alloc]
-        initWithBrowserState:chrome_browser_state_.get()];
+        initWithBrowser:browser_.get()];
   }
 
   SyncEncryptionPassphraseTableViewController* SyncController() {

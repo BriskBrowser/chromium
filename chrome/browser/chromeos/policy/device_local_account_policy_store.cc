@@ -8,6 +8,7 @@
 
 #include "base/bind.h"
 #include "base/callback.h"
+#include "base/sequence_checker.h"
 #include "base/sequenced_task_runner.h"
 #include "chrome/browser/chromeos/policy/value_validation/onc_user_policy_value_validator.h"
 #include "components/ownership/owner_key_util.h"
@@ -40,13 +41,16 @@ DeviceLocalAccountPolicyStore::DeviceLocalAccountPolicyStore(
 DeviceLocalAccountPolicyStore::~DeviceLocalAccountPolicyStore() {}
 
 void DeviceLocalAccountPolicyStore::Load() {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
   // Cancel all pending requests.
   weak_factory_.InvalidateWeakPtrs();
 
   session_manager_client_->RetrieveDeviceLocalAccountPolicy(
       account_id_,
-      base::Bind(&DeviceLocalAccountPolicyStore::ValidateLoadedPolicyBlob,
-                 weak_factory_.GetWeakPtr(), true /*validate_in_background*/));
+      base::BindOnce(&DeviceLocalAccountPolicyStore::ValidateLoadedPolicyBlob,
+                     weak_factory_.GetWeakPtr(),
+                     true /*validate_in_background*/));
 }
 
 std::unique_ptr<UserCloudPolicyValidator>
@@ -60,6 +64,8 @@ DeviceLocalAccountPolicyStore::CreateValidator(
 }
 
 void DeviceLocalAccountPolicyStore::LoadImmediately() {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
   // This blocking D-Bus call is in the startup path and will block the UI
   // thread. This only happens when the Profile is created synchronously, which
   // on Chrome OS happens whenever the browser is restarted into the same
@@ -82,6 +88,8 @@ void DeviceLocalAccountPolicyStore::LoadImmediately() {
 
 void DeviceLocalAccountPolicyStore::Store(
     const em::PolicyFetchResponse& policy) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
   // Cancel all pending requests.
   weak_factory_.InvalidateWeakPtrs();
 
@@ -153,8 +161,8 @@ void DeviceLocalAccountPolicyStore::OnPolicyToStoreValidated(
 
   session_manager_client_->StoreDeviceLocalAccountPolicy(
       account_id_, policy_blob,
-      base::Bind(&DeviceLocalAccountPolicyStore::HandleStoreResult,
-                 weak_factory_.GetWeakPtr()));
+      base::BindOnce(&DeviceLocalAccountPolicyStore::HandleStoreResult,
+                     weak_factory_.GetWeakPtr()));
 }
 
 void DeviceLocalAccountPolicyStore::HandleStoreResult(bool success) {

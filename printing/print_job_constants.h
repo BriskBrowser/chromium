@@ -88,6 +88,8 @@ PRINTING_EXPORT extern const char kKCMY[];
 PRINTING_EXPORT extern const char kCMY_K[];
 PRINTING_EXPORT extern const char kCMY[];
 PRINTING_EXPORT extern const char kColor[];
+PRINTING_EXPORT extern const char kEpsonColor[];
+PRINTING_EXPORT extern const char kEpsonMono[];
 PRINTING_EXPORT extern const char kFullColor[];
 PRINTING_EXPORT extern const char kGray[];
 PRINTING_EXPORT extern const char kGrayscale[];
@@ -99,59 +101,17 @@ PRINTING_EXPORT extern const char kNormalGray[];
 PRINTING_EXPORT extern const char kRGB[];
 PRINTING_EXPORT extern const char kRGBA[];
 PRINTING_EXPORT extern const char kRGB16[];
+PRINTING_EXPORT extern const char kSharpCMColor[];
+PRINTING_EXPORT extern const char kSharpCMBW[];
+PRINTING_EXPORT extern const char kXeroxAutomatic[];
+PRINTING_EXPORT extern const char kXeroxBW[];
 #endif
-
-// Print job duplex mode values.
-enum DuplexMode {
-  UNKNOWN_DUPLEX_MODE = -1,
-  SIMPLEX,
-  LONG_EDGE,
-  SHORT_EDGE,
-};
 
 // Specifies the horizontal alignment of the headers and footers.
 enum HorizontalHeaderFooterPosition { LEFT, CENTER, RIGHT };
 
 // Specifies the vertical alignment of the Headers and Footers.
 enum VerticalHeaderFooterPosition { TOP, BOTTOM };
-
-// Print job color mode values.
-enum ColorModel {
-  UNKNOWN_COLOR_MODEL,
-  GRAY,
-  COLOR,
-  CMYK,
-  CMY,
-  KCMY,
-  CMY_K,  // CMY_K represents CMY+K.
-  BLACK,
-  GRAYSCALE,
-  RGB,
-  RGB16,
-  RGBA,
-  COLORMODE_COLOR,              // Used in Samsung printer PPDs.
-  COLORMODE_MONOCHROME,         // Used in Samsung printer PPDs.
-  HP_COLOR_COLOR,               // Used in HP color printer PPDs.
-  HP_COLOR_BLACK,               // Used in HP color printer PPDs.
-  PRINTOUTMODE_NORMAL,          // Used in Foomatic PPDs.
-  PRINTOUTMODE_NORMAL_GRAY,     // Used in Foomatic PPDs.
-  PROCESSCOLORMODEL_CMYK,       // Used in Canon printer PPDs.
-  PROCESSCOLORMODEL_GREYSCALE,  // Used in Canon printer PPDs.
-  PROCESSCOLORMODEL_RGB,        // Used in Canon printer PPDs
-  BROTHER_CUPS_COLOR,           // Used in Brother color laser printer PPDs.
-  BROTHER_CUPS_MONO,            // Used in Brother color laser printer PPDs.
-  BROTHER_BRSCRIPT3_COLOR,      // Used in Brother BRScript3 color printer PPDs.
-  BROTHER_BRSCRIPT3_BLACK,      // Used in Brother BRScript3 color printer PPDs.
-};
-
-// What kind of margins to use.
-enum MarginType {
-  DEFAULT_MARGINS,  // Default varies depending on headers being enabled or not
-  NO_MARGINS,
-  PRINTABLE_AREA_MARGINS,
-  CUSTOM_MARGINS,
-  MARGIN_TYPE_LAST = CUSTOM_MARGINS
-};
 
 // Must match print_preview.ScalingType in
 // chrome/browser/resources/print_preview/data/scaling.js
@@ -165,13 +125,7 @@ enum ScalingType {
 
 // Must match print_preview.PrinterType in
 // chrome/browser/resources/print_preview/data/destination_match.js
-enum PrinterType {
-  kPrivetPrinter,
-  kExtensionPrinter,
-  kPdfPrinter,
-  kLocalPrinter,
-  kCloudPrinter
-};
+enum class PrinterType { kPrivet, kExtension, kPdf, kLocal, kCloud };
 
 }  // namespace printing
 

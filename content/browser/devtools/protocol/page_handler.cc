@@ -14,20 +14,22 @@
 #include "base/location.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/ref_counted_memory.h"
+#include "base/numerics/safe_conversions.h"
 #include "base/process/process_handle.h"
 #include "base/single_thread_task_runner.h"
 #include "base/strings/string16.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
 #include "content/browser/child_process_security_policy_impl.h"
 #include "content/browser/devtools/devtools_agent_host_impl.h"
-#include "content/browser/devtools/protocol/devtools_download_manager_delegate.h"
-#include "content/browser/devtools/protocol/devtools_download_manager_helper.h"
+#include "content/browser/devtools/protocol/browser_handler.h"
 #include "content/browser/devtools/protocol/devtools_mhtml_helper.h"
 #include "content/browser/devtools/protocol/emulation_handler.h"
+#include "content/browser/devtools/protocol/handler_helpers.h"
 #include "content/browser/frame_host/navigation_request.h"
 #include "content/browser/frame_host/navigator.h"
 #include "content/browser/manifest/manifest_manager_host.h"
@@ -49,6 +51,7 @@
 #include "content/public/common/referrer.h"
 #include "content/public/common/result_codes.h"
 #include "content/public/common/use_zoom_for_dsf_policy.h"
+#include "net/base/filename_util.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "ui/base/page_transition_types.h"
 #include "ui/gfx/codec/jpeg_codec.h"
@@ -157,30 +160,18 @@ void GetMetadataFromFrame(const media::VideoFrame& frame,
                           double* page_scale_factor,
                           gfx::Vector2dF* root_scroll_offset,
                           double* top_controls_visible_height) {
-  // Get metadata from |frame| and ensure that no metadata is missing.
-  bool success = true;
-  double root_scroll_offset_x, root_scroll_offset_y;
-  success &= frame.metadata()->GetDouble(
-      media::VideoFrameMetadata::DEVICE_SCALE_FACTOR, device_scale_factor);
-  success &= frame.metadata()->GetDouble(
-      media::VideoFrameMetadata::PAGE_SCALE_FACTOR, page_scale_factor);
-  success &= frame.metadata()->GetDouble(
-      media::VideoFrameMetadata::ROOT_SCROLL_OFFSET_X, &root_scroll_offset_x);
-  success &= frame.metadata()->GetDouble(
-      media::VideoFrameMetadata::ROOT_SCROLL_OFFSET_Y, &root_scroll_offset_y);
-  success &= frame.metadata()->GetDouble(
-      media::VideoFrameMetadata::TOP_CONTROLS_VISIBLE_HEIGHT,
-      top_controls_visible_height);
-  DCHECK(success);
-
-  root_scroll_offset->set_x(root_scroll_offset_x);
-  root_scroll_offset->set_y(root_scroll_offset_y);
+  // Get metadata from |frame|. This will CHECK if metadata is missing.
+  *device_scale_factor = *frame.metadata()->device_scale_factor;
+  *page_scale_factor = *frame.metadata()->page_scale_factor;
+  root_scroll_offset->set_x(*frame.metadata()->root_scroll_offset_x);
+  root_scroll_offset->set_y(*frame.metadata()->root_scroll_offset_y);
+  *top_controls_visible_height = *frame.metadata()->top_controls_visible_height;
 }
 
 }  // namespace
 
 PageHandler::PageHandler(EmulationHandler* emulation_handler,
-                         bool allow_set_download_behavior,
+                         BrowserHandler* browser_handler,
                          bool allow_file_access)
     : DevToolsDomainHandler(Page::Metainfo::domainName),
       enabled_(false),
@@ -197,7 +188,7 @@ PageHandler::PageHandler(EmulationHandler* emulation_handler,
       last_surface_size_(gfx::Size()),
       host_(nullptr),
       emulation_handler_(emulation_handler),
-      allow_set_download_behavior_(allow_set_download_behavior) {
+      browser_handler_(browser_handler) {
   bool create_video_consumer = true;
 #ifdef OS_ANDROID
   // Video capture doesn't work on Android WebView. Use CopyFromSurface instead.
@@ -337,8 +328,6 @@ void PageHandler::DidCloseJavaScriptDialog(bool success,
 
 Response PageHandler::Enable() {
   enabled_ = true;
-  if (GetWebContents() && GetWebContents()->ShowingInterstitialPage())
-    frontend_->InterstitialShown();
   return Response::FallThrough();
 }
 
@@ -361,28 +350,29 @@ Response PageHandler::Disable() {
     pending_dialog_.Reset();
   }
 
-  download_manager_delegate_ = nullptr;
+  for (auto* item : pending_downloads_)
+    item->RemoveObserver(this);
   navigate_callbacks_.clear();
   return Response::FallThrough();
 }
 
 Response PageHandler::Crash() {
-  WebContentsImpl* web_contents = GetWebContents();
+  WebContents* web_contents = WebContents::FromRenderFrameHost(host_);
   if (!web_contents)
-    return Response::Error("Not attached to a page");
+    return Response::ServerError("Not attached to a page");
   if (web_contents->IsCrashed())
-    return Response::Error("The target has already crashed");
-  if (web_contents->GetMainFrame()->frame_tree_node()->navigation_request())
-    return Response::Error("Page has pending navigations, not killing");
+    return Response::ServerError("The target has already crashed");
+  if (host_->frame_tree_node()->navigation_request())
+    return Response::ServerError("Page has pending navigations, not killing");
   return Response::FallThrough();
 }
 
 Response PageHandler::Close() {
   WebContentsImpl* web_contents = GetWebContents();
   if (!web_contents)
-    return Response::Error("Not attached to a page");
+    return Response::ServerError("Not attached to a page");
   web_contents->DispatchBeforeUnload(false /* auto_cancel */);
-  return Response::OK();
+  return Response::Success();
 }
 
 void PageHandler::Reload(Maybe<bool> bypassCache,
@@ -409,14 +399,40 @@ void PageHandler::Reload(Maybe<bool> bypassCache,
                                        false);
 }
 
+static network::mojom::ReferrerPolicy ParsePolicyFromString(
+    const std::string& policy) {
+  if (policy == Page::ReferrerPolicyEnum::NoReferrer)
+    return network::mojom::ReferrerPolicy::kNever;
+  if (policy == Page::ReferrerPolicyEnum::NoReferrerWhenDowngrade)
+    return network::mojom::ReferrerPolicy::kNoReferrerWhenDowngrade;
+  if (policy == Page::ReferrerPolicyEnum::Origin)
+    return network::mojom::ReferrerPolicy::kOrigin;
+  if (policy == Page::ReferrerPolicyEnum::OriginWhenCrossOrigin)
+    return network::mojom::ReferrerPolicy::kOriginWhenCrossOrigin;
+  if (policy == Page::ReferrerPolicyEnum::SameOrigin)
+    return network::mojom::ReferrerPolicy::kSameOrigin;
+  if (policy == Page::ReferrerPolicyEnum::StrictOrigin)
+    return network::mojom::ReferrerPolicy::kStrictOrigin;
+  if (policy == Page::ReferrerPolicyEnum::StrictOriginWhenCrossOrigin) {
+    return network::mojom::ReferrerPolicy::kStrictOriginWhenCrossOrigin;
+  }
+  if (policy == Page::ReferrerPolicyEnum::UnsafeUrl)
+    return network::mojom::ReferrerPolicy::kAlways;
+
+  DCHECK(policy.empty());
+  return network::mojom::ReferrerPolicy::kDefault;
+}
+
 void PageHandler::Navigate(const std::string& url,
                            Maybe<std::string> referrer,
                            Maybe<std::string> maybe_transition_type,
                            Maybe<std::string> frame_id,
+                           Maybe<std::string> referrer_policy,
                            std::unique_ptr<NavigateCallback> callback) {
   GURL gurl(url);
   if (!gurl.is_valid()) {
-    callback->sendFailure(Response::Error("Cannot navigate to invalid URL"));
+    callback->sendFailure(
+        Response::ServerError("Cannot navigate to invalid URL"));
     return;
   }
 
@@ -455,32 +471,24 @@ void PageHandler::Navigate(const std::string& url,
   else
     type = ui::PAGE_TRANSITION_TYPED;
 
-  FrameTreeNode* frame_tree_node = nullptr;
   std::string out_frame_id = frame_id.fromMaybe(
       host_->frame_tree_node()->devtools_frame_token().ToString());
-  FrameTreeNode* root = host_->frame_tree_node();
-  if (root->devtools_frame_token().ToString() == out_frame_id) {
-    frame_tree_node = root;
-  } else {
-    for (FrameTreeNode* node : root->frame_tree()->SubtreeNodes(root)) {
-      if (node->devtools_frame_token().ToString() == out_frame_id) {
-        frame_tree_node = node;
-        break;
-      }
-    }
-  }
+  FrameTreeNode* frame_tree_node = FrameTreeNodeFromDevToolsFrameToken(
+      host_->frame_tree_node(), out_frame_id);
 
   if (!frame_tree_node) {
-    callback->sendFailure(Response::Error("No frame with given id found"));
+    callback->sendFailure(
+        Response::ServerError("No frame with given id found"));
     return;
   }
 
   NavigationController::LoadURLParams params(gurl);
-  params.referrer = Referrer(GURL(referrer.fromMaybe("")),
-                             network::mojom::ReferrerPolicy::kDefault);
+  network::mojom::ReferrerPolicy policy =
+      ParsePolicyFromString(referrer_policy.fromMaybe(""));
+  params.referrer = Referrer(GURL(referrer.fromMaybe("")), policy);
   params.transition_type = type;
   params.frame_tree_node_id = frame_tree_node->frame_tree_node_id();
-  frame_tree_node->navigator()->GetController()->LoadURLWithParams(params);
+  frame_tree_node->navigator().GetController()->LoadURLWithParams(params);
 
   base::UnguessableToken frame_token = frame_tree_node->devtools_frame_token();
   auto navigate_callback = navigate_callbacks_.find(frame_token);
@@ -515,11 +523,47 @@ void PageHandler::NavigationReset(NavigationRequest* navigation_request) {
   navigate_callbacks_.erase(navigate_callback);
 }
 
-void PageHandler::DownloadWillBegin(FrameTreeNode* ftn, const GURL& url) {
+void PageHandler::DownloadWillBegin(FrameTreeNode* ftn,
+                                    download::DownloadItem* item) {
   if (!enabled_)
     return;
+
+  // The filename the end user sees may differ. This is an attempt to eagerly
+  // determine the filename at the beginning of the download; see
+  // DownloadTargetDeterminer:DownloadTargetDeterminer::Result
+  // and DownloadTargetDeterminer::GenerateFileName in
+  // chrome/browser/download/download_target_determiner.cc
+  // for the more comprehensive logic.
+  const base::string16 likely_filename = net::GetSuggestedFilename(
+      item->GetURL(), item->GetContentDisposition(), std::string(),
+      item->GetSuggestedFilename(), item->GetMimeType(), "download");
+
   frontend_->DownloadWillBegin(ftn->devtools_frame_token().ToString(),
-                               url.spec());
+                               item->GetGuid(), item->GetURL().spec(),
+                               base::UTF16ToUTF8(likely_filename));
+
+  item->AddObserver(this);
+  pending_downloads_.insert(item);
+}
+
+void PageHandler::OnDownloadDestroyed(download::DownloadItem* item) {
+  pending_downloads_.erase(item);
+}
+
+void PageHandler::OnDownloadUpdated(download::DownloadItem* item) {
+  if (!enabled_)
+    return;
+  std::string state = Page::DownloadProgress::StateEnum::InProgress;
+  if (item->GetState() == download::DownloadItem::COMPLETE)
+    state = Page::DownloadProgress::StateEnum::Completed;
+  else if (item->GetState() == download::DownloadItem::CANCELLED)
+    state = Page::DownloadProgress::StateEnum::Canceled;
+  frontend_->DownloadProgress(item->GetGuid(), item->GetTotalBytes(),
+                              item->GetReceivedBytes(), state);
+  if (state != Page::DownloadProgress::StateEnum::InProgress) {
+    item->RemoveObserver(this);
+    pending_downloads_.erase(item);
+  }
 }
 
 static const char* TransitionTypeName(ui::PageTransition type) {
@@ -573,7 +617,7 @@ Response PageHandler::GetNavigationHistory(
             .SetTransitionType(TransitionTypeName(entry->GetTransitionType()))
             .Build());
   }
-  return Response::OK();
+  return Response::Success();
 }
 
 Response PageHandler::NavigateToHistoryEntry(int entry_id) {
@@ -585,7 +629,7 @@ Response PageHandler::NavigateToHistoryEntry(int entry_id) {
   for (int i = 0; i != controller.GetEntryCount(); ++i) {
     if (controller.GetEntryAtIndex(i)->GetUniqueID() == entry_id) {
       controller.GoToIndex(i);
-      return Response::OK();
+      return Response::Success();
     }
   }
 
@@ -603,7 +647,7 @@ Response PageHandler::ResetNavigationHistory() {
 
   NavigationController& controller = web_contents->GetController();
   controller.DeleteNavigationEntries(base::BindRepeating(&ReturnTrue));
-  return Response::OK();
+  return Response::Success();
 }
 
 void PageHandler::CaptureSnapshot(
@@ -611,7 +655,7 @@ void PageHandler::CaptureSnapshot(
     std::unique_ptr<CaptureSnapshotCallback> callback) {
   std::string snapshot_format = format.fromMaybe(kMhtml);
   if (snapshot_format != kMhtml) {
-    callback->sendFailure(Response::Error("Unsupported snapshot format"));
+    callback->sendFailure(Response::ServerError("Unsupported snapshot format"));
     return;
   }
   DevToolsMHTMLHelper::Capture(weak_factory_.GetWeakPtr(), std::move(callback));
@@ -631,12 +675,12 @@ void PageHandler::CaptureScreenshot(
   if (clip.isJust()) {
     if (clip.fromJust()->GetWidth() == 0) {
       callback->sendFailure(
-          Response::Error("Cannot take screenshot with 0 width."));
+          Response::ServerError("Cannot take screenshot with 0 width."));
       return;
     }
     if (clip.fromJust()->GetHeight() == 0) {
       callback->sendFailure(
-          Response::Error("Cannot take screenshot with 0 height."));
+          Response::ServerError("Cannot take screenshot with 0 height."));
       return;
     }
   }
@@ -649,10 +693,9 @@ void PageHandler::CaptureScreenshot(
   if (!from_surface.fromMaybe(true)) {
     widget_host->GetSnapshotFromBrowser(
         base::BindOnce(&PageHandler::ScreenshotCaptured,
-                       weak_factory_.GetWeakPtr(),
-                       base::Passed(std::move(callback)), screenshot_format,
-                       screenshot_quality, gfx::Size(), gfx::Size(),
-                       blink::WebDeviceEmulationParams()),
+                       weak_factory_.GetWeakPtr(), std::move(callback),
+                       screenshot_format, screenshot_quality, gfx::Size(),
+                       gfx::Size(), blink::DeviceEmulationParams()),
         false);
     return;
   }
@@ -660,9 +703,9 @@ void PageHandler::CaptureScreenshot(
   // Welcome to the neural net of capturing screenshot while emulating device
   // metrics!
   bool emulation_enabled = emulation_handler_->device_emulation_enabled();
-  blink::WebDeviceEmulationParams original_params =
+  blink::DeviceEmulationParams original_params =
       emulation_handler_->GetDeviceEmulationParams();
-  blink::WebDeviceEmulationParams modified_params = original_params;
+  blink::DeviceEmulationParams modified_params = original_params;
 
   // Capture original view size if we know we are going to destroy it. We use
   // it in ScreenshotCaptured to restore.
@@ -673,38 +716,34 @@ void PageHandler::CaptureScreenshot(
   gfx::Size emulated_view_size = modified_params.view_size;
 
   double dpfactor = 1;
-  ScreenInfo screen_info;
-  widget_host->GetScreenInfo(&screen_info);
+  float widget_host_device_scale_factor = widget_host->GetDeviceScaleFactor();
   if (emulation_enabled) {
     // When emulating, emulate again and scale to make resulting image match
     // physical DP resolution. If view_size is not overriden, use actual view
     // size.
     float original_scale =
         original_params.scale > 0 ? original_params.scale : 1;
-    if (!modified_params.view_size.width) {
+    if (!modified_params.view_size.width()) {
       emulated_view_size.set_width(
           ceil(original_view_size.width() / original_scale));
     }
-    if (!modified_params.view_size.height) {
+    if (!modified_params.view_size.height()) {
       emulated_view_size.set_height(
           ceil(original_view_size.height() / original_scale));
     }
 
     dpfactor = modified_params.device_scale_factor
                    ? modified_params.device_scale_factor /
-                         screen_info.device_scale_factor
+                         widget_host_device_scale_factor
                    : 1;
     // When clip is specified, we scale viewport via clip, otherwise we use
     // scale.
     modified_params.scale = clip.isJust() ? 1 : dpfactor;
-    modified_params.view_size.width = emulated_view_size.width();
-    modified_params.view_size.height = emulated_view_size.height();
+    modified_params.view_size = emulated_view_size;
   } else if (clip.isJust()) {
     // When not emulating, still need to emulate the page size.
-    modified_params.view_size.width = original_view_size.width();
-    modified_params.view_size.height = original_view_size.height();
-    modified_params.screen_size.width = 0;
-    modified_params.screen_size.height = 0;
+    modified_params.view_size = original_view_size;
+    modified_params.screen_size = gfx::Size();
     modified_params.device_scale_factor = 0;
     modified_params.scale = 1;
   }
@@ -715,19 +754,19 @@ void PageHandler::CaptureScreenshot(
                                              clip.fromJust()->GetY());
     modified_params.viewport_scale = clip.fromJust()->GetScale() * dpfactor;
     if (IsUseZoomForDSFEnabled()) {
-      modified_params.viewport_offset.Scale(screen_info.device_scale_factor);
+      modified_params.viewport_offset.Scale(widget_host_device_scale_factor);
     }
   }
 
-  // We use WebDeviceEmulationParams to either emulate, set viewport or both.
+  // We use DeviceEmulationParams to either emulate, set viewport or both.
   emulation_handler_->SetDeviceEmulationParams(modified_params);
 
   // Set view size for the screenshot right after emulating.
   if (clip.isJust()) {
     double scale = dpfactor * clip.fromJust()->GetScale();
     widget_host->GetView()->SetSize(
-        gfx::Size(gfx::ToRoundedInt(clip.fromJust()->GetWidth() * scale),
-                  gfx::ToRoundedInt(clip.fromJust()->GetHeight() * scale)));
+        gfx::Size(base::ClampRound(clip.fromJust()->GetWidth() * scale),
+                  base::ClampRound(clip.fromJust()->GetHeight() * scale)));
   } else if (emulation_enabled) {
     widget_host->GetView()->SetSize(
         gfx::ScaleToFlooredSize(emulated_view_size, dpfactor));
@@ -741,7 +780,7 @@ void PageHandler::CaptureScreenshot(
       requested_image_size = emulated_view_size;
     }
     double scale = emulation_enabled ? original_params.device_scale_factor
-                                     : screen_info.device_scale_factor;
+                                     : widget_host_device_scale_factor;
     if (clip.isJust())
       scale *= clip.fromJust()->GetScale();
     requested_image_size = gfx::ScaleToRoundedSize(requested_image_size, scale);
@@ -749,9 +788,8 @@ void PageHandler::CaptureScreenshot(
 
   widget_host->GetSnapshotFromBrowser(
       base::BindOnce(&PageHandler::ScreenshotCaptured,
-                     weak_factory_.GetWeakPtr(),
-                     base::Passed(std::move(callback)), screenshot_format,
-                     screenshot_quality, original_view_size,
+                     weak_factory_.GetWeakPtr(), std::move(callback),
+                     screenshot_format, screenshot_quality, original_view_size,
                      requested_image_size, original_params),
       true);
 }
@@ -773,7 +811,7 @@ void PageHandler::PrintToPDF(Maybe<bool> landscape,
                              Maybe<bool> prefer_css_page_size,
                              Maybe<String> transfer_mode,
                              std::unique_ptr<PrintToPDFCallback> callback) {
-  callback->sendFailure(Response::Error("PrintToPDF is not implemented"));
+  callback->sendFailure(Response::ServerError("PrintToPDF is not implemented"));
   return;
 }
 
@@ -828,8 +866,7 @@ Response PageHandler::StartScreencast(Maybe<std::string> format,
   if (frame_metadata_) {
     InnerSwapCompositorFrame();
   } else {
-    widget_host->Send(
-        new WidgetMsg_ForceRedraw(widget_host->GetRoutingID(), 0));
+    widget_host->RequestForceRedraw(0);
   }
   return Response::FallThrough();
 }
@@ -844,7 +881,7 @@ Response PageHandler::StopScreencast() {
 Response PageHandler::ScreencastFrameAck(int session_id) {
   if (session_id == session_id_)
     --frames_in_flight_;
-  return Response::OK();
+  return Response::Success();
 }
 
 Response PageHandler::HandleJavaScriptDialog(bool accept,
@@ -872,7 +909,7 @@ Response PageHandler::HandleJavaScriptDialog(bool accept,
     }
   }
 
-  return Response::OK();
+  return Response::Success();
 }
 
 Response PageHandler::BringToFront() {
@@ -880,65 +917,31 @@ Response PageHandler::BringToFront() {
   if (wc) {
     wc->Activate();
     wc->Focus();
-    return Response::OK();
+    return Response::Success();
   }
   return Response::InternalError();
 }
 
 Response PageHandler::SetDownloadBehavior(const std::string& behavior,
                                           Maybe<std::string> download_path) {
-  if (!allow_set_download_behavior_)
-    return Response::Error("Not allowed");
-
-  WebContentsImpl* web_contents = GetWebContents();
-  if (!web_contents)
-    return Response::InternalError();
-
-  if (behavior == Page::SetDownloadBehavior::BehaviorEnum::Allow &&
-      !download_path.isJust())
-    return Response::Error("downloadPath not provided");
-
-  if (behavior == Page::SetDownloadBehavior::BehaviorEnum::Default) {
-    DevToolsDownloadManagerHelper::RemoveFromWebContents(web_contents);
-    download_manager_delegate_ = nullptr;
-    return Response::OK();
-  }
-
-  // Override download manager delegate.
-  content::BrowserContext* browser_context = web_contents->GetBrowserContext();
-  DCHECK(browser_context);
-  content::DownloadManager* download_manager =
-      content::BrowserContext::GetDownloadManager(browser_context);
-  download_manager_delegate_ =
-      DevToolsDownloadManagerDelegate::TakeOver(download_manager);
-
-  // Ensure that there is one helper attached. If there's already one, we reuse
-  // it.
-  DevToolsDownloadManagerHelper::CreateForWebContents(web_contents);
-  DevToolsDownloadManagerHelper* download_helper =
-      DevToolsDownloadManagerHelper::FromWebContents(web_contents);
-
-  download_helper->SetDownloadBehavior(
-      DevToolsDownloadManagerHelper::DownloadBehavior::DENY);
-  if (behavior == Page::SetDownloadBehavior::BehaviorEnum::Allow) {
-    download_helper->SetDownloadBehavior(
-        DevToolsDownloadManagerHelper::DownloadBehavior::ALLOW);
-    download_helper->SetDownloadPath(download_path.fromJust());
-  }
-
-  return Response::OK();
+  BrowserContext* browser_context =
+      host_ ? host_->GetProcess()->GetBrowserContext() : nullptr;
+  if (!browser_context)
+    return Response::ServerError("Could not fetch browser context");
+  return browser_handler_->DoSetDownloadBehavior(behavior, browser_context,
+                                                 std::move(download_path));
 }
 
 void PageHandler::GetAppManifest(
     std::unique_ptr<GetAppManifestCallback> callback) {
-  WebContentsImpl* web_contents = GetWebContents();
-  if (!web_contents || !web_contents->GetManifestManagerHost()) {
-    callback->sendFailure(Response::Error("Cannot retrieve manifest"));
+  if (!host_) {
+    callback->sendFailure(Response::ServerError("Cannot retrieve manifest"));
     return;
   }
-  web_contents->GetManifestManagerHost()->RequestManifestDebugInfo(
-      base::BindOnce(&PageHandler::GotManifest, weak_factory_.GetWeakPtr(),
-                     std::move(callback)));
+  ManifestManagerHost::GetOrCreateForCurrentDocument(host_->GetMainFrame())
+      ->RequestManifestDebugInfo(base::BindOnce(&PageHandler::GotManifest,
+                                                weak_factory_.GetWeakPtr(),
+                                                std::move(callback)));
 }
 
 WebContentsImpl* PageHandler::GetWebContents() {
@@ -1054,9 +1057,8 @@ void PageHandler::ScreencastFrameCaptured(
     --frames_in_flight_;
     return;
   }
-  base::PostTaskAndReplyWithResult(
-      FROM_HERE,
-      {base::ThreadPool(), base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN},
+  base::ThreadPool::PostTaskAndReplyWithResult(
+      FROM_HERE, {base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN},
       base::BindOnce(&EncodeSkBitmap, bitmap, screencast_format_,
                      screencast_quality_),
       base::BindOnce(&PageHandler::ScreencastFrameEncoded,
@@ -1080,7 +1082,7 @@ void PageHandler::ScreenshotCaptured(
     int quality,
     const gfx::Size& original_view_size,
     const gfx::Size& requested_image_size,
-    const blink::WebDeviceEmulationParams& original_emulation_params,
+    const blink::DeviceEmulationParams& original_emulation_params,
     const gfx::Image& image) {
   if (original_view_size.width()) {
     RenderWidgetHostImpl* widget_host = host_->GetRenderWidgetHost();
@@ -1089,7 +1091,8 @@ void PageHandler::ScreenshotCaptured(
   }
 
   if (image.IsEmpty()) {
-    callback->sendFailure(Response::Error("Unable to capture screenshot"));
+    callback->sendFailure(
+        Response::ServerError("Unable to capture screenshot"));
     return;
   }
 
@@ -1145,33 +1148,34 @@ Response PageHandler::StopLoading() {
   if (!web_contents)
     return Response::InternalError();
   web_contents->Stop();
-  return Response::OK();
+  return Response::Success();
 }
 
 Response PageHandler::SetWebLifecycleState(const std::string& state) {
   WebContentsImpl* web_contents = GetWebContents();
   if (!web_contents)
-    return Response::Error("Not attached to a page");
+    return Response::ServerError("Not attached to a page");
   if (state == Page::SetWebLifecycleState::StateEnum::Frozen) {
     // TODO(fmeawad): Instead of forcing a visibility change, only allow
     // freezing a page if it was already hidden.
     web_contents->WasHidden();
     web_contents->SetPageFrozen(true);
-    return Response::OK();
+    return Response::Success();
   }
   if (state == Page::SetWebLifecycleState::StateEnum::Active) {
     web_contents->SetPageFrozen(false);
-    return Response::OK();
+    return Response::Success();
   }
-  return Response::Error("Unidentified lifecycle state");
+  return Response::ServerError("Unidentified lifecycle state");
 }
 
 void PageHandler::GetInstallabilityErrors(
     std::unique_ptr<GetInstallabilityErrorsCallback> callback) {
-  auto errors = std::make_unique<protocol::Array<std::string>>();
+  auto installability_errors =
+      std::make_unique<protocol::Array<Page::InstallabilityError>>();
   // TODO: Use InstallableManager once it moves into content/.
   // Until then, this code is only used to return empty array in the tests.
-  callback->sendSuccess(std::move(errors));
+  callback->sendSuccess(std::move(installability_errors));
 }
 
 void PageHandler::GetManifestIcons(

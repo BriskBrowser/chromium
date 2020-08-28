@@ -15,6 +15,7 @@
 #include "base/synchronization/atomic_flag.h"
 #include "base/task/post_task.h"
 #include "base/task/task_traits.h"
+#include "base/task/thread_pool.h"
 #include "base/task_runner_util.h"
 #include "base/values.h"
 #include "chrome/browser/browser_process.h"
@@ -129,33 +130,32 @@ int ResettableSettingsSnapshot::FindDifferentFields(
   return bit_mask;
 }
 
-void ResettableSettingsSnapshot::RequestShortcuts(
-    const base::Closure& callback) {
+void ResettableSettingsSnapshot::RequestShortcuts(base::OnceClosure callback) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   DCHECK(!cancellation_flag_.get() && !shortcuts_determined());
 
   cancellation_flag_ = new SharedCancellationFlag;
 #if defined(OS_WIN)
   base::PostTaskAndReplyWithResult(
-      base::CreateCOMSTATaskRunner({base::ThreadPool(), base::MayBlock(),
-                                    base::TaskPriority::USER_VISIBLE})
+      base::ThreadPool::CreateCOMSTATaskRunner(
+          {base::MayBlock(), base::TaskPriority::USER_VISIBLE})
           .get(),
-      FROM_HERE, base::Bind(&GetChromeLaunchShortcuts, cancellation_flag_),
-      base::Bind(&ResettableSettingsSnapshot::SetShortcutsAndReport,
-                 weak_ptr_factory_.GetWeakPtr(), callback));
+      FROM_HERE, base::BindOnce(&GetChromeLaunchShortcuts, cancellation_flag_),
+      base::BindOnce(&ResettableSettingsSnapshot::SetShortcutsAndReport,
+                     weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
 #else   // defined(OS_WIN)
   // Shortcuts are only supported on Windows.
   std::vector<ShortcutCommand> no_shortcuts;
   base::SequencedTaskRunnerHandle::Get()->PostTask(
       FROM_HERE,
       base::BindOnce(&ResettableSettingsSnapshot::SetShortcutsAndReport,
-                     weak_ptr_factory_.GetWeakPtr(), callback,
+                     weak_ptr_factory_.GetWeakPtr(), std::move(callback),
                      std::move(no_shortcuts)));
 #endif  // defined(OS_WIN)
 }
 
 void ResettableSettingsSnapshot::SetShortcutsAndReport(
-    const base::Closure& callback,
+    base::OnceClosure callback,
     const std::vector<ShortcutCommand>& shortcuts) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   shortcuts_ = shortcuts;
@@ -163,7 +163,7 @@ void ResettableSettingsSnapshot::SetShortcutsAndReport(
   cancellation_flag_.reset();
 
   if (!callback.is_null())
-    callback.Run();
+    std::move(callback).Run();
 }
 
 std::unique_ptr<reset_report::ChromeResetReport> SerializeSettingsReportToProto(

@@ -4,6 +4,8 @@
 
 #include "ui/gfx/mac/io_surface.h"
 
+#include <Availability.h>
+#include <CoreGraphics/CoreGraphics.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -21,13 +23,6 @@ namespace gfx {
 
 namespace {
 
-#if !defined(MAC_OS_X_VERSION_10_15) || \
-    MAC_OS_X_VERSION_MIN_REQUIRED < MAC_OS_X_VERSION_10_15
-CFStringRef kCGColorSpaceITUR_2020_PQ_EOTF =
-    CFSTR("kCGColorSpaceITUR_2020_PQ_EOTF");
-CFStringRef kCGColorSpaceITUR_2020_HLG = CFSTR("kCGColorSpaceITUR_2020_HLG");
-#endif  // MAC_OS_X_VERSION_10_15
-
 void AddIntegerValue(CFMutableDictionaryRef dictionary,
                      const CFStringRef key,
                      int32_t value) {
@@ -44,16 +39,22 @@ int32_t BytesPerElement(gfx::BufferFormat format, int plane) {
     case gfx::BufferFormat::BGRA_8888:
     case gfx::BufferFormat::BGRX_8888:
     case gfx::BufferFormat::RGBA_8888:
-    case gfx::BufferFormat::BGRX_1010102:
+    case gfx::BufferFormat::BGRA_1010102:
       DCHECK_EQ(plane, 0);
       return 4;
     case gfx::BufferFormat::RGBA_F16:
       DCHECK_EQ(plane, 0);
       return 8;
-    case gfx::BufferFormat::YUV_420_BIPLANAR:
-      static int32_t bytes_per_element[] = {1, 2};
+    case gfx::BufferFormat::YUV_420_BIPLANAR: {
+      constexpr int32_t bytes_per_element[] = {1, 2};
       DCHECK_LT(static_cast<size_t>(plane), base::size(bytes_per_element));
       return bytes_per_element[plane];
+    }
+    case gfx::BufferFormat::P010: {
+      constexpr int32_t bytes_per_element[] = {2, 4};
+      DCHECK_LT(static_cast<size_t>(plane), base::size(bytes_per_element));
+      return bytes_per_element[plane];
+    }
     case gfx::BufferFormat::R_16:
     case gfx::BufferFormat::RG_88:
     case gfx::BufferFormat::BGR_565:
@@ -61,7 +62,6 @@ int32_t BytesPerElement(gfx::BufferFormat format, int plane) {
     case gfx::BufferFormat::RGBX_8888:
     case gfx::BufferFormat::RGBA_1010102:
     case gfx::BufferFormat::YVU_420:
-    case gfx::BufferFormat::P010:
       NOTREACHED();
       return 0;
   }
@@ -74,7 +74,7 @@ int32_t PixelFormat(gfx::BufferFormat format) {
   switch (format) {
     case gfx::BufferFormat::R_8:
       return 'L008';
-    case gfx::BufferFormat::BGRX_1010102:
+    case gfx::BufferFormat::BGRA_1010102:
       return 'l10r';  // little-endian ARGB2101010 full-range ARGB
     case gfx::BufferFormat::BGRA_8888:
     case gfx::BufferFormat::BGRX_8888:
@@ -84,6 +84,8 @@ int32_t PixelFormat(gfx::BufferFormat format) {
       return 'RGhA';
     case gfx::BufferFormat::YUV_420_BIPLANAR:
       return '420v';
+    case gfx::BufferFormat::P010:
+      return 'x420';
     case gfx::BufferFormat::R_16:
     case gfx::BufferFormat::RG_88:
     case gfx::BufferFormat::BGR_565:
@@ -93,7 +95,6 @@ int32_t PixelFormat(gfx::BufferFormat format) {
     // Technically RGBA_1010102 should be accepted as 'R10k', but then it won't
     // be supported by CGLTexImageIOSurface2D(), so it's best to reject it here.
     case gfx::BufferFormat::YVU_420:
-    case gfx::BufferFormat::P010:
       NOTREACHED();
       return 0;
   }
@@ -143,17 +144,25 @@ bool IOSurfaceSetColorSpace(IOSurfaceRef io_surface,
       color_space_name = kCGColorSpaceExtendedLinearSRGB;
     }
   }
+  // The symbols kCGColorSpaceITUR_2020_PQ_EOTF and kCGColorSpaceITUR_2020_HLG
+  // have been deprecated. Claim that we were able to set the color space,
+  // because the path that will render these color spaces will use the
+  // HDRCopier, which will manually convert them to a non-deprecated format.
+  // https://crbug.com/1108627: Bug wherein these symbols are deprecated and
+  // also not available in some SDK versions.
+  // https://crbug.com/1101041: Introduces the HDR copier.
+  // https://crbug.com/1061723: Discussion of issues related to HLG.
   if (__builtin_available(macos 10.15, *)) {
     if (color_space == ColorSpace(ColorSpace::PrimaryID::BT2020,
                                   ColorSpace::TransferID::SMPTEST2084,
                                   ColorSpace::MatrixID::BT2020_NCL,
                                   ColorSpace::RangeID::LIMITED)) {
-      color_space_name = kCGColorSpaceITUR_2020_PQ_EOTF;
+      return true;
     } else if (color_space == ColorSpace(ColorSpace::PrimaryID::BT2020,
                                          ColorSpace::TransferID::ARIB_STD_B67,
                                          ColorSpace::MatrixID::BT2020_NCL,
                                          ColorSpace::RangeID::LIMITED)) {
-      color_space_name = kCGColorSpaceITUR_2020_HLG;
+      return true;
     }
   }
   if (color_space_name) {

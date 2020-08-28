@@ -7,8 +7,9 @@
 
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
+#include "components/safe_browsing/content/common/safe_browsing.mojom.h"
 #include "components/safe_browsing/core/browser/url_checker_delegate.h"
-#include "components/safe_browsing/core/common/safe_browsing.mojom.h"
+#include "components/safe_browsing/core/common/safe_browsing_url_checker.mojom.h"
 #include "ipc/ipc_message.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "mojo/public/cpp/bindings/receiver_set.h"
@@ -47,7 +48,7 @@ class MojoSafeBrowsingImpl : public mojom::SafeBrowsing {
       const std::string& method,
       const net::HttpRequestHeaders& headers,
       int32_t load_flags,
-      content::ResourceType resource_type,
+      blink::mojom::ResourceType resource_type,
       bool has_user_gesture,
       bool originated_from_service_worker,
       CreateCheckerAndCheckCallback callback) override;

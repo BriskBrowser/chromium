@@ -14,9 +14,11 @@
 #include "base/json/json_writer.h"
 #include "base/logging.h"
 #include "base/numerics/safe_conversions.h"
-#include "base/optional.h"
+#include "base/path_service.h"
 #include "base/strings/string_piece.h"
-#include "base/values.h"
+#include "base/strings/string_util.h"
+#include "base/threading/thread_restrictions.h"
+#include "chrome/common/chrome_paths.h"
 #include "chrome/common/extensions/api/certificate_provider.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/notification_details.h"
@@ -25,6 +27,7 @@
 #include "crypto/rsa_private_key.h"
 #include "extensions/browser/api/test/test_api.h"
 #include "extensions/browser/notification_types.h"
+#include "net/cert/asn1_util.h"
 #include "net/cert/x509_certificate.h"
 #include "net/cert/x509_util.h"
 #include "net/test/cert_test_util.h"
@@ -34,6 +37,13 @@
 #include "third_party/boringssl/src/include/openssl/rsa.h"
 
 namespace {
+
+constexpr char kExtensionId[] = "ecmhnokcdiianioonpgakiooenfnonid";
+// Paths relative to |chrome::DIR_TEST_DATA|:
+constexpr base::FilePath::CharType kExtensionPath[] =
+    FILE_PATH_LITERAL("extensions/test_certificate_provider/extension/");
+constexpr base::FilePath::CharType kExtensionPemPath[] =
+    FILE_PATH_LITERAL("extensions/test_certificate_provider/extension.pem");
 
 // List of algorithms that the extension claims to support for the returned
 // certificates.
@@ -103,20 +113,60 @@ bool RsaSignPrehashed(const EVP_PKEY& key,
   return true;
 }
 
+void SendReplyToJs(extensions::TestSendMessageFunction* function,
+                   const base::Value& response) {
+  function->Reply(ConvertValueToJson(response));
+}
+
+bssl::UniquePtr<EVP_PKEY> LoadPrivateKeyFromPem(const base::FilePath& path) {
+  base::ScopedAllowBlockingForTesting allow_io;
+  return net::key_util::LoadEVP_PKEYFromPEM(path);
+}
+
 }  // namespace
 
+// static
+extensions::ExtensionId TestCertificateProviderExtension::extension_id() {
+  return kExtensionId;
+}
+
+// static
+base::FilePath TestCertificateProviderExtension::GetExtensionSourcePath() {
+  return base::PathService::CheckedGet(chrome::DIR_TEST_DATA)
+      .Append(kExtensionPath);
+}
+
+// static
+base::FilePath TestCertificateProviderExtension::GetExtensionPemPath() {
+  return base::PathService::CheckedGet(chrome::DIR_TEST_DATA)
+      .Append(kExtensionPemPath);
+}
+
+// static
+scoped_refptr<net::X509Certificate>
+TestCertificateProviderExtension::GetCertificate() {
+  return net::ImportCertFromFile(net::GetTestCertsDirectory(), "client_1.pem");
+}
+
+// static
+std::string TestCertificateProviderExtension::GetCertificateSpki() {
+  const scoped_refptr<net::X509Certificate> certificate = GetCertificate();
+  base::StringPiece spki_bytes;
+  if (!net::asn1::ExtractSPKIFromDERCert(
+          net::x509_util::CryptoBufferAsStringPiece(certificate->cert_buffer()),
+          &spki_bytes)) {
+    return {};
+  }
+  return spki_bytes.as_string();
+}
+
 TestCertificateProviderExtension::TestCertificateProviderExtension(
-    content::BrowserContext* browser_context,
-    const std::string& extension_id)
+    content::BrowserContext* browser_context)
     : browser_context_(browser_context),
-      extension_id_(extension_id),
-      certificate_(net::ImportCertFromFile(net::GetTestCertsDirectory(),
-                                           "client_1.pem")),
-      private_key_(net::key_util::LoadEVP_PKEYFromPEM(
-          net::GetTestCertsDirectory().Append(
-              FILE_PATH_LITERAL("client_1.key")))) {
+      certificate_(GetCertificate()),
+      private_key_(LoadPrivateKeyFromPem(net::GetTestCertsDirectory().Append(
+          FILE_PATH_LITERAL("client_1.key")))) {
   DCHECK(browser_context_);
-  DCHECK(!extension_id_.empty());
   CHECK(certificate_);
   CHECK(private_key_);
   notification_registrar_.Add(this,
@@ -134,45 +184,61 @@ void TestCertificateProviderExtension::Observe(
 
   extensions::TestSendMessageFunction* function =
       content::Source<extensions::TestSendMessageFunction>(source).ptr();
-  if (!function->extension() || function->extension_id() != extension_id_ ||
+  if (!function->extension() || function->extension_id() != kExtensionId ||
       function->browser_context() != browser_context_) {
     // Ignore messages targeted to other extensions.
     return;
   }
 
-  const std::string& message =
-      content::Details<std::pair<std::string, bool*>>(details)->first;
+  const auto typed_details =
+      content::Details<std::pair<std::string, bool*>>(details);
+  const std::string& message = typed_details->first;
+  bool* const listener_will_respond = typed_details->second;
+
+  // Handle the request and reply to it (possibly, asynchronously).
   base::Value message_value = ParseJsonToValue(message);
   CHECK(message_value.is_list());
   CHECK(message_value.GetList().size());
   CHECK(message_value.GetList()[0].is_string());
   const std::string& request_type = message_value.GetList()[0].GetString();
-  base::Value response;
+  ReplyToJsCallback send_reply_to_js_callback =
+      base::BindOnce(&SendReplyToJs, base::Unretained(function));
+  *listener_will_respond = true;
   if (request_type == "onCertificatesRequested") {
     CHECK_EQ(message_value.GetList().size(), 1U);
-    response = HandleCertificatesRequest();
-  } else if (request_type == "onSignDigestRequested") {
-    CHECK_EQ(message_value.GetList().size(), 2U);
-    response =
-        HandleSignDigestRequest(/*sign_request=*/message_value.GetList()[1]);
+    HandleCertificatesRequest(std::move(send_reply_to_js_callback));
+  } else if (request_type == "onSignatureRequested") {
+    CHECK_EQ(message_value.GetList().size(), 4U);
+    HandleSignatureRequest(
+        /*sign_request=*/message_value.GetList()[1],
+        /*pin_status=*/message_value.GetList()[2],
+        /*pin=*/message_value.GetList()[3],
+        std::move(send_reply_to_js_callback));
   } else {
     LOG(FATAL) << "Unexpected JS message type: " << request_type;
   }
-  function->Reply(ConvertValueToJson(response));
 }
 
-base::Value TestCertificateProviderExtension::HandleCertificatesRequest() {
+void TestCertificateProviderExtension::HandleCertificatesRequest(
+    ReplyToJsCallback callback) {
+  ++certificate_request_count_;
   base::Value cert_info_values(base::Value::Type::LIST);
   if (!should_fail_certificate_requests_)
     cert_info_values.Append(MakeCertInfoValue(*certificate_));
-  return cert_info_values;
+  std::move(callback).Run(cert_info_values);
 }
 
-base::Value TestCertificateProviderExtension::HandleSignDigestRequest(
-    const base::Value& sign_request) {
+void TestCertificateProviderExtension::HandleSignatureRequest(
+    const base::Value& sign_request,
+    const base::Value& pin_status,
+    const base::Value& pin,
+    ReplyToJsCallback callback) {
   CHECK_EQ(*sign_request.FindKey("certificate"),
            ConvertBytesToValue(GetCertDer(*certificate_)));
+  const std::string pin_status_string = pin_status.GetString();
+  const std::string pin_string = pin.GetString();
 
+  const int sign_request_id = sign_request.FindKey("signRequestId")->GetInt();
   const std::vector<uint8_t> digest =
       ExtractBytesFromValue(*sign_request.FindKey("digest"));
 
@@ -187,10 +253,70 @@ base::Value TestCertificateProviderExtension::HandleSignDigestRequest(
   else
     LOG(FATAL) << "Unexpected signature request hash: " << hash;
 
-  if (should_fail_sign_digest_requests_)
-    return base::Value();
+  if (should_fail_sign_digest_requests_) {
+    // Simulate a failure.
+    std::move(callback).Run(/*response=*/base::Value());
+    return;
+  }
+
+  base::Value response(base::Value::Type::DICTIONARY);
+  if (required_pin_.has_value()) {
+    if (pin_status_string == "not_requested") {
+      // The PIN is required but not specified yet, so request it via the JS
+      // side before generating the signature.
+      base::Value pin_request_parameters(base::Value::Type::DICTIONARY);
+      pin_request_parameters.SetIntKey("signRequestId", sign_request_id);
+      if (remaining_pin_attempts_ == 0) {
+        pin_request_parameters.SetStringKey("errorType",
+                                            "MAX_ATTEMPTS_EXCEEDED");
+      }
+      response.SetKey("requestPin", std::move(pin_request_parameters));
+      std::move(callback).Run(response);
+      return;
+    }
+    if (remaining_pin_attempts_ == 0) {
+      // The error about the lockout is already displayed, so fail immediately.
+      std::move(callback).Run(/*response=*/base::Value());
+      return;
+    }
+    if (pin_status_string == "canceled" ||
+        base::StartsWith(pin_status_string,
+                         "failed:", base::CompareCase::SENSITIVE)) {
+      // The PIN request failed.
+      LOG(WARNING) << "PIN request failed: " << pin_status_string;
+      // Respond with a failure.
+      std::move(callback).Run(/*response=*/base::Value());
+      return;
+    }
+    DCHECK_EQ(pin_status_string, "ok");
+    if (pin_string != *required_pin_) {
+      // The entered PIN is wrong, so decrement the remaining attempt count, and
+      // update the PIN dialog with displaying an error.
+      if (remaining_pin_attempts_ > 0)
+        --remaining_pin_attempts_;
+      base::Value pin_request_parameters(base::Value::Type::DICTIONARY);
+      pin_request_parameters.SetIntKey("signRequestId", sign_request_id);
+      pin_request_parameters.SetStringKey(
+          "errorType", remaining_pin_attempts_ == 0 ? "MAX_ATTEMPTS_EXCEEDED"
+                                                    : "INVALID_PIN");
+      if (remaining_pin_attempts_ > 0) {
+        pin_request_parameters.SetIntKey("attemptsLeft",
+                                         remaining_pin_attempts_);
+      }
+      response.SetKey("requestPin", std::move(pin_request_parameters));
+      std::move(callback).Run(response);
+      return;
+    }
+    // The entered PIN is correct. Stop the PIN request and proceed to
+    // generating the signature.
+    base::Value stop_pin_request_parameters(base::Value::Type::DICTIONARY);
+    stop_pin_request_parameters.SetIntKey("signRequestId", sign_request_id);
+    response.SetKey("stopPinRequest", std::move(stop_pin_request_parameters));
+  }
+  // Generate and return a valid signature.
   std::vector<uint8_t> signature;
   CHECK(
       RsaSignPrehashed(*private_key_, openssl_digest_type, digest, &signature));
-  return ConvertBytesToValue(signature);
+  response.SetKey("signature", ConvertBytesToValue(signature));
+  std::move(callback).Run(response);
 }

@@ -40,6 +40,10 @@ constexpr size_t kClientDataHashLength = 32;
 // https://www.w3.org/TR/webauthn/#sec-authenticator-data
 constexpr size_t kRpIdHashLength = 32;
 
+// Length of the key used to encrypt large blobs.
+// TODO(nsatragno): add a link to the spec once it's published.
+constexpr size_t kLargeBlobKeyLength = 32;
+
 // Max length for the user handle:
 // https://www.w3.org/TR/webauthn/#user-handle
 constexpr size_t kUserHandleMaxLength = 64;
@@ -62,6 +66,9 @@ constexpr size_t kAaguidLength = 16;
 // Length of the byte length L of Credential ID, 16-bit unsigned big-endian
 // integer: https://www.w3.org/TR/webauthn/#sec-attested-credential-data
 constexpr size_t kCredentialIdLengthLength = 2;
+
+// Length of an X9.62-encoded, uncompresed, P-256 public key.
+constexpr size_t kP256X962Length = 1 /* type byte */ + 32 /* x */ + 32 /* y */;
 
 // CTAP protocol device response code, as specified in
 // https://fidoalliance.org/specs/fido-v2.0-rd-20170927/fido-client-to-authenticator-protocol-v2.0-rd-20170927.html#authenticator-api
@@ -117,7 +124,7 @@ enum class CtapDeviceResponseCode : uint8_t {
   kCtap2ErrVendorLast = 0xFF
 };
 
-constexpr std::array<CtapDeviceResponseCode, 51> GetCtapResponseCodeList() {
+constexpr std::array<CtapDeviceResponseCode, 49> GetCtapResponseCodeList() {
   return {CtapDeviceResponseCode::kSuccess,
           CtapDeviceResponseCode::kCtap1ErrInvalidCommand,
           CtapDeviceResponseCode::kCtap1ErrInvalidParameter,
@@ -160,6 +167,7 @@ constexpr std::array<CtapDeviceResponseCode, 51> GetCtapResponseCodeList() {
           CtapDeviceResponseCode::kCtap2ErrPinPolicyViolation,
           CtapDeviceResponseCode::kCtap2ErrPinTokenExpired,
           CtapDeviceResponseCode::kCtap2ErrRequestTooLarge,
+          CtapDeviceResponseCode::kCtap2ErrUvBlocked,
           CtapDeviceResponseCode::kCtap2ErrOther,
           CtapDeviceResponseCode::kCtap2ErrSpecLast,
           CtapDeviceResponseCode::kCtap2ErrExtensionFirst,
@@ -229,7 +237,44 @@ enum class CtapRequestCommand : uint8_t {
   kAuthenticatorCredentialManagementPreview = 0x41,
 };
 
-enum class CoseAlgorithmIdentifier : int { kCoseEs256 = -7 };
+// Enumerates the keys in a COSE Key structure. See
+// https://tools.ietf.org/html/rfc8152#section-7.1
+enum class CoseKeyKey : int {
+  kAlg = 3,
+  kKty = 1,
+  kRSAModulus = -1,
+  kRSAPublicExponent = -2,
+  kEllipticCurve = -1,
+  kEllipticX = -2,
+  kEllipticY = -3,
+};
+
+// Enumerates COSE key types. See
+// https://tools.ietf.org/html/rfc8152#section-13
+enum class CoseKeyTypes : int {
+  kOKP = 1,
+  kEC2 = 2,
+  kRSA = 3,
+  // kInvalidForTesting is a random 32-bit number used to test unknown key
+  // types.
+  kInvalidForTesting = 146919568,
+};
+
+// Enumerates COSE elliptic curves. See
+// https://tools.ietf.org/html/rfc8152#section-13.1
+enum class CoseCurves : int {
+  kP256 = 1,
+  kEd25519 = 6,
+};
+
+enum class CoseAlgorithmIdentifier : int {
+  kEs256 = -7,
+  kEdDSA = -8,
+  kRs256 = -257,
+  // kInvalidForTesting is a random 32-bit number used to test unknown
+  // algorithms.
+  kInvalidForTesting = 146919568,
+};
 
 // APDU instruction code for U2F request encoding.
 // https://fidoalliance.org/specs/fido-u2f-v1.0-ps-20141009/fido-u2f-u2f.h-v1.0-ps-20141009.pdf
@@ -281,7 +326,10 @@ COMPONENT_EXPORT(DEVICE_FIDO)
 extern const char kCredentialManagementPreviewMapKey[];
 COMPONENT_EXPORT(DEVICE_FIDO) extern const char kBioEnrollmentMapKey[];
 COMPONENT_EXPORT(DEVICE_FIDO) extern const char kBioEnrollmentPreviewMapKey[];
-COMPONENT_EXPORT(DEVICE_FIDO) extern const char kUvTokenMapKey[];
+COMPONENT_EXPORT(DEVICE_FIDO) extern const char kPinUvTokenMapKey[];
+extern const char kDefaultCredProtectKey[];
+extern const char kEnterpriseAttestationKey[];
+extern const char kLargeBlobsKey[];
 
 // HID transport specific constants.
 constexpr uint32_t kHidBroadcastChannel = 0xffffffff;
@@ -313,6 +361,20 @@ constexpr uint8_t kP1CheckOnly = 0x07;
 constexpr uint8_t kP1IndividualAttestation = 0x80;
 constexpr size_t kMaxKeyHandleLength = 255;
 
+// kCableOverAOAVersion is a magic value that is sent as the "version" in an
+// Android AOA[1] configuration to identity a security-key request.
+//
+// [1] https://source.android.com/devices/accessories/aoa
+constexpr char kCableOverAOAVersion[] = "12eba9f901039b36";
+
+// kCableWebSocketProtocol is the name of the WebSocket subprotocol used by
+// caBLEv2. See https://tools.ietf.org/html/rfc6455#section-1.9.
+constexpr char kCableWebSocketProtocol[] = "fido.cable";
+
+// kCableShardIdHeader is the name of an HTTP header that is sent in the reply
+// from the tunnel server and which specifies the server's chosen shard number.
+constexpr char kCableShardIdHeader[] = "X-caBLE-Shard";
+
 // Maximum wait time before client error outs on device.
 COMPONENT_EXPORT(DEVICE_FIDO) extern const base::TimeDelta kDeviceTimeout;
 
@@ -343,12 +405,26 @@ COMPONENT_EXPORT(DEVICE_FIDO)
 extern const char kCableAuthenticatorHelloMessage[];
 COMPONENT_EXPORT(DEVICE_FIDO) extern const char kCableClientHelloMessage[];
 
-// TODO(hongjunchoi): Add url to the official spec once it's standardized.
+enum class Ctap2Version {
+  kUnknown = 0,
+  kCtap2_0 = 1,
+  kCtap2_1 = 2,
+};
+
+// Protocol version strings.
+// https://fidoalliance.org/specs/fido-v2.0-ps-20190130/fido-client-to-authenticator-protocol-v2.0-ps-20190130.html#authenticatorGetInfo
 COMPONENT_EXPORT(DEVICE_FIDO) extern const char kCtap2Version[];
 COMPONENT_EXPORT(DEVICE_FIDO) extern const char kU2fVersion[];
 
+// The version identifier for CTAP 2.1.
+// TODO(nsatragno): link to the spec once this is standardized.
+COMPONENT_EXPORT(DEVICE_FIDO) extern const char kCtap2_1Version[];
+
 COMPONENT_EXPORT(DEVICE_FIDO) extern const char kExtensionHmacSecret[];
 COMPONENT_EXPORT(DEVICE_FIDO) extern const char kExtensionCredProtect[];
+COMPONENT_EXPORT(DEVICE_FIDO)
+extern const char kExtensionAndroidClientData[];
+COMPONENT_EXPORT(DEVICE_FIDO) extern const char kExtensionLargeBlobKey[];
 
 // Maximum number of seconds the browser waits for Bluetooth authenticator to
 // send packets that advertises that the device is in pairing mode before
@@ -362,9 +438,24 @@ extern const base::TimeDelta kBleDevicePairingModeWaitingInterval;
 // CredProtect enumerates the levels of credential protection specified by the
 // `credProtect` CTAP2 extension.
 enum class CredProtect : uint8_t {
+  kUVOptional = 1,
   kUVOrCredIDRequired = 2,
   kUVRequired = 3,
 };
+
+// CredProtectRequest extends |CredProtect| with an additional value that
+// represents a request for |kUVOrCredIDRequired|, unless the default is
+// higher.
+enum class CredProtectRequest : uint8_t {
+  kUVOptional = 1,
+  kUVOrCredIDRequired = 2,
+  kUVRequired = 3,
+  kUVOrCredIDRequiredOrBetter = 255,
+};
+
+// The map key for inserting the googleAndroidClientDataExtension output into a
+// CTAP2 makeCredential or getAssertion response.
+constexpr int kAndroidClientDataExtOutputKey = 0xf0;
 
 }  // namespace device
 

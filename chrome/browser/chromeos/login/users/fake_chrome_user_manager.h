@@ -36,6 +36,7 @@ class FakeChromeUserManager : public ChromeUserManager {
   user_manager::User* AddWebKioskAppUser(const AccountId& account_id);
   user_manager::User* AddSupervisedUser(const AccountId& account_id);
   user_manager::User* AddPublicAccountUser(const AccountId& account_id);
+  user_manager::User* AddActiveDirectoryUser(const AccountId& account_id);
 
   // Calculates the user name hash and calls UserLoggedIn to login a user.
   // Sets the user as having its profile created if |set_profile_created_flag|
@@ -158,8 +159,6 @@ class FakeChromeUserManager : public ChromeUserManager {
       const AccountId& account_id) const override;
   void DemoAccountLoggedIn() override;
   void KioskAppLoggedIn(user_manager::User* user) override;
-  void ArcKioskAppLoggedIn(user_manager::User* user) override;
-  void WebKioskAppLoggedIn(user_manager::User* user) override;
   void PublicAccountUserLoggedIn(user_manager::User* user) override;
   void SupervisedUserLoggedIn(const AccountId& account_id) override;
   void OnUserRemoved(const AccountId& account_id) override;

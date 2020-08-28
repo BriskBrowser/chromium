@@ -15,7 +15,7 @@
 #include "content/browser/frame_host/navigation_entry_impl.h"
 #include "content/browser/frame_host/navigation_request.h"
 #include "content/browser/frame_host/navigator.h"
-#include "content/browser/frame_host/navigator_impl.h"
+#include "content/browser/portal/portal.h"
 #include "content/browser/renderer_host/render_process_host_impl.h"
 #include "content/browser/renderer_host/render_view_host_impl.h"
 #include "content/browser/site_instance_impl.h"
@@ -30,6 +30,7 @@
 #include "content/public/test/mock_render_process_host.h"
 #include "content/public/test/navigation_simulator.h"
 #include "content/test/test_render_view_host.h"
+#include "third_party/blink/public/mojom/security_context/insecure_request_policy.mojom.h"
 #include "ui/base/page_transition_types.h"
 
 namespace content {
@@ -46,6 +47,7 @@ RenderProcessHostFactory* GetMockProcessFactory() {
 TestWebContents::TestWebContents(BrowserContext* browser_context)
     : WebContentsImpl(browser_context),
       delegate_view_override_(nullptr),
+      web_preferences_changed_counter_(nullptr),
       expect_set_history_offset_and_length_(false),
       expect_set_history_offset_and_length_history_length_(0),
       pause_subresource_loading_called_(false),
@@ -184,7 +186,8 @@ void TestWebContents::TestDidNavigateWithSequenceNumber(
   params.is_overriding_user_agent = false;
   params.history_list_was_cleared = false;
   params.origin = url::Origin::Create(url);
-  params.insecure_request_policy = blink::kLeaveInsecureRequestsAlone;
+  params.insecure_request_policy =
+      blink::mojom::InsecureRequestPolicy::kLeaveInsecureRequestsAlone;
   params.has_potentially_trustworthy_unique_origin = false;
 
   rfh->SendNavigateWithParams(&params, was_within_same_document);
@@ -200,6 +203,12 @@ const base::string16& TestWebContents::GetSuggestedFileName() {
 
 bool TestWebContents::HasPendingDownloadImage(const GURL& url) {
   return !pending_image_downloads_[url].empty();
+}
+
+void TestWebContents::OnWebPreferencesChanged() {
+  WebContentsImpl::OnWebPreferencesChanged();
+  if (web_preferences_changed_counter_)
+    ++*web_preferences_changed_counter_;
 }
 
 bool TestWebContents::TestDidDownloadImage(
@@ -227,7 +236,13 @@ void TestWebContents::SetTitle(const base::string16& title) {
 }
 
 void TestWebContents::SetMainFrameMimeType(const std::string& mime_type) {
-  WebContentsImpl::SetMainFrameMimeType(mime_type);
+  static_cast<RenderViewHostImpl*>(GetRenderViewHost())
+      ->SetContentsMimeType(mime_type);
+}
+
+const std::string& TestWebContents::GetContentsMimeType() {
+  return static_cast<RenderViewHostImpl*>(GetRenderViewHost())
+      ->contents_mime_type();
 }
 
 void TestWebContents::SetIsCurrentlyAudible(bool audible) {
@@ -235,27 +250,25 @@ void TestWebContents::SetIsCurrentlyAudible(bool audible) {
   OnAudioStateChanged();
 }
 
-void TestWebContents::TestDidReceiveInputEvent(
-    blink::WebInputEvent::Type type) {
+void TestWebContents::TestDidReceiveMouseDownEvent() {
+  blink::WebMouseEvent event;
+  event.SetType(blink::WebInputEvent::Type::kMouseDown);
   // Use the first RenderWidgetHost from the frame tree to make sure that the
   // interaction doesn't get ignored.
   DCHECK(frame_tree_.Nodes().begin() != frame_tree_.Nodes().end());
   RenderWidgetHostImpl* render_widget_host = (*frame_tree_.Nodes().begin())
                                                  ->current_frame_host()
                                                  ->GetRenderWidgetHost();
-  DidReceiveInputEvent(render_widget_host, type);
+  DidReceiveInputEvent(render_widget_host, event);
 }
 
 void TestWebContents::TestDidFinishLoad(const GURL& url) {
-  FrameHostMsg_DidFinishLoad msg(0, url);
-  frame_tree_.root()->current_frame_host()->OnMessageReceived(msg);
+  OnDidFinishLoad(frame_tree_.root()->current_frame_host(), url);
 }
 
-void TestWebContents::TestDidFailLoadWithError(
-    const GURL& url,
-    int error_code,
-    const base::string16& error_description) {
-  GetMainFrame()->DidFailLoadWithError(url, error_code, error_description);
+void TestWebContents::TestDidFailLoadWithError(const GURL& url,
+                                               int error_code) {
+  GetMainFrame()->DidFailLoadWithError(url, error_code);
 }
 
 bool TestWebContents::CrossProcessNavigationPending() {
@@ -264,14 +277,11 @@ bool TestWebContents::CrossProcessNavigationPending() {
 
 bool TestWebContents::CreateRenderViewForRenderManager(
     RenderViewHost* render_view_host,
-    int opener_frame_routing_id,
-    int proxy_routing_id,
-    const base::UnguessableToken& devtools_frame_token,
-    const FrameReplicationState& replicated_frame_state) {
+    const base::Optional<base::UnguessableToken>& opener_frame_token,
+    int proxy_routing_id) {
   // This will go to a TestRenderViewHost.
   static_cast<RenderViewHostImpl*>(render_view_host)
-      ->CreateRenderView(opener_frame_routing_id, proxy_routing_id,
-                         devtools_frame_token, replicated_frame_state, false);
+      ->CreateRenderView(opener_frame_token, proxy_routing_id, false);
   return true;
 }
 
@@ -344,13 +354,14 @@ void TestWebContents::SetOpener(WebContents* opener) {
 }
 
 void TestWebContents::AddPendingContents(
-    std::unique_ptr<WebContentsImpl> contents) {
+    std::unique_ptr<WebContentsImpl> contents,
+    const GURL& target_url) {
   // This is normally only done in WebContentsImpl::CreateNewWindow.
   GlobalRoutingID key(
       contents->GetRenderViewHost()->GetProcess()->GetID(),
       contents->GetRenderViewHost()->GetWidget()->GetRoutingID());
   AddDestructionObserver(contents.get());
-  pending_contents_[key] = std::move(contents);
+  pending_contents_[key] = CreatedWindow(std::move(contents), target_url);
 }
 
 void TestWebContents::ExpectSetHistoryOffsetAndLength(int history_offset,
@@ -386,32 +397,30 @@ RenderFrameHostDelegate* TestWebContents::CreateNewWindow(
   return nullptr;
 }
 
-void TestWebContents::CreateNewWidget(int32_t render_process_id,
-                                      int32_t route_id,
-                                      mojo::PendingRemote<mojom::Widget> widget,
-                                      RenderViewHostImpl* render_view_host) {}
+void TestWebContents::CreateNewWidget(
+    AgentSchedulingGroupHost& agent_scheduling_group,
+    int32_t route_id,
+    mojo::PendingAssociatedReceiver<blink::mojom::WidgetHost> blink_widget_host,
+    mojo::PendingAssociatedRemote<blink::mojom::Widget> blink_widget) {}
 
 void TestWebContents::CreateNewFullscreenWidget(
-    int32_t render_process_id,
+    AgentSchedulingGroupHost& agent_scheduling_group,
     int32_t route_id,
-    mojo::PendingRemote<mojom::Widget> widget,
-    RenderViewHostImpl* render_view_host) {}
+    mojo::PendingAssociatedReceiver<blink::mojom::WidgetHost> blink_widget_host,
+    mojo::PendingAssociatedRemote<blink::mojom::Widget> blink_widget) {}
 
-void TestWebContents::ShowCreatedWindow(int process_id,
+void TestWebContents::ShowCreatedWindow(RenderFrameHost* opener,
                                         int route_id,
                                         WindowOpenDisposition disposition,
                                         const gfx::Rect& initial_rect,
-                                        bool user_gesture) {
-}
+                                        bool user_gesture) {}
 
 void TestWebContents::ShowCreatedWidget(int process_id,
                                         int route_id,
-                                        const gfx::Rect& initial_rect) {
-}
+                                        const gfx::Rect& initial_rect) {}
 
 void TestWebContents::ShowCreatedFullscreenWidget(int process_id,
-                                                  int route_id) {
-}
+                                                  int route_id) {}
 
 void TestWebContents::SaveFrameWithHeaders(
     const GURL& url,
@@ -420,13 +429,6 @@ void TestWebContents::SaveFrameWithHeaders(
     const base::string16& suggested_filename) {
   save_frame_headers_ = headers;
   suggested_filename_ = suggested_filename;
-}
-
-std::vector<mojo::Remote<blink::mojom::PauseSubresourceLoadingHandle>>
-TestWebContents::PauseSubresourceLoading() {
-  pause_subresource_loading_called_ = true;
-  return std::vector<
-      mojo::Remote<blink::mojom::PauseSubresourceLoadingHandle>>();
 }
 
 bool TestWebContents::GetPauseSubresourceLoadingCalled() {
@@ -451,6 +453,24 @@ void TestWebContents::TestDecrementBluetoothConnectedDeviceCount() {
 
 base::UnguessableToken TestWebContents::GetAudioGroupId() {
   return audio_group_id_;
+}
+
+const blink::PortalToken& TestWebContents::CreatePortal(
+    std::unique_ptr<WebContents> web_contents) {
+  auto portal =
+      std::make_unique<Portal>(GetMainFrame(), std::move(web_contents));
+  const blink::PortalToken& token = portal->portal_token();
+  portal->CreateProxyAndAttachPortal();
+  GetMainFrame()->OnPortalCreatedForTesting(std::move(portal));
+  return token;
+}
+
+WebContents* TestWebContents::GetPortalContents(
+    const blink::PortalToken& portal_token) {
+  Portal* portal = GetMainFrame()->FindPortalByToken(portal_token);
+  if (!portal)
+    return nullptr;
+  return portal->GetPortalContents();
 }
 
 }  // namespace content

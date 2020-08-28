@@ -247,6 +247,18 @@ enum BadMessageReason {
   REGISTER_PROTOCOL_HANDLER_INVALID_URL = 219,
   NC_SAME_DOCUMENT_POST_COMMIT_ERROR = 220,
   RFH_INVALID_WEB_UI_CONTROLLER = 221,
+  RFPH_ADVANCE_FOCUS_INTO_PORTAL = 222,
+  RFH_UNEXPECTED_EMBEDDING_TOKEN = 223,
+  RFH_MISSING_EMBEDDING_TOKEN = 224,
+  RFH_BAD_DOCUMENT_POLICY_HEADER = 225,
+  RFMF_INVALID_PLUGIN_EMBEDDER_ORIGIN = 226,
+  RFH_INVALID_CALL_FROM_NOT_MAIN_FRAME = 227,
+  INPUT_ROUTER_INVALID_EVENT_SOURCE = 228,
+  RFH_INACTIVE_CHECK_FROM_SPECULATIVE_RFH = 229,
+  RFH_SUBFRAME_CAPTURE_ON_MAIN_FRAME = 230,
+  RFH_CSP_ATTRIBUTE = 231,
+  RFH_RECEIVED_ASSOCIATED_MESSAGE_WHILE_BFCACHED = 232,
+  RWH_CLOSE_PORTAL = 233,
 
   // Please add new elements here. The naming convention is abbreviated class
   // name (e.g. RenderFrameHost becomes RFH) plus a unique description of the
@@ -269,14 +281,10 @@ CONTENT_EXPORT void ReceivedBadMessage(int render_process_id,
 // for the |reason|, and terminates the process for |filter|.
 void ReceivedBadMessage(BrowserMessageFilter* filter, BadMessageReason reason);
 
-// Returns a crash key named "mojo-message-error" for storing Mojo error
-// messages.
-base::debug::CrashKeyString* GetMojoErrorCrashKey();
-
 // Site isolation. These keys help debug renderer kills such as
 // https://crbug.com/773140.
-// Retuns a key named "requested_site_url".
-base::debug::CrashKeyString* GetRequestedSiteURLKey();
+// Retuns a key for logging a requested SiteInfo.
+base::debug::CrashKeyString* GetRequestedSiteInfoKey();
 
 }  // namespace bad_message
 }  // namespace content

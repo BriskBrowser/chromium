@@ -185,7 +185,7 @@ void V8ScriptValueSerializer::FinalizeTransfer(
     if (exception_state.HadException())
       return;
 
-    if (RuntimeEnabledFeatures::TransferableStreamsEnabled()) {
+    if (TransferableStreamsEnabled()) {
       // Order matters here, because the order in which streams are added to the
       // |stream_ports_| array must match the indexes which are calculated in
       // WriteDOMObject().
@@ -261,7 +261,7 @@ bool V8ScriptValueSerializer::WriteDOMObject(ScriptWrappable* wrappable,
       return false;
     }
 
-    auto* execution_context = ExecutionContext::From(script_state_.Get());
+    auto* execution_context = ExecutionContext::From(script_state_);
     // If this ImageBitmap was transferred, it can be serialized by index.
     size_t index = kNotFound;
     if (transferables_)
@@ -520,7 +520,7 @@ bool V8ScriptValueSerializer::WriteDOMObject(ScriptWrappable* wrappable,
     return true;
   }
   if (wrapper_type_info == V8ReadableStream::GetWrapperTypeInfo() &&
-      RuntimeEnabledFeatures::TransferableStreamsEnabled()) {
+      TransferableStreamsEnabled()) {
     ReadableStream* stream = wrappable->ToImpl<ReadableStream>();
     size_t index = kNotFound;
     if (transferables_)
@@ -531,9 +531,7 @@ bool V8ScriptValueSerializer::WriteDOMObject(ScriptWrappable* wrappable,
                                         "because it was not transferred.");
       return false;
     }
-    if (stream->IsLocked(script_state_, exception_state).value_or(true)) {
-      if (exception_state.HadException())
-        return false;
+    if (stream->IsLocked()) {
       exception_state.ThrowDOMException(
           DOMExceptionCode::kDataCloneError,
           "A ReadableStream could not be cloned because it was locked");
@@ -544,7 +542,7 @@ bool V8ScriptValueSerializer::WriteDOMObject(ScriptWrappable* wrappable,
     return true;
   }
   if (wrapper_type_info == V8WritableStream::GetWrapperTypeInfo() &&
-      RuntimeEnabledFeatures::TransferableStreamsEnabled()) {
+      TransferableStreamsEnabled()) {
     WritableStream* stream = wrappable->ToImpl<WritableStream>();
     size_t index = kNotFound;
     if (transferables_)
@@ -555,9 +553,7 @@ bool V8ScriptValueSerializer::WriteDOMObject(ScriptWrappable* wrappable,
                                         "because it was not transferred.");
       return false;
     }
-    if (stream->IsLocked(script_state_, exception_state).value_or(true)) {
-      if (exception_state.HadException())
-        return false;
+    if (stream->locked()) {
       exception_state.ThrowDOMException(
           DOMExceptionCode::kDataCloneError,
           "A WritableStream could not be cloned because it was locked");
@@ -573,7 +569,7 @@ bool V8ScriptValueSerializer::WriteDOMObject(ScriptWrappable* wrappable,
     return true;
   }
   if (wrapper_type_info == V8TransformStream::GetWrapperTypeInfo() &&
-      RuntimeEnabledFeatures::TransferableStreamsEnabled()) {
+      TransferableStreamsEnabled()) {
     TransformStream* stream = wrappable->ToImpl<TransformStream>();
     size_t index = kNotFound;
     if (transferables_)
@@ -584,14 +580,12 @@ bool V8ScriptValueSerializer::WriteDOMObject(ScriptWrappable* wrappable,
                                         "because it was not transferred.");
       return false;
     }
-    if (stream->Readable()
-            ->IsLocked(script_state_, exception_state)
-            .value_or(true) ||
-        stream->Writable()
-            ->IsLocked(script_state_, exception_state)
-            .value_or(true)) {
-      if (exception_state.HadException())
-        return false;
+    // https://streams.spec.whatwg.org/#ts-transfer
+    // 3. If ! IsReadableStreamLocked(readable) is true, throw a
+    //    "DataCloneError" DOMException.
+    // 4. If ! IsWritableStreamLocked(writable) is true, throw a
+    //    "DataCloneError" DOMException.
+    if (stream->Readable()->locked() || stream->Writable()->locked()) {
       exception_state.ThrowDOMException(
           DOMExceptionCode::kDataCloneError,
           "A TransformStream could not be cloned because it was locked");
@@ -629,7 +623,7 @@ bool V8ScriptValueSerializer::WriteFile(File* file,
     size_t index = blob_info_array_->size();
     DCHECK_LE(index, std::numeric_limits<uint32_t>::max());
     blob_info_array_->emplace_back(
-        file->GetBlobDataHandle(), file->GetPath(), file->name(), file->type(),
+        file->GetBlobDataHandle(), file->name(), file->type(),
         file->LastModifiedTimeForSerialization(), file->size());
     WriteUint32(static_cast<uint32_t>(index));
   } else {
@@ -780,6 +774,11 @@ void* V8ScriptValueSerializer::ReallocateBufferMemory(void* old_buffer,
 
 void V8ScriptValueSerializer::FreeBufferMemory(void* buffer) {
   return WTF::Partitions::BufferFree(buffer);
+}
+
+bool V8ScriptValueSerializer::TransferableStreamsEnabled() const {
+  return RuntimeEnabledFeatures::TransferableStreamsEnabled(
+      ExecutionContext::From(script_state_));
 }
 
 }  // namespace blink

@@ -193,9 +193,8 @@ class StubNotificationManager : public NotificationManagerInterface {
   ~StubNotificationManager() override {}
 
   // NotificationManagerInterface overrides.
-  void ShowUnresponsiveNotification(
-      int id,
-      const NotificationCallback& callback) override {}
+  void ShowUnresponsiveNotification(int id,
+                                    NotificationCallback callback) override {}
   void HideUnresponsiveNotification(int id) override {}
 
  private:
@@ -336,7 +335,8 @@ TEST_F(FileSystemProviderProvidedFileSystemTest, AddWatcher_NotFound) {
 
   provided_file_system_->AddWatcher(
       GURL(kOrigin), base::FilePath(kDirectoryPath), false /* recursive */,
-      false /* persistent */, base::Bind(&LogStatus, base::Unretained(&log)),
+      false /* persistent */,
+      base::BindOnce(&LogStatus, base::Unretained(&log)),
       base::Bind(&LogNotification, base::Unretained(&notification_log)));
   base::RunLoop().RunUntilIdle();
 
@@ -363,7 +363,7 @@ TEST_F(FileSystemProviderProvidedFileSystemTest, AddWatcher) {
 
   provided_file_system_->AddWatcher(
       GURL(kOrigin), base::FilePath(kDirectoryPath), false /* recursive */,
-      true /* persistent */, base::Bind(&LogStatus, base::Unretained(&log)),
+      true /* persistent */, base::BindOnce(&LogStatus, base::Unretained(&log)),
       storage::WatcherManager::NotificationCallback());
   base::RunLoop().RunUntilIdle();
 
@@ -394,7 +394,8 @@ TEST_F(FileSystemProviderProvidedFileSystemTest, AddWatcher_PersistentIllegal) {
 
     provided_file_system_->AddWatcher(
         GURL(kOrigin), base::FilePath(kDirectoryPath), false /* recursive */,
-        true /* persistent */, base::Bind(&LogStatus, base::Unretained(&log)),
+        true /* persistent */,
+        base::BindOnce(&LogStatus, base::Unretained(&log)),
         base::Bind(&LogNotification, base::Unretained(&notification_log)));
     base::RunLoop().RunUntilIdle();
 
@@ -435,7 +436,8 @@ TEST_F(FileSystemProviderProvidedFileSystemTest, AddWatcher_PersistentIllegal) {
 
     simple_provided_file_system.AddWatcher(
         GURL(kOrigin), base::FilePath(kDirectoryPath), false /* recursive */,
-        true /* persistent */, base::Bind(&LogStatus, base::Unretained(&log)),
+        true /* persistent */,
+        base::BindOnce(&LogStatus, base::Unretained(&log)),
         storage::WatcherManager::NotificationCallback());
     base::RunLoop().RunUntilIdle();
 
@@ -457,7 +459,8 @@ TEST_F(FileSystemProviderProvidedFileSystemTest, AddWatcher_Exists) {
     Log log;
     provided_file_system_->AddWatcher(
         GURL(kOrigin), base::FilePath(kDirectoryPath), false /* recursive */,
-        true /* persistent */, base::Bind(&LogStatus, base::Unretained(&log)),
+        true /* persistent */,
+        base::BindOnce(&LogStatus, base::Unretained(&log)),
         storage::WatcherManager::NotificationCallback());
     base::RunLoop().RunUntilIdle();
 
@@ -486,7 +489,8 @@ TEST_F(FileSystemProviderProvidedFileSystemTest, AddWatcher_Exists) {
     Log log;
     provided_file_system_->AddWatcher(
         GURL(kOrigin), base::FilePath(kDirectoryPath), false /* recursive */,
-        true /* persistent */, base::Bind(&LogStatus, base::Unretained(&log)),
+        true /* persistent */,
+        base::BindOnce(&LogStatus, base::Unretained(&log)),
         storage::WatcherManager::NotificationCallback());
     base::RunLoop().RunUntilIdle();
 
@@ -501,7 +505,8 @@ TEST_F(FileSystemProviderProvidedFileSystemTest, AddWatcher_Exists) {
     Log log;
     provided_file_system_->AddWatcher(
         GURL(kOrigin), base::FilePath(kDirectoryPath), true /* recursive */,
-        true /* persistent */, base::Bind(&LogStatus, base::Unretained(&log)),
+        true /* persistent */,
+        base::BindOnce(&LogStatus, base::Unretained(&log)),
         storage::WatcherManager::NotificationCallback());
     base::RunLoop().RunUntilIdle();
 
@@ -525,7 +530,8 @@ TEST_F(FileSystemProviderProvidedFileSystemTest, AddWatcher_MultipleOrigins) {
 
     provided_file_system_->AddWatcher(
         GURL(kOrigin), base::FilePath(kDirectoryPath), false /* recursive */,
-        false /* persistent */, base::Bind(&LogStatus, base::Unretained(&log)),
+        false /* persistent */,
+        base::BindOnce(&LogStatus, base::Unretained(&log)),
         base::Bind(&LogNotification, base::Unretained(&notification_log)));
     base::RunLoop().RunUntilIdle();
 
@@ -559,7 +565,7 @@ TEST_F(FileSystemProviderProvidedFileSystemTest, AddWatcher_MultipleOrigins) {
     provided_file_system_->AddWatcher(
         GURL(kAnotherOrigin), base::FilePath(kDirectoryPath),
         true /* recursive */, false /* persistent */,
-        base::Bind(&LogStatus, base::Unretained(&log)),
+        base::BindOnce(&LogStatus, base::Unretained(&log)),
         base::Bind(&LogNotification, base::Unretained(&notification_log)));
     base::RunLoop().RunUntilIdle();
 
@@ -590,7 +596,8 @@ TEST_F(FileSystemProviderProvidedFileSystemTest, AddWatcher_MultipleOrigins) {
     Log log;
     provided_file_system_->RemoveWatcher(
         GURL(kAnotherOrigin), base::FilePath(kDirectoryPath),
-        true /* recursive */, base::Bind(&LogStatus, base::Unretained(&log)));
+        true /* recursive */,
+        base::BindOnce(&LogStatus, base::Unretained(&log)));
     base::RunLoop().RunUntilIdle();
 
     ASSERT_EQ(1u, log.size());
@@ -627,7 +634,7 @@ TEST_F(FileSystemProviderProvidedFileSystemTest, RemoveWatcher) {
     Log log;
     provided_file_system_->RemoveWatcher(
         GURL(kOrigin), base::FilePath(kDirectoryPath), false /* recursive */,
-        base::Bind(&LogStatus, base::Unretained(&log)));
+        base::BindOnce(&LogStatus, base::Unretained(&log)));
     base::RunLoop().RunUntilIdle();
 
     ASSERT_EQ(1u, log.size());
@@ -643,7 +650,8 @@ TEST_F(FileSystemProviderProvidedFileSystemTest, RemoveWatcher) {
 
     provided_file_system_->AddWatcher(
         GURL(kOrigin), base::FilePath(kDirectoryPath), false /* recursive */,
-        false /* persistent */, base::Bind(&LogStatus, base::Unretained(&log)),
+        false /* persistent */,
+        base::BindOnce(&LogStatus, base::Unretained(&log)),
         base::Bind(&LogNotification, base::Unretained(&notification_log)));
     base::RunLoop().RunUntilIdle();
 
@@ -662,7 +670,7 @@ TEST_F(FileSystemProviderProvidedFileSystemTest, RemoveWatcher) {
     Log log;
     provided_file_system_->RemoveWatcher(
         GURL(kOrigin), base::FilePath(kDirectoryPath), false /* recursive */,
-        base::Bind(&LogStatus, base::Unretained(&log)));
+        base::BindOnce(&LogStatus, base::Unretained(&log)));
     base::RunLoop().RunUntilIdle();
 
     ASSERT_EQ(1u, log.size());
@@ -681,7 +689,8 @@ TEST_F(FileSystemProviderProvidedFileSystemTest, RemoveWatcher) {
 
     provided_file_system_->AddWatcher(
         GURL(kOrigin), base::FilePath(kDirectoryPath), false /* recursive */,
-        false /* persistent */, base::Bind(&LogStatus, base::Unretained(&log)),
+        false /* persistent */,
+        base::BindOnce(&LogStatus, base::Unretained(&log)),
         base::Bind(&LogNotification, base::Unretained(&notification_log)));
     base::RunLoop().RunUntilIdle();
 
@@ -703,7 +712,7 @@ TEST_F(FileSystemProviderProvidedFileSystemTest, RemoveWatcher) {
     Log log;
     provided_file_system_->RemoveWatcher(
         GURL(kOrigin), base::FilePath(kDirectoryPath), false /* recursive */,
-        base::Bind(&LogStatus, base::Unretained(&log)));
+        base::BindOnce(&LogStatus, base::Unretained(&log)));
     base::RunLoop().RunUntilIdle();
 
     ASSERT_EQ(1u, log.size());
@@ -729,7 +738,8 @@ TEST_F(FileSystemProviderProvidedFileSystemTest, Notify) {
 
     provided_file_system_->AddWatcher(
         GURL(kOrigin), base::FilePath(kDirectoryPath), false /* recursive */,
-        false /* persistent */, base::Bind(&LogStatus, base::Unretained(&log)),
+        false /* persistent */,
+        base::BindOnce(&LogStatus, base::Unretained(&log)),
         base::Bind(&LogNotification, base::Unretained(&notification_log)));
     base::RunLoop().RunUntilIdle();
 
@@ -755,7 +765,7 @@ TEST_F(FileSystemProviderProvidedFileSystemTest, Notify) {
     provided_file_system_->Notify(
         base::FilePath(kDirectoryPath), false /* recursive */, change_type,
         base::WrapUnique(new ProvidedFileSystemObserver::Changes), tag,
-        base::Bind(&LogStatus, base::Unretained(&log)));
+        base::BindOnce(&LogStatus, base::Unretained(&log)));
     base::RunLoop().RunUntilIdle();
 
     // Confirm that the notification callback was called.
@@ -801,7 +811,7 @@ TEST_F(FileSystemProviderProvidedFileSystemTest, Notify) {
     provided_file_system_->Notify(
         base::FilePath(kDirectoryPath), false /* recursive */, change_type,
         base::WrapUnique(new ProvidedFileSystemObserver::Changes), tag,
-        base::Bind(&LogStatus, base::Unretained(&log)));
+        base::BindOnce(&LogStatus, base::Unretained(&log)));
     base::RunLoop().RunUntilIdle();
 
     // Complete all change events.
@@ -856,7 +866,7 @@ TEST_F(FileSystemProviderProvidedFileSystemTest, OpenedFiles) {
 
   Log close_log;
   provided_file_system_->CloseFile(
-      file_handle, base::Bind(LogStatus, base::Unretained(&close_log)));
+      file_handle, base::BindOnce(LogStatus, base::Unretained(&close_log)));
   base::RunLoop().RunUntilIdle();
 
   ASSERT_EQ(1u, close_log.size());
@@ -913,7 +923,7 @@ TEST_F(FileSystemProviderProvidedFileSystemTest, OpenedFile_ClosingFailure) {
 
   Log close_log;
   provided_file_system_->CloseFile(
-      file_handle, base::Bind(LogStatus, base::Unretained(&close_log)));
+      file_handle, base::BindOnce(LogStatus, base::Unretained(&close_log)));
   base::RunLoop().RunUntilIdle();
 
   ASSERT_EQ(1u, close_log.size());

@@ -28,18 +28,23 @@
 #include "base/gtest_prod_util.h"
 #include "base/optional.h"
 #include "cc/input/event_listener_properties.h"
+#include "cc/input/layer_selection_bound.h"
 #include "cc/input/overscroll_behavior.h"
+#include "cc/paint/paint_image.h"
 #include "cc/trees/paint_holding_commit_trigger.h"
+#include "components/viz/common/surfaces/frame_sink_id.h"
 #include "third_party/blink/public/common/dom_storage/session_storage_namespace_id.h"
-#include "third_party/blink/public/common/feature_policy/feature_policy.h"
+#include "third_party/blink/public/common/feature_policy/feature_policy_features.h"
+#include "third_party/blink/public/common/page/web_drag_operation.h"
 #include "third_party/blink/public/mojom/devtools/console_message.mojom-blink-forward.h"
+#include "third_party/blink/public/mojom/input/focus_type.mojom-blink-forward.h"
 #include "third_party/blink/public/platform/blame_context.h"
-#include "third_party/blink/public/platform/web_drag_operation.h"
-#include "third_party/blink/public/platform/web_focus_type.h"
+#include "third_party/blink/public/platform/web_battery_savings.h"
+#include "third_party/blink/public/platform/web_float_rect.h"
+#include "third_party/blink/public/web/web_swap_result.h"
 #include "third_party/blink/public/web/web_widget_client.h"
 #include "third_party/blink/renderer/core/accessibility/ax_object_cache.h"
 #include "third_party/blink/renderer/core/core_export.h"
-#include "third_party/blink/renderer/core/frame/sandbox_flags.h"
 #include "third_party/blink/renderer/core/html/forms/external_date_time_chooser.h"
 #include "third_party/blink/renderer/core/html/forms/popup_menu.h"
 #include "third_party/blink/renderer/core/layout/geometry/physical_offset.h"
@@ -47,7 +52,6 @@
 #include "third_party/blink/renderer/core/loader/navigation_policy.h"
 #include "third_party/blink/renderer/core/scroll/scroll_types.h"
 #include "third_party/blink/renderer/core/style/computed_style_constants.h"
-#include "third_party/blink/renderer/platform/cursor.h"
 #include "third_party/blink/renderer/platform/graphics/touch_action.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
 #include "third_party/blink/renderer/platform/text/text_direction.h"
@@ -62,6 +66,10 @@ namespace cc {
 struct ElementId;
 class Layer;
 struct OverscrollBehavior;
+}
+
+namespace ui {
+class Cursor;
 }
 
 namespace blink {
@@ -92,13 +100,20 @@ class PopupOpeningObserver;
 class WebDragData;
 class WebViewImpl;
 
+enum class FullscreenRequestType;
+
 struct DateTimeChooserParameters;
 struct FrameLoadRequest;
-struct WebTextAutosizerPageInfo;
 struct ViewportDescription;
-struct WebCursorInfo;
-struct WebScreenInfo;
+struct ScreenInfo;
 struct WebWindowFeatures;
+struct WebRect;
+
+namespace mojom {
+namespace blink {
+class TextAutosizerPageInfo;
+}
+}  // namespace mojom
 
 using CompositorElementId = cc::ElementId;
 
@@ -108,9 +123,15 @@ class CORE_EXPORT ChromeClient : public GarbageCollected<ChromeClient> {
  public:
   virtual ~ChromeClient() = default;
 
+  virtual WebViewImpl* GetWebView() const = 0;
+
   // Converts the scalar value from window coordinates to viewport scale.
   virtual float WindowToViewportScalar(LocalFrame*,
                                        const float value) const = 0;
+
+  // Converts the scalar value from window coordinates to viewport rectangle.
+  virtual void WindowToViewportRect(LocalFrame& frame,
+                                    WebFloatRect* viewport_rect) const {}
 
   virtual bool IsPopup() { return false; }
 
@@ -135,12 +156,13 @@ class CORE_EXPORT ChromeClient : public GarbageCollected<ChromeClient> {
   // part of.
   virtual IntRect RootWindowRect(LocalFrame&) = 0;
 
-  virtual void Focus(LocalFrame*) = 0;
+  virtual void FocusPage() = 0;
+  virtual void DidFocusPage() = 0;
 
-  virtual bool CanTakeFocus(WebFocusType) = 0;
-  virtual void TakeFocus(WebFocusType) = 0;
+  virtual bool CanTakeFocus(mojom::blink::FocusType) = 0;
+  virtual void TakeFocus(mojom::blink::FocusType) = 0;
 
-  virtual void FocusedElementChanged(Element*, Element*) = 0;
+  virtual void SetKeyboardFocusURL(Element*) {}
 
   // Allow document lifecycle updates to be run in order to produce composited
   // outputs. Updates are blocked from occurring during loading navigation in
@@ -187,8 +209,8 @@ class CORE_EXPORT ChromeClient : public GarbageCollected<ChromeClient> {
                      const FrameLoadRequest&,
                      const AtomicString& frame_name,
                      const WebWindowFeatures&,
-                     WebSandboxFlags,
-                     const FeaturePolicy::FeatureState&,
+                     network::mojom::blink::WebSandboxFlags,
+                     const FeaturePolicyFeatureState&,
                      const SessionStorageNamespaceId&);
   virtual void Show(NavigationPolicy) = 0;
 
@@ -251,10 +273,8 @@ class CORE_EXPORT ChromeClient : public GarbageCollected<ChromeClient> {
                             String& result);
   virtual bool TabsToLinks() = 0;
 
-  virtual WebViewImpl* GetWebView() const = 0;
-
-  virtual WebScreenInfo GetScreenInfo(LocalFrame& frame) const = 0;
-  virtual void SetCursor(const Cursor&, LocalFrame* local_root) = 0;
+  virtual ScreenInfo GetScreenInfo(LocalFrame& frame) const = 0;
+  virtual void SetCursor(const ui::Cursor&, LocalFrame* local_root) = 0;
 
   virtual void SetCursorOverridden(bool) = 0;
 
@@ -262,12 +282,12 @@ class CORE_EXPORT ChromeClient : public GarbageCollected<ChromeClient> {
   virtual void AutoscrollFling(const gfx::Vector2dF& velocity, LocalFrame*) {}
   virtual void AutoscrollEnd(LocalFrame*) {}
 
-  virtual Cursor LastSetCursorForTesting() const = 0;
+  virtual ui::Cursor LastSetCursorForTesting() const = 0;
   Node* LastSetTooltipNodeForTesting() const {
     return last_mouse_over_node_.Get();
   }
 
-  virtual void SetCursorForPlugin(const WebCursorInfo&, LocalFrame*) = 0;
+  virtual void SetCursorForPlugin(const ui::Cursor&, LocalFrame*) = 0;
 
   // Returns a custom visible rect if a viewport override is active. Requires
   // the |frame| being painted, but only supports being used for the main frame.
@@ -282,6 +302,10 @@ class CORE_EXPORT ChromeClient : public GarbageCollected<ChromeClient> {
       const ViewportDescription&) const {}
 
   virtual bool DoubleTapToZoomEnabled() const { return false; }
+
+  virtual void EnablePreferredSizeChangedMode() {}
+
+  virtual void ZoomToFindInPageRect(const WebRect&) {}
 
   virtual void ContentsSizeChanged(LocalFrame*, const IntSize&) const = 0;
   // Call during pinch gestures, or when page-scale changes on main-frame load.
@@ -298,6 +322,9 @@ class CORE_EXPORT ChromeClient : public GarbageCollected<ChromeClient> {
                                const HitTestResult&);
   virtual void SetToolTip(LocalFrame&, const String&, TextDirection) = 0;
   void ClearToolTip(LocalFrame&);
+  String GetLastToolTipTextForTesting() {
+    return current_tool_tip_text_for_test_;
+  }
 
   bool Print(LocalFrame*);
 
@@ -343,10 +370,13 @@ class CORE_EXPORT ChromeClient : public GarbageCollected<ChromeClient> {
 
   virtual void EnterFullscreen(LocalFrame&,
                                const FullscreenOptions*,
-                               bool for_cross_process_descendant) {}
+                               FullscreenRequestType) {}
   virtual void ExitFullscreen(LocalFrame&) {}
   virtual void FullscreenElementChanged(Element* old_element,
                                         Element* new_element) {}
+
+  virtual void AnimateDoubleTapZoom(const gfx::Point& point,
+                                    const gfx::Rect& rect) {}
 
   virtual void ClearLayerSelection(LocalFrame*) {}
   virtual void UpdateLayerSelection(LocalFrame*, const cc::LayerSelection&) {}
@@ -401,9 +431,18 @@ class CORE_EXPORT ChromeClient : public GarbageCollected<ChromeClient> {
   virtual bool IsSVGImageChromeClient() const { return false; }
 
   virtual bool RequestPointerLock(LocalFrame*,
+                                  WebWidgetClient::PointerLockCallback callback,
                                   bool request_unadjusted_movement) {
     return false;
   }
+
+  virtual bool RequestPointerLockChange(
+      LocalFrame*,
+      WebWidgetClient::PointerLockCallback callback,
+      bool request_unadjusted_movement) {
+    return false;
+  }
+
   virtual void RequestPointerUnlock(LocalFrame*) {}
 
   virtual IntSize MinimumWindowSize() const { return IntSize(100, 100); }
@@ -444,7 +483,7 @@ class CORE_EXPORT ChromeClient : public GarbageCollected<ChromeClient> {
   }
 
   virtual void RequestDecode(LocalFrame*,
-                             const PaintImage& image,
+                             const cc::PaintImage& image,
                              base::OnceCallback<void(bool)> callback) {
     std::move(callback).Run(false);
   }
@@ -453,18 +492,8 @@ class CORE_EXPORT ChromeClient : public GarbageCollected<ChromeClient> {
   // |frame| is submitted (still called "swapped") to the display compositor
   // (either with DidSwap or DidNotSwap).
   using ReportTimeCallback =
-      WTF::CrossThreadOnceFunction<void(WebWidgetClient::SwapResult,
-                                        base::TimeTicks)>;
+      WTF::CrossThreadOnceFunction<void(WebSwapResult, base::TimeTicks)>;
   virtual void NotifySwapTime(LocalFrame& frame, ReportTimeCallback callback) {}
-
-  virtual void FallbackCursorModeLockCursor(LocalFrame* frame,
-                                            bool left,
-                                            bool right,
-                                            bool up,
-                                            bool down) = 0;
-
-  virtual void FallbackCursorModeSetCursorVisibility(LocalFrame* frame,
-                                                     bool visible) = 0;
 
   // Enable or disable BeginMainFrameNotExpected signals from the compositor of
   // the local root of |frame|. These signals would be consumed by the blink
@@ -476,12 +505,25 @@ class CORE_EXPORT ChromeClient : public GarbageCollected<ChromeClient> {
   // tracing/debugging purposes.
   virtual int GetLayerTreeId(LocalFrame& frame) = 0;
 
-  virtual void Trace(blink::Visitor*);
+  virtual void Trace(Visitor*) const;
 
-  virtual void DidUpdateTextAutosizerPageInfo(const WebTextAutosizerPageInfo&) {
-  }
+  virtual void DidUpdateTextAutosizerPageInfo(
+      const mojom::blink::TextAutosizerPageInfo&) {}
 
   virtual void DocumentDetached(Document&) {}
+
+  // Return the user's zoom factor which is different from the typical usage
+  // of "zoom factor" in blink (e.g., |LocalFrame::PageZoomFactor()|) which
+  // includes CSS zoom and the device scale factor (if use-zoom-for-dsf is
+  // enabled). This only includes the zoom initiated by the user (ctrl +/-).
+  virtual double UserZoomFactor() const { return 1; }
+
+  virtual void SetDelegatedInkMetadata(
+      LocalFrame* frame,
+      std::unique_ptr<viz::DelegatedInkMetadata> metadata) {}
+
+  virtual void BatterySavingsChanged(LocalFrame& main_frame,
+                                     WebBatterySavingsFlags savings) = 0;
 
  protected:
   ChromeClient() = default;
@@ -501,8 +543,8 @@ class CORE_EXPORT ChromeClient : public GarbageCollected<ChromeClient> {
                                      const FrameLoadRequest&,
                                      const AtomicString& frame_name,
                                      const WebWindowFeatures&,
-                                     WebSandboxFlags,
-                                     const FeaturePolicy::FeatureState&,
+                                     network::mojom::blink::WebSandboxFlags,
+                                     const FeaturePolicyFeatureState&,
                                      const SessionStorageNamespaceId&) = 0;
 
  private:
@@ -514,6 +556,9 @@ class CORE_EXPORT ChromeClient : public GarbageCollected<ChromeClient> {
   WeakMember<Node> last_mouse_over_node_;
   PhysicalOffset last_tool_tip_point_;
   String last_tool_tip_text_;
+  // |last_tool_tip_text_| is kept even if ClearToolTip is called. This is for
+  // the tooltip text that is cleared when ClearToolTip is called.
+  String current_tool_tip_text_for_test_;
 
   FRIEND_TEST_ALL_PREFIXES(ChromeClientTest, SetToolTipFlood);
   FRIEND_TEST_ALL_PREFIXES(ChromeClientTest, SetToolTipEmptyString);

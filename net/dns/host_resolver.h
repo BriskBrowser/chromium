@@ -66,12 +66,9 @@ class NET_EXPORT HostResolver {
     // On any other returned value, the request was handled synchronously and
     // |callback| will not be invoked.
     //
-    // Results in ERR_NAME_NOT_RESOLVED if the hostname is invalid, or if it is
-    // an incompatible IP literal (e.g. IPv6 is disabled and it is an IPv6
-    // literal).
-    //
-    // Results in ERR_DNS_CACHE_MISS if only fast local sources are to be
-    // queried and a cache lookup attempt fails.
+    // Results in ERR_NAME_NOT_RESOLVED if the hostname is not resolved. More
+    // detail about the underlying error can be retrieved using
+    // GetResolveErrorInfo().
     //
     // The parent HostResolver must still be alive when Start() is called,  but
     // if it is destroyed before an asynchronous result completes, the request
@@ -101,12 +98,10 @@ class NET_EXPORT HostResolver {
     virtual const base::Optional<std::vector<HostPortPair>>&
     GetHostnameResults() const = 0;
 
-    // TLS 1.3 Encrypted Server Name Indication, draft 4 (ESNI,
-    // https://tools.ietf.org/html/draft-ietf-tls-esni-04)
-    // results of the request. Should only be called after
-    // Start() signals completion, either by invoking the callback or by
-    // returning a result other than |ERR_IO_PENDING|.
-    virtual const base::Optional<EsniContent>& GetEsniResults() const = 0;
+    // INTEGRITY results for an initial experiment related to HTTPSSVC. Each
+    // boolean value indicates the intactness of an INTEGRITY record.
+    NET_EXPORT virtual const base::Optional<std::vector<bool>>&
+    GetIntegrityResultsForTesting() const;
 
     // Error info for the request.
     //
@@ -314,15 +309,6 @@ class NET_EXPORT HostResolver {
       const NetworkIsolationKey& network_isolation_key,
       const NetLogWithSource& net_log,
       const base::Optional<ResolveHostParameters>& optional_parameters) = 0;
-
-  // Deprecated version of above method that uses an empty NetworkIsolationKey.
-  //
-  // TODO(mmenke): Once all consumers have been updated to use the other
-  // overload instead, remove this method and make above method pure virtual.
-  virtual std::unique_ptr<ResolveHostRequest> CreateRequest(
-      const HostPortPair& host,
-      const NetLogWithSource& net_log,
-      const base::Optional<ResolveHostParameters>& optional_parameters);
 
   // Creates a request to probe configured DoH servers to find which can be used
   // successfully.

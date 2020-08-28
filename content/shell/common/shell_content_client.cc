@@ -12,7 +12,6 @@
 #include "content/app/resources/grit/content_resources.h"
 #include "content/public/common/content_switches.h"
 #include "content/shell/common/shell_switches.h"
-#include "content/shell/common/web_test/blink_test_messages.h"
 #include "content/shell/grit/shell_resources.h"
 #include "third_party/blink/public/strings/grit/blink_strings.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -64,23 +63,8 @@ gfx::Image& ShellContentClient::GetNativeImageNamed(int resource_id) {
       resource_id);
 }
 
-base::DictionaryValue ShellContentClient::GetNetLogConstants() {
-  base::DictionaryValue client_constants;
-  client_constants.SetString("name", "content_shell");
-  client_constants.SetString(
-      "command_line",
-      base::CommandLine::ForCurrentProcess()->GetCommandLineString());
-  base::DictionaryValue constants;
-  constants.SetKey("clientInfo", std::move(client_constants));
-  return constants;
-}
-
 blink::OriginTrialPolicy* ShellContentClient::GetOriginTrialPolicy() {
   return &origin_trial_policy_;
-}
-
-void ShellContentClient::SetInWebTest(bool in_web_test) {
-  in_web_test_ = in_web_test;
 }
 
 }  // namespace content

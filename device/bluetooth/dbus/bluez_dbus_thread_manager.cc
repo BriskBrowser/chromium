@@ -4,6 +4,7 @@
 
 #include "device/bluetooth/dbus/bluez_dbus_thread_manager.h"
 
+#include "base/logging.h"
 #include "base/message_loop/message_pump_type.h"
 #include "base/threading/thread.h"
 #include "dbus/bus.h"
@@ -58,9 +59,9 @@ void BluezDBusThreadManager::Shutdown() {
   // Ensure that we only shutdown BluezDBusThreadManager once.
   CHECK(g_bluez_dbus_thread_manager);
   BluezDBusThreadManager* dbus_thread_manager = g_bluez_dbus_thread_manager;
-  g_bluez_dbus_thread_manager = NULL;
+  g_bluez_dbus_thread_manager = nullptr;
   delete dbus_thread_manager;
-  VLOG(1) << "BluezDBusThreadManager Shutdown completed";
+  DVLOG(1) << "BluezDBusThreadManager Shutdown completed";
 }
 
 // static

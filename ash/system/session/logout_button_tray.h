@@ -8,7 +8,7 @@
 #include <memory>
 
 #include "ash/ash_export.h"
-#include "ash/session/session_observer.h"
+#include "ash/public/cpp/session/session_observer.h"
 #include "ash/system/tray/tray_background_view.h"
 #include "base/macros.h"
 #include "base/time/time.h"
@@ -36,12 +36,13 @@ class ASH_EXPORT LogoutButtonTray : public TrayBackgroundView,
   static void RegisterProfilePrefs(PrefRegistrySimple* registry);
 
   // TrayBackgroundView:
-  void UpdateAfterLoginStatusChange(LoginStatus status) override;
-  void UpdateAfterShelfChange() override;
+  void UpdateAfterLoginStatusChange() override;
+  void UpdateLayout() override;
   void UpdateBackground() override;
   void ClickedOutsideBubble() override;
   void HideBubbleWithView(const TrayBubbleView* bubble_view) override;
   base::string16 GetAccessibleNameForTray() override;
+  void HandleLocaleChange() override;
   const char* GetClassName() const override;
   void ButtonPressed(views::Button* sender, const ui::Event& event) override;
 

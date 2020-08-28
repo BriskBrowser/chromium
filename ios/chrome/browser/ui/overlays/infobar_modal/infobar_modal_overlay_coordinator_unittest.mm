@@ -94,7 +94,7 @@ class InfobarModalOverlayCoordinatorTest : public PlatformTest {
  protected:
   web::WebTaskEnvironment task_environment_;
   TestChromeBrowserState::Builder browser_state_builder_;
-  std::unique_ptr<ios::ChromeBrowserState> browser_state_;
+  std::unique_ptr<ChromeBrowserState> browser_state_;
   FakeWebStateListDelegate web_state_list_delegate_;
   WebStateList web_state_list_;
   TestBrowser browser_;
@@ -145,6 +145,36 @@ TEST_F(InfobarModalOverlayCoordinatorTest, ModalPresentation) {
   // Stop the coordinator, expecting OverlayUIDidFinishDismissal() to be
   // executed.
   EXPECT_CALL(delegate_, OverlayUIDidFinishDismissal(request_.get()));
+  [coordinator_ stopAnimated:NO];
+
+  // Wait for dismissal to finish.
+  EXPECT_TRUE(WaitUntilConditionOrTimeout(kWaitForUIElementTimeout, ^BOOL {
+    return !root_view_controller_.presentedViewController;
+  }));
+}
+
+// Tests the modal dismiss flow for a FakeInfobarModalOverlayCoordinator.
+TEST_F(InfobarModalOverlayCoordinatorTest, ModalDismiss) {
+  // Start the coordinator, expecting OverlayUIDidFinishPresentation() to be
+  // executed.
+  EXPECT_CALL(delegate_, OverlayUIDidFinishPresentation(request_.get()));
+  [coordinator_ startAnimated:NO];
+
+  // Wait for presentation to finish.
+  EXPECT_TRUE(WaitUntilConditionOrTimeout(kWaitForUIElementTimeout, ^BOOL {
+    UIViewController* presented_view_controller =
+        root_view_controller_.presentedViewController;
+    return presented_view_controller &&
+           !presented_view_controller.beingPresented;
+  }));
+
+  // Stop the coordinator, expecting OverlayUIDidFinishDismissal() to be
+  // executed once.
+  EXPECT_CALL(delegate_, OverlayUIDidFinishDismissal(request_.get())).Times(1);
+  [coordinator_ stopAnimated:NO];
+
+  // Stop coordinator again. It should be a no-op since stop has been called
+  // already (i.e. No OverlayUIDidFinishDismissal called).
   [coordinator_ stopAnimated:NO];
 
   // Wait for dismissal to finish.

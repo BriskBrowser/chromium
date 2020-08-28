@@ -34,9 +34,6 @@ void WriteIpcMessageIdAsProtozero(uint32_t message_id,
     case WidgetMsgStart:
       message_class = ChromeLegacyIpc::CLASS_WIDGET;
       break;
-    case InputMsgStart:
-      message_class = ChromeLegacyIpc::CLASS_INPUT;
-      break;
     case TestMsgStart:
       message_class = ChromeLegacyIpc::CLASS_TEST;
       break;
@@ -67,17 +64,6 @@ void WriteIpcMessageIdAsProtozero(uint32_t message_id,
     case ExtensionMsgStart:
       message_class = ChromeLegacyIpc::CLASS_EXTENSION;
       break;
-    case TextInputClientMsgStart:
-      message_class = ChromeLegacyIpc::CLASS_TEXT_INPUT_CLIENT;
-      break;
-    case BlinkTestMsgStart:
-      message_class = ChromeLegacyIpc::CLASS_BLINK_TEST;
-      break;
-    case AccessibilityMsgStart:
-      message_class = ChromeLegacyIpc::CLASS_ACCESSIBILITY;
-      break;
-    case PrerenderMsgStart:
-      message_class = ChromeLegacyIpc::CLASS_PRERENDER;
       break;
     case ChromotingMsgStart:
       message_class = ChromeLegacyIpc::CLASS_CHROMOTING;

@@ -6,7 +6,7 @@
 
 #include "base/bind.h"
 #include "base/location.h"
-#include "base/logging.h"
+#include "base/notreached.h"
 #include "base/threading/thread_task_runner_handle.h"
 
 namespace chromeos {
@@ -193,7 +193,7 @@ UserContext StubAuthenticator::ExpectedUserContextWithTransformedKey() const {
 }
 
 void StubAuthenticator::OnPasswordChangeDetected() {
-  consumer_->OnPasswordChangeDetected();
+  consumer_->OnPasswordChangeDetected(expected_user_context_);
 }
 
 void StubAuthenticator::OnOldEncryptionDetected() {

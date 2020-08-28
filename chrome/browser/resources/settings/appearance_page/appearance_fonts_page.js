@@ -2,8 +2,21 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-(function() {
-'use strict';
+import 'chrome://resources/cr_elements/shared_style_css.m.js';
+import 'chrome://resources/polymer/v3_0/iron-flex-layout/iron-flex-layout-classes.js';
+import '../controls/settings_slider.m.js';
+import '../settings_shared_css.m.js';
+
+import {SliderTick} from 'chrome://resources/cr_elements/cr_slider/cr_slider.m.js';
+import {I18nBehavior} from 'chrome://resources/js/i18n_behavior.m.js';
+import {WebUIListenerBehavior} from 'chrome://resources/js/web_ui_listener_behavior.m.js';
+import {html, Polymer} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+
+import {DropdownMenuOptionList} from '../controls/settings_dropdown_menu.m.js';
+import {loadTimeData} from '../i18n_setup.js';
+
+import {FontsBrowserProxy, FontsBrowserProxyImpl, FontsData} from './fonts_browser_proxy.m.js';
+
 
 /** @type {!Array<number>} */
 const FONT_SIZE_RANGE = [
@@ -17,7 +30,7 @@ const MINIMUM_FONT_SIZE_RANGE =
 
 /**
  * @param {!Array<number>} ticks
- * @return {!Array<!cr_slider.SliderTick>}
+ * @return {!Array<!SliderTick>}
  */
 function ticksWithLabels(ticks) {
   return ticks.map(x => ({label: `${x}`, value: x}));
@@ -30,26 +43,17 @@ function ticksWithLabels(ticks) {
 Polymer({
   is: 'settings-appearance-fonts-page',
 
+  _template: html`{__html_template__}`,
+
   behaviors: [I18nBehavior, WebUIListenerBehavior],
 
   properties: {
-    /** @private */
-    advancedExtensionSublabel_: String,
-
     /** @private {!DropdownMenuOptionList} */
     fontOptions_: Object,
 
-    /** @private */
-    isGuest_: {
-      type: Boolean,
-      value() {
-        return loadTimeData.getBoolean('isGuest');
-      }
-    },
-
     /**
      * Common font sizes.
-     * @private {!Array<!cr_slider.SliderTick>}
+     * @private {!Array<!SliderTick>}
      */
     fontSizeRange_: {
       readOnly: true,
@@ -59,7 +63,7 @@ Polymer({
 
     /**
      * Reasonable, minimum font sizes.
-     * @private {!Array<!cr_slider.SliderTick>}
+     * @private {!Array<!SliderTick>}
      */
     minimumFontSizeRange_: {
       readOnly: true,
@@ -80,53 +84,21 @@ Polymer({
     'onMinimumSizeChange_(prefs.webkit.webprefs.minimum_font_size.value)',
   ],
 
-  /** @private {?settings.FontsBrowserProxy} */
+  /** @private {?FontsBrowserProxy} */
   browserProxy_: null,
-
-  /** @private {boolean} */
-  advancedExtensionInstalled_: false,
-
-  /** @private {?string} */
-  advancedExtensionUrl_: null,
 
   /** @override */
   created() {
-    this.browserProxy_ = settings.FontsBrowserProxyImpl.getInstance();
+    this.browserProxy_ = FontsBrowserProxyImpl.getInstance();
   },
 
   /** @override */
   ready() {
-    this.addWebUIListener(
-        'advanced-font-settings-installed',
-        this.setAdvancedExtensionInstalled_.bind(this));
-    this.browserProxy_.observeAdvancedFontExtensionAvailable();
-
     this.browserProxy_.fetchFontsData().then(this.setFontsData_.bind(this));
   },
 
-  /** @private */
-  openAdvancedExtension_() {
-    if (this.advancedExtensionInstalled_) {
-      this.browserProxy_.openAdvancedFontSettings();
-    } else {
-      window.open(this.advancedExtensionUrl_);
-    }
-  },
-
   /**
-   * @param {boolean} isInstalled Whether the advanced font settings
-   *     extension is installed.
-   * @private
-   */
-  setAdvancedExtensionInstalled_(isInstalled) {
-    this.advancedExtensionInstalled_ = isInstalled;
-    this.advancedExtensionSublabel_ = this.i18n(
-        isInstalled ? 'openAdvancedFontSettings' : 'requiresWebStoreExtension');
-  },
-
-  /**
-   * @param {!FontsData} response A list of fonts and the advanced
-   *     font settings extension URL.
+   * @param {!FontsData} response A list of fonts.
    * @private
    */
   setFontsData_(response) {
@@ -135,7 +107,6 @@ Polymer({
       fontMenuOptions.push({value: fontData[0], name: fontData[1]});
     }
     this.fontOptions_ = fontMenuOptions;
-    this.advancedExtensionUrl_ = response.extensionUrl;
   },
 
   /**
@@ -154,4 +125,3 @@ Polymer({
     this.$.minimumSizeSample.hidden = this.computeMinimumFontSize_() <= 0;
   },
 });
-})();

@@ -10,6 +10,7 @@
 #include "base/callback_helpers.h"
 #include "base/location.h"
 #include "base/single_thread_task_runner.h"
+#include "media/base/cdm_context.h"
 #include "media/base/media_resource.h"
 #include "media/base/pipeline_status.h"
 #include "media/base/renderer_client.h"
@@ -97,10 +98,10 @@ void MojoRenderer::InitializeRendererFromStreams(
   // Using base::Unretained(this) is safe because |this| owns
   // |remote_renderer_|, and the callback won't be dispatched if
   // |remote_renderer_| is destroyed.
-  remote_renderer_->Initialize(
-      client_receiver_.BindNewEndpointAndPassRemote(),
-      std::move(stream_proxies), nullptr,
-      base::Bind(&MojoRenderer::OnInitialized, base::Unretained(this), client));
+  remote_renderer_->Initialize(client_receiver_.BindNewEndpointAndPassRemote(),
+                               std::move(stream_proxies), nullptr,
+                               base::BindOnce(&MojoRenderer::OnInitialized,
+                                              base::Unretained(this), client));
 }
 
 void MojoRenderer::InitializeRendererFromUrl(media::RendererClient* client) {
@@ -118,10 +119,10 @@ void MojoRenderer::InitializeRendererFromUrl(media::RendererClient* client) {
       url_params.media_url, url_params.site_for_cookies,
       url_params.top_frame_origin, url_params.allow_credentials,
       url_params.is_hls);
-  remote_renderer_->Initialize(
-      client_receiver_.BindNewEndpointAndPassRemote(), base::nullopt,
-      std::move(media_url_params),
-      base::Bind(&MojoRenderer::OnInitialized, base::Unretained(this), client));
+  remote_renderer_->Initialize(client_receiver_.BindNewEndpointAndPassRemote(),
+                               base::nullopt, std::move(media_url_params),
+                               base::BindOnce(&MojoRenderer::OnInitialized,
+                                              base::Unretained(this), client));
 }
 
 void MojoRenderer::SetCdm(CdmContext* cdm_context,
@@ -138,8 +139,8 @@ void MojoRenderer::SetCdm(CdmContext* cdm_context,
     return;
   }
 
-  int32_t cdm_id = cdm_context->GetCdmId();
-  if (cdm_id == CdmContext::kInvalidCdmId) {
+  base::Optional<base::UnguessableToken> cdm_id = cdm_context->GetCdmId();
+  if (!cdm_id) {
     DVLOG(2) << "MojoRenderer only works with remote CDMs but the CDM ID "
                 "is invalid.";
     task_runner_->PostTask(FROM_HERE,
@@ -179,7 +180,7 @@ void MojoRenderer::Flush(base::OnceClosure flush_cb) {
 
   flush_cb_ = std::move(flush_cb);
   remote_renderer_->Flush(
-      base::Bind(&MojoRenderer::OnFlushed, base::Unretained(this)));
+      base::BindOnce(&MojoRenderer::OnFlushed, base::Unretained(this)));
 }
 
 void MojoRenderer::StartPlayingFrom(base::TimeDelta time) {
@@ -212,9 +213,10 @@ void MojoRenderer::SetPlaybackRate(double playback_rate) {
 void MojoRenderer::SetVolume(float volume) {
   DVLOG(2) << __func__ << "(" << volume << ")";
   DCHECK(task_runner_->BelongsToCurrentThread());
-  DCHECK(remote_renderer_.is_bound());
 
-  remote_renderer_->SetVolume(volume);
+  volume_ = volume;
+  if (remote_renderer_.is_bound())
+    remote_renderer_->SetVolume(volume);
 }
 
 base::TimeDelta MojoRenderer::GetMediaTime() {
@@ -346,7 +348,7 @@ void MojoRenderer::BindRemoteRendererIfNeeded() {
   // |remote_renderer_|, and the error handler can't be invoked once
   // |remote_renderer_| is destroyed.
   remote_renderer_.set_disconnect_handler(
-      base::Bind(&MojoRenderer::OnConnectionError, base::Unretained(this)));
+      base::BindOnce(&MojoRenderer::OnConnectionError, base::Unretained(this)));
 }
 
 void MojoRenderer::OnInitialized(media::RendererClient* client, bool success) {
@@ -356,8 +358,13 @@ void MojoRenderer::OnInitialized(media::RendererClient* client, bool success) {
 
   // Only set |client_| after initialization succeeded. No client methods should
   // be called before this.
-  if (success)
+  if (success) {
     client_ = client;
+
+    // It'd be nice to provide this before Initialize(), but that causes some
+    // MojoRenderer implementations to crash.
+    SetVolume(volume_);
+  }
 
   std::move(init_cb_).Run(success ? PIPELINE_OK
                                   : PIPELINE_ERROR_INITIALIZATION_FAILED);

@@ -372,8 +372,10 @@ void BlobRegistryImpl::BlobUnderConstruction::ResolvedAllBlobDependencies() {
   for (const auto& entry : elements_) {
     auto& element = entry.element;
     if (element->is_bytes()) {
-      transport_strategy_->AddBytesElement(element->get_bytes().get(),
-                                           entry.bytes_provider);
+      if (element->get_bytes()->length > 0) {
+        transport_strategy_->AddBytesElement(element->get_bytes().get(),
+                                             entry.bytes_provider);
+      }
     } else if (element->is_file()) {
       const auto& f = element->get_file();
       builder_->AppendFile(
@@ -443,6 +445,10 @@ void BlobRegistryImpl::BlobUnderConstruction::TransportComplete(
   // try to delete |this| again afterwards.
   auto weak_this = weak_ptr_factory_.GetWeakPtr();
 
+  // Store the bad_message_callback_, so we can invoke it if needed, after
+  // notifying about the blob being finished.
+  auto bad_message_callback = std::move(bad_message_callback_);
+
   // The blob might no longer have any references, in which case it may no
   // longer exist. If that happens just skip calling Complete.
   // TODO(mek): Stop building sooner if a blob is no longer referenced.
@@ -456,7 +462,7 @@ void BlobRegistryImpl::BlobUnderConstruction::TransportComplete(
     // BlobTransportStrategy might have already reported a BadMessage on the
     // BytesProvider binding, but just to be safe, also report one on the
     // BlobRegistry binding itself.
-    std::move(bad_message_callback_)
+    std::move(bad_message_callback)
         .Run("Received invalid data while transporting blob");
   }
   if (weak_this)
@@ -484,8 +490,10 @@ bool BlobRegistryImpl::BlobUnderConstruction::ContainsCycles(
 
 BlobRegistryImpl::BlobRegistryImpl(
     base::WeakPtr<BlobStorageContext> context,
+    base::WeakPtr<BlobUrlRegistry> url_registry,
     scoped_refptr<FileSystemContext> file_system_context)
     : context_(std::move(context)),
+      url_registry_(std::move(url_registry)),
       file_system_context_(std::move(file_system_context)) {}
 
 BlobRegistryImpl::~BlobRegistryImpl() {
@@ -621,7 +629,7 @@ void BlobRegistryImpl::URLStoreForOrigin(
   Delegate* delegate = receivers_.current_context().get();
   DCHECK(delegate);
   auto self_owned_associated_receiver = mojo::MakeSelfOwnedAssociatedReceiver(
-      std::make_unique<BlobURLStoreImpl>(context_, delegate),
+      std::make_unique<BlobURLStoreImpl>(url_registry_, delegate),
       std::move(receiver));
   if (g_url_store_creation_hook)
     g_url_store_creation_hook->Run(self_owned_associated_receiver);

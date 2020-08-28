@@ -8,17 +8,13 @@ GEN_INCLUDE(['mock_tts.js']);
 /**
  * Browser tests for select-to-speak's feature to speak text
  * by holding down a key and clicking or dragging with the mouse.
- * @constructor
- * @extends {SelectToSpeakE2ETest}
  */
-function SelectToSpeakMouseSelectionTest() {
-  SelectToSpeakE2ETest.call(this);
-  this.mockTts = new MockTts();
-  chrome.tts = this.mockTts;
-}
-
-SelectToSpeakMouseSelectionTest.prototype = {
-  __proto__: SelectToSpeakE2ETest.prototype,
+SelectToSpeakMouseSelectionTest = class extends SelectToSpeakE2ETest {
+  constructor() {
+    super();
+    this.mockTts = new MockTts();
+    chrome.tts = this.mockTts;
+  }
 
   /**
    * Triggers speech using the search key and clicking with the mouse.
@@ -31,10 +27,10 @@ SelectToSpeakMouseSelectionTest.prototype = {
     selectToSpeak.fireMockMouseDownEvent(downEvent);
     selectToSpeak.fireMockMouseUpEvent(upEvent);
     selectToSpeak.fireMockKeyUpEvent({keyCode: SelectToSpeak.SEARCH_KEY_CODE});
-  },
+  }
 
   tapTrayButton(desktop, callback) {
-    let button = desktop.find({
+    const button = desktop.find({
       roleType: 'button',
       attributes: {className: SELECT_TO_SPEAK_TRAY_CLASS_NAME}
     });
@@ -45,7 +41,7 @@ SelectToSpeakMouseSelectionTest.prototype = {
           callback();
         });
     button.doDefault();
-  },
+  }
 };
 
 TEST_F('SelectToSpeakMouseSelectionTest', 'SpeaksNodeWhenClicked', function() {
@@ -63,8 +59,8 @@ TEST_F('SelectToSpeakMouseSelectionTest', 'SpeaksNodeWhenClicked', function() {
               this.assertEqualsCollapseWhitespace(
                   this.mockTts.pendingUtterances()[0], 'This is some text');
             })]);
-        let textNode = this.findTextNode(desktop, 'This is some text');
-        let event = {
+        const textNode = this.findTextNode(desktop, 'This is some text');
+        const event = {
           screenX: textNode.location.left + 1,
           screenY: textNode.location.top + 1
         };
@@ -93,13 +89,14 @@ TEST_F(
                     utterance, 'This is some more text');
               })
             ]);
-            let firstNode = this.findTextNode(desktop, 'This is some text');
-            let downEvent = {
+            const firstNode = this.findTextNode(desktop, 'This is some text');
+            const downEvent = {
               screenX: firstNode.location.left + 1,
               screenY: firstNode.location.top + 1
             };
-            let lastNode = this.findTextNode(desktop, 'This is some more text');
-            let upEvent = {
+            const lastNode =
+                this.findTextNode(desktop, 'This is some more text');
+            const upEvent = {
               screenX: lastNode.location.left + lastNode.location.width,
               screenY: lastNode.location.top + lastNode.location.height
             };
@@ -126,14 +123,14 @@ TEST_F(
                       'This is some text in a paragraph that wraps. ' +
                           'Italic text');
                 })]);
-            let firstNode = this.findTextNode(
+            const firstNode = this.findTextNode(
                 desktop, 'This is some text in a paragraph that wraps. ');
-            let downEvent = {
+            const downEvent = {
               screenX: firstNode.location.left + 1,
               screenY: firstNode.location.top + 1
             };
-            let lastNode = this.findTextNode(desktop, 'Italic text');
-            let upEvent = {
+            const lastNode = this.findTextNode(desktop, 'Italic text');
+            const upEvent = {
               screenX: lastNode.location.left + lastNode.location.width,
               screenY: lastNode.location.top + lastNode.location.height
             };
@@ -158,8 +155,8 @@ TEST_F(
                       this.mockTts.pendingUtterances()[0], 'This is some text');
                 })]);
 
-            let textNode = this.findTextNode(desktop, 'This is some text');
-            let event = {
+            const textNode = this.findTextNode(desktop, 'This is some text');
+            const event = {
               screenX: textNode.location.left + 1,
               screenY: textNode.location.top + 1
             };
@@ -179,8 +176,8 @@ TEST_F(
           'data:text/html;charset=utf-8,' +
               '<p>This is some text</p>',
           function(desktop) {
-            let textNode = this.findTextNode(desktop, 'This is some text');
-            let event = {
+            const textNode = this.findTextNode(desktop, 'This is some text');
+            const event = {
               screenX: textNode.location.left + 1,
               screenY: textNode.location.top + 1
             };
@@ -222,8 +219,8 @@ TEST_F(
                         SelectToSpeakState.INACTIVE, selectToSpeak.state_);
                   });
                 })]);
-            let textNode = this.findTextNode(desktop, 'This is some text');
-            let event = {
+            const textNode = this.findTextNode(desktop, 'This is some text');
+            const event = {
               screenX: textNode.location.left + 1,
               screenY: textNode.location.top + 1
             };
@@ -243,7 +240,7 @@ TEST_F(
       chrome.automation.getDesktop(this.newCallback((desktop) => {
         this.tapTrayButton(desktop, () => {
           assertEquals(selectToSpeak.state_, SelectToSpeakState.SELECTING);
-          let button = desktop.find({
+          const button = desktop.find({
             roleType: 'button',
             attributes: {className: SELECT_TO_SPEAK_TRAY_CLASS_NAME}
           });
@@ -262,7 +259,7 @@ TEST_F(
               }),
               true);
 
-          let event = {
+          const event = {
             screenX: button.location.left + 1,
             screenY: button.location.top + 1
           };

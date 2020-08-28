@@ -4,7 +4,10 @@
 
 #include "ui/views/controls/native/native_view_host.h"
 
-#include "base/logging.h"
+#include <memory>
+#include <utility>
+
+#include "base/check.h"
 #include "ui/accessibility/ax_enums.mojom.h"
 #include "ui/base/cursor/cursor.h"
 #include "ui/gfx/canvas.h"
@@ -54,10 +57,8 @@ void NativeViewHost::SetParentAccessible(gfx::NativeViewAccessible accessible) {
   native_wrapper_->SetParentAccessible(accessible);
 }
 
-bool NativeViewHost::SetCornerRadius(int corner_radius) {
-  return SetCustomMask(views::Painter::CreatePaintedLayer(
-      views::Painter::CreateSolidRoundRectPainter(SK_ColorBLACK,
-                                                  corner_radius)));
+bool NativeViewHost::SetCornerRadii(const gfx::RoundedCornersF& corner_radii) {
+  return native_wrapper_->SetCornerRadii(corner_radii);
 }
 
 bool NativeViewHost::SetCustomMask(std::unique_ptr<ui::LayerOwner> mask) {
@@ -252,8 +253,7 @@ void NativeViewHost::ClearFocus() {
   }
 }
 
-BEGIN_METADATA(NativeViewHost)
-METADATA_PARENT_CLASS(View)
+BEGIN_METADATA(NativeViewHost, View)
 END_METADATA()
 
 }  // namespace views

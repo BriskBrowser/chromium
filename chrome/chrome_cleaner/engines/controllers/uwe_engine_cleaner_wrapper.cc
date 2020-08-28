@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "base/barrier_closure.h"
+#include "base/bind_helpers.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/files/important_file_writer.h"
@@ -21,6 +22,7 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/post_task.h"
 #include "base/task/task_traits.h"
+#include "base/task/thread_pool.h"
 #include "base/threading/sequenced_task_runner_handle.h"
 #include "base/win/registry.h"
 #include "chrome/chrome_cleaner/chrome_utils/extensions_util.h"
@@ -30,8 +32,8 @@
 namespace chrome_cleaner {
 
 using base::ImportantFileWriter;
-using ExtensionFilePath = base::string16;
-using ExtensionRegistryPath = base::string16;
+using ExtensionFilePath = std::wstring;
+using ExtensionRegistryPath = std::wstring;
 
 namespace {
 
@@ -49,7 +51,7 @@ const RegistryKey extension_forcelist_keys[] = {
 bool RemoveExtensionSettingsPoliciesExtensionForAccessMask(
     REGSAM access_mask,
     ContentType content_type,
-    const base::string16& serialized_json) {
+    const std::wstring& serialized_json) {
   for (size_t i = 0; i < base::size(extension_forcelist_keys); ++i) {
     base::win::RegKey key(extension_forcelist_keys[i].hkey,
                           extension_forcelist_keys[i].path, access_mask);
@@ -93,7 +95,7 @@ void UwEEngineCleanerWrapper::RemovePUPExtensions(
     extensions.insert(pup->matched_extensions.begin(),
                       pup->matched_extensions.end());
   }
-  std::vector<base::string16> master_preferences_extensions;
+  std::vector<std::wstring> master_preferences_extensions;
   for (const ForceInstalledExtension& extension : extensions) {
     switch (extension.install_method) {
       case DEFAULT_APPS_EXTENSION: {
@@ -161,7 +163,7 @@ void UwEEngineCleanerWrapper::RemovePUPExtensions(
           return;
         }
         master_preferences_extensions.push_back(
-            base::UTF8ToUTF16(extension.id.AsString()));
+            base::UTF8ToWide(extension.id.AsString()));
         break;
       }
       case INSTALL_METHOD_UNSPECIFIED:
@@ -195,15 +197,16 @@ void UwEEngineCleanerWrapper::RemovePUPExtensions(
       LOG(ERROR) << "Could not serialize json";
       return;
     }
-    base::string16 serialized_json16 = base::UTF8ToUTF16(serialized_json);
+    std::wstring wide_serialized_json = base::UTF8ToWide(serialized_json);
     if (!RemoveExtensionSettingsPoliciesExtensionForAccessMask(
-            KEY_WOW64_32KEY | KEY_WRITE, content_type, serialized_json16)) {
+            KEY_WOW64_32KEY | KEY_WRITE, content_type, wide_serialized_json)) {
       LOG(ERROR) << "Could not remove extension settings from registry";
       return;
     }
     if (IsX64Architecture()) {
       if (!RemoveExtensionSettingsPoliciesExtensionForAccessMask(
-              KEY_WOW64_64KEY | KEY_WRITE, content_type, serialized_json16)) {
+              KEY_WOW64_64KEY | KEY_WRITE, content_type,
+              wide_serialized_json)) {
         LOG(ERROR) << "Could not remove extension settings from registry";
         return;
       }
@@ -228,7 +231,7 @@ void UwEEngineCleanerWrapper::RemovePUPExtensions(
   if (master_preferences_extensions.size() > 0) {
     done_closure.ReplaceClosure(base::DoNothing());
     std::move(disable_extensions_callback_)
-        .Run(const_cast<std::vector<base::string16>&>(
+        .Run(const_cast<std::vector<std::wstring>&>(
                  master_preferences_extensions),
              base::BindOnce(&UwEEngineCleanerWrapper::DisableExtensionDone,
                             base::Unretained(this)));
@@ -269,9 +272,10 @@ void UwEEngineCleanerWrapper::Start(const std::vector<UwSId>& pup_ids,
                         base::SequencedTaskRunnerHandle::Get()));
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
-  PostTask(FROM_HERE, {base::ThreadPool(), base::MayBlock()},
-           base::BindOnce(&UwEEngineCleanerWrapper::TryRemovePUPExtensions,
-                          base::Unretained(this), pup_ids));
+  base::ThreadPool::PostTask(
+      FROM_HERE, {base::MayBlock()},
+      base::BindOnce(&UwEEngineCleanerWrapper::TryRemovePUPExtensions,
+                     base::Unretained(this), pup_ids));
 
   cleaner_->Start(pup_ids,
                   base::BindOnce(&UwEEngineCleanerWrapper::OnDoneUwSCleanup,

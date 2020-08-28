@@ -32,6 +32,10 @@ const char kAccountsPrefDeviceLocalAccountsKeyArcKioskAction[] =
 const char kAccountsPrefDeviceLocalAccountsKeyArcKioskDisplayName[] =
     "arc_kiosk_display_name";
 const char kAccountsPrefDeviceLocalAccountsKeyWebKioskUrl[] = "web_kiosk_url";
+const char kAccountsPrefDeviceLocalAccountsKeyWebKioskTitle[] =
+    "web_kiosk_title";
+const char kAccountsPrefDeviceLocalAccountsKeyWebKioskIconUrl[] =
+    "web_kiosk_icon_url";
 const char kAccountsPrefDeviceLocalAccountAutoLoginId[] =
     "cros.accounts.deviceLocalAccountAutoLoginId";
 const char kAccountsPrefDeviceLocalAccountAutoLoginDelay[] =
@@ -81,6 +85,9 @@ const char kStatsReportingPref[] = "cros.metrics.reportingEnabled";
 
 const char kReleaseChannel[] = "cros.system.releaseChannel";
 const char kReleaseChannelDelegated[] = "cros.system.releaseChannelDelegated";
+const char kReleaseLtsTag[] = "cros.system.releaseLtsTag";
+const char kDeviceChannelDowngradeBehavior[] =
+    "cros.system.channelDowngradeBehavior";
 
 // A boolean pref that indicates whether OS & firmware version info should be
 // reported along with device policy requests.
@@ -104,6 +111,20 @@ const char kReportDeviceBootMode[] = "cros.device_status.report_boot_mode";
 // A boolean pref that determines whether the device CPU information should be
 // included in status reports to the device management server.
 const char kReportDeviceCpuInfo[] = "cros.device_status.report_cpu_info";
+
+// A boolean pref that determines whether the device timezone information should
+// be included in status reports to the device management server.
+const char kReportDeviceTimezoneInfo[] =
+    "cros.device_status.report_timezone_info";
+
+// A boolean pref that determines whether the device memory information should
+// be included in status reports to the device management server.
+const char kReportDeviceMemoryInfo[] = "cros.device_status.report_memory_info";
+
+// A boolean pref that determines whether the device backlight information
+// should be included in status reports to the device management server.
+const char kReportDeviceBacklightInfo[] =
+    "cros.device_status.report_backlight_info";
 
 // A boolean pref that indicates whether the current location should be reported
 // along with device policy requests.
@@ -143,6 +164,11 @@ const char kReportDeviceSessionStatus[] =
 const char kReportDeviceGraphicsStatus[] =
     "cros.device_status.report_graphics_status";
 
+// Determines whether the device reports crash report information to the device
+// management server.
+const char kReportDeviceCrashReportInfo[] =
+    "cros.device_status.report_crash_report_info";
+
 // Determines whether the device reports os update status (update status,
 // new platform version and new required platform version of the auto
 // launched kiosk app).
@@ -157,6 +183,28 @@ const char kReportRunningKioskApp[] =
 // How frequently device status reports are uploaded, in milliseconds.
 const char kReportUploadFrequency[] =
     "cros.device_status.report_upload_frequency";
+
+// A boolean pref that indicates whether user app information and activity times
+// should be recorded and reported along with device policy requests.
+const char kReportDeviceAppInfo[] = "cros.device_status.report_device_app_info";
+
+// A boolean pref that determines whether the device Bluetooth information
+// should be included in status reports to the device management server.
+const char kReportDeviceBluetoothInfo[] =
+    "cros.device_status.report_device_bluetooth_info";
+
+// A boolean pref that determines whether the device fan information should be
+// included in status reports to the device management server.
+const char kReportDeviceFanInfo[] = "cros.device_status.report_device_fan_info";
+
+// A boolean pref that determines whether the device's VPD information should be
+// included in status reports to the device management server.
+const char kReportDeviceVpdInfo[] = "cros.device_status.report_device_vpd_info";
+
+// A boolean pref that determines whether the device's system information should
+// be included in status reports to the device management server.
+const char kReportDeviceSystemInfo[] =
+    "cros.device_status.report_device_system_info";
 
 // Determines whether heartbeats should be sent to the policy service via
 // the GCM channel.
@@ -323,25 +371,29 @@ const char kFineGrainedTimeZoneResolveEnabled[] =
 const char kDeviceOffHours[] = "cros.device_off_hours";
 
 // An enum specifying the access policy device printers should observe.
-const char kDeviceNativePrintersAccessMode[] =
-    "cros.device.native_printers_access_mode";
+const char kDevicePrintersAccessMode[] = "cros.device.printers_access_mode";
 // A list of strings representing device printer ids for which access is
 // restricted.
-const char kDeviceNativePrintersBlacklist[] =
-    "cros.device.native_printers_blacklist";
+const char kDevicePrintersBlocklist[] = "cros.device.printers_blocklist";
 // A list of strings representing the list of device printer ids which are
 // accessible.
-const char kDeviceNativePrintersWhitelist[] =
-    "cros.device.native_printers_whitelist";
+const char kDevicePrintersAllowlist[] = "cros.device.printers_allowlist";
 
 // A dictionary containing parameters controlling the TPM firmware update
 // functionality.
 const char kTPMFirmwareUpdateSettings[] = "cros.tpm_firmware_update_settings";
 
-// String indicating what is the minimum version of Chrome required to
-// allow user sign in. If the string is empty or blank no restrictions will
-// be applied.
-const char kMinimumRequiredChromeVersion[] = "cros.min_version.chrome";
+// A dictionary containing a list of entries in JSON form representing the
+// minimum version of Chrome OS along with warning times required to allow user
+// sign in or stay in session. If the list is empty no restrictions will be
+// applied.
+const char kDeviceMinimumVersion[] = "cros.device.min_version";
+
+// String shown on the update required dialog on the the login screen containing
+// return instructions from the device administrator. It is shown when update
+// is required but the device has reached auto update expiration.
+const char kDeviceMinimumVersionAueMessage[] =
+    "cros.device.min_version_aue_message";
 
 // String indicating what name should be advertised for casting to.
 // If the string is empty or blank the system name will be used.
@@ -415,4 +467,22 @@ const char kDevicePowerwashAllowed[] = "cros.device.device_powerwash_allowed";
 // during SAML authentication.
 extern const char kDeviceWebBasedAttestationAllowedUrls[] =
     "cros.device.device_web_based_attestation_allowed_urls";
+
+// A dictionary containing parameters controlling the availability of
+// System-proxy service and the web proxy credentials for system services
+// connecting through System-proxy.
+const char kSystemProxySettings[] = "cros.system_proxy_settings";
+const char kSystemProxySettingsKeyEnabled[] = "system_proxy_enabled";
+const char kSystemProxySettingsKeySystemServicesUsername[] =
+    "system_services_username";
+const char kSystemProxySettingsKeySystemServicesPassword[] =
+    "system_services_password";
+
+// An enum pref that indicates whether adb sideloading is allowed on this device
+const char kDeviceCrostiniArcAdbSideloadingAllowed[] =
+    "cros.device.crostini_arc_adb_sideloading_allowed";
+
+// A boolean pref controlling showing the low disk space notification.
+const char kDeviceShowLowDiskSpaceNotification[] =
+    "cros.device.show_low_disk_space_notification";
 }  // namespace chromeos

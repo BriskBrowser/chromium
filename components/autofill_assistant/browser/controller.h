@@ -10,10 +10,11 @@
 #include <string>
 #include <vector>
 
+#include "base/bind_helpers.h"
 #include "base/macros.h"
 #include "base/optional.h"
+#include "components/autofill_assistant/browser/basic_interactions.h"
 #include "components/autofill_assistant/browser/client.h"
-#include "components/autofill_assistant/browser/client_memory.h"
 #include "components/autofill_assistant/browser/client_settings.h"
 #include "components/autofill_assistant/browser/element_area.h"
 #include "components/autofill_assistant/browser/event_handler.h"
@@ -99,14 +100,14 @@ class Controller : public ScriptExecutorDelegate,
   const ClientSettings& GetSettings() override;
   const GURL& GetCurrentURL() override;
   const GURL& GetDeeplinkURL() override;
+  const GURL& GetScriptURL() override;
   Service* GetService() override;
   WebController* GetWebController() override;
-  ClientMemory* GetClientMemory() override;
   const TriggerContext* GetTriggerContext() override;
   autofill::PersonalDataManager* GetPersonalDataManager() override;
-  WebsiteLoginFetcher* GetWebsiteLoginFetcher() override;
+  WebsiteLoginManager* GetWebsiteLoginManager() override;
   content::WebContents* GetWebContents() override;
-  std::string GetAccountEmailAddress() override;
+  std::string GetEmailAddressForAccessTokenAccount() override;
   std::string GetLocale() override;
 
   void SetTouchableElementArea(const ElementAreaProto& area) override;
@@ -118,40 +119,70 @@ class Controller : public ScriptExecutorDelegate,
   void SetInfoBox(const InfoBox& info_box) override;
   void ClearInfoBox() override;
   void SetProgress(int progress) override;
+  void SetProgressActiveStep(int active_step) override;
   void SetProgressVisible(bool visible) override;
+  void SetStepProgressBarConfiguration(
+      const ShowProgressBarProto::StepProgressBarConfiguration& configuration)
+      override;
   void SetUserActions(
       std::unique_ptr<std::vector<UserAction>> user_actions) override;
   void SetViewportMode(ViewportMode mode) override;
   void SetPeekMode(ConfigureBottomSheetProto::PeekMode peek_mode) override;
+  void ExpandBottomSheet() override;
+  void CollapseBottomSheet() override;
   bool SetForm(
       std::unique_ptr<FormProto> form,
       base::RepeatingCallback<void(const FormProto::Result*)> changed_callback,
       base::OnceCallback<void(const ClientStatus&)> cancel_callback) override;
+  void ExpectNavigation() override;
   bool IsNavigatingToNewDocument() override;
   bool HasNavigationError() override;
+  void SetGenericUi(
+      std::unique_ptr<GenericUserInterfaceProto> generic_ui,
+      base::OnceCallback<void(const ClientStatus&)> end_action_callback,
+      base::OnceCallback<void(const ClientStatus&)>
+          view_inflation_finished_callback) override;
+  void ClearGenericUi() override;
+  void SetBrowseModeInvisible(bool invisible) override;
 
   // Show the UI if it's not already shown. This is only meaningful while in
   // states where showing the UI is optional, such as RUNNING, in tracking mode.
   void RequireUI() override;
 
+  void AddNavigationListener(
+      ScriptExecutorDelegate::NavigationListener* listener) override;
+  void RemoveNavigationListener(
+      ScriptExecutorDelegate::NavigationListener* listener) override;
   void AddListener(ScriptExecutorDelegate::Listener* listener) override;
   void RemoveListener(ScriptExecutorDelegate::Listener* listener) override;
 
+  void SetExpandSheetForPromptAction(bool expand) override;
+  void SetBrowseDomainsWhitelist(std::vector<std::string> domains) override;
+
   bool EnterState(AutofillAssistantState state) override;
+  void SetOverlayBehavior(
+      ConfigureUiStateProto::OverlayBehavior overlay_behavior) override;
   void SetCollectUserDataOptions(CollectUserDataOptions* options) override;
+  void SetLastSuccessfulUserDataOptions(std::unique_ptr<CollectUserDataOptions>
+                                            collect_user_data_options) override;
+  const CollectUserDataOptions* GetLastSuccessfulUserDataOptions()
+      const override;
   void WriteUserData(
       base::OnceCallback<void(UserData*, UserData::FieldChange*)>) override;
   void OnScriptError(const std::string& error_message,
                      Metrics::DropOutReason reason);
 
   // Overrides autofill_assistant::UiDelegate:
-  AutofillAssistantState GetState() override;
-  void UpdateTouchableArea() override;
+  AutofillAssistantState GetState() const override;
   void OnUserInteractionInsideTouchableArea() override;
   const Details* GetDetails() const override;
   const InfoBox* GetInfoBox() const override;
   int GetProgress() const override;
+  base::Optional<int> GetProgressActiveStep() const override;
   bool GetProgressVisible() const override;
+  bool GetProgressBarErrorState() const override;
+  base::Optional<ShowProgressBarProto::StepProgressBarConfiguration>
+  GetStepProgressBarConfiguration() const override;
   const std::vector<UserAction>& GetUserActions() const override;
   bool PerformUserActionWithContext(
       int index,
@@ -169,44 +200,46 @@ class Controller : public ScriptExecutorDelegate,
   void SetTermsAndConditions(
       TermsAndConditionsState terms_and_conditions) override;
   void SetLoginOption(std::string identifier) override;
-  void OnTermsAndConditionsLinkClicked(int link) override;
+  void OnTextLinkClicked(int link) override;
   void OnFormActionLinkClicked(int link) override;
-  void SetDateTimeRangeStart(int year,
-                             int month,
-                             int day,
-                             int hour,
-                             int minute,
-                             int second) override;
-  void SetDateTimeRangeEnd(int year,
-                           int month,
-                           int day,
-                           int hour,
-                           int minute,
-                           int second) override;
+  void SetDateTimeRangeStartDate(
+      const base::Optional<DateProto>& date) override;
+  void SetDateTimeRangeStartTimeSlot(
+      const base::Optional<int>& timeslot_index) override;
+  void SetDateTimeRangeEndDate(const base::Optional<DateProto>& date) override;
+  void SetDateTimeRangeEndTimeSlot(
+      const base::Optional<int>& timeslot_index) override;
   void SetAdditionalValue(const std::string& client_memory_key,
-                          const std::string& value) override;
+                          const ValueProto& value) override;
   void GetTouchableArea(std::vector<RectF>* area) const override;
   void GetRestrictedArea(std::vector<RectF>* area) const override;
   void GetVisualViewport(RectF* visual_viewport) const override;
   void OnFatalError(const std::string& error_message,
                     Metrics::DropOutReason reason) override;
-  void PerformDelayedShutdownIfNecessary();
+  void OnStop(const std::string& message,
+              const std::string& button_label) override;
   void MaybeReportFirstCheckDone();
   ViewportMode GetViewportMode() override;
   ConfigureBottomSheetProto::PeekMode GetPeekMode() override;
   void GetOverlayColors(OverlayColors* colors) const override;
   const ClientSettings& GetClientSettings() const override;
   const FormProto* GetForm() const override;
+  const FormProto::Result* GetFormResult() const override;
   void SetCounterValue(int input_index, int counter_index, int value) override;
   void SetChoiceSelected(int input_index,
                          int choice_index,
                          bool selected) override;
   void AddObserver(ControllerObserver* observer) override;
   void RemoveObserver(const ControllerObserver* observer) override;
-  void DispatchEvent(const EventHandler::EventKey& key,
-                     const ValueProto& value) override;
+  void DispatchEvent(const EventHandler::EventKey& key) override;
   UserModel* GetUserModel() override;
   EventHandler* GetEventHandler() override;
+  bool ShouldPromptActionExpandSheet() const override;
+  BasicInteractions* GetBasicInteractions() override;
+  const GenericUserInterfaceProto* GetGenericUiProto() const override;
+  bool ShouldShowOverlay() const override;
+  void ShutdownIfNecessary() override;
+  bool IsRunningLiteScript() const override;
 
  private:
   friend ControllerTest;
@@ -268,7 +301,6 @@ class Controller : public ScriptExecutorDelegate,
       const std::vector<ScriptHandle>& runnable_scripts) override;
 
   // Overrides content::WebContentsObserver:
-  void DidAttachInterstitialPage() override;
   void DidFinishLoad(content::RenderFrameHost* render_frame_host,
                      const GURL& validated_url) override;
   void DidStartNavigation(
@@ -290,16 +322,26 @@ class Controller : public ScriptExecutorDelegate,
 
   void SetOverlayColors(std::unique_ptr<OverlayColors> colors);
   void ReportNavigationStateChanged();
+  void SetProfile(const std::string& key,
+                  UserData::FieldChange field_change,
+                  std::unique_ptr<autofill::AutofillProfile> profile);
 
-  // Enter step while ignoring the return value.
-  void EnterStateSilent(AutofillAssistantState state);
+  // Show the first "Opening..." message and enter START state.
+  void ShowFirstMessageAndStart();
 
   // Clear out visible state and enter the stopped state.
   void EnterStoppedState();
 
+  void SetProgressBarErrorState(bool error);
+
   ElementArea* touchable_element_area();
   ScriptTracker* script_tracker();
   bool allow_autostart() { return state_ == AutofillAssistantState::STARTING; }
+
+  void RecordDropOutOrShutdown(Metrics::DropOutReason reason);
+  void PerformDelayedShutdownIfNecessary();
+
+  bool StateNeedsUI(AutofillAssistantState state);
 
   ClientSettings settings_;
   Client* const client_;
@@ -312,18 +354,16 @@ class Controller : public ScriptExecutorDelegate,
   std::unique_ptr<Service> service_;
   std::unique_ptr<TriggerContext> trigger_context_;
 
-  // Lazily instantiate in GetClientMemory().
-  std::unique_ptr<ClientMemory> memory_;
-
   AutofillAssistantState state_ = AutofillAssistantState::INACTIVE;
+  bool can_recover_from_stopped_ = false;
 
   // The URL passed to Start(). Used only as long as there's no committed URL.
-  // Note that this is the deeplink passed by a caller and reported to the
-  // backend in an initial get action request.
+  // Note that this is the deeplink passed by a caller.
   GURL deeplink_url_;
 
-  // Domain of the last URL the controller requested scripts from.
-  std::string script_domain_;
+  // The last URL the controller requested scripts from. Note that this is
+  // reported to the backend in an initial get action request.
+  GURL script_url_;
 
   // Whether a task for periodic checks is scheduled.
   bool periodic_script_check_scheduled_ = false;
@@ -362,9 +402,13 @@ class Controller : public ScriptExecutorDelegate,
 
   // Current progress.
   int progress_ = 0;
+  base::Optional<int> progress_active_step_;
 
   // Current visibility of the progress bar. It is initially visible.
   bool progress_visible_ = true;
+  bool progress_bar_error_state_ = false;
+  base::Optional<ShowProgressBarProto::StepProgressBarConfiguration>
+      step_progress_bar_configuration_;
 
   // Current set of user actions. May be null, but never empty.
   std::unique_ptr<std::vector<UserAction>> user_actions_;
@@ -375,9 +419,13 @@ class Controller : public ScriptExecutorDelegate,
   // Current peek mode.
   ConfigureBottomSheetProto::PeekMode peek_mode_ =
       ConfigureBottomSheetProto::HANDLE;
+  bool auto_change_peek_mode_ = false;
 
   std::unique_ptr<OverlayColors> overlay_colors_;
 
+  // A copy of the most recently set user data options. Can be used to determine
+  // which information was requested.
+  std::unique_ptr<CollectUserDataOptions> last_collect_user_data_options_;
   CollectUserDataOptions* collect_user_data_options_ = nullptr;
   std::unique_ptr<UserData> user_data_;
 
@@ -397,7 +445,13 @@ class Controller : public ScriptExecutorDelegate,
 
   // Value for ScriptExecutorDelegate::HasNavigationError()
   bool navigation_error_ = false;
-  std::vector<ScriptExecutorDelegate::Listener*> listeners_;
+  base::ObserverList<ScriptExecutorDelegate::NavigationListener>
+      navigation_listeners_;
+
+  base::ObserverList<ScriptExecutorDelegate::Listener> listeners_;
+
+  // The next DidStartNavigation will not cause an error.
+  bool expect_navigation_ = false;
 
   // Tracks scripts and script execution. It's kept at the end, as it tend to
   // depend on everything the controller support, through script and script
@@ -427,16 +481,28 @@ class Controller : public ScriptExecutorDelegate,
   // result - and updated the state and set of available actions.
   bool has_run_first_check_ = false;
 
+  // Whether the overlay should be set according to state or always hidden.
+  ConfigureUiStateProto::OverlayBehavior overlay_behavior_ =
+      ConfigureUiStateProto::DEFAULT;
+
   // Callbacks to call when |has_run_first_check_| becomes true.
   std::vector<base::OnceCallback<void()>> on_has_run_first_check_;
 
   // If set, the controller entered the STOPPED state but shutdown was delayed
-  // until the browser has left the |script_domain_| for which the decision was
-  // taken.
+  // until the browser has left the |script_url_.host()| for which the decision
+  // was taken.
   base::Optional<Metrics::DropOutReason> delayed_shutdown_reason_;
 
   EventHandler event_handler_;
   UserModel user_model_;
+  BasicInteractions basic_interactions_{this};
+
+  bool expand_sheet_for_prompt_action_ = true;
+  std::vector<std::string> browse_domains_whitelist_;
+  bool browse_mode_invisible_ = false;
+
+  // Only set during a ShowGenericUiAction.
+  std::unique_ptr<GenericUserInterfaceProto> generic_user_interface_;
 
   base::WeakPtrFactory<Controller> weak_ptr_factory_{this};
 

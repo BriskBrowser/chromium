@@ -6,7 +6,6 @@
 #define CONTENT_PUBLIC_BROWSER_CHILD_PROCESS_TERMINATION_INFO_H_
 
 #include "base/process/kill.h"
-#include "base/time/time.h"
 #include "build/build_config.h"
 #include "content/common/content_export.h"
 #include "content/public/common/result_codes.h"
@@ -30,10 +29,6 @@ struct CONTENT_EXPORT ChildProcessTerminationInfo {
   // posix, from GetExitCodeProcess on Windows).
   int exit_code = service_manager::RESULT_CODE_NORMAL_EXIT;
 
-  // Time delta between 1) the process start and 2) the time when
-  // ChildProcessTerminationInfo is computed.
-  base::TimeDelta uptime = base::TimeDelta::Max();
-
   // Populated only for renderer process. True if there are any visible
   // clients at the time of process death.
   bool renderer_has_visible_clients = false;
@@ -50,6 +45,9 @@ struct CONTENT_EXPORT ChildProcessTerminationInfo {
 
   // True if child service was explicitly killed by browser.
   bool was_killed_intentionally_by_browser = false;
+
+  // True if child process threw an exception before calling into main.
+  bool threw_exception_during_init = false;
 
   // True if the child shut itself down cleanly by quitting the main runloop.
   bool clean_exit = false;

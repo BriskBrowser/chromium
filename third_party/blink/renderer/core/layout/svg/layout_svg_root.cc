@@ -37,6 +37,8 @@
 #include "third_party/blink/renderer/core/layout/svg/svg_resources_cache.h"
 #include "third_party/blink/renderer/core/layout/svg/transform_helper.h"
 #include "third_party/blink/renderer/core/layout/svg/transformed_hit_test_location.h"
+#include "third_party/blink/renderer/core/page/chrome_client.h"
+#include "third_party/blink/renderer/core/paint/compositing/compositing_reason_finder.h"
 #include "third_party/blink/renderer/core/paint/paint_layer.h"
 #include "third_party/blink/renderer/core/paint/svg_root_painter.h"
 #include "third_party/blink/renderer/core/svg/graphics/svg_image.h"
@@ -54,7 +56,9 @@ LayoutSVGRoot::LayoutSVGRoot(SVGElement* node)
       needs_boundaries_or_transform_update_(true),
       has_box_decoration_background_(false),
       has_non_isolated_blending_descendants_(false),
-      has_non_isolated_blending_descendants_dirty_(false) {
+      has_non_isolated_blending_descendants_dirty_(false),
+      has_descendant_with_compositing_reason_(false),
+      has_descendant_with_compositing_reason_dirty_(false) {
   auto* svg = To<SVGSVGElement>(node);
   DCHECK(svg);
 
@@ -80,7 +84,10 @@ void LayoutSVGRoot::UnscaledIntrinsicSizingInfo(
   intrinsic_sizing_info.has_width = svg->HasIntrinsicWidth();
   intrinsic_sizing_info.has_height = svg->HasIntrinsicHeight();
 
-  if (!intrinsic_sizing_info.size.IsEmpty()) {
+  if (const base::Optional<IntSize>& aspect_ratio = StyleRef().AspectRatio()) {
+    intrinsic_sizing_info.aspect_ratio.SetWidth(aspect_ratio->Width());
+    intrinsic_sizing_info.aspect_ratio.SetHeight(aspect_ratio->Height());
+  } else if (!intrinsic_sizing_info.size.IsEmpty()) {
     intrinsic_sizing_info.aspect_ratio = intrinsic_sizing_info.size;
   } else {
     FloatSize view_box_size = svg->viewBox()->CurrentValue()->Value().Size();
@@ -135,7 +142,11 @@ LayoutUnit LayoutSVGRoot::ComputeReplacedLogicalWidth(
   if (IsEmbeddedThroughFrameContainingSVGDocument())
     return ContainingBlock()->AvailableLogicalWidth();
 
-  return LayoutReplaced::ComputeReplacedLogicalWidth(should_compute_preferred);
+  LayoutUnit width =
+      LayoutReplaced::ComputeReplacedLogicalWidth(should_compute_preferred);
+  if (StyleRef().LogicalWidth().IsPercentOrCalc())
+    width *= LogicalSizeScaleFactorForPercentageLengths();
+  return width;
 }
 
 LayoutUnit LayoutSVGRoot::ComputeReplacedLogicalHeight(
@@ -152,12 +163,27 @@ LayoutUnit LayoutSVGRoot::ComputeReplacedLogicalHeight(
 
   const Length& logical_height = StyleRef().LogicalHeight();
   if (IsDocumentElement() && logical_height.IsPercentOrCalc()) {
-    return ValueForLength(
+    LayoutUnit height = ValueForLength(
         logical_height,
         GetDocument().GetLayoutView()->ViewLogicalHeightForPercentages());
+    height *= LogicalSizeScaleFactorForPercentageLengths();
+    return height;
   }
 
   return LayoutReplaced::ComputeReplacedLogicalHeight(estimated_used_width);
+}
+
+double LayoutSVGRoot::LogicalSizeScaleFactorForPercentageLengths() const {
+  if (!IsDocumentElement() || !GetDocument().IsInMainFrame())
+    return 1;
+  if (GetDocument().GetLayoutView()->ShouldUsePrintingLayout())
+    return 1;
+  // This will return the zoom factor which is different from the typical usage
+  // of "zoom factor" in blink (e.g., |LocalFrame::PageZoomFactor()|) which
+  // includes CSS zoom and the device scale factor (if use-zoom-for-dsf is
+  // enabled). For this special-case, we only want to include the user's zoom
+  // factor, as all other types of zoom should not scale a percentage-sized svg.
+  return GetFrame()->GetChromeClient().UserZoomFactor();
 }
 
 void LayoutSVGRoot::UpdateLayout() {
@@ -167,6 +193,15 @@ void LayoutSVGRoot::UpdateLayout() {
   LayoutSize old_size = Size();
   UpdateLogicalWidth();
   UpdateLogicalHeight();
+
+  // Whether we have a self-painting layer depends on whether there are
+  // compositing descendants (see: |HasCompositingDescendants()| which is called
+  // from |PaintLayer::UpdateSelfPaintingLayer()|). We cannot do this update in
+  // StyleDidChange because descendants have not yet run StyleDidChange, so we
+  // don't know their compositing reasons yet. A layout is scheduled when
+  // |HasCompositingDescendants()| changes to ensure this is run.
+  if (Layer() && RuntimeEnabledFeatures::CompositeSVGEnabled())
+    Layer()->UpdateSelfPaintingLayer();
 
   // The local-to-border-box transform is a function with the following as
   // input:
@@ -300,7 +335,7 @@ bool LayoutSVGRoot::StyleChangeAffectsIntrinsicSize(
 }
 
 void LayoutSVGRoot::IntrinsicSizingInfoChanged() {
-  SetPreferredLogicalWidthsDirty();
+  SetIntrinsicLogicalWidthsDirty();
 
   // TODO(fs): Merge with IntrinsicSizeChanged()? (from LayoutReplaced)
   // Ignore changes to intrinsic dimensions if the <svg> is not in an SVG
@@ -315,7 +350,7 @@ void LayoutSVGRoot::StyleDidChange(StyleDifference diff,
                                    const ComputedStyle* old_style) {
   if (diff.NeedsFullLayout())
     SetNeedsBoundariesUpdate();
-  if (diff.NeedsFullPaintInvalidation()) {
+  if (diff.NeedsPaintInvalidation()) {
     // Box decorations may have appeared/disappeared - recompute status.
     has_box_decoration_background_ = StyleRef().HasBoxDecorationBackground();
   }
@@ -336,7 +371,7 @@ bool LayoutSVGRoot::IsChildAllowed(LayoutObject* child,
 
 void LayoutSVGRoot::AddChild(LayoutObject* child, LayoutObject* before_child) {
   LayoutReplaced::AddChild(child, before_child);
-  SVGResourcesCache::ClientWasAddedToTree(*child, child->StyleRef());
+  SVGResourcesCache::ClientWasAddedToTree(*child);
 
   bool should_isolate_descendants =
       (child->IsBlendingAllowed() && child->StyleRef().HasBlendMode()) ||
@@ -383,7 +418,7 @@ void LayoutSVGRoot::DescendantIsolationRequirementsChanged(
 
 void LayoutSVGRoot::InsertedIntoTree() {
   LayoutReplaced::InsertedIntoTree();
-  SVGResourcesCache::ClientWasAddedToTree(*this, StyleRef());
+  SVGResourcesCache::ClientWasAddedToTree(*this);
 }
 
 void LayoutSVGRoot::WillBeRemovedFromTree() {
@@ -519,6 +554,52 @@ bool LayoutSVGRoot::NodeAtPoint(HitTestResult& result,
   }
 
   return false;
+}
+
+void LayoutSVGRoot::NotifyDescendantCompositingReasonsChanged() {
+  if (has_descendant_with_compositing_reason_dirty_)
+    return;
+  has_descendant_with_compositing_reason_dirty_ = true;
+  SetNeedsLayout(layout_invalidation_reason::kSvgChanged);
+}
+
+PaintLayerType LayoutSVGRoot::LayerTypeRequired() const {
+  auto layer_type_required = LayoutReplaced::LayerTypeRequired();
+  if (layer_type_required == kNoPaintLayer &&
+      RuntimeEnabledFeatures::CompositeSVGEnabled() &&
+      !RuntimeEnabledFeatures::CompositeAfterPaintEnabled()) {
+    // Force a paint layer so a GraphicsLayer can be created if there are
+    // directly-composited descendants.
+    layer_type_required = kForcedPaintLayer;
+  }
+  return layer_type_required;
+}
+
+CompositingReasons LayoutSVGRoot::AdditionalCompositingReasons() const {
+  return RuntimeEnabledFeatures::CompositeSVGEnabled() &&
+                 HasDescendantWithCompositingReason()
+             ? CompositingReason::kSVGRoot
+             : CompositingReason::kNone;
+}
+
+bool LayoutSVGRoot::HasDescendantWithCompositingReason() const {
+  if (has_descendant_with_compositing_reason_dirty_) {
+    has_descendant_with_compositing_reason_ = false;
+    for (const LayoutObject* object = FirstChild(); object;
+         // Do not consider descendants of <foreignObject>.
+         object = object->IsSVGForeignObject()
+                      ? object->NextInPreOrderAfterChildren(this)
+                      : object->NextInPreOrder(this)) {
+      DCHECK(object->IsSVGChild());
+      if (CompositingReasonFinder::DirectReasonsForSVGChildPaintProperties(
+              *object) != CompositingReason::kNone) {
+        has_descendant_with_compositing_reason_ = true;
+        break;
+      }
+    }
+    has_descendant_with_compositing_reason_dirty_ = false;
+  }
+  return has_descendant_with_compositing_reason_;
 }
 
 }  // namespace blink

@@ -13,8 +13,8 @@ import org.json.JSONException;
 import org.chromium.base.ThreadUtils;
 import org.chromium.base.annotations.CalledByNative;
 import org.chromium.base.annotations.NativeMethods;
-import org.chromium.chrome.browser.ChromeFeatureList;
-import org.chromium.chrome.browser.SyncFirstSetupCompleteSource;
+import org.chromium.components.signin.base.GoogleServiceAuthError;
+import org.chromium.components.sync.KeyRetrievalTriggerForUMA;
 import org.chromium.components.sync.ModelType;
 import org.chromium.components.sync.PassphraseType;
 
@@ -310,11 +310,6 @@ public class ProfileSyncService {
             assert mSetupInProgressCounter > 0;
             if (--mSetupInProgressCounter == 0) {
                 setSetupInProgress(false);
-                if (!ChromeFeatureList.isEnabled(ChromeFeatureList.SYNC_MANUAL_START_ANDROID)) {
-                    // The user has finished setting up sync at least once.
-                    setFirstSetupComplete(
-                            SyncFirstSetupCompleteSource.ENGINE_INITIALIZED_WITH_AUTO_START);
-                }
             }
         }
     }
@@ -352,8 +347,7 @@ public class ProfileSyncService {
      * UI elements can update themselves.
      */
     @CalledByNative
-    @VisibleForTesting
-    public void syncStateChanged() {
+    protected void syncStateChanged() {
         for (SyncStateChangedListener listener : mListeners) {
             listener.syncStateChanged();
         }
@@ -362,14 +356,6 @@ public class ProfileSyncService {
     public void setSyncAllowedByPlatform(boolean allowed) {
         ProfileSyncServiceJni.get().setSyncAllowedByPlatform(
                 mNativeProfileSyncServiceAndroid, ProfileSyncService.this, allowed);
-    }
-
-    /**
-     * Flushes the sync directory to disk.
-     */
-    public void flushDirectory() {
-        ProfileSyncServiceJni.get().flushDirectory(
-                mNativeProfileSyncServiceAndroid, ProfileSyncService.this);
     }
 
     /**
@@ -451,6 +437,18 @@ public class ProfileSyncService {
     public boolean isPassphraseRequiredForPreferredDataTypes() {
         assert isEngineInitialized();
         return ProfileSyncServiceJni.get().isPassphraseRequiredForPreferredDataTypes(
+                mNativeProfileSyncServiceAndroid, ProfileSyncService.this);
+    }
+
+    /**
+     * Checks if trusted vault encryption keys are needed, independently of the currently-enabled
+     * data types.
+     *
+     * @return true if we need an encryption key.
+     */
+    public boolean isTrustedVaultKeyRequired() {
+        assert isEngineInitialized();
+        return ProfileSyncServiceJni.get().isTrustedVaultKeyRequired(
                 mNativeProfileSyncServiceAndroid, ProfileSyncService.this);
     }
 
@@ -556,6 +554,14 @@ public class ProfileSyncService {
                 mNativeProfileSyncServiceAndroid, ProfileSyncService.this);
     }
 
+    /**
+     * Records TrustedVaultKeyRetrievalTrigger histogram.
+     */
+    public void recordKeyRetrievalTrigger(@KeyRetrievalTriggerForUMA int keyRetrievalTrigger) {
+        ProfileSyncServiceJni.get().recordKeyRetrievalTrigger(
+                mNativeProfileSyncServiceAndroid, ProfileSyncService.this, keyRetrievalTrigger);
+    }
+
     @VisibleForTesting
     public long getNativeProfileSyncServiceForTest() {
         return ProfileSyncServiceJni.get().getProfileSyncServiceForTest(
@@ -641,7 +647,6 @@ public class ProfileSyncService {
         void requestStop(long nativeProfileSyncServiceAndroid, ProfileSyncService caller);
         void setSyncAllowedByPlatform(
                 long nativeProfileSyncServiceAndroid, ProfileSyncService caller, boolean allowed);
-        void flushDirectory(long nativeProfileSyncServiceAndroid, ProfileSyncService caller);
         void setSyncSessionsId(
                 long nativeProfileSyncServiceAndroid, ProfileSyncService caller, String tag);
         int getAuthError(long nativeProfileSyncServiceAndroid, ProfileSyncService caller);
@@ -658,6 +663,8 @@ public class ProfileSyncService {
         void enableEncryptEverything(
                 long nativeProfileSyncServiceAndroid, ProfileSyncService caller);
         boolean isPassphraseRequiredForPreferredDataTypes(
+                long nativeProfileSyncServiceAndroid, ProfileSyncService caller);
+        boolean isTrustedVaultKeyRequired(
                 long nativeProfileSyncServiceAndroid, ProfileSyncService caller);
         boolean isTrustedVaultKeyRequiredForPreferredDataTypes(
                 long nativeProfileSyncServiceAndroid, ProfileSyncService caller);
@@ -715,5 +722,7 @@ public class ProfileSyncService {
                 long nativeProfileSyncServiceAndroid, ProfileSyncService caller);
         void getAllNodes(long nativeProfileSyncServiceAndroid, ProfileSyncService caller,
                 GetAllNodesCallback callback);
+        void recordKeyRetrievalTrigger(long nativeProfileSyncServiceAndroid,
+                ProfileSyncService caller, int keyRetrievalTrigger);
     }
 }

@@ -23,7 +23,6 @@
 #include "third_party/blink/renderer/core/svg/svg_animate_element.h"
 #include "third_party/blink/renderer/core/svg/svg_parser_utilities.h"
 #include "third_party/blink/renderer/platform/heap/heap.h"
-#include "third_party/blink/renderer/platform/wtf/text/string_builder.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
 
 namespace blink {
@@ -31,10 +30,6 @@ namespace blink {
 SVGNumberList::SVGNumberList() = default;
 
 SVGNumberList::~SVGNumberList() = default;
-
-String SVGNumberList::ValueAsString() const {
-  return SVGListPropertyHelper<SVGNumberList, SVGNumber>::SerializeList();
-}
 
 template <typename CharType>
 SVGParsingError SVGNumberList::Parse(const CharType*& ptr,
@@ -69,7 +64,7 @@ SVGParsingError SVGNumberList::SetValueAsString(const String& value) {
 }
 
 void SVGNumberList::Add(SVGPropertyBase* other, SVGElement* context_element) {
-  SVGNumberList* other_list = ToSVGNumberList(other);
+  auto* other_list = To<SVGNumberList>(other);
 
   if (length() != other_list->length())
     return;
@@ -86,10 +81,10 @@ void SVGNumberList::CalculateAnimatedValue(
     SVGPropertyBase* to_value,
     SVGPropertyBase* to_at_end_of_duration_value,
     SVGElement* context_element) {
-  SVGNumberList* from_list = ToSVGNumberList(from_value);
-  SVGNumberList* to_list = ToSVGNumberList(to_value);
-  SVGNumberList* to_at_end_of_duration_list =
-      ToSVGNumberList(to_at_end_of_duration_value);
+  auto* from_list = To<SVGNumberList>(from_value);
+  auto* to_list = To<SVGNumberList>(to_value);
+  auto* to_at_end_of_duration_list =
+      To<SVGNumberList>(to_at_end_of_duration_value);
 
   uint32_t from_list_size = from_list->length();
   uint32_t to_list_size = to_list->length();

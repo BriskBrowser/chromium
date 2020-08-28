@@ -57,10 +57,6 @@ void OneClickSigninDialogView::Hide() {
     dialog_view_->GetWidget()->Close();
 }
 
-base::string16 OneClickSigninDialogView::GetWindowTitle() const {
-  return l10n_util::GetStringUTF16(IDS_ONE_CLICK_SIGNIN_DIALOG_TITLE_NEW);
-}
-
 ui::ModalType OneClickSigninDialogView::GetModalType() const {
   return ui::MODAL_TYPE_WINDOW;
 }
@@ -91,7 +87,7 @@ OneClickSigninDialogView::OneClickSigninDialogView(
   // Column set for descriptive text and link.
   views::ColumnSet* cs = layout->AddColumnSet(0);
   cs->AddColumn(views::GridLayout::FILL, views::GridLayout::CENTER, 1.0,
-                views::GridLayout::USE_PREF, 0, 0);
+                views::GridLayout::ColumnSize::kUsePreferred, 0, 0);
 
   layout->StartRow(views::GridLayout::kFixedSize, 0);
 
@@ -124,14 +120,15 @@ OneClickSigninDialogView::OneClickSigninDialogView(
       },
       base::Unretained(this)));
   advanced_link->SetHorizontalAlignment(gfx::ALIGN_LEFT);
-  DialogDelegate::SetExtraView(std::move(advanced_link));
+  SetExtraView(std::move(advanced_link));
 
-  DialogDelegate::set_button_label(
+  SetButtonLabel(
       ui::DIALOG_BUTTON_OK,
       l10n_util::GetStringUTF16(IDS_ONE_CLICK_SIGNIN_DIALOG_OK_BUTTON));
-  DialogDelegate::set_button_label(
+  SetButtonLabel(
       ui::DIALOG_BUTTON_CANCEL,
       l10n_util::GetStringUTF16(IDS_ONE_CLICK_SIGNIN_DIALOG_UNDO_BUTTON));
+  SetTitle(IDS_ONE_CLICK_SIGNIN_DIALOG_TITLE_NEW);
 
   set_margins(ChromeLayoutProvider::Get()->GetDialogInsetsForContentType(
       views::TEXT, views::TEXT));

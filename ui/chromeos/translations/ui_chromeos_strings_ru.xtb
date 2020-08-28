@@ -8,6 +8,7 @@
 <translation id="1046068652463704410">Ввод на японском языке (для американской раскладки)</translation>
 <translation id="1047956942837015229">Удаление элементов (<ph name="COUNT" />)…</translation>
 <translation id="1049926623896334335">Документ Word</translation>
+<translation id="1060368002126861100">Чтобы открыть файлы с помощью приложения "<ph name="APP_NAME" />", переместите их в папку "Файлы Windows".</translation>
 <translation id="1062407476771304334">Заменить</translation>
 <translation id="1065449928621190041">Канадская раскладка (французский)</translation>
 <translation id="1119069657431255176">Сжатый TAR-архив Bzip2</translation>
@@ -20,6 +21,7 @@
 <translation id="1150565364351027703">Солнцезащитные очки</translation>
 <translation id="115443833402798225">Корейская раскладка (Ahnmatae)</translation>
 <translation id="1155759005174418845">Каталанский</translation>
+<translation id="1172970565351728681">Осталось около <ph name="REMAINING_TIME" /></translation>
 <translation id="1173894706177603556">Переименовать</translation>
 <translation id="117624967391683467">Копирование файла "<ph name="FILE_NAME" />"…</translation>
 <translation id="1178581264944972037">Пауза</translation>
@@ -29,6 +31,7 @@
 <translation id="1243314992276662751">Загрузить</translation>
 <translation id="1249250836236328755">Жанр</translation>
 <translation id="1278813325885878377">Венгерская QWERTY-клавиатура</translation>
+<translation id="1293556467332435079">Файлы</translation>
 <translation id="1297922636971898492">Google Диск временно недоступен. Когда доступ будет восстановлен, загрузка автоматически возобновится.</translation>
 <translation id="1307931752636661898">Нет доступа к файлам Linux</translation>
 <translation id="1310751437842832374">Транслитерация (mausam → ନମସ୍ତେ)</translation>
@@ -44,6 +47,8 @@
 <translation id="1395262318152388157">Ползунок воспроизведения</translation>
 <translation id="1399648040768741453">Раскладка телугу (фонетическая)</translation>
 <translation id="1430915738399379752">Печать</translation>
+<translation id="1433600251059882049">Доступ к этой папке предоставлен Linux и Windows.</translation>
+<translation id="1435838927755162558">Предоставление Parallels Desktop доступа к папке</translation>
 <translation id="1439494416798956626">Перемещено в папку "<ph name="FOLDER_NAME" />".</translation>
 <translation id="1441841714100794440">Вьетнамская раскладка (TELEX)</translation>
 <translation id="1455548678241328678">Норвежская раскладка</translation>
@@ -78,6 +83,7 @@
 <translation id="1844692022597038441">Этот файл недоступен в автономном режиме.</translation>
 <translation id="184633654410729720">Тайская раскладка (Kedmanee)</translation>
 <translation id="1847880352285315359">Сохранено</translation>
+<translation id="1853795129690976061">Доступ к этой папке предоставлен Linux.</translation>
 <translation id="1864756863218646478">Не удалось найти файл.</translation>
 <translation id="1921986354447415460">Турецкая раскладка (Turkish-F)</translation>
 <translation id="1924372192547904021">Внешнее хранилище "<ph name="DRIVE_NAME" />" отформатировано.</translation>
@@ -89,6 +95,7 @@
 <translation id="1947424002851288782">Немецкая раскладка</translation>
 <translation id="1972984168337863910">Развернуть панель с информацией о файлах</translation>
 <translation id="1984603991036629094">Армянская фонетическая раскладка клавиатуры</translation>
+<translation id="1995337122023280937">Перейти к местоположению файла</translation>
 <translation id="2001796770603320721">Открыть на Google Диске</translation>
 <translation id="2009067268969781306">При форматировании диска все хранящиеся на нем данные будут удалены. Это действие нельзя отменить.</translation>
 <translation id="2028997212275086731">Архив RAR</translation>
@@ -100,7 +107,6 @@
 <translation id="2085470240340828803">Файл <ph name="FILENAME" /> уже существует. Выберите необходимое действие.</translation>
 <translation id="2121825465123208577">Изменить размер</translation>
 <translation id="2136953289241069843">Транслитерация (namaste → नमस्कार)</translation>
-<translation id="2138867954865495510">Не удалось открыть <ph name="PATH" />. <ph name="ERROR_MESSAGE" /></translation>
 <translation id="2163152940313951844">Недопустимый символ: <ph name="CHARACTER_NAME" /></translation>
 <translation id="2164862903024139959">Вьетнамская раскладка (TCVN)</translation>
 <translation id="2168214441502403371">Персидская раскладка</translation>
@@ -122,6 +128,7 @@
 <translation id="2384596874640104496">Сингальская раскладка</translation>
 <translation id="240770291734945588">Свободно <ph name="SPACE_AVAILABLE" /></translation>
 <translation id="2425665904502185219">Общий размер файлов</translation>
+<translation id="2428749644083375155">Копирование объектов (<ph name="NUMBER_OF_ITEMS" />) в папку "<ph name="FOLDER_NAME" />"…</translation>
 <translation id="2448312741937722512">Тип</translation>
 <translation id="2453576648990281505">Файл уже существует</translation>
 <translation id="2464079411014186876">Мороженое</translation>
@@ -140,6 +147,7 @@
 <translation id="2638942478653899953">Не удается подключиться к Google Диску. Попробуйте <ph name="BEGIN_LINK" />выйти<ph name="END_LINK" /> и снова зайти в систему.</translation>
 <translation id="2649120831653069427">Рыбка</translation>
 <translation id="2661146741306740526">16x9</translation>
+<translation id="2664412712123763093">Местоположение файла</translation>
 <translation id="2672394958563893062">Произошла ошибка. Нажмите, чтобы воспроизвести сначала.</translation>
 <translation id="2676946222714718093">Устройство:</translation>
 <translation id="2735698359135166290">Cтандартная румынская клавиатура</translation>
@@ -175,6 +183,7 @@
 <translation id="303198083543495566">Место съемки</translation>
 <translation id="3057861065630527966">Создать резервные копии фото и видео</translation>
 <translation id="3064388234319122767">Транслитерация (zdravo → здраво)</translation>
+<translation id="3067790092342515856">Файлы Windows</translation>
 <translation id="3078461028045006476">Поделиться с помощью приложения "<ph name="EXTENSION_NAME" />"</translation>
 <translation id="3088034400796962477">Транслитерация (salam ← سلام)</translation>
 <translation id="3116361045094675131">Английская раскладка</translation>
@@ -189,6 +198,7 @@
 <translation id="3236289833370040187">Право собственности будет передано домену <ph name="DESTINATION_DOMAIN" />.</translation>
 <translation id="3241720467332021590">Ирландский</translation>
 <translation id="3245321423178950146">Неизвестный исполнитель</translation>
+<translation id="3248185426436836442">Выполняется…</translation>
 <translation id="3252266817569339921">Французский</translation>
 <translation id="3254434849914415189">Выбор приложения по умолчанию для <ph name="FILE_TYPE" />-файлов</translation>
 <translation id="3264582393905923483">Контекст</translation>
@@ -199,6 +209,7 @@
 <translation id="3335337277364016868">Год записи</translation>
 <translation id="3338239663705455570">Словенская раскладка</translation>
 <translation id="3353984535370177728">Выберите папку для загрузки</translation>
+<translation id="3356580349448036450">Готово</translation>
 <translation id="3399597614303179694">Македонская раскладка</translation>
 <translation id="3414856743105198592">Форматирование съемного накопителя приведет к удалению всех данных. Продолжить?</translation>
 <translation id="3437801641691368414">Время создания</translation>
@@ -210,8 +221,10 @@
 <translation id="3495304270784461826">Ошибок: <ph name="COUNT" />.</translation>
 <translation id="3519867315646775981">Транслитерация (shalom ← שלום)</translation>
 <translation id="3522708245912499433">Португальский</translation>
+<translation id="3524311639100184459">Внимание! Эти файлы – временные. Они могут быть автоматически удалены, чтобы освободить место на диске.  <ph name="BEGIN_LINK" />Подробнее…<ph name="END_LINK" /></translation>
 <translation id="3527085408025491307">Папка</translation>
 <translation id="3549797760399244642">Перейти на drive.google.com…</translation>
+<translation id="3553048479571901246">Чтобы открыть файлы с помощью приложения "<ph name="APP_NAME" />", скопируйте их в папку "Файлы Windows".</translation>
 <translation id="357479282490346887">Литовский</translation>
 <translation id="3583509704582854624">Ввод букв и цифр (для японской раскладки)</translation>
 <translation id="3603385196401704894">Канадская (французская)</translation>
@@ -232,9 +245,11 @@
 <translation id="3780536599611287598">У вас недостаточно прав для перемещения файлов в папку "<ph name="FOLDER_NAME" />"</translation>
 <translation id="3786301125658655746">Вы работаете в автономном режиме.</translation>
 <translation id="3789841737615482174">Установить</translation>
+<translation id="3793469551756281394">Осталось около <ph name="REMAINING_TIME_HOUR" /> <ph name="REMAINING_TIME_MINUTE" /></translation>
 <translation id="3798449238516105146">Версия</translation>
 <translation id="3801082500826908679">Фарерский</translation>
 <translation id="3809272675881623365">Кролик</translation>
+<translation id="3810973564298564668">Настроить</translation>
 <translation id="3811494700605067549">Выбран 1 файл</translation>
 <translation id="3815016854028376614">Чжуинь</translation>
 <translation id="3825863595139017598">Монгольская раскладка клавиатуры</translation>
@@ -255,6 +270,7 @@
 <translation id="3943857333388298514">Вставить</translation>
 <translation id="3958548648197196644">Киви</translation>
 <translation id="3966388904776714213">Аудиоплеер</translation>
+<translation id="3984317463833596033">Parallels Desktop сможет изменять файлы в папке "<ph name="FOLDER_NAME" />".</translation>
 <translation id="4002066346123236978">Название</translation>
 <translation id="4070370845051020638">Кантонская раскладка</translation>
 <translation id="4072248638558688893">Тамильская раскладка (фонетическая)</translation>
@@ -283,8 +299,10 @@
 <translation id="4470564870223067757">Корейская раскладка (Dubeolsik)</translation>
 <translation id="4477219268485577442">Болгарская (фонетическая)</translation>
 <translation id="4479812471636796472">Американская раскладка (Дворак)</translation>
+<translation id="4481711095103932593">Доступ к этой папке предоставлен Windows.</translation>
 <translation id="4487088045714738411">Бельгийская раскладка</translation>
 <translation id="4522570452068850558">Подробнее</translation>
+<translation id="4542387084127299777">Не удалось открыть архив "<ph name="PATH" />".</translation>
 <translation id="4552678318981539154">Приобретите дополнительное пространство</translation>
 <translation id="4559767610552730302">Боке</translation>
 <translation id="4572815280350369984"><ph name="FILE_TYPE" />-файл</translation>
@@ -292,6 +310,7 @@
 <translation id="4579744207439506346">Выбран объект "<ph name="ENTRY_NAME" />".</translation>
 <translation id="4582497162516204941">Установить с помощью ОС Linux (бета-версия)</translation>
 <translation id="4594543368593301662">Результаты поиска по запросу "<ph name="SEARCH_TERM" />".</translation>
+<translation id="4603392156942865207">Копирование файла "<ph name="FILE_NAME" />" в папку "<ph name="FOLDER_NAME" />"…</translation>
 <translation id="4631887759990505102">Исполнитель</translation>
 <translation id="4656293982926141856">С компьютера</translation>
 <translation id="4669606053856530811">Пользователи общего диска "<ph name="SOURCE_NAME" />" больше не смогут использовать эти объекты, если к ним не будет включен общий доступ.</translation>
@@ -325,10 +344,12 @@
 <translation id="4880520557730313061">Автокоррекция</translation>
 <translation id="4881695831933465202">Открыть</translation>
 <translation id="4886021172213954916">Тамильская раскладка ("Печатная машинка")</translation>
+<translation id="4900532980794411603">Предоставить доступ Parallels Desktop</translation>
 <translation id="4905417359854579806">Файлы (<ph name="FILE_COUNT" />) готовы к сохранению</translation>
 <translation id="4924638091161556692">Исправлено</translation>
 <translation id="4935975195727477204">Гацания</translation>
 <translation id="4943368462779413526">Футбол</translation>
+<translation id="4961158930123534723">Parallels Desktop предоставлен доступ к 1 папке.</translation>
 <translation id="4969785127455456148">Альбом</translation>
 <translation id="497244430928947428">Раскладка малаялам (фонетическая)</translation>
 <translation id="4973523518332075481">Слишком длинное название. Максимальное количество символов: <ph name="MAX_LENGTH" />.</translation>
@@ -340,10 +361,12 @@
 <translation id="5010406651457630570">Компьютеры</translation>
 <translation id="5011233892417813670">Chromebook</translation>
 <translation id="5024856940085636730">Операция займет больше времени, чем ожидалось. Прервать?</translation>
+<translation id="5036159836254554629">Управлять доступом для Parallels Desktop</translation>
 <translation id="5038625366300922036">Ещё...</translation>
 <translation id="5061708541166515394">Контрастность</translation>
 <translation id="5068919226082848014">Пицца</translation>
 <translation id="5081517858322016911">Будут удалены файлы общим объемом <ph name="TOTAL_FILE_SIZE" /></translation>
+<translation id="508423945471810158">Перемещение объектов (<ph name="NUMBER_OF_ITEMS" />) в папку "<ph name="FOLDER_NAME" />"…</translation>
 <translation id="509429900233858213">Произошла ошибка.</translation>
 <translation id="5098629044894065541">Иврит</translation>
 <translation id="5123433949759960244">Баскетбол</translation>
@@ -389,6 +412,7 @@
 <translation id="5418923334382419584">Бирманская раскладка</translation>
 <translation id="5428105026674456456">Испанский</translation>
 <translation id="5438282218546237410">По запросу "<ph name="SEARCH_TERM" />" ничего не найдено.</translation>
+<translation id="5449551289610225147">Неправильный пароль</translation>
 <translation id="5464696796438641524">Польская раскладка</translation>
 <translation id="5465122519792752163">Непальская раскладка (InScript)</translation>
 <translation id="5469868506864199649">Итальянский</translation>
@@ -447,6 +471,7 @@
 <translation id="6054173164583630569">Французская раскладка</translation>
 <translation id="6074825444536523002">Форма Google</translation>
 <translation id="6096979789310008754">Поисковый запрос удален. Показаны все файлы и папки.</translation>
+<translation id="610101264611565198">Перемещение файла "<ph name="FILE_NAME" />" в папку "<ph name="FOLDER_NAME" />"…</translation>
 <translation id="6111770213269631447">Транслитерация (namaskar → নমস্কার)</translation>
 <translation id="6129953537138746214">Пробел</translation>
 <translation id="6133173853026656527">Перемещение файла "<ph name="FILE_NAME" />"…</translation>
@@ -487,9 +512,11 @@
 <translation id="656398493051028875">Удаление файла "<ph name="FILENAME" />"…</translation>
 <translation id="6581162200855843583">Ссылка на Google Диск</translation>
 <translation id="6607272825297743757">Информация о файле</translation>
+<translation id="6609332149380188670">Parallels Desktop предоставлен доступ к нескольким папкам (<ph name="NUMBER_OF_ITEMS" />).</translation>
 <translation id="6629841649550503054">Данные сохранены на <ph name="BEGIN_LINK" />Google Диске<ph name="END_LINK" /></translation>
 <translation id="6643016212128521049">Удалить</translation>
 <translation id="6650726141019353908">Розовая бабочка</translation>
+<translation id="6657585470893396449">Пароль</translation>
 <translation id="6710213216561001401">Назад</translation>
 <translation id="6718273304615422081">Архивирование…</translation>
 <translation id="6751256176799620176">1 папка выбрана</translation>
@@ -499,6 +526,7 @@
 <translation id="6806699711453372963">Настроить доступ Linux</translation>
 <translation id="6808193438228982088">Лиса</translation>
 <translation id="6820687829547641339">Сжатый TAR-архив Gzip</translation>
+<translation id="6823166707458800069">Для всех файлов, сохраненных в этой папке, автоматически создается резервная копия в онлайн-хранилище.</translation>
 <translation id="6825883775269213504">Русский</translation>
 <translation id="6827236167376090743">Видео будет воспроизводиться в режиме повтора.</translation>
 <translation id="6847101934483209767">Выбор объекта "<ph name="ENTRY_NAME" />" отменен.</translation>
@@ -508,6 +536,7 @@
 <translation id="6878261347041253038">Раскладка деванагари (фонетическая)</translation>
 <translation id="6885780034956018177">Улитка</translation>
 <translation id="6896758677409633944">Копировать</translation>
+<translation id="6898028766943174120">Другие вложенные папки…</translation>
 <translation id="691516599546977041">Не удалось сохранить файлы в папку "<ph name="FOLDER_NAME" />". Изменения будут сохранены в папке "Загрузки".</translation>
 <translation id="6915678159055240887">Chromebox</translation>
 <translation id="6918340160281024199">США (Workman)</translation>
@@ -520,6 +549,7 @@
 <translation id="696203921837389374">Синхронизировать по мобильной сети</translation>
 <translation id="6965382102122355670">ОК</translation>
 <translation id="6970230597523682626">Болгарский</translation>
+<translation id="6973630695168034713">Папки</translation>
 <translation id="6978611942794658017">Этот файл разработан для ПК на платформе Windows и не совместим с Chrome OS на вашем устройстве. Чтобы найти подходящее приложение, посетите Интернет-магазин Chrome.</translation>
 <translation id="6979158407327259162">Google Диск</translation>
 <translation id="6990081529015358884">Недостаточно свободного места</translation>
@@ -553,6 +583,7 @@
 <translation id="7417705661718309329">Карта Google</translation>
 <translation id="7419631653042041064">Каталанская раскладка</translation>
 <translation id="7434823369735508263">Английская раскладка (Дворак)</translation>
+<translation id="7447678886297481665">Файлы в этой папке доступны только для чтения. Некоторые действия не поддерживаются.</translation>
 <translation id="7460898608667578234">Украинский</translation>
 <translation id="7474889694310679759">Канадская раскладка (английский)</translation>
 <translation id="7489215562877293245">Обнаружены файлы (<ph name="FILE_COUNT" />).
@@ -662,6 +693,7 @@
 <translation id="8475647382427415476">Не удалось синхронизировать <ph name="FILENAME" /> с Google Диском. Система повторит попытку позже.</translation>
 <translation id="8477649328507734757">Вращение</translation>
 <translation id="8487700953926739672">Доступно в автономном режиме</translation>
+<translation id="8490342535582768689">Parallels Desktop сможет изменять файлы Google Диска. Изменения вступят в силу на всех ваших устройствах.</translation>
 <translation id="8521441079177373948">Британская</translation>
 <translation id="8525306231823319788">Полноэкранный режим</translation>
 <translation id="8551494947769799688">Латвийский</translation>
@@ -697,6 +729,7 @@
 <translation id="9065203028668620118">Изменить</translation>
 <translation id="9099674669267916096">Количество страниц</translation>
 <translation id="9110990317705400362">Мы постоянно работаем над тем, чтобы сделать наш браузер ещё более защищенным. Раньше любой сайт мог предложить вам установить расширение, что было небезопасно. В последних версиях Google Chrome добавить расширения можно только на странице "Расширения". <ph name="BEGIN_LINK" />Подробнее…<ph name="END_LINK" /></translation>
+<translation id="9111102763498581341">Разблокировать</translation>
 <translation id="912419004897138677">Кодек</translation>
 <translation id="9129931661813833980">Закрепить папку</translation>
 <translation id="9130775360844693113">Пользователи общего диска "<ph name="DESTINATION_NAME" />" получат доступ к этим объектам.</translation>

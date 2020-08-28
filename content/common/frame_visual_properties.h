@@ -9,7 +9,7 @@
 #include "base/time/time.h"
 #include "components/viz/common/surfaces/local_surface_id_allocation.h"
 #include "content/common/content_export.h"
-#include "content/public/common/screen_info.h"
+#include "third_party/blink/public/common/widget/screen_info.h"
 #include "ui/gfx/geometry/size.h"
 
 namespace content {
@@ -24,17 +24,20 @@ struct CONTENT_EXPORT FrameVisualProperties {
 
   // These fields are values from VisualProperties, see comments there for
   // descriptions. They exist here to propagate from each RenderWidget to its
-  // child RenderWidgets. Here they flow back from RenderWidget to the host
-  // in order to find a child RenderWidget.
-  ScreenInfo screen_info;
-  gfx::Size visible_viewport_size;
+  // child RenderWidgets. Here they are flowing from RenderWidget in a parent
+  // renderer process up to the RenderWidgetHost for a child RenderWidget in
+  // another renderer process. That RenderWidgetHost would then be responsible
+  // for passing it along to the child RenderWidget.
+  blink::ScreenInfo screen_info;
   bool auto_resize_enabled = false;
-  gfx::Size min_size_for_auto_resize;
-  gfx::Size max_size_for_auto_resize;
+  bool is_pinch_gesture_active = false;
   uint32_t capture_sequence_number = 0u;
   double zoom_level = 0;
   float page_scale_factor = 1.f;
-  bool is_pinch_gesture_active = false;
+  gfx::Size visible_viewport_size;
+  gfx::Size min_size_for_auto_resize;
+  gfx::Size max_size_for_auto_resize;
+  std::vector<gfx::Rect> root_widget_window_segments;
 
   // The size of the compositor viewport, to match the sub-frame's surface.
   gfx::Rect compositor_viewport;

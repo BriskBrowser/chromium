@@ -24,6 +24,7 @@
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "third_party/blink/public/mojom/bluetooth/web_bluetooth.mojom-forward.h"
+#include "third_party/blink/public/mojom/security_context/insecure_request_policy.mojom-forward.h"
 #include "ui/base/page_transition_types.h"
 
 namespace net {
@@ -55,7 +56,8 @@ class TestRenderFrameHost : public RenderFrameHostImpl,
                       FrameTree* frame_tree,
                       FrameTreeNode* frame_tree_node,
                       int32_t routing_id,
-                      int32_t widget_routing_id);
+                      const base::UnguessableToken& frame_token,
+                      LifecycleState lifecyle_state);
   ~TestRenderFrameHost() override;
 
   // RenderFrameHostImpl overrides (same values, but in Test*/Mock* types)
@@ -64,14 +66,14 @@ class TestRenderFrameHost : public RenderFrameHostImpl,
   TestRenderWidgetHost* GetRenderWidgetHost() override;
   void AddMessageToConsole(blink::mojom::ConsoleMessageLevel level,
                            const std::string& message) override;
+  void ReportHeavyAdIssue(blink::mojom::HeavyAdResolutionStatus resolution,
+                          blink::mojom::HeavyAdReason reason) override;
   void AddUniqueMessageToConsole(blink::mojom::ConsoleMessageLevel level,
                                  const std::string& message) override;
   bool IsTestRenderFrameHost() const override;
 
   // Public overrides to expose RenderFrameHostImpl's mojo methods to tests.
-  void DidFailLoadWithError(const GURL& url,
-                            int error_code,
-                            const base::string16& error_description) override;
+  void DidFailLoadWithError(const GURL& url, int error_code) override;
 
   // RenderFrameHostTester implementation.
   void InitializeRenderFrameIfNeeded() override;
@@ -81,12 +83,14 @@ class TestRenderFrameHost : public RenderFrameHostImpl,
                                   bool did_create_new_entry,
                                   const GURL& url,
                                   ui::PageTransition transition);
-  void SendBeforeUnloadACK(bool proceed) override;
+  void SimulateBeforeUnloadCompleted(bool proceed) override;
   void SimulateUnloadACK() override;
   void SimulateFeaturePolicyHeader(
       blink::mojom::FeaturePolicyFeature feature,
       const std::vector<url::Origin>& allowlist) override;
+  void SimulateUserActivation() override;
   const std::vector<std::string>& GetConsoleMessages() override;
+  int GetHeavyAdIssueCount(HeavyAdIssueType type) override;
 
   void SendNavigate(int nav_entry_id,
                     bool did_create_new_entry,
@@ -119,9 +123,11 @@ class TestRenderFrameHost : public RenderFrameHostImpl,
   void SendRendererInitiatedNavigationRequest(const GURL& url,
                                               bool has_user_gesture);
 
-  void DidChangeOpener(int opener_routing_id);
+  void SimulateDidChangeOpener(
+      const base::UnguessableToken& opener_frame_token);
 
-  void DidEnforceInsecureRequestPolicy(blink::WebInsecureRequestPolicy policy);
+  void DidEnforceInsecureRequestPolicy(
+      blink::mojom::InsecureRequestPolicy policy);
 
   // If set, navigations will appear to have cleared the history list in the
   // RenderFrame
@@ -133,8 +139,8 @@ class TestRenderFrameHost : public RenderFrameHostImpl,
 
   // Advances the RenderFrameHost (and through it the RenderFrameHostManager) to
   // a state where a new navigation can be committed by a renderer. This
-  // simulates a BeforeUnload ACK from the renderer, and the interaction with
-  // the IO thread up until the response is ready to commit.
+  // simulates a BeforeUnload completion callback from the renderer, and the
+  // interaction with the IO thread up until the response is ready to commit.
   void PrepareForCommit();
 
   // Like PrepareForCommit, but with the socket address when needed.
@@ -160,8 +166,9 @@ class TestRenderFrameHost : public RenderFrameHostImpl,
       bool same_document);
 
   // Send a message with the sandbox flags and feature policy
-  void SendFramePolicy(blink::WebSandboxFlags sandbox_flags,
-                       const blink::ParsedFeaturePolicy& declared_policy);
+  void SendFramePolicy(network::mojom::WebSandboxFlags sandbox_flags,
+                       const blink::ParsedFeaturePolicy& fp_header,
+                       const blink::DocumentPolicyFeatureState& dp_header);
 
   // Creates a WebBluetooth Service with a dummy InterfaceRequest.
   WebBluetoothServiceImpl* CreateWebBluetoothServiceForTesting();
@@ -169,9 +176,6 @@ class TestRenderFrameHost : public RenderFrameHostImpl,
   bool last_commit_was_error_page() const {
     return last_commit_was_error_page_;
   }
-
-  // Exposes the interface registry to be manipulated for testing.
-  service_manager::BinderRegistry& binder_registry() { return *registry_; }
 
   // Returns a PendingReceiver<InterfaceProvider> that is safe to bind to an
   // implementation, but will never receive any interface receivers.
@@ -206,6 +210,9 @@ class TestRenderFrameHost : public RenderFrameHostImpl,
   // callbacks.
   void SimulateLoadingCompleted(LoadingScenario loading_scenario);
 
+  // Expose CreateNewFullscreenWidget for tests.
+  using RenderFrameHostImpl::CreateNewFullscreenWidget;
+
  protected:
   void SendCommitNavigation(
       mojom::NavigationClient* navigation_client,
@@ -217,11 +224,11 @@ class TestRenderFrameHost : public RenderFrameHostImpl,
       network::mojom::URLLoaderClientEndpointsPtr url_loader_client_endpoints,
       std::unique_ptr<blink::PendingURLLoaderFactoryBundle>
           subresource_loader_factories,
-      base::Optional<std::vector<::content::mojom::TransferrableURLLoaderPtr>>
+      base::Optional<std::vector<blink::mojom::TransferrableURLLoaderPtr>>
           subresource_overrides,
       blink::mojom::ControllerServiceWorkerInfoPtr
           controller_service_worker_info,
-      blink::mojom::ServiceWorkerProviderInfoForClientPtr provider_info,
+      blink::mojom::ServiceWorkerContainerInfoForClientPtr container_info,
       mojo::PendingRemote<network::mojom::URLLoaderFactory>
           prefetch_loader_factory,
       const base::UnguessableToken& devtools_navigation_token) override;
@@ -265,6 +272,11 @@ class TestRenderFrameHost : public RenderFrameHostImpl,
 
   // Keeps a running vector of messages sent to AddMessageToConsole.
   std::vector<std::string> console_messages_;
+
+  // Keep a count of the heavy ad issues sent to ReportHeavyAdIssue.
+  int heavy_ad_issue_network_count_ = 0;
+  int heavy_ad_issue_cpu_total_count_ = 0;
+  int heavy_ad_issue_cpu_peak_count_ = 0;
 
   TestRenderFrameHostCreationObserver child_creation_observer_;
 

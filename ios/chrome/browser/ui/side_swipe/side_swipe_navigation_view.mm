@@ -4,7 +4,7 @@
 
 #import "ios/chrome/browser/ui/side_swipe/side_swipe_navigation_view.h"
 
-#include "base/logging.h"
+#include "base/check.h"
 
 #include "base/metrics/user_metrics.h"
 #include "base/metrics/user_metrics_action.h"
@@ -14,8 +14,8 @@
 #import "ios/chrome/browser/ui/toolbar/public/toolbar_constants.h"
 #include "ios/chrome/browser/ui/util/ui_util.h"
 #import "ios/chrome/browser/ui/util/uikit_ui_util.h"
-#import "ios/chrome/common/colors/semantic_color_names.h"
 #import "ios/chrome/common/material_timing.h"
+#import "ios/chrome/common/ui/colors/semantic_color_names.h"
 #import "ui/gfx/ios/uikit_util.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
@@ -68,10 +68,9 @@ const CGFloat kSelectionAnimationScale = 26;
 // The duration of the animations played when the threshold is met.
 const CGFloat kSelectionAnimationDuration = 0.5;
 
-UIColor* const kPageBackgroundColor = [UIColor colorNamed:kBackgroundColor];
-UIColor* const kSelectionCircleColor =
-    [UIColor colorNamed:kTextfieldBackgroundColor];
-UIColor* const kArrowColor = [UIColor colorNamed:kToolbarButtonColor];
+UIColor* SelectionCircleColor() {
+  return [UIColor colorNamed:kTextfieldBackgroundColor];
+}
 }
 
 @interface SideSwipeNavigationView () {
@@ -107,14 +106,14 @@ UIColor* const kArrowColor = [UIColor colorNamed:kToolbarButtonColor];
                         image:(UIImage*)image {
   self = [super initWithFrame:frame];
   if (self) {
-    self.backgroundColor = kPageBackgroundColor;
+    self.backgroundColor = [UIColor colorNamed:kBackgroundColor];
 
     _canNavigate = canNavigate;
     if (canNavigate) {
       image = [image imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
       const CGRect imageSize = CGRectMake(0, 0, 24, 24);
       _arrowView = [[UIImageView alloc] initWithImage:image];
-      _arrowView.tintColor = kArrowColor;
+      _arrowView.tintColor = [UIColor colorNamed:kToolbarButtonColor];
       _selectionCircleLayer = [self newSelectionCircleLayer];
       [_arrowView setFrame:imageSize];
     }
@@ -167,7 +166,7 @@ UIColor* const kArrowColor = [UIColor colorNamed:kToolbarButtonColor];
     if ([self.traitCollection
             hasDifferentColorAppearanceComparedToTraitCollection:
                 previousTraitCollection]) {
-      _selectionCircleLayer.fillColor = kSelectionCircleColor.CGColor;
+      _selectionCircleLayer.fillColor = SelectionCircleColor().CGColor;
     }
   }
 }
@@ -208,27 +207,31 @@ UIColor* const kArrowColor = [UIColor colorNamed:kToolbarButtonColor];
   [_arrowView setTransform:CGAffineTransformScale(rotation, scale, scale)];
 
   // Animate selection bubbles dpending on distance.
-  [UIView beginAnimations:@"transform" context:NULL];
-  [UIView setAnimationDuration:kSelectionSnappingAnimationDuration];
-  if (distance < (width * kSwipeThreshold)) {
-    // Scale selection down.
-    _selectionCircleLayer.transform =
-        CATransform3DMakeScale(kSelectionDownScale, kSelectionDownScale, 1);
-    _selectionCircleLayer.opacity = 0;
-    [_arrowView setAlpha:MapValueToRange({0, 64}, {0, 1}, distance)];
-    _thresholdTriggered = NO;
-  } else {
-    _selectionCircleLayer.transform = CATransform3DMakeScale(1, 1, 1);
-    _selectionCircleLayer.opacity = 1;
-    [_arrowView setAlpha:1];
-    // Trigger a small haptic blip when exceeding the threshold and mark
-    // such that only one blip gets triggered.
-    if (!_thresholdTriggered) {
-      TriggerHapticFeedbackForSelectionChange();
-      _thresholdTriggered = YES;
-    }
-  }
-  [UIView commitAnimations];
+  [UIView animateWithDuration:kSelectionSnappingAnimationDuration
+                   animations:^{
+                     if (distance < (width * kSwipeThreshold)) {
+                       // Scale selection down.
+                       _selectionCircleLayer.transform = CATransform3DMakeScale(
+                           kSelectionDownScale, kSelectionDownScale, 1);
+                       _selectionCircleLayer.opacity = 0;
+                       [_arrowView
+                           setAlpha:MapValueToRange({0, 64}, {0, 1}, distance)];
+                       _thresholdTriggered = NO;
+                     } else {
+                       _selectionCircleLayer.transform =
+                           CATransform3DMakeScale(1, 1, 1);
+                       _selectionCircleLayer.opacity = 1;
+                       [_arrowView setAlpha:1];
+                       // Trigger a small haptic blip when exceeding the
+                       // threshold and mark such that only one blip gets
+                       // triggered.
+                       if (!_thresholdTriggered) {
+                         TriggerHapticFeedbackForSelectionChange();
+                         _thresholdTriggered = YES;
+                       }
+                     }
+                   }
+                   completion:nil];
 }
 
 - (void)explodeSelection:(void (^)(void))block {
@@ -243,7 +246,7 @@ UIColor* const kArrowColor = [UIColor colorNamed:kToolbarButtonColor];
     [_selectionCircleLayer removeAnimationForKey:@"transform"];
     [_selectionCircleLayer setOpacity:0];
     [_arrowView setAlpha:0];
-    self.backgroundColor = kSelectionCircleColor;
+    self.backgroundColor = SelectionCircleColor();
     block();
 
   }];
@@ -426,11 +429,11 @@ UIColor* const kArrowColor = [UIColor colorNamed:kToolbarButtonColor];
   selectionCircleLayer.bounds = bounds;
   selectionCircleLayer.backgroundColor = UIColor.clearColor.CGColor;
   if (@available(iOS 13, *)) {
-    UIColor* resolvedColor = [kSelectionCircleColor
+    UIColor* resolvedColor = [SelectionCircleColor()
         resolvedColorWithTraitCollection:self.traitCollection];
     selectionCircleLayer.fillColor = resolvedColor.CGColor;
   } else {
-    selectionCircleLayer.fillColor = kSelectionCircleColor.CGColor;
+    selectionCircleLayer.fillColor = SelectionCircleColor().CGColor;
   }
   selectionCircleLayer.opacity = 0;
   selectionCircleLayer.transform =

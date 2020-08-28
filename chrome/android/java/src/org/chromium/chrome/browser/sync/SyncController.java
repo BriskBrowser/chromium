@@ -5,14 +5,10 @@
 package org.chromium.chrome.browser.sync;
 
 import android.annotation.SuppressLint;
-import android.app.Activity;
 
 import androidx.annotation.Nullable;
 import androidx.annotation.VisibleForTesting;
 
-import org.chromium.base.ActivityState;
-import org.chromium.base.ApplicationStatus;
-import org.chromium.base.ApplicationStatus.ActivityStateListener;
 import org.chromium.base.Log;
 import org.chromium.base.ThreadUtils;
 import org.chromium.base.metrics.RecordHistogram;
@@ -22,8 +18,6 @@ import org.chromium.chrome.browser.identity.UniqueIdentificationGeneratorFactory
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.signin.IdentityServicesProvider;
 import org.chromium.chrome.browser.signin.SigninManager;
-import org.chromium.components.signin.ChromeSigninController;
-import org.chromium.components.sync.AndroidSyncSettings;
 import org.chromium.components.sync.ModelType;
 import org.chromium.components.sync.PassphraseType;
 import org.chromium.components.sync.StopSource;
@@ -64,12 +58,10 @@ public class SyncController implements ProfileSyncService.SyncStateChangedListen
     private static SyncController sInstance;
     private static boolean sInitialized;
 
-    private final ChromeSigninController mChromeSigninController;
     private final ProfileSyncService mProfileSyncService;
     private final SyncNotificationController mSyncNotificationController;
 
     private SyncController() {
-        mChromeSigninController = ChromeSigninController.get();
         AndroidSyncSettings.get().registerObserver(this);
         mProfileSyncService = ProfileSyncService.get();
         mProfileSyncService.addSyncStateChangedListener(this);
@@ -82,18 +74,9 @@ public class SyncController implements ProfileSyncService.SyncStateChangedListen
 
         updateSyncStateFromAndroid();
 
-        // When the application gets paused, tell sync to flush the directory to disk.
-        ApplicationStatus.registerStateListenerForAllActivities(new ActivityStateListener() {
-            @Override
-            public void onActivityStateChange(Activity activity, int newState) {
-                if (newState == ActivityState.PAUSED) {
-                    mProfileSyncService.flushDirectory();
-                }
-            }
-        });
-
-        IdentityServicesProvider.get().getSigninManager().addSignInStateObserver(
-                new SigninManager.SignInStateObserver() {
+        IdentityServicesProvider.get()
+                .getSigninManager(Profile.getLastUsedRegularProfile())
+                .addSignInStateObserver(new SigninManager.SignInStateObserver() {
                     @Override
                     public void onSignedIn() {
                         mProfileSyncService.requestStart();
@@ -131,20 +114,20 @@ public class SyncController implements ProfileSyncService.SyncStateChangedListen
         // TODO(crbug.com/921025): Don't mix these two concepts.
 
         mProfileSyncService.setSyncAllowedByPlatform(
-                AndroidSyncSettings.get().isMasterSyncEnabled());
+                AndroidSyncSettings.get().doesMasterSyncSettingAllowChromeSync());
 
         boolean isSyncEnabled = AndroidSyncSettings.get().isSyncEnabled();
         if (isSyncEnabled == mProfileSyncService.isSyncRequested()) return;
         if (isSyncEnabled) {
             mProfileSyncService.requestStart();
         } else {
-            if (Profile.getLastUsedProfile().isChild()) {
+            if (Profile.getLastUsedRegularProfile().isChild()) {
                 // For child accounts, Sync needs to stay enabled, so we reenable it in settings.
                 // TODO(bauerb): Remove the dependency on child account code and instead go through
                 // prefs (here and in the Sync customization UI).
                 AndroidSyncSettings.get().enableChromeSync();
             } else {
-                if (AndroidSyncSettings.get().isMasterSyncEnabled()) {
+                if (AndroidSyncSettings.get().doesMasterSyncSettingAllowChromeSync()) {
                     RecordHistogram.recordEnumeratedHistogram("Sync.StopSource",
                             StopSource.ANDROID_CHROME_SYNC, StopSource.STOP_SOURCE_LIMIT);
                 } else {

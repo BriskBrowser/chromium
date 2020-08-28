@@ -24,10 +24,21 @@ constexpr const char kDeclinedSetupUserAction[] = "setup-declined";
 
 }  // namespace
 
+// static
+std::string MultiDeviceSetupScreen::GetResultString(Result result) {
+  switch (result) {
+    case Result::NEXT:
+      return "Next";
+    case Result::NOT_APPLICABLE:
+      return BaseScreen::kNotApplicable;
+  }
+}
+
 MultiDeviceSetupScreen::MultiDeviceSetupScreen(
     MultiDeviceSetupScreenView* view,
-    const base::RepeatingClosure& exit_callback)
-    : BaseScreen(MultiDeviceSetupScreenView::kScreenId),
+    const ScreenExitCallback& exit_callback)
+    : BaseScreen(MultiDeviceSetupScreenView::kScreenId,
+                 OobeScreenPriority::DEFAULT),
       view_(view),
       exit_callback_(exit_callback) {
   DCHECK(view_);
@@ -38,32 +49,40 @@ MultiDeviceSetupScreen::~MultiDeviceSetupScreen() {
   view_->Bind(nullptr);
 }
 
-void MultiDeviceSetupScreen::Show() {
+void MultiDeviceSetupScreen::TryInitSetupClient() {
+  if (!setup_client_) {
+    setup_client_ =
+        multidevice_setup::MultiDeviceSetupClientFactory::GetForProfile(
+            ProfileManager::GetActiveUserProfile());
+  }
+}
+
+bool MultiDeviceSetupScreen::MaybeSkip(WizardContext* /*context*/) {
   // Only attempt the setup flow for non-guest users.
   if (chrome_user_manager_util::IsPublicSessionOrEphemeralLogin()) {
-    ExitScreen();
-    return;
+    exit_callback_.Run(Result::NOT_APPLICABLE);
+    return true;
   }
 
-  multidevice_setup::MultiDeviceSetupClient* client =
-      multidevice_setup::MultiDeviceSetupClientFactory::GetForProfile(
-          ProfileManager::GetActiveUserProfile());
-
-  if (!client) {
-    ExitScreen();
-    return;
-  }
-
+  TryInitSetupClient();
   // If there is no eligible multi-device host phone or if there is a phone and
   // it has already been set, skip the setup flow.
-  if (client->GetHostStatus().first !=
+  if (!setup_client_) {
+    exit_callback_.Run(Result::NOT_APPLICABLE);
+    return true;
+  }
+  if (setup_client_->GetHostStatus().first !=
       multidevice_setup::mojom::HostStatus::kEligibleHostExistsButNoHostSet) {
     VLOG(1) << "Skipping MultiDevice setup screen; host status: "
-            << client->GetHostStatus().first;
-    ExitScreen();
-    return;
+            << setup_client_->GetHostStatus().first;
+    exit_callback_.Run(Result::NOT_APPLICABLE);
+    return true;
   }
 
+  return false;
+}
+
+void MultiDeviceSetupScreen::ShowImpl() {
   view_->Show();
 
   // Record that user was presented with setup flow to prevent spam
@@ -75,7 +94,7 @@ void MultiDeviceSetupScreen::Show() {
   oobe_completion_tracker->MarkOobeShown();
 }
 
-void MultiDeviceSetupScreen::Hide() {
+void MultiDeviceSetupScreen::HideImpl() {
   view_->Hide();
 }
 
@@ -83,11 +102,11 @@ void MultiDeviceSetupScreen::OnUserAction(const std::string& action_id) {
   if (action_id == kAcceptedSetupUserAction) {
     RecordMultiDeviceSetupOOBEUserChoiceHistogram(
         MultiDeviceSetupOOBEUserChoice::kAccepted);
-    ExitScreen();
+    exit_callback_.Run(Result::NEXT);
   } else if (action_id == kDeclinedSetupUserAction) {
     RecordMultiDeviceSetupOOBEUserChoiceHistogram(
         MultiDeviceSetupOOBEUserChoice::kDeclined);
-    ExitScreen();
+    exit_callback_.Run(Result::NEXT);
   } else {
     BaseScreen::OnUserAction(action_id);
     NOTREACHED();
@@ -97,10 +116,6 @@ void MultiDeviceSetupScreen::OnUserAction(const std::string& action_id) {
 void MultiDeviceSetupScreen::RecordMultiDeviceSetupOOBEUserChoiceHistogram(
     MultiDeviceSetupOOBEUserChoice value) {
   UMA_HISTOGRAM_ENUMERATION("MultiDeviceSetup.OOBE.UserChoice", value);
-}
-
-void MultiDeviceSetupScreen::ExitScreen() {
-  exit_callback_.Run();
 }
 
 }  // namespace chromeos

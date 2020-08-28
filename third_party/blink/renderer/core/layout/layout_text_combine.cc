@@ -103,9 +103,10 @@ void ScaleHorizontallyAndTranslate(GraphicsContext& context,
       offset_y));
 }
 
-void LayoutTextCombine::TransformToInlineCoordinates(GraphicsContext& context,
-                                                     const LayoutRect& box_rect,
-                                                     bool clip) const {
+void LayoutTextCombine::TransformToInlineCoordinates(
+    GraphicsContext& context,
+    const PhysicalRect& box_rect,
+    bool clip) const {
   DCHECK(is_combined_);
 
   // No transform needed if we don't have a font.
@@ -177,7 +178,7 @@ void LayoutTextCombine::UpdateFontStyleForCombinedText() {
   FontSelector* font_selector = style->GetFont().GetFontSelector();
 
   // Need to change font orientation to horizontal.
-  bool should_update_font = style->SetFontDescription(description);
+  style->SetFontDescription(description);
 
   if (combined_text_width_ <= em_width) {
     scale_x_ = 1.0f;
@@ -187,14 +188,13 @@ void LayoutTextCombine::UpdateFontStyleForCombinedText() {
                                                       kQuarterWidth};
     for (size_t i = 0; i < base::size(kWidthVariants); ++i) {
       description.SetWidthVariant(kWidthVariants[i]);
-      Font compressed_font = Font(description);
-      compressed_font.Update(font_selector);
+      Font compressed_font(description, font_selector);
       float run_width = compressed_font.Width(run);
       if (run_width <= em_width) {
         combined_text_width_ = run_width;
 
         // Replace my font with the new one.
-        should_update_font = style->SetFontDescription(description);
+        style->SetFontDescription(description);
         break;
       }
     }
@@ -209,9 +209,6 @@ void LayoutTextCombine::UpdateFontStyleForCombinedText() {
       scale_x_ = 1.0f;
     }
   }
-
-  if (should_update_font)
-    style->GetFont().Update(font_selector);
 }
 
 }  // namespace blink

@@ -7,8 +7,7 @@
 
 namespace blink {
 
-WebMediaDeviceInfo::WebMediaDeviceInfo()
-    : video_facing(media::VideoFacingMode::MEDIA_VIDEO_FACING_NONE) {}
+WebMediaDeviceInfo::WebMediaDeviceInfo() = default;
 
 WebMediaDeviceInfo::WebMediaDeviceInfo(const WebMediaDeviceInfo& other) =
     default;
@@ -18,16 +17,19 @@ WebMediaDeviceInfo::WebMediaDeviceInfo(WebMediaDeviceInfo&& other) = default;
 WebMediaDeviceInfo::WebMediaDeviceInfo(const std::string& device_id,
                                        const std::string& label,
                                        const std::string& group_id,
+                                       bool pan_tilt_zoom_supported,
                                        media::VideoFacingMode video_facing)
     : device_id(device_id),
       label(label),
       group_id(group_id),
+      pan_tilt_zoom_supported(pan_tilt_zoom_supported),
       video_facing(video_facing) {}
 
 WebMediaDeviceInfo::WebMediaDeviceInfo(
     const media::VideoCaptureDeviceDescriptor& descriptor)
     : device_id(descriptor.device_id),
       label(descriptor.GetNameAndModel()),
+      pan_tilt_zoom_supported(descriptor.pan_tilt_zoom_supported()),
       video_facing(descriptor.facing) {}
 
 WebMediaDeviceInfo::~WebMediaDeviceInfo() = default;

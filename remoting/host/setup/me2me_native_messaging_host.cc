@@ -51,9 +51,9 @@ const char* kSupportedFeatures[] = {
     "pairingRegistry",
     "oauthClient",
     "getRefreshTokenFromAuthCode",
-#if defined(OS_MACOSX)
+#if defined(OS_APPLE)
     "it2mePermissionCheck",
-#endif  // defined(OS_MACOSX)
+#endif  // defined(OS_APPLE)
 };
 
 // Helper to extract the "config" part of a message as a DictionaryValue.
@@ -166,8 +166,9 @@ void Me2MeNativeMessagingHost::OnMessage(const std::string& message) {
 void Me2MeNativeMessagingHost::Start(Client* client) {
   DCHECK(task_runner()->BelongsToCurrentThread());
   client_ = client;
-  log_message_handler_.reset(new LogMessageHandler(
-      base::Bind(&Me2MeNativeMessagingHost::SendMessageToClient, weak_ptr_)));
+  log_message_handler_ =
+      std::make_unique<LogMessageHandler>(base::BindRepeating(
+          &Me2MeNativeMessagingHost::SendMessageToClient, weak_ptr_));
 }
 
 scoped_refptr<base::SingleThreadTaskRunner>
@@ -203,8 +204,8 @@ void Me2MeNativeMessagingHost::ProcessClearPairedClients(
 
   if (pairing_registry_.get()) {
     pairing_registry_->ClearAllPairings(
-        base::Bind(&Me2MeNativeMessagingHost::SendBooleanResult, weak_ptr_,
-                   base::Passed(&response)));
+        base::BindOnce(&Me2MeNativeMessagingHost::SendBooleanResult, weak_ptr_,
+                       base::Passed(&response)));
   } else {
     SendBooleanResult(std::move(response), false);
   }
@@ -232,8 +233,8 @@ void Me2MeNativeMessagingHost::ProcessDeletePairedClient(
 
   if (pairing_registry_.get()) {
     pairing_registry_->DeletePairing(
-        client_id, base::Bind(&Me2MeNativeMessagingHost::SendBooleanResult,
-                              weak_ptr_, base::Passed(&response)));
+        client_id, base::BindOnce(&Me2MeNativeMessagingHost::SendBooleanResult,
+                                  weak_ptr_, base::Passed(&response)));
   } else {
     SendBooleanResult(std::move(response), false);
   }
@@ -311,8 +312,8 @@ void Me2MeNativeMessagingHost::ProcessUpdateDaemonConfig(
 
   daemon_controller_->UpdateConfig(
       std::move(config_dict),
-      base::Bind(&Me2MeNativeMessagingHost::SendAsyncResult, weak_ptr_,
-                 base::Passed(&response)));
+      base::BindOnce(&Me2MeNativeMessagingHost::SendAsyncResult, weak_ptr_,
+                     base::Passed(&response)));
 }
 
 void Me2MeNativeMessagingHost::ProcessGetDaemonConfig(
@@ -321,8 +322,8 @@ void Me2MeNativeMessagingHost::ProcessGetDaemonConfig(
   DCHECK(task_runner()->BelongsToCurrentThread());
 
   daemon_controller_->GetConfig(
-      base::Bind(&Me2MeNativeMessagingHost::SendConfigResponse, weak_ptr_,
-                 base::Passed(&response)));
+      base::BindOnce(&Me2MeNativeMessagingHost::SendConfigResponse, weak_ptr_,
+                     base::Passed(&response)));
 }
 
 void Me2MeNativeMessagingHost::ProcessGetPairedClients(
@@ -332,8 +333,8 @@ void Me2MeNativeMessagingHost::ProcessGetPairedClients(
 
   if (pairing_registry_.get()) {
     pairing_registry_->GetAllPairings(
-        base::Bind(&Me2MeNativeMessagingHost::SendPairedClientsResponse,
-                   weak_ptr_, base::Passed(&response)));
+        base::BindOnce(&Me2MeNativeMessagingHost::SendPairedClientsResponse,
+                       weak_ptr_, base::Passed(&response)));
   } else {
     std::unique_ptr<base::ListValue> no_paired_clients(new base::ListValue);
     SendPairedClientsResponse(std::move(response),
@@ -347,8 +348,8 @@ void Me2MeNativeMessagingHost::ProcessGetUsageStatsConsent(
   DCHECK(task_runner()->BelongsToCurrentThread());
 
   daemon_controller_->GetUsageStatsConsent(
-      base::Bind(&Me2MeNativeMessagingHost::SendUsageStatsConsentResponse,
-                 weak_ptr_, base::Passed(&response)));
+      base::BindOnce(&Me2MeNativeMessagingHost::SendUsageStatsConsentResponse,
+                     weak_ptr_, base::Passed(&response)));
 }
 
 void Me2MeNativeMessagingHost::ProcessStartDaemon(
@@ -386,8 +387,8 @@ void Me2MeNativeMessagingHost::ProcessStartDaemon(
 
   daemon_controller_->SetConfigAndStart(
       std::move(config_dict), consent,
-      base::Bind(&Me2MeNativeMessagingHost::SendAsyncResult, weak_ptr_,
-                 base::Passed(&response)));
+      base::BindOnce(&Me2MeNativeMessagingHost::SendAsyncResult, weak_ptr_,
+                     base::Passed(&response)));
 }
 
 void Me2MeNativeMessagingHost::ProcessStopDaemon(
@@ -411,8 +412,8 @@ void Me2MeNativeMessagingHost::ProcessStopDaemon(
   }
 
   daemon_controller_->Stop(
-      base::Bind(&Me2MeNativeMessagingHost::SendAsyncResult, weak_ptr_,
-                 base::Passed(&response)));
+      base::BindOnce(&Me2MeNativeMessagingHost::SendAsyncResult, weak_ptr_,
+                     base::Passed(&response)));
 }
 
 void Me2MeNativeMessagingHost::ProcessGetDaemonState(
@@ -473,9 +474,9 @@ void Me2MeNativeMessagingHost::ProcessGetCredentialsFromAuthCode(
   };
 
   oauth_client_->GetCredentialsFromAuthCode(
-      oauth_client_info, auth_code, need_user_email, base::Bind(
-          &Me2MeNativeMessagingHost::SendCredentialsResponse, weak_ptr_,
-          base::Passed(&response)));
+      oauth_client_info, auth_code, need_user_email,
+      base::BindOnce(&Me2MeNativeMessagingHost::SendCredentialsResponse,
+                     weak_ptr_, base::Passed(&response)));
 }
 
 void Me2MeNativeMessagingHost::ProcessIt2mePermissionCheck(
@@ -484,8 +485,9 @@ void Me2MeNativeMessagingHost::ProcessIt2mePermissionCheck(
   DCHECK(task_runner()->BelongsToCurrentThread());
 
   daemon_controller_->CheckPermission(
-      /* it2me */ true, base::Bind(&Me2MeNativeMessagingHost::SendBooleanResult,
-                                   weak_ptr_, base::Passed(&response)));
+      /* it2me */ true,
+      base::BindOnce(&Me2MeNativeMessagingHost::SendBooleanResult, weak_ptr_,
+                     base::Passed(&response)));
 }
 
 void Me2MeNativeMessagingHost::SendConfigResponse(

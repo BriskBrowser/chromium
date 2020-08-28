@@ -4,17 +4,9 @@
 
 #include "media/base/win/mf_helpers.h"
 
-#include "base/metrics/histogram_functions.h"
+#include "base/check_op.h"
 
 namespace media {
-
-namespace mf {
-
-void LogDXVAError(int line) {
-  LOG(ERROR) << "Error in dxva_video_decode_accelerator_win.cc on line "
-             << line;
-  base::UmaHistogramSparse("Media.DXVAVDA.ErrorLine", line);
-}
 
 Microsoft::WRL::ComPtr<IMFSample> CreateEmptySampleWithBuffer(
     uint32_t buffer_length,
@@ -22,7 +14,7 @@ Microsoft::WRL::ComPtr<IMFSample> CreateEmptySampleWithBuffer(
   CHECK_GT(buffer_length, 0U);
 
   Microsoft::WRL::ComPtr<IMFSample> sample;
-  HRESULT hr = MFCreateSample(sample.GetAddressOf());
+  HRESULT hr = MFCreateSample(&sample);
   RETURN_ON_HR_FAILURE(hr, "MFCreateSample failed",
                        Microsoft::WRL::ComPtr<IMFSample>());
 
@@ -30,10 +22,9 @@ Microsoft::WRL::ComPtr<IMFSample> CreateEmptySampleWithBuffer(
   if (align == 0) {
     // Note that MFCreateMemoryBuffer is same as MFCreateAlignedMemoryBuffer
     // with the align argument being 0.
-    hr = MFCreateMemoryBuffer(buffer_length, buffer.GetAddressOf());
+    hr = MFCreateMemoryBuffer(buffer_length, &buffer);
   } else {
-    hr = MFCreateAlignedMemoryBuffer(buffer_length, align - 1,
-                                     buffer.GetAddressOf());
+    hr = MFCreateAlignedMemoryBuffer(buffer_length, align - 1, &buffer);
   }
   RETURN_ON_HR_FAILURE(hr, "Failed to create memory buffer for sample",
                        Microsoft::WRL::ComPtr<IMFSample>());
@@ -88,6 +79,19 @@ HRESULT DXGIDeviceScopedHandle::LockDevice(REFIID riid, void** device_out) {
   return hr;
 }
 
-}  // namespace mf
+HRESULT CopyCoTaskMemWideString(LPCWSTR in_string, LPWSTR* out_string) {
+  if (!in_string || !out_string) {
+    return E_INVALIDARG;
+  }
+
+  size_t size = (wcslen(in_string) + 1) * sizeof(wchar_t);
+  LPWSTR copy = reinterpret_cast<LPWSTR>(CoTaskMemAlloc(size));
+  if (!copy)
+    return E_OUTOFMEMORY;
+
+  wcscpy(copy, in_string);
+  *out_string = copy;
+  return S_OK;
+}
 
 }  // namespace media

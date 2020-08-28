@@ -17,6 +17,7 @@ import org.chromium.chrome.browser.tab.TabLaunchType;
 import org.chromium.chrome.browser.tabmodel.TabCreatorManager;
 import org.chromium.chrome.browser.tabmodel.TabModelSelector;
 import org.chromium.chrome.browser.tabmodel.TabModelUtils;
+import org.chromium.chrome.browser.toolbar.ControlContainer;
 import org.chromium.chrome.features.start_surface.StartSurface;
 import org.chromium.ui.resources.dynamics.DynamicResourceLoader;
 
@@ -26,34 +27,38 @@ import org.chromium.ui.resources.dynamics.DynamicResourceLoader;
  */
 public class LayoutManagerChromePhone extends LayoutManagerChrome {
     // Layouts
-    private final SimpleAnimationLayout mSimpleAnimationLayout;
+    private SimpleAnimationLayout mSimpleAnimationLayout;
 
     /**
      * Creates an instance of a {@link LayoutManagerChromePhone}.
      * @param host         A {@link LayoutManagerHost} instance.
+     * @param contentContainer A {@link ViewGroup} for Android views to be bound to.
      * @param startSurface An interface to talk to the Grid Tab Switcher. If it's NULL, VTS
      *                     should be used, otherwise GTS should be used.
      */
-    public LayoutManagerChromePhone(LayoutManagerHost host, StartSurface startSurface) {
-        super(host, true, startSurface);
-        Context context = host.getContext();
-        LayoutRenderHost renderHost = host.getLayoutRenderHost();
-
-        // Build Layouts
-        mSimpleAnimationLayout = new SimpleAnimationLayout(context, this, renderHost);
-
-        // Set up layout parameters
-        mStaticLayout.setLayoutHandlesTabLifecycles(false);
-        mToolbarSwipeLayout.setMovesToolbar(true);
+    public LayoutManagerChromePhone(
+            LayoutManagerHost host, ViewGroup contentContainer, StartSurface startSurface) {
+        super(host, contentContainer, true, startSurface);
     }
 
     @Override
     public void init(TabModelSelector selector, TabCreatorManager creator,
-            TabContentManager content, ViewGroup androidContentContainer,
+            TabContentManager content, ControlContainer controlContainer,
             ContextualSearchManagementDelegate contextualSearchDelegate,
             DynamicResourceLoader dynamicResourceLoader) {
-        super.init(selector, creator, content, androidContentContainer, contextualSearchDelegate,
+        Context context = mHost.getContext();
+        LayoutRenderHost renderHost = mHost.getLayoutRenderHost();
+
+        // Build Layouts
+        mSimpleAnimationLayout = new SimpleAnimationLayout(context, this, renderHost);
+
+        super.init(selector, creator, content, controlContainer, contextualSearchDelegate,
                 dynamicResourceLoader);
+
+        // Set up layout parameters
+        mStaticLayout.setLayoutHandlesTabLifecycles(false);
+
+        mToolbarSwipeLayout.setMovesToolbar(true);
 
         // Initialize Layouts
         mSimpleAnimationLayout.setTabModelSelector(selector, content);

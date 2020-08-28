@@ -26,7 +26,9 @@
 #define THIRD_PARTY_BLINK_RENDERER_CORE_HTML_FORMS_HTML_INPUT_ELEMENT_H_
 
 #include "base/gtest_prod_util.h"
+#include "third_party/blink/public/mojom/input/focus_type.mojom-blink-forward.h"
 #include "third_party/blink/renderer/bindings/core/v8/active_script_wrappable.h"
+#include "third_party/blink/renderer/bindings/core/v8/script_regexp.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/dom/create_element_flags.h"
 #include "third_party/blink/renderer/core/html/forms/file_chooser.h"
@@ -53,12 +55,11 @@ class CORE_EXPORT HTMLInputElement
     : public TextControlElement,
       public ActiveScriptWrappable<HTMLInputElement> {
   DEFINE_WRAPPERTYPEINFO();
-  USING_GARBAGE_COLLECTED_MIXIN(HTMLInputElement);
 
  public:
   HTMLInputElement(Document&, const CreateElementFlags);
   ~HTMLInputElement() override;
-  void Trace(Visitor*) override;
+  void Trace(Visitor*) const override;
 
   bool HasPendingActivity() const final;
 
@@ -154,6 +155,8 @@ class CORE_EXPORT HTMLInputElement
   bool IsValidValue(const String&) const;
   bool HasDirtyValue() const;
 
+  String rawValue() const;
+
   String SanitizeValue(const String&) const;
 
   String LocalizeValue(const String&) const;
@@ -180,11 +183,11 @@ class CORE_EXPORT HTMLInputElement
   // delay the 'input' event with EventQueueScope.
   void SetValueFromRenderer(const String&);
 
-  unsigned selectionStartForBinding(bool&, ExceptionState&) const;
-  unsigned selectionEndForBinding(bool&, ExceptionState&) const;
+  base::Optional<uint32_t> selectionStartForBinding(ExceptionState&) const;
+  base::Optional<uint32_t> selectionEndForBinding(ExceptionState&) const;
   String selectionDirectionForBinding(ExceptionState&) const;
-  void setSelectionStartForBinding(unsigned, bool is_null, ExceptionState&);
-  void setSelectionEndForBinding(unsigned, bool is_null, ExceptionState&);
+  void setSelectionStartForBinding(base::Optional<uint32_t>, ExceptionState&);
+  void setSelectionEndForBinding(base::Optional<uint32_t>, ExceptionState&);
   void setSelectionDirectionForBinding(const String&, ExceptionState&);
   void setSelectionRangeForBinding(unsigned start,
                                    unsigned end,
@@ -192,6 +195,12 @@ class CORE_EXPORT HTMLInputElement
   void setSelectionRangeForBinding(unsigned start,
                                    unsigned end,
                                    const String& direction,
+                                   ExceptionState&);
+  // This function can be used to allow tests to set the selection
+  // range for Number inputs, which do not support the ordinary
+  // selection API.
+  void SetSelectionRangeForTesting(unsigned start,
+                                   unsigned end,
                                    ExceptionState&);
 
   bool LayoutObjectIsNeeded(const ComputedStyle&) const final;
@@ -261,9 +270,17 @@ class CORE_EXPORT HTMLInputElement
 
   // For test purposes.
   void SelectColorInColorChooser(const Color&);
-  void EndColorChooser();
+  void EndColorChooserForTesting();
 
   String DefaultToolTip() const override;
+
+  // Type=file only: Text not in the button such as "No file chosen". The string
+  // is not truncated by ellipsis.
+  // Return a null string for other types.
+  String FileStatusText() const;
+  // Returns true if an ellipsis should be injected at the middle of the text.
+  // This function is called only if text-overflow:ellipsis is specified.
+  bool ShouldApplyMiddleEllipsis() const;
 
   unsigned height() const;
   unsigned width() const;
@@ -315,9 +332,22 @@ class CORE_EXPORT HTMLInputElement
 
   void ChildrenChanged(const ChildrenChange&) override;
 
-  PaintLayerScrollableArea* GetScrollableArea() const final;
+  LayoutBox* GetLayoutBoxForScrolling() const final;
 
   void SetHasBeenPasswordField() { has_been_password_field_ = true; }
+
+  bool IsDraggedSlider() const;
+
+  FormElementPiiType GetFormElementPiiType() const override {
+    return form_element_pii_type_;
+  }
+
+  void SetFormElementPiiType(
+      FormElementPiiType form_element_pii_type) override {
+    form_element_pii_type_ = form_element_pii_type;
+  }
+
+  ScriptRegexp& EnsureEmailRegexp() const;
 
  protected:
   void DefaultEventHandler(Event&) override;
@@ -336,6 +366,7 @@ class CORE_EXPORT HTMLInputElement
   bool HasCustomFocusLogic() const final;
   bool IsKeyboardFocusable() const final;
   bool MayTriggerVirtualKeyboard() const final;
+  bool ShouldHaveFocusAppearance() const final;
   bool IsEnumeratable() const final;
   bool IsInteractiveContent() const final;
   bool IsLabelable() const final;
@@ -377,11 +408,6 @@ class CORE_EXPORT HTMLInputElement
 
   EventDispatchHandlingState* PreDispatchEventHandler(Event&) final;
   void PostDispatchEventHandler(Event&, EventDispatchHandlingState*) final;
-  // TODO(crbug.com/1013385): Remove DidPreventDefault and
-  //   DefaultEventHandlerInternal. They are here as a temporary fix for form
-  //   double-submit.
-  void DidPreventDefault(const Event&) final;
-  void DefaultEventHandlerInternal(Event& evt);
 
   bool IsURLAttribute(const Attribute&) const final;
   bool HasLegalLinkAttribute(const QualifiedName&) const final;
@@ -397,7 +423,7 @@ class CORE_EXPORT HTMLInputElement
   void HandleBlurEvent() final;
   void DispatchFocusInEvent(const AtomicString& event_type,
                             Element* old_focused_element,
-                            WebFocusType,
+                            mojom::blink::FocusType,
                             InputDeviceCapabilities* source_capabilities) final;
 
   bool IsOptionalFormControl() const final { return !IsRequiredFormControl(); }
@@ -418,6 +444,8 @@ class CORE_EXPORT HTMLInputElement
   void RemoveFromRadioButtonGroup();
   scoped_refptr<ComputedStyle> CustomStyleForLayoutObject() override;
   void DidRecalcStyle(const StyleRecalcChange) override;
+
+  void MaybeReportPiiMetrics();
 
   AtomicString name_;
   // The value string in |value| value mode.
@@ -448,6 +476,9 @@ class CORE_EXPORT HTMLInputElement
   // element lives on.
   Member<HTMLImageLoader> image_loader_;
   Member<ListAttributeTargetObserver> list_attribute_target_observer_;
+
+  FormElementPiiType form_element_pii_type_ = FormElementPiiType::kUnknown;
+  mutable std::unique_ptr<ScriptRegexp> email_regexp_;
 
   FRIEND_TEST_ALL_PREFIXES(HTMLInputElementTest, RadioKeyDownDCHECKFailure);
 };

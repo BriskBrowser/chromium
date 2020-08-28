@@ -5,8 +5,11 @@
 #include "gpu/ipc/service/gpu_channel_test_common.h"
 
 #include "base/memory/unsafe_shared_memory_region.h"
+#include "base/test/scoped_feature_list.h"
 #include "base/test/test_simple_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
+#include "base/trace_event/memory_dump_manager.h"
+#include "components/viz/common/features.h"
 #include "gpu/command_buffer/common/activity_flags.h"
 #include "gpu/command_buffer/service/scheduler.h"
 #include "gpu/command_buffer/service/shared_image_manager.h"
@@ -33,6 +36,7 @@ class TestGpuChannelManagerDelegate : public GpuChannelManagerDelegate {
   void DidCreateContextSuccessfully() override {}
   void DidCreateOffscreenContext(const GURL& active_url) override {}
   void DidDestroyChannel(int client_id) override {}
+  void DidDestroyAllChannels() override {}
   void DidDestroyOffscreenContext(const GURL& active_url) override {}
   void DidLoseContext(bool offscreen,
                       error::ContextLostReason reason,
@@ -43,6 +47,8 @@ class TestGpuChannelManagerDelegate : public GpuChannelManagerDelegate {
   void MaybeExitOnContextLost() override { is_exiting_ = true; }
   bool IsExiting() const override { return is_exiting_; }
 #if defined(OS_WIN)
+  void DidUpdateOverlayInfo(const gpu::OverlayInfo& overlay_info) override {}
+  void DidUpdateHDRStatus(bool hdr_enabled) override {}
   void SendCreatedChildWindow(SurfaceHandle parent_window,
                               SurfaceHandle child_window) override {}
 #endif
@@ -62,7 +68,9 @@ GpuChannelTestCommon::GpuChannelTestCommon(bool use_stub_bindings)
 GpuChannelTestCommon::GpuChannelTestCommon(
     std::vector<int32_t> enabled_workarounds,
     bool use_stub_bindings)
-    : task_runner_(new base::TestSimpleTaskRunner),
+    : memory_dump_manager_(
+          base::trace_event::MemoryDumpManager::CreateInstanceForTesting()),
+      task_runner_(new base::TestSimpleTaskRunner),
       io_task_runner_(new base::TestSimpleTaskRunner),
       sync_point_manager_(new SyncPointManager()),
       shared_image_manager_(new SharedImageManager(false /* thread_safe */)),
@@ -72,10 +80,14 @@ GpuChannelTestCommon::GpuChannelTestCommon(
       channel_manager_delegate_(
           new TestGpuChannelManagerDelegate(scheduler_.get())) {
   // We need GL bindings to actually initialize command buffers.
-  if (use_stub_bindings)
+  if (use_stub_bindings) {
     gl::GLSurfaceTestSupport::InitializeOneOffWithStubBindings();
-  else
+    // GrContext cannot be created with stub bindings.
+    scoped_feature_list_ = std::make_unique<base::test::ScopedFeatureList>();
+    scoped_feature_list_->InitAndDisableFeature(features::kUseSkiaRenderer);
+  } else {
     gl::GLSurfaceTestSupport::InitializeOneOff();
+  }
 
   GpuFeatureInfo feature_info;
   feature_info.enabled_gpu_driver_bug_workarounds =

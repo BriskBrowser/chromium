@@ -44,7 +44,7 @@ class SVGInlineTextBox final : public InlineTextBox {
   LayoutUnit PositionForOffset(int offset) const override;
 
   void Paint(const PaintInfo&,
-             const LayoutPoint&,
+             const PhysicalOffset&,
              LayoutUnit line_top,
              LayoutUnit line_bottom) const override;
   LayoutRect LocalSelectionRect(
@@ -81,18 +81,18 @@ class SVGInlineTextBox final : public InlineTextBox {
 
  private:
   void PaintDocumentMarker(GraphicsContext&,
-                           const LayoutPoint&,
+                           const PhysicalOffset&,
                            const DocumentMarker&,
                            const ComputedStyle&,
                            const Font&,
                            bool) const final;
   void PaintTextMarkerForeground(const PaintInfo&,
-                                 const LayoutPoint&,
+                                 const PhysicalOffset&,
                                  const TextMarkerBase&,
                                  const ComputedStyle&,
                                  const Font&) const final;
   void PaintTextMarkerBackground(const PaintInfo&,
-                                 const LayoutPoint&,
+                                 const PhysicalOffset&,
                                  const TextMarkerBase&,
                                  const ComputedStyle&,
                                  const Font&) const final;
@@ -109,7 +109,12 @@ class SVGInlineTextBox final : public InlineTextBox {
   Vector<SVGTextFragment> text_fragments_;
 };
 
-DEFINE_INLINE_BOX_TYPE_CASTS(SVGInlineTextBox);
+template <>
+struct DowncastTraits<SVGInlineTextBox> {
+  static bool AllowFrom(const InlineBox& box) {
+    return box.IsSVGInlineTextBox();
+  }
+};
 
 }  // namespace blink
 

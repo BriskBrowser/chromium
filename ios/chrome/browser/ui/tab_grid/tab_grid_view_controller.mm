@@ -10,12 +10,13 @@
 #include "base/metrics/user_metrics_action.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/task/post_task.h"
-#include "ios/chrome/browser/crash_report/breakpad_helper.h"
+#include "ios/chrome/browser/crash_report/crash_keys_helper.h"
 #import "ios/chrome/browser/ui/commands/application_commands.h"
 #import "ios/chrome/browser/ui/recent_tabs/recent_tabs_table_view_controller.h"
 #import "ios/chrome/browser/ui/tab_grid/grid/grid_commands.h"
 #import "ios/chrome/browser/ui/tab_grid/grid/grid_constants.h"
 #import "ios/chrome/browser/ui/tab_grid/grid/grid_consumer.h"
+#import "ios/chrome/browser/ui/tab_grid/grid/grid_drag_drop_handler.h"
 #import "ios/chrome/browser/ui/tab_grid/grid/grid_image_data_source.h"
 #import "ios/chrome/browser/ui/tab_grid/grid/grid_view_controller.h"
 #import "ios/chrome/browser/ui/tab_grid/tab_grid_bottom_toolbar.h"
@@ -29,8 +30,8 @@
 #include "ios/chrome/browser/ui/ui_feature_flags.h"
 #import "ios/chrome/browser/ui/util/rtl_geometry.h"
 #import "ios/chrome/browser/ui/util/uikit_ui_util.h"
-#import "ios/chrome/common/colors/semantic_color_names.h"
-#import "ios/chrome/common/ui_util/constraints_ui_util.h"
+#import "ios/chrome/common/ui/colors/semantic_color_names.h"
+#import "ios/chrome/common/ui/util/constraints_ui_util.h"
 #include "ios/chrome/grit/ios_strings.h"
 #include "ios/web/public/thread/web_task_traits.h"
 #include "ios/web/public/thread/web_thread.h"
@@ -181,31 +182,10 @@ NSUInteger GetPageIndexFromPage(TabGridPage page) {
   }
 }
 
-- (void)viewWillAppear:(BOOL)animated {
-  if (!base::FeatureList::IsEnabled(kContainedBVC)) {
-    [self contentWillAppearAnimated:animated];
-  }
-  [super viewWillAppear:animated];
-}
-
-- (void)viewDidAppear:(BOOL)animated {
-  [super viewDidAppear:animated];
-  if (!base::FeatureList::IsEnabled(kContainedBVC)) {
-    [self contentDidAppear];
-  }
-}
-
 - (void)viewDidLayoutSubviews {
   [super viewDidLayoutSubviews];
   // Modify Incognito and Regular Tabs Insets
   [self setInsetForGridViews];
-}
-
-- (void)viewWillDisappear:(BOOL)animated {
-  if (!base::FeatureList::IsEnabled(kContainedBVC)) {
-    [self contentWillDisappearAnimated:animated];
-  }
-  [super viewWillDisappear:animated];
 }
 
 - (void)viewWillTransitionToSize:(CGSize)size
@@ -219,6 +199,7 @@ NSUInteger GetPageIndexFromPage(TabGridPage page) {
     [self scrollToPage:_currentPage animated:NO];
     [self configureViewControllerForCurrentSizeClassesAndPage];
     [self setInsetForRemoteTabs];
+    [self setInsetForGridViews];
   };
   [coordinator animateAlongsideTransition:animate completion:nil];
 }
@@ -312,7 +293,7 @@ NSUInteger GetPageIndexFromPage(TabGridPage page) {
   return l10n_util::GetNSString(stringID);
 }
 
-#pragma mark - GridTransitionStateProviding properties
+#pragma mark - GridTransitionAnimationLayoutProviding properties
 
 - (BOOL)isSelectedCellVisible {
   if (self.activePage != self.currentPage)
@@ -323,8 +304,7 @@ NSUInteger GetPageIndexFromPage(TabGridPage page) {
                                    : gridViewController.selectedCellVisible;
 }
 
-- (GridTransitionLayout*)layoutForTransitionContext:
-    (id<UIViewControllerContextTransitioning>)context {
+- (GridTransitionLayout*)transitionLayout {
   GridViewController* gridViewController =
       [self gridViewControllerForPage:self.activePage];
   if (!gridViewController)
@@ -335,13 +315,11 @@ NSUInteger GetPageIndexFromPage(TabGridPage page) {
   return layout;
 }
 
-- (UIView*)proxyContainerForTransitionContext:
-    (id<UIViewControllerContextTransitioning>)context {
+- (UIView*)animationViewsContainer {
   return self.view;
 }
 
-- (UIView*)proxyPositionForTransitionContext:
-    (id<UIViewControllerContextTransitioning>)context {
+- (UIView*)animationViewsContainerBottomView {
   return self.scrollView;
 }
 
@@ -378,10 +356,9 @@ NSUInteger GetPageIndexFromPage(TabGridPage page) {
   }
   [self broadcastIncognitoContentVisibility];
 
-  if (base::FeatureList::IsEnabled(kContainedBVC)) {
-    [self.incognitoTabsViewController contentWillAppearAnimated:animated];
-    [self.regularTabsViewController contentWillAppearAnimated:animated];
-  }
+  [self.incognitoTabsViewController contentWillAppearAnimated:animated];
+  [self.regularTabsViewController contentWillAppearAnimated:animated];
+  self.remoteTabsViewController.preventUpdates = NO;
 }
 
 - (void)contentDidAppear {
@@ -405,10 +382,9 @@ NSUInteger GetPageIndexFromPage(TabGridPage page) {
   }
   self.viewVisible = NO;
 
-  if (base::FeatureList::IsEnabled(kContainedBVC)) {
-    [self.incognitoTabsViewController contentWillDisappear];
-    [self.regularTabsViewController contentWillDisappear];
-  }
+  [self.incognitoTabsViewController contentWillDisappear];
+  [self.regularTabsViewController contentWillDisappear];
+  self.remoteTabsViewController.preventUpdates = YES;
 }
 
 #pragma mark - Public Properties
@@ -654,6 +630,7 @@ NSUInteger GetPageIndexFromPage(TabGridPage page) {
       kTabGridIncognitoTabsEmptyStateIdentifier;
   viewController.theme = GridThemeDark;
   viewController.delegate = self;
+  viewController.dragDropHandler = self.incognitoTabsDragDropHandler;
   NSArray* constraints = @[
     [viewController.view.topAnchor
         constraintEqualToAnchor:contentView.topAnchor],
@@ -682,6 +659,7 @@ NSUInteger GetPageIndexFromPage(TabGridPage page) {
       kTabGridRegularTabsEmptyStateIdentifier;
   viewController.theme = GridThemeLight;
   viewController.delegate = self;
+  viewController.dragDropHandler = self.regularTabsDragDropHandler;
   NSArray* constraints = @[
     [viewController.view.topAnchor
         constraintEqualToAnchor:contentView.topAnchor],
@@ -1079,7 +1057,7 @@ NSUInteger GetPageIndexFromPage(TabGridPage page) {
   BOOL incognitoContentVisible =
       (self.currentPage == TabGridPageIncognitoTabs &&
        !self.incognitoTabsViewController.gridEmpty);
-  [self.dispatcher setIncognitoContentVisible:incognitoContentVisible];
+  [self.handler setIncognitoContentVisible:incognitoContentVisible];
 }
 
 // Returns the approximate number of grid cells that will be visible on this
@@ -1160,9 +1138,9 @@ NSUInteger GetPageIndexFromPage(TabGridPage page) {
   [self configureButtonsForActiveAndCurrentPage];
   if (gridViewController == self.regularTabsViewController) {
     self.topToolbar.pageControl.regularTabCount = count;
-    breakpad_helper::SetRegularTabCount(count);
+    crash_keys::SetRegularTabCount(count);
   } else if (gridViewController == self.incognitoTabsViewController) {
-    breakpad_helper::SetIncognitoTabCount(count);
+    crash_keys::SetIncognitoTabCount(count);
 
     // No assumption is made as to the state of the UI. This method can be
     // called with an incognito view controller and a current page that is not
@@ -1307,23 +1285,23 @@ NSUInteger GetPageIndexFromPage(TabGridPage page) {
 
 - (NSArray*)keyCommands {
   UIKeyCommand* newWindowShortcut = [UIKeyCommand
-       keyCommandWithInput:@"n"
-             modifierFlags:UIKeyModifierCommand
-                    action:@selector(openNewRegularTabForKeyboardCommand)
-      discoverabilityTitle:l10n_util::GetNSStringWithFixup(
-                               IDS_IOS_TOOLS_MENU_NEW_TAB)];
+      keyCommandWithInput:@"n"
+            modifierFlags:UIKeyModifierCommand
+                   action:@selector(openNewRegularTabForKeyboardCommand)];
+  newWindowShortcut.discoverabilityTitle =
+      l10n_util::GetNSStringWithFixup(IDS_IOS_TOOLS_MENU_NEW_TAB);
   UIKeyCommand* newIncognitoWindowShortcut = [UIKeyCommand
-       keyCommandWithInput:@"n"
-             modifierFlags:UIKeyModifierCommand | UIKeyModifierShift
-                    action:@selector(openNewIncognitoTabForKeyboardCommand)
-      discoverabilityTitle:l10n_util::GetNSStringWithFixup(
-                               IDS_IOS_TOOLS_MENU_NEW_INCOGNITO_TAB)];
+      keyCommandWithInput:@"n"
+            modifierFlags:UIKeyModifierCommand | UIKeyModifierShift
+                   action:@selector(openNewIncognitoTabForKeyboardCommand)];
+  newIncognitoWindowShortcut.discoverabilityTitle =
+      l10n_util::GetNSStringWithFixup(IDS_IOS_TOOLS_MENU_NEW_INCOGNITO_TAB);
   UIKeyCommand* newTabShortcut = [UIKeyCommand
-       keyCommandWithInput:@"t"
-             modifierFlags:UIKeyModifierCommand
-                    action:@selector(openNewTabInCurrentPageForKeyboardCommand)
-      discoverabilityTitle:l10n_util::GetNSStringWithFixup(
-                               IDS_IOS_TOOLS_MENU_NEW_TAB)];
+      keyCommandWithInput:@"t"
+            modifierFlags:UIKeyModifierCommand
+                   action:@selector(openNewTabInCurrentPageForKeyboardCommand)];
+  newTabShortcut.discoverabilityTitle =
+      l10n_util::GetNSStringWithFixup(IDS_IOS_TOOLS_MENU_NEW_TAB);
   return @[ newWindowShortcut, newIncognitoWindowShortcut, newTabShortcut ];
 }
 

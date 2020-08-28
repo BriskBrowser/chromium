@@ -3,26 +3,24 @@
  * found in the LICENSE file. */
 
 #pinKeyboardContainer {
-  margin-top: 36px;
+  margin-top: 30px;
   position: relative;
 }
 
 #pinKeyboard {
   --pin-keyboard-pin-input-style: {
     width: 192px;
-    padding-bottom: 24px;
   };
+  --pin-keyboard-input-letter-spacing: 13px;
   --pin-keyboard-number-color: var(--google-grey-900);
   --cr-icon-button-margin-start: 5px;
 }
 
 #errorContainer {
   color: var(--google-red-600);
-  font-size: 10px;
-  font-weight: 500;
-  position: absolute;
+  font-size: 12px;
+  padding: 4px 0 0;
   text-align: center;
-  top: 40px;
   width: 100%;
 }
 
@@ -30,4 +28,9 @@
   --iron-icon-width: 20px;
   --iron-icon-height: 20px;
   margin-inline-end: 3px;
+}
+
+/* Allows to hide the element while still consuming the space that it needs. */
+[invisible] {
+  visibility: hidden;
 }

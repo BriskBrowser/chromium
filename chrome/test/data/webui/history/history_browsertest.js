@@ -7,9 +7,10 @@
  */
 
 GEN_INCLUDE(['//chrome/test/data/webui/polymer_browser_test_base.js']);
+
 GEN('#include "base/command_line.h"');
 GEN('#include "chrome/test/data/webui/history_ui_browsertest.h"');
-GEN('#include "services/network/public/cpp/features.h"');
+GEN('#include "content/public/test/browser_test.h"');
 
 const HistoryBrowserTest = class extends PolymerTest {
   /** @override */
@@ -23,11 +24,6 @@ const HistoryBrowserTest = class extends PolymerTest {
       '//third_party/mocha/mocha.js',
       '//chrome/test/data/webui/mocha_adapter.js',
     ];
-  }
-
-  /** @override */
-  get featureList() {
-    return {enabled: ['network::features::kOutOfBlinkCors']};
   }
 };
 
@@ -73,16 +69,103 @@ var HistoryListTest = class extends HistoryBrowserTest {
   get browsePreload() {
     return 'chrome://history/test_loader.html?module=history/history_list_test.js';
   }
+
+  /** @override */
+  get suiteName() {
+    return history_list_test.suiteName;
+  }
+
+  /** @param {string} testName The name of the test to run. */
+  runMochaTest(testName) {
+    runMochaTest(this.suiteName, testName);
+  }
 };
 
-// This test is flaky.  Fix it before re-enabling. See
-// https://crbug.com/1038991.
-GEN('#define MAYBE_All DISABLED_All');
-
-
-TEST_F('HistoryListTest', 'MAYBE_All', function() {
-  mocha.run();
+TEST_F('HistoryListTest', 'DeletingSingleItem', function() {
+  this.runMochaTest(history_list_test.TestNames.DeletingSingleItem);
 });
+
+TEST_F('HistoryListTest', 'CancellingSelectionOfMultipleItems', function() {
+  this.runMochaTest(
+      history_list_test.TestNames.CancellingSelectionOfMultipleItems);
+});
+
+TEST_F(
+    'HistoryListTest', 'SelectionOfMultipleItemsUsingShiftClick', function() {
+      this.runMochaTest(
+          history_list_test.TestNames.SelectionOfMultipleItemsUsingShiftClick);
+    });
+
+TEST_F('HistoryListTest', 'DisablingCtrlAOnSyncedTabsPage', function() {
+  this.runMochaTest(history_list_test.TestNames.DisablingCtrlAOnSyncedTabsPage);
+});
+
+TEST_F('HistoryListTest', 'SettingFirstAndLastItems', function() {
+  this.runMochaTest(history_list_test.TestNames.SettingFirstAndLastItems);
+});
+
+TEST_F('HistoryListTest', 'UpdatingHistoryResults', function() {
+  this.runMochaTest(history_list_test.TestNames.UpdatingHistoryResults);
+});
+
+TEST_F('HistoryListTest', 'DeletingMultipleItemsFromView', function() {
+  this.runMochaTest(history_list_test.TestNames.DeletingMultipleItemsFromView);
+});
+
+TEST_F(
+    'HistoryListTest', 'SearchResultsDisplayWithCorrectItemTitle', function() {
+      this.runMochaTest(
+          history_list_test.TestNames.SearchResultsDisplayWithCorrectItemTitle);
+    });
+
+TEST_F(
+    'HistoryListTest', 'CorrectDisplayMessageWhenNoHistoryAvailable',
+    function() {
+      this.runMochaTest(history_list_test.TestNames
+                            .CorrectDisplayMessageWhenNoHistoryAvailable);
+    });
+
+TEST_F(
+    'HistoryListTest', 'MoreFromThisSiteSendsAndSetsCorrectData', function() {
+      this.runMochaTest(
+          history_list_test.TestNames.MoreFromThisSiteSendsAndSetsCorrectData);
+    });
+
+TEST_F('HistoryListTest', 'ChangingSearchDeselectsItems', function() {
+  this.runMochaTest(history_list_test.TestNames.ChangingSearchDeselectsItems);
+});
+
+TEST_F('HistoryListTest', 'DeleteItemsEndToEnd', function() {
+  this.runMochaTest(history_list_test.TestNames.DeleteItemsEndToEnd);
+});
+
+TEST_F('HistoryListTest', 'DeleteViaMenuButton', function() {
+  this.runMochaTest(history_list_test.TestNames.DeleteViaMenuButton);
+});
+
+TEST_F('HistoryListTest', 'DeleteDisabledWhilePending', function() {
+  this.runMochaTest(history_list_test.TestNames.DeleteDisabledWhilePending);
+});
+
+TEST_F('HistoryListTest', 'DeletingItemsUsingShortcuts', function() {
+  this.runMochaTest(history_list_test.TestNames.DeletingItemsUsingShortcuts);
+});
+
+TEST_F('HistoryListTest', 'DeleteDialogClosedOnBackNavigation', function() {
+  this.runMochaTest(
+      history_list_test.TestNames.DeleteDialogClosedOnBackNavigation);
+});
+
+TEST_F('HistoryListTest', 'ClickingFileUrlSendsMessageToChrome', function() {
+  this.runMochaTest(
+      history_list_test.TestNames.ClickingFileUrlSendsMessageToChrome);
+});
+
+TEST_F(
+    'HistoryListTest', 'DeleteHistoryResultsInQueryHistoryEvent', function() {
+      this.runMochaTest(
+          history_list_test.TestNames.DeleteHistoryResultsInQueryHistoryEvent);
+    });
 
 // eslint-disable-next-line no-var
 var HistoryMetricsTest = class extends HistoryBrowserTest {
@@ -92,7 +175,8 @@ var HistoryMetricsTest = class extends HistoryBrowserTest {
   }
 };
 
-TEST_F('HistoryMetricsTest', 'All', function() {
+// TODO(https://crbug.com/1000573): Re-enable once flakiness is fixed.
+TEST_F('HistoryMetricsTest', 'DISABLED_All', function() {
   mocha.run();
 });
 
@@ -161,7 +245,7 @@ var HistorySupervisedUserTest = class extends HistoryBrowserTest {
   }
 };
 
-GEN('#if defined(OS_MACOSX)');
+GEN('#if defined(OS_MAC)');
 GEN('#define MAYBE_AllSupervised DISABLED_All');
 GEN('#else');
 GEN('#define MAYBE_AllSupervised All');

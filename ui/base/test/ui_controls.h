@@ -39,7 +39,7 @@ namespace ui_controls {
 // tests.
 void EnableUIControls();
 
-#if defined(OS_MACOSX)
+#if defined(OS_APPLE)
 bool IsUIControlsEnabled();
 #endif
 
@@ -62,12 +62,12 @@ bool SendKeyPressNotifyWhenDone(gfx::NativeWindow window,
                                 base::OnceClosure task);
 
 // Simulate a mouse move.
-bool SendMouseMove(long screen_x, long screen_y);
+bool SendMouseMove(int screen_x, int screen_y);
 
 // Returns false on Windows if the desired position is not over a window
 // belonging to the current process.
-bool SendMouseMoveNotifyWhenDone(long screen_x,
-                                 long screen_y,
+bool SendMouseMoveNotifyWhenDone(int screen_x,
+                                 int screen_y,
                                  base::OnceClosure task);
 
 enum MouseButton {
@@ -135,7 +135,7 @@ class UIControlsAura;
 void InstallUIControlsAura(UIControlsAura* instance);
 #endif
 
-#if defined(OS_MACOSX)
+#if defined(OS_APPLE)
 // Returns true when tests need to use extra Tab and Shift-Tab key events
 // to traverse to the desired item; because the application is configured to
 // traverse more elements for accessibility reasons.

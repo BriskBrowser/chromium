@@ -2,6 +2,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+// clang-format off
+import {addSingletonGetter, sendWithPromise} from 'chrome://resources/js/cr.m.js';
+// clang-format on
+
 /**
  * Type definition of AndroidAppsInfo entry. |playStoreEnabled| indicates that
  * Play Store is enabled. |settingsAppAvailable| indicates that Android settings
@@ -12,50 +16,42 @@
  * }}
  * @see chrome/browser/ui/webui/settings/chromeos/android_apps_handler.cc
  */
-let AndroidAppsInfo;
+export let AndroidAppsInfo;
 
-cr.define('settings', function() {
+/**
+ * An object containing messages for web permissisions origin
+ * and the messages multidevice feature state.
+ *
+ * @typedef {{origin: string,
+ *            enabled: boolean}}
+ */
+export let AndroidSmsInfo;
+
+/** @interface */
+class AndroidInfoBrowserProxy {
   /**
-   * An object containing messages for web permissisions origin
-   * and the messages multidevice feature state.
-   *
-   * @typedef {{origin: string,
-   *            enabled: boolean}}
+   * Returns android messages info with messages feature state
+   * and messages for web permissions origin.
+   * @return {!Promise<!AndroidSmsInfo>} Android SMS Info
    */
-  let AndroidSmsInfo;
+  getAndroidSmsInfo() {}
 
-  /** @interface */
-  class AndroidInfoBrowserProxy {
-    /**
-     * Returns android messages info with messages feature state
-     * and messages for web permissions origin.
-     * @return {!Promise<!settings.AndroidSmsInfo>} Android SMS Info
-     */
-    getAndroidSmsInfo() {}
+  requestAndroidAppsInfo() {}
+}
 
-    requestAndroidAppsInfo() {}
+/**
+ * @implements {AndroidInfoBrowserProxy}
+ */
+export class AndroidInfoBrowserProxyImpl {
+  /** @override */
+  getAndroidSmsInfo() {
+    return sendWithPromise('getAndroidSmsInfo');
   }
 
-  /**
-   * @implements {settings.AndroidInfoBrowserProxy}
-   */
-  class AndroidInfoBrowserProxyImpl {
-    /** @override */
-    getAndroidSmsInfo() {
-      return cr.sendWithPromise('getAndroidSmsInfo');
-    }
-
-    /** @override */
-    requestAndroidAppsInfo() {
-      chrome.send('requestAndroidAppsInfo');
-    }
+  /** @override */
+  requestAndroidAppsInfo() {
+    chrome.send('requestAndroidAppsInfo');
   }
+}
 
-  cr.addSingletonGetter(AndroidInfoBrowserProxyImpl);
-
-  return {
-    AndroidInfoBrowserProxy: AndroidInfoBrowserProxy,
-    AndroidInfoBrowserProxyImpl: AndroidInfoBrowserProxyImpl,
-    AndroidSmsInfo: AndroidSmsInfo,
-  };
-});
+addSingletonGetter(AndroidInfoBrowserProxyImpl);

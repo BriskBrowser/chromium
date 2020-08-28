@@ -20,12 +20,11 @@
 #include "ui/gfx/geometry/insets.h"
 #include "ui/gfx/image/image_skia_operations.h"
 #include "ui/views/animation/flood_fill_ink_drop_ripple.h"
-#include "ui/views/animation/ink_drop_impl.h"
-#include "ui/views/animation/ink_drop_mask.h"
+#include "ui/views/animation/ink_drop_highlight.h"
 #include "ui/views/border.h"
 #include "ui/views/controls/button/image_button.h"
 #include "ui/views/controls/button/md_text_button.h"
-#include "ui/views/focus/focus_manager.h"
+#include "ui/views/controls/highlight_path_generator.h"
 #include "ui/views/layout/box_layout.h"
 
 namespace ash {
@@ -47,20 +46,11 @@ class SearchResultImageButton : public views::ImageButton {
                           const SearchResult::Action& action);
   ~SearchResultImageButton() override {}
 
-  // views::View overrides:
-  void OnFocus() override;
-  void OnBlur() override;
-
-  // ui::EventHandler overrides:
+  // ui::EventHandler:
   void OnGestureEvent(ui::GestureEvent* event) override;
 
-  // views::Button overrides:
-  void StateChanged(ButtonState old_state) override;
-
-  // views::InkDropHost overrides:
-  std::unique_ptr<views::InkDrop> CreateInkDrop() override;
+  // views::InkDropHostView:
   std::unique_ptr<views::InkDropRipple> CreateInkDropRipple() const override;
-  std::unique_ptr<views::InkDropMask> CreateInkDropMask() const override;
   std::unique_ptr<views::InkDropHighlight> CreateInkDropHighlight()
       const override;
 
@@ -108,18 +98,7 @@ SearchResultImageButton::SearchResultImageButton(
   SetTooltipText(action.tooltip_text);
 
   SetVisible(!visible_on_hover_);
-}
-
-void SearchResultImageButton::OnFocus() {
-  parent_->ActionButtonStateChanged();
-  SchedulePaint();
-  if (GetVisible())
-    NotifyAccessibilityEvent(ax::mojom::Event::kFocus, true);
-}
-
-void SearchResultImageButton::OnBlur() {
-  parent_->ActionButtonStateChanged();
-  SchedulePaint();
+  views::InstallCircleHighlightPathGenerator(this);
 }
 
 void SearchResultImageButton::OnGestureEvent(ui::GestureEvent* event) {
@@ -143,15 +122,6 @@ void SearchResultImageButton::OnGestureEvent(ui::GestureEvent* event) {
     Button::OnGestureEvent(event);
 }
 
-void SearchResultImageButton::StateChanged(
-    views::Button::ButtonState old_state) {
-  parent_->ActionButtonStateChanged();
-}
-
-std::unique_ptr<views::InkDrop> SearchResultImageButton::CreateInkDrop() {
-  return CreateDefaultFloodFillInkDropImpl();
-}
-
 std::unique_ptr<views::InkDropRipple>
 SearchResultImageButton::CreateInkDropRipple() const {
   const gfx::Point center = GetLocalBounds().CenterPoint();
@@ -165,28 +135,22 @@ SearchResultImageButton::CreateInkDropRipple() const {
       GetInkDropCenterBasedOnLastEvent(), ripple_color, 1.0f);
 }
 
-std::unique_ptr<views::InkDropMask> SearchResultImageButton::CreateInkDropMask()
-    const {
-  return std::make_unique<views::CircleInkDropMask>(
-      size(), GetLocalBounds().CenterPoint(), GetInkDropRadius());
-}
-
 std::unique_ptr<views::InkDropHighlight>
 SearchResultImageButton::CreateInkDropHighlight() const {
+  // TODO(crbug.com/1051167): Grab ink drop related colors and opacities from a
+  // theme.
   constexpr SkColor ripple_color = SkColorSetA(gfx::kGoogleGrey900, 0x12);
-  return std::make_unique<views::InkDropHighlight>(
-      gfx::PointF(GetLocalBounds().CenterPoint()),
-      std::make_unique<views::CircleLayerDelegate>(ripple_color,
-                                                   GetInkDropRadius()));
+  auto highlight = std::make_unique<views::InkDropHighlight>(gfx::SizeF(size()),
+                                                             ripple_color);
+  highlight->set_visible_opacity(1.f);
+  return highlight;
 }
 
 void SearchResultImageButton::UpdateOnStateChanged() {
   // Show button if the associated result row is hovered or selected, or one
   // of the action buttons is selected.
-  if (visible_on_hover_) {
-    SetVisible(parent_->IsSearchResultHoveredOrSelected() ||
-               parent()->Contains(GetFocusManager()->GetFocusedView()));
-  }
+  if (visible_on_hover_)
+    SetVisible(parent_->IsSearchResultHoveredOrSelected());
 }
 
 void SearchResultImageButton::OnPaintBackground(gfx::Canvas* canvas) {
@@ -229,7 +193,7 @@ SearchResultActionsView::~SearchResultActionsView() {}
 void SearchResultActionsView::SetActions(const SearchResult::Actions& actions) {
   if (selected_action_.has_value())
     selected_action_.reset();
-  buttons_.clear();
+  subscriptions_.clear();
   RemoveAllChildViews(true);
 
   for (size_t i = 0; i < actions.size(); ++i)
@@ -246,12 +210,8 @@ bool SearchResultActionsView::IsSearchResultHoveredOrSelected() const {
 }
 
 void SearchResultActionsView::UpdateButtonsOnStateChanged() {
-  for (SearchResultImageButton* button : buttons_)
-    button->UpdateOnStateChanged();
-}
-
-void SearchResultActionsView::ActionButtonStateChanged() {
-  UpdateButtonsOnStateChanged();
+  for (views::View* child : children())
+    static_cast<SearchResultImageButton*>(child)->UpdateOnStateChanged();
 }
 
 const char* SearchResultActionsView::GetClassName() const {
@@ -300,9 +260,9 @@ void SearchResultActionsView::NotifyA11yResultSelected() {
   DCHECK(HasSelectedAction());
 
   int selected_action = GetSelectedAction();
-  for (views::Button* button : buttons_) {
-    if (button->tag() == selected_action) {
-      button->NotifyAccessibilityEvent(ax::mojom::Event::kSelection, true);
+  for (views::View* child : children()) {
+    if (static_cast<views::Button*>(child)->tag() == selected_action) {
+      child->NotifyAccessibilityEvent(ax::mojom::Event::kSelection, true);
       return;
     }
   }
@@ -324,14 +284,16 @@ bool SearchResultActionsView::HasSelectedAction() const {
 void SearchResultActionsView::CreateImageButton(
     const SearchResult::Action& action,
     int action_index) {
-  SearchResultImageButton* button = new SearchResultImageButton(this, action);
+  auto* const button =
+      AddChildView(std::make_unique<SearchResultImageButton>(this, action));
   button->set_tag(action_index);
-  AddChildView(button);
-  buttons_.emplace_back(button);
+  subscriptions_.push_back(button->AddStateChangedCallback(
+      base::BindRepeating(&SearchResultActionsView::UpdateButtonsOnStateChanged,
+                          base::Unretained(this))));
 }
 
 size_t SearchResultActionsView::GetActionCount() const {
-  return buttons_.size();
+  return children().size();
 }
 
 void SearchResultActionsView::ChildVisibilityChanged(views::View* child) {

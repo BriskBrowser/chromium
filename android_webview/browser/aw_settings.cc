@@ -26,7 +26,6 @@
 #include "content/public/common/web_preferences.h"
 #include "net/http/http_util.h"
 #include "third_party/blink/public/mojom/renderer_preferences.mojom.h"
-#include "ui/native_theme/native_theme.h"
 
 using base::android::ConvertJavaStringToUTF16;
 using base::android::ConvertUTF8ToJavaString;
@@ -47,6 +46,8 @@ void PopulateFixedWebPreferences(WebPreferences* web_prefs) {
       !::features::IsUsingVizForWebView();
   web_prefs->disable_accelerated_small_canvases = true;
   web_prefs->reenable_web_components_v0 = true;
+  // WebView has historically not adjusted font scale for text autosizing.
+  web_prefs->device_scale_adjustment = 1.0;
 }
 
 const void* const kAwSettingsUserDataKey = &kAwSettingsUserDataKey;
@@ -77,6 +78,7 @@ AwSettings::AwSettings(JNIEnv* env,
       javascript_can_open_windows_automatically_(false),
       allow_third_party_cookies_(false),
       allow_file_access_(false),
+      is_dark_mode_(false),
       aw_settings_(env, obj) {
   web_contents->SetUserData(kAwSettingsUserDataKey,
                             std::make_unique<AwSettingsUserData>(this));
@@ -89,7 +91,7 @@ AwSettings::~AwSettings() {
 
   JNIEnv* env = base::android::AttachCurrentThread();
   ScopedJavaLocalRef<jobject> scoped_obj = aw_settings_.get(env);
-  if (scoped_obj.is_null())
+  if (!scoped_obj)
     return;
   Java_AwSettings_nativeAwSettingsGone(env, scoped_obj,
                                        reinterpret_cast<intptr_t>(this));
@@ -137,7 +139,7 @@ void AwSettings::UpdateEverything() {
   JNIEnv* env = base::android::AttachCurrentThread();
   CHECK(env);
   ScopedJavaLocalRef<jobject> scoped_obj = aw_settings_.get(env);
-  if (scoped_obj.is_null())
+  if (!scoped_obj)
     return;
   // Grab the lock and call UpdateEverythingLocked.
   Java_AwSettings_updateEverything(env, scoped_obj);
@@ -164,11 +166,12 @@ void AwSettings::UpdateUserAgentLocked(JNIEnv* env,
 
   ScopedJavaLocalRef<jstring> str =
       Java_AwSettings_getUserAgentLocked(env, obj);
-  bool ua_overidden = str.obj() != NULL;
+  bool ua_overidden = !!str;
 
   if (ua_overidden) {
     std::string override = base::android::ConvertJavaStringToUTF8(str);
-    web_contents()->SetUserAgentOverride(override, true);
+    web_contents()->SetUserAgentOverride(
+        blink::UserAgentOverride::UserAgentOnly(override), true);
   }
 
   content::NavigationController& controller = web_contents()->GetController();
@@ -185,11 +188,7 @@ void AwSettings::UpdateWebkitPreferencesLocked(
   if (!render_view_host_ext)
     return;
 
-  content::RenderViewHost* render_view_host =
-      web_contents()->GetRenderViewHost();
-  if (!render_view_host)
-    return;
-  render_view_host->OnWebkitPreferencesChanged();
+  web_contents()->OnWebPreferencesChanged();
 }
 
 void AwSettings::UpdateInitialPageScaleLocked(
@@ -314,7 +313,7 @@ void AwSettings::PopulateWebPreferences(WebPreferences* web_prefs) {
   JNIEnv* env = base::android::AttachCurrentThread();
   CHECK(env);
   ScopedJavaLocalRef<jobject> scoped_obj = aw_settings_.get(env);
-  if (scoped_obj.is_null())
+  if (!scoped_obj)
     return;
   // Grab the lock and call PopulateWebPreferencesLocked.
   Java_AwSettings_populateWebPreferences(env, scoped_obj,
@@ -410,7 +409,8 @@ void AwSettings::PopulateWebPreferencesLocked(JNIEnv* env,
   web_prefs->plugins_enabled = false;
 
   web_prefs->application_cache_enabled =
-      Java_AwSettings_getAppCacheEnabledLocked(env, obj);
+      Java_AwSettings_getAppCacheEnabledLocked(env, obj) &&
+      content::StoragePartition::IsAppCacheEnabled();
 
   web_prefs->local_storage_enabled =
       Java_AwSettings_getDomStorageEnabledLocked(env, obj);
@@ -512,56 +512,55 @@ void AwSettings::PopulateWebPreferencesLocked(JNIEnv* env,
   web_prefs->allow_mixed_content_upgrades =
       Java_AwSettings_getAllowMixedContentAutoupgradesLocked(env, obj);
 
-  bool is_dark_mode;
   switch (Java_AwSettings_getForceDarkModeLocked(env, obj)) {
     case ForceDarkMode::FORCE_DARK_OFF:
-      is_dark_mode = false;
+      is_dark_mode_ = false;
       break;
     case ForceDarkMode::FORCE_DARK_ON:
-      is_dark_mode = true;
+      is_dark_mode_ = true;
       break;
     case ForceDarkMode::FORCE_DARK_AUTO: {
       AwContents* contents = AwContents::FromWebContents(web_contents());
-      is_dark_mode = contents && contents->GetViewTreeForceDarkState();
+      is_dark_mode_ = contents && contents->GetViewTreeForceDarkState();
       break;
     }
   }
-  ui::NativeTheme::PreferredColorScheme preferred_color_scheme =
-      is_dark_mode ? ui::NativeTheme::PreferredColorScheme::kDark
-                   : ui::NativeTheme::PreferredColorScheme::kNoPreference;
-  if (is_dark_mode) {
+  web_prefs->preferred_color_scheme = is_dark_mode_
+                                          ? blink::PreferredColorScheme::kDark
+                                          : blink::PreferredColorScheme::kLight;
+  if (is_dark_mode_) {
     switch (Java_AwSettings_getForceDarkBehaviorLocked(env, obj)) {
       case ForceDarkBehavior::FORCE_DARK_ONLY: {
-        preferred_color_scheme =
-            ui::NativeTheme::PreferredColorScheme::kNoPreference;
+        web_prefs->preferred_color_scheme = blink::PreferredColorScheme::kLight;
         web_prefs->force_dark_mode_enabled = true;
         break;
       }
       case ForceDarkBehavior::MEDIA_QUERY_ONLY: {
-        preferred_color_scheme = ui::NativeTheme::PreferredColorScheme::kDark;
+        web_prefs->preferred_color_scheme = blink::PreferredColorScheme::kDark;
         web_prefs->force_dark_mode_enabled = false;
         break;
       }
       // Blink's behavior is that if the preferred color scheme matches the
       // supported color scheme, then force dark will be disabled, otherwise
-      // the preferred color scheme will be reset to no preference. Therefore
+      // the preferred color scheme will be reset to 'light'. Therefore
       // when enabling force dark, we also set the preferred color scheme to
       // dark so that dark themed content will be preferred over force
       // darkening.
       case ForceDarkBehavior::PREFER_MEDIA_QUERY_OVER_FORCE_DARK: {
-        preferred_color_scheme = ui::NativeTheme::PreferredColorScheme::kDark;
+        web_prefs->preferred_color_scheme = blink::PreferredColorScheme::kDark;
         web_prefs->force_dark_mode_enabled = true;
         break;
       }
     }
   } else {
-    preferred_color_scheme =
-        ui::NativeTheme::PreferredColorScheme::kNoPreference;
+    web_prefs->preferred_color_scheme = blink::PreferredColorScheme::kLight;
     web_prefs->force_dark_mode_enabled = false;
   }
-  // Notify NativeTheme of changes to dark mode.
-  ui::NativeTheme::GetInstanceForWeb()->set_preferred_color_scheme(
-      preferred_color_scheme);
+}
+
+bool AwSettings::IsDarkMode(JNIEnv* env,
+                                 const JavaParamRef<jobject>& obj) {
+  return is_dark_mode_;
 }
 
 bool AwSettings::GetAllowFileAccess() {

@@ -30,13 +30,16 @@ float PageActionIconView::Delegate::GetPageActionInkDropVisibleOpacity() const {
   return GetOmniboxStateOpacity(OmniboxPartState::SELECTED);
 }
 
-std::unique_ptr<views::Border>
-PageActionIconView::Delegate::CreatePageActionIconBorder() const {
-  return views::CreateEmptyBorder(
-      GetLayoutInsets(LOCATION_BAR_ICON_INTERIOR_PADDING));
+int PageActionIconView::Delegate::GetPageActionIconSize() const {
+  return GetLayoutConstant(LOCATION_BAR_ICON_SIZE);
 }
 
-bool PageActionIconView::Delegate::IsLocationBarUserInputInProgress() const {
+gfx::Insets PageActionIconView::Delegate::GetPageActionIconInsets(
+    const PageActionIconView* icon_view) const {
+  return GetLayoutInsets(LOCATION_BAR_ICON_INTERIOR_PADDING);
+}
+
+bool PageActionIconView::Delegate::ShouldHidePageActionIcons() const {
   return false;
 }
 
@@ -104,8 +107,10 @@ base::string16 PageActionIconView::GetTooltipText(const gfx::Point& p) const {
 void PageActionIconView::ViewHierarchyChanged(
     const views::ViewHierarchyChangedDetails& details) {
   View::ViewHierarchyChanged(details);
-  if (details.is_add && details.child == this && GetNativeTheme())
+  if (details.is_add && details.child == this && GetNativeTheme()) {
     UpdateIconImage();
+    UpdateBorder();
+  }
 }
 
 void PageActionIconView::OnThemeChanged() {
@@ -172,11 +177,8 @@ const gfx::VectorIcon& PageActionIconView::GetVectorIconBadge() const {
 }
 
 void PageActionIconView::OnTouchUiChanged() {
-  icon_size_ = GetLayoutConstant(LOCATION_BAR_ICON_SIZE);
   UpdateIconImage();
-  UpdateBorder();
-  if (GetVisible())
-    PreferredSizeChanged();
+  IconLabelBubbleView::OnTouchUiChanged();
 }
 
 const char* PageActionIconView::GetClassName() const {
@@ -198,7 +200,8 @@ void PageActionIconView::SetActive(bool active) {
 void PageActionIconView::Update() {
   // Currently no page action icon should be visible during user input.
   // A future subclass may need a hook here if that changes.
-  if (delegate_->IsLocationBarUserInputInProgress()) {
+  if (delegate_->ShouldHidePageActionIcons()) {
+    ResetSlideAnimation(/*show_label=*/false);
     SetVisible(false);
   } else {
     UpdateImpl();
@@ -207,12 +210,13 @@ void PageActionIconView::Update() {
 
 void PageActionIconView::UpdateIconImage() {
   const ui::NativeTheme* theme = GetNativeTheme();
-  SkColor icon_color = active_
-                           ? theme->GetSystemColor(
-                                 ui::NativeTheme::kColorId_ProminentButtonColor)
-                           : icon_color_;
-  gfx::ImageSkia image = gfx::CreateVectorIconWithBadge(
-      GetVectorIcon(), icon_size_, icon_color, GetVectorIconBadge());
+  const SkColor icon_color =
+      active_ ? theme->GetSystemColor(
+                    ui::NativeTheme::kColorId_ProminentButtonColor)
+              : icon_color_;
+  const int icon_size = delegate_->GetPageActionIconSize();
+  const gfx::ImageSkia image = gfx::CreateVectorIconWithBadge(
+      GetVectorIcon(), icon_size, icon_color, GetVectorIconBadge());
   if (!image.isNull())
     SetImage(image);
 }
@@ -239,5 +243,7 @@ content::WebContents* PageActionIconView::GetWebContents() const {
 }
 
 void PageActionIconView::UpdateBorder() {
-  SetBorder(delegate_->CreatePageActionIconBorder());
+  const gfx::Insets new_insets = delegate_->GetPageActionIconInsets(this);
+  if (new_insets != GetInsets())
+    SetBorder(views::CreateEmptyBorder(new_insets));
 }

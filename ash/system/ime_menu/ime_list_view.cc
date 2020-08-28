@@ -66,10 +66,9 @@ class ImeListItemView : public ActionableView {
     // |id_label| contains the IME short name (e.g., 'US', 'GB', 'IT').
     views::Label* id_label = TrayPopupUtils::CreateDefaultLabel();
     if (use_unified_theme) {
-      id_label->SetEnabledColor(
-          AshColorProvider::Get()->DeprecatedGetContentLayerColor(
-              AshColorProvider::ContentLayerType::kTextPrimary,
-              kUnifiedMenuTextColor));
+      id_label->SetEnabledColor(AshColorProvider::Get()->GetContentLayerColor(
+          AshColorProvider::ContentLayerType::kTextColorPrimary,
+          AshColorProvider::AshColorMode::kDark));
       id_label->SetAutoColorReadabilityEnabled(false);
     }
     id_label->SetText(id);
@@ -103,8 +102,8 @@ class ImeListItemView : public ActionableView {
     if (selected) {
       // The checked button indicates the IME is selected.
       views::ImageView* checked_image = TrayPopupUtils::CreateMainImageView();
-      checked_image->SetImage(
-          gfx::CreateVectorIcon(kCheckCircleIcon, kMenuIconSize, button_color));
+      checked_image->SetImage(gfx::CreateVectorIcon(
+          kHollowCheckCircleIcon, kMenuIconSize, button_color));
       tri_view->AddView(TriView::Container::END, checked_image);
     }
     SetAccessibleName(label_view->GetText());
@@ -166,8 +165,8 @@ class KeyboardStatusRow : public views::View {
     keyboard_image->SetImage(gfx::CreateVectorIcon(
         kImeMenuOnScreenKeyboardIcon, kMenuIconSize,
         AshColorProvider::Get()->GetContentLayerColor(
-            AshColorProvider::ContentLayerType::kIconPrimary,
-            AshColorProvider::AshColorMode::kLight)));
+            AshColorProvider::ContentLayerType::kIconColorPrimary,
+            AshColorProvider::AshColorMode::kDark)));
     tri_view->AddView(TriView::Container::START, keyboard_image);
 
     // The on-screen keyboard label ('On-screen keyboard').
@@ -271,9 +270,9 @@ void ImeListView::AppendImeListAndProperties(
     const bool selected = current_ime_id == list[i].id;
     views::View* ime_view = new ImeListItemView(
         this, list[i].short_name, list[i].name, selected,
-        AshColorProvider::Get()->DeprecatedGetContentLayerColor(
-            AshColorProvider::ContentLayerType::kProminentIconButton,
-            kProminentIconButtonColor),
+        AshColorProvider::Get()->GetContentLayerColor(
+            AshColorProvider::ContentLayerType::kIconColorPositive,
+            AshColorProvider::AshColorMode::kDark),
         use_unified_theme_);
     scroll_content()->AddChildView(ime_view);
     ime_map_[ime_view] = list[i].id;
@@ -288,8 +287,8 @@ void ImeListView::AppendImeListAndProperties(
           TrayPopupUtils::CreateListItemSeparator(true));
 
       const SkColor icon_color = AshColorProvider::Get()->GetContentLayerColor(
-          AshColorProvider::ContentLayerType::kIconPrimary,
-          AshColorProvider::AshColorMode::kLight);
+          AshColorProvider::ContentLayerType::kIconColorPrimary,
+          AshColorProvider::AshColorMode::kDark);
       // Adds the property items.
       for (size_t i = 0; i < property_list.size(); i++) {
         ImeListItemView* property_view = new ImeListItemView(
@@ -354,8 +353,9 @@ void ImeListView::HandleButtonPressed(views::Button* sender,
 }
 
 void ImeListView::VisibilityChanged(View* starting_from, bool is_visible) {
-  if (!is_visible || (should_focus_ime_after_selection_with_keyboard_ &&
-                      last_item_selected_with_keyboard_) ||
+  if (!is_visible ||
+      (should_focus_ime_after_selection_with_keyboard_ &&
+       last_item_selected_with_keyboard_) ||
       !current_ime_view_) {
     return;
   }

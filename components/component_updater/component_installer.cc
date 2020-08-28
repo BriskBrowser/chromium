@@ -12,12 +12,14 @@
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/location.h"
+#include "base/logging.h"
 #include "base/macros.h"
 #include "base/path_service.h"
 #include "base/sequenced_task_runner.h"
 #include "base/single_thread_task_runner.h"
 #include "base/task/post_task.h"
 #include "base/task/task_traits.h"
+#include "base/task/thread_pool.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/values.h"
 #include "base/version.h"
@@ -65,8 +67,8 @@ void ComponentInstaller::Register(ComponentUpdateService* cus,
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
 
   // Some components may affect user visible features, hence USER_VISIBLE.
-  task_runner_ = base::CreateSequencedTaskRunner(
-      {base::ThreadPool(), base::MayBlock(), base::TaskPriority::USER_VISIBLE,
+  task_runner_ = base::ThreadPool::CreateSequencedTaskRunner(
+      {base::MayBlock(), base::TaskPriority::USER_VISIBLE,
        base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN});
 
   if (!installer_policy_) {
@@ -115,7 +117,7 @@ Result ComponentInstaller::InstallHelper(
       local_install_path.Append(installer_policy_->GetRelativeInstallDir())
           .AppendASCII(manifest_version.GetString());
   if (base::PathExists(local_install_path)) {
-    if (!base::DeleteFileRecursively(local_install_path))
+    if (!base::DeletePathRecursively(local_install_path))
       return Result(InstallError::CLEAN_INSTALL_DIR_FAILED);
   }
 
@@ -124,7 +126,7 @@ Result ComponentInstaller::InstallHelper(
 
   if (!base::Move(unpack_path, local_install_path)) {
     PLOG(ERROR) << "Move failed.";
-    base::DeleteFileRecursively(local_install_path);
+    base::DeletePathRecursively(local_install_path);
     return Result(InstallError::MOVE_FILES_ERROR);
   }
 
@@ -159,15 +161,18 @@ Result ComponentInstaller::InstallHelper(
   return Result(InstallError::NONE);
 }
 
-void ComponentInstaller::Install(const base::FilePath& unpack_path,
-                                 const std::string& /*public_key*/,
-                                 Callback callback) {
+void ComponentInstaller::Install(
+    const base::FilePath& unpack_path,
+    const std::string& /*public_key*/,
+    std::unique_ptr<InstallParams> /*install_params*/,
+    ProgressCallback /*progress_callback*/,
+    Callback callback) {
   std::unique_ptr<base::DictionaryValue> manifest;
   base::Version version;
   base::FilePath install_path;
   const Result result =
       InstallHelper(unpack_path, &manifest, &version, &install_path);
-  base::DeleteFileRecursively(unpack_path);
+  base::DeletePathRecursively(unpack_path);
   if (result.error) {
     main_task_runner_->PostTask(FROM_HERE,
                                 base::BindOnce(std::move(callback), result));
@@ -287,7 +292,7 @@ void ComponentInstaller::StartRegistration(
   base::FilePath base_dir_ = base_component_dir;
   std::vector<base::FilePath::StringType> components;
   installer_policy_->GetRelativeInstallDir().GetComponents(&components);
-  for (const base::FilePath::StringType component : components) {
+  for (const base::FilePath::StringType& component : components) {
     base_dir_ = base_dir_.Append(component);
     if (!base::SetPosixFilePermissions(base_dir_, 0755)) {
       PLOG(ERROR) << "SetPosixFilePermissions failed: " << base_dir.value();
@@ -346,7 +351,7 @@ void ComponentInstaller::StartRegistration(
   // Remove older versions of the component. None should be in use during
   // browser startup.
   for (const auto& older_path : older_paths)
-    base::DeleteFileRecursively(older_path);
+    base::DeletePathRecursively(older_path);
 }
 
 void ComponentInstaller::UninstallOnTaskRunner() {
@@ -372,13 +377,13 @@ void ComponentInstaller::UninstallOnTaskRunner() {
     if (!version.IsValid())
       continue;
 
-    if (!base::DeleteFileRecursively(path))
+    if (!base::DeletePathRecursively(path))
       DLOG(ERROR) << "Couldn't delete " << path.value();
   }
 
   // Delete the base directory if it's empty now.
   if (base::IsDirectoryEmpty(base_dir)) {
-    if (!base::DeleteFile(base_dir, false))
+    if (!base::DeleteFile(base_dir))
       DLOG(ERROR) << "Couldn't delete " << base_dir.value();
   }
 
@@ -417,6 +422,8 @@ void ComponentInstaller::FinishRegistration(
   if (!cus->RegisterComponent(crx)) {
     LOG(ERROR) << "Component registration failed for "
                << installer_policy_->GetName();
+    if (!callback.is_null())
+      std::move(callback).Run();
     return;
   }
 

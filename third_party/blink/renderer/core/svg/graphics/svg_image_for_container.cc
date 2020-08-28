@@ -28,10 +28,12 @@
 namespace blink {
 
 IntSize SVGImageForContainer::Size() const {
-  return RoundedIntSize(SizeAsFloat());
+  // The image orientation is irrelevant because there is not concept of
+  // orientation for SVG images.
+  return RoundedIntSize(SizeAsFloat(kRespectImageOrientation));
 }
 
-FloatSize SVGImageForContainer::SizeAsFloat() const {
+FloatSize SVGImageForContainer::SizeAsFloat(RespectImageOrientationEnum) const {
   FloatSize scaled_container_size(container_size_);
   scaled_container_size.Scale(zoom_);
   return scaled_container_size;
@@ -70,7 +72,8 @@ bool SVGImageForContainer::ApplyShader(cc::PaintFlags& flags,
 PaintImage SVGImageForContainer::PaintImageForCurrentFrame() {
   auto builder = CreatePaintImageBuilder().set_completion_state(
       image_->completion_state());
-  image_->PopulatePaintRecordForCurrentFrameForContainer(builder, url_, Size());
+  image_->PopulatePaintRecordForCurrentFrameForContainer(builder, Size(), zoom_,
+                                                         url_);
   return builder.TakePaintImage();
 }
 

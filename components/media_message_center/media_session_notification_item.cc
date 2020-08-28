@@ -104,6 +104,8 @@ void MediaSessionNotificationItem::MediaSessionActionsChanged(
   if (view_ && !frozen_) {
     DCHECK(view_);
     view_->UpdateWithMediaActions(session_actions_);
+  } else if (waiting_for_actions_) {
+    MaybeUnfreeze();
   }
 }
 
@@ -153,7 +155,7 @@ void MediaSessionNotificationItem::OnMediaSessionActionButtonPressed(
   if (frozen_)
     return;
 
-  controller_->LogMediaSessionActionButtonPressed(request_id_);
+  controller_->LogMediaSessionActionButtonPressed(request_id_, action);
   media_session::PerformMediaSessionAction(action, media_controller_remote_);
 }
 
@@ -161,6 +163,10 @@ void MediaSessionNotificationItem::Dismiss() {
   if (media_controller_remote_.is_bound())
     media_controller_remote_->Stop();
   controller_->RemoveItem(request_id_);
+}
+
+bool MediaSessionNotificationItem::SourceIsCast() {
+  return false;
 }
 
 void MediaSessionNotificationItem::SetController(
@@ -196,13 +202,15 @@ void MediaSessionNotificationItem::SetController(
   MaybeHideOrShowNotification();
 }
 
-void MediaSessionNotificationItem::Freeze() {
+void MediaSessionNotificationItem::Freeze(base::OnceClosure unfrozen_callback) {
   is_bound_ = false;
+  unfrozen_callback_ = std::move(unfrozen_callback);
 
   if (frozen_)
     return;
 
   frozen_ = true;
+  frozen_with_actions_ = HasActions();
   frozen_with_artwork_ = HasArtwork();
 
   freeze_timer_.Start(
@@ -232,11 +240,22 @@ void MediaSessionNotificationItem::MaybeUnfreeze() {
   if (!frozen_)
     return;
 
+  if (waiting_for_actions_ && !HasActions())
+    return;
+
   if (waiting_for_artwork_ && !HasArtwork())
     return;
 
   if (!ShouldShowNotification() || !is_bound_)
     return;
+
+  // If the currently frozen view has actions and the new session currently has
+  // no actions, then wait until either the freeze timer ends or the new actions
+  // are received.
+  if (frozen_with_actions_ && !HasActions()) {
+    waiting_for_actions_ = true;
+    return;
+  }
 
   // If the currently frozen view has artwork and the new session currently has
   // no artwork, then wait until either the freeze timer ends or the new artwork
@@ -251,6 +270,8 @@ void MediaSessionNotificationItem::MaybeUnfreeze() {
 
 void MediaSessionNotificationItem::Unfreeze() {
   frozen_ = false;
+  waiting_for_actions_ = false;
+  frozen_with_actions_ = false;
   waiting_for_artwork_ = false;
   frozen_with_artwork_ = false;
   freeze_timer_.Stop();
@@ -268,6 +289,12 @@ void MediaSessionNotificationItem::Unfreeze() {
     if (session_favicon_.has_value())
       view_->UpdateWithFavicon(*session_favicon_);
   }
+
+  std::move(unfrozen_callback_).Run();
+}
+
+bool MediaSessionNotificationItem::HasActions() const {
+  return !session_actions_.empty();
 }
 
 bool MediaSessionNotificationItem::HasArtwork() const {
@@ -277,9 +304,10 @@ bool MediaSessionNotificationItem::HasArtwork() const {
 void MediaSessionNotificationItem::OnFreezeTimerFired() {
   DCHECK(frozen_);
 
-  // If we've just been waiting for artwork, stop waiting and just show what we
-  // have.
-  if (waiting_for_artwork_ && ShouldShowNotification() && is_bound_) {
+  // If we've just been waiting for actions or artwork, stop waiting and just
+  // show what we have.
+  if ((waiting_for_actions_ || waiting_for_artwork_) &&
+      ShouldShowNotification() && is_bound_) {
     Unfreeze();
     return;
   }

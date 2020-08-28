@@ -7,8 +7,9 @@
 #include <stdint.h>
 
 #include <algorithm>
+#include <utility>
 
-#include "base/logging.h"
+#include "base/check_op.h"
 #include "base/memory/ptr_util.h"
 #include "base/numerics/ranges.h"
 #include "cc/input/browser_controls_offset_manager_client.h"
@@ -48,7 +49,11 @@ BrowserControlsOffsetManager::BrowserControlsOffsetManager(
       controls_show_threshold_(controls_hide_threshold),
       controls_hide_threshold_(controls_show_threshold),
       pinch_gesture_active_(false),
-      constraint_changed_since_commit_(false) {
+      constraint_changed_since_commit_(false),
+      top_min_height_change_in_progress_(false),
+      bottom_min_height_change_in_progress_(false),
+      top_controls_min_height_offset_(0.f),
+      bottom_controls_min_height_offset_(0.f) {
   CHECK(client_);
   UpdateOldBrowserControlsParams();
 }
@@ -104,6 +109,14 @@ float BrowserControlsOffsetManager::BottomControlsShownRatio() const {
   return client_->CurrentBottomControlsShownRatio();
 }
 
+float BrowserControlsOffsetManager::TopControlsMinHeightOffset() const {
+  return top_controls_min_height_offset_;
+}
+
+float BrowserControlsOffsetManager::BottomControlsMinHeightOffset() const {
+  return bottom_controls_min_height_offset_;
+}
+
 std::pair<float, float>
 BrowserControlsOffsetManager::TopControlsShownRatioRange() {
   if (top_controls_animation_.IsInitialized())
@@ -152,17 +165,31 @@ void BrowserControlsOffsetManager::UpdateBrowserControlsState(
   // Don't do anything if there is no change in offset.
   float final_top_shown_ratio = 1.f;
   float final_bottom_shown_ratio = 1.f;
-  AnimationDirection direction = SHOWING_CONTROLS;
+  AnimationDirection direction = AnimationDirection::SHOWING_CONTROLS;
   if (constraints == BrowserControlsState::kHidden ||
       current == BrowserControlsState::kHidden) {
     final_top_shown_ratio = TopControlsMinShownRatio();
     final_bottom_shown_ratio = BottomControlsMinShownRatio();
-    direction = HIDING_CONTROLS;
+    direction = AnimationDirection::HIDING_CONTROLS;
   }
   if (final_top_shown_ratio == TopControlsShownRatio() &&
       final_bottom_shown_ratio == BottomControlsShownRatio()) {
     TRACE_EVENT_INSTANT0("cc", "Ratios Unchanged", TRACE_EVENT_SCOPE_THREAD);
     ResetAnimations();
+    return;
+  }
+
+  // Don't do anything if the currently running animations end in our desired
+  // state.
+  float animated_top_shown_ratio = top_controls_animation_.IsInitialized()
+                                       ? top_controls_animation_.FinalValue()
+                                       : TopControlsShownRatio();
+  float animated_bottom_shown_ratio =
+      bottom_controls_animation_.IsInitialized()
+          ? bottom_controls_animation_.FinalValue()
+          : BottomControlsShownRatio();
+  if (animated_top_shown_ratio == final_top_shown_ratio &&
+      animated_bottom_shown_ratio == final_bottom_shown_ratio) {
     return;
   }
 
@@ -195,17 +222,20 @@ void BrowserControlsOffsetManager::OnBrowserControlsParamsChanged(
     return;
   }
 
+  // We continue to update both top and bottom controls even if one has a height
+  // of 0 so that animations work properly. So here, we should preserve the
+  // ratios even if the controls height is 0.
   float old_top_height = old_browser_controls_params_.top_controls_height;
   float new_top_ratio =
       TopControlsHeight()
           ? TopControlsShownRatio() * old_top_height / TopControlsHeight()
-          : 0.f;
+          : TopControlsShownRatio();
 
   float old_bottom_height = old_browser_controls_params_.bottom_controls_height;
   float new_bottom_ratio = BottomControlsHeight()
                                ? BottomControlsShownRatio() *
                                      old_bottom_height / BottomControlsHeight()
-                               : 0.f;
+                               : BottomControlsShownRatio();
 
   if (!animate_changes) {
     // If the min-heights changed when the controls were at the min-height, the
@@ -241,11 +271,14 @@ void BrowserControlsOffsetManager::OnBrowserControlsParamsChanged(
   //    - If the total height changed, we will run an animation from
   //      old-total-height / new-total-height to 1.
   //    - If the total height didn't change, we don't need to do anything.
-  // 3- The controls shown ratio is between the minimum and the maximum. This
-  //    would be the case if there is a show/hide animation running or there is
-  //    a scroll event and the controls are half-shown. In this case, we won't
-  //    run an animation--but update the shown ratio so the visible height
-  //    remains the same (See updated_{top,bottom}_ratio above).
+  // 3- The controls shown ratio is between the minimum and the maximum.
+  //    - If an animation is running to the old min-height, start a new
+  //      animation to min-height / total-height.
+  //    - Otherwise don't start an animation. We're either animating the
+  //      controls to their expanded state, in which case we can let that
+  //      animation continue, or we're scrolling and no animation is needed.
+  //      Update the shown ratio so the visible height remains the same (see
+  //      new_{top,bottom}_ratio above).
   //
   // When this method is called as a result of a height change,
   // TopControlsHeight(), TopControlsMinHeight(), BottomControlsHeight(), and
@@ -255,15 +288,33 @@ void BrowserControlsOffsetManager::OnBrowserControlsParamsChanged(
   bool top_controls_need_animation = animate_changes;
   bool bottom_controls_need_animation = animate_changes;
 
+  // To handle the case where the min-height changes while we're animating to
+  // the previous min-height, base our "are we at the minimum shown ratio"
+  // check on the post-animation ratio if an animation is running, rather than
+  // its current value.
+  float effective_top_shown_ratio = TopControlsShownRatio();
+  if (top_controls_animation_.IsInitialized()) {
+    effective_top_shown_ratio = top_controls_animation_.FinalValue();
+  }
+  float effective_bottom_shown_ratio = BottomControlsShownRatio();
+  if (bottom_controls_animation_.IsInitialized()) {
+    effective_bottom_shown_ratio = bottom_controls_animation_.FinalValue();
+  }
+
   float top_target_ratio;
-  // If the top controls height changed when they were fully shown.
-  if (TopControlsShownRatio() == 1.f && TopControlsHeight() != old_top_height) {
+  // We can't animate if we don't have top controls.
+  if (!TopControlsHeight()) {
+    top_controls_need_animation = false;
+
+    // If the top controls height changed when they were fully shown.
+  } else if (TopControlsShownRatio() == 1.f &&
+             TopControlsHeight() != old_top_height) {
     top_target_ratio = 1.f;  // i.e. new_height / new_height
 
     // If the top controls min-height changed when they were at the minimum
     // shown ratio. For example, the min height changed from 0 to a positive
     // value while the top controls were completely hidden.
-  } else if (TopControlsShownRatio() == OldTopControlsMinShownRatio() &&
+  } else if (effective_top_shown_ratio == OldTopControlsMinShownRatio() &&
              TopControlsMinHeight() !=
                  old_browser_controls_params_.top_controls_min_height) {
     top_target_ratio = TopControlsMinShownRatio();
@@ -272,14 +323,18 @@ void BrowserControlsOffsetManager::OnBrowserControlsParamsChanged(
   }
 
   float bottom_target_ratio;
-  // If the bottom controls height changed when they were fully shown.
-  if (BottomControlsShownRatio() == 1.f &&
-      BottomControlsHeight() != old_bottom_height) {
+  // We can't animate if we don't have bottom controls.
+  if (!BottomControlsHeight()) {
+    bottom_controls_need_animation = false;
+
+    // If the bottom controls height changed when they were fully shown.
+  } else if (BottomControlsShownRatio() == 1.f &&
+             BottomControlsHeight() != old_bottom_height) {
     bottom_target_ratio = 1.f;  // i.e. new_height / new_height
 
     // If the bottom controls min-height changed when they were at the minimum
     // shown ratio.
-  } else if (BottomControlsShownRatio() == OldBottomControlsMinShownRatio() &&
+  } else if (effective_bottom_shown_ratio == OldBottomControlsMinShownRatio() &&
              BottomControlsMinHeight() !=
                  old_browser_controls_params_.bottom_controls_min_height) {
     bottom_target_ratio = BottomControlsMinShownRatio();
@@ -287,13 +342,31 @@ void BrowserControlsOffsetManager::OnBrowserControlsParamsChanged(
     bottom_controls_need_animation = false;
   }
 
-  if (top_controls_need_animation)
+  if (top_controls_need_animation) {
     InitAnimationForHeightChange(&top_controls_animation_, new_top_ratio,
                                  top_target_ratio);
+    if (old_browser_controls_params_.top_controls_min_height !=
+        TopControlsMinHeight()) {
+      top_controls_min_height_offset_ =
+          old_browser_controls_params_.top_controls_min_height;
+      top_min_height_change_in_progress_ = true;
+    }
+  } else {
+    top_controls_min_height_offset_ = TopControlsMinHeight();
+  }
 
-  if (bottom_controls_need_animation)
+  if (bottom_controls_need_animation) {
     InitAnimationForHeightChange(&bottom_controls_animation_, new_bottom_ratio,
                                  bottom_target_ratio);
+    if (old_browser_controls_params_.bottom_controls_min_height !=
+        BottomControlsMinHeight()) {
+      bottom_controls_min_height_offset_ =
+          old_browser_controls_params_.bottom_controls_min_height;
+      bottom_min_height_change_in_progress_ = true;
+    }
+  } else {
+    bottom_controls_min_height_offset_ = BottomControlsMinHeight();
+  }
 
   // We won't run any animations if the controls are in an in-between state.
   // Examples: a show/hide animation is running, shown ratio is some value
@@ -327,7 +400,21 @@ gfx::Vector2dF BrowserControlsOffsetManager::ScrollBy(
        pending_delta.y() < 0))
     return pending_delta;
 
-  accumulated_scroll_delta_ += pending_delta.y();
+  // Scroll the page up before expanding the browser controls if
+  // OnlyExpandTopControlsAtPageTop() returns true.
+  float viewport_offset_y = client_->ViewportScrollOffset().y();
+  if (client_->OnlyExpandTopControlsAtPageTop() && pending_delta.y() < 0 &&
+      viewport_offset_y > 0) {
+    // Reset the baseline so the controls will immediately begin to scroll
+    // once we're at the top.
+    ResetBaseline();
+    // Only scroll the controls by the amount remaining after the page contents
+    // have been scrolled to the top.
+    accumulated_scroll_delta_ =
+        std::min(0.f, pending_delta.y() + viewport_offset_y);
+  } else {
+    accumulated_scroll_delta_ += pending_delta.y();
+  }
 
   // We want to base our calculations on top or bottom controls. After consuming
   // the scroll delta, we will calculate a shown ratio for the controls. The
@@ -404,17 +491,37 @@ gfx::Vector2dF BrowserControlsOffsetManager::Animate(
   if (!HasAnimation() || !client_->HaveRootScrollNode())
     return gfx::Vector2dF();
 
-  float old_offset = ContentTopOffset();
-  auto new_top_ratio = top_controls_animation_.Tick(monotonic_time);
+  float old_top_offset = ContentTopOffset();
+  float old_bottom_offset = ContentBottomOffset();
+  base::Optional<float> new_top_ratio =
+      top_controls_animation_.Tick(monotonic_time);
   if (!new_top_ratio.has_value())
     new_top_ratio = TopControlsShownRatio();
-  auto new_bottom_ratio = bottom_controls_animation_.Tick(monotonic_time);
+  base::Optional<float> new_bottom_ratio =
+      bottom_controls_animation_.Tick(monotonic_time);
   if (!new_bottom_ratio.has_value())
     new_bottom_ratio = BottomControlsShownRatio();
+
   client_->SetCurrentBrowserControlsShownRatio(new_top_ratio.value(),
                                                new_bottom_ratio.value());
 
-  gfx::Vector2dF scroll_delta(0.f, ContentTopOffset() - old_offset);
+  float top_offset_delta = ContentTopOffset() - old_top_offset;
+  float bottom_offset_delta = ContentBottomOffset() - old_bottom_offset;
+
+  if (top_min_height_change_in_progress_) {
+    top_controls_min_height_offset_ += top_offset_delta;
+    // Ticking the animation might reset it if it's at the final value.
+    top_min_height_change_in_progress_ =
+        top_controls_animation_.IsInitialized();
+  }
+  if (bottom_min_height_change_in_progress_) {
+    // Ticking the animation might reset it if it's at the final value.
+    bottom_controls_min_height_offset_ += bottom_offset_delta;
+    bottom_min_height_change_in_progress_ =
+        bottom_controls_animation_.IsInitialized();
+  }
+
+  gfx::Vector2dF scroll_delta(0.f, top_offset_delta);
   return scroll_delta;
 }
 
@@ -426,37 +533,52 @@ bool BrowserControlsOffsetManager::HasAnimation() {
 void BrowserControlsOffsetManager::ResetAnimations() {
   // If the animation doesn't need to jump to the end, Animation::Reset() will
   // return |base::nullopt|.
-  auto top_ratio = top_controls_animation_.Reset();
-  auto bottom_ratio = bottom_controls_animation_.Reset();
+  base::Optional<float> top_ratio = top_controls_animation_.Reset();
+  base::Optional<float> bottom_ratio = bottom_controls_animation_.Reset();
 
-  if (top_ratio.has_value() || bottom_ratio.has_value())
+  if (top_ratio.has_value() || bottom_ratio.has_value()) {
     client_->SetCurrentBrowserControlsShownRatio(
         top_ratio.has_value() ? top_ratio.value() : TopControlsShownRatio(),
         bottom_ratio.has_value() ? bottom_ratio.value()
                                  : BottomControlsShownRatio());
+    if (top_min_height_change_in_progress_) {
+      DCHECK(top_ratio.has_value());
+      top_controls_min_height_offset_ = TopControlsMinHeight();
+    }
+    if (bottom_min_height_change_in_progress_) {
+      DCHECK(bottom_ratio.has_value());
+      bottom_controls_min_height_offset_ = BottomControlsMinHeight();
+    }
+  }
+  top_min_height_change_in_progress_ = false;
+  bottom_min_height_change_in_progress_ = false;
 }
 
 void BrowserControlsOffsetManager::SetupAnimation(
     AnimationDirection direction) {
-  DCHECK_NE(NO_ANIMATION, direction);
-  DCHECK(direction != HIDING_CONTROLS || TopControlsShownRatio() > 0.f);
-  DCHECK(direction != SHOWING_CONTROLS || TopControlsShownRatio() < 1.f);
+  DCHECK_NE(AnimationDirection::NO_ANIMATION, direction);
+  DCHECK(direction != AnimationDirection::HIDING_CONTROLS ||
+         TopControlsShownRatio() > 0.f);
+  DCHECK(direction != AnimationDirection::SHOWING_CONTROLS ||
+         TopControlsShownRatio() < 1.f);
 
   if (top_controls_animation_.IsInitialized() &&
       top_controls_animation_.Direction() == direction &&
       bottom_controls_animation_.IsInitialized() &&
-      bottom_controls_animation_.Direction() == direction)
+      bottom_controls_animation_.Direction() == direction) {
     return;
+  }
 
   if (!TopControlsHeight() && !BottomControlsHeight()) {
-    float ratio = direction == HIDING_CONTROLS ? 0.f : 1.f;
+    float ratio = direction == AnimationDirection::HIDING_CONTROLS ? 0.f : 1.f;
     client_->SetCurrentBrowserControlsShownRatio(ratio, ratio);
     return;
   }
 
   // Providing artificially larger/smaller stop ratios to make the animation
   // faster if the start ratio is closer to stop ratio.
-  const float max_stop_ratio = direction == SHOWING_CONTROLS ? 1 : -1;
+  const float max_stop_ratio =
+      direction == AnimationDirection::SHOWING_CONTROLS ? 1 : -1;
   float top_start_ratio = TopControlsShownRatio();
   float top_stop_ratio = top_start_ratio + max_stop_ratio;
   top_controls_animation_.Initialize(direction, top_start_ratio, top_stop_ratio,
@@ -486,16 +608,17 @@ void BrowserControlsOffsetManager::StartAnimationIfNecessary() {
       (1.f - TopControlsMinShownRatio());
   if (normalized_top_ratio >= 1.f - controls_hide_threshold_) {
     // If we're showing so much that the hide threshold won't trigger, show.
-    SetupAnimation(SHOWING_CONTROLS);
+    SetupAnimation(AnimationDirection::SHOWING_CONTROLS);
   } else if (normalized_top_ratio <= controls_show_threshold_) {
     // If we're showing so little that the show threshold won't trigger, hide.
-    SetupAnimation(HIDING_CONTROLS);
+    SetupAnimation(AnimationDirection::HIDING_CONTROLS);
   } else {
     // If we could be either showing or hiding, we determine which one to
     // do based on whether or not the total scroll delta was moving up or
     // down.
-    SetupAnimation(accumulated_scroll_delta_ <= 0.f ? SHOWING_CONTROLS
-                                                    : HIDING_CONTROLS);
+    SetupAnimation(accumulated_scroll_delta_ <= 0.f
+                       ? AnimationDirection::SHOWING_CONTROLS
+                       : AnimationDirection::HIDING_CONTROLS);
   }
 }
 
@@ -509,8 +632,9 @@ void BrowserControlsOffsetManager::InitAnimationForHeightChange(
     Animation* animation,
     float start_ratio,
     float stop_ratio) {
-  AnimationDirection direction =
-      start_ratio < stop_ratio ? SHOWING_CONTROLS : HIDING_CONTROLS;
+  AnimationDirection direction = start_ratio < stop_ratio
+                                     ? AnimationDirection::SHOWING_CONTROLS
+                                     : AnimationDirection::HIDING_CONTROLS;
   animation->Initialize(direction, start_ratio, stop_ratio,
                         kHeightChangeDurationMs, /*jump_to_end_on_reset=*/true);
 }
@@ -574,7 +698,7 @@ base::Optional<float> BrowserControlsOffsetManager::Animation::Tick(
       monotonic_time, start_time_, start_value_, stop_time_, stop_value_);
 
   if (IsComplete(value)) {
-    value = base::ClampToRange(stop_value_, min_value_, max_value_);
+    value = FinalValue();
     Reset();
   }
 
@@ -597,7 +721,7 @@ base::Optional<float> BrowserControlsOffsetManager::Animation::Reset() {
   start_value_ = 0.f;
   stop_time_ = base::TimeTicks();
   stop_value_ = 0.f;
-  direction_ = NO_ANIMATION;
+  direction_ = AnimationDirection::NO_ANIMATION;
   duration_ = base::TimeDelta();
   min_value_ = 0.f;
   max_value_ = 1.f;
@@ -607,10 +731,14 @@ base::Optional<float> BrowserControlsOffsetManager::Animation::Reset() {
 }
 
 bool BrowserControlsOffsetManager::Animation::IsComplete(float value) {
-  return (direction_ == SHOWING_CONTROLS &&
+  return (direction_ == AnimationDirection::SHOWING_CONTROLS &&
           (value >= stop_value_ || value >= max_value_)) ||
-         (direction_ == HIDING_CONTROLS &&
+         (direction_ == AnimationDirection::HIDING_CONTROLS &&
           (value <= stop_value_ || value <= min_value_));
+}
+
+float BrowserControlsOffsetManager::Animation::FinalValue() {
+  return base::ClampToRange(stop_value_, min_value_, max_value_);
 }
 
 }  // namespace cc

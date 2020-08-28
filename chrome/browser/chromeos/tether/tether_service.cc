@@ -32,9 +32,6 @@
 
 namespace {
 
-constexpr int64_t kMinAdvertisingIntervalMilliseconds = 100;
-constexpr int64_t kMaxAdvertisingIntervalMilliseconds = 100;
-
 constexpr int64_t kMetricFalsePositiveSeconds = 2;
 
 }  // namespace
@@ -57,21 +54,6 @@ TetherService* TetherService::Get(Profile* profile) {
 // static
 void TetherService::RegisterProfilePrefs(
     user_prefs::PrefRegistrySyncable* registry) {
-  // If we initially assume that BLE advertising is not supported, it will
-  // result in Tether's Settings and Quick Settings sections not being visible
-  // when the user logs in with Bluetooth disabled (because the TechnologyState
-  // will be UNAVAILABLE, instead of the desired UNINITIALIZED).
-  //
-  // Initially assuming that BLE advertising *is* supported works well for most
-  // devices, but if a user first logs into a device without BLE advertising
-  // support and with Bluetooth disabled, Tether will be visible in Settings and
-  // Quick Settings, but disappear upon enabling Bluetooth. This is an
-  // acceptable edge case, and likely rare because Bluetooth is enabled by
-  // default on new logins. Additionally, through this pref, we will record if
-  // BLE advertising is not supported and remember that for future logins.
-  registry->RegisterBooleanPref(prefs::kInstantTetheringBleAdvertisingSupported,
-                                true);
-
   chromeos::tether::TetherComponentImpl::RegisterProfilePrefs(registry);
 }
 
@@ -86,8 +68,6 @@ std::string TetherService::TetherFeatureStateToString(
   switch (state) {
     case (TetherFeatureState::SHUT_DOWN):
       return "[TetherService shut down]";
-    case (TetherFeatureState::BLE_ADVERTISING_NOT_SUPPORTED):
-      return "[BLE advertising not supported]";
     case (TetherFeatureState::NO_AVAILABLE_HOSTS):
       return "[no potential Tether hosts]";
     case (TetherFeatureState::CELLULAR_DISABLED):
@@ -142,7 +122,7 @@ TetherService::TetherService(
           std::make_unique<
               chromeos::tether::GmsCoreNotificationsStateTrackerImpl>()),
       tether_host_fetcher_(
-          chromeos::tether::TetherHostFetcherImpl::Factory::NewInstance(
+          chromeos::tether::TetherHostFetcherImpl::Factory::Create(
               device_sync_client_,
               multidevice_setup_client_)),
       timer_(std::make_unique<base::OneShotTimer>()) {
@@ -181,17 +161,15 @@ void TetherService::StartTetherIfPossible() {
     return;
 
   PA_LOG(VERBOSE) << "Starting up TetherComponent.";
-  tether_component_ =
-      chromeos::tether::TetherComponentImpl::Factory::NewInstance(
-          device_sync_client_, secure_channel_client_,
-          tether_host_fetcher_.get(), notification_presenter_.get(),
-          gms_core_notifications_state_tracker_.get(), profile_->GetPrefs(),
-          network_state_handler_,
-          chromeos::NetworkHandler::Get()
-              ->managed_network_configuration_handler(),
-          chromeos::NetworkConnect::Get(),
-          chromeos::NetworkHandler::Get()->network_connection_handler(),
-          adapter_, session_manager_);
+  tether_component_ = chromeos::tether::TetherComponentImpl::Factory::Create(
+      device_sync_client_, secure_channel_client_, tether_host_fetcher_.get(),
+      notification_presenter_.get(),
+      gms_core_notifications_state_tracker_.get(), profile_->GetPrefs(),
+      network_state_handler_,
+      chromeos::NetworkHandler::Get()->managed_network_configuration_handler(),
+      chromeos::NetworkConnect::Get(),
+      chromeos::NetworkHandler::Get()->network_connection_handler(), adapter_,
+      session_manager_);
 }
 
 chromeos::tether::GmsCoreNotificationsStateTracker*
@@ -310,18 +288,7 @@ void TetherService::OnTetherHostsUpdated() {
 
 void TetherService::AdapterPoweredChanged(device::BluetoothAdapter* adapter,
                                           bool powered) {
-  // Once the BLE advertising interval has been set (regardless of if BLE
-  // advertising is supported), simply update the TechnologyState.
-  if (has_attempted_to_set_ble_advertising_interval_) {
-    UpdateTetherTechnologyState();
-    return;
-  }
-
-  // If the BluetoothAdapter was not powered when first fetched (see
-  // OnBluetoothAdapterFetched()), now attempt to set the BLE advertising
-  // interval.
-  if (powered)
-    SetBleAdvertisingInterval();
+  UpdateTetherTechnologyState();
 }
 
 void TetherService::DeviceListChanged() {
@@ -461,7 +428,6 @@ TetherService::GetTetherTechnologyState() {
     case SHUT_DOWN:
     case SUSPENDED:
     case BLE_NOT_PRESENT:
-    case BLE_ADVERTISING_NOT_SUPPORTED:
     case WIFI_NOT_PRESENT:
     case NO_AVAILABLE_HOSTS:
     case CELLULAR_DISABLED:
@@ -500,8 +466,10 @@ void TetherService::GetBluetoothAdapter() {
   // GetAdapter() may call OnBluetoothAdapterFetched immediately which can cause
   // problems with the Fake implementation since the class is not fully
   // constructed yet. Post the GetAdapter call to avoid this.
+  auto* factory = device::BluetoothAdapterFactory::Get();
   base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE, base::BindOnce(device::BluetoothAdapterFactory::GetAdapter,
+      FROM_HERE, base::BindOnce(&device::BluetoothAdapterFactory::GetAdapter,
+                                base::Unretained(factory),
                                 base::BindRepeating(
                                     &TetherService::OnBluetoothAdapterFetched,
                                     weak_ptr_factory_.GetWeakPtr())));
@@ -520,49 +488,6 @@ void TetherService::OnBluetoothAdapterFetched(
   // Update TechnologyState in case Tether is otherwise available but Bluetooth
   // is off.
   UpdateTetherTechnologyState();
-
-  // If |adapter_| is not powered, wait until it is to call
-  // SetBleAdvertisingInterval(). See AdapterPoweredChanged().
-  if (IsBluetoothPowered())
-    SetBleAdvertisingInterval();
-}
-
-void TetherService::OnBluetoothAdapterAdvertisingIntervalSet() {
-  has_attempted_to_set_ble_advertising_interval_ = true;
-  SetIsBleAdvertisingSupportedPref(true);
-
-  UpdateTetherTechnologyState();
-}
-
-void TetherService::OnBluetoothAdapterAdvertisingIntervalError(
-    device::BluetoothAdvertisement::ErrorCode status) {
-  has_attempted_to_set_ble_advertising_interval_ = true;
-  SetIsBleAdvertisingSupportedPref(false);
-
-  UpdateTetherTechnologyState();
-}
-
-void TetherService::SetBleAdvertisingInterval() {
-  DCHECK(IsBluetoothPowered());
-  adapter_->SetAdvertisingInterval(
-      base::TimeDelta::FromMilliseconds(kMinAdvertisingIntervalMilliseconds),
-      base::TimeDelta::FromMilliseconds(kMaxAdvertisingIntervalMilliseconds),
-      base::Bind(&TetherService::OnBluetoothAdapterAdvertisingIntervalSet,
-                 weak_ptr_factory_.GetWeakPtr()),
-      base::Bind(&TetherService::OnBluetoothAdapterAdvertisingIntervalError,
-                 weak_ptr_factory_.GetWeakPtr()));
-}
-
-bool TetherService::GetIsBleAdvertisingSupportedPref() {
-  return profile_->GetPrefs()->GetBoolean(
-      prefs::kInstantTetheringBleAdvertisingSupported);
-}
-
-void TetherService::SetIsBleAdvertisingSupportedPref(
-    bool is_ble_advertising_supported) {
-  profile_->GetPrefs()->SetBoolean(
-      prefs::kInstantTetheringBleAdvertisingSupported,
-      is_ble_advertising_supported);
 }
 
 bool TetherService::IsBluetoothPresent() const {
@@ -608,9 +533,6 @@ TetherService::TetherFeatureState TetherService::GetTetherFeatureState() {
   if (!IsWifiPresent())
     return WIFI_NOT_PRESENT;
 
-  if (!GetIsBleAdvertisingSupportedPref())
-    return BLE_ADVERTISING_NOT_SUPPORTED;
-
   if (!HasSyncedTetherHosts())
     return NO_AVAILABLE_HOSTS;
 
@@ -623,8 +545,6 @@ TetherService::TetherFeatureState TetherService::GetTetherFeatureState() {
   if (!IsBluetoothPowered())
     return BLUETOOTH_DISABLED;
 
-  // For the cases below, the state is computed differently depending on whether
-  // the MultiDeviceSetup service is active.
   chromeos::multidevice_setup::mojom::FeatureState tether_multidevice_state =
       multidevice_setup_client_->GetFeatureState(
           chromeos::multidevice_setup::mojom::Feature::kInstantTethering);
@@ -662,14 +582,6 @@ TetherService::TetherFeatureState TetherService::GetTetherFeatureState() {
       NOTREACHED();
       return NO_AVAILABLE_HOSTS;
   }
-
-  if (!IsAllowedByPolicy())
-    return PROHIBITED;
-
-  if (!IsEnabledByPreference())
-    return USER_PREFERENCE_DISABLED;
-
-  return ENABLED;
 }
 
 void TetherService::RecordTetherFeatureState() {
@@ -735,8 +647,8 @@ bool TetherService::HandleFeatureStateMetricIfUninitialized() {
   // metric value is actually correct.
   timer_->Start(FROM_HERE,
                 base::TimeDelta::FromSeconds(kMetricFalsePositiveSeconds),
-                base::BindRepeating(&TetherService::RecordTetherFeatureState,
-                                    weak_ptr_factory_.GetWeakPtr()));
+                base::BindOnce(&TetherService::RecordTetherFeatureState,
+                               weak_ptr_factory_.GetWeakPtr()));
 
   return true;
 }

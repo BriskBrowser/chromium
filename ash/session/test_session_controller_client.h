@@ -83,8 +83,7 @@ class TestSessionControllerClient : public SessionControllerClient {
       bool enable_settings = true,
       bool provide_pref_service = true,
       bool is_new_profile = false,
-      const base::Optional<base::Token>& service_instance_group =
-          base::nullopt);
+      const std::string& given_name = std::string());
 
   // Creates a test PrefService and associates it with the user.
   void ProvidePrefServiceForUser(const AccountId& account_id);
@@ -118,6 +117,13 @@ class TestSessionControllerClient : public SessionControllerClient {
   PrefService* GetSigninScreenPrefService() override;
   PrefService* GetUserPrefService(const AccountId& account_id) override;
 
+  // By default `LockScreen()` only changes the session state but no UI views
+  // will be created.  If your tests requires the lock screen to be created,
+  // please set this to true.
+  void set_show_lock_screen_views(bool should_show) {
+    should_show_lock_screen_ = should_show;
+  }
+
  private:
   void DoSwitchUser(const AccountId& account_id, bool switch_user);
 
@@ -129,6 +135,8 @@ class TestSessionControllerClient : public SessionControllerClient {
 
   bool use_lower_case_user_id_ = true;
   int request_sign_out_count_ = 0;
+
+  bool should_show_lock_screen_ = false;
 
   std::unique_ptr<views::Widget> multi_profile_login_widget_;
 

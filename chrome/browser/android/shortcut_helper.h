@@ -6,6 +6,7 @@
 #define CHROME_BROWSER_ANDROID_SHORTCUT_HELPER_H_
 
 #include <memory>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -32,8 +33,7 @@ class ShortcutHelper {
   static std::unique_ptr<ShortcutInfo> CreateShortcutInfo(
       const GURL& manifest_url,
       const blink::Manifest& manifest,
-      const GURL& primary_icon_url,
-      const GURL& badge_icon_url);
+      const GURL& primary_icon_url);
 
   // Adds a shortcut to the launcher using a SkBitmap. The type of shortcut
   // added depends on the properties in |info|.
@@ -60,11 +60,11 @@ class ShortcutHelper {
   // screen.
   static int GetMinimumSplashImageSizeInPx();
 
-  // Returns the ideal size for a badge icon of a WebAPK.
-  static int GetIdealBadgeIconSizeInPx();
-
   // Returns the ideal size for an adaptive launcher icon of a WebAPK
   static int GetIdealAdaptiveLauncherIconSizeInPx();
+
+  // Returns the ideal size for a shortcut icon of a WebAPK.
+  static int GetIdealShortcutIconSizeInPx();
 
   // Fetches the splash screen image and stores it inside the WebappDataStorage
   // of the webapp. The WebappDataStorage object *must* have been previously
@@ -94,11 +94,21 @@ class ShortcutHelper {
   // Returns an empty string if there are no matches.
   static std::string QueryFirstWebApkPackage(const GURL& url);
 
-  // Returns true if WebAPKs are enabled and there is an installed WebAPK which
-  // can handle |start_url|, or there is one is being installed.
+  // Returns true if there is an installed WebAPK which can handle |url|.
   static bool IsWebApkInstalled(content::BrowserContext* browser_context,
-                                const GURL& start_url,
-                                const GURL& manifest_url);
+                                const GURL& url);
+
+  // Returns true if there is a WebAPK installed under |origin|, and false
+  // otherwise.
+  static bool DoesOriginContainAnyInstalledWebApk(const GURL& origin);
+
+  // Returns true if there is a TWA installed under |origin|, and false
+  // otherwise.
+  static bool DoesOriginContainAnyInstalledTrustedWebActivity(
+      const GURL& origin);
+
+  // Returns a set of origins that have an installed WebAPK or TWA.
+  static std::set<GURL> GetOriginsWithInstalledWebApksOrTwas();
 
   // Sets a flag to force an update for the WebAPK corresponding to |id| on next
   // launch.
@@ -107,6 +117,8 @@ class ShortcutHelper {
   // Returns if the Android version supports Adaptive Icon (i.e. API level >=
   // 26)
   static bool DoesAndroidSupportMaskableIcons();
+
+  static void SetIdealShortcutSizeForTesting(int size);
 
  private:
   DISALLOW_IMPLICIT_CONSTRUCTORS(ShortcutHelper);

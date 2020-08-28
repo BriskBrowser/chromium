@@ -5,18 +5,20 @@
 #ifndef CC_PAINT_PAINT_IMAGE_H_
 #define CC_PAINT_PAINT_IMAGE_H_
 
+#include <string>
 #include <vector>
 
 #include "base/gtest_prod_util.h"
-#include "base/logging.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/optional.h"
 #include "cc/paint/frame_metadata.h"
 #include "cc/paint/image_animation_count.h"
 #include "cc/paint/paint_export.h"
+#include "gpu/command_buffer/common/mailbox.h"
 #include "third_party/skia/include/core/SkImage.h"
 #include "third_party/skia/include/core/SkYUVAIndex.h"
 #include "third_party/skia/include/core/SkYUVASizeInfo.h"
+#include "ui/gfx/display_color_spaces.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/size.h"
 
@@ -25,9 +27,10 @@ namespace cc {
 class PaintImageGenerator;
 class PaintOpBuffer;
 class PaintWorkletInput;
+class TextureBacking;
 using PaintRecord = PaintOpBuffer;
 
-enum class ImageType { kPNG, kJPEG, kWEBP, kGIF, kICO, kBMP, kInvalid };
+enum class ImageType { kPNG, kJPEG, kWEBP, kGIF, kICO, kBMP, kAVIF, kInvalid };
 
 enum class YUVSubsampling { k410, k411, k420, k422, k440, k444, kUnknown };
 
@@ -119,7 +122,7 @@ class CC_PAINT_EXPORT PaintImage {
 
   class CC_PAINT_EXPORT FrameKey {
    public:
-    FrameKey(ContentId content_id, size_t frame_index, gfx::Rect subset_rect);
+    FrameKey(ContentId content_id, size_t frame_index);
     bool operator==(const FrameKey& other) const;
     bool operator!=(const FrameKey& other) const;
 
@@ -131,8 +134,6 @@ class CC_PAINT_EXPORT PaintImage {
    private:
     ContentId content_id_;
     size_t frame_index_;
-    // TODO(khushalsagar): Remove this when callers take care of subsetting.
-    gfx::Rect subset_rect_;
 
     size_t hash_;
   };
@@ -214,22 +215,40 @@ class CC_PAINT_EXPORT PaintImage {
   //    code that assume YUV420 without alpha because it is currently the only
   //    subsampling supported for direct YUV rendering.
   //  - The dimensions of YUV planes are tracked in |yuva_size_info|.
-  //    This struct is initialized by QueryYUVA8 in calls to
+  //    This struct is initialized by QueryYUVA in calls to
   //    PaintImage::IsYuv(), including within this method.
   //  - The |frame_index| parameter will be passed along to
   //    ImageDecoder::DecodeToYUV but for multi-frame YUV support, ImageDecoder
   //    needs a separate YUV frame buffer cache.
   //  - The mapping of source planes to channels is tracked by |plane_indices|.
-  //    This struct is initialized by QueryYUVA8 in calls to
+  //    This struct is initialized by QueryYUVA in calls to
   //    PaintImage::IsYuv(), including within this method.
   bool DecodeYuv(void* planes[SkYUVASizeInfo::kMaxCount],
                  size_t frame_index,
                  GeneratorClientId client_id,
                  const SkYUVASizeInfo& yuva_size_info,
+                 SkColorType yuva_color_type,
                  SkYUVAIndex* plane_indices) const;
+
+  // Returns the SkImage associated with this PaintImage. If PaintImage is
+  // texture backed, this API will always do a readback from GPU to CPU memory,
+  // so avoid using it unless actual pixels are needed. For other cases, prefer
+  // using PaintImage APIs directly or use GetSkImageInfo() for metadata about
+  // the SkImage.
+  sk_sp<SkImage> GetSwSkImage() const;
+
+  // Reads this image's pixels into caller-owned |dst_pixels|
+  bool readPixels(const SkImageInfo& dst_info,
+                  void* dst_pixels,
+                  size_t dst_row_bytes,
+                  int src_x,
+                  int src_y) const;
+
+  SkImageInfo GetSkImageInfo() const;
 
   Id stable_id() const { return id_; }
   const sk_sp<SkImage>& GetSkImage() const;
+  gpu::Mailbox GetMailbox() const;
   AnimationType animation_type() const { return animation_type_; }
   CompletionState completion_state() const { return completion_state_; }
   bool is_multipart() const { return is_multipart_; }
@@ -240,28 +259,29 @@ class CC_PAINT_EXPORT PaintImage {
     return reset_animation_sequence_id_;
   }
   DecodingMode decoding_mode() const { return decoding_mode_; }
-  PaintImage::ContentId content_id() const { return content_id_; }
 
   // TODO(vmpstr): Don't get the SkImage here if you don't need to.
   uint32_t unique_id() const {
     return paint_worklet_input_ ? 0 : GetSkImage()->uniqueID();
   }
   explicit operator bool() const {
-    return paint_worklet_input_ || !!GetSkImage();
+    return paint_worklet_input_ || cached_sk_image_ || texture_backing_;
   }
   bool IsLazyGenerated() const {
-    return paint_worklet_input_ ? false : GetSkImage()->isLazyGenerated();
+    return paint_record_ || paint_image_generator_;
   }
   bool IsPaintWorklet() const { return !!paint_worklet_input_; }
-  bool IsTextureBacked() const {
-    return paint_worklet_input_ ? false : GetSkImage()->isTextureBacked();
-  }
+  bool IsTextureBacked() const;
+  // Skia internally buffers commands and flushes them as necessary but there
+  // are some cases where we need to force a flush.
+  void FlushPendingSkiaOps();
   int width() const;
   int height() const;
   SkColorSpace* color_space() const {
-    return paint_worklet_input_ ? nullptr : GetSkImage()->colorSpace();
+    return paint_worklet_input_ ? nullptr : GetSkImageInfo().colorSpace();
   }
-  const gfx::Rect subset_rect() const { return subset_rect_; }
+
+  gfx::ContentColorUsage GetContentColorUsage() const;
 
   // Returns whether this image will be decoded and rendered from YUV data
   // and fills out plane size info, plane index info, and the matrix for
@@ -269,10 +289,12 @@ class CC_PAINT_EXPORT PaintImage {
   // |plane_indices|, and |yuv_color_space| if any are provided.
   bool IsYuv(SkYUVASizeInfo* yuva_size_info = nullptr,
              SkYUVAIndex* plane_indices = nullptr,
-             SkYUVColorSpace* yuv_color_space = nullptr) const;
+             SkYUVColorSpace* yuv_color_space = nullptr,
+             uint8_t* bit_depth = nullptr) const;
 
-  // Returns the color type of this image.
+  // Get metadata associated with this image.
   SkColorType GetColorType() const;
+  SkAlphaType GetAlphaType() const;
 
   // Returns general information about the underlying image. Returns nullptr if
   // there is no available |paint_image_generator_|.
@@ -280,6 +302,8 @@ class CC_PAINT_EXPORT PaintImage {
 
   // Returns a unique id for the pixel data for the frame at |frame_index|.
   FrameKey GetKeyForFrame(size_t frame_index) const;
+
+  PaintImage::ContentId GetContentIdForFrame(size_t frame_index) const;
 
   // Returns the metadata for each frame of a multi-frame image. Should only be
   // used with animated images.
@@ -296,6 +320,8 @@ class CC_PAINT_EXPORT PaintImage {
     return paint_worklet_input_;
   }
 
+  bool IsOpaque() const { return GetSkImageInfo().isOpaque(); }
+
   std::string ToString() const;
 
  private:
@@ -307,7 +333,10 @@ class CC_PAINT_EXPORT PaintImage {
   friend class ScopedRasterFlags;
   friend class PaintOpReader;
 
-  bool CanDecodeFromGenerator() const;
+  friend class PlaybackImageProvider;
+  friend class DrawImageRectOp;
+  friend class DrawImageOp;
+  friend class AcceleratedStaticBitmapImageTest;
 
   bool DecodeFromGenerator(void* memory,
                            SkImageInfo* info,
@@ -320,7 +349,9 @@ class CC_PAINT_EXPORT PaintImage {
                          size_t frame_index,
                          GeneratorClientId client_id) const;
   void CreateSkImage();
-  PaintImage MakeSubset(const gfx::Rect& subset) const;
+
+  // Only supported in non-OOPR contexts by friend callers.
+  sk_sp<SkImage> GetAcceleratedSkImage() const;
 
   sk_sp<SkImage> sk_image_;
   sk_sp<PaintRecord> paint_record_;
@@ -329,15 +360,12 @@ class CC_PAINT_EXPORT PaintImage {
   ContentId content_id_ = kInvalidContentId;
 
   sk_sp<PaintImageGenerator> paint_image_generator_;
+  sk_sp<TextureBacking> texture_backing_;
 
   Id id_ = 0;
   AnimationType animation_type_ = AnimationType::STATIC;
   CompletionState completion_state_ = CompletionState::DONE;
   int repetition_count_ = kAnimationNone;
-
-  // If non-empty, holds the subset of this image relative to the original image
-  // at the origin.
-  gfx::Rect subset_rect_;
 
   // Whether the data fetched for this image is a part of a multpart response.
   bool is_multipart_ = false;

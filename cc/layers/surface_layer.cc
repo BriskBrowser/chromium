@@ -97,10 +97,6 @@ void SurfaceLayer::SetStretchContentToFillBounds(
   SetNeedsPushProperties();
 }
 
-void SurfaceLayer::SetUnoccludedForHitTesting(bool unoccluded) {
-  unoccluded_for_hit_testing_ = unoccluded;
-}
-
 void SurfaceLayer::SetSurfaceHitTestable(bool surface_hit_testable) {
   if (surface_hit_testable_ == surface_hit_testable)
     return;
@@ -123,13 +119,13 @@ void SurfaceLayer::SetIsReflection(bool is_reflection) {
 
 void SurfaceLayer::SetMayContainVideo(bool may_contain_video) {
   may_contain_video_ = may_contain_video;
+  SetNeedsCommit();
 }
 
 std::unique_ptr<LayerImpl> SurfaceLayer::CreateLayerImpl(
     LayerTreeImpl* tree_impl) {
   auto layer_impl = SurfaceLayerImpl::Create(tree_impl, id(),
                                              update_submission_state_callback_);
-  layer_impl->set_may_contain_video(may_contain_video_);
   return layer_impl;
 }
 
@@ -162,7 +158,7 @@ void SurfaceLayer::PushPropertiesTo(LayerImpl* layer) {
   layer_impl->SetStretchContentToFillBounds(stretch_content_to_fill_bounds_);
   layer_impl->SetSurfaceHitTestable(surface_hit_testable_);
   layer_impl->SetHasPointerEventsNone(has_pointer_events_none_);
-  layer_impl->SetUnoccludedForHitTesting(unoccluded_for_hit_testing_);
+  layer_impl->set_may_contain_video(may_contain_video_);
 }
 
 }  // namespace cc

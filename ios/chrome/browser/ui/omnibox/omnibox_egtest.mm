@@ -150,7 +150,29 @@ id<GREYMatcher> SearchCopiedTextButton() {
 
 // Tests that the XClientData header is sent when navigating to
 // https://google.com through the omnibox.
-- (void)testXClientData {
+#if defined(CHROME_EARL_GREY_1)
+//  Flaky on EG1.
+#define MAYBE_testXClientData DISABLED_testXClientData
+#else
+#define MAYBE_testXClientData testXClientData
+#endif
+- (void)MAYBE_testXClientData {
+// TODO(crbug.com/1067815): Test doesn't pass on iPad device.
+#if !TARGET_IPHONE_SIMULATOR
+  if ([ChromeEarlGrey isIPadIdiom]) {
+    EARL_GREY_TEST_SKIPPED(@"testXClientData doesn't pass on iPad device.");
+  }
+#endif
+
+  // TODO(crbug.com/1121305): Test is failing due to clearing the variations on
+  // first run, causing tests to fail flakily on the bots.
+  EARL_GREY_TEST_SKIPPED(@"testXClientData fails on first simulator run.");
+
+  // TODO(crbug.com/1120723) This test is flakily because of a DCHECK in
+  // ios/web.  Clearing browser history first works around the problem, but
+  // shouldn't be necessary otherwise.  Remove once the bug is fixed.
+  [ChromeEarlGrey clearBrowsingHistory];
+
   // Rewrite the google URL to localhost URL.
   [OmniboxAppInterface rewriteGoogleURLToLocalhost];
 
@@ -226,7 +248,8 @@ id<GREYMatcher> SearchCopiedTextButton() {
   }
 }
 
-- (void)testCopyPaste {
+// Test is flaky: crbug.com/1056700.
+- (void)DISABLED_testCopyPaste {
   [self openPage1];
 
   // Long pressing should allow copying.
@@ -369,7 +392,8 @@ id<GREYMatcher> SearchCopiedTextButton() {
 // Focus the omnibox and hit "cmd+X". This should remove all text from the
 // omnibox and put it in the clipboard. This had been broken before because of
 // the preedit state complexity. Paste to verify that the URL was indeed copied.
-- (void)testCutInPreedit {
+// TODO(crbug.com/1049603): Re-enable this test.
+- (void)DISABLED_testCutInPreedit {
   [self openPage1];
 
   [ChromeEarlGreyUI focusOmnibox];
@@ -520,10 +544,9 @@ id<GREYMatcher> SearchCopiedTextButton() {
   // Cut the text.
   [[EarlGrey selectElementWithMatcher:CutButton()] performAction:grey_tap()];
 
-  // Pressing should allow pasting.
-  // Click on the omnibox.
+  // Long pressing should allow pasting.
   [[EarlGrey selectElementWithMatcher:chrome_test_util::Omnibox()]
-      performAction:grey_tap()];
+      performAction:grey_longPress()];
   // Verify that system text selection callout is displayed (Search Copied
   // Text).
   GREYCondition* searchCopiedTextButtonIsDisplayed = [GREYCondition
@@ -599,7 +622,19 @@ id<GREYMatcher> SearchCopiedTextButton() {
       assertWithMatcher:grey_nil()];
 }
 
-- (void)testNoDefaultMatch {
+// TODO(crbug.com/1067815): Test can't pass on devices.
+#if TARGET_IPHONE_SIMULATOR
+#define MAYBE_testNoDefaultMatch testNoDefaultMatch
+#else
+#define MAYBE_testNoDefaultMatch DISABLED_testNoDefaultMatch
+#endif
+- (void)MAYBE_testNoDefaultMatch {
+  // TODO(crbug.com/1105869) Omnibox pasteboard suggestions are currently
+  // disabled on iOS14.
+  if (@available(iOS 14, *)) {
+    EARL_GREY_TEST_DISABLED(@"Test disabled on iOS14.");
+  }
+
   NSString* copiedText = @"test no default match1";
 
   // Put some text in pasteboard.

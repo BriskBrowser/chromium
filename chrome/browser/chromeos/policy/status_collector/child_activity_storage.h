@@ -8,13 +8,8 @@
 #include <string>
 #include <vector>
 
-#include "base/macros.h"
 #include "base/time/time.h"
 #include "chrome/browser/chromeos/policy/status_collector/activity_storage.h"
-
-namespace base {
-class DictionaryValue;
-}
 
 class PrefService;
 
@@ -30,6 +25,8 @@ class ChildActivityStorage : public ActivityStorage {
   ChildActivityStorage(PrefService* pref_service,
                        const std::string& pref_name,
                        base::TimeDelta day_start_offset);
+  ChildActivityStorage(const ChildActivityStorage&) = delete;
+  ChildActivityStorage& operator=(const ChildActivityStorage&) = delete;
   ~ChildActivityStorage() override;
 
   // Adds an activity period.
@@ -39,15 +36,13 @@ class ChildActivityStorage : public ActivityStorage {
   void AddActivityPeriod(base::Time start, base::Time end, base::Time now);
 
   // Returns the list of stored activity periods.
-  std::vector<ActivityStorage::ActivityPeriod> GetStoredActivityPeriods();
+  std::vector<enterprise_management::TimePeriod> GetStoredActivityPeriods();
 
  private:
   // Uses the PrefService to store child screen time.
   void StoreChildScreenTime(base::Time activity_day_start,
                             base::TimeDelta activity,
                             base::Time now);
-
-  DISALLOW_COPY_AND_ASSIGN(ChildActivityStorage);
 };
 
 }  // namespace policy

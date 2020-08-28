@@ -17,7 +17,6 @@
 #include "base/command_line.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/path_service.h"
-#include "base/task/post_task.h"
 #include "components/safe_browsing/content/base_ui_manager.h"
 #include "components/safe_browsing/core/browser/safe_browsing_network_context.h"
 #include "components/safe_browsing/core/common/safebrowsing_constants.h"
@@ -27,6 +26,7 @@
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/navigation_entry.h"
+#include "content/public/browser/network_service_instance.h"
 #include "services/network/public/mojom/network_service.mojom.h"
 
 using content::BrowserThread;
@@ -49,6 +49,8 @@ void RecordIsWebViewViewable(bool isViewable) {
 network::mojom::NetworkContextParamsPtr CreateDefaultNetworkContextParams() {
   network::mojom::NetworkContextParamsPtr network_context_params =
       network::mojom::NetworkContextParams::New();
+  network_context_params->cert_verifier_params = content::GetCertVerifierParams(
+      network::mojom::CertVerifierCreationParams::New());
   network_context_params->user_agent = GetUserAgent();
   return network_context_params;
 }
@@ -82,24 +84,20 @@ void AwSafeBrowsingUIManager::DisplayBlockingPage(
   if (!client || !client->CanShowInterstitial()) {
     RecordIsWebViewViewable(false);
     OnBlockingPageDone(std::vector<UnsafeResource>{resource}, false,
-                       web_contents, resource.url.GetWithEmptyPath());
+                       web_contents, resource.url.GetWithEmptyPath(),
+                       false /* showed_interstitial */);
     return;
   }
   RecordIsWebViewViewable(true);
   safe_browsing::BaseUIManager::DisplayBlockingPage(resource);
 }
 
-void AwSafeBrowsingUIManager::ShowBlockingPageForResource(
-    const UnsafeResource& resource) {
-  AwSafeBrowsingBlockingPage::ShowBlockingPage(this, resource);
-}
-
 scoped_refptr<network::SharedURLLoaderFactory>
 AwSafeBrowsingUIManager::GetURLLoaderFactoryOnIOThread() {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
   if (!shared_url_loader_factory_on_io_) {
-    base::PostTask(
-        FROM_HERE, {BrowserThread::UI},
+    content::GetUIThreadTaskRunner({})->PostTask(
+        FROM_HERE,
         base::BindOnce(&AwSafeBrowsingUIManager::CreateURLLoaderFactoryForIO,
                        this,
                        url_loader_factory_on_io_.BindNewPipeAndPassReceiver()));
@@ -118,20 +116,21 @@ int AwSafeBrowsingUIManager::GetErrorUiType(
 }
 
 void AwSafeBrowsingUIManager::SendSerializedThreatDetails(
+    content::BrowserContext* browser_context,
     const std::string& serialized) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
   if (!ping_manager_) {
     // Lazy creation of ping manager, needs to happen on IO thread.
     ping_manager_ = ::safe_browsing::PingManager::Create(
-        network_context_->GetURLLoaderFactory(),
         safe_browsing::GetV4ProtocolConfig(GetProtocolConfigClientName(),
                                            false /* disable_auto_update */));
   }
 
   if (!serialized.empty()) {
     DVLOG(1) << "Sending serialized threat details";
-    ping_manager_->ReportThreatDetails(serialized);
+    ping_manager_->ReportThreatDetails(network_context_->GetURLLoaderFactory(),
+                                       serialized);
   }
 }
 
@@ -143,7 +142,7 @@ AwSafeBrowsingUIManager::CreateBlockingPageForSubresource(
   AwSafeBrowsingSubresourceHelper::CreateForWebContents(contents);
   AwSafeBrowsingBlockingPage* blocking_page =
       AwSafeBrowsingBlockingPage::CreateBlockingPage(
-          this, contents, blocked_url, unsafe_resource);
+          this, contents, blocked_url, unsafe_resource, nullptr);
   return blocking_page;
 }
 

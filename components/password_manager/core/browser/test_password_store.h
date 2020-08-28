@@ -11,13 +11,23 @@
 #include <string>
 #include <vector>
 
+#include "base/containers/flat_set.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/sequenced_task_runner.h"
 #include "components/password_manager/core/browser/compromised_credentials_table.h"
 #include "components/password_manager/core/browser/password_store.h"
+#include "testing/gmock/include/gmock/gmock.h"
 
 namespace password_manager {
+
+// A matcher that compares two PasswordForm instances but ignores the |in_store|
+// member.
+MATCHER_P(MatchesFormExceptStore, expected, "") {
+  autofill::PasswordForm arg_copy = arg;
+  arg_copy.in_store = expected.in_store;
+  return arg_copy == expected;
+}
 
 // A very simple PasswordStore implementation that keeps all of the passwords
 // in memory and does all its manipulations on the main thread. Since this
@@ -25,19 +35,40 @@ namespace password_manager {
 // for testing have been implemented.
 class TestPasswordStore : public PasswordStore {
  public:
-  TestPasswordStore();
+  // We need to qualify password_manager::IsAccountStore with the full
+  // namespace, otherwise, it's confused with the method
+  // PasswordStoreSync::IsAccountStore().
+  explicit TestPasswordStore(password_manager::IsAccountStore is_account_store =
+                                 password_manager::IsAccountStore(false));
 
   using PasswordMap = std::map<std::string /* signon_realm */,
                                std::vector<autofill::PasswordForm>,
                                std::less<>>;
 
+  struct CompromisedCredentialsLess {
+    bool operator()(const CompromisedCredentials& lhs,
+                    const CompromisedCredentials& rhs) const {
+      // Only compare members that are part of the unique key in the database.
+      return std::tie(lhs.signon_realm, lhs.username, lhs.compromise_type) <
+             std::tie(rhs.signon_realm, rhs.username, rhs.compromise_type);
+    }
+  };
+
+  using CompromisedCredentialsStorage =
+      base::flat_set<CompromisedCredentials, CompromisedCredentialsLess>;
+
   const PasswordMap& stored_passwords() const;
+
+  const CompromisedCredentialsStorage& compromised_credentials() const {
+    return compromised_credentials_;
+  }
+
   void Clear();
 
   // Returns true if no passwords are stored in the store. Note that this is not
   // as simple as asking whether stored_passwords().empty(), because the map can
   // have entries of size 0.
-  bool IsEmpty() const;
+  bool IsEmpty() override;
 
   int fill_matching_logins_calls() const { return fill_matching_logins_calls_; }
 
@@ -69,32 +100,40 @@ class TestPasswordStore : public PasswordStore {
 
   // Unused portions of PasswordStore interface
   void ReportMetricsImpl(const std::string& sync_username,
-                         bool custom_passphrase_sync_enabled) override;
+                         bool custom_passphrase_sync_enabled,
+                         BulkCheckDone bulk_check_done) override;
   PasswordStoreChangeList RemoveLoginsByURLAndTimeImpl(
-      const base::Callback<bool(const GURL&)>& url_filter,
+      const base::RepeatingCallback<bool(const GURL&)>& url_filter,
       base::Time begin,
       base::Time end) override;
   PasswordStoreChangeList RemoveLoginsCreatedBetweenImpl(
       base::Time begin,
       base::Time end) override;
   PasswordStoreChangeList DisableAutoSignInForOriginsImpl(
-      const base::Callback<bool(const GURL&)>& origin_filter) override;
+      const base::RepeatingCallback<bool(const GURL&)>& origin_filter) override;
   bool RemoveStatisticsByOriginAndTimeImpl(
-      const base::Callback<bool(const GURL&)>& origin_filter,
+      const base::RepeatingCallback<bool(const GURL&)>& origin_filter,
       base::Time delete_begin,
       base::Time delete_end) override;
   void AddSiteStatsImpl(const InteractionsStats& stats) override;
   void RemoveSiteStatsImpl(const GURL& origin_domain) override;
   std::vector<InteractionsStats> GetAllSiteStatsImpl() override;
-  void AddCompromisedCredentialsImpl(
+  bool AddCompromisedCredentialsImpl(
       const CompromisedCredentials& compromised_credentials) override;
-  void RemoveCompromisedCredentialsImpl(
-      const GURL& url,
+  bool RemoveCompromisedCredentialsByCompromiseTypeImpl(
+      const std::string& signon_realm,
+      const base::string16& username,
+      const CompromiseType& compromise_type,
+      RemoveCompromisedCredentialsReason reason) override;
+  bool RemoveCompromisedCredentialsImpl(
+      const std::string& signon_realm,
       const base::string16& username,
       RemoveCompromisedCredentialsReason reason) override;
   std::vector<CompromisedCredentials> GetAllCompromisedCredentialsImpl()
       override;
-  void RemoveCompromisedCredentialsByUrlAndTimeImpl(
+  std::vector<CompromisedCredentials> GetMatchingCompromisedCredentialsImpl(
+      const std::string& signon_realm) override;
+  bool RemoveCompromisedCredentialsByUrlAndTimeImpl(
       const base::RepeatingCallback<bool(const GURL&)>& url_filter,
       base::Time remove_begin,
       base::Time remove_end) override;
@@ -115,7 +154,12 @@ class TestPasswordStore : public PasswordStore {
   bool DeleteAndRecreateDatabaseFile() override;
 
  private:
+  const password_manager::IsAccountStore is_account_store_;
+
   PasswordMap stored_passwords_;
+  CompromisedCredentialsStorage compromised_credentials_;
+
+  const std::unique_ptr<PasswordStoreSync::MetadataStore> metadata_store_;
 
   // Number of calls of FillMatchingLogins() method.
   int fill_matching_logins_calls_ = 0;

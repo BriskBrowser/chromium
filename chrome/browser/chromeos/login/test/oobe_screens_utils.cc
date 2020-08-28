@@ -18,8 +18,10 @@
 #include "chrome/browser/ui/webui/chromeos/login/enrollment_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/eula_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/fingerprint_setup_screen_handler.h"
+#include "chrome/browser/ui/webui/chromeos/login/marketing_opt_in_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/network_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/update_screen_handler.h"
+#include "chrome/browser/ui/webui/chromeos/login/user_creation_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/welcome_screen_handler.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/test/browser_test_utils.h"
@@ -55,12 +57,16 @@ void WaitForNetworkSelectionScreen() {
 }
 
 void TapNetworkSelectionNext() {
-  test::OobeJS().TapOnPath({"oobe-network-md", "nextButton"});
+  test::OobeJS()
+      .CreateEnabledWaiter(true /* enabled */,
+                           {"network-selection", "nextButton"})
+      ->Wait();
+  test::OobeJS().TapOnPath({"network-selection", "nextButton"});
 }
 
 void WaitForUpdateScreen() {
   WaitFor(UpdateView::kScreenId);
-  test::OobeJS().CreateVisibilityWaiter(true, {"update"})->Wait();
+  test::OobeJS().CreateVisibilityWaiter(true, {"oobe-update"})->Wait();
 }
 
 void ExitUpdateScreenNoUpdate() {
@@ -79,25 +85,18 @@ void WaitForFingerprintScreen() {
                "to show.";
   test::OobeJS().CreateVisibilityWaiter(true, {"fingerprint-setup"})->Wait();
   LOG(INFO) << "Waiting for fingerprint setup screen "
-               "to initializes.";
-  test::OobeJS()
-      .CreateVisibilityWaiter(true, {"fingerprint-setup-impl"})
-      ->Wait();
-  LOG(INFO) << "Waiting for fingerprint setup screen "
                "to show setupFingerprint.";
   test::OobeJS()
-      .CreateVisibilityWaiter(true,
-                              {"fingerprint-setup-impl", "setupFingerprint"})
+      .CreateVisibilityWaiter(true, {"fingerprint-setup", "setupFingerprint"})
       ->Wait();
 }
 
 void ExitFingerprintPinSetupScreen() {
-  test::OobeJS().ExpectVisiblePath({"fingerprint-setup-impl", "placeFinger"});
+  test::OobeJS().ExpectVisiblePath({"fingerprint-setup", "placeFinger"});
   // This might be the last step in flow. Synchronous execute gets stuck as
   // WebContents may be destroyed in the process. So it may never return.
   // So we use ExecuteAsync() here.
-  test::OobeJS().ExecuteAsync(
-      "$('fingerprint-setup-impl').$.setupFingerprintLater.click()");
+  test::OobeJS().ExecuteAsync("$('fingerprint-setup').$.setupLater.click()");
   LOG(INFO) << "OobeInteractiveUITest: Waiting for fingerprint setup screen "
                "to close.";
   WaitForExit(FingerprintSetupScreenView::kScreenId);
@@ -137,6 +136,20 @@ void WaitForEnrollmentScreen() {
   WaitFor(EnrollmentScreenView::kScreenId);
 }
 
+void WaitForUserCreationScreen() {
+  WaitFor(UserCreationView::kScreenId);
+}
+
+void TapUserCreationNext() {
+  test::OobeJS().TapOnPath({"user-creation", "nextButton"});
+}
+
+void WaitForLastScreenAndTapGetStarted() {
+  WaitFor(MarketingOptInScreenView::kScreenId);
+  test::OobeJS().TapOnPath(
+      {"marketing-opt-in", "marketing-opt-in-next-button"});
+}
+
 void WaitForEulaScreen() {
 #if BUILDFLAG(GOOGLE_CHROME_BRANDING)
   WaitFor(EulaView::kScreenId);
@@ -165,6 +178,23 @@ void ExitScreenSyncConsent() {
   screen->OnStateChanged(nullptr);
   WaitForExit(SyncConsentScreenView::kScreenId);
 #endif
+}
+
+LanguageReloadObserver::LanguageReloadObserver(WelcomeScreen* welcome_screen)
+    : welcome_screen_(welcome_screen) {
+  welcome_screen_->AddObserver(this);
+}
+
+void LanguageReloadObserver::OnLanguageListReloaded() {
+  run_loop_.Quit();
+}
+
+void LanguageReloadObserver::Wait() {
+  run_loop_.Run();
+}
+
+LanguageReloadObserver::~LanguageReloadObserver() {
+  welcome_screen_->RemoveObserver(this);
 }
 
 }  // namespace test

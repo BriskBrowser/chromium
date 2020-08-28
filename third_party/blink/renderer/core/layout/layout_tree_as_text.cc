@@ -26,6 +26,7 @@
 #include "third_party/blink/renderer/core/layout/layout_tree_as_text.h"
 
 #include "third_party/blink/renderer/core/css/css_property_value_set.h"
+#include "third_party/blink/renderer/core/css/css_value_id_mappings.h"
 #include "third_party/blink/renderer/core/display_lock/display_lock_context.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/dom/pseudo_element.h"
@@ -46,6 +47,7 @@
 #include "third_party/blink/renderer/core/layout/layout_table_cell.h"
 #include "third_party/blink/renderer/core/layout/layout_view.h"
 #include "third_party/blink/renderer/core/layout/line/inline_text_box.h"
+#include "third_party/blink/renderer/core/layout/list_marker.h"
 #include "third_party/blink/renderer/core/layout/ng/inline/ng_fragment_item.h"
 #include "third_party/blink/renderer/core/layout/ng/inline/ng_inline_cursor.h"
 #include "third_party/blink/renderer/core/layout/ng/inline/ng_text_fragment.h"
@@ -71,40 +73,7 @@ namespace blink {
 
 static void PrintBorderStyle(WTF::TextStream& ts,
                              const EBorderStyle border_style) {
-  switch (border_style) {
-    case EBorderStyle::kNone:
-      ts << "none";
-      break;
-    case EBorderStyle::kHidden:
-      ts << "hidden";
-      break;
-    case EBorderStyle::kInset:
-      ts << "inset";
-      break;
-    case EBorderStyle::kGroove:
-      ts << "groove";
-      break;
-    case EBorderStyle::kRidge:
-      ts << "ridge";
-      break;
-    case EBorderStyle::kOutset:
-      ts << "outset";
-      break;
-    case EBorderStyle::kDotted:
-      ts << "dotted";
-      break;
-    case EBorderStyle::kDashed:
-      ts << "dashed";
-      break;
-    case EBorderStyle::kSolid:
-      ts << "solid";
-      break;
-    case EBorderStyle::kDouble:
-      ts << "double";
-      break;
-  }
-
-  ts << " ";
+  ts << getValueName(PlatformEnumToCSSValueID(border_style)) << " ";
 }
 
 static String GetTagName(Node* n) {
@@ -282,7 +251,7 @@ void LayoutTreeAsText::WriteLayoutObject(WTF::TextStream& ts,
     }
   }
 
-  if (o.IsListMarker()) {
+  if (o.IsListMarkerForNormalContent()) {
     String text = ToLayoutListMarker(o).GetText();
     if (!text.IsEmpty()) {
       if (text.length() != 1) {
@@ -487,8 +456,7 @@ static void WriteTextFragment(WTF::TextStream& ts,
     const NGTextFragment fragment(paint_fragment->Style().GetWritingMode(),
                                   *physical_text_fragment);
     WriteTextFragment(ts, paint_fragment->GetLayoutObject(),
-                      PhysicalRect(paint_fragment->InlineOffsetToContainerBox(),
-                                   paint_fragment->Size()),
+                      paint_fragment->RectInContainerBlock(),
                       paint_fragment->Style(), physical_text_fragment->Text(),
                       fragment.InlineSize());
     return;
@@ -499,8 +467,8 @@ static void WriteTextFragment(WTF::TextStream& ts,
          item.Type() == NGFragmentItem::kGeneratedText);
   const LayoutUnit inline_size =
       item.IsHorizontal() ? item.Size().width : item.Size().height;
-  WriteTextFragment(ts, item.GetLayoutObject(), item.Rect(), item.Style(),
-                    item.Text(cursor.Items()), inline_size);
+  WriteTextFragment(ts, item.GetLayoutObject(), item.RectInContainerBlock(),
+                    item.Style(), item.Text(cursor.Items()), inline_size);
 }
 
 static void WritePaintProperties(WTF::TextStream& ts,
@@ -517,8 +485,7 @@ static void WritePaintProperties(WTF::TextStream& ts,
     WriteIndent(ts, indent);
     if (has_fragments)
       ts << " " << fragment_index << ":";
-    ts << " paint_offset=(" << fragment->PaintOffset().ToString()
-       << ") visual_rect=(" << fragment->VisualRect().ToString() << ")";
+    ts << " paint_offset=(" << fragment->PaintOffset().ToString() << ")";
     if (fragment->HasLocalBorderBoxProperties()) {
       // To know where they point into the paint property tree, you can dump
       // the tree using ShowAllPropertyTrees(frame_view).
@@ -610,7 +577,8 @@ void Write(WTF::TextStream& ts,
     FrameView* frame_view = ToLayoutEmbeddedContent(o).ChildFrameView();
     if (auto* local_frame_view = DynamicTo<LocalFrameView>(frame_view)) {
       if (auto* layout_view = local_frame_view->GetLayoutView()) {
-        layout_view->GetDocument().UpdateStyleAndLayout();
+        layout_view->GetDocument().UpdateStyleAndLayout(
+            DocumentUpdateReason::kTest);
         if (auto* layer = layout_view->Layer()) {
           LayoutTreeAsText::WriteLayers(ts, layer, layer, indent + 1, behavior);
         }
@@ -663,7 +631,7 @@ static void Write(WTF::TextStream& ts,
   if (layer.IsTransparent())
     ts << " transparent";
 
-  if (layer.GetLayoutObject().HasOverflowClip()) {
+  if (layer.GetLayoutObject().HasNonVisibleOverflow()) {
     PaintLayerScrollableArea* scrollable_area = layer.GetScrollableArea();
     ScrollOffset adjusted_scroll_offset =
         scrollable_area->GetScrollOffset() +
@@ -900,7 +868,8 @@ String ExternalRepresentation(LocalFrame* frame,
                               LayoutAsTextBehavior behavior,
                               const PaintLayer* marked_layer) {
   if (!(behavior & kLayoutAsTextDontUpdateLayout)) {
-    bool success = frame->View()->UpdateAllLifecyclePhasesExceptPaint();
+    bool success = frame->View()->UpdateAllLifecyclePhasesExceptPaint(
+        DocumentUpdateReason::kTest);
     DCHECK(success);
   };
 
@@ -931,8 +900,9 @@ String ExternalRepresentation(LocalFrame* frame,
 String ExternalRepresentation(Element* element, LayoutAsTextBehavior behavior) {
   // Doesn't support printing mode.
   DCHECK(!(behavior & kLayoutAsTextPrintingMode));
-  if (!(behavior & kLayoutAsTextDontUpdateLayout))
-    element->GetDocument().UpdateStyleAndLayout();
+  if (!(behavior & kLayoutAsTextDontUpdateLayout)) {
+    element->GetDocument().UpdateStyleAndLayout(DocumentUpdateReason::kTest);
+  }
 
   LayoutObject* layout_object = element->GetLayoutObject();
   if (!layout_object || !layout_object->IsBox())
@@ -958,7 +928,7 @@ static void WriteCounterValuesFromChildren(WTF::TextStream& stream,
 }
 
 String CounterValueForElement(Element* element) {
-  element->GetDocument().UpdateStyleAndLayout();
+  element->GetDocument().UpdateStyleAndLayout(DocumentUpdateReason::kTest);
   WTF::TextStream stream;
   bool is_first_counter = true;
   // The counter LayoutObjects should be children of ::marker, ::before or
@@ -975,15 +945,14 @@ String CounterValueForElement(Element* element) {
 }
 
 String MarkerTextForListItem(Element* element) {
-  element->GetDocument().UpdateStyleAndLayout();
+  element->GetDocument().UpdateStyleAndLayout(DocumentUpdateReason::kTest);
 
   LayoutObject* layout_object = element->GetLayoutObject();
-  if (layout_object) {
-    if (layout_object->IsListItem())
-      return ToLayoutListItem(layout_object)->MarkerText();
-    if (layout_object->IsLayoutNGListItem())
-      return ToLayoutNGListItem(layout_object)->MarkerTextWithoutSuffix();
-  }
+  LayoutObject* marker = ListMarker::MarkerFromListItem(layout_object);
+  if (ListMarker* list_marker = ListMarker::Get(marker))
+    return list_marker->MarkerTextWithoutSuffix(*marker);
+  if (marker && marker->IsListMarkerForNormalContent())
+    return ToLayoutListMarker(marker)->GetText();
   return String();
 }
 

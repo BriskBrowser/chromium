@@ -8,8 +8,8 @@
 
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
-#include "base/run_loop.h"
 #include "base/strings/stringprintf.h"
+#include "base/test/scoped_run_loop_timeout.h"
 #include "base/test/test_file_util.h"
 #include "base/timer/elapsed_timer.h"
 #include "components/visitedlink/browser/visitedlink_writer.h"
@@ -140,7 +140,7 @@ class VisitedLink : public testing::Test {
  protected:
   base::FilePath db_path_;
   void SetUp() override { ASSERT_TRUE(base::CreateTemporaryFile(&db_path_)); }
-  void TearDown() override { base::DeleteFile(db_path_, false); }
+  void TearDown() override { base::DeleteFile(db_path_); }
 
  private:
   content::BrowserTaskEnvironment task_environment_;
@@ -183,7 +183,7 @@ TEST_F(VisitedLink, TestAddAndQuery) {
 
 // Tests how long it takes to write and read a large database to and from disk.
 TEST_F(VisitedLink, TestBigTable) {
-  base::RunLoop::ScopedDisableRunTimeoutForTest disable_run_timeout;
+  base::test::ScopedDisableRunLoopTimeout disable_run_timeout;
   // create a big DB
   {
     TimeLogger table_initialization_timer(kMetricTableInitMs);

@@ -6,7 +6,6 @@
 
 #include <cstddef>
 
-#include "base/logging.h"
 #include "components/metrics/metrics_provider.h"
 #import "ios/public/provider/chrome/browser/mailto/mailto_handler_provider.h"
 
@@ -59,6 +58,11 @@ ChromeIdentityService* ChromeBrowserProvider::GetChromeIdentityService() {
   return nullptr;
 }
 
+ChromeTrustedVaultService*
+ChromeBrowserProvider::GetChromeTrustedVaultService() {
+  return nullptr;
+}
+
 GeolocationUpdaterProvider*
 ChromeBrowserProvider::GetGeolocationUpdaterProvider() {
   return nullptr;
@@ -71,6 +75,10 @@ std::string ChromeBrowserProvider::GetRiskData() {
 void ChromeBrowserProvider::AddSerializableData(
     web::SerializableUserDataManager* user_data_manager,
     web::WebState* web_state) {}
+
+bool ChromeBrowserProvider::MightBlockUrlDuringRestore() {
+  return false;
+}
 
 bool ChromeBrowserProvider::ShouldBlockUrlDuringRestore(
     const GURL& url,
@@ -87,7 +95,7 @@ void ChromeBrowserProvider::AttachTabHelpers(web::WebState* web_state) const {}
 void ChromeBrowserProvider::AttachBrowserAgents(Browser* browser) const {}
 
 void ChromeBrowserProvider::ScheduleDeferredStartupTasks(
-    ios::ChromeBrowserState* browser_state) const {}
+    ChromeBrowserState* browser_state) const {}
 
 VoiceSearchProvider* ChromeBrowserProvider::GetVoiceSearchProvider() const {
   return nullptr;
@@ -99,7 +107,7 @@ AppDistributionProvider* ChromeBrowserProvider::GetAppDistributionProvider()
 }
 
 id<LogoVendor> ChromeBrowserProvider::CreateLogoVendor(
-    ios::ChromeBrowserState* browser_state,
+    Browser* browser,
     web::WebState* web_state) const {
   return nil;
 }
@@ -126,6 +134,10 @@ ChromeBrowserProvider::GetBrowserURLRewriterProvider() const {
 }
 
 OverridesProvider* ChromeBrowserProvider::GetOverridesProvider() const {
+  return nullptr;
+}
+
+DiscoverFeedProvider* ChromeBrowserProvider::GetDiscoverFeedProvider() const {
   return nullptr;
 }
 

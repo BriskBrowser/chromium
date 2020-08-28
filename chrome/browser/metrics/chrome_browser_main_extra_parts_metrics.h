@@ -35,12 +35,13 @@ class ChromeBrowserMainExtraPartsMetrics : public ChromeBrowserMainExtraParts,
   void PreProfileInit() override;
   void PreBrowserStart() override;
   void PostBrowserStart() override;
+  void PreMainMessageLoopRun() override;
 
  private:
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
   // Records Mac specific metrics.
   void RecordMacMetrics();
-#endif  // defined(OS_MACOSX)
+#endif  // defined(OS_MAC)
 
   // DisplayObserver overrides.
   void OnDisplayAdded(const display::Display& new_display) override;

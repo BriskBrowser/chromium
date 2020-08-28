@@ -14,6 +14,7 @@
 #include "components/download/public/common/download_stats.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "net/traffic_annotation/network_traffic_annotation.h"
+#include "net/url_request/referrer_policy.h"
 
 namespace download {
 namespace {
@@ -266,8 +267,7 @@ void ParallelDownloadJob::CreateRequest(int64_t offset) {
         })");
   // The parallel requests only use GET method.
   std::unique_ptr<DownloadUrlParameters> download_params(
-      new DownloadUrlParameters(download_item_->GetURL(), traffic_annotation,
-                                download_item_->GetNetworkIsolationKey()));
+      new DownloadUrlParameters(download_item_->GetURL(), traffic_annotation));
   download_params->set_file_path(download_item_->GetFullPath());
   download_params->set_last_modified(download_item_->GetLastModifiedTime());
   download_params->set_etag(download_item_->GetETag());
@@ -279,7 +279,7 @@ void ParallelDownloadJob::CreateRequest(int64_t offset) {
   // Subsequent range requests have the same referrer URL as the original
   // download request.
   download_params->set_referrer(download_item_->GetReferrerUrl());
-  download_params->set_referrer_policy(net::URLRequest::NEVER_CLEAR_REFERRER);
+  download_params->set_referrer_policy(net::ReferrerPolicy::NEVER_CLEAR);
 
   // TODO(xingliu): We should not support redirect at all for parallel requests.
   // Currently the network service code path still can redirect as long as it's

@@ -17,6 +17,7 @@
 #include "base/path_service.h"
 #include "base/sequenced_task_runner.h"
 #include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "chrome/browser/browser_process.h"
@@ -264,9 +265,8 @@ void CreateConfigurationPolicyProvider(
       profile_dir.Append(kPolicy).Append(kComponentsDir);
   const base::FilePath external_data_dir =
       profile_dir.Append(kPolicy).Append(kPolicyExternalDataDir);
-  base::FilePath policy_key_dir;
-  CHECK(base::PathService::Get(chromeos::dbus_paths::DIR_USER_POLICY_KEYS,
-                               &policy_key_dir));
+  const base::FilePath policy_key_dir =
+      base::PathService::CheckedGet(chromeos::dbus_paths::DIR_USER_POLICY_KEYS);
 
   std::unique_ptr<UserCloudPolicyStoreChromeOS> store =
       std::make_unique<UserCloudPolicyStoreChromeOS>(
@@ -275,9 +275,8 @@ void CreateConfigurationPolicyProvider(
           account_id, policy_key_dir, is_active_directory);
 
   scoped_refptr<base::SequencedTaskRunner> backend_task_runner =
-      base::CreateSequencedTaskRunner(
-          {base::ThreadPool(), base::MayBlock(),
-           base::TaskPriority::BEST_EFFORT,
+      base::ThreadPool::CreateSequencedTaskRunner(
+          {base::MayBlock(), base::TaskPriority::BEST_EFFORT,
            base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN});
   std::unique_ptr<CloudExternalDataManager> external_data_manager(
       new UserCloudExternalDataManager(
@@ -308,7 +307,7 @@ void CreateConfigurationPolicyProvider(
 
     bool wildcard_match = false;
     if (connector->IsEnterpriseManaged() &&
-        chromeos::CrosSettings::Get()->IsUserWhitelisted(
+        chromeos::CrosSettings::Get()->IsUserAllowlisted(
             account_id.GetUserEmail(), &wildcard_match) &&
         wildcard_match &&
         !connector->IsNonEnterpriseUser(account_id.GetUserEmail())) {

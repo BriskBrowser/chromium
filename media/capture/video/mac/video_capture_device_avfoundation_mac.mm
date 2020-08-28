@@ -24,10 +24,6 @@
 #include "services/video_capture/public/uma/video_capture_service_event.h"
 #include "ui/gfx/geometry/size.h"
 
-// Prefer MJPEG if frame width or height is larger than this.
-static const int kMjpegWidthThreshold = 640;
-static const int kMjpegHeightThreshold = 480;
-
 namespace {
 
 enum MacBookVersions {
@@ -98,7 +94,7 @@ void MaybeWriteUma(int number_of_devices, int number_of_suspended_devices) {
   const int attempt_count_since_process_start =
       ++attempt_since_process_start_counter;
   const int retry_count =
-      media::VideoCaptureDeviceFactoryMac::GetGetDeviceDescriptorsRetryCount();
+      media::VideoCaptureDeviceFactoryMac::GetGetDevicesInfoRetryCount();
   const int device_count = number_of_devices + number_of_suspended_devices;
   UMA_HISTOGRAM_COUNTS_1M("Media.VideoCapture.MacBook.NumberOfDevices",
                           device_count);
@@ -152,6 +148,8 @@ void MaybeWriteUma(int number_of_devices, int number_of_suspended_devices) {
 // formats.
 media::VideoPixelFormat FourCCToChromiumPixelFormat(FourCharCode code) {
   switch (code) {
+    case kCVPixelFormatType_422YpCbCr8:
+      return media::PIXEL_FORMAT_UYVY;
     case kCMPixelFormat_422YpCbCr8_yuvs:
       return media::PIXEL_FORMAT_YUY2;
     case kCMVideoCodecType_JPEG_OpenDML:
@@ -348,17 +346,10 @@ void ExtractBaseAddressAndLength(char** base_address,
   _frameHeight = height;
   _frameRate = frameRate;
 
-  FourCharCode best_fourcc = kCMPixelFormat_422YpCbCr8_yuvs;
-  const bool prefer_mjpeg =
-      width > kMjpegWidthThreshold || height > kMjpegHeightThreshold;
+  FourCharCode best_fourcc = kCMPixelFormat_422YpCbCr8;
   for (AVCaptureDeviceFormat* format in [_captureDevice formats]) {
     const FourCharCode fourcc =
         CMFormatDescriptionGetMediaSubType([format formatDescription]);
-    if (prefer_mjpeg && fourcc == kCMVideoCodecType_JPEG_OpenDML) {
-      best_fourcc = fourcc;
-      break;
-    }
-
     // Compare according to Chromium preference.
     if (media::VideoCaptureFormat::ComparePixelFormatPreference(
             FourCCToChromiumPixelFormat(fourcc),

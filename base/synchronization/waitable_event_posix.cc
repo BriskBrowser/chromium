@@ -8,8 +8,8 @@
 #include <limits>
 #include <vector>
 
+#include "base/check_op.h"
 #include "base/debug/activity_tracker.h"
-#include "base/logging.h"
 #include "base/optional.h"
 #include "base/synchronization/condition_variable.h"
 #include "base/synchronization/lock.h"
@@ -246,8 +246,9 @@ cmp_fst_addr(const std::pair<WaitableEvent*, unsigned> &a,
 }
 
 // static
+// NO_THREAD_SAFETY_ANALYSIS: Complex control flow.
 size_t WaitableEvent::WaitMany(WaitableEvent** raw_waitables,
-                               size_t count) {
+                               size_t count) NO_THREAD_SAFETY_ANALYSIS {
   DCHECK(count) << "Cannot wait on no events";
   internal::ScopedBlockingCallWithBaseSyncPrimitives scoped_blocking_call(
       FROM_HERE, BlockingType::MAY_BLOCK);
@@ -337,9 +338,10 @@ size_t WaitableEvent::WaitMany(WaitableEvent** raw_waitables,
 //   was signaled with the lowest input index from the original WaitMany call.
 // -----------------------------------------------------------------------------
 // static
+// NO_THREAD_SAFETY_ANALYSIS: Complex control flow.
 size_t WaitableEvent::EnqueueMany(std::pair<WaitableEvent*, size_t>* waitables,
                                   size_t count,
-                                  Waiter* waiter) {
+                                  Waiter* waiter) NO_THREAD_SAFETY_ANALYSIS {
   size_t winner = count;
   size_t winner_index = count;
   for (size_t i = 0; i < count; ++i) {

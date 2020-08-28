@@ -20,9 +20,9 @@
 #include "base/gtest_prod_util.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
-#include "components/safe_browsing/core/common/safe_browsing.mojom.h"
+#include "components/safe_browsing/content/common/safe_browsing.mojom.h"
 #include "components/safe_browsing/core/proto/csd.pb.h"
-#include "components/security_interstitials/content/unsafe_resource.h"
+#include "components/security_interstitials/core/unsafe_resource.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/web_contents_observer.h"
 #include "mojo/public/cpp/bindings/remote.h"
@@ -198,6 +198,8 @@ class ThreatDetails : public content::WebContentsObserver {
   void AllDone();
 
   scoped_refptr<BaseUIManager> ui_manager_;
+
+  content::BrowserContext* browser_context_;
 
   const UnsafeResource resource_;
 

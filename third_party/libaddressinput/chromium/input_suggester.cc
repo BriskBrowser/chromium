@@ -8,6 +8,7 @@
 #include <set>
 #include <utility>
 
+#include "base/check_op.h"
 #include "base/logging.h"
 #include "base/macros.h"
 #include "third_party/libaddressinput/chromium/trie.h"
@@ -259,7 +260,7 @@ const std::vector<uint8_t>& InputSuggester::StringCanonicalizer::Canonicalize(
                              static_cast<int32_t>(original.length()));
   int32_t sort_key_size = 0;
   if (collator_)
-    collator_->getSortKey(icu_str, &buffer_[0], buffer_size());
+    sort_key_size = collator_->getSortKey(icu_str, &buffer_[0], buffer_size());
   DCHECK_LT(0, sort_key_size);
 
   if (sort_key_size > buffer_size()) {

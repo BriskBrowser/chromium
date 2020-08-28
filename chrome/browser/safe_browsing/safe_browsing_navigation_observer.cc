@@ -12,13 +12,12 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/safe_browsing/safe_browsing_navigation_observer_manager.h"
 #include "chrome/browser/safe_browsing/safe_browsing_service.h"
-#include "chrome/browser/ui/page_info/page_info_ui.h"
+#include "components/page_info/page_info_ui.h"
 #include "components/sessions/content/session_tab_helper.h"
 #include "content/public/browser/navigation_handle.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/web_contents.h"
-#include "content/public/common/resource_type.h"
 #include "net/base/ip_endpoint.h"
 
 using content::WebContents;
@@ -103,10 +102,7 @@ SafeBrowsingNavigationObserver* SafeBrowsingNavigationObserver::FromWebContents(
 SafeBrowsingNavigationObserver::SafeBrowsingNavigationObserver(
     content::WebContents* contents,
     const scoped_refptr<SafeBrowsingNavigationObserverManager>& manager)
-    : content::WebContentsObserver(contents),
-      manager_(manager),
-      has_user_gesture_(false),
-      last_user_gesture_timestamp_(base::Time()) {
+    : content::WebContentsObserver(contents), manager_(manager) {
   content_settings_observer_.Add(HostContentSettingsMapFactory::GetForProfile(
       Profile::FromBrowserContext(web_contents()->GetBrowserContext())));
 }
@@ -114,10 +110,7 @@ SafeBrowsingNavigationObserver::SafeBrowsingNavigationObserver(
 SafeBrowsingNavigationObserver::~SafeBrowsingNavigationObserver() {}
 
 void SafeBrowsingNavigationObserver::OnUserInteraction() {
-  last_user_gesture_timestamp_ = base::Time::Now();
-  has_user_gesture_ = true;
-  manager_->RecordUserGestureForWebContents(web_contents(),
-                                            last_user_gesture_timestamp_);
+  manager_->RecordUserGestureForWebContents(web_contents());
 }
 
 // Called when a navigation starts in the WebContents. |navigation_handle|
@@ -155,20 +148,14 @@ void SafeBrowsingNavigationObserver::DidStartNavigation(
     // NavigationEvent, and decide if it is triggered by user.
     if (!navigation_handle->IsRendererInitiated()) {
       nav_event->navigation_initiation = ReferrerChainEntry::BROWSER_INITIATED;
-    } else if (has_user_gesture_ &&
-               !SafeBrowsingNavigationObserverManager::IsUserGestureExpired(
-                   last_user_gesture_timestamp_)) {
+    } else if (manager_->HasUnexpiredUserGesture(web_contents())) {
       nav_event->navigation_initiation =
           ReferrerChainEntry::RENDERER_INITIATED_WITH_USER_GESTURE;
     } else {
       nav_event->navigation_initiation =
           ReferrerChainEntry::RENDERER_INITIATED_WITHOUT_USER_GESTURE;
     }
-    if (has_user_gesture_) {
-      manager_->OnUserGestureConsumed(web_contents(),
-                                      last_user_gesture_timestamp_);
-      has_user_gesture_ = false;
-    }
+    manager_->OnUserGestureConsumed(web_contents());
   }
 
   // All the other fields are reconstructed based on current content of
@@ -258,7 +245,7 @@ void SafeBrowsingNavigationObserver::DidFinishNavigation(
 }
 
 void SafeBrowsingNavigationObserver::DidGetUserInteraction(
-    const blink::WebInputEvent::Type type) {
+    const blink::WebInputEvent& event) {
   OnUserInteraction();
 }
 
@@ -281,6 +268,44 @@ void SafeBrowsingNavigationObserver::DidOpenRequestedURL(
       web_contents(), source_render_frame_host->GetProcess()->GetID(),
       source_render_frame_host->GetRoutingID(), url, transition, new_contents,
       renderer_initiated);
+}
+
+void SafeBrowsingNavigationObserver::DidActivatePortal(
+    content::WebContents* predecessor_web_contents,
+    base::TimeTicks activation_time) {
+  content::RenderFrameHost* predecessor_frame =
+      predecessor_web_contents->GetMainFrame();
+  content::RenderFrameHost* successor_frame = web_contents()->GetMainFrame();
+
+  // Portal activation swaps contents in a tab, so to the user it looks like a
+  // navigation, so we treat activation as navigation event, with the
+  // predecessor as the source and the successor as the "navigation."
+  std::unique_ptr<NavigationEvent> nav_event =
+      std::make_unique<NavigationEvent>();
+  nav_event->navigation_initiation =
+      predecessor_frame->HasTransientUserActivation()
+          ? ReferrerChainEntry::RENDERER_INITIATED_WITH_USER_GESTURE
+          : ReferrerChainEntry::RENDERER_INITIATED_WITHOUT_USER_GESTURE;
+  nav_event->frame_id = successor_frame->GetFrameTreeNodeId();
+  DCHECK(predecessor_frame->GetLastCommittedURL().is_valid());
+  DCHECK(successor_frame->GetLastCommittedURL().is_valid());
+  nav_event->source_url = SafeBrowsingNavigationObserverManager::ClearURLRef(
+      predecessor_frame->GetLastCommittedURL());
+  nav_event->source_main_frame_url = nav_event->source_url;
+  // TODO(mcnee): Ensure that redirects within a portal before it is activated
+  // are reflected in the referrer chain. See https://crbug.com/1096115
+  nav_event->original_request_url =
+      SafeBrowsingNavigationObserverManager::ClearURLRef(
+          successor_frame->GetLastCommittedURL());
+  nav_event->source_tab_id =
+      sessions::SessionTabHelper::IdForTab(predecessor_web_contents);
+  nav_event->target_tab_id =
+      sessions::SessionTabHelper::IdForTab(web_contents());
+  nav_event->maybe_launched_by_external_application = false;
+  nav_event->has_committed = true;
+  nav_event->last_updated = base::Time::Now();
+
+  manager_->RecordNavigationEvent(std::move(nav_event));
 }
 
 void SafeBrowsingNavigationObserver::OnContentSettingChanged(

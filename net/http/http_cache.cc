@@ -344,16 +344,17 @@ bool HttpCache::ParseResponseInfo(const char* data, int len,
   return response_info->InitFromPickle(pickle, response_truncated);
 }
 
-void HttpCache::CloseAllConnections() {
+void HttpCache::CloseAllConnections(int net_error,
+                                    const char* net_log_reason_utf8) {
   HttpNetworkSession* session = GetSession();
   if (session)
-    session->CloseAllConnections();
+    session->CloseAllConnections(net_error, net_log_reason_utf8);
 }
 
-void HttpCache::CloseIdleConnections() {
+void HttpCache::CloseIdleConnections(const char* net_log_reason_utf8) {
   HttpNetworkSession* session = GetSession();
   if (session)
-    session->CloseIdleConnections();
+    session->CloseIdleConnections(net_log_reason_utf8);
 }
 
 void HttpCache::OnExternalCacheHit(
@@ -418,7 +419,6 @@ void HttpCache::DumpMemoryStats(base::trace_event::ProcessMemoryDump* pmd,
   base::trace_event::MemoryAllocatorDump* dump = pmd->CreateAllocatorDump(name);
   size_t size = base::trace_event::EstimateMemoryUsage(active_entries_) +
                 base::trace_event::EstimateMemoryUsage(doomed_entries_) +
-                base::trace_event::EstimateMemoryUsage(playback_cache_map_) +
                 base::trace_event::EstimateMemoryUsage(pending_ops_);
   if (disk_cache_)
     size += disk_cache_->DumpMemoryStats(pmd, name);

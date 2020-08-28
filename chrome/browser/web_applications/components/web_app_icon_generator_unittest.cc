@@ -8,6 +8,7 @@
 
 #include "base/stl_util.h"
 #include "base/strings/string16.h"
+#include "base/strings/utf_string_conversions.h"
 #include "base/test/task_environment.h"
 #include "build/build_config.h"
 #include "chrome/browser/web_applications/test/web_app_icon_test_utils.h"
@@ -20,16 +21,14 @@ namespace web_app {
 
 namespace {
 
-const GURL kAppIconURL1("http://foo.com/1.png");
-const GURL kAppIconURL2("http://foo.com/2.png");
-const GURL kAppIconURL3("http://foo.com/3.png");
-
 const int kIconSizeSmallBetweenMediumAndLarge = 63;
 const int kIconSizeLargeBetweenMediumAndLarge = 96;
 
 std::set<int> TestSizesToGenerate() {
   const int kIconSizesToGenerate[] = {
-      icon_size::k32, icon_size::k48, icon_size::k128,
+      icon_size::k32,
+      icon_size::k48,
+      icon_size::k128,
   };
   return std::set<int>(kIconSizesToGenerate,
                        kIconSizesToGenerate + base::size(kIconSizesToGenerate));
@@ -37,15 +36,16 @@ std::set<int> TestSizesToGenerate() {
 
 void ValidateAllIconsWithURLsArePresent(
     const std::vector<SkBitmap>& bitmaps_to_check,
-    const std::map<int, SkBitmap>& size_map) {
+    const SizeToBitmap& size_map) {
   EXPECT_EQ(bitmaps_to_check.size(), size_map.size());
 
   // Check that every icon has a mapped icon.
-  for (const SkBitmap& bitmap : bitmaps_to_check) {
+  for (const auto& bitmap : bitmaps_to_check) {
     bool found = false;
-    if (base::Contains(size_map, bitmap.width())) {
-      const SkBitmap& mapped_icon = size_map.at(bitmap.width());
-      if (mapped_icon.width() == bitmap.width())
+    int width = bitmap.width();
+    if (base::Contains(size_map, width)) {
+      const SkBitmap& mapped_icon = size_map.at(width);
+      if (mapped_icon.width() == width)
         found = true;
     }
     EXPECT_TRUE(found);
@@ -87,7 +87,7 @@ std::vector<SkBitmap>::const_iterator FindEqualOrLargerSkBitmapVector(
 }
 
 void ValidateIconsGeneratedAndResizedCorrectly(std::vector<SkBitmap> downloaded,
-                                               std::map<int, SkBitmap> size_map,
+                                               SizeToBitmap size_map,
                                                std::set<int> sizes_to_generate,
                                                int expected_generated,
                                                int expected_resized) {
@@ -150,8 +150,12 @@ void TestIconGeneration(int icon_size,
 
   // Now run the resizing/generation and validation.
   SkColor generated_icon_color = SK_ColorTRANSPARENT;
+  bool is_generated_icon = true;
   auto size_map = ResizeIconsAndGenerateMissing(
-      downloaded, TestSizesToGenerate(), GURL(), &generated_icon_color);
+      downloaded, TestSizesToGenerate(),
+      GenerateIconLetterFromAppName(base::UTF8ToUTF16("Test")),
+      &generated_icon_color, &is_generated_icon);
+  EXPECT_FALSE(is_generated_icon);
 
   ValidateIconsGeneratedAndResizedCorrectly(
       downloaded, size_map, TestSizesToGenerate(), expected_generated,
@@ -187,8 +191,7 @@ TEST_F(WebAppIconGeneratorTest, ConstrainBitmapsToSizes) {
     bitmaps.push_back(CreateSquareIcon(32, SK_ColorGREEN));
     bitmaps.push_back(CreateSquareIcon(144, SK_ColorYELLOW));
 
-    std::map<int, SkBitmap> results =
-        ConstrainBitmapsToSizes(bitmaps, desired_sizes);
+    SizeToBitmap results = ConstrainBitmapsToSizes(bitmaps, desired_sizes);
 
     EXPECT_EQ(6u, results.size());
     ValidateBitmapSizeAndColor(results[16], 16, SK_ColorRED);
@@ -205,8 +208,7 @@ TEST_F(WebAppIconGeneratorTest, ConstrainBitmapsToSizes) {
     bitmaps.push_back(CreateSquareIcon(33, SK_ColorBLUE));
     bitmaps.push_back(CreateSquareIcon(17, SK_ColorYELLOW));
 
-    std::map<int, SkBitmap> results =
-        ConstrainBitmapsToSizes(bitmaps, desired_sizes);
+    SizeToBitmap results = ConstrainBitmapsToSizes(bitmaps, desired_sizes);
 
     EXPECT_EQ(6u, results.size());
     ValidateBitmapSizeAndColor(results[16], 16, SK_ColorYELLOW);
@@ -235,9 +237,13 @@ TEST_F(WebAppIconGeneratorTest, LinkedAppIconsAreNotChanged) {
 
   // Now run the resizing and generation into a new web icons info.
   SkColor generated_icon_color = SK_ColorTRANSPARENT;
-  std::map<int, SkBitmap> size_map = ResizeIconsAndGenerateMissing(
-      downloaded, sizes, GURL(), &generated_icon_color);
+  bool is_generated_icon = true;
+  SizeToBitmap size_map = ResizeIconsAndGenerateMissing(
+      downloaded, sizes,
+      GenerateIconLetterFromAppName(base::UTF8ToUTF16("Test")),
+      &generated_icon_color, &is_generated_icon);
   EXPECT_EQ(sizes.size(), size_map.size());
+  EXPECT_FALSE(is_generated_icon);
 
   // Now check that the linked app icons are matching.
   ValidateAllIconsWithURLsArePresent(icons, size_map);
@@ -257,8 +263,12 @@ TEST_F(WebAppIconGeneratorTest, IconsResizedFromOddSizes) {
 
   // Now run the resizing and generation.
   SkColor generated_icon_color = SK_ColorTRANSPARENT;
-  std::map<int, SkBitmap> size_map = ResizeIconsAndGenerateMissing(
-      downloaded, TestSizesToGenerate(), GURL(), &generated_icon_color);
+  bool is_generated_icon = true;
+  SizeToBitmap size_map = ResizeIconsAndGenerateMissing(
+      downloaded, TestSizesToGenerate(),
+      GenerateIconLetterFromAppName(base::UTF8ToUTF16("Test")),
+      &generated_icon_color, &is_generated_icon);
+  EXPECT_FALSE(is_generated_icon);
 
   // No icons should be generated. The LARGE and MEDIUM sizes should be resized.
   ValidateIconsGeneratedAndResizedCorrectly(downloaded, size_map,
@@ -275,8 +285,12 @@ TEST_F(WebAppIconGeneratorTest, IconsResizedFromLarger) {
 
   // Now run the resizing and generation.
   SkColor generated_icon_color = SK_ColorTRANSPARENT;
-  std::map<int, SkBitmap> size_map = ResizeIconsAndGenerateMissing(
-      downloaded, TestSizesToGenerate(), GURL(), &generated_icon_color);
+  bool is_generated_icon = true;
+  SizeToBitmap size_map = ResizeIconsAndGenerateMissing(
+      downloaded, TestSizesToGenerate(),
+      GenerateIconLetterFromAppName(base::UTF8ToUTF16("Test")),
+      &generated_icon_color, &is_generated_icon);
+  EXPECT_FALSE(is_generated_icon);
 
   // Expect icon for MEDIUM and LARGE to be resized from the gigantor icon
   // as it was not downloaded.
@@ -290,8 +304,12 @@ TEST_F(WebAppIconGeneratorTest, AllIconsGeneratedWhenNotDownloaded) {
 
   // Now run the resizing and generation.
   SkColor generated_icon_color = SK_ColorTRANSPARENT;
-  std::map<int, SkBitmap> size_map = ResizeIconsAndGenerateMissing(
-      downloaded, TestSizesToGenerate(), GURL(), &generated_icon_color);
+  bool is_generated_icon = false;
+  SizeToBitmap size_map = ResizeIconsAndGenerateMissing(
+      downloaded, TestSizesToGenerate(),
+      GenerateIconLetterFromAppName(base::UTF8ToUTF16("Test")),
+      &generated_icon_color, &is_generated_icon);
+  EXPECT_TRUE(is_generated_icon);
 
   // Expect all icons to be generated.
   ValidateIconsGeneratedAndResizedCorrectly(downloaded, size_map,
@@ -307,8 +325,12 @@ TEST_F(WebAppIconGeneratorTest, IconResizedFromLargerAndSmaller) {
 
   // Now run the resizing and generation.
   SkColor generated_icon_color = SK_ColorTRANSPARENT;
-  std::map<int, SkBitmap> size_map = ResizeIconsAndGenerateMissing(
-      downloaded, TestSizesToGenerate(), GURL(), &generated_icon_color);
+  bool is_generated_icon = true;
+  SizeToBitmap size_map = ResizeIconsAndGenerateMissing(
+      downloaded, TestSizesToGenerate(),
+      GenerateIconLetterFromAppName(base::UTF8ToUTF16("Test")),
+      &generated_icon_color, &is_generated_icon);
+  EXPECT_FALSE(is_generated_icon);
 
   // Expect no icons to be generated, but the LARGE and SMALL icons to be
   // resized from the MEDIUM icon.
@@ -343,6 +365,17 @@ TEST_F(WebAppIconGeneratorTest, GenerateIconLetterFromUrl) {
             GenerateIconLetterFromUrl(GURL("http://xn--mgbh0fb.example/")));
 }
 
+TEST_F(WebAppIconGeneratorTest, GenerateIconLetterFromAppName) {
+  // ASCII Encoding
+  EXPECT_EQ('T',
+            GenerateIconLetterFromAppName(base::ASCIIToUTF16("test app name")));
+  EXPECT_EQ('T',
+            GenerateIconLetterFromAppName(base::ASCIIToUTF16("Test app name")));
+  // UTF16 encoding:
+  const base::char16 russian_name[] = {0x0438, 0x043c, 0x044f, 0x0};
+  EXPECT_EQ(0x0418, GenerateIconLetterFromAppName(russian_name));
+}
+
 TEST_F(WebAppIconGeneratorTest, GenerateIcons) {
   std::set<int> sizes = SizesToGenerate();
   const SkColor bg_color = SK_ColorCYAN;
@@ -353,7 +386,7 @@ TEST_F(WebAppIconGeneratorTest, GenerateIcons) {
       GenerateIcons("+", bg_color);
   EXPECT_EQ(sizes.size(), icon_bitmaps.size());
 
-  for (const std::pair<SquareSizePx, SkBitmap>& icon : icon_bitmaps) {
+  for (const std::pair<const SquareSizePx, SkBitmap>& icon : icon_bitmaps) {
     SquareSizePx size = icon.first;
     const SkBitmap& bitmap = icon.second;
     EXPECT_EQ(size, bitmap.width());

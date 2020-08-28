@@ -14,9 +14,10 @@
 #include "base/bind_helpers.h"
 #include "base/callback.h"
 #include "base/callback_helpers.h"
+#include "base/check.h"
 #include "base/files/file_path.h"
-#include "base/logging.h"
 #include "base/macros.h"
+#include "base/notreached.h"
 #include "base/process/launch.h"
 #include "base/process/process.h"
 #include "base/run_loop.h"
@@ -45,6 +46,7 @@
 #include "components/policy/policy_constants.h"
 #include "components/prefs/pref_service.h"
 #include "components/safe_browsing/core/common/safe_browsing_prefs.h"
+#include "content/public/test/browser_test.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -136,8 +138,8 @@ class ReporterRunnerPolicyTest
       policy::PolicyMap policies;
       policies.Set(policy::key::kChromeCleanupEnabled,
                    policy::POLICY_LEVEL_MANDATORY, policy::POLICY_SCOPE_USER,
-                   policy::POLICY_SOURCE_PLATFORM,
-                   std::make_unique<base::Value>(is_enabled), nullptr);
+                   policy::POLICY_SOURCE_PLATFORM, base::Value(is_enabled),
+                   nullptr);
       policy_provider_.UpdateChromePolicy(policies);
     }
   }
@@ -216,8 +218,8 @@ class ReporterRunnerTest
         policy::PolicyMap policies;
         policies.Set(policy::key::kChromeCleanupReportingEnabled,
                      policy::POLICY_LEVEL_MANDATORY, policy::POLICY_SCOPE_USER,
-                     policy::POLICY_SOURCE_PLATFORM,
-                     std::make_unique<base::Value>(is_enabled), nullptr);
+                     policy::POLICY_SOURCE_PLATFORM, base::Value(is_enabled),
+                     nullptr);
         policy_provider_.UpdateChromePolicy(policies);
         EXPECT_CALL(mock_chrome_cleaner_controller_, logs_enabled(_))
             .WillRepeatedly(Return(is_enabled));
@@ -374,7 +376,7 @@ class ReporterRunnerTest
     Browser* browser = chrome::FindLastActive();
     DCHECK(browser);
     Profile* profile = browser->profile();
-    SetExtendedReportingPref(profile->GetPrefs(), true);
+    SetExtendedReportingPrefForTests(profile->GetPrefs(), true);
   }
 
   // Expects that the reporter has been launched |expected_launch_count| times,
@@ -829,13 +831,13 @@ IN_PROC_BROWSER_TEST_P(ReporterRunnerTest, ReporterLogging_MultipleLaunches) {
     first_launch_callback_ = base::BindOnce(
         &ReporterRunnerTest::
             FutureExpectNoReporterLoggingWithLastTimeSentReportSet,
-        base::Unretained(this), base::Passed(&get_first_invocation),
+        base::Unretained(this), std::move(get_first_invocation),
         last_time_sent_logs);
   } else {
     bool expect_logging = ExpectLogging(true);
     first_launch_callback_ = base::BindOnce(
         &ReporterRunnerTest::FutureExpectReporterLoggingHappenedInTheLastHour,
-        base::Unretained(this), base::Passed(&get_first_invocation),
+        base::Unretained(this), std::move(get_first_invocation),
         expect_logging);
   }
 

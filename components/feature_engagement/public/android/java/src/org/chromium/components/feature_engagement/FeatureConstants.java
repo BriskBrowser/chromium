@@ -21,12 +21,14 @@ import java.lang.annotation.RetentionPolicy;
         FeatureConstants.CHROME_HOME_EXPAND_FEATURE,
         FeatureConstants.CHROME_HOME_PULL_TO_REFRESH_FEATURE,
         FeatureConstants.DATA_SAVER_PREVIEW_FEATURE, FeatureConstants.DATA_SAVER_DETAIL_FEATURE,
-        FeatureConstants.PREVIEWS_OMNIBOX_UI_FEATURE,
+        FeatureConstants.EPHEMERAL_TAB_FEATURE, FeatureConstants.PREVIEWS_OMNIBOX_UI_FEATURE,
         FeatureConstants.TRANSLATE_MENU_BUTTON_FEATURE,
+        FeatureConstants.CONTEXTUAL_SEARCH_TRANSLATION_ENABLE_FEATURE,
         FeatureConstants.CONTEXTUAL_SEARCH_WEB_SEARCH_FEATURE,
         FeatureConstants.CONTEXTUAL_SEARCH_PROMOTE_TAP_FEATURE,
         FeatureConstants.CONTEXTUAL_SEARCH_PROMOTE_PANEL_OPEN_FEATURE,
         FeatureConstants.CONTEXTUAL_SEARCH_OPT_IN_FEATURE,
+        FeatureConstants.CONTEXTUAL_SEARCH_TAPPED_BUT_SHOULD_LONGPRESS_FEATURE,
         FeatureConstants.KEYBOARD_ACCESSORY_ADDRESS_FILL_FEATURE,
         FeatureConstants.KEYBOARD_ACCESSORY_PASSWORD_FILLING_FEATURE,
         FeatureConstants.KEYBOARD_ACCESSORY_PAYMENT_FILLING_FEATURE,
@@ -38,7 +40,11 @@ import java.lang.annotation.RetentionPolicy;
         FeatureConstants.TAB_GROUPS_YOUR_TABS_ARE_TOGETHER_FEATURE,
         FeatureConstants.FEED_CARD_MENU_FEATURE, FeatureConstants.IDENTITY_DISC_FEATURE,
         FeatureConstants.TAB_GROUPS_DRAG_AND_DROP_FEATURE,
-        FeatureConstants.QUIET_NOTIFICATION_PROMPTS_FEATURE})
+        FeatureConstants.QUIET_NOTIFICATION_PROMPTS_FEATURE,
+        FeatureConstants.HOMEPAGE_PROMO_CARD_FEATURE, FeatureConstants.FEED_HEADER_MENU_FEATURE,
+        FeatureConstants.CHROME_REENGAGEMENT_NOTIFICATION_1_FEATURE,
+        FeatureConstants.CHROME_REENGAGEMENT_NOTIFICATION_2_FEATURE,
+        FeatureConstants.CHROME_REENGAGEMENT_NOTIFICATION_3_FEATURE})
 @Retention(RetentionPolicy.SOURCE)
 public @interface FeatureConstants {
     String DOWNLOAD_PAGE_FEATURE = "IPH_DownloadPage";
@@ -52,12 +58,19 @@ public @interface FeatureConstants {
     String DATA_SAVER_PREVIEW_FEATURE = "IPH_DataSaverPreview";
     String DATA_SAVER_DETAIL_FEATURE = "IPH_DataSaverDetail";
     String DATA_SAVER_MILESTONE_PROMO_FEATURE = "IPH_DataSaverMilestonePromo";
+    String EPHEMERAL_TAB_FEATURE = "IPH_EphemeralTab";
     String KEYBOARD_ACCESSORY_ADDRESS_FILL_FEATURE = "IPH_KeyboardAccessoryAddressFilling";
     String KEYBOARD_ACCESSORY_PASSWORD_FILLING_FEATURE = "IPH_KeyboardAccessoryPasswordFilling";
     String KEYBOARD_ACCESSORY_PAYMENT_FILLING_FEATURE = "IPH_KeyboardAccessoryPaymentFilling";
     String PREVIEWS_OMNIBOX_UI_FEATURE = "IPH_PreviewsOmniboxUI";
     String TRANSLATE_MENU_BUTTON_FEATURE = "IPH_TranslateMenuButton";
     String EXPLORE_SITES_TILE_FEATURE = "IPH_ExploreSitesTile";
+
+    /**
+     * An IPH feature that encourages users to get better translations by enabling access to page
+     * content.
+     */
+    String CONTEXTUAL_SEARCH_TRANSLATION_ENABLE_FEATURE = "IPH_ContextualSearchTranslationEnable";
 
     /**
      * An IPH feature that encourages users who search a query from a web page in a new tab, to use
@@ -79,6 +92,12 @@ public @interface FeatureConstants {
      * An IPH feature for encouraging users to opt-in for Contextual Search.
      */
     String CONTEXTUAL_SEARCH_OPT_IN_FEATURE = "IPH_ContextualSearchOptIn";
+
+    /**
+     * An IPH feature educating users that tap to use longpress instead.
+     */
+    String CONTEXTUAL_SEARCH_TAPPED_BUT_SHOULD_LONGPRESS_FEATURE =
+            "IPH_ContextualSearchTappedButShouldLongpress";
 
     /**
      * An IPH feature indicating to users that there are settings for downloads and they are
@@ -134,4 +153,30 @@ public @interface FeatureConstants {
      * the permission prompt (for notifications).
      */
     String QUIET_NOTIFICATION_PROMPTS_FEATURE = "IPH_QuietNotificationPrompts";
+
+    /**
+     * An IPH feature showing up a promo card on new tab page to promote users setting Chrome's new
+     * tab page as their homepage.
+     */
+    String HOMEPAGE_PROMO_CARD_FEATURE = "IPH_HomepagePromoCard";
+
+    /**
+     * An IPH feature to show on the feed header menu button of the FeedNewTabPage.
+     */
+    String FEED_HEADER_MENU_FEATURE = "IPH_FeedHeaderMenu";
+
+    /**
+     * An IPH feature to show the first re-engagement notification.
+     */
+    String CHROME_REENGAGEMENT_NOTIFICATION_1_FEATURE = "IPH_ChromeReengagementNotification1";
+
+    /**
+     * An IPH feature to show the second re-engagement notification.
+     */
+    String CHROME_REENGAGEMENT_NOTIFICATION_2_FEATURE = "IPH_ChromeReengagementNotification2";
+
+    /**
+     * An IPH feature to show the third re-engagement notification.
+     */
+    String CHROME_REENGAGEMENT_NOTIFICATION_3_FEATURE = "IPH_ChromeReengagementNotification3";
 }

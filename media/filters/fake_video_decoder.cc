@@ -47,8 +47,20 @@ void FakeVideoDecoder::EnableEncryptedConfigSupport() {
   supports_encrypted_config_ = true;
 }
 
+void FakeVideoDecoder::SetIsPlatformDecoder(bool value) {
+  is_platform_decoder_ = value;
+}
+
 base::WeakPtr<FakeVideoDecoder> FakeVideoDecoder::GetWeakPtr() {
   return weak_factory_.GetWeakPtr();
+}
+
+bool FakeVideoDecoder::SupportsDecryption() const {
+  return supports_encrypted_config_;
+}
+
+bool FakeVideoDecoder::IsPlatformDecoder() const {
+  return is_platform_decoder_;
 }
 
 std::string FakeVideoDecoder::GetDisplayName() const {
@@ -83,18 +95,18 @@ void FakeVideoDecoder::Initialize(const VideoDecoderConfig& config,
   if (config.is_encrypted() && (!supports_encrypted_config_ || !cdm_context)) {
     DVLOG(1) << "Encrypted config not supported.";
     state_ = STATE_NORMAL;
-    init_cb_.RunOrHold(false);
+    init_cb_.RunOrHold(StatusCode::kEncryptedContentUnsupported);
     return;
   }
 
   if (fail_to_initialize_) {
     DVLOG(1) << decoder_name_ << ": Initialization failed.";
     state_ = STATE_ERROR;
-    init_cb_.RunOrHold(false);
+    init_cb_.RunOrHold(StatusCode::kDecoderInitializeNeverCompleted);
   } else {
     DVLOG(1) << decoder_name_ << ": Initialization succeeded.";
     state_ = STATE_NORMAL;
-    init_cb_.RunOrHold(true);
+    init_cb_.RunOrHold(OkStatus());
   }
 }
 
@@ -122,12 +134,16 @@ void FakeVideoDecoder::Decode(scoped_refptr<DecoderBuffer> buffer,
     state_ = STATE_END_OF_STREAM;
   } else {
     DCHECK(VerifyFakeVideoBufferForTest(*buffer, current_config_));
-    scoped_refptr<VideoFrame> video_frame = VideoFrame::CreateColorFrame(
-        current_config_.coded_size(), 0, 0, 0, buffer->timestamp());
-    decoded_frames_.push_back(video_frame);
+    decoded_frames_.push_back(MakeVideoFrame(*buffer));
   }
 
   RunOrHoldDecode(std::move(wrapped_decode_cb));
+}
+
+scoped_refptr<VideoFrame> FakeVideoDecoder::MakeVideoFrame(
+    const DecoderBuffer& buffer) {
+  return VideoFrame::CreateColorFrame(current_config_.coded_size(), 0, 0, 0,
+                                      buffer.timestamp());
 }
 
 void FakeVideoDecoder::Reset(base::OnceClosure closure) {
@@ -222,7 +238,8 @@ void FakeVideoDecoder::OnFrameDecoded(int buffer_size,
 
   if (status == DecodeStatus::OK) {
     total_bytes_decoded_ += buffer_size;
-    bytes_decoded_cb_.Run(buffer_size);
+    if (bytes_decoded_cb_)
+      bytes_decoded_cb_.Run(buffer_size);
   }
   std::move(decode_cb).Run(status);
 }

@@ -8,12 +8,14 @@
 
 #include "base/bind.h"
 #include "base/logging.h"
+#include "base/threading/thread_restrictions.h"
 #include "base/trace_event/memory_dump_manager.h"
 #include "base/trace_event/process_memory_dump.h"
 #include "gpu/ipc/common/gpu_memory_buffer_impl.h"
 #include "gpu/ipc/common/gpu_memory_buffer_impl_shared_memory.h"
 #include "gpu/ipc/common/gpu_memory_buffer_support.h"
 #include "services/viz/privileged/mojom/gl/gpu_service.mojom.h"
+#include "ui/base/ui_base_features.h"
 #include "ui/gfx/buffer_format_util.h"
 #include "ui/gfx/buffer_usage_util.h"
 
@@ -44,9 +46,16 @@ HostGpuMemoryBufferManager::HostGpuMemoryBufferManager(
     : gpu_service_provider_(gpu_service_provider),
       client_id_(client_id),
       gpu_memory_buffer_support_(std::move(gpu_memory_buffer_support)),
-      native_configurations_(gpu::GetNativeGpuMemoryBufferConfigurations(
-          gpu_memory_buffer_support_.get())),
       task_runner_(std::move(task_runner)) {
+  bool should_get_native_configs = true;
+#if defined(USE_X11)
+  should_get_native_configs = features::IsUsingOzonePlatform();
+#endif
+  if (should_get_native_configs) {
+    native_configurations_ = gpu::GetNativeGpuMemoryBufferConfigurations(
+        gpu_memory_buffer_support_.get());
+    native_configurations_initialized_.Signal();
+  }
   base::trace_event::MemoryDumpManager::GetInstance()->RegisterDumpProvider(
       this, "HostGpuMemoryBufferManager", task_runner_);
 }
@@ -161,8 +170,12 @@ bool HostGpuMemoryBufferManager::IsNativeGpuMemoryBufferConfiguration(
     gfx::BufferFormat format,
     gfx::BufferUsage usage) const {
   DCHECK(task_runner_->BelongsToCurrentThread());
-  return native_configurations_.find(std::make_pair(format, usage)) !=
-         native_configurations_.end();
+  {
+    base::ScopedAllowBaseSyncPrimitivesOutsideBlockingScope allow_wait;
+    native_configurations_initialized_.Wait();
+  }
+  return native_configurations_.find(gfx::BufferUsageAndFormat(
+             usage, format)) != native_configurations_.end();
 }
 
 std::unique_ptr<gfx::GpuMemoryBuffer>
@@ -230,6 +243,19 @@ bool HostGpuMemoryBufferManager::OnMemoryDump(
   return true;
 }
 
+void HostGpuMemoryBufferManager::SetNativeConfigurations(
+    gpu::GpuMemoryBufferConfigurationSet native_configurations) {
+  // Must not be done on the task runner thread to avoid deadlock.
+  DCHECK(!task_runner_->BelongsToCurrentThread());
+  if (native_configurations_initialized_.IsSignaled()) {
+    // The configurations are set on GPU initialization and should not change.
+    DCHECK(native_configurations_ == native_configurations);
+  } else {
+    native_configurations_ = native_configurations;
+    native_configurations_initialized_.Signal();
+  }
+}
+
 mojom::GpuService* HostGpuMemoryBufferManager::GetGpuService() {
   DCHECK(task_runner_->BelongsToCurrentThread());
 
@@ -262,7 +288,8 @@ void HostGpuMemoryBufferManager::OnConnectionError() {
                    << ", size = " << buffer.size.ToString()
                    << ", format = " << gfx::BufferFormatToString(buffer.format)
                    << ", usage = " << gfx::BufferUsageToString(buffer.usage)
-                   << ", surface_handle = " << buffer.surface_handle
+                   << ", surface_handle = "
+                   << buffer.surface_handle
                    << " due to connection error";
       AllocateGpuMemoryBuffer(
           buffer_pair.first, client_pair.first, buffer.size, buffer.format,

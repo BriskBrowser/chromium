@@ -35,6 +35,7 @@
 #include "third_party/blink/renderer/platform/heap/handle.h"
 #include "third_party/blink/renderer/platform/weborigin/kurl.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
+#include "third_party/blink/renderer/platform/wtf/casting.h"
 #include "third_party/skia/include/core/SkRefCnt.h"
 
 namespace blink {
@@ -117,17 +118,7 @@ class CORE_EXPORT SVGImage final : public Image {
   // object size is non-empty.)
   bool HasIntrinsicDimensions() const;
 
-  sk_sp<PaintRecord> PaintRecordForContainer(const KURL&,
-                                             const IntSize& container_size,
-                                             const IntRect& draw_src_rect,
-                                             const IntRect& draw_dst_rect,
-                                             bool flip_y) override;
-
   PaintImage PaintImageForCurrentFrame() override;
-
-  DarkModeClassification CheckTypeSpecificConditionsForDarkMode(
-      const FloatRect& dest_rect,
-      DarkModeImageClassifier* classifier) override;
 
  protected:
   // Whether or not size is available yet.
@@ -182,8 +173,9 @@ class CORE_EXPORT SVGImage final : public Image {
                                const KURL&);
   void PopulatePaintRecordForCurrentFrameForContainer(
       PaintImageBuilder&,
-      const KURL&,
-      const IntSize& container_size);
+      const IntSize& container_size,
+      float zoom,
+      const KURL&);
 
   // Paints the current frame. Returns new PaintRecord.
   sk_sp<PaintRecord> PaintRecordForCurrentFrame(const KURL&);
@@ -247,9 +239,13 @@ class CORE_EXPORT SVGImage final : public Image {
   FRIEND_TEST_ALL_PREFIXES(SVGImageTest, LayoutShiftTrackerDisabled);
   FRIEND_TEST_ALL_PREFIXES(SVGImageTest, SetSizeOnVisualViewport);
   FRIEND_TEST_ALL_PREFIXES(SVGImageTest, IsSizeAvailable);
+  FRIEND_TEST_ALL_PREFIXES(SVGImageTest, DisablesSMILEvents);
 };
 
-DEFINE_IMAGE_TYPE_CASTS(SVGImage);
+template <>
+struct DowncastTraits<SVGImage> {
+  static bool AllowFrom(const Image& image) { return image.IsSVGImage(); }
+};
 
 class ImageObserverDisabler {
   STACK_ALLOCATED();

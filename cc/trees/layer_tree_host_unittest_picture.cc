@@ -10,7 +10,10 @@
 #include "cc/test/fake_picture_layer.h"
 #include "cc/test/fake_picture_layer_impl.h"
 #include "cc/test/layer_tree_test.h"
+#include "cc/test/property_tree_test_utils.h"
 #include "cc/trees/layer_tree_impl.h"
+#include "components/viz/test/test_context_provider.h"
+#include "components/viz/test/test_gles2_interface.h"
 
 namespace cc {
 namespace {
@@ -147,8 +150,11 @@ MULTI_THREAD_TEST_F(LayerTreeHostPictureTestTwinLayer);
 
 class LayerTreeHostPictureTestResizeViewportWithGpuRaster
     : public LayerTreeHostPictureTest {
-  void InitializeSettings(LayerTreeSettings* settings) override {
-    settings->gpu_rasterization_forced = true;
+  void SetUpUnboundContextProviders(
+      viz::TestContextProvider* context_provider,
+      viz::TestContextProvider* worker_provider) override {
+    context_provider->UnboundTestContextGL()->set_gpu_rasterization(true);
+    worker_provider->UnboundTestContextGL()->set_gpu_rasterization(true);
   }
 
   void SetupTree() override {
@@ -567,26 +573,32 @@ class LayerTreeHostPictureTestRSLLMembershipWithScale
 
 class LayerTreeHostPictureTestForceRecalculateScales
     : public LayerTreeHostPictureTest {
+ public:
+  LayerTreeHostPictureTestForceRecalculateScales() { SetUseLayerLists(); }
+ private:
   void SetupTree() override {
     gfx::Size size(100, 100);
-    scoped_refptr<Layer> root = Layer::Create();
-    root->SetBounds(size);
+    SetInitialRootBounds(size);
+    LayerTreeTest::SetupTree();
+    Layer* root = layer_tree_host()->root_layer();
+
     top_layer_ = Layer::Create();
     top_layer_->SetBounds(size);
+    CopyProperties(root, top_layer_.get());
+    // This transform node will be scaled up later.
+    CreateTransformNode(top_layer_.get());
     root->AddChild(top_layer_);
 
     will_change_layer_ = FakePictureLayer::Create(&client_);
-    will_change_layer_->SetHasWillChangeTransformHint(true);
     will_change_layer_->SetBounds(size);
-    top_layer_->AddChild(will_change_layer_);
+    CopyProperties(top_layer_.get(), will_change_layer_.get());
+    CreateTransformNode(will_change_layer_.get()).will_change_transform = true;
+    root->AddChild(will_change_layer_);
 
     normal_layer_ = FakePictureLayer::Create(&client_);
     normal_layer_->SetBounds(size);
-    top_layer_->AddChild(normal_layer_);
-
-    layer_tree_host()->SetRootLayer(root);
-    layer_tree_host()->SetViewportRectAndScale(gfx::Rect(size), 1.f,
-                                               viz::LocalSurfaceIdAllocation());
+    CopyProperties(top_layer_.get(), normal_layer_.get());
+    root->AddChild(normal_layer_);
 
     client_.set_fill_with_nonsolid_color(true);
     client_.set_bounds(size);
@@ -653,13 +665,14 @@ class LayerTreeHostPictureTestForceRecalculateScales
   void ScaleUp() {
     gfx::Transform transform;
     transform.Scale(2, 2);
-    top_layer_->SetTransform(transform);
+    SetTransform(top_layer_.get(), transform);
+    layer_tree_host()->SetNeedsCommit();
   }
 
   void ScaleUpAndRecalculateScales() {
     gfx::Transform transform;
     transform.Scale(4, 4);
-    top_layer_->SetTransform(transform);
+    SetTransform(top_layer_.get(), transform);
     layer_tree_host()->SetNeedsRecalculateRasterScales();
   }
 

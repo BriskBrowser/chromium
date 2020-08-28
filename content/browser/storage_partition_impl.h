@@ -7,9 +7,12 @@
 
 #include <stdint.h>
 
+#include <map>
 #include <memory>
+#include <string>
 
 #include "base/compiler_specific.h"
+#include "base/containers/flat_set.h"
 #include "base/files/file_path.h"
 #include "base/gtest_prod_util.h"
 #include "base/macros.h"
@@ -18,22 +21,26 @@
 #include "base/process/process_handle.h"
 #include "build/build_config.h"
 #include "components/services/storage/public/mojom/indexed_db_control.mojom.h"
+#include "components/services/storage/public/mojom/partition.mojom.h"
+#include "components/services/storage/public/mojom/storage_service.mojom.h"
 #include "content/browser/appcache/chrome_appcache_service.h"
 #include "content/browser/background_sync/background_sync_context_impl.h"
 #include "content/browser/bluetooth/bluetooth_allowed_devices_map.h"
 #include "content/browser/broadcast_channel/broadcast_channel_provider.h"
 #include "content/browser/cache_storage/cache_storage_context_impl.h"
+#include "content/browser/child_process_security_policy_impl.h"
 #include "content/browser/content_index/content_index_context_impl.h"
 #include "content/browser/devtools/devtools_background_services_context_impl.h"
 #include "content/browser/dom_storage/dom_storage_context_wrapper.h"
-#include "content/browser/idle/idle_manager.h"
-#include "content/browser/indexed_db/indexed_db_context_impl.h"
+#include "content/browser/font_access/font_access_manager_impl.h"
+#include "content/browser/indexed_db/indexed_db_control_wrapper.h"
 #include "content/browser/locks/lock_manager.h"
 #include "content/browser/notifications/platform_notification_context_impl.h"
 #include "content/browser/payments/payment_app_context_impl.h"
 #include "content/browser/push_messaging/push_messaging_context.h"
 #include "content/browser/service_worker/service_worker_context_wrapper.h"
 #include "content/browser/url_loader_factory_getter.h"
+#include "content/browser/worker_host/dedicated_worker_service_impl.h"
 #include "content/browser/worker_host/shared_worker_service_impl.h"
 #include "content/common/content_export.h"
 #include "content/public/browser/storage_partition.h"
@@ -47,7 +54,7 @@
 #include "services/network/public/mojom/network_context.mojom.h"
 #include "services/network/public/mojom/network_service.mojom.h"
 #include "storage/browser/quota/special_storage_policy.h"
-#include "third_party/blink/public/mojom/dom_storage/storage_partition_service.mojom.h"
+#include "third_party/blink/public/mojom/dom_storage/dom_storage.mojom.h"
 
 #if !defined(OS_ANDROID)
 #include "content/browser/host_zoom_level_context.h"
@@ -60,16 +67,20 @@ class ProtoDatabaseProvider;
 namespace content {
 
 class BackgroundFetchContext;
+class ConversionManagerImpl;
 class CookieStoreContext;
 class BlobRegistryWrapper;
+class IndexedDBContextImpl;
 class PrefetchURLLoaderService;
 class GeneratedCodeCacheContext;
 class NativeFileSystemEntryFactory;
 class NativeFileSystemManagerImpl;
+class NativeIOContext;
+class QuotaContext;
 
 class CONTENT_EXPORT StoragePartitionImpl
     : public StoragePartition,
-      public blink::mojom::StoragePartitionService,
+      public blink::mojom::DomStorage,
       public network::mojom::NetworkContextClient {
  public:
   // It is guaranteed that storage partitions are destructed before the
@@ -77,9 +88,10 @@ class CONTENT_EXPORT StoragePartitionImpl
   // (e.g. resource context).
   ~StoragePartitionImpl() override;
 
-  // Quota managed data uses a different bitmask for types than
-  // StoragePartition uses. This method generates that mask.
-  static int GenerateQuotaClientMask(uint32_t remove_mask);
+  // Quota managed data uses a different representation for storage types than
+  // StoragePartition uses. This method generates that representation.
+  static storage::QuotaClientTypes GenerateQuotaClientTypes(
+      uint32_t remove_mask);
 
   // Allows overriding the URLLoaderFactory creation for
   // GetURLLoaderFactoryForBrowserProcess.
@@ -113,29 +125,21 @@ class CONTENT_EXPORT StoragePartitionImpl
   std::unique_ptr<network::PendingSharedURLLoaderFactory>
   GetURLLoaderFactoryForBrowserProcessIOThread() override;
   network::mojom::CookieManager* GetCookieManagerForBrowserProcess() override;
-  void CreateRestrictedCookieManager(
-      network::mojom::RestrictedCookieManagerRole role,
-      const url::Origin& origin,
-      const net::SiteForCookies& site_for_cookies,
-      const url::Origin& top_frame_origin,
-      bool is_service_worker,
-      int process_id,
-      int routing_id,
-      mojo::PendingReceiver<network::mojom::RestrictedCookieManager> receiver)
-      override;
+  void CreateHasTrustTokensAnswerer(
+      mojo::PendingReceiver<network::mojom::HasTrustTokensAnswerer> receiver,
+      const url::Origin& top_frame_origin) override;
   storage::QuotaManager* GetQuotaManager() override;
   ChromeAppCacheService* GetAppCacheService() override;
   BackgroundSyncContextImpl* GetBackgroundSyncContext() override;
   storage::FileSystemContext* GetFileSystemContext() override;
   storage::DatabaseTracker* GetDatabaseTracker() override;
   DOMStorageContextWrapper* GetDOMStorageContext() override;
-  IdleManager* GetIdleManager();
   LockManager* GetLockManager();  // override; TODO: Add to interface
   storage::mojom::IndexedDBControl& GetIndexedDBControl() override;
-  IndexedDBContextImpl* GetIndexedDBContext() override;
   NativeFileSystemEntryFactory* GetNativeFileSystemEntryFactory() override;
   CacheStorageContextImpl* GetCacheStorageContext() override;
   ServiceWorkerContextWrapper* GetServiceWorkerContext() override;
+  DedicatedWorkerServiceImpl* GetDedicatedWorkerService() override;
   SharedWorkerServiceImpl* GetSharedWorkerService() override;
   GeneratedCodeCacheContext* GetGeneratedCodeCacheContext() override;
   DevToolsBackgroundServicesContextImpl* GetDevToolsBackgroundServicesContext()
@@ -176,9 +180,14 @@ class CONTENT_EXPORT StoragePartitionImpl
   void Flush() override;
   void ResetURLLoaderFactories() override;
   void ClearBluetoothAllowedDevicesMapForTesting() override;
+  void AddObserver(DataRemovalObserver* observer) override;
+  void RemoveObserver(DataRemovalObserver* observer) override;
   void FlushNetworkInterfaceForTesting() override;
   void WaitForDeletionTasksForTesting() override;
   void WaitForCodeCacheShutdownForTesting() override;
+  void SetNetworkContextForTesting(
+      mojo::PendingRemote<network::mojom::NetworkContext>
+          network_context_remote) override;
   BackgroundFetchContext* GetBackgroundFetchContext();
   PaymentAppContextImpl* GetPaymentAppContext();
   BroadcastChannelProvider* GetBroadcastChannelProvider();
@@ -187,15 +196,24 @@ class CONTENT_EXPORT StoragePartitionImpl
   PrefetchURLLoaderService* GetPrefetchURLLoaderService();
   CookieStoreContext* GetCookieStoreContext();
   NativeFileSystemManagerImpl* GetNativeFileSystemManager();
+  QuotaContext* GetQuotaContext();
+  NativeIOContext* GetNativeIOContext();
+  ConversionManagerImpl* GetConversionManager();
+  FontAccessManagerImpl* GetFontAccessManager();
+  std::string GetPartitionDomain();
 
-  // blink::mojom::StoragePartitionService interface.
+  // blink::mojom::DomStorage interface.
   void OpenLocalStorage(
       const url::Origin& origin,
       mojo::PendingReceiver<blink::mojom::StorageArea> receiver) override;
-  void OpenSessionStorage(
+  void BindSessionStorageNamespace(
       const std::string& namespace_id,
       mojo::PendingReceiver<blink::mojom::SessionStorageNamespace> receiver)
       override;
+  void BindSessionStorageArea(
+      const url::Origin& origin,
+      const std::string& namespace_id,
+      mojo::PendingReceiver<blink::mojom::StorageArea> receiver) override;
 
   // network::mojom::NetworkContextClient interface.
   void OnAuthRequired(
@@ -240,20 +258,6 @@ class CONTENT_EXPORT StoragePartitionImpl
                        const std::string& header_value,
                        int load_flags,
                        OnClearSiteDataCallback callback) override;
-  void OnCookiesChanged(
-      bool is_service_worker,
-      int32_t process_id,
-      int32_t routing_id,
-      const GURL& url,
-      const net::SiteForCookies& site_for_cookies,
-      const std::vector<net::CookieWithStatus>& cookie_list) override;
-  void OnCookiesRead(
-      bool is_service_worker,
-      int32_t process_id,
-      int32_t routing_id,
-      const GURL& url,
-      const net::SiteForCookies& site_for_cookies,
-      const std::vector<net::CookieWithStatus>& cookie_list) override;
 #if defined(OS_ANDROID)
   void OnGenerateHttpNegotiateAuthToken(
       const std::string& server_auth_token,
@@ -265,6 +269,7 @@ class CONTENT_EXPORT StoragePartitionImpl
 #if defined(OS_CHROMEOS)
   void OnTrustAnchorUsed() override;
 #endif
+  void OnSCTReportReady(const std::string& cache_key) override;
 
   scoped_refptr<URLLoaderFactoryGetter> url_loader_factory_getter() {
     return url_loader_factory_getter_;
@@ -273,16 +278,29 @@ class CONTENT_EXPORT StoragePartitionImpl
   // Can return nullptr while |this| is being destroyed.
   BrowserContext* browser_context() const;
 
-  // Called by each renderer process for each StoragePartitionService interface
-  // it binds in the renderer process. Returns the id of the created receiver.
-  mojo::ReceiverId Bind(
+  // Returns the interface used to control the corresponding remote Partition in
+  // the Storage Service.
+  storage::mojom::Partition* GetStorageServicePartition();
+
+  // Exposes the shared top-level connection to the Storage Service, for tests.
+  static mojo::Remote<storage::mojom::StorageService>&
+  GetStorageServiceForTesting();
+
+  // Called by each renderer process to bind its global DomStorage interface.
+  // Returns the id of the created receiver.
+  mojo::ReceiverId BindDomStorage(
       int process_id,
-      mojo::PendingReceiver<blink::mojom::StoragePartitionService> receiver);
+      mojo::PendingReceiver<blink::mojom::DomStorage> receiver,
+      mojo::PendingRemote<blink::mojom::DomStorageClient> client);
 
-  // Remove a receiver created by a previous Bind() call.
-  void Unbind(mojo::ReceiverId receiver_id);
+  // Remove a receiver created by a previous BindDomStorage() call.
+  void UnbindDomStorage(mojo::ReceiverId receiver_id);
 
-  auto& receivers_for_testing() { return receivers_; }
+  auto& dom_storage_receivers_for_testing() { return dom_storage_receivers_; }
+
+  std::vector<std::string> cors_exempt_header_list() const {
+    return cors_exempt_header_list_;
+  }
 
   // When this StoragePartition is for guests (e.g., for a <webview> tag), this
   // is the site URL to use when creating a SiteInstance for a service worker.
@@ -302,16 +320,37 @@ class CONTENT_EXPORT StoragePartitionImpl
   network::mojom::OriginPolicyManager*
   GetOriginPolicyManagerForBrowserProcess();
 
+  // We have to plumb |is_service_worker|, |process_id| and |routing_id| because
+  // they are plumbed to WebView via WillCreateRestrictedCookieManager, which
+  // makes some decision based on that.
+  void CreateRestrictedCookieManager(
+      network::mojom::RestrictedCookieManagerRole role,
+      const url::Origin& origin,
+      const net::SiteForCookies& site_for_cookies,
+      const url::Origin& top_frame_origin,
+      bool is_service_worker,
+      int process_id,
+      int routing_id,
+      mojo::PendingReceiver<network::mojom::RestrictedCookieManager> receiver,
+      mojo::PendingRemote<network::mojom::CookieAccessObserver>
+          cookie_observer);
+
   // Override the origin policy manager for testing use only.
   void SetOriginPolicyManagerForBrowserProcessForTesting(
       mojo::PendingRemote<network::mojom::OriginPolicyManager>
           test_origin_policy_manager);
   void ResetOriginPolicyManagerForBrowserProcessForTesting();
 
+  mojo::PendingRemote<network::mojom::CookieAccessObserver>
+  CreateCookieAccessObserverForServiceWorker();
+
+  std::vector<std::string> GetCorsExemptHeaderList();
+
  private:
   class DataDeletionHelper;
   class QuotaManagedDataDeletionHelper;
   class URLLoaderFactoryForBrowserProcess;
+  class ServiceWorkerCookieAccessObserver;
 
   friend class BackgroundSyncManagerTest;
   friend class BackgroundSyncServiceImplTestHarness;
@@ -383,6 +422,11 @@ class CONTENT_EXPORT StoragePartitionImpl
   // can query properties of the StoragePartitionImpl (notably GetPath()).
   void Initialize();
 
+  // If we're running Storage Service out-of-process and it crashes, this
+  // re-establishes a connection and makes sure the service returns to a usable
+  // state.
+  void OnStorageServiceDisconnected();
+
   // We will never have both remove_origin be populated and a cookie_matcher.
   void ClearDataImpl(
       uint32_t remove_mask,
@@ -408,6 +452,8 @@ class CONTENT_EXPORT StoragePartitionImpl
   network::mojom::URLLoaderFactory*
   GetURLLoaderFactoryForBrowserProcessInternal(bool corb_enabled);
 
+  IndexedDBContextImpl* GetIndexedDBContextInternal();
+
   // Raw pointer that should always be valid. The BrowserContext owns the
   // StoragePartitionImplMap which then owns StoragePartitionImpl. When the
   // BrowserContext is destroyed, |this| will be destroyed too.
@@ -426,30 +472,32 @@ class CONTENT_EXPORT StoragePartitionImpl
   // querying its path abd BrowserContext is allowed.
   bool initialized_ = false;
 
+  mojo::Remote<storage::mojom::Partition> remote_partition_;
   scoped_refptr<URLLoaderFactoryGetter> url_loader_factory_getter_;
+  scoped_refptr<QuotaContext> quota_context_;
   scoped_refptr<storage::QuotaManager> quota_manager_;
   scoped_refptr<ChromeAppCacheService> appcache_service_;
   scoped_refptr<storage::FileSystemContext> filesystem_context_;
   scoped_refptr<storage::DatabaseTracker> database_tracker_;
   scoped_refptr<DOMStorageContextWrapper> dom_storage_context_;
-  std::unique_ptr<IdleManager> idle_manager_;
-  scoped_refptr<LockManager> lock_manager_;
-  mojo::Remote<storage::mojom::IndexedDBControl> indexed_db_control_;
-  scoped_refptr<IndexedDBContextImpl> indexed_db_context_;
+  std::unique_ptr<LockManager> lock_manager_;
+  std::unique_ptr<IndexedDBControlWrapper> indexed_db_control_wrapper_;
   scoped_refptr<CacheStorageContextImpl> cache_storage_context_;
   scoped_refptr<ServiceWorkerContextWrapper> service_worker_context_;
+  std::unique_ptr<DedicatedWorkerServiceImpl> dedicated_worker_service_;
   std::unique_ptr<SharedWorkerServiceImpl> shared_worker_service_;
-  scoped_refptr<PushMessagingContext> push_messaging_context_;
+  std::unique_ptr<PushMessagingContext> push_messaging_context_;
   scoped_refptr<storage::SpecialStoragePolicy> special_storage_policy_;
 #if !defined(OS_ANDROID)
-  scoped_refptr<HostZoomLevelContext> host_zoom_level_context_;
+  std::unique_ptr<HostZoomLevelContext, BrowserThread::DeleteOnUIThread>
+      host_zoom_level_context_;
 #endif  // !defined(OS_ANDROID)
   scoped_refptr<PlatformNotificationContextImpl> platform_notification_context_;
   scoped_refptr<BackgroundFetchContext> background_fetch_context_;
   scoped_refptr<BackgroundSyncContextImpl> background_sync_context_;
   scoped_refptr<PaymentAppContextImpl> payment_app_context_;
-  scoped_refptr<BroadcastChannelProvider> broadcast_channel_provider_;
-  scoped_refptr<BluetoothAllowedDevicesMap> bluetooth_allowed_devices_map_;
+  std::unique_ptr<BroadcastChannelProvider> broadcast_channel_provider_;
+  std::unique_ptr<BluetoothAllowedDevicesMap> bluetooth_allowed_devices_map_;
   scoped_refptr<BlobRegistryWrapper> blob_registry_;
   scoped_refptr<PrefetchURLLoaderService> prefetch_url_loader_service_;
   scoped_refptr<CookieStoreContext> cookie_store_context_;
@@ -460,11 +508,22 @@ class CONTENT_EXPORT StoragePartitionImpl
   std::unique_ptr<leveldb_proto::ProtoDatabaseProvider>
       proto_database_provider_;
   scoped_refptr<ContentIndexContextImpl> content_index_context_;
+  std::unique_ptr<NativeIOContext> native_io_context_;
+  std::unique_ptr<ConversionManagerImpl> conversion_manager_;
+  std::unique_ptr<FontAccessManagerImpl> font_access_manager_;
 
-  // ReceiverSet for StoragePartitionService, using the process id as the
-  // binding context type. The process id can subsequently be used during
-  // interface method calls to enforce security checks.
-  mojo::ReceiverSet<blink::mojom::StoragePartitionService, int> receivers_;
+  // ReceiverSet for DomStorage, using the
+  // ChildProcessSecurityPolicyImpl::Handle as the binding context type. The
+  // handle can subsequently be used during interface method calls to
+  // enforce security checks.
+  using SecurityPolicyHandle = ChildProcessSecurityPolicyImpl::Handle;
+  mojo::ReceiverSet<blink::mojom::DomStorage,
+                    std::unique_ptr<SecurityPolicyHandle>>
+      dom_storage_receivers_;
+
+  // A client interface for each receiver above.
+  std::map<mojo::ReceiverId, mojo::Remote<blink::mojom::DomStorageClient>>
+      dom_storage_clients_;
 
   // This is the NetworkContext used to
   // make requests for the StoragePartition. When the network service is
@@ -497,14 +556,25 @@ class CONTENT_EXPORT StoragePartitionImpl
   mojo::Remote<network::mojom::OriginPolicyManager>
       origin_policy_manager_for_browser_process_;
 
+  // The list of cors exempt headers that are set on |network_context_|.
+  // Initialized in InitNetworkContext() and never updated after then.
+  std::vector<std::string> cors_exempt_header_list_;
+
   // See comments for site_for_guest_service_worker().
   GURL site_for_guest_service_worker_;
 
   // Track number of running deletion. For test use only.
   int deletion_helpers_running_;
 
+  base::ObserverList<DataRemovalObserver> data_removal_observers_;
+
   // Called when all deletions are done. For test use only.
   base::OnceClosure on_deletion_helpers_done_callback_;
+
+  // A set of connections to the network service used to notify browser process
+  // about cookie reads and writes made by a service worker in this process.
+  mojo::UniqueReceiverSet<network::mojom::CookieAccessObserver>
+      service_worker_cookie_observers_;
 
   base::WeakPtrFactory<StoragePartitionImpl> weak_factory_{this};
 

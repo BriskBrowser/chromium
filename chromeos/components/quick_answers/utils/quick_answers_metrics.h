@@ -22,6 +22,29 @@ void RecordLoadingStatus(LoadStatus status, const base::TimeDelta duration);
 // Record loading result with result type and network latency.
 void RecordResult(ResultType result_type, const base::TimeDelta duration);
 
+// Record quick answers user clicks with result type and duration between result
+// fetch finish and user clicks.
+void RecordClick(ResultType result_type, const base::TimeDelta duration);
+
+// Record selected text length to learn about usage pattern.
+void RecordSelectedTextLength(int length);
+
+// Record active impression with result type and impression duration.
+void RecordActiveImpression(ResultType result_type,
+                            const base::TimeDelta duration);
+
+// Record user interaction with the consent UI with how many times the user has
+// seen the consent and impression duration.
+void RecordConsentInteraction(ConsentInteractionType type,
+                              int nth_impression,
+                              const base::TimeDelta duration);
+
+// Record consent impression with how many times the user has seen the consent.
+void RecordConsentImpression(int nth_impression);
+
+// Record the intent generated on-device.
+void RecordIntentType(IntentType intent_type);
+
 }  // namespace quick_answers
 }  // namespace chromeos
 

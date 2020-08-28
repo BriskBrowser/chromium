@@ -11,7 +11,6 @@
 #include <vector>
 
 #include "ash/public/cpp/ash_public_export.h"
-#include "ash/public/cpp/session/user_info.h"
 #include "base/optional.h"
 #include "base/token.h"
 #include "components/account_id/account_id.h"
@@ -41,9 +40,9 @@ struct ASH_PUBLIC_EXPORT UserInfo {
 
   user_manager::UserType type = user_manager::USER_TYPE_REGULAR;
   AccountId account_id;
-  base::Optional<base::Token> service_instance_group;
   std::string display_name;
   std::string display_email;
+  std::string given_name;
   UserAvatar avatar;
 
   // True if this user has a newly created profile (first time login on the

@@ -27,12 +27,14 @@
 namespace gfx {
 class ImageSkia;
 class Rect;
-}
+}  // namespace gfx
 
 namespace ui {
+#if defined(OS_APPLE)
 class ContextFactory;
+#endif
 class TouchEditingControllerFactory;
-}
+}  // namespace ui
 
 namespace views {
 
@@ -61,10 +63,10 @@ class VIEWS_EXPORT ViewsDelegate {
                                             internal::NativeWidgetDelegate*)>;
 #if defined(OS_WIN)
   enum AppbarAutohideEdge {
-    EDGE_TOP    = 1 << 0,
-    EDGE_LEFT   = 1 << 1,
+    EDGE_TOP = 1 << 0,
+    EDGE_LEFT = 1 << 1,
     EDGE_BOTTOM = 1 << 2,
-    EDGE_RIGHT  = 1 << 3,
+    EDGE_RIGHT = 1 << 3,
   };
 #endif
 
@@ -131,14 +133,16 @@ class VIEWS_EXPORT ViewsDelegate {
   // Returns true if the window passed in is in the Windows 8 metro
   // environment.
   virtual bool IsWindowInMetro(gfx::NativeWindow window) const;
-#elif defined(OS_LINUX) && BUILDFLAG(ENABLE_DESKTOP_AURA)
+#elif BUILDFLAG(ENABLE_DESKTOP_AURA) && \
+  (defined(OS_LINUX) || defined(OS_CHROMEOS))
   virtual gfx::ImageSkia* GetDefaultWindowIcon() const;
 #endif
 
   // Creates a default NonClientFrameView to be used for windows that don't
   // specify their own. If this function returns NULL, the
   // views::CustomFrameView type will be used.
-  virtual NonClientFrameView* CreateDefaultNonClientFrameView(Widget* widget);
+  virtual std::unique_ptr<NonClientFrameView> CreateDefaultNonClientFrameView(
+      Widget* widget);
 
   // AddRef/ReleaseRef are invoked while a menu is visible. They are used to
   // ensure we don't attempt to exit while a menu is showing.
@@ -158,11 +162,10 @@ class VIEWS_EXPORT ViewsDelegate {
   // maximized windows; otherwise to restored windows.
   virtual bool WindowManagerProvidesTitleBar(bool maximized);
 
+#if defined(OS_APPLE)
   // Returns the context factory for new windows.
   virtual ui::ContextFactory* GetContextFactory();
-
-  // Returns the privileged context factory for new windows.
-  virtual ui::ContextFactoryPrivate* GetContextFactoryPrivate();
+#endif
 
   // Returns the user-visible name of the application.
   virtual std::string GetApplicationName();

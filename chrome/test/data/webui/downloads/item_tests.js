@@ -14,7 +14,7 @@ suite('item tests', function() {
   let testIconLoader;
 
   setup(function() {
-    PolymerTest.clearBody();
+    document.body.innerHTML = '';
 
     // This isn't strictly necessary, but is a probably good idea.
     BrowserProxy.instance_ = new TestDownloadsProxy;
@@ -66,7 +66,7 @@ suite('item tests', function() {
                hideDate: false,
                dangerType: DangerType.SENSITIVE_CONTENT_BLOCK,
              }));
-    assertEquals(item.computeIcon_(), 'cr:warning');
+    assertEquals(item.computeIcon_(), 'cr:error');
     assertFalse(item.useFileIcon_);
 
     item.set('data', createDownload({
@@ -74,7 +74,7 @@ suite('item tests', function() {
                hideDate: false,
                dangerType: DangerType.BLOCKED_TOO_LARGE,
              }));
-    assertEquals(item.computeIcon_(), 'cr:warning');
+    assertEquals(item.computeIcon_(), 'cr:error');
     assertFalse(item.useFileIcon_);
 
     item.set('data', createDownload({
@@ -82,7 +82,27 @@ suite('item tests', function() {
                hideDate: false,
                dangerType: DangerType.BLOCKED_PASSWORD_PROTECTED,
              }));
-    assertEquals(item.computeIcon_(), 'cr:warning');
+    assertEquals(item.computeIcon_(), 'cr:error');
     assertFalse(item.useFileIcon_);
+  });
+
+  test('open now button controlled by load time data', async () => {
+    loadTimeData.overrideValues({'allowOpenNow': true});
+    item.set('data', createDownload({
+               filePath: 'unique1',
+               hideDate: false,
+               state: States.ASYNC_SCANNING,
+             }));
+    flush();
+    assertNotEquals(item.$$('#openNow'), null);
+
+    loadTimeData.overrideValues({'allowOpenNow': false});
+    item.set('data', createDownload({
+               filePath: 'unique1',
+               hideDate: false,
+               state: States.ASYNC_SCANNING,
+             }));
+    flush();
+    assertEquals(item.$$('#openNow'), null);
   });
 });

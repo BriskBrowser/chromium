@@ -19,6 +19,7 @@
 #include "base/macros.h"
 #include "base/strings/stringprintf.h"
 #include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
 #include "base/threading/thread_checker.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
@@ -130,7 +131,7 @@ void UpdateCheckerImpl::CheckForUpdates(
   ids_checked_ = ids_checked;
   update_check_callback_ = std::move(update_check_callback);
 
-  base::PostTaskAndReply(
+  base::ThreadPool::PostTaskAndReply(
       FROM_HERE, kTaskTraits,
       base::BindOnce(&UpdateCheckerImpl::ReadUpdaterStateAttributes,
                      base::Unretained(this)),
@@ -145,7 +146,7 @@ void UpdateCheckerImpl::ReadUpdaterStateAttributes() {
   // On Windows, the Chrome and the updater install modes are matched by design.
   updater_state_attributes_ =
       UpdaterState::GetState(!config_->IsPerUserInstall());
-#elif defined(OS_MACOSX) && !defined(OS_IOS)
+#elif defined(OS_MAC)
   // MacOS ignores this value in the current implementation but this may change.
   updater_state_attributes_ = UpdaterState::GetState(false);
 #else
@@ -199,7 +200,8 @@ void UpdateCheckerImpl::CheckForUpdatesHelper(
         crx_component->fingerprint,
         SanitizeInstallerAttributes(crx_component->installer_attributes),
         metadata_->GetCohort(app_id), metadata_->GetCohortName(app_id),
-        metadata_->GetCohortHint(app_id), crx_component->disabled_reasons,
+        metadata_->GetCohortHint(app_id), crx_component->channel,
+        crx_component->disabled_reasons,
         MakeProtocolUpdateCheck(is_update_disabled),
         MakeProtocolPing(app_id, metadata_)));
   }

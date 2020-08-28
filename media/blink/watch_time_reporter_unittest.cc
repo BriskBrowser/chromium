@@ -6,9 +6,9 @@
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
-#include "base/message_loop/message_loop_current.h"
 #include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
+#include "base/task/current_thread.h"
 #include "base/test/test_mock_time_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
@@ -261,6 +261,9 @@ class WatchTimeReporterTest
         const std::string& taskName,
         mojo::PendingReceiver<media::learning::mojom::LearningTaskController>
             receiver) override {}
+    void AcquirePlaybackEventsRecorder(
+        mojo::PendingReceiver<mojom::PlaybackEventsRecorder> receiver)
+        override {}
     void Initialize(bool is_mse, mojom::MediaURLScheme url_scheme) override {}
     void OnError(PipelineStatus status) override {}
     void SetIsEME() override {}
@@ -285,7 +288,7 @@ class WatchTimeReporterTest
         has_audio_(std::get<1>(GetParam())),
         fake_metrics_provider_(this) {
     // Do this first. Lots of pieces depend on the task runner.
-    auto message_loop = base::MessageLoopCurrent::Get();
+    auto message_loop = base::CurrentThread::Get();
     original_task_runner_ = base::ThreadTaskRunnerHandle::Get();
     task_runner_ = new base::TestMockTimeTaskRunner();
     message_loop.SetTaskRunner(task_runner_);
@@ -294,7 +297,7 @@ class WatchTimeReporterTest
   ~WatchTimeReporterTest() override {
     CycleReportingTimer();
     task_runner_->RunUntilIdle();
-    base::MessageLoopCurrent::Get().SetTaskRunner(original_task_runner_);
+    base::CurrentThread::Get().SetTaskRunner(original_task_runner_);
   }
 
  protected:
@@ -1099,6 +1102,7 @@ TEST_P(WatchTimeReporterTest, WatchTimeReporterSecondaryProperties) {
   auto properties = mojom::SecondaryPlaybackProperties::New(
       has_audio_ ? kCodecAAC : kUnknownAudioCodec,
       has_video_ ? kCodecH264 : kUnknownVideoCodec,
+      has_audio_ ? AudioCodecProfile::kXHE_AAC : AudioCodecProfile::kUnknown,
       has_video_ ? H264PROFILE_MAIN : VIDEO_CODEC_PROFILE_UNKNOWN,
       has_audio_ ? "FirstAudioDecoder" : "",
       has_video_ ? "FirstVideoDecoder" : "",
@@ -1136,9 +1140,9 @@ TEST_P(WatchTimeReporterTest, SecondaryProperties_SizeIncreased) {
   EXPECT_CALL(*this, OnUpdateSecondaryProperties(_))
       .Times((has_audio_ && has_video_) ? 3 : 2);
   wtr_->UpdateSecondaryProperties(mojom::SecondaryPlaybackProperties::New(
-      kUnknownAudioCodec, kUnknownVideoCodec, VIDEO_CODEC_PROFILE_UNKNOWN, "",
-      "", EncryptionScheme::kUnencrypted, EncryptionScheme::kUnencrypted,
-      kSizeJustRight));
+      kUnknownAudioCodec, kUnknownVideoCodec, AudioCodecProfile::kUnknown,
+      VIDEO_CODEC_PROFILE_UNKNOWN, "", "", EncryptionScheme::kUnencrypted,
+      EncryptionScheme::kUnencrypted, kSizeJustRight));
   EXPECT_TRUE(IsMonitoring());
 
   EXPECT_WATCH_TIME_FINALIZED();
@@ -1158,9 +1162,9 @@ TEST_P(WatchTimeReporterTest, SecondaryProperties_SizeDecreased) {
   EXPECT_CALL(*this, OnUpdateSecondaryProperties(_))
       .Times((has_audio_ && has_video_) ? 3 : 2);
   wtr_->UpdateSecondaryProperties(mojom::SecondaryPlaybackProperties::New(
-      kUnknownAudioCodec, kUnknownVideoCodec, VIDEO_CODEC_PROFILE_UNKNOWN, "",
-      "", EncryptionScheme::kUnencrypted, EncryptionScheme::kUnencrypted,
-      kSizeTooSmall));
+      kUnknownAudioCodec, kUnknownVideoCodec, AudioCodecProfile::kUnknown,
+      VIDEO_CODEC_PROFILE_UNKNOWN, "", "", EncryptionScheme::kUnencrypted,
+      EncryptionScheme::kUnencrypted, kSizeTooSmall));
   EXPECT_WATCH_TIME_FINALIZED();
   CycleReportingTimer();
 

@@ -17,19 +17,34 @@ class DiscoverScreenView;
 
 class DiscoverScreen : public BaseScreen {
  public:
+  enum class Result { NEXT, NOT_APPLICABLE };
+
+  static std::string GetResultString(Result result);
+  static bool ShouldSkip();
+
+  using ScreenExitCallback = base::RepeatingCallback<void(Result result)>;
   DiscoverScreen(DiscoverScreenView* view,
-                 const base::RepeatingClosure& exit_callback);
+                 const ScreenExitCallback& exit_callback);
   ~DiscoverScreen() override;
 
+  void set_exit_callback_for_testing(const ScreenExitCallback& exit_callback) {
+    exit_callback_ = exit_callback;
+  }
+
+  const ScreenExitCallback& get_exit_callback_for_testing() {
+    return exit_callback_;
+  }
+
+ protected:
   // BaseScreen:
-  void Show() override;
-  void Hide() override;
+  bool MaybeSkip(WizardContext* context) override;
+  void ShowImpl() override;
+  void HideImpl() override;
   void OnUserAction(const std::string& action_id) override;
 
  private:
   DiscoverScreenView* const view_;
-  base::RepeatingClosure exit_callback_;
-  bool is_shown_ = false;
+  ScreenExitCallback exit_callback_;
 
   DISALLOW_COPY_AND_ASSIGN(DiscoverScreen);
 };

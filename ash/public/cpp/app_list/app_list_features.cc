@@ -14,7 +14,7 @@ namespace app_list_features {
 const base::Feature kEnableAnswerCard{"EnableAnswerCard",
                                       base::FEATURE_ENABLED_BY_DEFAULT};
 const base::Feature kEnablePlayStoreAppSearch{
-    "EnablePlayStoreAppSearch", base::FEATURE_DISABLED_BY_DEFAULT};
+    "EnablePlayStoreAppSearch", base::FEATURE_ENABLED_BY_DEFAULT};
 const base::Feature kEnableAppDataSearch{"EnableAppDataSearch",
                                          base::FEATURE_DISABLED_BY_DEFAULT};
 const base::Feature kEnableSettingsShortcutSearch{
@@ -30,7 +30,7 @@ const base::Feature kEnableZeroStateAppsRanker{
 const base::Feature kEnableQueryBasedMixedTypesRanker{
     "EnableQueryBasedMixedTypesRanker", base::FEATURE_DISABLED_BY_DEFAULT};
 const base::Feature kEnableZeroStateMixedTypesRanker{
-    "EnableZeroStateMixedTypesRanker", base::FEATURE_DISABLED_BY_DEFAULT};
+    "EnableZeroStateMixedTypesRanker", base::FEATURE_ENABLED_BY_DEFAULT};
 const base::Feature kEnableAppReinstallZeroState{
     "EnableAppReinstallZeroState", base::FEATURE_DISABLED_BY_DEFAULT};
 const base::Feature kEnableSuggestedFiles{"EnableSuggestedFiles",
@@ -41,27 +41,27 @@ const base::Feature kEnableSuggestedFiles{"EnableSuggestedFiles",
 // Assistant search.
 const base::Feature kEnableAssistantSearch{"EnableEmbeddedAssistantUI",
                                            base::FEATURE_DISABLED_BY_DEFAULT};
-const base::Feature kEnableAssistantLauncherUI{
-    "EnableAssistantLauncherUI", base::FEATURE_ENABLED_BY_DEFAULT};
 
 const base::Feature kEnableAppGridGhost{"EnableAppGridGhost",
                                         base::FEATURE_DISABLED_BY_DEFAULT};
 const base::Feature kEnableAppListLaunchRecording{
     "EnableAppListLaunchRecording", base::FEATURE_DISABLED_BY_DEFAULT};
-const base::Feature kEnableSearchBoxSelection{"EnableSearchBoxSelection",
-                                              base::FEATURE_ENABLED_BY_DEFAULT};
 const base::Feature kEnableAggregatedMlAppRanking{
     "EnableAggregatedMlAppRanking", base::FEATURE_DISABLED_BY_DEFAULT};
-const base::Feature kScalableAppList{"ScalableAppList",
-                                     base::FEATURE_ENABLED_BY_DEFAULT};
+const base::Feature kLauncherSettingsSearch{"LauncherSettingsSearch",
+                                            base::FEATURE_DISABLED_BY_DEFAULT};
 const base::Feature kEnableFuzzyAppSearch{"EnableFuzzyAppSearch",
-                                          base::FEATURE_DISABLED_BY_DEFAULT};
+                                          base::FEATURE_ENABLED_BY_DEFAULT};
+const base::Feature kEnableExactMatchForNonLatinLocale{
+    "EnableExactMatchForNonLatinLocale", base::FEATURE_ENABLED_BY_DEFAULT};
 const base::Feature kEnableAggregatedMlSearchRanking{
     "EnableAggregatedMlSearchRanking", base::FEATURE_DISABLED_BY_DEFAULT};
+const base::Feature kNewDragSpecInLauncher{"NewDragSpecInLauncher",
+                                           base::FEATURE_DISABLED_BY_DEFAULT};
 
 bool IsAnswerCardEnabled() {
   // Not using local static variable to allow tests to change this value.
-  // Do not show answer card if the embedded Assistant UI is enabled.
+  // Do not show answer card if Assistant search is enabled.
   return base::FeatureList::IsEnabled(kEnableAnswerCard) &&
          !IsAssistantSearchEnabled();
 }
@@ -115,33 +115,32 @@ bool IsAssistantSearchEnabled() {
   return base::FeatureList::IsEnabled(kEnableAssistantSearch);
 }
 
-bool IsAssistantLauncherUIEnabled() {
-  return IsAssistantSearchEnabled() ||
-         base::FeatureList::IsEnabled(kEnableAssistantLauncherUI);
-}
-
 bool IsAppGridGhostEnabled() {
   return base::FeatureList::IsEnabled(kEnableAppGridGhost);
-}
-
-bool IsSearchBoxSelectionEnabled() {
-  return base::FeatureList::IsEnabled(kEnableSearchBoxSelection);
 }
 
 bool IsAggregatedMlAppRankingEnabled() {
   return base::FeatureList::IsEnabled(kEnableAggregatedMlAppRanking);
 }
 
-bool IsScalableAppListEnabled() {
-  return base::FeatureList::IsEnabled(kScalableAppList);
+bool IsLauncherSettingsSearchEnabled() {
+  return base::FeatureList::IsEnabled(kLauncherSettingsSearch);
 }
 
 bool IsFuzzyAppSearchEnabled() {
   return base::FeatureList::IsEnabled(kEnableFuzzyAppSearch);
 }
 
+bool IsExactMatchForNonLatinLocaleEnabled() {
+  return base::FeatureList::IsEnabled(kEnableExactMatchForNonLatinLocale);
+}
+
 bool IsAggregatedMlSearchRankingEnabled() {
   return base::FeatureList::IsEnabled(kEnableAggregatedMlSearchRanking);
+}
+
+bool IsNewDragSpecInLauncherEnabled() {
+  return base::FeatureList::IsEnabled(kNewDragSpecInLauncher);
 }
 
 std::string AnswerServerUrl() {

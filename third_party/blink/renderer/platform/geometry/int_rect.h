@@ -28,6 +28,7 @@
 
 #include <iosfwd>
 
+#include "base/compiler_specific.h"
 #include "base/numerics/clamped_math.h"
 #include "build/build_config.h"
 #include "third_party/blink/renderer/platform/geometry/int_point.h"
@@ -37,7 +38,7 @@
 #include "third_party/skia/include/core/SkRect.h"
 #include "ui/gfx/geometry/rect.h"
 
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
 typedef struct CGRect CGRect;
 
 #ifdef __OBJC__
@@ -133,7 +134,7 @@ class PLATFORM_EXPORT IntRect {
                     location_.Y() + size_.Height());
   }  // typically bottomRight
 
-  bool Intersects(const IntRect&) const;
+  WARN_UNUSED_RESULT bool Intersects(const IntRect&) const;
   bool Contains(const IntRect&) const;
 
   // This checks to see if the rect contains x,y in the traditional sense.
@@ -178,7 +179,7 @@ class PLATFORM_EXPORT IntRect {
     return IntRect(location_.TransposedPoint(), size_.TransposedSize());
   }
 
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
   explicit operator CGRect() const;
 #endif
 

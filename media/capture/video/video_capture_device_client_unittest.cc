@@ -9,7 +9,7 @@
 #include <memory>
 
 #include "base/bind.h"
-#include "base/logging.h"
+#include "base/check.h"
 #include "base/macros.h"
 #include "build/build_config.h"
 #include "media/base/limits.h"
@@ -110,7 +110,8 @@ TEST_F(VideoCaptureDeviceClientTest, Minimal) {
   std::unique_ptr<gfx::GpuMemoryBuffer> buffer =
       gpu_memory_buffer_manager_->CreateFakeGpuMemoryBuffer(
           kBufferDimensions, gfx::BufferFormat::YUV_420_BIPLANAR,
-          gfx::BufferUsage::SCANOUT_CAMERA_READ_WRITE, gpu::kNullSurfaceHandle);
+          gfx::BufferUsage::SCANOUT_VEA_READ_CAMERA_AND_CPU_READ_WRITE,
+          gpu::kNullSurfaceHandle);
   {
     InSequence s;
     const int expected_buffer_id = 0;
@@ -225,7 +226,8 @@ TEST_F(VideoCaptureDeviceClientTest, DataCaptureGoodPixelFormats) {
     PIXEL_FORMAT_NV12,
     PIXEL_FORMAT_NV21,
     PIXEL_FORMAT_YUY2,
-#if defined(OS_WIN) || defined(OS_LINUX)
+    PIXEL_FORMAT_UYVY,
+#if defined(OS_WIN) || defined(OS_LINUX) || defined(OS_CHROMEOS)
     PIXEL_FORMAT_RGB24,
 #endif
     PIXEL_FORMAT_ARGB,

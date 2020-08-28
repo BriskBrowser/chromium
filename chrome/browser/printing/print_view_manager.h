@@ -7,7 +7,7 @@
 
 #include "base/macros.h"
 #include "chrome/browser/printing/print_view_manager_base.h"
-#include "components/printing/common/print.mojom.h"
+#include "components/printing/common/print.mojom-forward.h"
 #include "content/public/browser/web_contents_user_data.h"
 #include "mojo/public/cpp/bindings/pending_associated_remote.h"
 #include "printing/buildflags/buildflags.h"
@@ -58,6 +58,9 @@ class PrintViewManager : public PrintViewManagerBase,
   // renderer in the case of scripted print preview if needed.
   void PrintPreviewDone();
 
+  // mojom::PrintManagerHost:
+  void DidShowPrintDialog() override;
+
   // content::WebContentsObserver implementation.
   void RenderFrameCreated(content::RenderFrameHost* render_frame_host) override;
   void RenderFrameDeleted(content::RenderFrameHost* render_frame_host) override;
@@ -91,7 +94,6 @@ class PrintViewManager : public PrintViewManagerBase,
       bool has_selection);
 
   // IPC Message handlers.
-  void OnDidShowPrintDialog(content::RenderFrameHost* rfh);
   void OnSetupScriptedPrintPreview(content::RenderFrameHost* rfh,
                                    IPC::Message* reply_msg);
   void OnShowScriptedPrintPreview(content::RenderFrameHost* rfh,

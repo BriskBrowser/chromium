@@ -95,14 +95,14 @@ void InitializeFile(base::File* file, const base::FilePath& file_path) {
   );
 }
 
-void DeleteFile(const base::FilePath& file_path) {
+void DeleteFileWrapper(const base::FilePath& file_path) {
 #if defined(OS_ANDROID)
   if (file_path.IsContentUri()) {
     DownloadCollectionBridge::DeleteIntermediateUri(file_path);
     return;
   }
 #endif  // defined(OS_ANDROID)
-  base::DeleteFile(file_path, false);
+  base::DeleteFile(file_path);
 }
 
 }  // namespace
@@ -235,7 +235,8 @@ bool BaseFile::ValidateDataInFile(int64_t offset,
     return true;
 
   std::unique_ptr<char[]> buffer(new char[data_len]);
-  if (file_.Read(offset, buffer.get(), data_len) <= 0)
+  int bytes_read = file_.Read(offset, buffer.get(), data_len);
+  if (bytes_read < 0 || static_cast<size_t>(bytes_read) < data_len)
     return false;
 
   return memcmp(data, buffer.get(), data_len) == 0;
@@ -311,7 +312,7 @@ void BaseFile::Cancel() {
   if (!full_path_.empty()) {
     CONDITIONAL_TRACE(
         INSTANT0("download", "DownloadFileDeleted", TRACE_EVENT_SCOPE_THREAD));
-    DeleteFile(full_path_);
+    DeleteFileWrapper(full_path_);
   }
 
   Detach();
@@ -603,7 +604,8 @@ GURL GetEffectiveAuthorityURL(const GURL& source_url,
 
 }  // namespace
 
-#if defined(OS_WIN) || defined(OS_MACOSX) || defined(OS_LINUX)
+#if defined(OS_WIN) || defined(OS_APPLE) || defined(OS_LINUX) || \
+    defined(OS_CHROMEOS)
 
 DownloadInterruptReason BaseFile::AnnotateWithSourceInformationSync(
     const std::string& client_guid,
@@ -621,7 +623,7 @@ DownloadInterruptReason BaseFile::AnnotateWithSourceInformationSync(
 
   return QuarantineFileResultToReason(result);
 }
-#else  // !OS_WIN && !OS_MACOSX && !OS_LINUX
+#else  // !OS_WIN && !OS_APPLE && !OS_LINUX && !OS_CHROMEOS
 DownloadInterruptReason BaseFile::AnnotateWithSourceInformationSync(
     const std::string& client_guid,
     const GURL& source_url,

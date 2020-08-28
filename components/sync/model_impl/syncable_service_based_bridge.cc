@@ -24,9 +24,6 @@
 namespace syncer {
 namespace {
 
-// Same as kInvalidId in syncable/base_node.h.
-constexpr int64_t kInvalidNodeId = 0;
-
 std::unique_ptr<EntityData> ConvertPersistedToEntityData(
     const ClientTagHash& client_tag_hash,
     sync_pb::PersistedEntityData data) {
@@ -75,13 +72,6 @@ SyncChange::SyncChangeType ConvertToSyncChangeType(
   return SyncChange::ACTION_INVALID;
 }
 
-base::Optional<ModelError> ConvertToModelError(const SyncError& sync_error) {
-  if (sync_error.IsSet()) {
-    return ModelError(sync_error.location(), sync_error.message());
-  }
-  return base::nullopt;
-}
-
 // Parses the content of |record_list| into |*in_memory_store|. The output
 // parameter is first for binding purposes.
 base::Optional<ModelError> ParseInMemoryStoreOnBackendSequence(
@@ -126,16 +116,15 @@ class LocalChangeProcessor : public SyncChangeProcessor {
 
   ~LocalChangeProcessor() override {}
 
-  SyncError ProcessSyncChanges(const base::Location& from_here,
-                               const SyncChangeList& change_list) override {
+  base::Optional<ModelError> ProcessSyncChanges(
+      const base::Location& from_here,
+      const SyncChangeList& change_list) override {
     DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
     // Reject changes if the processor has already experienced errors.
     base::Optional<ModelError> processor_error = other_->GetError();
     if (processor_error) {
-      return SyncError(processor_error->location(),
-                       SyncError::UNRECOVERABLE_ERROR,
-                       processor_error->message(), type_);
+      return processor_error;
     }
 
     std::unique_ptr<ModelTypeStore::WriteBatch> batch =
@@ -214,7 +203,7 @@ class LocalChangeProcessor : public SyncChangeProcessor {
 
     store_->CommitWriteBatch(std::move(batch), error_callback_);
 
-    return SyncError();
+    return base::nullopt;
   }
 
   SyncDataList GetAllSyncData(ModelType type) const override {
@@ -222,29 +211,6 @@ class LocalChangeProcessor : public SyncChangeProcessor {
     // datatypes (that are integrated with this bridge).
     NOTREACHED();
     return SyncDataList();
-  }
-
-  SyncError UpdateDataTypeContext(ModelType type,
-                                  ContextRefreshStatus refresh_status,
-                                  const std::string& context) override {
-    // This function is not supported and not exercised by anyone, since
-    // the USS flow doesn't use SharedChangeProcessor.
-    // TODO(crbug.com/870624): Remove this function altogether when the
-    // directory codebase is removed.
-    NOTREACHED();
-    return SyncError();
-  }
-
-  void AddLocalChangeObserver(LocalChangeObserver* observer) override {
-    // This function is not supported and not exercised by the relevant
-    // datatypes (that are integrated with this bridge).
-    NOTREACHED();
-  }
-
-  void RemoveLocalChangeObserver(LocalChangeObserver* observer) override {
-    // This function is not supported and not exercised by the relevant
-    // datatypes (that are integrated with this bridge).
-    NOTREACHED();
   }
 
  private:
@@ -342,8 +308,7 @@ base::Optional<ModelError> SyncableServiceBasedBridge::ApplySyncChanges(
     return base::nullopt;
   }
 
-  return ConvertToModelError(
-      syncable_service_->ProcessSyncChanges(FROM_HERE, sync_change_list));
+  return syncable_service_->ProcessSyncChanges(FROM_HERE, sync_change_list);
 }
 
 void SyncableServiceBasedBridge::GetData(StorageKeyList storage_keys,
@@ -539,9 +504,9 @@ base::Optional<ModelError> SyncableServiceBasedBridge::StartSyncableService() {
   initial_sync_data.reserve(in_memory_store_.size());
   for (const std::pair<const std::string, sync_pb::EntitySpecifics>& record :
        in_memory_store_) {
-    initial_sync_data.push_back(SyncData::CreateRemoteData(
-        /*id=*/kInvalidNodeId, std::move(record.second),
-        /*client_tag_hash=*/record.first));
+    initial_sync_data.push_back(
+        SyncData::CreateRemoteData(std::move(record.second),
+                                   /*client_tag_hash=*/record.first));
   }
 
   auto error_callback =
@@ -551,12 +516,10 @@ base::Optional<ModelError> SyncableServiceBasedBridge::StartSyncableService() {
       type_, error_callback, store_.get(), &in_memory_store_,
       change_processor());
 
-  const base::Optional<ModelError> merge_error = ConvertToModelError(
-      syncable_service_
-          ->MergeDataAndStartSyncing(
-              type_, initial_sync_data, std::move(local_change_processor),
-              std::make_unique<SyncErrorFactoryImpl>(type_))
-          .error());
+  const base::Optional<ModelError> merge_error =
+      syncable_service_->MergeDataAndStartSyncing(
+          type_, initial_sync_data, std::move(local_change_processor),
+          std::make_unique<SyncErrorFactoryImpl>(type_));
 
   if (!merge_error) {
     syncable_service_started_ = true;
@@ -584,9 +547,8 @@ SyncChangeList SyncableServiceBasedBridge::StoreAndConvertRemoteChanges(
                  << ": Processing deletion with storage key: " << storage_key;
         output_sync_change_list.emplace_back(
             FROM_HERE, SyncChange::ACTION_DELETE,
-            SyncData::CreateRemoteData(
-                /*id=*/kInvalidNodeId, in_memory_store_[storage_key],
-                /*client_tag_hash=*/""));
+            SyncData::CreateRemoteData(in_memory_store_[storage_key],
+                                       /*client_tag_hash=*/""));
 
         // For tombstones, there is no actual data, which means no client tag
         // hash either, but the processor provides the storage key.
@@ -612,9 +574,8 @@ SyncChangeList SyncableServiceBasedBridge::StoreAndConvertRemoteChanges(
 
         output_sync_change_list.emplace_back(
             FROM_HERE, ConvertToSyncChangeType(change->type()),
-            SyncData::CreateRemoteData(
-                /*id=*/kInvalidNodeId, change->data().specifics,
-                change->data().client_tag_hash.value()));
+            SyncData::CreateRemoteData(change->data().specifics,
+                                       change->data().client_tag_hash.value()));
 
         batch->WriteData(
             storage_key,

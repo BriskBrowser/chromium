@@ -10,13 +10,17 @@
 #include "gpu/command_buffer/client/gles2_interface.h"
 #include "gpu/command_buffer/common/mailbox_holder.h"
 #include "mojo/public/cpp/system/platform_handle.h"
+#include "third_party/blink/public/platform/task_type.h"
 #include "third_party/blink/renderer/platform/graphics/gpu_memory_buffer_image_copy.h"
 #include "third_party/blink/renderer/platform/graphics/static_bitmap_image.h"
 #include "ui/gfx/gpu_fence.h"
 
 namespace blink {
 
-XRFrameTransport::XRFrameTransport() : submit_frame_client_receiver_(this) {}
+XRFrameTransport::XRFrameTransport(
+    ContextLifecycleNotifier* context,
+    scoped_refptr<base::SequencedTaskRunner> task_runner)
+    : submit_frame_client_receiver_(this, context), task_runner_(task_runner) {}
 
 XRFrameTransport::~XRFrameTransport() = default;
 
@@ -37,7 +41,7 @@ void XRFrameTransport::BindSubmitFrameClient(
     mojo::PendingReceiver<device::mojom::blink::XRPresentationClient>
         receiver) {
   submit_frame_client_receiver_.reset();
-  submit_frame_client_receiver_.Bind(std::move(receiver));
+  submit_frame_client_receiver_.Bind(std::move(receiver), task_runner_);
 }
 
 bool XRFrameTransport::DrawingIntoSharedBuffer() {
@@ -125,12 +129,11 @@ void XRFrameTransport::FrameSubmit(
     }
 
     // We decompose the cloned handle, and use it to create a
-    // mojo::ScopedHandle which will own cleanup of the handle, and will be
+    // mojo::PlatformHandle which will own cleanup of the handle, and will be
     // passed over IPC.
     gfx::GpuMemoryBufferHandle gpu_handle = gpu_memory_buffer->CloneHandle();
     vr_presentation_provider->SubmitFrameWithTextureHandle(
-        vr_frame_id,
-        mojo::WrapPlatformFile(gpu_handle.dxgi_handle.GetHandle()));
+        vr_frame_id, mojo::PlatformHandle(std::move(gpu_handle.dxgi_handle)));
 #else
     NOTIMPLEMENTED();
 #endif
@@ -143,9 +146,7 @@ void XRFrameTransport::FrameSubmit(
     // image until the mailbox was consumed.
     StaticBitmapImage* static_image =
         static_cast<StaticBitmapImage*>(image_ref.get());
-    TRACE_EVENT_BEGIN0("gpu", "XRFrameTransport::EnsureMailbox");
-    static_image->EnsureMailbox(kVerifiedSyncToken, GL_NEAREST);
-    TRACE_EVENT_END0("gpu", "XRFrameTransport::EnsureMailbox");
+    static_image->EnsureSyncTokenVerified();
 
     // Conditionally wait for the previous render to finish. A late wait here
     // attempts to overlap work in parallel with the previous frame's
@@ -164,14 +165,12 @@ void XRFrameTransport::FrameSubmit(
 
     // Create mailbox and sync token for transfer.
     TRACE_EVENT_BEGIN0("gpu", "XRFrameTransport::GetMailbox");
-    auto mailbox = static_image->GetMailbox();
+    auto mailbox_holder = static_image->GetMailboxHolder();
     TRACE_EVENT_END0("gpu", "XRFrameTransport::GetMailbox");
-    auto sync_token = static_image->GetSyncToken();
 
     TRACE_EVENT_BEGIN0("gpu", "XRFrameTransport::SubmitFrame");
-    vr_presentation_provider->SubmitFrame(
-        vr_frame_id, gpu::MailboxHolder(mailbox, sync_token, GL_TEXTURE_2D),
-        frame_wait_time_);
+    vr_presentation_provider->SubmitFrame(vr_frame_id, mailbox_holder,
+                                          frame_wait_time_);
     TRACE_EVENT_END0("gpu", "XRFrameTransport::SubmitFrame");
   } else if (transport_options_->transport_method ==
              device::mojom::blink::XRPresentationTransportMethod::
@@ -250,6 +249,8 @@ base::TimeDelta XRFrameTransport::WaitForGpuFenceReceived() {
   return base::TimeTicks::Now() - start;
 }
 
-void XRFrameTransport::Trace(blink::Visitor* visitor) {}
+void XRFrameTransport::Trace(Visitor* visitor) const {
+  visitor->Trace(submit_frame_client_receiver_);
+}
 
 }  // namespace blink

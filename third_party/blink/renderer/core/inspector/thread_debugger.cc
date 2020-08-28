@@ -15,6 +15,7 @@
 #include "third_party/blink/renderer/bindings/core/v8/v8_event.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_event_listener.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_event_listener_info.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_event_target.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_html_all_collection.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_html_collection.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_node.h"
@@ -151,15 +152,13 @@ void ThreadDebugger::PromiseRejectionRevoked(v8::Local<v8::Context> context,
                                      ToV8InspectorStringView(message));
 }
 
-// TODO(mustaq): Fix the caller in v8/src.
+// TODO(mustaq): Is it tied to a specific user action? https://crbug.com/826293
 void ThreadDebugger::beginUserGesture() {
-  ExecutionContext* ec = CurrentExecutionContext(isolate_);
-  Document* document = DynamicTo<Document>(ec);
-  LocalFrame::NotifyUserActivation(document ? document->GetFrame() : nullptr);
+  auto* window = CurrentDOMWindow(isolate_);
+  LocalFrame::NotifyUserActivation(
+      window ? window->GetFrame() : nullptr,
+      mojom::blink::UserActivationNotificationType::kDevTools);
 }
-
-// TODO(mustaq): Fix the caller in v8/src.
-void ThreadDebugger::endUserGesture() {}
 
 std::unique_ptr<v8_inspector::StringBuffer> ThreadDebugger::valueSubtype(
     v8::Local<v8::Value> value) {
@@ -456,15 +455,15 @@ void ThreadDebugger::GetEventListenersCallback(
 void ThreadDebugger::consoleTime(const v8_inspector::StringView& title) {
   // TODO(dgozman): we can save on a copy here if trace macro would take a
   // pointer with length.
-  TRACE_EVENT_COPY_ASYNC_BEGIN0("blink.console",
-                                ToCoreString(title).Utf8().c_str(), this);
+  TRACE_EVENT_COPY_NESTABLE_ASYNC_BEGIN0(
+      "blink.console", ToCoreString(title).Utf8().c_str(), this);
 }
 
 void ThreadDebugger::consoleTimeEnd(const v8_inspector::StringView& title) {
   // TODO(dgozman): we can save on a copy here if trace macro would take a
   // pointer with length.
-  TRACE_EVENT_COPY_ASYNC_END0("blink.console",
-                              ToCoreString(title).Utf8().c_str(), this);
+  TRACE_EVENT_COPY_NESTABLE_ASYNC_END0(
+      "blink.console", ToCoreString(title).Utf8().c_str(), this);
 }
 
 void ThreadDebugger::consoleTimeStamp(const v8_inspector::StringView& title) {

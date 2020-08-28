@@ -13,7 +13,7 @@
 #include "base/bind.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/values.h"
-#include "chrome/browser/extensions/extension_action_manager.h"
+#include "extensions/browser/extension_action_manager.h"
 #include "extensions/browser/extension_registry.h"
 #include "extensions/browser/extension_system.h"
 #include "extensions/browser/state_store.h"
@@ -219,11 +219,9 @@ void ExtensionActionStorageManager::OnExtensionLoaded(
   StateStore* store = GetStateStore();
   if (store) {
     store->GetExtensionValue(
-        extension->id(),
-        kBrowserActionStorageKey,
-        base::Bind(&ExtensionActionStorageManager::ReadFromStorage,
-                   weak_factory_.GetWeakPtr(),
-                   extension->id()));
+        extension->id(), kBrowserActionStorageKey,
+        base::BindOnce(&ExtensionActionStorageManager::ReadFromStorage,
+                       weak_factory_.GetWeakPtr(), extension->id()));
   }
 }
 

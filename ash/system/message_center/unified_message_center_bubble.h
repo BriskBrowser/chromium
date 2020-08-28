@@ -5,6 +5,7 @@
 #ifndef ASH_SYSTEM_MESSAGE_CENTER_UNIFIED_MESSAGE_CENTER_BUBBLE_H_
 #define ASH_SYSTEM_MESSAGE_CENTER_UNIFIED_MESSAGE_CENTER_BUBBLE_H_
 
+#include "ash/system/tray/time_to_click_recorder.h"
 #include "ash/system/tray/tray_bubble_base.h"
 #include "ash/system/tray/tray_bubble_view.h"
 #include "ui/views/view_observer.h"
@@ -21,10 +22,12 @@ class UnifiedMessageCenterView;
 
 // Manages the bubble that contains UnifiedMessageCenterView.
 // Shows the bubble on the constructor, and closes the bubble on the destructor.
-class ASH_EXPORT UnifiedMessageCenterBubble : public TrayBubbleBase,
-                                              public TrayBubbleView::Delegate,
-                                              public views::ViewObserver,
-                                              public views::WidgetObserver {
+class ASH_EXPORT UnifiedMessageCenterBubble
+    : public TrayBubbleBase,
+      public TrayBubbleView::Delegate,
+      public TimeToClickRecorder::Delegate,
+      public views::ViewObserver,
+      public views::WidgetObserver {
  public:
   explicit UnifiedMessageCenterBubble(UnifiedSystemTray* tray);
   ~UnifiedMessageCenterBubble() override;
@@ -54,11 +57,18 @@ class ASH_EXPORT UnifiedMessageCenterBubble : public TrayBubbleBase,
   // Relinquish focus and transfer it to the quick settings widget.
   bool FocusOut(bool reverse);
 
+  // Activate quick settings bubble. Used when the message center is going
+  // invisible.
+  void ActivateQuickSettingsBubble();
+
   // Move focus to the first notification.
   void FocusFirstNotification();
 
   // Returns true if notifications are shown.
   bool IsMessageCenterVisible();
+
+  // Returns true if only StackedNotificationBar is visible.
+  bool IsMessageCenterCollapsed();
 
   // TrayBubbleBase:
   TrayBackgroundView* GetTray() const override;
@@ -83,12 +93,16 @@ class ASH_EXPORT UnifiedMessageCenterBubble : public TrayBubbleBase,
  private:
   class Border;
 
+  // TimeToClickRecorder::Delegate:
+  void RecordTimeToClick() override;
+
   UnifiedSystemTray* const tray_;
   std::unique_ptr<Border> border_;
 
   views::Widget* bubble_widget_ = nullptr;
   TrayBubbleView* bubble_view_ = nullptr;
   UnifiedMessageCenterView* message_center_view_ = nullptr;
+  std::unique_ptr<TimeToClickRecorder> time_to_click_recorder_;
 
   DISALLOW_COPY_AND_ASSIGN(UnifiedMessageCenterBubble);
 };

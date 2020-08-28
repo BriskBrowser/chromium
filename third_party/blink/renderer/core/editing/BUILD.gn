@@ -6,6 +6,8 @@ import("//third_party/blink/renderer/core/core.gni")
 
 blink_core_sources("editing") {
   sources = [
+    "bidi_adjustment.cc",
+    "bidi_adjustment.h",
     "caret_display_item_client.cc",
     "caret_display_item_client.h",
     "commands/append_node_command.cc",
@@ -159,8 +161,6 @@ blink_core_sources("editing") {
     "ime/text_update_event.h",
     "inline_box_position.cc",
     "inline_box_position.h",
-    "inline_box_traversal.cc",
-    "inline_box_traversal.h",
     "iterators/backwards_character_iterator.cc",
     "iterators/backwards_character_iterator.h",
     "iterators/bit_stack.cc",
@@ -310,6 +310,8 @@ blink_core_sources("editing") {
     "state_machines/state_machine_util.h",
     "state_machines/text_segmentation_machine_state.cc",
     "state_machines/text_segmentation_machine_state.h",
+    "substring_util.h",
+    "substring_util.mm",
     "suggestion/text_suggestion_backend_impl.cc",
     "suggestion/text_suggestion_backend_impl.h",
     "suggestion/text_suggestion_controller.cc",
@@ -334,8 +336,6 @@ blink_core_sources("editing") {
     "visible_units_paragraph.cc",
     "visible_units_sentence.cc",
     "visible_units_word.cc",
-    "web_substring_util.mm",
-    "writing_direction.h",
   ]
 
   if (is_mac) {
@@ -348,7 +348,7 @@ blink_core_sources("editing") {
   }
 }
 
-jumbo_source_set("unit_tests") {
+source_set("unit_tests") {
   testonly = true
   sources = [
     "commands/apply_block_element_command_test.cc",
@@ -429,6 +429,7 @@ jumbo_source_set("unit_tests") {
     "state_machines/state_machine_test_util.cc",
     "state_machines/state_machine_test_util.h",
     "state_machines/state_machine_util_test.cc",
+    "substring_util_test.mm",
     "suggestion/text_suggestion_controller_test.cc",
     "surrounding_text_test.cc",
     "testing/editing_test_base.cc",

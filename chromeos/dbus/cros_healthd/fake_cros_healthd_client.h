@@ -8,6 +8,7 @@
 #include "base/callback_forward.h"
 #include "base/files/scoped_file.h"
 #include "base/macros.h"
+#include "base/time/time.h"
 #include "chromeos/dbus/cros_healthd/cros_healthd_client.h"
 #include "chromeos/dbus/cros_healthd/fake_cros_healthd_service.h"
 #include "chromeos/services/cros_healthd/public/mojom/cros_healthd.mojom.h"
@@ -35,7 +36,7 @@ class COMPONENT_EXPORT(CROS_HEALTHD) FakeCrosHealthdClient
 
   // CrosHealthdClient overrides:
   mojo::Remote<mojom::CrosHealthdServiceFactory> BootstrapMojoConnection(
-      base::OnceCallback<void(bool success)> result_callback) override;
+      BootstrapMojoConnectionCallback result_callback) override;
 
   // Set the list of routines that will be used in the response to any
   // GetAvailableRoutines IPCs received.
@@ -53,6 +54,34 @@ class COMPONENT_EXPORT(CROS_HEALTHD) FakeCrosHealthdClient
   // Set the TelemetryInfoPtr that will be used in the response to any
   // ProbeTelemetryInfo IPCs received.
   void SetProbeTelemetryInfoResponseForTesting(mojom::TelemetryInfoPtr& info);
+
+  // Set the ProcessResultPtr that will be used in the response to any
+  // ProbeProcessInfo IPCs received.
+  void SetProbeProcessInfoResponseForTesting(mojom::ProcessResultPtr& result);
+
+  // Adds a delay before the passed callback is called.
+  void SetCallbackDelay(base::TimeDelta delay);
+
+  // Calls the power event OnAcInserted on all registered power observers.
+  void EmitAcInsertedEventForTesting();
+
+  // Calls the Bluetooth event OnAdapterAdded on all registered Bluetooth
+  // observers.
+  void EmitAdapterAddedEventForTesting();
+
+  // Calls the lid event OnLidClosed on all registered lid observers.
+  void EmitLidClosedEventForTesting();
+
+  // Requests the network health state using the NetworkHealthService remote.
+  void RequestNetworkHealthForTesting(
+      chromeos::network_health::mojom::NetworkHealthService::
+          GetHealthSnapshotCallback callback);
+
+  // Calls the LanConnectivity routine using the NetworkDiagnosticsRoutines
+  // remote.
+  void RunLanConnectivityRoutineForTesting(
+      chromeos::network_diagnostics::mojom::NetworkDiagnosticsRoutines::
+          LanConnectivityCallback);
 
  private:
   FakeCrosHealthdService fake_service_;

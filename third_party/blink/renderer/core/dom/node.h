@@ -27,7 +27,7 @@
 #define THIRD_PARTY_BLINK_RENDERER_CORE_DOM_NODE_H_
 
 #include "base/macros.h"
-#include "third_party/blink/public/platform/web_focus_type.h"
+#include "third_party/blink/public/mojom/input/focus_type.mojom-blink-forward.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/dom/events/event_target.h"
 #include "third_party/blink/renderer/core/dom/events/simulated_click_options.h"
@@ -67,6 +67,7 @@ class NodeOrStringOrTrustedScript;
 class NodeRareData;
 class QualifiedName;
 class RegisteredEventListener;
+class ScrollTimeline;
 class SVGQualifiedName;
 class ScrollState;
 class ScrollStateCallback;
@@ -109,7 +110,7 @@ enum class SlotChangeType {
   kSuppressSlotChangeEvent,
 };
 
-enum class CloneChildrenFlag { kClone, kSkip };
+enum class CloneChildrenFlag { kSkip, kClone, kCloneWithShadows };
 
 // Whether or not to force creation of a legacy layout object (i.e. disallow
 // LayoutNG).
@@ -226,6 +227,8 @@ class CORE_EXPORT Node : public EventTarget {
   void After(const HeapVector<NodeOrStringOrTrustedScript>&, ExceptionState&);
   void ReplaceWith(const HeapVector<NodeOrStringOrTrustedScript>&,
                    ExceptionState&);
+  void ReplaceChildren(const HeapVector<NodeOrStringOrTrustedScript>&,
+                       ExceptionState&);
   void remove(ExceptionState&);
   void remove();
 
@@ -260,7 +263,7 @@ class CORE_EXPORT Node : public EventTarget {
   const AtomicString& lookupNamespaceURI(const String& prefix) const;
 
   String textContent(bool convert_brs_to_newlines = false) const;
-  void setTextContent(const String&);
+  virtual void setTextContent(const String&);
   void textContent(StringOrTrustedScript& result);
   virtual void setTextContent(const StringOrTrustedScript&, ExceptionState&);
 
@@ -269,22 +272,26 @@ class CORE_EXPORT Node : public EventTarget {
   void SetComputedStyle(scoped_refptr<const ComputedStyle> computed_style);
 
   // Other methods (not part of DOM)
-  bool IsTextNode() const { return GetDOMNodeType() == DOMNodeType::kText; }
-  bool IsContainerNode() const { return GetFlag(kIsContainerFlag); }
-  bool IsElementNode() const {
+  ALWAYS_INLINE bool IsTextNode() const {
+    return GetDOMNodeType() == DOMNodeType::kText;
+  }
+  ALWAYS_INLINE bool IsContainerNode() const {
+    return GetFlag(kIsContainerFlag);
+  }
+  ALWAYS_INLINE bool IsElementNode() const {
     return GetDOMNodeType() == DOMNodeType::kElement;
   }
-  bool IsDocumentFragment() const {
+  ALWAYS_INLINE bool IsDocumentFragment() const {
     return GetDOMNodeType() == DOMNodeType::kDocumentFragment;
   }
 
-  bool IsHTMLElement() const {
+  ALWAYS_INLINE bool IsHTMLElement() const {
     return GetElementNamespaceType() == ElementNamespaceType::kHTML;
   }
-  bool IsMathMLElement() const {
+  ALWAYS_INLINE bool IsMathMLElement() const {
     return GetElementNamespaceType() == ElementNamespaceType::kMathML;
   }
-  bool IsSVGElement() const {
+  ALWAYS_INLINE bool IsSVGElement() const {
     return GetElementNamespaceType() == ElementNamespaceType::kSVG;
   }
 
@@ -473,6 +480,10 @@ class CORE_EXPORT Node : public EventTarget {
   // Propagates a dirty bit breadcrumb for this element up the ancestor chain.
   void MarkAncestorsWithChildNeedsStyleRecalc();
 
+  // Traverses subtree (include pseudo elements and shadow trees) and
+  // invalidates nodes whose styles depend on font metrics (e.g., 'ex' unit).
+  void MarkSubtreeNeedsStyleRecalcForFontUpdates();
+
   // Nodes which are not connected are style clean. Mark them for style recalc
   // when inserting them into a document. This method was added as a light-
   // weight alternative to SetNeedsStyleRecalc because using that method caused
@@ -584,11 +595,10 @@ class CORE_EXPORT Node : public EventTarget {
     SetFlag(flag, kHasEventTargetDataFlag);
   }
 
-  virtual void SetFocused(bool flag, WebFocusType);
+  virtual void SetFocused(bool flag, mojom::blink::FocusType);
   void SetHasFocusWithin(bool flag);
   virtual void SetDragged(bool flag);
 
-  virtual const Node* FocusDelegate() const;
   // This is called only when the node is focused.
   virtual bool ShouldHaveFocusAppearance() const;
 
@@ -627,6 +637,11 @@ class CORE_EXPORT Node : public EventTarget {
     return *tree_scope_;
   }
 
+  // Returns the tree scope where this element originated.
+  // Use this when resolving element references for (CSS url(...)s and #id).
+  // This differs from GetTreeScope for shadow clones inside <svg:use/>.
+  TreeScope& OriginatingTreeScope() const;
+
   bool InActiveDocument() const;
 
   // Returns true if this node is connected to a document, false otherwise.
@@ -647,7 +662,9 @@ class CORE_EXPORT Node : public EventTarget {
   bool IsChildOfV0ShadowHost() const;
   ShadowRoot* V1ShadowRootOfParent() const;
   Element* FlatTreeParentForChildDirty() const;
-  ContainerNode* GetStyleRecalcParent() const;
+  Element* GetStyleRecalcParent() const {
+    return FlatTreeParentForChildDirty();
+  }
   Element* GetReattachParent() const { return FlatTreeParentForChildDirty(); }
 
   bool IsDocumentTypeNode() const { return getNodeType() == kDocumentTypeNode; }
@@ -667,6 +684,8 @@ class CORE_EXPORT Node : public EventTarget {
   // Whether or not a selection can be started in this object
   virtual bool CanStartSelection() const;
 
+  void NotifyPriorityScrollAnchorStatusChanged();
+
   // ---------------------------------------------------------------------------
   // Integration with layout tree
 
@@ -676,8 +695,8 @@ class CORE_EXPORT Node : public EventTarget {
   // have one as well.
   LayoutObject* GetLayoutObject() const {
     return HasRareData()
-               ? data_.rare_data_->GetNodeRenderingData()->GetLayoutObject()
-               : data_.node_layout_data_->GetLayoutObject();
+               ? DataAsNodeRareData()->GetNodeRenderingData()->GetLayoutObject()
+               : DataAsNodeRenderingData()->GetLayoutObject();
   }
   void SetLayoutObject(LayoutObject*);
   // Use these two methods with caution.
@@ -754,16 +773,20 @@ class CORE_EXPORT Node : public EventTarget {
   //
   // Blink notifies this callback regardless if the subtree of the node is a
   // document tree or a floating subtree.  Implementation can determine the type
-  // of subtree by seeing insertionPoint->isConnected().  For a performance
+  // of subtree by seeing insertion_point->isConnected().  For a performance
   // reason, notifications are delivered only to ContainerNode subclasses if the
-  // insertionPoint is out of document.
+  // insertion_point is out of document.
   //
-  // There are another callback named didNotifySubtreeInsertionsToDocument(),
+  // There are another callback named DidNotifySubtreeInsertionsToDocument(),
   // which is called after all the descendant is notified, if this node was
   // inserted into the document tree. Only a few subclasses actually need
   // this. To utilize this, the node should return
-  // InsertionShouldCallDidNotifySubtreeInsertions from insertedInto().
+  // kInsertionShouldCallDidNotifySubtreeInsertions from InsertedInto().
   //
+  // InsertedInto() implementations must not modify the DOM tree, and must not
+  // dispatch synchronous events. On the other hand,
+  // DidNotifySubtreeInsertionsToDocument() may modify the DOM tree, and may
+  // dispatch synchronous events.
   enum InsertionNotificationRequest {
     kInsertionDone,
     kInsertionShouldCallDidNotifySubtreeInsertions
@@ -775,10 +798,12 @@ class CORE_EXPORT Node : public EventTarget {
 
   // Notifies the node that it is no longer part of the tree.
   //
-  // This is a dual of insertedInto(), and is similar to the
+  // This is a dual of InsertedInto(), and is similar to the
   // DOMNodeRemovedFromDocument DOM event, but does not require the overhead of
   // event dispatching, and is called _after_ the node is removed from the tree.
   //
+  // RemovedFrom() implementations must not modify the DOM tree, and must not
+  // dispatch synchronous events.
   virtual void RemovedFrom(ContainerNode& insertion_point);
 
   // FIXME(dominicc): This method is not debug-only--it is used by
@@ -823,7 +848,7 @@ class CORE_EXPORT Node : public EventTarget {
       ShadowTreesTreatment = kTreatShadowTreesAsDisconnected) const;
 
   const AtomicString& InterfaceName() const override;
-  ExecutionContext* GetExecutionContext() const final;
+  ExecutionContext* GetExecutionContext() const override;
 
   void RemoveAllEventListeners() override;
   void RemoveAllEventListenersRecursively();
@@ -836,10 +861,6 @@ class CORE_EXPORT Node : public EventTarget {
   }
   virtual void PostDispatchEventHandler(Event&, EventDispatchHandlingState*) {}
 
-  // TODO(crbug.com/1013385): Remove DidPreventDefault. It is here as a
-  //   temporary fix for form double-submit.
-  virtual void DidPreventDefault(const Event&) {}
-
   void DispatchScopedEvent(Event&);
 
   virtual void HandleLocalEvents(Event&);
@@ -848,7 +869,7 @@ class CORE_EXPORT Node : public EventTarget {
   DispatchEventResult DispatchDOMActivateEvent(int detail,
                                                Event& underlying_event);
 
-  void DispatchSimulatedClick(Event* underlying_event,
+  void DispatchSimulatedClick(const Event* underlying_event,
                               SimulatedClickMouseEventOptions = kSendNoEvents,
                               SimulatedClickCreationScope =
                                   SimulatedClickCreationScope::kFromUserAgent);
@@ -911,7 +932,10 @@ class CORE_EXPORT Node : public EventTarget {
   // If the node is a plugin, then this returns its WebPluginContainer.
   WebPluginContainerImpl* GetWebPluginContainer() const;
 
-  void Trace(Visitor*) override;
+  void RegisterScrollTimeline(ScrollTimeline*);
+  void UnregisterScrollTimeline(ScrollTimeline*);
+
+  void Trace(Visitor*) const override;
 
  private:
   enum NodeFlags : uint32_t {
@@ -966,7 +990,9 @@ class CORE_EXPORT Node : public EventTarget {
     // 4 bits remaining.
   };
 
-  bool GetFlag(NodeFlags mask) const { return node_flags_ & mask; }
+  ALWAYS_INLINE bool GetFlag(NodeFlags mask) const {
+    return node_flags_ & mask;
+  }
   void SetFlag(bool f, NodeFlags mask) {
     node_flags_ = (node_flags_ & ~mask) | (-(int32_t)f & mask);
   }
@@ -974,45 +1000,55 @@ class CORE_EXPORT Node : public EventTarget {
   void ClearFlag(NodeFlags mask) { node_flags_ &= ~mask; }
 
   enum class DOMNodeType : uint32_t {
-    kOther = 0,
+    kElement = 0,
     kText = 1 << kDOMNodeTypeShift,
-    kElement = 2 << kDOMNodeTypeShift,
-    kDocumentFragment = 3 << kDOMNodeTypeShift,
+    kDocumentFragment = 2 << kDOMNodeTypeShift,
+    kOther = 3 << kDOMNodeTypeShift,
   };
-  DOMNodeType GetDOMNodeType() const {
+  ALWAYS_INLINE DOMNodeType GetDOMNodeType() const {
     return static_cast<DOMNodeType>(node_flags_ & kDOMNodeTypeMask);
   }
 
   enum class ElementNamespaceType : uint32_t {
-    kOther = 0,
-    kHTML = 1 << kElementNamespaceTypeShift,
-    kMathML = 2 << kElementNamespaceTypeShift,
-    kSVG = 3 << kElementNamespaceTypeShift,
+    kHTML = 0,
+    kMathML = 1 << kElementNamespaceTypeShift,
+    kSVG = 2 << kElementNamespaceTypeShift,
+    kOther = 3 << kElementNamespaceTypeShift,
   };
-  ElementNamespaceType GetElementNamespaceType() const {
+  ALWAYS_INLINE ElementNamespaceType GetElementNamespaceType() const {
     return static_cast<ElementNamespaceType>(node_flags_ &
                                              kElementNamespaceTypeMask);
   }
 
  protected:
   enum ConstructionType {
-    kCreateOther =
-        kDefaultNodeFlags | static_cast<NodeFlags>(DOMNodeType::kOther),
-    kCreateText =
-        kDefaultNodeFlags | static_cast<NodeFlags>(DOMNodeType::kText),
-    kCreateContainer = kDefaultNodeFlags | kIsContainerFlag,
-    kCreateElement =
-        kCreateContainer | static_cast<NodeFlags>(DOMNodeType::kElement),
+    kCreateOther = kDefaultNodeFlags |
+                   static_cast<NodeFlags>(DOMNodeType::kOther) |
+                   static_cast<NodeFlags>(ElementNamespaceType::kOther),
+    kCreateText = kDefaultNodeFlags |
+                  static_cast<NodeFlags>(DOMNodeType::kText) |
+                  static_cast<NodeFlags>(ElementNamespaceType::kOther),
+    kCreateContainer = kDefaultNodeFlags | kIsContainerFlag |
+                       static_cast<NodeFlags>(DOMNodeType::kOther) |
+                       static_cast<NodeFlags>(ElementNamespaceType::kOther),
+    kCreateElement = kDefaultNodeFlags | kIsContainerFlag |
+                     static_cast<NodeFlags>(DOMNodeType::kElement) |
+                     static_cast<NodeFlags>(ElementNamespaceType::kOther),
     kCreateDocumentFragment =
-        kCreateContainer |
-        static_cast<NodeFlags>(DOMNodeType::kDocumentFragment),
+        kDefaultNodeFlags | kIsContainerFlag |
+        static_cast<NodeFlags>(DOMNodeType::kDocumentFragment) |
+        static_cast<NodeFlags>(ElementNamespaceType::kOther),
     kCreateShadowRoot = kCreateDocumentFragment | kIsInShadowTreeFlag,
-    kCreateHTMLElement =
-        kCreateElement | static_cast<NodeFlags>(ElementNamespaceType::kHTML),
+    kCreateHTMLElement = kDefaultNodeFlags | kIsContainerFlag |
+                         static_cast<NodeFlags>(DOMNodeType::kElement) |
+                         static_cast<NodeFlags>(ElementNamespaceType::kHTML),
     kCreateMathMLElement =
-        kCreateElement | static_cast<NodeFlags>(ElementNamespaceType::kMathML),
-    kCreateSVGElement =
-        kCreateElement | static_cast<NodeFlags>(ElementNamespaceType::kSVG),
+        kDefaultNodeFlags | kIsContainerFlag |
+        static_cast<NodeFlags>(DOMNodeType::kElement) |
+        static_cast<NodeFlags>(ElementNamespaceType::kMathML),
+    kCreateSVGElement = kDefaultNodeFlags | kIsContainerFlag |
+                        static_cast<NodeFlags>(DOMNodeType::kElement) |
+                        static_cast<NodeFlags>(ElementNamespaceType::kSVG),
     kCreateDocument = kCreateContainer | kIsConnectedFlag,
     kCreateV0InsertionPoint = kCreateHTMLElement | kIsV0InsertionPointFlag,
     kCreateEditingText = kCreateText | kHasNameOrIsEditingTextFlag,
@@ -1033,7 +1069,7 @@ class CORE_EXPORT Node : public EventTarget {
 
   NodeRareData* RareData() const {
     SECURITY_DCHECK(HasRareData());
-    return data_.rare_data_;
+    return DataAsNodeRareData();
   }
   NodeRareData& EnsureRareData() {
     if (HasRareData())
@@ -1087,19 +1123,22 @@ class CORE_EXPORT Node : public EventTarget {
   const HeapHashSet<Member<MutationObserverRegistration>>*
   TransientMutationObserverRegistry();
 
+  NodeRareData* DataAsNodeRareData() const {
+    DCHECK(HasRareData());
+    return reinterpret_cast<NodeRareData*>(data_.Get());
+  }
+  NodeRenderingData* DataAsNodeRenderingData() const {
+    DCHECK(!HasRareData());
+    return reinterpret_cast<NodeRenderingData*>(data_.Get());
+  }
+
   uint32_t node_flags_;
   Member<Node> parent_or_shadow_host_node_;
   Member<TreeScope> tree_scope_;
   Member<Node> previous_;
   Member<Node> next_;
   // When a node has rare data we move the layoutObject into the rare data.
-  union DataUnion {
-    DataUnion() : node_layout_data_(&NodeRenderingData::SharedEmptyData()) {}
-    // LayoutObjects are fully owned by their DOM node. See LayoutObject's
-    // LIFETIME documentation section.
-    NodeRenderingData* node_layout_data_;
-    NodeRareData* rare_data_;
-  } data_;
+  Member<NodeData> data_;
 };
 
 inline void Node::SetParentOrShadowHostNode(ContainerNode* parent) {

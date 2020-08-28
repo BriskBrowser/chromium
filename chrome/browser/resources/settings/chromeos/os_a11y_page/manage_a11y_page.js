@@ -2,6 +2,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+/** @const {number} */
+const DEFAULT_BLACK_CURSOR_COLOR = 0;
+
 /**
  * @fileoverview
  * 'settings-manage-a11y-page' is the subpage with the accessibility
@@ -98,12 +101,101 @@ Polymer({
       },
     },
 
-    showExperimentalSwitchAccess_: {
+    /** @private {!Array<{name: string, value: number}>} */
+    cursorColorOptions_: {
+      readOnly: true,
+      type: Array,
+      value() {
+        return [
+          {
+            value: DEFAULT_BLACK_CURSOR_COLOR,
+            name: loadTimeData.getString('cursorColorBlack'),
+          },
+          {
+            value: 0xd93025,  // Red 600
+            name: loadTimeData.getString('cursorColorRed'),
+          },
+          {
+            value: 0xf29900,  //  Yellow 700
+            name: loadTimeData.getString('cursorColorYellow'),
+          },
+          {
+            value: 0x1e8e3e,  // Green 600
+            name: loadTimeData.getString('cursorColorGreen'),
+          },
+          {
+            value: 0x03b6be,  // Cyan 600
+            name: loadTimeData.getString('cursorColorCyan'),
+          },
+          {
+            value: 0x1a73e8,  // Blue 600
+            name: loadTimeData.getString('cursorColorBlue'),
+          },
+          {
+            value: 0xc61ad9,  // Magenta 600
+            name: loadTimeData.getString('cursorColorMagenta'),
+          },
+          {
+            value: 0xf50057,  // Pink A400
+            name: loadTimeData.getString('cursorColorPink'),
+          },
+
+        ];
+      },
+    },
+
+    allowExperimentalSwitchAccess_: {
       type: Boolean,
       value() {
         return loadTimeData.getBoolean(
             'showExperimentalAccessibilitySwitchAccess');
       },
+    },
+
+    /** @private */
+    shouldShowExperimentalCursorColor_: {
+      type: Boolean,
+      value() {
+        return loadTimeData.getBoolean(
+            'showExperimentalAccessibilityCursorColor');
+      },
+    },
+
+    /**
+     * Whether the user is in kiosk mode.
+     * @private
+     */
+    isKioskModeActive_: {
+      type: Boolean,
+      value() {
+        return loadTimeData.getBoolean('isKioskModeActive');
+      }
+    },
+
+    /** @private */
+    shouldShowExperimentalSwitchAccess_: {
+      type: Boolean,
+      computed: 'computeShouldShowExperimentalSwitchAccess_(' +
+          'allowExperimentalSwitchAccess_,' +
+          'isKioskModeActive_)',
+    },
+
+    /** @private */
+    enableLiveCaption_: {
+      type: Boolean,
+      value: function() {
+        return loadTimeData.getBoolean('enableLiveCaption');
+      },
+    },
+
+    /**
+     * Whether a setting for enabling shelf navigation buttons in tablet mode
+     * should be displayed in the accessibility settings.
+     * @private
+     */
+    showShelfNavigationButtonsSettings_: {
+      type: Boolean,
+      value: false,
     },
 
     /** @private */
@@ -126,10 +218,38 @@ Polymer({
 
     /** @private */
     hasTouchpad_: Boolean,
+
+    /**
+     * Boolean indicating whether shelf navigation buttons should implicitly be
+     * enabled in tablet mode - the navigation buttons are implicitly enabled
+     * when spoken feedback, automatic clicks, or switch access are enabled.
+     * The buttons can also be explicitly enabled by a designated a11y setting.
+     * @private
+     */
+    shelfNavigationButtonsImplicitlyEnabled_: {
+      type: Boolean,
+      computed: 'computeShelfNavigationButtonsImplicitlyEnabled_(' +
+          'prefs.settings.accessibility.value,' +
+          'prefs.settings.a11y.autoclick.value,' +
+          'prefs.settings.a11y.switch_access.enabled.value)',
+    },
+
+    /**
+     * The effective pref value that indicates whether shelf navigation buttons
+     * are enabled in tablet mode.
+     * @type {chrome.settingsPrivate.PrefObject}
+     * @private
+     */
+    shelfNavigationButtonsPref_: {
+      type: Object,
+      computed: 'getShelfNavigationButtonsEnabledPref_(' +
+          'shelfNavigationButtonsImplicitlyEnabled_,' +
+          'prefs.settings.a11y.tablet_mode_shelf_nav_buttons_enabled)',
+    },
   },
 
   observers: [
-    'pointersChanged_(hasMouse_, hasTouchpad_)',
+    'pointersChanged_(hasMouse_, hasTouchpad_, isKioskModeActive_)',
   ],
 
   /** settings.RouteOriginBehavior override */
@@ -151,9 +271,11 @@ Polymer({
   /** @override */
   ready() {
     this.addWebUIListener(
-        'startup-sound-enabled-updated',
-        this.updateStartupSoundEnabled_.bind(this));
-    chrome.send('getStartupSoundEnabled');
+        'initial-data-ready', this.onManageAllyPageReady_.bind(this));
+    chrome.send('manageA11yPageReady');
+
+    this.addWebUIListener(
+        'tablet-mode-changed', this.onTabletModeChanged_.bind(this));
 
     const r = settings.routes;
     this.addFocusConfig_(r.MANAGE_TTS_SETTINGS, '#ttsSubpageButton');
@@ -161,7 +283,6 @@ Polymer({
     this.addFocusConfig_(
         r.MANAGE_SWITCH_ACCESS_SETTINGS, '#switchAccessSubpageButton');
     this.addFocusConfig_(r.DISPLAY, '#displaySubpageButton');
-    this.addFocusConfig_(r.APPEARANCE, '#appearanceSubpageButton');
     this.addFocusConfig_(r.KEYBOARD, '#keyboardSubpageButton');
     this.addFocusConfig_(r.POINTERS, '#pointerSubpageButton');
   },
@@ -171,8 +292,9 @@ Polymer({
    * @param {boolean} hasTouchpad
    * @private
    */
-  pointersChanged_(hasMouse, hasTouchpad) {
-    this.$.pointerSubpageButton.hidden = !hasMouse && !hasTouchpad;
+  pointersChanged_(hasMouse, hasTouchpad, isKioskModeActive) {
+    this.$.pointerSubpageButton.hidden =
+        (!hasMouse && !hasTouchpad) || isKioskModeActive;
   },
 
   /**
@@ -202,17 +324,10 @@ Polymer({
     chrome.send('setStartupSoundEnabled', [e.detail]);
   },
 
-  /**
-   * @param {boolean} enabled
-   * @private
-   */
-  updateStartupSoundEnabled_(enabled) {
-    this.$.startupSoundEnabled.checked = enabled;
-  },
-
   /** @private */
   onManageTtsSettingsTap_() {
-    settings.navigateTo(settings.routes.MANAGE_TTS_SETTINGS);
+    settings.Router.getInstance().navigateTo(
+        settings.routes.MANAGE_TTS_SETTINGS);
   },
 
   /** @private */
@@ -222,7 +337,8 @@ Polymer({
 
   /** @private */
   onCaptionsClick_() {
-    settings.navigateTo(settings.routes.MANAGE_CAPTION_SETTINGS);
+    settings.Router.getInstance().navigateTo(
+        settings.routes.MANAGE_CAPTION_SETTINGS);
   },
 
   /** @private */
@@ -232,12 +348,13 @@ Polymer({
 
   /** @private */
   onSwitchAccessSettingsTap_() {
-    settings.navigateTo(settings.routes.MANAGE_SWITCH_ACCESS_SETTINGS);
+    settings.Router.getInstance().navigateTo(
+        settings.routes.MANAGE_SWITCH_ACCESS_SETTINGS);
   },
 
   /** @private */
   onDisplayTap_() {
-    settings.navigateTo(
+    settings.Router.getInstance().navigateTo(
         settings.routes.DISPLAY,
         /* dynamicParams */ null, /* removeSearch */ true);
   },
@@ -250,15 +367,147 @@ Polymer({
 
   /** @private */
   onKeyboardTap_() {
-    settings.navigateTo(
+    settings.Router.getInstance().navigateTo(
         settings.routes.KEYBOARD,
         /* dynamicParams */ null, /* removeSearch */ true);
   },
 
+  /**
+   * @return {boolean} Whether shelf navigation buttons should implicitly be
+   *     enabled in tablet mode (due to accessibility settings different than
+   *     shelf_navigation_buttons_enabled_in_tablet_mode).
+   * @private
+   */
+  computeShelfNavigationButtonsImplicitlyEnabled_() {
+    /**
+     * Gets the bool pref value for the provided pref key.
+     * @param {string} key
+     * @return {boolean}
+     */
+    const getBoolPrefValue = (key) => {
+      const pref = /** @type {chrome.settingsPrivate.PrefObject} */ (
+          this.get(key, this.prefs));
+      return pref && !!pref.value;
+    };
+
+    return getBoolPrefValue('settings.accessibility') ||
+        getBoolPrefValue('settings.a11y.autoclick') ||
+        getBoolPrefValue('settings.a11y.switch_access.enabled');
+  },
+
+  /**
+   * Calculates the effective value for "shelf navigation buttons enabled in
+   * tablet mode" setting - if the setting is implicitly enabled (by other a11y
+   * settings), this will return a stub pref value.
+   * @private
+   * @return {chrome.settingsPrivate.PrefObject}
+   */
+  getShelfNavigationButtonsEnabledPref_() {
+    if (this.shelfNavigationButtonsImplicitlyEnabled_) {
+      return /** @type {!chrome.settingsPrivate.PrefObject}*/ ({
+        value: true,
+        type: chrome.settingsPrivate.PrefType.BOOLEAN,
+        key: ''
+      });
+    }
+
+    return /** @type {chrome.settingsPrivate.PrefObject} */ (this.get(
+        'settings.a11y.tablet_mode_shelf_nav_buttons_enabled', this.prefs));
+  },
+
+  /** @private */
+  onShelfNavigationButtonsLearnMoreClicked_() {
+    chrome.metricsPrivate.recordUserAction(
+        'Settings_A11y_ShelfNavigationButtonsLearnMoreClicked');
+  },
+
+  /**
+   * Handles the <code>tablet_mode_shelf_nav_buttons_enabled</code> setting's
+   * toggle changes. It updates the backing pref value, unless the setting is
+   * implicitly enabled.
+   * @private
+   */
+  updateShelfNavigationButtonsEnabledPref_() {
+    if (this.shelfNavigationButtonsImplicitlyEnabled_) {
+      return;
+    }
+
+    const enabled = this.$.shelfNavigationButtonsEnabledControl.checked;
+    this.set(
+        'prefs.settings.a11y.tablet_mode_shelf_nav_buttons_enabled.value',
+        enabled);
+    chrome.send('recordSelectedShowShelfNavigationButtonValue', [enabled]);
+  },
+
+  /**
+   * @param {!Event} event
+   * @private
+   */
+  onA11yLiveCaptionChange_(event) {
+    const a11yLiveCaptionOn = event.target.checked;
+    chrome.metricsPrivate.recordBoolean(
+        'Accessibility.LiveCaption.ToggleEnabled', a11yLiveCaptionOn);
+  },
+
+  /** @private */
+  onA11yCursorColorChange_() {
+    // Custom cursor color is enabled when the color is not set to black.
+    const a11yCursorColorOn =
+        this.get('prefs.settings.a11y.cursor_color.value') !=
+        DEFAULT_BLACK_CURSOR_COLOR;
+    this.set(
+        'prefs.settings.a11y.cursor_color_enabled.value', a11yCursorColorOn);
+  },
+
+
   /** @private */
   onMouseTap_() {
-    settings.navigateTo(
+    settings.Router.getInstance().navigateTo(
         settings.routes.POINTERS,
         /* dynamicParams */ null, /* removeSearch */ true);
+  },
+
+  /**
+   * Called when tablet mode is changed. Handles updating the visibility of the
+   * shelf navigation buttons setting.
+   * @param {boolean} tabletModeEnabled Whether tablet mode is enabled.
+   * @private
+   */
+  onTabletModeChanged_(tabletModeEnabled) {
+    this.showShelfNavigationButtonsSettings_ = tabletModeEnabled &&
+        loadTimeData.getBoolean('showTabletModeShelfNavigationButtonsSettings');
+  },
+
+  /**
+   * Handles updating the visibility of the shelf navigation buttons setting
+   * and updating whether startupSoundEnabled is checked.
+   * @param {boolean} startup_sound_enabled Whether startup sound is enabled.
+   * @param {boolean} tabletModeEnabled Whether tablet mode is enabled.
+   * @private
+   */
+  onManageAllyPageReady_(startup_sound_enabled, tabletModeEnabled) {
+    this.$.startupSoundEnabled.checked = startup_sound_enabled;
+    this.showShelfNavigationButtonsSettings_ = tabletModeEnabled &&
+        loadTimeData.getBoolean(
+            'showTabletModeShelfNavigationButtonsSettings') &&
+        !this.isKioskModeActive_;
+  },
+  /*
+   * Whether additional features link should be shown.
+   * @param {boolean} isKiosk
+   * @param {boolean} isGuest
+   * @return {boolean}
+   * @private
+   */
+  shouldShowAdditionalFeaturesLink_(isKiosk, isGuest) {
+    return !isKiosk && !isGuest;
+  },
+
+  /**
+   * @return {boolean}
+   * @private
+   */
+  computeShouldShowExperimentalSwitchAccess_() {
+    return this.allowExperimentalSwitchAccess_ && !this.isKioskModeActive_;
   },
 });

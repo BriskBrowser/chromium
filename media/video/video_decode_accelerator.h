@@ -19,6 +19,7 @@
 #include "media/base/decoder_buffer.h"
 #include "media/base/encryption_scheme.h"
 #include "media/base/overlay_info.h"
+#include "media/base/status.h"
 #include "media/base/video_decoder_config.h"
 #include "media/video/picture.h"
 #include "ui/gfx/color_space.h"
@@ -31,6 +32,10 @@ namespace base {
 class SingleThreadTaskRunner;
 }
 
+namespace gpu {
+class SharedImageStub;
+}
+
 namespace media {
 
 // Video decoder interface.
@@ -38,7 +43,7 @@ namespace media {
 // implement the backend of PPB_VideoDecoder_Dev.
 class MEDIA_EXPORT VideoDecodeAccelerator {
  public:
-  // Specification of a decoding profile supported by an decoder.
+  // Specification of a decoding profile supported by a decoder.
   // |max_resolution| and |min_resolution| are inclusive.
   struct MEDIA_EXPORT SupportedProfile {
     SupportedProfile();
@@ -149,7 +154,7 @@ class MEDIA_EXPORT VideoDecodeAccelerator {
 
     // The CDM that the VDA should use to decode encrypted streams. Must be
     // set to a valid ID if |is_encrypted|.
-    int cdm_id = CdmContext::kInvalidCdmId;
+    base::Optional<base::UnguessableToken> cdm_id;
 
     // Whether the client supports deferred initialization.
     bool is_deferred_initialization_allowed = false;
@@ -200,7 +205,7 @@ class MEDIA_EXPORT VideoDecodeAccelerator {
     // call to VDA::Initialize returns true.
     // The default implementation is a NOTREACHED, since deferred initialization
     // is not supported by default.
-    virtual void NotifyInitializationComplete(bool success);
+    virtual void NotifyInitializationComplete(Status status);
 
     // Callback to tell client how many and what size of buffers to provide.
     // Note that the actual count provided through AssignPictureBuffers() can be
@@ -215,8 +220,10 @@ class MEDIA_EXPORT VideoDecodeAccelerator {
                                        uint32_t texture_target) = 0;
 
     // This is the same as ProvidePictureBuffers() except that |visible_rect| is
-    // also included. The default implementation of VDA would call
-    // ProvidePictureBuffers().
+    // also included. The default implementation calls ProvidePictureBuffers()
+    // setting |dimensions| = GetRectSizeFromOrigin(|visible_rect|) when
+    // |texture_target| is GL_TEXTURE_EXTERNAL_OES; otherwise, it passes along
+    // all parameters to ProvidePictureBuffers() as they are.
     virtual void ProvidePictureBuffersWithVisibleRect(
         uint32_t requested_num_of_buffers,
         VideoPixelFormat format,
@@ -250,6 +257,10 @@ class MEDIA_EXPORT VideoDecodeAccelerator {
     // Initialize() will not be reported here, but will instead be indicated by
     // a false return value there.
     virtual void NotifyError(Error error) = 0;
+
+    // Return the SharedImageStub through which SharedImages may be created.
+    // Default implementation returns nullptr.
+    virtual gpu::SharedImageStub* GetSharedImageStub() const;
 
    protected:
     virtual ~Client() {}

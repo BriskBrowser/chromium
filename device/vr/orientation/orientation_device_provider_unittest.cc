@@ -36,7 +36,7 @@ class VROrientationDeviceProviderTest : public testing::Test {
   VROrientationDeviceProviderTest() = default;
   ~VROrientationDeviceProviderTest() override = default;
   void SetUp() override {
-    fake_sensor_provider_ = std::make_unique<FakeSensorProvider>();
+    fake_sensor_provider_ = std::make_unique<FakeXRSensorProvider>();
 
     fake_sensor_ = std::make_unique<FakeOrientationSensor>(
         sensor_.InitWithNewPipeAndPassReceiver());
@@ -84,10 +84,12 @@ class VROrientationDeviceProviderTest : public testing::Test {
 
   base::RepeatingCallback<void(device::mojom::XRDeviceId,
                                mojom::VRDisplayInfoPtr,
+                               mojom::XRDeviceDataPtr,
                                mojo::PendingRemote<mojom::XRRuntime> device)>
   DeviceAndIdCallbackFailIfCalled() {
     return base::BindRepeating(
         [](device::mojom::XRDeviceId id, mojom::VRDisplayInfoPtr,
+           mojom::XRDeviceDataPtr,
            mojo::PendingRemote<mojom::XRRuntime> device) { FAIL(); });
   }
 
@@ -98,14 +100,16 @@ class VROrientationDeviceProviderTest : public testing::Test {
 
   base::RepeatingCallback<void(device::mojom::XRDeviceId,
                                mojom::VRDisplayInfoPtr,
+                               mojom::XRDeviceDataPtr,
                                mojo::PendingRemote<mojom::XRRuntime> device)>
   DeviceAndIdCallbackMustBeCalled(base::RunLoop* loop) {
     return base::BindRepeating(
         [](base::OnceClosure quit_closure, device::mojom::XRDeviceId id,
-           mojom::VRDisplayInfoPtr info,
+           mojom::VRDisplayInfoPtr info, mojom::XRDeviceDataPtr data,
            mojo::PendingRemote<mojom::XRRuntime> device) {
           ASSERT_TRUE(device);
           ASSERT_TRUE(info);
+          ASSERT_TRUE(data);
           std::move(quit_closure).Run();
         },
         loop->QuitClosure());
@@ -135,7 +139,7 @@ class VROrientationDeviceProviderTest : public testing::Test {
 
   std::unique_ptr<VROrientationDeviceProvider> provider_;
 
-  std::unique_ptr<FakeSensorProvider> fake_sensor_provider_;
+  std::unique_ptr<FakeXRSensorProvider> fake_sensor_provider_;
   mojo::Remote<mojom::SensorProvider> sensor_provider_;
 
   // Fake Sensor Init params objects

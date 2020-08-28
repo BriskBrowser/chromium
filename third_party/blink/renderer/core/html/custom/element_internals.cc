@@ -4,13 +4,13 @@
 
 #include "third_party/blink/renderer/core/html/custom/element_internals.h"
 
+#include "third_party/blink/renderer/bindings/core/v8/v8_validity_state_flags.h"
 #include "third_party/blink/renderer/core/accessibility/ax_object_cache.h"
 #include "third_party/blink/renderer/core/dom/dom_token_list.h"
 #include "third_party/blink/renderer/core/dom/node_lists_node_data.h"
 #include "third_party/blink/renderer/core/fileapi/file.h"
 #include "third_party/blink/renderer/core/html/custom/custom_element.h"
 #include "third_party/blink/renderer/core/html/custom/custom_element_registry.h"
-#include "third_party/blink/renderer/core/html/custom/validity_state_flags.h"
 #include "third_party/blink/renderer/core/html/forms/form_controller.h"
 #include "third_party/blink/renderer/core/html/forms/form_data.h"
 #include "third_party/blink/renderer/core/html/forms/html_form_element.h"
@@ -47,10 +47,9 @@ class CustomStatesTokenList : public DOMTokenList {
 };
 
 ElementInternals::ElementInternals(HTMLElement& target) : target_(target) {
-  value_.SetUSVString(String());
 }
 
-void ElementInternals::Trace(Visitor* visitor) {
+void ElementInternals::Trace(Visitor* visitor) const {
   visitor->Trace(target_);
   visitor->Trace(value_);
   visitor->Trace(state_);
@@ -239,6 +238,10 @@ bool ElementInternals::HasState(const AtomicString& state) const {
   return custom_states_ && custom_states_->contains(state);
 }
 
+ShadowRoot* ElementInternals::shadowRoot() const {
+  return Target().AuthorShadowRoot();
+}
+
 const AtomicString& ElementInternals::FastGetAttribute(
     const QualifiedName& attribute) const {
   return accessibility_semantics_map_.at(attribute);
@@ -301,28 +304,25 @@ Element* ElementInternals::GetElementAttribute(const QualifiedName& name) {
   return element_vector->at(0);
 }
 
-HeapVector<Member<Element>> ElementInternals::GetElementArrayAttribute(
-    const QualifiedName& name,
-    bool is_null) {
-  is_null = true;
-  auto iter = explicitly_set_attr_elements_map_.find(name);
+base::Optional<HeapVector<Member<Element>>>
+ElementInternals::GetElementArrayAttribute(const QualifiedName& name) const {
+  const auto& iter = explicitly_set_attr_elements_map_.find(name);
   if (iter != explicitly_set_attr_elements_map_.end()) {
-    is_null = false;
     return *(iter->value);
   }
-  return HeapVector<Member<Element>>();
+  return base::nullopt;
 }
 
 void ElementInternals::SetElementArrayAttribute(
     const QualifiedName& name,
-    HeapVector<Member<Element>> elements,
-    bool is_null) {
-  if (is_null) {
+    const base::Optional<HeapVector<Member<Element>>>& elements) {
+  if (elements) {
+    explicitly_set_attr_elements_map_.Set(
+        name,
+        MakeGarbageCollected<HeapVector<Member<Element>>>(elements.value()));
+  } else {
     explicitly_set_attr_elements_map_.erase(name);
-    return;
   }
-  explicitly_set_attr_elements_map_.Set(
-      name, MakeGarbageCollected<HeapVector<Member<Element>>>(elements));
 }
 
 bool ElementInternals::IsTargetFormAssociated() const {

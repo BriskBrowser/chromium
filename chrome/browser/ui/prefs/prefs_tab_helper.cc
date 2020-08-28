@@ -50,12 +50,12 @@
 #include "ui/base/l10n/l10n_util.h"
 
 #if defined(OS_ANDROID)
-#include "chrome/browser/android/chrome_feature_list.h"
+#include "chrome/browser/flags/android/chrome_feature_list.h"
 #else  // !defined(OS_ANDROID)
 #include "chrome/browser/ui/zoom/chrome_zoom_level_prefs.h"
 #endif
 
-#if defined(OS_POSIX) && !defined(OS_MACOSX) && !defined(OS_ANDROID)
+#if defined(OS_POSIX) && !defined(OS_MAC) && !defined(OS_ANDROID)
 #include "chrome/browser/themes/theme_service.h"
 #include "chrome/browser/themes/theme_service_factory.h"
 #endif
@@ -135,7 +135,7 @@ const FontDefault kFontDefaults[] = {
     {prefs::kWebKitCursiveFontFamily, IDS_CURSIVE_FONT_FAMILY},
     {prefs::kWebKitFantasyFontFamily, IDS_FANTASY_FONT_FAMILY},
     {prefs::kWebKitPictographFontFamily, IDS_PICTOGRAPH_FONT_FAMILY},
-#if defined(OS_CHROMEOS) || defined(OS_MACOSX) || defined(OS_WIN)
+#if defined(OS_CHROMEOS) || defined(OS_MAC) || defined(OS_WIN)
     {prefs::kWebKitStandardFontFamilyJapanese,
      IDS_STANDARD_FONT_FAMILY_JAPANESE},
     {prefs::kWebKitFixedFontFamilyJapanese, IDS_FIXED_FONT_FAMILY_JAPANESE},
@@ -159,7 +159,7 @@ const FontDefault kFontDefaults[] = {
     {prefs::kWebKitSansSerifFontFamilyTraditionalHan,
      IDS_SANS_SERIF_FONT_FAMILY_TRADITIONAL_HAN},
 #endif
-#if defined(OS_MACOSX) || defined(OS_WIN)
+#if defined(OS_MAC) || defined(OS_WIN)
     {prefs::kWebKitCursiveFontFamilySimplifiedHan,
      IDS_CURSIVE_FONT_FAMILY_SIMPLIFIED_HAN},
     {prefs::kWebKitCursiveFontFamilyTraditionalHan,
@@ -318,7 +318,7 @@ PrefsTabHelper::PrefsTabHelper(WebContents* contents)
       web_contents_->GetMutableRendererPrefs();
   renderer_preferences_util::UpdateFromSystemSettings(render_prefs, profile_);
 
-#if defined(OS_POSIX) && !defined(OS_MACOSX) && !defined(OS_ANDROID)
+#if defined(OS_POSIX) && !defined(OS_MAC) && !defined(OS_ANDROID)
   registrar_.Add(this,
                  chrome::NOTIFICATION_BROWSER_THEME_CHANGED,
                  content::Source<ThemeService>(
@@ -357,6 +357,7 @@ void PrefsTabHelper::RegisterProfilePrefs(
       prefs::kEnableReferrers,
       !base::FeatureList::IsEnabled(features::kNoReferrers));
   registry->RegisterBooleanPref(prefs::kEnableEncryptedMedia, true);
+  registry->RegisterBooleanPref(prefs::kScrollToTextFragmentEnabled, true);
 #if defined(OS_ANDROID)
   registry->RegisterDoublePref(prefs::kWebKitFontScaleFactor, 1.0);
   registry->RegisterBooleanPref(prefs::kWebKitForceEnableZoom,
@@ -432,7 +433,7 @@ void PrefsTabHelper::GetServiceInstance() {
 void PrefsTabHelper::Observe(int type,
                              const content::NotificationSource& source,
                              const content::NotificationDetails& details) {
-#if defined(OS_POSIX) && !defined(OS_MACOSX) && !defined(OS_ANDROID)
+#if defined(OS_POSIX) && !defined(OS_MAC) && !defined(OS_ANDROID)
   if (type == chrome::NOTIFICATION_BROWSER_THEME_CHANGED) {
     UpdateRendererPreferences();
     return;
@@ -443,8 +444,7 @@ void PrefsTabHelper::Observe(int type,
 }
 
 void PrefsTabHelper::UpdateWebPreferences() {
-  web_contents_->GetRenderViewHost()->UpdateWebkitPreferences(
-      web_contents_->GetRenderViewHost()->GetWebkitPreferences());
+  web_contents_->NotifyPreferencesChanged();
 }
 
 void PrefsTabHelper::UpdateRendererPreferences() {
@@ -475,10 +475,9 @@ void PrefsTabHelper::OnFontFamilyPrefChanged(const std::string& pref_name) {
     PrefService* prefs = profile_->GetPrefs();
     std::string pref_value = prefs->GetString(pref_name);
     if (pref_value.empty()) {
-      WebPreferences web_prefs =
-          web_contents_->GetRenderViewHost()->GetWebkitPreferences();
+      WebPreferences web_prefs = web_contents_->GetOrCreateWebPreferences();
       OverrideFontFamily(&web_prefs, generic_family, script, std::string());
-      web_contents_->GetRenderViewHost()->UpdateWebkitPreferences(web_prefs);
+      web_contents_->SetWebPreferences(web_prefs);
       return;
     }
   }
@@ -499,7 +498,7 @@ void PrefsTabHelper::NotifyWebkitPreferencesChanged(
   OnFontFamilyPrefChanged(pref_name);
 #endif
 
-  web_contents_->GetRenderViewHost()->OnWebkitPreferencesChanged();
+  web_contents_->OnWebPreferencesChanged();
 }
 
 WEB_CONTENTS_USER_DATA_KEY_IMPL(PrefsTabHelper)

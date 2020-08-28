@@ -38,7 +38,7 @@ WorkerDevToolsAgentHost::WorkerDevToolsAgentHost(
                                     std::move(connection_error));
 }
 
-WorkerDevToolsAgentHost::~WorkerDevToolsAgentHost() {}
+WorkerDevToolsAgentHost::~WorkerDevToolsAgentHost() = default;
 
 void WorkerDevToolsAgentHost::Disconnected() {
   ForceDetachAllSessions();
@@ -79,7 +79,8 @@ bool WorkerDevToolsAgentHost::Close() {
   return false;
 }
 
-bool WorkerDevToolsAgentHost::AttachSession(DevToolsSession* session) {
+bool WorkerDevToolsAgentHost::AttachSession(DevToolsSession* session,
+                                            bool acquire_wake_lock) {
   session->AddHandler(std::make_unique<protocol::TargetHandler>(
       protocol::TargetHandler::AccessMode::kAutoAttachOnly, GetId(),
       GetRendererChannel(), session->GetRootSession()));

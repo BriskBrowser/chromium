@@ -10,9 +10,10 @@
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/safe_browsing/download_protection/download_protection_service.h"
 #include "chrome/browser/safe_browsing/safe_browsing_service.h"
-#include "chrome/common/safe_browsing/file_type_policies.h"
 #include "components/download/public/common/download_danger_type.h"
 #include "components/download/public/common/download_item.h"
+#include "components/safe_browsing/core/file_type_policies.h"
+#include "content/public/browser/download_item_utils.h"
 
 using safe_browsing::ClientDownloadResponse;
 using safe_browsing::ClientSafeBrowsingReportRequest;
@@ -53,6 +54,8 @@ const char* GetDangerTypeString(
       return "DeepScannedOpenedDangerous";
     case download::DOWNLOAD_DANGER_TYPE_PROMPT_FOR_SCANNING:
       return "PromptForScanning";
+    case download::DOWNLOAD_DANGER_TYPE_BLOCKED_UNSUPPORTED_FILETYPE:
+      return "BlockedUnsupportedFiletype";
     case download::DOWNLOAD_DANGER_TYPE_NOT_DANGEROUS:
     case download::DOWNLOAD_DANGER_TYPE_MAYBE_DANGEROUS_CONTENT:
     case download::DOWNLOAD_DANGER_TYPE_USER_VALIDATED:
@@ -72,6 +75,8 @@ void DownloadDangerPrompt::SendSafeBrowsingDownloadReport(
     const download::DownloadItem& download) {
   safe_browsing::SafeBrowsingService* sb_service =
       g_browser_process->safe_browsing_service();
+  Profile* profile = Profile::FromBrowserContext(
+      content::DownloadItemUtils::GetBrowserContext(&download));
   ClientSafeBrowsingReportRequest report;
   report.set_type(report_type);
   switch (download.GetDangerType()) {
@@ -100,7 +105,7 @@ void DownloadDangerPrompt::SendSafeBrowsingDownloadReport(
     report.set_token(token);
   std::string serialized_report;
   if (report.SerializeToString(&serialized_report))
-    sb_service->SendSerializedDownloadReport(serialized_report);
+    sb_service->SendSerializedDownloadReport(profile, serialized_report);
   else
     DLOG(ERROR) << "Unable to serialize the threat report.";
 }

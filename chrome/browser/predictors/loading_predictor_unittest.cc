@@ -19,7 +19,6 @@
 #include "content/public/test/browser_task_environment.h"
 #include "content/public/test/test_utils.h"
 #include "net/base/network_isolation_key.h"
-#include "net/url_request/url_request_context.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "url/origin.h"
@@ -158,6 +157,18 @@ void LoadingPredictorPreconnectTest::SetPreference() {
       chrome_browser_net::NETWORK_PREDICTION_ALWAYS);
 }
 
+TEST_F(LoadingPredictorTest, TestOnNavigationStarted) {
+  const SessionID tab_id = SessionID::FromSerializedValue(12);
+
+  // Should return true if there are predictions.
+  auto navigation_id = CreateNavigationID(tab_id, kUrl);
+  EXPECT_TRUE(predictor_->OnNavigationStarted(navigation_id));
+
+  // Should return false since there are no predictions.
+  auto navigation_id2 = CreateNavigationID(tab_id, kUrl3);
+  EXPECT_FALSE(predictor_->OnNavigationStarted(navigation_id2));
+}
+
 TEST_F(LoadingPredictorTest, TestMainFrameResponseCancelsHint) {
   const GURL url = GURL(kUrl);
   predictor_->PrepareForPageLoad(url, HintOrigin::EXTERNAL);
@@ -196,26 +207,34 @@ TEST_F(LoadingPredictorTest, TestMainFrameResponseClearsNavigations) {
   const SessionID tab_id = SessionID::FromSerializedValue(12);
   const auto& active_navigations = predictor_->active_navigations_;
   const auto& active_hints = predictor_->active_hints_;
+  const auto& active_urls_to_navigations =
+      predictor_->active_urls_to_navigations_;
 
   auto navigation_id = CreateNavigationID(tab_id, url);
 
   predictor_->OnNavigationStarted(navigation_id);
   EXPECT_NE(active_navigations.find(navigation_id), active_navigations.end());
   EXPECT_FALSE(active_hints.empty());
+  EXPECT_NE(active_urls_to_navigations.find(GURL(url)),
+            active_urls_to_navigations.end());
 
   predictor_->OnNavigationFinished(navigation_id, navigation_id, false);
   EXPECT_TRUE(active_navigations.empty());
   EXPECT_TRUE(active_hints.empty());
+  EXPECT_TRUE(active_urls_to_navigations.empty());
 
   // With redirects.
   predictor_->OnNavigationStarted(navigation_id);
   EXPECT_NE(active_navigations.find(navigation_id), active_navigations.end());
   EXPECT_FALSE(active_hints.empty());
+  EXPECT_NE(active_urls_to_navigations.find(GURL(url)),
+            active_urls_to_navigations.end());
 
   auto new_navigation_id = CreateNavigationID(tab_id, redirected);
   predictor_->OnNavigationFinished(navigation_id, new_navigation_id, false);
   EXPECT_TRUE(active_navigations.empty());
   EXPECT_TRUE(active_hints.empty());
+  EXPECT_TRUE(active_urls_to_navigations.empty());
 }
 
 TEST_F(LoadingPredictorTest, TestMainFrameRequestDoesntCancelExternalHint) {
@@ -352,11 +371,12 @@ TEST_F(LoadingPredictorPreconnectTest, TestAddInitialUrlToEmptyPrediction) {
                  std::vector<PreconnectRequest>(
                      {{url::Origin::Create(GURL("http://search.com")), 2,
                        CreateNetworkIsolationKey(main_frame_url)}})));
-  predictor_->PrepareForPageLoad(main_frame_url, HintOrigin::NAVIGATION);
+  EXPECT_FALSE(
+      predictor_->PrepareForPageLoad(main_frame_url, HintOrigin::NAVIGATION));
 }
 
 // Checks that the predictor doesn't add an initial origin to a preconnect list
-// if the list already containts the origin.
+// if the list already contains the origin.
 TEST_F(LoadingPredictorPreconnectTest, TestAddInitialUrlMatchesPrediction) {
   GURL main_frame_url("http://search.com/kittens");
   net::NetworkIsolationKey network_isolation_key =
@@ -381,7 +401,8 @@ TEST_F(LoadingPredictorPreconnectTest, TestAddInitialUrlMatchesPrediction) {
                        network_isolation_key},
                       {url::Origin::Create(GURL("http://ads.search.com")), 0,
                        network_isolation_key}})));
-  predictor_->PrepareForPageLoad(main_frame_url, HintOrigin::EXTERNAL);
+  EXPECT_TRUE(
+      predictor_->PrepareForPageLoad(main_frame_url, HintOrigin::EXTERNAL));
 }
 
 // Checks that the predictor adds an initial origin to a preconnect list if the
@@ -413,7 +434,8 @@ TEST_F(LoadingPredictorPreconnectTest, TestAddInitialUrlDoesntMatchPrediction) {
                        network_isolation_key},
                       {url::Origin::Create(GURL("http://ads.search.com")), 0,
                        network_isolation_key}})));
-  predictor_->PrepareForPageLoad(main_frame_url, HintOrigin::EXTERNAL);
+  EXPECT_TRUE(
+      predictor_->PrepareForPageLoad(main_frame_url, HintOrigin::EXTERNAL));
 }
 
 // Checks that the predictor doesn't preconnect to a bad url.
@@ -421,7 +443,149 @@ TEST_F(LoadingPredictorPreconnectTest, TestAddInvalidInitialUrl) {
   GURL main_frame_url("file:///tmp/index.html");
   EXPECT_CALL(*mock_predictor_, PredictPreconnectOrigins(main_frame_url, _))
       .WillOnce(Return(false));
-  predictor_->PrepareForPageLoad(main_frame_url, HintOrigin::EXTERNAL);
+  EXPECT_FALSE(
+      predictor_->PrepareForPageLoad(main_frame_url, HintOrigin::EXTERNAL));
+}
+
+// Checks that the predictor uses the provided prediction if there isn't an
+// active hint initiated via a local prediction happening already.
+TEST_F(LoadingPredictorPreconnectTest,
+       TestPrepareForPageLoadPredictionProvided) {
+  GURL main_frame_url("http://search.com/kittens");
+  net::NetworkIsolationKey network_isolation_key =
+      CreateNetworkIsolationKey(main_frame_url);
+  EXPECT_CALL(*mock_predictor_, PredictPreconnectOrigins(main_frame_url, _))
+      .WillOnce(Return(false));
+  PreconnectPrediction prediction = CreatePreconnectPrediction(
+      "search.com", true,
+      {{url::Origin::Create(GURL("http://cdn1.search.com")), 1,
+        network_isolation_key},
+       {url::Origin::Create(GURL("http://cdn2.search.com")), 1,
+        network_isolation_key},
+       {url::Origin::Create(GURL("http://cdn3.search.com")), 1,
+        network_isolation_key}});
+  EXPECT_CALL(
+      *mock_preconnect_manager_,
+      StartProxy(main_frame_url,
+                 std::vector<PreconnectRequest>(
+                     {{url::Origin::Create(GURL("http://cdn1.search.com")), 1,
+                       network_isolation_key},
+                      {url::Origin::Create(GURL("http://cdn2.search.com")), 1,
+                       network_isolation_key},
+                      {url::Origin::Create(GURL("http://cdn3.search.com")), 1,
+                       network_isolation_key}})));
+  EXPECT_TRUE(predictor_->PrepareForPageLoad(
+      main_frame_url, HintOrigin::OPTIMIZATION_GUIDE, false, prediction));
+}
+
+// Checks that the predictor does not proceed with an empty request.
+TEST_F(LoadingPredictorPreconnectTest,
+       TestPrepareForPageLoadPredictionWithEmptyRequestsProvided) {
+  GURL main_frame_url("http://nopredictions.com/");
+  net::NetworkIsolationKey network_isolation_key =
+      CreateNetworkIsolationKey(main_frame_url);
+  EXPECT_CALL(*mock_predictor_, PredictPreconnectOrigins(main_frame_url, _))
+      .WillOnce(Return(false));
+  PreconnectPrediction prediction;
+  EXPECT_FALSE(predictor_->PrepareForPageLoad(
+      main_frame_url, HintOrigin::OPTIMIZATION_GUIDE, false, prediction));
+}
+
+// Checks that the predictor preconnects to an initial origin even when it
+// doesn't have any historical data for this host, but still allows subsequent
+// calls to PrepareForPageLoad with a provided prediction.
+TEST_F(LoadingPredictorPreconnectTest,
+       TestPrepareForPageLoadPreconnectsUsingPredictionWhenNoLocalPrediction) {
+  GURL main_frame_url("http://search.com/kittens");
+  EXPECT_CALL(*mock_predictor_, PredictPreconnectOrigins(main_frame_url, _))
+      .WillRepeatedly(Return(false));
+  net::NetworkIsolationKey network_isolation_key =
+      CreateNetworkIsolationKey(main_frame_url);
+  EXPECT_CALL(*mock_preconnect_manager_,
+              StartProxy(main_frame_url,
+                         std::vector<PreconnectRequest>(
+                             {{url::Origin::Create(GURL("http://search.com")),
+                               2, network_isolation_key}})));
+  EXPECT_FALSE(
+      predictor_->PrepareForPageLoad(main_frame_url, HintOrigin::NAVIGATION));
+
+  // A second call to PrepareForPageLoad using a provided prediction should
+  // fire requests.
+  PreconnectPrediction prediction = CreatePreconnectPrediction(
+      "search.com", true,
+      {{url::Origin::Create(GURL("http://cdn1.search.com")), 1,
+        network_isolation_key},
+       {url::Origin::Create(GURL("http://cdn2.search.com")), 1,
+        network_isolation_key},
+       {url::Origin::Create(GURL("http://cdn3.search.com")), 1,
+        network_isolation_key}});
+  EXPECT_CALL(
+      *mock_preconnect_manager_,
+      StartProxy(main_frame_url,
+                 std::vector<PreconnectRequest>(
+                     {{url::Origin::Create(GURL("http://cdn1.search.com")), 1,
+                       network_isolation_key},
+                      {url::Origin::Create(GURL("http://cdn2.search.com")), 1,
+                       network_isolation_key},
+                      {url::Origin::Create(GURL("http://cdn3.search.com")), 1,
+                       network_isolation_key}})));
+  EXPECT_TRUE(predictor_->PrepareForPageLoad(
+      main_frame_url, HintOrigin::OPTIMIZATION_GUIDE, false, prediction));
+}
+
+// Checks that the predictor uses a prediction even if there is already a local
+// initiated one in flight.
+TEST_F(
+    LoadingPredictorPreconnectTest,
+    TestPrepareForPageLoadPredictionProvidedButHasLocalPreconnectPrediction) {
+  GURL main_frame_url("http://search.com/kittens");
+  net::NetworkIsolationKey network_isolation_key =
+      CreateNetworkIsolationKey(main_frame_url);
+  PreconnectPrediction prediction = CreatePreconnectPrediction(
+      "search.com", true,
+      {{url::Origin::Create(GURL("http://search.com")), 1,
+        network_isolation_key},
+       {url::Origin::Create(GURL("http://cdn.search.com")), 1,
+        network_isolation_key},
+       {url::Origin::Create(GURL("http://ads.search.com")), 0,
+        network_isolation_key}});
+  EXPECT_CALL(*mock_predictor_, PredictPreconnectOrigins(main_frame_url, _))
+      .WillRepeatedly(DoAll(SetArgPointee<1>(prediction), Return(true)));
+  EXPECT_CALL(
+      *mock_preconnect_manager_,
+      StartProxy(main_frame_url,
+                 std::vector<PreconnectRequest>(
+                     {{url::Origin::Create(GURL("http://search.com")), 2,
+                       network_isolation_key},
+                      {url::Origin::Create(GURL("http://cdn.search.com")), 1,
+                       network_isolation_key},
+                      {url::Origin::Create(GURL("http://ads.search.com")), 0,
+                       network_isolation_key}})));
+  EXPECT_TRUE(
+      predictor_->PrepareForPageLoad(main_frame_url, HintOrigin::EXTERNAL));
+
+  // A second call to PrepareForPageLoad using a provided prediction should not
+  // fire requests.
+  prediction = CreatePreconnectPrediction(
+      "search.com", true,
+      {{url::Origin::Create(GURL("http://cdn1.search.com")), 1,
+        network_isolation_key},
+       {url::Origin::Create(GURL("http://cdn2.search.com")), 1,
+        network_isolation_key},
+       {url::Origin::Create(GURL("http://cdn3.search.com")), 1,
+        network_isolation_key}});
+  EXPECT_CALL(
+      *mock_preconnect_manager_,
+      StartProxy(main_frame_url,
+                 std::vector<PreconnectRequest>(
+                     {{url::Origin::Create(GURL("http://cdn1.search.com")), 1,
+                       network_isolation_key},
+                      {url::Origin::Create(GURL("http://cdn2.search.com")), 1,
+                       network_isolation_key},
+                      {url::Origin::Create(GURL("http://cdn3.search.com")), 1,
+                       network_isolation_key}})));
+  EXPECT_TRUE(predictor_->PrepareForPageLoad(
+      main_frame_url, HintOrigin::OPTIMIZATION_GUIDE, false, prediction));
 }
 
 }  // namespace predictors

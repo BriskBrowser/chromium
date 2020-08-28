@@ -9,7 +9,6 @@
 
 #include "base/android/jni_android.h"
 #include "base/android/jni_string.h"
-#include "base/logging.h"
 #include "chrome/browser/android/resource_mapper.h"
 #include "chrome/browser/data_reduction_proxy/data_reduction_promo_infobar_delegate_android.h"
 #include "content/public/browser/web_contents.h"
@@ -18,7 +17,7 @@
 
 DataReductionPromoInfoBar::DataReductionPromoInfoBar(
     std::unique_ptr<DataReductionPromoInfoBarDelegateAndroid> delegate)
-    : ConfirmInfoBar(std::move(delegate)) {}
+    : ChromeConfirmInfoBar(std::move(delegate)) {}
 
 DataReductionPromoInfoBar::~DataReductionPromoInfoBar() {
 }

@@ -16,9 +16,11 @@
 #include "base/strings/stringprintf.h"
 #include "media/base/audio_parameters.h"
 #include "media/base/channel_layout.h"
+#include "media/base/demuxer_stream.h"
 #include "media/base/media_log.h"
 #include "media/base/pipeline_status.h"
 #include "media/base/sample_format.h"
+#include "media/base/status.h"
 #include "media/base/video_decoder_config.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "ui/gfx/geometry/size.h"
@@ -51,8 +53,8 @@ class WaitableMessageLoopEvent {
   ~WaitableMessageLoopEvent();
 
   // Returns a thread-safe closure that will signal |this| when executed.
-  base::Closure GetClosure();
-  PipelineStatusCB GetPipelineStatusCB();
+  base::OnceClosure GetClosure();
+  PipelineStatusCallback GetPipelineStatusCB();
 
   // Runs the current message loop until |this| has been signaled.
   //
@@ -104,9 +106,14 @@ class TestVideoConfig {
   static VideoDecoderConfig Large(VideoCodec codec = kCodecVP8);
   static VideoDecoderConfig LargeEncrypted(VideoCodec codec = kCodecVP8);
 
+  // Returns a configuration that is larger in dimensions that Large().
+  static VideoDecoderConfig ExtraLarge(VideoCodec codec = kCodecVP8);
+  static VideoDecoderConfig ExtraLargeEncrypted(VideoCodec codec = kCodecVP8);
+
   // Returns coded size for Normal and Large config.
   static gfx::Size NormalCodedSize();
   static gfx::Size LargeCodedSize();
+  static gfx::Size ExtraLargeCodedSize();
 
  private:
   DISALLOW_COPY_AND_ASSIGN(TestVideoConfig);
@@ -118,6 +125,14 @@ class TestAudioConfig {
  public:
   static AudioDecoderConfig Normal();
   static AudioDecoderConfig NormalEncrypted();
+
+  // Returns configurations that have a higher sample rate than Normal()
+  static AudioDecoderConfig HighSampleRate();
+  static AudioDecoderConfig HighSampleRateEncrypted();
+
+  // Returns coded sample rate for Normal and HighSampleRate config.
+  static int NormalSampleRateValue();
+  static int HighSampleRateValue();
 };
 
 // Provides pre-canned AudioParameters objects.
@@ -198,6 +213,20 @@ bool VerifyFakeVideoBufferForTest(const DecoderBuffer& buffer,
 // Create a MockDemuxerStream for testing purposes.
 std::unique_ptr<::testing::StrictMock<MockDemuxerStream>>
 CreateMockDemuxerStream(DemuxerStream::Type type, bool encrypted);
+
+// Compares two media::Status by StatusCode only.
+MATCHER_P(SameStatusCode, status, "") {
+  return arg.code() == status.code();
+}
+
+// Compares two an |arg| Status to a StatusCode provided
+MATCHER_P(HasStatusCode, status_code, "") {
+  return arg.code() == status_code;
+}
+
+MATCHER(IsOkStatus, "") {
+  return arg.is_ok();
+}
 
 // Compares two {Audio|Video}DecoderConfigs
 MATCHER_P(DecoderConfigEq, config, "") {
@@ -312,7 +341,14 @@ MATCHER_P2(AudioNonKeyframe, pts_microseconds, dts_microseconds, "") {
                base::NumberToString(pts_microseconds) + "us and DTS " +
                base::NumberToString(dts_microseconds) +
                "us indicated the frame is not a random access point (key "
-               "frame). All audio frames are expected to be key frames.");
+               "frame). All audio frames are expected to be key frames for "
+               "the current audio codec.");
+}
+
+MATCHER(AudioNonKeyframeOutOfOrder, "") {
+  return CONTAINS_STRING(arg,
+                         "Dependent audio frame with invalid decreasing "
+                         "presentation timestamp detected.");
 }
 
 MATCHER_P2(SkippingSpliceAtOrBefore,
@@ -433,6 +469,20 @@ MATCHER_P3(DroppedFrameCheckAppendWindow,
              arg, "outside append window [" +
                       base::NumberToString(append_window_start_us) + "us," +
                       base::NumberToString(append_window_end_us) + "us");
+}
+
+MATCHER_P3(DroppedAppendWindowUnusedPreroll,
+           pts_us,
+           delta_us,
+           next_pts_us,
+           "") {
+  return CONTAINS_STRING(
+      arg,
+      "Partial append window trimming dropping unused audio preroll buffer "
+      "with PTS " +
+          base::NumberToString(pts_us) + "us that ends too far (" +
+          base::NumberToString(delta_us) + "us) from next buffer with PTS " +
+          base::NumberToString(next_pts_us) + "us");
 }
 
 }  // namespace media

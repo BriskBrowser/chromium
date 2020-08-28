@@ -9,6 +9,7 @@
 
 #include "base/logging.h"
 #include "base/numerics/safe_conversions.h"
+#include "base/strings/string_piece_forward.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "third_party/sqlite/sqlite3.h"
@@ -58,7 +59,7 @@ int Statement::StepInternal() {
     return SQLITE_ERROR;
 
   base::Optional<base::ScopedBlockingCall> scoped_blocking_call;
-  ref_->InitScopedBlockingCall(&scoped_blocking_call);
+  ref_->InitScopedBlockingCall(FROM_HERE, &scoped_blocking_call);
 
   stepped_ = true;
   int ret = sqlite3_step(ref_->stmt());
@@ -76,7 +77,7 @@ bool Statement::Step() {
 
 void Statement::Reset(bool clear_bound_vars) {
   base::Optional<base::ScopedBlockingCall> scoped_blocking_call;
-  ref_->InitScopedBlockingCall(&scoped_blocking_call);
+  ref_->InitScopedBlockingCall(FROM_HERE, &scoped_blocking_call);
   if (is_valid()) {
     if (clear_bound_vars)
       sqlite3_clear_bindings(ref_->stmt());
@@ -145,7 +146,7 @@ bool Statement::BindString(int col, const std::string& val) {
                                    SQLITE_TRANSIENT));
 }
 
-bool Statement::BindString16(int col, const base::string16& value) {
+bool Statement::BindString16(int col, base::StringPiece16 value) {
   return BindString(col, base::UTF16ToUTF8(value));
 }
 

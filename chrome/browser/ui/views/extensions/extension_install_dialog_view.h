@@ -9,11 +9,16 @@
 
 #include "base/macros.h"
 #include "base/optional.h"
+#include "base/scoped_observer.h"
 #include "base/timer/elapsed_timer.h"
 #include "base/timer/timer.h"
 #include "chrome/browser/extensions/extension_install_prompt.h"
+#include "extensions/browser/extension_registry.h"
+#include "extensions/browser/extension_registry_observer.h"
+#include "extensions/browser/uninstall_reason.h"
 #include "ui/views/bubble/bubble_dialog_delegate_view.h"
 #include "ui/views/controls/button/button.h"
+#include "ui/views/controls/button/checkbox.h"
 #include "ui/views/view.h"
 
 class Profile;
@@ -25,7 +30,9 @@ class PageNavigator;
 // Modal dialog that shows when the user attempts to install an extension. Also
 // shown if the extension is already installed but needs additional permissions.
 // Not a normal "bubble" despite being a subclass of BubbleDialogDelegateView.
-class ExtensionInstallDialogView : public views::BubbleDialogDelegateView {
+class ExtensionInstallDialogView
+    : public views::BubbleDialogDelegateView,
+      public extensions::ExtensionRegistryObserver {
  public:
   // The views::View::id of the ratings section in the dialog.
   static const int kRatingsViewId = 1;
@@ -46,15 +53,21 @@ class ExtensionInstallDialogView : public views::BubbleDialogDelegateView {
   // Changes the widget size to accommodate the contents' preferred size.
   void ResizeWidget();
 
- private:
   // views::BubbleDialogDelegate:
   gfx::Size CalculatePreferredSize() const override;
   void VisibilityChanged(views::View* starting_from, bool is_visible) override;
   void AddedToWidget() override;
-  bool Cancel() override;
-  bool Accept() override;
   bool IsDialogButtonEnabled(ui::DialogButton button) const override;
   bool ShouldShowCloseButton() const override;
+
+ private:
+  void CloseDialog();
+
+  // extensions::ExtensionRegistryObserver:
+  void OnExtensionUninstalled(content::BrowserContext* browser_context,
+                              const extensions::Extension* extension,
+                              extensions::UninstallReason reason) override;
+  void OnShutdown(extensions::ExtensionRegistry* registry) override;
 
   // views::WidgetDelegate:
   ax::mojom::Role GetAccessibleWindowRole() override;
@@ -62,6 +75,8 @@ class ExtensionInstallDialogView : public views::BubbleDialogDelegateView {
   ui::ModalType GetModalType() const override;
 
   void LinkClicked();
+  void OnDialogCanceled();
+  void OnDialogAccepted();
 
   // Creates the contents area that contains permissions and other extension
   // info.
@@ -82,14 +97,13 @@ class ExtensionInstallDialogView : public views::BubbleDialogDelegateView {
   ExtensionInstallPrompt::DoneCallback done_callback_;
   std::unique_ptr<ExtensionInstallPrompt::Prompt> prompt_;
   base::string16 title_;
+  ScopedObserver<extensions::ExtensionRegistry,
+                 extensions::ExtensionRegistryObserver>
+      extension_registry_observer_{this};
 
   // The scroll view containing all the details for the dialog (including all
   // collapsible/expandable sections).
   views::ScrollView* scroll_view_;
-
-  // Set to true once the user's selection has been received and the callback
-  // has been run.
-  bool handled_result_;
 
   // Used to record time between dialog creation and acceptance, cancellation,
   // or dismissal.
@@ -100,6 +114,9 @@ class ExtensionInstallDialogView : public views::BubbleDialogDelegateView {
 
   // Used to determine whether the install button should be enabled.
   bool install_button_enabled_;
+
+  // Checkbox used to indicate if permissions should be withheld on install.
+  views::Checkbox* withhold_permissions_checkbox_;
 
   DISALLOW_COPY_AND_ASSIGN(ExtensionInstallDialogView);
 };

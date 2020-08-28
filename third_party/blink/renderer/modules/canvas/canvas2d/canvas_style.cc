@@ -53,7 +53,7 @@ enum ColorParseResult {
 static ColorParseResult ParseColor(Color& parsed_color,
                                    const String& color_string,
                                    WebColorScheme color_scheme) {
-  if (DeprecatedEqualIgnoringCase(color_string, "currentcolor"))
+  if (EqualIgnoringASCIICase(color_string, "currentcolor"))
     return kParsedCurrentColor;
   const bool kUseStrictParsing = true;
   if (CSSParser::ParseColor(parsed_color, color_string, kUseStrictParsing))
@@ -133,7 +133,7 @@ RGBA32 CanvasStyle::PaintColor() const {
   return Color::kBlack;
 }
 
-void CanvasStyle::Trace(blink::Visitor* visitor) {
+void CanvasStyle::Trace(Visitor* visitor) const {
   visitor->Trace(gradient_);
   visitor->Trace(pattern_);
 }

@@ -10,6 +10,7 @@
 
 #include "base/metrics/histogram_macros.h"
 #include "base/trace_event/trace_event.h"
+#include "ui/base/ui_base_features.h"
 #include "ui/gfx/geometry/rect_conversions.h"
 #include "ui/ozone/platform/drm/gpu/drm_overlay_candidates.h"
 #include "ui/ozone/public/overlay_surface_candidate.h"
@@ -78,6 +79,19 @@ void DrmOverlayManager::CheckOverlaySupport(
     result_candidates.back().overlay_handled = can_handle;
   }
 
+  if (features::IsSynchronousPageFlipTestingEnabled()) {
+    std::vector<OverlayStatus> status =
+        SendOverlayValidationRequestSync(result_candidates, widget);
+    size_t size = candidates->size();
+    DCHECK_EQ(size, status.size());
+    for (size_t i = 0; i < size; i++) {
+      DCHECK(status[i] == OVERLAY_STATUS_ABLE ||
+             status[i] == OVERLAY_STATUS_NOT);
+      candidates->at(i).overlay_handled = status[i] == OVERLAY_STATUS_ABLE;
+    }
+    return;
+  }
+
   auto widget_cache_map_it = widget_cache_map_.find(widget);
   if (widget_cache_map_it == widget_cache_map_.end()) {
     widget_cache_map_it =
@@ -133,6 +147,15 @@ bool DrmOverlayManager::CanHandleCandidate(
 
   // Reject candidates that don't fall on a pixel boundary.
   if (!gfx::IsNearestRectWithinDistance(candidate.display_rect, 0.01f))
+    return false;
+
+  // DRM supposedly supports subpixel source crop. However, according to
+  // drm_plane_funcs.update_plane, devices which don't support that are
+  // free to ignore the fractional part, and every device seems to do that as
+  // of 5.4. So reject candidates that require subpixel source crop.
+  gfx::RectF crop(candidate.crop_rect);
+  crop.Scale(candidate.buffer_size.width(), candidate.buffer_size.height());
+  if (!gfx::IsNearestRectWithinDistance(crop, 0.01f))
     return false;
 
   if (candidate.is_clipped && !candidate.clip_rect.Contains(

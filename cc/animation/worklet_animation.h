@@ -21,7 +21,6 @@ FORWARD_DECLARE_TEST(WorkletAnimationTest, NonImplInstanceDoesNotTickKeyframe);
 
 class AnimationOptions;
 class AnimationEffectTimings;
-class ScrollTimeline;
 
 // A WorkletAnimation is an animation that allows its animation
 // timing to be controlled by an animator instance that is running in a
@@ -40,7 +39,6 @@ class CC_ANIMATION_EXPORT WorkletAnimation final : public Animation {
                    WorkletAnimationId worklet_animation_id,
                    const std::string& name,
                    double playback_rate,
-                   std::unique_ptr<ScrollTimeline> scroll_timeline,
                    std::unique_ptr<AnimationOptions> options,
                    std::unique_ptr<AnimationEffectTimings> effect_timings,
                    bool is_controlling_instance);
@@ -48,16 +46,12 @@ class CC_ANIMATION_EXPORT WorkletAnimation final : public Animation {
       WorkletAnimationId worklet_animation_id,
       const std::string& name,
       double playback_rate,
-      std::unique_ptr<ScrollTimeline> scroll_timeline,
       std::unique_ptr<AnimationOptions> options,
       std::unique_ptr<AnimationEffectTimings> effect_timings);
   scoped_refptr<Animation> CreateImplInstance() const override;
 
   WorkletAnimationId worklet_animation_id() { return worklet_animation_id_; }
   const std::string& name() const { return name_; }
-  const ScrollTimeline* scroll_timeline() const {
-    return scroll_timeline_.get();
-  }
 
   bool IsWorkletAnimation() const override;
 
@@ -66,6 +60,7 @@ class CC_ANIMATION_EXPORT WorkletAnimation final : public Animation {
   void UpdateState(bool start_ready_animations,
                    AnimationEvents* events) override;
 
+  void TakeTimeUpdatedEvent(AnimationEvents* events) override;
   void UpdateInputState(MutatorInputState* input_state,
                         base::TimeTicks monotonic_time,
                         const ScrollTree& scroll_tree,
@@ -74,16 +69,6 @@ class CC_ANIMATION_EXPORT WorkletAnimation final : public Animation {
 
   void PushPropertiesTo(Animation* animation_impl) override;
 
-  // Should be called when the ScrollTimeline attached to this animation has a
-  // change, such as when the scroll source changes ElementId.
-  void UpdateScrollTimeline(base::Optional<ElementId> scroller_id,
-                            base::Optional<double> start_scroll_offset,
-                            base::Optional<double> end_scroll_offset);
-
-  // Should be called when the pending tree is promoted to active, as this may
-  // require updating the ElementId for the ScrollTimeline scroll source.
-  void PromoteScrollTimelinePendingToActive() override;
-
   // Called by Blink WorkletAnimation when its playback rate is updated.
   void UpdatePlaybackRate(double playback_rate);
   void SetPlaybackRateForTesting(double playback_rate) {
@@ -91,7 +76,6 @@ class CC_ANIMATION_EXPORT WorkletAnimation final : public Animation {
   }
 
   void RemoveKeyframeModel(int keyframe_model_id) override;
-
   void ReleasePendingTreeLock() { has_pending_tree_lock_ = false; }
 
  private:
@@ -101,7 +85,6 @@ class CC_ANIMATION_EXPORT WorkletAnimation final : public Animation {
                    WorkletAnimationId worklet_animation_id,
                    const std::string& name,
                    double playback_rate,
-                   std::unique_ptr<ScrollTimeline> scroll_timeline,
                    std::unique_ptr<AnimationOptions> options,
                    std::unique_ptr<AnimationEffectTimings> effect_timings,
                    bool is_controlling_instance,
@@ -141,14 +124,6 @@ class CC_ANIMATION_EXPORT WorkletAnimation final : public Animation {
   WorkletAnimationId worklet_animation_id_;
   std::string name_;
 
-  // The ScrollTimeline associated with the underlying animation. If null, the
-  // animation is based on a DocumentTimeline.
-  //
-  // TODO(crbug.com/780148): A WorkletAnimation should own an AnimationTimeline
-  // which must exist but can either be a DocumentTimeline, ScrollTimeline, or
-  // some other future implementation.
-  std::unique_ptr<ScrollTimeline> scroll_timeline_;
-
   // Controls speed of the animation.
   // https://drafts.csswg.org/web-animations-2/#animation-effect-playback-rate
 
@@ -182,7 +157,6 @@ class CC_ANIMATION_EXPORT WorkletAnimation final : public Animation {
   // lock in the worklet. The lock is established when updating the input state
   // for the pending tree and release on pending tree activation.
   bool has_pending_tree_lock_;
-
   State state_;
 
   bool is_impl_instance_;

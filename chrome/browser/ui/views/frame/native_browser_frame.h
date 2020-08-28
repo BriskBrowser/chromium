@@ -11,6 +11,7 @@
 #include "ui/views/widget/widget.h"
 
 class BrowserFrame;
+enum class TabDragKind;
 
 namespace content {
 struct NativeWebKeyboardEvent;
@@ -48,6 +49,9 @@ class NativeBrowserFrame {
   // Returns true if the |event| was handled by the platform implementation.
   virtual bool HandleKeyboardEvent(
       const content::NativeWebKeyboardEvent& event) = 0;
+
+  // Called when the tab drag kind for this frame changes.
+  virtual void TabDraggingKindChanged(TabDragKind tab_drag_kind) {}
 
  protected:
   friend class BrowserFrame;

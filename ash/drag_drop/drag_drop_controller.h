@@ -9,18 +9,22 @@
 
 #include "ash/ash_export.h"
 #include "ash/display/window_tree_host_manager.h"
+#include "ash/drag_drop/tab_drag_drop_delegate.h"
 #include "base/callback.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
+#include "base/optional.h"
 #include "base/time/time.h"
 #include "ui/aura/client/drag_drop_client.h"
 #include "ui/aura/window_observer.h"
+#include "ui/base/dragdrop/mojom/drag_drop_types.mojom-shared.h"
 #include "ui/base/dragdrop/os_exchange_data.h"
 #include "ui/events/event_constants.h"
 #include "ui/events/event_handler.h"
 #include "ui/gfx/animation/animation_delegate.h"
 #include "ui/gfx/geometry/rect.h"
+#include "ui/views/widget/unique_widget_ptr.h"
 
 namespace gfx {
 class LinearAnimation;
@@ -33,7 +37,6 @@ class LocatedEvent;
 namespace ash {
 class DragDropTracker;
 class DragDropTrackerDelegate;
-class DragImageView;
 
 class ASH_EXPORT DragDropController : public aura::client::DragDropClient,
                                       public ui::EventHandler,
@@ -56,7 +59,7 @@ class ASH_EXPORT DragDropController : public aura::client::DragDropClient,
                        aura::Window* source_window,
                        const gfx::Point& screen_location,
                        int operation,
-                       ui::DragDropTypes::DragEventSource source) override;
+                       ui::mojom::DragEventSource source) override;
   void DragCancel() override;
   bool IsDragDropInProgress() override;
   void AddObserver(aura::client::DragDropClientObserver* observer) override;
@@ -112,14 +115,17 @@ class ASH_EXPORT DragDropController : public aura::client::DragDropClient,
   void Cleanup();
 
   bool enabled_ = false;
-  std::unique_ptr<DragImageView> drag_image_;
+  views::UniqueWidgetPtr drag_image_widget_;
   gfx::Vector2d drag_image_offset_;
   std::unique_ptr<ui::OSExchangeData> drag_data_;
-  int drag_operation_;
+  int drag_operation_ = 0;
   int current_drag_actions_ = 0;
 
+  // Used when processing a Chrome tab drag from a WebUI tab strip.
+  base::Optional<TabDragDropDelegate> tab_drag_drop_delegate_;
+
   // Window that is currently under the drag cursor.
-  aura::Window* drag_window_;
+  aura::Window* drag_window_ = nullptr;
 
   // Starting and final bounds for the drag image for the drag cancel animation.
   gfx::Rect drag_image_initial_bounds_for_cancel_animation_;
@@ -129,11 +135,11 @@ class ASH_EXPORT DragDropController : public aura::client::DragDropClient,
   std::unique_ptr<gfx::AnimationDelegate> cancel_animation_notifier_;
 
   // Window that started the drag.
-  aura::Window* drag_source_window_;
+  aura::Window* drag_source_window_ = nullptr;
 
   // Indicates whether the caller should be blocked on a drag/drop session.
   // Only be used for tests.
-  bool should_block_during_drag_drop_;
+  bool should_block_during_drag_drop_ = true;
 
   // Closure for quitting nested run loop.
   base::OnceClosure quit_closure_;
@@ -141,7 +147,8 @@ class ASH_EXPORT DragDropController : public aura::client::DragDropClient,
   std::unique_ptr<DragDropTracker> drag_drop_tracker_;
   std::unique_ptr<DragDropTrackerDelegate> drag_drop_window_delegate_;
 
-  ui::DragDropTypes::DragEventSource current_drag_event_source_;
+  ui::mojom::DragEventSource current_drag_event_source_ =
+      ui::mojom::DragEventSource::kMouse;
 
   // Holds a synthetic long tap event to be sent to the |drag_source_window_|.
   // See comment in OnGestureEvent() on why we need this.

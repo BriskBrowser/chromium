@@ -18,6 +18,7 @@
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/storage_partition.h"
+#include "content/public/test/browser_test.h"
 #include "content/public/test/content_browser_test.h"
 #include "content/public/test/content_browser_test_utils.h"
 #include "content/shell/browser/shell.h"
@@ -151,7 +152,7 @@ class FetchEventTestHelper {
 
     fetch_event_dispatch->fetch_dispatcher =
         std::make_unique<ServiceWorkerFetchDispatcher>(
-            std::move(request), ResourceType::kMainFrame,
+            std::move(request), blink::mojom::ResourceType::kMainFrame,
             base::GenerateGUID() /* client_id */, std::move(version),
             base::DoNothing() /* prepare callback */, std::move(fetch_callback),
             fetch_event_dispatch->param_and_expected_result.param
@@ -666,6 +667,9 @@ IN_PROC_BROWSER_TEST_F(ServiceWorkerOfflineCapabilityCheckBrowserTest,
   EXPECT_EQ(
       OfflineCapability::kSupported,
       CheckOfflineCapability("/service_worker/empty.html?fetch_or_offline"));
+
+  EXPECT_EQ(OfflineCapability::kUnsupported,
+            CheckOfflineCapability("/service_worker/empty.html?cache_add"));
 }
 
 // Sites with a service worker which is not activated yet are identified as
@@ -683,6 +687,26 @@ IN_PROC_BROWSER_TEST_F(ServiceWorkerOfflineCapabilityCheckBrowserTest,
                    "pendingInstallEvent')"));
   EXPECT_EQ(OfflineCapability::kUnsupported,
             CheckOfflineCapability("/service_worker/empty.html?offline"));
+}
+
+// Sites with a service worker that enable navigation preload are identified
+// as supporting offline capability only when they return a valid response in
+// offline mode.
+IN_PROC_BROWSER_TEST_F(ServiceWorkerOfflineCapabilityCheckBrowserTest,
+                       CheckOfflineCapabilityForNavigationPreload) {
+  EXPECT_TRUE(NavigateToURL(shell(),
+                            embedded_test_server()->GetURL(
+                                "/service_worker/create_service_worker.html")));
+  EXPECT_EQ("DONE", EvalJs(shell(),
+                           "register('navigation_preload_worker.js')"));
+
+  EXPECT_EQ(OfflineCapability::kUnsupported,
+            CheckOfflineCapability("/service_worker/empty.html"));
+
+  EXPECT_EQ(
+      OfflineCapability::kSupported,
+      CheckOfflineCapability(
+          "/service_worker/empty.html?navpreload_or_offline"));
 }
 
 }  // namespace content

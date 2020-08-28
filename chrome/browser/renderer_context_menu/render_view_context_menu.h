@@ -20,7 +20,7 @@
 #include "components/renderer_context_menu/render_view_context_menu_base.h"
 #include "components/renderer_context_menu/render_view_context_menu_observer.h"
 #include "components/renderer_context_menu/render_view_context_menu_proxy.h"
-#include "content/public/common/context_menu_params.h"
+#include "content/public/browser/context_menu_params.h"
 #include "extensions/buildflags/buildflags.h"
 #include "ppapi/buildflags/buildflags.h"
 #include "printing/buildflags/buildflags.h"
@@ -37,6 +37,7 @@ class AccessibilityLabelsMenuObserver;
 class ClickToCallContextMenuObserver;
 class PrintPreviewContextMenuObserver;
 class Profile;
+class QuickAnswersMenuObserver;
 class SharedClipboardContextMenuObserver;
 class SpellingMenuObserver;
 class SpellingOptionsSubMenuObserver;
@@ -56,8 +57,13 @@ class Point;
 }
 
 namespace blink {
-struct PluginAction;
-struct MediaPlayerAction;
+namespace mojom {
+class MediaPlayerAction;
+}
+}
+
+namespace ui {
+class ClipboardDataEndpoint;
 }
 
 class RenderViewContextMenu : public RenderViewContextMenuBase {
@@ -136,7 +142,7 @@ class RenderViewContextMenu : public RenderViewContextMenuBase {
   static base::string16 FormatURLForClipboard(const GURL& url);
 
   // Writes the specified text/url to the system clipboard.
-  static void WriteURLToClipboard(const GURL& url);
+  void WriteURLToClipboard(const GURL& url);
 
   // RenderViewContextMenuBase:
   void InitMenu() override;
@@ -158,7 +164,8 @@ class RenderViewContextMenu : public RenderViewContextMenuBase {
   void AppendLinkItems();
   void AppendOpenWithLinkItems();
   void AppendSmartSelectionActionItems();
-  void AppendOpenInBookmarkAppLinkItems();
+  void AppendOpenInWebAppLinkItems();
+  void AppendQuickAnswersItems();
   void AppendImageItems();
   void AppendAudioItems();
   void AppendCanvasItems();
@@ -190,6 +197,9 @@ class RenderViewContextMenu : public RenderViewContextMenuBase {
   void AppendSharingItems();
   void AppendClickToCallItem();
   void AppendSharedClipboardItem();
+  void AppendQRCodeGeneratorItem(bool for_image, bool draw_icon);
+
+  std::unique_ptr<ui::ClipboardDataEndpoint> CreateDataEndpoint() const;
 
   // Command enabled query functions.
   bool IsReloadEnabled() const;
@@ -203,11 +213,12 @@ class RenderViewContextMenu : public RenderViewContextMenuBase {
   bool IsPasteEnabled() const;
   bool IsPasteAndMatchStyleEnabled() const;
   bool IsPrintPreviewEnabled() const;
+  bool IsQRCodeGeneratorEnabled() const;
   bool IsRouteMediaEnabled() const;
   bool IsOpenLinkOTREnabled() const;
 
   // Command execution functions.
-  void ExecOpenBookmarkApp();
+  void ExecOpenWebApp();
   void ExecProtocolHandler(int event_flags, int handler_index);
   void ExecOpenLinkInProfile(int profile_index);
   void ExecInspectElement();
@@ -235,9 +246,9 @@ class RenderViewContextMenu : public RenderViewContextMenuBase {
   void ExecPictureInPicture();
 
   void MediaPlayerActionAt(const gfx::Point& location,
-                           const blink::MediaPlayerAction& action);
+                           const blink::mojom::MediaPlayerAction& action);
   void PluginActionAt(const gfx::Point& location,
-                      const blink::PluginAction& action);
+                      blink::mojom::PluginActionType plugin_action);
 
   // Returns a list of registered ProtocolHandlers that can handle the clicked
   // on URL.
@@ -262,7 +273,7 @@ class RenderViewContextMenu : public RenderViewContextMenuBase {
       accessibility_labels_menu_observer_;
   ui::SimpleMenuModel accessibility_labels_submenu_model_;
 
-#if !defined(OS_MACOSX)
+#if !defined(OS_MAC)
   // An observer that handles the submenu for showing spelling options. This
   // submenu lets users select the spelling language, for example.
   std::unique_ptr<SpellingOptionsSubMenuObserver>
@@ -275,6 +286,7 @@ class RenderViewContextMenu : public RenderViewContextMenuBase {
   // An observer that handles smart text selection action items.
   std::unique_ptr<RenderViewContextMenuObserver>
       start_smart_selection_action_menu_observer_;
+  std::unique_ptr<QuickAnswersMenuObserver> quick_answers_menu_observer_;
 #endif
 
 #if BUILDFLAG(ENABLE_PRINT_PREVIEW)

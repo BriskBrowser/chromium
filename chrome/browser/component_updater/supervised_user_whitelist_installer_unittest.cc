@@ -8,6 +8,7 @@
 #include <utility>
 
 #include "base/bind.h"
+#include "base/bind_helpers.h"
 #include "base/callback.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
@@ -75,14 +76,14 @@ std::string JsonToString(const base::DictionaryValue& dict) {
 class MockComponentUpdateService : public ComponentUpdateService,
                                    public OnDemandUpdater {
  public:
-  ~MockComponentUpdateService() override {}
+  ~MockComponentUpdateService() override = default;
 
   bool on_demand_update_called() const { return on_demand_update_called_; }
 
   const CrxComponent* registered_component() { return component_.get(); }
 
-  void set_registration_callback(const base::Closure& registration_callback) {
-    registration_callback_ = registration_callback;
+  void set_registration_callback(base::OnceClosure registration_callback) {
+    registration_callback_ = std::move(registration_callback);
   }
 
   // ComponentUpdateService implementation:
@@ -98,7 +99,7 @@ class MockComponentUpdateService : public ComponentUpdateService,
     EXPECT_EQ(nullptr, component_.get());
     component_ = std::make_unique<CrxComponent>(component);
     if (!registration_callback_.is_null())
-      registration_callback_.Run();
+      std::move(registration_callback_).Run();
 
     return true;
   }
@@ -158,15 +159,16 @@ class MockComponentUpdateService : public ComponentUpdateService,
 
  private:
   std::unique_ptr<CrxComponent> component_;
-  base::Closure registration_callback_;
+  base::OnceClosure registration_callback_;
   bool on_demand_update_called_ = false;
 };
 
 class WhitelistLoadObserver {
  public:
   explicit WhitelistLoadObserver(SupervisedUserWhitelistInstaller* installer) {
-    installer->Subscribe(base::Bind(&WhitelistLoadObserver::OnWhitelistReady,
-                                    weak_ptr_factory_.GetWeakPtr()));
+    installer->Subscribe(
+        base::BindRepeating(&WhitelistLoadObserver::OnWhitelistReady,
+                            weak_ptr_factory_.GetWeakPtr()));
   }
 
   void Wait() { run_loop_.Run(); }
@@ -201,7 +203,7 @@ class SupervisedUserWhitelistInstallerTest : public testing::Test {
   SupervisedUserWhitelistInstallerTest()
       : testing_profile_manager_(TestingBrowserProcess::GetGlobal()) {}
 
-  ~SupervisedUserWhitelistInstallerTest() override {}
+  ~SupervisedUserWhitelistInstallerTest() override = default;
 
   void SetUp() override {
     SupervisedUserWhitelistInstaller::RegisterPrefs(local_state_.registry());
@@ -222,7 +224,7 @@ class SupervisedUserWhitelistInstallerTest : public testing::Test {
         profile_attributes_storage(),
         &local_state_);
 
-    ASSERT_TRUE(base::PathService::Get(DIR_SUPERVISED_USER_WHITELISTS,
+    ASSERT_TRUE(base::PathService::Get(DIR_SUPERVISED_USER_ALLOWLISTS,
                                        &whitelist_base_directory_));
     whitelist_directory_ = whitelist_base_directory_.AppendASCII(kCrxId);
     whitelist_version_directory_ = whitelist_directory_.AppendASCII(kVersion);
@@ -360,8 +362,8 @@ TEST_F(SupervisedUserWhitelistInstallerTest, InstallNewWhitelist) {
   // installer only calls |ComponentReady| if the install of the component
   // has succeeded.
   component->installer->Install(
-      unpacked_path, std::string(),
-      base::Bind(
+      unpacked_path, std::string(), nullptr, base::DoNothing(),
+      base::BindOnce(
           [](WhitelistLoadObserver* observer,
              const update_client::CrxInstaller::Result& result) {
             EXPECT_EQ(0, result.error);

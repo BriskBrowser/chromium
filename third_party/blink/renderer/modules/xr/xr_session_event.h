@@ -5,9 +5,9 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_MODULES_XR_XR_SESSION_EVENT_H_
 #define THIRD_PARTY_BLINK_RENDERER_MODULES_XR_XR_SESSION_EVENT_H_
 
+#include "third_party/blink/renderer/bindings/modules/v8/v8_xr_session_event_init.h"
 #include "third_party/blink/renderer/modules/event_modules.h"
 #include "third_party/blink/renderer/modules/xr/xr_session.h"
-#include "third_party/blink/renderer/modules/xr/xr_session_event_init.h"
 
 namespace blink {
 
@@ -41,7 +41,7 @@ class XRSessionEvent final : public Event {
 
   const AtomicString& InterfaceName() const override;
 
-  void Trace(blink::Visitor*) override;
+  void Trace(Visitor*) const override;
 
  private:
   Member<XRSession> session_;

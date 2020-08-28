@@ -5,8 +5,8 @@
 #include "third_party/blink/renderer/modules/clipboard/clipboard_item.h"
 
 #include "third_party/blink/public/common/features.h"
+#include "third_party/blink/renderer/bindings/modules/v8/v8_clipboard_item_options.h"
 #include "third_party/blink/renderer/core/dom/dom_exception.h"
-#include "third_party/blink/renderer/modules/clipboard/clipboard_item_options.h"
 #include "third_party/blink/renderer/platform/bindings/script_state.h"
 #include "third_party/blink/renderer/platform/heap/heap.h"
 
@@ -32,7 +32,7 @@ ClipboardItem::ClipboardItem(
     const HeapVector<std::pair<String, Member<Blob>>>& items,
     const ClipboardItemOptions* options)
     : items_(items),
-      is_raw_(base::FeatureList::IsEnabled(blink::features::kRawClipboard) &&
+      is_raw_(base::FeatureList::IsEnabled(features::kRawClipboard) &&
               options->raw()) {
   DCHECK(items_.size());
 }
@@ -67,7 +67,7 @@ ScriptPromise ClipboardItem::getType(ScriptState* script_state,
   return promise;
 }
 
-void ClipboardItem::Trace(blink::Visitor* visitor) {
+void ClipboardItem::Trace(Visitor* visitor) const {
   visitor->Trace(items_);
   ScriptWrappable::Trace(visitor);
 }

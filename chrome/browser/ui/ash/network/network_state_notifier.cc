@@ -18,10 +18,10 @@
 #include "chromeos/network/network_configuration_handler.h"
 #include "chromeos/network/network_connect.h"
 #include "chromeos/network/network_connection_handler.h"
+#include "chromeos/network/network_event_log.h"
 #include "chromeos/network/network_state.h"
 #include "chromeos/network/network_state_handler.h"
 #include "chromeos/network/shill_property_util.h"
-#include "components/device_event_log/device_event_log.h"
 #include "third_party/cros_system_api/dbus/service_constants.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/message_center/public/cpp/notification.h"
@@ -40,6 +40,12 @@ bool ShillErrorIsIgnored(const std::string& shill_error) {
   if (shill_error == shill::kErrorResultInProgress)
     return true;
   return false;
+}
+
+std::string GetStringFromDictionary(const base::Optional<base::Value>& dict,
+                                    const std::string& key) {
+  const base::Value* v = dict ? dict->FindKey(key) : nullptr;
+  return v ? v->GetString() : std::string();
 }
 
 // Error messages based on |error_name|, not network_state->GetError().
@@ -89,8 +95,7 @@ void ShowErrorNotification(const std::string& identifier,
           message_center::RichNotificationData(),
           new message_center::HandleNotificationClickDelegate(callback),
           GetErrorNotificationVectorIcon(network_type),
-          message_center::SystemNotificationWarningLevel::CRITICAL_WARNING);
-  notification->set_priority(message_center::SYSTEM_PRIORITY);
+          message_center::SystemNotificationWarningLevel::WARNING);
   SystemNotificationHelper::GetInstance()->Display(*notification);
 }
 
@@ -176,8 +181,8 @@ void NetworkStateNotifier::ConnectFailed(const std::string& service_path,
       NetworkHandler::Get()->network_state_handler()->GetNetworkState(
           service_path);
   if (!ShouldConnectFailedNotificationBeShown(error_name, network)) {
-    NET_LOG(EVENT) << "Skipping notification for: " << service_path
-                   << " Error: " << error_name;
+    NET_LOG(EVENT) << "Skipping notification for: "
+                   << NetworkPathId(service_path) << " Error: " << error_name;
     return;
   }
   ShowNetworkConnectErrorForGuid(error_name, network ? network->guid() : "");
@@ -301,7 +306,7 @@ void NetworkStateNotifier::UpdateCellularOutOfCredits() {
         l10n_util::GetStringFUTF16(IDS_NETWORK_OUT_OF_CREDITS_BODY,
                                    base::UTF8ToUTF16(primary_network->name()));
     ShowErrorNotification(
-        primary_network->path(), kNetworkOutOfCreditsNotificationId,
+        NetworkId(primary_network), kNetworkOutOfCreditsNotificationId,
         primary_network->type(),
         l10n_util::GetStringUTF16(IDS_NETWORK_OUT_OF_CREDITS_TITLE), error_msg,
         base::Bind(&NetworkStateNotifier::ShowMobileSetup,
@@ -341,8 +346,7 @@ void NetworkStateNotifier::UpdateCellularActivating(
               base::Bind(&NetworkStateNotifier::ShowNetworkSettings,
                          weak_ptr_factory_.GetWeakPtr(), cellular_guid)),
           kNotificationMobileDataIcon,
-          message_center::SystemNotificationWarningLevel::CRITICAL_WARNING);
-  notification->set_priority(message_center::SYSTEM_PRIORITY);
+          message_center::SystemNotificationWarningLevel::WARNING);
   SystemNotificationHelper::GetInstance()->Display(*notification);
 }
 
@@ -351,17 +355,16 @@ void NetworkStateNotifier::ShowNetworkConnectErrorForGuid(
     const std::string& guid) {
   const NetworkState* network = GetNetworkStateForGuid(guid);
   if (!network) {
-    base::DictionaryValue shill_properties;
-    ShowConnectErrorNotification(error_name, "", shill_properties);
+    ShowConnectErrorNotification(error_name,
+                                 /*service_path=*/std::string(),
+                                 /*shill_properties=*/base::nullopt);
     return;
   }
   // Get the up-to-date properties for the network and display the error.
   NetworkHandler::Get()->network_configuration_handler()->GetShillProperties(
       network->path(),
-      base::Bind(&NetworkStateNotifier::ConnectErrorPropertiesSucceeded,
-                 weak_ptr_factory_.GetWeakPtr(), error_name),
-      base::Bind(&NetworkStateNotifier::ConnectErrorPropertiesFailed,
-                 weak_ptr_factory_.GetWeakPtr(), error_name, network->path()));
+      base::BindOnce(&NetworkStateNotifier::OnConnectErrorGetProperties,
+                     weak_ptr_factory_.GetWeakPtr(), error_name));
 }
 
 void NetworkStateNotifier::ShowMobileActivationErrorForGuid(
@@ -388,8 +391,7 @@ void NetworkStateNotifier::ShowMobileActivationErrorForGuid(
               base::Bind(&NetworkStateNotifier::ShowNetworkSettings,
                          weak_ptr_factory_.GetWeakPtr(), cellular->guid())),
           kNotificationMobileDataOffIcon,
-          message_center::SystemNotificationWarningLevel::CRITICAL_WARNING);
-  notification->set_priority(message_center::SYSTEM_PRIORITY);
+          message_center::SystemNotificationWarningLevel::WARNING);
   SystemNotificationHelper::GetInstance()->Display(*notification);
 }
 
@@ -397,12 +399,18 @@ void NetworkStateNotifier::RemoveConnectNotification() {
   SystemNotificationHelper::GetInstance()->Close(kNetworkConnectNotificationId);
 }
 
-void NetworkStateNotifier::ConnectErrorPropertiesSucceeded(
+void NetworkStateNotifier::OnConnectErrorGetProperties(
     const std::string& error_name,
     const std::string& service_path,
-    const base::DictionaryValue& shill_properties) {
-  std::string state;
-  shill_properties.GetStringWithoutPathExpansion(shill::kStateProperty, &state);
+    base::Optional<base::Value> shill_properties) {
+  if (!shill_properties) {
+    ShowConnectErrorNotification(error_name, service_path,
+                                 std::move(shill_properties));
+    return;
+  }
+
+  std::string state =
+      GetStringFromDictionary(shill_properties, shill::kStateProperty);
   if (NetworkState::StateIsConnected(state) ||
       NetworkState::StateIsConnecting(state)) {
     NET_LOG(EVENT) << "Skipping connect error notification. State: " << state;
@@ -410,24 +418,16 @@ void NetworkStateNotifier::ConnectErrorPropertiesSucceeded(
     // unexpected idle state transition occurs, see http://crbug.com/333955.
     return;
   }
-  ShowConnectErrorNotification(error_name, service_path, shill_properties);
-}
-
-void NetworkStateNotifier::ConnectErrorPropertiesFailed(
-    const std::string& error_name,
-    const std::string& service_path,
-    const std::string& shill_connect_error,
-    std::unique_ptr<base::DictionaryValue> shill_error_data) {
-  base::DictionaryValue shill_properties;
-  ShowConnectErrorNotification(error_name, service_path, shill_properties);
+  ShowConnectErrorNotification(error_name, service_path,
+                               std::move(shill_properties));
 }
 
 void NetworkStateNotifier::ShowConnectErrorNotification(
     const std::string& error_name,
     const std::string& service_path,
-    const base::DictionaryValue& shill_properties) {
+    base::Optional<base::Value> shill_properties) {
   base::string16 error = GetConnectErrorString(error_name);
-  NET_LOG(DEBUG) << "Notify: " << service_path
+  NET_LOG(DEBUG) << "Notify: " << NetworkPathId(service_path)
                  << ": Connect error: " << error_name << ": "
                  << base::UTF16ToUTF8(error);
 
@@ -435,20 +435,21 @@ void NetworkStateNotifier::ShowConnectErrorNotification(
       NetworkHandler::Get()->network_state_handler()->GetNetworkState(
           service_path);
   std::string guid = network ? network->guid() : "";
+  std::string log_id =
+      network ? NetworkId(network) : NetworkPathId(service_path);
 
   if (error.empty()) {
-    std::string shill_error;
-    shill_properties.GetStringWithoutPathExpansion(shill::kErrorProperty,
-                                                   &shill_error);
+    std::string shill_error =
+        GetStringFromDictionary(shill_properties, shill::kErrorProperty);
     if (!NetworkState::ErrorIsValid(shill_error)) {
-      shill_properties.GetStringWithoutPathExpansion(
-          shill::kPreviousErrorProperty, &shill_error);
-      NET_LOG(DEBUG) << "Notify: " << service_path
+      shill_error = GetStringFromDictionary(shill_properties,
+                                            shill::kPreviousErrorProperty);
+      NET_LOG(DEBUG) << "Notify: " << log_id
                      << ": Service.PreviousError: " << shill_error;
       if (!NetworkState::ErrorIsValid(shill_error))
         shill_error.clear();
     } else {
-      NET_LOG(DEBUG) << "Notify: " << service_path
+      NET_LOG(DEBUG) << "Notify: " << log_id
                      << ": Service.Error: " << shill_error;
     }
 
@@ -457,14 +458,14 @@ void NetworkStateNotifier::ShowConnectErrorNotification(
       // TODO(stevenjb): This shouldn't ever be necessary, but is kept here as
       // a failsafe since more information is better than less when debugging
       // and we have encountered some strange edge cases before.
-      NET_LOG(DEBUG) << "Notify: " << service_path
+      NET_LOG(DEBUG) << "Notify: " << log_id
                      << ": Network.GetError(): " << network->GetError();
       if (shill_error.empty())
         shill_error = network->GetError();
     }
 
     if (ShillErrorIsIgnored(shill_error)) {
-      NET_LOG(DEBUG) << "Notify: " << service_path
+      NET_LOG(DEBUG) << "Notify: " << log_id
                      << ": Ignoring error: " << error_name;
       return;
     }
@@ -480,14 +481,16 @@ void NetworkStateNotifier::ShowConnectErrorNotification(
       error = l10n_util::GetStringUTF16(IDS_CHROMEOS_NETWORK_ERROR_UNKNOWN);
     }
   }
-  NET_LOG(ERROR) << "Notify: " << service_path
+  NET_LOG(ERROR) << "Notify: " << log_id
                  << ": Connect error: " + base::UTF16ToUTF8(error);
 
-  std::string network_name = shill_property_util::GetNameFromProperties(
-      service_path, shill_properties);
-  std::string network_error_details;
-  shill_properties.GetStringWithoutPathExpansion(shill::kErrorDetailsProperty,
-                                                 &network_error_details);
+  std::string network_name;
+  if (shill_properties) {
+    network_name = shill_property_util::GetNameFromProperties(
+        service_path, shill_properties.value());
+  }
+  std::string network_error_details =
+      GetStringFromDictionary(shill_properties, shill::kErrorDetailsProperty);
 
   base::string16 error_msg;
   if (!network_error_details.empty()) {
@@ -505,12 +508,11 @@ void NetworkStateNotifier::ShowConnectErrorNotification(
                                    base::UTF8ToUTF16(network_name), error);
   }
 
-  std::string network_type;
-  shill_properties.GetStringWithoutPathExpansion(shill::kTypeProperty,
-                                                 &network_type);
+  std::string network_type =
+      GetStringFromDictionary(shill_properties, shill::kTypeProperty);
 
   ShowErrorNotification(
-      service_path, kNetworkConnectNotificationId, network_type,
+      NetworkPathId(service_path), kNetworkConnectNotificationId, network_type,
       l10n_util::GetStringUTF16(IDS_NETWORK_CONNECTION_ERROR_TITLE), error_msg,
       base::Bind(&NetworkStateNotifier::ShowNetworkSettings,
                  weak_ptr_factory_.GetWeakPtr(), guid));
@@ -521,7 +523,7 @@ void NetworkStateNotifier::ShowVpnDisconnectedNotification(VpnDetails* vpn) {
   base::string16 error_msg = l10n_util::GetStringFUTF16(
       IDS_NETWORK_VPN_CONNECTION_LOST_BODY, base::UTF8ToUTF16(vpn->name));
   ShowErrorNotification(
-      vpn->guid, kNetworkConnectNotificationId, shill::kTypeVPN,
+      NetworkGuidId(vpn->guid), kNetworkConnectNotificationId, shill::kTypeVPN,
       l10n_util::GetStringUTF16(IDS_NETWORK_VPN_CONNECTION_LOST_TITLE),
       error_msg,
       base::Bind(&NetworkStateNotifier::ShowNetworkSettings,
@@ -536,7 +538,7 @@ void NetworkStateNotifier::ShowNetworkSettings(const std::string& network_id) {
     return;
   std::string error = network->GetError();
   if (!error.empty()) {
-    NET_LOG(ERROR) << "Notify ShowNetworkSettings: " << network_id
+    NET_LOG(ERROR) << "Notify ShowNetworkSettings: " << NetworkId(network)
                    << ": Error: " << error;
   }
   if (!NetworkTypePattern::Primitive(network->type())

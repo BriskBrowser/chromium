@@ -24,6 +24,7 @@
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/rand_util.h"
+#include "base/stl_util.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/stringprintf.h"
 #include "base/synchronization/lock.h"
@@ -43,6 +44,7 @@
 #include "net/cert/ct_policy_status.h"
 #include "net/cert/ct_verifier.h"
 #include "net/cert/internal/parse_certificate.h"
+#include "net/cert/sct_auditing_delegate.h"
 #include "net/cert/x509_certificate_net_log_param.h"
 #include "net/cert/x509_util.h"
 #include "net/der/parse_values.h"
@@ -105,6 +107,8 @@ base::Value NetLogSSLInfoParams(SSLClientSocketImpl* socket) {
                   ssl_info.handshake_type == SSLInfo::HANDSHAKE_RESUME);
   dict.SetIntKey("cipher_suite",
                  SSLConnectionStatusToCipherSuite(ssl_info.connection_status));
+  dict.SetIntKey("key_exchange_group", ssl_info.key_exchange_group);
+  dict.SetIntKey("peer_signature_algorithm", ssl_info.peer_signature_algorithm);
 
   dict.SetStringKey("next_proto",
                     NextProtoToString(socket->GetNegotiatedProtocol()));
@@ -814,10 +818,6 @@ int SSLClientSocketImpl::Init() {
 
   SSL_set_early_data_enabled(ssl_.get(), ssl_config_.early_data_enabled);
 
-  if (!context_->config().tls13_hardening_for_local_anchors_enabled) {
-    SSL_set_ignore_tls13_downgrade(ssl_.get(), 1);
-  }
-
   // OpenSSL defaults some options to on, others to off. To avoid ambiguity,
   // set everything we care about to an absolute value.
   SslSetClearMask options;
@@ -846,6 +846,8 @@ int SSLClientSocketImpl::Init() {
 
   if (ssl_config_.require_ecdhe)
     command.append(":!kRSA");
+  if (ssl_config_.disable_legacy_crypto)
+    command.append(":!3DES");
 
   // Remove any disabled ciphers.
   for (uint16_t id : context_->config().disabled_cipher_suites) {
@@ -859,6 +861,19 @@ int SSLClientSocketImpl::Init() {
   if (!SSL_set_strict_cipher_list(ssl_.get(), command.c_str())) {
     LOG(ERROR) << "SSL_set_cipher_list('" << command << "') failed";
     return ERR_UNEXPECTED;
+  }
+
+  if (ssl_config_.disable_legacy_crypto) {
+    static const uint16_t kVerifyPrefs[] = {
+        SSL_SIGN_ECDSA_SECP256R1_SHA256, SSL_SIGN_RSA_PSS_RSAE_SHA256,
+        SSL_SIGN_RSA_PKCS1_SHA256,       SSL_SIGN_ECDSA_SECP384R1_SHA384,
+        SSL_SIGN_RSA_PSS_RSAE_SHA384,    SSL_SIGN_RSA_PKCS1_SHA384,
+        SSL_SIGN_RSA_PSS_RSAE_SHA512,    SSL_SIGN_RSA_PKCS1_SHA512,
+    };
+    if (!SSL_set_verify_algorithm_prefs(ssl_.get(), kVerifyPrefs,
+                                        base::size(kVerifyPrefs))) {
+      return ERR_UNEXPECTED;
+    }
   }
 
   if (!ssl_config_.alpn_protos.empty()) {
@@ -882,8 +897,12 @@ int SSLClientSocketImpl::Init() {
 
   // TODO(https://crbug.com/775438), if |ssl_config_.privacy_mode| is enabled,
   // this should always continue with no client certificate.
-  send_client_cert_ = context_->GetClientCertificate(
-      host_and_port_, &client_cert_, &client_private_key_);
+  if (ssl_config_.privacy_mode == PRIVACY_MODE_ENABLED_WITHOUT_CLIENT_CERTS) {
+    send_client_cert_ = true;
+  } else {
+    send_client_cert_ = context_->GetClientCertificate(
+        host_and_port_, &client_cert_, &client_private_key_);
+  }
 
   return OK;
 }
@@ -994,74 +1013,12 @@ int SSLClientSocketImpl::DoHandshakeComplete(int result) {
 
   // See how feasible enforcing RSA key usage would be. See
   // https://crbug.com/795089.
-  RSAKeyUsage rsa_key_usage =
-      CheckRSAKeyUsage(server_cert_.get(), SSL_get_current_cipher(ssl_.get()));
-  if (rsa_key_usage != RSAKeyUsage::kNotRSA) {
-    if (server_cert_verify_result_.is_issued_by_known_root) {
-      UMA_HISTOGRAM_ENUMERATION("Net.SSLRSAKeyUsage.KnownRoot", rsa_key_usage,
-                                static_cast<int>(RSAKeyUsage::kLastValue) + 1);
-    } else {
+  if (!server_cert_verify_result_.is_issued_by_known_root) {
+    RSAKeyUsage rsa_key_usage = CheckRSAKeyUsage(
+        server_cert_.get(), SSL_get_current_cipher(ssl_.get()));
+    if (rsa_key_usage != RSAKeyUsage::kNotRSA) {
       UMA_HISTOGRAM_ENUMERATION("Net.SSLRSAKeyUsage.UnknownRoot", rsa_key_usage,
                                 static_cast<int>(RSAKeyUsage::kLastValue) + 1);
-    }
-  }
-
-  if (!context_->config().tls13_hardening_for_local_anchors_enabled) {
-    // Record metrics on the TLS 1.3 anti-downgrade mechanism. This is only
-    // recorded when enforcement is disabled. (When enforcement is enabled,
-    // the connection will fail with ERR_TLS13_DOWNGRADE_DETECTED.) See
-    // https://crbug.com/boringssl/226.
-    //
-    // Record metrics for both servers overall and the TLS 1.3 experiment
-    // set. These metrics are only useful on TLS 1.3 servers, so the latter
-    // is more precise, but there is a large enough TLS 1.3 deployment that
-    // the overall numbers may be more robust. In particular, the
-    // DowngradeType metrics do not need to be filtered.
-    bool is_downgrade = !!SSL_is_tls13_downgrade(ssl_.get());
-    UMA_HISTOGRAM_BOOLEAN("Net.SSLTLS13Downgrade", is_downgrade);
-    bool is_tls13_experiment_host =
-        IsTLS13ExperimentHost(host_and_port_.host());
-    if (is_tls13_experiment_host) {
-      UMA_HISTOGRAM_BOOLEAN("Net.SSLTLS13DowngradeTLS13Experiment",
-                            is_downgrade);
-    }
-
-    if (is_downgrade) {
-      // Record whether connections which hit the downgrade used known vs
-      // unknown roots and which key exchange type.
-
-      // This enum is persisted into histograms. Values may not be
-      // renumbered.
-      enum class DowngradeType {
-        kKnownRootRSA = 0,
-        kKnownRootECDHE = 1,
-        kUnknownRootRSA = 2,
-        kUnknownRootECDHE = 3,
-        kMaxValue = kUnknownRootECDHE,
-      };
-
-      DowngradeType type;
-      int kx_nid = SSL_CIPHER_get_kx_nid(SSL_get_current_cipher(ssl_.get()));
-      DCHECK(kx_nid == NID_kx_rsa || kx_nid == NID_kx_ecdhe);
-      if (server_cert_verify_result_.is_issued_by_known_root) {
-        type = kx_nid == NID_kx_rsa ? DowngradeType::kKnownRootRSA
-                                    : DowngradeType::kKnownRootECDHE;
-      } else {
-        type = kx_nid == NID_kx_rsa ? DowngradeType::kUnknownRootRSA
-                                    : DowngradeType::kUnknownRootECDHE;
-      }
-      UMA_HISTOGRAM_ENUMERATION("Net.SSLTLS13DowngradeType", type);
-      if (is_tls13_experiment_host) {
-        UMA_HISTOGRAM_ENUMERATION("Net.SSLTLS13DowngradeTypeTLS13Experiment",
-                                  type);
-      }
-
-      if (server_cert_verify_result_.is_issued_by_known_root) {
-        // Exit DoHandshakeLoop and return the result to the caller to
-        // Connect.
-        DCHECK_EQ(STATE_NONE, next_handshake_state_);
-        return ERR_TLS13_DOWNGRADE_DETECTED;
-      }
     }
   }
 
@@ -1152,7 +1109,9 @@ ssl_verify_result_t SSLClientSocketImpl::VerifyCert() {
   }
 
   net_log_.AddEvent(NetLogEventType::SSL_CERTIFICATES_RECEIVED, [&] {
-    return NetLogX509CertificateParams(server_cert_.get());
+    base::Value dict(base::Value::Type::DICTIONARY);
+    dict.SetKey("certificates", NetLogX509CertificateList(server_cert_.get()));
+    return dict;
   });
 
   // If the certificate is bad and has been previously accepted, use
@@ -1260,9 +1219,24 @@ ssl_verify_result_t SSLClientSocketImpl::HandleVerifyResult() {
       result = ct_result;
   }
 
+  // If no other errors occurred, check whether the connection used a legacy TLS
+  // version.
+  if (result == OK &&
+      SSL_version(ssl_.get()) < context_->config().version_min_warn &&
+      base::FeatureList::IsEnabled(features::kLegacyTLSEnforced) &&
+      !context_->ssl_config_service()->ShouldSuppressLegacyTLSWarning(
+          host_and_port_.host())) {
+    server_cert_verify_result_.cert_status |= CERT_STATUS_LEGACY_TLS;
+
+    // Only set the resulting net error if it hasn't been previously bypassed.
+    if (!ssl_config_.IsAllowedBadCert(server_cert_.get(), nullptr))
+      result = ERR_SSL_OBSOLETE_VERSION;
+  }
+
   is_fatal_cert_error_ =
       IsCertStatusError(server_cert_verify_result_.cert_status) &&
       result != ERR_CERT_KNOWN_INTERCEPTION_BLOCKED &&
+      result != ERR_SSL_OBSOLETE_VERSION &&
       context_->transport_security_state()->ShouldSSLErrorsBeFatal(
           host_and_port_.host());
 
@@ -1455,19 +1429,19 @@ int SSLClientSocketImpl::DoPayloadWrite() {
 }
 
 void SSLClientSocketImpl::DoPeek() {
-  if (ssl_config_.disable_post_handshake_peek_for_testing ||
-      !completed_connect_ || peek_complete_) {
+  if (!completed_connect_) {
     return;
   }
 
   crypto::OpenSSLErrStackTracer err_tracer(FROM_HERE);
 
-  if (ssl_config_.early_data_enabled && !recorded_early_data_result_) {
+  if (ssl_config_.early_data_enabled && !handled_early_data_result_) {
     // |SSL_peek| will implicitly run |SSL_do_handshake| if needed, but run it
     // manually to pick up the reject reason.
     int rv = SSL_do_handshake(ssl_.get());
     int ssl_err = SSL_get_error(ssl_.get(), rv);
-    if (ssl_err == SSL_ERROR_WANT_READ || ssl_err == SSL_ERROR_WANT_WRITE) {
+    int err = rv > 0 ? OK : MapOpenSSLError(ssl_err, err_tracer);
+    if (err == ERR_IO_PENDING) {
       return;
     }
 
@@ -1478,11 +1452,26 @@ void SSLClientSocketImpl::DoPeek() {
     UMA_HISTOGRAM_ENUMERATION("Net.SSLHandshakeEarlyDataReason",
                               SSL_get_early_data_reason(ssl_.get()),
                               ssl_early_data_reason_max_value + 1);
-    recorded_early_data_result_ = true;
-    if (ssl_err != SSL_ERROR_NONE) {
+
+    // On early data reject, clear early data on any other sessions in the
+    // cache, so retries do not get stuck attempting 0-RTT. See
+    // https://crbug.com/1066623.
+    if (err == ERR_EARLY_DATA_REJECTED ||
+        err == ERR_WRONG_VERSION_ON_EARLY_DATA) {
+      context_->ssl_client_session_cache()->ClearEarlyData(
+          GetSessionCacheKey(base::nullopt));
+    }
+
+    handled_early_data_result_ = true;
+
+    if (err != OK) {
       peek_complete_ = true;
       return;
     }
+  }
+
+  if (ssl_config_.disable_post_handshake_peek_for_testing || peek_complete_) {
+    return;
   }
 
   char byte;
@@ -1598,7 +1587,8 @@ int SSLClientSocketImpl::VerifyCT() {
           server_cert_verify_result_.verified_cert.get(), server_cert_.get(),
           ct_verify_result_.scts,
           TransportSecurityState::ENABLE_EXPECT_CT_REPORTS,
-          ct_verify_result_.policy_compliance);
+          ct_verify_result_.policy_compliance,
+          ssl_config_.network_isolation_key);
   if (ct_requirement_status != TransportSecurityState::CT_NOT_REQUIRED) {
     ct_verify_result_.policy_compliance_required = true;
     if (server_cert_verify_result_.is_issued_by_known_root) {
@@ -1613,6 +1603,13 @@ int SSLClientSocketImpl::VerifyCT() {
     }
   } else {
     ct_verify_result_.policy_compliance_required = false;
+  }
+
+  if (context_->sct_auditing_delegate() &&
+      context_->sct_auditing_delegate()->IsSCTAuditingEnabled()) {
+    context_->sct_auditing_delegate()->MaybeEnqueueReport(
+        host_and_port_, server_cert_verify_result_.verified_cert.get(),
+        ct_verify_result_.scts);
   }
 
   switch (ct_requirement_status) {
@@ -1722,6 +1719,7 @@ SSLClientSessionCache::Key SSLClientSocketImpl::GetSessionCacheKey(
     key.network_isolation_key = ssl_config_.network_isolation_key;
   }
   key.privacy_mode = ssl_config_.privacy_mode;
+  key.disable_legacy_crypto = ssl_config_.disable_legacy_crypto;
   return key;
 }
 

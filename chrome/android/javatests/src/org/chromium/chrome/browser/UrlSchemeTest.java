@@ -8,8 +8,10 @@ import android.content.Context;
 import android.net.Uri;
 import android.os.Environment;
 import android.support.test.InstrumentationRegistry;
-import android.support.test.filters.MediumTest;
 
+import androidx.test.filters.MediumTest;
+
+import org.hamcrest.Matchers;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -19,24 +21,25 @@ import org.junit.runner.RunWith;
 
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.Feature;
-import org.chromium.base.test.util.RetryOnFailure;
 import org.chromium.base.test.util.TestFileUtil;
 import org.chromium.base.test.util.UrlUtils;
+import org.chromium.chrome.browser.app.ChromeActivity;
+import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.test.ChromeActivityTestRule;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.chrome.test.TestContentProvider;
+import org.chromium.chrome.test.util.ChromeTabUtils;
 import org.chromium.content_public.browser.test.util.Criteria;
 import org.chromium.content_public.browser.test.util.CriteriaHelper;
-import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.net.test.EmbeddedTestServer;
 
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.URLEncoder;
 
 /** Test suite for different Android URL schemes. */
 @RunWith(ChromeJUnit4ClassRunner.class)
-@RetryOnFailure
 @CommandLineFlags.Add({ChromeSwitches.DISABLE_FIRST_RUN_EXPERIENCE})
 public class UrlSchemeTest {
     @Rule
@@ -120,24 +123,97 @@ public class UrlSchemeTest {
         mActivityTestRule.loadUrl(createContentUrl(resource));
 
         // Make sure iframe is really loaded by verifying the title
-        CriteriaHelper.pollUiThread(new Criteria() {
-            @Override
-            public boolean isSatisfied() {
-                return mActivityTestRule.getActivity().getActivityTab().getTitle().equals(
-                        "iframe loaded");
-            }
+        CriteriaHelper.pollUiThread(() -> {
+            Criteria.checkThat(ChromeTabUtils.getTitleOnUiThread(
+                                       mActivityTestRule.getActivity().getActivityTab()),
+                    Matchers.is("iframe loaded"));
         });
         // Make sure that content provider was asked to provide the content.
         ensureResourceRequestCountInContentProviderNotLessThan(iframe, 1);
         mActivityTestRule.runJavaScriptCodeInCurrentTab(script);
 
         // Make sure content access failed by verifying that title is set to fail.
-        CriteriaHelper.pollUiThread(new Criteria() {
-            @Override
-            public boolean isSatisfied() {
-                return mActivityTestRule.getActivity().getActivityTab().getTitle().equals("fail");
-            }
+        CriteriaHelper.pollUiThread(() -> {
+            Criteria.checkThat(ChromeTabUtils.getTitleOnUiThread(
+                                       mActivityTestRule.getActivity().getActivityTab()),
+                    Matchers.is("fail"));
         });
+    }
+
+    private String loadContentUrlToMakeCorsToContent(final String api, final String mode)
+            throws Throwable {
+        final String resource = "content_url_make_cors_to_content.html";
+        final String imageUrl = createContentUrl("google.png");
+
+        mActivityTestRule.loadUrl(createContentUrl(resource) + "?api=" + api + "&mode=" + mode
+                + "&url=" + URLEncoder.encode(imageUrl));
+
+        // Make sure the CORS request fail in the page.
+        CriteriaHelper.pollUiThread(() -> {
+            Criteria.checkThat(ChromeTabUtils.getTitleOnUiThread(
+                                       mActivityTestRule.getActivity().getActivityTab()),
+                    Matchers.not("running"));
+        });
+
+        // Make sure that content provider was asked to provide the content.
+        ensureResourceRequestCountInContentProviderNotLessThan(resource, 1);
+
+        return ChromeTabUtils.getTitleOnUiThread(mActivityTestRule.getActivity().getActivityTab());
+    }
+
+    @Test
+    @MediumTest
+    @Feature({"CORS"})
+    public void testContentUrlCanNotMakeXhrRequestToContentUrl() throws Throwable {
+        // The XMLHttpRequest can carry content:// URLs, but CORS requests for content:// are not
+        // permitted.
+        Assert.assertEquals("error", loadContentUrlToMakeCorsToContent("xhr", ""));
+    }
+
+    @Test
+    @MediumTest
+    @Feature({"CORS"})
+    public void testContentUrlCanNotMakeFetchCorsRequestToContentUrl() throws Throwable {
+        // The Fetch API does not support content:// scheme.
+        Assert.assertEquals("error", loadContentUrlToMakeCorsToContent("fetch", "cors"));
+    }
+
+    @Test
+    @MediumTest
+    @Feature({"CORS"})
+    public void testContentUrlCanNotMakeFetchSameOriginRequestToContentUrl() throws Throwable {
+        // The Fetch API does not support content:// scheme.
+        Assert.assertEquals("error", loadContentUrlToMakeCorsToContent("fetch", "same-origin"));
+    }
+
+    @Test
+    @MediumTest
+    @Feature({"CORS"})
+    public void testContentUrlCanNotMakeFetchNoCorsRequestToContentUrl() throws Throwable {
+        // The Fetch API does not support content:// scheme.
+        Assert.assertEquals("error", loadContentUrlToMakeCorsToContent("fetch", "no-cors"));
+    }
+
+    @Test
+    @MediumTest
+    @Feature({"CORS"})
+    public void testContentUrlToLoadWorkerFromContent() throws Throwable {
+        final String resource = "content_url_load_content_worker.html";
+
+        mActivityTestRule.loadUrl(createContentUrl(resource));
+
+        CriteriaHelper.pollUiThread(() -> {
+            Criteria.checkThat(ChromeTabUtils.getTitleOnUiThread(
+                                       mActivityTestRule.getActivity().getActivityTab()),
+                    Matchers.not("running"));
+        });
+
+        // Make sure that content provider was asked to provide the content.
+        ensureResourceRequestCountInContentProviderNotLessThan(resource, 1);
+
+        Assert.assertEquals("exception",
+                ChromeTabUtils.getTitleOnUiThread(
+                        mActivityTestRule.getActivity().getActivityTab()));
     }
 
     /**
@@ -173,12 +249,10 @@ public class UrlSchemeTest {
         mActivityTestRule.loadUrl(url);
         mActivityTestRule.runJavaScriptCodeInCurrentTab(script);
 
-        CriteriaHelper.pollUiThread(new Criteria() {
-            @Override
-            public boolean isSatisfied() {
-                return mActivityTestRule.getActivity().getActivityTab().getTitle().equals(
-                        expectedTitle);
-            }
+        CriteriaHelper.pollUiThread(() -> {
+            Criteria.checkThat(ChromeTabUtils.getTitleOnUiThread(
+                                       mActivityTestRule.getActivity().getActivityTab()),
+                    Matchers.is(expectedTitle));
         });
         ensureResourceRequestCountInContentProviderNotLessThan(resource, expectedLoadCount);
     }
@@ -215,11 +289,6 @@ public class UrlSchemeTest {
         }
     }
 
-    private String getTitleOnUiThread() {
-        return TestThreadUtils.runOnUiThreadBlockingNoException(
-                () -> mActivityTestRule.getActivity().getActivityTab().getTitle());
-    }
-
     /**
      * Test that the browser can be navigated to a file URL.
      */
@@ -233,7 +302,9 @@ public class UrlSchemeTest {
         try {
             TestFileUtil.createNewHtmlFile(file, "File", null);
             mActivityTestRule.loadUrl("file://" + file.getAbsolutePath());
-            Assert.assertEquals("File", getTitleOnUiThread());
+            Assert.assertEquals("File",
+                    ChromeTabUtils.getTitleOnUiThread(
+                            mActivityTestRule.getActivity().getActivityTab()));
         } finally {
             TestFileUtil.deleteFile(file);
         }

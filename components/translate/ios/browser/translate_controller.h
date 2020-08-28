@@ -11,7 +11,6 @@
 #include <string>
 
 #include "base/gtest_prod_util.h"
-#include "base/mac/scoped_nsobject.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "components/translate/core/common/translate_errors.h"
@@ -85,7 +84,12 @@ class TranslateController : public web::WebStateObserver {
   FRIEND_TEST_ALL_PREFIXES(TranslateControllerTest, TranslationSuccess);
   FRIEND_TEST_ALL_PREFIXES(TranslateControllerTest, TranslationFailure);
   FRIEND_TEST_ALL_PREFIXES(TranslateControllerTest, OnTranslateLoadJavascript);
-  FRIEND_TEST_ALL_PREFIXES(TranslateControllerTest, OnTranslateSendRequest);
+  FRIEND_TEST_ALL_PREFIXES(TranslateControllerTest,
+                           OnTranslateSendRequestWithValidCommand);
+  FRIEND_TEST_ALL_PREFIXES(TranslateControllerTest,
+                           OnTranslateSendRequestWithBadURL);
+  FRIEND_TEST_ALL_PREFIXES(TranslateControllerTest,
+                           OnTranslateSendRequestWithBadMethod);
 
   // Called when a JavaScript command is received.
   bool OnJavascriptCommandReceived(const base::DictionaryValue& command,
@@ -126,7 +130,7 @@ class TranslateController : public web::WebStateObserver {
   std::unique_ptr<web::WebState::ScriptCommandSubscription> subscription_;
 
   Observer* observer_;
-  base::scoped_nsobject<JsTranslateManager> js_manager_;
+  __strong JsTranslateManager* js_manager_;
   base::WeakPtrFactory<TranslateController> weak_method_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(TranslateController);

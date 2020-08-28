@@ -23,8 +23,13 @@ OmniboxController::OmniboxController(OmniboxEditModel* omnibox_edit_model,
       popup_(nullptr),
       autocomplete_controller_(new AutocompleteController(
           client_->CreateAutocompleteProviderClient(),
-          this,
-          AutocompleteClassifier::DefaultOmniboxProviders())) {}
+          AutocompleteClassifier::DefaultOmniboxProviders())) {
+  autocomplete_controller_->AddObserver(this);
+
+  OmniboxControllerEmitter* emitter = client_->GetOmniboxControllerEmitter();
+  if (emitter)
+    autocomplete_controller_->AddObserver(emitter);
+}
 
 OmniboxController::~OmniboxController() {
 }
@@ -33,20 +38,14 @@ void OmniboxController::StartAutocomplete(
     const AutocompleteInput& input) const {
   ClearPopupKeywordMode();
 
-  if (client_->GetOmniboxControllerEmitter()) {
-    client_->GetOmniboxControllerEmitter()->NotifyOmniboxQuery(
-        autocomplete_controller_.get(), input);
-  }
-
   // We don't explicitly clear OmniboxPopupModel::manually_selected_match, as
   // Start ends up invoking OmniboxPopupModel::OnResultChanged which clears it.
   autocomplete_controller_->Start(input);
 }
 
-void OmniboxController::OnResultChanged(bool default_match_changed) {
-  if (client_->GetOmniboxControllerEmitter())
-    client_->GetOmniboxControllerEmitter()->NotifyOmniboxResultChanged(
-        default_match_changed, autocomplete_controller_.get());
+void OmniboxController::OnResultChanged(AutocompleteController* controller,
+                                        bool default_match_changed) {
+  DCHECK(controller == autocomplete_controller_.get());
 
   const bool was_open = popup_ && popup_->IsOpen();
   if (default_match_changed) {
@@ -59,9 +58,10 @@ void OmniboxController::OnResultChanged(bool default_match_changed) {
       InvalidateCurrentMatch();
       if (popup_)
         popup_->OnResultChanged();
-      omnibox_edit_model_->OnPopupDataChanged(base::string16(),
-                                              /*is_temporary_text=*/false,
-                                              base::string16(), false);
+      omnibox_edit_model_->OnPopupDataChanged(
+          base::string16(),
+          /*is_temporary_text=*/false, base::string16(), base::string16(),
+          false, base::string16());
     }
   } else if (popup_) {
     popup_->OnResultChanged();
@@ -88,7 +88,7 @@ void OmniboxController::InvalidateCurrentMatch() {
 void OmniboxController::ClearPopupKeywordMode() const {
   // |popup_| can be nullptr in tests.
   if (popup_ && popup_->IsOpen() &&
-      popup_->selected_line_state() == OmniboxPopupModel::KEYWORD) {
+      popup_->selected_line_state() == OmniboxPopupModel::KEYWORD_MODE) {
     popup_->SetSelectedLineState(OmniboxPopupModel::NORMAL);
   }
 }

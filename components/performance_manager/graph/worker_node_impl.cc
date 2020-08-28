@@ -9,18 +9,14 @@
 
 namespace performance_manager {
 
-WorkerNodeImpl::WorkerNodeImpl(GraphImpl* graph,
-                               const std::string& browser_context_id,
+WorkerNodeImpl::WorkerNodeImpl(const std::string& browser_context_id,
                                WorkerType worker_type,
                                ProcessNodeImpl* process_node,
-                               const GURL& url,
-                               const base::UnguessableToken& dev_tools_token)
-    : TypedNodeBase(graph),
-      browser_context_id_(browser_context_id),
+                               const blink::WorkerToken& worker_token)
+    : browser_context_id_(browser_context_id),
       worker_type_(worker_type),
       process_node_(process_node),
-      url_(url),
-      dev_tools_token_(dev_tools_token) {
+      worker_token_(worker_token) {
   DETACH_FROM_SEQUENCE(sequence_checker_);
   DCHECK(process_node);
 }
@@ -95,6 +91,15 @@ void WorkerNodeImpl::RemoveClientWorker(WorkerNodeImpl* worker_node) {
   DCHECK_EQ(removed, 1u);
 }
 
+void WorkerNodeImpl::OnFinalResponseURLDetermined(const GURL& url) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  DCHECK(url_.is_empty());
+  url_ = url;
+
+  for (auto* observer : GetObservers())
+    observer->OnFinalResponseURLDetermined(this);
+}
+
 const std::string& WorkerNodeImpl::browser_context_id() const {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   return browser_context_id_;
@@ -115,9 +120,9 @@ const GURL& WorkerNodeImpl::url() const {
   return url_;
 }
 
-const base::UnguessableToken& WorkerNodeImpl::dev_tools_token() const {
+const blink::WorkerToken& WorkerNodeImpl::worker_token() const {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  return dev_tools_token_;
+  return worker_token_;
 }
 
 const base::flat_set<FrameNodeImpl*>& WorkerNodeImpl::client_frames() const {
@@ -135,17 +140,14 @@ const base::flat_set<WorkerNodeImpl*>& WorkerNodeImpl::child_workers() const {
   return child_workers_;
 }
 
-void WorkerNodeImpl::JoinGraph() {
+void WorkerNodeImpl::OnJoiningGraph() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
   process_node_->AddWorker(this);
-
-  NodeBase::JoinGraph();
 }
 
-void WorkerNodeImpl::LeaveGraph() {
+void WorkerNodeImpl::OnBeforeLeavingGraph() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  NodeBase::LeaveGraph();
 
   process_node_->RemoveWorker(this);
 }
@@ -170,9 +172,9 @@ const GURL& WorkerNodeImpl::GetURL() const {
   return url();
 }
 
-const base::UnguessableToken& WorkerNodeImpl::GetDevToolsToken() const {
+const blink::WorkerToken& WorkerNodeImpl::GetWorkerToken() const {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  return dev_tools_token();
+  return worker_token();
 }
 
 const base::flat_set<const FrameNode*> WorkerNodeImpl::GetClientFrames() const {

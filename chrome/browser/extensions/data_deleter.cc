@@ -27,8 +27,6 @@
 #include "extensions/common/constants.h"
 #include "extensions/common/extension.h"
 #include "extensions/common/manifest_handlers/app_isolation_info.h"
-#include "net/url_request/url_request_context.h"
-#include "net/url_request/url_request_context_getter.h"
 
 using base::WeakPtr;
 using content::BrowserContext;
@@ -90,7 +88,7 @@ void DataDeleter::StartDeleting(Profile* profile, const Extension* extension) {
   if (AppIsolationInfo::HasIsolatedStorage(extension)) {
     BrowserContext::AsyncObliterateStoragePartition(
         profile, util::GetPartitionDomainForExtension(extension),
-        base::Bind(
+        base::BindOnce(
             &OnNeedsToGarbageCollectIsolatedStorage,
             ExtensionSystem::Get(profile)->extension_service()->AsWeakPtr()));
   } else {

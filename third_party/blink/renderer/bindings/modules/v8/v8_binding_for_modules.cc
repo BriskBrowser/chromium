@@ -167,7 +167,10 @@ v8::Local<v8::Value> ToV8(const IDBAny* impl,
   return v8::Undefined(isolate);
 }
 
-static const size_t kMaximumDepth = 2000;
+// Non-standard limits, selected to avoid breaking real-world use of the API
+// while also preventing buggy (or malicious) code from causing crashes.
+const size_t kMaximumDepth = 2000;
+const size_t kMaximumArraySize = 1000000;
 
 // Convert a simple (non-Array) script value to an Indexed DB key. If the
 // conversion fails due to a detached buffer, an exception is thrown. If
@@ -261,6 +264,9 @@ static std::unique_ptr<IDBKey> CreateIDBKeyFromValue(
   // Initial state.
   {
     v8::Local<v8::Array> array = value.As<v8::Array>();
+    if (array->Length() > kMaximumArraySize)
+      return IDBKey::CreateInvalid();
+
     stack.push_back(std::make_unique<Record>(array));
     seen.push_back(array);
   }
@@ -314,7 +320,8 @@ static std::unique_ptr<IDBKey> CreateIDBKeyFromValue(
     } else {
       // A sub-array; push onto the stack and start processing it.
       v8::Local<v8::Array> array = item.As<v8::Array>();
-      if (seen.Contains(array) || stack.size() >= kMaximumDepth) {
+      if (seen.Contains(array) || stack.size() >= kMaximumDepth ||
+          array->Length() > kMaximumArraySize) {
         return IDBKey::CreateInvalid();
       }
 
@@ -540,9 +547,12 @@ static v8::Local<v8::Value> DeserializeIDBValueData(v8::Isolate* isolate,
 
   scoped_refptr<SerializedScriptValue> serialized_value =
       value->CreateSerializedValue();
+
+  serialized_value->NativeFileSystemTokens() =
+      std::move(const_cast<IDBValue*>(value)->NativeFileSystemTokens());
+
   SerializedScriptValue::DeserializeOptions options;
   options.blob_info = &value->BlobInfo();
-  options.read_wasm_from_stream = true;
 
   // deserialize() returns null when serialization fails.  This is sub-optimal
   // because IndexedDB values can be null, so an application cannot distinguish
@@ -758,8 +768,7 @@ bool CanInjectIDBKeyIntoScriptValue(v8::Isolate* isolate,
 
 ScriptValue DeserializeScriptValue(ScriptState* script_state,
                                    SerializedScriptValue* serialized_value,
-                                   const Vector<WebBlobInfo>* blob_info,
-                                   bool read_wasm_from_stream) {
+                                   const Vector<WebBlobInfo>* blob_info) {
   v8::Isolate* isolate = script_state->GetIsolate();
   v8::HandleScope handle_scope(isolate);
   if (!serialized_value)
@@ -767,7 +776,6 @@ ScriptValue DeserializeScriptValue(ScriptState* script_state,
 
   SerializedScriptValue::DeserializeOptions options;
   options.blob_info = blob_info;
-  options.read_wasm_from_stream = read_wasm_from_stream;
   return ScriptValue(isolate, serialized_value->Deserialize(isolate, options));
 }
 

@@ -8,8 +8,8 @@
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/values.h"
-#include "components/captive_portal/captive_portal_detector.h"
-#include "components/captive_portal/captive_portal_metrics.h"
+#include "components/captive_portal/core/captive_portal_detector.h"
+#include "components/captive_portal/core/captive_portal_metrics.h"
 #include "components/security_interstitials/core/controller_client.h"
 #include "components/strings/grit/components_strings.h"
 #include "components/url_formatter/url_formatter.h"
@@ -24,8 +24,11 @@ IOSCaptivePortalBlockingPage::IOSCaptivePortalBlockingPage(
     web::WebState* web_state,
     const GURL& request_url,
     const GURL& landing_url,
-    base::OnceCallback<void(bool)> callback)
-    : IOSSecurityInterstitialPage(web_state, request_url),
+    base::OnceCallback<void(bool)> callback,
+    security_interstitials::IOSBlockingPageControllerClient* client)
+    : security_interstitials::IOSSecurityInterstitialPage(web_state,
+                                                          request_url,
+                                                          client),
       landing_url_(landing_url),
       callback_(std::move(callback)) {
   captive_portal::CaptivePortalMetrics::LogCaptivePortalBlockingPageEvent(
@@ -78,6 +81,7 @@ void IOSCaptivePortalBlockingPage::PopulateInterstitialStrings(
   load_time_data->SetString("explanationParagraph", base::string16());
   load_time_data->SetString("finalParagraph", base::string16());
   load_time_data->SetString("recurrentErrorParagraph", base::string16());
+  load_time_data->SetString("optInLink", base::string16());
   load_time_data->SetBoolean("show_recurrent_error_paragraph", false);
 }
 

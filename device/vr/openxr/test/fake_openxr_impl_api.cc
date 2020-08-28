@@ -291,6 +291,12 @@ XrResult xrDestroyInstance(XrInstance instance) {
   return XR_SUCCESS;
 }
 
+XrResult xrDestroySession(XrSession session) {
+  DVLOG(2) << __FUNCTION__;
+  RETURN_IF_XR_FAILED(g_test_helper.ValidateSession(session));
+  return XR_SUCCESS;
+}
+
 XrResult xrDestroySpace(XrSpace space) {
   DVLOG(2) << __FUNCTION__;
   RETURN_IF_XR_FAILED(g_test_helper.ValidateSpace(space));
@@ -506,7 +512,7 @@ XrResult xrGetD3D11GraphicsRequirementsKHR(
   Microsoft::WRL::ComPtr<IDXGIAdapter> adapter;
   HRESULT hr = CreateDXGIFactory1(IID_PPV_ARGS(&dxgi_factory));
   DCHECK(SUCCEEDED(hr));
-  for (int i = 0; SUCCEEDED(dxgi_factory->EnumAdapters(i, &adapter)); i++) {
+  if (SUCCEEDED(dxgi_factory->EnumAdapters(0, &adapter))) {
     DXGI_ADAPTER_DESC desc;
     adapter->GetDesc(&desc);
     graphics_requirements->adapterLuid = desc.AdapterLuid;

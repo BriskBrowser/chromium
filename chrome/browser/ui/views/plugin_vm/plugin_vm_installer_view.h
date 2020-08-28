@@ -11,8 +11,10 @@
 #include "ui/views/bubble/bubble_dialog_delegate_view.h"
 
 namespace views {
+class BoxLayout;
 class ImageView;
 class Label;
+class Link;
 class ProgressBar;
 }  // namespace views
 
@@ -27,32 +29,26 @@ class PluginVmInstallerView : public views::BubbleDialogDelegateView,
   static PluginVmInstallerView* GetActiveViewForTesting();
 
   // views::BubbleDialogDelegateView implementation.
+  bool ShouldShowCloseButton() const override;
   bool ShouldShowWindowTitle() const override;
   bool Accept() override;
   bool Cancel() override;
   gfx::Size CalculatePreferredSize() const override;
 
   // plugin_vm::PluginVmImageDownload::Observer implementation.
-  void OnDlcDownloadProgressUpdated(double progress,
-                                    base::TimeDelta elapsed_time) override;
-  void OnDlcDownloadCompleted() override;
-  void OnDlcDownloadCancelled() override;
+  void OnStateUpdated(
+      plugin_vm::PluginVmInstaller::InstallingState new_state) override;
+  void OnProgressUpdated(double fraction_complete) override;
   void OnDownloadProgressUpdated(uint64_t bytes_downloaded,
-                                 int64_t content_length,
-                                 base::TimeDelta elapsed_time) override;
-  void OnDownloadCompleted() override;
-  void OnDownloadCancelled() override;
-  void OnDownloadFailed(
-      plugin_vm::PluginVmInstaller::FailureReason reason) override;
-  void OnImportProgressUpdated(int percent_completed,
-                               base::TimeDelta elapsed_time) override;
+                                 int64_t content_length) override;
+  void OnVmExists() override;
+  void OnCreated() override;
   void OnImported() override;
-  void OnImportCancelled() override;
-  void OnImportFailed(
-      plugin_vm::PluginVmInstaller::FailureReason reason) override;
+  void OnError(plugin_vm::PluginVmInstaller::FailureReason reason) override;
+  void OnCancelFinished() override;
 
   // Public for testing purposes.
-  base::string16 GetBigMessage() const;
+  base::string16 GetTitle() const;
   base::string16 GetMessage() const;
 
   void SetFinishedCallbackForTesting(
@@ -60,13 +56,14 @@ class PluginVmInstallerView : public views::BubbleDialogDelegateView,
 
  private:
   enum class State {
-    STARTING,         // View was just created, installation hasn't yet started
-    DOWNLOADING_DLC,  // PluginVm DLC downloading and installing in progress.
-    DOWNLOADING,      // PluginVm image downloading is in progress.
-    IMPORTING,        // Downloaded PluginVm image importing is in progress.
-    FINISHED,         // PluginVm environment setting has been finished.
-    ERROR,            // Something unexpected happened.
+    kConfirmInstall,  // Waiting for user to start installation.
+    kInstalling,      // Installation in progress.
+    kCreated,         // A brand new VM has been created using ISO image.
+    kImported,        // Downloaded VM image has been imported successfully.
+    kError,           // Something unexpected happened.
   };
+
+  using InstallingState = plugin_vm::PluginVmInstaller::InstallingState;
 
   ~PluginVmInstallerView() override;
 
@@ -74,32 +71,31 @@ class PluginVmInstallerView : public views::BubbleDialogDelegateView,
   base::string16 GetCurrentDialogButtonLabel(ui::DialogButton button) const;
 
   void OnStateUpdated();
+  void OnLinkClicked();
   // views::BubbleDialogDelegateView implementation.
   void AddedToWidget() override;
 
   base::string16 GetDownloadProgressMessage(uint64_t downlaoded_bytes,
                                             int64_t content_length) const;
-  // Updates the progress bar and shows a time left message if available.
-  void UpdateOperationProgress(double units_processed,
-                               double total_units,
-                               base::TimeDelta elapsed_time) const;
-  void SetBigMessageLabel();
+  void SetTitleLabel();
   void SetMessageLabel();
   void SetBigImage();
 
   void StartInstallation();
 
   Profile* profile_ = nullptr;
+  base::string16 app_name_;
   plugin_vm::PluginVmInstaller* plugin_vm_installer_ = nullptr;
-  views::Label* big_message_label_ = nullptr;
+  views::Label* title_label_ = nullptr;
   views::Label* message_label_ = nullptr;
   views::ProgressBar* progress_bar_ = nullptr;
   views::Label* download_progress_message_label_ = nullptr;
-  views::Label* time_left_message_label_ = nullptr;
+  views::BoxLayout* lower_container_layout_ = nullptr;
   views::ImageView* big_image_ = nullptr;
-  base::TimeTicks setup_start_tick_;
+  views::Link* learn_more_link_ = nullptr;
 
-  State state_ = State::STARTING;
+  State state_ = State::kConfirmInstall;
+  InstallingState installing_state_ = InstallingState::kInactive;
   base::Optional<plugin_vm::PluginVmInstaller::FailureReason> reason_;
 
   base::OnceCallback<void(bool success)> finished_callback_for_testing_;

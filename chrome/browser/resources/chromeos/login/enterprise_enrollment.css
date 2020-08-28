@@ -6,21 +6,13 @@
   padding: 0;
 }
 
-:host(.saml) #oauth-enroll-step-contents {
-  padding-top: 44px;
-}
-
-:host(:not(.saml)) #oauth-saml-notice-container {
-  display: none;
-}
-
-#oauth-enroll-step-contents,
-#oauth-enroll-step-contents > div {
+#stepContents,
+#stepContents > div {
   height: 100%;
   width: 100%;
 }
 
-#oauth-enroll-step-contents {
+#stepContents {
   color: #666;
 }
 
@@ -30,71 +22,66 @@
   margin: 0 auto;
 }
 
-#oauth-enroll-auth-view {
+#authView {
   display: block;
-  height: 100%;
   overflow: hidden;
-  padding: 0;
-  width: 100%;
+  position: static;
 }
 
-#oauth-enroll-learn-more-link {
+#learnMoreLink {
   display: inline;
 }
 
-.oauth-enroll-step-content {
-  display: table-cell;
-  vertical-align: middle;
-}
-
-.oauth-enroll-step-message {
+.step-message {
   display: inline-block;
   padding-top: 20px;
   text-align: start;
   vertical-align: top;
 }
 
-.oauth-enroll-link {
-  color: rgb(17, 85, 204);
-  cursor: pointer;
-  text-decoration: none;
-}
-
-.oauth-enroll-button {
-  display: none;
-}
-
-#oauth-saml-notice-container {
+#samlNoticeContainer {
   align-items: center;
+  background: rgb(241, 243, 244); /* #F1F3F4 */
   box-shadow: 0 2px 2px 0 rgba(0, 0, 0, 0.17);
   display: flex;
   height: 44px;
-  justify-content: center;
-  left: 0;
   min-height: 0;
-  position: absolute;
-  right: 0;
-  top: 0;
 }
 
-#oauth-saml-notice-message {
+#samlNoticeMessage {
   color: rgb(106, 106, 106);
   font-size: 13px;
 }
 
-#oauth-enroll-attribute-prompt-message {
+#attributePromptMessage {
   color: black;
 }
 
-#oauth-enroll-attribute-input {
-  padding-top: 24px;
-}
-
-#oauth-enroll-navigation {
+#navigation {
   color: rgba(0, 0, 0, .54);
   left: 0;
   position: absolute;
   right: 0;
   top: 0;
   z-index: 1;
+}
+
+#signinFrameContainer {
+  z-index: 10;
+}
+
+#samlCloseButton {
+  --cr-icon-button-margin-end: 0;
+  --cr-icon-button-margin-start: 0;
+}
+
+/* WebviewScrollShadowsHelper */
+#authView.can-scroll:not(.is-scrolled):not(.scrolled-to-bottom)::before {
+  @apply --oobe-scroll-shadow-bottom;
+}
+#authView.can-scroll.is-scrolled:not(.scrolled-to-bottom)::before {
+  @apply --oobe-scroll-shadow-top-and-bottom;
+}
+#authView.is-scrolled.scrolled-to-bottom::before {
+  @apply --oobe-scroll-shadow-top;
 }

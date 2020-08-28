@@ -117,7 +117,7 @@ class FuchsiaCdm::CdmSession {
       base::OnceCallback<void(base::Optional<CdmPromise::Exception>)>;
 
   CdmSession(const FuchsiaCdm::SessionCallbacks* callbacks,
-             FuchsiaSecureStreamDecryptor::NewKeyCB on_new_key)
+             base::RepeatingClosure on_new_key)
       : session_callbacks_(callbacks), on_new_key_(on_new_key) {
     // License session events, e.g. license request message, key status change.
     // Fuchsia CDM service guarantees callback of functions (e.g.
@@ -187,7 +187,6 @@ class FuchsiaCdm::CdmSession {
 
   void OnKeyStatesChanged(
       std::vector<fuchsia::media::drm::KeyState> key_states) {
-    std::string new_key_id;
     bool has_additional_usable_key = false;
     CdmKeysInfo keys_info;
     for (const auto& key_state : key_states) {
@@ -196,13 +195,6 @@ class FuchsiaCdm::CdmSession {
       }
       CdmKeyInformation::KeyStatus status = ToCdmKeyStatus(key_state.status());
       has_additional_usable_key |= (status == CdmKeyInformation::USABLE);
-      if (status == CdmKeyInformation::USABLE && new_key_id.empty()) {
-        // The |key_id| is passed to |on_new_key_| to workaround fxb/38253 in
-        // FuchsiaSecureStreamDecryptor. It needs just one valid |key_id|, so it
-        // doesn't matter if |key_info| contains more than one key.
-        // TODO(crbug.com/1012525): Remove the hack once fxb/38253 is resolved.
-        new_key_id.assign(key_state.key_id().begin(), key_state.key_id().end());
-      }
       keys_info.emplace_back(
           new CdmKeyInformation(key_state.key_id(), status, 0));
     }
@@ -211,7 +203,7 @@ class FuchsiaCdm::CdmSession {
         session_id_, has_additional_usable_key, std::move(keys_info));
 
     if (has_additional_usable_key)
-      on_new_key_.Run(new_key_id);
+      on_new_key_.Run();
   }
 
   void OnSessionError(zx_status_t status) {
@@ -230,7 +222,7 @@ class FuchsiaCdm::CdmSession {
   }
 
   const SessionCallbacks* const session_callbacks_;
-  FuchsiaSecureStreamDecryptor::NewKeyCB on_new_key_;
+  base::RepeatingClosure on_new_key_;
 
   fuchsia::media::drm::LicenseSessionPtr session_;
   std::string session_id_;
@@ -248,17 +240,28 @@ FuchsiaCdm::SessionCallbacks& FuchsiaCdm::SessionCallbacks::operator=(
     SessionCallbacks&&) = default;
 
 FuchsiaCdm::FuchsiaCdm(fuchsia::media::drm::ContentDecryptionModulePtr cdm,
+                       ReadyCB ready_cb,
                        SessionCallbacks callbacks)
     : cdm_(std::move(cdm)),
+      ready_cb_(std::move(ready_cb)),
       session_callbacks_(std::move(callbacks)),
       decryptor_(cdm_.get()) {
   DCHECK(cdm_);
+  cdm_.events().OnProvisioned =
+      fit::bind_member(this, &FuchsiaCdm::OnProvisioned);
   cdm_.set_error_handler([this](zx_status_t status) {
     ZX_LOG(ERROR, status) << "The fuchsia.media.drm.ContentDecryptionModule"
                           << " channel was terminated.";
 
     // Reject all the pending promises.
     promises_.Clear();
+
+    // If the channel closed prior to invoking the ready_cb_, we should invoke
+    // it here with failure.
+    if (ready_cb_) {
+      std::move(ready_cb_).Run(
+          false, "ContentDecryptionModule closed prior to being ready");
+    }
   });
 }
 
@@ -352,6 +355,12 @@ void FuchsiaCdm::CreateSessionAndGenerateRequest(
       init_data_type, init_data,
       base::BindOnce(&FuchsiaCdm::OnGenerateLicenseRequestStatus,
                      base::Unretained(this), session_ptr, promise_id));
+}
+
+void FuchsiaCdm::OnProvisioned() {
+  if (ready_cb_) {
+    std::move(ready_cb_).Run(true, "");
+  }
 }
 
 void FuchsiaCdm::OnCreateSession(std::unique_ptr<CdmSession> session,
@@ -456,28 +465,23 @@ CdmContext* FuchsiaCdm::GetCdmContext() {
 
 std::unique_ptr<CallbackRegistration> FuchsiaCdm::RegisterEventCB(
     EventCB event_cb) {
-  NOTIMPLEMENTED();
-  return nullptr;
+  return event_callbacks_.Register(std::move(event_cb));
 }
 
 Decryptor* FuchsiaCdm::GetDecryptor() {
   return &decryptor_;
 }
 
-int FuchsiaCdm::GetCdmId() const {
-  return kInvalidCdmId;
-}
-
 FuchsiaCdmContext* FuchsiaCdm::GetFuchsiaCdmContext() {
   return this;
 }
 
-void FuchsiaCdm::OnNewKey(const std::string& key_id) {
-  decryptor_.OnNewKey();
+void FuchsiaCdm::OnNewKey() {
+  event_callbacks_.Notify(Event::kHasAdditionalUsableKey);
   {
     base::AutoLock auto_lock(new_key_cb_for_video_lock_);
     if (new_key_cb_for_video_)
-      new_key_cb_for_video_.Run(key_id);
+      new_key_cb_for_video_.Run();
   }
 }
 

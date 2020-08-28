@@ -7,11 +7,31 @@
  * editing or creating a credit card entry.
  */
 
-(function() {
-'use strict';
+import 'chrome://resources/cr_elements/cr_button/cr_button.m.js';
+import 'chrome://resources/cr_elements/cr_dialog/cr_dialog.m.js';
+import 'chrome://resources/cr_elements/cr_input/cr_input.m.js';
+import 'chrome://resources/cr_elements/shared_style_css.m.js';
+import 'chrome://resources/cr_elements/shared_vars_css.m.js';
+import 'chrome://resources/cr_elements/md_select_css.m.js';
+import '../settings_shared_css.m.js';
+import '../settings_vars_css.m.js';
+
+import {I18nBehavior} from 'chrome://resources/js/i18n_behavior.m.js';
+import {html, Polymer} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+
+import {loadTimeData} from '../i18n_setup.js';
+
+/**
+ * Regular expression for invalid nickname. Nickname containing any digits will
+ * be treated as invalid.
+ * @type {!RegExp}
+ */
+const NICKNAME_INVALID_REGEX = new RegExp('.*\\d+.*');
 
 Polymer({
   is: 'settings-credit-card-edit-dialog',
+
+  _template: html`{__html_template__}`,
 
   properties: {
     /**
@@ -49,6 +69,34 @@ Polymer({
 
     /** @private {string|undefined} */
     expirationMonth_: String,
+
+    /**
+     * True if nickname management is enabled.
+     * @private
+     */
+    nicknameManagementEnabled_: {
+      type: Boolean,
+      reflectToAttribute: true,
+      value() {
+        return loadTimeData.getBoolean('nicknameManagementEnabled');
+      }
+    },
+
+    /**
+     * Whether the current nickname input is invalid.
+     * @private
+     */
+    nicknameInvalid_: {
+      type: Boolean,
+      value: false,
+    },
+
+    /** @private */
+    expired_: {
+      type: Boolean,
+      computed: 'computeExpired_(expirationMonth_, expirationYear_)',
+      reflectToAttribute: true,
+    },
   },
 
   behaviors: [
@@ -59,12 +107,19 @@ Polymer({
    * @return {boolean} True iff the provided expiration date is passed.
    * @private
    */
-  checkIfCardExpired_(expirationMonth_, expirationYear_) {
+  computeExpired_() {
+    if (this.expirationYear_ === undefined ||
+        this.expirationMonth_ === undefined) {
+      return false;
+    }
     const now = new Date();
+    // Convert string (e.g. '06') to number (e.g. 6) for comparison.
+    const expirationYear = parseInt(this.expirationYear_, 10);
+    const expirationMonth = parseInt(this.expirationMonth_, 10);
     return (
-        expirationYear_ < now.getFullYear() ||
-        (expirationYear_ == now.getFullYear() &&
-         expirationMonth_ <= now.getMonth()));
+        expirationYear < now.getFullYear() ||
+        (expirationYear === now.getFullYear() &&
+         expirationMonth <= now.getMonth()));
   },
 
   /** @override */
@@ -72,11 +127,8 @@ Polymer({
     this.title_ = this.i18n(
         this.creditCard.guid ? 'editCreditCardTitle' : 'addCreditCardTitle');
 
-    // Needed to initialize the disabled state of the Save button.
-    this.onCreditCardNameOrNumberChanged_();
-
     // Add a leading '0' if a month is 1 char.
-    if (this.creditCard.expirationMonth.length == 1) {
+    if (this.creditCard.expirationMonth.length === 1) {
       this.creditCard.expirationMonth = '0' + this.creditCard.expirationMonth;
     }
 
@@ -131,6 +183,7 @@ Polymer({
 
     this.creditCard.expirationYear = this.expirationYear_;
     this.creditCard.expirationMonth = this.expirationMonth_;
+    this.trimCreditCard_();
     this.fire('save-credit-card', this.creditCard);
     this.close();
   },
@@ -138,29 +191,77 @@ Polymer({
   /** @private */
   onMonthChange_() {
     this.expirationMonth_ = this.monthList_[this.$.month.selectedIndex];
-    this.$.saveButton.disabled = !this.saveEnabled_();
   },
 
   /** @private */
   onYearChange_() {
     this.expirationYear_ = this.yearList_[this.$.year.selectedIndex];
-    this.$.saveButton.disabled = !this.saveEnabled_();
-  },
-
-  /** @private */
-  onCreditCardNameOrNumberChanged_() {
-    this.$.saveButton.disabled = !this.saveEnabled_();
   },
 
   /** @private */
   saveEnabled_() {
     // The save button is enabled if:
     // There is and name or number for the card
-    // and the expiration date is valid.
+    // and the expiration date is valid
+    // and the nickname is valid if present.
     return ((this.creditCard.name && this.creditCard.name.trim()) ||
             (this.creditCard.cardNumber &&
              this.creditCard.cardNumber.trim())) &&
-        !this.checkIfCardExpired_(this.expirationMonth_, this.expirationYear_);
+        !this.expired_ && !this.nicknameInvalid_;
+  },
+
+  /**
+   * @return {boolean} True iff the card is expired and nickname management is
+   *     disabled.
+   * @private
+   */
+  // TODO(crbug.com/1082013): Remove legacy expired error message when nickname
+  // management is fully enabled.
+  showLegacyExpiredError_() {
+    return !this.nicknameManagementEnabled_ && this.expired_;
+  },
+
+  /**
+   * Validate no digits are used in nickname. Display error message and disable
+   * the save button when invalid.
+   * @private
+   */
+  validateNickname_() {
+    this.nicknameInvalid_ =
+        NICKNAME_INVALID_REGEX.test(this.creditCard.nickname);
+  },
+
+  /**
+   * @param {string|undefined} nickname of the card, undefined when not set.
+   * @return {number} nickname character length.
+   * @private
+   */
+  computeNicknameCharCount_(nickname) {
+    return (nickname || '').length;
+  },
+
+  /**
+   * @return {string} 'true' or 'false', indicating whether the expired error
+   *     message should be aria-hidden.
+   * @private
+   */
+  getAriaHidden_() {
+    return this.expired_ ? 'false' : 'true';
+  },
+
+  /**
+   * Trim credit card's name, cardNumber and nickname if exist.
+   * @private
+   */
+  trimCreditCard_() {
+    if (this.creditCard.name) {
+      this.creditCard.name = this.creditCard.name.trim();
+    }
+    if (this.creditCard.cardNumber) {
+      this.creditCard.cardNumber = this.creditCard.cardNumber.trim();
+    }
+    if (this.creditCard.nickname) {
+      this.creditCard.nickname = this.creditCard.nickname.trim();
+    }
   },
 });
-})();

@@ -70,119 +70,51 @@
 #include "third_party/blink/renderer/core/layout/layout_theme.h"
 #include "third_party/blink/renderer/core/page/page.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
+#include "third_party/blink/renderer/platform/heap/heap.h"
 #include "third_party/blink/renderer/platform/json/json_values.h"
 #include "third_party/blink/renderer/platform/text/platform_locale.h"
 #include "third_party/blink/renderer/platform/text/text_break_iterator.h"
 
 namespace blink {
 
-using InputTypeFactoryFunction = InputType* (*)(HTMLInputElement&);
-using InputTypeFactoryMap = HashMap<AtomicString, InputTypeFactoryFunction>;
-
-static std::unique_ptr<InputTypeFactoryMap> CreateInputTypeFactoryMap() {
-  std::unique_ptr<InputTypeFactoryMap> map =
-      std::make_unique<InputTypeFactoryMap>();
-  map->insert(input_type_names::kButton,
-              [](HTMLInputElement& element) -> InputType* {
-                return MakeGarbageCollected<ButtonInputType>(element);
-              });
-  map->insert(input_type_names::kCheckbox,
-              [](HTMLInputElement& element) -> InputType* {
-                return MakeGarbageCollected<CheckboxInputType>(element);
-              });
-  map->insert(input_type_names::kColor,
-              [](HTMLInputElement& element) -> InputType* {
-                return MakeGarbageCollected<ColorInputType>(element);
-              });
-  map->insert(input_type_names::kDate,
-              [](HTMLInputElement& element) -> InputType* {
-                return MakeGarbageCollected<DateInputType>(element);
-              });
-  map->insert(input_type_names::kDatetimeLocal,
-              [](HTMLInputElement& element) -> InputType* {
-                return MakeGarbageCollected<DateTimeLocalInputType>(element);
-              });
-  map->insert(input_type_names::kEmail,
-              [](HTMLInputElement& element) -> InputType* {
-                return MakeGarbageCollected<EmailInputType>(element);
-              });
-  map->insert(input_type_names::kFile,
-              [](HTMLInputElement& element) -> InputType* {
-                return MakeGarbageCollected<FileInputType>(element);
-              });
-  map->insert(input_type_names::kHidden,
-              [](HTMLInputElement& element) -> InputType* {
-                return MakeGarbageCollected<HiddenInputType>(element);
-              });
-  map->insert(input_type_names::kImage,
-              [](HTMLInputElement& element) -> InputType* {
-                return MakeGarbageCollected<ImageInputType>(element);
-              });
-  map->insert(input_type_names::kMonth,
-              [](HTMLInputElement& element) -> InputType* {
-                return MakeGarbageCollected<MonthInputType>(element);
-              });
-  map->insert(input_type_names::kNumber,
-              [](HTMLInputElement& element) -> InputType* {
-                return MakeGarbageCollected<NumberInputType>(element);
-              });
-  map->insert(input_type_names::kPassword,
-              [](HTMLInputElement& element) -> InputType* {
-                return MakeGarbageCollected<PasswordInputType>(element);
-              });
-  map->insert(input_type_names::kRadio,
-              [](HTMLInputElement& element) -> InputType* {
-                return MakeGarbageCollected<RadioInputType>(element);
-              });
-  map->insert(input_type_names::kRange,
-              [](HTMLInputElement& element) -> InputType* {
-                return MakeGarbageCollected<RangeInputType>(element);
-              });
-  map->insert(input_type_names::kReset,
-              [](HTMLInputElement& element) -> InputType* {
-                return MakeGarbageCollected<ResetInputType>(element);
-              });
-  map->insert(input_type_names::kSearch,
-              [](HTMLInputElement& element) -> InputType* {
-                return MakeGarbageCollected<SearchInputType>(element);
-              });
-  map->insert(input_type_names::kSubmit,
-              [](HTMLInputElement& element) -> InputType* {
-                return MakeGarbageCollected<SubmitInputType>(element);
-              });
-  map->insert(input_type_names::kTel,
-              [](HTMLInputElement& element) -> InputType* {
-                return MakeGarbageCollected<TelephoneInputType>(element);
-              });
-  map->insert(input_type_names::kTime,
-              [](HTMLInputElement& element) -> InputType* {
-                return MakeGarbageCollected<TimeInputType>(element);
-              });
-  map->insert(input_type_names::kUrl,
-              [](HTMLInputElement& element) -> InputType* {
-                return MakeGarbageCollected<URLInputType>(element);
-              });
-  map->insert(input_type_names::kWeek,
-              [](HTMLInputElement& element) -> InputType* {
-                return MakeGarbageCollected<WeekInputType>(element);
-              });
-  // No need to register "text" because it is the default type.
-  return map;
-}
-
-static const InputTypeFactoryMap* FactoryMap() {
-  static const InputTypeFactoryMap* factory_map =
-      CreateInputTypeFactoryMap().release();
-  return factory_map;
-}
+// Listed once to avoid any discrepancy between InputType::Create and
+// InputType::NormalizeTypeName.
+//
+// No need to register "text" because it is the default type.
+#define INPUT_TYPES(INPUT_TYPE)                      \
+  INPUT_TYPE(kButton, ButtonInputType)               \
+  INPUT_TYPE(kCheckbox, CheckboxInputType)           \
+  INPUT_TYPE(kColor, ColorInputType)                 \
+  INPUT_TYPE(kDate, DateInputType)                   \
+  INPUT_TYPE(kDatetimeLocal, DateTimeLocalInputType) \
+  INPUT_TYPE(kEmail, EmailInputType)                 \
+  INPUT_TYPE(kFile, FileInputType)                   \
+  INPUT_TYPE(kHidden, HiddenInputType)               \
+  INPUT_TYPE(kImage, ImageInputType)                 \
+  INPUT_TYPE(kMonth, MonthInputType)                 \
+  INPUT_TYPE(kNumber, NumberInputType)               \
+  INPUT_TYPE(kPassword, PasswordInputType)           \
+  INPUT_TYPE(kRadio, RadioInputType)                 \
+  INPUT_TYPE(kRange, RangeInputType)                 \
+  INPUT_TYPE(kReset, ResetInputType)                 \
+  INPUT_TYPE(kSearch, SearchInputType)               \
+  INPUT_TYPE(kSubmit, SubmitInputType)               \
+  INPUT_TYPE(kTel, TelephoneInputType)               \
+  INPUT_TYPE(kTime, TimeInputType)                   \
+  INPUT_TYPE(kUrl, URLInputType)                     \
+  INPUT_TYPE(kWeek, WeekInputType)
 
 InputType* InputType::Create(HTMLInputElement& element,
                              const AtomicString& type_name) {
-  InputTypeFactoryFunction factory =
-      type_name.IsEmpty() ? nullptr : FactoryMap()->at(type_name);
-  if (factory) {
-    return factory(element);
-  }
+  if (type_name.IsEmpty())
+    return MakeGarbageCollected<TextInputType>(element);
+
+#define INPUT_TYPE_FACTORY(input_type, class_name) \
+  if (type_name == input_type_names::input_type)   \
+    return MakeGarbageCollected<class_name>(element);
+  INPUT_TYPES(INPUT_TYPE_FACTORY)
+#undef INPUT_TYPE_FACTORY
+
   return MakeGarbageCollected<TextInputType>(element);
 }
 
@@ -190,14 +122,21 @@ const AtomicString& InputType::NormalizeTypeName(
     const AtomicString& type_name) {
   if (type_name.IsEmpty())
     return input_type_names::kText;
-  InputTypeFactoryMap::const_iterator it =
-      FactoryMap()->find(type_name.LowerASCII());
-  return it == FactoryMap()->end() ? input_type_names::kText : it->key;
+
+  AtomicString type_name_lower = type_name.LowerASCII();
+
+#define NORMALIZE_INPUT_TYPE(input_type, class_name)   \
+  if (type_name_lower == input_type_names::input_type) \
+    return input_type_names::input_type;
+  INPUT_TYPES(NORMALIZE_INPUT_TYPE)
+#undef NORMALIZE_INPUT_TYPE
+
+  return input_type_names::kText;
 }
 
 InputType::~InputType() = default;
 
-void InputType::Trace(Visitor* visitor) {
+void InputType::Trace(Visitor* visitor) const {
   visitor->Trace(element_);
 }
 
@@ -298,7 +237,15 @@ bool InputType::RangeUnderflow(const String& value) const {
   if (!numeric_value.IsFinite())
     return false;
 
-  return numeric_value < CreateStepRange(kRejectAny).Minimum();
+  StepRange step_range = CreateStepRange(kRejectAny);
+  if (step_range.HasReversedRange()) {
+    // With a reversed range, any value outside of the midnight-crossing valid
+    // range is considered underflow and overflow.
+    return numeric_value > step_range.Maximum() &&
+           numeric_value < step_range.Minimum();
+  } else {
+    return numeric_value < step_range.Minimum();
+  }
 }
 
 bool InputType::RangeOverflow(const String& value) const {
@@ -309,7 +256,15 @@ bool InputType::RangeOverflow(const String& value) const {
   if (!numeric_value.IsFinite())
     return false;
 
-  return numeric_value > CreateStepRange(kRejectAny).Maximum();
+  StepRange step_range = CreateStepRange(kRejectAny);
+  if (step_range.HasReversedRange()) {
+    // With a reversed range, any value outside of the midnight-crossing valid
+    // range is considered underflow and overflow.
+    return numeric_value > step_range.Maximum() &&
+           numeric_value < step_range.Minimum();
+  } else {
+    return numeric_value > step_range.Maximum();
+  }
 }
 
 Decimal InputType::DefaultValueForStepUp() const {
@@ -391,6 +346,12 @@ String InputType::RangeUnderflowText(const Decimal&) const {
   return String();
 }
 
+String InputType::ReversedRangeOutOfRangeText(const Decimal&,
+                                              const Decimal&) const {
+  NOTREACHED();
+  return String();
+}
+
 String InputType::RangeInvalidText(const Decimal&, const Decimal&) const {
   NOTREACHED();
   return String();
@@ -451,9 +412,17 @@ std::pair<String, String> InputType::ValidationMessage(
 
   StepRange step_range(CreateStepRange(kRejectAny));
 
-  if (step_range.Minimum() > step_range.Maximum()) {
+  if (step_range.Minimum() > step_range.Maximum() &&
+      !step_range.HasReversedRange()) {
     return std::make_pair(
         RangeInvalidText(step_range.Minimum(), step_range.Maximum()),
+        g_empty_string);
+  }
+
+  if (step_range.HasReversedRange() && numeric_value < step_range.Minimum() &&
+      numeric_value > step_range.Maximum()) {
+    return std::make_pair(
+        ReversedRangeOutOfRangeText(step_range.Minimum(), step_range.Maximum()),
         g_empty_string);
   }
 
@@ -781,7 +750,7 @@ void InputType::ApplyStep(const Decimal& current,
   Decimal new_value = current;
   const AtomicString& step_string =
       GetElement().FastGetAttribute(html_names::kStepAttr);
-  if (!DeprecatedEqualIgnoringCase(step_string, "any") &&
+  if (!EqualIgnoringASCIICase(step_string, "any") &&
       step_range.StepMismatch(current)) {
     // Snap-to-step / clamping steps
     // If the current value is not matched to step value:
@@ -802,7 +771,7 @@ void InputType::ApplyStep(const Decimal& current,
   }
   new_value = new_value + step_range.Step() * Decimal::FromDouble(count);
 
-  if (!DeprecatedEqualIgnoringCase(step_string, "any"))
+  if (!EqualIgnoringASCIICase(step_string, "any"))
     new_value = step_range.AlignValueForStep(current, new_value);
 
   // 8. If the element has a minimum, and value is less than that minimum,
@@ -963,12 +932,35 @@ Decimal InputType::FindStepBase(const Decimal& default_value) const {
   return step_base;
 }
 
+StepRange InputType::CreateReversibleStepRange(
+    AnyStepHandling any_step_handling,
+    const Decimal& step_base_default,
+    const Decimal& minimum_default,
+    const Decimal& maximum_default,
+    const StepRange::StepDescription& step_description) const {
+  return CreateStepRange(any_step_handling, step_base_default, minimum_default,
+                         maximum_default, step_description,
+                         /*supports_reversed_range=*/true);
+}
+
 StepRange InputType::CreateStepRange(
     AnyStepHandling any_step_handling,
     const Decimal& step_base_default,
     const Decimal& minimum_default,
     const Decimal& maximum_default,
     const StepRange::StepDescription& step_description) const {
+  return CreateStepRange(any_step_handling, step_base_default, minimum_default,
+                         maximum_default, step_description,
+                         /*supports_reversed_range=*/false);
+}
+
+StepRange InputType::CreateStepRange(
+    AnyStepHandling any_step_handling,
+    const Decimal& step_base_default,
+    const Decimal& minimum_default,
+    const Decimal& maximum_default,
+    const StepRange::StepDescription& step_description,
+    bool supports_reversed_range) const {
   bool has_range_limitations = false;
   const Decimal step_base = FindStepBase(step_base_default);
   Decimal minimum =
@@ -986,17 +978,20 @@ StepRange InputType::CreateStepRange(
   const Decimal step = StepRange::ParseStep(
       any_step_handling, step_description,
       GetElement().FastGetAttribute(html_names::kStepAttr));
-  return StepRange(step_base, minimum, maximum, has_range_limitations, step,
-                   step_description);
+  bool has_reversed_range =
+      has_range_limitations && supports_reversed_range && maximum < minimum;
+  return StepRange(step_base, minimum, maximum, has_range_limitations,
+                   has_reversed_range, step, step_description);
 }
 
 void InputType::AddWarningToConsole(const char* message_format,
                                     const String& value) const {
-  GetElement().GetDocument().AddConsoleMessage(ConsoleMessage::Create(
-      mojom::ConsoleMessageSource::kRendering,
-      mojom::ConsoleMessageLevel::kWarning,
-      String::Format(message_format,
-                     JSONValue::QuoteString(value).Utf8().c_str())));
+  GetElement().GetDocument().AddConsoleMessage(
+      MakeGarbageCollected<ConsoleMessage>(
+          mojom::ConsoleMessageSource::kRendering,
+          mojom::ConsoleMessageLevel::kWarning,
+          String::Format(message_format,
+                         JSONValue::QuoteString(value).Utf8().c_str())));
 }
 
 }  // namespace blink

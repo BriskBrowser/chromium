@@ -11,6 +11,7 @@
 #include <memory>
 #include <set>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -30,6 +31,7 @@
 #include "cc/tiles/tile_draw_info.h"
 #include "cc/tiles/tile_manager_settings.h"
 #include "cc/tiles/tile_task_manager.h"
+#include "ui/gfx/display_color_spaces.h"
 #include "url/gurl.h"
 
 namespace base {
@@ -80,7 +82,14 @@ class CC_EXPORT TileManagerClient {
   virtual void SetIsLikelyToRequireADraw(bool is_likely_to_require_a_draw) = 0;
 
   // Requests the color space into which tiles should be rasterized.
-  virtual const gfx::ColorSpace& GetRasterColorSpace() const = 0;
+  virtual gfx::ColorSpace GetRasterColorSpace(
+      gfx::ContentColorUsage content_color_usage) const = 0;
+
+  // Return the SDR white level for rasterization. Some systems have variable
+  // white levels (e.g., Windows SDR brightness slider). This should return the
+  // level of the monitor on which the rasterized content will be displayed (and
+  // changing the SDR white level of the display will trigger a re-raster).
+  virtual float GetSDRWhiteLevel() const = 0;
 
   // Requests that a pending tree be scheduled to invalidate content on the
   // pending on active tree. This is currently used when tiles that are
@@ -167,7 +176,8 @@ class CC_EXPORT TileManager : CheckerImageTrackerClient {
                     ImageDecodeCache* image_decode_cache,
                     TaskGraphRunner* task_graph_runner,
                     RasterBufferProvider* raster_buffer_provider,
-                    bool use_gpu_rasterization);
+                    bool use_gpu_rasterization,
+                    bool use_oop_rasterization);
 
   // This causes any completed raster work to finalize, so that tiles get up to
   // date draw information.
@@ -180,8 +190,7 @@ class CC_EXPORT TileManager : CheckerImageTrackerClient {
   std::unique_ptr<Tile> CreateTile(const Tile::CreateInfo& info,
                                    int layer_id,
                                    int source_frame_number,
-                                   int flags,
-                                   bool can_use_lcd_text);
+                                   int flags);
 
   bool IsReadyToActivate() const;
   bool IsReadyToDraw() const;
@@ -206,7 +215,7 @@ class CC_EXPORT TileManager : CheckerImageTrackerClient {
           resource_pool_->AcquireResource(
               tiles[i]->desired_texture_size(),
               raster_buffer_provider_->GetResourceFormat(),
-              client_->GetRasterColorSpace());
+              client_->GetRasterColorSpace(gfx::ContentColorUsage::kSRGB));
       raster_buffer_provider_->AcquireBufferForRaster(
           resource, 0, 0,
           /*depends_on_at_raster_decodes=*/false,
@@ -362,6 +371,7 @@ class CC_EXPORT TileManager : CheckerImageTrackerClient {
   scoped_refptr<TileTask> CreateRasterTask(
       const PrioritizedTile& prioritized_tile,
       const gfx::ColorSpace& raster_color_space,
+      float sdr_white_level,
       PrioritizedWorkToSchedule* work_to_schedule);
 
   std::unique_ptr<EvictionTilePriorityQueue>
@@ -395,6 +405,7 @@ class CC_EXPORT TileManager : CheckerImageTrackerClient {
   void PartitionImagesForCheckering(
       const PrioritizedTile& prioritized_tile,
       const gfx::ColorSpace& raster_color_space,
+      float sdr_white_level,
       std::vector<DrawImage>* sync_decoded_images,
       std::vector<PaintImage>* checkered_images,
       const gfx::Rect* invalidated_rect,
@@ -402,6 +413,7 @@ class CC_EXPORT TileManager : CheckerImageTrackerClient {
   void AddCheckeredImagesToDecodeQueue(
       const PrioritizedTile& prioritized_tile,
       const gfx::ColorSpace& raster_color_space,
+      float sdr_white_level,
       CheckerImageTracker::DecodeType decode_type,
       CheckerImageTracker::ImageDecodeQueue* image_decode_queue);
 
@@ -426,6 +438,7 @@ class CC_EXPORT TileManager : CheckerImageTrackerClient {
 
   const TileManagerSettings tile_manager_settings_;
   bool use_gpu_rasterization_;
+  bool use_oop_rasterization_;
 
   std::unordered_map<Tile::Id, Tile*> tiles_;
 

@@ -12,6 +12,7 @@
 #include "chrome/browser/ui/browser.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "content/public/browser/storage_partition.h"
+#include "content/public/test/browser_test.h"
 #include "content/public/test/test_utils.h"
 #include "net/base/load_flags.h"
 #include "net/http/http_status_code.h"
@@ -19,7 +20,7 @@
 #include "net/test/embedded_test_server/http_request.h"
 #include "net/test/embedded_test_server/http_response.h"
 #include "net/traffic_annotation/network_traffic_annotation_test_helper.h"
-#include "net/url_request/url_request_status.h"
+#include "net/url_request/referrer_policy.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "ui/gfx/codec/png_codec.h"
@@ -150,7 +151,7 @@ IN_PROC_BROWSER_TEST_F(BitmapFetcherBrowserTest, StartTest) {
   // an image in a callback to OnImageDecoded().
   fetcher.Init(
       std::string(),
-      net::URLRequest::REDUCE_REFERRER_GRANULARITY_ON_TRANSITION_CROSS_ORIGIN,
+      net::ReferrerPolicy::REDUCE_GRANULARITY_ON_TRANSITION_CROSS_ORIGIN,
       network::mojom::CredentialsMode::kInclude);
   fetcher.Start(
       content::BrowserContext::GetDefaultStoragePartition(browser()->profile())
@@ -169,11 +170,7 @@ IN_PROC_BROWSER_TEST_F(BitmapFetcherBrowserTest, StartTest) {
 
 IN_PROC_BROWSER_TEST_F(BitmapFetcherBrowserTest, OnImageDecodedTest) {
   GURL url = embedded_test_server()->GetURL(kOnImageDecodedTestURL);
-  SkBitmap image;
-
-  // Put a real bitmap into "image".  2x2 bitmap of green 16 bit pixels.
-  image.allocN32Pixels(2, 2);
-  image.eraseColor(SK_ColorGREEN);
+  SkBitmap image = test_bitmap();
 
   BitmapFetcherTestDelegate delegate(kSyncCall);
 
@@ -200,7 +197,7 @@ IN_PROC_BROWSER_TEST_F(BitmapFetcherBrowserTest, OnURLFetchFailureTest) {
 
   fetcher.Init(
       std::string(),
-      net::URLRequest::REDUCE_REFERRER_GRANULARITY_ON_TRANSITION_CROSS_ORIGIN,
+      net::ReferrerPolicy::REDUCE_GRANULARITY_ON_TRANSITION_CROSS_ORIGIN,
       network::mojom::CredentialsMode::kInclude);
   fetcher.Start(
       content::BrowserContext::GetDefaultStoragePartition(browser()->profile())
@@ -220,7 +217,7 @@ IN_PROC_BROWSER_TEST_F(BitmapFetcherBrowserTest, HandleImageFailedTest) {
 
   fetcher.Init(
       std::string(),
-      net::URLRequest::REDUCE_REFERRER_GRANULARITY_ON_TRANSITION_CROSS_ORIGIN,
+      net::ReferrerPolicy::REDUCE_GRANULARITY_ON_TRANSITION_CROSS_ORIGIN,
       network::mojom::CredentialsMode::kInclude);
   fetcher.Start(
       content::BrowserContext::GetDefaultStoragePartition(browser()->profile())
@@ -231,4 +228,47 @@ IN_PROC_BROWSER_TEST_F(BitmapFetcherBrowserTest, HandleImageFailedTest) {
   delegate.Wait();
 
   EXPECT_FALSE(delegate.success());
+}
+
+IN_PROC_BROWSER_TEST_F(BitmapFetcherBrowserTest, DataURLNonImage) {
+  GURL url("data:,Hello");
+  BitmapFetcherTestDelegate delegate(kAsyncCall);
+  BitmapFetcher fetcher(url, &delegate, TRAFFIC_ANNOTATION_FOR_TESTS);
+
+  fetcher.Init(
+      std::string(),
+      net::ReferrerPolicy::REDUCE_GRANULARITY_ON_TRANSITION_CROSS_ORIGIN,
+      network::mojom::CredentialsMode::kInclude);
+  fetcher.Start(
+      content::BrowserContext::GetDefaultStoragePartition(browser()->profile())
+          ->GetURLLoaderFactoryForBrowserProcess()
+          .get());
+  delegate.Wait();
+
+  EXPECT_FALSE(delegate.success());
+}
+
+IN_PROC_BROWSER_TEST_F(BitmapFetcherBrowserTest, DataURLImage) {
+  // This is test_bitmap() in data: URL form.
+  GURL url(
+      "data:image/"
+      "png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAFElEQVQYlWNk+"
+      "M/wn4GBgYGJAQoAHhgCAh6X4CYAAAAASUVORK5CYII=");
+
+  BitmapFetcherTestDelegate delegate(kAsyncCall);
+  BitmapFetcher fetcher(url, &delegate, TRAFFIC_ANNOTATION_FOR_TESTS);
+
+  fetcher.Init(
+      std::string(),
+      net::ReferrerPolicy::REDUCE_GRANULARITY_ON_TRANSITION_CROSS_ORIGIN,
+      network::mojom::CredentialsMode::kInclude);
+  fetcher.Start(
+      content::BrowserContext::GetDefaultStoragePartition(browser()->profile())
+          ->GetURLLoaderFactoryForBrowserProcess()
+          .get());
+  delegate.Wait();
+
+  // Ensure image is marked as succeeded.
+  EXPECT_TRUE(delegate.success());
+  EXPECT_TRUE(gfx::BitmapsAreEqual(test_bitmap(), delegate.bitmap()));
 }

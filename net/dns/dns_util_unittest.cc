@@ -6,6 +6,7 @@
 
 #include "base/stl_util.h"
 #include "net/dns/public/dns_protocol.h"
+#include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace net {
@@ -136,7 +137,7 @@ TEST_F(DNSUtilTest, GetURLFromTemplateWithoutParameters) {
 }
 
 TEST_F(DNSUtilTest, GetDohUpgradeServersFromDotHostname) {
-  std::vector<DnsConfig::DnsOverHttpsServerConfig> doh_servers =
+  std::vector<DnsOverHttpsServerConfig> doh_servers =
       GetDohUpgradeServersFromDotHostname("", std::vector<std::string>());
   EXPECT_EQ(0u, doh_servers.size());
 
@@ -176,27 +177,31 @@ TEST_F(DNSUtilTest, GetDohUpgradeServersFromNameservers) {
   nameservers.push_back(IPEndPoint(dns_ip3, dns_protocol::kDefaultPort));
   nameservers.push_back(IPEndPoint(dns_ip4, dns_protocol::kDefaultPort));
 
-  std::vector<DnsConfig::DnsOverHttpsServerConfig> doh_servers =
+  std::vector<DnsOverHttpsServerConfig> doh_servers =
       GetDohUpgradeServersFromNameservers(std::vector<IPEndPoint>(),
                                           std::vector<std::string>());
   EXPECT_EQ(0u, doh_servers.size());
 
   doh_servers = GetDohUpgradeServersFromNameservers(nameservers,
                                                     std::vector<std::string>());
-  EXPECT_EQ(3u, doh_servers.size());
-  EXPECT_EQ("https://chrome.cloudflare-dns.com/dns-query",
-            doh_servers[0].server_template);
-  EXPECT_EQ("https://doh.cleanbrowsing.org/doh/family-filter{?dns}",
-            doh_servers[1].server_template);
-  EXPECT_EQ("https://doh.cleanbrowsing.org/doh/security-filter{?dns}",
-            doh_servers[2].server_template);
+  EXPECT_THAT(
+      doh_servers,
+      testing::ElementsAre(
+          DnsOverHttpsServerConfig(
+              "https://chrome.cloudflare-dns.com/dns-query", true),
+          DnsOverHttpsServerConfig(
+              "https://doh.cleanbrowsing.org/doh/family-filter{?dns}", false),
+          DnsOverHttpsServerConfig(
+              "https://doh.cleanbrowsing.org/doh/security-filter{?dns}",
+              false)));
 
   doh_servers = GetDohUpgradeServersFromNameservers(
       nameservers, std::vector<std::string>(
                        {"CleanBrowsingSecure", "Cloudflare", "Unexpected"}));
-  EXPECT_EQ(1u, doh_servers.size());
-  EXPECT_EQ("https://doh.cleanbrowsing.org/doh/family-filter{?dns}",
-            doh_servers[0].server_template);
+  EXPECT_THAT(
+      doh_servers,
+      testing::ElementsAre(DnsOverHttpsServerConfig(
+          "https://doh.cleanbrowsing.org/doh/family-filter{?dns}", false)));
 }
 
 TEST_F(DNSUtilTest, GetDohProviderIdForHistogramFromDohConfig) {

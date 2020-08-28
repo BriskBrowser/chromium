@@ -4,13 +4,9 @@
 
 package org.chromium.chrome.browser.payments;
 
-import static org.chromium.chrome.browser.payments.PaymentRequestTestRule.DELAYED_RESPONSE;
-import static org.chromium.chrome.browser.payments.PaymentRequestTestRule.HAVE_INSTRUMENTS;
-import static org.chromium.chrome.browser.payments.PaymentRequestTestRule.IMMEDIATE_RESPONSE;
-import static org.chromium.chrome.browser.payments.PaymentRequestTestRule.NO_INSTRUMENTS;
-
 import android.support.test.InstrumentationRegistry;
-import android.support.test.filters.MediumTest;
+
+import androidx.test.filters.MediumTest;
 
 import org.junit.Assert;
 import org.junit.ClassRule;
@@ -22,17 +18,20 @@ import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.DisabledTest;
 import org.chromium.base.test.util.Feature;
-import org.chromium.base.test.util.RetryOnFailure;
 import org.chromium.chrome.R;
-import org.chromium.chrome.browser.ChromeFeatureList;
-import org.chromium.chrome.browser.ChromeSwitches;
 import org.chromium.chrome.browser.autofill.AutofillTestHelper;
-import org.chromium.chrome.browser.autofill.CardType;
 import org.chromium.chrome.browser.autofill.PersonalDataManager.AutofillProfile;
 import org.chromium.chrome.browser.autofill.PersonalDataManager.CreditCard;
+import org.chromium.chrome.browser.flags.ChromeSwitches;
+import org.chromium.chrome.browser.payments.PaymentRequestTestRule.AppPresence;
+import org.chromium.chrome.browser.payments.PaymentRequestTestRule.FactorySpeed;
 import org.chromium.chrome.browser.payments.PaymentRequestTestRule.MainActivityStartCallback;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.chrome.test.util.ChromeTabUtils;
+import org.chromium.components.payments.AbortReason;
+import org.chromium.components.payments.Event;
+import org.chromium.components.payments.NotShownReason;
+import org.chromium.components.payments.PaymentFeatureList;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.ui.modaldialog.ModalDialogProperties;
 import org.chromium.ui.test.util.DisableAnimationsTestRule;
@@ -62,7 +61,7 @@ public class PaymentRequestMetricsTest implements MainActivityStartCallback {
                 "US", "650-253-0000", "", "en-US"));
         mHelper.setCreditCard(new CreditCard("", "https://example.com", true, true, "Jon Doe",
                 "4111111111111111", "1111", "12", "2050", "visa", R.drawable.visa_card,
-                CardType.UNKNOWN, mBillingAddressId, "" /* serverId */));
+                mBillingAddressId, "" /* serverId */));
     }
 
     // Transaction amount from metrics.js is 5$ which falls into the regular transaction category.
@@ -74,7 +73,6 @@ public class PaymentRequestMetricsTest implements MainActivityStartCallback {
     @Test
     @MediumTest
     @Feature({"Payments"})
-    @RetryOnFailure
     public void testSuccessCheckoutFunnel() throws TimeoutException {
         // Initiate a payment request.
         mPaymentRequestTestRule.triggerUIAndWait("ccBuy", mPaymentRequestTestRule.getReadyToPay());
@@ -115,7 +113,6 @@ public class PaymentRequestMetricsTest implements MainActivityStartCallback {
     @Test
     @MediumTest
     @Feature({"Payments"})
-    @RetryOnFailure
     public void testAbortMetrics_AbortedByUser_CancelButton() throws TimeoutException {
         mPaymentRequestTestRule.triggerUIAndWait("ccBuy", mPaymentRequestTestRule.getReadyToPay());
         mPaymentRequestTestRule.clickInShippingAddressAndWait(
@@ -128,7 +125,8 @@ public class PaymentRequestMetricsTest implements MainActivityStartCallback {
         // Cancel the Payment Request.
         int callCount = mPaymentRequestTestRule.getDismissed().getCallCount();
         TestThreadUtils.runOnUiThreadBlocking(
-                (Runnable) () -> mPaymentRequestTestRule.getPaymentRequestUI()
+                (Runnable) ()
+                        -> mPaymentRequestTestRule.getPaymentRequestUI()
                                    .getDialogForTest()
                                    .findViewById(R.id.button_secondary)
                                    .performClick());
@@ -160,7 +158,6 @@ public class PaymentRequestMetricsTest implements MainActivityStartCallback {
     @Test
     @MediumTest
     @Feature({"Payments"})
-    @RetryOnFailure
     public void testAbortMetrics_AbortedByUser_XButton() throws TimeoutException {
         mPaymentRequestTestRule.triggerUIAndWait("ccBuy", mPaymentRequestTestRule.getReadyToPay());
         mPaymentRequestTestRule.clickInShippingAddressAndWait(
@@ -200,7 +197,6 @@ public class PaymentRequestMetricsTest implements MainActivityStartCallback {
     @Test
     @MediumTest
     @Feature({"Payments"})
-    @RetryOnFailure
     public void testAbortMetrics_AbortedByUser_BackButton() throws TimeoutException {
         mPaymentRequestTestRule.triggerUIAndWait("ccBuy", mPaymentRequestTestRule.getReadyToPay());
         mPaymentRequestTestRule.clickInShippingAddressAndWait(
@@ -213,7 +209,8 @@ public class PaymentRequestMetricsTest implements MainActivityStartCallback {
         // Press the back button.
         int callCount = mPaymentRequestTestRule.getDismissed().getCallCount();
         TestThreadUtils.runOnUiThreadBlocking(
-                () -> mPaymentRequestTestRule.getPaymentRequestUI()
+                ()
+                        -> mPaymentRequestTestRule.getPaymentRequestUI()
                                    .getDialogForTest()
                                    .onBackPressed());
         mPaymentRequestTestRule.getDismissed().waitForCallback(callCount);
@@ -244,7 +241,6 @@ public class PaymentRequestMetricsTest implements MainActivityStartCallback {
     @Test
     @MediumTest
     @Feature({"Payments"})
-    @RetryOnFailure
     @DisabledTest(message = "Test is flaky, see crbug.com/968797")
     public void testAbortMetrics_OtherAborted_TabClosed() throws TimeoutException {
         mPaymentRequestTestRule.triggerUIAndWait("ccBuy", mPaymentRequestTestRule.getReadyToPay());
@@ -284,7 +280,6 @@ public class PaymentRequestMetricsTest implements MainActivityStartCallback {
     @Test
     @MediumTest
     @Feature({"Payments"})
-    @RetryOnFailure
     public void testAbortMetrics_AbortedByMerchant() throws TimeoutException {
         mPaymentRequestTestRule.triggerUIAndWait("ccBuy", mPaymentRequestTestRule.getReadyToPay());
 
@@ -324,15 +319,14 @@ public class PaymentRequestMetricsTest implements MainActivityStartCallback {
     @Test
     @MediumTest
     @Feature({"Payments"})
-    @RetryOnFailure
     public void testMetrics_NoMatchingPaymentMethod() throws TimeoutException {
-        // Android Pay is supported but no instruments are present.
-        mPaymentRequestTestRule.installPaymentApp(
-                "https://android.com/pay", NO_INSTRUMENTS, DELAYED_RESPONSE);
+        // Android Pay has a factory, but it returns no apps.
+        mPaymentRequestTestRule.addPaymentAppFactory(
+                "https://android.com/pay", AppPresence.NO_APPS, FactorySpeed.SLOW_FACTORY);
         mPaymentRequestTestRule.openPageAndClickNodeAndWait(
                 "androidPayBuy", mPaymentRequestTestRule.getShowFailed());
         mPaymentRequestTestRule.expectResultContains(
-                new String[] {"Payment method not supported"});
+                new String[] {"The payment method", "not supported"});
 
         // Make sure that it is not logged as an abort.
         mPaymentRequestTestRule.assertOnlySpecificAbortMetricLogged(-1 /* none */);
@@ -368,12 +362,11 @@ public class PaymentRequestMetricsTest implements MainActivityStartCallback {
     @Test
     @MediumTest
     @Feature({"Payments"})
-    @RetryOnFailure
     public void testMetrics_NoSupportedPaymentMethod() throws TimeoutException {
         mPaymentRequestTestRule.openPageAndClickNodeAndWait(
                 "noSupported", mPaymentRequestTestRule.getShowFailed());
         mPaymentRequestTestRule.expectResultContains(
-                new String[] {"Payment method not supported"});
+                new String[] {"The payment method", "not supported"});
 
         // Make sure that it is not logged as an abort.
         mPaymentRequestTestRule.assertOnlySpecificAbortMetricLogged(-1 /* none */);
@@ -407,7 +400,6 @@ public class PaymentRequestMetricsTest implements MainActivityStartCallback {
     @Test
     @MediumTest
     @Feature({"Payments"})
-    @RetryOnFailure
     public void testSelectedPaymentMethod_CreditCard() throws TimeoutException {
         // Complete a Payment Request with a credit card.
         mPaymentRequestTestRule.triggerUIAndWait("ccBuy", mPaymentRequestTestRule.getReadyToPay());
@@ -436,11 +428,10 @@ public class PaymentRequestMetricsTest implements MainActivityStartCallback {
     @Test
     @MediumTest
     @Feature({"Payments"})
-    @RetryOnFailure
     public void testSelectedPaymentMethod_AndroidPay() throws TimeoutException {
         // Complete a Payment Request with Android Pay.
-        mPaymentRequestTestRule.installPaymentApp(
-                "https://android.com/pay", HAVE_INSTRUMENTS, IMMEDIATE_RESPONSE);
+        mPaymentRequestTestRule.addPaymentAppFactory(
+                "https://android.com/pay", AppPresence.HAVE_APPS, FactorySpeed.FAST_FACTORY);
         mPaymentRequestTestRule.triggerUIAndWait(
                 "androidPayBuy", mPaymentRequestTestRule.getReadyToPay());
         mPaymentRequestTestRule.clickAndWait(
@@ -463,11 +454,10 @@ public class PaymentRequestMetricsTest implements MainActivityStartCallback {
     @Test
     @MediumTest
     @Feature({"Payments"})
-    @RetryOnFailure
     public void testMetrics_SkippedShow() throws TimeoutException {
         // Complete a Payment Request with Android Pay.
-        mPaymentRequestTestRule.installPaymentApp(
-                "https://android.com/pay", HAVE_INSTRUMENTS, IMMEDIATE_RESPONSE);
+        mPaymentRequestTestRule.addPaymentAppFactory(
+                "https://android.com/pay", AppPresence.HAVE_APPS, FactorySpeed.FAST_FACTORY);
         mPaymentRequestTestRule.triggerUIAndWait(
                 "androidPaySkipUiBuy", mPaymentRequestTestRule.getResultReady());
 
@@ -498,12 +488,12 @@ public class PaymentRequestMetricsTest implements MainActivityStartCallback {
     @Test
     @MediumTest
     @Feature({"Payments"})
-    @RetryOnFailure
-    @CommandLineFlags.Add({"disable-features=" + ChromeFeatureList.WEB_PAYMENTS_SINGLE_APP_UI_SKIP})
+    @CommandLineFlags.
+    Add({"disable-features=" + PaymentFeatureList.WEB_PAYMENTS_SINGLE_APP_UI_SKIP})
     public void testMetrics_SkippedShow_Disabled() throws TimeoutException {
         // Complete a Payment Request with Android Pay.
-        mPaymentRequestTestRule.installPaymentApp(
-                "https://android.com/pay", HAVE_INSTRUMENTS, IMMEDIATE_RESPONSE);
+        mPaymentRequestTestRule.addPaymentAppFactory(
+                "https://android.com/pay", AppPresence.HAVE_APPS, FactorySpeed.FAST_FACTORY);
         mPaymentRequestTestRule.triggerUIAndWait(
                 "androidPaySkipUiBuy", mPaymentRequestTestRule.getReadyToPay());
 

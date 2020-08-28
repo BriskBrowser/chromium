@@ -7,8 +7,9 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/logging.h"
+#include "base/check_op.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/notreached.h"
 #include "base/trace_event/trace_event.h"
 #include "media/audio/audio_device_description.h"
 #include "mojo/public/cpp/bindings/callback_helpers.h"
@@ -68,50 +69,6 @@ const char* GetTraceEvent(Action action) {
   NOTREACHED();
 }
 
-void LogUMA(Action action, base::TimeTicks start_time) {
-  const base::TimeDelta duration = base::TimeTicks::Now() - start_time;
-  switch (action) {
-    case kGetInputStreamParameters:
-      UMA_HISTOGRAM_TIMES(
-          "Media.AudioService.SystemInfoClient.GetInputStreamParameters",
-          duration);
-      return;
-    case kGetOutputStreamParameters:
-      UMA_HISTOGRAM_TIMES(
-          "Media.AudioService.SystemInfoClient.GetOutputStreamParameters",
-          duration);
-      return;
-    case kHasInputDevices:
-      UMA_HISTOGRAM_TIMES("Media.AudioService.SystemInfoClient.HasInputDevices",
-                          duration);
-      return;
-    case kHasOutputDevices:
-      UMA_HISTOGRAM_TIMES(
-          "Media.AudioService.SystemInfoClient.HasOutputDevices", duration);
-      return;
-    case kGetInputDeviceDescriptions:
-      UMA_HISTOGRAM_TIMES(
-          "Media.AudioService.SystemInfoClient.GetInputDeviceDescriptions",
-          duration);
-      return;
-    case kGetOutputDeviceDescriptions:
-      UMA_HISTOGRAM_TIMES(
-          "Media.AudioService.SystemInfoClient.GetOutputDeviceDescriptions",
-          duration);
-      return;
-    case kGetAssociatedOutputDeviceID:
-      UMA_HISTOGRAM_TIMES(
-          "Media.AudioService.SystemInfoClient.GetAssociatedOutputDeviceID",
-          duration);
-      return;
-    case kGetInputDeviceInfo:
-      UMA_HISTOGRAM_TIMES(
-          "Media.AudioService.SystemInfoClient.GetInputDeviceInfo", duration);
-      return;
-  }
-  NOTREACHED();
-}
-
 OnAudioParamsCallback WrapGetStreamParametersReply(
     StreamType stream_type,
     const std::string& device_id,
@@ -129,7 +86,6 @@ OnAudioParamsCallback WrapGetStreamParametersReply(
         TRACE_EVENT_ASYNC_END1("audio", GetTraceEvent(action),
                                ToTraceId(start_time), "params",
                                ParamsToString(params));
-        LogUMA(action, start_time);
         std::move(on_params_callback).Run(params);
       },
       action, start_time, std::move(on_params_callback));
@@ -148,7 +104,6 @@ OnBoolCallback WrapHasDevicesReply(StreamType stream_type,
          OnBoolCallback on_has_devices_callback, bool answer) {
         TRACE_EVENT_ASYNC_END1("audio", GetTraceEvent(action),
                                ToTraceId(start_time), "answer", answer);
-        LogUMA(action, start_time);
         std::move(on_has_devices_callback).Run(answer);
       },
       action, start_time, std::move(on_has_devices_callback));
@@ -170,7 +125,6 @@ OnDeviceDescriptionsCallback WrapGetDeviceDescriptionsReply(
         TRACE_EVENT_ASYNC_END1("audio", GetTraceEvent(action),
                                ToTraceId(start_time), "device count",
                                descriptions.size());
-        LogUMA(action, start_time);
         std::move(on_descriptions_callback).Run(std::move(descriptions));
       },
       action, start_time, std::move(on_descriptions_callback));
@@ -190,7 +144,6 @@ OnDeviceIdCallback WrapGetAssociatedOutputDeviceIDReply(
         TRACE_EVENT_ASYNC_END1(
             "audio", GetTraceEvent(kGetAssociatedOutputDeviceID),
             ToTraceId(start_time), "answer", answer.value_or("nullopt"));
-        LogUMA(kGetAssociatedOutputDeviceID, start_time);
         std::move(on_device_id_callback).Run(answer);
       },
       start_time, std::move(on_device_id_callback));
@@ -213,7 +166,6 @@ OnInputDeviceInfoCallback WrapGetInputDeviceInfoReply(
             "audio", GetTraceEvent(kGetInputDeviceInfo), ToTraceId(start_time),
             "params", ParamsToString(params), "associated_output_device_id",
             associated_output_device_id.value_or("nullopt"));
-        LogUMA(kGetInputDeviceInfo, start_time);
         std::move(on_input_device_info_callback)
             .Run(params, associated_output_device_id);
       },

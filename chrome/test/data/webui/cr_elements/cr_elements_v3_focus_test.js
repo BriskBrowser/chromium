@@ -7,6 +7,8 @@
 // Polymer BrowserTest fixture.
 GEN_INCLUDE(['//chrome/test/data/webui/polymer_interactive_ui_test.js']);
 
+GEN('#include "content/public/test/browser_test.h"');
+
 // eslint-disable-next-line no-var
 var CrElementsV3FocusTest = class extends PolymerInteractiveUITest {
   /** @override */
@@ -85,12 +87,25 @@ var CrElementsInputV3Test = class extends CrElementsV3FocusTest {
 };
 
 // https://crbug.com/997943: Flaky on Mac
-GEN('#if defined(OS_MACOSX)');
+GEN('#if defined(OS_MAC)');
 GEN('#define MAYBE_All DISABLED_All');
 GEN('#else');
 GEN('#define MAYBE_All All');
 GEN('#endif');
 TEST_F('CrElementsInputV3Test', 'MAYBE_All', function() {
+  mocha.run();
+});
+
+// eslint-disable-next-line no-var
+var CrElementsProfileAvatarSelectorV3Test =
+    class extends CrElementsV3FocusTest {
+  /** @override */
+  get browsePreload() {
+    return 'chrome://test?module=cr_elements/cr_profile_avatar_selector_tests.m.js';
+  }
+};
+
+TEST_F('CrElementsProfileAvatarSelectorV3Test', 'All', function() {
   mocha.run();
 });
 
@@ -119,6 +134,19 @@ TEST_F('CrElementsToggleV3Test', 'All', function() {
 });
 
 // eslint-disable-next-line no-var
+var CrElementsToolbarSearchFieldV3Test = class extends CrElementsV3FocusTest {
+  /** @override */
+  get browsePreload() {
+    return 'chrome://test?module=cr_elements/cr_toolbar_search_field_tests.m.js';
+  }
+};
+
+TEST_F('CrElementsToolbarSearchFieldV3Test', 'All', function() {
+  mocha.run();
+});
+
+
+// eslint-disable-next-line no-var
 var IronListFocusV3Test = class extends CrElementsV3FocusTest {
   /** @override */
   get browsePreload() {
@@ -127,5 +155,18 @@ var IronListFocusV3Test = class extends CrElementsV3FocusTest {
 };
 
 TEST_F('IronListFocusV3Test', 'All', function() {
+  mocha.run();
+});
+
+
+// eslint-disable-next-line no-var
+var CrElementsGridFocusTest = class extends CrElementsV3FocusTest {
+  /** @override */
+  get browsePreload() {
+    return 'chrome://test?module=cr_elements/cr_grid_focus_test.js';
+  }
+};
+
+TEST_F('CrElementsGridFocusTest', 'All', function() {
   mocha.run();
 });

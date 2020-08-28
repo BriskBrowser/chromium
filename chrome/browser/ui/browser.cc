@@ -41,8 +41,8 @@
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/content_settings/host_content_settings_map_factory.h"
 #include "chrome/browser/content_settings/mixed_content_settings_tab_helper.h"
+#include "chrome/browser/content_settings/page_specific_content_settings_delegate.h"
 #include "chrome/browser/content_settings/sound_content_setting_observer.h"
-#include "chrome/browser/content_settings/tab_specific_content_settings.h"
 #include "chrome/browser/custom_handlers/protocol_handler_registry.h"
 #include "chrome/browser/custom_handlers/protocol_handler_registry_factory.h"
 #include "chrome/browser/custom_handlers/register_protocol_handler_permission_request.h"
@@ -54,7 +54,6 @@
 #include "chrome/browser/extensions/api/tabs/tabs_event_router.h"
 #include "chrome/browser/extensions/api/tabs/tabs_windows_api.h"
 #include "chrome/browser/extensions/browser_extension_window_controller.h"
-#include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/extension_ui_util.h"
 #include "chrome/browser/extensions/extension_util.h"
 #include "chrome/browser/extensions/tab_helper.h"
@@ -63,9 +62,11 @@
 #include "chrome/browser/infobars/infobar_service.h"
 #include "chrome/browser/lifetime/application_lifetime.h"
 #include "chrome/browser/lifetime/browser_shutdown.h"
+#include "chrome/browser/media/history/media_history_keyed_service.h"
+#include "chrome/browser/media/history/media_history_store.h"
 #include "chrome/browser/media/webrtc/media_capture_devices_dispatcher.h"
+#include "chrome/browser/metrics/chrome_metrics_service_accessor.h"
 #include "chrome/browser/notifications/notification_ui_manager.h"
-#include "chrome/browser/permissions/permission_request_manager.h"
 #include "chrome/browser/picture_in_picture/picture_in_picture_window_manager.h"
 #include "chrome/browser/policy/developer_tools_policy_handler.h"
 #include "chrome/browser/prefs/incognito_mode_prefs.h"
@@ -90,11 +91,8 @@
 #include "chrome/browser/themes/theme_service_factory.h"
 #include "chrome/browser/translate/chrome_translate_client.h"
 #include "chrome/browser/ui/autofill/chrome_autofill_client.h"
+#include "chrome/browser/ui/blocked_content/chrome_popup_navigation_delegate.h"
 #include "chrome/browser/ui/blocked_content/framebust_block_tab_helper.h"
-#include "chrome/browser/ui/blocked_content/list_item_position.h"
-#include "chrome/browser/ui/blocked_content/popup_blocker.h"
-#include "chrome/browser/ui/blocked_content/popup_blocker_tab_helper.h"
-#include "chrome/browser/ui/blocked_content/popup_tracker.h"
 #include "chrome/browser/ui/bluetooth/bluetooth_chooser_controller.h"
 #include "chrome/browser/ui/bluetooth/bluetooth_chooser_desktop.h"
 #include "chrome/browser/ui/bluetooth/bluetooth_scanning_prompt_controller.h"
@@ -116,7 +114,6 @@
 #include "chrome/browser/ui/browser_tabstrip.h"
 #include "chrome/browser/ui/browser_ui_prefs.h"
 #include "chrome/browser/ui/browser_window.h"
-#include "chrome/browser/ui/chrome_bubble_manager.h"
 #include "chrome/browser/ui/chrome_pages.h"
 #include "chrome/browser/ui/chrome_select_file_policy.h"
 #include "chrome/browser/ui/color_chooser.h"
@@ -124,14 +121,11 @@
 #include "chrome/browser/ui/exclusive_access/mouse_lock_controller.h"
 #include "chrome/browser/ui/find_bar/find_bar.h"
 #include "chrome/browser/ui/find_bar/find_bar_controller.h"
-#include "chrome/browser/ui/find_bar/find_tab_helper.h"
 #include "chrome/browser/ui/global_error/global_error.h"
 #include "chrome/browser/ui/global_error/global_error_service.h"
 #include "chrome/browser/ui/global_error/global_error_service_factory.h"
-#include "chrome/browser/ui/javascript_dialogs/javascript_dialog_tab_helper.h"
 #include "chrome/browser/ui/location_bar/location_bar.h"
 #include "chrome/browser/ui/page_action/page_action_icon_type.h"
-#include "chrome/browser/ui/permission_bubble/chooser_bubble_delegate.h"
 #include "chrome/browser/ui/search/search_tab_helper.h"
 #include "chrome/browser/ui/singleton_tabs.h"
 #include "chrome/browser/ui/status_bubble.h"
@@ -160,18 +154,28 @@
 #include "chrome/common/url_constants.h"
 #include "chrome/common/webui_url_constants.h"
 #include "chrome/grit/chromium_strings.h"
+#include "chrome/grit/generated_resources.h"
+#include "components/blocked_content/list_item_position.h"
+#include "components/blocked_content/popup_blocker.h"
+#include "components/blocked_content/popup_blocker_tab_helper.h"
+#include "components/blocked_content/popup_tracker.h"
 #include "components/bookmarks/browser/bookmark_model.h"
 #include "components/bookmarks/browser/bookmark_utils.h"
 #include "components/bookmarks/common/bookmark_pref_names.h"
-#include "components/bubble/bubble_controller.h"
+#include "components/captive_portal/core/buildflags.h"
+#include "components/content_settings/browser/page_specific_content_settings.h"
 #include "components/content_settings/core/browser/host_content_settings_map.h"
 #include "components/favicon/content/content_favicon_driver.h"
+#include "components/find_in_page/find_tab_helper.h"
+#include "components/javascript_dialogs/tab_modal_dialog_manager.h"
 #include "components/keep_alive_registry/keep_alive_registry.h"
 #include "components/keep_alive_registry/keep_alive_types.h"
 #include "components/keep_alive_registry/scoped_keep_alive.h"
 #include "components/omnibox/browser/location_bar_model_impl.h"
 #include "components/page_load_metrics/browser/metrics_web_contents_observer.h"
 #include "components/page_load_metrics/common/page_load_metrics.mojom.h"
+#include "components/paint_preview/buildflags/buildflags.h"
+#include "components/permissions/permission_request_manager.h"
 #include "components/prefs/pref_service.h"
 #include "components/safe_browsing/content/triggers/ad_redirect_trigger.h"
 #include "components/search/search.h"
@@ -189,7 +193,6 @@
 #include "components/zoom/zoom_controller.h"
 #include "content/public/browser/devtools_agent_host.h"
 #include "content/public/browser/file_select_listener.h"
-#include "content/public/browser/interstitial_page.h"
 #include "content/public/browser/invalidate_type.h"
 #include "content/public/browser/keyboard_event_processing_result.h"
 #include "content/public/browser/navigation_controller.h"
@@ -215,6 +218,7 @@
 #include "extensions/browser/extension_registry.h"
 #include "extensions/browser/extension_system.h"
 #include "extensions/browser/guest_view/mime_handler_view/mime_handler_view_guest.h"
+#include "extensions/browser/process_map.h"
 #include "extensions/buildflags/buildflags.h"
 #include "extensions/common/constants.h"
 #include "extensions/common/extension.h"
@@ -224,9 +228,13 @@
 #include "third_party/blink/public/mojom/frame/blocked_navigation_types.mojom.h"
 #include "third_party/blink/public/mojom/frame/fullscreen.mojom.h"
 #include "third_party/blink/public/mojom/web_feature/web_feature.mojom.h"
+#include "third_party/blink/public/mojom/window_features/window_features.mojom.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/window_open_disposition.h"
+#include "ui/gfx/font_list.h"
 #include "ui/gfx/geometry/point.h"
+#include "ui/gfx/text_elider.h"
+#include "ui/gfx/text_utils.h"
 #include "ui/shell_dialogs/selected_file_info.h"
 #include "url/origin.h"
 #include "url/scheme_host_port.h"
@@ -245,6 +253,10 @@
 #include "components/session_manager/core/session_manager.h"
 #endif
 
+#if BUILDFLAG(ENABLE_CAPTIVE_PORTAL_DETECTION)
+#include "components/captive_portal/content/captive_portal_tab_helper.h"
+#endif
+
 #if BUILDFLAG(ENABLE_EXTENSIONS)
 #include "chrome/browser/extensions/extension_browser_window_helper.h"
 #endif
@@ -258,6 +270,10 @@
 
 #if BUILDFLAG(ENABLE_PRINTING)
 #include "components/printing/browser/print_composite_client.h"
+#endif
+
+#if BUILDFLAG(ENABLE_PAINT_PREVIEW)
+#include "components/paint_preview/browser/paint_preview_client.h"  // nogncheck
 #endif
 
 using base::TimeDelta;
@@ -282,8 +298,10 @@ namespace {
 constexpr TimeDelta kUIUpdateCoalescingTime = TimeDelta::FromMilliseconds(200);
 
 BrowserWindow* CreateBrowserWindow(std::unique_ptr<Browser> browser,
-                                   bool user_gesture) {
-  return BrowserWindow::CreateBrowserWindow(std::move(browser), user_gesture);
+                                   bool user_gesture,
+                                   bool in_tab_dragging) {
+  return BrowserWindow::CreateBrowserWindow(std::move(browser), user_gesture,
+                                            in_tab_dragging);
 }
 
 const extensions::Extension* GetExtensionForOrigin(
@@ -395,28 +413,6 @@ Browser::CreateParams Browser::CreateParams::CreateForDevTools(
   return params;
 }
 
-////////////////////////////////////////////////////////////////////////////////
-// Browser, InterstitialObserver:
-
-class Browser::InterstitialObserver : public content::WebContentsObserver {
- public:
-  InterstitialObserver(Browser* browser, content::WebContents* web_contents)
-      : WebContentsObserver(web_contents), browser_(browser) {}
-
-  void DidAttachInterstitialPage() override {
-    browser_->UpdateBookmarkBarState(BOOKMARK_BAR_STATE_CHANGE_TAB_STATE);
-  }
-
-  void DidDetachInterstitialPage() override {
-    browser_->UpdateBookmarkBarState(BOOKMARK_BAR_STATE_CHANGE_TAB_STATE);
-  }
-
- private:
-  Browser* browser_;
-
-  DISALLOW_COPY_AND_ASSIGN(InterstitialObserver);
-};
-
 ///////////////////////////////////////////////////////////////////////////////
 // Browser, Constructors, Creation, Showing:
 
@@ -460,21 +456,19 @@ Browser::Browser(const CreateParams& params)
           web_app::AppBrowserController::MaybeCreateWebAppController(this)),
       bookmark_bar_state_(BookmarkBar::HIDDEN),
       command_controller_(new chrome::BrowserCommandController(this)),
-      window_has_shown_(false)
+      window_has_shown_(false),
+      signin_view_controller_(this)
 #if BUILDFLAG(ENABLE_EXTENSIONS)
       ,
       extension_browser_window_helper_(
           std::make_unique<extensions::ExtensionBrowserWindowHelper>(this))
 #endif
 {
-  // If this causes a crash then a window is being opened using a profile type
-  // that is disallowed by policy. The crash prevents the disabled window type
-  // from opening at all, but the path that triggered it should be fixed.
-  CHECK(IncognitoModePrefs::CanOpenBrowser(profile_));
-  CHECK(!profile_->IsGuestSession() || profile_->IsOffTheRecord())
-      << "Only off the record browser may be opened in guest mode";
-  CHECK(!profile_->IsSystemProfile())
-      << "The system profile should never have a real browser.";
+  // TODO(crbug.com/967603): remove when root cause is found.
+  CHECK(g_browser_process);
+  CHECK(!g_browser_process->IsShuttingDown());
+
+  CHECK(CanCreateBrowserForProfile(profile_));
 
   tab_strip_model_->AddObserver(this);
 
@@ -508,7 +502,8 @@ Browser::Browser(const CreateParams& params)
 
   window_ = params.window ? params.window
                           : CreateBrowserWindow(std::unique_ptr<Browser>(this),
-                                                params.user_gesture);
+                                                params.user_gesture,
+                                                params.in_tab_dragging);
 
   if (app_controller_)
     app_controller_->UpdateCustomTabBarVisibility(false);
@@ -536,11 +531,6 @@ Browser::Browser(const CreateParams& params)
 
   BrowserList::AddBrowser(this);
 
-  // SetIsInTabDragging() will set the fast resize bit for the web contents.
-  // It will be reset after the drag ends.
-  if (params.in_tab_dragging)
-    SetIsInTabDragging(true);
-
   if (is_focus_mode_)
     focus_mode_start_time_ = base::TimeTicks::Now();
 }
@@ -559,7 +549,6 @@ Browser::~Browser() {
 
   // The tab strip should not have any tabs at this point.
   DCHECK(tab_strip_model_->empty());
-  bubble_manager_.reset();
 
   // Destroy the BrowserCommandController before removing the browser, so that
   // it doesn't act on any notifications that are sent as a result of removing
@@ -601,18 +590,16 @@ Browser::~Browser() {
   // The system incognito profile should not try be destroyed using
   // ProfileDestroyer::DestroyProfileWhenAppropriate(). This profile can be
   // used, at least, by the user manager window. This window is not a browser,
-  // therefore, BrowserList::IsIncognitoSessionActiveForProfile(profile_)
+  // therefore, BrowserList::IsOffTheRecordBrowserActiveForProfile(profile_)
   // returns false, while the user manager window is still opened.
   // This cannot be fixed in ProfileDestroyer::DestroyProfileWhenAppropriate(),
   // because the ProfileManager needs to be able to destroy all profiles when
   // it is destroyed. See crbug.com/527035
   //
-  // A profile created with Profile::CreateOffTheRecordProfile() should not be
-  // destroyed directly by Browser (e.g. for offscreen tabs,
-  // https://crbug.com/664351).
-  if (profile_->IsOffTheRecord() &&
-      !profile_->IsIndependentOffTheRecordProfile() &&
-      !BrowserList::IsIncognitoSessionInUse(profile_) &&
+  // Non-primary OffTheRecord profiles should not be destroyed directly by
+  // Browser (e.g. for offscreen tabs, https://crbug.com/664351).
+  if (profile_->IsPrimaryOTRProfile() &&
+      !BrowserList::IsOffTheRecordBrowserInUse(profile_) &&
       !profile_->GetOriginalProfile()->IsSystemProfile()) {
     if (profile_->IsGuestSession()) {
 // ChromeOS handles guest data independently.
@@ -654,17 +641,10 @@ Browser::~Browser() {
 ///////////////////////////////////////////////////////////////////////////////
 // Getters & Setters
 
-ChromeBubbleManager* Browser::GetBubbleManager() {
-  if (!bubble_manager_)
-    bubble_manager_ =
-        std::make_unique<ChromeBubbleManager>(tab_strip_model_.get());
-  return bubble_manager_.get();
-}
-
 FindBarController* Browser::GetFindBarController() {
   if (!find_bar_controller_.get()) {
     find_bar_controller_ =
-        std::make_unique<FindBarController>(window_->CreateFindBar(), this);
+        std::make_unique<FindBarController>(window_->CreateFindBar());
     find_bar_controller_->find_bar()->SetFindBarController(
         find_bar_controller_.get());
     find_bar_controller_->ChangeWebContents(
@@ -710,6 +690,70 @@ base::string16 Browser::GetWindowTitleForTab(bool include_app_name,
       include_app_name, tab_strip_model_->GetWebContentsAt(index));
 }
 
+std::vector<base::string16> Browser::GetExistingWindowsForMoveMenu() {
+  std::vector<base::string16> window_titles;
+  existing_browsers_for_menu_list_.clear();
+
+  const BrowserList* browser_list = BrowserList::GetInstance();
+  for (BrowserList::const_reverse_iterator it =
+           browser_list->begin_last_active();
+       it != browser_list->end_last_active(); ++it) {
+    Browser* browser = *it;
+
+    // We can only move into a tabbed view of the same profile, and not the same
+    // window we're currently in.
+    if (browser->is_type_normal() && browser->profile() == profile() &&
+        browser != this) {
+      existing_browsers_for_menu_list_.push_back(
+          browser->weak_factory_.GetWeakPtr());
+      window_titles.push_back(browser->GetWindowTitleForMenu());
+    }
+  }
+
+  return window_titles;
+}
+
+base::string16 Browser::GetWindowTitleForMenu() const {
+  static constexpr unsigned int kWindowTitleForMenuMaxWidth = 400;
+  static constexpr unsigned int kMinTitleCharacters = 4;
+  const gfx::FontList font_list;
+  const auto num_more_tabs = tab_strip_model_->count() - 1;
+  int title_pixel_width = kWindowTitleForMenuMaxWidth;
+  const base::string16 format_string = l10n_util::GetPluralStringFUTF16(
+      IDS_BROWSER_WINDOW_TITLE_MENU_ENTRY, num_more_tabs);
+
+  // First, format with an empty string to see how much space we have available.
+  base::string16 temp_window_title =
+      base::ReplaceStringPlaceholders(format_string, base::string16(), nullptr);
+  title_pixel_width -= GetStringWidth(temp_window_title, font_list);
+
+  base::string16 title;
+  content::WebContents* contents = tab_strip_model_->GetActiveWebContents();
+  // |contents| can be NULL if GetWindowTitleForMenu is called during the
+  // window's creation (before tabs have been added).
+  if (contents)
+    title = FormatTitleForDisplay(app_controller_ ? app_controller_->GetTitle()
+                                                  : contents->GetTitle());
+
+  // If there is no title, leave it empty for apps.
+  if (title.empty() && (is_type_normal() || is_type_popup()))
+    title = CoreTabHelper::GetDefaultTitle();
+
+  // Try to elide the title to fit the pixel width. If that will make the title
+  // shorter than the minimum character limit, use a character elided title
+  // instead.
+  base::string16 pixel_elided_title = gfx::ElideText(
+      title, font_list, title_pixel_width, gfx::ElideBehavior::ELIDE_TAIL);
+  base::string16 character_elided_title =
+      gfx::TruncateString(title, kMinTitleCharacters, gfx::CHARACTER_BREAK);
+  title = pixel_elided_title.size() > character_elided_title.size()
+              ? pixel_elided_title
+              : character_elided_title;
+
+  // Finally, add the page title.
+  return base::ReplaceStringPlaceholders(format_string, title, nullptr);
+}
+
 base::string16 Browser::GetWindowTitleFromWebContents(
     bool include_app_name,
     content::WebContents* contents) const {
@@ -720,25 +764,39 @@ base::string16 Browser::GetWindowTitleFromWebContents(
   if (contents) {
     title = FormatTitleForDisplay(app_controller_ ? app_controller_->GetTitle()
                                                   : contents->GetTitle());
+#if BUILDFLAG(ENABLE_CAPTIVE_PORTAL_DETECTION)
+    // If the app name is requested and this is a captive portal window, the
+    // title should indicate that this is a captive portal window. Captive
+    // portal windows should always be pop-ups, and the is_captive_portal_window
+    // condition should not change over the lifetime of a WebContents.
+    if (include_app_name &&
+        captive_portal::CaptivePortalTabHelper::FromWebContents(contents) &&
+        captive_portal::CaptivePortalTabHelper::FromWebContents(contents)
+            ->is_captive_portal_window()) {
+      DCHECK(is_type_popup());
+      return l10n_util::GetStringFUTF16(
+          IDS_CAPTIVE_PORTAL_BROWSER_WINDOW_TITLE_FORMAT,
+          title.empty() ? CoreTabHelper::GetDefaultTitle() : title);
+    }
+#endif
   }
 
   // If there is no title, leave it empty for apps.
   if (title.empty() && (is_type_normal() || is_type_popup()))
     title = CoreTabHelper::GetDefaultTitle();
 
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
   // On Mac, we don't want to suffix the page title with the application name.
   return title;
-#endif
-
+#else
   // If there is no title and this is an app, fall back on the app name. This
   // ensures that the native window gets a title which is important for a11y,
   // for example the window selector uses the Aura window title.
   if (title.empty() &&
       (is_type_app() || is_type_app_popup() || is_type_devtools()) &&
       include_app_name) {
-    return base::UTF8ToUTF16(
-        app_controller_ ? app_controller_->GetAppShortName() : app_name());
+    return app_controller_ ? app_controller_->GetAppShortName()
+                           : base::UTF8ToUTF16(app_name());
   }
 
   // Include the app name in window titles for tabbed browser windows when
@@ -747,6 +805,7 @@ base::string16 Browser::GetWindowTitleFromWebContents(
              ? l10n_util::GetStringFUTF16(IDS_BROWSER_WINDOW_TITLE_FORMAT,
                                           title)
              : title;
+#endif
 }
 
 // static
@@ -817,10 +876,6 @@ bool Browser::RunUnloadListenerBeforeClosing(
   return unload_controller_.RunUnloadEventsHelper(web_contents);
 }
 
-void Browser::SetIsInTabDragging(bool is_in_tab_dragging) {
-  window_->TabDraggingStatusChanged(is_in_tab_dragging);
-}
-
 void Browser::OnWindowClosing() {
   if (!ShouldCloseWindow())
     return;
@@ -849,7 +904,7 @@ void Browser::OnWindowClosing() {
       TabRestoreServiceFactory::GetForProfile(profile());
 
   bool notify_restore_service = is_type_normal() && tab_strip_model_->count();
-#if defined(USE_AURA) || defined(OS_MACOSX)
+#if defined(USE_AURA) || defined(OS_MAC)
   notify_restore_service |= is_type_app() || is_type_app_popup();
 #endif
 
@@ -923,11 +978,6 @@ Browser::DownloadCloseType Browser::OkToCloseWithInProgressDownloads(
 
 ////////////////////////////////////////////////////////////////////////////////
 // Browser, Tab adding/showing functions:
-
-void Browser::WindowFullscreenStateWillChange() {
-  exclusive_access_manager_->fullscreen_controller()
-      ->WindowFullscreenStateWillChange();
-}
 
 void Browser::WindowFullscreenStateChanged() {
   exclusive_access_manager_->fullscreen_controller()
@@ -1003,6 +1053,43 @@ bool Browser::CanSaveContents(content::WebContents* web_contents) const {
   return chrome::CanSavePage(this);
 }
 
+void Browser::MoveTabsToExistingWindow(const std::vector<int> tab_indices,
+                                       int browser_index) {
+  size_t existing_browser_count = existing_browsers_for_menu_list_.size();
+  if (static_cast<size_t>(browser_index) < existing_browser_count &&
+      existing_browsers_for_menu_list_[browser_index]) {
+    chrome::MoveTabsToExistingWindow(
+        this, existing_browsers_for_menu_list_[browser_index].get(),
+        tab_indices);
+  }
+}
+
+bool Browser::ShouldDisplayFavicon(content::WebContents* web_contents) const {
+  // Suppress the icon for the new-tab page, even if a navigation to it is
+  // not committed yet. Note that we're looking at the visible URL, so
+  // navigations from NTP generally don't hit this case and still show an icon.
+  GURL url = web_contents->GetVisibleURL();
+  if (url.SchemeIs(content::kChromeUIScheme) &&
+      url.host_piece() == chrome::kChromeUINewTabHost) {
+    return false;
+  }
+
+  // Also suppress instant-NTP. This does not use search::IsInstantNTP since
+  // it looks at the last-committed entry and we need to show icons for pending
+  // navigations away from it.
+  if (search::IsInstantNTPURL(url, profile_)) {
+    return false;
+  }
+
+  // Suppress for System Apps.
+  if (app_controller_ && app_controller_->is_for_system_web_app()) {
+    return false;
+  }
+
+  // Otherwise, always display the favicon.
+  return true;
+}
+
 ///////////////////////////////////////////////////////////////////////////////
 
 void Browser::UpdateUIForNavigationInTab(WebContents* contents,
@@ -1031,22 +1118,13 @@ void Browser::UpdateUIForNavigationInTab(WebContents* contents,
   // navigating away from the new tab page.
   ScheduleUIUpdate(contents, content::INVALIDATE_TYPE_URL);
 
-  // Figure out if the navigating contents can take focus (potentially taking it
-  // away from other, currently-focused UI element like the omnibox).
-  // Specifically, user-initiated navigations can give focus to the tab;
-  // renderer-initiated navigations usually don't, unless the NTP triggers them
-  // (in which case they're treated similarly to a user-initiated navigation).
+  // Navigating contents can take focus (potentially taking it away from other,
+  // currently-focused UI element like the omnibox) if the navigation was
+  // initiated by the user (e.g., via omnibox, bookmarks, etc.).
   //
-  // TODO(lukasza): https://crbug.com/1034999: Try to avoid special-casing
-  // kChromeUINewTabURL below and covering it via IsNTPOrRelatedURL instead.
-  const GURL& current_url = contents->GetLastCommittedURL();
-  bool contents_can_take_focus =
-      user_initiated || current_url == GURL(chrome::kChromeUINewTabURL) ||
-      search::IsNTPOrRelatedURL(
-          current_url,
-          Profile::FromBrowserContext(contents->GetBrowserContext()));
-
-  if (contents_can_take_focus && contents_is_selected &&
+  // Note that focusing contents of NTP-initiated navigations is taken care of
+  // elsewhere - see FocusTabAfterNavigationHelper.
+  if (user_initiated && contents_is_selected &&
       (window()->IsActive() || action == NavigateParams::SHOW_WINDOW)) {
     contents->SetInitialFocus();
   }
@@ -1153,17 +1231,17 @@ void Browser::TabPinnedStateChanged(TabStripModel* tab_strip_model,
 
 void Browser::TabGroupedStateChanged(
     base::Optional<tab_groups::TabGroupId> group,
+    content::WebContents* contents,
     int index) {
   SessionService* const session_service =
       SessionServiceFactory::GetForProfile(profile_);
-  if (session_service) {
-    content::WebContents* const web_contents =
-        tab_strip_model_->GetWebContentsAt(index);
-    sessions::SessionTabHelper* const session_tab_helper =
-        sessions::SessionTabHelper::FromWebContents(web_contents);
-    session_service->SetTabGroup(session_id(), session_tab_helper->session_id(),
-                                 std::move(group));
-  }
+  if (!session_service)
+    return;
+
+  sessions::SessionTabHelper* const session_tab_helper =
+      sessions::SessionTabHelper::FromWebContents(contents);
+  session_service->SetTabGroup(session_id(), session_tab_helper->session_id(),
+                               std::move(group));
 }
 
 void Browser::TabStripEmpty() {
@@ -1192,7 +1270,7 @@ int Browser::GetTopControlsHeight() {
 }
 
 bool Browser::DoBrowserControlsShrinkRendererSize(
-    const content::WebContents* contents) {
+    content::WebContents* contents) {
   return window_->DoBrowserControlsShrinkRendererSize(contents);
 }
 
@@ -1291,44 +1369,26 @@ blink::SecurityStyle Browser::GetSecurityStyle(
 std::unique_ptr<content::BluetoothChooser> Browser::RunBluetoothChooser(
     content::RenderFrameHost* frame,
     const content::BluetoothChooser::EventHandler& event_handler) {
-  std::unique_ptr<BluetoothChooserController> bluetooth_chooser_controller(
-      new BluetoothChooserController(frame, event_handler));
+  auto controller =
+      std::make_unique<BluetoothChooserController>(frame, event_handler);
+  auto* controller_ptr = controller.get();
 
-  std::unique_ptr<BluetoothChooserDesktop> bluetooth_chooser_desktop(
-      new BluetoothChooserDesktop(bluetooth_chooser_controller.get()));
-
-  std::unique_ptr<ChooserBubbleDelegate> chooser_bubble_delegate(
-      new ChooserBubbleDelegate(frame,
-                                std::move(bluetooth_chooser_controller)));
-
-  Browser* browser = chrome::FindBrowserWithWebContents(
-      WebContents::FromRenderFrameHost(frame));
-  BubbleReference bubble_reference = browser->GetBubbleManager()->ShowBubble(
-      std::move(chooser_bubble_delegate));
-  bluetooth_chooser_desktop->set_bubble(std::move(bubble_reference));
-
-  return std::move(bluetooth_chooser_desktop);
+  return std::make_unique<BluetoothChooserDesktop>(
+      controller_ptr,
+      chrome::ShowDeviceChooserDialog(frame, std::move(controller)));
 }
 
 std::unique_ptr<content::BluetoothScanningPrompt>
 Browser::ShowBluetoothScanningPrompt(
     content::RenderFrameHost* frame,
     const content::BluetoothScanningPrompt::EventHandler& event_handler) {
-  auto bluetooth_scanning_prompt_controller =
+  auto controller =
       std::make_unique<BluetoothScanningPromptController>(frame, event_handler);
+  auto* controller_ptr = controller.get();
 
-  auto bluetooth_scanning_prompt_desktop =
-      std::make_unique<BluetoothScanningPromptDesktop>(
-          bluetooth_scanning_prompt_controller.get());
-
-  auto chooser_bubble_delegate = std::make_unique<ChooserBubbleDelegate>(
-      frame, std::move(bluetooth_scanning_prompt_controller));
-
-  BubbleReference bubble_reference =
-      GetBubbleManager()->ShowBubble(std::move(chooser_bubble_delegate));
-  bluetooth_scanning_prompt_desktop->set_bubble(std::move(bubble_reference));
-
-  return std::move(bluetooth_scanning_prompt_desktop);
+  return std::make_unique<BluetoothScanningPromptDesktop>(
+      controller_ptr,
+      chrome::ShowDeviceChooserDialog(frame, std::move(controller)));
 }
 
 void Browser::CreateSmsPrompt(content::RenderFrameHost*,
@@ -1372,15 +1432,19 @@ bool Browser::ShouldAllowRunningInsecureContent(
   MixedContentSettingsTabHelper* mixed_content_settings =
       MixedContentSettingsTabHelper::FromWebContents(web_contents);
   DCHECK(mixed_content_settings);
-  bool allowed = mixed_content_settings->is_running_insecure_content_allowed();
+  bool allowed = mixed_content_settings->IsRunningInsecureContentAllowed();
   if (!allowed && !origin.host().empty()) {
     // Note: this is a browser-side-translation of the call to
     // DidBlockContentType from inside
     // ContentSettingsObserver::allowRunningInsecureContent.
-    TabSpecificContentSettings* tab_settings =
-        TabSpecificContentSettings::FromWebContents(web_contents);
-    DCHECK(tab_settings);
-    tab_settings->OnContentBlocked(ContentSettingsType::MIXEDSCRIPT);
+    // TODO(https://crbug.com/1103176): Plumb the actual frame reference here
+    // (MixedContentNavigationThrottle::ShouldBlockNavigation has
+    // |mixed_content_frame| reference)
+    content_settings::PageSpecificContentSettings* page_settings =
+        content_settings::PageSpecificContentSettings::GetForFrame(
+            web_contents->GetMainFrame());
+    DCHECK(page_settings);
+    page_settings->OnContentBlocked(ContentSettingsType::MIXEDSCRIPT);
   }
   return allowed;
 }
@@ -1397,7 +1461,8 @@ void Browser::OnDidBlockNavigation(
       auto on_click = [](const GURL& url, size_t index, size_t total_elements) {
         UMA_HISTOGRAM_ENUMERATION(
             "WebCore.Framebust.ClickThroughPosition",
-            GetListItemPositionFromDistance(index, total_elements));
+            blocked_content::GetListItemPositionFromDistance(index,
+                                                             total_elements));
       };
       framebust_helper->AddBlockedUrl(blocked_url, base::BindOnce(on_click));
     }
@@ -1420,11 +1485,29 @@ void Browser::ExitPictureInPicture() {
   PictureInPictureWindowManager::GetInstance()->ExitPictureInPicture();
 }
 
+std::unique_ptr<content::WebContents> Browser::ActivatePortalWebContents(
+    content::WebContents* predecessor_contents,
+    std::unique_ptr<content::WebContents> portal_contents) {
+  return SwapWebContents(predecessor_contents, std::move(portal_contents));
+}
+
+void Browser::UpdateInspectedWebContentsIfNecessary(
+    content::WebContents* old_contents,
+    content::WebContents* new_contents,
+    base::OnceCallback<void()> callback) {
+  DevToolsWindow* dev_tools_window =
+      DevToolsWindow::GetInstanceForInspectedWebContents(old_contents);
+  if (dev_tools_window) {
+    dev_tools_window->UpdateInspectedWebContents(new_contents,
+                                                 std::move(callback));
+  } else {
+    std::move(callback).Run();
+  }
+}
+
 std::unique_ptr<content::WebContents> Browser::SwapWebContents(
     content::WebContents* old_contents,
-    std::unique_ptr<content::WebContents> new_contents,
-    bool did_start_load,
-    bool did_finish_load) {
+    std::unique_ptr<content::WebContents> new_contents) {
   // Copies the background color and contents of the old WebContents to a new
   // one that replaces it on the screen. This allows the new WebContents to
   // have something to show before having loaded any contents. As a result, we
@@ -1437,15 +1520,14 @@ std::unique_ptr<content::WebContents> Browser::SwapWebContents(
       new_view->TakeFallbackContentFrom(old_view);
   }
 
-  DevToolsWindow* dev_tools_window =
-      DevToolsWindow::GetInstanceForInspectedWebContents(old_contents);
-  if (dev_tools_window)
-    dev_tools_window->UpdateInspectedWebContents(new_contents.get());
-
   // TODO(crbug.com/836409): TabLoadTracker should not rely on being notified
   // directly about tab contents swaps.
   resource_coordinator::TabLoadTracker::Get()->SwapTabContents(
       old_contents, new_contents.get());
+
+  // Clear the task manager tag. The TabStripModel will associate its own task
+  // manager tag.
+  task_manager::WebContentsTags::ClearTag(new_contents.get());
 
   int index = tab_strip_model_->GetIndexOfWebContents(old_contents);
   DCHECK_NE(TabStripModel::kNoTab, index);
@@ -1467,6 +1549,18 @@ bool Browser::IsFrameLowPriority(
       ChromeSubresourceFilterClient::FromWebContents(web_contents);
   return client &&
          client->GetThrottleManager()->IsFrameTaggedAsAd(render_frame_host);
+}
+
+void Browser::MediaWatchTimeChanged(
+    const content::MediaPlayerWatchTime& watch_time) {
+  if (media_history::MediaHistoryKeyedService::IsEnabled()) {
+    media_history::MediaHistoryKeyedService::Get(profile())->SavePlayback(
+        watch_time);
+  }
+}
+
+base::WeakPtr<content::WebContentsDelegate> Browser::GetDelegateWeakPtr() {
+  return weak_factory_.GetWeakPtr();
 }
 
 bool Browser::IsMouseLocked() const {
@@ -1513,24 +1607,36 @@ WebContents* Browser::OpenURLFromTab(WebContents* source,
   nav_params.tabstrip_add_types = TabStripModel::ADD_NONE;
   if (params.user_gesture)
     nav_params.window_action = NavigateParams::SHOW_WINDOW;
-  bool is_popup = source && ConsiderForPopupBlocking(params.disposition);
-  if (is_popup && MaybeBlockPopup(source, nullptr, &nav_params, &params,
-                                  blink::mojom::WindowFeatures())) {
-    return nullptr;
+  bool is_popup =
+      source && blocked_content::ConsiderForPopupBlocking(params.disposition);
+  auto popup_delegate =
+      std::make_unique<ChromePopupNavigationDelegate>(std::move(nav_params));
+  if (is_popup) {
+    popup_delegate.reset(static_cast<ChromePopupNavigationDelegate*>(
+        blocked_content::MaybeBlockPopup(
+            source, nullptr, std::move(popup_delegate), &params,
+            blink::mojom::WindowFeatures(),
+            HostContentSettingsMapFactory::GetForProfile(
+                source->GetBrowserContext()))
+            .release()));
+    if (!popup_delegate)
+      return nullptr;
   }
 
-  chrome::ConfigureTabGroupForNavigation(&nav_params);
+  chrome::ConfigureTabGroupForNavigation(popup_delegate->nav_params());
 
-  Navigate(&nav_params);
+  Navigate(popup_delegate->nav_params());
 
-  if (is_popup && nav_params.navigated_or_inserted_contents) {
-    auto* tracker = PopupTracker::CreateForWebContents(
-        nav_params.navigated_or_inserted_contents, source);
+  content::WebContents* navigated_or_inserted_contents =
+      popup_delegate->nav_params()->navigated_or_inserted_contents;
+  if (is_popup && navigated_or_inserted_contents) {
+    auto* tracker = blocked_content::PopupTracker::CreateForWebContents(
+        navigated_or_inserted_contents, source, params.disposition);
     tracker->set_is_trusted(params.triggering_event_info !=
                             blink::TriggeringEventInfo::kFromUntrustedEvent);
   }
 
-  return nav_params.navigated_or_inserted_contents;
+  return navigated_or_inserted_contents;
 }
 
 void Browser::NavigationStateChanged(WebContents* source,
@@ -1566,11 +1672,12 @@ void Browser::VisibleSecurityStateChanged(WebContents* source) {
 
 void Browser::AddNewContents(WebContents* source,
                              std::unique_ptr<WebContents> new_contents,
+                             const GURL& target_url,
                              WindowOpenDisposition disposition,
                              const gfx::Rect& initial_rect,
                              bool user_gesture,
                              bool* was_blocked) {
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
   // On the Mac, the convention is to turn popups into new tabs when in
   // fullscreen mode. Only worry about user-initiated fullscreen as showing a
   // popup in HTML5 fullscreen would have kicked the page out of fullscreen.
@@ -1583,16 +1690,22 @@ void Browser::AddNewContents(WebContents* source,
 
   // At this point the |new_contents| is beyond the popup blocker, but we use
   // the same logic for determining if the popup tracker needs to be attached.
-  if (source && ConsiderForPopupBlocking(disposition))
-    PopupTracker::CreateForWebContents(new_contents.get(), source);
+  if (source && blocked_content::ConsiderForPopupBlocking(disposition)) {
+    blocked_content::PopupTracker::CreateForWebContents(new_contents.get(),
+                                                        source, disposition);
+  }
 
-  chrome::AddWebContents(this, source, std::move(new_contents), disposition,
-                         initial_rect);
+  chrome::AddWebContents(this, source, std::move(new_contents), target_url,
+                         disposition, initial_rect);
 }
 
 void Browser::ActivateContents(WebContents* contents) {
-  tab_strip_model_->ActivateTabAt(
-      tab_strip_model_->GetIndexOfWebContents(contents));
+  // A WebContents can ask to activate after it's been removed from the
+  // TabStripModel. See https://crbug.com/1060986
+  int index = tab_strip_model_->GetIndexOfWebContents(contents);
+  if (index == TabStripModel::kNoTab)
+    return;
+  tab_strip_model_->ActivateTabAt(index);
   window_->Activate();
 }
 
@@ -1677,7 +1790,7 @@ bool Browser::ShouldFocusLocationBarByDefault(WebContents* source) {
 
   // This should be based on the pending entry if there is one, so that
   // back/forward navigations to the NTP are handled.  The visible entry can't
-  // be used here, since back/forward navigations are not treated as  visible
+  // be used here, since back/forward navigations are not treated as visible
   // entries to avoid URL spoofs.
   content::NavigationEntry* entry =
       source->GetController().GetPendingEntry()
@@ -1753,7 +1866,19 @@ void Browser::WebContentsCreated(WebContents* source_contents,
 }
 
 void Browser::PortalWebContentsCreated(WebContents* portal_web_contents) {
+  ChromeMetricsServiceAccessor::RegisterSyntheticFieldTrial("PortalsActive",
+                                                            "Enabled");
+
   TabHelpers::AttachTabHelpers(portal_web_contents);
+
+  // Make the portal show up in the task manager.
+  task_manager::WebContentsTags::CreateForPortal(portal_web_contents);
+}
+
+void Browser::WebContentsBecamePortal(WebContents* portal_web_contents) {
+  // Make the contents show up as a portal in the task manager.
+  task_manager::WebContentsTags::ClearTag(portal_web_contents);
+  task_manager::WebContentsTags::CreateForPortal(portal_web_contents);
 }
 
 void Browser::RendererUnresponsive(
@@ -1778,7 +1903,7 @@ void Browser::DidNavigateMainFramePostCommit(WebContents* web_contents) {
 
 content::JavaScriptDialogManager* Browser::GetJavaScriptDialogManager(
     WebContents* source) {
-  return JavaScriptDialogTabHelper::FromWebContents(source);
+  return javascript_dialogs::TabModalDialogManager::FromWebContents(source);
 }
 
 bool Browser::GuestSaveFrame(content::WebContents* guest_web_contents) {
@@ -1794,9 +1919,15 @@ content::ColorChooser* Browser::OpenColorChooser(
   return chrome::ShowColorChooser(web_contents, initial_color);
 }
 
+std::unique_ptr<content::EyeDropper> Browser::OpenEyeDropper(
+    content::RenderFrameHost* frame,
+    content::EyeDropperListener* listener) {
+  return window()->OpenEyeDropper(frame, listener);
+}
+
 void Browser::RunFileChooser(
     content::RenderFrameHost* render_frame_host,
-    std::unique_ptr<content::FileSelectListener> listener,
+    scoped_refptr<content::FileSelectListener> listener,
     const blink::mojom::FileChooserParams& params) {
   FileSelectHelper::RunFileChooser(render_frame_host, std::move(listener),
                                    params);
@@ -1804,7 +1935,7 @@ void Browser::RunFileChooser(
 
 void Browser::EnumerateDirectory(
     WebContents* web_contents,
-    std::unique_ptr<content::FileSelectListener> listener,
+    scoped_refptr<content::FileSelectListener> listener,
     const base::FilePath& path) {
   FileSelectHelper::EnumerateDirectory(web_contents, std::move(listener), path);
 }
@@ -1814,11 +1945,10 @@ bool Browser::EmbedsFullscreenWidget() {
 }
 
 void Browser::EnterFullscreenModeForTab(
-    WebContents* web_contents,
-    const GURL& origin,
+    content::RenderFrameHost* requesting_frame,
     const blink::mojom::FullscreenOptions& options) {
   exclusive_access_manager_->fullscreen_controller()->EnterFullscreenModeForTab(
-      web_contents, origin, options.display_id);
+      requesting_frame, options.display_id);
 }
 
 void Browser::ExitFullscreenModeForTab(WebContents* web_contents) {
@@ -1836,19 +1966,26 @@ blink::mojom::DisplayMode Browser::GetDisplayMode(
   if (window_->IsFullscreen())
     return blink::mojom::DisplayMode::kFullscreen;
 
-  if (is_type_app() || is_type_devtools() || is_type_app_popup())
+  if (is_type_app() || is_type_devtools() || is_type_app_popup()) {
+    if (app_controller_ && app_controller_->HasMinimalUiButtons())
+      return blink::mojom::DisplayMode::kMinimalUi;
     return blink::mojom::DisplayMode::kStandalone;
+  }
 
   return blink::mojom::DisplayMode::kBrowser;
 }
 
-void Browser::RegisterProtocolHandler(WebContents* web_contents,
-                                      const std::string& protocol,
-                                      const GURL& url,
-                                      bool user_gesture) {
-  content::BrowserContext* context = web_contents->GetBrowserContext();
+void Browser::RegisterProtocolHandler(
+    content::RenderFrameHost* requesting_frame,
+    const std::string& protocol,
+    const GURL& url,
+    bool user_gesture) {
+  content::BrowserContext* context = requesting_frame->GetBrowserContext();
   if (context->IsOffTheRecord())
     return;
+
+  auto* web_contents =
+      content::WebContents::FromRenderFrameHost(requesting_frame);
 
   // Permission request UI cannot currently be rendered binocularly in VR mode,
   // so we suppress the UI. crbug.com/736568
@@ -1866,11 +2003,14 @@ void Browser::RegisterProtocolHandler(WebContents* web_contents,
   if (registry->SilentlyHandleRegisterHandlerRequest(handler))
     return;
 
-  TabSpecificContentSettings* tab_content_settings =
-      TabSpecificContentSettings::FromWebContents(web_contents);
+  // TODO(carlscab): This should probably be FromFrame() once it becomes
+  // PageSpecificContentSettingsDelegate
+  auto* page_content_settings_delegate =
+      chrome::PageSpecificContentSettingsDelegate::FromWebContents(
+          web_contents);
   if (!user_gesture && window_) {
-    tab_content_settings->set_pending_protocol_handler(handler);
-    tab_content_settings->set_previous_protocol_handler(
+    page_content_settings_delegate->set_pending_protocol_handler(handler);
+    page_content_settings_delegate->set_previous_protocol_handler(
         registry->GetHandlerFor(handler.protocol()));
     window_->GetLocationBar()->UpdateContentSettingsIcons();
     return;
@@ -1879,30 +2019,33 @@ void Browser::RegisterProtocolHandler(WebContents* web_contents,
   // Make sure content-setting icon is turned off in case the page does
   // ungestured and gestured RPH calls.
   if (window_) {
-    tab_content_settings->ClearPendingProtocolHandler();
+    page_content_settings_delegate->ClearPendingProtocolHandler();
     window_->GetLocationBar()->UpdateContentSettingsIcons();
   }
 
-  PermissionRequestManager* permission_request_manager =
-      PermissionRequestManager::FromWebContents(web_contents);
+  permissions::PermissionRequestManager* permission_request_manager =
+      permissions::PermissionRequestManager::FromWebContents(web_contents);
   if (permission_request_manager) {
     // At this point, there will be UI presented, and running a dialog causes an
     // exit to webpage-initiated fullscreen. http://crbug.com/728276
-    web_contents->ForSecurityDropFullscreen();
+    base::ScopedClosureRunner fullscreen_block =
+        web_contents->ForSecurityDropFullscreen();
 
     permission_request_manager->AddRequest(
-        new RegisterProtocolHandlerPermissionRequest(registry, handler, url,
-                                                     user_gesture));
+        requesting_frame,
+        new RegisterProtocolHandlerPermissionRequest(
+            registry, handler, url, user_gesture, std::move(fullscreen_block)));
   }
 }
 
-void Browser::UnregisterProtocolHandler(WebContents* web_contents,
-                                        const std::string& protocol,
-                                        const GURL& url,
-                                        bool user_gesture) {
+void Browser::UnregisterProtocolHandler(
+    content::RenderFrameHost* requesting_frame,
+    const std::string& protocol,
+    const GURL& url,
+    bool user_gesture) {
   // user_gesture will be used in case we decide to have confirmation bubble
   // for user while un-registering the handler.
-  content::BrowserContext* context = web_contents->GetBrowserContext();
+  content::BrowserContext* context = requesting_frame->GetBrowserContext();
   if (context->IsOffTheRecord())
     return;
 
@@ -1920,7 +2063,8 @@ void Browser::FindReply(WebContents* web_contents,
                         const gfx::Rect& selection_rect,
                         int active_match_ordinal,
                         bool final_update) {
-  FindTabHelper* find_tab_helper = FindTabHelper::FromWebContents(web_contents);
+  find_in_page::FindTabHelper* find_tab_helper =
+      find_in_page::FindTabHelper::FromWebContents(web_contents);
   if (!find_tab_helper)
     return;
 
@@ -1998,8 +2142,10 @@ void Browser::RequestPpapiBrokerPermission(
     return;
   }
 
-  TabSpecificContentSettings* tab_content_settings =
-      TabSpecificContentSettings::FromWebContents(web_contents);
+  // TODO(https://crbug.com/1103176): Plumb the actual frame reference here
+  content_settings::PageSpecificContentSettings* tab_content_settings =
+      content_settings::PageSpecificContentSettings::GetForFrame(
+          web_contents->GetMainFrame());
 
   HostContentSettingsMap* content_settings =
       HostContentSettingsMapFactory::GetForProfile(profile);
@@ -2028,7 +2174,9 @@ void Browser::RequestPpapiBrokerPermission(
   base::RecordAction(allowed
                          ? base::UserMetricsAction("PPAPI.BrokerSettingAllow")
                          : base::UserMetricsAction("PPAPI.BrokerSettingDeny"));
-  tab_content_settings->SetPepperBrokerAllowed(allowed);
+  if (tab_content_settings) {
+    tab_content_settings->SetPepperBrokerAllowed(allowed);
+  }
   std::move(callback).Run(allowed);
 #endif
 }
@@ -2042,6 +2190,19 @@ void Browser::PrintCrossProcessSubframe(
   auto* client = printing::PrintCompositeClient::FromWebContents(web_contents);
   if (client)
     client->PrintCrossProcessSubframe(rect, document_cookie, subframe_host);
+}
+#endif
+
+#if BUILDFLAG(ENABLE_PAINT_PREVIEW)
+void Browser::CapturePaintPreviewOfSubframe(
+    content::WebContents* web_contents,
+    const gfx::Rect& rect,
+    const base::UnguessableToken& guid,
+    content::RenderFrameHost* render_frame_host) {
+  auto* client =
+      paint_preview::PaintPreviewClient::FromWebContents(web_contents);
+  if (client)
+    client->CaptureSubframePaintPreview(guid, rect, render_frame_host);
 }
 #endif
 
@@ -2061,7 +2222,7 @@ void Browser::SetWebContentsBlocked(content::WebContents* web_contents,
   // For security, if the WebContents is in fullscreen, have it drop fullscreen.
   // This gives the user the context they need in order to make informed
   // decisions.
-  if (web_contents->IsFullscreenForCurrentTab()) {
+  if (web_contents->IsFullscreen()) {
     // FullscreenWithinTab mode exception: In this case, the browser window is
     // in its normal layout and not fullscreen (tab content rendering is in a
     // "simulated fullscreen" state for the benefit of screen capture). Thus,
@@ -2190,8 +2351,6 @@ void Browser::OnTabInsertedAt(WebContents* contents, int index) {
   // yet if this function is called before TabStripModel::TabInsertedAt().
   UpdateWindowForLoadingStateChanged(contents, true);
 
-  interstitial_observers_.push_back(new InterstitialObserver(this, contents));
-
   SessionService* session_service =
       SessionServiceFactory::GetForProfile(profile_);
   if (session_service) {
@@ -2264,7 +2423,7 @@ void Browser::OnActiveTabChanged(WebContents* old_contents,
 // background color, so it does not need this block of code. Aura should
 // implement this as well.
 // https://crbug.com/719230
-#if !defined(OS_MACOSX)
+#if !defined(OS_MAC)
   // Copies the background color from an old WebContents to a new one that
   // replaces it on the screen. This allows the new WebContents to use the
   // old one's background color as the starting background color, before having
@@ -2501,10 +2660,15 @@ void Browser::ProcessPendingUIUpdates() {
           TabChangeType::kAll);
     }
 
-    // Update the bookmark bar. It may happen that the tab is crashed, and if
-    // so, the bookmark bar should be hidden.
-    if (flags & content::INVALIDATE_TYPE_TAB)
+    // Update the bookmark bar and PWA install icon. It may happen that the tab
+    // is crashed, and if so, the bookmark bar and PWA install icon should be
+    // hidden.
+    if (flags & content::INVALIDATE_TYPE_TAB) {
       UpdateBookmarkBarState(BOOKMARK_BAR_STATE_CHANGE_TAB_STATE);
+      // TODO(crbug.com/1062235): Ideally, we should simply ask the state to
+      // update, and doing that in an appropriate and efficient manner.
+      window()->UpdatePageActionIcon(PageActionIconType::kPwaInstall);
+    }
 
     // We don't need to process INVALIDATE_STATE, since that's not visible.
   }
@@ -2564,7 +2728,7 @@ void Browser::SyncHistoryWithTabs(int index) {
 // Browser, In-progress download termination handling (private):
 
 bool Browser::CanCloseWithInProgressDownloads() {
-#if defined(OS_MACOSX) || defined(OS_CHROMEOS)
+#if defined(OS_MAC) || defined(OS_CHROMEOS)
   // On Mac and ChromeOS, non-incognito download can still continue after window
   // is closed.
   if (!profile_->IsOffTheRecord())
@@ -2679,15 +2843,6 @@ void Browser::TabDetachedAtImpl(content::WebContents* contents,
 
   if (HasFindBarController() && was_active)
     find_bar_controller_->ChangeWebContents(NULL);
-
-  for (size_t i = 0; i < interstitial_observers_.size(); i++) {
-    if (interstitial_observers_[i]->web_contents() != contents)
-      continue;
-
-    delete interstitial_observers_[i];
-    interstitial_observers_.erase(interstitial_observers_.begin() + i);
-    return;
-  }
 }
 
 void Browser::UpdateWindowForLoadingStateChanged(content::WebContents* source,
@@ -2711,8 +2866,6 @@ bool Browser::NormalBrowserSupportsWindowFeature(WindowFeature feature,
                                                  bool check_can_support) const {
   bool fullscreen = ShouldHideUIForFullscreen();
   switch (feature) {
-    case FEATURE_INFOBAR:
-    case FEATURE_DOWNLOADSHELF:
     case FEATURE_BOOKMARKBAR:
       return true;
     case FEATURE_TABSTRIP:
@@ -2730,9 +2883,6 @@ bool Browser::PopupBrowserSupportsWindowFeature(WindowFeature feature,
   bool fullscreen = ShouldHideUIForFullscreen();
 
   switch (feature) {
-    case FEATURE_INFOBAR:
-    case FEATURE_DOWNLOADSHELF:
-      return true;
     case FEATURE_TITLEBAR:
     case FEATURE_LOCATIONBAR:
       return check_can_support || (!fullscreen && !is_trusted_source());
@@ -2744,7 +2894,7 @@ bool Browser::PopupBrowserSupportsWindowFeature(WindowFeature feature,
   }
 }
 
-bool Browser::LegacyAppBrowserSupportsWindowFeature(
+bool Browser::AppPopupBrowserSupportsWindowFeature(
     WindowFeature feature,
     bool check_can_support) const {
   bool fullscreen = ShouldHideUIForFullscreen();
@@ -2752,14 +2902,15 @@ bool Browser::LegacyAppBrowserSupportsWindowFeature(
     case FEATURE_TITLEBAR:
       return check_can_support || !fullscreen;
     case FEATURE_LOCATIONBAR:
-      return false;
+      return app_controller_ && app_controller_->HasAppId() &&
+             (check_can_support || !fullscreen);
     default:
       return PopupBrowserSupportsWindowFeature(feature, check_can_support);
   }
 }
 
-bool Browser::WebAppBrowserSupportsWindowFeature(WindowFeature feature,
-                                                 bool check_can_support) const {
+bool Browser::AppBrowserSupportsWindowFeature(WindowFeature feature,
+                                              bool check_can_support) const {
   DCHECK(app_controller_);
   bool fullscreen = ShouldHideUIForFullscreen();
   switch (feature) {
@@ -2770,8 +2921,6 @@ bool Browser::WebAppBrowserSupportsWindowFeature(WindowFeature feature,
     // TODO(crbug.com/992834): Make this control the visibility of Browser
     // Controls more generally.
     case FEATURE_TOOLBAR:
-    case FEATURE_INFOBAR:
-    case FEATURE_DOWNLOADSHELF:
       return true;
     case FEATURE_TITLEBAR:
     // TODO(crbug.com/992834): Make this control the visibility of
@@ -2786,22 +2935,42 @@ bool Browser::WebAppBrowserSupportsWindowFeature(WindowFeature feature,
   }
 }
 
+#if defined(OS_CHROMEOS)
+// TODO(b/64863368): Consider Fullscreen mode.
+bool Browser::CustomTabBrowserSupportsWindowFeature(
+    WindowFeature feature) const {
+  switch (feature) {
+    case FEATURE_TOOLBAR:
+      return true;
+    case FEATURE_TITLEBAR:
+    case FEATURE_LOCATIONBAR:
+    case FEATURE_TABSTRIP:
+    case FEATURE_BOOKMARKBAR:
+    case FEATURE_NONE:
+      return false;
+  }
+}
+#endif
+
 bool Browser::SupportsWindowFeatureImpl(WindowFeature feature,
                                         bool check_can_support) const {
   switch (type_) {
     case TYPE_NORMAL:
       return NormalBrowserSupportsWindowFeature(feature, check_can_support);
     case TYPE_POPUP:
-    case TYPE_APP_POPUP:
       return PopupBrowserSupportsWindowFeature(feature, check_can_support);
     case TYPE_APP:
-      // TODO(crbug.com/992834): Change to TYPE_WEB_APP.
       if (app_controller_)
-        return WebAppBrowserSupportsWindowFeature(feature, check_can_support);
-      // TODO(crbug.com/992834): Change to TYPE_LEGACY_APP.
-      return LegacyAppBrowserSupportsWindowFeature(feature, check_can_support);
+        return AppBrowserSupportsWindowFeature(feature, check_can_support);
+      // TODO(crbug.com/992834): Change legacy apps to TYPE_APP_POPUP.
+      return AppPopupBrowserSupportsWindowFeature(feature, check_can_support);
     case TYPE_DEVTOOLS:
-      return LegacyAppBrowserSupportsWindowFeature(feature, check_can_support);
+    case TYPE_APP_POPUP:
+      return AppPopupBrowserSupportsWindowFeature(feature, check_can_support);
+#if defined(OS_CHROMEOS)
+    case TYPE_CUSTOM_TAB:
+      return CustomTabBrowserSupportsWindowFeature(feature);
+#endif
   }
 }
 
@@ -2874,11 +3043,11 @@ bool Browser::ShouldCreateBackgroundContents(
     content::SiteInstance* source_site_instance,
     const GURL& opener_url,
     const std::string& frame_name) {
-  extensions::ExtensionService* extensions_service =
-      extensions::ExtensionSystem::Get(profile_)->extension_service();
+  extensions::ExtensionSystem* extension_system =
+      extensions::ExtensionSystem::Get(profile_);
 
-  if (!opener_url.is_valid() || frame_name.empty() || !extensions_service ||
-      !extensions_service->is_ready())
+  if (!opener_url.is_valid() || frame_name.empty() ||
+      !extension_system->is_ready())
     return false;
 
   // Only hosted apps have web extents, so this ensures that only hosted apps

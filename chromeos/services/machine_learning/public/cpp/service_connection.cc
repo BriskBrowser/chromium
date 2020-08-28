@@ -9,6 +9,7 @@
 #include "base/no_destructor.h"
 #include "base/sequence_checker.h"
 #include "chromeos/dbus/machine_learning/machine_learning_client.h"
+#include "chromeos/services/machine_learning/public/mojom/handwriting_recognizer.mojom.h"
 #include "chromeos/services/machine_learning/public/mojom/machine_learning_service.mojom.h"
 #include "chromeos/services/machine_learning/public/mojom/model.mojom.h"
 #include "mojo/public/cpp/bindings/remote.h"
@@ -36,6 +37,22 @@ class ServiceConnectionImpl : public ServiceConnection {
       mojom::FlatBufferModelSpecPtr spec,
       mojo::PendingReceiver<mojom::Model> receiver,
       mojom::MachineLearningService::LoadFlatBufferModelCallback
+          result_callback) override;
+
+  void LoadTextClassifier(
+      mojo::PendingReceiver<mojom::TextClassifier> receiver,
+      mojom::MachineLearningService::LoadTextClassifierCallback
+          result_callback) override;
+
+  void LoadHandwritingModel(
+      mojo::PendingReceiver<mojom::HandwritingRecognizer> receiver,
+      mojom::MachineLearningService::LoadHandwritingModelCallback
+          result_callback) override;
+
+  void LoadHandwritingModelWithSpec(
+      mojom::HandwritingRecognizerSpecPtr spec,
+      mojo::PendingReceiver<mojom::HandwritingRecognizer> receiver,
+      mojom::MachineLearningService::LoadHandwritingModelCallback
           result_callback) override;
 
  private:
@@ -76,6 +93,33 @@ void ServiceConnectionImpl::LoadFlatBufferModel(
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   BindMachineLearningServiceIfNeeded();
   machine_learning_service_->LoadFlatBufferModel(
+      std::move(spec), std::move(receiver), std::move(result_callback));
+}
+
+void ServiceConnectionImpl::LoadTextClassifier(
+    mojo::PendingReceiver<mojom::TextClassifier> receiver,
+    mojom::MachineLearningService::LoadTextClassifierCallback result_callback) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  BindMachineLearningServiceIfNeeded();
+  machine_learning_service_->LoadTextClassifier(std::move(receiver),
+                                                std::move(result_callback));
+}
+
+void ServiceConnectionImpl::LoadHandwritingModel(
+    mojo::PendingReceiver<mojom::HandwritingRecognizer> receiver,
+    mojom::MachineLearningService::LoadHandwritingModelCallback
+        result_callback) {
+  NOTREACHED();
+}
+
+void ServiceConnectionImpl::LoadHandwritingModelWithSpec(
+    mojom::HandwritingRecognizerSpecPtr spec,
+    mojo::PendingReceiver<mojom::HandwritingRecognizer> receiver,
+    mojom::MachineLearningService::LoadHandwritingModelCallback
+        result_callback) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  BindMachineLearningServiceIfNeeded();
+  machine_learning_service_->LoadHandwritingModelWithSpec(
       std::move(spec), std::move(receiver), std::move(result_callback));
 }
 

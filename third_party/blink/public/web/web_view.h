@@ -32,12 +32,15 @@
 #define THIRD_PARTY_BLINK_PUBLIC_WEB_WEB_VIEW_H_
 
 #include "base/time/time.h"
-#include "third_party/blink/public/common/page/page_visibility_state.h"
-#include "third_party/blink/public/mojom/manifest/display_mode.mojom-shared.h"
-#include "third_party/blink/public/platform/web_drag_operation.h"
-#include "third_party/blink/public/platform/web_focus_type.h"
+#include "third_party/blink/public/common/page/web_drag_operation.h"
+#include "third_party/blink/public/mojom/input/focus_type.mojom-shared.h"
+#include "third_party/blink/public/mojom/page/page.mojom-shared.h"
+#include "third_party/blink/public/mojom/page/page_visibility_state.mojom-shared.h"
+#include "third_party/blink/public/mojom/widget/screen_orientation.mojom-shared.h"
+#include "third_party/blink/public/platform/cross_variant_mojo_util.h"
 #include "third_party/blink/public/platform/web_string.h"
 #include "third_party/skia/include/core/SkColor.h"
+#include "ui/gfx/geometry/size.h"
 
 namespace cc {
 class PaintCanvas;
@@ -45,6 +48,7 @@ struct BrowserControlsParams;
 }
 
 namespace gfx {
+class ColorSpace;
 class Point;
 class PointF;
 class Rect;
@@ -54,6 +58,7 @@ class SizeF;
 namespace blink {
 class PageScheduler;
 class WebFrame;
+class WebFrameWidget;
 class WebHitTestResult;
 class WebLocalFrame;
 class WebPageImportanceSignals;
@@ -64,11 +69,9 @@ class WebSettings;
 class WebString;
 class WebViewClient;
 class WebWidget;
-struct PluginAction;
-struct WebDeviceEmulationParams;
+struct DeviceEmulationParams;
 struct WebRect;
 struct WebSize;
-struct WebTextAutosizerPageInfo;
 struct WebWindowFeatures;
 
 class WebView {
@@ -91,15 +94,23 @@ class WebView {
   //
   // clients may be null, but should both be null or not together.
   // |is_hidden| defines the initial visibility of the page.
+  // [is_inside_portal] defines whether the page is inside_portal.
   // |compositing_enabled| dictates whether accelerated compositing should be
   // enabled for the page. It must be false if no clients are provided, or if a
   // LayerTreeView will not be set for the WebWidget.
   // TODO(danakj): This field should go away as WebWidgets always composite
   // their output.
-  BLINK_EXPORT static WebView* Create(WebViewClient*,
-                                      bool is_hidden,
-                                      bool compositing_enabled,
-                                      WebView* opener);
+  // |page_handle| is only set for views that are part of a WebContents' frame
+  // tree.
+  // TODO(yuzus): Remove |is_hidden| and start using |PageVisibilityState|.
+  BLINK_EXPORT static WebView* Create(
+      WebViewClient*,
+      bool is_hidden,
+      bool is_inside_portal,
+      bool compositing_enabled,
+      WebView* opener,
+      CrossVariantMojoAssociatedReceiver<mojom::PageBroadcastInterfaceBase>
+          page_handle);
 
   // Destroys the WebView.
   virtual void Close() = 0;
@@ -112,8 +123,23 @@ class WebView {
   // detached.
   virtual void DidAttachLocalMainFrame() = 0;
 
+  // Called while the main LocalFrame is being detached. The MainFrameImpl() is
+  // still valid until after this method is called.
+  virtual void DidDetachLocalMainFrame() = 0;
+
+  // Called to inform WebViewImpl that a remote main frame has been attached.
+  virtual void DidAttachRemoteMainFrame() = 0;
+
+  // Called to inform WebViewImpl that a remote main frame has been detached.
+  virtual void DidDetachRemoteMainFrame() = 0;
+
   // Initializes the various client interfaces.
   virtual void SetPrerendererClient(WebPrerendererClient*) = 0;
+
+  // Called when some JS code has instructed the window associated to the main
+  // frame to close, which will result in a request to the browser to close the
+  // RenderWidget associated to it.
+  virtual void CloseWindowSoon() = 0;
 
   // Options -------------------------------------------------------------
 
@@ -138,9 +164,6 @@ class WebView {
   virtual bool IsActive() const = 0;
   virtual void SetIsActive(bool) = 0;
 
-  // Allows disabling domain relaxation.
-  virtual void SetDomainRelaxationForbidden(bool, const WebString& scheme) = 0;
-
   // Allows setting the state of the various bars exposed via BarProp
   // properties on the window object. The size related fields of
   // WebWindowFeatures are ignored.
@@ -159,9 +182,6 @@ class WebView {
   virtual WebLocalFrame* FocusedFrame() = 0;
   virtual void SetFocusedFrame(WebFrame*) = 0;
 
-  // Focus the first (last if reverse is true) focusable node.
-  virtual void SetInitialFocus(bool reverse) = 0;
-
   // Smooth scroll the root layer to |targetX|, |targetY| in |duration|.
   virtual void SmoothScroll(int target_x,
                             int target_y,
@@ -171,12 +191,13 @@ class WebView {
   // previous element in the tab sequence (if reverse is true).
   virtual void AdvanceFocus(bool reverse) {}
 
-  // Advance the focus from the frame |from| to the next in sequence
-  // (determined by WebFocusType) focusable element in frame |to|. Used when
-  // focus needs to advance to/from a cross-process frame.
-  virtual void AdvanceFocusAcrossFrames(WebFocusType,
-                                        WebRemoteFrame* from,
-                                        WebLocalFrame* to) {}
+  // Changes the zoom and scroll for zooming into an editable element
+  // with bounds |element_bounds_in_document| and caret bounds
+  // |caret_bounds_in_document|.
+  virtual void ZoomAndScrollToFocusedEditableElementRect(
+      const WebRect& element_bounds_in_document,
+      const WebRect& caret_bounds_in_document,
+      bool zoom_into_legible_scale) = 0;
 
   // Zoom ----------------------------------------------------------------
 
@@ -191,14 +212,6 @@ class WebView {
   // noted above, and returns the current zoom level after applying the
   // change.
   virtual double SetZoomLevel(double) = 0;
-
-  // Returns the current text zoom factor, where 1.0 is the normal size, > 1.0
-  // is scaled up and < 1.0 is scaled down.
-  virtual float TextZoomFactor() = 0;
-
-  // Scales the text in the page by a factor of textZoomFactor.
-  // Note: this has no effect on plugins.
-  virtual float SetTextZoomFactor(float) = 0;
 
   // Gets the scale factor of the page, where 1.0 is the normal size, > 1.0
   // is scaled up, < 1.0 is scaled down.
@@ -223,13 +236,6 @@ class WebView {
 
   // Get the visual viewport's size in CSS pixels.
   virtual gfx::SizeF VisualViewportSize() const = 0;
-
-  // Resizes the unscaled (page scale = 1.0) visual viewport. Normally the
-  // unscaled visual viewport is the same size as the main frame. The passed
-  // size becomes the size of the viewport when page scale = 1. This
-  // is used to shrink the visible viewport to allow things like the ChromeOS
-  // virtual keyboard to overlay over content but allow scrolling it into view.
-  virtual void ResizeVisualViewport(const WebSize&) = 0;
 
   // Sets the default minimum, and maximum page scale. These will be overridden
   // by the page or by the overrides below if they are set.
@@ -265,14 +271,15 @@ class WebView {
   // WebView.
   virtual WebSize ContentsPreferredMinimumSize() = 0;
 
-  // Requests a page-scale animation based on the specified point/rect.
-  virtual void AnimateDoubleTapZoom(const gfx::Point&, const WebRect&) = 0;
+  // Check whether the preferred size has changed. This should only be called
+  // with up-to-date layout.
+  virtual void UpdatePreferredSize() = 0;
 
-  // Requests a page-scale animation based on the specified rect.
-  virtual void ZoomToFindInPageRect(const WebRect&) = 0;
+  // Indicates that view's preferred size changes will be sent to the browser.
+  virtual void EnablePreferredSizeChangedMode() = 0;
 
-  // Sets the display mode of the web app.
-  virtual void SetDisplayMode(blink::mojom::DisplayMode) = 0;
+  // Asks the browser process to activate this web view.
+  virtual void Focus() = 0;
 
   // Sets the ratio as computed by computePageScaleConstraints.
   // TODO(oshima): Remove this once the device scale factor implementation is
@@ -286,19 +293,28 @@ class WebView {
 
   virtual float ZoomFactorForDeviceScaleFactor() = 0;
 
+  // This method is used for testing.
   // Resize the view at the same time as changing the state of the top
   // controls. If |browser_controls_shrink_layout| is true, the embedder shrunk
   // the WebView size by the browser controls height.
   virtual void ResizeWithBrowserControls(
-      const WebSize&,
+      const WebSize& main_frame_widget_size,
       float top_controls_height,
       float bottom_controls_height,
       bool browser_controls_shrink_layout) = 0;
+  // This method is used for testing.
+  // Resizes the unscaled (page scale = 1.0) visual viewport. Normally the
+  // unscaled visual viewport is the same size as the main frame. The passed
+  // size becomes the size of the viewport when page scale = 1. This
+  // is used to shrink the visible viewport to allow things like the ChromeOS
+  // virtual keyboard to overlay over content but allow scrolling it into view.
+  virtual void ResizeVisualViewport(const WebSize&) = 0;
 
   // Same as ResizeWithBrowserControls(const WebSize&,float,float,bool), but
   // includes all browser controls params such as the min heights.
   virtual void ResizeWithBrowserControls(
-      const WebSize&,
+      const WebSize& main_frame_widget_size,
+      const WebSize& visible_viewport_size,
       cc::BrowserControlsParams browser_controls_params) = 0;
 
   // Same as ResizeWithBrowserControls, but keeps the same BrowserControl
@@ -307,24 +323,21 @@ class WebView {
 
   virtual WebSize GetSize() = 0;
 
+  // Override the screen orientation override.
+  virtual void SetScreenOrientationOverrideForTesting(
+      base::Optional<blink::mojom::ScreenOrientation> orientation) = 0;
+
   // Auto-Resize -----------------------------------------------------------
 
-  // In auto-resize mode, the view is automatically adjusted to fit the html
-  // content within the given bounds.
-  virtual void EnableAutoResizeMode(const WebSize& min_size,
-                                    const WebSize& max_size) = 0;
+  // Return the state of the auto resize mode.
+  virtual bool AutoResizeMode() = 0;
 
-  // Turn off auto-resize.
-  virtual void DisableAutoResizeMode() = 0;
+  // Enable auto resize.
+  virtual void EnableAutoResizeForTesting(const gfx::Size& min_size,
+                                          const gfx::Size& max_size) = 0;
 
-  // Media ---------------------------------------------------------------
-
-  // Performs the specified plugin action on the node at the given location.
-  virtual void PerformPluginAction(const PluginAction&,
-                                   const gfx::Point& location) = 0;
-
-  // Notifies WebView when audio is started or stopped.
-  virtual void AudioStateChanged(bool is_audio_playing) = 0;
+  // Disable auto resize.
+  virtual void DisableAutoResizeForTesting(const gfx::Size& new_size) = 0;
 
   // Data exchange -------------------------------------------------------
 
@@ -342,11 +355,10 @@ class WebView {
   // Developer tools -----------------------------------------------------
 
   // Enables device emulation as specified in params.
-  virtual void EnableDeviceEmulation(const WebDeviceEmulationParams&) = 0;
+  virtual void EnableDeviceEmulation(const DeviceEmulationParams&) = 0;
 
   // Cancel emulation started via |enableDeviceEmulation| call.
   virtual void DisableDeviceEmulation() = 0;
-
 
   // Context menu --------------------------------------------------------
 
@@ -386,15 +398,8 @@ class WebView {
   // well.
   virtual void SetBaseBackgroundColor(SkColor) {}
 
-  // Overrides the page's background and base background color. You
-  // can use this to enforce a transparent background, which is useful if you
-  // want to have some custom background rendered behind the widget.
-  //
-  // These may are only called for composited WebViews.
-  virtual void SetBackgroundColorOverride(SkColor) {}
-  virtual void ClearBackgroundColorOverride() {}
-  virtual void SetBaseBackgroundColorOverride(SkColor) {}
-  virtual void ClearBaseBackgroundColorOverride() {}
+  virtual void SetDeviceColorSpaceForTesting(
+      const gfx::ColorSpace& color_space) = 0;
 
   // Scheduling -----------------------------------------------------------
 
@@ -403,14 +408,24 @@ class WebView {
   // Visibility -----------------------------------------------------------
 
   // Sets the visibility of the WebView.
-  virtual void SetVisibilityState(PageVisibilityState visibility_state,
+  virtual void SetVisibilityState(mojom::PageVisibilityState visibility_state,
                                   bool is_initial_state) = 0;
-  virtual PageVisibilityState GetVisibilityState() = 0;
+  virtual mojom::PageVisibilityState GetVisibilityState() = 0;
 
-  // FrameOverlay ----------------------------------------------------------
+  // PageLifecycleState ----------------------------------------------------
 
-  // Overlay this WebView with a solid color.
-  virtual void SetMainFrameOverlayColor(SkColor) = 0;
+  // Sets the |visibility| and |pagehide_dispatch| properties for the
+  // PageLifecycleState of this page from a new page's commit. Should only be
+  // called from a main-frame same-site navigation where we did a proactive
+  // BrowsingInstance swap and we're reusing the old page's process.
+  // Note that unlike SetPageLifecycleState in PageBroadcast/WebViewImpl, we
+  // don't need to pass a callback here to notify the browser site that the
+  // PageLifecycleState has been successfully updated.
+  // TODO(rakina): When it's possible to pass PageLifecycleState here, pass
+  // PageLifecycleState instead.
+  virtual void SetPageLifecycleStateFromNewPageCommit(
+      mojom::PageVisibilityState visibility,
+      mojom::PagehideDispatch pagehide_dispatch) = 0;
 
   // Page Importance Signals ----------------------------------------------
 
@@ -428,23 +443,6 @@ class WebView {
   // Freezes or unfreezes the page and all the local frames.
   virtual void SetPageFrozen(bool frozen) = 0;
 
-  // Dispatches a pagehide event, freezes a page and hooks page eviction.
-  virtual void PutPageIntoBackForwardCache() = 0;
-
-  // Unhooks eviction, resumes a page and dispatches a pageshow event.
-  virtual void RestorePageFromBackForwardCache(
-      base::TimeTicks navigation_start) = 0;
-
-  // Testing functionality for TestRunner ---------------------------------
-
-  // Force the webgl context to fail so that webglcontextcreationerror
-  // event gets generated/tested.
-  virtual void ForceNextWebGLContextCreationToFail() = 0;
-
-  // Force the drawing buffer used by webgl contexts to fail so that the webgl
-  // context's ability to deal with that failure gracefully can be tested.
-  virtual void ForceNextDrawingBufferCreationToFail() = 0;
-
   // Autoplay configuration -----------------------------------------------
 
   // Sets the autoplay flags for this webview's page.
@@ -453,6 +451,7 @@ class WebView {
   virtual void AddAutoplayFlags(int32_t flags) = 0;
   virtual void ClearAutoplayFlags() = 0;
   virtual int32_t AutoplayFlagsForTest() = 0;
+  virtual WebSize GetPreferredSizeForTest() = 0;
 
   // Non-composited support -----------------------------------------------
 
@@ -462,13 +461,13 @@ class WebView {
   // PaintCanvas being supplied by another (composited) WebView.
   //
   // Before calling PaintContent(), the caller must ensure the lifecycle of the
-  // widget's frame is clean by calling UpdateLifecycle(LifecycleUpdate::All).
-  // It is okay to call paint multiple times once the lifecycle is clean,
-  // assuming no other changes are made to the WebWidget (e.g., once
-  // events are processed, it should be assumed that another call to
-  // UpdateLifecycle is warranted before painting again). Paints starting from
-  // the main LayoutView's property tree state, thus ignoring any transient
-  // transormations (e.g. pinch-zoom, dev tools emulation, etc.).
+  // widget's frame is clean by calling
+  // UpdateLifecycle(WebLifecycleUpdate::All). It is okay to call paint multiple
+  // times once the lifecycle is clean, assuming no other changes are made to
+  // the WebWidget (e.g., once events are processed, it should be assumed that
+  // another call to UpdateLifecycle is warranted before painting again). Paints
+  // starting from the main LayoutView's property tree state, thus ignoring any
+  // transient transormations (e.g. pinch-zoom, dev tools emulation, etc.).
   //
   // The painting will be performed without applying the DevicePixelRatio as
   // scaling is expected to already be applied to the PaintCanvas by the
@@ -481,16 +480,9 @@ class WebView {
 
   // TODO(lfg): Remove this once the refactor of WebView/WebWidget is
   // completed.
-  virtual WebWidget* MainFrameWidget() = 0;
+  virtual WebFrameWidget* MainFrameWidget() = 0;
 
   // Portals --------------------------------------------------------------
-
-  // Informs the page that it is inside a portal.
-  virtual void SetInsidePortal(bool inside_portal) = 0;
-
-  // Use to transfer TextAutosizer state from the local main frame renderer to
-  // remote main frame renderers.
-  virtual void SetTextAutosizePageInfo(const WebTextAutosizerPageInfo&) {}
 
  protected:
   ~WebView() = default;

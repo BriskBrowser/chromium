@@ -31,20 +31,25 @@ void MediaBrowserTest::SetUpCommandLine(base::CommandLine* command_line) {
       switches::kAutoplayPolicy,
       switches::autoplay::kNoUserGestureRequiredPolicy);
 
+  std::vector<base::Feature> enabled_features = {
+#if defined(OS_ANDROID)
+    features::kLogJsConsoleMessages,
+#endif
+  };
+
   std::vector<base::Feature> disabled_features = {
     // Disable fallback after decode error to avoid unexpected test pass on
     // the fallback path.
     media::kFallbackAfterDecodeError,
 
-#if defined(OS_LINUX)
+#if defined(OS_LINUX) || defined(OS_CHROMEOS)
     // Disable out of process audio on Linux due to process spawn
     // failures. http://crbug.com/986021
     features::kAudioServiceOutOfProcess,
 #endif
   };
 
-  scoped_feature_list_.InitWithFeatures({/* enabled_features */},
-                                        disabled_features);
+  scoped_feature_list_.InitWithFeatures(enabled_features, disabled_features);
 }
 
 void MediaBrowserTest::RunMediaTestPage(const std::string& html_page,

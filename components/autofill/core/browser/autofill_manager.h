@@ -17,6 +17,7 @@
 #include "base/gtest_prod_util.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
+#include "base/optional.h"
 #include "base/strings/string16.h"
 #include "base/time/time.h"
 #include "base/timer/timer.h"
@@ -38,7 +39,7 @@
 #include "components/autofill/core/browser/sync_utils.h"
 #include "components/autofill/core/browser/ui/popup_types.h"
 #include "components/autofill/core/common/form_data.h"
-#include "components/autofill/core/common/signatures_util.h"
+#include "components/autofill/core/common/signatures.h"
 
 #if defined(OS_ANDROID) || defined(OS_IOS)
 #include "components/autofill/core/browser/autofill_assistant.h"
@@ -228,8 +229,6 @@ class AutofillManager : public AutofillHandler,
   void OnDidPreviewAutofillFormData() override;
   void OnDidEndTextFieldEditing() override;
   void OnHidePopup() override;
-  void OnSetDataList(const std::vector<base::string16>& values,
-                     const std::vector<base::string16>& labels) override;
   void SelectFieldOptionsDidChange(const FormData& form) override;
   void Reset() override;
 
@@ -261,6 +260,60 @@ class AutofillManager : public AutofillHandler,
 
   // Returns the last form the autofill manager considered in this frame.
   virtual const FormData& last_query_form() const;
+
+  // Exposed to ContentAutofillDriver to help with recording WebOTP metrics.
+  bool has_parsed_forms() const { return has_parsed_forms_; }
+  bool has_observed_phone_number_field() const {
+    return has_observed_phone_number_field_;
+  }
+  bool has_observed_one_time_code_field() const {
+    return has_observed_one_time_code_field_;
+  }
+
+#if defined(UNIT_TEST)
+  // A public wrapper that calls |DeterminePossibleFieldTypesForUpload| for
+  // testing purposes only.
+  static void DeterminePossibleFieldTypesForUploadForTest(
+      const std::vector<AutofillProfile>& profiles,
+      const std::vector<CreditCard>& credit_cards,
+      const base::string16& last_unlocked_credit_card_cvc,
+      const std::string& app_locale,
+      FormStructure* submitted_form) {
+    DeterminePossibleFieldTypesForUpload(profiles, credit_cards,
+                                         last_unlocked_credit_card_cvc,
+                                         app_locale, submitted_form);
+  }
+
+  // A public wrapper that calls |OnLoadedServerPredictions| for testing
+  // purposes only.
+  void OnLoadedServerPredictionsForTest(
+      std::string response,
+      const FormAndFieldSignatures& signatures) {
+    OnLoadedServerPredictions(response, signatures);
+  }
+
+  // A public wrapper that calls |MakeFrontendID| for testing purposes only.
+  int MakeFrontendIDForTest(const std::string& cc_backend_id,
+                            const std::string& profile_backend_id) const {
+    return MakeFrontendID(cc_backend_id, profile_backend_id);
+  }
+
+  // A public wrapper that calls |form_interactions_ukm_logger| for testing
+  // purposes only.
+  AutofillMetrics::FormInteractionsUkmLogger*
+  form_interactions_ukm_logger_for_test() {
+    return form_interactions_ukm_logger();
+  }
+
+  // A public wrapper that calls |ShouldTriggerRefill| for testing purposes
+  // only.
+  bool ShouldTriggerRefillForTest(const FormStructure& form_structure) {
+    return ShouldTriggerRefill(form_structure);
+  }
+
+  // A public wrapper that calls |TriggerRefill| for testing purposes only.
+  void TriggerRefillForTest(const FormData& form) { TriggerRefill(form); }
+#endif
 
  protected:
   // Test code should prefer to use this constructor.
@@ -323,7 +376,7 @@ class AutofillManager : public AutofillHandler,
                                     const gfx::RectF& bounding_box) override;
   bool ShouldParseForms(const std::vector<FormData>& forms,
                         const base::TimeTicks timestamp) override;
-  void OnFormsParsed(const std::vector<FormStructure*>& form_structures,
+  void OnFormsParsed(const std::vector<const FormData*>& forms,
                      const base::TimeTicks timestamp) override;
 
   AutofillMetrics::FormInteractionsUkmLogger* form_interactions_ukm_logger() {
@@ -341,17 +394,25 @@ class AutofillManager : public AutofillHandler,
  private:
   // Keeps track of the filling context for a form, used to make refill attemps.
   struct FillingContext {
-    FillingContext();
+    // |optional_profile| or |optional_credit_card| must be non-null.
+    // If |optional_credit_card| is non-null, |optional_cvc| may be non-null.
+    FillingContext(const AutofillField& field,
+                   const AutofillProfile* optional_profile,
+                   const CreditCard* optional_credit_card,
+                   const base::string16* optional_cvc);
     ~FillingContext();
 
     // Whether a refill attempt was made.
     bool attempted_refill = false;
-    // The profile that was used for the initial fill.
-    AutofillProfile temp_data_model;
+    // The profile or credit card that was used for the initial fill.
+    // The std::string associated with the credit card is the CVC, which may be
+    // empty.
+    const base::Optional<AutofillProfile> profile;
+    const base::Optional<std::pair<CreditCard, base::string16>> credit_card;
     // The name of the field that was initially filled.
-    base::string16 filled_field_name;
-    // The time at which the initial fill occured.
-    base::TimeTicks original_fill_time;
+    const base::string16 filled_field_name;
+    // The time at which the initial fill occurred.
+    const base::TimeTicks original_fill_time;
     // The timer used to trigger a refill.
     base::OneShotTimer on_refill_timer;
     // The field type groups that were initially filled.
@@ -367,6 +428,10 @@ class AutofillManager : public AutofillHandler,
     // Address suggestions are not shown because the field is annotated with
     // autocomplete=off and the directive is being observed by the browser.
     kAutocompleteOff,
+    // Suggestions are not shown because this form is on a secure site, but
+    // submits insecurely. This is only used when the user has started typing,
+    // otherwise a warning is shown.
+    kInsecureForm,
   };
 
   // The context for the list of suggestions available for a given field to be
@@ -385,7 +450,7 @@ class AutofillManager : public AutofillHandler,
   // AutofillDownloadManager::Observer:
   void OnLoadedServerPredictions(
       std::string response,
-      const std::vector<std::string>& form_signatures) override;
+      const FormAndFieldSignatures& signatures) override;
 
   // CreditCardAccessManager::Accessor
   void OnCreditCardFetched(
@@ -432,9 +497,9 @@ class AutofillManager : public AutofillHandler,
                                   int query_id,
                                   const FormData& form,
                                   const FormFieldData& field,
-                                  const AutofillDataModel& data_model,
-                                  bool is_credit_card,
-                                  const base::string16& cvc,
+                                  const AutofillProfile* optional_profile,
+                                  const CreditCard* optional_credit_card,
+                                  const base::string16* optional_cvc,
                                   FormStructure* form_structure,
                                   AutofillField* autofill_field,
                                   bool is_refill = false);
@@ -517,7 +582,8 @@ class AutofillManager : public AutofillHandler,
                           FormFieldData* field_data,
                           bool should_notify,
                           const base::string16& cvc,
-                          uint32_t profile_form_bitmask);
+                          uint32_t profile_form_bitmask,
+                          std::string* failure_to_fill);
 
   // Whether there should be an attemps to refill the form. Returns true if all
   // the following are satisfied:
@@ -550,6 +616,8 @@ class AutofillManager : public AutofillHandler,
   FormEventLoggerBase* GetEventFormLogger(
       FieldTypeGroup field_type_group) const;
 
+  void SetDataList(const std::vector<base::string16>& values,
+                   const std::vector<base::string16>& labels);
   AutofillClient* const client_;
 
   LogManager* log_manager_;
@@ -596,6 +664,13 @@ class AutofillManager : public AutofillHandler,
   bool user_did_autofill_ = false;
   // Has the user edited a field that was previously autofilled?
   bool user_did_edit_autofilled_field_ = false;
+
+  // Does |this| have any parsed forms?
+  bool has_parsed_forms_ = false;
+  // Is there a field with autocomplete="one-time-code" observed?
+  bool has_observed_one_time_code_field_ = false;
+  // Is there a field with phone number collection observed?
+  bool has_observed_phone_number_field_ = false;
 
   // When the user first interacted with a potentially fillable form on this
   // page.
@@ -657,113 +732,6 @@ class AutofillManager : public AutofillHandler,
   friend class FormStructureBrowserTest;
   friend class GetMatchingTypesTest;
   friend class CreditCardAccessoryControllerTest;
-  FRIEND_TEST_ALL_PREFIXES(ProfileMatchingTypesTest,
-                           DeterminePossibleFieldTypesForUpload);
-  FRIEND_TEST_ALL_PREFIXES(AutofillManagerTest,
-                           DeterminePossibleFieldTypesForUpload);
-  FRIEND_TEST_ALL_PREFIXES(AutofillManagerTest,
-                           DeterminePossibleFieldTypesForUploadStressTest);
-  FRIEND_TEST_ALL_PREFIXES(AutofillManagerTest, DisambiguateUploadTypes);
-  FRIEND_TEST_ALL_PREFIXES(AutofillManagerTest, CrowdsourceUPIVPA);
-  FRIEND_TEST_ALL_PREFIXES(AutofillManagerTest, CrowdsourceCVCFieldByValue);
-  FRIEND_TEST_ALL_PREFIXES(AutofillManagerTest,
-                           CrowdsourceCVCFieldAfterExpDateByHeuristics);
-  FRIEND_TEST_ALL_PREFIXES(AutofillManagerTest,
-                           CrowdsourceCVCFieldDisableHeurisitcs);
-  FRIEND_TEST_ALL_PREFIXES(AutofillManagerTest,
-                           CrowdsourceNoCVCDueToInvalidCandidateValue);
-  FRIEND_TEST_ALL_PREFIXES(AutofillManagerTest,
-                           CrowdsourceNoCVCFieldDueToMissingCreditCardNumber);
-  FRIEND_TEST_ALL_PREFIXES(AutofillManagerTest,
-                           CrowdsourceCVCFieldAfterInvalidExpDateByHeuristics);
-  FRIEND_TEST_ALL_PREFIXES(AutofillManagerTest,
-                           CrowdsourceCVCFieldBeforeExpDateByHeuristics);
-  FRIEND_TEST_ALL_PREFIXES(AutofillManagerTest,
-                           DisabledAutofillDispatchesError);
-  FRIEND_TEST_ALL_PREFIXES(AutofillManagerTest,
-                           DetermineHeuristicsWithOverallPrediction);
-  FRIEND_TEST_ALL_PREFIXES(AutofillManagerTest,
-                           DeterminePossibleFieldTypesWithMultipleValidities);
-  FRIEND_TEST_ALL_PREFIXES(AutofillMetricsTest, AddressFilledFormEvents);
-  FRIEND_TEST_ALL_PREFIXES(AutofillMetricsTest, AddressSubmittedFormEvents);
-  FRIEND_TEST_ALL_PREFIXES(AutofillMetricsTest, AddressWillSubmitFormEvents);
-  FRIEND_TEST_ALL_PREFIXES(AutofillMetricsTest, AddressSuggestionsCount);
-  FRIEND_TEST_ALL_PREFIXES(AutofillMetricsTest, AutofillFormSubmittedState);
-  FRIEND_TEST_ALL_PREFIXES(AutofillMetricsTest, AutofillIsEnabledAtPageLoad);
-  FRIEND_TEST_ALL_PREFIXES(AutofillMetricsIFrameTest,
-                           CreditCardSelectedFormEvents);
-  FRIEND_TEST_ALL_PREFIXES(AutofillMetricsIFrameTest,
-                           CreditCardFilledFormEvents);
-  FRIEND_TEST_ALL_PREFIXES(AutofillMetricsTest,
-                           CreditCardUnmaskingPreflightCall);
-  FRIEND_TEST_ALL_PREFIXES(AutofillMetricsTest, CreditCardGetRealPanDuration);
-  FRIEND_TEST_ALL_PREFIXES(AutofillMetricsIFrameTest,
-                           CreditCardWillSubmitFormEvents);
-  FRIEND_TEST_ALL_PREFIXES(AutofillMetricsIFrameTest,
-                           CreditCardSubmittedFormEvents);
-  FRIEND_TEST_ALL_PREFIXES(AutofillMetricsTest,
-                           CreditCardCheckoutFlowUserActions);
-  FRIEND_TEST_ALL_PREFIXES(AutofillMetricsTest,
-                           LogHiddenRepresentationalFieldSkipDecision);
-  FRIEND_TEST_ALL_PREFIXES(AutofillMetricsTest,
-                           LogRepeatedAddressTypeRationalized);
-  FRIEND_TEST_ALL_PREFIXES(AutofillMetricsTest,
-                           LogRepeatedStateCountryTypeRationalized);
-
-  FRIEND_TEST_ALL_PREFIXES(
-      AutofillMetricsTest,
-      CreditCardSubmittedWithoutSelectingSuggestionsNoCard);
-  FRIEND_TEST_ALL_PREFIXES(
-      AutofillMetricsTest,
-      CreditCardSubmittedWithoutSelectingSuggestionsUnknownCard);
-  FRIEND_TEST_ALL_PREFIXES(
-      AutofillMetricsTest,
-      CreditCardSubmittedWithoutSelectingSuggestionsKnownCard);
-  FRIEND_TEST_ALL_PREFIXES(
-      AutofillMetricsIFrameTest,
-      ShouldNotLogSubmitWithoutSelectingSuggestionsIfSuggestionFilled);
-  FRIEND_TEST_ALL_PREFIXES(AutofillMetricsTest, ProfileCheckoutFlowUserActions);
-  FRIEND_TEST_ALL_PREFIXES(AutofillMetricsTest, DeveloperEngagement);
-  FRIEND_TEST_ALL_PREFIXES(AutofillMetricsTest, FormFillDuration);
-  FRIEND_TEST_ALL_PREFIXES(AutofillMetricsTest,
-                           NoQualityMetricsForNonAutofillableForms);
-  FRIEND_TEST_ALL_PREFIXES(AutofillMetricsTest, QualityMetrics);
-  FRIEND_TEST_ALL_PREFIXES(AutofillMetricsTest,
-                           QualityMetrics_BasedOnAutocomplete);
-  FRIEND_TEST_ALL_PREFIXES(
-      AutofillMetricsTest,
-      QualityMetrics_LoggedCorrecltyForOnlyFillWhenFocusedField);
-  FRIEND_TEST_ALL_PREFIXES(AutofillMetricsTest,
-                           QualityMetrics_LoggedCorrecltyForRationalizationOk);
-  FRIEND_TEST_ALL_PREFIXES(
-      AutofillMetricsTest,
-      QualityMetrics_LoggedCorrecltyForRationalizationGood);
-  FRIEND_TEST_ALL_PREFIXES(AutofillMetricsTest,
-                           QualityMetrics_LoggedCorrecltyForRationalizationBad);
-
-  FRIEND_TEST_ALL_PREFIXES(AutofillMetricsTest, SaneMetricsWithCacheMismatch);
-  FRIEND_TEST_ALL_PREFIXES(AutofillMetricsTest, DynamicFormMetrics);
-  FRIEND_TEST_ALL_PREFIXES(AutofillManagerTest, TestExternalDelegate);
-  FRIEND_TEST_ALL_PREFIXES(AutofillManagerTest,
-                           TestTabContentsWithExternalDelegate);
-  FRIEND_TEST_ALL_PREFIXES(AutofillMetricsTest,
-                           UserHappinessFormLoadAndSubmission);
-  FRIEND_TEST_ALL_PREFIXES(AutofillMetricsTest,
-                           UserHappinessFormInteraction_AddressForm);
-  FRIEND_TEST_ALL_PREFIXES(AutofillMetricsTest,
-                           UserHappinessFormInteraction_CreditCardForm);
-  FRIEND_TEST_ALL_PREFIXES(AutofillManagerTest, OnLoadedServerPredictions);
-  FRIEND_TEST_ALL_PREFIXES(AutofillManagerTest,
-                           OnLoadedServerPredictionsFromApi);
-  FRIEND_TEST_ALL_PREFIXES(AutofillManagerTest,
-                           OnLoadedServerPredictions_ResetManager);
-  FRIEND_TEST_ALL_PREFIXES(AutofillManagerTest, DontOfferToSavePaymentsCard);
-  FRIEND_TEST_ALL_PREFIXES(AutofillManagerTest, FillInUpdatedExpirationDate);
-  FRIEND_TEST_ALL_PREFIXES(AutofillMetricsFunnelTest, LogFunnelMetrics);
-  FRIEND_TEST_ALL_PREFIXES(AutofillMetricsKeyMetricsTest,
-                           LogUserFixesFilledData);
-  FRIEND_TEST_ALL_PREFIXES(AutofillMetricsKeyMetricsTest,
-                           LogUserFixesFilledDataButDoesNotSubmit);
   DISALLOW_COPY_AND_ASSIGN(AutofillManager);
 };
 

@@ -31,6 +31,7 @@
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "components/account_id/account_id.h"
 #include "components/arc/arc_service_manager.h"
+#include "components/arc/arc_util.h"
 #include "components/arc/session/arc_bridge_service.h"
 #include "components/arc/test/connection_holder_util.h"
 #include "components/arc/test/fake_file_system_instance.h"
@@ -39,6 +40,7 @@
 #include "content/public/test/browser_task_environment.h"
 #include "storage/browser/file_system/external_mount_points.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "url/origin.h"
 
 using base::FilePath;
 using storage::FileSystemURL;
@@ -57,14 +59,14 @@ class FileManagerPathUtilTest : public testing::Test {
   ~FileManagerPathUtilTest() override = default;
 
   void SetUp() override {
-    // Remove mount configured to MyFiles because it can interfere with some
-    // tests.
-    storage::ExternalMountPoints::GetSystemInstance()->RevokeFileSystem(
-        GetDownloadsMountPointName(profile_.get()));
     profile_.reset(
         new TestingProfile(base::FilePath("/home/chronos/u-0123456789abcdef")));
   }
-  void TearDown() override { profile_.reset(); }
+
+  void TearDown() override {
+    storage::ExternalMountPoints::GetSystemInstance()->RevokeAllFileSystems();
+    profile_.reset();
+  }
 
  protected:
   content::BrowserTaskEnvironment task_environment_;
@@ -146,6 +148,8 @@ TEST_F(FileManagerPathUtilTest, GetPathDisplayTextForSettings) {
                 "/media/fuse/crostini_0123456789abcdef_termina_penguin/foo"));
   EXPECT_EQ("foo", GetPathDisplayTextForSettings(profile_.get(),
                                                  "/media/removable/foo"));
+  EXPECT_EQ("foo", GetPathDisplayTextForSettings(profile_.get(),
+                                                 "/media/archive/foo"));
 
   chromeos::disks::DiskMountManager::InitializeForTesting(
       new FakeDiskMountManager);
@@ -314,7 +318,7 @@ TEST_F(FileManagerPathUtilTest, MigrateToDriveFs) {
       result);
 }
 
-TEST_F(FileManagerPathUtilTest, ConvertFileSystemURLToPathInsideCrostini) {
+TEST_F(FileManagerPathUtilTest, ConvertFileSystemURLToPathInsideVM) {
   storage::ExternalMountPoints* mount_points =
       storage::ExternalMountPoints::GetSystemInstance();
   // Setup for DriveFS.
@@ -331,17 +335,17 @@ TEST_F(FileManagerPathUtilTest, ConvertFileSystemURLToPathInsideCrostini) {
   crostini_manager->AddRunningContainerForTesting(
       crostini::kCrostiniDefaultVmName,
       crostini::ContainerInfo(crostini::kCrostiniDefaultContainerName,
-                              "testuser", "/home/testuser"));
-  //
-  // Register crostini, downloads, drive, android.
+                              "testuser", "/home/testuser", "PLACEHOLDER_IP"));
+
+  // Register crostini, my files, drive, android.
   mount_points->RegisterFileSystem(GetCrostiniMountPointName(profile_.get()),
                                    storage::kFileSystemTypeNativeLocal,
                                    storage::FileSystemMountOption(),
                                    GetCrostiniMountDirectory(profile_.get()));
-  mount_points->RegisterFileSystem(
-      GetDownloadsMountPointName(profile_.get()),
-      storage::kFileSystemTypeNativeLocal, storage::FileSystemMountOption(),
-      GetDownloadsFolderForProfile(profile_.get()));
+  mount_points->RegisterFileSystem(GetDownloadsMountPointName(profile_.get()),
+                                   storage::kFileSystemTypeNativeLocal,
+                                   storage::FileSystemMountOption(),
+                                   GetMyFilesFolderForProfile(profile_.get()));
   mount_points->RegisterFileSystem(
       GetAndroidFilesMountPointName(), storage::kFileSystemTypeNativeLocal,
       storage::FileSystemMountOption(), base::FilePath(kAndroidFilesPath));
@@ -354,78 +358,98 @@ TEST_F(FileManagerPathUtilTest, ConvertFileSystemURLToPathInsideCrostini) {
   mount_points->RegisterFileSystem(
       chromeos::kSystemMountNameRemovable, storage::kFileSystemTypeNativeLocal,
       storage::FileSystemMountOption(), base::FilePath(kRemovableMediaPath));
+  mount_points->RegisterFileSystem(
+      chromeos::kSystemMountNameArchive, storage::kFileSystemTypeNativeLocal,
+      storage::FileSystemMountOption(), base::FilePath(kArchiveMountPath));
 
-  {
-    base::FilePath inside;
-    EXPECT_TRUE(ConvertFileSystemURLToPathInsideCrostini(
-        profile_.get(),
-        mount_points->CreateExternalFileSystemURL(
-            GURL(), "crostini_0123456789abcdef_termina_penguin",
-            base::FilePath("path/in/crostini")),
-        &inside));
-    EXPECT_EQ("/home/testuser/path/in/crostini", inside.value());
-
-    EXPECT_FALSE(ConvertFileSystemURLToPathInsideCrostini(
-        profile_.get(),
-        mount_points->CreateExternalFileSystemURL(
-            GURL(), "unknown", base::FilePath("path/in/unknown")),
-        &inside));
-
-    EXPECT_TRUE(ConvertFileSystemURLToPathInsideCrostini(
-        profile_.get(),
-        mount_points->CreateExternalFileSystemURL(
-            GURL(), "android_files", base::FilePath("path/in/android")),
-        &inside));
-    EXPECT_EQ("/mnt/chromeos/PlayFiles/path/in/android", inside.value());
-
-    EXPECT_TRUE(ConvertFileSystemURLToPathInsideCrostini(
-        profile_.get(),
-        mount_points->CreateExternalFileSystemURL(
-            GURL(), "drivefs-84675c855b63e12f384d45f033826980",
-            base::FilePath("root/path/in/mydrive")),
-        &inside));
-    EXPECT_EQ("/mnt/chromeos/GoogleDrive/MyDrive/path/in/mydrive",
-              inside.value());
-
-    EXPECT_TRUE(ConvertFileSystemURLToPathInsideCrostini(
-        profile_.get(),
-        mount_points->CreateExternalFileSystemURL(
-            GURL(), "drivefs-84675c855b63e12f384d45f033826980",
-            base::FilePath("team_drives/path/in/teamdrives")),
-        &inside));
-    EXPECT_EQ("/mnt/chromeos/GoogleDrive/SharedDrives/path/in/teamdrives",
-              inside.value());
-
-    EXPECT_TRUE(ConvertFileSystemURLToPathInsideCrostini(
-        profile_.get(),
-        mount_points->CreateExternalFileSystemURL(
-            GURL(), "drivefs-84675c855b63e12f384d45f033826980",
-            base::FilePath("Computers/path/in/computers")),
-        &inside));
-    EXPECT_EQ("/mnt/chromeos/GoogleDrive/Computers/path/in/computers",
-              inside.value());
-
-    EXPECT_TRUE(ConvertFileSystemURLToPathInsideCrostini(
-        profile_.get(),
-        mount_points->CreateExternalFileSystemURL(
-            GURL(), "removable", base::FilePath("MyUSB/path/in/removable")),
-        &inside));
-    EXPECT_EQ("/mnt/chromeos/removable/MyUSB/path/in/removable",
-              inside.value());
-  }
-  // Test MyFiles.
-  mount_points->RegisterFileSystem(GetDownloadsMountPointName(profile_.get()),
-                                   storage::kFileSystemTypeNativeLocal,
-                                   storage::FileSystemMountOption(),
-                                   GetMyFilesFolderForProfile(profile_.get()));
   base::FilePath inside;
+  base::FilePath vm_mount("/mnt/chromeos");
+  EXPECT_TRUE(ConvertFileSystemURLToPathInsideVM(
+      profile_.get(),
+      mount_points->CreateExternalFileSystemURL(
+          url::Origin(), "Downloads-testing_profile-hash",
+          base::FilePath("path/in/myfiles")),
+      vm_mount, &inside));
+  EXPECT_EQ("/mnt/chromeos/MyFiles/path/in/myfiles", inside.value());
+
+  EXPECT_TRUE(ConvertFileSystemURLToPathInsideVM(
+      profile_.get(),
+      mount_points->CreateExternalFileSystemURL(
+          url::Origin(), "crostini_0123456789abcdef_termina_penguin",
+          base::FilePath("path/in/crostini")),
+      vm_mount, &inside));
+  EXPECT_EQ("/mnt/chromeos/LinuxFiles/path/in/crostini", inside.value());
+
+  // Special case for Crostini $HOME.
+  EXPECT_TRUE(ConvertFileSystemURLToPathInsideVM(
+      profile_.get(),
+      mount_points->CreateExternalFileSystemURL(
+          url::Origin(), "crostini_0123456789abcdef_termina_penguin",
+          base::FilePath("path/in/crostini")),
+      vm_mount, &inside, /*map_crostini_home=*/true));
+  EXPECT_EQ("/home/testuser/path/in/crostini", inside.value());
   EXPECT_TRUE(ConvertFileSystemURLToPathInsideCrostini(
       profile_.get(),
       mount_points->CreateExternalFileSystemURL(
-          GURL(), "Downloads-testing_profile-hash",
-          base::FilePath("path/in/myfiles")),
+          url::Origin(), "crostini_0123456789abcdef_termina_penguin",
+          base::FilePath("path/in/crostini")),
       &inside));
-  EXPECT_EQ("/mnt/chromeos/MyFiles/path/in/myfiles", inside.value());
+  EXPECT_EQ("/home/testuser/path/in/crostini", inside.value());
+
+  EXPECT_FALSE(ConvertFileSystemURLToPathInsideVM(
+      profile_.get(),
+      mount_points->CreateExternalFileSystemURL(
+          url::Origin(), "unknown", base::FilePath("path/in/unknown")),
+      vm_mount, &inside));
+
+  EXPECT_TRUE(ConvertFileSystemURLToPathInsideVM(
+      profile_.get(),
+      mount_points->CreateExternalFileSystemURL(
+          url::Origin(), "android_files", base::FilePath("path/in/android")),
+      vm_mount, &inside));
+  EXPECT_EQ("/mnt/chromeos/PlayFiles/path/in/android", inside.value());
+
+  EXPECT_TRUE(ConvertFileSystemURLToPathInsideVM(
+      profile_.get(),
+      mount_points->CreateExternalFileSystemURL(
+          url::Origin(), "drivefs-84675c855b63e12f384d45f033826980",
+          base::FilePath("root/path/in/mydrive")),
+      vm_mount, &inside));
+  EXPECT_EQ("/mnt/chromeos/GoogleDrive/MyDrive/path/in/mydrive",
+            inside.value());
+
+  EXPECT_TRUE(ConvertFileSystemURLToPathInsideVM(
+      profile_.get(),
+      mount_points->CreateExternalFileSystemURL(
+          url::Origin(), "drivefs-84675c855b63e12f384d45f033826980",
+          base::FilePath("team_drives/path/in/teamdrives")),
+      vm_mount, &inside));
+  EXPECT_EQ("/mnt/chromeos/GoogleDrive/SharedDrives/path/in/teamdrives",
+            inside.value());
+
+  EXPECT_TRUE(ConvertFileSystemURLToPathInsideVM(
+      profile_.get(),
+      mount_points->CreateExternalFileSystemURL(
+          url::Origin(), "drivefs-84675c855b63e12f384d45f033826980",
+          base::FilePath("Computers/path/in/computers")),
+      vm_mount, &inside));
+  EXPECT_EQ("/mnt/chromeos/GoogleDrive/Computers/path/in/computers",
+            inside.value());
+
+  EXPECT_TRUE(ConvertFileSystemURLToPathInsideVM(
+      profile_.get(),
+      mount_points->CreateExternalFileSystemURL(
+          url::Origin(), "removable",
+          base::FilePath("MyUSB/path/in/removable")),
+      vm_mount, &inside));
+  EXPECT_EQ("/mnt/chromeos/removable/MyUSB/path/in/removable", inside.value());
+
+  EXPECT_TRUE(ConvertFileSystemURLToPathInsideVM(
+      profile_.get(),
+      mount_points->CreateExternalFileSystemURL(
+          url::Origin(), "archive", base::FilePath("file.rar/path/in/archive")),
+      vm_mount, &inside));
+  EXPECT_EQ("/mnt/chromeos/archive/file.rar/path/in/archive", inside.value());
 }
 
 TEST_F(FileManagerPathUtilTest, ExtractMountNameFileSystemNameFullPath) {
@@ -440,6 +464,10 @@ TEST_F(FileManagerPathUtilTest, ExtractMountNameFileSystemNameFullPath) {
   mount_points->RegisterFileSystem(
       chromeos::kSystemMountNameRemovable, storage::kFileSystemTypeNativeLocal,
       storage::FileSystemMountOption(), base::FilePath(kRemovableMediaPath));
+  base::FilePath archive = base::FilePath(kArchiveMountPath);
+  mount_points->RegisterFileSystem(
+      chromeos::kSystemMountNameArchive, storage::kFileSystemTypeNativeLocal,
+      storage::FileSystemMountOption(), base::FilePath(kArchiveMountPath));
   std::string relative_path_1 = "foo";
   std::string relative_path_2 = "foo/bar";
   std::string mount_name;
@@ -489,6 +517,14 @@ TEST_F(FileManagerPathUtilTest, ExtractMountNameFileSystemNameFullPath) {
   EXPECT_EQ(file_system_name, "foo");
   EXPECT_EQ(full_path, "/bar");
 
+  // <archive>/foo/bar
+  EXPECT_TRUE(ExtractMountNameFileSystemNameFullPath(
+      archive.Append(relative_path_2), &mount_name, &file_system_name,
+      &full_path));
+  EXPECT_EQ(mount_name, "archive/foo");
+  EXPECT_EQ(file_system_name, "foo");
+  EXPECT_EQ(full_path, "/bar");
+
   // Unknown.
   EXPECT_FALSE(ExtractMountNameFileSystemNameFullPath(
       base::FilePath("/unknown/path"), &mount_name, &file_system_name,
@@ -531,6 +567,8 @@ class FileManagerPathUtilConvertUrlTest : public testing::Test {
     ASSERT_TRUE(profile_manager_->CreateTestingProfile("user2@gmail.com"));
     primary_profile->GetPrefs()->SetString(drive::prefs::kDriveFsProfileSalt,
                                            "a");
+    primary_profile->GetPrefs()->SetBoolean(
+        drive::prefs::kDriveFsPinnedMigrated, true);
 
     // Set up an Arc service manager with a fake file system.
     arc_service_manager_ = std::make_unique<arc::ArcServiceManager>();
@@ -550,10 +588,7 @@ class FileManagerPathUtilConvertUrlTest : public testing::Test {
     drive::DriveIntegrationService* integration_service =
         drive::DriveIntegrationServiceFactory::GetForProfile(primary_profile);
     drive_mount_point_ = integration_service->GetMountPointPath();
-    mount_points->RegisterFileSystem(
-        drive_mount_point_.BaseName().AsUTF8Unsafe(),
-        storage::kFileSystemTypeNativeLocal, storage::FileSystemMountOption(),
-        drive_mount_point_);
+    integration_service->OnMounted(drive_mount_point_);
 
     // Add a crostini mount point for the primary profile.
     crostini_mount_point_ = GetCrostiniMountDirectory(primary_profile);
@@ -642,7 +677,7 @@ TEST_F(FileManagerPathUtilConvertUrlTest, ConvertPathToArcUrl_Crostini) {
             url);
 }
 
-TEST_F(FileManagerPathUtilConvertUrlTest, ConvertPathToArcUrl_Special) {
+TEST_F(FileManagerPathUtilConvertUrlTest, ConvertPathToArcUrl_MyDriveLegacy) {
   GURL url;
   EXPECT_TRUE(
       ConvertPathToArcUrl(drive_mount_point_.AppendASCII("a/b/c"), &url));
@@ -653,6 +688,18 @@ TEST_F(FileManagerPathUtilConvertUrlTest, ConvertPathToArcUrl_Special) {
   EXPECT_EQ(GURL("content://org.chromium.arc.chromecontentprovider/"
                  "externalfile%3Adrivefs-b1f44746e7144c3caafeacaa8bb5c569%2Fa"
                  "%2Fb%2Fc"),
+            url);
+}
+
+TEST_F(FileManagerPathUtilConvertUrlTest, ConvertPathToArcUrl_MyDriveArcvm) {
+  auto* command_line = base::CommandLine::ForCurrentProcess();
+  command_line->InitFromArgv({"", "--enable-arcvm"});
+  EXPECT_TRUE(arc::IsArcVmEnabled());
+  GURL url;
+  EXPECT_TRUE(
+      ConvertPathToArcUrl(drive_mount_point_.AppendASCII("a/b/c"), &url));
+  EXPECT_EQ(GURL("content://org.chromium.arc.volumeprovider/"
+                 "MyDrive/a/b/c"),
             url);
 }
 

@@ -10,7 +10,10 @@
 #include "ash/root_window_controller.h"
 #include "ash/screen_util.h"
 #include "ash/shell.h"
+#include "ash/wm/pip/pip_positioner.h"
 #include "ash/wm/screen_pinning_controller.h"
+#include "ash/wm/splitview/split_view_controller.h"
+#include "ash/wm/tablet_mode/tablet_mode_controller.h"
 #include "ash/wm/window_positioning_utils.h"
 #include "ash/wm/window_state.h"
 #include "ash/wm/window_state_delegate.h"
@@ -80,14 +83,22 @@ void ClientControlledState::HandleTransitionEvents(WindowState* window_state,
     return;
   }
 
+  auto* window = window_state->window();
   switch (event->type()) {
     case WM_EVENT_NORMAL:
     case WM_EVENT_MAXIMIZE:
     case WM_EVENT_MINIMIZE:
     case WM_EVENT_FULLSCREEN: {
+      // Clients handle a window state change asynchronously. So in the case
+      // that the window is in a transitional state (already snapped but not
+      // applied to its window state yet), we here skip to pass WM_EVENT.
+      if (SplitViewController::Get(window)->IsWindowInTransitionalState(window))
+        return;
+
       // Reset window state
       window_state->UpdateWindowPropertiesFromStateType();
-      WindowStateType next_state = GetStateForTransitionEvent(event);
+      WindowStateType next_state =
+          GetResolvedNextWindowStateType(window_state, event);
       VLOG(1) << "Processing State Transtion: event=" << event->type()
               << ", state=" << state_type_ << ", next_state=" << next_state;
       // Then ask delegate to handle the window state change.
@@ -99,18 +110,18 @@ void ClientControlledState::HandleTransitionEvents(WindowState* window_state,
       if (window_state->CanSnap()) {
         // Get the desired window bounds for the snap state.
         gfx::Rect bounds = GetSnappedWindowBoundsInParent(
-            window_state->window(), event->type() == WM_EVENT_SNAP_LEFT
-                                        ? WindowStateType::kLeftSnapped
-                                        : WindowStateType::kRightSnapped);
+            window, event->type() == WM_EVENT_SNAP_LEFT
+                        ? WindowStateType::kLeftSnapped
+                        : WindowStateType::kRightSnapped);
         window_state->set_bounds_changed_by_user(true);
 
         // We don't want Unminimize() to restore the pre-snapped state during
         // the transition.
-        window_state->window()->ClearProperty(
-            aura::client::kPreMinimizedShowStateKey);
+        window->ClearProperty(aura::client::kPreMinimizedShowStateKey);
 
         window_state->UpdateWindowPropertiesFromStateType();
-        WindowStateType next_state = GetStateForTransitionEvent(event);
+        WindowStateType next_state =
+            GetResolvedNextWindowStateType(window_state, event);
         VLOG(1) << "Processing State Transtion: event=" << event->type()
                 << ", state=" << state_type_ << ", next_state=" << next_state;
 
@@ -233,13 +244,6 @@ void ClientControlledState::HandleBoundsEvents(WindowState* window_state,
         }
         next_bounds_change_animation_type_ = kAnimationNone;
 
-        // For PIP, restore bounds is used to specify the ideal position.
-        // Usually this value is set in completeDrag, but for the initial
-        // position, we need to set it here.
-        if (window_state->IsPip() &&
-            window_state->GetRestoreBoundsInParent().IsEmpty())
-          window_state->SetRestoreBoundsInParent(bounds);
-
       } else if (!window_state->IsPinned()) {
         // TODO(oshima): Define behavior for pinned app.
         bounds_change_animation_duration_ = set_bounds_event->duration();
@@ -307,6 +311,20 @@ bool ClientControlledState::EnterNextState(WindowState* window_state,
   }
 
   return true;
+}
+
+WindowStateType ClientControlledState::GetResolvedNextWindowStateType(
+    WindowState* window_state,
+    const WMEvent* event) {
+  DCHECK(event->IsTransitionEvent());
+
+  const WindowStateType next = GetStateForTransitionEvent(event);
+
+  if (Shell::Get()->tablet_mode_controller()->InTabletMode() &&
+      next == WindowStateType::kNormal && window_state->CanMaximize())
+    return WindowStateType::kMaximized;
+
+  return next;
 }
 
 }  // namespace ash

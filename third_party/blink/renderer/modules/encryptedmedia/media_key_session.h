@@ -31,7 +31,7 @@
 #include "third_party/blink/public/platform/web_encrypted_media_types.h"
 #include "third_party/blink/renderer/bindings/core/v8/active_script_wrappable.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise_property.h"
-#include "third_party/blink/renderer/core/execution_context/context_lifecycle_observer.h"
+#include "third_party/blink/renderer/core/execution_context/execution_context_lifecycle_observer.h"
 #include "third_party/blink/renderer/core/typed_arrays/dom_array_piece.h"
 #include "third_party/blink/renderer/modules/encryptedmedia/media_key_status_map.h"
 #include "third_party/blink/renderer/modules/event_target_modules.h"
@@ -69,10 +69,9 @@ class MediaKeys;
 class MediaKeySession final
     : public EventTargetWithInlineData,
       public ActiveScriptWrappable<MediaKeySession>,
-      public ContextLifecycleObserver,
+      public ExecutionContextLifecycleObserver,
       private WebContentDecryptionModuleSession::Client {
   DEFINE_WRAPPERTYPEINFO();
-  USING_GARBAGE_COLLECTED_MIXIN(MediaKeySession);
   USING_PRE_FINALIZER(MediaKeySession, Dispose);
 
  public:
@@ -104,10 +103,10 @@ class MediaKeySession final
   // ScriptWrappable
   bool HasPendingActivity() const final;
 
-  // ContextLifecycleObserver
-  void ContextDestroyed(ExecutionContext*) override;
+  // ExecutionContextLifecycleObserver
+  void ContextDestroyed() override;
 
-  void Trace(blink::Visitor*) override;
+  void Trace(Visitor*) const override;
 
  private:
   class PendingAction;
@@ -131,13 +130,13 @@ class MediaKeySession final
   void RemoveTask(ContentDecryptionModuleResult*);
 
   // WebContentDecryptionModuleSession::Client
-  void Message(MessageType,
-               const unsigned char* message,
-               size_t message_length) override;
-  void Close() override;
-  void ExpirationChanged(double updated_expiry_time_in_ms) override;
-  void KeysStatusesChange(const WebVector<WebEncryptedMediaKeyInformation>&,
-                          bool has_additional_usable_key) override;
+  void OnSessionMessage(MessageType,
+                        const unsigned char* message,
+                        size_t message_length) override;
+  void OnSessionClosed() override;
+  void OnSessionExpirationUpdate(double updated_expiry_time_in_ms) override;
+  void OnSessionKeysChange(const WebVector<WebEncryptedMediaKeyInformation>&,
+                           bool has_additional_usable_key) override;
 
   Member<EventQueue> async_event_queue_;
   std::unique_ptr<WebContentDecryptionModuleSession> session_;

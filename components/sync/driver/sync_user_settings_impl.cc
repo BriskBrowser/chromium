@@ -189,9 +189,20 @@ bool SyncUserSettingsImpl::IsPassphraseRequiredForPreferredDataTypes() const {
   return IsEncryptedDatatypeEnabled() && IsPassphraseRequired();
 }
 
+bool SyncUserSettingsImpl::IsTrustedVaultKeyRequired() const {
+  return crypto_->IsTrustedVaultKeyRequired();
+}
+
 bool SyncUserSettingsImpl::IsTrustedVaultKeyRequiredForPreferredDataTypes()
     const {
   return IsEncryptedDatatypeEnabled() && crypto_->IsTrustedVaultKeyRequired();
+}
+
+bool SyncUserSettingsImpl::IsTrustedVaultRecoverabilityDegraded() const {
+  // TODO(crbug.com/1081649): This should verify that at least one sync entity
+  // is affected.
+  return IsEncryptedDatatypeEnabled() &&
+         crypto_->IsTrustedVaultRecoverabilityDegraded();
 }
 
 bool SyncUserSettingsImpl::IsUsingSecondaryPassphrase() const {
@@ -219,9 +230,7 @@ bool SyncUserSettingsImpl::SetDecryptionPassphrase(
 
   DVLOG(1) << "Setting passphrase for decryption.";
 
-  bool result = crypto_->SetDecryptionPassphrase(passphrase);
-  UMA_HISTOGRAM_BOOLEAN("Sync.PassphraseDecryptionSucceeded", result);
-  return result;
+  return crypto_->SetDecryptionPassphrase(passphrase);
 }
 
 void SyncUserSettingsImpl::SetSyncRequestedIfNotSetExplicitly() {
@@ -237,14 +246,16 @@ ModelTypeSet SyncUserSettingsImpl::GetPreferredDataTypes() const {
 #endif
   types.RetainAll(registered_model_types_);
 
-  static_assert(40 == ModelType::NUM_ENTRIES,
+  static_assert(41 == ModelType::NUM_ENTRIES,
                 "If adding a new sync data type, update the list below below if"
                 " you want to disable the new data type for local sync.");
   types.PutAll(ControlTypes());
   if (prefs_->IsLocalSyncEnabled()) {
     types.Remove(APP_LIST);
+    types.Remove(AUTOFILL_WALLET_OFFER);
     types.Remove(SECURITY_EVENTS);
     types.Remove(SEND_TAB_TO_SELF);
+    types.Remove(SHARING_MESSAGE);
     types.Remove(USER_CONSENTS);
     types.Remove(USER_EVENTS);
   }

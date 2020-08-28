@@ -8,6 +8,7 @@ import 'chrome://resources/cr_elements/cr_icons_css.m.js';
 import 'chrome://resources/cr_elements/cr_toggle/cr_toggle.m.js';
 import 'chrome://resources/cr_elements/hidden_style_css.m.js';
 import 'chrome://resources/cr_elements/icons.m.js';
+import 'chrome://resources/cr_elements/shared_style_css.m.js';
 import 'chrome://resources/cr_elements/shared_vars_css.m.js';
 import 'chrome://resources/js/action_link.js';
 import 'chrome://resources/cr_elements/action_link_css.m.js';
@@ -26,7 +27,7 @@ import {loadTimeData} from 'chrome://resources/js/load_time_data.m.js';
 import {flush, html, Polymer} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
 import {ItemBehavior} from './item_behavior.js';
-import {computeInspectableViewLabel, EnableControl, getEnableControl, getItemSource, getItemSourceString, isControlled, isEnabled, SourceType, userCanChangeEnablement} from './item_util.js';
+import {computeInspectableViewLabel, EnableControl, getEnableControl, getItemSource, getItemSourceString, isEnabled, SourceType, userCanChangeEnablement} from './item_util.js';
 import {navigation, Page} from './navigation_helper.js';
 
 /** @interface */
@@ -207,11 +208,7 @@ Polymer({
   /** @private */
   onEnableToggleChange_() {
     this.delegate.setItemEnabled(this.data.id, this.$.enableToggle.checked);
-  },
-
-  /** @private */
-  onEnableButtonClick_() {
-    this.delegate.setItemEnabled(this.data.id, true);
+    this.$.enableToggle.checked = this.isEnabled_();
   },
 
   /** @private */
@@ -279,14 +276,6 @@ Polymer({
    * @return {boolean}
    * @private
    */
-  isControlled_() {
-    return isControlled(this.data);
-  },
-
-  /**
-   * @return {boolean}
-   * @private
-   */
   isEnabled_() {
     return isEnabled(this.data.state);
   },
@@ -325,15 +314,6 @@ Polymer({
    */
   showEnableToggle_() {
     return getEnableControl(this.data) === EnableControl.ENABLE_TOGGLE;
-  },
-
-  /**
-   * Returns true if the enable button should be shown.
-   * @return {boolean}
-   * @private
-   */
-  showEnableButton_() {
-    return getEnableControl(this.data) === EnableControl.ENABLE_BUTTON;
   },
 
   /**
@@ -429,11 +409,18 @@ Polymer({
    */
   computeDevReloadButtonHidden_() {
     // Only display the reload spinner if the extension is unpacked and
-    // enabled. There's no point in reloading a disabled extension, and we'll
-    // show a crashed reload button if it's terminated.
+    // enabled or disabled for reload. If an extension fails to reload (due to
+    // e.g. a parsing error), it will
+    // remain disabled with the "reloading" reason. We show the reload button
+    // when it's disabled for reload to enable developers to reload the fixed
+    // version. (Note that trying to reload an extension that is currently
+    // trying to reload is a no-op.) For other
+    // disableReasons, there's no point in reloading a disabled extension, and
+    // we'll show a crashed reload button if it's terminated.
     const showIcon =
         this.data.location === chrome.developerPrivate.Location.UNPACKED &&
-        this.data.state === chrome.developerPrivate.ExtensionState.ENABLED;
+        (this.data.state === chrome.developerPrivate.ExtensionState.ENABLED ||
+         this.data.disableReasons.reloading);
     return !showIcon;
   },
 

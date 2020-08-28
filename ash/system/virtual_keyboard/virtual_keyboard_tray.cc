@@ -49,9 +49,20 @@ VirtualKeyboardTray::~VirtualKeyboardTray() {
   }
 }
 
+void VirtualKeyboardTray::Initialize() {
+  TrayBackgroundView::Initialize();
+  SetVisiblePreferred(
+      Shell::Get()->accessibility_controller()->virtual_keyboard_enabled());
+}
+
 base::string16 VirtualKeyboardTray::GetAccessibleNameForTray() {
   return l10n_util::GetStringUTF16(
       IDS_ASH_VIRTUAL_KEYBOARD_TRAY_ACCESSIBLE_NAME);
+}
+
+void VirtualKeyboardTray::HandleLocaleChange() {
+  icon_->set_tooltip_text(l10n_util::GetStringUTF16(
+      IDS_ASH_STATUS_TRAY_ACCESSIBILITY_VIRTUAL_KEYBOARD));
 }
 
 void VirtualKeyboardTray::HideBubbleWithView(

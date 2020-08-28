@@ -10,6 +10,7 @@
 #include "third_party/blink/renderer/core/script/mock_script_element_base.h"
 #include "third_party/blink/renderer/core/script/pending_script.h"
 #include "third_party/blink/renderer/core/script/script.h"
+#include "third_party/blink/renderer/core/testing/dummy_page_holder.h"
 #include "third_party/blink/renderer/platform/bindings/runtime_call_stats.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
 #include "third_party/blink/renderer/platform/testing/testing_platform_support_with_mock_scheduler.h"
@@ -49,8 +50,6 @@ class MockPendingScript : public PendingScript {
   MOCK_METHOD0(RemoveFromMemoryCache, void());
   MOCK_METHOD1(ExecuteScriptBlock, void(const KURL&));
 
-  void StartStreamingIfPossible() override {}
-
   bool IsReady() const override { return is_ready_; }
   void SetIsReady(bool is_ready) { is_ready_ = is_ready; }
 
@@ -64,6 +63,8 @@ class MockPendingScript : public PendingScript {
     MockScriptElementBase* element = MockScriptElementBase::Create();
     EXPECT_CALL(*element, GetDocument())
         .WillRepeatedly(testing::ReturnRef(*document));
+    EXPECT_CALL(*element, GetExecutionContext())
+        .WillRepeatedly(testing::Return(document->GetExecutionContext()));
     MockPendingScript* pending_script =
         MakeGarbageCollected<MockPendingScript>(element, scheduling_type);
     EXPECT_CALL(*pending_script, IsExternal()).WillRepeatedly(Return(true));
@@ -76,14 +77,16 @@ class MockPendingScript : public PendingScript {
 
 class ScriptRunnerTest : public testing::Test {
  public:
-  ScriptRunnerTest() : document_(MakeGarbageCollected<Document>()) {}
+  ScriptRunnerTest()
+      : page_holder_(std::make_unique<DummyPageHolder>()),
+        document_(&page_holder_->GetDocument()) {}
 
   void SetUp() override {
-    // We have to create ScriptRunner after initializing platform, because we
-    // need Platform::current()->currentThread()->scheduler()->
-    // loadingTaskRunner() to be initialized before creating ScriptRunner to
-    // save it in constructor.
     script_runner_ = MakeGarbageCollected<ScriptRunner>(document_.Get());
+    // Give ScriptRunner a task runner that platform_ will pump in
+    // RunUntilIdle()/RunSingleTask().
+    script_runner_->SetTaskRunnerForTesting(
+        Thread::Current()->GetTaskRunner().get());
     RuntimeCallStats::SetRuntimeCallStatsForTesting();
   }
   void TearDown() override {
@@ -101,6 +104,7 @@ class ScriptRunnerTest : public testing::Test {
     script_runner_->QueueScriptForExecution(pending_script);
   }
 
+  std::unique_ptr<DummyPageHolder> page_holder_;
   Persistent<Document> document_;
   Persistent<ScriptRunner> script_runner_;
   WTF::Vector<int> order_;

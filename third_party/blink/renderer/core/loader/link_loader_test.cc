@@ -10,10 +10,12 @@
 #include "base/test/scoped_feature_list.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/public/common/features.h"
+#include "third_party/blink/public/common/loader/referrer_utils.h"
 #include "third_party/blink/public/platform/web_prescient_networking.h"
 #include "third_party/blink/public/platform/web_url_loader_mock_factory.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_binding_for_core.h"
 #include "third_party/blink/renderer/core/frame/csp/content_security_policy.h"
+#include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/core/frame/settings.h"
 #include "third_party/blink/renderer/core/html/link_rel_attribute.h"
 #include "third_party/blink/renderer/core/loader/document_loader.h"
@@ -21,10 +23,12 @@
 #include "third_party/blink/renderer/core/loader/modulescript/module_script_fetch_request.h"
 #include "third_party/blink/renderer/core/testing/dummy_modulator.h"
 #include "third_party/blink/renderer/core/testing/dummy_page_holder.h"
+#include "third_party/blink/renderer/core/testing/scoped_mock_overlay_scrollbars.h"
 #include "third_party/blink/renderer/platform/heap/heap.h"
 #include "third_party/blink/renderer/platform/loader/fetch/memory_cache.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_fetcher.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_load_priority.h"
+#include "third_party/blink/renderer/platform/runtime_enabled_features.h"
 #include "third_party/blink/renderer/platform/testing/testing_platform_support.h"
 #include "third_party/blink/renderer/platform/testing/url_test_helpers.h"
 
@@ -35,12 +39,10 @@ namespace {
 class MockLinkLoaderClient final
     : public GarbageCollected<MockLinkLoaderClient>,
       public LinkLoaderClient {
-  USING_GARBAGE_COLLECTED_MIXIN(MockLinkLoaderClient);
-
  public:
   explicit MockLinkLoaderClient(bool should_load) : should_load_(should_load) {}
 
-  void Trace(blink::Visitor* visitor) override {
+  void Trace(Visitor* visitor) const override {
     LinkLoaderClient::Trace(visitor);
   }
 
@@ -87,7 +89,8 @@ class NetworkHintsMock : public WebPrescientNetworking {
   mutable bool allow_credentials_ = false;
 };
 
-class LinkLoaderPreloadTestBase : public testing::Test {
+class LinkLoaderPreloadTestBase : public testing::Test,
+                                  private ScopedMockOverlayScrollbars {
  public:
   struct Expectations {
     ResourceLoadPriority priority;
@@ -326,8 +329,7 @@ constexpr network::mojom::ReferrerPolicy kPreloadReferrerPolicyTestParams[] = {
     network::mojom::ReferrerPolicy::kOriginWhenCrossOrigin,
     network::mojom::ReferrerPolicy::kSameOrigin,
     network::mojom::ReferrerPolicy::kStrictOrigin,
-    network::mojom::ReferrerPolicy::
-        kNoReferrerWhenDowngradeOriginWhenCrossOrigin,
+    network::mojom::ReferrerPolicy::kStrictOriginWhenCrossOrigin,
     network::mojom::ReferrerPolicy::kNever};
 
 class LinkLoaderPreloadReferrerPolicyTest
@@ -368,11 +370,12 @@ class LinkLoaderPreloadNonceTest
 
 TEST_P(LinkLoaderPreloadNonceTest, Preload) {
   const auto& test_case = GetParam();
-  dummy_page_holder_->GetDocument()
-      .GetContentSecurityPolicy()
+  dummy_page_holder_->GetFrame()
+      .DomWindow()
+      ->GetContentSecurityPolicy()
       ->DidReceiveHeader(test_case.content_security_policy,
-                         kContentSecurityPolicyHeaderTypeEnforce,
-                         kContentSecurityPolicyHeaderSourceHTTP);
+                         network::mojom::ContentSecurityPolicyType::kEnforce,
+                         network::mojom::ContentSecurityPolicySource::kHTTP);
   LinkLoadParameters params(
       LinkRelAttribute("preload"), kCrossOriginAttributeNotSet, String(),
       "script", String(), test_case.nonce, String(), String(),
@@ -470,7 +473,8 @@ constexpr ModulePreloadTestParams kModulePreloadTestParams[] = {
      true, network::mojom::CredentialsMode::kSameOrigin}};
 
 class LinkLoaderModulePreloadTest
-    : public testing::TestWithParam<ModulePreloadTestParams> {};
+    : public testing::TestWithParam<ModulePreloadTestParams>,
+      private ScopedMockOverlayScrollbars {};
 
 class ModulePreloadTestModulator final : public DummyModulator {
  public:
@@ -531,7 +535,8 @@ INSTANTIATE_TEST_SUITE_P(LinkLoaderModulePreloadTest,
 
 class LinkLoaderTestPrefetchPrivacyChanges
     : public testing::Test,
-      public testing::WithParamInterface<bool> {
+      public testing::WithParamInterface<bool>,
+      private ScopedMockOverlayScrollbars {
  public:
   LinkLoaderTestPrefetchPrivacyChanges()
       : privacy_changes_enabled_(GetParam()) {}
@@ -587,13 +592,16 @@ TEST_P(LinkLoaderTestPrefetchPrivacyChanges, PrefetchPrivacyChanges) {
     EXPECT_EQ(resource->GetResourceRequest().GetRedirectMode(),
               network::mojom::RedirectMode::kFollow);
     EXPECT_EQ(resource->GetResourceRequest().GetReferrerPolicy(),
-              network::mojom::ReferrerPolicy::kNoReferrerWhenDowngrade);
+              ReferrerUtils::MojoReferrerPolicyResolveDefault(
+                  network::mojom::ReferrerPolicy::kDefault));
   }
 
-  platform_->GetURLLoaderMockFactory()->UnregisterAllURLsAndClearMemoryCache();
+  WebURLLoaderMockFactory::GetSingletonInstance()
+      ->UnregisterAllURLsAndClearMemoryCache();
 }
 
-class LinkLoaderTest : public testing::Test {
+class LinkLoaderTest : public testing::Test,
+                       private ScopedMockOverlayScrollbars {
  protected:
   ScopedTestingPlatformSupport<TestingPlatformSupport> platform_;
 };
@@ -655,7 +663,7 @@ TEST_F(LinkLoaderTest, Prefetch) {
                   resource->GetResourceRequest().GetReferrerPolicy());
       }
     }
-    platform_->GetURLLoaderMockFactory()
+    WebURLLoaderMockFactory::GetSingletonInstance()
         ->UnregisterAllURLsAndClearMemoryCache();
   }
 }

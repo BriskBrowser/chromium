@@ -10,6 +10,7 @@
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/views/location_bar/location_bar_view.h"
 #include "chrome/browser/ui/views/location_bar/location_icon_view.h"
+#include "chrome/browser/ui/views/web_apps/web_app_menu_button.h"
 #include "ui/base/models/simple_menu_model.h"
 #include "ui/views/accessible_pane_view.h"
 #include "ui/views/context_menu_controller.h"
@@ -24,13 +25,15 @@ class MenuRunner;
 class ImageButton;
 }
 
-class CustomTabBarTitleOriginView;
 class BrowserView;
+class CustomTabBarTitleOriginView;
+class WebAppMenuButton;
 
-// A CustomTabBarView displays a read only title and origin for the current page
-// and a security status icon. This is visible if the hosted app window is
-// displaying a page over HTTP or if the current page is outside of the app
-// scope.
+// For Desktop PWAs, a CustomTabBarView displays a read only title and origin
+// for the current page and a security status icon. This is visible if the
+// hosted app window is displaying a page over HTTP or if the current page is
+// outside of the app scope. For Android apps on ChromeOS, CustomTabBarView is
+// additionally used to show a three-dot menu icon.
 class CustomTabBarView : public views::AccessiblePaneView,
                          public TabStripModelObserver,
                          public ui::SimpleMenuModel::Delegate,
@@ -46,10 +49,12 @@ class CustomTabBarView : public views::AccessiblePaneView,
   ~CustomTabBarView() override;
 
   LocationIconView* location_icon_view() { return location_icon_view_; }
+  AppMenuButton* custom_tab_menu_button() { return web_app_menu_button_; }
 
   // views::AccessiblePaneView:
   gfx::Rect GetAnchorBoundsInScreen() const override;
   const char* GetClassName() const override;
+  void SetVisible(bool visible) override;
   gfx::Size CalculatePreferredSize() const override;
   void OnPaintBackground(gfx::Canvas* canvas) override;
   void ChildPreferredSizeChanged(views::View* child) override;
@@ -111,6 +116,19 @@ class CustomTabBarView : public views::AccessiblePaneView,
                                   const gfx::Point& point,
                                   ui::MenuSourceType source_type) override;
 
+  // Get the app controller associated with the browser, if any.
+  web_app::AppBrowserController* app_controller() const {
+    return browser_->app_controller();
+  }
+
+  // Convenience method to return the theme color from |app_controller_|.
+  base::Optional<SkColor> GetThemeColor() const;
+
+  // Populates child elements with page details from the current WebContents.
+  void UpdateContents();
+
+  bool ShouldShowTitle() const;
+
   SkColor title_bar_color_;
   SkColor background_color_;
 
@@ -124,6 +142,10 @@ class CustomTabBarView : public views::AccessiblePaneView,
   std::unique_ptr<ui::SimpleMenuModel> context_menu_model_;
   std::unique_ptr<views::MenuRunner> context_menu_runner_;
   Browser* browser_ = nullptr;
+
+  // This remains a nullptr for Desktop PWAs and is non-null for Android apps
+  // on ChromeOS.
+  WebAppMenuButton* web_app_menu_button_ = nullptr;
 
   views::FlexLayout* layout_manager_;
 

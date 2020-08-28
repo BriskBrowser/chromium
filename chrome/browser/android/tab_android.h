@@ -15,8 +15,8 @@
 #include "base/callback_forward.h"
 #include "base/macros.h"
 #include "base/strings/string16.h"
-#include "chrome/browser/android/tab_state.h"
 #include "chrome/browser/sync/glue/synced_tab_delegate_android.h"
+#include "chrome/browser/tab/web_contents_state.h"
 #include "components/infobars/core/infobar_manager.h"
 #include "components/omnibox/browser/location_bar_model.h"
 #include "components/sessions/core/session_id.h"
@@ -30,7 +30,6 @@ class Layer;
 
 namespace android {
 class TabWebContentsDelegateAndroid;
-class TabContentManager;
 }
 
 namespace content {
@@ -76,7 +75,6 @@ class TabAndroid {
   const SessionID& window_id() const { return session_window_id_; }
 
   int GetAndroidId() const;
-  int GetSyncId() const;
   bool IsNativePage() const;
 
   // Return the tab title.
@@ -99,7 +97,14 @@ class TabAndroid {
       const WebContentsState::DeletionPredicate& predicate);
 
   void SetWindowSessionID(SessionID window_id);
-  void SetSyncId(int sync_id);
+
+  std::unique_ptr<content::WebContents> SwapWebContents(
+      std::unique_ptr<content::WebContents> new_contents,
+      bool did_start_load,
+      bool did_finish_load);
+
+  bool IsCustomTab();
+  bool IsHidden();
 
   // Methods called from Java via JNI -----------------------------------------
 
@@ -132,7 +137,7 @@ class TabAndroid {
       JNIEnv* env,
       const base::android::JavaParamRef<jobject>& obj,
       const base::android::JavaParamRef<jstring>& url,
-      const base::android::JavaParamRef<jstring>& j_initiator_origin,
+      const base::android::JavaParamRef<jobject>& j_initiator_origin,
       const base::android::JavaParamRef<jstring>& j_extra_headers,
       const base::android::JavaParamRef<jobject>& j_post_data,
       jint page_transition,
@@ -150,19 +155,8 @@ class TabAndroid {
       const base::android::JavaParamRef<jstring>& jurl,
       const base::android::JavaParamRef<jstring>& jtitle);
 
-  // Called to get default favicon of current tab, return null if no
-  // favicon is avaliable for current tab.
-  base::android::ScopedJavaLocalRef<jobject> GetFavicon(
-      JNIEnv* env,
-      const base::android::JavaParamRef<jobject>& obj);
-
   void LoadOriginalImage(JNIEnv* env,
                          const base::android::JavaParamRef<jobject>& obj);
-
-  void SetInterceptNavigationDelegate(
-      JNIEnv* env,
-      const base::android::JavaParamRef<jobject>& obj,
-      const base::android::JavaParamRef<jobject>& delegate);
 
   scoped_refptr<content::DevToolsAgentHost> GetDevToolsAgentHost();
 
@@ -175,7 +169,6 @@ class TabAndroid {
   SessionID session_window_id_;
 
   scoped_refptr<cc::Layer> content_layer_;
-  android::TabContentManager* tab_content_manager_;
 
   std::unique_ptr<content::WebContents> web_contents_;
   std::unique_ptr<android::TabWebContentsDelegateAndroid>

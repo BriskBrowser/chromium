@@ -127,7 +127,7 @@ class FakeCryptAuthKeyProofComputerFactory
 
  private:
   // CryptAuthKeyProofComputerImpl::Factory:
-  std::unique_ptr<CryptAuthKeyProofComputer> BuildInstance() override {
+  std::unique_ptr<CryptAuthKeyProofComputer> CreateInstance() override {
     auto instance = std::make_unique<FakeCryptAuthKeyProofComputer>();
     instance->set_should_return_null(should_return_null_key_proof_);
     return instance;
@@ -292,8 +292,7 @@ class DeviceSyncCryptAuthV2EnrollerImplTest
         fake_cryptauth_key_proof_computer_factory_(
             std::make_unique<FakeCryptAuthKeyProofComputerFactory>()) {
     CryptAuthKeyRegistryImpl::RegisterPrefs(pref_service_.registry());
-    key_registry_ =
-        CryptAuthKeyRegistryImpl::Factory::Get()->BuildInstance(&pref_service_);
+    key_registry_ = CryptAuthKeyRegistryImpl::Factory::Create(&pref_service_);
 
     client_factory_->AddObserver(this);
   }
@@ -312,7 +311,7 @@ class DeviceSyncCryptAuthV2EnrollerImplTest
     auto mock_timer = std::make_unique<base::MockOneShotTimer>();
     timer_ = mock_timer.get();
 
-    enroller_ = CryptAuthV2EnrollerImpl::Factory::Get()->BuildInstance(
+    enroller_ = CryptAuthV2EnrollerImpl::Factory::Create(
         key_registry(), client_factory(), std::move(mock_timer));
   }
 
@@ -348,8 +347,8 @@ class DeviceSyncCryptAuthV2EnrollerImplTest
   }
 
   void OnSyncKeys(const SyncKeysRequest& request,
-                  const CryptAuthClient::SyncKeysCallback& callback,
-                  const CryptAuthClient::ErrorCallback& error_callback) {
+                  CryptAuthClient::SyncKeysCallback callback,
+                  CryptAuthClient::ErrorCallback error_callback) {
     // Check that SyncKeys is called before EnrollKeys.
     EXPECT_FALSE(sync_keys_request_);
     EXPECT_FALSE(enroll_keys_request_);
@@ -359,8 +358,8 @@ class DeviceSyncCryptAuthV2EnrollerImplTest
     EXPECT_TRUE(enroll_keys_failure_callback_.is_null());
 
     sync_keys_request_ = request;
-    sync_keys_success_callback_ = callback;
-    sync_keys_failure_callback_ = error_callback;
+    sync_keys_success_callback_ = std::move(callback);
+    sync_keys_failure_callback_ = std::move(error_callback);
   }
 
   void SendSyncKeysResponse(const SyncKeysResponse& sync_keys_response) {
@@ -388,8 +387,8 @@ class DeviceSyncCryptAuthV2EnrollerImplTest
   }
 
   void OnEnrollKeys(const EnrollKeysRequest& request,
-                    const CryptAuthClient::EnrollKeysCallback& callback,
-                    const CryptAuthClient::ErrorCallback& error_callback) {
+                    CryptAuthClient::EnrollKeysCallback callback,
+                    CryptAuthClient::ErrorCallback error_callback) {
     // Check that EnrollKeys is called after a successful SyncKeys call.
     EXPECT_TRUE(sync_keys_request_);
     EXPECT_FALSE(enroll_keys_request_);
@@ -399,8 +398,8 @@ class DeviceSyncCryptAuthV2EnrollerImplTest
     EXPECT_TRUE(enroll_keys_failure_callback_.is_null());
 
     enroll_keys_request_ = request;
-    enroll_keys_success_callback_ = callback;
-    enroll_keys_failure_callback_ = error_callback;
+    enroll_keys_success_callback_ = std::move(callback);
+    enroll_keys_failure_callback_ = std::move(error_callback);
   }
 
   void VerifyKeyCreatorInputs(
@@ -465,11 +464,10 @@ class DeviceSyncCryptAuthV2EnrollerImplTest
     EXPECT_EQ(new_key.IsAsymmetricKey() ? new_key.public_key() : std::string(),
               single_request_user_key_pair.key_material());
 
-    EXPECT_EQ(CryptAuthKeyProofComputerImpl::Factory::Get()
-                  ->BuildInstance()
-                  ->ComputeKeyProof(new_key, kRandomSessionId,
-                                    kCryptAuthKeyProofSalt, bundle_name_str),
-              single_request_user_key_pair.key_proof());
+    EXPECT_EQ(
+        CryptAuthKeyProofComputerImpl::Factory::Create()->ComputeKeyProof(
+            new_key, kRandomSessionId, kCryptAuthKeyProofSalt, bundle_name_str),
+        single_request_user_key_pair.key_proof());
   }
 
   CryptAuthV2Enroller* enroller() { return enroller_.get(); }

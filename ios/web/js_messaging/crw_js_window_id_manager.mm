@@ -4,6 +4,7 @@
 
 #import "ios/web/js_messaging/crw_js_window_id_manager.h"
 
+#include "base/notreached.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/sys_string_conversions.h"
 #include "crypto/random.h"
@@ -61,12 +62,20 @@ const size_t kUniqueKeyLength = 16;
              completionHandler:^(id result, NSError* error) {
                if (error) {
                  DCHECK(error.code == WKErrorWebViewInvalidated ||
-                        error.code == WKErrorWebContentProcessTerminated);
+                        error.code == WKErrorWebContentProcessTerminated)
+                     << base::SysNSStringToUTF8(error.description);
                  return;
                }
 
-               DCHECK_EQ(CFBooleanGetTypeID(),
-                         CFGetTypeID((__bridge CFTypeRef)result));
+               // If |result| is an incorrect type, do not check its value.
+               // Also do not attempt to re-inject scripts as it may lead to
+               // endless recursion attempting to inject the scripts correctly.
+               if (result && CFBooleanGetTypeID() !=
+                                 CFGetTypeID((__bridge CFTypeRef)result)) {
+                 NOTREACHED();
+                 return;
+               }
+
                if (![result boolValue]) {
                  // WKUserScript has not been injected yet. Retry window id
                  // injection, because it is critical for the system to

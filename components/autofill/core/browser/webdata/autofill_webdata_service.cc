@@ -5,8 +5,8 @@
 #include "components/autofill/core/browser/webdata/autofill_webdata_service.h"
 
 #include "base/bind.h"
+#include "base/check.h"
 #include "base/location.h"
-#include "base/logging.h"
 #include "base/single_thread_task_runner.h"
 #include "base/stl_util.h"
 #include "components/autofill/core/browser/data_model/autofill_profile.h"
@@ -247,6 +247,15 @@ void AutofillWebDataService::AddUpiId(const std::string& upi_id) {
   wdbs_->ScheduleDBTask(FROM_HERE,
                         base::BindOnce(&AutofillWebDataBackendImpl::AddUpiId,
                                        autofill_backend_, upi_id));
+}
+
+WebDataServiceBase::Handle AutofillWebDataService::GetAllUpiIds(
+    WebDataServiceConsumer* consumer) {
+  return wdbs_->ScheduleDBTaskWithResult(
+      FROM_HERE,
+      base::BindOnce(&AutofillWebDataBackendImpl::GetAllUpiIds,
+                     autofill_backend_),
+      consumer);
 }
 
 WebDataServiceBase::Handle AutofillWebDataService::GetPaymentsCustomerData(

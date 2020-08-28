@@ -5,6 +5,8 @@
 #ifndef CHROME_BROWSER_UI_ASH_CHROME_SHELL_DELEGATE_H_
 #define CHROME_BROWSER_UI_ASH_CHROME_SHELL_DELEGATE_H_
 
+#include <memory>
+
 #include "ash/shell_delegate.h"
 #include "base/macros.h"
 
@@ -15,10 +17,21 @@ class ChromeShellDelegate : public ash::ShellDelegate {
 
   // ash::ShellDelegate:
   bool CanShowWindowForUser(const aura::Window* window) const override;
+  std::unique_ptr<ash::CaptureModeDelegate> CreateCaptureModeDelegate()
+      const override;
   std::unique_ptr<ash::ScreenshotDelegate> CreateScreenshotDelegate() override;
   ash::AccessibilityDelegate* CreateAccessibilityDelegate() override;
+  std::unique_ptr<ash::BackGestureContextualNudgeDelegate>
+  CreateBackGestureContextualNudgeDelegate(
+      ash::BackGestureContextualNudgeController* controller) override;
   void OpenKeyboardShortcutHelpPage() const override;
   bool CanGoBack(gfx::NativeWindow window) const override;
+  bool AllowDefaultTouchActions(gfx::NativeWindow window) override;
+  bool ShouldWaitForTouchPressAck(gfx::NativeWindow window) override;
+  bool IsTabDrag(const ui::OSExchangeData& drop_data) override;
+  aura::Window* CreateBrowserForTabDrop(
+      aura::Window* source_window,
+      const ui::OSExchangeData& drop_data) override;
   void BindBluetoothSystemFactory(
       mojo::PendingReceiver<device::mojom::BluetoothSystemFactory> receiver)
       override;

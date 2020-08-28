@@ -4,6 +4,8 @@
 
 #import "ios/chrome/browser/ui/page_info/legacy_page_info_view_controller.h"
 
+#import <MaterialComponents/MaterialTypography.h>
+
 #include "base/bind.h"
 #include "base/location.h"
 #include "base/mac/bundle_locations.h"
@@ -14,18 +16,17 @@
 #include "components/strings/grit/components_strings.h"
 #import "ios/chrome/browser/ui/commands/browser_commands.h"
 #import "ios/chrome/browser/ui/fancy_ui/bidi_container_view.h"
-#include "ios/chrome/browser/ui/page_info/page_info_config.h"
 #import "ios/chrome/browser/ui/page_info/page_info_constants.h"
+#include "ios/chrome/browser/ui/page_info/page_info_site_security_description.h"
 #import "ios/chrome/browser/ui/page_info/requirements/page_info_presentation.h"
 #import "ios/chrome/browser/ui/util/animation_util.h"
 #include "ios/chrome/browser/ui/util/rtl_geometry.h"
 #include "ios/chrome/browser/ui/util/ui_util.h"
 #import "ios/chrome/browser/ui/util/uikit_ui_util.h"
-#import "ios/chrome/common/colors/UIColor+cr_semantic_colors.h"
-#import "ios/chrome/common/colors/semantic_color_names.h"
 #import "ios/chrome/common/material_timing.h"
+#import "ios/chrome/common/ui/colors/UIColor+cr_semantic_colors.h"
+#import "ios/chrome/common/ui/colors/semantic_color_names.h"
 #include "ios/chrome/grit/ios_strings.h"
-#import "ios/third_party/material_components_ios/src/components/Typography/src/MaterialTypography.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/l10n/l10n_util_mac.h"
 #import "ui/gfx/ios/NSString+CrStringDrawing.h"
@@ -105,7 +106,7 @@ const CGFloat kButtonXOffset = kTextXPosition;
   CGPoint _arrowOriginPoint;
 
   // Model for the data to display.
-  PageInfoConfig* _model;
+  PageInfoSiteSecurityDescription* _model;
 
   // Width of the view. Depends on the device (iPad/iPhone).
   CGFloat _viewWidth;
@@ -129,7 +130,7 @@ const CGFloat kButtonXOffset = kTextXPosition;
 
 #pragma mark public
 
-- (id)initWithModel:(PageInfoConfig*)model
+- (id)initWithModel:(PageInfoSiteSecurityDescription*)model
              sourcePoint:(CGPoint)sourcePoint
     presentationProvider:(id<PageInfoPresentation>)provider
                  handler:(id<BrowserCommands>)handler {
@@ -212,20 +213,20 @@ const CGFloat kButtonXOffset = kTextXPosition;
   NSMutableArray* subviews = [NSMutableArray array];
 
     // Only certain sections have images. This affects the X position.
-  BOOL hasImage = _model.image != nil;
+  BOOL hasImage = _model.legacyImage != nil;
   CGFloat xPosition = (hasImage ? kTextXPosition : kTextXPositionNoImage);
 
   // Insert the image subview for sections that are appropriate.
   CGFloat imageBaseline = offset + kImageSize;
   if (hasImage) {
-    [self addImage:[_model.image imageWithRenderingMode:
-                                     UIImageRenderingModeAlwaysTemplate]
+    [self addImage:[_model.legacyImage imageWithRenderingMode:
+                                           UIImageRenderingModeAlwaysTemplate]
         toSubviews:subviews
           atOffset:offset + PageInfoImageVerticalOffset()];
   }
 
     // Add the title.
-  offset += [self addHeadline:_model.title
+  offset += [self addHeadline:_model.siteURL
                    toSubviews:subviews
                       atPoint:CGPointMake(xPosition, offset)];
   offset += kHeadlineSpacing;
@@ -242,7 +243,7 @@ const CGFloat kButtonXOffset = kTextXPosition;
     offset += imageBaselineDelta;
 
   // Add the separators.
-  if (_model.buttonAction != PageInfoButtonActionNone) {
+  if (_model.buttonAction != PageInfoSiteSecurityButtonActionNone) {
     offset += kVerticalSpacing;
   }
 
@@ -481,25 +482,25 @@ const CGFloat kButtonXOffset = kTextXPosition;
 }
 
 // Returns a button with title and action configured for |buttonAction|.
-- (UIButton*)buttonForAction:(PageInfoButtonAction)buttonAction {
-  if (buttonAction == PageInfoButtonActionNone) {
+- (UIButton*)buttonForAction:(PageInfoSiteSecurityButtonAction)buttonAction {
+  if (buttonAction == PageInfoSiteSecurityButtonActionNone) {
     return nil;
   }
   UIButton* button = [[UIButton alloc] initWithFrame:CGRectZero];
   int messageId;
   NSString* accessibilityID = @"Reload button";
   switch (buttonAction) {
-    case PageInfoButtonActionNone:
+    case PageInfoSiteSecurityButtonActionNone:
       NOTREACHED();
       return nil;
-    case PageInfoButtonActionShowHelp:
+    case PageInfoSiteSecurityButtonActionShowHelp:
       messageId = IDS_LEARN_MORE;
       accessibilityID = @"Learn more";
       [button addTarget:self.handler
                     action:@selector(showSecurityHelpPage)
           forControlEvents:UIControlEventTouchUpInside];
       break;
-    case PageInfoButtonActionReload:
+    case PageInfoSiteSecurityButtonActionReload:
       messageId = IDS_IOS_PAGE_INFO_RELOAD;
       accessibilityID = @"Reload button";
       [button addTarget:self.handler
@@ -519,7 +520,7 @@ const CGFloat kButtonXOffset = kTextXPosition;
 
 // Adds the the button |buttonAction| that explains the icons. Returns the y
 // position delta for the next offset.
-- (CGFloat)addButton:(PageInfoButtonAction)buttonAction
+- (CGFloat)addButton:(PageInfoSiteSecurityButtonAction)buttonAction
           toSubviews:(NSMutableArray*)subviews
             atOffset:(CGFloat)offset {
   UIButton* button = [self buttonForAction:buttonAction];

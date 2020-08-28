@@ -10,10 +10,7 @@
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/public/common/browser_interface_broker_proxy.h"
-#include "third_party/blink/public/common/media/media_player_action.h"
 #include "third_party/blink/public/mojom/picture_in_picture/picture_in_picture.mojom-blink.h"
-#include "third_party/blink/public/platform/web_media_stream.h"
-#include "third_party/blink/public/platform/web_media_stream_track.h"
 #include "third_party/blink/renderer/core/dom/events/event.h"
 #include "third_party/blink/renderer/core/frame/frame_test_helpers.h"
 #include "third_party/blink/renderer/core/frame/web_local_frame_impl.h"
@@ -22,6 +19,8 @@
 #include "third_party/blink/renderer/core/testing/page_test_base.h"
 #include "third_party/blink/renderer/core/testing/wait_for_event.h"
 #include "third_party/blink/renderer/platform/heap/heap.h"
+#include "third_party/blink/renderer/platform/mediastream/media_stream_component.h"
+#include "third_party/blink/renderer/platform/mediastream/media_stream_descriptor.h"
 #include "third_party/blink/renderer/platform/testing/empty_web_media_player.h"
 #include "third_party/blink/renderer/platform/testing/unit_test_helpers.h"
 
@@ -48,7 +47,7 @@ class MockPictureInPictureSession
   MOCK_METHOD4(Update,
                void(uint32_t,
                     const base::Optional<viz::SurfaceId>&,
-                    const blink::WebSize&,
+                    const gfx::Size&,
                     bool));
 
  private:
@@ -81,7 +80,7 @@ class MockPictureInPictureService
       StartSession,
       void(uint32_t,
            const base::Optional<viz::SurfaceId>&,
-           const blink::WebSize&,
+           const gfx::Size&,
            bool,
            mojo::PendingRemote<mojom::blink::PictureInPictureSessionObserver>,
            StartSessionCallback));
@@ -91,11 +90,11 @@ class MockPictureInPictureService
   void StartSessionInternal(
       uint32_t,
       const base::Optional<viz::SurfaceId>&,
-      const blink::WebSize&,
+      const gfx::Size&,
       bool,
       mojo::PendingRemote<mojom::blink::PictureInPictureSessionObserver>,
       StartSessionCallback callback) {
-    std::move(callback).Run(std::move(session_remote_), WebSize());
+    std::move(callback).Run(std::move(session_remote_), gfx::Size());
   }
 
  private:
@@ -152,7 +151,7 @@ class PictureInPictureControllerTest : public PageTestBase {
         nullptr, PictureInPictureControllerFrameClient::Create(
                      std::make_unique<PictureInPictureControllerPlayer>()));
 
-    GetDocument().GetBrowserInterfaceBroker().SetBinderForTesting(
+    GetFrame().GetBrowserInterfaceBroker().SetBinderForTesting(
         mojom::blink::PictureInPictureService::Name_,
         WTF::BindRepeating(&MockPictureInPictureService::Bind,
                            WTF::Unretained(&mock_service_)));
@@ -165,10 +164,10 @@ class PictureInPictureControllerTest : public PageTestBase {
     std::string test_name =
         testing::UnitTest::GetInstance()->current_test_info()->name();
     if (test_name.find("MediaSource") != std::string::npos) {
-      blink::WebMediaStream web_media_stream;
-      blink::WebVector<blink::WebMediaStreamTrack> dummy_tracks;
-      web_media_stream.Initialize(dummy_tracks, dummy_tracks);
-      Video()->SetSrcObject(web_media_stream);
+      MediaStreamComponentVector dummy_tracks;
+      auto* descriptor = MakeGarbageCollected<MediaStreamDescriptor>(
+          dummy_tracks, dummy_tracks);
+      Video()->SetSrcObject(descriptor);
     } else {
       video_->SetSrc("http://example.com/foo.mp4");
     }
@@ -177,7 +176,7 @@ class PictureInPictureControllerTest : public PageTestBase {
   }
 
   void TearDown() override {
-    GetDocument().GetBrowserInterfaceBroker().SetBinderForTesting(
+    GetFrame().GetBrowserInterfaceBroker().SetBinderForTesting(
         mojom::blink::PictureInPictureService::Name_, {});
   }
 
@@ -337,9 +336,10 @@ TEST_F(PictureInPictureControllerTest, PerformMediaPlayerAction) {
 
   IntPoint bounds = video->BoundsInViewport().Center();
 
-  frame->PerformMediaPlayerAction(
-      WebPoint(bounds.X(), bounds.Y()),
-      MediaPlayerAction(MediaPlayerAction::Type::kPictureInPicture, true));
+  // Performs the specified media player action on the media element at the
+  // given location.
+  frame->GetFrame()->MediaPlayerActionAtViewportPoint(
+      bounds, blink::mojom::MediaPlayerActionType::kPictureInPicture, true);
 }
 
 }  // namespace blink

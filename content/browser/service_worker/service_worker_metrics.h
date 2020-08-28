@@ -12,7 +12,6 @@
 #include "base/macros.h"
 #include "base/time/time.h"
 #include "content/public/browser/service_worker_context.h"
-#include "content/public/common/resource_type.h"
 #include "services/network/public/mojom/fetch_api.mojom.h"
 #include "third_party/blink/public/common/service_worker/service_worker_status_code.h"
 #include "third_party/blink/public/mojom/service_worker/embedded_worker.mojom.h"
@@ -60,11 +59,10 @@ class ServiceWorkerMetrics {
   // Used for UMA. Append-only.
   // This class is used to indicate which event is fired/finished. Most events
   // have only one request that starts the event and one response that finishes
-  // the event, but the fetch and the foreign fetch event have two responses, so
-  // there are two types of EventType to break down the measurement into two:
-  // FETCH/FOREIGN_FETCH and FETCH_WAITUNTIL/FOREIGN_FETCH_WAITUNTIL.
-  // Moreover, FETCH is separated into the four: MAIN_FRAME, SUB_FRAME,
-  // SHARED_WORKER and SUB_RESOURCE for more detailed UMA.
+  // the event, but the fetch event has two responses, so there are two types of
+  // EventType to break down the measurement into two: FETCH and
+  // FETCH_WAITUNTIL. Moreover, FETCH is separated into the four: MAIN_FRAME,
+  // SUB_FRAME, SHARED_WORKER and SUB_RESOURCE for more detailed UMA.
   enum class EventType {
     ACTIVATE = 0,
     INSTALL = 1,
@@ -81,9 +79,9 @@ class ServiceWorkerMetrics {
     FETCH_SHARED_WORKER = 12,
     FETCH_SUB_RESOURCE = 13,
     UNKNOWN = 14,  // Used when event type is not known.
-    FOREIGN_FETCH = 15,
+    // FOREIGN_FETCH = 15,  // Obsolete
     FETCH_WAITUNTIL = 16,
-    FOREIGN_FETCH_WAITUNTIL = 17,
+    // FOREIGN_FETCH_WAITUNTIL = 17,  // Obsolete
     // NAVIGATION_HINT_LINK_MOUSE_DOWN = 18,  // Obsolete
     // NAVIGATION_HINT_LINK_TAP_UNCONFIRMED = 19,  // Obsolete
     // NAVIGATION_HINT_LINK_TAP_DOWN = 20,  // Obsolete
@@ -103,8 +101,9 @@ class ServiceWorkerMetrics {
     BACKGROUND_FETCH_SUCCESS = 32,
     PERIODIC_SYNC = 33,
     CONTENT_DELETE = 34,
+    PUSH_SUBSCRIPTION_CHANGE = 35,
     // Add new events to record here.
-    kMaxValue = CONTENT_DELETE,
+    kMaxValue = PUSH_SUBSCRIPTION_CHANGE,
   };
 
   // Used for UMA. Append only.
@@ -191,7 +190,6 @@ class ServiceWorkerMetrics {
 
   // Counts the number of page loads controlled by a Service Worker.
   static void CountControlledPageLoad(Site site,
-                                      const GURL& url,
                                       bool is_main_frame_load);
 
   // Records the result of trying to start an installed worker.
@@ -227,8 +225,6 @@ class ServiceWorkerMetrics {
   static void RecordFetchEventStatus(bool is_main_resource,
                                      blink::ServiceWorkerStatusCode status);
 
-  static void RecordProcessCreated(bool is_new_process);
-
   CONTENT_EXPORT static void RecordStartWorkerTiming(const StartTimes& times,
                                                      StartSituation situation);
   static void RecordStartWorkerTimingClockConsistency(
@@ -262,13 +258,7 @@ class ServiceWorkerMetrics {
       blink::ServiceWorkerStatusCode status,
       base::TimeDelta duration);
 
-  // Records the result of byte-for-byte update checking.
-  // |has_found_update| should be true when the update checking finds update of
-  // the script. It's recorded only when |status| is kOk.
-  // This is used only when ServiceWorkerImportedScriptUpdateCheck is enabled.
-  static void RecordByteForByteUpdateCheckStatus(
-      blink::ServiceWorkerStatusCode status,
-      bool has_found_update);
+  static void RecordGetAllOriginsInfoTime(base::TimeDelta time);
 
  private:
   DISALLOW_IMPLICIT_CONSTRUCTORS(ServiceWorkerMetrics);

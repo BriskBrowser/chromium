@@ -21,6 +21,11 @@ config("usrsctp_warnings") {
       # what they did in configure.ac. We can remove this once
       # https://github.com/sctplab/usrsctp/issues/177 is fixed.
       "-Wno-deprecated-declarations",
+
+      # usrsctp uses timingsafe_bcmp which is not available in all
+      # versions of OS X, however this isn't actually an issue since
+      # usrsctp provides its own implementation.
+      "-Wno-unguarded-availability",
     ]
   }
 }
@@ -116,12 +121,12 @@ static_library("usrsctp") {
     "-UINET6",
   ]
 
-  if (is_linux || is_android) {
+  if (is_linux || is_chromeos || is_android) {
     defines += [
       "__Userspace_os_Linux",
       "_GNU_SOURCE",
     ]
-  } else if (is_mac || is_ios) {
+  } else if (is_apple) {
     defines += [
       "HAVE_SA_LEN",
       "HAVE_SCONN_LEN",
@@ -140,7 +145,5 @@ static_library("usrsctp") {
   if (is_fuchsia) {
     defines += [ "__Userspace_os_Fuchsia" ]
   }
-  deps = [
-    "//third_party/boringssl",
-  ]
+  deps = [ "//third_party/boringssl" ]
 }

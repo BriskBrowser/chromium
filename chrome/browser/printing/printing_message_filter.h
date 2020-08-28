@@ -15,13 +15,12 @@
 #include "build/build_config.h"
 #include "components/keyed_service/core/keyed_service_shutdown_notifier.h"
 #include "components/prefs/pref_member.h"
+#include "components/printing/common/print.mojom-forward.h"
 #include "content/public/browser/browser_message_filter.h"
 #include "content/public/browser/browser_thread.h"
 #include "printing/buildflags/buildflags.h"
 
 struct PrintHostMsg_PreviewIds;
-struct PrintHostMsg_ScriptedPrint_Params;
-struct PrintMsg_Print_Params;
 class Profile;
 
 namespace printing {
@@ -36,7 +35,7 @@ class PrintingMessageFilter : public content::BrowserMessageFilter {
   class TestDelegate {
    public:
     // Returns the print params to be used in OnUpdatePrintSettingsReply().
-    virtual PrintMsg_Print_Params GetPrintParams() = 0;
+    virtual mojom::PrintParams GetPrintParams() = 0;
 
    protected:
     virtual ~TestDelegate() = default;
@@ -68,7 +67,7 @@ class PrintingMessageFilter : public content::BrowserMessageFilter {
   // The renderer host have to show to the user the print dialog and returns
   // the selected print settings. The task is handled by the print worker
   // thread and the UI thread. The reply occurs on the IO thread.
-  void OnScriptedPrint(const PrintHostMsg_ScriptedPrint_Params& params,
+  void OnScriptedPrint(const mojom::ScriptedPrintParams& params,
                        IPC::Message* reply_msg);
   void OnScriptedPrintReply(std::unique_ptr<PrinterQuery> printer_query,
                             IPC::Message* reply_msg);

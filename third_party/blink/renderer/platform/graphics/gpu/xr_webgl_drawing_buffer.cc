@@ -39,15 +39,11 @@ XRWebGLDrawingBuffer::ColorBuffer::ColorBuffer(
 XRWebGLDrawingBuffer::ColorBuffer::~ColorBuffer() {
   if (base::PlatformThread::CurrentRef() != owning_thread_ref ||
       !drawing_buffer) {
-    // If the owning thread or the drawing buffer has been torn down, then the
-    // GL context and its associated resources will be destroyed with this
-    // context. The only resource we need to explicitly clean up is the shared
-    // image mailbox.
-    if (auto shared_context = SharedGpuContext::ContextProviderWrapper()) {
-      shared_context->ContextProvider()
-          ->SharedImageInterface()
-          ->DestroySharedImage(receive_sync_token, mailbox);
-    }
+    // If the context has been destroyed no cleanup is necessary since all
+    // resources below are automatically destroyed. Note that if a ColorBuffer
+    // is being destroyed on a different thread, it implies that the owning
+    // thread was destroyed which means the associated context was also
+    // destroyed.
     return;
   }
 
@@ -220,9 +216,21 @@ IntSize XRWebGLDrawingBuffer::AdjustSize(const IntSize& new_size) {
 
 void XRWebGLDrawingBuffer::UseSharedBuffer(
     const gpu::MailboxHolder& buffer_mailbox_holder) {
-  DVLOG(3) << __FUNCTION__;
-
   gpu::gles2::GLES2Interface* gl = drawing_buffer_->ContextGL();
+
+  // Ensure that the mailbox holder is ready to use, the following actions need
+  // to be sequenced after setup steps that were done through a different
+  // process's GPU command buffer context.
+  //
+  // TODO(https://crbug.com/1111526): Investigate handling context loss and
+  // recovery for cases where these assumptions may not be accurate.
+  DCHECK(buffer_mailbox_holder.sync_token.HasData());
+  DCHECK(!buffer_mailbox_holder.mailbox.IsZero());
+  DVLOG(3) << __func__
+           << ": mailbox=" << buffer_mailbox_holder.mailbox.ToDebugString()
+           << ", SyncToken="
+           << buffer_mailbox_holder.sync_token.ToDebugString();
+  gl->WaitSyncTokenCHROMIUM(buffer_mailbox_holder.sync_token.GetConstData());
 
   // Create a texture backed by the shared buffer image.
   DCHECK(!shared_buffer_texture_id_);
@@ -448,9 +456,10 @@ XRWebGLDrawingBuffer::CreateColorBuffer() {
   uint32_t usage = gpu::SHARED_IMAGE_USAGE_DISPLAY |
                    gpu::SHARED_IMAGE_USAGE_GLES2 |
                    gpu::SHARED_IMAGE_USAGE_GLES2_FRAMEBUFFER_HINT;
-  gpu::Mailbox mailbox =
-      sii->CreateSharedImage(alpha_ ? viz::RGBA_8888 : viz::RGBX_8888,
-                             gfx::Size(size_), gfx::ColorSpace(), usage);
+  gpu::Mailbox mailbox = sii->CreateSharedImage(
+      alpha_ ? viz::RGBA_8888 : viz::RGBX_8888, gfx::Size(size_),
+      gfx::ColorSpace(), kTopLeft_GrSurfaceOrigin, kPremul_SkAlphaType, usage,
+      gpu::kNullSurfaceHandle);
 
   gpu::gles2::GLES2Interface* gl = drawing_buffer_->ContextGL();
   gl->WaitSyncTokenCHROMIUM(sii->GenUnverifiedSyncToken().GetConstData());

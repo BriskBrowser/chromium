@@ -12,17 +12,19 @@
 #include <utility>
 #include <vector>
 
+#include "base/power_monitor/power_observer.h"
 #include "base/values.h"
+#include "third_party/blink/public/common/peerconnection/peer_connection_tracker_mojom_traits.h"
 #include "third_party/blink/public/common/thread_safe_browser_interface_broker_proxy.h"
+#include "third_party/blink/public/platform/modules/mediastream/web_media_stream.h"
 #include "third_party/blink/public/platform/platform.h"
-#include "third_party/blink/public/platform/web_media_stream.h"
-#include "third_party/blink/public/platform/web_media_stream_source.h"
-#include "third_party/blink/public/platform/web_media_stream_track.h"
 #include "third_party/blink/public/web/web_document.h"
 #include "third_party/blink/public/web/web_local_frame.h"
-#include "third_party/blink/public/web/web_user_media_request.h"
+#include "third_party/blink/renderer/core/execution_context/execution_context.h"
+#include "third_party/blink/renderer/modules/mediastream/user_media_request.h"
 #include "third_party/blink/renderer/modules/peerconnection/rtc_peer_connection_handler.h"
 #include "third_party/blink/renderer/platform/mediastream/media_constraints.h"
+#include "third_party/blink/renderer/platform/mediastream/media_stream_component.h"
 #include "third_party/blink/renderer/platform/peerconnection/rtc_answer_options_platform.h"
 #include "third_party/blink/renderer/platform/peerconnection/rtc_ice_candidate_platform.h"
 #include "third_party/blink/renderer/platform/peerconnection/rtc_offer_options_platform.h"
@@ -143,6 +145,11 @@ String SerializeDirection(webrtc::RtpTransceiverDirection direction) {
       return "'recvonly'";
     case webrtc::RtpTransceiverDirection::kInactive:
       return "'inactive'";
+    case webrtc::RtpTransceiverDirection::kStopped:
+      return "'stopped'";
+    default:
+      NOTREACHED();
+      return String();
   }
 }
 
@@ -158,11 +165,11 @@ String SerializeSender(const String& indent,
   // track:'id',
   result.Append(indent);
   result.Append("  track:");
-  if (sender.Track().IsNull()) {
+  if (!sender.Track()) {
     result.Append("null");
   } else {
     result.Append("'");
-    result.Append(String(sender.Track().Source().Id()));
+    result.Append(sender.Track()->Id());
     result.Append("'");
   }
   result.Append(",\n");
@@ -181,10 +188,10 @@ String SerializeReceiver(const String& indent,
   StringBuilder result;
   result.Append("{\n");
   // track:'id',
-  DCHECK(!receiver.Track().IsNull());
+  DCHECK(receiver.Track());
   result.Append(indent);
   result.Append("  track:'");
-  result.Append(String(receiver.Track().Source().Id()));
+  result.Append(receiver.Track()->Id());
   result.Append("',\n");
   // streams:['id,'id'],
   result.Append(indent);
@@ -701,6 +708,17 @@ void PeerConnectionTracker::OnSuspend() {
   }
 }
 
+void PeerConnectionTracker::OnThermalStateChange(
+    mojom::blink::DeviceThermalState thermal_state) {
+  DCHECK_CALLED_ON_VALID_THREAD(main_thread_);
+  mojo::EnumTraits<mojom::blink::DeviceThermalState,
+                   base::PowerObserver::DeviceThermalState>::
+      FromMojom(thermal_state, &current_thermal_state_);
+  for (auto& entry : peer_connection_local_id_map_) {
+    entry.key->OnThermalStateChange(current_thermal_state_);
+  }
+}
+
 void PeerConnectionTracker::StartEventLog(int peer_connection_local_id,
                                           int output_period_ms) {
   DCHECK_CALLED_ON_VALID_THREAD(main_thread_);
@@ -774,6 +792,11 @@ void PeerConnectionTracker::RegisterPeerConnection(
   peer_connection_tracker_host_->AddPeerConnection(std::move(info));
 
   peer_connection_local_id_map_.insert(pc_handler, lid);
+
+  if (current_thermal_state_ !=
+      base::PowerObserver::DeviceThermalState::kUnknown) {
+    pc_handler->OnThermalStateChange(current_thermal_state_);
+  }
 }
 
 void PeerConnectionTracker::UnregisterPeerConnection(
@@ -906,6 +929,8 @@ void PeerConnectionTracker::TrackAddIceCandidate(
 
 void PeerConnectionTracker::TrackIceCandidateError(
     RTCPeerConnectionHandler* pc_handler,
+    const String& address,
+    base::Optional<uint16_t> port,
     const String& host_candidate,
     const String& url,
     int error_code,
@@ -914,10 +939,12 @@ void PeerConnectionTracker::TrackIceCandidateError(
   int id = GetLocalIDForHandler(pc_handler);
   if (id == -1)
     return;
-  String value = "url: " + url + "\n" + "host_candidate: " + host_candidate +
-                 "\n"
-                 "error_text: " +
-                 error_text + "\n" +
+  String address_string = address ? "address: " + address + "\n" : String();
+  String port_string =
+      port.has_value() ? String::Format("port: %d\n", port.value()) : "";
+  String value = "url: " + url + "\n" + address_string + port_string +
+                 "host_candidate: " + host_candidate + "\n" +
+                 "error_text: " + error_text + "\n" +
                  "error_code: " + String::Number(error_code);
   SendPeerConnectionUpdate(id, "icecandidateerror", value);
 }
@@ -1130,14 +1157,27 @@ void PeerConnectionTracker::TrackOnRenegotiationNeeded(
 }
 
 void PeerConnectionTracker::TrackGetUserMedia(
-    const blink::WebUserMediaRequest& user_media_request) {
+    UserMediaRequest* user_media_request) {
   DCHECK_CALLED_ON_VALID_THREAD(main_thread_);
 
+  // When running tests, it is possible that UserMediaRequest's
+  // ExecutionContext is null.
+  //
+  // TODO(crbug.com/704136): Is there a better way to do this?
+  String security_origin;
+  if (!user_media_request->GetExecutionContext()) {
+    security_origin =
+        SecurityOrigin::CreateFromString("test://test")->ToString();
+  } else {
+    security_origin = user_media_request->GetExecutionContext()
+                          ->GetSecurityOrigin()
+                          ->ToString();
+  }
+
   peer_connection_tracker_host_->GetUserMedia(
-      String(user_media_request.GetSecurityOrigin().ToString()),
-      user_media_request.Audio(), user_media_request.Video(),
-      SerializeMediaConstraints(user_media_request.AudioConstraints()),
-      SerializeMediaConstraints(user_media_request.VideoConstraints()));
+      security_origin, user_media_request->Audio(), user_media_request->Video(),
+      SerializeMediaConstraints(user_media_request->AudioConstraints()),
+      SerializeMediaConstraints(user_media_request->VideoConstraints()));
 }
 
 void PeerConnectionTracker::TrackRtcEventLogWrite(

@@ -16,6 +16,7 @@
 
 namespace content {
 
+class FrameTree;
 class RenderWidgetHostImpl;
 
 class MockRenderWidgetHostDelegate : public RenderWidgetHostDelegate {
@@ -33,6 +34,7 @@ class MockRenderWidgetHostDelegate : public RenderWidgetHostDelegate {
       KeyboardEventProcessingResult result) {
     pre_handle_keyboard_event_result_ = result;
   }
+  void set_frame_tree(FrameTree* frame_tree) { frame_tree_ = frame_tree; }
   void CreateInputEventRouter();
 
   // RenderWidgetHostDelegate:
@@ -42,17 +44,21 @@ class MockRenderWidgetHostDelegate : public RenderWidgetHostDelegate {
       const NativeWebKeyboardEvent& event) override;
   void ExecuteEditCommand(const std::string& command,
                           const base::Optional<base::string16>& value) override;
+  void Undo() override;
+  void Redo() override;
   void Cut() override;
   void Copy() override;
   void Paste() override;
+  void PasteAndMatchStyle() override;
   void SelectAll() override;
   RenderWidgetHostInputEventRouter* GetInputEventRouter() override;
   RenderWidgetHostImpl* GetFocusedRenderWidgetHost(
       RenderWidgetHostImpl* widget_host) override;
   void SendScreenRects() override;
   TextInputManager* GetTextInputManager() override;
-  bool IsFullscreenForCurrentTab() override;
+  bool IsFullscreen() override;
   RenderViewHostDelegateView* GetDelegateView() override;
+  FrameTree* GetFrameTree() override;
 
  private:
   std::unique_ptr<NativeWebKeyboardEvent> last_event_;
@@ -64,6 +70,7 @@ class MockRenderWidgetHostDelegate : public RenderWidgetHostDelegate {
   KeyboardEventProcessingResult pre_handle_keyboard_event_result_ =
       KeyboardEventProcessingResult::NOT_HANDLED;
   StubRenderViewHostDelegateView rvh_delegate_view_;
+  FrameTree* frame_tree_ = nullptr;
 
   DISALLOW_COPY_AND_ASSIGN(MockRenderWidgetHostDelegate);
 };

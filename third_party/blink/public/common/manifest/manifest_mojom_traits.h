@@ -71,7 +71,12 @@ struct BLINK_COMMON_EXPORT
     return manifest.display;
   }
 
-  static blink::WebScreenOrientationLockType orientation(
+  static const std::vector<blink::mojom::DisplayMode> display_override(
+      const ::blink::Manifest& manifest) {
+    return manifest.display_override;
+  }
+
+  static device::mojom::ScreenOrientationLockType orientation(
       const ::blink::Manifest& manifest) {
     return manifest.orientation;
   }
@@ -110,6 +115,11 @@ struct BLINK_COMMON_EXPORT
   static const std::vector<::blink::Manifest::FileHandler>& file_handlers(
       const ::blink::Manifest& manifest) {
     return manifest.file_handlers;
+  }
+
+  static const std::vector<::blink::Manifest::ProtocolHandler>&
+  protocol_handlers(const ::blink::Manifest& manifest) {
+    return manifest.protocol_handlers;
   }
 
   static const std::vector<::blink::Manifest::RelatedApplication>&
@@ -301,6 +311,21 @@ struct BLINK_COMMON_EXPORT
 
 template <>
 struct BLINK_COMMON_EXPORT
+    StructTraits<blink::mojom::ManifestProtocolHandlerDataView,
+                 ::blink::Manifest::ProtocolHandler> {
+  static base::StringPiece16 protocol(
+      const ::blink::Manifest::ProtocolHandler& protocol) {
+    return internal::TruncateString16(protocol.protocol);
+  }
+  static const GURL& url(const ::blink::Manifest::ProtocolHandler& protocol) {
+    return protocol.url;
+  }
+  static bool Read(blink::mojom::ManifestProtocolHandlerDataView data,
+                   ::blink::Manifest::ProtocolHandler* out);
+};
+
+template <>
+struct BLINK_COMMON_EXPORT
     EnumTraits<blink::mojom::ManifestImageResource_Purpose,
                ::blink::Manifest::ImageResource::Purpose> {
   static blink::mojom::ManifestImageResource_Purpose ToMojom(
@@ -308,8 +333,8 @@ struct BLINK_COMMON_EXPORT
     switch (purpose) {
       case ::blink::Manifest::ImageResource::Purpose::ANY:
         return blink::mojom::ManifestImageResource_Purpose::ANY;
-      case ::blink::Manifest::ImageResource::Purpose::BADGE:
-        return blink::mojom::ManifestImageResource_Purpose::BADGE;
+      case ::blink::Manifest::ImageResource::Purpose::MONOCHROME:
+        return blink::mojom::ManifestImageResource_Purpose::MONOCHROME;
       case ::blink::Manifest::ImageResource::Purpose::MASKABLE:
         return blink::mojom::ManifestImageResource_Purpose::MASKABLE;
     }
@@ -322,8 +347,8 @@ struct BLINK_COMMON_EXPORT
       case blink::mojom::ManifestImageResource_Purpose::ANY:
         *out = ::blink::Manifest::ImageResource::Purpose::ANY;
         return true;
-      case blink::mojom::ManifestImageResource_Purpose::BADGE:
-        *out = ::blink::Manifest::ImageResource::Purpose::BADGE;
+      case blink::mojom::ManifestImageResource_Purpose::MONOCHROME:
+        *out = ::blink::Manifest::ImageResource::Purpose::MONOCHROME;
         return true;
       case blink::mojom::ManifestImageResource_Purpose::MASKABLE:
         *out = ::blink::Manifest::ImageResource::Purpose::MASKABLE;

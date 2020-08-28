@@ -9,10 +9,15 @@
 #include <string>
 
 #include "ash/ash_export.h"
+#include "chromeos/services/assistant/public/cpp/assistant_prefs.h"
 
 namespace aura {
 class Window;
 }  // namespace aura
+
+namespace base {
+class Time;
+}  // namespace base
 
 namespace views {
 class Textfield;
@@ -21,6 +26,7 @@ class View;
 
 namespace ash {
 
+class AppListView;
 class AssistantState;
 
 // Public test API for the Assistant UI.
@@ -45,15 +51,38 @@ class ASH_EXPORT AssistantTestApi {
   // This will ensure the new value is propagated to the |AssistantState|.
   virtual void SetAssistantEnabled(bool enabled) = 0;
 
+  // Enables/Disables Assistant in settings.
+  // This will ensure the new value is propagated to the |AssistantState|.
+  virtual void SetScreenContextEnabled(bool enabled) = 0;
+
   virtual void SetTabletMode(bool enable) = 0;
+
+  // Changes the user preference controlling the status of user consent.
+  virtual void SetConsentStatus(chromeos::assistant::prefs::ConsentStatus) = 0;
+
+  // Sets the number of user sessions where Assistant onboarding was shown.
+  virtual void SetNumberOfSessionsWhereOnboardingShown(
+      int number_of_sessions) = 0;
+
+  // Changes the user preference controlling the mode of the onboarding UX.
+  virtual void SetOnboardingMode(
+      chromeos::assistant::prefs::AssistantOnboardingMode onboarding_mode) = 0;
 
   // Changes the user setting controlling whether the user prefers voice or
   // keyboard (internally called |kAssistantLaunchWithMicOpen|).
   // This will ensure the new value is propagated to the |AssistantState|.
   virtual void SetPreferVoice(bool value) = 0;
 
+  // Sets the time of the user's last interaction with Assistant.
+  virtual void SetTimeOfLastInteraction(base::Time time) = 0;
+
+  virtual void StartOverview() = 0;
+
   // Returns the interface to get/set Assistant related prefs and states.
   virtual AssistantState* GetAssistantState() = 0;
+
+  // Wait for all Assistant related actions to settle.
+  virtual void WaitUntilIdle() = 0;
 
   // Returns the top-level Assistant specific view.
   // Can only be used after the Assistant UI has been shown at least once.
@@ -88,6 +117,18 @@ class ASH_EXPORT AssistantTestApi {
   // Can only be used after the Assistant UI has been shown at least once.
   virtual views::View* keyboard_input_toggle() = 0;
 
+  // Returns the Assistant onboarding view.
+  // Can only be used after the Assistant UI has been shown at least once.
+  virtual views::View* onboarding_view() = 0;
+
+  // Returns the button to launch Assistant setup.
+  // Can only be used after the Assistant UI has been shown at least once.
+  virtual views::View* opt_in_view() = 0;
+
+  // Returns the view containing the suggestion chips.
+  // Can only be used after the Assistant UI has been shown at least once.
+  virtual views::View* suggestion_chip_container() = 0;
+
   // Returns the window containing the Assistant UI.
   // Note that this window is shared for all components of the |AppList|.
   // Can only be used after the Assistant UI has been shown at least once.
@@ -95,7 +136,7 @@ class ASH_EXPORT AssistantTestApi {
 
   // Returns the app list view hosting the Assistant UI.
   // Can only be used after the Assistant UI has been shown at least once.
-  virtual views::View* app_list_view() = 0;
+  virtual AppListView* app_list_view() = 0;
 
   // Returns the root window containing the Assistant UI (and the Ash shell).
   // This can be used even when the Assistant UI has never been shown.

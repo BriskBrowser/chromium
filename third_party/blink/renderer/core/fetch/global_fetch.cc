@@ -4,9 +4,9 @@
 
 #include "third_party/blink/renderer/core/fetch/global_fetch.h"
 
+#include "third_party/blink/renderer/bindings/core/v8/v8_request_init.h"
 #include "third_party/blink/renderer/core/fetch/fetch_manager.h"
 #include "third_party/blink/renderer/core/fetch/request.h"
-#include "third_party/blink/renderer/core/fetch/request_init.h"
 #include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/core/probe/core_probes.h"
 #include "third_party/blink/renderer/core/workers/worker_global_scope.h"
@@ -37,8 +37,6 @@ template <typename T>
 class GlobalFetchImpl final : public GarbageCollected<GlobalFetchImpl<T>>,
                               public GlobalFetch::ScopedFetcher,
                               public Supplement<T> {
-  USING_GARBAGE_COLLECTED_MIXIN(GlobalFetchImpl);
-
  public:
   static const char kSupplementName[];
 
@@ -75,11 +73,8 @@ class GlobalFetchImpl final : public GarbageCollected<GlobalFetchImpl<T>>,
       return ScriptPromise();
 
     probe::WillSendXMLHttpOrFetchNetworkRequest(execution_context, r->url());
-    FetchRequestData* request_data =
-        r->PassRequestData(script_state, exception_state);
+    FetchRequestData* request_data = r->PassRequestData(script_state);
     MeasureFetchProperties(execution_context, request_data);
-    if (exception_state.HadException())
-      return ScriptPromise();
     auto promise = fetch_manager_->Fetch(script_state, request_data,
                                          r->signal(), exception_state);
     if (exception_state.HadException())
@@ -88,7 +83,7 @@ class GlobalFetchImpl final : public GarbageCollected<GlobalFetchImpl<T>>,
     return promise;
   }
 
-  void Trace(blink::Visitor* visitor) override {
+  void Trace(Visitor* visitor) const override {
     visitor->Trace(fetch_manager_);
     ScopedFetcher::Trace(visitor);
     Supplement<T>::Trace(visitor);
@@ -118,7 +113,7 @@ GlobalFetch::ScopedFetcher* GlobalFetch::ScopedFetcher::From(
                                                   worker.GetExecutionContext());
 }
 
-void GlobalFetch::ScopedFetcher::Trace(blink::Visitor* visitor) {}
+void GlobalFetch::ScopedFetcher::Trace(Visitor* visitor) const {}
 
 ScriptPromise GlobalFetch::fetch(ScriptState* script_state,
                                  LocalDOMWindow& window,

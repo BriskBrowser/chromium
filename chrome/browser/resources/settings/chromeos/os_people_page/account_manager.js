@@ -12,6 +12,7 @@ Polymer({
   is: 'settings-account-manager',
 
   behaviors: [
+    DeepLinkingBehavior,
     I18nBehavior,
     WebUIListenerBehavior,
     settings.RouteObserverBehavior,
@@ -34,6 +35,38 @@ Polymer({
      * @private {?settings.Account}
      */
     actionMenuAccount_: Object,
+
+    /** @private {boolean} */
+    isChildUser_: {
+      type: Boolean,
+      value() {
+        return loadTimeData.getBoolean('isChild');
+      },
+    },
+
+    /**
+     * @return {boolean} True if secondary account sign-ins are allowed, false
+     *    otherwise.
+     * @private
+     */
+    isSecondaryGoogleAccountSigninAllowed_: {
+      type: Boolean,
+      value() {
+        return loadTimeData.getBoolean('secondaryGoogleAccountSigninAllowed');
+      },
+    },
+
+    /**
+     * Used by DeepLinkingBehavior to focus this page's deep links.
+     * @type {!Set<!chromeos.settings.mojom.Setting>}
+     */
+    supportedSettingIds: {
+      type: Object,
+      value: () => new Set([
+        chromeos.settings.mojom.Setting.kAddAccount,
+        chromeos.settings.mojom.Setting.kRemoveAccount,
+      ]),
+    },
   },
 
   /** @private {?settings.AccountManagerBrowserProxy} */
@@ -55,18 +88,34 @@ Polymer({
    * @param {settings.Route} oldRoute
    */
   currentRouteChanged(newRoute, oldRoute) {
-    if (newRoute == settings.routes.ACCOUNT_MANAGER) {
-      this.browserProxy_.showWelcomeDialogIfRequired();
+    if (newRoute !== settings.routes.ACCOUNT_MANAGER) {
+      return;
     }
+
+    this.browserProxy_.showWelcomeDialogIfRequired();
+    this.attemptDeepLink();
   },
 
   /**
-   * @return {boolean} True if secondary account sign-ins are allowed, false
-   *    otherwise.
+   * @return {string} account manager description text.
    * @private
    */
-  isSecondaryGoogleAccountSigninAllowed_() {
-    return loadTimeData.getBoolean('secondaryGoogleAccountSigninAllowed');
+  getAccountManagerDescription_() {
+    if (this.isChildUser_ && this.isSecondaryGoogleAccountSigninAllowed_) {
+      return loadTimeData.getString('accountManagerChildDescription');
+    }
+    return loadTimeData.getString('accountManagerDescription');
+  },
+
+  /**
+   * @return {string} account manager 'add account' label.
+   * @private
+   */
+  getAddAccountLabel_() {
+    if (this.isChildUser_ && this.isSecondaryGoogleAccountSigninAllowed_) {
+      return loadTimeData.getString('addSchoolAccountLabel');
+    }
+    return loadTimeData.getString('addAccountLabel');
   },
 
   /**
@@ -75,9 +124,27 @@ Polymer({
    * @private
    */
   getSecondaryAccountsDisabledUserMessage_() {
-    return loadTimeData.getBoolean('isChild')
+    return this.isChildUser_
       ? this.i18n('accountManagerSecondaryAccountsDisabledChildText')
       : this.i18n('accountManagerSecondaryAccountsDisabledText');
+  },
+
+  /**
+   * @return {string} cr icon name.
+   * @private
+   */
+  getPrimaryAccountTooltipIcon_() {
+    return this.isChildUser_ ? 'cr20:kite' : 'cr:info-outline';
+  },
+
+  /**
+   * @return {string} tooltip text
+   * @private
+   */
+  getPrimaryAccountTooltip_() {
+    return this.isChildUser_ ?
+        this.i18n('accountManagerPrimaryAccountChildManagedTooltip') :
+        this.i18n('accountManagerPrimaryAccountTooltip');
   },
 
   /**

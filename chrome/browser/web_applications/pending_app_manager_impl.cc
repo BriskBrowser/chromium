@@ -21,6 +21,7 @@
 #include "chrome/browser/web_applications/pending_app_registration_task.h"
 #include "chrome/common/chrome_features.h"
 #include "content/public/browser/web_contents.h"
+#include "content/public/common/url_constants.h"
 
 namespace web_app {
 
@@ -99,8 +100,8 @@ std::unique_ptr<PendingAppInstallTask>
 PendingAppManagerImpl::CreateInstallationTask(
     ExternalInstallOptions install_options) {
   return std::make_unique<PendingAppInstallTask>(
-      profile_, registrar(), shortcut_manager(), file_handler_manager(),
-      ui_manager(), finalizer(), std::move(install_options));
+      profile_, registrar(), os_integration_manager(), ui_manager(),
+      finalizer(), install_manager(), std::move(install_options));
 }
 
 std::unique_ptr<PendingAppRegistrationTaskBase>
@@ -214,11 +215,25 @@ void PendingAppManagerImpl::StartInstallationTask(
     pending_registrations_.push_front(current_registration_->launch_url());
     current_registration_.reset();
   }
-
   current_install_ = std::move(task);
+
+  if (!current_install_->task->install_options().app_info_factory.is_null()) {
+    current_install_->task->InstallFromInfo(base::BindOnce(
+        &PendingAppManagerImpl::OnInstalled, weak_ptr_factory_.GetWeakPtr()));
+    return;
+  }
 
   CreateWebContentsIfNecessary();
 
+  url_loader_->PrepareForLoad(
+      web_contents_.get(),
+      base::BindOnce(&PendingAppManagerImpl::OnWebContentsReady,
+                     weak_ptr_factory_.GetWeakPtr()));
+}
+
+void PendingAppManagerImpl::OnWebContentsReady(WebAppUrlLoader::Result) {
+  // TODO(crbug.com/1098139): Handle the scenario where WebAppUrlLoader fails to
+  // load about:blank and flush WebContents states.
   url_loader_->LoadUrl(current_install_->task->install_options().url,
                        web_contents_.get(),
                        WebAppUrlLoader::UrlComparison::kSameOrigin,
@@ -263,7 +278,16 @@ void PendingAppManagerImpl::CurrentInstallationFinished(
       base::FeatureList::IsEnabled(
           features::kDesktopPWAsCacheDuringDefaultInstall)) {
     const GURL& launch_url = registrar()->GetAppLaunchURL(*app_id);
-    if (!launch_url.is_empty() && launch_url.scheme() != "chrome")
+    bool is_local_resource =
+        launch_url.scheme() == content::kChromeUIScheme ||
+        launch_url.scheme() == content::kChromeUIUntrustedScheme;
+    // TODO(crbug.com/809304): Call CreateWebContentsIfNecessary() instead of
+    // checking web_contents_ once major migration of default hosted apps to web
+    // apps has completed.
+    // Temporarily using offline manifest migrations (in which |web_contents_|
+    // is nullptr) in order to avoid overwhelming migrated-to web apps with hits
+    // for service worker registrations.
+    if (!launch_url.is_empty() && !is_local_resource && web_contents_)
       pending_registrations_.push_back(launch_url);
   }
 

@@ -9,10 +9,21 @@ const path = require('path');
 
 const chromeResourcesUrl = 'chrome://resources/';
 const polymerUrl = 'chrome://resources/polymer/v3_0/';
+const schemeRelativeResourcesUrl = '//resources/';
+const schemeRelativePolymerUrl = '//resources/polymer/v3_0/';
 
 // TODO: Determine whether it is worth maintaining this list vs always checking
 // both directories for the existence of a file.
-const nonGeneratedFiles = ['cr.m.js', 'action_link.js'];
+const nonGeneratedFiles = [
+  'action_link.js',
+  'certificate_manager_types.js',
+  'certificate_provisioning_browser_proxy.js',
+  'certificates_browser_proxy.js',
+  'color_utils.js',
+  'cr.m.js',
+  'cr_splitter.js',
+  'plural_string_proxy.js',
+];
 
 function normalizeSlashes(filepath) {
   return filepath.replace(/\\/gi, '/');
@@ -59,6 +70,8 @@ export default function plugin(srcPath, genPath, rootPath, host, excludes) {
       let pathFromPolymer = '';
       if (source.startsWith(polymerUrl)) {
         pathFromPolymer = source.slice(polymerUrl.length);
+      } else if (source.startsWith(schemeRelativePolymerUrl)) {
+        pathFromPolymer = source.slice(schemeRelativePolymerUrl.length);
       } else if (!!origin && origin.startsWith(polymerSrcPath)) {
         pathFromPolymer =
             combinePaths(relativePath(polymerSrcPath, origin), source);
@@ -75,6 +88,8 @@ export default function plugin(srcPath, genPath, rootPath, host, excludes) {
       let pathFromResources = '';
       if (source.startsWith(chromeResourcesUrl)) {
         pathFromResources = source.slice(chromeResourcesUrl.length);
+      } else if (source.startsWith(schemeRelativeResourcesUrl)) {
+        pathFromResources = source.slice(schemeRelativeResourcesUrl.length);
       } else if (!!origin && origin.startsWith(resourcesSrcPath)) {
         pathFromResources =
             combinePaths(relativePath(resourcesSrcPath, origin), source);

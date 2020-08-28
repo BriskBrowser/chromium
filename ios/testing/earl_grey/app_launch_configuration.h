@@ -23,9 +23,13 @@ typedef NS_ENUM(NSInteger, RelaunchPolicy) {
   // Forces a relaunch. Kills the app directly. Keeps app state the same as
   // before relaunch.
   ForceRelaunchByKilling,
+// TODO(crbug.com/1067821): This relaunch policy will cause failures in real
+// devices.
+#if TARGET_IPHONE_SIMULATOR
   // Forces a relaunch. Backgrounds and then kills the app. Keeps app state same
   // as before relaunch.
   ForceRelaunchByCleanShutdown,
+#endif
 };
 
 // Configuration for launching the app in EGTests.
@@ -38,8 +42,10 @@ struct AppLaunchConfiguration {
   std::vector<variations::VariationID> variations_enabled;
   // Enabled trigger variations.
   std::vector<variations::VariationID> trigger_variations_enabled;
+  // Additional arguments to be directly forwarded to the app.
+  std::vector<std::string> additional_args;
   // Relaunch policy.
-  RelaunchPolicy relaunch_policy = NoForceRelaunchAndKeepState;
+  RelaunchPolicy relaunch_policy = NoForceRelaunchAndResetState;
 };
 
 #endif  // IOS_TESTING_EARL_GREY_APP_LAUNCH_CONFIGURATION_H_

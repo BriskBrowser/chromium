@@ -23,6 +23,9 @@
 #include "chromeos/dbus/dbus_method_call_status.h"
 #include "third_party/cros_system_api/dbus/service_constants.h"
 
+namespace cryptohome {
+class AccountIdentifier;
+}
 namespace chromeos {
 
 // A DbusLibraryError represents an error response received from D-Bus.
@@ -97,7 +100,18 @@ class COMPONENT_EXPORT(DEBUG_DAEMON) DebugDaemonClient
   // Gets the scrubbed logs from debugd that are very large and cannot be
   // returned directly from D-Bus. These logs will include ARC and cheets
   // system information.
-  virtual void GetScrubbedBigLogs(GetLogsCallback callback) = 0;
+  // |id|: Cryptohome Account identifier for the user to get
+  // logs for.
+  virtual void GetScrubbedBigLogs(const cryptohome::AccountIdentifier& id,
+                                  GetLogsCallback callback) = 0;
+
+  // Retrieves the ARC bug report for user identified by |userhash|
+  // and saves it in debugd daemon store.
+  // If a backup already exists, it is overwritten.
+  // If backup operation fails, an error is logged.
+  // |userhash|: Cryptohome sanitized username.
+  virtual void BackupArcBugReport(const std::string& userhash,
+                                  VoidDBusMethodCallback callback) = 0;
 
   // Gets all logs collected by debugd.
   virtual void GetAllLogs(GetLogsCallback callback) = 0;
@@ -163,8 +177,9 @@ class COMPONENT_EXPORT(DEBUG_DAEMON) DebugDaemonClient
   // dev mode.
   virtual void RemoveRootfsVerification(EnableDebuggingCallback callback) = 0;
 
+  using UploadCrashesCallback = base::OnceCallback<void(bool succeeded)>;
   // Trigger uploading of crashes.
-  virtual void UploadCrashes() = 0;
+  virtual void UploadCrashes(UploadCrashesCallback callback) = 0;
 
   // Runs the callback as soon as the service becomes available.
   virtual void WaitForServiceToBeAvailable(
@@ -220,24 +235,23 @@ class COMPONENT_EXPORT(DEBUG_DAEMON) DebugDaemonClient
                                  CupsRemovePrinterCallback callback,
                                  base::OnceClosure error_callback) = 0;
 
-  // A callback to handle the result of StartConcierge/StopConcierge.
+  // A callback to handle the result of StartConcierge.
   using ConciergeCallback = base::OnceCallback<void(bool success)>;
   // Calls debugd::kStartVmConcierge, which starts the Concierge service.
   // |callback| is called when the method finishes. If the |callback| is called
   // with true, it is guaranteed that the service is ready to accept requests.
   // It is not necessary for ConciergeClient to use WaitForServiceToBeAvailable.
   virtual void StartConcierge(ConciergeCallback callback) = 0;
-  // Calls debugd::kStopVmConcierge, which stops the Concierge service.
-  // |callback| is called when the method finishes.
-  virtual void StopConcierge(ConciergeCallback callback) = 0;
 
   // A callback to handle the result of
   // StartPluginVmDispatcher/StopPluginVmDispatcher.
   using PluginVmDispatcherCallback = base::OnceCallback<void(bool success)>;
   // Calls debugd::kStartVmPluginDispatcher, which starts the PluginVm
-  // dispatcher service on behalf of |owner_id|. |callback| is called
+  // dispatcher service on behalf of |owner_id|. |lang| indicates
+  // currently selected system language. |callback| is called
   // when the method finishes.
   virtual void StartPluginVmDispatcher(const std::string& owner_id,
+                                       const std::string& lang,
                                        PluginVmDispatcherCallback callback) = 0;
   // Calls debug::kStopVmPluginDispatcher, which stops the PluginVm dispatcher
   // service. |callback| is called when the method finishes.

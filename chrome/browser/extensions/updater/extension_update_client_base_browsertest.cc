@@ -4,7 +4,10 @@
 
 #include "chrome/browser/extensions/updater/extension_update_client_base_browsertest.h"
 
+#include <memory>
+
 #include "base/bind.h"
+#include "base/optional.h"
 #include "base/path_service.h"
 #include "base/run_loop.h"
 #include "base/task/post_task.h"
@@ -32,7 +35,7 @@ class TestChromeUpdateClientConfig
   TestChromeUpdateClientConfig(content::BrowserContext* context,
                                const std::vector<GURL>& update_url,
                                const std::vector<GURL>& ping_url)
-      : extensions::ChromeUpdateClientConfig(context),
+      : extensions::ChromeUpdateClientConfig(context, base::nullopt),
         update_url_(update_url),
         ping_url_(ping_url) {}
 
@@ -65,7 +68,7 @@ class TestChromeBrowserMainExtraParts : public ChromeBrowserMainExtraParts {
  public:
   explicit TestChromeBrowserMainExtraParts(ExtensionUpdateClientBaseTest* test)
       : test_(test) {}
-  ~TestChromeBrowserMainExtraParts() override {}
+  ~TestChromeBrowserMainExtraParts() override = default;
 
   // ChromeBrowserMainExtraParts:
   void PreProfileInit() override { test_->SetUpNetworkInterceptors(); }
@@ -84,7 +87,7 @@ class UpdateClientCompleteEventWaiter
   explicit UpdateClientCompleteEventWaiter(const std::string& id)
       : id_(id), event_(UpdateClientEvents::COMPONENT_UPDATE_ERROR) {}
 
-  ~UpdateClientCompleteEventWaiter() override {}
+  ~UpdateClientCompleteEventWaiter() override = default;
 
   void OnEvent(update_client::UpdateClient::Observer::Events event,
                const std::string& id) final {
@@ -115,7 +118,7 @@ ExtensionUpdateClientBaseTest::ExtensionUpdateClientBaseTest()
     : https_server_for_update_(net::EmbeddedTestServer::TYPE_HTTPS),
       https_server_for_ping_(net::EmbeddedTestServer::TYPE_HTTPS) {}
 
-ExtensionUpdateClientBaseTest::~ExtensionUpdateClientBaseTest() {}
+ExtensionUpdateClientBaseTest::~ExtensionUpdateClientBaseTest() = default;
 
 std::vector<GURL> ExtensionUpdateClientBaseTest::GetUpdateUrls() const {
   return {https_server_for_update_.GetURL("/updatehost/service/update")};
@@ -150,7 +153,7 @@ void ExtensionUpdateClientBaseTest::CreatedBrowserMainParts(
     content::BrowserMainParts* parts) {
   ExtensionBrowserTest::CreatedBrowserMainParts(parts);
   static_cast<ChromeBrowserMainParts*>(parts)->AddParts(
-      new TestChromeBrowserMainExtraParts(this));
+      std::make_unique<TestChromeBrowserMainExtraParts>(this));
 }
 
 void ExtensionUpdateClientBaseTest::SetUpOnMainThread() {

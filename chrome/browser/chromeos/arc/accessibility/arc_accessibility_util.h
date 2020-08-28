@@ -6,34 +6,104 @@
 #define CHROME_BROWSER_CHROMEOS_ARC_ACCESSIBILITY_ARC_ACCESSIBILITY_UTIL_H_
 
 #include <stdint.h>
+#include <string>
+#include <utility>
 #include <vector>
 
+#include "base/containers/flat_map.h"
+#include "base/optional.h"
+#include "base/stl_util.h"
 #include "components/arc/mojom/accessibility_helper.mojom-forward.h"
 #include "ui/accessibility/ax_enum_util.h"
 
 namespace arc {
+class AccessibilityInfoDataWrapper;
+// This function is only called when EventType is WINDOW_STATE_CHANGED or
+// WINDOW_CONTENT_CHANGED.
+base::Optional<ax::mojom::Event> FromContentChangeTypesToAXEvent(
+    const std::vector<int>& arc_content_change_types,
+    const AccessibilityInfoDataWrapper& source_node);
 
-ax::mojom::Event ToAXEvent(mojom::AccessibilityEventType arc_event_type,
-                           mojom::AccessibilityNodeInfoData* node_info_data);
+ax::mojom::Event ToAXEvent(
+    mojom::AccessibilityEventType arc_event_type,
+    const base::Optional<std::vector<int>>& arc_content_change_types,
+    AccessibilityInfoDataWrapper* source_node,
+    AccessibilityInfoDataWrapper* focused_node);
 
-// TODO(hirokisato) clean up GetProperty methods in AccessibilityNodeInfoData
-// and AccessibilityWindowInfoData.
-bool GetBooleanProperty(mojom::AccessibilityNodeInfoData* node,
-                        mojom::AccessibilityBooleanProperty prop);
+base::Optional<mojom::AccessibilityActionType> ConvertToAndroidAction(
+    ax::mojom::Action action);
 
-template <class InfoDataType, class PropType>
-bool GetIntListProperty(InfoDataType* node,
-                        PropType prop,
-                        std::vector<int32_t>* out_value) {
-  if (!node || !node->int_list_properties)
+std::string ToLiveStatusString(mojom::AccessibilityLiveRegionType type);
+
+template <class DataType, class PropType>
+bool GetBooleanProperty(DataType* node, PropType prop) {
+  if (!node->boolean_properties)
     return false;
 
-  auto it = node->int_list_properties->find(prop);
-  if (it == node->int_list_properties->end())
+  auto it = node->boolean_properties->find(prop);
+  if (it == node->boolean_properties->end())
+    return false;
+
+  return it->second;
+}
+
+template <class PropMTypeMap, class PropType>
+bool HasProperty(const PropMTypeMap& properties, const PropType prop) {
+  if (!properties)
+    return false;
+
+  return properties->find(prop) != properties->end();
+}
+
+template <class PropMTypeMap, class PropType, class OutType>
+bool GetProperty(const PropMTypeMap& properties,
+                 const PropType prop,
+                 OutType* out_value) {
+  if (!properties)
+    return false;
+
+  auto it = properties->find(prop);
+  if (it == properties->end())
     return false;
 
   *out_value = it->second;
   return true;
+}
+
+template <class PropType, class OutType>
+base::Optional<OutType> GetPropertyOrNull(
+    const base::Optional<base::flat_map<PropType, OutType>>& properties,
+    const PropType prop) {
+  OutType out_value;
+  if (GetProperty(properties, prop, &out_value))
+    return out_value;
+  return base::nullopt;
+}
+
+template <class InfoDataType, class PropType>
+bool HasNonEmptyStringProperty(InfoDataType* node, PropType prop) {
+  if (!node || !node->string_properties)
+    return false;
+
+  auto it = node->string_properties->find(prop);
+  if (it == node->string_properties->end())
+    return false;
+
+  return !it->second.empty();
+}
+
+// Sets property to mojom struct. Used in test.
+template <class PropType, class ValueType>
+void SetProperty(
+    base::Optional<base::flat_map<PropType, ValueType>>& properties,
+    PropType prop,
+    const ValueType& value) {
+  if (!properties.has_value())
+    properties = base::flat_map<PropType, ValueType>();
+
+  auto& prop_map = properties.value();
+  base::EraseIf(prop_map, [prop](auto it) { return it.first == prop; });
+  prop_map.insert(std::make_pair(prop, value));
 }
 
 }  // namespace arc

@@ -41,7 +41,6 @@ SelectToSpeakTray::SelectToSpeakTray(Shelf* shelf)
   icon_->set_tooltip_text(l10n_util::GetStringUTF16(
       IDS_ASH_STATUS_TRAY_ACCESSIBILITY_SELECT_TO_SPEAK));
   tray_container()->AddChildView(icon_);
-  CheckStatusAndUpdateIcon();
 
   // Observe the accessibility controller state changes to know when Select to
   // Speak state is updated or when it is disabled/enabled.
@@ -52,9 +51,19 @@ SelectToSpeakTray::~SelectToSpeakTray() {
   Shell::Get()->accessibility_controller()->RemoveObserver(this);
 }
 
+void SelectToSpeakTray::Initialize() {
+  TrayBackgroundView::Initialize();
+  CheckStatusAndUpdateIcon();
+}
+
 base::string16 SelectToSpeakTray::GetAccessibleNameForTray() {
   return l10n_util::GetStringUTF16(
       IDS_ASH_SELECT_TO_SPEAK_TRAY_ACCESSIBLE_NAME);
+}
+
+void SelectToSpeakTray::HandleLocaleChange() {
+  icon_->set_tooltip_text(l10n_util::GetStringUTF16(
+      IDS_ASH_STATUS_TRAY_ACCESSIBILITY_SELECT_TO_SPEAK));
 }
 
 const char* SelectToSpeakTray::GetClassName() const {

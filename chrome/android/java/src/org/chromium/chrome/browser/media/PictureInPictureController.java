@@ -23,10 +23,9 @@ import org.chromium.base.MathUtils;
 import org.chromium.base.annotations.VerifiesOnO;
 import org.chromium.base.library_loader.LibraryLoader;
 import org.chromium.base.metrics.RecordHistogram;
-import org.chromium.chrome.browser.ChromeActivity;
-import org.chromium.chrome.browser.ChromeFeatureList;
-import org.chromium.chrome.browser.fullscreen.ChromeFullscreenManager.FullscreenListener;
-import org.chromium.chrome.browser.fullscreen.FullscreenOptions;
+import org.chromium.chrome.browser.app.ChromeActivity;
+import org.chromium.chrome.browser.flags.ChromeFeatureList;
+import org.chromium.chrome.browser.fullscreen.FullscreenManager;
 import org.chromium.chrome.browser.infobar.InfoBarContainer;
 import org.chromium.chrome.browser.tab.EmptyTabObserver;
 import org.chromium.chrome.browser.tab.Tab;
@@ -36,6 +35,7 @@ import org.chromium.chrome.browser.tabmodel.TabModelSelector;
 import org.chromium.chrome.browser.tabmodel.TabModelSelectorObserver;
 import org.chromium.content_public.browser.WebContents;
 import org.chromium.content_public.browser.WebContentsObserver;
+import org.chromium.ui.base.WindowAndroid;
 
 import java.lang.reflect.InvocationTargetException;
 import java.util.LinkedList;
@@ -216,15 +216,16 @@ public class PictureInPictureController {
                 new DismissActivityOnTabModelSelectorEventObserver(activity);
         final WebContentsObserver webContentsObserver =
                 new DismissActivityOnWebContentsObserver(activity);
-        final TabModelSelector tabModelSelector = TabModelSelector.from(activityTab);
-        final FullscreenListener fullscreenListener = new FullscreenListener() {
+        final TabModelSelector tabModelSelector = activity.getTabModelSelector();
+        final FullscreenManager.Observer fullscreenListener = new FullscreenManager.Observer() {
             @Override
-            public void onEnterFullscreen(Tab tab, FullscreenOptions options) {
+            public void onExitFullscreen(Tab tab) {
                 dismissActivity(activity, METRICS_END_REASON_LEFT_FULLSCREEN);
             }
         };
 
-        activity.getFullscreenManager().addListener(fullscreenListener);
+        FullscreenManager fullscreenManager = activity.getFullscreenManager();
+        fullscreenManager.addObserver(fullscreenListener);
         activityTab.addObserver(tabObserver);
         tabModelSelector.addObserver(tabModelSelectorObserver);
         webContents.addObserver(webContentsObserver);
@@ -235,7 +236,7 @@ public class PictureInPictureController {
                 activityTab.removeObserver(tabObserver);
                 tabModelSelector.removeObserver(tabModelSelectorObserver);
                 webContents.removeObserver(webContentsObserver);
-                activity.getFullscreenManager().removeListener(fullscreenListener);
+                fullscreenManager.removeObserver(fullscreenListener);
             }
         });
 
@@ -332,10 +333,8 @@ public class PictureInPictureController {
         }
 
         @Override
-        public void onActivityAttachmentChanged(Tab tab, boolean isAttached) {
-            if (isAttached) {
-                dismissActivity(mActivity, METRICS_END_REASON_REPARENT);
-            }
+        public void onActivityAttachmentChanged(Tab tab, @Nullable WindowAndroid window) {
+            if (window != null) dismissActivity(mActivity, METRICS_END_REASON_REPARENT);
         }
 
         @Override
@@ -346,6 +345,11 @@ public class PictureInPictureController {
         @Override
         public void onCrash(Tab tab) {
             dismissActivity(mActivity, METRICS_END_REASON_CRASH);
+        }
+
+        @Override
+        public void webContentsWillSwap(Tab tab) {
+            dismissActivity(mActivity, METRICS_END_REASON_WEB_CONTENTS_LEFT_FULLSCREEN);
         }
     }
 

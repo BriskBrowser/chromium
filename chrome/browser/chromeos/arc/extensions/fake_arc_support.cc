@@ -7,9 +7,10 @@
 #include <string>
 
 #include "base/bind.h"
+#include "base/check_op.h"
 #include "base/json/json_reader.h"
 #include "base/json/json_writer.h"
-#include "base/logging.h"
+#include "base/notreached.h"
 #include "base/values.h"
 #include "chrome/browser/chromeos/arc/extensions/arc_support_message_host.h"
 #include "chrome/browser/profiles/profile.h"
@@ -34,8 +35,8 @@ namespace arc {
 FakeArcSupport::FakeArcSupport(ArcSupportHost* support_host)
     : support_host_(support_host) {
   DCHECK(support_host_);
-  support_host_->SetRequestOpenAppCallbackForTesting(
-      base::Bind(&FakeArcSupport::Open, weak_ptr_factory_.GetWeakPtr()));
+  support_host_->SetRequestOpenAppCallbackForTesting(base::BindRepeating(
+      &FakeArcSupport::Open, weak_ptr_factory_.GetWeakPtr()));
 }
 
 FakeArcSupport::~FakeArcSupport() {

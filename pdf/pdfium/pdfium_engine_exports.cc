@@ -7,8 +7,10 @@
 #include <algorithm>
 #include <utility>
 
+#include "base/bind.h"
 #include "base/no_destructor.h"
 #include "base/numerics/safe_conversions.h"
+#include "pdf/pdfium/pdfium_api_string_buffer_adapter.h"
 #include "pdf/pdfium/pdfium_mem_buffer_file_write.h"
 #include "pdf/pdfium/pdfium_print.h"
 #include "printing/nup_parameters.h"
@@ -16,9 +18,11 @@
 #include "third_party/pdfium/public/cpp/fpdf_scopers.h"
 #include "third_party/pdfium/public/fpdf_catalog.h"
 #include "third_party/pdfium/public/fpdf_ppo.h"
+#include "third_party/pdfium/public/fpdf_structtree.h"
 #include "third_party/pdfium/public/fpdfview.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/size.h"
+#include "ui/gfx/geometry/vector2d.h"
 
 using printing::ConvertUnitDouble;
 using printing::kPointsPerInch;
@@ -29,7 +33,7 @@ namespace {
 
 int CalculatePosition(FPDF_PAGE page,
                       const PDFiumEngineExports::RenderingSettings& settings,
-                      pp::Rect* dest) {
+                      gfx::Rect* dest) {
   // settings.bounds is in terms of the max DPI. Convert page sizes to match.
   int dpi = std::max(settings.dpi_x, settings.dpi_y);
   int page_width = static_cast<int>(
@@ -89,7 +93,7 @@ int CalculatePosition(FPDF_PAGE page,
   }
 
   if (settings.center_in_bounds) {
-    pp::Point offset(
+    gfx::Vector2d offset(
         (settings.bounds.width() * settings.dpi_x / dpi - dest->width()) / 2,
         (settings.bounds.height() * settings.dpi_y / dpi - dest->height()) / 2);
     dest->Offset(offset);
@@ -129,11 +133,57 @@ bool IsValidPrintableArea(const gfx::Size& page_size,
          printable_area.bottom() <= page_size.height();
 }
 
+base::Value RecursiveGetStructTree(FPDF_STRUCTELEMENT struct_elem) {
+  int children_count = FPDF_StructElement_CountChildren(struct_elem);
+  if (children_count <= 0)
+    return base::Value(base::Value::Type::NONE);
+
+  base::Optional<base::string16> opt_type =
+      CallPDFiumWideStringBufferApiAndReturnOptional(
+          base::BindRepeating(FPDF_StructElement_GetType, struct_elem), true);
+  if (!opt_type)
+    return base::Value(base::Value::Type::NONE);
+
+  base::Value result(base::Value::Type::DICTIONARY);
+  result.SetStringKey("type", *opt_type);
+
+  base::Optional<base::string16> opt_alt =
+      CallPDFiumWideStringBufferApiAndReturnOptional(
+          base::BindRepeating(FPDF_StructElement_GetAltText, struct_elem),
+          true);
+  if (opt_alt)
+    result.SetStringKey("alt", *opt_alt);
+
+  base::Optional<base::string16> opt_lang =
+      CallPDFiumWideStringBufferApiAndReturnOptional(
+          base::BindRepeating(FPDF_StructElement_GetLang, struct_elem), true);
+  if (opt_lang)
+    result.SetStringKey("lang", *opt_lang);
+
+  base::Value children(base::Value::Type::LIST);
+  for (int i = 0; i < children_count; i++) {
+    FPDF_STRUCTELEMENT child_elem =
+        FPDF_StructElement_GetChildAtIndex(struct_elem, i);
+
+    base::Value child = RecursiveGetStructTree(child_elem);
+    if (child.is_dict())
+      children.Append(std::move(child));
+  }
+
+  // use "~children" instead of "children" because we pretty-print the
+  // result of this as JSON and the keys are sorted; it's much easier to
+  // understand when the children are the last key.
+  if (!children.GetList().empty())
+    result.SetKey("~children", std::move(children));
+
+  return result;
+}
+
 }  // namespace
 
 PDFEngineExports::RenderingSettings::RenderingSettings(int dpi_x,
                                                        int dpi_y,
-                                                       const pp::Rect& bounds,
+                                                       const gfx::Rect& bounds,
                                                        bool fit_to_bounds,
                                                        bool stretch_to_bounds,
                                                        bool keep_aspect_ratio,
@@ -192,7 +242,7 @@ bool PDFiumEngineExports::RenderPDFPageToDC(
   if (new_settings.dpi_y == -1)
     new_settings.dpi_y = GetDeviceCaps(dc, LOGPIXELSY);
 
-  pp::Rect dest;
+  gfx::Rect dest;
   int rotate = CalculatePosition(page.get(), new_settings, &dest);
 
   int save_state = SaveDC(dc);
@@ -271,7 +321,7 @@ bool PDFiumEngineExports::RenderPDFPageToBitmap(
   if (!page)
     return false;
 
-  pp::Rect dest;
+  gfx::Rect dest;
   int rotate = CalculatePosition(page.get(), settings, &dest);
 
   ScopedFPDFBitmap bitmap(FPDFBitmap_CreateEx(
@@ -281,7 +331,7 @@ bool PDFiumEngineExports::RenderPDFPageToBitmap(
   FPDFBitmap_FillRect(bitmap.get(), 0, 0, settings.bounds.width(),
                       settings.bounds.height(), 0xFFFFFFFF);
   // Shift top-left corner of bounds to (0, 0) if it's not there.
-  dest.set_point(dest.point() - settings.bounds.point());
+  dest.set_origin(dest.origin() - settings.bounds.OffsetFromOrigin());
 
   int flags = FPDF_ANNOT | FPDF_PRINTING;
   if (!settings.use_color)
@@ -360,6 +410,34 @@ base::Optional<bool> PDFiumEngineExports::IsPDFDocTagged(
     return base::nullopt;
 
   return FPDFCatalog_IsTagged(doc.get());
+}
+
+base::Value PDFiumEngineExports::GetPDFStructTreeForPage(
+    base::span<const uint8_t> pdf_buffer,
+    int page_index) {
+  ScopedFPDFDocument doc = LoadPdfData(pdf_buffer);
+  if (!doc)
+    return base::Value(base::Value::Type::NONE);
+
+  ScopedFPDFPage page(FPDF_LoadPage(doc.get(), page_index));
+  if (!page)
+    return base::Value(base::Value::Type::NONE);
+
+  ScopedFPDFStructTree struct_tree(FPDF_StructTree_GetForPage(page.get()));
+  if (!struct_tree)
+    return base::Value(base::Value::Type::NONE);
+
+  // We only expect one child of the struct tree - i.e. a single root node.
+  int children = FPDF_StructTree_CountChildren(struct_tree.get());
+  if (children != 1)
+    return base::Value(base::Value::Type::NONE);
+
+  FPDF_STRUCTELEMENT struct_root_elem =
+      FPDF_StructTree_GetChildAtIndex(struct_tree.get(), 0);
+  if (!struct_root_elem)
+    return base::Value(base::Value::Type::NONE);
+
+  return RecursiveGetStructTree(struct_root_elem);
 }
 
 bool PDFiumEngineExports::GetPDFPageSizeByIndex(

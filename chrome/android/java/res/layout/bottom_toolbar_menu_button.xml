@@ -2,7 +2,7 @@
 <!-- Copyright 2019 The Chromium Authors. All rights reserved.
      Use of this source code is governed by a BSD-style license that can be
      found in the LICENSE file. -->
-<org.chromium.chrome.browser.toolbar.MenuButton
+<org.chromium.chrome.browser.toolbar.menu_button.MenuButton
     xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
@@ -20,7 +20,7 @@
         android:importantForAccessibility="no"
         android:layout_gravity="center"
         android:background="?attr/selectableItemBackgroundBorderless"
-        app:tint="@color/standard_mode_tint" />
+        app:tint="@color/default_icon_color_tint_list" />
 
     <ImageView
         android:id="@+id/menu_badge"
@@ -32,5 +32,5 @@
         android:layout_gravity="center"
         android:visibility="invisible" />
 
-</org.chromium.chrome.browser.toolbar.MenuButton>
+</org.chromium.chrome.browser.toolbar.menu_button.MenuButton>
 

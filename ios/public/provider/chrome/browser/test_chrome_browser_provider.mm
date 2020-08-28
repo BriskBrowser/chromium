@@ -6,12 +6,14 @@
 
 #import <UIKit/UIKit.h>
 
-#include "base/logging.h"
-#include "ios/public/provider/chrome/browser/distribution/test_app_distribution_provider.h"
+#include "base/check.h"
+#import "ios/public/provider/chrome/browser/discover_feed/discover_feed_provider.h"
+#include "ios/public/provider/chrome/browser/distribution/app_distribution_provider.h"
 #include "ios/public/provider/chrome/browser/images/test_branded_image_provider.h"
 #include "ios/public/provider/chrome/browser/mailto/test_mailto_handler_provider.h"
 #include "ios/public/provider/chrome/browser/omaha/test_omaha_service_provider.h"
 #include "ios/public/provider/chrome/browser/signin/fake_chrome_identity_service.h"
+#include "ios/public/provider/chrome/browser/signin/signin_error_provider.h"
 #include "ios/public/provider/chrome/browser/signin/test_signin_resources_provider.h"
 #import "ios/public/provider/chrome/browser/spotlight/test_spotlight_provider.h"
 #import "ios/public/provider/chrome/browser/ui/fullscreen_provider.h"
@@ -26,17 +28,18 @@
 namespace ios {
 
 TestChromeBrowserProvider::TestChromeBrowserProvider()
-    : app_distribution_provider_(
-          std::make_unique<TestAppDistributionProvider>()),
+    : app_distribution_provider_(std::make_unique<AppDistributionProvider>()),
       branded_image_provider_(std::make_unique<TestBrandedImageProvider>()),
       omaha_service_provider_(std::make_unique<TestOmahaServiceProvider>()),
+      signin_error_provider_(std::make_unique<SigninErrorProvider>()),
       signin_resources_provider_(
           std::make_unique<TestSigninResourcesProvider>()),
       voice_search_provider_(std::make_unique<TestVoiceSearchProvider>()),
       user_feedback_provider_(std::make_unique<TestUserFeedbackProvider>()),
       spotlight_provider_(std::make_unique<TestSpotlightProvider>()),
       mailto_handler_provider_(std::make_unique<TestMailtoHandlerProvider>()),
-      fullscreen_provider_(std::make_unique<FullscreenProvider>()) {}
+      fullscreen_provider_(std::make_unique<FullscreenProvider>()),
+      discover_feed_provider_(std::make_unique<DiscoverFeedProvider>()) {}
 
 TestChromeBrowserProvider::~TestChromeBrowserProvider() {}
 
@@ -55,6 +58,10 @@ TestChromeBrowserProvider::GetSigninResourcesProvider() {
 void TestChromeBrowserProvider::SetChromeIdentityServiceForTesting(
     std::unique_ptr<ChromeIdentityService> service) {
   chrome_identity_service_.swap(service);
+}
+
+SigninErrorProvider* TestChromeBrowserProvider::GetSigninErrorProvider() {
+  return signin_error_provider_.get();
 }
 
 ChromeIdentityService* TestChromeBrowserProvider::GetChromeIdentityService() {
@@ -103,6 +110,11 @@ BrandedImageProvider* TestChromeBrowserProvider::GetBrandedImageProvider()
 MailtoHandlerProvider* TestChromeBrowserProvider::GetMailtoHandlerProvider()
     const {
   return mailto_handler_provider_.get();
+}
+
+DiscoverFeedProvider* TestChromeBrowserProvider::GetDiscoverFeedProvider()
+    const {
+  return discover_feed_provider_.get();
 }
 
 }  // namespace ios

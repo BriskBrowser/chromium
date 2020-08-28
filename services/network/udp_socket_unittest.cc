@@ -11,8 +11,9 @@
 #include "services/network/udp_socket.h"
 
 #include "base/bind.h"
-#include "base/logging.h"
 #include "base/macros.h"
+#include "base/memory/ptr_util.h"
+#include "base/notreached.h"
 #include "base/run_loop.h"
 #include "base/test/task_environment.h"
 #include "build/build_config.h"
@@ -25,7 +26,7 @@
 #include "net/url_request/url_request_test_util.h"
 #include "services/network/public/mojom/udp_socket.mojom.h"
 #include "services/network/socket_factory.h"
-#include "services/network/udp_socket_test_util.h"
+#include "services/network/test/udp_socket_test_util.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace network {

@@ -17,11 +17,11 @@
 #include "base/one_shot_event.h"
 #include "base/single_thread_task_runner.h"
 #include "base/strings/string_number_conversions.h"
-#include "base/task/post_task.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/browser_task_traits.h"
+#include "content/public/browser/browser_thread.h"
 #include "content/public/browser/devtools_agent_host.h"
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/navigation_entry.h"
@@ -256,8 +256,7 @@ ProcessManager::ProcessManager(BrowserContext* context,
     : extension_registry_(extension_registry),
       site_instance_(content::SiteInstance::Create(context)),
       browser_context_(context),
-      worker_task_runner_(
-          base::CreateSingleThreadTaskRunner({content::BrowserThread::IO})),
+      worker_task_runner_(content::GetIOThreadTaskRunner({})),
       startup_background_hosts_created_(false),
       last_background_close_sequence_id_(0) {
   // ExtensionRegistry is shared between incognito and regular contexts.
@@ -269,8 +268,8 @@ ProcessManager::ProcessManager(BrowserContext* context,
   if (!context->IsOffTheRecord()) {
     ExtensionSystem::Get(context)->ready().Post(
         FROM_HERE,
-        base::Bind(&ProcessManager::MaybeCreateStartupBackgroundHosts,
-                   weak_ptr_factory_.GetWeakPtr()));
+        base::BindOnce(&ProcessManager::MaybeCreateStartupBackgroundHosts,
+                       weak_ptr_factory_.GetWeakPtr()));
   }
   registrar_.Add(this,
                  extensions::NOTIFICATION_EXTENSION_HOST_DESTROYED,
@@ -960,7 +959,14 @@ void ProcessManager::UnregisterExtension(const std::string& extension_id) {
 
   background_page_data_.erase(extension_id);
 
-  all_extension_workers_.RemoveAllForExtension(extension_id);
+  for (const WorkerId& worker_id :
+       all_extension_workers_.GetAllForExtension(extension_id)) {
+    UnregisterServiceWorker(worker_id);
+  }
+#if DCHECK_IS_ON()
+  // Sanity check: No worker entry should exist for |extension_id|.
+  DCHECK(all_extension_workers_.GetAllForExtension(extension_id).empty());
+#endif
 }
 
 void ProcessManager::RegisterServiceWorker(const WorkerId& worker_id) {
@@ -1001,14 +1007,26 @@ void ProcessManager::RenderProcessExited(
   auto iter = worker_process_to_extension_ids_.find(render_process_id);
   if (iter == worker_process_to_extension_ids_.end())
     return;
+  for (const ExtensionId& extension_id : iter->second) {
+    for (const WorkerId& worker_id : all_extension_workers_.GetAllForExtension(
+             extension_id, render_process_id)) {
+      UnregisterServiceWorker(worker_id);
+    }
+  }
+#if DCHECK_IS_ON()
+  // Sanity check: No worker entry should exist for any |extension_id| running
+  // inside the RenderProcessHost that died.
   for (const ExtensionId& extension_id : iter->second)
-    all_extension_workers_.RemoveAllForExtension(extension_id);
+    DCHECK(all_extension_workers_.GetAllForExtension(extension_id).empty());
+#endif
   worker_process_to_extension_ids_.erase(iter);
 }
 
 void ProcessManager::UnregisterServiceWorker(const WorkerId& worker_id) {
   // TODO(lazyboy): DCHECK that |worker_id| exists in |all_extension_workers_|.
   all_extension_workers_.Remove(worker_id);
+  for (auto& observer : observer_list_)
+    observer.OnServiceWorkerUnregistered(worker_id);
 }
 
 bool ProcessManager::HasServiceWorker(const WorkerId& worker_id) const {

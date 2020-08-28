@@ -19,10 +19,10 @@ InterpolationValue SVGAngleInterpolationType::MaybeConvertNeutral(
 
 InterpolationValue SVGAngleInterpolationType::MaybeConvertSVGValue(
     const SVGPropertyBase& svg_value) const {
-  if (ToSVGAngle(svg_value).OrientType()->EnumValue() != kSVGMarkerOrientAngle)
+  if (!To<SVGAngle>(svg_value).IsNumeric())
     return nullptr;
   return InterpolationValue(
-      std::make_unique<InterpolableNumber>(ToSVGAngle(svg_value).Value()));
+      std::make_unique<InterpolableNumber>(To<SVGAngle>(svg_value).Value()));
 }
 
 SVGPropertyBase* SVGAngleInterpolationType::AppliedSVGValue(

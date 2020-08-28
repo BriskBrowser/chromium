@@ -8,20 +8,23 @@
 #include <utility>
 
 #include "base/bind.h"
+#include "base/check.h"
 #include "base/command_line.h"
 #include "base/feature_list.h"
 #include "base/files/file_path.h"
 #include "base/location.h"
-#include "base/logging.h"
 #include "base/memory/ptr_util.h"
+#include "base/notreached.h"
 #include "base/path_service.h"
 #include "base/sequenced_task_runner.h"
 #include "base/single_thread_task_runner.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "chrome/browser/chromeos/attestation/attestation_ca_client.h"
 #include "chrome/browser/chromeos/policy/active_directory_policy_manager.h"
+#include "chrome/browser/chromeos/policy/adb_sideloading_allowance_mode_policy_handler.h"
 #include "chrome/browser/chromeos/policy/affiliated_cloud_policy_invalidator.h"
 #include "chrome/browser/chromeos/policy/affiliated_invalidation_service_provider.h"
 #include "chrome/browser/chromeos/policy/affiliated_invalidation_service_provider_impl.h"
@@ -35,28 +38,33 @@
 #include "chrome/browser/chromeos/policy/device_policy_cloud_external_data_manager.h"
 #include "chrome/browser/chromeos/policy/device_wifi_allowed_handler.h"
 #include "chrome/browser/chromeos/policy/enrollment_config.h"
-#include "chrome/browser/chromeos/policy/external_data_handlers/device_native_printers_external_data_handler.h"
+#include "chrome/browser/chromeos/policy/enrollment_requisition_manager.h"
+#include "chrome/browser/chromeos/policy/external_data_handlers/device_print_servers_external_data_handler.h"
+#include "chrome/browser/chromeos/policy/external_data_handlers/device_printers_external_data_handler.h"
 #include "chrome/browser/chromeos/policy/external_data_handlers/device_wallpaper_image_external_data_handler.h"
 #include "chrome/browser/chromeos/policy/external_data_handlers/device_wilco_dtc_configuration_external_data_handler.h"
 #include "chrome/browser/chromeos/policy/hostname_handler.h"
 #include "chrome/browser/chromeos/policy/minimum_version_policy_handler.h"
+#include "chrome/browser/chromeos/policy/minimum_version_policy_handler_delegate_impl.h"
 #include "chrome/browser/chromeos/policy/remote_commands/affiliated_remote_commands_invalidator.h"
 #include "chrome/browser/chromeos/policy/scheduled_update_checker/device_scheduled_update_checker.h"
 #include "chrome/browser/chromeos/policy/server_backed_state_keys_broker.h"
+#include "chrome/browser/chromeos/policy/system_proxy_manager.h"
 #include "chrome/browser/chromeos/policy/tpm_auto_update_mode_policy_handler.h"
 #include "chrome/browser/chromeos/printing/bulk_printers_calculator_factory.h"
 #include "chrome/browser/chromeos/settings/cros_settings.h"
 #include "chrome/browser/chromeos/settings/device_settings_service.h"
 #include "chrome/browser/chromeos/system/timezone_util.h"
+#include "chrome/browser/chromeos/ui/adb_sideloading_policy_change_notification.h"
 #include "chrome/browser/policy/device_management_service_configuration.h"
 #include "chrome/common/chrome_features.h"
 #include "chrome/common/pref_names.h"
 #include "chromeos/attestation/attestation_flow.h"
+#include "chromeos/attestation/attestation_flow_integrated.h"
 #include "chromeos/constants/chromeos_paths.h"
 #include "chromeos/constants/chromeos_switches.h"
 #include "chromeos/cryptohome/async_method_caller.h"
 #include "chromeos/cryptohome/system_salt_getter.h"
-#include "chromeos/dbus/cryptohome/cryptohome_client.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "chromeos/dbus/session_manager/session_manager_client.h"
 #include "chromeos/dbus/upstart/upstart_client.h"
@@ -75,6 +83,8 @@
 #include "components/policy/policy_constants.h"
 #include "components/policy/proto/device_management_backend.pb.h"
 #include "components/prefs/pref_registry_simple.h"
+#include "components/prefs/pref_service.h"
+#include "components/variations/pref_names.h"
 #include "google_apis/gaia/gaia_auth_util.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
 
@@ -87,8 +97,8 @@ namespace {
 // Helper that returns a new BACKGROUND SequencedTaskRunner. Each
 // SequencedTaskRunner returned is independent from the others.
 scoped_refptr<base::SequencedTaskRunner> GetBackgroundTaskRunner() {
-  return base::CreateSequencedTaskRunner(
-      {base::ThreadPool(), base::MayBlock(), base::TaskPriority::BEST_EFFORT,
+  return base::ThreadPool::CreateSequencedTaskRunner(
+      {base::MayBlock(), base::TaskPriority::BEST_EFFORT,
        base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN});
 }
 
@@ -136,9 +146,9 @@ BrowserPolicyConnectorChromeOS::BrowserPolicyConnectorChromeOS() {
       state_keys_broker_ = std::make_unique<ServerBackedStateKeysBroker>(
           chromeos::SessionManagerClient::Get());
 
-      base::FilePath device_policy_external_data_path;
-      CHECK(base::PathService::Get(chromeos::DIR_DEVICE_POLICY_EXTERNAL_DATA,
-                                   &device_policy_external_data_path));
+      const base::FilePath device_policy_external_data_path =
+          base::PathService::CheckedGet(
+              chromeos::DIR_DEVICE_POLICY_EXTERNAL_DATA);
 
       auto external_data_manager =
           std::make_unique<DevicePolicyCloudExternalDataManager>(
@@ -179,6 +189,7 @@ void BrowserPolicyConnectorChromeOS::Init(
     // initialized from here instead of BrowserPolicyConnector::Init().
 
     device_cloud_policy_manager_->Initialize(local_state);
+    EnrollmentRequisitionManager::Initialize();
     device_cloud_policy_manager_->AddDeviceCloudPolicyManagerObserver(this);
     RestartDeviceCloudPolicyInitializer();
   }
@@ -198,13 +209,14 @@ void BrowserPolicyConnectorChromeOS::Init(
   if (device_cloud_policy_manager_) {
     device_cloud_policy_invalidator_ =
         std::make_unique<AffiliatedCloudPolicyInvalidator>(
-            em::DeviceRegisterRequest::DEVICE,
+            PolicyInvalidationScope::kDevice,
             device_cloud_policy_manager_->core(),
             affiliated_invalidation_service_provider_.get());
     device_remote_commands_invalidator_ =
         std::make_unique<AffiliatedRemoteCommandsInvalidator>(
             device_cloud_policy_manager_->core(),
-            affiliated_invalidation_service_provider_.get());
+            affiliated_invalidation_service_provider_.get(),
+            PolicyInvalidationScope::kDevice);
   }
 
   SetTimezoneIfPolicyAvailable();
@@ -229,8 +241,12 @@ void BrowserPolicyConnectorChromeOS::Init(
   hostname_handler_ =
       std::make_unique<HostnameHandler>(chromeos::CrosSettings::Get());
 
+  minimum_version_policy_handler_delegate_ =
+      std::make_unique<MinimumVersionPolicyHandlerDelegateImpl>();
+
   minimum_version_policy_handler_ =
       std::make_unique<MinimumVersionPolicyHandler>(
+          minimum_version_policy_handler_delegate_.get(),
           chromeos::CrosSettings::Get());
 
   device_dock_mac_address_source_handler_ =
@@ -255,8 +271,11 @@ void BrowserPolicyConnectorChromeOS::Init(
   DCHECK(calculator_factory)
       << "Policy connector initialized before the bulk printers factory";
   device_cloud_external_data_policy_handlers_.push_back(
-      std::make_unique<policy::DeviceNativePrintersExternalDataHandler>(
+      std::make_unique<policy::DevicePrintersExternalDataHandler>(
           GetPolicyService(), calculator_factory->GetForDevice()));
+  device_cloud_external_data_policy_handlers_.push_back(
+      std::make_unique<policy::DevicePrintServersExternalDataHandler>(
+          GetPolicyService()));
 
   device_cloud_external_data_policy_handlers_.push_back(
       std::make_unique<policy::DeviceWallpaperImageExternalDataHandler>(
@@ -267,6 +286,13 @@ void BrowserPolicyConnectorChromeOS::Init(
             policy::DeviceWilcoDtcConfigurationExternalDataHandler>(
             GetPolicyService()));
   }
+  system_proxy_manager_ = std::make_unique<SystemProxyManager>(
+      chromeos::CrosSettings::Get(), local_state);
+
+  adb_sideloading_allowance_mode_policy_handler_ =
+      std::make_unique<AdbSideloadingAllowanceModePolicyHandler>(
+          chromeos::CrosSettings::Get(), local_state,
+          new chromeos::AdbSideloadingPolicyChangeNotification());
 }
 
 void BrowserPolicyConnectorChromeOS::PreShutdown() {
@@ -279,6 +305,9 @@ void BrowserPolicyConnectorChromeOS::PreShutdown() {
 }
 
 void BrowserPolicyConnectorChromeOS::Shutdown() {
+  device_cert_provisioning_scheduler_.reset();
+  system_proxy_manager_.reset();
+
   // NetworkCertLoader may be not initialized in tests.
   if (chromeos::NetworkCertLoader::IsInitialized()) {
     chromeos::NetworkCertLoader::Get()->SetDevicePolicyCertificateProvider(
@@ -296,6 +325,11 @@ void BrowserPolicyConnectorChromeOS::Shutdown() {
     device_cloud_policy_manager_->RemoveDeviceCloudPolicyManagerObserver(this);
 
   device_scheduled_update_checker_.reset();
+
+  // The policy handler is registered as an observer to BuildState which gets
+  // destructed before BrowserPolicyConnectorChromeOS. So destruct the policy
+  // handler here so that it can de-register itself as an observer.
+  minimum_version_policy_handler_.reset();
 
   if (hostname_handler_)
     hostname_handler_->Shutdown();
@@ -423,10 +457,18 @@ void BrowserPolicyConnectorChromeOS::OnDeviceCloudPolicyManagerConnected() {
   CHECK(device_cloud_policy_initializer_);
 
   // DeviceCloudPolicyInitializer might still be on the call stack, so we
-  // should release the initializer after this function returns.
+  // should delete the initializer after this function returns.
   device_cloud_policy_initializer_->Shutdown();
   base::ThreadTaskRunnerHandle::Get()->DeleteSoon(
-      FROM_HERE, device_cloud_policy_initializer_.release());
+      FROM_HERE, std::move(device_cloud_policy_initializer_));
+
+  // TODO(miersh) Move to BrowserPolicyConnectorChromeOS::Init() when
+  // CertProvisioningScheduler does not depend on SignIn Profile.
+  if (!device_cert_provisioning_scheduler_) {
+    device_cert_provisioning_scheduler_ = chromeos::cert_provisioning::
+        CertProvisioningSchedulerImpl::CreateDeviceCertProvisioningScheduler(
+            affiliated_invalidation_service_provider_.get());
+  }
 }
 
 void BrowserPolicyConnectorChromeOS::OnDeviceCloudPolicyManagerDisconnected() {
@@ -447,7 +489,7 @@ BrowserPolicyConnectorChromeOS::CreatePolicyProviders() {
 void BrowserPolicyConnectorChromeOS::SetTimezoneIfPolicyAvailable() {
   typedef chromeos::CrosSettingsProvider Provider;
   Provider::TrustedStatus result =
-      chromeos::CrosSettings::Get()->PrepareTrustedValues(base::Bind(
+      chromeos::CrosSettings::Get()->PrepareTrustedValues(base::BindOnce(
           &BrowserPolicyConnectorChromeOS::SetTimezoneIfPolicyAvailable,
           weak_ptr_factory_.GetWeakPtr()));
 
@@ -476,10 +518,7 @@ void BrowserPolicyConnectorChromeOS::RestartDeviceCloudPolicyInitializer() {
 
 std::unique_ptr<chromeos::attestation::AttestationFlow>
 BrowserPolicyConnectorChromeOS::CreateAttestationFlow() {
-  return std::make_unique<chromeos::attestation::AttestationFlow>(
-      cryptohome::AsyncMethodCaller::GetInstance(),
-      chromeos::CryptohomeClient::Get(),
-      std::make_unique<chromeos::attestation::AttestationCAClient>());
+  return std::make_unique<chromeos::attestation::AttestationFlowIntegrated>();
 }
 
 chromeos::AffiliationIDSet

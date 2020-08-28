@@ -31,11 +31,12 @@
 #include "gpu/config/gpu_preferences.h"
 #include "gpu/config/skia_limits.h"
 #include "gpu/ipc/common/surface_handle.h"
+#include "gpu/ipc/in_process_command_buffer.h"
 #include "gpu/skia_bindings/gles2_implementation_with_grcontext_support.h"
 #include "gpu/skia_bindings/grcontext_for_gles2_interface.h"
 #include "third_party/khronos/GLES2/gl2.h"
 #include "third_party/khronos/GLES2/gl2ext.h"
-#include "third_party/skia/include/gpu/GrContext.h"
+#include "third_party/skia/include/gpu/GrDirectContext.h"
 #include "third_party/skia/include/gpu/gl/GrGLInterface.h"
 
 namespace viz {
@@ -133,6 +134,8 @@ VizProcessContextProvider::VizProcessContextProvider(
   }
 }
 
+VizProcessContextProvider::VizProcessContextProvider() = default;
+
 VizProcessContextProvider::~VizProcessContextProvider() {
   if (context_result_ == gpu::ContextResult::kSuccess) {
     base::trace_event::MemoryDumpManager::GetInstance()->UnregisterDumpProvider(
@@ -164,7 +167,7 @@ gpu::ContextSupport* VizProcessContextProvider::ContextSupport() {
   return gles2_implementation_.get();
 }
 
-class GrContext* VizProcessContextProvider::GrContext() {
+class GrDirectContext* VizProcessContextProvider::GrContext() {
   if (gr_context_)
     return gr_context_->get();
 
@@ -338,6 +341,14 @@ VizProcessContextProvider::GetGpuTaskSchedulerHelper() {
 
 gpu::SharedImageManager* VizProcessContextProvider::GetSharedImageManager() {
   return command_buffer_->GetSharedImageManager();
+}
+
+gpu::MemoryTracker* VizProcessContextProvider::GetMemoryTracker() {
+  return command_buffer_->GetMemoryTracker();
+}
+
+void VizProcessContextProvider::SetNeedsMeasureNextDrawLatency() {
+  return command_buffer_->SetNeedsMeasureNextDrawLatency();
 }
 
 }  // namespace viz

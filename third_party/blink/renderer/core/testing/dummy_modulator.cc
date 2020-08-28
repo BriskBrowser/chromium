@@ -4,6 +4,7 @@
 
 #include "third_party/blink/renderer/core/testing/dummy_modulator.h"
 
+#include "third_party/blink/renderer/bindings/core/v8/module_record.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_value.h"
 #include "third_party/blink/renderer/core/script/module_record_resolver.h"
 
@@ -41,7 +42,7 @@ DummyModulator::DummyModulator()
 
 DummyModulator::~DummyModulator() = default;
 
-void DummyModulator::Trace(blink::Visitor* visitor) {
+void DummyModulator::Trace(Visitor* visitor) const {
   visitor->Trace(resolver_);
   Modulator::Trace(visitor);
 }
@@ -62,16 +63,6 @@ bool DummyModulator::IsScriptingDisabled() const {
 bool DummyModulator::ImportMapsEnabled() const {
   return false;
 }
-
-bool DummyModulator::BuiltInModuleInfraEnabled() const {
-  return false;
-}
-
-bool DummyModulator::BuiltInModuleEnabled(blink::layered_api::Module) const {
-  return false;
-}
-
-void DummyModulator::BuiltInModuleUseCount(blink::layered_api::Module) const {}
 
 ModuleRecordResolver* DummyModulator::GetModuleRecordResolver() {
   return resolver_.Get();
@@ -178,13 +169,15 @@ Vector<Modulator::ModuleRequest> DummyModulator::ModuleRequestsFromModuleRecord(
   return Vector<ModuleRequest>();
 }
 
-ScriptValue DummyModulator::ExecuteModule(ModuleScript*, CaptureEvalErrorFlag) {
+ModuleEvaluationResult DummyModulator::ExecuteModule(ModuleScript*,
+                                                     CaptureEvalErrorFlag) {
   NOTREACHED();
-  return ScriptValue();
+  return ModuleEvaluationResult::Empty();
 }
 
 ModuleScriptFetcher* DummyModulator::CreateModuleScriptFetcher(
-    ModuleScriptCustomFetchType) {
+    ModuleScriptCustomFetchType,
+    util::PassKey<ModuleScriptLoader> pass_key) {
   NOTREACHED();
   return nullptr;
 }

@@ -14,9 +14,9 @@ import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import android.app.Activity;
-import android.os.Build;
 
 import org.junit.Before;
 import org.junit.Test;
@@ -26,28 +26,32 @@ import org.mockito.ArgumentMatcher;
 import org.mockito.Captor;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
+import org.robolectric.Robolectric;
 import org.robolectric.annotation.Config;
 
 import org.chromium.base.Promise;
 import org.chromium.base.UserDataHost;
 import org.chromium.base.test.BaseRobolectricTestRunner;
-import org.chromium.base.test.util.MinAndroidSdkLevel;
-import org.chromium.chrome.browser.ChromeActivity;
+import org.chromium.chrome.browser.app.ChromeActivity;
+import org.chromium.chrome.browser.tab.TabCreationState;
 import org.chromium.chrome.browser.tab.TabHidingType;
 import org.chromium.chrome.browser.tab.TabImpl;
 import org.chromium.chrome.browser.tab.TabLaunchType;
 import org.chromium.chrome.browser.tab.TabObserver;
 import org.chromium.chrome.browser.tab.TabSelectionType;
+import org.chromium.chrome.browser.tab.TabViewManager;
+import org.chromium.chrome.browser.tab.TabViewProvider;
 import org.chromium.chrome.browser.tabmodel.TabModel;
 import org.chromium.chrome.browser.tabmodel.TabModelObserver;
 import org.chromium.chrome.browser.tabmodel.TabModelSelector;
+import org.chromium.ui.base.WindowAndroid;
 
+import java.lang.ref.WeakReference;
 import java.util.Arrays;
 
 /** Unit tests for PageViewObserver. */
 @RunWith(BaseRobolectricTestRunner.class)
 @Config(manifest = Config.NONE)
-@MinAndroidSdkLevel(Build.VERSION_CODES.P)
 public final class PageViewObserverTest {
     private static final String STARTING_URL = "http://starting.url";
     private static final String DIFFERENT_URL = "http://different.url";
@@ -71,6 +75,8 @@ public final class PageViewObserverTest {
     @Mock
     private SuspensionTracker mSuspensionTracker;
     @Mock
+    private WindowAndroid mWindowAndroid;
+    @Mock
     private ChromeActivity mChromeActivity;
     @Captor
     private ArgumentCaptor<TabObserver> mTabObserverCaptor;
@@ -80,6 +86,27 @@ public final class PageViewObserverTest {
     private TabObserver mTabObserver;
     private UserDataHost mUserDataHost;
     private UserDataHost mUserDataHostTab2;
+    private UserDataHost mDestroyedUserDataHost;
+    private WeakReference<Activity> mActivityRef;
+
+    private class MockTabViewManager implements TabViewManager {
+        private TabViewProvider mTabViewProvider;
+
+        @Override
+        public boolean isShowing(TabViewProvider tabViewProvider) {
+            return mTabViewProvider != null && mTabViewProvider == tabViewProvider;
+        }
+
+        @Override
+        public void addTabViewProvider(TabViewProvider tabViewProvider) {
+            mTabViewProvider = tabViewProvider;
+        }
+
+        @Override
+        public void removeTabViewProvider(TabViewProvider tabViewProvider) {
+            if (mTabViewProvider == tabViewProvider) mTabViewProvider = null;
+        }
+    }
 
     @Before
     public void setUp() {
@@ -87,16 +114,27 @@ public final class PageViewObserverTest {
 
         mUserDataHost = new UserDataHost();
         mUserDataHostTab2 = new UserDataHost();
+        mDestroyedUserDataHost = new UserDataHost();
+        mDestroyedUserDataHost.destroy();
 
         doReturn(false).when(mTab).isIncognito();
-        doReturn(null).when(mTab).getUrl();
-        doReturn(mChromeActivity).when(mTab).getActivity();
+        doReturn(null).when(mTab).getUrlString();
+        doReturn(Robolectric.buildActivity(Activity.class).get()).when(mTab).getContext();
+        doReturn(Robolectric.buildActivity(Activity.class).get()).when(mTab2).getContext();
+        doReturn(new MockTabViewManager()).when(mTab).getTabViewManager();
+        doReturn(new MockTabViewManager()).when(mTab2).getTabViewManager();
+        doReturn(true).when(mTab).isInitialized();
+        doReturn(true).when(mTab2).isInitialized();
         doReturn(Arrays.asList(mTabModel)).when(mTabModelSelector).getModels();
         doReturn(mTab).when(mTabModelSelector).getCurrentTab();
         doReturn(mUserDataHost).when(mTab).getUserDataHost();
         doReturn(mUserDataHostTab2).when(mTab2).getUserDataHost();
-        doReturn(mChromeActivity).when(mTab2).getActivity();
         doReturn(Promise.fulfilled("1")).when(mTokenTracker).getTokenForFqdn(anyString());
+
+        mActivityRef = new WeakReference<>(mChromeActivity);
+        when(mTab.getWindowAndroid()).thenReturn(mWindowAndroid);
+        when(mTab2.getWindowAndroid()).thenReturn(mWindowAndroid);
+        when(mWindowAndroid.getActivity()).thenReturn(mActivityRef);
     }
 
     @Test
@@ -149,7 +187,7 @@ public final class PageViewObserverTest {
         updateUrl(mTab, STARTING_URL);
         reset(mEventTracker);
 
-        doReturn(DIFFERENT_URL).when(mTab2).getUrl();
+        doReturn(DIFFERENT_URL).when(mTab2).getUrlString();
         doReturn(mTab2).when(mTabModelSelector).getCurrentTab();
         doReturn(false).when(mTab2).isHidden();
         didSelectTab(mTab2, TabSelectionType.FROM_USER);
@@ -163,7 +201,7 @@ public final class PageViewObserverTest {
         updateUrl(mTab, STARTING_URL);
         verify(mEventTracker, times(1)).addWebsiteEvent(argThat(isStartEvent(STARTING_FQDN)));
 
-        doReturn(STARTING_URL).when(mTab2).getUrl();
+        doReturn(STARTING_URL).when(mTab2).getUrlString();
         didSelectTab(mTab2, TabSelectionType.FROM_USER);
         verify(mEventTracker, times(1)).addWebsiteEvent(argThat(isStartEvent(STARTING_FQDN)));
     }
@@ -174,7 +212,7 @@ public final class PageViewObserverTest {
         updateUrl(mTab, STARTING_URL);
         reset(mEventTracker);
 
-        doReturn(DIFFERENT_URL).when(mTab2).getUrl();
+        doReturn(DIFFERENT_URL).when(mTab2).getUrlString();
         doReturn(true).when(mTab2).isHidden();
         didSelectTab(mTab2, TabSelectionType.FROM_USER);
         verify(mEventTracker, times(0)).addWebsiteEvent(argThat(isStartEvent(DIFFERENT_FQDN)));
@@ -193,7 +231,7 @@ public final class PageViewObserverTest {
     @Test
     public void tabShown_startReported() {
         PageViewObserver observer = createPageViewObserver();
-        doReturn(STARTING_URL).when(mTab).getUrl();
+        doReturn(STARTING_URL).when(mTab).getUrlString();
         onShown(mTab, TabSelectionType.FROM_USER);
 
         verify(mEventTracker, times(1)).addWebsiteEvent(argThat(isStartEvent(STARTING_FQDN)));
@@ -205,7 +243,7 @@ public final class PageViewObserverTest {
         updateUrl(mTab, STARTING_URL);
         onHidden(mTab, TabHidingType.ACTIVITY_HIDDEN);
 
-        doReturn(DIFFERENT_URL).when(mTab2).getUrl();
+        doReturn(DIFFERENT_URL).when(mTab2).getUrlString();
         onShown(mTab2, TabSelectionType.FROM_CLOSE);
 
         verify(mEventTracker, times(1)).addWebsiteEvent(argThat(isStartEvent(STARTING_FQDN)));
@@ -216,7 +254,7 @@ public final class PageViewObserverTest {
     @Test
     public void tabAdded_startReported() {
         PageViewObserver observer = createPageViewObserver();
-        doReturn(STARTING_URL).when(mTab2).getUrl();
+        doReturn(STARTING_URL).when(mTab2).getUrlString();
         doReturn(mTab2).when(mTabModelSelector).getCurrentTab();
         didAddTab(mTab2, TabLaunchType.FROM_EXTERNAL_APP);
 
@@ -226,7 +264,7 @@ public final class PageViewObserverTest {
     @Test
     public void tabAdded_notSelected_startNotReported() {
         PageViewObserver observer = createPageViewObserver();
-        doReturn(STARTING_URL).when(mTab).getUrl();
+        doReturn(STARTING_URL).when(mTab).getUrlString();
         doReturn(null).when(mTabModelSelector).getCurrentTab();
         didAddTab(mTab, TabLaunchType.FROM_EXTERNAL_APP);
 
@@ -236,7 +274,7 @@ public final class PageViewObserverTest {
     @Test
     public void tabAdded_suspendedDomain() {
         PageViewObserver observer = createPageViewObserver();
-        doReturn(STARTING_URL).when(mTab2).getUrl();
+        doReturn(STARTING_URL).when(mTab2).getUrlString();
         doReturn(mTab2).when(mTabModelSelector).getCurrentTab();
         doReturn(true).when(mSuspensionTracker).isWebsiteSuspended(STARTING_FQDN);
         didAddTab(mTab2, TabLaunchType.FROM_EXTERNAL_APP);
@@ -263,7 +301,7 @@ public final class PageViewObserverTest {
         updateUrl(mTab, STARTING_URL);
 
         doReturn(true).when(mTab2).isIncognito();
-        doReturn(DIFFERENT_URL).when(mTab2).getUrl();
+        doReturn(DIFFERENT_URL).when(mTab2).getUrlString();
         didSelectTab(mTab2, TabSelectionType.FROM_USER);
         verify(mEventTracker, times(0)).addWebsiteEvent(argThat(isStartEvent(DIFFERENT_FQDN)));
         verify(mEventTracker, times(0)).addWebsiteEvent(argThat(isStopEvent(DIFFERENT_FQDN)));
@@ -274,7 +312,7 @@ public final class PageViewObserverTest {
         PageViewObserver observer = createPageViewObserver();
         updateUrl(mTab, STARTING_URL);
 
-        doReturn(DIFFERENT_URL).when(mTab).getUrl();
+        doReturn(DIFFERENT_URL).when(mTab).getUrlString();
         doReturn(true).when(mSuspensionTracker).isWebsiteSuspended(DIFFERENT_FQDN);
         updateUrl(mTab, DIFFERENT_URL);
 
@@ -287,7 +325,7 @@ public final class PageViewObserverTest {
         PageViewObserver observer = createPageViewObserver();
         updateUrl(mTab, STARTING_URL);
 
-        doReturn(DIFFERENT_URL).when(mTab).getUrl();
+        doReturn(DIFFERENT_URL).when(mTab).getUrlString();
         doReturn(true).when(mSuspensionTracker).isWebsiteSuspended(DIFFERENT_FQDN);
         updateUrl(mTab, DIFFERENT_URL);
 
@@ -303,7 +341,7 @@ public final class PageViewObserverTest {
         PageViewObserver observer = createPageViewObserver();
         updateUrl(mTab, STARTING_URL);
 
-        doReturn(STARTING_URL).when(mTab).getUrl();
+        doReturn(STARTING_URL).when(mTab).getUrlString();
         observer.notifySiteSuspensionChanged(STARTING_FQDN, true);
         assertTrue(SuspendedTab.from(mTab).isShowing());
 
@@ -317,7 +355,7 @@ public final class PageViewObserverTest {
         PageViewObserver observer = createPageViewObserver();
         updateUrl(mTab, STARTING_URL);
 
-        doReturn(STARTING_URL).when(mTab).getUrl();
+        doReturn(STARTING_URL).when(mTab).getUrlString();
         observer.notifySiteSuspensionChanged(STARTING_FQDN, true);
 
         SuspendedTab suspendedTab = SuspendedTab.from(mTab);
@@ -334,7 +372,7 @@ public final class PageViewObserverTest {
         PageViewObserver observer = createPageViewObserver();
         updateUrl(mTab, STARTING_URL);
 
-        doReturn(STARTING_URL).when(mTab).getUrl();
+        doReturn(STARTING_URL).when(mTab).getUrlString();
         observer.notifySiteSuspensionChanged(STARTING_FQDN, true);
 
         SuspendedTab suspendedTab = SuspendedTab.from(mTab);
@@ -350,7 +388,7 @@ public final class PageViewObserverTest {
         PageViewObserver observer = createPageViewObserver();
         updateUrl(mTab, STARTING_URL);
 
-        doReturn(STARTING_URL).when(mTab).getUrl();
+        doReturn(STARTING_URL).when(mTab).getUrlString();
         observer.notifySiteSuspensionChanged(STARTING_FQDN, true);
 
         SuspendedTab suspendedTab = SuspendedTab.from(mTab);
@@ -369,7 +407,7 @@ public final class PageViewObserverTest {
         PageViewObserver observer = createPageViewObserver();
         updateUrl(mTab, STARTING_URL);
 
-        doReturn(STARTING_URL).when(mTab).getUrl();
+        doReturn(STARTING_URL).when(mTab).getUrlString();
         observer.notifySiteSuspensionChanged(STARTING_FQDN, true);
 
         SuspendedTab suspendedTab = SuspendedTab.from(mTab);
@@ -407,12 +445,12 @@ public final class PageViewObserverTest {
 
     @Test
     public void customTab_startReportedUponConstruction() {
-        doReturn(STARTING_URL).when(mTab).getUrl();
+        doReturn(STARTING_URL).when(mTab).getUrlString();
         doReturn(false).when(mTab).isHidden();
         PageViewObserver observer = createPageViewObserver();
         verify(mEventTracker, times(1)).addWebsiteEvent(argThat(isStartEvent(STARTING_FQDN)));
 
-        doReturn(DIFFERENT_URL).when(mTab2).getUrl();
+        doReturn(DIFFERENT_URL).when(mTab2).getUrlString();
         doReturn(true).when(mTab2).isHidden();
         didAddTab(mTab2, TabLaunchType.FROM_EXTERNAL_APP);
         verify(mEventTracker, times(0)).addWebsiteEvent(argThat(isStartEvent(DIFFERENT_FQDN)));
@@ -424,9 +462,19 @@ public final class PageViewObserverTest {
         PageViewObserver observer = createPageViewObserver();
 
         doReturn(mTab).when(mTabModelSelector).getCurrentTab();
-        doReturn(STARTING_URL).when(mTab).getUrl();
+        doReturn(STARTING_URL).when(mTab).getUrlString();
         didSelectTab(mTab, TabSelectionType.FROM_USER);
         verify(mEventTracker, times(1)).addWebsiteEvent(argThat(isStartEvent(STARTING_FQDN)));
+    }
+
+    @Test
+    public void eagerSuspension_destroyedTab() {
+        PageViewObserver observer = createPageViewObserver();
+        updateUrl(mTab, STARTING_URL);
+
+        doReturn(mDestroyedUserDataHost).when(mTab).getUserDataHost();
+        doReturn(false).when(mTab).isInitialized();
+        observer.notifySiteSuspensionChanged(STARTING_FQDN, true);
     }
 
     private PageViewObserver createPageViewObserver() {
@@ -450,7 +498,7 @@ public final class PageViewObserverTest {
     }
 
     private void reportPaint(TabImpl tab, String url) {
-        doReturn(url).when(tab).getUrl();
+        doReturn(url).when(tab).getUrlString();
         getTabObserver().didFirstVisuallyNonEmptyPaint(tab);
     }
 
@@ -467,7 +515,7 @@ public final class PageViewObserverTest {
     }
 
     private void didAddTab(TabImpl tab, @TabLaunchType int launchType) {
-        getTabModelObserver().didAddTab(tab, launchType);
+        getTabModelObserver().didAddTab(tab, launchType, TabCreationState.LIVE_IN_FOREGROUND);
     }
 
     private TabObserver getTabObserver() {

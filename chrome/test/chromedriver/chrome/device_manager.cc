@@ -10,7 +10,7 @@
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/callback.h"
-#include "base/logging.h"
+#include "base/check.h"
 #include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
@@ -20,15 +20,15 @@
 
 const char kChromeCmdLineFile[] = "/data/local/tmp/chrome-command-line";
 
-Device::Device(
-    const std::string& device_serial, Adb* adb,
-    base::Callback<void()> release_callback)
+Device::Device(const std::string& device_serial,
+               Adb* adb,
+               base::OnceCallback<void()> release_callback)
     : serial_(device_serial),
       adb_(adb),
-      release_callback_(release_callback) {}
+      release_callback_(std::move(release_callback)) {}
 
 Device::~Device() {
-  release_callback_.Run();
+  std::move(release_callback_).Run();
 }
 
 // Only allow completely alpha exec names.
@@ -80,8 +80,20 @@ Status Device::SetUp(const std::string& package,
     command_line_file = base::StringPrintf("/data/local/tmp/%s_devtools_remote",
                                            exec_name.c_str());
     use_debug_flag = true;
+  } else if (package.find("webview") != std::string::npos) {
+    command_line_file = "/data/local/tmp/webview-command-line";
+    // This name isn't really important, what is important is that it's
+    // non-empty. If empty, it means webview treats the the first value of
+    // |args| as the executable name, and not an argument (in other words,
+    // args[0] is effectively ignored as a command line switch).
+    known_exec_name = "webview";
   } else if (package.find("weblayer") != std::string::npos) {
     command_line_file = "/data/local/tmp/weblayer-command-line";
+    // This name isn't really important, what is important is that it's
+    // non-empty. If empty, it means weblayer treats the the first value of
+    // |args| as the executable name, and not an argument (in other words,
+    // args[0] is effectively ignored as a command line switch).
+    known_exec_name = "weblayer_shell";
   }
 
   if (!use_running_app) {
@@ -252,8 +264,8 @@ void DeviceManager::ReleaseDevice(const std::string& device_serial) {
 Device* DeviceManager::LockDevice(const std::string& device_serial) {
   active_devices_.push_back(device_serial);
   return new Device(device_serial, adb_,
-      base::Bind(&DeviceManager::ReleaseDevice, base::Unretained(this),
-                 device_serial));
+                    base::BindOnce(&DeviceManager::ReleaseDevice,
+                                   base::Unretained(this), device_serial));
 }
 
 bool DeviceManager::IsDeviceLocked(const std::string& device_serial) {

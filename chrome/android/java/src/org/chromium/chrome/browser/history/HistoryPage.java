@@ -9,10 +9,10 @@ import android.app.Activity;
 import androidx.annotation.VisibleForTesting;
 
 import org.chromium.chrome.R;
-import org.chromium.chrome.browser.ChromeActivity;
-import org.chromium.chrome.browser.native_page.BasicNativePage;
-import org.chromium.chrome.browser.native_page.NativePageHost;
-import org.chromium.chrome.browser.util.UrlConstants;
+import org.chromium.chrome.browser.app.ChromeActivity;
+import org.chromium.chrome.browser.ui.native_page.BasicNativePage;
+import org.chromium.chrome.browser.ui.native_page.NativePageHost;
+import org.chromium.components.embedder_support.util.UrlConstants;
 
 /**
  * Native page for managing browsing history.
@@ -33,7 +33,6 @@ public class HistoryPage extends BasicNativePage {
         mHistoryManager = new HistoryManager(activity, false, activity.getSnackbarManager(),
                 activity.getCurrentTabModel().isIncognito());
         mTitle = host.getContext().getResources().getString(R.string.menu_history);
-        mHistoryManager.setHistoryNavigationDelegate(host.createHistoryNavigationDelegate());
 
         initWithView(mHistoryManager.getView());
     }

@@ -47,7 +47,7 @@ class SearchPermissionsService : public KeyedService {
 
     // Set a callback that will be called if the DSE or CCTLD changes for any
     // reason.
-    virtual void SetDSEChangedCallback(const base::Closure& callback) = 0;
+    virtual void SetDSEChangedCallback(base::RepeatingClosure callback) = 0;
   };
 
   // Factory implementation will not create a service in incognito.
@@ -91,7 +91,7 @@ class SearchPermissionsService : public KeyedService {
  private:
   friend class ChromeBrowsingDataRemoverDelegateTest;
   friend class SearchPermissionsServiceTest;
-  FRIEND_TEST_ALL_PREFIXES(GeolocationPermissionContextTests,
+  FRIEND_TEST_ALL_PREFIXES(GeolocationPermissionContextDelegateTests,
                            SearchGeolocationInIncognito);
   struct PrefValue;
 

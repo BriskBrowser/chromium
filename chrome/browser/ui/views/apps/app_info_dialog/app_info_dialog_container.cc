@@ -31,13 +31,12 @@
 #if defined(OS_CHROMEOS)
 #include "ash/public/cpp/app_list/app_list_config.h"
 #include "third_party/skia/include/core/SkPaint.h"
-#include "ui/native_theme/native_theme.h"
 #include "ui/views/background.h"
 #endif
 
 namespace {
 
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
 const ui::ModalType kModalType = ui::MODAL_TYPE_CHILD;
 const views::BubbleBorder::Shadow kShadowType = views::BubbleBorder::NO_ASSETS;
 #else
@@ -80,16 +79,15 @@ class BaseDialogContainer : public views::DialogDelegateView {
   BaseDialogContainer(std::unique_ptr<views::View> dialog_body,
                       const base::Closure& close_callback)
       : dialog_body_(AddChildView(std::move(dialog_body))),
-        close_callback_(close_callback) {}
+        close_callback_(close_callback) {
+    SetButtons(ui::DIALOG_BUTTON_NONE);
+  }
   ~BaseDialogContainer() override {}
 
  protected:
   views::View* dialog_body() { return dialog_body_; }
 
  private:
-  // Overridden from views::DialogDelegate:
-  int GetDialogButtons() const override { return ui::DIALOG_BUTTON_NONE; }
-
   // Overridden from views::WidgetDelegate:
   ui::ModalType GetModalType() const override { return kModalType; }
   void WindowClosing() override {
@@ -113,8 +111,8 @@ class AppListDialogContainer : public BaseDialogContainer,
   explicit AppListDialogContainer(std::unique_ptr<views::View> dialog_body)
       : BaseDialogContainer(std::move(dialog_body), base::RepeatingClosure()) {
     SetBackground(std::make_unique<AppListOverlayBackground>());
-    close_button_ = AddChildView(views::BubbleFrameView::CreateCloseButton(
-        this, GetNativeTheme()->ShouldUseDarkColors()));
+    close_button_ =
+        AddChildView(views::BubbleFrameView::CreateCloseButton(this));
   }
   ~AppListDialogContainer() override {}
 
@@ -133,9 +131,9 @@ class AppListDialogContainer : public BaseDialogContainer,
   }
 
   // views::WidgetDelegate:
-  views::NonClientFrameView* CreateNonClientFrameView(
+  std::unique_ptr<views::NonClientFrameView> CreateNonClientFrameView(
       views::Widget* widget) override {
-    return new views::NativeFrameView(widget);
+    return std::make_unique<views::NativeFrameView>(widget);
   }
 
   // views::ButtonListener:
@@ -203,9 +201,9 @@ class NativeDialogContainer : public BaseDialogContainer {
 
  private:
   // Overridden from views::WidgetDelegate:
-  views::NonClientFrameView* CreateNonClientFrameView(
+  std::unique_ptr<views::NonClientFrameView> CreateNonClientFrameView(
       views::Widget* widget) override {
-    FullSizeBubbleFrameView* frame = new FullSizeBubbleFrameView();
+    auto frame = std::make_unique<FullSizeBubbleFrameView>();
     auto border = std::make_unique<views::BubbleBorder>(
         views::BubbleBorder::FLOAT, kShadowType, gfx::kPlaceholderColor);
     border->set_use_theme_background_color(true);

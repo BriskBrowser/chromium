@@ -1,7 +1,14 @@
-# tags: [ Android Fuchsia IOS IOS12.2 IOS13.0 Linux Mac Mac10.10 Mac10.11 Mac10.12 Retina
-#         Mac10.13 Win Win7 Win10 ]
+# tags: [ Android Fuchsia Linux Mac Mac10.12 Mac10.13 Win Win7 Win10 ]
 # tags: [ Release Debug ]
 # results: [ Timeout Crash Pass Failure Slow Skip ]
+
+# These expectations are used when LayoutNG is disabled. We test this
+# configuration on trybot linux_layout_tests_layout_ng_disabled.
+# Though LayoutNG has been enabled in M76, we still keep running web tests with
+# LayoutNG disabled because we still use legacy layout for editing, multicol,
+# etc. Though we have tests for editing and multicol, the tests don't fully
+# cover all layout code paths, so we need to run all web tests to ensure legacy
+# layout still fully works.
 
 # Tests that fail in legacy but pass in NG
 
@@ -56,8 +63,13 @@ crbug.com/998423 external/wpt/css/css-multicol/with-custom-layout-on-same-elemen
 crbug.com/998423 external/wpt/css/css-multicol/with-custom-layout-on-same-element.https.html [ Skip ]
 
 ### external/wpt/css/css-position/
+crbug.com/591099 external/wpt/css/css-position/position-absolute-center-003.html [ Failure ]
+crbug.com/591099 external/wpt/css/css-position/position-absolute-center-004.html [ Failure ]
 crbug.com/591099 external/wpt/css/css-position/position-absolute-crash-chrome-006.html [ Crash ]
 crbug.com/591099 external/wpt/css/css-position/position-absolute-dynamic-overflow-002.html [ Failure ]
+crbug.com/591099 external/wpt/css/css-position/position-relative-001.html [ Failure ]
+crbug.com/591099 external/wpt/css/css-position/position-relative-002.html [ Failure ]
+crbug.com/591099 external/wpt/css/css-position/position-relative-004.html [ Failure ]
 
 ### external/wpt/css/css-position/static-position/
 crbug.com/591099 external/wpt/css/css-position/static-position/htb-ltr-rtl.tentative.html [ Failure ]
@@ -71,17 +83,9 @@ crbug.com/591099 external/wpt/css/css-position/static-position/vrl-rtl-ltr.tenta
 crbug.com/591099 external/wpt/css/css-position/static-position/vrl-rtl-rtl.html [ Failure ]
 
 ### external/wpt/css/css-pseudo/
-crbug.com/457718 external/wpt/css/css-pseudo/marker-computed-size.html [ Failure ]
-crbug.com/457718 external/wpt/css/css-pseudo/marker-content-003.html [ Failure ]
-crbug.com/457718 external/wpt/css/css-pseudo/marker-content-003b.html [ Failure ]
-crbug.com/457718 external/wpt/css/css-pseudo/marker-content-004.html [ Failure ]
-crbug.com/457718 external/wpt/css/css-pseudo/marker-content-006.html [ Failure ]
-crbug.com/457718 external/wpt/css/css-pseudo/marker-content-012.html [ Failure ]
-crbug.com/457718 external/wpt/css/css-pseudo/marker-content-014.html [ Failure ]
-crbug.com/457718 external/wpt/css/css-pseudo/marker-content-015.html [ Failure ]
-crbug.com/457718 external/wpt/css/css-pseudo/marker-content-016.html [ Failure ]
-crbug.com/457718 external/wpt/css/css-pseudo/marker-content-017.html [ Failure ]
-crbug.com/457718 external/wpt/css/css-pseudo/marker-content-018.html [ Failure ]
+crbug.com/1101040 external/wpt/css/css-pseudo/marker-content-016.html [ Failure ]
+crbug.com/1101034 external/wpt/css/css-pseudo/marker-content-018.html [ Failure ]
+crbug.com/1108830 external/wpt/css/css-pseudo/marker-text-transform-uppercase.html [ Failure ]
 crbug.com/1012289 external/wpt/css/css-pseudo/marker-unicode-bidi-default.html [ Failure ]
 crbug.com/1012289 external/wpt/css/css-pseudo/marker-unicode-bidi-normal.html [ Failure ]
 
@@ -89,10 +93,52 @@ crbug.com/1012289 external/wpt/css/css-pseudo/marker-unicode-bidi-normal.html [ 
 crbug.com/591099 external/wpt/css/css-shapes/shape-outside/supported-shapes/polygon/shape-outside-polygon-017.html [ Failure ]
 
 ### external/wpt/css/css-sizing/
+crbug.com/1045668 external/wpt/css/css-sizing/aspect-ratio/abspos-001.tentative.html [ Failure ]
+crbug.com/1045668 external/wpt/css/css-sizing/aspect-ratio/abspos-002.tentative.html [ Failure ]
+crbug.com/1045668 external/wpt/css/css-sizing/aspect-ratio/abspos-003.tentative.html [ Failure ]
+crbug.com/1045668 external/wpt/css/css-sizing/aspect-ratio/abspos-004.tentative.html [ Failure ]
+crbug.com/1045668 external/wpt/css/css-sizing/aspect-ratio/abspos-005.tentative.html [ Failure ]
+crbug.com/1045668 external/wpt/css/css-sizing/aspect-ratio/abspos-006.tentative.html [ Failure ]
+crbug.com/1045668 external/wpt/css/css-sizing/aspect-ratio/abspos-007.tentative.html [ Failure ]
+crbug.com/1045668 external/wpt/css/css-sizing/aspect-ratio/abspos-008.tentative.html [ Failure ]
+crbug.com/1045668 external/wpt/css/css-sizing/aspect-ratio/abspos-009.tentative.html [ Failure ]
+crbug.com/1045668 external/wpt/css/css-sizing/aspect-ratio/abspos-010.tentative.html [ Failure ]
+crbug.com/1045668 external/wpt/css/css-sizing/aspect-ratio/abspos-011.tentative.html [ Failure ]
+crbug.com/1045668 external/wpt/css/css-sizing/aspect-ratio/block-aspect-ratio-009.tentative.html [ Failure ]
+crbug.com/1045668 external/wpt/css/css-sizing/aspect-ratio/block-aspect-ratio-014.tentative.html [ Failure ]
+crbug.com/1045668 external/wpt/css/css-sizing/aspect-ratio/block-aspect-ratio-015.tentative.html [ Failure ]
+crbug.com/1045668 external/wpt/css/css-sizing/aspect-ratio/block-aspect-ratio-017.tentative.html [ Failure ]
+crbug.com/1045668 external/wpt/css/css-sizing/aspect-ratio/block-aspect-ratio-020.tentative.html [ Failure ]
+crbug.com/1045668 external/wpt/css/css-sizing/aspect-ratio/block-aspect-ratio-021.tentative.html [ Failure ]
+crbug.com/1045668 external/wpt/css/css-sizing/aspect-ratio/block-aspect-ratio-023.tentative.html [ Failure ]
+crbug.com/1045668 external/wpt/css/css-sizing/aspect-ratio/block-aspect-ratio-024.tentative.html [ Failure ]
+crbug.com/1045668 external/wpt/css/css-sizing/aspect-ratio/block-aspect-ratio-025.tentative.html [ Failure ]
+crbug.com/1045668 external/wpt/css/css-sizing/aspect-ratio/block-aspect-ratio-026.tentative.html [ Failure ]
+crbug.com/1045668 external/wpt/css/css-sizing/aspect-ratio/block-aspect-ratio-027.tentative.html [ Failure ]
+crbug.com/1045668 external/wpt/css/css-sizing/aspect-ratio/block-aspect-ratio-028.tentative.html [ Failure ]
+crbug.com/1045668 external/wpt/css/css-sizing/aspect-ratio/flex-aspect-ratio-008.tentative.html [ Failure ]
+crbug.com/1045668 external/wpt/css/css-sizing/aspect-ratio/flex-aspect-ratio-009.tentative.html [ Failure ]
+crbug.com/1045668 external/wpt/css/css-sizing/aspect-ratio/intrinsic-size-001.tentative.html [ Failure ]
+crbug.com/1045668 external/wpt/css/css-sizing/aspect-ratio/intrinsic-size-002.tentative.html [ Failure ]
+crbug.com/1045668 external/wpt/css/css-sizing/aspect-ratio/intrinsic-size-004.tentative.html [ Failure ]
+crbug.com/1045668 external/wpt/css/css-sizing/aspect-ratio/intrinsic-size-006.tentative.html [ Failure ]
+crbug.com/1045668 external/wpt/css/css-sizing/aspect-ratio/intrinsic-size-008.tentative.html [ Failure ]
+crbug.com/1045668 external/wpt/css/css-sizing/aspect-ratio/percentage-resolution-001.tentative.html [ Failure ]
+crbug.com/1045668 external/wpt/css/css-sizing/aspect-ratio/percentage-resolution-002.tentative.html [ Failure ]
+crbug.com/1045668 external/wpt/css/css-sizing/aspect-ratio/percentage-resolution-004.tentative.html [ Failure ]
+crbug.com/1045668 external/wpt/css/css-sizing/aspect-ratio/quirks-mode-001.tentative.html [ Failure ]
 crbug.com/591099 external/wpt/css/css-sizing/clone-nowrap-intrinsic-size-bidi.html [ Failure ]
 crbug.com/591099 external/wpt/css/css-sizing/intrinsic-percent-non-replaced-004.html [ Failure ]
 crbug.com/591099 external/wpt/css/css-sizing/intrinsic-percent-non-replaced-005.html [ Failure ]
+crbug.com/591099 external/wpt/css/css-sizing/intrinsic-percent-replaced-008.html [ Failure ]
+crbug.com/591099 external/wpt/css/css-sizing/intrinsic-percent-replaced-dynamic-001.html [ Failure ]
+crbug.com/591099 external/wpt/css/css-sizing/intrinsic-percent-replaced-dynamic-002.html [ Failure ]
+crbug.com/591099 external/wpt/css/css-sizing/intrinsic-percent-replaced-dynamic-004.html [ Failure ]
+crbug.com/591099 external/wpt/css/css-sizing/intrinsic-percent-replaced-dynamic-006.html [ Failure ]
+crbug.com/591099 external/wpt/css/css-sizing/intrinsic-percent-replaced-dynamic-007.html [ Failure ]
+crbug.com/591099 external/wpt/css/css-sizing/intrinsic-percent-replaced-dynamic-008.html [ Failure ]
 crbug.com/591099 external/wpt/css/css-sizing/whitespace-and-break.html [ Failure ]
+crbug.com/591099 external/wpt/css/css-sizing/ortho-writing-mode-001.html [ Failure ]
 
 ### external/wpt/css/css-text/boundary-shaping/
 crbug.com/591099 external/wpt/css/css-text/boundary-shaping/boundary-shaping-001.html [ Failure ]
@@ -170,6 +216,9 @@ crbug.com/1017164 external/wpt/css/css-text/word-break/word-break-break-all-inli
 
 ### external/wpt/css/css-ui/
 crbug.com/591099 external/wpt/css/css-ui/text-overflow-010.html [ Failure ]
+crbug.com/1063319 external/wpt/css/css-ui/text-overflow-028.html [ Failure ]
+crbug.com/1078539 external/wpt/css/css-ui/outline-025.html [ Failure ]
+crbug.com/1078539 external/wpt/css/css-ui/outline-026.html [ Failure ]
 
 ### external/wpt/css/css-writing-modes/
 crbug.com/591099 external/wpt/css/css-writing-modes/abs-pos-non-replaced-icb-vlr-003.xht [ Failure ]
@@ -245,6 +294,7 @@ crbug.com/591099 external/wpt/css/css-writing-modes/abs-pos-non-replaced-vrl-204
 crbug.com/591099 external/wpt/css/css-writing-modes/abs-pos-non-replaced-vrl-208.xht [ Failure ]
 crbug.com/591099 external/wpt/css/css-writing-modes/abs-pos-non-replaced-vrl-220.xht [ Failure ]
 crbug.com/591099 external/wpt/css/css-writing-modes/abs-pos-non-replaced-vrl-224.xht [ Failure ]
+crbug.com/591099 external/wpt/css/css-writing-modes/abs-pos-with-replaced-child.html [ Failure ]
 crbug.com/591099 external/wpt/css/css-writing-modes/available-size-002.html [ Failure ]
 crbug.com/591099 external/wpt/css/css-writing-modes/available-size-010.html [ Failure ]
 crbug.com/591099 external/wpt/css/css-writing-modes/available-size-017.html [ Failure ]
@@ -294,6 +344,7 @@ crbug.com/1012294 external/wpt/css/css-lists/list-style-type-string-007.html [ P
 
 ### external/wpt/css/vendor-imports/mozilla/mozilla-central-reftests/flexbox/
 crbug.com/591099 external/wpt/css/vendor-imports/mozilla/mozilla-central-reftests/flexbox/flexbox-align-self-horiz-002.xhtml [ Failure ]
+crbug.com/886592 external/wpt/css/vendor-imports/mozilla/mozilla-central-reftests/align3/flex-abspos-staticpos-margin-002.html [ Failure ]
 
 ### external/wpt/css/vendor-imports/mozilla/mozilla-central-reftests/ib-split/
 crbug.com/591099 external/wpt/css/vendor-imports/mozilla/mozilla-central-reftests/ib-split/emptyspan-1.html [ Failure ]
@@ -330,6 +381,16 @@ crbug.com/591099 external/wpt/quirks/line-height-trailing-collapsable-whitespace
 
 ### fast/css/
 crbug.com/591099 fast/css/absolute-inline-alignment-2.html [ Failure ]
+crbug.com/591099 fast/css/text-overflow-ellipsis-button.html [ Failure ]
+
+### fast/writing-mode/
+crbug.com/591099 fast/writing-mode/flipped-blocks-inline-map-local-to-container.html [ Failure ]
+
+### external/wpt/html/rendering
+crbug.com/591099 external/wpt/html/rendering/non-replaced-elements/the-fieldset-and-legend-elements/fieldset-overflow-hidden.html [ Failure ]
+crbug.com/591099 external/wpt/html/rendering/non-replaced-elements/the-fieldset-and-legend-elements/fieldset-overflow.html [ Crash Failure ]
+crbug.com/591099 external/wpt/html/rendering/non-replaced-elements/the-fieldset-and-legend-elements/fieldset-vertical.html [ Failure ]
+crbug.com/875235 external/wpt/html/rendering/non-replaced-elements/the-fieldset-and-legend-elements/legend-painting-order.html [ Failure ]
 
 ### virtual/text-antialias/
 crbug.com/591099 virtual/text-antialias/justify-ideograph-simple.html [ Failure ]
@@ -352,14 +413,53 @@ crbug.com/874695 http/tests/credentialmanager/credentialscontainer-create-with-v
 ### http/tests/csslayout/
 crbug.com/591099 http/tests/csslayout/* [ Skip ]
 
+### virtual/controls-refresh-hc/
+virtual/controls-refresh-hc/* [ Skip ]
+
+### virtual/layout_ng_block_frag/
+virtual/layout_ng_block_frag/* [ Skip ]
+
+### virtual/layout_ng_fragment_traversal/
+virtual/layout_ng_fragment_traversal/* [ Skip ]
+
+### virtual/layout_ng_printing/
+virtual/layout_ng_printing/* [ Skip ]
+
 ### virtual/omt-worker-fetch/external/wpt/service-workers/service-worker/
 crbug.com/591099 virtual/omt-worker-fetch/external/wpt/service-workers/service-worker/registration-updateviacache.https.html [ Failure ]
 
+### virtual/web-components-v0-disabled/
+virtual/web-components-v0-disabled/* [ Skip ]
+
 crbug.com/591099 external/wpt/css/css-tables/absolute-tables-002.html [ Failure ]
+crbug.com/591099 external/wpt/css/css-tables/absolute-tables-007.html [ Failure ]
 
 crbug.com/591099 virtual/scalefactor200/external/wpt/element-timing/observe-text.html [ Failure ]
 crbug.com/591099 virtual/scalefactor200withoutzoom/external/wpt/element-timing/css-generated-text.html [ Failure ]
 crbug.com/591099 virtual/scalefactor200withoutzoom/external/wpt/largest-contentful-paint/larger-text.html [ Failure ]
+
+# Line clamp overflow fixed in NG
+crbug.com/591099 external/wpt/css/css-overflow/webkit-line-clamp-009.html [ Failure ]
+crbug.com/591099 external/wpt/css/css-overflow/webkit-line-clamp-010.html [ Failure ]
+crbug.com/591099 external/wpt/css/css-overflow/webkit-line-clamp-011.html [ Failure ]
+crbug.com/591099 external/wpt/css/css-overflow/webkit-line-clamp-012.html [ Failure ]
+crbug.com/591099 external/wpt/css/css-overflow/webkit-line-clamp-013.html [ Failure ]
+crbug.com/591099 external/wpt/css/css-overflow/webkit-line-clamp-014.html [ Failure ]
+crbug.com/591099 external/wpt/css/css-overflow/webkit-line-clamp-027.html [ Failure ]
+
+# White space, absolute position and paint timing failures from June 5, 2020
+crbug.com/591099 external/wpt/paint-timing/fcp-only/fcp-pseudo-element-visibility.html [ Failure ]
+crbug.com/591099 external/wpt/css/css-position/position-absolute-center-001.tentative.html [ Failure ]
+crbug.com/591099 external/wpt/css/css-position/position-absolute-center-002.tentative.html [ Failure ]
+crbug.com/591099 external/wpt/css/css-text/white-space/break-spaces-051.html [ Failure ]
+crbug.com/591099 external/wpt/css/css-text/white-space/break-spaces-052.html [ Failure ]
+crbug.com/591099 external/wpt/css/css-text/white-space/pre-wrap-051.html [ Failure ]
+crbug.com/591099 external/wpt/css/css-text/white-space/pre-wrap-052.html [ Failure ]
+crbug.com/591099 external/wpt/css/css-text/white-space/white-space-pre-031.html [ Failure ]
+crbug.com/591099 external/wpt/css/css-text/white-space/white-space-pre-032.html [ Failure ]
+crbug.com/591099 external/wpt/css/css-text/white-space/white-space-pre-035.html [ Failure ]
+crbug.com/591099 external/wpt/css/css-text/white-space/white-space-pre-051.html [ Failure ]
+crbug.com/591099 external/wpt/css/css-text/white-space/white-space-pre-052.html [ Failure ]
 
 ### 7/22/2019 update
 crbug.com/591099 compositing/overflow/scrollbar-layer-placement-negative-z-index-child.html [ Failure ]
@@ -373,6 +473,22 @@ crbug.com/591099 virtual/compositor_threaded_scrollbar_scrolling/paint/invalidat
 
 crbug.com/591099 external/wpt/css/css-flexbox/flexbox_align-items-stretch-3.html [ Failure ]
 crbug.com/591099 external/wpt/css/css-flexbox/percentage-heights-006.html [ Failure ]
+crbug.com/591099 external/wpt/css/css-flexbox/percentage-heights-014.html [ Failure ]
+crbug.com/591099 external/wpt/css/css-flexbox/flex-minimum-height-flex-items-023.html [ Failure ]
+crbug.com/721123 css3/flexbox/flexitem.html [ Failure ]
+crbug.com/721123 external/wpt/css/css-flexbox/flexitem-stretch-image.html [ Failure ]
+crbug.com/721123 external/wpt/css/vendor-imports/mozilla/mozilla-central-reftests/flexbox/flexbox-intrinsic-ratio-001.html [ Failure ]
+crbug.com/721123 external/wpt/css/vendor-imports/mozilla/mozilla-central-reftests/flexbox/flexbox-intrinsic-ratio-001v.html [ Failure ]
+crbug.com/721123 external/wpt/css/vendor-imports/mozilla/mozilla-central-reftests/flexbox/flexbox-intrinsic-ratio-002.html [ Failure ]
+crbug.com/721123 external/wpt/css/vendor-imports/mozilla/mozilla-central-reftests/flexbox/flexbox-intrinsic-ratio-002v.html [ Failure ]
+crbug.com/721123 external/wpt/css/vendor-imports/mozilla/mozilla-central-reftests/flexbox/flexbox-intrinsic-ratio-005.html [ Failure ]
+crbug.com/721123 external/wpt/css/vendor-imports/mozilla/mozilla-central-reftests/flexbox/flexbox-intrinsic-ratio-005v.html [ Failure ]
+crbug.com/721123 external/wpt/css/vendor-imports/mozilla/mozilla-central-reftests/flexbox/flexbox-intrinsic-ratio-006.html [ Failure ]
+crbug.com/721123 external/wpt/css/vendor-imports/mozilla/mozilla-central-reftests/flexbox/flexbox-intrinsic-ratio-006v.html [ Failure ]
+crbug.com/721123 external/wpt/css/vendor-imports/mozilla/mozilla-central-reftests/flexbox/flexbox-intrinsic-ratio-007.html [ Failure ]
+crbug.com/721123 external/wpt/css/vendor-imports/mozilla/mozilla-central-reftests/flexbox/flexbox-intrinsic-ratio-007v.html [ Failure ]
+crbug.com/704294 external/wpt/css/css-flexbox/flex-aspect-ratio-img-row-006.html [ Failure ]
+crbug.com/704294 external/wpt/css/css-flexbox/canvas-dynamic-change-001.html [ Failure ]
 
 # These would need a rebaseline back from LayoutNGBlockFlow to LayoutBlockFlow
 crbug.com/864567 paint/float/float-under-inline-self-painting-change.html [ Failure ]
@@ -409,8 +525,7 @@ crbug.com/1016759 paint/invalidation/svg/animated-path-inside-transformed-html.x
 crbug.com/1016759 paint/invalidation/svg/circle-move-invalidation.svg [ Failure ]
 
 # display-locking
-crbug.com/591099 wpt_internal/display-lock/css-render-subtree/invisible-size-contained.html [ Failure ]
-crbug.com/1007506 wpt_internal/display-lock/rendersubtree/sizing/overflow-auto-with-overflow.html [ Failure ]
+crbug.com/591099 wpt_internal/display-lock/css-content-visibility/matchable/content-visibility-matchable-005.html [ Failure ]
 
 # 10/02/2019 Mark tests as failing. Mostly shapes, slight image differences
 external/wpt/css/CSS2/text/white-space-bidirectionality-001.xht [ Failure ]
@@ -437,28 +552,21 @@ svg/zoom/text/zoom-svg-float-border-padding.xml [ Failure ]
 virtual/composite-after-paint/scrollingcoordinator/non-fast-scrollable-transform-changed.html [ Crash ]
 virtual/forced-high-contrast-colors/fast/css/forced-colors-mode/forced-colors-mode-15.html [ Failure ]
 virtual/forced-high-contrast-colors/fast/css/forced-colors-mode/backplate/forced-colors-mode-backplate-07.html [ Failure ]
-virtual/layout_ng_block_frag/external/wpt/css/css-break/hit-test-inline-fragmentation-with-border-radius.html [ Failure ]
 
 
 # 10/27/2019 updates.
 external/wpt/css/css-writing-modes/wm-propagation-body-044.html [ Failure ]
-external/wpt/native-file-system/sandboxed_FileSystemBaseHandle-postMessage-MessagePort.tentative.https.window.html [ Crash ]
-external/wpt/native-file-system/sandboxed_FileSystemBaseHandle-postMessage.tentative.https.window.html [ Crash ]
-external/wpt/native-file-system/sandboxed_FileSystemDirectoryHandle-getFile.tentative.https.any.html [ Crash ]
 
 crbug.com/591099 paint/invalidation/compositing/composited-float-under-composited-inline-individual.html [ Failure ]
 crbug.com/591099 paint/invalidation/compositing/composited-float-under-composited-inline.html [ Failure ]
 crbug.com/591099 paint/invalidation/compositing/float-under-composited-inline.html [ Failure ]
 crbug.com/591099 paint/invalidation/compositing/stacked-float-under-composited-inline.html [ Failure ]
 
-# These should be rebaselined, but cannot because file paths are too long on Windows.
-virtual/controls-refresh-hc/virtual/controls-refresh/color-scheme/suggestion-picker/datetimelocal-suggestion-picker-appearance.html [ Failure ]
-virtual/controls-refresh-hc/virtual/controls-refresh/color-scheme/suggestion-picker/time-suggestion-picker-appearance.html [ Failure ]
-virtual/controls-refresh/color-scheme/suggestion-picker/datetimelocal-suggestion-picker-appearance.html [ Failure ]
-virtual/controls-refresh/color-scheme/suggestion-picker/time-suggestion-picker-appearance.html [ Failure ]
-
-# FlexNG depends on LayoutNG.
-crbug.com/845235 virtual/layout_ng_flex_box/* [ Skip ]
+# No H.254 decoder support in bot
+crbug.com/591099 external/wpt/webrtc/protocol/video-codecs.https.html [ Failure ]
+crbug.com/591099 external/wpt/webrtc/simulcast/h264.https.html [ Failure ]
+crbug.com/591099 virtual/webrtc-wpt-plan-b/external/wpt/webrtc/protocol/video-codecs.https.html [ Failure ]
+crbug.com/591099 virtual/webrtc-wpt-plan-b/external/wpt/webrtc/simulcast/h264.https.html [ Failure ]
 
 # MathML depends on LayoutNG.
 crbug.com/6606 external/wpt/mathml/* [ Skip ]
@@ -466,39 +574,104 @@ crbug.com/6606 external/wpt/mathml/* [ Skip ]
 crbug.com/1034944 webexposed/global-interface-listing.html [ Skip ]
 
 # TODO(iopopesc) these need to be rebaselined for FormControlsRefresh focus ring.
-crbug.com/1035582 fast/css/focus-ring-detached.html [ Skip ]
+crbug.com/1035582 fast/css/focus-ring-detached.html [ Failure ]
 crbug.com/1035582 fast/events/sequential-focus-navigation-starting-point.html [ Skip ]
-crbug.com/1035582 fast/inline/continuation-outlines-with-layers.html [ Skip ]
-crbug.com/1035582 fast/inline/continuation-outlines.html [ Skip ]
-crbug.com/1035582 paint/invalidation/4776765.html [ Skip ]
-crbug.com/1035582 paint/invalidation/clip/caret-ancestor-clip-change.html [ Skip ]
-crbug.com/1035582 paint/invalidation/invalidate-caret-before-text-node-update.html [ Skip ]
-crbug.com/1035582 paint/invalidation/outline/focus-continuations.html [ Skip ]
-crbug.com/1035582 paint/invalidation/outline/focus-enable-continuations.html [ Skip ]
-crbug.com/1035582 paint/invalidation/outline/focus-ring-on-child-move.html [ Skip ]
-crbug.com/1035582 paint/invalidation/outline/focus-ring-on-continuation-move.html [ Skip ]
-crbug.com/1035582 paint/invalidation/outline/focus-ring-on-inline-continuation-move.html [ Skip ]
-crbug.com/1035582 paint/invalidation/outline/outline-become-affected-by-descendant.html [ Skip ]
-crbug.com/1035582 paint/invalidation/outline/outline-become-not-affected-by-descendant.html [ Skip ]
-crbug.com/1035582 paint/invalidation/scroll/invalidate-caret-in-composited-scrolling-container.html [ Skip ]
-crbug.com/1035582 paint/invalidation/scroll/invalidate-caret-in-non-composited-scrolling-container.html [ Skip ]
-crbug.com/1035582 paint/invalidation/svg/focus-element.html [ Skip ]
-crbug.com/1035582 paint/invalidation/svg/scrolling-embedded-svg-file-image-repaint-problem.html [ Skip ]
-crbug.com/1035582 paint/invalidation/svg/transform-focus-ring-repaint.html [ Skip ]
-crbug.com/1035582 paint/invalidation/table/caret-contenteditable-content-after.html [ Skip ]
-crbug.com/1035582 virtual/controls-refresh/focus-rect/focus-ring-detached.html [ Skip ]
-crbug.com/1035582 virtual/mouseevent_fractional/fast/events/sequential-focus-navigation-starting-point.html [ Skip ]
-crbug.com/1035582 external/wpt/css/css-pseudo/selection-text-shadow-016.html [ Skip ]
-crbug.com/1035582 external/wpt/css/css-text-decor/text-decoration-subelements-001.html [ Skip ]
-crbug.com/1035582 paint/background/background-clip-text-descendants.html [ Skip ]
-crbug.com/1035582 tables/mozilla/bugs/bug2479-3.html [ Skip ]
-crbug.com/1035582 virtual/cascade/fast/forms/datetimelocal/datetimelocal-appearance-basic.html [ Skip ]
-crbug.com/1035582 virtual/composite-after-paint/paint/background/background-clip-text-descendants.html [ Skip ]
-crbug.com/1035582 virtual/forced-high-contrast-cascade/external/wpt/forced-colors-mode/forced-colors-mode-14.html [ Skip ]
-crbug.com/1035582 virtual/form-controls-refresh-disabled/fast/forms/select-popup/popup-menu-appearance-zoom.html [ Skip ]
-crbug.com/1035582 virtual/scalefactor200withzoom/fast/hidpi/static/popup-menu-appearance.html [ Skip ]
-crbug.com/1035582 fast/hidpi/scrollbar-appearance-increase-device-scale-factor.html [ Skip ]
-crbug.com/1035582 paint/invalidation/overflow/float-overflow-right.html [ Skip ]
-crbug.com/1035582 virtual/prefer_compositing_to_lcd_text/scrollbars/listbox-scrollbar-combinations.html [ Skip ]
-crbug.com/1035582 virtual/scalefactor150/fast/hidpi/static/calendar-picker-appearance.html [ Skip ]
-crbug.com/1035582 http/tests/devtools/sources/debugger-breakpoints/disable-breakpoints.js [ Skip ]
+crbug.com/1035582 fast/inline/continuation-outlines-with-layers.html [ Failure ]
+crbug.com/1035582 fast/inline/continuation-outlines.html [ Failure ]
+crbug.com/1035582 paint/invalidation/4776765.html [ Failure ]
+crbug.com/1035582 paint/invalidation/clip/caret-ancestor-clip-change.html [ Failure ]
+crbug.com/1035582 paint/invalidation/invalidate-caret-before-text-node-update.html [ Failure ]
+crbug.com/1035582 paint/invalidation/outline/focus-continuations.html [ Failure ]
+crbug.com/1035582 paint/invalidation/outline/focus-enable-continuations.html [ Failure ]
+crbug.com/1035582 paint/invalidation/outline/focus-ring-on-child-move.html [ Failure ]
+crbug.com/1035582 paint/invalidation/outline/focus-ring-on-continuation-move.html [ Failure ]
+crbug.com/1035582 paint/invalidation/outline/focus-ring-on-inline-continuation-move.html [ Failure ]
+crbug.com/1035582 paint/invalidation/outline/outline-become-affected-by-descendant.html [ Failure ]
+crbug.com/1035582 paint/invalidation/outline/outline-become-not-affected-by-descendant.html [ Failure ]
+crbug.com/1035582 paint/invalidation/scroll/invalidate-caret-in-composited-scrolling-container.html [ Failure ]
+crbug.com/1035582 paint/invalidation/scroll/invalidate-caret-in-non-composited-scrolling-container.html [ Failure ]
+crbug.com/1035582 paint/invalidation/svg/focus-element.html [ Failure ]
+crbug.com/1035582 paint/invalidation/svg/scrolling-embedded-svg-file-image-repaint-problem.html [ Failure ]
+crbug.com/1035582 paint/invalidation/svg/transform-focus-ring-repaint.html [ Failure ]
+crbug.com/1035582 paint/invalidation/table/caret-contenteditable-content-after.html [ Failure ]
+crbug.com/1035582 external/wpt/css/css-text-decor/text-decoration-subelements-001.html [ Failure ]
+crbug.com/1035582 paint/background/background-clip-text-descendants.html [ Failure ]
+crbug.com/1035582 tables/mozilla/bugs/bug2479-3.html [ Failure ]
+crbug.com/1035582 virtual/composite-after-paint/paint/background/background-clip-text-descendants.html [ Failure ]
+crbug.com/1035582 virtual/scalefactor200withzoom/fast/hidpi/static/popup-menu-appearance.html [ Failure ]
+crbug.com/1035582 fast/hidpi/scrollbar-appearance-increase-device-scale-factor.html [ Failure ]
+crbug.com/1035582 paint/invalidation/overflow/float-overflow-right.html [ Failure ]
+crbug.com/1035582 virtual/prefer_compositing_to_lcd_text/scrollbars/listbox-scrollbar-combinations.html [ Failure ]
+crbug.com/1035582 virtual/scalefactor150/fast/hidpi/static/calendar-picker-appearance.html [ Failure ]
+crbug.com/1035582 http/tests/devtools/sources/debugger-breakpoints/disable-breakpoints.js [ Failure ]
+crbug.com/1035582 paint/invalidation/forms/checkbox-focus-by-mouse-then-keydown.html [ Failure ]
+crbug.com/1035582 paint/invalidation/forms/radio-focus-by-mouse-then-keydown.html [ Failure ]
+crbug.com/1035582 editing/input/linux_rtl_composition_underline.html [ Failure ]
+crbug.com/1035582 fast/forms/form-element-geometry.html [ Failure ]
+crbug.com/1035582 fast/forms/plaintext-mode-2.html [ Failure ]
+crbug.com/1035582 fast/forms/validation-bubble-appearance-rtl-ui.html [ Failure ]
+crbug.com/1035582 paint/invalidation/float-offscreen.html [ Failure ]
+crbug.com/1035582 tables/mozilla/bugs/bug2479-2.html [ Failure ]
+crbug.com/1035582 tables/mozilla/bugs/bug46368-1.html [ Failure ]
+crbug.com/1035582 tables/mozilla/bugs/bug46368-2.html [ Failure ]
+crbug.com/1035582 tables/mozilla/bugs/bug59354.html [ Failure ]
+crbug.com/1035582 tables/mozilla/bugs/bug7342.html [ Failure ]
+
+crbug.com/845235 external/wpt/quirks/percentage-height-quirk-excludes-flex-grid-001.html [ Failure ]
+crbug.com/845235 external/wpt/css/css-flexbox/hittest-overlapping-order.html [ Failure ]
+
+crbug.com/1074752 editing/selection/selection-color.html [ Failure ]
+
+crbug.com/1074752 external/wpt/css/css-pseudo/active-selection-051.html [ Failure ]
+crbug.com/1074752 external/wpt/css/css-pseudo/active-selection-052.html [ Failure ]
+crbug.com/1074752 external/wpt/css/css-pseudo/active-selection-053.html [ Failure ]
+crbug.com/1074752 external/wpt/css/css-pseudo/active-selection-054.html [ Failure ]
+
+# Very small layout shift seen, only with LayoutNG disabled.
+crbug.com/1100711 external/wpt/layout-instability/ignore-fixed-and-sticky.html [ Failure ]
+
+# TODO(masonfreed) These were previously skipped by the [Skip] on several virtual suites (e.g. controls-refresh/*).
+crbug.com/1034611 fast/forms/color-scheme/text-selection-outside-control.html [ Skip ]
+crbug.com/1034611 fast/forms/color-scheme/date/date-appearance-basic.html [ Skip ]
+crbug.com/1034611 fast/forms/color-scheme/datetimelocal/datetimelocal-appearance-basic.html [ Skip ]
+crbug.com/1034611 fast/forms/color-scheme/file/file-appearance-basic.html [ Skip ]
+crbug.com/1034611 fast/forms/color-scheme/month/month-appearance-basic.html [ Skip ]
+crbug.com/1034611 fast/forms/color-scheme/select/select-popup-appearance-basic.html [ Skip ]
+crbug.com/1034611 fast/forms/color-scheme/suggestion-picker/datetimelocal-suggestion-picker-appearance.html [ Skip ]
+crbug.com/1034611 fast/forms/color-scheme/suggestion-picker/time-suggestion-picker-appearance.html [ Skip ]
+crbug.com/1034611 fast/forms/color-scheme/time/time-appearance-basic.html [ Skip ]
+crbug.com/1034611 fast/forms/color-scheme/week/week-appearance-basic.html [ Skip ]
+crbug.com/1034611 virtual/use-common-select-popup/fast/forms/color-scheme/select/select-popup-appearance-basic.html [ Skip ]
+
+
+### compositing/filters/
+crbug.com/591099 compositing/filters/sw-nested-shadow-overlaps-hw-nested-shadow.html [ Failure ]
+
+### external/wpt/appmanifest/start_url-member/
+crbug.com/591099 external/wpt/appmanifest/start_url-member/start_url-member-fail-manual.sub.html [ Failure ]
+crbug.com/591099 external/wpt/appmanifest/start_url-member/start_url-member-pass-manual.html [ Failure ]
+
+### external/wpt/css/css-flexbox/
+crbug.com/591099 external/wpt/css/css-flexbox/percentage-size-quirks-002.html [ Failure ]
+crbug.com/591099 external/wpt/css/css-flexbox/position-absolute-014.html [ Failure ]
+crbug.com/591099 external/wpt/css/css-flexbox/position-absolute-015.html [ Failure ]
+
+### external/wpt/css/css-pseudo/
+crbug.com/591099 external/wpt/css/css-pseudo/active-selection-011.html [ Failure ]
+
+### external/wpt/css/css-writing-modes/
+crbug.com/591099 external/wpt/css/css-writing-modes/table-column-order-002.xht [ Failure ]
+crbug.com/591099 external/wpt/css/css-writing-modes/table-column-order-003.xht [ Failure ]
+crbug.com/591099 external/wpt/css/css-writing-modes/table-column-order-004.xht [ Failure ]
+crbug.com/591099 external/wpt/css/css-writing-modes/table-column-order-005.xht [ Failure ]
+
+### external/wpt/html/links/manifest/
+crbug.com/591099 external/wpt/html/links/manifest/mime-type-application-json-manual.html [ Failure ]
+crbug.com/591099 external/wpt/html/links/manifest/mime-type-application-manifest+json-manual.html [ Failure ]
+crbug.com/591099 external/wpt/html/links/manifest/mime-type-invalid-manual.html [ Failure ]
+crbug.com/591099 external/wpt/html/links/manifest/mime-type-none-manual.html [ Failure ]
+crbug.com/591099 external/wpt/html/links/manifest/mime-type-text-json-manual.html [ Failure ]
+crbug.com/591099 external/wpt/html/links/manifest/wrong-mime-type-text-plain-manual.html [ Failure ]
+
+### virtual/stable/compositing/filters/
+crbug.com/591099 virtual/stable/compositing/filters/sw-nested-shadow-overlaps-hw-nested-shadow.html [ Failure ]

@@ -4,7 +4,7 @@
 
 #import "chrome/browser/ui/cocoa/notifications/notification_response_builder_mac.h"
 
-#include "base/logging.h"
+#include "base/check.h"
 #include "chrome/browser/ui/cocoa/notifications/notification_constants_mac.h"
 
 @implementation NotificationResponseBuilder
@@ -26,6 +26,9 @@
       objectForKey:notification_constants::kNotificationProfileId]);
   NSString* profileId = [[notification userInfo]
       objectForKey:notification_constants::kNotificationProfileId];
+
+  NSNumber* creatorPid = [[notification userInfo]
+      objectForKey:notification_constants::kNotificationCreatorPid];
 
   DCHECK([[notification userInfo]
       objectForKey:notification_constants::kNotificationIncognito]);
@@ -88,6 +91,8 @@
     notification_constants::kNotificationId : notificationId,
     notification_constants::kNotificationProfileId : profileId,
     notification_constants::kNotificationIncognito : incognito,
+    notification_constants::kNotificationCreatorPid : creatorPid ? creatorPid
+                                                                 : @0,
     notification_constants::kNotificationType : notificationType,
     notification_constants::
     kNotificationOperation : [NSNumber numberWithInt:operation],

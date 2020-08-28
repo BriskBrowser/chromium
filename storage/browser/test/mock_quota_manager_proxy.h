@@ -2,23 +2,23 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef CONTENT_BROWSER_QUOTA_MOCK_QUOTA_MANAGER_PROXY_H_
-#define CONTENT_BROWSER_QUOTA_MOCK_QUOTA_MANAGER_PROXY_H_
+#ifndef STORAGE_BROWSER_TEST_MOCK_QUOTA_MANAGER_PROXY_H_
+#define STORAGE_BROWSER_TEST_MOCK_QUOTA_MANAGER_PROXY_H_
 
 #include <stdint.h>
 
 #include "base/macros.h"
 #include "storage/browser/quota/quota_client.h"
+#include "storage/browser/quota/quota_client_type.h"
 #include "storage/browser/quota/quota_manager_proxy.h"
 #include "storage/browser/test/mock_quota_manager.h"
 #include "third_party/blink/public/mojom/quota/quota_types.mojom.h"
 #include "url/gurl.h"
 
-using storage::QuotaManagerProxy;
-
-namespace content {
+namespace storage {
 
 class MockQuotaManager;
+enum class QuotaClientType;
 
 class MockQuotaManagerProxy : public QuotaManagerProxy {
  public:
@@ -26,14 +26,17 @@ class MockQuotaManagerProxy : public QuotaManagerProxy {
   MockQuotaManagerProxy(MockQuotaManager* quota_manager,
                         base::SingleThreadTaskRunner* task_runner);
 
-  void RegisterClient(scoped_refptr<QuotaClient> client) override;
+  void RegisterClient(
+      scoped_refptr<QuotaClient> client,
+      QuotaClientType client_type,
+      const std::vector<blink::mojom::StorageType>& storage_types) override;
 
   virtual void SimulateQuotaManagerDestroyed();
 
   // We don't mock them.
   void NotifyOriginInUse(const url::Origin& origin) override {}
   void NotifyOriginNoLongerInUse(const url::Origin& origin) override {}
-  void SetUsageCacheEnabled(QuotaClient::ID client_id,
+  void SetUsageCacheEnabled(storage::QuotaClientType client_id,
                             const url::Origin& origin,
                             blink::mojom::StorageType type,
                             bool enabled) override {}
@@ -53,7 +56,7 @@ class MockQuotaManagerProxy : public QuotaManagerProxy {
   // last_notified_type_ and last_notified_delta_ respecitvely.
   // If non-null MockQuotaManager is given to the constructor this also
   // updates the manager's internal usage information.
-  void NotifyStorageModified(QuotaClient::ID client_id,
+  void NotifyStorageModified(storage::QuotaClientType client_id,
                              const url::Origin& origin,
                              blink::mojom::StorageType type,
                              int64_t delta) override;
@@ -85,6 +88,6 @@ class MockQuotaManagerProxy : public QuotaManagerProxy {
   DISALLOW_COPY_AND_ASSIGN(MockQuotaManagerProxy);
 };
 
-}  // namespace content
+}  // namespace storage
 
-#endif  // CONTENT_BROWSER_QUOTA_MOCK_QUOTA_MANAGER_PROXY_H_
+#endif  // STORAGE_BROWSER_TEST_MOCK_QUOTA_MANAGER_PROXY_H_

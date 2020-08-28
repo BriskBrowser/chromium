@@ -22,6 +22,7 @@
 #include "base/numerics/safe_math.h"
 #include "base/strings/stringprintf.h"
 #include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
 #include "base/task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/trace_event/memory_dump_manager.h"
@@ -71,11 +72,6 @@ std::unique_ptr<BlobDataHandle> BlobStorageContext::GetBlobDataFromUUID(
   if (!entry)
     return nullptr;
   return CreateHandle(uuid, entry);
-}
-
-mojo::PendingRemote<blink::mojom::Blob>
-BlobStorageContext::GetBlobFromPublicURL(const GURL& url) {
-  return registry_.GetBlobFromURL(url);
 }
 
 void BlobStorageContext::GetBlobDataFromBlobRemote(
@@ -143,16 +139,6 @@ std::unique_ptr<BlobDataHandle> BlobStorageContext::AddBrokenBlob(
   entry->set_status(reason);
   FinishBuilding(entry);
   return CreateHandle(uuid, entry);
-}
-
-bool BlobStorageContext::RegisterPublicBlobURL(
-    const GURL& blob_url,
-    mojo::PendingRemote<blink::mojom::Blob> blob) {
-  return registry_.CreateUrlMapping(blob_url, std::move(blob));
-}
-
-void BlobStorageContext::RevokePublicBlobURL(const GURL& blob_url) {
-  registry_.DeleteURLMapping(blob_url);
 }
 
 std::unique_ptr<BlobDataHandle> BlobStorageContext::AddFutureBlob(
@@ -260,8 +246,8 @@ std::unique_ptr<BlobDataHandle> BlobStorageContext::BuildBlobInternal(
     // blob will be fully functional whether or not timestamps are set. When
     // the timestamp isn't set the blob just won't be able to detect the file
     // on disk changing after the blob is created.
-    base::PostTaskAndReplyWithResult(
-        FROM_HERE, {base::ThreadPool(), base::MayBlock()},
+    base::ThreadPool::PostTaskAndReplyWithResult(
+        FROM_HERE, {base::MayBlock()},
         base::BindOnce(
             [](std::vector<base::FilePath> paths) {
               std::vector<base::Time> result;
@@ -771,9 +757,9 @@ void BlobStorageContext::WriteBlobToFile(
                   mojom::WriteBlobToFileResult::kInvalidBlob);
               return;
             }
-            ::storage::WriteBlobToFile(std::move(handle), file_path,
-                                       flush_on_write, last_modified,
-                                       std::move(callback));
+            storage::WriteBlobToFile(std::move(handle), file_path,
+                                     flush_on_write, last_modified,
+                                     std::move(callback));
           },
           AsWeakPtr(), file_path, flush_on_write, last_modified,
           std::move(callback)));

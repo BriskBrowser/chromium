@@ -88,6 +88,7 @@ class CONTENT_EXPORT ServiceWorkerSubresourceLoader
 
   void StartRequest(const network::ResourceRequest& resource_request);
   void DispatchFetchEvent();
+  void DispatchFetchEventForSubresource();
   void OnFetchEventFinished(blink::mojom::ServiceWorkerEventStatus status);
   // Called when this loader no longer needs to restart dispatching the fetch
   // event on failure. Null |status| means the event dispatch was not attempted.
@@ -112,9 +113,11 @@ class CONTENT_EXPORT ServiceWorkerSubresourceLoader
                      blink::mojom::ServiceWorkerStreamHandlePtr body_as_stream);
 
   // network::mojom::URLLoader overrides:
-  void FollowRedirect(const std::vector<std::string>& removed_headers,
-                      const net::HttpRequestHeaders& modified_headers,
-                      const base::Optional<GURL>& new_url) override;
+  void FollowRedirect(
+      const std::vector<std::string>& removed_headers,
+      const net::HttpRequestHeaders& modified_headers,
+      const net::HttpRequestHeaders& modified_cors_exempt_headers,
+      const base::Optional<GURL>& new_url) override;
   void SetPriority(net::RequestPriority priority,
                    int intra_priority_value) override;
   void PauseReadingBodyFromNet() override;

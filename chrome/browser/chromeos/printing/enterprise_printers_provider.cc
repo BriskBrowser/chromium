@@ -8,6 +8,7 @@
 
 #include "base/hash/md5.h"
 #include "base/json/json_reader.h"
+#include "base/logging.h"
 #include "chrome/browser/chromeos/printing/bulk_printers_calculator.h"
 #include "chrome/browser/chromeos/printing/bulk_printers_calculator_factory.h"
 #include "chrome/browser/chromeos/printing/calculators_policies_binder.h"
@@ -38,6 +39,14 @@ std::vector<std::string> ConvertToVector(const base::ListValue* list) {
     }
   }
   return string_list;
+}
+
+void AddPrintersFromMap(
+    const std::unordered_map<std::string, Printer>& printer_map,
+    std::vector<Printer>* printer_list) {
+  for (auto& printer_kv : printer_map) {
+    printer_list->push_back(printer_kv.second);
+  }
 }
 
 class EnterprisePrintersProviderImpl : public EnterprisePrintersProvider,
@@ -81,7 +90,7 @@ class EnterprisePrintersProviderImpl : public EnterprisePrintersProvider,
     // Binds policy with recommended printers (deprecated). This method calls
     // indirectly RecalculateCurrentPrintersList() that prepares the first
     // version of final list of printers.
-    BindPref(prefs::kRecommendedNativePrinters,
+    BindPref(prefs::kRecommendedPrinters,
              &EnterprisePrintersProviderImpl::UpdateUserRecommendedPrinters);
   }
 
@@ -119,8 +128,7 @@ class EnterprisePrintersProviderImpl : public EnterprisePrintersProvider,
   // printers. It is called when value of the policy changes.
   void UpdateUserRecommendedPrinters() {
     recommended_printers_.clear();
-    std::vector<std::string> data =
-        FromPrefs(prefs::kRecommendedNativePrinters);
+    std::vector<std::string> data = FromPrefs(prefs::kRecommendedPrinters);
     for (const auto& printer_json : data) {
       base::Optional<base::Value> printer_dictionary = base::JSONReader::Read(
           printer_json, base::JSON_ALLOW_TRAILING_COMMAS);
@@ -165,7 +173,7 @@ class EnterprisePrintersProviderImpl : public EnterprisePrintersProvider,
     user_printers_is_complete_ =
         user_printers_->IsComplete() &&
         (user_printers_->IsDataPolicySet() ||
-         !PolicyWithDataIsSet(policy::key::kNativePrintersBulkConfiguration));
+         !PolicyWithDataIsSet(policy::key::kPrintersBulkConfiguration));
   }
 
   void RecalculateCompleteFlagForDevicePrinters() {
@@ -177,22 +185,29 @@ class EnterprisePrintersProviderImpl : public EnterprisePrintersProvider,
     device_printers_is_complete_ =
         device_printers_->IsComplete() &&
         (device_printers_->IsDataPolicySet() ||
-         !PolicyWithDataIsSet(policy::key::kDeviceNativePrinters));
+         (!PolicyWithDataIsSet(policy::key::kDeviceNativePrinters) &&
+          !PolicyWithDataIsSet(policy::key::kDevicePrinters)));
   }
 
   void RecalculateCurrentPrintersList() {
     complete_ = true;
-    printers_ = recommended_printers_;
+    std::vector<Printer> current_printers;
+    AddPrintersFromMap(recommended_printers_, &current_printers);
+
     if (device_printers_) {
       complete_ = complete_ && device_printers_is_complete_;
       const auto& printers = device_printers_->GetPrinters();
-      printers_.insert(printers.begin(), printers.end());
+      AddPrintersFromMap(printers, &current_printers);
     }
     if (user_printers_) {
       complete_ = complete_ && user_printers_is_complete_;
       const auto& printers = user_printers_->GetPrinters();
-      printers_.insert(printers.begin(), printers.end());
+      AddPrintersFromMap(printers, &current_printers);
     }
+
+    // Save current_printers.
+    printers_.swap(current_printers);
+
     for (auto& observer : observers_) {
       observer.OnPrintersChanged(complete_, printers_);
     }
@@ -240,7 +255,7 @@ class EnterprisePrintersProviderImpl : public EnterprisePrintersProvider,
 
   // current final results
   bool complete_ = false;
-  std::unordered_map<std::string, Printer> printers_;
+  std::vector<Printer> printers_;
 
   // Calculators for bulk printers from device and user policies. Unowned.
   base::WeakPtr<BulkPrintersCalculator> device_printers_;
@@ -266,7 +281,7 @@ class EnterprisePrintersProviderImpl : public EnterprisePrintersProvider,
 // static
 void EnterprisePrintersProvider::RegisterProfilePrefs(
     user_prefs::PrefRegistrySyncable* registry) {
-  registry->RegisterListPref(prefs::kRecommendedNativePrinters);
+  registry->RegisterListPref(prefs::kRecommendedPrinters);
   CalculatorsPoliciesBinder::RegisterProfilePrefs(registry);
 }
 

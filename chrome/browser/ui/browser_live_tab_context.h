@@ -64,7 +64,8 @@ class BrowserLiveTabContext : public sessions::LiveTabContext {
       bool pin,
       bool from_last_session,
       const sessions::PlatformSpecificTabData* storage_namespace,
-      const std::string& user_agent_override) override;
+      const sessions::SerializedUserAgentOverride& user_agent_override)
+      override;
   sessions::LiveTab* ReplaceRestoredTab(
       const std::vector<sessions::SerializedNavigationEntry>& navigations,
       base::Optional<tab_groups::TabGroupId> group,
@@ -72,7 +73,8 @@ class BrowserLiveTabContext : public sessions::LiveTabContext {
       bool from_last_session,
       const std::string& extension_app_id,
       const sessions::PlatformSpecificTabData* tab_platform_data,
-      const std::string& user_agent_override) override;
+      const sessions::SerializedUserAgentOverride& user_agent_override)
+      override;
   void CloseTab() override;
 
   // see Browser::Create
@@ -90,6 +92,13 @@ class BrowserLiveTabContext : public sessions::LiveTabContext {
   // Returns the LiveTabContext of the Browser with |desired_id| if
   // such a Browser exists.
   static sessions::LiveTabContext* FindContextWithID(SessionID desired_id);
+
+  // see chrome::FindBrowserWithGroup
+  // Returns the LiveTabContext of the Browser containing the group with ID
+  // |group| if such a Browser exists within the given |profile|.
+  static sessions::LiveTabContext* FindContextWithGroup(
+      tab_groups::TabGroupId group,
+      Profile* profile);
 
  private:
   Browser* const browser_;

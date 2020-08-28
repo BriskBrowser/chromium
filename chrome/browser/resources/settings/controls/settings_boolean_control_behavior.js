@@ -2,6 +2,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+// clang-format off
+// #import {assert} from 'chrome://resources/js/assert.m.js';
+// #import {CrPolicyPrefBehavior} from 'chrome://resources/cr_elements/policy/cr_policy_pref_behavior.m.js';
+// #import {PrefControlBehavior} from './pref_control_behavior.m.js';
+// clang-format on
+
 /**
  * @fileoverview
  * A behavior to help controls that handle a boolean preference, such as
@@ -89,7 +95,7 @@ const SettingsBooleanControlBehaviorImpl = {
   sendPrefChange() {
     // Ensure that newValue is the correct type for the pref type, either
     // a boolean or a number.
-    if (this.pref.type == chrome.settingsPrivate.PrefType.NUMBER) {
+    if (this.pref.type === chrome.settingsPrivate.PrefType.NUMBER) {
       assert(!this.inverted);
       this.set('pref.value', this.checked ? 1 : this.numericUncheckedValue);
       return;
@@ -114,9 +120,9 @@ const SettingsBooleanControlBehaviorImpl = {
   getNewValue_(value) {
     // For numeric prefs, the control is only false if the value is exactly
     // equal to the unchecked-equivalent value.
-    if (this.pref.type == chrome.settingsPrivate.PrefType.NUMBER) {
+    if (this.pref.type === chrome.settingsPrivate.PrefType.NUMBER) {
       assert(!this.inverted);
-      return value != this.numericUncheckedValue;
+      return value !== this.numericUncheckedValue;
     }
     return this.inverted ? !value : !!value;
   },
@@ -126,12 +132,13 @@ const SettingsBooleanControlBehaviorImpl = {
    * @protected
    */
   controlDisabled() {
-    return this.disabled || this.isPrefEnforced();
+    return this.disabled || this.isPrefEnforced() ||
+        !!(this.pref && this.pref.userControlDisabled);
   },
 };
 
 /** @polymerBehavior */
-const SettingsBooleanControlBehavior = [
+/* #export */ const SettingsBooleanControlBehavior = [
   CrPolicyPrefBehavior,
   PrefControlBehavior,
   SettingsBooleanControlBehaviorImpl,

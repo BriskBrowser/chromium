@@ -20,9 +20,9 @@ class TabAnimation {
       base::TimeDelta::FromMilliseconds(200);
 
   // Creates a TabAnimation for a tab with no active animations.
-  TabAnimation(TabAnimationState static_state,
-               base::OnceClosure tab_removed_callback);
-
+  explicit TabAnimation(TabAnimationState static_state);
+  TabAnimation(const TabAnimation&) = delete;
+  TabAnimation& operator=(const TabAnimation&) = delete;
   ~TabAnimation();
 
   // Returns whether this tab is currently animating closed.
@@ -40,10 +40,6 @@ class TabAnimation {
   void RetargetTo(TabAnimationState target_state);
 
   void CompleteAnimation();
-
-  // Notifies the owner of the animated tab that the close animation
-  // has completed and the tab can be cleaned up.
-  void NotifyCloseCompleted();
 
   TabAnimationState target_state() const { return target_state_; }
   base::TimeDelta GetTimeRemaining() const;
@@ -63,9 +59,6 @@ class TabAnimation {
   TabAnimationState target_state_;
   base::TimeTicks start_time_;
   base::TimeDelta duration_;
-  base::OnceClosure tab_removed_callback_;
-
-  DISALLOW_COPY_AND_ASSIGN(TabAnimation);
 };
 
 #endif  // CHROME_BROWSER_UI_VIEWS_TABS_TAB_ANIMATION_H_

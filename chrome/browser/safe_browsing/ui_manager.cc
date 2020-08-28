@@ -14,6 +14,7 @@
 #include "chrome/browser/history/history_service_factory.h"
 #include "chrome/browser/interstitials/enterprise_util.h"
 #include "chrome/browser/metrics/chrome_metrics_service_accessor.h"
+#include "chrome/browser/prerender/chrome_prerender_contents_delegate.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/safe_browsing/safe_browsing_blocking_page.h"
 #include "chrome/browser/safe_browsing/safe_browsing_service.h"
@@ -22,19 +23,20 @@
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
 #include "components/prefs/pref_service.h"
+#include "components/prerender/browser/prerender_contents.h"
 #include "components/safe_browsing/content/browser/threat_details.h"
 #include "components/safe_browsing/core/common/safe_browsing_prefs.h"
+#include "components/safe_browsing/core/features.h"
 #include "components/safe_browsing/core/ping_manager.h"
 #include "components/security_interstitials/content/security_interstitial_tab_helper.h"
+#include "components/security_interstitials/content/unsafe_resource_util.h"
+#include "components/security_interstitials/core/unsafe_resource.h"
+#include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/web_contents.h"
 #include "ipc/ipc_message.h"
-#include "net/base/registry_controlled_domains/registry_controlled_domain.h"
-#include "net/ssl/ssl_info.h"
-#include "net/url_request/url_request_context.h"
-#include "net/url_request/url_request_context_getter.h"
 #include "url/gurl.h"
 
 using content::BrowserThread;
@@ -69,7 +71,7 @@ void SafeBrowsingUIManager::CreateAndSendHitReport(
   hit_report.threat_source = resource.threat_source;
   hit_report.population_id = resource.threat_metadata.population_id;
 
-  NavigationEntry* entry = resource.GetNavigationEntryForResource();
+  NavigationEntry* entry = GetNavigationEntryForResource(resource);
   if (entry) {
     hit_report.page_url = entry->GetURL();
     hit_report.referrer_url = entry->GetReferrer().url;
@@ -92,6 +94,8 @@ void SafeBrowsingUIManager::CreateAndSendHitReport(
   hit_report.extended_reporting_level =
       profile ? GetExtendedReportingLevel(*profile->GetPrefs())
               : SBER_LEVEL_OFF;
+  hit_report.is_enhanced_protection =
+      IsEnhancedProtectionEnabled(*profile->GetPrefs());
   hit_report.is_metrics_reporting_active =
       ChromeMetricsServiceAccessor::IsMetricsAndCrashReportingEnabled();
 
@@ -101,9 +105,43 @@ void SafeBrowsingUIManager::CreateAndSendHitReport(
     observer.OnSafeBrowsingHit(resource);
 }
 
-void SafeBrowsingUIManager::ShowBlockingPageForResource(
-    const UnsafeResource& resource) {
-  SafeBrowsingBlockingPage::ShowBlockingPage(this, resource);
+// static
+void SafeBrowsingUIManager::StartDisplayingBlockingPage(
+    scoped_refptr<SafeBrowsingUIManager> ui_manager,
+    const security_interstitials::UnsafeResource& resource) {
+  content::WebContents* web_contents = resource.web_contents_getter.Run();
+  prerender::PrerenderContents* prerender_contents =
+      web_contents
+          ? prerender::ChromePrerenderContentsDelegate::FromWebContents(
+                web_contents)
+          : nullptr;
+  if (!web_contents || prerender_contents) {
+    if (prerender_contents) {
+      prerender_contents->Destroy(prerender::FINAL_STATUS_SAFE_BROWSING);
+    }
+    // Tab is gone or it's being prerendered.
+    content::GetIOThreadTaskRunner({})->PostTask(
+        FROM_HERE, base::BindOnce(resource.callback, false /*proceed*/,
+                                  false /*showed_interstitial*/));
+    return;
+  }
+
+  // With committed interstitials, if this is a main frame load, we need to
+  // get the navigation URL and referrer URL from the navigation entry now,
+  // since they are required for threat reporting, and the entry will be
+  // destroyed once the request is failed.
+  if (resource.IsMainPageLoadBlocked()) {
+    content::NavigationEntry* entry =
+        web_contents->GetController().GetPendingEntry();
+    if (entry) {
+      security_interstitials::UnsafeResource resource_copy(resource);
+      resource_copy.navigation_url = entry->GetURL();
+      resource_copy.referrer_url = entry->GetReferrer().url;
+      ui_manager->DisplayBlockingPage(resource_copy);
+      return;
+    }
+  }
+  ui_manager->DisplayBlockingPage(resource);
 }
 
 // static
@@ -135,7 +173,10 @@ void SafeBrowsingUIManager::MaybeReportSafeBrowsingHit(
   DVLOG(1) << "ReportSafeBrowsingHit: " << hit_report.malicious_url << " "
            << hit_report.page_url << " " << hit_report.referrer_url << " "
            << hit_report.is_subresource << " " << hit_report.threat_type;
-  sb_service_->ping_manager()->ReportSafeBrowsingHit(hit_report);
+  Profile* profile =
+      Profile::FromBrowserContext(web_contents->GetBrowserContext());
+  sb_service_->ping_manager()->ReportSafeBrowsingHit(
+      sb_service_->GetURLLoaderFactory(profile), hit_report);
 }
 
 // Static.
@@ -175,6 +216,7 @@ const GURL SafeBrowsingUIManager::default_safe_page() const {
 // If the user had opted-in to send ThreatDetails, this gets called
 // when the report is ready.
 void SafeBrowsingUIManager::SendSerializedThreatDetails(
+    content::BrowserContext* browser_context,
     const std::string& serialized) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
@@ -185,7 +227,10 @@ void SafeBrowsingUIManager::SendSerializedThreatDetails(
 
   if (!serialized.empty()) {
     DVLOG(1) << "Sending serialized threat details.";
-    sb_service_->ping_manager()->ReportThreatDetails(serialized);
+    sb_service_->ping_manager()->ReportThreatDetails(
+        sb_service_->GetURLLoaderFactory(
+            Profile::FromBrowserContext(browser_context)),
+        serialized);
   }
 }
 
@@ -193,9 +238,10 @@ void SafeBrowsingUIManager::OnBlockingPageDone(
     const std::vector<UnsafeResource>& resources,
     bool proceed,
     content::WebContents* web_contents,
-    const GURL& main_frame_url) {
+    const GURL& main_frame_url,
+    bool showed_interstitial) {
   BaseUIManager::OnBlockingPageDone(resources, proceed, web_contents,
-                                    main_frame_url);
+                                    main_frame_url, showed_interstitial);
   if (proceed && !resources.empty()) {
     MaybeTriggerSecurityInterstitialProceededEvent(
         web_contents, main_frame_url,
@@ -222,6 +268,13 @@ BaseBlockingPage* SafeBrowsingUIManager::CreateBlockingPageForSubresource(
       SafeBrowsingBlockingPage::CreateBlockingPage(
           this, contents, blocked_url, unsafe_resource,
           /*should_trigger_reporting=*/false);
+
+  // Report that we showed an interstitial.
+  MaybeTriggerSecurityInterstitialShownEvent(
+      contents, blocked_url,
+      GetThreatTypeStringForInterstitial(unsafe_resource.threat_type),
+      /*net_error_code=*/0);
+
   return blocking_page;
 }
 

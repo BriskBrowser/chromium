@@ -12,12 +12,13 @@
 #include "chrome/browser/ui/browser_commands.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/exclusive_access/exclusive_access_context.h"
-#include "chrome/browser/ui/exclusive_access/fullscreen_controller_test.h"
+#include "chrome/browser/ui/exclusive_access/exclusive_access_test.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/common/chrome_features.h"
 #include "chrome/test/base/interactive_test_utils.h"
 #include "chrome/test/base/ui_test_utils.h"
 #include "components/content_settings/core/browser/host_content_settings_map.h"
+#include "components/permissions/permission_request_manager.h"
 #include "content/public/browser/render_view_host.h"
 #include "content/public/browser/render_widget_host.h"
 #include "content/public/browser/render_widget_host_view.h"
@@ -25,6 +26,7 @@
 #include "content/public/common/content_features.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/common/url_constants.h"
+#include "content/public/test/browser_test.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
 #include "third_party/blink/public/mojom/frame/fullscreen.mojom.h"
 #include "ui/display/screen_base.h"
@@ -44,8 +46,7 @@ const base::FilePath::CharType* kSimpleFile = FILE_PATH_LITERAL("simple.html");
 
 }  // namespace
 
-class FullscreenControllerInteractiveTest
-    : public FullscreenControllerTest {
+class FullscreenControllerInteractiveTest : public ExclusiveAccessTest {
  protected:
 
   // Tests that actually make the browser fullscreen have been flaky when
@@ -125,8 +126,7 @@ void FullscreenControllerInteractiveTest::ToggleTabFullscreen_Internal(
   do {
     FullscreenNotificationObserver fullscreen_observer(browser());
     if (enter_fullscreen)
-      browser()->EnterFullscreenModeForTab(tab, GURL(),
-                                           blink::mojom::FullscreenOptions());
+      browser()->EnterFullscreenModeForTab(tab->GetMainFrame(), {});
     else
       browser()->ExitFullscreenModeForTab(tab);
     fullscreen_observer.Wait();
@@ -273,10 +273,10 @@ IN_PROC_BROWSER_TEST_F(
   ASSERT_FALSE(IsWindowFullscreenForTabOrPending());
 }
 
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
 // http://crbug.com/100467
-IN_PROC_BROWSER_TEST_F(
-    FullscreenControllerTest, DISABLED_TabEntersPresentationModeFromWindowed) {
+IN_PROC_BROWSER_TEST_F(ExclusiveAccessTest,
+                       DISABLED_TabEntersPresentationModeFromWindowed) {
   ASSERT_TRUE(embedded_test_server()->Start());
 
   AddTabAtIndex(0, GURL(url::kAboutBlankURL), PAGE_TRANSITION_TYPED);
@@ -286,8 +286,7 @@ IN_PROC_BROWSER_TEST_F(
   {
     FullscreenNotificationObserver fullscreen_observer(browser());
     EXPECT_FALSE(browser()->window()->IsFullscreen());
-    browser()->EnterFullscreenModeForTab(tab, GURL(),
-                                         blink::mojom::FullscreenOptions());
+    browser()->EnterFullscreenModeForTab(tab->GetMainFrame(), {});
     fullscreen_observer.Wait();
     EXPECT_TRUE(browser()->window()->IsFullscreen());
   }
@@ -316,7 +315,7 @@ IN_PROC_BROWSER_TEST_F(FullscreenControllerInteractiveTest, EscapingMouseLock) {
   ui_test_utils::NavigateToURL(
       browser(), embedded_test_server()->GetURL(kFullscreenMouseLockHTML));
 
-  ASSERT_FALSE(IsFullscreenBubbleDisplayed());
+  ASSERT_FALSE(IsExclusiveAccessBubbleDisplayed());
 
   // Request to lock the mouse.
   PressKeyAndWaitForMouseLockRequest(ui::VKEY_1);
@@ -325,7 +324,7 @@ IN_PROC_BROWSER_TEST_F(FullscreenControllerInteractiveTest, EscapingMouseLock) {
   ASSERT_FALSE(IsWindowFullscreenForTabOrPending());
 
   // Escape, confirm we are out of mouse lock with no prompts.
-  SendEscapeToFullscreenController();
+  SendEscapeToExclusiveAccessManager();
   ASSERT_FALSE(IsMouseLocked());
   ASSERT_FALSE(IsWindowFullscreenForTabOrPending());
 }
@@ -339,7 +338,7 @@ IN_PROC_BROWSER_TEST_F(FullscreenControllerInteractiveTest,
   ui_test_utils::NavigateToURL(
       browser(), embedded_test_server()->GetURL(kFullscreenMouseLockHTML));
 
-  ASSERT_FALSE(IsFullscreenBubbleDisplayed());
+  ASSERT_FALSE(IsExclusiveAccessBubbleDisplayed());
 
   // Request to lock the mouse and enter fullscreen.
   {
@@ -351,7 +350,7 @@ IN_PROC_BROWSER_TEST_F(FullscreenControllerInteractiveTest,
   // Escape, no prompts should remain.
   {
     FullscreenNotificationObserver fullscreen_observer(browser());
-    SendEscapeToFullscreenController();
+    SendEscapeToExclusiveAccessManager();
     fullscreen_observer.Wait();
   }
   ASSERT_FALSE(IsMouseLocked());
@@ -366,16 +365,16 @@ IN_PROC_BROWSER_TEST_F(FullscreenControllerInteractiveTest,
   ui_test_utils::NavigateToURL(
       browser(), embedded_test_server()->GetURL(kFullscreenMouseLockHTML));
 
-  ASSERT_FALSE(IsFullscreenBubbleDisplayed());
+  ASSERT_FALSE(IsExclusiveAccessBubbleDisplayed());
 
   // Lock the mouse without a user gesture, expect no response.
   PressKeyAndWaitForMouseLockRequest(ui::VKEY_D);
-  ASSERT_FALSE(IsFullscreenBubbleDisplayed());
+  ASSERT_FALSE(IsExclusiveAccessBubbleDisplayed());
   ASSERT_FALSE(IsMouseLocked());
 
   // Lock the mouse with a user gesture.
   PressKeyAndWaitForMouseLockRequest(ui::VKEY_1);
-  ASSERT_TRUE(IsFullscreenBubbleDisplayed());
+  ASSERT_TRUE(IsExclusiveAccessBubbleDisplayed());
   ASSERT_TRUE(IsMouseLocked());
 
   // Enter fullscreen mode, mouse should remain locked.
@@ -399,7 +398,7 @@ IN_PROC_BROWSER_TEST_F(FullscreenControllerInteractiveTest,
   ui_test_utils::NavigateToURL(
       browser(), embedded_test_server()->GetURL(kFullscreenMouseLockHTML));
 
-  ASSERT_FALSE(IsFullscreenBubbleDisplayed());
+  ASSERT_FALSE(IsExclusiveAccessBubbleDisplayed());
 
   // Request to lock the mouse and enter fullscreen.
   {
@@ -407,7 +406,7 @@ IN_PROC_BROWSER_TEST_F(FullscreenControllerInteractiveTest,
     PressKeyAndWaitForMouseLockRequest(ui::VKEY_B);
     fullscreen_observer.Wait();
   }
-  ASSERT_TRUE(IsFullscreenBubbleDisplayed());
+  ASSERT_TRUE(IsExclusiveAccessBubbleDisplayed());
   ASSERT_TRUE(IsMouseLocked());
   ASSERT_TRUE(IsWindowFullscreenForTabOrPending());
 }
@@ -415,13 +414,20 @@ IN_PROC_BROWSER_TEST_F(FullscreenControllerInteractiveTest,
 // Tests mouse lock and fullscreen for the privileged fullscreen case (e.g.,
 // embedded flash fullscreen, since the Flash plugin handles user permissions
 // requests itself).
+// Flaky on Linux: crbug.com/1066607
+#if defined(OS_LINUX) || defined(OS_CHROMEOS)
+#define MAYBE_PrivilegedMouseLockAndFullscreen \
+  DISABLED_PrivilegedMouseLockAndFullscreen
+#else
+#define MAYBE_PrivilegedMouseLockAndFullscreen PrivilegedMouseLockAndFullscreen
+#endif
 IN_PROC_BROWSER_TEST_F(FullscreenControllerInteractiveTest,
-                       PrivilegedMouseLockAndFullscreen) {
+                       MAYBE_PrivilegedMouseLockAndFullscreen) {
   ASSERT_TRUE(embedded_test_server()->Start());
   ui_test_utils::NavigateToURL(
       browser(), embedded_test_server()->GetURL(kFullscreenMouseLockHTML));
 
-  ASSERT_FALSE(IsFullscreenBubbleDisplayed());
+  ASSERT_FALSE(IsExclusiveAccessBubbleDisplayed());
 
   SetPrivilegedFullscreen(true);
 
@@ -431,7 +437,7 @@ IN_PROC_BROWSER_TEST_F(FullscreenControllerInteractiveTest,
   fullscreen_observer.Wait();
 
   // Confirm they are enabled and there is no prompt.
-  ASSERT_FALSE(IsFullscreenBubbleDisplayed());
+  ASSERT_FALSE(IsExclusiveAccessBubbleDisplayed());
   ASSERT_TRUE(IsMouseLocked());
   ASSERT_TRUE(IsWindowFullscreenForTabOrPending());
 }
@@ -449,23 +455,23 @@ IN_PROC_BROWSER_TEST_F(FullscreenControllerInteractiveTest,
   ui_test_utils::NavigateToURL(
       browser(), embedded_test_server()->GetURL(kFullscreenMouseLockHTML));
 
-  ASSERT_FALSE(IsFullscreenBubbleDisplayed());
+  ASSERT_FALSE(IsExclusiveAccessBubbleDisplayed());
 
   // Lock the mouse with a user gesture.
   PressKeyAndWaitForMouseLockRequest(ui::VKEY_1);
-  ASSERT_TRUE(IsFullscreenBubbleDisplayed());
+  ASSERT_TRUE(IsExclusiveAccessBubbleDisplayed());
   ASSERT_TRUE(IsMouseLocked());
-  ASSERT_TRUE(IsFullscreenBubbleDisplayed());
+  ASSERT_TRUE(IsExclusiveAccessBubbleDisplayed());
 
   // Unlock the mouse from target, make sure it's unlocked.
   PressKeyAndWaitForMouseLockRequest(ui::VKEY_U);
   ASSERT_FALSE(IsMouseLocked());
-  ASSERT_FALSE(IsFullscreenBubbleDisplayed());
+  ASSERT_FALSE(IsExclusiveAccessBubbleDisplayed());
 
   // Lock mouse again, make sure it works with no bubble.
   PressKeyAndWaitForMouseLockRequest(ui::VKEY_1);
   ASSERT_TRUE(IsMouseLocked());
-  ASSERT_FALSE(IsFullscreenBubbleDisplayed());
+  ASSERT_FALSE(IsExclusiveAccessBubbleDisplayed());
 
   // Unlock the mouse again by target.
   PressKeyAndWaitForMouseLockRequest(ui::VKEY_U);
@@ -474,7 +480,7 @@ IN_PROC_BROWSER_TEST_F(FullscreenControllerInteractiveTest,
   // Lock from target, not user gesture, make sure it works.
   PressKeyAndWaitForMouseLockRequest(ui::VKEY_D);
   ASSERT_TRUE(IsMouseLocked());
-  ASSERT_FALSE(IsFullscreenBubbleDisplayed());
+  ASSERT_FALSE(IsExclusiveAccessBubbleDisplayed());
 
   // Unlock by escape.
   PressKeyAndWaitForMouseLockRequest(ui::VKEY_ESCAPE);
@@ -482,7 +488,7 @@ IN_PROC_BROWSER_TEST_F(FullscreenControllerInteractiveTest,
 
   // Lock the mouse with a user gesture, make sure we see bubble again.
   PressKeyAndWaitForMouseLockRequest(ui::VKEY_1);
-  ASSERT_TRUE(IsFullscreenBubbleDisplayed());
+  ASSERT_TRUE(IsExclusiveAccessBubbleDisplayed());
   ASSERT_TRUE(IsMouseLocked());
 }
 
@@ -509,7 +515,7 @@ IN_PROC_BROWSER_TEST_F(FullscreenControllerInteractiveTest,
 
   // Lock the mouse with a user gesture.
   PressKeyAndWaitForMouseLockRequest(ui::VKEY_1);
-  ASSERT_TRUE(IsFullscreenBubbleDisplayed());
+  ASSERT_TRUE(IsExclusiveAccessBubbleDisplayed());
 
   ASSERT_TRUE(IsMouseLocked());
 
@@ -530,7 +536,7 @@ IN_PROC_BROWSER_TEST_F(FullscreenControllerInteractiveTest,
 
   // Lock the mouse with a user gesture.
   PressKeyAndWaitForMouseLockRequest(ui::VKEY_1);
-  ASSERT_TRUE(IsFullscreenBubbleDisplayed());
+  ASSERT_TRUE(IsExclusiveAccessBubbleDisplayed());
 
   ASSERT_TRUE(IsMouseLocked());
 
@@ -562,7 +568,7 @@ IN_PROC_BROWSER_TEST_F(FullscreenControllerInteractiveTest,
 
   // Lock the mouse with a user gesture.
   PressKeyAndWaitForMouseLockRequest(ui::VKEY_1);
-  ASSERT_TRUE(IsFullscreenBubbleDisplayed());
+  ASSERT_TRUE(IsExclusiveAccessBubbleDisplayed());
 
   ASSERT_TRUE(IsMouseLocked());
 
@@ -591,7 +597,7 @@ IN_PROC_BROWSER_TEST_F(FullscreenControllerInteractiveTest,
   PressKeyAndWaitForMouseLockRequest(ui::VKEY_1);
 
   ASSERT_TRUE(IsMouseLocked());
-  ASSERT_TRUE(IsFullscreenBubbleDisplayed());
+  ASSERT_TRUE(IsExclusiveAccessBubbleDisplayed());
 
   // Reload. Mouse lock request should be cleared.
   {
@@ -629,7 +635,7 @@ IN_PROC_BROWSER_TEST_F(FullscreenControllerInteractiveTest,
                        ToggleFullscreenModeForTab) {
   // Most fullscreen tests run sharded in fullscreen_controller_browsertest.cc
   // but flakiness required a while loop in
-  // FullscreenControllerTest::ToggleTabFullscreen. This test verifies that
+  // ExclusiveAccessTest::ToggleTabFullscreen. This test verifies that
   // when running serially there is no flakiness.
 
   EXPECT_TRUE(embedded_test_server()->Start());
@@ -649,7 +655,7 @@ class ExperimentalFullscreenControllerInteractiveTest
  public:
   void SetUpCommandLine(base::CommandLine* command_line) override {
     base::CommandLine::ForCurrentProcess()->AppendSwitchASCII(
-        switches::kEnableBlinkFeatures, "ScreenEnumeration,WindowPlacement");
+        switches::kEnableBlinkFeatures, "WindowPlacement");
     FullscreenControllerInteractiveTest::SetUpCommandLine(command_line);
   }
 };
@@ -696,6 +702,12 @@ IN_PROC_BROWSER_TEST_F(ExperimentalFullscreenControllerInteractiveTest,
   EXPECT_TRUE(ui_test_utils::NavigateToURL(browser(), url));
   auto* tab = browser()->tab_strip_model()->GetActiveWebContents();
 
+  // Auto-accept the permission request.
+  permissions::PermissionRequestManager* permission_request_manager =
+      permissions::PermissionRequestManager::FromWebContents(tab);
+  permission_request_manager->set_auto_response_for_test(
+      permissions::PermissionRequestManager::ACCEPT_ALL);
+
   // Execute JS to request fullscreen on the second display (on the right).
   const std::string request_fullscreen_script = R"(
       (async () => {
@@ -706,7 +718,7 @@ IN_PROC_BROWSER_TEST_F(ExperimentalFullscreenControllerInteractiveTest,
       })();
   )";
   EXPECT_EQ(true, EvalJs(tab, request_fullscreen_script));
-  EXPECT_TRUE(IsFullscreenBubbleDisplayed());
+  EXPECT_TRUE(IsExclusiveAccessBubbleDisplayed());
 #if defined(OS_CHROMEOS)
   EXPECT_EQ(gfx::Rect(801, 0, 801, 802), browser()->window()->GetBounds());
 #else
@@ -721,7 +733,7 @@ IN_PROC_BROWSER_TEST_F(ExperimentalFullscreenControllerInteractiveTest,
       })();
   )";
   EXPECT_EQ(false, EvalJs(tab, exit_fullscreen_script));
-  EXPECT_FALSE(IsFullscreenBubbleDisplayed());
+  EXPECT_FALSE(IsExclusiveAccessBubbleDisplayed());
   EXPECT_EQ(original_bounds, browser()->window()->GetBounds());
 
 #if !defined(OS_CHROMEOS)

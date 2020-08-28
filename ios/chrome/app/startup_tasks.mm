@@ -7,13 +7,9 @@
 #import <MediaPlayer/MediaPlayer.h>
 
 #include "base/bind.h"
-#include "build/branding_buildflags.h"
-#include "components/bookmarks/browser/startup_task_runner_service.h"
 #import "ios/chrome/app/deferred_initialization_runner.h"
 #include "ios/chrome/app/intents/SearchInChromeIntent.h"
-#include "ios/chrome/app/tests_hook.h"
 #include "ios/chrome/browser/application_context.h"
-#include "ios/chrome/browser/bookmarks/startup_task_runner_service_factory.h"
 #include "ios/chrome/browser/browser_state/chrome_browser_state.h"
 #include "ios/chrome/browser/ios_chrome_io_thread.h"
 #import "ios/chrome/browser/omaha/omaha_service.h"
@@ -40,7 +36,7 @@ NSString* const kStartProfileStartupTaskRunners =
 // Performs browser state initialization tasks that don't need to happen
 // synchronously at startup.
 + (void)performDeferredInitializationForBrowserState:
-    (ios::ChromeBrowserState*)browserState;
+    (ChromeBrowserState*)browserState;
 // Called when UIApplicationWillResignActiveNotification is received.
 - (void)applicationWillResignActiveNotification:(NSNotification*)notification;
 
@@ -51,7 +47,7 @@ NSString* const kStartProfileStartupTaskRunners =
 #pragma mark - Public methods.
 
 + (void)scheduleDeferredBrowserStateInitialization:
-    (ios::ChromeBrowserState*)browserState {
+    (ChromeBrowserState*)browserState {
   DCHECK(browserState);
   // Schedule the start of the profile deferred task runners.
   [[DeferredInitializationRunner sharedInstance]
@@ -66,16 +62,11 @@ NSString* const kStartProfileStartupTaskRunners =
 }
 
 - (void)initializeOmaha {
-#if BUILDFLAG(GOOGLE_CHROME_BRANDING)
-  if (tests_hook::DisableUpdateService())
-    return;
-  // Start omaha service. We only do this on official builds.
   OmahaService::Start(
       GetApplicationContext()->GetSharedURLLoaderFactory()->Clone(),
       base::BindRepeating(^(const UpgradeRecommendedDetails& details) {
         [[UpgradeCenter sharedInstance] upgradeNotificationDidOccur:details];
       }));
-#endif  // BUILDFLAG(GOOGLE_CHROME_BRANDING)
 }
 
 - (void)registerForApplicationWillResignActiveNotification {
@@ -100,9 +91,7 @@ NSString* const kStartProfileStartupTaskRunners =
 #pragma mark - Private methods.
 
 + (void)performDeferredInitializationForBrowserState:
-    (ios::ChromeBrowserState*)browserState {
-  ios::StartupTaskRunnerServiceFactory::GetForBrowserState(browserState)
-      ->StartDeferredTaskRunners();
+    (ChromeBrowserState*)browserState {
   ReadingListDownloadServiceFactory::GetForBrowserState(browserState)
       ->Initialize();
 }

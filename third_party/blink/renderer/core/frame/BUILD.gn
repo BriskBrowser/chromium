@@ -2,6 +2,7 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+import("//printing/buildflags/buildflags.gni")
 import("//third_party/blink/renderer/core/core.gni")
 
 blink_core_sources("frame") {
@@ -12,6 +13,8 @@ blink_core_sources("frame") {
     "bar_prop.h",
     "browser_controls.cc",
     "browser_controls.h",
+    "coop_access_violation_report_body.cc",
+    "coop_access_violation_report_body.h",
     "csp/content_security_policy.cc",
     "csp/content_security_policy.h",
     "csp/csp_directive.h",
@@ -27,6 +30,8 @@ blink_core_sources("frame") {
     "csp/media_list_directive.h",
     "csp/navigation_initiator_impl.cc",
     "csp/navigation_initiator_impl.h",
+    "csp/require_trusted_types_for_directive.cc",
+    "csp/require_trusted_types_for_directive.h",
     "csp/source_list_directive.cc",
     "csp/source_list_directive.h",
     "csp/string_list_directive.cc",
@@ -43,6 +48,8 @@ blink_core_sources("frame") {
     "device_single_window_event_controller.h",
     "display_cutout_client_impl.cc",
     "display_cutout_client_impl.h",
+    "document_policy_violation_report_body.cc",
+    "document_policy_violation_report_body.h",
     "dom_timer.cc",
     "dom_timer.h",
     "dom_timer_coordinator.cc",
@@ -73,6 +80,8 @@ blink_core_sources("frame") {
     "frame_owner.h",
     "frame_serializer.cc",
     "frame_serializer.h",
+    "frame_serializer_delegate_impl.cc",
+    "frame_serializer_delegate_impl.h",
     "frame_types.h",
     "frame_view.cc",
     "frame_view.h",
@@ -82,12 +91,12 @@ blink_core_sources("frame") {
     "fullscreen_controller.h",
     "history.cc",
     "history.h",
-    "hosts_using_features.cc",
-    "hosts_using_features.h",
     "intervention.cc",
     "intervention.h",
     "intervention_report_body.cc",
     "intervention_report_body.h",
+    "is_input_pending_options.cc",
+    "is_input_pending_options.h",
     "layout_subtree_root_list.cc",
     "layout_subtree_root_list.h",
     "local_dom_window.cc",
@@ -118,12 +127,16 @@ blink_core_sources("frame") {
     "navigator_on_line.h",
     "navigator_scheduling.cc",
     "navigator_scheduling.h",
+    "navigator_ua.cc",
+    "navigator_ua.h",
+    "navigator_ua_data.cc",
+    "navigator_ua_data.h",
     "navigator_user_activation.cc",
     "navigator_user_activation.h",
-    "navigator_user_agent.cc",
-    "navigator_user_agent.h",
     "opened_frame_tracker.cc",
     "opened_frame_tracker.h",
+    "overlay_interstitial_ad_detector.cc",
+    "overlay_interstitial_ad_detector.h",
     "page_scale_constraints.cc",
     "page_scale_constraints.h",
     "page_scale_constraints_set.cc",
@@ -165,18 +178,22 @@ blink_core_sources("frame") {
     "rotation_viewport_anchor.h",
     "sandbox_flags.cc",
     "sandbox_flags.h",
+    "savable_resources.cc",
+    "savable_resources.h",
     "scheduling.cc",
     "scheduling.h",
     "screen.cc",
     "screen.h",
-    "screen_orientation_controller.cc",
-    "screen_orientation_controller.h",
+    "screen_metrics_emulator.cc",
+    "screen_metrics_emulator.h",
     "settings.cc",
     "settings.h",
     "settings_delegate.cc",
     "settings_delegate.h",
     "smart_clip.cc",
     "smart_clip.h",
+    "sticky_ad_detector.cc",
+    "sticky_ad_detector.h",
     "test_report_body.cc",
     "test_report_body.h",
     "use_counter_helper.cc",
@@ -185,6 +202,8 @@ blink_core_sources("frame") {
     "user_activation.h",
     "viewport_data.cc",
     "viewport_data.h",
+    "virtual_keyboard_overlay_changed_observer.cc",
+    "virtual_keyboard_overlay_changed_observer.h",
     "visual_viewport.cc",
     "visual_viewport.h",
     "web_feature.h",
@@ -203,4 +222,21 @@ blink_core_sources("frame") {
     "window_or_worker_global_scope.cc",
     "window_or_worker_global_scope.h",
   ]
+
+  deps = [
+    "//skia",
+    "//ui/accessibility:ax_base",
+    "//ui/base/cursor:cursor_base",
+    "//ui/base/cursor/mojom:cursor_type_blink",
+    "//ui/gfx:geometry_skia",
+    "//ui/gfx/geometry",
+  ]
+
+  if (is_mac) {
+    deps += [ "//ui/base/mojom" ]
+  }
+
+  if (enable_basic_printing) {
+    deps += [ "//printing" ]
+  }
 }

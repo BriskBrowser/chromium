@@ -4,8 +4,9 @@
 
 package org.chromium.chrome.test.pagecontroller.tests;
 
-import android.support.test.filters.SmallTest;
+import androidx.test.filters.SmallTest;
 
+import org.hamcrest.Matchers;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Rule;
@@ -20,6 +21,8 @@ import org.chromium.chrome.test.pagecontroller.controllers.tabswitcher.TabSwitch
 import org.chromium.chrome.test.pagecontroller.controllers.tabswitcher.TabSwitcherMenuController;
 import org.chromium.chrome.test.pagecontroller.rules.ChromeUiApplicationTestRule;
 import org.chromium.chrome.test.pagecontroller.rules.ChromeUiAutomatorTestRule;
+import org.chromium.content_public.browser.test.util.Criteria;
+import org.chromium.content_public.browser.test.util.CriteriaHelper;
 
 /**
  * Tests for the TabSwitcherController.
@@ -47,18 +50,24 @@ public class TabSwitcherControllerTest {
         Assert.assertTrue(NewTabPageController.getInstance().isCurrentPageThis());
     }
 
+    private void waitForTabCount(final int count) {
+        CriteriaHelper.pollInstrumentationThread(() -> {
+            Criteria.checkThat(mController.getNumberOfOpenTabs(), Matchers.is(count));
+        });
+    }
+
     @Test
     public void testCloseAllTabs() {
         mController.clickNewTab().openTabSwitcher().clickNewTab().openTabSwitcher();
         mController.clickCloseAllTabs();
-        Assert.assertEquals(0, mController.getNumberOfOpenTabs());
+        waitForTabCount(0);
     }
 
     @Test
     public void testNumberOfOpenTabs() {
         int startTabs = mController.getNumberOfOpenTabs();
         mController.clickNewTab().openTabSwitcher();
-        Assert.assertEquals(startTabs + 1, mController.getNumberOfOpenTabs());
+        waitForTabCount(startTabs + 1);
     }
 
     @Test

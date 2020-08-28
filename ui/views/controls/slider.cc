@@ -7,10 +7,10 @@
 #include <algorithm>
 #include <memory>
 
-#include "base/logging.h"
-#include "base/message_loop/message_loop_current.h"
+#include "base/check_op.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/task/current_thread.h"
 #include "build/build_config.h"
 #include "cc/paint/paint_flags.h"
 #include "third_party/skia/include/core/SkCanvas.h"
@@ -53,7 +53,7 @@ Slider::Slider(SliderListener* listener)
       pending_accessibility_value_change_(false) {
   highlight_animation_.SetSlideDuration(base::TimeDelta::FromMilliseconds(150));
   EnableCanvasFlippingForRTLUI(true);
-#if defined(OS_MACOSX)
+#if defined(OS_APPLE)
   SetFocusBehavior(FocusBehavior::ACCESSIBLE_ONLY);
 #else
   SetFocusBehavior(FocusBehavior::ALWAYS);
@@ -69,7 +69,7 @@ float Slider::GetValue() const {
 }
 
 void Slider::SetValue(float value) {
-  SetValueInternal(value, VALUE_CHANGED_BY_API);
+  SetValueInternal(value, SliderChangeReason::kByApi);
 }
 
 bool Slider::GetEnableAccessibilityEvents() const {
@@ -83,7 +83,12 @@ void Slider::SetEnableAccessibilityEvents(bool enabled) {
   OnPropertyChanged(&accessibility_events_enabled_, kPropertyEffectsNone);
 }
 
-float Slider::GetAnimatingValue() const{
+void Slider::SetRenderingStyle(RenderingStyle style) {
+  style_ = style;
+  SchedulePaint();
+}
+
+float Slider::GetAnimatingValue() const {
   return move_animation_ && move_animation_->is_animating()
              ? move_animation_->CurrentValueBetween(initial_animating_value_,
                                                     value_)
@@ -129,7 +134,7 @@ void Slider::SetValueInternal(float value, SliderChangeReason reason) {
   if (listener_)
     listener_->SliderValueChanged(this, value_, old_value, reason);
 
-  if (old_value_valid && base::MessageLoopCurrent::Get()) {
+  if (old_value_valid && base::CurrentThread::Get()) {
     // Do not animate when setting the value of the slider for the first time.
     // There is no message-loop when running tests. So we cannot animate then.
     if (!move_animation_) {
@@ -160,9 +165,7 @@ void Slider::PrepareForMove(const int new_x) {
   float value = GetAnimatingValue();
 
   const int thumb_x = value * (content.width() - kThumbWidth);
-  const int candidate_x = (base::i18n::IsRTL() ?
-      width() - (new_x - inset.left()) :
-      new_x - inset.left()) - thumb_x;
+  const int candidate_x = GetMirroredXInView(new_x - inset.left()) - thumb_x;
   if (candidate_x >= 0 && candidate_x < kThumbWidth)
     initial_button_offset_ = candidate_x;
   else
@@ -177,7 +180,7 @@ void Slider::MoveButtonTo(const gfx::Point& point) {
                    : point.x() - inset.left() - initial_button_offset_;
   SetValueInternal(
       static_cast<float>(amount) / (width() - inset.width() - kThumbWidth),
-      VALUE_CHANGED_BY_USER);
+      SliderChangeReason::kByUser);
 }
 
 void Slider::OnSliderDragStarted() {
@@ -237,7 +240,7 @@ bool Slider::OnKeyPressed(const ui::KeyEvent& event) {
       return false;
   }
   SetValueInternal(value_ + direction * keyboard_increment_,
-                   VALUE_CHANGED_BY_USER);
+                   SliderChangeReason::kByUser);
   return true;
 }
 
@@ -373,10 +376,9 @@ int Slider::GetSliderExtraPadding() const {
   }
 }
 
-BEGIN_METADATA(Slider)
-METADATA_PARENT_CLASS(View)
-ADD_PROPERTY_METADATA(Slider, float, Value)
-ADD_PROPERTY_METADATA(Slider, bool, EnableAccessibilityEvents)
+BEGIN_METADATA(Slider, View)
+ADD_PROPERTY_METADATA(float, Value)
+ADD_PROPERTY_METADATA(bool, EnableAccessibilityEvents)
 END_METADATA()
 
 }  // namespace views

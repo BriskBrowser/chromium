@@ -9,8 +9,9 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Environment;
 import android.support.test.InstrumentationRegistry;
-import android.support.test.filters.MediumTest;
-import android.support.test.filters.SmallTest;
+
+import androidx.test.filters.MediumTest;
+import androidx.test.filters.SmallTest;
 
 import org.junit.After;
 import org.junit.Assert;
@@ -28,20 +29,18 @@ import org.chromium.base.test.util.DisabledTest;
 import org.chromium.base.test.util.MetricsUtils.HistogramDelta;
 import org.chromium.base.test.util.UrlUtils;
 import org.chromium.blink.mojom.MhtmlLoadResult;
-import org.chromium.chrome.browser.ChromeActivity;
-import org.chromium.chrome.browser.ChromeSwitches;
+import org.chromium.chrome.browser.app.ChromeActivity;
+import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.offlinepages.OfflinePageBridge.OfflinePageModelObserver;
 import org.chromium.chrome.browser.offlinepages.OfflinePageBridge.SavePageCallback;
 import org.chromium.chrome.browser.profiles.Profile;
-import org.chromium.chrome.browser.share.ShareParams;
 import org.chromium.chrome.browser.tab.Tab;
-import org.chromium.chrome.browser.tab.TabImpl;
 import org.chromium.chrome.browser.ui.messages.snackbar.SnackbarManager.SnackbarController;
 import org.chromium.chrome.test.ChromeActivityTestRule;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
+import org.chromium.components.browser_ui.share.ShareParams;
 import org.chromium.components.offlinepages.SavePageResult;
 import org.chromium.content_public.browser.UiThreadTaskTraits;
-import org.chromium.content_public.browser.test.util.Criteria;
 import org.chromium.content_public.browser.test.util.CriteriaHelper;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.net.ConnectionType;
@@ -104,7 +103,7 @@ public class OfflinePageUtilsTest {
             // Ensure we start in an online state.
             NetworkChangeNotifier.forceConnectivityState(true);
 
-            Profile profile = Profile.getLastUsedProfile();
+            Profile profile = Profile.getLastUsedRegularProfile();
             mOfflinePageBridge = OfflinePageBridge.getForProfile(profile);
             if (!NetworkChangeNotifier.isInitialized()) {
                 NetworkChangeNotifier.init();
@@ -162,14 +161,10 @@ public class OfflinePageUtilsTest {
         }
 
         public void waitForSnackbarControllerToFinish() {
-            CriteriaHelper.pollUiThread(
-                    new Criteria("Failed while waiting for snackbar calls to complete.") {
-                        @Override
-                        public boolean isSatisfied() {
-                            return mDismissed;
-                        }
-                    },
-                    SNACKBAR_TIMEOUT, POLLING_INTERVAL);
+            CriteriaHelper.pollUiThread(()
+                                                -> mDismissed,
+                    "Failed while waiting for snackbar calls to complete.", SNACKBAR_TIMEOUT,
+                    POLLING_INTERVAL);
         }
 
         @Override
@@ -199,7 +194,7 @@ public class OfflinePageUtilsTest {
      */
     class TestShareCallback implements Callback<ShareParams> {
         private Semaphore mSemaphore;
-        private String mUri;
+        private String mText;
 
         public TestShareCallback(Semaphore semaphore) {
             mSemaphore = semaphore;
@@ -207,12 +202,12 @@ public class OfflinePageUtilsTest {
 
         @Override
         public void onResult(ShareParams shareParams) {
-            mUri = shareParams.getUrl();
+            mText = shareParams.getText();
             mSemaphore.release();
         }
 
-        public String getSharedUri() {
-            return mUri;
+        public String getSharedText() {
+            return mText;
         }
     }
 
@@ -267,8 +262,6 @@ public class OfflinePageUtilsTest {
     @Test
     @MediumTest
     @CommandLineFlags.Add({"enable-features=OfflinePagesSharing"})
-    @DisableIf.Build(
-            message = "https://crbug.com/853255", sdk_is_less_than = Build.VERSION_CODES.LOLLIPOP)
     public void testSharePublicOfflinePage() throws Exception {
         loadOfflinePage(ASYNC_ID);
         final Semaphore semaphore = new Semaphore(0);
@@ -281,11 +274,8 @@ public class OfflinePageUtilsTest {
 
         // Wait for share callback to get called.
         Assert.assertTrue(semaphore.tryAcquire(TIMEOUT_MS, TimeUnit.MILLISECONDS));
-        // Assert that URI is what we expected.
-        String foundUri = shareCallback.getSharedUri();
-        Uri uri = Uri.parse(foundUri);
-        String uriPath = uri.getPath();
-        Assert.assertEquals(TEST_PAGE, uriPath);
+        // Assert that text is what we expected.
+        Assert.assertTrue(shareCallback.getSharedText().contains(TEST_PAGE));
     }
 
     @Test
@@ -308,8 +298,7 @@ public class OfflinePageUtilsTest {
         // Wait for share callback to get called.
         Assert.assertTrue(semaphore.tryAcquire(TIMEOUT_MS, TimeUnit.MILLISECONDS));
         // Assert that URI is what we expected.
-        String foundUri = shareCallback.getSharedUri();
-        Assert.assertTrue(foundUri.startsWith(CONTENT_URI_PREFIX));
+        Assert.assertTrue(shareCallback.getSharedText().contains(CONTENT_URI_PREFIX));
     }
 
     // Checks on the UI thread if an offline path corresponds to a sharable file.
@@ -318,8 +307,9 @@ public class OfflinePageUtilsTest {
         TestThreadUtils.runOnUiThreadBlocking(() -> {
             OfflinePageItem privateOfflinePageItem = new OfflinePageItem(uriPath, OFFLINE_ID,
                     namespace, PAGE_ID, TITLE, filePath, FILE_SIZE, 0, 0, 0, REQUEST_ORIGIN);
-            OfflinePageBridge offlinePageBridge = OfflinePageBridge.getForProfile(
-                    ((TabImpl) mActivityTestRule.getActivity().getActivityTab()).getProfile());
+            OfflinePageBridge offlinePageBridge =
+                    OfflinePageBridge.getForProfile(Profile.fromWebContents(
+                            mActivityTestRule.getActivity().getActivityTab().getWebContents()));
 
             boolean isSharable = OfflinePageUtils.isOfflinePageShareable(
                     offlinePageBridge, privateOfflinePageItem, Uri.parse(uriPath));

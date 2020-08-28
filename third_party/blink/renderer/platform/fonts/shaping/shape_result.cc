@@ -47,6 +47,7 @@
 #include "third_party/blink/renderer/platform/fonts/shaping/shape_result_inline_headers.h"
 #include "third_party/blink/renderer/platform/fonts/shaping/shape_result_spacing.h"
 #include "third_party/blink/renderer/platform/text/text_break_iterator.h"
+#include "third_party/blink/renderer/platform/wtf/size_assertions.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_builder.h"
 
 namespace blink {
@@ -60,9 +61,7 @@ struct SameSizeAsHarfBuzzRunGlyphData {
   float advance;
 };
 
-static_assert(sizeof(HarfBuzzRunGlyphData) ==
-                  sizeof(SameSizeAsHarfBuzzRunGlyphData),
-              "HarfBuzzRunGlyphData should stay small");
+ASSERT_SIZE(HarfBuzzRunGlyphData, SameSizeAsHarfBuzzRunGlyphData);
 
 unsigned ShapeResult::RunInfo::NextSafeToBreakOffset(unsigned offset) const {
   DCHECK_LE(offset, num_characters_);
@@ -565,7 +564,7 @@ unsigned ShapeResult::OffsetToFit(float x, TextDirection line_direction) const {
   if (IsLtr(line_direction))
     return result.left_character_index;
 
-  if (x == result.origin_x && IsRtl(Direction()))
+  if (x == result.origin_x)
     return result.left_character_index;
   return result.right_character_index;
 }
@@ -854,8 +853,9 @@ void ShapeResult::ApplySpacingImpl(
         continue;
       }
 
-      space = spacing.ComputeSpacing(
-          run_start_index + glyph_data.character_index, offset);
+      space =
+          spacing.ComputeSpacing(run_start_index + glyph_data.character_index,
+                                 run->font_data_->GetAdvanceOverride(), offset);
       glyph_data.advance += space;
       total_space_for_run += space;
 
@@ -1259,6 +1259,7 @@ unsigned ShapeResult::CopyRangeInternal(unsigned run_index,
       std::min(end_offset, EndIndex()) - std::max(start_offset, StartIndex());
 
   unsigned target_run_size_before = target->runs_.size();
+  bool should_merge = !target->runs_.IsEmpty();
   for (; run_index < runs_.size(); run_index++) {
     const auto& run = runs_[run_index];
     unsigned run_start = run->start_index_;
@@ -1273,7 +1274,14 @@ unsigned ShapeResult::CopyRangeInternal(unsigned run_index,
       sub_run->start_index_ += index_diff;
       target->width_ += sub_run->width_;
       target->num_glyphs_ += sub_run->glyph_data_.size();
-      target->runs_.push_back(std::move(sub_run));
+      if (auto merged_run =
+              should_merge ? target->runs_.back()->MergeIfPossible(*sub_run)
+                           : scoped_refptr<RunInfo>()) {
+        target->runs_.back() = std::move(merged_run);
+      } else {
+        target->runs_.push_back(std::move(sub_run));
+      }
+      should_merge = false;
 
       // No need to process runs after the end of the range.
       if ((!Rtl() && end_offset <= run_end) ||
@@ -1446,6 +1454,92 @@ scoped_refptr<ShapeResult> ShapeResult::CreateForSpaces(const Font* font,
     run->glyph_data_[i] = {font_data->SpaceGlyph(), i, true, width};
     width = 0;
   }
+  result->runs_.push_back(std::move(run));
+  return result;
+}
+
+scoped_refptr<ShapeResult> ShapeResult::CreateForStretchyMathOperator(
+    const Font* font,
+    TextDirection direction,
+    Glyph glyph_variant,
+    float stretch_size) {
+  unsigned start_index = 0;
+  unsigned num_characters = 1;
+  scoped_refptr<ShapeResult> result =
+      ShapeResult::Create(font, start_index, num_characters, direction);
+
+  hb_direction_t hb_direction = HB_DIRECTION_LTR;
+  unsigned glyph_index = 0;
+  scoped_refptr<ShapeResult::RunInfo> run = RunInfo::Create(
+      font->PrimaryFont(), hb_direction, CanvasRotationInVertical::kRegular,
+      HB_SCRIPT_COMMON, start_index, 1 /* num_glyph */, num_characters);
+  run->glyph_data_[glyph_index] = {glyph_variant, 0 /* character index */,
+                                   true /* IsSafeToBreakBefore */,
+                                   stretch_size};
+  run->width_ = std::max(0.0f, stretch_size);
+
+  result->width_ = run->width_;
+  result->num_glyphs_ = run->NumGlyphs();
+  result->runs_.push_back(std::move(run));
+
+  return result;
+}
+
+scoped_refptr<ShapeResult> ShapeResult::CreateForStretchyMathOperator(
+    const Font* font,
+    TextDirection direction,
+    OpenTypeMathStretchData::StretchAxis stretch_axis,
+    const OpenTypeMathStretchData::AssemblyParameters& assembly_parameters) {
+  DCHECK(!assembly_parameters.parts.IsEmpty());
+  DCHECK_LE(assembly_parameters.glyph_count, HarfBuzzRunGlyphData::kMaxGlyphs);
+
+  bool is_horizontal_assembly =
+      stretch_axis == OpenTypeMathStretchData::StretchAxis::Horizontal;
+  unsigned start_index = 0;
+  unsigned num_characters = 1;
+  scoped_refptr<ShapeResult> result =
+      ShapeResult::Create(font, start_index, num_characters, direction);
+
+  hb_direction_t hb_direction =
+      is_horizontal_assembly ? HB_DIRECTION_LTR : HB_DIRECTION_TTB;
+  scoped_refptr<ShapeResult::RunInfo> run = RunInfo::Create(
+      font->PrimaryFont(), hb_direction, CanvasRotationInVertical::kRegular,
+      HB_SCRIPT_COMMON, start_index, assembly_parameters.glyph_count,
+      num_characters);
+
+  float overlap = assembly_parameters.connector_overlap;
+  unsigned part_index = 0;
+  for (const auto& part : assembly_parameters.parts) {
+    unsigned repetition_count =
+        part.is_extender ? assembly_parameters.repetition_count : 1;
+    if (!repetition_count)
+      continue;
+    DCHECK(part_index < assembly_parameters.glyph_count);
+    for (unsigned repetition_index = 0; repetition_index < repetition_count;
+         repetition_index++) {
+      unsigned glyph_index =
+          is_horizontal_assembly
+              ? part_index
+              : assembly_parameters.glyph_count - 1 - part_index;
+      float full_advance = glyph_index == assembly_parameters.glyph_count - 1
+                               ? part.full_advance
+                               : part.full_advance - overlap;
+      run->glyph_data_[glyph_index] = {part.glyph, 0 /* character index */,
+                                       !glyph_index /* IsSafeToBreakBefore */,
+                                       full_advance};
+      if (!is_horizontal_assembly) {
+        GlyphOffset glyph_offset(
+            0, -assembly_parameters.stretch_size + part.full_advance);
+        run->glyph_data_.SetOffsetAt(glyph_index, glyph_offset);
+        result->has_vertical_offsets_ |= (glyph_offset.Height() != 0);
+      }
+      part_index++;
+    }
+  }
+  run->width_ = std::max(0.0f, assembly_parameters.stretch_size);
+
+  result->width_ = run->width_;
+  result->num_glyphs_ = run->NumGlyphs();
   result->runs_.push_back(std::move(run));
   return result;
 }
@@ -1786,7 +1880,7 @@ void ShapeResult::ComputeRunInkBounds(const ShapeResult::RunInfo& run,
   auto glyph_offsets = run.glyph_data_.GetOffsets<has_non_zero_glyph_offsets>();
   const SimpleFontData& current_font_data = *run.font_data_;
   unsigned num_glyphs = run.glyph_data_.size();
-#if !defined(OS_MACOSX)
+#if !defined(OS_MAC)
   Vector<Glyph, 256> glyphs(num_glyphs);
   unsigned i = 0;
   for (const auto& glyph_data : run.glyph_data_)
@@ -1798,7 +1892,7 @@ void ShapeResult::ComputeRunInkBounds(const ShapeResult::RunInfo& run,
   GlyphBoundsAccumulator bounds(run_advance);
   for (unsigned j = 0; j < num_glyphs; ++j) {
     const HarfBuzzRunGlyphData& glyph_data = run.glyph_data_[j];
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
     FloatRect glyph_bounds = current_font_data.BoundsForGlyph(glyph_data.glyph);
 #else
     FloatRect glyph_bounds(bounds_list[j]);

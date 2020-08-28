@@ -36,6 +36,7 @@
 #include "third_party/blink/renderer/core/resize_observer/resize_observation.h"
 #include "third_party/blink/renderer/core/resize_observer/resize_observer.h"
 #include "third_party/blink/renderer/core/style/computed_style.h"
+#include "third_party/blink/renderer/platform/wtf/size_assertions.h"
 
 namespace blink {
 
@@ -47,9 +48,7 @@ struct SameSizeAsElementRareData : NodeRareData {
 };
 
 ElementRareData::ElementRareData(NodeRenderingData* node_layout_data)
-    : NodeRareData(node_layout_data), class_list_(nullptr) {
-  is_element_rare_data_ = true;
-}
+    : NodeRareData(node_layout_data, true), class_list_(nullptr) {}
 
 ElementRareData::~ElementRareData() {
   DCHECK(!pseudo_element_data_);
@@ -95,7 +94,7 @@ ElementInternals& ElementRareData::EnsureElementInternals(HTMLElement& target) {
   return *element_internals_;
 }
 
-void ElementRareData::TraceAfterDispatch(blink::Visitor* visitor) {
+void ElementRareData::TraceAfterDispatch(blink::Visitor* visitor) const {
   visitor->Trace(dataset_);
   visitor->Trace(class_list_);
   visitor->Trace(part_);
@@ -116,7 +115,6 @@ void ElementRareData::TraceAfterDispatch(blink::Visitor* visitor) {
   NodeRareData::TraceAfterDispatch(visitor);
 }
 
-static_assert(sizeof(ElementRareData) == sizeof(SameSizeAsElementRareData),
-              "ElementRareData should stay small");
+ASSERT_SIZE(ElementRareData, SameSizeAsElementRareData);
 
 }  // namespace blink

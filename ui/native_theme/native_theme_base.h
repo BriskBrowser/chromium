@@ -65,10 +65,23 @@ class NATIVE_THEME_EXPORT NativeThemeBase : public NativeTheme {
     kDisabledSlider,
     kHoveredSlider,
     kPressedSlider,
-    kAutoCompleteBackground
+    kAutoCompleteBackground,
+    kScrollbarArrowBackground,
+    kScrollbarArrowBackgroundHovered,
+    kScrollbarArrowBackgroundPressed,
+    kScrollbarArrow,
+    kScrollbarArrowHovered,
+    kScrollbarArrowPressed,
+    kScrollbarTrack,
+    kScrollbarThumb,
+    kScrollbarThumbHovered,
+    kScrollbarThumbPressed,
+    kScrollbarThumbInactive
   };
 
+  using NativeTheme::NativeTheme;
   NativeThemeBase();
+  explicit NativeThemeBase(bool should_only_use_dark_colors);
   ~NativeThemeBase() override;
 
   // Draw the arrow. Used by scrollbar and inner spin button.
@@ -211,8 +224,10 @@ class NATIVE_THEME_EXPORT NativeThemeBase : public NativeTheme {
 
   // Returns the color used to draw the arrow.
   SkColor GetArrowColor(State state, ColorScheme color_scheme) const;
+  SkColor GetControlColor(ControlColorId color_id,
+                          ColorScheme color_scheme) const;
 
-  int scrollbar_width_;
+  int scrollbar_width_ = 15;
 
  private:
   friend class NativeThemeAuraTest;
@@ -257,15 +272,15 @@ class NATIVE_THEME_EXPORT NativeThemeBase : public NativeTheme {
                                       ColorScheme color_scheme) const;
   SkColor GetHighContrastControlColor(ControlColorId color_id,
                                       ColorScheme color_scheme) const;
-  SkColor GetControlColor(ControlColorId color_id,
-                          ColorScheme color_scheme) const;
+  SkColor GetDarkModeControlColor(ControlColorId color_id) const;
+
   SkRect AlignSliderTrack(const gfx::Rect& slider_rect,
                           const NativeTheme::SliderExtraParams& slider,
                           bool is_value,
                           float track_height) const;
 
   // The length of the arrow buttons, 0 means no buttons are drawn.
-  int scrollbar_button_length_;
+  int scrollbar_button_length_ = 14;
 
   DISALLOW_COPY_AND_ASSIGN(NativeThemeBase);
 };

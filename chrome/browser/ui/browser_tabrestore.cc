@@ -8,7 +8,7 @@
 #include <utility>
 
 #include "build/build_config.h"
-#include "chrome/browser/extensions/tab_helper.h"
+#include "chrome/browser/apps/app_service/launch_utils.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/sessions/session_restore.h"
 #include "chrome/browser/sessions/session_service.h"
@@ -17,7 +17,6 @@
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
-#include "chrome/browser/ui/web_contents_sizer.h"
 #include "components/sessions/content/content_serialized_navigation_builder.h"
 #include "components/tab_groups/tab_group_id.h"
 #include "content/public/browser/navigation_entry.h"
@@ -25,6 +24,7 @@
 #include "content/public/browser/restore_type.h"
 #include "content/public/browser/session_storage_namespace.h"
 #include "content/public/browser/web_contents.h"
+#include "third_party/blink/public/common/user_agent/user_agent_metadata.h"
 #include "ui/gfx/geometry/size.h"
 
 using content::NavigationEntry;
@@ -53,7 +53,7 @@ std::unique_ptr<WebContents> CreateRestoredTab(
     bool from_last_session,
     base::TimeTicks last_active_time,
     content::SessionStorageNamespace* session_storage_namespace,
-    const std::string& user_agent_override,
+    const sessions::SerializedUserAgentOverride& user_agent_override,
     bool initially_hidden,
     bool from_session_restore) {
   GURL restore_url = navigations.at(selected_navigation).virtual_url();
@@ -76,13 +76,18 @@ std::unique_ptr<WebContents> CreateRestoredTab(
                                             session_storage_namespace_map);
   if (from_session_restore)
     SessionRestore::OnWillRestoreTab(web_contents.get());
-  extensions::TabHelper::CreateForWebContents(web_contents.get());
-  extensions::TabHelper::FromWebContents(web_contents.get())
-      ->SetExtensionAppById(extension_app_id);
+  apps::SetAppIdForWebContents(browser->profile(), web_contents.get(),
+                               extension_app_id);
+
   std::vector<std::unique_ptr<NavigationEntry>> entries =
       ContentSerializedNavigationBuilder::ToNavigationEntries(
           navigations, browser->profile());
-  web_contents->SetUserAgentOverride(user_agent_override, false);
+
+  blink::UserAgentOverride ua_override;
+  ua_override.ua_string_override = user_agent_override.ua_string_override;
+  ua_override.ua_metadata_override = blink::UserAgentMetadata::Demarshal(
+      user_agent_override.opaque_ua_metadata_override);
+  web_contents->SetUserAgentOverride(ua_override, false);
   web_contents->GetController().Restore(
       selected_navigation, GetRestoreType(browser, from_last_session),
       &entries);
@@ -111,8 +116,7 @@ void LoadRestoredTabIfVisible(Browser* browser,
   DCHECK(!browser->window()->GetContentsSize().IsEmpty() ||
          (browser->window()->GetBounds().IsEmpty() &&
           browser->window()->GetRestoredBounds().IsEmpty()));
-  DCHECK_EQ(GetWebContentsSize(web_contents),
-            browser->window()->GetContentsSize());
+  DCHECK_EQ(web_contents->GetSize(), browser->window()->GetContentsSize());
 
   web_contents->GetController().LoadIfNecessary();
 }
@@ -131,7 +135,7 @@ WebContents* AddRestoredTab(
     bool from_last_session,
     base::TimeTicks last_active_time,
     content::SessionStorageNamespace* session_storage_namespace,
-    const std::string& user_agent_override,
+    const sessions::SerializedUserAgentOverride& user_agent_override,
     bool from_session_restore) {
   const bool initially_hidden = !select || browser->window()->IsMinimized();
   std::unique_ptr<WebContents> web_contents = CreateRestoredTab(
@@ -170,15 +174,16 @@ WebContents* AddRestoredTab(
     // yet and the bounds may not be available on all platforms.
     if (size.IsEmpty())
       size = browser->window()->GetRestoredBounds().size();
-    ResizeWebContents(raw_web_contents, gfx::Rect(size));
+    raw_web_contents->Resize(gfx::Rect(size));
     raw_web_contents->WasHidden();
   } else {
     const bool should_activate =
-#if defined(OS_MACOSX)
+#if defined(OS_WIN) || defined(OS_MAC)
         // Activating a window on another space causes the system to switch to
         // that space. Since the session restore process shows and activates
         // windows itself, activating windows here should be safe to skip.
-        // Cautiously apply only to macOS, for now (https://crbug.com/1019048).
+        // Cautiously apply only to Windows and MacOS, for now
+        // (https://crbug.com/1019048).
         !from_session_restore;
 #else
         true;
@@ -204,7 +209,7 @@ WebContents* ReplaceRestoredTab(
     bool from_last_session,
     const std::string& extension_app_id,
     content::SessionStorageNamespace* session_storage_namespace,
-    const std::string& user_agent_override,
+    const sessions::SerializedUserAgentOverride& user_agent_override,
     bool from_session_restore) {
   std::unique_ptr<WebContents> web_contents = CreateRestoredTab(
       browser, navigations, selected_navigation, extension_app_id,

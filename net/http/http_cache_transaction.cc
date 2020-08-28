@@ -22,6 +22,7 @@
 #include "base/location.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/power_monitor/power_monitor.h"
 #include "base/single_thread_task_runner.h"
 #include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"  // For HexEncode.
@@ -79,6 +80,12 @@ void RecordNoStoreHeaderHistogram(int load_flags,
         "Net.MainFrameNoStore",
         response->headers->HasHeaderValue("cache-control", "no-store"));
   }
+}
+
+bool IsOnBatteryPower() {
+  if (base::PowerMonitor::IsInitialized())
+    return base::PowerMonitor::IsOnBatteryPower();
+  return false;
 }
 
 enum ExternallyConditionalizedType {
@@ -181,7 +188,6 @@ HttpCache::Transaction::Transaction(RequestPriority priority, HttpCache* cache)
       shared_writing_error_(OK),
       cache_entry_status_(CacheEntryStatus::ENTRY_UNDEFINED),
       validation_cause_(VALIDATION_CAUSE_UNDEFINED),
-      cant_conditionalize_zero_freshness_from_memhint_(false),
       recorded_histograms_(false),
       parallel_writing_pattern_(PARALLEL_WRITING_NONE),
       moved_network_transaction_to_writers_(false),
@@ -562,15 +568,15 @@ void HttpCache::Transaction::SetWebSocketHandshakeStreamCreateHelper(
 }
 
 void HttpCache::Transaction::SetBeforeNetworkStartCallback(
-    const BeforeNetworkStartCallback& callback) {
+    BeforeNetworkStartCallback callback) {
   DCHECK(!network_trans_);
-  before_network_start_callback_ = callback;
+  before_network_start_callback_ = std::move(callback);
 }
 
-void HttpCache::Transaction::SetBeforeHeadersSentCallback(
-    const BeforeHeadersSentCallback& callback) {
+void HttpCache::Transaction::SetConnectedCallback(
+    const ConnectedCallback& callback) {
   DCHECK(!network_trans_);
-  before_headers_sent_callback_ = callback;
+  connected_callback_ = callback;
 }
 
 void HttpCache::Transaction::SetRequestHeadersCallback(
@@ -1123,7 +1129,6 @@ int HttpCache::Transaction::DoOpenOrCreateEntry() {
     // below --- as we've already dropped the old entry.
     couldnt_conditionalize_request_ = true;
     validation_cause_ = VALIDATION_CAUSE_ZERO_FRESHNESS;
-    cant_conditionalize_zero_freshness_from_memhint_ = true;
     UpdateCacheEntryStatus(CacheEntryStatus::ENTRY_CANT_CONDITIONALIZE);
   }
 
@@ -1432,7 +1437,8 @@ int HttpCache::Transaction::DoDoneHeadersAddToEntryComplete(int result) {
   cache_pending_ = false;
   done_headers_create_new_entry_ = false;
 
-  // Speculative fix for rare crash. crbug.com/959194
+  // It is unclear exactly how this state is reached with an ERR_CACHE_RACE, but
+  // this check appears to fix a rare crash. See crbug.com/959194.
   if (result == ERR_CACHE_RACE) {
     TransitionToState(STATE_HEADERS_PHASE_CANNOT_PROCEED);
     return OK;
@@ -1682,8 +1688,9 @@ int HttpCache::Transaction::DoSendRequest() {
     return rv;
   }
 
-  network_trans_->SetBeforeNetworkStartCallback(before_network_start_callback_);
-  network_trans_->SetBeforeHeadersSentCallback(before_headers_sent_callback_);
+  network_trans_->SetBeforeNetworkStartCallback(
+      std::move(before_network_start_callback_));
+  network_trans_->SetConnectedCallback(connected_callback_);
   network_trans_->SetRequestHeadersCallback(request_headers_callback_);
   network_trans_->SetResponseHeadersCallback(response_headers_callback_);
 
@@ -1880,7 +1887,7 @@ int HttpCache::Transaction::DoUpdateCachedResponse() {
   }
 
   if (response_.headers->HasHeaderValue("cache-control", "no-store") ||
-      ShouldDisableMediaCaching(response_.headers.get())) {
+      ShouldDisableCaching(response_.headers.get())) {
     if (!entry_->doomed) {
       int ret = cache_->DoomEntry(cache_key_, nullptr);
       DCHECK_EQ(OK, ret);
@@ -2708,11 +2715,12 @@ ValidationType HttpCache::Transaction::RequiresValidation() {
   if (effective_load_flags_ & LOAD_SKIP_CACHE_VALIDATION)
     return VALIDATION_NONE;
 
+  TimeDelta response_time_in_cache =
+      cache_->clock_->Now() - response_.response_time;
   if (response_.unused_since_prefetch &&
       !(effective_load_flags_ & LOAD_PREFETCH) &&
-      response_.headers->GetCurrentAge(
-          response_.request_time, response_.response_time,
-          cache_->clock_->Now()) < TimeDelta::FromMinutes(kPrefetchReuseMins)) {
+      (response_time_in_cache < TimeDelta::FromMinutes(kPrefetchReuseMins)) &&
+      (response_time_in_cache >= TimeDelta())) {
     // The first use of a resource after prefetch within a short window skips
     // validation.
     return VALIDATION_NONE;
@@ -3109,7 +3117,10 @@ int HttpCache::Transaction::WriteResponseInfoToEntry(
   // status to a net error and replay the net error.
   if ((response.headers->HasHeaderValue("cache-control", "no-store")) ||
       IsCertStatusError(response.ssl_info.cert_status) ||
-      ShouldDisableMediaCaching(response.headers.get())) {
+      ShouldDisableCaching(response.headers.get())) {
+    if (partial_)
+      partial_->FixResponseHeaders(response_.headers.get(), true);
+
     bool stopped = StopCachingImpl(false);
     DCHECK(stopped);
     if (net_log_.IsCapturing())
@@ -3481,11 +3492,6 @@ void HttpCache::Transaction::RecordHistograms() {
   if (cache_entry_status_ == CacheEntryStatus::ENTRY_CANT_CONDITIONALIZE) {
     UMA_HISTOGRAM_ENUMERATION("HttpCache.CantConditionalizeCause",
                               validation_cause_, VALIDATION_CAUSE_MAX);
-    if (validation_cause_ == VALIDATION_CAUSE_ZERO_FRESHNESS) {
-      UMA_HISTOGRAM_BOOLEAN(
-          "HttpCache.CantConditionalizeZeroFreshnessFromMemHint",
-          cant_conditionalize_zero_freshness_from_memhint_);
-    }
   }
 
   if (cache_entry_status_ == CacheEntryStatus::ENTRY_OTHER)
@@ -3592,23 +3598,27 @@ void HttpCache::Transaction::TransitionToState(State state) {
   next_state_ = state;
 }
 
-bool HttpCache::Transaction::ShouldDisableMediaCaching(
+bool HttpCache::Transaction::ShouldDisableCaching(
     const HttpResponseHeaders* headers) const {
   bool disable_caching = false;
-  if (base::FeatureList::IsEnabled(features::kTurnOffStreamingMediaCaching)) {
-    // If the acquired content is 'large' and not already cached, and we have
-    // a MIME type of audio or video, then disable the cache for this response.
-    // We based our initial definition of 'large' on the disk cache maximum
-    // block size of 16K, which we observed captures the majority of responses
-    // from various MSE implementations.
+  if (base::FeatureList::IsEnabled(
+          features::kTurnOffStreamingMediaCachingAlways) ||
+      (base::FeatureList::IsEnabled(
+           features::kTurnOffStreamingMediaCachingOnBattery) &&
+       IsOnBatteryPower())) {
+    // If the feature is always enabled or enabled while we're running on
+    // battery, and the acquired content is 'large' and not already cached, and
+    // we have a MIME type of audio or video, then disable the cache for this
+    // response. We based our initial definition of 'large' on the disk cache
+    // maximum block size of 16K, which we observed captures the majority of
+    // responses from various MSE implementations.
     static constexpr int kMaxContentSize = 4096 * 4;
     std::string mime_type;
+    base::CompareCase insensitive_ascii = base::CompareCase::INSENSITIVE_ASCII;
     if (headers->GetContentLength() > kMaxContentSize &&
         headers->response_code() != 304 && headers->GetMimeType(&mime_type) &&
-        (base::StartsWith(mime_type, "video",
-                          base::CompareCase::INSENSITIVE_ASCII) ||
-         base::StartsWith(mime_type, "audio",
-                          base::CompareCase::INSENSITIVE_ASCII))) {
+        (base::StartsWith(mime_type, "video", insensitive_ascii) ||
+         base::StartsWith(mime_type, "audio", insensitive_ascii))) {
       disable_caching = true;
       MediaCacheStatusResponseHistogram(
           MediaResponseCacheType::kMediaResponseTransactionCacheDisabled);

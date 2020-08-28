@@ -14,6 +14,7 @@
 #include "base/containers/circular_deque.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
+#include "base/util/type_safety/pass_key.h"
 #include "media/base/audio_decoder.h"
 #include "media/base/audio_timestamp_helper.h"
 #include "media/base/demuxer_stream.h"
@@ -45,7 +46,7 @@ class MEDIA_EXPORT DecoderStream {
   using Output = typename StreamTraits::OutputType;
   using DecoderConfig = typename StreamTraits::DecoderConfigType;
 
-  enum Status {
+  enum ReadStatus {
     OK,                    // Everything went as planned.
     ABORTED,               // Read aborted due to Reset() during pending read.
     DEMUXER_READ_ABORTED,  // Demuxer returned aborted read.
@@ -60,16 +61,13 @@ class MEDIA_EXPORT DecoderStream {
   using InitCB = base::OnceCallback<void(bool success)>;
 
   // Indicates completion of a DecoderStream read.
-  using ReadCB = base::OnceCallback<void(Status, scoped_refptr<Output>)>;
+  using ReadCB = base::OnceCallback<void(ReadStatus, scoped_refptr<Output>)>;
 
   DecoderStream(std::unique_ptr<DecoderStreamTraits<StreamType>> traits,
                 const scoped_refptr<base::SingleThreadTaskRunner>& task_runner,
                 CreateDecodersCB create_decoders_cb,
                 MediaLog* media_log);
   virtual ~DecoderStream();
-
-  // Returns the string representation of the StreamType for logging purpose.
-  std::string GetStreamTypeString();
 
   // Initializes the DecoderStream and returns the initialization result
   // through |init_cb|. Note that |init_cb| is always called asynchronously.
@@ -99,12 +97,6 @@ class MEDIA_EXPORT DecoderStream {
   // Returns true if the decoder currently has the ability to decode and return
   // an Output.
   bool CanReadWithoutStalling() const;
-
-  // Returns maximum concurrent decode requests for the current |decoder_|.
-  int GetMaxDecodeRequests() const;
-
-  // Returns true if one more decode request can be submitted to the decoder.
-  bool CanDecodeMore() const;
 
   base::TimeDelta AverageDuration() const;
 
@@ -154,6 +146,13 @@ class MEDIA_EXPORT DecoderStream {
     return fallback_buffers_.size();
   }
 
+  bool is_demuxer_read_pending() const { return pending_demuxer_read_; }
+
+  DecoderSelector<StreamType>& GetDecoderSelectorForTesting(
+      util::PassKey<class VideoDecoderStreamTest>) {
+    return decoder_selector_;
+  }
+
  private:
   enum State {
     STATE_UNINITIALIZED,
@@ -165,6 +164,18 @@ class MEDIA_EXPORT DecoderStream {
     STATE_ERROR,
   };
 
+  // Returns the string representation of the StreamType for logging purpose.
+  std::string GetStreamTypeString();
+
+  // Returns maximum concurrent decode requests for the current |decoder_|.
+  int GetMaxDecodeRequests() const;
+
+  // Returns the maximum number of outputs we should keep ready at any one time.
+  int GetMaxReadyOutputs() const;
+
+  // Returns true if one more decode request can be submitted to the decoder.
+  bool CanDecodeMore() const;
+
   void SelectDecoder();
 
   // Called when |decoder_selector| selected the |selected_decoder|.
@@ -175,7 +186,7 @@ class MEDIA_EXPORT DecoderStream {
       std::unique_ptr<DecryptingDemuxerStream> decrypting_demuxer_stream);
 
   // Satisfy pending |read_cb_| with |status| and |output|.
-  void SatisfyRead(Status status, scoped_refptr<Output> output);
+  void SatisfyRead(ReadStatus status, scoped_refptr<Output> output);
 
   // Decodes |buffer| and returns the result via OnDecodeOutputReady().
   // Saves |buffer| into |pending_buffers_| if appropriate.
@@ -205,9 +216,6 @@ class MEDIA_EXPORT DecoderStream {
                      scoped_refptr<DecoderBuffer> buffer);
 
   void ReinitializeDecoder();
-
-  // Callback for Decoder reinitialization.
-  void OnDecoderReinitialized(bool success);
 
   void CompleteDecoderReinitialization(bool success);
 

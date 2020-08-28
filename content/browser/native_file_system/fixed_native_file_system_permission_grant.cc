@@ -19,8 +19,8 @@ FixedNativeFileSystemPermissionGrant::GetStatus() {
 }
 
 void FixedNativeFileSystemPermissionGrant::RequestPermission(
-    int process_id,
-    int frame_id,
+    GlobalFrameRoutingId frame_id,
+    UserActivationState user_activation_state,
     base::OnceCallback<void(PermissionRequestOutcome)> callback) {
   std::move(callback).Run(PermissionRequestOutcome::kRequestAborted);
 }

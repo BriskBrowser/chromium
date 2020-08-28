@@ -6,11 +6,13 @@
 
 #include <utility>
 
+#include "base/check.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/json/json_file_value_serializer.h"
 #include "base/json/json_reader.h"
 #include "base/logging.h"
+#include "base/notreached.h"
 #include "base/threading/thread_restrictions.h"
 #include "base/values.h"
 #include "chromeos/test/chromeos_test_utils.h"
@@ -32,8 +34,8 @@ std::string ReadTestData(const std::string& filename) {
   if (!chromeos::test_utils::GetTestDataPath(kNetworkComponentDirectory,
                                              filename,
                                              &path)) {
-    NOTREACHED() << "Unable to get test data path for "
-                 << kNetworkComponentDirectory << "/" << filename;
+    LOG(FATAL) << "Unable to get test data path for "
+               << kNetworkComponentDirectory << "/" << filename;
     return "";
   }
   std::string result;
@@ -48,8 +50,8 @@ std::unique_ptr<base::DictionaryValue> ReadTestDictionary(
   if (!chromeos::test_utils::GetTestDataPath(kNetworkComponentDirectory,
                                              filename,
                                              &path)) {
-    NOTREACHED() << "Unable to get test dictionary path for "
-                 << kNetworkComponentDirectory << "/" << filename;
+    LOG(FATAL) << "Unable to get test dictionary path for "
+               << kNetworkComponentDirectory << "/" << filename;
     return dict;
   }
 

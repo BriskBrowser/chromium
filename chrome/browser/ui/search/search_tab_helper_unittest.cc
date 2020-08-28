@@ -26,6 +26,7 @@
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/gfx/vector_icon_types.h"
 #include "url/gurl.h"
 
 using testing::_;
@@ -38,7 +39,7 @@ class MockEmbeddedSearchClientFactory
     : public SearchIPCRouter::EmbeddedSearchClientFactory {
  public:
   MOCK_METHOD0(GetEmbeddedSearchClient,
-               chrome::mojom::EmbeddedSearchClient*(void));
+               search::mojom::EmbeddedSearchClient*(void));
 };
 
 }  // namespace
@@ -86,7 +87,7 @@ class SearchTabHelperTest : public ChromeRenderViewHostTestHarness {
 };
 
 TEST_F(SearchTabHelperTest, FileSelectedUpdatesLastSelectedDirectory) {
-  NavigateAndCommit(GURL(chrome::kChromeUINewTabURL));
+  NavigateAndCommit(GURL(chrome::kChromeSearchLocalNtpUrl));
   SearchTabHelper* search_tab_helper =
       SearchTabHelper::FromWebContents(web_contents());
   ASSERT_NE(nullptr, search_tab_helper);
@@ -99,7 +100,7 @@ TEST_F(SearchTabHelperTest, FileSelectedUpdatesLastSelectedDirectory) {
 }
 
 TEST_F(SearchTabHelperTest, TitleIsSetForNTP) {
-  NavigateAndCommit(GURL(chrome::kChromeUINewTabURL));
+  NavigateAndCommit(GURL(chrome::kChromeSearchLocalNtpUrl));
   EXPECT_EQ(l10n_util::GetStringUTF16(IDS_NEW_TAB_TITLE),
             web_contents()->GetTitle());
 }

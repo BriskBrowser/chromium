@@ -8,9 +8,11 @@ import static org.chromium.android_webview.test.AwActivityTestRule.WAIT_TIMEOUT_
 
 import android.annotation.SuppressLint;
 import android.support.test.InstrumentationRegistry;
-import android.support.test.filters.SmallTest;
 import android.util.Pair;
 
+import androidx.test.filters.SmallTest;
+
+import org.hamcrest.Matchers;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -25,17 +27,18 @@ import org.chromium.android_webview.test.util.JSUtils;
 import org.chromium.base.test.util.CallbackHelper;
 import org.chromium.base.test.util.DisabledTest;
 import org.chromium.base.test.util.Feature;
-import org.chromium.base.test.util.RetryOnFailure;
 import org.chromium.content_public.browser.LoadUrlParams;
 import org.chromium.content_public.browser.NavigationHistory;
 import org.chromium.content_public.browser.test.util.Criteria;
 import org.chromium.content_public.browser.test.util.CriteriaHelper;
+import org.chromium.content_public.browser.test.util.CriteriaNotSatisfiedException;
 import org.chromium.content_public.browser.test.util.DOMUtils;
 import org.chromium.content_public.browser.test.util.TestCallbackHelperContainer.OnEvaluateJavaScriptResultHelper;
 import org.chromium.content_public.browser.test.util.TestCallbackHelperContainer.OnPageStartedHelper;
 import org.chromium.content_public.browser.test.util.TestCallbackHelperContainer.OnReceivedErrorHelper;
 import org.chromium.content_public.common.ContentUrlConstants;
 import org.chromium.net.test.util.TestWebServer;
+import org.chromium.url.GURL;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -758,7 +761,6 @@ public class AwContentsClientShouldOverrideUrlLoadingTest {
     @Test
     @SmallTest
     @Feature({"AndroidWebView", "Navigation"})
-    @RetryOnFailure
     public void testCalledOnJavaScriptLocationDelayedAssignRedirect() throws Throwable {
         final String redirectTargetUrl = createRedirectTargetPage();
         final String redirectUrl = addPageToTestServer("/js_delayed_assign.html",
@@ -769,7 +771,6 @@ public class AwContentsClientShouldOverrideUrlLoadingTest {
     @Test
     @SmallTest
     @Feature({"AndroidWebView", "Navigation"})
-    @RetryOnFailure
     public void testCalledOnJavaScriptLocationDelayedReplaceRedirect() throws Throwable {
         final String redirectTargetUrl = createRedirectTargetPage();
         final String redirectUrl = addPageToTestServer("/js_delayed_replace.html",
@@ -856,7 +857,7 @@ public class AwContentsClientShouldOverrideUrlLoadingTest {
         clickOnLinkUsingJs();
         onPageFinishedHelper.waitForCallback(pageFinishedCount);
 
-        Assert.assertEquals(linkUrl, mAwContents.getUrl());
+        Assert.assertEquals(new GURL(linkUrl), mAwContents.getUrl());
         Assert.assertTrue("Should have a navigation history", mAwContents.canGoBack());
         NavigationHistory navHistory = mAwContents.getNavigationHistory();
         Assert.assertEquals(2, navHistory.getEntryCount());
@@ -868,7 +869,7 @@ public class AwContentsClientShouldOverrideUrlLoadingTest {
         onPageFinishedHelper.waitForCallback(pageFinishedCount);
 
         Assert.assertFalse("Should not be able to navigate backward", mAwContents.canGoBack());
-        Assert.assertEquals(firstUrl, mAwContents.getUrl());
+        Assert.assertEquals(new GURL(firstUrl), mAwContents.getUrl());
         navHistory = mAwContents.getNavigationHistory();
         Assert.assertEquals(2, navHistory.getEntryCount());
         Assert.assertEquals(0, navHistory.getCurrentEntryIndex());
@@ -900,12 +901,16 @@ public class AwContentsClientShouldOverrideUrlLoadingTest {
         clickOnLinkUsingJs();
         mShouldOverrideUrlLoadingHelper.waitForCallback(shouldOverrideUrlLoadingCallCount);
 
-        // clang-format off
-        CriteriaHelper.pollInstrumentationThread(
-            Criteria.equals("1", () -> JSUtils.executeJavaScriptAndWaitForResult(
-                 InstrumentationRegistry.getInstrumentation(), mAwContents,
-                 mContentsClient.getOnEvaluateJavaScriptResultHelper(), globalJsVar)));
-        // clang-format on
+        CriteriaHelper.pollInstrumentationThread(() -> {
+            try {
+                String actual = JSUtils.executeJavaScriptAndWaitForResult(
+                        InstrumentationRegistry.getInstrumentation(), mAwContents,
+                        mContentsClient.getOnEvaluateJavaScriptResultHelper(), globalJsVar);
+                Criteria.checkThat(actual, Matchers.is("1"));
+            } catch (Exception e) {
+                throw new CriteriaNotSatisfiedException(e);
+            }
+        });
     }
 
     @Test
@@ -935,8 +940,14 @@ public class AwContentsClientShouldOverrideUrlLoadingTest {
         mShouldOverrideUrlLoadingHelper.waitForCallback(shouldOverrideUrlLoadingCallCount);
         mContentsClient.getOnPageFinishedHelper().waitForCallback(onPageFinishedCallCount);
 
-        CriteriaHelper.pollInstrumentationThread(
-                Criteria.equals(TITLE, () -> mActivityTestRule.getTitleOnUiThread(mAwContents)));
+        CriteriaHelper.pollInstrumentationThread(() -> {
+            try {
+                Criteria.checkThat(
+                        mActivityTestRule.getTitleOnUiThread(mAwContents), Matchers.is(TITLE));
+            } catch (Exception e) {
+                throw new CriteriaNotSatisfiedException(e);
+            }
+        });
     }
 
     @Test
@@ -1001,7 +1012,8 @@ public class AwContentsClientShouldOverrideUrlLoadingTest {
             mContentsClient.getOnPageFinishedHelper().waitForCallback(
                     currentCallCount, 1, WAIT_TIMEOUT_MS, TimeUnit.MILLISECONDS);
 
-            Assert.assertEquals(ContentUrlConstants.ABOUT_BLANK_DISPLAY_URL, mAwContents.getUrl());
+            Assert.assertEquals(
+                    new GURL(ContentUrlConstants.ABOUT_BLANK_DISPLAY_URL), mAwContents.getUrl());
         } finally {
             mActivityTestRule.getActivity().setIgnoreStartActivity(false);
         }

@@ -47,10 +47,16 @@ class CORE_EXPORT DocumentAnimations final
   DocumentAnimations(Document*);
   ~DocumentAnimations() = default;
 
+  uint64_t TransitionGeneration() const {
+    return current_transition_generation_;
+  }
+  void IncrementTrasitionGeneration() { current_transition_generation_++; }
   void AddTimeline(AnimationTimeline&);
   void UpdateAnimationTimingForAnimationFrame();
   bool NeedsAnimationTimingUpdate();
   void UpdateAnimationTimingIfNeeded();
+  void GetAnimationsTargetingTreeScope(HeapVector<Member<Animation>>&,
+                                       const TreeScope&);
 
   // Updates existing animations as part of generating a new (document
   // lifecycle) frame. Note that this considers and updates state for
@@ -59,8 +65,15 @@ class CORE_EXPORT DocumentAnimations final
       DocumentLifecycle::LifecycleState required_lifecycle_state,
       const PaintArtifactCompositor* paint_artifact_compositor);
 
-  HeapVector<Member<Animation>> getAnimations();
-  void Trace(blink::Visitor*);
+  void MarkAnimationsCompositorPending();
+
+  HeapVector<Member<Animation>> getAnimations(const TreeScope&);
+  const HeapHashSet<WeakMember<AnimationTimeline>>& GetTimelinesForTesting()
+      const {
+    return timelines_;
+  }
+  uint64_t current_transition_generation_;
+  void Trace(Visitor*) const;
 
  private:
   Member<Document> document_;

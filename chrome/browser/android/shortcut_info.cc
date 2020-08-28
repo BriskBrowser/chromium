@@ -6,6 +6,16 @@
 
 #include "base/feature_list.h"
 #include "base/strings/utf_string_conversions.h"
+#include "chrome/browser/android/shortcut_helper.h"
+#include "third_party/blink/public/common/manifest/manifest_icon_selector.h"
+
+namespace {
+
+// The maximum number of shortcuts an Android launcher supports.
+// https://developer.android.com/guide/topics/ui/shortcuts#shortcut-limitations
+constexpr size_t kMaxShortcuts = 4;
+
+}  // namespace
 
 ShareTargetParamsFile::ShareTargetParamsFile() {}
 
@@ -27,7 +37,7 @@ ShareTarget::~ShareTarget() {}
 ShortcutInfo::ShortcutInfo(const GURL& shortcut_url)
     : url(shortcut_url),
       display(blink::mojom::DisplayMode::kBrowser),
-      orientation(blink::kWebScreenOrientationLockDefault),
+      orientation(device::mojom::ScreenOrientationLockType::DEFAULT),
       source(SOURCE_ADD_TO_HOMESCREEN_SHORTCUT),
       ideal_splash_image_size_in_px(0),
       minimum_splash_image_size_in_px(0) {}
@@ -65,7 +75,8 @@ void ShortcutInfo::UpdateFromManifest(const blink::Manifest& manifest) {
     source = SOURCE_ADD_TO_HOMESCREEN_STANDALONE;
     // Set the orientation based on the manifest value, or ignore if the display
     // mode is different from 'standalone', 'fullscreen' or 'minimal-ui'.
-    if (manifest.orientation != blink::kWebScreenOrientationLockDefault) {
+    if (manifest.orientation !=
+        device::mojom::ScreenOrientationLockType::DEFAULT) {
       // TODO(mlamouri): Send a message to the developer console if we ignored
       // Manifest orientation because display property is not set.
       orientation = manifest.orientation;
@@ -104,6 +115,27 @@ void ShortcutInfo::UpdateFromManifest(const blink::Manifest& manifest) {
       share_target_params_file.accept = manifest_share_target_file.accept;
       share_target->params.files.push_back(share_target_params_file);
     }
+  }
+
+  shortcut_items = manifest.shortcuts;
+  if (shortcut_items.size() > kMaxShortcuts)
+    shortcut_items.resize(kMaxShortcuts);
+
+  for (auto& shortcut_item : shortcut_items) {
+    if (shortcut_item.short_name.string().empty()) {
+      shortcut_item.short_name =
+          base::NullableString16(shortcut_item.name, /* is_null= */ false);
+    }
+  }
+
+  int ideal_shortcut_icons_size_px =
+      ShortcutHelper::GetIdealShortcutIconSizeInPx();
+  for (const auto& manifest_shortcut : shortcut_items) {
+    GURL best_url = blink::ManifestIconSelector::FindBestMatchingSquareIcon(
+        manifest_shortcut.icons, ideal_shortcut_icons_size_px,
+        /* minimum_icon_size_in_px= */ ideal_shortcut_icons_size_px / 2,
+        blink::Manifest::ImageResource::Purpose::ANY);
+    best_shortcut_icon_urls.push_back(std::move(best_url));
   }
 }
 

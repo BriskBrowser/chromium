@@ -13,8 +13,6 @@ import android.graphics.Rect;
 import android.os.Handler;
 import android.os.Vibrator;
 import android.provider.Settings;
-import android.support.v13.view.inputmethod.EditorInfoCompat;
-import android.support.v4.view.accessibility.AccessibilityEventCompat;
 import android.text.Editable;
 import android.text.InputType;
 import android.text.Selection;
@@ -31,7 +29,10 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 
 import androidx.annotation.IntDef;
+import androidx.annotation.Nullable;
 import androidx.annotation.VisibleForTesting;
+import androidx.core.view.accessibility.AccessibilityEventCompat;
+import androidx.core.view.inputmethod.EditorInfoCompat;
 
 import org.chromium.base.ApiCompatibilityUtils;
 import org.chromium.base.ThreadUtils;
@@ -40,13 +41,16 @@ import org.chromium.chrome.browser.tab.EmptyTabObserver;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tab.TabObserver;
 import org.chromium.chrome.browser.tab.TabSelectionType;
-import org.chromium.chrome.browser.tabmodel.EmptyTabModelObserver;
 import org.chromium.chrome.browser.tabmodel.EmptyTabModelSelectorObserver;
 import org.chromium.chrome.browser.tabmodel.TabModel;
 import org.chromium.chrome.browser.tabmodel.TabModelObserver;
 import org.chromium.chrome.browser.tabmodel.TabModelSelector;
 import org.chromium.chrome.browser.tabmodel.TabModelSelectorObserver;
 import org.chromium.components.browser_ui.widget.text.VerticallyFixedEditText;
+import org.chromium.components.find_in_page.FindInPageBridge;
+import org.chromium.components.find_in_page.FindMatchRectsDetails;
+import org.chromium.components.find_in_page.FindNotificationDetails;
+import org.chromium.components.find_in_page.FindResultBar;
 import org.chromium.ui.base.WindowAndroid;
 
 import java.lang.annotation.Retention;
@@ -195,6 +199,13 @@ public class FindToolbar extends LinearLayout {
 
         mTabObserver = new EmptyTabObserver() {
             @Override
+            public void onActivityAttachmentChanged(Tab tab, @Nullable WindowAndroid window) {
+                if (window == null && getVisibility() == View.VISIBLE) {
+                    deactivate(/* clearSelection= */ true);
+                }
+            }
+
+            @Override
             public void onPageLoadStarted(Tab tab, String url) {
                 deactivate();
             }
@@ -228,7 +239,7 @@ public class FindToolbar extends LinearLayout {
             }
         };
 
-        mTabModelObserver = new EmptyTabModelObserver() {
+        mTabModelObserver = new TabModelObserver() {
             @Override
             public void didSelectTab(Tab tab, @TabSelectionType int type, int lastId) {
                 deactivate();
@@ -418,7 +429,7 @@ public class FindToolbar extends LinearLayout {
     }
 
     private void onFindResult(FindNotificationDetails result) {
-        if (mResultBar != null) mResultBar.mWaitingForActivateAck = false;
+        if (mResultBar != null) mResultBar.onFindResult();
 
         assert mFindInPageBridge != null;
 
@@ -440,7 +451,7 @@ public class FindToolbar extends LinearLayout {
             if (result.numberOfMatches > 0) {
                 // TODO(johnme): Don't wait till end of find, stream rects live!
                 mFindInPageBridge.requestFindMatchRects(
-                        mResultBar != null ? mResultBar.mRectsVersion : -1);
+                        mResultBar != null ? mResultBar.getRectsVersion() : -1);
             } else {
                 clearResults();
             }
@@ -745,7 +756,7 @@ public class FindToolbar extends LinearLayout {
             assert mFindInPageBridge != null;
 
             mResultBar = new FindResultBar(
-                    getContext(), mCurrentTab.getContentView(), mFindInPageBridge);
+                    getContext(), mCurrentTab.getContentView(), mWindowAndroid, mFindInPageBridge);
         } else if (!visibility) {
             if (mResultBar != null) {
                 mResultBar.dismiss();
@@ -767,7 +778,7 @@ public class FindToolbar extends LinearLayout {
      */
     protected int getStatusColor(boolean failed, boolean incognito) {
         int colorResourceId = failed ? R.color.find_in_page_failed_results_status_color
-                                     : R.color.default_text_color_tertiary;
+                                     : R.color.default_text_color_secondary;
         return ApiCompatibilityUtils.getColor(getContext().getResources(), colorResourceId);
     }
 

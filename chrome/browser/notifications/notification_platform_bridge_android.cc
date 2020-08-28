@@ -11,21 +11,22 @@
 #include "base/android/jni_array.h"
 #include "base/android/jni_string.h"
 #include "base/bind.h"
+#include "base/check.h"
 #include "base/command_line.h"
 #include "base/files/file_path.h"
-#include "base/logging.h"
+#include "base/notreached.h"
 #include "base/strings/nullable_string16.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/task/post_task.h"
 #include "chrome/android/chrome_jni_headers/ActionInfo_jni.h"
 #include "chrome/android/chrome_jni_headers/NotificationPlatformBridge_jni.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/notifications/notification_common.h"
 #include "chrome/browser/notifications/notification_display_service_impl.h"
 #include "chrome/browser/notifications/platform_notification_service_impl.h"
+#include "chrome/browser/profiles/profile_android.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/common/chrome_switches.h"
-#include "chrome/common/pref_names.h"
+#include "components/content_settings/core/common/pref_names.h"
 #include "components/pref_registry/pref_registry_syncable.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
@@ -192,10 +193,10 @@ void NotificationPlatformBridgeAndroid::OnNotificationClicked(
 
   profile_manager->LoadProfile(
       profile_id, incognito,
-      base::Bind(&NotificationDisplayServiceImpl::ProfileLoadedCallback,
-                 NotificationCommon::OPERATION_CLICK, notification_type, origin,
-                 notification_id, std::move(action_index), std::move(reply),
-                 base::nullopt /* by_user */));
+      base::BindOnce(&NotificationDisplayServiceImpl::ProfileLoadedCallback,
+                     NotificationCommon::OPERATION_CLICK, notification_type,
+                     origin, notification_id, std::move(action_index),
+                     std::move(reply), base::nullopt /* by_user */));
 }
 
 void NotificationPlatformBridgeAndroid::
@@ -241,11 +242,11 @@ void NotificationPlatformBridgeAndroid::OnNotificationClosed(
 
   profile_manager->LoadProfile(
       profile_id, incognito,
-      base::Bind(&NotificationDisplayServiceImpl::ProfileLoadedCallback,
-                 NotificationCommon::OPERATION_CLOSE, notification_type,
-                 GURL(ConvertJavaStringToUTF8(env, java_origin)),
-                 notification_id, base::nullopt /* action index */,
-                 base::nullopt /* reply */, by_user));
+      base::BindOnce(&NotificationDisplayServiceImpl::ProfileLoadedCallback,
+                     NotificationCommon::OPERATION_CLOSE, notification_type,
+                     GURL(ConvertJavaStringToUTF8(env, java_origin)),
+                     notification_id, base::nullopt /* action index */,
+                     base::nullopt /* reply */, by_user));
 }
 
 void NotificationPlatformBridgeAndroid::Display(
@@ -276,6 +277,8 @@ void NotificationPlatformBridgeAndroid::Display(
       ConvertUTF8ToJavaString(env, notification.id());
   ScopedJavaLocalRef<jstring> j_origin =
       ConvertUTF8ToJavaString(env, origin_url.spec());
+  ScopedJavaLocalRef<jobject> android_profile =
+      ProfileAndroid::FromProfile(profile)->GetJavaObject();
   ScopedJavaLocalRef<jstring> title =
       ConvertUTF16ToJavaString(env, notification.title());
   ScopedJavaLocalRef<jstring> body =
@@ -309,7 +312,7 @@ void NotificationPlatformBridgeAndroid::Display(
 
   Java_NotificationPlatformBridge_displayNotification(
       env, java_object_, j_notification_id, j_notification_type, j_origin,
-      j_scope_url, j_profile_id, profile->IsOffTheRecord(), title, body, image,
+      j_scope_url, j_profile_id, android_profile, title, body, image,
       notification_icon, badge, vibration_pattern,
       notification.timestamp().ToJavaTime(), notification.renotify(),
       notification.silent(), actions);
@@ -358,8 +361,8 @@ void NotificationPlatformBridgeAndroid::GetDisplayed(
     Profile* profile,
     GetDisplayedNotificationsCallback callback) const {
   std::set<std::string> displayed_notifications;
-  base::PostTask(
-      FROM_HERE, {content::BrowserThread::UI},
+  content::GetUIThreadTaskRunner({})->PostTask(
+      FROM_HERE,
       base::BindOnce(std::move(callback), std::move(displayed_notifications),
                      false /* supports_synchronization */));
 }

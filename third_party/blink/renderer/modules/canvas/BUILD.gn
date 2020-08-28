@@ -25,6 +25,8 @@ blink_modules_sources("canvas") {
     "canvas2d/clip_list.h",
     "canvas2d/hit_region.cc",
     "canvas2d/hit_region.h",
+    "canvas2d/identifiability_study_helper.cc",
+    "canvas2d/identifiability_study_helper.h",
     "canvas2d/path_2d.h",
     "htmlcanvas/canvas_context_creation_attributes_helpers.cc",
     "htmlcanvas/canvas_context_creation_attributes_helpers.h",
@@ -42,9 +44,7 @@ blink_modules_sources("canvas") {
 }
 
 fuzzer_test("canvas_fuzzer") {
-  sources = [
-    "canvas_fuzzer.cc",
-  ]
+  sources = [ "canvas_fuzzer.cc" ]
   seed_corpuses = [ "//third_party/blink/web_tests/fast/canvas" ]
   deps = [
     "../../platform:blink_fuzzer_test_support",

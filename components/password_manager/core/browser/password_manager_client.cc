@@ -8,6 +8,8 @@
 #include "components/password_manager/core/browser/http_auth_manager.h"
 #include "components/password_manager/core/browser/password_form_manager_for_ui.h"
 #include "components/password_manager/core/browser/password_manager_client.h"
+#include "components/signin/public/base/signin_metrics.h"
+#include "url/origin.h"
 
 namespace password_manager {
 
@@ -23,13 +25,8 @@ bool PasswordManagerClient::IsFillingFallbackEnabled(const GURL& url) const {
   return true;
 }
 
-void PasswordManagerClient::PostHSTSQueryForHost(const GURL& origin,
-                                                 HSTSCallback callback) const {
-  std::move(callback).Run(HSTSResult::kError);
-}
-
-bool PasswordManagerClient::OnCredentialManagerUsed() {
-  return true;
+bool PasswordManagerClient::RequiresReauthToFill() {
+  return false;
 }
 
 void PasswordManagerClient::ShowTouchToFill(PasswordManagerDriver* driver) {}
@@ -40,9 +37,14 @@ BiometricAuthenticator* PasswordManagerClient::GetBiometricAuthenticator() {
 
 void PasswordManagerClient::GeneratePassword() {}
 
+void PasswordManagerClient::UpdateCredentialCache(
+    const url::Origin& origin,
+    const std::vector<const autofill::PasswordForm*>& best_matches,
+    bool is_blacklisted) {}
+
 void PasswordManagerClient::PasswordWasAutofilled(
     const std::vector<const autofill::PasswordForm*>& best_matches,
-    const GURL& origin,
+    const url::Origin& origin,
     const std::vector<const autofill::PasswordForm*>* federated_matches) {}
 
 void PasswordManagerClient::AutofillHttpAuth(
@@ -51,13 +53,27 @@ void PasswordManagerClient::AutofillHttpAuth(
 
 void PasswordManagerClient::NotifyUserCredentialsWereLeaked(
     password_manager::CredentialLeakType leak_type,
-    const GURL& origin) {}
+    password_manager::CompromisedSitesCount saved_sites,
+    const GURL& origin,
+    const base::string16& username) {}
+
+void PasswordManagerClient::TriggerReauthForPrimaryAccount(
+    signin_metrics::ReauthAccessPoint access_point,
+    base::OnceCallback<void(ReauthSucceeded)> reauth_callback) {
+  std::move(reauth_callback).Run(ReauthSucceeded(false));
+}
+
+void PasswordManagerClient::TriggerSignIn(signin_metrics::AccessPoint) {}
 
 SyncState PasswordManagerClient::GetPasswordSyncState() const {
   return NOT_SYNCING;
 }
 
 bool PasswordManagerClient::WasLastNavigationHTTPError() const {
+  return false;
+}
+
+bool PasswordManagerClient::WasCredentialLeakDialogShown() const {
   return false;
 }
 
@@ -80,6 +96,11 @@ PasswordManager* PasswordManagerClient::GetPasswordManager() {
       static_cast<const PasswordManagerClient*>(this)->GetPasswordManager());
 }
 
+const PasswordFeatureManager* PasswordManagerClient::GetPasswordFeatureManager()
+    const {
+  return nullptr;
+}
+
 PasswordFeatureManager* PasswordManagerClient::GetPasswordFeatureManager() {
   return const_cast<PasswordFeatureManager*>(
       static_cast<const PasswordManagerClient*>(this)
@@ -95,11 +116,7 @@ PasswordManagerClient::GetAutofillDownloadManager() {
   return nullptr;
 }
 
-const GURL& PasswordManagerClient::GetMainFrameURL() const {
-  return GURL::EmptyGURL();
-}
-
-bool PasswordManagerClient::IsMainFrameSecure() const {
+bool PasswordManagerClient::IsCommittedMainFrameSecure() const {
   return false;
 }
 
@@ -124,8 +141,17 @@ favicon::FaviconService* PasswordManagerClient::GetFaviconService() {
   return nullptr;
 }
 
+network::mojom::NetworkContext* PasswordManagerClient::GetNetworkContext()
+    const {
+  return nullptr;
+}
+
 bool PasswordManagerClient::IsUnderAdvancedProtection() const {
   return false;
+}
+
+AutofillAssistantMode PasswordManagerClient::GetAutofillAssistantMode() const {
+  return GetPasswordManager()->GetAutofillAssistantMode();
 }
 
 }  // namespace password_manager

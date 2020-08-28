@@ -31,6 +31,10 @@ class COMPONENT_EXPORT(PERMISSION_BROKER) FakePermissionBrokerClient
   void OpenPath(const std::string& path,
                 OpenPathCallback callback,
                 ErrorCallback error_callback) override;
+  void OpenPathWithDroppedPrivileges(const std::string& path,
+                                     uint32_t allowed_interfaces_mask,
+                                     OpenPathCallback callback,
+                                     ErrorCallback error_callback) override;
   void RequestTcpPortAccess(uint16_t port,
                             const std::string& interface,
                             int lifeline_fd,
@@ -76,6 +80,12 @@ class COMPONENT_EXPORT(PERMISSION_BROKER) FakePermissionBrokerClient
   // Returns true if UDP port has a hole.
   bool HasUdpHole(uint16_t port, const std::string& interface);
 
+  // Returns true if TCP port is being forwarded.
+  bool HasTcpPortForward(uint16_t port, const std::string& interface);
+
+  // Returns true if UDP port is being forwarded.
+  bool HasUdpPortForward(uint16_t port, const std::string& interface);
+
  private:
   using RuleSet =
       std::set<std::pair<uint16_t /* port */, std::string /* interface */>>;
@@ -87,6 +97,9 @@ class COMPONENT_EXPORT(PERMISSION_BROKER) FakePermissionBrokerClient
 
   RuleSet tcp_hole_set_;
   RuleSet udp_hole_set_;
+
+  RuleSet tcp_forwarding_set_;
+  RuleSet udp_forwarding_set_;
 
   RuleSet tcp_deny_rule_set_;
   RuleSet udp_deny_rule_set_;

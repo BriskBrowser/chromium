@@ -15,7 +15,6 @@
 #include "content/browser/dom_storage/session_storage_namespace_impl.h"
 #include "content/common/content_export.h"
 #include "content/common/render_message_filter.mojom.h"
-#include "content/common/widget.mojom.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "net/base/load_states.h"
 
@@ -38,7 +37,6 @@ class Size;
 
 namespace content {
 
-class BrowserContext;
 class FrameTree;
 class RenderFrameHostImpl;
 class RenderViewHost;
@@ -47,6 +45,7 @@ class RenderViewHostDelegateView;
 class SessionStorageNamespace;
 class SiteInstance;
 class WebContents;
+struct WebPreferences;
 
 //
 // RenderViewHostDelegate
@@ -102,17 +101,9 @@ class CONTENT_EXPORT RenderViewHostDelegate {
   // The page is trying to move the RenderView's representation in the client.
   virtual void RequestSetBounds(const gfx::Rect& new_bounds) {}
 
-  // The RenderView's main frame document element is ready. This happens when
-  // the document has finished parsing.
-  virtual void DocumentAvailableInMainFrame(RenderViewHost* render_view_host) {}
-
-  // The page wants to close the active view in this tab.
-  virtual void RouteCloseEvent(RenderViewHost* rvh) {}
-
   // Return a dummy RendererPreferences object that will be used by the renderer
   // associated with the owning RenderViewHost.
-  virtual blink::mojom::RendererPreferences GetRendererPrefs(
-      BrowserContext* browser_context) const = 0;
+  virtual blink::mojom::RendererPreferences GetRendererPrefs() const = 0;
 
   // Notification from the renderer host that blocked UI event occurred.
   // This happens when there are tab-modal dialogs. In this case, the
@@ -126,22 +117,6 @@ class CONTENT_EXPORT RenderViewHostDelegate {
 
   // The contents' preferred size changed.
   virtual void UpdatePreferredSize(const gfx::Size& pref_size) {}
-
-  // The page is trying to open a new widget (e.g. a select popup). The
-  // widget should be created associated with the given |route_id| in the
-  // process |render_process_id|, but it should not be shown yet. That should
-  // happen in response to ShowCreatedWidget.
-  virtual void CreateNewWidget(int32_t render_process_id,
-                               int32_t widget_route_id,
-                               mojo::PendingRemote<mojom::Widget> widget,
-                               RenderViewHostImpl* render_view_host) {}
-
-  // Creates a full screen RenderWidget. Similar to above.
-  virtual void CreateNewFullscreenWidget(
-      int32_t render_process_id,
-      int32_t widget_route_id,
-      mojo::PendingRemote<mojom::Widget> widget,
-      RenderViewHostImpl* render_view_host) {}
 
   // Show the newly created widget with the specified bounds.
   // The widget is identified by the route_id passed to CreateNewWidget.
@@ -173,6 +148,32 @@ class CONTENT_EXPORT RenderViewHostDelegate {
   // created by the RenderViewHost.
   virtual FrameTree* GetFrameTree();
 
+  // Returns a copy of the current WebPreferences associated with this
+  // RenderViewHost's WebContents. If it does not exist, this will create one
+  // and send the newly computed value to all renderers.
+  // Note that this will not trigger a recomputation of WebPreferences if it
+  // already exists - this will return the last computed/set value of
+  // WebPreferences. If we want to guarantee that the value reflects the current
+  // state of the WebContents, NotifyPreferencesChanged() should be called
+  // before calling this.
+  virtual const WebPreferences& GetOrCreateWebPreferences() = 0;
+
+  // Returns true if the WebPreferences for this RenderViewHost is not null.
+  virtual bool IsWebPreferencesSet() const;
+
+  // Sets the WebPreferences for the WebContents associated with this
+  // RenderViewHost to |prefs| and send the new value to all renderers in the
+  // WebContents.
+  virtual void SetWebPreferences(const WebPreferences& prefs) {}
+
+  // Triggers a total recomputation of WebPreferences by resetting the current
+  // cached WebPreferences to null and triggering the recomputation path for
+  // both the "slow" attributes (hardware configurations/things that require
+  // slow platform/device polling) which normally won't get recomputed after
+  // the first time we set it and "fast" attributes (which always gets
+  // recomputed).
+  virtual void RecomputeWebPreferencesSlow() {}
+
   // Whether the user agent is overridden using the Chrome for Android "Request
   // Desktop Site" feature.
   virtual bool IsOverridingUserAgent();
@@ -200,11 +201,15 @@ class CONTENT_EXPORT RenderViewHostDelegate {
   virtual void DidFirstVisuallyNonEmptyPaint(RenderViewHostImpl* source) {}
 
   // Returns true if the render view is rendering a portal.
-  virtual bool IsPortal() const;
+  virtual bool IsPortal();
 
   // Called when the theme color for the underlying document as specified
   // by theme-color meta tag has changed.
   virtual void OnThemeColorChanged(RenderViewHostImpl* source) {}
+
+  // Called when the CSS background color for the underlying document has
+  // changed.
+  virtual void OnBackgroundColorChanged(RenderViewHostImpl* source) {}
 
  protected:
   virtual ~RenderViewHostDelegate() {}

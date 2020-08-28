@@ -15,7 +15,7 @@
 #include "base/memory/singleton.h"
 #include "base/posix/eintr_wrapper.h"
 #include "base/system/sys_info.h"
-#include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
 #include "base/threading/scoped_blocking_call.h"
 #include "chrome/browser/chromeos/arc/fileapi/arc_select_files_handler.h"
 #include "chrome/browser/chromeos/arc/fileapi/chrome_content_provider_url_util.h"
@@ -93,7 +93,7 @@ void GetFileSizeOnIOThread(scoped_refptr<storage::FileSystemContext> context,
       url,
       storage::FileSystemOperation::GET_METADATA_FIELD_IS_DIRECTORY |
           storage::FileSystemOperation::GET_METADATA_FIELD_SIZE,
-      base::Bind(
+      base::BindOnce(
           [](ArcFileSystemBridge::GetFileSizeCallback callback,
              base::File::Error result, const base::File::Info& file_info) {
             int64_t size = -1;
@@ -101,8 +101,8 @@ void GetFileSizeOnIOThread(scoped_refptr<storage::FileSystemContext> context,
                 file_info.size >= 0) {
               size = file_info.size;
             }
-            base::PostTask(FROM_HERE, {content::BrowserThread::UI},
-                           base::BindOnce(std::move(callback), size));
+            content::GetUIThreadTaskRunner({})->PostTask(
+                FROM_HERE, base::BindOnce(std::move(callback), size));
           },
           base::Passed(&callback)));
 }
@@ -248,8 +248,8 @@ void ArcFileSystemBridge::GetFileSize(const std::string& url,
       GetFileSystemContext(profile_, url_decoded);
   file_manager::util::FileSystemURLAndHandle file_system_url_and_handle =
       GetFileSystemURL(*context, url_decoded);
-  base::PostTask(
-      FROM_HERE, {content::BrowserThread::IO},
+  content::GetIOThreadTaskRunner({})->PostTask(
+      FROM_HERE,
       base::BindOnce(&GetFileSizeOnIOThread, std::move(context),
                      file_system_url_and_handle.url, std::move(callback)));
   // TODO(https://crbug.com/963027): This is currently leaking the isolated
@@ -274,7 +274,7 @@ void ArcFileSystemBridge::GetFileType(const std::string& url,
       GetFileSystemURL(*context, url_decoded);
   extensions::app_file_handler_util::GetMimeTypeForLocalPath(
       profile_, file_system_url_and_handle.url.path(),
-      base::Bind(
+      base::BindOnce(
           [](GetFileTypeCallback callback, const std::string& mime_type) {
             std::move(callback).Run(mime_type.empty()
                                         ? base::nullopt
@@ -320,8 +320,8 @@ void ArcFileSystemBridge::OpenFileToRead(const std::string& url,
     return;
   }
 
-  base::PostTaskAndReplyWithResult(
-      FROM_HERE, {base::ThreadPool(), base::MayBlock()},
+  base::ThreadPool::PostTaskAndReplyWithResult(
+      FROM_HERE, {base::MayBlock()},
       base::BindOnce(&OpenDriveFSFileToRead, fs_path), std::move(callback));
 }
 

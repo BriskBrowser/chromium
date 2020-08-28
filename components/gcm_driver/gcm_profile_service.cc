@@ -7,7 +7,6 @@
 #include <utility>
 #include <vector>
 
-#include "base/logging.h"
 #include "base/macros.h"
 #include "build/build_config.h"
 #include "components/gcm_driver/gcm_driver.h"
@@ -25,7 +24,6 @@
 #include "base/memory/weak_ptr.h"
 #include "components/gcm_driver/account_tracker.h"
 #include "components/gcm_driver/gcm_account_tracker.h"
-#include "components/gcm_driver/gcm_channel_status_syncer.h"
 #include "components/gcm_driver/gcm_client_factory.h"
 #include "components/gcm_driver/gcm_desktop_utils.h"
 #include "components/gcm_driver/gcm_driver_desktop.h"
@@ -122,23 +120,12 @@ void GCMProfileService::IdentityObserver::StartAccountTracker(
 
 #endif  // !BUILDFLAG(USE_GCM_FROM_PLATFORM)
 
-// static
-bool GCMProfileService::IsGCMEnabled(PrefService* prefs) {
-#if BUILDFLAG(USE_GCM_FROM_PLATFORM)
-  return true;
-#else
-  return prefs->GetBoolean(gcm::prefs::kGCMChannelStatus);
-#endif  // BUILDFLAG(USE_GCM_FROM_PLATFORM)
-}
-
 #if BUILDFLAG(USE_GCM_FROM_PLATFORM)
 GCMProfileService::GCMProfileService(
     base::FilePath path,
-    scoped_refptr<base::SequencedTaskRunner>& blocking_task_runner,
-    scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory) {
+    scoped_refptr<base::SequencedTaskRunner>& blocking_task_runner) {
   driver_ = std::make_unique<GCMDriverAndroid>(
-      path.Append(gcm_driver::kGCMStoreDirname), blocking_task_runner,
-      std::move(url_loader_factory));
+      path.Append(gcm_driver::kGCMStoreDirname), blocking_task_runner);
 }
 #else
 GCMProfileService::GCMProfileService(

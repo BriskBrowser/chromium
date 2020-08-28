@@ -15,7 +15,6 @@
 #include "build/build_config.h"
 #include "content/browser/child_process_security_policy_impl.h"
 #include "content/common/frame_messages.h"
-#include "content/common/frame_owner_properties.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/content_browser_client.h"
 #include "content/public/common/content_client.h"
@@ -29,8 +28,9 @@
 #include "content/test/test_render_view_host.h"
 #include "content/test/test_web_contents.h"
 #include "testing/gmock/include/gmock/gmock.h"
-#include "third_party/blink/public/common/frame/frame_owner_element_type.h"
 #include "third_party/blink/public/common/frame/frame_policy.h"
+#include "third_party/blink/public/mojom/frame/frame_owner_element_type.mojom.h"
+#include "third_party/blink/public/mojom/frame/frame_owner_properties.mojom.h"
 
 namespace content {
 
@@ -41,19 +41,17 @@ class RenderProcessHostUnitTest : public RenderViewHostImplTestHarness {};
 TEST_F(RenderProcessHostUnitTest, GuestsAreNotSuitableHosts) {
   GURL test_url("http://foo.com");
 
-  MockRenderProcessHost guest_host(browser_context());
-  guest_host.set_is_for_guests_only(true);
+  MockRenderProcessHost guest_host(browser_context(),
+                                   /*is_for_guest_only=*/true);
 
   scoped_refptr<SiteInstanceImpl> site_instance =
       SiteInstanceImpl::CreateForURL(browser_context(), test_url);
   EXPECT_FALSE(RenderProcessHostImpl::IsSuitableHost(
-      &guest_host, browser_context(), site_instance->GetIsolationContext(),
-      site_instance->GetSiteURL(), site_instance->lock_url(),
-      site_instance->IsGuest()));
+      &guest_host, site_instance->GetIsolationContext(),
+      site_instance->GetSiteInfo(), site_instance->IsGuest()));
   EXPECT_TRUE(RenderProcessHostImpl::IsSuitableHost(
-      process(), browser_context(), site_instance->GetIsolationContext(),
-      site_instance->GetSiteURL(), site_instance->lock_url(),
-      site_instance->IsGuest()));
+      process(), site_instance->GetIsolationContext(),
+      site_instance->GetSiteInfo(), site_instance->IsGuest()));
   EXPECT_EQ(process(),
             RenderProcessHostImpl::GetExistingProcessHost(site_instance.get()));
 }
@@ -137,9 +135,10 @@ TEST_F(RenderProcessHostUnitTest, ReuseCommittedSite) {
       process()->GetNextRoutingID(),
       TestRenderFrameHost::CreateStubInterfaceProviderReceiver(),
       TestRenderFrameHost::CreateStubBrowserInterfaceBrokerReceiver(),
-      blink::WebTreeScopeType::kDocument, std::string(), unique_name, false,
-      base::UnguessableToken::Create(), blink::FramePolicy(),
-      FrameOwnerProperties(), blink::FrameOwnerElementType::kIframe);
+      blink::mojom::TreeScopeType::kDocument, std::string(), unique_name, false,
+      base::UnguessableToken::Create(), base::UnguessableToken::Create(),
+      blink::FramePolicy(), blink::mojom::FrameOwnerProperties(),
+      blink::mojom::FrameOwnerElementType::kIframe);
   TestRenderFrameHost* subframe = static_cast<TestRenderFrameHost*>(
       contents()->GetFrameTree()->root()->child_at(0)->current_frame_host());
   subframe = static_cast<TestRenderFrameHost*>(
@@ -557,7 +556,7 @@ TEST_F(RenderProcessHostUnitTest,
   // process.
   contents()->GetController().LoadURL(kUrl, Referrer(),
                                       ui::PAGE_TRANSITION_TYPED, std::string());
-  main_test_rfh()->SendBeforeUnloadACK(true);
+  main_test_rfh()->SimulateBeforeUnloadCompleted(true);
   int speculative_process_host_id =
       contents()->GetPendingMainFrame()->GetProcess()->GetID();
   bool speculative_is_default_site_instance = contents()
@@ -772,20 +771,15 @@ class StoragePartitionContentBrowserClient : public ContentBrowserClient {
   ~StoragePartitionContentBrowserClient() override {}
 
  private:
-  void GetStoragePartitionConfigForSite(BrowserContext* browser_context,
-                                        const GURL& site,
-                                        bool can_be_default,
-                                        std::string* partition_domain,
-                                        std::string* partition_name,
-                                        bool* in_memory) override {
-    partition_domain->clear();
-    partition_name->clear();
-    *in_memory = false;
-
+  StoragePartitionConfig GetStoragePartitionConfigForSite(
+      BrowserContext* browser_context,
+      const GURL& site) override {
     if (site == site_) {
-      *partition_domain = partition_domain_;
-      *partition_name = partition_name_;
+      return StoragePartitionConfig::Create(partition_domain_, partition_name_,
+                                            false /* in_memory */);
     }
+
+    return StoragePartitionConfig::CreateDefault();
   }
 
   GURL site_;

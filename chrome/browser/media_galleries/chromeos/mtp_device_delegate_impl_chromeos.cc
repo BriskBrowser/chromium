@@ -25,6 +25,7 @@
 #include "base/strings/string_util.h"
 #include "base/task/post_task.h"
 #include "base/task/task_traits.h"
+#include "base/task/thread_pool.h"
 #include "base/threading/scoped_blocking_call.h"
 #include "chrome/browser/media_galleries/chromeos/mtp_device_task_helper_map_service.h"
 #include "chrome/browser/media_galleries/chromeos/snapshot_file_details.h"
@@ -379,11 +380,9 @@ void CloseFileDescriptor(const int file_descriptor) {
 
 // Deletes a temporary file |file_path|.
 void DeleteTemporaryFile(const base::FilePath& file_path) {
-  base::PostTask(
-      FROM_HERE,
-      {base::ThreadPool(), base::MayBlock(), base::TaskPriority::BEST_EFFORT},
-      base::BindOnce(base::IgnoreResult(base::DeleteFile), file_path,
-                     false /* not recursive*/));
+  base::ThreadPool::PostTask(
+      FROM_HERE, {base::MayBlock(), base::TaskPriority::BEST_EFFORT},
+      base::BindOnce(base::GetDeleteFileCallback(), file_path));
 }
 
 // A fake callback to be passed as CopyFileProgressCallback.
@@ -679,12 +678,12 @@ void MTPDeviceDelegateImplLinux::CopyFileLocal(
   DCHECK(!device_file_path.empty());
 
   // Create a temporary file for creating a copy of source file on local.
-  base::PostTaskAndReplyWithResult(
+  base::ThreadPool::PostTaskAndReplyWithResult(
       FROM_HERE,
-      {base::ThreadPool(), base::MayBlock(), base::TaskPriority::BEST_EFFORT,
+      {base::MayBlock(), base::TaskPriority::BEST_EFFORT,
        base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN},
-      create_temporary_file_callback,
-      base::Bind(
+      base::BindOnce(create_temporary_file_callback),
+      base::BindOnce(
           &MTPDeviceDelegateImplLinux::OnDidCreateTemporaryFileToCopyFileLocal,
           weak_ptr_factory_.GetWeakPtr(), source_file_path, device_file_path,
           progress_callback, success_callback, error_callback));
@@ -850,8 +849,8 @@ void MTPDeviceDelegateImplLinux::NotifyFileChange(
 void MTPDeviceDelegateImplLinux::CancelPendingTasksAndDeleteDelegate() {
   DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
   // To cancel all the pending tasks, destroy the MTPDeviceTaskHelper object.
-  base::PostTask(FROM_HERE, {content::BrowserThread::UI},
-                 base::BindOnce(&CloseStorageAndDestroyTaskHelperOnUIThread,
+  content::GetUIThreadTaskRunner({})->PostTask(
+      FROM_HERE, base::BindOnce(&CloseStorageAndDestroyTaskHelperOnUIThread,
                                 storage_name_, read_only_));
   delete this;
 }
@@ -975,7 +974,7 @@ void MTPDeviceDelegateImplLinux::ReadDirectoryInternal(
       base::Bind(&GetFileInfoOnUIThread, storage_name_, read_only_, *dir_id,
                  success_callback_wrapper, error_callback_wrapper);
 
-  base::PostTask(FROM_HERE, {content::BrowserThread::UI}, closure);
+  content::GetUIThreadTaskRunner({})->PostTask(FROM_HERE, closure);
 }
 
 void MTPDeviceDelegateImplLinux::CreateSnapshotFileInternal(
@@ -1299,8 +1298,8 @@ void MTPDeviceDelegateImplLinux::EnsureInitAndRunTask(
   if (init_state_ == UNINITIALIZED) {
     init_state_ = PENDING_INIT;
     task_in_progress_ = true;
-    base::PostTask(
-        FROM_HERE, {content::BrowserThread::UI},
+    content::GetUIThreadTaskRunner({})->PostTask(
+        FROM_HERE,
         base::BindOnce(&OpenStorageOnUIThread, storage_name_, read_only_,
                        base::Bind(&MTPDeviceDelegateImplLinux::OnInitCompleted,
                                   weak_ptr_factory_.GetWeakPtr())));
@@ -1349,7 +1348,7 @@ void MTPDeviceDelegateImplLinux::WriteDataIntoSnapshotFile(
                                           read_only_,
                                           request_info,
                                           file_info);
-  base::PostTask(FROM_HERE, {content::BrowserThread::UI}, task_closure);
+  content::GetUIThreadTaskRunner({})->PostTask(FROM_HERE, task_closure);
 }
 
 void MTPDeviceDelegateImplLinux::PendingRequestDone() {
@@ -1449,7 +1448,7 @@ void MTPDeviceDelegateImplLinux::OnDidGetFileInfoToReadDirectory(
                  weak_ptr_factory_.GetWeakPtr(), dir_id, success_callback),
       base::Bind(&MTPDeviceDelegateImplLinux::HandleDeviceFileError,
                  weak_ptr_factory_.GetWeakPtr(), error_callback, dir_id));
-  base::PostTask(FROM_HERE, {content::BrowserThread::UI}, task_closure);
+  content::GetUIThreadTaskRunner({})->PostTask(FROM_HERE, task_closure);
 }
 
 void MTPDeviceDelegateImplLinux::OnDidGetFileInfoToCreateSnapshotFile(
@@ -1509,13 +1508,13 @@ void MTPDeviceDelegateImplLinux::OnGetDestFileInfoErrorToCopyFileFromLocal(
     return;
   }
 
-  base::PostTaskAndReplyWithResult(
-      FROM_HERE,
-      {base::ThreadPool(), base::MayBlock(), base::TaskPriority::BEST_EFFORT},
-      base::Bind(&OpenFileDescriptor, source_file_path, O_RDONLY),
-      base::Bind(&MTPDeviceDelegateImplLinux::OnDidOpenFDToCopyFileFromLocal,
-                 weak_ptr_factory_.GetWeakPtr(), device_file_path,
-                 success_callback, error_callback));
+  base::ThreadPool::PostTaskAndReplyWithResult(
+      FROM_HERE, {base::MayBlock(), base::TaskPriority::BEST_EFFORT},
+      base::BindOnce(&OpenFileDescriptor, source_file_path, O_RDONLY),
+      base::BindOnce(
+          &MTPDeviceDelegateImplLinux::OnDidOpenFDToCopyFileFromLocal,
+          weak_ptr_factory_.GetWeakPtr(), device_file_path, success_callback,
+          error_callback));
 }
 
 void MTPDeviceDelegateImplLinux::OnDidCreateSingleDirectory(
@@ -1741,10 +1740,8 @@ void MTPDeviceDelegateImplLinux::OnDidCopyFileFromLocal(
   const base::Closure closure = base::Bind(&CloseFileDescriptor,
                                            source_file_descriptor);
 
-  base::PostTask(
-      FROM_HERE,
-      {base::ThreadPool(), base::MayBlock(), base::TaskPriority::BEST_EFFORT},
-      closure);
+  base::ThreadPool::PostTask(
+      FROM_HERE, {base::MayBlock(), base::TaskPriority::BEST_EFFORT}, closure);
 
   success_callback.Run();
   NotifyFileChange(file_path.DirName(),
@@ -1771,10 +1768,8 @@ void MTPDeviceDelegateImplLinux::HandleCopyFileFromLocalError(
   const base::Closure closure = base::Bind(&CloseFileDescriptor,
                                            source_file_descriptor);
 
-  base::PostTask(
-      FROM_HERE,
-      {base::ThreadPool(), base::MayBlock(), base::TaskPriority::BEST_EFFORT},
-      closure);
+  base::ThreadPool::PostTask(
+      FROM_HERE, {base::MayBlock(), base::TaskPriority::BEST_EFFORT}, closure);
 
   error_callback.Run(error);
   PendingRequestDone();

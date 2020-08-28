@@ -7,6 +7,7 @@
 #include "base/bind.h"
 #include "base/strings/utf_string_conversions.h"
 #import "base/test/ios/wait_util.h"
+#include "components/favicon/core/favicon_service.h"
 #include "components/favicon/ios/web_favicon_driver.h"
 #include "components/keyed_service/core/service_access_type.h"
 #include "components/search_engines/template_url_service.h"
@@ -74,8 +75,8 @@ class SearchEngineTabHelperTest : public ChromeWebTest {
 
   // Returns the testing TemplateURLService.
   TemplateURLService* template_url_service() {
-    ios::ChromeBrowserState* browser_state =
-        ios::ChromeBrowserState::FromBrowserState(GetBrowserState());
+    ChromeBrowserState* browser_state =
+        ChromeBrowserState::FromBrowserState(GetBrowserState());
     return ios::TemplateURLServiceFactory::GetForBrowserState(browser_state);
   }
 

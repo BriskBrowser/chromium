@@ -12,6 +12,7 @@
 #include "chrome/browser/send_tab_to_self/send_tab_to_self_desktop_util.h"
 #include "chrome/browser/send_tab_to_self/send_tab_to_self_util.h"
 #include "chrome/browser/ui/tabs/existing_tab_group_sub_menu_model.h"
+#include "chrome/browser/ui/tabs/existing_window_sub_menu_model.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/tabs/tab_strip_model_delegate.h"
 #include "chrome/browser/ui/tabs/tab_utils.h"
@@ -40,16 +41,21 @@ void TabMenuModel::Build(TabStripModel* tab_strip, int index) {
   AddItemWithStringId(TabStripModel::CommandNewTabToRight,
                       IDS_TAB_CXMENU_NEWTABTORIGHT);
   if (base::FeatureList::IsEnabled(features::kTabGroups)) {
-    AddItemWithStringId(TabStripModel::CommandAddToNewGroup,
-                        IDS_TAB_CXMENU_ADD_TAB_TO_NEW_GROUP);
-
-    // Create submenu with existing groups
     if (ExistingTabGroupSubMenuModel::ShouldShowSubmenu(tab_strip, index)) {
+      // Create submenu with existing groups
       add_to_existing_group_submenu_ =
-          std::make_unique<ExistingTabGroupSubMenuModel>(tab_strip, index);
-      AddSubMenuWithStringId(TabStripModel::CommandAddToExistingGroup,
-                             IDS_TAB_CXMENU_ADD_TAB_TO_EXISTING_GROUP,
-                             add_to_existing_group_submenu_.get());
+          std::make_unique<ExistingTabGroupSubMenuModel>(delegate(), tab_strip,
+                                                         index);
+      AddSubMenu(TabStripModel::CommandAddToExistingGroup,
+                 l10n_util::GetPluralStringFUTF16(
+                     IDS_TAB_CXMENU_ADD_TAB_TO_GROUP, num_affected_tabs),
+                 add_to_existing_group_submenu_.get());
+      SetIsNewFeatureAt(GetItemCount() - 1, true);
+    } else {
+      AddItem(TabStripModel::CommandAddToNewGroup,
+              l10n_util::GetPluralStringFUTF16(
+                  IDS_TAB_CXMENU_ADD_TAB_TO_NEW_GROUP, num_affected_tabs));
+      SetIsNewFeatureAt(GetItemCount() - 1, true);
     }
 
     for (size_t index = 0; index < affected_indices.size(); index++) {
@@ -60,8 +66,22 @@ void TabMenuModel::Build(TabStripModel* tab_strip, int index) {
       }
     }
   }
-  AddItemWithStringId(TabStripModel::CommandMoveTabToNewWindow,
-                      IDS_MOVE_TAB_TO_NEW_WINDOW);
+
+  if (ExistingWindowSubMenuModel::ShouldShowSubmenu(tab_strip->profile())) {
+    // Create submenu with existing windows
+    add_to_existing_window_submenu_ =
+        std::make_unique<ExistingWindowSubMenuModel>(delegate(), tab_strip,
+                                                     index);
+    AddSubMenu(TabStripModel::CommandMoveToExistingWindow,
+               l10n_util::GetPluralStringFUTF16(
+                   IDS_TAB_CXMENU_MOVETOANOTHERWINDOW, num_affected_tabs),
+               add_to_existing_window_submenu_.get());
+  } else {
+    AddItem(TabStripModel::CommandMoveTabsToNewWindow,
+            l10n_util::GetPluralStringFUTF16(
+                IDS_TAB_CXMENU_MOVE_TABS_TO_NEW_WINDOW, num_affected_tabs));
+  }
+
   AddSeparator(ui::NORMAL_SEPARATOR);
   AddItemWithStringId(TabStripModel::CommandReload, IDS_TAB_CXMENU_RELOAD);
   AddItemWithStringId(TabStripModel::CommandDuplicate,
@@ -86,12 +106,10 @@ void TabMenuModel::Build(TabStripModel* tab_strip, int index) {
                           IDS_TAB_CXMENU_SOUND_UNMUTE_SITE, num_affected_tabs));
   if (send_tab_to_self::ShouldOfferFeature(
           tab_strip->GetWebContentsAt(index))) {
-    send_tab_to_self::RecordSendTabToSelfClickResult(
-        send_tab_to_self::kTabMenu, SendTabToSelfClickResult::kShowItem);
     AddSeparator(ui::NORMAL_SEPARATOR);
 
     if (send_tab_to_self::GetValidDeviceCount(tab_strip->profile()) == 1) {
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
       AddItem(TabStripModel::CommandSendTabToSelfSingleTarget,
               l10n_util::GetStringFUTF16(
                   IDS_CONTEXT_MENU_SEND_TAB_TO_SELF_SINGLE_TARGET,
@@ -103,27 +121,23 @@ void TabMenuModel::Build(TabStripModel* tab_strip, int index) {
                           IDS_CONTEXT_MENU_SEND_TAB_TO_SELF_SINGLE_TARGET,
                           (send_tab_to_self::GetSingleTargetDeviceName(
                               tab_strip->profile()))),
-                      kSendTabToSelfIcon);
+                      ui::ImageModel::FromVectorIcon(kSendTabToSelfIcon));
 #endif
-      send_tab_to_self::RecordSendTabToSelfClickResult(
-          send_tab_to_self::kTabMenu,
-          SendTabToSelfClickResult::kShowDeviceList);
-      send_tab_to_self::RecordSendTabToSelfDeviceCount(
-          send_tab_to_self::kTabMenu, 1);
     } else {
       send_tab_to_self_sub_menu_model_ =
           std::make_unique<send_tab_to_self::SendTabToSelfSubMenuModel>(
               tab_strip->GetWebContentsAt(index),
               send_tab_to_self::SendTabToSelfMenuType::kTab);
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
       AddSubMenuWithStringId(TabStripModel::CommandSendTabToSelf,
                              IDS_CONTEXT_MENU_SEND_TAB_TO_SELF,
                              send_tab_to_self_sub_menu_model_.get());
 #else
-      AddSubMenuWithStringIdAndIcon(TabStripModel::CommandSendTabToSelf,
-                                    IDS_CONTEXT_MENU_SEND_TAB_TO_SELF,
-                                    send_tab_to_self_sub_menu_model_.get(),
-                                    kSendTabToSelfIcon);
+      AddSubMenuWithStringIdAndIcon(
+          TabStripModel::CommandSendTabToSelf,
+          IDS_CONTEXT_MENU_SEND_TAB_TO_SELF,
+          send_tab_to_self_sub_menu_model_.get(),
+          ui::ImageModel::FromVectorIcon(kSendTabToSelfIcon));
 #endif
     }
   }

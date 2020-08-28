@@ -9,6 +9,7 @@
 #include "chrome/browser/sessions/session_common_utils.h"
 #include "chrome/common/url_constants.h"
 #include "components/sessions/content/content_live_tab.h"
+#include "components/tab_groups/tab_group_id.h"
 #include "extensions/buildflags/buildflags.h"
 
 #if BUILDFLAG(ENABLE_SESSION_SERVICE)
@@ -17,8 +18,8 @@
 #endif
 
 #if BUILDFLAG(ENABLE_EXTENSIONS)
+#include "chrome/browser/apps/app_service/launch_utils.h"
 #include "chrome/browser/apps/platform_apps/platform_app_launch.h"
-#include "chrome/browser/extensions/tab_helper.h"
 #endif
 
 #if !defined(OS_ANDROID)
@@ -68,24 +69,30 @@ ChromeTabRestoreServiceClient::FindLiveTabContextWithID(SessionID desired_id) {
 #endif
 }
 
+sessions::LiveTabContext*
+ChromeTabRestoreServiceClient::FindLiveTabContextWithGroup(
+    tab_groups::TabGroupId group) {
+#if defined(OS_ANDROID)
+  return nullptr;
+#else
+  return BrowserLiveTabContext::FindContextWithGroup(group, profile_);
+#endif
+}
+
 bool ChromeTabRestoreServiceClient::ShouldTrackURLForRestore(const GURL& url) {
   return ::ShouldTrackURLForRestore(url);
 }
 
 std::string ChromeTabRestoreServiceClient::GetExtensionAppIDForTab(
     sessions::LiveTab* tab) {
-  std::string extension_app_id;
+  std::string app_id;
 
 #if BUILDFLAG(ENABLE_EXTENSIONS)
-  extensions::TabHelper* extensions_tab_helper =
-      extensions::TabHelper::FromWebContents(
-          static_cast<sessions::ContentLiveTab*>(tab)->web_contents());
-  // extensions_tab_helper is nullptr in some browser tests.
-  if (extensions_tab_helper)
-    extension_app_id = extensions_tab_helper->GetAppId();
+  app_id = apps::GetAppIdForWebContents(
+      static_cast<sessions::ContentLiveTab*>(tab)->web_contents());
 #endif
 
-  return extension_app_id;
+  return app_id;
 }
 
 base::FilePath ChromeTabRestoreServiceClient::GetPathToSaveTo() {
@@ -114,12 +121,11 @@ bool ChromeTabRestoreServiceClient::HasLastSession() {
 }
 
 void ChromeTabRestoreServiceClient::GetLastSession(
-    sessions::GetLastSessionCallback callback,
-    base::CancelableTaskTracker* tracker) {
+    sessions::GetLastSessionCallback callback) {
   DCHECK(HasLastSession());
 #if BUILDFLAG(ENABLE_SESSION_SERVICE)
   SessionServiceFactory::GetForProfile(profile_)->GetLastSession(
-      std::move(callback), tracker);
+      std::move(callback));
 #endif
 }
 

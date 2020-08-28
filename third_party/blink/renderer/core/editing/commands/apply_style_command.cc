@@ -48,7 +48,6 @@
 #include "third_party/blink/renderer/core/editing/visible_position.h"
 #include "third_party/blink/renderer/core/editing/visible_selection.h"
 #include "third_party/blink/renderer/core/editing/visible_units.h"
-#include "third_party/blink/renderer/core/editing/writing_direction.h"
 #include "third_party/blink/renderer/core/html/html_font_element.h"
 #include "third_party/blink/renderer/core/html/html_span_element.h"
 #include "third_party/blink/renderer/core/html_names.h"
@@ -180,7 +179,7 @@ void ApplyStyleCommand::UpdateStartEnd(const EphemeralRange& range) {
   if (!use_ending_selection_ &&
       (range.StartPosition() != start_ || range.EndPosition() != end_))
     use_ending_selection_ = true;
-  GetDocument().UpdateStyleAndLayout();
+  GetDocument().UpdateStyleAndLayout(DocumentUpdateReason::kEditing);
   const bool was_base_first =
       StartingSelection().IsBaseFirst() || !SelectionIsDirectional();
   SelectionInDOMTree::Builder builder;
@@ -216,8 +215,8 @@ void ApplyStyleCommand::DoApply(EditingState* editing_state) {
   switch (property_level_) {
     case kPropertyDefault: {
       // Apply the block-centric properties of the style.
-      EditingStyle* block_style =
-          style_->ExtractAndRemoveBlockProperties(&GetDocument());
+      EditingStyle* block_style = style_->ExtractAndRemoveBlockProperties(
+          GetDocument().GetExecutionContext());
       if (!block_style->IsEmpty()) {
         ApplyBlockStyle(block_style, editing_state);
         if (editing_state->IsAborted())
@@ -251,7 +250,7 @@ void ApplyStyleCommand::ApplyBlockStyle(EditingStyle* style,
   // update document layout once before removing styles
   // so that we avoid the expense of updating before each and every call
   // to check a computed style
-  GetDocument().UpdateStyleAndLayout();
+  GetDocument().UpdateStyleAndLayout(DocumentUpdateReason::kEditing);
 
   // get positions we want to use for applying style
   Position start = StartPosition();
@@ -313,7 +312,7 @@ void ApplyStyleCommand::ApplyBlockStyle(EditingStyle* style,
         if (new_block) {
           block = new_block;
           if (paragraph_start.IsOrphan()) {
-            GetDocument().UpdateStyleAndLayout();
+            GetDocument().UpdateStyleAndLayout(DocumentUpdateReason::kEditing);
             paragraph_start = CreateVisiblePosition(
                 Position::FirstPositionInNode(*new_block));
           }
@@ -331,7 +330,7 @@ void ApplyStyleCommand::ApplyBlockStyle(EditingStyle* style,
         }
       }
 
-      GetDocument().UpdateStyleAndLayout();
+      GetDocument().UpdateStyleAndLayout(DocumentUpdateReason::kEditing);
 
       // Make the VisiblePositions valid again after style changes.
       // TODO(editing-dev): We shouldn't store VisiblePositions and inspect
@@ -356,7 +355,7 @@ void ApplyStyleCommand::ApplyBlockStyle(EditingStyle* style,
   // Update style and layout again, since added or removed styles could have
   // affected the layout. We need clean layout in order to compute
   // plain-text ranges below.
-  GetDocument().UpdateStyleAndLayout();
+  GetDocument().UpdateStyleAndLayout(DocumentUpdateReason::kEditing);
 
   EphemeralRange start_ephemeral_range =
       PlainTextRange(start_index)
@@ -566,7 +565,7 @@ void ApplyStyleCommand::CleanupUnstyledAppleStyleSpans(
 HTMLElement* ApplyStyleCommand::SplitAncestorsWithUnicodeBidi(
     Node* node,
     bool before,
-    WritingDirection allowed_direction) {
+    mojo_base::mojom::blink::TextDirection allowed_direction) {
   // We are allowed to leave the highest ancestor with unicode-bidi unsplit if
   // it is unicode-bidi: embed and direction: allowedDirection. In that case, we
   // return the unsplit ancestor. Otherwise, we return 0.
@@ -597,10 +596,11 @@ HTMLElement* ApplyStyleCommand::SplitAncestorsWithUnicodeBidi(
 
   HTMLElement* unsplit_ancestor = nullptr;
 
-  WritingDirection highest_ancestor_direction;
+  mojo_base::mojom::blink::TextDirection highest_ancestor_direction;
   auto* highest_ancestor_html_element =
       DynamicTo<HTMLElement>(highest_ancestor_with_unicode_bidi);
-  if (allowed_direction != WritingDirection::kNatural &&
+  if (allowed_direction !=
+          mojo_base::mojom::blink::TextDirection::UNKNOWN_DIRECTION &&
       highest_ancestor_unicode_bidi != CSSValueID::kBidiOverride &&
       highest_ancestor_html_element &&
       MakeGarbageCollected<EditingStyle>(highest_ancestor_with_unicode_bidi,
@@ -699,7 +699,7 @@ void ApplyStyleCommand::ApplyInlineStyle(EditingStyle* style,
   // update document layout once before removing styles
   // so that we avoid the expense of updating before each and every call
   // to check a computed style
-  GetDocument().UpdateStyleAndLayout();
+  GetDocument().UpdateStyleAndLayout(DocumentUpdateReason::kEditing);
 
   // adjust to the positions we want to use for applying style
   Position start = StartPosition();
@@ -750,7 +750,8 @@ void ApplyStyleCommand::ApplyInlineStyle(EditingStyle* style,
   // selection and prevent us from adding redundant ones, as described in:
   // <rdar://problem/3724344> Bolding and unbolding creates extraneous tags
   Position remove_start = MostBackwardCaretPosition(start);
-  WritingDirection text_direction = WritingDirection::kNatural;
+  mojo_base::mojom::blink::TextDirection text_direction =
+      mojo_base::mojom::blink::TextDirection::UNKNOWN_DIRECTION;
   bool has_text_direction = style->GetTextDirection(text_direction);
   EditingStyle* style_without_embedding = nullptr;
   EditingStyle* embedding_style = nullptr;
@@ -787,7 +788,7 @@ void ApplyStyleCommand::ApplyInlineStyle(EditingStyle* style,
     if (embedding_remove_end != remove_start || embedding_remove_end != end) {
       style_without_embedding = style->Copy();
       embedding_style = style_without_embedding->ExtractAndRemoveTextDirection(
-          GetDocument().GetSecureContextMode());
+          GetDocument().GetExecutionContext()->GetSecureContextMode());
 
       if (ComparePositions(embedding_remove_start, embedding_remove_end) <= 0) {
         RemoveInlineStyle(
@@ -831,7 +832,7 @@ void ApplyStyleCommand::ApplyInlineStyle(EditingStyle* style,
   // update document layout once before running the rest of the function
   // so that we avoid the expense of updating before each and every call
   // to check a computed style
-  GetDocument().UpdateStyleAndLayout();
+  GetDocument().UpdateStyleAndLayout(DocumentUpdateReason::kEditing);
 
   EditingStyle* style_to_apply = style;
   if (has_text_direction) {
@@ -858,7 +859,7 @@ void ApplyStyleCommand::ApplyInlineStyle(EditingStyle* style,
         style_without_embedding = style->Copy();
         embedding_style =
             style_without_embedding->ExtractAndRemoveTextDirection(
-                GetDocument().GetSecureContextMode());
+                GetDocument().GetExecutionContext()->GetSecureContextMode());
       }
       FixRangeAndApplyInlineStyle(embedding_style, embedding_apply_start,
                                   embedding_apply_end, editing_state);
@@ -869,7 +870,7 @@ void ApplyStyleCommand::ApplyInlineStyle(EditingStyle* style,
     }
   }
 
-  GetDocument().UpdateStyleAndLayout();
+  GetDocument().UpdateStyleAndLayout(DocumentUpdateReason::kEditing);
   FixRangeAndApplyInlineStyle(style_to_apply, start, end, editing_state);
   if (editing_state->IsAborted())
     return;
@@ -956,7 +957,7 @@ class InlineRunToApplyStyle {
     return start && end && start->isConnected() && end->isConnected();
   }
 
-  void Trace(Visitor* visitor) {
+  void Trace(Visitor* visitor) const {
     visitor->Trace(start);
     visitor->Trace(end);
     visitor->Trace(past_end_node);
@@ -986,7 +987,7 @@ void ApplyStyleCommand::ApplyInlineStyleToNodeRange(
   if (remove_only_)
     return;
 
-  GetDocument().UpdateStyleAndLayout();
+  GetDocument().UpdateStyleAndLayout(DocumentUpdateReason::kEditing);
 
   HeapVector<InlineRunToApplyStyle> runs;
   Node* node = start_node;
@@ -1061,7 +1062,7 @@ void ApplyStyleCommand::ApplyInlineStyleToNodeRange(
     }
   }
 
-  GetDocument().UpdateStyleAndLayout();
+  GetDocument().UpdateStyleAndLayout(DocumentUpdateReason::kEditing);
 
   for (auto& run : runs) {
     if (run.position_for_style_computation.IsNotNull())
@@ -1443,7 +1444,7 @@ void ApplyStyleCommand::RemoveInlineStyle(EditingStyle* style,
 
   // TODO(editing-dev): Use of UpdateStyleAndLayout
   // needs to be audited.  See http://crbug.com/590369 for more details.
-  GetDocument().UpdateStyleAndLayout();
+  GetDocument().UpdateStyleAndLayout(DocumentUpdateReason::kEditing);
 
   Position push_down_start = MostForwardCaretPosition(start);
   // If the pushDownStart is at the end of a text node, then this node is not
@@ -1461,7 +1462,7 @@ void ApplyStyleCommand::RemoveInlineStyle(EditingStyle* style,
 
   // TODO(editing-dev): Use of UpdateStyleAndLayout
   // needs to be audited.  See http://crbug.com/590369 for more details.
-  GetDocument().UpdateStyleAndLayout();
+  GetDocument().UpdateStyleAndLayout(DocumentUpdateReason::kEditing);
 
   Position push_down_end = MostBackwardCaretPosition(end);
   // If pushDownEnd is at the start of a text node, then this node is not fully
@@ -1564,7 +1565,7 @@ bool ApplyStyleCommand::ElementFullySelected(const HTMLElement& element,
                                              const Position& end) const {
   // The tree may have changed and Position::upstream() relies on an up-to-date
   // layout.
-  element.GetDocument().UpdateStyleAndLayout();
+  element.GetDocument().UpdateStyleAndLayout(DocumentUpdateReason::kEditing);
 
   return ComparePositions(FirstPositionInOrBeforeNode(element), start) >= 0 &&
          ComparePositions(
@@ -2094,7 +2095,7 @@ void ApplyStyleCommand::JoinChildTextNodes(ContainerNode* node,
   UpdateStartEnd(EphemeralRange(new_start, new_end));
 }
 
-void ApplyStyleCommand::Trace(Visitor* visitor) {
+void ApplyStyleCommand::Trace(Visitor* visitor) const {
   visitor->Trace(style_);
   visitor->Trace(start_);
   visitor->Trace(end_);

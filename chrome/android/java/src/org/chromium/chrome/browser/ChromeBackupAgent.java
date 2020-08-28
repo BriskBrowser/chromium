@@ -25,8 +25,12 @@ import org.chromium.chrome.browser.firstrun.FirstRunStatus;
 import org.chromium.chrome.browser.init.AsyncInitTaskRunner;
 import org.chromium.chrome.browser.init.ChromeBrowserInitializer;
 import org.chromium.chrome.browser.preferences.ChromePreferenceKeys;
-import org.chromium.components.signin.AccountManagerFacade;
-import org.chromium.components.signin.ChromeSigninController;
+import org.chromium.chrome.browser.profiles.Profile;
+import org.chromium.chrome.browser.signin.IdentityServicesProvider;
+import org.chromium.components.signin.AccountManagerFacadeProvider;
+import org.chromium.components.signin.AccountUtils;
+import org.chromium.components.signin.base.CoreAccountInfo;
+import org.chromium.components.signin.identitymanager.ConsentLevel;
 import org.chromium.content_public.browser.UiThreadTaskTraits;
 import org.chromium.content_public.common.ContentProcessInfo;
 
@@ -94,6 +98,10 @@ public class ChromeBackupAgent extends BackupAgent {
             ChromePreferenceKeys.PRIVACY_METRICS_REPORTING,
     };
 
+    // Key used to store the email of the signed in account. This email is obtained from
+    // IdentityManager during the backup.
+    static final String SIGNED_IN_ACCOUNT_KEY = "google.services.username";
+
     // Timeout for running the background tasks, needs to be quite long since they may be doing
     // network access, but must be less than the 1 minute restore timeout to be useful.
     private static final long BACKGROUND_TASK_TIMEOUT_SECS = 20;
@@ -143,7 +151,9 @@ public class ChromeBackupAgent extends BackupAgent {
 
     @VisibleForTesting
     protected boolean accountExistsOnDevice(String userName) {
-        return AccountManagerFacade.get().getAccountFromName(userName) != null;
+        return AccountUtils.findAccountByName(
+                       AccountManagerFacadeProvider.getInstance().tryGetGoogleAccounts(), userName)
+                != null;
     }
 
     // TODO (aberent) Refactor the tests to use a mocked ChromeBrowserInitializer, and make this
@@ -234,9 +244,13 @@ public class ChromeBackupAgent extends BackupAgent {
         }
 
         // Finally add the user id.
-        backupNames.add(ANDROID_DEFAULT_PREFIX + ChromeSigninController.SIGNED_IN_ACCOUNT_KEY);
+        CoreAccountInfo accountInfo =
+                IdentityServicesProvider.get()
+                        .getIdentityManager(Profile.getLastUsedRegularProfile())
+                        .getPrimaryAccountInfo(ConsentLevel.SYNC);
+        backupNames.add(ANDROID_DEFAULT_PREFIX + SIGNED_IN_ACCOUNT_KEY);
         backupValues.add(ApiCompatibilityUtils.getBytesUtf8(
-                sharedPrefs.getString(ChromeSigninController.SIGNED_IN_ACCOUNT_KEY, "")));
+                accountInfo == null ? "" : accountInfo.getEmail()));
 
         BackupState newBackupState = new BackupState(backupNames, backupValues);
 
@@ -291,7 +305,7 @@ public class ChromeBackupAgent extends BackupAgent {
             int dataSize = data.getDataSize();
             byte[] buffer = new byte[dataSize];
             data.readEntityData(buffer, 0, dataSize);
-            if (key.equals(ANDROID_DEFAULT_PREFIX + ChromeSigninController.SIGNED_IN_ACCOUNT_KEY)) {
+            if (key.equals(ANDROID_DEFAULT_PREFIX + SIGNED_IN_ACCOUNT_KEY)) {
                 restoredUserName = new String(buffer);
             } else {
                 backupNames.add(key);
@@ -399,7 +413,7 @@ public class ChromeBackupAgent extends BackupAgent {
             }
 
             @Override
-            protected void onFailure() {
+            protected void onFailure(Exception failureCause) {
                 // Ignore failure. Problems with the variation seed can be ignored, and other
                 // problems will either recover or be repeated when Chrome is started synchronously.
                 latch.countDown();

@@ -11,8 +11,8 @@
 
 #include "base/bind.h"
 #include "base/callback.h"
+#include "base/check.h"
 #include "base/component_export.h"
-#include "base/logging.h"
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
 #include "base/memory/ref_counted.h"
@@ -82,6 +82,9 @@ class COMPONENT_EXPORT(MOJO_CPP_BINDINGS) AssociatedBindingBase {
   std::unique_ptr<InterfaceEndpointClient> endpoint_client_;
 };
 
+// DEPRECATED: Do not introduce new uses of this type. Instead use the
+// AssociatedReceiver type defined in associated_receiver.h.
+//
 // Represents the implementation side of an associated interface. It is similar
 // to Binding, except that it doesn't own a message pipe handle.
 //

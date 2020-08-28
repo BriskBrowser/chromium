@@ -50,6 +50,9 @@ WGPUTexture SharedImageRepresentationDawnOzone::BeginAccess(
   if (texture_) {
     return nullptr;
   }
+  if (!ozone_backing()->VaSync()) {
+    return nullptr;
+  }
   DCHECK(pixmap_->GetNumberOfPlanes() == 1)
       << "Multi-plane formats are not supported.";
   // TODO(hob): Synchronize access to the dma-buf by waiting on all semaphores
@@ -61,7 +64,6 @@ WGPUTexture SharedImageRepresentationDawnOzone::BeginAccess(
   texture_descriptor.usage = usage;
   texture_descriptor.dimension = WGPUTextureDimension_2D;
   texture_descriptor.size = {pixmap_size.width(), pixmap_size.height(), 1};
-  texture_descriptor.arrayLayerCount = 1;
   texture_descriptor.mipLevelCount = 1;
   texture_descriptor.sampleCount = 1;
 
@@ -84,14 +86,6 @@ WGPUTexture SharedImageRepresentationDawnOzone::BeginAccess(
     // Keep a reference to the texture so that it stays valid (its content
     // might be destroyed).
     dawn_procs_->data.textureReference(texture_);
-
-    // Assume that the user of this representation will write to the texture
-    // so set the cleared flag so that other representations don't overwrite
-    // the result.
-    // TODO(cwallez@chromium.org): This is incorrect and allows reading
-    // uninitialized data. When !IsCleared we should tell dawn_native to
-    // consider the texture lazy-cleared. crbug.com/1036080
-    SetCleared();
   } else {
     close(fd);
   }
@@ -102,6 +96,10 @@ WGPUTexture SharedImageRepresentationDawnOzone::BeginAccess(
 void SharedImageRepresentationDawnOzone::EndAccess() {
   if (!texture_) {
     return;
+  }
+
+  if (dawn_native::IsTextureSubresourceInitialized(texture_, 0, 1, 0, 1)) {
+    SetCleared();
   }
 
   // TODO(hob): Synchronize access to the dma-buf by exporting the VkSemaphore

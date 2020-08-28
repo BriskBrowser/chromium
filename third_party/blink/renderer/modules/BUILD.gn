@@ -27,7 +27,7 @@ make_names("module_names") {
   deps = []  # Don't use default deps (otherwise it will be circular).
 }
 
-jumbo_component("modules") {
+component("modules") {
   output_name = "blink_modules"
 
   visibility = []  # Allow re-assignment of list.
@@ -46,10 +46,13 @@ jumbo_component("modules") {
   sources += get_target_outputs(":module_names")
 
   sources += bindings_modules_v8_files
-  sources += rebase_path(
-          [ bindings_generated_v8_context_snapshot_external_references_file ],
-          ".",
-          "//")
+
+  if (!use_blink_v8_binding_new_idl_interface) {
+    sources += rebase_path(
+            [ bindings_generated_v8_context_snapshot_external_references_file ],
+            ".",
+            "//")
+  }
 
   configs += [
     ":modules_implementation",
@@ -64,6 +67,7 @@ jumbo_component("modules") {
   ]
 
   sub_modules = [
+    "//third_party/blink/renderer/bindings/modules/v8",
     "//third_party/blink/renderer/modules/accessibility",
     "//third_party/blink/renderer/modules/animationworklet",
     "//third_party/blink/renderer/modules/app_banner",
@@ -85,6 +89,7 @@ jumbo_component("modules") {
     "//third_party/blink/renderer/modules/crypto",
     "//third_party/blink/renderer/modules/csspaint",
     "//third_party/blink/renderer/modules/compression",
+    "//third_party/blink/renderer/modules/delegated_ink",
     "//third_party/blink/renderer/modules/device_orientation",
     "//third_party/blink/renderer/modules/document_metadata",
     "//third_party/blink/renderer/modules/donottrack",
@@ -93,6 +98,7 @@ jumbo_component("modules") {
     "//third_party/blink/renderer/modules/eventsource",
     "//third_party/blink/renderer/modules/exported",
     "//third_party/blink/renderer/modules/filesystem",
+    "//third_party/blink/renderer/modules/font_access",
     "//third_party/blink/renderer/modules/gamepad",
     "//third_party/blink/renderer/modules/geolocation",
     "//third_party/blink/renderer/modules/hid",
@@ -116,11 +122,13 @@ jumbo_component("modules") {
     "//third_party/blink/renderer/modules/media",
     "//third_party/blink/renderer/modules/webrtc",
     "//third_party/blink/renderer/modules/native_file_system",
+    "//third_party/blink/renderer/modules/native_io",
     "//third_party/blink/renderer/modules/navigatorcontentutils",
     "//third_party/blink/renderer/modules/netinfo",
     "//third_party/blink/renderer/modules/nfc",
     "//third_party/blink/renderer/modules/notifications",
     "//third_party/blink/renderer/modules/payments",
+    "//third_party/blink/renderer/modules/payments/goods",
     "//third_party/blink/renderer/modules/peerconnection",
     "//third_party/blink/renderer/modules/permissions",
     "//third_party/blink/renderer/modules/picture_in_picture",
@@ -128,19 +136,21 @@ jumbo_component("modules") {
     "//third_party/blink/renderer/modules/presentation",
     "//third_party/blink/renderer/modules/push_messaging",
     "//third_party/blink/renderer/modules/quota",
+    "//third_party/blink/renderer/modules/direct_sockets",
     "//third_party/blink/renderer/modules/remoteplayback",
+    "//third_party/blink/renderer/modules/sanitizer_api",
     "//third_party/blink/renderer/modules/scheduler",
     "//third_party/blink/renderer/modules/screen_enumeration",
     "//third_party/blink/renderer/modules/screen_orientation",
     "//third_party/blink/renderer/modules/sensor",
     "//third_party/blink/renderer/modules/service_worker",
     "//third_party/blink/renderer/modules/shapedetection",
-    "//third_party/blink/renderer/modules/sms",
     "//third_party/blink/renderer/modules/speech",
     "//third_party/blink/renderer/modules/srcobject",
     "//third_party/blink/renderer/modules/storage",
     "//third_party/blink/renderer/modules/vibration",
-    "//third_party/blink/renderer/modules/video_raf",
+    "//third_party/blink/renderer/modules/video_rvfc",
+    "//third_party/blink/renderer/modules/virtualkeyboard",
     "//third_party/blink/renderer/modules/wake_lock",
     "//third_party/blink/renderer/modules/webaudio",
     "//third_party/blink/renderer/modules/webcodecs",
@@ -168,6 +178,7 @@ jumbo_component("modules") {
     "//third_party/blink/renderer/bindings/modules:generated",
     "//third_party/blink/renderer/bindings/modules/v8:bindings_modules_impl",
     "//third_party/blink/renderer/bindings/modules/v8:bindings_modules_origin_trial_features",
+    "//third_party/blink/renderer/bindings/modules/v8:generated",
     "//third_party/blink/renderer/core",
     "//third_party/icu",
     "//third_party/webrtc_overrides:webrtc_component",
@@ -182,19 +193,22 @@ jumbo_component("modules") {
   }
 
   if (is_win) {
-    cflags = [ "/wd4334" ]  # Result of 32-bit shift implicitly converted to 64 bits.
+    cflags =
+        [ "/wd4334" ]  # Result of 32-bit shift implicitly converted to 64 bits.
   }
 
   configs -= [ "//build/config/compiler:default_symbols" ]
   configs += blink_symbols_config
 }
 
-jumbo_source_set("modules_testing") {
+source_set("modules_testing") {
+  testonly = true
+
   sources = [
-    "$bindings_modules_v8_output_dir/v8_internals_partial.cc",
-    "$bindings_modules_v8_output_dir/v8_internals_partial.h",
     "accessibility/testing/internals_accessibility.cc",
     "accessibility/testing/internals_accessibility.h",
+    "canvas/canvas2d/testing/internals_canvas_rendering_context_2d.cc",
+    "canvas/canvas2d/testing/internals_canvas_rendering_context_2d.h",
     "mediastream/testing/internals_media_stream.cc",
     "mediastream/testing/internals_media_stream.h",
     "netinfo/testing/internals_net_info.cc",
@@ -207,6 +221,8 @@ jumbo_source_set("modules_testing") {
     "peerconnection/adapters/test/mock_p2p_quic_transport.h",
     "peerconnection/adapters/test/mock_p2p_quic_transport_delegate.h",
     "peerconnection/adapters/test/mock_p2p_quic_transport_factory.h",
+    "peerconnection/testing/fake_resource_listener.cc",
+    "peerconnection/testing/fake_resource_listener.h",
     "peerconnection/testing/internals_rtc_certificate.cc",
     "peerconnection/testing/internals_rtc_certificate.h",
     "peerconnection/testing/internals_rtc_peer_connection.cc",
@@ -232,6 +248,7 @@ jumbo_source_set("modules_testing") {
   ]
 
   deps = [
+    "//third_party/blink/renderer/bindings/modules/v8:testing",
     "//third_party/blink/renderer/core",
     "//third_party/blink/renderer/modules",
   ]
@@ -241,15 +258,18 @@ group("make_modules_generated") {
   public_deps = [
     ":module_names",
     "//third_party/blink/renderer/bindings/modules:bindings_modules_generated",
+    "//third_party/blink/renderer/bindings/modules/v8:generated",
     "//third_party/blink/renderer/core:core_event_interfaces",
   ]
 }
 
-jumbo_source_set("unit_tests") {
+source_set("unit_tests") {
   testonly = true
 
   sources = [
     "accessibility/accessibility_object_model_test.cc",
+    "accessibility/ax_inline_text_box_test.cc",
+    "accessibility/ax_layout_object_test.cc",
     "accessibility/ax_object_cache_test.cc",
     "accessibility/ax_object_test.cc",
     "accessibility/ax_position_test.cc",
@@ -277,9 +297,10 @@ jumbo_source_set("unit_tests") {
     "csspaint/paint_worklet_global_scope_test.cc",
     "csspaint/paint_worklet_proxy_client_test.cc",
     "csspaint/paint_worklet_test.cc",
+    "delegated_ink/delegated_ink_trail_presenter_unittest.cc",
     "device_orientation/device_motion_event_pump_unittest.cc",
     "device_orientation/device_orientation_event_pump_unittest.cc",
-    "document_metadata/copyless_paste_extractor_test.cc",
+    "document_metadata/document_metadata_extractor_test.cc",
     "eventsource/event_source_parser_test.cc",
     "filesystem/dom_file_system_base_test.cc",
     "filesystem/file_writer_test.cc",
@@ -294,17 +315,19 @@ jumbo_source_set("unit_tests") {
     "indexeddb/mock_web_idb_callbacks.h",
     "indexeddb/mock_web_idb_database.cc",
     "indexeddb/mock_web_idb_database.h",
-    "indexeddb/mock_web_idb_factory.cc",
-    "indexeddb/mock_web_idb_factory.h",
     "indexeddb/mock_web_idb_transaction.cc",
     "indexeddb/mock_web_idb_transaction.h",
     "indexeddb/web_idb_cursor_impl_unittest.cc",
     "indexeddb/web_idb_transaction_impl_unittest.cc",
+    "installedapp/installed_app_controller_test.cc",
     "manifest/image_resource_type_converters_test.cc",
     "manifest/manifest_manager_unittest.cc",
     "manifest/manifest_parser_unittest.cc",
     "manifest/manifest_type_converters_unittest.cc",
+    "media/audio/mojo_audio_output_ipc_test.cc",
+    "media/audio/web_audio_output_ipc_factory_test.cc",
     "media/webmediaplayer_util_unittest.cc",
+    "media_capabilities/media_capabilities_test.cc",
     "media_controls/elements/media_control_animated_arrow_container_element_test.cc",
     "media_controls/elements/media_control_display_cutout_fullscreen_button_element_test.cc",
     "media_controls/elements/media_control_input_element_test.cc",
@@ -323,6 +346,7 @@ jumbo_source_set("unit_tests") {
     "mediarecorder/audio_track_recorder_unittest.cc",
     "mediarecorder/fake_encoded_video_frame.h",
     "mediarecorder/media_recorder_handler_unittest.cc",
+    "mediarecorder/media_recorder_unittest.cc",
     "mediarecorder/track_recorder_unittest.cc",
     "mediarecorder/video_track_recorder_unittest.cc",
     "mediasession/media_session_test.cc",
@@ -352,11 +376,13 @@ jumbo_source_set("unit_tests") {
     "payments/abort_test.cc",
     "payments/can_make_payment_test.cc",
     "payments/complete_test.cc",
+    "payments/goods/digital_goods_type_converters_unittest.cc",
     "payments/merchant_validation_event_test.cc",
     "payments/on_payment_response_test.cc",
     "payments/payment_address_test.cc",
     "payments/payment_event_data_conversion_test.cc",
     "payments/payment_request_details_test.cc",
+    "payments/payment_request_optional_total_test.cc",
     "payments/payment_request_test.cc",
     "payments/payment_request_update_event_test.cc",
     "payments/payment_response_test.cc",
@@ -374,6 +400,10 @@ jumbo_source_set("unit_tests") {
     "peerconnection/peer_connection_dependency_factory_test.cc",
     "peerconnection/peer_connection_tracker_test.cc",
     "peerconnection/rtc_data_channel_test.cc",
+    "peerconnection/rtc_encoded_audio_underlying_sink_test.cc",
+    "peerconnection/rtc_encoded_audio_underlying_source_test.cc",
+    "peerconnection/rtc_encoded_video_underlying_sink_test.cc",
+    "peerconnection/rtc_encoded_video_underlying_source_test.cc",
     "peerconnection/rtc_ice_transport_test.cc",
     "peerconnection/rtc_ice_transport_test.h",
     "peerconnection/rtc_peer_connection_handler_test.cc",
@@ -385,6 +415,8 @@ jumbo_source_set("unit_tests") {
     "peerconnection/rtc_rtp_sender_impl_test.cc",
     "peerconnection/rtc_rtp_transceiver_impl_test.cc",
     "peerconnection/rtc_sctp_transport_test.cc",
+    "peerconnection/thermal_resource_test.cc",
+    "peerconnection/thermal_uma_listener_test.cc",
     "peerconnection/transceiver_state_surfacer_test.cc",
     "peerconnection/webrtc_audio_renderer_test.cc",
     "peerconnection/webrtc_media_stream_track_adapter_map_test.cc",
@@ -394,13 +426,14 @@ jumbo_source_set("unit_tests") {
     "presentation/mock_presentation_service.h",
     "presentation/presentation_availability_state_test.cc",
     "presentation/presentation_availability_test.cc",
+    "presentation/presentation_connection_callbacks_test.cc",
     "presentation/presentation_receiver_test.cc",
     "presentation/presentation_request_test.cc",
     "push_messaging/push_manager_test.cc",
     "push_messaging/push_message_data_test.cc",
     "push_messaging/push_subscription_test.cc",
     "remoteplayback/remote_playback_test.cc",
-    "screen_orientation/screen_orientation_controller_impl_test.cc",
+    "screen_orientation/screen_orientation_controller_test.cc",
     "sensor/ambient_light_sensor_test.cc",
     "sensor/sensor_test_utils.cc",
     "sensor/sensor_test_utils.h",
@@ -409,7 +442,8 @@ jumbo_source_set("unit_tests") {
     "service_worker/service_worker_installed_scripts_manager_test.cc",
     "service_worker/thread_safe_script_container_test.cc",
     "service_worker/web_embedded_worker_impl_test.cc",
-    "video_raf/video_frame_request_callback_collection_test.cc",
+    "video_rvfc/video_frame_callback_requester_impl_test.cc",
+    "video_rvfc/video_frame_request_callback_collection_test.cc",
     "wake_lock/wake_lock_manager_test.cc",
     "wake_lock/wake_lock_sentinel_test.cc",
     "wake_lock/wake_lock_test.cc",
@@ -455,16 +489,21 @@ jumbo_source_set("unit_tests") {
   deps = [
     ":modules",
     ":modules_testing",
+    "//base",
+    "//base/test:test_support",
     "//build:chromecast_buildflags",
+    "//components/schema_org/common:mojom_blink",
     "//media:test_support",
+    "//media/mojo/mojom",
+    "//mojo/public/cpp/bindings",
     "//net:quic_test_tools",
     "//services/device/public/cpp:test_support",
-    "//services/viz/public/mojom:mojom_blink",
     "//skia",
     "//testing/gmock",
     "//testing/gtest",
     "//third_party/blink/public:blink_headers",
     "//third_party/blink/renderer/core",
+    "//third_party/blink/renderer/core:unit_test_support",
     "//third_party/blink/renderer/modules/gamepad:unit_tests",
     "//third_party/blink/renderer/modules/hid:unit_tests",
     "//third_party/blink/renderer/modules/native_file_system:unit_tests",
@@ -513,6 +552,60 @@ if (use_libfuzzer) {
     deps = [
       ":modules",
       "//third_party/blink/renderer/modules/media_capabilities:fuzzer_media_configuration_proto",
+      "//third_party/blink/renderer/platform:blink_fuzzer_test_support",
+      "//third_party/libprotobuf-mutator",
+      "//third_party/protobuf:protobuf_lite",
+    ]
+  }
+
+  fuzzer_test("webcodecs_video_decoder_fuzzer") {
+    sources = [
+      "webcodecs/fuzzer_utils.cc",
+      "webcodecs/fuzzer_utils.h",
+      "webcodecs/video_decoder_fuzzer.cc",
+    ]
+
+    seed_corpus = "webcodecs/fuzzer_seed_corpus/video_decoder"
+
+    deps = [
+      ":modules",
+      "//third_party/blink/renderer/modules/webcodecs:fuzzer_protos",
+      "//third_party/blink/renderer/platform:blink_fuzzer_test_support",
+      "//third_party/libprotobuf-mutator",
+      "//third_party/protobuf:protobuf_lite",
+    ]
+  }
+
+  fuzzer_test("webcodecs_audio_decoder_fuzzer") {
+    sources = [
+      "webcodecs/audio_decoder_fuzzer.cc",
+      "webcodecs/fuzzer_utils.cc",
+      "webcodecs/fuzzer_utils.h",
+    ]
+
+    seed_corpus = "webcodecs/fuzzer_seed_corpus/audio_decoder"
+
+    deps = [
+      ":modules",
+      "//third_party/blink/renderer/modules/webcodecs:fuzzer_protos",
+      "//third_party/blink/renderer/platform:blink_fuzzer_test_support",
+      "//third_party/libprotobuf-mutator",
+      "//third_party/protobuf:protobuf_lite",
+    ]
+  }
+
+  fuzzer_test("webcodecs_video_encoder_fuzzer") {
+    sources = [
+      "webcodecs/fuzzer_utils.cc",
+      "webcodecs/fuzzer_utils.h",
+      "webcodecs/video_encoder_fuzzer.cc",
+    ]
+
+    seed_corpus = "webcodecs/fuzzer_seed_corpus/video_encoder"
+
+    deps = [
+      ":modules",
+      "//third_party/blink/renderer/modules/webcodecs:fuzzer_protos",
       "//third_party/blink/renderer/platform:blink_fuzzer_test_support",
       "//third_party/libprotobuf-mutator",
       "//third_party/protobuf:protobuf_lite",

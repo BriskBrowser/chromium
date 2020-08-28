@@ -2,7 +2,6 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-import("//build/config/jumbo.gni")
 import("//third_party/blink/renderer/bindings/bindings.gni")
 import("//third_party/blink/renderer/core/core.gni")
 import("//third_party/inspector_protocol/inspector_protocol.gni")
@@ -28,6 +27,8 @@ blink_core_sources("inspector") {
     "dom_editor.h",
     "dom_patch_support.cc",
     "dom_patch_support.h",
+    "dom_traversal_utils.cc",
+    "dom_traversal_utils.h",
     "identifiers_factory.cc",
     "identifiers_factory.h",
     "inspect_tools.cc",
@@ -58,6 +59,12 @@ blink_core_sources("inspector") {
     "inspector_history.h",
     "inspector_io_agent.cc",
     "inspector_io_agent.h",
+    "inspector_issue.cc",
+    "inspector_issue.h",
+    "inspector_issue_reporter.cc",
+    "inspector_issue_reporter.h",
+    "inspector_issue_storage.cc",
+    "inspector_issue_storage.h",
     "inspector_layer_tree_agent.cc",
     "inspector_layer_tree_agent.h",
     "inspector_log_agent.cc",
@@ -86,6 +93,8 @@ blink_core_sources("inspector") {
     "inspector_resource_content_loader.h",
     "inspector_session_state.cc",
     "inspector_session_state.h",
+    "inspector_style_resolver.cc",
+    "inspector_style_resolver.h",
     "inspector_style_sheet.cc",
     "inspector_style_sheet.h",
     "inspector_task_runner.cc",
@@ -94,10 +103,14 @@ blink_core_sources("inspector") {
     "inspector_trace_events.h",
     "legacy_dom_snapshot_agent.cc",
     "legacy_dom_snapshot_agent.h",
+    "locale_controller.cc",
+    "locale_controller.h",
     "main_thread_debugger.cc",
     "main_thread_debugger.h",
     "network_resources_data.cc",
     "network_resources_data.h",
+    "request_debug_header_scope.cc",
+    "request_debug_header_scope.h",
     "resolve_node.cc",
     "resolve_node.h",
     "thread_debugger.cc",
@@ -195,7 +208,7 @@ inspector_protocol_generate("protocol_sources") {
 }
 
 # Compiles the sources generated above.
-jumbo_source_set("generated") {
+source_set("generated") {
   sources = get_target_outputs(":protocol_sources")
 
   configs -= core_config_remove

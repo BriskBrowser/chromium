@@ -30,6 +30,7 @@
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/render_view_host.h"
+#include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/test_utils.h"
 #include "content/public/test/url_loader_interceptor.h"
@@ -86,8 +87,7 @@ class ExtensionHostDestructionObserver
   }
 
   // ExtensionHostObserver:
-  void OnExtensionHostDestroyed(
-      const extensions::ExtensionHost* host) override {
+  void OnExtensionHostDestroyed(extensions::ExtensionHost* host) override {
     if (host == host_) {
       extension_host_observer_.Remove(host_);
       run_loop_.Quit();
@@ -250,13 +250,7 @@ IN_PROC_BROWSER_TEST_F(ExtensionManagementTest, InstallThenCancel) {
   EXPECT_TRUE(IsExtensionAtVersion(extension, "1.0"));
 }
 
-#if defined(OS_WIN)
-// http://crbug.com/141913
-#define MAYBE_InstallRequiresConfirm DISABLED_InstallRequiresConfirm
-#else
-#define MAYBE_InstallRequiresConfirm InstallRequiresConfirm
-#endif
-IN_PROC_BROWSER_TEST_F(ExtensionManagementTest, MAYBE_InstallRequiresConfirm) {
+IN_PROC_BROWSER_TEST_F(ExtensionManagementTest, InstallRequiresConfirm) {
   // Installing the extension without an auto confirming UI should result in
   // it being disabled, since good.crx has permissions that require approval.
   std::string id = "ldnnhddmnhbkjipkidpdiheffobcpfmf";
@@ -722,8 +716,7 @@ IN_PROC_BROWSER_TEST_F(ExtensionManagementTest, ExternalPolicyRefresh) {
   PolicyMap policies;
   policies.Set(policy::key::kExtensionInstallForcelist,
                policy::POLICY_LEVEL_MANDATORY, policy::POLICY_SCOPE_USER,
-               policy::POLICY_SOURCE_CLOUD, forcelist.CreateDeepCopy(),
-               nullptr);
+               policy::POLICY_SOURCE_CLOUD, forcelist.Clone(), nullptr);
   extensions::TestExtensionRegistryObserver install_observer(registry);
   UpdateProviderPolicy(policies);
   install_observer.WaitForExtensionWillBeInstalled();
@@ -767,6 +760,8 @@ IN_PROC_BROWSER_TEST_F(ExtensionManagementTest, ExternalPolicyRefresh) {
 #define MAYBE_PolicyOverridesUserInstall PolicyOverridesUserInstall
 #endif
 
+// Tests the behavior of force-installing extensions that the user has already
+// installed.
 IN_PROC_BROWSER_TEST_F(ExtensionManagementTest,
                        MAYBE_PolicyOverridesUserInstall) {
   extensions::ExtensionService* service =
@@ -825,11 +820,9 @@ IN_PROC_BROWSER_TEST_F(ExtensionManagementTest,
   PolicyMap policies;
   policies.Set(policy::key::kExtensionInstallForcelist,
                policy::POLICY_LEVEL_MANDATORY, policy::POLICY_SCOPE_USER,
-               policy::POLICY_SOURCE_CLOUD, forcelist.CreateDeepCopy(),
-               nullptr);
+               policy::POLICY_SOURCE_CLOUD, forcelist.Clone(), nullptr);
   extensions::TestExtensionRegistryObserver install_observer(registry);
   UpdateProviderPolicy(policies);
-  install_observer.WaitForExtensionWillBeInstalled();
 
   ASSERT_EQ(size_before + 1, registry->enabled_extensions().size());
   extension = registry->enabled_extensions().GetByID(kExtensionId);
@@ -867,12 +860,10 @@ IN_PROC_BROWSER_TEST_F(ExtensionManagementTest,
   // and force enable it too.
   policies.Set(policy::key::kExtensionInstallForcelist,
                policy::POLICY_LEVEL_MANDATORY, policy::POLICY_SCOPE_USER,
-               policy::POLICY_SOURCE_CLOUD, forcelist.CreateDeepCopy(),
-               nullptr);
+               policy::POLICY_SOURCE_CLOUD, forcelist.Clone(), nullptr);
 
   extensions::TestExtensionRegistryObserver extension_observer(registry);
   UpdateProviderPolicy(policies);
-  extension_observer.WaitForExtensionWillBeInstalled();
 
   ASSERT_EQ(size_before + 1, registry->enabled_extensions().size());
   extension = registry->enabled_extensions().GetByID(kExtensionId);

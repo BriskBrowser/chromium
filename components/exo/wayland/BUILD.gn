@@ -36,7 +36,6 @@ source_set("wayland") {
     "wayland_touch_delegate.cc",
     "wayland_touch_delegate.h",
     "wayland_watcher.cc",
-    "wayland_watcher.h",
     "wl_compositor.cc",
     "wl_compositor.h",
     "wl_data_device_manager.cc",
@@ -68,45 +67,6 @@ source_set("wayland") {
   ]
 
   defines = [ "EXO_IMPLEMENTATION" ]
-
-  if (is_chromeos) {
-    sources += [
-      "wayland_keyboard_delegate.cc",
-      "wayland_keyboard_delegate.h",
-      "wayland_positioner.cc",
-      "wayland_positioner.h",
-      "wl_shell.cc",
-      "wl_shell.h",
-      "zcr_color_space.cc",
-      "zcr_color_space.h",
-      "zcr_cursor_shapes.cc",
-      "zcr_cursor_shapes.h",
-      "zcr_gaming_input.cc",
-      "zcr_gaming_input.h",
-      "zcr_keyboard_configuration.cc",
-      "zcr_keyboard_configuration.h",
-      "zcr_keyboard_extension.cc",
-      "zcr_keyboard_extension.h",
-      "zcr_notification_shell.cc",
-      "zcr_notification_shell.h",
-      "zcr_remote_shell.cc",
-      "zcr_remote_shell.h",
-      "zcr_stylus_tools.cc",
-      "zcr_stylus_tools.h",
-      "zwp_input_timestamps_manager.cc",
-      "zwp_input_timestamps_manager.h",
-      "zwp_pointer_constraints.cc",
-      "zwp_pointer_constraints.h",
-      "zwp_pointer_gestures.cc",
-      "zwp_pointer_gestures.h",
-      "zwp_relative_pointer_manager.cc",
-      "zwp_relative_pointer_manager.h",
-      "zwp_text_input_manager.cc",
-      "zwp_text_input_manager.h",
-      "zxdg_shell.cc",
-      "zxdg_shell.h",
-    ]
-  }
 
   deps = [
     "//base",
@@ -141,6 +101,7 @@ source_set("wayland") {
     "//third_party/wayland-protocols:xdg_shell_protocol",
     "//ui/aura",
     "//ui/base",
+    "//ui/base/dragdrop/mojom:mojom_shared",
     "//ui/display/manager",
     "//ui/events:dom_keycode_converter",
     "//ui/events:events_base",
@@ -159,10 +120,12 @@ source_set("wayland") {
     deps += [
       "//build/config/linux/libdrm",
       "//third_party/wayland-protocols:linux_dmabuf_protocol",
+      "//ui/ozone",
     ]
 
     if (is_chromeos) {
       deps += [
+        "//ash",
         "//ash/public/cpp",
         "//ui/events/ozone/layout",
       ]
@@ -182,6 +145,49 @@ source_set("wayland") {
     ]
     deps += [ "//third_party/wayland-protocols:fullscreen_shell_protocol" ]
   }
+
+  if (is_chromeos) {
+    sources += [
+      "wayland_keyboard_delegate.cc",
+      "wayland_keyboard_delegate.h",
+      "wayland_positioner.cc",
+      "wayland_positioner.h",
+      "wl_shell.cc",
+      "wl_shell.h",
+      "xdg_shell.cc",
+      "xdg_shell.h",
+      "zcr_color_space.cc",
+      "zcr_color_space.h",
+      "zcr_cursor_shapes.cc",
+      "zcr_cursor_shapes.h",
+      "zcr_gaming_input.cc",
+      "zcr_gaming_input.h",
+      "zcr_keyboard_configuration.cc",
+      "zcr_keyboard_configuration.h",
+      "zcr_keyboard_extension.cc",
+      "zcr_keyboard_extension.h",
+      "zcr_notification_shell.cc",
+      "zcr_notification_shell.h",
+      "zcr_remote_shell.cc",
+      "zcr_remote_shell.h",
+      "zcr_stylus_tools.cc",
+      "zcr_stylus_tools.h",
+      "zwp_input_timestamps_manager.cc",
+      "zwp_input_timestamps_manager.h",
+      "zwp_pointer_constraints.cc",
+      "zwp_pointer_constraints.h",
+      "zwp_pointer_gestures.cc",
+      "zwp_pointer_gestures.h",
+      "zwp_relative_pointer_manager.cc",
+      "zwp_relative_pointer_manager.h",
+      "zwp_text_input_manager.cc",
+      "zwp_text_input_manager.h",
+      "zxdg_shell.cc",
+      "zxdg_shell.h",
+    ]
+
+    deps += [ "//ui/base/cursor/mojom:cursor_type" ]
+  }
 }
 
 source_set("unit_tests") {
@@ -195,13 +201,16 @@ source_set("unit_tests") {
     "//components/exo",
     "//components/exo:test_support",
     "//components/exo/wayland/fuzzer:unit_tests",
+    "//components/exo/wayland/protocol:aura_shell_protocol",
     "//skia",
+    "//testing/gmock",
     "//testing/gtest",
     "//third_party/wayland:wayland_client",
   ]
 
   if (is_chromeos) {
     sources += [
+      "wayland_keyboard_delegate_unittest.cc",
       "wayland_positioner_unittest.cc",
       "zaura_shell_unittest.cc",
       "zcr_remote_shell_unittest.cc",

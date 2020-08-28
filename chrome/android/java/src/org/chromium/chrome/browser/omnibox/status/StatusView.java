@@ -28,7 +28,7 @@ import org.chromium.base.ApiCompatibilityUtils;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.omnibox.SearchEngineLogoUtils;
 import org.chromium.chrome.browser.toolbar.ToolbarCommonPropertiesModel;
-import org.chromium.chrome.browser.ui.widget.CompositeTouchDelegate;
+import org.chromium.components.browser_ui.widget.CompositeTouchDelegate;
 import org.chromium.ui.widget.Toast;
 
 /**
@@ -115,7 +115,9 @@ public class StatusView extends LinearLayout {
             // Setup the padding once we're loaded, the other padding changes will happen with post-
             // layout positioning.
             setPaddingRelative(getPaddingStart(), getPaddingTop(),
-                    getEndPaddingPixelSizeForFocusState(false), getPaddingBottom());
+                    getResources().getDimensionPixelOffset(
+                            R.dimen.sei_location_bar_icon_end_padding),
+                    getPaddingBottom());
             // Note: the margins and implicit padding were removed from the status view for the
             // dse icon experiment. Moving padding values that were there to the verbose status
             // text view and the verbose text extra space.
@@ -420,19 +422,6 @@ public class StatusView extends LinearLayout {
         }
         mIncognitoBadge.setPaddingRelative(mIncognitoBadge.getPaddingStart(),
                 mIncognitoBadge.getPaddingTop(), endPadding, mIncognitoBadge.getPaddingBottom());
-    }
-
-    /**
-     * @returns The end padding for the given state.
-     */
-    public int getEndPaddingPixelSizeForFocusState(boolean hasFocus) {
-        if (hasFocus) {
-            return getResources().getDimensionPixelOffset(
-                    R.dimen.sei_location_bar_icon_end_padding_focused);
-        } else {
-            return getResources().getDimensionPixelOffset(
-                    R.dimen.sei_location_bar_icon_end_padding);
-        }
     }
 
     /**

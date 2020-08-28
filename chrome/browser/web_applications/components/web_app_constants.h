@@ -5,7 +5,9 @@
 #ifndef CHROME_BROWSER_WEB_APPLICATIONS_COMPONENTS_WEB_APP_CONSTANTS_H_
 #define CHROME_BROWSER_WEB_APPLICATIONS_COMPONENTS_WEB_APP_CONSTANTS_H_
 
-#include "components/services/app_service/public/mojom/types.mojom.h"
+#include <vector>
+
+#include "components/services/app_service/public/mojom/types.mojom-forward.h"
 #include "third_party/blink/public/mojom/manifest/display_mode.mojom.h"
 
 namespace web_app {
@@ -31,6 +33,21 @@ enum Type {
 };
 }  // namespace Source
 
+// Type of OS hook.
+//
+// This enum should be zero based. It is not strongly typed enum class to
+// support implicit conversion to int. Values are also used as index in
+// OsHooksResults.
+namespace OsHookType {
+enum Type {
+  kShortcuts = 0,
+  kRunOnOsLogin,
+  kShortcutsMenu,
+  kFileHandlers,
+  kMaxValue = kFileHandlers,
+};
+}
+
 // The result of an attempted web app installation, uninstallation or update.
 //
 // This is an enum, instead of a struct with multiple fields (e.g. one field for
@@ -55,8 +72,6 @@ enum class InstallResultCode {
   kWriteDataFailed = 6,
   // A user rejected installation prompt.
   kUserInstallDeclined = 7,
-  // A whole user profile was destroyed during installation.
-  kProfileDestroyed = 8,
   // |require_manifest| was specified but the app had no valid manifest.
   kNotValidManifestForWebApp = 10,
   // We have terminated the installation pipeline and intented to the Play
@@ -84,9 +99,12 @@ enum class InstallResultCode {
   kApkWebAppInstallFailed = 20,
   // App managers are shutting down. For example, when user logs out immediately
   // after login.
-  kFailedShuttingDown = 21,
+  kCancelledOnWebAppProviderShuttingDown = 21,
+  // The Web Apps system is not ready: registry is not yet opened or already
+  // closed.
+  kWebAppProviderNotReady = 22,
 
-  kMaxValue = kFailedShuttingDown
+  kMaxValue = kWebAppProviderNotReady
 };
 
 // Checks if InstallResultCode is not a failure.
@@ -152,17 +170,39 @@ enum class ExternalInstallSource {
   kArc = 4,
 };
 
+// Icon size in pixels.
+// Small icons are used in confirmation dialogs and app windows.
+constexpr int kWebAppIconSmall = 32;
+
 using DisplayMode = blink::mojom::DisplayMode;
 
 // When user_display_mode indicates a user preference for opening in
-// a browser tab, we open in a browser tab. Otherwise, we open in a standalone
+// a browser tab, we open in a browser tab. If the developer has specified
+// the app should utilize more advanced display modes and/or fallback chain,
+// attempt honor those preferences. Otherwise, we open in a standalone
 // window (for app_display_mode 'standalone' or 'fullscreen'), or a minimal-ui
 // window (for app_display_mode 'browser' or 'minimal-ui').
-DisplayMode ResolveEffectiveDisplayMode(DisplayMode app_display_mode,
-                                        DisplayMode user_display_mode);
+DisplayMode ResolveEffectiveDisplayMode(
+    DisplayMode app_display_mode,
+    const std::vector<DisplayMode>& app_display_mode_overrides,
+    DisplayMode user_display_mode);
 
 apps::mojom::LaunchContainer ConvertDisplayModeToAppLaunchContainer(
     DisplayMode display_mode);
+
+// The operation mode for Run on OS Login.
+enum class RunOnOsLoginMode {
+  // kUndefined: The web app is not registered with the OS.
+  kUndefined = 0,
+  // kWindowed: The web app is registered with the OS and will be launched as
+  // normal window. This is also the default launch mode for web apps.
+  kWindowed = 1,
+  // kMinimized: The web app is registered with the OS and will be launched as a
+  // minimized window.
+  kMinimized = 2
+};
+
+std::string RunOnOsLoginModeToString(RunOnOsLoginMode mode);
 
 }  // namespace web_app
 

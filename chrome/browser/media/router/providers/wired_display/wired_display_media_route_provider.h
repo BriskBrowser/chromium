@@ -16,8 +16,8 @@
 #include "base/containers/flat_set.h"
 #include "chrome/browser/media/router/discovery/media_sink_discovery_metrics.h"
 #include "chrome/browser/media/router/providers/wired_display/wired_display_presentation_receiver.h"
-#include "chrome/common/media_router/media_route_provider_helper.h"
-#include "chrome/common/media_router/mojom/media_router.mojom.h"
+#include "components/media_router/common/media_route_provider_helper.h"
+#include "components/media_router/common/mojom/media_router.mojom.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "mojo/public/cpp/bindings/receiver.h"
@@ -56,14 +56,14 @@ class WiredDisplayMediaRouteProvider : public mojom::MediaRouteProvider,
                    const url::Origin& origin,
                    int32_t tab_id,
                    base::TimeDelta timeout,
-                   bool incognito,
+                   bool off_the_record,
                    CreateRouteCallback callback) override;
   void JoinRoute(const std::string& media_source,
                  const std::string& presentation_id,
                  const url::Origin& origin,
                  int32_t tab_id,
                  base::TimeDelta timeout,
-                 bool incognito,
+                 bool off_the_record,
                  JoinRouteCallback callback) override;
   void ConnectRouteByRouteId(const std::string& media_source,
                              const std::string& route_id,
@@ -71,7 +71,7 @@ class WiredDisplayMediaRouteProvider : public mojom::MediaRouteProvider,
                              const url::Origin& origin,
                              int32_t tab_id,
                              base::TimeDelta timeout,
-                             bool incognito,
+                             bool off_the_record,
                              ConnectRouteByRouteIdCallback callback) override;
   void TerminateRoute(const std::string& route_id,
                       TerminateRouteCallback callback) override;
@@ -88,10 +88,6 @@ class WiredDisplayMediaRouteProvider : public mojom::MediaRouteProvider,
   void DetachRoute(const std::string& route_id) override;
   void EnableMdnsDiscovery() override;
   void UpdateMediaSinks(const std::string& media_source) override;
-  void SearchSinks(const std::string& sink_id,
-                   const std::string& media_source,
-                   mojom::SinkSearchCriteriaPtr search_criteria,
-                   SearchSinksCallback callback) override;
   void ProvideSinks(
       const std::string& provider_name,
       const std::vector<media_router::MediaSinkInternal>& sinks) override;
@@ -100,6 +96,7 @@ class WiredDisplayMediaRouteProvider : public mojom::MediaRouteProvider,
       mojo::PendingReceiver<mojom::MediaController> media_controller,
       mojo::PendingRemote<mojom::MediaStatusObserver> observer,
       CreateMediaRouteControllerCallback callback) override;
+  void GetState(GetStateCallback callback) override;
 
   // display::DisplayObserver:
   void OnDidProcessDisplayChanges() override;

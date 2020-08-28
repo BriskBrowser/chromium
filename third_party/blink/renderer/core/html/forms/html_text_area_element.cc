@@ -27,6 +27,7 @@
 #include "third_party/blink/renderer/core/html/forms/html_text_area_element.h"
 
 #include "third_party/blink/public/strings/grit/blink_strings.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_focus_options.h"
 #include "third_party/blink/renderer/core/css/style_change_reason.h"
 #include "third_party/blink/renderer/core/css_value_keywords.h"
 #include "third_party/blink/renderer/core/dom/document.h"
@@ -37,6 +38,8 @@
 #include "third_party/blink/renderer/core/editing/iterators/text_iterator.h"
 #include "third_party/blink/renderer/core/event_interface_names.h"
 #include "third_party/blink/renderer/core/events/before_text_inserted_event.h"
+#include "third_party/blink/renderer/core/events/drag_event.h"
+#include "third_party/blink/renderer/core/events/mouse_event.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/html/forms/form_controller.h"
 #include "third_party/blink/renderer/core/html/forms/form_data.h"
@@ -67,6 +70,11 @@ static inline unsigned ComputeLengthForAPIValue(const String& text) {
       crlf_count++;
   }
   return text.length() - crlf_count;
+}
+
+static inline void ReplaceCRWithNewLine(String& text) {
+  text.Replace("\r\n", "\n");
+  text.Replace('\r', '\n');
 }
 
 HTMLTextAreaElement::HTMLTextAreaElement(Document& document)
@@ -154,7 +162,7 @@ void HTMLTextAreaElement::ParseAttribute(
       rows_ = rows;
       if (GetLayoutObject()) {
         GetLayoutObject()
-            ->SetNeedsLayoutAndPrefWidthsRecalcAndFullPaintInvalidation(
+            ->SetNeedsLayoutAndIntrinsicWidthsRecalcAndFullPaintInvalidation(
                 layout_invalidation_reason::kAttributeChanged);
       }
     }
@@ -167,7 +175,7 @@ void HTMLTextAreaElement::ParseAttribute(
       cols_ = cols;
       if (LayoutObject* layout_object = GetLayoutObject()) {
         layout_object
-            ->SetNeedsLayoutAndPrefWidthsRecalcAndFullPaintInvalidation(
+            ->SetNeedsLayoutAndIntrinsicWidthsRecalcAndFullPaintInvalidation(
                 layout_invalidation_reason::kAttributeChanged);
       }
     }
@@ -176,11 +184,11 @@ void HTMLTextAreaElement::ParseAttribute(
     // deprecated.  The soft/hard /off values are a recommendation for HTML 4
     // extension by IE and NS 4.
     WrapMethod wrap;
-    if (DeprecatedEqualIgnoringCase(value, "physical") ||
-        DeprecatedEqualIgnoringCase(value, "hard") ||
-        DeprecatedEqualIgnoringCase(value, "on"))
+    if (EqualIgnoringASCIICase(value, "physical") ||
+        EqualIgnoringASCIICase(value, "hard") ||
+        EqualIgnoringASCIICase(value, "on"))
       wrap = kHardWrap;
-    else if (DeprecatedEqualIgnoringCase(value, "off"))
+    else if (EqualIgnoringASCIICase(value, "off"))
       wrap = kNoWrap;
     else
       wrap = kSoftWrap;
@@ -188,7 +196,7 @@ void HTMLTextAreaElement::ParseAttribute(
       wrap_ = wrap;
       if (LayoutObject* layout_object = GetLayoutObject()) {
         layout_object
-            ->SetNeedsLayoutAndPrefWidthsRecalcAndFullPaintInvalidation(
+            ->SetNeedsLayoutAndIntrinsicWidthsRecalcAndFullPaintInvalidation(
                 layout_invalidation_reason::kAttributeChanged);
       }
     }
@@ -207,6 +215,7 @@ void HTMLTextAreaElement::ParseAttribute(
 
 LayoutObject* HTMLTextAreaElement::CreateLayoutObject(const ComputedStyle&,
                                                       LegacyLayout) {
+  UseCounter::Count(GetDocument(), WebFeature::kLegacyLayoutByTextControl);
   return new LayoutTextControlMultiLine(this);
 }
 
@@ -214,7 +223,7 @@ void HTMLTextAreaElement::AppendToFormData(FormData& form_data) {
   if (GetName().IsEmpty())
     return;
 
-  GetDocument().UpdateStyleAndLayout();
+  GetDocument().UpdateStyleAndLayout(DocumentUpdateReason::kForm);
 
   const String& text =
       (wrap_ == kHardWrap) ? ValueWithHardLineBreaks() : value();
@@ -264,7 +273,7 @@ void HTMLTextAreaElement::UpdateFocusAppearanceWithOptions(
 
 void HTMLTextAreaElement::DefaultEventHandler(Event& event) {
   if (GetLayoutObject() &&
-      (event.IsMouseEvent() || event.IsDragEvent() ||
+      (IsA<MouseEvent>(event) || IsA<DragEvent>(event) ||
        event.HasInterface(event_interface_names::kWheelEvent) ||
        event.type() == event_type_names::kBlur)) {
     ForwardEvent(event);
@@ -332,7 +341,7 @@ void HTMLTextAreaElement::HandleBeforeTextInsertedEvent(
   if (IsFocused()) {
     // TODO(editing-dev): Use of UpdateStyleAndLayout
     // needs to be audited.  See http://crbug.com/590369 for more details.
-    GetDocument().UpdateStyleAndLayout();
+    GetDocument().UpdateStyleAndLayout(DocumentUpdateReason::kForm);
 
     selection_length = ComputeLengthForAPIValue(
         GetDocument().GetFrame()->Selection().SelectedText());
@@ -397,8 +406,7 @@ void HTMLTextAreaElement::SetValueCommon(
   // Code elsewhere normalizes line endings added by the user via the keyboard
   // or pasting.  We normalize line endings coming from JavaScript here.
   String normalized_value = new_value;
-  normalized_value.Replace("\r\n", "\n");
-  normalized_value.Replace('\r', '\n');
+  ReplaceCRWithNewLine(normalized_value);
 
   // Clear the suggested value. Use the base class version to not trigger a view
   // update.
@@ -511,7 +519,10 @@ bool HTMLTextAreaElement::ValueMissing() const {
 }
 
 bool HTMLTextAreaElement::ValueMissing(const String* value) const {
-  return IsRequiredFormControl() && (value ? *value : this->value()).IsEmpty();
+  // For textarea elements, the value is missing only if it is mutable.
+  // https://html.spec.whatwg.org/multipage/form-elements.html#attr-textarea-required
+  return IsRequiredFormControl() && !IsDisabledOrReadOnly() &&
+         (value ? *value : this->value()).IsEmpty();
 }
 
 bool HTMLTextAreaElement::TooLong() const {
@@ -605,7 +616,10 @@ void HTMLTextAreaElement::UpdatePlaceholderText() {
         IsPlaceholderVisible() ? CSSValueID::kBlock : CSSValueID::kNone, true);
     UserAgentShadowRoot()->InsertBefore(placeholder, InnerEditorElement());
   }
-  placeholder->setTextContent(placeholder_text);
+  String normalized_value = placeholder_text;
+  // https://html.spec.whatwg.org/multipage/form-elements.html#attr-textarea-placeholder
+  ReplaceCRWithNewLine(normalized_value);
+  placeholder->setTextContent(normalized_value);
 }
 
 String HTMLTextAreaElement::GetPlaceholderValue() const {

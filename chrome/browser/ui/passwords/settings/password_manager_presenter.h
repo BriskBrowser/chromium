@@ -7,24 +7,31 @@
 
 #include <stddef.h>
 
+#include <list>
 #include <map>
 #include <memory>
 #include <string>
 #include <vector>
-
 #include "base/callback_forward.h"
 #include "base/macros.h"
 #include "base/optional.h"
 #include "base/strings/string16.h"
+#include "build/build_config.h"
+#include "components/password_manager/core/browser/form_fetcher.h"
 #include "components/password_manager/core/browser/password_store.h"
 #include "components/password_manager/core/browser/password_store_consumer.h"
 #include "components/password_manager/core/browser/ui/credential_provider_interface.h"
+#include "components/password_manager/core/browser/ui/plaintext_reason.h"
 #include "components/prefs/pref_member.h"
 #include "components/undo/undo_manager.h"
 #include "ui/shell_dialogs/select_file_dialog.h"
 
 namespace autofill {
 struct PasswordForm;
+}
+
+namespace password_manager {
+class PasswordManagerClient;
 }
 
 class PasswordUIView;
@@ -69,36 +76,46 @@ class PasswordManagerPresenter
   // Gets the password exception entry at |index|.
   const autofill::PasswordForm* GetPasswordException(size_t index) const;
 
-  // Changes the username and password corresponding to |sort_key|.
-  void ChangeSavedPassword(const std::string& sort_key,
-                           const base::string16& new_username,
-                           const base::Optional<base::string16>& new_password);
+  // Changes the password corresponding to |sort_key|.
+  bool ChangeSavedPassword(const std::vector<std::string>& sort_keys,
+                           base::string16 new_password);
 
   // Removes the saved password entries at |index|, or corresponding to
   // |sort_key|, respectively.
   // TODO(https://crbug.com/778146): Unify these methods and the implementation
   // across Desktop and Android.
   void RemoveSavedPassword(size_t index);
-  void RemoveSavedPassword(const std::string& sort_key);
+  void RemoveSavedPasswords(const std::vector<std::string>& sort_keys);
 
   // Removes the saved exception entries at |index|, or corresponding to
   // |sort_key|, respectively.
   // TODO(https://crbug.com/778146): Unify these methods and the implementation
   // across Desktop and Android.
   void RemovePasswordException(size_t index);
-  void RemovePasswordException(const std::string& sort_key);
+  void RemovePasswordExceptions(const std::vector<std::string>& sort_keys);
 
   // Undoes the last saved password or exception removal.
   void UndoRemoveSavedPasswordOrException();
 
+  // Moves a password stored in the profile store to the account store. Results
+  // in a no-op if any of these is true: |sort_key| is invalid, |sort_key|
+  // corresponds to a password already in the account store, or the user is not
+  // using the account-scoped password storage.
+  void MovePasswordToAccountStore(
+      const std::string& sort_key,
+      password_manager::PasswordManagerClient* client);
+
+#if !defined(OS_ANDROID)
   // Requests to reveal the plain text password corresponding to |sort_key|. If
   // |sort_key| is a valid key into |password_map_|, runs |callback| with the
   // corresponding value, or nullopt otherwise.
   // TODO(https://crbug.com/778146): Update this method to take a DisplayEntry
   // instead.
-  void RequestShowPassword(
+  void RequestPlaintextPassword(
       const std::string& sort_key,
+      password_manager::PlaintextReason reason,
       base::OnceCallback<void(base::Optional<base::string16>)> callback) const;
+#endif
 
   // Wrapper around |PasswordStore::AddLogin| that adds the corresponding undo
   // action to |undo_manager_|.
@@ -109,6 +126,27 @@ class PasswordManagerPresenter
   void RemoveLogin(const autofill::PasswordForm& form);
 
  private:
+  // Used for moving a form from the profile store to the account store.
+  class MovePasswordToAccountStoreHelper
+      : public password_manager::FormFetcher::Consumer {
+   public:
+    // Starts moving |form|. |done_callback| is run when done.
+    MovePasswordToAccountStoreHelper(
+        const autofill::PasswordForm& form,
+        password_manager::PasswordManagerClient* client,
+        base::OnceClosure done_callback);
+    ~MovePasswordToAccountStoreHelper() override;
+
+   private:
+    // FormFetcher::Consumer.
+    void OnFetchCompleted() override;
+
+    autofill::PasswordForm form_;
+    password_manager::PasswordManagerClient* const client_;
+    base::OnceClosure done_callback_;
+    std::unique_ptr<password_manager::FormFetcher> form_fetcher_;
+  };
+
   // Convenience typedef for a map containing PasswordForms grouped into
   // equivalence classes. Each equivalence class corresponds to one entry shown
   // in the UI, and deleting an UI entry will delete all PasswordForms that are
@@ -118,6 +156,9 @@ class PasswordManagerPresenter
   using PasswordFormMap =
       std::map<std::string,
                std::vector<std::unique_ptr<autofill::PasswordForm>>>;
+
+  using MovePasswordToAccountStoreHelperList =
+      std::list<std::unique_ptr<MovePasswordToAccountStoreHelper>>;
 
   // Attempts to remove the entries corresponding to |index| from |form_map|.
   // This will also add a corresponding undo operation to |undo_manager_|.
@@ -144,6 +185,11 @@ class PasswordManagerPresenter
   void SetPasswordList();
   void SetPasswordExceptionList();
 
+  // Called when the helper pointed by |done_helper_it| has finished the moving
+  // task. Removes it from |move_to_account_helpers_|.
+  void OnMovePasswordToAccountCompleted(
+      MovePasswordToAccountStoreHelperList::iterator done_helper_it);
+
   PasswordFormMap password_map_;
   PasswordFormMap exception_map_;
 
@@ -154,6 +200,9 @@ class PasswordManagerPresenter
 
   // UI view that owns this presenter.
   PasswordUIView* password_view_;
+
+  // Contains the helpers currently executing moving tasks.
+  MovePasswordToAccountStoreHelperList move_to_account_helpers_;
 
   DISALLOW_COPY_AND_ASSIGN(PasswordManagerPresenter);
 };

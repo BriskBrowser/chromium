@@ -18,6 +18,7 @@
 #include "base/strings/stringprintf.h"
 #include "base/system/sys_info.h"
 #include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
 #include "build/branding_buildflags.h"
 #include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
@@ -39,13 +40,15 @@
 
 #if defined(OS_CHROMEOS)
 #include "ash/public/ash_interfaces.h"
+#include "base/strings/stringprintf.h"
 #include "chrome/browser/chromeos/arc/arc_util.h"
 #include "chrome/browser/chromeos/arc/policy/arc_policy_bridge.h"
 #include "chrome/browser/chromeos/login/demo_mode/demo_session.h"
+#include "chrome/browser/chromeos/login/login_pref_names.h"
+#include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/metrics/chromeos_metrics_provider.h"
 #include "chromeos/dbus/util/version_loader.h"
 #include "chromeos/system/statistics_provider.h"
-#include "components/user_manager/user_manager.h"
 #endif
 
 #if defined(OS_WIN)
@@ -65,6 +68,9 @@ constexpr char kExtensionsListKey[] = "extensions";
 constexpr char kPowerApiListKey[] = "chrome.power extensions";
 constexpr char kDataReductionProxyKey[] = "data_reduction_proxy";
 constexpr char kChromeVersionTag[] = "CHROME VERSION";
+#if BUILDFLAG(IS_LACROS)
+constexpr char kLacrosChromeVersionPrefix[] = "Lacros ";
+#endif
 #if defined(OS_CHROMEOS)
 constexpr char kArcPolicyComplianceReportKey[] =
     "CHROMEOS_ARC_POLICY_COMPLIANCE_REPORT";
@@ -78,6 +84,7 @@ constexpr char kArcStatusKey[] = "CHROMEOS_ARC_STATUS";
 constexpr char kMonitorInfoKey[] = "monitor_info";
 constexpr char kAccountTypeKey[] = "account_type";
 constexpr char kDemoModeConfigKey[] = "demo_mode_config";
+constexpr char kOnboardingTime[] = "ONBOARDING_TIME";
 #else
 constexpr char kOsVersionTag[] = "OS VERSION";
 #endif
@@ -262,7 +269,14 @@ void ChromeInternalLogSource::Fetch(SysLogsSourceCallback callback) {
 
   auto response = std::make_unique<SystemLogsResponse>();
 
+#if BUILDFLAG(IS_LACROS)
+  // Add a Lacros prefix string in the chrome version string to
+  // differentiate lacros chrome vs ash chrome in the feedback report.
+  response->emplace(kChromeVersionTag,
+                    kLacrosChromeVersionPrefix + chrome::GetVersionString());
+#else
   response->emplace(kChromeVersionTag, chrome::GetVersionString());
+#endif
 
 #if defined(OS_CHROMEOS)
   response->emplace(kChromeEnrollmentTag, GetEnrollmentStatusString());
@@ -300,6 +314,7 @@ void ChromeInternalLogSource::Fetch(SysLogsSourceCallback callback) {
                     chromeos::DemoSession::DemoConfigToString(
                         chromeos::DemoSession::GetDemoConfig()));
   PopulateLocalStateSettings(response.get());
+  PopulateOnboardingTime(response.get());
 
   // Chain asynchronous fetchers: PopulateMonitorInfoAsync, PopulateEntriesAsync
   PopulateMonitorInfoAsync(
@@ -308,10 +323,8 @@ void ChromeInternalLogSource::Fetch(SysLogsSourceCallback callback) {
           [](std::unique_ptr<SystemLogsResponse> response,
              SysLogsSourceCallback callback) {
             SystemLogsResponse* response_ptr = response.get();
-            base::PostTaskAndReply(
-                FROM_HERE,
-                {base::ThreadPool(), base::MayBlock(),
-                 base::TaskPriority::BEST_EFFORT},
+            base::ThreadPool::PostTaskAndReply(
+                FROM_HERE, {base::MayBlock(), base::TaskPriority::BEST_EFFORT},
                 base::BindOnce(&PopulateEntriesAsync, response_ptr),
                 base::BindOnce(std::move(callback), std::move(response)));
           },
@@ -447,6 +460,23 @@ void ChromeInternalLogSource::PopulateArcPolicyStatus(
                     arc::ArcPolicyBridge::GetForBrowserContext(
                         ProfileManager::GetLastUsedProfile())
                         ->get_arc_policy_compliance_report());
+}
+
+void ChromeInternalLogSource::PopulateOnboardingTime(
+    SystemLogsResponse* response) {
+  Profile* profile = ProfileManager::GetPrimaryUserProfile();
+  if (!profile)
+    return;
+  base::Time time =
+      profile->GetPrefs()->GetTime(chromeos::prefs::kOobeOnboardingTime);
+  if (time.is_null())
+    return;
+
+  base::Time::Exploded exploded;
+  time.UTCExplode(&exploded);
+  response->emplace(kOnboardingTime,
+                    base::StringPrintf("%04d-%02d-%02d", exploded.year,
+                                       exploded.month, exploded.day_of_month));
 }
 
 #endif  // defined(OS_CHROMEOS)

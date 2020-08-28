@@ -20,8 +20,6 @@
 #include "content/browser/storage_partition_impl.h"
 #include "content/public/test/browser_task_environment.h"
 #include "content/public/test/test_browser_context.h"
-#include "mojo/public/cpp/bindings/associated_interface_ptr.h"
-#include "mojo/public/cpp/bindings/interface_request.h"
 #include "third_party/blink/public/common/service_worker/service_worker_status_code.h"
 #include "third_party/blink/public/mojom/service_worker/service_worker.mojom.h"
 #include "third_party/blink/public/mojom/service_worker/service_worker_registration.mojom.h"
@@ -109,7 +107,11 @@ class PaymentAppContentUnitTestBase::PaymentAppForWorkerTestHelper
 
       mojo::Remote<payments::mojom::PaymentHandlerResponseCallback>
           response_callback(std::move(pending_response_callback));
-      response_callback->OnResponseForCanMakePayment(can_make_payment);
+      response_callback->OnResponseForCanMakePayment(
+          payments::mojom::CanMakePaymentResponse::New(
+              payments::mojom::CanMakePaymentEventResponseType::SUCCESS,
+              can_make_payment, /*ready_for_minimal_ui=*/false,
+              /*account_balance=*/""));
       std::move(callback).Run(
           blink::mojom::ServiceWorkerEventStatus::COMPLETED);
     }
@@ -247,7 +249,8 @@ void PaymentAppContentUnitTestBase::UnregisterServiceWorker(
   // Unregister service worker.
   bool called = false;
   worker_helper_->context()->UnregisterServiceWorker(
-      scope_url, base::BindOnce(&UnregisterServiceWorkerCallback, &called));
+      scope_url, /*is_immediate=*/false,
+      base::BindOnce(&UnregisterServiceWorkerCallback, &called));
   base::RunLoop().RunUntilIdle();
   EXPECT_TRUE(called);
 }

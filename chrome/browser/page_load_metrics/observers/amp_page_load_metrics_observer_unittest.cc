@@ -8,6 +8,7 @@
 #include <utility>
 
 #include "base/macros.h"
+#include "base/memory/ptr_util.h"
 #include "base/optional.h"
 #include "base/time/time.h"
 #include "chrome/browser/page_load_metrics/observers/page_load_metrics_observer_test_harness.h"
@@ -200,7 +201,7 @@ TEST_F(AMPPageLoadMetricsObserverTest, SubFrameInputBeforeNavigation) {
           content::RenderFrameHostTester::For(web_contents()->GetMainFrame())
               ->AppendChild("subframe"));
 
-  page_load_metrics::mojom::PageLoadMetadata metadata;
+  page_load_metrics::mojom::FrameMetadata metadata;
   metadata.behavior_flags =
       blink::LoadingBehaviorFlag::kLoadingBehaviorAmpDocumentLoaded;
   tester()->SimulateMetadataUpdate(metadata, subframe);
@@ -264,7 +265,7 @@ TEST_F(AMPPageLoadMetricsObserverTest, SubFrameNavigationBeforeInput) {
   NavigationSimulator::CreateRendererInitiated(amp_url, main_rfh())
       ->CommitSameDocument();
 
-  page_load_metrics::mojom::PageLoadMetadata metadata;
+  page_load_metrics::mojom::FrameMetadata metadata;
   metadata.behavior_flags =
       blink::LoadingBehaviorFlag::kLoadingBehaviorAmpDocumentLoaded;
   tester()->SimulateMetadataUpdate(metadata, subframe);
@@ -315,7 +316,7 @@ TEST_F(AMPPageLoadMetricsObserverTest, SubFrameMetrics) {
           content::RenderFrameHostTester::For(web_contents()->GetMainFrame())
               ->AppendChild("subframe"));
 
-  page_load_metrics::mojom::PageLoadMetadata metadata;
+  page_load_metrics::mojom::FrameMetadata metadata;
   metadata.behavior_flags =
       blink::LoadingBehaviorFlag::kLoadingBehaviorAmpDocumentLoaded;
   tester()->SimulateMetadataUpdate(metadata, subframe);
@@ -323,10 +324,13 @@ TEST_F(AMPPageLoadMetricsObserverTest, SubFrameMetrics) {
   page_load_metrics::mojom::PageLoadTiming subframe_timing;
   page_load_metrics::InitPageLoadTimingForTest(&subframe_timing);
   subframe_timing.navigation_start = base::Time::FromDoubleT(2);
+  subframe_timing.paint_timing->first_paint =
+      base::TimeDelta::FromMilliseconds(4);
   subframe_timing.paint_timing->first_contentful_paint =
       base::TimeDelta::FromMilliseconds(5);
-  subframe_timing.paint_timing->largest_image_paint_size = 1;
-  subframe_timing.paint_timing->largest_image_paint =
+  subframe_timing.paint_timing->largest_contentful_paint
+      ->largest_image_paint_size = 1;
+  subframe_timing.paint_timing->largest_contentful_paint->largest_image_paint =
       base::TimeDelta::FromMilliseconds(10);
   subframe_timing.interactive_timing->first_input_timestamp =
       base::TimeDelta::FromMilliseconds(20);
@@ -356,6 +360,8 @@ TEST_F(AMPPageLoadMetricsObserverTest, SubFrameMetrics) {
   tester()->test_ukm_recorder().ExpectEntryMetric(
       entry.get(), "SubFrame.InteractiveTiming.FirstInputDelay4", 3);
   tester()->test_ukm_recorder().ExpectEntryMetric(
+      entry.get(), "SubFrame.PaintTiming.NavigationToFirstPaint", 4);
+  tester()->test_ukm_recorder().ExpectEntryMetric(
       entry.get(), "SubFrame.PaintTiming.NavigationToFirstContentfulPaint", 5);
   tester()->test_ukm_recorder().ExpectEntryMetric(
       entry.get(), "SubFrame.PaintTiming.NavigationToLargestContentfulPaint",
@@ -379,12 +385,13 @@ TEST_F(AMPPageLoadMetricsObserverTest, SubFrameMetrics_LayoutInstability) {
           content::RenderFrameHostTester::For(web_contents()->GetMainFrame())
               ->AppendChild("subframe"));
 
-  page_load_metrics::mojom::PageLoadMetadata metadata;
+  page_load_metrics::mojom::FrameMetadata metadata;
   metadata.behavior_flags =
       blink::LoadingBehaviorFlag::kLoadingBehaviorAmpDocumentLoaded;
   tester()->SimulateMetadataUpdate(metadata, subframe);
 
-  page_load_metrics::mojom::FrameRenderDataUpdate render_data(1.0, 0.5);
+  page_load_metrics::mojom::FrameRenderDataUpdate render_data(1.0, 0.5, 0, 0, 0,
+                                                              0);
   tester()->SimulateRenderDataUpdate(render_data, subframe);
 
   // Navigate the main frame to trigger metrics recording.
@@ -419,7 +426,7 @@ TEST_F(AMPPageLoadMetricsObserverTest, SubFrameMetricsFullNavigation) {
           content::RenderFrameHostTester::For(web_contents()->GetMainFrame())
               ->AppendChild("subframe"));
 
-  page_load_metrics::mojom::PageLoadMetadata metadata;
+  page_load_metrics::mojom::FrameMetadata metadata;
   metadata.behavior_flags =
       blink::LoadingBehaviorFlag::kLoadingBehaviorAmpDocumentLoaded;
   tester()->SimulateMetadataUpdate(metadata, subframe);
@@ -429,8 +436,9 @@ TEST_F(AMPPageLoadMetricsObserverTest, SubFrameMetricsFullNavigation) {
   subframe_timing.navigation_start = base::Time::FromDoubleT(2);
   subframe_timing.paint_timing->first_contentful_paint =
       base::TimeDelta::FromMilliseconds(5);
-  subframe_timing.paint_timing->largest_image_paint_size = 1;
-  subframe_timing.paint_timing->largest_image_paint =
+  subframe_timing.paint_timing->largest_contentful_paint
+      ->largest_image_paint_size = 1;
+  subframe_timing.paint_timing->largest_contentful_paint->largest_image_paint =
       base::TimeDelta::FromMilliseconds(10);
   subframe_timing.interactive_timing->first_input_timestamp =
       base::TimeDelta::FromMilliseconds(20);
@@ -486,7 +494,7 @@ TEST_F(AMPPageLoadMetricsObserverTest, SubFrameRecordOnFullNavigation) {
           content::RenderFrameHostTester::For(web_contents()->GetMainFrame())
               ->AppendChild("subframe"));
 
-  page_load_metrics::mojom::PageLoadMetadata metadata;
+  page_load_metrics::mojom::FrameMetadata metadata;
   metadata.behavior_flags =
       blink::LoadingBehaviorFlag::kLoadingBehaviorAmpDocumentLoaded;
   tester()->SimulateMetadataUpdate(metadata, subframe);
@@ -528,7 +536,7 @@ TEST_F(AMPPageLoadMetricsObserverTest, SubFrameRecordOnFrameDeleted) {
           content::RenderFrameHostTester::For(web_contents()->GetMainFrame())
               ->AppendChild("subframe"));
 
-  page_load_metrics::mojom::PageLoadMetadata metadata;
+  page_load_metrics::mojom::FrameMetadata metadata;
   metadata.behavior_flags =
       blink::LoadingBehaviorFlag::kLoadingBehaviorAmpDocumentLoaded;
   tester()->SimulateMetadataUpdate(metadata, subframe);
@@ -584,7 +592,7 @@ TEST_F(AMPPageLoadMetricsObserverTest, SubFrameMultipleFrames) {
           content::RenderFrameHostTester::For(web_contents()->GetMainFrame())
               ->AppendChild("subframe1"));
 
-  page_load_metrics::mojom::PageLoadMetadata metadata;
+  page_load_metrics::mojom::FrameMetadata metadata;
   metadata.behavior_flags =
       blink::LoadingBehaviorFlag::kLoadingBehaviorAmpDocumentLoaded;
   tester()->SimulateMetadataUpdate(metadata, subframe1);
@@ -689,7 +697,7 @@ TEST_F(AMPPageLoadMetricsObserverTest,
           content::RenderFrameHostTester::For(web_contents()->GetMainFrame())
               ->AppendChild("subframe"));
 
-  page_load_metrics::mojom::PageLoadMetadata metadata;
+  page_load_metrics::mojom::FrameMetadata metadata;
   metadata.behavior_flags =
       blink::LoadingBehaviorFlag::kLoadingBehaviorAmpDocumentLoaded;
   tester()->SimulateMetadataUpdate(metadata, subframe);
@@ -774,7 +782,7 @@ TEST_F(AMPPageLoadMetricsObserverTest,
           content::RenderFrameHostTester::For(web_contents()->GetMainFrame())
               ->AppendChild("subframe"));
 
-  page_load_metrics::mojom::PageLoadMetadata metadata;
+  page_load_metrics::mojom::FrameMetadata metadata;
   metadata.behavior_flags =
       blink::LoadingBehaviorFlag::kLoadingBehaviorAmpDocumentLoaded;
   tester()->SimulateMetadataUpdate(metadata, subframe);

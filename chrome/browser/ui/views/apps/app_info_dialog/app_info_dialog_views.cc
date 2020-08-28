@@ -61,7 +61,7 @@ constexpr gfx::Size kDialogSize = gfx::Size(380, 490);
 }  // namespace
 
 bool CanPlatformShowAppInfoDialog() {
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
   return false;
 #else
   return true;
@@ -87,8 +87,7 @@ bool CanShowAppInfoDialog(Profile* profile, const std::string& extension_id) {
   }
 
   // App Management only displays apps that are displayed in the launcher.
-  if (base::FeatureList::IsEnabled(features::kAppManagement) &&
-      !extension->ShouldDisplayInAppLauncher()) {
+  if (!extension->ShouldDisplayInAppLauncher()) {
     return false;
   }
 #endif
@@ -222,7 +221,7 @@ void AppInfoDialog::StartObservingExtensionRegistry() {
 void AppInfoDialog::StopObservingExtensionRegistry() {
   if (extension_registry_)
     extension_registry_->RemoveObserver(this);
-  extension_registry_ = NULL;
+  extension_registry_ = nullptr;
 }
 
 void AppInfoDialog::OnExtensionUninstalled(

@@ -11,13 +11,15 @@
 #include <vector>
 
 #include "base/memory/ptr_util.h"
-#include "base/memory/ref_counted_memory.h"
 #include "base/strings/string_util.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/app/chrome_command_ids.h"
+#include "chrome/browser/favicon/favicon_service_factory.h"
+#include "chrome/browser/history/history_service_factory.h"
 #include "chrome/browser/sessions/chrome_tab_restore_service_client.h"
-#include "chrome/browser/ui/cocoa/test/cocoa_profile_test.h"
+#include "chrome/browser/ui/cocoa/test/cocoa_test_helper.h"
+#include "chrome/test/base/browser_with_test_window_test.h"
 #include "chrome/test/base/testing_profile.h"
 #include "components/favicon_base/favicon_types.h"
 #include "components/sessions/content/content_test_helper.h"
@@ -53,14 +55,23 @@ class MockBridge : public HistoryMenuBridge {
   base::scoped_nsobject<NSMenu> menu_;
 };
 
-class HistoryMenuBridgeTest : public CocoaProfileTest {
+class HistoryMenuBridgeTest : public BrowserWithTestWindowTest {
  public:
   void SetUp() override {
-    CocoaProfileTest::SetUp();
-    ASSERT_TRUE(profile()->CreateHistoryService(/*delete_file=*/true,
-                                                /*no_db=*/false));
-    profile()->CreateFaviconService();
+    BrowserWithTestWindowTest::SetUp();
     bridge_ = std::make_unique<MockBridge>(profile());
+  }
+
+  void TearDown() override {
+    bridge_.reset();
+    BrowserWithTestWindowTest::TearDown();
+  }
+
+  TestingProfile::TestingFactories GetTestingFactories() override {
+    return {{FaviconServiceFactory::GetInstance(),
+             FaviconServiceFactory::GetDefaultFactory()},
+            {HistoryServiceFactory::GetInstance(),
+             HistoryServiceFactory::GetDefaultFactory()}};
   }
 
   // We are a friend of HistoryMenuBridge (and have access to
@@ -144,6 +155,7 @@ class HistoryMenuBridgeTest : public CocoaProfileTest {
     bridge_->CancelFaviconRequest(item);
   }
 
+  CocoaTestHelper cocoa_test_helper_;
   std::unique_ptr<MockBridge> bridge_;
 };
 

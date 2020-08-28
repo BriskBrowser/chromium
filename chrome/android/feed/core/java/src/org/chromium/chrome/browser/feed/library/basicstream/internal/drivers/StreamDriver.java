@@ -7,11 +7,11 @@ package org.chromium.chrome.browser.feed.library.basicstream.internal.drivers;
 import static org.chromium.chrome.browser.feed.library.common.Validators.checkNotNull;
 
 import android.content.Context;
-import android.support.annotation.VisibleForTesting;
 
 import androidx.annotation.Nullable;
+import androidx.annotation.VisibleForTesting;
 
-import org.chromium.chrome.browser.feed.library.api.client.stream.Stream.ContentChangedListener;
+import org.chromium.chrome.R;
 import org.chromium.chrome.browser.feed.library.api.host.action.ActionApi;
 import org.chromium.chrome.browser.feed.library.api.host.config.Configuration;
 import org.chromium.chrome.browser.feed.library.api.host.logging.BasicLoggingApi;
@@ -46,7 +46,8 @@ import org.chromium.chrome.browser.feed.library.sharedstream.offlinemonitor.Stre
 import org.chromium.chrome.browser.feed.library.sharedstream.pendingdismiss.PendingDismissCallback;
 import org.chromium.chrome.browser.feed.library.sharedstream.removetrackingfactory.StreamRemoveTrackingFactory;
 import org.chromium.chrome.browser.feed.library.sharedstream.scroll.ScrollLogger;
-import org.chromium.chrome.browser.feed.library.sharedstream.scroll.ScrollTracker;
+import org.chromium.chrome.browser.feed.shared.ScrollTracker;
+import org.chromium.chrome.browser.feed.shared.stream.Stream.ContentChangedListener;
 import org.chromium.components.feed.core.proto.libraries.sharedstream.UiRefreshReasonProto.UiRefreshReason;
 import org.chromium.components.feed.core.proto.libraries.sharedstream.UiRefreshReasonProto.UiRefreshReason.Reason;
 import org.chromium.components.feed.core.proto.ui.action.FeedActionProto.UndoAction;
@@ -123,8 +124,8 @@ public class StreamDriver
         this.mViewLoggingUpdater = viewLoggingUpdater;
         this.mTooltipApi = tooltipApi;
         this.mUiRefreshReason = uiRefreshReason;
-        mScrollTracker = new BasicStreamScrollTracker(
-                mainThreadRunner, new ScrollLogger(basicLoggingApi), clock, scrollMonitor);
+        mScrollTracker =
+                new BasicStreamScrollTracker(new ScrollLogger(basicLoggingApi), scrollMonitor);
 
         modelProvider.enableRemoveTracking(
                 new StreamRemoveTrackingFactory(modelProvider, feedKnownContent));
@@ -602,9 +603,8 @@ public class StreamDriver
         removeDriver(modelChild);
         addNoContentCardOrZeroStateIfNecessary(ZeroStateShowReason.CONTENT_DISMISSED);
         mSnackbarApi.show(undoAction.getConfirmationLabel(),
-                undoAction.hasUndoLabel()
-                        ? undoAction.getUndoLabel()
-                        : mContext.getResources().getString(R.string.snackbar_default_action),
+                undoAction.hasUndoLabel() ? undoAction.getUndoLabel()
+                                          : mContext.getResources().getString(R.string.undo),
                 new SnackbarCallbackApi() {
                     @Override
                     public void onDismissNoAction() {

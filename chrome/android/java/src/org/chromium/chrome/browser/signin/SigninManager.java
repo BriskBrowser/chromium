@@ -22,17 +22,18 @@ import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.base.metrics.RecordUserAction;
 import org.chromium.base.task.PostTask;
 import org.chromium.chrome.browser.externalauth.ExternalAuthUtils;
+import org.chromium.chrome.browser.sync.AndroidSyncSettings;
 import org.chromium.components.signin.AccountTrackerService;
-import org.chromium.components.signin.ChromeSigninController;
+import org.chromium.components.signin.AccountUtils;
 import org.chromium.components.signin.base.CoreAccountInfo;
 import org.chromium.components.signin.identitymanager.ClearAccountsAction;
+import org.chromium.components.signin.identitymanager.ConsentLevel;
 import org.chromium.components.signin.identitymanager.IdentityManager;
 import org.chromium.components.signin.identitymanager.IdentityMutator;
 import org.chromium.components.signin.metrics.SigninAccessPoint;
 import org.chromium.components.signin.metrics.SigninReason;
 import org.chromium.components.signin.metrics.SignoutDelete;
 import org.chromium.components.signin.metrics.SignoutReason;
-import org.chromium.components.sync.AndroidSyncSettings;
 import org.chromium.content_public.browser.UiThreadTaskTraits;
 
 import java.util.ArrayList;
@@ -250,7 +251,7 @@ public class SigninManager
 
     /**
      * Logs the access point when the user see the view of choosing account to sign in. Sign-in
-     * completion histogram is recorded by {@link #signIn}.
+     * completion histogram is recorded by {@link #signinAndEnableSync}.
      *
      * @param accessPoint {@link SigninAccessPoint} that initiated the sign-in flow.
      */
@@ -284,7 +285,8 @@ public class SigninManager
      */
     public boolean isSignInAllowed() {
         return !mFirstRunCheckIsPending && mSignInState == null && mSigninAllowedByPolicy
-                && ChromeSigninController.get().getSignedInUser() == null && isSigninSupported();
+                && mIdentityManager.getPrimaryAccountInfo(ConsentLevel.SYNC) == null
+                && isSigninSupported();
     }
 
     /**
@@ -351,36 +353,47 @@ public class SigninManager
     }
 
     /**
-    * Clear pending sign in when system accounts in AccountTrackerService were refreshed.
-    */
-    @Override
-    public void onSystemAccountsChanged() {
-        if (mSignInState != null) {
-            abortSignIn();
-        }
-    }
-
-    /**
      * Starts the sign-in flow, and executes the callback when finished.
      *
-     * If an activity is provided, it is considered an "interactive" sign-in and the user can be
-     * prompted to confirm various aspects of sign-in using dialogs inside the activity.
      * The sign-in flow goes through the following steps:
      *
      *   - Wait for AccountTrackerService to be seeded.
-     *   - If interactive, confirm the account change with the user.
      *   - Wait for policy to be checked for the account.
-     *   - If interactive and the account is managed, warn the user.
      *   - If managed, wait for the policy to be fetched.
-     *   - Complete sign-in with the native SigninManager and kick off token requests.
+     *   - Complete sign-in with the native IdentityManager.
+     *   - Call the callback if provided.
+     *
+     * @param accessPoint {@link SigninAccessPoint} that initiated the sign-in flow.
+     * @param accountInfo The account to sign in to.
+     * @param callback Optional callback for when the sign-in process is finished.
+     */
+    public void signinAndEnableSync(@SigninAccessPoint int accessPoint, CoreAccountInfo accountInfo,
+            @Nullable SignInCallback callback) {
+        assert accountInfo != null;
+        signinAndEnableSync(
+                accessPoint, AccountUtils.createAccountFromName(accountInfo.getEmail()), callback);
+    }
+
+    /**
+     * @deprecated use {@link #signinAndEnableSync(int, CoreAccountInfo, SignInCallback)} instead.
+     * TODO(crbug.com/1002056): Remove this version after migrating all callers to CoreAccountInfo.
+     *
+     * Starts the sign-in flow, and executes the callback when finished.
+     *
+     * The sign-in flow goes through the following steps:
+     *
+     *   - Wait for AccountTrackerService to be seeded.
+     *   - Wait for policy to be checked for the account.
+     *   - If managed, wait for the policy to be fetched.
+     *   - Complete sign-in with the native IdentityManager.
      *   - Call the callback if provided.
      *
      * @param accessPoint {@link SigninAccessPoint} that initiated the sign-in flow.
      * @param account The account to sign in to.
      * @param callback Optional callback for when the sign-in process is finished.
      */
-    // TODO(crbug.com/1002056) SigninManager.Signin should use CoreAccountInfo as a parameter.
-    public void signIn(@SigninAccessPoint int accessPoint, Account account,
+    @Deprecated
+    public void signinAndEnableSync(@SigninAccessPoint int accessPoint, Account account,
             @Nullable SignInCallback callback) {
         assert isSignInAllowed() : "Sign-in isn't allowed!";
         if (account == null) {
@@ -429,8 +442,8 @@ public class SigninManager
                 mIdentityManager.findExtendedAccountInfoForAccountWithRefreshTokenByEmailAddress(
                         mSignInState.mAccount.name);
 
-        // CoreAccountInfo must be set and valid to progress
-        assert mSignInState.mCoreAccountInfo != null;
+        assert mSignInState.mCoreAccountInfo
+                != null : "CoreAccountInfo must be set and valid to progress.";
 
         Log.d(TAG, "Checking if account has policy management enabled");
         fetchAndApplyCloudPolicy(
@@ -455,11 +468,12 @@ public class SigninManager
             return;
         }
 
-        // Cache the signed-in account name. This must be done after the native call, otherwise
-        // sync tries to start without being signed in natively and crashes.
-        ChromeSigninController.get().setSignedInAccountName(
-                mSignInState.mCoreAccountInfo.getName());
-        enableSync(mSignInState.mCoreAccountInfo.getAccount());
+        // TODO(https://crbug.com/1091858): Remove this after migrating the legacy code that uses
+        //                                  the sync account before the native is loaded.
+        SigninPreferencesManager.getInstance().setLegacySyncAccountEmail(
+                mSignInState.mCoreAccountInfo.getEmail());
+
+        enableSync(mSignInState.mCoreAccountInfo);
 
         if (mSignInState.mCallback != null) {
             mSignInState.mCallback.onSignInComplete();
@@ -578,8 +592,8 @@ public class SigninManager
      * Reloads accounts from system within IdentityManager.
      */
     void reloadAllAccountsFromSystem() {
-        mIdentityMutator.reloadAllAccountsFromSystemWithPrimaryAccount(
-                mIdentityManager.getPrimaryAccountId());
+        mIdentityMutator.reloadAllAccountsFromSystemWithPrimaryAccount(CoreAccountInfo.getIdFrom(
+                mIdentityManager.getPrimaryAccountInfo(ConsentLevel.SYNC)));
     }
 
     /**
@@ -616,9 +630,10 @@ public class SigninManager
 
         Log.d(TAG, "On native signout, wipe user data: " + mSignOutState.mShouldWipeUserData);
 
-        // Native sign-out must happen before resetting the account so data is deleted correctly.
-        // http://crbug.com/589028
-        ChromeSigninController.get().setSignedInAccountName(null);
+        // TODO(https://crbug.com/1091858): Remove this after migrating the legacy code that uses
+        //                                  the sync account before the native is loaded.
+        SigninPreferencesManager.getInstance().setLegacySyncAccountEmail(null);
+
         if (mSignOutState.mSignOutCallback != null) mSignOutState.mSignOutCallback.preWipeData();
         disableSyncAndWipeData(mSignOutState.mShouldWipeUserData, this::finishSignOut);
         mAccountTrackerService.invalidateAccountSeedStatus(true);
@@ -681,10 +696,11 @@ public class SigninManager
         SigninManagerJni.get().stopApplyingCloudPolicy(mNativeSigninManagerAndroid);
     }
 
-    private void enableSync(Account account) {
+    private void enableSync(CoreAccountInfo accountInfo) {
         // Cache the signed-in account name. This must be done after the native call, otherwise
         // sync tries to start without being signed in the native code and crashes.
-        mAndroidSyncSettings.updateAccount(account);
+        mAndroidSyncSettings.updateAccount(
+                AccountUtils.createAccountFromName(accountInfo.getEmail()));
         mAndroidSyncSettings.enableChromeSync();
     }
 

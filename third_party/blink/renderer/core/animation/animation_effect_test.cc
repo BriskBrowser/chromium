@@ -32,9 +32,9 @@
 
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_computed_effect_timing.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_optional_effect_timing.h"
 #include "third_party/blink/renderer/core/animation/animation_effect_owner.h"
-#include "third_party/blink/renderer/core/animation/computed_effect_timing.h"
-#include "third_party/blink/renderer/core/animation/optional_effect_timing.h"
 #include "third_party/blink/renderer/platform/heap/heap.h"
 
 namespace blink {
@@ -42,13 +42,12 @@ namespace blink {
 class MockAnimationEffectOwner
     : public GarbageCollected<MockAnimationEffectOwner>,
       public AnimationEffectOwner {
-  USING_GARBAGE_COLLECTED_MIXIN(MockAnimationEffectOwner);
-
  public:
   MOCK_CONST_METHOD0(SequenceNumber, unsigned());
   MOCK_CONST_METHOD0(Playing, bool());
   MOCK_CONST_METHOD0(IsEventDispatchAllowed, bool());
   MOCK_CONST_METHOD0(EffectSuppressed, bool());
+  MOCK_CONST_METHOD0(ReplaceStateRemoved, bool());
   MOCK_METHOD0(EffectInvalidated, void());
   MOCK_METHOD0(UpdateIfNecessary, void());
   MOCK_METHOD0(GetAnimation, Animation*());
@@ -85,7 +84,8 @@ class TestAnimationEffect : public AnimationEffect {
 
   void UpdateInheritedTime(double time, TimingUpdateReason reason) {
     event_delegate_->Reset();
-    AnimationEffect::UpdateInheritedTime(time, reason);
+    AnimationEffect::UpdateInheritedTime(
+        time, /*inherited_phase*/ base::nullopt, reason);
   }
 
   void UpdateChildrenAndEffects() const override {}
@@ -97,10 +97,11 @@ class TestAnimationEffect : public AnimationEffect {
       bool forwards,
       base::Optional<double> local_time,
       AnimationTimeDelta time_to_next_iteration) const override {
-    DCHECK(!local_time || !IsNull(local_time.value()));
+    DCHECK(!local_time || !Timing::IsNull(local_time.value()));
     local_time_ = local_time;
     time_to_next_iteration_ = time_to_next_iteration;
-    return AnimationTimeDelta::FromSecondsD(-1);
+    return AnimationTimeDelta::FromSecondsD(
+        std::numeric_limits<double>::infinity());
   }
   double TakeLocalTime() {
     DCHECK(local_time_);
@@ -115,7 +116,7 @@ class TestAnimationEffect : public AnimationEffect {
     return result;
   }
 
-  void Trace(blink::Visitor* visitor) override {
+  void Trace(Visitor* visitor) const override {
     visitor->Trace(event_delegate_);
     AnimationEffect::Trace(visitor);
   }

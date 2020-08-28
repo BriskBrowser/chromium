@@ -4,6 +4,18 @@
 
 'use strict';
 
+// clang-format off
+// #import 'chrome://os-settings/chromeos/os_settings.js';
+
+// #import {TestBrowserProxy} from '../../test_browser_proxy.m.js';
+// #import {Router, Route, routes, KerberosErrorType, KerberosConfigErrorCode, KerberosAccountsBrowserProxyImpl} from 'chrome://os-settings/chromeos/os_settings.js';
+// #import {assertEquals, assertFalse, assertNotEquals, assertTrue} from '../../chai_assert.js';
+// #import {flush} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+// #import {flushTasks} from 'chrome://test/test_util.m.js';
+// #import {getDeepActiveElement} from 'chrome://resources/js/util.m.js';
+// #import {waitAfterNextRender} from 'chrome://test/test_util.m.js';
+// clang-format on
+
 cr.define('settings_people_page_kerberos_accounts', function() {
   // List of fake accounts.
   const testAccounts = [
@@ -114,6 +126,15 @@ cr.define('settings_people_page_kerberos_accounts', function() {
     };
 
     setup(function() {
+      settings.routes.BASIC = new settings.Route('/'),
+      settings.routes.PEOPLE =
+          settings.routes.BASIC.createSection('/people', 'people');
+      settings.routes.KERBEROS_ACCOUNTS =
+          settings.routes.PEOPLE.createChild('/kerberosAccounts');
+
+      settings.Router.resetInstanceForTesting(
+          new settings.Router(settings.routes));
+
       browserProxy = new TestKerberosAccountsBrowserProxy();
       settings.KerberosAccountsBrowserProxyImpl.instance_ = browserProxy;
       PolymerTest.clearBody();
@@ -231,7 +252,8 @@ cr.define('settings_people_page_kerberos_accounts', function() {
       const principal_name = testAccounts[Account.FIRST].principalName;
       const params = new URLSearchParams;
       params.append('kerberos_reauth', principal_name);
-      settings.navigateTo(settings.routes.KERBEROS_ACCOUNTS, params);
+      settings.Router.getInstance().navigateTo(
+          settings.routes.KERBEROS_ACCOUNTS, params);
 
       // The flushTasks is necessary since the kerberos_reauth param would
       // otherwise be handled AFTER the callback below is executed.
@@ -286,6 +308,27 @@ cr.define('settings_people_page_kerberos_accounts', function() {
       const account = await browserProxy.whenCalled('removeAccount');
       assertEquals(
           testAccounts[Account.FIRST].principalName, account.principalName);
+    });
+
+    test('Deep link to remove account dropdown', async () => {
+      loadTimeData.overrideValues({isDeepLinkingEnabled: true});
+
+      const params = new URLSearchParams;
+      params.append('settingId', '311');
+      settings.Router.getInstance().navigateTo(
+          settings.routes.KERBEROS_ACCOUNTS, params);
+
+      await browserProxy.whenCalled('getAccounts');
+      await test_util.flushTasks();
+      Polymer.dom.flush();
+
+      const deepLinkElement =
+          kerberosAccounts.root.querySelectorAll('cr-icon-button')[0];
+      assertTrue(!!deepLinkElement);
+      await test_util.waitAfterNextRender(deepLinkElement);
+      assertEquals(
+          deepLinkElement, getDeepActiveElement(),
+          'Kebab menu should be focused for settingId=311.');
     });
 
     test('RemoveAccountShowsToast', async () => {
@@ -590,8 +633,8 @@ cr.define('settings_people_page_kerberos_accounts', function() {
       assertFalse(actionButton.disabled);
     });
 
-    // If the account has passwordWasRemembered == true and the user just clicks
-    // the 'Add' button, an empty password is submitted.
+    // If the account has passwordWasRemembered === true and the user just
+    // clicks the 'Add' button, an empty password is submitted.
     test('SubmitsEmptyPasswordIfRememberedPasswordIsUsed', async () => {
       assertTrue(testAccounts[1].passwordWasRemembered);
       createDialog(testAccounts[1]);
@@ -601,8 +644,8 @@ cr.define('settings_people_page_kerberos_accounts', function() {
       assertTrue(args[AddParams.REMEMBER_PASSWORD]);
     });
 
-    // If the account has passwordWasRemembered == true and the user changes the
-    // password before clicking the action button, the changed password is
+    // If the account has passwordWasRemembered === true and the user changes
+    // the password before clicking the action button, the changed password is
     // submitted.
     test('SubmitsChangedPasswordIfRememberedPasswordIsChanged', async () => {
       assertTrue(testAccounts[1].passwordWasRemembered);
@@ -789,4 +832,7 @@ cr.define('settings_people_page_kerberos_accounts', function() {
           settings.KerberosErrorType.kUnknown, generalError);
     });
   });
+
+  // #cr_define_end
+  return {};
 });

@@ -48,8 +48,9 @@ static_library("database_manager") {
     ":v4_get_hash_protocol_manager",
     ":v4_protocol_manager_util",
     "//base",
-    "//content/public/browser",
+    "//components/safe_browsing/core/common:thread_utils",
     "//net",
+    "//services/network/public/cpp",
     "//url",
   ]
 
@@ -117,7 +118,7 @@ static_library("v4_database") {
     ":v4_store",
     "//base",
     "//components/safe_browsing/core:webui_proto",
-    "//content/public/browser",
+    "//components/safe_browsing/core/common:thread_utils",
   ]
 }
 
@@ -126,14 +127,18 @@ static_library("v4_get_hash_protocol_manager") {
     "v4_get_hash_protocol_manager.cc",
     "v4_get_hash_protocol_manager.h",
   ]
-  public_deps = [ ":safebrowsing_proto" ]
-  deps = [
+  public_deps = [
+    ":safebrowsing_proto",
     ":util",
+  ]
+  deps = [
     ":v4_protocol_manager_util",
     "//base",
+    "//components/safe_browsing/core:features",
     "//components/safe_browsing/core:webui_proto",
-    "//content/public/browser",
+    "//components/safe_browsing/core/common:thread_utils",
     "//net",
+    "//services/network/public/cpp:cpp",
     "//url",
   ]
 }
@@ -155,8 +160,6 @@ static_library("v4_local_database_manager") {
     "//build:branding_buildflags",
     "//components/safe_browsing/core:webui_proto",
     "//components/safe_browsing/core/common:thread_utils",
-    "//components/safe_browsing/core/realtime:policy_engine",
-    "//components/safe_browsing/core/realtime:url_lookup_service",
     "//crypto",
     "//net",
     "//services/network/public/cpp",
@@ -258,6 +261,7 @@ static_library("v4_update_protocol_manager") {
     ":v4_protocol_manager_util",
     "//base",
     "//components/safe_browsing:buildflags",
+    "//components/safe_browsing/core:features",
     "//components/safe_browsing/core/:webui_proto",
     "//components/safe_browsing/core/common:safe_browsing_prefs",
     "//net",
@@ -285,7 +289,6 @@ source_set("unit_tests_shared") {
     ":v4_test_util",
     "//base",
     "//components/safe_browsing/core/common:test_support",
-    "//content/public/browser",
     "//net",
     "//net:test_support",
     "//services/network:test_support",
@@ -297,7 +300,7 @@ source_set("unit_tests_shared") {
   }
 }
 
-source_set("unit_tests_desktop") {
+source_set("unit_tests_local_db") {
   testonly = true
   sources = [
     "v4_database_unittest.cc",
@@ -345,7 +348,7 @@ static_library("allowlist_checker_client") {
   deps = [
     ":database_manager",
     "//base:base",
-    "//content/public/browser",
+    "//components/safe_browsing/core/common:thread_utils",
     "//url:url",
   ]
 }

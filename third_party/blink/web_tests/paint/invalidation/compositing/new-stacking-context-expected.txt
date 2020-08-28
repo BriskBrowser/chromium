@@ -12,18 +12,6 @@
       "transform": 1
     },
     {
-      "name": "Scrolling Contents Layer",
-      "bounds": [200, 200],
-      "paintInvalidations": [
-        {
-          "object": "LayoutNGBlockFlow DIV",
-          "rect": [0, 0, 200, 200],
-          "reason": "chunk disappeared"
-        }
-      ],
-      "transform": 1
-    },
-    {
       "name": "Horizontal Scrollbar Layer",
       "position": [0, 100],
       "bounds": [100, 0],
@@ -36,16 +24,11 @@
       "transform": 1
     },
     {
-      "name": "LayoutNGBlockFlow DIV id='target'",
+      "name": "Scrolling Contents Layer",
       "bounds": [200, 200],
-      "contentsOpaque": true,
       "backgroundColor": "#008000",
-      "paintInvalidations": [
-        {
-          "object": "LayoutNGBlockFlow DIV id='target'",
-          "rect": [0, 0, 200, 200],
-          "reason": "full layer"
-        }
+      "invalidations": [
+        [0, 0, 200, 200]
       ],
       "transform": 1
     }

@@ -10,12 +10,12 @@
 
 #include "base/base64.h"
 #include "base/bind.h"
+#include "base/bind_helpers.h"
 #include "base/guid.h"
 #include "base/metrics/histogram.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
-#include "base/task/post_task.h"
 #include "base/time/default_clock.h"
 #include "base/time/default_tick_clock.h"
 #include "build/build_config.h"
@@ -60,10 +60,13 @@ const char kCacheEntryAgeHistogram[] = "Availability.Prober.CacheEntryAge";
 // consideration for removing the old value.
 std::string NameForClient(AvailabilityProber::ClientName name) {
   switch (name) {
-    case AvailabilityProber::ClientName::kLitepages:
-      return "Litepages";
-    case AvailabilityProber::ClientName::kLitepagesOriginCheck:
-      return "LitepagesOriginCheck";
+    case AvailabilityProber::ClientName::kIsolatedPrerenderOriginCheck:
+      return "IsolatedPrerenderOriginCheck";
+    case AvailabilityProber::ClientName::kIsolatedPrerenderCanaryCheck:
+      return "IsolatedPrerenderCanaryCheck";
+    default:
+      NOTREACHED();
+      return std::string();
   }
   NOTREACHED();
   return std::string();
@@ -308,9 +311,14 @@ AvailabilityProber::~AvailabilityProber() {
     network_connection_tracker_->RemoveNetworkConnectionObserver(this);
 }
 
+base::WeakPtr<AvailabilityProber> AvailabilityProber::AsWeakPtr() const {
+  return weak_factory_.GetWeakPtr();
+}
+
 // static
 void AvailabilityProber::RegisterProfilePrefs(PrefRegistrySimple* registry) {
-  for (int i = 0;
+  for (int i = static_cast<int>(
+           AvailabilityProber::ClientName::kIsolatedPrerenderOriginCheck);
        i <= static_cast<int>(AvailabilityProber::ClientName::kMaxValue); i++) {
     registry->RegisterDictionaryPref(PrefKeyForName(
         NameForClient(static_cast<AvailabilityProber::ClientName>(i))));
@@ -319,7 +327,8 @@ void AvailabilityProber::RegisterProfilePrefs(PrefRegistrySimple* registry) {
 
 // static
 void AvailabilityProber::ClearData(PrefService* pref_service) {
-  for (int i = 0;
+  for (int i = static_cast<int>(
+           AvailabilityProber::ClientName::kIsolatedPrerenderOriginCheck);
        i <= static_cast<int>(AvailabilityProber::ClientName::kMaxValue); i++) {
     std::string key = PrefKeyForName(
         NameForClient(static_cast<AvailabilityProber::ClientName>(i)));
@@ -674,8 +683,8 @@ void AvailabilityProber::RecordProbeResult(bool success) {
 
   // The callback may delete |this| so run it in a post task.
   if (on_complete_callback_) {
-    base::PostTask(FROM_HERE, {content::BrowserThread::UI},
-                   base::BindOnce(&AvailabilityProber::RunCallback,
+    content::GetUIThreadTaskRunner({})->PostTask(
+        FROM_HERE, base::BindOnce(&AvailabilityProber::RunCallback,
                                   weak_factory_.GetWeakPtr(), success));
   }
 }

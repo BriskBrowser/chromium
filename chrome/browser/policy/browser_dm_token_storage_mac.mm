@@ -13,12 +13,12 @@
 #include "base/files/file_util.h"
 #include "base/files/important_file_writer.h"
 #include "base/hash/sha1.h"
-#include "base/logging.h"
 #include "base/mac/foundation_util.h"
 #include "base/mac/mac_util.h"
 #include "base/mac/scoped_cftyperef.h"
 #include "base/mac/scoped_ioobject.h"
 #include "base/no_destructor.h"
+#include "base/notreached.h"
 #include "base/optional.h"
 #include "base/path_service.h"
 #include "base/strings/string16.h"
@@ -27,6 +27,7 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/syslog_logging.h"
 #include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
 #include "base/task_runner_util.h"
 #include "base/threading/scoped_blocking_call.h"
 #include "base/threading/sequenced_task_runner_handle.h"
@@ -148,23 +149,17 @@ base::Optional<bool> IsEnrollmentMandatoryByFile() {
 
 }  // namespace
 
-// static
-BrowserDMTokenStorage* BrowserDMTokenStorage::Get() {
-  if (storage_for_testing_)
-    return storage_for_testing_;
-
-  static base::NoDestructor<BrowserDMTokenStorageMac> storage;
-  return storage.get();
-}
-
 BrowserDMTokenStorageMac::BrowserDMTokenStorageMac()
-    : task_runner_(
-          base::CreateTaskRunner({base::ThreadPool(), base::MayBlock()})) {}
+    : task_runner_(base::ThreadPool::CreateTaskRunner({base::MayBlock()})) {}
 
 BrowserDMTokenStorageMac::~BrowserDMTokenStorageMac() {}
 
 std::string BrowserDMTokenStorageMac::InitClientId() {
-  return base::mac::GetPlatformSerialNumber();
+  if (client_id_.empty()) {
+    client_id_ = base::mac::GetPlatformSerialNumber();
+  }
+
+  return client_id_;
 }
 
 std::string BrowserDMTokenStorageMac::InitEnrollmentToken() {
@@ -180,7 +175,7 @@ std::string BrowserDMTokenStorageMac::InitEnrollmentToken() {
 
 std::string BrowserDMTokenStorageMac::InitDMToken() {
   base::FilePath token_file_path;
-  if (!GetDmTokenFilePath(&token_file_path, RetrieveClientId(), false))
+  if (!GetDmTokenFilePath(&token_file_path, InitClientId(), false))
     return std::string();
 
   std::string token;

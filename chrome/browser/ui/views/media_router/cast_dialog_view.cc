@@ -8,7 +8,6 @@
 #include "base/location.h"
 #include "base/optional.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/task/post_task.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
 #include "chrome/browser/media/router/media_router_metrics.h"
@@ -27,8 +26,8 @@
 #include "chrome/browser/ui/views/media_router/cast_toolbar_button.h"
 #include "chrome/browser/ui/views/toolbar/browser_actions_container.h"
 #include "chrome/browser/ui/views/toolbar/toolbar_view.h"
-#include "chrome/common/media_router/media_sink.h"
 #include "chrome/grit/generated_resources.h"
+#include "components/media_router/common/media_sink.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -123,10 +122,6 @@ views::Widget* CastDialogView::GetCurrentDialogWidget() {
   return instance_ ? instance_->GetWidget() : nullptr;
 }
 
-bool CastDialogView::ShouldShowCloseButton() const {
-  return true;
-}
-
 base::string16 CastDialogView::GetWindowTitle() const {
   switch (selected_source_) {
     case SourceType::kTab:
@@ -141,10 +136,6 @@ base::string16 CastDialogView::GetWindowTitle() const {
       NOTREACHED();
       return base::string16();
   }
-}
-
-bool CastDialogView::Close() {
-  return Cancel();
 }
 
 void CastDialogView::OnModelUpdated(const CastDialogModel& model) {
@@ -188,8 +179,8 @@ void CastDialogView::ButtonPressed(views::Button* sender,
     // SinkPressed() invokes a refresh of the sink list, which deletes the
     // sink button. So we must call this after the button is done handling the
     // press event.
-    base::PostTask(FROM_HERE, {content::BrowserThread::UI},
-                   base::BindOnce(&CastDialogView::SinkPressed,
+    content::GetUIThreadTaskRunner({})->PostTask(
+        FROM_HERE, base::BindOnce(&CastDialogView::SinkPressed,
                                   weak_factory_.GetWeakPtr(), sender->tag()));
   }
 }
@@ -269,8 +260,9 @@ CastDialogView::CastDialogView(views::View* anchor_view,
       controller_(controller),
       profile_(profile),
       metrics_(start_time, activation_location, profile) {
-  DialogDelegate::set_buttons(ui::DIALOG_BUTTON_NONE);
-  sources_button_ = DialogDelegate::SetExtraView(CreateSourcesButton(this));
+  SetShowCloseButton(true);
+  SetButtons(ui::DIALOG_BUTTON_NONE);
+  sources_button_ = SetExtraView(CreateSourcesButton(this));
   ShowNoSinksView();
 }
 
@@ -471,10 +463,11 @@ void CastDialogView::DisableUnsupportedSinks() {
 void CastDialogView::RecordSinkCountWithDelay() {
   // Record the number of sinks after three seconds. This is consistent with the
   // WebUI dialog.
-  base::PostDelayedTask(FROM_HERE, {content::BrowserThread::UI},
-                        base::BindOnce(&CastDialogView::RecordSinkCount,
-                                       weak_factory_.GetWeakPtr()),
-                        base::TimeDelta::FromSeconds(3));
+  content::GetUIThreadTaskRunner({})->PostDelayedTask(
+      FROM_HERE,
+      base::BindOnce(&CastDialogView::RecordSinkCount,
+                     weak_factory_.GetWeakPtr()),
+      base::TimeDelta::FromSeconds(3));
 }
 
 void CastDialogView::RecordSinkCount() {

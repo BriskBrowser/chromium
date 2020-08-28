@@ -6,10 +6,10 @@
 
 #include "third_party/blink/renderer/bindings/core/v8/script_value.h"
 #include "third_party/blink/renderer/bindings/core/v8/to_v8_for_core.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_queuing_strategy_init.h"
 #include "third_party/blink/renderer/core/streams/count_queuing_strategy.h"
 #include "third_party/blink/renderer/core/streams/miscellaneous_operations.h"
 #include "third_party/blink/renderer/core/streams/promise_handler.h"
-#include "third_party/blink/renderer/core/streams/queuing_strategy_init.h"
 #include "third_party/blink/renderer/core/streams/readable_stream.h"
 #include "third_party/blink/renderer/core/streams/stream_promise_resolver.h"
 #include "third_party/blink/renderer/core/streams/transferable_streams.h"
@@ -52,7 +52,7 @@ class WritableStream::PendingAbortRequest final
 
   bool WasAlreadyErroring() { return was_already_erroring_; }
 
-  void Trace(Visitor* visitor) {
+  void Trace(Visitor* visitor) const {
     visitor->Trace(promise_);
     visitor->Trace(reason_);
   }
@@ -203,8 +203,7 @@ WritableStream* WritableStream::CreateWithCountQueueingStrategy(
   // introduces unnecessary trips through V8. Implement algorithms based on an
   // UnderlyingSinkBase.
   auto* init = QueuingStrategyInit::Create();
-  init->setHighWaterMark(
-      ScriptValue::From(script_state, static_cast<double>(high_water_mark)));
+  init->setHighWaterMark(static_cast<double>(high_water_mark));
   auto* strategy = CountQueuingStrategy::Create(script_state, init);
   ScriptValue strategy_value = ScriptValue::From(script_state, strategy);
   if (strategy_value.IsEmpty())
@@ -226,21 +225,39 @@ WritableStream* WritableStream::CreateWithCountQueueingStrategy(
 void WritableStream::Serialize(ScriptState* script_state,
                                MessagePort* port,
                                ExceptionState& exception_state) {
+  // https://streams.spec.whatwg.org/#ws-transfer
+  // 1. If ! IsWritableStreamLocked(value) is true, throw a "DataCloneError"
+  //    DOMException.
   if (IsLocked(this)) {
     exception_state.ThrowTypeError("Cannot transfer a locked stream");
     return;
   }
 
+  // Done by SerializedScriptValue::TransferWritableStream():
+  // 2. Let port1 be a new MessagePort in the current Realm.
+  // 3. Let port2 be a new MessagePort in the current Realm.
+  // 4. Entangle port1 and port2.
+
+  // 5. Let readable be a new ReadableStream in the current Realm.
+  // 6. Perform ! SetUpCrossRealmTransformReadable(readable, port1).
   auto* readable =
       CreateCrossRealmTransformReadable(script_state, port, exception_state);
   if (exception_state.HadException()) {
     return;
   }
 
+  // 7. Let promise be ! ReadableStreamPipeTo(readable, value, false, false,
+  //    false).
   auto promise = ReadableStream::PipeTo(
       script_state, readable, this,
       MakeGarbageCollected<ReadableStream::PipeOptions>());
+
+  // 8. Set promise.[[PromiseIsHandled]] to true.
   promise.MarkAsHandled();
+
+  // This step is done in a roundabout way by the caller:
+  // 9. Set dataHolder.[[port]] to ! StructuredSerializeWithTransfer(port2, «
+  //    port2 »).
 }
 
 WritableStream* WritableStream::Deserialize(ScriptState* script_state,
@@ -250,6 +267,17 @@ WritableStream* WritableStream::Deserialize(ScriptState* script_state,
   // run author code.
   v8::Isolate::AllowJavascriptExecutionScope allow_js(
       script_state->GetIsolate());
+
+  // https://streams.spec.whatwg.org/#ws-transfer
+  // These step is done by V8ScriptValueDeserializer::ReadDOMObject().
+  // 1. Let deserializedRecord be !
+  //    StructuredDeserializeWithTransfer(dataHolder.[[port]], the current
+  //    Realm).
+  // 2. Let port be deserializedRecord.[[Deserialized]].
+
+  // 3. Perform ! SetUpCrossRealmTransformWritable(value, port).
+  // In the standard |value| contains an unitialized WritableStream. In the
+  // implementation, we create the stream here.
   auto* writable =
       CreateCrossRealmTransformWritable(script_state, port, exception_state);
   if (exception_state.HadException()) {
@@ -293,7 +321,7 @@ v8::Local<v8::Promise> WritableStream::Abort(ScriptState* script_state,
   }
 
   //  4. Assert: state is "writable" or "erroring".
-  DCHECK(state == kWritable || state == kErroring);
+  CHECK(state == kWritable || state == kErroring);
 
   //  5. Let wasAlreadyErroring be false.
   //  6. If state is "erroring",
@@ -332,7 +360,7 @@ v8::Local<v8::Promise> WritableStream::AddWriteRequest(
   DCHECK(IsLocked(stream));
 
   //  2. Assert: stream.[[state]] is "writable".
-  DCHECK_EQ(stream->state_, kWritable);
+  CHECK_EQ(stream->state_, kWritable);
 
   //  3. Let promise be a new promise.
   auto* promise = MakeGarbageCollected<StreamPromiseResolver>(script_state);
@@ -359,10 +387,10 @@ v8::Local<v8::Promise> WritableStream::Close(ScriptState* script_state,
   }
 
   //  3. Assert: state is "writable" or "erroring".
-  DCHECK(state == kWritable || state == kErroring);
+  CHECK(state == kWritable || state == kErroring);
 
   //  4. Assert: ! WritableStreamCloseQueuedOrInFlight(stream) is false.
-  DCHECK(!CloseQueuedOrInFlight(stream));
+  CHECK(!CloseQueuedOrInFlight(stream));
 
   //  5. Let promise be a new promise.
   auto* promise = MakeGarbageCollected<StreamPromiseResolver>(script_state);
@@ -412,7 +440,7 @@ void WritableStream::DealWithRejection(ScriptState* script_state,
   }
 
   //  3. Assert: state is "erroring".
-  DCHECK_EQ(state, kErroring);
+  CHECK_EQ(state, kErroring);
 
   //  4. Perform ! WritableStreamFinishErroring(stream).
   FinishErroring(script_state, stream);
@@ -426,7 +454,7 @@ void WritableStream::StartErroring(ScriptState* script_state,
   DCHECK(stream->stored_error_.IsEmpty());
 
   //  2. Assert: stream.[[state]] is "writable".
-  DCHECK_EQ(stream->state_, kWritable);
+  CHECK_EQ(stream->state_, kWritable);
 
   //  3. Let controller be stream.[[writableStreamController]].
   WritableStreamDefaultController* controller =
@@ -463,7 +491,7 @@ void WritableStream::FinishErroring(ScriptState* script_state,
                                     WritableStream* stream) {
   // https://streams.spec.whatwg.org/#writable-stream-finish-erroring
   //  1. Assert: stream.[[state]] is "erroring".
-  DCHECK_EQ(stream->state_, kErroring);
+  CHECK_EQ(stream->state_, kErroring);
 
   //  2. Assert: ! WritableStreamHasOperationMarkedInFlight(stream) is false.
   DCHECK(!HasOperationMarkedInFlight(stream));
@@ -537,7 +565,7 @@ void WritableStream::FinishErroring(ScriptState* script_state,
       RejectCloseAndClosedPromiseIfNeeded(GetScriptState(), stream_);
     }
 
-    void Trace(Visitor* visitor) override {
+    void Trace(Visitor* visitor) const override {
       visitor->Trace(stream_);
       visitor->Trace(promise_);
       PromiseHandler::Trace(visitor);
@@ -565,7 +593,7 @@ void WritableStream::FinishErroring(ScriptState* script_state,
       RejectCloseAndClosedPromiseIfNeeded(GetScriptState(), stream_);
     }
 
-    void Trace(Visitor* visitor) override {
+    void Trace(Visitor* visitor) const override {
       visitor->Trace(stream_);
       visitor->Trace(promise_);
       PromiseHandler::Trace(visitor);
@@ -611,7 +639,7 @@ void WritableStream::FinishInFlightWriteWithError(ScriptState* script_state,
 
   //  4. Assert: stream.[[state]] is "writable" or "erroring".
   const auto state = stream->state_;
-  DCHECK(state == kWritable || state == kErroring);
+  CHECK(state == kWritable || state == kErroring);
 
   //  5. Perform ! WritableStreamDealWithRejection(stream, error).
   DealWithRejection(script_state, stream, error);
@@ -633,7 +661,7 @@ void WritableStream::FinishInFlightClose(ScriptState* script_state,
   const auto state = stream->state_;
 
   //  5. Assert: stream.[[state]] is "writable" or "erroring".
-  DCHECK(state == kWritable || state == kErroring);
+  CHECK(state == kWritable || state == kErroring);
 
   //  6. If state is "erroring",
   if (state == kErroring) {
@@ -686,7 +714,7 @@ void WritableStream::FinishInFlightCloseWithError(ScriptState* script_state,
 
   //  4. Assert: stream.[[state]] is "writable" or "erroring".
   const auto state = stream->state_;
-  DCHECK(state == kWritable || state == kErroring);
+  CHECK(state == kWritable || state == kErroring);
 
   //  5. If stream.[[pendingAbortRequest]] is not undefined,
   if (stream->pending_abort_request_) {
@@ -740,10 +768,10 @@ void WritableStream::UpdateBackpressure(ScriptState* script_state,
                                         bool backpressure) {
   // https://streams.spec.whatwg.org/#writable-stream-update-backpressure
   //  1. Assert: stream.[[state]] is "writable".
-  DCHECK_EQ(stream->state_, kWritable);
+  CHECK_EQ(stream->state_, kWritable);
 
   //  2. Assert: ! WritableStreamCloseQueuedOrInFlight(stream) is false.
-  DCHECK(!CloseQueuedOrInFlight(stream));
+  CHECK(!CloseQueuedOrInFlight(stream));
 
   //  3. Let writer be stream.[[writer]].
   WritableStreamDefaultWriter* writer = stream->writer_;
@@ -819,7 +847,7 @@ v8::Local<v8::Value> WritableStream::CreateCannotActionOnStateStreamException(
       CreateCannotActionOnStateStreamMessage(isolate, action, state_name));
 }
 
-void WritableStream::Trace(Visitor* visitor) {
+void WritableStream::Trace(Visitor* visitor) const {
   visitor->Trace(close_request_);
   visitor->Trace(in_flight_write_request_);
   visitor->Trace(in_flight_close_request_);
@@ -912,7 +940,7 @@ void WritableStream::RejectCloseAndClosedPromiseIfNeeded(
     WritableStream* stream) {
   // https://streams.spec.whatwg.org/#writable-stream-reject-close-and-closed-promise-if-needed
   // //  1. Assert: stream.[[state]] is "errored".
-  DCHECK_EQ(stream->state_, kErrored);
+  CHECK_EQ(stream->state_, kErrored);
 
   auto* isolate = script_state->GetIsolate();
 

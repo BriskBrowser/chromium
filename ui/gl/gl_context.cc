@@ -54,6 +54,16 @@ void GLContext::ScopedReleaseCurrent::Cancel() {
   canceled_ = true;
 }
 
+GLContextAttribs::GLContextAttribs() = default;
+GLContextAttribs::GLContextAttribs(const GLContextAttribs& other) = default;
+GLContextAttribs::GLContextAttribs(GLContextAttribs&& other) = default;
+GLContextAttribs::~GLContextAttribs() = default;
+
+GLContextAttribs& GLContextAttribs::operator=(const GLContextAttribs& other) =
+    default;
+GLContextAttribs& GLContextAttribs::operator=(GLContextAttribs&& other) =
+    default;
+
 GLContext::GLContext(GLShareGroup* share_group) : share_group_(share_group) {
   if (!share_group_.get())
     share_group_ = new gl::GLShareGroup();
@@ -62,7 +72,7 @@ GLContext::GLContext(GLShareGroup* share_group) : share_group_(share_group) {
 }
 
 GLContext::~GLContext() {
-#if defined(OS_MACOSX)
+#if defined(OS_APPLE)
   DCHECK(!HasBackpressureFences());
 #endif
   share_group_->RemoveContext(this);
@@ -110,6 +120,12 @@ GpuPreference GLContext::AdjustGpuPreference(GpuPreference gpu_preference) {
       NOTREACHED();
       return GpuPreference::kDefault;
   }
+}
+
+bool GLContext::MakeCurrent(GLSurface* surface) {
+  if (context_lost_)
+    return false;
+  return MakeCurrentImpl(surface);
 }
 
 GLApi* GLContext::CreateGLApi(DriverGL* driver) {
@@ -187,11 +203,11 @@ void GLContext::DirtyVirtualContextState() {
   current_virtual_context_ = nullptr;
 }
 
-#if defined(OS_MACOSX)
+#if defined(OS_APPLE)
 constexpr uint64_t kInvalidFenceId = 0;
 
 uint64_t GLContext::BackpressureFenceCreate() {
-  TRACE_EVENT0("gpu", "GLContextEGL::BackpressureFenceCreate");
+  TRACE_EVENT0("gpu", "GLContext::BackpressureFenceCreate");
 
   // This flush will trigger a crash if FlushForDriverCrashWorkaround is not
   // called sufficiently frequently.
@@ -262,6 +278,7 @@ void GLContext::DestroyBackpressureFences() {
 void GLContext::FlushForDriverCrashWorkaround() {
   if (!IsCurrent(nullptr))
     return;
+  TRACE_EVENT0("gpu", "GLContext::FlushForDriverCrashWorkaround");
   glFlush();
 }
 #endif
@@ -354,6 +371,13 @@ void GLContext::SetGLStateRestorer(GLStateRestorer* state_restorer) {
 }
 
 GLenum GLContext::CheckStickyGraphicsResetStatus() {
+  GLenum status = CheckStickyGraphicsResetStatusImpl();
+  if (status != GL_NO_ERROR)
+    context_lost_ = true;
+  return status;
+}
+
+GLenum GLContext::CheckStickyGraphicsResetStatusImpl() {
   DCHECK(IsCurrent(nullptr));
   return GL_NO_ERROR;
 }
@@ -381,6 +405,9 @@ bool GLContext::MakeVirtuallyCurrent(
     GLContext* virtual_context, GLSurface* surface) {
   if (!ForceGpuSwitchIfNeeded())
     return false;
+  if (context_lost_)
+    return false;
+
   bool switched_real_contexts = GLContext::GetRealCurrent() != this;
   if (switched_real_contexts || !surface->IsCurrent()) {
     GLSurface* current_surface = GLSurface::GetCurrent();
@@ -390,6 +417,7 @@ bool GLContext::MakeVirtuallyCurrent(
     if (switched_real_contexts || !current_surface ||
         !virtual_context->IsCurrent(surface)) {
       if (!MakeCurrent(surface)) {
+        context_lost_ = true;
         return false;
       }
     }
@@ -430,6 +458,7 @@ bool GLContext::MakeVirtuallyCurrent(
   virtual_context->SetCurrent(surface);
   if (!surface->OnMakeCurrent(virtual_context)) {
     LOG(ERROR) << "Could not make GLSurface current.";
+    context_lost_ = true;
     return false;
   }
   return true;

@@ -9,6 +9,7 @@
 #include <utility>
 #include <vector>
 
+#include "base/check_op.h"
 #include "base/containers/flat_map.h"
 #include "base/logging.h"
 #include "base/macros.h"
@@ -103,7 +104,7 @@ ui::DomKey DomKeyboardLayoutMapWin::GetDomKeyFromDomCodeForLayout(
                     base::size(char_buffer), /*wFlags=*/0, keyboard_layout);
 
   // Handle special cases for Japanese keyboard layout.
-  if (0x04110411 == reinterpret_cast<unsigned int>(keyboard_layout)) {
+  if (0x04110411 == reinterpret_cast<uintptr_t>(keyboard_layout)) {
     // Fix value for Japanese yen currency symbol.
     // Windows returns '\' for both IntlRo and IntlYen, even though IntlYen
     // should be the yen symbol.
@@ -121,7 +122,7 @@ ui::DomKey DomKeyboardLayoutMapWin::GetDomKeyFromDomCodeForLayout(
   }
 
   // Handle special cases for Korean keyboard layout.
-  if (0x04120412 == reinterpret_cast<unsigned int>(keyboard_layout)) {
+  if (0x04120412 == reinterpret_cast<uintptr_t>(keyboard_layout)) {
     // Fix value for Korean won currency symbol.
     // Windows returns '\' for both Backslash and IntlBackslash, even though
     // IntlBackslash should be the won symbol.

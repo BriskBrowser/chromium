@@ -16,7 +16,7 @@
 
   /**
    * Entry set used for the folder shortcut tests.
-   * @type {Array<TestEntryInfo>}
+   * @type {!Array<TestEntryInfo>}
    */
   const FOLDER_ENTRY_SET = [
     ENTRIES.directoryA,
@@ -91,7 +91,7 @@
    * @return {Promise} Promise fulfilled on success.
    */
   async function navigateToDirectory(appId, directory) {
-    const itemIcon = directory.treeItem + '> .tree-row > .item-icon';
+    const itemIcon = directory.treeItem + '> .tree-row .item-icon';
     await remoteCall.waitForElement(appId, itemIcon);
     chrome.test.assertTrue(await remoteCall.callRemoteTestUtil(
         'fakeMouseClick', appId, [itemIcon]));

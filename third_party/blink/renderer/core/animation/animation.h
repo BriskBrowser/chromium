@@ -46,7 +46,7 @@
 #include "third_party/blink/renderer/core/css/css_property_names.h"
 #include "third_party/blink/renderer/core/dom/dom_exception.h"
 #include "third_party/blink/renderer/core/dom/events/event_target.h"
-#include "third_party/blink/renderer/core/execution_context/context_lifecycle_observer.h"
+#include "third_party/blink/renderer/core/execution_context/execution_context_lifecycle_observer.h"
 #include "third_party/blink/renderer/platform/animation/compositor_animation_client.h"
 #include "third_party/blink/renderer/platform/animation/compositor_animation_delegate.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
@@ -64,12 +64,11 @@ class AnimationTimeline;
 
 class CORE_EXPORT Animation : public EventTargetWithInlineData,
                               public ActiveScriptWrappable<Animation>,
-                              public ContextLifecycleObserver,
+                              public ExecutionContextLifecycleObserver,
                               public CompositorAnimationDelegate,
                               public CompositorAnimationClient,
                               public AnimationEffectOwner {
   DEFINE_WRAPPERTYPEINFO();
-  USING_GARBAGE_COLLECTED_MIXIN(Animation);
   USING_PRE_FINALIZER(Animation, Dispose);
 
  public:
@@ -81,6 +80,24 @@ class CORE_EXPORT Animation : public EventTargetWithInlineData,
     kPaused,
     kFinished
   };
+
+  // https://drafts.csswg.org/web-animations/#animation-replace-state
+  enum ReplaceState { kActive, kRemoved, kPersisted };
+
+  // Priority for sorting getAnimation by Animation class, arranged from lowest
+  // priority to highest priority as per spec:
+  // https://drafts.csswg.org/web-animations/#dom-document-getanimations
+  enum AnimationClassPriority {
+    kCssTransitionPriority,
+    kCssAnimationPriority,
+    kDefaultPriority
+  };
+
+  // kTreeOrder uses the order in the DOM to determine animations' relative
+  // position.
+  // kPointerOrder simply compares Element pointers and determine animations'
+  // relative position.
+  enum CompareAnimationsOrdering { kTreeOrder, kPointerOrder };
 
   static Animation* Create(AnimationEffect*,
                            AnimationTimeline*,
@@ -101,6 +118,9 @@ class CORE_EXPORT Animation : public EventTargetWithInlineData,
 
   virtual bool IsCSSAnimation() const { return false; }
   virtual bool IsCSSTransition() const { return false; }
+  virtual Element* OwningElement() const { return nullptr; }
+  virtual void ClearOwningElement() {}
+  bool IsOwned() const { return OwningElement(); }
 
   // Returns whether the animation is finished.
   bool Update(TimingUpdateReason);
@@ -121,25 +141,33 @@ class CORE_EXPORT Animation : public EventTargetWithInlineData,
 
   void cancel();
 
-  double currentTime(bool& is_null);
-  double currentTime();
-  void setCurrentTime(double new_current_time,
-                      bool is_null,
-                      ExceptionState& = ASSERT_NO_EXCEPTION);
+  base::Optional<double> currentTime() const;
+  void setCurrentTime(base::Optional<double> new_current_time,
+                      ExceptionState& exception_state);
+  void setCurrentTime(base::Optional<double> new_current_time);
+
   base::Optional<double> UnlimitedCurrentTime() const;
 
   // https://drafts.csswg.org/web-animations/#play-states
+  String PlayStateString() const;
   static const char* PlayStateString(AnimationPlayState);
   AnimationPlayState CalculateAnimationPlayState() const;
-  String playState() const {
-    return PlayStateString(CalculateAnimationPlayState());
-  }
 
-  bool pending() const;
+  // As a web exposed API, playState must update style and layout if the play
+  // state may be affected by it (see CSSAnimation::playState), whereas
+  // PlayStateString can be used to query the current play state.
+  virtual String playState() const;
 
-  void pause(ExceptionState& = ASSERT_NO_EXCEPTION);
-  void play(ExceptionState& = ASSERT_NO_EXCEPTION);
-  void reverse(ExceptionState& = ASSERT_NO_EXCEPTION);
+  bool PendingInternal() const;
+
+  // As a web exposed API, pending must update style and layout if the pending
+  // status may be affected by it (see CSSAnimation::pending), whereas
+  // PendingInternal can be used to query the current pending status.
+  virtual bool pending() const;
+
+  virtual void pause(ExceptionState& = ASSERT_NO_EXCEPTION);
+  virtual void play(ExceptionState& = ASSERT_NO_EXCEPTION);
+  virtual void reverse(ExceptionState& = ASSERT_NO_EXCEPTION);
   void finish(ExceptionState& = ASSERT_NO_EXCEPTION);
   void updatePlaybackRate(double playback_rate,
                           ExceptionState& = ASSERT_NO_EXCEPTION);
@@ -161,23 +189,22 @@ class CORE_EXPORT Animation : public EventTargetWithInlineData,
 
   DEFINE_ATTRIBUTE_EVENT_LISTENER(finish, kFinish)
   DEFINE_ATTRIBUTE_EVENT_LISTENER(cancel, kCancel)
+  DEFINE_ATTRIBUTE_EVENT_LISTENER(remove, kRemove)
 
   const AtomicString& InterfaceName() const override;
   ExecutionContext* GetExecutionContext() const override;
   bool HasPendingActivity() const final;
-  void ContextDestroyed(ExecutionContext*) override;
+  void ContextDestroyed() override;
 
   double playbackRate() const;
   void setPlaybackRate(double, ExceptionState& = ASSERT_NO_EXCEPTION);
   AnimationTimeline* timeline() { return timeline_; }
-  Document* GetDocument();
+  Document* GetDocument() const;
 
-  double startTime(bool& is_null) const;
   base::Optional<double> startTime() const;
   base::Optional<double> StartTimeInternal() const { return start_time_; }
-  void setStartTime(double,
-                    bool is_null,
-                    ExceptionState& = ASSERT_NO_EXCEPTION);
+  virtual void setStartTime(base::Optional<double>, ExceptionState&);
+  void setStartTime(base::Optional<double>);
 
   const AnimationEffect* effect() const { return content_.Get(); }
   AnimationEffect* effect() { return content_.Get(); }
@@ -198,7 +225,8 @@ class CORE_EXPORT Animation : public EventTargetWithInlineData,
   bool Outdated() { return outdated_; }
 
   CompositorAnimations::FailureReasons CheckCanStartAnimationOnCompositor(
-      const PaintArtifactCompositor* paint_artifact_compositor) const;
+      const PaintArtifactCompositor* paint_artifact_compositor,
+      PropertyHandleSet* unsupported_properties = nullptr) const;
   void StartAnimationOnCompositor(
       const PaintArtifactCompositor* paint_artifact_compositor);
   void CancelAnimationOnCompositor();
@@ -222,33 +250,61 @@ class CORE_EXPORT Animation : public EventTargetWithInlineData,
   bool PreCommit(int compositor_group,
                  const PaintArtifactCompositor*,
                  bool start_on_compositor);
-  void PostCommit(double timeline_time);
+  void PostCommit();
 
   unsigned SequenceNumber() const override { return sequence_number_; }
+
   int CompositorGroup() const { return compositor_group_; }
 
-  static bool HasLowerPriority(const Animation* animation1,
-                               const Animation* animation2) {
-    return animation1->SequenceNumber() < animation2->SequenceNumber();
-  }
+  static bool HasLowerCompositeOrdering(
+      const Animation* animation1,
+      const Animation* animation2,
+      CompareAnimationsOrdering compare_animation_type);
 
   bool EffectSuppressed() const override { return effect_suppressed_; }
   void SetEffectSuppressed(bool);
 
   void InvalidateKeyframeEffect(const TreeScope&);
 
-  void Trace(blink::Visitor*) override;
+  void Trace(Visitor*) const override;
 
   bool CompositorPendingForTesting() const { return compositor_pending_; }
+
+  // Methods for handling removal and persistence of animations.
+  bool IsReplaceable();
+  void RemoveReplacedAnimation();
+  void persist();
+  String replaceState();
+  void commitStyles(ExceptionState& = ASSERT_NO_EXCEPTION);
+  bool ReplaceStateRemoved() const override {
+    return replace_state_ == kRemoved;
+  }
+  bool ReplaceStateActive() const { return replace_state_ == kActive; }
+
+  // Overridden for CSS animations to force pending animation properties to be
+  // applied. This step is required before any web animation API calls that
+  // depends on computed values.
+  virtual void FlushPendingUpdates() const {}
 
  protected:
   DispatchEventResult DispatchEventInternal(Event&) override;
   void AddedEventListener(const AtomicString& event_type,
                           RegisteredEventListener&) override;
+  base::Optional<double> CurrentTimeInternal() const;
+  TimelinePhase CurrentPhaseInternal() const;
+  virtual AnimationEffect::EventDelegate* CreateEventDelegate(
+      Element* target,
+      const AnimationEffect::EventDelegate* old_event_delegate) {
+    return nullptr;
+  }
 
  private:
-  base::Optional<double> CurrentTimeInternal() const;
   void SetCurrentTimeInternal(double new_current_time);
+  void SetHoldTimeAndPhase(
+      base::Optional<double> new_hold_time /* in seconds */,
+      TimelinePhase new_hold_phase);
+  void ResetHoldTimeAndPhase();
+  bool ValidateHoldTimeAndPhase() const;
 
   void ClearOutdated();
   void ForceServiceOnNextFrame();
@@ -264,6 +320,7 @@ class CORE_EXPORT Animation : public EventTargetWithInlineData,
 
   base::Optional<double> CalculateStartTime(double current_time) const;
   base::Optional<double> CalculateCurrentTime() const;
+  TimelinePhase CalculateCurrentPhase() const;
 
   void BeginUpdatingState();
   void EndUpdatingState();
@@ -327,6 +384,7 @@ class CORE_EXPORT Animation : public EventTargetWithInlineData,
   base::Optional<double> pending_playback_rate_;
   base::Optional<double> start_time_;
   base::Optional<double> hold_time_;
+  base::Optional<TimelinePhase> hold_phase_;
   base::Optional<double> previous_current_time_;
 
   unsigned sequence_number_;
@@ -340,6 +398,8 @@ class CORE_EXPORT Animation : public EventTargetWithInlineData,
   Member<Document> document_;
   Member<AnimationTimeline> timeline_;
 
+  ReplaceState replace_state_;
+
   // Testing flags.
   bool is_paused_for_testing_;
   bool is_composited_animation_disabled_for_testing_;
@@ -349,6 +409,7 @@ class CORE_EXPORT Animation : public EventTargetWithInlineData,
   // control.
   bool pending_pause_;
   bool pending_play_;
+  // Indicates finish notification queued but not processed.
   bool pending_finish_notification_;
   bool has_queued_microtask_;
 
@@ -356,13 +417,19 @@ class CORE_EXPORT Animation : public EventTargetWithInlineData,
   // has changed by means other than the ordinary progression of time
   bool outdated_;
 
+  // Indicates the animation is no longer active. Cancelled animation is marked
+  // as finished_.
   bool finished_;
+  // Indicates finish notification has been handled.
+  bool committed_finish_notification_;
   // Holds a 'finished' event queued for asynchronous dispatch via the
   // ScriptedAnimationController. This object remains active until the
   // event is actually dispatched.
   Member<Event> pending_finished_event_;
 
   Member<Event> pending_cancelled_event_;
+
+  Member<Event> pending_remove_event_;
 
   // TODO(crbug.com/960944): Consider reintroducing kPause and cleanup use of
   // mutually exclusive pending_play_ and pending_pause_ flags.
@@ -406,7 +473,7 @@ class CORE_EXPORT Animation : public EventTargetWithInlineData,
 
     void Detach();
 
-    void Trace(blink::Visitor* visitor) { visitor->Trace(animation_); }
+    void Trace(Visitor* visitor) const { visitor->Trace(animation_); }
 
     CompositorAnimation* GetAnimation() const {
       return compositor_animation_.get();

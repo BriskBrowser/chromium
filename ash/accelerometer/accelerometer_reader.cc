@@ -188,11 +188,10 @@ class AccelerometerFileReader
   void StartListenToTabletModeController();
   void StopListenToTabletModeController();
 
+  void SetEmitEvents(bool emit_events);
+
   // TabletModeObserver:
-  // OnTabletModeStarted() triggers accelerometer read.
-  // OnTabletModeEnding() disables accelerometer read.
-  void OnTabletModeStarted() override;
-  void OnTabletModeEnding() override;
+  void OnTabletPhysicalStateChanged() override;
 
  private:
   friend class base::RefCountedThreadSafe<AccelerometerFileReader>;
@@ -264,6 +263,8 @@ class AccelerometerFileReader
   // reading to an AccelerometerUpdate and notifies observers.
   void ReadFileAndNotify();
 
+  void SetEmitEventsInternal(bool emit_events);
+
   // State of ChromeOS EC lid angle driver, if SUPPORTED, it means EC can handle
   // lid angle calculation.
   ECLidAngleDriver ec_lid_angle_driver_ = UNKNOWN;
@@ -273,6 +274,8 @@ class AccelerometerFileReader
 
   // True if periodical accelerometer read is on.
   bool accelerometer_read_on_ = false;
+
+  bool emit_events_ = true;
 
   // The time at which initialization re-tries should stop.
   base::TimeTicks initialization_timeout_;
@@ -544,31 +547,41 @@ void AccelerometerFileReader::StopListenToTabletModeController() {
   Shell::Get()->tablet_mode_controller()->RemoveObserver(this);
 }
 
-void AccelerometerFileReader::OnTabletModeStarted() {
+void AccelerometerFileReader::SetEmitEvents(bool emit_events) {
+  task_runner_->PostNonNestableTask(
+      FROM_HERE, base::BindOnce(&AccelerometerFileReader::SetEmitEventsInternal,
+                                this, emit_events));
+}
+
+void AccelerometerFileReader::SetEmitEventsInternal(bool emit_events) {
+  DCHECK(base::SequencedTaskRunnerHandle::IsSet());
+  emit_events_ = emit_events;
+}
+
+void AccelerometerFileReader::OnTabletPhysicalStateChanged() {
   // When CrOS EC lid angle driver is not present, accelerometer read is always
   // ON and can't be tuned. Thus AccelerometerFileReader no longer listens to
   // tablet mode event.
+  auto* tablet_mode_controller = Shell::Get()->tablet_mode_controller();
   if (ec_lid_angle_driver_ == NOT_SUPPORTED) {
-    Shell::Get()->tablet_mode_controller()->RemoveObserver(this);
+    tablet_mode_controller->RemoveObserver(this);
     return;
   }
 
-  task_runner_->PostNonNestableTask(
-      FROM_HERE, base::BindOnce(&AccelerometerFileReader::TriggerRead, this));
-}
-
-void AccelerometerFileReader::OnTabletModeEnding() {
-  if (ec_lid_angle_driver_ == NOT_SUPPORTED) {
-    Shell::Get()->tablet_mode_controller()->RemoveObserver(this);
-    return;
-  }
+  // Auto rotation is turned on when the device is physically used as a tablet
+  // (i.e. flipped or detached), regardless of the UI state (i.e. whether tablet
+  // mode is turned on or off).
+  const bool is_auto_rotation_on =
+      tablet_mode_controller->is_in_tablet_physical_state();
 
   task_runner_->PostNonNestableTask(
       FROM_HERE,
-      base::BindOnce(&AccelerometerFileReader::CancelRead, this));
+      is_auto_rotation_on
+          ? base::BindOnce(&AccelerometerFileReader::TriggerRead, this)
+          : base::BindOnce(&AccelerometerFileReader::CancelRead, this));
 }
 
-AccelerometerFileReader::~AccelerometerFileReader() {}
+AccelerometerFileReader::~AccelerometerFileReader() = default;
 
 bool AccelerometerFileReader::InitializeAccelerometer(
     const base::FilePath& iio_path,
@@ -708,6 +721,9 @@ void AccelerometerFileReader::ReadFileAndNotify() {
     }
   }
 
+  if (!emit_events_)
+    return;
+
   observers_->Notify(FROM_HERE,
                      &AccelerometerReader::Observer::OnAccelerometerUpdated,
                      update_);
@@ -751,6 +767,10 @@ void AccelerometerReader::StartListenToTabletModeController() {
 
 void AccelerometerReader::StopListenToTabletModeController() {
   accelerometer_file_reader_->StopListenToTabletModeController();
+}
+
+void AccelerometerReader::SetEnabled(bool enabled) {
+  accelerometer_file_reader_->SetEmitEvents(enabled);
 }
 
 AccelerometerReader::AccelerometerReader()

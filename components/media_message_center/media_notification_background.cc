@@ -35,6 +35,8 @@ constexpr double kMediaNotificationForegroundColorMostPopularMinSaturation =
 // The ratio for the more vibrant foreground color to use.
 constexpr double kMediaNotificationForegroundColorMoreVibrantRatio = 1.0;
 
+constexpr float kMediaNotificationMinimumContrastRatio = 7.0;
+
 bool IsNearlyWhiteOrBlack(SkColor color) {
   color_utils::HSL hsl;
   color_utils::SkColorToHSL(color, &hsl);
@@ -300,6 +302,25 @@ void MediaNotificationBackground::Paint(gfx::Canvas* canvas,
 
     canvas->DrawRect(draw_bounds, flags);
   }
+
+  if (audio_device_selector_availability_) {
+    // Draw a gradient to fade the color background of the audio device picker
+    // and the image together.
+    gfx::Rect draw_bounds = GetBottomGradientBounds(*view);
+
+    const SkColor colors[2] = {
+        background_color, SkColorSetA(background_color, SK_AlphaTRANSPARENT)};
+    const SkPoint points[2] = {gfx::PointToSkPoint(draw_bounds.bottom_center()),
+                               gfx::PointToSkPoint(draw_bounds.top_center())};
+
+    cc::PaintFlags flags;
+    flags.setAntiAlias(true);
+    flags.setStyle(cc::PaintFlags::kFill_Style);
+    flags.setShader(cc::PaintShader::MakeLinearGradient(points, colors, nullptr,
+                                                        2, SkTileMode::kClamp));
+
+    canvas->DrawRect(draw_bounds, flags);
+  }
 }
 
 void MediaNotificationBackground::UpdateArtwork(const gfx::ImageSkia& image) {
@@ -342,6 +363,14 @@ void MediaNotificationBackground::UpdateFavicon(const gfx::ImageSkia& icon) {
   UpdateColorsInternal();
 }
 
+void MediaNotificationBackground::UpdateDeviceSelectorAvailability(
+    bool availability) {
+  if (audio_device_selector_availability_ == availability)
+    return;
+
+  audio_device_selector_availability_ = availability;
+}
+
 SkColor MediaNotificationBackground::GetBackgroundColor(
     const views::View& owner) const {
   if (background_color_.has_value())
@@ -356,7 +385,9 @@ SkColor MediaNotificationBackground::GetForegroundColor(
           ? *foreground_color_
           : views::style::GetColor(owner, views::style::CONTEXT_LABEL,
                                    views::style::STYLE_PRIMARY);
-  return color_utils::BlendForMinContrast(foreground, GetBackgroundColor(owner))
+  return color_utils::BlendForMinContrast(
+             foreground, GetBackgroundColor(owner), base::nullopt,
+             kMediaNotificationMinimumContrastRatio)
       .color;
 }
 
@@ -382,11 +413,17 @@ gfx::Rect MediaNotificationBackground::GetArtworkBounds(
     const views::View& owner) const {
   const gfx::Rect& view_bounds = owner.GetContentsBounds();
   int width = GetArtworkWidth(view_bounds.size());
+  int visible_width = GetArtworkVisibleWidth(view_bounds.size());
+
+  // This offset is for centering artwork if artwork visible width is smaller
+  // than artwork width.
+  int horizontal_offset = (width - visible_width) / 2;
 
   // The artwork should be positioned on the far right hand side of the
   // notification and be the same height.
   return owner.GetMirroredRect(
-      gfx::Rect(view_bounds.right() - width, 0, width, view_bounds.height()));
+      gfx::Rect(view_bounds.right() - width + horizontal_offset, 0, width,
+                view_bounds.height()));
 }
 
 gfx::Rect MediaNotificationBackground::GetFilledBackgroundBounds(
@@ -409,6 +446,20 @@ gfx::Rect MediaNotificationBackground::GetGradientBounds(
   return owner.GetMirroredRect(gfx::Rect(
       view_bounds.width() - GetArtworkVisibleWidth(view_bounds.size()),
       view_bounds.y(), kMediaImageGradientWidth, view_bounds.height()));
+}
+
+gfx::Rect MediaNotificationBackground::GetBottomGradientBounds(
+    const views::View& owner) const {
+  if (artwork_.isNull())
+    return gfx::Rect(0, 0, 0, 0);
+
+  const gfx::Rect& view_bounds = owner.GetContentsBounds();
+  return owner.GetMirroredRect(gfx::Rect(
+      gfx::Point(
+          view_bounds.width() - GetArtworkVisibleWidth(view_bounds.size()),
+          view_bounds.bottom() - kMediaImageGradientWidth),
+      gfx::Size(GetArtworkVisibleWidth(view_bounds.size()),
+                kMediaImageGradientWidth)));
 }
 
 SkPoint MediaNotificationBackground::GetGradientStartPoint(

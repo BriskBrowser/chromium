@@ -19,6 +19,7 @@
 #include "chromeos/network/network_configuration_handler.h"
 #include "chromeos/network/network_connection_handler.h"
 #include "chromeos/network/network_device_handler.h"
+#include "chromeos/network/network_metadata_store.h"
 #include "chromeos/network/network_profile_handler.h"
 #include "chromeos/network/network_state_handler.h"
 #include "chromeos/network/network_state_test_helper.h"
@@ -51,6 +52,7 @@ class CrosNetworkConfigTest : public testing::Test {
   CrosNetworkConfigTest() {
     LoginState::Initialize();
     NetworkCertLoader::Initialize();
+    NetworkHandler::Initialize();
     network_profile_handler_ = NetworkProfileHandler::InitializeForTesting();
     network_device_handler_ = NetworkDeviceHandler::InitializeForTesting(
         helper_.network_state_handler());
@@ -64,6 +66,9 @@ class CrosNetworkConfigTest : public testing::Test {
     PrefProxyConfigTrackerImpl::RegisterPrefs(local_state_.registry());
     ::onc::RegisterProfilePrefs(user_prefs_.registry());
     ::onc::RegisterPrefs(local_state_.registry());
+    NetworkMetadataStore::RegisterPrefs(user_prefs_.registry());
+    NetworkMetadataStore::RegisterPrefs(local_state_.registry());
+    NetworkHandler::Get()->InitializePrefServices(&user_prefs_, &local_state_);
 
     ui_proxy_config_service_ = std::make_unique<chromeos::UIProxyConfigService>(
         &user_prefs_, &local_state_, helper_.network_state_handler(),
@@ -98,6 +103,7 @@ class CrosNetworkConfigTest : public testing::Test {
     network_device_handler_.reset();
     network_profile_handler_.reset();
     ui_proxy_config_service_.reset();
+    NetworkHandler::Shutdown();
     NetworkCertLoader::Shutdown();
     LoginState::Shutdown();
   }
@@ -172,6 +178,15 @@ class CrosNetworkConfigTest : public testing::Test {
             "Visible": false})");
     helper().profile_test()->AddService(
         NetworkProfileHandler::GetSharedProfilePath(), wifi3_path);
+
+    // Syncable wifi network:
+    std::string service_path = helper().ConfigureService(
+        R"({"GUID": "wifi4_guid", "Type": "wifi", "SSID": "wifi4",
+            "State": "idle", "SecurityClass": "psk", "Strength": 100,
+            "Profile": "user_profile_path", "Connectable": true})");
+    NetworkHandler::Get()->network_metadata_store()->ConnectSucceeded(
+        service_path);
+
     base::RunLoop().RunUntilIdle();
   }
 
@@ -442,6 +457,9 @@ class CrosNetworkConfigTest : public testing::Test {
   }
   std::string wifi1_path() { return wifi1_path_; }
 
+ protected:
+  sync_preferences::TestingPrefServiceSyncable user_prefs_;
+
  private:
   base::test::SingleThreadTaskEnvironment task_environment_;
   NetworkStateTestHelper helper_{false /* use_default_devices_and_services */};
@@ -453,7 +471,6 @@ class CrosNetworkConfigTest : public testing::Test {
       managed_network_configuration_handler_;
   std::unique_ptr<NetworkConnectionHandler> network_connection_handler_;
   std::unique_ptr<chromeos::UIProxyConfigService> ui_proxy_config_service_;
-  sync_preferences::TestingPrefServiceSyncable user_prefs_;
   TestingPrefServiceSimple local_state_;
   std::unique_ptr<CrosNetworkConfig> cros_network_config_;
   std::unique_ptr<CrosNetworkConfigTestObserver> observer_;
@@ -561,29 +578,32 @@ TEST_F(CrosNetworkConfigTest, GetNetworkStateList) {
   filter->network_type = mojom::NetworkType::kWiFi;
   filter->limit = mojom::kNoLimit;
   networks = GetNetworkStateList(filter.Clone());
-  ASSERT_EQ(3u, networks.size());
+  ASSERT_EQ(4u, networks.size());
   EXPECT_EQ("wifi1_guid", networks[0]->guid);
   EXPECT_EQ("wifi2_guid", networks[1]->guid);
-  EXPECT_EQ("wifi3_guid", networks[2]->guid);
+  EXPECT_EQ("wifi4_guid", networks[2]->guid);
+  EXPECT_EQ("wifi3_guid", networks[3]->guid);
 
   // Visible wifi networks
   filter->filter = mojom::FilterType::kVisible;
   networks = GetNetworkStateList(filter.Clone());
-  ASSERT_EQ(2u, networks.size());
+  ASSERT_EQ(3u, networks.size());
   EXPECT_EQ("wifi1_guid", networks[0]->guid);
   EXPECT_EQ("wifi2_guid", networks[1]->guid);
+  EXPECT_EQ("wifi4_guid", networks[2]->guid);
 
   // Configured wifi networks
   filter->filter = mojom::FilterType::kConfigured;
   networks = GetNetworkStateList(filter.Clone());
-  ASSERT_EQ(2u, networks.size());
+  ASSERT_EQ(3u, networks.size());
   EXPECT_EQ("wifi2_guid", networks[0]->guid);
-  EXPECT_EQ("wifi3_guid", networks[1]->guid);
+  EXPECT_EQ("wifi4_guid", networks[1]->guid);
+  EXPECT_EQ("wifi3_guid", networks[2]->guid);
 }
 
 TEST_F(CrosNetworkConfigTest, GetDeviceStateList) {
   std::vector<mojom::DeviceStatePropertiesPtr> devices = GetDeviceStateList();
-  ASSERT_EQ(3u, devices.size());
+  ASSERT_EQ(4u, devices.size());
   EXPECT_EQ(mojom::NetworkType::kWiFi, devices[0]->type);
   EXPECT_EQ(mojom::DeviceStateType::kEnabled, devices[0]->device_state);
 
@@ -609,12 +629,16 @@ TEST_F(CrosNetworkConfigTest, GetDeviceStateList) {
   EXPECT_EQ(shill::kSIMLockPin, cellular->sim_lock_status->lock_type);
   EXPECT_EQ(3, cellular->sim_lock_status->retries_left);
 
+  mojom::DeviceStateProperties* vpn = devices[3].get();
+  EXPECT_EQ(mojom::NetworkType::kVPN, vpn->type);
+  EXPECT_EQ(mojom::DeviceStateType::kEnabled, vpn->device_state);
+
   // Disable WiFi
   helper().network_state_handler()->SetTechnologyEnabled(
       NetworkTypePattern::WiFi(), false, network_handler::ErrorCallback());
   base::RunLoop().RunUntilIdle();
   devices = GetDeviceStateList();
-  ASSERT_EQ(3u, devices.size());
+  ASSERT_EQ(4u, devices.size());
   EXPECT_EQ(mojom::NetworkType::kWiFi, devices[0]->type);
   EXPECT_EQ(mojom::DeviceStateType::kDisabled, devices[0]->device_state);
 }
@@ -639,6 +663,7 @@ TEST_F(CrosNetworkConfigTest, GetManagedProperties) {
   ASSERT_TRUE(properties->type_properties->is_wifi());
   EXPECT_EQ(50, properties->type_properties->get_wifi()->signal_strength);
   EXPECT_EQ(mojom::OncSource::kNone, properties->source);
+  EXPECT_EQ(false, properties->type_properties->get_wifi()->is_syncable);
 
   properties = GetManagedProperties("wifi2_guid");
   ASSERT_TRUE(properties);
@@ -653,6 +678,7 @@ TEST_F(CrosNetworkConfigTest, GetManagedProperties) {
   EXPECT_EQ(mojom::SecurityType::kWpaPsk, wifi->security);
   EXPECT_EQ(100, wifi->signal_strength);
   EXPECT_EQ(mojom::OncSource::kUserPolicy, properties->source);
+  EXPECT_EQ(false, properties->type_properties->get_wifi()->is_syncable);
 
   properties = GetManagedProperties("wifi3_guid");
   ASSERT_TRUE(properties);
@@ -661,6 +687,16 @@ TEST_F(CrosNetworkConfigTest, GetManagedProperties) {
   EXPECT_EQ(mojom::ConnectionStateType::kNotConnected,
             properties->connection_state);
   EXPECT_EQ(mojom::OncSource::kDevice, properties->source);
+  EXPECT_EQ(false, properties->type_properties->get_wifi()->is_syncable);
+
+  properties = GetManagedProperties("wifi4_guid");
+  ASSERT_TRUE(properties);
+  EXPECT_EQ("wifi4_guid", properties->guid);
+  EXPECT_EQ(mojom::NetworkType::kWiFi, properties->type);
+  EXPECT_EQ(mojom::ConnectionStateType::kNotConnected,
+            properties->connection_state);
+  EXPECT_EQ(mojom::OncSource::kUser, properties->source);
+  EXPECT_EQ(true, properties->type_properties->get_wifi()->is_syncable);
 
   properties = GetManagedProperties("cellular_guid");
   ASSERT_TRUE(properties);
@@ -869,7 +905,7 @@ TEST_F(CrosNetworkConfigTest, ForgetNetwork) {
 
 TEST_F(CrosNetworkConfigTest, SetNetworkTypeEnabledState) {
   std::vector<mojom::DeviceStatePropertiesPtr> devices = GetDeviceStateList();
-  ASSERT_EQ(3u, devices.size());
+  ASSERT_EQ(4u, devices.size());
   EXPECT_EQ(mojom::NetworkType::kWiFi, devices[0]->type);
   EXPECT_EQ(mojom::DeviceStateType::kEnabled, devices[0]->device_state);
 
@@ -884,7 +920,7 @@ TEST_F(CrosNetworkConfigTest, SetNetworkTypeEnabledState) {
   base::RunLoop().RunUntilIdle();
   EXPECT_TRUE(succeeded);
   devices = GetDeviceStateList();
-  ASSERT_EQ(3u, devices.size());
+  ASSERT_EQ(4u, devices.size());
   EXPECT_EQ(mojom::NetworkType::kWiFi, devices[0]->type);
   EXPECT_EQ(mojom::DeviceStateType::kDisabled, devices[0]->device_state);
 }
@@ -1064,7 +1100,7 @@ TEST_F(CrosNetworkConfigTest, GetGlobalPolicy) {
   base::Value blocked(base::Value::Type::LIST);
   blocked.Append(base::Value("blocked_ssid1"));
   blocked.Append(base::Value("blocked_ssid2"));
-  global_config.SetKey(::onc::global_network_config::kBlacklistedHexSSIDs,
+  global_config.SetKey(::onc::global_network_config::kBlockedHexSSIDs,
                        std::move(blocked));
   managed_network_configuration_handler()->SetPolicy(
       ::onc::ONC_SOURCE_DEVICE_POLICY, /*userhash=*/std::string(),
@@ -1213,6 +1249,19 @@ TEST_F(CrosNetworkConfigTest, NetworkStateChanged) {
   base::RunLoop().RunUntilIdle();
   EXPECT_EQ(1, observer()->GetNetworkChangedCount("wifi1_guid"));
   EXPECT_EQ(0, observer()->GetNetworkChangedCount("wifi2_guid"));
+}
+
+TEST_F(CrosNetworkConfigTest, PolicyEnforcedProxyMode) {
+  // Proxies enforced by policy and/or extension are set in the kProxy
+  // preference.
+  base::Value policy_prefs_config = ProxyConfigDictionary::CreateAutoDetect();
+  user_prefs_.SetUserPref(
+      proxy_config::prefs::kProxy,
+      base::Value::ToUniquePtrValue(std::move(policy_prefs_config)));
+
+  mojom::NetworkStatePropertiesPtr network = GetNetworkState("wifi2_guid");
+  ASSERT_TRUE(network);
+  EXPECT_EQ(network->proxy_mode, mojom::ProxyMode::kAutoDetect);
 }
 
 }  // namespace network_config

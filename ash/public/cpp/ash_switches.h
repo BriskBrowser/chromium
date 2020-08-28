@@ -6,6 +6,8 @@
 #define ASH_PUBLIC_CPP_ASH_SWITCHES_H_
 
 #include "ash/public/cpp/ash_public_export.h"
+#include "base/optional.h"
+#include "base/time/time.h"
 
 namespace ash {
 namespace switches {
@@ -16,10 +18,9 @@ namespace switches {
 
 // Please keep alphabetized.
 // TODO(sky): fix order!
-ASH_PUBLIC_EXPORT extern const char kAshColorMode[];
-ASH_PUBLIC_EXPORT extern const char kAshColorModeDark[];
-ASH_PUBLIC_EXPORT extern const char kAshColorModeLight[];
 ASH_PUBLIC_EXPORT extern const char kAshConstrainPointerToRoot[];
+ASH_PUBLIC_EXPORT extern const char kAshContextualNudgesInterval[];
+ASH_PUBLIC_EXPORT extern const char kAshContextualNudgesResetShownCount[];
 ASH_PUBLIC_EXPORT extern const char kAshDebugShortcuts[];
 ASH_PUBLIC_EXPORT extern const char kAshDeveloperShortcuts[];
 ASH_PUBLIC_EXPORT extern const char kAshDisableTouchExplorationMode[];
@@ -36,29 +37,19 @@ ASH_PUBLIC_EXPORT extern const char kAshUiMode[];
 ASH_PUBLIC_EXPORT extern const char kAshUiModeClamshell[];
 ASH_PUBLIC_EXPORT extern const char kAshUiModeTablet[];
 ASH_PUBLIC_EXPORT extern const char kAshHideNotificationsForFactory[];
-ASH_PUBLIC_EXPORT extern const char kAshShelfColor[];
-ASH_PUBLIC_EXPORT extern const char kAshShelfColorEnabled[];
-ASH_PUBLIC_EXPORT extern const char kAshShelfColorDisabled[];
-ASH_PUBLIC_EXPORT extern const char kAshShelfColorScheme[];
-ASH_PUBLIC_EXPORT extern const char kAshShelfColorSchemeLightMuted[];
-ASH_PUBLIC_EXPORT extern const char kAshShelfColorSchemeLightVibrant[];
-ASH_PUBLIC_EXPORT extern const char kAshShelfColorSchemeNormalMuted[];
-ASH_PUBLIC_EXPORT extern const char kAshShelfColorSchemeNormalVibrant[];
-ASH_PUBLIC_EXPORT extern const char kAshShelfColorSchemeDarkMuted[];
-ASH_PUBLIC_EXPORT extern const char kAshShelfColorSchemeDarkVibrant[];
 ASH_PUBLIC_EXPORT extern const char kAshSideVolumeButtonPosition[];
 ASH_PUBLIC_EXPORT extern const char kAshTouchHud[];
 ASH_PUBLIC_EXPORT extern const char kAuraLegacyPowerButton[];
 ASH_PUBLIC_EXPORT extern const char kEnableDimShelf[];
 ASH_PUBLIC_EXPORT extern const char kForceTabletPowerButton[];
+ASH_PUBLIC_EXPORT extern const char kFrameThrottleFps[];
 ASH_PUBLIC_EXPORT extern const char kHasInternalStylus[];
 ASH_PUBLIC_EXPORT extern const char kShowTaps[];
-ASH_PUBLIC_EXPORT extern const char kShowWebUiLock[];
-ASH_PUBLIC_EXPORT extern const char kShowWebUiLogin[];
 ASH_PUBLIC_EXPORT extern const char kSuppressMessageCenterPopups[];
 ASH_PUBLIC_EXPORT extern const char kTouchscreenUsableWhileScreenOff[];
 
-ASH_PUBLIC_EXPORT bool IsUsingViewsLock();
+ASH_PUBLIC_EXPORT base::Optional<base::TimeDelta> ContextualNudgesInterval();
+ASH_PUBLIC_EXPORT bool ContextualNudgesResetShownCount();
 ASH_PUBLIC_EXPORT bool IsUsingShelfAutoDim();
 
 }  // namespace switches

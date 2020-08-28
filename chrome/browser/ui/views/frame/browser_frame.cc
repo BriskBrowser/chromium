@@ -17,6 +17,7 @@
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/browser_window_state.h"
+#include "chrome/browser/ui/views/frame/browser_desktop_window_tree_host.h"
 #include "chrome/browser/ui/views/frame/browser_non_client_frame_view.h"
 #include "chrome/browser/ui/views/frame/browser_root_view.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
@@ -28,10 +29,8 @@
 #include "chrome/browser/ui/web_applications/app_browser_controller.h"
 #include "chrome/common/chrome_switches.h"
 #include "ui/base/hit_test.h"
-#include "ui/base/material_design/material_design_controller.h"
 #include "ui/events/event_handler.h"
 #include "ui/gfx/font_list.h"
-#include "ui/native_theme/native_theme_dark_aura.h"
 #include "ui/views/controls/menu/menu_runner.h"
 #include "ui/views/widget/native_widget.h"
 
@@ -39,8 +38,8 @@
 #include "components/user_manager/user_manager.h"
 #endif
 
-#if defined(USE_X11)
-#include "ui/views/widget/desktop_aura/x11_desktop_handler.h"
+#if defined(OS_LINUX) && !defined(OS_CHROMEOS)
+#include "ui/display/screen.h"
 #endif
 
 namespace {
@@ -67,7 +66,6 @@ BrowserFrame::BrowserFrame(BrowserView* browser_view)
   set_is_secondary_widget(false);
   // Don't focus anything on creation, selecting a tab will set the focus.
   set_focus_on_creation(false);
-  md_observer_.Add(ui::MaterialDesignController::GetInstance());
 }
 
 BrowserFrame::~BrowserFrame() {}
@@ -113,11 +111,11 @@ int BrowserFrame::GetMinimizeButtonOffset() const {
 }
 
 gfx::Rect BrowserFrame::GetBoundsForTabStripRegion(
-    const views::View* tabstrip) const {
+    const gfx::Size& tabstrip_minimum_size) const {
   // This can be invoked before |browser_frame_view_| has been set.
-  return browser_frame_view_
-             ? browser_frame_view_->GetBoundsForTabStripRegion(tabstrip)
-             : gfx::Rect();
+  return browser_frame_view_ ? browser_frame_view_->GetBoundsForTabStripRegion(
+                                   tabstrip_minimum_size)
+                             : gfx::Rect();
 }
 
 int BrowserFrame::GetTopInset() const {
@@ -144,6 +142,10 @@ bool BrowserFrame::ShouldSaveWindowPlacement() const {
   return native_browser_frame_->ShouldSaveWindowPlacement();
 }
 
+bool BrowserFrame::ShouldDrawFrameHeader() const {
+  return true;
+}
+
 void BrowserFrame::GetWindowPlacement(gfx::Rect* bounds,
                                       ui::WindowShowState* show_state) const {
   return native_browser_frame_->GetWindowPlacement(bounds, show_state);
@@ -163,22 +165,6 @@ void BrowserFrame::OnBrowserViewInitViewsComplete() {
   browser_frame_view_->OnBrowserViewInitViewsComplete();
 }
 
-bool BrowserFrame::ShouldUseTheme() const {
-  // Browser windows are always themed (including popups).
-  if (!web_app::AppBrowserController::IsForWebAppBrowser(
-          browser_view_->browser())) {
-    return true;
-  }
-
-  // The system GTK theme should always be respected if the user has opted to
-  // use it.
-  if (IsUsingGtkTheme(browser_view_->browser()->profile()))
-    return true;
-
-  // Hosted apps on non-GTK use default colors.
-  return false;
-}
-
 ///////////////////////////////////////////////////////////////////////////////
 // BrowserFrame, views::Widget overrides:
 
@@ -187,10 +173,12 @@ views::internal::RootView* BrowserFrame::CreateRootView() {
   return root_view_;
 }
 
-views::NonClientFrameView* BrowserFrame::CreateNonClientFrameView() {
-  browser_frame_view_ =
+std::unique_ptr<views::NonClientFrameView>
+BrowserFrame::CreateNonClientFrameView() {
+  auto browser_frame_view =
       chrome::CreateBrowserNonClientFrameView(this, browser_view_);
-  return browser_frame_view_;
+  browser_frame_view_ = browser_frame_view.get();
+  return browser_frame_view;
 }
 
 bool BrowserFrame::GetAccelerator(int command_id,
@@ -200,26 +188,31 @@ bool BrowserFrame::GetAccelerator(int command_id,
 
 const ui::ThemeProvider* BrowserFrame::GetThemeProvider() const {
   Browser* browser = browser_view_->browser();
-  Profile* profile = browser->profile();
-  return ShouldUseTheme()
-             ? &ThemeService::GetThemeProviderForProfile(profile)
-             : &ThemeService::GetDefaultThemeProviderForProfile(profile);
+  if (browser->app_controller() && !IsUsingGtkTheme(browser->profile()))
+    return browser->app_controller()->GetThemeProvider();
+  return &ThemeService::GetThemeProviderForProfile(browser->profile());
 }
 
 const ui::NativeTheme* BrowserFrame::GetNativeTheme() const {
   if (browser_view_->browser()->profile()->IsIncognitoProfile() &&
       ThemeServiceFactory::GetForProfile(browser_view_->browser()->profile())
           ->UsingDefaultTheme()) {
-    return ui::NativeThemeDarkAura::instance();
+    return ui::NativeTheme::GetInstanceForDarkUI();
   }
   return views::Widget::GetNativeTheme();
 }
 
 void BrowserFrame::OnNativeWidgetWorkspaceChanged() {
   chrome::SaveWindowWorkspace(browser_view_->browser(), GetWorkspace());
-#if defined(USE_X11)
-  BrowserList::MoveBrowsersInWorkspaceToFront(
-      views::X11DesktopHandler::get()->GetWorkspace());
+#if defined(OS_LINUX) && !defined(OS_CHROMEOS)
+  // If the window was sent to a different workspace, prioritize it if
+  // it was sent to the current workspace and deprioritize it
+  // otherwise.  This is done by MoveBrowsersInWorkspaceToFront()
+  // which reorders the browsers such that the ones in the current
+  // workspace appear before ones in other workspaces.
+  auto workspace = display::Screen::GetScreen()->GetCurrentWorkspace();
+  if (!workspace.empty())
+    BrowserList::MoveBrowsersInWorkspaceToFront(workspace);
 #endif
   Widget::OnNativeWidgetWorkspaceChanged();
 }
@@ -275,12 +268,37 @@ ui::MenuModel* BrowserFrame::GetSystemMenuModel() {
   return menu_model_builder_->menu_model();
 }
 
+void BrowserFrame::SetTabDragKind(TabDragKind tab_drag_kind) {
+  if (tab_drag_kind_ == tab_drag_kind)
+    return;
+
+  if (native_browser_frame_)
+    native_browser_frame_->TabDraggingKindChanged(tab_drag_kind);
+
+  bool was_dragging_any = tab_drag_kind_ != TabDragKind::kNone;
+  bool is_dragging_any = tab_drag_kind != TabDragKind::kNone;
+  if (was_dragging_any != is_dragging_any)
+    browser_view_->TabDraggingStatusChanged(is_dragging_any);
+
+  tab_drag_kind_ = tab_drag_kind;
+}
+
 void BrowserFrame::OnMenuClosed() {
   menu_runner_.reset();
 }
 
 void BrowserFrame::OnTouchUiChanged() {
   client_view()->InvalidateLayout();
-  non_client_view()->InvalidateLayout();
+
+  // For standard browser frame, if we do not invalidate the NonClientFrameView
+  // the client window bounds will not be properly updated which could cause
+  // visual artifacts. See crbug.com/1035959 for details.
+  if (non_client_view()->frame_view()) {
+    // Note that invalidating a view invalidates all of its ancestors, so it is
+    // not necessary to also invalidate the NonClientView or RootView here.
+    non_client_view()->frame_view()->InvalidateLayout();
+  } else {
+    non_client_view()->InvalidateLayout();
+  }
   GetRootView()->Layout();
 }

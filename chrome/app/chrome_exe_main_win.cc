@@ -16,8 +16,10 @@
 #include "base/logging.h"
 #include "base/path_service.h"
 #include "base/process/memory.h"
+#include "base/process/process.h"
 #include "base/stl_util.h"
 #include "base/strings/string16.h"
+#include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
@@ -34,36 +36,24 @@
 #include "chrome/install_static/initialize_from_primary_module.h"
 #include "chrome/install_static/install_util.h"
 #include "chrome/install_static/user_data_dir.h"
-#include "components/crash/content/app/crash_switches.h"
-#include "components/crash/content/app/crashpad.h"
-#include "components/crash/content/app/fallback_crash_handling_win.h"
-#include "components/crash/content/app/run_as_crashpad_handler_win.h"
+#include "components/browser_watcher/exit_code_watcher_win.h"
+#include "components/crash/core/app/crash_switches.h"
+#include "components/crash/core/app/crashpad.h"
+#include "components/crash/core/app/fallback_crash_handling_win.h"
+#include "components/crash/core/app/run_as_crashpad_handler_win.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/common/result_codes.h"
+#include "third_party/crashpad/crashpad/util/win/initial_client_data.h"
 
 namespace {
 
-// List of switches that it's safe to rendezvous early with. Fast start should
-// not be done if a command line contains a switch not in this set.
-// Note this is currently stored as a list of two because it's probably faster
-// to iterate over this small array than building a map for constant time
-// lookups.
-const char* const kFastStartSwitches[] = {
-  switches::kProfileDirectory,
-  switches::kShowAppList,
-};
-
 bool IsFastStartSwitch(const std::string& command_line_switch) {
-  for (size_t i = 0; i < base::size(kFastStartSwitches); ++i) {
-    if (command_line_switch == kFastStartSwitches[i])
-      return true;
-  }
-  return false;
+  return command_line_switch == switches::kProfileDirectory;
 }
 
 bool ContainsNonFastStartFlag(const base::CommandLine& command_line) {
   const base::CommandLine::SwitchMap& switches = command_line.GetSwitches();
-  if (switches.size() > base::size(kFastStartSwitches))
+  if (switches.size() > 1)
     return true;
   for (base::CommandLine::SwitchMap::const_iterator it = switches.begin();
        it != switches.end(); ++it) {
@@ -85,8 +75,7 @@ bool AttemptFastNotify(const base::CommandLine& command_line) {
   HWND chrome = chrome::FindRunningChromeWindow(user_data_dir);
   if (!chrome)
     return false;
-  return chrome::AttemptToNotifyRunningChrome(chrome, true) ==
-      chrome::NOTIFY_SUCCESS;
+  return chrome::AttemptToNotifyRunningChrome(chrome) == chrome::NOTIFY_SUCCESS;
 }
 
 // Returns true if |command_line| contains a /prefetch:# argument where # is in
@@ -198,7 +187,33 @@ int main() {
          HasValidWindowsPrefetchArgument(*command_line));
 
   if (process_type == crash_reporter::switches::kCrashpadHandler) {
+    // Check if we should monitor the exit code of this process
+    std::unique_ptr<browser_watcher::ExitCodeWatcher> exit_code_watcher;
+
     crash_reporter::SetupFallbackCrashHandling(*command_line);
+    // no-periodic-tasks is specified for self monitoring crashpad instances.
+    // This is to ensure we are a crashpad process monitoring the browser
+    // process and not another crashpad process.
+    if (!command_line->HasSwitch("no-periodic-tasks")) {
+      // Retrieve the client process from the command line
+      crashpad::InitialClientData initial_client_data;
+      if (initial_client_data.InitializeFromString(
+              command_line->GetSwitchValueASCII("initial-client-data"))) {
+        // Setup exit code watcher to monitor the parent process
+        HANDLE duplicate_handle = INVALID_HANDLE_VALUE;
+        if (DuplicateHandle(
+                ::GetCurrentProcess(), initial_client_data.client_process(),
+                ::GetCurrentProcess(), &duplicate_handle,
+                PROCESS_QUERY_INFORMATION, FALSE, DUPLICATE_SAME_ACCESS)) {
+          base::Process parent_process(duplicate_handle);
+          exit_code_watcher =
+              std::make_unique<browser_watcher::ExitCodeWatcher>();
+          if (exit_code_watcher->Initialize(std::move(parent_process))) {
+            exit_code_watcher->StartWatching();
+          }
+        }
+      }
+    }
 
     // The handler process must always be passed the user data dir on the
     // command line.
@@ -206,9 +221,15 @@ int main() {
 
     base::FilePath user_data_dir =
         command_line->GetSwitchValuePath(switches::kUserDataDir);
-    return crash_reporter::RunAsCrashpadHandler(
+    int crashpad_status = crash_reporter::RunAsCrashpadHandler(
         *base::CommandLine::ForCurrentProcess(), user_data_dir,
         switches::kProcessType, switches::kUserDataDir);
+    if (crashpad_status != 0 && exit_code_watcher) {
+      // Crashpad failed to initialize, explicitly stop the exit code watcher
+      // so the crashpad-handler process can exit with an error
+      exit_code_watcher->StopWatching();
+    }
+    return crashpad_status;
   } else if (process_type == crash_reporter::switches::kFallbackCrashHandler) {
     return RunFallbackCrashHandler(*command_line);
   }

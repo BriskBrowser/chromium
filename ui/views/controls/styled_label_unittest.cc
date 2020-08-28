@@ -8,6 +8,7 @@
 
 #include <memory>
 #include <string>
+#include <utility>
 
 #include "base/command_line.h"
 #include "base/i18n/base_i18n_switches.h"
@@ -53,7 +54,8 @@ class StyledLabelTest : public ViewsTestBase, public StyledLabelListener {
   }
 
   void InitStyledLabel(const std::string& ascii_text) {
-    styled_ = std::make_unique<StyledLabel>(ASCIIToUTF16(ascii_text), this);
+    styled_ = std::make_unique<StyledLabel>(this);
+    styled_->SetText(ASCIIToUTF16(ascii_text));
     styled_->set_owned_by_client();
   }
 
@@ -154,9 +156,7 @@ TEST_F(StyledLabelTest, BasicWrapping) {
   // Also respect the border.
   styled()->SetBorder(CreateEmptyBorder(3, 3, 3, 3));
   styled()->SetBounds(
-      0,
-      0,
-      styled()->GetInsets().width() + label_preferred_size.width(),
+      0, 0, styled()->GetInsets().width() + label_preferred_size.width(),
       styled()->GetInsets().height() + 2 * label_preferred_size.height());
   styled()->Layout();
   ASSERT_EQ(2u, styled()->children().size());
@@ -286,7 +286,7 @@ TEST_F(StyledLabelTest, StyledRangeCustomFontUnderlined) {
   StyledLabel::RangeStyleInfo style_info;
   style_info.tooltip = ASCIIToUTF16("tooltip");
   style_info.custom_font =
-      styled()->GetDefaultFontList().DeriveWithStyle(gfx::Font::UNDERLINE);
+      styled()->GetFontList().DeriveWithStyle(gfx::Font::UNDERLINE);
   styled()->AddStyleRange(
       gfx::Range(text.size(), text.size() + underlined_text.size()),
       style_info);
@@ -308,7 +308,7 @@ TEST_F(StyledLabelTest, StyledRangeTextStyleBold) {
   // Pretend disabled text becomes bold for testing.
   bold_provider.SetFont(
       style::CONTEXT_LABEL, style::STYLE_DISABLED,
-      styled()->GetDefaultFontList().DeriveWithWeight(gfx::Font::Weight::BOLD));
+      styled()->GetFontList().DeriveWithWeight(gfx::Font::Weight::BOLD));
 
   StyledLabel::RangeStyleInfo style_info;
   style_info.text_style = style::STYLE_DISABLED;
@@ -331,7 +331,8 @@ TEST_F(StyledLabelTest, StyledRangeTextStyleBold) {
 
   // Sanity check that |bold_text| with normal font style would fit on a single
   // line in a styled label with width |styled_width|.
-  StyledLabel unstyled(ASCIIToUTF16(bold_text), this);
+  StyledLabel unstyled(this);
+  unstyled.SetText(ASCIIToUTF16(bold_text));
   unstyled.SetBounds(0, 0, styled_width, pref_height);
   unstyled.Layout();
   EXPECT_EQ(1u, unstyled.children().size());
@@ -374,11 +375,8 @@ TEST_F(StyledLabelTest, Color) {
   styled()->SetBounds(0, 0, 1000, 1000);
   styled()->Layout();
 
-  Widget* widget = new Widget();
-  Widget::InitParams params = CreateParams(Widget::InitParams::TYPE_POPUP);
-  widget->Init(std::move(params));
-  View* container = new View();
-  widget->SetContentsView(container);
+  std::unique_ptr<Widget> widget = CreateTestWidget();
+  View* container = widget->SetContentsView(std::make_unique<View>());
 
   // The code below is not prepared to deal with dark mode.
   widget->GetNativeTheme()->set_use_dark_colors(false);
@@ -386,15 +384,16 @@ TEST_F(StyledLabelTest, Color) {
   container->AddChildView(styled());
 
   // Obtain the default text color for a label.
-  Label* label = new Label(ASCIIToUTF16(text));
-  container->AddChildView(label);
+  Label* label =
+      container->AddChildView(std::make_unique<Label>(ASCIIToUTF16(text)));
   const SkColor kDefaultTextColor = label->GetEnabledColor();
 
   // Obtain the default text color for a link.
-  Link* link = new Link(ASCIIToUTF16(text_link));
-  container->AddChildView(link);
+  Link* link =
+      container->AddChildView(std::make_unique<Link>(ASCIIToUTF16(text_link)));
   const SkColor kDefaultLinkColor = link->GetEnabledColor();
 
+  ASSERT_EQ(3u, styled()->children().size());
   EXPECT_EQ(SK_ColorBLUE, LabelAt(0)->GetEnabledColor());
   EXPECT_EQ(kDefaultLinkColor,
             LabelAt(1, Link::kViewClassName)->GetEnabledColor());
@@ -432,8 +431,8 @@ TEST_F(StyledLabelTest, StyledRangeWithTooltip) {
                           StyledLabel::RangeStyleInfo::CreateForLink());
 
   // Break line inside the range with the tooltip.
-  Label label(ASCIIToUTF16(
-       text + tooltip_text.substr(0, tooltip_text.size() - 3)));
+  Label label(
+      ASCIIToUTF16(text + tooltip_text.substr(0, tooltip_text.size() - 3)));
   gfx::Size label_preferred_size = label.GetPreferredSize();
   int pref_height = styled()->GetHeightForWidth(label_preferred_size.width());
   EXPECT_EQ(label_preferred_size.height() * 3,
@@ -471,9 +470,7 @@ TEST_F(StyledLabelTest, SetTextContextAndDefaultStyle) {
   Label label(ASCIIToUTF16(text), style::CONTEXT_DIALOG_TITLE,
               style::STYLE_DISABLED);
 
-  styled()->SetBounds(0,
-                      0,
-                      label.GetPreferredSize().width(),
+  styled()->SetBounds(0, 0, label.GetPreferredSize().width(),
                       label.GetPreferredSize().height());
 
   // Make sure we have the same sizing as a label with the same style.
@@ -595,7 +592,6 @@ TEST_F(StyledLabelTest, LineHeightWithShorterCustomView) {
   const int less_height = 10;
   std::unique_ptr<View> custom_view = std::make_unique<StaticSizedView>(
       gfx::Size(20, default_height - less_height));
-  custom_view->set_owned_by_client();
   StyledLabel::RangeStyleInfo style_info;
   style_info.custom_view = custom_view.get();
   InitStyledLabel(text + custom_view_text);
@@ -615,7 +611,6 @@ TEST_F(StyledLabelTest, LineHeightWithTallerCustomView) {
   const int more_height = 10;
   std::unique_ptr<View> custom_view = std::make_unique<StaticSizedView>(
       gfx::Size(20, default_height + more_height));
-  custom_view->set_owned_by_client();
   StyledLabel::RangeStyleInfo style_info;
   style_info.custom_view = custom_view.get();
   InitStyledLabel(text + custom_view_text);
@@ -636,7 +631,6 @@ TEST_F(StyledLabelTest, LineWrapperWithCustomView) {
   int custom_view_height = 25;
   std::unique_ptr<View> custom_view =
       std::make_unique<StaticSizedView>(gfx::Size(200, custom_view_height));
-  custom_view->set_owned_by_client();
   StyledLabel::RangeStyleInfo style_info;
   style_info.custom_view = custom_view.get();
   InitStyledLabel(text_before + custom_view_text + text_after);
@@ -723,7 +717,6 @@ TEST_F(StyledLabelTest, ViewsCenteredWithLinkAndCustomView) {
   int custom_view_height = 25;
   std::unique_ptr<View> custom_view =
       std::make_unique<StaticSizedView>(gfx::Size(20, custom_view_height));
-  custom_view->set_owned_by_client();
   StyledLabel::RangeStyleInfo style_info;
   style_info.custom_view = custom_view.get();
   styled()->AddStyleRange(
@@ -748,7 +741,6 @@ TEST_F(StyledLabelTest, ViewsCenteredForEvenAndOddSizes) {
     for (uint32_t i = 0; i < 3; ++i) {
       auto view = std::make_unique<StaticSizedView>(
           gfx::Size(kViewWidth, view_heights[i]));
-      view->set_owned_by_client();
       StyledLabel::RangeStyleInfo style_info;
       style_info.custom_view = view.get();
       styled()->AddStyleRange(gfx::Range(i, i + 1), style_info);

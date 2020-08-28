@@ -8,9 +8,8 @@
 
 <dom-module id="app-downloading">
   <template>
-    <link rel="stylesheet" href="oobe_dialog_host.css">
+    <style include="oobe-dialog-host"></style>
     <link rel="stylesheet" href="app_downloading.css">
-    <link rel="stylesheet" href="oobe_flex_layout.css">
     <oobe-dialog id="app-downloading-dialog" role="dialog" has-buttons
         subtitle-key="appDownloadingScreenDescription"
         aria-label$="[[getDialogTitleA11yString_(numOfApps)]]"
@@ -25,9 +24,8 @@
       </h1>
       <div id="app-downloading-video-container" slot="footer">
         <if expr="chromeos and _google_chrome">
-          <video loop="loop" autoplay="autoplay" muted>
-            <source
-                src="../../../internal/resources/arc_support/videos/app_downloading.mp4"
+          <video id="video" loop="loop" preload="auto" muted>
+            <source src="chrome://oobe/res/arc_app_dowsnloading.mp4"
                 type="video/mp4">
           </video>
         </if>

@@ -7,6 +7,7 @@
 #include <string>
 #include <vector>
 
+#include "base/version.h"
 #include "components/prefs/testing_pref_service.h"
 #include "components/update_client/activity_data_service.h"
 #include "components/update_client/persisted_data.h"
@@ -22,12 +23,16 @@ TEST(PersistedDataTest, Simple) {
   EXPECT_EQ(-2, metadata->GetDateLastActive("someappid"));
   EXPECT_EQ(-2, metadata->GetDaysSinceLastRollCall("someappid"));
   EXPECT_EQ(-2, metadata->GetDaysSinceLastActive("someappid"));
+  EXPECT_EQ(-2, metadata->GetDaysSinceLastActive("someappid.withdot"));
   std::vector<std::string> items;
   items.push_back("someappid");
+  items.push_back("someappid.withdot");
   metadata->SetDateLastRollCall(items, 3383);
   metadata->SetDateLastActive(items, 3383);
   EXPECT_EQ(3383, metadata->GetDateLastRollCall("someappid"));
+  EXPECT_EQ(3383, metadata->GetDateLastRollCall("someappid.withdot"));
   EXPECT_EQ(-2, metadata->GetDateLastActive("someappid"));
+  EXPECT_EQ(-2, metadata->GetDateLastActive("someappid.withdot"));
   EXPECT_EQ(-2, metadata->GetDaysSinceLastRollCall("someappid"));
   EXPECT_EQ(-2, metadata->GetDaysSinceLastActive("someappid"));
   EXPECT_EQ(-2, metadata->GetDateLastRollCall("someotherappid"));
@@ -50,6 +55,15 @@ TEST(PersistedDataTest, Simple) {
   EXPECT_FALSE(pf2.empty());
   // The following has a 1 / 2^128 chance of being flaky.
   EXPECT_NE(pf1, pf2);
+
+  EXPECT_FALSE(metadata->GetProductVersion("someappid").IsValid());
+  metadata->SetProductVersion("someappid", base::Version("1.0"));
+  EXPECT_EQ(base::Version("1.0"), metadata->GetProductVersion("someappid"));
+
+  EXPECT_TRUE(metadata->GetFingerprint("someappid").empty());
+  metadata->SetFingerprint("someappid", "somefingerprint");
+  EXPECT_STREQ("somefingerprint",
+               metadata->GetFingerprint("someappid").c_str());
 }
 
 TEST(PersistedDataTest, SharedPref) {

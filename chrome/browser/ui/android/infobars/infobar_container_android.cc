@@ -5,11 +5,12 @@
 #include "chrome/browser/ui/android/infobars/infobar_container_android.h"
 
 #include "base/android/jni_android.h"
-#include "base/logging.h"
+#include "base/check.h"
 #include "base/metrics/histogram_functions.h"
+#include "base/notreached.h"
 #include "chrome/android/chrome_jni_headers/InfoBarContainer_jni.h"
 #include "chrome/browser/infobars/infobar_service.h"
-#include "chrome/browser/ui/android/infobars/infobar_android.h"
+#include "components/infobars/android/infobar_android.h"
 #include "components/infobars/core/infobar.h"
 #include "components/infobars/core/infobar_delegate.h"
 #include "content/public/browser/web_contents.h"
@@ -48,7 +49,8 @@ void InfoBarContainerAndroid::PlatformSpecificAddInfoBar(
     infobars::InfoBar* infobar,
     size_t position) {
   DCHECK(infobar);
-  InfoBarAndroid* android_bar = static_cast<InfoBarAndroid*>(infobar);
+  infobars::InfoBarAndroid* android_bar =
+      static_cast<infobars::InfoBarAndroid*>(infobar);
   if (!android_bar) {
     // TODO(bulach): CLANK: implement other types of InfoBars.
     NOTIMPLEMENTED() << "CLANK: infobar identifier "
@@ -59,7 +61,8 @@ void InfoBarContainerAndroid::PlatformSpecificAddInfoBar(
   AttachJavaInfoBar(android_bar);
 }
 
-void InfoBarContainerAndroid::AttachJavaInfoBar(InfoBarAndroid* android_bar) {
+void InfoBarContainerAndroid::AttachJavaInfoBar(
+    infobars::InfoBarAndroid* android_bar) {
   if (android_bar->HasSetJavaInfoBar())
     return;
   JNIEnv* env = base::android::AttachCurrentThread();
@@ -68,13 +71,12 @@ void InfoBarContainerAndroid::AttachJavaInfoBar(InfoBarAndroid* android_bar) {
           env, weak_java_infobar_container_.get(env))) {
     base::UmaHistogramSparse("InfoBar.Shown.Hidden",
                              android_bar->delegate()->GetIdentifier());
-    uintptr_t native_ptr = Java_InfoBarContainer_getTopNativeInfoBarPtr(
-        env, weak_java_infobar_container_.get(env));
-    if (native_ptr) {
-      base::UmaHistogramSparse("InfoBar.Shown.Hiding",
-                               reinterpret_cast<InfoBarAndroid*>(native_ptr)
-                                   ->delegate()
-                                   ->GetIdentifier());
+    infobars::InfoBarDelegate::InfoBarIdentifier identifier =
+        static_cast<infobars::InfoBarDelegate::InfoBarIdentifier>(
+            Java_InfoBarContainer_getTopInfoBarIdentifier(
+                env, weak_java_infobar_container_.get(env)));
+    if (identifier != infobars::InfoBarDelegate::InfoBarIdentifier::INVALID) {
+      base::UmaHistogramSparse("InfoBar.Shown.Hiding", identifier);
     }
   } else {
     base::UmaHistogramSparse("InfoBar.Shown.Visible",
@@ -91,13 +93,14 @@ void InfoBarContainerAndroid::AttachJavaInfoBar(InfoBarAndroid* android_bar) {
 void InfoBarContainerAndroid::PlatformSpecificReplaceInfoBar(
     infobars::InfoBar* old_infobar,
     infobars::InfoBar* new_infobar) {
-  static_cast<InfoBarAndroid*>(new_infobar)->PassJavaInfoBar(
-      static_cast<InfoBarAndroid*>(old_infobar));
+  static_cast<infobars::InfoBarAndroid*>(new_infobar)
+      ->PassJavaInfoBar(static_cast<infobars::InfoBarAndroid*>(old_infobar));
 }
 
 void InfoBarContainerAndroid::PlatformSpecificRemoveInfoBar(
     infobars::InfoBar* infobar) {
-  InfoBarAndroid* android_infobar = static_cast<InfoBarAndroid*>(infobar);
+  infobars::InfoBarAndroid* android_infobar =
+      static_cast<infobars::InfoBarAndroid*>(infobar);
   android_infobar->CloseJavaInfoBar();
 }
 

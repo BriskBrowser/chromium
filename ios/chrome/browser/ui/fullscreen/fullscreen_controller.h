@@ -8,9 +8,10 @@
 #import <UIKit/UIKit.h>
 
 #include "base/macros.h"
-#include "components/keyed_service/core/keyed_service.h"
 
+class Browser;
 @class ChromeBroadcaster;
+class ChromeBrowserState;
 class FullscreenControllerObserver;
 class WebStateList;
 
@@ -18,9 +19,17 @@ class WebStateList;
 // calculates how much of the toolbar should be visible as a result.  When the
 // user scrolls down the screen, the toolbar should be hidden to allow more of
 // the page's content to be visible.
-class FullscreenController : public KeyedService {
+class FullscreenController {
  public:
-  explicit FullscreenController() = default;
+  virtual ~FullscreenController() = default;
+
+  // Retrieves the FullscreenController for |browser|. This should only be
+  // called with the kFullscreenControllerBrowserScoped turned on.
+  static FullscreenController* FromBrowser(Browser* browser);
+
+  // Retrieves the FullscreenController for |browser_state|.
+  static FullscreenController* FromBrowserState(
+      ChromeBrowserState* browser_state);
 
   // The ChromeBroadcaster through the FullscreenController receives UI
   // information necessary to calculate fullscreen progress.
@@ -82,9 +91,8 @@ class FullscreenController : public KeyedService {
   // 1.0.
   virtual void ExitFullscreen() = 0;
 
- private:
-
-  DISALLOW_COPY_AND_ASSIGN(FullscreenController);
+  // Force content resize, when content isn't tracking resize by itself.
+  virtual void ResizeViewport() = 0;
 };
 
 #endif  // IOS_CHROME_BROWSER_UI_FULLSCREEN_FULLSCREEN_CONTROLLER_H_

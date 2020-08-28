@@ -15,6 +15,8 @@
 #include "mojo/public/cpp/bindings/remote.h"
 #include "services/viz/public/mojom/compositing/compositor_frame_sink.mojom-blink.h"
 #include "third_party/blink/public/mojom/frame_sinks/embedded_frame_sink.mojom-blink.h"
+#include "third_party/blink/renderer/platform/geometry/int_size.h"
+#include "third_party/blink/renderer/platform/platform_export.h"
 
 namespace blink {
 
@@ -73,14 +75,14 @@ class PLATFORM_EXPORT CanvasResourceDispatcher
       const WTF::Vector<viz::ReturnedResource>& resources) final;
   void OnBeginFrame(
       const viz::BeginFrameArgs&,
-      WTF::HashMap<uint32_t, ::viz::mojom::blink::FrameTimingDetailsPtr>) final;
+      const WTF::HashMap<uint32_t, viz::FrameTimingDetails>&) final;
   void OnBeginFramePausedChanged(bool paused) final {}
   void ReclaimResources(
       const WTF::Vector<viz::ReturnedResource>& resources) final;
 
   void DidAllocateSharedBitmap(base::ReadOnlySharedMemoryRegion region,
-                               ::gpu::mojom::blink::MailboxPtr id);
-  void DidDeleteSharedBitmap(::gpu::mojom::blink::MailboxPtr id);
+                               const gpu::Mailbox& id);
+  void DidDeleteSharedBitmap(const gpu::Mailbox& id);
 
   void SetFilterQuality(SkFilterQuality filter_quality);
   void SetPlaceholderCanvasDispatcher(int placeholder_canvas_id);

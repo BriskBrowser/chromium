@@ -7,8 +7,9 @@
 #include <stdint.h>
 #include <tuple>
 
+#include "base/check_op.h"
 #include "base/i18n/rtl.h"
-#include "base/logging.h"
+#include "base/notreached.h"
 #include "base/strings/strcat.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
@@ -22,13 +23,58 @@
 #include <windows.h>
 #endif
 
-#if !defined(OS_WIN) && (defined(USE_AURA) || defined(OS_MACOSX))
+#if !defined(OS_WIN) && (defined(USE_AURA) || defined(OS_APPLE))
 #include "ui/events/keycodes/keyboard_code_conversion.h"
+#endif
+
+#if defined(OS_CHROMEOS)
+#include "ui/base/ui_base_features.h"
 #endif
 
 namespace ui {
 
 namespace {
+
+#if defined(OS_CHROMEOS)
+template <DomKey::Base T>
+using DomKeyConst = typename ui::DomKey::Constant<T>;
+
+// ChromeOS has several shortcuts that uses ASCII punctuation key as a main key
+// to triger them (e.g. ctrl+shift+alt+/). However, many of these keys have
+// different VKEY on different keyboard layouts, (some require shift or altgr
+// to type in), so using these keys combined with shift may not work well on
+// non-US layouts.  Instead of using VKEY, the new mapping uses DomKey as a key
+// to trigger and maps to VKEY+modifier that would have generated the same key
+// on US-keyboard.  See crbug.com/1067269 for more details.
+struct {
+  KeyboardCode vkey;
+  const DomKey::Base dom_key;
+  const DomKey::Base shifted_dom_key;
+} kAccelConversionMap[] = {
+    {VKEY_1, DomKeyConst<'1'>::Character, DomKeyConst<'!'>::Character},
+    {VKEY_2, DomKeyConst<'2'>::Character, DomKeyConst<'@'>::Character},
+    {VKEY_3, DomKeyConst<'3'>::Character, DomKeyConst<'#'>::Character},
+    {VKEY_4, DomKeyConst<'4'>::Character, DomKeyConst<'$'>::Character},
+    {VKEY_5, DomKeyConst<'5'>::Character, DomKeyConst<'%'>::Character},
+    {VKEY_6, DomKeyConst<'6'>::Character, DomKeyConst<'&'>::Character},
+    {VKEY_7, DomKeyConst<'7'>::Character, DomKeyConst<'^'>::Character},
+    {VKEY_8, DomKeyConst<'8'>::Character, DomKeyConst<'*'>::Character},
+    {VKEY_9, DomKeyConst<'9'>::Character, DomKeyConst<'('>::Character},
+    {VKEY_0, DomKeyConst<'0'>::Character, DomKeyConst<')'>::Character},
+    {VKEY_OEM_MINUS, DomKeyConst<'-'>::Character, DomKeyConst<'_'>::Character},
+    {VKEY_OEM_PLUS, DomKeyConst<'='>::Character, DomKeyConst<'+'>::Character},
+    {VKEY_OEM_4, DomKeyConst<'['>::Character, DomKeyConst<'{'>::Character},
+    {VKEY_OEM_6, DomKeyConst<']'>::Character, DomKeyConst<'}'>::Character},
+    {VKEY_OEM_5, DomKeyConst<'\\'>::Character, DomKeyConst<'|'>::Character},
+    {VKEY_OEM_1, DomKeyConst<';'>::Character, DomKeyConst<':'>::Character},
+    {VKEY_OEM_7, DomKeyConst<'\''>::Character, DomKeyConst<'\"'>::Character},
+    {VKEY_OEM_3, DomKeyConst<'`'>::Character, DomKeyConst<'~'>::Character},
+    {VKEY_OEM_COMMA, DomKeyConst<','>::Character, DomKeyConst<'<'>::Character},
+    {VKEY_OEM_PERIOD, DomKeyConst<'.'>::Character, DomKeyConst<'>'>::Character},
+    {VKEY_OEM_2, DomKeyConst<'/'>::Character, DomKeyConst<'?'>::Character},
+};
+
+#endif
 
 const int kModifierMask = EF_SHIFT_DOWN | EF_CONTROL_DOWN | EF_ALT_DOWN |
                           EF_COMMAND_DOWN | EF_ALTGR_DOWN;
@@ -66,19 +112,34 @@ Accelerator::Accelerator(const KeyEvent& key_event)
       modifiers_(key_event.flags() & kInterestingFlagsMask),
       time_stamp_(key_event.time_stamp()),
       interrupted_by_mouse_event_(false),
-      source_device_id_(key_event.source_device_id()) {}
-
-Accelerator::Accelerator(const Accelerator& accelerator) {
-  key_code_ = accelerator.key_code_;
-  key_state_ = accelerator.key_state_;
-  modifiers_ = accelerator.modifiers_;
-  time_stamp_ = accelerator.time_stamp_;
-  interrupted_by_mouse_event_ = accelerator.interrupted_by_mouse_event_;
-  source_device_id_ = accelerator.source_device_id_;
+      source_device_id_(key_event.source_device_id()) {
+#if defined(OS_CHROMEOS)
+  if (features::IsNewShortcutMappingEnabled()) {
+    DomKey dom_key = key_event.GetDomKey();
+    if (!dom_key.IsCharacter())
+      return;
+    for (auto entry : kAccelConversionMap) {
+      // ALTGR is always canceled because it's not required on US Keyboard.
+      if (entry.dom_key == dom_key) {
+        // No shift punctuation key on US keyboard.
+        key_code_ = entry.vkey;
+        modifiers_ &= ~(ui::EF_SHIFT_DOWN | ui::EF_ALTGR_DOWN);
+      }
+      if (entry.shifted_dom_key == dom_key) {
+        // Punctuation key with shift on US keyboard.
+        key_code_ = entry.vkey;
+        modifiers_ = (modifiers_ | ui::EF_SHIFT_DOWN) & ~ui::EF_ALTGR_DOWN;
+      }
+    }
+  }
+#endif
 }
 
-Accelerator::~Accelerator() {
-}
+Accelerator::Accelerator(const Accelerator& accelerator) = default;
+
+Accelerator& Accelerator::operator=(const Accelerator& accelerator) = default;
+
+Accelerator::~Accelerator() = default;
 
 // static
 int Accelerator::MaskOutKeyEventFlags(int flags) {
@@ -90,17 +151,6 @@ KeyEvent Accelerator::ToKeyEvent() const {
                       ? ET_KEY_PRESSED
                       : ET_KEY_RELEASED,
                   key_code(), modifiers(), time_stamp());
-}
-
-Accelerator& Accelerator::operator=(const Accelerator& accelerator) {
-  if (this != &accelerator) {
-    key_code_ = accelerator.key_code_;
-    key_state_ = accelerator.key_state_;
-    modifiers_ = accelerator.modifiers_;
-    time_stamp_ = accelerator.time_stamp_;
-    interrupted_by_mouse_event_ = accelerator.interrupted_by_mouse_event_;
-  }
-  return *this;
 }
 
 bool Accelerator::operator <(const Accelerator& rhs) const {
@@ -133,6 +183,10 @@ bool Accelerator::IsAltDown() const {
   return (modifiers_ & EF_ALT_DOWN) != 0;
 }
 
+bool Accelerator::IsAltGrDown() const {
+  return (modifiers_ & EF_ALTGR_DOWN) != 0;
+}
+
 bool Accelerator::IsCmdDown() const {
   return (modifiers_ & EF_COMMAND_DOWN) != 0;
 }
@@ -144,7 +198,7 @@ bool Accelerator::IsRepeat() const {
 base::string16 Accelerator::GetShortcutText() const {
   base::string16 shortcut;
 
-#if defined(OS_MACOSX)
+#if defined(OS_APPLE)
   shortcut = KeyCodeToMacSymbol();
 #else
   shortcut = KeyCodeToName();
@@ -167,7 +221,7 @@ base::string16 Accelerator::GetShortcutText() const {
     // VKEY_UNKNOWN), |::MapVirtualKeyW| returns 0.
     if (key != 0)
       shortcut += key;
-#elif defined(USE_AURA) || defined(OS_MACOSX) || defined(OS_ANDROID)
+#elif defined(USE_AURA) || defined(OS_APPLE) || defined(OS_ANDROID)
     const uint16_t c = DomCodeToUsLayoutCharacter(
         UsLayoutKeyboardCodeToDomCode(key_code_), false);
     if (c != 0)
@@ -176,7 +230,7 @@ base::string16 Accelerator::GetShortcutText() const {
 #endif
   }
 
-#if defined(OS_MACOSX)
+#if defined(OS_APPLE)
   shortcut = ApplyShortFormModifiers(shortcut);
 #else
   // Checking whether the character used for the accelerator is alphanumeric.
@@ -222,12 +276,12 @@ base::string16 Accelerator::GetShortcutText() const {
     shortcut_rtl.append(shortcut, 0, shortcut.length() - key_length - 1);
     shortcut.swap(shortcut_rtl);
   }
-#endif  // OS_MACOSX
+#endif  // OS_APPLE
 
   return shortcut;
 }
 
-#if defined(OS_MACOSX)
+#if defined(OS_APPLE)
 base::string16 Accelerator::KeyCodeToMacSymbol() const {
   switch (key_code_) {
     case VKEY_CAPITAL:
@@ -263,7 +317,7 @@ base::string16 Accelerator::KeyCodeToMacSymbol() const {
       return KeyCodeToName();
   }
 }
-#endif  // OS_MACOSX
+#endif  // OS_APPLE
 
 base::string16 Accelerator::KeyCodeToName() const {
   int string_id = 0;
@@ -319,7 +373,7 @@ base::string16 Accelerator::KeyCodeToName() const {
     case VKEY_F11:
       string_id = IDS_APP_F11_KEY;
       break;
-#if !defined(OS_MACOSX)
+#if !defined(OS_APPLE)
     // On Mac, commas and periods are used literally in accelerator text.
     case VKEY_OEM_COMMA:
       string_id = IDS_APP_COMMA_KEY;
@@ -360,7 +414,7 @@ base::string16 Accelerator::ApplyLongFormModifiers(
     shortcut = ApplyModifierToAcceleratorString(shortcut, IDS_APP_ALT_KEY);
 
   if (IsCmdDown()) {
-#if defined(OS_MACOSX)
+#if defined(OS_APPLE)
     shortcut = ApplyModifierToAcceleratorString(shortcut, IDS_APP_COMMAND_KEY);
 #elif defined(OS_CHROMEOS)
     shortcut = ApplyModifierToAcceleratorString(shortcut, IDS_APP_SEARCH_KEY);

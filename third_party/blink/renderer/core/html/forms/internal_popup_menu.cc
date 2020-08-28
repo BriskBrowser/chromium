@@ -9,6 +9,7 @@
 #include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/public/platform/task_type.h"
 #include "third_party/blink/renderer/core/css/css_font_selector.h"
+#include "third_party/blink/renderer/core/css/css_value_id_mappings.h"
 #include "third_party/blink/renderer/core/css/style_engine.h"
 #include "third_party/blink/renderer/core/dom/element_traversal.h"
 #include "third_party/blink/renderer/core/dom/events/scoped_event_queue.h"
@@ -31,6 +32,7 @@
 #include "third_party/blink/renderer/platform/fonts/font_selector_client.h"
 #include "third_party/blink/renderer/platform/geometry/int_rect.h"
 #include "third_party/blink/renderer/platform/text/platform_locale.h"
+#include "ui/base/ui_base_features.h"
 
 namespace blink {
 
@@ -45,26 +47,13 @@ const char* FontStyleToString(FontSelectionValue slope) {
 }
 
 const char* TextTransformToString(ETextTransform transform) {
-  switch (transform) {
-    case ETextTransform::kCapitalize:
-      return "capitalize";
-    case ETextTransform::kUppercase:
-      return "uppercase";
-    case ETextTransform::kLowercase:
-      return "lowercase";
-    case ETextTransform::kNone:
-      return "none";
-  }
-  NOTREACHED();
-  return "";
+  return getValueName(PlatformEnumToCSSValueID(transform));
 }
 
 }  // anonymous namespace
 
 class PopupMenuCSSFontSelector : public CSSFontSelector,
                                  private FontSelectorClient {
-  USING_GARBAGE_COLLECTED_MIXIN(PopupMenuCSSFontSelector);
-
  public:
   PopupMenuCSSFontSelector(Document*, CSSFontSelector*);
   ~PopupMenuCSSFontSelector() override;
@@ -74,10 +63,10 @@ class PopupMenuCSSFontSelector : public CSSFontSelector,
   scoped_refptr<FontData> GetFontData(const FontDescription&,
                                       const AtomicString&) override;
 
-  void Trace(Visitor*) override;
+  void Trace(Visitor*) const override;
 
  private:
-  void FontsNeedUpdate(FontSelector*) override;
+  void FontsNeedUpdate(FontSelector*, FontInvalidationReason) override;
 
   Member<CSSFontSelector> owner_font_selector_;
 };
@@ -97,11 +86,12 @@ scoped_refptr<FontData> PopupMenuCSSFontSelector::GetFontData(
   return owner_font_selector_->GetFontData(description, name);
 }
 
-void PopupMenuCSSFontSelector::FontsNeedUpdate(FontSelector* font_selector) {
-  DispatchInvalidationCallbacks();
+void PopupMenuCSSFontSelector::FontsNeedUpdate(FontSelector* font_selector,
+                                               FontInvalidationReason reason) {
+  DispatchInvalidationCallbacks(reason);
 }
 
-void PopupMenuCSSFontSelector::Trace(Visitor* visitor) {
+void PopupMenuCSSFontSelector::Trace(Visitor* visitor) const {
   visitor->Trace(owner_font_selector_);
   CSSFontSelector::Trace(visitor);
   FontSelectorClient::Trace(visitor);
@@ -121,7 +111,7 @@ class InternalPopupMenu::ItemIterationContext {
         is_in_group_(false),
         buffer_(buffer) {
     DCHECK(buffer_);
-#if defined(OS_LINUX)
+#if defined(OS_LINUX) || defined(OS_CHROMEOS)
     // On other platforms, the <option> background color is the same as the
     // <select> background color. On Linux, that makes the <option>
     // background color very dark, so by default, try to use a lighter
@@ -215,7 +205,7 @@ InternalPopupMenu::~InternalPopupMenu() {
   DCHECK(!popup_);
 }
 
-void InternalPopupMenu::Trace(Visitor* visitor) {
+void InternalPopupMenu::Trace(Visitor* visitor) const {
   visitor->Trace(chrome_client_);
   visitor->Trace(owner_element_);
   PopupMenu::Trace(visitor);
@@ -226,7 +216,7 @@ void InternalPopupMenu::WriteDocument(SharedBuffer* data) {
   // When writing the document, we ensure the ComputedStyle of the select
   // element's items (see AddElementStyle). This requires a style-clean tree.
   // See Element::EnsureComputedStyle for further explanation.
-  owner_element.GetDocument().UpdateStyleAndLayoutTree();
+  DCHECK(!owner_element.GetDocument().NeedsLayoutTreeUpdate());
   IntRect anchor_rect_in_screen = chrome_client_->ViewportToScreen(
       owner_element.VisibleBoundsInVisualViewport(),
       owner_element.GetDocument().View());
@@ -286,6 +276,8 @@ void InternalPopupMenu::WriteDocument(SharedBuffer* data) {
   AddProperty("scaleFactor", scale_factor, data);
   bool is_rtl = !owner_style->IsLeftToRightDirection();
   AddProperty("isRTL", is_rtl, data);
+  AddProperty("isFormControlsRefreshEnabled",
+              features::IsFormControlsRefreshEnabled(), data);
   AddProperty("paddingStart",
               is_rtl ? owner_element.ClientPaddingRight().ToDouble()
                      : owner_element.ClientPaddingLeft().ToDouble(),
@@ -411,11 +403,11 @@ void InternalPopupMenu::AddSeparator(ItemIterationContext& context,
   PagePopupClient::AddString("},\n", data);
 }
 
-void InternalPopupMenu::SelectFontsFromOwnerDocument(Document& document) {
+CSSFontSelector* InternalPopupMenu::CreateCSSFontSelector(
+    Document& popup_document) {
   Document& owner_document = OwnerElement().GetDocument();
-  document.GetStyleEngine().SetFontSelector(
-      MakeGarbageCollected<PopupMenuCSSFontSelector>(
-          &document, owner_document.GetStyleEngine().GetFontSelector()));
+  return MakeGarbageCollected<PopupMenuCSSFontSelector>(
+      &popup_document, owner_document.GetStyleEngine().GetFontSelector());
 }
 
 void InternalPopupMenu::SetValueAndClosePopup(int num_value,
@@ -505,20 +497,16 @@ void InternalPopupMenu::Hide() {
 }
 
 void InternalPopupMenu::UpdateFromElement(UpdateReason) {
-  if (needs_update_)
-    return;
   needs_update_ = true;
-  OwnerElement()
-      .GetDocument()
-      .GetTaskRunner(TaskType::kUserInteraction)
-      ->PostTask(FROM_HERE,
-                 WTF::Bind(&InternalPopupMenu::Update, WrapPersistent(this)));
 }
 
-void InternalPopupMenu::Update() {
-  if (!popup_ || !owner_element_)
+AXObject* InternalPopupMenu::PopupRootAXObject() const {
+  return popup_ ? popup_->RootAXObject() : nullptr;
+}
+
+void InternalPopupMenu::Update(bool force_update) {
+  if (!popup_ || !owner_element_ || (!needs_update_ && !force_update))
     return;
-  OwnerElement().GetDocument().UpdateStyleAndLayoutTree();
   // disconnectClient() might have been called.
   if (!owner_element_)
     return;

@@ -9,6 +9,7 @@
 #include <utility>
 
 #include "base/bind.h"
+#include "base/bind_helpers.h"
 #include "base/macros.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/metrics/user_metrics.h"
@@ -20,9 +21,16 @@
 #include "chrome/browser/ui/views/chrome_layout_provider.h"
 #include "chrome/grit/generated_resources.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/base/models/image_model.h"
 #include "ui/views/accessibility/view_accessibility.h"
 #include "ui/views/controls/image_view.h"
 #include "ui/views/style/typography.h"
+
+#if defined(OS_WIN)
+#include "chrome/browser/browser_process.h"
+#include "chrome/browser/profiles/profile_manager.h"
+#include "chrome/common/chrome_features.h"
+#endif
 
 IncognitoMenuView::IncognitoMenuView(views::Button* anchor_button,
                                      Browser* browser)
@@ -39,37 +47,65 @@ IncognitoMenuView::IncognitoMenuView(views::Button* anchor_button,
 IncognitoMenuView::~IncognitoMenuView() = default;
 
 void IncognitoMenuView::BuildMenu() {
-  ChromeLayoutProvider* provider = ChromeLayoutProvider::Get();
   int incognito_window_count =
-      BrowserList::GetIncognitoSessionsActiveForProfile(browser()->profile());
-  // The icon color is set to match the menu text, which guarantees sufficient
-  // contrast and a consistent visual appearance.
-  const SkColor icon_color = provider->GetTypographyProvider().GetColor(
-      *this, views::style::CONTEXT_LABEL, views::style::STYLE_PRIMARY);
+      BrowserList::GetOffTheRecordBrowsersActiveForProfile(
+          browser()->profile());
 
-  SetIdentityInfo(
-      ColoredImageForMenu(kIncognitoProfileIcon, icon_color),
-      /*badge=*/gfx::ImageSkia(),
+  SetProfileIdentityInfo(
+      /*profile_name=*/base::string16(),
+      /*background_color=*/SK_ColorTRANSPARENT,
+      /*edit_button=*/base::nullopt,
+      ui::ImageModel::FromVectorIcon(
+          kIncognitoProfileIcon, ui::NativeTheme::kColorId_BubbleForeground),
       l10n_util::GetStringUTF16(IDS_INCOGNITO_PROFILE_MENU_TITLE),
       incognito_window_count > 1
           ? l10n_util::GetPluralStringFUTF16(IDS_INCOGNITO_WINDOW_COUNT_MESSAGE,
                                              incognito_window_count)
           : base::string16());
+
+#if defined(OS_WIN)
+  if (ProfileShortcutManager::IsFeatureEnabled() &&
+      base::FeatureList::IsEnabled(
+          features::kEnableIncognitoShortcutOnDesktop)) {
+    // TODO(crbug.com/1113162): Add desktop shortcut icon to the menu entry.
+    AddFeatureButton(
+        l10n_util::GetStringUTF16(
+            IDS_INCOGNITO_PROFILE_MENU_CREATE_SHORTCUT_BUTTON),
+        base::BindRepeating(&IncognitoMenuView::OnCreateShortcutButtonClicked,
+                            base::Unretained(this)));
+  }
+#endif
+
   AddFeatureButton(
-      ImageForMenu(kCloseAllIcon),
       l10n_util::GetStringUTF16(IDS_INCOGNITO_PROFILE_MENU_CLOSE_BUTTON),
       base::BindRepeating(&IncognitoMenuView::OnExitButtonClicked,
-                          base::Unretained(this)));
+                          base::Unretained(this)),
+      kCloseAllIcon);
 }
 
 base::string16 IncognitoMenuView::GetAccessibleWindowTitle() const {
   return l10n_util::GetPluralStringFUTF16(
       IDS_INCOGNITO_BUBBLE_ACCESSIBLE_TITLE,
-      BrowserList::GetIncognitoSessionsActiveForProfile(browser()->profile()));
+      BrowserList::GetOffTheRecordBrowsersActiveForProfile(
+          browser()->profile()));
 }
+
+#if defined(OS_WIN)
+void IncognitoMenuView::OnCreateShortcutButtonClicked() {
+  RecordClick(ActionableItem::kCreateIncognitoShortcutButton);
+  ProfileShortcutManager* shortcut_manager =
+      g_browser_process->profile_manager()->profile_shortcut_manager();
+
+  DCHECK(shortcut_manager);
+  if (shortcut_manager)
+    shortcut_manager->CreateIncognitoProfileShortcut(
+        browser()->profile()->GetPath());
+}
+#endif
 
 void IncognitoMenuView::OnExitButtonClicked() {
   RecordClick(ActionableItem::kExitProfileButton);
+  base::RecordAction(base::UserMetricsAction("IncognitoMenu_ExitClicked"));
   // Skipping before-unload trigger to give incognito mode users a chance to
   // quickly close all incognito windows without needing to confirm closing the
   // open forms.

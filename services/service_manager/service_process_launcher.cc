@@ -23,6 +23,7 @@
 #include "base/strings/string_number_conversions.h"
 #include "base/synchronization/lock.h"
 #include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
 #include "base/task_runner_util.h"
 #include "base/threading/thread.h"
 #include "build/build_config.h"
@@ -30,12 +31,12 @@
 #include "mojo/public/cpp/platform/platform_channel.h"
 #include "mojo/public/cpp/system/core.h"
 #include "mojo/public/cpp/system/invitation.h"
+#include "sandbox/policy/switches.h"
 #include "services/service_manager/public/cpp/service_executable/switches.h"
 #include "services/service_manager/public/mojom/service.mojom.h"
-#include "services/service_manager/sandbox/switches.h"
 #include "services/service_manager/switches.h"
 
-#if defined(OS_LINUX)
+#if defined(OS_LINUX) || defined(OS_CHROMEOS)
 #include "sandbox/linux/services/namespace_sandbox.h"
 #endif
 
@@ -55,7 +56,7 @@ class ServiceProcessLauncher::ProcessState
 
   base::ProcessId LaunchInBackground(
       const Identity& target,
-      SandboxType sandbox_type,
+      sandbox::policy::SandboxType sandbox_type,
       std::unique_ptr<base::CommandLine> child_command_line,
       mojo::PlatformChannel::HandlePassingInfo handle_passing_info,
       mojo::PlatformChannel channel,
@@ -81,9 +82,9 @@ ServiceProcessLauncher::ServiceProcessLauncher(
       service_path_(service_path.empty()
                         ? base::CommandLine::ForCurrentProcess()->GetProgram()
                         : service_path),
-      background_task_runner_(base::CreateSequencedTaskRunner(
-          {base::ThreadPool(), base::TaskPriority::USER_VISIBLE,
-           base::WithBaseSyncPrimitives(), base::MayBlock()})) {}
+      background_task_runner_(base::ThreadPool::CreateSequencedTaskRunner(
+          {base::TaskPriority::USER_VISIBLE, base::WithBaseSyncPrimitives(),
+           base::MayBlock()})) {}
 
 ServiceProcessLauncher::~ServiceProcessLauncher() {
   // We don't really need to wait for the process to be joined, as long as it
@@ -92,9 +93,10 @@ ServiceProcessLauncher::~ServiceProcessLauncher() {
       FROM_HERE, base::BindOnce(&ProcessState::StopInBackground, state_));
 }
 
-mojom::ServicePtr ServiceProcessLauncher::Start(const Identity& target,
-                                                SandboxType sandbox_type,
-                                                ProcessReadyCallback callback) {
+mojo::PendingRemote<mojom::Service> ServiceProcessLauncher::Start(
+    const Identity& target,
+    sandbox::policy::SandboxType sandbox_type,
+    ProcessReadyCallback callback) {
   DCHECK(!state_);
 
   const base::CommandLine& parent_command_line =
@@ -129,7 +131,7 @@ mojom::ServicePtr ServiceProcessLauncher::Start(const Identity& target,
 
   if (!IsUnsandboxedSandboxType(sandbox_type)) {
     child_command_line->AppendSwitchASCII(
-        switches::kServiceSandboxType,
+        sandbox::policy::switches::kServiceSandboxType,
         StringFromUtilitySandboxType(sandbox_type));
   }
 
@@ -138,7 +140,7 @@ mojom::ServicePtr ServiceProcessLauncher::Start(const Identity& target,
   channel.PrepareToPassRemoteEndpoint(&handle_passing_info,
                                       child_command_line.get());
   mojo::OutgoingInvitation invitation;
-  mojom::ServicePtr client =
+  auto client =
       PassServiceRequestOnCommandLine(&invitation, child_command_line.get());
 
   if (delegate_) {
@@ -159,19 +161,20 @@ mojom::ServicePtr ServiceProcessLauncher::Start(const Identity& target,
 }
 
 // static
-mojom::ServicePtr ServiceProcessLauncher::PassServiceRequestOnCommandLine(
+mojo::PendingRemote<mojom::Service>
+ServiceProcessLauncher::PassServiceRequestOnCommandLine(
     mojo::OutgoingInvitation* invitation,
     base::CommandLine* command_line) {
   const auto attachment_name = base::NumberToString(base::RandUint64());
   command_line->AppendSwitchASCII(switches::kServiceRequestAttachmentName,
                                   attachment_name);
-  return mojom::ServicePtr{
-      mojom::ServicePtrInfo{invitation->AttachMessagePipe(attachment_name), 0}};
+  return mojo::PendingRemote<mojom::Service>(
+      invitation->AttachMessagePipe(attachment_name), 0);
 }
 
 base::ProcessId ServiceProcessLauncher::ProcessState::LaunchInBackground(
     const Identity& target,
-    SandboxType sandbox_type,
+    sandbox::policy::SandboxType sandbox_type,
     std::unique_ptr<base::CommandLine> child_command_line,
     mojo::PlatformChannel::HandlePassingInfo handle_passing_info,
     mojo::PlatformChannel channel,
@@ -214,18 +217,18 @@ base::ProcessId ServiceProcessLauncher::ProcessState::LaunchInBackground(
       {STDOUT_FILENO, STDOUT_FILENO},
       {STDERR_FILENO, STDERR_FILENO},
   };
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
   options.fds_to_remap = fd_mapping;
   options.mach_ports_for_rendezvous = handle_passing_info;
 #else
   handle_passing_info.insert(handle_passing_info.end(), fd_mapping.begin(),
                              fd_mapping.end());
   options.fds_to_remap = handle_passing_info;
-#endif  // defined(OS_MACOSX)
+#endif  // defined(OS_MAC)
 #endif
   DVLOG(2) << "Launching child with command line: "
            << child_command_line->GetCommandLineString();
-#if defined(OS_LINUX)
+#if defined(OS_LINUX) || defined(OS_CHROMEOS)
   if (!IsUnsandboxedSandboxType(sandbox_type)) {
     child_process_ =
         sandbox::NamespaceSandbox::LaunchProcess(*child_command_line, options);

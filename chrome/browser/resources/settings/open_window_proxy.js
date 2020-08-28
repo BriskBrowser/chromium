@@ -7,25 +7,23 @@
  * the browser.
  */
 
-cr.define('settings', function() {
-  /** @interface */
-  class OpenWindowProxy {
-    /**
-     * Opens the specified URL in a new tab.
-     * @param {string} url
-     */
-    openURL(url) {}
+import {addSingletonGetter} from 'chrome://resources/js/cr.m.js';
+
+/** @interface */
+export class OpenWindowProxy {
+  /**
+   * Opens the specified URL in a new tab.
+   * @param {string} url
+   */
+  openURL(url) {}
+}
+
+/** @implements {OpenWindowProxy} */
+export class OpenWindowProxyImpl {
+  /** @override */
+  openURL(url) {
+    window.open(url);
   }
+}
 
-  /** @implements {settings.OpenWindowProxy} */
-  class OpenWindowProxyImpl {
-    /** @override */
-    openURL(url) {
-      window.open(url);
-    }
-  }
-
-  cr.addSingletonGetter(OpenWindowProxyImpl);
-
-  return {OpenWindowProxy, OpenWindowProxyImpl};
-});
+addSingletonGetter(OpenWindowProxyImpl);

@@ -52,7 +52,10 @@ class MockClientSideDetectionHost : public ClientSideDetectionHost {
   explicit MockClientSideDetectionHost(content::WebContents* tab)
       : ClientSideDetectionHost(tab) {}
 
-  ~MockClientSideDetectionHost() override {}
+  ~MockClientSideDetectionHost() override = default;
+
+  void DidFinishNavigation(
+      content::NavigationHandle* navigation_handle) override {}
 };
 }  // namespace
 
@@ -66,8 +69,7 @@ class BrowserFeatureExtractorTest : public ChromeRenderViewHostTestHarness {
 
   void SetUp() override {
     ChromeRenderViewHostTestHarness::SetUp();
-    ASSERT_TRUE(profile()->CreateHistoryService(
-        true /* delete_file */, false /* no_db */));
+    ASSERT_TRUE(profile()->CreateHistoryService());
 
     host_.reset(new StrictMock<MockClientSideDetectionHost>(web_contents()));
     extractor_.reset(new BrowserFeatureExtractor(web_contents()));
@@ -140,8 +142,8 @@ class BrowserFeatureExtractorTest : public ChromeRenderViewHostTestHarness {
     ++num_pending_;
     extractor_->ExtractFeatures(
         browse_info_.get(), std::move(request),
-        base::Bind(&BrowserFeatureExtractorTest::ExtractFeaturesDone,
-                   base::Unretained(this)));
+        base::BindOnce(&BrowserFeatureExtractorTest::ExtractFeaturesDone,
+                       base::Unretained(this)));
     return key;
   }
 
@@ -207,18 +209,18 @@ TEST_F(BrowserFeatureExtractorTest, UrlInHistory) {
   history_service()->AddPage(GURL("http://www.foo.com/bar.html?a=b"),
                              base::Time::Now() - base::TimeDelta::FromHours(23),
                              NULL, 0, GURL(), history::RedirectList(),
-                             ui::PAGE_TRANSITION_LINK,
-                             history::SOURCE_BROWSED, false);
+                             ui::PAGE_TRANSITION_LINK, history::SOURCE_BROWSED,
+                             false, false);
   history_service()->AddPage(GURL("http://www.foo.com/bar.html"),
                              base::Time::Now() - base::TimeDelta::FromHours(25),
                              NULL, 0, GURL(), history::RedirectList(),
-                             ui::PAGE_TRANSITION_TYPED,
-                             history::SOURCE_BROWSED, false);
+                             ui::PAGE_TRANSITION_TYPED, history::SOURCE_BROWSED,
+                             false, false);
   history_service()->AddPage(GURL("https://www.foo.com/goo.html"),
                              base::Time::Now() - base::TimeDelta::FromDays(5),
                              NULL, 0, GURL(), history::RedirectList(),
-                             ui::PAGE_TRANSITION_TYPED,
-                             history::SOURCE_BROWSED, false);
+                             ui::PAGE_TRANSITION_TYPED, history::SOURCE_BROWSED,
+                             false, false);
 
   SimpleNavigateAndCommit(GURL("http://www.foo.com/bar.html"));
 

@@ -46,10 +46,9 @@ struct ScheduleParams {
   // with |deliver_time_start|.
   base::Optional<base::Time> deliver_time_end;
 
-  // Support a custom suppression duration(in days) for the notification.
-  // If client sets this field, it will override |suppression_duration| in
-  // config.
-  base::Optional<base::TimeDelta> custom_suppression_duration;
+  // Duration to mark notification without feedback as ignored.
+  // when try to analyze the impressions.
+  base::Optional<base::TimeDelta> ignore_timeout_duration;
 };
 
 }  // namespace notifications

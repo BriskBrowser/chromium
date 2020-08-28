@@ -13,7 +13,6 @@
 #include "base/sequence_checker.h"
 #include "base/time/time.h"
 #include "content/common/content_export.h"
-#include "content/common/media/renderer_audio_input_stream_factory.mojom.h"
 #include "media/audio/audio_input_ipc.h"
 #include "media/audio/audio_source_parameters.h"
 #include "media/mojo/mojom/audio_input_stream.mojom.h"
@@ -22,7 +21,7 @@
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "mojo/public/cpp/bindings/receiver.h"
 #include "mojo/public/cpp/bindings/remote.h"
-#include "services/audio/public/mojom/audio_processing.mojom.h"
+#include "third_party/blink/public/mojom/media/renderer_audio_input_stream_factory.mojom.h"
 
 namespace content {
 
@@ -31,8 +30,7 @@ namespace content {
 // thread.
 class CONTENT_EXPORT MojoAudioInputIPC
     : public media::AudioInputIPC,
-      public media::AudioProcessorControls,
-      public mojom::RendererAudioInputStreamFactoryClient,
+      public blink::mojom::RendererAudioInputStreamFactoryClient,
       public media::mojom::AudioInputStreamClient {
  public:
   // This callback is used by MojoAudioInputIPC to create streams.
@@ -40,9 +38,8 @@ class CONTENT_EXPORT MojoAudioInputIPC
   // called or |client| is destructed.
   using StreamCreatorCB = base::RepeatingCallback<void(
       const media::AudioSourceParameters& source_params,
-      mojo::PendingRemote<mojom::RendererAudioInputStreamFactoryClient> client,
-      mojo::PendingReceiver<audio::mojom::AudioProcessorControls>
-          controls_receiver,
+      mojo::PendingRemote<blink::mojom::RendererAudioInputStreamFactoryClient>
+          client,
       const media::AudioParameters& params,
       bool automatic_gain_control,
       uint32_t total_segments)>;
@@ -65,13 +62,7 @@ class CONTENT_EXPORT MojoAudioInputIPC
   void RecordStream() override;
   void SetVolume(double volume) override;
   void SetOutputDeviceForAec(const std::string& output_device_id) override;
-  AudioProcessorControls* GetProcessorControls() override;
   void CloseStream() override;
-
-  // AudioProcessorControls implementation
-  void GetStats(GetStatsCB callback) override;
-  void StartEchoCancellationDump(base::File file) override;
-  void StopEchoCancellationDump() override;
 
  private:
   void StreamCreated(
@@ -92,15 +83,12 @@ class CONTENT_EXPORT MojoAudioInputIPC
   StreamAssociatorCB stream_associator_;
 
   mojo::Remote<media::mojom::AudioInputStream> stream_;
-  mojo::Remote<audio::mojom::AudioProcessorControls> processor_controls_;
   // Initialized on StreamCreated.
   base::Optional<base::UnguessableToken> stream_id_;
   mojo::Receiver<AudioInputStreamClient> stream_client_receiver_{this};
-  mojo::Receiver<RendererAudioInputStreamFactoryClient>
+  mojo::Receiver<blink::mojom::RendererAudioInputStreamFactoryClient>
       factory_client_receiver_{this};
   media::AudioInputIPCDelegate* delegate_ = nullptr;
-
-  base::TimeTicks stream_creation_start_time_;
 
   base::WeakPtrFactory<MojoAudioInputIPC> weak_factory_{this};
 

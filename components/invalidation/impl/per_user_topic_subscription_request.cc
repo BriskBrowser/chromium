@@ -8,12 +8,15 @@
 
 #include "base/bind.h"
 #include "base/json/json_writer.h"
+#include "base/memory/ptr_util.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/strings/stringprintf.h"
+#include "base/threading/sequenced_task_runner_handle.h"
 #include "base/values.h"
 #include "components/sync/base/model_type.h"
 #include "net/http/http_status_code.h"
 #include "net/url_request/url_fetcher.h"
+#include "services/network/public/mojom/fetch_api.mojom-shared.h"
 
 using net::HttpRequestHeaders;
 
@@ -101,7 +104,7 @@ void RecordRequestStatus(
 
 namespace syncer {
 
-PerUserTopicSubscriptionRequest::PerUserTopicSubscriptionRequest() {}
+PerUserTopicSubscriptionRequest::PerUserTopicSubscriptionRequest() = default;
 
 PerUserTopicSubscriptionRequest::~PerUserTopicSubscriptionRequest() = default;
 
@@ -111,10 +114,26 @@ void PerUserTopicSubscriptionRequest::Start(
   DCHECK(request_completed_callback_.is_null()) << "Request already running!";
   request_completed_callback_ = std::move(callback);
 
-  simple_loader_->DownloadToStringOfUnboundedSizeUntilCrashAndDie(
-      loader_factory,
-      base::BindOnce(&PerUserTopicSubscriptionRequest::OnURLFetchComplete,
-                     weak_ptr_factory_.GetWeakPtr()));
+  if (type_ == UNSUBSCRIBE &&
+      base::FeatureList::IsEnabled(kInvalidationsSkipUnsubscription)) {
+    // If the kInvalidationsSkipUnsubscription feature is enabled, don't send an
+    // actual unsubscription request and instead just report failure. Net error
+    // 499 is somewhat arbitrarily chosen (it's a non-standard code for "client
+    // closed request" which vaguely makes sense in this context); the important
+    // part is that it'll be reported as a non-retryable failure.
+    base::SequencedTaskRunnerHandle::Get()->PostTask(
+        FROM_HERE,
+        base::BindOnce(
+            &PerUserTopicSubscriptionRequest::OnURLFetchCompleteInternal,
+            weak_ptr_factory_.GetWeakPtr(),
+            /*net_error=*/net::ERR_HTTP_RESPONSE_CODE_FAILURE,
+            /*response_code=*/499, /*response_body=*/nullptr));
+  } else {
+    simple_loader_->DownloadToStringOfUnboundedSizeUntilCrashAndDie(
+        loader_factory,
+        base::BindOnce(&PerUserTopicSubscriptionRequest::OnURLFetchComplete,
+                       weak_ptr_factory_.GetWeakPtr()));
+  }
 }
 
 void PerUserTopicSubscriptionRequest::OnURLFetchComplete(
@@ -126,6 +145,7 @@ void PerUserTopicSubscriptionRequest::OnURLFetchComplete(
   }
   OnURLFetchCompleteInternal(simple_loader_->NetError(), response_code,
                              std::move(response_body));
+  // Potentially dead after the above invocation; nothing to do except return.
 }
 
 void PerUserTopicSubscriptionRequest::OnURLFetchCompleteInternal(
@@ -133,11 +153,12 @@ void PerUserTopicSubscriptionRequest::OnURLFetchCompleteInternal(
     int response_code,
     std::unique_ptr<std::string> response_body) {
   if (IsNetworkError(net_error)) {
-    std::move(request_completed_callback_)
-        .Run(Status(StatusCode::FAILED, base::StringPrintf("Network Error")),
-             std::string());
     RecordRequestStatus(SubscriptionStatus::kNetworkFailure, type_, topic_,
                         net_error, response_code);
+    RunCompletedCallbackAndMaybeDie(
+        Status(StatusCode::FAILED, base::StringPrintf("Network Error")),
+        std::string());
+    // Potentially dead after the above invocation; nothing to do except return.
     return;
   }
 
@@ -150,10 +171,10 @@ void PerUserTopicSubscriptionRequest::OnURLFetchCompleteInternal(
     }
     RecordRequestStatus(SubscriptionStatus::kHttpFailure, type_, topic_,
                         net_error, response_code);
-    std::move(request_completed_callback_)
-        .Run(
-            Status(status, base::StringPrintf("HTTP Error: %d", response_code)),
-            std::string());
+    RunCompletedCallbackAndMaybeDie(
+        Status(status, base::StringPrintf("HTTP Error: %d", response_code)),
+        std::string());
+    // Potentially dead after the above invocation; nothing to do except return.
     return;
   }
 
@@ -161,17 +182,19 @@ void PerUserTopicSubscriptionRequest::OnURLFetchCompleteInternal(
     // No response body expected for DELETE requests.
     RecordRequestStatus(SubscriptionStatus::kSuccess, type_, topic_, net_error,
                         response_code);
-    std::move(request_completed_callback_)
-        .Run(Status(StatusCode::SUCCESS, std::string()), std::string());
+    RunCompletedCallbackAndMaybeDie(Status(StatusCode::SUCCESS, std::string()),
+                                    std::string());
+    // Potentially dead after the above invocation; nothing to do except return.
     return;
   }
 
   if (!response_body || response_body->empty()) {
     RecordRequestStatus(SubscriptionStatus::kParsingFailure, type_, topic_,
                         net_error, response_code);
-    std::move(request_completed_callback_)
-        .Run(Status(StatusCode::FAILED, base::StringPrintf("Body missing")),
-             std::string());
+    RunCompletedCallbackAndMaybeDie(
+        Status(StatusCode::FAILED, base::StringPrintf("Body missing")),
+        std::string());
+    // Potentially dead after the above invocation; nothing to do except return.
     return;
   }
 
@@ -185,24 +208,33 @@ void PerUserTopicSubscriptionRequest::OnJsonParse(
     data_decoder::DataDecoder::ValueOrError result) {
   if (!result.value) {
     RecordRequestStatus(SubscriptionStatus::kParsingFailure, type_, topic_);
-    std::move(request_completed_callback_)
-        .Run(Status(StatusCode::FAILED, base::StringPrintf("Body parse error")),
-             std::string());
+    RunCompletedCallbackAndMaybeDie(
+        Status(StatusCode::FAILED, base::StringPrintf("Body parse error")),
+        std::string());
+    // Potentially dead after the above invocation; nothing to do except return.
     return;
   }
 
   const std::string* topic_name = GetTopicName(*result.value);
   if (topic_name) {
     RecordRequestStatus(SubscriptionStatus::kSuccess, type_, topic_);
-    std::move(request_completed_callback_)
-        .Run(Status(StatusCode::SUCCESS, std::string()), *topic_name);
+    RunCompletedCallbackAndMaybeDie(Status(StatusCode::SUCCESS, std::string()),
+                                    *topic_name);
+    // Potentially dead after the above invocation; nothing to do except return.
   } else {
     RecordRequestStatus(SubscriptionStatus::kParsingFailure, type_, topic_);
-    std::move(request_completed_callback_)
-        .Run(Status(StatusCode::FAILED,
-                    base::StringPrintf("Missing topic name")),
-             std::string());
+    RunCompletedCallbackAndMaybeDie(
+        Status(StatusCode::FAILED, base::StringPrintf("Missing topic name")),
+        std::string());
+    // Potentially dead after the above invocation; nothing to do except return.
   }
+}
+
+void PerUserTopicSubscriptionRequest::RunCompletedCallbackAndMaybeDie(
+    Status status,
+    std::string topic_name) {
+  std::move(request_completed_callback_)
+      .Run(std::move(status), std::move(topic_name));
 }
 
 PerUserTopicSubscriptionRequest::Builder::Builder() = default;
@@ -369,8 +401,8 @@ PerUserTopicSubscriptionRequest::Builder::BuildURLFetcher(
   }
   request->url = url;
   request->headers = headers;
-  // TODO(crbug.com/1020117): Should we set request->credentials_mode to kOmit,
-  // to match "cookies_allowed: NO" above?
+  // Disable cookies for this request.
+  request->credentials_mode = network::mojom::CredentialsMode::kOmit;
 
   std::unique_ptr<network::SimpleURLLoader> url_loader =
       network::SimpleURLLoader::Create(std::move(request), traffic_annotation);

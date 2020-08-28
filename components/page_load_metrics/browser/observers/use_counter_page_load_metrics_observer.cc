@@ -28,19 +28,9 @@ void RecordUkmFeatures(const UkmFeatureList& features,
     if (!features_recorded.test(static_cast<size_t>(feature)))
       continue;
     if (ukm_features_recorded->find(static_cast<size_t>(feature)) !=
-        ukm_features_recorded->end())
+        ukm_features_recorded->end()) {
       continue;
-    // TODO(kochi): https://crbug.com/806671 https://843080
-    // as ElementCreateShadowRoot is ~8% and
-    // DocumentRegisterElement is ~5% as of May, 2018, to meet UKM's data
-    // volume expectation, reduce the data size by sampling. Revisit and
-    // remove this code once Shadow DOM V0 and Custom Elements V0 are removed.
-    const int kSamplingFactor = 10;
-    if ((feature == WebFeature::kElementCreateShadowRoot ||
-         feature == WebFeature::kDocumentRegisterElement) &&
-        base::RandGenerator(kSamplingFactor) != 0)
-      continue;
-
+    }
     ukm::builders::Blink_UseCounter(source_id)
         .SetFeature(static_cast<size_t>(feature))
         .SetIsMainFrameFeature(
@@ -60,10 +50,9 @@ void PossiblyWarnFeatureDeprecation(content::RenderFrameHost* rfh,
     case WebFeature::kDownloadInSandbox:
       rfh->AddMessageToConsole(
           blink::mojom::ConsoleMessageLevel::kWarning,
-          "[Deprecation] Download in sandbox is deprecated and will be removed "
-          "in M81. You may consider adding 'allow-downloads' to the sandbox "
-          "attribute list. See "
-          "https://www.chromestatus.com/feature/5706745674465280 for more "
+          "Download is disallowed. The frame initiating or instantiating the "
+          "download is sandboxed, but the flag ‘allow-downloads’ is not set. "
+          "See https://www.chromestatus.com/feature/5706745674465280 for more "
           "details.");
       return;
     case WebFeature::kDownloadInAdFrameWithoutUserGesture:
@@ -220,7 +209,7 @@ void UseCounterPageLoadMetricsObserver::OnComplete(
     const page_load_metrics::mojom::PageLoadTiming& timing) {
   RecordUkmFeatures(GetAllowedUkmFeatures(), features_recorded_,
                     main_frame_features_recorded_, &ukm_features_recorded_,
-                    GetDelegate().GetSourceId());
+                    GetDelegate().GetPageUkmSourceId());
 }
 
 void UseCounterPageLoadMetricsObserver::OnFailedProvisionalLoad(
@@ -228,7 +217,7 @@ void UseCounterPageLoadMetricsObserver::OnFailedProvisionalLoad(
         failed_provisional_load_info) {
   RecordUkmFeatures(GetAllowedUkmFeatures(), features_recorded_,
                     main_frame_features_recorded_, &ukm_features_recorded_,
-                    GetDelegate().GetSourceId());
+                    GetDelegate().GetPageUkmSourceId());
 }
 
 page_load_metrics::PageLoadMetricsObserver::ObservePolicy
@@ -236,7 +225,7 @@ UseCounterPageLoadMetricsObserver::FlushMetricsOnAppEnterBackground(
     const page_load_metrics::mojom::PageLoadTiming& timing) {
   RecordUkmFeatures(GetAllowedUkmFeatures(), features_recorded_,
                     main_frame_features_recorded_, &ukm_features_recorded_,
-                    GetDelegate().GetSourceId());
+                    GetDelegate().GetPageUkmSourceId());
   return CONTINUE_OBSERVING;
 }
 
@@ -248,4 +237,10 @@ UseCounterPageLoadMetricsObserver::ShouldObserveMimeType(
                  mime_type == "image/svg+xml"
              ? CONTINUE_OBSERVING
              : STOP_OBSERVING;
+}
+
+page_load_metrics::PageLoadMetricsObserver::ObservePolicy
+UseCounterPageLoadMetricsObserver::OnEnterBackForwardCache(
+    const page_load_metrics::mojom::PageLoadTiming& timing) {
+  return CONTINUE_OBSERVING;
 }

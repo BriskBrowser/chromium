@@ -20,7 +20,6 @@
 #include "base/synchronization/waitable_event.h"
 #include "base/unguessable_token.h"
 #include "components/viz/common/gpu/context_lost_observer.h"
-#include "content/child/thread_safe_sender.h"
 #include "content/common/content_export.h"
 #include "media/mojo/mojom/interface_factory.mojom.h"
 #include "media/mojo/mojom/video_decoder.mojom.h"
@@ -76,13 +75,19 @@ class CONTENT_EXPORT GpuVideoAcceleratorFactoriesImpl
   bool IsGpuVideoAcceleratorEnabled() override;
   base::UnguessableToken GetChannelToken() override;
   int32_t GetCommandBufferRouteId() override;
-  std::unique_ptr<media::VideoDecoder> CreateVideoDecoder(
-      media::MediaLog* media_log,
-      media::VideoDecoderImplementation implementation,
-      const media::RequestOverlayInfoCB& request_overlay_info_cb) override;
   Supported IsDecoderConfigSupported(
       media::VideoDecoderImplementation implementation,
       const media::VideoDecoderConfig& config) override;
+  bool IsDecoderSupportKnown() override;
+  void NotifyDecoderSupportKnown(base::OnceClosure callback) override;
+  std::unique_ptr<media::VideoDecoder> CreateVideoDecoder(
+      media::MediaLog* media_log,
+      media::VideoDecoderImplementation implementation,
+      media::RequestOverlayInfoCB request_overlay_info_cb) override;
+  base::Optional<media::VideoEncodeAccelerator::SupportedProfiles>
+  GetVideoEncodeAcceleratorSupportedProfiles() override;
+  bool IsEncoderSupportKnown() override;
+  void NotifyEncoderSupportKnown(base::OnceClosure callback) override;
   std::unique_ptr<media::VideoEncodeAccelerator> CreateVideoEncodeAccelerator()
       override;
 
@@ -113,10 +118,7 @@ class CONTENT_EXPORT GpuVideoAcceleratorFactoriesImpl
   base::UnsafeSharedMemoryRegion CreateSharedMemoryRegion(size_t size) override;
   scoped_refptr<base::SingleThreadTaskRunner> GetTaskRunner() override;
 
-  media::VideoEncodeAccelerator::SupportedProfiles
-  GetVideoEncodeAcceleratorSupportedProfiles() override;
-
-  scoped_refptr<viz::ContextProvider> GetMediaContextProvider() override;
+  viz::RasterContextProvider* GetMediaContextProvider() override;
 
   void SetRenderingColorSpace(const gfx::ColorSpace& color_space) override;
 
@@ -128,6 +130,21 @@ class CONTENT_EXPORT GpuVideoAcceleratorFactoriesImpl
   ~GpuVideoAcceleratorFactoriesImpl() override;
 
  private:
+  class Notifier {
+   public:
+    Notifier();
+    ~Notifier();
+
+    void Register(base::OnceClosure callback);
+    void Notify();
+
+    bool is_notified() { return is_notified_; }
+
+   private:
+    bool is_notified_ = false;
+    std::vector<base::OnceClosure> callbacks_;
+  };
+
   GpuVideoAcceleratorFactoriesImpl(
       scoped_refptr<gpu::GpuChannelHost> gpu_channel_host,
       const scoped_refptr<base::SingleThreadTaskRunner>&
@@ -154,6 +171,12 @@ class CONTENT_EXPORT GpuVideoAcceleratorFactoriesImpl
 
   void OnSupportedDecoderConfigs(
       const media::SupportedVideoDecoderConfigMap& supported_configs);
+  void OnDecoderSupportFailed();
+
+  void OnGetVideoEncodeAcceleratorSupportedProfiles(
+      const media::VideoEncodeAccelerator::SupportedProfiles&
+          supported_profiles);
+  void OnEncoderSupportFailed();
 
   const scoped_refptr<base::SingleThreadTaskRunner> main_thread_task_runner_;
   const scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
@@ -186,18 +209,19 @@ class CONTENT_EXPORT GpuVideoAcceleratorFactoriesImpl
 
   // SupportedDecoderConfigs state.
   mojo::Remote<media::mojom::VideoDecoder> video_decoder_;
-  base::Lock supported_decoder_configs_lock_;
+
+  base::Lock supported_profiles_lock_;
+
   // If the Optional is empty, then we have not yet gotten the configs.  If the
   // Optional contains an empty vector, then we have gotten the result and there
   // are no supported configs.
   base::Optional<media::SupportedVideoDecoderConfigMap>
-      supported_decoder_configs_ GUARDED_BY(supported_decoder_configs_lock_);
+      supported_decoder_configs_ GUARDED_BY(supported_profiles_lock_);
+  Notifier decoder_support_notifier_ GUARDED_BY(supported_profiles_lock_);
 
-  const media::VideoEncodeAccelerator::SupportedProfiles
-      supported_vea_profiles_;
-
-  // For sending requests to allocate shared memory in the Browser process.
-  scoped_refptr<ThreadSafeSender> thread_safe_sender_;
+  base::Optional<media::VideoEncodeAccelerator::SupportedProfiles>
+      supported_vea_profiles_ GUARDED_BY(supported_profiles_lock_);
+  Notifier encoder_support_notifier_ GUARDED_BY(supported_profiles_lock_);
 
   DISALLOW_COPY_AND_ASSIGN(GpuVideoAcceleratorFactoriesImpl);
 };

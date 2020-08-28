@@ -5,9 +5,12 @@
 #ifndef COMPONENTS_VIZ_COMMON_GPU_METAL_API_PROXY_H_
 #define COMPONENTS_VIZ_COMMON_GPU_METAL_API_PROXY_H_
 
-#import <Metal/Metal.h>
+#include <memory>
+#include <string>
 
-#include "base/mac/availability.h"
+#import <Metal/Metal.h>
+#include <os/availability.h>
+
 #include "base/mac/scoped_nsobject.h"
 
 namespace gl {

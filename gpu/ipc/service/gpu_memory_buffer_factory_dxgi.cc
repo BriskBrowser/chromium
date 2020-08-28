@@ -20,11 +20,13 @@ GpuMemoryBufferFactoryDXGI::~GpuMemoryBufferFactoryDXGI() {}
 gfx::GpuMemoryBufferHandle GpuMemoryBufferFactoryDXGI::CreateGpuMemoryBuffer(
     gfx::GpuMemoryBufferId id,
     const gfx::Size& size,
+    const gfx::Size& framebuffer_size,
     gfx::BufferFormat format,
     gfx::BufferUsage usage,
     int client_id,
     SurfaceHandle surface_handle) {
   TRACE_EVENT0("gpu", "GpuMemoryBufferFactoryDXGI::CreateGpuMemoryBuffer");
+  DCHECK_EQ(framebuffer_size, size);
 
   gfx::GpuMemoryBufferHandle handle;
 
@@ -64,12 +66,11 @@ gfx::GpuMemoryBufferHandle GpuMemoryBufferFactoryDXGI::CreateGpuMemoryBuffer(
 
   Microsoft::WRL::ComPtr<ID3D11Texture2D> d3d11_texture;
 
-  if (FAILED(d3d11_device->CreateTexture2D(&desc, nullptr,
-                                           d3d11_texture.GetAddressOf())))
+  if (FAILED(d3d11_device->CreateTexture2D(&desc, nullptr, &d3d11_texture)))
     return handle;
 
   Microsoft::WRL::ComPtr<IDXGIResource1> dxgi_resource;
-  if (FAILED(d3d11_texture.CopyTo(dxgi_resource.GetAddressOf())))
+  if (FAILED(d3d11_texture.As(&dxgi_resource)))
     return handle;
 
   HANDLE texture_handle;
@@ -82,7 +83,7 @@ gfx::GpuMemoryBufferHandle GpuMemoryBufferFactoryDXGI::CreateGpuMemoryBuffer(
   if (!BufferSizeForBufferFormatChecked(size, format, &buffer_size))
     return handle;
 
-  handle.dxgi_handle = IPC::PlatformFileForTransit(texture_handle);
+  handle.dxgi_handle.Set(texture_handle);
   handle.type = gfx::DXGI_SHARED_HANDLE;
   handle.id = id;
 
@@ -107,10 +108,8 @@ GpuMemoryBufferFactoryDXGI::CreateImageForGpuMemoryBuffer(
   if (handle.type != gfx::DXGI_SHARED_HANDLE)
     return nullptr;
   // Transfer ownership of handle to GLImageDXGI.
-  base::win::ScopedHandle handle_owner;
-  handle_owner.Set(handle.dxgi_handle.GetHandle());
   auto image = base::MakeRefCounted<gl::GLImageDXGI>(size, nullptr);
-  if (!image->InitializeHandle(std::move(handle_owner), 0, format))
+  if (!image->InitializeHandle(std::move(handle.dxgi_handle), 0, format))
     return nullptr;
   return image;
 }

@@ -20,7 +20,6 @@
 #include "components/safe_browsing/core/db/v4_protocol_manager_util.h"
 #include "components/safe_browsing/core/db/v4_update_protocol_manager.h"
 #include "components/safe_browsing/core/proto/webui.pb.h"
-#include "components/safe_browsing/core/realtime/url_lookup_service.h"
 #include "url/gurl.h"
 
 namespace safe_browsing {
@@ -52,7 +51,8 @@ class V4LocalDatabaseManager : public SafeBrowsingDatabaseManager {
   //
 
   void CancelCheck(Client* client) override;
-  bool CanCheckResourceType(content::ResourceType resource_type) const override;
+  bool CanCheckResourceType(
+      blink::mojom::ResourceType resource_type) const override;
   bool CanCheckUrl(const GURL& url) const override;
   bool ChecksAreAlwaysAsync() const override;
   bool CheckBrowseUrl(const GURL& url,
@@ -77,8 +77,6 @@ class V4LocalDatabaseManager : public SafeBrowsingDatabaseManager {
   safe_browsing::ThreatSource GetThreatSource() const override;
   bool IsDownloadProtectionEnabled() const override;
   bool IsSupported() const override;
-
-  RealTimeUrlLookupService* GetRealTimeUrlLookupService() override;
 
   void StartOnIOThread(
       scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
@@ -312,10 +310,6 @@ class V4LocalDatabaseManager : public SafeBrowsingDatabaseManager {
   // callback for |DatabaseReady| when the database is ready for use.
   void SetupDatabase();
 
-  // Instantiates and initializes |rt_url_lookup_service_|.
-  void SetupRealTimeUrlLookupService(
-      scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory);
-
   // Instantiates and initializes |v4_update_protocol_manager_|.
   void SetupUpdateProtocolManager(
       scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
@@ -373,8 +367,6 @@ class V4LocalDatabaseManager : public SafeBrowsingDatabaseManager {
   // The checks that need to be scheduled when the database becomes ready for
   // use.
   QueuedChecks queued_checks_;
-
-  std::unique_ptr<RealTimeUrlLookupService> rt_url_lookup_service_;
 
   // The sequenced task runner for running safe browsing database operations.
   scoped_refptr<base::SequencedTaskRunner> task_runner_;

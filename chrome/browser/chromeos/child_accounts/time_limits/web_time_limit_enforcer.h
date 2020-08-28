@@ -20,7 +20,7 @@ class URLMatcher;
 namespace chromeos {
 namespace app_time {
 
-class AppTimeLimitsWhitelistPolicyWrapper;
+class AppTimeLimitsAllowlistPolicyWrapper;
 class AppTimeController;
 
 class WebTimeLimitEnforcer {
@@ -37,14 +37,13 @@ class WebTimeLimitEnforcer {
 
   // TODO(crbug/1015661) The following should be private observer calls once the
   // observer pattern has been set up for this.
-  void OnWebTimeLimitReached();
+  void OnWebTimeLimitReached(base::TimeDelta time_limit);
   void OnWebTimeLimitEnded();
-  void OnTimeLimitWhitelistChanged(
-      const AppTimeLimitsWhitelistPolicyWrapper& value);
+  void OnTimeLimitAllowlistChanged(
+      const AppTimeLimitsAllowlistPolicyWrapper& value);
 
-  bool IsURLWhitelisted(const GURL& url) const;
+  bool IsURLAllowlisted(const GURL& url) const;
 
-  void set_time_limit(base::TimeDelta time_limit) { time_limit_ = time_limit; }
   bool blocked() const { return chrome_blocked_; }
   base::TimeDelta time_limit() const { return time_limit_; }
 

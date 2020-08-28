@@ -62,6 +62,7 @@ MemBackendImpl::MemBackendImpl(net::NetLog* net_log)
       current_size_(0),
       net_log_(net_log),
       memory_pressure_listener_(
+          FROM_HERE,
           base::BindRepeating(&MemBackendImpl::OnMemoryPressure,
                               base::Unretained(this))) {}
 
@@ -364,8 +365,6 @@ void MemBackendImpl::OnMemoryPressure(
     base::MemoryPressureListener::MemoryPressureLevel memory_pressure_level) {
   switch (memory_pressure_level) {
     case base::MemoryPressureListener::MEMORY_PRESSURE_LEVEL_NONE:
-      // Not supposed to get this here, but if there is no problem, there is
-      // no problem...
       break;
     case base::MemoryPressureListener::MEMORY_PRESSURE_LEVEL_MODERATE:
       EvictTill(max_size_ / 2);

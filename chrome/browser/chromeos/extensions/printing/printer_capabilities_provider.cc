@@ -10,6 +10,7 @@
 #include "base/callback.h"
 #include "base/task/post_task.h"
 #include "base/task/task_traits.h"
+#include "base/task/thread_pool.h"
 #include "base/threading/sequenced_task_runner_handle.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chromeos/printing/cups_printers_manager.h"
@@ -26,7 +27,7 @@ base::Optional<printing::PrinterSemanticCapsAndDefaults>
 FetchCapabilitiesOnBlockingTaskRunner(const std::string& printer_id) {
   scoped_refptr<printing::PrintBackend> backend(
       printing::PrintBackend::CreateInstance(
-          nullptr, g_browser_process->GetApplicationLocale()));
+          g_browser_process->GetApplicationLocale()));
   printing::PrinterSemanticCapsAndDefaults capabilities;
   if (!backend->GetPrinterSemanticCapsAndDefaults(printer_id, &capabilities)) {
     LOG(WARNING) << "Failed to get capabilities for " << printer_id;
@@ -84,18 +85,15 @@ void PrinterCapabilitiesProvider::OnPrinterInstalled(
         FROM_HERE, base::BindOnce(std::move(callback), base::nullopt));
     return;
   }
-  printers_manager_->PrinterInstalled(
-      printer, /*is_automatic=*/true,
-      chromeos::PrinterSetupSource::kExtensionApi);
+  printers_manager_->PrinterInstalled(printer, /*is_automatic=*/true);
   FetchCapabilities(printer.id(), std::move(callback));
 }
 
 void PrinterCapabilitiesProvider::FetchCapabilities(
     const std::string& printer_id,
     GetPrinterCapabilitiesCallback callback) {
-  base::PostTaskAndReplyWithResult(
-      FROM_HERE,
-      {base::ThreadPool(), base::MayBlock(), base::TaskPriority::BEST_EFFORT},
+  base::ThreadPool::PostTaskAndReplyWithResult(
+      FROM_HERE, {base::MayBlock(), base::TaskPriority::BEST_EFFORT},
       base::BindOnce(&FetchCapabilitiesOnBlockingTaskRunner, printer_id),
       base::BindOnce(&PrinterCapabilitiesProvider::OnCapabilitiesFetched,
                      weak_ptr_factory_.GetWeakPtr(), printer_id,

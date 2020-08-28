@@ -1,18 +1,20 @@
 <link rel="import" href="chrome://resources/html/polymer.html">
 
+<link rel="import" href="chrome://resources/html/parse_html_subset.html">
 <link rel="import" href="../../about_page/about_page_browser_proxy.html">
 <link rel="import" href="../../i18n_setup.html">
-<!-- TODO(crbug.com/986596): Don't use browser icons here. Fork them. -->
 <link rel="import" href="../../icons.html">
 <link rel="import" href="../../lifetime_browser_proxy.html">
 <link rel="import" href="../../prefs/prefs.html">
-<link rel="import" href="../../route.html">
-<link rel="import" href="../../settings_page/main_page_behavior.html">
+<link rel="import" href="../os_route.html">
+<link rel="import" href="../../router.html">
+<link rel="import" href="../os_settings_page/main_page_behavior.html">
 <link rel="import" href="../../settings_page/settings_animated_pages.html">
 <link rel="import" href="../../settings_page/settings_section.html">
 <link rel="import" href="../../settings_page/settings_subpage.html">
 <link rel="import" href="../../settings_page_css.html">
 <link rel="import" href="../../settings_shared_css.html">
+<link rel="import" href="../metrics_recorder.html">
 <link rel="import" href="../os_icons.html">
 <link rel="import" href="../os_reset_page/os_powerwash_dialog.html">
 <link rel="import" href="../localized_link/localized_link.html">
@@ -60,8 +62,9 @@
         text-align: center;
       }
 
+      /* TODO(crbug.com/986596): Don't use browser icons here. Fork them. */
       iron-icon[icon='settings:check-circle'] {
-        fill: var(--cros-default-button-color);
+        fill: var(--cros-icon-color-prominent);
       }
 
       iron-icon[icon='cr:error'] {
@@ -100,6 +103,7 @@
               when update is done) or set the src (when it's updating). -->
             <div class="icon-container"
                 hidden="[[!shouldShowIcons_(showUpdateStatus_)]]">
+              <!-- TODO(crbug.com/986596): Don't use browser icons here. Fork them. -->
               <iron-icon
                   icon$="[[getUpdateStatusIcon_(
                       hasEndOfLife_, currentUpdateStatusEvent_)]]"
@@ -125,14 +129,10 @@
             </div>
             <div class="separator" hidden="[[!showButtonContainer_]]"></div>
             <span id="buttonContainer" hidden="[[!showButtonContainer_]]">
-              <cr-button id="relaunch" hidden="[[!showRelaunch_]]"
-                  on-click="onRelaunchClick_">
-                $i18n{aboutRelaunch}
-              </cr-button>
-              <cr-button id="relaunchAndPowerwash"
-                  hidden="[[!showRelaunchAndPowerwash_]]"
-                  on-click="onRelaunchAndPowerwashClick_">
-                $i18n{aboutRelaunchAndPowerwash}
+              <cr-button id="relaunch" hidden$="[[!showRelaunch_]]"
+                         on-click="onRelaunchClick_">
+                  [[getRelaunchButtonText_(
+                                  currentUpdateStatusEvent_)]]
               </cr-button>
               <cr-button id="checkForUpdates" hidden="[[!showCheckUpdates_]]"
                   on-click="onCheckUpdatesClick_">
@@ -208,7 +208,11 @@
           </div>
         </div>
 <if expr="_google_chrome">
-        <div class="secondary">$i18nRaw{aboutProductTos}</div>
+        <div class="secondary">
+          <a href="$i18n{aboutTermsURL}" target="_blank">
+            $i18n{aboutProductTos}
+          </a>
+        </div>
 </if>
       </div>
       <div class="settings-box padded block" id="regulatoryInfo"

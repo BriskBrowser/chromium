@@ -4,6 +4,9 @@
 
 #include "ui/views/controls/button/radio_button.h"
 
+#include <memory>
+#include <utility>
+
 #include "base/strings/utf_string_conversions.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/events/base_event_utils.h"
@@ -31,8 +34,7 @@ class RadioButtonTest : public ViewsTestBase {
     widget_->Init(std::move(params));
     widget_->Show();
 
-    button_container_ = new View();
-    widget_->SetContentsView(button_container_);
+    button_container_ = widget_->SetContentsView(std::make_unique<View>());
   }
 
   void TearDown() override {

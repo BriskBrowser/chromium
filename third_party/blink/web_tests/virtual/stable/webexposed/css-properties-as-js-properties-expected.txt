@@ -15,6 +15,7 @@ animationIterationCount
 animationName
 animationPlayState
 animationTimingFunction
+appearance
 backdropFilter
 backfaceVisibility
 background
@@ -99,6 +100,7 @@ color
 colorInterpolation
 colorInterpolationFilters
 colorRendering
+colorScheme
 columnCount
 columnFill
 columnGap
@@ -110,9 +112,12 @@ columnSpan
 columnWidth
 columns
 contain
+containIntrinsicSize
 content
+contentVisibility
 counterIncrement
 counterReset
+counterSet
 cssFloat
 cssText
 cursor
@@ -178,6 +183,8 @@ height
 hyphens
 imageOrientation
 imageRendering
+inherits
+initialValue
 inlineSize
 isolation
 item
@@ -258,6 +265,7 @@ page
 pageBreakAfter
 pageBreakBefore
 pageBreakInside
+pageOrientation
 paintOrder
 parentRule
 perspective
@@ -273,6 +281,7 @@ removeProperty
 resize
 right
 rowGap
+rubyPosition
 rx
 ry
 scrollBehavior
@@ -319,6 +328,7 @@ strokeLinejoin
 strokeMiterlimit
 strokeOpacity
 strokeWidth
+syntax
 tabSize
 tableLayout
 textAlign
@@ -430,7 +440,6 @@ webkitFlexGrow
 webkitFlexShrink
 webkitFlexWrap
 webkitFontFeatureSettings
-webkitFontSizeDelta
 webkitFontSmoothing
 webkitHighlight
 webkitHyphenateCharacter

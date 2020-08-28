@@ -21,7 +21,7 @@
 #include "components/autofill/core/browser/proto/password_requirements.pb.h"
 #include "components/autofill/core/browser/proto/server.pb.h"
 #include "components/autofill/core/common/form_field_data.h"
-#include "components/autofill/core/common/signatures_util.h"
+#include "components/autofill/core/common/signatures.h"
 
 namespace autofill {
 
@@ -89,6 +89,7 @@ class AutofillField : public FormFieldData {
       get_validities_for_possible_type(ServerFieldType);
 
   void SetHtmlType(HtmlFieldType type, HtmlFieldMode mode);
+
   void set_previously_autofilled(bool previously_autofilled) {
     previously_autofilled_ = previously_autofilled;
   }

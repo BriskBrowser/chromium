@@ -17,20 +17,20 @@ class ExternalVkImageDawnRepresentation : public SharedImageRepresentationDawn {
                                     MemoryTypeTracker* tracker,
                                     WGPUDevice device,
                                     WGPUTextureFormat dawn_format,
-                                    int memory_fd,
-                                    VkDeviceSize allocation_size,
-                                    uint32_t memory_type_index);
+                                    base::ScopedFD memory_fd);
   ~ExternalVkImageDawnRepresentation() override;
 
   WGPUTexture BeginAccess(WGPUTextureUsage usage) override;
   void EndAccess() override;
 
  private:
+  ExternalVkImageBacking* backing_impl() const {
+    return static_cast<ExternalVkImageBacking*>(backing());
+  }
+
   const WGPUDevice device_;
   const WGPUTextureFormat wgpu_format_;
-  const int memory_fd_;
-  const VkDeviceSize allocation_size_;
-  const uint32_t memory_type_index_;
+  base::ScopedFD memory_fd_;
 
   WGPUTexture texture_ = nullptr;
 
@@ -38,9 +38,7 @@ class ExternalVkImageDawnRepresentation : public SharedImageRepresentationDawn {
   // created and pass a pointer to them around?
   const DawnProcTable dawn_procs_;
 
-  ExternalVkImageBacking* backing_impl() {
-    return static_cast<ExternalVkImageBacking*>(backing());
-  }
+  std::vector<ExternalSemaphore> begin_access_semaphores_;
 
   DISALLOW_COPY_AND_ASSIGN(ExternalVkImageDawnRepresentation);
 };

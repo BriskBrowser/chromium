@@ -40,10 +40,6 @@ SpeculationsPumpSession::SpeculationsPumpSession(unsigned& nesting_level)
 
 SpeculationsPumpSession::~SpeculationsPumpSession() = default;
 
-inline base::TimeDelta SpeculationsPumpSession::ElapsedTime() const {
-  return start_time_.Elapsed();
-}
-
 void SpeculationsPumpSession::AddedElementTokens(size_t count) {
   processed_element_tokens_ += count;
 }
@@ -55,7 +51,7 @@ HTMLParserScheduler::HTMLParserScheduler(
 
 HTMLParserScheduler::~HTMLParserScheduler() = default;
 
-void HTMLParserScheduler::Trace(Visitor* visitor) {
+void HTMLParserScheduler::Trace(Visitor* visitor) const {
   visitor->Trace(parser_);
 }
 

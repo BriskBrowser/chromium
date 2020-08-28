@@ -14,7 +14,7 @@
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
 #include "build/build_config.h"
 #include "chrome/browser/profiles/profile.h"
 #include "components/nacl/common/nacl_process_type.h"
@@ -38,8 +38,8 @@
 #include "services/resource_coordinator/public/cpp/memory_instrumentation/memory_instrumentation.h"
 #include "ui/base/l10n/l10n_util.h"
 
-#if defined(OS_POSIX) && !defined(OS_MACOSX) && !defined(OS_ANDROID)
-#include "services/service_manager/zygote/zygote_host_linux.h"
+#if defined(OS_POSIX) && !defined(OS_MAC) && !defined(OS_ANDROID)
+#include "content/public/browser/zygote_host/zygote_host_linux.h"
 #endif
 
 #if BUILDFLAG(ENABLE_EXTENSIONS)
@@ -148,14 +148,14 @@ void MemoryDetails::StartFetch() {
 
   // In order to process this request, we need to use the plugin information.
   // However, plugin process information is only available from the IO thread.
-  base::PostTask(
-      FROM_HERE, {BrowserThread::IO},
+  content::GetIOThreadTaskRunner({})->PostTask(
+      FROM_HERE,
       base::BindOnce(&MemoryDetails::CollectChildInfoOnIOThread, this));
 }
 
 MemoryDetails::~MemoryDetails() {}
 
-std::string MemoryDetails::ToLogString() {
+std::string MemoryDetails::ToLogString(bool include_tab_title) {
   std::string log;
   log.reserve(4096);
   ProcessMemoryInformationList processes = ChromeBrowser()->processes;
@@ -165,7 +165,10 @@ std::string MemoryDetails::ToLogString() {
   for (auto iter1 = processes.rbegin(); iter1 != processes.rend(); ++iter1) {
     log += ProcessMemoryInformation::GetFullTypeNameInEnglish(
             iter1->process_type, iter1->renderer_type);
-    if (!iter1->titles.empty()) {
+    // The title of a renderer may contain PII.
+    if ((iter1->process_type != content::PROCESS_TYPE_RENDERER ||
+         include_tab_title) &&
+        !iter1->titles.empty()) {
       log += " [";
       for (std::vector<base::string16>::const_iterator iter2 =
                iter1->titles.begin();
@@ -209,9 +212,9 @@ void MemoryDetails::CollectChildInfoOnIOThread() {
   }
 
   // Now go do expensive memory lookups in a thread pool.
-  base::PostTask(
+  base::ThreadPool::PostTask(
       FROM_HERE,
-      {base::ThreadPool(), base::MayBlock(), base::TaskPriority::BEST_EFFORT,
+      {base::MayBlock(), base::TaskPriority::BEST_EFFORT,
        base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN},
       base::BindOnce(&MemoryDetails::CollectProcessData, this, child_info));
 }
@@ -336,8 +339,8 @@ void MemoryDetails::CollectChildInfoOnUIThread() {
       process.titles.push_back(title);
     }
 
-#if defined(OS_POSIX) && !defined(OS_MACOSX) && !defined(OS_ANDROID)
-    if (service_manager::ZygoteHost::GetInstance()->IsZygotePid(process.pid)) {
+#if defined(OS_POSIX) && !defined(OS_MAC) && !defined(OS_ANDROID)
+    if (content::ZygoteHost::GetInstance()->IsZygotePid(process.pid)) {
       process.process_type = content::PROCESS_TYPE_ZYGOTE;
     }
 #endif

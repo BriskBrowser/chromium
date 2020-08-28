@@ -30,6 +30,7 @@ class VaapiTFPPicture : public VaapiPicture {
                   const BindGLImageCallback& bind_image_cb,
                   int32_t picture_buffer_id,
                   const gfx::Size& size,
+                  const gfx::Size& visible_size,
                   uint32_t texture_id,
                   uint32_t client_texture_id,
                   uint32_t texture_target);
@@ -37,14 +38,14 @@ class VaapiTFPPicture : public VaapiPicture {
   ~VaapiTFPPicture() override;
 
   // VaapiPicture implementation.
-  bool Allocate(gfx::BufferFormat format) override;
+  Status Allocate(gfx::BufferFormat format) override;
   bool ImportGpuMemoryBufferHandle(
       gfx::BufferFormat format,
       gfx::GpuMemoryBufferHandle gpu_memory_buffer_handle) override;
   bool DownloadFromSurface(scoped_refptr<VASurface> va_surface) override;
 
  private:
-  bool Initialize();
+  Status Initialize();
 
   Display* x_display_;
 

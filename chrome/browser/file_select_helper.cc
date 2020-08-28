@@ -14,9 +14,10 @@
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
 #include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
+#include "chrome/browser/enterprise/connectors/common.h"
 #include "chrome/browser/platform_util.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
@@ -71,7 +72,7 @@ constexpr char kContactsMimeType[] = "text/json+contacts";
 
 void DeleteFiles(std::vector<base::FilePath> paths) {
   for (auto& file_path : paths)
-    base::DeleteFile(file_path, false);
+    base::DeleteFile(file_path);
 }
 
 bool IsValidProfile(Profile* profile) {
@@ -110,6 +111,8 @@ bool IsDownloadAllowedBySafeBrowsing(
     case Result::SENSITIVE_CONTENT_BLOCK:
     case Result::SENSITIVE_CONTENT_WARNING:
     case Result::DEEP_SCANNED_SAFE:
+    case Result::PROMPT_FOR_SCANNING:
+    case Result::BLOCKED_UNSUPPORTED_FILE_TYPE:
       NOTREACHED();
       return true;
   }
@@ -117,9 +120,9 @@ bool IsDownloadAllowedBySafeBrowsing(
   return false;
 }
 
-void InterpretSafeBrowsingVerdict(const base::Callback<void(bool)>& recipient,
+void InterpretSafeBrowsingVerdict(base::OnceCallback<void(bool)> recipient,
                                   safe_browsing::DownloadCheckResult result) {
-  recipient.Run(IsDownloadAllowedBySafeBrowsing(result));
+  std::move(recipient).Run(IsDownloadAllowedBySafeBrowsing(result));
 }
 
 #endif
@@ -181,15 +184,14 @@ void FileSelectHelper::FileSelectedWithExtraInfo(
   std::vector<ui::SelectedFileInfo> files;
   files.push_back(file);
 
-#if defined(OS_MACOSX)
-  base::PostTask(
+#if defined(OS_MAC)
+  base::ThreadPool::PostTask(
       FROM_HERE,
-      {base::ThreadPool(), base::MayBlock(),
-       base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN},
+      {base::MayBlock(), base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN},
       base::BindOnce(&FileSelectHelper::ProcessSelectedFilesMac, this, files));
 #else
   ConvertToFileChooserFileInfoList(files);
-#endif  // defined(OS_MACOSX)
+#endif  // defined(OS_MAC)
 }
 
 void FileSelectHelper::MultiFilesSelected(
@@ -210,15 +212,14 @@ void FileSelectHelper::MultiFilesSelectedWithExtraInfo(
       path = path.DirName();
     profile_->set_last_selected_directory(path);
   }
-#if defined(OS_MACOSX)
-  base::PostTask(
+#if defined(OS_MAC)
+  base::ThreadPool::PostTask(
       FROM_HERE,
-      {base::ThreadPool(), base::MayBlock(),
-       base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN},
+      {base::MayBlock(), base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN},
       base::BindOnce(&FileSelectHelper::ProcessSelectedFilesMac, this, files));
 #else
   ConvertToFileChooserFileInfoList(files);
-#endif  // defined(OS_MACOSX)
+#endif  // defined(OS_MAC)
 }
 
 void FileSelectHelper::FileSelectionCanceled(void* params) {
@@ -333,7 +334,8 @@ void FileSelectHelper::PerformSafeBrowsingDeepScanIfNeeded(
 #if BUILDFLAG(FULL_SAFE_BROWSING)
   safe_browsing::DeepScanningDialogDelegate::Data data;
   if (safe_browsing::DeepScanningDialogDelegate::IsEnabled(
-          profile_, render_frame_host_->GetLastCommittedURL(), &data)) {
+          profile_, render_frame_host_->GetLastCommittedURL(), &data,
+          enterprise_connectors::AnalysisConnector::FILE_ATTACHED)) {
     data.paths.reserve(list.size());
     for (const auto& file : list)
       data.paths.push_back(file->get_native_file()->file_path);
@@ -387,9 +389,9 @@ void FileSelectHelper::NotifyListenerAndEnd(
 }
 
 void FileSelectHelper::DeleteTemporaryFiles() {
-  base::PostTask(
+  base::ThreadPool::PostTask(
       FROM_HERE,
-      {base::ThreadPool(), base::MayBlock(), base::TaskPriority::BEST_EFFORT,
+      {base::MayBlock(), base::TaskPriority::BEST_EFFORT,
        base::TaskShutdownBehavior::BLOCK_SHUTDOWN},
       base::BindOnce(&DeleteFiles, std::move(temporary_files_)));
 }
@@ -415,7 +417,7 @@ bool FileSelectHelper::AbortIfWebContentsDestroyed() {
 }
 
 void FileSelectHelper::SetFileSelectListenerForTesting(
-    std::unique_ptr<content::FileSelectListener> listener) {
+    scoped_refptr<content::FileSelectListener> listener) {
   DCHECK(listener);
   DCHECK(!listener_);
   listener_ = std::move(listener);
@@ -444,18 +446,18 @@ FileSelectHelper::GetFileTypesFromAcceptType(
   // Find the corresponding extensions.
   int valid_type_count = 0;
   int description_id = 0;
-  for (size_t i = 0; i < accept_types.size(); ++i) {
-    std::string ascii_type = base::UTF16ToASCII(accept_types[i]);
-    if (!IsAcceptTypeValid(ascii_type))
-      continue;
-
+  for (const auto& accept_type : accept_types) {
     size_t old_extension_size = extensions->size();
-    if (ascii_type[0] == '.') {
+    if (accept_type[0] == '.') {
       // If the type starts with a period it is assumed to be a file extension
       // so we just have to add it to the list.
-      base::FilePath::StringType ext(ascii_type.begin(), ascii_type.end());
+      base::FilePath::StringType ext =
+          base::FilePath::FromUTF16Unsafe(accept_type).value();
       extensions->push_back(ext.substr(1));
     } else {
+      if (!base::IsStringASCII(accept_type))
+        continue;
+      std::string ascii_type = base::UTF16ToASCII(accept_type);
       if (ascii_type == "image/*")
         description_id = IDS_IMAGE_FILES;
       else if (ascii_type == "audio/*")
@@ -496,7 +498,7 @@ FileSelectHelper::GetFileTypesFromAcceptType(
 // static
 void FileSelectHelper::RunFileChooser(
     content::RenderFrameHost* render_frame_host,
-    std::unique_ptr<content::FileSelectListener> listener,
+    scoped_refptr<content::FileSelectListener> listener,
     const FileChooserParams& params) {
   Profile* profile = Profile::FromBrowserContext(
       render_frame_host->GetProcess()->GetBrowserContext());
@@ -524,7 +526,7 @@ void FileSelectHelper::RunFileChooser(
 // static
 void FileSelectHelper::EnumerateDirectory(
     content::WebContents* tab,
-    std::unique_ptr<content::FileSelectListener> listener,
+    scoped_refptr<content::FileSelectListener> listener,
     const base::FilePath& path) {
   Profile* profile = Profile::FromBrowserContext(tab->GetBrowserContext());
   // FileSelectHelper will keep itself alive until it sends the result
@@ -536,7 +538,7 @@ void FileSelectHelper::EnumerateDirectory(
 
 void FileSelectHelper::RunFileChooser(
     content::RenderFrameHost* render_frame_host,
-    std::unique_ptr<content::FileSelectListener> listener,
+    scoped_refptr<content::FileSelectListener> listener,
     FileChooserParamsPtr params) {
   DCHECK(!render_frame_host_);
   DCHECK(!web_contents_);
@@ -556,9 +558,10 @@ void FileSelectHelper::RunFileChooser(
   content::WebContentsObserver::Observe(web_contents_);
   observer_.Add(render_frame_host_->GetRenderViewHost()->GetWidget());
 
-  base::PostTask(FROM_HERE, {base::ThreadPool(), base::MayBlock()},
-                 base::BindOnce(&FileSelectHelper::GetFileTypesInThreadPool,
-                                this, std::move(params)));
+  base::ThreadPool::PostTask(
+      FROM_HERE, {base::MayBlock()},
+      base::BindOnce(&FileSelectHelper::GetFileTypesInThreadPool, this,
+                     std::move(params)));
 
   // Because this class returns notifications to the RenderViewHost, it is
   // difficult for callers to know how long to keep a reference to this
@@ -574,8 +577,8 @@ void FileSelectHelper::GetFileTypesInThreadPool(FileChooserParamsPtr params) {
       params->need_local_path ? ui::SelectFileDialog::FileTypeInfo::NATIVE_PATH
                               : ui::SelectFileDialog::FileTypeInfo::ANY_PATH;
 
-  base::PostTask(
-      FROM_HERE, {BrowserThread::UI},
+  content::GetUIThreadTaskRunner({})->PostTask(
+      FROM_HERE,
       base::BindOnce(&FileSelectHelper::GetSanitizedFilenameOnUIThread, this,
                      std::move(params)));
 }
@@ -600,6 +603,8 @@ void FileSelectHelper::GetSanitizedFilenameOnUIThread(
 void FileSelectHelper::CheckDownloadRequestWithSafeBrowsing(
     const base::FilePath& default_file_path,
     FileChooserParamsPtr params) {
+// Download Protection is not supported on Android.
+#if BUILDFLAG(FULL_SAFE_BROWSING)
   safe_browsing::SafeBrowsingService* sb_service =
       g_browser_process->safe_browsing_service();
 
@@ -624,12 +629,14 @@ void FileSelectHelper::CheckDownloadRequestWithSafeBrowsing(
   GURL requestor_url = params->requestor;
   sb_service->download_protection_service()->CheckPPAPIDownloadRequest(
       requestor_url,
-      render_frame_host_? render_frame_host_->GetLastCommittedURL() : GURL(),
-      WebContents::FromRenderFrameHost(render_frame_host_),
-      default_file_path, alternate_extensions, profile_,
-      base::Bind(&InterpretSafeBrowsingVerdict,
-                 base::Bind(&FileSelectHelper::ProceedWithSafeBrowsingVerdict,
-                            this, default_file_path, base::Passed(&params))));
+      render_frame_host_ ? render_frame_host_->GetLastCommittedURL() : GURL(),
+      WebContents::FromRenderFrameHost(render_frame_host_), default_file_path,
+      alternate_extensions, profile_,
+      base::BindOnce(
+          &InterpretSafeBrowsingVerdict,
+          base::BindOnce(&FileSelectHelper::ProceedWithSafeBrowsingVerdict,
+                         this, default_file_path, base::Passed(&params))));
+#endif
 }
 
 void FileSelectHelper::ProceedWithSafeBrowsingVerdict(
@@ -720,7 +727,7 @@ void FileSelectHelper::RunFileChooserEnd() {
 
 void FileSelectHelper::EnumerateDirectoryImpl(
     content::WebContents* tab,
-    std::unique_ptr<content::FileSelectListener> listener,
+    scoped_refptr<content::FileSelectListener> listener,
     const base::FilePath& path) {
   DCHECK(listener);
   DCHECK(!listener_);

@@ -7,10 +7,11 @@
 #include "base/files/scoped_temp_dir.h"
 #include "base/memory/weak_ptr.h"
 #include "base/strings/stringprintf.h"
-#include "base/task/post_task.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "content/browser/frame_host/debug_urls.h"
+#include "content/browser/frame_host/navigation_controller_impl.h"
 #include "content/browser/frame_host/navigation_request.h"
+#include "content/browser/frame_host/render_frame_host_impl.h"
 #include "content/browser/site_instance_impl.h"
 #include "content/browser/web_contents/web_contents_impl.h"
 #include "content/public/browser/browser_task_traits.h"
@@ -23,6 +24,7 @@
 #include "content/public/common/content_features.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/common/url_constants.h"
+#include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/content_browser_test.h"
 #include "content/public/test/content_browser_test_utils.h"
@@ -100,8 +102,8 @@ class TestNavigationThrottle : public NavigationThrottle {
              navigation_request->request_context_type());
     request_context_type_ = navigation_request->request_context_type();
 
-    base::PostTask(FROM_HERE, {BrowserThread::UI},
-                   std::move(did_call_will_start_));
+    GetUIThreadTaskRunner({})->PostTask(FROM_HERE,
+                                        std::move(did_call_will_start_));
     return will_start_result_;
   }
 
@@ -110,8 +112,8 @@ class TestNavigationThrottle : public NavigationThrottle {
         NavigationRequest::From(navigation_handle());
     CHECK_EQ(request_context_type_, navigation_request->request_context_type());
 
-    base::PostTask(FROM_HERE, {BrowserThread::UI},
-                   std::move(did_call_will_redirect_));
+    GetUIThreadTaskRunner({})->PostTask(FROM_HERE,
+                                        std::move(did_call_will_redirect_));
     return will_redirect_result_;
   }
 
@@ -120,8 +122,8 @@ class TestNavigationThrottle : public NavigationThrottle {
         NavigationRequest::From(navigation_handle());
     CHECK_EQ(request_context_type_, navigation_request->request_context_type());
 
-    base::PostTask(FROM_HERE, {BrowserThread::UI},
-                   std::move(did_call_will_fail_));
+    GetUIThreadTaskRunner({})->PostTask(FROM_HERE,
+                                        std::move(did_call_will_fail_));
     return will_fail_result_;
   }
 
@@ -130,8 +132,8 @@ class TestNavigationThrottle : public NavigationThrottle {
         NavigationRequest::From(navigation_handle());
     CHECK_EQ(request_context_type_, navigation_request->request_context_type());
 
-    base::PostTask(FROM_HERE, {BrowserThread::UI},
-                   std::move(did_call_will_process_));
+    GetUIThreadTaskRunner({})->PostTask(FROM_HERE,
+                                        std::move(did_call_will_process_));
     return will_process_result_;
   }
 
@@ -1411,6 +1413,9 @@ IN_PROC_BROWSER_TEST_F(NavigationRequestBrowserTest,
 // RenderProcessHost. See https://crbug.com/949977.
 IN_PROC_BROWSER_TEST_F(NavigationRequestBrowserTest,
                        NoLeakFromStartingSiteInstance) {
+  IsolateOriginsForTesting(embedded_test_server(), shell()->web_contents(),
+                           {"b.com"});
+
   GURL url_a = embedded_test_server()->GetURL("a.com", "/title1.html");
   EXPECT_TRUE(NavigateToURL(shell(), url_a));
 
@@ -1441,12 +1446,7 @@ IN_PROC_BROWSER_TEST_F(NavigationRequestBrowserTest,
             starting_site_instance);
   // Because of the sad tab, this is actually the b.com SiteInstance, which
   // commits immediately after starting the navigation and has a process.
-  if (AreDefaultSiteInstancesEnabled()) {
-    EXPECT_TRUE(static_cast<SiteInstanceImpl*>(starting_site_instance.get())
-                    ->IsDefaultSiteInstance());
-  } else {
-    EXPECT_EQ(GURL("http://b.com"), starting_site_instance->GetSiteURL());
-  }
+  EXPECT_EQ(GURL("http://b.com"), starting_site_instance->GetSiteURL());
   EXPECT_TRUE(starting_site_instance->HasProcess());
 
   // In https://crbug.com/949977, we used the a.com SiteInstance here and didn't
@@ -1551,6 +1551,63 @@ IN_PROC_BROWSER_TEST_F(NavigationRequestHttpsUpgradeBrowserTest,
   CheckHttpsUpgradedIframeNavigation(start_url, cross_site_iframe_secure_url);
 }
 
+IN_PROC_BROWSER_TEST_F(NavigationRequestBrowserTest,
+                       BrowserInitiatedMainFrameReload) {
+  GURL url = embedded_test_server()->GetURL("/hello.html");
+  EXPECT_TRUE(NavigateToURL(shell(), url));
+
+  NavigationHandleObserver handle_observer(shell()->web_contents(), url);
+  TestNavigationObserver navigation_observer(shell()->web_contents(), 1);
+  shell()->Reload();
+  navigation_observer.Wait();
+
+  EXPECT_EQ(handle_observer.reload_type(), ReloadType::NORMAL);
+}
+
+IN_PROC_BROWSER_TEST_F(NavigationRequestBrowserTest,
+                       BrowserInitiatedSubFrameReload) {
+  GURL url = embedded_test_server()->GetURL("/page_with_iframe.html");
+  EXPECT_TRUE(NavigateToURL(shell(), url));
+
+  NavigationHandleObserver handle_observer(
+      shell()->web_contents(), embedded_test_server()->GetURL("/title1.html"));
+  TestNavigationObserver navigation_observer(shell()->web_contents(), 1);
+
+  auto frames = shell()->web_contents()->GetMainFrame()->GetFramesInSubtree();
+  ASSERT_EQ(frames.size(), 2u);
+  auto* frame = static_cast<RenderFrameHostImpl*>(frames[1]);
+  auto* navigation_controller = static_cast<NavigationControllerImpl*>(
+      &shell()->web_contents()->GetController());
+  navigation_controller->ReloadFrame(frame->frame_tree_node());
+  navigation_observer.Wait();
+
+  EXPECT_EQ(handle_observer.reload_type(), ReloadType::NORMAL);
+  EXPECT_FALSE(handle_observer.is_main_frame());
+}
+
+IN_PROC_BROWSER_TEST_F(NavigationRequestBrowserTest,
+                       RendererInitiatedMainFrameReload) {
+  GURL url = embedded_test_server()->GetURL("/hello.html");
+  EXPECT_TRUE(NavigateToURL(shell(), url));
+  NavigationHandleObserver observer(shell()->web_contents(), url);
+  EXPECT_TRUE(ExecuteScript(shell(), "location.reload();"));
+  EXPECT_EQ(observer.reload_type(), ReloadType::NORMAL);
+}
+
+IN_PROC_BROWSER_TEST_F(NavigationRequestBrowserTest,
+                       RendererInitiatedSubFrameReload) {
+  GURL url = embedded_test_server()->GetURL("/page_with_iframe.html");
+  EXPECT_TRUE(NavigateToURL(shell(), url));
+
+  NavigationHandleObserver handle_observer(
+      shell()->web_contents(), embedded_test_server()->GetURL("/title1.html"));
+  EXPECT_TRUE(ExecuteScript(shell(),
+                            "document.getElementById('test_iframe')."
+                            "contentWindow.location.reload();"));
+  EXPECT_EQ(handle_observer.reload_type(), ReloadType::NORMAL);
+  EXPECT_FALSE(handle_observer.is_main_frame());
+}
+
 // Ensure that browser-initiated same-document navigations are detected and
 // don't issue network requests.  See crbug.com/663777.
 IN_PROC_BROWSER_TEST_F(NavigationRequestBrowserTest,
@@ -1643,7 +1700,7 @@ IN_PROC_BROWSER_TEST_F(NavigationRequestHostResolutionFailureTest,
 
   EXPECT_TRUE(observer.has_committed());
   EXPECT_TRUE(observer.is_error());
-  EXPECT_EQ(net::ERR_DNS_TIMED_OUT, observer.net_error_code());
+  EXPECT_EQ(net::ERR_NAME_NOT_RESOLVED, observer.net_error_code());
   EXPECT_EQ(net::ERR_DNS_TIMED_OUT, observer.resolve_error_info().error);
 }
 
@@ -1908,8 +1965,8 @@ IN_PROC_BROWSER_TEST_F(NavigationRequestBrowserTest, ErrorPageNetworkError) {
   GURL start_url(embedded_test_server()->GetURL("foo.com", "/title1.html"));
   GURL error_url(embedded_test_server()->GetURL("/close-socket"));
   EXPECT_NE(start_url.host(), error_url.host());
-  base::PostTask(FROM_HERE, {BrowserThread::IO},
-                 base::BindOnce(&net::URLRequestFailedJob::AddUrlHandler));
+  GetIOThreadTaskRunner({})->PostTask(
+      FROM_HERE, base::BindOnce(&net::URLRequestFailedJob::AddUrlHandler));
 
   {
     NavigationHandleObserver observer(shell()->web_contents(), start_url);
@@ -2075,7 +2132,7 @@ IN_PROC_BROWSER_TEST_F(NavigationRequestBrowserTest,
       {GURL("http://user:pass@a.com/frame_tree/page_with_one_frame.html"),
        GURL("http://user:pass@b.com/title1.html"), true},
   };
-  for (const auto test_case : kTestCases) {
+  for (const auto& test_case : kTestCases) {
     // Modify the URLs port to use the embedded test server's port.
     std::string port_str(std::to_string(embedded_test_server()->port()));
     GURL::Replacements set_port;

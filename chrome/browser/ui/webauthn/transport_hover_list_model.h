@@ -20,20 +20,21 @@ class TransportHoverListModel : public HoverListModel {
    public:
     // Called when the given |transport| is selected by the user.
     virtual void OnTransportSelected(AuthenticatorTransport transport) = 0;
-    // Called when the user selects the item to pair a new phone.
-    virtual void StartPhonePairing() = 0;
+    // Called to trigger the native Windows API.
+    virtual void StartWinNativeApi() = 0;
   };
 
-  explicit TransportHoverListModel(
-      std::vector<AuthenticatorTransport> transport_list,
-      Delegate* delegate);
+  TransportHoverListModel(base::flat_set<AuthenticatorTransport> transport_list,
+                          bool show_win_native_api_item,
+                          Delegate* delegate);
   ~TransportHoverListModel() override;
 
   // HoverListModel:
   bool ShouldShowPlaceholderForEmptyList() const override;
   base::string16 GetPlaceholderText() const override;
   const gfx::VectorIcon* GetPlaceholderIcon() const override;
-  std::vector<int> GetItemTags() const override;
+  std::vector<int> GetThrobberTags() const override;
+  std::vector<int> GetButtonTags() const override;
   base::string16 GetItemText(int item_tag) const override;
   base::string16 GetDescriptionText(int item_tag) const override;
   const gfx::VectorIcon* GetItemIcon(int item_tag) const override;
@@ -42,7 +43,13 @@ class TransportHoverListModel : public HoverListModel {
   bool StyleForTwoLines() const override;
 
  private:
-  std::vector<AuthenticatorTransport> transport_list_;
+  // Contains an AuthenticatorTransport for each item in the list.
+  base::flat_set<AuthenticatorTransport> transport_list_;
+
+  // Indicates whether a button to dispatch the request to the native Windows
+  // API should be shown.
+  const bool show_win_native_api_item_ = false;
+
   Delegate* const delegate_;  // Weak, may be nullptr.
 
   DISALLOW_COPY_AND_ASSIGN(TransportHoverListModel);

@@ -65,14 +65,14 @@ fetch("http://example.org/path", {
 cURL Windows:
 curl "http://example.org/path" ^
   -H "Content-Type: application/x-www-form-urlencoded" ^
-  --data "1^&b" ^
+  --data-raw "1^&b" ^
   --compressed
 
 
 cURL Unix:
 curl 'http://example.org/path' \
   -H 'Content-Type: application/x-www-form-urlencoded' \
-  --data '1&b' \
+  --data-raw '1&b' \
   --compressed
 
 
@@ -522,6 +522,83 @@ fetch("http://example.org/path", {
     "cookie": "_x=fdsfs; aA=fdsfdsf; FOO=ID=BAR:BAZ=FOO:F=d:AO=21.212.2.212-:A=dsadas8d9as8d9a8sd9sa8d9a; AAA=117"
   },
   "method": "GET",
+  "mode": "cors"
+});
+
+
+cURL Windows:
+curl "http://example.org/path" ^
+  -X "^|evilcommand^|" ^
+  --compressed
+
+
+cURL Unix:
+curl 'http://example.org/path' \
+  -X '|evilcommand|' \
+  --compressed
+
+
+Powershell:
+Invoke-WebRequest -Uri "http://example.org/path" -Method "|evilcommand|"
+
+
+fetch (for browser):
+fetch("http://example.org/path", {
+  "body": null,
+  "method": "|evilcommand|",
+  "mode": "cors",
+  "credentials": "omit"
+});
+
+
+fetch (for nodejs):
+fetch("http://example.org/path", {
+  "body": null,
+  "method": "|evilcommand|",
+  "mode": "cors"
+});
+
+
+cURL Windows:
+curl "http://example.org/path" ^
+  -H "Content-Type: application/x-www-form-urlencoded" ^
+  --data-raw "^@/etc/passwd" ^
+  --compressed
+
+
+cURL Unix:
+curl 'http://example.org/path' \
+  -H 'Content-Type: application/x-www-form-urlencoded' \
+  --data-raw '@/etc/passwd' \
+  --compressed
+
+
+Powershell:
+Invoke-WebRequest -Uri "http://example.org/path" `
+-Method "POST" `
+-ContentType "application/x-www-form-urlencoded" `
+-Body "@/etc/passwd"
+
+
+fetch (for browser):
+fetch("http://example.org/path", {
+  "headers": {
+    "content-type": "application/x-www-form-urlencoded"
+  },
+  "body": "@/etc/passwd",
+  "method": "POST",
+  "mode": "cors",
+  "credentials": "omit"
+});
+
+
+fetch (for nodejs):
+fetch("http://example.org/path", {
+  "headers": {
+    "content-type": "application/x-www-form-urlencoded"
+  },
+  "body": "@/etc/passwd",
+  "method": "POST",
   "mode": "cors"
 });
 

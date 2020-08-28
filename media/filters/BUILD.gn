@@ -2,12 +2,11 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-import("//build/config/jumbo.gni")
 import("//media/gpu/args.gni")
 import("//media/media_options.gni")
 import("//third_party/libaom/options.gni")
 
-jumbo_source_set("filters") {
+source_set("filters") {
   # Do not expand the visibility here without double-checking with OWNERS, this
   # is a roll-up target which is part of the //media component. Most other DEPs
   # should be using //media and not directly DEP this roll-up target.
@@ -85,6 +84,7 @@ jumbo_source_set("filters") {
   ]
 
   deps = [
+    "//base/util/type_safety:type_safety",
     "//cc/base",  # For MathUtil.
     "//media:media_buildflags",
     "//media/base",
@@ -140,7 +140,7 @@ jumbo_source_set("filters") {
     deps += [ "//third_party/libvpx" ]
   }
 
-  if (enable_libaom_decoder) {
+  if (enable_libaom) {
     sources += [
       "aom_video_decoder.cc",
       "aom_video_decoder.h",
@@ -154,6 +154,14 @@ jumbo_source_set("filters") {
       "dav1d_video_decoder.h",
     ]
     deps += [ "//third_party/dav1d" ]
+  }
+
+  if (enable_libgav1_decoder) {
+    sources += [
+      "gav1_video_decoder.cc",
+      "gav1_video_decoder.h",
+    ]
+    deps += [ "//third_party/libgav1" ]
   }
 
   if (media_use_ffmpeg) {
@@ -179,6 +187,13 @@ jumbo_source_set("filters") {
         "ffmpeg_video_decoder.h",
       ]
     }
+
+    if (is_android) {
+      sources += [
+        "android/video_frame_extractor.cc",
+        "android/video_frame_extractor.h",
+      ]
+    }
   }
 
   if (is_android) {
@@ -191,8 +206,6 @@ jumbo_source_set("filters") {
     sources += [
       "android/media_codec_audio_decoder.cc",
       "android/media_codec_audio_decoder.h",
-      "android/video_frame_extractor.cc",
-      "android/video_frame_extractor.h",
     ]
     deps += [ "//media/base/android" ]
   }
@@ -215,10 +228,10 @@ jumbo_source_set("filters") {
       "//gpu/ipc/common",
       "//media/fuchsia/cdm",
       "//media/fuchsia/common",
-      "//third_party/fuchsia-sdk/sdk:fuchsia-media",
-      "//third_party/fuchsia-sdk/sdk:fuchsia-mediacodec",
-      "//third_party/fuchsia-sdk/sdk:fuchsia-sysmem",
-      "//third_party/fuchsia-sdk/sdk:sys_cpp",
+      "//third_party/fuchsia-sdk/sdk/fidl/fuchsia.media",
+      "//third_party/fuchsia-sdk/sdk/fidl/fuchsia.mediacodec",
+      "//third_party/fuchsia-sdk/sdk/fidl/fuchsia.sysmem",
+      "//third_party/fuchsia-sdk/sdk/pkg/sys_cpp",
       "//ui/ozone",
     ]
   }
@@ -248,6 +261,8 @@ static_library("test_support") {
   visibility = [ "//media:test_support" ]
 
   sources = [
+    "fake_video_decoder.cc",
+    "fake_video_decoder.h",
     "ivf_parser.cc",
     "ivf_parser.h",
   ]
@@ -276,8 +291,6 @@ source_set("unit_tests") {
     "decrypting_demuxer_stream_unittest.cc",
     "decrypting_media_resource_unittest.cc",
     "decrypting_video_decoder_unittest.cc",
-    "fake_video_decoder.cc",
-    "fake_video_decoder.h",
     "fake_video_decoder_unittest.cc",
     "file_data_source_unittest.cc",
     "frame_buffer_pool_unittest.cc",
@@ -323,8 +336,8 @@ source_set("unit_tests") {
     deps += [
       "//components/viz/test:test_support",
       "//gpu/command_buffer/client",
-      "//third_party/fuchsia-sdk/sdk:fuchsia-sysmem",
-      "//third_party/fuchsia-sdk/sdk:sys_cpp",
+      "//third_party/fuchsia-sdk/sdk/fidl/fuchsia.sysmem",
+      "//third_party/fuchsia-sdk/sdk/pkg/sys_cpp",
     ]
   }
 
@@ -367,12 +380,16 @@ source_set("unit_tests") {
     sources += [ "vpx_video_decoder_unittest.cc" ]
   }
 
-  if (enable_libaom_decoder) {
+  if (enable_libaom) {
     sources += [ "aom_video_decoder_unittest.cc" ]
   }
 
   if (enable_dav1d_decoder) {
     sources += [ "dav1d_video_decoder_unittest.cc" ]
+  }
+
+  if (enable_libgav1_decoder) {
+    sources += [ "gav1_video_decoder_unittest.cc" ]
   }
 
   if (use_vaapi) {

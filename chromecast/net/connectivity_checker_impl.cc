@@ -158,14 +158,18 @@ void ConnectivityCheckerImpl::CheckInternal() {
   DCHECK(task_runner_->BelongsToCurrentThread());
   DCHECK(url_loader_factory_);
 
-  // Don't check connectivity if network is offline, because Internet could be
-  // accessible via netifs ignored.
   auto connection_type = network::mojom::ConnectionType::CONNECTION_UNKNOWN;
-  network_connection_tracker_->GetConnectionType(
+  bool is_sync = network_connection_tracker_->GetConnectionType(
       &connection_type,
       base::BindOnce(&ConnectivityCheckerImpl::OnConnectionChanged,
                      weak_this_));
-  if (connection_type == network::mojom::ConnectionType::CONNECTION_NONE) {
+
+  // Don't check connectivity if network is offline.
+  // Also don't check connectivity if the connection_type cannot be
+  // synchronously retrieved, since OnConnectionChanged will be triggered later
+  // which will cause duplicate checks.
+  if (!is_sync ||
+      connection_type == network::mojom::ConnectionType::CONNECTION_NONE) {
     return;
   }
 
@@ -190,8 +194,8 @@ void ConnectivityCheckerImpl::CheckInternal() {
   url_loader_->DownloadHeadersOnly(url_loader_factory_.get(),
                                    std::move(callback));
 
-  timeout_.Reset(
-      base::Bind(&ConnectivityCheckerImpl::OnUrlRequestTimeout, weak_this_));
+  timeout_.Reset(base::BindOnce(&ConnectivityCheckerImpl::OnUrlRequestTimeout,
+                                weak_this_));
   // Exponential backoff for timeout in 3, 6 and 12 sec.
   const int timeout = kRequestTimeoutInSeconds
                       << (check_errors_ > 2 ? 2 : check_errors_);

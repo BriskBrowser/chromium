@@ -14,37 +14,14 @@
 namespace ntp_features {
 
 TEST(NTPFeaturesTest, IsRealboxEnabled) {
-  base::test::ScopedFeatureList feature_list;
-  EXPECT_FALSE(IsRealboxEnabled());
+  {
+    EXPECT_TRUE(IsRealboxEnabled());
 
-  feature_list.InitAndEnableFeature(kRealbox);
-  EXPECT_TRUE(IsRealboxEnabled());
-
-  feature_list.Reset();
-  EXPECT_FALSE(IsRealboxEnabled());
-
-  feature_list.InitAndEnableFeature(omnibox::kZeroSuggestionsOnNTPRealbox);
-  EXPECT_TRUE(IsRealboxEnabled());
-
-  feature_list.Reset();
-  EXPECT_FALSE(IsRealboxEnabled());
-
-  // zero-prefix suggestions are configured for the NTP Omnibox.
-  feature_list.InitWithFeaturesAndParameters(
-      {{omnibox::kOnFocusSuggestions,
-        {{"ZeroSuggestVariant:7:*", "Does not matter"}}}},
-      {});
-  EXPECT_FALSE(IsRealboxEnabled());
-
-  feature_list.Reset();
-  EXPECT_FALSE(IsRealboxEnabled());
-
-  // zero-prefix suggestions are configured for the NTP Realbox.
-  feature_list.InitWithFeaturesAndParameters(
-      {{omnibox::kOnFocusSuggestions,
-        {{"ZeroSuggestVariant:15:*", "Does not matter"}}}},
-      {});
-  EXPECT_TRUE(IsRealboxEnabled());
+    base::test::ScopedFeatureList feature_list;
+    // Realbox is disabled when new search features are disabled.
+    feature_list.InitAndDisableFeature(omnibox::kNewSearchFeatures);
+    EXPECT_FALSE(IsRealboxEnabled());
+  }
 }
 
 }  // namespace ntp_features

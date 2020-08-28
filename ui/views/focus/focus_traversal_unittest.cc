@@ -94,7 +94,7 @@ class DummyComboboxModel : public ui::ComboboxModel {
  public:
   // Overridden from ui::ComboboxModel:
   int GetItemCount() const override { return 10; }
-  base::string16 GetItemAt(int index) override {
+  base::string16 GetItemAt(int index) const override {
     return ASCIIToUTF16("Item ") + base::NumberToString16(index);
   }
 };
@@ -138,6 +138,9 @@ class BorderView : public NativeViewHost {
     SetFocusBehavior(FocusBehavior::NEVER);
   }
 
+  BorderView(const BorderView&) = delete;
+  BorderView& operator=(const BorderView&) = delete;
+
   virtual internal::RootView* GetContentsRootView() {
     return static_cast<internal::RootView*>(widget_->GetRootView());
   }
@@ -164,22 +167,22 @@ class BorderView : public NativeViewHost {
       // We have been added to a view hierarchy, attach the native view.
       Attach(widget_->GetNativeView());
       // Also update the FocusTraversable parent so the focus traversal works.
-      static_cast<internal::RootView*>(widget_->GetRootView())->
-          SetFocusTraversableParent(GetWidget()->GetFocusTraversable());
+      static_cast<internal::RootView*>(widget_->GetRootView())
+          ->SetFocusTraversableParent(GetWidget()->GetFocusTraversable());
     }
   }
 
  private:
   View* child_;
   std::unique_ptr<Widget> widget_;
-
-  DISALLOW_COPY_AND_ASSIGN(BorderView);
 };
 
 }  // namespace
 
 class FocusTraversalTest : public FocusManagerTest {
  public:
+  FocusTraversalTest(const FocusTraversalTest&) = delete;
+  FocusTraversalTest& operator=(const FocusTraversalTest&) = delete;
   ~FocusTraversalTest() override;
 
   void InitContentView() override;
@@ -209,8 +212,8 @@ class FocusTraversalTest : public FocusManagerTest {
   void AdvanceEntireFocusLoop(const int (&traversal_ids)[N], bool reverse) {
     for (size_t i = 0; i < 3; ++i) {
       for (size_t j = 0; j < N; j++) {
-        SCOPED_TRACE(testing::Message() << "reverse:" << reverse << " i:" << i
-                                        << " j:" << j);
+        SCOPED_TRACE(testing::Message()
+                     << "reverse:" << reverse << " i:" << i << " j:" << j);
         GetFocusManager()->AdvanceFocus(reverse);
         View* focused_view = GetFocusManager()->GetFocusedView();
         EXPECT_NE(nullptr, focused_view);
@@ -226,8 +229,6 @@ class FocusTraversalTest : public FocusManagerTest {
   DummyComboboxModel combobox_model_;
   PaneView* left_container_;
   PaneView* right_container_;
-
-  DISALLOW_COPY_AND_ASSIGN(FocusTraversalTest);
 };
 
 FocusTraversalTest::FocusTraversalTest() = default;
@@ -371,7 +372,8 @@ void FocusTraversalTest::InitContentView() {
 
   y += label_height + gap_between_labels;
 
-  auto button = MdTextButton::Create(nullptr, ASCIIToUTF16("Click me"));
+  auto button =
+      std::make_unique<MdTextButton>(nullptr, ASCIIToUTF16("Click me"));
   button->SetBounds(label_x, y + 10, 80, 30);
   button->SetID(FRUIT_BUTTON_ID);
   left_container_->AddChildView(std::move(button));
@@ -443,11 +445,9 @@ void FocusTraversalTest::InitContentView() {
       scroll_view_ptr->SetContents(std::move(scroll_content));
 
   static const char* const kTitles[] = {
-      "Rosetta", "Stupeur et tremblement", "The diner game",
-      "Ridicule", "Le placard", "Les Visiteurs", "Amelie",
-      "Joyeux Noel", "Camping", "Brice de Nice",
-      "Taxi", "Asterix"
-  };
+      "Rosetta",    "Stupeur et tremblement", "The diner game", "Ridicule",
+      "Le placard", "Les Visiteurs",          "Amelie",         "Joyeux Noel",
+      "Camping",    "Brice de Nice",          "Taxi",           "Asterix"};
 
   static const int kIDs[] = {ROSETTA_LINK_ID,    STUPEUR_ET_TREMBLEMENT_LINK_ID,
                              DINER_GAME_LINK_ID, RIDICULE_LINK_ID,
@@ -470,18 +470,18 @@ void FocusTraversalTest::InitContentView() {
 
   y = 250;
   int width = 60;
-  button = MdTextButton::Create(nullptr, ASCIIToUTF16("OK"));
+  button = std::make_unique<MdTextButton>(nullptr, ASCIIToUTF16("OK"));
   button->SetID(OK_BUTTON_ID);
   button->SetIsDefault(true);
   button->SetBounds(150, y, width, 30);
   GetContentsView()->AddChildView(std::move(button));
 
-  button = MdTextButton::Create(nullptr, ASCIIToUTF16("Cancel"));
+  button = std::make_unique<MdTextButton>(nullptr, ASCIIToUTF16("Cancel"));
   button->SetID(CANCEL_BUTTON_ID);
   button->SetBounds(220, y, width, 30);
   GetContentsView()->AddChildView(std::move(button));
 
-  button = MdTextButton::Create(nullptr, ASCIIToUTF16("Help"));
+  button = std::make_unique<MdTextButton>(nullptr, ASCIIToUTF16("Help"));
   button->SetID(HELP_BUTTON_ID);
   button->SetBounds(290, y, width, 30);
   GetContentsView()->AddChildView(std::move(button));
@@ -531,7 +531,7 @@ void FocusTraversalTest::InitContentView() {
   text_field_ptr->SetBounds(10, 10, 100, 20);
   text_field_ptr->SetID(SEARCH_TEXTFIELD_ID);
 
-  button = MdTextButton::Create(nullptr, ASCIIToUTF16("Search"));
+  button = std::make_unique<MdTextButton>(nullptr, ASCIIToUTF16("Search"));
   button->SetBounds(112, 5, 60, 30);
   button->SetID(SEARCH_BUTTON_ID);
   border_contents->AddChildView(std::move(button));
@@ -555,11 +555,11 @@ void FocusTraversalTest::InitContentView() {
   view_contents->SetFocusBehavior(View::FocusBehavior::ALWAYS);
   view_contents->SetBackground(CreateSolidBackground(SK_ColorBLUE));
   view_contents->SetID(THUMBNAIL_CONTAINER_ID);
-  button = MdTextButton::Create(nullptr, ASCIIToUTF16("Star"));
+  button = std::make_unique<MdTextButton>(nullptr, ASCIIToUTF16("Star"));
   button->SetBounds(5, 5, 50, 30);
   button->SetID(THUMBNAIL_STAR_ID);
   view_contents->AddChildView(std::move(button));
-  button = MdTextButton::Create(nullptr, ASCIIToUTF16("SuperStar"));
+  button = std::make_unique<MdTextButton>(nullptr, ASCIIToUTF16("SuperStar"));
   button->SetBounds(60, 5, 100, 30);
   button->SetID(THUMBNAIL_SUPER_STAR_ID);
   view_contents->AddChildView(std::move(button));
@@ -625,7 +625,7 @@ TEST_F(FocusTraversalTest, NormalTraversal) {
   AdvanceEntireFocusLoop(kTraversalIDs, true);
 }
 
-#if defined(OS_MACOSX)
+#if defined(OS_APPLE)
 // Test focus traversal with full keyboard access off on Mac.
 TEST_F(FocusTraversalTest, NormalTraversalMac) {
   GetFocusManager()->SetKeyboardAccessible(false);
@@ -681,18 +681,18 @@ TEST_F(FocusTraversalTest, FullKeyboardToggle) {
   EXPECT_EQ(THUMBNAIL_CONTAINER_ID,
             GetFocusManager()->GetFocusedView()->GetID());
 }
-#endif  // OS_MACOSX
+#endif  // OS_APPLE
 
 TEST_F(FocusTraversalTest, TraversalWithNonEnabledViews) {
   const int kDisabledIDs[] = {
-      BANANA_TEXTFIELD_ID, FRUIT_CHECKBOX_ID,    COMBOBOX_ID,
+      BANANA_TEXTFIELD_ID, FRUIT_CHECKBOX_ID,     COMBOBOX_ID,
       ASPARAGUS_BUTTON_ID, CAULIFLOWER_BUTTON_ID, CLOSET_LINK_ID,
       VISITING_LINK_ID,    BRICE_DE_NICE_LINK_ID, TAXI_LINK_ID,
       ASTERIX_LINK_ID,     HELP_BUTTON_ID,        BOLD_CHECKBOX_ID,
       SEARCH_TEXTFIELD_ID, HELP_LINK_ID};
 
   const int kTraversalIDs[] = {
-      TOP_CHECKBOX_ID,    APPLE_TEXTFIELD_ID,
+      TOP_CHECKBOX_ID,     APPLE_TEXTFIELD_ID,
       ORANGE_TEXTFIELD_ID, KIWI_TEXTFIELD_ID,
       FRUIT_BUTTON_ID,     BROCCOLI_BUTTON_ID,
       ROSETTA_LINK_ID,     STUPEUR_ET_TREMBLEMENT_LINK_ID,
@@ -700,7 +700,7 @@ TEST_F(FocusTraversalTest, TraversalWithNonEnabledViews) {
       AMELIE_LINK_ID,      JOYEUX_NOEL_LINK_ID,
       CAMPING_LINK_ID,     OK_BUTTON_ID,
       CANCEL_BUTTON_ID,    STYLE_CONTAINER_ID,
-      ITALIC_CHECKBOX_ID, UNDERLINED_CHECKBOX_ID,
+      ITALIC_CHECKBOX_ID,  UNDERLINED_CHECKBOX_ID,
       STYLE_HELP_LINK_ID,  STYLE_TEXT_EDIT_ID,
       SEARCH_BUTTON_ID,    THUMBNAIL_CONTAINER_ID,
       THUMBNAIL_STAR_ID,   THUMBNAIL_SUPER_STAR_ID};
@@ -740,7 +740,7 @@ TEST_F(FocusTraversalTest, TraversalWithInvisibleViews) {
       TAXI_LINK_ID,        ASTERIX_LINK_ID,
       CANCEL_BUTTON_ID,    HELP_BUTTON_ID,
       STYLE_CONTAINER_ID,  BOLD_CHECKBOX_ID,
-      ITALIC_CHECKBOX_ID, UNDERLINED_CHECKBOX_ID,
+      ITALIC_CHECKBOX_ID,  UNDERLINED_CHECKBOX_ID,
       STYLE_HELP_LINK_ID,  STYLE_TEXT_EDIT_ID,
       SEARCH_TEXTFIELD_ID, SEARCH_BUTTON_ID,
       HELP_LINK_ID};
@@ -814,15 +814,16 @@ TEST_F(FocusTraversalTest, PaneTraversal) {
 
 class FocusTraversalNonFocusableTest : public FocusManagerTest {
  public:
+  FocusTraversalNonFocusableTest(const FocusTraversalNonFocusableTest&) =
+      delete;
+  FocusTraversalNonFocusableTest& operator=(
+      const FocusTraversalNonFocusableTest&) = delete;
   ~FocusTraversalNonFocusableTest() override = default;
 
   void InitContentView() override;
 
  protected:
   FocusTraversalNonFocusableTest() = default;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(FocusTraversalNonFocusableTest);
 };
 
 void FocusTraversalNonFocusableTest::InitContentView() {

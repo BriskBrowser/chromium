@@ -4,7 +4,7 @@
 
 #include "chrome/installer/util/installation_state.h"
 
-#include "base/logging.h"
+#include "base/check.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/version.h"
@@ -40,14 +40,11 @@ ProductState::ProductState()
       eula_accepted_(0),
       usagestats_(0),
       msi_(false),
-      multi_install_(false),
       has_eula_accepted_(false),
       has_oem_install_(false),
-      has_usagestats_(false) {
-}
+      has_usagestats_(false) {}
 
-ProductState::~ProductState() {
-}
+ProductState::~ProductState() {}
 
 bool ProductState::Initialize(bool system_install) {
   static const DWORD kAccess = KEY_QUERY_VALUE | KEY_WOW64_32KEY;
@@ -62,8 +59,8 @@ bool ProductState::Initialize(bool system_install) {
   // Read from the Clients key.
   if (key.Open(root_key, clients_key.c_str(), kAccess) == ERROR_SUCCESS) {
     base::string16 version_str;
-    if (key.ReadValue(google_update::kRegVersionField,
-                      &version_str) == ERROR_SUCCESS) {
+    if (key.ReadValue(google_update::kRegVersionField, &version_str) ==
+        ERROR_SUCCESS) {
       version_.reset(new base::Version(base::UTF16ToASCII(version_str)));
       if (!version_->IsValid())
         version_.reset();
@@ -72,8 +69,8 @@ bool ProductState::Initialize(bool system_install) {
     // Attempt to read the other values even if the "pv" version value was
     // absent. Note that ProductState instances containing these values will
     // only be accessible via InstallationState::GetNonVersionedProductState.
-    if (key.ReadValue(google_update::kRegOldVersionField,
-                      &version_str) == ERROR_SUCCESS) {
+    if (key.ReadValue(google_update::kRegOldVersionField, &version_str) ==
+        ERROR_SUCCESS) {
       old_version_.reset(new base::Version(base::UTF16ToASCII(version_str)));
       if (!old_version_->IsValid())
         old_version_.reset();
@@ -112,11 +109,9 @@ bool ProductState::Initialize(bool system_install) {
                                           &eula_accepted_) == ERROR_SUCCESS);
     // "msi" may be absent, 0 or 1
     DWORD dw_value = 0;
-    msi_ = (key.ReadValueDW(google_update::kRegMSIField,
-                            &dw_value) == ERROR_SUCCESS) && (dw_value != 0);
-    // Multi-install is a legacy option that is read for the sole purpose of
-    // migrating clients away from it.
-    multi_install_ = uninstall_command_.HasSwitch("multi-install");
+    msi_ = (key.ReadValueDW(google_update::kRegMSIField, &dw_value) ==
+            ERROR_SUCCESS) &&
+           (dw_value != 0);
   }
 
   // Read from the ClientStateMedium key.  Values here override those in
@@ -126,8 +121,8 @@ bool ProductState::Initialize(bool system_install) {
                kAccess) == ERROR_SUCCESS) {
     DWORD dword_value = 0;
 
-    if (key.ReadValueDW(google_update::kRegUsageStatsField,
-                        &dword_value) == ERROR_SUCCESS) {
+    if (key.ReadValueDW(google_update::kRegUsageStatsField, &dword_value) ==
+        ERROR_SUCCESS) {
       has_usagestats_ = true;
       usagestats_ = dword_value;
     }
@@ -166,7 +161,6 @@ ProductState& ProductState::CopyFrom(const ProductState& other) {
   eula_accepted_ = other.eula_accepted_;
   usagestats_ = other.usagestats_;
   msi_ = other.msi_;
-  multi_install_ = other.multi_install_;
   has_eula_accepted_ = other.has_eula_accepted_;
   has_oem_install_ = other.has_oem_install_;
   has_usagestats_ = other.has_usagestats_;
@@ -186,7 +180,6 @@ void ProductState::Clear() {
   eula_accepted_ = 0;
   usagestats_ = 0;
   msi_ = false;
-  multi_install_ = false;
   has_eula_accepted_ = false;
   has_oem_install_ = false;
   has_usagestats_ = false;

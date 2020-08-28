@@ -5,12 +5,12 @@
 #ifndef CHROME_TEST_BASE_TESTING_PROFILE_H_
 #define CHROME_TEST_BASE_TESTING_PROFILE_H_
 
+#include <map>
 #include <memory>
 #include <string>
 #include <utility>
 #include <vector>
 
-#include "base/files/scoped_temp_dir.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/optional.h"
@@ -36,6 +36,7 @@ class BrowserContextDependencyManager;
 class SimpleDependencyManager;
 class ExtensionSpecialStoragePolicy;
 class HostContentSettingsMap;
+class TestingPrefStore;
 
 namespace content {
 class MockResourceContext;
@@ -89,6 +90,8 @@ class TestingProfile : public Profile {
   class Builder {
    public:
     Builder();
+    Builder(const Builder&) = delete;
+    Builder& operator=(const Builder&) = delete;
     ~Builder();
 
     // Sets a Delegate to be called back during profile init. This causes the
@@ -152,9 +155,12 @@ class TestingProfile : public Profile {
     // Creates the TestingProfile using previously-set settings.
     std::unique_ptr<TestingProfile> Build();
 
-    // Build an incognito profile, owned by |original_profile|. Note: unless you
-    // need to customize the Builder, or access TestingProfile member functions,
-    // you can use original_profile->GetOffTheRecordProfile().
+    // Build an OffTheRecord profile, owned by |original_profile|. Note: unless
+    // you need to customize the Builder, or access TestingProfile member
+    // functions, you can use original_profile->GetOffTheRecordProfile().
+    TestingProfile* BuildOffTheRecord(TestingProfile* original_profile,
+                                      const OTRProfileID& otr_profile_id);
+
     TestingProfile* BuildIncognito(TestingProfile* original_profile);
 
    private:
@@ -177,8 +183,6 @@ class TestingProfile : public Profile {
     TestingFactories testing_factories_;
     std::string profile_name_;
     base::Optional<bool> override_policy_connector_is_managed_;
-
-    DISALLOW_COPY_AND_ASSIGN(Builder);
   };
 
   // Multi-profile aware constructor that takes the path to a directory managed
@@ -211,12 +215,10 @@ class TestingProfile : public Profile {
                  std::unique_ptr<policy::PolicyService> policy_service,
                  TestingFactories testing_factories,
                  const std::string& profile_name,
-                 base::Optional<bool> override_policy_connector_is_managed);
+                 base::Optional<bool> override_policy_connector_is_managed,
+                 base::Optional<OTRProfileID> otr_profile_id);
 
   ~TestingProfile() override;
-
-  // Creates the favicon service. Consequent calls would recreate the service.
-  void CreateFaviconService();
 
   // !!!!!!!! WARNING: THIS IS GENERALLY NOT SAFE TO CALL! !!!!!!!!
   // This bypasses the BrowserContextDependencyManager, and in particular, it
@@ -225,35 +227,13 @@ class TestingProfile : public Profile {
   // pointers.
   // Instead, use Builder::AddTestingFactory to inject your own factories.
   // !!!!!!!! WARNING: THIS IS GENERALLY NOT SAFE TO CALL! !!!!!!!!
-  // Creates the history service. If |delete_file| is true, the history file is
-  // deleted first, then the HistoryService is created. As TestingProfile
-  // deletes the directory containing the files used by HistoryService, this
-  // only matters if you're recreating the HistoryService.  If |no_db| is true,
-  // the history backend will fail to initialize its database; this is useful
-  // for testing error conditions. Returns true on success.
-  bool CreateHistoryService(bool delete_file, bool no_db) WARN_UNUSED_RESULT;
-
-  // Creates the BookmarkBarModel. If not invoked the bookmark bar model is
-  // NULL. If |delete_file| is true, the bookmarks file is deleted first, then
-  // the model is created. As TestingProfile deletes the directory containing
-  // the files used by HistoryService, the boolean only matters if you're
-  // recreating the BookmarkModel.
-  //
-  // NOTE: this does not block until the bookmarks are loaded. For that use
-  // WaitForBookmarkModelToLoad().
-  void CreateBookmarkModel(bool delete_file);
+  // Creates the history service. Returns true on success.
+  // TODO(crbug.com/1106699): Remove this API and adopt the Builder instead.
+  bool CreateHistoryService() WARN_UNUSED_RESULT;
 
   // Creates a WebDataService. If not invoked, the web data service is NULL.
+  // TODO(crbug.com/1106699): Remove this API and adopt the Builder instead.
   void CreateWebDataService();
-
-  // Blocks until the HistoryService finishes restoring its in-memory cache.
-  // This is NOT invoked from CreateHistoryService.
-  void BlockUntilHistoryIndexIsRefreshed();
-
-  // Blocks until the HistoryBackend is completely destroyed. This is mostly
-  // useful to ensure the destruction tasks do not outlive this class on which
-  // they depend.
-  void BlockUntilHistoryBackendDestroyed();
 
   // Allow setting a profile as Guest after-the-fact to simplify some tests.
   void SetGuestSession(bool guest);
@@ -263,14 +243,11 @@ class TestingProfile : public Profile {
 
   sync_preferences::TestingPrefServiceSyncable* GetTestingPrefService();
 
-  // Sets the Profile's NetworkContext.
-  void SetNetworkContext(
-      std::unique_ptr<network::mojom::NetworkContext> network_context);
-
-  // Called on the parent of an incognito |profile|. Usually called from the
-  // constructor of an incognito TestingProfile, but can also be used by tests
-  // to provide an OffTheRecordProfileImpl instance.
-  void SetOffTheRecordProfile(std::unique_ptr<Profile> profile);
+  // Called on the parent of an OffTheRecord |otr_profile|. Usually called from
+  // the constructor of an OffTheRecord TestingProfile, but can also be used by
+  // tests to provide an OffTheRecordProfileImpl instance.
+  // |otr_profile| cannot be empty.
+  void SetOffTheRecordProfile(std::unique_ptr<Profile> otr_profile);
 
   void SetSupervisedUserId(const std::string& id);
 
@@ -287,6 +264,7 @@ class TestingProfile : public Profile {
   // profile dynamically.
   bool IsOffTheRecord() final;
   bool IsOffTheRecord() const final;
+  const OTRProfileID& GetOTRProfileID() const override;
   content::DownloadManagerDelegate* GetDownloadManagerDelegate() override;
   content::ResourceContext* GetResourceContext() override;
   content::BrowserPluginGuestManager* GetGuestManager() override;
@@ -312,17 +290,17 @@ class TestingProfile : public Profile {
 
   // Profile
   std::string GetProfileUserName() const override;
-  ProfileType GetProfileType() const override;
 
-  Profile* GetOffTheRecordProfile() override;
-  void DestroyOffTheRecordProfile() override;
-  bool HasOffTheRecordProfile() override;
+  Profile* GetOffTheRecordProfile(const OTRProfileID& otr_profile_id) override;
+  std::vector<Profile*> GetAllOffTheRecordProfiles() override;
+  void DestroyOffTheRecordProfile(Profile* otr_profile) override;
+  bool HasOffTheRecordProfile(const OTRProfileID& otr_profile_id) override;
+  bool HasAnyOffTheRecordProfile() override;
   Profile* GetOriginalProfile() override;
   const Profile* GetOriginalProfile() const override;
   bool IsSupervised() const override;
   bool IsChild() const override;
   bool IsLegacySupervised() const override;
-  bool IsIndependentOffTheRecordProfile() override;
   bool AllowsBrowserWindows() const override;
 #if BUILDFLAG(ENABLE_EXTENSIONS)
   void SetExtensionSpecialStoragePolicy(
@@ -340,7 +318,7 @@ class TestingProfile : public Profile {
   void set_last_session_exited_cleanly(bool value) {
     last_session_exited_cleanly_ = value;
   }
-  bool IsSameProfile(Profile* profile) override;
+  bool IsSameOrParent(Profile* profile) override;
   base::Time GetStartTime() const override;
   ProfileKey* GetProfileKey() const override;
   policy::SchemaRegistryService* GetPolicySchemaRegistryService() override;
@@ -359,12 +337,15 @@ class TestingProfile : public Profile {
   void set_last_selected_directory(const base::FilePath& path) override;
   bool WasCreatedByVersionOrLater(const std::string& version) override;
   bool IsGuestSession() const override;
-  bool IsNewProfile() override;
+  bool IsNewProfile() const override;
   void SetExitType(ExitType exit_type) override {}
-  ExitType GetLastSessionExitType() override;
-  mojo::Remote<network::mojom::NetworkContext> CreateNetworkContext(
+  ExitType GetLastSessionExitType() const override;
+  void ConfigureNetworkContextParams(
       bool in_memory,
-      const base::FilePath& relative_partition_path) override;
+      const base::FilePath& relative_partition_path,
+      network::mojom::NetworkContextParams* network_context_params,
+      network::mojom::CertVerifierCreationParams* cert_verifier_creation_params)
+      override;
 
 #if defined(OS_CHROMEOS)
   void ChangeAppLocale(const std::string&, AppLocaleChangedVia) override;
@@ -391,13 +372,14 @@ class TestingProfile : public Profile {
     profile_name_ = profile_name;
   }
 
+  using ProfileDestructionCallback = base::OnceCallback<void()>;
+  void SetProfileDestructionObserver(ProfileDestructionCallback callback) {
+    profile_destruction_callback_ = std::move(callback);
+  }
+
  private:
-  // We use a temporary directory to store testing profile data. This
-  // must be declared before anything that may make use of the
-  // directory so as to ensure files are closed before cleanup.  In a
-  // multi-profile environment, this is invalid and the directory is
-  // managed by the TestingProfileManager.
-  base::ScopedTempDir temp_dir_;
+  // Called when profile is deleted.
+  ProfileDestructionCallback profile_destruction_callback_;
 
  protected:
   base::Time start_time_;
@@ -411,9 +393,6 @@ class TestingProfile : public Profile {
   sync_preferences::TestingPrefServiceSyncable* testing_prefs_;
 
  private:
-  // Creates a temporary directory for use by this profile.
-  void CreateTempProfileDir();
-
   // Common initialization between the two constructors.
   void Init();
 
@@ -439,10 +418,7 @@ class TestingProfile : public Profile {
   std::unique_ptr<net::CookieStore, content::BrowserThread::DeleteOnIOThread>
       extensions_cookie_store_;
 
-  std::unique_ptr<network::mojom::NetworkContext> network_context_;
-  mojo::ReceiverSet<network::mojom::NetworkContext> network_context_receivers_;
-
-  std::unique_ptr<Profile> incognito_profile_;
+  std::map<OTRProfileID, std::unique_ptr<Profile>> otr_profiles_;
   TestingProfile* original_profile_;
 
   bool guest_session_;
@@ -491,6 +467,7 @@ class TestingProfile : public Profile {
   std::string profile_name_;
 
   base::Optional<bool> override_policy_connector_is_managed_;
+  base::Optional<OTRProfileID> otr_profile_id_;
 
 #if defined(OS_CHROMEOS)
   std::unique_ptr<chromeos::ScopedCrosSettingsTestHelper>
@@ -500,6 +477,10 @@ class TestingProfile : public Profile {
 #endif  // defined(OS_CHROMEOS)
 
   std::unique_ptr<policy::PolicyService> policy_service_;
+
+#if BUILDFLAG(ENABLE_SUPERVISED_USERS)
+  TestingPrefStore* supervised_user_pref_store_ = nullptr;
+#endif  // BUILDFLAG(ENABLE_SUPERVISED_USERS)
 };
 
 #endif  // CHROME_TEST_BASE_TESTING_PROFILE_H_

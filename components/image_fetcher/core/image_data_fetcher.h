@@ -18,6 +18,7 @@
 #include "components/image_fetcher/core/image_fetcher_types.h"
 #include "components/image_fetcher/core/request_metadata.h"
 #include "net/traffic_annotation/network_traffic_annotation.h"
+#include "net/url_request/referrer_policy.h"
 #include "url/gurl.h"
 
 namespace network {
@@ -42,7 +43,8 @@ class ImageDataFetcher {
 
   // Fetches the raw image bytes from the given |image_url| and calls the given
   // |callback|. The callback is run even if fetching the URL fails. In case
-  // of an error an empty string is passed to the callback.
+  // of an error an empty string is passed to the callback. May return
+  // synchronously.
   void FetchImageData(const GURL& image_url,
                       ImageDataFetcherCallback callback,
                       ImageFetcherParams params,
@@ -53,7 +55,7 @@ class ImageDataFetcher {
                       ImageDataFetcherCallback callback,
                       ImageFetcherParams params,
                       const std::string& referrer,
-                      net::URLRequest::ReferrerPolicy referrer_policy,
+                      net::ReferrerPolicy referrer_policy,
                       bool send_cookies = false);
 
   // Like above, but supports providing only a traffic annotation.
@@ -68,7 +70,7 @@ class ImageDataFetcher {
       const GURL& image_url,
       ImageDataFetcherCallback callback,
       const std::string& referrer,
-      net::URLRequest::ReferrerPolicy referrer_policy,
+      net::ReferrerPolicy referrer_policy,
       const net::NetworkTrafficAnnotationTag& traffic_annotation,
       bool send_cookies = false);
 

@@ -28,6 +28,9 @@ namespace chromeos {
 
 namespace {
 
+// TODO(b/162987250): Use shill constant once cros_system_api roll occurs.
+const char kErrorDisconnect[] = "disconnect-failure";
+
 void IgnoreDisconnectError(const std::string& error_name,
                            std::unique_ptr<base::DictionaryValue> error_data) {}
 
@@ -36,6 +39,17 @@ const NetworkState* GetNetworkStateFromId(const std::string& network_id) {
   return NetworkHandler::Get()
       ->network_state_handler()
       ->GetNetworkStateFromGuid(network_id);
+}
+
+bool PreviousConnectAttemptHadError(const NetworkState* network) {
+  const std::string& network_error = network->GetError();
+  if (network_error.empty() || !network->IsSecure() ||
+      network_error == kErrorDisconnect) {
+    return false;
+  }
+  NET_LOG(USER) << "Previous connect attempt for: " << NetworkId(network)
+                << " had error: " << network_error;
+  return true;
 }
 
 class NetworkConnectImpl : public NetworkConnect {
@@ -104,24 +118,22 @@ void NetworkConnectImpl::HandleUnconfiguredNetwork(
     const std::string& network_id) {
   const NetworkState* network = GetNetworkStateFromId(network_id);
   if (!network) {
-    NET_LOG_ERROR("Configuring unknown network", network_id);
+    NET_LOG(ERROR) << "Configuring unknown network: "
+                   << NetworkGuidId(network_id);
     return;
   }
 
   if (network->type() == shill::kTypeWifi) {
-    // If the network does not require a password, do not show the dialog since
-    // there is nothing to configure. Likewise, if the network is the underlying
-    // Wi-Fi hotspot for a Tether network, do not show the dialog since the
-    // Tether component handles this case itself.
-    if (network->security_class() != shill::kSecurityNone &&
-        network->tether_guid().empty()) {
+    // If the network requires a password and is not the underlying Wi-Fi
+    // hotspot for a Tether network, show the configure dialog.
+    if (network->IsSecure() && network->tether_guid().empty())
       delegate_->ShowNetworkConfigure(network_id);
-    }
     return;
   }
 
   if (network->type() == shill::kTypeVPN) {
-    // Third-party VPNs handle configuration UI themselves.
+    // Show the configure dialog for non third-party VPNs (which provide their
+    // own configuration UI).
     if (network->GetVpnProviderType() != shill::kProviderThirdPartyVpn)
       delegate_->ShowNetworkConfigure(network_id);
     return;
@@ -155,14 +167,14 @@ bool NetworkConnectImpl::GetNetworkProfilePath(bool shared,
   }
 
   if (!LoginState::Get()->UserHasNetworkProfile()) {
-    NET_LOG_ERROR("User profile specified before login", "");
+    NET_LOG(ERROR) << "User profile specified before login";
     return false;
   }
 
   const NetworkProfile* profile =
       NetworkHandler::Get()->network_profile_handler()->GetDefaultUserProfile();
   if (!profile) {
-    NET_LOG_ERROR("No user profile for unshared network configuration", "");
+    NET_LOG(ERROR) << "No user profile for unshared network configuration";
     return false;
   }
 
@@ -174,8 +186,8 @@ void NetworkConnectImpl::OnConnectFailed(
     const std::string& network_id,
     const std::string& error_name,
     std::unique_ptr<base::DictionaryValue> error_data) {
-  NET_LOG(ERROR) << "Connect Failed: " << error_name << " For: " << network_id;
-
+  NET_LOG(ERROR) << "Connect Failed: " << error_name
+                 << " For: " << NetworkGuidId(network_id);
   if (error_name == NetworkConnectionHandler::kErrorConnectFailed ||
       error_name == NetworkConnectionHandler::kErrorBadPassphrase ||
       error_name == NetworkConnectionHandler::kErrorPassphraseRequired ||
@@ -193,7 +205,7 @@ void NetworkConnectImpl::OnConnectFailed(
 }
 
 void NetworkConnectImpl::OnConnectSucceeded(const std::string& network_id) {
-  NET_LOG_USER("Connect Succeeded", network_id);
+  NET_LOG(USER) << "Connect Succeeded: " << NetworkGuidId(network_id);
 }
 
 // If |check_error_state| is true, error state for the network is checked,
@@ -210,17 +222,17 @@ void NetworkConnectImpl::CallConnectToNetwork(const std::string& network_id,
 
   NetworkHandler::Get()->network_connection_handler()->ConnectToNetwork(
       network->path(),
-      base::Bind(&NetworkConnectImpl::OnConnectSucceeded,
-                 weak_factory_.GetWeakPtr(), network_id),
-      base::Bind(&NetworkConnectImpl::OnConnectFailed,
-                 weak_factory_.GetWeakPtr(), network_id),
+      base::BindOnce(&NetworkConnectImpl::OnConnectSucceeded,
+                     weak_factory_.GetWeakPtr(), network_id),
+      base::BindOnce(&NetworkConnectImpl::OnConnectFailed,
+                     weak_factory_.GetWeakPtr(), network_id),
       check_error_state, ConnectCallbackMode::ON_COMPLETED);
 }
 
 void NetworkConnectImpl::OnConfigureFailed(
     const std::string& error_name,
     std::unique_ptr<base::DictionaryValue> error_data) {
-  NET_LOG_ERROR("Unable to configure network", "");
+  NET_LOG(ERROR) << "Unable to configure network";
   delegate_->ShowNetworkConnectError(
       NetworkConnectionHandler::kErrorConfigureFailed, "");
 }
@@ -228,7 +240,7 @@ void NetworkConnectImpl::OnConfigureFailed(
 void NetworkConnectImpl::OnConfigureSucceeded(bool connect_on_configure,
                                               const std::string& service_path,
                                               const std::string& network_id) {
-  NET_LOG_USER("Configure Succeeded", network_id);
+  NET_LOG(USER) << "Configure Succeeded: " << NetworkGuidId(network_id);
   if (!connect_on_configure)
     return;
   // After configuring a network, ignore any (possibly stale) error state.
@@ -251,10 +263,10 @@ void NetworkConnectImpl::CallCreateConfiguration(
       ->network_configuration_handler()
       ->CreateShillConfiguration(
           *shill_properties,
-          base::Bind(&NetworkConnectImpl::OnConfigureSucceeded,
-                     weak_factory_.GetWeakPtr(), connect_on_configure),
-          base::Bind(&NetworkConnectImpl::OnConfigureFailed,
-                     weak_factory_.GetWeakPtr()));
+          base::BindOnce(&NetworkConnectImpl::OnConfigureSucceeded,
+                         weak_factory_.GetWeakPtr(), connect_on_configure),
+          base::BindOnce(&NetworkConnectImpl::OnConfigureFailed,
+                         weak_factory_.GetWeakPtr()));
 }
 
 void NetworkConnectImpl::SetPropertiesFailed(
@@ -262,7 +274,8 @@ void NetworkConnectImpl::SetPropertiesFailed(
     const std::string& network_id,
     const std::string& config_error_name,
     std::unique_ptr<base::DictionaryValue> error_data) {
-  NET_LOG_ERROR(desc + ": Failed: " + config_error_name, network_id);
+  NET_LOG(ERROR) << desc << ": Failed: " << config_error_name
+                 << "For: " << NetworkGuidId(network_id);
   delegate_->ShowNetworkConnectError(
       NetworkConnectionHandler::kErrorConfigureFailed, network_id);
 }
@@ -280,14 +293,14 @@ void NetworkConnectImpl::SetPropertiesToClear(
   // Remove cleared properties from properties_to_set.
   for (std::vector<std::string>::iterator iter = properties_to_clear->begin();
        iter != properties_to_clear->end(); ++iter) {
-    properties_to_set->RemoveWithoutPathExpansion(*iter, NULL);
+    properties_to_set->RemoveKey(*iter);
   }
 }
 
 void NetworkConnectImpl::ClearPropertiesAndConnect(
     const std::string& network_id,
     const std::vector<std::string>& properties_to_clear) {
-  NET_LOG_USER("ClearPropertiesAndConnect", network_id);
+  NET_LOG(USER) << "ClearPropertiesAndConnect: " << NetworkGuidId(network_id);
   const NetworkState* network = GetNetworkStateFromId(network_id);
   if (!network) {
     SetPropertiesFailed("ClearProperties", network_id,
@@ -298,10 +311,11 @@ void NetworkConnectImpl::ClearPropertiesAndConnect(
   const bool check_error_state = false;
   NetworkHandler::Get()->network_configuration_handler()->ClearShillProperties(
       network->path(), properties_to_clear,
-      base::Bind(&NetworkConnectImpl::CallConnectToNetwork,
-                 weak_factory_.GetWeakPtr(), network_id, check_error_state),
-      base::Bind(&NetworkConnectImpl::SetPropertiesFailed,
-                 weak_factory_.GetWeakPtr(), "ClearProperties", network_id));
+      base::BindOnce(&NetworkConnectImpl::CallConnectToNetwork,
+                     weak_factory_.GetWeakPtr(), network_id, check_error_state),
+      base::BindOnce(&NetworkConnectImpl::SetPropertiesFailed,
+                     weak_factory_.GetWeakPtr(), "ClearProperties",
+                     network_id));
 }
 
 void NetworkConnectImpl::ConfigureSetProfileSucceeded(
@@ -317,46 +331,51 @@ void NetworkConnectImpl::ConfigureSetProfileSucceeded(
   }
   NetworkHandler::Get()->network_configuration_handler()->SetShillProperties(
       network->path(), *properties_to_set,
-      base::Bind(&NetworkConnectImpl::ClearPropertiesAndConnect,
-                 weak_factory_.GetWeakPtr(), network_id, properties_to_clear),
-      base::Bind(&NetworkConnectImpl::SetPropertiesFailed,
-                 weak_factory_.GetWeakPtr(), "SetProperties", network_id));
+      base::BindOnce(&NetworkConnectImpl::ClearPropertiesAndConnect,
+                     weak_factory_.GetWeakPtr(), network_id,
+                     properties_to_clear),
+      base::BindOnce(&NetworkConnectImpl::SetPropertiesFailed,
+                     weak_factory_.GetWeakPtr(), "SetProperties", network_id));
 }
 
 // Public methods
 
 void NetworkConnectImpl::ConnectToNetworkId(const std::string& network_id) {
-  NET_LOG_USER("ConnectToNetwork", network_id);
+  NET_LOG(USER) << "ConnectToNetwork: " << NetworkGuidId(network_id);
   const NetworkState* network = GetNetworkStateFromId(network_id);
-  if (network) {
-    const std::string& network_error = network->GetError();
-    if (!network_error.empty() && !network->security_class().empty()) {
-      NET_LOG_USER("Configure: " + network_error, network_id);
-      // If the network is in an error state, show the configuration UI
-      // directly to avoid a spurious notification.
-      HandleUnconfiguredNetwork(network_id);
-      return;
-    } else if (network->RequiresActivation()) {
-      ActivateCellular(network_id);
-      return;
-    } else if (network->type() == kTypeTether &&
-               !network->tether_has_connected_to_host()) {
-      delegate_->ShowNetworkConfigure(network_id);
-      return;
-    }
+  if (!network) {
+    OnConnectFailed(network_id, NetworkConnectionHandler::kErrorNotFound,
+                    nullptr);
+    return;
   }
-  const bool check_error_state = true;
-  CallConnectToNetwork(network_id, check_error_state);
+  if (PreviousConnectAttemptHadError(network)) {
+    // If the network is in an error state, show the configuration UI directly
+    // to avoid a spurious notification.
+    HandleUnconfiguredNetwork(network_id);
+    return;
+  }
+  if (network->RequiresActivation()) {
+    ActivateCellular(network_id);
+    return;
+  }
+  if (network->type() == kTypeTether &&
+      !network->tether_has_connected_to_host()) {
+    delegate_->ShowNetworkConfigure(network_id);
+    return;
+  }
+
+  CallConnectToNetwork(network_id, /*check_error_state=*/true);
 }
 
 void NetworkConnectImpl::DisconnectFromNetworkId(
     const std::string& network_id) {
-  NET_LOG_USER("DisconnectFromNetwork", network_id);
+  NET_LOG(USER) << "DisconnectFromNetwork: " << NetworkGuidId(network_id);
   const NetworkState* network = GetNetworkStateFromId(network_id);
   if (!network)
     return;
   NetworkHandler::Get()->network_connection_handler()->DisconnectNetwork(
-      network->path(), base::DoNothing(), base::Bind(&IgnoreDisconnectError));
+      network->path(), base::DoNothing(),
+      base::BindOnce(&IgnoreDisconnectError));
 }
 
 void NetworkConnectImpl::SetTechnologyEnabled(
@@ -365,11 +384,11 @@ void NetworkConnectImpl::SetTechnologyEnabled(
   std::string log_string = base::StringPrintf(
       "technology %s, target state: %s", technology.ToDebugString().c_str(),
       (enabled_state ? "ENABLED" : "DISABLED"));
-  NET_LOG_USER("SetTechnologyEnabled", log_string);
+  NET_LOG(USER) << "SetTechnologyEnabled: " << log_string;
   NetworkStateHandler* handler = NetworkHandler::Get()->network_state_handler();
   bool enabled = handler->IsTechnologyEnabled(technology);
   if (enabled_state == enabled) {
-    NET_LOG_USER("Technology already in target state.", log_string);
+    NET_LOG(USER) << "Technology already in target state: " << log_string;
     return;
   }
   if (enabled) {
@@ -383,7 +402,7 @@ void NetworkConnectImpl::SetTechnologyEnabled(
   if (technology.MatchesPattern(NetworkTypePattern::Cellular())) {
     const DeviceState* mobile = handler->GetDeviceStateByType(technology);
     if (!mobile) {
-      NET_LOG_ERROR("SetTechnologyEnabled with no device", log_string);
+      NET_LOG(ERROR) << "SetTechnologyEnabled with no device: " << log_string;
       return;
     }
     if (mobile->IsSimAbsent()) {
@@ -391,7 +410,8 @@ void NetworkConnectImpl::SetTechnologyEnabled(
       // inserted. TODO(armansito): Chrome should display a notification here,
       // prompting the user to insert a SIM card and restart the device to
       // enable cellular. See crbug.com/125171.
-      NET_LOG_USER("Cannot enable cellular device without SIM.", log_string);
+      NET_LOG(USER) << "Cannot enable cellular device without SIM: "
+                    << log_string;
       return;
     }
     if (!mobile->IsSimLocked()) {
@@ -407,10 +427,11 @@ void NetworkConnectImpl::SetTechnologyEnabled(
 }
 
 void NetworkConnectImpl::ActivateCellular(const std::string& network_id) {
-  NET_LOG_USER("ActivateCellular", network_id);
+  NET_LOG(USER) << "ActivateCellular: " << NetworkGuidId(network_id);
   const NetworkState* cellular = GetNetworkStateFromId(network_id);
   if (!cellular || cellular->type() != shill::kTypeCellular) {
-    NET_LOG_ERROR("ActivateCellular with no Service", network_id);
+    NET_LOG(ERROR) << "ActivateCellular with no Service: "
+                   << NetworkGuidId(network_id);
     return;
   }
   // Cellular activation now always goes through an online portal shown by the
@@ -421,7 +442,8 @@ void NetworkConnectImpl::ActivateCellular(const std::string& network_id) {
 void NetworkConnectImpl::ShowMobileSetup(const std::string& network_id) {
   const NetworkState* cellular = GetNetworkStateFromId(network_id);
   if (!cellular || cellular->type() != shill::kTypeCellular) {
-    NET_LOG_ERROR("ShowMobileSetup without Cellular network", network_id);
+    NET_LOG(ERROR) << "ShowMobileSetup without Cellular network: "
+                   << NetworkGuidId(network_id);
     return;
   }
   if (cellular->activation_state() != shill::kActivationStateActivated &&
@@ -437,7 +459,8 @@ void NetworkConnectImpl::ConfigureNetworkIdAndConnect(
     const std::string& network_id,
     const base::DictionaryValue& properties,
     bool shared) {
-  NET_LOG_USER("ConfigureNetworkIdAndConnect", network_id);
+  NET_LOG(USER) << "ConfigureNetworkIdAndConnect: "
+                << NetworkGuidId(network_id);
 
   std::unique_ptr<base::DictionaryValue> properties_to_set(
       properties.DeepCopy());
@@ -456,24 +479,24 @@ void NetworkConnectImpl::ConfigureNetworkIdAndConnect(
   }
   NetworkHandler::Get()->network_configuration_handler()->SetNetworkProfile(
       network->path(), profile_path,
-      base::Bind(&NetworkConnectImpl::ConfigureSetProfileSucceeded,
-                 weak_factory_.GetWeakPtr(), network_id,
-                 base::Passed(&properties_to_set)),
-      base::Bind(&NetworkConnectImpl::SetPropertiesFailed,
-                 weak_factory_.GetWeakPtr(), "SetProfile: " + profile_path,
-                 network_id));
+      base::BindOnce(&NetworkConnectImpl::ConfigureSetProfileSucceeded,
+                     weak_factory_.GetWeakPtr(), network_id,
+                     base::Passed(&properties_to_set)),
+      base::BindOnce(&NetworkConnectImpl::SetPropertiesFailed,
+                     weak_factory_.GetWeakPtr(), "SetProfile: " + profile_path,
+                     network_id));
 }
 
 void NetworkConnectImpl::CreateConfigurationAndConnect(
     base::DictionaryValue* properties,
     bool shared) {
-  NET_LOG_USER("CreateConfigurationAndConnect", "");
+  NET_LOG(USER) << "CreateConfigurationAndConnect";
   CallCreateConfiguration(properties, shared, true /* connect_on_configure */);
 }
 
 void NetworkConnectImpl::CreateConfiguration(base::DictionaryValue* properties,
                                              bool shared) {
-  NET_LOG_USER("CreateConfiguration", "");
+  NET_LOG(USER) << "CreateConfiguration";
   CallCreateConfiguration(properties, shared, false /* connect_on_configure */);
 }
 

@@ -17,7 +17,6 @@
 #include "chrome/browser/printing/print_job_worker.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
-#include "printing/print_job_constants.h"
 #include "printing/print_settings.h"
 
 namespace printing {
@@ -58,8 +57,8 @@ void PrinterQuery::PostSettingsDoneToIO(
     std::unique_ptr<PrintSettings> new_settings,
     PrintingContext::Result result) {
   // |this| is owned by |callback|, so |base::Unretained()| is safe.
-  base::PostTask(
-      FROM_HERE, {content::BrowserThread::IO},
+  content::GetIOThreadTaskRunner({})->PostTask(
+      FROM_HERE,
       base::BindOnce(&PrinterQuery::GetSettingsDone, base::Unretained(this),
                      std::move(callback), std::move(new_settings), result));
 }
@@ -90,7 +89,7 @@ int PrinterQuery::cookie() const {
 void PrinterQuery::GetSettings(GetSettingsAskParam ask_user_for_settings,
                                int expected_page_count,
                                bool has_selection,
-                               MarginType margin_type,
+                               mojom::MarginType margin_type,
                                bool is_scripted,
                                bool is_modifiable,
                                base::OnceClosure callback) {

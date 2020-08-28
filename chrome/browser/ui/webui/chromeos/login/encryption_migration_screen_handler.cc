@@ -16,6 +16,7 @@
 #include "base/strings/stringprintf.h"
 #include "base/system/sys_info.h"
 #include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/time/default_tick_clock.h"
 #include "base/time/tick_clock.h"
@@ -518,12 +519,11 @@ void EncryptionMigrationScreenHandler::UpdateUIState(UIState state) {
 }
 
 void EncryptionMigrationScreenHandler::CheckAvailableStorage() {
-  base::PostTaskAndReplyWithResult(
-      FROM_HERE,
-      {base::ThreadPool(), base::MayBlock(), base::TaskPriority::USER_VISIBLE},
-      free_disk_space_fetcher_,
-      base::Bind(&EncryptionMigrationScreenHandler::OnGetAvailableStorage,
-                 weak_ptr_factory_.GetWeakPtr()));
+  base::ThreadPool::PostTaskAndReplyWithResult(
+      FROM_HERE, {base::MayBlock(), base::TaskPriority::USER_VISIBLE},
+      base::BindOnce(free_disk_space_fetcher_),
+      base::BindOnce(&EncryptionMigrationScreenHandler::OnGetAvailableStorage,
+                     weak_ptr_factory_.GetWeakPtr()));
 }
 
 void EncryptionMigrationScreenHandler::OnGetAvailableStorage(int64_t size) {
@@ -610,8 +610,8 @@ void EncryptionMigrationScreenHandler::OnMountExistingVault(
       cryptohome::CreateAccountIdentifierFromAccountId(
           user_context_.GetAccountId()),
       request,
-      base::Bind(&EncryptionMigrationScreenHandler::OnMigrationRequested,
-                 weak_ptr_factory_.GetWeakPtr()));
+      base::BindOnce(&EncryptionMigrationScreenHandler::OnMigrationRequested,
+                     weak_ptr_factory_.GetWeakPtr()));
 }
 
 device::mojom::WakeLock* EncryptionMigrationScreenHandler::GetWakeLock() {

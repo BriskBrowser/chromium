@@ -9,6 +9,7 @@
 #include <memory>
 #include <string>
 
+#include "base/memory/scoped_refptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/strings/string16.h"
 #include "base/time/time.h"
@@ -68,18 +69,18 @@ class CrostiniExportImport : public KeyedService,
         bool in_progress) = 0;
   };
 
-  using TrackerFactory = base::OnceCallback<std::unique_ptr<
+  using OnceTrackerFactory = base::OnceCallback<std::unique_ptr<
       CrostiniExportImportStatusTracker>(ExportImportType, base::FilePath)>;
 
   struct OperationData {
     OperationData(ExportImportType type,
                   ContainerId id,
-                  TrackerFactory factory);
+                  OnceTrackerFactory factory);
     ~OperationData();
 
     ExportImportType type;
     ContainerId container_id;
-    TrackerFactory tracker_factory;
+    OnceTrackerFactory tracker_factory;
   };
 
   static CrostiniExportImport* GetForProfile(Profile* profile);
@@ -101,20 +102,45 @@ class CrostiniExportImport : public KeyedService,
   // Import the crostini container showing FileDialog.
   void ImportContainer(content::WebContents* web_contents);
 
-  // Export |container| to |path| and invoke |callback| when complete.
+  // Export |container_id| to |path| and invoke |callback| when complete.
   void ExportContainer(ContainerId container_id,
                        base::FilePath path,
                        CrostiniManager::CrostiniResultCallback callback);
-  // Import |container| to |path| and invoke |callback| when complete.
+  // Import |container_id| from |path| and invoke |callback| when complete.
   void ImportContainer(ContainerId container_id,
                        base::FilePath path,
                        CrostiniManager::CrostiniResultCallback callback);
+
+  // Export |container_id| showing FileDialog, and using |tracker_factory| for
+  // status tracking.
+  void ExportContainer(ContainerId container_id,
+                       content::WebContents* web_contents,
+                       OnceTrackerFactory tracker_factory);
+  // Import |container_id| showing FileDialog, and using |tracker_factory| for
+  // status tracking.
+  void ImportContainer(ContainerId container_id,
+                       content::WebContents* web_contents,
+                       OnceTrackerFactory tracker_factory);
+
+  // Export |container| to |path| and invoke |tracker_factory| to create a
+  // tracker for this operation.
+  void ExportContainer(ContainerId container_id,
+                       base::FilePath path,
+                       OnceTrackerFactory tracker_factory);
+  // Import |container| from |path| and invoke |tracker_factory| to create a
+  // tracker for this operation.
+  void ImportContainer(ContainerId container_id,
+                       base::FilePath path,
+                       OnceTrackerFactory tracker_factory);
 
   // Cancel currently running export/import.
   void CancelOperation(ExportImportType type, ContainerId id);
 
   // Whether an export or import is currently in progress.
   bool GetExportImportOperationStatus() const;
+
+  // Returns the default location to export the container to.
+  base::FilePath GetDefaultBackupPath() const;
 
   base::WeakPtr<CrostiniExportImportNotificationController>
   GetNotificationControllerForTesting(ContainerId container_id);
@@ -138,7 +164,7 @@ class CrostiniExportImport : public KeyedService,
 
   OperationData* NewOperationData(ExportImportType type,
                                   ContainerId id,
-                                  TrackerFactory cb);
+                                  OnceTrackerFactory cb);
   OperationData* NewOperationData(ExportImportType type, ContainerId id);
   OperationData* NewOperationData(ExportImportType type);
 
@@ -200,15 +226,15 @@ class CrostiniExportImport : public KeyedService,
 
   std::string GetUniqueNotificationId();
 
+  using TrackerMap =
+      std::map<ContainerId, std::unique_ptr<CrostiniExportImportStatusTracker>>;
+
   std::unique_ptr<CrostiniExportImportStatusTracker> RemoveTracker(
-      std::map<ContainerId,
-               std::unique_ptr<CrostiniExportImportStatusTracker>>::iterator
-          it);
+      TrackerMap::iterator it);
 
   Profile* profile_;
   scoped_refptr<ui::SelectFileDialog> select_folder_dialog_;
-  std::map<ContainerId, std::unique_ptr<CrostiniExportImportStatusTracker>>
-      status_trackers_;
+  TrackerMap status_trackers_;
   // |operation_data_storage_| persists the data required to complete an
   // operation while the file selection dialog is open/operation is in progress.
   std::unordered_map<OperationData*, std::unique_ptr<OperationData>>

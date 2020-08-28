@@ -27,8 +27,6 @@
 #include "chrome/browser/chromeos/login/users/fake_chrome_user_manager.h"
 #include "chrome/browser/chromeos/policy/user_cloud_policy_token_forwarder.h"
 #include "chrome/browser/chromeos/profiles/profile_helper.h"
-#include "chrome/browser/enterprise_reporting/report_scheduler.h"
-#include "chrome/browser/enterprise_reporting/request_timer.h"
 #include "chrome/browser/policy/cloud/cloud_policy_test_utils.h"
 #include "chrome/browser/prefs/browser_prefs.h"
 #include "chrome/browser/signin/identity_manager_factory.h"
@@ -41,6 +39,8 @@
 #include "chrome/test/base/testing_profile_manager.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "chromeos/tpm/stub_install_attributes.h"
+#include "components/enterprise/browser/reporting/common_pref_names.h"
+#include "components/enterprise/browser/reporting/report_scheduler.h"
 #include "components/policy/core/common/cloud/cloud_external_data_manager.h"
 #include "components/policy/core/common/cloud/cloud_policy_core.h"
 #include "components/policy/core/common/cloud/cloud_policy_refresh_scheduler.h"
@@ -57,6 +57,7 @@
 #include "components/prefs/testing_pref_service.h"
 #include "components/session_manager/core/session_manager.h"
 #include "components/signin/public/identity_manager/identity_manager.h"
+#include "components/signin/public/identity_manager/scope_set.h"
 #include "components/sync_preferences/pref_service_syncable.h"
 #include "components/user_manager/scoped_user_manager.h"
 #include "content/public/test/browser_task_environment.h"
@@ -181,8 +182,7 @@ class UserCloudPolicyManagerChromeOSTest
     GetExpectedDefaultPolicy(&policy_map_);
     policy_map_.Set(key::kHomepageLocation, POLICY_LEVEL_MANDATORY,
                     POLICY_SCOPE_USER, POLICY_SOURCE_CLOUD,
-                    std::make_unique<base::Value>("http://chromium.org"),
-                    nullptr);
+                    base::Value("http://chromium.org"), nullptr);
     expected_bundle_.Get(PolicyNamespace(POLICY_DOMAIN_CHROME, std::string()))
         .CopyFrom(policy_map_);
 
@@ -281,7 +281,7 @@ class UserCloudPolicyManagerChromeOSTest
       // Since the refresh token is available, IdentityManager was used
       // to request the access token and not UserCloudPolicyTokenForwarder.
       // Issue the access token with the former.
-      identity::ScopeSet scopes;
+      signin::ScopeSet scopes;
       scopes.insert(GaiaConstants::kDeviceManagementServiceOAuth);
       scopes.insert(GaiaConstants::kOAuthWrapBridgeUserInfoScope);
 
@@ -766,7 +766,7 @@ TEST_P(UserCloudPolicyManagerChromeOSTest, NonBlockingFirstFetch) {
   EXPECT_FALSE(manager_->core()->client()->is_registered());
 
   AccountInfo account_info =
-      identity_test_env()->MakePrimaryAccountAvailable(kEmail);
+      identity_test_env()->MakeUnconsentedPrimaryAccountAvailable(kEmail);
   EXPECT_TRUE(
       identity_test_env()->identity_manager()->HasAccountWithRefreshToken(
           account_info.account_id));
@@ -865,8 +865,8 @@ TEST_P(UserCloudPolicyManagerChromeOSTest, TestHasAppInstallEventLogUploader) {
 
 TEST_P(UserCloudPolicyManagerChromeOSTest, TestReportSchedulerCreation) {
   // Open policy and feature flag to enable report scheduler.
-  g_browser_process->local_state()->SetBoolean(prefs::kCloudReportingEnabled,
-                                               true);
+  g_browser_process->local_state()->SetBoolean(
+      enterprise_reporting::kCloudReportingEnabled, true);
   scoped_feature_list()->Reset();
   scoped_feature_list()->InitAndEnableFeature(
       features::kEnterpriseReportingInChromeOS);
@@ -893,16 +893,14 @@ TEST_P(UserCloudPolicyManagerChromeOSTest, TestReportSchedulerCreation) {
   EXPECT_TRUE(manager_->GetReportSchedulerForTesting());
 
   // Make sure the |report_scheduler| submit the request to DM Server.
-  enterprise_reporting::RequestTimer* request_timer =
-      manager_->GetReportSchedulerForTesting()->GetRequestTimerForTesting();
-  EXPECT_TRUE(request_timer->IsFirstTimerRunning());
-  EXPECT_FALSE(request_timer->IsRepeatTimerRunning());
+  EXPECT_TRUE(manager_->GetReportSchedulerForTesting()
+                  ->IsNextReportScheduledForTesting());
 }
 
 TEST_P(UserCloudPolicyManagerChromeOSTest, TestReportSchedulerDelayedCreation) {
   // Open policy and feature flag to enable report scheduler.
-  g_browser_process->local_state()->SetBoolean(prefs::kCloudReportingEnabled,
-                                               true);
+  g_browser_process->local_state()->SetBoolean(
+      enterprise_reporting::kCloudReportingEnabled, true);
   scoped_feature_list()->Reset();
   scoped_feature_list()->InitAndEnableFeature(
       features::kEnterpriseReportingInChromeOS);
@@ -941,16 +939,14 @@ TEST_P(UserCloudPolicyManagerChromeOSTest, TestReportSchedulerDelayedCreation) {
   EXPECT_TRUE(manager_->GetReportSchedulerForTesting());
 
   // Make sure the |report_scheduler| submit the request to DM Server.
-  enterprise_reporting::RequestTimer* request_timer =
-      manager_->GetReportSchedulerForTesting()->GetRequestTimerForTesting();
-  EXPECT_TRUE(request_timer->IsFirstTimerRunning());
-  EXPECT_FALSE(request_timer->IsRepeatTimerRunning());
+  EXPECT_TRUE(manager_->GetReportSchedulerForTesting()
+                  ->IsNextReportScheduledForTesting());
 }
 
 TEST_P(UserCloudPolicyManagerChromeOSTest, TestSkipReportSchedulerCreation) {
   // Open policy and feature flag to enable report scheduler.
-  g_browser_process->local_state()->SetBoolean(prefs::kCloudReportingEnabled,
-                                               true);
+  g_browser_process->local_state()->SetBoolean(
+      enterprise_reporting::kCloudReportingEnabled, true);
   scoped_feature_list()->Reset();
   scoped_feature_list()->InitAndEnableFeature(
       features::kEnterpriseReportingInChromeOS);
@@ -973,8 +969,8 @@ TEST_P(UserCloudPolicyManagerChromeOSTest,
        EnterpriseReportingInChromeOSDisabled) {
   // Open policy but close the feature flag for Chrome OS to disable report
   // scheduler.
-  g_browser_process->local_state()->SetBoolean(prefs::kCloudReportingEnabled,
-                                               true);
+  g_browser_process->local_state()->SetBoolean(
+      enterprise_reporting::kCloudReportingEnabled, true);
   scoped_feature_list()->Reset();
   scoped_feature_list()->InitAndDisableFeature(
       features::kEnterpriseReportingInChromeOS);
@@ -1165,7 +1161,7 @@ class UserCloudPolicyManagerChromeOSChildTest
  public:
   // Issues OAuthToken for device management scopes.
   void IssueOAuth2AccessToken(base::TimeDelta token_lifetime) {
-    identity::ScopeSet scopes;
+    signin::ScopeSet scopes;
     scopes.insert(GaiaConstants::kDeviceManagementServiceOAuth);
     scopes.insert(GaiaConstants::kOAuthWrapBridgeUserInfoScope);
     identity_test_env()
@@ -1183,7 +1179,7 @@ class UserCloudPolicyManagerChromeOSChildTest
   // UserCloudPolicyManagerChromeOSTest:
   void SetUp() override {
     UserCloudPolicyManagerChromeOSTest::SetUp();
-    identity_test_env()->MakePrimaryAccountAvailable(kEmail);
+    identity_test_env()->MakeUnconsentedPrimaryAccountAvailable(kEmail);
   }
 
   // Sets the initially cached data and initializes the CloudPolicyService.
@@ -1248,7 +1244,8 @@ TEST_P(UserCloudPolicyManagerChromeOSChildTest, RefreshScheduler) {
   // of the test will work incorrectly and should be updated.
   const int iterations = 3;
   base::TimeDelta refresh_delay = base::TimeDelta::FromMilliseconds(
-      manager_->core()->refresh_scheduler()->GetActualRefreshDelay());
+      manager_->core()->refresh_scheduler()->GetActualRefreshDelay() +
+      manager_->core()->refresh_scheduler()->GetSaltDelayForTesting());
   ASSERT_GT(refresh_delay, iterations * token_lifetime);
 
   // Advancing the clock will trigger delivery of new tokens. It should not

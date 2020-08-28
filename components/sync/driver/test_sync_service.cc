@@ -12,7 +12,6 @@
 #include "components/sync/base/progress_marker_map.h"
 #include "components/sync/driver/sync_token_status.h"
 #include "components/sync/engine/cycle/model_neutral_state.h"
-#include "crypto/ec_private_key.h"
 
 namespace syncer {
 
@@ -90,6 +89,10 @@ void TestSyncService::SetActiveDataTypes(const ModelTypeSet& types) {
   active_data_types_ = types;
 }
 
+void TestSyncService::SetBackedOffDataTypes(const ModelTypeSet& types) {
+  backed_off_data_types_ = types;
+}
+
 void TestSyncService::SetLastCycleSnapshot(const SyncCycleSnapshot& snapshot) {
   last_cycle_snapshot_ = snapshot;
 }
@@ -97,11 +100,6 @@ void TestSyncService::SetLastCycleSnapshot(const SyncCycleSnapshot& snapshot) {
 void TestSyncService::SetUserDemographics(
     const UserDemographicsResult& user_demographics_result) {
   user_demographics_result_ = user_demographics_result;
-}
-
-void TestSyncService::SetExperimentalAuthenticationKey(
-    std::unique_ptr<crypto::ECPrivateKey> experimental_authentication_key) {
-  experimental_authentication_key_ = std::move(experimental_authentication_key);
 }
 
 void TestSyncService::SetEmptyLastCycleSnapshot() {
@@ -125,6 +123,10 @@ void TestSyncService::SetPassphraseRequired(bool required) {
 void TestSyncService::SetPassphraseRequiredForPreferredDataTypes(
     bool required) {
   user_settings_.SetPassphraseRequiredForPreferredDataTypes(required);
+}
+
+void TestSyncService::SetTrustedVaultKeyRequired(bool required) {
+  user_settings_.SetTrustedVaultKeyRequired(required);
 }
 
 void TestSyncService::SetTrustedVaultKeyRequiredForPreferredDataTypes(
@@ -187,14 +189,6 @@ bool TestSyncService::RequiresClientUpgrade() const {
          syncer::UPGRADE_CLIENT;
 }
 
-std::unique_ptr<crypto::ECPrivateKey>
-TestSyncService::GetExperimentalAuthenticationKey() const {
-  if (!experimental_authentication_key_)
-    return nullptr;
-
-  return experimental_authentication_key_->Copy();
-}
-
 std::unique_ptr<SyncSetupInProgressHandle>
 TestSyncService::GetSetupInProgressHandle() {
   return nullptr;
@@ -216,6 +210,10 @@ ModelTypeSet TestSyncService::GetActiveDataTypes() const {
   return active_data_types_;
 }
 
+ModelTypeSet TestSyncService::GetBackedOffDataTypes() const {
+  return backed_off_data_types_;
+}
+
 void TestSyncService::StopAndClear() {}
 
 void TestSyncService::OnDataTypeRequestsSyncStartup(ModelType type) {}
@@ -234,10 +232,6 @@ void TestSyncService::RemoveObserver(SyncServiceObserver* observer) {
 
 bool TestSyncService::HasObserver(const SyncServiceObserver* observer) const {
   return observers_.HasObserver(observer);
-}
-
-UserShare* TestSyncService::GetUserShare() const {
-  return nullptr;
 }
 
 SyncTokenStatus TestSyncService::GetSyncTokenStatusForDebugging() const {

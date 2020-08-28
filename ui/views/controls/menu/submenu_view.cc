@@ -6,15 +6,17 @@
 
 #include <algorithm>
 #include <numeric>
+#include <set>
 
 #include "base/compiler_specific.h"
+#include "base/numerics/safe_conversions.h"
 #include "ui/accessibility/ax_enums.mojom.h"
 #include "ui/accessibility/ax_node_data.h"
 #include "ui/base/ime/input_method.h"
 #include "ui/compositor/paint_recorder.h"
 #include "ui/events/event.h"
 #include "ui/gfx/canvas.h"
-#include "ui/gfx/geometry/safe_integer_conversions.h"
+#include "ui/views/accessibility/view_accessibility.h"
 #include "ui/views/controls/menu/menu_config.h"
 #include "ui/views/controls/menu/menu_controller.h"
 #include "ui/views/controls/menu/menu_host.h"
@@ -155,16 +157,16 @@ gfx::Size SubmenuView::CalculatePreferredSize() const {
       const MenuItemView* menu = static_cast<const MenuItemView*>(child);
       const MenuItemView::MenuItemDimensions& dimensions =
           menu->GetDimensions();
-      max_simple_width = std::max(
-          max_simple_width, dimensions.standard_width);
+      max_simple_width = std::max(max_simple_width, dimensions.standard_width);
       max_minor_text_width_ =
           std::max(max_minor_text_width_, dimensions.minor_text_width);
-      max_complex_width = std::max(max_complex_width,
-          dimensions.standard_width + dimensions.children_width);
+      max_complex_width =
+          std::max(max_complex_width,
+                   dimensions.standard_width + dimensions.children_width);
       touchable_minimum_width = dimensions.standard_width;
     } else {
-      max_complex_width = std::max(max_complex_width,
-                                   child->GetPreferredSize().width());
+      max_complex_width =
+          std::max(max_complex_width, child->GetPreferredSize().width());
     }
   }
   if (max_minor_text_width_ > 0)
@@ -172,10 +174,10 @@ gfx::Size SubmenuView::CalculatePreferredSize() const {
 
   // Finish calculating our optimum width.
   gfx::Insets insets = GetInsets();
-  int width = std::max(max_complex_width,
-                       std::max(max_simple_width + max_minor_text_width_ +
-                                    insets.width(),
-                                minimum_preferred_width_ - 2 * insets.width()));
+  int width = std::max(
+      max_complex_width,
+      std::max(max_simple_width + max_minor_text_width_ + insets.width(),
+               minimum_preferred_width_ - 2 * insets.width()));
 
   if (parent_menu_item_->GetMenuController() &&
       parent_menu_item_->GetMenuController()->use_touchable_layout()) {
@@ -315,8 +317,8 @@ bool SubmenuView::OnMouseWheel(const ui::MouseWheelEvent& e) {
       if (scrolled_to_top(*i))
         i = next_iter;
     }
-    ScrollRectToVisible(gfx::Rect(gfx::Point(0, scroll_target),
-                                  vis_bounds.size()));
+    ScrollRectToVisible(
+        gfx::Rect(gfx::Point(0, scroll_target), vis_bounds.size()));
     vis_bounds = GetVisibleBounds();
   }
 
@@ -371,8 +373,9 @@ void SubmenuView::SetSelectedRow(int row) {
 }
 
 base::string16 SubmenuView::GetTextForRow(int row) {
-  return MenuItemView::GetAccessibleNameForMenuItem(GetMenuItemAt(row)->title(),
-                                                    base::string16());
+  return MenuItemView::GetAccessibleNameForMenuItem(
+      GetMenuItemAt(row)->title(), base::string16(),
+      GetMenuItemAt(row)->ShouldShowNewBadge());
 }
 
 bool SubmenuView::IsShowing() const {
@@ -395,8 +398,12 @@ void SubmenuView::ShowAt(Widget* parent,
     host_->InitMenuHost(parent, bounds, scroll_view_container_, do_capture);
   }
 
-  GetScrollViewContainer()->NotifyAccessibilityEvent(
-      ax::mojom::Event::kMenuStart, true);
+  // Only fire kMenuStart for the top level menu, not for each submenu.
+  if (!GetMenuItem()->GetParentMenuItem()) {
+    GetScrollViewContainer()->NotifyAccessibilityEvent(
+        ax::mojom::Event::kMenuStart, true);
+  }
+  // Fire kMenuPopupStart for each menu/submenu that is shown.
   NotifyAccessibilityEvent(ax::mojom::Event::kMenuPopupStart, true);
 }
 
@@ -407,14 +414,6 @@ void SubmenuView::Reposition(const gfx::Rect& bounds) {
 
 void SubmenuView::Close() {
   if (host_) {
-    // We send the event to the ScrollViewContainer first because the View
-    // accessibility delegate sets up a focus override when receiving the
-    // kMenuStart event that we want to be disabled when we send the
-    // kMenuPopupEnd event in order to access the previously focused node.
-    GetScrollViewContainer()->NotifyAccessibilityEvent(
-        ax::mojom::Event::kMenuEnd, true);
-    NotifyAccessibilityEvent(ax::mojom::Event::kMenuPopupEnd, true);
-
     host_->DestroyMenuHost();
     host_ = nullptr;
   }
@@ -422,8 +421,22 @@ void SubmenuView::Close() {
 
 void SubmenuView::Hide() {
   if (host_) {
+    /// -- Fire accessibility events ----
+    // Both of these must be fired before HideMenuHost().
+    // Only fire kMenuStart for as top levels menu closes, not for each submenu.
+    // This is sent before kMenuPopupEnd to allow ViewAXPlatformNodeDelegate to
+    // remove its focus override before AXPlatformNodeAuraLinux needs to access
+    // the previously-focused node while handling kMenuPopupEnd.
+    if (!GetMenuItem()->GetParentMenuItem()) {
+      GetScrollViewContainer()->NotifyAccessibilityEvent(
+          ax::mojom::Event::kMenuEnd, true);
+      GetViewAccessibility().EndPopupFocusOverride();
+    }
+    // Fire these kMenuPopupEnd for each menu/submenu that closes/hides.
+    if (host_->IsVisible())
+      NotifyAccessibilityEvent(ax::mojom::Event::kMenuPopupEnd, true);
+
     host_->HideMenuHost();
-    NotifyAccessibilityEvent(ax::mojom::Event::kMenuPopupHide, true);
   }
 
   if (scroll_animator_->is_scrolling())
@@ -528,7 +541,7 @@ bool SubmenuView::OnScroll(float dx, float dy) {
   const gfx::Rect& full_bounds = bounds();
   int x = vis_bounds.x();
   float y_f = vis_bounds.y() - dy - roundoff_error_;
-  int y = gfx::ToRoundedInt(y_f);
+  int y = base::ClampRound(y_f);
   roundoff_error_ = y - y_f;
   // clamp y to [0, full_height - vis_height)
   y = std::min(y, full_bounds.height() - vis_bounds.height() - 1);
@@ -541,8 +554,7 @@ bool SubmenuView::OnScroll(float dx, float dy) {
   return false;
 }
 
-BEGIN_METADATA(SubmenuView)
-METADATA_PARENT_CLASS(View)
+BEGIN_METADATA(SubmenuView, View)
 END_METADATA()
 
 }  // namespace views

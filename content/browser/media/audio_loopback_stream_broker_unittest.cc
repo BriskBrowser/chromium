@@ -59,12 +59,12 @@ using MockDeleterCallback = StrictMock<
     base::MockCallback<base::OnceCallback<void(AudioStreamBroker*)>>>;
 
 class MockRendererAudioInputStreamFactoryClient
-    : public mojom::RendererAudioInputStreamFactoryClient {
+    : public blink::mojom::RendererAudioInputStreamFactoryClient {
  public:
   MockRendererAudioInputStreamFactoryClient() = default;
   ~MockRendererAudioInputStreamFactoryClient() override {}
 
-  mojo::PendingRemote<mojom::RendererAudioInputStreamFactoryClient>
+  mojo::PendingRemote<blink::mojom::RendererAudioInputStreamFactoryClient>
   MakeRemote() {
     return receiver_.BindNewPipeAndPassRemote();
   }
@@ -88,7 +88,8 @@ class MockRendererAudioInputStreamFactoryClient
   void CloseReceiver() { receiver_.reset(); }
 
  private:
-  mojo::Receiver<mojom::RendererAudioInputStreamFactoryClient> receiver_{this};
+  mojo::Receiver<blink::mojom::RendererAudioInputStreamFactoryClient> receiver_{
+      this};
   mojo::Remote<media::mojom::AudioInputStream> input_stream_;
   mojo::PendingReceiver<media::mojom::AudioInputStreamClient> client_receiver_;
 };
@@ -222,7 +223,7 @@ TEST(AudioLoopbackStreamBrokerTest, StreamCreationSuccess_Propagates) {
   std::move(stream_request_data.created_callback)
       .Run({base::in_place,
             base::ReadOnlySharedMemoryRegion::Create(shmem_size).region,
-            mojo::WrapPlatformFile(socket1.Release())});
+            mojo::PlatformHandle(socket1.Take())});
 
   EXPECT_CALL(env.renderer_factory_client, OnStreamCreated());
 
@@ -252,7 +253,7 @@ TEST(AudioLoopbackStreamBrokerTest, MutedStreamCreation_Mutes) {
   std::move(stream_request_data.created_callback)
       .Run({base::in_place,
             base::ReadOnlySharedMemoryRegion::Create(shmem_size).region,
-            mojo::WrapPlatformFile(socket1.Release())});
+            mojo::PlatformHandle(socket1.Take())});
 
   EXPECT_CALL(env.renderer_factory_client, OnStreamCreated());
 
@@ -282,7 +283,7 @@ TEST(AudioLoopbackStreamBrokerTest, SourceGone_CallsDeleter) {
   std::move(stream_request_data.created_callback)
       .Run({base::in_place,
             base::ReadOnlySharedMemoryRegion::Create(shmem_size).region,
-            mojo::WrapPlatformFile(socket1.Release())});
+            mojo::PlatformHandle(socket1.Take())});
 
   EXPECT_CALL(env.renderer_factory_client, OnStreamCreated());
 

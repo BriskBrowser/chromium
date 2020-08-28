@@ -10,11 +10,16 @@
 #include "ash/public/cpp/shelf_model.h"
 #include "ash/public/cpp/shelf_types.h"
 #include "ash/public/cpp/window_properties.h"
+#include "base/feature_list.h"
+#include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
 #include "base/time/time.h"
+#include "chrome/browser/apps/app_service/app_icon_factory.h"
 #include "chrome/browser/apps/app_service/app_service_proxy.h"
 #include "chrome/browser/apps/app_service/app_service_proxy_factory.h"
 #include "chrome/browser/chromeos/arc/arc_optin_uma.h"
 #include "chrome/browser/chromeos/arc/arc_util.h"
+#include "chrome/browser/chromeos/arc/session/arc_session_manager.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/app_list/arc/arc_app_utils.h"
 #include "chrome/browser/ui/ash/launcher/app_service/app_service_app_window_launcher_controller.h"
@@ -25,8 +30,15 @@
 #include "chrome/browser/ui/ash/launcher/arc_app_window_info.h"
 #include "chrome/browser/ui/ash/launcher/chrome_launcher_controller.h"
 #include "chrome/browser/ui/ash/multi_user/multi_user_window_manager_helper.h"
+#include "chrome/common/chrome_features.h"
+#include "chromeos/constants/chromeos_features.h"
 #include "ui/aura/client/aura_constants.h"
+#include "ui/gfx/image/image_skia.h"
 #include "ui/views/widget/widget.h"
+
+namespace {
+constexpr int kArcAppWindowIconSize = extension_misc::EXTENSION_ICON_MEDIUM;
+}  // namespace
 
 AppServiceAppWindowArcTracker::AppServiceAppWindowArcTracker(
     AppServiceAppWindowLauncherController* app_service_controller)
@@ -115,6 +127,9 @@ void AppServiceAppWindowArcTracker::OnTaskCreated(
       arc::ArcAppShelfId::FromIntentAndAppId(intent, arc_app_id);
   task_id_to_arc_app_window_info_[task_id] = std::make_unique<ArcAppWindowInfo>(
       arc_app_shelf_id, intent, package_name);
+  // Hide from shelf if there already is some task representing the window.
+  if (GetTaskIdSharingLogicalWindow(task_id) != arc::kNoTaskId)
+    task_id_to_arc_app_window_info_[task_id]->set_hidden_from_shelf(true);
 
   CheckAndAttachControllers();
 
@@ -137,32 +152,38 @@ void AppServiceAppWindowArcTracker::OnTaskCreated(
   state = static_cast<apps::InstanceState>(
       state | apps::InstanceState::kStarted | apps::InstanceState::kRunning);
   app_service_controller_->app_service_instance_helper()->OnInstances(
-      task_id_to_arc_app_window_info_[task_id]->app_shelf_id().ToString(),
-      window, std::string(), state);
+      task_id_to_arc_app_window_info_[task_id]->app_shelf_id().app_id(), window,
+      std::string(), state);
   arc_window_candidates_.erase(window);
 }
 
-void AppServiceAppWindowArcTracker::OnTaskDescriptionUpdated(
+void AppServiceAppWindowArcTracker::OnTaskDescriptionChanged(
     int32_t task_id,
     const std::string& label,
-    const std::vector<uint8_t>& icon_png_data) {
+    const arc::mojom::RawIconPngData& icon) {
   auto it = task_id_to_arc_app_window_info_.find(task_id);
   if (it == task_id_to_arc_app_window_info_.end())
     return;
 
-  ArcAppWindowInfo* const info = it->second.get();
-  DCHECK(info);
-  info->SetDescription(label, icon_png_data);
-  AppWindowBase* app_window =
-      app_service_controller_->GetAppWindow(it->second->window());
-  if (app_window)
-    app_window->SetDescription(label, icon_png_data);
+  if (base::FeatureList::IsEnabled(features::kAppServiceAdaptiveIcon) ||
+      icon.icon_png_data.has_value()) {
+    apps::ArcRawIconPngDataToImageSkia(
+        icon.Clone(), kArcAppWindowIconSize,
+        base::BindOnce(&AppServiceAppWindowArcTracker::OnIconLoaded,
+                       weak_ptr_factory_.GetWeakPtr(), task_id, label));
+  }
 }
 
 void AppServiceAppWindowArcTracker::OnTaskDestroyed(int task_id) {
   auto it = task_id_to_arc_app_window_info_.find(task_id);
   if (it == task_id_to_arc_app_window_info_.end())
     return;
+
+  if (!it->second->logical_window_id().empty()) {
+    const int other_id = GetTaskIdSharingLogicalWindow(task_id);
+    if (other_id != arc::kNoTaskId)
+      task_id_to_arc_app_window_info_[other_id]->set_hidden_from_shelf(false);
+  }
 
   aura::Window* const window = it->second.get()->window();
   if (window) {
@@ -181,17 +202,18 @@ void AppServiceAppWindowArcTracker::OnTaskDestroyed(int task_id) {
 
   // Check if we may close controller now, at this point we can safely remove
   // controllers without window.
+  const auto app_shelf_id = it->second->app_shelf_id();
   auto it_controller =
-      app_shelf_group_to_controller_map_.find(it->second->app_shelf_id());
+      app_shelf_group_to_controller_map_.find(app_shelf_id);
   if (it_controller != app_shelf_group_to_controller_map_.end()) {
     it_controller->second->RemoveTaskId(task_id);
     if (!it_controller->second->HasAnyTasks()) {
       app_service_controller_->owner()->CloseLauncherItem(
           it_controller->second->shelf_id());
-      app_shelf_group_to_controller_map_.erase(it_controller);
+      app_shelf_group_to_controller_map_.erase(app_shelf_id);
     }
   }
-  task_id_to_arc_app_window_info_.erase(it);
+  task_id_to_arc_app_window_info_.erase(task_id);
 }
 
 void AppServiceAppWindowArcTracker::OnTaskSetActive(int32_t task_id) {
@@ -289,12 +311,16 @@ void AppServiceAppWindowArcTracker::AttachControllerToWindow(
   app_service_controller_->AddWindowToShelf(window, shelf_id);
   AppWindowBase* app_window = app_service_controller_->GetAppWindow(window);
   if (app_window)
-    app_window->SetDescription(info->title(), info->icon_data_png());
+    app_window->SetDescription(info->title(), info->icon());
 
   window->SetProperty(ash::kShelfIDKey, shelf_id.Serialize());
   window->SetProperty(ash::kArcPackageNameKey,
                       new std::string(info->package_name()));
   window->SetProperty(ash::kAppIDKey, new std::string(shelf_id.app_id));
+  if (base::FeatureList::IsEnabled(
+          chromeos::features::kArcPreImeKeyEventSupport)) {
+    window->SetProperty(aura::client::kSkipImeProcessing, true);
+  }
 
   if (info->app_shelf_id().app_id() == arc::kPlayStoreAppId)
     HandlePlayStoreLaunch(info);
@@ -348,7 +374,8 @@ void AppServiceAppWindowArcTracker::AttachControllerToTask(int task_id) {
 
   const ash::ShelfID shelf_id(app_shelf_id.ToString());
   std::unique_ptr<AppServiceAppWindowLauncherItemController> controller =
-      std::make_unique<AppServiceAppWindowLauncherItemController>(shelf_id);
+      std::make_unique<AppServiceAppWindowLauncherItemController>(
+          shelf_id, app_service_controller_);
   AppServiceAppWindowLauncherItemController* item_controller = controller.get();
 
   if (!app_service_controller_->owner()->GetItem(shelf_id)) {
@@ -405,6 +432,25 @@ void AppServiceAppWindowArcTracker::HandlePlayStoreLaunch(
   }
 }
 
+int AppServiceAppWindowArcTracker::GetTaskIdSharingLogicalWindow(int task_id) {
+  auto fixed_it = task_id_to_arc_app_window_info_.find(task_id);
+  if (fixed_it == task_id_to_arc_app_window_info_.end())
+    return arc::kNoTaskId;
+  if (fixed_it->second->logical_window_id().empty())
+    return arc::kNoTaskId;
+  for (auto it = task_id_to_arc_app_window_info_.begin();
+       it != task_id_to_arc_app_window_info_.end(); it++) {
+    if (task_id == it->first)
+      continue;
+    if (fixed_it->second->logical_window_id() ==
+            it->second->logical_window_id() &&
+        fixed_it->second->shelf_id() == it->second->shelf_id()) {
+      return it->first;
+    }
+  }
+  return arc::kNoTaskId;
+}
+
 std::vector<int> AppServiceAppWindowArcTracker::GetTaskIdsForApp(
     const std::string& app_id) const {
   std::vector<int> task_ids;
@@ -415,4 +461,27 @@ std::vector<int> AppServiceAppWindowArcTracker::GetTaskIdsForApp(
   }
 
   return task_ids;
+}
+
+void AppServiceAppWindowArcTracker::SetDescription(int32_t task_id,
+                                                   const std::string& title,
+                                                   gfx::ImageSkia icon) {
+  auto it = task_id_to_arc_app_window_info_.find(task_id);
+  if (it == task_id_to_arc_app_window_info_.end())
+    return;
+
+  ArcAppWindowInfo* const info = it->second.get();
+  DCHECK(info);
+  info->SetDescription(title, icon);
+  AppWindowBase* app_window =
+      app_service_controller_->GetAppWindow(it->second->window());
+  if (app_window)
+    app_window->SetDescription(title, icon);
+}
+
+void AppServiceAppWindowArcTracker::OnIconLoaded(int32_t task_id,
+                                                 const std::string& title,
+                                                 const gfx::ImageSkia& icon) {
+  gfx::ImageSkia image = icon;
+  SetDescription(task_id, title, image);
 }

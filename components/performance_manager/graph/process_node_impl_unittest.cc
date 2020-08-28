@@ -7,6 +7,8 @@
 #include "base/process/process.h"
 #include "base/test/bind_test_util.h"
 #include "components/performance_manager/graph/frame_node_impl.h"
+#include "components/performance_manager/public/render_process_host_id.h"
+#include "components/performance_manager/public/render_process_host_proxy.h"
 #include "components/performance_manager/test_support/graph_test_harness.h"
 #include "components/performance_manager/test_support/mock_graphs.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -36,12 +38,6 @@ TEST_F(ProcessNodeImplDeathTest, SafeDowncast) {
   ASSERT_DEATH_IF_SUPPORTED(FrameNodeImpl::FromNodeBase(process.get()), "");
 }
 
-TEST_F(ProcessNodeImplTest, MeasureCPUUsage) {
-  auto process_node = CreateNode<ProcessNodeImpl>();
-  process_node->SetCPUUsage(1.0);
-  EXPECT_EQ(1.0, process_node->cpu_usage());
-}
-
 TEST_F(ProcessNodeImplTest, ProcessLifeCycle) {
   auto process_node = CreateNode<ProcessNodeImpl>();
 
@@ -68,12 +64,9 @@ TEST_F(ProcessNodeImplTest, ProcessLifeCycle) {
 
   EXPECT_EQ(0U, process_node->private_footprint_kb());
   EXPECT_EQ(0U, process_node->resident_set_kb());
-  EXPECT_EQ(base::TimeDelta(), process_node->cumulative_cpu_usage());
 
-  constexpr base::TimeDelta kCpuUsage = base::TimeDelta::FromMicroseconds(1);
   process_node->set_private_footprint_kb(10u);
   process_node->set_resident_set_kb(20u);
-  process_node->set_cumulative_cpu_usage(kCpuUsage);
 
   // Kill it again.
   // Verify that the process is cleared, but the properties stick around.
@@ -84,7 +77,6 @@ TEST_F(ProcessNodeImplTest, ProcessLifeCycle) {
   EXPECT_EQ(launch_time, process_node->launch_time());
   EXPECT_EQ(10u, process_node->private_footprint_kb());
   EXPECT_EQ(20u, process_node->resident_set_kb());
-  EXPECT_EQ(kCpuUsage, process_node->cumulative_cpu_usage());
 
   // Resurrect again and verify the launch time and measurements
   // are cleared.
@@ -94,7 +86,6 @@ TEST_F(ProcessNodeImplTest, ProcessLifeCycle) {
   EXPECT_EQ(launch2_time, process_node->launch_time());
   EXPECT_EQ(0U, process_node->private_footprint_kb());
   EXPECT_EQ(0U, process_node->resident_set_kb());
-  EXPECT_EQ(base::TimeDelta(), process_node->cumulative_cpu_usage());
 }
 
 TEST_F(ProcessNodeImplTest, GetPageNodeIfExclusive) {
@@ -131,7 +122,6 @@ class LenientMockObserver : public ProcessNodeImpl::Observer {
   MOCK_METHOD1(OnProcessNodeAdded, void(const ProcessNode*));
   MOCK_METHOD1(OnProcessLifetimeChange, void(const ProcessNode*));
   MOCK_METHOD1(OnBeforeProcessNodeRemoved, void(const ProcessNode*));
-  MOCK_METHOD1(OnExpectedTaskQueueingDurationSample, void(const ProcessNode*));
   MOCK_METHOD1(OnMainThreadTaskLoadIsLow, void(const ProcessNode*));
   MOCK_METHOD2(OnPriorityChanged, void(const ProcessNode*, base::TaskPriority));
   MOCK_METHOD1(OnAllFramesInProcessFrozen, void(const ProcessNode*));
@@ -174,12 +164,6 @@ TEST_F(ProcessNodeImplTest, ObserverWorks) {
   EXPECT_CALL(obs, OnProcessLifetimeChange(_));
   process_node->SetProcessExitStatus(10);
 
-  EXPECT_CALL(obs, OnExpectedTaskQueueingDurationSample(_))
-      .WillOnce(Invoke(&obs, &MockObserver::SetNotifiedProcessNode));
-  process_node->SetExpectedTaskQueueingDuration(
-      base::TimeDelta::FromSeconds(1));
-  EXPECT_EQ(raw_process_node, obs.TakeNotifiedProcessNode());
-
   EXPECT_CALL(obs, OnMainThreadTaskLoadIsLow(_))
       .WillOnce(Invoke(&obs, &MockObserver::SetNotifiedProcessNode));
   process_node->SetMainThreadTaskLoadIsLow(true);
@@ -207,6 +191,23 @@ TEST_F(ProcessNodeImplTest, ObserverWorks) {
   graph()->RemoveProcessNodeObserver(&obs);
 }
 
+TEST_F(ProcessNodeImplTest, ConstructionArguments) {
+  constexpr RenderProcessHostId kRenderProcessHostId =
+      RenderProcessHostId(0xF0B);
+  auto process_node = CreateNode<ProcessNodeImpl>(
+      content::PROCESS_TYPE_GPU,
+      RenderProcessHostProxy::CreateForTesting(kRenderProcessHostId));
+
+  const ProcessNode* public_process_node = process_node.get();
+
+  EXPECT_EQ(content::PROCESS_TYPE_GPU, process_node->process_type());
+  EXPECT_EQ(content::PROCESS_TYPE_GPU, public_process_node->GetProcessType());
+
+  EXPECT_EQ(kRenderProcessHostId,
+            public_process_node->GetRenderProcessHostProxy()
+                .render_process_host_id());
+}
+
 TEST_F(ProcessNodeImplTest, PublicInterface) {
   auto process_node = CreateNode<ProcessNodeImpl>();
   const ProcessNode* public_process_node = process_node.get();
@@ -220,6 +221,8 @@ TEST_F(ProcessNodeImplTest, PublicInterface) {
 
   // Simply test that the public interface impls yield the same result as their
   // private counterpart.
+  EXPECT_EQ(process_node->process_type(),
+            public_process_node->GetProcessType());
 
   const base::Process self = base::Process::Current();
   const base::Time launch_time = base::Time::Now();
@@ -248,21 +251,9 @@ TEST_F(ProcessNodeImplTest, PublicInterface) {
       }));
   EXPECT_EQ(public_frame_nodes, visited_frame_nodes);
 
-  process_node->SetExpectedTaskQueueingDuration(
-      base::TimeDelta::FromSeconds(1));
-  EXPECT_EQ(process_node->expected_task_queueing_duration(),
-            public_process_node->GetExpectedTaskQueueingDuration());
-
   process_node->SetMainThreadTaskLoadIsLow(true);
   EXPECT_EQ(process_node->main_thread_task_load_is_low(),
             public_process_node->GetMainThreadTaskLoadIsLow());
-
-  process_node->SetCPUUsage(0.5);
-  EXPECT_EQ(process_node->cpu_usage(), public_process_node->GetCpuUsage());
-
-  process_node->set_cumulative_cpu_usage(base::TimeDelta::FromSeconds(1));
-  EXPECT_EQ(process_node->cumulative_cpu_usage(),
-            public_process_node->GetCumulativeCpuUsage());
 
   process_node->set_private_footprint_kb(628);
   EXPECT_EQ(process_node->private_footprint_kb(),
